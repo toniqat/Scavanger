@@ -49,12 +49,13 @@ export class InventoryUI {
   /** Layer that holds the modeless popups (임플란트 picker / 제작 / 분해) above `.inv-layout`. */
   private modelessLayer!: HTMLElement;
   /**
-   * **함선 창고 + 내 가방을 담는 한 장의 패널** (2026-09-15 2차, 사용자 결정 — `.inv-panel-grids`).
+   * **가방 칸을 담는 카드** (`.inv-panel-grids`, 클래스 이름은 선택자 호환으로 남겼다).
    *
-   * 예전에는 `display: contents` 짜리 껍데기라 창고 · 장비 · 가방이 `.inv-layout` 의 세 카드로 서고 장비 열이
-   * 창고와 가방 **사이**에 끼어 있었다. 이제 창고와 가방은 어느 화면에서든(Tab 창 · 작업대 · 스테이션 · 기업 거래)
-   * 한 카드 안의 두 칸이고 — 왼쪽 창고 · 오른쪽 가방 (2026-09-12 결정 그대로) — **칸마다 자기 세로 스크롤 ·
-   * 자기 정렬 버튼 · 자기 필터 드롭다운**을 갖는다. 장비 열은 그 카드 왼쪽에 그대로 붙는다.
+   * 2026-09-15 2차에는 함선 창고 + 가방이 이 카드 안의 두 칸이었고 장비 열이 그 왼쪽이었다 (장비 | 창고 | 가방).
+   * **2026-09-16 (사용자 결정): 함선 Tab 은 창고 | 장비 | 가방이다.** 창고 칸(`.inv-panel-stash`)은 `.inv-layout` 의
+   * 직속 카드로 나와 장비 열 왼쪽에 서고, 함선에서는 창고 · 장비 · 가방이 이음매로 붙어 한 장의 패널로 보인다
+   * (`inventory.css`). 칸마다 자기 세로 스크롤 · 정렬 · 필터를 갖는 것은 그대로다. 다른 폴더 화면의 창고 + 가방
+   * 한 카드는 `TradeGrids` 의 몫이고 이 배치와 무관하다.
    */
   private rightCol!: HTMLElement;
   disassemble!: DisassemblePanel;
@@ -66,6 +67,8 @@ export class InventoryUI {
   repair!: RepairPanel;
   /** 2026-09-14: 가방 필터 줄 맨 왼쪽의 주황색 `모두 수리` (함선에서만 — 레이드 중에는 숨는다). */
   private repairAllBtn!: HTMLButtonElement;
+  /** 2026-09-16: `모두 수리` 와 `정렬` 사이의 `모두 창고로 이동` (함선에서만 — 가방 격자만 창고로). */
+  private bagToStashBtn!: HTMLButtonElement;
   /** 2026-09-08: 전술 임플란트 + 임플란트 아이템, under 장착 장비 (moved here from the 캐릭터 시트). */
   implantPanel!: ImplantPanel;
   creditsEl!: HTMLElement;
@@ -303,7 +306,17 @@ export class InventoryUI {
     this.repairAllBtn.textContent = TEXT.bench.repairAll;
     this.repairAllBtn.title = TEXT.bench.repairAll;
     this.repairAllBtn.addEventListener('click', (e) => { e.stopPropagation(); this.repair.open(this.repairAllBtn); });
-    bTools.append(this.repairAllBtn, buildSortButton(() => this.sortGrid('bag')), bChips.el);
+    /*
+     * 2026-09-16 (사용자 결정): **`모두 수리` 와 `정렬` 사이의 `모두 창고로 이동`.** 함선에서만 보이고(`refresh`),
+     * 가방 격자의 아이템만 옮긴다 — 퀵슬롯 · 주머니 · 장착 장비는 그대로. 되돌릴 수 있는 이동이라 확인이 없다.
+     */
+    this.bagToStashBtn = document.createElement('button');
+    this.bagToStashBtn.type = 'button';
+    this.bagToStashBtn.className = 'inv-btn inv-stash-all-btn';
+    this.bagToStashBtn.textContent = TEXT.bagToStash.label;
+    this.bagToStashBtn.title = TEXT.bagToStash.title;
+    this.bagToStashBtn.addEventListener('click', (e) => { e.stopPropagation(); this.moveBagToStash(); });
+    bTools.append(this.repairAllBtn, this.bagToStashBtn, buildSortButton(() => this.sortGrid('bag')), bChips.el);
     bActions.append(this.bagCapacity, bTools, craftBtn);
     bHead.append(bActions);
     this.bagView = new GridView('bag', getDef, getStats, this.tileHandlers());
@@ -394,16 +407,16 @@ export class InventoryUI {
     });
 
     /*
-     * 2026-09-15 2차 (사용자 결정) — **가방 + 함선 창고는 한 장의 패널이다.** 2026-09-07 의 `display: contents`
-     * 껍데기(창고 · 장비 · 가방이 각자 카드로 서고 장비가 그 사이에 끼던 배치)를 진짜 카드로 바꿨다. 순서는
-     * 안에서도 `.inv-panel-stash { order: 0 }` · `.inv-panel-bag { order: 2 }` 그대로라 **창고 왼쪽 · 가방 오른쪽**이고,
-     * 두 칸은 스크롤 · 정렬 · 필터를 따로 갖는다. 제작 열이 열려도 같은 카드다 (예전에는 이 자리에서 배치가 갈렸다).
+     * 2026-09-16 (사용자 결정) — **함선 Tab = 창고 | 장비 | 가방.** 화면 순서는 css `order` 가 정한다
+     * (무한 상자 −1 · 상자 0 · 창고 0 · 장비 1 · 가방 카드 2). 창고는 `.inv-layout` 의 직속 카드이고 DOM 에서 상자 **뒤**라,
+     * 함선에서 상자 창이 함께 떠도 창고가 장비 열과 맞닿는다(이음매 규칙이 그 이웃을 전제한다). 레이드 Tab 은 창고가
+     * `hidden` 이라 [장비][가방], 상자 루팅은 [상자][장비][가방] 그대로다. 두 격자는 스크롤 · 정렬 · 필터를 따로 갖는다.
      */
     this.rightCol = document.createElement('section');
     this.rightCol.className = 'inv-panel inv-panel-grids inv-col-right';
-    this.rightCol.append(bPanel, sPanel);
+    this.rightCol.append(bPanel);
     // 2026-09-15 4차: 제작 상세는 작업대 패널 오른쪽의 별도 카드(`craftPanel.detailEl`) — 순서는 `.is-craft` 의 css `order` 가 정한다
-    layout.append(this.catalogView.el, this.rightCol, cPanel, this.craftPanel.el, this.craftPanel.detailEl, eq);
+    layout.append(this.catalogView.el, cPanel, sPanel, this.rightCol, this.craftPanel.el, this.craftPanel.detailEl, eq);
 
     /* Phase 8: embedded 캐릭터 / 기업 / 함선 screens replace the layout in place */
     this.screenHost = document.createElement('div');
@@ -814,6 +827,13 @@ export class InventoryUI {
       this.repairAllBtn.disabled = worn === 0;
       this.repairAllBtn.title = worn === 0 ? TEXT.bench.repairNone : TEXT.bench.repairAll;
     }
+    // 2026-09-16: `모두 창고로 이동` — 창고가 있는 함선 창에서만; 가방 격자가 비면 딤드 (없앴다 나타나면 줄이 흔들린다)
+    this.bagToStashBtn.hidden = !this.hub || this.ctx.isRaidActive();
+    if (!this.bagToStashBtn.hidden) {
+      const empty = (bag?.count ?? 0) === 0;
+      this.bagToStashBtn.disabled = empty;
+      this.bagToStashBtn.title = empty ? TEXT.bagToStash.empty : TEXT.bagToStash.title;
+    }
     this.refreshSlots();
     this.refreshQuick();
     this.refreshPouch();
@@ -1025,6 +1045,23 @@ export class InventoryUI {
   /* ── 2026-09-12: 자동 정렬 · 필터 ─────────────────────────────────────── */
 
   /** `정렬` in the 가방 / 창고 header. A drag in progress is dropped first (its source may move). */
+  /**
+   * 2026-09-16: `모두 창고로 이동` 버튼. 다 들어가면 소리만, 자리가 모자라 남은 것이 있으면 토스트 한 번
+   * (`창고에 공간이 없습니다 (n개 남음)`). 준비 상태 잠금은 시스템의 `readOnlyBlocked` 가 스스로 알린다.
+   */
+  moveBagToStash(): void {
+    this.cancelDrag();
+    this.menu?.close();
+    const blocked = this.sys.readOnlyReason() !== null;
+    const r = this.sys.moveBagToStash();
+    if (blocked) { this.sys.sfx('ui_error'); return; }
+    if (r.moved > 0) this.sys.sfx('ui_drop');
+    if (r.left > 0) {
+      if (r.moved === 0) this.sys.sfx('ui_error');
+      this.ctx.bus.emit('ui:notify', { text: TEXT.bagToStash.left(r.left), kind: 'warning', duration: 2.2 });
+    }
+  }
+
   sortGrid(id: 'bag' | 'stash'): void {
     this.cancelDrag();
     this.menu?.close();

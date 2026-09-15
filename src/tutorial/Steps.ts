@@ -168,7 +168,8 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     //   `.inv-slot-primary` · `.inv-slot-primary2`, `data-slot` 도 같다)부터 가방까지만 — 보조무기 · 방탄복 · 가방 칸과
     //   임플란트 칸은 이 단계와 상관없다. 구멍은 여전히 사각형 하나라 두 칸과 가방 패널을 감싸는 최소 사각형이 된다.
     // 2026-09-15 3차: 마지막 칸이 `.inv-panel-bag` → **`.inv-panel-grids`**(창고 + 가방 한 카드) — 소총은 창고에 있다.
-    spot: ['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-grids'],
+    // 2026-09-16: 함선 Tab 이 창고 | 장비 | 가방이 되어 창고가 그 카드 밖(장비 열 왼쪽)이다 → 마지막 칸은 `.inv-panel-stash`.
+    spot: ['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-stash'],
     spotUnion: true,
     spotText: '창고의 소총 → 주무기 I · II 칸',
   },
@@ -247,7 +248,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
    *    2026-09-15 (사용자 결정) — 목표는 **짧은 명사구**이고, 키를 말하는 줄은 **키캡 토큰**(`{QUICK:hold}` …)을 쓴다.
    *    예전의 「문구에 키 글자를 적지 않는다」는 글자를 박아 두면 리바인드에 거짓말이 되기 때문이었는데, 토큰은
    *    그릴 때 `Keys` 에서 풀리고 리바인드하면 다시 그려지므로 그 걱정이 없다 (`shared/keycap.renderKeyText`).
-   * ② ship — 함선 첫 진입. 레벨 · 능력치 · 메신저는 전부 기존 화면이라 **스포트라이트로 가리키기만** 한다.
+   * ② ship — 함선 첫 진입. 레벨 · 능력치는 전부 기존 화면이라 **스포트라이트로 가리키기만** 한다 (2026-09-16: 메신저 단계 제외).
    * ═══════════════════════════════════════════════════════════════════════════════════════════════════ */
   /* ── ① raid — 튜토리얼 레이드 ── */
   /*
@@ -470,6 +471,11 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   messenger: {
     id: 'messenger', title: '메신저를 여세요',
     /*
+     * (순서에서 제외, 2026-09-16 — 사용자 결정) `TUTORIAL_TRACK_STEPS.ship` 에 없다 — `openCraft` · `ravenQuest` 와 같은 처리로 표에만
+     * 남는다. 레벨업 포인트를 나눠 준 뒤 메신저 창으로 끌고 가는 단계를 없앴다: 함선 트랙은 `stats` 에서 끝나고 (화면을 닫을 때 —
+     * `TutorialSystem.onStatsConfirmed`), 옛 저장의 `messenger` 는 `retiredTrackEnd` 가 「함선 트랙 끝」으로 읽는다.
+     * 아래는 순서에 있던 때의 기록이다.
+     *
      * 2026-09-15 (사용자 결정) — 함선 트랙의 **마지막 단계**다. 예전 문구 「읽지 않은 연락이 와 있습니다」는 거짓말이 된다:
      * 레이븐의 첫 연락은 이제 이 트랙이 끝난 뒤에 온다 (`meta/parts/NpcQuests.tutorialBlocks`). 그래서 「어디에 무엇이
      * 오는가」만 말한다. 열리는 순간 트랙이 끝나고(`ui:messengerToggled {open:true}` → `advance` → `finish`) 증축 트랙이
@@ -490,7 +496,7 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   /*
    * (순서에서 제외, 2026-09-15 — 사용자 결정) `TUTORIAL_TRACK_STEPS.ship` 에 없다 — `openCraft` 와 같은 처리로 표에만 남는다.
    * 레이븐의 첫 연락은 함선 트랙이 끝난 뒤에 오므로 이 단계가 기다릴 것이 없어졌다. 옛 저장의 `ravenQuest` 는
-   * `normalizeStep` 이 `messenger` 로 옮긴다 (메신저를 다시 열면 트랙이 끝난다).
+   * 2026-09-16 부터 `messenger` 와 함께 `retiredTrackEnd` 가 「함선 트랙 끝」으로 읽는다 (옮겨 붙을 순서 안의 단계가 없다).
    */
   ravenQuest: {
     id: 'ravenQuest', title: '레이븐의 의뢰를 받으세요',
@@ -528,8 +534,9 @@ export const isOrderedStep = (id: string): id is TutorialStepId =>
  * 저장 · 콘솔에서 들어온 id 를 순서 안의 단계로 고친다 (2026-09-09). 순서에서 빠진 단계는 **그 자리를 이어받은**
  * 단계로 옮겨 붙는다 — 진행 중이던 저장이 새 순서에서도 막히지 않고 이어진다. 모르는 값은 null.
  *
- * `openCraft`(2026-09-09) → `craftAmmo`, `ravenQuest`(2026-09-15) → `messenger`.
- * ⚠ 둘 다 `TutorialStepId` 와 위 `STEP_DEFS` 표에는 **남아 있다** (계약은 이름을 지우지 않는다) — 빠진 것은
+ * `openCraft`(2026-09-09) → `craftAmmo`. `ravenQuest`(2026-09-15) · `messenger`(2026-09-16) → **null** — 둘 다 함선 트랙의
+ *   마지막 자리였고 그 뒤를 이을 단계가 없다. 그 저장은 `retiredTrackEnd` 가 「그 트랙은 끝났다」로 읽는다 (`TutorialSystem.load`).
+ * ⚠ 셋 다 `TutorialStepId` 와 위 `STEP_DEFS` 표에는 **남아 있다** (계약은 이름을 지우지 않는다) — 빠진 것은
  *   `TUTORIAL_TRACK_STEPS` 의 **순서**뿐이다. 그래서 `tutorialTrackOf` 가 null 을 돌려주고 `trackOf` 가 build 로 본다.
  * `manageDone` 은 2026-09-14 3차 → 2026-09-15 사이에만 여기서 `craftGun` 으로 옮겨졌다 — 순서로 돌아왔으므로
  *   이제 `isOrderedStep` 이 그대로 통과시킨다 (그 사이의 저장은 `craftGun` 을 들고 있으니 옮길 것이 없다).
@@ -537,8 +544,18 @@ export const isOrderedStep = (id: string): id is TutorialStepId =>
 export function normalizeStep(id: string | null | undefined): TutorialStepId | null {
   if (typeof id !== 'string') return null;
   if (id === 'openCraft') return 'craftAmmo';
-  if (id === 'ravenQuest') return 'messenger';
   return isOrderedStep(id) ? id : null;
+}
+
+/**
+ * 순서에서 빠진 **트랙의 마지막 자리** → 그 트랙 (2026-09-16). 저장에 이 id 가 남아 있으면 그 사람은 트랙의 끝에 서 있던 것이므로
+ * 이어 붙일 단계 대신 「끝났다」로 읽는다 — `stats` 로 되돌리면 이미 쓴 포인트를 다시 투자하라는 막다른 길이 된다.
+ */
+const RETIRED_TRACK_END: Readonly<Record<string, TutorialTrack>> = { messenger: 'ship', ravenQuest: 'ship' };
+
+/** 저장에 남은 id 가 순서에서 빠진 트랙의 마지막 자리면 그 트랙, 아니면 null. */
+export function retiredTrackEnd(id: string | null | undefined): TutorialTrack | null {
+  return typeof id === 'string' ? RETIRED_TRACK_END[id] ?? null : null;
 }
 
 /** 같은 트랙의 다음 단계 (그 트랙의 마지막이면 null = 트랙 종료). */

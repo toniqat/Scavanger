@@ -717,9 +717,11 @@ try {
 
   /* ══ 4. 요리 effects → derived (agent D, 너그럽게) ══════════════════════════════ */
   console.log('요리 effects → derived (progression 의 몫)');
-  const meal = await H(() => {
-    const ctx = window.__game.ctx, p = ctx.progression, loot = ctx.loot;
-    const defs = loot.getAllItemDefs().filter((d) => d.meal && !d.retired && Array.isArray(d.meal.effects) && d.meal.effects.length >= 2);
+  const meal = await H(async () => {
+    const ctx = window.__game.ctx, p = ctx.progression;
+    // 2026-09-16 (접시 모델): 요리는 아이템이 아니다 — 요리 표는 shared/meals (`MEAL_DEFS`)
+    const S = await import('/src/shared/index.ts');
+    const defs = S.MEAL_DEFS.filter((d) => d.meal && !d.retired && Array.isArray(d.meal.effects) && d.meal.effects.length >= 2);
     if (!defs.length || typeof p?.useMeal !== 'function' || typeof p.armPreps !== 'function') return { skip: '여러 줄 요리 def 또는 progression API 가 없다' };
     defs.sort((a, b) => b.meal.effects.length - a.meal.effects.length);
     const def = defs[0];

@@ -194,7 +194,7 @@ try {
   await P(() => { for (const k of Object.keys(window.__spy)) window.__spy[k] = []; });
   await P(() => {
     const ctx = window.__game.ctx;
-    const stats = { seed: 21, kills: 7, cratesOpened: 2, damageTaken: 33, timeSeconds: 123, lootValue: 0, extracted: false, mode: 'raid' };
+    const stats = { seed: 21, kills: 7, killXp: 84, cratesOpened: 2, damageTaken: 33, timeSeconds: 123, lootValue: 0, extracted: false, mode: 'raid' };
     // 2026-09-11 (C-61): the blob carries the kit as it is plus "the bag already wore this raid" (stamped with seed 21)
     const inventory = ctx.inventory.captureRaidState();
     if (inventory) inventory.bagWorn = 21;
@@ -205,9 +205,10 @@ try {
     ctx.bus.emit('game:newMission', { seed: 21, mode: 'raid' });
   });
   await waitFor(page, () => window.__game.ctx.phase === 'deploying', 'deploying (rejoin)', 20000);
-  st = await P(() => { const ctx = window.__game.ctx; return { pendingAtStart: window.__pendingAtStart, pending: ctx.rejoinPending, kills: ctx.stats.kills, crates: ctx.stats.cratesOpened, t: ctx.missionTime, phase: ctx.phase }; });
+  st = await P(() => { const ctx = window.__game.ctx; return { pendingAtStart: window.__pendingAtStart, pending: ctx.rejoinPending, kills: ctx.stats.kills, killXp: ctx.stats.killXp, crates: ctx.stats.cratesOpened, t: ctx.missionTime, phase: ctx.phase }; });
   ok(st.pendingAtStart === true && st.pending === true, 'net:gameStarting {rejoin} → ctx.rejoinPending true before the world', JSON.stringify(st));
   ok(st.kills === 7 && st.crates === 2 && st.t >= 123 && st.t < 130, 'raid blob applied after world:ready (stats + missionTime)', JSON.stringify(st));
+  ok(st.killXp === 84, '2026-09-16: accumulated kill XP (`stats.killXp`) survives the rejoin blob', JSON.stringify(st));
   ok((await P(() => window.__game.ctx.inventory.bagWornThisRaid)) === true, 'C-61: rejoin — the blob\'s bag wear mark survives world:ready (inventory resets first, game/ applies the blob after)');
   await P(() => {
     const ctx = window.__game.ctx; const THREE_V = ctx.world.getPlayerSpawn().clone(); THREE_V.x += 3;
@@ -234,7 +235,7 @@ try {
     ctx.bus.emit('game:newMission', { seed: 22, mode: 'raid' });
   });
   await waitFor(page, () => window.__game.ctx.phase === 'deploying', 'deploying (rejoin 2)', 20000);
-  ok((await P(() => window.__game.ctx.stats.kills)) === 0, 'no blob for this seed → fresh stats');
+  ok((await P(() => window.__game.ctx.stats.kills)) === 0 && (await P(() => window.__game.ctx.stats.killXp)) === 0, 'no blob for this seed → fresh stats (kills 0, killXp 0)');
   ok((await P(() => window.__game.ctx.inventory.bagWornThisRaid)) === false, 'C-61: a raid without a blob starts with the bag unworn');
   await P(() => { const ctx = window.__game.ctx; ctx.bus.emit('net:ghostRestore', { state: { position: ctx.world.getPlayerSpawn().clone(), yaw: 0, hp: 0, downHp: 0, state: 2 } }); });
   await waitSim(0.5);
@@ -519,6 +520,49 @@ try {
     const pDrift = l1 && l0 ? Math.hypot(l1.plx - l0.plx, l1.plz - l0.plz) : Infinity;
     ok(l1 && pDrift < 0.3 && Math.abs(l1.pdy) < 0.3, `the idle player on the deck rides the tram with it (drift ${pDrift.toFixed(3)} m, Δy ${l1?.pdy?.toFixed(2)})`, JSON.stringify({ l0, l1 }));
   }
+  /* 2026-09-16 (사용자 결정 — 빈 시체 제거): 빈손으로 선 시체 · 다 털린 시체는 CORPSE_EMPTY_REMOVE_DELAY_S 뒤 가라앉아 사라진다 */
+  console.log('2026-09-16: 빈 시체 제거 (플레이어 시체)');
+  await waitFor(page, () => window.__game.ctx.phase === 'playing' && !window.__game.ctx.player.isDropping, 'playing (empty corpses)', 60000);
+  const K16 = await P(async () => { const m = await import('/src/shared/constants.ts'); return { delay: m.CORPSE_EMPTY_REMOVE_DELAY_S, sink: m.CORPSE_EMPTY_SINK_S }; });
+  const empt0 = await P(async () => {
+    const ctx = window.__game.ctx, gf = window.__game.getSystem('gameflow'), mgr = ctx.corpses;
+    const m = await import('/src/game/parts/CorpseNet.ts');
+    const before = new Set(mgr.getCorpses().map((c) => c.id));
+    ctx.inventory.stripForCorpse();   // empty-handed (the tram block above may already have stripped the kit)
+    m.spawnLocalCorpse(gf);            // → a corpse with zero items
+    const zero = mgr.getCorpses().find((c) => !before.has(c.id)) ?? null;
+    const V = ctx.player.position.constructor;
+    const lootedId = mgr.nextId('sp');
+    const looted = mgr.add(lootedId, 'sp', 'smoke', ctx.player.position.clone().add(new V(2, 0, 0)), 0, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 0);
+    const lootedBefore = looted.emptied;
+    ctx.bus.emit('crate:looted', { crateId: lootedId });   // the inventory's "that container's grid is empty now" fact
+    const has = (id) => ctx.interactables.all().some((i) => i.id === id);
+    window.__empty16 = { zero: zero?.id ?? null, looted: lootedId };
+    return {
+      zero: zero ? { id: zero.id, items: zero.items.length, emptied: zero.emptied, can: zero.canInteract(), it: has(zero.id) } : null,
+      looted: { lootedBefore, emptied: looted.emptied, it: has(lootedId) },
+      synced: mgr.syncWire().map((w) => w.id).filter((id) => id === zero?.id || id === lootedId),
+    };
+  });
+  ok(!!empt0.zero && empt0.zero.items === 0 && empt0.zero.emptied && !empt0.zero.can && empt0.zero.it,
+    'zero-item player corpse: marked empty the moment it stands (not interactable), still there', JSON.stringify(empt0));
+  ok(!empt0.looted.lootedBefore && empt0.looted.emptied && empt0.looted.it, 'crate:looted marks a looted player corpse empty', JSON.stringify(empt0));
+  ok(empt0.synced.length === 0, 'emptied corpses are left out of the host pcorpse sync', JSON.stringify(empt0.synced));
+  await waitSim(K16.delay * 0.5);
+  const empt1 = await P(() => {
+    const mgr = window.__game.ctx.corpses, E = window.__empty16, z = mgr.get(E.zero), l = mgr.get(E.looted);
+    return { z: !!z, l: !!l, zd: z ? z.sinkDepth : null, ld: l ? l.sinkDepth : null };
+  });
+  ok(empt1.z && empt1.l && empt1.zd === 0 && empt1.ld === 0, `emptied corpses wait CORPSE_EMPTY_REMOVE_DELAY_S (${K16.delay} s) before sinking`, JSON.stringify(empt1));
+  await waitSim(K16.delay + K16.sink + 0.6);
+  const empt2 = await P(() => {
+    const ctx = window.__game.ctx, mgr = ctx.corpses, E = window.__empty16;
+    const has = (id) => ctx.interactables.all().some((i) => i.id === id);
+    const re = mgr.add(E.looted, 'sp', 'smoke', ctx.player.position.clone(), 0, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 0);
+    return { z: !!mgr.get(E.zero), l: !!mgr.get(E.looted), zIt: has(E.zero), lIt: has(E.looted), readded: re !== null, hadOwner: mgr.ownerHadCorpse('sp') };
+  });
+  ok(!empt2.z && !empt2.l && !empt2.zIt && !empt2.lIt, 'zero-item and looted-empty player corpses sank and were removed (manager + interactable)', JSON.stringify(empt2));
+  ok(!empt2.readded && empt2.hadOwner, 'a removed corpse id never stands again this raid; ownerHadCorpse stays true', JSON.stringify(empt2));
   await P(() => window.__game.ctx.bus.emit('game:abort', {}));
   await waitFor(page, () => window.__game.ctx.phase === 'menu', 'abort (implants)', 20000);
 

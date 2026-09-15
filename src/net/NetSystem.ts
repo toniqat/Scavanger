@@ -38,7 +38,8 @@ import * as Sock from './parts/Socket';
 import * as Lobby from './parts/Lobby';
 import * as Remotes from './parts/Remotes';
 import * as Msg from './parts/Messages';
-import { MealRelay } from './parts/Meal';
+/* 2026-09-16 (접시 모델): 옛 `parts/Meal`(공유 함선 식탁 「분대에 차리기」)은 없어졌다 — 식탁 접시 와이어가 대신한다 */
+import { PlateRelay } from './parts/Plates';
 import { CharBuffRelay } from './parts/CharBuffs';
 /* 2026-09-13: 암호화폐 시세 창구 `ctx.net.crypto` */
 import { CryptoMarketClient } from './parts/Crypto';
@@ -138,7 +139,8 @@ export class NetSystem implements GameSystem, NetRef {
 
   /* ── A-3c (2026-09-11) ── */
   /** 공유 함선 식탁의 `meal serve` 와이어 (`parts/Meal`): 규칙은 progression, 토스트는 ui — 여기는 흐름만. */
-  readonly mealRelay = new MealRelay();
+  /** 2026-09-16: 식탁 접시 — `plate state` / `plateq sync` (`parts/Plates`). */
+  readonly plateRelay = new PlateRelay();
 
   /* ── 2026-09-12: 캐릭터 버프 ── */
   /** `cbuf state` / `cbufq sync` + the per-member list store (`parts/CharBuffs`). */
@@ -308,8 +310,8 @@ export class NetSystem implements GameSystem, NetRef {
     bus.on('leader:transferRequested', ({ peerId }) => this.transferHost(peerId));
     /* B-1 (2026-09-11): a server the background probe found during a raid / training is joined once we are back in the ship / title. */
     bus.on('game:phaseChanged', ({ phase }) => Sock.onPhaseChanged(this, phase));
-    /* A-3c (2026-09-11): 공유 함선 식탁 — `housing:mealServed` ↔ `meal` 와이어 (호스트 권한, `parts/Meal`). */
-    this.mealRelay.init(this);
+    /* 2026-09-16: 식탁 접시 — `housing:plateChanged` ↔ `plate` / `plateq` → `net:squadPlate` (`parts/Plates`, 옛 `meal` 와이어 대체). */
+    this.plateRelay.init(this);
     /* 2026-09-12: 캐릭터 버프 — `player:buffsChanged` ↔ `cbuf` / `cbufq` (`parts/CharBuffs`). */
     this.charBuffRelay.init(this);
     /* 2026-09-13: 암호화폐 시세 — `crypto:watch` refcount / history cache (`parts/Crypto`, wired in Messages + onStatus). */
@@ -338,6 +340,7 @@ export class NetSystem implements GameSystem, NetRef {
       // 2026-09-12: my buff list changed since the last frame → one `cbuf state`, sent BEFORE the snapshot that carries
       // the new `bfr`, so receivers normally never see the revision ahead of the list (any phase, while in a lobby).
       this.charBuffRelay.flush();
+      this.plateRelay.tick();   // 2026-09-16: 허브 세션에 들어선 프레임 — 내 접시 + `plateq sync`
 
       // Broadcast our own snapshot: in a mission (gameplay phases + hellpod drop) or while walking the shared ship.
       // Timed on unscaled ctx.time (Engine passes dt = 0 while paused, but a multiplayer pause is non-freezing and
@@ -364,7 +367,7 @@ export class NetSystem implements GameSystem, NetRef {
     this.profileSync.flush();
     this.socialSync.dispose();
     this.roomSync.dispose();
-    this.mealRelay.dispose();
+    this.plateRelay.dispose();
     this.charBuffRelay.dispose();
     this.cryptoMarket.dispose();
     this.client.close();

@@ -21,7 +21,7 @@ publishes the profile-document sync (`ctx.net.profile`), social + private chat (
 | `parts/Messages.ts` | Inbound dispatch: server frames (`handleServerMessage`) and relayed game messages (`handleRelay`) → snapshot apply, bus translation, `onMessage` subscribers. No game rules |
 | `parts/Remotes.ts` | Remote ref registry, identity sync (names, suspension, membership), crew cards, ship-visit layouts, derived `carriedBy`, `pushLevel` |
 | `parts/CharBuffs.ts` | `CharBuffRelay` — squad buff lists: `cbuf state` / `cbufq sync`, per-member `entries` mirrored onto refs |
-| `parts/Meal.ts` | Shared-ship dining table wire (`meal req` / `meal serve`) |
+| `parts/Plates.ts` | Dining plates wire (`plate state` / `plateq sync`) → `net:squadPlate` (replaced the old `parts/Meal.ts`, 2026-09-16) |
 | `parts/Crypto.ts` | `CryptoMarketClient` (`ctx.net.crypto`): ref-counted `watch()`, prices, history cache |
 | `Snapshotter.ts` | Builds the local `PlayerSnapshot` into one reused object from `ctx.player` / `ctx.weapons` / `ctx.implants` |
 | `RemotePlayer.ts` | `RemotePlayerRef`: 16-sample ring buffer rendered at `now - NET_INTERP_DELAY`, stream restart detection, ghost overlay, buff / pose mirrors |
@@ -61,12 +61,12 @@ publishes the profile-document sync (`ctx.net.profile`), social + private chat (
 `net:androidReturned`,
 `net:chat`, `net:ghostState`, `net:ghostRestore`, `net:crewCard`, `net:crewLoadout`, `net:shipVisit`, `net:profileLoaded`,
 `net:profileConflict`, `net:raidLoaded`, `net:cryptoPrices`, `net:cryptoHistory`, `social:*`, `room:*`,
-`player:reviveProgress`, `player:applySlow`, `housing:mealServed` (re-emitted for received meals).
+`player:reviveProgress`, `player:applySlow`, `net:squadPlate` (a squadmate's dining plate).
 
 **Events consumed:** `game:complete` / `game:over` / `game:abort` (session end), `game:phaseChanged` (link),
 `progress:loaded` / `progress:levelUp` (social level), `ui:chatToggled` (`TYPING`), `weapon:equipped`, `loadout:changed`,
 `quick:equipped`, `equip:changed`, `implant:wieldChanged`, `player:buffsChanged`, `player:died`,
-`housing:mealServed`, `leader:transferRequested`, `net:lobbyLeft`.
+`housing:plateChanged`, `leader:transferRequested`, `net:lobbyLeft`.
 
 **Relayed messages handled here** (everything is also delivered to `onMessage` subscribers, and most types —
 `hit/explode/es/ee/ex/exq/flow/crate/item/cont/ghostq/crewq/shipq/…` — only that way): `ps`, `fire`, `reload`,
@@ -174,19 +174,20 @@ connected and prices received on this connection. `requestHistory(coin, range)` 
   `msg.lobby.planet` / `lobby.intel` for relays that do not echo them; `rejoinMission` must restore both.
 - `net:hostChanged` fires for any started lobby (not only in session); `tookOver` and `flow takeover` are session-only.
 - A `refused` link is set before `dropLobby`, so `net:lobbyLeft` listeners can read `ctx.net.link.refused`.
-- Meal wire: only sent from the shared-ship deck (`inHubSession && ctx.hub.hubSite === null`). The host checks shape →
-  connected lobby member → both on the shared deck within `MEAL_SERVE_RANGE + BUFF_RANGE_SLACK` → token bucket
-  (`META_HIT_RATE`), then sends `serve` individually to each member in range. Receivers accept `serve` only from the
-  lobby host, call `progression.serveMeal(def, normalizeMealQuality(q))` and re-emit `housing:mealServed` under a
-  re-entry guard (`applying`). Quality `q` is omitted when 0 — `parts/Meal.ts`.
+- Plate wire (2026-09-16, replaces the host-relayed `meal` wire): `plate state {def?, q?, fresh?}` = the sender's **own**
+  plate, sent to `others` on `housing:plateChanged` while `inHubSession` and once on the frame we enter the hub session
+  (`tick`), together with `plateq sync`; a `plateq` is answered to the requester only (`CHAR_BUFF_SYNC_COOLDOWN_S` per
+  requester). Receivers accept connected non-bot lobby members, a known meal id (`getMealDef`) and a normalized quality,
+  then emit `net:squadPlate`. No host authority: the plate is the sender's own state and eating only changes the eater's
+  profile — `parts/Plates.ts`. The `meal` message type stays declared in `shared/net.ts` and is never sent.
 - `dmg.src` is checked with `damageSourceFromWire`; a malformed source becomes `undefined` (unknown) and never rejects
   the damage — `parts/Messages.ts`.
 - **Android bot members are not peers** (2026-09-15). A `LobbyPlayer` with `bot` is an android the relay put in the squad
   (`src/shared/net.ts` last section); it has no socket, so nothing here ever addresses it. `applyLobby` emits no
   `net:peerJoined` / `peerLeft` for it (allies/ announces roster changes from `androidPlayersOf(lobby)`),
   `syncRemoteIdentities` skips it (no `RemotePlayerRef`, no `net:missionMembership`, and it never enters the crew-card /
-  ship-visit / buff-list pruning sets), squad codes skip it (a bot has no `code`) and `parts/Meal` neither serves nor
-  accepts one. **Squad size is humans-only where the question is social** — `SocialSync.squadSize` feeds
+  ship-visit / buff-list pruning sets), squad codes skip it (a bot has no `code`) and `parts/Plates` never accepts a plate
+  from one. **Squad size is humans-only where the question is social** — `SocialSync.squadSize` feeds
   `playBlockReason` (invite gates), matching the relay's own humans-only cap; folders asking "how many fighters" (enemy /
   difficulty scaling) read `ctx.net.lobby` themselves and count androids.
 - `lobby:androidReturned` only explains a roster change the `lobby:state` already carried, so it is translated straight to
@@ -197,8 +198,8 @@ connected and prices received on this connection. `requestHistory(coin, range)` 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/net`.
+- 2026-09-16 — `parts/Meal.ts` (host-relayed `meal req` / `serve`) replaced by `parts/Plates.ts`: each member's own `plate state` + `plateq sync` on hub-session entry → `net:squadPlate`.
 - 2026-09-15 — Title resume / abandon: the reload's `lobby:mission false` carries `keep`; `abandonRaid()` → `lobby:abandon` (optimistic `drifted`); `rejoinMission` refuses a drifted raid.
 - 2026-09-15 — `PlayerSnapshot.ws` (carry-weight state, raid only, from `InventoryRef.getWeight()`) sent by `Snapshotter`; `RemotePlayer.weightState` decoded through `WEIGHT_STATE_WIRE` for the host's sandworm director.
 - 2026-09-15 — Android squadmates: `setAndroidBay(bay, recruit)` → `lobby:android`, `lobby:androidReturned` → `net:androidReturned`, bot members excluded from peers / remote refs / meal targets, `squadSize` humans-only.
 - 2026-09-15 — Squads vs shared ship: `inHubSession` needs a docked lobby + standing in its shared ship (hub `ps` from anywhere else dropped); `withSession` adds `&a=<accent>`; `dockPending` also set by create / join / quick match, cleared after the docked `net:lobbyUpdated`, on `lobby:error`, kept through `moved`; `SocialSync.playBlock` → `in_squad` / `not_leader`.
-- 2026-09-15 — `dmg.src` damage source decoded and passed as the third `takeDamage` argument.

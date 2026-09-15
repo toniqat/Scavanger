@@ -24,6 +24,9 @@ import { NAMED_DROP_MAP, numberedArmorIdForTier, type NamedDrop } from './LootTa
 /* appended (2026-09-13): 인간형 팩션 전리품 — 총 등급 분포 · 방탄복 · 가방 · 회복 · 거점 보너스 · 남은 수류탄 */
 import { ENEMY_GRENADE_ITEM } from '@/shared';
 import { FACTION_LOOT_MAP, getFactionSiteBonus, planetSeedPool, type CorpseRarityPick, type FactionLoot, type FactionSiteBonus } from './LootTables';
+/* appended (2026-09-16): 서사 이상 드롭률 게이트 — 잠긴 방 예외 (`CrateLootOpts`) · 등급 무기 목록 */
+import type { CrateLootOpts } from '@/shared';
+import { WEAPON_GRADES } from './WeaponDefs';
 
 /**
  * 유니크 전용 탄종의 아이템 id (`ammo_fuel` … `ammo_belt`) 와 등급 무기가 쓰는 평범한 탄종의 id.
@@ -32,6 +35,35 @@ import { FACTION_LOOT_MAP, getFactionSiteBonus, planetSeedPool, type CorpseRarit
  */
 const UNIQUE_AMMO_ITEM_IDS: ReadonlySet<string> = new Set(UNIQUE_AMMO_TYPES.map(ammoItemIdFor));
 const GRADED_AMMO_ITEM_IDS: readonly string[] = AMMO_TYPES_V2.filter((t) => !UNIQUE_AMMO_TYPES.includes(t)).map(ammoItemIdFor);
+
+/*
+ * 2026-09-16 — **서사 이상 드롭률 게이트** (`data/planet_loot.csv` 의 `epicPlusMul` = 아래 코드의 `keep`).
+ * 사용자 결정: 연구실 잠긴 방을 뺀 모든 굴림에서 서사 · 전설이 나오는 비율을 절반으로. 희귀도 **가중치** 배수(`epicMul` ·
+ * `legMul`)로는 안 된다 — 확정 픽은 후보가 이미 서사 이상뿐이라 배수가 상쇄되고, 폴백 픽은 가중치를 아예 안 본다.
+ * 그래서 **뽑힌 결과**에 건다: 서사 이상이면 `rng.chance(keep)` 로 남기고, 아니면 같은 후보 묶음의 서사 미만 최고 희귀도로
+ * 내린다. 그 픽이 서사 이상일 확률이 정확히 × keep 이 된다.
+ * rng: `keep >= 1` 이면 draw 를 하나도 더 쓰지 않는다 (잠긴 방 · 행성 없는 굴림은 예전과 비트 단위로 같다). keep < 1 이면
+ * 서사 이상이 뽑혔을 때만 게이트 draw 하나 + (내릴 때) 다시 고르는 draw 하나를 쓴다 — 시드 결정적이라 미리보기 ≡ 열기.
+ */
+const EPIC_RANK = rarityRank('epic');
+const isEpicPlus = (d: ItemDef): boolean => rarityRank(d.rarity) >= EPIC_RANK;
+
+/** 목록에서 희귀도가 가장 높은 것들만 (빈 목록이면 빈 목록). */
+function topRarity<T extends ItemDef>(list: readonly T[]): T[] {
+  let best = -1;
+  for (const d of list) best = Math.max(best, rarityRank(d.rarity));
+  return list.filter((d) => rarityRank(d.rarity) === best);
+}
+
+/**
+ * 게이트 한 번 — `picked` 가 서사 이상이고 `keep` 에 떨어지면 `list` 중 서사 미만 · 가중치 양수인 최고 희귀도에서 `weight` 로
+ * 다시 고른다 (없으면 null = 그 픽은 없던 것). 서사 미만이거나 `keep >= 1` 이면 rng 를 안 쓰고 그대로 돌려준다.
+ */
+function gatePick<T extends ItemDef>(picked: T, list: readonly T[], weight: (d: T) => number, rng: Random, keep: number): T | null {
+  if (keep >= 1 || !isEpicPlus(picked) || rng.chance(keep)) return picked;
+  const lower = topRarity(list.filter((d) => !isEpicPlus(d) && weight(d) > 0));
+  return lower.length > 0 ? rng.weighted(lower, weight) : null;
+}
 
 let uidCounter = 0;
 /** Unique, sortable-ish item uid: counter + random suffix. */
@@ -130,7 +162,7 @@ export class LootService implements LootRef {
    * 2026-09-13: `planet` — 서재 매체 · 게임기 · 게임 디스크를 그 행성의 것만 후보로 둔다. 그 행성에 후보가 없는 카테고리는
    * 카테고리 추첨 목록에서 빠진다(추첨 draw 수는 그대로 한 번). null 이면 행성이 있는 아이템 전부가 후보다.
    */
-  private rollCrateWithCurve(tier: number, rng: Random, curve: PlanetGradeCurve | null, planet: PlanetId | null): ItemInstance[] {
+  private rollCrateWithCurve(tier: number, rng: Random, curve: PlanetGradeCurve | null, planet: PlanetId | null, keep = 1): ItemInstance[] {
     const table = getTierTable(tier);
     const count = rng.int(table.count[0], table.count[1]);
     const picks: ItemDef[] = [];
@@ -138,7 +170,10 @@ export class LootService implements LootRef {
     const dead = new Set<LootCategory>();
 
     for (const g of table.guaranteed) {
-      const d = this.pickDef(table, rng, (def) => g.categories.includes(lootCategoryOf(def)) && rarityRank(def.rarity) >= rarityRank(g.minRarity), true, curve, planet);
+      /* 2026-09-16: 게이트에 걸린 확정 픽은 `minRarity` 를 무시하고 같은 카테고리의 서사 미만 최고 희귀도로 내린다
+         (티어 4 「서사 이상 귀중품」 → 희귀 귀중품). 하한을 지키면 후보가 서사 이상뿐이라 게이트가 무의미해진다. */
+      const inPool = (def: ItemDef): boolean => g.categories.includes(lootCategoryOf(def));
+      const d = this.pickDef(table, rng, (def) => inPool(def) && rarityRank(def.rarity) >= rarityRank(g.minRarity), true, curve, planet, keep, inPool);
       if (d) picks.push(d);
     }
 
@@ -148,7 +183,7 @@ export class LootService implements LootRef {
     while (picks.length < count) {
       if (weaponPending) {
         weaponPending = false;
-        const d = this.pickDef(table, rng, isWeaponItemDef, true, curve, planet);
+        const d = this.pickDef(table, rng, isWeaponItemDef, true, curve, planet, keep);
         if (d) { picks.push(d); continue; }
       }
       const hasBag = picks.some((d) => d.category === 'bag');
@@ -158,15 +193,17 @@ export class LootService implements LootRef {
       const cat = rng.weighted(cats, (c) => table.categoryWeights[c] ?? 0);
       /* 2026-09-15: 카테고리 축은 `lootCategoryOf` 다 — 표의 `grenade` 는 `ItemDef.grenade` 가 있는 아이템이고
          `gadget` 은 그 밖의 가젯이다 (`LootTables` 의 *루팅 카테고리 축*). */
-      const d = this.pickDef(table, rng, (def) => lootCategoryOf(def) === cat, false, curve, planet);
+      const d = this.pickDef(table, rng, (def) => lootCategoryOf(def) === cat, false, curve, planet, keep);
       /* 후보가 하나도 없는 카테고리는 **상자를 자르지 않는다** — 그 카테고리만 빼고 다시 뽑는다.
-         예전에는 여기서 `break` 했고, 아무 아이템에도 안 맞는 유령 카테고리 한 줄이 상자를 한두 개로 잘라 먹었다. */
+         예전에는 여기서 `break` 했고, 아무 아이템에도 안 맞는 유령 카테고리 한 줄이 상자를 한두 개로 잘라 먹었다.
+         2026-09-16: 서사 이상 게이트에 걸렸는데 서사 미만 후보가 아예 없는 카테고리(열쇠 · 레코드)도 null 이라 같은 길로 간다 —
+         이 상자에서는 그 카테고리를 빼고 다시 뽑으므로 개수는 그대로이고 그 물건만 절반으로 준다. */
       if (d) picks.push(d); else dead.add(cat);
     }
 
     // 2026-09-09: 행성 곡선으로 **등급만** 다시 매긴다 (계열 추첨 · 유니크는 그대로).
     if (curve) {
-      for (let i = 0; i < picks.length; i++) picks[i] = this.regrade(picks[i], curve, rng);
+      for (let i = 0; i < picks.length; i++) picks[i] = this.regrade(picks[i], curve, rng, keep);
     }
 
     // Phase 6: a unique weapon always brings one stack of its dedicated calibre (beyond `count`)
@@ -221,6 +258,8 @@ export class LootService implements LootRef {
     planet: PlanetId | null, opts?: CorpseLootOpts,
   ): ItemInstance[] {
     const maxGrade: WeaponGrade | null = curve?.maxGrade ?? null;
+    /* 2026-09-16: 서사 이상 게이트 (`epicPlusMul`) — 행성이 없으면 1 이라 아래 모든 굴림의 rng 소비가 예전과 같다. */
+    const keep = curve?.epicPlusMul ?? 1;
     const table = CORPSE_TABLE_MAP.get(type);
     if (!table) return [this.createItem('mat_bio_sample', 1)];
     const out: ItemInstance[] = [];
@@ -229,7 +268,10 @@ export class LootService implements LootRef {
     const siteBonus = getFactionSiteBonus(type, opts?.site);
 
     for (const drop of table.drops) {
-      if (drop.chance < 1 && !rng.chance(drop.chance)) continue;
+      /* 2026-09-16: 서사 이상 아이템 줄(열쇠 · 외계 유물 · 공중 드론 …)은 확률 자체에 게이트를 곱한다 — 내릴 후보가 없는 "그 물건" 줄이다. */
+      const dropDef = ITEM_DEF_MAP.get(drop.defId);
+      const chance = keep < 1 && dropDef && isEpicPlus(dropDef) ? drop.chance * keep : drop.chance;
+      if (chance < 1 && !rng.chance(chance)) continue;
       if (!ITEM_DEF_MAP.has(drop.defId)) { console.warn(`[Loot] corpse table '${type}': unknown def '${drop.defId}'`); continue; }
       const qty = drop.qty[0] >= drop.qty[1] ? drop.qty[0] : rng.int(drop.qty[0], drop.qty[1]);
       out.push(this.createItem(drop.defId, qty));
@@ -252,6 +294,15 @@ export class LootService implements LootRef {
         if (maxGrade !== null && !isUniqueWeapon(weapon) && gradeOf(weapon) > maxGrade) {
           weapon = WEAPON_DEF_MAP.get(weaponIdForGrade(weaponFamilyOf(weapon), maxGrade)) ?? weapon;
         }
+        /* 2026-09-16: 서사 이상 게이트 — 상한 **뒤**에 건다 (상한으로 이미 III 가 된 총은 draw 를 안 쓴다). 걸리면 그 표의
+           서사 미만 최고 등급 (없으면 등급 III 쪽 최고). */
+        if (keep < 1 && !isUniqueWeapon(weapon)) {
+          const wItem = ITEM_DEF_MAP.get(itemIdForWeapon(weapon.id));
+          if (wItem && isEpicPlus(wItem) && !rng.chance(keep)) {
+            const family = weaponFamilyOf(weapon);
+            weapon = WEAPON_DEF_MAP.get(weaponIdForGrade(family, this.bestGradeBelowEpic(family, factionGrades?.grades ?? table.weapon.grades ?? []))) ?? weapon;
+          }
+        }
         // rounds of the calibre, one stack
         const ammoDef = ITEM_DEF_MAP.get(ammoItemIdFor(weapon.ammoType));
         if (ammoDef && table.ammoFraction) {
@@ -270,7 +321,10 @@ export class LootService implements LootRef {
           const maxRank = rarityRank(table.weapon.attachment.maxRarity);
           const pool = ATTACHMENT_ITEM_DEFS.filter((d) => rarityRank(d.rarity) <= maxRank);
           const fitting = pool.filter((d) => d.attachment && canAttachDef(weapon, d.attachment));
-          const pick = rng.pick(fitting.length > 0 ? fitting : pool);
+          const from = fitting.length > 0 ? fitting : pool;
+          const rolled = rng.pick(from);
+          // 2026-09-16: 서사 이상 게이트 — 걸리면 같은 후보의 서사 미만 최고 희귀도에서 균등
+          const pick = rolled ? gatePick(rolled, from, () => 1, rng, keep) : undefined;
           if (pick) out.push(this.createItem(pick.id, 1));
         }
       }
@@ -279,7 +333,8 @@ export class LootService implements LootRef {
     // Phase 6: bosses may carry one legendary unique (rolled last so earlier draws are unchanged) + a stack of its calibre
     // 2026-09-09: 유니크는 등급이 없어 곡선을 안 타므로 행성의 `uniqueMul` 로 확률 자체를 줄인다 (0 = 없음).
     // `rng.chance` 는 배수와 무관하게 draw 를 하나 쓰므로 planet 이 null 인 경로의 rng 소비는 그대로다.
-    if (table.unique && rng.chance(table.unique.chance * (curve?.uniqueMul ?? 1))) {
+    // 2026-09-16: 유니크는 전부 전설이라 서사 이상 게이트(`keep`)도 확률에 바로 곱한다 (draw 수는 그대로 하나).
+    if (table.unique && rng.chance(table.unique.chance * (curve?.uniqueMul ?? 1) * keep)) {
       const unique = WEAPON_DEF_MAP.get(rng.pick(UNIQUE_WEAPON_IDS));
       if (unique) {
         const stats = computeWeaponStats(unique);
@@ -300,7 +355,11 @@ export class LootService implements LootRef {
        draw 수는 예전(chance + pick)과 같다 (chance + weighted). 행성이 null 이면 모든 책이 후보다. */
     if (table.book) {
       const pool = libraryBookPool(planet);
-      if (pool.length > 0 && rng.chance(table.book.chance)) out.push(this.createItem(rng.weighted(pool, libraryVolumeWeight).id, 1));
+      if (pool.length > 0 && rng.chance(table.book.chance)) {
+        // 2026-09-16: 서사 이상 게이트 (책은 지금 전부 고급이라 draw 를 안 쓴다 — 시리즈 희귀도가 바뀌어도 규칙이 산다)
+        const book = gatePick(rng.weighted(pool, libraryVolumeWeight), pool, libraryVolumeWeight, rng, keep);
+        if (book) out.push(this.createItem(book.id, 1));
+      }
     }
 
     // Phase 12: a fried implant — one 망가진 임플란트 weighted by rarity (rolled last, so every earlier draw is unchanged)
@@ -312,20 +371,25 @@ export class LootService implements LootRef {
     if (table.implant && rng.chance(table.implant.chance)) {
       const w = planetRarityWeights(table.implant.weights, curve);
       const pool = IMPLANT_BROKEN_DEFS.filter((d) => (w[d.rarity] ?? 0) > 0);
-      if (pool.length > 0) out.push(this.createItem(rng.weighted(pool, (d) => w[d.rarity] ?? 0).id, 1));
+      if (pool.length > 0) {
+        // 2026-09-16: 서사 이상 게이트 — 걸리면 가중치가 있는 서사 미만 최고 희귀도(대개 희귀)의 망가진 임플란트
+        const implant = gatePick(rng.weighted(pool, (d) => w[d.rarity] ?? 0), pool, (d) => w[d.rarity] ?? 0, rng, keep);
+        if (implant) out.push(this.createItem(implant.id, 1));
+      }
     }
 
     /* 2026-09-13: 인간형 팩션 — 방탄복 → 가방 → 회복 (희귀도 굴림) → 거점 보너스 → 남은 수류탄(굴림 없음).
        임플란트 뒤라 앞의 추첨은 안 움직이고, 표가 없는 적은 여기서 rng 를 한 번도 안 쓴다. */
     if (faction) this.rollFactionGear(faction, rng, curve, out);
-    if (siteBonus) this.rollSiteBonusItems(siteBonus, rng, planet, out);
+    if (siteBonus) this.rollSiteBonusItems(siteBonus, rng, planet, out, keep);
     this.addCarriedGrenades(opts, out);
 
     /* 2026-09-11: 네임드 로그의 확정 드롭 — **맨 마지막**이라 앞의 추첨이 안 움직이고, 네임드가 아닌 적은
        이 분기에 들어오지도 않는다 (`warrior` / `rogue` / `rogue_boss` 의 고정 벡터 그대로).
-       행성 곡선(`curve`)은 일부러 넘기지 않는다 — "최소 희귀 등급부터" 가 사용자 명세다. */
+       행성 곡선(`curve`)은 일부러 넘기지 않는다 — "최소 희귀 등급부터" 가 사용자 명세다.
+       2026-09-16: 서사 이상 게이트(`keep`)만은 탄다 — 사용자 결정 「잠긴 방 말고 전부」 (등급 III 하한은 그대로 지킨다). */
     const named = NAMED_DROP_MAP.get(type);
-    if (named) this.rollNamedDrop(named, rng, out);
+    if (named) this.rollNamedDrop(named, rng, out, keep);
 
     out.sort((a, b) => this.area(b) - this.area(a));
     return out;
@@ -335,13 +399,27 @@ export class LootService implements LootRef {
    * 네임드 확정 드롭 하나. `chance` → 등급(가중) → 아이템 → 내구도 `NAMED_LOOT_DURABILITY_MIN..MAX` × 최대치.
    * 무기면 장전 탄약(`magFraction`, 없으면 0..탄창)과 그 탄종 한 스택(`ammoFraction`)이 따라온다.
    */
-  private rollNamedDrop(drop: NamedDrop, rng: Random, out: ItemInstance[]): void {
-    if (!rng.chance(drop.chance)) return;
-    const grade = drop.grades.length > 0 ? rng.weighted(drop.grades, (g) => drop.weightOf[g] ?? 0) : null;
+  private rollNamedDrop(drop: NamedDrop, rng: Random, out: ItemInstance[], keep = 1): void {
+    /* 2026-09-16: 서사 이상 게이트 — item 줄(유니크 미니건)은 확률에 곱하고, weapon · armor 줄은 뽑힌 등급이 서사 이상이면
+       `keep` 확률로 남기고 아니면 그 줄의 서사 미만 최고 등급(대개 III)으로 내린다. keep 1 이면 draw 가 예전과 같다. */
+    const itemDef = drop.kind === 'item' ? ITEM_DEF_MAP.get(drop.target) : undefined;
+    if (!rng.chance(itemDef && keep < 1 && isEpicPlus(itemDef) ? drop.chance * keep : drop.chance)) return;
+    const defIdForGrade = (g: WeaponGrade): string | null => drop.kind === 'weapon' ? itemIdForWeapon(weaponIdForGrade(drop.target, g))
+      : drop.kind === 'armor' ? numberedArmorIdForTier(g) : null;
+    let grade = drop.grades.length > 0 ? rng.weighted(drop.grades, (g) => drop.weightOf[g] ?? 0) : null;
+    if (grade !== null && keep < 1) {
+      const rolled = ITEM_DEF_MAP.get(defIdForGrade(grade) ?? '');
+      if (rolled && isEpicPlus(rolled) && !rng.chance(keep)) {
+        const below = (list: readonly WeaponGrade[]): WeaponGrade | undefined => [...list].reverse().find((g) => {
+          const d = ITEM_DEF_MAP.get(defIdForGrade(g) ?? '');
+          return !!d && !isEpicPlus(d);
+        });
+        grade = below(drop.grades) ?? below(WEAPON_GRADES) ?? grade;
+      }
+    }
     let defId: string | null = null;
     if (drop.kind === 'item') defId = drop.target;
-    else if (grade !== null && drop.kind === 'weapon') defId = itemIdForWeapon(weaponIdForGrade(drop.target, grade));
-    else if (grade !== null && drop.kind === 'armor') defId = numberedArmorIdForTier(grade);
+    else if (grade !== null) defId = defIdForGrade(grade);
     const def = defId ? ITEM_DEF_MAP.get(defId) : undefined;
     if (!def) { console.warn(`[Loot] named drop '${drop.type}': unknown item '${defId}'`); return; }
 
@@ -386,9 +464,13 @@ export class LootService implements LootRef {
    *
    * `planet` 이 null 이거나 표에 없는 행성이면 `rollCrate` 와 완전히 같다.
    */
-  rollCrateOn(tier: number, rng: Random, planet: PlanetId | null): ItemInstance[] {
+  rollCrateOn(tier: number, rng: Random, planet: PlanetId | null, opts?: CrateLootOpts): ItemInstance[] {
     // 2026-09-13: 행성은 서재 매체 · 게임기 · 게임 디스크의 후보도 거른다 (`LootTables.isLootableOnPlanet`).
-    return this.rollCrateWithCurve(tier, rng, this.curveFor(planet), planet);
+    const curve = this.curveFor(planet);
+    /* 2026-09-16: 서사 이상 게이트 — 연구실 잠긴 방(`opts.lockedRoom`)만 면제라 그 굴림은 예전과 비트 단위로 같다
+       (행성 곡선 · 희귀도 배수는 그대로 탄다). 사용자 결정 「잠긴 방은 지금 그대로, 나머지는 서사 이상 절반」. */
+    const keep = opts?.lockedRoom ? 1 : (curve?.epicPlusMul ?? 1);
+    return this.rollCrateWithCurve(tier, rng, curve, planet, keep);
   }
 
   /**
@@ -431,19 +513,38 @@ export class LootService implements LootRef {
     const w = planetRarityWeights(pick.weights, curve);
     const rarities = pick.rarities.filter((q) => (w[q] ?? 0) > 0);
     if (rarities.length === 0) return null;
-    const ids = pick.byRarity.get(rng.weighted(rarities, (q) => w[q] ?? 0));
+    let rarity = rng.weighted(rarities, (q) => w[q] ?? 0);
+    /* 2026-09-16: 서사 이상 게이트 — 걸리면 이 줄의 서사 미만 최고 희귀도 (`rarities` 는 common → legendary 순). 없으면 빈손. */
+    const keep = curve?.epicPlusMul ?? 1;
+    if (keep < 1 && rarityRank(rarity) >= EPIC_RANK && !rng.chance(keep)) {
+      const lower = rarities.filter((q) => rarityRank(q) < EPIC_RANK);
+      if (lower.length === 0) return null;
+      rarity = lower[lower.length - 1];
+    }
+    const ids = pick.byRarity.get(rarity);
     return ids && ids.length > 0 ? rng.pick(ids) : null;
   }
 
   /** 거점 보너스의 아이템 줄 (csv 순서). `seed` 는 그 레이드 행성의 야생 씨앗 표에서 고른다. 은퇴한 아이템은 건너뛴다. */
-  private rollSiteBonusItems(bonus: FactionSiteBonus, rng: Random, planet: PlanetId | null, out: ItemInstance[]): void {
+  private rollSiteBonusItems(bonus: FactionSiteBonus, rng: Random, planet: PlanetId | null, out: ItemInstance[], keep = 1): void {
     for (const it of bonus.items) {
-      if (it.chance < 1 && !rng.chance(it.chance)) continue;
+      /* 2026-09-16: 서사 이상 게이트 — item 줄은 확률에 곱하고, seed 줄은 뽑힌 씨앗이 서사 이상이면 그 표의 서사 미만 최고 희귀도로. */
+      const fixed = it.kind === 'item' ? ITEM_DEF_MAP.get(it.defId) : undefined;
+      const chance = keep < 1 && fixed && isEpicPlus(fixed) ? it.chance * keep : it.chance;
+      if (chance < 1 && !rng.chance(chance)) continue;
       let defId = it.defId;
       if (it.kind === 'seed') {
         const pool = planetSeedPool(planet);
         if (pool.length === 0) continue;
         defId = rng.weighted(pool, (s) => s.weight).defId;
+        const seedDef = ITEM_DEF_MAP.get(defId);
+        if (keep < 1 && seedDef && isEpicPlus(seedDef) && !rng.chance(keep)) {
+          const rankOf = (s: { defId: string }): number => { const d = ITEM_DEF_MAP.get(s.defId); return d ? rarityRank(d.rarity) : -1; };
+          const lower = pool.filter((s) => rankOf(s) >= 0 && rankOf(s) < EPIC_RANK);
+          if (lower.length === 0) continue;
+          const best = Math.max(...lower.map(rankOf));
+          defId = rng.weighted(lower.filter((s) => rankOf(s) === best), (s) => s.weight).defId;
+        }
       }
       const qty = it.qty[0] >= it.qty[1] ? it.qty[0] : rng.int(it.qty[0], it.qty[1]);
       const def = ITEM_DEF_MAP.get(defId);
@@ -472,7 +573,7 @@ export class LootService implements LootRef {
    * 무기 아이템 하나를 행성 곡선의 등급으로 다시 매긴다. 무기가 아니거나 유니크(등급 없음)면 그대로 돌려준다.
    * 계열은 유지하므로 "무슨 총이 나왔나" 는 안 바뀌고 "몇 등급이냐" 만 바뀐다.
    */
-  private regrade(def: ItemDef, curve: PlanetGradeCurve, rng: Random): ItemDef {
+  private regrade(def: ItemDef, curve: PlanetGradeCurve, rng: Random, keep = 1): ItemDef {
     /* 유니크 전용 탄약도 총과 같은 배수로 막는다 — 쓸 총이 안 나오는 행성에서 이 탄약만 떨어지면
        가방 칸을 먹는 죽은 무게다. 탈락하면 평범한 구경 한 종으로 바뀐다.
        유니크 총이 실제로 나와서 딸려 나오는 한 스택은 이 뒤(`rollCrateWithCurve` 의 Phase 6 경로)라 걸리지 않는다. */
@@ -486,11 +587,31 @@ export class LootService implements LootRef {
     if (isUniqueWeapon(weapon)) {
       /* 유니크는 등급이 없어 곡선을 못 탄다 — `uniqueMul` 확률로만 살아남고, 떨어지면 평범한 총 한 자루가 된다.
          상자 픽 가중치가 아니라 여기서 한 번에 거는 이유는 위 `curveMul` 주석에 있다. */
-      if (curve.uniqueMul >= 1 || rng.chance(curve.uniqueMul)) return def;
+      if (curve.uniqueMul >= 1 || rng.chance(curve.uniqueMul)) {
+        /* 2026-09-16: 살아남은 유니크(전설)도 서사 이상 게이트를 탄다 — 걸리면 무작위 계열의 서사 미만 최고 등급 총. */
+        if (keep >= 1 || !isEpicPlus(def) || rng.chance(keep)) return def;
+        const fallback = rng.pick(WEAPON_FAMILIES);
+        return ITEM_DEF_MAP.get(itemIdForWeapon(weaponIdForGrade(fallback, this.bestGradeBelowEpic(fallback, curve.grades)))) ?? def;
+      }
       family = rng.pick(WEAPON_FAMILIES);
     }
     const grade = rng.weighted(curve.grades, (g) => curve.weightOf[g] ?? 0);
-    return ITEM_DEF_MAP.get(itemIdForWeapon(weaponIdForGrade(family, grade))) ?? def;
+    const graded = ITEM_DEF_MAP.get(itemIdForWeapon(weaponIdForGrade(family, grade))) ?? def;
+    /* 2026-09-16: 곡선이 뽑은 등급이 서사 이상(IV · V)이면 게이트 — 걸리면 곡선에 있는 서사 미만 최고 등급(III). */
+    if (keep >= 1 || !isEpicPlus(graded) || rng.chance(keep)) return graded;
+    return ITEM_DEF_MAP.get(itemIdForWeapon(weaponIdForGrade(family, this.bestGradeBelowEpic(family, curve.grades)))) ?? graded;
+  }
+
+  /**
+   * 2026-09-16: 계열 `family` 에서 서사 미만인 가장 높은 등급 — `grades`(곡선 · 표의 등급 목록) 안에서 먼저, 없으면 I..V 전체에서.
+   * 서사 이상 게이트에 걸린 총이 내려앉는 자리다 (지금 데이터로는 늘 III).
+   */
+  private bestGradeBelowEpic(family: string, grades: readonly WeaponGrade[]): WeaponGrade {
+    const below = (list: readonly WeaponGrade[]): WeaponGrade | undefined => [...list].sort((a, b) => b - a).find((g) => {
+      const d = ITEM_DEF_MAP.get(itemIdForWeapon(weaponIdForGrade(family, g)));
+      return !!d && !isEpicPlus(d);
+    });
+    return below(grades) ?? below(WEAPON_GRADES) ?? 1;
   }
 
   /** Stack quantity for a pick: ammo = rounds as a tier-scaled fraction of the stack; other stackables capped by the tier. */
@@ -532,6 +653,8 @@ export class LootService implements LootRef {
   private pickDef(
     table: TierTable, rng: Random, filter: (d: ItemDef) => boolean, relaxRarity: boolean,
     curve: PlanetGradeCurve | null = null, planet: PlanetId | null = null,
+    /** 2026-09-16: 서사 이상 게이트의 남길 확률 (1 = 게이트 없음) · 내려앉을 후보 묶음 (생략 = `filter`). */
+    keep = 1, pool?: (d: ItemDef) => boolean,
   ): ItemDef | null {
     /* 2026-09-13: 은퇴한 아이템은 어떤 굴림(확정 · 무기 · 카테고리 · relaxRarity 폴백)에서도 후보가 아니다.
        같은 날(서재 시리즈): 행성에 묶인 아이템(서재 매체 · 게임기 · 게임 디스크)은 그 행성의 것만 후보다. */
@@ -547,8 +670,20 @@ export class LootService implements LootRef {
     /* 2026-09-13: 서재 매체는 권 가중치를 곱한다 (뒤 권일수록 드물다 — 서재 매체가 아니면 1). */
     const weightOf = (d: ItemDef): number => rarityWeights[d.rarity] * this.weightMul(table, d) * this.curveMul(curve, d) * libraryVolumeWeight(d);
     const weighted = candidates.filter((d) => weightOf(d) > 0);
-    if (weighted.length > 0) return rng.weighted(weighted, weightOf);
-    if (relaxRarity) return rng.weighted(candidates, (d) => 1 / (1 + rarityRank(d.rarity)));
+    let picked: ItemDef;
+    if (weighted.length > 0) picked = rng.weighted(weighted, weightOf);
+    else if (relaxRarity) picked = rng.weighted(candidates, (d) => 1 / (1 + rarityRank(d.rarity)));
+    else return null;
+    /* 2026-09-16: 서사 이상 게이트 — 확정 · 무기 · 카테고리 · relaxRarity 폴백 픽이 전부 여기를 지난다. 행성 곡선이 있으면
+       총은 `regrade` 가 등급을 다시 뽑으므로 거기서 건다 (여기서 걸면 덮어쓰일 draw 만 는다). */
+    if (keep >= 1 || !isEpicPlus(picked) || (curve && isWeaponItemDef(picked)) || rng.chance(keep)) return picked;
+    const lower = ITEM_DEFS.filter((d) => !isEpicPlus(d) && isLootableDef(d) && isLootableOnPlanet(d, planet)
+      && this.curveMul(curve, d) > 0 && (pool ?? filter)(d));
+    /* 같은 가중치 규칙(표 희귀도 · 아이템 배수 · 권 가중치)에서 양수인 서사 미만 최고 희귀도 → 가중 추첨. 그런 후보가 없는데
+       원래 픽이 폴백이었으면 폴백 규칙대로(가중치 무시) 최고 희귀도에서 균등. 둘 다 없으면 null (그 픽은 없던 것). */
+    const lowerWeighted = topRarity(lower.filter((d) => weightOf(d) > 0));
+    if (lowerWeighted.length > 0) return rng.weighted(lowerWeighted, weightOf);
+    if (relaxRarity && lower.length > 0) return rng.pick(topRarity(lower));
     return null;
   }
 

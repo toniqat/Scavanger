@@ -6,7 +6,7 @@ import { CORP_DEFS, NPC_DEF_MAP, NPC_QUEST_MAP } from '@/shared';
 /* 2026-09-13 (요리 재료 티어): 분석 도감 · 분석 레벨업 토스트 */
 import { ANALYSIS_RESULTS, SAMPLE_FAMILY_LABEL_KO, analysisTimeMul } from '@/shared';
 /* 2026-09-13 (요리 미니게임): 조리 결과 · 식탁 품질 토스트 */
-import { cookStepsOf, mealQualityStars, normalizeMealQuality } from '@/shared';
+import { cookStepsOf, getMealDef, mealQualityStars, normalizeMealQuality } from '@/shared';
 /* 2026-09-13 (탈출 개편): 자동 출발 문구 (출발 유예 `EXTRACTION_DEPART_GRACE_S` 는 2026-09-15 에 탑승 토스트와 함께 빠졌다) */
 import { EXTRACTION_AUTO_DEPART_IDLE_S } from '@/shared';
 import { el, escapeHtml, rarityColor } from '../dom';
@@ -185,17 +185,15 @@ export class Notifications {
         this.push(`<b>${escapeHtml(n)}</b>${josaGa(n)} 전리품 <b>${count}</b>개를 창고에 넣었다${miss}`, count > 0 ? 'success' : 'info', '분대', 4);
       }),
       /*
-       * 2026-09-11 (A-3c 공유 식탁): 「한 명이 차리면 분대 전원이 받는다」(사용자 결정)의 알림. `housing:mealServed`
-       * 는 차린 쪽의 `housing/` 이 내고 net/ 이 릴레이하지만, **토스트를 띄우는 것은 여기 하나**다 — 합류 · 이탈
-       * 토스트와 같은 규약(2026-09-11 B-12: 「토스트의 유일한 주인은 ui/」). housing · net 은 이벤트만 낸다.
-       * 게이트가 없는 것은 일부러다: 차려 준 사람은 공유 함선에 있고 받는 사람도 그 함선에 있다.
+       * 2026-09-16 (접시 모델, 사용자 결정 — 옛 `housing:mealServed` 「분대에 차리기」 알림 대체): 분대원이 **방금 요리해서** 공유 함선 식탁에
+       * 접시가 올라왔다. net/ 이 `plate state` 를 받아 `net:squadPlate` 를 내고 **토스트는 여기 하나**다 (「토스트의 유일한 주인은 ui/」).
+       * `fresh` 만 띄운다 — 합류할 때 받는 분대원 접시 목록은 조용하다. 공유 함선에 서 있을 때만 (그 식탁이 보이는 곳).
        */
-      b.on('housing:mealServed', ({ defId, by, quality }) => {
-        const def = ctx.loot?.getItemDef(defId);
-        const name = def?.name ?? defId;
-        // 2026-09-13 (요리 품질): 차린 요리의 별 (0 이면 생략)
+      b.on('net:squadPlate', ({ name, plate, fresh }) => {
+        if (!fresh || !plate || ctx.hub?.ship !== 'shared') return;
+        const def = getMealDef(plate.mealDefId);
         this.push(
-          `<b>${escapeHtml(by || '분대원')}</b> 님이 <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(name)}</b>${starsHtml(quality)} 을(를) 차렸습니다`,
+          `<b>${escapeHtml(name || '분대원')}</b> 님이 식탁에 <b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? plate.mealDefId)}</b>${starsHtml(plate.quality)} 을(를) 차렸습니다`,
           'success', '식탁', 4,
         );
       }),
@@ -206,10 +204,11 @@ export class Notifications {
        */
       b.on('housing:cookResult', ({ result }) => {
         if (!result) return;
-        const def = ctx.loot?.getItemDef(result.mealDefId);
+        // 2026-09-16 (접시 모델): 요리는 아이템이 아니다 — 이름은 요리 표에서, 성공은 `reason` 이 없는 것 (`itemUid` 는 늘 null)
+        const def = getMealDef(result.mealDefId) ?? ctx.loot?.getItemDef(result.mealDefId);
         const name = `<b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? result.mealDefId)}</b>`;
-        if (result.itemUid && result.landed && !result.reason) {
-          const where = result.landed === 'stash' ? '함선 창고' : '가방';
+        if (result.landed && !result.reason) {
+          const where = result.landed === 'stash' ? '함선 창고' : result.landed === 'bag' ? '가방' : '식탁';
           const stars = `<span style="color:${STAR_COLOR}">${mealQualityStars(result.quality)}</span>`;
           this.push(`${name} ${stars} <span style="color:var(--c-text-dim)">→ ${where}</span>`, 'success', '요리', 4);
         } else {

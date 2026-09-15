@@ -393,13 +393,20 @@ try {
     // raid-end XP (no active contract now → settleMission returns null inside)
     if (ctx.meta.activeContract) ctx.meta.abandonContract();
     const st = ctx.stats;
-    const keep = { kills: st.kills, timeSeconds: st.timeSeconds, extracted: st.extracted, lootValue: st.lootValue, rewards: st.rewards };
-    Object.assign(st, { kills: 10, timeSeconds: 0, extracted: false, lootValue: 0 });
+    const keep = { kills: st.kills, killXp: st.killXp, timeSeconds: st.timeSeconds, extracted: st.extracted, lootValue: st.lootValue, rewards: st.rewards };
+    // 2026-09-16: raid XP = `stats.killXp` only (× XP_DEATH_MUL when not extracted) — kill count, time and loot pay nothing
+    Object.assign(st, { kills: 10, killXp: 100, timeSeconds: 0, extracted: false, lootValue: 0 });
     gf.rewarded = false; D.awardMissionXp(gf); out.xpWith = st.rewards?.xpEarned ?? null;
     delete h.getLibraryEffects;
     out.raidMulPlain = D.libraryRaidXpMul(ctx);
     out.mulPlain = Cm.libraryTrustMulOf(meta, 'helix');
     gf.rewarded = false; D.awardMissionXp(gf); out.xpPlain = st.rewards?.xpEarned ?? null;
+    out.deathMul = (await window.__imp('/src/shared/constants.ts')).XP_DEATH_MUL;
+    // extracted after an hour with a valuable bag: still exactly the kill XP (no extraction / loot / survival-time terms)
+    Object.assign(st, { kills: 3, killXp: 100, timeSeconds: 3600, extracted: true, lootValue: 50000 });
+    gf.rewarded = false; D.awardMissionXp(gf); out.xpExtract = st.rewards?.xpEarned ?? null;
+    Object.assign(st, { kills: 3, killXp: 0, timeSeconds: 3600, extracted: true, lootValue: 50000 });
+    gf.rewarded = false; D.awardMissionXp(gf); out.xpNoKillXp = st.rewards?.xpEarned ?? null;
     Object.assign(st, keep);
     gf.rewarded = false;
     return out;
@@ -409,6 +416,8 @@ try {
   if (tr.settle) ok(tr.settle.success && tr.settle.rep === Math.round(tr.settle.base * 2), 'contract settlement rep × trust multiplier (helix: all 0.5 + helix 0.5)', JSON.stringify(tr.settle));
   else ok(false, 'contract helix_1 accepted for the settlement check', JSON.stringify(tr));
   ok(tr.xpPlain > 0 && tr.xpWith === tr.xpPlain * 2, 'raid-end XP × (1 + raidXp)', JSON.stringify({ with: tr.xpWith, plain: tr.xpPlain }));
+  ok(tr.deathMul > 0 && tr.xpPlain === Math.round(100 * tr.deathMul), 'not extracted: raid-end XP = killXp × XP_DEATH_MUL', JSON.stringify({ plain: tr.xpPlain, deathMul: tr.deathMul }));
+  ok(tr.xpExtract === 100 && tr.xpNoKillXp === 0, 'extracted: raid-end XP = killXp only (no loot / extraction / survival-time XP)', JSON.stringify({ extract: tr.xpExtract, noKillXp: tr.xpNoKillXp }));
 
   /* ── 6. console ─────────────────────────────────────────────────────────────────────────────────────────── */
   console.log('console library');

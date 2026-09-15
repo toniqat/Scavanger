@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { Random, crateLootRandom, markRaidFound } from '@/shared';
+/* appended (2026-09-16): 서사 이상 드롭률 게이트 — 잠긴 방 예외 */
+import type { CrateLootOpts } from '@/shared';
 import type { ContainerTakenWire, ItemInstance, LootRef, PlanetId } from '@/shared';
 import { Grid, type DefLookup, type Placement } from './Grid';
 
@@ -168,7 +170,9 @@ export class ContainerStore {
   all(): Container[] { return [...this.containers.values()]; }
 
   /** `planet` (2026-09-09): 이 레이드의 목표 행성 — 무기 등급 곡선(`rollCrateOn`). null = 예전 동작. */
-  getOrCreate(id: string, tier: number, position: THREE.Vector3, loot: LootRef, missionSeed: number, planet: PlanetId | null = null): Container {
+  /** `opts` (2026-09-16): 그 컨테이너의 굴림 규칙 — 호출자가 `WorldRef.crateLootOpts(id)` 를 그대로 넘긴다 (잠긴 방). */
+  getOrCreate(id: string, tier: number, position: THREE.Vector3, loot: LootRef, missionSeed: number, planet: PlanetId | null = null,
+    opts?: CrateLootOpts): Container {
     let c = this.containers.get(id);
     if (c) {
       c.position.copy(position);
@@ -179,7 +183,7 @@ export class ContainerStore {
     c.anchor = position;
     // 2026-09-12: 시드 식은 `shared/lootRolls` 한 곳 — world 의 미리보기 · 드론 스캔(`parts/Peek`)이 같은 식으로 미리 굴린다
     const rng = crateLootRandom(missionSeed, id);
-    const items = loot.rollCrateOn(tier, rng, planet);
+    const items = loot.rollCrateOn(tier, rng, planet, opts);
     markRaidFound(items, this.raidMark?.() ?? null);   // 2026-09-12: raid loot — never touches the rng
     c.fill(items);
     this.containers.set(id, c);

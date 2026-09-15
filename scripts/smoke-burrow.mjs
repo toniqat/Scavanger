@@ -41,7 +41,7 @@ const browser = await puppeteer.launch({
   executablePath: CHROME, headless: true,
   args: ['--use-gl=angle', ...GL_ARGS, '--ignore-gpu-blocklist',
     '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
-    '--window-size=960,540', '--no-sandbox'],
+    '--autoplay-policy=no-user-gesture-required', '--window-size=960,540', '--no-sandbox'],
 });
 const errors = [];
 try {
@@ -224,6 +224,120 @@ try {
   await waitSim(1.0);
   const s9c = await P(() => { const e = window.__sys.byId.get(window.__sp.id); const to = window.__sp.to; const L = window.__sp.landed; return { air: e.airborne, t: e.spatT, d: L ? Math.hypot(L[0] - to[0], L[1] - to[2]) : 99, hint: window.__sys.debugHint(e.id), state: e.state }; });
   ok(!s9c.air && s9c.t === 0 && s9c.d < 0.8 && s9c.hint !== 4, `착지점에 내려앉는다 (d ${s9c.d.toFixed(2)}, hint ${s9c.hint}, ${s9c.state})`);
+
+  /* ── 10. 굴착음은 한 마리마다 (2026-09-16) ─────────────────────────────── */
+  console.log('벌레 소리 (2026-09-16)');
+  await P(() => { const sys = window.__sys; for (const e of sys.active) if (e.active && e.state !== 'dead') e.kill(false); });
+  await waitSim(CONST.BURROW_EMERGE_BATCH_S + 1.0);
+  const s10 = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys; const pp = ctx.player.position;
+    const audio = window.__game.getSystem('audio');
+    const snd = []; let maxVoices = 0;
+    const off = ctx.bus.on('audio:play', (e) => {
+      if (e.id !== 'burrow_emerge') return;
+      snd.push({ v: e.volume, x: e.position ? Math.round(e.position.x * 10) : null });
+      maxVoices = Math.max(maxVoices, audio.debugVoices('burrow_emerge'));
+    });
+    for (let i = 0; i < 8; i++) sys.debugSpawnBurrow('scavenger', { x: pp.x + 6 + i * 1.5, z: pp.z - 8 });
+    if (typeof off === 'function') off();
+    return { n: snd.length, vols: snd.map((s) => s.v), xs: new Set(snd.map((s) => s.x)).size, maxVoices, running: audio.ac ? audio.ac.state : 'none' };
+  });
+  ok(s10.running === 'running', `AudioContext running (${s10.running}) — voice checks below are real`);
+  ok(s10.n === 8 && s10.xs === 8, `여덟 마리 굴착 = burrow_emerge 여덟 번, 각자 자리에서 (${s10.n} 번, 자리 ${s10.xs})`);
+  const decreasing = s10.vols.every((v, i) => i === 0 || v <= s10.vols[i - 1] + 1e-9);
+  ok(decreasing && s10.vols[7] < s10.vols[0] * 0.5, `무리 안에서 k 번째 × 1/√k (${s10.vols.map((v) => v.toFixed(2)).join(' ')})`);
+  ok(s10.maxVoices >= 1 && s10.maxVoices <= CONST.BURROW_EMERGE_VOICE_CAP, `동시 굴착음 보이스 ≤ BURROW_EMERGE_VOICE_CAP ${CONST.BURROW_EMERGE_VOICE_CAP} (최대 ${s10.maxVoices})`);
+  await P(() => { const sys = window.__sys; for (const e of sys.active) if (e.active && e.state !== 'dead') e.kill(false); });
+
+  /* ── 11. 벌레 발소리 — 곁에서만, 무리가 쌓이지 않게 ─────────────────────── */
+  // 벌레가 걷는 동안의 발소리를 모은다: id · 크기 · 카메라 거리 · 그 순간 bug_steps 보이스 수
+  await P(() => {
+    const ctx = window.__game.ctx; const audio = window.__game.getSystem('audio'); const V = window.__V;
+    const cam = new V();
+    window.__steps = { on: false, list: [], maxVoices: 0, human: 0 };
+    ctx.bus.on('audio:play', (e) => {
+      const S = window.__steps;
+      if (!S.on || !e.position) return;
+      ctx.camera.getWorldPosition(cam);
+      const d = cam.distanceTo(e.position);
+      if (e.id.startsWith('bug_step_')) { S.list.push({ id: e.id, v: e.volume, d }); S.maxVoices = Math.max(S.maxVoices, audio.debugVoices('bug_steps')); }
+      else if (e.id.startsWith('footstep_') && d < 30) S.human++;
+    });
+  });
+  const walkBugs = async (type, count, dist, secs) => {
+    await P(({ type, count, dist }) => {
+      const ctx = window.__game.ctx; const sys = window.__sys; const pp = ctx.player.position;
+      ctx.player.heal(200);
+      window.__steps.list.length = 0; window.__steps.maxVoices = 0; window.__steps.human = 0;
+      for (let i = 0; i < count; i++) {
+        const a = (i / count) * Math.PI * 2;
+        let x = pp.x + Math.cos(a) * dist, z = pp.z + Math.sin(a) * dist;
+        if (!ctx.world.isInsideBounds(x, z)) { x = pp.x - Math.cos(a) * dist; z = pp.z - Math.sin(a) * dist; }
+        const e = sys.debugSpawn(type, { x, z });
+        if (e) { e.aware = true; e.state = 'chase'; }
+      }
+      window.__steps.on = true;
+    }, { type, count, dist });
+    await waitSim(secs);
+    return P(() => {
+      const S = window.__steps; S.on = false;
+      const sys = window.__sys; for (const e of sys.active) if (e.active && e.state !== 'dead') e.kill(false);
+      window.__game.ctx.player.heal(200);
+      const vols = S.list.map((s) => s.v).sort((a, b) => a - b);
+      return { n: S.list.length, ids: [...new Set(S.list.map((s) => s.id))], median: vols.length ? vols[vols.length >> 1] : 0, maxD: Math.max(0, ...S.list.map((s) => s.d)), maxVoices: S.maxVoices, human: S.human };
+    });
+  };
+  const one = await walkBugs('scavenger', 1, 12, 1.5);
+  ok(one.n >= 2 && one.ids.length === 1 && one.ids[0] === 'bug_step_skitter', `스캐빈저 한 마리 = bug_step_skitter (footstep_* 아님) (${one.n} 걸음, ${one.ids.join(',')})`);
+  ok(one.maxD <= CONST.BUG_STEP_RANGE_M + 0.5, `발소리는 BUG_STEP_RANGE_M ${CONST.BUG_STEP_RANGE_M} m 안에서만 (최대 ${one.maxD.toFixed(1)} m)`);
+  await waitSim(CONST.BUG_STEP_CROWD_WINDOW_S + 0.3);
+  const crowd = await walkBugs('scavenger', 12, 12, 1.5);
+  ok(crowd.n >= 12, `열두 마리가 걷는다 (${crowd.n} 걸음)`);
+  ok(crowd.median > 0 && crowd.median <= one.median * 0.6, `무리 발소리 크기 × 1/√n (한 마리 중앙값 ${one.median.toFixed(2)} → 무리 ${crowd.median.toFixed(2)})`);
+  ok(crowd.maxVoices >= 1 && crowd.maxVoices <= CONST.BUG_STEP_VOICE_CAP, `동시 벌레 발소리 보이스 ≤ BUG_STEP_VOICE_CAP ${CONST.BUG_STEP_VOICE_CAP} (최대 ${crowd.maxVoices})`);
+  ok(crowd.human === 0, `벌레 무리는 사람 발소리 id(footstep_*)를 쓰지 않는다 (${crowd.human})`);
+  await waitSim(CONST.BUG_STEP_CROWD_WINDOW_S + 0.3);
+  const big = await walkBugs('behemoth', 1, 16, 2.0);
+  ok(big.n >= 1 && big.ids.every((id) => id === 'bug_step_giant') && big.maxD <= CONST.BUG_STEP_GIANT_RANGE_M + 0.5, `베헤모스 = bug_step_giant, BUG_STEP_GIANT_RANGE_M ${CONST.BUG_STEP_GIANT_RANGE_M} m 안 (${big.n} 걸음, ${big.ids.join(',')}, 최대 ${big.maxD.toFixed(1)} m)`);
+
+  /* ── 12. 포탄 낙하음 — 착탄 리드 전에 시작, 착탄 · 요격에 끊긴다 ──────────── */
+  const FLIGHT = CONST.SHELL_FLIGHT_TIME, LEAD = CONST.SHELL_INCOMING_LEAD_S;
+  const fireFake = (sid, off) => P(({ sid, off, flight }) => {
+    const ctx = window.__game.ctx; const V = window.__V; const pp = ctx.player.position;
+    let tx = pp.x + off; if (!ctx.world.isInsideBounds(tx, pp.z)) tx = pp.x - off;
+    let fx = tx + 60; if (!ctx.world.isInsideBounds(fx, pp.z)) fx = tx - 60;
+    const target = new V(tx, ctx.world.getHeightAt(tx, pp.z), pp.z);
+    const from = new V(fx, ctx.world.getHeightAt(fx, pp.z) + 2, pp.z);
+    ctx.bus.emit('enemy:shellFired', { sid, from, target, flightTime: flight });
+    window.__shTarget = target;
+  }, { sid, off, flight: FLIGHT });
+  const shellState = (sid) => P((sid) => {
+    const a = window.__game.getSystem('audio');
+    return { s: a.debugIncomingShells().find((x) => x.sid === sid) ?? null, voices: a.debugVoices('shell_incoming') };
+  }, sid);
+  await fireFake(990001, 4);
+  await waitSim(Math.max(0.2, FLIGHT - LEAD - 0.8));
+  const sh1 = await shellState(990001);
+  ok(!!sh1.s && !sh1.s.started && !sh1.s.playing, `착탄 ${LEAD}s 전까지는 휘파람이 없다 (${JSON.stringify(sh1.s)})`);
+  await waitSim(1.1);
+  const sh2 = await shellState(990001);
+  ok(!!sh2.s && sh2.s.started && sh2.s.playing && sh2.s.vol >= CONST.SHELL_INCOMING_VOLUME * CONST.SHELL_INCOMING_FLOOR, `착탄 SHELL_INCOMING_LEAD_S 전에 휘파람 시작 (착탄점 4 m, vol ${sh2.s && sh2.s.vol.toFixed(2)})`);
+  await P((sid) => window.__game.ctx.bus.emit('enemy:shellLanded', { sid, position: window.__shTarget, radius: 5 }), 990001);
+  await waitSim(0.1);
+  const sh3 = await shellState(990001);
+  ok(sh3.s === null && sh3.voices === 0, `enemy:shellLanded 에 휘파람이 끊긴다 (voices ${sh3.voices})`);
+  await fireFake(990002, 6);
+  await waitSim(FLIGHT - LEAD + 0.4);
+  const sh4 = await shellState(990002);
+  await P((sid) => window.__game.ctx.bus.emit('enemy:shellIntercepted', { sid, position: window.__shTarget }), 990002);
+  await waitSim(0.1);
+  const sh5 = await shellState(990002);
+  ok(!!sh4.s && sh4.s.playing && sh5.s === null && sh5.voices === 0, `요격(enemy:shellIntercepted)에도 끊긴다 (전 ${sh4.s && sh4.s.playing} → voices ${sh5.voices})`);
+  await fireFake(990003, CONST.SHELL_INCOMING_RANGE_M + 40);
+  await waitSim(FLIGHT - LEAD + 0.4);
+  const sh6 = await shellState(990003);
+  ok(!!sh6.s && sh6.s.started && !sh6.s.playing, `SHELL_INCOMING_RANGE_M ${CONST.SHELL_INCOMING_RANGE_M} m 밖 착탄점은 조용하다 (${JSON.stringify(sh6.s)})`);
+  await P((sid) => window.__game.ctx.bus.emit('enemy:shellLanded', { sid, position: window.__shTarget, radius: 5 }), 990003);
 
   await P(() => window.__game.ctx.bus.emit('hub:enter', { ship: 'personal' }));
   await waitFor(page, () => window.__game.ctx.phase === 'hub', 'back to hub', 20000);

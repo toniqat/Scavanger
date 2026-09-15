@@ -40,6 +40,17 @@ export interface ShipStations {
    * uid 가 없고, 그래서 `HousingRef.openDiningTable(null)` 의 `null` 이 곧 이 식탁을 가리킨다.
    */
   diningTable?: StationDef;
+  /**
+   * 2026-09-16 (접시 모델): 그 고정 식탁의 식기 자리 — 분대원 접시가 올라가는 곳 (`diningTablePlateSlots`, `TablePlates`).
+   * 앞(플레이어 쪽) 두 자리가 먼저다.
+   */
+  diningPlates?: readonly TablePlateSlot[];
+}
+
+/** 식탁 위 접시 자리 하나 — 상판 위 식기 가운데(월드) · 식탁의 어느 긴 변인가(`-1` = 앞 local −Z, `1` = 뒤). */
+export interface TablePlateSlot {
+  position: THREE.Vector3;
+  side: -1 | 1;
 }
 
 const lx = (x: number, ry: number, ox: number, oz: number): number => x + Math.cos(ry) * ox + Math.sin(ry) * oz;
@@ -164,6 +175,22 @@ export function diningTable(b: GeoBatch, col: BoxInteriorCollider, x: number, z:
   const [fw, fd] = footprint(ry, W, D + 1.4);
   col.addBox(x, 0, z, fw, 1.0, fd);
   return { position: new THREE.Vector3(x + fx * (D / 2 + 0.95), 0, z + fz * (D / 2 + 0.95)), yaw: ry };
+}
+
+/**
+ * 2026-09-16 (접시 모델): `diningTable(…, x, z, ry)` 의 식기 네 자리 (위 「식기 한 벌」과 같은 좌표 — 접시 윗면 `H + 0.035`) — 앞 변 먼저.
+ * 공유 함선 식탁의 분대원 접시가 여기에 올라간다 (`TablePlates`).
+ */
+export function diningTablePlateSlots(x: number, z: number, ry: number): TablePlateSlot[] {
+  const D = 0.9, H = 0.78;
+  const out: TablePlateSlot[] = [];
+  for (const side of [-1, 1] as const) {
+    for (const ox of [-0.55, 0.55]) {
+      const oz = side * (D / 2 - 0.2);
+      out.push({ position: new THREE.Vector3(lx(x, ry, ox, oz), H + 0.035, lz(z, ry, ox, oz)), side });
+    }
+  }
+  return out;
 }
 
 /* ── 함선 컴퓨터 (ship computer, Phase 5) ─────────────────────────────────── */

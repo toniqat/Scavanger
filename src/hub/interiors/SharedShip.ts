@@ -11,7 +11,7 @@ import { ViewportWarp } from './WarpStreaks';
 /* 2026-09-15: 조종실 안드로이드 슬롯 세 칸 (사용자 결정 「조종실 내부 한켠」) */
 import { AndroidBayRack, type AndroidBayState } from './AndroidBays';
 // 2026-09-14: `repairBench` 는 더 이상 부르지 않는다 (정비 벤치 제거 — 소품까지) — 함수는 stations.ts 에 그대로 있다
-import { diningTable, implantBay, shipComputer, type ShipStations, type StationDef } from './stations';
+import { diningTable, diningTablePlateSlots, implantBay, shipComputer, type ShipStations, type StationDef } from './stations';
 import { TextPlane } from '../Labels';
 import type { PodSlotDef, ShipInterior, TerminalDef, WarpDestination } from './types';
 
@@ -205,6 +205,7 @@ export class SharedShip implements ShipInterior {
        * 「출입구 옆에서는 후벽에 막힌다」를 확인하려고 걸어 보는 줄이라 비워 둔다.)
        */
       diningTable: diningTable(b, col, 8.6, 2.2, 0),
+      diningPlates: diningTablePlateSlots(8.6, 2.2, 0),   // 2026-09-16 접시 모델: 분대원 접시가 올라가는 식기 네 자리
     };
     const dtSign = new TextPlane(0.9, 0.3, 256);
     dtSign.mesh.position.set(8.6, 1.62, 2.2);

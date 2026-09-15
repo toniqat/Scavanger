@@ -89,7 +89,9 @@
 .inv-layout {
   display: flex;
   align-items: flex-start;
-  gap: 24px;
+  /* 2026-09-16: 패널 간격은 변수 하나 — 맞닿는 카드의 이음매(`margin-right: calc(-1 * var(--inv-panel-gap))`)가 같은 값을 읽는다 */
+  --inv-panel-gap: 24px;
+  gap: var(--inv-panel-gap);
   transform: translateY(10px) scale(0.985);
   transition: transform 180ms var(--inv-ease);
 }
@@ -1537,18 +1539,19 @@ kbd {
 
 /* Phase 9 UI pass: the mission window now uses the **ship** layout minus the 창고 panel, so a raid bag looks and
    works exactly like the one in the ship (장비 left, 가방 right, quick rose beside the grid).
-   Panel order: ship = 창고 · 장비 · 가방 · 제작; mission = 상자 · 장비 · 가방 · 제작. */
+   Panel order: ship = 창고 · 장비 · 가방 · 제작; mission = 상자 · 장비 · 가방 · 제작.
+   2026-09-16 (사용자 결정): 함선 Tab 은 **창고 | 장비 | 가방** — 창고는 `.inv-layout` 의 직속 카드다 (`InventoryUI.mount`). */
 .inv-panel-stash { order: 0; }
 .inv-panel-container { order: 0; }
 .inv-equip { order: 1; }
 .inv-panel-bag { order: 2; }
 .inv-panel-craft { order: 3; }
 
-/* ── 2026-09-15 2차 (사용자 결정): **창고 + 가방 = 한 장의 패널** ──────────────────────────────────────────────
-   `.inv-panel-grids`(= 옛 `.inv-col-right`)가 진짜 카드가 되고 그 안에서 `.inv-panel-stash`(order 0) ·
-   `.inv-panel-bag`(order 2)이 **가로로** 선다 — 창고 왼쪽 · 가방 오른쪽(2026-09-12 결정). 안쪽 두 패널은 자기
-   테두리 · 배경 · 여백을 버리고 칸 역할만 한다. 두 칸은 자기 세로 스크롤 · 자기 정렬 · 자기 필터를 갖는다
-   (⚠ 한 스크롤에 세로로 이어 붙이지 않는다 — 2026-09-12 경고 그대로). 레이드에는 창고가 `hidden` 이라 가방 한 칸이다. */
+/* ── 2026-09-15 2차 → 2026-09-16: **가방 카드** ────────────────────────────────────────────────────────────────
+   `.inv-panel-grids`(= 옛 `.inv-col-right`)는 2026-09-15 2차에 창고 + 가방 두 칸을 담던 카드였고, 2026-09-16 부터
+   창고가 밖으로 나가 **가방 칸 하나**를 담는다 (선택자 호환으로 이름은 그대로). 안쪽 패널은 자기 테두리 · 배경 · 여백을
+   버리고 칸 역할만 한다. 창고 · 가방은 자기 세로 스크롤 · 정렬 · 필터를 갖는다
+   (⚠ 한 스크롤에 세로로 이어 붙이지 않는다 — 2026-09-12 경고 그대로). */
 .inv-panel-grids {
   order: 2;
   display: flex; flex-direction: row; align-items: stretch; gap: 20px;
@@ -1560,12 +1563,6 @@ kbd {
   min-width: 0;
 }
 .inv-panel-grids > .inv-panel::before { display: none; }
-/* 두 칸 사이의 가는 구분선 — 카드가 하나라도 어디까지가 창고인지 읽힌다.
-   ⚠ **창고 쪽 오른쪽 테두리**로 긋는다: DOM 순서는 `가방 → 창고` 이고 화면 순서만 `order` 로 뒤집히므로
-   (`.inv-panel-stash { order: 0 }` · `.inv-panel-bag { order: 2 }`), 가방에 `border-left` 를 걸고
-   `+`/`:first-child` 로 예외를 두면 **DOM 순서를 보는 선택자라 언제나 틀린다**. 레이드에서는 창고가
-   `hidden` 이라 선도 함께 사라진다. */
-.inv-panel-grids > .inv-panel-stash { border-right: 1px solid var(--inv-line); padding-right: 20px; }
 
 /* 2026-09-08: 장비 and the grids card are **one** panel to look at. They are neighbours in the flex order, so the
    24 px gap is cancelled and the two touching edges are squared off. The 제작 layout puts the recipe columns first,
@@ -1576,6 +1573,19 @@ kbd {
   border-top-right-radius: 0; border-bottom-right-radius: 0;
 }
 .inv-layout:not(.is-craft) .inv-panel-grids {
+  border-top-left-radius: 0; border-bottom-left-radius: 0;
+}
+/* 2026-09-16 (사용자 결정): 함선 Tab = **창고 | 장비 | 가방** 한 장의 패널. 창고 카드가 오른쪽 이웃(평소 = 장비 열,
+   무한 상자 배치 = 장비가 숨으므로 가방 카드)에 같은 방식으로 붙는다 — 간격을 지우고 맞닿는 모서리를 깎고, 구분선은
+   **이웃의 왼쪽 테두리**가 긋는다 (창고 쪽 오른쪽 테두리는 지운다: 두 줄이 겹치면 굵어 보인다).
+   ⚠ 이웃이 늘 장비 열 / 가방 카드가 되도록 DOM 에서 창고는 상자 창 **뒤**다 (`InventoryUI.mount`). 레이드에는 창고가
+   `hidden` 이라 이 규칙이 닿지 않는다. */
+.inv-root.is-hub .inv-layout:not(.is-craft) .inv-panel-stash {
+  margin-right: calc(-1 * var(--inv-panel-gap, 24px));
+  border-right: none;
+  border-top-right-radius: 0; border-bottom-right-radius: 0;
+}
+.inv-root.is-hub .inv-layout:not(.is-craft):not(.is-catalog) .inv-equip {
   border-top-left-radius: 0; border-bottom-left-radius: 0;
 }
 
@@ -1594,7 +1604,8 @@ kbd {
    창고 · 가방 격자 카드는 제작 중 **숨는다** — 재료는 격자가 아니라 인벤토리 모델에서 센다 (`craftCountDef`). 상세 카드는
    작업대 패널 바로 오른쪽(order 0)이고 `align-self: stretch` 로 그 패널의 위 · 아래에 맞춘다 (줄의 높이 = 작업대 패널;
    `.inv-layout` 은 `align-items: flex-start` 라 나머지는 그대로다). 안의 본문(`.inv-craft-detail`)이 남는 높이를 받아 스크롤한다. */
-.inv-layout.is-craft .inv-panel-grids { display: none; }
+.inv-layout.is-craft .inv-panel-grids,
+.inv-layout.is-craft .inv-panel-stash { display: none; }   /* 2026-09-16: 창고는 이제 가방 카드 밖의 직속 카드라 따로 숨긴다 */
 .inv-layout.is-craft .inv-panel-craft-detail { order: 0; align-self: stretch; max-height: calc(100vh - 140px); }
 /* 나란히 서므로 두 격자 모두 평소 창고 높이를 그대로 쓴다 (예전에는 위아래로 쌓느라 둘 다 잘라야 했다) */
 /* 2026-09-13: 창고 격자는 평소 창고 높이를 **바닥**으로 두고(`min-height`) 가방 패널이 더 길면 남는 자리를 채운다
@@ -1696,6 +1707,18 @@ kbd {
   border-color: color-mix(in srgb, var(--inv-accent, #f0c46a) 70%, transparent);
   background: color-mix(in srgb, var(--inv-accent, #f0c46a) 14%, transparent);
 }
+/* 2026-09-16 (사용자 결정 — 목록이 안 읽힌다): `color-scheme: dark` 만으로는 모자랐다. Chromium(Electron 포함)은 펼친
+   목록의 칸을 **`<option>` 의 색**으로 칠하고, 없으면 `<select>` 의 계산값을 물려받는다 — 그 값이 반투명 흰색 4 % 배경 +
+   흐린 글자라, 불투명한 팝업 위에서 밝은 회색 바탕 · 밝은 글자가 되어 호버 전에는 읽히지 않았다. 그래서 목록 칸에
+   **불투명한** 어두운 바탕과 밝은 글자를 직접 준다 (`TradeGrids` 의 드롭다운도 같은 클래스라 함께 고쳐진다).
+   `.is-on` 의 강조색 글자는 닫힌 컨트롤에만 — 목록 칸은 자기 색이 이긴다. */
+.inv-filter-select option,
+.inv-filter-select optgroup {
+  color: #e9ecef;
+  background-color: #0c0f13;
+}
+.inv-filter-select option:checked { color: #f0c46a; background-color: #1c2027; }
+.inv-filter-select option:disabled { color: rgba(233, 236, 239, 0.38); }
 .inv-sort-btn { padding: 4px 9px; font-size: 10px; letter-spacing: 0.08em; }
 
 /* 2026-09-14 → 2026-09-15 2차: 가방 머리의 도구 줄 = `모두 수리` + `정렬` + 필터 드롭다운 한 줄. */
@@ -1717,6 +1740,15 @@ kbd {
 }
 .inv-repair-open-btn:disabled { opacity: 0.42; cursor: not-allowed; }
 .inv-repair-open-btn[hidden] { display: none; }
+/* 2026-09-16 (사용자 결정): `모두 수리` 와 `정렬` 사이의 `모두 창고로 이동` (함선 전용). 같은 줄 높이 · 글자지만 색은
+   평범한 도구 버튼이다 — 주황은 「고칠 것이 있다」의 몫이다. ⚠ 이름은 전역에서 유일해야 한다 (`rg "\.inv-stash-all"`). */
+.inv-stash-all-btn {
+  flex: none; height: 20px; padding: 0 9px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; letter-spacing: 0.06em; white-space: nowrap;
+}
+.inv-stash-all-btn:disabled { opacity: 0.42; cursor: not-allowed; }
+.inv-stash-all-btn[hidden] { display: none; }
 
 /* bag body + equipment column: the wide arrangement (rose right of the grid, two-column gear) needs room. The ship
    also carries the 창고 panel, so it asks for 1600 px; a mission has one panel fewer and gets it from 1280 px. */
@@ -1854,7 +1886,9 @@ kbd {
    2026-09-15 2차부터 창고 · 가방은 `.inv-panel-grids` 한 카드 안의 두 칸이고 카드가 `align-items: stretch` 라
    두 칸은 언제나 같은 높이다. 여기서 하는 일은 **카드와 장비 열**이 `.inv-layout` 의 줄 높이를 함께 받게 하는 것과,
    창고 격자 스크롤러가 자기 24행으로 줄을 밀어 올리지 않은 채(`flex: 1 1 0px`) 남는 높이를 채우게 하는 것뿐이다.
-   레이드에는 창고가 없으므로 `.is-hub` 로만 건다. */
+   레이드에는 창고가 없으므로 `.is-hub` 로만 건다.
+   2026-09-16: 창고가 가방 카드 밖의 직속 카드(창고 | 장비 | 가방)가 되면서 창고 카드도 같은 줄 높이를 받는다. */
+.inv-root.is-hub .inv-layout:not(.is-craft) .inv-panel-stash,
 .inv-root.is-hub .inv-layout:not(.is-craft) .inv-panel-grids,
 .inv-root.is-hub .inv-layout:not(.is-craft) .inv-equip { align-self: stretch; }
 .inv-root.is-hub .inv-layout:not(.is-craft) .inv-stash-scroll { flex: 1 1 0px; min-height: 0; max-height: none; }
@@ -1866,9 +1900,11 @@ kbd {
 .inv-root .inv-layout.is-catalog .inv-equip,
 .inv-root .inv-layout.is-catalog .inv-quick,
 .inv-root .inv-layout.is-catalog .inv-pouch { display: none; }
-/* 장비 열과 이어 붙이느라 깎았던 격자 카드의 왼쪽 모서리를 되돌린다 */
-.inv-root .inv-layout.is-catalog .inv-panel-grids { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
+/* 장비 열과 이어 붙이느라 깎았던 격자 카드의 왼쪽 모서리를 되돌린다.
+   2026-09-16: 함선에서는 창고 카드가 가방 카드에 붙으므로(창고 | 가방) 창고가 없는 창에서만 되돌린다. */
+.inv-root:not(.is-hub) .inv-layout.is-catalog .inv-panel-grids { border-top-left-radius: 6px; border-bottom-left-radius: 6px; }
 .inv-root .inv-layout.is-catalog:not(.is-craft) .inv-panel-catalog,
+.inv-root .inv-layout.is-catalog:not(.is-craft) .inv-panel-stash,
 .inv-root .inv-layout.is-catalog:not(.is-craft) .inv-panel-grids { align-self: stretch; }
 .inv-root .inv-layout.is-catalog:not(.is-craft) .inv-cat-scroll { flex: 1 1 0px; min-height: 240px; max-height: none; }
 /* 퀵슬롯 로즈 · 주머니가 가방 아래에서 빠졌으므로 가방 격자는 넓은 배치의 높이 예산을 그대로 쓴다 */
@@ -1881,7 +1917,7 @@ kbd {
 @media (max-width: 1560px) {
   .inv-panel-catalog { width: 412px; }
   .inv-cat-grid { grid-template-columns: repeat(3, calc(2 * var(--inv-cell) + var(--inv-gap))); }
-  .inv-root .inv-layout.is-catalog { gap: 16px; }
+  .inv-root .inv-layout.is-catalog { --inv-panel-gap: 16px; }   /* `gap` 과 창고 이음매가 함께 따라온다 */
 }
 @media (max-width: 1360px) {
   .inv-panel-catalog { width: 296px; }

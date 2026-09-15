@@ -51,7 +51,7 @@ One line per csv. "Loader" is the parsing module under `src/`; values usually ta
 | `samples.csv` | Unidentified specimens: `family` (`cell` \| `mineral` \| `dna`), base analysis hours, fallback reward, `retired` | `items/ItemDefs.ts` |
 | `analysis_results.csv` | Analyzer result table: family × `minLevel` × output × qty × weight | `shared/housing.ts` |
 | `sockets.csv` | Permanent soil/medium sockets: target, effect, amount | `items/ItemDefs.ts` |
-| `meals.csv` | Meals: `tier` and `effects` (`buff:amount` list; tier n = n lines), `retired` | `items/ItemDefs.ts` |
+| `meals.csv` | Meals (not items — a finished cook is a dining plate): `tier` and `effects` (`buff:amount` list; tier n = n lines), `retired`; `stackMax` · `value` · `weight` are unread leftovers | `shared/meals.ts` |
 | `cook_steps.csv` | Cooking minigame steps per meal (`order`, `game`, `items`, `liquid`, `targetMl`) | `shared/cooking.ts` |
 | `cook_grill.csv` | Grill cook time per ingredient (default `COOK_GRILL_DEFAULT_S`) | `shared/cooking.ts` |
 | `library_series.csv` | Library series (book / video / record): volumes, planets, effect lines at full series, rarity, skill. Media items are generated from these rows | `shared/library.ts`, `items/ItemDefs.ts` |
@@ -85,7 +85,7 @@ One line per csv. "Loader" is the parsing module under `src/`; values usually ta
 
 | File | What it holds | Loader |
 |---|---|---|
-| `enemies.csv` | Enemy base stats per type, `faction`, `stepSound` (bugs, humanoid factions, named, tutorial-only types) | `enemies/EnemyTypes.ts` (also `meta/Rules.ts`, `meta/NpcRules.ts`) |
+| `enemies.csv` | Enemy base stats per type, `faction`, `stepSound`, `raidXp` (character XP per kill at raid end — the only raid XP source; not extracted × `XP_DEATH_MUL`) (bugs, humanoid factions, named, tutorial-only types) | `enemies/EnemyTypes.ts` (also `meta/Rules.ts`, `meta/NpcRules.ts`) |
 | `enemy_abilities.csv` | Ability/AI blocks (`block,key,value`): leap, acid, charge, artillery, humanoid AI, `HUMANOID_WEAPONS` | `enemies/EnemyTypes.ts` |
 | `loot_tiers.csv` | Crate tiers: item count, rarity weights, weapon chance, stack/ammo fractions | `items/LootTables.ts` |
 | `loot_category_weights.csv` | Crate category weights per tier (loot category axis, see `LootCategory`) | `items/LootTables.ts` |
@@ -96,7 +96,7 @@ One line per csv. "Loader" is the parsing module under `src/`; values usually ta
 | `loot_factions.csv` | Humanoid faction corpses: gun grades, armor/bag/heal chance, pool and rarity, gear durability | `items/LootTables.ts` |
 | `loot_faction_sites.csv` | Spawn-site bonuses for faction corpses (`grades` \| `item` \| `seed`) | `items/LootTables.ts` |
 | `loot_named.csv` | Named rogue guaranteed drops (ignores planet curves; durability is `NAMED_LOOT_DURABILITY_*`) | `items/LootTables.ts` |
-| `planet_loot.csv` | Per-planet-rank curves: gun grade weights `g1..g5`, `uniqueMul`, and non-gun rarity multipliers `rareMul`/`epicMul`/`legMul` | `items/LootTables.ts` |
+| `planet_loot.csv` | Per-planet-rank curves: gun grade weights `g1..g5`, `uniqueMul`, non-gun rarity weight multipliers `rareMul`/`epicMul`/`legMul`, and the epic+ gate `epicPlusMul` (lab locked rooms exempt) | `items/LootTables.ts` |
 
 ### World, ship, planets
 
@@ -183,8 +183,12 @@ Use a formula whenever the same number is also used by code, so that one edit mo
   editing a line also changes past conversations.
 - **Loot draw order**: adding rows to a corpse/crate table shifts rng consumption for that table; seeded tests that count fixed
   rolls may change.
-- **Two loot axes**: `planet_loot.csv` `g1..g5` shapes gun grades only; `loot_tiers.csv` rarity weights (scaled by
-  `rareMul`/`epicMul`/`legMul`) shape everything else. `node scripts/check-planet-loot.mjs` prints the resulting odds.
+- **Two loot axes plus a gate**: `planet_loot.csv` `g1..g5` shapes gun grades only; `loot_tiers.csv` rarity weights (scaled by
+  `rareMul`/`epicMul`/`legMul`) shape everything else. Those weight multipliers cancel in guaranteed picks (`loot_guaranteed.csv`)
+  whose candidates all sit above the scaled rarities. `epicPlusMul` is applied to *results* instead: any epic/legendary outcome — crate
+  pick of any kind, gun grade IV–V, unique, corpse row, named drop — survives with that probability and otherwise drops to the best
+  rarity below epic in the same pool, so it really scales the epic+ rate. Lab locked-room containers (`structures.csv` `lockedTiers`)
+  skip the gate. `node scripts/check-planet-loot.mjs` prints the resulting odds.
 
 ### Back-solving a crate share (`역산 절차`)
 

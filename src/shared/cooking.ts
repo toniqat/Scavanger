@@ -267,10 +267,15 @@ export interface CookResult {
   score: number;
   /** `mealQualityForScore(score)`. */
   quality: number;
-  /** 만들어진 요리 인스턴스 uid, 실패면 null. */
+  /** 만들어진 요리 인스턴스 uid, 실패면 null. 2026-09-16 (접시 모델): 요리는 아이템이 아니므로 **늘 null** 이다. */
   itemUid: string | null;
-  /** 어디로 갔나 (창고 먼저). 실패면 null. */
-  landed: 'bag' | 'stash' | null;
-  /** 실패 사유 (재료가 사라졌다 · 자리가 없다), 성공이면 null. */
+  /**
+   * 어디로 갔나. 실패면 null. 2026-09-16 (접시 모델, 사용자 결정): 요리는 식탁의 접시가 되므로 성공이면 **늘 `'table'`** 이다
+   * (`'bag'` · `'stash'` 는 옛 아이템 요리의 값 — 계약이라 남긴다).
+   */
+  landed: 'bag' | 'stash' | 'table' | null;
+  /** 실패 사유 (재료가 사라졌다 · 식탁이 없다), 성공이면 null. */
   reason: string | null;
+  /** appended (2026-09-16): 이번 요리로 식탁에서 치운 옛 접시 (먹었든 안 먹었든), 없었으면 null · 생략. */
+  replaced?: { mealDefId: string; quality: number } | null;
 }

@@ -15,6 +15,7 @@ import { SharedShip } from '../interiors/SharedShip';
 import type { StationDef } from '../interiors/stations';
 import type { ShipInterior } from '../interiors/types';
 import { FurnitureLayer } from '../interiors/Furniture';
+import { TablePlates } from '../interiors/TablePlates';   // 2026-09-16 접시 모델 — 공유 함선 식탁의 분대원 접시
 import { roomAtWorld } from '../interiors/RoomLayout';
 import { HousingMode } from '../HousingMode';
 import { LaunchPod } from '../LaunchPod';
@@ -136,6 +137,11 @@ export function buildStations(sys: HubSystem, interior: ShipInterior): void {
    * `null` 이 곧 「공유 함선의 고정 식탁」이다 (uid 가 없다). 개인 함선에는 `diningTable` 자체가 없다.
    */
   if (s.diningTable) sys.addStation('hub_dining_table', s.diningTable, '식탁 · 식사', () => openDiningTable(sys.ctx, null), 2.4);
+  // 2026-09-16 (접시 모델, 사용자 결정): 그 식탁에는 분대원 전원의 접시가 놓인다 — 식기 자리마다 요리 모양 + 요리한 사람 이름표
+  if (s.diningTable && s.diningPlates?.length) {
+    sys.tablePlates?.dispose();
+    sys.tablePlates = new TablePlates(sys.ctx, interior.root, s.diningPlates, s.diningTable.yaw);
+  }
   }
 
 /**
@@ -406,6 +412,7 @@ export function disposeInterior(sys: HubSystem): void {
   sys.stationIds.length = 0;
   sys.terminal?.dispose(); sys.terminal = null;
   sys.computer?.dispose(); sys.computer = null;
+  sys.tablePlates?.dispose(); sys.tablePlates = null;   // 2026-09-16: 공유 함선 식탁의 접시 (인테리어보다 먼저 — 그 root 에 붙어 있다)
   sys.interior?.dispose(); sys.interior = null;
   sys.collider = null;
   sys.ship = null;

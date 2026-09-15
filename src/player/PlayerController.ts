@@ -192,6 +192,17 @@ export class PlayerController {
    * 공중 조작이 깎지 않는다 (`update` 의 수평 속도 절). 바주카 로켓 점프의 「더 멀리」 가 여기 기댄다.
    */
   private airCarry = false;
+  /**
+   * 2026-09-16 (운반 숙련 버그 — 사용자 결정 「제 힘으로 움직인 거리만」): 이번 `update` 에서 **몸이 제 힘으로** 옮긴 수평 거리(m).
+   * 매 `update` · `updateClimb` 첫 줄에서 0 으로 시작한다. 세는 것: 걷기 · 달리기 · 앉아/엎드려 이동 · 구르기 · 제 발로 뛴 점프.
+   * 세지 않는 것 — 차량 발판이 옮긴 몫 · 하차 관성(`updateRide` 가 적분 **전에** 더하므로 측정 구간 밖), 갈고리 견인,
+   * 남이 준 임펄스(점프대 · 바주카 · 넉백 — `airCarry`) 와 낙하 면제가 선 공중(갈고리 놓은 뒤 · 대시 · 사다리 놓기 등 —
+   * `fallExempt`), 함선 실내 · 탈출선 화물칸, 이 함수 밖에서 위치를 쓰는 모든 것(순간이동 · 대시 · 부활 · 탑승 부착).
+   * 이번 프레임에 제 힘으로 낼 수 있는 속도(`targetSpeed`, 구르는 중이면 구르기 속도)를 넘는 몫도 세지 않는다 —
+   * 경사 미끄럼 · 땅 위 넉백이 입력 없이 거리를 만들지 못한다. 벽에 막힌 걸음은 실제로 움직인 만큼(0)만 센다.
+   * 그 밖의 몸 상태(드론 조종 · 포드 · 부착 등)는 `PlayerSystem.update` 가 누산하기 전에 거른다.
+   */
+  selfMoved = 0;
 
   get crouching(): boolean { return this.stance === 'crouch'; }
   get prone(): boolean { return this.stance === 'prone'; }
@@ -263,6 +274,7 @@ export class PlayerController {
   updateClimb(dt: number, inp: ClimbInput, out: MoveResult): void {
     out.footstep = false; out.landed = 0; out.jumped = false; out.rollEnded = false;
     out.rung = false; out.climbEnded = null; out.fallHeight = 0;
+    this.selfMoved = 0;   // 2026-09-16: 사다리는 수직 이동뿐 — 운반 거리에 들지 않는다
     const l = this.climbLadder;
     if (!l || dt <= 0) return;
     const pos = this.position, vel = this.velocity;
@@ -526,9 +538,14 @@ export class PlayerController {
   update(dt: number, inp: MoveInput, yaw: number, world: WorldRef | null, out: MoveResult): void {
     out.footstep = false; out.landed = 0; out.jumped = false; out.rollEnded = false;
     out.rung = false; out.climbEnded = null; out.fallHeight = 0;
+    this.selfMoved = 0;
     if (dt <= 0) return;
     const pos = this.position, vel = this.velocity;
     this.stance = inp.stance;
+    // 2026-09-16 (`selfMoved`): 프레임 **시작** 의 상태로 가른다 — 착지 프레임의 이동도 공중에서 한 것이고, 프레임 사이에
+    //   들어온 임펄스 · 대시(`exemptFall`)도 여기서 잡힌다. 구르기는 이번 프레임 안에서 끝날 수 있어 시작 값을 쓴다.
+    const selfTainted = this.airCarry || this.fallExempt || this.grappleTarget !== null;
+    const rollingAtStart = this.rolling;
 
     // ── wish direction (camera relative)
     const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
@@ -647,6 +664,7 @@ export class PlayerController {
     // ── 차량 탑승 (2026-09-10): 차량이 이번 프레임에 옮겨 간 만큼 몸을 먼저 옮긴다. `vel` 은 손대지 않는다.
     this.updateRide(dt, world);
     const feetBefore = pos.y;
+    const selfX = pos.x, selfZ = pos.z;   // 2026-09-16: 차량 몫 · 하차 관성을 더한 **뒤** — 여기서부터가 몸의 몫이다
 
     // ── integrate
     pos.x += vel.x * dt;
@@ -718,6 +736,13 @@ export class PlayerController {
 
     // 이번 프레임의 최종 자리를 **차량 좌표로 다시 적어 둔다** — 다음 프레임에 차량의 새 변환으로 푼다.
     this.recordRide();
+
+    // ── 제 힘으로 움직인 거리 (2026-09-16, 운반 숙련 — 필드 `selfMoved` 의 주석)
+    if (!selfTainted && !this.grappleTarget && !this.interior && !this.shipBounds) {
+      const own = Math.hypot(pos.x - selfX, pos.z - selfZ);
+      const cap = (rollingAtStart ? ROLL_SPEED : targetSpeed) * dt;
+      this.selfMoved = Math.min(own, Math.max(0, cap));
+    }
 
     // ── stride / footsteps
     this.speed = Math.hypot(vel.x, vel.z);

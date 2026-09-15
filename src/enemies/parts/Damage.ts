@@ -17,7 +17,7 @@ import {
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from '../Enemy';
-import { ROGUE_AI, SPEWER_SPIT, baseTypeOf, isWormType } from '../EnemyTypes';
+import { ROGUE_AI, SPEWER_SPIT, baseTypeOf, isWormType, raidXpOf } from '../EnemyTypes';
 import { SpatialGrid } from '../SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from '../Targets';
 import { SUSPICION_TIME, updateEnemyAI } from '../ai/EnemyAI';
@@ -602,7 +602,11 @@ export function onEnemyKilled(sys: EnemySystem, e: Enemy, countKill: boolean): v
   const by: string | null = localKill ? 'local' : e.lastDamager === 'ai' ? null : e.lastDamager;
   // only our own kills bump the local counters: a remote killer counts it on its own client (from the `kill` event /
   // a `hitc`), an AI kill is credited to nobody and never reaches the bus.
-  if (countKill && localKill) ctx.stats.kills++;
+  if (countKill && localKill) {
+    ctx.stats.kills++;
+    // 2026-09-16: 레이드 경험치는 처치로만 — 종류별 `enemies.csv` raidXp 를 킬과 같은 조건에서 쌓는다 (정산은 `game/parts/Death.awardMissionXp`)
+    ctx.stats.killXp = (ctx.stats.killXp ?? 0) + raidXpOf(e.type);
+  }
   // 2026-09-14: `weaponClass` = 내 막타가 총기였으면 그 계열 (NPC 퀘스트 kill 목표 — `shared/damageSource`)
   if (countKill && by !== null) ctx.bus.emit('enemy:killed', { id: e.id, type: e.type, position: e.position, by, deathDir: e.deathDir, ...(localKill ? { weaponClass: e.lastLocalWeaponClass } : {}) });
   // 2026-09-11: 로든의 스캔 드론은 기계다 — 비명 · 피 대신 파괴음 · 불꽃

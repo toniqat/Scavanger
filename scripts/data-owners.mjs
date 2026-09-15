@@ -17,8 +17,8 @@
 
 /** csv 를 읽는 모듈 전부 (vite 경로). */
 export const DATA_OWNERS = [
-  '/src/shared/index.ts',        // constants · tables · meta · housing · planetDefs
-  '/src/items/ItemDefs.ts',      // items · ammo · attachments · bags · seeds · samples · sockets · meals · library_series(아이템 열) · game_consoles · game_discs · armor · implants
+  '/src/shared/index.ts',        // constants · tables · meta · housing · planetDefs · meals (2026-09-16 — 요리는 아이템이 아니다, shared/meals)
+  '/src/items/ItemDefs.ts',      // items · ammo · attachments · bags · seeds · samples · sockets · library_series(아이템 열) · game_consoles · game_discs · armor · implants
   '/src/items/WeaponStats.ts',   // tuning (반동 · 조준 계수)
   '/src/items/LootTables.ts',    // loot_*
   '/src/items/Recipes.ts',       // recipes
@@ -58,8 +58,9 @@ export const CSV_FOLDERS = {
   // 2026-09-13 (요리 재료 티어): 분석기 결과표는 shared/housing 이 읽고 housing/(분석기) 이 굴린다 · 소켓은 items/ 가 정의하고 housing/ 이 끼운다
   'analysis_results.csv':    ['housing'],
   'sockets.csv':             ['items', 'housing'],
-  // 2026-09-11 (A-3c): 요리는 items/ 가 정의하고 housing/(식탁) · progression/(식사 버프) 이 소비한다
-  'meals.csv':               ['items', 'housing', 'progression'],
+  // 2026-09-11 (A-3c): 요리는 housing/(식탁 · 조리대) · progression/(식사 버프) 이 소비한다.
+  // 2026-09-16 (접시 모델): 표는 shared/meals 가 읽고(아이템이 아니다) hub/(식탁 위 접시 모양) · ui/(버프 썸네일 · 툴팁) 도 소비한다
+  'meals.csv':               ['housing', 'progression', 'hub', 'ui'],
   // 2026-09-13 (요리 미니게임): 단계표 · 굽기 시간은 shared/cooking 이 읽고 housing/(조리대 화면 · 판정) 이 쓴다 · 툴팁의 단계 줄은 ui/
   'cook_steps.csv':          ['housing', 'ui'],
   'cook_grill.csv':          ['housing'],

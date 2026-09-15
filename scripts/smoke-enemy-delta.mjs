@@ -5,7 +5,7 @@
 // Usage: node scripts/smoke-enemy-delta.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const BASE = process.argv[2] ?? 'http://localhost:5273/';
 const CHROME = [
@@ -312,7 +312,8 @@ try {
     net.send = origSend; off();
     window.__stepSeq = 5101;
     window.__steps = [];
-    window.__stepOff = ctx.bus.on('audio:play', (a) => { if (a.id.startsWith('footstep_') && a.position) window.__steps.push({ id: a.id, v: a.volume, x: a.position.x }); });
+    // 2026-09-16: 벌레 발소리는 전용 id(`bug_step_*`) — 재질 발소리와 함께 모아 섞이지 않았는지 본다
+    window.__stepOff = ctx.bus.on('audio:play', (a) => { if ((a.id.startsWith('footstep_') || a.id.startsWith('bug_step_')) && a.position) window.__steps.push({ id: a.id, v: a.volume, x: a.position.x }); });
     return r;
   });
   ok(cRep.replica && cRep.push.n === 2 && cRep.push.msgs.length === 2 && cRep.push.msgs.every((m) => m.dmg === 0 && m.kb > 0 && m.kb <= 6 && m.to === 'host' && Math.abs(m.d[2] - 1) < 1e-3),
@@ -323,19 +324,26 @@ try {
   ok(!cRep.biteHammer.includes('bug_attack') && cRep.biteWarrior.includes('bug_attack'),
     `C-51: 리플리카 ee attack — 타길라는 bug_attack 을 내지 않는다 (${cRep.biteHammer} / ${cRep.biteWarrior})`);
   // 리플리카 전사를 4 m/s 로 걷게 한다 — 호스트처럼 0.1 s 마다 keyframe
+  // 2026-09-16: 벌레 발소리는 가까이서만(`BUG_STEP_RANGE_M` 22 m) — 카메라 옆 (10, 10) 에서 걷게 한다 (첫 keyframe 은 순간이동이라 걸음 없음)
   for (let i = 1; i <= 20; i++) {
     await P((k) => {
       const ctx = window.__game.ctx; const pp = ctx.player.position;
-      const x = pp.x + 30 + k * 0.4, y = ctx.world.getHeightAt(x, pp.z + 30);
-      window.__sys.debugApplySnapshot({ t: 'es', seq: ++window.__stepSeq, full: true, e: [{ id: 9101, ty: 'warrior', p: [x, y, pp.z + 30], yaw: Math.PI / 2, hp: 640, st: 'wander' }] });
+      const x = pp.x + 10 + k * 0.4, y = ctx.world.getHeightAt(x, pp.z + 10);
+      window.__sys.debugApplySnapshot({ t: 'es', seq: ++window.__stepSeq, full: true, e: [{ id: 9101, ty: 'warrior', p: [x, y, pp.z + 10], yaw: Math.PI / 2, hp: 640, st: 'wander' }] });
     }, i);
     await waitSim(0.1);
   }
-  const steps = await P(() => { window.__stepOff(); return window.__steps; });
-  ok(steps.length >= 2 && steps.every((s) => /^footstep_[a-z]+$/.test(s.id)),
-    `C-23 · X-3 · C-22: 걷는 리플리카 전사가 재질 발소리를 낸다 (${steps.length}걸음, ${[...new Set(steps.map((s) => s.id))].join(',')})`, JSON.stringify(steps.slice(0, 4)));
-  ok(steps.length >= 1 && steps.every((s) => Math.abs(s.v - 0.55) < 1e-6),
-    `C-23: 방출부 볼륨 = 타입 밑값(전사 0.55) — 거리 선형 감쇠를 곱하지 않는다 (${[...new Set(steps.map((s) => s.v))].join(',')})`);
+  // 걸음을 다 모았으면 빈 keyframe 으로 전사를 치운다 (keyframe 은 목록에 없는 적을 쓸어낸다) — 곁에 남으면 승격 뒤 권위 AI 가
+  // 다가와 뒤의 배리어 검사 사격선(+x 10 m)을 막는다. 9101 은 이 뒤로 쓰지 않는다.
+  const steps = await P(() => {
+    window.__stepOff();
+    window.__sys.debugApplySnapshot({ t: 'es', seq: ++window.__stepSeq, full: true, e: [] });
+    return window.__steps;
+  });
+  ok(steps.length >= 2 && steps.every((s) => s.id === 'bug_step_heavy'),
+    `C-23 · X-3 · C-22: 걷는 리플리카 전사가 벌레 발소리(bug_step_heavy)를 내고 재질 발소리는 내지 않는다 (${steps.length}걸음, ${[...new Set(steps.map((s) => s.id))].join(',')})`, JSON.stringify(steps.slice(0, 4)));
+  ok(steps.length >= 1 && steps.every((s) => Math.abs(s.v - 0.7) < 1e-6),
+    `C-23: 방출부 볼륨 = 타입 밑값(전사 0.7, 혼자라 1/√n = 1) — 거리 선형 감쇠를 곱하지 않는다 (${[...new Set(steps.map((s) => s.v))].join(',')})`);
 
   /* ── promotion: the new host's first snapshot is a keyframe past the replica seq ── */
   console.log('promotion → keyframe');
@@ -418,18 +426,22 @@ try {
   console.log('C batch (host): enemy footsteps near the camera (C-23)');
   const stepHost = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const pp = ctx.player.position;
-    const e = sys.debugSpawn('warrior', { x: pp.x + 18, z: pp.z + 18 }, false);
+    // 2026-09-16: 벌레 발소리 사거리(22 m) 안에서 걷게 한다 — 뒤의 배리어 검사(로그가 +x 10 m 에서 쏜다)와 겹치지 않게 −x 쪽 (−10, 6) → z +18
+    const e = sys.debugSpawn('warrior', { x: pp.x - 10, z: pp.z + 6 }, false);
     if (!e) return null;
     e.state = 'wander'; e.stateTime = 0; e.hasMoveTarget = true;
-    e.moveTarget.set(pp.x + 18, 0, pp.z + 40);
+    e.moveTarget.set(pp.x - 10, 0, pp.z + 18);
     window.__hostSteps = [];
-    window.__hostStepOff = ctx.bus.on('audio:play', (a) => { if (a.id.startsWith('footstep_') && a.position) window.__hostSteps.push({ id: a.id, v: a.volume }); });
+    window.__hostStepOff = ctx.bus.on('audio:play', (a) => { if ((a.id.startsWith('footstep_') || a.id.startsWith('bug_step_')) && a.position) window.__hostSteps.push({ id: a.id, v: a.volume }); });
     return { id: e.id };
   });
   await waitSim(2.5);
-  const hostSteps = await P((id) => { window.__hostStepOff(); const e = window.__sys.active.find((x) => x.id === id); if (e && !e.isDead) e.kill(false); return window.__hostSteps; }, stepHost?.id);
-  ok(hostSteps.length >= 1 && hostSteps.every((s) => Math.abs(s.v - 0.55) < 1e-6),
-    `C-23: 권위 적 발소리 = footstep_<재질> · 볼륨은 타입 밑값 (${hostSteps.length}걸음, ${[...new Set(hostSteps.map((s) => `${s.id}@${s.v}`))].join(',')})`);
+  // 몸까지 치운다 (예전엔 25 m 밖이라 시체가 남아도 뒤 검사와 무관했다)
+  const hostSteps = await P((id) => { window.__hostStepOff(); const sys = window.__sys; const e = sys.active.find((x) => x.id === id); if (e && !e.isDead) e.kill(false); if (e && typeof sys.despawn === 'function') sys.despawn(e); return window.__hostSteps; }, stepHost?.id);
+  // 볼륨 = 타입 밑값 0.7 × 1/√n (n = 들리는 거리에서 방금 걸은 벌레 수 — 다른 벌레가 곁에서 걸으면 n ≥ 2). 거리 선형 감쇠는 없다.
+  const crowdOk = (v) => { const n = Math.round((0.7 / v) ** 2); return n >= 1 && Math.abs(v - 0.7 / Math.sqrt(n)) < 1e-6; };
+  ok(hostSteps.length >= 1 && hostSteps.every((s) => s.id === 'bug_step_heavy' && crowdOk(s.v)),
+    `C-23: 권위 벌레 발소리 = bug_step_heavy · 볼륨은 타입 밑값 × 1/√n (${hostSteps.length}걸음, ${[...new Set(hostSteps.map((s) => `${s.id}@${s.v}`))].join(',')})`);
 
   /* ── burn credit ──────────────────────────────────────────────────────── */
   console.log('burn credit (applyStatus attacker → enemy:killed.by)');
@@ -442,14 +454,15 @@ try {
     window.__ev['enemy:killed'].length = 0;
     const kills0 = ctx.stats.kills;
     sys.applyStatus(e.id, 'burning', 1000, 3, 'peer-x');
-    return { id: e.id, attacker: e.burnAttacker, kills0, lastDamager: e.lastDamager };
+    return { id: e.id, attacker: e.burnAttacker, kills0, killXp0: ctx.stats.killXp ?? 0, lastDamager: e.lastDamager };
   });
   ok(burn0 && burn0.attacker === 'peer-x', `applyStatus(..., 'peer-x') stores burnAttacker (${burn0?.attacker})`);
   const burnKill = await untilSim((id) => { const e = window.__sys.find(id); return !e || !e.active || e.state === 'dead'; }, 3, burn0.id);
   ok(burnKill, 'the burn DoT kills the enemy');
-  const burn1 = await P((a) => { const ctx = window.__game.ctx; const ev = window.__ev['enemy:killed'].filter((k) => k.id === a.id); return { ev, kills: ctx.stats.kills }; }, burn0);
+  const burn1 = await P((a) => { const ctx = window.__game.ctx; const ev = window.__ev['enemy:killed'].filter((k) => k.id === a.id); return { ev, kills: ctx.stats.kills, killXp: ctx.stats.killXp ?? 0 }; }, burn0);
   ok(burn1.ev.length === 1 && burn1.ev[0].by === 'peer-x', `enemy:killed.by === 'peer-x' (${JSON.stringify(burn1.ev[0])})`);
   ok(burn1.kills === burn0.kills0, `a remote credit does not bump ctx.stats.kills (${burn0.kills0} → ${burn1.kills})`);
+  ok(burn1.killXp === burn0.killXp0, `2026-09-16: a remote credit adds no raid XP (killXp ${burn0.killXp0} → ${burn1.killXp})`);
   const burn2 = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys;
     const pp = ctx.player.position;
@@ -459,12 +472,47 @@ try {
     const kills0 = ctx.stats.kills;
     // the local player's own id (other folders pass `ctx.net?.localId ?? 'local'`) — folded back to 'local'
     sys.applyStatus(e.id, 'burning', 1000, 3, ctx.net?.localId ?? 'local');
-    return { id: e.id, attacker: e.burnAttacker, kills0 };
+    return { id: e.id, attacker: e.burnAttacker, kills0, killXp0: ctx.stats.killXp ?? 0 };
   });
   ok(burn2 && burn2.attacker === 'local', `the local player's own id is normalized to 'local' (${burn2?.attacker})`);
   await untilSim((id) => { const e = window.__sys.find(id); return !e || !e.active || e.state === 'dead'; }, 3, burn2.id);
-  const burn3 = await P((a) => { const ctx = window.__game.ctx; const ev = window.__ev['enemy:killed'].filter((k) => k.id === a.id); return { ev, kills: ctx.stats.kills }; }, burn2);
+  const burn3 = await P((a) => { const ctx = window.__game.ctx; const ev = window.__ev['enemy:killed'].filter((k) => k.id === a.id); return { ev, kills: ctx.stats.kills, killXp: ctx.stats.killXp ?? 0 }; }, burn2);
   ok(burn3.ev.length === 1 && burn3.ev[0].by === 'local' && burn3.kills === burn2.kills0 + 1, `a local burn kill counts and reports by 'local' (${JSON.stringify(burn3.ev[0])}, kills ${burn2.kills0} → ${burn3.kills})`);
+
+  /* ── 2026-09-16: raid XP per kill = data/enemies.csv `raidXp` (authority + replica kill sites) ── */
+  const RAID_XP = (() => {
+    const rows = readFileSync(new URL('../data/enemies.csv', import.meta.url), 'utf8').split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+    const hdr = rows[0].split(','); const col = hdr.indexOf('raidXp');
+    const of = (type) => Number(rows.find((l) => l.startsWith(`${type},`))?.split(',')[col]);
+    return { col, scavenger: of('scavenger'), hunter: of('hunter') };
+  })();
+  ok(RAID_XP.col >= 0 && RAID_XP.scavenger > 0 && RAID_XP.hunter > 0, `enemies.csv has a raidXp column (scavenger ${RAID_XP.scavenger}, hunter ${RAID_XP.hunter})`);
+  ok(burn3.killXp === burn2.killXp0 + RAID_XP.scavenger, `authority: a local scavenger kill adds its csv raidXp to ctx.stats.killXp (${burn2.killXp0} → ${burn3.killXp}, +${RAID_XP.scavenger})`);
+  const repKill = await P(() => {
+    const ctx = window.__game.ctx; const sys = window.__sys;
+    const net = ctx.net;
+    if (!net || !sys.replicaMgr) return { skipped: true };
+    // solo has no peer id: shadow `localId` for this synchronous call only (no frame runs in between)
+    const had = Object.prototype.hasOwnProperty.call(net, 'localId');
+    const desc = had ? Object.getOwnPropertyDescriptor(net, 'localId') : null;
+    Object.defineProperty(net, 'localId', { value: 'smoke-me', configurable: true, writable: true });
+    const k0 = ctx.stats.kills, x0 = ctx.stats.killXp ?? 0;
+    let mine = null, theirs = null;
+    try {
+      sys.replicaMgr.onEvent({ t: 'ee', ev: 'kill', id: 987654, ty: 'hunter', p: [0, 0, 0], killer: 'smoke-me' });
+      mine = { kills: ctx.stats.kills - k0, xp: (ctx.stats.killXp ?? 0) - x0 };
+      sys.replicaMgr.onEvent({ t: 'ee', ev: 'kill', id: 987655, ty: 'hunter', p: [0, 0, 0], killer: 'peer-z' });
+      sys.replicaMgr.onEvent({ t: 'ee', ev: 'kill', id: 987656, ty: 'hunter', p: [0, 0, 0], killer: null });
+      theirs = { kills: ctx.stats.kills - k0, xp: (ctx.stats.killXp ?? 0) - x0 };
+    } finally {
+      if (desc) Object.defineProperty(net, 'localId', desc); else delete net.localId;
+    }
+    return { mine, theirs };
+  });
+  ok(!repKill.skipped && repKill.mine?.kills === 1 && repKill.mine?.xp === RAID_XP.hunter,
+    `replica: ee kill with killer === localId adds kills 1 + hunter raidXp ${RAID_XP.hunter}`, JSON.stringify(repKill));
+  ok(!repKill.skipped && repKill.theirs?.kills === 1 && repKill.theirs?.xp === RAID_XP.hunter,
+    'replica: a squad-mate kill / AI kill adds neither kills nor raid XP', JSON.stringify(repKill));
   const burn4 = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys;
     const pp = ctx.player.position;

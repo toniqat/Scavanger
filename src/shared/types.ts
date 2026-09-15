@@ -1790,7 +1790,10 @@ export type LaunchWarningId =
   | 'noMeal'
   /* appended (2026-09-12, 사용자 결정): 수락한 기업 계약 없이 나가려 한다 (`ctx.meta.activeContract` 가 null).
    * 역시 **경고일 뿐 막지 않는다** — 계약 없이 도는 레이드도 정상이지만, 한 판을 통째로 날리기 전에 한 번은 묻는다. */
-  | 'noContract';
+  | 'noContract'
+  /* appended (2026-09-16, 접시 모델 — 사용자 결정): 식탁에 먹지 않은 접시가 있는데 이미 다른 식사를 실어 두었다 — 출격하면 그 접시는
+   * 치워진다 (`HousingRef.getPlate`). 접시만 있고 식사가 없으면 `noMeal` 이 「식탁의 요리를 먹지 않았습니다」로 말한다. 막지 않는다. */
+  | 'plateDiscard';
 
 /** One reason the launch check raised. Both strings are 한국어 and ready to render. */
 export interface LaunchWarning {
@@ -1935,8 +1938,9 @@ export interface WorldRef {
 
 /* ── 사망한 플레이어의 시체 (owner: game/parts/Corpses, 게시: `ctx.corpses`) ───────────────────────────── */
 /**
- * 한 구의 시체. **레이드가 끝날 때까지 사라지지 않는다** — 적 시체의 `CORPSE_LIFETIME` 도, 거리 컬링도
- * 적용되지 않는다 (사용자 결정: 최적화 대상에서 제외).
+ * 한 구의 시체. 적 시체의 `CORPSE_LIFETIME` 도, 거리 컬링도 적용되지 않는다 (사용자 결정: 최적화 대상에서 제외).
+ * 2026-09-16 (사용자 결정): **아이템이 하나도 없으면 사라진다** — 빈손으로 섰거나 다 털린 시체는 `CORPSE_EMPTY_REMOVE_DELAY_S`
+ * 뒤 `CORPSE_EMPTY_SINK_S` 동안 땅으로 가라앉고 치워진다 (상호작용 · 빛기둥 · 메시). 치운 id 는 레이드가 끝날 때까지 다시 서지 않는다.
  */
 export interface PlayerCorpse {
   /** `pcorpse:<ownerId>:<n>` — 같은 사람이 여러 번 죽으면 시체도 여러 구가 남는다. */
@@ -1965,6 +1969,12 @@ export interface CorpsesRef {
   attachCorpse?(id: string, parent: THREE.Object3D | null, local?: THREE.Vector3): boolean;
   /** 시체를 레이드에서 치운다 (함선에 실려 떠났다) — 상호작용 · 메시가 함께 사라지고 안의 아이템도 잃는다. */
   removeCorpse?(id: string): boolean;
+  /* ── appended (2026-09-16, 빈 시체 제거 — owner: game, caller: player/RemoteAvatar) ── */
+  /**
+   * 이번 레이드에 이 사람의 시체가 한 번이라도 섰는가 (빈 시체가 가라앉아 치워진 뒤에도 true). 죽은 분대원의 아바타를 감출지
+   * 가를 때 `latestOf` 대신 쓴다 — 시체가 사라졌다고 죽은 자세의 아바타가 다시 나타나면 안 된다. 미션 리셋에서 비워진다.
+   */
+  ownerHadCorpse?(ownerId: string): boolean;
 }
 
 /* ── 구조선 투하 (owner: stratagems/parts/Rescue) ─────────────────────────────────────────────────────── */
@@ -2239,7 +2249,13 @@ export interface LootRef {
    *
    * `rollCrate(tier, rng)` 는 그대로 남아 있고 `rollCrateOn(tier, rng, null)` 과 같은 결과를 준다.
    */
-  rollCrateOn(tier: number, rng: Random, planet: PlanetId | null): ItemInstance[];
+  rollCrateOn(tier: number, rng: Random, planet: PlanetId | null,
+    /**
+     * appended (2026-09-16): 이 컨테이너의 굴림 규칙 — 지금은 `lockedRoom`(연구실 잠긴 방 = 서사 이상 게이트 면제) 하나.
+     * 여는 경로 · 미리보기(드론 스캔 · 안드로이드 · 인벤토리 peek)가 **같은 값**을 넘겨야 결과가 같다 —
+     * 구조물 컨테이너의 값은 `WorldRef.crateLootOpts(id)` 가 답한다. 생략 = 보통 상자.
+     */
+    opts?: CrateLootOpts): ItemInstance[];
   /**
    * appended (2026-09-09): 시체(로그 · 보스)가 떨구는 무기의 등급도 같은 곡선으로 **상한**을 받는다.
    * `planet` 이 null 이면 `rollCorpse` 와 완전히 같다.
@@ -2247,6 +2263,26 @@ export interface LootRef {
   rollCorpseOn(type: EnemyType, rng: Random, rogueWeaponId: string | undefined, planet: PlanetId | null,
     /** appended (2026-09-13): 팩션 전리품의 입력 — 스폰 거점 · 던지지 못한 수류탄. 생략 = 예전 굴림. */
     opts?: CorpseLootOpts): ItemInstance[];
+}
+
+/* ── appended (2026-09-16): 서사 이상 드롭률 게이트 — 잠긴 방 예외 (owner: items/Loot · world/Structures) ──────────────── */
+/**
+ * `LootRef.rollCrateOn` 의 부가 인자. 행성의 `epicPlusMul`(`data/planet_loot.csv`)은 서사 · 전설이 나오는 비율을 줄이는데
+ * **연구실 2층 잠긴 방**(키카드로 여는 방) 컨테이너만은 예외다 (사용자 결정 2026-09-16 「잠긴 방은 지금 그대로」).
+ * 값은 world 가 정하고(`WorldRef.crateLootOpts`) 모든 굴림 경로가 그대로 넘긴다 — 시드 결정적이라 미리보기 ≡ 열기.
+ */
+export interface CrateLootOpts {
+  /** true = 연구실 잠긴 방 컨테이너 — 서사 이상 게이트를 건너뛴다 (행성의 등급 곡선 · 희귀도 배수는 그대로 탄다). */
+  lockedRoom?: boolean;
+}
+
+export interface WorldRef {
+  /**
+   * appended (2026-09-16): 인벤토리 컨테이너 id(`WorldRef.getLootContainers` 의 id — 명세 id, `container:` 없음)의
+   * 굴림 규칙 (`LootRef.rollCrateOn` 의 `opts`). 잠긴 방 컨테이너면 `{ lockedRoom: true }`, 그 밖(맵 상자 · 보급 상자 ·
+   * 모르는 id · 준비 전)은 undefined. inventory 의 여는 경로 · peek · 안드로이드 확정이 이 값을 그대로 넘긴다.
+   */
+  crateLootOpts?(containerId: string): CrateLootOpts | undefined;
 }
 
 /* ══ appended (2026-09-13): 행성별 적 팩션 — 안드로이드 · 로그 · 레이더 (owner: enemies · items · world) ═══════════
@@ -3093,6 +3129,18 @@ export interface InventoryRef {
 }
 /* ══ end 2026-09-13 요리 미니게임 ══ */
 
+/* ══ appended: 2026-09-16 — 식탁 접시 (요리는 아이템이 아니다, `shared/housing.ts` 의 접시 절; owner: inventory) ══
+ * 조리는 산출물을 만들지 않는다 — housing 이 식탁에 접시를 놓는다. inventory 가 하는 일은 재료를 빼는 것뿐이다.
+ * `completeCook` 은 계약이라 이름이 남지만 구현이 없다 (선택 메서드). `cookBlock` 은 자리(산출물 칸)를 더 보지 않는다. */
+export interface InventoryRef {
+  /**
+   * 조리 1회분 재료를 뺀다 (`cookBlock` 을 다시 보고, 가방 먼저 → 창고). 산출물은 없다. 한국어 사유 / null.
+   * 실패면 아무것도 빼지 않는다.
+   */
+  consumeCookInputs?(recipeId: string, benchLevel: number): string | null;
+}
+/* ══ end 2026-09-16 식탁 접시 ══ */
+
 /* ══ appended: 2026-09-13 — 탐사 차량 (rover). 사용자 결정은 이 머리 주석이 원본이다 ══════════════════════════════════════════
  * 병렬 에이전트마다 **자기 블록 안에만** 추가한다. 기존 선언은 이름 변경 · 삭제 금지.
  *
@@ -3450,6 +3498,15 @@ export interface MissionStats {
   death?: MissionDeathCause | null;
 }
 
+export interface MissionStats {
+  /**
+   * appended (2026-09-16, owner: enemies 가 쌓고 game 이 정산): 이번 레이드에서 **내 막타** 처치로 쌓인 경험치의 합 —
+   * 종류별 `data/enemies.csv` `raidXp`. `kills` 와 같은 자리 · 같은 조건에서 더한다 (안드로이드 분대원 · 팩션 처치는 0).
+   * 레이드 세션 blob · 솔로 저장은 `stats` 를 통째로 담으므로 재접속 · 이어하기에도 남는다. 생략 = 0.
+   */
+  killXp?: number;
+}
+
 export interface EnemyManagerRef {
   /**
    * appended (2026-09-15, owner: enemies; caller: ui 사망 결과 창): 그 종류 적의 **얼굴 썸네일** — 카메라를 향해 왼쪽 사선으로
@@ -3564,6 +3621,16 @@ export interface EnemyManagerRef {
 export interface PlayerRef {
   /** `snapshotFace` 의 안드로이드판 — 같은 프레이밍, 안드로이드 헬멧 · 바이저. 매칭 탭 · 발사 슬롯 · 분대 목록 초상. */
   snapshotAndroidFace?(opts: { accent: string; size?: number }): string | null;
+}
+
+export interface PlayerRef {
+  /**
+   * appended (2026-09-16, owner: player; reader: progression 운반 숙련): **제 힘으로** 움직인 수평 거리의 누적 주행계(m, 줄지 않는다).
+   * 걷기 · 달리기 · 앉아/엎드려 이동 · 기어가기 · 구르기 · 제 발로 뛴 점프만 오른다. 탈출선 · 함선 실내 · 부착, 드롭 포드 · 구조 강하,
+   * 전차 발판, 탐사 차량, 업혀 가기, 갈고리 · 대시, 점프대 · 로켓 점프 · 넉백, 순간이동 · 부활, 가구 자세 · 드론 조종 · 각본 잠금은
+   * 오르지 않는다. 읽는 쪽은 지난 값과의 차이만 쓴다 (여러 곳이 읽어도 서로 훔치지 않도록 소비형이 아니다).
+   */
+  readonly selfMovedMeters?: number;
 }
 
 export interface PortraitRef {

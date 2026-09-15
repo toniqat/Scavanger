@@ -136,15 +136,19 @@ export class Detection {
     return typeof r === 'number' && r > 0 ? r : DETECT_ENEMY_BASE_RADIUS;
   }
 
+  /** 2026-09-16: 이륙 연출이 남긴 HUD 의 몫 1 … 0 (`HudSystem.setCinematic`) — 빛기둥 불투명도에 곱하고 0 이면 숨는다. */
+  private cineK = 1;
+  setCinematicFade(k: number): void { this.cineK = k; }
+
   lateUpdate(dt: number, ctx: GameContext): void {
     const player = ctx.player;
     const active = ctx.isGameplayPhase() && !!player && !player.isDead
-      && !ctx.uiBlockers.has('menu') && !ctx.uiBlockers.has('map');
+      && !ctx.uiBlockers.has('menu') && !ctx.uiBlockers.has('map') && this.cineK > 0;
     if (!active) { if (this.visible) this.hideAll(); return; }
     this.visible = true;
     this.ensureScene();
     // Breathing on the material's own opacity (the vertex-colour ramp owns the vertical fade).
-    if (this.mat) this.mat.opacity = INTERACT_PILLAR_OPACITY * (0.85 + 0.3 * Math.sin(ctx.time * 3));
+    if (this.mat) this.mat.opacity = INTERACT_PILLAR_OPACITY * (0.85 + 0.3 * Math.sin(ctx.time * 3)) * this.cineK;
 
     this.scanTimer -= dt;
     if (this.scanTimer <= 0) {

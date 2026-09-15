@@ -1,46 +1,42 @@
-import type { EmbeddedView, GameContext, ItemDef, ItemInstance, MealBuff, MealDef, MealEffect } from '@/shared';
+import type { GameContext, MealBuff, MealDef, MealEffect, TablePlateInfo } from '@/shared';
 import {
-  MEAL_BUFF_LABEL_KO, MEAL_BUFF_UNIT, MEAL_TIER_LABEL_KO, buildItemChip, mealQualityBonus, mealQualityStars, normalizeMealQuality,
+  MEAL_BUFF_LABEL_KO, MEAL_BUFF_UNIT, MEAL_TIER_LABEL_KO, buildItemChip, getMealDef, mealQualityBonus, mealQualityStars, normalizeMealQuality,
 } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
 import { HousingPanel } from './Panel';
-import { buildStationShell, mountStationGrids } from './StationShell';
+import { buildStationShell } from './StationShell';
 import type { StationShell } from './StationShell';
 import { clear, el, setText, toggleClass } from './dom';
 
 /**
- * **식사 화면** (주방 A-3c, 2026-09-11 · 화면 개편 2026-09-12 — `openDiningTable(uid)` ← E on a 식탁; `uid` null = 공유
+ * **식사 화면** (주방 A-3c 2026-09-11 → **2026-09-16 접시 모델**, 사용자 결정 — `openDiningTable(uid)` ← E on a 식탁; `uid` null = 공유
  * 함선의 고정 식탁).
  *
- * 틀은 `StationShell` 공통이다 — 식탁은 레벨이 없어 **`Lv.` 표시와 업그레이드 버튼만 없다** (사용자 결정). 좌 패널 =
- * 지금 실린 식사(접시, 드롭 대상) + 가진 요리 목록, 우 패널 = 가방 · 함선 창고 격자. 제목 밑 설명 줄 · 「가방 · 함선
- * 창고」 라벨 · 안내문은 걷어냈다.
+ * 요리는 아이템이 아니다. 조리대에서 끝난 요리는 **식탁의 접시**가 되고(`HousingRef.getTablePlates`), 이 화면은 그 접시들과
+ * 「다음 레이드에 실린 식사」를 보여 준다. 격자 카드(창고 · 가방)는 없다 — 끌어다 놓을 요리 아이템이 없다.
  *
- * 규칙은 하나도 여기 없다 — 「먹기」는 `parts/Dining.eatMeal`(→ `ProgressionRef.useMeal` 에 **먼저 묻고** 성공할
- * 때만 아이템을 뺀다), 「분대에 차리기」는 `parts/Dining.serveMealToSquad` 다. 화면은 그 둘이 돌려주는 한국어
- * 사유를 메시지 줄에 그대로 옮긴다.
+ *   • 접시 한 장 = 칩(★n 배지) · 이름 · 별 · 티어 · 요리한 사람 · 능력치 줄(품질 보너스 반영) · 「먹기」.
+ *     개인 함선 식탁 = 내 접시 하나, 공유 함선 식탁 = 내 접시 + 분대원 접시(요리한 사람 이름).
+ *   • **먹어도 접시는 줄지 않는다** — 「먹기」는 `parts/Dining.eatPlate`(→ `ProgressionRef.useMeal`)이고, 이미 대기 식사가 그 요리 · 그 품질이면
+ *     버튼이 딤드되고 「먹음」 표시가 붙는다(`plateEatBlock`). 다른 접시를 먹으면 대기 식사가 **바뀐다**.
+ *   • 접시는 다음 레이드가 시작되면 치워진다 — 바닥 안내문이 그 규칙을 말한다.
  *
- * 버프 표기의 원본은 계약의 `MEAL_BUFF_LABEL_KO` · `MEAL_BUFF_UNIT` 한 쌍이다 — 「%」인 줄만 `amount × 100`
- * 이고, `durabilityLossMul` 처럼 음수인 줄은 그대로 「−n %」로 읽힌다 (장비 손상이 줄어든다는 뜻이다).
+ * 규칙은 하나도 여기 없다 — 화면은 `eatPlate` · `plateEatBlock` 이 돌려주는 한국어 사유를 그대로 옮긴다.
  *
- * 2026-09-13 (요리 재료 티어): 요리 하나의 버프에 능력치가 **여러 줄** 붙는다(`MealDef.effects`, T1 1 · T2 2 · T3 3 · T4 4).
- * 접시는 줄마다 한 줄, 목록은 티어 이름(`MEAL_TIER_LABEL_KO` — 옛 「일반 / 특선」 대신) 아래에 ` · ` 로 이어 전부 적는다.
- *
- * 2026-09-13 (요리 품질): 목록은 **(요리, 품질) 한 줄씩**이다(`getMealStacks`) — 칩 좌하단 `★n` 배지 + 이름 옆 별(`★★★☆☆`), 능력치는
- * 그 품질의 보너스를 곱한 값. 먹기 · 차리기 · 접시로 끌어다 놓기가 그 품질을 넘긴다. 접시는 실린 식사의 별(`getMealQuality`)을 보인다.
+ * 버프 표기의 원본은 계약의 `MEAL_BUFF_LABEL_KO` · `MEAL_BUFF_UNIT` 한 쌍이다 — 「%」인 줄만 `amount × 100` 이고, `durabilityLossMul` 처럼
+ * 음수인 줄은 그대로 「−n %」로 읽힌다 (장비 손상이 줄어든다는 뜻이다). 아래 텍스트 헬퍼는 조리대 화면 · 조리 오버레이도 쓴다.
  */
 export class DiningTable extends HousingPanel {
   /** null = 공유 함선의 고정 식탁 (가구가 아니라 uid 가 없다). */
   private uid: string | null = null;
   private readonly shell: StationShell;
-  private readonly plate: HTMLElement;
-  private readonly plateChip: HTMLElement;
-  private readonly plateName: HTMLElement;
-  private readonly plateBuff: HTMLElement;
-  private readonly plateNote: HTMLElement;
+  private readonly platesLabel: HTMLElement;
+  private readonly platesEl: HTMLElement;
+  private readonly mealCard: HTMLElement;
+  private readonly mealChip: HTMLElement;
+  private readonly mealName: HTMLElement;
+  private readonly mealBuff: HTMLElement;
   private readonly activeNote: HTMLElement;
-  private readonly listEl: HTMLElement;
-  private grids: EmbeddedView | null = null;
 
   constructor(ctx: GameContext, private readonly housing: HousingSystem) {
     super(ctx, 'dining', 'dining-table hs-station');
@@ -48,137 +44,134 @@ export class DiningTable extends HousingPanel {
     this.shell = buildStationShell(this.frame, {
       title: '식탁',
       upgrade: false,
+      inventory: false,                 // 2026-09-16: 요리는 아이템이 아니다 — 창고 · 가방 카드가 없다
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });
     const left = this.shell.left;
+    this.platesLabel = el('div', { cls: 'ui-label', text: '식탁에 차린 요리', parent: left });
+    this.platesEl = el('div', { cls: 'dt-plates', parent: left });
     el('div', { cls: 'ui-label', text: '다음 레이드에 실린 식사', parent: left });
-    // 접시 = 드롭 대상 (요리를 끌어다 놓으면 먹는다). `.dt-plate` 는 이 패널 전용 이름이다.
-    this.plate = el('div', { cls: 'dt-plate', parent: left });
-    this.plateChip = el('div', { cls: 'dt-plate-chip cook-dt-chip', parent: this.plate });
-    const pb = el('div', { cls: 'dt-plate-body', parent: this.plate });
-    this.plateName = el('div', { cls: 'dt-plate-name', text: '', parent: pb });
-    this.plateBuff = el('div', { cls: 'dt-plate-buff', text: '', parent: pb });
-    this.plateNote = el('div', { cls: 'dt-plate-note', text: '', parent: pb });
+    this.mealCard = el('div', { cls: 'dt-meal', parent: left });
+    this.mealChip = el('div', { cls: 'dt-plate-chip cook-dt-chip', parent: this.mealCard });
+    const mb = el('div', { cls: 'dt-plate-body', parent: this.mealCard });
+    this.mealName = el('div', { cls: 'dt-plate-name', text: '', parent: mb });
+    this.mealBuff = el('div', { cls: 'dt-plate-buff', text: '', parent: mb });
     this.activeNote = el('div', { cls: 'hint dt-active', text: '', parent: left });
-    el('div', { cls: 'ui-label', text: '가진 요리', parent: left });
-    this.listEl = el('div', { cls: 'dt-list', parent: left });
 
     this.mountMsg();
     const foot = el('div', { cls: 'hs-foot', parent: this.frame });
     el('div', {
       cls: 'hint',
-      text: '식사는 출격할 때 실려 그 레이드 내내 유지됩니다 — 죽어도 그 레이드에서는 사라지지 않습니다.',
+      text: '식탁의 요리는 먹어도 줄지 않고, 다음 레이드가 시작되면 치워집니다. 먹은 식사는 출격할 때 실려 그 레이드 내내 유지됩니다.',
       parent: el('div', { cls: 'left', parent: foot }),
     });
     this.button(el('div', { cls: 'right', parent: foot }), '닫기', () => this.close());
+    // 접시는 housing 상태 · 분대원 와이어에서, 식사는 progression 에서 바뀐다 — 둘 다 `housing:changed` 가 아니다
+    this.unsubs.push(
+      ctx.bus.on('housing:tablePlatesChanged', () => this.refreshIfOpen()),
+      ctx.bus.on('progress:mealChanged', () => this.refreshIfOpen()),
+    );
   }
 
-  /* ── open / close ──────────────────────────────────────────────────────── */
+  /* ── open ──────────────────────────────────────────────────────────────── */
   /** Open the panel for one 식탁 (`null` = 공유 함선의 고정 식탁). */
   openTable(uid: string | null): void {
     this.uid = uid;
     this.openPanel();
-    if (!this.grids) this.grids = mountStationGrids(this.ctx, this.shell.invHost, '.dt-plate', (item, target) => this.dropOn(item, target));
   }
 
-  override close(relock = true): void {
-    // the embedded grids keep listening to `inventory:changed` while they live, so a closed panel drops them
-    this.grids?.dispose();
-    this.grids = null;
-    super.close(relock);
-  }
+  /** 지금 열린 식탁 (스모크). null = 공유 함선의 고정 식탁 — 닫혀 있어도 마지막 값. */
+  get tableUid(): string | null { return this.uid; }
 
   /* ── actions ───────────────────────────────────────────────────────────── */
-  private dropOn(item: ItemInstance, target: HTMLElement | null): void {
-    if (!target) { this.showMsg('요리를 접시로 끌어다 놓으세요', 'info'); return; }
-    const def = this.housing.defOf(item.defId);
-    if (!def) { this.showMsg('알 수 없는 아이템입니다', 'warning'); return; }
-    if (!def.meal) { this.showMsg('요리만 먹을 수 있습니다', 'warning'); return; }
-    this.eat(def, normalizeMealQuality(item.quality));
-  }
-
-  private eat(def: ItemDef, quality: number): void {
-    const reason = this.housing.eatMeal(this.uid, def.id, quality);
-    this.showMsg(reason ?? `${qualityName(def.name, quality)}을(를) 먹었습니다 — 다음 레이드에 실립니다`, reason ? 'warning' : 'success');
-    this.requestRefresh();          // 식사는 progression 에 실린다 — housing / inventory 이벤트만으로는 접시가 안 바뀔 수 있다
-  }
-
-  private serve(def: ItemDef, quality: number): void {
-    const reason = this.housing.serveMealToSquad(this.uid, def.id, quality);
-    this.showMsg(reason ?? `${qualityName(def.name, quality)}을(를) 분대에 차렸습니다`, reason ? 'warning' : 'success');
-    this.requestRefresh();
+  /** 접시 하나를 먹는다 (스모크도 쓴다). `ownerId` null = 내 접시. 한국어 사유 / null. */
+  eat(ownerId: string | null): string | null {
+    const plate = this.housing.getTablePlates(this.uid).find((p) => p.ownerId === ownerId) ?? null;
+    const reason = this.housing.eatPlate(this.uid, ownerId);
+    if (reason) this.deny(reason);
+    else if (plate) {
+      const whose = plate.mine ? '' : ` (${plate.ownerName} 님의 요리)`;
+      this.showMsg(`${qualityName(getMealDef(plate.mealDefId)?.name ?? plate.mealDefId, plate.quality)}을(를) 먹었습니다${whose} — 다음 레이드에 실립니다`, 'success');
+    }
+    this.requestRefresh();          // 식사는 progression 에 실린다 — `progress:mealChanged` 도 오지만 거절이면 오지 않는다
+    return reason;
   }
 
   /* ── state → DOM ───────────────────────────────────────────────────────── */
   refresh(): void {
-    const shared = this.housing.isSharedTable();
+    const shared = this.housing.isSharedTable() && this.uid === null;
     setText(this.shell.title, shared ? '공유 함선 식탁' : '식탁');
-    this.paintPlate();
-    this.buildList(shared);
+    setText(this.platesLabel, shared ? '식탁에 차린 요리 — 분대원 모두' : '식탁에 차린 요리');
+    this.paintPlates(shared);
+    this.paintMeal();
   }
 
-  /** 접시: 지금 실린 식사 한 칸 + 그 버프 줄 (`MEAL_BUFF_LABEL_KO` · `MEAL_BUFF_UNIT` 가 원본) — 품질 보너스 반영. */
-  private paintPlate(): void {
+  /** 접시 한 장씩: 칩(★n) · 이름 + 별 · 티어 · 요리한 사람 · 능력치 줄 · 먹기. 비었으면 안내 한 칸. */
+  private paintPlates(shared: boolean): void {
+    clear(this.platesEl);
+    const plates = this.housing.getTablePlates(this.uid);
+    if (!plates.length) {
+      el('div', {
+        cls: 'dt-empty',
+        text: shared
+          ? '식탁이 비어 있습니다.\n분대원이 자기 함선의 조리대에서 요리하면 이 식탁에도 차려집니다.'
+          : '차린 요리가 없습니다.\n조리대에서 요리하면 이 식탁에 차려집니다 (함선당 한 접시).',
+        parent: this.platesEl,
+      });
+      return;
+    }
+    for (const p of plates) this.buildPlate(p, shared);
+  }
+
+  private buildPlate(p: TablePlateInfo, shared: boolean): void {
+    const def = getMealDef(p.mealDefId);
+    const q = normalizeMealQuality(p.quality);
+    const block = this.housing.plateEatBlock(this.uid, p.ownerId);
+    const eaten = block === '이미 먹었습니다';
+    const row = el('div', {
+      cls: `dt-plate${p.mine ? ' is-mine' : ''}${eaten ? ' is-eaten' : ''}`,
+      attrs: { 'data-def': p.mealDefId, 'data-q': String(q), 'data-owner': p.ownerId ?? 'me' },
+      parent: this.platesEl,
+    });
+    const chip = el('div', { cls: 'dt-plate-chip cook-dt-chip', parent: row });
+    chip.appendChild(buildItemChip(def, { size: 48 }));
+    if (q > 0) el('span', { cls: 'cook-dt-q', text: `★${q}`, parent: chip });
+    const body = el('div', { cls: 'dt-plate-body', parent: row });
+    const title = el('div', { cls: 'dt-plate-name', parent: body });
+    el('span', { text: `${def?.name ?? p.mealDefId} `, parent: title });
+    el('span', { cls: `cook-dt-stars q-${q}`, text: mealQualityStars(q), parent: title });
+    const who = p.mine ? (shared ? `내 요리 · ${p.ownerName}` : '내 요리') : `${p.ownerName} 님의 요리`;
+    el('div', { cls: 'dt-plate-owner', text: [def?.meal ? mealTierText(def.meal) : '', who].filter(Boolean).join(' · '), parent: body });
+    el('div', { cls: 'dt-plate-buff', text: def?.meal ? mealEffectLines(def.meal, q).join('\n') : '', parent: body });
+    const acts = el('div', { cls: 'dt-plate-acts', parent: row });
+    const btn = this.button(acts, eaten ? '먹음' : '먹기', () => { this.eat(p.ownerId); }, `small primary dt-eat${block ? ' is-blocked' : ''}`);
+    if (block) btn.title = block;
+    const note = el('div', { cls: 'dt-plate-note', text: block && !eaten ? block : '', parent: acts });
+    note.hidden = !block || eaten;
+  }
+
+  /** 다음 레이드에 실린 식사 한 칸 + 지금 레이드분 안내 (`MEAL_BUFF_LABEL_KO` · `MEAL_BUFF_UNIT` 가 원본) — 품질 보너스 반영. */
+  private paintMeal(): void {
     const prog = this.ctx.progression;
     const pending = typeof prog?.getMeal === 'function' ? prog.getMeal() : null;
     const active = typeof prog?.getActiveMeal === 'function' ? prog.getActiveMeal() : null;
-    const def = pending ? this.housing.mealDef(pending) : null;
+    const def = getMealDef(pending);
     const quality = def && typeof prog?.getMealQuality === 'function' ? normalizeMealQuality(prog.getMealQuality()) : 0;
-
-    clear(this.plateChip);
-    this.plateChip.appendChild(buildItemChip(def ?? undefined, { size: 44 }));
-    if (def && quality > 0) el('span', { cls: 'cook-dt-q', text: `★${quality}`, parent: this.plateChip });
-    toggleClass(this.plate, 'is-empty', !def);
-    setText(this.plateName, def?.meal ? `${def.name} ${mealQualityStars(quality)} · ${mealTierText(def.meal)}` : def ? def.name : '차려 둔 식사가 없습니다');
-    // 2026-09-13: 요리 하나의 버프에 능력치가 여러 줄 붙는다 (T1 1 · T2 2 · T3 3 · T4 4) — 줄마다 한 줄 (`white-space: pre-line`)
-    setText(this.plateBuff, def?.meal ? mealEffectLines(def.meal, quality).join('\n') : '요리를 먹으면 여기에 실립니다');
-    setText(this.plateNote, def
-      ? '다른 요리(또는 같은 요리의 다른 품질)를 먹으면 이 식사를 대신합니다 (먹은 요리는 돌아오지 않습니다)'
-      : '아래 목록에서 「먹기」를 누르거나 요리를 여기로 끌어다 놓으세요');
-    const activeQ = active && typeof prog?.getActiveMealQuality === 'function' ? normalizeMealQuality(prog.getActiveMealQuality()) : 0;
-    setText(this.activeNote, active
-      ? `지금 레이드에는 「${qualityName(this.housing.nameOf(active), activeQ)}」이(가) 실려 있습니다.`
-      : '');
-    this.activeNote.hidden = !active;
-  }
-
-  /** 가진 요리 (요리, 품질) 한 줄씩: 칩(★n) + 이름 · 별 · 버프 + 먹기 (공유 함선이면 분대에 차리기도). */
-  private buildList(shared: boolean): void {
-    clear(this.listEl);
-    const owned = this.housing.getMealStacks();
-    if (!owned.length) {
-      el('div', { cls: 'hs-empty', text: '가진 요리가 없습니다 — 주방의 조리대에서 만드세요', parent: this.listEl });
-      return;
-    }
-    for (const { defId, quality, qty } of owned) {
-      const def = this.housing.mealDef(defId);
-      if (!def || !def.meal) continue;
-      const row = el('div', { cls: 'dt-row', attrs: { 'data-def': defId, 'data-q': String(quality) }, parent: this.listEl });
-      const chipHost = el('div', { cls: 'cook-dt-chip', parent: row });
-      chipHost.appendChild(buildItemChip(def, { size: 34, have: qty }));
-      if (quality > 0) el('span', { cls: 'cook-dt-q', text: `★${quality}`, parent: chipHost });
-      const body = el('div', { cls: 'body', parent: row });
-      const title = el('div', { cls: 'title', parent: body });
-      el('span', { text: `${def.name} ×${qty} `, parent: title });
-      el('span', { cls: `cook-dt-stars q-${quality}`, text: mealQualityStars(quality), parent: title });
-      el('div', { cls: 'sub dt-tier', text: mealTierText(def.meal), parent: body });
-      // 능력치 줄 전부 (품질 보너스 반영) — 좁으면 줄바꿈한다 (잘리지 않게 `.dt-effects` 는 ellipsis 를 쓰지 않는다)
-      el('div', { cls: 'sub dt-effects', text: mealBuffText(def.meal, quality), parent: body });
-      const acts = el('div', { cls: 'dt-acts', parent: row });
-      this.button(acts, '먹기', () => this.eat(def, quality), 'small primary');
-      if (shared) this.button(acts, '분대에 차리기', () => this.serve(def, quality), 'small');
-    }
-  }
-
-  override dispose(): void {
-    this.grids?.dispose();
-    this.grids = null;
-    super.dispose();
+    clear(this.mealChip);
+    this.mealChip.appendChild(buildItemChip(def, { size: 40 }));
+    if (def && quality > 0) el('span', { cls: 'cook-dt-q', text: `★${quality}`, parent: this.mealChip });
+    toggleClass(this.mealCard, 'is-empty', !def);
+    setText(this.mealName, def ? `${def.name} ${mealQualityStars(quality)} · ${mealTierText(def.meal)}` : '아직 먹은 요리가 없습니다');
+    setText(this.mealBuff, def ? mealEffectLines(def.meal, quality).join('\n') : '');
+    const activeDef = getMealDef(active);
+    const activeQ = activeDef && typeof prog?.getActiveMealQuality === 'function' ? normalizeMealQuality(prog.getActiveMealQuality()) : 0;
+    setText(this.activeNote, activeDef ? `지금 레이드에는 「${qualityName(activeDef.name, activeQ)}」이(가) 실려 있습니다.` : '');
+    this.activeNote.hidden = !activeDef;
   }
 }
 
 /** `치즈 오믈렛 ★★★☆☆` — 품질 0 이면 이름만. */
-function qualityName(name: string, quality: number): string {
+export function qualityName(name: string, quality: number): string {
   return quality > 0 ? `${name} ${mealQualityStars(quality)}` : name;
 }
 

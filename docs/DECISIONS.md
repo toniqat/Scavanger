@@ -118,7 +118,8 @@ with no special code; drop-in enemies bypass the ambient cap; hazard fog **lerps
 
 - **All three in one cycle** — crops → meals and culture → ingredients + filament → bags are one chain.
 - Meal buffs get **a separate single meal slot** (does not compete with prep); a second meal replaces the first.
-- Shared ship has a fixed dining table; **one person serving feeds the whole squad** (one meal consumed).
+- Shared ship has a fixed dining table; ~~one person serving feeds the whole squad (one meal consumed)~~ — **replaced 2026-09-16**:
+  meals are table plates, and a plate in the shared ship can be eaten by every member without being consumed (see 「2026-09-16 — 식탁 요리 · 낮은 구르기 · 빈 유해 소멸 · 처치 경험치 · 서사 이상 드롭률」).
 - Culture media have **one grade axis** (no soil-like tags). Pouch = **one fixed equip slot** with its own grid; keys get category `key`.
 - Higher bags are **not a new tier**: rare/epic/legendary bags move to the printer + 3 filament grades (reverses the TODO draft).
 - Superseded 2026-09-13: one buff per meal (→ tiered stat lines), instant cooking (→ minigame + quality), media emptying at 0 (→ durability + sockets).
@@ -169,6 +170,7 @@ with no special code; drop-in enemies bypass the ambient cap; hazard fog **lerps
 ## 2026-09-13 — 요리 미니게임 · 요리 품질 · 자동 조리 가구 · Cooking minigames · quality · auto-cookers
 
 - Score becomes **meal quality** on the item (different quality = different stack); **a meal is always produced**.
+  Since 2026-09-16 the meal is a **plate on the dining table**, not an item (quality kept on the plate; "output to stash first" and "squad serving" below are void).
 - **4 auto-cook devices**; per step choose "do it yourself / auto". Dedicated bench screen, one meal at a time.
 - Scoring: chop = beats · mince = balance + time · stir = hold in the boiling band · grill = auto-rising pieces, click to flip then remove.
 - 2D minigame + bench pose + fixed camera.
@@ -400,8 +402,10 @@ User choices:
 - The last two androids are both **100 % drop**: one **shotgun**, one **DMR** (grade I, one full stack of the matching ammo,
   `mat_cable`), they **face the ship**, and wake **both** ways: sense radius **22 m** (ramp and bay inside) **and** the launch
   switch (in the tutorial the switch is the liftoff, so the existing liftoff fire window covers it).
-- **Right 40 % of the fence has no floor beyond it**; beyond the fence everything except the pit, its walls, the flat strip in
-  front of the wire and the ship strip is the same bottomless abyss as the ship's front edge (rule `kill`).
+- ~~Right 40 % of the fence has no floor beyond it; beyond the fence everything except the pit, its walls, the flat strip in
+  front of the wire and the ship strip is the same bottomless abyss as the ship's front edge (rule `kill`).~~ **Replaced 2026-09-16**:
+  everything beyond the fence is abyss except the path from the gap, the pit (walls kept) and a raised ship hill; the left wall
+  lowers faster (see 「2026-09-16 — 식탁 요리 · 낮은 구르기 · 빈 유해 소멸 · 처치 경험치 · 서사 이상 드롭률」).
 - Decorative pillar (the fallen mast) at the wake spot moved beside the left ruin wall and given a matching collider.
 
 Design: the lower deck is seven axis-aligned pieces and the holes are the gaps (`DECKS` ∪ `PIT` ∪ `PIT_WALLS` ∪ `ABYSS_CUTS` tile
@@ -455,3 +459,38 @@ blob, so a second reload still offers the raid. `lobby:abandon` → `LobbyPlayer
 rescue candidates, cleared by the next start / reset). The abandoning client raises its own corpse from the blob at
 `RaidSessionBlob.pose` (the `pcorpse` "the dead send it" rule) and settles like a voluntary return. An abandoned or expired solo
 raid settles like a solo death, implants included — the old stale-at-boot path only reset the kit.
+
+## 2026-09-16 — 식탁 요리 · 낮은 구르기 · 빈 유해 소멸 · 처치 경험치 · 서사 이상 드롭률 · Table meals · low roll · empty corpses · kill XP · epic+ drops
+
+User choices:
+- **Meals are not items any more.** A finished cook becomes **one plate on the personal 식탁**; cooking again **replaces** it after a
+  warning popup shown **before the cook starts**. The plate can be eaten any time in the ship and **eating never consumes it**
+  (the one pending-meal slot → next raid rule stays). A leftover plate is **deleted when the next raid starts**. **No 식탁 → the 조리대
+  cannot be used**; the 식탁 is kitchen-only facility furniture.
+- **Shared ship**: my plate is set on my personal table **and** the shared ship's table; **every squad member can eat it**, and it
+  is not consumed (replaces `분대에 차리기`).
+- **No save migration** for old meal items ("the game is still in development").
+- **Crouched roll = low roll** (same animation and hit judgement, ends crouched); **no roll from prone**.
+- **All fall damage goes straight to HP** (armor shield ignored) — chosen over a tutorial-only fix for the skipped bandage step.
+- **Empty corpses vanish**: player / android corpses 1 s after they hold no items (died empty or looted empty); enemy corpses only
+  once opened and emptied (unopened ones keep the 45 s fade). They **sink into the ground**.
+- **Liftoff hides every remaining HUD element** (key guide, tutorial UI, chat, squad list, toasts), not only the gameplay layer.
+- **Ship Tab = 창고 | 장비 | 가방**; `모두 창고로 이동` (ship only, bag grid only, favourites included) between `모두 수리` and `정렬`.
+- **Raid XP = kills only**: a per-enemy csv value (first pass hp/10); loot-value, extraction and survival-time XP removed; death keeps
+  ×0.4; quest / contract XP and the tutorial's fixed 120 stay.
+- **Epic-and-above loot halved on every planet, except the lab's locked room** (which is fine as is) — guaranteed picks included.
+- Tutorial end area: see the replaced line in 「2026-09-15 — 튜토리얼 마지막 구간: 웅덩이 벽 · 절벽 · 안드로이드」; pit walls kept.
+
+Rejected: one plate that blocks cooking; several plates; removing squad meals; the shared plate being consumed; refunds for old meal
+items; enemy corpses without loot vanishing at once; hiding HUD from boarding; a per-planet maximum rarity cap; leaving favourites in
+the bag; committing this batch.
+
+Design: the plate is the cook's own state (`ShipState.plate`) and travels as `plate state` with no host step, because eating only
+changes the eater's profile; the replace warning sits before the cook, but the swap happens only when the cook completes (a cancelled
+cook keeps the old plate). The epic+ cut is applied to roll **outcomes** (keep with `epicPlusMul`, else the best rarity below epic in
+the same pool) — lowering `epicMul`/`legMul` weights could not work because they cancel inside guaranteed picks and the fallback ignores
+weights; it therefore also halves keys, named drops, processors and records (listed in `docs/TODO.md` for review). Carry XP reads a
+self-propelled odometer from the controller instead of filtering movement sources one by one. Emptied enemy corpses are client-rolled,
+so a client reports `ecorpseq emptied` and the host shortens the body's own `corpseLife` (survives host migration). The tutorial pit's
+fence side stays a deck-level rim (2.5 m walls east/south only) so the androids stay visible and a grenade thrown over the fence lands in
+the pit, as the 09-15 decision required. Raid XP: `raidXp` column appended last because smokes read `hp` by column position.

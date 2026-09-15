@@ -38,6 +38,7 @@ never each other. This folder owns no system and no gameplay state; it must not 
 | `extraction.ts` | `ExtractionStage`, `ExtractionRef` (`ctx.extraction`: `keepEnemyOut`, `holdFire?`, `skipToLiftoff?`, `skipToComplete?`, stage mirrors) |
 | `housing.ts` | Ship housing: room purposes, cockpit block (`COCKPIT_ROOM_INDEX`), furniture defs (`data/furniture.csv`), shelves / library media, music player state, mining tabs, analyzer slots, `ShipState`, `HousingRef` (`ctx.housing`) |
 | `library.ts` | Library series / media effects / video games: series loader (`data/library_series.csv`), `LibraryEffect`, `librarySeriesFraction`, `resolveItemAlias` (`data/item_aliases.csv`), `GameDiscDef`, `GymGameTuning`, TV seat interactions |
+| `meals.ts` | Meal table (`data/meals.csv`): `MEAL_DEFS`, `MEAL_DEF_MAP`, `getMealDef`, `isMealDefId`, `MealItemDef` (ItemDef-shaped display def — meals are **not** items since 2026-09-16) |
 | `cooking.ts` | Cooking minigames (`CookGame`), step table `cookStepsOf` (`data/cook_steps.csv`), grill times, `COOK_*` judge values, auto-cook appliances, meal quality (`mealQualityForScore` · `mealQualityBonus` · `normalizeMealQuality`), session / result shapes |
 | `charBuffs.ts` | `CharBuff` list shape (display + sync only): kinds, order, labels, `sanitizeCharBuffs`, `sameCharBuffs`, `charBuffTitle` |
 | `meta.ts` | Corps, reputation table, contracts, shop rules, price helpers, `formatCredits`, `MetaRef` (`ctx.meta`) + `IntelRef`; `QUEST_DEFS` (empty) — all from csv |
@@ -117,8 +118,8 @@ constructor before any `init`). Nested: `ctx.net.profile` / `social` / `rooms` /
 ## Recent changes
 
 Last 5 only — older: `git log -- src/shared`.
+- 2026-09-16 — Dining plates (add-only): `meals.ts` (`getMealDef`), `DiningPlate` / `TablePlateInfo` / `ShipState.plate` / plate `HousingRef` members / `DINING_TABLE_MISSING_REASON`, `InventoryRef.consumeCookInputs`, `CookResult.landed 'table'` + `replaced`, `LaunchWarningId 'plateDiscard'`, `PlateMessage` / `PlateRequest`, events `housing:plateChanged` · `housing:tablePlatesChanged` · `net:squadPlate`.
+- 2026-09-16 — `CrateLootOpts` (`lockedRoom`), `LootRef.rollCrateOn(…, opts?)`, `WorldRef.crateLootOpts?` (epic+ gate, locked-room exemption).
 - 2026-09-15 — `raidResume.ts` (`ctx.raidResume`, `raid:resumeChanged`); `LobbyPlayer.drifted`, `LobbyErrorCode 'drifted'`, `lobby:abandon`, `lobby:mission.keep`, `NetRef.abandonRaid?`, `RaidSessionBlob.pose`, `TutorialRef.restartTrack?`.
 - 2026-09-15 — `ItemCategory 'grenade'` retired (grenades are `category: gadget` + `ItemDef.grenade`); `ItemDef.gadgetUseTime`, `GadgetDef.wearsItemDurability`, `PlayerRef.takeDamage` opts `bypassShield`, `gadget:defibAim`, `HousingRef.devAdvanceAnalysis?`, `ANALYZER_SLOTS_BASE`.
 - 2026-09-15 — `ui:screenFade.hold?`; `NpcQuestRef.readAtOf?`.
-- 2026-09-15 — `explosion.ts`; `GRENADE_RADIUS` / `GRENADE_DAMAGE` / `GRENADE_PLAYER_DAMAGE_MUL` / `EXPLOSION_*` moved to `data/constants.csv`.
-- 2026-09-15 — `keycap.createHoldButtonCap`; `TutorialStepId 'corpseOpen'` in the raid track.

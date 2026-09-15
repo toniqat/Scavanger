@@ -192,29 +192,7 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
     });
   }
 
-  /* 1c-3. 요리 (A-3c, 2026-09-11): 준비물의 `사용` 바로 옆 — **함선에서만** 먹을 수 있고, 먹으면 그 자리에서
-   * 소모돼 다음 레이드 1회분으로 실린다 (`ctx.progression.useMeal`). 레이드 중에는 항목이 그대로 보이되 사유가
-   * 붙고 아이템은 사라지지 않는다.
-   * ⚠ 「먹는 행위」의 제자리는 **주방의 식탁**이다 (사용자 결정) — 이것은 편의 경로이고 둘 다 같은 `useMeal` 이다. */
-  if (def.meal) {
-    const blocked = !sys.hub ? TEXT.menu.eatMealRaid : null;
-    entries.push({
-      label: TEXT.menu.eatMeal,
-      hint: blocked ?? undefined,
-      separator: entries.length > 0,
-      run: () => {
-        if (blocked) {
-          sys.sys.sfx('ui_error');
-          sys.ctx.bus.emit('ui:notify', { text: blocked, kind: 'warning', duration: 2 });
-          return;
-        }
-        const refusal = sys.sys.useMealItem(uid, from);
-        sys.result(refusal ? 'fail' : 'ok', 'ui_equip', from, uid);
-        if (refusal) sys.ctx.bus.emit('ui:notify', { text: refusal, kind: 'warning', duration: 2.4 });
-        else sys.ctx.bus.emit('ui:notify', { text: `${def.name} — 다음 레이드에 실렸다`, kind: 'success', duration: 2.4 });
-      },
-    });
-  }
+  /* 1c-3. 요리 — 2026-09-16 (접시 모델, 사용자 결정): 요리는 아이템이 아니다. 옛 우클릭 `먹기` 는 없어졌고 먹는 곳은 식탁뿐이다. */
 
   // 1d. 분해 (Phase 8): any item with a matching `break_*` recipe — the ammo packs today
   if (sys.canDisassemble(uid, from)) {

@@ -322,6 +322,18 @@ export const OFFSCREEN_PING_SECONDS = K.num('OFFSCREEN_PING_SECONDS');
 export const CORPSE_LIFETIME = K.num('CORPSE_LIFETIME');
 /** Corpse interaction radius (m). */
 export const CORPSE_INTERACT_RADIUS = K.num('CORPSE_INTERACT_RADIUS');
+/* appended (2026-09-16): 빈 시체 제거 (owner: game/Corpses · enemies/parts/CorpseEmpty · world/tutorial/parts/Corpses) */
+/** 아이템이 하나도 남지 않은 시체가 비고 나서 가라앉기 시작할 때까지(초). 적 시체는 **열어서 비운** 것만. */
+export const CORPSE_EMPTY_REMOVE_DELAY_S = K.num('CORPSE_EMPTY_REMOVE_DELAY_S');
+/** 빈 시체가 땅으로 가라앉는 시간(초). 끝나면 상호작용 · 빛기둥 · 메시가 함께 사라진다. */
+export const CORPSE_EMPTY_SINK_S = K.num('CORPSE_EMPTY_SINK_S');
+/** 플레이어 · 안드로이드 · 튜토리얼 시체가 가라앉는 깊이(m). 적 리그는 자기 시체 가라앉기 깊이(`anim.fade`)를 쓴다. */
+export const CORPSE_EMPTY_SINK_DEPTH_M = K.num('CORPSE_EMPTY_SINK_DEPTH_M');
+/** 호스트 가드: `ecorpseq emptied` 를 보낸 사람의 스냅샷과 적 시체의 수평 거리 상한(m). */
+export const CORPSE_EMPTY_REQUEST_REACH_M = K.num('CORPSE_EMPTY_REQUEST_REACH_M');
+/** 호스트 가드: 한 사람이 초당 보낼 수 있는 빈 적 시체 요청 수 · 버킷 크기. */
+export const CORPSE_EMPTY_REQUEST_RATE_MAX = K.num('CORPSE_EMPTY_REQUEST_RATE_MAX');
+export const CORPSE_EMPTY_REQUEST_BURST = K.num('CORPSE_EMPTY_REQUEST_BURST');
 /** Rogue gunner: reaction delay before the first shot (s), aim error (radians) at hip / after settling, damage per hit, rounds per burst. */
 export const ROGUE_REACTION = K.num('ROGUE_REACTION');
 export const ROGUE_AIM_ERROR = K.num('ROGUE_AIM_ERROR');
@@ -525,6 +537,11 @@ export const PROFILE_VERSION = 1;
 /** XP needed to reach level n+1: XP_BASE * n^XP_EXPONENT. */
 export const XP_BASE = K.num('XP_BASE');   // Phase 5 (2026-09-06): was 240 (plan: 120 × n^1.35)
 export const XP_EXPONENT = K.num('XP_EXPONENT');
+/**
+ * appended (2026-09-16, owner: game): 탈출하지 못한 레이드의 처치 경험치 배율. 레이드 경험치 = Σ 처치 종류의 `enemies.csv` raidXp
+ * (`MissionStats.killXp`) × (탈출 ? 1 : XP_DEATH_MUL) × 서재 배율 — `game/parts/Death.awardMissionXp`.
+ */
+export const XP_DEATH_MUL = K.num('XP_DEATH_MUL');
 
 /* ── appended: key rebinding + ship stash (2026-09-06) ── */
 /** localStorage key of the player's key bindings (`shared/Keybinds.ts`). */
@@ -1778,6 +1795,25 @@ export const BURROW_SHAKE_RADIUS = K.num('BURROW_SHAKE_RADIUS');
 export const BURROW_SHAKE_INTENSITY = K.num('BURROW_SHAKE_INTENSITY');
 /** 굴착 흔들림 사이 최소 간격(초) — 겹치지 않는다. */
 export const BURROW_SHAKE_GAP_S = K.num('BURROW_SHAKE_GAP_S');
+/* ── appended (2026-09-16): 벌레 소리 — 굴착음 · 발소리 · 포탄 낙하음 (owner: audio · enemies). 값은 `data/constants.csv`. ── */
+/** `burrow_emerge` 동시 보이스 상한 (`audio/AudioSystem.VOICE_CAP`). */
+export const BURROW_EMERGE_VOICE_CAP = K.num('BURROW_EMERGE_VOICE_CAP');
+/** 같은 무리로 세는 굴착음 창(초) — k 번째 소리 × 1/√k (`enemies/parts/Burrow`). */
+export const BURROW_EMERGE_BATCH_S = K.num('BURROW_EMERGE_BATCH_S');
+/** 벌레 발소리 사거리(m) — `bug_step_skitter` · `bug_step_heavy`; 베헤모스 `bug_step_giant` 는 GIANT. */
+export const BUG_STEP_RANGE_M = K.num('BUG_STEP_RANGE_M');
+export const BUG_STEP_GIANT_RANGE_M = K.num('BUG_STEP_GIANT_RANGE_M');
+/** 벌레 발소리 세 id 를 합친 동시 보이스 상한. */
+export const BUG_STEP_VOICE_CAP = K.num('BUG_STEP_VOICE_CAP');
+/** 「걷고 있는 가까운 벌레」 를 세는 창(초) — 발소리 × 1/√n (`enemies/model.emitEnemyStep`). */
+export const BUG_STEP_CROWD_WINDOW_S = K.num('BUG_STEP_CROWD_WINDOW_S');
+/** 포탄 낙하음: 착탄 몇 초 전 · 착탄점 사거리(m) · floor · 밑 크기 · 동시 보이스 상한. 발사 쿵의 사거리(m). */
+export const SHELL_INCOMING_LEAD_S = K.num('SHELL_INCOMING_LEAD_S');
+export const SHELL_INCOMING_RANGE_M = K.num('SHELL_INCOMING_RANGE_M');
+export const SHELL_INCOMING_FLOOR = K.num('SHELL_INCOMING_FLOOR');
+export const SHELL_INCOMING_VOLUME = K.num('SHELL_INCOMING_VOLUME');
+export const SHELL_INCOMING_VOICE_CAP = K.num('SHELL_INCOMING_VOICE_CAP');
+export const SHELL_LAUNCH_RANGE_M = K.num('SHELL_LAUNCH_RANGE_M');
 /** 땅굴벌레가 일어날 수 있는 레이드 시각 창(초, `ctx.missionTime`). */
 export const SANDWORM_WINDOW_START_S = K.num('SANDWORM_WINDOW_START_S');
 export const SANDWORM_WINDOW_END_S = K.num('SANDWORM_WINDOW_END_S');
@@ -1982,6 +2018,8 @@ export const TUTORIAL_RESPAWN_DELAY_S = K.num('TUTORIAL_RESPAWN_DELAY_S');
 export const TUTORIAL_INTRO_WAKE_S = K.num('TUTORIAL_INTRO_WAKE_S');
 /** appended (2026-09-14): 기상 연출이 끝난 뒤 나침반이 나타나는 시간 (초) — `ui/hud/Compass` 가 코드로 opacity 를 올린다. */
 export const TUTORIAL_COMPASS_FADE_S = K.num('TUTORIAL_COMPASS_FADE_S');
+/** appended (2026-09-16): 기상 연출이 끝난 뒤 크로스헤어가 나타나는 시간 (초) — `ui/hud/Reticle` 이 코드로 opacity 를 올린다. */
+export const TUTORIAL_RETICLE_FADE_S = K.num('TUTORIAL_RETICLE_FADE_S');
 /** 튜토리얼 레이드 완주 보상 XP (레벨 2 에 닿는다). */
 export const TUTORIAL_RAID_XP = K.num('TUTORIAL_RAID_XP');
 /**

@@ -1,5 +1,7 @@
 import type { GameContext, ImplantId, ItemInstance, Stance } from '@/shared';
 import { Keys, createKeycap, onKeybindsChanged, paintKeycap } from '@/shared';
+/* 2026-09-16: 기상 연출 뒤 크로스헤어가 서서히 나타나는 시간 */
+import { TUTORIAL_RETICLE_FADE_S } from '@/shared';
 import { el, setText, toggleClass, damp } from '../dom';
 import '../styles/implant.css';
 
@@ -76,6 +78,12 @@ const DEFIB_LAMBDA = 26;
  * 아군을 크로스헤어에 올리면 두 원이 **강조색(주황)** 으로 바뀐다 — 그때 떼면 일으킨다. 판정은 UI 가 흉내내지
  * 않는다: weapons/ 의 `parts/Defib` 이 보내는 **`gadget:defibAim {armed, charge, target}`** 하나가 유일한 근거다.
  * 모드 자체는 손에 든 것(`quick:equipped`)이 정하므로 이벤트가 한 번도 안 와도 원은 서 있다.
+ *
+ * **기상 연출 (2026-09-16, 사용자 결정):** 튜토리얼 오프닝의 기상 연출이 도는 동안(`PlayerRef.introWaking` — 카메라가 평소
+ * 백뷰로 완전히 돌아오기 전) 크로스헤어는 **보이지 않고**, 끝나면 `TUTORIAL_RETICLE_FADE_S` 에 걸쳐 서서히 나타난다
+ * (`hud/Compass` 와 같은 요령 — CSS 전이가 아니라 여기서 `dt` 로 올린다. reduced motion 이면 CSS 전이는 0.01 ms 로 잘린다).
+ * 위의 blocker · 휠 규칙이 정한 불투명도에 **곱한다**. 부활 연출(`respawn`)은 `introWaking` 을 켜지 않으므로 해당 없다.
+ * 이륙 연출(`ui:cinematic`) 동안의 숨김은 CSS 다 — `.hud.cinematic .reticle` (`styles/raidHud.css`, 전이 없이 즉시).
  */
 export class Reticle {
   readonly root: HTMLElement;
@@ -132,6 +140,8 @@ export class Reticle {
   private defibShown = 0;
   private lastDefibScale = -1;
   private innerEl: HTMLElement;
+  /** 2026-09-16: 기상 연출 뒤 나타나는 정도 0..1 (연출이 없으면 늘 1). */
+  private reveal = 1;
   private ctx: GameContext | null = null;
   private unsubs: Array<() => void> = [];
 
@@ -457,9 +467,22 @@ export class Reticle {
 
     const scoped = this.scope && this.aiming;
     // Hidden behind blockers / the scope; dimmed while the quick-use wheel is open.
-    const opacity = ctx.uiBlockers.size > 0 || scoped ? '0' : (this.wheelOpen || this.stratOpen || this.commsOpen) ? '0.25' : '1';
+    const shown = ctx.uiBlockers.size > 0 || scoped ? 0 : (this.wheelOpen || this.stratOpen || this.commsOpen) ? 0.25 : 1;
+    // 2026-09-16: × 기상 연출 뒤 나타나는 정도 (연출 중 0 → `TUTORIAL_RETICLE_FADE_S` 에 걸쳐 1)
+    const o = shown * this.updateReveal(ctx, dt);
+    const opacity = o >= 1 ? '1' : o <= 0 ? '0' : o.toFixed(3);
     if (this.root.style.opacity !== opacity) this.root.style.opacity = opacity;
   }
+
+  /** 기상 연출 동안 0, 끝나면 `TUTORIAL_RETICLE_FADE_S` 에 걸쳐 1 로 (시뮬레이션 dt — 일시정지 · 셰이더 hold 에 멈춘다). */
+  private updateReveal(ctx: GameContext, dt: number): number {
+    if (ctx.player?.introWaking ?? false) this.reveal = 0;
+    else if (this.reveal < 1) this.reveal = TUTORIAL_RETICLE_FADE_S > 0 ? Math.min(1, this.reveal + Math.max(0, dt) / TUTORIAL_RETICLE_FADE_S) : 1;
+    return this.reveal;
+  }
+
+  /** 기상 연출 뒤 나타나는 정도 0..1 (debug / smoke). */
+  get revealAmount(): number { return this.reveal; }
 
   private apply(gap: number): void {
     if (Math.abs(gap - this.lastGap) < 0.05) return;

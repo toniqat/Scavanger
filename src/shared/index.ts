@@ -94,3 +94,5 @@ export * from './allies';
 export * from './cover';
 /* appended (2026-09-15): 타이틀 이어하기 · 레이드 포기 (`ctx.raidResume`) */
 export * from './raidResume';
+/* appended (2026-09-16): 요리 정의 표 — 요리는 아이템이 아니라 식탁의 접시다 (`getMealDef`, `data/meals.csv`) */
+export * from './meals';

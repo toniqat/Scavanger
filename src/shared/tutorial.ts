@@ -21,7 +21,7 @@
  *
  *   ① `raid`  — 튜토리얼 레이드. 캐릭터를 만들면 **함선을 거치지 않고** 손으로 지은 튜토리얼 행성에서 깨어나
  *               이동 · 달리기 · 점프 · 루팅 · 사격 · 앉기 · 회복 · 수류탄을 배우고 버려진 함선으로 탈출한다.
- *   ② `ship`  — 함선 첫 진입. 레벨업 · 능력치 포인트 투자 확정 · 메신저 열기 (2026-09-15: 레이븐의 퀘스트 단계는 빠졌다).
+ *   ② `ship`  — 함선 첫 진입. 레벨업 · 능력치 포인트 투자 확정 (2026-09-15: 레이븐의 퀘스트 단계 · 2026-09-16: 메신저 열기 단계가 빠졌다).
  *   ③ `build` — 시설 증축 · 작업대 · 제작 · 출격. **기존 17단계가 그대로 이 트랙이다** (id 도 순서도 불변).
  *
  * 트랙이 갈린 것 말고 설계는 그대로다 — 진행은 버스 이벤트 관찰, 순서 강제는 각 폴더의 `blockReason` 한 줄.
@@ -74,12 +74,13 @@ export type TutorialStepId =
   /* ── ② ship (2026-09-14): 함선 첫 진입 ── */
   | 'levelUp'      // 레이드 보상으로 오른 레벨 확인
   | 'stats'        // 능력치 포인트 투자 → `포인트 투자 확정` (1초 홀드)
-  | 'messenger'    // 메신저 열기 — 함선 트랙의 마지막 단계 (2026-09-15 부터)
+  | 'messenger'    // (순서에서 제외, 2026-09-16) 메신저 열기 — 2026-09-15 ~ 09-16 사이 함선 트랙의 마지막 단계였다
   /*
    * appended (2026-09-15, 사용자 결정) — **순서에서 빠졌다** (`openCraft` 와 같은 처리: id 는 계약이라 남고
    * `TUTORIAL_TRACK_STEPS.ship` 에만 없다). 레이븐의 첫 연락은 이제 함선 트랙이 **끝난 뒤**에 온다
-   * (`meta/parts/NpcQuests.tutorialBlocks`) — 안내가 퀘스트 수락까지 끌고 가지 않는다. 옛 저장의
-   * `ravenQuest` 는 `tutorial/Steps.normalizeStep` 이 `messenger` 로 옮긴다.
+   * (`meta/parts/NpcQuests.tutorialBlocks`) — 안내가 퀘스트 수락까지 끌고 가지 않는다.
+   * 2026-09-16 (사용자 결정) — 그 뒤를 잇던 `messenger` 도 같은 처리로 빠졌다. 함선 트랙은 `levelUp` → `stats` 이고, 옛 저장의
+   * `messenger` · `ravenQuest` 는 `tutorial/Steps.retiredTrackEnd` 가 「함선 트랙 끝」으로 읽는다 (이어 붙일 단계가 없다).
    */
   | 'ravenQuest'   // (순서에서 제외, 2026-09-15) 레이븐의 첫 연락 · 대답 고르기 · 퀘스트 수락
   /* ── ③ build: 기존 17단계 (id 불변) ── */
@@ -126,7 +127,8 @@ export const TUTORIAL_TRACK_STEPS: Readonly<Record<TutorialTrack, readonly Tutor
     'advance3', 'drop', 'supplyLoot', 'heal', 'grenade', 'extract',
   ],
   // 2026-09-15 (사용자 결정): `ravenQuest` 가 순서에서 빠졌다 — 레이븐의 첫 연락은 이 트랙이 끝난 뒤다. 4 → 3 단계.
-  ship: ['levelUp', 'stats', 'messenger'],
+  // 2026-09-16 (사용자 결정): `messenger`(메신저 열기)도 빠졌다 — 포인트를 나눠 준 뒤 화면을 닫으면 트랙이 끝난다. 3 → 2 단계.
+  ship: ['levelUp', 'stats'],
   build: TUTORIAL_STEPS,
 };
 

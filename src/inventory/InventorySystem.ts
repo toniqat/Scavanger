@@ -644,12 +644,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
    */
   usePrepItem(uid: string, from?: ItemLocation): string | null { return this.readOnlyReason() ?? StashOps.usePrepItem(this, uid, from); }
 
-  /**
-   * A-3c (2026-09-11) — 요리(`ItemDef.meal`) 하나를 **함선에서** 먹어 다음 레이드분으로 싣는다
-   * (`ctx.progression.useMeal`). null = 실렸다, 문자열 = 한국어 거절 사유 (그때 아이템은 **그대로 남는다**).
-   * 「먹는 행위」의 제자리는 주방의 식탁이고 이것은 우클릭 편의 경로다 — 규칙은 progression 한 군데에만 있다.
-   */
-  useMealItem(uid: string, from?: ItemLocation): string | null { return this.readOnlyReason() ?? StashOps.useMealItem(this, uid, from); }
+  /* 2026-09-16 (접시 모델): 옛 `useMealItem`(우클릭 `먹기`)은 없어졌다 — 요리는 아이템이 아니라 식탁의 접시다 (housing `eatPlate`). */
 
   /* ── 2026-09-13: 요리 품질 · 조리 (InventoryRef, `parts/MealQuality.ts` · `parts/Crafting.ts`) ─────────── */
 
@@ -661,10 +656,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   getMealStacks(): { defId: string; quality: number; qty: number }[] { return Meal.getMealStacks(this); }
   /** 조리대 레시피를 지금 1회 만들 수 없는 한국어 사유 (null = 가능). 함선 작업대 제작과 같은 게이트. */
   cookBlock(recipeId: string, benchLevel: number): string | null { return Craft.cookBlock(this, recipeId, benchLevel); }
-  /** 조리 1회 마무리 — 재료를 빼고 품질 `quality` 인 산출물을 창고 먼저 → 가방에. 실패면 아무것도 빼지 않는다. */
-  completeCook(recipeId: string, benchLevel: number, quality: number): { item: ItemInstance | null; landed: 'bag' | 'stash' | null; reason: string | null } {
-    return Craft.completeCook(this, recipeId, benchLevel, quality);
-  }
+  /** 조리 1회분 재료를 뺀다 (산출물 없음 — 2026-09-16 접시 모델, housing 이 식탁에 놓는다). 한국어 사유 / null, 실패면 아무것도 빼지 않는다. */
+  consumeCookInputs(recipeId: string, benchLevel: number): string | null { return Craft.consumeCookInputs(this, recipeId, benchLevel); }
 
   /* ── Phase 6: loadout presets (사격장) ───────────────────────────────── */
 
@@ -1319,6 +1312,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Context menu `창고로 이동` on an equipped item (hub only): unequip straight into the stash. The bag slot shrinks the grid first. */
   moveToStash(uid: string, from: ItemLocation): OpResult { return this.readOnlyBlocked() ? 'fail' : StashOps.moveToStash(this, uid, from); }
 
+  /** 2026-09-16: 가방 머리의 `모두 창고로 이동` (함선) — 가방 **격자**만, 큰 것부터; `left` = 자리가 없어 남은 개수. */
+  moveBagToStash(): { moved: number; left: number } { return this.readOnlyBlocked() ? { moved: 0, left: 0 } : StashOps.moveBagToStash(this); }
+
   /**
    * Quick chat (middle-click / 요청 menu entry): `탄약 필요: <탄종>` for weapons, `<이름> 필요` for anything else
    * (`chat:post`, kind 'request'). 2026-09-09: the weapon's own name left the ammo line — the squad needs the calibre,
@@ -1364,7 +1360,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (this.isShowingContainer(containerId)) return;
     const first = !this.openedIds.has(containerId);
     this.openedIds.add(containerId);
-    const c = this.containers.getOrCreate(containerId, tier, position, this.loot, this.missionSeed, this.ctx.missionPlanet);
+    // 2026-09-16: 굴림 규칙(잠긴 방 = 서사 이상 게이트 면제)은 world 가 답한다 — peek · 안드로이드 확정과 같은 값
+    const c = this.containers.getOrCreate(containerId, tier, position, this.loot, this.missionSeed, this.ctx.missionPlanet,
+      this.ctx.world?.crateLootOpts?.(containerId));
     this.showContainer(c);
     this.ctx.bus.emit('inventory:containerOpened', { containerId, first });
   }

@@ -16,6 +16,8 @@ import { computerScreenPose, implantBayBody, shipComputerBody } from './stations
 import { TextPlane } from '../Labels';
 import type { EditAreaDef } from './types';
 import { furnitureAccessOf, furnitureFaceDir } from '@/shared';   // 2026-09-13 배치 규칙 — 접근 면에서만 상호작용
+import { DINING_TABLE_MISSING_REASON } from '@/shared';             // 2026-09-16 접시 모델 — 식탁 없는 조리대의 프롬프트
+import { addPlateToBatch } from './TablePlates';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Procedural furniture (함선 꾸미기). Every `FurnitureModelKind` is built from boxes / cylinders through a
@@ -103,6 +105,11 @@ export interface BuildExtra {
    * the 배양 magenta, and no `THREE.PointLight` is created for it.
    */
   cultureReady?: number;
+  /**
+   * 식탁 (2026-09-16 접시 모델): 이 식탁에 놓인 내 접시 (`HousingRef.getPlate`), 없으면 null · 생략. 빌더가 상판 위에 요리 모양을 올린다
+   * (`TablePlates.addPlateToBatch` — 광원 없음). 접시가 바뀌면 `housing:tablePlatesChanged` 로 식탁이 있는 방만 다시 짓는다.
+   */
+  plate?: { mealDefId: string; quality: number } | null;
   /**
    * 디스크 전시대 · 레코드랙 (A-3e, 2026-09-12): 칸별로 꽂힌 매체의 등급 (null = 빈 칸). 칸마다 등급색 케이스 · 슬리브가 선다.
    * 책장은 여전히 `books` 다.
@@ -432,9 +439,11 @@ const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
    * 식탁 (주방 A-3c, 2026-09-11): `maxLevel 1` 이라 **레벨을 읽지 않는다** (핍도 없다). 상판 · 다리 · 가로 보와
    * 발자국 안에 들어오는 의자 넷, 그리고 「먹는 자리」임을 말하는 식기 한 벌. 가운데 등만 emissive 다.
    */
-  dining_table: (b, w, d, h, a) => {
+  dining_table: (b, w, d, h, a, _lv, extra) => {
     const tw = Math.max(0.8, w - 0.72), td = Math.max(0.6, d - 0.72);
     const topY = h - 0.06;
+    // 2026-09-16 (접시 모델): 차린 요리 — 중앙 등 옆(로컬 −X)의 빈자리, 식탁보 윗면에 (식기 네 벌 · 등과 겹치지 않는다)
+    if (extra?.plate) addPlateToBatch(b, -(tw / 2 - 0.2), topY + 0.055, 0, extra.plate.mealDefId, extra.plate.quality);
     b.box(tw, 0.07, td, 0, topY, 0, M.hullLight);                                                // 상판
     b.box(tw - 0.06, 0.02, td - 0.06, 0, topY + 0.045, 0, M.padding);                            // 식탁보
     b.box(tw, 0.03, 0.04, 0, topY - 0.055, -(td / 2 - 0.02), a);                                 // 앞 가장자리 악센트
@@ -917,6 +926,8 @@ export class FurnitureLayer {
         b.on('housing:clusterChanged', ({ uid }) => this.refreshClusterPiece(uid)),
         // 2026-09-13 비디오게임: TV 의 게임기가 바뀌었다 → 그 TV 의 방만 다시 짓는다 (상판 위 게임기 모양)
         b.on('housing:tvConsoleChanged', ({ uid }) => { const p = this.pieces.get(uid); if (p) this.rebuildRoom(p.item.room); }),
+        // 2026-09-16 접시 모델: 식탁의 접시가 바뀌었다 → 식탁이 있는 방만 다시 짓는다 (상판 위 요리 모양 — 광원 없음)
+        b.on('housing:tablePlatesChanged', () => this.rebuildDiningRooms()),
       );
       this.staging = new GymStaging(ctx, (uid) => this.pieces.get(uid) ?? null, (uid) => this.blockersFor(uid));
       this.cook = new CookStaging(ctx, (uid) => this.pieces.get(uid) ?? null, (uid) => this.blockersFor(uid));
@@ -1165,7 +1176,10 @@ export class FurnitureLayer {
         radius: fixture ? fixture.radius : stack > 1 ? 1.2 : access === 'front' ? faceHalfWidth + 1.1 : Math.max(w, d) / 2 + 1.1,
         // TV · 레코드 플레이어의 프롬프트는 지금 상태를 따라간다 (`TV · 켜기` / `TV · 끄기`). 2026-09-13: TV 화면이 있으면 `TV 화면`
         getPrompt: () => (cb.canUse() && accessOk()
-          ? (tvKind && this.tvMenuAvailable() ? `${def.name} 화면` : toggle ? `${def.name} · ${this.isOn(uid) ? '끄기' : '켜기'}` : cluster ? this.clusterPrompt(uid) : prompt)
+          ? (tvKind && this.tvMenuAvailable() ? `${def.name} 화면` : toggle ? `${def.name} · ${this.isOn(uid) ? '끄기' : '켜기'}` : cluster ? this.clusterPrompt(uid)
+            // 2026-09-16 (접시 모델): 식탁 가구가 없으면 조리대 · 자동 조리 가구는 쓸 수 없다 — 누르기 전에 프롬프트가 말한다
+            : (cookBench || cookAppliance) && this.ctx.housing?.hasDiningTable?.() === false ? `${def.name} · ${DINING_TABLE_MISSING_REASON}`
+            : prompt)
           : null),
         canInteract: () => cb.canUse() && accessOk(),
         interact: () => {
@@ -1216,6 +1230,34 @@ export class FurnitureLayer {
     return best?.uid ?? null;
   }
 
+  /**
+   * 식탁 접시 (2026-09-16): 이 식탁에 올릴 내 접시 — 우리 함선(방문 중이 아닐 때)의 **첫 식탁 가구**에만 (접시는 함선당 하나다).
+   * 지은 조각을 `diningPlateUid` 에 적는다 (스모크).
+   */
+  private plateFor(uid: string): { mealDefId: string; quality: number } | null {
+    if (this.source !== null) return null;
+    const h = this.ctx.housing;
+    let plate: { mealDefId: string; quality: number } | null = null;
+    try { plate = h?.getPlate?.() ?? null; } catch { plate = null; }
+    const first = plate ? h?.state.furniture.find((f) => FURNITURE_DEF_MAP.get(f.defId)?.interaction === 'dining_table') : undefined;
+    const on = !!plate && !!first && first.uid === uid;
+    if (on) this.plateUid = uid;
+    else if (this.plateUid === uid) this.plateUid = null;
+    return on ? plate : null;
+  }
+
+  /** 디버그 · 스모크 (2026-09-16): 접시를 올려 지은 식탁 조각 uid, 없으면 null. */
+  get diningPlateUid(): string | null { return this.plateUid; }
+  private plateUid: string | null = null;
+
+  /** 식탁 가구가 있는 방들만 다시 짓는다 (`housing:tablePlatesChanged`). */
+  private rebuildDiningRooms(): void {
+    const rooms = new Set<number>();
+    for (const p of this.pieces.values()) if (FURNITURE_DEF_MAP.get(p.item.defId)?.interaction === 'dining_table') rooms.add(p.item.room);
+    if (rooms.size === 0) this.plateUid = null;
+    for (const r of rooms) this.rebuildRoom(r);
+  }
+
   /** Per-piece state a builder reads: 책장 = shelved books, 분석기 / 배양조 = how many 칸 wait to be collected. */
   private buildExtra(def: FurnitureDef, uid: string): BuildExtra | undefined {
     if (def.model === 'bookshelf') return { books: this.shelfBooks(uid) };
@@ -1231,6 +1273,8 @@ export class FurnitureLayer {
     if (isToggleInteraction(def.interaction)) return { on: this.isOn(uid) };
     // 2026-09-13: 조리 중인 조리대는 지금 단계의 도구를 작업 자리에 둔 채로 짓는다
     if (def.model === 'bench_cook') return { cookGame: this.cook?.gameFor(uid) ?? null };
+    // 2026-09-16 (접시 모델): 식탁은 내 접시를 올린 채로 짓는다
+    if (def.model === 'dining_table') return { plate: this.plateFor(uid) };
     // 2026-09-13 암호화폐 채굴: 연산 클러스터는 꽂힌 코어만큼 칸이 켜진 채로 짓는다 (지은 모습의 열쇠를 적어 둔다)
     if (def.model === 'compute_cluster') {
       const s = this.clusterState(uid);

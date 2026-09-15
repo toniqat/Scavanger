@@ -1,13 +1,15 @@
 import type { CraftRecipe, EmbeddedView, GameContext, ItemInstance, MealBuff } from '@/shared';
 import {
   COOK_GAME_ICON, COOK_GAME_LABEL_KO, MEAL_BUFF_UNIT, MEAL_QUALITY_MAX, MEAL_TIER_LABEL_KO, buildItemChip, cookStepsOf,
-  mealQualityBonus, mealQualityStars,
+  getMealDef, mealQualityBonus, mealQualityStars,
 } from '@/shared';
 import type { HousingSystem } from '../../HousingSystem';
 import { furnitureMaxLevel, nextFurnitureCost } from '../../Rules';
 import { cookBenchAt, cookRecipeBookBlock, cookRecipeSkillBlock, cookRecipes, cookStepBonus } from '../../parts/Cooking';
-import { mealEffectText, mealEffects, mealTierText } from '../DiningTable';
+import { mealEffectText, mealEffects, mealTierText, qualityName } from '../DiningTable';
 import { HousingPanel } from '../Panel';
+import type { PanelOverlay } from '../Panel';
+import { askReplacePlate, closePlateAsk } from './PlateAsk';
 import { buildStationShell, mountStationGrids, paintStationLevel, paintStationMeta } from '../StationShell';
 import type { StationShell } from '../StationShell';
 import { UpgradeModal } from '../UpgradeModal';
@@ -145,7 +147,8 @@ export class CookStation extends HousingPanel {
     this.reasonEl.hidden = true;
     el('div', {
       cls: 'hint cook-sel-note',
-      text: '재료는 요리가 끝날 때 빠집니다 — 중간에 그만두면 아무것도 쓰지 않습니다. 만든 요리는 함선 창고에 먼저 들어갑니다.',
+      // 2026-09-16 (접시 모델, 사용자 결정): 요리는 아이템이 아니라 식탁의 접시다 — 함선당 한 접시, 다시 만들면 바뀐다
+      text: '재료는 요리가 끝날 때 빠집니다 — 중간에 그만두면 아무것도 쓰지 않습니다. 완성된 요리는 식탁에 차려집니다 (함선당 한 접시, 다음 레이드가 시작되면 치워집니다).',
       parent: left,
     });
 
@@ -156,6 +159,14 @@ export class CookStation extends HousingPanel {
 
     this.modal = new UpgradeModal(ctx, this.root, housing);
     this.overlays.push(this.modal);
+    // 2026-09-16: 「식탁의 요리를 바꿉니다」 경고도 이 화면 안의 팝업이다 — E · Tab 은 화면이 아니라 경고를 닫는다(= 취소)
+    const ask: PanelOverlay = {
+      get isOpen() { return !!housing.plateAsk?.handle.isOpen; },
+      close: () => housing.plateAsk?.handle.cancel(),
+    };
+    this.overlays.push(ask);
+    // 식탁의 접시가 바뀌면 상세의 「식탁」 줄이 바뀐다
+    this.unsubs.push(ctx.bus.on('housing:tablePlatesChanged', () => this.refreshIfOpen()));
     // 2026-09-13 (H3): 레시피 책을 꽂거나 빼면 잠김이 바뀐다 · 서재 요리 보너스도
     this.unsubs.push(ctx.bus.on('housing:libraryChanged', () => { this.railKey = ''; this.refreshIfOpen(); }));
   }
@@ -171,6 +182,7 @@ export class CookStation extends HousingPanel {
 
   override close(relock = true): void {
     const wasOpen = this.isOpen;
+    closePlateAsk(this.housing);            // 2026-09-16: 경고가 떠 있던 채 화면이 닫히면 확정 없이 걷는다
     this.grids?.dispose();
     this.grids = null;
     super.close(relock);
@@ -197,11 +209,23 @@ export class CookStation extends HousingPanel {
     this.select(id);
   }
 
-  /** 「조리 시작」 — 막혀 있으면 거절음 + 토스트. 시작하면 이 화면은 닫히고 조리 오버레이가 열린다. */
-  start(): string | null {
+  /**
+   * 「조리 시작」 — 막혀 있으면 거절음 + 토스트. 시작하면 이 화면은 닫히고 조리 오버레이가 열린다.
+   * 2026-09-16 (접시 모델, 사용자 결정): 식탁에 접시가 이미 있으면 **시작하기 전에** 「식탁의 요리를 바꿉니다」 1 초 홀드 경고를 띄운다
+   * (`ui/cook/PlateAsk`) — 그때는 null 을 돌려주고, 확정되면 시작한다. `skipAsk` = 스모크 · 경고를 이미 지난 확정.
+   */
+  start(skipAsk = false): string | null {
     const id = this.selectedRecipeId;
     if (!id) { this.deny('요리를 고르세요'); return '요리를 고르세요'; }
-    const reason = this.housing.startCook(this.benchUid, id);
+    const block = this.housing.cookBlock(this.benchUid, id);
+    if (block) { this.deny(block); return block; }
+    const uid = this.benchUid;
+    const mealId = cookRecipes(this.housing).find((r) => r.id === id)?.outputDefId ?? '';
+    if (!skipAsk && askReplacePlate(this.housing, mealId, () => {
+      const r = this.housing.startCook(uid, id);
+      if (r) { this.ctx.bus.emit('audio:play', { id: 'ui_deny' }); this.ctx.bus.emit('ui:notify', { text: r, kind: 'warning' }); }
+    })) return null;
+    const reason = this.housing.startCook(uid, id);
     if (reason) this.deny(reason);
     return reason;
   }
@@ -292,12 +316,12 @@ export class CookStation extends HousingPanel {
         parent: list,
       });
       cell.type = 'button';
-      const def = this.housing.defOf(x.r.outputDefId);
-      const name = this.housing.nameOf(x.r.outputDefId);
-      // 썸네일은 인벤토리 타일(계약 `buildItemTile`), 없으면 공용 아이템 칩
+      // 2026-09-16 (접시 모델): 산출물은 아이템이 아니라 요리 표의 요리다 — 인벤토리 타일(`buildItemTile`)은 요리를 모르므로 공용 칩으로 그린다
+      const def = getMealDef(x.r.outputDefId);
+      const name = def?.name ?? this.housing.nameOf(x.r.outputDefId);
       const thumb = el('div', { cls: 'cook-cell-thumb', parent: cell });
-      if (inv && typeof inv.buildItemTile === 'function') thumb.appendChild(inv.buildItemTile(x.r.outputDefId, x.r.outputQty, { cell: CELL_THUMB }));
-      else thumb.appendChild(buildItemChip(def, { size: CELL_THUMB }));
+      if (def || !inv || typeof inv.buildItemTile !== 'function') thumb.appendChild(buildItemChip(def, { size: CELL_THUMB }));
+      else thumb.appendChild(inv.buildItemTile(x.r.outputDefId, x.r.outputQty, { cell: CELL_THUMB }));
       if (x.tier > 0) el('span', { cls: 'cook-cell-tier', text: `T${x.tier}`, parent: cell });
       // 지금 만들 수 있으면 초록 점 (옛 레일의 표시 그대로)
       el('i', { cls: `cook-rail-dot cook-cell-dot${x.block ? '' : ' on'}`, parent: cell });
@@ -341,7 +365,7 @@ export class CookStation extends HousingPanel {
     const def = h.mealDef(r.outputDefId);
     const steps = cookStepsOf(r.outputDefId);
     this.selChip.appendChild(buildItemChip(def ?? h.defOf(r.outputDefId), { size: SEL_CHIP }));
-    setText(this.selName, h.nameOf(r.outputDefId));
+    setText(this.selName, def?.name ?? h.nameOf(r.outputDefId));
     // 2026-09-15 (B-15): 숙련이 모자라면 무엇을 올려야 하는지 부제에도
     const skillNeed = row.skill ? `${row.skill.label} 숙련 ${row.skill.need}` : '';
     setText(this.selSub, [def?.meal ? mealTierText(def.meal) : '', `조리대 Lv.${r.benchLevel ?? 1}`, skillNeed, `미니게임 ${steps.length}단계`].filter(Boolean).join(' · '));
@@ -349,9 +373,11 @@ export class CookStation extends HousingPanel {
     const desc = (def ?? h.defOf(r.outputDefId))?.description ?? '';
     setText(this.selDesc, desc);
     this.selDesc.hidden = !desc;
-    const owned = h.countDef(r.outputDefId);
-    setText(this.selOwned, `보유 ${owned}`);
-    toggleClass(this.selOwned, 'is-none', owned <= 0);
+    // 2026-09-16 (접시 모델): 「보유 n」 대신 **식탁에 무엇이 있나** — 요리하면 이 접시가 바뀐다
+    const plate = h.getPlate();
+    const plateName = plate ? qualityName(getMealDef(plate.mealDefId)?.name ?? plate.mealDefId, plate.quality) : '';
+    setText(this.selOwned, plate ? `식탁: 「${plateName}」 — 요리하면 바뀝니다` : '식탁: 비어 있음');
+    toggleClass(this.selOwned, 'is-none', !plate);
 
     // 능력치: ☆ 기준값 → ★★★★★ 보너스 반영 (한 줄에 한 능력치)
     const maxBonus = mealQualityBonus(MEAL_QUALITY_MAX);

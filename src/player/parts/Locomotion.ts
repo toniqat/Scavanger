@@ -31,11 +31,19 @@ import type { PlayerSystem } from '../PlayerSystem';
 /**
  * Roll (Alt) in `direction` — defaults to the current movement input, else camera forward. Costs
  * ROLL_STAMINA_COST, has a ROLL_COOLDOWN, is denied while airborne / rolling / downed / in a pod / in the hub,
- * inside the extraction ship box and from '무거움' (90 %) upward. Emits `player:dived` (wire compatibility).
+ * inside the extraction ship box, while prone or standing up from prone, and from '무거움' (90 %) upward. A crouched
+ * roll (2026-09-16 「낮은 구르기」) ends still crouched. Emits `player:dived` (wire compatibility).
  */
 export function roll(sys: PlayerSystem, direction?: THREE.Vector3): boolean {
   const c = sys.controller;
   if (!sys.canAct() || !c.grounded || c.rolling || sys.ctx.isHubPhase()) return false;
+  /*
+   * 2026-09-16 (사용자 결정 — 엎드린 채로는 구르지 못한다): 입력 자리(`PlayerSystem.update` 의 V 게이트)가 이미
+   * 엎드림 · 일어서는 중(`standUpTimer`, 엎드림 → 앉기 / 서기 전환)을 거르지만, `PlayerRef.roll` 을 직접 부르는
+   * 길(스모크 · 콘솔 · 다른 폴더)도 같은 규칙을 지나야 하므로 여기서 한 번 더 막는다. 거절 피드백은 없다 —
+   * 입력 게이트가 원래 조용히 거르던 경우라 토스트 · 거절음을 새로 만들지 않는다.
+   */
+  if (sys._stance === 'prone' || sys.standUpTimer > 0) return false;
   // Phase 10: a squadmate on the shoulder is put down first; the caller retries next frame
   if (sys._carrying) { sys.dropCarried('action'); return false; }
   if (sys.rollCooldown > 0) return false;
@@ -56,7 +64,14 @@ export function roll(sys: PlayerSystem, direction?: THREE.Vector3): boolean {
   if (_dir.lengthSq() < 1e-6) _dir.set(0, 0, -1);
   _dir.normalize();
 
-  if (sys._stance !== 'stand') sys.setStance('stand');
+  /*
+   * 2026-09-16 (사용자 결정 — 「낮은 구르기」): 앉은 채로 구르면 **끝나도 앉아 있다.** 동작 · 속도 · 거리 · 스태미나 ·
+   * 쿨다운 · 피해 판정(`ROLL_DAMAGE_MUL`)은 서서 구르기와 한 글자도 다르지 않고, 자세만 건드리지 않는다.
+   * 예전 줄(`if (stance !== 'stand') setStance('stand')`)은 `canStandHere` 를 묻지 않아 낮은 슬래브 밑에서 구르면
+   * 몸이 슬래브 안으로 일어섰다 — 이제 구르는 동안에도 컨트롤러는 앉은 머리 공간(`bodyClearance`)으로 민다.
+   * 구르는 동안 앉은 자세 블렌드는 그대로 두고(`PlayerSystem` · `RemoteAvatar` 의 crouchBlend), 구르기 블렌드가
+   * 빠지면 곧장 앉은 자세로 돌아온다 — 중간에 일어섰다 앉는 깜빡임이 없다. 엎드림은 위에서 이미 거절됐다.
+   */
   sys.setAiming(false);
   sys.setHovering(false);
   sys.spendStamina(ROLL_STAMINA_COST);

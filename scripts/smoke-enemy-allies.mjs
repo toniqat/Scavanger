@@ -201,6 +201,7 @@ try {
     const proxy = sys.targets.allies[0];
     const hp0 = e.hp;
     const kills0 = ctx.stats.kills;
+    const killXp0 = ctx.stats.killXp ?? 0;
     window.__killed.length = 0;
     const point = new V(e.position.x, e.position.y + 0.5, e.position.z);
     const applied = sys.applyAllyHit(e.id, 5, point, p);
@@ -214,6 +215,7 @@ try {
     out.dead = e.isDead || e.state === 'dead';
     out.killEvents = window.__killed.length;
     out.killsAfter = ctx.stats.kills - kills0;
+    out.killXpAfter = (ctx.stats.killXp ?? 0) - killXp0;   // 2026-09-16: an android kill pays nobody raid XP either
     // a replica never touches enemies or androids (spawn first — spawning is authority-only too)
     const e2 = sys.debugSpawn('scavenger', { x: p.x + 9, z: p.z }, false);
     const was = sys.authority;
@@ -229,8 +231,8 @@ try {
     return out;
   });
   ok(!!back && back.applied === true && back.dealt > 0, 'applyAllyHit damages the enemy on the authority', JSON.stringify(back));
-  ok(!!back && back.damager === 'ai' && back.kills === 0 && back.killsAfter === 0 && back.killEvents === 0,
-    'no kill credit: `lastDamager` = ai, no `ctx.stats.kills`, no `enemy:killed`', JSON.stringify(back));
+  ok(!!back && back.damager === 'ai' && back.kills === 0 && back.killsAfter === 0 && back.killXpAfter === 0 && back.killEvents === 0,
+    'no kill credit: `lastDamager` = ai, no `ctx.stats.kills` / `killXp`, no `enemy:killed`', JSON.stringify(back));
   ok(!!back && back.aware === true && back.target === 'android:test:0', 'the enemy wakes up and turns on the android that shot it', JSON.stringify(back));
   ok(!!back && back.replicaHit === false && back.replicaKept === true && back.replicaBlast === 0, 'a replica applies neither the hit nor the blast', JSON.stringify(back));
 

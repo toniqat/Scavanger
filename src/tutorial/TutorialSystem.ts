@@ -18,6 +18,7 @@ import {
   type ControlHint, type HudRevealState, type StepDef, type TutorialObjective,
 } from './model';
 import { nextStep, normalizeStep, stepCountOf, stepDef, stepIndexOf, trackOf } from './Steps';
+import { retiredTrackEnd } from './Steps';   // 2026-09-16: 순서에서 빠진 트랙 마지막 자리 (`messenger` · `ravenQuest`)
 import * as Gates from './parts/Gates';
 import { Guide } from './parts/Guide';
 import { ObjectiveMarker } from './parts/Marker';
@@ -155,6 +156,12 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private benchArmed = false;
   /** 제작 열이 열려 있다 (`ui:craftToggled`) — `openBag` 단계가 "닫혔다"를 판단하는 유일한 상태. */
   private craftOpen = false;
+  /**
+   * 이륙 연출이 화면을 가져갔다 (`ui:cinematic`, 2026-09-16 사용자 결정 — 「남은 HUD 가 전부 사라진다」). 그 동안 목표 패널 ·
+   * 조작 가이드 · TIP · 스포트라이트 · 안내선 · 목표 마커를 그리지 않는다 (`refreshVisuals`). ui/ 의 HUD 페이드와 짝이다 —
+   * 이 폴더의 DOM 은 ui/ 가 모르므로 스스로 접는다. 풀리는 곳: `ui:cinematic false` · `game:abort` · `game:newMission` · `hub:entered`.
+   */
+  private cinematic = false;
 
   /* ── lifecycle ─────────────────────────────────────────────────────────── */
 
@@ -186,6 +193,11 @@ export class TutorialSystem implements GameSystem, TutorialRef {
        * `clearSkipFade(0)` 가 치우는 유일한 주인이고, 그것이 곧 「함선이 검게 남지 않는다」의 근거다.
        * 암전 시계만 멈춘다 (결과 화면이 떴으니 더 부를 탈출이 없다). */
       b.on('game:complete', () => { this.skipFadeT = 0; }),
+      // 2026-09-16: 이륙 연출 동안 튜토리얼 DOM · 3D 안내를 접는다 (`cinematic`) — 리셋 경로에서는 반드시 푼다
+      b.on('ui:cinematic', ({ active }) => this.onCinematic(active)),
+      b.on('game:abort', () => this.onCinematic(false)),
+      b.on('game:newMission', () => this.onCinematic(false)),
+      b.on('hub:entered', () => this.onCinematic(false)),
       b.on('hub:entered', ({ ship }) => this.onHubEntered(ship)),
       b.on('hub:left', () => this.refreshVisuals()),
       b.on('game:phaseChanged', () => this.refreshVisuals()),
@@ -281,10 +293,11 @@ export class TutorialSystem implements GameSystem, TutorialRef {
 
       /* ── ② ship 트랙 (2026-09-14) ── */
       b.on('inventory:opened', () => this.advanceIf('levelUp')),
-      b.on('progress:statChanged', () => this.advanceIf('stats')),
-      // 2026-09-15 (사용자 결정): 메신저를 여는 것이 함선 트랙의 **마지막** 단계다 — `ravenQuest`(대답 · 수락)는 순서에서 빠졌고
-      //   레이븐의 첫 연락은 이 트랙이 끝난 뒤에 온다 (`meta/parts/NpcQuests.tutorialBlocks`). 그 단계를 보던 구독도 함께 갔다.
-      b.on('ui:messengerToggled', ({ open }) => { if (open) this.advanceIf('messenger'); }),
+      // 2026-09-16: 투자를 확정해도 **화면을 닫을 때** 트랙이 끝난다 (`onStatsConfirmed`)
+      b.on('progress:statChanged', () => this.onStatsConfirmed()),
+      /* 2026-09-16 (사용자 결정): `messenger`(메신저 열기)가 순서에서 빠졌다 — 함선 트랙은 `levelUp` → `stats` 두 단계이고, 그 단계를
+       * 넘기던 `ui:messengerToggled` 구독도 함께 갔다. 메신저는 함선 트랙 · 증축 트랙 내내 감춰진다 (`parts/Gates` — `community` 를
+       * 여는 단계가 없다). 레이븐의 첫 연락은 그대로 트랙이 모두 끝난 뒤다 (`meta/parts/NpcQuests.tutorialBlocks`). */
 
       // 리바인드하면 조작 가이드 · 목표 줄의 키캡을 다시 읽는다 (키는 사용 시점에 읽는다 — `docs/CONTROLS.md`)
       b.on('input:bindingsChanged', () => { this.controls.relabel(); this.panel.relabel(); }),
@@ -331,6 +344,11 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       if (this.retarget <= 0) { this.retarget = MARKER_RETARGET_FRAMES; this.marker.setTarget(this.nearestCorpse()); }
     }
     if (step === 'levelUp' && (this.ctx.inventory?.screenTab ?? 'inventory') !== 'inventory') {
+      this.advance();
+      return;
+    }
+    // ③ `stats` — 확정은 했는데 화면이 이미 닫혀 있다 (새로고침 · 닫힘 이벤트를 놓침): 함선 트랙을 여기서 끝낸다 (`onStatsConfirmed`)
+    if (step === 'stats' && this.done.has('statsSpent') && !this.invOpen && this.ctx.isHubPhase()) {
       this.advance();
       return;
     }
@@ -665,7 +683,26 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    */
   private onCheckpoint(id: string): void {
     const target = CHECKPOINT_STEP[id];
-    if (target) this.foldRaid(target);
+    if (target) this.foldRaid(this.healSafeFold(target));
+  }
+
+  /**
+   * 2026-09-16 (버그 — 「붕대를 안 썼는데 수류탄 단계로 넘어갔다」): 체크포인트는 **다친 사람의 회복 구간을 건너뛰지 않는다.**
+   * 보급품 시체를 그냥 지나쳐 `wall` 에 닿으면 `CHECKPOINT_STEP.wall`(= `grenade`)이 `supplyLoot` · `heal` 을 통째로 접었다.
+   * 이제 접을 목표가 `heal` **뒤**이고 지금 단계가 `heal` 이하인데 체력이 가득이 아니면, 거기까지만 접는다 —
+   * `supplyLoot` 전이면 `supplyLoot` 로, 이미 `supplyLoot` · `heal` 이면 제자리. 체력이 가득이면 예전 그대로 넘어간다
+   * (`heal` 도 가득이면 조용히 지나치는 단계다 — `setStep`). **탈출 스위치의 접기(`extraction:*` → `foldRaid('extract')`)는
+   * 이 규칙을 타지 않는다** — 레이드가 끝나는 순간이라 막을 것이 없고, 붕대를 잃은 사람이 갇히는 길도 그것이 닫아 준다.
+   * (A 쪽 원인 — 낙하 피해를 실드가 먹어 체력이 가득인 채 `heal` 이 조용히 지나감 — 은 player/ 가 고쳤다: 낙하는 실드를 건너뛴다.)
+   */
+  private healSafeFold(target: TutorialStepId): TutorialStepId {
+    if (this.track !== 'raid' || this.healthFull()) return target;
+    const order = TUTORIAL_TRACK_STEPS.raid;
+    const cur = this.step;
+    const i = cur ? order.indexOf(cur) : -1;
+    const heal = order.indexOf('heal'), supply = order.indexOf('supplyLoot');
+    if (i < 0 || heal < 0 || supply < 0 || i > heal || order.indexOf(target) <= heal) return target;
+    return i < supply ? 'supplyLoot' : cur!;
   }
 
   /**
@@ -887,6 +924,30 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     }
     // 2026-09-15: 보급품 시체 — 붕대를 얻은 뒤 창을 닫으면 회복 단계다
     if (step === 'supplyLoot' && this.done.has('supplyBandage')) this.advance();
+    // 2026-09-16: 능력치 투자를 확정한 뒤 화면을 닫으면 함선 트랙이 끝난다 (`onStatsConfirmed`)
+    if (step === 'stats' && this.done.has('statsSpent')) this.advance();
+  }
+
+  /**
+   * 능력치 포인트 투자를 확정했다 (`progress:statChanged`, 2026-09-16). `stats` 는 함선 트랙의 **마지막** 단계가 됐다
+   * (`messenger` 가 순서에서 빠졌다). 그 자리에서 넘기면 `finish` → `autoStart` 가 증축 트랙을 곧바로 열어, 아직 캐릭터 화면을
+   * 보고 있는 사람 위로 시작 카드가 뜨고(증축 트랙의 `screenTab` · `stashItem` 게이트가 보던 탭 · 창고 물건까지 감춘다).
+   * 그래서 `corpseLoot` 과 같은 요령이다: 목표에 체크만 긋고, **인벤토리 화면을 닫을 때** 넘어간다 (`onInventoryClosed`).
+   * 닫힌 채 확정됐으면(콘솔 · 다른 경로) 곧장 넘어가고, 닫힘을 놓쳤으면(새로고침) `poll` 이 함선에서 넘긴다.
+   * 기다리는 동안 트랙은 그대로 `active` 라 레이븐의 첫 연락도 여전히 막혀 있다 (`meta/parts/NpcQuests.tutorialBlocks`).
+   */
+  private onStatsConfirmed(): void {
+    if (this.step !== 'stats') return;
+    this.markObjective('statsSpent');
+    if (!this.invOpen) this.advance();
+  }
+
+  /** 이륙 연출이 시작 / 끝났다 (`cinematic` 주석). */
+  private onCinematic(active: boolean): void {
+    if (active === this.cinematic) return;
+    this.cinematic = active;
+    if (active) this.tip.clear();
+    this.refreshVisuals();
   }
 
   /**
@@ -1277,11 +1338,13 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     const track = this.track!;
     const def = stepDef(step);
     // 2026-09-14 4차: 기상 연출 중 · 그 직후의 한 박자 동안에는 아무것도 그리지 않는다 (`quiet`)
-    const showable = (this.ctx.isHubPhase() || this.ctx.isGameplayPhase()) && !this.quiet;
+    // 2026-09-16: 이륙 연출 동안에도 (`cinematic`) — 목표 마커까지 함께 걷는다
+    const showable = (this.ctx.isHubPhase() || this.ctx.isGameplayPhase()) && !this.quiet && !this.cinematic;
     if (!showable) {
       this.panel.hide();
       this.spotlight.set([], '');
       this.guide.setTarget(null);
+      this.marker.setTarget(null);
       this.controls.show(false);
       return;
     }
@@ -1414,7 +1477,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
         for (const t of TUTORIAL_TRACKS) {
           const e = src[t];
           if (!e || typeof e !== 'object') continue;
-          const done = !!e.done;
+          // 2026-09-16: 순서에서 빠진 마지막 자리(`messenger` · `ravenQuest`)에 서 있던 트랙은 끝난 것이다 (`Steps.retiredTrackEnd`)
+          const done = !!e.done || retiredTrackEnd(e.step) === t;
           // 순서에서 빠진 단계(`openCraft`)는 그 자리를 이어받은 단계로 · 남의 트랙 단계는 버린다
           const step = normalizeStep(e.step);
           tracks[t] = { step: done || !step || trackOf(step) !== t ? null : step, done };

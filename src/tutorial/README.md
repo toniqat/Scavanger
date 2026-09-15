@@ -45,7 +45,7 @@ folders, and other folders do not know its steps. When inactive, both always ret
   `extraction:departureStarted`, `extraction:liftoff`, `inventory:opened` / `closed` / `containerOpened` / `changed` /
   `bagChanged`, `loadout:changed`, `craft:completed`, `ui:craftToggled`, `ui:keyGuide`, `housing:*` (manage / mode open and
   close, purpose, facility, craft, selection, placement), `hub:terminalToggled`, `hub:planetChanged`, `hub:travel`,
-  `hub:slotChanged`, `progress:statChanged`, `ui:messengerToggled`, `input:bindingsChanged`.
+  `hub:slotChanged`, `progress:statChanged`, `ui:cinematic`, `input:bindingsChanged`.
 - **Calls out**: `PlayerRef.playIntroWake`, `PlayerRef.setSceneLock`, `ExtractionRef.skipToComplete` /
   `skipToLiftoff`, `ctx.inventory` item grants, `ctx.console.register`.
 
@@ -69,8 +69,13 @@ checkpoint is ignored. Skipping any section never dead-ends: required objectives
 | 10 | `crouchAim` | `안드로이드 처치 (n/m)`; first crouched aim shows the TIP | kills × 2; checkpoint `drop` |
 | 11 | `advance3` | `앞으로 이동` | checkpoint `drop` |
 | 12 | `drop` | jump down | `player:fell {damage > 0}`; checkpoint `supply` |
-| 13 | `supplyLoot` | bandage from corpse (required), grenade (optional) | bandage held → `inventory:closed`; checkpoint `wall` (→ `grenade`, skipping `heal`) |
-| 14 | `heal` | equip bandage → (revealed) use it. Skipped silently at full health | `player:stimUsed`; checkpoint `wall` |
+| 13 | `supplyLoot` | bandage from corpse (required), grenade (optional) | bandage held → `inventory:closed`; checkpoint `wall` / `ship` only at full HP |
+| 14 | `heal` | equip bandage → (revealed) use it. Skipped silently at full health | `player:stimUsed`; checkpoint `wall` / `ship` only at full HP |
+
+**Heal-safe folding** (`TutorialSystem.healSafeFold`): a checkpoint whose target lies past `heal` never folds past an
+unhealed player — below full HP it stops at `supplyLoot` (or stays at `supplyLoot` / `heal`). The extraction fold
+(`extraction:departureStarted` / `liftoff` → `extract`) is not guarded. Fall damage now bypasses the armor shield
+(player/), so the `drop` actually costs HP.
 | 15 | `grenade` | `앞으로 이동` (required); equip + throw a grenade (optional, any explosion counts) | checkpoint `ship` |
 | 16 | `extract` | hold-interact the ship switch | `extraction:departureStarted` / `extraction:liftoff` |
 
@@ -85,18 +90,20 @@ checkpoint is ignored. Skipping any section never dead-ends: required objectives
   fade in; last resort unlock + `game:returnToShip`. The black plate stays over the result screen; it is cleared by
   `clearSkipFade(0)` on `hub:entered` (with `game:abort` and `ui/HudSystem` as backups).
 
-## Track ② `ship` (3 steps)
+## Track ② `ship` (2 steps)
 
 | # | id | Objective | Advances on |
 |---|---|---|---|
 | 1 | `levelUp` | open the inventory screen | `inventory:opened` (or a non-inventory screen tab already showing — polled) |
-| 2 | `stats` | invest a point → hold `포인트 투자 확정` | `progress:statChanged` |
-| 3 | `messenger` | open the messenger (`.community.show` button) — last step, ends the track | `ui:messengerToggled {open:true}` |
+| 2 | `stats` | invest a point → hold `포인트 투자 확정` — last step | `progress:statChanged` ticks the objective; the track ends on `inventory:closed` (or at once if closed; polled in the ship after a reload) |
 
-No new UI: every step spotlights an existing screen. `ravenQuest` (answer Raven → accept the quest) left the order on
-2026-09-15: Raven's first contact now arrives only after the ship track is done **and no track is running**
-(`meta/parts/NpcQuests.tutorialBlocks` reads `ctx.tutorial.active` / `isTrackDone('ship')`), so the tutorial no longer
-walks the player through a quest. `normalizeStep` maps a saved `ravenQuest` to `messenger`. `isTrackDone('ship')` answers
+No new UI: every step spotlights an existing screen. `stats` waits for the inventory to close (`onStatsConfirmed`) so the
+build track's intro card, `screenTab` and `stashItem` gates never start over the open character screen; the track stays
+`active` meanwhile, so Raven stays blocked. The messenger is hidden for the whole ship and build tracks (no ordered step
+allows `community`). `ravenQuest` (2026-09-15) and `messenger` (2026-09-16) left the order: Raven's first contact arrives
+only after the ship track is done **and no track is running** (`meta/parts/NpcQuests.tutorialBlocks` reads
+`ctx.tutorial.active` / `isTrackDone('ship')`). A saved `messenger` / `ravenQuest` step loads as "ship track done"
+(`Steps.retiredTrackEnd`). `isTrackDone('ship')` answers
 `false` while `pendingShip` is set (raid just completed, ship track about to start) so that meta's `hub:entered`
 handler cannot read the track as done before this system starts it.
 
@@ -123,7 +130,8 @@ handler cannot read the track as done before this system starts it.
 | 17 | `raid` | find the extraction marker | 6 s after `world:ready` |
 
 `openCraft` (build) and `ravenQuest` (ship) stay in `TutorialStepId` and the `Steps.ts` table but not in
-`TUTORIAL_TRACK_STEPS`; `normalizeStep` maps old saves (`openCraft` → `craftAmmo`, `ravenQuest` → `messenger`).
+`TUTORIAL_TRACK_STEPS`; `normalizeStep` maps old saves (`openCraft` → `craftAmmo`); `messenger` / `ravenQuest` (ship) have
+no successor and load as a finished ship track (`retiredTrackEnd`).
 `manageDone` was out of the order between 2026-09-14 and 2026-09-15 and is back (user decision: the walk to the
 workshop must start with housing mode closed). "Walk to X" rows are ticked by `arriveObjective` when the player enters
 the guide target's interaction range (polled; no coordinates in this folder). The floor guide is hidden whenever
@@ -157,7 +165,7 @@ caller's existing UI. Blocked items are **hidden**, not shown locked: `hides(gat
 | `board` | `hub/parts/Pods` | launch slot before its step |
 | `screenTab` | `inventory/ui/parts/Screens` | tabs other than inventory (inventory always open) |
 | `matchmaking` | `hub/ui/HubMenu` | the terminal's `매칭` tab, always hidden while active |
-| `community` | `ui/hud/Community` | hidden unless the step allows it (ship track messenger) |
+| `community` | `ui/hud/Community` | hidden while any track runs (no ordered step allows it since 2026-09-16) |
 | `stashItem` | `inventory/ui/InventoryUI`, `inventory/ui/GridView` | stash items outside `TUTORIAL_STASH_WHITELIST` — build track only |
 | `hud` | `ui/hud/Vitals`, `WeaponPanel`, `ImplantWidget`, `StratagemPanel`, `Compass`, `Objective`, `WorldMarkers`, `ui/map/MapScreen`, `inventory/ui/ImplantPanel` | hide-only HUD reveal, raid track only |
 
@@ -216,8 +224,8 @@ Smokes: `scripts/smoke-tutorial.mjs` (build track + three-track contract), `smok
 ## Recent changes
 
 Last 5 only — older: `git log -- src/tutorial`.
+- 2026-09-16 — Ship track is 2 steps (`messenger` out; `stats` ends on inventory close, old `messenger`/`ravenQuest` saves = done); checkpoints never fold past `supplyLoot`/`heal` while hurt (`healSafeFold`); tutorial DOM + 3D guide/marker hide during the liftoff cinematic (`ui:cinematic`).
 - 2026-09-15 — `restartTrack(track)`: a tutorial raid abandoned from the title clears the raid track (and `pendingShip`) instead of marking it done.
 - 2026-09-15 — Ship track is 3 steps (`ravenQuest` out; Raven writes after the tutorial); build track is 17 steps again (`manageDone` = `하우징 모드 닫기` before `craftGun`); floor guide hidden while housing mode is open; `isTrackDone('ship')` false while `pendingShip`.
 - 2026-09-15 — Gate `matchmaking` now hides the terminal's `매칭` tab (the matchmaking popup is gone).
 - 2026-09-15 — Raid skip keeps the black plate (`hold: true`) over the result screen; cleared on `hub:entered`.
-- 2026-09-15 — New raid step `corpseOpen` (16 steps); objective counts `(n/m)`; objective panel text ×1.2.

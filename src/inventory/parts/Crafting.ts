@@ -23,7 +23,7 @@ import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeig
 /* 2026-09-10: 수리 재료를 정하는 곳은 하나다 (`getRepairCost` → 없으면 회복 스프레이). */
 import { repairMaterials } from './Durability';
 import { Grid, OOB, stackKeyOf, type Placement, type PriorityPlacement, type StackItem } from '../Grid';
-import { normalizeMealQuality } from '@/shared';
+import { getMealDef, normalizeMealQuality } from '@/shared';
 /* 2026-09-13 (서재 시리즈 · 연구 숙련): 연구실 작업대 제작의 연구 경험치 · 재료 환급 */
 import { RESEARCH_XP_CRAFT } from '@/shared';
 import { Container, ContainerStore } from '../Container';
@@ -660,19 +660,21 @@ export function researchAfterCraft(sys: InventorySystem, costs: readonly CraftIn
   return out;
 }
 
-/* ══ 2026-09-13 — 요리 미니게임: 조리 1회 (`InventoryRef.cookBlock` · `completeCook`, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ══════
- * housing 의 조리대 화면이 미니게임을 끝낸 뒤 **품질**을 들고 부른다. 규칙은 함선 작업대 제작과 같다:
- *   게이트 — 조리대 레시피 · 함선 · 작업대 레벨 · 숙련 · 튜토리얼 · 재료(`craftCost`, 작업실 할인 포함) · 산출물 자리.
+/* ══ 2026-09-13 — 요리 미니게임: 조리 1회 (`InventoryRef.cookBlock` · `consumeCookInputs`, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ══════
+ * housing 의 조리대 화면이 미니게임을 끝낸 뒤 부른다. 규칙은 함선 작업대 제작과 같다:
+ *   게이트 — 조리대 레시피(산출물이 요리 표 `getMealDef` 에 있다) · 함선 · 작업대 레벨 · 숙련 · 튜토리얼 · 재료(`craftCost`, 작업실 할인 포함).
  *   재료   — **가방 먼저**(작은 스택부터 → 주머니 → 휠 = `consumeWhere` 순서) → **함선 창고** (`consumeDefAll`). 이 파일 머리의
- *            「함선에서는 가방 + 함선 창고」 그대로다 — 조리대 화면은 창고 · 가방 카드를 나란히 보여 주고 수확물은 창고로 들어온다.
- *   산출   — 1회분(`outputQty`, 품질 `quality`) + `extraOutputs`(품질 없음), **창고 먼저 → 가방** (재배 · 배양 수확과 같은 쪽).
- *   실패   — 아무것도 빼지 않는다 (`cookBlock` 을 다시 보고, 자리는 소모 전에 dry-run 으로 확인한다).
+ *            「함선에서는 가방 + 함선 창고」 그대로다.
+ *   산출   — **없다.** 2026-09-16 (접시 모델, 사용자 결정): 요리는 아이템이 아니라 식탁의 접시다 — housing 이 `ShipState.plate` 에 놓는다.
+ *            그래서 산출물 자리 검사(옛 `roomForCook`)와 산출물 배치(옛 `completeCook`)는 없어졌다.
+ *   실패   — 아무것도 빼지 않는다 (`cookBlock` 을 다시 본다).
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /** 조리대 레시피를 **지금** 1회 만들 수 없는 한국어 사유, null = 가능. */
 export function cookBlock(sys: InventorySystem, recipeId: string, benchLevel: number): string | null {
   const r = getRecipe(recipeId);
-  if (!r || r.bench !== COOK_BENCH || isDisassembleRecipe(r) || !ITEM_DEF_MAP.has(r.outputDefId)) return COOK_REASON.notCook;
+  // 2026-09-16 (접시 모델): 조리대 산출물은 아이템이 아니라 요리 표(`getMealDef`)의 id 다
+  if (!r || r.bench !== COOK_BENCH || isDisassembleRecipe(r) || !getMealDef(r.outputDefId)) return COOK_REASON.notCook;
   const ctx = sys.ctx;
   if (!ctx.isHubPhase() || ctx.isRaidActive()) return COOK_REASON.shipOnly;
   const need = r.benchLevel ?? 1;
@@ -683,105 +685,27 @@ export function cookBlock(sys: InventorySystem, recipeId: string, benchLevel: nu
   const tut = ctx.tutorial?.blockReason('craft', recipeId);
   if (tut) return tut;
   if (!sys.craftCost(r).every((i) => sys.countDefAll(i.defId) >= i.qty)) return COOK_REASON.missing;
-  // 시작 전에는 품질을 모른다 → 어느 스택과도 합쳐지지 않는다고 보고(새 칸이 필요) 잰다. `completeCook` 은 실제 품질로 다시 잰다.
-  if (!roomForCook(sys, r, null)) return COOK_REASON.noRoom;
+  // 2026-09-16 (접시 모델): 요리는 격자에 들어가지 않는다 — 산출물 자리를 보지 않는다 (옛 `roomForCook` 은 없어졌다)
   return null;
   }
 
-/** 같은 분류 열쇠(요리 품질 포함)의 스택만 합치는 dry-run 합치기 예산 — `dryMerge` 의 품질판. */
-function dryMergeKeyed(g: DryGrid, def: ItemDef, probe: StackItem, want: number): number {
-  if (def.stackMax <= 1 || want <= 0) return 0;
-  const key = `${def.id}|${stackKeyOf(probe)}`;
-  const cap = g.merge.get(key) ?? g.grid.mergeCapacity(def.id, probe);
-  const used = Math.min(cap, want);
-  g.merge.set(key, cap - used);
-  return used;
-}
-
 /**
- * 조리 1회의 산출물(품질 `quality` 인 본 산출물 + 품질 없는 `extraOutputs`)이 **창고 → 가방** 순서로 전부 들어가는가.
- * 덩어리(`stackMax` 이하)마다 `Grid.autoPlace` 와 같은 판정 — 그 격자의 같은 열쇠 스택이 다 받으면 합치기, 아니면 빈칸이 있을 때
- * 합칠 만큼 합치고 나머지를 한 칸에. 그 격자에서 안 되면(아무것도 쓰지 않고) 다음 격자.
+ * 조리 1회분 재료를 뺀다 — 게이트(`cookBlock`)를 다시 보고, 가방 먼저 → 창고. 산출물은 없다 (2026-09-16 접시 모델 — housing 이 식탁에 놓는다).
+ * `craft:completed` 는 내지 않는다: 그 이벤트는 만들어진 아이템을 싣는 계약이고, 요리 숙련 경험치 · 결과 토스트는 housing 의
+ * `housing:cookResult` 가 이미 맡는다. 한국어 사유 / null.
  */
-function roomForCook(sys: InventorySystem, recipe: CraftRecipe, quality: number | null): boolean {
-  const order: DryGrid[] = [];
-  if (sys.ctx.isHubPhase()) order.push(dryGrid(sys.getStash()));
-  order.push(dryGrid(sys.bag));
-  /** `quality === null` = 품질을 아직 모른다: 본 산출물은 기존 스택에 합치지 않는다고 본다 (보수적). */
-  const unknown = quality === null;
-  const q = normalizeMealQuality(quality ?? 0);
-  const outputs = [{ defId: recipe.outputDefId, qty: recipe.outputQty, quality: q, noMerge: unknown },
-    ...(recipe.extraOutputs ?? []).map((e) => ({ defId: e.defId, qty: e.qty, quality: 0, noMerge: false }))];
-  for (const o of outputs) {
-    const def = ITEM_DEF_MAP.get(o.defId);
-    if (!def) return false;
-    const probe: StackItem = o.quality > 0 ? { defId: o.defId, quality: o.quality } : { defId: o.defId };
-    let left = Math.max(0, Math.floor(o.qty));
-    while (left > 0) {
-      const chunk = Math.min(def.stackMax, left);
-      left -= chunk;
-      let placed = false;
-      for (const g of order) {
-        const key = `${def.id}|${stackKeyOf(probe)}`;
-        const cap = def.stackMax > 1 && !o.noMerge ? (g.merge.get(key) ?? g.grid.mergeCapacity(def.id, probe)) : 0;
-        if (chunk <= cap) { dryMergeKeyed(g, def, probe, chunk); placed = true; break; }
-        if (dryPlace(g, def)) { dryMergeKeyed(g, def, probe, cap); placed = true; break; }
-      }
-      if (!placed) return false;
-    }
-  }
-  return true;
-}
-
-/** 조리 1회를 마무리한다 — 게이트를 다시 보고, 재료를 빼고, 품질 붙은 산출물을 창고 먼저 → 가방에. */
-export function completeCook(sys: InventorySystem, recipeId: string, benchLevel: number, quality: number):
-  { item: ItemInstance | null; landed: 'bag' | 'stash' | null; reason: string | null } {
+export function consumeCookInputs(sys: InventorySystem, recipeId: string, benchLevel: number): string | null {
   const blocked = cookBlock(sys, recipeId, benchLevel);
-  const q = normalizeMealQuality(quality);
   const r = getRecipe(recipeId);
-  const outDef = r ? ITEM_DEF_MAP.get(r.outputDefId) : undefined;
-  if (blocked || !r || !outDef) return { item: null, landed: null, reason: blocked ?? COOK_REASON.notCook };
-  // `cookBlock` 은 품질 없는 자리를 봤다 — 품질이 붙으면 합칠 수 있는 스택이 달라지므로 그 품질로 한 번 더 본다
-  if (!roomForCook(sys, r, q)) return { item: null, landed: null, reason: COOK_REASON.noRoom };
+  if (blocked || !r) return blocked ?? COOK_REASON.notCook;
   for (const i of sys.craftCost(r)) {
     if (!sys.consumeDefAll(i.defId, i.qty)) {
       // `cookBlock` 이 방금 확인했으므로 오지 않는 가지다 (같은 def 가 재료에 두 번 적힌 레시피가 아닌 한)
       console.error('[inventory] 조리 재료를 빼지 못했다', recipeId, i.defId, i.qty);
       sys.afterChange();
-      return { item: null, landed: null, reason: COOK_REASON.missing };
+      return COOK_REASON.missing;
     }
   }
-  const stash = sys.ctx.isHubPhase() ? sys.getStash() : null;
-  const place = (defId: string, qty: number, withQuality: number): { item: ItemInstance; landed: 'bag' | 'stash' | null }[] => {
-    const def = ITEM_DEF_MAP.get(defId);
-    const out: { item: ItemInstance; landed: 'bag' | 'stash' | null }[] = [];
-    if (!def) return out;
-    let left = Math.max(0, Math.floor(qty));
-    while (left > 0) {
-      const chunk = Math.min(def.stackMax, left);
-      left -= chunk;
-      const item = sys.loot.createItem(defId, chunk);
-      if (withQuality > 0) item.quality = withQuality; else delete item.quality;
-      const probe: StackItem = { defId, quality: item.quality };
-      if (stash && stash.autoPlace(item)) out.push({ item: heldStack(stash, item, probe), landed: 'stash' });
-      else if (sys.bag.autoPlace(item)) out.push({ item: heldStack(sys.bag, item, probe), landed: 'bag' });
-      else { sys.throwToWorld(item, false); out.push({ item, landed: null }); }   // dry-run 이 막았으므로 사실상 오지 않는다
-    }
-    return out;
-  };
-  const main = place(r.outputDefId, r.outputQty, q);
-  for (const e of r.extraOutputs ?? []) place(e.defId, e.qty, 0);
-  const first = main[0] ?? { item: sys.loot.createItem(r.outputDefId, Math.max(1, r.outputQty)), landed: null };
-  if (q > 0 && first.landed === null) first.item.quality = q;
-  sys.ctx.bus.emit('inventory:itemAdded', { item: first.item, name: outDef.name, rarity: outDef.rarity });
-  sys.ctx.bus.emit('craft:completed', { recipeId: r.id, item: first.item, count: 1 });
   sys.afterChange();
-  return { item: first.item, landed: first.landed, reason: null };
+  return null;
   }
-
-/** `autoPlace` 뒤에 그 덩어리를 실제로 들고 있는 스택 — 합쳐져 사라졌으면 같은 열쇠의 스택. */
-function heldStack(grid: Grid, item: ItemInstance, probe: StackItem): ItemInstance {
-  if (grid.has(item.uid)) return item;
-  const key = stackKeyOf(probe);
-  return grid.items().find((p) => p.item.defId === probe.defId && stackKeyOf(p.item) === key)?.item ?? item;
-}

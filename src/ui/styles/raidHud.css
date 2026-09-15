@@ -112,19 +112,17 @@
 .hud .vitals > .ui-label { display: none; }
 .hud .vitals.downed > .ui-label { display: block; }
 
-/* ── 이륙 연출 (2026-09-13 탈출 개편, `ui:cinematic` → HudSystem 이 `.cinematic` 을 건다) ─────────────────────────
-   카메라가 함선 외부로 넘어가는 동안 전투 HUD 가 스르륵 사라진다. 오버레이 · 게임플레이 레이어는 통째로, 소셜 레이어는
-   PC 체력 블록 · 상호작용 캡션 · 홀드 링 · 점 크로스헤어만 (채팅 · 알림 · 분대 목록은 전투 HUD 가 아니다).
-   사라질 때만 `--cine-fade`(= EXTRACTION_HUD_FADE_S, HudSystem 이 #ui-root 에 적는다)이고 돌아올 때는 `.hud` 기본 전이다.
-   `!important` 는 `.hud.spectating` 규칙과 같은 이유 — 위젯이 인라인 opacity 를 쓴다. */
-.hud.cinematic:not(.social):not(.housing) {
-  opacity: 0; visibility: hidden;
-  transition: opacity var(--cine-fade, 0.9s) var(--ease), visibility 0s linear var(--cine-fade, 0.9s);
+/* ── 이륙 연출 (2026-09-13 탈출 개편 → 2026-09-16 개편, `ui:cinematic` → HudSystem.setCinematic) ─────────────────────
+   2026-09-16 (사용자 결정): 이륙이 시작되면 **남은 HUD 가 전부** 사라진다 (옛 규칙의 「채팅 · 알림 · 분대 목록은 남는다」를 뒤집음).
+   ① 크로스헤어와 조준점 둘레의 링은 **즉시** — 「함선이 뜨는데 크로스헤어가 보인다」. 전이도 끈다 (`.reticle` 의 `--t-fast`).
+      `!important` 는 `.hud.spectating` 규칙과 같은 이유 — 크로스헤어가 인라인 opacity 를 쓴다.
+   ② 나머지는 `#ui-root.hud-cine` 아래의 목록이 **한꺼번에** 페이드한다. 값(`--cine-o` 1 → 0)은 CSS 전이가 아니라 HudSystem 이
+      `EXTRACTION_HUD_FADE_S` 에 걸쳐 프레임마다 쓴다 — reduced motion 이면 전이가 0.01 ms 로 잘린다(이 개발 PC). `opacity` 가 아니라
+      `filter: opacity()` 인 이유: 각 요소의 자기 opacity(`.hud.hidden` · 인라인)와 곱해져 숨은 것이 드러나지 않고, 어느 전이 목록에도
+      없어 늦게 따라가지 않는다. 다 사라지면 `.hud-cine-out` 이 visibility 까지 끈다.
+      목록에 없는 것은 그대로다: `.screen-fade` · `.ldg` 로딩 게이지 · `.menu`(일시정지 · 설정 · 결과 화면) · 지도 같은 화면. */
+.hud.cinematic :is(.reticle, .hub-dot, .hold, .reload, .heal, .cook, .charge, .wcharge) {
+  opacity: 0 !important; visibility: hidden; transition: none;
 }
-.hud.social.cinematic .vitals,
-.hud.social.cinematic .prompt,
-.hud.social.cinematic .hold,
-.hud.social.cinematic .hub-dot {
-  opacity: 0 !important; visibility: hidden;
-  transition: opacity var(--cine-fade, 0.9s) var(--ease), visibility 0s linear var(--cine-fade, 0.9s);
-}
+.hud-cine > :is(.hud, .key-guide, .item-tip, .mus-player, .net-badge) { filter: opacity(var(--cine-o, 1)); }
+.hud-cine.hud-cine-out > :is(.hud, .key-guide, .item-tip, .mus-player, .net-badge) { visibility: hidden !important; }

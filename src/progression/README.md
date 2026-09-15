@@ -40,7 +40,8 @@ default (multiplier 1, bonus 0).
   `unequipImplant(uid)`, `stripImplantsForCorpse()` (death only).
 - **Preps**: `getPreps`, `getActivePreps`, `usePrep(defId)`, `hasEnvPrep(env)`, `armPreps()`, `clearActivePreps()`.
 - **Meals**: `getMeal`, `getActiveMeal`, `getMealQuality`, `getActiveMealQuality`, `useMeal(defId, quality)`,
-  `serveMeal(defId, quality)`.
+  `serveMeal(defId, quality)` (contract only — no caller since 2026-09-16). Meal defs come from `shared/meals`
+  (`getMealDef`), not `ctx.loot` — meals are not items.
 - **Gym training**: `applyGymSession(stat, score)`, `getTrainedBonus`, `getTrainedProgress`, `trainedXpToNext`,
   `getGymFatigueUntil`, `gymNow`; console-only `addTrainedXp`, `clearGymFatigue`.
 - **UI**: `createSheetView(host)` → `EmbeddedView` (with `requestLeave`); the overlay opens on `ui:statsToggled`.
@@ -62,7 +63,7 @@ default (multiplier 1, bonus 0).
 | `implant:activated` | `implant`; `implant:equipped` writes `profile.implant` |
 | `extraction:activated` | `cryptography` |
 | `crate:open` (once per container id per raid) · `container:itemRevealed` | `appraisal` |
-| `inventory:weightChanged` + distance in `update` | `carry` |
+| `inventory:weightChanged` + growth of `ctx.player.selfMovedMeters` in `update` (self-propelled metres only — no ship / vehicle / carried / grapple / dash / impulse movement) | `carry` |
 | housing (direct `addSkillXp`) | `cooking` (cook result), `research` (analysis collect); inventory gives `research` for lab-bench crafts |
 | `equip:changed`, `loadout:changed`, `housing:libraryChanged`, `game:phaseChanged` | `recompute` |
 | `game:newMission`, `world:ready`, `player:died`, `game:abort` | reset per-raid trackers / drop pending sheet points / flush |
@@ -95,7 +96,8 @@ default (multiplier 1, bonus 0).
   — `ProgressionSystem.ts` (`armPreps`, `clearActivePreps`)
 - `usePrep` refuses a second prep of the same env; `useMeal` replaces the current meal except the same def at the same
   quality (refused, so the caller does not consume an item). Callers ask first and consume the item only on success.
-  `serveMeal` has no item cost; its guards live in `net/parts/Meal.ts`.
+  2026-09-16: meals are eaten from housing dining plates (`eatPlate`), which are never consumed; `serveMeal` has no
+  caller left.
 - **Gym training** is separate from stat points: `applyGymSession` is ship-only, one formula (`stepTrained`) shared
   with `addTrainedXp`, fatigue (`GYM_FATIGUE_HOURS`) set only on a stat without active fatigue; a session during
   fatigue gives XP × `GYM_FATIGUE_GAIN_MUL` and does not extend it. `GYM_STATS` covers video-game stats too.
@@ -123,9 +125,10 @@ default (multiplier 1, bonus 0).
   HUD item card by it).
 
 ## Recent changes
+
 Last 5 only — older: `git log -- src/progression`.
+- 2026-09-16 — Meal defs read from `shared/meals` (`getMealDef`) instead of `ctx.loot`; `serveMeal` kept as contract with no caller.
+- 2026-09-16 — 운반 XP counts `ctx.player.selfMovedMeters` growth instead of the raw position delta (extraction liftoff / grapple / dash no longer train it).
 - 2026-09-15 — No cryptography XP for `extraction:activated` with `duration <= 0` or in the tutorial (the pre-landed tutorial ship replays the event).
 - 2026-09-15 — `포인트 투자 확정` hold keycap: mouse glyph white, chevron accent (`character.css`, scoped to `.pg-confirm`).
 - 2026-09-15 — Left-click hold keycap inside `포인트 투자 확정` (`createHoldButtonCap`).
-- 2026-09-15 — Legendary unique weapons give no marksmanship XP (`weaponClassOf`).
-- 2026-09-14 — Starter grapple granted on first `hub:entered` (`grantStarterImplant`); new profiles start with `implant: null`.

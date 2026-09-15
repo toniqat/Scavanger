@@ -13,7 +13,7 @@ import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from './Resum
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from './SoloRaid';
 import { bumpClockHigh } from './SoloRaid';
 
-import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS, XP_DEATH_MUL, XP_EXTRACT_BONUS, XP_PER_KILL, XP_PER_LOOT_VALUE, XP_PER_MINUTE, XP_TIME_CAP } from './model';
+import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS } from './model';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
 export * from './model';
 import * as Death from './parts/Death';
@@ -508,7 +508,7 @@ export class GameFlowSystem implements GameSystem {
   /**
    * Bank the mission result into the persistent profile (progression/). Runs once per mission, before the
    * result screen appears, so `game:complete` / `game:over` listeners already see the new level.
-   * Loot XP is only paid on a successful extraction — dying leaves the bag on the ground.
+   * Raid XP comes only from kills (`stats.killXp`, × `XP_DEATH_MUL` when not extracted) — 2026-09-16.
    * A 훈련장 never pays out (and never settles a contract).
    */
   awardMissionXp(): void { return Death.awardMissionXp(this); }

@@ -264,45 +264,10 @@ export const SOCKET_ITEM_DEFS: readonly ItemDef[] = csvRows('sockets.csv').map((
   });
 });
 
-/* ── 요리 (A-3c, 2026-09-11) — data/meals.csv ─────────────────────────────────
- * 주방 **조리대**(`WorkbenchKind 'cook'`)가 만들고 **식탁**에서 먹는다. 먹으면 다음 레이드 1회분으로 실리고
- * (`PlayerProfile.meal` → `mealActive`), 수명 규칙은 준비물과 완전히 같다 — 사망해도 그 레이드는 유지된다.
- *
- * 한 요리는 **버프 하나**를 올리고 (사용자 결정), 2026-09-13 부터 그 버프에 **능력치가 여러 줄** 붙는다 — 티어 n 요리 = n 줄
- * (`MealDef.effects`, csv 의 `effects` 칸 = `버프:수치` 를 `|` 로). 버프 이름은 `DerivedStats` 에 이미 있는 필드 이름이라
- * 소비자가 한 줄도 안 바뀐다 — 접어 넣는 곳은 `progression/derive.applyMealBuff` 하나다. 수치는
- * `isMealBuffMultiplier` 인 버프면 배수에 가산되고(0.2 = +20 %), 나머지는 단위 그대로다 (`durabilityLossMul` 만 음수).
- * 옛 호출부 호환으로 `buff` · `amount` 는 `effects[0]` 과 같다 — 새 코드는 `effects` 를 읽는다.
- * `retired` 요리(옛 특선 4종)는 줄 수 검사에서 빠진다 (tier 2 · 한 줄 그대로 — 가진 사람은 먹을 수 있다).
- *
- * 씨앗 · 표본과 달리 **색은 등급색 그대로**다 (`def()` 기본값): 요리는 등급이 곧 티어라(일반 · 고급 → 희귀 → 서사 → 전설)
- * 격자에서 「몇 티어 요리인가」가 색으로 읽혀야 한다. 아이콘은 csv 의 `icon` 칸이고 격자 크기는 1×1 고정이다. */
-export const MEAL_ITEM_DEFS: readonly ItemDef[] = csvRows('meals.csv').map((r) => {
-  const retired = r.has('retired') && r.bool('retired');
-  const tier = r.int('tier', { min: 1, max: 4 }) as MealDef['tier'];
-  const effects: MealEffect[] = [];
-  /* `costList` 가 `버프:수치` 를 가른다 (수치는 음수 · `=식` 허용 — `durabilityLossMul` 은 −0.2 다). 버프 이름은 여기서 검사한다. */
-  for (const c of r.costList('effects')) {
-    if (!(MEAL_BUFFS as readonly string[]).includes(c.defId)) {
-      r.report('effects', `'${c.defId}' 는 ${MEAL_BUFFS.join(' | ')} 중 하나여야 한다`);
-      continue;
-    }
-    if (effects.some((e) => e.buff === c.defId)) { r.report('effects', `'${c.defId}' 가 두 번 나온다 — 한 요리에 같은 능력치는 한 줄이다`); continue; }
-    if (c.qty === 0) r.report('effects', `'${c.defId}' 의 수치가 0 이다`);
-    effects.push({ buff: c.defId as MealBuff, amount: c.qty });
-  }
-  if (effects.length === 0) r.report('effects', '능력치가 하나도 없다 — "버프:수치" 를 | 로 잇는다');
-  else if (!retired && effects.length !== tier) r.report('effects', `티어 ${tier} 요리는 능력치가 ${tier} 줄이어야 한다 (지금 ${effects.length} 줄)`);
-  const first: MealEffect = effects[0] ?? { buff: MEAL_BUFFS[0], amount: 0 };
-  const meal: MealDef = { buff: first.buff, amount: first.amount, tier, effects };
-  return def({
-    id: r.str('id'), name: r.str('name'), category: 'meal', rarity: r.enum('rarity', RARITY_ORDER),
-    width: 1, height: 1, stackMax: r.int('stackMax', { min: 1 }),
-    value: r.int('value', { min: 0 }), weight: r.num('weight', { min: 0 }),
-    icon: r.str('icon'), description: r.str('description'), meal,
-    ...(retired ? { retired: true } : {}),
-  });
-});
+/* ── 요리 — 2026-09-16 (접시 모델, 사용자 결정): **아이템이 아니다.** ─────────────────────────
+ * 조리대에서 만든 요리는 식탁의 접시가 된다 (`ShipState.plate`). `data/meals.csv` 를 읽는 곳은 `shared/meals.ts`
+ * (`MEAL_DEFS` · `getMealDef`) 하나이고, `ITEM_DEFS` 에는 요리가 없다 — `ctx.loot.getItemDef('meal_*')` 는 undefined 다.
+ * 옛 세이브의 요리 아이템은 모르는 def 로 떨어진다 (게임 개발 중 — 이전 · 환불 없음, 사용자 결정). */
 
 /* ── 서재 매체: 책 · 비디오 · 레코드 (2026-09-13 서재 시리즈 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ─────────────
  * 아이템은 **시리즈**(`data/library_series.csv`, 효과 · 행성 로더는 `shared/library` 의 `LIBRARY_SERIES_DEFS`)에서 만든다 —
@@ -717,8 +682,7 @@ export const ITEM_DEFS: readonly ItemDef[] = [
      약초 바로 뒤에 두어 "밭에서 나온 것" 이 목록에서 한 덩어리로 읽힌다. */
   ...itemGroup('crop'),
   ...itemGroup('soil'),
-  /* 2026-09-11 주방(A-3c): 요리는 작물의 네 번째 소비처다 — 재료(작물) 바로 뒤에 그 산물을 둔다. */
-  ...MEAL_ITEM_DEFS,
+  /* 2026-09-16 (접시 모델, 사용자 결정): 요리는 더 이상 아이템이 아니다 — 식탁의 접시다. 표는 `shared/meals.ts` (`getMealDef`). */
   /* 2026-09-11 연구실(A-12 · A-13): 표본(분석기가 해석한다 — `samples.csv`) · 준비물(함선에서 써서 다음 레이드
      1회분으로 싣는다). 밭에서 나온 것 바로 뒤가 연구실에서 쓰는 것이다. */
   ...SAMPLE_ITEM_DEFS,

@@ -63,7 +63,8 @@ forwards interactions.
 | `interiors/InteriorCollider.ts` | `BoxInteriorCollider`: walkable AABB rooms + toggleable / removable blocker boxes; `resolveCollision`, `raycast`, `bounds`. |
 | `interiors/GeoBatch.ts` | `HUB_MATS` shared palette, `GeoBatch` (merge per material), `disposeMeshes`, `yawFromForward`. |
 | `interiors/parts.ts` | `Parts` geometry kit (deck, walls with openings + blockers, glass, ribs, crates, lockers, `consolePedestal`, unused `workbench`, signs), `GLASS_MAT`, `CeilingTarget`. |
-| `interiors/stations.ts` | Station geometry: `implantBay`, `diningTable`, `shipComputer` (+ body helpers), unused `repairBench`; `StationDef`, `ComputerStationDef`, `ShipStations`. |
+| `interiors/stations.ts` | Station geometry: `implantBay`, `diningTable` + `diningTablePlateSlots` (`TablePlateSlot`), `shipComputer` (+ body helpers), unused `repairBench`; `StationDef`, `ComputerStationDef`, `ShipStations`. |
+| `interiors/TablePlates.ts` | Dining plates (2026-09-16): `addPlateToBatch` (dish + tier-shaped food, gold garnish at max quality, no lights, cached standard materials) used by the `dining_table` furniture builder; `TablePlates` = squad plates + name tags on the shared-ship fixed table (`housing:tablePlatesChanged`, `hub:entered`). |
 | `interiors/Doors.ts` | `ShipDoors`: animated two-leaf sliding doors (no collider change). |
 | `interiors/LightPool.ts` | Re-export of `LightPool` / `LightFixture` from `@/shared`. |
 | `interiors/Starfield.ts` | `Starfield` (points) and window `Planet` (`setColors`, `setOpacity`). |
@@ -249,6 +250,11 @@ doorway is an open shared edge.
   and cooking appliances → `openCookStation(uid)` (never the craft window); grow station, analyzer, culture tank, dining
   table, shelves, TV menu, compute cluster / mining computer, gym, toggles, seats → the matching `ctx.housing` / player
   call, each duck-typed with a warning toast. Access face (`furnitureAccessOf` / `furnitureFaceDir`) gates prompts.
+  Without a placed dining table the cook bench / appliance prompt reads `… · 식탁이 없습니다` (`HousingRef.hasDiningTable`).
+- Dining plates (2026-09-16): our own ship's **first** dining-table piece is built with `BuildExtra.plate`
+  (`HousingRef.getPlate`, smoke hook `FurnitureLayer.diningPlateUid`); `housing:tablePlatesChanged` rebuilds only rooms
+  with a dining table. The shared ship's fixed table gets `sys.tablePlates` (`interiors/TablePlates`) in `buildStations`,
+  disposed in `disposeInterior` before the interior.
 - Retired kinds (`repair_bench`, `grow_rack`, `range_console`, `target_lane`, `sim_hub`) keep builders and no-op branches
   because the model / interaction unions must be covered; `ShipState.sanitize` removes such pieces on load.
 - Staging classes find their piece by uid every frame (safe across room rebuilds), change only material uniforms /
@@ -313,8 +319,8 @@ doorway is an open shared edge.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/hub`.
+- 2026-09-16 — Dining plates in 3D: `interiors/TablePlates.ts` (`addPlateToBatch` on the dining-table furniture, squad plates + name tags on the shared-ship table via `diningTablePlateSlots`); cook bench prompt says `식탁이 없습니다` without a table.
 - 2026-09-15 — Raid abandoned from the title (`LobbyPlayer.drifted`): `Pods.driftedFromRaid` blocks the rejoin pod (prompt, status, boarding) and `onResumed` skips the auto-rejoin; terminal error text for `drifted`.
 - 2026-09-15 — Terminal: `시뮬레이션 훈련장` on its own row above the footer line (`.hub-train-row`; footer = `닫기 (E)` only); 매칭 tab offline = `다시 연결` replaces the two matching buttons, `초대` dimmed + hint flash (`MatchTab.onInvite` / `flashHint`).
 - 2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩: cockpit bays (`interiors/AndroidBays.ts`, `parts/Androids.ts`, `hub_android_<bay>`, `getAndroidBays` / `getPodStandPose`), bots in pods / ready cells / match tab and filtered out of hangar · handoff · counts, and the countdown-end fade + delayed launch (`beginRaidLoad`); `scripts/smoke-android-bays.mjs`.
 - 2026-09-15 — Terminal rebuilt: top tabs 행성 / 매칭, centred planet, bottom-right training button + `TrainingConfirm`, `MatchTab` (face tiles, private / public dock, undock) + `InviteModal`; `MatchPanel` deleted.
-- 2026-09-15 — Squads vs shared ship: `parts/SquadDock.ts` (own dock fade / member countdown / undock rule, cancel everything, pod + training locks), `ui/SquadDockCountdown.ts` (`.hsd-`), `shipLobbyCode` / `squadLobby()`.

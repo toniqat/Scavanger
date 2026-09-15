@@ -1767,7 +1767,11 @@ try {
       const calls = [];
       h.openCookStation = (uid) => { calls.push(uid); };
       const bi = it(u.bench), gi = it(u.grill);
-      const prompts = { bench: bi?.getPrompt() ?? null, grill: gi?.getPrompt() ?? null };
+      // 2026-09-16 (접시 모델): 식탁 가구가 없으면 조리대 · 자동 조리 가구 프롬프트가 그렇게 말한다 — 식탁이 있을 때의 프롬프트는 질의를 덮어 본다
+      const noTable = { bench: bi?.getPrompt() ?? null, grill: gi?.getPrompt() ?? null, has: h.hasDiningTable() };
+      h.hasDiningTable = () => true;
+      const prompts = { bench: bi?.getPrompt() ?? null, grill: gi?.getPrompt() ?? null, noTable };
+      delete h.hasDiningTable;
       bi?.interact(); gi?.interact();
       if (own) h.openCookStation = orig; else delete h.openCookStation;
       const g = layer.objectOf(u.bench), pose = layer.poseFor(u.bench);
@@ -1775,6 +1779,10 @@ try {
       return { prompts, calls, missing, pose: pose ? { kind: pose.kind, uid: pose.furnitureUid, cam: !!pose.camera, y: pose.anchor.y } : null };
     }, kitchen);
     ok(wiring.prompts.bench === '조리대 · 요리하기' && wiring.prompts.grill === '자동 그릴 · 조리대 열기', `prompts: ${JSON.stringify(wiring.prompts)}`);
+    if (wiring.prompts.noTable.has === false) {
+      ok(wiring.prompts.noTable.bench === '조리대 · 식탁이 없습니다' && wiring.prompts.noTable.grill === '자동 그릴 · 식탁이 없습니다',
+        `식탁이 없으면 조리대 · 자동 조리 가구 프롬프트가 그렇게 말한다 (${JSON.stringify(wiring.prompts.noTable)})`);
+    }
     ok(wiring.calls.length === 2 && wiring.calls.every((c) => c === kitchen.bench), 'E on the 조리대 and on the 자동 그릴 both open the cook station of that 조리대', JSON.stringify(wiring.calls));
     ok(wiring.missing.length === 0 && wiring.pose?.kind === 'cook' && wiring.pose.uid === kitchen.bench && wiring.pose.cam && Math.abs(wiring.pose.y) < 0.05,
       'the 조리대 carries its tool rig; poseFor = a cook pose on the floor with a fixed camera', JSON.stringify(wiring));

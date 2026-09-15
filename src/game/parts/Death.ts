@@ -18,6 +18,8 @@ import {
   TUTORIAL_RESPAWN_DELAY_S,
   /* appended (2026-09-15, A-17): 튜토리얼 완주 고정 보상 */
   TUTORIAL_RAID_XP,
+  /* appended (2026-09-16): 레이드 경험치 = 처치 경험치만 — 탈출 못 한 레이드의 배율 */
+  XP_DEATH_MUL,
 } from '@/shared';
 import { FREE_CURSOR_BLOCKER } from '@/shared';
 /* appended (2026-09-15): 튜토리얼 부활 연출 */
@@ -27,7 +29,7 @@ import { RESUME_GATE_BLOCKER } from '@/shared';
 import { isAndroidId } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from '../ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from '../SoloRaid';
-import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS, XP_DEATH_MUL, XP_EXTRACT_BONUS, XP_PER_KILL, XP_PER_LOOT_VALUE, XP_PER_MINUTE, XP_TIME_CAP } from '../model';
+import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS } from '../model';
 /* appended (2026-09-09): 시체 · 분대장 기기 */
 import * as Corpse from './CorpseNet';
 import * as Leader from './Leader';
@@ -410,7 +412,9 @@ export function libraryRaidXpMul(ctx: GameContext): number {
 /**
  * Bank the mission result into the persistent profile (progression/). Runs once per mission, before the
  * result screen appears, so `game:complete` / `game:over` listeners already see the new level.
- * Loot XP is only paid on a successful extraction — dying leaves the bag on the ground.
+ * 2026-09-16 (사용자 결정): raid XP comes **only from kills** — `stats.killXp` (Σ `data/enemies.csv` `raidXp` of my last-hit
+ * kills, summed by enemies/) × (extracted ? 1 : `XP_DEATH_MUL`) × library multiplier. No loot-value, extraction or
+ * survival-time XP. Contract / quest reward XP is added on top, unmultiplied.
  * A 훈련장 never pays out (and never settles a contract).
  */
 export function awardMissionXp(sys: GameFlowSystem): void {
@@ -425,7 +429,7 @@ export function awardMissionXp(sys: GameFlowSystem): void {
     const extracted = s.extracted;
     /*
      * 2026-09-15 (A-17, 사용자 결정 「고정 지급 · 정확히 Lv.2」): **완주한 튜토리얼 레이드**는 정산식을 타지 않고
-     * `TUTORIAL_RAID_XP` 를 그대로 받는다 (csv — `XP_BASE` 와 같은 값이라 정확히 레벨 2). 처치 · 시간 · 전리품 ·
+     * `TUTORIAL_RAID_XP` 를 그대로 받는다 (csv — `XP_BASE` 와 같은 값이라 정확히 레벨 2). 처치 경험치 ·
      * 서재 `raidXp` 배율이 끼면 사람마다 레벨 3 이 되기도 해 함선 트랙(`levelUp` → `stats`)이 가르칠 포인트 수가
      * 흔들린다. 튜토리얼에는 기업 계약이 없으므로 `settleMission` 도 부르지 않는다 (옛 계약이 남아 있어도 튜토리얼이
      * 그것을 정산하면 안 된다).
@@ -439,15 +443,19 @@ export function awardMissionXp(sys: GameFlowSystem): void {
     } else if (sys.isTutorial()) {
       /*
        * 2026-09-15 (사용자 결정 「튜토리얼 전체로 딱 Lv.2」): 완주하지 못한 튜토리얼(건너뛰기가 함선을 못 태워 `game:returnToShip` →
-       * `gameOver()` 로 내려간 경우)도 **본편 정산식을 타지 않는다** — 처치 × 12 × 0.4 + 분당 20(최대 300)이 그대로 붙어 튜토리얼 XP 가
+       * `gameOver()` 로 내려간 경우)도 **본편 정산식을 타지 않는다** — 처치 경험치 × 사망 배율이 그대로 붙어 튜토리얼 XP 가
        * 사람마다 흔들렸다. 완주가 아니므로 0 이다 (함선도 레벨도 주지 않는 길이다). 계약 정산도 아래 조건으로 건너뛴다.
        */
       xp = 0;
     } else {
-      xp = Math.max(0, s.kills) * XP_PER_KILL * (extracted ? 1 : XP_DEATH_MUL);
-      xp += Math.min(XP_TIME_CAP, (Math.max(0, s.timeSeconds) / 60) * XP_PER_MINUTE);
-      if (extracted) xp += XP_EXTRACT_BONUS + Math.max(0, s.lootValue) * XP_PER_LOOT_VALUE;
-      // 2026-09-13 (서재 시리즈): 레이드 경험치 책 — `raidXp` 는 배율 가산이다 (0.1 = +10 %). 레이드 몫(처치 · 시간 · 탈출 · 전리품)에만
+      /*
+       * 2026-09-16 (사용자 결정 「레이드 경험치는 처치로만」): 처치한 종류마다 `data/enemies.csv` `raidXp` 를 킬 자리가 `stats.killXp` 에
+       * 더해 두었다 — 여기서는 그 합만 읽는다. 전리품 가치 · 탈출 보너스 · 생존 시간 경험치는 없다 (전리품을 오래 들고 버티기만 해도
+       * 레벨이 오르던 길을 막는다). `killXp` 가 없는 옛 저장(이 필드 이전의 blob)은 0 이다.
+       */
+      const killXp = typeof s.killXp === 'number' && Number.isFinite(s.killXp) ? Math.max(0, s.killXp) : 0;
+      xp = killXp * (extracted ? 1 : XP_DEATH_MUL);
+      // 2026-09-13 (서재 시리즈): 레이드 경험치 책 — `raidXp` 는 배율 가산이다 (0.1 = +10 %). 레이드 몫(처치 경험치)에만
       // 곱하고 아래 계약 보상 XP 에는 곱하지 않는다 — 계약 보상은 `contracts.csv` 의 고정값이다.
       xp = Math.round(xp * libraryRaidXpMul(ctx));
     }

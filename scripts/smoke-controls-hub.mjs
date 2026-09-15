@@ -300,8 +300,11 @@ try {
       // 2026-09-14 (사용자 결정): 중앙 하단 안내 알약 바(`.inv-hints`)는 삭제됐다 — 우측 하단 키 가이드와 겹쳤다.
       hints: !root.querySelector('.inv-hints'),
       quickRight: (() => { const g = root.querySelector('.inv-grid-bag').getBoundingClientRect(); const q = root.querySelector('.inv-quick').getBoundingClientRect(); return q.left >= g.right - 4; })(),
-      /* 2026-09-15 3차 (사용자 결정): 창고 · 가방이 한 카드가 되면서 장비 열이 그 **왼쪽**으로 나왔다 — 장비 | 창고 | 가방. */
-      equipMid: (() => { const s = root.querySelector('.inv-panel-stash').getBoundingClientRect(); const e = root.querySelector('.inv-equip').getBoundingClientRect(); const b = root.querySelector('.inv-panel-bag').getBoundingClientRect(); return e.right <= s.left + 4 && s.right <= b.left + 4; })(),
+      /* 2026-09-15 3차: 장비 | 창고 | 가방 → 2026-09-16 (사용자 결정): **창고 | 장비 | 가방** (장비가 가운데, 세 카드가 맞닿는다). */
+      /* ⚠ 레이아웃 좌표(`offsetLeft`)로 잰다 — 창고 카드는 여는 순간 `inv-slide-in`(translateX −14 px) 중이라
+         `getBoundingClientRect` 는 이음매를 14 px 벌어진 것으로 읽는다. 셋 다 `.inv-layout` 의 직속 카드라 기준이 같다. */
+      layoutRects: (() => { const r = (q) => { const x = root.querySelector(q); return [x.offsetLeft, x.offsetLeft + x.offsetWidth]; }; return { stash: r('.inv-panel-stash'), equip: r('.inv-equip'), grids: r('.inv-panel-grids') }; })(),
+      equipMid: (() => { const r = (q) => { const x = root.querySelector(q); return [x.offsetLeft, x.offsetLeft + x.offsetWidth]; }; const s = r('.inv-panel-stash'), e = r('.inv-equip'), g = r('.inv-panel-grids'); return Math.abs(e[0] - s[1]) <= 2 && Math.abs(g[0] - e[1]) <= 2 && s[0] < e[0] && e[0] < g[0]; })(),
     };
   });
   /* ── 2026-09-09: ESC 는 맨 위 화면 하나를 닫는다 ─────────────────────────
@@ -362,7 +365,7 @@ try {
   // 전술 임플란트는 `LOADOUT_SLOTS` 의 장비칸이 아니다 — 2026-09-12 부터 장비 격자 안에 살지만 여전히 `.inv-implants`
   // 블록이고 `.inv-slot-implant` 은 없다 (아래 `impTab` 이 그 자리를 본다)
   ok(!hubScreen.implantSlot, '전술 임플란트는 장비칸(`.inv-slot-*`)이 아니다');
-  ok(hubScreen.equipMid, 'layout: equipment | stash | bag');
+  ok(hubScreen.equipMid, 'layout: stash | equipment | bag (joined)', JSON.stringify(hubScreen.layoutRects));
   ok(hubScreen.quickRight, 'quick-use rose sits right of the bag grid (≥ 1600 px)');
   ok(hubScreen.hints, 'inventory hint bar is gone (2026-09-14: 키 가이드로 합쳐졌다)');
   await shot('03-hub-tab-screen');

@@ -4,8 +4,8 @@ import { Random } from '@/shared';
 import type { ObstacleEntry, SpatialHash } from '../../SpatialHash';
 import {
   BARRIER, BARRIER_GHOST_OVERLAP, BARRIER_LEN, BARRIER_MESH_YAW, CLIFF2_EDGE_Z, CRAWL, DECK_LOWER_Y,
-  DECK_UPPER_Y, DRESSING_SEED, PIT, PIT_RAMP_TOE_X, PIT_WALLS, RUINS,
-  SHIP_POS, SHIP_YAW, barrierLocal, barrierPoint, box, corridorHalfXAt, crawlClearanceAt, inAbyssCut, inChasm, pitSurfaceY,
+  DECK_UPPER_Y, DRESSING_SEED, PIT, PIT_RAMP_TOE_X, PIT_WALLS, RUINS, SHIP_POS, SHIP_SLOPE, SHIP_YAW, barrierLocal,
+  barrierPoint, box, corridorHalfXAt, crawlClearanceAt, inAbyssCut, inChasm, pitSurfaceY, rectContains, shipHillSurfaceY,
 } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -293,12 +293,15 @@ export class Dressing {
    *
    * 2026-09-15 3차 — **웅덩이 벽의 발밑**(`PIT_WALLS` + 0.5 m — 벽 속에 묻힌다)과 **철조망 너머의 절벽 구멍**(`inAbyssCut`, 가장자리
    * 0.6 m 까지 — 데크 높이의 부스러기가 허공에 뜬다)도 뺀다.
+   *
+   * 2026-09-16 — **함선 언덕 오르막**(`SHIP_SLOPE`)도 뺀다 (웅덩이 오르막과 같은 이유). 언덕 꼭대기는 빼지 않고 `shipHillSurfaceY` 높이에 놓는다.
    */
   private blocksRubble(x: number, z: number): boolean {
     const b = barrierLocal(x, z);
     if (b.along > -1.5 && b.along < BARRIER_LEN + 1.5 && Math.abs(b.depth) < BARRIER.halfT + 1.2) return true;
     if (pitSurfaceY(x, z) !== null && x < PIT_RAMP_TOE_X) return true;
     if (inAbyssCut(x, z, 0.6)) return true;
+    if (rectContains(SHIP_SLOPE, x, z)) return true;   // 2026-09-16 함선 언덕 오르막 — 웅덩이 오르막과 같은 이유 (기울어 있다)
     for (const w of PIT_WALLS) {
       if (x >= w.rect.x0 - 0.5 && x <= w.rect.x1 + 0.5 && z <= w.rect.z0 + 0.5 && z >= w.rect.z1 - 0.5) return true;
     }
@@ -315,8 +318,8 @@ export class Dressing {
       // 벽에서 2 m 떨어뜨린다 — 좁은 구간에서는 그 구간의 반폭을 기준으로 (rng 호출 순서는 그대로다)
       const lim = Math.max(2.5, corridorHalfXAt(z) - 2);
       const x = rng.range(-lim, lim);
-      // 2026-09-15 2차: 웅덩이 안이면 그 바닥 높이로 — 데크 높이로 놓으면 0.9 m 떠 보인다
-      const y = pitSurfaceY(x, z) ?? (z > CLIFF2_EDGE_Z ? DECK_UPPER_Y : DECK_LOWER_Y);
+      // 2026-09-15 2차: 웅덩이 안이면 그 바닥 높이로 — 데크 높이로 놓으면 0.9 m 떠 보인다. 2026-09-16: 함선 언덕 위면 언덕 높이로 (묻힌다)
+      const y = pitSurfaceY(x, z) ?? shipHillSurfaceY(x, z) ?? (z > CLIFF2_EDGE_Z ? DECK_UPPER_Y : DECK_LOWER_Y);
       if (inChasm(x, z, 1.5)) continue;        // 절벽 1 의 틈에는 아무것도 없다 (2026-09-14 3차: 사선이다)
       // 포복 구간 — 엎드린 몸이 콜라이더 없는 부스러기를 뚫고 지나가 보인다 (2026-09-14 3차)
       if (z <= CRAWL.z0 + 1 && z >= CRAWL.z1 - 1) continue;

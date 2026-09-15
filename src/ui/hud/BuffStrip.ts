@@ -6,7 +6,7 @@ import {
 import { el, setText, toggleClass } from '../dom';
 import { cookStepsText, mealEffectLines } from './mealText';
 /* 2026-09-13 (요리 미니게임): 식사 품질 별 배지 */
-import { normalizeMealQuality } from '@/shared';
+import { getMealDef, normalizeMealQuality } from '@/shared';
 /* 2026-09-13 (비디오게임): 게임 중 버프의 방식 줄 */
 import { GYM_MINIGAME_LABEL_KO } from '@/shared';
 import '../styles/buffs.css';
@@ -218,7 +218,8 @@ export class BuffStrip {
 
 function defOf(ctx: GameContext | null, defId: string): ItemDef | undefined {
   if (!ctx) return undefined;
-  try { return ctx.loot?.getItemDef(defId) ?? ctx.inventory?.getDef(defId); } catch { return undefined; }
+  // 2026-09-16 (접시 모델): 요리는 아이템이 아니다 — `ctx.loot` 이 모르는 요리 id 는 요리 표(`shared/meals`)에서 찾는다
+  try { return ctx.loot?.getItemDef(defId) ?? ctx.inventory?.getDef(defId) ?? getMealDef(defId); } catch { return undefined; }
 }
 
 /** The clock the buff list was stamped with (`player` / `progression` use the same one). */

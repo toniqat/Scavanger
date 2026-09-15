@@ -97,6 +97,12 @@ OFFSCREEN_PING_SECONDS,5,Off-screen indicators: squadmate pings show an edge arr
 # ── appended: Phase 4 — rogues / enemy gimmicks / corpses ──
 CORPSE_LIFETIME,45,Seconds a lootable corpse (and its interactable) stays in the world.
 CORPSE_INTERACT_RADIUS,2.4,Corpse interaction radius (m).
+CORPSE_EMPTY_REMOVE_DELAY_S,1,"A corpse with no items left starts sinking this many seconds after it became empty — player · android · tutorial corpses (also when spawned empty) and enemy corpses that were opened and emptied. 2026-09-16 user decision."
+CORPSE_EMPTY_SINK_S,1.2,"Seconds an emptied corpse takes to sink into the ground; then it is removed (interactable · light pillar · mesh)."
+CORPSE_EMPTY_SINK_DEPTH_M,1,"How deep (m) an emptied player / android / tutorial corpse sinks. Enemy rigs keep their own corpse sink depth (`anim.fade`)."
+CORPSE_EMPTY_REQUEST_REACH_M,8,"Host guard: a client's `ecorpseq emptied` is accepted only while the sender's snapshot stands within this horizontal distance (m) of the enemy corpse (inventory auto-close is 6 m, plus snapshot lag)."
+CORPSE_EMPTY_REQUEST_RATE_MAX,2,Host guard: emptied enemy corpse requests one client may send per second (searching a corpse takes a 0.6 s hold).
+CORPSE_EMPTY_REQUEST_BURST,4,Host guard: size of the per-sender emptied-corpse request bucket.
 ROGUE_REACTION,0.9,"Rogue gunner: reaction delay before the first shot (s), aim error (radians) at hip / after settling, damage per hit, rounds per burst."
 ROGUE_AIM_ERROR,0.09,
 ROGUE_AIM_ERROR_SETTLED,0.045,
@@ -236,6 +242,7 @@ STAT_POINTS_PER_LEVEL,1,Phase 5 (2026-09-06): was 2
 SKILL_LEVEL_MAX,100,
 XP_BASE,120,Phase 5 (2026-09-06): was 240 (plan: 120 × n^1.35)
 XP_EXPONENT,1.35,
+XP_DEATH_MUL,0.4,"탈출하지 못한 레이드(사망 · 분대 전멸 · 귀환 · 포기)의 처치 경험치 배율. 2026-09-16 (사용자 결정): 레이드 경험치는 처치(`enemies.csv` raidXp)로만 쌓이고 전리품 · 탈출 보너스 · 생존 시간 경험치는 없어졌다. 서재 raidXp 배율은 이 뒤에 곱한다."
 
 # ── appended: key rebinding + ship stash (2026-09-06) ──
 STASH_COLS,10,
@@ -814,7 +821,7 @@ SAMPLE_NODE_RADIUS,2.6,"미확인 표본 채집지의 상호작용 반경(m). �
 
 # ── 2026-09-11: 주방 · 배양조 · 프린터 (A-3c · A-14 · A-15) ──
 POUCH_SLOTS,1,"장비칸의 주머니 칸 수 (사용자 결정: 고정 1칸). 넷 중 하나만 끼운다 — 가방 등급이 정하지 않는다."
-MEAL_SERVE_RANGE,12,"공유 함선 식탁의 「분대에 차리기」 가 먹이는 반경(m). 같은 방에 있으면 넉넉히 닿고, 함선 반대편까지는 안 간다."
+MEAL_SERVE_RANGE,12,"(2026-09-16 은퇴 — 접시 모델에서는 읽는 곳이 없다. 계약 이름이라 남긴다) 옛 공유 함선 식탁의 「분대에 차리기」 가 먹이는 반경(m)."
 
 # ── 2026-09-12: 하이브리드 사격 판정 (owner: weapons/parts/AimLine) ──
 WEAPON_MUZZLE_BLOCK_RANGE,3,"총구 앞 이 거리(m) 안에서 총구 선이 벽 · 창틀 · 엄폐물에 걸리면 총알은 거기에 맞는다 (그 자리에 빨간 원 · 크로스헤어 경고색). 그보다 먼 장애물은 크로스헤어 선이 판정한다 — 3인칭 카메라가 어깨 뒤에 있어 총구 선이 크로스헤어 옆을 지나기 때문이다. 늘리면 사실적이지만 중거리 엄폐물 가장자리에서 원이 자주 뜨고, 줄이면 크로스헤어대로 나가는 경우가 늘어난다 (사용자 결정 3 m)."
@@ -881,6 +888,19 @@ BURROW_SINK_EXTRA_M,0.35,"굴착 시작 때 몸 높이보다 더 깊이 묻혀 �
 BURROW_SHAKE_RADIUS,24,"로컬 플레이어가 이 거리(m) 안이면 굴착 스폰에 약한 화면 흔들림이 난다 (거리에 따라 줄어든다)."
 BURROW_SHAKE_INTENSITY,0.16,"굴착 흔들림 세기 (camera:shake intensity, 가장 가까울 때)."
 BURROW_SHAKE_GAP_S,0.9,"굴착 흔들림 사이 최소 간격(초). 여러 마리가 한꺼번에 올라와도 흔들림은 한 번이다 (겹치지 않는다)."
+# ── 2026-09-16: 벌레 소리 — 굴착음 · 발소리 · 포탄 낙하음 (owner: audio · enemies — AudioSystem.RANGED_SOUNDS / VOICE_CAP · model.emitEnemyStep · parts/Burrow) ──
+BURROW_EMERGE_VOICE_CAP,4,"burrow_emerge(한 마리마다 나는 굴착음)의 동시 보이스 상한. 무리가 한꺼번에 올라와도 가장 큰(가까운) 이만큼만 울린다."
+BURROW_EMERGE_BATCH_S,0.35,"첫 굴착음 뒤 이 시간(초) 안에 올라온 버그는 같은 무리로 센다 — k 번째 소리의 크기 × 1/√k (무리가 커도 한 마리 소리보다 조금만 커진다)."
+BUG_STEP_RANGE_M,22,"벌레 발소리(bug_step_skitter · bug_step_heavy)가 들리는 최대 거리(m). 밖이면 소리를 만들지 않는다. 곡선 (1 − d/range)^1.4."
+BUG_STEP_GIANT_RANGE_M,34,"베헤모스 발소리(bug_step_giant)가 들리는 최대 거리(m) — 무거워서 조금 더 멀리 들린다."
+BUG_STEP_VOICE_CAP,6,"벌레 발소리 세 id 를 합친 동시 보이스 상한 — 가장 큰(가까운) 것만 남는다. 사람 · 분대원 · 인간형 적 발소리(footstep_*)는 따로다."
+BUG_STEP_CROWD_WINDOW_S,0.6,"이 시간(초) 안에 들리는 거리에서 걸음을 뗀 벌레 수 n 을 센다 — 벌레 발소리 크기 × 1/√n (열 마리가 걸어도 한 마리의 약 3배 에너지)."
+SHELL_INCOMING_LEAD_S,2.6,"포병 포탄이 떨어지기 몇 초 전에 낙하음(shell_incoming)이 시작되는가. shell_incoming 의 길이(2.6 s)와 맞춰 두면 휘파람이 절정일 때 착탄한다."
+SHELL_INCOMING_RANGE_M,55,"낙하음이 들리는 착탄점 거리(m) — 귀(카메라)와 착탄점 사이. 폭발 반경 SHELL_BLAST_RADIUS 의 10배라 달아날 사람은 모두 듣는다."
+SHELL_INCOMING_FLOOR,0.35,"낙하음의 최소 비율 (RANGED_SOUNDS floor) — 사거리 안이면 멀어도 이만큼은 들린다 (공정한 경고)."
+SHELL_INCOMING_VOLUME,0.9,"낙하음의 밑 크기 — 거리 곡선을 먹기 전 값."
+SHELL_INCOMING_VOICE_CAP,3,"낙하음 동시 보이스 상한 — 포병 여럿이 쏘면 가장 가까운 착탄점 셋만 들린다."
+SHELL_LAUNCH_RANGE_M,150,"포병 발사의 둔한 쿵(shell_launch)이 들리는 거리(m). 표준 교전 거리 ARTILLERY_RANGE 63 m 의 두 배 남짓 — 멀리서 쏘는 것도 들린다."
 SANDWORM_WINDOW_START_S,150,"(2026-09-15 은퇴 — 읽는 코드 없음) 옛 시각 창의 시작(초). 누적 확률제로 바뀌어 시각 창이 없다 (docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」). 줄은 shared/constants 의 export 가 남아 있어 둔다."
 SANDWORM_WINDOW_END_S,420,"(2026-09-15 은퇴 — 읽는 코드 없음) 옛 시각 창의 끝(초)."
 SANDWORM_CHECK_S,2,"호스트가 땅굴벌레 등장 조건을 보고 누적 확률을 굴리는 간격(초). 레이드 내내 돈다 (시각 창 없음, 최대 1회)."
@@ -1076,7 +1096,8 @@ TUTORIAL_ENEMY_LEASH_M,22,"자기 자리에서 이 거리를 벗어나면 돌아
 TUTORIAL_RESPAWN_DELAY_S,2.5,"튜토리얼 사망 → 체크포인트 부활까지 (사망 연출을 보여 주되 기다리게 하지 않는다)."
 TUTORIAL_INTRO_WAKE_S,9,"오프닝 기상 연출 — 쓰러진 몸을 비추다 일어서서 백뷰로 컷할 때까지. 2026-09-14 3차: 4.5 → 9 (일어서는 속도를 절반으로 · 밝아지는 데 약 2초)."
 TUTORIAL_COMPASS_FADE_S,1.2,"기상 연출이 끝나 카메라가 백뷰로 돌아온 뒤 나침반이 서서히 나타나는 시간 (s). CSS 전이가 아니라 코드가 opacity 를 올린다 — OS 가 애니메이션 효과를 끄면(prefers-reduced-motion) CSS 전이는 0.01 ms 로 잘린다."
-TUTORIAL_RAID_XP,120,"튜토리얼 레이드 완주 보상 XP — **본편 정산식(처치 · 시간 · 탈출 보너스)을 대신한다**. 120 = XP_BASE = 정확히 레벨 2 라 함선에서 능력치 포인트 투자를 바로 배운다. 2026-09-15 (A-17): 900 은 누적 곡선(Lv.2 120 · Lv.3 426 · Lv.4 955)에서 레벨 3 이었다. XP_BASE 를 고치면 이 줄도 같이 본다."
+TUTORIAL_RETICLE_FADE_S,1,"기상 연출이 끝나 카메라가 백뷰로 돌아온 뒤 크로스헤어가 서서히 나타나는 시간 (s). 연출 동안에는 보이지 않는다. 나침반과 같은 이유로 코드가 opacity 를 올린다."
+TUTORIAL_RAID_XP,120,"튜토리얼 레이드 완주 보상 XP — **본편 정산식(처치 경험치 enemies.csv raidXp)을 대신한다**. 120 = XP_BASE = 정확히 레벨 2 라 함선에서 능력치 포인트 투자를 바로 배운다. 2026-09-15 (A-17): 900 은 누적 곡선(Lv.2 120 · Lv.3 426 · Lv.4 955)에서 레벨 3 이었다. XP_BASE 를 고치면 이 줄도 같이 본다."
 # 자세별 몸 높이 (발 위 클리어런스, m) — 낮은 통로를 앉아서 지나는 판정의 원본.
 # 서 있을 때는 지금까지와 같은 BOX_HEADROOM(2.1) 을 그대로 쓴다 — 본편 동선은 한 곳도 안 바뀐다.
 PLAYER_CROUCH_CLEARANCE_M,1.3,"앉은 몸이 요구하는 머리 위 공간 (m). 이보다 낮은 상자 밑으로는 앉아도 못 간다. 눈높이 EYE_CROUCH(1.15) 위로 여유를 조금 둔 값."

@@ -297,8 +297,9 @@ try {
     const inBay = window.__shipPoint(0.6, -2.2, 0);
     const outside = window.__shipPoint(0, 9, 0);
     outside.y = ctx.world.getSurfaceY(outside.x, outside.z, outside.y + 0.5);
-    gf.corpses.add('pcorpse:smokeA:1', 'smokeA', '분대원A', inBay, 0, ctx.missionTime, [], 1);
-    gf.corpses.add('pcorpse:smokeB:1', 'smokeB', '분대원B', outside, 0, ctx.missionTime, [], 2);
+    // 2026-09-16: 아이템 한 개씩 — 빈손 시체는 1초 뒤 가라앉아 사라진다 (빈 시체 제거), 여기서는 함선에 실려 가야 한다
+    gf.corpses.add('pcorpse:smokeA:1', 'smokeA', '분대원A', inBay, 0, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 1);
+    gf.corpses.add('pcorpse:smokeB:1', 'smokeB', '분대원B', outside, 0, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 2);
     const a = gf.corpses.get('pcorpse:smokeA:1'), b = gf.corpses.get('pcorpse:smokeB:1');
     return { aShip: a.onShip, aParent: a.group.parent === sys.ship.root, aDeck: a.position.y - sys.ship.root.position.y, bShip: b.onShip };
   });

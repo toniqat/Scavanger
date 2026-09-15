@@ -13,7 +13,7 @@ No asset files — every rig is built from primitives.
 | `EnemySystem.ts` | `GameSystem` + `EnemyManagerRef`: mode (authority/replica), bus + net subscriptions, update loop (grid, statuses, AI, despawn), `raycast` / `raycastEx`, host services (`EnemyHost`, `SpawnHost`, `RogueSpawnHost` …), debug hooks; delegates to `parts/` |
 | `model.ts` | Folder vocabulary: constants, request-guard limits (`MAX_REQUEST_*`, `STATUS_SOURCE_REACH`, `EXPLODE_SOURCE_REACH`), sound tables (`stepSound`, `meleeHitSound`, `hurtSound`, `STEP_VOICES`, `emitEnemyStep`), scratch |
 | `Enemy.ts` | Entity (`EnemyRef`): gameplay state, timers, target, kill credit, rig selection (`baseTypeOf`), `takeDamage`, `kill`, `startEmerge`, `animate`, `muzzle`; `EnemyHost` interface |
-| `EnemyTypes.ts` | csv loaders: `ENEMY_STATS`, ability blocks (`HUNTER_LEAP`, `SPEWER_SPIT`, `CHARGER_CHARGE`, `ROGUE_AI`, `ARTILLERY_AI`, `TOXIC_AI`, `BEHEMOTH_AI`, `NAMED_*`, `HUMANOID_*`, `ENEMY_INCENDIARY`), `isRogueType`, `isWormType`, `baseTypeOf` |
+| `EnemyTypes.ts` | csv loaders: `ENEMY_STATS` (incl. per-kill `raidXp`, `raidXpOf`), ability blocks (`HUNTER_LEAP`, `SPEWER_SPIT`, `CHARGER_CHARGE`, `ROGUE_AI`, `ARTILLERY_AI`, `TOXIC_AI`, `BEHEMOTH_AI`, `NAMED_*`, `HUMANOID_*`, `ENEMY_INCENDIARY`), `isRogueType`, `isWormType`, `baseTypeOf` |
 | `factionTables.ts` | csv loaders for `SITE_*`, `RAIDER_DROP_*`, `NAMED_ROGUE_CHANCE_BY_THREAT`, bug-threat tables → `bugThreatTuning(threat)` |
 | `Targets.ts` | `CombatTarget` (player / enemy / drone / vehicle / android proxy) and `TargetList` (`all`, `alive`, `drones`, `vehicles`, `allies`, nearest queries, `damageVehicleAt`) |
 | `Spawner.ts` | `AmbientSpawner` (initial population, patrols, artillery dig-in), group composition from planet ecosystem, spawn clearance (`spawnBlocked`), `threatEcosystem`, `ambientCap` |
@@ -26,6 +26,7 @@ No asset files — every rig is built from primitives.
 | `RayTests.ts` | Allocation-free ray/nearest tests: sphere, standing capsule, segment capsule |
 | `SpatialGrid.ts` | Per-frame XZ hash grid for separation |
 | `parts/Damage.ts` | Every damage path into and out of enemies: `applyDamage` (player / remote / ghost / drone / vehicle / enemy target), `explode`, `applyAreaDamage`, `pushBack`, barrier checks, `onHitRequest` / `onExplodeRequest` guards, `enemyDamageSource`, `onEnemyKilled`, `registerCorpse` |
+| `parts/CorpseEmpty.ts` | Opened-and-emptied corpses: `onCorpseContainerLooted` (`crate:looted`), `applyCorpseEmptied` (shortens `corpseLife`, sink = `corpseFadeS`), `emptyCorpseAuthority` (+ `ee corpseEmptied`), `onCorpseEmptiedRequest` (`ecorpseq` guard) |
 | `parts/Attacks.ts` | Host-decided enemy attacks: acid, humanoid gun (`fireGun`), shells (`fireShell`, `shellArcBlocked`), grenades + incendiary fire zones (`onFireZoneTick`), toxic / spewer bursts |
 | `parts/Alerts.ts` | Awareness: gunshot hearing, lures, `alertNear`, `pickTarget` (+ drone / vehicle), shot tracking (`reportShot`, `alertShot`, `onShotReport`), `onWorldNoise`, faction clash, `fleeFrom` |
 | `parts/Status.ts` | Burning / slowed / incinerated / shocked, replica status requests + bits, hazard DoT (`updateHazardDot`), x-ray (`setXray`) |
@@ -101,10 +102,10 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
   `net:hostChanged`, `cheat:sandworm {spitS?, weak?}`, `sandworm:summon` (thumper, host only).
 - Wire (`src/shared/net.ts`):
   - Host → all: `es` (`EnemySnapshot`, delta), `ee` (`EnemyEvent`: `spawn` · `kill` · `despawn` · `damaged` · `attack` · `acid` ·
-    `acidAt` · `wave` · `shoot` · `shell` · `intercept` · `shellHit` · `charge` · `toxic` · `corpse` · `corpseGone` · `grenade` ·
+    `acidAt` · `wave` · `shoot` · `shell` · `intercept` · `shellHit` · `charge` · `toxic` · `corpse` · `corpseGone` · `corpseEmptied` · `grenade` ·
     `grenadeHit` · `barrierHit` · `glint` · `snipe` · `scanPulse` · `hammer` · `spray` · `wormWarn` · `wormErupt` · `wormSpit`),
     `rdrop incoming|landed`, `dmg` to a victim, `hitc` to a requester.
-  - Client → host: `hit` (`HitRequest`: damage, `st` status bits, `kb`), `explode`, `intq` (shell interception), `shotq` (shot report).
+  - Client → host: `hit` (`HitRequest`: damage, `st` status bits, `kb`), `explode`, `intq` (shell interception), `shotq` (shot report), `ecorpseq emptied` (an enemy corpse emptied on that client).
 - Snapshot `a` hints: 1 charger windup · 2 rush · 3 spewer windup · 4 airborne/spat · 5 humanoid shooting · 6 cover/stagger ·
   7 rush · 8 artillery dug in · 9 toxic swell · 10/11 behemoth windup/charge · 12 reload · 13 throw · 14/15 sniper prone/glint ·
   16/17 hammer windup/charge · 18/19 heavy spin/fire · 20 scan pulse · 21/22 worm spit/acid (`net/HostSync.animHint`).
@@ -113,7 +114,7 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
   `debugSandwormClearOnce`, `debugSpawnBurrow`,
   `debugTutorial`, `debugDroneTargets`, `debugSnapshot`, `debugApplySnapshot`, `debugHint`, `debugGrenade`, `debugShell`,
   `debugXray`, `debugSetDropSquad`, `debugDropWaves`, `debugAllyTargets` / `debugAllyTargetList` / `debugCoverSpot`,
-  `hitGuardStats`, `isAuthority`, `isTrainingWorld`, `isTutorialWorld`.
+  `debugEmptyCorpse`, `hitGuardStats`, `isAuthority`, `isTrainingWorld`, `isTutorialWorld`.
 
 ## Authority and replicas
 - Mode is decided per mission (`refreshMode` at `world:ready` / `game:newMission` / `game:abort`) and switched live only by
@@ -131,7 +132,10 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
   `kb` ≤ `MAX_REQUEST_KNOCKBACK` within reach; `st` bits masked to `ENEMY_STATUS_BITS`, within `STATUS_SOURCE_REACH`, own
   rate budget; `explode` within `EXPLODE_SOURCE_REACH` of the sender (dead senders allowed — grenades outlive throwers).
 - Kill credit: `ctx.stats.kills` only for `lastDamager === 'local'`; faction/AI kills (`'ai'`) emit no `enemy:killed`.
-  Replicas count their own kill from `ee kill.killer` and emit `enemy:squadKill` for other members. Burn/incinerate
+  Replicas count their own kill from `ee kill.killer` and emit `enemy:squadKill` for other members.
+  Every counted kill also adds the type's `raidXp` (`data/enemies.csv`, `raidXpOf`) to `ctx.stats.killXp` — the only source of
+  raid-end character XP (`game/parts/Death.awardMissionXp`). Both sites (`parts/Damage.onEnemyKilled`, `net/Replica` `kill`)
+  must keep the same condition as `kills++`, or a kill pays twice / never. Burn/incinerate
   kills credit `Enemy.burnAttacker`.
 
 ## Spawning
@@ -157,6 +161,13 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
 - Burrow: `Pool.spawn(…, emerge)` for bug faction only. `Enemy.startEmerge` lowers only the rig; `position` stays on the
   surface so hits work; `ai/Burrow.updateBurrowGate` blocks attack/move until out; a body killed while emerging keeps
   rising (sandworm excepted). Shake once per `BURROW_SHAKE_GAP_S`. Wire `ee spawn.em`.
+- Burrow sound: `burrow_emerge` **per bug** at its body (`parts/Burrow.emergeSound`, not the `playAudio` id throttle);
+  within `BURROW_EMERGE_BATCH_S` of a batch's first sound the k-th is × 1/√k, and audio/ caps overlap
+  (`BURROW_EMERGE_VOICE_CAP`). Spat-bug landings use the same path. Sandworms keep their own sounds.
+- Bug footsteps: `STEP_VOICES` rows with `id` (`bug_step_skitter` / `_heavy` / `_giant`) replace the surface footstep for
+  bugs; `emitEnemyStep` gates on the row's `range` (`BUG_STEP_RANGE_M`, behemoth `BUG_STEP_GIANT_RANGE_M`) from the
+  camera and divides the volume by √n, n = bugs whose `stepAt` is within `BUG_STEP_CROWD_WINDOW_S` (`bugStepCrowd`).
+  Humanoids keep `footstep_<mat>` (+ `layer`). Which types step at all is `enemies.csv` `stepSound`.
 - Sandworm `땅굴벌레` (`BURROW_*` / `SANDWORM_*` in `data/constants.csv` + `data/tables.csv`; decision
   `docs/DECISIONS.md` 「2026-09-15 — 땅굴벌레」): **no pre-roll, no time window, at most once per raid**. The host checks
   every `SANDWORM_CHECK_S`: candidates = living humans (local + remotes in mission) + android squadmates
@@ -220,6 +231,12 @@ Applied at `world:ready` on every client: bug max hp in `Pool.acquire` (not sand
   interact with `shared/lootRolls.corpseLootRandom` and inputs (`site`, remaining grenades) replicated in `ee corpse`.
   Mid-air kills fall (`integrateDeathFall`) and register on landing. Lifetime = `EnemySystem.corpseLifetime`
   (`CORPSE_LIFETIME`, `Infinity` in the tutorial).
+- Emptied corpses (`parts/CorpseEmpty.ts`): a corpse that was **opened and emptied** (`crate:looted corpse:<id>`, including an
+  empty roll) gets `corpseLife = deathTimer + CORPSE_EMPTY_REMOVE_DELAY_S + CORPSE_EMPTY_SINK_S` and `corpseFadeS =
+  CORPSE_EMPTY_SINK_S`; the normal despawn loop removes it (every raid, tutorial too). The authority applies it at once and
+  broadcasts `ee corpseEmptied`; a replica within `CORPSE_EMPTY_REQUEST_REACH_M` sends `ecorpseq emptied` to the host, which
+  checks shape → sender → distance → rate (`CORPSE_EMPTY_REQUEST_RATE_MAX` / `_BURST`, refusals in
+  `hitGuardStats.corpseEmptyRefused`). Unopened or unlootable corpses keep `CORPSE_LIFETIME`.
 
 ## Tutorial enemies
 Tutorial raids place only `ctx.world.tutorial.enemySpawns()` (read once; killed enemies stay dead): no rolls, patrols,
@@ -257,9 +274,10 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
 - Sniper fires only after the glint; blocked muzzle before a glint relocates instead — `ai/named/Sniper.ts`.
 
 ## Recent changes
+
 Last 5 only — older: `git log -- src/enemies`.
+- 2026-09-16 — Emptied corpses sink away: `parts/CorpseEmpty.ts`, `Enemy.corpseEmptied` / `corpseFadeS`, `ee corpseEmptied`, `ecorpseq emptied` host guard (`hitGuardStats.corpseEmptyRefused`), `debugEmptyCorpse`.
+- 2026-09-16 — Bug audio: `burrow_emerge` per bug (batch 1/√k, `parts/Burrow.emergeSound`); bug `STEP_VOICES` rows use `bug_step_skitter` / `_heavy` / `_giant` with a short camera gate and 1/√n crowd gain (`model.bugStepCrowd`); shell whistle lives in audio/.
+- 2026-09-16 — `enemies.csv` `raidXp` (per-kill raid XP, first pass hp / 10) summed into `ctx.stats.killXp` at both kill sites; `stepSound` on for scavenger · hunter · spewer · toxic · tut_bug(_loot).
 - 2026-09-15 — Sandworm renamed `땅굴벌레`; cumulative per-check appearance chance (sprinting + weight, androids count, solo never, lure bonus), `sandworm:summon`, `WorldRef.burrowGroundOk` spot check, threat-1 `sandworm_weak` (750 hp · ×0.7 · scavengers only), `LureField` kinds, `ee wormErupt.ty`.
 - 2026-09-15 — Androids as targets (`TargetList.allies`, every damage path), `applyAllyHit`, `ally:fired` hearing; cover moved to `shared/cover.pickCoverSpot`.
-- 2026-09-15 — All enemy explosion falloff (grenade, shell, toxic, spewer burst, sandworm, rover) uses `shared/explosion`.
-- 2026-09-15 — Tutorial bug chain spawn, zone aggro release on checkpoints/falls, liftoff fire window instead of flee.
-- 2026-09-15 — Player damage source for the death screen (`enemyDamageSource`, `dmg.src`); enemy portraits and names (`models/Portrait.ts`).

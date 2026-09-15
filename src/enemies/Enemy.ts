@@ -21,6 +21,12 @@ import type { SpatialGrid } from './SpatialGrid';
 import { CombatTarget, type TargetId, type TargetList } from './Targets';
 import type { ReplicaBuffer } from './net/Replica';
 
+/**
+ * 시체 수명의 마지막 몇 초 동안 몸이 땅으로 가라앉는다 (`anim.fade`). 예전에 `animate` 안에 박혀 있던 값 그대로이고,
+ * 2026-09-16 부터 몸마다 `corpseFadeS` 로 들고 있다 — 열어서 비운 시체는 `CORPSE_EMPTY_SINK_S` 로 바뀐다 (`parts/CorpseEmpty`).
+ */
+const CORPSE_FADE_S = 3;
+
 export type EnemyState = 'idle' | 'wander' | 'alert' | 'chase' | 'attack' | 'stagger' | 'dead' | 'flee';
 export type HitPart = 'head' | 'body' | 'rear' | 'front';
 /** Bug rig (six legs) or humanoid rogue rig — both expose `params.head` / `params.strideLength` / `root` / `baseScale`. */
@@ -262,7 +268,7 @@ export class Enemy implements EnemyRef {
   readonly chargeVictims: TargetId[] = [];
   /** behemoth (2026-09-11 C-47): drone ids already hit during the current charge (drone proxies all share the id 'ai') */
   readonly chargeDrones: string[] = [];
-  /** seconds the corpse stays (system sets it from CORPSE_LIFETIME; fades over the last 3 s) */
+  /** seconds the corpse stays (system sets it from CORPSE_LIFETIME; sinks over the last `corpseFadeS` s — cut short when emptied) */
   corpseLife = CORPSE_LIFETIME;
   /* ── appended: tactical kit ────────────────────────────────────────────── */
   /** Lure (유인 수류탄 / 소음) currently pulling this bug: position + 0..1 strength, refreshed on the perception tick. */
@@ -350,6 +356,11 @@ export class Enemy implements EnemyRef {
   deathLanded = false;
   /** Authority: the `corpse:<id>` interactable is waiting for the body to land (or `CORPSE_LAND_TIMEOUT`). */
   corpsePending = false;
+  /* appended (2026-09-16): 빈 시체 제거 (`parts/CorpseEmpty`) */
+  /** 열어서 다 비운 시체 — 권위가 정했다(`ee corpseEmptied`). `corpseLife` 가 「지금 + 지연 + 가라앉기」로 줄어 있다. */
+  corpseEmptied = false;
+  /** 시체가 가라앉는 시간(초, `anim.fade` 0→1). 평소 = 수명 마지막 `CORPSE_FADE_S`, 비운 시체 = `CORPSE_EMPTY_SINK_S`. */
+  corpseFadeS = CORPSE_FADE_S;
 
   /* ── appended: Phase 12 (총알 추적 · 배리어 충돌, 2026-09-08) ─────────────── */
   /**
@@ -528,6 +539,7 @@ export class Enemy implements EnemyRef {
     // Phase 10
     this.deathDir = undefined; this.lootable = undefined;
     this.deathVy = 0; this.deathLanded = false; this.corpsePending = false;
+    this.corpseEmptied = false; this.corpseFadeS = CORPSE_FADE_S;   // 2026-09-16: 빈 시체 제거
     // Phase 12
     this.investigating = false; this.shotTimer = 0; this.shotPhase = 0; this.shotHold = 0; this.shotCheckAt = -Infinity;
     this.barrierUntil = -Infinity; this.barrierOwner = null; this.barrierBumpAt = -Infinity;
@@ -936,7 +948,7 @@ export class Enemy implements EnemyRef {
       a.death = Math.min(1, this.deathTimer / 4);
       // Phase 10: the fall pose (left / right / back) blends in over DEATH_FALL_TIME; `death` still gates the eye fade
       a.deathFall = THREE.MathUtils.clamp(this.deathTimer / DEATH_FALL_TIME, 0, 1);
-      a.fade = THREE.MathUtils.clamp((this.deathTimer - (this.corpseLife - 3)) / 3, 0, 1);
+      a.fade = THREE.MathUtils.clamp((this.deathTimer - (this.corpseLife - this.corpseFadeS)) / this.corpseFadeS, 0, 1);
       a.speed = Math.max(0, a.speed - dt * 6);
     }
     if (this.state === 'flee') {

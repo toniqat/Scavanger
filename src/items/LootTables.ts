@@ -276,6 +276,13 @@ export interface PlanetGradeCurve {
   rarityMul: Readonly<Record<Rarity, number>>;
   /** 세 배수가 전부 1 인가 = 이 행성은 희귀도를 손대지 않는다. `planetRarityWeights` 의 우회 조건. */
   rarityMulIdentity: boolean;
+  /**
+   * 2026-09-16: **서사 이상 드롭률 게이트** — `data/planet_loot.csv` 의 `epicPlusMul` (0..1, 빈 칸 = 1).
+   * `rarityMul` 이 *가중치*를 깎는 것과 달리 이것은 **결과**에 건다: 서사 · 전설이 뽑히면 이 확률로 남기고 아니면
+   * 서사 미만 최고 희귀도로 내린다 (`Loot.pickDef` · `regrade` · 시체 굴림). 확정 픽 · 폴백 픽에서도 상쇄되지 않는다.
+   * 1 이면 rng 를 한 번도 더 쓰지 않는다. 연구실 잠긴 방 컨테이너(`CrateLootOpts.lockedRoom`)는 이 값을 무시한다.
+   */
+  epicPlusMul: number;
 }
 
 /**
@@ -314,6 +321,8 @@ export const PLANET_GRADE_CURVES: readonly PlanetGradeCurve[] = csvRows('planet_
     uniqueMul: r.num('uniqueMul', { min: 0 }),
     rarityMul,
     rarityMulIdentity: RARITY_MUL_COLUMNS.every(([rarity]) => rarityMul[rarity] === 1),
+    /* 2026-09-16: 빈 칸 · 없는 열은 1 (= 게이트 없음) — 위 rarityMul 과 같은 이유. */
+    epicPlusMul: r.num('epicPlusMul', { min: 0, max: 1, fallback: 1 }),
   };
 });
 

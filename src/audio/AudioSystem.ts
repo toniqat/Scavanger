@@ -12,6 +12,10 @@ import {
   FALL_REMOTE_SOUND_RANGE, FALL_VIGNETTE_FULL_DAMAGE,
   /* 2026-09-13: 탐사 차량 */
   ROVER_CLANG_GAP_S, ROVER_TRIP_SPEED,
+  /* 2026-09-16: 벌레 소리 — 굴착음 · 발소리 · 포탄 낙하음 */
+  BUG_STEP_GIANT_RANGE_M, BUG_STEP_RANGE_M, BUG_STEP_VOICE_CAP, BURROW_EMERGE_VOICE_CAP,
+  SHELL_INCOMING_FLOOR, SHELL_INCOMING_LEAD_S, SHELL_INCOMING_RANGE_M, SHELL_INCOMING_VOICE_CAP, SHELL_INCOMING_VOLUME,
+  SHELL_LAUNCH_RANGE_M, shellLaunchVelocity, shellPositionAt,
 } from '@/shared';
 /* 2026-09-13 (요리 미니게임): 조리대 요리의 제작 완료음 겹침 방지 */
 import { cookStepsOf } from '@/shared';
@@ -174,6 +178,14 @@ const RANGED_SOUNDS: Readonly<Record<string, RangeProfile>> = {
   fire_crackle: { range: 32, exp: 1.5 },
   // 2026-09-15 (gadgets, 진동 장치): 땅을 치는 쿵 — 흔들림 반경(THUMPER_SHAKE_RADIUS 30 m)보다 조금 멀리까지 들린다
   thumper_thump: { range: 55, exp: 1.3 },
+  // 2026-09-16: 벌레 발소리 — 곁에서만 (사람 발소리의 `ENEMY_STEP_RANGE` 45 m 보다 훨씬 짧다), 베헤모스만 조금 멀리.
+  // 세 id 가 `VOICE_GROUP` 으로 한 상한을 나눈다; 무리 크기 1/√n 은 방출부(`enemies/model.emitEnemyStep`)가 곱해 온다.
+  bug_step_skitter: { range: BUG_STEP_RANGE_M, exp: 1.4 },
+  bug_step_heavy: { range: BUG_STEP_RANGE_M, exp: 1.4 },
+  bug_step_giant: { range: BUG_STEP_GIANT_RANGE_M, exp: 1.3 },
+  // 2026-09-16: 포병 — 발사 쿵은 교전 거리 밖에서도, 낙하 휘파람은 **착탄점** 거리로 잰다 (floor = 공정한 경고; `updateShells`).
+  shell_launch: { range: SHELL_LAUNCH_RANGE_M, exp: 1.1 },
+  shell_incoming: { range: SHELL_INCOMING_RANGE_M, exp: 1.2, floor: SHELL_INCOMING_FLOOR },
 };
 /** 탐사 차량 엔진음 한 조각의 간격(초) — `rover_engine` 은 이보다 조금 길어 겹치며 이어진다. */
 const ROVER_ENGINE_STEP_S = 0.5;
@@ -188,11 +200,44 @@ const RANGED_MIN_VOLUME = 0.01;
  * 볼륨은 이미 `RANGED_SOUNDS` 거리 곡선을 먹은 값이므로 「가까운 지대가 이긴다」 와 같다. 지대 하나가 조각 둘을 겹쳐
  * 쓰므로(0.95 s / 0.7 s) 8 = 가장 가까운 지대 넷.
  */
-const VOICE_CAP: Readonly<Record<string, number>> = { fire_crackle: 8, fire_ignite: 4 };
+const VOICE_CAP: Readonly<Record<string, number>> = {
+  fire_crackle: 8, fire_ignite: 4,
+  // 2026-09-16: 벌레 발소리 세 id 는 한 무리(`VOICE_GROUP`) — 열 마리 넘게 걸어도 가까운 것만. 굴착음은 마리마다 나므로 상한.
+  bug_steps: BUG_STEP_VOICE_CAP, burrow_emerge: BURROW_EMERGE_VOICE_CAP, shell_incoming: SHELL_INCOMING_VOICE_CAP,
+};
+/**
+ * 2026-09-16: id → 상한을 나누는 보이스 무리 (없으면 id 자신이 무리다). 무리 이름은 소리 id 와 겹치지 않게 짓는다
+ * (`bug_steps` ≠ 사냥꾼 착지 틱 `bug_step`).
+ */
+const VOICE_GROUP: Readonly<Record<string, string>> = { bug_step_skitter: 'bug_steps', bug_step_heavy: 'bug_steps', bug_step_giant: 'bug_steps' };
 /** 빼앗긴 보이스의 페이드 시간 상수 (s) — 뚝 끊는 클릭이 나지 않을 만큼만. */
 const VOICE_STEAL_FADE = 0.04;
-/** `VOICE_CAP` 을 가진 id 의 살아 있는 보이스 하나. */
-interface CappedVoice { end: number; vol: number; gain: GainNode }
+/**
+ * 살아 있는 보이스 하나 — `VOICE_CAP` 무리의 목록에 들어가고, `play` 가 돌려준다 (2026-09-16: 포탄 낙하음이 매 프레임 패너 ·
+ * 크기를 옮기고 착탄에 끊는다). `stolen` = 상한에 밀려 페이드됐다 (다시 키우지 않는다). `panner` = 위치가 있을 때만.
+ */
+interface CappedVoice { end: number; vol: number; gain: GainNode; panner: PannerNode | null; stolen: boolean }
+
+/* ── 포병 포탄 낙하음 (2026-09-16) ──────────────────────────────────────
+ * `enemy:shellFired` 는 호스트(`enemies/parts/Attacks.fireShell`)와 리플리카(`RemoteFx.shellVisual`) 모두에서 오므로 전원이 듣는다.
+ * 사거리 · floor · 리드 · 크기 · 상한은 csv, 아래는 추적 슬롯 수 · 페이드 같은 소리 처리 상수다.
+ */
+const SHELL_TRACK_MAX = 8;
+/** 착탄 시각에서 이만큼(s) 지나도 착탄 · 요격 방송이 없으면 추적을 버린다. */
+const SHELL_FORGET_S = 1;
+/** 남은 비행이 이보다 짧으면 휘파람을 시작하지 않는다 (늦게 받은 방송 — 시작하자마자 잘린다). */
+const SHELL_INCOMING_MIN_S = 0.35;
+/** 착탄 · 요격에 휘파람을 끊는 페이드 시간 상수(s) — 폭발음이 덮는다. */
+const SHELL_STOP_FADE = 0.03;
+/** 매 프레임 착탄점 거리 곡선을 다시 걸 때의 시간 상수(s) — 달아나면 부드럽게 작아진다. */
+const SHELL_GAIN_RAMP = 0.08;
+/** 발사 쿵의 밑 크기 (거리 곡선 전). */
+const SHELL_LAUNCH_VOLUME = 0.85;
+/** 날아오는 포탄 하나 — 궤적은 `shared/ballistics` 의 닫힌 식 (`enemies/fx/ShellProjectile` · HUD 와 같은 함수). */
+interface IncomingShell {
+  active: boolean; sid: number; firedAt: number; flight: number; started: boolean; voice: CappedVoice | null;
+  readonly from: THREE.Vector3; readonly vel0: THREE.Vector3; readonly impact: THREE.Vector3; readonly pos: THREE.Vector3;
+}
 /** 드론 아이템의 `gadget:used` 는 `drone_deploy` 가 대신한다 (투척 휙 소리를 겹치지 않는다). */
 const DRONE_GADGET_IDS: readonly string[] = Object.values(DRONE_GADGET_OF);
 
@@ -252,6 +297,11 @@ export class AudioSystem implements GameSystem, AudioRef {
   private roverLastClang = -Infinity;
   /** 2026-09-15 (B-16): `VOICE_CAP` id 별 살아 있는 보이스 (끝난 것은 `play` 가 그때그때 걷어낸다). */
   private cappedVoices = new Map<string, CappedVoice[]>();
+  /** 2026-09-16: 날아오는 포병 포탄 — 미리 만든 슬롯 (가득 차면 가장 오래된 것을 쓴다). */
+  private incoming: IncomingShell[] = Array.from({ length: SHELL_TRACK_MAX }, () => ({
+    active: false, sid: -1, firedAt: 0, flight: 0, started: false, voice: null,
+    from: new THREE.Vector3(), vel0: new THREE.Vector3(), impact: new THREE.Vector3(), pos: new THREE.Vector3(),
+  }));
 
   private camPos = new THREE.Vector3();
   private camFwd = new THREE.Vector3();
@@ -323,6 +373,10 @@ export class AudioSystem implements GameSystem, AudioRef {
       // 로그 강하 (2026-09-10): 경보는 지금, 낙하 굉음은 착지 직전에. 둘 다 인지력이 아니라 전용 반경을 본다.
       b.on('rogueDrop:incoming', ({ dropId, position, eta }) => this.rogueDropIncoming(dropId, position, eta)),
       b.on('rogueDrop:landed', ({ dropId }) => this.rogueDropDone(dropId)),
+      // 포병 포탄 (2026-09-16): 발사 쿵은 지금 발사점에서, 낙하 휘파람은 착탄 `SHELL_INCOMING_LEAD_S` 전부터 날아오는 포탄 자리에서 (`updateShells`).
+      b.on('enemy:shellFired', ({ sid, from, target, flightTime }) => this.shellFired(sid, from, target, flightTime)),
+      b.on('enemy:shellLanded', ({ sid }) => this.shellDone(sid)),
+      b.on('enemy:shellIntercepted', ({ sid }) => this.shellDone(sid)),
 
       // 탐사 차량 (2026-09-13, world/rover). 엔진음은 `update` 가 차량 속도를 보고 조각으로 잇는다.
       b.on('rover:departed', () => { const v = ctx.world?.rover?.vehicle; if (v) this.playRequested('rover_depart', v.position, 0.9, 1); }),
@@ -527,8 +581,10 @@ export class AudioSystem implements GameSystem, AudioRef {
         this.hubActive = false; this.lastLaunchSecond = -1;
         this.barrierActive = false; this.barrierHp = 0;
         this.drops.length = 0;
+        this.clearShells();
       }),
-      b.on('game:abort', () => { this.drops.length = 0; }),
+      b.on('game:abort', () => { this.drops.length = 0; this.clearShells(); }),
+      b.on('hub:entered', () => this.clearShells()),
       b.on('game:paused', ({ paused }) => {
         this.ducked = paused;
         this.applyVolumes(0.1); // slower ramp: the duck is a mood change, not a setting
@@ -832,6 +888,90 @@ export class AudioSystem implements GameSystem, AudioRef {
     }
   }
 
+  /* ── 포병 포탄 (2026-09-16) ──────────────────────────────────────────── */
+  /**
+   * `enemy:shellFired`: 발사점에서 둔한 쿵(`shell_launch`, 교전 거리 밖까지)을 내고 포탄을 추적한다. 같은 `sid` 가 다시 오면
+   * (호스트 이양 재전송) 제자리에서 갱신하고 이미 울리는 휘파람은 그대로 둔다. 슬롯이 없으면 가장 오래된 것을 끊고 쓴다.
+   */
+  private shellFired(sid: number, from: THREE.Vector3, target: THREE.Vector3, flightTime: number): void {
+    if (!this.ctx) return;
+    let slot: IncomingShell | null = null;
+    for (const s of this.incoming) if (s.active && s.sid === sid) { slot = s; break; }
+    const refresh = slot !== null;
+    if (!slot) for (const s of this.incoming) if (!s.active) { slot = s; break; }
+    if (!slot) {
+      slot = this.incoming[0];
+      for (const s of this.incoming) if (s.firedAt < slot.firedAt) slot = s;
+      this.stopShell(slot);
+    }
+    const T = Math.max(0.5, flightTime);
+    slot.sid = sid;
+    slot.from.copy(from);
+    slot.impact.copy(target);
+    shellLaunchVelocity(from, target, T, slot.vel0);
+    slot.flight = T;
+    slot.firedAt = this.ctx.time;
+    slot.active = true;
+    if (refresh) return;
+    slot.started = false;
+    slot.voice = null;
+    this.playRequested('shell_launch', from, SHELL_LAUNCH_VOLUME, 0.95 + Math.random() * 0.1, true);
+  }
+
+  /** 착탄 · 요격: 휘파람을 짧게 끊고 추적을 끝낸다. */
+  private shellDone(sid: number): void {
+    for (const s of this.incoming) if (s.active && s.sid === sid) this.stopShell(s);
+  }
+
+  private clearShells(): void {
+    for (const s of this.incoming) if (s.active) this.stopShell(s);
+  }
+
+  private stopShell(s: IncomingShell): void {
+    const v = s.voice;
+    if (v && !v.stolen && this.ac && v.end > this.ac.currentTime) {
+      const now = this.ac.currentTime;
+      try { v.gain.gain.cancelScheduledValues(now); v.gain.gain.setTargetAtTime(0, now, SHELL_STOP_FADE); } catch { /* already gone */ }
+      v.vol = 0;          // 상한 목록에서 가장 작은 것 = 다음 휘파람이 이 자리를 먼저 가져간다
+      v.stolen = true;
+    }
+    s.voice = null;
+    s.active = false;
+  }
+
+  /**
+   * 매 프레임 (camPos 갱신 뒤): 착탄 `SHELL_INCOMING_LEAD_S` 전이 된 포탄은 휘파람을 한 번 시작한다 — 크기는 **귀와 착탄점 사이
+   * 거리**의 `RANGED_SOUNDS.shell_incoming` 곡선(floor = 공정한 경고), 패너는 `shellPositionAt` 의 지금 포탄 자리(방향만).
+   * 시작한 뒤에는 패너를 포탄에 붙여 옮기고 크기를 지금 거리로 다시 건다 (달아나면 작아진다). 시작 순간 사거리 밖이면
+   * 그 포탄은 조용하다 (휘파람을 중간부터 틀 수 없다). 방송을 못 받은 포탄은 `SHELL_FORGET_S` 뒤 버린다.
+   */
+  private updateShells(now: number): void {
+    const ac = this.ac;
+    if (!ac) return;
+    const prof = RANGED_SOUNDS.shell_incoming;
+    for (const s of this.incoming) {
+      if (!s.active) continue;
+      const life = now - s.firedAt;
+      const remain = s.flight - life;
+      if (remain < -SHELL_FORGET_S) { this.stopShell(s); continue; }
+      if (remain < 0) continue;
+      shellPositionAt(s.from, s.vel0, Math.max(0, life), s.pos);
+      const g = SHELL_INCOMING_VOLUME * this.rangeGain(prof, this.camPos.distanceTo(s.impact));
+      if (!s.started) {
+        if (remain > SHELL_INCOMING_LEAD_S) continue;
+        s.started = true;
+        if (remain >= SHELL_INCOMING_MIN_S && g >= RANGED_MIN_VOLUME) s.voice = this.play('shell_incoming', s.pos, g, 1, true, true);
+        continue;
+      }
+      const v = s.voice;
+      if (!v || v.stolen || !v.panner || v.end <= ac.currentTime) continue;
+      const t = ac.currentTime;
+      this.setParam(v.panner.positionX, s.pos.x, t); this.setParam(v.panner.positionY, s.pos.y, t); this.setParam(v.panner.positionZ, s.pos.z, t);
+      v.gain.gain.setTargetAtTime(Math.min(2, g), t, SHELL_GAIN_RAMP);
+      v.vol = g;
+    }
+  }
+
   /**
    * 탐사 차량 엔진음 (2026-09-13). 루프 노드를 두지 않고 `rover_engine` 조각을 `ROVER_ENGINE_STEP_S` 마다 차량 자리에서 낸다 —
    * 조각이 간격보다 조금 길어 이어져 들린다. 크기 · 피치는 프레임 사이 이동 거리로 잰 속도를 따른다 (차량이 속도를 내보이지 않는다).
@@ -882,26 +1022,28 @@ export class AudioSystem implements GameSystem, AudioRef {
    * `panOnly` = 거리 감쇠를 **호출부가 이미 계산했다** (발소리). 패너는 방향(equalpower)만 맡고 rolloff 0 이라
    * 게인을 건드리지 않는다 — 그렇지 않으면 inverse 감쇠가 겹쳐 두 번 줄어든다.
    */
-  private play(id: string, position: THREE.Vector3 | undefined, volume = 1, pitch = 1, auto = false, panOnly = false, dedupe = true, rateLimit = true): void {
-    if (!this.ac || !this.synth || this.ac.state !== 'running') return;
+  private play(id: string, position: THREE.Vector3 | undefined, volume = 1, pitch = 1, auto = false, panOnly = false, dedupe = true, rateLimit = true): CappedVoice | null {
+    if (!this.ac || !this.synth || this.ac.state !== 'running') return null;
     const fn = SOUNDS[id];
-    if (!fn) { if (!auto) console.warn(`[Audio] unknown sound id "${id}"`); return; }
+    if (!fn) { if (!auto) console.warn(`[Audio] unknown sound id "${id}"`); return null; }
     const now = this.ac.currentTime;
     const vol = Math.max(0, Math.min(2, volume));
 
     // 2026-09-15 (B-16): 동시 보이스 상한 — 지금 울리는 것 중 가장 작은 것보다 크지 않으면 여기서 버린다
     // (중복 제거 · 속도 제한의 자리를 쓰기 전에). 빼앗기는 것은 이 소리가 실제로 만들어질 때만이다 (아래).
-    const cap = VOICE_CAP[id];
+    // 2026-09-16: 상한은 id 가 아니라 보이스 무리(`VOICE_GROUP`, 없으면 id 자신)에 건다 — 벌레 발소리 세 id 가 한 상한을 나눈다.
+    const group = VOICE_GROUP[id] ?? id;
+    const cap = VOICE_CAP[group];
     let capped: CappedVoice[] | undefined;
     let quietest = -1;
     if (cap !== undefined) {
-      capped = this.cappedVoices.get(id);
-      if (!capped) { capped = []; this.cappedVoices.set(id, capped); }
+      capped = this.cappedVoices.get(group);
+      if (!capped) { capped = []; this.cappedVoices.set(group, capped); }
       for (let i = capped.length - 1; i >= 0; i--) if (capped[i].end <= now) capped.splice(i, 1);
       if (capped.length >= cap) {
         quietest = 0;
         for (let i = 1; i < capped.length; i++) if (capped[i].vol < capped[quietest].vol) quietest = i;
-        if (capped[quietest].vol >= vol) return;
+        if (capped[quietest].vol >= vol) return null;
       }
     }
 
@@ -909,7 +1051,7 @@ export class AudioSystem implements GameSystem, AudioRef {
     // (2026-09-11: 발소리는 `dedupe` false — 같은 재질 id 를 적과 나눠 쓰므로 검사도 기록도 하지 않는다.)
     if (dedupe) {
       const last = this.lastPlay.get(id);
-      if (last && last.auto !== auto && now - last.t < DEDUPE_WINDOW) return;
+      if (last && last.auto !== auto && now - last.t < DEDUPE_WINDOW) return null;
       this.lastPlay.set(id, { t: now, auto });
     }
 
@@ -918,12 +1060,13 @@ export class AudioSystem implements GameSystem, AudioRef {
       let arr = this.recent.get(id);
       if (!arr) { arr = []; this.recent.set(id, arr); }
       while (arr.length && now - arr[0] > RATE_WINDOW) arr.shift();
-      if (arr.length >= RATE_MAX_SAME) return;
+      if (arr.length >= RATE_MAX_SAME) return null;
       arr.push(now);
     }
 
     if (capped && quietest >= 0) {
       const stolen = capped.splice(quietest, 1)[0];
+      stolen.stolen = true;
       try { stolen.gain.gain.cancelScheduledValues(now); stolen.gain.gain.setTargetAtTime(0, now, VOICE_STEAL_FADE); } catch { /* already gone */ }
     }
 
@@ -931,8 +1074,10 @@ export class AudioSystem implements GameSystem, AudioRef {
     const g = this.ac.createGain();
     g.gain.value = vol;
     let dest: AudioNode = this.sfxBus;
+    let panner: PannerNode | null = null;
     if (position) {
       const p = this.ac.createPanner();
+      panner = p;
       p.panningModel = 'equalpower';
       if (panOnly) {
         // 감쇠는 호출부의 곡선이 이미 걸었다 — rolloff 0 = 방향만, 게인은 그대로.
@@ -946,14 +1091,34 @@ export class AudioSystem implements GameSystem, AudioRef {
       // Quick distance cull for tiny sounds (발소리는 `footstep()` 이 `FOOTSTEP_AUDIBLE_RANGE` 로 이미 걸렀다)
       if (!panOnly) {
         const d = this.camPos.distanceTo(position);
-        if (d > 160 && (id === 'bug_step' || id === 'hit_terrain')) { p.disconnect(); g.disconnect(); return; }
+        if (d > 160 && (id === 'bug_step' || id === 'hit_terrain')) { p.disconnect(); g.disconnect(); return null; }
       }
     }
     g.connect(dest);
     const dur = fn(this.synth, g, now, Math.max(0.25, Math.min(4, pitch)));
-    if (capped) capped.push({ end: now + dur, vol, gain: g });
+    const voice: CappedVoice = { end: now + dur, vol, gain: g, panner, stolen: false };
+    if (capped) capped.push(voice);
     // Disconnect after the sound is done so the graph doesn't grow.
     window.setTimeout(() => { try { g.disconnect(); if (dest !== this.sfxBus) dest.disconnect(); } catch { /* ignore */ } }, (dur + 0.3) * 1000);
+    return voice;
+  }
+
+  /** Debug / smoke (2026-09-16): 보이스 무리(`VOICE_GROUP` 이름, 없으면 id)에서 지금 울리고 있는(빼앗기지 않은) 보이스 수. */
+  debugVoices(group: string): number {
+    const list = this.cappedVoices.get(group);
+    if (!list || !this.ac) return 0;
+    const now = this.ac.currentTime;
+    let n = 0;
+    for (const v of list) if (v.end > now && !v.stolen) n++;
+    return n;
+  }
+
+  /** Debug / smoke (2026-09-16): 추적 중인 포탄 — 휘파람을 시작했나 · 지금 울리나 · 크기. */
+  debugIncomingShells(): Array<{ sid: number; started: boolean; playing: boolean; vol: number }> {
+    const now = this.ac?.currentTime ?? 0;
+    return this.incoming.filter((s) => s.active).map((s) => ({
+      sid: s.sid, started: s.started, playing: !!s.voice && !s.voice.stolen && s.voice.end > now, vol: s.voice?.vol ?? 0,
+    }));
   }
 
   private setParam(p: AudioParam, v: number, t: number): void {
@@ -982,6 +1147,8 @@ export class AudioSystem implements GameSystem, AudioRef {
 
     // 로그 강하: 착지 직전의 굉음 (camPos 를 갱신한 뒤라야 거리 감쇠가 이 프레임 값이다).
     if (this.drops.length) this.updateDrops(ctx.time);
+    // 포병 포탄 낙하음 (2026-09-16) — 같은 이유로 camPos 갱신 뒤
+    this.updateShells(ctx.time);
     // 탐사 차량 엔진 (2026-09-13)
     this.updateRoverEngine(dt, ctx);
 

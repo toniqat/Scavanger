@@ -1305,7 +1305,9 @@ try {
   for (const m of readFileSync(new URL('../data/tables.csv', import.meta.url), 'utf8').matchAll(/^MEAL_QUALITY_BONUS,(\d+),([\d.]+)/gm)) QB[Number(m[1])] = Number(m[2]);
   ok(QB.length === 6 && QB[0] === 0 && QB[5] > QB[1] && QB[1] > 0, 'tables.csv MEAL_QUALITY_BONUS read (quality 0 … 5)', JSON.stringify(QB));
   await page.evaluate(() => { const ctx = window.__game.ctx; ctx.setPhase('hub'); ctx.progression.resetProfile(); });
-  const MEAL_FX = `(id) => { const m = window.__game.ctx.loot.getItemDef(id)?.meal; return m ? (Array.isArray(m.effects) && m.effects.length ? m.effects : [{ buff: m.buff, amount: m.amount }]).map((e) => ({ buff: e.buff, amount: e.amount })) : null; }`;
+  // 2026-09-16 (접시 모델): 요리는 아이템이 아니다 — 요리 정의는 `ctx.loot` 이 아니라 shared 의 요리 표(`getMealDef`)에 있다
+  await page.evaluate(async () => { const S = await import('/src/shared/index.ts'); window.__getMealDef = S.getMealDef; });
+  const MEAL_FX = `(id) => { const m = window.__getMealDef(id)?.meal; return m ? (Array.isArray(m.effects) && m.effects.length ? m.effects : [{ buff: m.buff, amount: m.amount }]).map((e) => ({ buff: e.buff, amount: e.amount })) : null; }`;
   await page.evaluate((src) => { window.__mealFx = eval(src); window.__pickFx = (d, fx) => Object.fromEntries(fx.map((e) => [e.buff, d[e.buff]])); }, MEAL_FX);
 
   const qm = await page.evaluate(() => {

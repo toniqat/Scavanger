@@ -51,7 +51,8 @@ revive / carry interactions. Weapons, implants and gadgets act on the player onl
 - **State / snapshot getters**: position, velocity, yaw, pitch, stance, hp / `maxHp` (getter) / shield / `maxShield`,
   stamina, `isDead`, `isDowned`, `downHp`, `isGrounded`, `isDropping`, `isInShip`, `stridePhase`, `moveBlend`,
   `isReloading`, `isFiring`, `isMeleeHeavy`, `isOvercharged`, `climbingLadder`, `droneControl`, `roverRide`,
-  `furniturePoseState`, `introWaking`, `buffs` / `buffsRevision` (read by net's snapshot builder and the HUD).
+  `furniturePoseState`, `introWaking`, `buffs` / `buffsRevision` (read by net's snapshot builder and the HUD),
+  `selfMovedMeters` (odometer of self-propelled horizontal metres — read by progression's 운반 skill).
 - **Damage / healing**: `takeDamage(amount, from?, source?, opts?)` (`opts.bypassShield` skips the shield), `heal`,
   `applyStim`, `applyHeal(amount, seconds, quiet?)`, `chargeShield`, `revive`, `die?` (voluntary return), `setHp?`,
   `setBurning(dps, duration, source?)`, `applyKnockback`, `applyImpulse`, `setCloak`, `setSpeedModifier`,
@@ -102,7 +103,7 @@ the remote side `net:remotePlayerAdded` / `Removed`, `net:peerSuspended`, `net:m
 |---|---|
 | WASD / Shift / Space | Move (camera-relative) / sprint (stand only) / jump |
 | C / Z | Toggle crouch / prone (prone also allowed on the ship; standing refused under a low ceiling) |
-| V (`Keys.DIVE`) | Roll (`ROLL_STAMINA_COST`; refused on the ship, in interiors, when overweight); `player:dived` is its alias |
+| V (`Keys.DIVE`) | Roll (`ROLL_STAMINA_COST`; refused on the ship, in interiors, when overweight, while prone or standing up from prone). A crouched roll is the **low roll**: identical roll, ends still crouched. `player:dived` is its alias |
 | X (`Keys.SHOULDER`) | Swap camera shoulder (session only, not saved) |
 | RMB / E | Aim / interact (tap or hold; also ladder grab, stand up from furniture, rover exit hold) |
 | F tap | Shoulder / put down a downed squadmate in range (consumed before weapons see it); otherwise weapons' melee |
@@ -111,7 +112,7 @@ the remote side `net:remotePlayerAdded` / `Removed`, `net:peerSuspended`, `net:m
 ## Health, shield, downed
 
 - `applyDamage` is the single entry for damage. Order: rover ride / scene lock gates → invulnerability → shield absorbs
-  first (`absorbShield`, wears armour) unless `bypassShield` → hp → grit → downed / death. Shield max = worn armour's
+  first (`absorbShield`, wears armour) unless `bypassShield` (spore hazard, every fall) → hp → grit → downed / death. Shield max = worn armour's
   `ArmorDef.shield` (0 when broken); it refills every frame on the ship and in raids only via shield chargers.
 - hp 0 → downed (crawl, `downHp` bleeds `PLAYER_DOWN_BLEED_PER_SEC`, give-up hold); `downHp` 0 → `die`. A solo
   player dies at once unless `auto_revive` is unspent (`Vitals.onLethal`). "Solo" = **no android on `ctx.allies.roster`**
@@ -141,7 +142,8 @@ the remote side `net:remotePlayerAdded` / `Removed`, `net:peerSuspended`, `net:m
 | In pod | hub → `setInPod(true)` | Movement / sprint / aim; model hidden | `setInPod(false)`, spawns, abort |
 
 Fall damage (`parts/Fall`): the controller measures fall **height** (`MoveResult.fallHeight`), damage =
-`FALL_DAMAGE_*` through `applyDamage`; tutorial zones may override (`ctx.world.tutorial.fallRule`: `kill` / `clamp` /
+`FALL_DAMAGE_*` through `applyDamage` with `bypassShield` — **every fall hits HP directly** (shield and armour wear
+untouched; `player:fell.damage` / `fall` wire = HP lost); tutorial zones may override (`ctx.world.tutorial.fallRule`: `kill` / `clamp` /
 `normal`). Exempt: grapple, hover, tram deck, ship interiors, ladder release, dash (`exemptFall`), any impulse /
 knockback until the next landing, and every mode above.
 
@@ -209,6 +211,8 @@ frame plus a `BUFF_TICK_S` tick, and a new array + revision go out only when `sa
 - Each `RemoteAvatar` hands out a fresh `weaponSocket` object (pooled bodies), because weapons / implants key their hand models on socket identity. — `RemoteAvatar.ts`
 - Changing `FURN_*` requires matching the hub furniture models. — `SoldierModel.ts`
 - `parts/*` import only types from `PlayerSystem.ts`; shared values go in `model.ts`.
+- `selfMovedMeters` counts only self-propelled movement: the controller's per-frame `selfMoved` is measured after the carrier / ride-inertia step, capped by this frame's own target speed (roll speed while rolling), and zero for grapple, impulse / exempt air (`airCarry`, `fallExempt`), interiors and the ship box; `PlayerSystem.update` adds it only when the controller ran and the body is not in drone control, attached or in a hellpod. Anything that writes the position outside `PlayerController.update` (dash, teleport, attach) never counts. — `PlayerController.ts` (`selfMoved`)
+- Rolling keeps the stance: a crouched roll never stands up (no `canStandHere` bypass), and the crouch blend is held through the tumble on local and remote bodies. Prone / stand-up-from-prone refuse inside `Loco.roll` too. — `parts/Locomotion.ts` (`roll`)
 - Ally bodies are drawn in `RemotePlayerSystem.lateUpdate`, not `update`: `AllySystem` is registered **after** this system, so reading `ctx.allies.getBodies()` in `update` would always be one frame behind. — `RemotePlayerSystem.ts`
 - The android look is built in the `SoldierModel` constructor and only toggled by `setAndroidLook`; nothing is added later, because a material created after the constructor breaks the `materials` / `baseColors` pairing that `setGreyed` relies on, and misses the shared geometry cache. Parts that need no rotation are boxes — `resetPose` zeroes every child's rotation. — `SoldierModel.ts`
 - Ally bodies and remote avatars share one `SoldierPool`; `resetForReuse` turns the android look off, so a parked body can come back as either. — `AllyAvatars.ts`
@@ -218,8 +222,8 @@ frame plus a `BUFF_TICK_S` tick, and a new array + revision go out only when `sa
 ## Recent changes
 
 Last 5 only — older: `git log -- src/player`.
+- 2026-09-16 — `RemoteAvatar` stays hidden for a dead member whose corpse was removed (empty corpses sink away): reads `CorpsesRef.ownerHadCorpse`.
+- 2026-09-16 — Low roll (crouched roll ends crouched), no roll while prone / standing up, fall damage bypasses the shield, `selfMovedMeters` odometer (controller `selfMoved`).
 - 2026-09-15 — Android squadmates: `AllyAvatars.ts`, `SoldierModel.setAndroidLook`, `buildHeldWeapon`, `snapshotAndroidFace`, `PortraitRef.setAndroid`, ally revive prompt / carry / pod drops / shot FX, downed-not-dead with an android on the roster.
 - 2026-09-15 — `snapshotFace` (`FaceSnapshot.ts`, terminal match-tab portraits) + face helpers shared with character creation.
 - 2026-09-15 — `takeDamage` option `bypassShield` (used by spore hazard).
-- 2026-09-15 — `playIntroWake(d, {respawn})` for tutorial respawns; `setSceneLock` options `allowDamage` / `minHp`.
-- 2026-09-15 — Damage sources on `player:damaged` / `player:died` (`_deathSource`, env / fall / burning sources).

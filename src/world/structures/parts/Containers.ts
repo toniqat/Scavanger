@@ -22,17 +22,23 @@ import {
 } from '@/shared';
 /* appended (2026-09-12): 아이템 회수 계약 — 레이드 루팅 표식 */
 import { markRaidFound, raidFoundSeed } from '@/shared';
+/* appended (2026-09-16): 서사 이상 드롭률 게이트 — 잠긴 방 예외 */
+import type { CrateLootOpts } from '@/shared';
+
+/** 2026-09-16: 연구실 잠긴 방 컨테이너의 굴림 규칙 (`LootRef.rollCrateOn` 의 `opts` — 서사 이상 게이트 면제). 공유 · 불변. */
+const LOCKED_ROOM_LOOT: CrateLootOpts = Object.freeze({ lockedRoom: true });
 
 /**
  * 2026-09-12 — 컨테이너 `id`(티어 `tier`)를 이 클라이언트가 처음 열 때 **상자 코드가 굴리는 내용물**. 순수 · 결정적.
  * 시드 식은 `inventory/Container.ContainerStore.getOrCreate` 와 같은 `crateLootRandom` 이다 (구조물 · 플랫폼 · 전차 컨테이너와
  * 맵 상자가 전부 그 길로 열린다). `ctx.loot` 가 없으면 null.
+ * 2026-09-16: `opts` = 그 컨테이너의 굴림 규칙 (`ContainerSet.lootOpts` — 잠긴 방). inventory 도 `WorldRef.crateLootOpts` 로 같은 값을 넘긴다.
  */
-export function rollCrateContents(game: GameContext, id: string, tier: number): ItemInstance[] | null {
+export function rollCrateContents(game: GameContext, id: string, tier: number, opts?: CrateLootOpts): ItemInstance[] | null {
   const loot = game.loot;
   if (!loot) return null;
   const rng = crateLootRandom(game.world?.seed ?? 0, id);
-  return loot.rollCrateOn(tier, rng, game.missionPlanet);
+  return loot.rollCrateOn(tier, rng, game.missionPlanet, opts);
 }
 import type { BuildCtx } from '../../build';
 import { merge, paint, paintGradient, xform } from '../../build';
@@ -53,6 +59,11 @@ export interface ContainerSpec {
   bonusDefId?: string;
   /** 2026-09-12: `bonusDefId` 가 들어 있을 확률 (0~1, 시드 결정적). 생략하면 1 = 반드시. */
   bonusChance?: number;
+  /**
+   * 2026-09-16: true = 연구실 2층 **잠긴 방** 컨테이너 — 서사 이상 드롭률 게이트(`planet_loot.csv` 의 `epicPlusMul`)를 안 탄다
+   * (사용자 결정 「잠긴 방은 지금 그대로」). 여는 경로 · 미리보기 · inventory 가 전부 `lootOpts(id)` 로 같은 값을 읽는다.
+   */
+  lockedRoom?: boolean;
   /**
    * true = **움직이는** 컨테이너 (전차 안). 콜라이더를 걸지 않고, 매 프레임 `position` / `yaw` 를 메시에
    * 다시 옮긴다 — 배치한 쪽이 같은 `Vector3` 객체를 제자리에서 고치면 상호작용 판정(`Interactable.position`
@@ -115,6 +126,9 @@ export class ContainerSet {
    */
   /** 2026-09-11 (C-57): 컨테이너 위치 (전차 안이면 매 프레임 따라가는 그 `Vector3`), 없으면 null. */
   positionOf(id: string): THREE.Vector3 | null { return this.byId.get(id)?.spec.position ?? null; }
+
+  /** 2026-09-16: 컨테이너 `id` 의 굴림 규칙 (`WorldRef.crateLootOpts`) — 잠긴 방이면 `{ lockedRoom: true }`, 아니면 undefined. */
+  lootOpts(id: string): CrateLootOpts | undefined { return this.byId.get(id)?.spec.lockedRoom ? LOCKED_ROOM_LOOT : undefined; }
 
   markOpened(id: string): boolean {
     const inst = this.byId.get(id);
@@ -239,7 +253,7 @@ export class ContainerSet {
     const game = this.game;
     const loot = game?.loot;
     if (!game || !loot) return null;
-    const items = rollCrateContents(game, spec.id, spec.tier);
+    const items = rollCrateContents(game, spec.id, spec.tier, spec.lockedRoom ? LOCKED_ROOM_LOOT : undefined);
     if (!items) return null;
     let bonus = false;
     if (spec.bonusDefId && loot.getItemDef(spec.bonusDefId)) {

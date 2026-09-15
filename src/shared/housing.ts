@@ -2150,3 +2150,59 @@ export function musicLengthOf(seriesId: string): number {
   const h = musicHash(seriesId) >>> 16;
   return MUSIC_TRACK_MIN_S + (h % (MUSIC_TRACK_MAX_S - MUSIC_TRACK_MIN_S + 1));
 }
+
+/* ══ [2026-09-16] 식탁 접시 — 요리는 아이템이 아니다 (사용자 결정) ════════════════════════════════════════════════
+ * 1. 조리대에서 요리가 끝나면 아이템이 생기지 않고 **내 함선 식탁에 접시 하나**가 놓인다 (`ShipState.plate`). 함선당 하나 —
+ *    다시 요리하면 옛 접시를 **바꾼다** (조리 시작 전에 1 초 홀드 경고). 식탁(`dining_table` 가구)이 배치돼 있지 않으면 조리대를 쓸 수 없다.
+ * 2. 접시는 함선에서 언제든 먹을 수 있고 **먹어도 줄지 않는다**. 먹기 = `ProgressionRef.useMeal(요리, 품질)` (대기 식사 → 출격 때 실림 →
+ *    그 레이드 1회분; 같은 요리 · 같은 품질은 거절, 다른 것은 교체) — 규칙은 progression 의 것 그대로다.
+ * 3. 다음 레이드가 시작되면(`game:newMission`, 훈련장 제외 — `armPreps` 와 같은 자리) 접시는 치워지고 저장된다.
+ * 4. 공유 함선: 내 접시는 공유 함선의 고정 식탁에도 놓인다. 그 식탁에는 **분대원 전원의 접시**가 놓이고(요리한 사람 표시) 누구든 어느
+ *    접시든 먹을 수 있다 (줄지 않는다 · 먹은 사람의 대기 식사가 된다). 옛 「분대에 차리기」(`serveMealToSquad` · `housing:mealServed` ·
+ *    `MealMessage`)는 이것으로 대체됐다 — 이름은 계약이라 남고 아무도 쓰지 않는다. 와이어는 `PlateMessage` (`shared/net.ts`).
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** 식탁에 놓인 접시 하나 — 요리 id(`getMealDef`) · 품질(별 0 … `MEAL_QUALITY_MAX`) · 차린 시각(`nowMs()`, 모르면 0). */
+export interface DiningPlate {
+  mealDefId: string;
+  quality: number;
+  cookedAt: number;
+}
+
+export interface ShipState {
+  /** appended (2026-09-16): 내 함선 식탁의 접시, 없으면 null · 생략. 다음 레이드 시작에 비워진다. */
+  plate?: DiningPlate | null;
+}
+
+/** 식탁 화면 · 3D 식탁이 그리는 접시 한 장 (내 것 또는 분대원 것). */
+export interface TablePlateInfo extends DiningPlate {
+  /** 요리한 분대원의 PeerId, **내 접시면 null**. `eatPlate` 에 그대로 넘긴다. */
+  ownerId: string | null;
+  /** 요리한 사람의 표시 이름 (내 접시면 내 이름 · 없으면 `나`). */
+  ownerName: string;
+  mine: boolean;
+}
+
+/** 조리대 · 자동 조리 가구가 식탁 없이 눌렸을 때의 사유 (화면 · 프롬프트 · 토스트가 같은 글자를 쓴다). */
+export const DINING_TABLE_MISSING_REASON = '식탁이 없습니다';
+
+export interface HousingRef {
+  /** 내 함선 식탁의 접시, 없으면 null. */
+  getPlate?(): DiningPlate | null;
+  /**
+   * 그 식탁에 놓인 접시들. `uid` = 개인 함선의 식탁 가구 → 내 접시만, `null` = 공유 함선의 고정 식탁 → 내 접시 + 분대원 접시
+   * (공유 함선에 서 있을 때만 분대원 것이 들어온다). 내 접시가 맨 앞, 나머지는 이름 순.
+   */
+  getTablePlates?(uid: string | null): readonly TablePlateInfo[];
+  /** 내 함선에 식탁 가구가 배치돼 있나 (조리대 게이트). */
+  hasDiningTable?(): boolean;
+  /** 지금 `eatPlate(uid, ownerId)` 가 거절할 한국어 사유, null = 먹을 수 있다 (이미 같은 식사를 먹었으면 그 사유). */
+  plateEatBlock?(uid: string | null, ownerId?: string | null): string | null;
+  /** 그 식탁의 접시를 먹는다 — 접시는 줄지 않고 `progression.useMeal` 이 대기 식사를 싣는다. `ownerId` 생략 · null = 내 접시. 한국어 사유 / null. */
+  eatPlate?(uid: string | null, ownerId?: string | null): string | null;
+  /** 개발 · 스모크: 내 식탁에 접시를 놓는다 (조리 없이). 요리가 아니면 한국어 사유. */
+  devSetPlate?(mealDefId: string, quality?: number): string | null;
+  /** 개발 · 스모크: 내 접시를 치운다. 치운 것이 있으면 true. */
+  clearPlate?(): boolean;
+}
+/* ══ end 2026-09-16 식탁 접시 ══ */

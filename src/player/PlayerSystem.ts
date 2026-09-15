@@ -158,6 +158,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   // stance
   _stance: Stance = 'stand';
   standUpTimer = 0;
+  /** 2026-09-16: 제 힘으로 움직인 수평 거리 누적(m) — `PlayerRef.selfMovedMeters`, 누산은 `update` 의 컨트롤러 직후. */
+  private _selfMovedMeters = 0;
 
   // state
   controlsEnabled = false;
@@ -323,6 +325,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /* ── tactical kit (appended contract) ── */
   /** Alt rolls (replaces the dive); the wire keeps the DIVE flag via `isDiving`. */
   get isRolling(): boolean { return this.controller.rolling; }
+  /** 2026-09-16 (운반 숙련): 제 힘으로 움직인 수평 거리의 주행계 (m, 줄지 않는다) — 계약은 `PlayerRef.selfMovedMeters`. */
+  get selfMovedMeters(): number { return this._selfMovedMeters; }
   get isMeleeing(): boolean { return this.meleeTimer > 0; }
   /* ── Phase 7 (docs/DECISIONS.md Phase 7) ── */
   /** true while the 용검 heavy slash pose plays (`startMelee('heavy')`); net puts MELEE_HEAVY on the wire from it. */
@@ -1100,6 +1104,16 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       c.updateClimb(dt, this.climbInput, this.moveResult);
     } else if (!moveFrozen) {
       c.update(dt, mi, this.rig.yaw, ctx.world, this.moveResult);
+      /*
+       * 2026-09-16 (운반 숙련 버그, 사용자 결정 「제 힘으로 움직인 것만」): 탈출선 이륙에 실려 가는 동안 무거운 가방이 운반을
+       * 올렸다 (progression 이 위치 차이를 셌다). 이제 컨트롤러가 이번 프레임에 **몸이 스스로** 옮긴 몫(`selfMoved` —
+       * 차량 발판 · 갈고리 · 임펄스 · 실내는 이미 0)만 내고, 여기서 컨트롤러가 돌더라도 몸이 제 것이 아닌 상태를 한 번 더
+       * 거른다: 드론 조종(입력은 드론 것) · 탈출선 부착(`attachTo`) · 헬포드(나오는 자동 걸음 포함). 포드 안 · 업힘 ·
+       * 들쳐메는 동작 · 가구 자세 · 탐사 차량 · 각본 잠금은 `moveFrozen` 이라 이 줄에 오지 않고, 사다리는 위 갈래다.
+       */
+      if (this.spawned && !this.isDead && !this._droneControl && this.attachedParent === null && !this.hellpod.isActive) {
+        this._selfMovedMeters += c.selfMoved;
+      }
     } else {
       this.moveResult.footstep = false; this.moveResult.landed = 0; this.moveResult.jumped = false;
       this.moveResult.rollEnded = false; this.moveResult.rung = false; this.moveResult.climbEnded = null;
@@ -1188,7 +1202,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // scoped ADS: the camera sits at the shoulder, so hide the soldier (and the held weapon) once the blend is in
     const scopeHide = this.rig.scoped && this.aimBlend > 0.85;
     if (scopeHide !== this.scopeHidden) { this.scopeHidden = scopeHide; this.model.setVisible(!scopeHide && !this._inPod && this._roverRide === null); }
-    this.crouchBlend = damp(this.crouchBlend, this._stance === 'crouch' && !diving ? 1 : 0, 10, dt);
+    // 2026-09-16 낮은 구르기: 앉아서 구르는 동안에도 앉은 블렌드를 유지한다 — 구르기 자세가 위에 덮이고, 끝나면 곧장 앉은 자세
+    this.crouchBlend = damp(this.crouchBlend, this._stance === 'crouch' ? 1 : 0, 10, dt);
     this.proneBlend = damp(this.proneBlend, this._stance === 'prone' && !diving ? 1 : 0, 8, dt);
     this.downedBlend = damp(this.downedBlend, this._downed && !this.isDead ? 1 : 0, 7, dt);
     this.rollBlend = damp(this.rollBlend, diving ? 1 : 0, 18, dt);

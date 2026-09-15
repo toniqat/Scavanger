@@ -96,33 +96,8 @@ export function usePrepItem(sys: InventorySystem, uid: string, from?: ItemLocati
   return null;
   }
 
-/* ══ A-3c (2026-09-11): 요리를 먹는다 ═══════════════════════════════════════════════════════════════════════
- * 준비물(`usePrepItem`)과 **완전히 같은 순서**다 — `ctx.progression.useMeal` 에 **먼저 묻고 성공할 때만** 뺀다.
- * 순서를 뒤집으면 거절당했을 때 되돌릴 곳이 없다 (`meal` 은 progression 소유다).
- *
- * ⚠ 「먹는 행위」의 제자리는 **주방의 식탁**이다 (사용자 결정, `housing/ui/DiningTable`). 우클릭 `먹기` 는
- * 편의 경로일 뿐이고 둘 다 같은 `useMeal` 로 간다 — 규칙은 한 군데(progression)에만 있다.
- * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
-export function useMealItem(sys: InventorySystem, uid: string, from?: ItemLocation): string | null {
-  const ctx = sys.ctx;
-  const item = sys.findItem(uid, from);
-  const def = item && ITEM_DEF_MAP.get(item.defId);
-  if (!item || !def) return '아이템을 찾을 수 없습니다';
-  if (!def.meal) return '요리가 아닙니다';
-  if (!ctx.isHubPhase() || ctx.isRaidActive()) return '함선에서만 먹을 수 있습니다';
-  // 열어 둔 상자 · 장비 칸의 스택은 `takeItem` 이 거절한다 — 물어보기 전에 거른다.
-  if (from?.kind === 'slot') return '가방이나 창고로 옮긴 뒤 사용하세요';
-  if (from?.kind === 'grid' && from.grid === 'container') return '가방이나 창고로 옮긴 뒤 사용하세요';
-  const prog = ctx.progression;
-  if (!prog || typeof prog.useMeal !== 'function') return '요리를 먹을 수 없습니다';
-  // 2026-09-13 (요리 품질): 그 스택의 품질을 함께 넘긴다 — 우클릭 `먹기` 로 먹은 ★★★ 요리가 기본 수치로 실리면 안 된다
-  const refusal = prog.useMeal(def.id, normalizeMealQuality(item.quality));
-  if (refusal) return refusal;
-  if (sys.takeItem(uid, 1) !== 1) {
-    console.error('[inventory] 요리를 실었지만 아이템을 빼지 못했다', uid, def.id);
-  }
-  return null;
-  }
+/* 2026-09-16 (접시 모델, 사용자 결정): 옛 `useMealItem`(요리 아이템 우클릭 `먹기`)은 없어졌다 — 요리는 아이템이 아니라
+ * 식탁의 접시이고, 먹는 곳은 식탁 하나다 (housing `parts/Dining.eatPlate` → `progression.useMeal`). */
 
 export function captureLoadout(sys: InventorySystem): LoadoutPreset {
   const l = sys.loadout;
@@ -291,6 +266,45 @@ export function moveToStash(sys: InventorySystem, uid: string, from: ItemLocatio
   stash.autoPlace(item);
   sys.afterMove(item, from, { kind: 'grid', grid: 'stash' });
   return 'ok';
+  }
+
+/**
+ * 2026-09-16 (사용자 결정) — 가방 머리의 **`모두 창고로 이동`** (함선 전용). **가방 격자의 아이템만** 창고로 옮긴다 —
+ * 퀵슬롯(휠) · 주머니 · 장착 장비는 그대로다. 즐겨찾기도 옮긴다 (되돌릴 수 있는 이동이라 확인 카드가 없다).
+ *
+ * - 큰 것부터(`area` 내림차순) 넣어야 격자가 잘 채워진다 — `takeAll` · 가방 재배치와 같은 순서.
+ * - 한 개씩 `canAbsorb` → `detach` → `autoPlace`, 들어간 것마다 한 칸 이동과 **같은 이벤트**(`emitTransfer` —
+ *   계약 · 튜토리얼이 `inventory:itemRemoved` 를 듣는다)를 보내고, 끝에서 `afterChange` 는 **한 번**만 부른다.
+ * - 이벤트에 싣는 사본은 넣기 **전에** 뜬다: `autoPlace` 가 창고 스택에 합치면 `item.qty` 가 0 으로 줄어든다.
+ * - 튜토리얼이 창고에서 감추는 아이템(`hides('stashItem', defId)`)은 옮기지 않는다 — 옮기면 화면에서 사라져 보인다.
+ * - 안 들어가는 것은 가방에 남기고 몇 개가 남았는지 돌려준다 (토스트는 부른 쪽 = UI 가 한 번 띄운다).
+ */
+export function moveBagToStash(sys: InventorySystem): { moved: number; left: number } {
+  if (!sys.hubMode) return { moved: 0, left: 0 };
+  const stash = sys.stash.grid;
+  const from: ItemLocation = { kind: 'grid', grid: 'bag' };
+  const to: ItemLocation = { kind: 'grid', grid: 'stash' };
+  const tut = sys.ctx.tutorial;
+  const items = sys.bag.items().map((p) => p.item)
+    .filter((it) => !(tut?.hides('stashItem', it.defId) ?? false))
+    .sort((a, b) => sys.area(b) - sys.area(a));
+  let moved = 0, left = 0;
+  for (const item of items) {
+    const def = ITEM_DEF_MAP.get(item.defId);
+    if (!def || !stash.canAbsorb(item)) { left++; continue; }
+    const sent: ItemInstance = { ...item };
+    sys.detach(item, from);
+    if (!stash.autoPlace(item)) {
+      // `canAbsorb` 가 방금 참이었으므로 오지 않는 가지 — 그래도 아이템을 잃지 않게 가방으로 되돌린다
+      if (!sys.bag.autoPlace(item)) console.error('[inventory] 모두 창고로: 되돌릴 자리가 없다', item.defId);
+      left++;
+      continue;
+    }
+    sys.emitTransfer(sent, def, from, to);
+    moved++;
+  }
+  if (moved > 0) sys.afterChange();
+  return { moved, left };
   }
 
 /** Bag → slots → sockets of owned weapons → stash (incl. sockets of stashed weapons). */

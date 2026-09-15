@@ -82,7 +82,7 @@ function primeContainer(sys: InventorySystem, containerId: string, tier: number)
   try { items = world?.previewContainerItems?.(containerId) ?? null; } catch { items = null; }
   if (!items) {
     if (!Number.isFinite(t) || t < 1) return null;
-    items = sys.loot.rollCrateOn(t, crateLootRandom(sys.missionSeed, containerId), ctx.missionPlanet);
+    items = sys.loot.rollCrateOn(t, crateLootRandom(sys.missionSeed, containerId), ctx.missionPlanet, world?.crateLootOpts?.(containerId));
   }
   markRaidFound(items, raidFoundSeed(ctx));
   return sys.containers.prime(containerId, t, position, items);

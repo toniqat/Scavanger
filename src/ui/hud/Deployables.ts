@@ -137,8 +137,12 @@ export class Deployables {
     }
   }
 
+  /** 2026-09-16: 이륙 연출이 남긴 HUD 의 몫 1 … 0 (`HudSystem.setCinematic`) — 반경 링 불투명도에 곱하고 0 이면 숨는다. */
+  private cineK = 1;
+  setCinematicFade(k: number): void { this.cineK = k; }
+
   lateUpdate(ctx: GameContext): void {
-    const active = ctx.isGameplayPhase() && !ctx.uiBlockers.has('menu') && !ctx.uiBlockers.has('map');
+    const active = ctx.isGameplayPhase() && !ctx.uiBlockers.has('menu') && !ctx.uiBlockers.has('map') && this.cineK > 0;
     if (!active || this.entries.length === 0) {
       for (const m of this.markers) { if (!m.el.hidden) { m.el.hidden = true; m.lastKey = ''; } }
       for (const r of this.rings) r.visible = false;
@@ -167,7 +171,7 @@ export class Deployables {
         const mat = e.armed ? this.ringMat : this.ringMatArming;
         if (mat) {
           if (ring.material !== mat) ring.material = mat;
-          mat.opacity = e.armed ? 0.35 + 0.3 * pulse : 0.25 + 0.5 * pulse;
+          mat.opacity = (e.armed ? 0.35 + 0.3 * pulse : 0.25 + 0.5 * pulse) * this.cineK;
         }
         if (!ring.visible) ring.visible = true;
       }

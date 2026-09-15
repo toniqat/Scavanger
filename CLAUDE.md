@@ -118,7 +118,7 @@ folder's responsibility changes.
 | [`src/pickups/`](src/pickups/README.md) | `PickupSystem` | `ctx.pickups` | World-dropped items (throw arc · procedural mesh · host-authoritative sync) |
 | [`src/meta/`](src/meta/README.md) | `MetaSystem` | `ctx.meta` | 4 corporations · reputation · credits · shop/trade desk · contracts · implant repair desk · NPC quest engine (messenger) · NPC trust · intel purchase |
 | [`src/progression/`](src/progression/README.md) | `ProgressionSystem` | `ctx.progression` | Level/XP · 5 stats · 16 skills · derived stats `derived` (meals · library · training · implants fold in here) · prep/meal lifetimes · implant slot rules · character sheet · per-slot profile persistence |
-| [`src/housing/`](src/housing/README.md) | `HousingSystem` | `ctx.housing` | Ship decoration rules · room purposes · generator/storage · furniture placement (access faces) · greenhouse/analyzer/culture tank · cooking minigames · gym/video games · library series effects · crypto mining · music player state · `ShipState` persistence |
+| [`src/housing/`](src/housing/README.md) | `HousingSystem` | `ctx.housing` | Ship decoration rules · room purposes · generator/storage · furniture placement (access faces) · greenhouse/analyzer/culture tank · cooking minigames · dining-table plates · gym/video games · library series effects · crypto mining · music player state · `ShipState` persistence |
 
 ### 3.5 Shell · flow · presentation
 
@@ -176,7 +176,9 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Story-carrying fades are stepped in code, not CSS transitions (reduced-motion clips transitions to 0.01 ms) — `HudSystem.stepScreenFade`.
 - Descriptions never repeat numbers the tooltip already shows (armor shield, bag cells).
 - Scrollbar colours: `--sb-*` in `src/ui/styles/base.css` (inventory.css references them with fallbacks).
-- Stash is left, bag right, in one panel with two panes that each scroll/sort/filter — `src/inventory/ui/TradeGrids.ts`. Bags are 5 wide; the frame is the tallest bag (`BAG_FRAME_ROWS`); padding rows are not drop targets.
+- Ship Tab is stash | equipment | bag joined into one panel (`--inv-panel-gap` seams; the stash is its own `.inv-layout` card) — `src/inventory/ui/InventoryUI.ts`, `inventory.css`; other folders' screens use `TradeGrids` (stash left, bag right, one card). Every grid pane scrolls/sorts/filters on its own. Bags are 5 wide; the frame is the tallest bag (`BAG_FRAME_ROWS`); padding rows are not drop targets. `모두 창고로 이동` moves bag-grid items only (`StashOps.moveBagToStash`).
+- Native `<select>` options carry an opaque `background-color` + `color` (Chromium paints the open list from them) — `.inv-filter-select` in `inventory.css`.
+- The liftoff cinematic hides **all** remaining HUD: crosshair instantly (`.hud.cinematic`), everything else by a code-stepped `--cine-o` + `filter: opacity()` under `#ui-root.hud-cine` (layers, key guide, item tip, music player, net badge, 3D pillars); tutorial DOM hides itself on `ui:cinematic`; menus, screen fade and loading gauge stay — `ui/HudSystem.setCinematic`, `ui/styles/raidHud.css`.
 - Right-click = item menu, double-click = quick move (never silently displaces equipped items — `inventory/parts/DropResolver.tryAutoPlace`). Merge overflow stays on the cursor (`DragState.held`).
 - Hold-to-pin screens use the `ui:cursorHold` ring (`src/ui/hud/CursorHoldGauge.ts`) and the escape stack.
 - The hub terminal is two tabs (`행성` · `매칭`, `.scr-tabs` look); child screens own their tokens (`hub:trainConfirm`, `hub:invite`, `hub:intel`) and close first — `src/hub/ui/HubMenu.ts`. No lobby codes, links or public/private toggle in the UI.
@@ -196,6 +198,8 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - The relay validates credit reasons (`shared/credits.ts` `formatCreditReason`, `server/Economy.ts`, `server/economy.gen.json`); it does not check item ownership. Dev reasons need a relay with `SCAV_DEV_ECONOMY=1` (only `scripts/verify.mjs` starts one). No client-side credit/sell-price multipliers.
 - Messages that affect others are accepted only from the authority (lobby host for `strat call`, `ee`, `crate sync`). Host-bound requests pass shape → sender → distance → rate (`shared/buffRules.ts` `createBuffGuard`); two paths of one ability share a bucket; limits derive from data; flying things may outlive their dead sender.
 - Denials return to the sender: `strat deny` → full cooldown refund, accepted only from the host with the caller's own `callId`.
+- Dining plates travel as each member's own `plate state` (`net/parts/Plates.ts`, sent while `inHubSession` + `plateq sync` on entry) — no host authority; eating only changes the eater's profile.
+- Empty corpses: only the host decides a looted-empty player corpse (`pcorpse emptied`, accepted from the host only); enemy corpses go client `ecorpseq emptied` → host guard → `ee corpseEmptied`. Removed corpse ids never re-spawn in that raid (`sync` skips them) — `game/Corpses.ts`, `enemies/parts/CorpseEmpty.ts`.
 - **Squad ≠ shared ship.** Only an invite (`social:play`) creates an undocked lobby (`LobbyState.docked === false`); only `lobby:dock` docks it, never back. Undocked lobbies are not quick-matchable, refuse `lobby:ready` / `lobby:start` / `lobby:mission true` (`not_docked`), and lock pods and training; one member + no open invite → dissolved (`pruneLonely`, reached through `closeInvite` / `announceLeave`) — `server/RelayServer.ts`. "Docked?" = `isDockedLobby`; "am I on that squad's deck?" = hub `squadLobby()`; hub snapshots and pings gate on `ctx.net.inHubSession`. Never read plain `ctx.net.lobby` as "in the shared ship".
 - Squad invites are the only way in (`playBlockReason(…, iAmMember)` → `in_squad` / `not_leader` / `in_other_squad`); public docking moves only a player on their own, so squads never merge.
 - My dock vs the leader's: `NetRef.dockPending`, read inside `net:lobbyUpdated` (kept through `moved`, cleared on `lobby:error`). Mine → fade (`HUB_DOCK_FADE_S`) + cutscene; theirs → `HUB_SQUAD_DOCK_COUNTDOWN_S` first. Decisions live only in `hub/parts/SquadDock.reconcile`; `SquadDock.cancelEverything` runs before every ship transition, so a new screen must be on `ctx.escape` or close on the `docking` phase.
@@ -215,6 +219,7 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Moving ships have world colliders while landed (`extraction/Hull.ts`); enemy entry is a query (`ctx.extraction.keepEnemyOut`).
 - Teleport/dash movement steps the body like walking, never a single ray — `implants/parts/Devices.dashReach`.
 - Airborne impulses keep horizontal momentum until landing (`PlayerController.airCarry`).
+- Skill XP from movement reads `PlayerRef.selfMovedMeters` (self-propelled odometer), never a position delta — ship / vehicle / carried / grapple / dash / impulse movement never counts (`PlayerController.selfMoved`).
 
 ### 4.5 Rendering
 
@@ -242,6 +247,9 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Ship calls share one cooldown (`data/stratagems.csv`); the wheel has exactly 4 slots (`STRATAGEM_ORDER`) and does not open during cooldown; rescue count is host-owned (`RESCUE_DROPS_PER_RAID`, deducted on grant, no refund).
 - Full death has no auto-revive: the corpse takes equipment, bag and quick slots (`InventoryRef.stripForCorpse`); squad raids turn implants into broken pairs (`ProgressionRef.stripImplantsForCorpse`), solo loses them. Revival only by rescue drop, empty-handed; a member who abandoned the raid from the title is `drifted` and never a rescue candidate.
 - Squad leader changes only via `lobby:transferHost {targetId, claim?}` (host transfer or claim after `lobby:hostDown`); the toast is only in `game/parts/Leader.ts`.
+- Every fall damage bypasses the armor shield (`bypassShield`); `player:fell.damage` is HP lost — `player/parts/Fall.ts`. A crouched roll ends crouched; no roll while prone or standing up from prone — `player/parts/Locomotion.roll`.
+- A corpse with no items sinks after `CORPSE_EMPTY_REMOVE_DELAY_S` over `CORPSE_EMPTY_SINK_S` and is removed: player / android / tutorial corpses when spawned empty or looted empty, enemy corpses only once opened and emptied (unopened ones keep `CORPSE_LIFETIME`).
+- Bug footsteps use their own ids `bug_step_skitter|heavy|giant` (voice group `bug_steps`, cap `BUG_STEP_VOICE_CAP`, emitter 1/√n, `BUG_STEP_RANGE_M`), never `footstep_<mat>`; `VOICE_CAP` is keyed by `VOICE_GROUP` — `audio/AudioSystem.ts`, `enemies/model.emitEnemyStep`.
 - `game:returnToShip` during a raid is death (`PlayerRef.die`) and `leaveMission`; never emit `hub:enter` for it. Liftoff extracts only those aboard and alive; the rest keep playing.
 - Rover: one per raid, host-authoritative; riders take no damage and are not targets; only enemies and hazards damage it; one payer per trip (`rover:<from>:<to>`) — rules in `shared/types.ts` rover section. New combat input gates check both `droneControl` and `roverRide`.
 - Androids are relay **bot members** (`LobbyPlayer.bot`): never host, never relay targets, skipped by presence / prune / grace counts; a human
@@ -259,8 +267,9 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Armor is a shield pool (`ARMOR_SHIELD_BY_TIER`), refilled in the ship and in raids only by chargers; `damageReduction` stays 0.
 - Quick slots and pouches are containers, not bag grid: weight/count/consume/corpse include them, `getAllItems()` does not; moves that would drop items are refused.
 - Recovery contracts count only items found in that raid (`ItemInstance.raidFound`, `shared/raidFound.ts`); mixed stacks lose the mark.
-- Meal quality is part of the stack key (`ItemInstance.quality`); meals come only from the cooking minigame (`shared/cooking.ts`); cook recipes are excluded from normal crafting.
+- Meals are not items: a finished cook is the personal ship's one dining plate (`ShipState.plate`, `shared/meals.ts` `getMealDef`); cooking again replaces it after a 1 s hold warning (`housing/ui/cook/PlateAsk`); eating never consumes it (`eatPlate` → `progression.useMeal`); `game:newMission` (not training) clears it. No dining table = no cook bench (`DINING_TABLE_MISSING_REASON`). Cook recipes are excluded from normal crafting; `InventoryRef.consumeCookInputs` only consumes.
 - Previewing contents must equal opening (`shared/lootRolls.ts`, inventory `parts/Peek`).
+- Epic+ outcomes (items, gun grades IV–V, uniques, corpse rows) are kept with probability `planet_loot.csv` `epicPlusMul`, else downgraded to the best rarity below epic in the same pool — guaranteed and fallback picks included; the lab locked room is exempt (`CrateLootOpts.lockedRoom`, passed by every crate path via `WorldRef.crateLootOpts`) — `items/Loot.ts`.
 - Crypto quotes are relay-authoritative; trades are credit reasons `cbuy:` / `csell:` checked against the quote window; trade screens hold `watch()`; unlock quests need `rewardCredits > 0` (`shared/cryptoMarket.ts`).
 
 ### 4.8 Ship · progression · quests
@@ -277,6 +286,8 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Library: each series volume counts once; consumers read `HousingRef.getLibraryEffects()` — `shared/library.ts`, `housing/Rules.ts`. Video games follow gym rules (`applyGymSession`); the TV's E opens the TV screen.
 - Stat points are pending until confirmed (`spendStatPoints`); leaving warns via `EmbeddedView.requestLeave`; forced exits discard. Stat/skill relations come from `stats.csv` / `skills.csv` `derived` columns.
 - Lab benches and the cooking station give only their own skill XP (`LAB_BENCHES` in progression, `RESEARCH_BENCHES` in inventory).
+- Raid-end character XP comes only from kills: `data/enemies.csv` `raidXp` per last-hit kill, summed into `MissionStats.killXp` at both kill sites (`enemies/parts/Damage.onEnemyKilled`, `net/Replica` `kill`), × `XP_DEATH_MUL` when not extracted, × library `raidXp`; contract/quest XP on top — `game/parts/Death.awardMissionXp`.
+- Tutorial checkpoints never fold past `supplyLoot` / `heal` while HP < max (`TutorialSystem.healSafeFold`). The ship track is `levelUp` → `stats` and ends when the screen closes (`onStatsConfirmed`); saved `messenger` / `ravenQuest` = done (`Steps.retiredTrackEnd`).
 - Quests come from NPCs via the messenger (`data/npcs.csv`, `npc_quests.csv`, `npc_objectives.csv`, `ctx.meta.npc`); first contact only in the ship; accepted quests cannot be abandoned; quest ids are credit ledger keys (`quest:<id>`). Raid objectives commit instantly; uncommitted progress resets at raid end.
 - Private chat and whispers share one store (`PRIVATE_CHAT_LABEL_KO`); group rooms are relay-authoritative and messenger-only.
 - Music is state, not sound: the `bgm` channel has nothing connected — `housing/parts/Music.ts`, `ui/hud/MusicPlayer.ts`.

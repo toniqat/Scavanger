@@ -45,6 +45,11 @@ export interface EnemyStats {
   stepSound: boolean;
   /** fraction of maxHp in a single hit that causes a stagger */
   staggerFraction: number;
+  /**
+   * 2026-09-16: 이 종류를 내 막타로 처치하면 레이드 끝에 받는 캐릭터 경험치 (1마리당, csv `raidXp`). 레이드 경험치의 **유일한** 원천이다 —
+   * 킬 자리(`parts/Damage.onEnemyKilled` · `net/Replica` `kill`)가 `ctx.stats.killXp` 에 더하고 `game/` 이 정산한다.
+   */
+  raidXp: number;
 }
 
 /** 적 종류를 csv `type` 칸이 받는 순서 — `ALL_ENEMY_TYPES` 와 같은 목록이다. */
@@ -78,6 +83,7 @@ export const ENEMY_STATS: Record<EnemyType, EnemyStats> = (() => {
       mass: r.num('mass', { min: 0 }),
       stepSound: r.bool('stepSound'),
       staggerFraction: r.num('staggerFraction', { min: 0 }),
+      raidXp: r.num('raidXp', { min: 0 }),
     };
   }
   for (const t of ENEMY_TYPE_VALUES) {
@@ -85,6 +91,15 @@ export const ENEMY_STATS: Record<EnemyType, EnemyStats> = (() => {
   }
   return out;
 })();
+
+/**
+ * 2026-09-16: 처치 1마리의 레이드 경험치 (`EnemyStats.raidXp`). 와이어에서 온 모르는 종류 · 잘못된 값은 0 — 킬 카운트는 그대로 센다.
+ * 두 킬 자리(권위 `parts/Damage.onEnemyKilled`, 복제 `net/Replica` `kill`)가 **같은 조건**(내 막타)에서 이것만 더한다.
+ */
+export function raidXpOf(type: EnemyType): number {
+  const xp = ENEMY_STATS[type]?.raidXp;
+  return typeof xp === 'number' && Number.isFinite(xp) && xp > 0 ? xp : 0;
+}
 
 /* Type-specific ability tuning — data/enemy_abilities.csv */
 const ability = <K extends string>(block: string): Record<K, number> => numberMap<K>('enemy_abilities.csv', block, 'block');

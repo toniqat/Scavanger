@@ -9,6 +9,7 @@ import {
   SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN, STAT_POINTS_PER_LEVEL,
   STAT_XP_BASE, STAT_XP_EXPONENT, TRAINING_SKILL_GAIN_MUL,
   normalizeMealQuality,
+  getMealDef,                                       // 2026-09-16 (접시 모델): 요리는 아이템이 아니다 — 표는 shared/meals
 } from '@/shared';
 import {
   APPRAISE_XP_BY_RARITY, CARRY_XP_PER_METER, CRAFT_XP, CRATE_OPEN_XP, CRYPTO_XP, GATHER_XP, GRIT_SAVE_XP,
@@ -409,6 +410,8 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
+   * ⚠ 2026-09-16 (접시 모델): **부르는 곳이 없다** — 공유 함선 식탁은 이제 분대원의 접시를 각자 `useMeal` 로 먹는다
+   * (`housing/parts/Dining.eatPlate`). 계약(`ProgressionRef.serveMeal`)이라 구현만 남긴다.
    * 공유 함선 식탁: 남이 차려 준 요리를 **아이템 소모 없이** 받는다. 이미 먹었어도 교체된다.
    * 받는 쪽 가드(로비 멤버 · 같은 공유 함선 · `MEAL_SERVE_RANGE` · 요율 · **호스트가 보낸 것만**)는 net 이
    * 이미 통과시켰다 — 여기서는 레이드 중이 아니고 실제 요리일 때만 싣는다.
@@ -446,10 +449,12 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     return typeof v === 'string' && v ? v : null;
   }
 
-  /** `ItemDef.meal` of a def id, or null when items/ does not know it (yet) / it is not a 요리. */
+  /**
+   * 요리 id 의 `MealDef`, 요리가 아니면 null. 2026-09-16 (접시 모델): 요리는 아이템이 아니라 `ctx.loot` 이 모른다 —
+   * 표는 `shared/meals` (`getMealDef`) 이고 부팅 순서와 무관하게 늘 있다.
+   */
   private mealDefOf(defId: string | null): MealDef | null {
-    if (!defId) return null;
-    try { return this.ctx?.loot?.getItemDef(defId)?.meal ?? null; } catch { return null; }
+    return getMealDef(defId)?.meal ?? null;
   }
 
   /**
@@ -457,8 +462,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
    * `recompute` once `ctx.loot` exists — the same shape as `prunePreps`. Returns true when something went.
    */
   private pruneMeal(): boolean {
-    const loot = this.ctx?.loot;
-    if (!loot || typeof loot.getItemDef !== 'function') return false;
+    // 2026-09-16: 요리 표는 shared 에 늘 있다 — `ctx.loot` 을 기다리지 않는다
     let changed = false;
     for (const key of ['meal', 'mealActive'] as const) {
       const id = key === 'meal' ? this.mealId() : this.activeMealId();
@@ -666,8 +670,8 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   private shotCredited = false;
   /** Latest `inventory:weightChanged` state (drives the 운반 skill). */
   private weightState: string = 'normal';
-  private lastX = 0;
-  private lastZ = 0;
+  /** 2026-09-16: last `ctx.player.selfMovedMeters` reading (운반 counts only the odometer's growth). */
+  private lastSelfMoved = 0;
   private hasLastPos = false;
   /** Container ids whose `crate:open` already paid 감정 XP this raid (C-16 · X-1; cleared on `game:newMission` / `world:ready`). */
   private readonly cratesAppraised = new Set<string>();
@@ -1333,17 +1337,22 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     }
   }
 
-  /** 운반: accumulate ground distance covered while the bag is at 조금 무거움 or worse. */
+  /**
+   * 운반: accumulate distance covered while the bag is at 조금 무거움 or worse.
+   *
+   * 2026-09-16 (버그 수정, 사용자 결정 「제 힘으로 움직인 것만」): 예전에는 `ctx.player.position` 의 프레임 차이를 셌다 —
+   * 무거운 가방으로 탈출선 이륙에 실려 가면 운반이 올랐고, 갈고리 · 대시 · 전차 · 탐사 차량 · 업혀 가기도 전부 거리였다
+   * (20 m 넘는 한 프레임만 버렸다). 이제 player 가 **제 힘으로 움직인 거리**만 모으는 주행계(`PlayerRef.selfMovedMeters`)의
+   * 증가분만 센다 — 무엇이 제외되는지는 그 계약 주석이 유일한 자리다. 주행계가 없으면(구버전 player) 아무것도 주지 않는다.
+   */
   private trackCarry(ctx: GameContext): void {
     const p = ctx.player;
-    if (!p || !ctx.isGameplayPhase() || p.isDead) { this.hasLastPos = false; return; }
-    const x = p.position.x, z = p.position.z;
-    if (!this.hasLastPos) { this.lastX = x; this.lastZ = z; this.hasLastPos = true; return; }
-    const dx = x - this.lastX, dz = z - this.lastZ;
-    this.lastX = x; this.lastZ = z;
-    if (this.weightState === 'normal') return;
-    const dist = Math.sqrt(dx * dx + dz * dz);
-    if (dist < 0.01 || dist > 20) return;                     // ignore jitter and teleports (respawn / grapple)
+    const odo = p?.selfMovedMeters;
+    if (!p || typeof odo !== 'number' || !Number.isFinite(odo) || !ctx.isGameplayPhase() || p.isDead) { this.hasLastPos = false; return; }
+    if (!this.hasLastPos) { this.lastSelfMoved = odo; this.hasLastPos = true; return; }
+    const dist = odo - this.lastSelfMoved;
+    this.lastSelfMoved = odo;
+    if (this.weightState === 'normal' || !(dist > 0)) return;
     this.addSkillXp('carry', dist * CARRY_XP_PER_METER);
   }
 

@@ -270,10 +270,14 @@ export class HudSystem implements GameSystem {
   private inHub = false;
   /** 2026-09-13: the departure cinematic owns the screen (`ui:cinematic`) — combat HUD faded out (`styles/raidHud.css`). */
   private cinematic = false;
+  /**
+   * 2026-09-16 (사용자 결정 — 이륙 연출에서 **남은 HUD 전부** 사라진다): 가린 정도 0 (다 보임) … 1 (다 숨음).
+   * `update` 가 `EXTRACTION_HUD_FADE_S` 에 걸쳐 올리고 `#ui-root` 의 `--cine-o` 로 칠한다 (`setCinematic` 주석).
+   */
+  private cineHide = 0;
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
-    ctx.uiRoot.style.setProperty('--cine-fade', `${Math.max(0, EXTRACTION_HUD_FADE_S)}s`);
     // Layer order: full-screen overlays (vignette, scope) → gameplay HUD → social HUD → deploy overlay → map → menus.
     this.overlayRoot = el('div', { cls: 'hud', parent: ctx.uiRoot });
     this.damage = new DamageOverlay(this.overlayRoot);
@@ -489,16 +493,46 @@ export class HudSystem implements GameSystem {
    * and the squad list stay. The class comes off again on `ui:cinematic false`, an abort / new mission, or (`applyVisibility`)
    * as soon as the phase leaves gameplay (the result screen).
    */
+  /*
+   * 2026-09-16 (사용자 결정 — 「이륙이 시작되면 남은 HUD 가 전부 사라진다」, 튜토리얼 · 분대 포함): 위의 「채팅 · 알림 · 분대
+   * 목록은 남는다」를 뒤집었다. 이제 `.cinematic` 은 **크로스헤어 · 링만 즉시** 숨기고(`styles/raidHud.css` — 「함선이 뜨는데
+   * 크로스헤어가 보인다」 신고), 나머지는 `#ui-root` 의 `.hud-cine` 가 한꺼번에 페이드한다: 네 `.hud` 레이어(오버레이 · 게임플레이 ·
+   * 소셜 · 하우징) + `#ui-root` 직계의 키 가이드 · 아이템 카드 · 음악 창 · 서버 배지. 3D 빛기둥(`Detection` · `ScanReveal` ·
+   * `Deployables`)은 같은 값으로 재질 불투명도를 줄인다. 튜토리얼 DOM 은 tutorial/ 이 같은 이벤트를 듣고 스스로 접는다.
+   * **남는 것**: 검은 페이드 · 로딩 게이지 · 메뉴(일시정지 · 설정 · 결과 화면) · 지도 같은 화면 — 목록에 없으므로 그대로다.
+   *
+   * 페이드는 **코드가 민다** (`stepCinematic`): reduced motion 이면 CSS 전이가 0.01 ms 로 잘려 한 프레임에 꺼진다(이 PC).
+   * 값은 `filter: opacity(var(--cine-o))` 로 칠한다 — `opacity` 가 아니라서 `.hud.hidden` · 위젯의 인라인 opacity 와 **곱해지고**
+   * (숨은 것이 연출 첫 프레임에 보이는 일이 없다), 어느 `.hud` 전이 목록에도 없어 프레임마다 바뀌어도 늦게 따라가지 않는다.
+   * 다 숨으면 `.hud-cine-out` 이 `visibility: hidden` 까지 건다. 되돌림(`false` · 중단 · 새 미션 · 페이즈 이탈)은 즉시다.
+   */
   private setCinematic(active: boolean): void {
     if (active === this.cinematic) return;
     this.cinematic = active;
     toggleClass(this.overlayRoot, 'cinematic', active);
     toggleClass(this.hudRoot, 'cinematic', active);
     toggleClass(this.socialRoot, 'cinematic', active);
+    toggleClass(this.ctx.uiRoot, 'hud-cine', active);
+    this.paintCinematic(0);
+  }
+
+  /** 이륙 연출 페이드를 한 프레임만큼 민다 (다 숨었거나 연출이 아니면 비교 하나). */
+  private stepCinematic(dt: number): void {
+    if (!this.cinematic || this.cineHide >= 1) return;
+    const d = Math.max(0, EXTRACTION_HUD_FADE_S);
+    this.paintCinematic(d > 0 ? Math.min(1, this.cineHide + Math.max(0, dt) / d) : 1);
+  }
+
+  private paintCinematic(v: number): void {
+    this.cineHide = v;
+    this.ctx.uiRoot.style.setProperty('--cine-o', (1 - v).toFixed(3));
+    toggleClass(this.ctx.uiRoot, 'hud-cine-out', this.cinematic && v >= 1);
   }
 
   /** Smoke hook: the departure cinematic currently hides the combat HUD. */
   get isCinematic(): boolean { return this.cinematic; }
+  /** Smoke hook (2026-09-16): how much of the HUD the departure cinematic still shows, 1 = all … 0 = none. */
+  get cinematicHudOpacity(): number { return 1 - this.cineHide; }
 
   /**
    * 2026-09-14 — **화면 전체 검은 페이드** (`ui:screenFade {opacity, durationS}`, 첫 사용자는 튜토리얼 오프닝).
@@ -552,6 +586,8 @@ export class HudSystem implements GameSystem {
     this.applyVisibility();
     // 2026-09-14: 검은 페이드는 CSS 전이가 아니라 여기서 옮긴다 (`setScreenFade` 주석 — reduced motion)
     this.stepScreenFade(dt);
+    // 2026-09-16: 이륙 연출의 HUD 페이드도 같은 이유로 코드가 민다 (`setCinematic` 주석)
+    this.stepCinematic(dt);
     // Map polls M and draws itself while open (also handles its own blocker token).
     this.map.update(ctx);
     // 2026-09-13: 탐사 차량 탑승 HUD — 레이어 가시성과 무관하게 돈다 (키 가이드 · `rover-view` 를 제때 걷어야 한다)
@@ -636,6 +672,11 @@ export class HudSystem implements GameSystem {
       this.droneHud.lateUpdate(ctx);
     }
     if (this.socialVisible) { this.nameplates.lateUpdate(ctx); this.typing.lateUpdate(ctx); }
+    // 2026-09-16: 3D 빛기둥 · 지뢰 반경 링도 이륙 연출의 HUD 페이드를 따라간다 (0 이면 숨는다)
+    const cineK = 1 - this.cineHide;
+    this.detection.setCinematicFade(cineK);
+    this.scanReveal.setCinematicFade(cineK);
+    this.deployables.setCinematicFade(cineK);
     this.detection.lateUpdate(dt, ctx);
     this.scanReveal.lateUpdate(dt, ctx);
     this.deployables.lateUpdate(ctx);

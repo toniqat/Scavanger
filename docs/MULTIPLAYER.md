@@ -37,6 +37,12 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
 - **Pickups** (`item`/`itemq`): host-authoritative, ids `${peerId}-${n}`, client drops are optimistic and echoed by the host.
   **Containers** (`cont`/`contq`): contents are deterministic from the seed, the **taken state** is host-authoritative; player
   corpses are containers with id `pcorpse:<owner>:<n>` and ride the same path. **Opened look** of crates/containers: `crate`.
+- **Empty corpses** (2026-09-16): a corpse with no items sinks after `CORPSE_EMPTY_REMOVE_DELAY_S` and is removed on every
+  client. Player / android corpses: an empty spawn wire is judged locally by everyone; a looted-empty one is judged by the host
+  (it primes a container for every `pcorpse` wire, `'all'` echoes to the sender) → `pcorpse emptied` to others, accepted only
+  from the host; host `pcorpse sync` omits emptied corpses and removed ids never re-spawn. Enemy corpses (contents rolled per
+  client): the emptier's `crate:looted` → `ecorpseq emptied` to the host (shape → sender → distance → rate) → `ee corpseEmptied`
+  → every client shortens that body's `corpseLife`; the usual `despawn` / `corpseGone` follows.
 - **Chat**: `chat {text, kind}` relayed to others, also in the hub. **Pings**: `ping {p, kind, label?, enemyId?}` + `pingack`.
   **Comms wheel**: `comm`.
 
@@ -45,7 +51,7 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
 | Family | Direction | Owner |
 |---|---|---|
 | `ps` · `fire` · `reload` · `grenade` (`fire` flag for G-10) · `melee` · `died` · `fall` | peer → others | player / weapons |
-| `es` · `ee` · `hit` · `hitc` · `explode` · `intq` · `dmg` · `shotq` | host ↔ clients | enemies |
+| `es` · `ee` · `hit` · `hitc` · `explode` · `intq` · `dmg` · `shotq` · `ecorpseq` | host ↔ clients | enemies |
 | `ex` · `exq` | host ↔ clients | extraction |
 | `strat` · `stratq` (`call` via host, `deny` refunds cooldown) · `rescue` · `pod` | host ↔ clients | stratagems / player |
 | `gad` · `gadq` · `imp` · `buff` · `revive` · `harv` · `harvq` | mixed (see types) | gadgets / implants / player / world |
@@ -54,7 +60,7 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
 | `pcorpse` · `pcorpseq` · `lead` · `leadq` · `fog` · `fogq` | host ↔ clients | game / world |
 | `struct` · `structq` · `tram` · `tramq` · `hz` · `hzq` · `rdrop` · `rover` · `roverq` | host ↔ clients | world / enemies |
 | `meta` · `metaq` | peer ↔ peer | meta |
-| `crew` · `crewq` · `ship` · `shipq` · `carry` · `meal` · `cbuf` · `cbufq` | peer ↔ peer / host | net / hub / player |
+| `crew` · `crewq` · `ship` · `shipq` · `carry` · `plate` · `plateq` · `cbuf` · `cbufq` | peer ↔ peer | net / hub / player |
 | `ally` (host → all) · `allyq` (member → host) | host ↔ clients | allies |
 | `load` (`p` progress → others, `go` from the host) | peers ↔ host | game |
 
@@ -156,10 +162,11 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
 
 ## 6. Authority rules for requests
 
-- Messages that affect others are accepted **only from the lobby host**: `strat call`, `ee`, `crate sync`, `meal serve`. Squad
+- Messages that affect others are accepted **only from the lobby host**: `strat call`, `ee`, `crate sync`. (`meal serve` is retired —
+  dining plates travel as each sender's own `plate state`, no authority: eating only changes the eater's profile.) Squad
   members' ship calls go through the host as `stratq call` (kind · caller cooldown · range check) and are re-broadcast; a refusal
   comes back as `strat deny` for the caller's own `callId`, and the caller gets the full cooldown refunded.
-- Host-side requests (`hit` incl. its `st` status bits and `kb` knockback · `explode` · `buff` · `meal req`) pass four layers in order — shape · sender · distance · rate —
+- Host-side requests (`hit` incl. its `st` status bits and `kb` knockback · `explode` · `buff`) pass four layers in order — shape · sender · distance · rate —
   via `shared/buffRules.createBuffGuard`. Two paths of one capability share one bucket (`explode` shares `hit`'s DPS bucket). Distance
   limits derive from data (`FLAME_RANGE`/`SHOCK_RANGE` for status bits, `STRAT_MAX_CALL_RANGE` for `explode`). A dead sender may still
   `explode` (fuses outlive throwers); only `kb` (shield bash) filters on `isDead`.
@@ -220,7 +227,7 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
 - Androids are left out of everything that is about people: host migration and `lobby:transferHost` (→ `invalid`),
   `relay {to}` (dropped silently), presence squad counts, 최근 만난 플레이어, block checks, `pruneLonely`, the reconnect
   grace's "others still inside", `inMissionCount` / `autoResetMission`, raid blobs, `net:peerJoined` / `peerLeft`,
-  `RemotePlayerRef`s and `net:missionMembership`, meal serving. `Lobby.reset()` keeps them `ready`, and when the **last
+  `RemotePlayerRef`s and `net:missionMembership`, dining plates. `Lobby.reset()` keeps them `ready`, and when the **last
   human** leaves the lobby is deleted with its androids (they never keep a ship alive).
 - Client: `NetRef.setAndroidBay(bay, recruit)` (leader only; otherwise `net:error`) and `net:androidReturned {bay, reason}`.
   Squad size is humans-only where the question is social (invite gates, crew rows); folders that ask "how many fighters"

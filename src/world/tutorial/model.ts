@@ -123,6 +123,42 @@ export const ABYSS_SAFE_MARGIN_M = 3;
  */
 export const WALL_PLAIN_FROM_Z = -142;
 
+/* ── 옆 벽이 낮아지는 마지막 구간 (2026-09-16, 사용자 결정) ─────────────────── */
+
+/**
+ * 사선 방벽의 끝점 둘 · 두께의 절반 — `BARRIER` 가 이 값을 읽는다. 여기(파일 위쪽)에 따로 둔 이유는 **모듈 초기화 순서**다:
+ * 철조망 너머의 절벽 구멍(`ABYSS_CUTS`) · 아래 데크 조각(`DECKS`)이 철조망 먼 면을 따라 계단을 만드는데, 그 둘은 `BARRIER` 보다
+ * 위에서 초기화된다 (`const` 는 선언 전에 읽으면 ReferenceError).
+ */
+export const BARRIER_NEAR_END = { x: 17, z: -116 } as const;
+export const BARRIER_FAR_END = { x: -8.5, z: -140 } as const;
+export const BARRIER_HALF_T = 0.6;
+
+/**
+ * 이 z 부터 앞(−Z)의 옆 벽은 **윗면이 낮아진다** (2026-09-16, 사용자 결정 — 「철조망 끝부터 왼쪽 벽은 빠르게 깎여 내려가고 오른쪽 벽은
+ * 완만하게 낮아진다, 둘 다 절벽을 감싼다」). 값 = 방벽 `far` 끝의 z. `parts/Ground` 가 이 z 에서 벽 조각을 자르고 그 뒤를
+ * `WALL_DESCENT_STEP_M` 조각으로 나눠 조각마다 윗면을 내린다 (파고듦은 0 — `WALL_PLAIN_FROM_Z` 와 같은 이유).
+ */
+export const WALL_DESCENT_FROM_Z = BARRIER_FAR_END.z;
+/** 낮아지는 벽 한 조각의 z 길이 (m). 콜라이더도 조각마다 따로라 계단진 윗면이 곧 콜라이더다. */
+export const WALL_DESCENT_STEP_M = 2;
+/**
+ * 낮아지는 속도 (윗면 m / 앞으로 m). 왼쪽 1.2 는 z −160 에서 바닥값(`WALL_MIN_ABOVE_WALK_M`)에 닿고, 오른쪽 0.5 는 가장자리
+ * (`ABYSS_EDGE_Z`)에서 y **2.0** 이다. 가장자리 너머(`parts/Ground.buildAbyss`)는 조각(6 m)마다 왼쪽 `ABYSS_WALL_DROP_L` · 오른쪽
+ * `ABYSS_WALL_DROP_R` 씩 계속 내려간다 (오른쪽이 늘 더 완만하다).
+ */
+export const WALL_DESCENT_RATE_L = 1.2;
+export const WALL_DESCENT_RATE_R = 0.5;
+/**
+ * 걸어 다니는 땅 곁에서 벽 윗면이 그 땅보다 **최소** 이만큼 위다 (m). 점프 1.20 + 올라설 수 있는 단 0.9 = 2.10 < 3.0 이라 벽 위로
+ * 올라서지 못한다 (`BARRIER` 검산과 같은 식). 왼쪽 벽은 z −172 까지 길 · 함선 언덕 곁이라 그 언덕(`SHIP_HILL_Y`) 기준으로 잰다 —
+ * 오른쪽 벽 곁은 철조망 너머가 전부 절벽이라 바닥값이 없다.
+ */
+export const WALL_MIN_ABOVE_WALK_M = 3;
+/** 가장자리 너머 벽 조각(6 m)마다 윗면이 내려가는 높이 (m) — 왼쪽 · 오른쪽. */
+export const ABYSS_WALL_DROP_L = 6;
+export const ABYSS_WALL_DROP_R = 3;
+
 /** 통로 반폭 프로파일의 제어점. */
 export interface CorridorPoint { readonly z: number; readonly halfX: number }
 
@@ -258,8 +294,8 @@ export const PIT_FLOOR_Y = DECK_LOWER_Y - PIT_DEPTH;
  *
  * 왜 방벽 좌표(회전 사각형)가 아닌가: 데크는 축 정렬 타일(`tileRect`)이고, 회전 사각형의 이음매마다 삼각 슬리버가 남아
  * 발밑이 사라진다. 그래서 자리는 방벽 좌표로 **검산하고**(아래 표) 모양만 축 정렬로 잡았다. 2026-09-15 3차부터 구멍은
- * `subtractRect` 로 파는 것이 아니라 **`DECKS` 의 아래 데크 조각들 사이에 처음부터 비어 있다** (`lower_mid` · `lower_pit_w` ·
- * `lower_ship` 이 세 면을 감싸고 동쪽은 절벽이다).
+ * `subtractRect` 로 파는 것이 아니라 **`DECKS` 의 아래 데크 조각들 사이에 처음부터 비어 있다** (2026-09-16: 서쪽 = 길 `lower_pit_w`,
+ * 남서 턱 = 언덕 오르막 `SHIP_SLOPE`, 북쪽 턱 · 동쪽 · 남쪽 = `PIT_WALLS` — 그 너머는 전부 절벽이라 웅덩이는 오르막으로만 들어가는 섬이다).
  *
  * **왜 ×2 가 아니라 ×1.55 인가** (사용자 결정 「약 2배」 · 「웅덩이 안이면 어디서 터져도 둘 다 죽는다」는 양립하지 않는다):
  *   수류탄은 `GRENADE_RADIUS` 7.2 m 안이어야 `EXPLOSION_OUTER_MUL` 0.6 × 250 = 150 > 체력 140 이다. 두 대가 s 만큼 떨어져
@@ -274,8 +310,10 @@ export const PIT_FLOOR_Y = DECK_LOWER_Y - PIT_DEPTH;
  *   | ( 7.5, −140.5) | 11.31 | −11.33 | 7.07 | 5.73 |
  *   | (−2.0, −149.0) | −1.43 | −11.01 | 5.73 | 7.07 |
  *   | ( 7.5, −149.0) |  5.48 | −17.52 | 7.07 | 5.73 |
- *   - **철조망과의 평지**: 가장 얕은 모서리가 depth −4.82 이고 철조망 콜라이더의 먼 면이 −0.6 이므로 **4.22 m** 의 평지가 남는다
- *     (x0 를 더 왼쪽으로 빼면 이 여유가 깨진다 — 사선이라 x0 ≥ −2.32 여야 4 m 다). 철조망에 붙어 서면(눈 1.55) 턱 뒤로
+ *   - **철조망과의 사이**: 가장 얕은 모서리가 depth −4.82 이고 철조망 콜라이더의 먼 면이 −0.6 이므로 **4.22 m** 떨어져 있다
+ *     (x0 를 더 왼쪽으로 빼면 이 여유가 깨진다 — 사선이라 x0 ≥ −2.32 여야 4 m 다). 2026-09-15 까지는 그 사이가 평지였고
+ *     2026-09-16 부터는 **절벽**이다 (`ABYSS_CUTS` 의 철조망 계단 — 사용자 결정 「철조망 너머는 길 · 함선 언덕 · 웅덩이 말고 전부 절벽」).
+ *     웅덩이의 북쪽 면은 그래서 절벽 쪽 턱(`PIT_WALLS` 의 `pit_rim_n`, 데크 높이)이다. 철조망에 붙어 서면(눈 1.55) 턱 뒤로
  *     약 2.7 m 만 가려지고 안드로이드(10.5 m 앞)는 그 한참 밖이다.
  *   - **수류탄 한 발로 둘 다**: 네 모서리에서 두 대까지가 전부 7.2 m 안이다 (최대 **7.07**). 수류탄 몸(반지름 0.08)은 벽에서
  *     그만큼 떨어져 멈추므로 실제 최대는 √(5.57² + 4.17²) = 6.96 이고, 적의 몸 가운데(+0.9)까지 세로로 재도 √(7.07² + 0.82²)
@@ -285,9 +323,9 @@ export const PIT_FLOOR_Y = DECK_LOWER_Y - PIT_DEPTH;
  *     남쪽 벽(−149 … −149.6)이 있어 웅덩이 바닥에서 z −150 에 닿는 길은 오르막 남쪽 턱(x −2 … 1.5)뿐이고, 그것은 곧 함선 띠로
  *     나가는 길이다.
  *   - **함선 발자국**(x −13.13 … −2.76 · z −167.80 … −154.50)과 겹치지 않는다 — x 로 0.76 m · z 로 5.5 m 떨어져 있다.
- *   - **이륙 연출 카메라 첫 자리**(−4.07, −6.8, −139.96)는 웅덩이 밖이고(z 로 0.54), 철조망 쪽 면에는 벽이 없으며, 애초에
- *     데크보다 3.2 m **위**다.
- *   - **시체 ③**(9, −117)은 그대로 평지다 (z 로 23.5 m 밖 · 오른쪽 절벽 구멍 `lower_step1` 의 시작 −126 보다 9 m 앞).
+ *   - **이륙 연출 카메라 첫 자리**(−4.07, −5.9, −139.96 — 2026-09-16 함선 언덕 +0.9)는 웅덩이 밖이고(x 로 2.07), 발밑은 철조망 계단의
+ *     절벽 구멍이며, 데크보다 4.1 m **위**다.
+ *   - **시체 ③**(9, −117)은 그대로 평지다 (z 로 23.5 m 밖 · 철조망 계단 칸 [8.5, 9.5] 의 가장자리 −125.17 보다 8.2 m 앞).
  */
 export const PIT: Rect = { x0: -2, x1: 7.5, z0: -140.5, z1: -149 };
 
@@ -297,9 +335,18 @@ export const PIT_WALL_T = 0.6;
  * 웅덩이 벽의 높이 (m, **데크 윗면 기준** — 웅덩이 안에서는 0.9 를 더한 3.4 m 다). 사용자 결정 「2.5 m 정도」.
  *   - **못 넘는다**: 점프 1.20 + 올라설 수 있는 단 0.9 = 2.10 < 2.5 (`BARRIER` 검산과 같은 식).
  *   - **수류탄이 못 나간다**: 철조망을 수평으로 넘긴 궤적의 꼭대기가 데크 위 1.805 m 라(`BARRIER` 검산) 2.5 m 벽에 부딪혀
- *     밑동으로 미끄러진다. 3.2 보다 낮으므로 이륙 카메라(`SHIP_POS` 검산의 y −6.8 = 데크 +3.2)와도 무관하다.
+ *     밑동으로 미끄러진다. 이륙 카메라(`SHIP_POS` 검산의 y −5.9 = 데크 +4.1 — 2026-09-16 함선 언덕)보다 낮고, 애초에 x 로 11 m 떨어져 있다.
  */
 export const PIT_WALL_H = 2.5;
+/**
+ * 웅덩이 **북쪽 턱**의 높이 (m, 데크 윗면 기준 — 0 이면 데크 높이의 턱 = 웅덩이 안에서 0.9 m). 2026-09-16: 철조망과 웅덩이 사이의
+ * 평지가 절벽이 되면서 북쪽 면에 무엇인가 있어야 한다 — 없으면 웅덩이 바닥이 곧장 절벽 가장자리라 수류탄이 굴러 나가고 안드로이드가
+ * 걸어 나간다. **벽(2.5 m)이 아니라 턱**인 이유: 이 면은 2026-09-15 결정 「철조망을 넘겨 던진 수류탄이 들어오는 면 · 철조망 사이로
+ * 안드로이드가 보이는 면」이다. 2.5 m 벽이면 철조망에 붙어 선 눈(데크 +1.55)에서 웅덩이 속 가슴(데크 +0.27)이 가려지고,
+ * 수평 투척의 궤적 꼭대기(데크 +1.805)도 벽에 걸린다. 데크 높이 턱은 그 사선(웅덩이 북쪽 끝에서 데크 약 +0.9)보다 낮고,
+ * 0.9 m = `PROP_STEP_UP_MAX` 라 **수류탄(작은 몸)은 못 넘고** 사람 · 적은 올라선다 (`PIT_DEPTH` 주석). 벽으로 바꾸려면 이 값만 올린다.
+ */
+export const PIT_NORTH_RIM_H = 0;
 /** 오른쪽 절벽 가장자리의 x = 웅덩이 동쪽 벽의 바깥 면. 그 오른쪽은 (철조망 너머에서) 바닥이 없다. */
 export const PIT_EAST_X = PIT.x1 + PIT_WALL_T;
 /**
@@ -308,10 +355,36 @@ export const PIT_EAST_X = PIT.x1 + PIT_WALL_T;
  * (`FINAL_ANDROIDS` 주석의 사선 표: A2 → 화물칸 한가운데 선이 z −149 를 x **0.48** 에서 지난다).
  */
 export const SHIP_STRIP_X1 = 1.5;
+
+/**
+ * **함선 언덕** (2026-09-16, 사용자 결정 — 「함선은 살짝 언덕 위, 플레이어 몸 절반 높이」). 몸 절반 = `PLAYER_HEIGHT / 2` = 0.9 라
+ * 웅덩이 깊이(`PIT_DEPTH`)와 같은 값이다. 함선(`SHIP_POS.y`) · `ship` 체크포인트 · 안전한 높이(`TutorialWorld.SAFE_LEVELS`)가 이것을 읽는다.
+ *
+ * 턱이 아니라 **오르막**(`SHIP_SLOPE`, 경사 콜라이더)으로 오른다: 0.9 m 는 정확히 `PROP_STEP_UP_MAX` 라 턱이어도 걸어 오르지만,
+ * 「뚝」 올라서는 것이 아니라 스르륵 오르는 언덕이어야 한다는 결정이다. 언덕의 나머지 세 면은 벽(왼쪽) · 절벽(오른쪽 `cut_s` ·
+ * 앞 `ABYSS_EDGE_Z`)이라 턱으로 오를 자리가 없다.
+ */
+export const SHIP_HILL_RISE = PLAYER_HEIGHT / 2;
+export const SHIP_HILL_Y = DECK_LOWER_Y + SHIP_HILL_RISE;
+/**
+ * 언덕 오르막의 수평 길이 (m, −Z 방향). 경사 atan(0.9 / 4.5) = **11.3°** (웅덩이 오르막 19.8° 보다 완만하다).
+ * 오르막은 웅덩이 앞 끝(`PIT.z1` −149)에서 시작해 **−153.5** 에서 끝난다 — 함선 뒷문 램프의 발끝 모서리(월드 z −154.52 … −155.08,
+ * 로컬 x ±1.6 · z 3.25)보다 **1.0 m** 앞이라, 램프는 평평한 언덕 꼭대기(y = 함선 바닥 높이)에 그대로 펼쳐진다.
+ */
+export const SHIP_SLOPE_RUN = 4.5;
+/** 평평한 언덕 꼭대기가 시작하는 z (−153.5). */
+export const SHIP_HILL_Z0 = PIT.z1 - SHIP_SLOPE_RUN;
+/**
+ * 언덕 오르막의 평면 — 함선 띠 전폭 (x −15.4 … `SHIP_STRIP_X1`), z −149 … −153.5. 몸통(`VOID_Y … DECK_LOWER_Y`) + 쐐기 그림 + 경사
+ * 콜라이더는 `parts/Ground.buildShipSlope`. 북쪽 끝(−149)은 길(`lower_pit_w`, −10)과 같은 높이에서 시작하고, x −2 … 1.5 에서는 웅덩이의
+ * 남쪽 턱(0.9 m)이 된다 — 2026-09-15 의 `lower_ship` 북쪽 끝과 같은 자리 · 같은 높이다.
+ */
+export const SHIP_SLOPE: Rect = { x0: -CORRIDOR_MAX_HALF_X, x1: SHIP_STRIP_X1, z0: PIT.z1, z1: SHIP_HILL_Z0 };
 /**
  * 이 z 부터 앞(−Z)으로는 아래 데크에 **구멍**(절벽)이 있다. 협곡 바닥 판(`parts/Ground` 의 `tut-void-floor`)은 여기서 끝나고,
  * 여기부터의 옆 절벽 벽은 `ABYSS_FADE_TOP_Y` 밑을 어두워지는 띠로 그린다 (구멍으로 떨어지며 보이는 벽이 −100 에서 뚝 끊기지 않게).
- * 값은 첫 계단(`lower_step3`)의 시작 = 오른쪽 벽 곁에서 철조망 콘크리트 토막의 먼 면(x 15.4 에서 z −118.34)보다 1.66 m 뒤.
+ * 값은 오른쪽 벽 곁에서 철조망 콘크리트 토막의 먼 면(x 15.4 에서 z −118.33)보다 1.67 m 뒤. 2026-09-16 부터 철조망 계단(`fenceColumns`)의
+ * 가장자리도 이 값으로 자른다 — 마지막 칸 [14.5, 15.4] 이 여기서 잘린다 (그 앞에 구멍이 나면 밑에 협곡 바닥 판이 보인다).
  */
 export const ABYSS_CUT_Z0 = -120;
 
@@ -325,40 +398,91 @@ export const ABYSS_CUT_Z0 = -120;
  * 남쪽 벽이 x 1.5 에서 시작하는 이유는 `SHIP_STRIP_X1` 주석.
  */
 export const PIT_WALLS: readonly DeckRect[] = [
-  { id: 'pit_wall_e', rect: { x0: PIT.x1, x1: PIT_EAST_X, z0: PIT.z0, z1: PIT.z1 - PIT_WALL_T }, top: DECK_LOWER_Y + PIT_WALL_H },
+  // 2026-09-16: 동쪽 벽이 북쪽 턱의 두께만큼 북쪽으로 늘었다 (−140.5 → −139.9) — 턱과 벽의 모서리를 벽이 닫는다
+  { id: 'pit_wall_e', rect: { x0: PIT.x1, x1: PIT_EAST_X, z0: PIT.z0 + PIT_WALL_T, z1: PIT.z1 - PIT_WALL_T }, top: DECK_LOWER_Y + PIT_WALL_H },
   { id: 'pit_wall_s', rect: { x0: SHIP_STRIP_X1, x1: PIT.x1, z0: PIT.z1, z1: PIT.z1 - PIT_WALL_T }, top: DECK_LOWER_Y + PIT_WALL_H },
+  // 2026-09-16: 북쪽 턱 (`PIT_NORTH_RIM_H` 주석) — 그 북쪽은 철조망 계단의 절벽 구멍이다
+  { id: 'pit_rim_n', rect: { x0: PIT.x0, x1: PIT.x1, z0: PIT.z0 + PIT_WALL_T, z1: PIT.z0 }, top: DECK_LOWER_Y + PIT_NORTH_RIM_H },
 ];
 
 /**
- * **철조망 너머의 절벽 구멍** (2026-09-15 3차, 사용자 결정 — 「안드로이드 2명 있는 곳 근처를 제외하고, 철조망 너머를 절벽으로」,
- * 「방벽 오른쪽 40 % 너머는 바닥이 없다」). 아래 데크에서 **바닥이 없는** 축 정렬 사각형들 — 낙하 규칙 `kill` 볼륨(`FALL_RULES`) ·
- * 「마지막으로 서 있던 자리」의 가장자리 띠(`inAbyssCut`, `ABYSS_SAFE_MARGIN_M`) · 부스러기 제외가 읽는다. 땅 자체는 `DECKS` 의
- * 아래 데크 조각들이 **이 사각형들을 비워 두는 것**으로 생긴다 (두 목록이 서로의 보수여야 한다 — 하나를 고치면 둘 다 본다).
+ * 철조망 **먼 면**(방벽 콜라이더의 건너편 면 — 중심선에서 `BARRIER_HALF_T` 뒤)이 그 x 에서 지나는 z. 방벽은 위에서 보면 `\` 라 x 가 커질수록
+ * z 가 커진다: x −8.5 에서 **−140.82** · x 8.1 에서 −125.20 · x 15.4 에서 −118.33 (기울기 dz/dx = 0.941).
+ */
+export function fenceFarFaceZ(x: number): number {
+  const len = Math.hypot(BARRIER_NEAR_END.x - BARRIER_FAR_END.x, BARRIER_NEAR_END.z - BARRIER_FAR_END.z);
+  const dx = (BARRIER_NEAR_END.x - BARRIER_FAR_END.x) / len, dz = (BARRIER_NEAR_END.z - BARRIER_FAR_END.z) / len;
+  // 가까운 쪽 법선이 (−dz, dx) 이므로 먼 면 위의 한 점 = far 끝 − 법선 × halfT
+  const px = BARRIER_FAR_END.x + dz * BARRIER_HALF_T, pz = BARRIER_FAR_END.z - dx * BARRIER_HALF_T;
+  return pz + (dz / dx) * (x - px);
+}
+/** 철조망 계단 한 칸의 x 폭 (m). */
+export const FENCE_EDGE_STEP_M = 1;
+/**
+ * 철조망 먼 면 뒤에 **최소한** 남기는 바닥 (m, 칸의 왼쪽 끝에서 — 칸 안에서는 기울기만큼 0.94 m 더 넓어진다). 방벽 토막이 허공에 걸려
+ * 보이지 않게 하는 턱이고, 2026-09-15 의 오른쪽 계단 표의 최솟값(0.35)을 그대로 쓴다.
+ */
+export const FENCE_LEDGE_MIN_M = 0.35;
+/** 칸의 구멍이 이보다 얕으면(m) 구멍을 내지 않고 바닥으로 둔다 — 틈 곁 방벽 `far` 끝 뒤에 0.27 m 짜리 실틈이 생기지 않게. */
+export const FENCE_CUT_MIN_M = 0.5;
+
+/** 철조망 계단의 한 칸: x 범위, 가장자리 z(`edge`, 그 앞이 바닥), 구멍이 끝나는 z(`bottom`). `edge === bottom` 이면 구멍이 없다. */
+interface FenceColumn { readonly x0: number; readonly x1: number; readonly edge: number; readonly bottom: number }
+
+/**
+ * 철조망 계단 칸들 (x 오름차순). 칸 경계 = 방벽 `far` 끝(−8.5)부터 `FENCE_EDGE_STEP_M` 간격 + 웅덩이 서쪽 끝(−2) · 동쪽 벽 바깥 면(8.1) ·
+ * 통로 오른쪽 끝(15.4). 가장자리 = `min(fenceFarFaceZ(x0) − FENCE_LEDGE_MIN_M, ABYSS_CUT_Z0)` — 방벽이 `\` 라 칸의 왼쪽 끝에서 먼 면이
+ * 가장 뒤이므로, 거기서 턱을 재면 칸 전체에서 가장자리가 먼 면보다 뒤다 (= **가까운 쪽에 구멍이 나지 않는다**). `ABYSS_CUT_Z0` 로 자르는
+ * 이유는 협곡 바닥 판(`parts/Ground` 의 `tut-void-floor`)이 거기서 끝나기 때문이다 (그 앞에 구멍이 나면 구멍 밑에 판이 보인다).
+ * 구멍의 남쪽 끝(`bottom`)은 그 칸 아래에 무엇이 오느냐다: x ≤ −2 는 길(`lower_pit_w`, −140.5), x −2 … 8.1 은 웅덩이 북쪽 턱 · 동쪽 벽
+ * (−139.9), x ≥ 8.1 은 옛 가장자리(`ABYSS_EDGE_Z`)까지 통째로.
+ */
+function fenceColumns(): FenceColumn[] {
+  const xs = new Set<number>([PIT.x0, PIT_EAST_X, CORRIDOR_MAX_HALF_X]);
+  for (let x = BARRIER_FAR_END.x; x < CORRIDOR_MAX_HALF_X - 1e-6; x += FENCE_EDGE_STEP_M) xs.add(x);
+  const sorted = [...xs].sort((a, b) => a - b);
+  const out: FenceColumn[] = [];
+  for (let i = 0; i + 1 < sorted.length; i++) {
+    const x0 = sorted[i], x1 = sorted[i + 1];
+    const bottom = x1 <= PIT.x0 ? PIT.z0 : x0 >= PIT_EAST_X ? ABYSS_EDGE_Z : PIT.z0 + PIT_WALL_T;
+    const edge = Math.min(fenceFarFaceZ(x0) - FENCE_LEDGE_MIN_M, ABYSS_CUT_Z0);
+    out.push({ x0, x1, edge: edge - bottom >= FENCE_CUT_MIN_M ? edge : bottom, bottom });
+  }
+  return out;
+}
+const FENCE_COLUMNS = fenceColumns();
+/**
+ * 철조망 계단이 시작하는 x (**−6.5**) — 그 왼쪽(방벽 왼쪽 틈 · `far` 끝 뒤의 0.35 … 1.56 m 턱)은 통째로 바닥(`lower_gap`)이다.
+ * 칸 [−7.5, −6.5] 은 구멍이 0.27 m 뿐이라 `FENCE_CUT_MIN_M` 에 걸려 바닥으로 남는다.
+ */
+export const FENCE_STAIR_X0 = FENCE_COLUMNS.find((c) => c.edge > c.bottom)?.x0 ?? CORRIDOR_MAX_HALF_X;
+
+/**
+ * **철조망 너머의 절벽 구멍** (2026-09-15 3차 → **2026-09-16 전면 개편**, 사용자 결정 — 「철조망 너머는 전부 바닥 없는 절벽이다. 남는 것은
+ * 왼쪽 틈에서 함선까지의 길, 함선 언덕, 안드로이드 웅덩이뿐」). 아래 데크에서 **바닥이 없는** 축 정렬 사각형들 — 낙하 규칙 `kill`
+ * 볼륨(`FALL_RULES`) · 「마지막으로 서 있던 자리」의 가장자리 띠(`inAbyssCut`, `ABYSS_SAFE_MARGIN_M`) · 부스러기 제외가 읽는다. 땅 자체는
+ * `DECKS` 의 아래 데크 조각들이 **이 사각형들을 비워 두는 것**으로 생긴다 (두 목록이 서로의 보수여야 한다 — `lowerTilingErrors` 가 생성할 때 잰다).
  *
- * 남는 바닥 (사용자 결정의 (a)~(d)): (a) 방벽 가까운 쪽 통로 전체 (`lower_n` · `lower_mid` 의 방벽 앞쪽 · 계단 셋), (b) 방벽 왼쪽
- * 틈에서 함선까지의 왼쪽 띠와 함선 발자국 + 여유 (`lower_pit_w` · `lower_ship`, x ≤ `SHIP_STRIP_X1`), (c) 웅덩이 + 벽 + 오르막,
- * (d) 철조망과 웅덩이 사이의 평지 (`lower_mid` 의 방벽 뒤쪽, x ≤ `PIT_EAST_X`). 나머지가 여기다.
+ * 남는 바닥: (a) 방벽 가까운 쪽 통로 전체 (`lower_n` · `lower_gap` · `lower_fence_*` — 철조망 먼 면 뒤 0.35 … 1.29 m 턱까지),
+ * (b) 방벽 왼쪽 틈에서 함선까지의 길 (`lower_pit_w`, x −15.4 … −2 · z −140.5 … −149 — 웅덩이 오르막이 여기로 올라온다),
+ * (c) 함선 언덕 (`SHIP_SLOPE` 오르막 + `ship_hill`, x ≤ `SHIP_STRIP_X1`), (d) 웅덩이 + 벽 + 북쪽 턱 + 오르막 (섬 — 길에서 오르막으로만 들어간다).
+ * 2026-09-15 의 (d) 「철조망과 웅덩이 사이의 평지」는 없어졌다.
  *
- * **오른쪽 40 %** (`near` 끝에서 잰 길이 35.02 × 0.4 = 14.0 m → along 21.0 … 35.02, 철조망 위의 점 (6.79, −125.6) … (17, −116)):
- *   축 정렬 사각형이라 사선을 그대로 자를 수 없다. 절벽 가장자리 x = `PIT_EAST_X` 8.1 은 along 22.8 (65 %) 이고, 그 오른쪽은
- *   철조망 먼 면(z_f(x) − 0.82, z_f(x) = −140 + 0.941·(x + 8.5))을 따라 **2 m 계단**으로 가장자리를 올린다 — 어느 x 에서도
- *   가장자리는 먼 면보다 뒤여야 가까운 쪽(플레이어 쪽)에 구멍이 나지 않는다:
- *   | x 범위 | 먼 면 z (왼쪽 끝 · 오른쪽 끝) | 가장자리 z | 먼 면 ~ 가장자리 (턱) |
- *   | 8.1 … 10  | −125.20 · −123.42 | −126 | 0.80 … 2.58 |
- *   | 10 … 12   | −123.42 · −121.53 | −124 | 0.58 … 2.47 |
- *   | 12 … 14   | −121.53 · −119.65 | −122 | 0.47 … 2.35 |
- *   | 14 … 15.4 | −119.65 · −118.34 | −120 | 0.35 … 1.66 |
- *   콘크리트 토막(along 27 … 35)도 그 먼 면 뒤에 ≥ 0.35 m 바닥이 남아 허공에 걸리지 않는다. 시체 ③ (9, −117) 은 첫 계단(−126)보다 9 m 앞.
+ * **철조망 계단** (`FENCE_COLUMNS`): 방벽의 먼 면을 따라 1 m 칸마다 가장자리를 올린다 — 칸 26 개 중 구멍이 있는 것은 x −6.5 부터의 24 개.
+ *   | x 범위 | 가장자리 z | 구멍의 남쪽 끝 | 먼 면 ~ 가장자리 (턱) |
+ *   | −6.5 … −2   | −139.29 … −135.53 | −140.5 (길)          | 0.35 … 1.29 |
+ *   | −2 … 8.1    | −135.06 … −126.12 | −139.9 (턱 · 동쪽 벽) | 0.35 … 1.29 |
+ *   | 8.1 … 14.5  | −125.55 … −120.47 | −172                 | 0.35 … 1.29 |
+ *   | 14.5 … 15.4 | −120 (`ABYSS_CUT_Z0` 로 잘림) | −172        | 0.82 … 1.67 |
+ *   콘크리트 토막 둘(`far` 끝 along 0 … 3.5, `near` 끝 along 27 … 35)도 먼 면 뒤에 ≥ 0.35 m 바닥이 남아 허공에 걸리지 않는다.
+ *   시체 ③ (9, −117) 은 그 칸의 가장자리(−125.17)보다 8.2 m 앞이다.
  *
- * **남쪽** (`cut_s`): 남쪽 벽의 바깥 면(−149.6)부터 옛 가장자리(`ABYSS_EDGE_Z`)까지, x `SHIP_STRIP_X1` … `PIT_EAST_X`. 함선 띠와 4.26 m
- * 떨어져 있고 이륙은 기수 쪽(오른쪽 앞)으로 **떠서** 나가므로 바닥이 필요 없다 (`extraction/Hull` 콜라이더는 착륙 중에만 있다).
+ * **남쪽** (`cut_s`, 2026-09-15 그대로): 남쪽 벽의 바깥 면(−149.6)부터 옛 가장자리(`ABYSS_EDGE_Z`)까지, x `SHIP_STRIP_X1` … `PIT_EAST_X`.
+ * 함선 발자국과 4.26 m 떨어져 있고 이륙은 기수 쪽(오른쪽 앞)으로 **떠서** 나가므로 바닥이 필요 없다 (`extraction/Hull` 콜라이더는 착륙 중에만 있다).
  */
 export const ABYSS_CUTS: readonly Rect[] = [
-  { x0: PIT_EAST_X, x1: CORRIDOR_MAX_HALF_X, z0: -126, z1: ABYSS_EDGE_Z },                    // cut_r — 오른쪽 40 % 너머 + 동쪽 벽 너머
+  ...FENCE_COLUMNS.filter((c) => c.edge > c.bottom).map((c): Rect => ({ x0: c.x0, x1: c.x1, z0: c.edge, z1: c.bottom })),
   { x0: SHIP_STRIP_X1, x1: PIT_EAST_X, z0: PIT.z1 - PIT_WALL_T, z1: ABYSS_EDGE_Z },           // cut_s — 남쪽 벽 너머
-  { x0: 10, x1: CORRIDOR_MAX_HALF_X, z0: -124, z1: -126 },                                     // 계단 사이의 쐐기 셋
-  { x0: 12, x1: CORRIDOR_MAX_HALF_X, z0: -122, z1: -124 },
-  { x0: 14, x1: CORRIDOR_MAX_HALF_X, z0: ABYSS_CUT_Z0, z1: -122 },
 ];
 
 /** 그 점이 절벽 구멍 안인가 (`margin` 만큼 넉넉히 — 가장자리 띠 판정). */
@@ -384,27 +508,26 @@ export interface DeckRect { readonly id: string; readonly rect: Rect; readonly t
 export const CLIFF2_EDGE_Z = -77;
 
 /**
- * 걸어 다니는 땅. 위 데크 둘 + 아래 데크 일곱 조각이고 그 사이의 **빈 곳이 곧 절벽**이다:
+ * 걸어 다니는 땅. 위 데크 둘 + 아래 데크 조각들(2026-09-16: 철조망 계단 칸마다 하나 + 함선 언덕)이고 그 사이의 **빈 곳이 곧 절벽**이다:
  *   `upper_a` ↔ `upper_b` 사이 = 절벽 1 (달려서 점프해야 넘는다 — 가장자리가 **사선**이라 두 회전 OBB
  *     `parts/Ground.buildChasmEdges` 가 여기서부터 사선까지를 마저 채운다),
  *   `upper_b` 의 끝(z = `CLIFF2_EDGE_Z` −77)에서 `lower_n` 으로 = 절벽 2 (뛰어내린다),
  *   아래 데크 조각들 사이의 구멍 = 안드로이드 웅덩이(`PIT`, 0.9 m) 와 철조망 너머의 절벽 구멍(`ABYSS_CUTS`, `kill`),
- *   `lower_ship` 의 끝(z = `ABYSS_EDGE_Z` −172) 너머 = 끝없는 절벽 (2026-09-15 — 떨어지면 `kill`).
+ *   `ship_hill` 의 끝(z = `ABYSS_EDGE_Z` −172) 너머 = 끝없는 절벽 (2026-09-15 — 떨어지면 `kill`).
  *
  * ⚠ `upper_a.z1`(85.8) · `upper_b.z0`(74.9) 는 **사선에서 가장 물러난 자리**다 — 축 정렬 사각형이라 사선을
  * 그대로 담을 수 없어서, 사선까지의 쐐기는 회전 OBB 가 덮고 이 둘은 그 안쪽에서 끝난다. 검산은
  * `CHASM_EDGE` 주석에.
  *
- * ⚠ 2026-09-15 3차 — **아래 데크는 일곱 조각**이다. 철조망 너머의 절벽 구멍(`ABYSS_CUTS`)과 안드로이드 웅덩이(`PIT`)가
- * **조각들 사이의 빈 곳**으로 생긴다 — 2차의 `subtractRect` 는 없어졌다. 일곱 조각의 합집합 + `PIT` + `PIT_WALLS` + `ABYSS_CUTS`
- * 가 정확히 옛 `lower`(x ±15.4 · z −77 … −172)이어야 한다 (검산: 각 조각의 가장자리가 이웃 조각 · 구멍의 가장자리와 같은 값).
- *   `lower_n`      x ±15.4        z  −77 … −120   구멍이 시작되기 전 통째 (절벽 2 착지 · 보급 · `wall` 체크포인트 · 시체 ③)
- *   `lower_mid`    x −15.4 …  8.1 z −120 … −140.5 방벽 양쪽 — 앞쪽 통로 · 왼쪽 틈 · 철조망과 웅덩이 사이의 평지. 동쪽 끝이 절벽
- *   `lower_step1`  x   8.1 … 10   z −120 … −126   오른쪽 벽 곁의 계단 셋 (콘크리트 토막 먼 면 뒤에 바닥을 남긴다 — `ABYSS_CUTS` 표)
- *   `lower_step2`  x  10   … 12   z −120 … −124
- *   `lower_step3`  x  12   … 14   z −120 … −122
- *   `lower_pit_w`  x −15.4 … −2   z −140.5 … −149 웅덩이 서쪽 — 오르막 위 끝 · 함선으로 가는 길
- *   `lower_ship`   x −15.4 …  1.5 z −149 … −172   함선 띠 (오르막 남쪽 턱 x −2 … 1.5 포함), 끝은 옛 끝없는 절벽
+ * ⚠ 2026-09-16 — **아래 데크는 조각들**이다 (철조망 계단 칸마다 하나). 철조망 너머의 절벽 구멍(`ABYSS_CUTS`)과 안드로이드 웅덩이(`PIT`)가
+ * **조각들 사이의 빈 곳**으로 생긴다. 아래 조각(윗면 < `DECK_UPPER_Y`)의 합집합 + `SHIP_SLOPE` + `PIT` + `PIT_WALLS` + `ABYSS_CUTS` 가
+ * 정확히 옛 `lower`(x ±15.4 · z −77 … −172)를 **한 번씩** 덮어야 한다 — `lowerTilingErrors` 가 0.25 m 표본으로 재고 `TutorialWorld.build` 가 경고한다.
+ *   `lower_n`         x ±15.4          z  −77 … −120    구멍이 시작되기 전 통째 (절벽 2 착지 · 보급 · `wall` 체크포인트 · 시체 ③)
+ *   `lower_gap`       x −15.4 … −6.5   z −120 … −140.5  방벽 왼쪽 틈 + 그 앞 통로 (`FENCE_STAIR_X0`)
+ *   `lower_fence_*`   x −6.5 … 14.5    z −120 … 가장자리 철조망 가까운 쪽 통로 — 1 m 칸마다 먼 면을 따라 끝난다 (`ABYSS_CUTS` 표)
+ *   `lower_pit_w`     x −15.4 … −2     z −140.5 … −149  **길** — 틈에서 함선 언덕까지, 웅덩이 오르막 위 끝
+ *   (`SHIP_SLOPE`)    x −15.4 … 1.5    z −149 … −153.5  언덕 오르막 (경사 콜라이더라 이 목록 밖 — `parts/Ground.buildShipSlope`)
+ *   `ship_hill`       x −15.4 … 1.5    z −153.5 … −172  **함선 언덕** (윗면 `SHIP_HILL_Y`), 끝은 옛 끝없는 절벽
  * 아래 데크 조각끼리의 이음매는 `parts/Ground` 가 콜라이더만 `TILE_OVERLAP` 만큼 넓혀 겹친다 (`growRect`) — `tileRect` 가 안쪽
  * 경계에 하는 것과 같은 이유이고, 그림(윗면 판)은 설계 치수 그대로라 겹친 판이 깜박이지 않는다.
  */
@@ -412,12 +535,12 @@ export const DECKS: readonly DeckRect[] = [
   { id: 'upper_a', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: CORRIDOR_MAX_HALF_X, z0: 118, z1: 85.8 }, top: DECK_UPPER_Y },
   { id: 'upper_b', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: CORRIDOR_MAX_HALF_X, z0: 74.9, z1: CLIFF2_EDGE_Z }, top: DECK_UPPER_Y },
   { id: 'lower_n', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: CORRIDOR_MAX_HALF_X, z0: CLIFF2_EDGE_Z, z1: ABYSS_CUT_Z0 }, top: DECK_LOWER_Y },
-  { id: 'lower_mid', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: PIT_EAST_X, z0: ABYSS_CUT_Z0, z1: PIT.z0 }, top: DECK_LOWER_Y },
-  { id: 'lower_step1', rect: { x0: PIT_EAST_X, x1: 10, z0: ABYSS_CUT_Z0, z1: -126 }, top: DECK_LOWER_Y },
-  { id: 'lower_step2', rect: { x0: 10, x1: 12, z0: ABYSS_CUT_Z0, z1: -124 }, top: DECK_LOWER_Y },
-  { id: 'lower_step3', rect: { x0: 12, x1: 14, z0: ABYSS_CUT_Z0, z1: -122 }, top: DECK_LOWER_Y },
+  { id: 'lower_gap', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: FENCE_STAIR_X0, z0: ABYSS_CUT_Z0, z1: PIT.z0 }, top: DECK_LOWER_Y },
+  ...FENCE_COLUMNS.filter((c) => c.x0 >= FENCE_STAIR_X0 && c.edge < ABYSS_CUT_Z0).map((c, i): DeckRect => ({
+    id: `lower_fence_${i}`, rect: { x0: c.x0, x1: c.x1, z0: ABYSS_CUT_Z0, z1: c.edge }, top: DECK_LOWER_Y,
+  })),
   { id: 'lower_pit_w', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: PIT.x0, z0: PIT.z0, z1: PIT.z1 }, top: DECK_LOWER_Y },
-  { id: 'lower_ship', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: SHIP_STRIP_X1, z0: PIT.z1, z1: ABYSS_EDGE_Z }, top: DECK_LOWER_Y },
+  { id: 'ship_hill', rect: { x0: -CORRIDOR_MAX_HALF_X, x1: SHIP_STRIP_X1, z0: SHIP_HILL_Z0, z1: ABYSS_EDGE_Z }, top: SHIP_HILL_Y },
 ];
 
 /* ── 절벽 1 (사선) ───────────────────────────────────────────────────────── */
@@ -523,7 +646,7 @@ function cp(id: TutorialCheckpointId, x: number, y: number, z: number, z0: numbe
  * 무기를 잃고 부활한 사람이 자기 시체까지 걸어갈 수 있어야 하기 때문이다. 실제 거리는 아래 `ENEMIES` 주석에
  * 계산해 뒀고, 가장 빡빡한 곳은 **17.46 m** (`android` → 왼쪽 안드로이드) 다. 좌표를 고치면 그 표를 다시 계산한다.
  * **단 하나의 예외 — `ship`** (2026-09-15 3차, 사용자 결정): 마지막 안드로이드 둘의 감지 반경은 함선 램프 · 화물칸까지 닿는
- * `FINAL_ANDROID_SENSE_M`(22 m)이고 `ship` 부활 자리(−12.5, −152)는 거기서 16.08 · 17.70 m 라 **안**이다. 함선 곁 어디에 띠를
+ * `FINAL_ANDROID_SENSE_M`(22 m)이고 `ship` 부활 자리(−12.5, −154 — 2026-09-16 언덕 꼭대기)는 거기서 17.07 · 18.61 m 라 **안**이다. 함선 곁 어디에 띠를
  * 두어도 22 m 밖은 없다 (방벽 왼쪽 틈 (−12.2, −140) 조차 14.83 m). 그 구간의 보장은 대신 ① 의도된 길이 수류탄으로 둘을 먼저
  * 처치하는 것이고(`grenade` 단계), ② 철조망 가까운 쪽에서는 적의 사선이 열리지 않는다(`BARRIER` 검산)는 것이다 — `docs/TODO.md` 참고 절.
  *
@@ -552,7 +675,10 @@ export const CHECKPOINTS: readonly CheckpointSpec[] = [
   //    이 체크포인트는 `CHECKPOINT_STEP.ship = 'extract'` 라, 웅덩이에 뛰어든 것만으로 튜토리얼이 수류탄 단계를 건너뛰면 안 된다.
   //    띠의 오른쪽 끝은 `W` 가 아니라 **함선 띠의 끝**(`SHIP_STRIP_X1`)이다 — 그 오른쪽은 벽이 아니라 절벽 구멍(`cut_s`)이라,
   //    떨어지는 몸(볼륨 y 는 −13 까지 열려 있다)이 띠를 지나며 체크포인트를 얻으면 안 된다.
-  cp('ship', -12.5, DECK_LOWER_Y, -152, -150, -158, SHIP_STRIP_X1),
+  // 2026-09-16 — 함선 언덕: 부활 자리를 **언덕 꼭대기**(z −154, y `SHIP_HILL_Y`)로 옮겼다. 옛 −152 는 오르막(−149 … −153.5) 한가운데라
+  //    경사면 위에 되살아난다. 띠(−150 … −158)는 그대로 — 오르막 중턱에서 켜지고, 볼륨 y(−13 … −4)가 언덕을 담는다.
+  //    x −12.5 · z −154 는 램프 발끝의 왼쪽 모서리(−10.64, −155.08)에서 2.1 m 떨어져 있다.
+  cp('ship', -12.5, SHIP_HILL_Y, SHIP_HILL_Z0 - 0.5, -150, -158, SHIP_STRIP_X1),
 ];
 
 /* ── 낙하 규칙 ───────────────────────────────────────────────────────────── */
@@ -629,9 +755,10 @@ export const FALL_RULES: readonly FallRuleVolume[] = [
  *     살 두 겹이라 콜라이더 면과 살이 5 cm 차이다.
  */
 export const BARRIER = {
-  near: { x: 17, z: -116 },
-  far: { x: -8.5, z: -140 },
-  halfT: 0.6,
+  // 끝점 · 두께는 파일 위쪽의 `BARRIER_NEAR_END` · `BARRIER_FAR_END` · `BARRIER_HALF_T` (철조망 계단이 초기화 순서상 먼저 읽는다)
+  near: BARRIER_NEAR_END,
+  far: BARRIER_FAR_END,
+  halfT: BARRIER_HALF_T,
   /**
    * **그려지는** 철조망의 높이. 2026-09-15 2차 사용자 결정으로 2.7 → **1.35**(절반) — 넘겨 던지기가 이 구간의 요점인데
    * 2.7 은 수평 투척(꼭대기 1.855)으로 못 넘었다. 막는 일은 `blockHeight` 가 대신한다.
@@ -643,8 +770,9 @@ export const BARRIER = {
    */
   blockHeight: 2.7,
   /**
-   * 콘크리트 토막의 높이. 3.2 보다 낮아야 한다 — 이륙 연출 카메라(`extraction/Cinematic` 의 `CAM_OFFSET` y 3.2)가
-   * 방벽 `far` 끝 3 m 옆(아래 `SHIP_POS` 검산)에서 시작하므로, 더 높으면 카메라가 콘크리트 속에서 출발한다.
+   * 콘크리트 토막의 높이. 이륙 연출 카메라(`extraction/Cinematic` 의 `CAM_OFFSET` y 3.2 — **함선 바닥 기준**)보다 낮아야 한다: 카메라가
+   * 방벽 `far` 끝 3 m 옆(아래 `SHIP_POS` 검산)에서 시작하므로, 더 높으면 카메라가 콘크리트 속에서 출발한다. 2026-09-16 함선이 언덕
+   * (`SHIP_HILL_RISE` 0.9) 위에 서면서 카메라는 데크 +4.1 에서 출발한다 — 한계가 3.2 → **4.1**, 지금 여유 1.1 m.
    */
   solidHeight: 3.0,
   /** `far` 끝 콘크리트 토막의 길이. */
@@ -685,8 +813,9 @@ export function barrierLocal(x: number, z: number): { along: number; depth: numb
 /* ── 안드로이드 웅덩이의 오르막 (마지막 구간) ────────────────────────────── */
 
 /**
- * 함선 쪽(−X) 면을 채우는 **오르막**의 수평 길이. 동쪽 · 남쪽은 벽(`PIT_WALLS`), 북쪽(철조망 쪽)과 오르막 남쪽 턱(x −2 … 1.5)은
- * 0.9 m 턱(수직)이다.
+ * 함선 쪽(−X) 면을 채우는 **오르막**의 수평 길이. 동쪽 · 남쪽은 벽(`PIT_WALLS`), 북쪽(철조망 쪽 — 2026-09-16 부터 턱 `pit_rim_n`, 그 너머
+ * 절벽)과 오르막 남쪽 턱(x −2 … 1.5 — 그 너머는 함선 언덕 오르막 `SHIP_SLOPE`)은 0.9 m 턱(수직)이다. 그래서 웅덩이는 **섬**이고 들어가는
+ * 길은 이 오르막 하나다 (사람 · 적은 0.9 m 턱을 올라설 수 있지만 북쪽 턱 너머는 절벽이다).
  * 경사 atan(0.9 / 2.5) = **19.8°** — `PlayerController` 의 `STEEP_COS`(50°) 안이고, 애초에 경사 콜라이더(`Obstacle.ramp`)라
  * 지형 경사 판정을 타지도 않는다 (`CLAUDE.md` 「지형 경사 판정은 발이 지형 위일 때만」).
  *
@@ -713,6 +842,17 @@ export function pitSurfaceY(x: number, z: number): number | null {
   return DECK_LOWER_Y - PIT_DEPTH * ((x - PIT.x0) / PIT_RAMP_RUN);
 }
 
+/**
+ * 그 자리의 **함선 언덕 표면 높이** (오르막 `SHIP_SLOPE` 또는 꼭대기 `ship_hill`), 언덕 밖이면 null (2026-09-16). 꾸밈이 부스러기를
+ * 언덕 위에 놓을 때 · `parts/Ground` 가 오르막 쐐기를 그릴 때 쓴다 (`pitSurfaceY` 와 같은 이유 — 데크 높이로 놓으면 0.9 m 묻힌다).
+ * 그림의 경사다 (4.5 m 에 0.9) — 경사 콜라이더는 언덕 밑으로 0.08 m 더 파고들어 최대 1.6 cm 낮다 (`Ground.buildShipSlope` ④).
+ */
+export function shipHillSurfaceY(x: number, z: number): number | null {
+  if (x < -CORRIDOR_MAX_HALF_X || x > SHIP_STRIP_X1 || z > SHIP_SLOPE.z0 || z < ABYSS_EDGE_Z) return null;
+  if (z <= SHIP_HILL_Z0) return SHIP_HILL_Y;
+  return DECK_LOWER_Y + SHIP_HILL_RISE * ((SHIP_SLOPE.z0 - z) / SHIP_SLOPE_RUN);
+}
+
 /* ── 버려진 함선 (= 진짜 탈출선을 착륙 상태로 세운다) ────────────────────── */
 
 /**
@@ -727,17 +867,21 @@ export function pitSurfaceY(x: number, z: number): number | null {
  * **검산** (월드, `extraction/Hull` 외피 + 램프 + 나셀 · 날개 · 꼬리를 0.25 m 간격으로 옮겨 쟀다):
  *   - 발자국 x −13.13 … −2.76 · z −167.80 … −154.50 → 왼쪽 벽(−15.4, `WALL_PLAIN_FROM_Z`)까지 **2.27 m**, 끝없는 절벽
  *     가장자리(−172)까지 **4.20 m**, 방벽까지 **14.05 m**, 함선 띠의 오른쪽 끝(`SHIP_STRIP_X1` 1.5, 그 너머는 절벽 구멍)까지 **4.26 m**.
- *     2026-09-15 3차: 함선 띠 `lower_ship`(x −15.4 … 1.5 · z −149 … −172)이 발자국을 통째로 담는다 — 콜라이더 · 자리 · yaw 는 안 바뀌었다.
+ *     2026-09-16: 함선 언덕 `ship_hill`(x −15.4 … 1.5 · z −153.5 … −172)이 발자국을 통째로 담는다 — 램프 발끝(z −154.52 … −155.08)은
+ *     오르막 끝에서 1.0 m 뒤다. x · z · yaw 는 2026-09-15 그대로다.
+ *   - **y = `SHIP_HILL_Y`** (2026-09-16): 뒷문 램프는 함선 바닥 높이에 **평평하게** 펼쳐지므로(`extraction/Ship` 의 `rampAngle` 0) 그 밑의
+ *     언덕 윗면과 같아야 한다 — 낮으면 램프 끝에 턱이 생기고, 높으면 램프를 뚫고 땅이 올라온다. 외피 콜라이더의 바닥(`extraction/Hull` 의
+ *     `ship.getGroundY()` = 이 y)도, 화물칸 바닥 그림의 여유(`Ship.GROUND_DRAW_LIFT_MAX` — 언덕 윗면 판도 `TOP_LIFT` 0.02)도 그대로 맞는다.
  *   - 램프 발치(로컬 0, 3.25) = (−9.06, −154.80). 틈 한가운데 (−12.20, −140) 에서 거기로 걷는 방향이 램프 축과 **2.0°** 어긋난다.
  *     그 길(x ≈ −9 … −12)은 웅덩이 오르막 위 끝(x −2)에서 6.5 m 이상 떨어져 있다.
  *   - 이륙 궤적(스풀 1.6 s + 상승 `6a² + 2a` · 전진 `12(a − 0.8)²` · 기수 들기 0.35 rad)을 0.02 s 간격으로 따라가며 모든 표본점을
  *     옆 절벽 벽 조각(안쪽 면 · 윗면)과 비교했다 — **닿는 곳이 없다** (벽 윗면을 넘기 전의 전진은 오른쪽 앞으로 18.5 m 뿐이다).
  *     웅덩이 벽(윗면 데크 +2.5 = −7.5)은 발자국에서 x 로 4.26 m 이상 오른쪽이라 궤적과 무관하다.
- *   - 이륙 연출 카메라의 첫 자리(로컬 7.5, 3.2, 17) = (−4.07, **−6.8**, −139.96): 방벽 건너편 3.0 m · `far` 끝에서 3.3 m 라
- *     콘크리트 토막(윗면 −7.0) 위이고, 웅덩이(`PIT`, 앞 끝 −140.5)와는 z 로 0.54 m 밖이며 그 면(북쪽)에는 벽이 없다.
- *     애초에 데크보다 3.2 m **위**라 파인 자리와 겹칠 수 없다.
+ *   - 이륙 연출 카메라의 첫 자리(로컬 7.5, 3.2, 17) = (−4.07, **−5.9**, −139.96) (2026-09-16 언덕 +0.9): 방벽 건너편 3.0 m · `far` 끝에서
+ *     3.3 m 라 콘크리트 토막(윗면 −7.0)보다 **1.1 m** 위이고, 발밑은 철조망 계단의 절벽 구멍(칸 x −4.5 … −3.5)이다 — 떠 있는 카메라라
+ *     바닥이 필요 없다. 웅덩이(`PIT`, x ≥ −2)와는 x 로 2.07 m 밖이다.
  */
-export const SHIP_POS = new THREE.Vector3(-8.5, DECK_LOWER_Y, -158);
+export const SHIP_POS = new THREE.Vector3(-8.5, SHIP_HILL_Y, -158);
 export const SHIP_YAW = (-10 * Math.PI) / 180;
 
 /* ── 적 ──────────────────────────────────────────────────────────────────── */
@@ -772,14 +916,18 @@ export const FINAL_ANDROIDS = { cx: (PIT.x0 + PIT.x1) / 2, cz: (PIT.z0 + PIT.z1)
  * 마지막 둘의 감지 반경 (m) — 2026-09-15 3차 사용자 결정 「함선 램프 · 화물칸이 감지 반경 안에 들도록 (~22 m)」. 형상 수치라
  * 여기 있다: 두 대에서 램프 발치(−9.06, −154.8)까지 **14.84 · 16.21**, 화물칸 한가운데(로컬 z −2.5 = (−8.07, −160.46))까지
  * **18.58 · 19.60** 이라 22 는 거기에 2.4 m 여유다. csv 의 `TUTORIAL_ENEMY_SENSE_M`(12)은 나머지 넷이 그대로 쓴다.
- * 이 반경이 `ship` 체크포인트(16.08 · 17.70)와 방벽 왼쪽 틈(14.83 · 16.55)까지 담는다는 것은 `CHECKPOINTS` 주석의 예외.
+ * 이 반경이 `ship` 체크포인트(17.07 · 18.61)와 방벽 왼쪽 틈(14.83 · 16.55)까지 담는다는 것은 `CHECKPOINTS` 주석의 예외.
  * 스위치를 누른 뒤에는 `enemies/Tutorial` 의 이륙 사격 창이 반경을 `TUTORIAL_LIFTOFF_FIRE_RANGE_M` 로 더 넓힌다 (두 번째 깨우기).
  */
 export const FINAL_ANDROID_SENSE_M = 22;
 const FINAL_A1 = { x: FINAL_ANDROIDS.cx - FINAL_ANDROIDS.halfGap, z: FINAL_ANDROIDS.cz };
 const FINAL_A2 = { x: FINAL_ANDROIDS.cx + FINAL_ANDROIDS.halfGap, z: FINAL_ANDROIDS.cz };
-/** 그 자리에서 **함선**(`SHIP_POS`)을 보는 yaw. 적 yaw 의 정면은 `(−sin, −cos)` 이므로 yaw = atan2(−dx, −dz). A1 0.663 (38.0°) · A2 0.742 (42.5°). */
-function yawToShip(x: number, z: number): number { return Math.atan2(-(SHIP_POS.x - x), -(SHIP_POS.z - z)); }
+/**
+ * 그 자리에서 **함선**(`SHIP_POS`)을 보는 yaw. 적 yaw 의 정면은 `(sin yaw, cos yaw)` 다 (`enemies/Enemy.facing` · `ai/Steering`) → yaw = atan2(dx, dz).
+ * A1 **−2.478** (−142.0°, 정면 (−0.616, −0.788)) · A2 **−2.399** (−137.5°, 정면 (−0.676, −0.737)) — 둘 다 왼쪽 앞의 함선을 본다.
+ * ⚠ 2026-09-16 에 바로잡았다: 그 전의 atan2(−dx, −dz) 는 **플레이어** yaw 규약(정면 `(−sin, −cos)`)을 베낀 것이라 둘 다 함선을 등지고 섰다.
+ */
+function yawToShip(x: number, z: number): number { return Math.atan2(SHIP_POS.x - x, SHIP_POS.z - z); }
 
 /**
  * 여섯 마리. 굴림도 웨이브도 순찰도 없다 (`enemies/` 가 `world:ready` 에서 한 번 읽어 그대로 세운다).
@@ -801,7 +949,7 @@ function yawToShip(x: number, z: number): number { return Math.atan2(-(SHIP_POS.
  *   `android`(0,−32)      → (−7,−48) **17.46** · (7,−54) 23.09
  *   `drop`(0,−71)         → (−7,−48) 24.04 · (7,−54) 18.38
  *   `wall`(0,−108)        → A1 36.80 · A2 36.93
- *   `ship`(−12.5,−152)    → A1 16.08 · A2 17.70 — **22 m 안** (유일한 예외, `CHECKPOINTS` 주석)
+ *   `ship`(−12.5,−154)    → A1 17.07 · A2 18.61 — **22 m 안** (유일한 예외, `CHECKPOINTS` 주석. 2026-09-16 부활 자리를 언덕 꼭대기로 2 m 옮겼다)
  * 예외를 빼면 가장 빡빡한 곳이 17.46 m 다.
  *
  * **자기 구간의 벽 안인가** (반폭은 `corridorHalfXAt`):
@@ -815,14 +963,16 @@ function yawToShip(x: number, z: number): number { return Math.atan2(-(SHIP_POS.
  *   - 둘 다 철조망 **건너편 10.5 · 11.8 m** 이고 방벽을 따라 4.3 · 5.6 m 라 가까운 쪽 어디서 봐도 그 앞은 철조망 토막(3.5 … 27.0 m)이다.
  *   - 수류탄은 `PIT` · `PIT_WALLS` 주석: 철조망을 수평으로 넘기면 남쪽 벽(2.5 m)에 부딪혀 밑동으로 떨어지고, **웅덩이 안이면 어디서
  *     터져도** 둘 다 7.2 m 안이라 150 피해 > 체력 140 이다.
- *   - **함선이 보인다** — 눈은 웅덩이 바닥 + 1.44 = **−9.46**, 표적 가슴은 데크 + 1.17 = **−8.83** (`Perception.hasLineOfSight` 는
- *     눈 → 가슴). 웅덩이의 열린 면은 북쪽(철조망 쪽)과 서쪽(오르막, x −2)뿐이고 남쪽 벽은 x 1.5 에서 시작하므로, 함선 쪽 사선은
- *     **서쪽 면이나 오르막 남쪽 턱(x −2 … 1.5, z −149)** 을 지나야 한다. 사선이 그 경계를 지나는 자리:
- *       A1 → 램프 발치 (−9.06, −154.8): x −2 를 z **−148.30** 에서 (남서 모서리 −149 에서 0.70 m 안)
- *       A2 → 램프 발치:                 z −149 를 x **−1.72** 에서 (오르막 위, 그 자리 오르막 높이 −10.10 < 사선 −9.19)
- *       A1 → 화물칸 한가운데 (−8.07, −160.46): z −149 를 x **−0.83** 에서
- *       A2 → 화물칸 한가운데:                z −149 를 x **0.48** 에서 — 남쪽 벽 시작(1.5)까지 **1.02 m**. `SHIP_STRIP_X1` 이 1.5 인 이유.
- *       A1 · A2 → 방벽 왼쪽 틈 (−12.2, −140): x −2 를 z −143.45 · −143.06 에서 → 틈을 돌아 들어오는 순간부터 보인다 (14.83 · 16.55 m).
+ *   - **함선이 보인다** — 눈은 웅덩이 바닥 + 1.44 = **−9.46**, 표적 가슴은 **함선 언덕**(`SHIP_HILL_Y`) + 1.17 = **−7.93** (`Perception.hasLineOfSight`
+ *     는 눈 → 가슴). 웅덩이에서 함선 쪽으로 열린 면은 서쪽(오르막, x −2)과 오르막 남쪽 턱(x −2 … 1.5, z −149)뿐이다 (북쪽 턱 너머는 절벽,
+ *     동쪽 · 남쪽은 벽). 사선이 그 경계를 지나는 자리 / 그 뒤 **땅에서 가장 가까워지는 곳** — 2026-09-16 언덕 +0.9 로 다시 쟀다 (0.001 간격 표본,
+ *     웅덩이 오르막 · 턱 · 벽 · 언덕 오르막 · 언덕 모서리를 전부 넣었다). 표적이 0.9 올라가 사선이 가팔라졌을 뿐 막히는 곳이 없다:
+ *       A1 → 램프 발치 (−9.06, −154.8):     x −2 를 z **−148.29** · 사선 −8.92 / 가장 가까운 땅: 언덕 모서리 (−7.65, −153.5) 위 **0.97 m**
+ *       A2 → 램프 발치:                     z −149 를 x **−1.73** · 사선 −8.81 (웅덩이 오르막 −10.10 위) / 언덕 모서리 (−7.42, −153.5) 위 0.97 m
+ *       A1 → 화물칸 한가운데 (−8.07, −160.46): z −149 를 x **−0.83** · 사선 −9.05 / 언덕 모서리 (−3.67, −153.5) 위 **0.49 m**
+ *       A2 → 화물칸 한가운데:                z −149 를 x **0.48** · 사선 −9.05 — 남쪽 벽 시작(1.5)까지 **1.02 m** (`SHIP_STRIP_X1` 이 1.5 인 이유) / 언덕 모서리 위 0.49 m
+ *       A1 · A2 → 방벽 왼쪽 틈 (−12.2, −140, 가슴 −8.83): x −2 를 z −143.45 · −143.06 에서 → 틈을 돌아 들어오는 순간부터 보인다 (14.83 · 16.55 m).
+ *       A1 · A2 → `ship` 부활 자리 (−12.5, −154): 17.07 · 18.61 m, 땅 위 최소 0.95 · 1.08 m.
  *     화물칸 입구 폭(±1.6, 로컬 z 0.6) 검산은 2차 그대로다: 램프 안쪽 0.8 m 에 선 몸까지는 곧게 보이고 화물칸 한가운데는 외피 옆판이
  *     가린다. 외피 콜라이더는 이륙 스풀(1.6 s) 뒤에 걷히므로(`extraction/Hull`) 그 뒤로는 떠오르는 함선 속 몸까지 사선이 열린다.
  *   - **깨우기 둘** (사용자 결정 — 둘 다): ① 감지 반경 `FINAL_ANDROID_SENSE_M` 22 m 가 램프 · 화물칸을 담는다, ② 스위치를 누르면
@@ -863,8 +1013,8 @@ export interface CorpseSpec {
  * ③ (9, −117) 은 2026-09-15 사선 방벽이 들어선 뒤에도 **자리를 옮기지 않았다**: 방벽 좌표로 along 28.5 · depth **+4.41**
  * (가까운 쪽) — 오른쪽 끝 콘크리트 토막 앞 3.8 m 라 방벽 속도 건너편도 아니고, 벽을 따라 걷기 시작하는 길목이다.
  * 철조망 건너편 안드로이드 둘(1.85 · 3.65, −144.75)에서 28.66 · 28.26 m 라 그 둘의 감지 반경(`FINAL_ANDROID_SENSE_M` 22 m) 밖이다.
- * 2026-09-15 3차 — 웅덩이(`PIT`, x −2 … 7.5 · z −140.5 … −149)와는 **z 로 23.5 m**, 오른쪽 절벽 구멍의 첫 계단(`lower_step1`,
- * z −126 부터)과는 **9 m** 떨어져 있어 그대로 평지다.
+ * 2026-09-15 3차 — 웅덩이(`PIT`, x −2 … 7.5 · z −140.5 … −149)와는 **z 로 23.5 m**, 2026-09-16 철조망 계단 칸 [8.5, 9.5] 의 가장자리
+ * (z −125.17)와는 **8.2 m** 떨어져 있어 그대로 평지다.
  */
 export const CORPSES: readonly CorpseSpec[] = [
   {
@@ -961,6 +1111,32 @@ export function placed(geo: THREE.BufferGeometry, x: number, y: number, z: numbe
 
 export function box(w: number, h: number, d: number, x: number, y: number, z: number, ry = 0): THREE.BufferGeometry {
   return placed(new THREE.BoxGeometry(w, h, d), x, y, z, ry);
+}
+
+/**
+ * 옛 아래 데크 사각형(x ±`CORRIDOR_MAX_HALF_X` · z `CLIFF2_EDGE_Z` … `ABYSS_EDGE_Z`)을 아래 조각(`DECKS` 중 윗면 < `DECK_UPPER_Y`) · `SHIP_SLOPE` ·
+ * `PIT` · `PIT_WALLS` · `ABYSS_CUTS` 가 **정확히 한 번씩** 덮는지 표본으로 잰다 (2026-09-16 — 철조망 계단이 코드로 생기면서 손 검산을 대신한다).
+ * 틀린 자리를 최대 8 개 돌려준다 (빈 배열 = 맞다). 표본 간격 0.25 m 는 가장 좁은 조각(칸 [8.1, 8.5] 0.4 m · 턱 · 벽 0.6 m)보다 좁고,
+ * 어긋남 0.113 은 경계 값(0.5 · 0.1 단위 · 계단 가장자리)과 겹치지 않아 경계 위의 점을 두 번 세지 않는다. 생성 때 한 번 — 수 ms.
+ */
+export function lowerTilingErrors(): string[] {
+  const rects: Array<{ id: string; r: Rect }> = [];
+  for (const d of DECKS) if (d.top < DECK_UPPER_Y) rects.push({ id: d.id, r: d.rect });
+  for (const w of PIT_WALLS) rects.push({ id: w.id, r: w.rect });
+  rects.push({ id: 'pit', r: PIT }, { id: 'ship_slope', r: SHIP_SLOPE });
+  ABYSS_CUTS.forEach((c, i) => rects.push({ id: `cut_${i}`, r: c }));
+  const out: string[] = [];
+  const STEP = 0.25, OFF = 0.113;
+  for (let x = -CORRIDOR_MAX_HALF_X + OFF; x < CORRIDOR_MAX_HALF_X; x += STEP) {
+    for (let z = CLIFF2_EDGE_Z - OFF; z > ABYSS_EDGE_Z; z -= STEP) {
+      let n = 0, first = '';
+      for (const { id, r } of rects) if (rectContains(r, x, z)) { if (n === 0) first = id; n++; }
+      if (n === 1) continue;
+      out.push(`(${x.toFixed(2)}, ${z.toFixed(2)}) ${n === 0 ? '빈틈 (바닥도 구멍도 아니다)' : `겹침 ×${n} (${first} …)`}`);
+      if (out.length >= 8) return out;
+    }
+  }
+  return out;
 }
 
 /** `rect` 을 밑면 `y0` · 윗면 `top` 의 상자 지오메트리로. */

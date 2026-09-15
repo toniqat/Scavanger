@@ -7,8 +7,10 @@
  *      (`ui/cook/CookScreen`)를 연 뒤 조리대 화면을 닫고 `housing:cookSession {active:true}` — hub 가 조리대 앞 자세 · 고정 카메라를
  *      건다 (2026-09-14, 사용자 결정: **자세가 거절돼도 미니게임은 그대로 진행한다** — 연출만 없다).
  *   ③ 단계마다 「직접 하기 / 자동」 → 판정(`parts/CookGames`) → 단계 점수. 마지막 단계가 끝나면 `completeCookRun` —
- *      요리 점수(평균) → 품질 → `ctx.inventory.completeCook(recipeId, 조리대 레벨, 품질)` → `housing:cookResult`.
- *      **재료는 여기서만 빠진다** — 중간에 닫으면(Esc · Tab · 페이즈 변경 · 자세 리셋) 아무것도 소모되지 않는다.
+ *      요리 점수(평균) → 품질 → `ctx.inventory.consumeCookInputs(recipeId, 조리대 레벨)` → **식탁에 접시**(`parts/Dining.setPlate`) → `housing:cookResult`.
+ *      **재료는 여기서만 빠진다** — 중간에 닫으면(Esc · Tab · 페이즈 변경 · 자세 리셋) 아무것도 소모되지 않고 옛 접시도 그대로다.
+ *      2026-09-16 (접시 모델, 사용자 결정): 요리는 아이템이 아니다 — 끝난 요리는 내 함선 식탁의 접시 하나가 되고 옛 접시를 바꾼다.
+ *      식탁 가구가 배치돼 있지 않으면 조리대를 쓸 수 없다 (`DINING_TABLE_MISSING_REASON`). 바꾸기 경고는 화면의 몫이다 (`ui/cook/PlateAsk`).
  *   ④ 오버레이가 닫히면 `endCook` — `housing:cookSession {active:false, completed}` (`completed` = 이 세션에서 요리가 하나라도 나왔다).
  *
  * 품질 · 보너스 규칙은 하나도 여기 없다 — `shared/cooking` 의 함수(`cookScoreOf` · `mealQualityForScore`)와 inventory · progression 의 몫이다.
@@ -22,6 +24,8 @@ import {
   COOK_SKILL_XP, COOK_STEPS, LIBRARY_COOK_TARGETS, LIBRARY_SERIES_MAP, cookAutoScore, cookGamesOfAppliance, cookScoreOf, cookStepsOf,
   mealQualityForScore,
 } from '@/shared';
+import { DINING_TABLE_MISSING_REASON } from '@/shared';     // 2026-09-16 (접시 모델): 식탁이 없으면 조리대를 쓸 수 없다
+import { hasDiningTable, setPlate } from './Dining';
 import type { HousingSystem } from '../HousingSystem';
 import type { CookScreenKind } from '../ui/cook/CookScreen';
 import { createCookGame } from './CookGames';
@@ -179,6 +183,7 @@ function blockCore(sys: HousingSystem, uid: string, recipeId: string, ignoreActi
   if (!bench) return '조리대가 아닙니다';
   if (ctx.isRaidActive() || !ctx.isHubPhase()) return '함선에서만 요리할 수 있습니다';
   if (ctx.hub && (ctx.hub.ship !== 'personal' || ctx.hub.visitReadOnly)) return '내 함선에서만 요리할 수 있습니다';
+  if (!hasDiningTable(sys)) return DINING_TABLE_MISSING_REASON;   // 2026-09-16: 끝난 요리가 놓일 식탁이 있어야 한다
   if (!ignoreActive && sys.cookState) return '이미 조리 중입니다';
   const recipe = cookRecipeOf(sys, recipeId);
   if (!recipe) return '요리 레시피가 아닙니다';
@@ -278,8 +283,9 @@ export function recordCookStep(sys: HousingSystem, index: number, score: number,
 }
 
 /**
- * 이번 판을 마무리한다 — 요리 점수 · 품질을 내고 inventory 에 재료 소모 + 요리 1개를 맡긴다. 한 판에 한 번만.
- * inventory 에 `completeCook` 이 없거나 거절하면 결과의 `reason` 에 한국어 사유가 실린다 (아무것도 빠지지 않는다).
+ * 이번 판을 마무리한다 — 요리 점수 · 품질을 내고 inventory 에 재료 소모를 맡긴 뒤 **식탁에 접시**를 놓는다. 한 판에 한 번만.
+ * inventory 에 `consumeCookInputs` 가 없거나 거절하면(또는 식탁이 사라졌으면) 결과의 `reason` 에 한국어 사유가 실린다 —
+ * 그때는 아무것도 빠지지 않고 옛 접시도 그대로다.
  */
 export function completeCookRun(sys: HousingSystem): CookResult | null {
   const st = sys.cookState;
@@ -291,24 +297,27 @@ export function completeCookRun(sys: HousingSystem): CookResult | null {
   const stepAuto = steps.map((_, i) => st.stepAuto[i] === true);
   const score = cookScoreOf(stepScores);
   const quality = mealQualityForScore(score);
-  let itemUid: string | null = null;
-  let landed: 'bag' | 'stash' | null = null;
   let reason: string | null = null;
+  let replaced: CookResult['replaced'] = null;
   const inv = sys.ctx.inventory;
-  if (inv && typeof inv.completeCook === 'function') {
+  if (!hasDiningTable(sys)) {
+    reason = DINING_TABLE_MISSING_REASON;                    // 식탁이 없으면 요리가 놓일 곳이 없다 — 재료를 쓰지 않는다
+  } else if (inv && typeof inv.consumeCookInputs === 'function') {
     try {
-      const out = inv.completeCook(recipeId, st.benchLevel, quality);
-      if (out && out.item) { itemUid = out.item.uid; landed = out.landed; }
-      else reason = out?.reason || '요리를 완성하지 못했습니다';
+      reason = inv.consumeCookInputs(recipeId, st.benchLevel);
     } catch (e) {
-      console.error('[housing] inventory.completeCook threw', e);
+      console.error('[housing] inventory.consumeCookInputs threw', e);
       reason = '요리를 완성하지 못했습니다';
     }
   } else {
-    console.warn('[housing] inventory.completeCook is not available — 요리를 만들지 못했다');
+    console.warn('[housing] inventory.consumeCookInputs is not available — 요리를 만들지 못했다');
     reason = '요리를 완성할 수 없습니다 — 인벤토리가 아직 조리를 지원하지 않습니다';
   }
-  const result: CookResult = { recipeId, mealDefId, stepScores, stepAuto, score, quality, itemUid, landed: reason ? null : landed, reason };
+  if (!reason) {
+    const before = setPlate(sys, mealDefId, quality, 'cooked');   // 재료가 빠진 뒤에만 — 옛 접시는 여기서 바뀐다
+    replaced = before ? { mealDefId: before.mealDefId, quality: before.quality } : null;
+  }
+  const result: CookResult = { recipeId, mealDefId, stepScores, stepAuto, score, quality, itemUid: null, landed: reason ? null : 'table', reason, replaced };
   st.result = result;
   if (!reason) {
     st.anyCompleted = true;
@@ -341,8 +350,10 @@ export function openCookStation(sys: HousingSystem, uid: string): void {
   if (!cookBenchAt(sys, uid)) reason = '조리대가 아닙니다';
   else if (ctx.isRaidActive() || !ctx.isHubPhase()) reason = '함선에서만 요리할 수 있습니다';
   else if (ctx.hub && (ctx.hub.ship !== 'personal' || ctx.hub.visitReadOnly)) reason = '내 함선에서만 요리할 수 있습니다';
+  // 2026-09-16 (접시 모델, 사용자 결정): 식탁 가구가 없으면 조리대를 쓸 수 없다 — 자동 조리 가구가 여는 길도 여기를 지난다
+  else if (!hasDiningTable(sys)) reason = `${DINING_TABLE_MISSING_REASON} — 주방에 식탁을 놓아야 요리할 수 있습니다`;
   else if (sys.cookState) reason = '이미 조리 중입니다';
-  if (reason) { sys.notify(reason, 'warning'); return; }
+  if (reason) { sys.notify(reason, 'warning'); sys.ctx.bus.emit('audio:play', { id: 'ui_deny' }); return; }
   sys.exitHousingMode();
   sys.closeMenus(false);
   sys.cookStation.openStation(uid);
@@ -391,6 +402,10 @@ export interface CookDebug {
   bonus(game: CookGame): CookStepBonus;
   /** 2026-09-13 (H3): 진행 중인 판의 원점수 (보너스 전), 세션이 없으면 []. */
   readonly stepRaw: readonly number[];
+  /** 2026-09-16 (접시 모델): 「식탁의 요리를 바꿉니다」 경고가 떠 있나 (`ui/cook/PlateAsk`). */
+  readonly replaceAsk: boolean;
+  /** 2026-09-16: 떠 있는 바꾸기 경고를 홀드 없이 확정한다 (조리 시작 · 다시 만들기가 이어진다). 없었으면 false. */
+  confirmReplace(): boolean;
 }
 
 export function cookDebug(sys: HousingSystem): CookDebug {
@@ -420,5 +435,12 @@ export function cookDebug(sys: HousingSystem): CookDebug {
     })),
     bonus: (game: CookGame) => cookStepBonus(sys, game),
     get stepRaw() { return sys.cookState ? [...sys.cookState.stepRaw] : []; },
+    get replaceAsk() { return !!sys.plateAsk?.handle.isOpen; },
+    confirmReplace: () => {
+      const a = sys.plateAsk;
+      if (!a || !a.handle.isOpen) return false;
+      a.confirm();
+      return true;
+    },
   };
 }

@@ -57,7 +57,9 @@ export function peekContainerItems(sys: InventorySystem, containerId: string, ti
   if (cur) return cur;
   if (typeof tier !== 'number' || !Number.isFinite(tier) || tier < 1) return null;
   const rng = crateLootRandom(sys.missionSeed, containerId);   // `ContainerStore.getOrCreate` 와 같은 `shared/lootRolls` 식
-  return simulateFill(sys, containerId, sys.loot.rollCrateOn(tier, rng, sys.ctx.missionPlanet), CONTAINER_COLS, CONTAINER_ROWS);
+  // 2026-09-16: 굴림 규칙(잠긴 방)도 여는 경로(`InventorySystem.openContainer`)와 같은 `WorldRef.crateLootOpts`
+  const items = sys.loot.rollCrateOn(tier, rng, sys.ctx.missionPlanet, sys.ctx.world?.crateLootOpts?.(containerId));
+  return simulateFill(sys, containerId, items, CONTAINER_COLS, CONTAINER_ROWS);
 }
 
 /** 내용물을 호출자가 대는 컨테이너 (시체 · 열쇠가 든 구조물 컨테이너). */

@@ -283,7 +283,7 @@ export class RaidResume implements RaidResumeRef {
   }
 
   /**
-   * 사망으로 끝난 레이드의 정산 (`parts/Death.awardMissionXp` — 처치 × 사망 배율 + 시간, 계약 정산, 레이드 횟수). 결과 화면은
+   * 사망으로 끝난 레이드의 정산 (`parts/Death.awardMissionXp` — 처치 경험치 `killXp` × 사망 배율, 계약 정산, 레이드 횟수). 결과 화면은
    * 없다 (여기는 타이틀이다). 준비물도 레이드의 끝에 비운다 (A-13).
    */
   private settle(stats: MissionStats | null | undefined, missionTime: number): void {

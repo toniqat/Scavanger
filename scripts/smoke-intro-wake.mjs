@@ -12,6 +12,7 @@
 //      음수로 넘어간 프레임에 `endIntroWake` 가 「연출 중이 아니다」로 읽고 돌아가 카메라가 옆자리에 영영 남았다.
 //   ④ 카메라 복귀가 **이어진다** — 옆 카메라는 백뷰에서 멀리 있고, 마지막 연출 프레임과 첫 평소 프레임의 카메라가 붙어 있다.
 //   ⑤ 연출 동안 나침반 opacity 0 · Tab 이 가방을 안 연다 → 끝나면 나침반이 0 과 1 사이를 지나 1 이 되고 Tab 이 연다.
+//      2026-09-16: 크로스헤어(`.hud.gameplay .reticle`)도 같다 — 연출 프레임 내내 0, 끝나면 중간값을 지나 1 (`TUTORIAL_RETICLE_FADE_S`).
 //   ⑥ 튜토리얼 레이드 내내 좌측 상단 시계 · 상단 중앙 탈출 타이머가 없다(`display: none`).
 //
 // Usage: node scripts/smoke-intro-wake.mjs [http://localhost:5273/] [shotDir]   (needs `npm run dev`)
@@ -141,11 +142,13 @@ try {
     const w = window.__wk = { frames: [], done: null };
     ctx.bus.on('player:introWakeDone', () => { w.done = ctx.time; });
     const compass = document.querySelector('.compass');
+    const reticle = document.querySelector('.hud.gameplay .reticle');
     (function tick() {
       const c = ctx.camera.position, r = pl.rig?.position;
       w.frames.push({
         t: ctx.time, waking: !!ctx.player?.introWaking, cam: [c.x, c.y, c.z], rig: r ? [r.x, r.y, r.z] : null,
         fade: hud.screenFadeShown, comp: compass ? Number(getComputedStyle(compass).opacity) : -1,
+        ret: reticle ? Number(getComputedStyle(reticle).opacity) : -1,
       });
       if (w.frames.length > 5000) w.frames.shift();
       requestAnimationFrame(tick);
@@ -163,12 +166,14 @@ try {
       waking: !!ctx.player.introWaking, step: ctx.tutorial.step,
       objHidden: hud.objective.hiddenForTutorial, clock: disp('.objective'), timer: disp('.countdown'),
       compass: Number(getComputedStyle(document.querySelector('.compass')).opacity),
+      reticle: Number(getComputedStyle(document.querySelector('.hud.gameplay .reticle')).opacity),
     };
   });
   ok(during.waking && during.step === 'wake', '연출 중 · 튜토리얼 wake 단계', JSON.stringify(during));
   ok(during.objHidden && during.clock === 'none', '좌측 상단 시계가 없다', `(${during.clock})`);
   ok(during.timer === 'none', '상단 중앙 탈출 타이머가 없다', `(${during.timer})`);
   ok(during.compass === 0, '연출 중 나침반 opacity 0', `(${during.compass})`);
+  ok(during.reticle === 0, '연출 중 크로스헤어 opacity 0', `(${during.reticle})`);
   await shot(page, 'wake-fading');
 
   const tabDuring = await page.evaluate(async () => {
@@ -197,6 +202,9 @@ try {
       jump: d3(a?.cam, b?.cam), settled: d3(c?.cam, c?.rig), maxSide,
       compMid: post.some((x) => x.comp > 0.02 && x.comp < 0.98), compEnd: f[f.length - 1].comp,
       compWakeZero: f.filter((x) => x.waking).every((x) => x.comp === 0),
+      retWakeZero: f.filter((x) => x.waking).every((x) => x.ret === 0),
+      retMid: post.some((x) => x.ret > 0.02 && x.ret < 0.98), retEnd: f[f.length - 1].ret,
+      retFirstPost: post[0]?.ret ?? null, reveal: g.getSystem('hud').reticle.revealAmount,
     };
   });
   ok(after.fadeMid, '검은 페이드가 중간값을 지난다 (코드가 칠한다)');
@@ -209,6 +217,11 @@ try {
   ok(after.compWakeZero, '연출 프레임 내내 나침반이 보이지 않았다');
   ok(after.compMid, '나침반이 서서히 나타난다 (중간값)');
   ok(after.compEnd === 1, '나침반이 다 나타났다', `(${after.compEnd})`);
+  // 2026-09-16 (사용자 결정): 크로스헤어는 카메라가 평소 시점으로 돌아올 때까지 없고, 그 뒤 서서히 나타난다
+  ok(after.retWakeZero, '연출 프레임 내내 크로스헤어가 보이지 않았다');
+  ok(after.retFirstPost !== null && after.retFirstPost < 0.5, '연출이 끝난 첫 프레임에 크로스헤어가 한 번에 켜지지 않는다', `(${after.retFirstPost})`);
+  ok(after.retMid, '크로스헤어가 서서히 나타난다 (중간값)');
+  ok(after.retEnd === 1 && after.reveal === 1, '크로스헤어가 다 나타났다', JSON.stringify({ ret: after.retEnd, reveal: after.reveal }));
   await shot(page, 'wake-done');
 
   const tabAfter = await page.evaluate(async () => {

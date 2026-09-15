@@ -14,6 +14,7 @@ import {
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
   type SurfaceMaterial,
+  BUG_STEP_CROWD_WINDOW_S, BUG_STEP_GIANT_RANGE_M, BUG_STEP_RANGE_M,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from './Enemy';
@@ -191,12 +192,24 @@ export const queryBuf: Enemy[] = [];
  * 한 걸음의 목소리 — id 는 밟은 재질이 정한다(`footstep_<SurfaceMaterial>`), 여기는 피치(무게)와 밑값만.
  * `layer` (2026-09-13) = 재질 발소리 위에 같은 크기로 겹치는 소리 id (안드로이드의 서보음 `android_step`).
  */
-export interface EnemyStepVoice { readonly pitch: number; readonly gain: number; readonly layer?: string }
+export interface EnemyStepVoice {
+  readonly pitch: number; readonly gain: number; readonly layer?: string;
+  /**
+   * 2026-09-16 (벌레 발소리): 있으면 재질 발소리 대신 **이 id** 를 낸다 — 벌레 전용 `bug_step_skitter` / `_heavy` / `_giant`.
+   * 사람 발소리와 id 를 나누지 않아 audio/ 가 벌레 발소리만 한 무리로 상한을 걸 수 있다. `range` = 방출 게이트(m, audio/ 곡선과 같은 csv 값).
+   */
+  readonly id?: string; readonly range?: number;
+}
+/* 2026-09-16: 벌레는 몸집별 전용 발소리 — 작은 벌레 = 갑각 톡톡, 큰 벌레 = 쿵, 베헤모스 = 땅울림 (조금 더 멀리). 튜토리얼 벌레는 `baseTypeOf` 로 스캐빈저. */
 const STEP_VOICES: Readonly<Partial<Record<EnemyType, EnemyStepVoice>>> = {
-  warrior: { pitch: 0.82, gain: 0.55 },
-  artillery: { pitch: 0.78, gain: 0.55 },
-  charger: { pitch: 0.58, gain: 0.95 },
-  behemoth: { pitch: 0.4, gain: 1.7 },
+  scavenger: { id: 'bug_step_skitter', pitch: 1.15, gain: 0.45, range: BUG_STEP_RANGE_M },
+  hunter: { id: 'bug_step_skitter', pitch: 1.0, gain: 0.55, range: BUG_STEP_RANGE_M },
+  toxic: { id: 'bug_step_skitter', pitch: 1.08, gain: 0.5, range: BUG_STEP_RANGE_M },
+  spewer: { id: 'bug_step_skitter', pitch: 0.82, gain: 0.6, range: BUG_STEP_RANGE_M },
+  warrior: { id: 'bug_step_heavy', pitch: 1.05, gain: 0.7, range: BUG_STEP_RANGE_M },
+  artillery: { id: 'bug_step_heavy', pitch: 0.92, gain: 0.7, range: BUG_STEP_RANGE_M },
+  charger: { id: 'bug_step_heavy', pitch: 0.75, gain: 0.9, range: BUG_STEP_RANGE_M },
+  behemoth: { id: 'bug_step_giant', pitch: 1.0, gain: 1.1, range: BUG_STEP_GIANT_RANGE_M },
   // 로그 계열: 사람 발소리를 낮은 피치로 (무겁고 장비를 멨다)
   // 2026-09-15 (B-16, 사용자 「로그 · 레이더 모두 켬다」): 일반 로그 = 레이더보다 가벼운 발
   rogue: { pitch: 0.86, gain: 0.6 },
@@ -300,14 +313,36 @@ export function emitEnemyStep(e: Enemy, ctx: GameContext, gainMul = 1, pitchMul 
   if (now - e.stepAt < ENEMY_STEP_MIN_GAP) return false;
   const p = e.position;
   ctx.camera.getWorldPosition(_stepCam);
-  if (_stepCam.distanceToSquared(p) > ENEMY_STEP_EMIT_RANGE * ENEMY_STEP_EMIT_RANGE) return false;
+  // 2026-09-16: 벌레는 자기 발소리 사거리가 게이트다 — `stepAt` 이 「들리는 거리에서 걸음을 뗐다」 를 뜻해야 무리 수가 맞는다.
+  const gate = v.id ? (v.range ?? BUG_STEP_RANGE_M) : ENEMY_STEP_EMIT_RANGE;
+  if (_stepCam.distanceToSquared(p) > gate * gate) return false;
   e.stepAt = now;
+  if (v.id) {
+    ctx.bus.emit('audio:play', { id: v.id, position: p, volume: (v.gain * gainMul) / Math.sqrt(bugStepCrowd(ctx, now)), pitch: v.pitch * pitchMul * (0.94 + Math.random() * 0.12) });
+    return true;
+  }
   const w = ctx.world;
   const m = w && w.ready ? w.getSurfaceMaterial?.(p.x, p.z, p.y) : undefined;
   const id = (m && STEP_ID[m]) || STEP_ID.dirt;
   ctx.bus.emit('audio:play', { id, position: p, volume: v.gain * gainMul, pitch: v.pitch * pitchMul * (0.95 + Math.random() * 0.1) });
   if (v.layer) ctx.bus.emit('audio:play', { id: v.layer, position: p, volume: v.gain * gainMul, pitch: pitchMul * (0.92 + Math.random() * 0.16) });
   return true;
+}
+
+/**
+ * 2026-09-16: 지금 「들리는 거리에서 걷고 있는 벌레」 수 n (≥ 1, 방금 걸음을 뗀 자신 포함) — 벌레 발소리 크기 × 1/√n.
+ * `stepAt` 은 벌레 발소리 사거리 게이트를 통과했을 때만 찍히므로 `BUG_STEP_CROWD_WINDOW_S` 안의 `stepAt` = 들리는 걸음이다.
+ * 걸음마다 활성 목록을 한 번 훑는다 (할당 없음; 한 프레임 걸음 수 × 적 수 ≈ 수백 번 비교). 인간형은 `faction` 으로 뺀다.
+ */
+function bugStepCrowd(ctx: GameContext, now: number): number {
+  const list = ctx.enemies?.getEnemies();
+  if (!list) return 1;
+  let n = 0;
+  for (let i = 0; i < list.length; i++) {
+    const x = list[i] as Enemy;
+    if (x.stepAt <= now && now - x.stepAt < BUG_STEP_CROWD_WINDOW_S && x.faction === 'bug') n++;
+  }
+  return Math.max(1, n);
 }
 
 /* appended (2026-09-10): 적이 수류탄을 하나도 안 던지고 있을 때 `getEnemyGrenades()` 가 돌려주는 빈 목록.

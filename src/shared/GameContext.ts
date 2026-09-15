@@ -195,7 +195,7 @@ export class GameContext {
   }
 
   static freshStats(seed: number): MissionStats {
-    return { seed, kills: 0, cratesOpened: 0, damageTaken: 0, timeSeconds: 0, lootValue: 0, extracted: false };
+    return { seed, kills: 0, cratesOpened: 0, damageTaken: 0, timeSeconds: 0, lootValue: 0, extracted: false, killXp: 0 };
   }
 
   /** True when the player may move/shoot: gameplay phase and no UI blocker active. */

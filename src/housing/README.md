@@ -27,8 +27,8 @@ and **before** `InventorySystem` / `WorldSystem` / `HubSystem`.
 | `parts/Culture.ts` | Culture tank: medium → scaffold → strain, medium durability + sockets, harvest, `insertScaffold` / `takeScaffold` / `insertCultureSocket`. |
 | `parts/Sockets.ts` | Soil / medium sockets shared by Garden and Culture: `socketSum`, `yieldBonus`, `insertSocket` (replace destroys the old socket), `getOwnedSockets`. |
 | `parts/Deliver.ts` | `deliverItem(sys, item, dest)` — the single path a station product takes to the player (`HarvestDestination`: `bag-first` · `stash-first` · `bag` · `stash`; named grids never overflow). |
-| `parts/Dining.ts` | Dining table (furniture uid, or `null` = shared-ship fixed table): `getMealStacks`, `eatMeal`, `serveMealToSquad`, `diningBlock`. |
-| `parts/Cooking.ts` | Cooking session: `cookRecipes` (all cook-bench recipes with steps, unfiltered), `cookBlock`, `startCook` / `restartCook` / `cancelCook`, `recordCookStep` (+ skill / library score bonus), `completeCookRun` (quality → `inventory.completeCook`), `getCookAuto`, `bindCooking`, `cookDebug`. |
+| `parts/Dining.ts` | Dining table + plates (furniture uid, or `null` = shared-ship fixed table): `hasDiningTable`, `getPlate` / `setPlate` / `clearPlate`, `getTablePlates`, `plateEatBlock`, `eatPlate`, `devSetPlate`, squad plates (`SquadPlate`, `net:squadPlate`), `bindDining` (raid start clears the plate), `diningBlock`. |
+| `parts/Cooking.ts` | Cooking session: `cookRecipes` (all cook-bench recipes with steps, unfiltered), `cookBlock` (incl. the dining-table gate), `startCook` / `restartCook` / `cancelCook`, `recordCookStep` (+ skill / library score bonus), `completeCookRun` (quality → `inventory.consumeCookInputs` → plate on the table), `getCookAuto`, `bindCooking`, `cookDebug` (`replaceAsk` / `confirmReplace`). |
 | `parts/CookGames.ts` | DOM-free judges of the six cooking minigames (`ChopGame`, `MinceGame`, `GrillGame`, `StirfryGame`, `StirGame`, `PourGame`), `createCookGame`, `cookJudgeBands`. |
 | `parts/Gym.ts` | Gym session: `gymBlock`, `startGymSession`, `completeGymSession` (→ `progression.applyGymSession`, + library `gymScore`), `bindGym`, `gymDebug`. |
 | `parts/GymGames.ts` | DOM-free judges `PressGame` / `BreathGame` / `CycleGame`, `createGymGame(kind, tuning?)`, `judgeBands`, `completion`. |
@@ -49,7 +49,7 @@ and **before** `InventorySystem` / `WorldSystem` / `HubSystem`.
 | `ui/Analyzer.ts` | Analyzer screen: rail tabs `해석` / `분석 도감`, slots with family chip + result chip, collect / cancel. |
 | `ui/SampleDex.ts` | Analysis dex per family (level, XP bar, result rows: found / silhouette / locked). |
 | `ui/CultureTank.ts` | Culture tank screen: tubes (fluid = medium durability), drop medium / scaffold / strain / socket, harvest. |
-| `ui/DiningTable.ts` | Dining screen: plate (drop target) + meal list (`먹기`, shared ship `분대에 차리기`); exports meal text helpers (`mealEffectText`, `mealBuffText`, `mealTierText`). |
+| `ui/DiningTable.ts` | Dining screen (no grid card): plates on the table (`.dt-plate`, cook's name on the shared table, `먹기` / `먹음`) + the pending-meal card (`.dt-meal`); exports meal text helpers (`mealEffectText`, `mealBuffText`, `mealTierText`, `qualityName`). |
 | `ui/BookshelfMenu.ts` | Library screen for every shelf medium: rail = `서재` summary + placed shelf furniture, tabs `선반` / `도감`, drag to place / swap / take. `ui:bookshelfToggled` / `ui:shelfToggled`. |
 | `ui/ShelfDrawing.ts` | Drawn shelf (`.lib-case` › `.lib-tier` › `.lib-row` › `.lib-slot`), layout from `SHELF_TIERS` / `SHELF_TIER_COLS`; `.is-div` divider; `paintShelfSlot`. |
 | `ui/BookDex.ts` | Library dex rows (series / game discs), exports `libraryEffectText`, `gameDiscText`, `volumeRoman`, `seriesTint`, `statName`. |
@@ -59,6 +59,7 @@ and **before** `InventorySystem` / `WorldSystem` / `HubSystem`.
 | `ui/cook/CookScreen.ts` | Bottom-center cooking overlay: choose (manual / auto) → game → step score → result. Blocker / escape / key-guide `housing.cook`; input on the whole panel while playing. |
 | `ui/cook/CookViews.ts` | Six cooking game stages (CSS shapes + item chips, no assets). |
 | `ui/cook/cook.css` | `.cook-*`. |
+| `ui/cook/PlateAsk.ts` | 「식탁의 요리를 바꿉니다」 warning (`openHoldAsk`, id `cook-replace-plate`) before a cook starts / restarts while a plate exists; one at a time in `sys.plateAsk`, `closePlateAsk` on forced exits. |
 | `ui/gym/GymScreen.ts` | Gym / video-game overlay: intro → game → result, keyboard input via `Keys.JUMP` / `LEFT` / `RIGHT`, rAF loop + fallback interval. Token `housing.gym`. |
 | `ui/gym/GymViews.ts` | Gym game stages (press bar, breath / cycle lanes). |
 | `ui/gym/gym.css` | `.gym-*`. |
@@ -97,7 +98,8 @@ too). Most mutations return `null` on success or a Korean refusal string. Groupe
 - **Culture tank**: `getCultureSlots`, `fillMedium`, `clearMedium`, `insertStrain`, `insertScaffold`,
   `takeScaffold`, `insertCultureSocket`, `harvestCulture`, `harvestAllCultures`, `getOwnedMediums` /
   `getOwnedStrains` / `getOwnedSockets`, `openCultureTank`.
-- **Dining / cooking**: `getMealStacks`, `eatMeal`, `serveMealToSquad`, `diningBlock`, `openDiningTable(uid | null)`;
+- **Dining / cooking**: `hasDiningTable`, `getPlate`, `getTablePlates(uid | null)`, `plateEatBlock`, `eatPlate(uid, ownerId?)`,
+  `devSetPlate`, `clearPlate`, `mealDef` (→ `shared/meals`), `diningBlock`, `openDiningTable(uid | null)`;
   `openCookStation`, `cookSession`, `cookBlock`, `startCook`, `cancelCook`, `getCookAuto`, `cookRecipes`.
 - **Gym / video games**: `gymSession`, `gymBlock`, `startGymSession`, `cancelGymSession`; `getTvConsole`,
   `attachTvConsole`, `detachTvConsole`, `getTvSeat`, `tvSeatBlock`, `getPlayableGames`, `openTvMenu`, `gameSession`,
@@ -120,7 +122,7 @@ too). Most mutations return `null` on success or a Korean refusal string. Groupe
 `Moved` / `Recovered` / `Upgraded` / `Toggled`, `housing:modeChanged`, `housing:selectionChanged`,
 `housing:shipManageChanged`, `housing:growChanged`, `housing:analysisChanged` / `analysisFound` / `analysisLevelUp`,
 `housing:cultureChanged`, `housing:socketInserted`, `housing:booksChanged`, `housing:shelfChanged`,
-`housing:libraryChanged`, `housing:mealServed`, `housing:cookSession` / `cookStep` / `cookBeat` / `cookResult`,
+`housing:libraryChanged`, `housing:plateChanged` / `tablePlatesChanged`, `housing:cookSession` / `cookStep` / `cookBeat` / `cookResult`,
 `housing:gymSession` / `gymBeat` / `gymResult`, `housing:gameSession` / `gameBeat` / `gameResult`,
 `housing:tvConsoleChanged`, `housing:musicChanged`, `housing:clusterChanged`, `housing:cryptoMined`,
 `housing:walletChanged`; UI: `ui:housingToggled`, `ui:growToggled`, `ui:bookshelfToggled`, `ui:shelfToggled`,
@@ -130,7 +132,8 @@ too). Most mutations return `null` on success or a Korean refusal string. Groupe
 **Events consumed**: `game:newMission`, `game:abort`, `hub:left`, `game:phaseChanged` (close panels, leave modes,
 cancel sessions, stop music), `hub:entered`, `net:profileLoaded`, `inventory:changed` / `inventory:stashChanged`,
 `input:bindingsChanged`, `player:furniturePoseEnded` (cancel gym / cook / game session),
-`progress:trainedChanged` / `progress:gymFatigue`, `meta:creditsChanged`, `net:cryptoPrices` / `net:cryptoHistory`.
+`progress:trainedChanged` / `progress:gymFatigue`, `meta:creditsChanged`, `net:cryptoPrices` / `net:cryptoHistory`,
+`net:squadPlate` / `net:lobbyLeft` / `net:lobbyUpdated` (squad plates), `game:newMission` (clears the plate unless training).
 
 **Blocker / escape tokens**: panels `'housing'` (`ui/Panel`), upgrade modal `housing.upgrade`, gym `housing.gym`,
 video game `housing.game`, cooking `housing.cook`.
@@ -200,9 +203,19 @@ reasoning. The list below is what a maintainer would otherwise break.
 - Products reach the player only through `parts/Deliver.deliverItem`; a named grid never overflows into the other.
 
 ### Kitchen, gym, video games
-- Eating / serving: ask `progression.useMeal` / `serveMeal` **first**, consume the item only on success.
-  `housing:mealServed` is emitted for net to propagate; housing must **not** subscribe to it (net re-emits it, the
-  meal would be consumed twice). — `parts/Dining.ts`
+- **Meals are not items** (2026-09-16). A finished cook becomes the ship's **one plate** (`ShipState.plate`) on the
+  dining table; cooking again replaces it at completion (the old plate stays if the cook is cancelled). The UI asks with
+  a 1 s hold before a cook starts / restarts while a plate exists (`ui/cook/PlateAsk`) — `startCook` itself does not ask.
+  Plate writes use `saveSoon` (no `housing:changed`, so hub rebuilds only dining rooms on `housing:tablePlatesChanged`).
+  — `parts/Dining.ts` (`setPlate`), `parts/Cooking.ts` (`completeCookRun`)
+- No placed dining table → the cook bench cannot be used (`DINING_TABLE_MISSING_REASON`: `cookBlock`, `openCookStation`
+  toast, hub prompt; appliances route through the same open). — `parts/Cooking.ts` (`blockCore`, `openCookStation`)
+- Eating never consumes the plate: `eatPlate` = `progression.useMeal(meal, quality)` (same meal + quality refused, a
+  different one replaces the pending meal). `plateEatBlock`'s `이미 먹었습니다` is display only. The plate is cleared on
+  `game:newMission` unless `mode === 'training'` (same condition as `armPreps`). — `parts/Dining.ts` (`bindDining`)
+- Shared-ship fixed table (`uid` null) lists my plate + squad plates (`squadPlates`, filled from `net:squadPlate`, pruned
+  on `net:lobbyUpdated` / `net:lobbyLeft`, cleared on `game:newMission`); anyone can eat any plate. The old
+  `serveMealToSquad` / `housing:mealServed` flow is gone. — `parts/Dining.ts`
 - Cooking materials are consumed only in `completeCookRun` (closing mid-way costs nothing). Step score =
   raw + `derived.cookScoreBonus` + library `cookScore[game]`, clamped to 1; average → `mealQualityForScore`.
   Cooking-bench recipes are excluded from the generic craft path. — `parts/Cooking.ts`
@@ -270,11 +283,12 @@ reasoning. The list below is what a maintainer would otherwise break.
 - Mining cores are saved as a count, so filled core slots are always the first n.
 
 ## Recent changes
+
 Last 5 only — older: `git log -- src/housing`.
+  ship manage remembers last room; Tab only for the top screen; `devAdvanceAnalysis`.
+  judgement bands = csv windows, `NEEDS_GREENHOUSE` emptied.
+- 2026-09-16 — Meals are not items: a finished cook is the ship's one dining plate (`ShipState.plate`, replaced on the next cook after a 1 s hold warning, eaten without being consumed, cleared at raid start); no dining table = no cook bench; shared-ship table lists squad plates; `serveMealToSquad` removed.
 - 2026-09-15 — Station inventory is a single card; cooking bench is a recipe thumbnail grid + detail pane.
 - 2026-09-15 — Library: no slot numbers, per-shelf effect cards, shelf divider; facility chips icon-only with tooltip;
-  ship manage remembers last room; Tab only for the top screen; `devAdvanceAnalysis`.
 - 2026-09-15 — Left-click hold keycaps inside hold buttons; minigame / ship keycaps via `shared/keycap`.
 - 2026-09-15 — Cooking bench shows skill-locked recipes dimmed with a skill badge (B-15).
-- 2026-09-14 — Mining screen unified (four tabs), library screen rail/tabs rework, music player state, minigame
-  judgement bands = csv windows, `NEEDS_GREENHOUSE` emptied.

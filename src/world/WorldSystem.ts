@@ -1083,6 +1083,15 @@ export class WorldSystem implements GameSystem, WorldRef {
     return crate ? rollCrateContents(ctx, crate.id, crate.tier) : null;
   }
 
+  /**
+   * 2026-09-16 — `WorldRef.crateLootOpts`: 컨테이너 id 의 굴림 규칙. 잠긴 방은 구조물에만 있으므로 구조물 묶음만 묻는다
+   * (맵 상자 · 선로 · 전차 컨테이너 · 모르는 id · 준비 전 = undefined). inventory 의 여는 경로 · peek 이 이 값을 그대로 넘긴다.
+   */
+  crateLootOpts(containerId: string) {
+    if (!this.ready || !this.isPlanet || typeof containerId !== 'string') return undefined;
+    return this.structures.crateLootOpts(containerId);
+  }
+
   /* ── 2026-09-15 (안드로이드 분대원, `docs/DECISIONS.md` 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ──────── */
 
   /** `getLootContainers()` 가 돌려주는 배열과 그 항목 풀 (호출당 할당 0 — 안드로이드가 자주 묻는다). */

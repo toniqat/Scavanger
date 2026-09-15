@@ -6,9 +6,9 @@
 // **중력으로 떨어뜨리는** 게임 안 경로 전체를 본다. 기대값은 전부 `data/constants.csv` 에서 읽는다 (코드에 숫자 없음).
 //
 // 검사 (솔로 레이드, 튜토리얼 아님):
-//   1. 식: 안전 높이 아래 · 바로 위 · 12 m 를 실제로 떨어뜨려 실드+체력 손실 ≈ min(MAX, (h − SAFE) × PER_M), 안전 높이 아래는
+//   1. 식: 안전 높이 아래 · 바로 위 · 12 m 를 실제로 떨어뜨려 체력 손실 ≈ min(MAX, (h − SAFE) × PER_M), 안전 높이 아래는
 //      피해도 `player:fell` 도 없다 (40 m 는 5 번의 치사 낙하가 상한 MAX 요청을 본다)
-//   2. 실드 먼저: 방탄복 실드보다 큰 낙하는 실드를 비우고 나머지만 체력으로
+//   2. 실드 우회 (2026-09-16 사용자 결정): 방탄복 실드가 가득 차 있어도 낙하 피해는 전부 체력으로 — 실드는 한 점도 줄지 않는다
 //   3. 치사 낙하: 솔로는 곧장 `player:died` (전투불능 없음)
 //   4. 남이 띄운 몸(점프대와 같은 `ctx.player.applyImpulse` · `applyKnockback` · 낙하 중 임펄스)은 그 착지에서 면제, 다음 평범한 낙하는 아프다
 //   5. `player:fell {height, damage = 실제 손실, rule 'normal'}`
@@ -141,10 +141,11 @@ try {
       return play(id, pos, vol, pitch, auto, panOnly, dedupe, rateLimit);
     };
     const applyDamage = ps.applyDamage.bind(ps);
-    ps.applyDamage = (amount, from, dot) => {
+    // 2026-09-16: 출처 · 옵션(`bypassShield`)까지 그대로 넘긴다 — 셋만 넘기면 낙하의 실드 우회가 스파이에서 사라진다
+    ps.applyDamage = (amount, from, dot, ...rest) => {
       const before = pool();
-      const r = applyDamage(amount, from, dot);
-      R.dmg.push({ amount, dot: !!dot, hasFrom: !!from, before, after: pool(), t: ctx.time });
+      const r = applyDamage(amount, from, dot, ...rest);
+      R.dmg.push({ amount, dot: !!dot, hasFrom: !!from, source: rest[0]?.kind ?? null, bypass: !!rest[1]?.bypassShield, before, after: pool(), t: ctx.time });
       return r;
     };
     // 시뮬레이션 시간 대기 (dt 는 50 ms 로 잘린다)
@@ -271,10 +272,10 @@ try {
   const checkHurt = (r, label, { lethal = false } = {}) => {
     const measuredH = r.y0 - r.yLand;
     const expectReq = fallDamage(measuredH);
-    const loss = r.start.pool - r.at.pool;
+    const loss = r.start.hp - r.at.hp;   // 2026-09-16: 낙하는 체력만 깎는다 (치사 낙하는 사망이 실드를 따로 비운다)
     const fell = r.fell[0];
     const fallDmg = r.dmg.filter((d) => !d.hasFrom && !d.dot);
-    table.push({ label, h: r.h, measuredH: +measuredH.toFixed(3), reportedH: fell ? +fell.height.toFixed(3) : null, expected: +Math.min(expectReq, r.start.pool).toFixed(3),
+    table.push({ label, h: r.h, measuredH: +measuredH.toFixed(3), reportedH: fell ? +fell.height.toFixed(3) : null, expected: +Math.min(expectReq, r.start.hp).toFixed(3),
       requested: fallDmg[0] ? +fallDmg[0].amount.toFixed(3) : null, loss: +loss.toFixed(3), shield: `${r.start.shield}→${+r.at.shield.toFixed(2)}`, hp: `${r.start.hp}→${+r.at.hp.toFixed(2)}` });
     ok(r.landed && r.fell.length === 1, `${label}: exactly one player:fell`, JSON.stringify(r.fell));
     if (!fell) return null;
@@ -282,8 +283,12 @@ try {
       `${label}: fallHeight = drop height (${fell.height.toFixed(3)} reported, ${measuredH.toFixed(3)} measured, ${r.h} set)`);
     ok(fallDmg.length === 1 && near(fallDmg[0].amount, expectReq, 1e-6) && near(fallDmg[0].amount, fallDamage(r.h), C.PER_M * 0.1 + 1e-6),
       `${label}: applyDamage asked for min(MAX, (h − SAFE) × PER_M) = ${expectReq.toFixed(2)} (got ${fallDmg[0] ? fallDmg[0].amount.toFixed(2) : '—'})`, JSON.stringify(r.dmg));
-    ok(near(loss, Math.min(expectReq, r.start.pool), 0.01) && near(fell.damage, loss, 0.01),
-      `${label}: shield+HP loss ${loss.toFixed(2)} = min(damage, pool ${r.start.pool}) and player:fell.damage ${fell.damage.toFixed(2)} = actually dealt`);
+    ok(fallDmg.length === 1 && fallDmg[0].source === 'fall' && fallDmg[0].bypass === true,
+      `${label}: the request carries source 'fall' + bypassShield`, JSON.stringify(fallDmg));
+    // 2026-09-16: 낙하 피해는 실드를 건너뛴다 — 손실은 체력에서만, 상한도 체력이다
+    ok(near(loss, Math.min(expectReq, r.start.hp), 0.01) && near(fell.damage, loss, 0.01),
+      `${label}: HP loss ${loss.toFixed(2)} = min(damage, hp ${r.start.hp}) and player:fell.damage ${fell.damage.toFixed(2)} = actually dealt`);
+    if (!lethal) ok(near(r.at.shield, r.start.shield, 1e-6), `${label}: shield untouched (${r.start.shield} → ${r.at.shield})`);
     ok(fell.rule === 'normal' && fell.keys === 'damage,height,rule', `${label}: payload {height, damage, rule:'normal'} (${fell.keys}, rule ${fell.rule})`);
     // 흔들림
     ok(r.shake.length === 1 && near(r.shake[0].intensity, shakeFor(fell.damage), 1e-9) && near(r.shake[0].duration, C.SHAKE_S, 1e-9) && near(r.shake[0].t, fell.t, 1e-9),
@@ -317,19 +322,20 @@ try {
   const s6 = checkHurt(await drop(C.SAFE + 1), `${C.SAFE + 1} m (just above safe)`);
   const s12 = checkHurt(await drop(12), '12 m');
 
-  /* ── 2. 실드 먼저 ─────────────────────────────────────────────────────────────── */
-  console.log('2. shield first, then HP');
+  /* ── 2. 실드 우회 (2026-09-16 사용자 결정: 모든 낙하 피해는 체력으로 곧장) ───────────────── */
+  console.log('2. fall damage bypasses the armor shield (HP only)');
   const S = setup.maxShield;
-  const hShield = C.SAFE + (S + 20) / C.PER_M;
-  const rs = await drop(+hShield.toFixed(3));
-  const ss = checkHurt(rs, `${hShield.toFixed(2)} m (damage = shield + 20)`);
+  const dHalf = Math.min(setup.maxHp * 0.5, C.MAX);
+  const hHalf = C.SAFE + dHalf / C.PER_M;
+  const rs = await drop(+hHalf.toFixed(3));
+  const ss = checkHurt(rs, `${hHalf.toFixed(2)} m (damage = half max HP)`);
   if (ss) {
-    const dmg = ss.damage;
-    ok(near(rs.start.shield - rs.at.shield, Math.min(rs.start.shield, dmg), 0.01) && rs.at.shield < 1e-6 && near(rs.start.hp - rs.at.hp, dmg - rs.start.shield, 0.01),
-      `shield emptied first (${rs.start.shield} → ${rs.at.shield.toFixed(2)}), HP took the rest (${rs.start.hp} → ${rs.at.hp.toFixed(2)}, expected −${(dmg - rs.start.shield).toFixed(2)})`);
+    ok(rs.start.shield === S && near(rs.at.shield, S, 1e-6) && near(rs.start.hp - rs.at.hp, ss.damage, 0.01),
+      `full shield ${S} ignored: HP ${rs.start.hp} → ${rs.at.hp.toFixed(2)} (−${ss.damage.toFixed(2)}), shield stays ${rs.at.shield}`);
   }
   const r12 = table.find((t) => t.label === '12 m');
-  ok(!!r12 && r12.hp.split('→')[0] === r12.hp.split('→')[1], `12 m (63 < shield ${S}) came out of shield only (hp ${r12?.hp}, shield ${r12?.shield})`);
+  ok(!!r12 && r12.shield.split('→')[0] === r12.shield.split('→')[1] && r12.hp.split('→')[0] !== r12.hp.split('→')[1],
+    `12 m (63 < shield ${S}) still came out of HP (hp ${r12?.hp}, shield ${r12?.shield})`);
 
   /* ── 4. 남이 띄운 몸은 착지까지 면제 ─────────────────────────────────────────────── */
   console.log('4. launched bodies are exempt until landing');

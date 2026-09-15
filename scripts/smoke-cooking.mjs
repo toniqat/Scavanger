@@ -4,9 +4,11 @@
 // 연타 = 반대 게이지 감소 · 시간 선형 점수 · 강제 종료 0 점), 굽기(50 % 뒤집기 · 100 % 꺼내기 · 늦은 뒤집기 = 실패 + 꺼내기 · 탐 ·
 // 불에 닿기 전 클릭 무시), 볶기(예비 박 무시 · 한 박자 한 번 · 바 채움 · 판정 평균), 젓기(누르기만 = 0 점 · 온도 제어 = 1 점 · 주기적
 // stir 연출), 붓기(램프 적분 · 붓기 전엔 안 끝남 · 떼고 SETTLE 뒤 끝 · 넘침 = 0 점) → cookBlock 사유 · 조리대 레벨 잠김 → 조리대 화면
-// (레일 · 단계 칩 · 조리 시작 버튼) → 세션(블로커 · ESC · 커서 · 키 가이드 · 실제 pointerdown 칼질 → housing:cookBeat) → 결과 = 품질 요리가
-// 창고에 · 재료 소모 → 다시 만들기 → 품질이 다른 요리 둘이 안 합쳐진다 → Tab 닫기 → 취소(Esc · game:abort · 자세 리셋) = 재료 그대로 →
-// 자동 가구 Lv.1/2/3 점수 · 선택 카드 · 자동 연출 → 식탁 (품질 줄 · 먹기) → 새로고침 뒤 품질 보존 → 출격 식사의 derived 보너스.
+// (레일 · 단계 칩 · 조리 시작 버튼) → 세션(블로커 · ESC · 커서 · 키 가이드 · 실제 pointerdown 칼질 → housing:cookBeat) → 결과 = 식탁의
+// 접시 · 재료 소모 → 다시 만들기(「식탁의 요리를 바꿉니다」 경고 · Enter 무시 · 확정) → Tab 닫기 → 취소(Esc · game:abort · 자세 리셋) = 재료 · 접시 그대로 →
+// 자동 가구 Lv.1/2/3 점수 · 선택 카드 · 자동 연출 → 조리대 화면의 바꾸기 경고(Escape 취소 · 확정) → 식탁 (접시 먹기 · 줄지 않음 · 출격 경고 ·
+// 공유 식탁의 분대원 접시) → 새로고침 뒤 접시 · 식사 품질 보존 → 출격 식사의 derived 보너스 → 레이드 시작에 접시를 치운다.
+// 2026-09-16 (접시 모델, 사용자 결정): 요리는 아이템이 아니다 — 식탁 가구가 없으면 조리대를 쓸 수 없다 (그 게이트도 본다).
 // Usage: node scripts/smoke-cooking.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -84,7 +86,8 @@ try {
       const canvas = document.getElementById('game-canvas');
       Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
       const b = window.__game.ctx.bus;
-      window.__rec = { sessions: [], steps: [], beats: [], results: [], audio: [], guide: [], station: [], served: [], notify: [], xp: [] };
+      window.__rec = { sessions: [], steps: [], beats: [], results: [], audio: [], guide: [], station: [], served: [], notify: [], xp: [], plates: [] };
+      b.on('housing:plateChanged', (p) => window.__rec.plates.push({ reason: p.reason, plate: p.plate ? { ...p.plate } : null }));
       // 2026-09-13 (H3): 숙련 경험치 호출을 엿본다 — 인스턴스 속성이라 housing 이 부르는 `ctx.progression.addSkillXp` 가 여기를 지난다
       const prog = window.__game.ctx.progression;
       if (typeof prog.addSkillXp === 'function') {
@@ -343,15 +346,33 @@ try {
     return p ? { uid: p.uid } : { err: 'place refused' };
   }, { room, defId });
   const benchP = await placeFurn(5, 'furn_bench_cook');
+  /* 2026-09-16 (접시 모델, 사용자 결정): 식탁 가구가 없으면 조리대를 쓸 수 없다 — cookBlock · startCook · 화면 열기(토스트) · 프롬프트 */
+  const noTable = await H((uid) => {
+    const ctx = window.__game.ctx, h = ctx.housing;
+    const n0 = window.__rec.notify.length;
+    const out = { has: h.hasDiningTable(), block: h.cookBlock(uid, 'cook_green_salad'), start: h.startCook(uid, 'cook_green_salad') };
+    h.openCookStation(uid);
+    out.open = h.cookDebug.station.open;
+    out.toast = window.__rec.notify.slice(n0);
+    out.prompts = ctx.interactables.all().map((i) => { try { return i.getPrompt?.() ?? ''; } catch { return ''; } }).filter((p) => /조리대/.test(p));
+    return out;
+  }, benchP.uid);
+  ok(noTable.has === false && noTable.block === '식탁이 없습니다' && noTable.start === '식탁이 없습니다' && !noTable.open && noTable.toast.some((t) => t.startsWith('식탁이 없습니다')),
+    `식탁 없는 조리대: cookBlock · startCook 거절 · 화면 대신 토스트 (${JSON.stringify(noTable)})`);
+  if (noTable.prompts.length) ok(noTable.prompts.every((p) => p.includes('식탁이 없습니다')), `식탁 없는 조리대의 프롬프트 (${JSON.stringify(noTable.prompts)})`);
+  else note('조리대 프롬프트가 보이지 않는 자리다 (접근 면) — 프롬프트 검사는 건너뛴다');
   const tableP = await placeFurn(5, 'furn_dining_table');
   ok(benchP.uid && tableP.uid, 'craft + place 조리대 · 식탁', JSON.stringify({ benchP, tableP }));
   const BENCH = benchP.uid, TABLE = tableP.uid;
+  // 이전 판에서 남은 접시는 치운다 (함선 상태는 위에서 지웠지만, 서버 사본이 되돌릴 수 있다)
+  await H(() => window.__game.ctx.housing.clearPlate());
   const apis = await H(() => {
-    const inv = window.__game.ctx.inventory, p = window.__game.ctx.progression;
-    return { cookBlock: typeof inv.cookBlock === 'function', completeCook: typeof inv.completeCook === 'function', countQ: typeof inv.countDefQualityAll === 'function',
-      stacks: typeof inv.getMealStacks === 'function', mealQ: typeof p.getMealQuality === 'function' };
+    const ctx = window.__game.ctx, inv = ctx.inventory, p = ctx.progression, h = ctx.housing;
+    return { cookBlock: typeof inv.cookBlock === 'function', consume: typeof inv.consumeCookInputs === 'function', noComplete: typeof inv.completeCook !== 'function',
+      plate: typeof h.getPlate === 'function' && typeof h.eatPlate === 'function' && typeof h.getTablePlates === 'function',
+      notItem: ctx.loot.getItemDef('meal_tuber_stew') === undefined, has: h.hasDiningTable(), mealQ: typeof p.getMealQuality === 'function' };
   });
-  ok(apis.cookBlock && apis.completeCook && apis.countQ && apis.stacks, `inventory 조리 API (${JSON.stringify(apis)})`);
+  ok(apis.cookBlock && apis.consume && apis.noComplete && apis.plate && apis.notItem && apis.has, `조리 · 접시 API · 요리는 아이템이 아니다 (${JSON.stringify(apis)})`);
   if (!apis.mealQ) note('progression.getMealQuality 없음 — 식탁 품질 · derived 보너스 검사는 건너뛴다 (cook-progression-player 미완)');
   /** 2026-09-13 (H3): 요리 숙련을 `level` 로 맞춘다 (프로필은 스모크를 넘어 남는다 — 지난 판의 경험치가 단계 점수 보너스로 새지 않게). */
   const setCookSkill = (level) => H((level) => {
@@ -565,33 +586,49 @@ try {
     h.cookDebug.finishStep(0.5);
     const r = h.cookDebug.result;
     return { screen: h.cookDebug.screen, r, ev: window.__rec.results.at(-1) ?? null, tuber: inv.countDefAll('crop_tuber'), leaf: inv.countDefAll('crop_leafgreen'),
-      q: r ? inv.countDefQualityAll('meal_tuber_stew', r.quality) : -1, stars: document.querySelector('.cook-result .cook-stars')?.textContent ?? '',
+      plate: h.getPlate(), plateEv: window.__rec.plates.at(-1) ?? null, plateUid: window.__game.getSystem('hub')?.furniture?.diningPlateUid ?? null,
+      stars: document.querySelector('.cook-result .cook-stars')?.textContent ?? '',
       landed: document.querySelector('.cook-result .cook-landed')?.textContent ?? '', audio: window.__rec.audio.includes('cook_finish'),
       again: !document.querySelector('.cook-result .cook-again')?.classList.contains('is-blocked'),
       xp: window.__rec.xp.filter(([id]) => id === 'cooking'), craftXp: window.__rec.xp.filter(([id]) => id === 'crafting') };
   });
   ok(s3.screen === 'result' && s3.r && near(s3.r.score, 0.75) && s3.r.quality === wantQ1 && JSON.stringify(s3.r.stepScores) === '[1,0.5]', `요리 점수 = 평균 0.75 → 품질 ${s3.r?.quality} (기대 ${wantQ1})`, JSON.stringify(s3.r));
-  ok(s3.r && !s3.r.reason && s3.r.itemUid && s3.r.landed === 'stash' && s3.ev?.uid === BENCH && s3.audio, `요리가 함선 창고로 · housing:cookResult · cook_finish (${s3.r?.reason ?? s3.r?.landed})`);
-  ok(s3.tuber === before.tuber - 3 && s3.leaf === before.leaf - 2 && s3.q >= 1, `재료는 끝에서 빠진다 (덩이줄기 ${before.tuber} → ${s3.tuber} · 잎채소 ${before.leaf} → ${s3.leaf}) · 품질 ${s3.r?.quality} 스튜 ${s3.q}`);
-  ok(s3.stars === '★'.repeat(wantQ1) + '☆'.repeat(5 - wantQ1) && /함선 창고/.test(s3.landed) && s3.again, `결과 카드 (${s3.stars} · ${s3.landed})`);
+  ok(s3.r && !s3.r.reason && s3.r.itemUid === null && s3.r.landed === 'table' && !s3.r.replaced && s3.ev?.uid === BENCH && s3.audio,
+    `요리가 식탁의 접시로 · housing:cookResult · cook_finish (${s3.r?.reason ?? s3.r?.landed})`);
+  ok(s3.tuber === before.tuber - 3 && s3.leaf === before.leaf - 2 && s3.plate?.mealDefId === 'meal_tuber_stew' && s3.plate.quality === s3.r?.quality && s3.plateEv?.reason === 'cooked',
+    `재료는 끝에서 빠진다 (덩이줄기 ${before.tuber} → ${s3.tuber} · 잎채소 ${before.leaf} → ${s3.leaf}) · 식탁 접시 ${JSON.stringify(s3.plate)}`);
+  ok(s3.stars === '★'.repeat(wantQ1) + '☆'.repeat(5 - wantQ1) && /식탁/.test(s3.landed) && s3.again, `결과 카드 (${s3.stars} · ${s3.landed})`);
+  if (s3.plateUid === null && !(await H(() => !!window.__game.getSystem('hub')?.furniture))) note('hub 가구 층이 없다 — 식탁 3D 접시 검사는 건너뛴다');
+  else ok(s3.plateUid === TABLE, `식탁 조각이 접시를 올린 채 다시 지어진다 (${s3.plateUid})`);
   ok(s3.xp.length === 1 && Math.abs(s3.xp[0][1] - K.COOK_SKILL_XP * Math.max(0.25, 0.75)) < 1e-9,
     `요리가 나온 판 → 요리 숙련 경험치 ${K.COOK_SKILL_XP} × max(0.25, 0.75) (${JSON.stringify(s3.xp)})`);
   ok(s3.craftXp.length === 0, `조리대 요리는 제작 경험치를 주지 않는다 — 요리 경험치만 (사용자 결정 2026-09-13) (${JSON.stringify(s3.craftXp)})`);
 
-  /* ── 다시 만들기 → 품질이 다른 요리 둘은 안 합쳐진다 ── */
+  /* ── 다시 만들기 → 「식탁의 요리를 바꿉니다」 경고 (2026-09-16 접시 모델: 식탁에는 한 접시 — 다시 만들면 바뀐다) ── */
   const again = await H(() => {
-    const h = window.__game.ctx.housing, inv = window.__game.ctx.inventory;
+    const h = window.__game.ctx.housing;
+    const plate0 = h.getPlate();
     const r = h.cookDebug.restart();
-    const mid = { screen: h.cookDebug.screen, index: h.cookDebug.stepIndex, sessions: window.__rec.sessions.length };
+    const askEl = document.querySelector('.sh-ask[data-ask="cook-replace-plate"]');
+    const ask = { open: h.cookDebug.replaceAsk, dom: !!askEl, screen: h.cookDebug.screen, body: askEl?.querySelector('.sh-ask-body')?.textContent ?? '',
+      hold: !!askEl?.querySelector('button[data-hold]'), focusCancel: document.activeElement === askEl?.querySelector('button[data-cancel]') };
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', key: 'Enter', bubbles: true }));   // Enter 는 확정하지 않는다
+    ask.afterEnter = h.cookDebug.replaceAsk && h.cookDebug.screen === 'result';
+    const confirmed = h.cookDebug.confirmReplace();
+    const mid = { screen: h.cookDebug.screen, index: h.cookDebug.stepIndex, sessions: window.__rec.sessions.length, ask: h.cookDebug.replaceAsk,
+      dom: !!document.querySelector('.sh-ask[data-ask="cook-replace-plate"]') };
     h.cookDebug.finishStep(1); h.cookDebug.finishStep(1);
     const res = h.cookDebug.result;
-    const stacks = inv.getMealStacks().filter((s) => s.defId === 'meal_tuber_stew');
-    return { r, mid, res, stacks, q5: inv.countDefQualityAll('meal_tuber_stew', 5), xp: window.__rec.xp.filter(([id]) => id === 'cooking') };
+    return { r, plate0, ask, confirmed, mid, res, plate: h.getPlate(), xp: window.__rec.xp.filter(([id]) => id === 'cooking') };
   });
   ok(again.xp.length === 2 && Math.abs(again.xp[1][1] - K.COOK_SKILL_XP) < 1e-9, `두 번째 판(점수 1) → 경험치 ${again.xp[1]?.[1]} (${JSON.stringify(again.xp)})`);
-  ok(again.r === null && again.mid.screen === 'game' && again.mid.index === 0, `다시 만들기 → 같은 세션에서 첫 단계부터 (${JSON.stringify(again.mid)})`);
-  ok(again.res && again.res.quality === qualityFor(1) && again.q5 === 1, `두 번째 판 1 점 → 품질 ${again.res?.quality}`);
-  ok(again.stacks.length === 2 && again.stacks.every((s) => s.qty === 1) && again.stacks[0].quality > again.stacks[1].quality, `품질이 다른 스튜 둘은 따로 쌓인다 (${JSON.stringify(again.stacks)})`);
+  ok(again.r === null && again.ask.open && again.ask.dom && again.ask.hold && again.ask.screen === 'result' && again.ask.afterEnter && /덩이줄기 스튜/.test(again.ask.body),
+    `다시 만들기 → 「식탁의 요리를 바꿉니다」 1 초 홀드 경고 · Enter 는 확정하지 않는다 (${JSON.stringify(again.ask)})`);
+  if (!again.ask.focusCancel) note('바꾸기 경고의 최초 포커스를 확인하지 못했다 (헤드리스 포커스) — 공용 openHoldAsk 가 취소 버튼에 둔다');
+  ok(again.confirmed && again.mid.screen === 'game' && again.mid.index === 0 && !again.mid.ask && !again.mid.dom, `경고 확정 → 같은 세션에서 첫 단계부터 (${JSON.stringify(again.mid)})`);
+  ok(again.res && again.res.quality === qualityFor(1) && again.plate?.mealDefId === 'meal_tuber_stew' && again.plate.quality === again.res.quality
+    && again.res.replaced?.mealDefId === 'meal_tuber_stew' && again.res.replaced.quality === again.plate0?.quality,
+  `두 번째 판 1 점 → 접시가 ★${again.plate?.quality} 로 바뀐다 · 치운 접시 ${JSON.stringify(again.res?.replaced)}`);
   const dtab = async () => H(() => {
     document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Tab', key: 'Tab', bubbles: true }));
     document.body.dispatchEvent(new KeyboardEvent('keyup', { code: 'Tab', key: 'Tab', bubbles: true }));
@@ -631,6 +668,8 @@ try {
     window.__patch(h, 'getLibraryEffects', () => ({ ...S.EMPTY_LIBRARY_EFFECTS, revision: 9002 }));
     out.bonus2 = h.cookDebug.bonus('chop');
     out.restart = h.cookDebug.restart();
+    out.restartAsk = h.cookDebug.replaceAsk;                   // 2026-09-16: 식탁에 접시가 있다 — 바꾸기 경고를 확정한다
+    h.cookDebug.confirmReplace();
     h.cookDebug.finishStep(0);
     out.res2 = h.cookDebug.result;
     out.xp = window.__rec.xp.slice(xp0).filter(([id]) => id === 'cooking');
@@ -647,7 +686,7 @@ try {
   ok(b1.flash.includes(pc1) && b1.flash.includes(hasSkillBonus ? '(+요리 숙련 · 서재)' : '(+서재)'), `단계 점수 글자 (${b1.flash})`);
   ok(b1.row.includes(pc1), `결과 카드 단계 줄 (${b1.row})`);
   const want2 = Math.min(1, b1.bonus2.total);
-  ok(b1.restart === null && b1.res2 && near(b1.res2.stepScores[0], want2) && b1.bonus2.library === 0, `서재 0 · 원점수 0 → 단계 ${want2.toFixed(3)} (요리 숙련만)`, JSON.stringify(b1.res2));
+  ok(b1.restart === null && b1.restartAsk && b1.res2 && near(b1.res2.stepScores[0], want2) && b1.bonus2.library === 0, `서재 0 · 원점수 0 → 단계 ${want2.toFixed(3)} (요리 숙련만)`, JSON.stringify(b1.res2));
   ok(b1.xp.length === 2 && Math.abs(b1.xp[0][1] - K.COOK_SKILL_XP * Math.max(0.25, b1.res?.score ?? 0)) < 1e-9 && Math.abs(b1.xp[1][1] - K.COOK_SKILL_XP * Math.max(0.25, b1.res2?.score ?? 0)) < 1e-9,
     `경험치 = ${K.COOK_SKILL_XP} × max(0.25, 점수) — ${b1.res?.score?.toFixed(3)} · ${b1.res2?.score?.toFixed(3)} (${JSON.stringify(b1.xp)})`);
 
@@ -738,7 +777,7 @@ try {
   console.log('취소');
   const cancel = await H(({ BENCH }) => {
     const ctx = window.__game.ctx, h = ctx.housing, inv = ctx.inventory;
-    const count = () => ({ leaf: inv.countDefAll('crop_leafgreen'), berry: inv.countDefAll('crop_frostberry'), salad: inv.countDefAll('meal_green_salad') });
+    const count = () => ({ leaf: inv.countDefAll('crop_leafgreen'), berry: inv.countDefAll('crop_frostberry'), plate: JSON.stringify(h.getPlate()) });
     const c0 = count();
     const res0 = window.__rec.results.length;
     const xp0 = window.__rec.xp.length;
@@ -863,61 +902,140 @@ try {
   ok(typeof denied.blocked === 'string' && denied.picked === 'cook_bean_porridge' && denied.dim && denied.reason === denied.blocked, `막힌 요리: 조리 시작 딤드 + 사유 줄 (${denied.reason})`);
   ok(denied.r === denied.blocked && denied.toast.includes(denied.blocked) && denied.session === null, `막힌 요리의 조리 시작 → 거절 토스트 · 세션 없음 (${denied.blocked})`);
 
-  /* ══ 8. 식탁 ══════════════════════════════════════════════════════════════ */
-  console.log('식탁');
+  /* ── 2026-09-16 (접시 모델, 사용자 결정): 조리대 화면의 「조리 시작」 도 접시가 있으면 시작 **전에** 1 초 홀드 경고 ── */
+  console.log('식탁 접시 바꾸기 경고 (조리대 화면)');
+  const sa = await H((BENCH) => {
+    const ctx = window.__game.ctx, h = ctx.housing;
+    const plate0 = h.getPlate();
+    h.openCookStation(BENCH);
+    h.cookStation.select('cook_green_salad');
+    const s0 = window.__rec.sessions.length;
+    const r = h.cookStation.start();
+    const open = { ask: h.cookDebug.replaceAsk, session: h.cookSession, station: h.cookStation.isOpen, top: ctx.escape.topKey };
+    ctx.escape.closeTop();                                    // Escape = 취소 — 경고만 닫힌다
+    const cancelled = { ask: h.cookDebug.replaceAsk, session: h.cookSession, station: h.cookStation.isOpen, sessions: window.__rec.sessions.length - s0, plate: h.getPlate() };
+    const r2 = h.cookStation.start();
+    const confirmed = h.cookDebug.confirmReplace();
+    const started = { session: h.cookSession?.recipeId ?? null, station: h.cookStation.isOpen };
+    h.cancelCook();                                           // 중간에 그만둔다 → 옛 접시는 그대로
+    return { plate0, r, open, cancelled, r2, confirmed, started, plateAfter: h.getPlate() };
+  }, BENCH);
+  ok(!!sa.plate0 && sa.r === null && sa.open.ask && !sa.open.session && sa.open.station && /^holdAsk:/.test(sa.open.top ?? ''),
+    `접시가 있으면 조리 시작 → 경고가 먼저 (세션 없음) (${JSON.stringify(sa.open)})`);
+  ok(!sa.cancelled.ask && !sa.cancelled.session && sa.cancelled.station && sa.cancelled.sessions === 0 && JSON.stringify(sa.cancelled.plate) === JSON.stringify(sa.plate0),
+    `Escape = 취소 — 조리대 화면 · 접시 그대로 (${JSON.stringify(sa.cancelled)})`);
+  ok(sa.r2 === null && sa.confirmed && sa.started.session === 'cook_green_salad' && !sa.started.station, `경고 확정 → 조리 시작 (${JSON.stringify(sa.started)})`);
+  ok(JSON.stringify(sa.plateAfter) === JSON.stringify(sa.plate0), `조리를 중간에 그만두면 옛 접시는 그대로 (${JSON.stringify(sa.plateAfter)})`);
+
+  /* ══ 8. 식탁 — 접시 (2026-09-16 접시 모델, 사용자 결정) ═══════════════════ */
+  console.log('식탁 (접시)');
+  await H(() => { const h = window.__game.ctx.housing; h.closeMenus(); h.devSetPlate('meal_tuber_stew', 5); });
   await H((u) => window.__game.ctx.housing.openDiningTable(u), TABLE);
   await waitFor(page, () => !document.querySelector('.menu.dining-table')?.hidden, 'dining open', 5000);
   await sleep(50);
-  const dt = await H(() => {
-    const rows = [...document.querySelectorAll('.menu.dining-table .dt-row[data-def="meal_tuber_stew"]')];
-    return rows.map((r) => ({ q: Number(r.dataset.q), stars: r.querySelector('.cook-dt-stars')?.textContent ?? '', badge: r.querySelector('.cook-dt-q')?.textContent ?? null,
-      effects: r.querySelector('.dt-effects')?.textContent ?? '' }));
+  const dt = await H(async () => {
+    const S = await import('/src/shared/index.ts');
+    const rows = [...document.querySelectorAll('.menu.dining-table .dt-plate')];
+    return { rows: rows.map((r) => ({ def: r.dataset.def, q: Number(r.dataset.q), owner: r.dataset.owner, stars: r.querySelector('.cook-dt-stars')?.textContent ?? '',
+      badge: r.querySelector('.cook-dt-q')?.textContent ?? null, effects: r.querySelector('.dt-plate-buff')?.textContent ?? '', who: r.querySelector('.dt-plate-owner')?.textContent ?? '' })),
+    grids: !!document.querySelector('.menu.dining-table .trade-grids'), amount: S.getMealDef('meal_tuber_stew').meal.effects[0].amount };
   });
-  const q5row = dt.find((r) => r.q === 5), qlow = dt.find((r) => r.q !== 5);
-  ok(dt.length === 2 && q5row && q5row.stars === '★★★★★' && q5row.badge === '★5', `식탁 목록 = (요리, 품질) 한 줄씩 (${JSON.stringify(dt.map((r) => [r.q, r.stars, r.badge]))})`);
-  const stewAmount = await H(() => window.__game.ctx.loot.getItemDef('meal_tuber_stew').meal.effects[0].amount);
-  const q5val = Math.round(stewAmount * (1 + T.MEAL_QUALITY_BONUS[5]) * 10) / 10;
-  ok(q5row && q5row.effects.includes(`+${q5val}`) && qlow && qlow.effects.includes(`+${Math.round(stewAmount * (1 + T.MEAL_QUALITY_BONUS[qlow.q]) * 10) / 10}`),
-    `능력치는 품질 보너스 반영 (★5 ${q5row?.effects} · ★${qlow?.q} ${qlow?.effects})`);
+  const prow = dt.rows[0];
+  ok(dt.rows.length === 1 && prow.def === 'meal_tuber_stew' && prow.owner === 'me' && prow.stars === '★★★★★' && prow.badge === '★5' && /내 요리/.test(prow.who) && !dt.grids,
+    `식탁 = 내 접시 한 장 · 격자 없음 (${JSON.stringify(dt.rows)})`);
+  const q5val = Math.round(dt.amount * (1 + T.MEAL_QUALITY_BONUS[5]) * 10) / 10;
+  ok(prow && prow.effects.includes(`+${q5val}`), `접시의 능력치는 품질 보너스 반영 (★5 ${prow?.effects})`);
   if (apis.mealQ) {
     const eat = await H((TABLE) => {
-      const h = window.__game.ctx.housing, inv = window.__game.ctx.inventory, p = window.__game.ctx.progression;
-      const before = inv.countDefAll('meal_tuber_stew');     // 2026-09-13 (H3): 보너스 구획이 스튜를 하나 더 만든다 — 개수는 먹기 전 기준
-      const r = h.eatMeal(TABLE, 'meal_tuber_stew', 5);
-      return { r, meal: p.getMeal(), q: p.getMealQuality(), q5: inv.countDefQualityAll('meal_tuber_stew', 5), total: inv.countDefAll('meal_tuber_stew'), before,
-        plate: document.querySelector('.menu.dining-table .dt-plate-name')?.textContent ?? '' };
+      const h = window.__game.ctx.housing, p = window.__game.ctx.progression;
+      p.useMeal('meal_green_salad', 1);                        // 다른 식사를 먼저 실어 둔다 (프로필은 스모크를 넘어 남는다)
+      const r = h.diningTable.eat(null);
+      const after = { meal: p.getMeal(), q: p.getMealQuality(), plate: h.getPlate() };
+      return { r, after, again: h.eatPlate(TABLE, null), blocked: h.plateEatBlock(TABLE, null) };
     }, TABLE);
     await sleep(50);
-    const plate = await H(() => ({ name: document.querySelector('.menu.dining-table .dt-plate-name')?.textContent ?? '', badge: document.querySelector('.menu.dining-table .dt-plate .cook-dt-q')?.textContent ?? null }));
-    ok(eat.r === null && eat.meal === 'meal_tuber_stew' && eat.q === 5 && eat.q5 === 0 && eat.total === eat.before - 1, `★5 스튜를 먹는다 → 식사 품질 5 · 그 품질만 빠진다 (${JSON.stringify(eat)})`);
-    ok(/★★★★★/.test(plate.name) && plate.badge === '★5', `접시에 실린 식사의 별 (${plate.name})`);
+    const plateDom = await H(() => ({ meal: document.querySelector('.menu.dining-table .dt-meal .dt-plate-name')?.textContent ?? '',
+      btn: document.querySelector('.menu.dining-table .dt-plate .dt-eat')?.textContent ?? '', eaten: !!document.querySelector('.menu.dining-table .dt-plate.is-eaten') }));
+    ok(eat.r === null && eat.after.meal === 'meal_tuber_stew' && eat.after.q === 5 && eat.after.plate?.mealDefId === 'meal_tuber_stew' && eat.after.plate.quality === 5,
+      `★5 접시를 먹는다 → 식사 품질 5 · 접시는 그대로 (${JSON.stringify(eat.after)})`);
+    ok(eat.again === '이미 같은 요리를 먹었습니다' && eat.blocked === '이미 먹었습니다', `같은 접시를 또 먹으면 거절 (${eat.again} · ${eat.blocked})`);
+    ok(/★★★★★/.test(plateDom.meal) && plateDom.btn === '먹음' && plateDom.eaten, `실린 식사 카드 · 먹은 접시 표시 (${JSON.stringify(plateDom)})`);
+    // 출격 경고: 먹은 접시는 말하지 않고, 다른 식사를 실어 둔 채 먹지 않은 접시가 있으면 `plateDiscard`
+    const lw = await H(() => {
+      const ctx = window.__game.ctx, h = ctx.housing;
+      const ids = ctx.inventory.getLaunchWarnings().map((w) => w.id);
+      h.devSetPlate('meal_green_salad', 2);
+      const other = ctx.inventory.getLaunchWarnings().filter((w) => w.id === 'plateDiscard' || w.id === 'noMeal');
+      h.devSetPlate('meal_tuber_stew', 5);
+      return { ids, other };
+    });
+    ok(!lw.ids.includes('plateDiscard') && !lw.ids.includes('noMeal') && lw.other.length === 1 && lw.other[0].id === 'plateDiscard' && /잎채소 샐러드/.test(lw.other[0].detail),
+      `출격 경고 — 먹은 접시는 조용 · 먹지 않은 접시는 plateDiscard (${JSON.stringify(lw)})`);
+
+    /* 공유 함선 고정 식탁 (uid null): 분대원 전원의 접시 — 와이어(`net/parts/Plates`) 대신 그 결과 이벤트 `net:squadPlate` 로 채운다 */
+    console.log('공유 함선 식탁 (분대원 접시)');
+    const sq = await H((TABLE) => {
+      const ctx = window.__game.ctx, h = ctx.housing, hub = ctx.hub, p = ctx.progression;
+      h.closeMenus();
+      const out = {};
+      ctx.bus.emit('net:squadPlate', { id: 'smoke-peer', name: '스모크대원', plate: { mealDefId: 'meal_omelet', quality: 3, cookedAt: 0 }, fresh: true });
+      out.personal = h.getTablePlates(null).map((x) => x.ownerId);        // 개인 함선에 서 있으면 분대원 접시는 식탁에 없다
+      out.personalTable = h.getTablePlates(TABLE).length;
+      const desc = Object.getOwnPropertyDescriptor(hub, 'ship');
+      Object.defineProperty(hub, 'ship', { value: 'shared', configurable: true, writable: true });
+      try {
+        out.plates = h.getTablePlates(null).map((x) => [x.ownerId, x.mealDefId, x.quality, x.ownerName, x.mine]);
+        h.openDiningTable(null);
+        out.rows = [...document.querySelectorAll('.menu.dining-table .dt-plate')].map((r) => [r.dataset.owner, r.querySelector('.dt-plate-owner')?.textContent ?? '']);
+        out.title = document.querySelector('.menu.dining-table .hs-station-head .title')?.textContent ?? '';
+        out.eat = h.diningTable.eat('smoke-peer');
+        out.meal = [p.getMeal(), p.getMealQuality()];
+        out.still = h.getTablePlates(null).length;
+        ctx.bus.emit('net:squadPlate', { id: 'smoke-peer', name: '스모크대원', plate: null, fresh: false });
+        out.gone = h.getTablePlates(null).length;
+        h.closeMenus();
+      } finally {
+        if (desc) Object.defineProperty(hub, 'ship', desc); else delete hub.ship;
+      }
+      out.back = h.eatPlate(TABLE, null);                                  // 아래 새로고침 · derived 절은 ★5 스튜를 기대한다
+      return out;
+    }, TABLE);
+    ok(JSON.stringify(sq.personal) === '[null]' && sq.personalTable === 1, `개인 함선에서는 내 접시만 (${JSON.stringify(sq)})`);
+    ok(sq.plates?.length === 2 && sq.plates[0][0] === null && sq.plates[0][4] === true && JSON.stringify(sq.plates[1]) === JSON.stringify(['smoke-peer', 'meal_omelet', 3, '스모크대원', false])
+      && sq.title === '공유 함선 식탁' && sq.rows.length === 2 && sq.rows[1][0] === 'smoke-peer' && /스모크대원 님의 요리/.test(sq.rows[1][1]),
+    `공유 함선 식탁 = 내 접시 + 분대원 접시 · 요리한 사람 표시 (${JSON.stringify({ plates: sq.plates, rows: sq.rows })})`);
+    ok(sq.eat === null && sq.meal[0] === 'meal_omelet' && sq.meal[1] === 3 && sq.still === 2 && sq.gone === 1 && sq.back === null,
+      `분대원 접시를 먹는다 → 내 대기 식사 · 접시는 줄지 않는다 · 떠나면 내려간다 (${JSON.stringify({ eat: sq.eat, meal: sq.meal, still: sq.still, gone: sq.gone })})`);
   }
   await H(() => window.__game.ctx.housing.closeMenus());
 
   /* ══ 9. 새로고침 ══════════════════════════════════════════════════════════ */
   console.log('새로고침');
   const keep = await H(() => {
-    const inv = window.__game.ctx.inventory;
-    return { stacks: inv.getMealStacks().filter((s) => s.defId === 'meal_tuber_stew' || s.defId === 'meal_green_salad'), q: window.__game.ctx.progression.getMealQuality?.() ?? null };
+    const p = window.__game.ctx.housing.getPlate();
+    return { plate: p && [p.mealDefId, p.quality], q: window.__game.ctx.progression.getMealQuality?.() ?? null };
   });
   await sleep(1500);                                                   // 저장 debounce
   await page.reload({ waitUntil: 'load' });
   await boot();
   await sleep(500);
   const back = await H(() => {
-    const inv = window.__game.ctx.inventory;
-    return { stacks: inv.getMealStacks().filter((s) => s.defId === 'meal_tuber_stew' || s.defId === 'meal_green_salad'), q: window.__game.ctx.progression.getMealQuality?.() ?? null };
+    const p = window.__game.ctx.housing.getPlate();
+    let stored = null;
+    try { stored = JSON.parse(localStorage.getItem('scav.s1.ship'))?.plate ?? null; } catch { stored = 'err'; }
+    return { plate: p && [p.mealDefId, p.quality], q: window.__game.ctx.progression.getMealQuality?.() ?? null, stored: stored && stored.mealDefId };
   });
-  const key = (a) => JSON.stringify([...a].sort((x, y) => (x.defId + x.quality).localeCompare(y.defId + y.quality)));
-  ok(keep.stacks.length >= 2 && key(back.stacks) === key(keep.stacks), `품질 요리 스택이 새로고침을 건넌다 (${key(back.stacks)})`, key(keep.stacks));
+  ok(JSON.stringify(keep.plate) === '["meal_tuber_stew",5]' && JSON.stringify(back.plate) === JSON.stringify(keep.plate) && back.stored === 'meal_tuber_stew',
+    `식탁 접시가 새로고침을 건넌다 (함선 상태 저장) (${JSON.stringify(back)})`);
   if (apis.mealQ) ok(back.q === keep.q && back.q === 5, `식사 품질이 새로고침을 건넌다 (${back.q})`);
 
   /* ══ 10. 출격 식사 → derived 보너스 ══════════════════════════════════════ */
   if (apis.mealQ) {
     console.log('derived 보너스');
-    const d = await H(() => {
+    const d = await H(async () => {
       const p = window.__game.ctx.progression;
-      const def = window.__game.ctx.loot.getItemDef('meal_tuber_stew');
+      const S = await import('/src/shared/index.ts');
+      const def = S.getMealDef('meal_tuber_stew');                // 2026-09-16: 요리 표는 shared (아이템이 아니다)
       const e = def.meal.effects[0];
       const beforeV = p.derived[e.buff];
       p.armPreps();
@@ -930,6 +1048,20 @@ try {
     ok(d.activeQ === 5 && near(d.afterV - d.beforeV, want, 1e-6), `출격한 ★5 스튜: derived.${d.buff} +${(d.afterV - d.beforeV).toFixed(4)} = ${d.amount} × ${1 + T.MEAL_QUALITY_BONUS[5]}`, JSON.stringify(d));
     ok(near(d.cleared, d.beforeV, 1e-6), '레이드가 끝나면(clearActivePreps) 보너스가 빠진다');
   }
+
+  /* ══ 11. 레이드 시작 → 식탁 접시를 치운다 (2026-09-16 사용자 결정 — `armPreps` 와 같은 자리: 훈련장 제외) ══════════ */
+  console.log('레이드 시작 → 접시 치움');
+  const rs = await H(() => {
+    const ctx = window.__game.ctx, h = ctx.housing;
+    h.devSetPlate('meal_tuber_stew', 5);
+    ctx.bus.emit('game:newMission', { seed: 90210, mode: 'raid' });
+    const out = { plate: h.getPlate(), ev: window.__rec.plates.at(-1) ?? null };
+    ctx.bus.emit('game:abort', {});
+    return out;
+  });
+  await sleep(1200);                                                   // 저장 debounce
+  const rsStored = await H(() => { try { return JSON.parse(localStorage.getItem('scav.s1.ship'))?.plate ?? null; } catch { return 'err'; } });
+  ok(rs.plate === null && rs.ev?.reason === 'raid' && rs.ev.plate === null && rsStored === null, `game:newMission (레이드) → 접시가 치워지고 저장된다 (${JSON.stringify({ rs, rsStored })})`);
 
   ok(errors.length === 0, `no page errors (${errors.length})`, errors.slice(0, 3).join(' | '));
 } catch (e) {

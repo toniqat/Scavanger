@@ -244,7 +244,10 @@ export class RemoteAvatar implements RemoteAvatarRef {
      * 동안 아바타까지 죽은 자세로 누워 있으면 같은 자리에 몸이 둘이므로 아바타를 감춘다. 전투불능(`downed`)은
      * 시체가 아니라 여전히 아바타다 — 제세동기로 일어날 수 있다.
      */
-    const replacedByCorpse = ref.isDead && !!ctx.corpses?.latestOf(ref.id);
+    // 2026-09-16: 빈 시체는 가라앉아 치워진다 — 그 뒤에도 죽은 자세의 아바타가 다시 나타나지 않게 「섰던 적이 있다」로 본다
+    const corpses = ctx.corpses;
+    const replacedByCorpse = ref.isDead && !!corpses
+      && (typeof corpses.ownerHadCorpse === 'function' ? corpses.ownerHadCorpse(ref.id) : !!corpses.latestOf(ref.id));
     // Phase 7: a suspended member stays visible even though its snapshots are stale (the host's ghost owns the body)
     // 2026-09-13 탐사 차량: inside the hull the body is hidden, and for `ROVER_REMOTE_EXIT_HIDE_S` after it alights
     if ((flags & PlayerFlags.IN_ROVER) !== 0) this.roverHideUntil = ctx.time + ROVER_REMOTE_EXIT_HIDE_S;
@@ -352,7 +355,9 @@ export class RemoteAvatar implements RemoteAvatarRef {
 
     this.sprintBlend = damp(this.sprintBlend, sprinting && !downed && !climbing ? 1 : 0, 8, dt);
     this.aimBlend = damp(this.aimBlend, aiming && hasWeapon && !downed ? 1 : 0, 12, dt);
-    this.crouchBlend = damp(this.crouchBlend, ref.stance === 'crouch' && !rolling && !downed ? 1 : 0, 10, dt);
+    // 2026-09-16 낮은 구르기: 스냅샷의 자세(`stance`)와 구르기 비트(DIVE)는 같은 스냅샷에 실린다 — 앉아서 구르는 분대원은
+    // 구르는 내내 `crouch` 이므로 로컬과 같이 앉은 블렌드를 유지해야 끝날 때 일어섰다 앉는 깜빡임이 없다
+    this.crouchBlend = damp(this.crouchBlend, ref.stance === 'crouch' && !downed ? 1 : 0, 10, dt);
     this.proneBlend = damp(this.proneBlend, prone && !rolling ? 1 : 0, 8, dt);
     this.downedBlend = damp(this.downedBlend, downed && !ref.isDead ? 1 : 0, 7, dt);
     // a climber is not grounded on the wire (AIRBORNE) but must not play the jump / fall tuck

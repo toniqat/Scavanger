@@ -32,12 +32,13 @@ Unlike other feature folders, `@/items` is imported directly by `inventory/`, `w
   weapons start at max durability with a full magazine (extended mag counted) unless `extras` override; uniques drop `extras.sockets`
 - weapons: `getEffectiveStats(inst | weaponId | itemId)`, `canAttach(weapon, attachment)`
 - economy: `getRepairCost(inst)`, `durabilityBucketOf`, `durabilityBucketInfo`, `getCraftCostOf(defId)`, `getSalvageFor(inst)`
-- loot: `rollCrateOn(tier, rng, planet)`, `rollCorpseOn(type, rng, weaponId, planet, opts?: CorpseLootOpts)`, and the planet-less
-  `rollCrate(tier, rng?)`, `rollCorpse(type, rng?, weaponId?)`
+- loot: `rollCrateOn(tier, rng, planet, opts?: CrateLootOpts)`, `rollCorpseOn(type, rng, weaponId, planet, opts?: CorpseLootOpts)`,
+  and the planet-less `rollCrate(tier, rng?)`, `rollCorpse(type, rng?, weaponId?)`
 
-Callers of the roll functions: `inventory/Container.ts` and `inventory/parts/Peek.ts` (crates, previews),
-`enemies/Corpses.ts`, `world/structures/parts/Containers.ts`, `gadgets/drones/parts/Scan.ts`. Seeds come from
-`src/shared/lootRolls.ts` (`crateLootRandom`, `corpseLootRandom`).
+Callers of the roll functions: `inventory/Container.ts`, `inventory/parts/Peek.ts`, `inventory/parts/Allies.ts`,
+`inventory/parts/ContainerNet.ts` (crates, previews), `enemies/Corpses.ts`, `world/structures/parts/Containers.ts`,
+`gadgets/drones/parts/Scan.ts`. Seeds come from `src/shared/lootRolls.ts` (`crateLootRandom`, `corpseLootRandom`); a
+structure container's `CrateLootOpts` comes from `WorldRef.crateLootOpts(id)` and every crate path passes it unchanged.
 
 Direct `@/items` imports: `inventory/` (grids, crafting, tooltips, sort, durability), `weapons/` (`model.ts`, `Firing`, `Healing`,
 `WeaponDefaults`), `ui/hud/ItemTip.ts` and `WeaponPanel.ts`. `scripts/data-check.mjs` loads `ItemDefs`, `Recipes`, `LootTables`,
@@ -83,8 +84,9 @@ Direct `@/items` imports: `inventory/` (grids, crafting, tooltips, sort, durabil
 - **Implants**: only broken twins drop (tier tables zero working implants; corpse `implantWeights`); working implants come from the
   Ceres shop and repair desk (`src/meta`). Slot rules live in `src/progression`.
 - **Pouches**: `pouchAccepts` is validated with `enumList` against `ITEM_CATEGORIES`; a pouch accepting nothing is reported.
-- **Meals**: `effects` (`buff:amount` list, buff names = `DerivedStats` fields, checked against `MEAL_BUFFS`); a non-retired tier n meal
-  has exactly n lines. `MealDef.buff`/`amount` mirror `effects[0]`. Folding into derived stats is `src/progression`.
+- **Meals are not items** (2026-09-16): `data/meals.csv` is parsed by `src/shared/meals.ts` (`MEAL_DEFS`, `getMealDef`) and
+  `ITEM_DEFS` has no meals — `getItemDef('meal_*')` is undefined. Cook-bench recipes still name a meal id as `outputDefId`
+  (data:check resolves it in the meal table). Old saved meal items resolve to unknown defs (no alias rows, no refund).
 - **Samples / sockets / strains / media / soils**: families `cell` | `mineral` | `dna`; `first*` columns must stay empty. Analysis results,
   wear, sockets and culture are `src/housing`; items only define them. `soilDurability` is required when `soilTag` is set,
   `mediumDurability` when `mediumUses` is set, the three `strainScaffold*` columns go together.
@@ -100,7 +102,8 @@ Direct `@/items` imports: `inventory/` (grids, crafting, tooltips, sort, durabil
 **Crates** (`rollCrateWithCurve`): roll item count → guaranteed picks → one weapon-chance draw → category draws until full (at most one
 bag; a category with no candidate is dropped for this crate and the draw repeats; categories with no candidate on this planet are not
 offered) → re-grade weapons by the planet curve → each unique weapon adds one stack of its calibre → materialise, merge stacks, found gear
-gets 55–100 % durability → sort largest area first. `pickDef` applies `itemWeightMul`, retirement, planet binding and planet rarity weights.
+gets 55–100 % durability → sort largest area first. `pickDef` applies `itemWeightMul`, retirement, planet binding, planet rarity weights
+and the epic+ gate (below).
 
 **Loot category axis**: `LootCategory` = `ItemCategory` + `'grenade'` (`lootCategoryOf`: items with `ItemDef.grenade` are `grenade`).
 `loot_category_weights.csv` and `loot_guaranteed.csv` use this axis and the loader validates the names.
@@ -112,7 +115,16 @@ gets 55–100 % durability → sort largest area first. `pickDef` applies `itemW
   normal gun / calibre. The ammo stack that accompanies a rolled unique is exempt.
 - `rareMul`/`epicMul`/`legMul` scale rare+ rarity weights and give the removed weight back to common/uncommon in their original ratio
   (total unchanged) — applied in `pickDef` (all crate tiers) and to corpse `implantWeights`; not to `loot_corpses.csv` rows, boss
-  attachments or gun grades. All three = 1 returns the base table object untouched.
+  attachments or gun grades. All three = 1 returns the base table object untouched. These are *weight* multipliers, so they cancel in
+  guaranteed picks whose candidates are all rare+/epic+ and do nothing in the `relaxRarity` fallback.
+- `epicPlusMul` is the **epic+ gate** (the `keep` value in `Loot.ts`): whenever any roll yields an epic or legendary item, it is kept with
+  probability `epicPlusMul`, otherwise replaced by the highest rarity below epic **from the same candidate pool** (weighted by the same
+  rules; a guaranteed pick ignores its `minRarity` for this). So the chance that a pick is epic+ is exactly × `epicPlusMul`, including
+  guaranteed and fallback picks. Crates: `pickDef` (non-weapons; a pool with nothing below epic — keys, records — returns null, so the
+  category is redrawn), `regrade` (curve grades IV–V and surviving uniques → the highest curve grade below epic). Corpses: epic+
+  `loot_corpses.csv` rows and site-bonus items (chance × keep), carried weapon grade (after the planet cap), boss attachment, boss unique
+  chance, book, broken implant, faction armor/bag/heal, site seeds, named drops. **Exempt:** lab locked-room containers
+  (`CrateLootOpts.lockedRoom`, set by `world/Structures.ts`) and every planet-less roll. `keep >= 1` consumes no extra draw.
 - Planet-bound categories (`book`, `disc`, `record`, `game_disc`, `console`) only pick items of the raid planet, weighted by
   `LIBRARY_VOLUME_DROP_WEIGHT`; with `planet = null` every planet-bound item is a candidate.
 
@@ -122,8 +134,8 @@ broken implant → faction armor → bag → heal (`rollFactionGear`) → site b
 An enemy type with no table yields one `mat_bio_sample`. `CorpseLootOpts` (`site`, `grenades`) is passed identically by host
 (`Enemy.site`, `grenadeCount`), replicas (`ee corpse.si/gc/gk`) and drone-scan previews, so the result is a pure function of its inputs.
 
-**Named drops** (`loot_named.csv`) are keyed by enemy type only, ignore every planet curve, and set durability from
-`NAMED_LOOT_DURABILITY_MIN/MAX`.
+**Named drops** (`loot_named.csv`) are keyed by enemy type only, ignore every planet curve except the epic+ gate (`epicPlusMul`), and set
+durability from `NAMED_LOOT_DURABILITY_MIN/MAX`.
 
 ## 프로세서 · 연산 코어
 
@@ -134,7 +146,8 @@ multiplier 0 at every crate tier. Its stack size equals one full compute cluster
 Target: an average player finds a processor every 15–25 raids. The tier-4 and tier-5 multipliers were back-solved to ≈ 2 % per tier-4
 container and ≈ 0.5 % per supply drop (procedure: `data/README.md` 「역산 절차」). Tier-4 containers include structure basements, lab
 locked rooms, wrecks and trams, so changing `structures.csv` tier weights, `loot_tiers.csv` legendary weights or other material
-multipliers moves this rate. Mining yield per core count is `data/crypto.csv` (`shared/cryptoMarket.ts`).
+multipliers moves this rate. Since 2026-09-16 the processor (legendary) also passes the epic+ gate (`planet_loot.csv` `epicPlusMul` 0.5),
+so outside lab locked rooms it drops about half as often as that back-solve assumed. Mining yield per core count is `data/crypto.csv` (`shared/cryptoMarket.ts`).
 
 ## Crafting, repair and salvage
 
@@ -164,6 +177,8 @@ multipliers moves this rate. Mining yield per core count is `data/crypto.csv` (`
   table shifts that table's draws — `src/inventory/__selftest__.ts` pins fixed outputs for `warrior`, `rogue`, `rogue_boss`. — `Loot.ts`
 - **Previews use the real roll.** Drone scan and inventory peek call `rollCrateOn`/`rollCorpseOn` with seeds from `src/shared/lootRolls.ts`;
   never copy the roll or seed formula into another folder.
+- **Every crate roll path passes the same `CrateLootOpts`** (`WorldRef.crateLootOpts(id)`), or a locked-room preview and its open differ.
+  The epic+ gate is on results, not weights — guaranteed picks must not be exempt. — `Loot.ts` (`gatePick`, `pickDef`, `regrade`)
 - **Keep `grenade` a separate loot category.** Merging its weight into `gadget` changes grenade/gadget relative frequency; the separate
   axis keeps same-seed crates identical. — `LootTables.ts` (`lootCategoryOf`)
 - **Retired items are excluded in code**, not only in csv: `isLootableDef` in `pickDef` (including the `relaxRarity` fallback), faction
@@ -179,10 +194,9 @@ multipliers moves this rate. Mining yield per core count is `data/crypto.csv` (`
 ## Recent changes
 
 Last 5 only — older: `git log -- src/items`.
-
+  barricade join repair/salvage, attachment and seed weights read from csv.
+- 2026-09-16 — Meals removed from `ITEM_DEFS` (`MEAL_ITEM_DEFS` gone); `data/meals.csv` is parsed by `shared/meals.ts`.
+- 2026-09-16 — Epic+ gate (`planet_loot.csv` `epicPlusMul`, `PlanetGradeCurve.epicPlusMul`) on every crate and corpse roll; lab locked rooms exempt via `rollCrateOn(…, opts: CrateLootOpts)`.
 - 2026-09-15 — Loot category axis split (`LootCategory`, `lootCategoryOf`); crates skip a category with no candidates instead of stopping.
 - 2026-09-15 — `ItemSpec.ts` (spec rows) and `ItemText.ts` (description markup); numbers removed from item descriptions.
 - 2026-09-15 — Gadget data overhaul: grenades are `gadget` + `grenade`, `gad_incendiary` removed (aliased), durable dome shield and
-  barricade join repair/salvage, attachment and seed weights read from csv.
-- 2026-09-15 — Unique weapon name = nickname; unique `class` excluded from class rules; unique ammo weights and stacks reduced.
-- 2026-09-15 — `grenadeFire` column → `ItemDef.grenadeFire`.

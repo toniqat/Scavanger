@@ -44,7 +44,7 @@ Input accepts `/move …` and `move …`, case-insensitive; output is Korean.
 | `stat <id\|이름> <±xp>` | anywhere | `ProgressionRef.addStatXp` |
 | `skill <id\|이름> <±xp>` | anywhere | `ProgressionRef.addSkillXpRaw` (name may contain spaces; last token is xp) |
 | `gym [clear [str\|end] \| <str\|end> <±xp>]` | anywhere | Trained-stat status; dev `addTrainedXp?` / `clearGymFatigue?` |
-| `cook [give <요리> [품질 0-5] [수량]]` | anywhere | Current cook session, or add meals with `quality` to the bag |
+| `cook [plate <요리> [품질 0-5] \| clear]` | anywhere | Current cook session + dining plate; put a plate on my dining table without cooking (`devSetPlate`) or clear it |
 | `library [give <seriesId> [권\|all]]` | anywhere | `HousingRef.getLibraryEffects()` summary, or add series items to the stash (`tryAddToStash`, fallback `tryAddItemAnywhere`) |
 | `analyze [ff <시간> \| done [uid\|all]]` | anywhere | Analyzer slot status; dev `HousingRef.devAdvanceAnalysis?` (`done` advances by the longest `remainingS`) |
 | `worm [뱉기초]` | gameplay, authority, not training | Force the sandworm event under the player |
@@ -69,8 +69,8 @@ Input accepts `/move …` and `move …`, case-insensitive; output is Korean.
 ## Recent changes
 
 Older: `git log -- src/console`.
+- 2026-09-16 — `cook give` replaced by `cook plate <요리> [품질]` / `cook clear` (meals are not items).
 - 2026-09-15 — `analyze` command; `items` search focus moved into the inventory catalog.
 - 2026-09-13 — `crypto` command (dev `HousingRef` mining methods).
 - 2026-09-13 — `library` command.
 - 2026-09-13 — `rover` (`cheat:rover`) and `worm` (`cheat:sandworm`) commands.
-- 2026-09-13 — `cook` command.

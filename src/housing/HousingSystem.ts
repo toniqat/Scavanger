@@ -43,6 +43,9 @@ import { CookScreen } from './ui/cook/CookScreen';
 import { CookStation } from './ui/cook/CookStation';
 import type { CookAutoInfo, CookGame, CookSessionInfo, CraftRecipe } from '@/shared';
 import type { MiningComputerTab } from '@/shared';
+import type { DiningPlate, MealItemDef, TablePlateInfo } from '@/shared';   // 2026-09-16 식탁 접시
+import type { PlateAskState } from './ui/cook/PlateAsk';
+import { closePlateAsk } from './ui/cook/PlateAsk';
 // 채굴 화면 (2026-09-13 → 2026-09-14 통합: 채굴 · 클러스터 현황 · 지갑 · 거래소가 한 창이다)
 import { MiningScreen, openComputeClusterScreen, openMiningComputerScreen } from './ui/mining/MiningScreen';
 import * as VideoGame from './parts/VideoGame';              // 비디오게임 (H2, 2026-09-13)
@@ -148,6 +151,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.miningScreen = new MiningScreen(ctx, this);            // 채굴 화면 (2026-09-14 통합 — 탭 넷이 한 창)
     this.tvMenu = new TvMenu(ctx, this); this.unsubs.push(...VideoGame.bindVideoGame(this));   // 비디오게임 (H2, 2026-09-13)
     this.unsubs.push(...Music.bindMusic(this));                // 음악 재생 (2026-09-14)
+    this.unsubs.push(...Dining.bindDining(this));              // 식탁 접시 (2026-09-16): 레이드 시작에 치움 · 분대원 접시
     const b = ctx.bus;
     this.unsubs.push(
       b.on('game:newMission', () => { this.closeMenus(); this.exitHousingMode(); }),
@@ -181,6 +185,7 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   dispose(): void {
     this.closeMenus();
+    closePlateAsk(this);                                       // 2026-09-16: 떠 있는 「식탁의 요리를 바꿉니다」 경고
     for (const u of this.unsubs) u();
     this.unsubs = [];
     this.growStation?.dispose(); this.analyzerPanel?.dispose();
@@ -251,6 +256,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.store?.cancel();
     this.editPending = false;
     const out: SanitizeOutcome = { refund: [] };
+    const plateBefore = this.getPlate();                          // 2026-09-16: 서버 사본의 접시가 다르면 알린다 (아래)
     this.state = sanitize(doc, out);
     if (out.refund.length) mergeCost(this.pendingRefund, out.refund);   // 서버 사본에도 은퇴 가구가 있을 수 있다
     this.nextUid = maxUidIndex(this.state.furniture);
@@ -273,6 +279,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     b.emit('housing:loaded', { state: this.state });
     b.emit('housing:changed', { reason: 'profile' });
     this.emitStashSizeIfChanged();
+    Dining.afterStateReplaced(this, plateBefore);                // 식탁 접시 (net 이 분대원에게 · hub 가 식탁 조각에)
   }
 
   /* ── helpers ───────────────────────────────────────────────────────────── */
@@ -575,27 +582,44 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   openCultureTank(uid: string): void { return Culture.openCultureTank(this, uid); }
 
-  /* ── 주방 식탁 (A-3c, 2026-09-11) ──────────────────────────────────────── */
-  /** 공유 함선의 고정 식탁 앞인가 (「분대에 차리기」가 보이는 유일한 조건). */
+  /* ── 주방 식탁 · 접시 (A-3c 2026-09-11 → 2026-09-16 접시 모델) ─────────── */
+  /**
+   * 공유 함선의 분대원 접시 (PeerId → 이름 · 접시) — net 이 `net:squadPlate` 로 채우고 `parts/Dining.bindDining` 이 지운다.
+   * 내 접시는 여기가 아니라 `state.plate` 다.
+   */
+  readonly squadPlates = new Map<string, Dining.SquadPlate>();
+  /** 떠 있는 「식탁의 요리를 바꿉니다」 경고 (`ui/cook/PlateAsk`), 없으면 null. */
+  plateAsk: PlateAskState | null = null;
+
+  /** 공유 함선의 고정 식탁 앞인가. */
   isSharedTable(): boolean { return Dining.isSharedTable(this); }
 
   /** 왜 지금 식탁을 쓸 수 없는가 (null = 괜찮다). `uid` null = 공유 함선의 고정 식탁. */
   diningBlock(uid: string | null): string | null { return Dining.diningBlock(this, uid); }
 
-  /** 요리 def with its `meal` data, or null when `defId` is not a 요리. */
-  mealDef(defId: string): ItemDef | null { return Dining.mealDef(this, defId); }
+  /** 요리 정의 (`shared/meals` — 요리는 아이템이 아니다), 요리가 아니면 null. */
+  mealDef(defId: string): MealItemDef | null { return Dining.mealDef(this, defId); }
 
-  /** 지금 갖고 있는 요리 (가방 + 함선 창고), 일반 → 특선 순서. */
-  getOwnedMeals(): { defId: string; qty: number }[] { return Dining.getOwnedMeals(this); }
+  /** 내 함선에 식탁 가구가 배치돼 있나 (조리대 게이트). */
+  hasDiningTable(): boolean { return Dining.hasDiningTable(this); }
 
-  /** 2026-09-13: 가진 요리를 (요리, 품질) 한 줄씩 — 식탁 목록. */
-  getMealStacks(): { defId: string; quality: number; qty: number }[] { return Dining.getMealStacks(this); }
+  /** 내 함선 식탁의 접시, 없으면 null. */
+  getPlate(): DiningPlate | null { return Dining.getPlate(this); }
 
-  /** 요리 하나를 먹는다 — `progression.useMeal` 에 **먼저 묻고** 성공할 때만 아이템을 뺀다. `quality` = 그 요리의 품질 (2026-09-13). */
-  eatMeal(uid: string | null, defId: string, quality = 0): string | null { return Dining.eatMeal(this, uid, defId, quality); }
+  /** 그 식탁의 접시들 (`uid` = 내 식탁 가구 → 내 것만, null = 공유 함선 식탁 → 분대원 것까지). */
+  getTablePlates(uid: string | null): TablePlateInfo[] { return Dining.getTablePlates(this, uid); }
 
-  /** 공유 함선 식탁에서 분대 전원에게 차린다 (요리 1개 소모 + `housing:mealServed {quality}`; 전파는 net 이 한다). */
-  serveMealToSquad(uid: string | null, defId: string, quality = 0): string | null { return Dining.serveMealToSquad(this, uid, defId, quality); }
+  /** 지금 그 접시를 먹을 수 없는 한국어 사유 (「이미 먹었습니다」 포함), null = 먹을 수 있다. */
+  plateEatBlock(uid: string | null, ownerId?: string | null): string | null { return Dining.plateEatBlock(this, uid, ownerId); }
+
+  /** 접시를 먹는다 — 접시는 줄지 않고 `progression.useMeal` 이 대기 식사를 싣는다. 한국어 사유 / null. */
+  eatPlate(uid: string | null, ownerId?: string | null): string | null { return Dining.eatPlate(this, uid, ownerId); }
+
+  /** 개발 · 스모크: 조리 없이 내 식탁에 접시를 놓는다. */
+  devSetPlate(mealDefId: string, quality = 0): string | null { return Dining.devSetPlate(this, mealDefId, quality); }
+
+  /** 개발 · 스모크: 내 접시를 치운다. */
+  clearPlate(): boolean { return Dining.clearPlate(this, 'dev'); }
 
   openDiningTable(uid: string | null): void { return Dining.openDiningTable(this, uid); }
 

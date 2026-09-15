@@ -46,7 +46,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-consumables.mjs` | weapons, player, items | Adrenaline / stimulant / stabilizer: 3 s hold, effects, mutual cancel, recipes and drops |
 | `smoke-console.mjs` | console, progression, inventory, player, hub | Dev-host gating, toggle, suggestions, history, commands, Home move cheat, Esc capture |
 | `smoke-controls-hub.mjs` | ui, hub, inventory, implants, progression, player, net | Controls diagram + rebinding, hub Tab ship screen, terminal, implant gauge / wielded shield |
-| `smoke-cooking.mjs` | housing, inventory, progression, hub, player | Six cooking judges headless, cooking flow, meal quality stacks, dining table, bench screen |
+| `smoke-cooking.mjs` | housing, inventory, progression, hub, player | Six cooking judges headless, cooking flow, dining-table gate, dining plates (replace warning, eat without consuming, shared-table squad plates, launch warning, raid-start clear), bench screen |
 | `smoke-desktop.mjs` | — · S X (via `EXTRA_PATHS`) | Real Electron against a relay it starts itself: boot, no relay code / relay port in the shell, `--relay` · `--local` (this PC's 8787) · `server.txt` targets, save = window port, single instance; `--release` checks the 3-entry release folder and the asar |
 | `smoke-drone-scan.mjs` | gadgets, inventory | Ground-drone scan aim, 3 s hold gauge, best-grade label matches the real roll |
 | `smoke-ecology.mjs` | world, enemies, items | Per-planet biome, gather weights/density, enemy compositions |
@@ -119,7 +119,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-trust.mjs` | stratagems, weapons, implants, gadgets, meta, enemies | Two clients in a private lobby forge wire messages; host guards (ship calls, buffs, contracts, `explode`, `st`, denies) hold |
 | `smoke-tutorial.mjs` | tutorial, hub, housing, inventory, ui, items | Build track: gates, spotlight, hides, skip hold |
 | `smoke-tutorial-raid.mjs` | tutorial, world, game, extraction, player, enemies | Raid track end to end through the real entry path (teleports between sections, real input for judged actions) |
-| `smoke-tutorial-ship.mjs` | tutorial, meta, ui, progression, inventory | Ship track: level-up → stats → messenger → Raven quest with real input |
+| `smoke-tutorial-ship.mjs` | tutorial, meta, ui, progression, inventory | Ship track (2 steps): level-up → stats with real input; the track ends only when the inventory closes (no build intro over the character screen); old `messenger` / `ravenQuest` saves read as done; reload after confirming; Raven writes after the tutorial |
 | `smoke-tv-games.mjs` | hub | TV / console models, seat interaction, game staging (housing stubbed) |
 | `smoke-ui-p5.mjs` | ui, meta, game | Title level chip, contract panel, meta toasts, result-screen XP block |
 | `smoke-ui-p6.mjs` | ui | Charge gauge, fire-mode lines, status markers, housing hint, give-up bar |
@@ -172,13 +172,8 @@ app — typically red only on a long-lived dev server. Smokes that mutate module
 ## Recent changes
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
+- 2026-09-16 — `smoke-cooking` covers dining plates (table gate, replace warning, eat without consuming, squad plates, launch warning, raid-start clear); `smoke-inventory-p6` cook section tests `consumeCookInputs` (meal quality stack checks removed); data-check resolves meal ids in the meal table.
 - 2026-09-15 — New `smoke-thumper` (진동 장치 in gadgets/; stubs `burrowGroundOk` until world publishes it).
 - 2026-09-15 — `e2e-multiplayer.mjs`: player names are set after both clients join the lobby (profile load was resetting them).
 - 2026-09-15 — New `smoke-allies-core` · `smoke-allies-orders` (the android AI itself in allies/).
 - 2026-09-15 — New `smoke-ally-ui` (android squad rows / nameplates / map / pings / chat / toasts and the loading gauge in ui/).
-- 2026-09-15 — New `smoke-ally-avatars` (android bodies, revive prompt, carry, shot FX in player/).
-- 2026-09-15 — New `smoke-ally-hooks` (android raid hooks in inventory / pickups / extraction / world).
-- 2026-09-15 — New `smoke-tutorial-raid` · `smoke-tutorial-ship` · `smoke-fall-damage` · `smoke-fire-zones`.
-- 2026-09-14 — `smoke-library-consumers.mjs` routes every `/src/…` import through `window.__imp` (module-instance caveat above).
-- 2026-09-14 — New `smoke-intel.mjs` (standalone); `economy-table.mjs` bakes and cross-checks the intel section.
-- 2026-09-14 — `smoke-planets` / `e2e-mp` / `smoke-trust` follow "boarding ≠ ready" (Space hold → warning → ready); `smoke-training` reads crew rows from the match popup.

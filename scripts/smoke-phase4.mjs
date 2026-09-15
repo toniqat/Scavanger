@@ -260,14 +260,38 @@ try {
     const hadLoot = !!(ctx.loot && typeof ctx.loot.rollCorpse === 'function');
     if (inv) { if (orig) inv.openContainerItems = orig; else delete inv.openContainerItems; }
     // looted → prompt flips
+    const lifeBefore = s.corpseLife;
     ctx.bus.emit('crate:looted', { crateId: `corpse:${s.id}` });
-    return { id: s.id, dead: s.isDead, found: !!it, hold: it?.holdTime, radius: it?.radius, prompt, can, calls: stub.calls, hadInventoryFn: had, hadLoot, promptAfter: it ? it.getPrompt() : null, canAfter: it ? it.canInteract() : null, corpseLife: s.corpseLife, spawned: window.__ev['corpse:spawned'].length };
+    // 2026-09-16 (빈 시체 제거): a second rogue corpse that nobody opens — it must keep the normal lifetime
+    const keep = sys.debugSpawn('rogue', { x: p.x - 2, z: p.z + 2 }, false);
+    if (keep) keep.takeDamage(5000);
+    return { id: s.id, dead: s.isDead, found: !!it, hold: it?.holdTime, radius: it?.radius, prompt, can, calls: stub.calls, hadInventoryFn: had, hadLoot, promptAfter: it ? it.getPrompt() : null, canAfter: it ? it.canInteract() : null, corpseLife: lifeBefore, spawned: window.__ev['corpse:spawned'].length,
+      lifeAfter: s.corpseLife, emptied: s.corpseEmptied, deathT: s.deathTimer, fadeS: s.corpseFadeS, keep: keep ? keep.id : null };
   });
   ok(corpse && corpse.found && corpse.hold === 0.6 && corpse.radius === 2.4, `corpse interactable registered (corpse:${corpse?.id}, hold ${corpse?.hold}, radius ${corpse?.radius})`, JSON.stringify(corpse));
   ok(corpse && corpse.prompt === '시체 수색' && corpse.spawned > 0, 'prompt 시체 수색 + corpse:spawned emitted');
   ok(corpse && corpse.calls.length === 1 && corpse.calls[0].id === `corpse:${corpse.id}` && corpse.calls[0].title === '시체', `interact() → openContainerItems('corpse:<id>', items, pos, '시체') (items ${corpse?.calls[0]?.n}, loot impl present: ${corpse?.hadLoot}, inventory impl present: ${corpse?.hadInventoryFn})`);
   ok(corpse && corpse.promptAfter === '수색 완료' && corpse.canAfter === false, 'crate:looted marks the corpse searched (수색 완료, no re-open)');
   ok(corpse && corpse.corpseLife === 45, `corpse lifetime ${corpse?.corpseLife} s`);
+  /* 2026-09-16 (사용자 결정 — 빈 시체 제거): an opened-and-emptied enemy corpse sinks after the delay and goes; an unopened one stays */
+  const K16 = await P(async () => { const m = await import('/src/shared/constants.ts'); return { delay: m.CORPSE_EMPTY_REMOVE_DELAY_S, sink: m.CORPSE_EMPTY_SINK_S }; });
+  ok(corpse && corpse.emptied === true && Math.abs(corpse.lifeAfter - (corpse.deathT + K16.delay + K16.sink)) < 0.05 && corpse.fadeS === K16.sink,
+    `emptied enemy corpse: lifetime cut to death + ${K16.delay} + ${K16.sink} s, sink over ${K16.sink} s`, JSON.stringify(corpse));
+  await waitSim(K16.delay * 0.5);
+  const emptyMid = await P((a) => {
+    const e = window.__sys.byId.get(a.id);
+    return { present: !!e && e.state === 'dead', fade: e ? e.anim.fade : null };
+  }, corpse);
+  ok(emptyMid.present && emptyMid.fade === 0, 'the emptied corpse waits CORPSE_EMPTY_REMOVE_DELAY_S before it starts sinking', JSON.stringify(emptyMid));
+  await waitSim(K16.delay + K16.sink + 0.6);
+  const emptyEnd = await P((a) => {
+    const sys = window.__sys, ctx = window.__game.ctx, e = sys.byId.get(a.id), k = a.keep !== null ? sys.byId.get(a.keep) : null;
+    const has = (id) => ctx.interactables.all().some((i) => i.id === `corpse:${id}`);
+    return { gone: !e, it: has(a.id), keep: !!k && k.state === 'dead', keepIt: a.keep !== null && has(a.keep), keepLife: k ? k.corpseLife : null, keepFade: k ? k.anim.fade : null, keepEmptied: k ? k.corpseEmptied : null };
+  }, corpse);
+  ok(emptyEnd.gone && !emptyEnd.it, 'the emptied enemy corpse sank and was removed (body + corpse interactable)', JSON.stringify(emptyEnd));
+  ok(emptyEnd.keep && emptyEnd.keepIt && emptyEnd.keepLife === 45 && emptyEnd.keepFade === 0 && emptyEnd.keepEmptied === false,
+    'an unopened enemy corpse stays (CORPSE_LIFETIME, no sinking)', JSON.stringify(emptyEnd));
   const rem = await P(() => window.__ev['corpse:removed'].length);
   const bodies = await P(() => window.__sys.active.filter((e) => e.state === 'dead').length);
   ok(bodies > 0, `dead bodies stay in the scene (${bodies} corpses active, ${rem} removed so far)`);

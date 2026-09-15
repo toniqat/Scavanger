@@ -39,7 +39,7 @@ export function hookCorpseNet(sys: GameFlowSystem): void {
   const net = sys.ctx.net;
   if (!net || sys.corpseUnsubs.length > 0) return;
   sys.corpseUnsubs.push(
-    net.onMessage('pcorpse', (msg) => onCorpseMessage(sys, msg)),
+    net.onMessage('pcorpse', (msg, from) => onCorpseMessage(sys, msg, from)),
     net.onMessage('pcorpseq', (msg, from) => { if (msg.ev === 'sync' && net.isHost) sendCorpseSync(sys, from); }),
     net.onMessage('flow', (msg, from) => { if (msg.ev === 'rejoined' && net.isHost) sendCorpseSync(sys, from); }),
   );
@@ -50,10 +50,19 @@ export function unhookCorpseNet(sys: GameFlowSystem): void {
   sys.corpseUnsubs.length = 0;
 }
 
-export function onCorpseMessage(sys: GameFlowSystem, msg: CorpseMessage): void {
+/**
+ * `from` (2026-09-16): `emptied` 는 이제 시체를 **치우는** 사실이라 로비 호스트가 보낸 것만 받는다 (`ee` 와 같은 규칙).
+ * 호스트는 모든 `pcorpse` 와이어로 컨테이너를 미리 만들어 두므로(`inventory/parts/CorpseLoot.primeCorpseContainer` — `'all'` 은
+ * 보낸 사람에게도 되돌아온다) 누가 마지막 아이템을 가져가든 호스트의 `crate:looted` 가 먼저 안다. 로비가 없으면(스모크) 비교하지 않는다.
+ */
+export function onCorpseMessage(sys: GameFlowSystem, msg: CorpseMessage, from?: PeerId): void {
   if (msg.ev === 'spawn') applyCorpseWire(sys, msg.corpse);
   else if (msg.ev === 'sync') for (const w of msg.corpses ?? []) applyCorpseWire(sys, w);
-  else if (msg.ev === 'emptied') sys.corpses?.markEmptied(msg.id);
+  else if (msg.ev === 'emptied') {
+    const hostId = sys.ctx.net?.lobby?.hostId;
+    if (hostId && from !== undefined && from !== hostId) return;
+    sys.corpses?.markEmptied(msg.id);
+  }
 }
 
 /** 와이어 한 구를 월드에 세운다 (이미 아는 id 는 무시된다). */
@@ -102,7 +111,8 @@ export function spawnLocalCorpse(sys: GameFlowSystem): void {
   if (ctx.world?.ready) pos.y = ctx.world.getSurfaceY(pos.x, pos.z, pos.y);
   const id = mgr.nextId(owner);
   const corpse = mgr.add(id, owner, localName(sys), pos, player.yaw, ctx.missionTime, items, slotOf(sys, owner));
-  if (ctx.isMultiplayer) ctx.net?.send({ t: 'pcorpse', ev: 'spawn', corpse: corpse.toWire() }, 'all');
+  // 빈손이면 `add` 가 곧바로 빈 시체로 표시한다 — 받는 쪽도 같은 `items` 를 보므로 따로 알릴 것이 없다 (2026-09-16)
+  if (corpse && ctx.isMultiplayer) ctx.net?.send({ t: 'pcorpse', ev: 'spawn', corpse: corpse.toWire() }, 'all');
 }
 
 /** 클라이언트: 지금 서 있는 시체 목록을 호스트에게 청한다 (`world:ready` 이후 · 재합류 · 호스트 이관). */
@@ -118,9 +128,15 @@ export function sendCorpseSync(sys: GameFlowSystem, to: PeerId): void {
   net.send({ t: 'pcorpse', ev: 'sync', corpses: sys.corpses.syncWire() }, to);
 }
 
-/** `crate:looted` — 컨테이너가 비었다. 시체면 프롬프트를 `비어 있음` 으로 바꾸고 분대에도 알린다. */
+/**
+ * `crate:looted` — 컨테이너가 비었다. 시체면 빈 시체로 표시한다 (프롬프트 `비어 있음` → 잠시 뒤 가라앉아 사라진다).
+ *
+ * 2026-09-16: 분대에 `pcorpse emptied` 를 알리는 것은 **호스트뿐**이다. 클라이언트 쪽 `crate:looted` 는 호스트가 확인한
+ * `cont taken` / `cont sync` 에서만 나오므로(클라이언트는 컨테이너에서 낙관적으로 빼지 않는다) 자기 사본을 표시하는 것은 맞고,
+ * 같은 순간 호스트의 사본도 비어 호스트가 방송한다. 빈손으로 선 시체는 `add` 가 모든 클라이언트에서 따로 표시한다.
+ */
 export function onContainerLooted(sys: GameFlowSystem, containerId: string): void {
   if (!containerId.startsWith('pcorpse:')) return;
   if (!sys.corpses?.markEmptied(containerId)) return;
-  if (sys.ctx.isMultiplayer) sys.ctx.net?.send({ t: 'pcorpse', ev: 'emptied', id: containerId }, 'others');
+  if (sys.ctx.isMultiplayer && sys.ctx.isAuthority) sys.ctx.net?.send({ t: 'pcorpse', ev: 'emptied', id: containerId }, 'others');
 }

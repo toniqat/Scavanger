@@ -16,7 +16,7 @@ import type { NamedRogueDirector } from '../named/Director';
 /* 2026-09-13: 굴착 스폰 · 땅굴벌레 */
 import { stepSpatFlight } from '../ai/Burrow';
 import { applyWormHint } from '../sandworm/Pose';
-import { isWormType } from '../EnemyTypes';
+import { isWormType, raidXpOf } from '../EnemyTypes';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Client-side enemy replicas (joined multiplayer clients, `!ctx.isAuthority`).
@@ -190,6 +190,8 @@ export interface ReplicaHost {
   /** Phase 10: `opts` carries the host's authority for the lootable roll (`ee corpse.lt`) and the fall direction (`dd`). */
   corpseSpawnedRemote(id: number, type: EnemyType, p: THREE.Vector3, weaponId: string | undefined, opts?: CorpseWireOpts): void;
   corpseGoneRemote(id: number): void;
+  /** appended (2026-09-16): `ee corpseEmptied` — the host decided this corpse was opened and emptied (`parts/CorpseEmpty`). */
+  corpseEmptiedRemote(id: number): void;
   /* ── Phase 7 (rogue AI v2) ── */
   /** Visual rogue grenade from `ee grenade` (position / velocity / fuse as thrown on the host). 2026-09-13: `kind` = `ee grenade.k`. */
   grenadeVisual(id: number, p: THREE.Vector3, v: THREE.Vector3, fuse: number, kind?: EnemyGrenadeKind): void;
@@ -326,6 +328,8 @@ export class EnemyReplica {
         const localId = ctx.net?.localId ?? null;
         if (msg.killer !== null && msg.killer === localId) {
           ctx.stats.kills++;
+          // 2026-09-16: 처치 경험치 — 호스트의 `parts/Damage.onEnemyKilled` 와 같은 조건 · 같은 값 (종류는 와이어의 `ty`)
+          ctx.stats.killXp = (ctx.stats.killXp ?? 0) + raidXpOf(msg.ty);
           _p.set(msg.p[0], msg.p[1], msg.p[2]);
           // Phase 9: the wire carries our real peer id; the bus payload names our own credit `'local'` (same as the host path)
           // 2026-09-14: 계열 = 이 클라이언트가 그 적에게 보낸 마지막 요청의 출처 (호스트의 화상 지속 피해 막타는 알 수 없다)
@@ -444,6 +448,9 @@ export class EnemyReplica {
       }
       case 'corpseGone':
         host.corpseGoneRemote(msg.id);
+        return;
+      case 'corpseEmptied':   // 2026-09-16: 열어서 비운 시체 — 수명이 줄고 가라앉는다 (치우는 것은 뒤따르는 `despawn` / 자기 수명)
+        host.corpseEmptiedRemote(msg.id);
         return;
       /* ── Phase 7 ── */
       case 'grenade': {

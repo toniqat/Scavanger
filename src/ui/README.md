@@ -68,7 +68,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/RaidAlerts.ts` | DOM-less event → toast converter: landmark discovery, raider drop warning, rover trips/damage |
 | `hud/ReloadGauge.ts` | Reload / weapon-swap ring at the crosshair (ignores the bow) |
 | `hud/RescuePicker.ts` (+ `rescuePicker.css`) | Full-screen rescue-drop target picker (`rescue:selectTarget`) |
-| `hud/Reticle.ts` | Crosshair: stance/aim gap + bloom, hitmarkers, consumable dot readout, grapple chip, blocked-muzzle colour, bow draw mode, defib circles |
+| `hud/Reticle.ts` | Crosshair: stance/aim gap + bloom, hitmarkers, consumable dot readout, grapple chip, blocked-muzzle colour, bow draw mode, defib circles; hidden during the intro wake, then fades in over `TUTORIAL_RETICLE_FADE_S` |
 | `hud/RoomLabel.ts` | `방 n · 용도` label on `hub:roomEntered` |
 | `hud/RoverHud.ts` | Rover passenger HUD: `rover-view` class, hp bar, state line, `M` key guide |
 | `hud/ScanReveal.ts` | Through-wall pillars for scan-revealed corpses/enemies (`scan:cast`) |
@@ -142,7 +142,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `styles/music.css` | `.mus-*` (MusicPlayer) |
 | `styles/named.css` | `.ns-*` (NamedScanWarning) |
 | `styles/netBadge.css` | `.net-badge`, `.nb-*` (NetBadge) |
-| `styles/raidHud.css` | Raid HUD: clock, weapon box, quick strip, vitals, `.hud-tut-hidden`, `.hud.cinematic` fades |
+| `styles/raidHud.css` | Raid HUD: clock, weapon box, quick strip, vitals, `.hud-tut-hidden`, liftoff cinematic (`.hud.cinematic` crosshair/rings instant hide, `#ui-root.hud-cine` / `.hud-cine-out` whole-HUD fade) |
 | `styles/results.css` | `.rs-*` (ResultReport) |
 | `styles/rover.css` | Map legend swatches, rover destination panel, `.hud.rover-view` hide list, `.rv-*` |
 | `styles/shipCall.css` | `.scall` ship-call thumbnail (StratagemPanel); geometry read from `implant.css` variables |
@@ -166,8 +166,13 @@ DeployOverlay, MapScreen, KeybindMenu, SettingsMenu, TitleMenu, NetBadge, PauseM
 | `dead` (solo) | DeathScreen; overlay layer only |
 | `complete` | MissionComplete |
 
-`ui:cinematic` adds `.cinematic` to overlay/gameplay/social (combat pieces fade, chat/squad stay); cleared when the
-phase leaves gameplay. Tutorial gates: widgets ask `ctx.tutorial?.hides('hud', <part>)` (`vitals`, `weapon`,
+`ui:cinematic` (extraction liftoff, every raid kind) hides **all remaining HUD**: `.cinematic` on overlay/gameplay/social
+hides the crosshair and crosshair rings at once; `.hud-cine` on `#ui-root` fades the four `.hud` layers plus KeyGuide,
+ItemTip, MusicPlayer and NetBadge through `filter: opacity(var(--cine-o))`, stepped by `HudSystem.stepCinematic` over
+`EXTRACTION_HUD_FADE_S` (then `.hud-cine-out` = `visibility: hidden`); Detection / ScanReveal / Deployables scale their 3D
+materials by the same value. Screen fade, loading gauge, menus (pause, settings, result) and screens stay. tutorial/ hides
+its own DOM on the same event. Cleared at once on `ui:cinematic false`, `game:abort`, `game:newMission`, or when the phase
+leaves gameplay. Tutorial gates: widgets ask `ctx.tutorial?.hides('hud', <part>)` (`vitals`, `weapon`,
 `stamina`, `implant`, `stratagem`, `extractionTimer`, `shipMarker`, `shipScreenMarker`) and `hides('community')`.
 
 Stacking (CSS `z-index`; `.hud` layers and plain `.menu` have none and follow DOM order):
@@ -253,7 +258,7 @@ Types live in `src/shared/events.ts`, `src/shared/types.ts`, `src/shared/net.ts`
 
 **Smoke / debug hooks** (`window.__game.getSystem('hud')`): read-only getters named after the widget state
 (`isMapOpen`, `isChatOpen`, `keyGuideOwner`, `keyGuideEntries`, `screenFadeOpacity` / `screenFadeShown` /
-`screenFadeHeld`, `fallVignetteOpacity`, `bowReticle`, `dangerIndicatorCount`, `musicPlayerView`, `netBadgeState`,
+`screenFadeHeld`, `fallVignetteOpacity`, `isCinematic`, `cinematicHudOpacity`, `bowReticle`, `dangerIndicatorCount`, `musicPlayerView`, `netBadgeState`,
 `messenger`, `squadRows`, `allyNameplates`, `chatLines`, `toastTexts`, `pingViews`, `loadingGaugeState`, …) and
 injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRooms`, `debugLocalBuffs`, `debugAllies`.
 
@@ -287,8 +292,11 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
   `world/Fog`'s `TOAST` table already covers (discovery toasts would double). — `hud/RaidAlerts.ts`
 - Project to screen (`Vector3.project`) only in `lateUpdate`; `HudSystem.lateUpdate` calls
   `camera.updateMatrixWorld()` first. — `HudSystem.ts` (`lateUpdate`)
-- Fades that carry meaning (screen fade, compass reveal, fall vignette) are interpolated in `update(dt)`, not CSS
-  transitions: the reduced-motion rule in `base.css` cuts all transitions to 0.01 ms. — `HudSystem.ts` (`setScreenFade`)
+- Fades that carry meaning (screen fade, compass / crosshair reveal, fall vignette, liftoff HUD fade) are interpolated in
+  `update(dt)`, not CSS transitions: the reduced-motion rule in `base.css` cuts all transitions to 0.01 ms. — `HudSystem.ts`
+  (`setScreenFade`, `setCinematic`)
+- A whole-layer fade that must not reveal hidden children uses `filter: opacity()`, not `opacity`: it multiplies with the
+  element's own opacity (`.hud.hidden`, widget inline opacity) and is in no transition list. — `styles/raidHud.css`
 - `.screen-fade` is presentation, not a blocker (no pointer events, no escape entry). It clears when the phase leaves
   gameplay unless `hold` was set; `game:abort` and `hub:entered` always clear it. — `HudSystem.ts` (`applyVisibility`)
 - A new overlay that hides with a CSS transition must also drop `pointer-events` while hidden (`.menu.hidden`
@@ -329,9 +337,8 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
-
+- 2026-09-16 — Dining plates: squadmate plate toast on `net:squadPlate` (`fresh`, shared ship only) replaces the `housing:mealServed` toast; cook result toast says `→ 식탁`; BuffStrip / ItemTip fall back to `getMealDef` for meal ids.
+- 2026-09-16 — Liftoff hides all remaining HUD (social layer, key guide, item card, music, net badge, 3D pillars) with a code-stepped fade; crosshair/rings hide instantly. Crosshair hidden during the intro wake, then fades in (`TUTORIAL_RETICLE_FADE_S`).
 - 2026-09-15 — Title resume / abandon: `이어하기` (highlighted) above a red `게임 시작` while `ctx.raidResume.offer` exists; `게임 시작` then opens the abandon popup (`menus/raidResumeCard`, `.trs-`, `[닫기] [레이드 포기]` 1 s hold); `enterShip` waits for the squad raid check; `AskSpec.cancel`; debug `HudSystem.titleResume`.
 - 2026-09-15 — Android squadmates + raid-entry loading: `hud/allySource` (the one `ctx.allies` reader, `debugAllies`); squad rows / nameplates / compass ticks / map markers + `안드로이드` legend row for androids, bots never drawn as human rows (Squad, SocialColumn, Community, RescuePicker, SpectateOverlay); `ally:ping` → android-owned ping + `ally:chat` callout, `ping:placedV3` on every ping; `ally:chat` line; seven android toasts (Korean particle picked by the final syllable); new `hud/LoadingGauge` + `styles/loading.css` (z 87, real-time driven).
 - 2026-09-15 — Squads vs shared ship: squad list `개인 함선` for undocked squads; `같이 하기` → `분대 초대` (invite only, `in_other_squad` / `not_leader` / `in_squad` reasons); hub pings / acks relay only while `ctx.net.inHubSession`. `menus/SettingsMenu` closes on `game:paused {paused:false}` and on any phase change (it has no blocker / escape entry and used to outlive the pause menu); `SocialMenu.closeAll()` (menu + confirm card) runs when the messenger closes.
-- 2026-09-15 — `SoldierPreview.snapshotFace` framing moved to `shared/faceFraming` + `@/player` face helpers (same image as the terminal match tab).
-- 2026-09-15 — Holding the ping button locks the camera like the H / T wheels (released on release, timeout, cancel, dispose). — `hud/Pings.ts`

@@ -238,7 +238,9 @@ export function onContainerRequest(sys: InventorySystem, msg: ContainerRequest, 
 export function materializeCrate(sys: InventorySystem, id: string): Container | null {
   const crate = sys.ctx.world?.getCrates().find((k) => k.id === id);
   if (!crate) return null;
-  return sys.containers.getOrCreate(id, crate.tier, crate.position, sys.loot, sys.missionSeed, sys.ctx.missionPlanet);
+  // 2026-09-16: 여는 경로와 같은 굴림 규칙 (맵 상자는 늘 undefined 지만 한 규칙으로 둔다)
+  return sys.containers.getOrCreate(id, crate.tier, crate.position, sys.loot, sys.missionSeed, sys.ctx.missionPlanet,
+    sys.ctx.world?.crateLootOpts?.(id));
   }
 
 /** Ask the (new) host for every taken map (host migration, rejoin fallback). */

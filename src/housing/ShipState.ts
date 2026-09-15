@@ -31,6 +31,9 @@ import {
 /* 2026-09-13 (배치 규칙 — 접근 면): 규칙을 어기는 옛 배치는 가구 창고로, 조종석 전용 시설은 늘 조종석에 */
 import { placementBlockOf } from './Rules';
 import { furnitureFootprint } from '@/shared';
+/* 2026-09-16 (접시 모델): 식탁의 접시 — 요리 id 는 요리 표(`shared/meals`)로 검사한다 */
+import type { DiningPlate } from '@/shared';
+import { getMealDef, normalizeMealQuality } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * ShipState persistence: fresh state, load + sanitise + migrate, debounced save with a pagehide flush. Same shape as
@@ -160,6 +163,7 @@ export function freshState(): ShipState {
     analysisXp: {},                           // 요리 재료 티어 (v11, 2026-09-13)
     analysisFound: [],
     tvConsoles: [],                           // 비디오게임 (2026-09-13 — TV 마다 장착한 게임기)
+    plate: null,                              // 식탁 접시 (2026-09-16 — 요리는 아이템이 아니다)
   };
   ensureCockpitFurniture(state);             // 2026-09-12: 조종석의 공용 시설 가구 두 점 (f-1 시술대 · f-2 컴퓨터)
   placeCockpitDecor(state);                   // 2026-09-13: 조종석 꾸밈 가구 (f-3 침상 · f-4 / f-5 사물함 · f-6 서랍장)
@@ -298,6 +302,18 @@ export function isCultureTankDefId(defId: string): boolean {
 }
 
 /** 식탁인가 (A-3c, 2026-09-11): E 로 식사 화면을 여는 가구. 공유 함선의 고정 식탁에는 uid 가 없다. */
+/**
+ * 2026-09-16 (접시 모델): 저장된 식탁 접시 — 요리 표가 아는 id · 품질 정수 0 … `MEAL_QUALITY_MAX` · 차린 시각(유한 ≥ 0, 아니면 0).
+ * 모양이 틀리면 접시가 없는 것으로 본다 (옛 세이브의 요리 아이템은 이전하지 않는다 — 사용자 결정).
+ */
+export function sanitizePlate(raw: unknown): DiningPlate | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const p = raw as Partial<DiningPlate>;
+  if (typeof p.mealDefId !== 'string' || !getMealDef(p.mealDefId)) return null;
+  const at = typeof p.cookedAt === 'number' && Number.isFinite(p.cookedAt) && p.cookedAt > 0 ? p.cookedAt : 0;
+  return { mealDefId: p.mealDefId, quality: normalizeMealQuality(p.quality), cookedAt: at };
+}
+
 export function isDiningTableDefId(defId: string): boolean {
   return FURNITURE_DEF_MAP.get(defId)?.interaction === 'dining_table';
 }
@@ -924,6 +940,7 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     media, mediaDex, toggled,
     analysisXp, analysisFound,
     tvConsoles,
+    plate: sanitizePlate(r.plate),            // 2026-09-16 (접시 모델): 버전은 그대로 — 없는 필드 = 접시 없음
   };
   /* v9 → v10 (2026-09-13, 사용자 결정 — 조종석 고정 소품 → 꾸밈 가구): 옛 소품 자리에 침상 · 사물함 두 칸 · 서랍장을 **한 번** 놓는다.
      그 칸들은 v9 까지 `COCKPIT_BLOCKED_RECTS` 였으므로 옛 세이브에는 늘 비어 있다 — 그래서 조종석 전용 시설(아래)보다 **먼저** 놓는다

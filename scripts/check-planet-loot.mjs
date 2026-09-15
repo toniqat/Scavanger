@@ -411,6 +411,36 @@ console.log('서재 매체 · 비디오게임 — 행성 고정 드롭 (rollCrat
   check(corpseBooks > 0 && corpseWrong === 0, `로그 보스 시체의 책이 전부 그 행성의 시리즈 — ${corpseBooks}권 중 어긋남 ${corpseWrong}`);
 }
 
+/* ── 서사 이상 드롭률 게이트 (2026-09-16) — data/planet_loot.csv 의 epicPlusMul ─────────────────────────
+ * 사용자 결정: 연구실 잠긴 방 컨테이너(`rollCrateOn(…, { lockedRoom: true })`)만 빼고 서사 · 전설이 나오는 비율을 × epicPlusMul.
+ * 잠긴 방 규칙은 게이트가 없던 굴림 그대로이므로, 같은 시드 목록으로 굴린 두 결과의 **서사 이상 개수 비**가 곧 게이트의 실측 효과다.
+ * (서사 미만 후보가 없는 카테고리 — 열쇠 · 레코드 — 는 픽을 버리고 다시 뽑으므로 비가 epicPlusMul 보다 아주 조금 높다.) */
+console.log('');
+console.log('서사 이상 게이트 (epicPlusMul) — 상자 1개당 서사 이상 개수: 보통 / 잠긴 방 규칙');
+{
+  const GATE_ROLLS = Number(process.env.GATE_ROLLS ?? 8000);
+  const isEp = (id) => { const d = ITEM_DEF_MAP.get(id); return !!d && (d.rarity === 'epic' || d.rarity === 'legendary'); };
+  for (const planet of PLANET_IDS) {
+    const rank = planetTier(planet);
+    const target = PLANET_GRADE_CURVES.find((c) => c.rank === rank)?.epicPlusMul ?? 1;
+    const cells = [];
+    let sumGated = 0, sumOpen = 0;
+    for (const tier of [1, 2, 3, 4, 5]) {
+      let gated = 0, open = 0;
+      for (let i = 0; i < GATE_ROLLS; i++) {
+        const seed = (i * 2654435761 + tier * 7919 + 1) >>> 0;
+        gated += loot.rollCrateOn(tier, new Random(seed), planet).filter((it) => isEp(it.defId)).length;
+        open += loot.rollCrateOn(tier, new Random(seed), planet, { lockedRoom: true }).filter((it) => isEp(it.defId)).length;
+      }
+      sumGated += gated; sumOpen += open;
+      cells.push(`T${tier} ${(gated / GATE_ROLLS).toFixed(3)}/${(open / GATE_ROLLS).toFixed(3)}`);
+    }
+    const ratio = sumOpen > 0 ? sumGated / sumOpen : 1;
+    console.log(`  ${rank}번 ${planetLabel(planet).padEnd(12)} | ${cells.join(' · ')} | 비 ${ratio.toFixed(3)}`);
+    check(Math.abs(ratio - target) <= 0.06, `${rank}번 행성: 상자의 서사 이상 개수 비 ≈ epicPlusMul ${target} — ${ratio.toFixed(3)}`);
+  }
+}
+
 if (failed) {
   console.log(`\ncheck-planet-loot 실패 — ${failed}건. data/planet_loot.csv 의 가중치를 고친다.`);
   process.exit(1);

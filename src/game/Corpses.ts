@@ -17,6 +17,8 @@ import {
   recordRideLocal, restoreRideLocal, normalizeMealQuality,
   /* appended (2026-09-15): 안드로이드 분대원 — 시체의 외형 · 문구를 id 하나로 가른다 */
   isAndroidId,
+  /* appended (2026-09-16): 빈 시체 제거 */
+  CORPSE_EMPTY_REMOVE_DELAY_S, CORPSE_EMPTY_SINK_DEPTH_M, CORPSE_EMPTY_SINK_S,
   type CorpseItemWire, type CorpsesRef, type GameContext, type Interactable, type ItemInstance, type Obstacle,
   type PlayerCorpse, type PlayerCorpseWire, type TramDef, type WorldRef,
 } from '@/shared';
@@ -115,7 +117,32 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
     // 시체는 어둡게 — 살아 있는 분대원과 한눈에 구분된다
     this.model.setGreyed(true);
     for (let i = 0; i < SETTLE_STEPS; i++) this.model.update(SETTLE_DT, 0, DEAD_POSE);
-    this.group.add(this.model.root);
+    // 2026-09-16: 가라앉기는 한 층 안쪽 그룹이 맡는다 — `group` 은 전차 · 함선을 따라가며 매 프레임 자리를 다시 쓴다
+    this.sinkRoot.name = 'PlayerCorpseSink';
+    this.sinkRoot.add(this.model.root);
+    this.group.add(this.sinkRoot);
+  }
+
+  /* ── 2026-09-16: 빈 시체 제거 ─────────────────────────────────────────────────────────────────────────────
+   * 아이템이 하나도 없는 시체는 `emptiedAt`(`ctx.missionTime`)부터 `CORPSE_EMPTY_REMOVE_DELAY_S` 기다렸다가
+   * `CORPSE_EMPTY_SINK_S` 동안 `CORPSE_EMPTY_SINK_DEPTH_M` 만큼 땅으로 가라앉는다 (페이드가 아니다 — 사용자 결정).
+   * 미션 시계를 쓰므로 로딩 게이트 hold(sim dt 0) 동안은 멈춘다. 다 가라앉으면 관리자가 `removeCorpse` 로 치운다. */
+  /** 가라앉는 몸 (`group` 의 자식, `model.root` 의 부모). */
+  private readonly sinkRoot = new THREE.Group();
+  /** 비었을 때의 `ctx.missionTime` (-1 = 아직). */
+  emptiedAt = -1;
+
+  /** 지금 가라앉은 깊이(m, 0 = 아직). 스모크 · 디버그용. */
+  get sinkDepth(): number { return -this.sinkRoot.position.y; }
+
+  /** `now`(미션 시계)의 가라앉기를 그린다. true = 다 가라앉았다 (치울 때다). */
+  stepSink(now: number): boolean {
+    if (this.emptiedAt < 0) return false;
+    const elapsed = now - this.emptiedAt - CORPSE_EMPTY_REMOVE_DELAY_S;
+    if (elapsed < 0) return false;
+    const k = CORPSE_EMPTY_SINK_S > 0 ? Math.min(1, elapsed / CORPSE_EMPTY_SINK_S) : 1;
+    this.sinkRoot.position.y = -CORPSE_EMPTY_SINK_DEPTH_M * k * k;   // ease-in: 천천히 꺼지다가 빨라진다
+    return k >= 1;
   }
 
   /** 지금 몸이 향한 방향 (three.js `rotation.y` 규약). 전차에 실린 시체는 곡선에서 바뀐다. */
@@ -307,6 +334,14 @@ export class PlayerCorpseManager implements CorpsesRef {
    */
   private readonly pendingRide = new Map<string, CorpseRideWire>();
   private netUnsub: (() => void) | null = null;
+  /**
+   * 2026-09-16 (빈 시체 제거): 이번 레이드에 치운 시체 id. 늦게 도착한 `pcorpse spawn`(`'all'` 의 되돌아옴) · 치우기 전에 보낸
+   * 호스트의 `sync` 가 **이미 비워 치운 시체**를 아이템째 다시 세우지 못하게 `add` 가 거른다 (인벤토리의 컨테이너 캐시는 이미
+   * 비었고 `crate:looted` 도 한 번 나갔으므로, 다시 서면 영원히 「뒤지기」 프롬프트만 남는다). 미션 리셋에서 비워진다.
+   */
+  private readonly removed = new Set<string>();
+  /** 2026-09-16: 이번 레이드에 시체가 한 번이라도 선 주인 (`ownerHadCorpse` — 원격 아바타 숨김). */
+  private readonly owners = new Set<string>();
 
   constructor(private readonly ctx: GameContext) {
     this.hookNet();
@@ -324,7 +359,7 @@ export class PlayerCorpseManager implements CorpsesRef {
 
   /** C-63: 와이어 한 구의 `ride` — 이미 선 시체면 곧바로 다시 태우고, 아니면 `add` 가 쓰게 적어 둔다. */
   noteWireRide(w: PlayerCorpseWire): void {
-    if (!w || typeof w.id !== 'string' || !w.ride) return;
+    if (!w || typeof w.id !== 'string' || !w.ride || this.removed.has(w.id)) return;
     const known = this.corpses.get(w.id);
     if (known) { known.boardFromWire(this.ctx.world, w.ride); return; }
     if (this.pendingRide.size > 64) this.pendingRide.clear();   // 세워지지 않은 와이어가 쌓이지 않게
@@ -351,11 +386,17 @@ export class PlayerCorpseManager implements CorpsesRef {
     return `pcorpse:${ownerId}:${n}`;
   }
 
-  /** 이미 아는 id 면 무시하고 기존 것을 돌려준다 (`'all'` 로 보낸 자기 메시지의 되돌아옴 방지). */
+  /**
+   * 이미 아는 id 면 무시하고 기존 것을 돌려준다 (`'all'` 로 보낸 자기 메시지의 되돌아옴 방지).
+   * 2026-09-16: 이번 레이드에 이미 비워 치운 id 면 null (다시 세우지 않는다). **아이템이 하나도 없으면** 선 순간 빈 시체로
+   * 표시된다(`markEmptied`) — 사망 본인 · 호스트 · 받는 쪽이 모두 같은 `items` 를 보므로 와이어 없이 같은 결론이다.
+   */
   add(id: string, ownerId: string, ownerName: string, position: THREE.Vector3, yaw: number,
-    diedAt: number, items: ItemInstance[], slot: number): PlayerCorpseObject {
+    diedAt: number, items: ItemInstance[], slot: number): PlayerCorpseObject | null {
     const known = this.corpses.get(id);
     if (known) return known;
+    if (this.removed.has(id)) return null;
+    this.owners.add(ownerId);
     // 밖에서 온 id 도 시퀀스에 반영해 두어야 우리 쪽 번호가 겹치지 않는다
     const n = Number(id.slice(id.lastIndexOf(':') + 1));
     if (Number.isFinite(n)) this.seq.set(ownerId, Math.max(this.seq.get(ownerId) ?? 0, n));
@@ -371,6 +412,8 @@ export class PlayerCorpseManager implements CorpsesRef {
     this.ctx.bus.emit('corpse:playerSpawned', {
       id, ownerId, ownerName, position: c.position.clone(), yaw,
     });
+    // 2026-09-16: 빈손으로 선 시체 (아무것도 없이 죽었다) — 선 순간 비었다
+    if (c.items.length === 0) this.markEmptied(id);
     return c;
   }
 
@@ -394,18 +437,26 @@ export class PlayerCorpseManager implements CorpsesRef {
     const id = this.nextId(allyId);
     const corpse = this.add(id, allyId, name || '안드로이드', pos, Number.isFinite(yaw) ? yaw : 0,
       ctx.missionTime, items.filter((it) => !!it), Math.max(0, slot | 0));
+    if (!corpse) return null;
     if (ctx.isMultiplayer) ctx.net?.send({ t: 'pcorpse', ev: 'spawn', corpse: corpse.toWire() }, 'all');
     return id;
   }
 
-  /** `crate:looted` / `pcorpse emptied`: 프롬프트만 바뀐다 — 메시는 레이드가 끝날 때까지 남는다. */
+  /**
+   * `crate:looted` / `pcorpse emptied` / 빈손으로 선 시체(`add`): 프롬프트가 `비어 있음` 이 되고, 2026-09-16 부터
+   * `CORPSE_EMPTY_REMOVE_DELAY_S` 뒤 가라앉기 시작해 다 가라앉으면 치워진다 (`update` → `removeCorpse`).
+   */
   markEmptied(id: string): boolean {
     const c = this.corpses.get(id);
     if (!c || c.emptied) return false;
     c.emptied = true;
+    c.emptiedAt = this.ctx.missionTime;
     this.ctx.bus.emit('corpse:playerEmptied', { id, ownerId: c.ownerId });
     return true;
   }
+
+  /** 2026-09-16 (`CorpsesRef.ownerHadCorpse`, caller: player/RemoteAvatar): 이번 레이드에 이 주인의 시체가 선 적이 있는가. */
+  ownerHadCorpse(ownerId: string): boolean { return this.owners.has(ownerId); }
 
   /** 2026-09-13 (`CorpsesRef.attachCorpse`, caller: extraction): 시체를 탈출 함선에 싣는다 / 내린다. */
   attachCorpse(id: string, parent: THREE.Object3D | null, local?: THREE.Vector3): boolean {
@@ -422,21 +473,38 @@ export class PlayerCorpseManager implements CorpsesRef {
   removeCorpse(id: string): boolean {
     const c = this.corpses.get(id);
     if (!c) return false;
-    this.ctx.interactables.unregister(id);
-    c.dispose();
+    this.ctx.interactables.unregister(id);   // 빛기둥도 이것으로 사라진다 (`ui/hud/Detection` 은 등록물만 본다)
+    c.dispose();                               // 함선 · 전차에 실린 몸도 부모에서 떨어진다 (`group.removeFromParent`)
     this.corpses.delete(id);
     this.pendingRide.delete(id);
+    this.removed.add(id);   // 2026-09-16: 늦은 `spawn` · `sync` 가 다시 세우지 못하게
     return true;
   }
 
-  /** 매 프레임 (`GameFlowSystem.update`): 전차에 실린 시체를 차량의 지금 자리로. 타지 않은 시체는 비용이 없다. */
+  /**
+   * 매 프레임 (`GameFlowSystem.update`): 전차에 실린 시체를 차량의 지금 자리로. 타지 않은 시체는 비용이 없다.
+   * 2026-09-16: 빈 시체를 가라앉히고, 다 가라앉은 것을 치운다 (시계 = `ctx.missionTime`).
+   */
   update(): void {
     if (!this.netUnsub) this.hookNet();
-    for (const c of this.corpses.values()) c.followCarrier();
+    const now = this.ctx.missionTime;
+    let done: string[] | null = null;
+    for (const c of this.corpses.values()) {
+      c.followCarrier();
+      if (c.emptied && c.stepSink(now)) (done ??= []).push(c.id);
+    }
+    if (done) for (const id of done) this.removeCorpse(id);
   }
 
-  /** `pcorpse sync` 로 내보낼 전체 목록 (호스트만 보낸다). */
-  syncWire(): PlayerCorpseWire[] { return [...this.corpses.values()].map((c) => c.toWire()); }
+  /**
+   * `pcorpse sync` 로 내보낼 전체 목록 (호스트만 보낸다). 2026-09-16: 빈 시체는 곧 사라지므로 보내지 않는다 — 받는 쪽에서는
+   * 원래 `items` 채로 섰다가 `cont sync` 가 올 때까지 「뒤지기」가 떠 있게 된다.
+   */
+  syncWire(): PlayerCorpseWire[] {
+    const out: PlayerCorpseWire[] = [];
+    for (const c of this.corpses.values()) if (!c.emptied) out.push(c.toWire());
+    return out;
+  }
 
   /** 미션 리셋: interactable 해제 + 지오메트리 · 머티리얼 dispose. */
   clear(): void {
@@ -447,5 +515,7 @@ export class PlayerCorpseManager implements CorpsesRef {
     this.corpses.clear();
     this.seq.clear();
     this.pendingRide.clear();
+    this.removed.clear();   // 2026-09-16
+    this.owners.clear();
   }
 }

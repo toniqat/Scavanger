@@ -771,33 +771,39 @@ try {
 
   /* ══ 4. 식탁 ══════════════════════════════════════════════════════════════ */
   console.log('식탁');
-  const MEAL = await H(() => {
-    const l = window.__game.ctx.loot;
-    const d = l.getItemDef('meal_sausage');
-    if (d?.meal?.effects?.length > 1) return d.id;
-    return l.getAllItemDefs().find((x) => x.meal && !x.retired && x.meal.effects?.length > 1)?.id ?? null;
+  // 2026-09-16 (접시 모델, 사용자 결정): 요리는 아이템이 아니다 — 식탁 화면은 격자 없이 **식탁의 접시**와 실린 식사를 보인다
+  const MEAL = await H(async () => {
+    const S = await import('/src/shared/index.ts');
+    const d = S.getMealDef('meal_sausage');
+    const id = d?.meal?.effects?.length > 1 ? d.id : (S.MEAL_DEFS.find((x) => !x.retired && x.meal.effects?.length > 1)?.id ?? null);
+    if (id) window.__game.ctx.housing.devSetPlate(id, 0);
+    return id;
   });
-  if (MEAL) await giveStash(MEAL, 1);
   await H((u) => window.__game.ctx.housing.openDiningTable(u), DT);
   await waitFor(page, () => !document.querySelector('.menu.dining-table')?.hidden, 'dining open');
+  await sleep(30);
   const dt = await H(() => {
     const r = document.querySelector('.menu.dining-table');
     return { title: r.querySelector('.hs-station-head .title').textContent, up: !!r.querySelector('.hs-up-open'), lvHidden: r.querySelector('.hs-lv').hidden,
-      subtitle: !!r.querySelector('.subtitle'), grids: !!r.querySelector('.hs-pane-right .trade-grids'),
+      subtitle: !!r.querySelector('.subtitle'), grids: !!r.querySelector('.trade-grids'), invCard: !!r.querySelector('.hs-card-inv'),
       labels: [...r.querySelectorAll('.ui-label')].map((e) => e.textContent) };
   });
   ok(dt.title === '식탁' && !dt.up && dt.lvHidden && !dt.subtitle, `식탁: 같은 틀 · 업그레이드 · Lv 없음 (${JSON.stringify(dt)})`);
-  ok(dt.grids && !dt.labels.some((l) => /가방|창고/.test(l)), '식탁 우 패널 = 격자, 「가방 · 함선 창고」 라벨 없음');
+  ok(!dt.grids && !dt.invCard && dt.labels.includes('식탁에 차린 요리') && dt.labels.includes('다음 레이드에 실린 식사'), `식탁: 격자 카드 없음 · 접시 + 실린 식사 (${JSON.stringify(dt.labels)})`);
   if (!MEAL) {
-    ok(false, '능력치가 여러 줄인 요리 def (items 로더의 meal.effects) — 에이전트 A 의 표가 아직이면 예상된 실패');
+    ok(false, '능력치가 여러 줄인 요리 정의 (shared/meals 의 meal.effects) 가 없다');
   } else {
-    const row = await H((id) => {
-      const def = window.__game.ctx.loot.getItemDef(id);
-      const r = [...document.querySelectorAll('.menu.dining-table .dt-row')].find((x) => x.querySelector(`.item-chip[data-def-id="${id}"]`));
-      return { tier: r?.querySelector('.dt-tier')?.textContent ?? null, effects: r?.querySelector('.dt-effects')?.textContent ?? '', n: def.meal.effects.length, t: def.meal.tier };
+    const row = await H(async (id) => {
+      const S = await import('/src/shared/index.ts');
+      const def = S.getMealDef(id);
+      const r = [...document.querySelectorAll('.menu.dining-table .dt-plate')].find((x) => x.querySelector(`.item-chip[data-def-id="${id}"]`));
+      return { owner: r?.querySelector('.dt-plate-owner')?.textContent ?? null, effects: r?.querySelector('.dt-plate-buff')?.textContent ?? '', n: def.meal.effects.length, t: def.meal.tier,
+        eat: r?.querySelector('.dt-eat')?.textContent ?? null };
     }, MEAL);
-    ok(row.tier === ({ 1: '채소 요리', 2: '페이스트 요리', 3: '고기 요리', 4: '유제품 요리' })[row.t] && row.effects.split(' · ').length === row.n,
-      `가진 요리 줄 = 티어 이름 + 능력치 ${row.n}줄 전부 (${JSON.stringify(row)})`);
+    const tierName = ({ 1: '채소 요리', 2: '페이스트 요리', 3: '고기 요리', 4: '유제품 요리' })[row.t];
+    ok(!!row.owner && row.owner.startsWith(tierName) && row.effects.split('\n').length === row.n && /먹/.test(row.eat ?? ''),
+      `접시 줄 = 티어 이름 · 능력치 ${row.n}줄 전부 · 먹기 (${JSON.stringify(row)})`);
+    await H(() => window.__game.ctx.housing.clearPlate());
   }
   await tap('Tab');
 

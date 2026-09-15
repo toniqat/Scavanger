@@ -69,6 +69,8 @@ import * as Alert from './parts/Alerts';
 import * as Status from './parts/Status';
 import * as Pool from './parts/Pool';
 import * as RFx from './parts/RemoteFx';
+/* appended (2026-09-16): 빈 시체 제거 */
+import * as CorpseEmpty from './parts/CorpseEmpty';
 /* appended (2026-09-15, 결과 창 개편): 사망 원인 썸네일 · 적 이름 */
 import { enemyDisplayNameOf, renderEnemyPortrait } from './models/Portrait';
 /* appended (2026-09-15, 안드로이드 분대원): 표적 · 피해 · 엄폐 질의 */
@@ -232,6 +234,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     trimmed: 0, dropped: 0, kbRefused: 0,
     explodeShape: 0, explodeSender: 0, explodeRange: 0,
     statusBits: 0, statusRange: 0, statusRate: 0,
+    /** appended 2026-09-16: `ecorpseq emptied` refused (shape · sender · range · rate — `parts/CorpseEmpty`). */
+    corpseEmptyRefused: 0,
   };
   /** Debug: where the last rogue grenade went off. */
   readonly lastGrenadeBlast = new THREE.Vector3();
@@ -352,7 +356,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         this.wavesSeen = Math.max(this.wavesSeen, index + 1);
         if (this.hosting) this.ctx.net!.send({ t: 'ee', ev: 'wave', index, count }, 'others');
       }),
-      bus.on('crate:looted', ({ crateId }) => this.corpses.markLooted(crateId)),
+      // 2026-09-16: 비운 적 시체는 가라앉아 사라진다 — 권위는 곧바로, 리플리카는 호스트에 요청 (`parts/CorpseEmpty`)
+      bus.on('crate:looted', ({ crateId }) => CorpseEmpty.onCorpseContainerLooted(this, crateId)),
       // 2026-09-11 (적 ↔ 드론): 질주하는 지상 드론의 소음 — 권한 클라이언트에서만 나온다 (`parts/Alerts.onWorldNoise`)
       bus.on('world:noise', ({ position, radius }) => this.onWorldNoise(position, radius)),
       // 2026-09-11: 리플리카는 `ee spawn` 으로 네임드를 처음 볼 때 `enemy:namedSpawned` 를 낸다 (권한은 스폰 경로가 직접)
@@ -417,6 +422,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       }),
       // Phase 12: a client's bullet report — the host runs the same routine as for its own shots
       net.onMessage('shotq', (msg, from) => this.onShotReport(msg, from)),
+      // 2026-09-16: 클라이언트에서 적 시체가 비었다 — 호스트가 거른 뒤 `ee corpseEmptied` 로 방송 (`parts/CorpseEmpty`)
+      net.onMessage('ecorpseq', (msg, from) => CorpseEmpty.onCorpseEmptiedRequest(this, msg, from)),
       // 2026-09-09: 로그 강하 — 비호스트는 예고 · 착지를 받아 같은 이벤트를 내고 포드만 그린다 (적은 `es` / `ee`)
       net.onMessage('rdrop', (msg) => {
         if (msg.ev === 'incoming') this.rogueDrops.onIncomingWire(msg.dropId, msg.p, msg.eta, msg.count, msg.boss);
@@ -971,6 +978,15 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   corpseSpawnedRemote(id: number, type: EnemyType, p: THREE.Vector3, weaponId: string | undefined, opts?: CorpseWireOpts): void { return RFx.corpseSpawnedRemote(this, id, type, p, weaponId, opts); }
 
   corpseGoneRemote(id: number): void { return RFx.corpseGoneRemote(this, id); }
+
+  /** 2026-09-16 (`ee corpseEmptied`): 호스트가 정한 빈 시체 — 수명이 줄고 가라앉는다 (`parts/CorpseEmpty`). */
+  corpseEmptiedRemote(id: number): void { CorpseEmpty.applyCorpseEmptied(this, id); }
+
+  /**
+   * 2026-09-16 (debug / smoke): 권위에서 적 시체 `id` 를 「열어서 비운 시체」로 만든다 — `crate:looted corpse:<id>` 와 같은 길.
+   * 죽은 몸이 없거나 이미 비웠거나 권위가 아니면 false.
+   */
+  debugEmptyCorpse(id: number): boolean { return CorpseEmpty.emptyCorpseAuthority(this, id); }
 
   grenadeVisual(id: number, p: THREE.Vector3, v: THREE.Vector3, fuse: number, kind?: import('@/shared').EnemyGrenadeKind): void { return RFx.grenadeVisual(this, id, p, v, fuse, kind); }
 

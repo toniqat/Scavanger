@@ -10,7 +10,7 @@ import {
 import { el, setText } from '../dom';
 import { cookStepsText, mealBuffAmountText, mealEffects, mealQualityText, mealTierLabel } from './mealText';
 /* 2026-09-13 (요리 미니게임): 품질 줄 */
-import { normalizeMealQuality } from '@/shared';
+import { getMealDef, normalizeMealQuality } from '@/shared';
 import { COMPUTE_CLUSTER_MAX_CORES, COMPUTE_CORE_DEF_ID, PROCESSOR_DEF_ID } from '@/shared';   // 2026-09-13 암호화폐 채굴
 
 /* 2026-09-15 (가젯 개편): 설명 인라인 마크업 · 스펙 줄은 `@/items` 한 곳이 만든다 — 격자 카드(`inventory/ui/Tooltip`)와 **같은 함수**다. */
@@ -311,7 +311,8 @@ export class ItemTip {
   private defOf(defId: string): ItemDef | undefined {
     const ctx = this.ctx;
     if (!ctx) return undefined;
-    try { return ctx.loot?.getItemDef(defId) ?? ctx.inventory?.getDef(defId); } catch { return undefined; }
+    // 2026-09-16 (접시 모델): 요리 칩(식탁 · 조리대)은 아이템이 아니다 — 요리 표(`shared/meals`)에서 찾는다
+    try { return ctx.loot?.getItemDef(defId) ?? ctx.inventory?.getDef(defId) ?? getMealDef(defId); } catch { return undefined; }
   }
 
   /** 2026-09-15: the unique kind behind a weapon item (`bow` …), undefined for graded guns and every other item. */
@@ -438,7 +439,7 @@ export class ItemTip {
       const quality = normalizeMealQuality(this.instanceOf(uid, defId)?.quality);
       const qText = mealQualityText(quality);
       if (qText) rows.push(['품질', qText, MEAL_QUALITY_STAR_COLOR]);
-      rows.push(['사용', '다음 레이드 1회분']);
+      rows.push(['사용', '식탁에서 먹기 — 다음 레이드 1회분']);   // 2026-09-16 접시 모델: 요리는 식탁의 접시다
       for (const e of mealEffects(meal, quality)) {
         rows.push([MEAL_BUFF_LABEL_KO[e.buff] ?? '효과', mealBuffAmountText(e.buff, e.amount), CATEGORY_COLOR.meal]);
       }

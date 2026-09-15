@@ -66,13 +66,20 @@ try {
   };
   for (const a of shared.ANALYSIS_RESULTS) ref(`data/analysis_results.csv [defId] — ${a.family} Lv.${a.minLevel}`, a.defId);
   /* 2026-09-13 (요리 미니게임): 단계표의 요리 · 재료가 실제 아이템인가, 조리대 레시피의 산출물마다 단계가 있고 순서가 1 부터 이어지는가,
-   * 단계가 있는 요리마다 조리대 레시피가 있는가, 굽기 시간표의 재료가 실제 아이템인가. */
+   * 단계가 있는 요리마다 조리대 레시피가 있는가, 굽기 시간표의 재료가 실제 아이템인가.
+   * 2026-09-16 (접시 모델): 요리는 **아이템이 아니다** — 요리 id 는 아이템 표가 아니라 요리 표(`shared/meals` 의 `MEAL_DEF_MAP`)에서 찾고,
+   * 조리대 레시피의 산출물도 그 표에 있어야 한다 (은퇴한 요리는 출처에 쓰지 않는다). 재료는 여전히 아이템이다. */
+  const mealRef = (where, id) => {
+    const m = shared.MEAL_DEF_MAP.get(id);
+    if (!m) refProblems.push(`${where}: 모르는 요리 '${id}' (data/meals.csv)`);
+    else if (m.retired) refProblems.push(`${where}: 은퇴한 요리 '${id}' (retired — 출처에 쓰지 않는다)`);
+    if (items.ITEM_DEF_MAP.has(id)) refProblems.push(`${where}: 요리 '${id}' 가 아이템 표에도 있다 — 요리는 아이템이 아니다`);
+  };
   {
     const cookOutputs = new Set(recipes.CRAFT_RECIPES.filter((r) => r.bench === 'cook').map((r) => r.outputDefId));
     for (const s of shared.COOK_STEPS) {
       const where = `data/cook_steps.csv — ${s.meal} #${s.order}`;
-      ref(`${where} [meal]`, s.meal);
-      if (!items.ITEM_DEF_MAP.get(s.meal)?.meal) refProblems.push(`${where} [meal]: 요리가 아니다`);
+      mealRef(`${where} [meal]`, s.meal);
       for (const id of s.items) ref(`${where} [items]`, id);
       if (!cookOutputs.has(s.meal)) refProblems.push(`${where} [meal]: 이 요리를 만드는 조리대 레시피(bench cook)가 없다`);
     }
@@ -83,7 +90,8 @@ try {
     }
   }
   for (const r of recipes.CRAFT_RECIPES) {
-    ref(`data/recipes.csv [outputDefId] — ${r.id}`, r.outputDefId);
+    if (r.bench === 'cook') mealRef(`data/recipes.csv [outputDefId] — ${r.id}`, r.outputDefId);   // 2026-09-16: 조리대 산출물 = 요리 표
+    else ref(`data/recipes.csv [outputDefId] — ${r.id}`, r.outputDefId);
     for (const i of r.inputs) ref(`data/recipes.csv [inputs] — ${r.id}`, i.defId);
     for (const x of r.extraOutputs ?? []) ref(`data/recipes.csv [extraOutputs] — ${r.id}`, x.defId);
   }

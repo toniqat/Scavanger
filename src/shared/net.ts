@@ -660,6 +660,12 @@ export type EnemyEvent =
          (`ENEMY_GRENADE_KINDS` 인덱스, 생략 = 0 = frag). 생략 = 없음. 리플리카도 호스트와 같은 목록을 굴린다. */
       si?: EnemySpawnSite; gc?: number; gk?: number }
   | { t: 'ee'; ev: 'corpseGone'; id: number }
+  /**
+   * appended (2026-09-16, 빈 시체 제거): the corpse of enemy `id` was **opened and emptied** — every client shortens that body's
+   * `corpseLife` to delay + sink (`CORPSE_EMPTY_REMOVE_DELAY_S` + `CORPSE_EMPTY_SINK_S`); the normal despawn (`despawn` ·
+   * `corpseGone`) follows. Decided by the host (its own `crate:looted`, or a client's `ecorpseq emptied` that passed the guard).
+   */
+  | { t: 'ee'; ev: 'corpseEmptied'; id: number }
   /* appended (Phase 7): rogue AI v2 */
   /** A rogue threw a grenade (replicas fly a visual one; the host resolves damage: own player directly, remotes via `dmg`). */
   | { t: 'ee'; ev: 'grenade'; id: number; p: Vec3Tuple; v: Vec3Tuple; fuse: number;
@@ -890,8 +896,26 @@ export type GameMessage =
   /* appended (2026-09-15): 안드로이드 분대원 (owner: allies) · 레이드 진입 로딩 (owner: game) — 파일 끝 절 */
   | AllyMessage
   | AllyRequest
-  | LoadMessage;
+  | LoadMessage
+  /* appended (2026-09-16): 식탁 접시 (owner: net/parts/Plates — 아래 `PlateMessage` 절) */
+  | PlateMessage
+  | PlateRequest
+  /* appended (2026-09-16): 빈 적 시체 요청 (owner: enemies/parts/CorpseEmpty) */
+  | EnemyCorpseRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
+
+/**
+ * 식탁 접시 (2026-09-16, owner: net/parts/Plates — 규칙은 `shared/housing.ts` 의 접시 절). 공유 함선의 고정 식탁에는 분대원 전원의 접시가
+ * 놓이고 누구든 먹을 수 있다 (접시는 줄지 않는다 · 먹은 사람의 대기 식사가 된다).
+ *
+ * `plate state` = 보낸 사람 **자기** 접시 (`def` 생략 = 접시 없음, `q` 생략 = 품질 0, `fresh` 1 = 방금 요리했다 — 토스트용).
+ * `inHubSession` 동안 접시가 바뀔 때 · 허브 세션에 들어설 때 `others` 로 보내고, 들어서는 사람은 `plateq sync` 로 모두의 접시를 묻는다
+ * (받은 사람은 요청자에게만 자기 `plate state`). 권위 검사가 없다 — 접시는 보낸 사람 자신의 상태이고, 먹는 효과는 **먹는 사람 자기**
+ * 프로필에만 실린다(`useMeal`). 받는 쪽은 로비 멤버(봇 제외) · 요리 id(`getMealDef`) · 품질 정수만 본다. 서버는 한 줄도 바뀌지 않는다.
+ */
+export interface PlateMessage { t: 'plate'; ev: 'state'; def?: string; q?: number; fresh?: 1 }
+/** 허브 세션에 들어선 사람 → others: 네 접시를 달라. */
+export interface PlateRequest { t: 'plateq'; ev: 'sync' }
 
 /**
  * 공유 함선 식탁 (A-3c, 2026-09-11, owner: net/parts/Meal). 한 명이 요리 하나를 써서 차리면 **분대 전원**이
@@ -1006,6 +1030,13 @@ export type CorpseMessage =
   | { t: 'pcorpse'; ev: 'sync'; corpses: PlayerCorpseWire[] };
 /** 클라이언트 → 호스트: 지금 서 있는 시체 목록을 달라 (`world:ready` 이후 · 재합류). */
 export type CorpseRequest = { t: 'pcorpseq'; ev: 'sync' };
+/**
+ * appended (2026-09-16, 빈 시체 제거 — owner: enemies/parts/CorpseEmpty). 클라이언트 → 호스트: 내 쪽에서 적 시체
+ * `corpse:<id>` 컨테이너가 비었다 (`crate:looted`). 적 시체 내용물은 클라이언트마다 시드로 굴리므로 호스트가 한 번도 열지 않은
+ * 시체는 호스트가 비었는지 모른다 — 그래서 **요청**이다. 호스트는 모양 → 보낸 사람 → 거리(`CORPSE_EMPTY_REQUEST_REACH_M`) →
+ * 요율(`CORPSE_EMPTY_REQUEST_RATE_MAX` / `_BURST`)을 지나면 `ee corpseEmptied` 로 **사실**을 방송한다.
+ */
+export interface EnemyCorpseRequest { t: 'ecorpseq'; ev: 'emptied'; id: number }
 
 /**
  * 구조선 투하. 분대 공용 카운터는 **호스트가 들고 있다** — 아무나 `req` 를 보내고 호스트가

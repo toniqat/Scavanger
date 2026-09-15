@@ -197,21 +197,21 @@ try {
         if (jumper) { jumper.position.copy(jp); jumper.wanderTimer = 1e9; jumper.aware = false; jumper.state = 'idle'; R.jumper = jumper.id; }
         // 시체 와이어: 보낸 쪽(A)은 후미 끝에서 죽었다. 받는 쪽은 보간 지연만큼 뒤(전차 밖)의 p 를 받는다
         const lx = -R.halfLen + 0.4;
-        const a = mgr.add('pcorpse:smokeA:1', 'smokeA', 'A', at(lx, 0, t.position.y), 0.3, ctx.missionTime, [], 0);
+        const a = mgr.add('pcorpse:smokeA:1', 'smokeA', 'A', at(lx, 0, t.position.y), 0.3, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 0);
         const wire = a.toWire();
         const lag = at(lx - 1.5, 0, t.position.y);
         const p = [lag.x, lag.y, lag.z];
         // B: 리스너가 먼저 (ride 를 적어 두고 add 가 쓴다)
         const wB = { ...wire, id: 'pcorpse:smokeB:1', owner: 'smokeB', p };
         mgr.noteWireRide(wB);
-        const b = mgr.add(wB.id, 'smokeB', 'B', lag.clone(), wire.yaw, ctx.missionTime, [], 0);
+        const b = mgr.add(wB.id, 'smokeB', 'B', lag.clone(), wire.yaw, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 0);
         // C: 시체가 먼저 서고(p 로는 못 탄다) 리스너가 뒤에 다시 태운다
         const wC = { ...wire, id: 'pcorpse:smokeC:1', owner: 'smokeC', p };
-        const cc = mgr.add(wC.id, 'smokeC', 'C', lag.clone(), wire.yaw, ctx.missionTime, [], 0);
+        const cc = mgr.add(wC.id, 'smokeC', 'C', lag.clone(), wire.yaw, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 0);
         const cBefore = cc.riding;
         mgr.noteWireRide(wC);
         // D: ride 없는 옛 와이어 — 같은 p 로는 전차를 놓친다 (C-63 이전의 틈, 참고용)
-        const d = mgr.add('pcorpse:smokeD:1', 'smokeD', 'D', lag.clone(), wire.yaw, ctx.missionTime, [], 0);
+        const d = mgr.add('pcorpse:smokeD:1', 'smokeD', 'D', lag.clone(), wire.yaw, ctx.missionTime, [ctx.loot.createItem('mat_scrap', 1)], 0);
         R.corpseLx = lx;
         return {
           jumper: !!jumper, aRiding: a.riding, ride: wire.ride ?? null, bRiding: b.riding, bLocal: local(b.position),

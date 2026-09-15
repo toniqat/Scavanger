@@ -11,17 +11,17 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
 | File | Responsibility |
 |---|---|
 | `GameFlowSystem.ts` | `GameSystem` (`name: 'gameflow'`): event subscriptions, timers, per-frame `update`, one-line delegates into `parts/`. Re-exports `model.ts`. |
-| `model.ts` | Folder vocabulary: `LIFTOFF_TO_COMPLETE` (= `EXTRACTION_LIFTOFF_TO_COMPLETE_S`), `DEATH_TO_SCREEN`, `MISSION_FAILS_WHEN_ALL_DEAD`, threat ramp constants, mission XP terms (`XP_PER_KILL`, `XP_EXTRACT_BONUS`, …). No state, no class references. |
+| `model.ts` | Folder vocabulary: `LIFTOFF_TO_COMPLETE` (= `EXTRACTION_LIFTOFF_TO_COMPLETE_S`), `DEATH_TO_SCREEN`, `MISSION_FAILS_WHEN_ALL_DEAD`, threat ramp constants. No XP numbers (raid XP is `data/enemies.csv` `raidXp` + `XP_DEATH_MUL` in `data/constants.csv`). No state, no class references. |
 | `parts/Phases.ts` | Phase transitions, pause, Escape (`escapeKey` / `escapePause`), focus loss, `onNewMission` / `onWorldReady` / `onGameStarting`, training exit, `onAbort`, mode predicates (`isTraining`, `isTutorial`, `inShip`, `inMission`, `inLiveMission`). |
 | `parts/Death.ts` | Local death / downed / revived, rescue landing, all-dead check, `complete()` / `gameOver()`, voluntary return to ship, tutorial respawn and tutorial skip-extraction, `awardMissionXp`. |
 | `parts/Session.ts` | Raid session save and resume: relay blob (`isRaidSession`, with the body `pose`), solo localStorage (`isSoloRaid`, `saveSolo`, `saveSoloAt`, `resumeSoloRaid`), ghost restore + timeout fallback, tutorial step / checkpoint saves. |
 | `parts/Resume.ts` | `RaidResume` (= `ctx.raidResume`, `RaidResumeRef`): the raid the title offers — fresh solo / tutorial save, or the squad raid behind the `SQUAD_RAID_MARK_KEY` marker (title-time connect) — `resume()`, `abandon()` (solo = death settlement, tutorial = `restartTrack('raid')`, squad = strip + own corpse + settlement + `lobby:abandon`), solo grace judged while on the title, `raid:resumeChanged`. |
 | `parts/Wire.ts` | `flow` message handling, host change, lobby left (disconnect / kick / host left → abort after `DISCONNECT_ABORT_DELAY`). |
-| `parts/CorpseNet.ts` | Player corpse creation and sync (`pcorpse` / `pcorpseq`), `spawnLocalCorpse`, `crate:looted` → `emptied`. |
+| `parts/CorpseNet.ts` | Player corpse creation and sync (`pcorpse` / `pcorpseq`), `spawnLocalCorpse`, `crate:looted` → `emptied` (broadcast by the host only, accepted only from the host). |
 | `parts/Leader.ts` | Squad-leader device (`leader_device` interactable, `lead` / `leadq` wire), its scene-resident point light, the single host-changed toast. |
 | `parts/RaidReport.ts` | Result-screen data (`GameFlowSystem.report`): peak carried value, damage tallies per source, killing blow → `stats.peakLootValue` / `stats.death`. |
 | `parts/LoadGate.ts` | Raid-entry loading gate (`GameFlowSystem.loadGate`): render hold from `game:newMission` to squad-wide readiness, `load` wire, `raid:loadProgress` / `raid:loadReleased`, fade-in. Debug hooks `debugAddMember` / `debugClearMembers` / `debugSetTimeout`. |
-| `Corpses.ts` | `PlayerCorpseManager` (= `ctx.corpses`, implements `CorpsesRef`) and `PlayerCorpseObject` (interactable container + frozen `SoldierModel` mesh, tram riding). |
+| `Corpses.ts` | `PlayerCorpseManager` (= `ctx.corpses`, implements `CorpsesRef`) and `PlayerCorpseObject` (interactable container + frozen `SoldierModel` mesh, tram riding, empty-corpse sink `stepSink` / `sinkDepth`); removed-id set and `ownerHadCorpse`. |
 | `SoloRaid.ts` | Pure localStorage store for solo sessions: `SoloRaidSave` / `SoloRaidPose`, `load/save/clearSoloRaid`, `soloRaidStatus`, `soloRaidBootStatus`, clock record `readClockHigh` / `bumpClockHigh`. No context, no listeners. |
 | `ResumeGate.ts` | Browser-only `좌측 클릭으로 게임 재개` overlay (`ResumeGate`), desktop-shell cursor hiding (`syncDesktopCursor`), shell Escape re-lock hook (`installDesktopRelockHook` → `window.__scavShellRelock`). |
 | `resume-gate.css` | Gate styles + `body.desktop-nocursor`. Imported by `ResumeGate.ts`. |
@@ -29,7 +29,7 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
 
 ## Public API
 
-- **ctx**: `ctx.phase` (via `setPhase`), `ctx.corpses: CorpsesRef` (`src/shared/types.ts`, incl. `spawnAllyCorpse`),
+- **ctx**: `ctx.phase` (via `setPhase`), `ctx.corpses: CorpsesRef` (`src/shared/types.ts`, incl. `spawnAllyCorpse`, `ownerHadCorpse`),
   `ctx.raidResume: RaidResumeRef` (`src/shared/raidResume.ts`). Also writes `ctx.stats`,
   `ctx.missionTime` (reset only — `Engine.frame()` advances it), `ctx.missionMode`, `ctx.missionPlanet`,
   `ctx.missionIntel` (cleared for training), `ctx.rejoinPending`.
@@ -127,11 +127,13 @@ therefore uses `ctx.time`, never `dt`.
 ## Payout
 
 `awardMissionXp()` runs once per mission (`rewarded`) inside `complete()` / `gameOver()` before the phase change, wrapped
-in try/catch. Normal raid: kills × `XP_PER_KILL` (× `XP_DEATH_MUL` if not extracted) + minutes × `XP_PER_MINUTE`
-(cap `XP_TIME_CAP`) + on extraction `XP_EXTRACT_BONUS` + loot × `XP_PER_LOOT_VALUE`, times the library `raidXp`
-multiplier; then contract settlement (`settleMission`) adds its XP. Tutorial: `TUTORIAL_RAID_XP` if extracted, else 0,
-never a contract settlement. Training: nothing. Bumps `profile.raids` / `extractions` and saves. Result screens read
-`stats.rewards`.
+in try/catch. Normal raid XP comes **only from kills**: `stats.killXp` (× `XP_DEATH_MUL` if not extracted), times the
+library `raidXp` multiplier, rounded. No loot-value, extraction or survival-time XP (2026-09-16). `stats.killXp` is the sum of
+`data/enemies.csv` `raidXp` over my last-hit kills — `enemies/` adds it next to `stats.kills` (authority
+`parts/Damage.onEnemyKilled`, replica `ee kill` with `killer === localId`), so android / faction kills pay nobody. It rides in
+`stats`, so the squad blob, the solo save and title resume keep it (a save without the field counts 0). Then contract
+settlement (`settleMission`) adds its XP, unmultiplied. Tutorial: `TUTORIAL_RAID_XP` if extracted, else 0, never a contract
+settlement. Training: nothing. Bumps `profile.raids` / `extractions` and saves. Result screens read `stats.rewards`.
 
 `RaidReport.fill()` runs before settlement in both wrappers: `stats.peakLootValue` = highest carried value (bag, quick
 slots, pouch + equipped loadout and attachments) during the raid; `stats.death` = killing blow from `player:died.source`
@@ -207,8 +209,11 @@ A remaining raid never drops the boot straight into it: the title shows `이어�
 - The leader-device light lives in the scene from `init` with intensity 0; never add/remove a light with the device. —
   `parts/Leader.ts` (`installLeaderLight`)
 - `net:hostChanged` toast is shown only by `parts/Leader.ts` (`onHostChangedToast`).
-- Corpse height uses `getSurfaceY` (tram decks, upper floors), and corpses stay until the raid ends (no lifetime or
-  culling). — `parts/CorpseNet.ts`, `Corpses.ts`
+- Corpse height uses `getSurfaceY` (tram decks, upper floors). Corpses have no lifetime or culling, but a corpse with **no
+  items** (spawned empty, or looted empty) sinks after `CORPSE_EMPTY_REMOVE_DELAY_S` over `CORPSE_EMPTY_SINK_S` on the
+  mission clock and is removed; removed ids are refused by `add` until the mission resets (late `spawn` echo / `sync`), and
+  `syncWire` leaves emptied corpses out. Only the lobby host sends `pcorpse emptied`; receivers drop it from anyone else. —
+  `Corpses.ts` (`add`, `markEmptied`, `update`), `parts/CorpseNet.ts` (`onContainerLooted`, `onCorpseMessage`)
 - The loading gate must never read `dt`: the hold it takes makes sim dt 0, so its own timers would stop. Use `ctx.time`.
   For the same reason `LoadGate.bind()` subscribes before `onNewMission` — the hold has to exist before the phase moves.
   — `parts/LoadGate.ts`
@@ -220,15 +225,15 @@ A remaining raid never drops the boot straight into it: the title shows `이어�
 
 - `Corpses.ts` imports `SoldierModel` from `@/player` — a deliberate exception to the no-cross-folder-import rule, so the
   soldier model is not built twice. There is no reverse dependency, so no cycle.
-- `kills`, `cratesOpened`, `damageTaken` are incremented by other systems; GameFlow only resets and finalizes stats.
+- `kills`, `killXp`, `cratesOpened`, `damageTaken` are incremented by other systems; GameFlow only resets and finalizes stats.
 - Threat ramp: `ctx.enemies.setThreatLevel()` goes `THREAT_MIN` → `THREAT_MAX` over `THREAT_RAMP_SECONDS` (not in training).
 - Preparation items: armed at `onNewMission`, cleared at `complete` / `gameOver` / `onAbort`; death alone keeps them.
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/game`.
+- 2026-09-16 — Empty corpses: a player / android corpse with no items (spawned empty or looted empty) sinks after `CORPSE_EMPTY_REMOVE_DELAY_S` and is removed; host-only `pcorpse emptied`; `CorpsesRef.ownerHadCorpse`.
+- 2026-09-16 — Raid-end XP = kill XP only (`stats.killXp` from `enemies.csv` `raidXp`, × `XP_DEATH_MUL` from csv when not extracted); loot / extraction / time XP and the `XP_*` constants in `model.ts` removed.
 - 2026-09-15 — `parts/Resume.ts` (`ctx.raidResume`): boot stops at the title for a remaining solo / tutorial / squad raid; `이어하기` / `레이드 포기` (death settlement · tutorial restart · squad drift + corpse); `consumeStoredSoloRaid` removed; squad blob carries `pose`.
 - 2026-09-15 — `parts/LoadGate.ts`: raid-entry loading gate (`load` wire, `raid:load*`); androids excluded from the wipe check; `CorpsesRef.spawnAllyCorpse`.
 - 2026-09-15 — Squads vs shared ship: training exit and `onAbort` regroup in the shared ship only for a **docked** lobby (`isDockedLobby`).
-- 2026-09-15 — Tutorial resume: tutorial saves ignore grace / clock defence; forced save per step and per checkpoint.
-- 2026-09-15 — Tutorial respawn plays a wake animation; tutorial skip-extraction completes immediately.

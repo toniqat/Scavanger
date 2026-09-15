@@ -168,6 +168,8 @@ export class Structures {
 
   /** 2026-09-12 (C): 이 묶음의 컨테이너를 처음 열면 나올 내용물 (`WorldRef.previewContainerItems`), 없으면 null. */
   previewContainerItems(id: string): ItemInstance[] | null { return this.containers.preview(id); }
+  /** 2026-09-16: 이 묶음의 컨테이너 굴림 규칙 (`WorldRef.crateLootOpts` — 잠긴 방), 없으면 undefined. */
+  crateLootOpts(id: string) { return this.containers.lootOpts(id); }
 
   /** `(x, z)` 를 품는 구조물 (자기 `radius` 안), 없으면 null. */
   structureAt(x: number, z: number): StructureDef | null {
@@ -290,10 +292,11 @@ export class Structures {
         bonusDefId: deepBonus, bonusChance: deepBonus ? row.basementBonusChance : undefined,
       }));
       const lockTiers = row.lockedTiers.length > 0 ? row.lockedTiers : deepTiers;
+      /* 2026-09-16: 잠긴 방 컨테이너는 서사 이상 드롭률 게이트 면제 (`lockedRoom` → `CrateLootOpts`, 사용자 결정 「잠긴 방은 지금 그대로」). */
       out.lockedContainers.forEach((s, i) => specs.push({
         id: `${id}_l${i}`, position: new THREE.Vector3(s.x, s.y, s.z), yaw: s.yaw,
         tier: pickTier(lockTiers, lockRng.next()), style: ((i + 2) % 3) as 0 | 1 | 2,
-        zoneId: id, zoneKind: site.kind,
+        zoneId: id, zoneKind: site.kind, lockedRoom: true,
       }));
 
       if (out.console) this.buildConsole(ctx, game, rng, inst, out.console);

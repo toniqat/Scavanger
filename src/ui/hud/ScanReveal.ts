@@ -132,6 +132,10 @@ export class ScanReveal {
     this.matEnemy?.dispose(); this.matEnemy = null;
   }
 
+  /** 2026-09-16: 이륙 연출이 남긴 HUD 의 몫 1 … 0 (`HudSystem.setCinematic`) — 0 이면 기둥을 숨긴다 (정찰 기록은 그대로). */
+  private cineK = 1;
+  setCinematicFade(k: number): void { this.cineK = k; }
+
   lateUpdate(_dt: number, ctx: GameContext): void {
     if (this.reveals.length === 0) return;
     const t = ctx.time;
@@ -139,8 +143,9 @@ export class ScanReveal {
       if (t >= this.reveals[i].expires) this.reveals.splice(i, 1);
     }
     if (this.reveals.length === 0) { this.clear(); return; }
+    if (this.cineK <= 0) { for (const m of this.meshes) if (m.visible) m.visible = false; return; }
     this.ensureScene();
-    const pulse = INTERACT_PILLAR_OPACITY * (0.9 + 0.35 * Math.sin(t * 4));
+    const pulse = INTERACT_PILLAR_OPACITY * (0.9 + 0.35 * Math.sin(t * 4)) * this.cineK;
     if (this.matNeutral) this.matNeutral.opacity = pulse;
     if (this.matEnemy) this.matEnemy.opacity = pulse * 1.15;
 

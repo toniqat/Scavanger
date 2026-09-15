@@ -1669,16 +1669,80 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.04, dur: 0.25, gain: 0.08, filter: { type: 'bandpass', f0: 600 * q, f1: 250, q: 1 }, decayCurve: 'lin' });
     return 0.42;
   },
-  /** 버그 한 마리가 흙을 헤치고 올라온다: 짧은 흙 무너짐 알갱이 + 낮은 쿵 + 긁는 소리. 일부러 작다. ≈0.55 s. */
+  /**
+   * 버그 한 마리가 흙을 깨고 올라온다 (2026-09-16 다시 냄 — 예전 판은 무리당 한 번이라 일부러 작았다; 이제 한 마리마다 나므로
+   * 크기는 `enemies/parts/Burrow.emergeSound` 의 1/√k 와 `VOICE_CAP` 이 누른다). 흙이 갈라지는 첫 균열 + 낮은 쿵 → 부서지는
+   * 흙덩이 · 자갈 틱 → 갑각이 흙을 긁고 빠져나오는 소리 → 흘러내리는 흙 꼬리. 한 프레임에 올라온 무리가 한 점으로 뭉쳐
+   * 플램이 되지 않게 시작을 몇 십 ms 흩는다. ≈0.8 s.
+   */
   burrow_emerge: (s, d, t, p) => {
     const q = p * r(0.92, 1.08);
-    s.tone(d, { type: 'sine', f0: 95 * q, f1: 42 * q, t0: t, dur: 0.28, gain: 0.3 });
-    for (let i = 0; i < 5; i++) {
-      s.noise(d, { t0: t + i * 0.06 + r(0, 0.03), dur: 0.09, gain: 0.07, attack: 0.006, filter: { type: 'bandpass', f0: r(380, 900) * q, q: 1.4 } });
+    const t0 = t + r(0, 0.05);
+    s.noise(d, { t0, dur: 0.12, gain: 0.3, attack: 0.004, filter: { type: 'lowpass', f0: 2400 * q, f1: 260, q: 0.7 } });
+    s.tone(d, { type: 'sine', f0: 120 * q, f1: 40 * q, t0, dur: 0.32, gain: 0.45 });
+    for (let i = 0; i < 7; i++) {
+      s.noise(d, { t0: t0 + 0.03 + i * 0.055 + r(0, 0.03), dur: 0.07, gain: 0.13 * (1 - i * 0.08), attack: 0.004, filter: { type: 'bandpass', f0: r(350, 1100) * q, q: 1.6 } });
     }
-    s.noise(d, { t0: t + 0.05, dur: 0.45, gain: 0.08, attack: 0.05, filter: { type: 'lowpass', f0: 700 * q, f1: 180, q: 0.7 }, decayCurve: 'lin' });
-    s.noise(d, { t0: t + 0.12, dur: 0.3, gain: 0.03, attack: 0.08, filter: { type: 'bandpass', f0: 1600 * q, f1: 2600 * q, q: 3 } });
-    return 0.58;
+    for (let i = 0; i < 4; i++) s.click(d, t0 + 0.08 + r(0, 0.45), r(1400, 2600) * q, r(0.03, 0.055), 0.012);
+    s.noise(d, { t0: t0 + 0.18, dur: 0.32, gain: 0.07, attack: 0.08, filter: { type: 'bandpass', f0: 1500 * q, f1: 2700 * q, q: 3 } });
+    s.noise(d, { t0: t0 + 0.1, dur: 0.62, gain: 0.1, attack: 0.05, filter: { type: 'lowpass', f0: 900 * q, f1: 160, q: 0.7 }, decayCurve: 'lin' });
+    return 0.8;
+  },
+  /* ── appended (2026-09-16): 벌레 발소리 3종 — `enemies/model.STEP_VOICES` 가 몸집별로 고른다 (피치 · 밑값도 거기).
+   * 사거리 · 동시 보이스 상한(세 id 가 한 무리 `bug_steps`)은 `AudioSystem.RANGED_SOUNDS` / `VOICE_CAP`, 무리 크기 1/√n 은 `emitEnemyStep`.
+   * 사람 발소리(`footstep_<mat>`)와 id 를 나누지 않으므로 벌레 무리가 사람 발소리의 상한 · 속도 제한을 먹지 않는다. */
+  /** 작은 벌레: 딱딱한 갑각 다리 끝이 땅을 두세 번 톡톡 긁는다 + 아주 작은 흙 몸. 3–5 kHz 는 비운다 (매 걸음 듣는 소리). ≈0.1 s. */
+  bug_step_skitter: (s, d, t, p) => {
+    const q = p * r(0.9, 1.1);
+    const n = Math.random() < 0.5 ? 2 : 3;
+    for (let i = 0; i < n; i++) {
+      s.noise(d, { t0: t + i * r(0.018, 0.03), dur: 0.02, gain: 0.1 * (1 - i * 0.25), attack: 0.004, filter: { type: 'bandpass', f0: r(1600, 2600) * q, q: 2.5 } });
+    }
+    s.tone(d, { type: 'triangle', f0: 880 * q, f1: 600 * q, t0: t, dur: 0.022, gain: 0.03 });
+    s.noise(d, { t0: t, dur: 0.05, gain: 0.08, filter: { type: 'lowpass', f0: 700 * q, f1: 200, q: 0.7 } });
+    return 0.1;
+  },
+  /** 큰 벌레(전사 · 돌진 · 포병): 무거운 쿵 + 흙 몸 + 갑각 발끝의 둔한 딸깍 + 자갈 한 톨. ≈0.16 s. */
+  bug_step_heavy: (s, d, t, p) => {
+    const q = p * r(0.92, 1.08);
+    s.tone(d, { type: 'sine', f0: 115 * q, f1: 46, t0: t, dur: 0.13, gain: 0.32 });
+    s.noise(d, { t0: t, dur: 0.1, gain: 0.22, filter: { type: 'lowpass', f0: 750 * q, f1: 160, q: 0.7 } });
+    s.noise(d, { t0: t + 0.006, dur: 0.025, gain: 0.08, attack: 0.003, filter: { type: 'bandpass', f0: 1300 * q, q: 2 } });
+    s.noise(d, { t0: t + r(0.03, 0.05), dur: 0.02, gain: 0.04, filter: { type: 'bandpass', f0: r(1700, 2300) * q, q: 2.5 } });
+    return 0.16;
+  },
+  /** 베헤모스: 땅이 울리는 서브 쿵 + 짓눌리는 흙 + 갑판 같은 발판의 둔한 울림 + 튀는 흙덩이. ≈0.42 s. */
+  bug_step_giant: (s, d, t, p) => {
+    const q = p * r(0.94, 1.06);
+    s.tone(d, { type: 'sine', f0: 68 * q, f1: 24, t0: t, dur: 0.38, gain: 0.75 });
+    s.noise(d, { t0: t, dur: 0.24, gain: 0.4, filter: { type: 'lowpass', f0: 520 * q, f1: 70, q: 0.6 } });
+    s.noise(d, { t0: t + 0.01, dur: 0.05, gain: 0.1, filter: { type: 'bandpass', f0: 800 * q, q: 1.6 } });
+    for (let i = 0; i < 3; i++) s.noise(d, { t0: t + 0.05 + r(0, 0.18), dur: 0.05, gain: 0.04, filter: { type: 'bandpass', f0: r(400, 900) * q, q: 1.5 } });
+    return 0.42;
+  },
+  /* ── appended (2026-09-16): 포병 포탄 — `AudioSystem` 이 `enemy:shellFired` 를 받아 직접 낸다 (enemies/ 는 모른다). ── */
+  /**
+   * 포탄 낙하 휘파람: 높은 곳에서 떨어지는 사인 둘(살짝 디튠 → 맥놀이) + 아래로 쓸리는 바람 노이즈 + 뒤에 깔리는 낮은 윙.
+   * 전체가 한 envelope 을 타고 끝으로 갈수록 커진다 (`env` 의 attack 은 길이의 절반에서 잘리므로 따로 `envelope` 을 쓴다).
+   * **길이 2.6 s = `SHELL_INCOMING_LEAD_S`** — 절정에서 착탄한다. 착탄 · 요격 방송이 오면 `AudioSystem` 이 보이스를 짧게 끊는다.
+   */
+  shell_incoming: (s, d, t, p) => {
+    const T = 2.6;
+    const env = s.envelope(d, t, [[0.35, 0.12], [1.5, 0.4], [2.45, 1], [T, 0.0001]]);
+    s.tone(env, { type: 'sine', f0: 1650 * p, f1: 520 * p, t0: t, dur: T, gain: 0.16, attack: 0.05, release: 0.05 });
+    s.tone(env, { type: 'sine', f0: 1662 * p, f1: 526 * p, t0: t, dur: T, gain: 0.07, attack: 0.05, release: 0.05, vibratoHz: 5, vibratoDepth: 15 });
+    s.noise(env, { t0: t, dur: T, gain: 0.2, attack: 0.05, release: 0.05, filter: { type: 'bandpass', f0: 3000 * p, f1: 800 * p, q: 0.9 } });
+    s.tone(env, { type: 'sawtooth', f0: 95 * p, f1: 60 * p, t0: t + 0.8, dur: T - 0.8, gain: 0.06, attack: 0.3, release: 0.05, lp: 400 });
+    return T;
+  },
+  /** 멀리서 포병이 쏜 둔한 발사 쿵: 낮은 사인 쿵 + 먹힌 저역 노이즈 + 짧은 울림 꼬리. ≈1 s. */
+  shell_launch: (s, d, t, p) => {
+    const q = p * r(0.94, 1.06);
+    s.tone(d, { type: 'sine', f0: 78 * q, f1: 34, t0: t, dur: 0.4, gain: 0.7 });
+    s.noise(d, { t0: t, dur: 0.28, gain: 0.45, filter: { type: 'lowpass', f0: 650 * q, f1: 90, q: 0.6 } });
+    s.noise(d, { t0: t + 0.01, dur: 0.06, gain: 0.12, filter: { type: 'bandpass', f0: 420 * q, q: 1.2 } });
+    s.tail(d, t + 0.08, 0.9, 0.07, 500, 60);
+    return 1.0;
   },
   /** 땅굴벌레 전조 땅울림: 서브 저음이 5초 동안 부풀고, 갈리는 흙 · 암반 균열이 점점 잦아진다. ≈5.3 s. */
   sandworm_rumble: (s, d, t, p) => {

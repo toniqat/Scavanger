@@ -18,9 +18,11 @@
  *   8. **식사 없음** (2026-09-11, A-3c) — `ctx.progression.getMeal()` 이 비었다. 역시 **막지 않는다**.
  *      2026-09-12 (사용자 결정): **주방(조리대)이 있는 함선에서만** 올라온다 — `ctx.housing.getBenchLevel('cook')`.
  *   9. **기업 계약 없음** (2026-09-12, 사용자 결정) — `ctx.meta.activeContract` 가 null. 역시 **막지 않는다**.
+ *  10. **치워질 접시** (2026-09-16, 접시 모델) — 식탁에 먹지 않은 접시가 있는데 이미 다른 식사를 실었다 (`plateDiscard`).
+ *      식사가 비어 있으면 8 번이 「식탁의 요리를 먹지 않았습니다」로 대신 말한다. 역시 **막지 않는다**.
  */
 import type { AmmoType, ItemDef, LaunchWarning } from '@/shared';
-import { AMMO_STACK_ROUNDS, ENV_DESC_KO, ENV_LABEL_KO, getPlanet } from '@/shared';
+import { AMMO_STACK_ROUNDS, ENV_DESC_KO, ENV_LABEL_KO, getMealDef, getPlanet, mealQualityStars, normalizeMealQuality } from '@/shared';
 import { ITEM_DEF_MAP, boostItemOf, getWeaponDef, shieldChargeOf } from '@/items';
 import { WEAPON_SLOT_IDS } from '../model';
 import type { InventorySystem } from '../InventorySystem';
@@ -109,17 +111,36 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
    *    질의는 `ctx.housing.getBenchLevel('cook')`(배치된 조리대 중 가장 높은 레벨, 없으면 0) 하나다. 식탁까지
    *    보지 않는 이유: 조리대를 지은 사람은 식탁도 지을 수 있고, 공유 함선에는 붙박이 식탁이 있어 조리대만으로
    *    먹을 길이 열린다 — 게이트는 「만들 수 있느냐」 한 겹이면 된다. */
+  /*  2026-09-16 (접시 모델, 사용자 결정): 요리는 식탁의 접시이고 **출격하면 치워진다**. 그래서 접시가 있는데 그 요리를 먹지 않았으면
+   *  「먹지 않은 요리가 사라진다」를 말한다 — 식사가 비었으면 `noMeal` 이 그 문장으로(할 일이 바로 그것이다), 이미 다른 식사를
+   *  실었으면 목록 끝의 `plateDiscard` 가 (`LaunchWarningId` 순서). 「먹었다」 = 대기 식사가 접시와 같은 요리 · 같은 품질. */
+  let plateUneaten: { name: string; stars: string } | null = null;
   try {
     const prog = sys.ctx.progression;
-    const kitchen = (sys.ctx.housing?.getBenchLevel?.('cook') ?? 0) > 0;
-    if (kitchen && prog && typeof prog.getMeal === 'function' && !prog.getMeal()) {
+    const housing = sys.ctx.housing;
+    const kitchen = (housing?.getBenchLevel?.('cook') ?? 0) > 0;
+    const plate = housing?.getPlate?.() ?? null;
+    const pending = prog && typeof prog.getMeal === 'function' ? prog.getMeal() : null;
+    const pendingQ = pending && typeof prog?.getMealQuality === 'function' ? prog.getMealQuality() : 0;
+    if (plate && !(pending === plate.mealDefId && pendingQ === normalizeMealQuality(plate.quality))) {
+      const q = normalizeMealQuality(plate.quality);
+      plateUneaten = { name: getMealDef(plate.mealDefId)?.name ?? plate.mealDefId, stars: q > 0 ? ` ${mealQualityStars(q)}` : '' };
+    }
+    if (prog && typeof prog.getMeal === 'function' && !pending && plateUneaten) {
+      out.push({
+        id: 'noMeal',
+        text: '식탁의 요리를 먹지 않았습니다',
+        detail: `출격하면 식탁의 「${plateUneaten.name}${plateUneaten.stars}」 이(가) 치워집니다 — 먹어 두면 다음 레이드 1회분이 실립니다.`,
+      });
+      plateUneaten = null;                              // 같은 말을 목록 끝에서 한 번 더 하지 않는다
+    } else if (kitchen && prog && typeof prog.getMeal === 'function' && !pending) {
       out.push({
         id: 'noMeal',
         text: '식사를 차리지 않았습니다',
-        detail: '주방 식탁에서 요리를 먹어 두면 다음 레이드 1회분이 실립니다.',
+        detail: '조리대에서 요리하면 식탁에 차려집니다 — 식탁에서 먹어 두면 다음 레이드 1회분이 실립니다.',
       });
     }
-  } catch { /* progression · housing 이 아직 없다 */ }
+  } catch { /* progression · housing 이 아직 없다 */ plateUneaten = null; }
 
   /* 9. 기업 계약 — 수락한 계약 없이 나가려 한다 (2026-09-12, 사용자 결정).
    *    다른 여덟과 똑같이 **막지 않는다**. 계약 없이 도는 레이드도 정상이지만 한 판은 길고, 돌아와서야
@@ -135,6 +156,15 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
       });
     }
   } catch { /* meta 가 아직 없다 — 훈련장 · 스모크 */ }
+
+  /* 10. 치워질 접시 (2026-09-16, 접시 모델) — 이미 다른 식사를 실었는데 식탁에 먹지 않은 요리가 남았다. 막지 않는다. */
+  if (plateUneaten) {
+    out.push({
+      id: 'plateDiscard',
+      text: '식탁의 요리가 치워집니다',
+      detail: `먹지 않은 「${plateUneaten.name}${plateUneaten.stars}」 은(는) 출격할 때 사라집니다 — 지금 실린 식사는 그대로입니다.`,
+    });
+  }
 
   return out;
 }

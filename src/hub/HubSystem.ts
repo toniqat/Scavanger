@@ -8,6 +8,7 @@ import { SharedShip } from './interiors/SharedShip';
 import type { StationDef } from './interiors/stations';
 import type { ShipInterior } from './interiors/types';
 import { FurnitureLayer } from './interiors/Furniture';
+import type { TablePlates } from './interiors/TablePlates';
 import { roomAtWorld } from './interiors/RoomLayout';
 import { HousingMode } from './HousingMode';
 import { LaunchPod } from './LaunchPod';
@@ -212,6 +213,8 @@ export class HubSystem implements GameSystem, HubRef {
   stationIds: string[] = [];
   /** 함선 꾸미기: furniture meshes / colliders / interactables of the personal ship + the housing-mode controller. */
   furniture: FurnitureLayer | null = null;
+  /** 2026-09-16 (접시 모델): 공유 함선 고정 식탁 위의 분대원 접시들 (`interiors/TablePlates`), 공유 함선이 아니면 null. */
+  tablePlates: TablePlates | null = null;
   housingMode!: HousingMode;
   slots: HubLaunchSlot[] = [];
   cutscene: DockingCutscene | null = null;

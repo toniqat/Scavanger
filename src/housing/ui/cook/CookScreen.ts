@@ -29,7 +29,8 @@ import { COOK_BLOCKER, applyCookStepBonus, completeCookRun, cookStepBonus, endCo
 import type { CookStepBonus } from '../../parts/Cooking';
 import { createCookGame } from '../../parts/CookGames';
 import type { AnyCookGame, CookButton } from '../../parts/CookGames';
-import { mealEffectLines, mealTierText } from '../DiningTable';
+import { mealEffectLines, mealTierText, qualityName } from '../DiningTable';
+import { askReplacePlate, closePlateAsk } from './PlateAsk';
 import { clear, el, setText, toggleClass } from '../dom';
 import { createCookView, replayCookClass } from './CookViews';
 import type { CookView } from './CookViews';
@@ -189,6 +190,7 @@ export class CookScreen {
   }
 
   private teardown(): void {
+    closePlateAsk(this.sys);                // 2026-09-16: 「다시 만들기」 경고가 떠 있던 채 닫히면 확정 없이 걷는다
     this.stopLoop();
     window.removeEventListener('keydown', this.onKeyDown, true);
     window.removeEventListener('pointerup', this.onPointerUp, true);
@@ -425,9 +427,17 @@ export class CookScreen {
     return false;
   }
 
-  /** 결과 화면의 「다시 만들기」 — 한국어 사유 / null. */
-  restart(): string | null {
+  /**
+   * 결과 화면의 「다시 만들기」 — 한국어 사유 / null.
+   * 2026-09-16 (접시 모델, 사용자 결정): 방금 만든 요리가 식탁에 있으므로 **다시 만들기 전에** 「식탁의 요리를 바꿉니다」 경고를 띄운다
+   * (그때는 null — 확정되면 다시 시작한다). `skipAsk` = 경고를 지난 확정.
+   */
+  restart(skipAsk = false): string | null {
     if (this.screen !== 'result') return '결과 화면이 아닙니다';
+    const block = restartBlock(this.sys);
+    if (!block && !skipAsk && this.info && askReplacePlate(this.sys, this.info.mealDefId, () => { if (this.opened && this.screen === 'result') this.restart(true); })) {
+      return null;
+    }
     const reason = restartCook(this.sys);
     if (reason) {
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
@@ -483,7 +493,15 @@ export class CookScreen {
     const text = el('div', { cls: 'cook-result-text', parent: meal });
     el('div', { cls: 'cook-result-name', text: def?.meal ? `${def.name} · ${mealTierText(def.meal)}` : def?.name ?? info.mealDefId, parent: text });
     if (def?.meal) el('div', { cls: 'cook-result-effects', text: mealEffectLines(def.meal, q).join('\n'), parent: text });
-    if (r && !r.reason) el('div', { cls: 'cook-landed', text: `→ ${r.landed === 'bag' ? '가방' : '함선 창고'}`, parent: text });
+    // 2026-09-16 (접시 모델): 요리는 식탁에 차려진다 — 바뀐 옛 접시가 있으면 그것도 한 줄
+    if (r && !r.reason) {
+      const landed = r.landed === 'bag' ? '가방' : r.landed === 'stash' ? '함선 창고' : '식탁에 차렸습니다';
+      el('div', { cls: 'cook-landed', text: `→ ${landed}`, parent: text });
+      if (r.replaced) {
+        const old = qualityName(this.sys.mealDef(r.replaced.mealDefId)?.name ?? r.replaced.mealDefId, r.replaced.quality);
+        el('div', { cls: 'cook-landed cook-replaced', text: `「${old}」 을(를) 치웠습니다`, parent: text });
+      }
+    }
     else el('div', { cls: 'cook-warn', text: r?.reason ?? '요리를 완성하지 못했습니다', parent: text });
 
     const foot = el('div', { cls: 'cook-result-foot', parent: card });
@@ -656,6 +674,14 @@ export class CookScreen {
     if (!this.opened || isField(e.target) || this.ctx.uiBlockers.has(MENU_BLOCKER)) return;
     const code = e.code;
     if (code !== Keys.INVENTORY && code !== Keys.INTERACT) return;
+    // 2026-09-16: 「식탁의 요리를 바꿉니다」 경고가 위에 떠 있다 — E · Tab 은 오버레이가 아니라 경고의 것이다 (취소)
+    if (this.sys.plateAsk?.handle.isOpen) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (code === Keys.INVENTORY) this.ctx.input.consume(Keys.INVENTORY);
+      if (!e.repeat) this.sys.plateAsk.handle.cancel();
+      return;
+    }
     // 2026-09-15: Tab 은 `ctx.escape` 스택의 **맨 위 화면**의 것이다 — 이 화면 위에 나중에 열린 창(무한 상자 ·
     // 인벤토리)이 있으면 가로채지 않는다 (`housing/ui/Panel` 과 같은 규칙).
     if (code === Keys.INVENTORY && this.ctx.escape.topKey !== ESCAPE_TOKEN) return;

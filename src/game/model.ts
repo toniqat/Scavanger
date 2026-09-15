@@ -44,19 +44,10 @@ export const ALL_DEAD_CHECK_INTERVAL = 0.5;
 export const DISCONNECT_ABORT_DELAY = 2;
 
 /* ── mission-end character XP (progression) ─────────────────────────────────
- * Kept here (not in progression/) because GameFlow owns the mission result. Progression only
- * banks the number through `ctx.progression.addXp`.
+ * 2026-09-16: no numbers here any more. Raid XP = Σ per-kill `raidXp` (`data/enemies.csv`, summed into
+ * `ctx.stats.killXp` by enemies/) × (extracted ? 1 : `XP_DEATH_MUL` from `data/constants.csv`) × library multiplier —
+ * `parts/Death.awardMissionXp`. The old per-kill flat value, loot-value, extraction and survival-time terms are gone.
  */
-export const XP_PER_KILL = 12;
-/** Loot is only banked when the player actually got out with it. */
-export const XP_PER_LOOT_VALUE = 0.08;
-/** Flat bonus for a successful extraction. */
-export const XP_EXTRACT_BONUS = 300;
-/** Per minute survived, capped at XP_TIME_CAP. */
-export const XP_PER_MINUTE = 20;
-export const XP_TIME_CAP = 300;
-/** A wiped squad still learns something: kills count at this fraction. */
-export const XP_DEATH_MUL = 0.4;
 
 /**
  * Mission phase state machine + stats + pause + difficulty ramp.

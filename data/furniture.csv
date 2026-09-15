@@ -31,7 +31,7 @@ furn_plant,화분,any,1,1,1.1,plant,none,mat_scrap:1|herb_bloodroot:1,1,,,#7ee08
 furn_chair,의자,any,1,1,0.9,chair,seat,mat_scrap:2,1,,,#b0b8c4,강철 의자. 앉을 수 있고 TV 정면에서 TV 를 보게 두면 게임을 할 때 앉는 자리가 됩니다.,none,1
 furn_bunk,침상,any,2,3,1.6,bunk,none,mat_scrap:6|mat_alloy:1,1,,,#9fb4ff,2단 침상.
 furn_bench_cook,조리대,kitchen,4,2,1.1,bench_cook,workbench_cook,mat_scrap:4|mat_alloy:1|mat_cable:1,3,,,#ffb0a0,작물 · 배양 고기 · 유제품으로 요리합니다. 강화하면 고기 요리와 유제품 요리가 열립니다.,front
-furn_dining_table,식탁,kitchen,4,3,0.9,dining_table,dining_table,mat_scrap:6|mat_cloth:6|mat_cable:1,1,,,#ffc8a0,만든 요리를 먹어 다음 레이드 1회분 버프를 싣습니다. 공유 함선의 식탁에서는 분대 전원에게 차릴 수 있습니다.,sides
+furn_dining_table,식탁,kitchen,4,3,0.9,dining_table,dining_table,mat_scrap:6|mat_cloth:6|mat_cable:1,1,,,#ffc8a0,조리대에서 완성한 요리가 이 식탁에 차려집니다. 먹어도 줄지 않고 먹으면 다음 레이드 1회분 버프가 실립니다. 식탁이 없으면 조리대를 쓸 수 없습니다.,sides
 furn_culture_tank,배양조,greenhouse,4,2,2.0,culture_tank,culture_tank,mat_scrap:10|mat_circuit:3|mat_cable:3|mat_bio_sample:6,3,,,#8fe8ff,영양 배지를 채우고 배양 스캐폴드를 얹은 뒤 세포주를 넣어 현실 시간에 맞춰 배양합니다. 스캐폴드가 있으면 종별 고기가 자랍니다. 강화하면 배양 칸이 늘어납니다.,sides
 furn_bench_print,3D 프린터,lab,4,2,1.6,bench_print,workbench_print,mat_scrap:6|mat_circuit:2|mat_alloy:2|mat_control_module:1,3,,,#d0c4ff,필라멘트로 상급 가방 · 주머니 · 게임기를 찍어 냅니다. 연구실에 설치하세요.,front
 # ── 2026-09-12 (사용자 결정): 조종석의 고정 설비였던 둘이 **공용 시설 가구**(room any)가 됐다 ──

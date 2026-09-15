@@ -180,6 +180,13 @@ export const TEXT = {
     /** `채집 주머니 · 약초 · 씨앗 · 토양 · 작물 · 표본` — 받는 카테고리 이름은 `CATEGORY_LABEL_KO` 가 원본이다. */
     line: (name: string, accepts: string): string => `${name} · ${accepts}`,
   },
+  /** 2026-09-16 (사용자 결정): 가방 머리의 `모두 창고로 이동` — 함선 전용, 가방 격자만 (`StashOps.moveBagToStash`). */
+  bagToStash: {
+    label: '모두 창고로 이동',
+    title: '가방 격자의 아이템을 모두 함선 창고로 옮깁니다 (퀵슬롯 · 주머니 · 장착 장비는 그대로)',
+    empty: '가방이 비어 있습니다',
+    left: (n: number): string => `창고에 공간이 없습니다 (${n}개 남음)`,
+  },
   dropZone: '버리기',
   dropZoneHint: '여기에 놓으면 아이템을 바닥에 버립니다',
   menu: {
@@ -195,9 +202,7 @@ export const TEXT = {
     /* A-13 (2026-09-11): 준비물 — 함선에서 쓰면 다음 레이드 1회분으로 실린다 */
     usePrep: '사용 (다음 레이드 1회분)',
     usePrepRaid: '레이드 중에는 쓸 수 없음',
-    /* A-3c (2026-09-11): 요리 — 준비물의 `사용` 바로 옆. 제자리는 주방의 식탁이고 이것은 편의 경로다. */
-    eatMeal: '먹기 (다음 레이드 1회분)',
-    eatMealRaid: '레이드 중에는 먹을 수 없음',
+    /* 2026-09-16 (접시 모델): 요리 `먹기` 항목은 없어졌다 — 요리는 아이템이 아니라 식탁의 접시다. */
     unload: '장전된 탄약 모두 탈착',
     detachAll: '무기 소켓 모두 탈착',
     splitHalf: '절반 나누기',

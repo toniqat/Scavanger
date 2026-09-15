@@ -191,9 +191,11 @@ const SMOKES = {
      그 폴더를 건드리면 함께 돈다. 다른 스모크는 전부 `scav.s1.tutorial` 을 done 으로 심고 시작한다. */
   'smoke-tutorial':     { file: 'scripts/smoke-tutorial.mjs',     folders: ['tutorial', 'hub', 'housing', 'inventory', 'ui', 'items'] },
   /* 2026-09-15 (E-12): 튜토리얼 레이드 트랙을 끝까지 — 체크포인트 부활 · 낙사 부활 자리 · kill/clamp · 즉시 이륙 → 정산(TUTORIAL_RAID_XP) → 함선 획득.
-     smoke-tutorial 은 증축 트랙만 몬다. 구간 사이는 순간이동, 판정이 걸린 행동(낙하 · 스위치)만 실제 입력. */
+     smoke-tutorial 은 증축 트랙만 몬다. 구간 사이는 순간이동, 판정이 걸린 행동(낙하 · 스위치)만 실제 입력.
+     2026-09-16: 방탄복 실드 + 자연 낙하 → 체력 피해 · 다친 채 wall 을 지나도 supplyLoot 유지 · 붕대 실사용 → grenade · 이륙 프레임마다 크로스헤어 0 · HUD 코드 페이드. */
   'smoke-tutorial-raid': { file: 'scripts/smoke-tutorial-raid.mjs', folders: ['tutorial', 'world', 'game', 'extraction', 'player', 'enemies'] },
-  /* 2026-09-15 (E-12): 튜토리얼 함선 트랙 — levelUp → stats(＋ · 1초 홀드 확정) → messenger → ravenQuest(대답 → introAfter → 수락) · 새로고침 복원. */
+  /* 2026-09-15 (E-12): 튜토리얼 함선 트랙 — levelUp → stats(＋ · 1초 홀드 확정) · 새로고침 복원.
+     2026-09-16: 메신저 단계 제외 — 확정 뒤 화면을 닫아야 트랙이 끝난다 · 옛 저장 messenger / ravenQuest = 끝 · 레이븐은 튜토리얼 뒤. */
   'smoke-tutorial-ship': { file: 'scripts/smoke-tutorial-ship.mjs', folders: ['tutorial', 'meta', 'ui', 'progression', 'inventory'] },
   /* 2026-09-15 (E-12 · B-14): 전역 낙하 피해 — 높이별 피해 식 · 안전 높이 · 실드 먼저 · 치사 · 남이 띄운 몸 면제 + 피드백(착지음 · 흔들림 · 비네트). */
   'smoke-fall-damage':  { file: 'scripts/smoke-fall-damage.mjs',  folders: ['player', 'audio', 'ui', 'world'] },

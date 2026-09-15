@@ -19,14 +19,21 @@
 //   8. crawl        — `crawl` checkpoint → real C → `crouchAim` → two android kills → `advance3`.
 //      (2026-09-15: the crouch / prone control lines follow the stance **through `crouchAim` too**, and the one-shot crouch-aim
 //       TIP toast sits right under the controls panel.)
-//   9. clamp volume — `drop` checkpoint, HP 5, walk off cliff 2 → `player:fell {rule:'clamp'}` → alive at HP 1; `fallRule` probes.
+//   9. clamp volume — `drop` checkpoint; (2026-09-16) first a **natural** drop at full HP with a full armor shield → the fall damage
+//                     goes to HP only (shield untouched) → `supplyLoot`; then back up, HP 5, walk off cliff 2 again →
+//                     `player:fell {rule:'clamp'}` → alive at HP 1; `fallRule` probes.
 //  9b. supply loot  — (2026-09-15) the drop opens `supplyLoot`, **not** `heal`: bandage (required) + grenade (optional) shown
 //                     together, optional line not greyed; open `corpse:tut_supply`, a bandage in the bag ticks the required
 //                     line, closing the window → `heal` (only 「붕대 장착」 visible — 「붕대 사용」 is revealed after it).
 //                     Heal / grenade control lines: `빠른 사용 꺼내기` and `휠 열기` are separate rows; grenade has token rows.
+//                     (2026-09-16) Before looting, the hurt player walks past the corpse to the `wall` checkpoint → the track stays
+//                     at `supplyLoot` (no fold to `grenade`). At `heal`, holding the bandage does not advance; a real 5 s LMB
+//                     hold → `player:stimUsed` → `grenade`.
 //  10. extract      — `wall` / `ship` checkpoints → hold E on the ship switch → **instant** liftoff (no departure grace), scene
 //                     lock (damage ignored), `tutorial:finished {raid}` → result screen → `rewards.xpEarned === TUTORIAL_RAID_XP`
 //                     (csv), level 2 → `함선으로 귀환` → personal ship, ship track at `levelUp`, raid track done, solo save cleared.
+//                     (2026-09-16) Every liftoff frame is recorded: the crosshair is never visible once the phase is `liftoff`, the
+//                     rest of the HUD (social layer included) fades by code (`cinematicHudOpacity` passes a middle value → 0).
 //   The recorded `tutorial:changed` trail must equal the raid track's 15 steps in order.
 //
 // Usage: node scripts/smoke-tutorial-raid.mjs [http://localhost:5273/]   (needs `npm run dev`; no relay needed)
@@ -107,7 +114,8 @@ try {
     const ser = (p) => JSON.parse(JSON.stringify(p ?? null, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : (v && v.isObject3D) ? undefined : v));
     for (const n of ['tutorial:changed', 'tutorial:checkpoint', 'tutorial:finished', 'player:fell', 'player:died', 'player:spawned', 'player:introWakeDone',
       'game:over', 'game:complete', 'game:respawnAvailable', 'game:phaseChanged', 'enemy:spawned', 'enemy:killed', 'extraction:liftoff',
-      'extraction:departureStarted', 'extraction:boarded', 'inventory:containerOpened', 'hub:entered', 'interact:performed']) {
+      'extraction:departureStarted', 'extraction:boarded', 'inventory:containerOpened', 'hub:entered', 'interact:performed',
+      'player:stimUsed', 'quick:equipped', 'ui:cinematic']) {
       window.__ev[n] = [];
       ctx.bus.on(n, (p) => { window.__ev[n].push({ t: ctx.time, p: ser(p) }); });
     }
@@ -378,6 +386,35 @@ try {
     'fallRule: 협곡 바닥 kill · 절벽 2 착지 clamp · 그 밖 normal', JSON.stringify(probes));
   await P(() => window.__tp(0, 0, -72, 0));
   await waitStep('drop', 10000);
+  /* 2026-09-16 (버그 A — 사용자 결정 「모든 낙하 피해는 체력으로 곧장」): 방탄복 실드를 가득 채운 채 **자연 낙하**.
+     전에는 실드가 낙하 피해를 먹어 체력이 가득인 채 `heal` 이 조용히 지나갔다. */
+  const armorEquip = await P(() => {
+    const c = window.__game.ctx;
+    const it = c.loot.createItem('armor_2', 1);
+    const where = c.inventory.tryAddItemAnywhere(it);
+    return { where, equipped: !!where && c.inventory.equip(it.uid, 'armor'), armor: c.inventory.getLoadout().armor?.defId ?? null };
+  });
+  await waitSim(0.2);
+  const armor = await P(() => {
+    const ps = window.__game.getSystem('player');
+    ps.chargeShield(Infinity);
+    return { shield: ps.shield, max: ps.maxShield, hp: ps.hp, maxHp: ps.maxHp };
+  });
+  ok(armorEquip.armor === 'armor_2' && armor.max > 0 && armor.shield === armor.max && armor.hp === armor.maxHp,
+    `방탄복 실드 가득(${armor.shield}/${armor.max}) · 체력 가득으로 절벽 2 앞에 선다`, JSON.stringify({ armorEquip, armor }));
+  const nFellA = await P(() => window.__ev['player:fell'].length);
+  await P(() => window.__key('KeyW', true));
+  await waitFor(page, (n) => window.__ev['player:fell'].length > n || window.__ev['player:died'].length > 3, 'cliff 2 natural landing', 20000, nFellA);
+  await P(() => window.__keysUp());
+  await waitSim(0.3);
+  const dropA = await P(() => ({ fell: window.__ev['player:fell'].slice(-1)[0].p, shield: window.__game.ctx.player.shield, ...window.__pose() }));
+  ok(dropA.fell.damage > 0 && !dropA.dead && dropA.shield === armor.shield && dropA.hp < armor.hp && Math.abs(armor.hp - dropA.hp - dropA.fell.damage) < 0.01,
+    `낙하 피해는 실드를 건너뛰어 체력으로 곧장 들어간다 (체력 ${armor.hp} → ${dropA.hp}, 실드 ${armor.shield} → ${dropA.shield})`, JSON.stringify(dropA));
+  await waitStep('supplyLoot', 10000);
+  ok(await step() === 'supplyLoot', '방탄복을 입고 자연 낙하해도 drop → supplyLoot (체력이 깎였다)');
+  // clamp 볼륨은 따로 잰다 — 절벽 위로 되돌아가 체력 5 로 한 번 더 떨어진다 (뒤로 가는 체크포인트는 단계를 되돌리지 않는다)
+  await P(() => window.__tp(0, 0, -72, 0));
+  await waitSim(0.3);
   await P(() => window.__game.ctx.player.setHp(5));
   await waitSim(0.2);
   const nFell = await P(() => window.__ev['player:fell'].length);
@@ -399,6 +436,14 @@ try {
   const sup0 = await objRows();
   ok(sup0.map((r) => r.id).join(',') === 'supplyBandage,supplyGrenade', `목표 두 줄이 함께 보인다 (${sup0.map((r) => r.id).join(',')})`);
   ok(sup0.length === 2 && sup0[0].color === sup0[1].color, '선택 목표도 달성 전에는 회색이 아니다 (필수와 같은 색)', JSON.stringify(sup0));
+  /* 2026-09-16 (버그 B): 다친 채 보급품 시체를 그냥 지나쳐 무너진 벽(`wall` 체크포인트)에 닿아도 회복 구간을 건너뛰지 않는다.
+     전에는 `CHECKPOINT_STEP.wall` = `grenade` 가 `supplyLoot` · `heal` 을 통째로 접었다. */
+  const nWall = await P(() => window.__ev['tutorial:checkpoint'].filter((e) => e.p.id === 'wall').length);
+  await P(() => window.__tp(0, -10, -106, 0));
+  await waitFor(page, (n) => window.__ev['tutorial:checkpoint'].filter((e) => e.p.id === 'wall').length > n, 'wall checkpoint (walked past the supply corpse)', 10000, nWall);
+  await waitSim(0.3);
+  const past = await P(() => ({ step: window.__game.ctx.tutorial.step, hp: window.__game.ctx.player.hp, maxHp: window.__game.ctx.player.maxHp }));
+  ok(past.step === 'supplyLoot' && past.hp < past.maxHp, '다친 채 보급품 시체를 지나 wall 체크포인트에 닿아도 supplyLoot 에 머문다 (grenade 로 건너뛰지 않는다)', JSON.stringify(past));
   const supply = await P(() => window.__game.ctx.interactables.all().find((i) => i.id === 'corpse:tut_supply')?.position.toArray() ?? null);
   ok(!!supply, '보급품 시체(corpse:tut_supply)가 있다', JSON.stringify(supply));
   if (supply) {
@@ -419,6 +464,34 @@ try {
     '목표 줄 안에 키캡이 그려진다 ({QUICK:hold})');
   const healCtl = await P(() => [...document.querySelectorAll('.tut-controls .tut-ctl')].map((r) => r.dataset.hint));
   ok(healCtl.includes('quick') && healCtl.includes('quickWheel'), `빠른 사용 꺼내기 · 휠 열기가 서로 다른 줄이다 (${healCtl.join(',')})`);
+  /* 2026-09-16: 회복 단계는 붕대를 **실제로 쓸 때만**(`player:stimUsed`) 넘어간다 — 손에 드는 것으로는 안 넘어가고, 이미 지난 wall 도 접지 않았다 */
+  // 위에서 붕대는 `tryAddItemAnywhere` 로 가방에 넣었다 (시체에서 끌어온 것이 아니라 휠 자동 등록을 타지 않는다) — 비어 있는 휠 칸에 올린다
+  const bandageSlot = await P(() => {
+    const inv = window.__game.ctx.inventory;
+    const slots = inv.getQuickSlots() ?? [];
+    const at = slots.findIndex((it) => it?.defId === 'heal_bandage');
+    if (at >= 0) return at;
+    const item = inv.getAllItems().find((it) => it.defId === 'heal_bandage');
+    const n = Math.min(slots.length, inv.getQuickSlotCount());
+    for (let i = 0; i < n; i++) if (!slots[i] && item && inv.setQuickSlot(i, item.uid)) return i;
+    return -1;
+  });
+  ok(bandageSlot >= 0, `붕대가 빠른 사용 칸에 있다 (칸 ${bandageSlot})`);
+  await P((i) => window.__game.getSystem('weapons').equipQuick(i), bandageSlot);
+  await waitSim(0.5);
+  const heldBandage = await P(() => ({
+    step: window.__game.ctx.tutorial.step, qe: window.__ev['quick:equipped'].slice(-1)[0]?.p?.item?.defId ?? null,
+    holdDone: document.querySelector('.tut-panel .tut-obj[data-obj="healHold"]')?.classList.contains('is-done') ?? null,
+    stim: window.__ev['player:stimUsed'].length, hp: window.__game.ctx.player.hp,
+  }));
+  ok(heldBandage.qe === 'heal_bandage' && heldBandage.step === 'heal' && heldBandage.stim === 0,
+    '붕대를 손에 들어도 회복 단계에 머문다 (장착 줄만 체크)', JSON.stringify(heldBandage));
+  await P(() => window.dispatchEvent(new MouseEvent('mousedown', { button: 0 })));
+  await waitFor(page, () => window.__ev['player:stimUsed'].length > 0, 'player:stimUsed (bandage hold)', 30000).catch(() => null);
+  await P(() => window.dispatchEvent(new MouseEvent('mouseup', { button: 0 })));
+  await waitStep('grenade', 10000).catch(() => null);
+  const usedBandage = await P(() => ({ stim: window.__ev['player:stimUsed'].length, step: window.__game.ctx.tutorial.step, hp: window.__game.ctx.player.hp }));
+  ok(usedBandage.stim === 1 && usedBandage.step === 'grenade', `붕대를 길게 눌러 쓰면(player:stimUsed) heal → grenade (체력 ${heldBandage.hp} → ${usedBandage.hp})`, JSON.stringify(usedBandage));
 
   /* ── 10. 벽 → 함선 → 즉시 이륙 → 정산 → 함선 ──────────────────────────── */
   console.log('탈출');
@@ -459,6 +532,33 @@ try {
   const prompt = await P(() => { const sw = window.__game.ctx.interactables.all().find((i) => i.id === 'ship_liftoff_switch'); return { text: sw?.getPrompt() ?? null, hp: window.__game.ctx.player.hp, lvl: window.__game.ctx.progression.level }; });
   // 2026-09-15: the caption is the action name only — the hold hint is drawn by the key guide, no 「즉시 이륙」 tag
   ok(prompt.text === '출발 시퀀스 시작', `튜토리얼 함선 스위치 캡션은 행동 이름뿐이다 ("${prompt.text}")`, JSON.stringify(spot));
+  /* 2026-09-16 (사용자 결정 · 신고 「함선이 뜨는데 크로스헤어가 보인다」): 스위치를 누르는 순간부터 결과 화면까지 **매 프레임** 기록한다 —
+     크로스헤어 · 소셜 레이어의 실제로 칠해진 불투명도(조상 opacity × filter opacity, visibility/display 포함)와 HUD 페이드 값. */
+  await P(() => {
+    const ctx = window.__game.ctx, hud = window.__game.getSystem('hud');
+    const eff = (el) => {
+      if (!el) return -1;
+      let o = 1;
+      for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
+        const cs = getComputedStyle(e);
+        if (cs.display === 'none' || cs.visibility === 'hidden') return 0;
+        o *= Number(cs.opacity);
+        const m = /opacity\(([\d.]+)\)/.exec(cs.filter);
+        if (m) o *= Number(m[1]);
+      }
+      return o;
+    };
+    const L = window.__lift = [];
+    (function tick() {
+      if (L.length > 6000 || ctx.phase === 'complete') return;
+      L.push({
+        t: ctx.time, phase: ctx.phase, cine: hud.isCinematic, k: hud.cinematicHudOpacity,
+        ret: eff(document.querySelector('.hud.gameplay .reticle')), social: eff(document.querySelector('.hud.social')),
+        tut: eff(document.querySelector('.tut-panel')), ctl: eff(document.querySelector('.tut-controls')),
+      });
+      requestAnimationFrame(tick);
+    })();
+  });
   const pressT = await P(() => { window.__key('KeyE', true); return window.__game.ctx.time; });
   await waitFor(page, () => window.__ev['extraction:liftoff'].length >= 1, 'liftoff', 15000).catch(async (e) => { console.log(`  note ${JSON.stringify(await P(() => ({ pose: window.__pose(), best: window.__game.getSystem('player').interactTarget?.id ?? null, blockers: [...window.__game.ctx.uiBlockers] })))}`); throw e; });
   await P(() => window.__key('KeyE', false));
@@ -466,23 +566,42 @@ try {
     const ctx = window.__game.ctx, ps = window.__game.getSystem('player');
     const ev = window.__ev['extraction:liftoff'][0];
     const hp0 = ctx.player.hp;
-    ps.applyDamage(50, undefined, false);
+    // 2026-09-15 (extraction 사용자 결정 「실제 피해 · 죽지 않음」): 각본 잠금은 `{allowDamage: true, minHp: 1}` — 치명타도 체력 1 에서 멈춘다.
+    //   (2026-09-16: 붕대를 실제로 써서 체력이 1 보다 높아진 뒤로 옛 「피해가 안 들어간다」 판정이 이 결정과 어긋난 것이 드러났다.)
+    ps.applyDamage(1e6, undefined, false);
     const fin = window.__ev['tutorial:finished'].slice(-1)[0]?.p ?? null;
     let saved = null; try { saved = JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'); } catch { /* */ }
     return {
       dt: ev.t - t, aboard: ev.p.aboard, squadDone: ev.p.squadDone, departs: window.__ev['extraction:departureStarted'].length,
-      lock: ps._sceneLock, hp0, hp1: ctx.player.hp, dead: ctx.player.isDead, phase: ctx.phase, fin, active: ctx.tutorial.active,
+      lock: ps._sceneLock, hp0, hp1: ctx.player.hp, dead: ctx.player.isDead, downed: ctx.player.isDowned ?? false, phase: ctx.phase, fin, active: ctx.tutorial.active,
       raidSave: saved?.tracks?.raid ?? null, pendingShip: saved?.pendingShip ?? null,
     };
   }, pressT);
   ok(lift.aboard === true && lift.departs === 0 && lift.dt < 2.5, `스위치를 누르면 유예 없이 곧장 뜬다 (E 누름 → 이륙 ${lift.dt.toFixed(2)} s, departureStarted ${lift.departs})`, JSON.stringify(lift));
-  ok(lift.lock === true && lift.hp1 === lift.hp0 && !lift.dead && lift.phase === 'liftoff', '이륙 중에는 각본 잠금 — 피해가 들어가지 않는다', JSON.stringify(lift));
+  ok(lift.lock === true && lift.hp0 > 1 && Math.abs(lift.hp1 - 1) < 1e-6 && !lift.dead && !lift.downed && lift.phase === 'liftoff',
+    '이륙 중에는 각본 잠금 — 치명타도 체력 1 에서 멈춘다 (사망 · 전투불능 없음)', JSON.stringify(lift));
   ok(lift.fin && lift.fin.track === 'raid' && lift.fin.skipped === false && lift.active === false && lift.raidSave?.done === true && lift.pendingShip === true,
     '레이드 트랙이 완주로 끝나고 함선 트랙 예약(pendingShip)이 남는다', JSON.stringify(lift));
   const trail = await P(() => window.__trail);
   ok(trail.join(' ') === RAID_STEPS.join(' '), `밟은 단계가 레이드 트랙 ${RAID_STEPS.length}단계 그대로다 (${trail.join(' → ')})`);
 
   await waitFor(page, () => window.__ev['game:complete'].length >= 1, 'game:complete', 30000);
+  const liftHud = await P(() => {
+    const L = window.__lift ?? [];
+    const lift = L.filter((f) => f.phase === 'liftoff');
+    const last = lift[lift.length - 1] ?? null;
+    return {
+      frames: L.length, n: lift.length, retShown: lift.filter((f) => f.ret > 0.01).map((f) => [+f.t.toFixed(2), +f.ret.toFixed(2)]).slice(0, 5),
+      cineAll: lift.every((f) => f.cine), kMid: lift.some((f) => f.k > 0.05 && f.k < 0.95),
+      kEnd: last?.k ?? null, socialEnd: last?.social ?? null, tutShown: lift.some((f) => f.tut > 0.01 || f.ctl > 0.01),
+      cineEv: window.__ev['ui:cinematic'].map((e) => e.p.active), after: window.__game.getSystem('hud').cinematicHudOpacity,
+    };
+  });
+  ok(liftHud.n > 0 && liftHud.cineAll && liftHud.retShown.length === 0,
+    `이륙 페이즈 내내 크로스헤어가 한 프레임도 보이지 않는다 (${liftHud.n} 프레임)`, JSON.stringify(liftHud));
+  ok(liftHud.kMid && liftHud.kEnd === 0 && liftHud.socialEnd === 0 && !liftHud.tutShown,
+    '남은 HUD(소셜 레이어 · 튜토리얼 안내 포함)가 코드 페이드로 서서히 사라진다', JSON.stringify(liftHud));
+  ok(liftHud.after === 1, '결과 화면으로 넘어가면 HUD 페이드 값이 되돌아간다', JSON.stringify(liftHud));
   const done = await P(() => {
     const ctx = window.__game.ctx;
     const s = window.__ev['game:complete'][0].p.stats;

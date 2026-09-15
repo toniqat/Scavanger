@@ -606,7 +606,8 @@ try {
   const union = await P(() => {
     /* 2026-09-15 3차 (사용자 결정 「제작품은 함선 창고로」): 만든 소총은 창고에 있으므로 마지막 대상이
        `.inv-panel-bag` → **`.inv-panel-grids`**(창고 + 가방 한 카드)다. 구멍은 여전히 사각형 하나다. */
-    const s = window.__spotOn(['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-grids'], true);
+    /* 2026-09-16 (사용자 결정 「창고 | 장비 | 가방」): 창고가 가방 카드 밖(장비 열 왼쪽)으로 나와 마지막 대상이 `.inv-panel-stash` 다. */
+    const s = window.__spotOn(['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-stash'], true);
     /* 세 대상이 정말 구멍 안에 들어왔나. 구멍은 **화면 밖으로는 못 나가므로**(`Spotlight.place` 의 clamp) 이
        검사는 "인벤토리 창이 화면 안에 선다" 도 함께 본다 — 2026-09-12 에 `.inv-root` 가 세로 가운데 정렬에서
        `flex-start + padding-top` 으로 바뀌면서 1280×760 함선 창의 가방 패널이 811 px(화면 760)까지 내려가
@@ -618,15 +619,15 @@ try {
       return s.hole.left <= b.left && s.hole.right >= b.right && s.hole.top <= b.top && s.hole.bottom >= b.bottom;
     };
     // 예전 선택자(장비 열 **전체** + 가방)로는 어떤 구멍이 됐을지 — 지금 것과 같으면 안 된다
-    const old = window.__spotOn(['.inv-root .inv-equip', '.inv-panel-grids'], true);
+    const old = window.__spotOn(['.inv-root .inv-equip', '.inv-panel-stash'], true);
     return {
       ...s, three: (s.sel ?? []).length, oldWant: old.want, wholeColumn: old.exact,
       primary: inside('.inv-root .inv-equip .inv-slot-primary'), primary2: inside('.inv-root .inv-equip .inv-slot-primary2'),
       bag: inside('.inv-panel-bag'), stash: inside('.inv-panel-stash'),
     };
   });
-  ok(union.exact && union.three === 3 && union.primary && union.primary2 && union.bag && union.stash,
-    'equipGun 은 주무기 I · II 칸 + 창고·가방 카드를 한 구멍으로 밝힌다 (합집합)', JSON.stringify(union));
+  ok(union.exact && union.three === 3 && union.primary && union.primary2 && union.stash,
+    'equipGun 은 창고 + 주무기 I · II 칸을 한 구멍으로 밝힌다 (합집합)', JSON.stringify(union));
   ok(union.wholeColumn === false,
     '장비 열 **전체**가 아니다 — 보조무기 · 방탄복 · 가방 칸 · 임플란트 칸은 이 단계와 상관없다', JSON.stringify(union));
 

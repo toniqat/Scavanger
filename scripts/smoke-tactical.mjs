@@ -5,7 +5,9 @@
 // contract `EnemyManagerRef.pushBack` (C-1); 2026-09-12 → 115: ready moments / sounds, dash 11.25 m + wall clamp,
 // `refillAll`, and a fourth mission for the grapple cooldown refund; 2026-09-14 → 119: grapple cooldown 31.2 s / cancel floor
 // 3.9 s, and the body-swept dash — a ground-floor window intact + broken stops it inside, a front doorway and a low box step pass,
-// each compared with a real PlayerController walking the same line).
+// each compared with a real PlayerController walking the same line; 2026-09-16: the crouched "low roll" ends crouched with the
+// crouch blend held, no roll while prone / standing up from prone (API and V key), and `selfMovedMeters` + 운반 XP count walking
+// and the own roll but not an attached carrier (liftoff), an impulse flight or the dash).
 // Usage: node scripts/smoke-tactical.mjs [http://localhost:5273/]
 // Requires `npm run dev` (or `npm run dev:all`) to be running.
 //
@@ -230,14 +232,163 @@ try {
   const rolled = await page.evaluate(() => ({
     moved: window.__game.ctx.player.position.distanceTo(window.__rollFrom),
     rolling: window.__game.ctx.player.isRolling,
+    stance: window.__game.ctx.player.stance,
   }));
   ok(rollStarted && rolled.moved > 3.0, `roll covered ${rolled.moved.toFixed(2)} m of the 4.2 m arc`);
-  ok(rolled.rolling === false, 'roll ended back in a standing stance');
+  ok(rolled.rolling === false && rolled.stance === 'stand', `roll ended back in a standing stance (${rolled.stance})`);
+
+  /* ── 2026-09-16: 낮은 구르기 · 엎드려서는 못 구른다 · 제 힘으로 움직인 거리 (운반 숙련) ───────────────────── */
+  // A per-frame trace around PlayerSystem.update (Engine calls `s.update(dt, ctx)` on the instance); `__pre` runs before it.
+  await page.evaluate(() => {
+    const G = window.__game, ps = G.getSystem('player');
+    window.__trace = []; window.__pre = null;
+    const base = Object.getPrototypeOf(ps).update;
+    ps.update = function (dt, c) {
+      if (window.__pre) window.__pre(dt);
+      base.call(this, dt, c);
+      const k = this.controller;
+      window.__trace.push({ t: c.time, g: k.grounded, odo: this.selfMovedMeters, roll: k.rolling, cb: this.crouchBlend, st: this._stance, x: k.position.x, z: k.position.z });
+    };
+    // 운반 XP accrues only at 조금 무거움 or worse — progression reads the state straight off this event
+    G.ctx.bus.emit('inventory:weightChanged', { weight: 1, capacity: 1, ratio: 0.8, state: 'light' });
+  });
+  // a global (a `const` inside eval stays local to that eval): later `__carry(...)` calls resolve to window.__carry
+  const carryOf = 'window.__carry = (pg) => pg.getSkill("carry") + pg.getSkillProgress("carry");';
+  await gameSleep(page, 1.2);   // ROLL_DURATION + ROLL_COOLDOWN
+  await page.evaluate(() => { const ps = window.__game.getSystem('player'); ps.setStance('crouch'); ps.stamina = ps.maxStamina; });
+  await gameSleep(page, 0.6);   // crouch blend settles
+  const lowStart = await page.evaluate((src) => {
+    eval(src);
+    const G = window.__game, p = G.ctx.player, ps = G.getSystem('player');
+    window.__lowMark = window.__trace.length;
+    window.__lowFrom = p.position.clone();
+    const odo = p.selfMovedMeters, carry = __carry(G.ctx.progression);
+    return { odo, carry, started: p.roll(), stance: p.stance, cb: ps.crouchBlend };
+  }, carryOf);
+  await gameSleep(page, 1.2);
+  const low = await page.evaluate((src) => {
+    eval(src);
+    const G = window.__game, p = G.ctx.player, ps = G.getSystem('player');
+    const tr = window.__trace.slice(window.__lowMark);
+    return {
+      moved: Math.hypot(p.position.x - window.__lowFrom.x, p.position.z - window.__lowFrom.z), rolling: p.isRolling, stance: p.stance,
+      rollFrames: tr.filter((f) => f.roll).length, minCb: tr.length ? Math.min(...tr.map((f) => f.cb)) : -1, stances: [...new Set(tr.map((f) => f.st))],
+      odo: p.selfMovedMeters, carry: __carry(G.ctx.progression), cbNow: ps.crouchBlend,
+    };
+  }, carryOf);
+  ok(typeof lowStart.odo === 'number' && Number.isFinite(lowStart.odo), `ctx.player.selfMovedMeters published (${lowStart.odo})`);
+  ok(lowStart.started && lowStart.stance === 'crouch' && lowStart.cb > 0.9, `crouched roll accepted without standing up (stance ${lowStart.stance}, crouch blend ${lowStart.cb?.toFixed(2)})`);
+  ok(low.moved > 3.0 && low.rolling === false, `low roll covered the same arc (${low.moved.toFixed(2)} m)`);
+  ok(low.stance === 'crouch' && low.stances.length === 1 && low.stances[0] === 'crouch', `low roll ended still crouched — stance never left crouch (${low.stances.join(',')})`);
+  ok(low.rollFrames > 0 && low.minCb > 0.9, `crouch blend held through the tumble (min ${low.minCb.toFixed(3)} over ${low.rollFrames} rolling frames) — no stand-up flicker`);
+  const lowOdo = low.odo - lowStart.odo;
+  ok(lowOdo > low.moved - 0.5 && lowOdo <= low.moved + 0.05, `own roll is self-propelled: odometer +${lowOdo.toFixed(2)} m for ${low.moved.toFixed(2)} m`);
+  ok(low.carry > lowStart.carry, `운반 XP grew from the roll at 조금 무거움 (${lowStart.carry.toFixed(5)} → ${low.carry.toFixed(5)})`);
+
+  // prone: refused through PlayerRef.roll, during the prone → crouch stand-up, and from the V key
+  await gameSleep(page, 1.2);
+  const prone = await page.evaluate(() => {
+    const G = window.__game, p = G.ctx.player, ps = G.getSystem('player');
+    ps.stamina = ps.maxStamina; ps.rollCooldown = 0;
+    ps.setStance('prone'); ps.standUpTimer = 0;
+    const fromProne = { rolled: p.roll(), rolling: p.isRolling, stance: p.stance };
+    ps.setStance('crouch');   // prone → crouch starts the STAND_UP_TIME transition
+    const during = { timer: ps.standUpTimer, rolled: p.roll(), rolling: p.isRolling, stance: p.stance };
+    return { fromProne, during };
+  });
+  ok(!prone.fromProne.rolled && !prone.fromProne.rolling && prone.fromProne.stance === 'prone', 'roll refused while prone (PlayerRef.roll → false, still prone)', JSON.stringify(prone.fromProne));
+  ok(prone.during.timer > 0 && !prone.during.rolled && !prone.during.rolling, `roll refused during the prone → crouch stand-up (${prone.during.timer?.toFixed(2)} s left)`, JSON.stringify(prone.during));
+  const diveKey = await page.evaluate(async () => {
+    const G = window.__game, ps = G.getSystem('player');
+    const { Keys } = await import('/src/shared/constants.ts');
+    ps.setStance('prone'); ps.standUpTimer = 0; ps.rollCooldown = 0;
+    window.__proneMark = window.__trace.length;
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: Keys.DIVE, bubbles: true }));
+    return Keys.DIVE;
+  });
+  await gameSleep(page, 0.3);
+  const proneKey = await page.evaluate((code) => {
+    document.body.dispatchEvent(new KeyboardEvent('keyup', { code, bubbles: true }));
+    const ps = window.__game.getSystem('player');
+    const tr = window.__trace.slice(window.__proneMark);
+    return { frames: tr.length, rolled: tr.some((f) => f.roll), stance: ps._stance, cd: ps.rollCooldown };
+  }, diveKey);
+  ok(proneKey.frames > 0 && !proneKey.rolled && proneKey.stance === 'prone' && proneKey.cd <= 0, `${diveKey} while prone: no roll over ${proneKey.frames} frames`, JSON.stringify(proneKey));
+  await page.evaluate(() => { window.__game.getSystem('player').setStance('crouch'); });
+  await gameSleep(page, 0.6);   // > STAND_UP_TIME
+  const afterStandUp = await page.evaluate(() => {
+    const G = window.__game, p = G.ctx.player, ps = G.getSystem('player');
+    ps.rollCooldown = 0; ps.stamina = ps.maxStamina;
+    return { timer: ps.standUpTimer, rolled: p.roll(), stance: p.stance };
+  });
+  ok(afterStandUp.timer <= 0 && afterStandUp.rolled && afterStandUp.stance === 'crouch', 'after the stand-up transition the crouched roll is accepted again', JSON.stringify(afterStandUp));
+  await gameSleep(page, 1.3);
+
+  // riding an attached carrier (the extraction liftoff path — `attachTo`): the body moves, nothing counts
+  const ride = await page.evaluate(async (src) => {
+    eval(src);
+    const G = window.__game, ctx = G.ctx, p = ctx.player, ps = G.getSystem('player'), pg = ctx.progression;
+    ps.setStance('stand'); ps.standUpTimer = 0;
+    const Object3D = Object.getPrototypeOf(ctx.scene.constructor.prototype).constructor;
+    const carrier = new Object3D();
+    carrier.position.copy(p.position);
+    ctx.scene.add(carrier); carrier.updateMatrixWorld(true);
+    p.attachTo(carrier);
+    const from = p.position.clone(), odo0 = p.selfMovedMeters, carry0 = __carry(pg);
+    window.__pre = (dt) => { carrier.position.x += 8 * dt; carrier.position.y += 2 * dt; carrier.updateMatrixWorld(true); };
+    const t0 = ctx.time;
+    await new Promise((r) => { const iv = setInterval(() => { if (ctx.time - t0 >= 1.0) { clearInterval(iv); r(); } }, 20); });
+    window.__pre = null;
+    const out = { moved: Math.hypot(p.position.x - from.x, p.position.z - from.z), odo: p.selfMovedMeters - odo0, carry: __carry(pg) - carry0 };
+    p.attachTo(null);
+    ctx.scene.remove(carrier);
+    p.teleport(from, undefined, true);
+    return out;
+  }, carryOf);
+  ok(ride.moved > 4 && ride.odo === 0 && ride.carry === 0, `carried ${ride.moved.toFixed(2)} m on an attached carrier: odometer +${ride.odo}, 운반 XP +${ride.carry}`, JSON.stringify(ride));
+  await gameSleep(page, 0.4);
+
+  // walking (W held) counts; a jump-pad style impulse flight with W still held adds nothing; walking after landing counts again
+  await page.evaluate(async (src) => {
+    eval(src);
+    const G = window.__game, ctx = G.ctx, p = ctx.player, ps = G.getSystem('player');
+    const { Keys } = await import('/src/shared/constants.ts');
+    ps.rig.yaw += Math.PI;   // walk back along the two rolls (known clear ground)
+    window.__walkKey = Keys.FORWARD;
+    window.__walk0 = { odo: p.selfMovedMeters, carry: __carry(ctx.progression), x: p.position.x, z: p.position.z };
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: Keys.FORWARD, bubbles: true }));
+  }, carryOf);
+  await gameSleep(page, 1.0);
+  const walk = await page.evaluate((src) => {
+    eval(src);
+    const G = window.__game, ctx = G.ctx, p = ctx.player, w0 = window.__walk0;
+    const out = { odo: p.selfMovedMeters - w0.odo, carry: __carry(ctx.progression) - w0.carry, moved: Math.hypot(p.position.x - w0.x, p.position.z - w0.z) };
+    const V = p.position.constructor, yaw = G.getSystem('player').rig.yaw;
+    window.__impMark = window.__trace.length;
+    p.applyImpulse(new V(-Math.sin(yaw) * 4, 8, -Math.cos(yaw) * 4));
+    return out;
+  }, carryOf);
+  await gameSleep(page, 3.0);
+  const flight = await page.evaluate(() => {
+    document.body.dispatchEvent(new KeyboardEvent('keyup', { code: window.__walkKey, bubbles: true }));
+    const mark = window.__impMark, tr = window.__trace.slice(mark), base = window.__trace[mark - 1];
+    const air = tr.findIndex((f) => !f.g);
+    const land = air < 0 ? -1 : tr.findIndex((f, i) => i > air && f.g);
+    if (!base || air < 0 || land < 0) return { air, land, frames: tr.length };
+    const end = tr[land];
+    return { air, land, frames: tr.length, flightOdo: end.odo - base.odo, flightDist: Math.hypot(end.x - base.x, end.z - base.z), after: tr[tr.length - 1].odo - end.odo };
+  });
+  ok(walk.moved > 1.5 && walk.odo > walk.moved - 0.3 && walk.odo <= walk.moved + 0.05, `walking (W held): odometer +${walk.odo.toFixed(2)} m for ${walk.moved.toFixed(2)} m`, JSON.stringify(walk));
+  ok(walk.carry > 0, `walking at 조금 무거움 trains 운반 (+${walk.carry.toFixed(5)})`);
+  ok(flight.land > 0 && flight.flightDist > 1.5 && flight.flightOdo < 0.02, `impulse flight with W held: ${flight.flightDist?.toFixed(2)} m through the air, odometer +${flight.flightOdo?.toFixed(3)} m`, JSON.stringify(flight));
+  ok(flight.after > 0.2, `walking after the landing counts again (+${flight.after?.toFixed(2)} m)`, JSON.stringify(flight));
+  await gameSleep(page, 0.5);
 
   /* ── dash implant ─────────────────────────────────────────────────── */
   const dash = await page.evaluate(() => {
     const ctx = window.__game.ctx, im = ctx.implants;
     window.__dashFrom = ctx.player.position.clone();
+    window.__dashOdo = { odo: ctx.player.selfMovedMeters, carry: ctx.progression.getSkill('carry') + ctx.progression.getSkillProgress('carry') };
     const before = im.charges;
     im.activate();
     return { before, after: im.charges, max: im.maxCharges };
@@ -247,6 +398,16 @@ try {
   ok(dash.max === 3, 'dash carries 3 charges');
   ok(dash.after === dash.before - 1, `dash consumed a charge (${dash.before}→${dash.after})`);
   ok(dashMoved > 2, `dash teleported ${dashMoved.toFixed(2)} m`);
+  // 2026-09-16: the dash is implant movement — no self-propelled metres, no 운반 XP; then drop the trace and the fake weight state
+  const dashOdo = await page.evaluate(() => {
+    const G = window.__game, ctx = G.ctx, d = window.__dashOdo;
+    const out = { odo: ctx.player.selfMovedMeters - d.odo, carry: ctx.progression.getSkill('carry') + ctx.progression.getSkillProgress('carry') - d.carry };
+    delete G.getSystem('player').update; window.__pre = null;
+    const w = ctx.inventory.getWeight();
+    ctx.bus.emit('inventory:weightChanged', { ...w, ratio: w.capacity > 0 ? w.weight / w.capacity : 0 });
+    return out;
+  });
+  ok(dashOdo.odo < 0.02 && dashOdo.carry === 0, `the dash adds no self-propelled metres (+${dashOdo.odo.toFixed(3)}) and no 운반 XP (+${dashOdo.carry})`, JSON.stringify(dashOdo));
   ok((await page.evaluate(() => window.__ready.length)) === 0, 'no implant:ready from the ship equip / the mission start / a dash (things start full)');
 
   /* ── 2026-09-12: dash ×1.5 = 11.25 m on a clear line, still clamped in front of a wall ── */

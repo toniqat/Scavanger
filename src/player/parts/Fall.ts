@@ -9,7 +9,8 @@
  *   피해 = min(`FALL_DAMAGE_MAX`, (높이 − `FALL_DAMAGE_SAFE_M`) × `FALL_DAMAGE_PER_M`)
  *
  * 수치는 전부 `data/constants.csv` 에 있다. 피해는 **새 경로를 만들지 않고** `applyDamage` 를 그대로 타므로
- * 실드 → 체력 순서 · 방탄복 마모 · 피격 연출 · 인내(grit) · 전투불능 규칙이 평소와 한 글자도 다르지 않다.
+ * 피격 연출 · 인내(grit) · 전투불능 규칙이 평소와 한 글자도 다르지 않다 — 다만 **실드는 건너뛴다** (아래 `onLanded`,
+ * 2026-09-16 사용자 결정: 모든 낙하 피해는 체력으로 곧장 간다).
  *
  * 자리마다 규칙이 다른 곳은 튜토리얼 월드뿐이다 — `ctx.world.tutorial?.fallRule(착지 자리)`:
  *   `kill`   즉사 (절벽 1 — 넘지 못하면 체크포인트로 돌아간다)
@@ -30,10 +31,12 @@ import {
   FALL_SHAKE_S, GRAVITY, type FallMessage, type GameContext, type PeerId, type TutorialFallRule,
 } from '@/shared';
 import type { PlayerSystem } from '../PlayerSystem';
-import type { PlayerDamageSource } from '@/shared';
+import type { PlayerDamageOptions, PlayerDamageSource } from '@/shared';
 
 /** 2026-09-15 (결과 창 개편): 낙하 피해의 출처 — 하나를 돌려 쓴다. */
 const FALL_DAMAGE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'fall' });
+/** 2026-09-16 (사용자 결정): 낙하 피해는 실드를 건너뛴다 — `onLanded` 의 주석. 하나를 돌려 쓴다. */
+const FALL_DAMAGE_OPTS: PlayerDamageOptions = Object.freeze({ bypassShield: true });
 
 /** 순수 식: `height` m 를 떨어졌을 때의 기본 피해 (안전 높이 이하면 0). 스모크 · 콘솔이 같이 쓴다. */
 export function fallDamageFor(height: number): number {
@@ -69,7 +72,9 @@ export function onLanded(sys: PlayerSystem, height: number): void {
   let rule: TutorialFallRule = 'normal';
   try { rule = ctx.world?.tutorial?.fallRule(sys.controller.position) ?? 'normal'; } catch { rule = 'normal'; }
 
-  const before = sys.hp + sys.shield;
+  // 2026-09-16: 낙하는 체력만 깎으므로 「얼마나 아팠나」도 체력만 센다 — 치사 낙하에서 `die()` 가 비우는 실드(`clearShield`)가
+  //   `player:fell.damage` · `fall` 와이어에 섞이지 않게
+  const before = sys.hp;
   if (rule === 'kill') {
     // 절벽 1: 높이와 무관하게 즉사 — 시체 · 체크포인트 흐름은 game/ 이 평소대로 맡는다
     if (before <= 0) return;
@@ -83,17 +88,24 @@ export function onLanded(sys: PlayerSystem, height: number): void {
   let damage = fallDamageFor(height);
   if (damage <= 0) return;
   if (rule === 'clamp') {
-    // 절벽 2: 체력 1 은 남긴다. 실드부터 먹는 순서는 그대로이므로 「실드 + 체력 − 1」 이 곧 상한이다.
-    damage = Math.min(damage, Math.max(0, before - 1));
+    // 절벽 2: 체력 1 은 남긴다. 낙하 피해는 실드를 건너뛰므로(아래) 「체력 − 1」 이 곧 상한이다.
+    damage = Math.min(damage, Math.max(0, sys.hp - 1));
     if (damage <= 0) return;
   }
-  sys.applyDamage(damage, undefined, false, FALL_DAMAGE_SOURCE);   // 2026-09-15: 출처 `fall` (`player:damaged.source` · 사망 원인)
+  /*
+   * 2026-09-16 (사용자 결정 — 「모든 낙하 피해는 체력으로 곧장」): 방탄복 실드는 **낙하를 막지 않는다** (`bypassShield` —
+   * 실드도 방탄복 내구도도 그대로다). 이유: 떨어져서 다리가 부러지는 것을 가슴판 실드가 막는 것이 이상하고, 튜토리얼에서
+   * 붕대 단계 직전의 낙하가 실드에 다 먹혀 체력이 가득 찬 채로 「치료」 단계가 조용히 지나갔다. 이 줄의 규칙은 본편 ·
+   * 튜토리얼(`normal` · `clamp`) 전부에 같다. 출처(`fall`) · 인내 · 전투불능 · 사망 · `player:fell` · 흔들림 · 와이어는
+   * 그대로다 — `emitFell` 이 세는 값은 깎인 체력이다.
+   */
+  sys.applyDamage(damage, undefined, false, FALL_DAMAGE_SOURCE, FALL_DAMAGE_OPTS);   // 2026-09-15: 출처 `fall` (`player:damaged.source` · 사망 원인)
   emitFell(sys, height, before, rule);
 }
 
-/** 실제로 깎인 만큼(실드 + 체력)을 세어 `player:fell` 을 낸다. 0 이면 아무것도 내지 않는다 (무적 시간 등). */
+/** 실제로 깎인 체력을 세어 `player:fell` 을 낸다 (`before` = 착지 직전 체력). 0 이면 아무것도 내지 않는다 (무적 시간 등). */
 function emitFell(sys: PlayerSystem, height: number, before: number, rule: TutorialFallRule): void {
-  const dealt = Math.max(0, before - (sys.hp + sys.shield));
+  const dealt = Math.max(0, before - sys.hp);
   if (dealt <= 0) return;
   const ctx = sys.ctx;
   ctx.bus.emit('player:fell', { height, damage: dealt, rule });

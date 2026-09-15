@@ -10,8 +10,8 @@ import { Dressing } from './parts/Dressing';
 import { TutorialCorpses } from './parts/Corpses';
 import {
   ABYSS_EDGE_Z, ABYSS_SAFE_MARGIN_M, CHASM_RUNUP_M, CHECKPOINTS, CORRIDOR_OUTER_X, DECK_LOWER_Y, DECK_UPPER_Y, ENEMIES,
-  ENEMY_LEASH, ENEMY_SENSE, FALL_RULES, PIT_FLOOR_Y, RUINS, SHIP_POS, SHIP_YAW, TUTORIAL_MAP_SIZE, VOID_Y, Z_END, Z_START,
-  chasmFarZAt, chasmNearZAt, inAbyssCut, type TutorialSpawnSpec, type Volume,
+  ENEMY_LEASH, ENEMY_SENSE, FALL_RULES, PIT_FLOOR_Y, RUINS, SHIP_HILL_Y, SHIP_POS, SHIP_YAW, TUTORIAL_MAP_SIZE, VOID_Y, Z_END,
+  Z_START, chasmFarZAt, chasmNearZAt, inAbyssCut, lowerTilingErrors, type TutorialSpawnSpec, type Volume,
 } from './model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -43,10 +43,11 @@ const SHIP_PLACE_TIMEOUT_S = 5;
  */
 const SAFE_DECK_EPS = 0.4;
 /**
- * 걸어 다니는 면의 높이 — 세 개다 (2026-09-15 2차에 안드로이드 웅덩이 바닥이 늘었다). 오르막(`PIT_RAMP_*`) 위는
- * 일부러 빼 뒀다: 0.9 m 를 잇는 짧은 경사라 늘 지나가는 자리이고, 굳이 적지 않아도 그 앞뒤의 평지가 적힌다.
+ * 걸어 다니는 면의 높이 — 네 개다 (2026-09-15 2차에 안드로이드 웅덩이 바닥, 2026-09-16 에 함선 언덕 `SHIP_HILL_Y` 가 늘었다).
+ * 오르막(`PIT_RAMP_*` · `SHIP_SLOPE`) 위는 따로 적지 않는다: 0.9 m 를 잇는 경사라 늘 지나가는 자리이고, 경사 대부분이 위 · 아래
+ * 높이의 `SAFE_DECK_EPS` 안이라 한가운데 10 cm 만 빠진다 — 그 앞뒤의 평지가 적힌다.
  */
-const SAFE_LEVELS: readonly number[] = [DECK_UPPER_Y, DECK_LOWER_Y, PIT_FLOOR_Y];
+const SAFE_LEVELS: readonly number[] = [DECK_UPPER_Y, DECK_LOWER_Y, PIT_FLOOR_Y, SHIP_HILL_Y];
 /**
  * 절벽 1 을 **넘은 뒤**(먼 쪽 가장자리보다 −Z) 안전한 자리로 적기까지의 여유. 좁게 잡는다 —
  * 넘은 사람이 한참을 더 걸어야 기록이 살아나면 그 사이에 죽었을 때 이유 없이 절벽 앞으로 되돌아간다.
@@ -121,6 +122,9 @@ export class TutorialWorld implements TutorialWorldRef {
         console.warn(`[TutorialWorld] 체크포인트 순서가 계약과 다르다: ${i} — ${CHECKPOINTS[i]?.id} ≠ ${TUTORIAL_CHECKPOINTS[i]}`);
       }
     }
+    // 2026-09-16: 아래 데크 조각 · 언덕 오르막 · 웅덩이 · 벽 · 절벽 구멍이 옛 아래 데크 사각형을 **정확히 한 번씩** 덮는가 (`model.ts` 의 `DECKS` 주석).
+    // 틈이면 발밑이 사라지고(구멍인데 kill 볼륨도 없다) 겹치면 바닥이 있는데 kill 볼륨이 선다 — 철조망 계단이 코드로 생기므로 생성할 때 본다.
+    for (const err of lowerTilingErrors()) console.warn(`[TutorialWorld] 아래 데크 타일링: ${err}`);
 
     this.built = true;
     ctx.bus.emit('ui:objective', { text: OBJECTIVE_TEXT });
@@ -133,6 +137,7 @@ export class TutorialWorld implements TutorialWorldRef {
     this.placeShip(dt);
     this.pollCheckpoints();
     this.pollSafeGround();
+    this.corpses.update();   // 2026-09-16: 비운 시체가 가라앉아 사라진다
   }
 
   /**

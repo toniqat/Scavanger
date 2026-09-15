@@ -893,11 +893,14 @@ export interface GameEvents {
 
   /* ── 시체 (owner: game/parts/Corpses) ── */
   /**
-   * Fact: 사망한 플레이어의 시체가 월드에 섰다. **레이드가 끝날 때까지 사라지지 않는다** (수명 · 거리 컬링 없음).
+   * Fact: 사망한 플레이어의 시체가 월드에 섰다. 수명 · 거리 컬링은 없다 — **비면** 사라진다 (2026-09-16, 아래 `corpse:playerEmptied`).
    * 루팅은 `Interactable` `pcorpse:<owner>:<n>` → 기존 컨테이너 창(`inventory:containerOpened`)이 맡는다.
    */
   'corpse:playerSpawned': { id: string; ownerId: string; ownerName: string; position: THREE.Vector3; yaw: number };
-  /** Fact: 그 시체에서 마지막 아이템까지 빠졌다 (메시는 남고 프롬프트만 바뀐다). */
+  /**
+   * Fact: 그 시체에서 마지막 아이템까지 빠졌다 (빈손으로 선 시체는 선 순간). 프롬프트가 `비어 있음` 이 되고, 2026-09-16 부터
+   * `CORPSE_EMPTY_REMOVE_DELAY_S` 뒤 `CORPSE_EMPTY_SINK_S` 동안 땅으로 가라앉아 레이드에서 치워진다 (`CorpsesRef.get` → null).
+   */
   'corpse:playerEmptied': { id: string; ownerId: string };
 
   /* ── 구조선 투하 (owner: stratagems/parts/Rescue) ── */
@@ -1194,6 +1197,22 @@ export interface GameEvents {
   'inventory:pouchChanged': Record<string, never>;
 }
 
+/* ══ appended: 2026-09-16 — 식탁 접시 (요리는 아이템이 아니다 — `shared/housing.ts` 의 접시 절) ══ */
+export interface GameEvents {
+  /**
+   * owner: housing — 내 함선 식탁의 접시가 바뀌었다. `reason`: `cooked` 조리 완료 · `raid` 레이드 시작에 치움 · `profile` 서버 사본으로 교체 ·
+   * `dev` 콘솔 · 스모크. net 이 공유 함선의 분대원에게 알린다 (`plate state`).
+   */
+  'housing:plateChanged': { plate: import('./housing').DiningPlate | null; reason: 'cooked' | 'raid' | 'profile' | 'dev' };
+  /** owner: housing — 어느 식탁이든 그 위의 접시 목록이 바뀌었다 (내 접시 · 분대원 접시). hub 가 3D 접시를, 식탁 화면이 목록을 다시 그린다. */
+  'housing:tablePlatesChanged': { count: number };
+  /**
+   * owner: net — 분대원 한 명의 접시가 왔다 (`plate state`, 모양 검사를 지난 것). `plate` null = 접시 없음 · 떠났다.
+   * `fresh` = 그 사람이 방금 요리했다 (토스트는 ui 가 이것만 띄운다 — 합류할 때 받는 목록은 조용하다). `id` = PeerId.
+   */
+  'net:squadPlate': { id: string; name: string; plate: import('./housing').DiningPlate | null; fresh: boolean };
+}
+
 /* ══ appended: 2026-09-12 — 시설 관리 가구 위치 이동 ══ */
 export interface GameEvents {
   /**
@@ -1356,6 +1375,7 @@ export interface GameEvents {
   /**
    * 이륙 연출이 카메라를 가져갔다(`true`) / 돌려줬다(`false`). ui/HudSystem 이 전투 HUD 를 `EXTRACTION_HUD_FADE_S` 에 걸쳐
    * 스르륵 숨긴다. 페이즈가 게임플레이를 벗어나거나 `game:abort` 가 나면 ui 가 스스로 되돌린다.
+   * 2026-09-16 (사용자 결정): **남은 HUD 전부**다 — 크로스헤어는 즉시, 소셜 레이어 · 키 가이드 등은 코드 페이드, tutorial/ 도 이것을 듣고 자기 안내를 접는다.
    */
   'ui:cinematic': { active: boolean };
 }

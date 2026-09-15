@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { GameContext, ItemInstance } from '@/shared';
+/* appended (2026-09-16): 빈 시체 제거 — 본편 시체와 같은 수치 */
+import { CORPSE_EMPTY_REMOVE_DELAY_S, CORPSE_EMPTY_SINK_DEPTH_M, CORPSE_EMPTY_SINK_S } from '@/shared';
 import { CORPSES, box, placed, type CorpseSpec } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -20,6 +22,13 @@ interface Entry {
   items: ItemInstance[];
   position: THREE.Vector3;
   emptied: boolean;
+  /* appended (2026-09-16): 빈 시체 제거 */
+  /** 비었을 때의 `ctx.missionTime` (-1 = 아직). */
+  emptiedAt: number;
+  /** 다 가라앉아 치웠다 (상호작용 해제 · 메시 제거). */
+  removed: boolean;
+  mesh: THREE.Mesh | null;
+  geo: THREE.BufferGeometry | null;
 }
 
 /** 엎드린 병사 하나의 지오메트리 (머리는 +Z 쪽, `yaw` 로 돌린다). */
@@ -58,20 +67,21 @@ export class TutorialCorpses {
 
     for (const spec of CORPSES) {
       const geo = corpseGeometry(spec.yaw);
+      let mesh: THREE.Mesh | null = null;
       if (geo) {
-        const mesh = new THREE.Mesh(geo, cloth);
+        mesh = new THREE.Mesh(geo, cloth);
         mesh.name = spec.id;
         mesh.position.set(spec.x, spec.y, spec.z);
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         this.group.add(mesh);
-        this.disposables.push(geo);
       }
       const entry: Entry = {
         spec,
         items: this.makeItems(ctx, spec),
         position: new THREE.Vector3(spec.x, spec.y + 0.3, spec.z),
         emptied: false,
+        emptiedAt: -1, removed: false, mesh, geo,
       };
       this.entries.push(entry);
       ctx.interactables.register({
@@ -88,11 +98,34 @@ export class TutorialCorpses {
       });
     }
 
-    // 다 비운 시체는 프롬프트가 `비어 있음` 으로 바뀐다 (본편 시체와 같은 규약)
+    // 다 비운 시체는 프롬프트가 `비어 있음` 으로 바뀌고, 2026-09-16 부터 본편 시체처럼 가라앉아 사라진다 (`update`)
     this.unsub = ctx.bus.on('crate:looted', ({ crateId }) => {
       const e = this.entries.find((x) => x.spec.id === crateId);
-      if (e) e.emptied = true;
+      if (e && !e.emptied) { e.emptied = true; e.emptiedAt = ctx.missionTime; }
     });
+  }
+
+  /**
+   * 2026-09-16 (빈 시체 제거, `TutorialWorld.update` 가 매 프레임): 빈 시체는 `CORPSE_EMPTY_REMOVE_DELAY_S` 뒤
+   * `CORPSE_EMPTY_SINK_S` 동안 `CORPSE_EMPTY_SINK_DEPTH_M` 가라앉고, 끝나면 상호작용(= 빛기둥)을 풀고 메시와 지오메트리를 버린다.
+   * 본편 플레이어 시체(`game/Corpses.PlayerCorpseObject.stepSink`)와 같은 곡선 · 같은 시계(`ctx.missionTime`)다.
+   */
+  update(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const now = ctx.missionTime;
+    for (const e of this.entries) {
+      if (!e.emptied || e.removed || e.emptiedAt < 0) continue;
+      const elapsed = now - e.emptiedAt - CORPSE_EMPTY_REMOVE_DELAY_S;
+      if (elapsed < 0) continue;
+      const k = CORPSE_EMPTY_SINK_S > 0 ? Math.min(1, elapsed / CORPSE_EMPTY_SINK_S) : 1;
+      if (e.mesh) e.mesh.position.y = e.spec.y - CORPSE_EMPTY_SINK_DEPTH_M * k * k;
+      if (k < 1) continue;
+      e.removed = true;
+      ctx.interactables.unregister(e.spec.id);
+      if (e.mesh) { e.mesh.removeFromParent(); e.mesh = null; }
+      if (e.geo) { e.geo.dispose(); e.geo = null; }
+    }
   }
 
   /** 고정 목록 → 실제 아이템. `'stack'` 은 그 def 의 `stackMax` 한 칸 가득 (탄약). */
@@ -113,7 +146,11 @@ export class TutorialCorpses {
     const ctx = this.ctx;
     this.unsub?.();
     this.unsub = null;
-    for (const e of this.entries) ctx?.interactables.unregister(e.spec.id);
+    for (const e of this.entries) {
+      ctx?.interactables.unregister(e.spec.id);
+      e.geo?.dispose();   // 2026-09-16: 시체마다 지오메트리를 들고 있다 (가라앉아 치운 것은 이미 null)
+      e.geo = null; e.mesh = null;
+    }
     this.entries.length = 0;
     for (const d of this.disposables) d.dispose();
     this.disposables.length = 0;
