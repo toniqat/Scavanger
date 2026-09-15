@@ -24,6 +24,10 @@ one line per script plus the `FAIL` lines (full output in `scripts/logs/<name>.l
 ## Several sessions in the same tree
 
 - Separate runners' logs and relay: `--log-dir scripts/logs/<name> --keep-relay`. When you start a shared relay by hand, add `SCAV_DEV_ECONOMY=1`.
+- **`--keep-relay` is for a relay you just started, never for one an earlier run left behind.** The runner restarts the relay
+  before `e2e:mp` because lobbies from a previous run live for the 5-min grace and hijack quick match; `--keep-relay` suppresses
+  exactly that. A `verify:all --keep-relay` on 2026-09-15 turned 4 scripts red (`smoke-trust` 42/68 · `smoke-hangar` 57/58 ·
+  `e2e-mp` 138/145 · `smoke-inventory-p6` 180/183); all four passed on a fresh relay with no source change.
 - Someone else's save reloads vite and can kill a smoke at any point (`Execution context was destroyed` · `timeout waiting for playing`).
   New scripts call `quietViteHmr(page)`; if it still flakes, re-run after edits have stopped. **Do not fix code based on a red from that state.**
 - If the runner reports "vite/relay already up" and grabs the servers of a previous run that is **dying**, you get
@@ -40,6 +44,7 @@ Read the log first when something fails — a check that fell out of a timing wi
 | `smoke-rogue-v2` | grenade explosion timing · `no clear+flat spot found` | On rolls with no open, flat spot the rogue never sees the player — re-run alone (`--only`) |
 | `smoke-phase4` | bug↔rogue damage exchange | Faction-clash timing — the exchange does not always happen inside the watched window |
 | `smoke-humanoid-ai` | C-24 left/right · raider accuracy · rogue vs android shot count | AI timing — a different assertion fails on each serial re-run |
+| `smoke-inventory-p6` | Bag · stash · `primary2` edits silently roll back to the state at ship entry | It is **not** single-client: `hub:enter` connects to the relay and `net:profileLoaded` replaces stash and loadout ~260 ms later (`inventory/parts/ProfileDocs.ts`). A broken link (`ws proxy error: write ECONNABORTED` in `vite.log`) reverts the edits — check the relay before the code |
 | `smoke-library-consumers` and similar | A module-state value set by the smoke is not visible to the app | A long-lived vite's `?t=` stamp makes the module evaluate twice — see the `import('/src/…')` section in [scripts/README.md](../scripts/README.md) |
 
 ## Not automated
