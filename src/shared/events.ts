@@ -1604,6 +1604,8 @@ export interface GameEvents {
 
 /* ── [2026-09-15] 안드로이드 분대원 · 레이드 진입 로딩 (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」 — 계약 본문은 `shared/allies.ts` · `net.ts` 끝 절) ── */
 import type { AllyId, AllyRosterEntry } from './allies';
+/* appended (2026-09-15): 타이틀 이어하기 · 레이드 포기 */
+import type { RaidResumeOffer } from './raidResume';
 import type { ItemRequestKind } from './types';
 export interface GameEvents {
   /** Fact (allies, every client): 내 분대의 안드로이드 명단이 바뀌었다. `evicted` = 사람 합류 · 인원 초과로 슬롯에 돌아간 기 (`removed` 에도 들어 있다). */
@@ -1650,3 +1652,10 @@ export interface GameEvents {
   'raid:loadReleased': { timedOut: boolean };
 }
 /* ── end [2026-09-15] 안드로이드 분대원 · 레이드 진입 로딩 ── */
+
+/* ══ appended: 2026-09-15 — 타이틀 이어하기 · 레이드 포기 (owner: game/parts/Resume). docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」 ══ */
+export interface GameEvents {
+  /** Fact (game): 타이틀이 내밀 레이드가 바뀌었다 (생김 · 사라짐 · 분대원 명단 · 서버 확인 시작/끝). ui/menus/TitleMenu 가 다시 그린다. */
+  'raid:resumeChanged': { offer: RaidResumeOffer | null; checking: boolean };
+}
+/* ── end [2026-09-15] 타이틀 이어하기 · 레이드 포기 ── */

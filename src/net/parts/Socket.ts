@@ -289,7 +289,9 @@ export function onWelcome(sys: NetSystem, msg: Extract<ServerToClient, { t: 'wel
       const me = sys.getLobbyPlayer(msg.id);
       if (me && me.inMission) {
         me.inMission = false; // optimistic mirror; the broadcast confirms it
-        sys.client.send({ t: 'lobby:mission', inMission: false });
+        // 2026-09-15 (타이틀 이어하기): `keep` — 새로고침은 레이드를 끝낸 것이 아니다. 릴레이가 blob 을 남겨 두어야 두 번째
+        // 새로고침에도 타이틀이 그것으로 이어하거나 포기한다 (자발적 귀환 · 탈출은 `leaveMission` · `endSession` 이 keep 없이 보낸다).
+        sys.client.send({ t: 'lobby:mission', inMission: false, keep: true });
       }
     }
     bus.emit('net:resumed', { lobby, inProgress: lobby.started && !sys._inSession, seamless });

@@ -563,7 +563,8 @@ try {
     del.click();
     // 2026-09-10: 설정(서버 설정)도 자기 `AskPopup` 을 갖는다 — 그쪽은 `.set-ask` 로 표시되어 있고
     // 문서 순서상 **먼저** 오므로, 걸러 내지 않으면 숨어 있는 그 팝업을 집는다.
-    const ask = document.querySelector('.char-select .tm-ask, .tm-ask:not(.set-ask)');
+    // 2026-09-15: 타이틀도 레이드 포기 팝업(`.tm-ask`)을 갖고 선택창보다 먼저 온다 — 선택창 안의 것만 집는다
+    const ask = document.querySelector('.char-select .tm-ask');
     return {
       btn: true, del: true, shown: !!ask && !ask.hidden,
       body: ask?.querySelector('.tm-ask-body')?.textContent ?? '',
@@ -575,7 +576,7 @@ try {
     '게임 시작 → 슬롯 카드의 삭제 → 무엇이 사라지는지 적힌 홀드 확정 팝업', JSON.stringify(shown));
   // 홀드가 끝나야 지워진다 — 그냥 클릭은 아무 일도 없어야 하고, 스모크는 슬롯을 직접 지워 뒷일을 확인한다
   const bareClick = await page.evaluate(() => {
-    document.querySelector('.tm-ask:not(.set-ask) .ui-btn:last-child')?.click();
+    document.querySelector('.char-select .tm-ask .ui-btn:last-child')?.click();
     return localStorage.getItem('scav.s1.meta');
   });
   ok(bareClick === '{"credits":1234}', '맨 클릭 한 번으로는 지워지지 않는다 (1초 홀드)', String(bareClick));

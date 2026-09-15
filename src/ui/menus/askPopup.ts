@@ -23,6 +23,8 @@ export interface AskSpec {
   content?: HTMLElement;
   /** appended (2026-09-14): 이번 한 번 카드에 붙일 modifier 클래스 (폭 등). 닫을 때 뗀다. */
   cardCls?: string;
+  /** appended (2026-09-15): 취소 버튼 라벨 (생략 = `취소`). 타이틀의 레이드 포기 팝업은 `닫기` 다. */
+  cancel?: string;
   run(): void;
 }
 
@@ -127,6 +129,7 @@ export class AskPopup {
     this.contentHost.replaceChildren(...(spec.content ? [spec.content] : []));
     this.contentHost.hidden = !spec.content;
     this.setCardCls(spec.cardCls ?? '');
+    setText(this.cancelBtn, spec.cancel ?? '취소');
     const hold = needsHold(spec);
     setText(this.okBtn, spec.ok);
     // `setText` 는 `textContent` 를 갈아 끼우므로 홀드 키캡(라벨 왼쪽)과 채움 바를 다시 넣어 준다.

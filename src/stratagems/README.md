@@ -40,7 +40,8 @@ Numbers: `data/stratagems.csv` (`cooldown`, `delay`, `targeting`, `radius`) + th
 ## Rescue drop
 Squad-wide `RESCUE_DROPS_PER_RAID`, host-owned. Candidates = **human** lobby members (2026-09-15: bot members are
 filtered by `isBotPlayer`, and `grant` refuses an `isAndroidId` target with `deny 'alive'` — an android is revived by a
-player, never by a rescue drop); only the dead are `selectable`
+player, never by a rescue drop; a `drifted` member — one who abandoned the raid from the title — is left out too, so no
+rescue can bring them back); only the dead are `selectable`
 (`ctx.corpses` may be absent — optional chaining). Host grant spends one charge (no refund on cancel), picks the landing
 point with `world.scatterPoints(…, RESCUE_SCATTER_RADIUS, 1, RESCUE_POD_MIN_GAP, seed)` and broadcasts.
 
@@ -74,9 +75,8 @@ point with `world.scatterPoints(…, RESCUE_SCATTER_RADIUS, 1, RESCUE_POD_MIN_GA
 
 ## Recent changes
 Last 5 only — older: `git log -- src/stratagems`.
+- 2026-09-15 — `drifted` members (raid abandoned from the title) are never rescue-drop candidates.
 - 2026-09-15 — Androids are never rescue-drop candidates or targets (`isBotPlayer` filter + `isAndroidId` guard in `grant`).
 - 2026-09-15 — Player impact and grenade→structure damage use `shared/explosion` two-step falloff.
 - 2026-09-15 — Local player impact damage carries `{kind:'explosion'}`.
 - 2026-09-13 — Targeting disabled while riding the rover.
-- 2026-09-12 — `stratagem:ready {refunded}` when the cooldown reaches 0.
-- 2026-09-11 — E-8: `strat deny` to refused callers with full cooldown refund.

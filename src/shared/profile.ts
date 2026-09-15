@@ -56,6 +56,11 @@ export interface RaidSessionBlob {
   inventory: unknown;
   /** Client time (ms) when saved, for staleness checks. */
   savedAt: number;
+  /**
+   * appended (2026-09-15, 타이틀 레이드 포기): where the body was at the save (`state` 0 alive · 1 downed · 2 dead). An
+   * abandon from the title raises its corpse here. Absent (older client) = unknown → the abandon leaves no corpse.
+   */
+  pose?: { x: number; y: number; z: number; yaw: number; state: 0 | 1 | 2 };
 }
 /** Seconds between periodic `raid:save` uploads while a raid is running (game/ also saves on container loot). */
 export const RAID_SAVE_INTERVAL_S = 5;

@@ -27,6 +27,7 @@ never each other. This folder owns no system and no gameplay state; it must not 
 | `currency.ts` | Non-item rewards (credits · XP · per-corp reputation): `CURRENCY_DEFS` (`data/currencies.csv`), `buildCurrencyChip`, `appendCurrencyRewards`, `groupDigits` |
 | `labels.ts` | Rarity order / colours / Korean labels, rarity ↔ weapon grade, category label / colour / icon, env labels |
 | `saveSlot.ts` | Character save slots: `slotKey` (`scav.profile` → `scav.s2.profile`), `SHARED_KEYS` (never prefixed), `activeSlot` / `setActiveSlot`, `ensureMigrated`, `readSlotCards`, `deleteSlot`, `markAutoStart` / `takeAutoStart` |
+| `raidResume.ts` | Title resume / abandon contract (`ctx.raidResume`, owner game/): `RaidResumeKind`, `RaidResumeMember`, `RaidResumeOffer`, `RaidResumeRef` (`offer`, `checking`, `settled`, `resume`, `abandon`), `SQUAD_RAID_MARK_KEY`. Related: `raid:resumeChanged`, `LobbyPlayer.drifted`, `lobby:abandon`, `lobby:mission.keep`, `RaidSessionBlob.pose`, `TutorialRef.restartTrack` |
 | `character.ts` | New-character rules (`CREATE_STAT_*` from `CHAR_STAT_*`), `canAdjustStat`, `rollCreateStats`, `rollCallsign`, accent palette, `makeCharacterProfile`, `createCharacterInSlot` |
 | `progression.ts` | `StatId`, `SkillId`, `PlayerProfile`, `DerivedStats`, perks, `EquippedImplant`, gym stats, `ProgressionRef` (`ctx.progression`) |
 | `gear.ts` | `ArmorDef` (`shield`), `EquipSlot`, weight state, durability info, `CraftRecipe` / `CraftIngredient` / `CraftStation` (bag and pouch defs live in `types.ts`) |
@@ -116,8 +117,8 @@ constructor before any `init`). Nested: `ctx.net.profile` / `social` / `rooms` /
 ## Recent changes
 
 Last 5 only — older: `git log -- src/shared`.
+- 2026-09-15 — `raidResume.ts` (`ctx.raidResume`, `raid:resumeChanged`); `LobbyPlayer.drifted`, `LobbyErrorCode 'drifted'`, `lobby:abandon`, `lobby:mission.keep`, `NetRef.abandonRaid?`, `RaidSessionBlob.pose`, `TutorialRef.restartTrack?`.
 - 2026-09-15 — `ItemCategory 'grenade'` retired (grenades are `category: gadget` + `ItemDef.grenade`); `ItemDef.gadgetUseTime`, `GadgetDef.wearsItemDurability`, `PlayerRef.takeDamage` opts `bypassShield`, `gadget:defibAim`, `HousingRef.devAdvanceAnalysis?`, `ANALYZER_SLOTS_BASE`.
 - 2026-09-15 — `ui:screenFade.hold?`; `NpcQuestRef.readAtOf?`.
 - 2026-09-15 — `explosion.ts`; `GRENADE_RADIUS` / `GRENADE_DAMAGE` / `GRENADE_PLAYER_DAMAGE_MUL` / `EXPLOSION_*` moved to `data/constants.csv`.
 - 2026-09-15 — `keycap.createHoldButtonCap`; `TutorialStepId 'corpseOpen'` in the raid track.
-- 2026-09-15 — `atlauncher` removed from `IMPLANT_IDS` (union member kept).

@@ -721,6 +721,8 @@ export class HudSystem implements GameSystem {
   /** 타이틀 흐름 (2026-09-09): 캐릭터 선택 / 생성 화면이 떠 있는가 (debug / smoke). */
   get isCharacterSelectOpen(): boolean { return this.title.isSelectOpen; }
   get isCharacterCreateOpen(): boolean { return this.title.isCreateOpen; }
+  /** 2026-09-15 (타이틀 이어하기 · 레이드 포기, debug / smoke): `이어하기` · 경고색 `게임 시작` · 포기 팝업 · 홀드 진행도. */
+  get titleResume(): { resume: boolean; warn: boolean; ask: boolean; hold: number } { return this.title.resumeView; }
   /** 옛 키 설정 알림 (2026-09-11, C-9 · X-8): 부팅 리포트 · 카드 줄 · 카드가 떠 있나 (debug / smoke). */
   get keybindNotice(): { report: KeybindLoadReport | null; lines: readonly string[]; on: boolean } {
     const n = this.title.keybindNotice;

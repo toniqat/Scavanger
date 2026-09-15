@@ -142,7 +142,8 @@ try {
      2026-09-09: 타이틀은 워드마크 + `게임 시작` / `설정` / `종료` 세 버튼뿐이다. 조작 다이어그램과
      `키 설정 변경` 은 설정 메뉴의 `키 설정` 구획(`SettingsMenu.buildKeys`)으로 옮겨 갔다. */
   const home = await page.evaluate(() => ({
-    buttons: [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].map((b) => b.textContent),
+    // 2026-09-15: `이어하기` 는 이어할 레이드가 있을 때만 보인다 (`hidden`) — 보이는 버튼만 센다
+    buttons: [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].filter((b) => !b.hidden).map((b) => b.textContent),
     noPanel: !document.querySelector('.menu.title .controls-panel'),
     noName: !document.querySelector('.menu.title .ui-input'),
     // 2026-09-09: 프레임의 scrollWidth 는 재지 않는다 — `.wordmark` 는 마지막 글자의 letter-spacing 을

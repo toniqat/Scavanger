@@ -93,7 +93,15 @@ export function saveRaid(sys: GameFlowSystem): void {
   if (typeof net.saveRaid !== 'function') return;
   try {
     const inventory = ctx.inventory?.captureRaidState() ?? null;
-    net.saveRaid({ seed: ctx.stats.seed, missionTime: ctx.missionTime, stats: { ...ctx.stats }, inventory, savedAt: Date.now() });
+    const blob: RaidSessionBlob = { seed: ctx.stats.seed, missionTime: ctx.missionTime, stats: { ...ctx.stats }, inventory, savedAt: Date.now() };
+    /* 2026-09-15 (타이틀 레이드 포기): 몸이 서 있던 자리 — 새로고침한 사람이 타이틀에서 포기하면 그 시체가 여기 선다
+     * (`parts/Resume.abandonSquad`). 탐사 차량 안이면 솔로 세이브와 같이 차량 옆 지면이다. */
+    const p = ctx.player;
+    if (p) {
+      const pos = p.roverRide ? p.roverSafePosition?.(_roverSafe) ?? p.position : p.position;
+      blob.pose = { x: pos.x, y: pos.y, z: pos.z, yaw: p.yaw, state: p.isDead && !(p.isDowned ?? false) ? 2 : (p.isDowned ?? false) ? 1 : 0 };
+    }
+    net.saveRaid(blob);
   } catch (e) {
     console.error('[gameflow] raid save failed', e);
   }
@@ -179,30 +187,10 @@ export function saveSoloAt(sys: GameFlowSystem, at: THREE.Vector3 | null): void 
   sys.raidSaveTimer = RAID_SAVE_INTERVAL_S;
   }
 
-/**
- * First frame after boot: either drop back into the stored solo raid (inside `SOLO_RAID_GRACE_MS`) or count it as
- * a 레이드 실패. Runs once — both fields are cleared before anything is emitted.
+/*
+ * 2026-09-15 (타이틀 이어하기): 옛 `consumeStoredSoloRaid` (첫 프레임에 곧장 이어하기 / 실패) 는 없어졌다 — 부팅은 이제
+ * 타이틀에서 멈추고 `parts/Resume` 이 `이어하기` 에서만 아래 `resumeSoloRaid` 를 부른다. 세이브 파일도 부팅 때 지우지 않는다.
  */
-export function consumeStoredSoloRaid(sys: GameFlowSystem): void {
-  const ctx = sys.ctx;
-  const save = sys.soloPending;
-  const expired = sys.soloExpired;
-  sys.soloPending = null;
-  sys.soloExpired = false;
-  if (ctx.phase !== 'menu') return;   // already somewhere else (a lobby resume beat us to it): leave it alone
-  if (expired) {
-    // Losing the kit is what `game:abort` outside a completed mission already does (inventory resets to the
-    // starter and saves), so the failure needs no special case beyond the message.
-    ctx.bus.emit('game:abort', {});
-    ctx.bus.emit('ui:notify', { text: '복귀가 너무 늦었습니다 — 레이드 실패', kind: 'danger', duration: 6 });
-    return;
-  }
-  if (!save) return;
-  // 2026-09-11 (E-5): boot deleted the file; put it straight back (original `savedAt`, so the grace does not restart) —
-  // otherwise a reload before the resumed raid's first periodic save would read the loadout marker without a save.
-  saveSoloRaid(save);
-  sys.resumeSoloRaid(save);
-  }
 
 /** Re-enter the stored solo raid: same seed / planet, blob restored on `world:ready`, body placed (no hellpod). */
 export function resumeSoloRaid(sys: GameFlowSystem, save: SoloRaidSave): void {

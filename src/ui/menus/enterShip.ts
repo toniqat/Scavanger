@@ -41,6 +41,8 @@ export interface EnterShipHooks {
   setBusy?(busy: boolean): void;
   /** 초대 수락 실패 안내. */
   showMessage?(text: string, kind: 'info' | 'warning' | 'danger'): void;
+  /** 2026-09-15: 기다려 보니 이어할 레이드가 있었다 — 함선 대신 타이틀로 돌아간다 (부른 화면이 스스로 닫힌다). */
+  onResumeOffer?(): void;
 }
 
 /**
@@ -48,6 +50,20 @@ export interface EnterShipHooks {
  * 대기 중에 페이즈가 바뀌면(다른 경로로 이미 들어갔다면) 조용히 물러난다.
  */
 export async function enterShip(ctx: GameContext, hooks: EnterShipHooks = {}): Promise<void> {
+  /*
+   * 2026-09-15 (타이틀 이어하기 · 레이드 포기): **레이드가 남아 있으면 함선이 아니라 타이틀이다.** 분대 레이드는 서버에 물어야
+   * 보이므로 그 질문(`ctx.raidResume.checking` — 부팅 때 표식이 있을 때만)이 끝날 때까지 기다린다. 이 파일이 문이 아니라 길이라
+   * (머리 주석) 캐릭터 카드 · 슬롯 전환 뒤 자동 시작이 모두 여기를 지난다.
+   */
+  const rr = ctx.raidResume;
+  if (rr?.checking) {
+    hooks.setBusy?.(true);
+    try { await rr.settled(); } catch { /* 모르면 예전처럼 들어간다 */ }
+    hooks.setBusy?.(false);
+    if (ctx.phase !== 'menu') return;
+  }
+  if (rr?.offer) { hooks.onResumeOffer?.(); return; }
+
   const net = ctx.net;
   const code = net?.inviteCode ?? null;
 

@@ -31,7 +31,9 @@ folders, and other folders do not know its steps. When inactive, both always ret
 ## Public API
 
 - **`ctx.tutorial: TutorialRef`** — `active`, `step`, `stepIndex`, `stepCount`, `track`, `blockReason(gate, id?)`,
-  `hides(gate, id?)`, `start()`, `skip()`, `goto(step)`, `isTrackDone(track)`, `startTrack(track)`, `skipTrack(track)`.
+  `hides(gate, id?)`, `start()`, `skip()`, `goto(step)`, `isTrackDone(track)`, `startTrack(track)`, `skipTrack(track)`,
+  `restartTrack(track)` (clears that track back to not started — `game/parts/Resume` calls it for a tutorial raid abandoned
+  from the title, so the next start replays it from the beginning).
   `ui/menus/enterShip` uses `isTrackDone('raid')` to decide whether a new character starts in the tutorial raid.
   The ESC menu calls `skipTrack`.
 - **Emits**: `tutorial:changed {active, step, index, count, track?}` (also re-emitted when stamina is first used, so HUD
@@ -206,8 +208,8 @@ Smokes: `scripts/smoke-tutorial.mjs` (build track + three-track contract), `smok
 ## Recent changes
 
 Last 5 only — older: `git log -- src/tutorial`.
+- 2026-09-15 — `restartTrack(track)`: a tutorial raid abandoned from the title clears the raid track (and `pendingShip`) instead of marking it done.
 - 2026-09-15 — Gate `matchmaking` now hides the terminal's `매칭` tab (the matchmaking popup is gone).
 - 2026-09-15 — Raid skip keeps the black plate (`hold: true`) over the result screen; cleared on `hub:entered`.
 - 2026-09-15 — New raid step `corpseOpen` (16 steps); objective counts `(n/m)`; objective panel text ×1.2.
 - 2026-09-15 — `supplyLoot` step, per-section skipping, objective noun phrases with key tokens, crouch-aim TIP, raid skip = fade → result screen.
-- 2026-09-15 — `grenade` required objective text `앞으로 이동`.

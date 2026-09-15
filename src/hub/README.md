@@ -141,8 +141,10 @@ forwards interactions.
 - `HubSystem.readyLocal` is the single source; the server `LobbyPlayer.ready` is its echo. No echo within
   `READY_ECHO_GRACE` → `syncPods` clears readiness but keeps the player seated. Reconnect → `resendReady()`.
 - `podCanInteract` = availability only (phase, cutscene, travel, boarded, `REBOARD_GRACE`, menus, slot free);
-  `podBlockReason` = refusals shown as the prompt (tutorial gate, training running, no target planet).
-- A running lobby mission turns the pod into a rejoin entrance (`임무 진행 중 — 재투입`).
+  `podBlockReason` = refusals shown as the prompt (tutorial gate, training running, raid I abandoned, no target planet).
+- A running lobby mission turns the pod into a rejoin entrance (`임무 진행 중 — 재투입`) — except for a member who abandoned
+  that raid from the title (`driftedFromRaid`: prompt / status `표류`, boarding refused). `Transitions.onResumed` does not
+  auto-rejoin a drifted member either.
 - Countdown: all connected members ready (and `!lobby.started`) → `HUB_LAUNCH_COUNTDOWN`. At 0 **every** client (host,
   member, solo) fades to black — `ui:screenFade {1, RAID_LOAD_FADE_OUT_S, hold}` + `raid:loadBegin` — and the
   **authority launches `RAID_LOAD_FADE_OUT_S` later** (`parts/Pods.beginRaidLoad`). Host: `net.startGame(seed, 'raid',
@@ -308,8 +310,8 @@ doorway is an open shared edge.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/hub`.
+- 2026-09-15 — Raid abandoned from the title (`LobbyPlayer.drifted`): `Pods.driftedFromRaid` blocks the rejoin pod (prompt, status, boarding) and `onResumed` skips the auto-rejoin; terminal error text for `drifted`.
 - 2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩: cockpit bays (`interiors/AndroidBays.ts`, `parts/Androids.ts`, `hub_android_<bay>`, `getAndroidBays` / `getPodStandPose`), bots in pods / ready cells / match tab and filtered out of hangar · handoff · counts, and the countdown-end fade + delayed launch (`beginRaidLoad`); `scripts/smoke-android-bays.mjs`.
 - 2026-09-15 — Terminal rebuilt: top tabs 행성 / 매칭, centred planet, bottom-right training button + `TrainingConfirm`, `MatchTab` (face tiles, private / public dock, undock) + `InviteModal`; `MatchPanel` deleted.
 - 2026-09-15 — Squads vs shared ship: `parts/SquadDock.ts` (own dock fade / member countdown / undock rule, cancel everything, pod + training locks), `ui/SquadDockCountdown.ts` (`.hsd-`), `shipLobbyCode` / `squadLobby()`.
 - 2026-09-15 — Intel `확정` button: label `확정` + left-click hold keycap (`createHoldButtonCap`); `.it-reason` shows block reasons only.
-- 2026-09-15 — Ready hold `Space` keycap built with `shared/keycap.createKeycap` / `paintKeycap`.

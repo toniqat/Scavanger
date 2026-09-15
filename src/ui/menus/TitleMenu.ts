@@ -1,5 +1,5 @@
 import '../styles/title.css';
-import type { GameContext, SlotId } from '@/shared';
+import type { GameContext, RaidResumeOffer, SlotId } from '@/shared';
 import { takeAutoStart, takeKeybindLoadReport } from '@/shared';
 import { el, toggleClass } from '../dom';
 import { MenuBase } from './MenuBase';
@@ -7,6 +7,8 @@ import { CharacterCreate } from './CharacterCreate';
 import { CharacterSelect } from './CharacterSelect';
 import { enterShip } from './enterShip';
 import { KeybindNotice } from './keybindNotice';
+import { AskPopup } from './askPopup';
+import { buildRaidResumeCard } from './raidResumeCard';
 
 /**
  * 타이틀 (2026-09-09 개편).
@@ -23,12 +25,20 @@ import { KeybindNotice } from './keybindNotice';
  * 두 하위 화면은 **자기 blocker 토큰을 갖지 않는다.** 이 메뉴(`MenuBase`)가 phase `menu` 동안 `'menu'` 토큰과
  * 커서 소유권을 계속 쥐고 있고, 둘은 그 위에 얹히는 화면이다 (`SettingsMenu` 와 같은 규칙).
  *
+ * **이어하기 · 레이드 포기** (2026-09-15, 사용자 결정 — docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」):
+ * 레이드가 남아 있으면(`ctx.raidResume.offer` — 솔로 세이브 · 튜토리얼 · 분대 로비) `게임 시작` **위에** 채워진 악센트의
+ * `이어하기` 가 서고, `게임 시작` 은 붉은 경고색이 된다. 그때의 `게임 시작` 은 캐릭터 선택이 아니라 **포기 팝업**만 연다 —
+ * 다른 캐릭터로 바꾸는 것도 이 레이드를 더 하지 않겠다는 뜻이기 때문이다. 팝업(`menus/askPopup` + `menus/raidResumeCard`)은
+ * 참여 인원 초상 4칸 · 잃는 것 · 오른쪽 아래 `[닫기] [레이드 포기 (1초 홀드)]` 이고, 포기하면 `이어하기` 가 사라지고 `게임 시작`
+ * 이 원래 색으로 돌아온다 (`raid:resumeChanged`). 분대 레이드는 서버에 물어야 보이므로 늦게 뜰 수 있다 — 그때 캐릭터 선택 · 생성이
+ * 열려 있으면 접고 타이틀로 돌아온다, 레이드가 먼저다.
+ *
  * **부팅 자동 시작**: 슬롯을 바꾸면 언제나 `setActiveSlot` + `markAutoStart` + `location.reload()` 다 (시스템은
  * 부팅 때 한 번 저장소를 읽는다). 새로고침 뒤 타이틀과 캐릭터 선택을 건너뛰고 곧장 함선으로 들어가야 하므로
  * **`bind()` 에서 `takeAutoStart()` 를 한 번 읽는다** — 여기가 자리인 이유는 (a) 건너뛸 대상이 바로 이 화면이고,
  * (b) `bind` 는 부팅에 정확히 한 번 불리며, (c) phase `menu` 의 show/hide 를 이미 이 클래스가 쥐고 있어서 다른
  * 곳에서 읽으면 타이틀이 한 프레임 번쩍인다. `takeAutoStart()` 는 표시를 읽고 지우므로 나중에 일시정지 메뉴의
- * `타이틀로` 로 돌아오면 타이틀이 정상으로 뜬다.
+ * `타이틀로` 로 돌아오면 타이틀이 정상으로 뜬다. 2026-09-15: 자동 시작도 **남은 레이드가 있으면 타이틀에서 멈춘다**.
  *
  * **옛 키 설정 알림** (2026-09-11, C-9 · X-8): 같은 자리에서 `takeKeybindLoadReport()` 도 한 번 읽는다 — 부팅에
  * 한 번뿐인 리포트이고 첫 화면이 여기라서다. 타이틀이 뜨면 `menus/keybindNotice` 카드가 워드마크 · 버튼 아래에,
@@ -38,6 +48,10 @@ export class TitleMenu extends MenuBase {
   private readonly select: CharacterSelect;
   private readonly create: CharacterCreate;
   private readonly kbNotice: KeybindNotice;
+  /** 2026-09-15: 이어할 레이드가 있을 때만 보이는 `이어하기` · 그때 붉어지는 `게임 시작` · 레이드 포기 팝업. */
+  private readonly resumeBtn: HTMLButtonElement;
+  private readonly startBtn: HTMLButtonElement;
+  private readonly ask: AskPopup;
   /** 이번 부팅이 타이틀을 건너뛰는가 (`takeAutoStart`); 한 번 쓰고 꺼진다. */
   private autoStart = false;
 
@@ -49,7 +63,9 @@ export class TitleMenu extends MenuBase {
     el('div', { cls: 'tagline', text: '강하 · 수집 · 탈출', parent: head });
 
     const actions = el('div', { cls: 'title-actions', parent: this.frame });
-    this.button(actions, '게임 시작', () => this.startGame(), 'primary');
+    this.resumeBtn = this.button(actions, '이어하기', () => this.resumeRaid(), 'primary title-resume');
+    this.resumeBtn.hidden = true;
+    this.startBtn = this.button(actions, '게임 시작', () => this.startGame(), 'primary');
     this.button(actions, '설정', () => this.onSettings());
     this.button(actions, '종료', () => this.quit(), 'quit');
 
@@ -60,29 +76,44 @@ export class TitleMenu extends MenuBase {
     // 하위 화면은 타이틀 **다음에** DOM 에 붙으므로 자연히 그 위에 그려진다 (z-index 는 title.css 가 못 박는다).
     this.select = new CharacterSelect(parent, () => this.syncStacked(), (slot: SlotId) => this.openCreate(slot));
     this.create = new CharacterCreate(parent, () => { this.select.open(); this.syncStacked(); });
+    // 포기 팝업은 타이틀 root 안이다 — 타이틀과 함께 숨고, Escape · Enter 규칙은 `AskPopup` 의 것이다
+    this.ask = new AskPopup(this.root);
   }
 
   override bind(ctx: GameContext): void {
     super.bind(ctx);
     this.select.bind(ctx);
     this.create.bind(ctx);
+    this.ask.bind(ctx);
     // 슬롯 전환 직후의 부팅인가 — 표시는 여기서 정확히 한 번 소비된다.
     this.autoStart = takeAutoStart();
     // 옛 키 설정 리포트도 부팅에 한 번 — 알린 순간 `saveKeybinds()` 로 은퇴 줄을 지운다 (`menus/keybindNotice`).
     this.kbNotice.take(ctx, takeKeybindLoadReport(), this.autoStart);
     this.unsubs.push(
       ctx.bus.on('game:phaseChanged', () => this.refresh()),
+      ctx.bus.on('raid:resumeChanged', ({ offer }) => this.onResumeChanged(offer)),
     );
     if (this.autoStart) {
       // Engine 은 모든 시스템의 init() 을 한 번의 동기 패스로 돌린다 — 허브가 아직 `hub:enter` 를 구독하지
       // 않았을 수 있으므로 한 마이크로태스크 뒤로 미룬다 (`ProgressionSystem` 의 초기 방송과 같은 이유).
-      queueMicrotask(() => {
-        if (!this.autoStart || this.ctx !== ctx) return;
-        this.autoStart = false;
-        void enterShip(ctx);
-      });
+      // `ctx.raidResume` 도 그때에야 있다 (game/ 은 마지막에 등록된다).
+      queueMicrotask(() => { void this.runAutoStart(ctx); });
     }
     this.refresh();
+  }
+
+  /**
+   * 2026-09-15: 자동 시작도 남은 레이드부터 본다 — 분대 레이드를 서버에 묻는 중이면 그 답을 기다리고(표식이 있을 때만),
+   * 레이드가 있으면 함선 대신 타이틀을 띄운다.
+   */
+  private async runAutoStart(ctx: GameContext): Promise<void> {
+    if (!this.autoStart || this.ctx !== ctx) return;
+    try { await ctx.raidResume?.settled(); } catch { /* 모르면 예전처럼 들어간다 */ }
+    if (!this.autoStart || this.ctx !== ctx) return;
+    this.autoStart = false;
+    if (ctx.phase !== 'menu') return;
+    if (ctx.raidResume?.offer) { this.refresh(); return; }
+    void enterShip(ctx);
   }
 
   /** 타이틀 본체 · 캐릭터 선택 · 생성 중 무엇을 보일지. */
@@ -91,11 +122,29 @@ export class TitleMenu extends MenuBase {
       this.hide();
       this.select.close();
       this.create.close();
+      this.ask.close();
       return;
     }
     // 하위 화면이 떠 있으면 타이틀은 그 뒤에 그대로 남는다 (blocker 를 쥐고 있어야 한다).
     this.show();
+    this.paintResume();
     this.syncStacked();
+  }
+
+  /** `이어하기` 는 레이드가 있을 때만, 그때 `게임 시작` 은 붉은 경고색 (`title.css` 의 `.title-resume` · `.title-warn`). */
+  private paintResume(): void {
+    const offer = this.ctx.raidResume?.offer ?? null;
+    this.resumeBtn.hidden = !offer;
+    toggleClass(this.startBtn, 'primary', !offer);
+    toggleClass(this.startBtn, 'title-warn', !!offer);
+  }
+
+  private onResumeChanged(offer: RaidResumeOffer | null): void {
+    // 늦게 확인된 레이드 (분대 레이드는 서버에 물어야 보인다) — 캐릭터 선택 · 생성은 접고 타이틀로. 레이드가 먼저다.
+    if (offer && (this.select.isOpen || this.create.isOpen)) { this.select.close(); this.create.close(); }
+    // 팝업이 가리키던 레이드가 사라졌다 (유예 초과 · 분대가 끝냈다) — 포기할 것이 없으니 닫는다
+    if (!offer) this.ask.close();
+    this.refresh();
   }
 
   /** 하위 화면이 떠 있는 동안 타이틀 본체는 눈에서만 지운다 (`hide()` 는 blocker 까지 놓아 버린다). */
@@ -116,16 +165,46 @@ export class TitleMenu extends MenuBase {
   get isSelectOpen(): boolean { return this.select.isOpen; }
   /** 캐릭터 생성창이 떠 있는가 (디버그 / 스모크). */
   get isCreateOpen(): boolean { return this.create.isOpen; }
+  /** 2026-09-15 (디버그 / 스모크): `이어하기` 가 보이나 · `게임 시작` 이 경고색인가 · 포기 팝업이 떠 있나 · 그 홀드 진행도. */
+  get resumeView(): { resume: boolean; warn: boolean; ask: boolean; hold: number } {
+    return {
+      resume: this.visible && !this.resumeBtn.hidden, warn: this.startBtn.classList.contains('title-warn'),
+      ask: this.ask.isOpen, hold: this.ask.holdProgress,
+    };
+  }
 
   protected override onHide(): void {
     this.select.close();
     this.create.close();
+    this.ask.close();
     this.syncStacked();
   }
 
   private startGame(): void {
+    const offer = this.ctx.raidResume?.offer ?? null;
+    if (offer) { this.askAbandon(offer); return; }
     this.select.open();
     this.syncStacked();
+  }
+
+  /** `이어하기`. 유예가 방금 지난 솔로 레이드면 game/ 이 실패로 정산하고 `raid:resumeChanged` 가 버튼을 치운다. */
+  private resumeRaid(): void {
+    const rr = this.ctx.raidResume;
+    if (!rr || !rr.resume()) this.refresh();
+  }
+
+  /** 레이드가 남은 채로 누른 `게임 시작` — 참여 인원 · 잃는 것 · `[닫기] [레이드 포기]` (포기는 1초 홀드). */
+  private askAbandon(offer: RaidResumeOffer): void {
+    this.ask.open({
+      title: offer.kind === 'tutorial' ? '진행 중인 튜토리얼' : '진행 중인 레이드',
+      body: '',
+      content: buildRaidResumeCard(this.ctx, offer),
+      cardCls: 'trs-card',
+      ok: '레이드 포기',
+      cancel: '닫기',
+      danger: true,
+      run: () => this.ctx.raidResume?.abandon(),
+    });
   }
 
   private openCreate(slot: SlotId): void {
@@ -150,6 +229,7 @@ export class TitleMenu extends MenuBase {
 
   override dispose(): void {
     this.kbNotice.dispose();
+    this.ask.dispose();
     this.create.dispose();
     this.select.dispose();
     super.dispose();

@@ -297,7 +297,12 @@ function parseClientMessage(raw: RawData, isBinary: boolean): ClientToServer | n
       return validName ? { t: 'lobby:name', name: m.name as string } : null;
     /* appended: Phase 7 — mission membership, profile store, credits, raid session */
     case 'lobby:mission':
-      return typeof m.inMission === 'boolean' ? { t: 'lobby:mission', inMission: m.inMission } : null;
+      if (typeof m.inMission !== 'boolean') return null;
+      /* 2026-09-15: `keep` = 새로고침한 페이지의 `false` — blob 을 남긴다 (생략 · true 가 아닌 값 = 예전처럼 지운다) */
+      return m.keep === true && !m.inMission ? { t: 'lobby:mission', inMission: false, keep: true } : { t: 'lobby:mission', inMission: m.inMission };
+    /* appended: 2026-09-15 — 타이틀 레이드 포기 (표류) */
+    case 'lobby:abandon':
+      return { t: 'lobby:abandon' };
     case 'profile:get':
       return { t: 'profile:get' };
     case 'profile:set': {
@@ -1456,15 +1461,35 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         if (!lobby) { sendError(c, 'not_in_lobby'); return; }
         if (m.inMission && !lobby.docked) { sendError(c, 'not_docked'); return; }   // 2026-09-15 (`false` stays allowed)
         if (m.inMission && !lobby.started) { sendError(c, 'in_mission'); return; }
+        // 2026-09-15 (타이틀 레이드 포기): 포기한 레이드에는 다시 들어갈 수 없다 (훈련장은 표류와 무관하다 — 표시는 레이드에만 선다)
+        if (m.inMission && lobby.get(c.id)?.drifted) { sendError(c, 'drifted'); return; }
         lobby.setInMission(c.id, m.inMission);
-        log(`lobby ${lobby.code}: ${c.name}(${c.id}) inMission=${m.inMission} (${lobby.inMissionCount()} in mission)`);
-        if (!m.inMission) { lobby.raid.delete(c.id); migrateHostAway(lobby, c.id); }
+        log(`lobby ${lobby.code}: ${c.name}(${c.id}) inMission=${m.inMission}${m.keep ? ' (reload, blob kept)' : ''} (${lobby.inMissionCount()} in mission)`);
+        // 2026-09-15: 새로고침(`keep`)은 blob 을 남긴다 — 다음 부팅의 타이틀이 그것으로 이어하거나 포기한다
+        if (!m.inMission) { if (!m.keep) lobby.raid.delete(c.id); migrateHostAway(lobby, c.id); }
         else if (!migrateTimers.has(lobby.code)) {
           // Phase 9: entering a mission whose host is parked (down past its delay) or outside it → this member takes the role.
           const host = lobby.get(lobby.hostId);
           if ((!host || !host.connected || !host.inMission) && lobby.migrateHost(true)) log(`lobby ${lobby.code}: host handed over → host now ${lobby.hostId}`);
         }
         autoResetMission(lobby);
+        broadcastState(lobby);
+        pushLobbyPresence(lobby);
+        return;
+      }
+
+      /* appended: 2026-09-15 — 타이틀 레이드 포기. 그 레이드에서 사망 + 표류 (`Lobby.setDrifted`). */
+      case 'lobby:abandon': {
+        const lobby = lobbies.lobbyOf(c.id);
+        if (!lobby) { sendError(c, 'not_in_lobby'); return; }
+        if (!lobby.started || (lobby.mode ?? 'raid') !== 'raid') { sendError(c, 'not_started'); return; }
+        // 이미 표류다 (두 번 누름 · 재전송) — 바꿀 것 없이 지금 상태만 돌려준다
+        if (lobby.get(c.id)?.drifted) { sendTo(c, { t: 'lobby:state', lobby: lobbyState(lobby) }); return; }
+        if (!lobby.setDrifted(c.id)) { sendError(c, 'invalid'); return; }
+        let note = '';
+        if (migrateHostAway(lobby, c.id)) note += ` → host now ${lobby.hostId}`;
+        if (autoResetMission(lobby)) note += ' → mission over → reset';
+        log(`lobby ${lobby.code}: ${c.name}(${c.id}) abandoned the raid → drifted${note}`);
         broadcastState(lobby);
         pushLobbyPresence(lobby);
         return;
@@ -1933,7 +1958,8 @@ export function startRelayServer(opts: RelayServerOptions = {}): Promise<RelaySe
         const me = lobby.get(id);
         if (lobby.started && me?.inMission) {
           lobby.setInMission(id, false);
-          lobby.raid.delete(id);
+          // 2026-09-15 (타이틀 이어하기): blob 은 남긴다 — 소켓이 바뀐 것은 새로고침(`lobby:mission {false, keep}`)과 같은 일이고,
+          // 새 페이지의 타이틀이 그 blob 으로 이어하거나 포기한다 (예전에는 여기서 지워 새로고침 경쟁에서 이어하기가 사라졌다)
           note += ' (duplicate socket → left the mission)';
           if (migrateHostAway(lobby, id)) note += ` → host now ${lobby.hostId}`;
           if (autoResetMission(lobby)) note += ' → mission over → reset';

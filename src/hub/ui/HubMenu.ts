@@ -576,6 +576,7 @@ export class HubMenu {
       case 'not_in_lobby': return '도킹된 함선이 없습니다';
       case 'not_started': return '진행 중인 임무가 없습니다';
       case 'not_docked': return '분대가 아직 공유 함선에 도킹하지 않았습니다';
+      case 'drifted': return '포기한 임무에는 다시 들어갈 수 없습니다';   // 2026-09-15: 타이틀 레이드 포기 (표류)
       case 'duplicate': return '다른 탭에서 같은 세션이 연결되었습니다';
       case 'no_planet': return '목표 행성을 먼저 지정하세요';
       case 'invalid': return '잘못된 요청입니다';

@@ -798,11 +798,41 @@ async function main(): Promise<void> {
     v.send({ t: 'lobby:mission', inMission: true });
     await Promise.all([u, v].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === v.id)?.inMission === true)));
     pass('lobby:mission {true} on a started lobby → inMission true again (rejoin)');
+    /* 2026-09-15 (타이틀 이어하기 · 레이드 포기): a reloaded page's `keep` keeps the blob; `lobby:abandon` drifts the member */
+    u.flush(); v.flush();
+    v.send({ t: 'raid:save', blob: blob(4242, 'vic') });
+    await sleep(80);
+    v.send({ t: 'lobby:mission', inMission: false, keep: true });
+    await Promise.all([u, v].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === v.id)?.inMission === false)));
+    assert(JSON.stringify(server.lobbies.byCode(codeU)?.raid.get(v.id)?.inventory) === '{"bag":["vic"]}',
+      'lobby:mission {false, keep} (page reload) keeps the raid blob');
+    v.send({ t: 'lobby:abandon' });
+    const ab = await Promise.all([u, v].map((cl) => cl.wait('lobby:state', (m) => m.lobby.players.find((p) => p.id === v.id)?.drifted === true)));
+    assert(ab.every((m) => m.lobby.started && m.lobby.players.find((p) => p.id === v.id)?.inMission === false && m.lobby.hostId === u.id)
+      && !server.lobbies.byCode(codeU)?.raid.has(v.id),
+      'lobby:abandon → drifted, out of the mission, blob dropped, the raid keeps running for the rest', ab[0].lobby);
+    v.send({ t: 'raid:save', blob: blob(4242, 'late') });
+    await sleep(80);
+    assert(!server.lobbies.byCode(codeU)?.raid.has(v.id), 'raid:save from a drifted member is ignored');
+    v.send({ t: 'lobby:mission', inMission: true });
+    err = await v.wait('lobby:error');
+    assert(err.code === 'drifted', 'a drifted member cannot rejoin the raid → drifted');
+    u.flush(); v.flush();
+    v.send({ t: 'lobby:abandon' });
+    const again = await v.wait('lobby:state');
+    const uQuiet = await u.expectNone('lobby:state', 200);
+    assert(again.lobby.players.find((p) => p.id === v.id)?.drifted === true && uQuiet,
+      'a second lobby:abandon answers the state to the sender only (nothing to broadcast)',
+      { v: again.lobby.players.find((p) => p.id === v.id), uQuiet });
     /* lobby:reset clears membership + blobs */
     u.send({ t: 'lobby:reset' });
     const rst = await Promise.all([u, v].map((cl) => cl.wait('lobby:state', (m) => !m.lobby.started)));
     assert(rst.every((m) => m.lobby.mode === undefined && m.lobby.players.every((p) => p.inMission === false)) && server.lobbies.byCode(codeU)?.raid.size === 0,
       'lobby:reset → mode cleared, everyone inMission=false, raid blobs dropped', rst[0].lobby);
+    assert(rst.every((m) => m.lobby.players.every((p) => !p.drifted)), 'lobby:reset clears drifted (the next raid is a new one)', rst[0].lobby);
+    u.send({ t: 'lobby:abandon' });
+    err = await u.wait('lobby:error');
+    assert(err.code === 'not_started', 'lobby:abandon with no raid running → not_started');
     u.close(); await u.closed();
     ({ c: u, welcome: uw } = await connect('U4', url, { token: TU, name: 'Uni' }));
     assert(uw.lobby?.code === codeU && uw.raid === undefined, 'resume after reset → no raid blob', uw);

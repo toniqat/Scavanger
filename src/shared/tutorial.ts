@@ -239,4 +239,9 @@ export interface TutorialRef {
    * 조작은 아는데 함선 증축은 처음인 사람이 있기 때문이다 (사용자 결정).
    */
   skipTrack(track: TutorialTrack): void;
+  /**
+   * appended (2026-09-15, 타이틀 레이드 포기): 그 트랙의 진행을 **지워 처음 상태로** 되돌린다 (끝났다고 적지 않는다) — 튜토리얼
+   * 레이드를 포기한 캐릭터는 다음 시작에서 튜토리얼을 처음부터 다시 한다. 다른 트랙은 건드리지 않는다.
+   */
+  restartTrack?(track: TutorialTrack): void;
 }

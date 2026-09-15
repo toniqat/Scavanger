@@ -95,12 +95,13 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `map/QuestPanels.ts` | Map left column: NPC quest tracks for this raid (`ctx.meta.npc.getRaidTracks()`) + hover detail tooltip |
 | **menus/** | |
 | `menus/MenuBase.ts` | Full-screen menu base: `'menu'` blocker + cursor mode, show/hide |
-| `menus/TitleMenu.ts` | Title: wordmark + `게임 시작` / `설정` / `종료`; hosts character select/create, keybind notice, auto-start |
+| `menus/TitleMenu.ts` | Title: wordmark + `게임 시작` / `설정` / `종료`; with a remaining raid (`ctx.raidResume.offer`) a highlighted `이어하기` above a red `게임 시작` that opens only the abandon popup; hosts character select/create, keybind notice, auto-start (waits for the raid check) |
+| `menus/raidResumeCard.ts` | Abandon popup body (`buildRaidResumeCard`): kind · planet · elapsed line, four square face tiles like the terminal match tab (me → members by slot → empty; `분대장` / `표류` / `안드로이드` / `연결 끊김` tags), what is lost. CSS `.trs-` in `styles/title.css` |
 | `menus/CharacterSelect.ts` | Slot cards (`SLOT_IDS`) from each slot's save; start, delete (hold popup), create |
 | `menus/CharacterCreate.ts` | Character creation: name, stat allocation, 3D preview, accent swatch, summary confirm card with 1 s hold |
 | `menus/SoldierPreview.ts` | Own `WebGLRenderer` soldier preview for creation (`createSoldierPreview`, `snapshotFace`); face framing = `shared/faceFraming` + `@/player` `poseFaceModel` / `aimFaceCamera` / `addFaceLights`, identical to the terminal match-tab portraits |
-| `menus/enterShip.ts` | The single path from character select / auto-start into the game: pending invite first, else tutorial raid (track `raid` not done, no lobby), else personal ship |
-| `menus/askPopup.ts` | Generic warning popup (`AskSpec`): Escape cancels, Enter swallowed, danger/hold confirms need `UI_HOLD_CONFIRM_S` |
+| `menus/enterShip.ts` | The single path from character select / auto-start into the game: waits for `ctx.raidResume.settled()` and returns to the title when a raid remains (`onResumeOffer`), then pending invite, else tutorial raid (track `raid` not done, no lobby), else personal ship |
+| `menus/askPopup.ts` | Generic warning popup (`AskSpec`, `cancel` label, `content` node, `cardCls`): Escape cancels, Enter swallowed, danger/hold confirms need `UI_HOLD_CONFIRM_S` |
 | `menus/PauseMenu.ts` | ESC menu: resume / settings / `함선으로 귀환` or `튜토리얼 건너뛰기` / `파티 떠나기` / `타이틀로` / `게임 종료`, with in-frame warning popup |
 | `menus/SettingsMenu.ts` | Settings overlay: `화면 설정` · `오디오 설정` · `키 설정` · `서버 설정` sections |
 | `menus/displaySettings.ts` | Display settings store (`scav.display`: fullscreen, bloom, shadows, scale) |
@@ -277,8 +278,10 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
   a hold. — `menus/askPopup.ts`, `menus/PauseMenu.ts`
 - `함선으로 귀환` in a raid emits `game:returnToShip` (death on the spot, handled by `game/`), never `hub:enter`.
   While a tutorial track runs, the same slot is `튜토리얼 건너뛰기` → `ctx.tutorial.skipTrack`. — `menus/PauseMenu.ts`
-- All entries into the game go through `enterShip` (invite → tutorial raid → personal ship), whichever door
-  (card click or post-reload auto-start) was used. — `menus/enterShip.ts`
+- All entries into the game go through `enterShip` (remaining raid → back to the title; invite → tutorial raid → personal
+  ship), whichever door (card click or post-reload auto-start) was used. — `menus/enterShip.ts`
+- While `ctx.raidResume.offer` exists, `게임 시작` never opens character select (switching characters counts as abandoning);
+  a raid found late closes select / create and returns to the title. — `menus/TitleMenu.ts` (`startGame`, `onResumeChanged`)
 - Toasts: other folders emit events; the toast text lives here (`hud/Notifications`, `hud/RaidAlerts`,
   `hud/MetaToasts`, `hud/ProgressToasts`, `hud/NetBadge` for link transitions). Don't add a toast for an event that
   `world/Fog`'s `TOAST` table already covers (discovery toasts would double). — `hud/RaidAlerts.ts`
@@ -327,8 +330,8 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 
 Last 5 only — older: `git log -- src/ui`.
 
+- 2026-09-15 — Title resume / abandon: `이어하기` (highlighted) above a red `게임 시작` while `ctx.raidResume.offer` exists; `게임 시작` then opens the abandon popup (`menus/raidResumeCard`, `.trs-`, `[닫기] [레이드 포기]` 1 s hold); `enterShip` waits for the squad raid check; `AskSpec.cancel`; debug `HudSystem.titleResume`.
 - 2026-09-15 — Android squadmates + raid-entry loading: `hud/allySource` (the one `ctx.allies` reader, `debugAllies`); squad rows / nameplates / compass ticks / map markers + `안드로이드` legend row for androids, bots never drawn as human rows (Squad, SocialColumn, Community, RescuePicker, SpectateOverlay); `ally:ping` → android-owned ping + `ally:chat` callout, `ping:placedV3` on every ping; `ally:chat` line; seven android toasts (Korean particle picked by the final syllable); new `hud/LoadingGauge` + `styles/loading.css` (z 87, real-time driven).
 - 2026-09-15 — Squads vs shared ship: squad list `개인 함선` for undocked squads; `같이 하기` → `분대 초대` (invite only, `in_other_squad` / `not_leader` / `in_squad` reasons); hub pings / acks relay only while `ctx.net.inHubSession`. `menus/SettingsMenu` closes on `game:paused {paused:false}` and on any phase change (it has no blocker / escape entry and used to outlive the pause menu); `SocialMenu.closeAll()` (menu + confirm card) runs when the messenger closes.
 - 2026-09-15 — `SoldierPreview.snapshotFace` framing moved to `shared/faceFraming` + `@/player` face helpers (same image as the terminal match tab).
 - 2026-09-15 — Holding the ping button locks the camera like the H / T wheels (released on release, timeout, cancel, dispose). — `hud/Pings.ts`
-- 2026-09-15 — `ui:screenFade.hold`: tutorial skip keeps the screen black into the result screen; `.menu.complete` / `.menu.death` got z 84.

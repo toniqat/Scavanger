@@ -92,3 +92,5 @@ export * from './faceFraming';
 /* appended (2026-09-15): 안드로이드 분대원 (`ctx.allies`) · 엄폐 자리 고르기 — 적 인간형과 안드로이드가 같은 식을 쓴다 */
 export * from './allies';
 export * from './cover';
+/* appended (2026-09-15): 타이틀 이어하기 · 레이드 포기 (`ctx.raidResume`) */
+export * from './raidResume';

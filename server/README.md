@@ -41,8 +41,8 @@ follows it into the relay) (`types.ts` type-only).
   `PeerId = base64url(sha256(token)).slice(0, 12)` — stable across reconnects and servers. Invalid / missing token →
   random anonymous id: no profile, no social, no rooms (`unavailable` errors), `credits:tx` answers `ok:false`.
 - **Duplicate token**: the old socket gets `lobby:error duplicate` and close `4001`; the new socket takes over the id and
-  lobby slot. A replaced socket is a new page: in a started lobby it is set `inMission=false`, its raid blob dropped, host
-  role moved (`migrateHostAway`), and an empty mission reset (`autoResetMission`).
+  lobby slot. A replaced socket is a new page: in a started lobby it is set `inMission=false` (its raid blob **kept**, like
+  a page reload's `keep` — 2026-09-15), host role moved (`migrateHostAway`), and an empty mission reset (`autoResetMission`).
 - **Welcome** `{id, serverTime}` + `lobby, resumed:true` while still a lobby member, `profile` (token ids), `raid` (resuming
   into the seed of the last `raid:save`), `social`; then `room:state`, pending invites re-sent with their ids, and a
   `social:whisperBacklog` for stored offline lines.
@@ -56,8 +56,11 @@ follows it into the relay) (`types.ts` type-only).
   reset. Joining a not-started lobby whose host is in grace makes the joiner host.
 - **Mission membership**: a raid start marks every connected member `inMission`; a training start (`mode:'training'`, any
   member, no ready gating, no planet) marks only the starter and keeps the lobby joinable.
-- **Raid blobs**: stored per member only while `started && mode !== 'training' && blob.seed === lobby.seed`; dropped by
-  `lobby:reset`, `lobby:mission false`, leave / grace expiry and a new start.
+- **Raid blobs**: stored per member only while `started && mode !== 'training' && blob.seed === lobby.seed` and the member is
+  not `drifted`; dropped by `lobby:reset`, `lobby:mission false` **without** `keep`, `lobby:abandon`, leave / grace expiry and
+  a new start. A reloaded page sends `keep`, so the next boot's title can still resume or abandon with the blob.
+- **Drift** (2026-09-15): `lobby:abandon` marks the member `LobbyPlayer.drifted` for the running raid (`Lobby.setDrifted`:
+  out of the mission, blob dropped); `lobby:mission true` from a drifted member → `drifted`. `start()` / `reset()` clear it.
 
 ## Protocol summary (`ClientToServer` → `ServerToClient`)
 
@@ -83,7 +86,8 @@ frame is always `lobby:error invalid`. Frame caps: 64 KB (`MAX_MESSAGE_BYTES`), 
 | `lobby:transferHost {targetId, claim?}` | Allowed if sender is host, or `claim` while the host has `hostDown` set; target must be a connected member of the lobby → `lobby:state` |
 | `lobby:hostDown {down}` | Host only; not broadcast; cleared by any host change or `reset()` |
 | `lobby:reset` | Host → started/seed/mode/ready/inMission/raid blobs/intel/hostDown cleared → `lobby:state` |
-| `lobby:mission {inMission}` | Update sender (`true` in an undocked lobby → `not_docked`; `in_mission` when nothing runs); `false` drops blob and hands off host; `true` claims a parked host role |
+| `lobby:mission {inMission, keep?}` | Update sender (`true` in an undocked lobby → `not_docked`; `in_mission` when nothing runs; drifted member → `drifted`); `false` drops the blob unless `keep` (page reload) and hands off host; `true` claims a parked host role |
+| `lobby:abandon` | 2026-09-15 title `레이드 포기`: `not_in_lobby` → `not_started` (no running raid) → already drifted: `lobby:state` to the sender only → `drifted`, `inMission=false`, blob dropped, host handed off, empty mission reset → `lobby:state` |
 | `relay {to, d}` | `to` = peerId \| `host` \| `all` \| `others`; forwarded as `relay {from, d}` to connected targets; never inspected |
 | `ping {ts}` | `pong {ts, serverTime}` |
 | `raid:save {blob}` | Stored under the rule above; `too_large` over `RAID_BLOB_MAX_BYTES` |
@@ -221,12 +225,14 @@ explicitly.
   `announceLeave` already do).
 - A new relay entry point must pass through `startRelayServer` so crypto, GC and stores are wired the same way.
 - `LOBBY_ERROR_MESSAGE_KO` is a `Record` over `LobbyErrorCode` — a new shared error code needs its Korean string here.
+- `drifted` belongs to one raid: only `Lobby.setDrifted` sets it and only `start()` / `reset()` clear it; every path that lets a
+  member back into a raid (`lobby:mission true`) checks it first. — `Lobby.ts`, `RelayServer.ts` (`lobby:mission`)
 
 ## Recent changes
 
 Last 5 only — older: `git log -- server`.
+- 2026-09-15 — Title resume / abandon: `lobby:mission {false, keep}` keeps the raid blob (and a replaced socket no longer drops it), `lobby:abandon` → `LobbyPlayer.drifted` (`Lobby.setDrifted`, `drifted` error, cleared by start / reset), selftest cases in the raid-session part.
 - 2026-09-15 — A relay whose console pipe lost its reader (a `--keep-relay` runner exiting) no longer spins: `index.ts` swallows stdout / stderr stream errors and the `uncaughtException` reporter cannot re-enter.
 - 2026-09-15 — Android squadmates: `LobbyPlayer.bot` members (`lobby:android`, `lobby:androidReturned`), humans-only caps with latest-bot eviction, bots excluded from host / relay / presence / grace, console `lobbies` marks them, selftest part 15.
 - 2026-09-15 — Builds ship no server: `tool.ts` / exe tooling deleted; console moved to `Console.ts` in `index.ts` (+ `--port` / `--host` / `--max`).
 - 2026-09-15 — Squads / docking: `Lobby.docked`, `lobby:dock`, `lobby:look` + `?a=` accent, invite-only `social:play`, lonely-party prune, `not_docked`.
-- 2026-09-14 — Intel: `lobby:intel`, `LobbyState.intel` / `game:start.intel`, `intel:` credit reason.

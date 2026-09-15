@@ -45,7 +45,8 @@ publishes the profile-document sync (`ctx.net.profile`), social + private chat (
 | `startGame(seed, mode?, planet?, intel?)` | Raid: host, all ready; planet / intel default to the lobby's. Training: any member, no planet |
 | `lobbyPlanet` / `setLobbyPlanet`, `lobbyIntel` / `setLobbyIntel` | Host-only, not started, mirrored optimistically, no event |
 | `transferHost(targetId, claim?)`, `reportHostDown(down)` | Result arrives only as `lobby:state` → `net:hostChanged` |
-| `rejoinMission()`, `leaveMission()` | Rejoin re-reads `lobby.mode` / `planet` / `intel`, then `flow rejoined` |
+| `rejoinMission()`, `leaveMission()` | Rejoin re-reads `lobby.mode` / `planet` / `intel`, then `flow rejoined`; refused locally (`net:error drifted`) for a raid I abandoned |
+| `abandonRaid()` | 2026-09-15 title `레이드 포기`: `lobby:abandon`, marks me `drifted` and drops `raidBlob` at once, emits `net:lobbyUpdated`; no-op in session / without a connected running raid |
 | `raidBlob`, `saveRaid(blob)` | Raid session blob from `welcome.raid`; save only inside a raid session |
 | `serverNow()` | Relay wall clock (offset cached through disconnects) |
 | `send(msg, to?)`, `onMessage(type, handler)` | `send` is a no-op unless connected and in a lobby |
@@ -90,7 +91,8 @@ only), `revive`, `ghost state|sync|restore|gone`, `flow takeover`, `crew card|lo
   connection that drops starts the loop; an initial failure just goes `unreachable`.
 - Resume: `welcome.lobby` → `net:resumed {lobby, inProgress, seamless}`. Seamless = we were in session, lobby started,
   same seed → session and remotes kept (streams reset). Otherwise remotes are cleared and a started lobby we are not in
-  sends `lobby:mission false` (a reload leaves the mission; a pod / terminal rejoins).
+  sends `lobby:mission {inMission:false, keep:true}` (a reload leaves the mission but the relay keeps the blob; the title's
+  `이어하기` or a pod / terminal rejoins).
 - Duplicate token: the server kicks the **older** socket (`lobby:error duplicate`) → `net:error`, `net:lobbyLeft 'kicked'`.
   `kicked` / `server_full` arrive before the close; `NetClient` passes them even pre-handshake and the Korean server
   message becomes the close reason.
@@ -195,8 +197,8 @@ connected and prices received on this connection. `requestHistory(coin, range)` 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/net`.
+- 2026-09-15 — Title resume / abandon: the reload's `lobby:mission false` carries `keep`; `abandonRaid()` → `lobby:abandon` (optimistic `drifted`); `rejoinMission` refuses a drifted raid.
 - 2026-09-15 — Android squadmates: `setAndroidBay(bay, recruit)` → `lobby:android`, `lobby:androidReturned` → `net:androidReturned`, bot members excluded from peers / remote refs / meal targets, `squadSize` humans-only.
 - 2026-09-15 — Squads vs shared ship: `inHubSession` needs a docked lobby + standing in its shared ship (hub `ps` from anywhere else dropped); `withSession` adds `&a=<accent>`; `dockPending` also set by create / join / quick match, cleared after the docked `net:lobbyUpdated`, on `lobby:error`, kept through `moved`; `SocialSync.playBlock` → `in_squad` / `not_leader`.
 - 2026-09-15 — `dmg.src` damage source decoded and passed as the third `takeDamage` argument.
 - 2026-09-14 — Intel wire: `lobbyIntel` / `setLobbyIntel`, `startGame(…, intel)`, `ctx.missionIntel` set in `beginSession`, restored on rejoin.
-- 2026-09-14 — `RoomSync.ts` (group rooms); private-chat unread in `SocialSync`.

@@ -209,8 +209,14 @@ export function rejoinMission(sys: NetSystem): void {
   if (!lobby || !sys.missionInProgress || lobby.seed === null) return;
   const seed = lobby.seed;
   const mode: MissionMode = lobby.mode ?? 'raid';
-  sys.client.send({ t: 'lobby:mission', inMission: true });
   const me = sys.localId ? sys.getLobbyPlayer(sys.localId) : undefined;
+  /* 2026-09-15 (타이틀 레이드 포기): 포기한 레이드에는 들어가지 않는다. 릴레이도 `drifted` 로 거절하지만 여기서 세션을 먼저
+   * 열면 혼자 빈 월드에 서게 된다 — 보내기 전에 멈춘다. 훈련장은 표류와 무관하다 (표시는 레이드에만 선다). */
+  if (mode === 'raid' && me?.drifted) {
+    sys.ctx.bus.emit('net:error', { code: 'drifted', message: '레이드를 포기해 표류 처리되었습니다. 이 임무에는 다시 들어갈 수 없습니다.' });
+    return;
+  }
+  sys.client.send({ t: 'lobby:mission', inMission: true });
   if (me) me.inMission = true; // optimistic; the broadcast confirms it
   // Phase 11: a rejoin takes the 목표 행성 from the lobby (the mission is already running on it).
   const planet = mode === 'training' ? null : (isPlanetId(lobby.planet) ? lobby.planet : null);
@@ -236,6 +242,21 @@ export function leaveMission(sys: NetSystem): void {
   if (me) me.inMission = false;
   if (sys.client.connected) sys.client.send({ t: 'lobby:mission', inMission: false });
   if (wasIn || me) sys.ctx.bus.emit('net:lobbyUpdated', { lobby });
+  }
+
+/**
+ * 2026-09-15 (타이틀 레이드 포기): 새로고침으로 빠져나온 레이드를 버린다 → `lobby:abandon`. 나를 곧장 `drifted` 로 적고 blob 을
+ * 버린 뒤 `net:lobbyUpdated` 를 낸다 (포기 팝업을 닫은 타이틀이 한 틱도 `이어하기` 를 다시 그리지 않게). 확정은 릴레이의 `lobby:state` 다.
+ * 시체 · 정산은 game/ 이 이것을 부르기 **전에** 끝낸다 (`game/parts/Resume`).
+ */
+export function abandonRaid(sys: NetSystem): void {
+  const lobby = sys._lobby;
+  if (!lobby || !lobby.started || (lobby.mode ?? 'raid') !== 'raid' || sys._inSession || !sys.client.connected) return;
+  const me = sys.localId ? sys.getLobbyPlayer(sys.localId) : undefined;
+  if (me) { me.drifted = true; me.inMission = false; }   // optimistic; the broadcast confirms it
+  sys._raidBlob = null;
+  sys.client.send({ t: 'lobby:abandon' });
+  sys.ctx.bus.emit('net:lobbyUpdated', { lobby });
   }
 
 /** Upload my mid-raid state (game/ calls it periodically and on loot). Only inside a raid session. */

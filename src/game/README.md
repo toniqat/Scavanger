@@ -14,7 +14,8 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
 | `model.ts` | Folder vocabulary: `LIFTOFF_TO_COMPLETE` (= `EXTRACTION_LIFTOFF_TO_COMPLETE_S`), `DEATH_TO_SCREEN`, `MISSION_FAILS_WHEN_ALL_DEAD`, threat ramp constants, mission XP terms (`XP_PER_KILL`, `XP_EXTRACT_BONUS`, …). No state, no class references. |
 | `parts/Phases.ts` | Phase transitions, pause, Escape (`escapeKey` / `escapePause`), focus loss, `onNewMission` / `onWorldReady` / `onGameStarting`, training exit, `onAbort`, mode predicates (`isTraining`, `isTutorial`, `inShip`, `inMission`, `inLiveMission`). |
 | `parts/Death.ts` | Local death / downed / revived, rescue landing, all-dead check, `complete()` / `gameOver()`, voluntary return to ship, tutorial respawn and tutorial skip-extraction, `awardMissionXp`. |
-| `parts/Session.ts` | Raid session save and resume: relay blob (`isRaidSession`), solo localStorage (`isSoloRaid`, `saveSolo`, `saveSoloAt`, `consumeStoredSoloRaid`, `resumeSoloRaid`), ghost restore + timeout fallback, tutorial step / checkpoint saves. |
+| `parts/Session.ts` | Raid session save and resume: relay blob (`isRaidSession`, with the body `pose`), solo localStorage (`isSoloRaid`, `saveSolo`, `saveSoloAt`, `resumeSoloRaid`), ghost restore + timeout fallback, tutorial step / checkpoint saves. |
+| `parts/Resume.ts` | `RaidResume` (= `ctx.raidResume`, `RaidResumeRef`): the raid the title offers — fresh solo / tutorial save, or the squad raid behind the `SQUAD_RAID_MARK_KEY` marker (title-time connect) — `resume()`, `abandon()` (solo = death settlement, tutorial = `restartTrack('raid')`, squad = strip + own corpse + settlement + `lobby:abandon`), solo grace judged while on the title, `raid:resumeChanged`. |
 | `parts/Wire.ts` | `flow` message handling, host change, lobby left (disconnect / kick / host left → abort after `DISCONNECT_ABORT_DELAY`). |
 | `parts/CorpseNet.ts` | Player corpse creation and sync (`pcorpse` / `pcorpseq`), `spawnLocalCorpse`, `crate:looted` → `emptied`. |
 | `parts/Leader.ts` | Squad-leader device (`leader_device` interactable, `lead` / `leadq` wire), its scene-resident point light, the single host-changed toast. |
@@ -28,28 +29,31 @@ to `hub/HubSystem`. Import via `@/game` → `GameFlowSystem`.
 
 ## Public API
 
-- **ctx**: `ctx.phase` (via `setPhase`), `ctx.corpses: CorpsesRef` (`src/shared/types.ts`, incl. `spawnAllyCorpse`). Also writes `ctx.stats`,
+- **ctx**: `ctx.phase` (via `setPhase`), `ctx.corpses: CorpsesRef` (`src/shared/types.ts`, incl. `spawnAllyCorpse`),
+  `ctx.raidResume: RaidResumeRef` (`src/shared/raidResume.ts`). Also writes `ctx.stats`,
   `ctx.missionTime` (reset only — `Engine.frame()` advances it), `ctx.missionMode`, `ctx.missionPlanet`,
   `ctx.missionIntel` (cleared for training), `ctx.rejoinPending`.
 - **Emits**: `game:phaseChanged`, `game:paused {paused, freeze:false}`, `game:complete {stats}`,
   `game:raidFailed {stats}`, `game:over {stats}`, `game:abort`, `game:newMission` (solo resume), `hub:enter`,
   `player:respawn` (training / tutorial), `input:pointerLockLost` (focus loss), `corpse:playerSpawned`,
   `corpse:playerEmptied`, `leader:deviceDropped`, `leader:deviceTaken`, `ui:resumeGate {shown}`, `ui:notify`,
-  `raid:loadProgress` / `raid:loadReleased`, `ui:screenFade` (loading gate only).
+  `raid:loadProgress` / `raid:loadReleased`, `ui:screenFade` (loading gate only), `raid:resumeChanged {offer, checking}`,
+  `pcorpse spawn` (squad abandon from the title).
 - **Consumes**: `game:newMission`, `world:ready`, `world:cleared`, `player:landed`, `player:died`, `player:downed`,
   `player:revived`, `player:spawned`, `extraction:activated` / `shipLanded` / `boarded` / `liftoff {aboard, squadDone}` /
   `reset`, `rescue:landed`, `crate:looted`, `game:returnToShip`, `game:abort`, `game:paused`, `training:exitRequested`,
   `inventory:itemAdded`, `inventory:loadoutSaved`, `hub:entered`, `tutorial:changed`, `tutorial:checkpoint`,
   `input:pointerLockLost`, `net:remoteDied` / `peerLeft` / `peerSuspended` / `lobbyLeft` / `reconnecting` / `resumed` /
-  `raidLoaded` / `gameStarting` / `ghostRestore` / `hostChanged`, `raid:loadBegin`. `RaidReport` also listens to
+  `raidLoaded` / `gameStarting` / `ghostRestore` / `hostChanged` / `lobbyUpdated`, `raid:loadBegin`. `RaidReport` also listens to
   `player:damaged`, `inventory:changed`, `inventory:quickSlotsChanged`, `inventory:pouchChanged`, `loadout:changed`.
 - **Wire** (`src/shared/net.ts`): `flow` (`over` · `complete` · `abort` from the host; `rejoined` from a rejoiner),
   `pcorpse` (`spawn` · `sync` · `emptied`) / `pcorpseq sync`, `lead` (`drop` · `taken`) / `leadq sync`,
   `load` (`p` from everyone, `go` from the host). Clients drop `flow` / `load go` not sent by `lobby.hostId`.
 - **Calls out**: `InventoryRef.stripForCorpse` / `captureRaidState` / `applyRaidState`, `PlayerRef.die` /
   `restoreState` / `teleport` / `playIntroWake`, `ProgressionRef.addXp` / `armPreps` / `clearActivePreps` /
-  `stripImplantsForCorpse`, `MetaRef.settleMission`, `NetRef.saveRaid` / `leaveMission` / `transferHost` /
-  `reportHostDown`, `ctx.world.tutorial.respawnPose` / `gotoCheckpoint`, `ctx.escape.closeTop`.
+  `stripImplantsForCorpse`, `MetaRef.settleMission` / `intel.consume`, `NetRef.saveRaid` / `leaveMission` / `transferHost` /
+  `reportHostDown` / `ensureConnected` / `rejoinMission` / `abandonRaid`, `TutorialRef.restartTrack`,
+  `ctx.world.tutorial.respawnPose` / `gotoCheckpoint`, `ctx.escape.closeTop`.
 
 ## Phases and transitions
 
@@ -140,14 +144,35 @@ slots, pouch + equipped loadout and attachments) during the raid; `stats.death` 
   `ctx.rejoinPending` on `net:gameStarting {rejoin}` so the player skips the hellpod.
 - **Solo** (`isSoloRaid`: single-player `raid` or `tutorial`; training excluded): localStorage `scav.soloraid`
   (`SOLO_RAID_STORAGE_KEY`), same cadence + `pagehide` flush. Stores seed, planet, intel picks, `mode`, tutorial
-  `checkpoint`, clock, stats, inventory blob, pose (on a rover: `roverSafePosition`). Boot reads it in `init`, the first
-  `update` resumes (`resumeSoloRaid`) or fails it (`game:abort` + `복귀가 너무 늦었습니다 — 레이드 실패`).
+  `checkpoint`, clock, stats, inventory blob, pose (on a rover: `roverSafePosition`). Boot reads it in `init` and **keeps
+  the file**; a save already stale at boot fails on the first `update`, a fresh one waits for the title (below).
 - **Solo clock defence** (`soloRaidBootStatus`): stale when older than `SOLO_RAID_GRACE_MS`, from the future or before
   the clock record by more than `SOLO_CLOCK_BACK_TOLERANCE_MS`, or when the loadout `raidSeed` marker has no matching
   save. First snapshot is written at `world:ready` (`saveSoloAt` at the spawn) so a reload during the drop resumes.
 - **Tutorial saves** are always `fresh` (no grace, no clock defence; the `raidSeed` check still applies). Forced saves
   on every real step change (`saveTutorialStep`, deduped by `lastTutorialStep`) and every checkpoint.
   Resume always stands alive and calls `gotoCheckpoint`.
+
+## Title resume · abandon (`parts/Resume`)
+
+A remaining raid never drops the boot straight into it: the title shows `이어하기` above a red `게임 시작`, and that
+`게임 시작` only opens the abandon popup (`ui/menus/TitleMenu`). `offer` is null outside phase `menu`.
+
+- **Offer**: a fresh solo / tutorial save (members = me), else a squad raid — `SQUAD_RAID_MARK_KEY` marker `{code, seed}`
+  (written on `net:gameStarting` for a raid, dropped on `game:complete` / `game:over` / `game:abort` / `net:lobbyLeft`) whose
+  lobby is still started on that seed, not in session, with me a member and not `drifted`. Only a marker makes `bind`
+  connect at boot (`checking` / `settled()`); a connection that finds no such raid drops the marker, a failed one keeps it.
+- **Solo grace** is judged when `이어하기` is pressed and polled every `EXPIRY_POLL_MS` on the title — past it the run fails
+  (same settlement as abandon, `복귀가 너무 늦었습니다 — 레이드 실패`). Tutorial saves never expire.
+- **resume()**: solo → `resumeSoloRaid`; squad → `NetRef.rejoinMission()` straight from the title (blob from `welcome.raid`).
+- **abandon()** = death in that raid:
+  - solo: `stripImplantsForCorpse` (no twin) → settlement (`awardMissionXp` from the save's stats, extracted false, preps
+    cleared) → intel consumed if the save carried picks → `game:abort` (kit + loadout marker via `loseKit`);
+  - tutorial: clear the save → `TutorialRef.restartTrack('raid')` → `game:abort` (kit from the tutorial run goes) — the next
+    `게임 시작` starts the tutorial raid from the beginning, the character stays;
+  - squad: apply the blob → `stripForCorpse` → `pcorpse spawn` to `others` at `blob.pose` (skipped when the body was already
+    dead, nothing carried or no pose; id `pcorpse:<me>:d<time>` never collides with numbered ids) → settlement →
+    `NetRef.abandonRaid()` (`lobby:abandon` → `drifted`) → marker dropped.
 
 ## Escape, pause, cursor
 
@@ -166,6 +191,11 @@ slots, pouch + equipped loadout and attachments) during the raid; `stats.death` 
   gear. — `parts/Death.ts` (`onLocalDied`)
 - Solo saves never run after death: `Session.saveRaid` and `GameFlowSystem.onPageHide` both check local death, or a
   reload revives the player. New solo save paths need the same guard. — `parts/Session.ts` (`saveRaid`)
+- The boot must not delete a fresh solo save: the title may be closed without a choice and the next boot has to offer the
+  same raid. Every end of an offered raid (resume excepted) goes through `failSolo` / `restartTutorial` / `abandonSquad`,
+  which clear it. — `parts/Resume.ts`
+- The squad check starts in `bind`, not the first `update`: `TitleMenu`'s auto-start microtask reads `checking` before any
+  frame runs. — `parts/Resume.ts` (`startSquadCheck`)
 - Tutorial death does not force a save: the solo save holds no corpse, so saving the empty bag would lose the gear. —
   `parts/Death.ts` (`onTutorialDied`)
 - Voluntary return must not send `flow abort` or `hub:enter` directly from a live raid — `hub:enter` triggers
@@ -197,9 +227,8 @@ slots, pouch + equipped loadout and attachments) during the raid; `stats.death` 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/game`.
+- 2026-09-15 — `parts/Resume.ts` (`ctx.raidResume`): boot stops at the title for a remaining solo / tutorial / squad raid; `이어하기` / `레이드 포기` (death settlement · tutorial restart · squad drift + corpse); `consumeStoredSoloRaid` removed; squad blob carries `pose`.
 - 2026-09-15 — `parts/LoadGate.ts`: raid-entry loading gate (`load` wire, `raid:load*`); androids excluded from the wipe check; `CorpsesRef.spawnAllyCorpse`.
 - 2026-09-15 — Squads vs shared ship: training exit and `onAbort` regroup in the shared ship only for a **docked** lobby (`isDockedLobby`).
 - 2026-09-15 — Tutorial resume: tutorial saves ignore grace / clock defence; forced save per step and per checkpoint.
 - 2026-09-15 — Tutorial respawn plays a wake animation; tutorial skip-extraction completes immediately.
-- 2026-09-15 — Tutorial payout: `TUTORIAL_RAID_XP` on extraction, otherwise 0; no contract settlement.
-- 2026-09-15 — `parts/RaidReport.ts`: peak carried value and cause of death for result screens.

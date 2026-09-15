@@ -491,6 +491,19 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     this.persist();
   }
 
+  /**
+   * 2026-09-15 (타이틀 레이드 포기, 사용자 결정 — 「처음부터 다시」): 그 트랙의 진행을 지워 **시작 전**으로 되돌린다.
+   * 끝났다고 적지 않으므로(`done: false`) 레이드 트랙이면 다음 `게임 시작` 이 튜토리얼 레이드를 처음부터 연다
+   * (`ui/menus/enterShip.startTutorialRaid`). 캐릭터 세이브는 그대로다 — 지우는 것은 이 트랙의 단계 · 목표 · 조작 줄뿐이다.
+   */
+  restartTrack(track: TutorialTrack): void {
+    if (this.track === track) { this.resetControls(); this.popup.close(); }
+    this.save.tracks[track] = { step: null, done: false };
+    if (track === 'raid') this.save.pendingShip = false;
+    this.persist();
+    this.refreshVisuals();
+  }
+
   /** 지금 튜토리얼 레이드 안에 있는가. */
   private inTutorialRaid(): boolean {
     const ctx = this.ctx;

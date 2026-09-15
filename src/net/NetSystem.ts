@@ -476,6 +476,9 @@ export class NetSystem implements GameSystem, NetRef {
   /** Leave the running mission but stay in the lobby (training exit, raid abort by a client). */
   leaveMission(): void { return Lobby.leaveMission(this); }
 
+  /** 2026-09-15 (타이틀 레이드 포기): 빠져나온 레이드를 버린다 → `lobby:abandon` (그 레이드에서 표류). */
+  abandonRaid(): void { return Lobby.abandonRaid(this); }
+
   /** Upload my mid-raid state (game/ calls it periodically and on loot). Only inside a raid session. */
   saveRaid(blob: RaidSessionBlob): void { return Lobby.saveRaid(this, blob); }
 

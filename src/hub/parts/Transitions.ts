@@ -346,8 +346,11 @@ export function onResumed(sys: HubSystem, inProgress: boolean): void {
   // 2026-09-15 (분대 · 도킹 매칭): an undocked squad resumes right where its members are — their own personal ships
   if (isDockedLobby(sys.ctx.net?.lobby) && sys.ship !== 'shared') sys.swapDirect('shared');
   const training = sys.trainingRunning();
-  const raid = inProgress && !training;
   const net = sys.ctx.net;
+  // 2026-09-15 (타이틀 레이드 포기): 표류한 사람은 그 레이드로 끌려 들어가지 않는다 (릴레이도 `drifted` 로 거절한다)
+  const me = net?.localId ? net.lobby?.players.find((p) => p.id === net.localId) : undefined;
+  const drifted = inProgress && !training && me?.drifted === true;
+  const raid = inProgress && !training && !drifted;
   /*
    * 2026-09-07: a reconnect into a **running raid** goes straight back into the mission instead of parking the
    * player in the shared ship next to a pod. The relay keeps a dropped raider's slot for the whole mission and the
@@ -365,7 +368,8 @@ export function onResumed(sys: HubSystem, inProgress: boolean): void {
   }
   sys.ctx.bus.emit('ui:notify', {
     text: training ? '함선에 재접속했습니다 — 훈련장이 열려 있습니다 (터미널에서 합류)'
-      : '함선에 재접속했습니다',
+      : drifted ? '함선에 재접속했습니다 — 포기한 임무에는 다시 들어갈 수 없습니다'
+        : '함선에 재접속했습니다',
     kind: 'success', duration: 5,
   });
   }

@@ -189,7 +189,9 @@ export type LobbyErrorCode =
    */
   | 'blocked'
   /** appended (2026-09-15, 분대 · 도킹 매칭): `lobby:ready` · `lobby:start` (raid or training) · `lobby:mission` in a squad that has not docked yet. */
-  | 'not_docked';
+  | 'not_docked'
+  /** appended (2026-09-15, 타이틀 레이드 포기): `lobby:mission {inMission:true}` from a member who abandoned this raid (`LobbyPlayer.drifted`). */
+  | 'drifted';
 
 /* ── Wire protocol: client ↔ server (JSON) ─────────────────────────────────── */
 export type RelayTarget = PeerId | 'host' | 'all' | 'others';
@@ -231,7 +233,11 @@ export type ClientToServer =
    * Server updates `LobbyPlayer.inMission` and broadcasts `lobby:state`; a training whose last member leaves is reset
    * (`started=false`) by the server. `in_mission` error when no mission is running.
    */
-  | { t: 'lobby:mission'; inMission: boolean }
+  /**
+   * `keep` appended (2026-09-15, 타이틀 이어하기): `inMission:false` sent by a **reloaded page** (not a voluntary exit) — the
+   * relay keeps my raid blob so the next boot can still resume or abandon with it. Absent = the blob is dropped (as before).
+   */
+  | { t: 'lobby:mission'; inMission: boolean; keep?: boolean }
   /** Ask for the profile record (also delivered in `welcome.profile`). */
   | { t: 'profile:get' }
   /** Store one opaque document (≤ PROFILE_DOC_MAX_BYTES). No reply; `too_large` error when refused. */
@@ -299,7 +305,9 @@ export type ClientToServer =
   /* appended (2026-09-15): 분대 · 도킹 매칭 — see the 분대 · 도킹 매칭 section */
   | ClientToServerAppended2026_09_15dock
   /* appended (2026-09-15): 안드로이드 분대원 — see the 안드로이드 분대원 section */
-  | ClientToServerAppended2026_09_15android;
+  | ClientToServerAppended2026_09_15android
+  /* appended (2026-09-15): 타이틀 레이드 포기 · 표류 — see the last section */
+  | ClientToServerAppended2026_09_15drift;
 
 export type ServerToClient =
   /**
@@ -2264,3 +2272,30 @@ export type LoadMessage =
   /** 호스트 → 전원: 풀어라 (전원 완료 · 시간 초과). `to` 1 = 시간 초과. */
   | { t: 'load'; ev: 'go'; seed: number; to?: 1 };
 /* ══ end 2026-09-15 안드로이드 분대원 · 레이드 진입 로딩 ══ */
+
+/* ══ appended (2026-09-15): 타이틀 레이드 포기 · 표류 — docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」 ══
+ *
+ * 새로고침한 분대원은 타이틀에서 `이어하기` 와 `레이드 포기` 중 하나를 고른다 (`shared/raidResume`).
+ * - 새로고침한 페이지가 `welcome` 에 답하는 `lobby:mission {inMission:false, keep:true}` 는 **raid blob 을 남긴다** — 두 번
+ *   새로고침해도 이어하기 · 포기가 그 blob 으로 된다. 자발적 귀환 · 훈련장 퇴장 · 탈출은 예전처럼 `keep` 없이 보내 blob 이 지워진다.
+ * - `lobby:abandon` — 레이드(`mode` raid)가 달리는 로비의 멤버만 (`not_in_lobby` · `not_started`). 릴레이는 그 멤버를 `drifted` 로
+ *   적고 `inMission:false` · blob 삭제 · 호스트면 이관 · 아무도 안 남으면 리셋 뒤 `lobby:state` 를 방송한다. 이미 표류면 상태만 돌려준다.
+ * - 표류한 멤버의 `lobby:mission {inMission:true}` 는 `drifted` 로 거절된다. `start()` · `reset()` 이 표시를 지운다 (다음 판은 새 판이다).
+ * - 시체: 포기한 클라이언트가 blob 의 소지품 · `RaidSessionBlob.pose` 로 `pcorpse spawn` 을 `others` 에 보낸다 (죽은 본인이 보낸다는
+ *   `pcorpse` 규약 그대로). 구조선 후보(`stratagems/parts/Rescue`)는 표류한 멤버를 뺀다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+export interface LobbyPlayer {
+  /** true = this member abandoned the running raid from the title: dead there, no 구조선, no rejoin. Absent = false. Cleared by the next start / reset. */
+  drifted?: boolean;
+}
+
+export type ClientToServerAppended2026_09_15drift =
+  /** Abandon the running raid I dropped out of (title → `레이드 포기`). The result is the usual `lobby:state`. */
+  | { t: 'lobby:abandon' };
+
+export interface NetRef {
+  /** → `lobby:abandon`, marking me `drifted` locally at once. No-op without a connected lobby whose raid runs, or inside the session. */
+  abandonRaid?(): void;
+}
+/* ══ end 2026-09-15 타이틀 레이드 포기 · 표류 ══ */

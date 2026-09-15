@@ -87,8 +87,19 @@ export function podBlockReason(sys: HubSystem, slot: number): string | null {
   const squad = squadLockReason(sys, 'launch');
   if (squad) return squad;
   if (sys.trainingRunning()) return '훈련 진행 중 — 터미널에서 합류';
+  // 2026-09-15 (타이틀 레이드 포기): 포기한 레이드에는 재투입이 없다 (릴레이도 `drifted` 로 거절한다)
+  if (driftedFromRaid(sys)) return '표류 — 포기한 임무에는 다시 들어갈 수 없습니다';
   if (sys.planet === null) return '목표 행성 미지정 — 터미널에서 지정';
   return null;
+  }
+
+/** 2026-09-15: 지금 달리는 분대 레이드를 내가 타이틀에서 포기했는가 (`LobbyPlayer.drifted`). */
+export function driftedFromRaid(sys: HubSystem): boolean {
+  const net = sys.ctx.net;
+  const lobby = net?.lobby;
+  const id = net?.localId;
+  if (!net?.missionInProgress || !lobby || !id || (lobby.mode ?? 'raid') !== 'raid') return false;
+  return lobby.players.some((p) => p.id === id && p.drifted === true);
   }
 
 export function boardPod(sys: HubSystem, slot: number): void {
@@ -127,6 +138,11 @@ export function boardPod(sys: HubSystem, slot: number): void {
   }
   const squad = sys.squadLobby();
   if (net && squad && net.missionInProgress) {
+    if (driftedFromRaid(sys)) {
+      ctx.bus.emit('ui:notify', { text: '포기한 임무에는 다시 들어갈 수 없습니다', kind: 'warning' });
+      ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      return;
+    }
     ctx.bus.emit('ui:notify', { text: '임무에 재투입합니다', kind: 'warning' });
     net.rejoinMission();          // → net:gameStarting + game:newMission → teardown('mission')
     return;
@@ -486,6 +502,7 @@ export function tickCountdown(sys: HubSystem, dt: number): void {
     else sys.status.set('준비 대기');
   } else if (lobby && net?.missionInProgress) {
     if (sys.trainingRunning()) sys.status.set(`훈련 진행 중 (${sys.trainingCount()}명)`, '터미널에서 합류할 수 있습니다');
+    else if (driftedFromRaid(sys)) sys.status.set('임무 진행 중 — 표류', '포기한 임무에는 다시 들어갈 수 없습니다');
     else sys.status.set('임무 진행 중', '발사 슬롯에 탑승하면 재투입됩니다');
   } else if (visit) {
     // 격납고 (2026-09-08): inside a bay's ship — the only reminder of how to get back out (and that it is read-only)

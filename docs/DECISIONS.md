@@ -334,3 +334,29 @@ Design: the base kit is **bound** (never dropped, handed over, left in a corpse 
 gear; android bodies are the soldier model with an android helmet and visor (downed / carry poses exist only there); recruited androids
 stand ready in front of their launch pod; the loading gate is a render hold (sim dt 0, nothing drawn) so the mission clock, enemies and
 hellpods all wait, and rejoin / training / tutorial skip it.
+
+## 2026-09-15 — 타이틀 이어하기 · 레이드 포기 · Title resume · raid abandon (drift)
+
+User choices:
+- A remaining raid — a solo save, a tutorial save, **or a squad raid still running on the relay** — no longer drops the boot
+  straight back into it. The game starts at the **title**: a highlighted `이어하기` **above** `게임 시작`, and `게임 시작` in
+  the warning red.
+- With a raid remaining, `게임 시작` opens a warning popup built like the matching screen: the raid's participants as four
+  character face tiles, then `닫기` and a 1 s hold `레이드 포기` at the bottom right (`닫기` to its left). It never opens character
+  select — switching to another character already means not playing that raid any more (user's reason).
+- `레이드 포기` = the character dies in that raid and **drifts** (`표류`): a squadmate's rescue drop cannot bring them back. Then
+  `이어하기` disappears and `게임 시작` returns to its normal colour.
+- Tutorial: abandoning clears the progress so the next start replays the tutorial from the beginning; the character save stays.
+- The solo 5-minute grace is judged **when 이어하기 is pressed** — time on the title counts; past it `이어하기` disappears and the
+  raid fails.
+
+Rejected: solo / tutorial only (no title-time server check); a "different character" button in the popup that leaves the raid
+alone; judging the grace at boot; tutorial abandon as a skipped track or as a failure.
+
+Design: `game/parts/Resume` publishes `ctx.raidResume`, and `ui/menus/enterShip` (the one road into the game) waits for it. The
+solo save is no longer deleted at boot. A squad raid is only visible through the relay, so a local marker written at raid start
+(`SQUAD_RAID_MARK_KEY`) is what makes the title connect. A reloaded page's `lobby:mission {false, keep}` keeps the relay's raid
+blob, so a second reload still offers the raid. `lobby:abandon` → `LobbyPlayer.drifted` (refuses `lobby:mission true`, left out of
+rescue candidates, cleared by the next start / reset). The abandoning client raises its own corpse from the blob at
+`RaidSessionBlob.pose` (the `pcorpse` "the dead send it" rule) and settles like a voluntary return. An abandoned or expired solo
+raid settles like a solo death, implants included — the old stale-at-boot path only reset the kit.

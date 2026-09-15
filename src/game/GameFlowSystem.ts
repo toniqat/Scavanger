@@ -11,7 +11,7 @@ import {
 import { RESUME_GATE_BLOCKER } from '@/shared';
 import { ResumeGate, installDesktopRelockHook, syncDesktopCursor } from './ResumeGate';
 import { clearSoloRaid, loadSoloRaid, saveSoloRaid, soloRaidStatus, type SoloRaidSave } from './SoloRaid';
-import { bumpClockHigh, readClockHigh, soloRaidBootStatus } from './SoloRaid';
+import { bumpClockHigh } from './SoloRaid';
 
 import { ALL_DEAD_CHECK_INTERVAL, DEATH_TO_SCREEN, DISCONNECT_ABORT_DELAY, LIFTOFF_TO_COMPLETE, MISSION_FAILS_WHEN_ALL_DEAD, THREAT_MAX, THREAT_MIN, THREAT_RAMP_SECONDS, XP_DEATH_MUL, XP_EXTRACT_BONUS, XP_PER_KILL, XP_PER_LOOT_VALUE, XP_PER_MINUTE, XP_TIME_CAP } from './model';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
@@ -29,6 +29,8 @@ import type { LeaderDeviceObject } from './parts/Leader';
 import { RaidReport } from './parts/RaidReport';
 /* appended (2026-09-15): 레이드 진입 로딩 게이트 */
 import { LoadGate } from './parts/LoadGate';
+/* appended (2026-09-15): 타이틀 이어하기 · 레이드 포기 */
+import { RaidResume } from './parts/Resume';
 
 export class GameFlowSystem implements GameSystem {
   readonly name = 'gameflow';
@@ -62,6 +64,11 @@ export class GameFlowSystem implements GameSystem {
    * (`parts/LoadGate`). ui 의 원형 게이지 · 스모크가 `__game.getSystem('gameflow').loadGate` 로 읽는다.
    */
   readonly loadGate = new LoadGate(this);
+  /**
+   * 2026-09-15 (타이틀 이어하기 · 레이드 포기): 남은 레이드(솔로 세이브 · 튜토리얼 · 분대 로비)를 타이틀에 내밀고 `이어하기` ·
+   * `레이드 포기` 를 받는다 (`parts/Resume`, `ctx.raidResume`). 부팅 때 곧장 레이드로 떨어지던 옛 `consumeStoredSoloRaid` 를 대신한다.
+   */
+  readonly raidResume = new RaidResume(this);
 
   /* ── multiplayer ── */
   /** Local player entered the dropship bay (cleared on death / new mission). */
@@ -103,10 +110,6 @@ export class GameFlowSystem implements GameSystem {
   raidBlob: RaidSessionBlob | null = null;
   /** true between `net:gameStarting {rejoin:true}` and the restore / fallback. */
   rejoining = false;
-  /** 솔로 레이드 found in localStorage at boot and not consumed yet (`resumeSoloRaid` / `failSoloRaid`). */
-  soloPending: SoloRaidSave | null = null;
-  /** true when the stored solo raid was already past `SOLO_RAID_GRACE_MS` at boot → 레이드 실패 on the first frame. */
-  soloExpired = false;
   /** Pose to hand `restoreState` once the resumed world is ready (solo counterpart of the host's `ghost restore`). */
   soloRestore: PlayerRestoreState | null = null;
   /** 2026-09-14: 이어하는 튜토리얼이 마지막으로 지난 체크포인트 (`world:ready` 뒤에 되돌린다, null = 없음). */
@@ -268,19 +271,11 @@ export class GameFlowSystem implements GameSystem {
     this.resumeGate = new ResumeGate(ctx);
     this.unsubs.push(installDesktopRelockHook(ctx));
     /*
-     * 2026-09-07: a solo raid interrupted by a closed tab / crash is resumable for `SOLO_RAID_GRACE_MS`. Read the
-     * file here and act on it from the first `update()` — the other systems are registered but have not run a frame
-     * yet, and `WorldSystem` must be listening before we emit `game:newMission`.
+     * 2026-09-07: a solo raid interrupted by a closed tab / crash is resumable for `SOLO_RAID_GRACE_MS`.
+     * 2026-09-15 (타이틀 이어하기): the boot no longer drops straight back into it — `parts/Resume` reads the file (and the
+     * squad raid marker) here and offers the raid on the title; a save already too old at boot still fails on the first frame.
      */
-    const solo = loadSoloRaid();
-    // 2026-09-11 (E-5): judged against the highest clock this slot has seen and the loadout's solo raid marker
-    // (`InventoryRef.soloRaidSeed` — inventory inits before us), then the boot itself is recorded as a clock reading.
-    const now = Date.now();
-    const status = soloRaidBootStatus(solo, ctx.inventory?.soloRaidSeed ?? null, now, readClockHigh());
-    bumpClockHigh(now);
-    this.soloPending = status === 'fresh' ? solo : null;
-    this.soloExpired = status === 'stale';
-    if (solo) clearSoloRaid();
+    this.raidResume.bind();
     // Make sure listeners know the initial phase even though ctx.phase already equals 'menu'.
     ctx.phase = 'menu';
     ctx.bus.emit('game:phaseChanged', { phase: 'menu', prev: 'menu' });
@@ -407,12 +402,6 @@ export class GameFlowSystem implements GameSystem {
   /** Mirror the live solo raid (seed / planet / clock / stats / inventory / body) into localStorage. */
   saveSolo(): void { return Session.saveSolo(this); }
 
-  /**
-   * First frame after boot: either drop back into the stored solo raid (inside `SOLO_RAID_GRACE_MS`) or count it as
-   * a 레이드 실패. Runs once — both fields are cleared before anything is emitted.
-   */
-  private consumeStoredSoloRaid(): void { return Session.consumeStoredSoloRaid(this); }
-
   /** Re-enter the stored solo raid: same seed / planet, blob restored on `world:ready`, body placed (no hellpod). */
   resumeSoloRaid(save: SoloRaidSave): void { return Session.resumeSoloRaid(this, save); }
 
@@ -428,7 +417,7 @@ export class GameFlowSystem implements GameSystem {
 
   update(dt: number, ctx: GameContext): void {
     this.ensureNetHooks();
-    if (this.soloPending || this.soloExpired) this.consumeStoredSoloRaid();
+    this.raidResume.update();   // 2026-09-15: 부팅 때 늦은 세이브의 실패 · 타이틀에서 넘어가는 솔로 유예
     if (this.inLiveMission()) this.wasMultiplayerHost = ctx.isMultiplayer && (ctx.net?.isHost ?? false);
 
     // Escape: **가장 위 화면 하나를 닫고, 닫을 것이 없으면 일시정지 메뉴** (2026-09-09) — see `escapeKey`.
@@ -528,6 +517,7 @@ export class GameFlowSystem implements GameSystem {
     for (const u of this.unsubs) u();
     this.report.dispose();
     this.loadGate.dispose();
+    this.raidResume.dispose();
     this.netUnsub?.(); this.netUnsub = null;
     Corpse.unhookCorpseNet(this);
     Leader.unhookLeaderNet(this);

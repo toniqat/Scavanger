@@ -581,18 +581,28 @@ try {
     await waitFor(page, () => window.__game.ctx.phase === 'playing' && !window.__game.ctx.player.isDropping, 'playing (E-5)', 60000);
     await waitSim(0.3);
   };
-  /** Reboot and tell what the first frames did: resumed into `seed`, or failed (marker + kit gone), or nothing. */
+  /**
+   * Reboot and tell what the first frames did: resumed into `seed`, or failed (marker + kit gone), or nothing.
+   * 2026-09-15 (타이틀 이어하기): the boot stops at the title now — a fresh save shows `이어하기` (`offered`), which this presses.
+   */
   const outcomeAfter = async (seed) => {
     const t0 = Date.now();
+    let offered = false;
     while (Date.now() - t0 < 60000) {
-      const s = await P(() => { const ctx = window.__game?.ctx; if (!ctx) return null; return { phase: ctx.phase, seed: ctx.stats?.seed, rejoin: ctx.rejoinPending }; });
-      if (s && s.phase === 'playing' && s.seed === seed && !s.rejoin) return { kind: 'resumed', ...(await stored()) };
+      const s = await P(() => { const ctx = window.__game?.ctx; if (!ctx) return null; return { phase: ctx.phase, seed: ctx.stats?.seed, rejoin: ctx.rejoinPending, offer: ctx.raidResume?.offer?.kind ?? null }; });
+      if (s && s.phase === 'playing' && s.seed === seed && !s.rejoin) return { kind: 'resumed', offered, ...(await stored()) };
+      if (s && s.phase === 'menu' && s.offer) {
+        offered = true;
+        await P(() => document.querySelector('.menu.title .ui-btn.title-resume')?.click());
+        await sleep(300);
+        continue;
+      }
       const disk = await stored();
       // 레이드 실패 = `game:abort` → the kit (with its marker) was reset and saved
-      if (s && s.phase === 'menu' && disk.raidSeed === null && !disk.kitHasMark) return { kind: 'failed', ...disk };
+      if (s && s.phase === 'menu' && disk.raidSeed === null && !disk.kitHasMark) return { kind: 'failed', offered, ...disk };
       await sleep(150);
     }
-    return { kind: 'none', ...(await stored()) };
+    return { kind: 'none', offered, ...(await stored()) };
   };
 
   await soloRaidWithMark(41);
@@ -605,7 +615,8 @@ try {
   await P(() => { window.__game.ctx.inventory.bagWornThisRaid = true; });
   await rebootWith(null);
   let out = await outcomeAfter(41);
-  ok(out.kind === 'resumed' && out.raidSeed === 41 && out.solo?.seed === 41, 'E-5: a normal reload within 5 min → the solo raid resumes (marker kept, snapshot re-written)', JSON.stringify(out));
+  ok(out.kind === 'resumed' && out.offered && out.raidSeed === 41 && out.solo?.seed === 41,
+    'E-5: a normal reload within 5 min → the title offers 이어하기 (no drop straight into the raid), pressing it resumes (marker kept, snapshot re-written)', JSON.stringify(out));
   const c61solo = await P(() => window.__game.ctx.inventory.bagWornThisRaid);
   ok(out.solo?.bagWorn === 41 && c61solo === true, 'C-61: solo reload → the snapshot\'s bagWorn (= seed) comes back as bagWornThisRaid', JSON.stringify({ stored: out.solo?.bagWorn, flag: c61solo }));
   // ② the clock moved back 1 s (NTP): the save is 1 s "in the future" → still resumes
@@ -650,6 +661,57 @@ try {
   out = { phase: await P(() => window.__game.ctx.phase), ...(await stored()) };
   ok(out.phase === 'menu' && out.kitHasMark && out.raidSeed === null,
     'E-5 (measured hole): without the marker a deleted save key boots to the title with the carried kit — the marker is what closes it (editing the loadout document itself stays possible offline)', JSON.stringify(out));
+
+  // ⑦ 2026-09-15 (타이틀 이어하기 · 레이드 포기): 레이드가 남은 타이틀 — `이어하기`(강조) 위 · 붉은 `게임 시작` 아래 → 포기 팝업 → 1초 홀드
+  console.log('2026-09-15: 타이틀 이어하기 · 레이드 포기 (솔로)');
+  await soloRaidWithMark(46);
+  await rebootWith(null);
+  await waitFor(page, () => window.__game.ctx.phase === 'menu' && !!window.__game.ctx.raidResume?.offer, 'title offers the raid', 30000);
+  const tv0 = await P(() => {
+    const ctx = window.__game.ctx;
+    const btns = [...document.querySelectorAll('.menu.title .title-actions .ui-btn')];
+    const start = btns.find((b) => b.textContent === '게임 시작');
+    return {
+      kind: ctx.raidResume.offer.kind, members: ctx.raidResume.offer.members.length, phase: ctx.phase,
+      order: btns.filter((b) => !b.hidden).map((b) => b.textContent), warn: !!start?.classList.contains('title-warn'),
+      resumeLit: !!document.querySelector('.menu.title .ui-btn.title-resume.primary'), raids: ctx.progression.profile.raids,
+    };
+  });
+  ok(tv0.kind === 'solo' && tv0.members === 1 && tv0.phase === 'menu' && tv0.order[0] === '이어하기' && tv0.order[1] === '게임 시작' && tv0.warn && tv0.resumeLit,
+    '타이틀: 레이드가 남으면 곧장 들어가지 않는다 — `이어하기`(강조)가 위, `게임 시작` 이 붉은 경고색으로 그 아래', JSON.stringify(tv0));
+  await P(() => [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].find((b) => b.textContent === '게임 시작').click());
+  const tv1 = await P(() => {
+    const ask = document.querySelector('.menu.title .tm-ask');
+    const foot = [...(ask?.querySelectorAll('.tm-ask-foot .ui-btn') ?? [])].map((b) => b.textContent);
+    return {
+      open: !!ask && !ask.hidden, select: !(document.querySelector('.char-select')?.hidden ?? true),
+      tiles: ask?.querySelectorAll('.trs-tile').length ?? 0, me: ask?.querySelectorAll('.trs-tile.is-me').length ?? 0,
+      empty: ask?.querySelectorAll('.trs-tile.is-empty').length ?? 0, foot, danger: !!ask?.classList.contains('danger'),
+    };
+  });
+  ok(tv1.open && !tv1.select && tv1.tiles === 4 && tv1.me === 1 && tv1.empty === 3 && tv1.danger
+    && tv1.foot.length === 2 && tv1.foot[0] === '닫기' && tv1.foot[1].includes('레이드 포기'),
+    '`게임 시작` 은 캐릭터 선택이 아니라 포기 팝업을 연다 — 초상 4칸(나 + 빈 칸 3), 오른쪽 아래 [닫기] [레이드 포기]', JSON.stringify(tv1));
+  await P(() => document.querySelector('.menu.title .tm-ask .tm-ask-foot .ui-btn').click());
+  const tv2 = await P(() => ({ open: !document.querySelector('.menu.title .tm-ask').hidden, offer: !!window.__game.ctx.raidResume.offer, solo: !!localStorage.getItem('scav.s1.soloraid') }));
+  ok(!tv2.open && tv2.offer && tv2.solo, '닫기: 팝업만 닫히고 레이드 · 세이브는 그대로', JSON.stringify(tv2));
+  await P(() => [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].find((b) => b.textContent === '게임 시작').click());
+  await P(() => [...document.querySelectorAll('.menu.title .tm-ask .tm-ask-foot .ui-btn')][1].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 })));
+  await waitFor(page, () => !window.__game.ctx.raidResume.offer, 'abandon hold', 10000);
+  const tv3 = await P(() => {
+    const ctx = window.__game.ctx;
+    const btns = [...document.querySelectorAll('.menu.title .title-actions .ui-btn')];
+    const start = btns.find((b) => b.textContent === '게임 시작');
+    return {
+      phase: ctx.phase, order: btns.filter((b) => !b.hidden).map((b) => b.textContent),
+      warn: !!start?.classList.contains('title-warn'), primary: !!start?.classList.contains('primary'),
+      ask: !document.querySelector('.menu.title .tm-ask').hidden, raids: ctx.progression.profile.raids,
+    };
+  });
+  const tvDisk = await stored();
+  ok(tv3.phase === 'menu' && !tv3.ask && tv3.order[0] === '게임 시작' && !tv3.warn && tv3.primary
+    && tvDisk.solo === null && tvDisk.raidSeed === null && !tvDisk.kitHasMark && tv3.raids === tv0.raids + 1,
+    '레이드 포기(1초 홀드): 사망 정산(레이드 +1) · 세이브 · 킷 표식 · 들고 있던 킷이 사라지고 `이어하기` 가 없어져 `게임 시작` 이 원래대로', JSON.stringify({ tv3, tvDisk }));
 
   // 2026-09-13: 자발적 귀환 — 일시정지 메뉴 `함선으로 귀환` → 경고 팝업 → 1초 홀드 → 그 자리에서 사망 → 사망 연출 뒤 개인 함선 (솔로 = 전부 잃음)
   console.log('자발적 귀환 (솔로)');

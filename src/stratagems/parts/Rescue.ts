@@ -58,6 +58,8 @@ export function getRescueCandidates(sys: StratagemSystem): readonly RescueCandid
     for (const m of members) {
       // 2026-09-15 (사용자 결정): 안드로이드는 **구조 드롭 대상이 아니다** — 쓰러지면 사람이 일으키고, 죽으면 그걸로 끝이다
       if (isBotPlayer(m)) continue;
+      // 2026-09-15 (타이틀 레이드 포기): **표류**한 분대원은 구조선으로 되살릴 수 없다 — 후보 목록에서 아예 빠진다 (사용자 결정)
+      if (m.drifted) continue;
       if (m.id === me) { pushLocal(m.name || '나', m.slot); continue; }
       const ref = net?.getRemotePlayer(m.id) ?? null;
       const corpse = corpseOf(m.id);

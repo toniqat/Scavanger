@@ -39,6 +39,8 @@ export const LOBBY_ERROR_MESSAGE_KO: Record<LobbyErrorCode, string> = {
   blocked: '차단한 상대가 있는 분대입니다.',
   /* 2026-09-15: 분대 · 도킹 매칭 — 미도킹 분대에서는 개인 출격 · 훈련장이 잠긴다 */
   not_docked: '분대가 아직 공용 함선에 도킹하지 않았습니다.',
+  /* 2026-09-15: 타이틀 레이드 포기 — 포기한 레이드에는 다시 들어갈 수 없다 */
+  drifted: '레이드를 포기해 표류 처리되었습니다. 이 임무에는 다시 들어갈 수 없습니다.',
 };
 
 export class Lobby {
@@ -358,6 +360,7 @@ export class Lobby {
     this.raid.clear();
     for (const p of this.players.values()) {
       p.inMission = mode === 'training' ? p.id === starterId : p.connected;
+      delete p.drifted;   // 2026-09-15: 표류는 **그 레이드**의 일이다 — 새 판은 새 판이다
     }
   }
 
@@ -373,7 +376,21 @@ export class Lobby {
     this.raid.clear();
     this.hostDown = false;   // 2026-09-09: 미션이 끝나면 분대장 사망 표시도 끝난다
     /* 2026-09-15: 봇은 늘 준비된 상태다 — 리셋 뒤에도 `ready` 를 내리면 분대가 영영 출격하지 못한다. */
-    for (const p of this.players.values()) { p.ready = isBotPlayer(p); p.inMission = false; }
+    for (const p of this.players.values()) { p.ready = isBotPlayer(p); p.inMission = false; delete p.drifted; }
+  }
+
+  /**
+   * 2026-09-15 (타이틀 레이드 포기): 이 멤버가 달리는 레이드를 버렸다 — **표류**. 미션 밖으로 빼고 blob 을 버린다
+   * (이어할 것이 없다). 표시는 `start()` · `reset()` 까지 남아 그 사이의 `lobby:mission {true}` 를 막는다 (릴레이의 `drifted`).
+   * 레이드가 아니거나 멤버가 아니면 false.
+   */
+  setDrifted(id: PeerId): boolean {
+    const p = this.players.get(id);
+    if (!p || isBotPlayer(p) || !this.started || (this.mode ?? 'raid') !== 'raid') return false;
+    p.drifted = true;
+    p.inMission = false;
+    this.raid.delete(id);
+    return true;
   }
 
   /** Update a member's mission membership. Returns the player or undefined when not a member. */
@@ -386,6 +403,7 @@ export class Lobby {
   /** Accept a raid blob: only while a raid with the same seed is running (`false` = ignored). */
   setRaid(id: PeerId, blob: RaidSessionBlob): boolean {
     if (!this.started || this.mode === 'training' || blob.seed !== this.seed || !this.players.has(id)) return false;
+    if (this.players.get(id)?.drifted) return false;   // 2026-09-15: 포기한 레이드는 저장할 것이 없다
     this.raid.set(id, blob);
     return true;
   }

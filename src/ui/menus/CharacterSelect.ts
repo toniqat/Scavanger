@@ -280,6 +280,8 @@ export class CharacterSelect {
         this.refresh();
       },
       showMessage: (text, kind) => this.showMsg(text, kind),
+      // 2026-09-15: 서버에 물어보니 분대 레이드가 남아 있었다 — 선택창을 접고 타이틀의 `이어하기` 로 (타이틀도 스스로 접는다)
+      onResumeOffer: () => this.back(),
     });
     this.busy = false;
     this.refresh();

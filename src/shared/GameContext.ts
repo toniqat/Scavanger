@@ -31,6 +31,8 @@ import type { ExtractionRef } from './extraction';
 import type { IntelEffects } from './intel';
 /* appended (2026-09-15): 안드로이드 분대원 */
 import type { AlliesRef } from './allies';
+/* appended (2026-09-15): 타이틀 이어하기 · 레이드 포기 */
+import type { RaidResumeRef } from './raidResume';
 
 class InteractableRegistryImpl implements InteractableRegistry {
   private items = new Map<string, Interactable>();
@@ -133,6 +135,8 @@ export class GameContext {
   /* appended (2026-09-15) */
   /** 안드로이드 분대원 — 명단 · 몸 · 피해 · 소생 (`shared/allies`). Published by allies/AllySystem. */
   allies: AlliesRef | null = null;
+  /** 2026-09-15: 타이틀의 `이어하기` · `레이드 포기` 가 가리키는 레이드 (`shared/raidResume`). Published by game/GameFlowSystem. */
+  raidResume: RaidResumeRef | null = null;
   /* ── appended: Phase 7 (2026-09-06) ── */
   /** Mode of the running / last mission (`game/` sets it from `game:newMission.mode` before the world generates). */
   missionMode: MissionMode = 'raid';

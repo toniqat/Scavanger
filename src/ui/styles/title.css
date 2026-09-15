@@ -408,3 +408,76 @@
 .kb-notice .kbn-sub { font-size: 10px; letter-spacing: 0.06em; color: var(--c-text-dim); }
 .kb-notice .kbn-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
 .kb-notice .kbn-foot .ui-btn { height: 30px; padding: 0 14px; font-size: 11px; letter-spacing: 0.12em; }
+
+/* ── 이어하기 · 레이드 포기 (2026-09-15, 사용자 결정 — `menus/TitleMenu.paintResume` · `menus/raidResumeCard`) ──────────
+   레이드가 남아 있으면 `이어하기` 가 `게임 시작` 위에 **채워진 악센트**로 서고, `게임 시작` 은 붉은 경고색이 된다 (그 버튼은
+   포기 팝업만 연다). `.ui-btn` 이 `display` 를 세우므로 숨김에는 `[hidden]` 규칙이 따로 있어야 한다. */
+.title-actions .ui-btn[hidden] { display: none; }
+.title-actions .ui-btn.title-resume {
+  background: rgba(255, 179, 71, 0.22); color: #ffd18a;
+  box-shadow: 0 0 24px rgba(255, 179, 71, 0.22), inset 0 0 12px rgba(255, 179, 71, 0.12);
+}
+.title-actions .ui-btn.title-resume:hover { background: rgba(255, 179, 71, 0.32); color: #ffe2b3; }
+.title-actions .ui-btn.title-warn {
+  border-color: var(--c-danger); color: var(--c-danger);
+  background: color-mix(in srgb, var(--c-danger) 10%, transparent);
+}
+.title-actions .ui-btn.title-warn:hover { background: color-mix(in srgb, var(--c-danger) 20%, transparent); color: #ff8a8a; }
+
+/* 포기 팝업 (`.tm-ask` 카드 + `trs-card`) — 터미널 매칭 탭(`hub/intel.css` 의 `.hmt-`)과 같은 정사각 초상 4칸이다. 폴더마다
+   접두사가 달라 모양만 옮겨 적었다. 확인 줄은 오른쪽 아래에 `[닫기] [레이드 포기]` 로 모인다 (`AskPopup` 의 버튼 순서 그대로).
+   칸 크기는 창 너비 · 높이 둘 다에 묶는다 — 4칸 + 두 줄 경고 + 버튼 줄이 1280×720 에서 넘치지 않게. */
+.tm-ask-card.trs-card { width: min(760px, calc(100vw - 48px)); gap: 14px; }
+.trs-card .tm-ask-foot { justify-content: flex-end; }
+.trs-card .tm-ask-foot .ui-btn { flex: 0 0 auto; min-width: 150px; }
+.trs-body {
+  --trs-tile: clamp(96px, min(15vw, 26vh), 164px);
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+}
+.trs-sub { align-self: stretch; font-size: 11px; letter-spacing: 0.14em; color: var(--c-text-dim); }
+.trs-row { display: grid; grid-template-columns: repeat(4, var(--trs-tile)); gap: 12px; max-width: 100%; }
+.trs-tile {
+  --sc: var(--c-border-strong);
+  position: relative; width: var(--trs-tile); aspect-ratio: 1 / 1; overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--sc) 45%, var(--c-border));
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--sc) 16%, transparent), rgba(6, 8, 11, 0.95) 72%);
+}
+.trs-tile::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; z-index: 2;
+  background: var(--sc); box-shadow: 0 0 10px color-mix(in srgb, var(--sc) 60%, transparent);
+}
+.trs-tile.is-me { border-color: color-mix(in srgb, var(--sc) 70%, var(--c-border)); box-shadow: inset 0 0 22px color-mix(in srgb, var(--sc) 16%, transparent); }
+.trs-tile.is-off { opacity: 0.6; }
+.trs-tile.is-empty { border-style: dashed; border-color: var(--c-border); background: rgba(255, 255, 255, 0.02); }
+.trs-tile.is-empty::before { display: none; }
+.trs-face { position: absolute; inset: 0; }
+.trs-face img { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; -webkit-user-drag: none; }
+.trs-initial {
+  position: absolute; left: 0; right: 0; top: 0; bottom: 28%;
+  display: grid; place-items: center;
+  font-size: calc(var(--trs-tile) * 0.3); font-weight: 800; line-height: 1;
+  color: color-mix(in srgb, var(--sc) 70%, #fff); opacity: 0.5;
+}
+.trs-badge, .trs-state {
+  position: absolute; top: 8px; z-index: 1;
+  font-size: 9px; letter-spacing: 0.16em; white-space: nowrap; padding: 2px 6px;
+  background: rgba(8, 10, 14, 0.78);
+}
+.trs-badge { left: 8px; color: var(--c-accent); border: 1px solid rgba(255, 179, 71, 0.55); }
+.trs-state { right: 8px; color: var(--c-danger); border: 1px solid rgba(255, 90, 70, 0.5); }
+.trs-tile.is-bot .trs-state { color: #9be8ff; border-color: rgba(155, 232, 255, 0.5); }
+.trs-tile.is-bot .trs-name { color: #9be8ff; }
+.trs-info {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 1;
+  display: flex; align-items: baseline; gap: 8px; padding: 18px 9px 7px;
+  background: linear-gradient(180deg, transparent, rgba(6, 8, 11, 0.92) 55%);
+}
+.trs-name { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trs-tile.is-me .trs-name::after { content: " (나)"; color: var(--c-text-dim); font-weight: 400; font-size: 10px; }
+.trs-lv { font-family: var(--ui-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--c-accent); white-space: nowrap; }
+.trs-warn {
+  align-self: stretch; padding: 9px 12px;
+  border-left: 2px solid var(--c-danger); background: rgba(255, 255, 255, 0.03);
+  font-size: 12px; line-height: 1.75; letter-spacing: 0.02em; color: var(--c-text-dim); white-space: pre-line;
+}
+@media (max-width: 720px) { .trs-row { grid-template-columns: repeat(2, var(--trs-tile)); } }

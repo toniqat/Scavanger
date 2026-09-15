@@ -60,7 +60,9 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
 
 ## 2. Ship hub & reconnection
 
-- Title `함선 탑승` → `hub:enter personal` (hub calls `ensureConnected`; a token still in a lobby resumes straight into the shared ship).
+- Title `게임 시작` → `hub:enter personal` (hub calls `ensureConnected`; a token still in a lobby resumes straight into the shared ship).
+  2026-09-15: a character whose squad raid is still running (local `SQUAD_RAID_MARK_KEY` marker) connects **on the title** instead
+  and gets `이어하기` / `레이드 포기` there (`game/parts/Resume`); see Socket drop below.
 - **Squad ≠ shared ship** (2026-09-15). A lobby carries `LobbyState.docked` (always sent by the relay; absent = older server = docked,
   read it through `isDockedLobby`). Only the shared ship is at world origin (every client builds identical geometry, so hub snapshots
   line up); an undocked squad's members stay in their own personal ships.
@@ -93,8 +95,14 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
   a player is in (`null` = shared deck); avatars with a different value are not drawn.
 - **Socket drop**: the server keeps the slot for `NET_RECONNECT_GRACE_MS` (`connected=false`); the client reconnects with
   `NET_RECONNECT_BACKOFF_MS`. Same mission still running → `net:resumed {seamless:true}` (the host keeps authority through its own
-  short drop). Page reload → shared ship, and `missionInProgress` lets a pod `rejoinMission()` (world by seed, enemies from a full
-  `es`, then the `*q sync` requests: `exq`, `itemq`, `stratq`, `pcorpseq`, `leadq`, `fogq`, `hzq`, `structq`, `tramq`, `metaq` …).
+  short drop). Page reload → `welcome` answered with `lobby:mission {inMission:false, keep:true}` (the relay **keeps** the raid
+  blob), and the title offers `이어하기` (`rejoinMission()` straight from the title) or `레이드 포기`; a pod still rejoins from the
+  ship (world by seed, enemies from a full `es`, then the `*q sync` requests: `exq`, `itemq`, `stratq`, `pcorpseq`, `leadq`,
+  `fogq`, `hzq`, `structq`, `tramq`, `metaq` …).
+- **Abandon (표류)**: `lobby:abandon` from a member of a started raid → `LobbyPlayer.drifted`, `inMission:false`, blob dropped,
+  host handed off / empty mission reset, `lobby:state`. The abandoning client first sends its own `pcorpse spawn` (items from the
+  blob, at `RaidSessionBlob.pose`). A drifted member's `lobby:mission true` → `drifted`; pods and the auto-rejoin on `net:resumed`
+  refuse too. `start()` / `reset()` clear the flag.
   Mission end/abort → everyone back to the shared ship; only `leaveLobby()` (`도킹 해제`) leaves.
 - A link that is `refused` (kicked · `server_full` · session taken elsewhere) never reconnects by itself.
 
@@ -138,7 +146,7 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
 
 - **The squad-wide count lives on the host** (`RESCUE_DROPS_PER_RAID`). Anyone sends `{t:'rescue', ev:'req', target, p}`; the host
   answers `grant` (count −1, landing point fixed with `world.scatterPoints`) or `deny` (`empty` / `alive` / `busy`). **The count is
-  spent at grant** — no refund on cancel or failure.
+  spent at grant** — no refund on cancel or failure. A `drifted` member (abandoned from the title) is never a candidate.
 - `{t:'rescue', ev:'count', left}` broadcasts the remainder (`rescue:countChanged` → HUD). Late joiners get it alongside the
   `stratq sync` / `flow rejoined` replies (`StratagemCallWire` has no room for it).
 - Rescue calls in flight are **not** put in `strat sync` — they last seconds, and a late receiver must not re-emit `rescue:landed`.
