@@ -43,9 +43,8 @@ npm run data:check # data/*.csv schema check; `-- --write` re-bakes server/econo
 npm run build
 
 npm run app:build  # desktop (Electron) build: vite dist/ + main process dist-electron/
-npm run app        # run the built desktop app (embedded relay + local http)
-npm run app:dist   # full deploy folder release/SCAVANGER/
-npm run server:dist # server only: release/SCAVANGER-Server.exe (standalone, no Node)
+npm run app        # run the built desktop app (local http; no address → this PC's start-server.bat relay)
+npm run app:dist   # full deploy folder release/SCAVANGER/ (3 entries, no server)
 npm run icon       # redraw electron/resources/icon.ico from code (--png = preview)
 
 npm run verify     # after a feature: typecheck + selftest + smokes mapped to touched folders (4 lanes)
@@ -63,15 +62,16 @@ node scripts/smoke-desktop.mjs # real Electron shell (--hidden · temp userData 
 consume it (`scripts/data-owners.mjs`). Unknown options / `--help` print help and run nothing. Several runners in one tree:
 `--log-dir scripts/logs/<name> --keep-relay`.
 
-**Deploy folder** (`npm run app:dist`, ship it zipped): `app/` (Electron build) · `SCAVANGER.exe` (stub launcher,
-`electron/launcher.cs`) · `server.txt` (server address, the only file a receiver edits) · `SCAVANGER-Server.exe`
-(`server/tool.ts`). The host double-clicks the server exe and shares the printed address; its console takes
-`list` · `lobbies` · `kick <id> [reason]` · `max <n|off>` · `gc` · `help`. Receivers enter the address in `설정 › 서버 설정`
-(overrides `server.txt`). Details: [electron/README.md](electron/README.md), [server/README.md](server/README.md).
+**Deploy folder** (`npm run app:dist`, ship it zipped): exactly `app/` (Electron build) · `SCAVANGER.exe` (stub launcher,
+`electron/launcher.cs`) · `server.txt` (server address, the only file a receiver edits). **Builds ship no server**: a server
+runs only from this repo via `start-server.bat`. Receivers enter the host's address in `설정 › 서버 설정` (overrides
+`server.txt`); with no address the app connects to this PC's `ws://127.0.0.1:8787/ws`. Details: [electron/README.md](electron/README.md),
+[server/README.md](server/README.md).
 
-Windows one-click (repo root): `start-server.bat` (npm install if needed → `npm run dev:all`) · `start-server.bat relay`
-(relay only, 0.0.0.0:8787). It prints the LAN address. The bat file is saved as **CP949** — UTF-8 + `chcp 65001` breaks
-cmd label scanning.
+Hosting (repo root): `start-server.bat` (npm install if needed → `npm run dev:all`) · `start-server.bat relay` (relay only,
+0.0.0.0:8787). It prints the LAN address, and its window is the operator console (`server/Console.ts`): `list` · `lobbies` ·
+`kick <id> [reason]` · `max <n|off>` · `gc` · `help`. Profiles live in `server/data/` (`--data=` to point elsewhere). The bat file
+is saved as **CP949** — UTF-8 + `chcp 65001` breaks cmd label scanning.
 
 ---
 
@@ -135,8 +135,8 @@ folder's responsibility changes.
 | Folder | System | Publishes on `ctx` | Responsibility |
 |---|---|---|---|
 | [`src/net/`](src/net/README.md) | `NetSystem` | `ctx.net` | Relay WebSocket client · session token · lobby · 20 Hz snapshots · profile document sync (revisions · write queue) · social · private chat · group rooms · char-buff wire · crypto quotes · link state · server address |
-| [`server/`](server/README.md) | (Node) | — | `ws` relay — lobbies · 5-min reconnect grace · host transfer · profile/raid/social/room stores (`.bak` · GC) · credit reason validation · crypto market · console commands · standalone exe entry (`tool.ts`) |
-| [`electron/`](electron/README.md) | (Electron main) | — | Desktop shell — embedded relay + `dist/` over local http (**window port 8790 fixed = save origin**) · deploy folder · stub launcher · icon |
+| [`server/`](server/README.md) | (Node) | — | `ws` relay — lobbies · squads (docked / not yet docked) · 5-min reconnect grace · host transfer · profile/raid/social/room stores (`.bak` · GC) · credit reason validation · crypto market · operator console (`Console.ts`, run by `start-server.bat`) |
+| [`electron/`](electron/README.md) | (Electron main) | — | Desktop shell — `dist/` over local http + `/ws` proxy (**no server**; no address = this PC's 8787) (**window port 8790 fixed = save origin**) · deploy folder · stub launcher · icon |
 
 ---
 
@@ -188,7 +188,7 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Profile documents merge by revision: `profile:set {baseRev, writeId}`, conflict = server wins; persisted write queue; multi-document edits use `ProfileRef.setMany` — `src/net/ProfileSync.ts`. A pending local edit is uploaded, not replaced, when `net:profileLoaded` arrives.
 - Raid session saves must capture death: squad force-saves right after `spawnLocalCorpse`; solo calls `clearSoloRaid()` on death; new save paths check `isDead` / `isLocalOut()` — `src/game/parts/Session.ts`.
 - Rejoin must not silently lose separate pools (e.g. shield): send it in snapshot/ghost/restore; omitted = unknown → max; apply after gear reloads (`pendingShield`).
-- Server address order: in-game `설정 › 서버 설정` (`scav.relay`) → `--relay=` / `SCAV_RELAY` → `server.txt` → same-origin `/ws`. Parse only with `shared/net.ts` `relayUrlFrom`. Connection tests connect without a token.
+- Server address order: in-game `설정 › 서버 설정` (`scav.relay`) → `--relay=` / `SCAV_RELAY` → `server.txt` → same-origin `/ws` (vite proxy; the desktop shell proxies to this PC's `ws://127.0.0.1:8787/ws` — builds contain no relay). Parse only with `shared/net.ts` `relayUrlFrom`. Connection tests connect without a token.
 - A `refused` link never auto-reconnects; automatic callers check `net.link.state` before `ensureConnected()`.
 - The relay validates credit reasons (`shared/credits.ts` `formatCreditReason`, `server/Economy.ts`, `server/economy.gen.json`); it does not check item ownership. Dev reasons need a relay with `SCAV_DEV_ECONOMY=1` (only `scripts/verify.mjs` starts one). No client-side credit/sell-price multipliers.
 - Messages that affect others are accepted only from the authority (lobby host for `strat call`, `ee`, `crate sync`). Host-bound requests pass shape → sender → distance → rate (`shared/buffRules.ts` `createBuffGuard`); two paths of one ability share a bucket; limits derive from data; flying things may outlive their dead sender.
@@ -282,7 +282,7 @@ AAA feel in the browser: readable silhouettes, strong lighting (sun + hemisphere
 - **After every edit**: `npm run typecheck`; `npm run data:check` if `data/*.csv` changed.
 - **After a feature**: `npm run verify` (smokes mapped to touched folders, 4 GPU lanes; the runner starts vite/relay).
 - **Before merge, or after touching `src/shared` · `src/core` · `main.ts`**: `npm run verify:all` (+ build + `e2e:mp`). Don't run smokes one by one by hand.
-- **Deploy files touched** (`server/tool.ts`, `scripts/build-server.mjs`, `pack-release.mjs`, `electron/`): `verify` runs `smoke-server-dist` / `smoke-desktop`; run `npm run app:dist` once and check `release/SCAVANGER/` has exactly four entries.
+- **Deploy files touched** (`pack-release.mjs`, `electron/`): `verify` runs `smoke-desktop`; run `npm run app:dist` once and check `release/SCAVANGER/` has exactly three entries (`node scripts/smoke-desktop.mjs --release` checks it).
 - Debug hooks: `window.__game.ctx`, `window.__game.getSystem('player'|'weapons'|'net'|'enemies'|…)`.
 - **When done, record each fact in exactly one place:**
   - What / why changed + verification result → **commit message** (paste the runner's `docs line:` as its `검증:` line).
