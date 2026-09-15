@@ -13,9 +13,10 @@ import { lookAtTarget } from '../ai/Common';
 import { isNamedAiType } from '../ai/named';
 import { afterNamedReplica, beforeNamedReplica, onNamedEvent } from '../ai/named/remote';
 import type { NamedRogueDirector } from '../named/Director';
-/* 2026-09-13: 굴착 스폰 · 지하벌레 */
+/* 2026-09-13: 굴착 스폰 · 땅굴벌레 */
 import { stepSpatFlight } from '../ai/Burrow';
 import { applyWormHint } from '../sandworm/Pose';
+import { isWormType } from '../EnemyTypes';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Client-side enemy replicas (joined multiplayer clients, `!ctx.isAuthority`).
@@ -197,7 +198,7 @@ export interface ReplicaHost {
   /* ── Phase 12 (배리어 정면 흡수) ── */
   /** Host says enemy `id`'s melee landed on **my** raised shield at `p`: deduct `amount` from it + the bite FX. */
   barrierHitRemote(id: number, p: THREE.Vector3, amount: number): void;
-  /* ── 2026-09-13 (굴착 스폰 · 지하벌레) ── */
+  /* ── 2026-09-13 (굴착 스폰 · 땅굴벌레) ── */
   /** `ee spawn.em` 으로 파고 나오기 시작한 몸의 연출 · 흔들림 · 소리 (`parts/Burrow.emergeFx`). */
   emergeSpawned(e: Enemy): void;
   /** 뱉어져 날던 몸이 착지했다 (`parts/Burrow.spatLandedFx`). */
@@ -468,7 +469,7 @@ export class EnemyReplica {
       case 'spray':
         onNamedEvent(host, msg);
         return;
-      /* ── 2026-09-13: 지하벌레 (sandworm/Director) ── */
+      /* ── 2026-09-13: 땅굴벌레 (sandworm/Director) ── */
       case 'wormWarn':
       case 'wormErupt':
       case 'wormSpit':
@@ -506,7 +507,7 @@ export class EnemyReplica {
       // Phase 10: a body killed in the air falls here too — the host stops sending it after 1.5 s, so the replica
       // runs the same deterministic fall (`integrateDeathFall`) instead of freezing the corpse mid-air.
       if (e.state === 'dead') { e.deathTimer += dt; integrateDeathFall(e, dt, world); continue; }
-      // 2026-09-13: 지하벌레가 뱉은 몸은 `ee wormSpit` 의 포물선을 스스로 그린다 (착지 뒤는 스냅샷)
+      // 2026-09-13: 땅굴벌레가 뱉은 몸은 `ee wormSpit` 의 포물선을 스스로 그린다 (착지 뒤는 스냅샷)
       if (e.spatT > 0) { if (stepSpatFlight(e, dt, world)) this.host.burrowLanded(e); continue; }
       const buf = e.netBuf;
       if (!buf) continue;
@@ -602,7 +603,7 @@ export class EnemyReplica {
     a.mandible += (mandT - a.mandible) * Math.min(1, dt * 10);
     a.aim += (aimT - a.aim) * Math.min(1, dt * (aimT > a.aim ? 7 : 3));
     if (isNamedAiType(e.type)) afterNamedReplica(e, hint, dt, this.host);
-    if (e.type === 'sandworm') applyWormHint(e, hint, dt);   // 2026-09-13: 입 벌림 · 꿀렁임 · 숙임 (호스트와 같은 함수)
+    if (isWormType(e.type)) applyWormHint(e, hint, dt);   // 2026-09-13: 입 벌림 · 꿀렁임 · 숙임 (호스트와 같은 함수)
 
     // head: track the nearest player while aware, idle sway otherwise
     const look = e.aware && hint !== 2 && hint !== 11 ? this.host.targets.nearestAlive(e.position) : null;

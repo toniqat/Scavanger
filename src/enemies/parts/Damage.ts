@@ -17,7 +17,7 @@ import {
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from '../Enemy';
-import { ROGUE_AI, SPEWER_SPIT, baseTypeOf } from '../EnemyTypes';
+import { ROGUE_AI, SPEWER_SPIT, baseTypeOf, isWormType } from '../EnemyTypes';
 import { SpatialGrid } from '../SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from '../Targets';
 import { SUSPICION_TIME, updateEnemyAI } from '../ai/EnemyAI';
@@ -397,7 +397,7 @@ export function damageTargetAcid(sys: EnemySystem, target: CombatTarget, amount:
   if (shooter && slow.factor <= 0.6) _v.set(shooter.position.x, shooter.position.y + shooter.stats.height * 0.7, shooter.position.z);
   else _v.copy(from);
   if (sys.barrierBlocks(_v, target)) return;
-  // 2026-09-15: 종류는 실제 쏜 개체의 것 (지하벌레 독 · 튜토리얼 벌레도 산성을 쏜다) — 예전엔 늘 'spewer' 였다
+  // 2026-09-15: 종류는 실제 쏜 개체의 것 (땅굴벌레 독 · 튜토리얼 벌레도 산성을 쏜다) — 예전엔 늘 'spewer' 였다
   sys.applyDamage(target, amount, from, shooterId, enemyTypeOf(sys, shooterId, 'spewer'), slow, 0, false);
   }
 
@@ -614,7 +614,7 @@ export function onEnemyKilled(sys: EnemySystem, e: Enemy, countKill: boolean): v
     }
   } else if (e.isHumanoid) { const dv = humanoidDeathSound(e.type); sys.playAudio(dv.id, e.position, 0.8, dv.pitch); }   // 2026-09-13: 안드로이드 = 전원 차단음
   // 2026-09-14 3차: 사망 비명의 피치도 바탕 종류로 (`tut_bug*` = scavenger)
-  else if (e.type !== 'sandworm') { const lk = baseTypeOf(e.type); sys.playAudio('bug_death', e.position, 1, lk === 'behemoth' ? 0.35 : lk === 'charger' ? 0.5 : lk === 'scavenger' || lk === 'toxic' ? 1.2 : 0.85); }
+  else if (!isWormType(e.type)) { const lk = baseTypeOf(e.type); sys.playAudio('bug_death', e.position, 1, lk === 'behemoth' ? 0.35 : lk === 'charger' ? 0.5 : lk === 'scavenger' || lk === 'toxic' ? 1.2 : 0.85); }
   if (sys.fx && e.type !== 'rogue_scan_drone') {
     _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
     const kind = goreKind(e);
@@ -623,7 +623,7 @@ export function onEnemyKilled(sys: EnemySystem, e: Enemy, countKill: boolean): v
   }
   if (e.type === 'spewer') sys.acidBurst(e);
   if (e.type === 'toxic' && sys.authority) sys.toxicBurst(e);
-  if (e.type === 'sandworm') sys.sandworm.onWormKilled(e);   // 2026-09-13: 굴로 가라앉는 굉음 · 분진 · 토스트 (모든 클라이언트)
+  if (isWormType(e.type)) sys.sandworm.onWormKilled(e);   // 2026-09-13: 굴로 가라앉는 굉음 · 분진 · 토스트 (모든 클라이언트)
   // lootable corpse (authority registers; replicas mirror the `corpse` event).
   // Phase 10: a body that died in the air registers **after it lands** — `GameContext.findBest` measures a 3-D
   // distance, so a corpse pinned at the mid-air kill position was both floating and unreachable.

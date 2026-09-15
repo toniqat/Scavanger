@@ -59,7 +59,7 @@ inventory only through `InventoryRef` (`src/shared/types.ts`) and bus events.
 | `ui/ContextMenu.ts` | Menu widget (mouse-glyph hints) |
 | `ui/SplitDialog.ts` | `수량 지정` modal |
 | `ui/CatalogView.ts` | Catalog panel: tabs, search (`.inv-cat-search`, focused on open), tiles |
-| `ui/CraftPanel.ts` | Craft column: bench list, thumbnail grid (`CRAFT_LIST_COLS`), detail (`CraftDetail`), stepper, hold button |
+| `ui/CraftPanel.ts` | Craft panel `.inv-panel-craft` (bench list, 5-column thumbnail grid `CRAFT_LIST_COLS`, cell hover → item tooltip via `CraftHoverHandlers`) + the sibling detail card `detailEl` (`.inv-panel-craft-detail`, tooltip-style header, `CraftDetail`, stepper, hold button) |
 | `ui/RepairPanel.ts` | `모두 수리` modal |
 | `ui/DisassemblePanel.ts` | `분해` dialog: durability-aware preview, room check, favourite confirm, progress events |
 | `ui/Modeless.ts` | Modeless popup frame (no blocker, no cursor owner) |
@@ -316,6 +316,12 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 - **Hover validation**: `InventoryUI.validateHover` hides the tooltip when the hovered tile was detached or is no
   longer under the pointer (detached nodes get no `pointerleave`).
 - The craft detail embeds the tooltip card as `.inv-tt-card is-embedded`, never `.inv-tooltip`.
+- **Craft layout** (`.inv-layout.is-craft`): `[.inv-panel-craft: bench list · 5-column recipe grid] [.inv-panel-craft-detail]`; the
+  stash + bag card (`.inv-panel-grids`) is hidden by CSS (materials are counted through `craftCountDef`, not the grids), so
+  Tab / Escape / key-guide paths are unchanged. The detail card is `CraftPanel.detailEl`, appended by `InventoryUI` right after
+  the craft panel; it is `hidden` with no selection and mirrors the detail body's state classes and `--rc`
+  (`syncDetailCard`). Hovering a recipe cell shows the output's inventory tooltip through `CraftHoverHandlers` (the window's
+  floating `Tooltip`); the panel drops it itself on rebuild / close (no `pointerleave` for detached cells).
 - Hold buttons carry `shared/keycap.createHoldButtonCap`; disabled rows hide it.
 - Key guide owners: `inventory`, `inventory.craft`, `inventory.split`, `inventory.disassemble`, `inventory.repair`.
 
@@ -340,6 +346,8 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 ## Recent changes
 
 Older: `git log -- src/inventory`.
+- 2026-09-15 — Craft UI: stash + bag card hidden in craft mode, recipe grid 4 → 5 columns, cell hover = output tooltip,
+  detail moved to a sibling card `.inv-panel-craft-detail` (`CraftPanel.detailEl`) with a tooltip-style header.
 - 2026-09-15 — Android hooks (`parts/Allies.ts`): ally bag / weight, `takeContainerItemFor` (`ContainerStore.prime`,
   `announceTake(by)`), `inventory:itemRequested` / `containerViewed` / `allyDeposit`.
 - 2026-09-15 — Requesting the equipped armor while the shield is not full posts `실드 충전 필요` (menu `실드 충전 요청`);
@@ -348,4 +356,3 @@ Older: `git log -- src/inventory`.
   craft / salvage outputs go to the stash first.
 - 2026-09-15 — Hold-button keycaps in craft and favourite-disassemble confirm.
 - 2026-09-15 — Unique weapons show their type (`UNIQUE_WEAPON_LABEL_KO`) in the tooltip subtitle.
-- 2026-09-15 — Mouse-glyph keycaps in key guide and context menu.

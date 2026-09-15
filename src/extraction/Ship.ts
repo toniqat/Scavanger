@@ -21,8 +21,22 @@ export const LIFTOFF_SPOOL_S = 1.6;
  *   3. bay ceiling bottom = hull roof bottom (y 2.6)      → the same flicker overhead
  * The constants below are the fix: the **drawn** deck is lifted a hair, the lining is given its own thickness and
  * the outer shell starts outboard of it. `floorYAt` / `BAY_HEIGHT` / `Hull.ts` are untouched — the walking deck is
- * still local y 0, feet just sink `BAY_FLOOR_LIFT` into the plate (invisible at 2.5 cm).
+ * still local y 0, feet just sink `BAY_FLOOR_LIFT` into the plate.
+ *
+ * ── Ground clearance of the drawn deck (2026-09-15, 「함선 바닥이 어쩔 때는 함선 바닥, 가끔은 바닥이 뚫고 나온다」) ──
+ * A world may **draw** its walkable ground above the height it reports for walking: the tutorial deck's textured top
+ * plane sits `TOP_LIFT` = 0.02 above `DECK_LOWER_Y` (`world/tutorial/parts/Ground.ts`), a raid pad's chevrons 0.01
+ * above the pad top (`world/Pads.ts`). The old 2.5 cm lift was sized against ground drawn exactly at walk height, and
+ * the landed ship bobbed `root.y` ±1 cm on top of that — so over the tutorial deck the plate top swept 1.5…3.5 cm
+ * while the ground was drawn at 2 cm: measured, the plate was **under** the ground 27–45 % of frames and inside a
+ * 3 mm z-fight band another ~20 % (the reported pop; the feet never left the deck — the bug was drawing only).
+ * Invariant, checked by `scripts/smoke-extraction.mjs`:
+ *   `BAY_FLOOR_LIFT − GROUND_DRAW_LIFT_MAX ≥ 0.02`, and **`root.y` never goes below `landPos.y` while the ship is on
+ *   the ground** (landed: no bob — a ship on its gear does not float; liftoff spool: the shake is one-sided, ≥ 0).
+ * A world that draws its ground higher than `GROUND_DRAW_LIFT_MAX` above its walk height must raise this constant.
  */
+/** Highest any world draws its walkable ground above the height `getSurfaceY` / the pad report (tutorial `TOP_LIFT`). */
+export const GROUND_DRAW_LIFT_MAX = 0.02;
 /** Outer face of the side slabs (hull half width). */
 const HULL_HALF_W = 2.1;
 /** Bay lining walls: inner face (the walkable opening) and their thickness → outer face `BAY_LINING_OUTER_X`. */
@@ -31,8 +45,11 @@ const BAY_LINING_T = 0.12;
 const BAY_LINING_OUTER_X = BAY_LINING_INNER_X + BAY_LINING_T;   // 1.72
 /** Clearance between the lining's outer face and the side slab's inner face — no shared plane, no fight. */
 const HULL_SKIN_GAP = 0.01;
-/** How far the **drawn** bay floor sits above the deck plane (local y 0) so it wins against ground + belly. */
-const BAY_FLOOR_LIFT = 0.025;
+/**
+ * How far the **drawn** bay floor sits above the deck plane (local y 0) so it wins against ground + belly — 2 cm above
+ * `GROUND_DRAW_LIFT_MAX` (see the clearance note). Feet sink this much into the plate; the open ramp's top is at 0.07.
+ */
+export const BAY_FLOOR_LIFT = GROUND_DRAW_LIFT_MAX + 0.02;
 
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -360,7 +377,9 @@ export class Dropship {
       }
       case 'landed': {
         this.thrust += (0.18 - this.thrust) * Math.min(1, dt * 2);
-        this.root.position.y = this.landPos.y + Math.sin(this.time * 1.3) * 0.01;
+        // 2026-09-15: no vertical bob on the pad — it dipped the drawn deck under the ground (clearance note at the top);
+        // the hull colliders (`Hull.ts`) are static at `landPos.y` for the same reason.
+        this.root.position.y = this.landPos.y;
         break;
       }
       case 'liftoff': {
@@ -370,7 +389,8 @@ export class Dropship {
           // Ramp closing; engines spooling up.
           this.thrust += (0.6 - this.thrust) * Math.min(1, dt * 2);
           this.root.position.copy(this.liftoffOrigin);
-          this.root.position.y += Math.sin(this.time * 30) * 0.01 * tt;
+          // one-sided shake (≥ 0): the drawn deck must not dip under the ground it sits on (clearance note at the top)
+          this.root.position.y += Math.abs(Math.sin(this.time * 30)) * 0.01 * tt;
         } else {
           const a = tt - LIFTOFF_SPOOL_S;
           this.thrust = 1;

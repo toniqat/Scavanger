@@ -15,7 +15,7 @@ import {
 import { GADGET_DEFS, gadgetDef, gadgetForKind, isRecoverable } from '../GadgetDefs';
 /* 2026-09-15: 내부 가젯(화염 지대 `incendiary` — 아이템 없음) · 배치물 id · 화염 소리 */
 import { deployableIdFor, isInternalGadget } from '../GadgetDefs';
-import { FIRE_ZONE_CRACKLE_S } from '@/shared';
+import { FIRE_ZONE_CRACKLE_S, THUMPER_INTERVAL_S } from '@/shared';
 import { Deployable, BARRICADE_HALF, DOME_UNFOLD_TIME, JUMPPAD_TRIGGER_RADIUS, MINE_TRIGGER_RADIUS } from '../Deployable';
 import { GadgetVisualPool } from '../GadgetVisuals';
 import { ThrownGadgetManager } from '../ThrownGadget';
@@ -261,6 +261,8 @@ export function spawnDeployable(sys: GadgetSystem, id: string, def: GadgetDef, o
   const visual = sys.visuals.acquire(kind, def.color, def.radius);
   const d = new Deployable(id, kind, owner, def.id, def.radius, hp, maxHp, armed, expires, visual);
   d.position.copy(position);
+  // 2026-09-15 (진동 장치): 복제본은 호스트가 실어 보낸 나이로 시작해 망치 박자(1 초 주기)가 맞는다 — 늦은 합류자의 `gad sync` 도 같다
+  if (wire && typeof wire.age === 'number' && wire.age > 0) { d.age = wire.age; d.strikes = Math.floor(wire.age / THUMPER_INTERVAL_S); }
   // 2026-09-11: 설치형(place)은 미리보기 판정이 준 높이(표면 · 건물 바닥 · 드론 윗면)를, 복제본은 호스트가 정한 높이를
   // 그대로 쓴다. 지형으로 내리는 것은 투척형(돔 · 연막 · 화염 · 유인)을 권위자가 처음 스폰할 때뿐이다.
   if (!wire && def.use !== 'place') d.position.y = sys.groundY(position);

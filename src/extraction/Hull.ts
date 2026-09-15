@@ -62,7 +62,7 @@ export class ShipHull {
     this.unregister();
     if (!world?.ready || typeof world.addObstacle !== 'function') return;
     const yaw = ship.yaw;
-    const baseY = ship.getGroundY();   // not `root.y` — the landed ship bobs by a centimetre
+    const baseY = ship.getGroundY();   // not `root.y` — the resting height, whatever the drawn hull does (liftoff spool shake)
     for (let i = 0; i < HULL_BOXES.length; i++) {
       const b = HULL_BOXES[i], o = this.obstacles[i];
       ship.bayToWorld(b.x, b.z, baseY + b.y0, o.position);

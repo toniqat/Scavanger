@@ -147,7 +147,7 @@ const RANGED_SOUNDS: Readonly<Record<string, RangeProfile>> = {
   minigun_spinup: { range: 90, exp: 1.2 },
   minigun_fire: { range: 220, exp: 1.0, floor: 0.1 },
   minigun_spindown: { range: 90, exp: 1.2 },
-  // 2026-09-13: 버그 굴착 스폰 · 지하벌레 (enemies/). 전조 땅울림 · 분출 · 포효는 멀리서도 들려야 공정하다 — floor.
+  // 2026-09-13: 버그 굴착 스폰 · 땅굴벌레 (enemies/). 전조 땅울림 · 분출 · 포효는 멀리서도 들려야 공정하다 — floor.
   burrow_emerge: { range: 40, exp: 1.5 },
   sandworm_rumble: { range: 200, exp: 1.0, floor: 0.3 },
   sandworm_erupt: { range: 260, exp: 0.9, floor: 0.3 },
@@ -172,6 +172,8 @@ const RANGED_SOUNDS: Readonly<Record<string, RangeProfile>> = {
   // 2026-09-15 (B-16): 화염 지대 (enemies · gadgets). 붙는 순간은 조금 멀리, 지지직은 곁에서만 — 지대가 여럿이면 `VOICE_CAP` 이 자른다.
   fire_ignite: { range: 40, exp: 1.3 },
   fire_crackle: { range: 32, exp: 1.5 },
+  // 2026-09-15 (gadgets, 진동 장치): 땅을 치는 쿵 — 흔들림 반경(THUMPER_SHAKE_RADIUS 30 m)보다 조금 멀리까지 들린다
+  thumper_thump: { range: 55, exp: 1.3 },
 };
 /** 탐사 차량 엔진음 한 조각의 간격(초) — `rover_engine` 은 이보다 조금 길어 겹치며 이어진다. */
 const ROVER_ENGINE_STEP_S = 0.5;

@@ -5,7 +5,8 @@ import type { BenchRecipeRow, InventorySystem } from '../InventorySystem';
 import { buildTileContent, favoritesRevision, shelfWantedRevision } from './GridView';
 import { Tooltip } from './Tooltip';
 import { inventoryTooltipLookups } from './TipPin';
-import { CELL, TEXT, categoryLabel, rarityLabel, weaponClassLabel } from './labels';
+import { CELL, TEXT, categoryLabel, rarityColor, rarityLabel, weaponClassLabel } from './labels';
+import type { ItemInstance } from '@/shared';
 
 /**
  * 왼쪽 작업대 리스트의 한 칸 (2026-09-12). `null` = **빠른제작**(작업대 없이 되는 것), 나머지는 이 함선에
@@ -18,8 +19,22 @@ type BenchPick = WorkbenchKind | null;
  * (2026-09-10 부터 탄약 · 붕대 · 연막에도 `bench` 가 붙었다. 그것은 작업대 창에 뜨라는 표시일 뿐이다.) */
 const isFieldRecipe = (r: CraftRecipe): boolean => r.station === 'field';
 
-/** 조합 목록의 가로 칸 수 (사용자 결정 「가로 최대 4칸」). CSS 는 `--inv-craft-cols` 로 이 값을 받는다. */
-export const CRAFT_LIST_COLS = 4;
+/**
+ * 조합 목록의 가로 칸 수 (2026-09-15 4차, 사용자 결정 「4 → 5칸」 — 창고 · 가방 격자가 제작 창에서 빠지면서 자리가 났다).
+ * CSS 는 `--inv-craft-cols` 로 이 값을 받는다 — 패널 루트(`.inv-panel-craft`)에 찍히므로 목록 격자와 패널 폭이 같은 수를 읽는다.
+ */
+export const CRAFT_LIST_COLS = 5;
+
+/**
+ * 조합 목록 칸의 **호버 카드** (2026-09-15 4차, 사용자 결정) — 썸네일에 올리면 산출물의 인벤토리 툴팁이 뜬다.
+ * 카드 자체는 창(`InventoryUI.tooltip`)이 갖고, 이 패널은 `CatalogView` 의 `CatalogHandlers` 와 같은 결로 신호만 보낸다.
+ * `sample` 은 그 레시피의 산출물 한 묶음(`loot.createItem`, 어디에도 놓이지 않는다).
+ */
+export interface CraftHoverHandlers {
+  onEnter(def: ItemDef, sample: ItemInstance, e: PointerEvent): void;
+  onMove(e: PointerEvent): void;
+  onLeave(): void;
+}
 
 /**
  * **작업대가 속한 시설** (2026-09-13, 사용자 결정). 원본은 `data/furniture.csv` 의 `room` 열이다 — 인터랙션이
@@ -46,7 +61,12 @@ interface CellView {
   recipe: CraftRecipe;
   locked: boolean;
   el: HTMLElement;
+  /** 산출물 def + 호버 카드용 견본 (def 를 모르는 레시피는 null — 카드도 없다). */
+  out: { def: ItemDef; sample: ItemInstance } | null;
 }
+
+/** 상세 패널 카드(`.inv-panel-craft-detail`)가 상세 본문(`.inv-craft-row`)에서 그대로 따라 받는 상태 클래스. */
+const DETAIL_STATE_CLASSES = ['is-locked', 'is-nospace', 'is-crafting', 'is-bench-locked'] as const;
 
 /**
  * **제작 상세 패널** (2026-09-15 2차, 사용자 결정) — 이 폴더 밖에서도 쓸 수 있도록 조각으로 떼어 놓은 모양.
@@ -80,11 +100,23 @@ export interface CraftDetailHandle {
  *    `.inv-craft-cell[data-recipe]` 이고 잠긴 줄(작업대 레벨)은 `.is-bench-locked`, 지금 재료가 모자란 줄은
  *    `.is-locked` 다. **지금 만들 수 있는 것이 앞으로** 오고(안정 정렬), 재료가 바뀔 때마다(제작 · 아이템 획득 →
  *    `afterChange` → `InventoryUI.refresh` → `paint()`) 다시 정렬한다.
- *  - **오른쪽 `.inv-craft-detail`**: 위에서 아래로 ① 산출물 썸네일 + 이름 · 종류, ② **아이템 툴팁 그대로의**
+ *  - **상세 `.inv-craft-detail`**: 위에서 아래로 ① 산출물 썸네일 + 이름 · 종류, ② **아이템 툴팁 그대로의**
  *    설명 · 스펙(`ui/Tooltip` 을 그 자리에 붙여 쓴다 — 스펙 줄을 두 번 적지 않는다), ③ 현재 보유 수,
  *    ④ 재료 **썸네일**(「재료 부족: …」 같은 글자 줄은 없다 — 모자란 것은 칩이 스스로 빨갛게 말한다),
  *    ⑤ 가로 수량 조절(`지금 목표 / 최대`), ⑥ 길게 눌러 제작 버튼(1초 홀드 게이지 + 좌클릭 홀드 키캡).
  *  - 고를 것이 하나도 없는 작업대는 목록 · 상세 대신 **가운데 한 줄** `제작할 수 있는 레시피가 없습니다.` 를 그린다.
+ *
+ * ## 2026-09-15 4차 — **상세는 옆 카드 · 창고 · 가방은 없다 · 5칸 · 호버 카드** (사용자 결정)
+ *
+ *  - 상세는 작업대 패널 **안**이 아니라 그 **오른쪽에 선 별도 카드** `.inv-panel-craft-detail`(`detailEl`)이다 — 창
+ *    (`InventoryUI`)이 `el` 바로 뒤에 붙이고, `.inv-layout.is-craft` 가 순서 · 높이(작업대 패널의 위 · 아래에 맞춤)를
+ *    정한다. 고른 레시피가 없거나 목록이 비면 카드째 `hidden`. 카드는 상세 본문의 상태 클래스(`DETAIL_STATE_CLASSES`)와
+ *    산출물 등급색 `--rc` 를 그대로 받아 **아이템 툴팁과 같은 틀**(등급색 윗줄 · 이름 · 종류)로 보인다.
+ *  - 제작 중에는 **창고 · 가방 격자 카드가 숨는다** (`.inv-layout.is-craft .inv-panel-grids`, css) — 재료는 격자가 아니라
+ *    인벤토리 모델에서 센다(`craftCountDef`). Tab · Escape · 키 가이드는 그대로다 (`parts/Screens.setCraftOpen`).
+ *  - 조합 목록은 가로 **5칸**(`CRAFT_LIST_COLS`), 칸 크기는 그대로.
+ *  - 목록 칸에 올리면 **산출물의 인벤토리 툴팁**이 뜬다 (`CraftHoverHandlers` → 창의 떠다니는 카드). 목록이 다시
+ *    만들어지거나 패널이 닫히면 카드도 내린다 (떼어 낸 요소에는 `pointerleave` 가 오지 않는다 — `validateHover` 와 같은 이유).
  *  - **산출물이 가는 곳**은 함선이면 창고 먼저 · 차면 가방, 레이드 현장은 가방뿐이다 (`parts/Crafting.addCraftOutputs`).
  *    보유 수도 같은 범위를 센다 (`InventoryRef.craftCountDef`).
  *
@@ -102,6 +134,11 @@ export interface CraftDetailHandle {
  */
 export class CraftPanel {
   readonly el: HTMLElement;
+  /**
+   * 2026-09-15 4차: **상세 카드** (`.inv-panel-craft-detail`) — `el` 의 형제 패널. 부른 쪽(`InventoryUI`)이 `el` 바로 뒤에
+   * 붙인다. 고른 레시피가 있을 때만 보이고, 패널이 닫히면 함께 숨는다.
+   */
+  readonly detailEl: HTMLElement;
   private titleEl: HTMLElement;
   private listEl: HTMLElement;
   private emptyEl: HTMLElement;
@@ -132,6 +169,8 @@ export class CraftPanel {
    * craftHasRoom(격자 두 개를 복사한다)) 를 **매 프레임** 돌 이유가 없다.
    */
   private frozen: string | null = null;
+  /** 2026-09-15 4차: 지금 호버 카드를 띄운 목록 칸의 레시피 id (null = 없음). 목록 재생성 · 닫기에서 카드를 내리는 근거. */
+  private hoverId: string | null = null;
 
   constructor(
     private readonly sys: InventorySystem,
@@ -143,10 +182,14 @@ export class CraftPanel {
      * 인자는 호출부를 흔들지 않으려고 남겨 둔다 (계약은 추가만, 삭제 금지와 같은 결).
      */
     private readonly onRepair: (anchor: HTMLElement) => void = () => {},
+    /** 2026-09-15 4차: 목록 칸의 호버 카드 (없으면 카드 없음 — 스모크 · 옛 호출부). */
+    private readonly hover: CraftHoverHandlers | null = null,
   ) {
     this.el = document.createElement('section');
     this.el.className = 'inv-panel inv-panel-craft';
     this.el.hidden = true;
+    // 목록 격자와 패널 폭이 같은 칸 수를 읽는다 (`inventory.css` `.inv-craft-list` · `.inv-panel-craft`)
+    this.el.style.setProperty('--inv-craft-cols', String(CRAFT_LIST_COLS));
 
     const head = document.createElement('header');
     head.className = 'inv-head';
@@ -180,7 +223,6 @@ export class CraftPanel {
 
     this.listEl = document.createElement('div');
     this.listEl.className = 'inv-craft-list';
-    this.listEl.style.setProperty('--inv-craft-cols', String(CRAFT_LIST_COLS));
     this.emptyEl = document.createElement('div');
     this.emptyEl.className = 'inv-craft-empty';
     this.emptyEl.textContent = TEXT.craftNone;
@@ -194,7 +236,7 @@ export class CraftPanel {
 
     this.bodyEl = document.createElement('div');
     this.bodyEl.className = 'inv-craft-body';
-    this.bodyEl.append(this.listEl, this.detail.el);
+    this.bodyEl.append(this.listEl);
 
     this.mainEl = document.createElement('div');
     this.mainEl.className = 'inv-craft-main';
@@ -202,6 +244,13 @@ export class CraftPanel {
 
     this.el.append(this.benchesEl, this.mainEl);
     this.el.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // 2026-09-15 4차: 상세는 작업대 패널 오른쪽의 **별도 카드**다 — 창이 `el` 바로 뒤에 붙인다
+    this.detailEl = document.createElement('section');
+    this.detailEl.className = 'inv-panel inv-panel-craft-detail';
+    this.detailEl.hidden = true;
+    this.detailEl.appendChild(this.detail.el);
+    this.detailEl.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   get isOpen(): boolean { return !this.el.hidden; }
@@ -209,8 +258,15 @@ export class CraftPanel {
   setOpen(open: boolean): void {
     if (this.el.hidden === !open) return;
     this.el.hidden = !open;
-    if (!open) this.release();
+    if (!open) { this.release(); this.detailEl.hidden = true; this.dropHover(); }
     else { this.sig = ''; this.frozen = null; this.refresh(); }
+  }
+
+  /** 목록 칸의 호버 카드를 내린다 (칸이 사라지는 자리 — 떼어 낸 요소에는 `pointerleave` 가 오지 않는다). */
+  private dropHover(): void {
+    if (this.hoverId === null) return;
+    this.hoverId = null;
+    this.hover?.onLeave();
   }
 
   /** Rebuild the cells when the available recipe set changes; otherwise just repaint counts / progress. */
@@ -257,6 +313,18 @@ export class CraftPanel {
     this.emptyEl.hidden = !empty;
     this.bodyEl.hidden = empty;
     this.paint();
+  }
+
+  /**
+   * 2026-09-15 4차: 상세 **카드**(`detailEl`)가 상세 본문(`.inv-craft-row`)의 상태를 그대로 따라 받는다 — 잠김 · 자리 없음 ·
+   * 제작 중의 테두리색과 산출물 등급색 `--rc` 는 카드가 그리므로 (툴팁의 등급색 윗줄과 같은 틀), 본문이 바뀔 때마다 여기서 맞춘다.
+   */
+  private syncDetailCard(picked: CellView | null): void {
+    const card = this.detailEl;
+    card.hidden = this.el.hidden || !picked || this.bodyEl.hidden;
+    for (const c of DETAIL_STATE_CLASSES) card.classList.toggle(c, this.detail.el.classList.contains(c));
+    if (picked?.out) card.style.setProperty('--rc', rarityColor(picked.out.def));
+    else card.style.removeProperty('--rc');
   }
 
   /**
@@ -340,10 +408,12 @@ export class CraftPanel {
   private paintProgress(job: { recipeId: string; progress: number }): void {
     for (const cell of this.cells) cell.el.classList.toggle('is-crafting', cell.recipe.id === job.recipeId);
     this.detail.paintProgress(this.detail.recipeId === job.recipeId ? job.progress : 0);
+    this.detailEl.classList.toggle('is-crafting', this.detail.el.classList.contains('is-crafting'));
   }
 
   /** 왼쪽 목록: 산출물 썸네일만의 격자. 누르면 오른쪽 상세가 그 레시피로 바뀐다. */
   private build(recipes: readonly BenchRecipeRow[]): void {
+    this.dropHover();   // 칸이 통째로 새로 만들어진다 — 올려 두었던 칸은 떼어져 `pointerleave` 를 못 받는다
     this.listEl.innerHTML = '';
     this.cells = [];
     for (const { recipe, locked } of recipes) {
@@ -354,7 +424,9 @@ export class CraftPanel {
       if (locked) cell.classList.add('is-bench-locked');
 
       const out = this.getDef(recipe.outputDefId);
-      cell.title = out ? `${out.name} ×${recipe.outputQty}` : recipe.name;
+      let sample: ItemInstance | null = null;
+      // 2026-09-15 4차: 네이티브 `title` 은 뺐다 — 호버 카드(인벤토리 툴팁)와 겹쳐 떴다. def 를 모르는 레시피만 이름을 남긴다.
+      if (!out) cell.title = recipe.name;
       if (out) {
         /*
          * 2026-09-09: **한 칸 고정.** 산출물을 실제 격자 크기로 그리니 4×2 돌격소총이 탄약 한 칸의 네 배로
@@ -363,8 +435,16 @@ export class CraftPanel {
          */
         const tile = document.createElement('div');
         const item = this.sys.loot.createItem(out.id, Math.min(out.stackMax, recipe.outputQty));
+        sample = item;
         buildTileContent(tile, item, out, 1, 1, null, CELL);
         cell.appendChild(tile);
+        // 2026-09-15 4차: 올리면 산출물의 인벤토리 툴팁 — 격자 타일과 같은 카드 · 같은 자리 규칙 (`Tooltip.move`)
+        if (this.hover) {
+          const hover = this.hover;
+          cell.addEventListener('pointerenter', (e) => { this.hoverId = recipe.id; hover.onEnter(out, item, e); });
+          cell.addEventListener('pointermove', (e) => { if (this.hoverId === recipe.id) hover.onMove(e); });
+          cell.addEventListener('pointerleave', () => { if (this.hoverId === recipe.id) { this.hoverId = null; hover.onLeave(); } });
+        }
         // A stacking def draws its own count; one that does not stack but is made in twos needs the badge.
         if (out.stackMax <= 1 && recipe.outputQty > 1) {
           const badge = document.createElement('div');
@@ -381,7 +461,7 @@ export class CraftPanel {
       }
       cell.addEventListener('click', () => this.select(recipe.id));
       this.listEl.appendChild(cell);
-      this.cells.push({ recipe, locked, el: cell });
+      this.cells.push({ recipe, locked, el: cell, out: out && sample ? { def: out, sample } : null });
     }
     // 고른 것이 목록에서 사라졌으면 비운다 — `paint()` 가 첫 칸을 다시 고른다
     if (this.selected && !this.cells.some((c) => c.recipe.id === this.selected)) this.selected = null;
@@ -437,6 +517,7 @@ export class CraftPanel {
     }
     this.detail.show(picked?.recipe ?? null, picked?.locked ?? false);
     this.detail.paint();
+    this.syncDetailCard(picked);
   }
 
   /* ── hold to craft ────────────────────────────────────────────────────── */
@@ -467,7 +548,9 @@ export class CraftPanel {
 
   dispose(): void {
     this.release();
+    this.dropHover();
     this.detail.dispose();
+    this.detailEl.remove();
     this.el.remove();
   }
 }
@@ -530,7 +613,7 @@ export class CraftDetail implements CraftDetailHandle {
     this.el = document.createElement('div');
     this.el.className = 'inv-craft-detail inv-craft-row';
 
-    /* ① 산출물 썸네일 + 이름 · 종류 */
+    /* ① 산출물 썸네일 + 이름 · 종류 — 아이템 툴팁의 머리와 같은 배치 (2026-09-15 4차): 아이콘 좌상단, 오른쪽에 이름, 그 아래 종류 · 등급 */
     const head = document.createElement('div');
     head.className = 'inv-craft-dhead';
     this.thumbEl = document.createElement('div');
@@ -639,6 +722,8 @@ export class CraftDetail implements CraftDetailHandle {
     }
     this.el.classList.toggle('is-bench-locked', locked);
     const out = this.getDef(recipe.outputDefId);
+    // 2026-09-15 4차: 머리는 아이템 툴팁의 틀 — 이름은 등급색(`.inv-tt-name` 과 같은 식), 종류 줄은 `.inv-tt-sub` 와 같은 글자
+    if (out) this.el.style.setProperty('--rc', rarityColor(out)); else this.el.style.removeProperty('--rc');
     /* 썸네일 · 이름 · 종류 */
     this.thumbEl.replaceChildren();
     if (out) {

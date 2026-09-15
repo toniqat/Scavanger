@@ -12,7 +12,7 @@ import {
   CHECKPOINT_STEP, CORPSE_MARKER_STEPS, CROUCH_AIM_TIP_KO, CROUCH_TIP_STEPS, GUIDE_ARRIVE, MARKER_RETARGET_FRAMES, RAID_KILLS_PER_STEP,
   SKIP_FADE_IN_S, SKIP_FADE_OUT_S, SKIP_HOLD_TIME, STANCE_HINT_IDS, TRACK_LABEL_KO,
   TUTORIAL_AMMO_DEF, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_CONTROL_HINTS, TUTORIAL_CRAFT_GRANT,
-  TUTORIAL_GUN_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_RAVEN_NPC, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
+  TUTORIAL_GUN_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
   SPOT_CRAFT_CLOSE, SPOT_NONE, WAKE_REVEAL_DELAY_S, WAKE_REVEAL_MOVE_M,
   controlHintsFor, objectiveChain, objectivesOf, visibleObjectives,
   type ControlHint, type HudRevealState, type StepDef, type TutorialObjective,
@@ -191,7 +191,12 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       b.on('game:phaseChanged', () => this.refreshVisuals()),
 
       b.on('housing:shipManageChanged', ({ active }) => this.onManage(active)),
-      b.on('housing:modeChanged', ({ active }) => { if (active) this.advanceIf('manage'); }),
+      /*
+       * 2026-09-15: 방 콘솔로 들어간 하우징 모드(`enterHousingMode`)는 닫힐 때 `modeChanged {active:false}` 만 낸다
+       * (`shipManageChanged` 는 M 화면이었을 때만) — 「하우징 모드 닫기」 단계와 안내선 숨김이 그 길도 봐야 한다.
+       * M 화면을 닫으면 둘이 잇달아 오는데 `onManage` 는 멱등이다 (두 번째는 이미 다음 단계라 아무 일도 없다).
+       */
+      b.on('housing:modeChanged', ({ active }) => this.onManage(active)),
       b.on('housing:facilityUpgraded', ({ id, level }) => { if (id === 'generator' && level >= 1) this.advanceIf('generator'); }),
       b.on('housing:roomPurposeChanged', ({ room, purpose }) => this.onPurpose(room, purpose)),
       // 가구 제작에는 전용 이벤트가 없다 — `housing:changed {reason:'craft'}` 뒤에 창고를 한 번 들여다본다
@@ -277,12 +282,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       /* ── ② ship 트랙 (2026-09-14) ── */
       b.on('inventory:opened', () => this.advanceIf('levelUp')),
       b.on('progress:statChanged', () => this.advanceIf('stats')),
+      // 2026-09-15 (사용자 결정): 메신저를 여는 것이 함선 트랙의 **마지막** 단계다 — `ravenQuest`(대답 · 수락)는 순서에서 빠졌고
+      //   레이븐의 첫 연락은 이 트랙이 끝난 뒤에 온다 (`meta/parts/NpcQuests.tutorialBlocks`). 그 단계를 보던 구독도 함께 갔다.
       b.on('ui:messengerToggled', ({ open }) => { if (open) this.advanceIf('messenger'); }),
-      /* 2026-09-15 (E-12): 「레이븐의 연락에 대답한다」는 **대답한 순간** 체크된다 — 전에는 이 줄을 적는 곳이 없어
-       * 수락할 때(`completeRequired`) 두 줄이 한꺼번에 그어졌다. 대답은 `ravenQuest` 단계에서만 할 수 있다
-       * (그 전 단계들은 메신저 버튼을 감춘다). */
-      b.on('npc:message', ({ npc, entry }) => { if (npc === TUTORIAL_RAVEN_NPC && entry.e === 'choice') this.markIf('ravenQuest', 'ravenTalk'); }),
-      b.on('npc:questChanged', ({ state }) => { if (state === 'active') this.advanceIf('ravenQuest'); }),
 
       // 리바인드하면 조작 가이드 · 목표 줄의 키캡을 다시 읽는다 (키는 사용 시점에 읽는다 — `docs/CONTROLS.md`)
       b.on('input:bindingsChanged', () => { this.controls.relabel(); this.panel.relabel(); }),
@@ -466,6 +468,13 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   isTrackDone(track: TutorialTrack): boolean {
     const t = this.save.tracks[track];
     if (t) return t.done;
+    /*
+     * 2026-09-15: 레이드를 **막 완주하고** 돌아오는 사람(`pendingShip`)에게 함선 트랙은 「아직 시작 전」이지 「없던 것」이
+     * 아니다. 이때 `looksFresh()` 는 이미 거짓이라(레이드 보상으로 Lv.2) 그대로 두면 `hub:entered` 의 다른 구독자
+     * (`meta/parts/NpcQuests` — 레이븐의 첫 연락을 함선 트랙 뒤로 미룬다)가 이 트랙을 끝난 것으로 읽는다 —
+     * 그 구독이 이 시스템의 `autoStart` 보다 먼저 도는지는 등록 순서의 문제라 여기서 답을 맞춰 준다.
+     */
+    if (track === 'ship' && this.save.pendingShip) return false;
     return !this.looksFresh();
   }
 
@@ -761,9 +770,24 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     return true;
   }
 
+  /**
+   * 하우징 모드(M 화면 · 방 콘솔)가 열리거나 닫혔다. 열림은 `manage`, 닫힘은 `manageDone`(2026-09-15 에 순서로 돌아왔다)을
+   * 넘긴다. 어느 쪽이든 화면을 다시 맞춘다 — **관리 모드가 열려 있는 동안 바닥 안내선을 그리지 않는다**
+   * (`refreshVisuals` → `housingOpen`): 관리 카메라 아래에 깔린 빛기둥 · 점선은 갈 수 없는 곳을 가리키는 셈이었다.
+   */
   private onManage(active: boolean): void {
     if (active) this.advanceIf('manage');
     else this.advanceIf('manageDone');
+    this.refreshVisuals();
+  }
+
+  /**
+   * 하우징 모드(M 의 함선 관리 · 방 콘솔의 방 편집)가 열려 있는가 — `ctx.housing` 을 **지금** 읽는다 (이벤트를 세지 않는다:
+   * 새로고침으로 돌아와도 답이 맞아야 한다). housing 이 아직 없으면 닫힌 것으로 본다.
+   */
+  private housingOpen(): boolean {
+    const h = this.ctx.housing;
+    try { return !!h && ((h.shipManageMode ?? false) || (h.housingMode ?? false)); } catch { return false; }
   }
 
   private onPurpose(room: number, purpose: string): void {
@@ -1061,12 +1085,11 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     if (step === 'generator' && this.generatorReady()) this.advance(true);
     else if (step === 'bench' && this.benchStored()) this.advance(true);
     /*
-     * 2026-09-14 3차 (사용자 결정): `manageDone`(함선 관리 닫기)은 **순서에서 빠졌다** — 「닫으세요」만 하는
-     * 단계를 세워 둘 이유가 없고, 다음 단계는 어차피 작업실로 걸어가는 일이다. `TUTORIAL_STEPS` 에서 id 를
-     * 뺐고(`openCraft` 와 같은 처리 — 타입 · 표에는 남는다) 진행 바의 분모도 그만큼 줄었다. 이 가지는
-     * 콘솔 `tutorial step manageDone` 처럼 밖에서 그 단계를 세우는 길을 위한 안전망이다.
+     * 2026-09-15 (사용자 결정): `manageDone`(하우징 모드 닫기)이 **순서로 돌아왔다** (2026-09-14 3차에 빠졌던 것을 뒤집음 —
+     * `Steps.ts` 의 그 항목 참고). 하우징 모드가 이미 닫혀 있으면(콘솔 `tutorial step` · 저장 복구 · 배치 뒤 곧바로 닫은
+     * 사람) 할 일이 없으므로 조용히 지나친다 — `generator` 와 같은 요령. 열려 있으면 `onManage(false)` 가 넘긴다.
      */
-    else if (step === 'manageDone') this.advance(true);
+    else if (step === 'manageDone' && !this.housingOpen()) this.advance(true);
     // 2026-09-14 2차 (사용자 결정): 체력이 이미 가득이면 회복 단계에 할 일이 없다 — `generator` 와 같은 요령이다
     else if (step === 'heal' && this.healthFull()) this.advance(true);
     else this.onStepEntered(step);
@@ -1278,7 +1301,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     });
     // 시작 카드가 떠 있는 동안에는 스포트라이트를 겹치지 않는다
     this.spotlight.set(this.popup.isOpen || placing ? SPOT_NONE : view.spot, view.spotText, view.union, view.noDim);
-    this.guide.setTarget(this.guideTarget(def.guide));
+    // 2026-09-15 (사용자 결정): 하우징 모드가 열려 있는 동안에는 바닥 안내선을 **어느 단계에서도** 그리지 않는다 — 관리
+    //   카메라 아래의 빛기둥 · 점선은 지금 갈 수 없는 곳을 가리킨다. 닫히면 `onManage` 가 다시 여기로 와서 반 박자 뒤에 깐다.
+    this.guide.setTarget(this.housingOpen() ? null : this.guideTarget(def.guide));
     // 3D 목표 마커 — 시체 구간 두 단계가 같은 시체를 가리킨다 (`CORPSE_MARKER_STEPS`)
     this.marker.setTarget(CORPSE_MARKER_STEPS.includes(step) ? this.nearestCorpse() : null);
   }

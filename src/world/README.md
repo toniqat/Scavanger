@@ -25,6 +25,7 @@ through `ctx.world` (only `main.ts` imports `WorldSystem`).
 | `build.ts` | `BuildCtx` for sub-builders; `isSpotFree` (pads, hash, rail + rover clearance), paint / displace / merge helpers, `PLAY_LIMIT`. |
 | `Props.ts` | Scattered instanced props (boulders, spires, trees, crystals, grass, pebbles, debris); hull colliders for rock / crystal / debris, trunk cylinder for trees. |
 | `Nests.ts` | Bug nest mounds (obstacles) and hole positions (`getNestPositions`). |
+| `BurrowGround.ts` | `burrowGroundOk` — the one judgement "can a sandworm erupt here": flat terrain samples, no pad / rail / rover corridor, no structure footprint, no hash collider, nest / gather / crate / spore-grove clearance, not inside the active hazard. Shared by the enemies director and the thumper placement preview. |
 | `Pads.ts` | Extraction platforms (`PLATFORM_HEIGHT` / `PLATFORM_RADIUS`, one point light each) and the spawn marker. |
 | `Outposts.ts` | POI ruins (walls, pillars, mast); `getSites()` → ruin sites for fog discovery, footstep material, `getRuinSites`. |
 | `Crates.ts` | Loot crates around landmarks only (POIs, structure rings, nest rings — none in open field, no tier 4); `Interactable`, lid tween, `crate:open`; open state via `setOpenListener` / `markOpened`. |
@@ -54,10 +55,10 @@ through `ctx.world` (only `main.ts` imports `WorldSystem`).
 | `rover/Rover.ts` | Vehicle lifecycle, state machine, boarding, fares, hazard damage, `RoverRef`, `rover` / `roverq`, `cheat:rover`. |
 | `rover/parts/Body.ts`, `Turret.ts`, `Impact.ts`, `Exits.ts`, `Fx.ts` | Hull model + one box collider (no `velocity`); turret targeting / fire; ram impacts; exit spots; tracers / wreck FX. |
 | `TrainingArena.ts` | Simulation training range (`TrainingRef`): deck, invisible walls, pop-up targets, target modes, consoles. |
-| `tutorial/model.ts` | Tutorial planet shape: levels, corridor profile, decks, chasm, checkpoints, fall rules, enemy / corpse spots, ship pose, crawl slab, barrier, pit. |
+| `tutorial/model.ts` | Tutorial planet shape: levels, corridor profile, deck pieces, chasm, checkpoints, fall rules, enemy spots (per-spot `sense` / `weapon`), corpse spots, ship pose, crawl slab, barrier, pit + walls, abyss cuts beyond the fence. |
 | `tutorial/TutorialWorld.ts` | `TutorialWorldRef` + tutorial queries (`heightAt`, `raycastGround`, `isInside`, `clampInside`, `surfaceMaterial`), checkpoint tracking, safe-ground respawn, ship placement. |
-| `tutorial/parts/Ground.ts` | Decks, chasm edges, corridor walls and funnels, abyss, pit + ramp. |
-| `tutorial/parts/Dressing.ts` | Start ruins, crawl tunnel, diagonal barrier + blind fence, backstop, rubble (fixed `DRESSING_SEED`). |
+| `tutorial/parts/Ground.ts` | Deck pieces with cliff faces, chasm edges, corridor walls and funnels, abyss, pit + ramp + walls. |
+| `tutorial/parts/Dressing.ts` | Start ruins (incl. the fallen mast with its collider), crawl tunnel, diagonal barrier + blind fence, rubble (fixed `DRESSING_SEED`). |
 | `tutorial/parts/Corpses.ts` | Three hand-placed corpses with fixed item lists via `ctx.inventory.openContainerItems`. |
 
 ## Public API
@@ -71,7 +72,9 @@ through `ctx.world` (only `main.ts` imports `WorldSystem`).
   `getStructures`, `structureAt`, `getLadders`, `getRailLines`, `getTrams`, `getRuinSites`, `getSiteSpawnPoints`, `previewContainerItems`,
   `getLootContainers()` (2026-09-15: crates + structure / platform / tram containers as `LootContainerInfo` — id, live
   position, tier, opened, kind; **reused array and reused entries**), `markContainerOpened(id)` (2026-09-15: open the
-  lid / door for an android take and tell the squad with `crate opened`; no event, no stats, no 감정 XP).
+  lid / door for an android take and tell the squad with `crate opened`; no event, no stats, no 감정 XP),
+  `burrowGroundOk(x, z, radius)` (2026-09-15, optional on `WorldRef`: true only on flat bare ground with nothing in the
+  circle — rules in `BurrowGround.ts`; training / tutorial worlds return false; thresholds `BURROW_GROUND_*` in csv).
 - **Sub-refs**: `fog` (`FogRef`), `hazard` (`HazardRef`), `rover` (`RoverRef`), `env` (planet `env` column), `training` (`TrainingRef`),
   `tutorial` (`TutorialWorldRef`). Each is null when the mode / planet does not have it.
 - **`previewLayout(seed, planet, intel?)`** — pure; callable from the hub (no meshes, no state touched).
@@ -187,6 +190,9 @@ are open-topped, no scanner.
   Any key of the right kind opens any building's door; the opener's key is consumed after host confirm (`struct unlocked.by`).
   Without a key the hold time is 0 and the press gives `keycard_deny` + a toast (`DOOR_TEXT`). Keys are never guaranteed:
   ground containers roll `keyChance` as a separate bonus roll. Locked-room containers use the `structureLocks` fork.
+  Basement containers can carry a second per-kind bonus (`structures.csv` `basementBonus` / `basementBonusChance` /
+  `basementBonusPlanets`, e.g. the outpost's `gad_thumper` 5 % on `amber`): `Structures.ts` sets `bonusDefId` / `bonusChance`
+  on the basement spec only when `missionPlanet` is listed, and `ContainerSet` rolls it with its own seeded rng (preview ≡ open).
 - Drone vents: a `VENT_W` × `VENT_H` gap beside each locked door; people are stopped by the lintel box (head clearance),
   not by width. Rays pass.
 - Windows: `GlassSet`; broken by bullets (`destructible`), grenades / thrown gadgets (`shared/fragile.breakFragileAlong`);
@@ -302,10 +308,17 @@ gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — �
 - Crawl slab: every collider segment's underside (`crawlClearanceAt`) must stay between `PLAYER_CROUCH_CLEARANCE_M` and
   `BOX_HEADROOM`, or the tunnel stops meaning "crouch".
 - Barrier fence: drawn at `BARRIER.fenceHeight`, solid collider to that height plus a `passRays` + `passSmall` ghost band
-  up to `blockHeight` (bullets, sight and grenades pass; people cannot jump over). Concrete `BACKSTOP` stops grenades behind
-  the androids.
-- Pit: depth `PIT_DEPTH` = exactly `PROP_STEP_UP_MAX`, so people and enemies walk out over any edge but grenades (small
-  bodies) cannot roll out; ramp on the ship side. Built by subtracting `PIT` from the lower deck (`subtractRect`, axis-aligned).
+  up to `blockHeight` (bullets, sight and grenades pass; people cannot jump over).
+- Pit (`PIT`, 9.5 × 8.5 m): depth `PIT_DEPTH` = exactly `PROP_STEP_UP_MAX`, so people and enemies walk out over the open edges
+  but grenades (small bodies) cannot roll out; ramp on the ship side (−X). Walled 2.5 m (`PIT_WALLS`) on the east (cliff edge)
+  and south (the grenade backstop, abyss behind); open toward the fence and the ramp. The android spots sit ≤ 7.2 m from every
+  corner (`GRENADE_RADIUS`), which caps the pit size (`PIT` comment). The last two androids face the ship, carry `sg` / `dmr`
+  (`EnemySpot.weapon`) and sense 22 m (`FINAL_ANDROID_SENSE_M`) so the ramp and bay are inside.
+- Beyond the fence everything that is not the pit, its walls, the fence strip or the ship strip is abyss (`ABYSS_CUTS`, rule
+  `kill`): the lower deck is seven `DECKS` pieces and the holes are the gaps between them — `DECKS` ∪ `PIT` ∪ `PIT_WALLS` ∪
+  `ABYSS_CUTS` must tile the old lower rect exactly. Lower pieces, pit walls and the side walls past `ABYSS_CUT_Z0` draw a cliff
+  face (rock from `ABYSS_FADE_TOP_Y`, dark fade below — `Ground.pushCliff`); lower-piece colliders are grown by `TILE_OVERLAP`
+  at their seams (`growRect`). `pollSafeGround` keeps `ABYSS_SAFE_MARGIN_M` from every cut edge (`inAbyssCut`).
 - Checkpoints (`CHECKPOINTS`, order verified against `TUTORIAL_CHECKPOINTS` at build) never go back; each is outside the
   sense radius of its section's enemies — recompute the distance table in `model.ts` if coordinates move.
 - Respawn after a fall uses **the last safe ground** (`pollSafeGround` → `respawnPose`): outside `kill` volumes, near a walkable
@@ -319,10 +332,10 @@ gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — �
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world`.
+- 2026-09-15 — Outpost basement bonus (`basementBonus*` columns): per-kind + per-planet extra roll on basement containers (the 진동 장치).
+- 2026-09-15 — `WorldRef.burrowGroundOk` (`BurrowGround.ts`): flat bare-ground test for the sandworm director and the thumper preview.
+- 2026-09-15 — Tutorial: pit ×1.55 with 2.5 m walls (backstop removed), abyss cuts beyond the fence (seven lower deck pieces,
+  cliff faces everywhere), last androids face the ship with `sg` / `dmr` + 22 m sense, `ship` band moved to z −150…−158, mast collider.
 - 2026-09-15 — Android hooks: `getLootContainers`, `markContainerOpened`, `HazardRef.nearestSafePoint`; a `crate opened`
   from the lobby host is trusted without the distance check (the host opens for an android).
 - 2026-09-15 — Spore hazard damage bypasses the player shield (`hazardDamageOpts`, `HAZARD_SPORES_BYPASS_SHIELD`).
-- 2026-09-15 — Tutorial: half-height blind fence with ghost collider band; android pit with ship-side ramp.
-- 2026-09-15 — Training arena: ceiling and wall meshes removed; invisible walls via `clampInside`, floor + apron only.
-- 2026-09-15 — Player damage sources: hazard ticks `{kind:'hazard'}`, tram hits `{kind:'explosion'}`.
-- 2026-09-15 — Tutorial: bug sides swapped, crawl entry raised, diagonal barrier + backstop, ship moved, endless abyss.

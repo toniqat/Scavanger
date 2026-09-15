@@ -428,10 +428,11 @@ try {
   ok(['quick', 'quickWheel', 'grenadeThrow', 'grenadePin'].every((id) => nadeCtl.some((r) => r.id === id))
     && nadeCtl.find((r) => r.id === 'grenadeThrow')?.text && nadeCtl.find((r) => r.id === 'grenadeThrow')?.caps === 2 && nadeCtl.find((r) => r.id === 'grenadePin')?.caps === 2,
   '수류탄 단계 조작 가이드: 꺼내기 · 휠 열기 두 줄 + 토큰 문장 줄 둘 (장착 후 던지기 · 핀 뽑기)', JSON.stringify(nadeCtl));
-  // 2026-09-15 맵 5차: 마지막 안드로이드 둘은 사선 방벽 뒤 (0.90,−144.88)·(3.09,−142.83), 함선은 (−8.5,−158) yaw −10°.
-  //   램프 축 위(`ship` 띠 안)에 세우고 W 로 걸어 올라간다 — 옛 (0,−143) 에서 W 는 함선 오른쪽을 지나 절벽으로 떨어진다.
-  await P(() => window.__killNear(2.0, -143.9, 8));
-  await P(() => window.__tp(-9.76, -10, -150.86, -0.1745));
+  // 2026-09-15 맵 6차: 마지막 안드로이드 둘은 사선 방벽 뒤 웅덩이 한가운데 (1.85,−144.75)·(3.65,−144.75), 함선은 (−8.5,−158) yaw −10°.
+  //   `ship` 띠는 z −150 … −158 (웅덩이가 −149 까지 커졌다). 램프 축 위(발치 (−9.06,−154.8) 에서 3 m 뒤, 띠 안)에 세우고 W 로 걸어
+  //   올라간다 — 옛 (0,−143) 에서 W 는 함선 오른쪽을 지나 절벽으로 떨어진다.
+  await P(() => window.__killNear(2.75, -144.75, 8));
+  await P(() => window.__tp(-9.58, -10, -151.85, -0.1745));
   await waitStep('extract', 10000);
   // the switch only answers someone who is aboard (`switchReady` → `boarded`) — walk up the ramp into the bay for real
   await waitSim(0.3);
@@ -456,7 +457,8 @@ try {
   await waitSim(0.4);
   ok(await P(() => window.__game.getSystem('extraction').boarded === true), '스위치 앞에 서도 여전히 화물칸 안이다', JSON.stringify(spot));
   const prompt = await P(() => { const sw = window.__game.ctx.interactables.all().find((i) => i.id === 'ship_liftoff_switch'); return { text: sw?.getPrompt() ?? null, hp: window.__game.ctx.player.hp, lvl: window.__game.ctx.progression.level }; });
-  ok(/즉시 이륙/.test(prompt.text ?? ''), `튜토리얼 함선 스위치는 즉시 이륙이라고 말한다 ("${prompt.text}")`, JSON.stringify(spot));
+  // 2026-09-15: the caption is the action name only — the hold hint is drawn by the key guide, no 「즉시 이륙」 tag
+  ok(prompt.text === '출발 시퀀스 시작', `튜토리얼 함선 스위치 캡션은 행동 이름뿐이다 ("${prompt.text}")`, JSON.stringify(spot));
   const pressT = await P(() => { window.__key('KeyE', true); return window.__game.ctx.time; });
   await waitFor(page, () => window.__ev['extraction:liftoff'].length >= 1, 'liftoff', 15000).catch(async (e) => { console.log(`  note ${JSON.stringify(await P(() => ({ pose: window.__pose(), best: window.__game.getSystem('player').interactTarget?.id ?? null, blockers: [...window.__game.ctx.uiBlockers] })))}`); throw e; });
   await P(() => window.__key('KeyE', false));

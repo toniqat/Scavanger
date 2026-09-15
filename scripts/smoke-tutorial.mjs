@@ -6,13 +6,16 @@
 // 2026-09-08: + the 발전기 step, "잠그지 않고 감춘다" (`hides(gate, id)` → 용도 · 화면 탭이 목록에서 빠진다),
 // the objective panel staying above the spotlight (`.tut-panel.is-lifted`) and the cursor showing under the card.
 // 2026-09-14 3차: **16 steps** — `manageDone`(관리 모드 닫기)도 `openCraft` 처럼 순서에서 빠졌다 (id 는 계약에 남는다).
+// 2026-09-15 (사용자 결정 — 뒤집음): **17 steps** — `manageDone`(「하우징 모드 닫기」)이 `craftGun` 바로 앞으로 돌아왔다.
+//   배치 버튼은 이제 `manageDone` 으로 넘기고, 관리 모드를 닫는 것이 `craftGun` 을 연다 — 바닥 안내선의 반 박자 계측도
+//   그 조작(`closeShipManage`)에 붙는다. 그리고 **하우징 모드가 열려 있는 동안에는 안내선이 없다** (다시 열면 걷히고 닫으면 돌아온다).
 // 2026-09-09: the bench makes 소총 → 탄약 in **one** window (craftGun → craftAmmo → openBag → equipGun → stowAmmo,
 // `openCraft` left the order and a save holding it maps to craftAmmo), the spotlight + floor guide appear
 // `TUTORIAL_STEP_DELAY_S` (0.5 s) **after** the target shows up (so every spotlight assertion here waits instead of
 // reading right away), the dim panes fade in over `TUTORIAL_DIM_FADE_S` (`.tut-spot.is-lit`, `--tut-dim-fade`),
 // equipGun lights 주무기 I · II + 가방 only and accepts 주무기 II.
 //   • the whole craft flow is now **driven for real** (inventory.craft × 2 → close → equip) instead of `goto`, so the
-//     recorded `tutorial:changed` trail doubles as the step-order assertion (10 steps, 1..10 / 16, no `openCraft` · no `manageDone`).
+//     recorded `tutorial:changed` trail doubles as the step-order assertion (11 steps, 1..11 / 17, no `openCraft`).
 //   • the half-beat is **measured** in-page (lit before → not lit right after the step advances → still counting at
 //     0.3 s → lit again ~0.5 s later), bounded on both sides, for the spotlight and the 3D floor guide alike.
 //   • spotlight geometry is read off the **four dark panes** (`window.__hole` / `window.__spotOn`), never the ring —
@@ -25,7 +28,7 @@
 // 2026-09-13 (전력 할당 폐지): 새 함선의 발전기는 처음부터 Lv.1 — `generator` 단계는 알려진 즉시(`tutorial:changed`) 조용히 지나가고
 // 시설 관리를 여는 순간 함선 관리 → 작업실이다. 반 박자 포커싱 계측은 그 전환(시설 관리 힌트 → 작업실 행)에서 한다.
 // 2026-09-14 (3트랙): 저장은 **v2** 다 — `{version:2, tracks:{raid,ship,build}}`. 이 스모크가 검사하는 것은 여전히
-// **build 트랙**(16단계)이고, 트랙 ①(레이드 조작) · ②(함선)는 그 트랙을 구현하는 쪽(world/tutorial · meta/messenger)이
+// **build 트랙**(17단계)이고, 트랙 ①(레이드 조작) · ②(함선)는 그 트랙을 구현하는 쪽(world/tutorial · meta/messenger)이
 // 자기 스모크를 더한다. 새 프로필이 함선에 들어오면 raid · ship 은 조용히 `done` 으로 적히고 build 가 시작된다
 // (`TutorialSystem.autoStart` — `pendingShip` 이 없으면 함선 트랙은 켜지지 않는다).
 // Usage: node scripts/smoke-tutorial.mjs [http://localhost:5273]   (needs `npm run dev`)
@@ -199,7 +202,7 @@ try {
   ok(intro.panel, '좌측 상단 목표 패널이 함께 뜬다');
   // 2026-09-08: 함선에 들어서며 걸린 relock 이 카드에서 커서를 빼앗아 가면 안 된다 (버튼을 누를 수가 없다)
   ok(intro.cursorOn, '카드가 뜬 채로 마우스 커서가 살아 있다 (body.cursor-on)');
-  ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 16, `tutorial:changed {intro, 1/16} (${JSON.stringify(intro.ev)})`);
+  ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 17, `tutorial:changed {intro, 1/17} (${JSON.stringify(intro.ev)})`);
   const order = await P(() => window.__game.getSystem('tutorial').constructor && null);
   void order;
 
@@ -414,23 +417,7 @@ try {
     '창고 카드 클릭은 카드를 강조만 한다 — 커서에 가구가 올라오지 않는다', JSON.stringify(picked));
   ok(picked.btn && picked.enabled === true && picked.note === '배치 가능',
     "카드 오른쪽에 활성 '배치' 버튼(.fcard-place) + '배치 가능' 표시", JSON.stringify(picked));
-  /* 2026-09-15: 바닥 안내선의 반 박자(`TUTORIAL_STEP_DELAY_S`)는 **단계가 바뀌는 순간** 무장된다
-     (`TutorialSystem.refreshVisuals` → `Guide.setTarget`, 그 뒤로는 화면과 무관하게 매 프레임 줄어든다).
-     관리 모드를 닫는 것은 무장시키지 않는다 — `setTarget` 은 목표가 같으면 곧바로 반환한다. 예전 판정은
-     배치 뒤 네 번의 페이지 왕복이 끝난 다음 `closeShipManage()` 를 기준으로 쟀기 때문에, 왕복 합이 0.5 s 를
-     넘기면 이미 깔린 선을 보고 "직후엔 아직 없다" 가 깨졌다 — 판정이 아니라 경주였다. 그래서 반 박자를
-     실제로 무장시키는 조작(배치 버튼 = benchPlace → craftGun)에 붙여 한 evaluate 안에서 잰다. */
-  await P(() => {
-    window.__tutAct = () => {
-      document.querySelector('.sm-store .fcard[data-def-id="furn_bench_gun"] .fcard-place').click();
-      return window.__game.ctx.tutorial.step;   // 이 조작이 단계를 넘겼다는 증거
-    };
-  });
-  const guideDelay = await measureGuide();
-  ok(guideDelay.acted === 'craftGun' && guideDelay.before === false && guideDelay.immediate === false,
-    '단계가 craftGun 으로 넘어간 직후에는 바닥 안내선이 아직 없다', JSON.stringify(guideDelay));
-  ok(guideDelay.ms >= 300 && guideDelay.ms < 2000,
-    `바닥 안내선은 스포트라이트와 같은 반 박자 뒤에 깔린다 (${Math.round(guideDelay.ms)} ms)`, JSON.stringify(guideDelay));
+  await P(() => document.querySelector('.sm-store .fcard[data-def-id="furn_bench_gun"] .fcard-place').click());
   await sleep(150);
   const placed = await P(() => ({
     placed: window.__game.ctx.housing.getPlaced(1).filter((f) => f.defId === 'furn_bench_gun').length,
@@ -439,13 +426,63 @@ try {
   }));
   ok(placed.placed === 1 && placed.ev === 'furn_bench_gun' && placed.stored === 0,
     "'배치' 버튼이 작업대를 작업실 첫 빈 칸에 놓고 housing:furniturePlaced 를 낸다", JSON.stringify(placed));
-  // 2026-09-14 3차: 배치가 끝나면 `manageDone` 없이 곧장 `craftGun` 이다
-  await waitStep('craftGun');
+
+  /* ── 3d. 하우징 모드 닫기 (2026-09-15 — `manageDone` 이 순서로 돌아왔다) ───────────── */
+  // 배치가 끝나면 `craftGun` 이 아니라 **`manageDone`** 이다 — 관리 모드가 열린 채로는 작업실로 걸어갈 수 없다.
+  await waitStep('manageDone');
+  await waitSpot('하우징 모드 닫기', 'spotlight (하우징 모드 닫기)');
+  const closeStep = await P(() => {
+    const t = window.__game.ctx.tutorial, h = window.__game.ctx.housing;
+    const guide = window.__game.ctx.scene.getObjectByName('TutorialGuide');
+    return {
+      step: t.step, index: t.stepIndex, count: t.stepCount, manage: h.shipManageMode,
+      objs: [...document.querySelectorAll('.tut-panel .tut-obj-txt')].map((e) => e.textContent),
+      spot: window.__spotOn(['.key-guide .kg-close', '.key-guide']),
+      guideLit: !!guide && guide.children.length === 3,
+      furnitureOk: t.blockReason('furniture', 'furn_bench_gun'), manageExit: t.hides('manageExit'),
+    };
+  });
+  ok(closeStep.step === 'manageDone' && closeStep.index === 7 && closeStep.count === 17 && closeStep.manage === true,
+    '배치 뒤에는 하우징 모드 닫기 (7/17) — 관리 모드는 아직 열려 있다', JSON.stringify(closeStep));
+  // 목표 줄은 `{INVENTORY} 하우징 모드 닫기` — 키캡 토큰이 앞에 그려지므로 textContent 는 `Tab 하우징 모드 닫기` 다 (끝만 본다)
+  ok(closeStep.objs.length === 1 && /하우징 모드 닫기$/.test(closeStep.objs[0]), `목표 줄 「하우징 모드 닫기」 (${closeStep.objs.join(' | ')})`);
+  ok(closeStep.spot.exact && /하우징 모드 닫기/.test(closeStep.spot.tip), `키 가이드의 닫기 항목을 밝힌다 ("${closeStep.spot.tip}")`, JSON.stringify(closeStep.spot));
+  ok(closeStep.guideLit === false, '하우징 모드가 열려 있는 동안에는 바닥 안내선이 없다');
+  ok(closeStep.furnitureOk === null && closeStep.manageExit === false, '작업대 카드는 그대로 허용되고 닫기는 막히지 않는다', JSON.stringify(closeStep));
+
+  /* 2026-09-15: 바닥 안내선의 반 박자(`TUTORIAL_STEP_DELAY_S`)는 **단계가 바뀌는 순간** 무장된다
+     (`TutorialSystem.refreshVisuals` → `Guide.setTarget`, 그 뒤로는 화면과 무관하게 매 프레임 줄어든다).
+     단계를 넘기는 조작은 이제 `closeShipManage()` 라 그 조작에 붙여 한 evaluate 안에서 잰다 (왕복 사이의 시간이
+     끼어들면 판정이 아니라 경주가 된다 — 옛 주석의 교훈 그대로). */
+  await P(() => {
+    window.__tutAct = () => {
+      window.__game.ctx.housing.closeShipManage();
+      return window.__game.ctx.tutorial.step;   // 이 조작이 단계를 넘겼다는 증거
+    };
+  });
+  const guideDelay = await measureGuide();
+  ok(guideDelay.acted === 'craftGun' && guideDelay.before === false && guideDelay.immediate === false,
+    '하우징 모드를 닫으면 craftGun — 그 직후에는 바닥 안내선이 아직 없다', JSON.stringify(guideDelay));
+  ok(guideDelay.ms >= 300 && guideDelay.ms < 2000,
+    `바닥 안내선은 스포트라이트와 같은 반 박자 뒤에 깔린다 (${Math.round(guideDelay.ms)} ms)`, JSON.stringify(guideDelay));
+
+  /* 2026-09-15 (사용자 결정): 하우징 모드를 **다시 열면** 안내선이 걷히고(단계는 그대로), 닫으면 반 박자 뒤에 돌아온다. */
+  await P(() => { window.__game.ctx.housing.openShipManage(); });
+  await sleep(250);
+  const reopened = await P(() => {
+    const guide = window.__game.ctx.scene.getObjectByName('TutorialGuide');
+    return { step: window.__game.ctx.tutorial.step, manage: window.__game.ctx.housing.shipManageMode, guideLit: !!guide && guide.children.length === 3 };
+  });
+  ok(reopened.step === 'craftGun' && reopened.manage === true && reopened.guideLit === false,
+    'craftGun 에서 하우징 모드를 다시 열면 안내선이 걷힌다 (단계는 그대로)', JSON.stringify(reopened));
+  await P(() => { window.__tutAct = () => { window.__game.ctx.housing.closeShipManage(); return window.__game.ctx.tutorial.step; }; });
+  const guideBack = await measureGuide();
+  ok(guideBack.acted === 'craftGun' && guideBack.before === false && guideBack.ms >= 0 && guideBack.ms < 2000,
+    `닫으면 안내선이 돌아온다 (${Math.round(guideBack.ms)} ms)`, JSON.stringify(guideBack));
 
   /* ── 4. 재료 지급 + 제작 게이트 ───────────────────────────────────────── */
   console.log('제작');
-  // 2026-09-09: `craftGun` 에서는 바닥 안내선이 작업대를 가리킨다 (반 박자 측정은 배치 버튼 쪽으로 옮겼다 — 위 주석)
-  await P(() => { window.__game.ctx.housing.closeShipManage(); });
+  // 2026-09-09: `craftGun` 에서는 바닥 안내선이 작업대를 가리킨다
   await waitStep('craftGun');
   const grant = await P(() => ({
     powder: window.__game.ctx.inventory.countDefAll('mat_gunpowder'),
@@ -595,10 +632,11 @@ try {
 
   /* 2026-09-09: 여기까지 오는 동안 실제로 밟은 단계 · 순번이 새 순서 그대로인가 (`openCraft` 는 없다). */
   const seq = await P(() => window.__ev['tutorial:changed'].filter((e) => e.active).map((e) => ({ s: e.step, i: e.index, n: e.count })));
-  const WANT = ['intro', 'manage', 'generator', 'workshop', 'bench', 'benchPlace', 'craftGun', 'craftAmmo', 'openBag', 'equipGun'];
+  // 2026-09-15: `manageDone`(하우징 모드 닫기)이 `benchPlace` 와 `craftGun` 사이로 돌아왔다 — 17 단계
+  const WANT = ['intro', 'manage', 'generator', 'workshop', 'bench', 'benchPlace', 'manageDone', 'craftGun', 'craftAmmo', 'openBag', 'equipGun'];
   ok(seq.map((e) => e.s).join(' ') === WANT.join(' '), `밟은 단계가 새 순서 그대로다 (${seq.map((e) => e.s).join(' ')})`);
-  ok(seq.every((e, i) => e.i === i + 1 && e.n === 16) && !seq.some((e) => e.s === 'openCraft' || e.s === 'manageDone'),
-    '순번은 1..10 / 16 이고 openCraft · manageDone 은 순서에 없다', JSON.stringify(seq.slice(-3)));
+  ok(seq.every((e, i) => e.i === i + 1 && e.n === 17) && !seq.some((e) => e.s === 'openCraft'),
+    '순번은 1..11 / 17 이고 openCraft 는 순서에 없다', JSON.stringify(seq.slice(-3)));
 
   /* 2026-09-09: 어두운 판 네 장이 화면을 **빈틈없이** 덮는가. 예전에는 판마다 top/height 를 따로 반올림해서
      소수점 사각형이면 구멍 위아래에 1 px 짜리 밝은 가로줄이 남았다 (8단계에서 특히 잘 보였다). */
@@ -758,8 +796,8 @@ try {
     const t = window.__game.ctx.tutorial;
     return { active: t.active, step: t.step, index: t.stepIndex, count: t.stepCount };
   });
-  ok(stale.active && stale.step === 'craftAmmo' && stale.index === 8 && stale.count === 16,
-    'openCraft 를 들고 있던 저장은 craftAmmo(8/16) 로 이어진다', JSON.stringify(stale));
+  ok(stale.active && stale.step === 'craftAmmo' && stale.index === 9 && stale.count === 17,
+    'openCraft 를 들고 있던 저장은 craftAmmo(9/17) 로 이어진다', JSON.stringify(stale));
   const gotoStale = await P(() => {
     const t = window.__game.ctx.tutorial;
     return { ret: t.goto('openCraft'), step: t.step };

@@ -8,6 +8,8 @@
  * ⚠ 여기서는 THREE 를 **값으로** 쓰지 않는다 (`layout.ts` 와 `data:check` 가 둘 다 이 파일을 아주 이르게 읽는다).
  */
 import { type CsvRow, type StructureKind, addDataIssue, csvRows } from '@/shared';
+/* 2026-09-15 (진동 장치): 지하실 부가 굴림의 행성 목록 검증 */
+import { PLANET_IDS, type PlanetId } from '@/shared';
 
 /** csv 의 `kind` 열이 가질 수 있는 값. 구조물 3종 + 선로 부속 2종. */
 export type StructureRowKind = StructureKind | 'rail_platform' | 'tram';
@@ -47,6 +49,12 @@ export interface StructureRow {
   lockedMin: number;
   lockedMax: number;
   lockedTiers: readonly TierWeight[];
+  /* ── appended 2026-09-15 (땅굴벌레 · 진동 장치, owner: gadgets — 지하실 컨테이너의 부가 굴림) ── */
+  /** 지하실 컨테이너 하나마다 `basementBonusChance` 로 부가로 들어 있을 수 있는 아이템 id (`gad_thumper`). null = 없다. */
+  basementBonus: string | null;
+  basementBonusChance: number;
+  /** 이 행성들에서만 굴린다 (`data/planets.csv` id). 비면 모든 행성. */
+  basementBonusPlanets: readonly PlanetId[];
 }
 
 const ROW_KINDS: readonly StructureRowKind[] = ['outpost', 'lab', 'wreck', 'rail_platform', 'tram'];
@@ -85,6 +93,13 @@ export const STRUCTURE_ROWS: readonly StructureRow[] = csvRows('structures.csv')
     lockedMin,
     lockedMax: Math.max(lockedMin, lockedMax),
     lockedTiers: tierList(r, 'lockedTiers'),
+    basementBonus: r.optStr('basementBonus') ?? null,
+    basementBonusChance: r.num('basementBonusChance', { min: 0, max: 1, fallback: 0 }),
+    basementBonusPlanets: r.list('basementBonusPlanets').filter((p) => {
+      if ((PLANET_IDS as readonly string[]).includes(p)) return true;
+      r.report('basementBonusPlanets', `행성 '${p}' 를 모른다 (${PLANET_IDS.join(' · ')})`);
+      return false;
+    }) as PlanetId[],
   };
 });
 

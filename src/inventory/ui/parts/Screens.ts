@@ -158,12 +158,18 @@ export function toggleCraft(sys: InventoryUI): void {
  * to do with — 장착 장비 + 임플란트 열 · 퀵슬롯 로즈 · 가방 헤더의 `제작`/가치 · 상단 화면 탭. 제작 중에는 재료와
  * 레시피만 남는다 (사용자 결정). 장비 칸이 사라지므로 만든 무기를 장착하려면 제작 창을 닫아야 한다 — 튜토리얼의
  * `openBag` 단계가 그 순서를 그대로 안내한다.
+ *
+ * **2026-09-15 4차 (사용자 결정)**: 창고 · 가방 격자 카드(`.inv-panel-grids`)도 제작 중에는 숨는다 (css `.inv-layout.is-craft`)
+ * — 재료는 격자가 아니라 인벤토리 모델에서 센다. 창은 [작업대 목록 · 조합 목록] [상세 카드] 둘만 남는다. Tab · Escape · 키
+ * 가이드는 그대로다 (숨김은 css 뿐이라 `closeOverlays` → `closeCraft` 경로가 바뀌지 않는다).
  */
 export function setCraftOpen(sys: InventoryUI, open: boolean): void {
   const was = sys.craftPanel.isOpen;
   sys.craftPanel.setOpen(open);
   if (open) sys.disassemble.close();
-  else sys.repair.close();          // 수리 팝업은 작업대에 붙어 있다 — 작업대를 떠나면 같이 닫힌다
+  else { sys.repair.close(); sys.tooltip.hide(); }   // 수리 팝업은 작업대에 붙어 있다 — 작업대를 떠나면 같이 닫힌다; 목록 칸의 호버 카드도
+  // 2026-09-15 4차: 격자가 숨는 동안 그 위에 올린 카드 · 끌던 것이 남지 않게
+  if (open) { if (sys.drag && !sys.drag.catalog) sys.cancelDrag(); sys.hoverLeave(); }
   sys.layout?.classList.toggle('is-craft', open);
   sys.root?.classList.toggle('is-craft', open);
   // 2026-09-12: the stacked 가방-over-창고 column has no room for the fixed 12-row bag frame — the stash fell off-screen

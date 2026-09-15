@@ -172,6 +172,11 @@
 .pg-alloc .ui-btn { min-width: 0; height: 32px; padding: 0 14px; font-size: 11px; letter-spacing: 0.1em; overflow: hidden; }
 .pg-alloc .ui-btn:disabled { opacity: 0.32; pointer-events: none; }
 .pg-confirm .pg-label { position: relative; }
+/* 2026-09-15 (사용자 결정): 확정 버튼 안의 좌클릭 홀드 키캡은 **마우스 그림이 흰색, chevron 만 강조색**이다.
+   그림(`shared/keycap.mouseGlyphSvg`)은 누르는 칸을 `var(--c-accent)` 로, 윤곽을 `currentColor` 로 칠하고 버튼이
+   `.primary` 라 둘 다 주황이 된다 — 그래서 SVG 요소 안에서만 두 값을 흰색으로 바꾼다. chevron 은 키캡 자신의
+   `::before`(`base.css` `.keycap.kc-hold::before`)라 키캡의 강조색을 그대로 본다. 다른 홀드 버튼은 손대지 않았다. */
+.pg-confirm .keycap.kc-btn .kcm-glyph { --c-accent: #fff; color: #fff; }
 .pg-fill {
   position: absolute; inset: 0; transform: scaleX(0); transform-origin: left; pointer-events: none;
   background: color-mix(in srgb, var(--c-accent) 38%, transparent);

@@ -42,8 +42,9 @@ const MSG_TTL = 4500;
  *
  * - **행성** (`.hub-pane-planet`): 3칸 격자 — 빈 왼쪽 칸 · **가운데 행성 카드**(홀로그램 · 이름 · 지형 · 위협 · 브리핑 ·
  *   `◀ ▶` · 행성 이동) · 오른쪽 **정보상 패널**. 왼쪽 칸이 오른쪽과 같은 폭을 차지해 행성이 프레임 한가운데에 선다.
- *   `시뮬레이션 훈련장` 은 섹션이 아니라 **프레임 우하단 버튼**(`.hub-train`, 푸터 오른쪽)이고 안내 줄은 지웠다.
- *   누르면 곧장 들어가지 않고 확인 카드(`TrainingConfirm`)를 띄운다. 도킹 전 분대에서는 `분대 대기 중` 으로 잠긴다.
+ *   `시뮬레이션 훈련장` 은 섹션이 아니라 **프레임 우하단 버튼**(`.hub-train`)이고 안내 줄은 지웠다. 2026-09-15 (사용자 결정):
+ *   푸터 안이 아니라 푸터 **위** — 내용 아래 제 줄(`.hub-train-row`, 오른쪽 정렬)에 서고, 그 밑에 구분선, 그 밑 푸터에는
+ *   `닫기 (E)` 만 남는다. 누르면 곧장 들어가지 않고 확인 카드(`TrainingConfirm`)를 띄운다. 도킹 전 분대에서는 `분대 대기 중` 으로 잠긴다.
  * - **매칭** (`.hub-pane-match`, `ui/MatchTab`): 정사각 초상 4칸 + `비공개 매칭` / `공개 매칭` (또는 `도킹 해제`).
  *   빈 칸의 `초대` 가 초대 창(`ui/InviteModal`)을 연다. 옛 머리 우상단 `📡 매칭` 버튼 · 매칭 팝업(`MatchPanel` —
  *   코드 · 초대 링크 · 공개 토글)은 지웠다. 튜토리얼 게이트 `matchmaking` 이 **이 탭을 감춘다**.
@@ -96,7 +97,8 @@ export class HubMenu {
   private btnIntelView: HTMLButtonElement;
   private btnIntelMove: HTMLButtonElement;
   private intelMenu: IntelMenu;
-  // 시뮬레이션 훈련장 (2026-09-15: 우하단 버튼 + 확인 카드)
+  // 시뮬레이션 훈련장 (2026-09-15: 푸터 위 제 줄의 우하단 버튼 + 확인 카드)
+  private trainRow: HTMLElement;
   private btnTrain: HTMLButtonElement;
   private trainState: HTMLElement;
   private trainConfirm: TrainingConfirm;
@@ -205,14 +207,13 @@ export class HubMenu {
     this.pEnv.hidden = true;
     this.btnTravel = this.button(planet, '행성 이동', () => this.travel(), 'primary hp-travel');
 
-    // ── message + footer (2026-09-15): 오른쪽에 `닫기 (E)` → `시뮬레이션 훈련장` — 훈련장이 프레임 우하단 모서리다.
+    // ── message + 훈련장 줄 + footer (2026-09-15, 사용자 결정): `시뮬레이션 훈련장` 은 푸터 **위** 제 줄(`.hub-train-row`)의
+    //    오른쪽 끝에 서고, 그 아래 구분선(푸터 윗선), 그 아래 푸터 오른쪽에 `닫기 (E)` 만 남는다 (예전엔 둘이 푸터 한 줄이었다).
     //    왼쪽 아래 구석은 비워 둔다: 함선 HUD 의 분대 목록 · 이름 줄이 터미널 위에 그려지는 자리다.
     this.msg = el('div', { cls: 'form-msg', parent: f });
     this.msg.hidden = true;
-    const foot = el('div', { cls: 'hub-foot', parent: f });
-    const footRight = el('div', { cls: 'right', parent: foot });
-    this.button(footRight, '닫기 (E)', () => this.close());
-    this.btnTrain = el('button', { cls: 'ui-btn primary hub-train', parent: footRight });
+    this.trainRow = el('div', { cls: 'hub-train-row', parent: f });
+    this.btnTrain = el('button', { cls: 'ui-btn primary hub-train', parent: this.trainRow });
     this.btnTrain.type = 'button';
     el('span', { cls: 'hub-train-name', text: '시뮬레이션 훈련장', parent: this.btnTrain });
     this.trainState = el('span', { cls: 'hub-train-state', text: '시작', parent: this.btnTrain });
@@ -223,6 +224,9 @@ export class HubMenu {
       this.trainConfirm.open(() => this.host.startTraining());
     });
     this.trainConfirm = new TrainingConfirm(ctx, () => this.refresh());
+    const foot = el('div', { cls: 'hub-foot', parent: f });
+    const footRight = el('div', { cls: 'right', parent: foot });
+    this.button(footRight, '닫기 (E)', () => this.close());
 
     // keep clicks inside from reaching the canvas' click-to-lock fallback
     root.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -275,6 +279,7 @@ export class HubMenu {
     this.panePlanet.hidden = tab !== 'planet';
     this.paneMatch.hidden = tab !== 'match';
     this.btnTrain.hidden = tab !== 'planet';
+    this.trainRow.hidden = tab !== 'planet';       // 줄째 감춰야 매칭 탭에 빈 줄이 남지 않는다
     // 매칭 탭에서는 홀로그램이 보이지 않는다 — 두 번째 GL 컨텍스트가 헛돌지 않게 멈춘다
     this.holo?.setVisible(this._open && tab === 'planet');
     if (changed && sound) this.ctx.bus.emit('audio:play', { id: 'ui_click' });

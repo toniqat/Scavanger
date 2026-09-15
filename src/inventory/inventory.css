@@ -1294,17 +1294,21 @@ kbd {
   flex-direction: row; align-items: stretch; gap: 16px;
 }
 .inv-craft-main { display: flex; flex-direction: column; gap: 14px; flex: 1; min-width: 0; }
-/* ── 2026-09-15 2차 (사용자 결정): 제작 = **왼쪽 조합 목록 + 오른쪽 상세** ─────────────────────────────────── */
+/* ── 2026-09-15 2차 (사용자 결정): 제작 = **조합 목록 + 상세** ───────────────────────────────────────────────
+   2026-09-15 4차: 상세는 이 패널 안이 아니라 오른쪽의 **별도 카드** `.inv-panel-craft-detail` 이다 (아래 「제작 배치」).
+   그래서 body 는 목록 하나다. */
 .inv-craft-body { display: flex; flex-direction: row; align-items: stretch; gap: 16px; min-width: 0; min-height: 0; flex: 1; }
 .inv-craft-body[hidden] { display: none; }
-/* 목록은 산출물 썸네일만의 격자 — 칸 수의 원본은 `ui/CraftPanel.CRAFT_LIST_COLS` 하나다 (`--inv-craft-cols`) */
+/* 목록은 산출물 썸네일만의 격자 — 칸 수의 원본은 `ui/CraftPanel.CRAFT_LIST_COLS` 하나다 (`--inv-craft-cols`, 패널 루트에 찍힌다).
+   2026-09-15 4차 (사용자 결정): 4 → **5칸**. 패널 폭은 `auto` 라 이 격자가 곧 폭을 정한다 — 스크롤바 자리는 `scrollbar-gutter`
+   로 미리 잡아 두어 줄이 넘칠 때 격자가 밀리지 않는다. */
 .inv-craft-list {
   display: grid;
   /* 칸의 **내용**이 정확히 한 격자 칸(`--inv-cell`)이어야 한다 — 전역이 `border-box` 라 테두리 2 px 를 더한다 */
-  grid-template-columns: repeat(var(--inv-craft-cols, 4), calc(var(--inv-cell, 54px) + 2px));
+  grid-template-columns: repeat(var(--inv-craft-cols, 5), calc(var(--inv-cell, 54px) + 2px));
   align-content: start; justify-content: start; gap: 8px;
   flex: none; overflow-y: auto; overflow-x: hidden; padding-right: 4px;
-  scrollbar-width: thin;
+  scrollbar-width: thin; scrollbar-gutter: stable;
   scrollbar-color: var(--sb-thumb, rgba(52, 58, 66, 0.95)) var(--sb-track, rgba(4, 6, 9, 0.55));
 }
 .inv-craft-cell {
@@ -1374,10 +1378,14 @@ kbd {
 .inv-craft-bench-ico { font-style: normal; font-size: 14px; line-height: 1; flex: none; opacity: 0.9; }
 .inv-craft-bench-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inv-craft-bench-lv { flex: none; font-size: 9px; letter-spacing: 0.04em; opacity: 0.75; font-variant-numeric: tabular-nums; }
-/* ── 2026-09-15 2차 (사용자 결정): 오른쪽 **상세 패널**. `.inv-craft-row` 라는 이름을 함께 갖는 이유는 튜토리얼
+/* ── 2026-09-15 2차 (사용자 결정): **상세 패널**. `.inv-craft-row` 라는 이름을 함께 갖는 이유는 튜토리얼
    스포트라이트 선택자(`.inv-craft-row[data-recipe="…"] .inv-craft-btn`)가 계속 맞아야 하기 때문이다. 세로 한 줄로
-   ① 썸네일 + 이름 · 종류 ② 설명 · 스펙(툴팁 카드) ③ 보유 수 ④ 재료 썸네일 ⑤ 수량 ⑥ 홀드 버튼. */
+   ① 썸네일 + 이름 · 종류 ② 설명 · 스펙(툴팁 카드) ③ 보유 수 ④ 재료 썸네일 ⑤ 수량 ⑥ 홀드 버튼.
+   2026-09-15 4차 (사용자 결정): 이 본문은 작업대 패널 오른쪽의 **별도 카드** `.inv-panel-craft-detail` 안에 산다 — 카드가
+   테두리 · 배경 · 상태색(`is-locked` · `is-nospace` · `is-crafting`, `CraftPanel.syncDetailCard`)을 그리므로 본문은 틀이 없다.
+   머리는 아이템 툴팁과 같은 틀: 아이콘 좌상단 · 오른쪽 이름(등급색) · 그 아래 종류 · 등급 (`.inv-tt-name` · `.inv-tt-sub` 의 짝). */
 .inv-craft-row {
+  --rc: #9aa3ad;
   display: flex; flex-direction: column; align-items: stretch; gap: 10px;
   padding: 12px 14px;
   border: 1px solid var(--inv-line);
@@ -1386,9 +1394,25 @@ kbd {
 }
 .inv-craft-detail { flex: 1 1 0px; min-width: 240px; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
 .inv-craft-detail[hidden] { display: none; }
-.inv-craft-dhead { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.inv-craft-dtitles { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.inv-craft-dkind { font-size: 10px; letter-spacing: 0.1em; color: var(--inv-muted); }
+.inv-craft-dhead { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.inv-craft-dtitles { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-top: 2px; }
+.inv-craft-dkind { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--inv-muted); }
+/* 상세 카드 (2026-09-15 4차): 툴팁처럼 등급색 윗줄, 안의 본문 · 스펙 카드는 틀을 벗는다 (카드 하나가 곧 툴팁이다) */
+.inv-panel-craft-detail {
+  --rc: #9aa3ad;
+  width: 340px; min-width: 0;
+  border-top: 2px solid var(--rc);
+  transition: border-color 120ms var(--inv-ease);
+}
+.inv-panel-craft-detail[hidden] { display: none; }
+.inv-panel-craft-detail::before { display: none; }   /* 패널 윗줄 하이라이트 대신 등급색 선 */
+.inv-panel-craft-detail > .inv-craft-row { padding: 0; border: 0; border-radius: 0; background: none; }
+.inv-panel-craft-detail .inv-tt-card { padding: 0; border: 0; border-radius: 0; background: none; }
+.inv-panel-craft-detail.is-crafting { border-color: var(--inv-accent); }
+.inv-panel-craft-detail.is-nospace { border-color: color-mix(in srgb, var(--inv-bad) 55%, var(--inv-line)); }
+.inv-panel-craft-detail.is-locked,
+.inv-panel-craft-detail.is-bench-locked { background: linear-gradient(180deg, rgba(10, 12, 16, 0.96), rgba(8, 9, 12, 0.96)); }
+.inv-panel-craft-detail.is-bench-locked { border-style: dashed; border-top-style: solid; }
 /* 현재 보유 수 — 재료를 세는 범위와 같은 수 (함선 = 가방 + 창고, 현장 = 가방) */
 .inv-craft-owned {
   font-size: 11px; letter-spacing: 0.06em; color: var(--inv-muted); font-variant-numeric: tabular-nums;
@@ -1462,7 +1486,8 @@ kbd {
 .inv-craft-row.is-nospace .inv-craft-thumb { filter: saturate(0.55) brightness(0.85); }
 .inv-craft-row.is-nospace .inv-craft-btn { color: var(--inv-bad); }
 .inv-craft-info { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
-.inv-craft-name { font-size: 13px; font-weight: 600; }
+/* 2026-09-15 4차: 이름은 툴팁의 `.inv-tt-name` 과 같은 등급색 (`--rc` 는 `CraftDetail.show` 가 찍는다) */
+.inv-craft-name { font-size: 14px; font-weight: 600; color: color-mix(in srgb, var(--rc) 80%, white 30%); }
 /* `.inv-craft-desc` (레시피 설명 줄) 은 2026-09-09 에 마크업에서 빠졌다 — 썸네일과 `이름 ×n` 이 그 자리를 한다. */
 .inv-craft-inputs { display: flex; flex-wrap: wrap; gap: 5px; }
 .inv-craft-chip {
@@ -1565,6 +1590,12 @@ kbd {
 .inv-layout.is-craft .inv-col-right { order: 2; }
 .inv-layout.is-craft .inv-panel-craft { order: -1; }
 .inv-layout.is-craft .inv-panel-catalog { order: -2; }
+/* ── 2026-09-15 4차 (사용자 결정): 제작 배치 = **[작업대 목록 · 조합 목록] [상세 카드]** ─────────────────────────
+   창고 · 가방 격자 카드는 제작 중 **숨는다** — 재료는 격자가 아니라 인벤토리 모델에서 센다 (`craftCountDef`). 상세 카드는
+   작업대 패널 바로 오른쪽(order 0)이고 `align-self: stretch` 로 그 패널의 위 · 아래에 맞춘다 (줄의 높이 = 작업대 패널;
+   `.inv-layout` 은 `align-items: flex-start` 라 나머지는 그대로다). 안의 본문(`.inv-craft-detail`)이 남는 높이를 받아 스크롤한다. */
+.inv-layout.is-craft .inv-panel-grids { display: none; }
+.inv-layout.is-craft .inv-panel-craft-detail { order: 0; align-self: stretch; max-height: calc(100vh - 140px); }
 /* 나란히 서므로 두 격자 모두 평소 창고 높이를 그대로 쓴다 (예전에는 위아래로 쌓느라 둘 다 잘라야 했다) */
 /* 2026-09-13: 창고 격자는 평소 창고 높이를 **바닥**으로 두고(`min-height`) 가방 패널이 더 길면 남는 자리를 채운다
    (`flex: 1 1 0px` — 격자 24행이 패널 높이를 밀어 올리지 않는다). 가방이 짧으면 가방 패널이 창고에 맞춰 늘어난다. */
@@ -1582,23 +1613,25 @@ kbd {
 /* 가방 헤더는 남기되(용량은 만든 것이 들어갈 자리가 있는지 알려 준다) `제작` 버튼과 하단 가치만 뺀다 */
 .inv-layout.is-craft .inv-bag-craft { display: none; }
 .inv-layout.is-craft .inv-panel-bag > .inv-foot { display: none; }
-/* 2026-09-15 2차: 제작 열이 [작업대 목록][조합 목록 4칸][상세] 셋이 되면서 폭이 늘었다. */
-.inv-panel-craft { width: 700px; max-height: calc(100vh - 140px); }
+/* 2026-09-15 2차: 제작 열이 [작업대 목록][조합 목록 4칸][상세] 셋이 되면서 폭이 늘었다.
+   2026-09-15 4차: 상세가 옆 카드로 나가고 목록이 5칸이 되면서 폭은 **내용이 정한다** (`width: auto`, `flex: none`) —
+   작업대 목록 128 + 간격 + 격자 5칸(+ 스크롤바 자리). 칸 크기(`--inv-cell`)가 창 높이를 타므로 px 를 적지 않는다. */
+.inv-panel-craft { width: auto; flex: none; max-height: calc(100vh - 140px); }
 /* 2026-09-12 (사용자 결정): 제작품 목록은 **고정 높이 + 세로 스크롤**이고, 그 높이는 오른쪽 창고 격자와 같은
    식이다 (`.inv-stash-scroll`) — 창이 짧아도 패널이 아니라 목록만 움직인다. */
 .inv-panel-craft .inv-craft-body {
   flex: none; height: min(560px, calc(100vh - 330px)); max-height: none;
 }
 .inv-panel-craft .inv-craft-list::-webkit-scrollbar,
-.inv-panel-craft .inv-craft-detail::-webkit-scrollbar { width: 6px; }
+.inv-panel-craft-detail .inv-craft-detail::-webkit-scrollbar { width: 6px; }
 .inv-panel-craft .inv-craft-list::-webkit-scrollbar-thumb,
-.inv-panel-craft .inv-craft-detail::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
+.inv-panel-craft-detail .inv-craft-detail::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
 .inv-panel-craft .inv-craft-benches { max-height: min(560px, calc(100vh - 330px)); }
-/* 좁은 창(1280 급)에서는 제작 열을 줄여 다른 열이 조금이라도 더 들어오게 한다 — 그래도 모자라면
+/* 좁은 창(1280 급)에서는 작업대 목록 · 상세 카드를 줄여 다른 열이 조금이라도 더 들어오게 한다 — 그래도 모자라면
    `.inv-layout` 의 가로 스크롤이 받는다 (격자를 찌그러뜨리지 않는다는 기존 규칙). */
 @media (max-width: 1560px) {
-  .inv-panel-craft { width: 610px; }
   .inv-craft-benches { width: 104px; }
+  .inv-panel-craft-detail { width: 300px; }
 }
 
 /* stash: fixed 10-wide grid, rows scroll */

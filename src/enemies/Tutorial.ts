@@ -2,7 +2,7 @@
  * src/enemies/Tutorial.ts — **튜토리얼 전용 적** (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」 의 `D` 절).
  *
  * 튜토리얼 레이드(`ctx.missionMode === 'tutorial'`)는 **고정 자리 · 고정 종류**의 적만 세운다:
- * 굴림 없음 · 웨이브 없음 · 순찰 없음 · 스포너 없음 · 지하벌레 없음 · 네임드 없음 · 레이더 강하 없음.
+ * 굴림 없음 · 웨이브 없음 · 순찰 없음 · 스포너 없음 · 땅굴벌레 없음 · 네임드 없음 · 레이더 강하 없음.
  * 훈련장(`sys.training`)이 전부 끄는 것과 같은 요령이고, 다른 점은 **적이 있다**는 것 하나다.
  *
  * **월드가 자리를, 여기가 몸을 갖는다** — 폴더끼리 import 하지 않으려고 그렇게 갈랐다.
@@ -27,6 +27,15 @@
  *    튜토리얼은 굴림이 없으므로 가르치려는 물건만 정확히 나온다.
  * 2. **벌레는 땅에서 솟는다.** 벌레 줄은 `world:ready` 에 세우지 않고 `TutorialPlacement.ambush` 에 담아 두었다가
  *    플레이어가 그 마리의 감지 반경에 들어서면 굴착 스폰으로 꺼낸다 (`updateTutorialAmbush`).
+ *
+ * ── 2026-09-15 3차 (사용자 결정 — 철조망 너머 마지막 둘) ────────────────────────────────────────────────
+ * 3. **자리별 총 · 감지 반경.** 월드 목록의 한 줄이 `weapon`(총 계열 — 산탄총 · 지정사수소총)과 `sense`(22 m, 함선 램프 ·
+ *    화물칸이 들어오는 반경)를 덮어쓸 수 있다 (`weaponFor` · `applyTutorialTether`). 둘 다 `tut_android_loot` 라 그 총이 그대로
+ *    시체에 떨어진다. 스위치를 누른 뒤의 두 번째 깨우기는 이미 있던 이륙 사격 창(`onTutorialLiftoff`)이다 — 튜토리얼 함선은
+ *    스위치가 곧 `extraction:liftoff` 라 별도의 훅이 필요 없다.
+ * 4. **떨어진 적은 자기 자리로.** 철조망 너머에 절벽 구멍이 생겨(`world/tutorial/model.ts` 의 `ABYSS_CUTS`) 쫓아 나온
+ *    안드로이드가 가장자리를 넘을 수 있는데, 적의 걸음은 `getSurfaceY` 로 발밑을 잡을 뿐 낙하가 없어 지형(−100)으로 **순간이동**
+ *    한다. `tutorialHold` 가 자기 자리보다 `FALL_RESET_M` 넘게 내려간 적을 자리로 되돌린다 (본편 적은 `homeLeash` 0 이라 첫 줄에서 돌아간다).
  */
 import type * as THREE from 'three';
 import { BURROW_EMERGE_S, TUTORIAL_ENEMY_LEASH_M, TUTORIAL_ENEMY_SENSE_M, type EnemyType, type TutorialEnemySpawn } from '@/shared';
@@ -45,7 +54,7 @@ export interface TutorialPlacement {
   spawned: number;
   /** 선 적의 id (선 순서 = 목록 순서, 나중에 솟은 벌레는 뒤에 붙는다). */
   ids: number[];
-  /** 목록에 있었지만 세우지 못한 줄 (모르는 종류 · 지하벌레 · 풀 포화). */
+  /** 목록에 있었지만 세우지 못한 줄 (모르는 종류 · 땅굴벌레 · 풀 포화). */
   skipped: number;
   /** 아직 땅속에 있는 벌레 (2026-09-14 3차 — `updateTutorialAmbush` 가 하나씩 꺼낸다). */
   ambush: TutorialAmbush[];
@@ -90,18 +99,31 @@ export interface TutorialAmbush {
 
 const KNOWN_TYPES: ReadonlySet<string> = new Set<string>(ALL_ENEMY_TYPES);
 
-/** `data/enemies.csv` 에 있는 종류면 그것, 아니면 null. 지하벌레는 자기 디렉터가 세우는 이벤트 보스라 여기서는 거절한다. */
+/** `data/enemies.csv` 에 있는 종류면 그것, 아니면 null. 땅굴벌레는 자기 디렉터가 세우는 이벤트 보스라 여기서는 거절한다. */
 function toEnemyType(type: string): EnemyType | null {
   if (!KNOWN_TYPES.has(type)) return null;
   const t = type as EnemyType;
   return isWormType(t) ? null : t;
 }
 
-/** 인간형이 드는 총 — 팩션 표의 첫 항목 하나로 고정한다 (튜토리얼에는 굴림이 없다). */
-function weaponFor(type: EnemyType): string {
+/**
+ * 인간형이 드는 총 — 월드 목록이 그 자리에 총 계열을 적어 두었으면 그것(2026-09-15 3차: 철조망 너머 둘의 산탄총 · 지정사수소총),
+ * 아니면 팩션 표의 첫 항목 하나로 고정한다 (튜토리얼에는 굴림이 없다). `*_loot` 타입이면 이 계열이 그대로 시체에 떨어진다
+ * (`items/Loot.rollCorpseOn` 의 `rogueWeaponId` — 등급 I 정의 id 라 등급 굴림 없이 그 총이다).
+ */
+function weaponFor(type: EnemyType, s: TutorialEnemySpawn): string {
   const faction = ENEMY_STATS[type].faction;
   if (faction === 'bug') return '';
-  return HUMANOID_WEAPONS[faction][0] ?? '';
+  return spawnWeapon(s) ?? HUMANOID_WEAPONS[faction][0] ?? '';
+}
+
+/**
+ * 월드가 적어 준 총 계열 (`world/tutorial/model.ts` 의 `TutorialSpawnSpec.weapon`). 공용 계약 `TutorialEnemySpawn` 에는 아직 없는
+ * 선택 필드라 구조적으로 읽는다 — 계약에 올리는 일은 `docs/TODO.md` 참고 절. 빈 문자열 · 문자열이 아닌 값은 「없음」이다.
+ */
+function spawnWeapon(s: TutorialEnemySpawn): string | null {
+  const w = (s as { weapon?: unknown }).weapon;
+  return typeof w === 'string' && w.length > 0 ? w : null;
 }
 
 /** csv 기본값으로 떨어지는 양수 읽기 (월드가 0 · 음수 · NaN 을 넘겨도 기본값으로 산다). */
@@ -139,7 +161,7 @@ export function placeTutorialEnemies(host: RogueSpawnHost, spawns: readonly Tuto
       out.ambush.push({ spawn: s, type, at, yaw, sense: positive(s.sense, TUTORIAL_ENEMY_SENSE_M) });
       continue;
     }
-    const e = host.spawnRogue(type, at, yaw, at, weaponFor(type), null, { site: null, squadId: host.allocSquadId(), role: 'member' });
+    const e = host.spawnRogue(type, at, yaw, at, weaponFor(type, s), null, { site: null, squadId: host.allocSquadId(), role: 'member' });
     if (!e) { out.skipped++; continue; }
     applyTutorialTether(e, s);
     out.spawned++;
@@ -362,11 +384,17 @@ function applyTutorialTether(e: Enemy, s: TutorialEnemySpawn): void {
  * (`ai/RogueAI` 의 `WANDER_LEASH_MARGIN` · `ai/EnemyAI` 의 `LURE_ARRIVE` 와 같은 성격).
  */
 const HOME_EPS = 1;
+/**
+ * 2026-09-15 3차 — 자기 자리보다 이만큼(m) **아래**로 내려간 적은 절벽 구멍으로 떨어진 것이다 (`getSurfaceY` 가 지형 −100 을 돌려줘
+ * 순간이동한 몸). 웅덩이(0.9 m) · 절벽 2 아래로 내려간 것과 구별하려고 절벽 2 의 낙차(10 m)보다 크게 잡았다 — 기하 허용치라 코드에 있다.
+ */
+const FALL_RESET_M = 20;
 
 /**
  * 튜토리얼 적의 **자기 자리 지키기** — `ai/EnemyAI.updateEnemyAI` 가 인지 갱신 뒤 매 프레임 부른다.
  * `homeLeash === 0`(본편 · 훈련장의 모든 적)이면 **첫 줄에서 그대로 돌아간다** — 호출부가 볼 것은 그 한 줄뿐이다.
  *
+ *   0. 절벽 구멍으로 떨어졌다 (자리보다 `FALL_RESET_M` 아래) — 그 자리로 되돌려 놓고 추격을 접는다 (파일 머리 주석 4).
  *   1. 리시 밖    — 무슨 일이 있어도 추격을 접고 자기 자리로 걸어간다 (`leashHome`).
  *   2. 리시 안에서 싸우는 중 — 평소 AI 그대로 (튜토리얼이 가르치려는 전투가 여기서 벌어진다).
  *   3. 싸움이 끝났는데 자리를 벗어나 있다 — 걸어서 돌아간다.
@@ -376,6 +404,7 @@ const HOME_EPS = 1;
 export function tutorialHold(e: Enemy, dt: number): void {
   if (e.homeLeash <= 0) return;
   if (e.airborne || e.chargePhase !== 0 || e.state === 'stagger') return;   // 이미 날아간 것 · 돌진 · 경직은 끝나야 끝난다
+  if (e.position.y < e.guardPos.y - FALL_RESET_M) { e.position.copy(e.guardPos); leashHome(e); return; }
   const hx = e.position.x - e.guardPos.x, hz = e.position.z - e.guardPos.z;
   const home = hx * hx + hz * hz;
   /*

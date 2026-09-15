@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import {
   GADGET_JUMPPAD_RADIUS, GADGET_PLACE_LARGE_MAX_STEP, GADGET_PLACE_LARGE_MIN_NORMAL_Y, GADGET_PLACE_RANGE,
-  GADGET_PLACE_SMALL_MIN_NORMAL_Y, isLargeDeployable, isMountableDeployable,
+  GADGET_PLACE_SMALL_MIN_NORMAL_Y, THUMPER_GROUND_R, isLargeDeployable, isMountableDeployable,
   type DeployableKind, type GadgetDef, type GadgetId, type GameContext, type Obstacle, type PlacementPreview,
   type PlayerWeaponHost,
 } from '@/shared';
@@ -30,6 +30,8 @@ const R_SPACE = '공간이 부족하다';
 const R_OVERLAP = '다른 설치물과 겹친다';
 const R_DRONE_LARGE = '드론 위에는 올릴 수 없다';
 const R_DRONE_TAKEN = '이미 드론에 설치물이 있다';
+/** 2026-09-15 (진동 장치): `WorldRef.burrowGroundOk` 가 아니라고 한 바닥 — 건물 바닥 · 옥상 · 바위 · 물 · 재해 · 둥지 위. */
+export const R_BURROW = '땅굴벌레가 파고들 수 없는 땅이다';
 
 /* ── 기하 분류 (수치 밸런스가 아니라 "무엇을 맞혔나" 를 가르는 값) ── */
 /** 맞힌 면의 법선 y 가 이보다 작으면 바닥이 아니라 벽 · 천장으로 본다 → 한 걸음 물러나 아래 바닥으로 떨어뜨린다. */
@@ -51,6 +53,9 @@ const TURRET_HEIGHT = 1.15;
 const SMALL_FOOTPRINT = 0.3;
 const SMALL_HEIGHT = 0.3;
 const JUMPPAD_HEIGHT = 0.35;
+/** 진동 장치 받침 + 망치 기둥의 반경 · 높이(m) (`GadgetVisuals` 의 실루엣). */
+const THUMPER_FOOTPRINT = 0.45;
+const THUMPER_HEIGHT = 1.5;
 
 /** 한 종류가 차지하는 자리. 좌표는 설치물 로컬(yaw 회전 전). */
 interface Footprint {
@@ -100,6 +105,10 @@ function footprintOf(kind: DeployableKind): Footprint {
     case 'turret':
       fp = { circles: [0, 0, TURRET_FOOTPRINT], reach: TURRET_FOOTPRINT, height: TURRET_HEIGHT, samples: ringSamples(TURRET_FOOTPRINT, 6), ringX: TURRET_FOOTPRINT + 0.1, ringZ: TURRET_FOOTPRINT + 0.1 };
       break;
+    case 'thumper':
+      // 2026-09-15: 소형 규칙(경사 `GADGET_PLACE_SMALL_MIN_NORMAL_Y`)이지만 공간은 제 실루엣만큼 본다. 고스트 링 = 땅 판정 반경 (`THUMPER_GROUND_R`)
+      fp = { circles: [0, 0, THUMPER_FOOTPRINT], reach: THUMPER_FOOTPRINT, height: THUMPER_HEIGHT, samples: [], ringX: THUMPER_GROUND_R, ringZ: THUMPER_GROUND_R };
+      break;
     default:
       fp = { circles: [0, 0, SMALL_FOOTPRINT], reach: SMALL_FOOTPRINT, height: SMALL_HEIGHT, samples: [], ringX: 0, ringZ: 0 };
       break;
@@ -125,6 +134,14 @@ function fail(out: PlacementPreview, reason: string): PlacementPreview {
   out.valid = false;
   out.reason = reason;
   return out;
+}
+
+/**
+ * 2026-09-15 (진동 장치): 이 자리 반경 `THUMPER_GROUND_R` 이 땅굴벌레가 파고들 수 있는 땅인가 — 판정은 world 의 것이고
+ * (`WorldRef.burrowGroundOk`, 호스트의 발동 자리 검사와 같은 함수), 아직 없으면 **거부**다. 미리보기 · 좌클릭 · 호스트 재검사가 전부 이것을 부른다.
+ */
+export function burrowGroundOk(world: NonNullable<GameContext['world']>, x: number, z: number): boolean {
+  return world.burrowGroundOk?.(x, z, THUMPER_GROUND_R) ?? false;
 }
 
 /** 이 드론 위에 이미 올라탄 설치물이 있나. */
@@ -260,6 +277,9 @@ export function computePlacement(sys: GadgetSystem, def: GadgetDef, out: Placeme
   // ── 경사 ──
   if (_n.y < (large ? GADGET_PLACE_LARGE_MIN_NORMAL_Y : GADGET_PLACE_SMALL_MIN_NORMAL_Y)) return fail(out, R_SLOPE);
 
+  // ── 진동 장치: 땅굴벌레가 파고들 수 있는 땅인가 (2026-09-15) — world 가 답하고, 없으면(병렬 개발) 어디에도 못 놓는다 ──
+  if (kind === 'thumper' && !burrowGroundOk(world, x, z)) return fail(out, R_BURROW);
+
   const fp = footprintOf(kind);
   const cos = Math.cos(out.yaw), sin = Math.sin(out.yaw);
 
@@ -372,5 +392,7 @@ export function resolveRemotePlace(sys: GadgetSystem, def: GadgetDef, pos: THREE
   }
   // 바닥 (또는 드론이 사라졌을 때 그 아래): 요청 높이 근처에서 올라설 수 있는 표면
   if (world && world.ready) pos.y = world.getSurfaceY(pos.x, pos.z, pos.y + 0.2);
+  // 2026-09-15: 진동 장치는 땅굴벌레를 부르는 물건이라 호스트도 땅 판정을 다시 본다 — 같은 시드의 같은 함수라 정직한 클라와는 늘 일치한다
+  if (def.deployable === 'thumper' && world && world.ready && !burrowGroundOk(world, pos.x, pos.z)) return false;
   return null;
 }

@@ -1,7 +1,7 @@
 /**
- * src/enemies/sandworm/Pose.ts — **지하벌레 자세 힌트** (2026-09-13).
+ * src/enemies/sandworm/Pose.ts — **땅굴벌레 자세 힌트** (2026-09-13).
  *
- * 권위(`sandworm/Director` 의 지하벌레 틱)와 리플리카(`net/Replica.drive`)가 **같은 함수**로 와이어 힌트를 자세로 푼다 —
+ * 권위(`sandworm/Director` 의 땅굴벌레 틱)와 리플리카(`net/Replica.drive`)가 **같은 함수**로 와이어 힌트를 자세로 푼다 —
  * 호스트가 보는 입 벌림 · 꿀렁임 · 숙임이 비호스트 화면과 어긋나지 않게. 힌트 값은 `EnemyWire.a` 의 21 · 22
  * (`shared/net.ts` 의 `EnemyEventAppended2026_09_13` 주석). 판정 · 타이머는 없다.
  */

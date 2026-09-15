@@ -3,9 +3,9 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Random } from '@/shared';
 import type { ObstacleEntry, SpatialHash } from '../../SpatialHash';
 import {
-  BACKSTOP, BARRIER, BARRIER_GHOST_OVERLAP, BARRIER_LEN, BARRIER_MESH_YAW, CLIFF2_EDGE_Z, CRAWL, DECK_LOWER_Y,
-  DECK_UPPER_Y, DRESSING_SEED, PIT_FLOOR_Y, PIT_RAMP_TOE_X, RUINS,
-  SHIP_POS, SHIP_YAW, barrierLocal, barrierPoint, box, corridorHalfXAt, crawlClearanceAt, inChasm, pitSurfaceY,
+  BARRIER, BARRIER_GHOST_OVERLAP, BARRIER_LEN, BARRIER_MESH_YAW, CLIFF2_EDGE_Z, CRAWL, DECK_LOWER_Y,
+  DECK_UPPER_Y, DRESSING_SEED, PIT, PIT_RAMP_TOE_X, PIT_WALLS, RUINS,
+  SHIP_POS, SHIP_YAW, barrierLocal, barrierPoint, box, corridorHalfXAt, crawlClearanceAt, inAbyssCut, inChasm, pitSurfaceY,
 } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -27,8 +27,13 @@ import {
  *
  * 2026-09-15 2차 (사용자 결정) — 철조망이 **절반 높이**(1.35)로 보이되 콜라이더는 위에 `passRays` + `passSmall`
  * **유령 토막**을 얹어 사람만 막는다(`BARRIER.blockHeight`). 살 치수는 이제 전부 `BARRIER.fenceHeight` 에서 유도한다.
- * 그리고 마지막 안드로이드 둘이 **웅덩이**(`model.ts` 의 `PIT`, 땅은 `parts/Ground.buildPit`) 안에 서므로
- * `BACKSTOP` 의 밑면과 웅덩이 안 부스러기가 `PIT_FLOOR_Y` · `pitSurfaceY` 를 기준으로 내려갔다.
+ * 그리고 마지막 안드로이드 둘이 **웅덩이**(`model.ts` 의 `PIT`, 땅은 `parts/Ground.buildPit`) 안에 서므로 웅덩이 안 부스러기가
+ * `pitSurfaceY` 를 기준으로 내려갔다.
+ *
+ * 2026-09-15 3차 (사용자 결정) — ① 콘크리트 `BACKSTOP` 은 없어졌다: 수류탄을 멈추는 벽은 이제 웅덩이를 두르는 바위 벽
+ * (`model.ts` 의 `PIT_WALLS`, `parts/Ground.buildPit`)이고 여기서는 그 밑동에 부스러기만 놓는다. ② 철조망 너머에 절벽 구멍
+ * (`ABYSS_CUTS`)이 생겨 부스러기는 `inAbyssCut` 자리를 뺀다 (허공에 뜬다). ③ 깨어나는 자리의 **넘어진 안테나 기둥**이 통로
+ * 한가운데에 콜라이더 없이 누워 있던 것을 왼쪽 폐허 벽 곁으로 옮기고 실루엣과 같은 상자 콜라이더를 줬다 (`buildRuins`).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** 콜라이더 없이 그리기만 하는 최대 높이 (발을 걸지 않고 넘어간다 — `PROP_STEP_UP_MAX` 0.9 보다 낮다). */
@@ -113,12 +118,18 @@ export class Dressing {
       // 벽 밑동의 무너진 조각
       flat.push(box(len * 0.6, FLAT_DEBRIS_H, 2.2, x + rng.range(-1, 1), y + FLAT_DEBRIS_H / 2, z + rng.range(-2, 2), yaw + 0.1));
     }
-    // 넘어진 안테나 기둥 (눕혀 둔 원기둥 — 넘어가는 높이라 콜라이더를 주지 않는다). x −2.92 … 5.72
+    /* 넘어진 안테나 기둥 — 2026-09-15 3차 (사용자 결정 — 「깨어나는 자리 한가운데의 장식 기둥이 콜라이더 없이 놓여 있어 어색하다」):
+     * 통로 한가운데(옛 x −2.92 … 5.72 · z 109)에서 **왼쪽 폐허 벽 곁**으로 옮겨 통로와 나란히 눕히고, 실루엣(길이 9 · 지름 0.9 →
+     * 높이 0.85)과 같은 상자 콜라이더를 준다. 0.85 < `PROP_STEP_UP_MAX` 0.9 라 밟고 올라설 수는 있지만 뚫고 지나가지는 않는다.
+     * 자리: 중심 (−4.45, 104.5), 살짝 비스듬(0.06 rad) → x −5.17 … −3.73 · z 100 … 109. 왼쪽 벽 조각(x −6.35 … −5.45, z 102.5 … 111.5)과
+     * 0.28 m, 앞쪽 벽 조각(z ≤ 99.05)과 0.95 m 떨어져 겹치지 않고, 벽 안쪽 면(|x| ≥ 6.6)보다 안이라 벽 속에 묻히지 않는다. */
+    const mastYaw = Math.PI / 2 + 0.06;
     const mast = new THREE.CylinderGeometry(0.35, 0.45, 9, 8);
     mast.rotateZ(Math.PI / 2);
-    mast.rotateY(0.4);
-    mast.translate(1.4, y + 0.4, 109);
-    flat.push(mast);
+    mast.rotateY(mastYaw);
+    mast.translate(-4.45, y + 0.4, 104.5);
+    solid.push(mast);
+    this.addBox(hash, -4.45, y, 104.5, 4.5, 0.45, mastYaw, 0.85, 'tut_ruin');
     // 포드 잔해 한 조각 — "여기서 떨어졌다" 를 말하는 유일한 소품. x −3.83 … 0.23
     solid.push(box(3.2, 2.0, 2.6, -1.8, y + 1.0, 118.5, 0.5));
     this.addBox(hash, -1.8, y, 118.5, 1.6, 1.3, 0.5, 2.0, 'tut_ruin');
@@ -259,40 +270,38 @@ export class Dressing {
       ghost.passSmall = true;
     }
 
-    /* ③ 건너편 안드로이드가 등지고 선 콘크리트 방벽 — 넘겨 던진 수류탄이 여기에 부딪혀 그 밑동에 떨어진다 (`BACKSTOP` 주석).
-     * 2026-09-15 2차: 밑면이 데크가 아니라 **웅덩이 바닥**이다 — 웅덩이 안에서는 4.2 m 벽이고, 양 끝이 턱을 뚫고 나간
-     * 자리에서는 아래 0.9 m 가 데크에 묻혀 3.3 m 로 보인다 (끝이 턱에 박혀 있어 수류탄이 돌아 나가지 못한다). */
-    const yb = PIT_FLOOR_Y;
-    const b = barrierPoint(BACKSTOP.along, BACKSTOP.depth);
-    solid.push(box(BACKSTOP.halfLen * 2, BACKSTOP.height, BACKSTOP.halfT * 2, b.x, yb + BACKSTOP.height / 2, b.z, yaw));
-    this.addBox(hash, b.x, yb, b.z, BACKSTOP.halfLen, BACKSTOP.halfT, yaw, BACKSTOP.height, 'tut_backstop');
-    for (let i = 0; i < 4; i++) {
-      const s = rng.range(0.5, 1.0);
-      const p = barrierPoint(BACKSTOP.along + rng.range(-BACKSTOP.halfLen + 0.8, BACKSTOP.halfLen - 0.8), BACKSTOP.depth + rng.range(-0.2, 0.2));
-      solid.push(box(s * 1.5, s * 0.5, BACKSTOP.halfT * 1.6, p.x, yb + BACKSTOP.height + s * 0.25 - 0.1, p.z, yaw + rng.range(-0.25, 0.25)));
-    }
-    // 방벽 뒤(건너편 먼 쪽)에 무너져 내린 조각 — 수류탄이 멈추는 앞쪽 밑동은 비워 둔다. 웅덩이 안이면 그 바닥에 놓는다.
+    /* ③ 웅덩이 벽 밑동의 부스러기 (2026-09-15 3차) — 벽 자체는 땅(`parts/Ground.buildPit`, `PIT_WALLS`)이다. 동쪽 벽 · 남쪽 벽 안쪽
+     * 밑동을 따라 납작한 조각 몇 개를 **웅덩이 바닥 높이**에 놓는다 (수류탄이 굴러와 멈추는 자리라 콜라이더는 없다 — `FLAT_DEBRIS_H`). */
     for (let i = 0; i < 3; i++) {
-      const p = barrierPoint(BACKSTOP.along + rng.range(-3.5, 3.5), BACKSTOP.depth - rng.range(1.2, 2.4));
-      const py = pitSurfaceY(p.x, p.z) ?? y;
-      flat.push(box(rng.range(0.8, 1.8), FLAT_DEBRIS_H, rng.range(0.6, 1.2), p.x, py + FLAT_DEBRIS_H / 2, p.z, rng.range(0, Math.PI)));
+      const px = PIT.x1 - rng.range(0.5, 1.3), pz = PIT.z0 - rng.range(1, PIT.z0 - PIT.z1 - 1.5);
+      flat.push(box(rng.range(0.7, 1.4), FLAT_DEBRIS_H, rng.range(0.6, 1.2), px, (pitSurfaceY(px, pz) ?? y) + FLAT_DEBRIS_H / 2, pz, rng.range(0, Math.PI)));
+    }
+    for (let i = 0; i < 3; i++) {
+      const px = rng.range(PIT_RAMP_TOE_X + 1.5, PIT.x1 - 1.5), pz = PIT.z1 + rng.range(0.5, 1.3);
+      flat.push(box(rng.range(0.8, 1.8), FLAT_DEBRIS_H, rng.range(0.5, 1.0), px, (pitSurfaceY(px, pz) ?? y) + FLAT_DEBRIS_H / 2, pz, rng.range(0, Math.PI)));
     }
   }
 
   /**
-   * 2026-09-15 — 바닥 부스러기를 뿌리지 않는 자리: 방벽 · 콘크리트 방벽의 발밑(콜라이더 속에 반쯤 묻혀 보인다)과
+   * 2026-09-15 — 바닥 부스러기를 뿌리지 않는 자리: 방벽의 발밑(콜라이더 속에 반쯤 묻혀 보인다)과
    * **버려진 함선의 발자국**(부스러기 0.35 m 가 화물칸 바닥 · 램프를 뚫고 올라온다). 함선 로컬 좌표는 `extraction/Ship.bayLocal` 과
    * 같은 식이고, 외피 x ±5.25 · z −9.7 … 램프 끝 +3.25 에 여유를 둔다.
    *
    * 2026-09-15 2차 — **웅덩이의 오르막**도 뺀다. 부스러기는 yaw 로만 돌리는 납작한 상자라 19.8° 경사에 놓으면
    * 한쪽 끝이 0.25 m 뜨고 반대쪽이 묻힌다. 평평한 **바닥**은 빼지 않는다 — `scatterRubble` 이 `pitSurfaceY` 로
    * 높이를 내려 잡으므로 웅덩이 안에도 부스러기가 깔린다 (턱만 있고 아무것도 없으면 파 놓은 구멍처럼 보인다).
+   *
+   * 2026-09-15 3차 — **웅덩이 벽의 발밑**(`PIT_WALLS` + 0.5 m — 벽 속에 묻힌다)과 **철조망 너머의 절벽 구멍**(`inAbyssCut`, 가장자리
+   * 0.6 m 까지 — 데크 높이의 부스러기가 허공에 뜬다)도 뺀다.
    */
   private blocksRubble(x: number, z: number): boolean {
     const b = barrierLocal(x, z);
     if (b.along > -1.5 && b.along < BARRIER_LEN + 1.5 && Math.abs(b.depth) < BARRIER.halfT + 1.2) return true;
-    if (Math.abs(b.along - BACKSTOP.along) < BACKSTOP.halfLen + 1 && Math.abs(b.depth - BACKSTOP.depth) < BACKSTOP.halfT + 1) return true;
     if (pitSurfaceY(x, z) !== null && x < PIT_RAMP_TOE_X) return true;
+    if (inAbyssCut(x, z, 0.6)) return true;
+    for (const w of PIT_WALLS) {
+      if (x >= w.rect.x0 - 0.5 && x <= w.rect.x1 + 0.5 && z <= w.rect.z0 + 0.5 && z >= w.rect.z1 - 0.5) return true;
+    }
     const c = Math.cos(SHIP_YAW), s = Math.sin(SHIP_YAW);
     const dx = x - SHIP_POS.x, dz = z - SHIP_POS.z;
     const lx = dx * c - dz * s, lz = dx * s + dz * c;
@@ -311,7 +320,7 @@ export class Dressing {
       if (inChasm(x, z, 1.5)) continue;        // 절벽 1 의 틈에는 아무것도 없다 (2026-09-14 3차: 사선이다)
       // 포복 구간 — 엎드린 몸이 콜라이더 없는 부스러기를 뚫고 지나가 보인다 (2026-09-14 3차)
       if (z <= CRAWL.z0 + 1 && z >= CRAWL.z1 - 1) continue;
-      if (this.blocksRubble(x, z)) continue;   // 방벽 발밑 · 웅덩이 오르막 · 함선 발자국 (2026-09-15)
+      if (this.blocksRubble(x, z)) continue;   // 방벽 발밑 · 웅덩이 오르막 · 웅덩이 벽 · 절벽 구멍 · 함선 발자국 (2026-09-15)
       const w = rng.range(0.4, 1.6);
       flat.push(box(w, FLAT_DEBRIS_H * rng.range(0.5, 1), w * rng.range(0.5, 1.4), x, y + FLAT_DEBRIS_H / 2, z, rng.range(0, Math.PI)));
     }

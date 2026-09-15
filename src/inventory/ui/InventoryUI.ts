@@ -359,7 +359,12 @@ export class InventoryUI {
     this.weightEl.append(wRow, wTrack);
     // 2026-09-15 2차: 도구(`모두 수리` · 정렬 · 필터)는 가방 **머리 한 줄** 안이다 — 격자 위 칩 줄은 없어졌다
     bPanel.append(bHead, bBody, this.weightEl, bFoot);
-    this.craftPanel = new CraftPanel(this.sys, getDef, () => this.closeCraft(), (anchor) => this.repair.open(anchor));
+    // 2026-09-15 4차: 조합 목록 칸의 호버 카드는 격자 타일과 **같은 떠다니는 카드**(`this.tooltip`)다 — 무한 상자 타일과 같은 배선
+    this.craftPanel = new CraftPanel(this.sys, getDef, () => this.closeCraft(), (anchor) => this.repair.open(anchor), {
+      onEnter: (def, sample, e) => { if (!this.drag?.started && !this.pin.isSocketDragging) this.tooltip.show(sample, def, e.clientX, e.clientY); },
+      onMove: (e) => this.tooltip.move(e.clientX, e.clientY),
+      onLeave: () => this.tooltip.hide(),
+    });
 
     /* equipment column */
     const eq = document.createElement('aside');
@@ -397,7 +402,8 @@ export class InventoryUI {
     this.rightCol = document.createElement('section');
     this.rightCol.className = 'inv-panel inv-panel-grids inv-col-right';
     this.rightCol.append(bPanel, sPanel);
-    layout.append(this.catalogView.el, this.rightCol, cPanel, this.craftPanel.el, eq);
+    // 2026-09-15 4차: 제작 상세는 작업대 패널 오른쪽의 별도 카드(`craftPanel.detailEl`) — 순서는 `.is-craft` 의 css `order` 가 정한다
+    layout.append(this.catalogView.el, this.rightCol, cPanel, this.craftPanel.el, this.craftPanel.detailEl, eq);
 
     /* Phase 8: embedded 캐릭터 / 기업 / 함선 screens replace the layout in place */
     this.screenHost = document.createElement('div');

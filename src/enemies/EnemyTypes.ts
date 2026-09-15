@@ -48,7 +48,7 @@ export interface EnemyStats {
 }
 
 /** 적 종류를 csv `type` 칸이 받는 순서 — `ALL_ENEMY_TYPES` 와 같은 목록이다. */
-const ENEMY_TYPE_VALUES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth', 'rogue_sniper', 'rogue_hammer', 'rogue_heavy', 'rogue_scan_drone', 'android', 'raider', 'sandworm', 'tut_bug_loot', 'tut_bug', 'tut_android_loot', 'tut_android'];
+const ENEMY_TYPE_VALUES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth', 'rogue_sniper', 'rogue_hammer', 'rogue_heavy', 'rogue_scan_drone', 'android', 'raider', 'sandworm', 'tut_bug_loot', 'tut_bug', 'tut_android_loot', 'tut_android', 'sandworm_weak'];
 const ENEMY_FACTIONS: readonly EnemyFaction[] = ['bug', 'rogue', 'android', 'raider'];
 
 export const ENEMY_STATS: Record<EnemyType, EnemyStats> = (() => {
@@ -116,7 +116,7 @@ export const ARTILLERY_AI = ability<'retreatDist' | 'approachDist' | 'fireMin' |
 export const TOXIC_AI = ability<'swell'>('TOXIC_AI');
 export const BEHEMOTH_AI = ability<'engageDist' | 'chargeCooldown' | 'overshoot' | 'maxDuration' | 'enemyDamage' | 'enemyShove' | 'stumble'>('BEHEMOTH_AI');
 
-export const ALL_ENEMY_TYPES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth', 'rogue_sniper', 'rogue_hammer', 'rogue_heavy', 'rogue_scan_drone', 'android', 'raider', 'sandworm', 'tut_bug_loot', 'tut_bug', 'tut_android_loot', 'tut_android'];
+export const ALL_ENEMY_TYPES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'charger', 'rogue', 'rogue_boss', 'artillery', 'toxic', 'behemoth', 'rogue_sniper', 'rogue_hammer', 'rogue_heavy', 'rogue_scan_drone', 'android', 'raider', 'sandworm', 'tut_bug_loot', 'tut_bug', 'tut_android_loot', 'tut_android', 'sandworm_weak'];
 
 /* ── 2026-09-14 3차: 튜토리얼 전용 4종 (`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ──────────────────
  *
@@ -145,12 +145,18 @@ export const isTutorialEnemyType = (t: EnemyType): t is TutorialEnemyType =>
  */
 export const baseTypeOf = (t: EnemyType): EnemyType => (isTutorialEnemyType(t) ? TUTORIAL_ENEMY_BASE[t] : t);
 /**
- * 2026-09-13: 지하벌레 — 여섯 다리 리그도 인간형 리그도 아닌 **자기 리그**(`models/WormModel`)를 쓴다. 땅에 박힌 채 움직이지 않으며
+ * 2026-09-13: 땅굴벌레 — 여섯 다리 리그도 인간형 리그도 아닌 **자기 리그**(`models/WormModel`)를 쓴다. 땅에 박힌 채 움직이지 않으며
  * AI 는 `sandworm/Director` 가 돌린다 (`ai/EnemyAI` 는 이 종류를 곧장 돌려보낸다).
  */
-export const isWormType = (t: EnemyType): t is 'sandworm' => t === 'sandworm';
+/**
+ * 2026-09-15: 위협 1 행성의 **어린 땅굴벌레** `sandworm_weak` 도 같은 리그 · 같은 디렉터다 — 다른 것은 `data/enemies.csv` 의 자기 줄
+ * (`SANDWORM_WEAK_SCALE` 배 크기 · `SANDWORM_WEAK_HP` 체력)과 디렉터의 뱉기 목록(스캐빈저만) · 분출 반경 배수뿐이다.
+ * 종류 분기는 **늘 이 함수**로 한다 (`=== 'sandworm'` 을 쓰면 어린 개체가 빠진다).
+ */
+export type WormEnemyType = 'sandworm' | 'sandworm_weak';
+export const isWormType = (t: EnemyType): t is WormEnemyType => t === 'sandworm' || t === 'sandworm_weak';
 /** Types rendered with the six-legged bug rig (everything but the humanoid rogues). 2026-09-11: 네임드 3종 + 스캔 드론도 버그 리그가 아니다. 2026-09-13: 안드로이드 · 레이더도. */
-export type BugType = Exclude<EnemyType, 'rogue' | 'rogue_boss' | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone' | 'android' | 'raider' | 'sandworm' | TutorialEnemyType>;
+export type BugType = Exclude<EnemyType, 'rogue' | 'rogue_boss' | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone' | 'android' | 'raider' | WormEnemyType | TutorialEnemyType>;
 /**
  * Humanoid rogue rig (`models/RogueModel`). 2026-09-11: 네임드 3종 포함. 스캔 드론은 계약 단계에서 임시로 여기 들어 있다 —
  * 스캔 드론 담당이 자기 리그를 만들면 이 줄에서 뺀다. 2026-09-13: 안드로이드 · 레이더 (같은 리그, 다른 외피).

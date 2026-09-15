@@ -72,7 +72,7 @@ export const BEHEMOTH_CAP_BONUS_BY_THREAT: readonly number[] = numberList('table
 export interface BugThreatTuning {
   /** 행성 threat 1..3 (행성 없음 · 훈련장 = 1). */
   readonly threat: 1 | 2 | 3;
-  /** 팩션 bug 최대 체력 배수 (지하벌레 제외). */
+  /** 팩션 bug 최대 체력 배수 (땅굴벌레 제외). */
   readonly hpMul: number;
   /** charger · behemoth · artillery 가중치 · 순찰 대형 슬롯 확률 · 포병 굴착 확률 배수. */
   readonly bigMul: number;

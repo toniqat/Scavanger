@@ -802,8 +802,9 @@ export class ExtractionSystem implements GameSystem {
       hidePillar: true,   // 2026-09-10: 함선 안 출발 버튼에도 감지 빛기둥을 세우지 않는다
       getPrompt: () => {
         if (!this.switchReady()) return null;
-        // 2026-09-14 3차: 튜토리얼 함선은 유예 없이 곧장 뜬다 — 캡션이 그 사실을 그대로 말한다
-        if (this.tutorialLiftoffNow()) return '출발 시퀀스 시작 (E 길게) · 즉시 이륙';
+        // 2026-09-14 3차: 튜토리얼 함선은 유예 없이 곧장 뜬다. 2026-09-15: 캡션은 행동 이름뿐 — 「E 길게」는 왼쪽 키 안내가
+        // 이미 그리고, 「즉시 이륙」 꼬리표는 보여 줄 이유가 없다 (사용자 결정).
+        if (this.tutorialLiftoffNow()) return '출발 시퀀스 시작';
         return `출발 시퀀스 시작 (E 길게) · ${Math.round(EXTRACTION_DEPART_GRACE_S)}초 뒤 이륙`;
       },
       canInteract: () => this.switchReady(),

@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "hash": "0778c0cac4ad94",
+  "hash": "1c3e94fa542a71",
   "creditsInitial": 500,
   "creditsMax": 9999999,
   "shopPriceBaseMul": 1.6,
@@ -267,6 +267,7 @@
     "gad_mine": {"value":240,"stack":3},
     "gad_remote_mine": {"value":340,"stack":3},
     "gad_smoke": {"value":110,"stack":3},
+    "gad_thumper": {"value":900,"stack":3},
     "gad_turret": {"value":1600,"stack":1},
     "game_block_tower": {"value":650,"stack":1},
     "game_bug_hunt": {"value":1300,"stack":1},

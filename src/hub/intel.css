@@ -84,10 +84,23 @@
 }
 .hmt-actions .ui-btn { min-width: 0; width: calc(var(--hmt-tile) * 1.3); max-width: 48%; }
 .hmt-actions .ui-btn.hmt-undock { margin: 0 auto; }
+/* 2026-09-15 2차 (사용자 결정): 접속이 없으면 매칭 두 버튼 자리에 같은 크기의 `다시 연결` 하나가 가운데 선다
+   (그날 먼저는 사유 줄 밑의 작은 `hmt-small` 버튼이었다). */
+.hmt-actions .ui-btn.hmt-reconnect { margin: 0 auto; }
 .hmt-actions .ui-btn[hidden] { display: none; }
 .hmt-under { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 18px; }
 .hmt-hint { font-size: 11px; letter-spacing: 0.04em; color: var(--c-text-dim); }
 .hmt-hint[hidden] { display: none; }
+/* 접속이 없을 때의 `초대` (2026-09-15 2차): 잠긴 것처럼 흐리지만 **눌린다** — 누르면 창 대신 사유 줄이 깜박인다
+   (`MatchTab.flashHint` 가 `.is-flash` 를 HINT_FLASH_MS 동안 붙인다). 이 PC 처럼 reduced-motion 이면 애니메이션은
+   0.01 ms 로 잘리지만(`base.css`), 클래스가 붙어 있는 동안의 강조색은 그대로 보인다. */
+.ui-btn.hmt-invite.is-offline { opacity: 0.45; }
+.ui-btn.hmt-invite.is-offline:hover { opacity: 0.7; }
+.hmt-hint.is-flash { color: var(--c-accent); animation: hmt-hint-flash 0.6s ease-out; }
+@keyframes hmt-hint-flash {
+  0%, 35% { color: #fff; text-shadow: 0 0 10px var(--c-accent); transform: scale(1.06); }
+  100% { color: var(--c-accent); text-shadow: none; transform: none; }
+}
 .ui-btn.hmt-small { min-width: 0; height: 30px; padding: 0 14px; font-size: 10px; letter-spacing: 0.12em; }
 .ui-btn.hmt-small[hidden] { display: none; }
 .ui-btn.hmt-leave { color: var(--c-text-dim); }

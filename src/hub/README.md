@@ -32,10 +32,10 @@ forwards interactions.
 | `Computer.ts` | Shared-ship `hub_computer` → `ctx.meta.openCorpMenu()` (warning toast on failure). |
 | `DockingCutscene.ts` | Exterior dock / undock cutscene 900 m above the origin (undock half duration), chase camera via `setCameraOverride`, `elapsed`, `finishNow()`. |
 | `Labels.ts` | `TextPlane`: CanvasTexture text plane, redraws only on change. |
-| `hub.css` | Terminal frame / tabs / panes / planet grid / footer training button (`.hub-train`), launch-slot panel (`.hub-ready`, `.hr-*`), crew loadout popup (`.hub-crew-loadout`), launch warning, status line, planet card (`.hub-planet`, `.hp-*`). |
+| `hub.css` | Terminal frame / tabs / panes / planet grid / training row above the footer (`.hub-train-row`, `.hub-train`), launch-slot panel (`.hub-ready`, `.hr-*`), crew loadout popup (`.hub-crew-loadout`), launch warning, status line, planet card (`.hub-planet`, `.hp-*`). |
 | `intel.css` | Match tab (`.hmt-`), invite modal (`.hinv-`), training confirm (`.htc-`), intel panel in the terminal (`.hi-`), intel screen (`.it-`). |
-| `ui/HubMenu.ts` | Full-screen terminal (`.menu.hub-menu.fullscreen`): top tabs `행성` / `매칭` (`nav.scr-tabs.hub-tabs`, always opens on `행성`); planet pane = 3-column grid (empty · centred planet card with hologram, stepping, travel, `.hp-env` · intel panel); footer right = `닫기 (E)` then the `시뮬레이션 훈련장` corner button (`.hub-train`, state label `.hub-train-state`) → `TrainingConfirm`; `closeTop()` closes training confirm → invite → intel → terminal. |
-| `ui/MatchTab.ts` | 매칭 tab: 4 square face tiles (me first, others by slot, empty = `초대`), `비공개 매칭` / `공개 매칭` → `ctx.net.requestDock`, `도킹 해제` when docked, `분대 떠나기` in an undocked squad, `다시 연결` when offline. |
+| `ui/HubMenu.ts` | Full-screen terminal (`.menu.hub-menu.fullscreen`): top tabs `행성` / `매칭` (`nav.scr-tabs.hub-tabs`, always opens on `행성`); planet pane = 3-column grid (empty · centred planet card with hologram, stepping, travel, `.hp-env` · intel panel); the `시뮬레이션 훈련장` button (`.hub-train`, state label `.hub-train-state`) → `TrainingConfirm` sits on its own row above the footer line (`.hub-train-row`, right-aligned, planet tab only); footer right = `닫기 (E)` only; `closeTop()` closes training confirm → invite → intel → terminal. |
+| `ui/MatchTab.ts` | 매칭 tab: 4 square face tiles (me first, others by slot, empty = `초대`), `비공개 매칭` / `공개 매칭` → `ctx.net.requestDock`, `도킹 해제` when docked, `분대 떠나기` in an undocked squad; offline: the two matching buttons are replaced by a same-size `다시 연결` and `초대` is dimmed (`.is-offline`) and flashes the hint (`flashHint`) instead of opening the modal. |
 | `ui/InviteModal.ts` | Invite modal over the terminal: friends then recent players (name, 아이디, level, presence, `초대` → `social.playWith`, `초대 중 · n초`, `PLAY_BLOCK_LABELS`). Token `hub:invite`, key guide owner `hub.invite`. |
 | `ui/TrainingConfirm.ts` | `시뮬레이션 훈련장에 입장하시겠습니까?` tap confirm (`취소` focused, Escape / Tab / E cancel). Token `hub:trainConfirm`. |
 | `ui/IntelMenu.ts` | Intel screen: pick phase (map + gimmick rows + total + hold-only `확정`) and confirmed phase (hologram lock-on + map + summary, `지역 재배치` hold → discard + reroll). Token `hub:intel`. |
@@ -179,15 +179,18 @@ forwards interactions.
 
 - Two top tabs (`행성` / `매칭`, same `.scr-tab` look as the Tab screen). The terminal always opens on `행성`; the
   tutorial gate `matchmaking` hides the `매칭` tab. Arrow / A-D stepping only runs on the planet tab with no child screen.
-- `시뮬레이션 훈련장` (footer bottom-right, planet tab only) opens `TrainingConfirm` → `startTraining()`. Labels: solo
+- `시뮬레이션 훈련장` (its own row above the footer separator, right-aligned, planet tab only) opens `TrainingConfirm` → `startTraining()`. Labels: solo
   `시작`; lobby `합류 (n명 훈련 중)` / `임무 진행 중` (disabled) / `시작`; undocked squad `분대 대기 중` (disabled).
 - 매칭 tab (`MatchTab`): tiles are me first, then lobby members by slot, then empty cells. Face =
   `ctx.player.snapshotFace({accent})` with `LobbyPlayer.accent ?? NET_SLOT_COLORS_CSS[slot]`; my own accent comes from
   `readSlotCard(activeSlot()).accent`. A null snapshot leaves the name and initial. Empty cell `초대` is enabled only with
   no lobby, or as host before the start with a free slot. Buttons: `비공개 매칭` / `공개 매칭` → `connectThen` →
   `requestDock(isPublic)`; blocked in order by `dockPending` (`도킹 중…`), non-host (`분대장만 매칭할 수 있습니다`), started,
-  connecting, not connected (`서버에 연결되어 있지 않습니다` + `다시 연결`). Docked lobby → a single `도킹 해제`; undocked
-  squad → a small `분대 떠나기`. Both call `leaveLobby()`. Lobby codes, invite links and the public toggle are not shown.
+  connecting (disabled + hint). **Not connected** (and not connecting / busy): both buttons are hidden and a same-size
+  `다시 연결` (`.hmt-reconnect`, in `.hmt-actions`) takes their place, hint `서버에 연결되어 있지 않습니다` kept. The empty
+  cells' `초대` is then dimmed but clickable (`.is-offline`) and every click flashes the hint (`.is-flash`, `HINT_FLASH_MS`)
+  instead of opening the modal. Docked lobby → a single `도킹 해제`; undocked squad → a small `분대 떠나기`. Both call
+  `leaveLobby()`. Lobby codes, invite links and the public toggle are not shown.
 - Invite modal (`InviteModal`): friends then recent players; the row button is `초대` / `분대원` (already in my lobby) /
   `초대 중 · n초` (`inviteAt` within `SQUAD_INVITE_TTL_S`) / `PLAY_BLOCK_LABELS[playBlock]`. Rows rebuild on
   `social:updated` / lobby / status changes; `HubMenu.update` ticks the countdown text only.
@@ -311,7 +314,7 @@ doorway is an open shared edge.
 
 Last 5 only — older: `git log -- src/hub`.
 - 2026-09-15 — Raid abandoned from the title (`LobbyPlayer.drifted`): `Pods.driftedFromRaid` blocks the rejoin pod (prompt, status, boarding) and `onResumed` skips the auto-rejoin; terminal error text for `drifted`.
+- 2026-09-15 — Terminal: `시뮬레이션 훈련장` on its own row above the footer line (`.hub-train-row`; footer = `닫기 (E)` only); 매칭 tab offline = `다시 연결` replaces the two matching buttons, `초대` dimmed + hint flash (`MatchTab.onInvite` / `flashHint`).
 - 2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩: cockpit bays (`interiors/AndroidBays.ts`, `parts/Androids.ts`, `hub_android_<bay>`, `getAndroidBays` / `getPodStandPose`), bots in pods / ready cells / match tab and filtered out of hangar · handoff · counts, and the countdown-end fade + delayed launch (`beginRaidLoad`); `scripts/smoke-android-bays.mjs`.
 - 2026-09-15 — Terminal rebuilt: top tabs 행성 / 매칭, centred planet, bottom-right training button + `TrainingConfirm`, `MatchTab` (face tiles, private / public dock, undock) + `InviteModal`; `MatchPanel` deleted.
 - 2026-09-15 — Squads vs shared ship: `parts/SquadDock.ts` (own dock fade / member countdown / undock rule, cancel everything, pod + training locks), `ui/SquadDockCountdown.ts` (`.hsd-`), `shipLobbyCode` / `squadLobby()`.
-- 2026-09-15 — Intel `확정` button: label `확정` + left-click hold keycap (`createHoldButtonCap`); `.it-reason` shows block reasons only.

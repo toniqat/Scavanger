@@ -16,9 +16,12 @@ import { el, setText, toggleClass } from './dom';
  *    (`readSlotCard(activeSlot()).accent` — `player/PlayerSystem.localAccentColor` 와 같은 원본). 스냅숏이 null 이면
  *    이름만 남는다. 빈 칸 = `초대` → 초대 창(`InviteModal`). 초대는 **로비가 없거나 내가 분대장이고 시작 전**일 때만.
  *  - 줄 아래 왼쪽 `비공개 매칭` · 오른쪽 `공개 매칭` → `ctx.net.requestDock(isPublic)` (접속부터 — `connectThen`).
- *    분대원은 둘 다 잠기고 `분대장만 매칭할 수 있습니다`, `dockPending` 동안은 `도킹 중…`, 접속이 없으면
- *    `서버에 연결되어 있지 않습니다` + `다시 연결`(옛 `신호 찾기` 가 하던 명시적 재접속 — 이 길이 없으면 추방 ·
- *    인원 초과 뒤 터미널에서 다시 붙을 방법이 없다).
+ *    분대원은 둘 다 잠기고 `분대장만 매칭할 수 있습니다`, `dockPending` 동안은 `도킹 중…`, 접속 중이면 잠긴 채
+ *    `서버에 연결하는 중…`. **접속이 없으면** (2026-09-15 2차, 사용자 결정) 두 버튼은 **사라지고 그 자리에 같은 크기의
+ *    `다시 연결`** 하나가 선다 + 사유 줄 `서버에 연결되어 있지 않습니다` (옛 `신호 찾기` 가 하던 명시적 재접속 — 이 길이
+ *    없으면 추방 · 인원 초과 뒤 터미널에서 다시 붙을 방법이 없다; 그날 먼저는 사유 줄 밑의 작은 버튼이었다).
+ *  - 접속이 없을 때의 빈 칸 `초대` 는 **흐리지만 눌린다** (`.is-offline`) — 누르면 창 대신 사유 줄이 깜박인다
+ *    (`flashHint`, 누를 때마다 다시). 잠가 버리면 「왜 못 하는지」를 알 길이 없고, 창을 열면 빈 창에 같은 문장이 뜰 뿐이다.
  *  - 도킹한 분대(`isDockedLobby`)는 두 버튼 대신 `도킹 해제` 하나 → `leaveLobby()` (누른 사람만 나간다).
  *    도킹 전 분대는 작은 `분대 떠나기` → `leaveLobby()`.
  *
@@ -69,9 +72,15 @@ interface Entry {
   swap: boolean;
 }
 
+/** 접속 없음 사유 줄이 `초대` 클릭에 깜박이는 시간 (ms) — `intel.css` `hmt-hint-flash` 애니메이션 길이와 같다. */
+const HINT_FLASH_MS = 600;
+
 export class MatchTab {
   readonly root: HTMLElement;
   private readonly tiles: Tile[] = [];
+  /** 접속이 없다 (`net.status !== 'connected'`) — `초대` 가 흐려지고 창 대신 사유 줄을 깜박인다. `refresh` 가 적는다. */
+  private offline = false;
+  private flashTimer = 0;
   private readonly btnPrivate: HTMLButtonElement;
   private readonly btnPublic: HTMLButtonElement;
   private readonly btnUndock: HTMLButtonElement;
@@ -90,9 +99,10 @@ export class MatchTab {
     this.btnPrivate = this.button(actions, '비공개 매칭', () => this.dock(false), 'hmt-private');
     this.btnUndock = this.button(actions, '도킹 해제', () => this.ctx.net?.leaveLobby(), 'danger hmt-undock');
     this.btnPublic = this.button(actions, '공개 매칭', () => this.dock(true), 'primary hmt-public');
+    // 2026-09-15 2차: 접속이 없으면 매칭 두 버튼 자리에 이 버튼 하나 (같은 줄 · 같은 크기 규칙 `.hmt-actions .ui-btn`)
+    this.btnReconnect = this.button(actions, '다시 연결', () => this.host.connectThen(() => { /* 접속만 */ }), 'primary hmt-reconnect');
     const under = el('div', { cls: 'hmt-under', parent: root });
     this.hint = el('div', { cls: 'hmt-hint', text: '', parent: under });
-    this.btnReconnect = this.button(under, '다시 연결', () => this.host.connectThen(() => { /* 접속만 */ }), 'hmt-small hmt-reconnect');
     this.btnLeave = this.button(under, '분대 떠나기', () => this.ctx.net?.leaveLobby(), 'hmt-small hmt-leave');
     this.btnUndock.hidden = true;
     this.btnLeave.hidden = true;
@@ -115,7 +125,7 @@ export class MatchTab {
     const info = el('div', { cls: 'hmt-info', parent: root });
     const name = el('div', { cls: 'hmt-name', text: '', parent: info });
     const lv = el('div', { cls: 'hmt-lv', text: '', parent: info });
-    const invite = this.button(root, '초대', () => this.host.openInvite(), 'hmt-invite');
+    const invite = this.button(root, '초대', () => this.onInvite(), 'hmt-invite');
     return { root, face, img, initial, badge, state, name, lv, invite, faceKey: '' };
   }
 
@@ -125,6 +135,9 @@ export class MatchTab {
     const lobby = net?.lobby ?? null;
     const docked = isDockedLobby(lobby);
     const isHost = !!lobby && !!net?.isHost;
+    const status = net?.status ?? 'offline';
+    // 초대 칸이 먼저 그려지므로 접속 여부를 여기서 적는다 (`paintTile` 이 `.is-offline` 을 붙인다)
+    this.offline = status !== 'connected';
 
     /* 2026-09-15 (안드로이드 분대원): 인원은 **사람 수**로 적고, 안드로이드는 따로 센다 — 승무원 2/4 뒤에 안드로이드 2 가 붙는다 */
     const humans = humanPlayersOf(lobby).length;
@@ -141,8 +154,6 @@ export class MatchTab {
     for (let i = 0; i < this.tiles.length; i++) this.paintTile(this.tiles[i], entries[i] ?? null, canInvite, swapInvite);
 
     // ── 매칭 버튼 ──
-    this.btnPrivate.hidden = docked;
-    this.btnPublic.hidden = docked;
     this.btnUndock.hidden = !docked;
     this.btnLeave.hidden = !lobby || docked;
     let block: string | null = null;
@@ -150,7 +161,6 @@ export class MatchTab {
     if (docked) {
       this.btnUndock.disabled = false;
     } else {
-      const status = net?.status ?? 'offline';
       // 분대원 사유가 접속 사유보다 먼저다 — 분대원은 접속이 살아 있어도 매칭할 수 없다
       if (!net) block = '멀티플레이를 사용할 수 없습니다';
       else if (net.dockPending) block = '도킹 중…';
@@ -161,9 +171,33 @@ export class MatchTab {
       this.btnPrivate.disabled = !!block;
       this.btnPublic.disabled = !!block;
     }
+    // 2026-09-15 2차: 접속이 없으면 (접속 중은 아님) 매칭 두 버튼이 사라지고 그 자리에 `다시 연결` 이 선다; 사유 줄은 남는다
+    this.btnPrivate.hidden = docked || reconnect;
+    this.btnPublic.hidden = docked || reconnect;
+    this.btnReconnect.hidden = !reconnect;
     this.hint.hidden = !block;
     setText(this.hint, block ?? '');
-    this.btnReconnect.hidden = !reconnect;
+  }
+
+  /**
+   * 빈 칸의 `초대`. 접속이 있으면 초대 창; 없으면 (2026-09-15 2차, 사용자 결정) 창을 열지 않고 **사유 줄을 깜박인다** —
+   * 버튼은 흐리지만 눌리므로 「왜 안 되는지」가 누를 때마다 눈에 들어온다. 사유 줄이 다른 이유로 숨어 있으면
+   * (도킹한 로비에서 끊긴 채 등) 접속 문장을 먼저 세운다.
+   */
+  private onInvite(): void {
+    if (!this.offline) { this.host.openInvite(); return; }
+    if (this.hint.hidden) { setText(this.hint, '서버에 연결되어 있지 않습니다'); this.hint.hidden = false; }
+    this.flashHint();
+    this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+  }
+
+  /** 사유 줄 강조 — 다시 누르면 처음부터 다시 (클래스를 뗐다가 리플로우 뒤 붙여 애니메이션을 재시작한다). */
+  private flashHint(): void {
+    this.hint.classList.remove('is-flash');
+    void this.hint.offsetWidth;
+    this.hint.classList.add('is-flash');
+    clearTimeout(this.flashTimer);
+    this.flashTimer = window.setTimeout(() => this.hint.classList.remove('is-flash'), HINT_FLASH_MS);
   }
 
   private entries(net: NetRef | null, players: readonly LobbyPlayer[]): Entry[] {
@@ -225,7 +259,8 @@ export class MatchTab {
       setText(t.initial, '');
       t.img.hidden = true;
       if (t.faceKey) { t.img.removeAttribute('src'); t.faceKey = ''; }
-      t.invite.className = 'ui-btn hmt-invite';
+      // 접속이 없으면 흐리게 (`.is-offline`) — 잠그지는 않는다 (`onInvite` 가 사유 줄을 깜박인다)
+      t.invite.className = `ui-btn hmt-invite${this.offline ? ' is-offline' : ''}`;
       t.invite.removeAttribute('title');
       t.invite.hidden = false;
       t.invite.disabled = !canInvite;
@@ -237,7 +272,7 @@ export class MatchTab {
      * 돌려보낸다. 버튼을 없애면 「초대할 방법이 없다」는 거짓말이 된다.
      */
     if (e.bot && e.swap && swapInvite) {
-      t.invite.className = 'ui-btn hmt-invite hmt-swap';
+      t.invite.className = `ui-btn hmt-invite hmt-swap${this.offline ? ' is-offline' : ''}`;
       t.invite.title = `${e.name}이(가) 슬롯으로 돌아가고 그 자리에 들어옵니다`;
       t.invite.hidden = false;
       t.invite.disabled = false;

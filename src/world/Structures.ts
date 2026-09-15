@@ -278,10 +278,16 @@ export class Structures {
         bonusDefId: bonusKey, bonusChance: bonusKey ? row.keyChance : undefined,
       }));
       const deepTiers = row.basementTiers.length > 0 ? row.basementTiers : row.tiers;
+      /* 2026-09-15 (진동 장치, 사용자 결정 「아켈론 II 전진기지 지하실에서만」): 지하실 컨테이너도 지상층의 열쇠와 **같은 부가 굴림**
+       * (`bonusDefId` · `bonusChance`, `ContainerSet` 이 따로 된 rng 로 굴린다)을 갖는다 — `structures.csv` 의 `basementBonus*` 열이
+       * 아이템 · 확률 · 행성을 정하고, 목표 행성이 목록에 없으면 굴림 자체가 없다. 상자 티어 굴림은 건드리지 않는다. */
+      const deepBonus = row.basementBonus && (row.basementBonusPlanets.length === 0 || (game.missionPlanet != null && row.basementBonusPlanets.includes(game.missionPlanet)))
+        ? row.basementBonus : undefined;
       out.basementContainers.forEach((s, i) => specs.push({
         id: `${id}_b${i}`, position: new THREE.Vector3(s.x, s.y, s.z), yaw: s.yaw,
         tier: pickTier(deepTiers, rng.next()), style: ((i + 1) % 3) as 0 | 1 | 2,
         zoneId: id, zoneKind: site.kind,
+        bonusDefId: deepBonus, bonusChance: deepBonus ? row.basementBonusChance : undefined,
       }));
       const lockTiers = row.lockedTiers.length > 0 ? row.lockedTiers : deepTiers;
       out.lockedContainers.forEach((s, i) => specs.push({

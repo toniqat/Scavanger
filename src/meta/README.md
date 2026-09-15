@@ -114,9 +114,11 @@ engine: `NpcRules.ts`, `parts/NpcQuests.ts`, `parts/NpcObjectives.ts`; UI (messe
 
 - **States**: hidden (not saved) → `offered` → `active` → `complete`. No abandon. Old saves may still hold `deferred`; `accept` takes it
   and logs `brief`. `defer()` always returns false.
-- **Evaluation** (`evaluate`) runs only in the ship, not in the training sim, and not during the tutorial except the `ship` track
-  (`tutorialBlocks`). Triggers: hub entry, profile load, progression load/level-up, rep change, after accept/report, and every
-  `NPC_OFFER_CHECK_S`. An NPC whose requirements are met gets a first contact (`intro`); then, if it has no `offered` quest, the next hidden
+- **Evaluation** (`evaluate`) runs only in the ship, not in the training sim, and not while any tutorial track is running **nor
+  before the tutorial `ship` track is done** (`tutorialBlocks` — `ctx.tutorial.active` / `isTrackDone('ship')`; profiles that
+  never had the tutorial answer done). So Raven's first contact lands after the ship track, at the first evaluation with no
+  track running (build skipped → next `NPC_OFFER_CHECK_S`; build completed → the `hub:entered` after the first raid). Triggers:
+  hub entry, profile load, progression load/level-up, rep change, after accept/report, and every `NPC_OFFER_CHECK_S`. An NPC whose requirements are met gets a first contact (`intro`); then, if it has no `offered` quest, the next hidden
   quest in file row order whose requirements are met is offered.
 - **Log**: only events (`NpcLogEntry`) are saved (capped at `NPC_LOG_MAX`); `getMessages` re-renders text from the csv, so editing
   dialogue changes past conversations. Unread = events after the contact's `readAt`; `markRead` advances it; `readAtOf(npc)` exposes it
@@ -188,8 +190,8 @@ but no content gates on it yet.
 
 Last 5 only — older: `git log -- src/meta`.
 
+- 2026-09-15 — NPC evaluation waits for the tutorial `ship` track to finish and for no track to run (`tutorialBlocks`); Raven no longer writes during the tutorial.
 - 2026-09-15 — Corp screen: stash + bag is one card (`createTradeGrids` once, columns summed in `fitLayout`).
 - 2026-09-15 — Left-click hold keycap inside the `거래 성사` and `HoldAsk` confirm buttons; hint line removed.
 - 2026-09-15 — `NpcQuests.readAtOf(npcId)` for the messenger's sequential bubble reveal.
 - 2026-09-14 — First contact in three steps, progress flags `gathered`/`raidReturned`, `getQuests()` filters offers, defer retired.
-- 2026-09-14 — Intel broker (`parts/Intel.ts`) and per-NPC trust.

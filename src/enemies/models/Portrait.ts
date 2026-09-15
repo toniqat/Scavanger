@@ -6,7 +6,7 @@
  *
  * - 그 종류의 리그를 **새로** 하나 짓고(튜토리얼 `tut_*` 는 `baseTypeOf` 로 바탕 종류의 리그), 기본 자세를 한 번 입힌 뒤
  *   얼굴이 카메라를 보되 **보는 사람의 왼쪽으로 사선** 돌아가게 세운다 (리그 +Z = 정면, yaw 음수 = 화면 왼쪽).
- * - 인간형은 머리 + 어깨, 벌레는 머리 · 턱, 지하벌레는 입, 스캔 드론은 몸 전체를 잡는다.
+ * - 인간형은 머리 + 어깨, 벌레는 머리 · 턱, 땅굴벌레는 입, 스캔 드론은 몸 전체를 잡는다.
  * - **자기 씬 · 자기 조명 3점(키 · 필 · 림) + 반구광 · 잠깐 쓰는 오프스크린 `WebGLRenderer`** 로 한 번 그리고
  *   곧바로 `toDataURL` 로 뽑은 뒤 리그 머티리얼 · 렌더러를 버린다(`forceContextLoss`). 메인 씬의 광원 개수 ·
  *   메인 캔버스는 건드리지 않는다 (CLAUDE.md 「씬의 광원 개수를 플레이 중에 바꾸지 않는다」 는 메인 씬의 규칙이다).
@@ -26,7 +26,7 @@ import { createWormRig, disposeWormRig, type WormRig } from './WormModel';
  */
 const ENEMY_NAME_KO: Readonly<Partial<Record<EnemyType, string>>> = {
   scavenger: '스캐빈저', hunter: '헌터', warrior: '워리어', spewer: '스퓨어', charger: '차저', artillery: '포격 버그',
-  toxic: '독성 버그', behemoth: '베헤모스', sandworm: '지하벌레', rogue: '로그', rogue_boss: '로그 분대장',
+  toxic: '독성 버그', behemoth: '베헤모스', sandworm: '땅굴벌레', sandworm_weak: '어린 땅굴벌레', rogue: '로그', rogue_boss: '로그 분대장',
   rogue_scan_drone: '스캔 드론', android: '안드로이드', raider: '레이더', ...NAMED_ROGUE_NAME_KO,
 };
 
@@ -141,7 +141,7 @@ function draw(type: EnemyType, size: number): string | null {
     const radius = frameOf(built, center);
     const fov = PORTRAIT_FOV_DEG;
     const dist = radius / Math.sin(THREE.MathUtils.degToRad(fov) / 2);
-    // 벌레 · 인간형은 거의 정면(살짝 위), 지하벌레는 위로 벌린 입을 앞 위에서 내려다본다
+    // 벌레 · 인간형은 거의 정면(살짝 위), 땅굴벌레는 위로 벌린 입을 앞 위에서 내려다본다
     const dir = built.kind === 'worm' ? new THREE.Vector3(0, 0.8, 1).normalize() : new THREE.Vector3(0, 0.14, 1).normalize();
     const camera = new THREE.PerspectiveCamera(fov, 1, Math.max(0.01, dist - radius * 4), dist + radius * 8);
     camera.position.copy(center).addScaledVector(dir, dist);

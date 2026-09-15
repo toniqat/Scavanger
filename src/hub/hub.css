@@ -47,7 +47,7 @@
 /* 탭 한 장 = `.hub-pane` (남는 높이를 다 먹는다) */
 .menu.hub-menu.fullscreen .hub-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* 행성 탭 (2026-09-15): 3칸 — 빈 왼쪽 · **가운데 행성 카드** · 오른쪽 정보상. 양옆이 같은 `1fr` 이라 행성이 프레임
-   한가운데에 선다 (옛 2열은 행성이 왼쪽으로 치우쳤다). 시뮬레이션 훈련장은 칸이 아니라 푸터 우하단 버튼이다. */
+   한가운데에 선다 (옛 2열은 행성이 왼쪽으로 치우쳤다). 시뮬레이션 훈련장은 칸이 아니라 푸터 위 우하단 버튼(`.hub-train-row`)이다. */
 .menu.hub-menu.fullscreen .hub-grid {
   flex: 1; min-height: 0;
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 560px) minmax(0, 1fr); gap: 24px;
@@ -100,6 +100,11 @@
 .ui-btn.hp-travel { min-width: 240px; margin-top: 6px; }
 .ui-btn.hp-travel.locked { letter-spacing: 0.04em; font-size: 11px; }
 
+/* 낮은 창 (2026-09-15 2차): 훈련장 줄이 푸터 위에 제 줄을 차지하면서 세로가 62px 줄었다 — 홀로그램을 조금 줄여
+   행성 카드(`행성 이동` 버튼까지)가 가운데 칸에서 잘리지 않게 한다 (`smoke-planets` 1280×760). */
+@media (max-height: 820px) {
+  .hp-holo { max-width: min(40vh, 34vw); max-height: min(40vh, 34vw); }
+}
 /* 좁은 창: 행성이 위, 정보상이 아래로 쌓인다 (빈 왼쪽 칸은 사라진다) — 2026-09-14 · 2026-09-15 */
 @media (max-width: 1180px) {
   .menu.hub-menu.fullscreen .hub-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: 16px; }
@@ -108,13 +113,16 @@
   .menu.hub-menu.fullscreen .hub-col.right > * { flex: 1; min-width: 0; width: auto; }
 }
 
-/* 푸터: 오른쪽 `닫기 (E)` → `시뮬레이션 훈련장` (2026-09-15 — 훈련장이 프레임 우하단 모서리 버튼, 안내 줄 없음).
+/* 훈련장 줄 + 푸터 (2026-09-15, 사용자 결정): `시뮬레이션 훈련장` 은 푸터 **위** 제 줄(`.hub-train-row`)의 오른쪽 끝에 서고,
+   그 아래 푸터 윗선(구분선), 그 아래 푸터 오른쪽에 `닫기 (E)` 만 남는다 (그날 먼저는 둘이 푸터 한 줄이었다 — 훈련장이
+   닫기 오른쪽에 붙어 있어 「닫기」 옆의 큰 버튼이 눈에 걸렸다). 행성 탭에서만 보인다 (`HubMenu.setTab` 이 줄째 감춘다).
    왼쪽 아래 구석은 함선 HUD 의 분대 목록 · 이름 줄이 터미널 위에 그려지는 자리라 비워 둔다. */
+.hub-train-row { display: flex; justify-content: flex-end; align-items: center; }
 .hub-foot { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 6px; border-top: 1px solid var(--c-border); }
 .hub-foot .right { display: flex; align-items: center; gap: 10px; }
 .hub-foot .ui-btn { min-width: 0; padding: 0 18px; }
 /* 이름 줄 + 상태 줄(`시작` · `합류 (n명 훈련 중)` · `임무 진행 중` · `분대 대기 중`) 두 줄 버튼 */
-.hub-foot .ui-btn.hub-train { min-width: 220px; height: 48px; padding: 0 22px; flex-direction: column; align-items: flex-end; justify-content: center; gap: 2px; }
+.hub-train-row .ui-btn.hub-train { min-width: 220px; height: 48px; padding: 0 22px; flex-direction: column; align-items: flex-end; justify-content: center; gap: 2px; }
 .hub-train-name { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; }
 .hub-train-state { font-size: 10px; font-weight: 500; letter-spacing: 0.08em; color: var(--c-text-dim); }
 .hub-menu .ui-btn:disabled { opacity: 0.45; cursor: default; pointer-events: none; }

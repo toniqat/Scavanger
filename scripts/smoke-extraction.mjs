@@ -70,6 +70,11 @@ try {
       ship.bayToWorld(lx, lz, ship.root.position.y + dy, p);
       return p;
     };
+    // synthetic keys go to document.body (an at-window listener would run ahead of the game's capture handler)
+    window.__key = (code, down) => {
+      const key = code === 'Space' ? ' ' : code.replace(/^Key/, '').toLowerCase();
+      document.body.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key, bubbles: true, cancelable: true }));
+    };
   });
   const waitSim = async (sec) => { const t0 = await page.evaluate(() => window.__game.ctx.time); await waitFor(page, (t) => window.__game.ctx.time >= t, `sim +${sec}s`, 180000, t0 + sec); };
   const P = (fn, arg) => page.evaluate(fn, arg);
@@ -77,9 +82,11 @@ try {
   const resetEv = () => P(() => { for (const k of Object.keys(window.__ev)) window.__ev[k] = []; });
   const K = await P(async () => {
     const s = await import('/src/shared/index.ts');
+    const ship = await import('/src/extraction/Ship.ts');
     return {
       countdown: s.EXTRACTION_COUNTDOWN, grace: s.EXTRACTION_DEPART_GRACE_S, idle: s.EXTRACTION_AUTO_DEPART_IDLE_S,
       toComplete: s.EXTRACTION_LIFTOFF_TO_COMPLETE_S, blend: s.EXTRACTION_CINEMATIC_BLEND_S,
+      floorLift: ship.BAY_FLOOR_LIFT, groundLift: ship.GROUND_DRAW_LIFT_MAX,
     };
   });
   const startMission = async (seed) => {
@@ -128,6 +135,24 @@ try {
   ok(st.phase === 'shipLanded' && st.stage === 'landed', 'landed: phase shipLanded · ctx.extraction.stage landed', JSON.stringify(st));
   ok(st.idle > K.idle - 5 && st.idle <= K.idle, 'idle timer counts down from EXTRACTION_AUTO_DEPART_IDLE_S', JSON.stringify(st));
   ok(st.hull === 8, 'touchdown registers 8 hull box colliders in the world', JSON.stringify(st));
+  // 2026-09-15 drawn-deck clearance (`Ship.ts` clearance note): the drawn floor plate clears the highest ground drawing
+  // (tutorial deck top plane +0.02 · pad chevrons +0.01) by ≥ 2 cm, and a landed ship never dips under its resting height
+  // (the old ±1 cm bob put the plate under the tutorial deck in a third of the frames — 「바닥이 뚫고 나온다」).
+  ok(K.floorLift - K.groundLift >= 0.02 - 1e-9, `drawn bay floor clears GROUND_DRAW_LIFT_MAX by ≥ 2 cm (${K.floorLift} − ${K.groundLift})`);
+  st = await P(() => new Promise((res) => {
+    const ctx = window.__game.ctx, sys = window.__game.getSystem('extraction');
+    const t0 = ctx.time; let last = -1, n = 0, minDy = Infinity, maxDy = -Infinity;
+    const iv = setInterval(() => {
+      if (ctx.time !== last) {
+        last = ctx.time; n++;
+        const dy = sys.ship.root.position.y - sys.ship.getGroundY();
+        if (dy < minDy) minDy = dy;
+        if (dy > maxDy) maxDy = dy;
+      }
+      if (ctx.time - t0 >= 2) { clearInterval(iv); res({ n, minDy, maxDy }); }
+    }, 4);
+  }));
+  ok(st.n > 20 && st.minDy >= -1e-6 && st.maxDy <= 1e-6, `landed ship root stays at its resting height (${st.n} frames, no bob under the deck plane)`, JSON.stringify(st));
   st = await P(() => {
     const ctx = window.__game.ctx;
     const from = window.__shipPoint(7, -3, 1.4), to = window.__shipPoint(0, -3, 1.4);
@@ -166,6 +191,25 @@ try {
   });
   ok(st.boarded > 0 && st.inShip, 'player boards the bay', JSON.stringify(st));
   ok(st.can === true && /출발/.test(st.prompt ?? ''), 'interior switch offers 출발 시퀀스 while aboard', JSON.stringify(st));
+  // 2026-09-15: walk W / S inside the landed bay with real keys — the feet sit on the belly collider on every frame
+  // (the reported 「floor pops」 was the drawing, never the feet; this pins the physics side down for normal raids).
+  st = await P(() => new Promise((res) => {
+    const ctx = window.__game.ctx, sys = window.__game.getSystem('extraction');
+    const deck = sys.ship.getGroundY(), t0 = ctx.time;
+    let last = -1, n = 0, off = 0, air = 0, sw = -1, dir = 0;
+    const iv = setInterval(() => {
+      if (ctx.time !== last) {
+        last = ctx.time; n++;
+        if (Math.abs(ctx.player.position.y - deck) > 0.005) off++;
+        if (!ctx.player.isGrounded) air++;
+        if (ctx.time - sw > 0.5) { sw = ctx.time; dir = dir === 1 ? -1 : 1; window.__key(dir > 0 ? 'KeyW' : 'KeyS', true); window.__key(dir > 0 ? 'KeyS' : 'KeyW', false); }
+      }
+      if (ctx.time - t0 >= 2) { clearInterval(iv); window.__key('KeyW', false); window.__key('KeyS', false); res({ n, off, air, y: ctx.player.position.y, deck }); }
+    }, 4);
+  }));
+  ok(st.n > 20 && st.off === 0 && st.air === 0, `feet stay on the deck while walking in the bay (${st.n} frames, ${st.off} off, ${st.air} airborne)`, JSON.stringify(st));
+  await P(() => window.__game.ctx.player.teleport(window.__shipPoint(0, -2.5, 0), undefined, false));
+  await waitSim(0.3);
   await P(() => window.__game.ctx.interactables.all().find((i) => i.id === 'ship_liftoff_switch').interact());
   await waitSim(0.3);
   st = await P(() => {

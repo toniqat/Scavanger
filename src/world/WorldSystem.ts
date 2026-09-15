@@ -25,6 +25,8 @@ import {
 } from '@/shared';
 import { Rover } from './rover/Rover';
 import { RoverRoad } from './rover/RoverRoad';
+/* 2026-09-15 (땅굴벌레 등장 판정): `WorldRef.burrowGroundOk` 의 규칙은 이 파일 하나다 */
+import { burrowGroundOk, type BurrowGroundQuery } from './BurrowGround';
 import { SiteSpawns } from './SiteSpawns';
 import { obstacleMaterial, onOutpostSlab, terrainMaterial } from './surface';
 import { Ambience } from './Ambience';
@@ -1024,6 +1026,34 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
   /** 2026-09-11: 구조물 사다리 (훈련장은 빈 배열). */
   getLadders(): readonly LadderDef[] { return this.isPlanet ? this.structures.getLadders() : NONE_LADDERS; }
+
+  /* ── appended (2026-09-15): 땅굴벌레 등장 판정 개편 — `WorldRef.burrowGroundOk` ── */
+  /** `burrowGroundOk` 가 읽는 창 (한 번 만들어 재사용 — 호스트가 2 초마다, 진동 장치 미리보기가 매 프레임 묻는다). */
+  private burrowQuery: BurrowGroundQuery | null = null;
+  /**
+   * `(x, z)` 둘레 `radius` m 가 땅굴벌레가 파고 나올 수 있는 평평한 맨땅인가 — 규칙은 `BurrowGround.ts` 머리 주석.
+   * 행성 모드가 아니거나(훈련장 · 튜토리얼) 준비 전이면 false.
+   */
+  burrowGroundOk(x: number, z: number, radius: number): boolean {
+    if (!this.isPlanet || !this.ready || !this.layout) return false;
+    if (!this.burrowQuery) {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      const self = this;
+      this.burrowQuery = {
+        heightAt: (qx, qz) => this.getHeightAt(qx, qz),
+        slopeAt: (qx, qz) => this.terrain.getSlopeAt(qx, qz),
+        insideBounds: (qx, qz) => this.isInsideBounds(qx, qz),
+        hashQuery: (qx, qz, r, out) => this.hash.query(qx, qz, r, out),
+        get layout() { return self.layout!; },
+        get structures() { return self.structures.getDefs(); },
+        get nestHoles() { return self.nests.getHolePositions(); },
+        get gather() { return self.gather.getNodes(); },
+        get crates() { return self.crates.getDefs(); },
+        get hazard() { return self.hazard; },
+      };
+    }
+    return burrowGroundOk(this.burrowQuery, x, z, radius);
+  }
 
   /* ── appended (2026-09-13): 행성별 적 팩션 — 거점 스폰 자리 (`SiteSpawns.ts`) ── */
   /** 이번 맵의 폐허 전초 (`Outposts.getSites()` 그대로 — 들어가는 전진기지 `struct_outpost_*` 와 다르다). 훈련장 · 준비 전 = 빈 배열. */

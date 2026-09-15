@@ -21,7 +21,7 @@
  *
  *   ① `raid`  — 튜토리얼 레이드. 캐릭터를 만들면 **함선을 거치지 않고** 손으로 지은 튜토리얼 행성에서 깨어나
  *               이동 · 달리기 · 점프 · 루팅 · 사격 · 앉기 · 회복 · 수류탄을 배우고 버려진 함선으로 탈출한다.
- *   ② `ship`  — 함선 첫 진입. 레벨업 · 능력치 포인트 투자 확정 · 메신저에서 레이븐의 첫 연락과 퀘스트.
+ *   ② `ship`  — 함선 첫 진입. 레벨업 · 능력치 포인트 투자 확정 · 메신저 열기 (2026-09-15: 레이븐의 퀘스트 단계는 빠졌다).
  *   ③ `build` — 시설 증축 · 작업대 · 제작 · 출격. **기존 17단계가 그대로 이 트랙이다** (id 도 순서도 불변).
  *
  * 트랙이 갈린 것 말고 설계는 그대로다 — 진행은 버스 이벤트 관찰, 순서 강제는 각 폴더의 `blockReason` 한 줄.
@@ -74,8 +74,14 @@ export type TutorialStepId =
   /* ── ② ship (2026-09-14): 함선 첫 진입 ── */
   | 'levelUp'      // 레이드 보상으로 오른 레벨 확인
   | 'stats'        // 능력치 포인트 투자 → `포인트 투자 확정` (1초 홀드)
-  | 'messenger'    // 메신저 열기 (읽지 않은 연락이 있다)
-  | 'ravenQuest'   // 레이븐의 첫 연락 · 대답 고르기 · 퀘스트 수락
+  | 'messenger'    // 메신저 열기 — 함선 트랙의 마지막 단계 (2026-09-15 부터)
+  /*
+   * appended (2026-09-15, 사용자 결정) — **순서에서 빠졌다** (`openCraft` 와 같은 처리: id 는 계약이라 남고
+   * `TUTORIAL_TRACK_STEPS.ship` 에만 없다). 레이븐의 첫 연락은 이제 함선 트랙이 **끝난 뒤**에 온다
+   * (`meta/parts/NpcQuests.tutorialBlocks`) — 안내가 퀘스트 수락까지 끌고 가지 않는다. 옛 저장의
+   * `ravenQuest` 는 `tutorial/Steps.normalizeStep` 이 `messenger` 로 옮긴다.
+   */
+  | 'ravenQuest'   // (순서에서 제외, 2026-09-15) 레이븐의 첫 연락 · 대답 고르기 · 퀘스트 수락
   /* ── ③ build: 기존 17단계 (id 불변) ── */
   | 'intro'        // 시작 팝업 — 확인을 누르면 다음으로
   | 'manage'       // M 으로 함선 관리 열기
@@ -83,7 +89,7 @@ export type TutorialStepId =
   | 'workshop'     // 빈 방 하나를 작업실로 증축
   | 'bench'        // 총기 작업대 제작 (가구 창고로 들어간다)
   | 'benchPlace'   // 가구 창고 → 작업대를 골라 작업실 바닥에 배치
-  | 'manageDone'   // 함선 관리 종료
+  | 'manageDone'   // 하우징 모드(함선 관리) 닫기 — 2026-09-14 3차에 빠졌다가 2026-09-15 에 순서로 돌아왔다
   | 'craftGun'     // 작업실로 걸어가 총기 작업대에서 무기 제작
   | 'openBag'      // 제작 창을 닫고 가방 + 장착 장비를 연다 (제작 중에는 장비 칸이 숨어 있다)
   | 'equipGun'     // 만든 무기를 주무기 칸에 장착
@@ -99,10 +105,11 @@ export type TutorialStepId =
 export const TUTORIAL_STEPS: readonly TutorialStepId[] = [
   'intro', 'manage', 'generator', 'workshop', 'bench', 'benchPlace',
   // 2026-09-09: 총기 작업대에서 소총 → 탄약을 **한 번에** 만든다 — `openCraft` 는 순서에서 빠졌다 (id 는 계약이라 남긴다).
-  // 2026-09-14 3차 (사용자 결정 — 「닫기 누르기는 튜토리얼 스텝에서 뺀다」): `manageDone` 도 같은 처리다.
-  //   관리 모드를 언제 닫든 안내가 막히지 않고, 진행 바의 분모도 실제로 할 일의 수와 맞는다.
-  //   id 는 `TutorialStepId` · `Steps.ts` 의 표에 그대로 있고 옛 저장은 `normalizeStep` 이 `craftGun` 으로 옮긴다.
-  'craftGun', 'craftAmmo', 'openBag', 'equipGun', 'stowAmmo',
+  // 2026-09-14 3차 (사용자 결정 — 「닫기 누르기는 튜토리얼 스텝에서 뺀다」): `manageDone` 도 같은 처리였다.
+  // 2026-09-15 (사용자 결정 — 뒤집음): **`manageDone` 이 순서로 돌아왔다** — 「작업실로 이동」 바로 앞에 「하우징 모드 닫기」
+  //   한 줄이 선다. 관리 모드가 열린 채로는 작업실로 걸어갈 수 없는데 안내는 걸어가라고 하고 있었고, 바닥 안내선도
+  //   관리 카메라 아래에 깔려 있었다. 16 → 17 단계. (`openCraft` 는 그대로 순서 밖이다.)
+  'manageDone', 'craftGun', 'craftAmmo', 'openBag', 'equipGun', 'stowAmmo',
   'terminal', 'planet', 'travel', 'board', 'raid',
 ];
 
@@ -118,7 +125,8 @@ export const TUTORIAL_TRACK_STEPS: Readonly<Record<TutorialTrack, readonly Tutor
     // 2026-09-15: `supplyLoot`(보급품 시체 루팅)이 `drop` 과 `heal` 사이에 들어왔다.
     'advance3', 'drop', 'supplyLoot', 'heal', 'grenade', 'extract',
   ],
-  ship: ['levelUp', 'stats', 'messenger', 'ravenQuest'],
+  // 2026-09-15 (사용자 결정): `ravenQuest` 가 순서에서 빠졌다 — 레이븐의 첫 연락은 이 트랙이 끝난 뒤다. 4 → 3 단계.
+  ship: ['levelUp', 'stats', 'messenger'],
   build: TUTORIAL_STEPS,
 };
 

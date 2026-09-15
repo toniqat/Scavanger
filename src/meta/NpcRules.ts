@@ -33,7 +33,7 @@ const ENEMY_GROUP_KO: Readonly<Record<NpcEnemyGroup, string>> = {
 /** 적 타입 id 로 적은 목표의 이름 (묶음이 아닐 때). 모르는 id 는 id 그대로. */
 const ENEMY_TYPE_KO: Readonly<Record<string, string>> = {
   scavenger: '스캐빈저', hunter: '헌터', warrior: '워리어', spewer: '스퓨어', charger: '차저', artillery: '포격 버그',
-  toxic: '독성 버그', behemoth: '베헤모스', sandworm: '지하벌레', rogue: '로그', rogue_boss: '로그 분대장',
+  toxic: '독성 버그', behemoth: '베헤모스', sandworm: '땅굴벌레', sandworm_weak: '어린 땅굴벌레', rogue: '로그', rogue_boss: '로그 분대장',
   rogue_scan_drone: '스캔 드론', android: '안드로이드', raider: '레이더', ...NAMED_ROGUE_NAME_KO,
 };
 const INTERACT_KO: Readonly<Record<NpcInteractKind, string>> = {

@@ -48,7 +48,7 @@ import { placeTutorialEnemies, type TutorialPlacement } from './Tutorial';
 import { onTutorialCheckpoint, onTutorialFell, onTutorialLiftoff, updateTutorialScript } from './Tutorial';
 import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
 import { NamedRogueDirector, type NamedRollResult } from './named/Director';
-/* appended (2026-09-13): 굴착 스폰 · 지하벌레 */
+/* appended (2026-09-13): 굴착 스폰 · 땅굴벌레 */
 import { BURROW_EMERGE_S } from '@/shared';
 import { SandwormDirector } from './sandworm/Director';
 import { BurrowFx } from './fx/BurrowFx';
@@ -126,7 +126,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   readonly rogueDrops = new RogueDropDirector();
   /** 2026-09-11: 네임드 로그 — 레이드당 1회 굴림 · 자리 · 스폰 · `enemy:namedSpawned` (`named/Director.ts`). */
   readonly named = new NamedRogueDirector();
-  /** 2026-09-13: 지하벌레 — 레이드당 굴림 · 전조 · 분출 · 뱉기 · 독극물 · 동기화 (`sandworm/Director.ts`). */
+  /** 2026-09-13: 땅굴벌레 — 레이드당 굴림 · 전조 · 분출 · 뱉기 · 독극물 · 동기화 (`sandworm/Director.ts`). */
   readonly sandworm = new SandwormDirector();
   /** 2026-09-13: 굴착 분진 · 흙덩이 · 전조 링 (`fx/BurrowFx.ts`). */
   burrowFx: BurrowFx | null = null;
@@ -178,7 +178,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * `Pool.acquire` 가 팩션 bug 의 최대 체력에 `hpMul` 을 곱한다 (리플리카도 같은 값이라 와이어가 필요 없다).
    */
   bugTuning: BugThreatTuning = bugThreatTuning(1);
-  /** 2026-09-14: 실효 생태계 = 행성 eco × 벌레 난이도 (`threatEcosystem`) — 순찰 · 웨이브 · 지하벌레가 읽는다. `eco` 는 행성 원본 그대로. */
+  /** 2026-09-14: 실효 생태계 = 행성 eco × 벌레 난이도 (`threatEcosystem`) — 순찰 · 웨이브 · 땅굴벌레가 읽는다. `eco` 는 행성 원본 그대로. */
   private spawnEco: PlanetEcosystem | null = null;
   /** 다음 분대 id (`allocSquadId`, `Pool.reset` 이 1 로). */
   nextSquadId = 1;
@@ -192,7 +192,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /* ── 2026-09-14: 튜토리얼 전용 적 (`Tutorial.ts`, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ── */
   /**
    * 튜토리얼 레이드(`ctx.missionMode === 'tutorial'`): **고정 자리 · 고정 종류**의 적만 선다 — 굴림 · 순찰 ·
-   * 스포너 · 웨이브 · 거점 그룹 · 레이더 강하 · 네임드 · 지하벌레 · 총알 추적이 전부 훈련장처럼 꺼진다.
+   * 스포너 · 웨이브 · 거점 그룹 · 레이더 강하 · 네임드 · 땅굴벌레 · 총알 추적이 전부 훈련장처럼 꺼진다.
    * 훈련장과 다른 점은 **적이 있다**는 것 하나뿐이다. `world:ready` 에서 정한다.
    */
   tutorial = false;
@@ -363,14 +363,16 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       // Phase 7: mid-mission host migration — the only place authority changes while a mission runs
       bus.on('net:hostChanged', ({ isLocalHost }) => this.setAuthority(isLocalHost)),
     );
-    // 2026-09-13: 지하벌레 · 굴착 — 위 `world:ready` 구독 **뒤에** 등록해 리셋 · 생태계 계산이 끝난 뒤에 굴린다
+    // 2026-09-13: 땅굴벌레 · 굴착 — 위 `world:ready` 구독 **뒤에** 등록해 리셋 · 생태계 계산이 끝난 뒤에 굴린다
     this.burrowFx = new BurrowFx(ctx.scene);
     this.sandworm.bind(this);
     this.unsub.push(
       // 2026-09-14: 뱉기 · 분출 무리는 실효 생태계(행성 threat 의 중형 가중치)에서 뽑는다 — 등장 여부 판정(`ecoAllows`)은 배수 > 0 이라 같다
-      // 2026-09-14: 튜토리얼도 훈련장처럼 지하벌레를 굴리지 않는다 (`training` 인자 = 「절차 스폰이 없는 월드」)
+      // 2026-09-14: 튜토리얼도 훈련장처럼 땅굴벌레를 굴리지 않는다 (`training` 인자 = 「절차 스폰이 없는 월드」)
       bus.on('world:ready', ({ planet }) => this.sandworm.onWorldReady(planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null, this.spawnEco, this.training || this.tutorial)),
-      bus.on('cheat:sandworm', ({ spitS }) => { this.sandworm.debugForce(spitS === undefined ? {} : { spitS }); }),
+      bus.on('cheat:sandworm', ({ spitS, weak }) => { this.sandworm.debugForce({ ...(spitS === undefined ? {} : { spitS }), ...(weak ? { weak: true } : {}) }); }),
+      // 2026-09-15 (진동 장치): gadgets 가 호스트에서 낸다 — 확률 · 땅 검사 없이 그 자리에서 전조 (레이드에 이미 있었으면 무시)
+      bus.on('sandworm:summon', ({ position }) => { if (!this.training && !this.tutorial) this.sandworm.onSummon(position); }),
     );
     this.refreshMode();
     this.ensureNet();
@@ -405,7 +407,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       // Phase 9: a member that (re)joined the mission or a takeover needs a full picture — the next `es` is a keyframe
       net.onMessage('flow', (msg) => {
         if ((msg.ev === 'rejoined' || msg.ev === 'takeover') && this.hosting) this.snapCache.forceFull = true;
-        if (msg.ev === 'rejoined' && this.hosting) this.sandworm.resync();   // 2026-09-13: 전조 · 지하벌레 최대 체력 · 뱉기 시간
+        if (msg.ev === 'rejoined' && this.hosting) this.sandworm.resync();   // 2026-09-13: 전조 · 땅굴벌레 최대 체력 · 뱉기 시간
       }),
       net.onMessage('intq', (msg) => {
         // a client's bullet hit shell `sid`: validate it still exists, pop it here and broadcast
@@ -442,7 +444,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     if (ctx.isGameplayPhase()) this.updateStatuses(dt);
     // 로그 강하: 포드 낙하 연출은 어디서나, 착지 스폰은 호스트에서만 (안쪽에서 갈린다). 2026-09-14: 튜토리얼도 훈련장처럼 끈다.
     if (!this.training && !this.tutorial) this.rogueDrops.update(dt);
-    if (!this.training && !this.tutorial) this.sandworm.update(dt);   // 2026-09-13: 전조 흔들림은 어디서나, 발동 · 분출 · 지하벌레 틱은 권위만
+    if (!this.training && !this.tutorial) this.sandworm.update(dt);   // 2026-09-13: 전조 흔들림은 어디서나, 발동 · 분출 · 땅굴벌레 틱은 권위만
 
     if (this.authority) {
       if (ctx.isGameplayPhase()) {
@@ -792,7 +794,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   get isAuthority(): boolean { return this.authority; }
   /** true in a 시뮬레이션 훈련장 world (no spawning). */
   get isTrainingWorld(): boolean { return this.training; }
-  /** 2026-09-14: true in a 튜토리얼 world (고정 자리 적만 — 굴림 · 순찰 · 웨이브 · 강하 · 네임드 · 지하벌레 없음). */
+  /** 2026-09-14: true in a 튜토리얼 world (고정 자리 적만 — 굴림 · 순찰 · 웨이브 · 강하 · 네임드 · 땅굴벌레 없음). */
   get isTutorialWorld(): boolean { return this.tutorial; }
   /**
    * 2026-09-14 (debug / smoke): 이번 튜토리얼 레이드에 무엇이 섰는가 — 세운 마리 · 건너뛴 줄 · 마리별 감지 반경 · 리시.
@@ -976,7 +978,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   despawn(e: Enemy): void { return Pool.despawn(this, e); }
 
-  /* ── 2026-09-13: 굴착 스폰 · 지하벌레 (ReplicaHost / EnemyHost + debug) ─────────────── */
+  /* ── 2026-09-13: 굴착 스폰 · 땅굴벌레 (ReplicaHost / EnemyHost + debug) ─────────────── */
   emergeSpawned(e: Enemy): void { Burrow.emergeFx(this, e); }
 
   burrowLanded(e: Enemy): void { Burrow.spatLandedFx(this, e); }
@@ -992,10 +994,16 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   }
 
   /** Debug / smoke / console: start the sandworm warning now (see `SandwormDirector.debugForce`). */
-  debugSandworm(opts: { at?: { x: number; z: number }; spitS?: number } = {}): boolean { return this.sandworm.debugForce(opts); }
+  debugSandworm(opts: { at?: { x: number; z: number }; spitS?: number; weak?: boolean } = {}): boolean { return this.sandworm.debugForce(opts); }
 
-  /** Debug / smoke: sandworm plan · warning · live worms · volley counters. */
+  /** Debug / smoke: sandworm plan (threat · base · last check) · warning · live worms · volley counters. */
   get debugSandwormState(): ReturnType<SandwormDirector['debugState']> { return this.sandworm.debugState(); }
+
+  /** Debug / smoke (2026-09-15): evaluate the per-check appearance chance for a hypothetical member list (pure — no roll, no state). */
+  debugSandwormChance(members: Parameters<SandwormDirector['debugChance']>[0], lure = false, threat?: number): ReturnType<SandwormDirector['debugChance']> { return this.sandworm.debugChance(members, lure, threat); }
+
+  /** Debug / smoke (2026-09-15): forget that the event already happened this raid (so a `sandworm:summon` can be tested after a forced worm). */
+  debugSandwormClearOnce(): void { this.sandworm.debugClearOnce(); }
 
   private disposePools(): void { return Pool.disposePools(this); }
 

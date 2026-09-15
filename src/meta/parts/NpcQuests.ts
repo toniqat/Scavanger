@@ -26,8 +26,6 @@ import {
   formatCreditReason, isRaidFound, raidFoundSeed,
   /* 2026-09-14: NPC 개인 신뢰도 — 기업과 같은 REP_TABLE 을 쓴다 */
   repLevelOf,
-  /* 2026-09-14 3차: 튜토리얼 ship 트랙(`messenger` · `ravenQuest`)은 레이븐의 첫 연락을 기다린다 */
-  tutorialTrackOf,
 } from '@/shared';
 import {
   NPC_REASON, type NpcReqContext, freshNpcSave, itemMatches, legacyQuestState, npcTrustReason, objectiveLabel, requirementMet,
@@ -240,14 +238,21 @@ export class NpcQuests implements NpcQuestRef {
   /* ── 연락 · 제안 ──────────────────────────────────────────────────────── */
 
   /**
-   * 튜토리얼이 연락 · 제안을 막는가. 막는 것이 기본이지만 **ship 트랙만 예외**다 (2026-09-14 3차) —
-   * 그 트랙의 `messenger` · `ravenQuest` 단계가 바로 레이븐의 첫 연락과 그 퀘스트 수락을 기다린다.
-   * (그 시점에 조건이 맞는 NPC 는 레이븐 하나다 — `data/npcs.csv` 의 `reqFlag` · `reqQuests` 참고.)
+   * 튜토리얼이 연락 · 제안을 막는가.
+   *   ① 어느 트랙이든 **돌고 있으면** 막는다 (증축 트랙은 메신저 버튼을 감추므로 그때 온 연락은 볼 수도 없다).
+   *   ② **함선 트랙이 끝나기 전에도** 막는다 (2026-09-15, 사용자 결정 — 예전에는 ship 트랙이 예외라 `messenger` ·
+   *      `ravenQuest` 단계가 레이븐의 첫 연락을 기다렸는데, 그 단계가 순서에서 빠졌다). 「끝났다」는 완주 · 건너뛰기 둘 다다.
+   * 그러니 레이븐이 처음 쓰는 때는 **함선 트랙 뒤, 어느 트랙도 돌지 않는 첫 `evaluate`** 다 — 증축 트랙을 건너뛰면 그 자리에서
+   * (`NPC_OFFER_CHECK_S` 주기), 완주하면 첫 레이드에서 돌아온 `hub:entered` 에서. (그 시점에 조건이 맞는 NPC 는 레이븐
+   * 하나다 — `data/npcs.csv` 의 `reqFlag` · `reqQuests` 참고.)
+   * 튜토리얼이 없던 시절부터 하던 프로필 · 이미 끝낸 프로필은 `isTrackDone('ship')` 이 true 라 예전 그대로 연락이 온다
+   * (저장에 트랙 기록이 없으면 그 답은 「손대지 않은 함선인가」에서 나온다 — `tutorial/TutorialSystem.isTrackDone`).
    */
   private tutorialBlocks(): boolean {
     const t = this.ctx.tutorial;
-    if (!t?.active) return false;
-    return !(t.step && tutorialTrackOf(t.step) === 'ship');
+    if (!t) return false;
+    if (t.active) return true;
+    return typeof t.isTrackDone === 'function' && !t.isTrackDone('ship');
   }
 
   /**

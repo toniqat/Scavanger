@@ -26,7 +26,10 @@ export type GadgetId =
   | 'droneAir'       // 공중 드론 — 같은 규칙, 제자리 비행
   /* 2026-09-15 2차 (화염 통합, 사용자 결정): **은퇴**. `fire` 를 만드는 정의는 `incendiary` 하나뿐이다 —
      이 id 는 `airstrike` · `secondary` 처럼 옛 세이브 · 옛 와이어를 위해 이름만 남는다 (정의가 없다). */
-  | 'grenadeFire';
+  | 'grenadeFire'
+  /* appended (2026-09-15, 땅굴벌레): 진동 장치 — 바닥을 1 초마다 내리쳐 다섯 번째에 땅굴벌레를 부른다 (`sandworm:summon`).
+     아켈론 II 전진기지 지하실에서만 나오고, 회수할 수 없으며, 벌레가 분출하면 그 반경 안의 것은 부서진다. */
+  | 'thumper';
 
 export const GADGET_IDS: readonly GadgetId[] = [
   'cloakVeil', 'domeShield', 'barricade', 'lureGrenade', 'smokeGrenade',
@@ -35,6 +38,8 @@ export const GADGET_IDS: readonly GadgetId[] = [
   'mine', 'turret', 'defib', 'jumpPad',
   /* appended (2026-09-11) */
   'remoteMine', 'droneGround', 'droneAir',
+  /* appended (2026-09-15, 땅굴벌레) */
+  'thumper',
 ];
 
 /** How the gadget leaves the hand. */
@@ -53,7 +58,9 @@ export type DeployableKind =
   | 'fire'       // burning ground (damage over time)
   | 'lure'       // noise beacon
   /* appended (2026-09-11) */
-  | 'remoteMine'; // 원격 지뢰 (C4) — detonated by its owner
+  | 'remoteMine'  // 원격 지뢰 (C4) — detonated by its owner
+  /* appended (2026-09-15, 땅굴벌레) */
+  | 'thumper';    // 진동 장치 — 소형 설치물이지만 드론에는 못 올린다 (땅을 쳐야 한다)
 
 /**
  * 2026-09-11 (설치 미리보기): **대형 설치물**은 적당히 평평하고 공간이 있는 바닥에만 선다 — 드론 위에 못 올린다.

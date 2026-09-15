@@ -21,6 +21,7 @@ import * as Wire from './parts/Wire';
 import * as Remote from './parts/Remote';
 import * as Preview from './parts/Preview';
 import * as Mount from './parts/Mount';
+import * as Thumper from './parts/Thumper';
 import { LARGE_DEPLOYABLE_KINDS, MOUNTABLE_DEPLOYABLE_KINDS, type PlacementPreview } from '@/shared';
 import { createBuffGuard, type BuffVerdict } from '@/shared';
 import type { FireZoneInfo } from '@/shared';
@@ -72,8 +73,8 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
     this.thrown = new ThrownGadgetManager(ctx, (gid, pos, hp) => this.onThrownImpact(gid, pos, hp));
     ctx.scene.add(this.visuals.group);
     this.visuals.warm();
-    // 2026-09-11: 설치 미리보기 고스트 (대형 + 소형 place 종류)
-    this.visuals.warmGhosts([...LARGE_DEPLOYABLE_KINDS, ...MOUNTABLE_DEPLOYABLE_KINDS]);
+    // 2026-09-11: 설치 미리보기 고스트 (대형 + 소형 place 종류) · 2026-09-15: 진동 장치 (소형이지만 드론에 못 올린다)
+    this.visuals.warmGhosts([...LARGE_DEPLOYABLE_KINDS, ...MOUNTABLE_DEPLOYABLE_KINDS, 'thumper']);
     const b = ctx.bus;
     this.unsubs.push(
       b.on('game:newMission', () => { this.clear(); this.resetPlacement(); }),
@@ -82,6 +83,8 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
       b.on('player:died', () => { /* deployables outlive their owner on purpose */ }),
       // 2026-09-11 (parts/Mount): 드론이 사라지면 그 위 탑재물은 아래 바닥으로 떨어져 남는다
       b.on('drone:removed', ({ id }) => Mount.onDroneRemoved(this, id)),
+      // 2026-09-15 (parts/Thumper): 땅굴벌레가 분출하면 그 반경 안의 진동 장치는 부서진다 (권위가 지우고 `gad remove` 로 알린다)
+      b.on('sandworm:erupted', ({ position, radius }) => Thumper.onErupted(this, position, radius)),
       b.on('world:ready', () => {
         this.clear();
         this.resetPlacement();

@@ -56,6 +56,8 @@ export function wireOf(sys: GadgetSystem, d: Deployable): DeployableWire {
   };
   // 2026-09-11 (parts/Mount): 드론 위면 그 드론 id — 생략 = 바닥
   if (d.mount) w.mount = d.mount;
+  // 2026-09-15 (진동 장치): 설치 뒤 흐른 시간 — 복제본이 망치 박자를 맞춘다 (타격마다 메시지를 보내지 않는다)
+  if (d.kind === 'thumper') w.age = Math.round(d.age * 100) / 100;
   return w;
   }
 

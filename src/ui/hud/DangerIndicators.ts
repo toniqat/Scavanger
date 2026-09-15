@@ -56,7 +56,7 @@ const FIRE_HOT_EDGE_M = 1.5;
  */
 const FIRE_RANK_BIAS = 1e12;
 /**
- * 지하벌레 분출 전조 (2026-09-13) — `sandworm:warning {position, radius, eta}` 한 번을 받아 분출 시각까지 붙들고,
+ * 땅굴벌레 분출 전조 (2026-09-13) — `sandworm:warning {position, radius, eta}` 한 번을 받아 분출 시각까지 붙들고,
  * `sandworm:erupted` 에 지운다(놓치면 분출 시각 + `WORM_TIMEOUT_S`). 레이드당 최대 1회라 칸 하나로 충분하다.
  * 게이트 없음 — 전조는 무리 한가운데서 일어나므로 늘 가깝다.
  */
@@ -319,7 +319,7 @@ export class DangerIndicators {
         this.push('drop', d.position, DROP_COLOR, CAT_ICON.drop, label, eta > 0 && eta < HOT_S, dd2);
       }
     }
-    // (c2) 지하벌레 분출 전조 (2026-09-13) — 무리 발밑이라 게이트 없음. 분출 이벤트를 놓쳐도 시간이 지나면 걷힌다.
+    // (c2) 땅굴벌레 분출 전조 (2026-09-13) — 무리 발밑이라 게이트 없음. 분출 이벤트를 놓쳐도 시간이 지나면 걷힌다.
     const w = this.worm;
     if (w.active) {
       const eta = w.eruptAt - t;

@@ -1,21 +1,23 @@
-// Tutorial **ship track** smoke (② `ship`: levelUp → stats → messenger → ravenQuest) — TODO E-12, 2026-09-15.
+// Tutorial **ship track** smoke (② `ship`: levelUp → stats → messenger) — TODO E-12, 2026-09-15.
+// 2026-09-15 (사용자 결정): `ravenQuest` 가 순서에서 빠졌다 (3 steps). 레이븐의 첫 연락은 **함선 트랙이 끝난 뒤**, 어느 트랙도
+//   돌지 않을 때 온다 (`meta/parts/NpcQuests.tutorialBlocks`) — 4 는 「아직 조용하다」, 5 는 「증축 트랙을 건너뛰면 온다」를 본다.
 //
 // The raid track (①) is driven by its own smoke; this one sets up the moment that track ends for real and drives the rest with
 // **real input** wherever the player judges something:
 //   0. 레이드 완주 — the tutorial system's own completion path (`extract` → `advance()` → `finish(false)`) leaves `pendingShip`, and
 //      the tutorial raid XP (`TUTORIAL_RAID_XP`) lands a fresh Lv.1 character on exactly Lv.2 with one stat point
 //      (granted by settlement when that exists, else `ctx.progression.addXp` — the line says which).
-//   1. 트랙 순서 — entering the personal ship starts the ship track (raid done, build has no record and waits), 1/4, ship gates.
+//   1. 트랙 순서 — entering the personal ship starts the ship track (raid done, build has no record and waits), 1/3, ship gates.
 //   2. levelUp — Tab (synthetic key on document.body) opens the inventory → stats. And the 2026-09-14 4차 bug: with the inventory
 //      **already open**, a real click on the 캐릭터 tab advances (no `inventory:opened` comes).
 //   3. stats — the spotlight hole is exactly the **visible** stat column (`.cs-col` — the closed overlay copy sits first in the DOM)
 //      and holds every ＋ and the confirm button (hit-tested); ＋ by mouse, a short press does nothing, a real 1 s pointer hold on
 //      `포인트 투자 확정` spends the point → messenger; the profile is saved.
-//   6. reload mid-track (after stats) — v2 save, resumes at `messenger` 3/4, the spent point survives.
-//   4. messenger — Raven's first contact is there (only Raven), not blocked by the tutorial, the button is spotlighted, P opens it.
-//   5. ravenQuest — the Raven row → greeting + two choices, no quest card yet; a real click on a choice → my line, then (typing
-//      animation) reply → `introAfter` → quest card, strictly in that order; 「대답한다」 checks before 「수락」; accept →
-//      `tutorial:finished {track:'ship'}` → the build track starts (intro card) in the same ship.
+//   6. reload mid-track (after stats) — v2 save, resumes at `messenger` 3/3, the spent point survives.
+//   4. messenger — no NPC has written yet (Raven included), the button is spotlighted, P opens it → `tutorial:finished {track:'ship'}`
+//      → the build track starts (intro card) in the same ship and hides the messenger again; still no contact.
+//   5. 레이븐 — `skipTrack('build')` leaves no track running → within `NPC_OFFER_CHECK_S` Raven's first contact arrives (only Raven:
+//      greeting lines + two choices, no quest card), the button returns with an unread badge.
 //
 // Usage: node scripts/smoke-tutorial-ship.mjs [http://localhost:5273/]   (needs `npm run dev`; no relay needed)
 import puppeteer from 'puppeteer-core';
@@ -201,11 +203,11 @@ try {
       objs: [...document.querySelectorAll('.tut-panel .tut-obj-txt')].map((e) => e.textContent),
     };
   });
-  ok(s1.order.join(' ') === 'raid ship build' && s1.ship.join(' ') === 'levelUp stats messenger ravenQuest',
+  ok(s1.order.join(' ') === 'raid ship build' && s1.ship.join(' ') === 'levelUp stats messenger',
     `트랙 순서 raid → ship → build, 함선 트랙 ${s1.ship.join(' → ')}`, JSON.stringify(s1));
-  ok(s1.track === 'ship' && s1.step === 'levelUp' && s1.index === 1 && s1.count === 4
-    && s1.ev?.track === 'ship' && s1.ev?.step === 'levelUp' && s1.ev?.index === 1 && s1.ev?.count === 4,
-  '함선에 들어서면 함선 트랙 levelUp (1/4) 이 시작된다', JSON.stringify({ track: s1.track, step: s1.step, ev: s1.ev }));
+  ok(s1.track === 'ship' && s1.step === 'levelUp' && s1.index === 1 && s1.count === 3
+    && s1.ev?.track === 'ship' && s1.ev?.step === 'levelUp' && s1.ev?.index === 1 && s1.ev?.count === 3,
+  '함선에 들어서면 함선 트랙 levelUp (1/3) 이 시작된다', JSON.stringify({ track: s1.track, step: s1.step, ev: s1.ev }));
   ok(s1.raidDone === true && s1.shipDone === false, '레이드 트랙은 끝났고 함선 트랙은 도는 중', JSON.stringify(s1));
   ok(s1.save?.tracks?.ship?.step === 'levelUp' && !s1.save?.tracks?.build && s1.save?.pendingShip === false && !s1.popup,
     '증축 트랙은 기록 없이 기다린다 (시작 카드 없음) · pendingShip 은 한 번 쓰고 지워진다', JSON.stringify(s1.save));
@@ -225,7 +227,7 @@ try {
     ev: window.__ev['tutorial:changed'].slice(-1)[0] ?? null,
   }));
   ok(s2.open === true && s2.tab === 'inventory' && s2.opened >= 1 && s2.ev?.step === 'stats' && s2.ev?.index === 2,
-    'Tab 으로 인벤토리 화면을 열면 stats (2/4) 로 넘어간다', JSON.stringify(s2));
+    'Tab 으로 인벤토리 화면을 열면 stats (2/3) 로 넘어간다', JSON.stringify(s2));
 
   // 2026-09-14 4차 bug fix: the inventory is **already open** — switching tabs sends no `inventory:opened`
   await P(() => window.__game.ctx.tutorial.goto('levelUp'));
@@ -319,7 +321,7 @@ try {
       ev: window.__ev['tutorial:changed'].slice(-1)[0] ?? null,
     };
   }, pre);
-  ok(s3b.step === 'messenger' && s3b.ev?.index === 3 && s3b.ev?.count === 4, '1초 홀드로 확정하면 messenger (3/4) 로 넘어간다', JSON.stringify(s3b));
+  ok(s3b.step === 'messenger' && s3b.ev?.index === 3 && s3b.ev?.count === 3, '1초 홀드로 확정하면 messenger (3/3) 로 넘어간다', JSON.stringify(s3b));
   ok(s3b.points === 0 && s3b.value === pre.base + pre.points && s3b.statEv > statEv0 && s3b.toast,
     `포인트가 실제로 들어갔다 (${pre.id} ${pre.base} → ${s3b.value}, 남은 포인트 ${s3b.points})`, JSON.stringify(s3b));
   ok(s3b.savedPoints === 0 && s3b.savedValue === pre.base + pre.points, '투자는 즉시 프로필에 저장된다 (scav.s1.profile)', JSON.stringify(s3b));
@@ -354,172 +356,84 @@ try {
       build: JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null')?.tracks?.build ?? null,
     };
   }, pre);
-  ok(s6.track === 'ship' && s6.step === 'messenger' && s6.index === 3 && s6.count === 4 && !s6.shipDone,
-    '새로고침 뒤 함선 트랙 messenger (3/4) 에서 이어진다', JSON.stringify(s6));
+  ok(s6.track === 'ship' && s6.step === 'messenger' && s6.index === 3 && s6.count === 3 && !s6.shipDone,
+    '새로고침 뒤 함선 트랙 messenger (3/3) 에서 이어진다', JSON.stringify(s6));
   ok(s6.level === 2 && s6.points === 0 && s6.value === pre.base + pre.points, '투자한 포인트 · 레벨이 새로고침을 견딘다', JSON.stringify(s6));
   ok(s6.objs.join('|') === '메신저 열기' && s6.build === null, '목표는 「메신저 열기」 · 증축 트랙은 여전히 기다린다', JSON.stringify(s6));
 
-  /* ── 4. messenger — 레이븐의 첫 연락 · 버튼 포커싱 · P ──────────────── */
+  /* ── 4. messenger — 마지막 단계 · 레이븐은 아직 조용하다 · 버튼 포커싱 · P ──────────────── */
   console.log('4. messenger');
   await waitFor(page, () => document.querySelector('.community')?.classList.contains('show'), 'messenger button shown', 15000);
   await waitSpot('메신저', 'spotlight (메신저 버튼)');
-  const s4 = await P(async () => {
-    const S = await import('/src/shared/index.ts');
+  const s4 = await P(() => {
     const t = window.__game.ctx.tutorial, npc = window.__game.ctx.meta.npc;
-    const contacts = npc.getContacts();
-    const raven = contacts.find((c) => c.npc.id === 'npc_raven');
     const dot = document.querySelector('.community .cm-dot');
     return {
-      active: t.active, track: t.track, hides: t.hides('community'),
-      ids: contacts.map((c) => c.npc.id), unread: raven?.unread ?? 0,
-      log: npc.getMessages('npc_raven').length, introLines: S.NPC_DEF_MAP.get('npc_raven').intro.length,
-      choices: npc.getPendingChoices('npc_raven').length, quest: npc.getQuest('q_rv_0'),
+      active: t.active, track: t.track, hides: t.hides('community'), shipDone: t.isTrackDone('ship'),
+      ids: npc.getContacts().map((c) => c.npc.id), unread: npc.unreadTotal,
       badge: dot && !dot.hidden ? Number(dot.textContent) : 0,
+      msgs: window.__ev['npc:message'].length,
+      objs: [...document.querySelectorAll('.tut-panel .tut-obj-txt')].map((e) => e.textContent),
       exact: window.__holeIs(document.querySelector('.community .cm-btn')), hit: window.__hit(document.querySelector('.community .cm-btn')),
     };
   });
   ok(s4.active && s4.track === 'ship' && s4.hides === false, 'messenger 단계에서 메신저 버튼이 드러난다 (community 허용)', JSON.stringify(s4));
-  ok(s4.ids.join(',') === 'npc_raven' && s4.log === s4.introLines && s4.unread > 0 && s4.choices === 2 && s4.quest === null,
-    `튜토리얼 도중에도 레이븐의 첫 연락이 와 있다 — 연락은 레이븐 하나, 인사 ${s4.log}줄 · 선택지 ${s4.choices} · 퀘스트 없음`, JSON.stringify(s4));
-  ok(s4.badge > 0, `썸네일 배지에 읽지 않음 ${s4.badge}`);
+  /* 2026-09-15 (사용자 결정): 레이븐의 첫 연락은 함선 트랙이 **끝난 뒤**다 — 이 단계에는 연락도 배지도 없다
+     (`meta/parts/NpcQuests.tutorialBlocks`: 트랙이 돌거나 함선 트랙이 아직이면 `evaluate` 가 막힌다). */
+  ok(s4.ids.length === 0 && s4.unread === 0 && s4.badge === 0 && s4.msgs === 0 && s4.shipDone === false,
+    '함선 트랙이 도는 동안에는 아무 NPC 도 연락하지 않는다 (레이븐도 아직)', JSON.stringify(s4));
+  ok(s4.objs.join('|') === '메신저 열기', `목표 한 줄 (${s4.objs.join(' | ')})`);
   ok(s4.exact && s4.hit?.ok, '포커싱이 메신저 버튼을 정확히 두르고 버튼이 눌린다', JSON.stringify(s4));
-  await tapKey('KeyP');
-  await waitStep('ravenQuest', 10000).catch(() => null);
-  const s4b = await P(() => ({
-    step: window.__game.ctx.tutorial.step, toggled: window.__ev['ui:messengerToggled'].slice(-1)[0] ?? null,
-    panel: !(document.querySelector('.community-panel')?.hidden ?? true),
-    ev: window.__ev['tutorial:changed'].slice(-1)[0] ?? null,
-  }));
-  ok(s4b.step === 'ravenQuest' && s4b.toggled?.open === true && s4b.panel && s4b.ev?.index === 4,
-    'P 로 메신저를 열면 ravenQuest (4/4) 로 넘어간다', JSON.stringify(s4b));
-
-  /* ── 5. ravenQuest — 선택지 → introAfter → 퀘스트 카드 → 수락 ─────────── */
-  console.log('5. ravenQuest');
-  await waitSpot('레이븐', 'spotlight (레이븐의 첫 연락)');
-  await sleep(300);
-  const s5 = await P(() => {
-    const row = document.querySelector('.ms-row[data-key="npc:npc_raven"]');
-    return {
-      chatPage: window.__holeIs(window.__shown('.ms-page.chat')), frame: window.__holeIs(window.__shown('.ms-frame')),
-      rowIn: window.__inHole(row), rowHit: window.__hit(row), card: !!document.querySelector('.ms-qcard'),
-      objs: [...document.querySelectorAll('.tut-panel .tut-obj-txt')].map((e) => e.textContent),
-    };
-  });
-  ok(s5.chatPage, '포커싱 구멍 = 메신저의 대화 페이지 (.ms-page.chat)', JSON.stringify(s5));
-  ok(s5.rowIn && s5.rowHit?.ok && !s5.card, '레이븐 대화 줄이 구멍 안에서 눌린다 · 아직 퀘스트 카드는 없다', JSON.stringify(s5));
-  ok(s5.objs.join('|') === '레이븐의 연락에 답장|퀘스트 수락', `목표 두 줄 (${s5.objs.join(' | ')})`);
-  await page.mouse.click(s5.rowHit.x, s5.rowHit.y);
-  /* 2026-09-15 (사용자 결정 — 「확인해야 다음 메시지가 온다」): 대화를 **처음** 열면 안 읽은 인사가 한꺼번에
-   * 뜨지 않고 `...`(`.ms-bubble.ms-typing`) 뒤에 하나씩 붙는다. 자동으로 그 연출을 지나는 유일한 경로가
-   * 여기다 — 이 단계 전에 레이븐 대화를 여는 곳이 없어 `readAt` 이 0 인 채로 도착한다.
-   * 선택지를 기다리는 폴링을 그대로 두면 연출이 있었는지 없었는지 알 수 없으므로, 기다리는 동안 잰다. */
-  const s5t = await P(async () => {
-    const S = await import('/src/shared/index.ts');
-    const lines = S.NPC_DEF_MAP.get('npc_raven').intro.length;
-    const bubbles = () => document.querySelectorAll('.ms-tbody .ms-msg.in:not(.typing) .ms-bubble').length;
-    const t0 = performance.now();
-    const out = { lines, first: bubbles(), typing: false, last: 0, ms: -1 };
-    while (performance.now() - t0 < 12000) {
-      if (document.querySelector('.ms-bubble.ms-typing')) out.typing = true;
-      const n = bubbles();
-      if (n > out.last) out.last = n;
-      if (document.querySelectorAll('.ms-tbody .ms-choice').length === 2) { out.ms = Math.round(performance.now() - t0); break; }
-      await new Promise((r) => setTimeout(r, 30));
-    }
-    return out;
-  });
-  ok(s5t.lines >= 2 && s5t.first < s5t.lines && s5t.typing && s5t.last >= s5t.lines,
-    `안 읽은 인사가 ... 뒤에 하나씩 도착한다 (첫 ${s5t.first} → ${s5t.last} / ${s5t.lines}줄, ${s5t.ms} ms)`, JSON.stringify(s5t));
-  await waitFor(page, () => document.querySelectorAll('.ms-tbody .ms-choice').length === 2, 'Raven choices', 10000);
-  const s5a = await P(async () => {
-    const S = await import('/src/shared/index.ts');
-    const d = S.NPC_DEF_MAP.get('npc_raven');
-    const body = document.querySelector('.ms-tbody')?.textContent ?? '';
-    const choice = document.querySelector('.ms-tbody .ms-choice[data-choice="0"]');
-    return {
-      intro: d.intro.every((l) => body.includes(l)), after: d.introAfter.some((l) => body.includes(l)),
-      labels: [...document.querySelectorAll('.ms-tbody .ms-choice')].map((b) => b.textContent),
-      want: d.introChoices, card: !!document.querySelector('.ms-qcard'), quest: window.__game.ctx.meta.npc.getQuest('q_rv_0'),
-      hit: window.__hit(choice),
-      talkDone: window.__objDone('레이븐의 연락에 답장'),
-      reply: d.introChoiceReplies[0].slice(0, 24), lastAfter: d.introAfter[d.introAfter.length - 1].slice(0, 24),
-    };
-  });
-  ok(s5a.intro && !s5a.after && s5a.labels.join('|') === s5a.want.join('|'),
-    '대화를 열면 인사 전부 + 내 대답 버튼 두 개 — 본론(introAfter)은 아직 없다', JSON.stringify(s5a));
-  ok(!s5a.card && s5a.quest === null && s5a.talkDone === false, '대답하기 전에는 퀘스트 제안도 카드도 없다 · 목표도 그대로', JSON.stringify(s5a));
-  ok(s5a.hit?.ok, '대답 버튼이 어두운 판에 가리지 않는다', JSON.stringify(s5a.hit));
-
-  // real click on the first answer, then watch the thread in-page: reply → introAfter → quest card, with the typing bubble between
-  await page.mouse.click(s5a.hit.x, s5a.hit.y);
-  const tl = await P(async (want) => {
-    const t0 = performance.now();
-    const out = { me: -1, reply: -1, after: -1, card: -1, typing: false, afterAtCard: false, offeredAt: null, cardBefore: null };
-    const npc = window.__game.ctx.meta.npc;
-    out.offeredAt = npc.getQuest('q_rv_0')?.state ?? null;
-    out.cardBefore = !!document.querySelector('.ms-qcard');
-    while (performance.now() - t0 < 30000) {
-      const body = document.querySelector('.ms-tbody');
-      const txt = body?.textContent ?? '';
-      const now = Math.round(performance.now() - t0);
-      if (out.me < 0 && [...(body?.querySelectorAll('.ms-msg.out .ms-bubble') ?? [])].some((b) => b.textContent === want.label)) out.me = now;
-      if (out.reply < 0 && txt.includes(want.reply)) out.reply = now;
-      if (out.after < 0 && txt.includes(want.lastAfter)) out.after = now;
-      if (body?.querySelector('.ms-typing')) out.typing = true;
-      if (body?.querySelector('.ms-qcard[data-quest="q_rv_0"]')) { out.card = now; out.afterAtCard = txt.includes(want.lastAfter); break; }
-      await new Promise((r) => setTimeout(r, 30));
-    }
-    out.choicesLeft = document.querySelectorAll('.ms-tbody .ms-choice').length;
-    return out;
-  }, { label: s5a.want[0], reply: s5a.reply, lastAfter: s5a.lastAfter });
-  ok(tl.offeredAt === 'offered' && tl.cardBefore === false, '대답한 그 자리에서 q_rv_0 이 제안되지만 카드는 타이핑 연출 뒤에 온다', JSON.stringify(tl));
-  ok(tl.me >= 0 && tl.me < 400 && tl.choicesLeft === 0, `내 대답은 곧바로 붙고 선택지 줄이 사라진다 (${tl.me} ms)`, JSON.stringify(tl));
-  ok(tl.typing && tl.reply > tl.me && tl.after > tl.reply && tl.card > tl.after && tl.afterAtCard,
-    `답 → 본론(introAfter) → 퀘스트 카드 순서 (${tl.reply} → ${tl.after} → ${tl.card} ms, 사이마다 … 말풍선)`, JSON.stringify(tl));
-  await sleep(700);
-  const objOrder = await P(() => ({
-    talk: window.__objDone('레이븐의 연락에 답장'), accept: window.__objDone('퀘스트 수락'),
-    step: window.__game.ctx.tutorial.step,
-  }));
-  ok(objOrder.talk === true && objOrder.accept === false && objOrder.step === 'ravenQuest',
-    '목표는 순서대로 체크된다 — 대답하면 「대답한다」만, 「수락한다」는 아직', JSON.stringify(objOrder));
-
-  // the spotlight re-aims at the card (same step, same tip — `.ms-qcard` is the first selector) and 수락 is clickable
-  await waitFor(page, () => window.__lit() && window.__holeIs(window.__shown('.ms-qcard')), 'spotlight on quest card', 8000).catch(() => null);
-  const acc = await P(() => {
-    const card = window.__shown('.ms-qcard[data-quest="q_rv_0"]');
-    const btn = card?.querySelector('[data-act="accept"]') ?? null;
-    btn?.scrollIntoView({ block: 'nearest' });
-    return { onCard: window.__holeIs(card), hit: window.__hit(btn), acts: [...(card?.querySelectorAll('[data-act]') ?? [])].map((b) => b.dataset.act) };
-  });
-  ok(acc.onCard && acc.acts.join('|') === 'accept' && acc.hit?.ok, '포커싱이 퀘스트 카드로 옮겨 가고 [수락] 이 눌린다', JSON.stringify(acc));
   const n0 = await P(() => window.__ev['tutorial:changed'].length);
-  if (acc.hit) await page.mouse.click(acc.hit.x, acc.hit.y);
+  await tapKey('KeyP');
   await waitFor(page, () => window.__ev['tutorial:finished'].some((f) => f.track === 'ship'), 'tutorial:finished ship', 10000).catch(() => null);
   await sleep(400);
-  const s5z = await P((n0) => {
-    const t = window.__game.ctx.tutorial, npc = window.__game.ctx.meta.npc;
+  const s4b = await P((n0) => {
+    const t = window.__game.ctx.tutorial;
     return {
+      toggled: window.__ev['ui:messengerToggled'].filter((e) => e.open).length,
       fin: window.__ev['tutorial:finished'].filter((f) => f.track === 'ship'),
-      quest: npc.getQuest('q_rv_0')?.state ?? null,
-      qEv: window.__ev['npc:questChanged'].map((e) => `${e.id}:${e.state}`),
-      log: window.__ev['npc:message'].filter((m) => m.npc === 'npc_raven').map((m) => m.entry.e),
       trail: window.__ev['tutorial:changed'].slice(n0).map((e) => `${e.track ?? '-'}:${e.step}:${e.index}/${e.count}`),
       track: t.track, step: t.step, shipDone: t.isTrackDone('ship'),
       save: JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'),
       popup: !(document.querySelector('.tut-popup')?.hidden ?? true), popupTitle: document.querySelector('.tut-popup-card .title')?.textContent ?? '',
       messengerOpen: !(document.querySelector('.community-panel')?.hidden ?? true), hidesCommunity: t.hides('community'),
+      contacts: window.__game.ctx.meta.npc.getContacts().map((c) => c.npc.id),
     };
   }, n0);
-  ok(s5z.quest === 'active' && s5z.qEv.join(',') === 'q_rv_0:offered,q_rv_0:active' && s5z.log.join(',') === 'choice,offer,accept',
-    '[수락] → q_rv_0 active (사건: choice → offer → accept)', JSON.stringify(s5z));
-  ok(s5z.fin.length === 1 && s5z.fin[0].skipped === false && s5z.shipDone && s5z.save?.tracks?.ship?.done === true,
-    '함선 트랙이 끝난다 — tutorial:finished {ship, skipped:false}', JSON.stringify(s5z.fin));
-  ok(s5z.track === 'build' && s5z.step === 'intro' && s5z.popup && s5z.popupTitle === '튜토리얼'
-    && s5z.trail.join(' ') === '-:null:0/4 build:intro:1/16',
-  `같은 함선에서 곧바로 증축 트랙이 시작된다 (${s5z.trail.join(' → ')})`, JSON.stringify(s5z));
-  ok(!s5z.messengerOpen && s5z.hidesCommunity === true,
-    '증축 트랙은 메신저를 다시 감추므로 열려 있던 메신저가 닫힌다 (현재 동작)', JSON.stringify(s5z));
+  ok(s4b.toggled >= 1 && s4b.fin.length === 1 && s4b.fin[0].skipped === false && s4b.shipDone && s4b.save?.tracks?.ship?.done === true,
+    'P 로 메신저를 열면 함선 트랙이 끝난다 (3/3) — tutorial:finished {ship, skipped:false}', JSON.stringify(s4b));
+  ok(s4b.track === 'build' && s4b.step === 'intro' && s4b.popup && s4b.popupTitle === '튜토리얼'
+    && s4b.trail.join(' ') === '-:null:0/3 build:intro:1/17',
+  `같은 함선에서 곧바로 증축 트랙이 시작된다 (${s4b.trail.join(' → ')})`, JSON.stringify(s4b));
+  ok(!s4b.messengerOpen && s4b.hidesCommunity === true,
+    '증축 트랙은 메신저를 다시 감추므로 열려 있던 메신저가 닫힌다 (현재 동작)', JSON.stringify(s4b));
+  ok(s4b.contacts.length === 0, '증축 트랙이 도는 동안에도 연락은 없다', JSON.stringify(s4b.contacts));
+
+  /* ── 5. 레이븐 — 튜토리얼이 끝나야 쓴다 ──────────────────────────────── */
+  console.log('5. 레이븐 (튜토리얼 뒤)');
+  // 증축 트랙을 건너뛰면 어느 트랙도 돌지 않는다 → 다음 평가(`NPC_OFFER_CHECK_S` 주기)에서 레이븐이 첫 연락을 보낸다
+  await P(() => window.__game.ctx.tutorial.skipTrack('build'));
+  const s5 = await P(async () => {
+    const S = await import('/src/shared/index.ts');
+    const npc = window.__game.ctx.meta.npc;
+    const t0 = performance.now();
+    const limit = (S.NPC_OFFER_CHECK_S + 4) * 1000;
+    while (performance.now() - t0 < limit && npc.getContacts().length === 0) await new Promise((r) => setTimeout(r, 100));
+    const contacts = npc.getContacts();
+    const raven = contacts.find((c) => c.npc.id === 'npc_raven');
+    const dot = document.querySelector('.community .cm-dot');
+    return {
+      ms: Math.round(performance.now() - t0), active: window.__game.ctx.tutorial.active,
+      ids: contacts.map((c) => c.npc.id), unread: raven?.unread ?? 0,
+      log: npc.getMessages('npc_raven').length, introLines: S.NPC_DEF_MAP.get('npc_raven').intro.length,
+      choices: npc.getPendingChoices('npc_raven').length, quest: npc.getQuest('q_rv_0'),
+      badge: dot && !dot.hidden ? Number(dot.textContent) : 0, shown: document.querySelector('.community')?.classList.contains('show') ?? null,
+    };
+  });
+  ok(!s5.active && s5.ids.join(',') === 'npc_raven' && s5.log === s5.introLines && s5.unread > 0 && s5.choices === 2 && s5.quest === null,
+    `튜토리얼이 끝나면 레이븐이 첫 연락을 보낸다 (${s5.ms} ms) — 연락은 레이븐 하나, 인사 ${s5.log}줄 · 선택지 ${s5.choices} · 퀘스트 없음`, JSON.stringify(s5));
+  ok(s5.badge > 0 && s5.shown === true, `메신저 버튼이 돌아오고 썸네일 배지에 읽지 않음 ${s5.badge}`, JSON.stringify(s5));
 
   ok(errors.length === 0, `no console errors (${errors.length})`, errors.slice(0, 3).join(' | '));
 } catch (e) {

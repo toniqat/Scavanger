@@ -87,7 +87,7 @@ export function ecoAllows(eco: PlanetEcosystem | null, t: EnemyType): boolean {
 }
 
 /**
- * 2026-09-13 (지하벌레 · 분출 무리): `from` 중 이 행성에 사는 종류 하나를 행성 가중치로 뽑는다. `eco` 가 null(행성 없음)이면
+ * 2026-09-13 (땅굴벌레 · 분출 무리): `from` 중 이 행성에 사는 종류 하나를 행성 가중치로 뽑는다. `eco` 가 null(행성 없음)이면
  * `fallback` 가중치(같은 순서)로 뽑는다. 뽑을 게 없으면 null. 구성은 늘 그랬듯 시드 없는 `Math.random()` 이다.
  */
 export function pickEcoType(eco: PlanetEcosystem | null, from: readonly EnemyType[], fallback: readonly number[]): EnemyType | null {
@@ -115,7 +115,7 @@ export function maxBehemothOf(eco: PlanetEcosystem | null): number {
 
 /* ══ 2026-09-14: 벌레 난이도 — 행성 threat 가 구성에 얹는 것 ═══════════════════════════════════════════════════════
  * 한 곳에서만 들어간다: `EnemySystem` 의 `world:ready` 가 `threatEcosystem(행성 eco, bugThreatTuning(threat))` 로 **실효 생태계**를 만들어
- * 순찰(`AmbientSpawner.eco`) · 웨이브(`WaveDirector.eco`) · 지하벌레 뱉기/분출(`SandwormDirector`)에 넘긴다. 그래서 가중치를 읽는
+ * 순찰(`AmbientSpawner.eco`) · 웨이브(`WaveDirector.eco`) · 땅굴벌레 뱉기/분출(`SandwormDirector`)에 넘긴다. 그래서 가중치를 읽는
  * 모든 경로(`weightedPick` · `pickEcoType` · `maxArtilleryOf` · `maxBehemothOf`)가 한 줄도 안 바뀌고 같은 배수를 본다.
  * 가중치만으로는 부족한 두 곳은 따로 받는다: 대형 슬롯은 차저 · 베헤모스 **둘 다** 배수를 받아 슬롯 안 비율이 그대로라,
  * 순찰의 대형 슬롯 확률 자체에 `bigMul` 을 곱한다(`AmbientOpts.heavyMul`) · 포병은 무리에 들지 않으므로 굴착 확률에 곱한다.

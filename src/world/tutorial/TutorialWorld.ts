@@ -11,7 +11,7 @@ import { TutorialCorpses } from './parts/Corpses';
 import {
   ABYSS_EDGE_Z, ABYSS_SAFE_MARGIN_M, CHASM_RUNUP_M, CHECKPOINTS, CORRIDOR_OUTER_X, DECK_LOWER_Y, DECK_UPPER_Y, ENEMIES,
   ENEMY_LEASH, ENEMY_SENSE, FALL_RULES, PIT_FLOOR_Y, RUINS, SHIP_POS, SHIP_YAW, TUTORIAL_MAP_SIZE, VOID_Y, Z_END, Z_START,
-  chasmFarZAt, chasmNearZAt, type Volume,
+  chasmFarZAt, chasmNearZAt, inAbyssCut, type TutorialSpawnSpec, type Volume,
 } from './model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -102,13 +102,17 @@ export class TutorialWorld implements TutorialWorldRef {
 
     this.spawns.length = 0;
     for (const e of ENEMIES) {
-      this.spawns.push({
+      // 2026-09-15 3차: 자리마다 감지 반경(`sense`) · 총 계열(`weapon`)을 덮어쓸 수 있다 — 마지막 안드로이드 둘 (`model.ts` 의 `ENEMIES` 주석).
+      // `weapon` 은 공용 계약 밖의 필드라 확장 타입 `TutorialSpawnSpec` 으로 만들어 넣는다 (`enemies/Tutorial` 이 선택 필드로 읽는다).
+      const spawn: TutorialSpawnSpec = {
         type: e.type,
         position: new THREE.Vector3(e.x, e.y, e.z),
         yaw: e.yaw,
-        sense: ENEMY_SENSE,
+        sense: e.sense ?? ENEMY_SENSE,
         leash: ENEMY_LEASH,
-      });
+      };
+      if (e.weapon) spawn.weapon = e.weapon;
+      this.spawns.push(spawn);
     }
 
     // 계약(`shared/tutorialWorld`)의 순서와 맵의 순서가 갈라지면 부활 자리가 엉킨다 — 생성할 때 한 번 본다.
@@ -180,6 +184,8 @@ export class TutorialWorld implements TutorialWorldRef {
    *   ④ **끝없는 절벽 가장자리 띠 밖** (2026-09-15) — 가장자리(`ABYSS_EDGE_Z`)에서 `ABYSS_SAFE_MARGIN_M`(3 m) 안은 적지 않는다.
    *      가장자리에 발끝을 걸친 자리(몸 가운데는 아직 데크 위)에 되살리면 한 걸음에 다시 떨어진다. 그 띠에서 떨어진 사람은
    *      띠 바로 뒤, 즉 가장자리에서 3 m 이상 떨어진 마지막 자리로 돌아온다.
+   *      2026-09-15 3차 — 철조망 너머의 **절벽 구멍**(`ABYSS_CUTS`) 가장자리도 같은 띠다 (`inAbyssCut(x, z, 3)`): 구멍이 오른쪽 ·
+   *      남쪽으로도 뚫려 있어 z 하나로는 잴 수 없다.
    * 접지(`isGrounded`) 자체가 다섯째 조건이라 뛰는 · 떨어지는 동안의 좌표는 애초에 적히지 않는다
    * (그래서 ① 은 ③ 과 겹치는 이중 안전장치다 — `kill` 볼륨 안에서 접지할 수 있는 곳은 협곡 바닥 · 절벽 아래 지형뿐이다).
    */
@@ -190,6 +196,7 @@ export class TutorialWorld implements TutorialWorldRef {
     if (!SAFE_LEVELS.some((level) => Math.abs(p.y - level) <= SAFE_DECK_EPS)) return;
     if (p.z <= chasmNearZAt(p.x) + CHASM_RUNUP_M && p.z >= chasmFarZAt(p.x) - SAFE_CHASM_MARGIN) return;
     if (p.z < ABYSS_EDGE_Z + ABYSS_SAFE_MARGIN_M) return;
+    if (inAbyssCut(p.x, p.z, ABYSS_SAFE_MARGIN_M)) return;
     for (const v of FALL_RULES) if (v.rule === 'kill' && volumeContains(v, p)) return;
     this.lastSafe.copy(p);
     this.hasLastSafe = true;

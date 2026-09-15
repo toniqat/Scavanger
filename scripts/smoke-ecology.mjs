@@ -5,7 +5,7 @@
 // site-group factions by planet threat (2026-09-13: crate guards and eco.rogues / eco.boss are retired), and determinism
 // (same seed + same planet = the same world and the same site-group placement).
 // 2026-09-11 (온실 개편): 행성별 **토양 더미** (`planets.csv` 의 soils · soilNodes) — 개수 · 종류 · 시드 결정성.
-// 2026-09-14 (벌레 난이도): 행성 threat 별 벌레 최대 체력 배수(권위 · 리플리카 · 승격 · 인간형/지하벌레/훈련장 제외), 실효 생태계 가중치 ·
+// 2026-09-14 (벌레 난이도): 행성 threat 별 벌레 최대 체력 배수(권위 · 리플리카 · 승격 · 인간형/땅굴벌레/훈련장 제외), 실효 생태계 가중치 ·
 // 상한, 같은 생태계에 threat 1/2/3 을 얹은 순찰 N 개의 대형 벌레 몫 · 순찰 베헤모스 · 중형 몫 (`data/tables.csv` 를 직접 읽는다).
 // No planet (and a training) must behave exactly as before. Drives `window.__game` only — no console, no relay.
 // Usage: node scripts/smoke-ecology.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
@@ -282,7 +282,7 @@ try {
   }
 
   /* ── 2026-09-14: 벌레 난이도 (행성 threat) ───────────────────────────────
-   * ① 팩션 bug 최대 체력 × BUG_HP_MUL_BY_THREAT (지하벌레 · 인간형 제외) — 권위 스폰 · 리플리카(스냅샷 · ee spawn) · 승격 hp 상한이 같은 값
+   * ① 팩션 bug 최대 체력 × BUG_HP_MUL_BY_THREAT (땅굴벌레 · 인간형 제외) — 권위 스폰 · 리플리카(스냅샷 · ee spawn) · 승격 hp 상한이 같은 값
    * ② 대형 벌레 비중: 같은 행성 원본 생태계에 threat 1 / 2 / 3 을 얹어 순찰 N 개를 굴리면 차저 + 베헤모스 몫이 오르고, 베헤모스는
    *    PATROL_BEHEMOTH_BY_THREAT 가 켜진 칸에서만 나온다 · 중형 슬롯의 전사 + 스퓨어 몫이 오른다 · 포병 상한 / 굴착 확률이 오른다 */
   console.log('bug difficulty by planet threat (2026-09-14)');

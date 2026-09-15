@@ -168,7 +168,7 @@ rogue_heavy,keycard_lab,1,1,0.05
 # 표가 없으면 "모르는 적 = 생체 조직 1" 로 떨어지므로 확률 0 한 줄로 **빈 결과**를 못박아 둔다.
 rogue_scan_drone,mat_circuit,1,1,0
 
-# sandworm — 지하벌레 (2026-09-13, 보스급). CORPSE_LOOT_CHANCE 1 = 늘 수색된다. 벌레라서 미확인 표본 셋이 넉넉하게 나오는
+# sandworm — 땅굴벌레 (2026-09-13, 보스급). CORPSE_LOOT_CHANCE 1 = 늘 수색된다. 벌레라서 미확인 표본 셋이 넉넉하게 나오는
 # 유일한 시체다 — 세포는 확정, 광물 · DNA 는 높은 확률. 은퇴 아이템은 쓰지 않는다 (npm run data:check 가 잡는다).
 sandworm,mat_bio_sample,6,10,1
 sandworm,terminid_gland,2,4,1
@@ -178,6 +178,14 @@ sandworm,spec_dna,1,2,0.6
 sandworm,mat_extract_bio,1,2,0.4
 sandworm,alien_artifact,1,1,0.5
 sandworm,seed_glowcap,1,1,0.15
+
+# sandworm_weak — 어린 땅굴벌레 (2026-09-15, 위협 1). 성체보다 작은 표 — 세포는 확정, 나머지는 절반 정도. 늘 수색된다 (CORPSE_LOOT_CHANCE 1).
+sandworm_weak,mat_bio_sample,3,5,1
+sandworm_weak,terminid_gland,1,2,1
+sandworm_weak,spec_cell,1,2,1
+sandworm_weak,spec_mineral,1,1,0.5
+sandworm_weak,spec_dna,1,1,0.3
+sandworm_weak,mat_extract_bio,1,1,0.25
 
 # ── 2026-09-14 3차: 튜토리얼 전용 4종 (data/enemies.csv 의 tut_* 줄) ──────────────────────────────────
 # 튜토리얼은 **굴림이 없다** — 가르치려는 물건만 정확히 나온다. 그래서 chance 는 1 아니면 0 뿐이다.

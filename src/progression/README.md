@@ -23,7 +23,7 @@ default (multiplier 1, bonus 0).
 | `ui/SheetTip.ts` | Name tooltips (`.pg-tip`) for stats, skills, facility badge; highlight of linked rows (`.pg-linked`). |
 | `ui/CharacterSheet.ts` | Standalone overlay (`.menu.char-sheet`): `.scr-tabs` + frame + `SheetBody`. Blocker `'stats'`, cursor mode, `ctx.escape` entry, capture-phase Tab close, key-guide owner `character`. |
 | `ui/SheetView.ts` | Embedded character tab of the inventory window (`EmbeddedView`): `.cs-embed` + `SheetBody`; no blocker / lock / Escape. |
-| `ui/character.css` | Sheet styles (`.cs-*`, `.pg-*`). |
+| `ui/character.css` | Sheet styles (`.cs-*`, `.pg-*`); the `포인트 투자 확정` hold keycap paints its mouse glyph white (`--c-accent` / `color` overridden on `.kcm-glyph` only, chevron keeps the accent). |
 
 ## Public API
 
@@ -124,9 +124,8 @@ default (multiplier 1, bonus 0).
 
 ## Recent changes
 Last 5 only — older: `git log -- src/progression`.
+- 2026-09-15 — No cryptography XP for `extraction:activated` with `duration <= 0` or in the tutorial (the pre-landed tutorial ship replays the event).
+- 2026-09-15 — `포인트 투자 확정` hold keycap: mouse glyph white, chevron accent (`character.css`, scoped to `.pg-confirm`).
 - 2026-09-15 — Left-click hold keycap inside `포인트 투자 확정` (`createHoldButtonCap`).
 - 2026-09-15 — Legendary unique weapons give no marksmanship XP (`weaponClassOf`).
 - 2026-09-14 — Starter grapple granted on first `hub:entered` (`grantStarterImplant`); new profiles start with `implant: null`.
-- 2026-09-13 — Lab benches and cooking bench give no crafting XP (`LAB_BENCHES`).
-- 2026-09-13 — Skills `cooking` / `research` + 4 derived rows, library `derived` fold, video-game stats in gym training,
-  pending stat allocation with hold confirm, name tooltips, leave warning.

@@ -90,7 +90,8 @@ try {
     };
   });
   ok(cat.g10 && cat.frag === undefined, `items.csv grenadeFire: G-10 true, G-12 unset (${cat.g10}/${cat.frag})`);
-  ok(!cat.listed && cat.defs === 12, `화염 지대는 내부 정의라 getDefs() 밖이다 (${cat.defs} defs)`);
+  /* 2026-09-15 (땅굴벌레): 진동 장치가 들어와 공개 정의는 13개다 */
+  ok(!cat.listed && cat.defs === 13, `화염 지대는 내부 정의라 getDefs() 밖이다 (${cat.defs} defs)`);
   /* `gad_incendiary` 는 지운 것이 아니라 `item_aliases.csv` 로 화염 수류탄에 흡수됐다 — 가진 사람이 잃지 않는다. */
   ok(cat.retired && cat.aliased === 'grenade_incendiary', `옛 'grenadeFire' 정의 은퇴 · gad_incendiary → ${cat.aliased}`);
   ok(cat.gf && cat.gf.use === 'throw' && cat.gf.dep === 'fire' && cat.gf.r === 3.5 && cat.gf.dur === 6 && cat.gf.hp === 0,

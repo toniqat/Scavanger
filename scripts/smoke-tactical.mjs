@@ -123,7 +123,8 @@ try {
   // 2026-09-11: +3 (원격 지뢰 · 지상 드론 · 공중 드론)
   /* 2026-09-15 2차: 옛 가젯 「화염수류탄」(gad_incendiary)이 화염 수류탄으로 합쳐지며 하나 줄고(-1),
      `ItemCategory 'grenade'` 폐지로 수류탄 2종이 이 카테고리로 들어왔다(+2). */
-  ok((cat.byCat.gadget ?? 0) === 14, `14 gadget items — 가젯 12 + 수류탄 2 (${cat.byCat.gadget})`);
+  /* 2026-09-15 (땅굴벌레): 진동 장치 `gad_thumper` 가 13번째 가젯이다 */
+  ok((cat.byCat.gadget ?? 0) === 15, `15 gadget items — 가젯 13 + 수류탄 2 (${cat.byCat.gadget})`);
   ok((cat.byCat.herb ?? 0) >= 3, `herb items (${cat.byCat.herb})`);
   ok(cat.recipes >= 10, `craft recipes: ${cat.recipes}`);
   ok(cat.weighted, 'every item def carries a weight');
@@ -984,7 +985,9 @@ try {
   const programs1 = await page.evaluate(() => window.__game.ctx.renderer.info.programs?.length ?? -1);
   // Phase 12 raised the bound 70 → 95: the script now runs three missions and spawns two bug types (scavenger, warrior)
   // whose materials compile on first sight (~71 measured). The check still catches unbounded growth (the old grenade hitch).
-  ok(programs1 - programs0 < 95, `shader programs ${programs0} → ${programs1} after every tactical FX fired`);
+  // 2026-09-15 95 → 100: the 땅굴벌레 director no longer pre-rolls — its base chance is > 0 on every threat, so the worm rig is
+  // prewarmed (`Director.prewarm`) in every planet raid and its 3 programs always count (98 measured, was 95).
+  ok(programs1 - programs0 < 100, `shader programs ${programs0} → ${programs1} after every tactical FX fired`);
 
   ok(errors.length === 0, 'no console errors', errors.slice(0, 6).join(' | '));
 } catch (e) {

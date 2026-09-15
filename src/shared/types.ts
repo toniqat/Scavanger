@@ -1029,8 +1029,11 @@ export type EnemyType = 'scavenger' | 'hunter' | 'warrior' | 'spewer' | 'charger
   | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone'
   /* appended (2026-09-13): 행성 threat 별 인간형 팩션 — 안드로이드(threat 1) · 레이더(threat 2–3). 로그는 `rogue` 그대로. */
   | 'android' | 'raider'
-  /* appended (2026-09-13): 지하벌레 — 땅에 박힌 채 버그를 뱉고 독극물을 뱉는 이벤트 보스 (팩션 bug, `enemies/sandworm`). */
+  /* appended (2026-09-13): 땅굴벌레 — 땅에 박힌 채 버그를 뱉고 독극물을 뱉는 이벤트 보스 (팩션 bug, `enemies/sandworm`). */
   | 'sandworm'
+  /* appended (2026-09-15): 어린 땅굴벌레 — 위협 1 행성의 땅굴벌레. 체력 `SANDWORM_WEAK_HP` 고정 · 몸 `SANDWORM_WEAK_SCALE` 배 ·
+     분출 반경 같은 배수 · 스캐빈저만 뱉는다. 같은 리그(`models/WormModel`) · 같은 디렉터. */
+  | 'sandworm_weak'
   /* appended (2026-09-14 3차): 튜토리얼 전용 4종. 수치 · 리그 · AI 는 **바탕 종류**(`enemies/EnemyTypes.baseTypeOf` —
      `tut_bug*` = scavenger · `tut_android*` = android 체력 절반) 그대로이고, 다른 것은 **고정 드롭** 하나뿐이다
      (`data/loot_corpses.csv` · `loot_corpse_rolls.csv`). 본편 레이드 · 훈련장에는 서지 않는다
@@ -1560,8 +1563,10 @@ export const CORPSE_LOOT_CHANCE: Readonly<Record<EnemyType, number>> = {
   rogue_sniper: 1, rogue_hammer: 1, rogue_heavy: 1, rogue_scan_drone: 0,
   /* appended (2026-09-13): 안드로이드 · 레이더도 늘 수색된다 */
   android: 1, raider: 1,
-  /* appended (2026-09-13): 지하벌레는 늘 수색된다 (보스급 전리품 — data/loot_corpses.csv) */
+  /* appended (2026-09-13): 땅굴벌레는 늘 수색된다 (보스급 전리품 — data/loot_corpses.csv) */
   sandworm: 1,
+  /* appended (2026-09-15): 어린 땅굴벌레도 늘 수색된다 (작은 표 — data/loot_corpses.csv 의 `sandworm_weak`) */
+  sandworm_weak: 1,
   /* appended (2026-09-14 3차): 튜토리얼 — `_loot` 둘만 늘 수색되고(고정 드롭 100 %), 나머지 둘은 **빈 시체**라
      아예 열리지 않는다 (0 = 상호작용이 서지 않는다 — 빈 격자를 여는 것보다 조용하다). */
   tut_bug_loot: 1, tut_android_loot: 1, tut_bug: 0, tut_android: 0,
@@ -2215,6 +2220,14 @@ export interface WorldRef {
   getTrams(): readonly TramDef[];
   /** 이번 레이드의 환경 재해. 후보가 없는 행성 · 훈련장이면 null. */
   readonly hazard: HazardRef | null;
+  /**
+   * appended (2026-09-15, 땅굴벌레 등장 판정 개편 — owner: world): `(x, z)` 둘레 `radius` m 가 땅굴벌레가 파고 나올 수 있는
+   * **평평한 맨땅**인가 — 지형 경사가 완만하고 그 원 안에 구조물 발자국 · 선로 · 전차 · 소품(바위 · 나무) · 독성 포자 군락 ·
+   * 위험 지대 · 둥지 · 훈련장 시설이 하나도 걸리지 않는다. 호스트의 발동 자리 검사(`enemies/sandworm/Director`)와 진동 장치
+   * 설치 미리보기(`gadgets/parts/Preview`)가 **같은 판정**을 써야 하므로 여기 한 곳에만 있다. 옵셔널 — 튜토리얼 · 훈련장 월드는
+   * 구현하지 않고, 부르는 쪽은 `?.` 로 읽어 없으면 false 로 본다 (거기서는 땅굴벌레가 없다).
+   */
+  burrowGroundOk?(x: number, z: number, radius: number): boolean;
 }
 
 /* ── 행성별 무기 등급 드롭 (owner: items/Loot) ─────────────────────────────────────────────────────────── */
@@ -3393,7 +3406,7 @@ export interface ItemDef {
 
 /** 피해 출처의 종류. */
 export type DamageCauseKind =
-  | 'enemy'      // 적 개체 (벌레 · 로그 · 레이더 · 안드로이드 · 네임드 · 지하벌레 …) — 근접 · 사격 · 산성 · 적 폭발 · 적 화염 지대
+  | 'enemy'      // 적 개체 (벌레 · 로그 · 레이더 · 안드로이드 · 네임드 · 땅굴벌레 …) — 근접 · 사격 · 산성 · 적 폭발 · 적 화염 지대
   | 'fall'       // 낙하 피해
   | 'hazard'     // 환경 재해 (모래 폭풍 · 눈보라 · 폭풍의 눈 · 독성 포자)
   | 'env'        // 행성 상시 환경 (열 · 독) — 준비물이 없을 때

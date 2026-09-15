@@ -3,7 +3,7 @@
 //       ③ debugSpawnBurrow: 그림(리그)이 땅속에서 시작 · 분진 방출기 · burrow_emerge 소리 · 가까우면 약한 흔들림
 //       ④ 올라오는 동안 맞는다 · 움직이지 않는다 · 공격하지 않는다 ⑤ BURROW_EMERGE_S 뒤 다 올라와 싸운다
 //       ⑥ 여러 마리가 한꺼번에 올라와도 흔들림은 한 번 ⑦ 멀면 흔들림이 없다 ⑧ 리플리카 `ee spawn.em` 도 같은 굴착 (em 없으면 없음)
-//       ⑨ 지하벌레가 뱉은 몸(startSpat): 와이어 힌트 4 · 포물선 · 착지.
+//       ⑨ 땅굴벌레가 뱉은 몸(startSpat): 와이어 힌트 4 · 포물선 · 착지.
 // Usage: node scripts/smoke-burrow.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';

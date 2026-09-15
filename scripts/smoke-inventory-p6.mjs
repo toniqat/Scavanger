@@ -459,6 +459,59 @@ try {
   ok(bench.repairShown, '가방 필터 줄에 `모두 수리` 버튼이 있다 (2026-09-14 — 작업대 헤더에서 옮겨 왔다)');
   // 2026-09-08: 모든 레시피가 같은 1 초 홀드 — 시간 칩은 더 이상 그리지 않는다
   ok(bench.hold === 1 && bench.timeChips === 0, `제작 홀드는 레시피와 무관하게 1 s (${bench.hold} s, 시간 칩 ${bench.timeChips}개)`);
+
+  /* ── 2026-09-15 4차 (사용자 결정): 제작 배치 — 창고 · 가방 격자 없음 · 조합 목록 5칸 · 상세는 오른쪽 별도 카드 · 칸 호버 = 산출물 툴팁 ── */
+  const craftLayout = await page.evaluate(() => {
+    const root = document.querySelector('.inv-root');
+    // 조상 카드(`.inv-panel-grids`)가 `display: none` 이면 자식의 computed display 는 그대로라 — 실제로 그려지는가(`getClientRects`)로 본다
+    const shown = (sel) => { const el = root.querySelector(sel); return !!el && !el.hidden && el.getClientRects().length > 0; };
+    const list = root.querySelector('.inv-craft-list');
+    const cols = getComputedStyle(list).gridTemplateColumns.split(' ').filter(Boolean).length;
+    const panel = root.querySelector('.inv-panel-craft'), card = root.querySelector('.inv-panel-craft-detail');
+    const p = panel.getBoundingClientRect(), c = card.getBoundingClientRect();
+    const selected = root.querySelector('.inv-craft-cell.is-on')?.dataset.recipe ?? null;
+    return {
+      grids: shown('.inv-panel-grids'), stash: shown('.inv-panel-stash'), bag: shown('.inv-panel-bag'),
+      cols, selected,
+      cardShown: shown('.inv-panel-craft-detail'), cardSibling: card.parentElement === panel.parentElement && !panel.contains(card),
+      rowInCard: !!card.querySelector('.inv-craft-row[data-recipe]') && card.querySelector('.inv-craft-row')?.dataset.recipe === selected,
+      rightOf: c.left >= p.right - 1, topAligned: Math.abs(c.top - p.top) <= 1, sameHeight: Math.abs(c.height - p.height) <= 1,
+      head: (() => {
+        const h = card.querySelector('.inv-craft-dhead'); if (!h) return null;
+        const t = h.querySelector('.inv-craft-thumb')?.getBoundingClientRect(), n = h.querySelector('.inv-craft-name')?.getBoundingClientRect(), k = h.querySelector('.inv-craft-dkind');
+        return { thumbLeft: !!t && !!n && t.right <= n.left + 1, kindUnderName: !!k && !!n && k.getBoundingClientRect().top >= n.bottom - 1, kind: k?.textContent ?? '' };
+      })(),
+      costs: card.querySelectorAll('.inv-craft-costs .item-chip').length, btn: !!card.querySelector('.inv-craft-btn'),
+    };
+  });
+  ok(!craftLayout.grids && !craftLayout.stash && !craftLayout.bag, '제작 중에는 창고 · 가방 격자 카드가 숨는다 (재료는 모델에서 센다)', JSON.stringify(craftLayout));
+  ok(craftLayout.cols === 5, `조합 목록은 가로 5칸이다 (${craftLayout.cols})`);
+  ok(craftLayout.cardShown && craftLayout.cardSibling && craftLayout.rowInCard && !!craftLayout.selected,
+    '상세는 작업대 패널 밖의 형제 카드 `.inv-panel-craft-detail` 이고 고른 레시피의 `.inv-craft-row` 를 담는다', JSON.stringify(craftLayout));
+  ok(craftLayout.rightOf && craftLayout.topAligned && craftLayout.sameHeight, '상세 카드는 작업대 패널 오른쪽, 위 · 높이가 같다', JSON.stringify(craftLayout));
+  ok(craftLayout.head?.thumbLeft && craftLayout.head?.kindUnderName && /·/.test(craftLayout.head?.kind ?? ''),
+    `상세 머리 = 아이콘 좌상단 · 오른쪽 이름 · 그 아래 종류 · 등급 ("${craftLayout.head?.kind}")`, JSON.stringify(craftLayout.head));
+  ok(craftLayout.costs >= 1 && craftLayout.btn, '상세에 재료 칩과 제작 버튼이 있다');
+  {
+    // 칸에 올리면 산출물의 인벤토리 툴팁 (떠다니는 첫 `.inv-tooltip`) — 떠나면 내려간다
+    const cellSel = `.inv-craft-cell[data-recipe="${openIds[0]}"]`;
+    const at = await centre(cellSel);
+    await page.mouse.move(at.x, at.y, { steps: 3 });
+    await sleep(120);
+    const hov = await page.evaluate((sel) => {
+      const tip = document.querySelector('.inv-tooltip');
+      const cell = document.querySelector(sel);
+      const id = cell?.querySelector('.inv-tile')?.dataset.defId;
+      const recipe = window.__game.ctx.loot.getAllRecipes().find((r) => r.id === cell.dataset.recipe);
+      const def = window.__game.ctx.loot.getItemDef(recipe.outputDefId);
+      return { shown: !!tip && !tip.hidden, name: tip?.querySelector('.inv-tt-name')?.textContent ?? '', expect: def?.name ?? '', title: cell?.title ?? '', id };
+    }, cellSel);
+    ok(hov.shown && hov.name === hov.expect && hov.title === '', `조합 목록 칸 호버 = 산출물 인벤토리 툴팁 ("${hov.name}", 네이티브 title 없음)`, JSON.stringify(hov));
+    await page.mouse.move(8, 8, { steps: 3 });
+    await sleep(120);
+    const gone = await page.evaluate(() => { const tip = document.querySelector('.inv-tooltip'); return !tip || tip.hidden; });
+    ok(gone, '칸을 떠나면 툴팁이 내려간다');
+  }
   // cost multiplier: stub a workshop discount and check the chips + consumption
   const discount = await page.evaluate(() => {
     const ctx = window.__game.ctx, i = ctx.inventory;

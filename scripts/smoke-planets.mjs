@@ -159,8 +159,10 @@ try {
     // 머리줄 제목 · 상태 알약은 **글자** 폭으로 잰다 (블록은 flex 로 늘어나 있다)
     const textRect = (e) => { if (!e) return null; const rg = document.createRange(); rg.selectNodeContents(e); const b = rg.getBoundingClientRect(); return { l: b.left, r: b.right }; };
     const planet = rect(root.querySelector('.hub-planet'));
-    const train = root.querySelector('.hub-foot .right .ui-btn.hub-train');
+    // 2026-09-15 2차 (사용자 결정): 훈련장 버튼은 푸터 **위** 제 줄(`.hub-train-row`)의 오른쪽 끝 — 푸터에는 `닫기 (E)` 만 남는다
+    const train = root.querySelector('.hub-train-row .ui-btn.hub-train');
     return {
+      footR: rect(root.querySelector('.hub-foot')),
       full: root.classList.contains('fullscreen'),
       w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight,
       sw: f.scrollWidth, cw: f.clientWidth, sh: f.scrollHeight, ch: f.clientHeight,
@@ -202,14 +204,15 @@ try {
   ok(term.planetIn === true, '행성 카드 in the centre column');
   ok(term.planetCx !== null && Math.abs(term.planetCx - term.frameCx) <= 4, `the planet card is centred in the frame (${term.planetCx} vs ${term.frameCx})`);
   ok(!!term.train && term.train.state === '시작' && term.train.disabled === false && !term.train.hidden, `시뮬레이션 훈련장 button, solo → "${term.train?.state}"`);
-  ok(!!term.train && term.train.r.r >= term.vw - 60 && term.train.r.b >= term.vh - 60 && term.train.r.r <= term.vw && term.train.r.b <= term.vh,
-    `the training button sits in the bottom-right corner (${JSON.stringify(term.train?.r)})`);
+  ok(!!term.train && !!term.footR && term.train.r.r >= term.vw - 60 && term.train.r.r <= term.vw && term.train.r.b <= term.footR.t && term.train.r.b >= term.footR.t - 40,
+    `the training button sits right-aligned just above the footer line (${JSON.stringify(term.train?.r)} vs footer top ${term.footR?.t})`);
   ok(!term.trainSection && !term.trainHint, 'no 시뮬레이션 훈련장 section and no hint line');
   ok(term.crewName === 0 && term.nameInput === 0, `the 승무원 이름 section is gone (${term.crewName} label / ${term.nameInput} input)`);
   // 2026-09-08: `.seed-hint` 는 지웠다 — 시드는 여전히 개발자 콘솔 `/seed` 만 건드리지만, 화면에 적어 둘 이유가 없다.
   ok(term.seedHint === null, `.seed-hint removed (${JSON.stringify(term.seedHint)})`);
   // 2026-09-09: 타이틀로 는 단말기에서 뺐다 — 일시정지 메뉴에 이미 있고, 구석의 파괴적 버튼은 함정이다.
-  ok(term.closeBtn.includes('닫기 (E)') && !term.closeBtn.includes('타이틀로') && term.closeBtn[term.closeBtn.length - 1] === '시뮬레이션 훈련장', `footer: ${term.closeBtn.join(' / ')}`);
+  // 2026-09-15 2차: 훈련장은 푸터 밖(위 줄)이라 푸터 버튼은 `닫기 (E)` 하나뿐이다
+  ok(term.closeBtn.join(',') === '닫기 (E)', `footer: ${term.closeBtn.join(' / ')}`);
   ok(term.blocker && term.cursor === true, `the 'hub' blocker + software cursor (Phase 10 etiquette, cursor ${term.cursor})`);
   ok(term.locked === true, 'the pointer lock is kept (no exitPointerLock)');
   const tog = await lastEv('hub:terminalToggled');
@@ -220,6 +223,9 @@ try {
   console.log('매칭 탭');
   await clickSel('.hub-tabs .scr-tab[data-tab="match"]');
   await waitSim(0.2);
+  // 접속 상태를 **오프라인으로 고정**한다 (릴레이가 떠 있는 runner 에서는 이 순간 `connecting` 이라 잠긴 버튼 + 「연결하는 중」이
+  // 보인다) — 아래 inv1 의 finally 가 `delete net.status` 로 되돌린다
+  await P(() => { Object.defineProperty(window.__game.getSystem('net'), 'status', { get: () => 'offline', configurable: true }); window.__game.getSystem('hub').menu.refresh(); });
   const mt = await P(() => {
     const st = (sel) => { const b = document.querySelector(sel); return b ? { hidden: b.hidden, disabled: b.disabled } : null; };
     const face = window.__game.ctx.player.snapshotFace?.({ accent: '#5fd7ff' }) ?? null;
@@ -233,8 +239,10 @@ try {
         const inv = t.querySelector('.hmt-invite');
         return { cls: t.className, name: t.querySelector('.hmt-name')?.textContent ?? '', img: !!t.querySelector('.hmt-face img')?.getAttribute('src'), invite: inv && !inv.hidden ? (inv.disabled ? 'off' : 'on') : null };
       }),
-      priv: st('.hmt-private'), pub: st('.hmt-public'), undock: st('.hmt-undock'), leave: st('.hmt-leave'),
+      priv: st('.hmt-private'), pub: st('.hmt-public'), undock: st('.hmt-undock'), leave: st('.hmt-leave'), reconnect: st('.hmt-reconnect'),
+      reconnectIn: document.querySelector('.hmt-reconnect')?.parentElement?.classList.contains('hmt-actions') ?? null,
       hint: document.querySelector('.hmt-hint')?.hidden === false ? document.querySelector('.hmt-hint').textContent : null,
+      inviteOffline: [...document.querySelectorAll('.hmt-tile.is-empty .hmt-invite')].map((b) => b.classList.contains('is-offline')),
       face: face ? face.slice(0, 22) : null,
       faceCached: !!face && window.__game.ctx.player.snapshotFace({ accent: '#5fd7ff' }) === face,
     };
@@ -246,10 +254,23 @@ try {
   ok(/\bis-me\b/.test(mt.tiles[0]?.cls ?? '') && mt.tiles[0].name.length > 0 && mt.tiles[0].img, `me first, with a face image (${JSON.stringify(mt.tiles[0])})`);
   ok(mt.tiles.slice(1).every((t) => /\bis-empty\b/.test(t.cls) && t.invite === 'on'), `solo: the other three are empty cells with an enabled 초대 (${mt.tiles.slice(1).map((t) => t.invite).join(',')})`);
   ok(mt.face === 'data:image/png;base64,' && mt.faceCached, `ctx.player.snapshotFace returns a PNG and caches it (${mt.face})`);
-  ok(!!mt.priv && !!mt.pub && !mt.priv.hidden && !mt.pub.hidden && mt.undock?.hidden === true && mt.leave?.hidden === true, '비공개 / 공개 매칭 shown, no 도킹 해제 / 분대 떠나기 without a lobby');
-  ok(mt.priv?.disabled && mt.pub?.disabled && /서버에 연결/.test(mt.hint ?? ''), `no relay (parked) → both disabled with "${mt.hint}"`);
+  // 2026-09-15 2차 (사용자 결정): 접속이 없으면 비공개 / 공개 매칭이 **사라지고 그 자리**(`.hmt-actions`)에 `다시 연결` 이 선다; 사유 줄은 남는다
+  ok(!!mt.priv && !!mt.pub && mt.priv.hidden && mt.pub.hidden && mt.undock?.hidden === true && mt.leave?.hidden === true, 'offline → 비공개 / 공개 매칭 hidden, no 도킹 해제 / 분대 떠나기 without a lobby', JSON.stringify(mt));
+  ok(mt.reconnect?.hidden === false && mt.reconnect.disabled === false && mt.reconnectIn === true && mt.hint === '서버에 연결되어 있지 않습니다', `offline → 다시 연결 in the action row with "${mt.hint}"`, JSON.stringify(mt));
+  ok(mt.inviteOffline.length === 3 && mt.inviteOffline.every(Boolean), `offline: the empty cells' 초대 are dimmed (.is-offline) but enabled (${mt.inviteOffline.join(',')})`);
 
-  await P(() => document.querySelector('.hmt-tile.is-empty .hmt-invite')?.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  // 접속이 없을 때의 초대 클릭: 창은 열리지 않고 사유 줄이 깜박인다 (`.is-flash`)
+  const invOff = await P(() => {
+    document.querySelector('.hmt-tile.is-empty .hmt-invite')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const hint = document.querySelector('.hmt-hint');
+    return { open: !document.querySelector('.menu.hub-menu.hinv-modal').hidden, flash: hint.classList.contains('is-flash'), hint: hint.hidden ? null : hint.textContent, top: window.__game.ctx.escape.topKey };
+  });
+  ok(!invOff.open && invOff.top === 'hub:terminal' && invOff.flash && /서버에 연결/.test(invOff.hint ?? ''), `offline 초대 opens nothing and flashes the hint (${JSON.stringify(invOff)})`);
+  await waitSim(0.8);
+  ok(await P(() => !document.querySelector('.hmt-hint').classList.contains('is-flash')), 'the flash class is gone after HINT_FLASH_MS');
+
+  // 창 자체의 오프라인 문구는 창을 직접 열어 확인한다 (접속이 없으면 `초대` 버튼은 창을 열지 않는다)
+  await P(() => window.__game.getSystem('hub').menu.invite.open());
   await waitSim(0.1);
   const inv0 = await P(() => ({
     open: !document.querySelector('.menu.hub-menu.hinv-modal').hidden,
@@ -257,7 +278,7 @@ try {
     note: document.querySelector('.hinv-note')?.hidden === false ? document.querySelector('.hinv-note').textContent : null,
     guide: window.__game.getSystem('hud').keyGuideOwner ?? null,
   }));
-  ok(inv0.open && inv0.top === 'hub:invite' && inv0.blocker, `초대 opens the invite modal on its own token (${inv0.top})`);
+  ok(inv0.open && inv0.top === 'hub:invite' && inv0.blocker, `the invite modal opens on its own token (${inv0.top})`);
   ok(inv0.guide === 'hub.invite', `the invite modal owns the key guide (${inv0.guide})`);
   ok(/서버에 연결/.test(inv0.note ?? ''), `offline → the modal says so ("${inv0.note}")`);
   // 접속 · 소셜 스냅숏을 인스턴스 속성으로 잠깐 덮어 줄을 그리게 한다 (게터는 프로토타입에 있어 delete 로 되돌아간다)

@@ -13,6 +13,8 @@ import {
 } from '@/shared';
 /* 2026-09-15 (가젯 개편, 사용자 결정): 돔 실드 회수 시간 · 화염 지대 수치 통합 (아래 「화염 통합」 주석) */
 import { GADGET_DOME_RECOVER_TIME, GRENADE_INCENDIARY_DURATION, GRENADE_INCENDIARY_RADIUS } from '@/shared';
+/* 2026-09-15 (땅굴벌레 · 진동 장치) */
+import { THUMPER_GROUND_R, THUMPER_HP } from '@/shared';
 
 /**
  * 특수 가젯 정의. Owned by `src/gadgets/` — `items/` only references them through `ItemDef.gadgetId`,
@@ -193,6 +195,28 @@ export const GADGET_DEFS: readonly GadgetDef[] = [
     recoverTime: DRONE_RECOVER_HOLD_S,
     icon: '✈',
     color: '#7fc8ff',
+  },
+  /* ── 2026-09-15 (땅굴벌레 · 진동 장치, 사용자 결정 — docs/DECISIONS.md 「2026-09-15 — 땅굴벌레 · 진동 장치」) ── */
+  {
+    /**
+     * 듄의 썸퍼. `THUMPER_INTERVAL_S` 마다 바닥을 내리치고 `THUMPER_STRIKES` 번째 타격에 호스트가 `sandworm:summon` 을 **한 번** 낸다
+     * (`parts/Thumper`). 그 뒤로도 영원히 두드린다 — 이미 벌레가 나온 레이드에서도 놓을 수 있고(사용자 결정), 그때는 디렉터가
+     * 부름을 무시할 뿐이다. **회수 없음**(`recoverTime` 0 → 상호작용도 `RECOVERABLE_KINDS` 도 없다), 1회 소모.
+     * 땅굴벌레가 분출하면 그 반경 안의 장치는 부서진다 (`sandworm:erupted` → `Thumper.onErupted`).
+     * `radius` = `THUMPER_GROUND_R`: 설치 판정(`WorldRef.burrowGroundOk`)의 반경이고 바닥 링도 그 크기로 그린다.
+     * 드론에는 못 올린다 (`MOUNTABLE_DEPLOYABLE_KINDS` 밖) — 땅을 쳐야 하는 물건이다.
+     */
+    id: 'thumper',
+    name: '진동 장치',
+    description: '땅에 박아 두면 일정한 박자로 바닥을 내리친다. 몇 번 두드리면 땅굴벌레가 그 자리로 찾아온다. 회수할 수 없고, 벌레가 솟구치면 부서진다.',
+    use: 'place',
+    deployable: 'thumper',
+    duration: 0,
+    hp: THUMPER_HP,
+    radius: THUMPER_GROUND_R,
+    recoverTime: 0,
+    icon: '⏚',
+    color: '#e0a458',
   },
 ];
 

@@ -3,16 +3,21 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Layers } from '@/shared';
 import type { ObstacleEntry, SpatialHash } from '../../SpatialHash';
 import {
-  ABYSS_DRAW_BOTTOM_Y, ABYSS_EDGE_Z, ABYSS_FADE_TOP_Y, ABYSS_RUN_M, ABYSS_WALL_STEP_M, CHASM, CHASM_EDGE, CHASM_FLOOR_Y,
-  CHASM_GAP_Z, CHASM_NEAR_Z, CHASM_TILT, CORRIDOR_MAX_HALF_X, CORRIDOR_OUTER_X, CORRIDOR_PROFILE, DECKS, DECK_LOWER_Y,
-  DECK_TILE_M, DECK_UPPER_Y, PIT, PIT_DECK_ID, PIT_DEPTH, PIT_FLOOR_Y, PIT_RAMP_OVERLAP, PIT_RAMP_RUN, PIT_RAMP_TOE_X,
-  VOID_Y, WALL_PLAIN_FROM_Z, WALL_T, WALL_TOP_Y, Z_START, box, chasmFarZAt, chasmNearZAt,
-  rectBox, subtractRect, tileRect, type Rect,
+  ABYSS_CUT_Z0, ABYSS_DRAW_BOTTOM_Y, ABYSS_EDGE_Z, ABYSS_FADE_TOP_Y, ABYSS_RUN_M, ABYSS_WALL_STEP_M, CHASM, CHASM_EDGE,
+  CHASM_FLOOR_Y, CHASM_GAP_Z, CHASM_NEAR_Z, CHASM_TILT, CORRIDOR_MAX_HALF_X, CORRIDOR_OUTER_X, CORRIDOR_PROFILE, DECKS,
+  DECK_LOWER_Y, DECK_TILE_M, DECK_UPPER_Y, PIT, PIT_DEPTH, PIT_FLOOR_Y, PIT_RAMP_OVERLAP, PIT_RAMP_RUN, PIT_RAMP_TOE_X,
+  PIT_WALLS, TILE_OVERLAP, VOID_Y, WALL_PLAIN_FROM_Z, WALL_T, WALL_TOP_Y, Z_START, box, chasmFarZAt, chasmNearZAt, growRect,
+  rectBox, tileRect, type Rect,
 } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 튜토리얼 행성의 **땅** — 협곡 바닥 · 데크 · 양옆 절벽 벽 · 뒤쪽 막다른 끝 · 함선 앞의 끝없는 절벽(2026-09-15) ·
- * 마지막 구간의 **안드로이드 웅덩이**(2026-09-15 2차, `buildPit`).
+ * 마지막 구간의 **안드로이드 웅덩이 + 벽**(2026-09-15 2차 · 3차, `buildPit`) · **철조망 너머의 절벽 구멍**(3차, `model.ts` 의 `ABYSS_CUTS` —
+ * 땅은 `DECKS` 의 아래 데크 조각들이 비워 두는 것으로 생기고 여기서는 그 조각들의 절벽 면을 그린다).
+ *
+ * 2026-09-15 3차 — **아래 데크 조각 · 웅덩이 벽 · 구멍 곁의 옆 벽은 전부 절벽 면을 가질 수 있다**: 돌결 몸통을 `ABYSS_FADE_TOP_Y`
+ * 부터 그리고 그 밑을 어두워지는 띠(`pushCliff` → `this.fade`)로 잇는다 — 함선 앞 가장자리에만 붙이던 절벽 판(옛 `buildAbyss` ①)을
+ * 모든 아래 조각으로 일반화한 것이라 구멍이 어느 방향으로 뚫려도 −100 에서 뚝 끊기는 바위 밑면이 보이지 않는다.
  *
  * 콜라이더와 그림이 갈라져 있다:
  *   - **콜라이더**는 `DECK_TILE_M` 짜리 사각 타일 (`SpatialHash.addBox`). 한 장으로 넣으면 외접원이 85 m 가 되어
@@ -27,8 +32,6 @@ import {
  * 덮을 곳이 줄지 않는다.
  */
 const FLOOR_HALF_X = CORRIDOR_OUTER_X;
-/** 아래 데크 앞면을 대신 그리는 절벽 판의 두께 (m). 데크 몸통 그림은 이만큼 뒤에서 끝나 두 앞면이 같은 평면에 겹치지 않는다. */
-const ABYSS_FACE_T = 1;
 /** 가장자리 너머 벽 조각마다 윗면이 내려가는 높이 (m) — 첫 조각 12(곧은 벽 13.2 … 18 보다 낮다) → 마지막 −18 (데크보다 8 m 아래). */
 const ABYSS_WALL_DROP_M = 6;
 /** 가장자리 너머 벽 조각마다 안쪽 면이 바깥으로 벌어지는 폭 (m) — 협곡이 끝나 트이는 모습. 마지막 조각 안쪽 면 17.9. */
@@ -169,6 +172,8 @@ export class Ground {
   readonly group = new THREE.Group();
   private entries: ObstacleEntry[] = [];
   private disposables: Array<{ dispose(): void }> = [];
+  /** 절벽 면의 어두워지는 띠 (`shadeAbyss`, `vertexColors` + `fog: false`) — `build` 끝에서 한 메시로 합친다. */
+  private fade: THREE.BufferGeometry[] = [];
 
   constructor() { this.group.name = 'TutorialGround'; }
 
@@ -184,11 +189,12 @@ export class Ground {
     this.disposables.push(cliffMap, rockMat, darkMat);
 
     /* ── 협곡 바닥 판 (그림) ──
-     * 2026-09-15: 높이가 `VOID_Y`(지형, 이제 −100)가 아니라 `CHASM_FLOOR_Y`(−34)이고, 앞쪽은 **끝없는 절벽 가장자리에서 끝난다** —
-     * 그 너머에 판이 있으면 바닥이 보인다. 판 아래로 내려가는 데크 몸통 · 벽 몸통은 전부 이 판에 가려진다. */
-    const floorGeo = new THREE.PlaneGeometry(FLOOR_HALF_X * 2, Z_START - ABYSS_EDGE_Z);
+     * 2026-09-15: 높이가 `VOID_Y`(지형, 이제 −100)가 아니라 `CHASM_FLOOR_Y`(−34)이다. 3차: 앞쪽은 **철조망 너머의 첫 절벽 구멍이
+     * 시작하는 `ABYSS_CUT_Z0`(−120)에서 끝난다** — 그 앞은 데크 조각 · 웅덩이 · 벽 · 구멍뿐이라 판이 있으면 구멍 밑에 바닥이 보인다
+     * (구멍은 함선 앞 가장자리와 같은 끝없는 절벽이어야 한다). 판 아래로 내려가는 데크 몸통 · 벽 몸통은 전부 이 판에 가려진다. */
+    const floorGeo = new THREE.PlaneGeometry(FLOOR_HALF_X * 2, Z_START - ABYSS_CUT_Z0);
     floorGeo.rotateX(-Math.PI / 2);
-    floorGeo.translate(0, CHASM_FLOOR_Y, (Z_START + ABYSS_EDGE_Z) / 2);
+    floorGeo.translate(0, CHASM_FLOOR_Y, (Z_START + ABYSS_CUT_Z0) / 2);
     const floor = new THREE.Mesh(floorGeo, darkMat);
     floor.name = 'tut-void-floor';
     floor.layers.enable(Layers.TERRAIN);
@@ -202,23 +208,20 @@ export class Ground {
     for (const t of tileRect(chasmFloor, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, CHASM_FLOOR_Y, 'tut_deck');
 
     /* ── 데크: 몸통 상자(그림) + 윗면 판(그림) + 타일 콜라이더 ──
-     * 2026-09-15 2차: 아래 데크(`PIT_DECK_ID`)에는 **안드로이드 웅덩이 구멍**이 뚫려 있다 — 몸통 · 윗면 판 · 콜라이더를
-     * 전부 `subtractRect` 의 네 띠로 나눠 깔고 구멍 안은 `buildPit` 가 채운다. 남은 네 띠의 **안쪽 옆면이 곧 웅덩이의 턱**
-     * 이므로(몸통 상자는 여섯 면을 다 그린다) 턱 메시를 따로 세우지 않고, 콜라이더도 그 네 띠(`VOID_Y … DECK_LOWER_Y`)가
-     * 그대로 턱이다. */
+     * 2026-09-15 3차: 아래 데크는 일곱 조각이고(`model.ts` 의 `DECKS` 표) 웅덩이 · 절벽 구멍은 조각들 **사이의 빈 곳**이다 — 파는 코드가 없다.
+     * 조각의 옆면이 곧 웅덩이의 턱 · 절벽 면이므로(몸통 상자는 여섯 면을 다 그린다) 턱 메시를 따로 세우지 않고, 콜라이더도 그 조각
+     * (`VOID_Y … DECK_LOWER_Y`)이 그대로 턱이다. 아래 조각은 절벽 면을 가질 수 있어 `pushCliff` 로 그린다 (파일 머리 주석). */
     const bodies: THREE.BufferGeometry[] = [];
     for (const d of DECKS) {
-      // 끝없는 절벽에 닿는 데크는 몸통 그림만 `ABYSS_FACE_T` 뒤에서 끝낸다 — 앞면은 `buildAbyss` 의 절벽 판이 그린다.
-      // 콜라이더(아래 타일)는 설계 치수 그대로 가장자리까지 간다.
-      const drawRect = d.rect.z1 <= ABYSS_EDGE_Z ? { ...d.rect, z1: ABYSS_EDGE_Z + ABYSS_FACE_T } : d.rect;
-      const holed = d.id === PIT_DECK_ID;
-      for (const p of holed ? subtractRect(drawRect, PIT) : [drawRect]) bodies.push(rectBox(p, VOID_Y, d.top));
-      for (const p of holed ? subtractRect(d.rect, PIT) : [d.rect]) {
-        const top = topPlane(p, d.top + TOP_LIFT, groundTex);
-        this.group.add(top);
-        this.disposables.push(top.geometry, top.material as THREE.Material, (top.material as THREE.MeshStandardMaterial).map!);
-        for (const t of tileRect(p, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, d.top, 'tut_deck');
-      }
+      const lower = d.top === DECK_LOWER_Y;
+      if (lower) this.pushCliff(bodies, d.rect, d.top); else bodies.push(rectBox(d.rect, VOID_Y, d.top));
+      const top = topPlane(d.rect, d.top + TOP_LIFT, groundTex);
+      this.group.add(top);
+      this.disposables.push(top.geometry, top.material as THREE.Material, (top.material as THREE.MeshStandardMaterial).map!);
+      // 아래 조각끼리 맞닿는 이음매는 콜라이더만 `TILE_OVERLAP` 만큼 넓혀 겹친다 (`model.ts` `DECKS` 주석 — 그림은 설계 치수 그대로).
+      // 구멍 · 웅덩이 쪽으로도 5 cm 넓어지지만 윗면 판이 그 자리에 없어 보이지 않고, 절벽 가장자리는 5 cm 밖까지 딛을 수 있을 뿐이다.
+      const cr = lower ? growRect(d.rect, TILE_OVERLAP) : d.rect;
+      for (const t of tileRect(cr, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, d.top, 'tut_deck');
     }
     this.buildPit(hash, bodies, groundTex);
     this.buildChasmEdges(hash, bodies, groundTex);
@@ -246,7 +249,8 @@ export class Ground {
             const top = WALL_TOP_Y - (k % 4) * 1.6;
             const inner = sx * (a.halfX - bite), outer = sx * CORRIDOR_OUTER_X;
             const rect: Rect = { x0: Math.min(inner, outer), x1: Math.max(inner, outer), z0, z1 };
-            walls.push(rectBox(rect, VOID_Y, top));
+            // 2026-09-15 3차: 철조망 너머 절벽 구멍 곁의 조각(끝이 `ABYSS_CUT_Z0` 앞)은 구멍으로 떨어지며 안쪽 면이 보이므로 절벽 면으로 그린다
+            if (z1 <= ABYSS_CUT_Z0) this.pushCliff(walls, rect, top); else walls.push(rectBox(rect, VOID_Y, top));
             this.addBox(hash, rect, VOID_Y, top, 'tut_wall');
           }
         } else {
@@ -262,6 +266,10 @@ export class Ground {
     for (const t of tileRect(cap, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, WALL_TOP_Y, 'tut_wall');
     this.buildAbyss(hash, walls);
     this.addMerged(walls, rockMat, 'tut-walls');
+    const fadeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, fog: false });
+    this.disposables.push(fadeMat);
+    this.addMerged(this.fade, fadeMat, 'tut-abyss');
+    this.fade = [];
 
     /* ── 절벽 1 의 틈에 부러져 걸린 다리 (그림만 — **데크 윗면보다 아래**라 밟을 수도, 건널 수도 없다) ──
      * 2026-09-14 2차: 절벽 1 은 좁은 구간이라 x 를 12 → 안쪽으로 옮겼다 (벽 속에 묻히면 안 보인다).
@@ -280,34 +288,24 @@ export class Ground {
   /**
    * **끝없는 절벽** (2026-09-15, 사용자 결정 — 함선 앞은 막힌 벽이 아니라 끝이 안 보이는 낭떠러지).
    *
-   * 셋을 세운다:
-   *   ① **절벽 면** — 아래 데크의 앞면을 대신 그리는 판 (x ±`CORRIDOR_MAX_HALF_X`, 두께 `ABYSS_FACE_T`). 콜라이더는 없다 —
-   *      데크 타일 콜라이더가 이미 가장자리까지 간다.
-   *   ② **가장자리 너머 양옆 벽** — `ABYSS_WALL_STEP_M` 조각 `ABYSS_RUN_M / STEP` 개. 조각마다 윗면이 `ABYSS_WALL_DROP_M`
+   * 둘을 세운다 (2026-09-15 3차: 옛 ① 「아래 데크의 앞면을 대신 그리는 절벽 판」은 없어졌다 — 아래 데크 조각 `lower_ship` 의 몸통이
+   * `pushCliff` 로 자기 앞면을 그린다. 구멍이 생기면서 절벽 면이 앞면 하나가 아니게 됐기 때문이다):
+   *   ① **가장자리 너머 양옆 벽** — `ABYSS_WALL_STEP_M` 조각 `ABYSS_RUN_M / STEP` 개. 조각마다 윗면이 `ABYSS_WALL_DROP_M`
    *      내려가고 안쪽 면이 `ABYSS_WALL_FLARE_M` 벌어진다 (협곡이 끝나 트인다). 콜라이더는 `VOID_Y` 부터 그 윗면까지 —
    *      떨어지는 몸이 벽을 뚫고 맵 밖으로 나가지 않는다.
-   *   ③ 둘 다 **바닥이 없다**. 그림은 `ABYSS_FADE_TOP_Y` 위가 돌결 벽(다른 벽과 같은 재질), 그 밑은 `ABYSS_DRAW_BOTTOM_Y`
+   *   ② **바닥이 없다**. 그림은 `ABYSS_FADE_TOP_Y` 위가 돌결 벽(다른 벽과 같은 재질), 그 밑은 `ABYSS_DRAW_BOTTOM_Y`
    *      까지 어두워지는 정점 색(`shadeAbyss`, **`fog: false`**)이다. 안개(FogExp2)는 멀수록 **밝은** 안개색으로 칠하므로
    *      안개를 받으면 깊은 곳이 오히려 밝아지고, 그 아래의 하늘 돔(`core/Sky` 의 지평선 밑 `ground` 색 — 어둡다)과 어긋난다.
    *
-   * 광원 0 개. 새 재질 하나(`vertexColors` + `fog: false`)는 셰이더 변형이 하나 늘 뿐이고 `world:ready` 의 선컴파일이 받는다.
+   * 광원 0 개. 새 재질 하나(`vertexColors` + `fog: false`, `build` 가 만든다)는 셰이더 변형이 하나 늘 뿐이고 `world:ready` 의 선컴파일이 받는다.
    *
    * **이륙 검산** (함선 `SHIP_POS` · `SHIP_YAW` — `model.ts` 주석): 함선은 기수 쪽(오른쪽 앞)으로 떠오르며 벽 윗면(≤ 18)을 넘기 전에
    * 18.5 m 만 나아가고, 그동안 외피는 x −13.1 … +0.4 안에 머문다 — 벽 안쪽 면(±15.4, 가장자리 너머는 더 벌어진다)에 닿지 않는다.
    */
   private buildAbyss(hash: SpatialHash, rock: THREE.BufferGeometry[]): void {
-    const fade: THREE.BufferGeometry[] = [];
-    const pushFade = (r: Rect): void => {
-      for (let i = 1; i < ABYSS_FADE_BANDS.length; i++) fade.push(shadeAbyss(rectBox(r, ABYSS_FADE_BANDS[i], ABYSS_FADE_BANDS[i - 1])));
-    };
     const edge = ABYSS_EDGE_Z;
 
-    // ① 절벽 면 (윗면은 데크 윗면 판 밑 1 cm — 판이 가린다)
-    const face: Rect = { x0: -CORRIDOR_MAX_HALF_X, x1: CORRIDOR_MAX_HALF_X, z0: edge + ABYSS_FACE_T, z1: edge };
-    rock.push(rectBox(face, ABYSS_FADE_TOP_Y, DECK_LOWER_Y - 0.01));
-    pushFade(face);
-
-    // ② 가장자리 너머 양옆 벽
+    // ① 가장자리 너머 양옆 벽
     const n = Math.max(1, Math.round(ABYSS_RUN_M / ABYSS_WALL_STEP_M));
     for (const sx of [-1, 1]) {
       for (let i = 0; i < n; i++) {
@@ -316,27 +314,34 @@ export class Ground {
         const inner = sx * (CORRIDOR_MAX_HALF_X + flare), outer = sx * (CORRIDOR_OUTER_X + flare);
         const r: Rect = { x0: Math.min(inner, outer), x1: Math.max(inner, outer), z0, z1 };
         const top = WALL_TOP_Y - ABYSS_WALL_DROP_M * (i + 1);
-        rock.push(rectBox(r, ABYSS_FADE_TOP_Y, top));
-        pushFade(r);
+        this.pushCliff(rock, r, top);
         this.addBox(hash, r, VOID_Y, top, 'tut_wall');
       }
     }
-
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, fog: false });
-    this.disposables.push(mat);
-    this.addMerged(fade, mat, 'tut-abyss');
   }
 
   /**
-   * **안드로이드 웅덩이** (2026-09-15 2차, 사용자 결정 — 치수 · 근거는 전부 `model.ts` 의 `PIT` · `PIT_DEPTH` 주석).
+   * 절벽 면을 가질 수 있는 상자 하나: 돌결 몸통(`ABYSS_FADE_TOP_Y … top`)을 `rock` 에, 그 밑(`ABYSS_DRAW_BOTTOM_Y … ABYSS_FADE_TOP_Y`)을
+   * `ABYSS_FADE_BANDS` 띠로 나눠 어두워지는 정점 색(`shadeAbyss`)으로 `this.fade` 에 넣는다. 아래 데크 조각 · 웅덩이 벽 · 구멍 곁의 옆 벽 ·
+   * 가장자리 너머 벽이 전부 이것이다. 콜라이더는 호출부가 따로 (`VOID_Y` 부터) 넣는다.
+   */
+  private pushCliff(rock: THREE.BufferGeometry[], r: Rect, top: number): void {
+    rock.push(rectBox(r, ABYSS_FADE_TOP_Y, top));
+    for (let i = 1; i < ABYSS_FADE_BANDS.length; i++) this.fade.push(shadeAbyss(rectBox(r, ABYSS_FADE_BANDS[i], ABYSS_FADE_BANDS[i - 1])));
+  }
+
+  /**
+   * **안드로이드 웅덩이** (2026-09-15 2차 · 3차, 사용자 결정 — 치수 · 근거는 전부 `model.ts` 의 `PIT` · `PIT_DEPTH` · `PIT_WALLS` 주석).
    *
-   * 셋을 세운다 (구멍은 이미 `build` 의 `subtractRect` 가 뚫어 뒀다):
+   * 넷을 세운다 (구멍은 `DECKS` 의 아래 조각들이 처음부터 비워 둔 자리다):
    *   ① **바닥** — 몸통 상자(그림) + `DECK_TILE_M` 타일 콜라이더(`VOID_Y … PIT_FLOOR_Y`) + 돌결 윗면 판.
-   *      몸통은 `PIT` 보다 사방 `FLOOR_BURY` 만큼 크게 그려 옆면이 데크 띠의 옆면과 **같은 평면에 놓이지 않게** 하고,
+   *      몸통은 `PIT` 보다 사방 `FLOOR_BURY` 만큼 크게 그려 옆면이 데크 조각 · 벽의 옆면과 **같은 평면에 놓이지 않게** 하고,
    *      윗면 판은 오르막 발끝(`PIT_RAMP_TOE_X`) 부터만 깐다 (같은 높이의 판 둘이 맞닿으면 z-fighting).
-   *      콜라이더는 `PIT` 그대로다.
-   *   ② **턱** — 세우지 않는다. 남은 데크 띠(`VOID_Y … DECK_LOWER_Y`)의 안쪽 옆면이 곧 0.9 m 턱이고, 그 띠의
-   *      콜라이더가 곧 턱 콜라이더다. 수류탄이 굴러 나가지 못하는 근거는 `model.ts` 의 `PIT_DEPTH` 주석.
+   *      콜라이더는 `PIT` 그대로다. 사방이 데크 조각 · 벽(둘 다 `ABYSS_DRAW_BOTTOM_Y` 까지 그린다)이라 몸통 밑면은 보이지 않는다.
+   *   ② **턱** — 세우지 않는다. 데크 조각(`VOID_Y … DECK_LOWER_Y`)의 옆면이 곧 0.9 m 턱이고, 그 조각의 콜라이더가 곧 턱 콜라이더다
+   *      (북쪽 = `lower_mid`, 서쪽 오르막 위 = `lower_pit_w`, 오르막 남쪽 턱 = `lower_ship`). 수류탄이 굴러 나가지 못하는 근거는 `PIT_DEPTH` 주석.
+   *   ④ **벽** (3차) — 동쪽 · 남쪽 `PIT_WALLS`: 절벽 면 상자(`pushCliff`, 바깥 면이 곧 절벽) + 콜라이더 `VOID_Y … 윗면` 한 기둥.
+   *      재질 · 발소리는 바위(`tut_wall`)다 — 옛 콘크리트 `BACKSTOP`(`parts/Dressing`)은 없어졌다.
    *   ③ **오르막** — 함선 쪽(−X) 면 전체. 그림은 Z 축으로 기울인 상자 한 장 + 같은 기울기의 윗면 판, 콜라이더는
    *      `SpatialHash.addRamp` 회전 OBB 한 장(로컬 +X = 높은 쪽 = 월드 −X 이므로 `Obstacle.box.yaw` 는 π).
    *      ⚠ 콜라이더만 데크 밑으로 `PIT_RAMP_OVERLAP` 만큼 파고든다 — 정확히 같은 선에서 맞대면 이음매의 점을
@@ -355,6 +360,12 @@ export class Ground {
     const floorTop = topPlane({ x0: PIT_RAMP_TOE_X, x1: PIT.x1, z0: PIT.z0, z1: PIT.z1 }, PIT_FLOOR_Y + TOP_LIFT, tex);
     this.group.add(floorTop);
     this.disposables.push(floorTop.geometry, floorTop.material as THREE.Material, (floorTop.material as THREE.MeshStandardMaterial).map!);
+
+    // ④ 벽 (동쪽 · 남쪽) — `model.ts` 의 `PIT_WALLS`
+    for (const w of PIT_WALLS) {
+      this.pushCliff(bodies, w.rect, w.top);
+      for (const t of tileRect(w.rect, DECK_TILE_M)) this.addBox(hash, t, VOID_Y, w.top, 'tut_wall');
+    }
 
     // ③ 오르막 (−X 면 전체)
     const tilt = Math.atan2(PIT_DEPTH, PIT_RAMP_RUN);

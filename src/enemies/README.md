@@ -21,7 +21,7 @@ No asset files — every rig is built from primitives.
 | `RogueDrop.ts` | `RogueDropDirector`: raider drops after structure investigation (two waves, pods, landing spawns) |
 | `RogueGuards.ts` | `RogueSpawnHost` contract only; `placeRogueGuards` / `guardCap` / `MAX_GUARDS` are retired no-op names |
 | `WaveDirector.ts` | Extraction wave director — kept but never started (extraction defense removed) |
-| `Tutorial.ts` | Tutorial enemies: `placeTutorialEnemies`, `tutorialHold`, burrow ambush + chain spawn (`updateTutorialScript`), aggro release (`onTutorialCheckpoint`, `onTutorialFell`), liftoff fire window (`onTutorialLiftoff`) |
+| `Tutorial.ts` | Tutorial enemies: `placeTutorialEnemies`, `tutorialHold`, burrow ambush + chain spawn (`updateTutorialScript`), aggro release (`onTutorialCheckpoint`, `onTutorialFell`), liftoff fire window (`onTutorialLiftoff`), per-spot weapon override (`TutorialSpawnSpec.weapon` — the last pair's `sg` / `dmr`), fall reset (`FALL_RESET_M`: an enemy that dropped off a cliff snaps back to its post) |
 | `Corpses.ts` | `Corpse` interactable (`corpse:<id>`, `시체 수색`), `CorpseManager` (lifetime, looted), `rollCorpseLootable` |
 | `RayTests.ts` | Allocation-free ray/nearest tests: sphere, standing capsule, segment capsule |
 | `SpatialGrid.ts` | Per-frame XZ hash grid for separation |
@@ -48,12 +48,12 @@ No asset files — every rig is built from primitives.
 | `ai/Steering.ts` · `ai/Common.ts` | Seek / separate / avoid; `lookAtTarget`, `startMelee`, `stumble`, `holdingFire` |
 | `ai/named/` | Named AI: `Sniper.ts` (Roden), `ScanDrone.ts`, `Hammer.ts` (Tagilla), `Heavy.ts`; `model.ts` data types, `remote.ts` replica hooks, `index.ts` dispatch |
 | `named/Director.ts` · `named/SniperShot.ts` | Named roll + placement; sniper shot / glint FX |
-| `sandworm/Director.ts` · `sandworm/Pose.ts` | Sandworm event (roll, warn, erupt, spit, acid, resync); hint → pose |
+| `sandworm/Director.ts` · `sandworm/Pose.ts` | Sandworm (`땅굴벌레`) event: cumulative per-check appearance chance (host), thumper summon, warn, erupt, spit, acid, resync, adult / weak type by planet threat; hint → pose |
 | `net/HostSync.ts` | `animHint`, `statusBits`, `SnapshotCache`, `encodeSnapshot` (delta `es`) |
 | `net/Replica.ts` | `ReplicaBuffer`, `EnemyReplica` (snapshots, events, interpolation, adopt on demotion) |
 | `models/BugModel.ts` · `BugParams.ts` | Six-legged rig + animation; per-type params |
 | `models/RogueModel.ts` · `HumanoidParts.ts` · `FactionLooks.ts` | Humanoid rig + animation; part helpers; android / raider looks |
-| `models/WormModel.ts` | Sandworm rig |
+| `models/WormModel.ts` | Sandworm rig — geometry baked per worm type from its own `enemies.csv` row (`sandworm` · `sandworm_weak`), `baseScale` stays 1 |
 | `models/named/` | Named looks + `namedBodyRay` (prone sniper capsule) |
 | `models/Portrait.ts` | `renderEnemyPortrait` (offscreen renderer, cached data URL), `enemyDisplayNameOf` (Korean names) |
 | `fx/` | `BloodFX`, `AcidProjectile`, `ShellProjectile` (uses `shared/ballistics`), `RogueGrenade` (grenades + fire zones), `BurrowFx`, `ScanPulseFx`, `Xray` |
@@ -72,7 +72,8 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
 | `artillery` | bug | Stand-off mortar, interceptable shells, never melees |
 | `toxic` | bug | Suicide runner, swells then bursts (friendly fire) |
 | `behemoth` | bug | Scaled warrior (`BEHEMOTH_SCALE`), armored front plate, knockback charge |
-| `sandworm` | bug | Event boss, rooted: spits bugs then acid (`sandworm/Director`) |
+| `sandworm` | bug | `땅굴벌레` event boss (threat 2–3), rooted: spits bugs then acid (`sandworm/Director`) |
+| `sandworm_weak` | bug | `어린 땅굴벌레` (threat 1): same rig / director, hp `SANDWORM_WEAK_HP` fixed, body and eruption radius × `SANDWORM_WEAK_SCALE`, spits scavengers only. Branch on `isWormType`, never `=== 'sandworm'` |
 | `rogue` | rogue | Threat-2 site gunner, cover cycle, carried grenades |
 | `rogue_boss` | rogue | Site group leader (≤ `SITE_BOSS_MAX_PER_RAID`) |
 | `android` | android | Threat-1 site robot: no cover, no grenades, sparks instead of blood |
@@ -97,7 +98,7 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
   `enemy:killed {by, deathDir, weaponClass}` — `by === 'local'` is our kill; `weaponClass` is set only for our gun kills.
 - Listens: `world:ready`, `game:newMission`, `game:abort`, `game:paused`, `weapon:fired`, `net:remoteFired`, `ally:fired`, `grenade:exploded`,
   `extraction:liftoff`, `tutorial:checkpoint`, `player:fell`, `crate:looted`, `world:noise`, `structure:investigated`,
-  `net:hostChanged`, `cheat:sandworm`.
+  `net:hostChanged`, `cheat:sandworm {spitS?, weak?}`, `sandworm:summon` (thumper, host only).
 - Wire (`src/shared/net.ts`):
   - Host → all: `es` (`EnemySnapshot`, delta), `ee` (`EnemyEvent`: `spawn` · `kill` · `despawn` · `damaged` · `attack` · `acid` ·
     `acidAt` · `wave` · `shoot` · `shell` · `intercept` · `shellHit` · `charge` · `toxic` · `corpse` · `corpseGone` · `grenade` ·
@@ -108,7 +109,8 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
   7 rush · 8 artillery dug in · 9 toxic swell · 10/11 behemoth windup/charge · 12 reload · 13 throw · 14/15 sniper prone/glint ·
   16/17 hammer windup/charge · 18/19 heavy spin/fire · 20 scan pulse · 21/22 worm spit/acid (`net/HostSync.animHint`).
 - Debug on `getSystem('enemies')`: `debugSpawn`, `debugSpawnNamed`, `debugNamedRoll`, `debugSites`, `debugEcology`,
-  `debugBugTuning`, `debugAmbientGroup`, `debugWaveGroup`, `debugSandworm`, `debugSandwormState`, `debugSpawnBurrow`,
+  `debugBugTuning`, `debugAmbientGroup`, `debugWaveGroup`, `debugSandworm`, `debugSandwormState`, `debugSandwormChance`,
+  `debugSandwormClearOnce`, `debugSpawnBurrow`,
   `debugTutorial`, `debugDroneTargets`, `debugSnapshot`, `debugApplySnapshot`, `debugHint`, `debugGrenade`, `debugShell`,
   `debugXray`, `debugSetDropSquad`, `debugDropWaves`, `debugAllyTargets` / `debugAllyTargetList` / `debugCoverSpot`,
   `hitGuardStats`, `isAuthority`, `isTrainingWorld`, `isTutorialWorld`.
@@ -151,15 +153,28 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
   structure footprints and blocked ground (`named/Director.ts` header).
 - Drop and named bodies bypass `ensureCapacity`; humanoids and `relentless` bodies are never recycled.
 
-## Burrow spawns and sandworm (`굴착 스폰 · 지하벌레`)
+## Burrow spawns and sandworm (`굴착 스폰 · 땅굴벌레`)
 - Burrow: `Pool.spawn(…, emerge)` for bug faction only. `Enemy.startEmerge` lowers only the rig; `position` stays on the
   surface so hits work; `ai/Burrow.updateBurrowGate` blocks attack/move until out; a body killed while emerging keeps
   rising (sandworm excepted). Shake once per `BURROW_SHAKE_GAP_S`. Wire `ee spawn.em`.
-- Sandworm (`BURROW_*` / `SANDWORM_*` in `data/constants.csv` + `data/tables.csv`): per-raid roll
-  `SANDWORM_CHANCE_BY_THREAT` on every client; host triggers in `playing` under a solo player or the centre of a group of
-  ≥ 2; warn (`ee wormWarn`, `sandworm:warning`) → erupt (damage + knockback, other factions, drones, rolled max hp,
-  `ee wormErupt`) → spit bugs for `SANDWORM_SPIT_PHASE_S` (`ee wormSpit`) → acid volleys. Immobile, not recycled, no
-  stagger. `flow rejoined` → `resync()` so a promoted host continues.
+- Sandworm `땅굴벌레` (`BURROW_*` / `SANDWORM_*` in `data/constants.csv` + `data/tables.csv`; decision
+  `docs/DECISIONS.md` 「2026-09-15 — 땅굴벌레」): **no pre-roll, no time window, at most once per raid**. The host checks
+  every `SANDWORM_CHECK_S`: candidates = living humans (local + remotes in mission) + android squadmates
+  (`ctx.allies.getCombatBodies()`); an *eligible* member is sprinting **and** carrying `light` or heavier (local
+  `InventoryRef.getWeight()`, remote `RemotePlayerRef.weightState` from `PlayerSnapshot.ws`, android = its loadout kg /
+  capacity through the `WEIGHT_*_RATIO` thresholds). The largest cluster of ≥ `SANDWORM_MIN_MEMBERS` eligible members
+  within `SANDWORM_GROUP_RADIUS` gives `p = SANDWORM_BASE_CHANCE_BY_THREAT[threat] × min(1, Σ SANDWORM_P_PER_LIGHT|HEAVY)
+  × closeness (1 at ≤ SANDWORM_P_NEAR_M mean pairwise distance → SANDWORM_P_FAR_MUL at the radius) + SANDWORM_P_LURE` when
+  a lure grenade (`LureField` kind `'lure'` / `ctx.gadgets.findDistraction`) is within `SANDWORM_LURE_RANGE_M`. A lone
+  human with no android is 0 %. The per-check table is in the `Director.ts` header. Spot = cluster centre or (with
+  `SANDWORM_LURE_SPOT_CHANCE`) the lure, both through `validSpot`: nobody nearby standing ≥ 1.2 m above terrain and
+  `WorldRef.burrowGroundOk(x, z, BURROW_GROUND_CHECK_R × scale)` (flat bare ground; a world without it → never).
+  `sandworm:summon` (thumper, host) starts the warning at once when the event has not happened yet, bypassing chance and
+  ground check. Type by planet threat: 1 → `sandworm_weak`, 2–3 → `sandworm`.
+  Flow: warn (`ee wormWarn {r}`, `sandworm:warning`) → erupt (damage + knockback within `r`, other factions, drones,
+  max hp rolled / fixed, `ee wormErupt {hp, ty}`) → spit bugs for `SANDWORM_SPIT_PHASE_S` (`ee wormSpit`) → acid volleys.
+  Immobile, not recycled, no stagger. `flow rejoined` → `resync()` (live worms with `sy: 1`, or `{id: 0, sy: 1}` = already
+  happened) so a promoted host continues and never spawns a second one.
 
 ## Bug difficulty by planet threat (`벌레 난이도`)
 `bugThreatTuning(threat)` from six `data/tables.csv` tables (`BUG_HP_MUL_BY_THREAT`, `BIG_BUG_WEIGHT_MUL_BY_THREAT`,
@@ -243,8 +258,8 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
 
 ## Recent changes
 Last 5 only — older: `git log -- src/enemies`.
+- 2026-09-15 — Sandworm renamed `땅굴벌레`; cumulative per-check appearance chance (sprinting + weight, androids count, solo never, lure bonus), `sandworm:summon`, `WorldRef.burrowGroundOk` spot check, threat-1 `sandworm_weak` (750 hp · ×0.7 · scavengers only), `LureField` kinds, `ee wormErupt.ty`.
 - 2026-09-15 — Androids as targets (`TargetList.allies`, every damage path), `applyAllyHit`, `ally:fired` hearing; cover moved to `shared/cover.pickCoverSpot`.
 - 2026-09-15 — All enemy explosion falloff (grenade, shell, toxic, spewer burst, sandworm, rover) uses `shared/explosion`.
 - 2026-09-15 — Tutorial bug chain spawn, zone aggro release on checkpoints/falls, liftoff fire window instead of flee.
 - 2026-09-15 — Player damage source for the death screen (`enemyDamageSource`, `dmg.src`); enemy portraits and names (`models/Portrait.ts`).
-- 2026-09-15 — Enemy fire zones: `getFireZones`, ignite/crackle sounds, drone damage; rogue/raider footsteps on.

@@ -59,6 +59,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-favorite-chips.mjs` | meta, ui, inventory | Favourite menu on item chips and shop tiles, recovery-contract chips |
 | `smoke-favorites.mjs` | inventory | `isFavorite` / `toggleFavorite`, right-click menu on every item, band, sort, filter, confirms |
 | `smoke-fire-zones.mjs` | gadgets, weapons, items, enemies, audio | Fire grenade and G-10 zones on the real surface, sound, danger indicator, drone damage |
+| `smoke-thumper.mjs` | gadgets, world, enemies, items | Thumper: catalogue, preview ≡ placement (`burrowGroundOk` — bare ground green, roof red), 1 s strikes with sound and shake, 5th strike → one `sandworm:summon`, not recoverable, destroyed only inside an eruption radius, re-placeable, wire `age` (stubs `burrowGroundOk` while world has not published it) |
 | `smoke-food-chain.mjs` | housing, items, progression | Ingredient tiers: analyzer results, soil/media durability, sockets, scaffolds, saves |
 | `smoke-furniture-access.mjs` | housing, hub | Access-side placement rules, sanitize of old saves, interaction direction |
 | `smoke-generator.mjs` | housing, ui | Generator as build gate, v13 migration refunds, ship-manage generator row |
@@ -171,6 +172,7 @@ app — typically red only on a long-lived dev server. Smokes that mutate module
 ## Recent changes
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
+- 2026-09-15 — New `smoke-thumper` (진동 장치 in gadgets/; stubs `burrowGroundOk` until world publishes it).
 - 2026-09-15 — `e2e-multiplayer.mjs`: player names are set after both clients join the lobby (profile load was resetting them).
 - 2026-09-15 — New `smoke-allies-core` · `smoke-allies-orders` (the android AI itself in allies/).
 - 2026-09-15 — New `smoke-ally-ui` (android squad rows / nameplates / map / pings / chat / toasts and the loading gauge in ui/).

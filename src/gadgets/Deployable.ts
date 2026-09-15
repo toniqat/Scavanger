@@ -57,6 +57,11 @@ export class Deployable implements DeployableRef {
   beepTimer = 0;
   /** 2026-09-15 (B-16): 화염 지대 — 다음 `fire_crackle` 까지 남은 초. 모든 클라이언트가 로컬로 돌린다 (와이어 없음). */
   crackleTimer = 0;
+  /* 2026-09-15 (땅굴벌레 · 진동 장치, `parts/Thumper`) */
+  /** 진동 장치: 지금까지 이 클라이언트가 본 타격 수 — `age` 에서 센다 (`floor(age / THUMPER_INTERVAL_S)`), 와이어 없음. */
+  strikes = 0;
+  /** 진동 장치 (권위만): `sandworm:summon` 을 이미 냈다 — 장치 하나가 한 번만 부른다. */
+  summoned = false;
 
   constructor(
     readonly id: string,
@@ -94,6 +99,7 @@ export class Deployable implements DeployableRef {
       case 'domeShield': return this.radius * 0.5;
       case 'lure': return 0.6;
       case 'smoke': return this.radius * 0.5;
+      case 'thumper': return 0.6;
       default: return 0.2;
     }
   }

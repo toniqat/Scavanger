@@ -72,23 +72,25 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     spotText: '가구 창고 → 총기 작업대',
   },
   /*
-   * 2026-09-14 3차 (사용자 결정) — **순서에서 빠졌다.** 「닫으세요」만 하는 단계가 하나 서 있을 이유가 없다:
-   * 다음 단계(`craftGun`)는 어차피 작업실로 걸어가는 일이고, 관리 모드는 플레이어가 아무 때나 닫으면 된다.
-   * `TUTORIAL_TRACK_STEPS`(계약, `src/shared`)는 못 고치므로 `TutorialSystem.setStep` 이 **늘 조용히 지나친다**
-   * (`generator` 와 같은 요령). id 는 계약이라 표에는 남는다 — `openCraft` 와 같은 처리이고, 옛 저장의
-   * `manageDone` 은 `normalizeStep` 이 `craftGun` 으로 옮겨 붙인다.
+   * 2026-09-14 3차 (사용자 결정) — 순서에서 빠졌었다: 「닫으세요」만 하는 단계가 서 있을 이유가 없다고 봤다.
+   * 2026-09-15 (사용자 결정 — 뒤집음) — **순서로 돌아왔다.** 「작업실로 이동」(`craftGun` 의 첫 줄) 바로 앞이다:
+   * 관리 모드가 열린 채로는 걸어갈 수 없는데 안내는 걸어가라고 했고, 바닥 안내선까지 관리 카메라 아래에 깔렸다.
+   * 그래서 이 단계가 먼저 닫게 하고, 안내선은 관리 모드가 열려 있는 동안 **어느 단계에서도 그리지 않는다**
+   * (`TutorialSystem.refreshVisuals` — `ctx.housing.shipManageMode` · `housingMode`).
+   * 관리 모드가 이미 닫힌 채 이 단계에 들어서면(콘솔 · 저장 복구) 할 일이 없으므로 `setStep` 이 조용히 지나친다
+   * (`generator` 와 같은 요령).
    */
   manageDone: {
-    id: 'manageDone', title: '함선 관리를 닫으세요',
-    hint: '화면 우측 아래 키 가이드의 닫기 키(Tab)를 누르면 관리 모드를 빠져나옵니다 (M · C 도 됩니다).',
-    objectives: [{ id: 'manageClose', text: '{INVENTORY} 함선 관리 닫기' }],
+    id: 'manageDone', title: '하우징 모드를 닫으세요',
+    hint: '화면 우측 아래 키 가이드의 닫기 키(Tab)를 누르면 하우징 모드를 빠져나옵니다 (M · C 도 됩니다).',
+    objectives: [{ id: 'manageClose', text: '{INVENTORY} 하우징 모드 닫기' }],
     // 작업대는 계속 허용해 둔다 — 막힌 것은 목록에서 사라지므로, 방금까지 보던 카드가 통째로 비지 않도록.
     allow: { manageExit: true, furniture: [TUTORIAL_BENCH_DEF] },
     // 2026-09-09: 관리 모드가 켜져 있는 동안 우측 하단에 떠 있는 키 가이드(`ui/hud/KeyGuide`, `.key-guide`)를 밝힌다 —
     //   가이드가 스스로 맨 오른쪽에 붙이는 `Tab 닫기` 항목(`.kg-close`)이 먼저, 없으면 가이드 한 줄 전체.
     //   가이드는 `pointer-events:none` 이고 z 84 라 어두운 판(78) 위에 떠 있다 — 링은 그 둘레를 두른다.
     spot: ['.key-guide .kg-close', '.key-guide'],
-    spotText: 'Tab — 관리 모드 닫기',
+    spotText: 'Tab — 하우징 모드 닫기',
   },
   /*
    * 2026-09-09 — 제작 흐름은 **작업대 한 번**이다: 소총 → (같은 창에서) 준중량탄 → 창 닫기 → 장착 → 탄약 가방에.
@@ -106,8 +108,8 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
       { id: 'craftGunMade', text: '돌격소총 제작', reveal: true },
     ],
     arriveObjective: 'craftGunWalk',
-    // `manageDone` 이 빠지면서(2026-09-14 3차) 관리 모드가 열린 채로 이 단계에 들어설 수 있다 —
-    //   그때 가구 카드가 통째로 비지 않도록 작업대는 계속 허용해 둔다 (옛 `manageDone` 의 이유 그대로).
+    // 관리 모드를 다시 열어도(콘솔 · 저장 복구 · 되돌아간 사람) 가구 카드가 통째로 비지 않도록 작업대는 계속
+    //   허용해 둔다 (`manageDone` 과 같은 이유). 2026-09-15 부터는 `manageDone` 이 앞에 있어 평소에는 닫힌 채 들어선다.
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE], furniture: [TUTORIAL_BENCH_DEF], manageExit: true },
     /* 2026-09-15 3차 (제작 UI 개편): 고른 레시피의 **상세**가 `.inv-craft-row` 라, 그 레시피가 골라져 있으면 홀드 버튼을,
        아직 아니면 눌러야 할 **조합 목록 칸**(`.inv-craft-cell`)을 밝힌다 — `spot` 은 먼저 맞는 것 하나를 고르는 폴백 목록이다. */
@@ -467,7 +469,13 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   },
   messenger: {
     id: 'messenger', title: '메신저를 여세요',
-    hint: '우측 상단에 읽지 않은 연락이 와 있습니다.',
+    /*
+     * 2026-09-15 (사용자 결정) — 함선 트랙의 **마지막 단계**다. 예전 문구 「읽지 않은 연락이 와 있습니다」는 거짓말이 된다:
+     * 레이븐의 첫 연락은 이제 이 트랙이 끝난 뒤에 온다 (`meta/parts/NpcQuests.tutorialBlocks`). 그래서 「어디에 무엇이
+     * 오는가」만 말한다. 열리는 순간 트랙이 끝나고(`ui:messengerToggled {open:true}` → `advance` → `finish`) 증축 트랙이
+     * 곧바로 이어진다 — 그 트랙은 메신저를 다시 감추므로 열려 있던 창은 닫힌다 (현재 동작).
+     */
+    hint: '우측 상단의 메신저 버튼을 누릅니다. NPC 의 연락과 의뢰는 여기로 옵니다.',
     objectives: [{ id: 'messengerOpen', text: '메신저 열기' }],
     allow: { community: true },
     /*
@@ -479,6 +487,11 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     spot: ['.community.show .cm-btn', '.community.show'],
     spotText: '메신저',
   },
+  /*
+   * (순서에서 제외, 2026-09-15 — 사용자 결정) `TUTORIAL_TRACK_STEPS.ship` 에 없다 — `openCraft` 와 같은 처리로 표에만 남는다.
+   * 레이븐의 첫 연락은 함선 트랙이 끝난 뒤에 오므로 이 단계가 기다릴 것이 없어졌다. 옛 저장의 `ravenQuest` 는
+   * `normalizeStep` 이 `messenger` 로 옮긴다 (메신저를 다시 열면 트랙이 끝난다).
+   */
   ravenQuest: {
     id: 'ravenQuest', title: '레이븐의 의뢰를 받으세요',
     hint: '대답을 고르고 퀘스트 카드의 수락을 누릅니다.',
@@ -493,17 +506,18 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   },
 };
 
-/** 단계 정의. 순서에서 빠진 id(`openCraft`)도 표에 있으므로 언제나 정의를 돌려준다. */
+/** 단계 정의. 순서에서 빠진 id(`openCraft` · `ravenQuest`)도 표에 있으므로 언제나 정의를 돌려준다. */
 export const stepDef = (id: TutorialStepId): StepDef => STEP_DEFS[id];
 
 /**
  * 그 단계가 속한 트랙의 순서 배열 (2026-09-14). 진행률 · 다음 단계는 **자기 트랙 안에서만** 센다 —
- * 트랙마다 목표 패널도 건너뛰기도 따로이기 때문이다. 트랙을 모르는 id(`openCraft`)는 build 로 본다.
+ * 트랙마다 목표 패널도 건너뛰기도 따로이기 때문이다. 트랙을 모르는 id(`openCraft` · `ravenQuest`)는 build 로 본다
+ * (둘 다 `normalizeStep` 이 먼저 순서 안의 단계로 옮기므로 실제로 여기까지 오지 않는다).
  */
 export const trackStepsOf = (id: TutorialStepId): readonly TutorialStepId[] =>
   TUTORIAL_TRACK_STEPS[tutorialTrackOf(id) ?? 'build'];
 
-/** 그 단계의 트랙 (모르는 id 는 build — `openCraft` 가 유일하다). */
+/** 그 단계의 트랙 (모르는 id 는 build — `openCraft` · `ravenQuest`). */
 export const trackOf = (id: TutorialStepId): TutorialTrack => tutorialTrackOf(id) ?? 'build';
 
 /** 순서에 있는 단계인가 — **세 트랙 전부**를 본다 (`openCraft` 처럼 계약에만 남은 id 를 거른다). */
@@ -514,15 +528,16 @@ export const isOrderedStep = (id: string): id is TutorialStepId =>
  * 저장 · 콘솔에서 들어온 id 를 순서 안의 단계로 고친다 (2026-09-09). 순서에서 빠진 단계는 **그 자리를 이어받은**
  * 단계로 옮겨 붙는다 — 진행 중이던 저장이 새 순서에서도 막히지 않고 이어진다. 모르는 값은 null.
  *
- * `openCraft`(2026-09-09) → `craftAmmo`, `manageDone`(2026-09-14 3차) → `craftGun`.
- * ⚠ 둘 다 `TutorialStepId` 와 아래 `STEP_DEFS` 표에는 **남아 있다** (계약은 이름을 지우지 않는다) — 빠진 것은
- *   `TUTORIAL_STEPS` 의 **순서**뿐이다. 그래서 `tutorialTrackOf` 가 null 을 돌려주고 `trackOf` 가 build 로 본다.
- *   `setStep` 의 `manageDone` 가지는 그래도 남겨 둔다 — 콘솔 `tutorial step manageDone` 의 안전망이다.
+ * `openCraft`(2026-09-09) → `craftAmmo`, `ravenQuest`(2026-09-15) → `messenger`.
+ * ⚠ 둘 다 `TutorialStepId` 와 위 `STEP_DEFS` 표에는 **남아 있다** (계약은 이름을 지우지 않는다) — 빠진 것은
+ *   `TUTORIAL_TRACK_STEPS` 의 **순서**뿐이다. 그래서 `tutorialTrackOf` 가 null 을 돌려주고 `trackOf` 가 build 로 본다.
+ * `manageDone` 은 2026-09-14 3차 → 2026-09-15 사이에만 여기서 `craftGun` 으로 옮겨졌다 — 순서로 돌아왔으므로
+ *   이제 `isOrderedStep` 이 그대로 통과시킨다 (그 사이의 저장은 `craftGun` 을 들고 있으니 옮길 것이 없다).
  */
 export function normalizeStep(id: string | null | undefined): TutorialStepId | null {
   if (typeof id !== 'string') return null;
   if (id === 'openCraft') return 'craftAmmo';
-  if (id === 'manageDone') return 'craftGun';
+  if (id === 'ravenQuest') return 'messenger';
   return isOrderedStep(id) ? id : null;
 }
 

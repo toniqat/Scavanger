@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CORPSE_FALL_MAX_SPEED, GRAVITY, PLAYER_RADIUS, type GameContext, type WorldRef } from '@/shared';
 import type { Enemy, EnemyHost } from '../Enemy';
-import { BEHEMOTH_AI, CHARGER_CHARGE, HUNTER_LEAP, SPEWER_SPIT, baseTypeOf } from '../EnemyTypes';
+import { BEHEMOTH_AI, CHARGER_CHARGE, HUNTER_LEAP, SPEWER_SPIT, baseTypeOf, isWormType } from '../EnemyTypes';
 import type { CombatTarget, TargetList } from '../Targets';
 import { emitEnemyStep } from '../model';
 import { rideCarry, rideRecord, rideRelease } from './Ride';
@@ -61,8 +61,8 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   const targetAlive = !!t && !t.isDeadOrDowned;
 
   if (e.state === 'dead') { e.deathTimer += dt; integrateDeathFall(e, dt, world); return; }
-  // 2026-09-13: 지하벌레는 땅에 박혀 있고 `sandworm/Director` 가 돌린다. 파고 나오는 중 · 뱉어져 나는 중인 버그는 싸우지 않는다.
-  if (e.type === 'sandworm') return;
+  // 2026-09-13: 땅굴벌레는 땅에 박혀 있고 `sandworm/Director` 가 돌린다. 파고 나오는 중 · 뱉어져 나는 중인 버그는 싸우지 않는다.
+  if (isWormType(e.type)) return;
   if (updateBurrowGate(e, dt, host)) return;
 
   if (e.state === 'flee') {

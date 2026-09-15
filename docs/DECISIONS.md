@@ -226,10 +226,15 @@ only. Small screens shrink **grid cells by window height** (`INV_CELL_*`).
 | Made global | **Fall damage** (can kill) · auto-equip of consumables to quick slots |
 | Tutorial-only | Checkpoint respawn, gradual HUD, narrow-detection fixed enemies, cliff `kill`/`clamp` volumes |
 | Death | Main rule: gear stays on your corpse; killed enemies stay dead |
-| NPC | Raven with **dialogue choices** that converge (branches not saved) |
+| NPC | Raven with **dialogue choices** that converge (branches not saved). **Overturned 2026-09-15**: the ship track no longer ends on Raven's quest (`ravenQuest` out of the order, 3 steps: level-up · stats · open the messenger); Raven's first contact is **deferred until the ship track is done and no track is running** — existing saves that never had the tutorial get it as before |
 
 Rules: ① a respawned player's corpse must not sit in enemy detection — solved **by the map** (checkpoints outside detection). ② No holes in
 main-game rules — checkpoint respawn is a separate branch inside `missionMode === 'tutorial'` via `player:respawn`.
+
+**2026-09-15 follow-up (user decisions)**: ③ the build track gets a **`하우징 모드 닫기` step right before `작업실로 이동`** (`manageDone` back
+in the order, 17 steps — reverses the 2026-09-14 3차 "no close-only step"), and the **floor guide is never drawn while housing mode is open**.
+④ **No cryptography XP at tutorial start**: the pre-landed tutorial ship replays `extraction:activated {duration: 0}`, which is not a hack —
+progression ignores `duration <= 0` and the tutorial mission; a real console hack still trains 암호학.
 
 Later passes: **full HP at start and respawn** (tension comes from fall damage) · skip lives in the **ESC menu and the raid track
 extracts immediately** (hiding hints would strand you) · **no starting implant**, hook granted on first ship entry (hiding the HUD still
@@ -334,6 +339,96 @@ Design: the base kit is **bound** (never dropped, handed over, left in a corpse 
 gear; android bodies are the soldier model with an android helmet and visor (downed / carry poses exist only there); recruited androids
 stand ready in front of their launch pod; the loading gate is a render hold (sim dt 0, nothing drawn) so the mission clock, enemies and
 hellpods all wait, and rejoin / training / tutorial skip it.
+
+## 2026-09-15 — 캐릭터 탭 키캡 · 터미널 훈련장 줄 · 매칭 탭 오프라인 · Character-tab keycap · terminal training row · match tab offline
+
+User choices:
+- `포인트 투자 확정` hold keycap: **mouse glyph white, chevron accent** — scoped to that button only (`character.css` `.pg-confirm`);
+  every other hold button keeps the accent-coloured glyph from `shared/keycap.mouseGlyphSvg`.
+- Terminal 행성 tab: `시뮬레이션 훈련장` moves **out of the footer onto its own row above the separator line**, right-aligned;
+  the footer keeps only `닫기 (E)` (rejected: training button beside 닫기 in the footer).
+- Terminal 매칭 tab, not connected: `비공개 매칭` / `공개 매칭` are **hidden and a same-size `다시 연결` takes their place**
+  (rejected: small reconnect button under the hint); while connecting the buttons stay, disabled. The empty cells' `초대` stays
+  **clickable but dimmed**, and each click **flashes** `서버에 연결되어 있지 않습니다` instead of opening the modal
+  (rejected: disabled invite button; opening the modal with the same sentence inside).
+
+## 2026-09-15 — 제작 UI: 창고 · 가방 숨김 · 5칸 · 호버 툴팁 · 오른쪽 상세 카드 · Craft UI: no grids · 5 columns · hover tooltip · detail card
+
+User choices (every crafting window — 총기 작업대 and the other `WorkbenchKind` benches, 빠른제작; salvage / repair popups untouched):
+- **No stash + bag grids in the craft window** — materials are counted from the inventory model (`craftCountDef`), so the
+  `.inv-panel-grids` card is hidden by CSS while `.inv-layout.is-craft` (rejected: keeping the grids as a materials view).
+  Tab / Escape / key guide unchanged.
+- Recipe thumbnail grid **4 → 5 columns** (`CRAFT_LIST_COLS`), tiles the same size; the craft panel width follows the grid.
+- **Hovering a recipe thumbnail shows the output's inventory tooltip** (the window's floating `Tooltip`, same position /
+  hide rules as a grid tile; no pin) (rejected: native `title`, chip card `ui/hud/ItemTip`).
+- The **craft detail is a separate card to the right** of the workbench panel (`.inv-panel-craft-detail`, top and height
+  aligned to it, hidden with no selection) (rejected: detail column inside the workbench panel).
+- Detail layout **like an item tooltip**: icon top-left, name (rarity colour) to its right, type · rarity under the name
+  (weapon class for weapons, category otherwise — `Tooltip` labels), then the tooltip's spec body, material chips
+  (`보유 / 필요`, shortage red), quantity stepper and the 제작 hold button — behaviour (bench level, skill gate, XP, room
+  check) unchanged.
+
+Design: `CraftDetail` keeps its public contract (`CraftDetailHandle`); the card mirrors the body's state classes and `--rc`
+(`CraftPanel.syncDetailCard`), so tutorial spotlights (`.inv-craft-row[data-recipe] .inv-craft-btn`) still resolve.
+
+## 2026-09-15 — 땅굴벌레 · 진동 장치 · Sandworm thumper
+
+User choices (gadgets side of the 땅굴벌레 rework — the director side is in enemies/):
+- New consumable gadget **진동 장치** (`gad_thumper` / `GadgetId 'thumper'`): a Dune-style thumper. **One use**, stacks like mines, rare, 1×2.
+- **Found only in 아켈론 II (`amber`) 전진기지 지하실 containers**, ~5 % per basement container (`structures.csv` `basementBonus*` — the same
+  per-container bonus roll the basement key uses, outside the crate-tier roll) (rejected: a loot-table weight — tier 4 also appears in
+  wrecks, trams and lab locked rooms, so tier + planet cannot isolate outpost basements).
+- Placed like a mine (ghost preview), but only where **`WorldRef.burrowGroundOk(x, z, THUMPER_GROUND_R)`** is true — the preview is red
+  and placement refused elsewhere (structure floors and roofs included); the host re-checks with the same function.
+- It **strikes the ground every 1 s** forever (hammer animation, dust, thump, nearby shake); on the **5th strike** the host emits
+  `sandworm:summon` once. **Placement is allowed even after the worm already appeared** in this raid — the summon is simply ignored
+  and the device keeps thumping (rejected: refusing placement / consuming nothing once the worm is out).
+- **Not recoverable** (no E prompt, no item back) and **destroyed when the worm erupts** inside `SANDWORM_ERUPT_RADIUS`.
+
+Design: strikes carry no wire — every client counts them from the deployable's `age`, and `DeployableWire.age` aligns late joiners;
+the ground test lives in world so the worm director and the placement preview cannot disagree; the item works on every planet once
+found (only the drop is amber-bound).
+
+## 2026-09-15 — 튜토리얼 마지막 구간: 웅덩이 벽 · 절벽 · 안드로이드 · Tutorial final area: pit walls · abyss · androids
+
+User choices:
+- Pit depth **stays 0.9 m and gets a 2.5 m wall** (rejected: a deeper pit; a ramp-only exit). The wall is open toward the fence
+  (grenades thrown over the wire must land inside) and toward the ship-side ramp; the far wall is the grenade backstop and
+  replaces the old concrete `BACKSTOP`.
+- Pit "about 2×": delivered as **×1.55** (9.5 × 8.5 m) with the two androids 1.8 m apart — a true 2× cannot keep "any explosion
+  in the pit kills both" (`GRENADE_RADIUS` 7.2 vs the half-diagonal); the bound is written above `PIT`.
+- The last two androids are both **100 % drop**: one **shotgun**, one **DMR** (grade I, one full stack of the matching ammo,
+  `mat_cable`), they **face the ship**, and wake **both** ways: sense radius **22 m** (ramp and bay inside) **and** the launch
+  switch (in the tutorial the switch is the liftoff, so the existing liftoff fire window covers it).
+- **Right 40 % of the fence has no floor beyond it**; beyond the fence everything except the pit, its walls, the flat strip in
+  front of the wire and the ship strip is the same bottomless abyss as the ship's front edge (rule `kill`).
+- Decorative pillar (the fallen mast) at the wake spot moved beside the left ruin wall and given a matching collider.
+
+Design: the lower deck is seven axis-aligned pieces and the holes are the gaps (`DECKS` ∪ `PIT` ∪ `PIT_WALLS` ∪ `ABYSS_CUTS` tile
+the old rect); the abyss edge follows the diagonal fence with a 2 m staircase so no hole opens on the player's side; the `ship`
+checkpoint band moved 2 m back (z −150…−158) and is narrowed to the ship strip so a body falling into the cut cannot trigger it;
+the `ship` respawn is inside the 22 m sense radius — the only exception to the "checkpoints outside enemy sense" rule (see
+`docs/TODO.md`). The weapon override travels as a world-side extension of `TutorialEnemySpawn` until `src/shared` is free.
+
+## 2026-09-15 — 땅굴벌레 · Sandworm renamed, cumulative appearance chance, thumper summon, threat-1 weak worm
+
+User choices:
+- **Rename** `지하벌레` → **`땅굴벌레`** everywhere the player or the docs see it (ids / keys stay `sandworm`).
+- **Cumulative probability instead of a pre-roll**: no seeded "will it happen / when" plan and no time window. The host checks
+  every 2 s and rolls that check's chance; **at most once per raid** stays.
+- **Condition**: at least **2 members** who are **sprinting** and carrying **`light` (조금 무거움) or heavier** within 40 m of each
+  other. Chance grows with more members, heavier loads and a tighter group (3 heavy within 20 m ≈ certain within a few checks;
+  2 light at 40 m is low). **Solo never** — a lone human with no android is 0 %.
+- **Android squadmates count as members** (their own loadout weight, their sprint flag).
+- A **lure grenade** adds to the chance and its spot becomes a candidate eruption spot next to the group centre.
+- **Thumper** (`진동 장치`, gadgets): its 5th strike summons the worm at once at that spot if it has not happened this raid.
+- **Threat 1 gets a weak worm**: `sandworm_weak` with 750 hp fixed, body 70 %, eruption knockback / damage radius 70 %, spits only
+  the weakest bug (scavenger). Threat 2–3 keep the adult.
+
+Design: the eruption spot must pass one world query `WorldRef.burrowGroundOk` (flat bare ground, nothing in the circle — also the
+thumper's placement preview) so the two callers cannot disagree; weight state rides on `PlayerSnapshot.ws` (older senders = normal);
+the weak worm scales **radius only** (damage and knockback speed unchanged) and bakes its own rig geometry from its csv row so the hit
+capsule, burrow depth and look agree without a root scale; `SANDWORM_WINDOW_*` and `SANDWORM_CHANCE_BY_THREAT` are retired rows.
 
 ## 2026-09-15 — 타이틀 이어하기 · 레이드 포기 · Title resume · raid abandon (drift)
 

@@ -1,5 +1,5 @@
 import type { GameContext, ImplantId, PlayerSnapshot, WeaponSlot } from '@/shared';
-import { FURNITURE_POSE_WIRE, PlayerFlags } from '@/shared';
+import { FURNITURE_POSE_WIRE, PlayerFlags, WEIGHT_STATE_WIRE } from '@/shared';
 
 const round3 = (x: number): number => Math.round(x * 1000) / 1000;
 
@@ -64,6 +64,15 @@ export class Snapshotter {
     /* Phase 9: the down pool rides along while DOWNED so a host ghost inherits the real bleed state. */
     if (p.isDowned) m.dhp = Math.round(p.downHp ?? 0);
     else delete m.dhp;
+
+    /*
+     * 2026-09-15 (땅굴벌레 등장 판정): carry-weight state (`InventoryRef.getWeight().state`) as a `WEIGHT_STATE_WIRE` index, raid
+     * only — the host's sandworm director counts sprinting squadmates who are `light` or heavier. Omitted in the hub and when
+     * the inventory is not up (older receivers ignore the field; an omitted field reads as `normal`).
+     */
+    const inv = ctx.inventory;
+    const wsIdx = !inHub && inv && typeof inv.getWeight === 'function' ? WEIGHT_STATE_WIRE.indexOf(inv.getWeight().state) : -1;
+    if (wsIdx >= 0) m.ws = wsIdx; else delete m.ws;
 
     /*
      * 2026-09-10: 실드는 **방탄복을 입었을 때만** 실린다 (`dhp` 와 같은 규약). 원격 체력 바가 그리고,

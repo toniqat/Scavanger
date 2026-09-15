@@ -52,6 +52,11 @@ function parseCss(css: string, out: THREE.Color): THREE.Color {
 
 const PULSE_COUNT = 12;
 
+/* 2026-09-15: 진동 장치 실루엣 (시각 전용, m) — 안내 기둥 길이 · 망치 머리의 최저 · 최고 높이 (기둥 사이) */
+const THUMPER_RAIL_H = 1.25;
+const THUMPER_HAMMER_LOW = 0.32;
+const THUMPER_HAMMER_HIGH = 1.2;
+
 /* 2026-09-11: 설치 미리보기 고스트 (시각 전용) */
 const GHOST_OK = 0x4dff88;
 const GHOST_BAD = 0xff5a4d;
@@ -99,6 +104,11 @@ export class GadgetVisualPool {
   private readonly c4RecvGeo = new THREE.BoxGeometry(0.12, 0.05, 0.09);
   private readonly c4AntennaGeo = new THREE.CylinderGeometry(0.006, 0.009, 0.24, 5);
   private readonly c4Mat = new THREE.MeshStandardMaterial({ color: 0x8a7b58, metalness: 0.05, roughness: 0.85 });
+  /* 2026-09-15: 진동 장치 — 받침(포탑 받침 · 다리 재사용) + 안내 기둥 둘 + 머리 캡 + 오르내리는 망치 머리 (`parts[0]`) + LED */
+  private readonly thumperRailGeo = new THREE.CylinderGeometry(0.025, 0.025, THUMPER_RAIL_H, 6);
+  private readonly thumperCapGeo = new THREE.BoxGeometry(0.46, 0.08, 0.2);
+  private readonly thumperHeadGeo = new THREE.CylinderGeometry(0.2, 0.22, 0.28, 12);
+  private readonly thumperBandGeo = new THREE.TorusGeometry(0.21, 0.02, 6, 20);
 
   /* shared opaque materials (never pulse) */
   private readonly steelMat = new THREE.MeshStandardMaterial({ color: 0x3a4048, metalness: 0.75, roughness: 0.45 });
@@ -117,7 +127,9 @@ export class GadgetVisualPool {
       this.padGeo, this.padInnerGeo, this.chevronGeo, this.puffGeo, this.flameGeo,
       this.lurePoleGeo, this.lureHornGeo, this.lureRingGeo, this.pulseGeo,
       this.c4BrickGeo, this.c4TapeGeo, this.c4RecvGeo, this.c4AntennaGeo,
+      this.thumperRailGeo, this.thumperCapGeo, this.thumperHeadGeo, this.thumperBandGeo,
     );
+    this.thumperBandGeo.rotateX(Math.PI / 2);
     for (let i = 0; i < PULSE_COUNT; i++) {
       const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
       const mesh = new THREE.Mesh(this.pulseGeo, mat);
@@ -152,7 +164,7 @@ export class GadgetVisualPool {
 
   /** Pre-build one visual of every kind so the first deployment allocates nothing. */
   warm(): void {
-    const kinds: DeployableKind[] = ['domeShield', 'barricade', 'mine', 'turret', 'jumpPad', 'smoke', 'fire', 'lure', 'remoteMine'];
+    const kinds: DeployableKind[] = ['domeShield', 'barricade', 'mine', 'turret', 'jumpPad', 'smoke', 'fire', 'lure', 'remoteMine', 'thumper'];
     for (const k of kinds) {
       if ((this.free.get(k)?.length ?? 0) > 0) continue;
       this.release(this.create(k));
@@ -243,6 +255,20 @@ export class GadgetVisualPool {
           p.scale.set(0.8 + 0.3 * w, w, 0.8 + 0.3 * w);
           p.rotation.y += dt * 1.4;
         }
+        break;
+      }
+      case 'thumper': {
+        // 2026-09-15: `v.phase` 는 여기서만 **주기 진행도 0..1** 이다 (`parts/Thumper.tick` 이 매 프레임 넣는다; 0 = 방금 내리쳤다).
+        // 잠깐 박혀 있다가(0–0.12) 천천히 올라가고(–0.8) 가속 낙하한다 — 낙하가 끝나는 순간이 다음 타격이다.
+        const ph = v.phase;
+        let h: number;
+        if (ph < 0.12) h = 0;
+        else if (ph < 0.8) h = (ph - 0.12) / 0.68;
+        else { const f = (ph - 0.8) / 0.2; h = 1 - f * f; }
+        const hammer = v.parts[0];
+        if (hammer) hammer.position.y = THUMPER_HAMMER_LOW + (THUMPER_HAMMER_HIGH - THUMPER_HAMMER_LOW) * h;
+        for (const g of v.glowMats) g.opacity = 0.3 + 0.6 * (1 - h);
+        v.ringMat.opacity = 0.06 + 0.3 * Math.max(0, 1 - ph * 3);
         break;
       }
       case 'lure': {
@@ -410,6 +436,9 @@ export class GadgetVisualPool {
       case 'lure':
         v.ring.scale.setScalar(Math.min(radius, 8));
         break;
+      case 'thumper':
+        v.ring.scale.setScalar(radius);   // = THUMPER_GROUND_R, 땅 판정 반경
+        break;
       default:
         v.ring.scale.setScalar(radius);
         break;
@@ -564,6 +593,27 @@ export class GadgetVisualPool {
           body.add(fl);
           parts.push(fl);
         }
+        break;
+      }
+      case 'thumper': {
+        // 2026-09-15: 받침 + 다리 셋 (포탑과 같은 실루엣), 안내 기둥 둘, 머리 캡, 그 사이를 오르내리는 망치 머리 (`parts[0]`), 띠 LED
+        add(this.turretBaseGeo, this.darkMat, 0, 0.08, 0).castShadow = true;
+        for (let i = 0; i < 3; i++) {
+          const a = (i / 3) * Math.PI * 2 + 0.5;
+          const leg = add(this.turretLegGeo, this.steelMat, Math.cos(a) * 0.34, 0.06, Math.sin(a) * 0.34);
+          leg.rotation.y = -a; leg.rotation.x = 0.45;
+        }
+        add(this.thumperRailGeo, this.steelMat, -0.16, 0.16 + THUMPER_RAIL_H / 2, 0);
+        add(this.thumperRailGeo, this.steelMat, 0.16, 0.16 + THUMPER_RAIL_H / 2, 0);
+        add(this.thumperCapGeo, this.darkMat, 0, 0.16 + THUMPER_RAIL_H, 0);
+        const hammer = new THREE.Group();
+        hammer.position.y = THUMPER_HAMMER_LOW;
+        body.add(hammer);
+        add(this.thumperHeadGeo, this.steelMat, 0, 0, 0, hammer).castShadow = true;
+        const bandMat = this.glow(0xe0a458, 0.6);
+        glowMats.push(bandMat);
+        add(this.thumperBandGeo, bandMat, 0, 0.1, 0, hammer);
+        parts.push(hammer);
         break;
       }
       case 'lure': {

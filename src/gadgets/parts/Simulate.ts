@@ -25,6 +25,7 @@ import { FIRE_ZONE_CRACKLE_S, FIRE_ZONE_DRONE_HEIGHT } from '@/shared';
 /* 2026-09-15 (사용자 결정): 폭발 감쇠 2단 계단 — 모든 폭발물 공용 */
 import { explosionDamage } from '@/shared';
 import * as Remote from './Remote';
+import * as Thumper from './Thumper';
 import type { DamageSourceWire, PlayerDamageSource } from '@/shared';
 
 /* ═══════════════════════════ simulation (authority) ═══════════════════════════ */
@@ -222,6 +223,8 @@ export function animate(sys: GadgetSystem, d: Deployable, t: number, dt: number)
   // 2026-09-15: the deployable's own gadget first — `fire` is produced by two defs (화염수류탄 10 s · G-10 화염 지대 6 s)
   const def = gadgetDef(d.gadgetId) ?? gadgetForKind(d.kind);
   const life = d.expires > 0 && def && def.duration > 0 ? THREE.MathUtils.clamp((d.expires - t) / def.duration, 0, 1) : 1;
+  // 2026-09-15 (진동 장치, parts/Thumper): 타격은 모든 클라이언트가 `age` 에서 센다 — 망치 위상을 visual.phase 로 넘기고 타격 순간의 FX · 부름
+  if (d.kind === 'thumper') Thumper.tick(sys, d, dt);
   sys.visuals.animate(v, t, dt, d.armed, d.hpRatio, life);
   if (d.kind === 'remoteMine') Remote.updateBeep(sys, d, dt);
   // 2026-09-15 (B-16): a burning zone crackles every FIRE_ZONE_CRACKLE_S on every client (local sound, no wire). The first one is

@@ -41,7 +41,7 @@ import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLA
 import type { EnemySystem } from '../EnemySystem';
 import { rollGrenadeLoadout } from '../ai/HumanoidProfile';
 import { isNamedAiType } from '../ai/named';
-/* appended (2026-09-13): 굴착 스폰 · 지하벌레 */
+/* appended (2026-09-13): 굴착 스폰 · 땅굴벌레 */
 import { emergeFx } from './Burrow';
 import { disposeWormAssets } from '../models/WormModel';
 
@@ -65,7 +65,7 @@ export function reset(sys: EnemySystem): void {
   sys.targets.clear();
   sys.corpses.clear();
   sys.rogueDrops.reset();     // 2026-09-09: 굴림 기록(구역당 1회)도 레이드마다 새로 시작한다
-  sys.sandworm.reset();       // 2026-09-13: 지하벌레 굴림 · 전조 · 받아 둔 메타도 레이드마다
+  sys.sandworm.reset();       // 2026-09-13: 땅굴벌레 굴림 · 전조 · 받아 둔 메타도 레이드마다
   sys.burrowFx?.clear();
   sys.burrowShakeAt = -Infinity;
   sys.named.reset();          // 2026-09-11: 네임드 굴림 결과 · 알림 기록도 레이드마다 (네임드 · 호위는 로그라 `ensureCapacity` 재활용 대상이 아니다)
@@ -182,7 +182,7 @@ export function acquire(sys: EnemySystem, id: number, type: EnemyType, position:
   e.reset(id, position, yaw, ctx.time);
   // 2026-09-14: 행성 threat 벌레 체력 (`BUG_HP_MUL_BY_THREAT`). 권위 스폰(`spawn`)도 리플리카(`ee spawn` · 스냅샷이 처음 본 id)도 여기를
   // 지나고, 배수는 모든 클라이언트가 `world:ready` 에서 같은 행성으로 정해 둔다 — 그래서 와이어 없이 리플리카의 `maxHp`(피격 흔들림 ·
-  // 승격 때 hp 상한)가 호스트와 같다. 인간형 팩션 · 지하벌레(자기 `SANDWORM_HP_*` 굴림) 제외, 훈련장 · 행성 없음은 ×1.
+  // 승격 때 hp 상한)가 호스트와 같다. 인간형 팩션 · 땅굴벌레(자기 `SANDWORM_HP_*` 굴림) 제외, 훈련장 · 행성 없음은 ×1.
   const hpMul = sys.bugTuning.hpMul;
   if (hpMul !== 1 && e.faction === 'bug' && !isWormType(type)) e.hp = e.maxHp = Math.max(1, Math.round(e.stats.hp * hpMul));
   // 2026-09-14 4차: 이번 레이드의 시체 수명 (`reset` 이 넣은 `CORPSE_LIFETIME` 을 덮는다). 튜토리얼만 `Infinity` 라
@@ -220,5 +220,5 @@ export function disposePools(sys: EnemySystem): void {
   disposeBugAssets();
   disposeRogueAssets();
   disposeRogueDropAssets();
-  disposeWormAssets();        // 2026-09-13: 지하벌레 공유 지오메트리 (리그는 위 풀 dispose 에서 먼저 빠졌다)
+  disposeWormAssets();        // 2026-09-13: 땅굴벌레 공유 지오메트리 (리그는 위 풀 dispose 에서 먼저 빠졌다)
   }

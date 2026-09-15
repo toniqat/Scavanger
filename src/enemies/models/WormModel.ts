@@ -1,25 +1,28 @@
 /**
- * src/enemies/models/WormModel.ts — **지하벌레 리그** (2026-09-13).
+ * src/enemies/models/WormModel.ts — **땅굴벌레 리그** (2026-09-13).
  *
  * 듄의 샌드웜처럼 땅에서 솟은 거대한 마디 몸통과, 꽃잎처럼 벌어지는 턱 네 장 · 안쪽을 두른 이빨 고리 · 희미하게 달아오른
  * 목구멍. 외부 에셋 없이 절차 지오메트리이고 **광원은 없다** (목구멍은 emissive).
  *
  * - 머티리얼은 버그 리그와 같은 두 종류뿐이다: 정점색 `MeshStandardMaterial`(피부 · 흙 무덤) 과 정점색 없는
  *   `MeshStandardMaterial`(목구멍 — 버그 눈과 같은 프로그램). 그래서 레이드 중 처음 만들어져도 새 셰이더 변형이 생기지 않는다.
- *   (그래도 디렉터는 이벤트가 굴려진 레이드의 `world:ready` 에서 리그 하나를 미리 만들어 `ctx.shaders.warm` 한다.)
+ *   (그래도 디렉터는 `world:ready` 에서 이 행성의 종류 리그 하나를 미리 만들어 `ctx.shaders.warm` 한다.)
  * - 마디는 사슬 그룹이다 — 위로 갈수록 앞으로 숙이는 각을 나눠 가져 입이 표적 쪽을 본다. 히트 캡슐은 `EnemySystem.raycastEx`
  *   의 세로 캡슐(`enemies.csv` 반지름 · 높이) 그대로이고 숙임은 그 안에 들어가게 작다.
  * - `BugAnim` 을 그대로 쓴다: `mandible` = 입 벌림, `abdomen` = 뱉기 전 목구멍 꿀렁임, `aim` = 독극물 준비 숙임,
  *   `shake` = 떨림, `death` / `deathDir` / `fade` = 옆으로 쓰러지며 굴로 가라앉음. `sink` 인자 = 굴착 중 아직 땅속인 깊이
  *   (흙 무덤은 땅 위에 남고 몸통만 내려간다).
+ * - 2026-09-15: **어린 땅굴벌레** `sandworm_weak` (위협 1) 도 이 리그다. 지오메트리는 종류마다 따로 굽는다 — 자기 `enemies.csv`
+ *   줄(반지름 · 높이 = 성체 × `SANDWORM_WEAK_SCALE`)로 마디 길이 · 턱 · 무덤을 재므로 `baseScale` 은 둘 다 1 이고, 히트 캡슐 ·
+ *   굴착 깊이(`Enemy.startEmerge` 의 `stats.height`)가 그림과 어긋나지 않는다 (루트 스케일로 줄였다면 깊이가 두 번 곱해진다).
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Layers } from '@/shared';
-import { ENEMY_STATS } from '../EnemyTypes';
+import { ENEMY_STATS, type WormEnemyType } from '../EnemyTypes';
 import { statusEmissive, type BugAnim } from './BugModel';
 
-export type WormType = 'sandworm';
+export type WormType = WormEnemyType;
 
 /* ── 그림 수치 (밸런스가 아니다 — 판정은 enemies.csv 의 반지름 · 높이 · 머리 구) ── */
 /** 마디 수. */
@@ -33,6 +36,8 @@ const BASE_RADIUS_MUL = 0.92;
 const TAPER = 0.24;
 /** 서 있을 때 위로 갈수록 나눠 갖는 앞숙임 총량(rad). */
 const LEAN_REST = 0.3;
+/** 성체의 입 정면 거리(m) — 어린 개체는 높이 비율로 줄인다. */
+const HEAD_Z_ADULT = 1.6;
 
 const SKIN = 0xa68456;
 const SKIN_DARK = 0x6a4b2d;
@@ -75,12 +80,11 @@ interface WormAssets {
   rim: THREE.BufferGeometry;
   throat: THREE.BufferGeometry;
   mound: THREE.BufferGeometry;
-  skin: THREE.MeshStandardMaterial;
-  dirt: THREE.MeshStandardMaterial;
-  throatMat: THREE.MeshStandardMaterial;
 }
 
-let assets: WormAssets | null = null;
+/** 종류별 지오메트리 (성체 · 어린 개체가 다른 크기로 굽는다). 머티리얼 템플릿은 하나다. */
+const assets = new Map<WormType, WormAssets>();
+let materials: { skin: THREE.MeshStandardMaterial; dirt: THREE.MeshStandardMaterial; throatMat: THREE.MeshStandardMaterial } | null = null;
 const tmpColor = new THREE.Color();
 
 function colorize(geo: THREE.BufferGeometry, hex: number, jitter = 0): THREE.BufferGeometry {
@@ -173,46 +177,63 @@ function buildMound(r: number): THREE.BufferGeometry {
   return merge(parts);
 }
 
-function wormParams(): WormParams {
-  const st = ENEMY_STATS.sandworm;
+/** 종류의 그림 수치 — 전부 그 종류의 `enemies.csv` 줄에서 (어린 개체는 성체 × `SANDWORM_WEAK_SCALE` 이 csv 식으로 들어 있다). */
+function wormParams(type: WormType): WormParams {
+  const st = ENEMY_STATS[type];
+  const adult = ENEMY_STATS.sandworm;
   const segLen = (st.height + BURIED_M) / SEGMENTS;
-  return { head: { y: st.height * 0.9, z: 1.6, r: st.headRadius }, strideLength: 1, segLen, radius: st.radius };
+  const headZ = HEAD_Z_ADULT * (adult.height > 0 ? st.height / adult.height : 1);
+  return { head: { y: st.height * 0.9, z: headZ, r: st.headRadius }, strideLength: 1, segLen, radius: st.radius };
 }
 
-function getAssets(): WormAssets {
-  if (assets) return assets;
-  const p = wormParams();
+function getMaterials(): NonNullable<typeof materials> {
+  if (materials) return materials;
+  materials = {
+    skin: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.35, metalness: 0.1, emissive: 0x000000 }),
+    dirt: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.35, metalness: 0.1, emissive: 0x000000 }),
+    throatMat: new THREE.MeshStandardMaterial({ color: 0x250a06, emissive: 0xff5a1e, emissiveIntensity: 2.4, roughness: 0.3 }),
+  };
+  return materials;
+}
+
+function getAssets(type: WormType): WormAssets {
+  const have = assets.get(type);
+  if (have) return have;
+  const p = wormParams(type);
   const topR = p.radius * (BASE_RADIUS_MUL - TAPER);
-  assets = {
+  const built: WormAssets = {
     segment: buildSegment(p.segLen),
     jaw: buildJaw(topR * 1.25, topR * 0.9),
     rim: buildRim(topR * 1.02),
     throat: new THREE.CircleGeometry(topR * 0.82, 20).rotateX(-Math.PI / 2),
     mound: buildMound(p.radius),
-    skin: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.35, metalness: 0.1, emissive: 0x000000 }),
-    dirt: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.35, metalness: 0.1, emissive: 0x000000 }),
-    throatMat: new THREE.MeshStandardMaterial({ color: 0x250a06, emissive: 0xff5a1e, emissiveIntensity: 2.4, roughness: 0.3 }),
   };
-  return assets;
+  assets.set(type, built);
+  return built;
 }
 
 /** 공유 지오메트리 · 템플릿 머티리얼 해제 (리그를 먼저 dispose). */
 export function disposeWormAssets(): void {
-  if (!assets) return;
-  assets.segment.dispose(); assets.jaw.dispose(); assets.rim.dispose(); assets.throat.dispose(); assets.mound.dispose();
-  assets.skin.dispose(); assets.dirt.dispose(); assets.throatMat.dispose();
-  assets = null;
+  for (const a of assets.values()) {
+    a.segment.dispose(); a.jaw.dispose(); a.rim.dispose(); a.throat.dispose(); a.mound.dispose();
+  }
+  assets.clear();
+  if (materials) {
+    materials.skin.dispose(); materials.dirt.dispose(); materials.throatMat.dispose();
+    materials = null;
+  }
 }
 
-export function createWormRig(): WormRig {
-  const a = getAssets();
-  const p = wormParams();
-  const skin = a.skin.clone();
-  const throat = a.throatMat.clone();
+export function createWormRig(type: WormType = 'sandworm'): WormRig {
+  const a = getAssets(type);
+  const m = getMaterials();
+  const p = wormParams(type);
+  const skin = m.skin.clone();
+  const throat = m.throatMat.clone();
   const root = new THREE.Group();
-  root.name = 'worm_sandworm';
+  root.name = `worm_${type}`;
 
-  const mound = new THREE.Mesh(a.mound, a.dirt);
+  const mound = new THREE.Mesh(a.mound, m.dirt);
   mound.receiveShadow = true;
   mound.layers.enable(Layers.NO_RAYCAST);
   root.add(mound);
@@ -227,15 +248,15 @@ export function createWormRig(): WormRig {
   for (let i = 0; i < SEGMENTS; i++) {
     const g = new THREE.Group();
     g.position.y = i === 0 ? 0 : p.segLen;
-    const m = new THREE.Mesh(a.segment, skin);
+    const mesh = new THREE.Mesh(a.segment, skin);
     const r = p.radius * (BASE_RADIUS_MUL - TAPER * (i / (SEGMENTS - 1)));
-    m.scale.set(r, 1, r);
-    m.castShadow = true;
-    m.layers.enable(Layers.ENEMY);
-    g.add(m);
+    mesh.scale.set(r, 1, r);
+    mesh.castShadow = true;
+    mesh.layers.enable(Layers.ENEMY);
+    g.add(mesh);
     parent.add(g);
     segments.push(g);
-    segMeshes.push(m);
+    segMeshes.push(mesh);
     parent = g;
   }
 
@@ -246,7 +267,7 @@ export function createWormRig(): WormRig {
   rim.layers.enable(Layers.ENEMY);
   mouth.add(rim);
   const throatMesh = new THREE.Mesh(a.throat, throat);
-  throatMesh.position.y = -0.25;
+  throatMesh.position.y = -0.25 * (p.radius / Math.max(0.01, ENEMY_STATS.sandworm.radius));
   throatMesh.layers.enable(Layers.ENEMY);
   mouth.add(throatMesh);
 
@@ -267,7 +288,7 @@ export function createWormRig(): WormRig {
     jaws.push(tilt);
   }
 
-  return { kind: 'worm', type: 'sandworm', params: p, baseScale: 1, root, body, segments, segMeshes, mouth, jaws, mound, skin, throat };
+  return { kind: 'worm', type, params: p, baseScale: 1, root, body, segments, segMeshes, mouth, jaws, mound, skin, throat };
 }
 
 export function disposeWormRig(rig: WormRig): void {

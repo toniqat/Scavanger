@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { GhostState, GhostWire, ImplantId, PeerId, PlayerSnapshot, RemoteAvatarRef, RemotePlayerRef, Stance } from '@/shared';
-import type { CharBuff, RemoteFurniturePose } from '@/shared';
-import { FURNITURE_POSE_WIRE, NET_INTERP_DELAY, NET_STALE_AFTER, PLAYER_MAX_HP, PlayerFlags } from '@/shared';
+import type { CharBuff, RemoteFurniturePose, WeightState } from '@/shared';
+import { FURNITURE_POSE_WIRE, NET_INTERP_DELAY, NET_STALE_AFTER, PLAYER_MAX_HP, PlayerFlags, WEIGHT_STATE_WIRE } from '@/shared';
 
 const RING_SIZE = 16;
 const MAX_EXTRAPOLATE = 0.25;
@@ -152,6 +152,9 @@ export class RemotePlayer implements RemotePlayerRef {
   furniturePose: RemoteFurniturePose | null = null;
   /** `PlayerSnapshot.bfr` of the newest snapshot (0 when omitted) — `parts/CharBuffs` compares it with `buffsRevision`. */
   snapshotBuffsRev = 0;
+  /* ── appended (2026-09-15): 땅굴벌레 등장 판정 ── */
+  /** `PlayerSnapshot.ws` of the newest snapshot decoded through `WEIGHT_STATE_WIRE`; undefined until a sender says (older senders never do → `normal`). */
+  weightState: WeightState | undefined = undefined;
   /**
    * The stream restarted (`resetStream`): the sender may have reloaded and restarted its revision counter, so an equal
    * `bfr` proves nothing — `parts/CharBuffs` asks once more and clears this when a list arrives.
@@ -218,6 +221,8 @@ export class RemotePlayer implements RemotePlayerRef {
     this.hubSite = typeof s.hs === 'string' && s.hs.length > 0 ? s.hs : null;
     /* 2026-09-12: buff list revision (the pose itself is derived per frame in `tick`). */
     this.snapshotBuffsRev = typeof s.bfr === 'number' && Number.isFinite(s.bfr) && s.bfr > 0 ? Math.floor(s.bfr) : 0;
+    /* 2026-09-15: carry-weight state for the host's sandworm director (out-of-range / missing = unknown). */
+    this.weightState = typeof s.ws === 'number' ? WEIGHT_STATE_WIRE[s.ws] : undefined;
     if (!this.hasAny) {
       this.hasAny = true;
       this.position.set(s.p[0], s.p[1], s.p[2]);

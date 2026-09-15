@@ -740,7 +740,19 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
         this.markDirty(true);
       }),
       /* ── 암호학 ── */
-      b.on('extraction:activated', () => this.addSkillXp('cryptography', CRYPTO_XP)),
+      /*
+       * 2026-09-15 (사용자 결정 — 「튜토리얼 시작과 함께 암호학이 오른다」 수정): 튜토리얼 레이드의 **미리 착륙한** 함선은
+       * `playing` 첫 프레임에 이 이벤트를 `duration: 0` 으로 **재생**만 한다 (`extraction/ExtractionSystem.syncPreLandedPhase` —
+       * 페이즈를 `extracting` 으로 맞추려는 것이지 누가 콘솔을 해킹한 것이 아니다). 그 한 번에 XP 를 주면 튜토리얼이 시작되자마자
+       * 암호학이 Lv.1 이 됐다. 가르는 값은 이벤트 자체의 `duration` 이다 — 계약(`shared/events.ts` · `ExtractionSystem`)이
+       * 「0 = 호출이 아니라 이미 와 있는 함선」이라 밝히고, `ui/hud/Notifications` 도 같은 값으로 「도착까지 0초」 토스트를 거른다.
+       * 본편 콘솔의 해킹은 `data/extraction.csv` 의 대기 시간이라 늘 0 보다 크다. 미션 모드까지 함께 본다 — 튜토리얼 안에서는
+       * 어느 길로도 해킹이 없다 (`missionMode` 가 튜토리얼을 가르는 유일한 축이다: `ui/hud/Objective.tutorialRaid` 와 같다).
+       */
+      b.on('extraction:activated', ({ duration }) => {
+        if (duration <= 0 || ctx.missionMode === 'tutorial') return;
+        this.addSkillXp('cryptography', CRYPTO_XP);
+      }),
       /* ── 감정: opening a container + every item revealed by the Tarkov-style search (Phase 7; was `inventory:itemAdded`) ── */
       /* 2026-09-11 (C-16 · X-1): once per container id per raid — every re-open used to pay again (E 연타 무한 파밍) */
       b.on('crate:open', ({ crateId }) => {

@@ -14,15 +14,16 @@ import * as THREE from 'three';
 import { BURROW_SHAKE_GAP_S, BURROW_SHAKE_INTENSITY, BURROW_SHAKE_RADIUS } from '@/shared';
 import type { Enemy } from '../Enemy';
 import type { EnemySystem } from '../EnemySystem';
+import { isWormType } from '../EnemyTypes';
 
 /** 몸집 → 연출 배율 (스캐빈저 ≈ 0.75, 전사 ≈ 1.3, 베헤모스 3). */
 function burrowScale(e: Enemy): number {
   return THREE.MathUtils.clamp(e.stats.radius / 0.6, 0.7, 3);
 }
 
-/** 한 마리가 파고 나오기 시작했다 (권위 · 리플리카 공통). 지하벌레는 디렉터가 자기 분출 연출을 따로 낸다. */
+/** 한 마리가 파고 나오기 시작했다 (권위 · 리플리카 공통). 땅굴벌레는 디렉터가 자기 분출 연출을 따로 낸다. */
 export function emergeFx(sys: EnemySystem, e: Enemy): void {
-  if (e.type === 'sandworm') return;
+  if (isWormType(e.type)) return;
   const ctx = sys.ctx;
   const scale = burrowScale(e);
   sys.burrowFx?.emerge(e.position, scale, e.emergeDur, ctx.world, ctx.time);

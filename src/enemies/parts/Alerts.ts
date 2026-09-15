@@ -15,7 +15,7 @@ import {
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from '../Enemy';
-import { ROGUE_AI, SPEWER_SPIT } from '../EnemyTypes';
+import { ROGUE_AI, SPEWER_SPIT, isWormType } from '../EnemyTypes';
 import { SpatialGrid } from '../SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from '../Targets';
 import { SUSPICION_TIME, updateEnemyAI } from '../ai/EnemyAI';
@@ -71,7 +71,8 @@ export function reportShot(sys: EnemySystem, origin: THREE.Vector3, dir: THREE.V
  */
 export function addDistraction(sys: EnemySystem, pos: THREE.Vector3, radius: number, duration: number, weight: number): void {
   if (!sys.authority) return;
-  sys.lures.add(pos, radius, duration, weight, sys.ctx.time);
+  // 2026-09-15 (땅굴벌레): 바깥에서 온 것은 「유인」이다 (유인 수류탄 배치물 · 그 밖의 어그로 요청) — 총성(`onGunshot`)과 구분해 디렉터가 읽는다
+  sys.lures.add(pos, radius, duration, weight, sys.ctx.time, 'lure');
   if (weight < 0.3) return;
   // a real lure also wakes the swarm around it
   const r2 = radius * radius;
@@ -127,7 +128,7 @@ export function lureFor(sys: EnemySystem, pos: THREE.Vector3, out: THREE.Vector3
 export function onGunshot(sys: EnemySystem, position: THREE.Vector3, radius: number): void {
   sys.alertHearing(position, radius);
   if (!sys.authority || !sys.ctx.isGameplayPhase()) return;
-  sys.lures.add(position, radius, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, sys.ctx.time);
+  sys.lures.add(position, radius, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, sys.ctx.time, 'noise');
   const gadgets = sys.ctx.gadgets;
   const now = sys.ctx.time;
   const r2 = SUSPICION_RADIUS * SUSPICION_RADIUS;
@@ -213,9 +214,9 @@ export function pickDroneTarget(sys: EnemySystem, e: Enemy, maxDist: number): Co
   return best;
 }
 
-/** 차량을 노리지 않는 적 — 날아다니는 스캔 드론 · 땅에 박힌 지하벌레 · 플레이어만 쏘는 로든 (사용자 결정). */
+/** 차량을 노리지 않는 적 — 날아다니는 스캔 드론 · 땅에 박힌 땅굴벌레 · 플레이어만 쏘는 로든 (사용자 결정). */
 function ignoresVehicle(e: Enemy): boolean {
-  return e.type === 'rogue_scan_drone' || e.type === 'sandworm' || e.type === 'rogue_sniper';
+  return e.type === 'rogue_scan_drone' || isWormType(e.type) || e.type === 'rogue_sniper';
 }
 
 /**
@@ -397,7 +398,7 @@ export function fleeFrom(sys: EnemySystem, position: THREE.Vector3, radius: numb
   for (let i = 0; i < sys.active.length; i++) {
     const e = sys.active[i];
     if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
-    if (e.type === 'sandworm') continue;   // 2026-09-13: 땅에 박혀 있다 — 달아나지 않는다 (도주는 FLEE_DURATION 뒤 사라지게 한다)
+    if (isWormType(e.type)) continue;   // 2026-09-13: 땅에 박혀 있다 — 달아나지 않는다 (도주는 FLEE_DURATION 뒤 사라지게 한다)
     const dx = e.position.x - position.x, dz = e.position.z - position.z;
     if (dx * dx + dz * dz > r2) continue;
     e.state = 'flee'; e.stateTime = 0; e.fleeTimer = 0;

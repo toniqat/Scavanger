@@ -14,6 +14,8 @@ import {
   GRENADE_INCENDIARY_DURATION, GRENADE_INCENDIARY_RADIUS, GRENADE_RADIUS,
 } from '@/shared';
 import { boostItemOf, shieldChargeOf } from './ItemDefs';
+/* 2026-09-15 (땅굴벌레 · 진동 장치) */
+import { THUMPER_HP, THUMPER_INTERVAL_S, THUMPER_STRIKES } from '@/shared';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * 아이템 **스펙 줄** (2026-09-15, 가젯 개편 · 사용자 결정)
@@ -71,6 +73,9 @@ export const SPEC_LABEL_KO = {
   droneHp: '드론 내구도',
   deployHp: '설치물 내구도',
   blast: '폭발',
+  /* 2026-09-15 (땅굴벌레 · 진동 장치) */
+  interval: '타격 간격',
+  summon: '땅굴벌레 호출',
 } as const;
 
 /** 소수점 꼬리 0 을 떼어 낸다 (`5.0` → `5`, `0.315` → `0.315`). */
@@ -150,6 +155,13 @@ function gadgetRows(id: GadgetId): SpecRow[] {
         { k: L.droneRange, v: metre(DRONE_AIR_RANGE) },
         { k: L.droneHp, v: n(DRONE_AIR_HP) },
         { k: L.recover, v: sec(DRONE_RECOVER_HOLD_S) },
+      ];
+    /* 2026-09-15 (땅굴벌레 · 진동 장치): 회수 줄이 없다 — 회수할 수 없는 물건이다. */
+    case 'thumper':
+      return [
+        { k: L.interval, v: sec(THUMPER_INTERVAL_S) },
+        { k: L.summon, v: [num(THUMPER_STRIKES), dim('번째 타격')] },
+        { k: L.deployHp, v: n(THUMPER_HP) },
       ];
     default:
       return [];

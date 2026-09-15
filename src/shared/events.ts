@@ -1378,22 +1378,23 @@ export interface GameEvents {
 }
 /* ── end [2026-09-14 2차] ── */
 
-/* ── [2026-09-13] 굴착 스폰 · 지하벌레 (owner: enemies) ── */
+/* ── [2026-09-13] 굴착 스폰 · 땅굴벌레 (owner: enemies) ── */
 export interface GameEvents {
   /**
-   * Fact (every client): 지하벌레 전조가 시작됐다 — `position`(땅) 에서 `eta` 초 뒤 분출, 피해 반경 `radius`.
+   * Fact (every client): 땅굴벌레 전조가 시작됐다 — `position`(땅) 에서 `eta` 초 뒤 분출, 피해 반경 `radius`.
    * 호스트는 굴림 직후, 리플리카는 `ee wormWarn` 에서 낸다. HUD 위험 표시가 붙을 자리다 (지금은 토스트 · 흔들림 · 지면 링).
    */
   'sandworm:warning': { position: THREE.Vector3; radius: number; eta: number };
-  /** Fact (every client): 지하벌레 `id`(적 id) 가 `position` 에서 분출했다. 늦은 합류자의 동기화(`sy`)에서는 나지 않는다. */
+  /** Fact (every client): 땅굴벌레 `id`(적 id) 가 `position` 에서 분출했다. 늦은 합류자의 동기화(`sy`)에서는 나지 않는다. */
   'sandworm:erupted': { id: number; position: THREE.Vector3; radius: number };
   /**
-   * Command (console `worm`): 지하벌레 이벤트를 **지금** 로컬 플레이어 발밑에서 시작한다 (권한만, 굴림 · 창 · 레이드당 1회 무시).
+   * Command (console `worm`): 땅굴벌레 이벤트를 **지금** 로컬 플레이어 발밑에서 시작한다 (권한만, 굴림 · 창 · 레이드당 1회 무시).
    * `spitS` = 버그 뱉기 단계 길이를 이 초로 바꾼다 (0 = 곧장 독극물 단계, 생략 = csv).
+   * appended (2026-09-15): `weak` = 어린 개체(`sandworm_weak`)로 강제 (생략 = 행성 threat 가 정한다: 1 → 어린, 2–3 → 성체).
    */
-  'cheat:sandworm': { spitS?: number };
+  'cheat:sandworm': { spitS?: number; weak?: boolean };
 }
-/* ── end [2026-09-13] 굴착 스폰 · 지하벌레 ── */
+/* ── end [2026-09-13] 굴착 스폰 · 땅굴벌레 ── */
 
 /* ── [2026-09-13] 요리 미니게임 (owner: housing — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ── */
 import type { CookBeatAction, CookGame, CookJudge, CookResult } from './cooking';
@@ -1652,6 +1653,18 @@ export interface GameEvents {
   'raid:loadReleased': { timedOut: boolean };
 }
 /* ── end [2026-09-15] 안드로이드 분대원 · 레이드 진입 로딩 ── */
+
+/* ══ appended: 2026-09-15 — 땅굴벌레(옛 지하벌레) 등장 판정 개편 · 진동 장치 (owner: enemies/sandworm · gadgets). docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」 ══ */
+/* (gadgets 2026-09-15: 버스의 이벤트 표는 `GameEvents` 다 — 따로 선 `Events` 인터페이스는 병합되지 않아 `bus.emit` 이 이 키를 모른다.) */
+export interface GameEvents {
+  /**
+   * Command (gadgets → enemies/sandworm, **호스트에서만** 낸다): 이 자리에 땅굴벌레를 **반드시** 불러라 — 진동 장치가 다섯 번째로
+   * 바닥을 내리쳤다. 디렉터는 아직 이번 레이드에 벌레가 없었을 때만 전조를 시작하고(레이드당 1회), 이미 나왔으면 무시한다
+   * (장치는 계속 두드리기만 한다 — 사용자 결정). 분출하면 평소처럼 `sandworm:erupted` 가 나가고, gadgets 는 그 반경 안의 진동 장치를 부순다.
+   */
+  'sandworm:summon': { position: THREE.Vector3; source: 'thumper' };
+}
+/* ── end [2026-09-15] 땅굴벌레 · 진동 장치 ── */
 
 /* ══ appended: 2026-09-15 — 타이틀 이어하기 · 레이드 포기 (owner: game/parts/Resume). docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」 ══ */
 export interface GameEvents {

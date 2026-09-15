@@ -9,7 +9,7 @@ aboard and alive. No defense waves. Host-authoritative in multiplayer. All geome
 | File | Responsibility |
 |---|---|
 | `ExtractionSystem.ts` | Pads + console interactables (`extract_<id>`), countdown, ship call, touchdown, switch `ship_liftoff_switch`, idle/grace, boarding, `liftoff`, left-behind reset, corpse riding, wire, rejoin, host takeover, tutorial entries |
-| `Ship.ts` | `Dropship` mesh + states `hidden → approach → descend → landed → liftoff`; bay exports (`BAY_*`, `LIFTOFF_SPOOL_S`, `floorYAt`, `writeInteriorBounds`, `bayToWorld`, `nearGround`) |
+| `Ship.ts` | `Dropship` mesh + states `hidden → approach → descend → landed → liftoff`; bay exports (`BAY_*`, `GROUND_DRAW_LIFT_MAX`, `LIFTOFF_SPOOL_S`, `floorYAt`, `writeInteriorBounds`, `bayToWorld`, `nearGround`) |
 | `Hull.ts` | `ShipHull`: eight ship-local `Obstacle.box` colliders while landed; `keepEnemyOut`, `inBay` |
 | `Cinematic.ts` | `DepartureCinematic`: `ui:cinematic`, chase-camera blend (`EXTRACTION_CINEMATIC_BLEND_S`), hard cut back |
 | `Console.ts` | `ExtractionConsole`: pedestal, lever, lamp, point light, beacon (visible only when `active`) |
@@ -70,6 +70,9 @@ sees the usual events. Host takeover promotes the mirror fields, rebuilds `board
 - The rider's bay box is one object rewritten every frame; the floor is the tilted deck plane (`floorYAt`) — `Ship.ts`.
 - The ship origin sits on the ground: anything at local y 0 is coplanar with terrain; fix visuals in the drawn meshes,
   never via `floorYAt` / `BAY_HEIGHT` / `Hull.ts` — `Ship.ts` (coplanar budget).
+- The drawn deck clears whatever a world draws above its walk height: `BAY_FLOOR_LIFT − GROUND_DRAW_LIFT_MAX ≥ 0.02`
+  and `root.y` never dips below `landPos.y` while on the ground (no landed bob, one-sided spool shake) — `Ship.ts`
+  (clearance note), checked by `smoke-extraction`. A world drawing its ground higher raises `GROUND_DRAW_LIFT_MAX`.
 - Tutorial paths are gated on `ctx.missionMode === 'tutorial'` and reuse the normal flow:
   - `beginPreLanded` = `forceLand` + silent `onShipLanded`; `autoDepart: false` → no idle timer; no left-behind reset.
   - `game/` accepts `extraction:liftoff` only in `extracting` / `shipLanded`, so `syncPreLandedPhase` emits
@@ -81,9 +84,9 @@ sees the usual events. Host takeover promotes the mirror fields, rebuilds `board
 
 ## Recent changes
 Last 5 only — older: `git log -- src/extraction`.
+- 2026-09-15 — `Ship.ts` drawn-deck ground clearance (`GROUND_DRAW_LIFT_MAX`, no landed bob); tutorial switch caption `출발 시퀀스 시작`.
 - 2026-09-15 — Android hooks: `getPads` / `requestActivate` / `boardingPoint` on `ctx.extraction`.
 - 2026-09-15 — `Ship.ts` coplanar budget fixes floor / side wall / ceiling z-fighting.
 - 2026-09-15 — Tutorial liftoff: riders hit but clamped at 1 hp, hull removed at once, `holdFire` false; `skipToComplete`.
 - 2026-09-15 — `ShipGreebles.ts` merged hull detail; landing lights moved outside the side slabs.
 - 2026-09-14 — Tutorial pre-landed ship: switch lifts off immediately.
-- 2026-09-14 — `skipToLiftoff` for the tutorial skip.

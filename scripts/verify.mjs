@@ -199,6 +199,9 @@ const SMOKES = {
   'smoke-fall-damage':  { file: 'scripts/smoke-fall-damage.mjs',  folders: ['player', 'audio', 'ui', 'world'] },
   /* 2026-09-15 (B-16 · 사용자 버그): 화염 지대 — 화염수류탄 · G-10 소이 수류탄이 실제로 불 지대를 세우는가 · 피해 · 드론 피해 · 소리 · 만료. */
   'smoke-fire-zones':   { file: 'scripts/smoke-fire-zones.mjs',   folders: ['gadgets', 'weapons', 'items', 'enemies', 'audio'] },
+  /* 2026-09-15 (땅굴벌레 · 진동 장치): 진동 장치 — 카탈로그 · 미리보기 ≡ 설치(맨땅 초록 · 옥상 빨강 `burrowGroundOk`) · 1 초 타격(소리 · 흔들림) ·
+     5번째 타격에 `sandworm:summon` 1회 · 회수 불가 · 분출 반경 안만 파괴 · 재설치 · 와이어 age. */
+  'smoke-thumper':      { file: 'scripts/smoke-thumper.mjs',      folders: ['gadgets', 'world', 'enemies', 'items'] },
   /* 2026-09-15 (안드로이드 분대원 — 레이드 갈고리): 안드로이드 가방(배치 · 병합 · resize 넘침) · 사람과 같은 무게 식 ·
      컨테이너 미리보기 ≡ 안드로이드 획득(가져간 상태 · 열린 모습 · `container:itemTaken.by`) · 아이템 요청 4종 payload ·
      컨테이너 창 열기 사건 · 바닥 아이템 `takeBy` · 탈출 패드 목록 / 콘솔 누르기 / 탑승 지점 · 루팅 컨테이너 목록 ·
@@ -248,7 +251,7 @@ const SMOKES = {
      트레이서 · 리플리카 훅 host) 과 전차 위 적 · 적 시체 탑승 (+ 리플리카 예측 · 강하 목표 플랫폼). 둘 다 릴레이 없이 돈다. */
   'smoke-named':        { file: 'scripts/smoke-named.mjs',        folders: ['enemies', 'weapons'] },
   /* 2026-09-13: 버그 굴착 스폰(첫 배치 제외 · 순찰 · 공격/이동 금지 · 흔들림 중복 없음 · 리플리카 em · 뱉어진 몸 포물선)과
-     지하벌레 이벤트(threat 굴림 · 전조 흔들림 증가 · 분출 피해/넉백 · 뱉기 · 독극물 · 처치 시체 · 리플리카 → 승격 · 탈출 웨이브 제거).
+     땅굴벌레 이벤트(threat 굴림 · 전조 흔들림 증가 · 분출 피해/넉백 · 뱉기 · 독극물 · 처치 시체 · 리플리카 → 승격 · 탈출 웨이브 제거).
      둘 다 릴레이 없이 돈다. */
   'smoke-burrow':       { file: 'scripts/smoke-burrow.mjs',       folders: ['enemies', 'audio'] },
   'smoke-sandworm':     { file: 'scripts/smoke-sandworm.mjs',     folders: ['enemies', 'audio', 'console'] },

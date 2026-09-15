@@ -2,6 +2,8 @@ import type * as THREE from 'three';
 import type { ChatKind, EnemyType, GamePhase, PingKind, Stance, ItemInstanceExtras, StratagemId } from './types';
 import type { EnemySpawnSite } from './types';
 import type { DeployableKind, GadgetId } from './gadgets';
+/* appended (2026-09-15, 땅굴벌레 등장 판정): `PlayerSnapshot.ws` · `RemotePlayerRef.weightState` */
+import type { WeightState } from './gear';
 /* appended (2026-09-11): 드론 (owner: gadgets/drones) */
 import type { DroneMessage, DroneRequest } from './drones';
 /* appended (2026-09-09): 레이드 플레이 개선 — 의사소통 휠 */
@@ -464,7 +466,16 @@ export interface PlayerSnapshot {
   /* appended (Phase 9) — optional, older senders stay compatible. */
   /** Down-state hp (`PlayerRef.downHp`) while DOWNED, so a host ghost inherits the real bleed pool. Omitted when not downed. */
   dhp?: number;
+  /* appended (2026-09-15, 땅굴벌레 등장 판정) — optional, older senders stay compatible. */
+  /**
+   * Carry-weight state (`WeightInfo.state`) as an index into `WEIGHT_STATE_WIRE` (0 normal · 1 light · 2 heavy · 3 over).
+   * The host's sandworm director counts sprinting squadmates who are `light` or heavier; omitted / unknown = `normal`.
+   */
+  ws?: number;
 }
+
+/** Wire order of `WeightState` for `PlayerSnapshot.ws` (2026-09-15). Never reorder — append only. */
+export const WEIGHT_STATE_WIRE: readonly WeightState[] = ['normal', 'light', 'heavy', 'over'];
 
 /** Someone fired. Owner: weapons (sends) / net emits `net:remoteFired` on receive. */
 /**
@@ -662,7 +673,7 @@ export type EnemyEvent =
   | EnemyEventAppended2026_09_08
   /* appended (2026-09-11): 네임드 로그 · 스캔 드론 — see EnemyEventAppended2026_09_11 */
   | EnemyEventAppended2026_09_11
-  /* appended (2026-09-13): 지하벌레 이벤트 — see EnemyEventAppended2026_09_13 */
+  /* appended (2026-09-13): 땅굴벌레 이벤트 — see EnemyEventAppended2026_09_13 */
   | EnemyEventAppended2026_09_13;
 /** Client → host (Phase 4): my shot intercepted shell `sid`. Owner: enemies. */
 export interface InterceptRequest { t: 'intq'; sid: number; p: Vec3Tuple }
@@ -1103,6 +1114,9 @@ export interface RemotePlayerRef {
   readonly ghostDownHp?: number;
   /** `PlayerSnapshot.dhp` of the latest snapshot (the member's own down pool while DOWNED); undefined when unknown. */
   readonly downHp?: number;
+  /* appended (2026-09-15, 땅굴벌레 등장 판정) */
+  /** `PlayerSnapshot.ws` of the latest snapshot decoded through `WEIGHT_STATE_WIRE`; undefined when the sender never said (older sender) → treat as `normal`. */
+  readonly weightState?: WeightState;
 }
 
 export type NetStatus = 'offline' | 'connecting' | 'connected' | 'error';
@@ -1367,21 +1381,23 @@ export type EnemyEventAppended2026_09_11 =
    */
   | { t: 'ee'; ev: 'acidAt'; id: number; from: Vec3Tuple; to: Vec3Tuple };
 
-/* ══ appended (2026-09-13): 지하벌레 이벤트 (owner: enemies — `enemies/sandworm/Director`) ══════════════════════════
- * 호스트 권한이고 받는 쪽은 로비 호스트가 보낸 것만 받는다 (`ee` 공통 규칙). 지하벌레 자신 · 무리 · 뱉어진 버그는 기존
- * `ee spawn`(굴착은 `em`) · `es` 스냅샷으로 오고, 산성은 기존 `ee acid` · `ee acidAt` 이다. 지하벌레의 와이어 애니메이션
+/* ══ appended (2026-09-13): 땅굴벌레 이벤트 (owner: enemies — `enemies/sandworm/Director`) ══════════════════════════
+ * 호스트 권한이고 받는 쪽은 로비 호스트가 보낸 것만 받는다 (`ee` 공통 규칙). 땅굴벌레 자신 · 무리 · 뱉어진 버그는 기존
+ * `ee spawn`(굴착은 `em`) · `es` 스냅샷으로 오고, 산성은 기존 `ee acid` · `ee acidAt` 이다. 땅굴벌레의 와이어 애니메이션
  * 힌트(`EnemyWire.a`)는 21 = 버그를 뱉는 중(입 벌림), 22 = 독극물 연발 준비 · 발사.
  */
 export type EnemyEventAppended2026_09_13 =
   /** Host → all: 전조 — `p`(땅) 에서 `eta` 초 뒤 분출, 피해 반경 `r`. 늦은 합류자에게는 남은 `eta` 로 다시 보낸다. */
   | { t: 'ee'; ev: 'wormWarn'; p: Vec3Tuple; eta: number; r: number }
   /**
-   * Host → all: 지하벌레 `id` 가 `p` 에서 분출했다 (분진 · 흔들림 · 소리). `hp` = 굴린 최대 체력, `spit` = 버그 뱉기 단계가
+   * Host → all: 땅굴벌레 `id` 가 `p` 에서 분출했다 (분진 · 흔들림 · 소리). `hp` = 굴린 최대 체력, `spit` = 버그 뱉기 단계가
    * 남은 초 (솟아오르는 시간 포함). `sy` 1 = 늦은 합류 · 재접속 동기화 — 연출 없이 최대 체력 · 단계만 맞춘다.
    */
-  | { t: 'ee'; ev: 'wormErupt'; id: number; p: Vec3Tuple; r: number; hp: number; spit: number; sy?: 1 }
+  | { t: 'ee'; ev: 'wormErupt'; id: number; p: Vec3Tuple; r: number; hp: number; spit: number; sy?: 1;
+      /** appended (2026-09-15): 분출한 개체의 종류 (`sandworm` 성체 · `sandworm_weak` 위협 1 어린 개체). 생략 = 옛 호스트 = 성체. 몸은 `ee spawn.ty` 가 이미 세웠다 — 이 값은 검증 · 늦은 합류자의 반경 표시용. */
+      ty?: EnemyType }
   /**
-   * Host → all: 지하벌레 `id` 가 입 `from` 에서 버그를 뱉었다. `b` = `[버그 id, 착지 x, y, z]` 목록, `T` = 비행 시간(초).
+   * Host → all: 땅굴벌레 `id` 가 입 `from` 에서 버그를 뱉었다. `b` = `[버그 id, 착지 x, y, z]` 목록, `T` = 비행 시간(초).
    * 버그는 같은 프레임의 `ee spawn` 이 먼저 만들고, 리플리카는 이 이벤트로 같은 포물선을 스스로 그린다 (착지 뒤는 스냅샷).
    */
   | { t: 'ee'; ev: 'wormSpit'; id: number; from: Vec3Tuple; b: [number, number, number, number][]; T: number };
@@ -2272,6 +2288,15 @@ export type LoadMessage =
   /** 호스트 → 전원: 풀어라 (전원 완료 · 시간 초과). `to` 1 = 시간 초과. */
   | { t: 'load'; ev: 'go'; seed: number; to?: 1 };
 /* ══ end 2026-09-15 안드로이드 분대원 · 레이드 진입 로딩 ══ */
+
+/* ══ appended (2026-09-15, 땅굴벌레 · 진동 장치 — owner: gadgets) ══════════════════════════════════════════ */
+export interface DeployableWire {
+  /**
+   * 진동 장치(`kind: thumper`)만: 설치 뒤 흐른 시간 (s). 복제본이 타격 위상(1 초 주기)을 호스트와 맞추는 데 쓴다 — 늦게 합류한 사람의
+   * `gad sync` 에서도 망치가 같은 박자로 떨어진다. 다른 종류는 생략 (= 0). 타격마다 메시지를 보내지 않는다.
+   */
+  age?: number;
+}
 
 /* ══ appended (2026-09-15): 타이틀 레이드 포기 · 표류 — docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」 ══
  *

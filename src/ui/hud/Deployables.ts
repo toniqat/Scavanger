@@ -13,11 +13,14 @@ export const DEPLOYABLE_LABEL_KO: Record<DeployableKind, string> = {
   domeShield: '돔 실드', barricade: '바리케이드', mine: '지뢰', turret: '포탑',
   jumpPad: '점프대', smoke: '연막', fire: '화염 지대', lure: '유인 장치',
   remoteMine: '원격 지뢰',
+  /* 2026-09-15 (땅굴벌레 · 진동 장치, gadgets) */
+  thumper: '진동 장치',
 };
 const DEPLOYABLE_ICON: Record<DeployableKind, string> = {
   domeShield: '◐', barricade: '▤', mine: '✸', turret: '⌖',
   jumpPad: '⌃', smoke: '☁', fire: '▲', lure: '♪',
   remoteMine: '▣',
+  thumper: '⏚',
 };
 
 interface Entry {

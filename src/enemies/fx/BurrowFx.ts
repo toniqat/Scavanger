@@ -1,12 +1,12 @@
 /**
  * src/enemies/fx/BurrowFx.ts — **땅을 파고 나오는 연출** (2026-09-13).
  *
- * 이 파일이 답하는 질문: *버그가 땅에서 올라올 때 · 지하벌레가 올라오기 전에 땅이 어떻게 보이나.*
+ * 이 파일이 답하는 질문: *버그가 땅에서 올라올 때 · 땅굴벌레가 올라오기 전에 땅이 어떻게 보이나.*
  *
  * - **분진 · 흙덩이**는 새 드로우콜을 만들지 않는다 — `core/fx` 의 알파 입자 풀(`FxManager.alpha`, `THREE.Points` 한 장,
  *   엔진이 처음부터 씬에 둔다 = 이미 컴파일돼 있다)에 넣는다. 흙덩이 = 빠르게 튀어 올랐다 떨어져 땅에 멈추는 작고 짙은 입자,
  *   분진 = 느리게 퍼지는 큰 입자. 색은 밟은 재질(`WorldRef.getSurfaceMaterial`)에서 고른다.
- * - **방출기**는 고정 풀(`EMITTERS`)이다. 굴착 하나 = 작은 방출기(올라오는 시간 동안), 지하벌레 전조 = 큰 방출기(점점 세진다).
+ * - **방출기**는 고정 풀(`EMITTERS`)이다. 굴착 하나 = 작은 방출기(올라오는 시간 동안), 땅굴벌레 전조 = 큰 방출기(점점 세진다).
  *   꽉 차면 가장 오래된 것을 덮어쓴다. 프레임당 할당 없음 (입자 스폰 인자도 스크래치 하나를 다시 쓴다).
  * - **전조 링**은 피해 반경을 그리는 가산 혼합 띠(`ScanPulseFx` 의 바닥 띠와 같은 기법 — 짧은 열린 원기둥이 지형을 가로질러
  *   **바닥을 스치는 붉은 선**으로 읽힌다). 메시 · 머티리얼은 생성자에서 한 번 만들어 숨긴 채 씬에 두므로 `world:ready` 의
@@ -151,7 +151,7 @@ export class BurrowFx {
     }
   }
 
-  /** 지하벌레 전조: 반경 `radius` 를 그리는 링 + 가운데서 점점 거세지는 흙 파임 · 분진 (`dur` 초). */
+  /** 땅굴벌레 전조: 반경 `radius` 를 그리는 링 + 가운데서 점점 거세지는 흙 파임 · 분진 (`dur` 초). */
   warn(p: THREE.Vector3, radius: number, dur: number, world: WorldRef | null, now: number, elapsed = 0): void {
     const em = this.claim();
     em.kind = 1; em.p.copy(p); em.scale = 1; em.radius = radius; em.start = now - elapsed; em.dur = Math.max(0.5, dur + elapsed);

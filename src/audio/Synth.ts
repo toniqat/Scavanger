@@ -1654,9 +1654,21 @@ export const SOUNDS: Record<string, SoundFn> = {
     return 0.5;
   },
 
-  /* ══ appended (2026-09-13): 버그 굴착 스폰 · 지하벌레 — `enemies/` 가 위치와 함께 `audio:play` 로 부른다 ══════════════
+  /* ══ appended (2026-09-13): 버그 굴착 스폰 · 땅굴벌레 — `enemies/` 가 위치와 함께 `audio:play` 로 부른다 ══════════════
    * 거리 곡선은 `AudioSystem.RANGED_SOUNDS` (전조 땅울림 · 분출 · 포효는 멀리서도 들려야 공정해서 floor 를 갖는다).
    */
+  /**
+   * 2026-09-15 (gadgets, 진동 장치): 망치가 땅을 내리친다 — 아주 낮은 서브 쿵 + 흙 먼지의 짧은 저역 노이즈 + 쇠 머리의 짧은 클랙.
+   * 타길라의 `hammer_impact` 보다 둔하고 짧다 (1 초마다 반복되므로 꼬리가 짧아야 겹치지 않는다). ≈0.4 s.
+   */
+  thumper_thump: (s, d, t, p) => {
+    const q = p * r(0.96, 1.04);
+    s.tone(d, { type: 'sine', f0: 62 * q, f1: 20, t0: t, dur: 0.42, gain: 1.0 });
+    s.noise(d, { t0: t, dur: 0.22, gain: 0.5, filter: { type: 'lowpass', f0: 900 * q, f1: 60, q: 0.6 } });
+    s.click(d, t, 700 * q, 0.16, 0.03);
+    s.noise(d, { t0: t + 0.04, dur: 0.25, gain: 0.08, filter: { type: 'bandpass', f0: 600 * q, f1: 250, q: 1 }, decayCurve: 'lin' });
+    return 0.42;
+  },
   /** 버그 한 마리가 흙을 헤치고 올라온다: 짧은 흙 무너짐 알갱이 + 낮은 쿵 + 긁는 소리. 일부러 작다. ≈0.55 s. */
   burrow_emerge: (s, d, t, p) => {
     const q = p * r(0.92, 1.08);
@@ -1668,7 +1680,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.12, dur: 0.3, gain: 0.03, attack: 0.08, filter: { type: 'bandpass', f0: 1600 * q, f1: 2600 * q, q: 3 } });
     return 0.58;
   },
-  /** 지하벌레 전조 땅울림: 서브 저음이 5초 동안 부풀고, 갈리는 흙 · 암반 균열이 점점 잦아진다. ≈5.3 s. */
+  /** 땅굴벌레 전조 땅울림: 서브 저음이 5초 동안 부풀고, 갈리는 흙 · 암반 균열이 점점 잦아진다. ≈5.3 s. */
   sandworm_rumble: (s, d, t, p) => {
     s.tone(d, { type: 'sine', f0: 26 * p, f1: 42 * p, t0: t, dur: 5.3, gain: 0.55, attack: 4.2, decayCurve: 'lin' });
     s.tone(d, { type: 'sawtooth', f0: 38 * p, f1: 55 * p, t0: t + 0.5, dur: 4.8, gain: 0.08, attack: 3.8, lp: 160, vibratoHz: 7, vibratoDepth: 30, decayCurve: 'lin' });
@@ -1690,7 +1702,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.tail(d, t + 0.1, 2.3, 0.22, 900, 60);
     return 2.5;
   },
-  /** 지하벌레 포효: 디튠 saw 둘이 내려앉는 목울림 + 거친 대역 잡음 + 쉭쉭대는 고역. ≈2.4 s. */
+  /** 땅굴벌레 포효: 디튠 saw 둘이 내려앉는 목울림 + 거친 대역 잡음 + 쉭쉭대는 고역. ≈2.4 s. */
   sandworm_roar: (s, d, t, p) => {
     const t0 = t + 0.18;
     s.tone(d, { type: 'sawtooth', f0: 110 * p, f1: 58 * p, t0, dur: 2.2, gain: 0.16, attack: 0.25, lp: 900, vibratoHz: 11, vibratoDepth: 45, decayCurve: 'lin' });
@@ -1710,7 +1722,7 @@ export const SOUNDS: Record<string, SoundFn> = {
     s.noise(d, { t0: t + 0.34, dur: 0.3, gain: 0.08, filter: { type: 'highpass', f0: 2600, q: 0.6 }, decayCurve: 'lin' });
     return 0.72;
   },
-  /** 지하벌레 사망: 길게 꺼지는 목울림 + 굴로 무너져 내리는 흙더미. ≈3.2 s. */
+  /** 땅굴벌레 사망: 길게 꺼지는 목울림 + 굴로 무너져 내리는 흙더미. ≈3.2 s. */
   sandworm_death: (s, d, t, p) => {
     s.tone(d, { type: 'sawtooth', f0: 96 * p, f1: 32 * p, t0: t, dur: 2.4, gain: 0.14, attack: 0.1, lp: 650, vibratoHz: 5, vibratoDepth: 60, decayCurve: 'lin' });
     s.tone(d, { type: 'sine', f0: 48 * p, f1: 20, t0: t + 0.2, dur: 2.8, gain: 0.5, attack: 0.3, decayCurve: 'lin' });

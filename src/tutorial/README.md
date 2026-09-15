@@ -15,11 +15,11 @@ folders, and other folders do not know its steps. When inactive, both always ret
 | File | Responsibility |
 |---|---|
 | `TutorialSystem.ts` | `GameSystem` + `TutorialRef`: three-track step machine, event subscriptions, localStorage save (v2), material grants, raid skip fade, dev console command `tutorial`. |
-| `model.ts` | Folder vocabulary, no state: storage key / blocker token / track labels, tutorial ids (`furn_bench_gun`, `make_wpn_ar`, `make_ammo_medium`, `npc_raven`), `TUTORIAL_CRAFT_GRANT`, `TUTORIAL_STASH_WHITELIST`, guide and marker numbers, `StepDef` / `TutorialObjective` types, `visibleObjectives` / `objectiveChain`, control-hint table (`TUTORIAL_CONTROL_HINTS`, `controlHintsFor`, `crouchHints`, `STANCE_HINT_IDS`, `CONTROL_SECTIONS`), `CHECKPOINT_STEP`, `RAID_KILLS_PER_STEP`, `HUD_GEAR_STEP` / `HUD_STAMINA_STEP`, `CORPSE_MARKER_STEPS`, wake-reveal / TIP / skip-fade timings, spotlight constants `SPOT_CRAFT_CLOSE` / `SPOT_NONE`. |
+| `model.ts` | Folder vocabulary, no state: storage key / blocker token / track labels, tutorial ids (`furn_bench_gun`, `make_wpn_ar`, `make_ammo_medium`), `TUTORIAL_CRAFT_GRANT`, `TUTORIAL_STASH_WHITELIST`, guide and marker numbers, `StepDef` / `TutorialObjective` types, `visibleObjectives` / `objectiveChain`, control-hint table (`TUTORIAL_CONTROL_HINTS`, `controlHintsFor`, `crouchHints`, `STANCE_HINT_IDS`, `CONTROL_SECTIONS`), `CHECKPOINT_STEP`, `RAID_KILLS_PER_STEP`, `HUD_GEAR_STEP` / `HUD_STAMINA_STEP`, `CORPSE_MARKER_STEPS`, wake-reveal / TIP / skip-fade timings, spotlight constants `SPOT_CRAFT_CLOSE` / `SPOT_NONE`. |
 | `Steps.ts` | Step table: title, hint, `objectives`, `allow` (gates), spotlight (`spot`, `spotUnion`, `spotNoDim`, `spotText`), floor guide (`guide`, `arriveObjective`). No progress conditions. `nextStep` / `stepIndexOf` / `stepCountOf` count within the step's track; `normalizeStep` / `isOrderedStep` map retired ids. |
 | `parts/Gates.ts` | Pure gate functions `blockReason` / `hides`, HUD reveal (`hudHidden`), stash whitelist. |
 | `parts/Spotlight.ts` | UI focus: four dim plates + ring + callout. Plates eat clicks, the hole passes them. Union mode (one rect around every match), no-dim mode (transparent plates, clicks pass). Targets the first *rendered* copy of each selector (`firstShown`). Yields to confirm popups. |
-| `parts/Guide.ts` | Floor guide: flowing dashed strip (shader) + target pillar + ring, targeted by `Interactable.id`. |
+| `parts/Guide.ts` | Floor guide: flowing dashed strip (shader) + target pillar + ring, targeted by `Interactable.id`. Never shown while housing mode (`ctx.housing.shipManageMode` / `housingMode`) is open — `TutorialSystem.refreshVisuals` passes `null` then. |
 | `parts/Marker.ts` | 3D target marker (vertical line + bobbing chevron) over the nearest `kind === 'corpse'` interactable during `CORPSE_MARKER_STEPS`. One merged geometry, one basic material, no light. |
 | `ui/Panel.ts` | Top-left objective panel: glyph + track name, checkbox objective rows, track progress bar. Holds the next step's rows for `TUTORIAL_STEP_DELAY_S` so the check / strike-through animation shows. Renders key tokens (`renderKeyText`) in both text and strike layers; `setCounts` patches only the `(n/m)` node. |
 | `ui/Controls.ts` | Right-side control guide: only the current step's controls, grouped by section. `set(hints)` removes missing rows, adds new ones, relabels survivors (no flicker). Keycaps via `shared/keycap` (`paintKeycap`, token rows via `renderKeyText`). |
@@ -43,9 +43,9 @@ folders, and other folders do not know its steps. When inactive, both always ret
   `player:stanceChanged`, `player:aimChanged`, `player:sprintChanged`, `player:staminaDepleted`, `player:fell`,
   `player:stimUsed`, `quick:equipped`, `grenade:exploded`, `enemy:spawned`, `enemy:killed`,
   `extraction:departureStarted`, `extraction:liftoff`, `inventory:opened` / `closed` / `containerOpened` / `changed` /
-  `bagChanged`, `loadout:changed`, `craft:completed`, `ui:craftToggled`, `ui:keyGuide`, `housing:*` (manage, purpose,
-  facility, craft, selection, placement), `hub:terminalToggled`, `hub:planetChanged`, `hub:travel`, `hub:slotChanged`,
-  `progress:statChanged`, `ui:messengerToggled`, `npc:message`, `npc:questChanged`, `input:bindingsChanged`.
+  `bagChanged`, `loadout:changed`, `craft:completed`, `ui:craftToggled`, `ui:keyGuide`, `housing:*` (manage / mode open and
+  close, purpose, facility, craft, selection, placement), `hub:terminalToggled`, `hub:planetChanged`, `hub:travel`,
+  `hub:slotChanged`, `progress:statChanged`, `ui:messengerToggled`, `input:bindingsChanged`.
 - **Calls out**: `PlayerRef.playIntroWake`, `PlayerRef.setSceneLock`, `ExtractionRef.skipToComplete` /
   `skipToLiftoff`, `ctx.inventory` item grants, `ctx.console.register`.
 
@@ -85,18 +85,22 @@ checkpoint is ignored. Skipping any section never dead-ends: required objectives
   fade in; last resort unlock + `game:returnToShip`. The black plate stays over the result screen; it is cleared by
   `clearSkipFade(0)` on `hub:entered` (with `game:abort` and `ui/HudSystem` as backups).
 
-## Track ② `ship` (4 steps)
+## Track ② `ship` (3 steps)
 
 | # | id | Objective | Advances on |
 |---|---|---|---|
 | 1 | `levelUp` | open the inventory screen | `inventory:opened` (or a non-inventory screen tab already showing — polled) |
 | 2 | `stats` | invest a point → hold `포인트 투자 확정` | `progress:statChanged` |
-| 3 | `messenger` | open the messenger (`.community.show` button) | `ui:messengerToggled {open:true}` |
-| 4 | `ravenQuest` | answer Raven (`npc:message` choice by `TUTORIAL_RAVEN_NPC`) → accept the quest | `npc:questChanged {state:'active'}` |
+| 3 | `messenger` | open the messenger (`.community.show` button) — last step, ends the track | `ui:messengerToggled {open:true}` |
 
-No new UI: every step spotlights an existing screen.
+No new UI: every step spotlights an existing screen. `ravenQuest` (answer Raven → accept the quest) left the order on
+2026-09-15: Raven's first contact now arrives only after the ship track is done **and no track is running**
+(`meta/parts/NpcQuests.tutorialBlocks` reads `ctx.tutorial.active` / `isTrackDone('ship')`), so the tutorial no longer
+walks the player through a quest. `normalizeStep` maps a saved `ravenQuest` to `messenger`. `isTrackDone('ship')` answers
+`false` while `pendingShip` is set (raid just completed, ship track about to start) so that meta's `hub:entered`
+handler cannot read the track as done before this system starts it.
 
-## Track ③ `build` (16 steps)
+## Track ③ `build` (17 steps)
 
 | # | id | Objective | Advances on |
 |---|---|---|---|
@@ -106,21 +110,25 @@ No new UI: every step spotlights an existing screen.
 | 4 | `workshop` | empty room → workshop | `housing:roomPurposeChanged {purpose:'workshop'}` |
 | 5 | `bench` | craft the gun bench | `housing:changed {reason:'craft'}` + `furn_bench_gun` stored |
 | 6 | `benchPlace` | pick from furniture storage → place in workshop (spotlight folds once picked) | `housing:selectionChanged` → `housing:furniturePlaced` |
-| 7 | `craftGun` | walk to workshop → use bench → craft assault rifle | `craft:completed {recipeId:'make_wpn_ar'}` |
-| 8 | `craftAmmo` | craft medium ammo in the same window | `craft:completed {recipeId:'make_ammo_medium'}` |
-| 9 | `openBag` | close the craft window | `ui:craftToggled {open:false}` / `inventory:opened` without craft column |
-| 10 | `equipGun` | close craft window (if open) → equip rifle in primary I or II (union focus: slots + stash/bag panel) | `loadout:changed` with `wpn_ar` |
-| 11 | `stowAmmo` | move ammo into the bag | `inventory:changed` with `ammo_medium` in bag |
-| 12 | `terminal` | walk to cockpit → open terminal | `hub:terminalToggled {open:true}` |
-| 13 | `planet` | pick the target planet | `hub:planetChanged` / `hub:travel {start}` |
-| 14 | `travel` | wait for warp | `hub:travel {stage:'end'}` |
-| 15 | `board` | walk to launch slot → board | `hub:slotChanged` (local) / `game:newMission` |
-| 16 | `raid` | find the extraction marker | 6 s after `world:ready` |
+| 7 | `manageDone` | close housing mode (`하우징 모드 닫기`, spotlights `.key-guide .kg-close`) — silently skipped when housing mode is already closed | `housing:shipManageChanged {active:false}` / `housing:modeChanged {active:false}` |
+| 8 | `craftGun` | walk to workshop → use bench → craft assault rifle | `craft:completed {recipeId:'make_wpn_ar'}` |
+| 9 | `craftAmmo` | craft medium ammo in the same window | `craft:completed {recipeId:'make_ammo_medium'}` |
+| 10 | `openBag` | close the craft window | `ui:craftToggled {open:false}` / `inventory:opened` without craft column |
+| 11 | `equipGun` | close craft window (if open) → equip rifle in primary I or II (union focus: slots + stash/bag panel) | `loadout:changed` with `wpn_ar` |
+| 12 | `stowAmmo` | move ammo into the bag | `inventory:changed` with `ammo_medium` in bag |
+| 13 | `terminal` | walk to cockpit → open terminal | `hub:terminalToggled {open:true}` |
+| 14 | `planet` | pick the target planet | `hub:planetChanged` / `hub:travel {start}` |
+| 15 | `travel` | wait for warp | `hub:travel {stage:'end'}` |
+| 16 | `board` | walk to launch slot → board | `hub:slotChanged` (local) / `game:newMission` |
+| 17 | `raid` | find the extraction marker | 6 s after `world:ready` |
 
-`openCraft` and `manageDone` stay in `TutorialStepId` and the `Steps.ts` table but not in `TUTORIAL_STEPS`;
-`normalizeStep` maps old saves (`openCraft` → `craftAmmo`, `manageDone` → `craftGun`) and `setStep` passes through
-`manageDone` if set externally. "Walk to X" rows are ticked by `arriveObjective` when the player enters the guide
-target's interaction range (polled; no coordinates in this folder).
+`openCraft` (build) and `ravenQuest` (ship) stay in `TutorialStepId` and the `Steps.ts` table but not in
+`TUTORIAL_TRACK_STEPS`; `normalizeStep` maps old saves (`openCraft` → `craftAmmo`, `ravenQuest` → `messenger`).
+`manageDone` was out of the order between 2026-09-14 and 2026-09-15 and is back (user decision: the walk to the
+workshop must start with housing mode closed). "Walk to X" rows are ticked by `arriveObjective` when the player enters
+the guide target's interaction range (polled; no coordinates in this folder). The floor guide is hidden whenever
+housing mode is open (`housingOpen()` in `refreshVisuals`, re-evaluated on every `housing:shipManageChanged` /
+`housing:modeChanged`) and returns half a beat after it closes.
 
 ## Objectives
 
@@ -142,7 +150,7 @@ caller's existing UI. Blocked items are **hidden**, not shown locked: `hides(gat
 |---|---|---|
 | `roomPurpose` | `housing/parts/Rooms`, `ui/hud/ShipManage` | only workshop |
 | `furniture` | `housing/parts/Furniture`, `ui/hud/ShipManage` | only gun bench craft / place |
-| `manageExit` | (allow flag in `Steps.ts`) | closing management |
+| `manageExit` | (allow flag in `Steps.ts`; no caller asks it) | closing housing mode — allowed from `manageDone` on |
 | `craft` | `inventory/parts/Crafting`, `inventory/ui/CraftPanel` | only the step's recipes |
 | `terminal` | `hub/parts/Interior` | terminal before its step |
 | `planet` | `hub/parts/Planet`, `hub/ui/HubMenu` | only `PLANET_IDS[0]`; hides planet arrows |
@@ -209,7 +217,7 @@ Smokes: `scripts/smoke-tutorial.mjs` (build track + three-track contract), `smok
 
 Last 5 only — older: `git log -- src/tutorial`.
 - 2026-09-15 — `restartTrack(track)`: a tutorial raid abandoned from the title clears the raid track (and `pendingShip`) instead of marking it done.
+- 2026-09-15 — Ship track is 3 steps (`ravenQuest` out; Raven writes after the tutorial); build track is 17 steps again (`manageDone` = `하우징 모드 닫기` before `craftGun`); floor guide hidden while housing mode is open; `isTrackDone('ship')` false while `pendingShip`.
 - 2026-09-15 — Gate `matchmaking` now hides the terminal's `매칭` tab (the matchmaking popup is gone).
 - 2026-09-15 — Raid skip keeps the black plate (`hold: true`) over the result screen; cleared on `hub:entered`.
 - 2026-09-15 — New raid step `corpseOpen` (16 steps); objective counts `(n/m)`; objective panel text ×1.2.
-- 2026-09-15 — `supplyLoot` step, per-section skipping, objective noun phrases with key tokens, crouch-aim TIP, raid skip = fade → result screen.

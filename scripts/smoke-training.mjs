@@ -102,8 +102,9 @@ try {
   await P(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').interact());
   await waitFor(page, () => !document.querySelector('.menu.hub-menu').hidden, 'terminal open');
   // 2026-09-15 (분대 · 도킹 매칭, 사용자 결정): 섹션이 아니라 행성 탭 **우하단 버튼**(`.hub-train`, 상태 줄 `.hub-train-state`)이고 안내 줄은 없다
+  // 2026-09-15 2차: 푸터 안이 아니라 푸터 **위** 제 줄(`.hub-train-row`)이다
   const solo = await P(() => {
-    const btn = document.querySelector('.menu.hub-menu .hub-foot .right .ui-btn.hub-train');
+    const btn = document.querySelector('.menu.hub-menu .hub-train-row .ui-btn.hub-train');
     const simHubs = window.__game.ctx.interactables.all().filter((i) => /훈련장/.test(i.getPrompt?.() ?? '')).length;
     const section = [...document.querySelectorAll('.menu.hub-menu .hub-section .ui-label')].some((n) => n.textContent === '시뮬레이션 훈련장');
     return { has: !!btn && !btn.hidden && !section, label: btn?.querySelector('.hub-train-state')?.textContent ?? null, disabled: btn?.disabled ?? null, simHubs };

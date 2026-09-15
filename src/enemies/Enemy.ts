@@ -8,7 +8,7 @@ import { ENEMY_STATS, HUMANOID_RAIDER, ROGUE_AI, baseTypeOf, isRogueType, type B
 import { createBugRig, createBugAnim, disposeBugRig, animateBug, type BugRig, type BugAnim } from './models/BugModel';
 import { animateRogue, createRogueRig, disposeRogueRig, type RogueRig, type RogueType } from './models/RogueModel';
 import { animateNamedRig, namedBodyNearest } from './models/named';
-/* appended (2026-09-13): 굴착 스폰 · 지하벌레 */
+/* appended (2026-09-13): 굴착 스폰 · 땅굴벌레 */
 import { BURROW_SINK_EXTRA_M, GRAVITY } from '@/shared';
 /* appended (2026-09-13): 탐사 차량 어그로 */
 import { ROVER_AGGRO_GROUP_RADIUS, ROVER_AGGRO_S, ROVER_DAMAGE_SOURCE } from '@/shared';
@@ -25,7 +25,7 @@ export type EnemyState = 'idle' | 'wander' | 'alert' | 'chase' | 'attack' | 'sta
 export type HitPart = 'head' | 'body' | 'rear' | 'front';
 /** Bug rig (six legs) or humanoid rogue rig — both expose `params.head` / `params.strideLength` / `root` / `baseScale`. */
 export type EnemyRig = BugRig | RogueRig
-  /* appended (2026-09-13): 지하벌레 (`models/WormModel`) */
+  /* appended (2026-09-13): 땅굴벌레 (`models/WormModel`) */
   | WormRig;
 
 /**
@@ -104,7 +104,7 @@ export interface EnemyHost {
    * and, on contact, retarget it onto the carrier + throttled `implant:barrierBumped`.
    */
   resolveBarrier(e: Enemy): void;
-  /* ── appended: 2026-09-13 (굴착 스폰 · 지하벌레) ── */
+  /* ── appended: 2026-09-13 (굴착 스폰 · 땅굴벌레) ── */
   /** A body the sandworm spat out has landed (`ai/Burrow`) — dust puff + thud on this client. */
   burrowLanded?(e: Enemy): void;
 }
@@ -414,23 +414,23 @@ export class Enemy implements EnemyRef {
   grenadeKind: EnemyGrenadeKind = 'frag';
   grenadeCount = 0;
 
-  /* ── appended: 굴착 스폰 · 지하벌레 (2026-09-13 — `ai/Burrow` · `parts/Burrow` · `sandworm/Director`) ─────────── */
+  /* ── appended: 굴착 스폰 · 땅굴벌레 (2026-09-13 — `ai/Burrow` · `parts/Burrow` · `sandworm/Director`) ─────────── */
   /** 땅을 파고 올라오는 중: 남은 초 (0 = 다 나왔다). 권위 · 리플리카 모두 `animate` 가 줄인다 — 그림과 판정이 같은 시계. */
   emergeT = 0;
   /** 이번 굴착의 전체 시간(초). 0 = 굴착이 없었거나 끝났다. */
   emergeDur = 0;
   /** 굴착 시작 때 묻혀 있던 깊이(m) = 몸 높이 + `BURROW_SINK_EXTRA_M`. */
   emergeDepth = 0;
-  /** 지하벌레가 뱉어 날아가는 중: 남은 초 · 전체 시간 (0 = 아니다). */
+  /** 땅굴벌레가 뱉어 날아가는 중: 남은 초 · 전체 시간 (0 = 아니다). */
   spatT = 0;
   spatDur = 0;
   readonly spatFrom = new THREE.Vector3();
   readonly spatTo = new THREE.Vector3();
   /** 뱉어진 순간의 속도 (`GRAVITY` 포물선이 `spatTo` 에 `spatDur` 에 닿게 푼 값). */
   readonly spatVel = new THREE.Vector3();
-  /** 지하벌레: 버그 뱉기 단계가 끝나는 `ctx.time` (그 뒤는 독극물). 리플리카도 `ee wormErupt` 로 채워 둔다 (승격 대비). */
+  /** 땅굴벌레: 버그 뱉기 단계가 끝나는 `ctx.time` (그 뒤는 독극물). 리플리카도 `ee wormErupt` 로 채워 둔다 (승격 대비). */
   wormSpitUntil = 0;
-  /** 지하벌레: 다음 뱉기 · 독극물까지 남은 초 (권위). */
+  /** 땅굴벌레: 다음 뱉기 · 독극물까지 남은 초 (권위). */
   wormTimer = 0;
   /* ── appended: 인간형 팩션 AI (2026-09-13 — `ai/RogueAI` · `ai/SquadFlank`) ─────────────── */
   /** rogue / raider: bursts still to fire in the current pop-out (`HUMANOID_*.burstsPerPop`). */
@@ -448,7 +448,7 @@ export class Enemy implements EnemyRef {
     /* 2026-09-14 3차: 튜토리얼 전용 종류는 자기 리그를 갖지 않고 **바탕 종류**의 것을 그대로 쓴다 (`baseTypeOf`) —
        공유 지오메트리 캐시(`assets` · `BUG_PARAMS`)도 그대로라 튜토리얼이 새 셰이더 · 새 메시를 굽지 않는다. */
     const look = baseTypeOf(type);
-    this.rig = isWormType(look) ? createWormRig() : isRogueType(look) ? createRogueRig(look as RogueType) : createBugRig(look as BugType);
+    this.rig = isWormType(look) ? createWormRig(look) : isRogueType(look) ? createRogueRig(look as RogueType) : createBugRig(look as BugType);
     this.type = type;
     this.stats = ENEMY_STATS[type];
     this.rig.root.visible = false;
@@ -519,7 +519,7 @@ export class Enemy implements EnemyRef {
     this.corpseLife = CORPSE_LIFETIME;
     // 2026-09-13: 거점 · 분대 · 수류탄 (스폰 경로가 다시 채운다)
     this.site = null; this.squadId = -1; this.squadRole = 'member'; this.grenadeKind = 'frag'; this.grenadeCount = 0;
-    // 2026-09-13: 굴착 · 뱉어짐 · 지하벌레 (스폰 경로가 다시 채운다)
+    // 2026-09-13: 굴착 · 뱉어짐 · 땅굴벌레 (스폰 경로가 다시 채운다)
     this.emergeT = 0; this.emergeDur = 0; this.emergeDepth = 0; this.spatT = 0; this.spatDur = 0; this.wormSpitUntil = 0; this.wormTimer = 0;
     this.popBursts = 0; this.flankPhase = 0; this.flankCd = HUMANOID_RAIDER.flankDelay; this.flankSide = 1; this.flankClock = 0;
     // Phase 7: full magazine, grenade cooldown staggered so a squad never volleys at once
@@ -569,7 +569,7 @@ export class Enemy implements EnemyRef {
     this.asTarget.isDead = true;
   }
 
-  /* ── appended: 2026-09-13 (굴착 스폰 · 지하벌레) ── */
+  /* ── appended: 2026-09-13 (굴착 스폰 · 땅굴벌레) ── */
   /**
    * `duration` 초 동안 땅을 파고 올라온다 — 몸 높이 + `BURROW_SINK_EXTRA_M` 깊이에서 시작해 ease-out 으로 솟는다. **그림만** 내린다:
    * 판정 위치(`position`)는 땅 위 그대로라 그동안에도 맞는다. 공격 · 이동 금지는 `ai/Burrow.updateBurrowGate`. 0 이하는 무시.
@@ -585,7 +585,7 @@ export class Enemy implements EnemyRef {
   /**
    * 굴착 중 아직 땅속에 있는 깊이(m). 굴착이 없으면 0.
    * 2026-09-14 4차: 죽어도 계속 줄어 몸이 마저 솟는다 — 시체를 땅속에 묻어 두면 수색할 수 없다 (`animate` 의 주석).
-   * 지하벌레만 죽은 자리에서 멈춘다.
+   * 땅굴벌레만 죽은 자리에서 멈춘다.
    */
   get burrowSink(): number {
     if (!(this.emergeDur > 0)) return 0;
@@ -595,7 +595,7 @@ export class Enemy implements EnemyRef {
   }
 
   /**
-   * `from`(지하벌레 입) 에서 `to`(착지 표면) 까지 `T` 초 포물선으로 뱉어진다. 날아가는 동안 `airborne` — 공중에서 죽으면 기존 사망
+   * `from`(땅굴벌레 입) 에서 `to`(착지 표면) 까지 `T` 초 포물선으로 뱉어진다. 날아가는 동안 `airborne` — 공중에서 죽으면 기존 사망
    * 낙하가 이어받는다. 한 걸음은 `ai/Burrow.stepSpatFlight` (권위 · 리플리카 공용).
    */
   startSpat(from: THREE.Vector3, to: THREE.Vector3, T: number): void {
@@ -772,7 +772,7 @@ export class Enemy implements EnemyRef {
 
   /**
    * 2026-09-13 (탐사 차량): 차량에게 맞았다 — 이 적과 `ROVER_AGGRO_GROUP_RADIUS` 안의 같은 팩션 전투원이 `ROVER_AGGRO_S` 동안 차량을
-   * 노린다 (무리를 깨우는 것은 플레이어에게 맞았을 때와 같은 `alertNear`). 표적 재평가를 곧장 돌린다. 스캔 드론 · 지하벌레 · 로든은
+   * 노린다 (무리를 깨우는 것은 플레이어에게 맞았을 때와 같은 `alertNear`). 표적 재평가를 곧장 돌린다. 스캔 드론 · 땅굴벌레 · 로든은
    * 차량을 노리지 않으므로(`parts/Alerts.pickVehicleTarget`) 표시만 남아도 무해하다. 권한만.
    */
   noteVehicleAggro(): void {
@@ -945,12 +945,12 @@ export class Enemy implements EnemyRef {
     }
     this.rig.root.position.copy(this.position);
     this.rig.root.rotation.y = this.yaw;
-    /* 2026-09-13 (굴착): 땅속에서 올라오는 몸 — 그림만 내린다 (지하벌레는 리그가 몸통만 내린다).
+    /* 2026-09-13 (굴착): 땅속에서 올라오는 몸 — 그림만 내린다 (땅굴벌레는 리그가 몸통만 내린다).
        2026-09-14 4차: **파다 죽은 몸도 끝까지 올라온다.** 판정 위치(`position`)는 굴착 내내 지표에 있어서
        시체 수색 자리(`corpse:<id>`)는 땅 위에 서는데, 예전에는 죽는 순간 그림이 그 깊이에서 얼어붙어 —
        몸 높이 + `BURROW_SINK_EXTRA_M` 만큼 묻힌 채라 갓 솟기 시작한 벌레는 통째로 땅속이었다 — 플레이어에게는
        「시체가 없다 = 드롭이 없다」로 보였다 (튜토리얼 첫 벌레가 정확히 그 자리다). 남은 굴착 시간 동안
-       마저 솟으므로 사망 연출과 겹쳐 구덩이에서 빠져나오며 쓰러진다. 지하벌레는 뿌리박힌 채 죽는 연출이라 예전대로 멈춘다. */
+       마저 솟으므로 사망 연출과 겹쳐 구덩이에서 빠져나오며 쓰러진다. 땅굴벌레는 뿌리박힌 채 죽는 연출이라 예전대로 멈춘다. */
     if (this.emergeDur > 0) {
       const rising = this.state !== 'dead' || this.rig.kind !== 'worm';
       if (this.emergeT > 0 && rising) this.emergeT = Math.max(0, this.emergeT - dt);

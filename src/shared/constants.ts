@@ -1765,7 +1765,7 @@ export const EXTRACTION_CINEMATIC_BLEND_S = K.num('EXTRACTION_CINEMATIC_BLEND_S'
 export const EXTRACTION_HUD_FADE_S = K.num('EXTRACTION_HUD_FADE_S');
 /* ── end [2026-09-13] 탈출 개편 ── */
 
-/* ══ appended (2026-09-13): 버그 굴착 스폰 · 지하벌레 이벤트 (owner: enemies) ═════════════════════════════════════
+/* ══ appended (2026-09-13): 버그 굴착 스폰 · 땅굴벌레 이벤트 (owner: enemies) ═════════════════════════════════════
  * 값은 전부 `data/constants.csv` 의 `BURROW_*` · `SANDWORM_*` 와 `data/tables.csv` 의 `SANDWORM_*` 표. 규칙은 `src/enemies/README.md`.
  */
 /** 플레이 중 스폰되는 버그가 땅을 파고 올라오는 시간(초). */
@@ -1778,7 +1778,7 @@ export const BURROW_SHAKE_RADIUS = K.num('BURROW_SHAKE_RADIUS');
 export const BURROW_SHAKE_INTENSITY = K.num('BURROW_SHAKE_INTENSITY');
 /** 굴착 흔들림 사이 최소 간격(초) — 겹치지 않는다. */
 export const BURROW_SHAKE_GAP_S = K.num('BURROW_SHAKE_GAP_S');
-/** 지하벌레가 일어날 수 있는 레이드 시각 창(초, `ctx.missionTime`). */
+/** 땅굴벌레가 일어날 수 있는 레이드 시각 창(초, `ctx.missionTime`). */
 export const SANDWORM_WINDOW_START_S = K.num('SANDWORM_WINDOW_START_S');
 export const SANDWORM_WINDOW_END_S = K.num('SANDWORM_WINDOW_END_S');
 /** 발동 시각 뒤 조건을 다시 보는 간격(초). */
@@ -1795,7 +1795,7 @@ export const SANDWORM_SHAKE_MAX = K.num('SANDWORM_SHAKE_MAX');
 export const SANDWORM_ERUPT_RADIUS = K.num('SANDWORM_ERUPT_RADIUS');
 export const SANDWORM_ERUPT_DAMAGE = K.num('SANDWORM_ERUPT_DAMAGE');
 export const SANDWORM_ERUPT_KNOCKBACK = K.num('SANDWORM_ERUPT_KNOCKBACK');
-/** 지하벌레 최대 체력 범위 (호스트가 굴린다). */
+/** 땅굴벌레 최대 체력 범위 (호스트가 굴린다). */
 export const SANDWORM_HP_MIN = K.num('SANDWORM_HP_MIN');
 export const SANDWORM_HP_MAX = K.num('SANDWORM_HP_MAX');
 /** 몸통이 다 솟는 시간(초). */
@@ -1820,7 +1820,7 @@ export const SANDWORM_ACID_VOLLEY = K.num('SANDWORM_ACID_VOLLEY');
 export const SANDWORM_CHANCE_BY_THREAT = numberList('tables.csv', 'SANDWORM_CHANCE_BY_THREAT');
 /** 분출 버그 무리 수 — index 0 = 분대 1명. */
 export const SANDWORM_BURST_BY_SQUAD = numberList('tables.csv', 'SANDWORM_BURST_BY_SQUAD');
-/* ── end 2026-09-13 굴착 스폰 · 지하벌레 ── */
+/* ── end 2026-09-13 굴착 스폰 · 땅굴벌레 ── */
 
 /* ── 2026-09-13 탐사 차량 — 공용 (값은 data/constants.csv, 규칙은 shared/types.ts 의 탐사 차량 절) ── */
 /** 탑승 · 하차 E 홀드 시간(초). */
@@ -2101,3 +2101,42 @@ export const RAID_LOAD_HOLD_MARGIN_S = K.num('RAID_LOAD_HOLD_MARGIN_S');
 /** 암전이 끝난 뒤 권위의 발사를 기다리는 여유 (s, owner: hub) — 넘기면 암전을 풀고 함선으로 돌아온다. */
 export const RAID_LOAD_START_GRACE_S = K.num('RAID_LOAD_START_GRACE_S');
 /* ── end 2026-09-15 안드로이드 분대원 · 레이드 진입 로딩 ── */
+
+/* ══ appended (2026-09-15): 땅굴벌레 등장 판정 개편 — 누적 확률제 · 진동 장치 소환 · 위협 1 어린 개체 (owner: enemies/sandworm · world/BurrowGround)
+ * docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」. `SANDWORM_WINDOW_*` · `SANDWORM_CHANCE_BY_THREAT` 는 은퇴 (export 만 남는다).
+ * 검사 한 번의 확률표는 `src/enemies/sandworm/Director.ts` 머리 주석.
+ */
+/** 검사 한 번의 위협 배수 — index 0 = 행성 threat 1 (`data/tables.csv`). threat 1 > 0 (어린 개체가 나온다). */
+export const SANDWORM_BASE_CHANCE_BY_THREAT = numberList('tables.csv', 'SANDWORM_BASE_CHANCE_BY_THREAT');
+/** 자연 등장에 필요한 자격 인원 최소 수 (조금 무거움 이상 + 달리기, 서로 `SANDWORM_GROUP_RADIUS` 안). */
+export const SANDWORM_MIN_MEMBERS = K.num('SANDWORM_MIN_MEMBERS');
+/** 자격 인원 한 명의 가중치 — light · heavy/over. */
+export const SANDWORM_P_PER_LIGHT = K.num('SANDWORM_P_PER_LIGHT');
+export const SANDWORM_P_PER_HEAVY = K.num('SANDWORM_P_PER_HEAVY');
+/** 거리 계수: 평균 거리 ≤ NEAR 면 1, GROUP_RADIUS 에서 FAR_MUL (선형). */
+export const SANDWORM_P_NEAR_M = K.num('SANDWORM_P_NEAR_M');
+export const SANDWORM_P_FAR_MUL = K.num('SANDWORM_P_FAR_MUL');
+/** 유인 수류탄: 확률 가산 · 인정 거리(m) · 분출 자리로 고를 확률. */
+export const SANDWORM_P_LURE = K.num('SANDWORM_P_LURE');
+export const SANDWORM_LURE_RANGE_M = K.num('SANDWORM_LURE_RANGE_M');
+export const SANDWORM_LURE_SPOT_CHANCE = K.num('SANDWORM_LURE_SPOT_CHANCE');
+/** 어린 땅굴벌레(`sandworm_weak`): 고정 최대 체력 · 몸 · 분출 반경 배수. */
+export const SANDWORM_WEAK_HP = K.num('SANDWORM_WEAK_HP');
+export const SANDWORM_WEAK_SCALE = K.num('SANDWORM_WEAK_SCALE');
+/** `WorldRef.burrowGroundOk`: 디렉터가 요구하는 맨땅 반지름(m) · 고리 표본 수 · 높이차 상한(m) · 경사 상한 · 둥지 여유(m). */
+export const BURROW_GROUND_CHECK_R = K.num('BURROW_GROUND_CHECK_R');
+export const BURROW_GROUND_RING_SAMPLES = K.num('BURROW_GROUND_RING_SAMPLES');
+export const BURROW_GROUND_MAX_RISE_M = K.num('BURROW_GROUND_MAX_RISE_M');
+export const BURROW_GROUND_MAX_SLOPE = K.num('BURROW_GROUND_MAX_SLOPE');
+export const BURROW_GROUND_NEST_CLEAR_M = K.num('BURROW_GROUND_NEST_CLEAR_M');
+/* ── end 2026-09-15 땅굴벌레 등장 판정 개편 ── */
+
+/* ── [2026-09-15] 진동 장치 (owner: gadgets — docs/DECISIONS.md 「2026-09-15 — 땅굴벌레 · 진동 장치」) ── */
+/** 바닥을 내리치는 간격 (s) · 땅굴벌레를 부르는 타격 순번 · 설치 가능 판정 반경 (m, `WorldRef.burrowGroundOk`) · 내구도 · 흔들림 반경 (m) · 흔들림 세기. */
+export const THUMPER_INTERVAL_S = K.num('THUMPER_INTERVAL_S');
+export const THUMPER_STRIKES = K.num('THUMPER_STRIKES');
+export const THUMPER_GROUND_R = K.num('THUMPER_GROUND_R');
+export const THUMPER_HP = K.num('THUMPER_HP');
+export const THUMPER_SHAKE_RADIUS = K.num('THUMPER_SHAKE_RADIUS');
+export const THUMPER_SHAKE = K.num('THUMPER_SHAKE');
+/* ── end 2026-09-15 진동 장치 ── */
