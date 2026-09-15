@@ -1608,6 +1608,11 @@ import type { ItemRequestKind } from './types';
 export interface GameEvents {
   /** Fact (allies, every client): 내 분대의 안드로이드 명단이 바뀌었다. `evicted` = 사람 합류 · 인원 초과로 슬롯에 돌아간 기 (`removed` 에도 들어 있다). */
   'ally:rosterChanged': { roster: readonly AllyRosterEntry[]; added: readonly AllyId[]; removed: readonly AllyId[]; evicted: readonly AllyId[] };
+  /**
+   * Fact (net): 릴레이가 안드로이드 한 기를 슬롯으로 돌려보냈다 (`lobby:androidReturned`). `human_joined` = 사람이 합류해
+   * 가장 늦게 들어온 기가 빠졌다 (로비 전원) · `full` = 분대가 가득 차 들이지 못했다 (요청자에게만).
+   */
+  'net:androidReturned': { bay: number; reason: 'human_joined' | 'full' };
   /** Fact (allies, every client): 피해를 받았다 (리플리카는 스냅샷 체력이 줄 때). */
   'ally:damaged': { id: AllyId; amount: number; hp: number; shield: number };
   /** Fact (allies, every client): 쓰러졌다. */
