@@ -46,6 +46,16 @@ export interface ShaderWarmupRef {
  */
 export type OutlineChannel = 'hover' | 'selected';
 
+/* ══ appended: 2026-09-15 — 레이드 진입 로딩 (owner: core `ShaderWarmup`; caller: game `parts/LoadGate`) ══
+ * 로딩 게이트는 hold 다 — 시뮬레이션 dt 0 · 그리기 없음이라 임무 시계 · 적 · 강하 포드가 모두 기다린다. 기본 hold 의 상한
+ * `SHADER_WARMUP_TIMEOUT_S` 는 로딩 대기(`RAID_LOAD_TIMEOUT_S`)보다 짧아서 상한을 받는 판이 따로 있다. */
+export interface ShaderWarmupRef {
+  /** `ready` 가 끝날 때까지, 최대 `timeoutS` 초 hold 한다. */
+  holdFor?(ready: Promise<unknown>, timeoutS: number): void;
+  /** 지금 걸린 씬 컴파일의 진행도 0..1 (준비된 머티리얼 / 처음 기다리던 머티리얼). 기다리는 것이 없으면 1. */
+  readonly compileProgress?: number;
+}
+
 export interface OutlineRef {
   /** `channel` 의 외곽선 대상을 통째로 갈아 끼운다. `null` · 빈 배열 = 그 채널을 끈다. 매 프레임 불러도 싸다(같은 목록이면 아무 일도 없다). */
   set(channel: OutlineChannel, objects: readonly THREE.Object3D[] | null): void;

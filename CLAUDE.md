@@ -99,6 +99,7 @@ folder's responsibility changes.
 | [`src/implants/`](src/implants/README.md) | `ImplantSystem` | `ctx.implants` | 5 tactical implants (grapple · dash · barrier · overcharge · recon), Q key · cooldowns · refunds |
 | [`src/gadgets/`](src/gadgets/README.md) | `GadgetSystem` · `DroneSystem` | `ctx.gadgets` · `ctx.drones` | Consumable gadgets — placement preview · mines · remote mines · turret · dome shield · barricade · jump pad · fire zones (host-authoritative) · ground/air drones (owner-authoritative control and scan) |
 | [`src/stratagems/`](src/stratagems/README.md) | `StratagemSystem` | `ctx.stratagems` | 4 ship calls — G wheel · top-down aim · shared cooldown · rescue drop (5 per squad); squad calls relayed by the host, denials fully refunded |
+| [`src/allies/`](src/allies/README.md) | `AllySystem` | `ctx.allies` | Android squadmates — roster (relay bot members · `/android` cheat) · cockpit bay / pod behaviour in the ship · host-simulated raid AI (reaction-delay FSM, leader harness, cover combat, looting, deliveries, extraction, rescue) · `ally` sync. Builds no meshes (`player/` draws the bodies) |
 
 ### 3.3 World · enemies
 
@@ -242,6 +243,12 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Squad leader changes only via `lobby:transferHost {targetId, claim?}` (host transfer or claim after `lobby:hostDown`); the toast is only in `game/parts/Leader.ts`.
 - `game:returnToShip` during a raid is death (`PlayerRef.die`) and `leaveMission`; never emit `hub:enter` for it. Liftoff extracts only those aboard and alive; the rest keep playing.
 - Rover: one per raid, host-authoritative; riders take no damage and are not targets; only enemies and hazards damage it; one payer per trip (`rover:<from>:<to>`) — rules in `shared/types.ts` rover section. New combat input gates check both `droneControl` and `roverRide`.
+- Androids are relay **bot members** (`LobbyPlayer.bot`): never host, never relay targets, skipped by presence / prune / grace counts; a human
+  joining a full squad evicts the latest recruited android. The authority simulates them (`src/allies`), enemies target them only through
+  `ctx.allies.getCombatBodies()` / `damage()`, all-dead checks count humans only. Their base kit is bound (never dropped, given, left in a
+  corpse or deposited) — only `raidFound` items move — `src/shared/allies.ts`.
+- Raid entry loading is a hold (`ShaderWarmupRef.holdFor`, `game/parts/LoadGate`): sim dt 0 until every human reported loaded or
+  `RAID_LOAD_TIMEOUT_S`; rejoin, training and tutorial never wait.
 
 ### 4.7 Items · economy
 

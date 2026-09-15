@@ -21,6 +21,7 @@ import { HousingSystem } from '@/housing/HousingSystem';
 import { ConsoleSystem } from '@/console/ConsoleSystem';
 import { TutorialSystem } from '@/tutorial/TutorialSystem';
 import { MetaSystem } from '@/meta/MetaSystem';
+import { AllySystem } from '@/allies/AllySystem';
 import { ensureMigrated, loadKeybinds } from '@/shared';
 
 const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
@@ -104,6 +105,8 @@ engine.addSystem(new DroneSystem());
 engine.addSystem(new PickupSystem());     // world pickups (dropped items), after inventory
 engine.addSystem(new StratagemSystem());  // ship calls (Phase 3): after weapons/enemies/inventory, before extraction
 engine.addSystem(new ExtractionSystem());
+// 2026-09-15: 안드로이드 분대원 — 적 · 인벤토리 · 줍기 · 탈출이 이번 프레임 상태를 낸 뒤에 판단하고, HUD 가 그 결과를 그린다.
+engine.addSystem(new AllySystem());
 engine.addSystem(new HudSystem());
 engine.addSystem(new AudioSystem());
 engine.addSystem(new GameFlowSystem());

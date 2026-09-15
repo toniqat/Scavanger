@@ -89,3 +89,6 @@ export * from './keycap';
 export * from './explosion';
 /* appended (2026-09-15): 얼굴 초상 프레이밍 — 캐릭터 생성 확정 팝업과 터미널 매칭 탭이 같은 얼굴을 그린다 */
 export * from './faceFraming';
+/* appended (2026-09-15): 안드로이드 분대원 (`ctx.allies`) · 엄폐 자리 고르기 — 적 인간형과 안드로이드가 같은 식을 쓴다 */
+export * from './allies';
+export * from './cover';

@@ -311,3 +311,26 @@ User choices:
 Design: `lobby:create` / `join` / `quickmatch` still make docked lobbies (smokes, old clients); an undocked lobby left with one member and
 no open invite is dissolved by the relay; distance multipliers are applied as √ on speeds (flight distance ∝ speed²); portrait accent
 travels as `LobbyPlayer.accent` (in-raid avatars keep slot colours).
+
+## 2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩 · Android squadmates · raid loading
+
+User choices:
+- Androids come out of **3 bays in the shared ship's cockpit**: the squad leader holds E for 3 s to recruit one, and again to send it
+  back. They are real squad members — **relay bot members** that take a lobby slot and stop matchmaking. A human joining a full squad
+  wins: the **latest recruited android** returns to its bay.
+- **Shared ship only** (rejected: bays in the personal ship / offline single player). Dev cheat `/android 1|0` adds or removes one android
+  in my squad without a server, visible in the personal ship.
+- Gear: a **fixed base kit** every raid; on extraction only items found in that raid go to the **squad leader's stash** (rejected:
+  persistent per-bay gear; bag lost on extraction).
+- Downed like a human and revivable by players, but **not a rescue-drop target**; androids revive downed players; **all humans dead =
+  raid failed**.
+- Androids follow the **squad leader**. Requests: the first one is taken, others are ignored for about 10 s.
+- The comms wheel stays at 4 slots; shield / ammo requests come only from inventory item pings (rejected: 6-slot wheel).
+- **Infinite ammo** (magazine and reload kept) (rejected: real ammo use). No throwables or gadgets. HP ×5.
+- Raid loading: after the 3 s launch countdown the screen fades to black; a bottom-right radial gauge shows the squad's summed progress;
+  it fades in and the drop plays when everyone has loaded or after **60 s** (late players drop on their own) (rejected: wait forever).
+
+Design: the base kit is **bound** (never dropped, handed over, left in a corpse or deposited) — otherwise every raid would mint free
+gear; android bodies are the soldier model with an android helmet and visor (downed / carry poses exist only there); recruited androids
+stand ready in front of their launch pod; the loading gate is a render hold (sim dt 0, nothing drawn) so the mission clock, enemies and
+hellpods all wait, and rejoin / training / tutorial skip it.

@@ -29,6 +29,8 @@ import type { DronesRef } from './drones';
 import type { ExtractionRef } from './extraction';
 /* appended (2026-09-14): 정보상 — 산 기믹 고정의 해석본 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelEffects } from './intel';
+/* appended (2026-09-15): 안드로이드 분대원 */
+import type { AlliesRef } from './allies';
 
 class InteractableRegistryImpl implements InteractableRegistry {
   private items = new Map<string, Interactable>();
@@ -128,6 +130,9 @@ export class GameContext {
   /* appended (2026-09-13) */
   /** 탈출 흐름 질의 — 적 출입 금지 영역 · 출발 유예 상태 (`shared/extraction`). Published by extraction/ExtractionSystem. */
   extraction: ExtractionRef | null = null;
+  /* appended (2026-09-15) */
+  /** 안드로이드 분대원 — 명단 · 몸 · 피해 · 소생 (`shared/allies`). Published by allies/AllySystem. */
+  allies: AlliesRef | null = null;
   /* ── appended: Phase 7 (2026-09-06) ── */
   /** Mode of the running / last mission (`game/` sets it from `game:newMission.mode` before the world generates). */
   missionMode: MissionMode = 'raid';

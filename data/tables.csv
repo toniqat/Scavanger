@@ -458,3 +458,23 @@ NEST_COUNT_MAX,0,6
 # 평소 값은 constants.csv 의 ROVER_PLAN_ATTEMPTS(64) 다. 시도를 늘려도 실패할 수 있고, 그러면 그 레이드에는 차량이 없다 (콘솔 경고).
 ROVER_PLAN_ATTEMPTS_INTEL,0,1024
 # ── end 2026-09-14 정보상 ──
+# ── 2026-09-15 안드로이드 분대원 (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ── owner: allies/
+# ALLY_STATE_WEIGHT — 상태별 행동의 무게 0..1. 상태가 바뀐 뒤 행동까지의 지연 = lerp(ALLY_REACT_MIN_S, ALLY_REACT_MAX_S, 무게 × (1 − JITTER) + 난수 × JITTER).
+#   사용자 결정 「무게가 무거울수록 딜레이 큼」. key = shared/allies.ts 의 AllyStateId. 빠진 상태(쓰러짐 · 사망처럼 즉시인 것)는 0.
+ALLY_STATE_WEIGHT,hubIdle,0.1
+ALLY_STATE_WEIGHT,follow,0.1
+ALLY_STATE_WEIGHT,watch,0.2
+ALLY_STATE_WEIGHT,moveTo,0.3
+ALLY_STATE_WEIGHT,lead,0.3
+ALLY_STATE_WEIGHT,pickup,0.3
+ALLY_STATE_WEIGHT,board,0.3
+ALLY_STATE_WEIGHT,deliver,0.4
+ALLY_STATE_WEIGHT,dropJunk,0.4
+ALLY_STATE_WEIGHT,loot,0.5
+ALLY_STATE_WEIGHT,seekExtract,0.5
+ALLY_STATE_WEIGHT,contract,0.5
+ALLY_STATE_WEIGHT,combat,0.6
+ALLY_STATE_WEIGHT,callExtract,0.7
+ALLY_STATE_WEIGHT,rescue,0.8
+ALLY_STATE_WEIGHT,carry,1
+# ── end 2026-09-15 안드로이드 분대원 ──

@@ -2033,3 +2033,67 @@ export const TUTORIAL_LIFTOFF_FIRE_RANGE_M = K.num('TUTORIAL_LIFTOFF_FIRE_RANGE_
 /** 절벽 낙하 어그로 해제 높이 (owner: enemies `Tutorial.ts`). */
 export const TUTORIAL_AGGRO_DROP_M = K.num('TUTORIAL_AGGRO_DROP_M');
 /* ── end 2026-09-15 튜토리얼 부활 · 어그로 ── */
+
+/* ── 2026-09-15 안드로이드 분대원 · 레이드 진입 로딩 (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」; 계약 `shared/allies.ts`) ── */
+import type { AllyStateId } from './allies';
+/** 체력 배수 · 쓰러짐 출혈 풀 · 일으켜진 체력 (owner: allies). */
+export const ALLY_HP_MUL = K.num('ALLY_HP_MUL');
+export const ALLY_DOWN_HP = K.num('ALLY_DOWN_HP');
+export const ALLY_REVIVE_HP = K.num('ALLY_REVIVE_HP');
+/** 이동 (m/s, rad/s). */
+export const ALLY_WALK_SPEED = K.num('ALLY_WALK_SPEED');
+export const ALLY_RUN_SPEED = K.num('ALLY_RUN_SPEED');
+export const ALLY_CARRY_SPEED = K.num('ALLY_CARRY_SPEED');
+export const ALLY_TURN_RATE = K.num('ALLY_TURN_RATE');
+/** 하네스 — 반경 · 한 방향 이동 시 줄어드는 하한 · 일관성 시간상수 · 움직임 판정 속도 · 가까이 붙지 않는 거리. */
+export const ALLY_HARNESS_RADIUS_M = K.num('ALLY_HARNESS_RADIUS_M');
+export const ALLY_HARNESS_MIN_FRAC = K.num('ALLY_HARNESS_MIN_FRAC');
+export const ALLY_HARNESS_COMMIT_TAU_S = K.num('ALLY_HARNESS_COMMIT_TAU_S');
+export const ALLY_HARNESS_COMMIT_SPEED = K.num('ALLY_HARNESS_COMMIT_SPEED');
+export const ALLY_FOLLOW_NEAR_M = K.num('ALLY_FOLLOW_NEAR_M');
+/** 반응 지연 — 무게 0 / 1 의 초 · 무작위 몫. 상태별 무게는 `ALLY_STATE_WEIGHT`. */
+export const ALLY_REACT_MIN_S = K.num('ALLY_REACT_MIN_S');
+export const ALLY_REACT_MAX_S = K.num('ALLY_REACT_MAX_S');
+export const ALLY_REACT_JITTER = K.num('ALLY_REACT_JITTER');
+/** 상태별 행동 무게 0..1 (`data/tables.csv` `ALLY_STATE_WEIGHT`) — 빠진 상태는 0. */
+export const ALLY_STATE_WEIGHT: Readonly<Partial<Record<AllyStateId, number>>> = numberMap<AllyStateId>('tables.csv', 'ALLY_STATE_WEIGHT');
+/** 요청 선착순 쿨다운 · 탈출 확인 창 (s). */
+export const ALLY_REQUEST_COOLDOWN_S = K.num('ALLY_REQUEST_COOLDOWN_S');
+export const ALLY_EXTRACT_CONFIRM_S = K.num('ALLY_EXTRACT_CONFIRM_S');
+/** 전투 — 감지 · 사거리(m) · 조준 오차(°) · 피해 배수 · 연사 발 수 · 쉬는 시간 · 적 핑 간격. */
+export const ALLY_SENSE_RADIUS_M = K.num('ALLY_SENSE_RADIUS_M');
+export const ALLY_FIRE_RANGE_M = K.num('ALLY_FIRE_RANGE_M');
+export const ALLY_AIM_ERROR_DEG = K.num('ALLY_AIM_ERROR_DEG');
+export const ALLY_DAMAGE_MUL = K.num('ALLY_DAMAGE_MUL');
+export const ALLY_BURST_MIN = K.num('ALLY_BURST_MIN');
+export const ALLY_BURST_MAX = K.num('ALLY_BURST_MAX');
+export const ALLY_BURST_PAUSE_S = K.num('ALLY_BURST_PAUSE_S');
+export const ALLY_ENEMY_PING_COOLDOWN_S = K.num('ALLY_ENEMY_PING_COOLDOWN_S');
+/** 루팅 · 건네기 — 칸당 초 · 손 닿는 거리 · 요청자 곁 거리 · 바라봄 내적 · 멈춤 속도 · 최대 대기 · 같은 말 간격. */
+export const ALLY_LOOT_ITEM_S = K.num('ALLY_LOOT_ITEM_S');
+export const ALLY_LOOT_REACH_M = K.num('ALLY_LOOT_REACH_M');
+export const ALLY_DELIVER_RANGE_M = K.num('ALLY_DELIVER_RANGE_M');
+export const ALLY_DELIVER_LOOK_DOT = K.num('ALLY_DELIVER_LOOK_DOT');
+export const ALLY_DELIVER_STILL_SPEED = K.num('ALLY_DELIVER_STILL_SPEED');
+export const ALLY_DELIVER_WAIT_MAX_S = K.num('ALLY_DELIVER_WAIT_MAX_S');
+export const ALLY_CHAT_REPEAT_S = K.num('ALLY_CHAT_REPEAT_S');
+/** 명령 — 도착 거리 · 가자 핑 머무름 · 주의 시간 · 앞장 거리. */
+export const ALLY_MOVE_ARRIVE_M = K.num('ALLY_MOVE_ARRIVE_M');
+export const ALLY_MOVE_HOLD_S = K.num('ALLY_MOVE_HOLD_S');
+export const ALLY_WATCH_S = K.num('ALLY_WATCH_S');
+export const ALLY_LEAD_AHEAD_M = K.num('ALLY_LEAD_AHEAD_M');
+/** 구조 — 안전 판정 반경 · 재해 탈출 여유 (m). */
+export const ALLY_RESCUE_SAFE_RADIUS_M = K.num('ALLY_RESCUE_SAFE_RADIUS_M');
+export const ALLY_HAZARD_SAFE_MARGIN_M = K.num('ALLY_HAZARD_SAFE_MARGIN_M');
+/** 동기화 주기 (s) · 조종실 슬롯 홀드 (s, owner: hub) · 함선 치트 추종 거리 (m). */
+export const ALLY_NET_INTERVAL_S = K.num('ALLY_NET_INTERVAL_S');
+export const ALLY_BAY_HOLD_S = K.num('ALLY_BAY_HOLD_S');
+export const ALLY_HUB_FOLLOW_M = K.num('ALLY_HUB_FOLLOW_M');
+/** 레이드 진입 로딩 (owner: hub 암전 시작 · game `parts/LoadGate` · ui 원형 게이지). */
+export const RAID_LOAD_FADE_OUT_S = K.num('RAID_LOAD_FADE_OUT_S');
+export const RAID_LOAD_FADE_IN_S = K.num('RAID_LOAD_FADE_IN_S');
+export const RAID_LOAD_TIMEOUT_S = K.num('RAID_LOAD_TIMEOUT_S');
+export const RAID_LOAD_REPORT_S = K.num('RAID_LOAD_REPORT_S');
+export const RAID_LOAD_WORLD_SHARE = K.num('RAID_LOAD_WORLD_SHARE');
+export const RAID_LOAD_MIN_BLACK_S = K.num('RAID_LOAD_MIN_BLACK_S');
+/* ── end 2026-09-15 안드로이드 분대원 · 레이드 진입 로딩 ── */

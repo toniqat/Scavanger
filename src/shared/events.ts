@@ -1601,3 +1601,47 @@ export interface GameEvents {
   'player:remoteFell': { peerId: PeerId; position: THREE.Vector3; damage: number };
 }
 /* ── end [2026-09-15] 낙하 피드백 ── */
+
+/* ── [2026-09-15] 안드로이드 분대원 · 레이드 진입 로딩 (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」 — 계약 본문은 `shared/allies.ts` · `net.ts` 끝 절) ── */
+import type { AllyId, AllyRosterEntry } from './allies';
+import type { ItemRequestKind } from './types';
+export interface GameEvents {
+  /** Fact (allies, every client): 내 분대의 안드로이드 명단이 바뀌었다. `evicted` = 사람 합류 · 인원 초과로 슬롯에 돌아간 기 (`removed` 에도 들어 있다). */
+  'ally:rosterChanged': { roster: readonly AllyRosterEntry[]; added: readonly AllyId[]; removed: readonly AllyId[]; evicted: readonly AllyId[] };
+  /** Fact (allies, every client): 피해를 받았다 (리플리카는 스냅샷 체력이 줄 때). */
+  'ally:damaged': { id: AllyId; amount: number; hp: number; shield: number };
+  /** Fact (allies, every client): 쓰러졌다. */
+  'ally:downed': { id: AllyId; name: string };
+  /** Fact (allies, every client): 일어났다. `by` = 일으킨 사람 PeerId (모르면 null). */
+  'ally:revived': { id: AllyId; by: PeerId | null };
+  /** Fact (allies, every client): 출혈이 다해 죽었다. */
+  'ally:died': { id: AllyId; name: string };
+  /** Fact (allies, every client): 한 발 쐈다 — player 가 총구 섬광 · 예광탄, audio 가 총성을 낸다. 벡터는 재사용 (읽고 바로 쓴다). */
+  'ally:fired': { id: AllyId; from: THREE.Vector3; to: THREE.Vector3; weaponDefId: string | null };
+  /** Command (allies → ui/Pings, every client): 안드로이드 이름으로 핑을 그린다 (핑 목록 · 콜아웃 채팅 · 화면 밖 화살표). */
+  'ally:ping': { id: AllyId; name: string; slot: number; kind: PingKind; position: THREE.Vector3; label?: string; enemyId?: number };
+  /** Command (allies → ui/ChatLog, every client): 안드로이드 이름으로 채팅 한 줄 (relay 하지 않는다). */
+  'ally:chat': { id: AllyId; name: string; slot: number; text: string };
+  /** Command (allies → player/RemotePods, every client): 강하 포드를 떨어뜨린다. */
+  'ally:podDrop': { id: AllyId; position: THREE.Vector3; yaw: number };
+  /** Fact (inventory, 분대장 클라이언트): 탈출한 안드로이드의 전리품이 창고에 들어갔다. `lost` = 창고가 가득 차 넣지 못한 개수. */
+  'ally:deposited': { id: AllyId; name: string; count: number; lost: number };
+  /**
+   * Fact (ui/Pings, every client): 핑이 섰다 — 로컬 · 원격 모두, **대상 정보까지** (`ping:placedV2` + `label` · `enemyId`).
+   * `owner` = 찍은 사람 PeerId (로컬 = null). 안드로이드가 찍은 핑은 `owner` 가 안드로이드 id 다. allies 가 명령으로 읽는다.
+   */
+  'ping:placedV3': { id: number; position: THREE.Vector3; kind: PingKind; expires: number; owner: PeerId | null; label?: string; enemyId?: number };
+  /** Fact (inventory, local): 로컬 플레이어가 아이템을 요청했다 (가운데 클릭 · 메뉴). `position` = 로컬 플레이어 발. 원격 호스트에는 `allyq item`. */
+  'inventory:itemRequested': { kind: ItemRequestKind; defId: string | null; ammoType: string | null; position: THREE.Vector3 };
+  /** Fact (inventory, local): 로컬 플레이어가 컨테이너 창을 열었다. 원격 호스트에는 `allyq viewing`. */
+  'inventory:containerViewed': { containerId: string };
+  /** Command (allies → inventory, 분대장 클라이언트): 이 물건들을 내 창고에 넣어라 (넘치면 버린다) → `ally:deposited`. */
+  'inventory:allyDeposit': { id: AllyId; name: string; items: readonly ItemInstance[] };
+  /** Fact (hub, every client): 발사 카운트다운이 끝나 암전을 시작했다 (`RAID_LOAD_FADE_OUT_S` 뒤 권위가 발사한다). */
+  'raid:loadBegin': Record<string, never>;
+  /** Fact (game/LoadGate): 로딩 진행 — `local` = 내 진행도, `squad` = 분대(사람) 평균, `waiting` = 아직 안 끝난 사람 수, `remainingS` = 시간 초과까지. */
+  'raid:loadProgress': { local: number; squad: number; waiting: number; remainingS: number };
+  /** Fact (game/LoadGate): 로딩이 풀렸다 — 페이드인이 시작된다. `timedOut` = 기다리다 넘어갔다. */
+  'raid:loadReleased': { timedOut: boolean };
+}
+/* ── end [2026-09-15] 안드로이드 분대원 · 레이드 진입 로딩 ── */

@@ -3451,3 +3451,107 @@ export interface EnemyManagerRef {
   enemyDisplayName?(enemyType: string): string | null;
 }
 /* ══ end 2026-09-15 결과 창 개편 ══ */
+
+/* ══ appended (2026-09-15): 안드로이드 분대원 · 레이드 진입 로딩 — docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」 ══
+ * 계약 본문은 `shared/allies.ts` · `net.ts` 끝 절. 여기는 기존 Ref 에 붙는 **선택 멤버**뿐이다 — 각 소유 폴더가 구현하고, 부르는 쪽은
+ * `?.` 로 부른다 (없으면 그 기능만 조용히 빠진다). 「권위」 = 솔로 또는 로비 호스트 (`ctx.isAuthority`).
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+import type { WeightInfo as AllyWeightInfo } from './gear';
+
+/** 인벤토리 요청의 종류 (owner: inventory `requestItem`) — `heal` 회복약 · `shield` 장착 방탄복 실드 충전 · `ammo` 장착 주무기 탄약 · `item` 그 밖. */
+export type ItemRequestKind = 'heal' | 'shield' | 'ammo' | 'item';
+
+/** 공용 함선 조종실의 안드로이드 슬롯(캡슐) 하나 (owner: hub). 좌표는 함선 원점 기준. */
+export interface HubAndroidBay {
+  bay: number;
+  /** 캡슐 안 몸이 서는 발 위치. */
+  position: THREE.Vector3;
+  /** 캡슐 밖을 바라보는 yaw (몸 앞 = `(−sin yaw, 0, −cos yaw)`, 원격 아바타 규약). */
+  yaw: number;
+  /** 캡슐 밖 한 걸음 — 나오는 연출의 끝 · 돌아가는 연출의 시작. */
+  exit: THREE.Vector3;
+}
+
+export interface HubRef {
+  /** 공용 함선 조종실의 안드로이드 슬롯 (bay 순). 공용 함선이 아니면 빈 배열. */
+  getAndroidBays?(): readonly HubAndroidBay[];
+  /** 로비 슬롯 `slot` 의 발사 포드 앞 대기 자리 — 분대원이 된 안드로이드가 준비된 채 서 있는 곳. 없으면 null. */
+  getPodStandPose?(slot: number): { position: THREE.Vector3; yaw: number } | null;
+}
+
+/** 안드로이드의 가방 격자 — DOM 없는 격자 모델 (owner: inventory `Grid`, 만드는 곳 `InventoryRef.createAllyBag`). */
+export interface AllyBagRef {
+  readonly cols: number;
+  readonly rows: number;
+  items(): readonly ItemInstance[];
+  /** 겹칠 수 있는 스택에 먼저 합치고 빈 자리에 놓는다 — 전부 들어가면 true, 아니면 아무것도 바꾸지 않고 false. */
+  autoPlace(item: ItemInstance): boolean;
+  remove(uid: string): ItemInstance | null;
+  /** 크기를 바꾼다 (가방 교체). 들어가지 못한 아이템을 돌려준다. */
+  resize(cols: number, rows: number): ItemInstance[];
+  usedCells(): number;
+  totalValue(): number;
+  clear(): void;
+}
+
+export interface InventoryRef {
+  /** DOM 없는 가방 격자 하나를 만든다 (안드로이드 — 플레이어 가방과 같은 배치 규칙). */
+  createAllyBag?(cols: number, rows: number): AllyBagRef;
+  /** 사람과 **같은 무게 식** — `carried` = 가방 + 장착 장비, `bag` = 장착 가방 (용량 보너스). 운반 숙련 없음. */
+  weightInfoFor?(carried: readonly ItemInstance[], bag: ItemInstance | null): AllyWeightInfo;
+  /*
+   * 내용물 보기는 기존 `peekContainerItems(containerId, tier?)` (2026-09-12 드론 스캔 — 여는 것과 같은 굴림)를 그대로 쓴다.
+   */
+  /**
+   * 권위: 사람이 아닌 몸(`by` = 안드로이드 id)이 컨테이너에서 `defId` 스택 하나를 가져간다 (`peekContainerItems` 로 본 목록의 한 줄).
+   * 아직 굴리지 않은 컨테이너면 `tier` 로 여는 것과 같은 굴림을 먼저 확정한다. 가져간 상태를 호스트가 사람의 take 와 똑같이 기록 · 방송하고,
+   * 처음이면 열린 모습(`crate opened`)도 맞춘다. 가져간 아이템(`raidFound` 표시 포함) 또는 null (없음 · 이미 가져감 · 권위 아님).
+   */
+  takeContainerItemFor?(containerId: string, tier: number, defId: string, by: string): ItemInstance | null;
+}
+
+export interface PickupsRef {
+  /** 권위: 바닥 아이템 `id` 를 사람이 아닌 몸(`by`)이 줍는다 — 지우고 `item take {by}` 를 방송한다. 주운 아이템 또는 null. */
+  takeBy?(id: string, by: string): ItemInstance | null;
+}
+
+/** 루팅할 수 있는 컨테이너 하나 (world 상자 + 구조물 보관함). `id` 는 inventory 컨테이너 id 와 같다. */
+export interface LootContainerInfo {
+  readonly id: string;
+  readonly position: THREE.Vector3;
+  readonly tier: number;
+  readonly opened: boolean;
+  readonly kind: 'crate' | 'structure';
+}
+
+export interface WorldRef {
+  /** 이번 맵의 루팅 컨테이너 전부 (월드 상자 + 구조물 보관함). 재사용 배열 — 읽고 바로 쓴다. 훈련장은 빈 배열. */
+  getLootContainers?(): readonly LootContainerInfo[];
+}
+
+export interface HazardRef {
+  /** `(x, z)` 에서 가장 가까운, 지금 피해 구역 밖인 지점을 `out` 에 쓴다 (가장자리에서 `margin` m 안쪽). 맵이 다 덮였으면 null. */
+  nearestSafePoint?(x: number, z: number, margin: number, out: THREE.Vector3): THREE.Vector3 | null;
+}
+
+export interface EnemyManagerRef {
+  /**
+   * 권위: 안드로이드의 한 발이 적 `enemyId` 를 맞혔다 — `takeDamage(…, 'ai')` (킬 크레딧 없음) + 그 적을 `from` 쪽으로 깨운다.
+   * 적용했으면 true. 리플리카에서는 false.
+   */
+  applyAllyHit?(enemyId: number, damage: number, point: THREE.Vector3, from: THREE.Vector3): boolean;
+}
+
+export interface PlayerRef {
+  /** `snapshotFace` 의 안드로이드판 — 같은 프레이밍, 안드로이드 헬멧 · 바이저. 매칭 탭 · 발사 슬롯 · 분대 목록 초상. */
+  snapshotAndroidFace?(opts: { accent: string; size?: number }): string | null;
+}
+
+export interface CorpsesRef {
+  /**
+   * 권위: 죽은 안드로이드의 잔해를 남긴다 — `pcorpse:<allyId>:<n>` 컨테이너(레이드에서 주운 물건만) + 안드로이드 외형 몸, `pcorpse spawn` 방송.
+   * 만든 시체 id 또는 null.
+   */
+  spawnAllyCorpse?(allyId: string, name: string, slot: number, position: THREE.Vector3, yaw: number, items: readonly ItemInstance[]): string | null;
+}
+/* ══ end 2026-09-15 안드로이드 분대원 ══ */

@@ -67,4 +67,12 @@ export interface ExtractionRef {
    * 이미 탈출이 확정됐으면 false.
    */
   skipToComplete?(): boolean;
+
+  /* ── appended (2026-09-15, 안드로이드 분대원 — docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ── */
+  /** 이번 맵의 탈출 패드 — `id` 와 콘솔 앞 발 위치 (안드로이드가 걸어가 누르는 자리). 재사용 배열. */
+  getPads?(): readonly { readonly id: string; readonly position: THREE.Vector3 }[];
+  /** 권위: 안드로이드가 패드 `padId` 의 콘솔을 눌렀다 — 사람의 누름과 같은 흐름. `idle` 이 아니거나 모르는 패드면 false. */
+  requestActivate?(padId: string): boolean;
+  /** 착륙해 있는 함선 화물칸 안의 탑승 지점을 `out` 에 쓴다. 착륙선이 없으면 null. */
+  boardingPoint?(out: THREE.Vector3): THREE.Vector3 | null;
 }

@@ -297,7 +297,9 @@ export type ClientToServer =
   /* appended (2026-09-14): 단체 메신저방 — see the 단체 메신저방 section */
   | ClientToServerAppended2026_09_14rooms
   /* appended (2026-09-15): 분대 · 도킹 매칭 — see the 분대 · 도킹 매칭 section */
-  | ClientToServerAppended2026_09_15dock;
+  | ClientToServerAppended2026_09_15dock
+  /* appended (2026-09-15): 안드로이드 분대원 — see the 안드로이드 분대원 section */
+  | ClientToServerAppended2026_09_15android;
 
 export type ServerToClient =
   /**
@@ -350,7 +352,9 @@ export type ServerToClient =
   /* appended (2026-09-13): 암호화폐 시세 — see the 암호화폐 section */
   | ServerToClientAppended2026_09_13crypto
   /* appended (2026-09-14): 단체 메신저방 — see the 단체 메신저방 section */
-  | ServerToClientAppended2026_09_14rooms;
+  | ServerToClientAppended2026_09_14rooms
+  /* appended (2026-09-15): 안드로이드 분대원 — see the 안드로이드 분대원 section */
+  | ServerToClientAppended2026_09_15android;
 
 /* ── Game messages (relayed verbatim, never inspected by the server) ───────── */
 
@@ -863,7 +867,11 @@ export type GameMessage =
   | RoverMessage
   | RoverRequest
   /* appended (2026-09-15, B-14): 분대원 낙하 착지 소리 (owner: player) */
-  | FallMessage;
+  | FallMessage
+  /* appended (2026-09-15): 안드로이드 분대원 (owner: allies) · 레이드 진입 로딩 (owner: game) — 파일 끝 절 */
+  | AllyMessage
+  | AllyRequest
+  | LoadMessage;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 /**
@@ -2117,3 +2125,142 @@ export interface NetRef {
   readonly dockPending: boolean;
 }
 /* ══ end 2026-09-15 분대 · 도킹 매칭 ══ */
+
+/* ══ appended (2026-09-15): 안드로이드 분대원 · 레이드 진입 로딩 — docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」 ══
+ *
+ * **봇 멤버** (owner: server/ · net/). 공용 함선 조종실의 안드로이드 슬롯(bay 0..ANDROID_BAY_COUNT-1)에서 나온 분대원은 릴레이 로비의
+ * 멤버다 — 소켓이 없고 `bot: true`, 늘 `connected: true` · `ready: true`, 레이드가 시작되면 `inMission: true`.
+ * id = `androidIdOf(lobby.code, bay)`.
+ * - `lobby:android {bay, recruit}` — 분대장만(`not_host`), **도킹된** 로비만(`not_docked`), 시작 전만(`started`), bay 범위 밖 · 이미
+ *   그 상태면 `invalid`. 빈 슬롯이 없으면 `lobby:error full` 과 함께 요청자에게 `lobby:androidReturned {bay, reason:'full'}`.
+ * - **사람이 이긴다.** 사람의 합류(초대 수락 · 코드 참가 · 이동)가 사람 + 봇으로 가득 찬 로비에 오면 `recruitedAt` 이 가장 늦은 봇을
+ *   빼고 그 자리에 사람을 넣는다 → 로비 전원에게 `lobby:androidReturned {bay, reason:'human_joined'}` + `lobby:state`.
+ *   빠른 매칭 후보 판정은 봇을 **센다** — 봇으로 찬 로비는 매칭되지 않는다 (「더 이상 다른 플레이어가 매칭되지 않음」).
+ *   `canAdd`(사람 합류) · 초대 가능 판정(`my_squad_full`) · 초대 정리(`sweepInvites` full)는 사람만 센다.
+ * - 봇은 **절대** 호스트가 되지 않고(`migrateHost` · `transferHostTo` · 호스트 승계), relay 대상이 되지 않고, presence · 최근 함께한
+ *   플레이어 · 차단 판정 · 혼자 남은 분대 해산(`pruneLonely` — 사람 수로 센다) · 재접속 유예의 「안에 남은 사람」 · 빈 미션 리셋
+ *   (`autoResetMission`)에서 빠진다. `reset()` 뒤에도 `ready: true` 로 남는다. 사람이 전부 나가면 로비와 함께 사라진다.
+ *
+ * **안드로이드 와이어** (`ally` · `allyq`, owner: allies/). 호스트 권위 — 받는 쪽은 로비 호스트가 보낸 `ally` 만 받는다.
+ * `allyq` 는 분대원 → `host`. 서버 없는 치트 명단은 와이어를 쓰지 않는다.
+ *
+ * **레이드 진입 로딩** (`load`, owner: game/). 발사 카운트다운이 끝나면 각자 암전 → 월드 생성 · 셰이더 컴파일 진행도를 `others` 로
+ * 알리고(`p`), 호스트가 전원(사람, 연결 · 미션 안) 완료 또는 `RAID_LOAD_TIMEOUT_S` 에 `go` 를 보낸다. 늦은 사람은 자기 로딩이 끝나면 혼자 풀린다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+import type { ItemInstance as AllyItemInstance, ItemRequestKind } from './types';
+
+/** 공용 함선 조종실의 안드로이드 슬롯 수 — 함선 모델 · 릴레이 판정이 같이 쓰는 구조 상수 (릴레이는 csv 를 못 읽는다). */
+export const ANDROID_BAY_COUNT = 3;
+/** 안드로이드 id 접두어. 프로필 PeerId(base64url 12자)에는 `:` 가 없어 겹칠 수 없다. */
+export const ANDROID_ID_PREFIX = 'android:';
+
+/** `scope` = 로비 코드 (서버 없는 치트 명단은 `'local'`). */
+export function androidIdOf(scope: string, bay: number): PeerId {
+  return `${ANDROID_ID_PREFIX}${scope}:${bay}`;
+}
+export function isAndroidId(id: unknown): boolean {
+  return typeof id === 'string' && id.startsWith(ANDROID_ID_PREFIX);
+}
+
+export interface LobbyPlayer {
+  /** true = 안드로이드 봇 멤버 (소켓 없음). 생략 = 사람. */
+  bot?: boolean;
+  /** 봇이 나온 조종실 슬롯 0..ANDROID_BAY_COUNT-1. */
+  bay?: number;
+  /** 봇이 들어온 서버 epoch ms — 사람이 가득 찬 로비에 합류하면 가장 늦은 봇부터 슬롯으로 돌아간다. */
+  recruitedAt?: number;
+}
+
+export function isBotPlayer(p: LobbyPlayer | null | undefined): boolean {
+  return !!p && p.bot === true;
+}
+/** 사람 멤버만 (연결 여부와 무관). */
+export function humanPlayersOf(lobby: LobbyState | null | undefined): LobbyPlayer[] {
+  return lobby ? lobby.players.filter((p) => p.bot !== true) : [];
+}
+/** 봇 멤버만, bay 순. */
+export function androidPlayersOf(lobby: LobbyState | null | undefined): LobbyPlayer[] {
+  return lobby ? lobby.players.filter((p) => p.bot === true).sort((a, b) => (a.bay ?? 0) - (b.bay ?? 0)) : [];
+}
+export function androidOnBay(lobby: LobbyState | null | undefined, bay: number): LobbyPlayer | null {
+  return lobby?.players.find((p) => p.bot === true && p.bay === bay) ?? null;
+}
+
+export type ClientToServerAppended2026_09_15android =
+  /** 분대장: 조종실 슬롯 `bay` 의 안드로이드를 분대원으로 들인다(`recruit`) / 슬롯으로 돌려보낸다. 결과는 `lobby:state`. */
+  | { t: 'lobby:android'; bay: number; recruit: boolean };
+
+export type ServerToClientAppended2026_09_15android =
+  /** 안드로이드 한 기가 분대에 들지 못하고 / 분대에서 빠져 슬롯으로 돌아갔다 (`full` = 요청자에게만, `human_joined` = 로비 전원). */
+  | { t: 'lobby:androidReturned'; bay: number; reason: 'human_joined' | 'full' };
+
+export interface NetRef {
+  /** 분대장 전용 → `lobby:android`. 연결 · 로비가 없으면 아무것도 하지 않는다. 결과는 `net:lobbyUpdated` 또는 `net:error`. */
+  setAndroidBay?(bay: number, recruit: boolean): void;
+}
+
+/** 한 기의 스냅샷 (호스트 → 전원, `ALLY_NET_INTERVAL_S`). 좌표는 소수 2자리로 줄여 보낸다. */
+export interface AllyWire {
+  id: PeerId;
+  /** `ALLY_MODES` index. */
+  md: number;
+  /** `ALLY_STATES` index. */
+  st: number;
+  /** `ALLY_POSES` index. */
+  po: number;
+  p: Vec3Tuple;
+  v: Vec3Tuple;
+  y: number;
+  pt: number;
+  hp: number;
+  mhp: number;
+  sh: number;
+  msh: number;
+  /** 쓰러짐 출혈 풀 (0 = 서 있다). */
+  dhp: number;
+  /** `ALLY_FLAGS` 비트. */
+  f: number;
+  /** 주무기 · 방탄복 · 가방 def id. */
+  w: string | null;
+  a: string | null;
+  b: string | null;
+  /** 업고 있는 사람 PeerId. */
+  c: PeerId | null;
+  /** 시선 · 조준점. */
+  lk?: Vec3Tuple;
+}
+
+export type AllyMessage =
+  /** 호스트 → 전원: 모든 기의 스냅샷 (함선에서는 `inHubSession` 동안, 레이드에서는 세션 동안). 늦은 합류자의 `allyq sync` 답도 이것 + `bag`. */
+  | { t: 'ally'; ev: 'state'; allies: AllyWire[] }
+  /** 호스트 → 전원: 한 기의 장비 · 가방이 바뀌었다 (호스트 승계 · 시체 · 디버그용). `kit` = 기본 킷 장비 uid (묶인 물건). */
+  | { t: 'ally'; ev: 'bag'; id: PeerId; equip: { primary: AllyItemInstance | null; armor: AllyItemInstance | null; bag: AllyItemInstance | null }; items: AllyItemInstance[]; kit: string[] }
+  /** 호스트 → 전원: 한 발 (연출 · 소리 — 피해는 호스트가 이미 넣었다). */
+  | { t: 'ally'; ev: 'fire'; id: PeerId; from: Vec3Tuple; to: Vec3Tuple; w: string | null }
+  /** 호스트 → 전원: 안드로이드가 핑을 찍었다. 받는 쪽 ui 가 안드로이드 이름으로 그린다. */
+  | { t: 'ally'; ev: 'ping'; id: PeerId; kind: PingKind; p: Vec3Tuple; label?: string; enemyId?: number }
+  /** 호스트 → 전원: 안드로이드의 채팅 한 줄. 받는 쪽은 다시 relay 하지 않는다. */
+  | { t: 'ally'; ev: 'chat'; id: PeerId; text: string }
+  /** 호스트 → `target`: 안드로이드가 너를 일으켰다 (`defib` = 제세동기 — 사람의 제세동기와 같은 회복). */
+  | { t: 'ally'; ev: 'revive'; id: PeerId; target: PeerId; defib?: 1 }
+  /** 호스트 → 전원: 강하 포드 낙하 연출 (player `RemotePods`). */
+  | { t: 'ally'; ev: 'drop'; id: PeerId; p: Vec3Tuple; yaw: number }
+  /** 호스트 → `to`(분대장): 탈출한 안드로이드가 레이드에서 주운 물건 — 받는 쪽이 자기 창고에 넣는다. */
+  | { t: 'ally'; ev: 'deposit'; id: PeerId; to: PeerId; items: AllyItemInstance[] };
+
+export type AllyRequest =
+  /** 늦은 합류 · 재접속 → 호스트: `ally state` + 기마다 `ally bag`. */
+  | { t: 'allyq'; ev: 'sync' }
+  /** 분대원 → 호스트: 쓰러진 안드로이드를 일으켰다 (소생 홀드 완료 · 제세동기). 호스트가 거리 · 상태를 다시 본다. */
+  | { t: 'allyq'; ev: 'revive'; id: PeerId; defib?: 1 }
+  /** 분대원 → 호스트: 인벤토리 요청 (가운데 클릭 · 메뉴). `p` = 요청자 위치. */
+  | { t: 'allyq'; ev: 'item'; kind: ItemRequestKind; defId?: string; ammoType?: string; p: Vec3Tuple }
+  /** 분대원 → 호스트: 내가 이 컨테이너를 열었다 — 그 상자를 먹던 안드로이드는 멈춘다. */
+  | { t: 'allyq'; ev: 'viewing'; containerId: string };
+
+export type LoadMessage =
+  /** 각자 → others: 이 시드의 로딩 진행도 0..1 (`RAID_LOAD_REPORT_S` 마다, 1 = 끝). */
+  | { t: 'load'; ev: 'p'; seed: number; v: number }
+  /** 호스트 → 전원: 풀어라 (전원 완료 · 시간 초과). `to` 1 = 시간 초과. */
+  | { t: 'load'; ev: 'go'; seed: number; to?: 1 };
+/* ══ end 2026-09-15 안드로이드 분대원 · 레이드 진입 로딩 ══ */
