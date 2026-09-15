@@ -606,6 +606,8 @@ export class CraftDetail implements CraftDetailHandle {
       e.preventDefault();
       this.hooks.onPress(this.recipe.id);
     });
+    // 홀드 중에 이 버튼 밑의 DOM 을 옮기거나 다시 그리면 안 된다 — 재배치가 `pointerleave` 로 읽혀 제작이 풀린다.
+    // 그래서 홀드 동안은 게이지만 칠한다.
     this.button.addEventListener('pointerleave', () => this.hooks.onRelease());
     this.lessBtn.addEventListener('click', (e) => { e.stopPropagation(); this.step(-1); });
     this.moreBtn.addEventListener('click', (e) => { e.stopPropagation(); this.step(1); });

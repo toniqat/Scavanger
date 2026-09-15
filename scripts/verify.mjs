@@ -3,7 +3,7 @@
  * Verification runner — the one command to run after a change.
  *
  *   node scripts/verify.mjs                      # --changed: smokes for the folders touched in the working tree
- *   node scripts/verify.mjs --all                # everything (typecheck, build, selftest, 8 smokes, e2e) — before a merge
+ *   node scripts/verify.mjs --all                # everything (typecheck, build, selftest, every smoke in SMOKES, e2e) — before a merge
  *   node scripts/verify.mjs --folders weapons,ui # smokes mapped to those feature folders
  *   node scripts/verify.mjs --only smoke-weapons,e2e-mp
  *   node scripts/verify.mjs --rerun-failed       # only what failed in the previous run (scripts/logs/last-run.json)
@@ -25,7 +25,7 @@
  *      scripts/logs/<name>.log; only the summary and the FAIL lines are printed. SMOKE_GL=swiftshader (no GPU / CI) is
  *      ~10× slower and CPU-bound: measured 2026-09-06, one script ≈ 140 s alone and 2 lanes gained nothing (31 min total).
  *   4. e2e-mp runs alone at the end (two browsers, 15 s waits — sensitive to CPU contention).
- *   5. Writes scripts/logs/last-run.json and prints a one-line result string ready to paste into docs/VERIFICATION.md.
+ *   5. Writes scripts/logs/last-run.json and prints a one-line result string ready to paste into the commit message (its `검증:` line).
  *   Servers started here are stopped on exit; servers found running are left alone.
  */
 import { spawn, spawnSync } from 'node:child_process';
@@ -46,7 +46,7 @@ const isWin = process.platform === 'win32';
 // ─── Job catalogue ─────────────────────────────────────────────────────────────────────────────────────────────
 // `folders` = feature folders (src/<name>, or `server`) whose changes make this script relevant.
 // `standalone: true` = neither vite nor the relay is used, so the runner does not start them.
-// Keep this in sync with the "Verification" section of CLAUDE.md when a smoke is added.
+// When a smoke is added, also add its row to scripts/README.md.
 const SMOKES = {
   'smoke-weapons':      { file: 'scripts/smoke-weapons.mjs',      folders: ['weapons', 'items', 'inventory', 'hub', 'pickups', 'audio'] },
   /* 2026-09-14 (모든 총알을 발사체로): 150 m 낙차 ≈ ½·g·t² · 도착 ≈ d/v · 날아간 거리의 거리 감소 · 총구 앞 벽 즉시 명중 · 산탄 펠릿 전부 발사 · 명중 ·

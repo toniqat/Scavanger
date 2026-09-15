@@ -26,7 +26,7 @@ interface Ask {
  *
  * - `설정` opens the shared `SettingsMenu` overlay on top of this menu (`onSettings`, owned by HudSystem); the key
  *   rebinding lives inside it, so this menu no longer carries its own `키 설정 변경` button.
- * - `함선으로 귀환` emits `hub:enter {ship}` (shared ship while in a lobby, else personal); the hub aborts the mission.
+ * - `함선으로 귀환` emits `game:returnToShip` (during a raid that is death + `leaveMission`; never `hub:enter`, which would abort the whole squad).
  * - `타이틀로` leaves the lobby first (so `game:abort` does not regroup us in the shared ship) and then aborts, which
  *   sends GameFlow to `menu` and tears the hub down → the title screen.
  *

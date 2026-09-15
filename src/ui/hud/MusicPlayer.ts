@@ -6,7 +6,7 @@ import { el, setText, toggleClass } from '../dom';
 /**
  * 음악 재생 창 (2026-09-14 사용자 결정) — 축음기 · 주크박스 · 턴테이블을 켜면 **화면에 늘 떠 있는 작은 창**으로
  * 지금 곡의 제목 · 아티스트 · 볼륨 · 진행을 보여 준다. **소리는 나지 않는다** (`housing/parts/Music` 이 상태의 주인이고
- * 여기서는 그 사실 하나만 그린다 — 이 위젯은 `ctx.housing` 을 호출하지 않고 `housing:musicChanged` 만 듣는다).
+ * 여기서는 그 사실을 그린다 — 상태는 `housing:musicChanged` 로 받고, 버튼만 옵셔널 조작 계약 `musicPrev` · `musicNext` · `setMusicMode` · `musicStop` 을 부른다).
  *
  *  - **함선에서만** 보인다 (`ctx.phase === 'hub'`). 레이드 · 훈련장 · 타이틀에서는 housing 이 이미 상태를 끄지만
  *    페이즈 게이트를 한 번 더 둬서 「상태가 남았는데 창이 뜬다」가 원천적으로 없다.

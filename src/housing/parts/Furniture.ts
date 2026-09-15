@@ -372,7 +372,7 @@ function ownsFurniture(sys: HousingSystem, defId: string): boolean {
  * (`interaction: 'none'`)는 얼마든지 만든다. 순서는 다른 block 함수와 같다 — 구조 → 튜토리얼 → 보유 → 재료.
  *
  * **규칙 자체(`canCraftFurniture` / `craftFurniture`)는 바뀌지 않았다** — 이것은 화면이 카드를 딤드로 그리고
- * 목록 맨 아래로 내리기 위한 질의다 (README 의 `알려진 한계` 참고).
+ * 목록 맨 아래로 내리기 위한 질의다 (CLAUDE.md §4 「같은 실용 가구를 둘 만들 이유가 없다」).
  */
 export function furnitureCraftBlock(sys: HousingSystem, defId: string): string | null {
   const def = FURNITURE_DEF_MAP.get(defId);

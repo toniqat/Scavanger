@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * 서버 크레딧 검증 계약 (2026-09-11, E-4 — docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」, 사용자 결정 "서버 크레딧 검증까지").
+ * 서버 크레딧 검증 계약 (2026-09-11, E-4 — 커밋 `9bd72ce`(계약) · `b3fc2f0`(구현), 사용자 결정 "서버 크레딧 검증까지").
  *
  * Until now `credits:tx {delta, reason}` was applied blindly: the relay only refused a balance below 0. The relay now
  * **parses `reason`** and checks `delta` against an economy table generated from `data/*.csv`:

@@ -19,7 +19,7 @@ import type { PlacedBook, PlacedFurniture, RoomPurpose } from './housing';
 import type {
   PlayOutcome, PlayerCode, SocialErrorCode, SocialRef, SocialSnapshot, SquadInvite,
 } from './social';
-/* appended (2026-09-11): 소셜 · 신뢰 · 연결 (docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」) */
+/* appended (2026-09-11): 소셜 · 신뢰 · 연결 (커밋 `9bd72ce`(계약) · `b3fc2f0`(구현)) */
 import type { InviteOutcome } from './social';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -1759,7 +1759,7 @@ export interface NetRef {
   reconnectRelay(): Promise<boolean>;
 }
 
-/* ══ appended: 2026-09-11 — 소셜 · 신뢰 · 연결 (docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」) ═════════════════════════════════════
+/* ══ appended: 2026-09-11 — 소셜 · 신뢰 · 연결 (커밋 `9bd72ce`(계약) · `b3fc2f0`(구현)) ═════════════════════════════════════
  * B-3 초대 결과 · B-4 차단 / 전송 확인 / 오프라인 보관 · E-6 문서 리비전 · B-1 링크 상태. 전부 추가만.
  * Owners: server/ (①소셜 · ③저장), net/ (②소셜 · ③ProfileSync · ④Socket), ui/ · hub/ (②④).
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */

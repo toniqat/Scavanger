@@ -81,8 +81,8 @@ interface MapPing { id: number; kind: PingKind; position: THREE.Vector3; expires
  * Tactical map (M). Static terrain layer (height shading + hillshade + contours) cached per
  * `world:ready`; dynamic layer (pads, nests, crates, pings, player, ship) redrawn every frame while open.
  * Wheel zooms around the cursor, left-drag pans, **middle-click drops a ping** (Phase 10, `setPingPlacer`).
- * Adds `ctx.uiBlockers` token 'map' and enters software-cursor mode with the same token — the pointer lock is kept
- * (Phase 10 §2), so there is no `exitPointerLock()` and no relock microtask.
+ * Adds `ctx.uiBlockers` token 'map' and enters cursor mode with the same token — that releases the pointer lock
+ * (`Input.setCursorMode`); the relock on close is `main.ts`'s single relock point.
  *
  * 2026-09-09: **Tab (`Keys.INVENTORY`) closes it too** (consumed, so the inventory does not open on the same press —
  * `InventorySystem` polls earlier in the frame but its own guard already refuses while the `'map'` blocker is up),
@@ -470,8 +470,8 @@ export class MapScreen {
     const ctx = this.ctx;
     if (!ctx.world?.ready) return;
     this._open = true;
-    // Phase 10 (§2): the pointer lock is KEPT and the software cursor drives the UI — no `exitPointerLock()` here, so
-    // the OS cursor never wanders onto another monitor. `setCursorMode` is ref-counted by the blocker token.
+    // Cursor mode releases the pointer lock and the real cursor drives the UI. `setCursorMode` is ref-counted by the
+    // blocker token; no explicit `exitPointerLock()` is needed here.
     ctx.uiBlockers.add(BLOCKER);
     ctx.escape.push(BLOCKER, () => this.close());
     ctx.input.setCursorMode(true, BLOCKER);

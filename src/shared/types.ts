@@ -900,7 +900,10 @@ export interface PlayerRef {
   heal(amount: number): void;
   /** Teleport & reset (used at mission start). */
   respawnAt(position: THREE.Vector3, yaw?: number): void;
-  /** Player physically inside the extraction ship; movement constrained to this box (world space). */
+  /**
+   * Player physically inside the extraction ship; movement constrained to this box (world space).
+   * The bounds object is **held by reference** and its owner rewrites it every frame (the ship moves) — never pass a snapshot.
+   */
   setShipInterior(bounds: { center: THREE.Vector3; halfExtents: THREE.Vector3 } | null): void;
   /** Lock movement/shooting (cutscenes, liftoff). Camera still follows. */
   setControlsEnabled(enabled: boolean): void;
@@ -1262,6 +1265,7 @@ export interface InventoryRef {
   /**
    * Remove `qty` units (default: the whole stack) of bag / stash item `uid` without dropping it (corp sale). Equipped
    * gear is refused. Returns how many units were removed (0 = not found / refused). Clears quick slots at 0.
+   * The units **leave the inventory** (sale / consumption) — moving an item between grids is `quickMove`, not this.
    */
   takeItem(uid: string, qty?: number): number;
 
@@ -1702,7 +1706,7 @@ export interface InventoryRef {
 }
 
 /* ══ appended: 2026-09-08 — 임플란트(능력치 장착 아이템) · 배리어 충돌 · 총알 추적 · 스캔 실루엣 ═══════════════════
- * Contract for the 2026-09-08 batch (see `src/shared/README.md`, last section, and `docs/DECISIONS.md`).
+ * Contract for the 2026-09-08 batch (see `docs/DECISIONS.md` 「Phase 12」).
  * Append-only, as always. Owners are named per member.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
@@ -1894,6 +1898,8 @@ export interface WorldRef {
    *
    * `feetY` 를 주면 그 발 높이에서 **올라설 수 있는** 윗면만 본다 (`feetY + PROP_STEP_UP_MAX` 이하).
    * 주지 않으면 그 자리에서 제일 높은 윗면을 돌려준다 (총알 · 낙하 판정용).
+   * 움직이는 몸은 이것을 **`resolveCollision` 보다 먼저** 부른다 — 순서를 뒤집으면 옆으로 밀려난 뒤라
+   * 낮은 턱에 영영 올라서지 못한다 (`player/PlayerController` · `gadgets/drones/GroundDrone` 이 이 순서다).
    */
   getSurfaceY(x: number, z: number, feetY?: number): number;
   /**
@@ -2578,7 +2584,7 @@ export interface PlayerRef {
   readonly buffsRevision?: number;
 }
 
-/* ══ appended (2026-09-11): C 항목 배치 계약 (docs/HISTORY.md 「2026-09-11 (14차: C 항목 배치)」) ═══════════════════════════════════ */
+/* ══ appended (2026-09-11): C 항목 배치 계약 (커밋 `36e15e3`(계약)) ═══════════════════════════════════ */
 
 export interface EnemyManagerRef {
   /**

@@ -36,6 +36,8 @@ export class Input {
     if (this.bound) return;
     this.bound = true;
     this.lockTarget = target;
+    // `window` 리스너는 등록 순서대로 돈다 — 키를 삼켜야 하는 오버레이(채팅 · 콘솔 · 팝업)는 **capture** 단계에 걸어야
+    // 여기보다 먼저 받는다. 스모크도 키를 `document.body` 에 쏜다 (window 에 직접 쏘면 이 순서를 건너뛴다).
     window.addEventListener('keydown', (e) => {
       // Tab/Esc are game keys; Alt would otherwise focus the browser menu bar (커서 호출 키).
       if (e.code === 'Tab' || e.code === 'Escape' || e.code === 'AltLeft' || e.code === 'AltRight') e.preventDefault();
@@ -208,7 +210,7 @@ export class Input {
 
   /* ── 2026-09-10: Escape 직후의 재잠금은 **미룬다** (exe 에서 ESC 로 화면을 닫으면 조작이 죽던 문제) ────────────
    *
-   * Electron 44 / Chromium 실측 (`docs/HISTORY.md` 2026-09-10):
+   * Electron 44 / Chromium 실측 (커밋 `3b12420`):
    *   ① 화면이 열려 있는 동안에는 락이 없다. Escape 로 화면이 닫히면 `main.ts` 가 **같은 프레임에** 락을
    *      요청하고 Chromium 은 그것을 **허가한다** — 그런데 아직 처리 중이던 그 Escape 가 방금 생긴 락을
    *      곧바로 도로 가져간다. 브라우저 눈에는 *플레이어가 Escape 로 락을 푼 것*이다.

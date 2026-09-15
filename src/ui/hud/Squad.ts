@@ -24,7 +24,7 @@ interface Ghost { bleed: number; dead: boolean }
 const NO_GHOST: Ghost = { bleed: -1, dead: false };
 
 /**
- * Compact squad list (top-left, under the objective): slot colour bar, name, mission badge, hp bar, state text.
+ * Compact squad list (bottom-left `.hud-bl` column, above the local vitals): slot colour bar, name, mission badge, hp bar, state text.
  * Local player first (from `ctx.player`), then lobby members by slot (`ctx.net.getRemotePlayer`).
  * Visible while `ctx.isMultiplayer` (mission) or in the shared ship (hub phase with a lobby); refreshed at ≤ 10 Hz
  * and only writes the DOM when a row changed. Hub states: `함선 내` / `탑승 준비` (`LobbyPlayer.ready`);

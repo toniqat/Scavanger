@@ -156,6 +156,8 @@ export class HousingSystem implements GameSystem, HousingRef {
       b.on('game:phaseChanged', ({ phase }) => { if (phase !== 'hub') { this.closeMenus(); this.exitHousingMode(); } }),
       b.on('net:profileLoaded', () => this.onProfileLoaded()),
     );
+    // 이 발행은 init 안이라 **뒤에 등록되는 시스템은 못 듣는다** — 그쪽은 자기 init 에서 `ctx.housing.state` 를 읽고,
+    // hub 는 `net:profileLoaded` 뒤의 재발행(`onProfileLoaded`)에서 다시 짓는다.
     b.emit('housing:loaded', { state: this.state });
     this.lastStash = this.getStashSize();
     b.emit('housing:stashSizeChanged', { ...this.lastStash });

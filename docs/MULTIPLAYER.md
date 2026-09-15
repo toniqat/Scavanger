@@ -1,111 +1,180 @@
-# 멀티플레이 계약 (host-authoritative, 최대 4인)
+# Multiplayer contract (host-authoritative, up to 4 players)
 
-[CLAUDE.md](../CLAUDE.md) 에서 분리했다. 와이어 타입은 전부 [`src/shared/net.ts`](../src/shared/net.ts) 에 있고,
-서버도 그 파일만 import 한다. 폴더별 상세: [src/net](../src/net/README.md) · [server](../server/README.md) ·
-[src/enemies](../src/enemies/README.md) · [src/hub](../src/hub/README.md) · [src/player](../src/player/README.md)
+Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/net.ts`](../src/shared/net.ts) (drones in
+`src/shared/drones.ts`), and the server imports only that. Per-folder detail: [src/net](../src/net/README.md) ·
+[server](../server/README.md) · [src/enemies](../src/enemies/README.md) · [src/hub](../src/hub/README.md) · [src/player](../src/player/README.md)
 
 ---
 
-## 1. 기본 계약
+## 1. Base contract
 
-- **Topology**: browser clients ↔ Node WebSocket relay (`server/`). The lobby **host** simulates enemies, waves and extraction; every client simulates its own player only. `ctx.isAuthority` (single-player OR host) gates simulation; `ctx.isMultiplayer` gates networking. All wire types live in `src/shared/net.ts` (also imported by the server).
+- **Topology**: browser clients ↔ Node WebSocket relay (`server/`). The lobby **host** simulates enemies, extraction and other
+  shared world state; every client simulates its own player only. `ctx.isAuthority` (single-player OR host) gates simulation;
+  `ctx.isMultiplayer` gates networking. The relay is opaque to game messages (`relay`) and authoritative only for lobbies,
+  profiles, social, rooms, credits and crypto prices. Constants: `NET_*` in `src/shared/net.ts` (`NET_MAX_PLAYERS`, rates, delays).
 
-- **Players**: `PlayerSnapshot` (`ps`, 20 Hz, pos/vel/yaw/pitch/stance/flags/hp/weapon/stride) → `NetSystem` interpolates with a 0.12 s buffer + ≤0.25 s extrapolation → `player/RemotePlayerSystem` drives a slot-coloured `SoldierModel` (`RemoteAvatar`), `weapons/RemoteWeapons` parents a `WeaponModel` and replays fire/reload/grenade FX, `ui/hud/Nameplates` + `Squad` + `MapScreen` show them. Spawn = 4 m ring by slot.
+- **Players**: `PlayerSnapshot` (`ps`, `NET_PLAYER_SNAPSHOT_HZ`: pos/vel/yaw/pitch/stance/flags/hp/shield/weapon/stride, plus
+  optional `hs` ship id, `bfr` buff revision, `fp`/`fu` furniture pose) → `NetSystem` interpolates with `NET_INTERP_DELAY` + short
+  extrapolation → `player/RemotePlayerSystem` drives a slot-coloured `SoldierModel` (`RemoteAvatar`), `weapons/RemoteWeapons`
+  replays fire/reload/grenade FX, `ui/hud/Nameplates` + `Squad` + `MapScreen` show them. Omitted optional fields mean "unknown",
+  never 0 — receivers fall back (e.g. shield restores to max).
 
-- **Enemies**: host broadcasts `es` (full snapshot, 10 Hz, ~90 B/bug) + `ee` events (spawn/kill/despawn/damaged/attack/acid/wave); clients run replicas (no AI) with interpolation. Client shots hit replica hitboxes locally → replica `takeDamage` sends `hit` to host → host applies damage → `hitc` back (kill hitmarker + kill credit). Explosions → `explode`. AI targets any player (`enemies/Targets.ts` `CombatTarget`); remote victims get `dmg` (+ optional slow) via `ctx.net.send(..., peerId)`.
+- **Enemies**: host broadcasts `es` (`NET_ENEMY_SNAPSHOT_HZ`, a **delta** stream with a keyframe every `NET_ENEMY_KEYFRAME_S`)
+  + `ee` events (spawn/kill/despawn/damaged/attack/acid/shell/corpse/grenade/named/worm …); clients run replicas (no AI) with interpolation. Client
+  shots hit replica hitboxes locally → `hit` to host → host applies damage → `hitc` back (hitmarker + kill credit).
+  Explosions → `explode`; status effects ride `hit.st` (bits of `ENEMY_STATUS_BITS`); shell intercepts → `intq`. Client bullets report to the host with `shotq` (enemy alerting). AI targets any
+  player (`enemies/Targets.ts` `CombatTarget`); remote victims get `dmg` (with damage source `src`) via `ctx.net.send(..., peerId)`.
 
-- **Extraction**: host owns the countdown and broadcasts `ex` (activated/tick 0.5 s/shipIncoming/shipLanded/boarding/liftoff/reset); clients send `exq` (activate/board/liftoff). Liftoff requires every alive connected player boarded (`탑승 대기 중 (n/m)`).
+- **Extraction**: host owns the countdown, idle timer and departure grace and broadcasts `ex`
+  (`activated` · `tick` · `shipIncoming` · `shipLanded` · `boarding` · `wait` · `depart` · `liftoff {riders, squadDone}` · `reset` · `sync`);
+  clients send `exq` (`activate` · `board` · `liftoff` · `sync`). Liftoff takes **only riders who are aboard and alive**; the rest
+  keep playing. Full table: [src/extraction/README.md](../src/extraction/README.md).
 
-- **Flow**: `game:paused {freeze:false}` in multiplayer (menu only, world keeps running — Engine + enemies honour it). A dead player spectates (`SpectateOverlay`); host sends `flow over` when everyone is dead, `flow abort` when the host aborts → whole squad returns to the lobby (`NetSystem` sends `lobby:reset`). Death/complete screens show `로비로` while a lobby exists.
+- **Flow** (`flow`): `game:paused {freeze:false}` in multiplayer (menu only, the world keeps running). A dead player spectates
+  (`ui/hud/SpectateOverlay`). Host sends `flow over` on a squad wipe, `flow complete` when everyone left aboard, `flow abort` when
+  the host aborts; `flow takeover` after a host change makes clients re-sync; `flow rejoined` answers a rejoin.
 
-- **Ship hub & reconnection** (2026-09-05): title `함선 탑승` → `hub:enter personal` (hub calls `ensureConnected`; a token still in a lobby resumes straight into the shared ship). Terminal quick match (`lobby:quickmatch` → public lobby) or code → `docking` cutscene → shared ship at world origin (all clients build identical geometry, so hub snapshots line up). Pod board = `setReady(true)`; all connected members ready → 3 s countdown → host `startGame(seed)`. Socket drop: server keeps the slot 5 min (`connected=false`), client reconnects with backoff; same mission still running → `net:resumed {seamless:true}` (host keeps authority through its own drop); page reload → shared ship, and `missionInProgress` lets a pod `rejoinMission()` (world by seed, enemies from full `es`, `exq sync` → `ex sync`, `itemq sync` → `item sync`). Mission end/abort → everyone back to the shared ship; only `leaveLobby()` (도킹 해제) leaves.
+- **Pickups** (`item`/`itemq`): host-authoritative, ids `${peerId}-${n}`, client drops are optimistic and echoed by the host.
+  **Containers** (`cont`/`contq`): contents are deterministic from the seed, the **taken state** is host-authoritative; player
+  corpses are containers with id `pcorpse:<owner>:<n>` and ride the same path. **Opened look** of crates/containers: `crate`.
+- **Chat**: `chat {text, kind}` relayed to others, also in the hub. **Pings**: `ping {p, kind, label?, enemyId?}` + `pingack`.
+  **Comms wheel**: `comm`.
 
-- **Pickups**: host-authoritative (`item`/`itemq`), ids `${peerId}-${n}`, client drop is optimistic and echoed by the host. **Chat**: `chat {text, kind}` relayed to others, also in the hub. **Pings**: `ping {p, kind, label?, enemyId?}` (label/enemyId read via `onMessage('ping')`).
+### Message families and owners
 
-## 2. Phase 별로 더해진 것
-
-- **Phase 7 (2026-09-06)**: a member whose socket drops mid-raid keeps a **ghost** body on the host (`suspended` ref: enemies keep targeting it, it can be downed / bleed out / be revived, everyone sees it grey with `연결 끊김`); its inventory / stats are saved to the server (`raid:save`) and handed back with the ghost's hp / position on rejoin (`ghost restore`). The **host migrates** 4 s after it drops (`net:hostChanged` → enemies promote replicas, extraction / pickups / gadgets continue, `flow takeover` makes clients re-sync). **Squad wipe** ends the raid (`flow over` → 레이드 실패). Container contents stay deterministic but the **taken state is host-authoritative** (`contq / cont`). Replica grenades damage the local player. Remote poses / held items / attachments / armor / overcharge beams replicate. A **training** (`lobby:start {mode:'training'}`, any member) keeps the lobby open; members join / leave individually (`lobby:mission`).
-
-- **Phase 9 (2026-09-07)**: a dropped member's ghost now inherits its real bleed pool, and a member that leaves the mission (page reload) has its ghost **parked** for `NET_GHOST_PARK_S` instead of dropped. The host role migrates only to someone inside the raid. `es` is a **delta** stream with a keyframe every `NET_ENEMY_KEYFRAME_S`. Live ship calls (`strat sync`), a standing barrier and the squad's contract hits (`meta sync`) reach a late joiner; pickups / gadgets / gather / containers re-sync on a takeover.
-
-- **Phase 11 (2026-09-07)**: `LobbyState.planet` 은 **호스트만** 정하고(`lobby:planet`), 모든 멤버가 자기 `lobby:state` 를 보고 워프 컷씬을 돈다 — 별도 이동 메시지는 없다. 목표 행성 없이 레이드를 시작하면 서버가 `no_planet` 으로 거부하고(훈련장은 무관), `lobby:reset` 후에도 목적지는 남는다. **소셜은 로비 밖에서도 오간다**: 릴레이가 친구 watcher 인덱스로 `social:state` 를 밀어 주고 귓속말 · 분대 초대를 아이디로 라우팅한다. 모든 `LobbyState` 에 각 멤버의 아이디 · 레벨이 실린다.
-
-- **2026-09-08 (공용 함선 격납고)**: 공유 함선 뒤 격납고에는 분대원 개개인의 **개인 함선**이 정박해 있고, 그 사람의 함선 안으로 걸어 들어갈 수 있다. 남의 함선 내부를 그리려면 배치 정보가 필요해서 `ship state` (`ShipVisitWire` — 방 용도 · 시설 레벨 · 배치 가구 · 꽂힌 책)가 새로 생겼다. 동작은 **크루 카드와 같다**: 공유 함선 도착 시 `others` 로 한 번 뿌리고 나머지에게 `shipq state` 를 요청, 내 함선이 바뀌면 디바운스 재방송, 요청에는 쿨다운을 두고 즉답. 서버는 여전히 내용을 보지 않는다(불투명 릴레이). 창고 · 프리셋 · 도감은 보내지 않는다 — **방문은 둘러보기 전용**이라 그릴 것만 있으면 된다. 함선을 드나드는 것은 **로비 상태를 전혀 바꾸지 않는다**(도킹도 아니고 임무도 아니다). 인테리어가 전부 월드 원점에 지어지므로 "지금 어느 함선 안인가"를 `PlayerSnapshot.hs` 로 알려서(`null` = 공유 데크) 값이 다른 아바타는 그리지 않는다 — 같은 함선을 구경 중인 둘은 서로 보인다.
-
-- **2026-09-09 (분대장 지명 이관 · 구조선 투하)**: 아래 4절 · 5절.
-
-## 4. 분대장(호스트) 지명 이관
-
-이관 경로가 이제 **셋**이다. 앞의 둘은 예전부터 있던 자동 이관이고, 셋째가 2026-09-09 에 더해진 **지명**이다.
-
-| 경로 | 누가 정하나 | 언제 |
+| Family | Direction | Owner |
 |---|---|---|
-| 자동 (드롭) | 서버 | 호스트 소켓이 끊기고 `NET_HOST_MIGRATE_DELAY_MS` 가 지나면 — 레이드 중이면 **미션 안에 있는** 접속 멤버에게, 아무도 없으면 **주차**(parked) |
-| 자동 (미션 이탈) | 서버 | 접속 중인 호스트가 `lobby:mission false` (새로고침 · 함선 복귀) 를 보내면 즉시 |
-| **지명** | **사람** | `lobby:transferHost {targetId, claim?}` — 커뮤니티 창 우클릭 · 공용 함선 안 상호작용 · 시체 옆 분대장 기기 |
+| `ps` · `fire` · `reload` · `grenade` (`fire` flag for G-10) · `melee` · `died` · `fall` | peer → others | player / weapons |
+| `es` · `ee` · `hit` · `hitc` · `explode` · `intq` · `dmg` · `shotq` | host ↔ clients | enemies |
+| `ex` · `exq` | host ↔ clients | extraction |
+| `strat` · `stratq` (`call` via host, `deny` refunds cooldown) · `rescue` · `pod` | host ↔ clients | stratagems / player |
+| `gad` · `gadq` · `imp` · `buff` · `revive` · `harv` · `harvq` | mixed (see types) | gadgets / implants / player / world |
+| `drone` · `droneq` | **owner** ↔ others | gadgets/drones |
+| `ghost` · `ghostq` · `raid:save` | host ↔ clients / server | game / net |
+| `pcorpse` · `pcorpseq` · `lead` · `leadq` · `fog` · `fogq` | host ↔ clients | game / world |
+| `struct` · `structq` · `tram` · `tramq` · `hz` · `hzq` · `rdrop` · `rover` · `roverq` | host ↔ clients | world / enemies |
+| `meta` · `metaq` | peer ↔ peer | meta |
+| `crew` · `crewq` · `ship` · `shipq` · `carry` · `meal` · `cbuf` · `cbufq` | peer ↔ peer / host | net / hub / player |
 
-**와이어 (`src/shared/net.ts`)**
+## 2. Ship hub & reconnection
 
-- `{t:'lobby:transferHost', targetId, claim?}` → 서버가 받아 주는 경우는 둘뿐이다:
-  ① 보낸 사람이 **지금 호스트**다, 또는 ② `claim === true` 이고 현재 호스트가 `lobby:hostDown` 으로 **사망 표시**를
-  켜 두었다. 그 외에는 `lobby:error {code:'not_host'}`. `targetId` 가 같은 로비의 **연결된** 멤버가 아니면 `invalid`,
-  로비 밖이면 `not_in_lobby`. 성공하면 `Lobby.transferHostTo` 가 `hostId` 와 모든 `LobbyPlayer.isHost` 를 갱신하고
-  **사망 표시를 지운 뒤** `lobby:state` 를 방송한다 — 즉 같은 claim 을 두 번 쓸 수 없다.
-  이미 그 사람이 호스트면 방송 없이 보낸 사람에게만 상태를 되돌려 준다 (`lobby:planet` 의 no-op 과 같은 규약).
-- `{t:'lobby:hostDown', down}` → **호스트 본인만** 세울 수 있다 (`not_host`). `LobbyState` 에 실리지 않으므로
-  **아무것도 방송하지 않는다** — 남들은 그냥 claim 을 시도하고 `not_host` 로 알게 된다. 미션이 끝나거나
-  (`lobby:reset` · `autoResetMission` → `Lobby.reset()`) 호스트가 바뀌면(`migrateHost` / `transferHostTo`) 자동으로 꺼진다.
-- 클라이언트 API 는 `NetRef.transferHost(targetId, claim?)` · `NetRef.reportHostDown(down)` 이고, 둘 다
-  **로비가 없거나 소켓이 끊겼으면 no-op** 이다 (함선 안 = 세션 밖에서도 넘길 수 있어야 하므로 세션은 보지 않는다).
-- UI 는 서버를 직접 부르지 않는다. 커뮤니티 창의 우클릭도 함선 안 상호작용도 `leader:transferRequested {peerId}`
-  버스 이벤트 하나를 내고, `NetSystem` 이 그것을 구독해 `transferHost(peerId)` 를 부른다.
-- 이관이 끝나면 모두가 평소의 `net:hostChanged` 를 받는다 — **시스템들이 승격/강등되는 경로는 자동 이관과 한 글자도
-  다르지 않다.** 호스트 전용 함선 호출(`STRATAGEM_HOST_ONLY`)을 무장 중이던 사람은 그 이벤트에서 손을 내려놓는다.
+- Title `함선 탑승` → `hub:enter personal` (hub calls `ensureConnected`; a token still in a lobby resumes straight into the shared ship).
+- Terminal matchmaking (`lobby:quickmatch` → public lobby) or code → docking cutscene → shared ship at world origin (every client
+  builds identical geometry, so hub snapshots line up). A server-moved squad arrives as `lobby:left {reason:'moved'}` → one docking cutscene.
+- Launch pod: boarding ≠ ready. Ready = `setReady(true)`; all connected members ready → countdown → host `startGame(seed)` →
+  `lobby:start {seed, mode, planet, intel}` → server `game:start`.
+- **Planet**: `LobbyState.planet` is set **by the host only** (`lobby:planet`); every member runs the warp from its own `lobby:state`
+  (no separate move message). Starting a raid with no planet is refused with `no_planet` (training exempt); the destination
+  survives `lobby:reset`. **Intel** (`lobby:intel`, host only) is echoed in `LobbyState` and restored on rejoin.
+- **Hangar visits**: squad members' personal ships dock behind the shared ship and can be walked into. `ship state`
+  (`ShipVisitWire` — room purposes, facility levels, placed furniture, shelved media, toggles) is sent to `others` on arrival and
+  on change (debounced); `shipq state` requests it (cooldown, immediate reply). Stash, presets and dex are not sent — visits are
+  look-only. Entering a ship **changes no lobby state**. Interiors are built at world origin, so `PlayerSnapshot.hs` says which ship
+  a player is in (`null` = shared deck); avatars with a different value are not drawn.
+- **Socket drop**: the server keeps the slot for `NET_RECONNECT_GRACE_MS` (`connected=false`); the client reconnects with
+  `NET_RECONNECT_BACKOFF_MS`. Same mission still running → `net:resumed {seamless:true}` (the host keeps authority through its own
+  short drop). Page reload → shared ship, and `missionInProgress` lets a pod `rejoinMission()` (world by seed, enemies from a full
+  `es`, then the `*q sync` requests: `exq`, `itemq`, `stratq`, `pcorpseq`, `leadq`, `fogq`, `hzq`, `structq`, `tramq`, `metaq` …).
+  Mission end/abort → everyone back to the shared ship; only `leaveLobby()` (`도킹 해제`) leaves.
+- A link that is `refused` (kicked · `server_full` · session taken elsewhere) never reconnects by itself.
 
-## 5. 구조선 투하 (`rescue_drop`)
+## 3. Ghosts · host migration · late join
 
-- **분대 공용 횟수는 호스트가 들고 있다** (`RESCUE_DROPS_PER_RAID`). 아무나 `{t:'rescue', ev:'req', target, p}` 를
-  호스트에게 보내고, 호스트가 `grant`(횟수 −1 + `world.scatterPoints` 로 착륙 지점 확정) 또는 `deny`
-  (`empty` / `alive` / `busy`) 로 답한다. **차감은 grant 시점**이고 취소 · 실패해도 환불하지 않는다.
-- `{t:'rescue', ev:'count', left}` 가 잔여 횟수 방송이고 `rescue:countChanged` 로 HUD 에 닿는다. 늦게 합류한
-  클라이언트는 `stratq sync` / `flow rejoined` 답장에 이 프레임이 함께 실린다 (`StratagemCallWire` 에는 자리가 없다).
-- 진행 중인 구조선 호출은 `strat sync` 에 **싣지 않는다** — 4초짜리 일회성이고, 늦게 받은 쪽이 `rescue:landed` 를
-  다시 내면 안 되기 때문이다.
-- **헬포드는 stratagems 가 그리지 않는다.** 원격에서 보이는 강하 포드의 유일한 원본은 `player/` 의 `pod drop`
-  (`PodMessage`, `kind:1`) 이다. stratagems 는 표적 마커 · 착륙 먼지와 `rescue:called` / `rescue:landed` 만 낸다.
-- 멀티에서 **궤도 폭격 · 항공 폭탄은 호스트 전용**(`STRATAGEM_HOST_ONLY`)이다. 싱글 플레이는 제한이 없다.
+- A member whose socket drops mid-raid keeps a **ghost** body on the host (`suspended` ref: enemies keep targeting it, it can be
+  downed / bleed out / be revived, everyone sees it grey with `연결 끊김`). Its inventory / stats are saved to the server
+  (`raid:save`) and handed back with the ghost's hp / shield / position on rejoin (`ghost restore`). The ghost inherits the real
+  bleed pool; a member that leaves the mission (page reload) has its ghost **parked** for `NET_GHOST_PARK_S`.
+- **Automatic host migration**: `NET_HOST_MIGRATE_DELAY_MS` after the host's socket drops, to a connected member **inside the
+  raid** (parked if nobody); immediately when a connected host sends `lobby:mission false`. Everyone gets `net:hostChanged` →
+  enemies promote replicas, extraction / pickups / gadgets continue.
+- **Squad wipe** ends the raid (`flow over` → `레이드 실패`).
+- A **training** run (`lobby:start {mode:'training'}`, any member) keeps the lobby open; members join / leave individually (`lobby:mission`).
+- Late joiners receive live ship calls (`strat sync`), barriers, contract hits (`meta sync`), corpses, fog mask, hazard state,
+  structures, trams and extraction state through the `*q sync` requests above.
 
-## 6. 아직 동기화되지 않은 것
+## 4. Named host transfer
 
-- **Not synced yet**: pickup lifetime expiry is per-client (`PICKUP_LIFETIME` is 0); a host promoted mid-mission does not inherit the old host's guard anchors / lures and takes its wave index from the `ee wave` events it saw; a corpse the host never opened validates only the first take per index; `ee grenadeHit` matches replica grenades by proximity.
+| Path | Decided by | When |
+|---|---|---|
+| Automatic (drop) | server | See §3 |
+| Automatic (left mission) | server | Connected host sends `lobby:mission false` |
+| **Named** | **a person** | `lobby:transferHost {targetId, claim?}` — messenger/friends right click · in-ship interaction · squad-leader device by the host's corpse |
 
-## 7. 암호화폐 시세 · 매매 (2026-09-13)
+- `{t:'lobby:transferHost', targetId, claim?}` is accepted in only two cases: ① the sender **is the host**, or ② `claim === true`
+  and the current host has set the **down flag** via `lobby:hostDown`. Otherwise `lobby:error {code:'not_host'}`. A `targetId` that is
+  not a **connected** member of the same lobby → `invalid`; sender outside a lobby → `not_in_lobby`. On success
+  `Lobby.transferHostTo` updates `hostId` and every `LobbyPlayer.isHost`, **clears the down flag**, and broadcasts `lobby:state` —
+  so one claim cannot be used twice. If the target already is host, the state is returned to the sender only (same no-op rule as `lobby:planet`).
+- `{t:'lobby:hostDown', down}` → **host only** (`not_host`). Not part of `LobbyState`, so **nothing is broadcast** — others just try a
+  claim. Cleared automatically on mission end (`lobby:reset` · `autoResetMission` → `Lobby.reset()`) or host change.
+- Client API: `NetRef.transferHost(targetId, claim?)` · `NetRef.reportHostDown(down)`; both are no-ops without a lobby or socket
+  (they do not check the session — handing over must work inside the ship too).
+- UI never calls the server: every entry point emits the bus event `leader:transferRequested {peerId}` and `NetSystem` calls
+  `transferHost`. The squad-leader device itself is `lead drop` / `lead taken` (hold `LEADER_DEVICE_HOLD_S`).
+- After a transfer everyone gets the normal `net:hostChanged` — **systems promote/demote exactly as in automatic migration**.
+  Someone arming a host-only ship call (`STRATAGEM_HOST_ONLY`) drops it on that event. The toast is shown only by `game/parts/Leader`.
 
-- **시세는 릴레이가 시뮬레이션한다** (`server/CryptoMarket.ts`) — 로비 · 호스트와 무관하고 **익명 연결도** 받는다 (시세는 비밀이 아니다).
-  서버에 붙어 있어야 차트 · 매매가 된다 (사용자 결정). 채굴은 함선 상태의 로컬 시계라 서버 없이도 돈다.
-- `{t:'crypto:watch', on}` → `on` 이면 즉시 한 번, 그 뒤 틱(`CRYPTO_TICK_S`)마다 `{t:'crypto:prices', at, prices, change24h}`
-  (가격 = 코인 1개당 크레딧, `at` = 서버 epoch ms). 구독은 **소켓에** 붙어 있어 연결이 끊기면 서버가 잊는다 — 클라이언트
-  (`net/parts/Crypto`)가 welcome 뒤 스스로 다시 켠다.
-- `{t:'crypto:history', coin, range}` → **요청한 소켓에만** `{t:'crypto:history', coin, range, at, candles}` — 오래된 → 최근,
-  최대 `CRYPTO_CANDLE_COUNT[range]` 개, 봉 길이 `CRYPTO_CANDLE_MS[range]`, 마지막 봉은 진행 중일 수 있다. 모르는 코인 · 기간과
-  소켓별 요율(버스트 16 · 초당 4) 초과는 **무응답**이다 (`lobby:error` 도 없다).
-- **매매는 새 메시지가 아니다** — `credits:tx {delta, reason}` 의 사유 `cbuy:<coin>:<units>` · `csell:<coin>:<units>`
-  (`units` = 지갑 단위, `CRYPTO_UNITS_PER_COIN` 단위 = 코인 1개). 릴레이가 최근 `CRYPTO_QUOTE_WINDOW_S`(+ 한 틱) 시세 창의
-  **최저가**로 매수 비용 하한을, **최고가**로 매도 대금 상한을 `shared/cryptoMarket.cryptoTradeCredits` 로 계산해 검사한다 —
-  창 안의 어느 시세로 계산했어도 통과한다. 잠긴 코인(`unlockQuest`)은 그 퀘스트의 `quest:` 크레딧 지급이 원장에 있어야 하고,
-  1 ≤ units ≤ `CRYPTO_TRADE_MAX_UNITS`, 프로필당 시간당 `CREDIT_CRYPTO_MAX_PER_HOUR`(240)회. 거절은 평소의
-  `credits:result {ok:false, reason: CREDIT_TX_INVALID_KO}`. **지갑을 정말 가졌는지는 보지 않는다** — 함선 문서가 클라이언트
-  쓰기라 서버가 비교할 근거가 없다 (아이템 판매와 같은 한계).
+## 5. Rescue drop (`rescue_drop`)
 
-## 8. 단체 메신저방 (2026-09-14)
+- **The squad-wide count lives on the host** (`RESCUE_DROPS_PER_RAID`). Anyone sends `{t:'rescue', ev:'req', target, p}`; the host
+  answers `grant` (count −1, landing point fixed with `world.scatterPoints`) or `deny` (`empty` / `alive` / `busy`). **The count is
+  spent at grant** — no refund on cancel or failure.
+- `{t:'rescue', ev:'count', left}` broadcasts the remainder (`rescue:countChanged` → HUD). Late joiners get it alongside the
+  `stratq sync` / `flow rejoined` replies (`StratagemCallWire` has no room for it).
+- Rescue calls in flight are **not** put in `strat sync` — they last seconds, and a late receiver must not re-emit `rescue:landed`.
+- **Stratagems do not draw the hellpod.** The only source of a remotely visible drop pod is player's `pod drop` (`PodMessage`, `kind:1`);
+  stratagems emit only the target marker, landing dust and `rescue:called` / `rescue:landed`.
+- In multiplayer the ship calls in `STRATAGEM_HOST_ONLY` can be armed only by the host. Single-player has no restriction.
 
-- **로비와 무관한 서버 권위 · 영속 채널**이다 (`server/Rooms.ts` → `rooms.json`). 프로필(토큰)이 있어야 하고 게임 메시지(`relay`)를 타지 않는다.
-- 클라 → 서버: `room:get` · `room:create {name, invite?, nonce}` · `room:invite {room, code}` · `room:reply {room, accept}` · `room:leave {room}` ·
+## 6. Authority rules for requests
+
+- Messages that affect others are accepted **only from the lobby host**: `strat call`, `ee`, `crate sync`, `meal serve`. Squad
+  members' ship calls go through the host as `stratq call` (kind · caller cooldown · range check) and are re-broadcast; a refusal
+  comes back as `strat deny` for the caller's own `callId`, and the caller gets the full cooldown refunded.
+- Host-side requests (`hit` incl. its `st` status bits and `kb` knockback · `explode` · `buff` · `meal req`) pass four layers in order — shape · sender · distance · rate —
+  via `shared/buffRules.createBuffGuard`. Two paths of one capability share one bucket (`explode` shares `hit`'s DPS bucket). Distance
+  limits derive from data (`FLAME_RANGE`/`SHOCK_RANGE` for status bits, `STRAT_MAX_CALL_RANGE` for `explode`). A dead sender may still
+  `explode` (fuses outlive throwers); only `kb` (shield bash) filters on `isDead`.
+- Peer-to-peer `buff` is checked by the receiving folder (lobby membership · snapshot distance · amount · rate); senders do a
+  chest-to-chest ray so buffs do not go through walls. Squad contract kill shares count via `enemy:squadKill`.
+
+## 7. Crypto prices · trades
+
+- **Prices are simulated by the relay** (`server/CryptoMarket.ts`) — independent of lobbies and hosts, and **anonymous connections**
+  may watch (prices are not secret). Charts and trades need a server; mining is a local ship-state clock and works offline.
+- `{t:'crypto:watch', on}` → when on, one immediate `{t:'crypto:prices', at, prices, change24h}`, then one per tick (`CRYPTO_TICK_S`)
+  (price = credits per coin, `at` = server epoch ms). The subscription is **per socket** and forgotten on disconnect — the client
+  (`net/parts/Crypto`) re-enables it after `welcome`.
+- `{t:'crypto:history', coin, range}` → **to the requesting socket only** `{t:'crypto:history', coin, range, at, candles}`, oldest →
+  newest, at most `CRYPTO_CANDLE_COUNT[range]`, candle length `CRYPTO_CANDLE_MS[range]`, the last candle may be open. Unknown coin /
+  range, or exceeding the per-socket bucket (`CRYPTO_HISTORY_BURST` · `CRYPTO_HISTORY_PER_S` in `server/RelayServer.ts`), gets **no reply**.
+- **Trades are not a new message** — `credits:tx {delta, reason}` with `cbuy:<coin>:<units>` · `csell:<coin>:<units>` (`units` = wallet
+  units, `CRYPTO_UNITS_PER_COIN` units = one coin). The relay bounds buy cost from the **lowest** and sell proceeds from the **highest**
+  price in the last `CRYPTO_QUOTE_WINDOW_S` (+ one tick) using `shared/cryptoMarket.cryptoTradeCredits` — any price inside the window
+  passes. A locked coin (`unlockQuest`) requires that quest's `quest:` credit grant in the ledger; 1 ≤ units ≤ `CRYPTO_TRADE_MAX_UNITS`;
+  at most `CREDIT_CRYPTO_MAX_PER_HOUR` per profile per hour. Refusal is the usual `credits:result {ok:false, reason: CREDIT_TX_INVALID_KO}`.
+  **Wallet ownership is not checked** — the ship document is a client write, so the server has nothing to compare (same limit as item sales).
+
+## 8. Group messenger rooms
+
+- A **server-authoritative, persistent channel independent of lobbies** (`server/Rooms.ts` → `rooms.json`). Needs a profile (token);
+  does not use `relay`.
+- Client → server: `room:get` · `room:create {name, invite?, nonce}` · `room:invite {room, code}` · `room:reply {room, accept}` · `room:leave {room}` ·
   `room:kick {room, code}` · `room:rename {room, name}` · `room:say {room, text, nonce}` · `room:history {room, before?}`.
-- 서버 → 클라: `room:state {rooms: {rooms, invites}}` (welcome 직후 · 변경마다 관계자에게, 소셜과 같은 250 ms 합치기 — 요청자는 즉시) ·
-  `room:line {line}` (지금 멤버 중 접속자, `say` 는 보낸 사람 제외) · `room:ack {nonce, ok, room?, at?, code?}` (create · say 만) ·
-  `room:history {room, lines, more}` · `room:error {code, message}`.
-- 권한은 **방장형**(초대 · 강퇴 · 이름 변경), 초대는 **친구만** · 영속 7일, 방 20명 · 줄 200 · 한 사람 20방. 방장이 나가면 가장 먼저 들어온 멤버,
-  마지막 멤버가 나가면 삭제. 차단은 소셜과 같은 방향 규칙(나를 차단 → `not_found`, 내가 차단 → `invalid`)이고 같은 방 안의 차단은 클라이언트가 숨긴다.
-- **채팅창과 연동하지 않는다** (사용자 결정) — 단체방은 메신저 안에서만. 개인 대화(옛 귓속말)는 여전히 `social:whisper` 하나이고 채팅창 · 메신저가 같은 기록을 쓴다.
-- 읽지 않음은 클라이언트 표시다 (`slotKey(ROOM_READ_STORAGE_KEY)` · 대화 기록의 `readAt`).
+- Server → client: `room:state {rooms: {rooms, invites}}` (right after `welcome` and to everyone concerned on change, coalesced like
+  social — the requester immediately) · `room:line {line}` (connected current members, excluding the sender of a `say`) ·
+  `room:ack {nonce, ok, room?, at?, code?}` (create · say only) · `room:history {room, lines, more}` · `room:error {code, message}`.
+- **Owner model** (invite · kick · rename); invites **to friends only**, persistent for `ROOM_INVITE_TTL_MS`; limits `ROOM_MEMBER_MAX` ·
+  `ROOM_LINES_MAX` · rooms per person in `src/shared/social.ts`. When the owner leaves, the earliest member takes over; when the last
+  member leaves the room is deleted. Blocking follows social's directional rule (blocked by them → `not_found`, I blocked → `invalid`);
+  blocks inside the same room are hidden client-side.
+- **Not connected to the chat window** — rooms exist only in the messenger. Private chats (formerly whispers) remain `social:whisper`,
+  and the chat window and messenger share one history.
+- Unread state is client-side (`slotKey(ROOM_READ_STORAGE_KEY)` · the conversation log's `readAt`).
+
+## 9. Not synced yet
+
+- Pickup lifetime expiry is per-client (`PICKUP_LIFETIME` is 0).
+- A host promoted mid-mission does not inherit the old host's guard anchors / lures.
+- A corpse the host never opened validates only the first take per index.
+- `ee grenadeHit` matches replica grenades by proximity.

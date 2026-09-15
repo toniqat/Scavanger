@@ -1,4 +1,4 @@
-// Two-client smoke for the E-4 trust paths (2026-09-11, docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」 + C-57 · X-6):
+// Two-client smoke for the E-4 trust paths (2026-09-11, 커밋 `9bd72ce`(계약) · `b3fc2f0`(구현) + C-57 · X-6):
 //   (d) 함선 호출 = 호스트 경유 — a non-host `strat call` / `strat sync` is ignored, `stratq call` is validated (kind ·
 //       host-only · range · per-caller cooldown · callId owner) and a real non-host call reaches both clients with `by`.
 //   (a)(b) 버프 — the receiver's `BuffGuard` clamps a forged boost, trims an over-budget heal, refuses a heal / cloak from a

@@ -211,7 +211,8 @@ export class PersonalShip implements ShipInterior {
     // +X wall: launch pod (the lockers in front of it are furniture now). The 함선 컴퓨터 used to stand here and its
     // 기업 네트워크 prompt overlapped the pod's boarding prompt — it moved to the rear wall.
     const faceNegX = yawFromForward(-1, 0);
-    // pod socket: floor plate, rear frame, side lips + toggleable door blocker (cell stays walkable, see README)
+    // pod socket: floor plate, rear frame, side lips + toggleable door blocker. The cell itself stays walkable —
+    // a seated player must never be pushed out of the pod by `resolveCollision`; only the door slab blocks when closed.
     const px = C.maxX - 1.0, pz = -1.2;
     b.box(2.0, 0.06, 2.0, px, 0.03, pz, M.hullDark);
     b.boxB(0.5, CEIL, 1.9, C.maxX - 0.25, 0, pz, M.hullLight);

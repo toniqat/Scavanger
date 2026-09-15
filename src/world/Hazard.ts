@@ -422,7 +422,7 @@ export class Hazard implements HazardRef {
     this.rebuildSources();
     const row = hazardRow(next.kind) ?? null;
     this.row = row;
-    // 종류 자체가 다르면 벽 · 입자를 다시 만든다 (군락은 지형이라 그대로 둔다 — 아래 README 의 한계)
+    // 종류 자체가 다르면 벽 · 입자를 다시 만든다 (군락은 지형이라 그대로 둔다 — README 의 `Hazards` 절)
     if (row && this.root) {
       this.visuals.dispose();
       this.visuals.build(this.root, row, next, HazardVisuals.ringsFor(next));

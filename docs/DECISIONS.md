@@ -1,745 +1,286 @@
-# SCAVANGER — 결정 기록 (Phase 5 – 12 · 2026-09-09 이후)
+# SCAVANGER — Decision log (Phase 5 – 12 · since 2026-09-09)
 
-`docs/PHASE5-PLAN.md` … `docs/PHASE12-PLAN.md` 8개를 하나로 합친 파일이다 (2026-09-08).
-각 페이즈에서 **사용자가 내린 결정**과 **구현 결과 · 이월된 것**만 남겼다 — 구현 사양 본문은 그때 걷어냈다.
-2026-09-14 에 `docs/plans/` 의 설계안 16개(2026-09-11 … 09-14)도 같은 방식으로 날짜 절로 합치고 지웠다 —
-코드 · csv · README 가 가리키던 경로는 전부 `docs/DECISIONS.md 「<절 제목>」` 으로 바꿨다.
+Merged from `docs/PHASE5-PLAN.md` … `docs/PHASE12-PLAN.md` and the drafts in `docs/plans/`. Their bodies are in git history:
+`git log --oneline -- docs/PHASE10-PLAN.md` → `git show <commit>:docs/PHASE10-PLAN.md`; for a deleted draft,
+`git show <deleting commit>^:docs/plans/<name>.md`.
 
-- 지금 코드가 어떻게 생겼나 → [CLAUDE.md](../CLAUDE.md) 의 폴더 지도 → 각 폴더 `README.md`
-- 언제 무엇을 했나 → [HISTORY.md](HISTORY.md) · 아직 안 된 것 → [TODO.md](TODO.md)
-- **원본 계획서의 `§` 절**(폴더 README 들이 `docs/PHASE10-PLAN.md §3-1` 처럼 가리키던 것)은
-  git 이력에 있다: `git log --oneline -- docs/PHASE10-PLAN.md` → `git show <커밋>:docs/PHASE10-PLAN.md`.
-  지운 설계안도 같다: `git log --oneline -- docs/plans/<이름>.md` 의 맨 위(삭제 커밋)에서 `git show <커밋>^:docs/plans/<이름>.md`.
-
-모든 페이즈가 같은 방식이었다: **리드가 `src/shared` 계약을 먼저 작성·커밋** → 폴더별 병렬 에이전트가
-자기 폴더만 소유하고 계약은 읽기만 함 → `npm run verify:all`. 스켈레톤(`/* Phase N skeleton */`)은
-typecheck 를 통과시키기 위한 자리였고 전부 구현으로 교체됐다.
+- Current code → [CLAUDE.md](../CLAUDE.md) → folder `README.md`. When → `git log`. Not done → [TODO.md](TODO.md).
+- **What belongs here**: what the user chose, the alternatives rejected, and why. Progress and verification go in commit messages.
+- When a decision is overturned, **fix that section** and say what replaced it — do not append a new dated section.
+- **Section titles are anchors.** Comments cite them as `docs/DECISIONS.md 「<section title>」` (e.g. `「2026-09-13 — 요리 재료 티어」`).
+  Every heading starts with its original Korean title verbatim; the English after `·` is a gloss. Never reword the Korean part.
 
 ---
 
-## Phase 5 — 메타 진행 (창고 · 로드아웃, 경험치/레벨, 기업 · 계약 · 퀘스트)
+## Phase 5 — 메타 진행 (창고 · 로드아웃, 경험치/레벨, 기업 · 계약 · 퀘스트) · Meta progression
 
-작성 · 구현 2026-09-06. Phase 0–4 는 커밋 `5b6d9b0` 까지 완료된 상태에서 시작했다.
+- XP → level → stat points only (one point per level); stat effects map onto existing `DerivedStats`. Skill books excluded.
+- The stash grid is the capacity cap; no room → transfer / purchase / reward refused. Selling only at the computer.
+- Planet gimmicks deferred (done 2026-09-09). localStorage persistence was overturned by Phase 7; corp quests deleted 2026-09-14.
 
-**착수 전 결정**
-- **스탯 효과는 후순위**: 경험치 → 레벨 → 스탯 포인트 *적립*만 구현(레벨업 알림, 미배분 포인트 표시).
-- **기업 4곳의 이름 · 판매 목록은 리드가 작성**. 계약/퀘스트 초안 각 4개.
-- **행성 기믹(기차 · 레일, 버려진 화물차)은 별도 세션**(월드 대공사). 이 페이즈 범위 밖.
-- 영구 저장은 **localStorage**, 키 접두어 `scav.`. 서버 저장 없음(Phase 7 에서 뒤집힘).
+## Phase 6 — 개발자 콘솔(치트) · 유니크 무기 · 함선 꾸미기 · Dev console · uniques · ship decoration
 
-**착수 직전 확인**
+- Cheats **only when the page host is localhost** (`isDevHost()`); no server check, other clients have no console.
+- Stat-XP model (`addStatXp`) alongside level-up points.
+- Ship decoration: framework + core rooms first; other purposes filled in later.
+- Uniques: legendary loot (low chance in T4/5 crates, boss corpses) + cheat crate; own ammo; **right click = secondary fire, so no ADS**.
+- Furniture comes **only from crafting** (buying/looting furniture rejected 2026-09-11).
 
-| 항목 | 상태 / 결정 |
-|---|---|
-| 5-a 창고 | 창고는 이미 있었고(`inventory/Stash.ts`, 함선 Tab 3열 화면, `scav.stash`), **로드아웃 영속화를 이번에 추가**. |
-| 5-b XP/레벨 | XP/레벨은 이미 있었고(`progression/`), **결과 화면 XP 정산 줄 · 타이틀 레벨을 이번에 추가**. **레벨당 스탯 1 포인트**, `XP_BASE` 120 (`120·n^1.35`). |
-| 스탯 5종 효과 | 기존 `DerivedStats` 그대로: 근력(적재량 · 근접 · 점프 · 투척 사거리) · 지구력(스태미나 회복/최대) · 인지력(감지 반경 · 적 인디케이터 반경) · 지능(스킬 상승 속도) · 재주(소모품 사용 속도 · 상호작용 속도). 빠져 있던 소비처(수류탄 투척 거리, 퀵 사용 쿨다운, 모든 홀드 상호작용)는 계약 커밋에서 연결. **스킬 북은 제외.** |
-| 5-c 기업 · 계약 · 퀘스트 · 상점 · 크레딧 · 컴퓨터 | **이번에 신규 구현** (meta / hub / ui / inventory). |
-| 크레딧 초기값 | 500 (`CREDITS_INITIAL`). 판매는 컴퓨터(기업 화면)에서만. |
-| 창고 용량 상한 | **그리드가 곧 상한** (10×24, 창고 시설로 최대 60행). 칸이 없으면 이관 · 구매 · 보상 거부. |
-| 프로필 서버 | 계속 localStorage. 서버 저장은 이후 판단. |
+## Phase 7 — Known follow-ups 해결 · Known follow-ups
 
-**구현 결과** — 전 항목 완료. 4개 병렬 폴더 에이전트(meta · inventory · hub · ui)가 계약 `3bc09ac` 를 상대로 작업.
-검증: `smoke-meta` 90/90, `smoke-loadout` 45/45, `smoke-ui-p5` 52/52, `smoke-ship-rooms` 61/61.
-**이월**: 행성 기믹 → [TODO.md](TODO.md) A-1 · A-2.
-
----
-
-## Phase 6 — 개발자 콘솔(치트) · 유니크 무기 · 함선 꾸미기
-
-2026-09-06. 계약: `shared/console.ts` · `shared/housing.ts` 신규 + 기존 파일의 `appended (2026-09-06)` 구역.
-
-| 항목 | 결정 |
-|---|---|
-| 치트 권한 | **페이지 호스트가 localhost** 일 때만 (`isDevHost()` — `DEV_HOSTS`). 서버 검증 없음. 다른 클라이언트는 콘솔 자체가 없다 (`ctx.console.enabled === false`). |
-| 스탯 경험치 | **스탯 경험치 모델 추가** (`profile.statProgress`, `addStatXp`). 레벨업 포인트 방식은 유지. 0 미만 → 스탯 −1 (하한 `STAT_MIN`), 1 이상 → +1 (상한 `STAT_MAX`). |
-| 함선 꾸미기 범위 | **프레임워크 + 핵심 방**: 조종석-복도-10개 방 구조, 발전기/창고 업그레이드, 하우징 모드(그리드 배치 · 90° 회전 · 회수 · 가구 창고), 방 용도 확정, **작업실**(4 작업대 + 업그레이드 + 수리), **사격장**(로드아웃 프리셋 + 사격 숙련 보너스 — 2026-09-12 에 시뮬레이션실로 개명, 방 레벨은 관물대 · 시뮬레이션 허브 강화로 옮김). 나머지 7개 방은 용도 확정과 장식 배치만. |
-| 유니크 무기 획득 | **전설 루트 + 치트 상자**: 4/5 티어 상자와 로그 보스 시체 테이블에 낮은 확률, `/items` 무한 상자에서도. 주무기 슬롯, 전용 탄약. **우클릭 = 보조 발사이므로 정조준(ADS) 없음.** |
-
-**구현 결과** — 전 항목 완료. 같은 날 계획서 대조 감사(5개 탐색 에이전트)에서 전 항목 구현을 확인하고 편차 6건을 수정.
-검증: `smoke-console`, `smoke-uniques`, `smoke-inventory-p6`, `smoke-ship-rooms`.
-**이월**: 함선 10개 방 중 헬스장 · 연구실 · 주방 · 채굴 · 휴식 5종은 기능 없음(`ROOM_PURPOSES_ACTIVE` 제외).
-온실은 Phase 8, 서재는 Phase 9 에서 들어왔다. 상위 개인 함선도 미구현 → [TODO.md](TODO.md) A-3 · A-5.
-가구 구매 · 루팅 가구(옛 A-4)는 2026-09-11 에 **넣지 않기로** 했다 — 가구는 제작으로만 얻는다.
-
----
-
-## Phase 7 — Known follow-ups 해결
-
-2026-09-06. 계약: `shared/profile.ts` · `shared/labels.ts` 신규 + `appended (Phase 7)` 구역.
-
-| 항목 | 결정 |
-|---|---|
-| 서버 저장소 | **서버 프로필 + 레이드 세션**. 릴레이에 토큰(PeerId)별 JSON 저장소. 크레딧은 서버 소유(구매 = 서버 트랜잭션, 공간은 클라이언트 `canFit` 선확인). 메타 · 창고 · 로드아웃 · 프로그레션 · 함선 문서는 불투명 블롭, localStorage 는 캐시/오프라인 폴백. 레이드 중 인벤토리 블롭도 서버 보관. 서버 없는 싱글은 로컬 폴백 |
-| 라벨 중복 | `RARITY_LABEL_KO` / `CATEGORY_LABEL_KO`(+색 · 아이콘 · 순서) → **`src/shared/labels.ts`**. items 는 재수출, meta 는 shared 를 import |
-| 훈련장 입장 | **카운트다운 없음, 즉시 입장, 개별 합류**. 개인 함선: 시뮬레이션실(옛 사격장)의 `furn_sim_hub`. 공유 함선: 터미널 메뉴에서 시작 / 합류. 좌측 파티 패널에 진입 여부 표시. 탄약 · 내구도 미소모(종료 시 복원), `gun_*` 숙련만 상승 |
-| 전멸 규칙 | **전멸 = 실패 + 부활 유지**. 스쿼드: 생존 · 다운 · 살아있는 고스트가 없으면 실패(30초 부활 대기 중인 사망자는 사망으로 계산). 솔로: 사망 즉시 실패. 결과 화면 후 전원 함선 복귀, 로드아웃 스타터 초기화 |
-| 로그 AI 2차 | **사선 차단 엄폐 + 측면 각도**, **수류탄 투척**, **재장전 주기** (저체력 후퇴 없음). 보스 체력 / 진영 HUD 없음 |
-
-**조사 결과 (해당 없음 → 메모만 정리)**
-- 가구는 이미 아이템이 아니라 `furnitureStorage` 에만 들어간다 → **"가구는 아이템이 아니다" 를 원칙으로 기록.**
-- 구르기: 다이브 코드는 없고 구르기 하나뿐(별칭만 남음) → 별도 구현 불필요. `player:dived` 에서 효과음 2중 재생 버그와 죽은 다이브 포즈만 정리.
-- 계약 정산은 이미 "탈출 실패 시 조건을 만족해도 신뢰도 없음" 규칙 → `outcome` 필드 추가 + 문구 통일만.
-- **스킬북은 만들지 않는다** → 서재 책장 수집 콘텐츠(Phase 9)로 대체.
-
-**구현 결과** — 전 항목 완료. 9개 병렬 폴더 에이전트가 계약 `64031f7` 을 상대로 작업.
-
----
+- **Server profile + raid session** per token in the relay; credits server-owned; other docs are opaque blobs, localStorage = cache/offline.
+- Training range: **no countdown, individual join**, no ammo/durability use, only gun skills rise.
+- **Squad wipe = raid failure**; solo death = immediate failure.
+- Rogue AI v2: fire-line-blocking cover + flanking, grenades, reload cycles; no low-HP retreat, no boss HP bar.
+- Principles: **furniture is not an item**; one roll, no dive; no skill books (library shelf instead).
 
 ## Phase 8 — UI/UX pass
 
-2026-09-06. 플레이어가 그대로 적어 준 요구 19개.
-
-1. Tab 화면에서 캐릭터/기업을 별도 팝업이 아니라 **Tab 화면 안**(배경 블러)에서.
-2. 기업 UI: 탭마다 팝업 크기가 바뀌는 문제 → **고정 크기**, 내용만 교체, 필요하면 수직 스크롤.
-3. 캐릭터 팝업의 **상시 수평/수직 스크롤바** 제거.
-4. 함선에 있을 때 Tab 메뉴에 **함선 메뉴**(시설 업그레이드)도 표시.
-5. 약초 심기를 조종석이 아니라 **온실의 '재배층' 가구**에서. 창고의 **씨앗**을 심고 **현실 시간**으로 자란다.
-6. 한 자리에 **재배층 4층까지** 중복 배치.
-7. 함선 터미널의 **캐릭터 버튼 제거**.
-8. 함선에서 **ESC = 일시정지 메뉴**(터미널이 아님): 타이틀로 / 게임으로 / 설정(키 설정 + 오디오).
-9. **승무원 이름 변경 기능 제거** (최초 1회만).
-10. 함선 터미널을 **조종석 중앙**으로 (좌측 터미널 제거).
-11. 조종석 **정비벤치를 작업실 배치형 가구**로.
-12. 요구 아이템 표시를 텍스트가 아니라 **썸네일 + 우측하단 보유/필요**, 부족하면 딤드 + 빨간 보유 수.
-13. 함선에서 항상 우측 하단 **함선 관리(M)** 힌트. M → 하우징 모드, 좌측 **방 목록**(클릭 시 카메라 이동), 하단 **가구 카드 목록**(수평 스크롤). 가구 선택 → 설치 상태, **ESC 또는 C 로 취소**.
-14. 방/조종석 문을 **자동문**으로.
-15. **빈 방은 어둡게**, 용도가 있는 방은 라이팅.
-16. 인벤토리 **전술 임플란트** → 인벤토리 위 **모달리스 추가 팝업**.
-17. 인벤토리 **필드 제작** → 모달리스 추가 팝업.
-18. **아이템 분해**는 제작이 아니라 **우클릭 메뉴 → 모달리스 팝업**(기대 결과 표시).
-19. 인벤토리 우상단 `CREDITS 크레딧 500` → `CREDITS 500`.
-
-**답이 나온 설계 질문 (다시 논의하지 않는다)**
-- **씨앗 수급**: 레이드 루팅(tier 1–3 컨테이너 / 시체) **+ 기업 상점**. 제작 불가.
-- **성장 시간**: 현실 시간 **1–6시간** (일반 1h · 고급 2.5h · 희귀 6h), 원예 스킬로 최대 −35 %.
-- **정비벤치 이관**: 기존/신규 프로필 모두 `furn_repair_bench` 1개를 **가구 창고에 무상 지급**.
-- **오디오 설정**: **전체 + 효과음** 2단 (BGM 없음; 채널만 남겨둠).
-
-**구현 결과** — 전 항목 완료. 검증 결과는 [VERIFICATION.md](VERIFICATION.md) 의 2026-09-06 줄.
-**이월**: BGM 미구현 → [TODO.md](TODO.md) A-7. 연구실이 씨앗을 만들지 못하는 것도 그대로 → A-3b.
-
----
+The player's 19 written requests were implemented as given. Settled: seeds from raid loot + corp shop (not craftable); growth in real
+time; audio = master + SFX with a reserved BGM channel. Superseded: stacked grow racks, the repair bench, ESC always pausing.
 
 ## Phase 9 — Known follow-ups II
 
-2026-09-07 (계획 2026-09-06). `CLAUDE.md` 의 Known follow-ups 중 사용자가 고른 10 항목.
+- Offline profile sync by timestamp — **replaced 2026-09-11 (E-6): revisions, server wins on conflict**.
+- Ghosts inherit real downed HP; no migration while nobody connected is in the mission; a reloading host's ghost is **parked** (`NET_GHOST_PARK_S`).
+- Late join: `strat sync` from host, `meta sync` peer-to-peer, barrier re-sent on `flow rejoined`.
+- Burn kill credit = whoever lit it. Training target modes are client-local. `es` = delta stream with keyframes.
+- One-book-per-skill shelf — **replaced 2026-09-13 by library series**.
 
-| 항목 | 결정 |
-|---|---|
-| 프로필 오프라인 동기화 | 문서마다 타임스탬프(`profile:set.at` = 저장 시점의 `serverNow()`), 서버는 **최신 쪽이 이김**(`docsAt`), 오프라인 편집은 `ProfileSync` 가 큐에 보관해 재접속 때 밀어넣는다. meta / progression / housing 은 자체 큐 없이 `profile.set` 만 호출. 스타터 킷 같은 기본 저장은 `fresh` 로 보내 실제 프로필을 덮지 않는다 |
-| 호스트 이전 · 고스트 빈틈 | `RemotePlayerRef.ghostState / ghostDownHp` 를 net 가 채우고 game 의 자체 맵 삭제. 스냅샷 `dhp` 로 고스트가 실제 다운 체력을 이어받음. 서버는 `started` 중 **임무 안에 접속된 멤버가 없으면 이전하지 않고** 누군가 돌아오면 그때 이전. 페이지 새로고침 = 임무 이탈 + 호스트는 고스트를 `NET_GHOST_PARK_S` 동안 **주차** |
-| 늦은 합류 동기화 | `stratq sync` → `strat sync`(호스트가 동기화 권위), `metaq sync` → `meta sync`(피어 간, 요청자당 미션당 1회), 배리어는 `flow rejoined` 에 소유자가 `imp barrier` 재전송. 은폐는 이미 스냅샷 플래그. pickups / gadgets / gather 는 `net:hostChanged {isLocalHost:false}` 에 재요청. 릴레이 계약 검증: `amount` 유한 · 1..`META_HIT_MAX`, goal / corp 화이트리스트, 진척 clamp |
-| e2e 커버리지 | 2-클라이언트 훈련 합류, `contq take → cont taken / denied`, `imp beam` 수신 + `RemoteImplants.debugBeam`, 델타 스냅샷 후 적 수 재확인 |
-| 소규모 정리 | 화상 킬 = 불 놓은 사람(`applyStatus(..., attacker)`, `enemy:killed.by`), 점프대 플레이어별 재발동 `JUMP_PAD_RETRIGGER_S`, 포기 홀드 `player:giveUpProgress` + HUD 바, `raycastBarrier` 순수 질의 + `damageBarrier` |
-| 서재 책장 | 스킬당 책 1권(14권, `ItemCategory 'book'`, `ItemDef.book.skill`), 2–4 티어 상자 · 로그 시체 · 세레스 상점(신뢰도 2). 책장 `furn_bookshelf`(서재, 6칸). 보너스 = `1 + BOOK_XP_PER_BOOK × Σ BOOK_RARITY_MUL`, 상한 `BOOK_GAIN_MAX`, `housing.getSkillGainMul` 에 합산. 도감은 책장 패널 + 함선 탭. 상태는 `ShipState.books / bookDex`(v3). 책장 회수 시 책은 창고로 |
-| 훈련장 타겟 모드 | `TrainingMode` 고정 / 이동 / 타임 코스, 아레나 안의 **모드 콘솔** `training_mode`(순환) + **무기 거치대** `training_rack`. 클라이언트 로컬(와이어 없음). HUD 는 `TrainingPanel`(점수 · 남은 시간) |
-| 델타 적 스냅샷 | `es` 는 델타, `NET_ENEMY_KEYFRAME_S` 마다 + `flow rejoined / takeover` 직후 키프레임, `seq` / `gone`, 변경 필드만. 미지 id 의 델타는 무시 |
+## Phase 10 — UI 개선 · UI improvements
 
-**구현 결과** — 전 항목 완료. 9개 병렬 폴더 에이전트가 계약 `5ac7031` 을 상대로 작업. **이월 없음.**
+- **Two rollbacks**: the virtual cursor under pointer lock went back to the real OS cursor (cost: it can leave a windowed game on
+  multi-monitor); the 3-heads-tall character model was rejected on look (only the carry socket/pose kept).
+- F tap carries a downed ally only when one is in range; E-hold revive unchanged. Healing item = rename only (`stim` ids kept).
+- Corpse loot chance tiered by enemy size. Barrier = `mode: 'wielded'` shield that holsters the gun.
 
----
+## Phase 11 — 행성 선택 · 소셜 · Planet select · social
 
-## Phase 10 — UI 개선
+- Social = **server profile document + token-derived 8-char ID**; presence from the server. Social UI is **ship only**.
+- **Existing 5 biomes = 5 planets**, no new enemies/items. Planet picked **by the host** in the shared ship.
+- Fullscreen terminal with planet hologram centre. Travel cutscene later **replaced by the in-ship window warp** (docking cutscene kept).
 
-2026-09-07. 사용자가 요청한 13개 UI/게임플레이 개선. 계약에 새 파일 `cursor.ts`.
+## Phase 12 — 임플란트 아이템 · 배리어 rework · 정찰 rework · 총알 추적 · UX 정리 · Implants · barrier/recon · bullet tracking
 
-| 항목 | 결정 |
-|---|---|
-| 레퍼런스 이미지 | `helldivers.jpg` 는 세션에 없다 → 설명대로 구현하고 나중에 조정 |
-| 인게임 커서 | **포인터 락 유지 + 가상 커서**. 락을 풀지 않고 `movementX/Y` 로 가상 좌표를 움직인 뒤 그 지점에 합성 `PointerEvent` 를 디스패치 (`shared/cursor.ts`). Esc 일시정지 메뉴만 예외 — **2026-09-07 에 뒤집혀 실제 OS 커서로 되돌아갔다** |
-| 캐릭터 모델 | **전면 교체**. 스플래툰식 3등신, 갑옷 플레이트 · 헬멧 · 망토 제거, 포즈 · 소켓 · 무기 부착 위치 전부 재조정 — **룩이 반려되어 롤백** |
-| F 키 | **E 홀드 구조는 그대로**. F 짧은 탭만 들쳐메기로 (`KEY_ALIASES.CARRY = 'MELEE'`, 사거리 안에 전투불능 아군이 있을 때만 근접공격을 선점) |
-| 시체 루팅 확률 | **티어별 차등**: 잡버그(scavenger / toxic / hunter) 10 % · 상위 버그(spewer / warrior / artillery / charger) 35 % · behemoth · rogue · rogue_boss 100 % |
-| 회복약 | **기존 아이템 이름만 변경**. `stim` def id / `ItemCategory 'stim'` / `applyStim` 유지, 표시 라벨만 회복약, 좌클릭 2초 홀드로 사용 |
-| 배리어 | **`mode: 'wielded'` 방패**. 들면 총이 홀스터되고(`blocksWeapons`) Q 로 집어넣는다 — 대전차포와 같은 흐름 |
-
-**하지 않은 것 (범위 밖으로 못 박음)**
-- `PLAYER_HEIGHT` / `PLAYER_RADIUS` / 카메라 아이 높이 / 히트박스 변경.
-- 서버(`server/`) 변경 — `crew` / `crewq` / `carry` 는 불투명 릴레이 메시지다.
-- `buyPriceOf` / `sellPriceOf` / `ItemDef.value` 재조정 — 표기만 바꾼다.
-- `rollCorpse` / `CORPSE_TABLES` 변경 — 루팅 **가능 여부**만 새로 판정한다.
-- `stim` def id · `ItemCategory 'stim'` · `applyStim` 이름 변경 — 표시 라벨만 회복약.
-- Esc 일시정지 메뉴의 커서 — 실제 OS 커서를 그대로 쓴다.
-
-**구현 결과** — 전 항목 완료. 검증: `verify:all` 전부 통과 (26 스모크 · e2e 124/124 · `net:selftest` 194/194, 4분 40초).
-
-**롤백 2건**
-- **3등신 캐릭터**: 룩이 반려되어 2026-09-07 롤백. `SoldierModel.ts` / `GearLook.ts` 는 Phase 10 이전(헬다이버즈2식 장갑
-  보병)이고, 들쳐메기용 `shoulderSocket` · `SoldierPose.carry` 만 옛 비율에 맞춰 이식해 유지한다.
-- **소프트 커서**: 합성 이벤트 커서를 2026-09-07 `마우스 커서 rework` 에서 실제 OS 커서로 되돌렸다. 그 대가로
-  창모드 멀티모니터에서 커서가 게임 창을 벗어날 수 있다 → [TODO.md](TODO.md) F 절 · A-10.
+- Implant slots: base, +1 every few levels, capped (`IMPLANT_SLOTS_*`). Sales and broken-implant repair at **Ceres Bio**.
+- Three legendary perks implemented (`auto_revive` · `quick_heal` · `kill_stamina`).
+- AI bullet tracking: look toward the shot (detection ×2), then advance to the origin; bugs move at once. Made global 2026-09-14.
+- `IMPLANT_REPAIR_FEE` stays a `data/tuning.csv` scalar read by meta.
 
 ---
 
-## Phase 11 — 행성 선택 · 소셜
+## 2026-09-09 — 사망/시체 · 구조선 · 분대장 · 전장의 안개 · 지형지물 콜리전 · Death · rescue · leader · fog · collision
 
-2026-09-07. `[행성 선택]` 터미널 개편 + ESC 소셜 화면 / 커뮤니티. 계약에 새 파일 `planets.ts` · `social.ts`.
+- Wheel: **air strike out, rescue drop in, 4 directions** (5-slot wheel rejected; `airstrike` stays in types/csv).
+- Rescue revive is **empty-handed**; the count is **spent at grant, no refund** (not on landing/death); after 5 the dead spectate.
+- Implants stayed on the body — **reversed 2026-09-11 (C-12)**: broken pairs go to the corpse, solo death loses them.
+- Corpses appraise cell by cell like crates (instant reveal rejected).
+- Fog **gates map + world markers** (world-render fog rejected: cost, relighting).
+- Collision: climbable mesh cylinders (full OBB rewrite rejected) — later boxes for buildings, hulls and ramps (2026-09-11).
+- Host transfer via **server `lobby:transferHost`** — client-only consensus would desync the relay's `hostId`.
+- Big-enemy spawn clearance **by radius** (`ENEMY_BIG_RADIUS`), not a per-species csv column, so new species just work.
+- The leader-change toast has one owner (`game/parts/Leader`): three transfer paths meet at `net:hostChanged`.
 
-| 항목 | 결정 |
+## 2026-09-09 — 레이드 콘텐츠 (구조물 · 선로/전차 · 환경 재해 · 로그 강하 · 의사소통 휠 · 행성별 등급 드롭) · Raid content
+
+- Grade drop rate **per crate** (not per weapon/raid); **`data/planets.csv` row order = difficulty** (player's Nth raid erases planet
+  choice; `threat` 1–3 squashes the curve).
+- Structures: **enterable ground building + one basement** (open ruins / multi-storey rejected). Trams: **console start → auto drive**
+  (manual driving rejected: controls/HUD/sync cost).
+- Hazards **random per raid from the planet's candidates**, ending by **covering the whole map** (no safe zone).
+- Drop-in enemies scaled by squad size — superseded 2026-09-13 by raider waves.
+
+Reversal: enterable buildings need walls, so `Obstacle.box` was added without a rewrite (`SpatialHash.addBox` fills the circumscribed
+radius; only box branches use new math). Also: uniques and their ammo are planet-gated too; **collapsed roofs** keep the camera free
+with no special code; drop-in enemies bypass the ambient cap; hazard fog **lerps** density so clear planets still get a storm.
+"Enemies don't ride trams" was reversed 2026-09-11.
+
+## 2026-09-11 — 신뢰 경로의 남은 틈 (E-8 · E-9 · B-11 · B-12) · Remaining trust-path gaps
+
+- `explode`: **shape · sender · distance · rate**, sharing `hit`'s DPS bucket (per-kind caps rejected). A dead sender is accepted (fuses outlive throwers); only `kb` filters the dead.
+- Status bits (`st`): **own count bucket only** — pre-deducting DoT would nerf legit multi-target flames; range already limits abuse.
+- Refused squad ship call: **notify + full cooldown refund** (the call never stood).
+- Selling rounds **down** (value-1 items sell for 0 C); buying keeps `round` (flooring would be a silent discount).
+- Sold item ownership **not checked** — stash/bag are opaque blobs; a server-authoritative inventory is phase-sized.
+- Blocking vs lobby join is **per direction**: I blocked → `blocked`; blocked me → `not_found`. Existing squadmates are not kicked.
+
+## 2026-09-11 — 연구실 (A-11 품종 · A-12 분석기 · A-13 추출기/조합대/준비물 · B-13 가구 강화 UI) · Research lab
+
+- Open **the lab only** (kitchen next cycle).
+- **Soft planet gate**: entry allowed; without prep, HP-only damage. Environments only on the two threat-3 planets; prep cancels 100 %.
+- Prep **used in the ship = one next raid**, kept through death in that raid. Analyzer waits in real time.
+- New seeds from **wild gathering + analyzer results** — improved strains must be repeatable (a first-analysis bonus could never be grown again).
+- B-13: **click inspector**; utility furniture already owned is craft-locked (dimmed, last).
+- Superseded: 6 specimens/dex speedup (→ 3 families, 2026-09-13); "no rogue corpses" (→ faction loot); one-of-each utility furniture
+  (→ multiple library storages); greenhouse prerequisite for lab/kitchen (removed 2026-09-14).
+
+## 2026-09-11 — 주방 · 배양조 · 3D 프린터 (A-3c · A-14 · A-15) · Kitchen · culture tank · printer
+
+- **All three in one cycle** — crops → meals and culture → ingredients + filament → bags are one chain.
+- Meal buffs get **a separate single meal slot** (does not compete with prep); a second meal replaces the first.
+- Shared ship has a fixed dining table; **one person serving feeds the whole squad** (one meal consumed).
+- Culture media have **one grade axis** (no soil-like tags). Pouch = **one fixed equip slot** with its own grid; keys get category `key`.
+- Higher bags are **not a new tier**: rare/epic/legendary bags move to the printer + 3 filament grades (reverses the TODO draft).
+- Superseded 2026-09-13: one buff per meal (→ tiered stat lines), instant cooking (→ minigame + quality), media emptying at 0 (→ durability + sockets).
+
+## 2026-09-12 — 헬스장 · 서재 매체 (A-3a · A-3e) · Gym · library media
+
+- New library furniture goes in **the library**; the lounge purpose was not revived.
+- Gramophone · jukebox · turntable are **cosmetic variants** — counted once.
+- Workout gains are a **separate trained bonus** (`PlayerProfile.trained`), not stat points. Presentation = pose + fixed side camera.
+- Defaults: training during fatigue is allowed but gives 0 XP; only completed sessions count.
+- Superseded: unsynced poses, per-skill media caps (→ series), TV E toggle (→ TV game screen), "perfect = 1/3 window".
+
+## 2026-09-12 — 캐릭터 버프 · 가구 자세 원격 동기화 · Character buffs · remote poses
+
+- The list holds **everything**: resting/working out, workout debuff, meal, prep, environment exposure. Buffs have **no effect** — display/sync only.
+- Shown under the **player HP bar (in the ship too)** and under squadmates' squad-list rows — not on world nameplates. Old text badges replaced.
+- Remaining time = icon + gauge (+ short text); next-raid meal/prep shown dimmed. Workout sync uses the **actual motion phase**.
+
+## 2026-09-12 — 전투 소모품 · 소모형 열쇠 · 드론 스캔 · 즐겨찾기 · 아이템 회수 계약 · Consumables · keys · drone scan · favourites · recovery
+
+- Adrenaline / stimulant / stabilizer, **3 s hold**; the first two cancel each other; stabilizer refills tactical implants only (not ship calls), consumed even when full.
+- **Aim sway = camera drift only while aiming** (class · stance · movement, not stamina). Ready = one flash + glow while ready.
+- Hook cooldown **refunded by pulled distance**; dash longer (both retuned 2026-09-14).
+- **Consumable master keys** (basement key, lab keycard), no guaranteed key per structure; **drone vents** by locked doors.
+- Ground-drone scan shows the best grade inside; unopened containers preview **the exact roll opening gives**.
+- Favourites **per item type, per character, server-synced**; right click = menu on every item, double click = quick move.
+- Recovery contract counts **only items created by that raid's loot rolls**; the mark follows the item, mixing with brought stacks unmarks (no laundering).
+
+## 2026-09-13 — 요리 재료 티어 (분석기 결과표 · 흙/배지 내구도와 소켓 · 배양 스캐폴드) · Cooking ingredient tiers
+
+- Specimens **merged into 3 families** (cell · mineral · DNA); old ones retired but still analysable.
+- **Analysis level per family** shortens time and unlocks results (replaces dex speedup and first-analysis bonus).
+- Soil is consumed when poured; **media follow the same durability rule** — at 0 the slot stays, bonuses scale with durability.
+- **Sockets fit permanently to poured soil/media**; fitting into a full slot destroys the old one after a warning; slot count = grade.
+- T3 meat via a **scaffold** in the culture slot (consumed on harvest); T4 via extractor components + mixer.
+- Old culture content: **new ids, old retired**. Higher meals = **one buff with tier-many stat lines**.
+- Specimen sources by nature (cell: bugs/gather · mineral: gather/scrap/behemoth · DNA: structure containers, rare bugs).
+- Design: socket speed/yield also scale with durability (worn soil worth replacing); analysis results are **rolled on insert** (no rerolls).
+
+## 2026-09-13 — 행성별 적 팩션 (안드로이드 · 로그 · 레이더) · Per-planet enemy factions
+
+- Basis = **`PlanetDef.threat` (1–3)** — factions have three steps (grade drops keep row order); named chance moved to a threat table.
+- Threat 3 = **raiders only**. Crate guards **replaced by site occupation**; crashed ships empty; the rogue boss becomes a group leader.
+- Drop-ins = **raiders in two waves**, no leader. Grenades are **real inventory** (incendiary = real fire zone; unthrown ones drop).
+- Armor/bag drops: half the proposed options, low durability. Looks: **shared rogue rig + new skins** (new rigs rejected).
+- Ruin occupation and outer group size were lowered after the first pass overcrowded threat 2–3 maps.
+
+## 2026-09-13 — 요리 미니게임 · 요리 품질 · 자동 조리 가구 · Cooking minigames · quality · auto-cookers
+
+- Score becomes **meal quality** on the item (different quality = different stack); **a meal is always produced**.
+- **4 auto-cook devices**; per step choose "do it yourself / auto". Dedicated bench screen, one meal at a time.
+- Scoring: chop = beats · mince = balance + time · stir = hold in the boiling band · grill = auto-rising pieces, click to flip then remove.
+- 2D minigame + bench pose + fixed camera.
+- Design: meal score = step average (auto = device level); best device anywhere counts; squad serving keeps quality; output to stash first.
+- Later: cooking gives only cooking XP; perfect band = the window itself (2026-09-14); a failed pose no longer cancels cooking.
+
+## 2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴 / 거래소 · Access sides · generator · crypto
+
+- Placements breaking the new access rule **move to furniture storage** (contents to the stash).
+- Exchange: **buy + sell** at server prices, credit reasons validated by the relay.
+- Locked coins unlocked by quests (moved to NPC mining-permit quests, 2026-09-14). Compute cluster 1×2 rotatable, **main computer required**.
+- **Power allocation was removed the same day** ("too harsh"): the generator is only the **build gate for higher facilities** (Lv.1–5).
+  Trap to remember: auto-fill was not in the spec, but pure manual allocation stopped every "place and use at once" flow (e.g. the tutorial workbench).
+  On removal: furniture/storage upgrade gates kept · facilities above the generator level removed with **full refund** · old Lv.6–10 → Lv.5 without refund.
+- Design: mining is continuous and pays each cycle; changing core count folds progress, changing coin resets it; mining works offline, charts/trades need the server.
+
+## 2026-09-13 — 서재 시리즈 · 비디오게임 · 요리/연구 숙련 · Library series · video games · skills
+
+Rule source: `src/shared/library.ts`.
+
+- Video games follow **gym rules** (24 h debuff, shared trained pool); game discs = the 3 gym games + per-disc tuning; playing is a squad-visible buff.
+- Effect lines: book 1 · video 2 · record 3. **Series: 10 % per volume, 100 % for the full set**, a volume counts once — this replaces per-medium caps.
+- Storage furniture: multiple allowed. Recipe books add recipes **only while shelved**. Old 42 media → volume 1 of a new series.
+- All media **planet-bound** (records/game discs from threat 2, tiny rates), removed from shops. "Not shelved" band hides if shelved anywhere.
+- Research skill: shorter analysis + refunds at lab benches; lab benches give only research XP, the cooking bench only cooking XP.
+
+## 2026-09-14 — 메신저 · NPC 퀘스트 · 단체방 · Messenger · NPC quests · rooms
+
+- **P-key panel** replacing the community panel, **ship only**. All 25 corp quests **deleted** (corps keep contracts; coin unlocks → NPC quests).
+- Objectives **commit when filled** (survive death); recovery commits on extraction. **Only structure discovery is squad-shared**.
+- Group rooms: **owner model, friends-only invites, not linked to chat**. Quests end with **[완료 보고]; no abandoning**.
+
+Content conventions: [data/README.md](../data/README.md) `npc_objectives.csv`. "Think about it" and level-based first contact were
+replaced the same day → 「2026-09-14 — NPC 첫 연락 3단」.
+
+## 2026-09-14 — 정보상 · 발사 슬롯 UI · NPC 개인 신뢰도 · Intel broker · launch slots · NPC trust
+
+- Broker = **Raven reused** (`reqLevel` → 1). **Squad leader only** buys (the rover single-payer rule).
+- **One intel per profile**, consumed when a raid to that planet ends; rebuying overwrites without refund; area reroll discards all, no refund.
+- Map preview = **real layout as a blurred grid**, no coordinates. Named pin threat 2+ only. Planet travel **stays free**.
+- NPC personal trust for every NPC, separate from corp trust (same `REP_TABLE`); **accrue + display only**, unlocks undecided.
+- Terminal: wide briefing centre, broker → training right, matchmaking = top-right popup. Launch slots: **boarding ≠ ready**
+  (Space hold → launch warning → ready), loadout read-only while ready. HP and shield hit ghosts both light red.
+
+Re-decided after measurement: a **rover pin** bought nothing (natural rate was 100 %) → `ROVER_CHANCE` — **measure a gimmick's natural
+rate before selling a pin**. **Underground +N builds extra structures** instead of overriding rolls; `maxCount` caps natural placement
+only. Small screens shrink **grid cells by window height** (`INV_CELL_*`).
+
+## 2026-09-14 — 튜토리얼 개편 (레이드에서 시작한다, 1–4차) · Tutorial rework (starts in a raid)
+
+| Question | Chosen |
 |---|---|
-| 진행 방식 | shared 계약 선작성 → 폴더별 병렬 에이전트 → `npm run verify:all` |
-| 소셜 백엔드 | **서버 프로필 문서 + 토큰 파생 아이디**. `ProfileRecord.social`(서버가 읽고 쓴다), 아이디는 PeerId 에서 파생한 8자 `PlayerCode` (`AB3D-9KMN`). 프리즌스(접속 · 함선/임무 · 분대 인원)는 서버가 알려준다 |
-| 행성 구성 | **기존 5개 바이옴 = 5행성**, 기존 콘텐츠 재조합. 신규 적 · 신규 아이템 없음 |
-| 터미널 | 전체화면. **중앙 = 행성 홀로그램**, 좌우 사이드에 기존 매치메이킹(신호 찾기 / 코드로 도킹 / 신호 송출 · 공개 / 도킹 해제 / 승무원 목록 / 시뮬레이션 훈련장) 유지 |
-| 행성 선택 권한 | 공유 함선에서는 **호스트만**. 개인 함선은 본인 |
-| 소셜 노출 범위 | ESC 우측 소셜 패널도, 우측 상단 커뮤니티 아이콘도 **함선에서만** (레이드 중 ESC 는 좌측 버튼만) |
-| 이동 컷씬 | **기존 `DockingCutscene` 재활용 + 워프** (`HUB_TRAVEL_DURATION` 4.5 초, 절차적 지오메트리만) |
-
-**구현 결과** — 전 항목 완료.
-**이월**: 보이스 채팅 미구현(슬라이더는 UI 뿐), 소셜 레코드 GC · 초대 결과 통지 · 귓속말 기록/차단 없음
-→ [TODO.md](TODO.md) A-6 · B-3 · B-4 · B-5 · B-6 (B-2 소셜 레코드 GC 는 2026-09-11 에 해결 — 90일 비활성 프로필 삭제).
-
----
-
-## Phase 12 — 임플란트 아이템 · 배리어 rework · 정찰 rework · 총알 추적 · UX 정리
-
-2026-09-08. 브랜치 `feature/implant-system-barrier-scan-ux`.
-
-- 임플란트 장착칸: **기본 4칸, 5레벨마다 +1, 상한 10** (`IMPLANT_SLOTS_*`).
-- 임플란트 판매 · 망가진 임플란트 수리(조합): **세레스 바이오** (기업 탭에 임플란트 서브탭).
-- 전설 퍽 3종 **실제 구현**: `auto_revive` 재기동 회로 · `quick_heal` 가속 대사 · `kill_stamina` 아드레날린 펌프.
-- AI 총알 추적: **방향 주시(3 s, 감지 2배) 후 발사 지점으로 전진**; 버그는 바로 이동.
-
-**구현 결과** — 16개 작업 항목 전부 완료. 계약을 먼저 커밋한 뒤 8개 병렬 폴더 에이전트가 작업. `verify:all` 전부 통과.
-**이월 (2026-09-11 해소)**: `pushBack` 은 C 배치에서 `EnemyManagerRef` 계약이 됐다(C-1 — 비호스트는 `HitRequest.kb`).
-`IMPLANT_REPAIR_FEE` 는 `data/tuning.csv` 스칼라로 meta 에 두는 것이 data 규약에 맞아 **옮기지 않기로** 닫았다(C-2).
-
----
-
-## 2026-09-09 — 사망/시체 · 구조선 · 분대장 · 전장의 안개 · 지형지물 콜리전
-
-사용자 요청 묶음. 결정은 전부 작업 **전에** 물어서 정했다 (`AskUserQuestion` 2라운드 8문항).
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 함선 호출 목록 | **항공 폭탄을 휠에서 내리고 구조선을 올려 4방위 유지.** 5분할 휠로 늘리는 안은 버렸다. `airstrike` 의 타입 · csv 줄 · 구현은 남는다 (`src/shared` 는 추가만) |
-| 구조선 부활의 장비 | **완전 빈손.** 무기 · 방어구 · 가방 · 퀵슬롯이 전부 시체에 남는다 (타르코프식) |
-| 임플란트 | **몸에 남는다.** 프로필 소유 · 함선 전용 탈착이라 회수 계약이 따로 필요했고, 메타 진행을 지키는 쪽을 골랐다 → [TODO.md](TODO.md) C-12 |
-| 시체 감정 | **상자와 동일하게 한 칸씩.** 즉시 공개는 버렸다 |
-| 구조선 횟수 차감 | **호출 확정(`grant`) 시점, 환불 없음.** 착륙 성공 시 차감 · 사망 시 차감은 버렸다. 5회 소진 뒤 사망자는 관전 고정 |
-| 안개 범위 | **지도 + 월드 마커 게이트.** 월드 렌더에 포그를 넣는 안은 버렸다 (렌더 비용 · 조명 재조정) |
-| 콜리전 | **메시 크기 원기둥 + 올라가기.** OBB 는 `SpatialHash` · 적 회피 · 레이캐스트를 전부 재작성해야 해서 버렸다 |
-| 호스트 이관 | **서버에 `lobby:transferHost` 를 추가.** 클라이언트끼리만 합의하는 안은 릴레이의 `hostId` 와 어긋나 재접속 · 이탈 로직이 깨진다 |
-| 대형 적 스폰 | **반경 기반 자동 판정** (`radius >= ENEMY_BIG_RADIUS` 면 점유율 검사). csv 에 종별 `spawnClearance` 칸을 두는 안은 버렸다 — 새 종이 추가돼도 그냥 걸리는 쪽이 낫다 |
-
-리드가 판단한 것 두 가지:
-
-- **탈출 신호소 빛기둥은 평상시만 껐다.** 탈출이 활성화된 뒤의 호박색 점멸은 남긴다 — 그 시점엔 분대 전원이
-  이미 아는 위치이고 120초 카운트다운의 랜드마크다.
-- **분대장 변경 토스트의 주인은 `game/parts/Leader` 하나다.** 이관 경로가 셋(커뮤니티 우클릭 · 함선 안
-  상호작용 · 분대장 기기)이라 각자 띄우면 중복된다. 셋 다 `net:hostChanged` 로 모인다.
-
-**구현 결과** — 전 항목 완료. 계약을 먼저 커밋(`c3ab1f4`)한 뒤 3개 병렬 폴더 에이전트. `verify:all` 전부 통과.
-**드러난 것**: 베헤모스는 지금까지 **헤드샷이 아예 없었다** (`classifyHit` 이 머리보다 앞면 장갑판을 먼저 검사;
-`headMul` 이 1 이라 보이지 않았다). 스모크 두 곳이 밸런스 수치를 박아 두고 있었다 (`e2e-mp` 의 `hp < 60`,
-`smoke-uniques` 의 로켓 점프 타이밍) → [VERIFICATION.md](VERIFICATION.md).
-**이월**: 전초기지 접근자 없음, 레이드 중 임플란트 회수 계약 없음 → [TODO.md](TODO.md) C-11 · C-12.
-
----
-
-## 2026-09-09 — 레이드 콘텐츠 (구조물 · 선로/전차 · 환경 재해 · 로그 강하 · 의사소통 휠 · 행성별 등급 드롭)
-
-사용자 요청 묶음. 결정은 작업 **전에** 물어서 정했다 (`AskUserQuestion` 2라운드 8문항).
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 등급 드롭률의 기준 | **상자 1개당** — "이 상자를 열었을 때 그 등급 무기가 들어 있을 확률". 무기 드롭 1자루당 · 레이드 1회당은 버렸다 |
-| 행성 순번 | **`data/planets.csv` 의 줄 순서 = 난이도 순** (1 아켈론 II … 5 카민 I). "플레이어의 N번째 레이드" 안은 행성 선택의 의미를 지워서 버렸고, 기존 `threat`(1–3) 재사용은 5단계 곡선을 3단계로 뭉개고 값이 중복돼서 버렸다 |
-| 구조물 규모 | **진입 가능한 지상 건물 + 지하실 1층.** 개방형 폐허 + 지하 방만 만드는 안, 다층 복합 시설 안은 버렸다 |
-| 전차 조작 | **콘솔로 시동 → 자동 주행, 탑승/하차 자유.** 직접 조종(전/후진 · 정차)은 조작 계약 · HUD · 동기화가 더 필요해서 버렸다 |
-| 재해 배정 | **행성별 후보 중 레이드마다 무작위.** 행성마다 고정 1종은 버렸다 |
-| 재해의 끝 | **맵 전체를 덮어 사실상 강제 탈출.** "아주 좁은 안전지대가 남는다" 는 버렸다 |
-| 로그 강하 규모 | **분대 인원 비례** — 1명 2–3 · 2명 4–5 · 3명 5–6 · 4명 6–8, 보스는 **2명 50 % · 3명 이상 확정** |
-| 작업 분할 | **한 사이클에 전부** (계약 선커밋 → 폴더별 병렬 에이전트 5 → `verify:all`) |
-
-**이전 결정을 뒤집은 것 하나.** 2026-09-09 앞 배치는 *"콜리전은 메시 크기 원기둥 + 올라가기. **OBB 는
-`SpatialHash` · 적 회피 · 레이캐스트를 전부 재작성해야 해서 버렸다**"* 로 끝냈다. 이번엔 **들어갈 수 있는
-건물**이 요구사항이라 벽을 원기둥으로 흉내낼 수 없어 그 결정을 뒤집었다. 대신 재작성은 하지 않았다 —
-`SpatialHash.addBox` 가 **외접원을 `radius` 로 채워** 버킷팅 · `overlaps` · `query` 를 그대로 두고,
-`resolveCollision` / `raycast` / `getSurfaceY` / `getStandingObstacle` 은 `if (o.box)` 가지에서만 새 수학으로
-간다. 그래서 **원기둥 소품의 동작은 한 줄도 바뀌지 않았다** (`smoke-props-collision` 20/20 유지).
-
-리드가 판단한 것 다섯 가지:
-
-- **유니크 무기와 유니크 전용 탄약도 행성으로 막았다** (사용자가 명시하지 않은 부분). 등급 V 가 봉인된
-  1·2번 행성에서 그보다 윗급인 전설 유니크가 보스 시체에서 그대로 나오면 "앞 행성에서는 좋은 총이 거의 안
-  나온다" 는 요구의 취지가 무너진다. 전용 탄약도 같이 막았다 — 쓸 총이 없는 탄약은 가방을 먹는 죽은 무게다.
-- **지붕을 무너뜨렸다.** 3인칭 카메라가 실내에서 갇히지 않게 하는 방법은 여럿(부분 지붕 · 카메라 특례 ·
-  지붕 페이드)인데, **무너진 지붕**이 "버려진 건물" 설정과 맞으면서 특례 코드가 **0줄**이다. 남은 것은
-  서까래 · 처마 · 난간이고 전부 콜라이더가 없다.
-- **강하 병력은 상시 개체수 상한을 거치지 않는다.** 상한은 *상시 순찰 압력* 조절 장치이고, 예고한 8명이
-  상한에 눌려 2명이 되면 연출도 인원 규칙도 무너진다 (포병이 `cap + 2` 로 스폰하는 것과 같은 성격의 예외).
-  대신 `aliveCount()` 에는 잡히므로 강하가 살아 있는 동안 벌레 순찰이 덜 나온다 — 이건 의도다.
-- **적은 전차에 실려 가지 않는다.** 매 프레임 적마다 공간 해시 질의가 하나 늘어나는데(적 ~60마리 60 fps
-  목표), 전차 데크가 2.05 m 라 `PROP_STEP_UP_MAX`(0.9 m)로는 적이 애초에 올라설 수 없다. 비용만 있고 이득이
-  거의 없어 넣지 않았다.
-- **대기 오버라이드의 농도를 곱셈이 아니라 보간으로 잡았다.** 처음엔 `base × fogMul` 이었는데, `fog:false`
-  인 **맑은 행성**(카민 I)은 `baseDensity` 가 0 이라 무엇을 곱해도 0 이었고 그 행성의 모래 폭풍 안에서 시야가
-  전혀 좁아지지 않았다. `lerp(base, (base>0 ? base : palette.fogDensity) × mul, t)` 로 바꾸니 포그 있는
-  행성은 **값이 그대로**이고 맑은 행성만 "맑음 → 폭풍" 으로 오른다.
-
-**구현 결과** — 전 항목 완료. 계약을 먼저 커밋(`9ea3fc0`)한 뒤 폴더별 병렬 에이전트 4개(items/data ·
-enemies · ui · world 1/2), 그 다음 순차로 world 2/2(재해). world 두 레인을 **나눈 이유는 둘 다
-`WorldSystem.ts` 를 고치기 때문**이다 — 같은 파일을 동시에 편집하면 서로 덮어쓴다.
-`verify:all` 전부 통과.
-
-**드러난 것**: `smoke-phase4` 의 "오래된 flake"(`{"dead":true,"hp":0}`)는 flake 가 아니라 **실제로 죽은
-플레이어로 플레이어 훅을 검사하고 있던 것**이었다 — 2026-09-09 에 자동 부활을 없앤 뒤로 `revive()` 는
-전투불능만 일으키고 완전 사망은 그대로 남는다. 스모크가 죽었으면 되살리도록 고쳤다.
-`smoke-ecology` 는 생태계 밀도에 군락 버섯까지 세고 있었고, `smoke-hazard` 는 Node 스코프 상수를
-`page.evaluate` 콜백 안에서 참조하고 있었다 → [VERIFICATION.md](VERIFICATION.md).
-
-**이월**: 폭풍의 눈만 마지막에 `STORM_EYE_RADIUS_END`(60 m) 짜리 눈이 남는다(맵의 2.8 %, 계약 상수라
-무시하지 않았다); 적 · 시체는 재해 피해를 받지 않는다; 구조물 컨테이너의 문 애니메이션은 동기화하지 않는다;
-키카드 컨테이너는 첫 개봉에 `inventory:containerOpened` 를 두 번 낸다 → [TODO.md](TODO.md).
-
----
-
-## 2026-09-11 — 신뢰 경로의 남은 틈 (E-8 · E-9 · B-11 · B-12)
-
-16차 배치(소셜 · 신뢰 경로 · 연결)가 남긴 네 틈. 결정은 작업 **전에** 물어서 정했다 (`AskUserQuestion` 7문항 — 전부 권장안).
-경과는 [HISTORY.md](HISTORY.md) 20차.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| `explode` 요청 | **모양 · 보낸 사람 · 거리 · 요율까지.** `ExplodeRequest` 에 `kind` 를 더해 종류별 상한을 두는 안은 버렸다 — 뭉뚱그린 상한 위에 거리 + `hit` 과 같은 DPS 버킷이면 충분하다 |
-| 상태이상 요청(`st`) | **전용 건수 버킷만.** DoT 예상 총량을 DPS 버킷에서 미리 빼는 안은 버렸다 — 사거리가 원격 남발을 막고, 선차감은 여러 마리를 태우는 정당한 화염방사기를 깎는다 |
-| 거절된 분대원 함선 호출 | **통보 + 쿨타임 전액 환불** (거절 = 호출이 서지 않았다 — 부분 환불은 근거가 없다) |
-| 판매 반올림 | **`round` → `floor`.** 가치 1 한 개는 0 C 로 **그대로 판다**. 구매는 `round` 유지 — 내리면 가격이 조용히 싸진다 |
-| 판매 아이템 소유 검증 | **하지 않는다** — 창고 · 가방이 불투명 blob 이라 서버 권위 인벤토리(페이즈 규모)가 필요하다 → [TODO.md](TODO.md) `참고` 절 |
-| 차단과 로비 참가 | **방향별로** — 내가 차단 = `blocked`, 나를 차단 = `not_found`(위장). 이미 같은 분대인 사람은 강퇴하지 않는다 |
-
-리드가 뒤집은 것 하나: 계약은 **죽은 보낸 사람의 `explode`** 를 거절했지만, 수류탄 신관 · 호출 `eta` 안에 던진 사람이 죽는 것은
-정상이라 받아들인다 (`kb` 만 거른다). 지뢰 `by` 크레딧의 「고칠 한 줄」은 조사해 보니 이미 맞는 동작이라 주석만 남겼다.
-
----
-
-## 2026-09-11 — 연구실 (A-11 품종 · A-12 분석기 · A-13 추출기/조합대/준비물 · B-13 가구 강화 UI)
-
-사용자 6단계 명세(온실 → 연구실 → 추출/조합 → 배양조 → 프린터)의 2–4단계. `AskUserQuestion` 3라운드 → 리드 계약 커밋(`652aff6`) →
-병렬 에이전트 6. 경과는 [HISTORY.md](HISTORY.md) 22차.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 열 방 | **연구실만.** 주방은 다음 사이클(A-3c) |
-| 행성 게이트 | **소프트 게이트** — 입장은 막지 않고 준비물이 없으면 체력만 지속 피해. 환경은 **threat 3 두 곳**(피로스 VII `heat` · 카민 I `toxin`)에만, 신규 행성은 만들지 않는다. 준비물은 **100 % 상쇄** |
-| 준비물 지속 | **함선에서 쓰면 다음 레이드 1회분** — 출격에 소모, 사망해도 그 레이드는 유지 |
-| 분석기 시간 | **현실 시간 대기** (온실과 같다) |
-| 새 씨앗 공급원 | **야생 채집 + 분석기 해석 둘 다.** 개량 품종은 반복 보상에 둔다 — 첫 해석 보너스에만 두면 두 번 다시 못 기른다 |
-| 표본 획득처 | 벌레 시체 · 채집지 · 티어 3+ 컨테이너. **로그 시체 제외** ("로그는 표본에 관심이 없다") |
-| B-13 UI | **클릭 인스펙터.** 그리고 **이미 가진 실용 가구는 제작 잠김** — 딤드 + 목록 맨 아래 |
-
-**구현 결과** — 전 항목 완료. 규칙은 CLAUDE.md §4 와 housing · progression · player · items README.
-**뒤집힌 것**: 표본 6종 · 도감 진척 시간 단축 · 첫 해석 보너스 → 2026-09-13 계열 3종 + 분석 레벨 결과표 · 「로그 시체 제외」 → 같은 날
-팩션 전리품(연구소의 레이더 시체가 표본을 준다) · 실용 가구 1개 제한 → 2026-09-13 서재 보관함은 여러 대 · 레이드 환경 배지 →
-2026-09-12 버프 썸네일 · 연구실의 온실 선행 → 2026-09-14 폐지.
-
----
-
-## 2026-09-11 — 주방 · 배양조 · 3D 프린터 (A-3c · A-14 · A-15)
-
-연구실 바로 뒤 사이클. `AskUserQuestion` 3라운드 12문항 → 리드 계약 커밋(`61ef305`) → 병렬 에이전트 6. 경과는 [HISTORY.md](HISTORY.md) 23차.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 범위 | **셋을 한 사이클에** — 작물 → 요리, 배양 산물 → 요리 재료 + 필라멘트 → 가방이 사슬이라 따로 하면 뜻이 안 산다. A-16(필라멘트 생활 가구)만 남겼다 |
-| 요리 버프를 담을 그릇 | **별도 「식사」 칸 1개** — 준비물과 자리를 다투지 않는다. 두 번째 요리는 거절이 아니라 교체 |
-| 조리 · 먹기 | **조리대(작업대 즉시 제작) + 식탁**. 공유 함선에도 고정 식탁 — **한 명이 차리면 분대 전원** (요리 1개 소모) |
-| 배양조 | **온실 배치 · 현실 시간** 스테이션. 배지는 **등급 하나** — 토양 같은 태그 축은 만들지 않았다 |
-| 주머니 | **장착 1칸 고정**, 퀵슬롯 아래 별도 격자. 받는 것은 카테고리로 가르고 **열쇠는 새 카테고리 `key`** |
-| 상급 가방 | **새 티어가 아니다** (TODO 초안을 뒤집음) — 기존 희귀 · 서사 · 전설 가방이 프린터(`WorkbenchKind 'print'`) + 필라멘트 3등급으로 옮겨 간다 |
-
-**구현 결과** — 전 항목 완료. 규칙은 CLAUDE.md §4 와 housing · progression · inventory · net README.
-**뒤집힌 것**: 요리마다 버프 한 가지 · 10종 → 2026-09-13 요리 재료 티어(능력치 여러 줄, 특선 요리 · 옛 세포주 · 배양 산물 은퇴) ·
-조리대 즉시 제작 → 같은 날 조리대 미니게임 + 품질 · 「배지 0 이면 칸이 빈다」 → 내구도 + 소켓 · 주방 · 연구실의 온실 선행 →
-2026-09-14 폐지 · 레이드 식사 배지 → 2026-09-12 버프 썸네일.
-**이월**: A-16 필라멘트 생활 가구 — 2026-09-14 TODO 정리에서 목록에서 뺐다.
-
----
-
-## 2026-09-12 — 헬스장 · 서재 매체 (A-3a · A-3e)
-
-`AskUserQuestion` 1라운드 4문항 → 리드 계약 커밋(`a723a8a`) → 폴더별 병렬 에이전트 7. 경과는 [HISTORY.md](HISTORY.md) 27차.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 새 서재 가구가 놓일 방 | **서재.** 휴식 공간 방 용도를 되살리지 않았다 |
-| 레코드 보조 가구 3종 (축음기 · 주크박스 · 턴테이블) | **외형만 다르고 효과는 같다** — 몇 대여도 한 번 |
-| 운동 향상의 저장 · 표시 | **스탯 포인트와 따로 세는 단련 보너스** (`PlayerProfile.trained`, 시트 `(+n 단련)`) |
-| 운동 중 연출 | **자세 + 고정 옆 카메라** |
-
-리드 기본값(묻지 않음): 디스크 · 레코드 = 숙련 14종씩 · 매체별 상한을 자른 뒤 보조 가구 배율 · 디버프 중 운동은 되지만 경험치 0 ·
-끝까지 한 세션만 반영(취소는 보상도 디버프도 없음) · 자세는 네트워크로 보내지 않음.
-
-**구현 결과** — 전 항목 완료. 규칙은 CLAUDE.md §4 와 housing · progression · player README. 계획의 「레코드 티어 3–5」 는
-설계 실수라 구현 때 티어 5 를 뺐다.
-**뒤집힌 것**: 자세 비동기화 → 다음 날 캐릭터 버프 배치에서 동기화 · 숙련별 디스크/레코드 + 매체별 상한 → 2026-09-13 시리즈 권
-(종류당 1회, 보관함 여러 대) · TV 의 E 켜기 → 2026-09-13 TV 게임 화면 · 레코드 플레이어 켜짐 → 2026-09-14 음악 재생 상태 ·
-판정 「완벽 = 창의 1/3」 → 2026-09-14 「보이는 것이 곧 판정」 · 함선 운동 디버프 배지 → 같은 날 버프 썸네일.
-
----
-
-## 2026-09-12 — 캐릭터 버프 · 가구 자세 원격 동기화
-
-헬스장 바로 뒤 후속 요청. `AskUserQuestion` 2라운드 8문항 → 리드 계약 → 병렬 에이전트 4. 경과는 [HISTORY.md](HISTORY.md) 28차.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 목록에 담을 것 | **전부** — 휴식 · 운동 중 + 운동 디버프 + 식사 + 준비물 + 환경 노출 |
-| 버프 효과 | **없음** — 표시 · 동기화용. 효과의 원본은 제자리 |
-| 표시 위치 | **함선에서도 PC 체력바** + 그 아래 썸네일. 분대원은 **좌하단 분대 목록 행 아래** (월드 명판은 버렸다) |
-| 기존 글자 배지 3개 (식사 · 환경 · 운동 디버프) | **썸네일로 대체** |
-| 남은 시간 | **아이콘 + 시간 게이지** (+ 짧은 글자) |
-| 함선의 다음 레이드분 식사 · 준비물 | **보인다 — 흐리게** |
-| 운동 동기화 수준 | **실제 동작 위상 그대로** (바벨 · 걸음 · 크랭크 · 원반) |
-
-**구현 결과** — 전 항목 완료. 규칙은 CLAUDE.md §4 와 player · net · ui README. 이후 종류는 추가만 됐다
-(`adrenaline` · `stimulant` · `cooking` · `gaming`).
-
----
-
-## 2026-09-12 — 전투 소모품 · 소모형 열쇠 · 드론 스캔 · 즐겨찾기 · 아이템 회수 계약
-
-사용자 명세 묶음(소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스 미니게임). 결정은 작업 **전에** 물어서 정했다.
-경과는 [HISTORY.md](HISTORY.md) 30 · 31차.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 소모품 3종 | 아드레날린(일반 — 스태미나 전부 + 지속 소모 0) · 각성제(고급 — 장전 · 정조준 · 흔들림 개선, 대신 스태미나 소모 ↑) · 안정제(희귀 — 전술 임플란트 전부 충전). **3 초 홀드**, 아드레날린과 각성제는 **서로 지운다**, 안정제는 **가득이거나 미장착이어도 소모된다** |
-| 조준 흔들림 | **새로 만든다 — 카메라가 떠돈다, 정조준 중에만.** 계열별 크기 · 자세 · 이동. 스태미나는 요인이 아니다 (각성제의 「흔들림 감소」가 가리킬 것이 없었다) |
-| 임플란트 · 함선 호출 준비 | 준비되는 순간 **강한 플래시 1회 + 준비된 동안 윤곽 글로우**, 충전형은 충전마다. 소리는 임플란트 = 높은 전자음 · 함선 호출 = 무전 두 음 |
-| 갈고리 · 대시 | 갈고리 쿨타임 2배 + **당겨진 거리로 환급**(0 m 50 % → 15 m 0 %), 붙기 전에 끝나면 90 % · 최소 몇 초 남김. 대시 거리 1.5배 |
-| 지하실 열쇠 | **소모형 만능 열쇠** — 전진기지 지하실 = 열쇠(id 그대로), 연구소 2층 잠긴 방 = 키카드. 「구조물마다 지상층 컨테이너에 확정 하나」 폐지, 연구소 지하실 제거. 잠긴 문 옆 **드론 환풍구**(사람은 막고 지상 드론은 지난다) |
-| 드론 스캔 | 지상 드론 조종 중 가까이서 좌클릭 홀드 → 안의 **최고 등급**을 레이드 내내 월드 라벨 + 분대 공유. 아직 안 연 것은 **여는 굴림 그대로** 미리 본다 |
-| 즐겨찾기 | **종류(def) 단위 · 캐릭터별 · 서버 동기**(로드아웃 문서). 우클릭 = 모든 아이템에 메뉴 · 더블클릭 = 빠른 이동. 파란 사선 띠 · 정렬 앞 · 필터 칩 · 판매/분해 한 번 더 확인 · 루팅 창 글로우. 없는 아이템도 칩 · 상점 타일에서 켠다 |
-| 새 계약 「아이템 회수」 | 지정 아이템 N 개를 몸에 지니고 탈출. **그 레이드의 루팅 굴림이 만든 것만 센다** (31차 후속 결정) — 표식은 아이템을 따라 다니고, 활성 회수 계약 아이템만 가져온 스택과 따로 쌓인다(섞이면 표식 없음 = 세탁 금지). 띠는 즐겨찾기와 같고 레이드 중에만 |
-
-리드가 판단한 것: 안정제는 **함선 호출 쿨타임을 건드리지 않는다**(전술 임플란트만) · 드론 스캔은 지상 드론만, 늦게 합류한 분대원에게
-결과를 다시 보내지 않는다(라벨만 레이드 내 방송) · 환풍구는 작은 투척물도 지난다 · 회수 계약 띠는 즐겨찾기와 같되 루팅 창 글로우는
-즐겨찾기에만, 감정 전 타일에는 띠가 없다(정체를 흘리지 않는다).
-
-**구현 결과** — 전 항목 완료. 헬스 미니게임이 키를 누를 때만 움직이던 것은 `setInterval` 이 무거운 프레임에 굶은 것이라 렌더 프레임(rAF) 루프로 옮겼다.
-**뒤집힌 것**: 갈고리 쿨타임 · 취소 최소 → 2026-09-14 +30 % · 대시의 레이 한 줄 벽 검사 → 2026-09-14 `dashReach` · 더블클릭 빠른 이동 →
-2026-09-14 빈 칸 자동 장착 · 「퀘스트 납품 칩에서 즐겨찾기」 → 2026-09-14 기업 퀘스트 폐지로 자리가 없어졌다.
-
----
-
-## 2026-09-13 — 요리 재료 티어 (분석기 결과표 · 흙/배지 내구도와 소켓 · 배양 스캐폴드)
-
-사용자 요청 「티어별 요리 재료」. 결정은 작업 **전에** 물어서 정했다 (`AskUserQuestion` 3라운드 12문항). 경과는 [HISTORY.md](HISTORY.md) 34차.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 표본 체계 | **3종(세포 · 광물 · DNA)으로 통합.** 옛 11종은 은퇴 — 정의는 남고 분석기에 넣으면 자기 계열로 해석된다 |
-| 분석 레벨 | **시간 단축 + 결과 해금**(계열별). 옛 「도감 진척 → 시간 단축」 · 첫 해석 보너스를 대체했다 |
-| 흙 · 배지 | 흙은 **부으면 소모**(그대로), 배지도 **흙과 같은 내구도 규칙** — 0 이어도 칸은 비지 않고 보너스가 내구도 비율로 준다 |
-| 소켓 | **부어 둔 흙 · 배지에 영구 장착**. 가득 찬 칸에 덮어 끼우면 경고 뒤 옛 소켓 파괴. 종류는 csv 고정, 칸 수 = 흙 · 배지 등급 |
-| T3 고기 | **배양조 칸에 스캐폴드** — 배지 → 스캐폴드 → 세포주, 있으면 종별 고기 · 없으면 고기 페이스트, 수확 때 소모 |
-| T4 | **추출기 성분 + 조합대**(동물기름 · 소금) |
-| 옛 배양 콘텐츠 | **새 id + 옛 것 은퇴** (세포주 5 · 배양 산물 5 · 특선 요리 4) |
-| 상위 요리의 보상 | **버프는 하나, 능력치 줄 수가 티어만큼** (1 · 2 · 3 · 4) |
-| 새 표본 출처 | **성격별** — 세포 = 벌레 시체 · 채집지, 광물 = 채집지 · 고철 더미 · 베헤모스, DNA = 구조물 컨테이너 · 벌레 시체 드물게 |
-
-리드가 판단한 것 두 가지:
-
-- **소켓의 speed · yield 도 내구도 비율로 준다.** 내구도 0 인 흙 · 배지를 갈 이유가 생겨야 영구 소켓이 소모처가 된다.
-- **분석 결과는 넣는 순간 굴려 칸에 적는다** — 회수 실패나 레벨업으로 다시 굴릴 수 없게.
-
-**구현 결과** — 전 항목 완료. 같은 날 조리대 요리가 미니게임 전용이 되고(아래 절) 분석 시간에 연구 숙련 배수가 붙었다.
-
----
-
-## 2026-09-13 — 행성별 적 팩션 (안드로이드 · 로그 · 레이더)
-
-사용자 명세 「행성 별 적들의 난이도」. 결정은 작업 **전에** 물어서 정했다 (`AskUserQuestion` 3라운드 12문항). 경과는 [HISTORY.md](HISTORY.md) 36차.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 난이도 기준 | **`PlanetDef.threat`(1–3).** 2026-09-09 의 등급 드롭은 threat 를 버리고 줄 순서(1–5)를 골랐지만 팩션은 세 단계라 threat 가 맞다 — 네임드 확률도 순번 표(`…_BY_RANK`)에서 threat 표로 옮겼다 |
-| 명세의 끊긴 「난이도 3에서는」 | **레이더만** — threat 2 에서 로그가 서던 자리(플랫폼 · 폐허)까지 전부 |
-| 옛 상자 경비 | **폐지 → 거점 점거.** 불시착 함선은 어느 threat 에서도 비어 있다(레이더 강하 트리거만). 로그 분대장은 따로 서는 보스가 아니라 **로그 그룹장** |
-| 강하 | 옛 로그 강하 트리거 그대로 **레이더 두 파도**, 분대장 없음 |
-| 수류탄 | **실제 보유분** — 종류별로 진짜 던지고(소이 = 진짜 화염 지대) 못 던진 것은 시체에 |
-| 방탄복 · 가방 드롭 | 짠 옵션의 **절반, 레이더도 로그와 같게**, 총처럼 낮은 내구도 |
-| 외형 | **로그 리그 공유 + 새 외피.** 새 리그는 만들지 않았다 |
-
-**후속 결정** — 첫 구현이 threat 2–3 맵에 인간형 39–44명을 세워 폐허 점거 50 → 20 % · 바깥 거점 그룹 2–3명으로 내렸다 (실측 19–27명).
-**이월**: 적 소이 화염 지대에 소리 · HUD · 드론 피해가 없다 → [TODO.md](TODO.md) B-16 · 피칭 문서 행성 페이지가 옛 적 구성 → E-13.
-
----
-
-## 2026-09-13 — 요리 미니게임 · 요리 품질 · 자동 조리 가구
-
-사용자 요청 「요리 미니게임」. 결정은 작업 **전에** 물어서 정했다 (`AskUserQuestion` 3라운드 11문항). 헬스장 미니게임(A-3a)의 구조를 그대로 본떴다.
-품질 ★ · 보너스 · 자동 점수 · 재료 소모 시점의 규칙은 CLAUDE.md §4 「요리는 조리대 미니게임으로만 만들고 …」 에 있다. 경과는 [HISTORY.md](HISTORY.md) 37차.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 점수 보너스 | **요리 품질**(아이템에 붙는다, 품질이 다르면 다른 칸) · 점수가 낮아도 **요리는 늘 나온다** |
-| 자동 조리 가구 | **4종**(푸드 프로세서 · 자동 그릴 · 자동 교반기 · 계량 디스펜서), **단계마다 「직접 하기 / 자동」** |
-| 조리 흐름 | **전용 조리대 화면, 한 번에 1개** (제작 수량 없음) |
-| 채점 | 썰기 **리듬 박자** · 다지기 **균형 + 시간** · 젓기 **끓어오름 구간 유지** · 굽기 **조각이 전부 자동으로 오르고** 클릭 = 뒤집기 → 꺼내기 |
-| 연출 | **2D 미니게임 + 조리대 앞 자세 · 고정 카메라** |
-
-리드가 판단한 것: 요리 점수 = 단계 점수의 **평균**(자동 단계는 가구 레벨 점수) · 자동 가구는 함선 어디에 있든 **가장 높은 레벨 한 대** ·
-공유 식탁 「분대에 차리기」 는 차린 품질 그대로 · 산출물은 창고 먼저.
-
-**구현 결과** — 전 항목 완료. **뒤집힌 것**: 조리 숙련은 계획의 제작 경험치가 아니라 **요리 경험치만**(같은 날 서재 시리즈 후속 결정) ·
-판정 창의 「완벽 = 창의 1/3」 은 2026-09-14 에 **완벽 = 창 그대로**(CLAUDE.md §4 「미니게임은 보이는 것이 곧 판정이다」) ·
-「자세를 못 걸면 조리 취소」 → 2026-09-14 연출만 포기.
-**이월**: 조리대 화면은 제작 숙련이 모자란 요리를 목록에서 숨긴다 → [TODO.md](TODO.md) B-15.
-
----
-
-## 2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴 / 거래소
-
-사용자 요청 「그래픽 카드와 암호화폐」 · 「발전기 기능」 · 「작업대 등 가구들 법칙 변경」 (`AskUserQuestion` 2라운드 8문항 + 구현 중 1문항).
-경과는 [HISTORY.md](HISTORY.md) 40 · 42차.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 새 배치 규칙을 어기는 옛 배치 | **가구 창고로 뺀다** (담긴 것은 함선 창고로) |
-| 거래소 | **매수 + 매도** — 서버 시세, 크레딧 사유를 릴레이가 검증 |
-| 잠긴 코인 4종의 해금 | **기업마다 퀘스트** (2026-09-14 기업 퀘스트 폐지로 NPC 채굴 인가 퀘스트로 옮겨 갔다) |
-| 연산 클러스터 | **1×2칸 · 회전 가능**, **메인 컴퓨터 필수**(함선당 1) |
-| 전력 | 시설마다 **수동 할당** + 할당 안 된 전력에서만 **자동 채움** · 발전기 Lv.10 → **같은 날 폐지** (아래) |
-
-리드가 판단한 것: 채굴은 연속이고 주기가 끝나면 지갑에 저절로 들어간다 · 코어 수를 바꾸면 진행도를 접어 잇고 코인을 바꾸면 0 ·
-서버 없이도 채굴은 돌고 차트 · 매매만 서버가 필요하다 · 비워야 하는 칸끼리는 겹쳐도 된다.
-
-**이전 결정을 뒤집은 것 하나.** 같은 날 사용자가 「전력 할당 시스템이 너무 빡세다」 로 할당 · 비활성화 · 멈춘 시계 · 자동 채움을 전부 걷어냈고,
-발전기는 **상위 시설의 증축 조건**(Lv.1–5)으로만 남았다. 자동 채움은 원래 명세에 없던 추가 질문이었다 — 순수 수동이면 튜토리얼의 작업대처럼
-**가구를 놓자마자 쓰는 흐름이 전부 멈췄다.** 전력류 규칙을 다시 들일 때 먼저 볼 함정이다. 폐지하며 정한 것(`AskUserQuestion` 1라운드 4문항):
-가구 · 창고 강화 게이트 **유지** · 발전기가 모자란 기존 시설은 **제거 + 전액 환불** · 옛 Lv.6–10 은 **환불 없이 Lv.5** · 강화 비용은 무겁게.
-
-**구현 결과** — 배치 규칙 · 채굴 · 거래소 완료, 전력은 `ShipState` v12 로 구현한 뒤 v13 에서 걷어냈다.
-**이월 (당시)**: 오프라인에서 끝낸 해금 퀘스트는 서버 원장에 없어 그 서버에서 기업 코인 매매가 거절된다(채굴 · 차트는 된다).
-
----
-
-## 2026-09-13 — 서재 시리즈 · 비디오게임 · 요리/연구 숙련
-
-사용자 요청 「비디오게임 미니게임: 지능, 인지력 상승」 · 「책, 비디오, 레코드 효과 다양화」 · 숙련 추가 (`AskUserQuestion` 3라운드 10문항 + 구현 중 2문항).
-규칙 원본은 `src/shared/library.ts` 와 CLAUDE.md §4 의 서재 · 비디오게임 절이다. 경과는 [HISTORY.md](HISTORY.md) 41차.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 게임 세션 제한 | **헬스와 동일** — 끝낸 능력치에 24 h 디버프, 같은 단련 풀 |
-| 매체별 효과 | **한 장이 여러 대상** — 책 1줄 · 비디오 2줄 · 레코드 3줄 |
-| 시리즈 공식 | **권당 10 %, 전권 100 %**, 같은 권은 한 번 |
-| 보관함 | **여러 대 허용**, 칸 수는 그대로 |
-| 레시피 책 | **새 레시피, 꽂혀 있는 동안만** |
-| 연구 숙련 | **분석 시간 단축 + 연구실 작업대 재료 환급**. 연구실 작업대는 연구 경험치만(구현 중 결정, 이어 조리대도 요리 경험치만) |
-| 옛 책 · 디스크 · 레코드 42종 | **새 시리즈 1권으로 변환** |
-| 행성 귀속 | **전부 행성 고정**, 레코드 · 게임 디스크는 threat 2 부터 소수점 둘째 자리 % |
-| 「아직 안 꽂음」 띠 | **지금 어느 보관함에든 꽂혀 있으면 없음** |
-| 게임 디스크 | **헬스 3종 + 디스크별 튜닝**(csv) · 게임 중은 헬스처럼 **일시적 버프**로 분대원에게 보인다(구현 중 결정) |
-
-리드가 판단한 것: 옛 매체 상한과 등급 가중치는 은퇴 — **종류당 1 개 + 시리즈 공식이 상한 역할**을 한다 · 게임기 = 3D 프린터 + 드문 드롭,
-게임 디스크는 드롭만 · 모니터 = 기존 TV · 서재 매체는 상점에서 뺀다(시리즈는 행성을 돌아 모은다).
-
-**구현 결과** — 전 항목 완료. **이월**: 방문한 함선 TV 의 게임기 · 원격 게임 연출 없음(`src/hub/README.md`),
-분석 도감 시간 배수가 연구 배율을 뺀다(`src/housing/README.md`).
-
----
-
-## 2026-09-14 — 메신저 · NPC 퀘스트 · 단체방
-
-사용자 명세 [메신저]. 결정은 작업 **전에** 물어서 정했다 (`AskUserQuestion` 2라운드 8문항). 경과는 [HISTORY.md](HISTORY.md) 「2026-09-14 (메신저 · NPC 퀘스트 · 단체방 · 개인 대화)」.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 메신저 자리 | **P 키 독립 패널**(커뮤니티 패널 대체) · **함선 전용** — 레이드 중에는 채팅창 개인 대화와 지도 퀘스트 패널뿐 |
-| 기업 퀘스트 25개 | **전부 삭제** — 기업 네트워크에는 계약만 남는다. 코인 해금은 NPC 퀘스트 id 로 옮겼고 옛 완료 · 해금 기록은 이어지지 않는다 |
-| 레이드 목표 확정 | **채우는 순간** (목표마다 독립, 이후 사망해도 유지). 회수만 탈출해야 확정 |
-| 분대 인정 | **구조물 발견만 공유** — 처치(막타) · 상호작용 · 조사 · 회수는 본인만 |
-| 단체방 | **방장형 · 친구만 초대 · 채팅창 연동 없음** |
-| 초기 콘텐츠 | **NPC 10명**(기업마다 임원 · 직원 + 무소속 2) · 퀘스트 약 40개 |
-| 끝내는 법 | **[완료 보고] 버튼, 포기 불가** |
-
-**구현 결과** — 전 항목 완료. 콘텐츠 규약(확률 기믹 목표는 드물게 · 적 조건은 행성으로)은 [data/README.md](../data/README.md) 의 `npc_objectives.csv`.
-**같은 날 뒤집힌 것**: 퀘스트 카드의 「생각해보지」(보류 → 퀘스트 탭 재수주)는 은퇴했고, 첫 연락 조건 표(레벨)는 플레이한 흔적으로 바뀌었다 → 아래 「NPC 첫 연락 3단」.
-
----
-
-## 2026-09-14 — 정보상 · 발사 슬롯 UI · NPC 개인 신뢰도
-
-사용자 명세 [정보상 시스템] + [UI 개선]. 결정은 작업 **전에** 물어서 정했다 (`AskUserQuestion` 4라운드 15문항). 경과는 [HISTORY.md](HISTORY.md) 2차.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 정보상 NPC | **레이븐 재사용**(`reqLevel` 4 → 1). 새 NPC 는 만들지 않았다 |
-| NPC 개인 신뢰도 | **모든 NPC 에 신설** — 기업 신뢰도와 별개, 레벨 표는 같은 `REP_TABLE`. **적립 · 표시까지만** 하고 무엇을 열지는 정하지 않았다 → [TODO.md](TODO.md) `참고` 절 |
-| 구매 권한 | **분대장만** 사고 낸다. 분대원은 읽기 전용 (탐사 차량 「결제자 한 명」 규약) |
-| 정보의 수명 | **프로필에 하나만**. 그 행성으로 나간 레이드가 끝나면 소모, 또 사면 환불 없이 덮어쓴다 |
-| 지역 재배치 | **전부 폐기 · 환불 없음** (시드도 고정도) |
-| 지도 미리보기 | **실제 레이아웃을 격자로 흐릿하게** — 좌표는 안 보인다 |
-| 네임드 지정 | **threat 2 이상**에서만 |
-| 기본 행성 이동 | **무료 유지** — 돈을 받는 것은 정보뿐 |
-| 터미널 | 행성 브리핑이 중앙에서 넓게 · 우측 = 정보상 → 훈련장 · 매칭은 우상단 버튼 → 팝업 |
-| 발사 슬롯 | 4칸 가로 유지(초상 캔버스가 균등 4열을 가정한다) · 캐릭터는 오른쪽 **앞** · **탑승 ≠ 준비** — 스페이스 1초 홀드 → 출격 경고 승인 → 준비 |
-| 준비 중 로드아웃 | Tab 은 열리되 **읽기 전용** |
-| 피격 잔상 | 체력 · 실드 **둘 다 연한 빨강** (실드 잔상은 이때 처음 생겼다) |
-
-**실측이 뒤집은 것** (구현 중 드러나 사용자가 다시 정했다):
-
-- **탐사 차량 확정**은 아무것도 사지 못했다 — 자연 배치율이 이미 100 % 였다. `ROVER_CHANCE` 를 새로 두어 그 줄에 값을 줬다.
-  **기믹 고정 옵션을 만들 때는 그 기믹의 자연 발생률을 먼저 잰다.**
-- **지하 시설 +N** 은 기존 채의 굴림을 덮는 방식을 버렸다 — 자연 확률이 높아 돈을 내고도 개수가 그대로인 시드가 나왔다.
-  대신 **채를 더 세운다**. `structures.csv` 의 `maxCount` 는 자연 배치의 상한이지 정보상의 상한이 아니다.
-- 작은 화면의 인벤토리는 창 정렬로 못 고친다 — **격자 칸을 창 높이로 줄인다** (`INV_CELL_*`).
-
-**구현 결과** — 전 항목 완료. 발사 슬롯 패널 높이(70vh)는 같은 날 UI 2차 개편에서 56vh + 내용 높이 식으로 다시 잡았다.
-**이월**: 분대원 가방 · 소켓 채움은 `CrewCardWire` 확장이 필요하다 → [HISTORY.md](HISTORY.md) 미해결 항목.
-
----
-
-## 2026-09-14 — 튜토리얼 개편 (레이드에서 시작한다, 1–4차)
-
-사용자 명세 [튜토리얼]. 같은 날 네 번 다듬었다 ([HISTORY.md](HISTORY.md) 3 · 4 · 5 · 6차) — 매번 `AskUserQuestion` 으로 먼저 정했다.
-단계 표 · 좌표 · 검산은 [src/tutorial](../src/tutorial/README.md) · [src/world](../src/world/README.md) README 에 있다.
-
-**1차 (뼈대)**
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 진입 | 새 캐릭터는 **함선을 거치지 않고** 손으로 지은 튜토리얼 행성(`MissionMode 'tutorial'` — 절차 생성기를 안 탄다)에서 깨어나, 버려진 함선(= 이미 착륙한 **진짜 탈출선**)으로 탈출해 **그것을 자기 함선으로** 삼는다 |
-| 트랙 | **셋**(레이드 조작 · 레벨업/스탯/메신저 · 증축/제작), **각각 따로 건너뛴다** — 조작은 알아도 증축은 처음인 사람이 있다 |
-| 전역으로 들어간 것 | **낙하 피해**(치사 가능) · **소모품 퀵슬롯 자동 장착** |
-| 튜토리얼에만 사는 것 | 체크포인트 부활 · HUD 점진 노출 · 좁은 감지 반경의 고정 적 · 절벽 `kill` / `clamp` |
-| 사망 | 본편 규칙 그대로 **내 시체**에 장비가 남는다. 처치한 적은 되살아나지 않는다 |
-| NPC | 레이븐 재사용 + **대사 선택지** — 어느 쪽을 골라도 같은 자리로 흘러 분기를 저장하지 않는다 |
-
-지키는 규칙 둘: ① 「부활한 사람의 시체가 적 감지 범위 안」은 **맵으로** 막는다 — 체크포인트는 감지 반경 밖이고, 막히면 규칙이 아니라
-맵을 고친다. ② 본편 규칙을 예외로 뚫지 않는다 — 체크포인트 부활은 `missionMode === 'tutorial'` 안의 **별도 갈래**이고 수단은 기존 `player:respawn` 이다.
-
-**2–4차가 바꾼 것**
-
-| 항목 | 처음 | 지금 |
-|---|---|---|
-| 시작 체력 | 딸피로 깨어난다 | **풀피 시작 · 풀피 부활** (2차) — 긴장은 낙하 피해가 만들고 `heal` 단계가 되돌린다 |
-| 건너뛰기 | 목표 패널 버튼 | **ESC 메뉴**, 레이드 트랙은 **즉시 탈출** (2차) — 안내만 끄면 조작을 배우러 온 행성에 남는다 |
-| 시작 임플란트 | 생성창에서 고른다 | **없이 시작**, 갈고리는 첫 함선 진입에 지급 (2차) — HUD 만 숨기면 Q 가 여전히 나갔다 |
-| 조작 가이드 | 배운 줄이 쌓인다 | **단계마다 교체** (3차) — 지금 배우는 키가 여러 줄에 묻혔다 |
-| 목표 줄 | 한꺼번에 | **순차 공개** (3차). 함선 트랙은 「…으로 이동 → 작동」으로 갈랐지만 단계 수는 그대로 |
-| 통로 폭 | 한 폭 | 구간별 — 통과 · 전투 · 벌레 구간이 따로, 사이는 깔때기 (2–4차). **데크는 줄이지 않는다** |
-| 벌레 | 미리 서 있다 | **구덩이 매복** — 그 마리의 감지 반경 안에 들어서면 굴착 스폰으로 솟는다 (3차) |
-| 튜토리얼 함선 | 스위치 → 10초 유예 | **즉시 이륙** + 각본 잠금 · 적 사격 보류 (3차) |
-| 함선 마커 | `extract` 단계에서 켠다 (2차) | **레이드 내내 숨김** (4차) — 초록 원이 정체 모를 물체로 보였다 |
-| 구간 사이 | 앞 구간이 끝나면 다음 안내 | **「앞으로 이동」**(`advance1·2·3`, 4차) — 물건은 30 m 앞인데 안내만 먼저 왔다 |
-| 낙사 부활 | 마지막 체크포인트 | **마지막으로 땅에 서 있던 자리** (4차) — 체크포인트는 그 기록이 없을 때의 보험 |
-| 튜토리얼 시체 | 본편과 같은 수명 | **사라지지 않는다** (4차) — 안내를 읽으며 걷는 속도에서 뒤지기 전에 사라졌다 |
-
-같은 묶음의 결정 하나: **함선(임무 밖)에서 「타이틀로」 · 「게임 종료」는 한 번 탭**이다 (4차) — 1초 홀드의 근거는 *잃는 것*인데
-함선에는 없다. 「파티 떠나기」는 분대에 영향을 주므로 함선에서도 홀드.
-
-**구현 결과** — 차수마다 계약 선커밋 → 폴더별 병렬 에이전트 → 리드 통합. 1차 `verify:all` 이 잡은 회귀 둘(바주카 슈퍼점프가
-낙사 → 남이 띄운 몸은 착지까지 면제 · 자동 장착이 휠 칸 둘을 먹음 → 종류 단위 검사)을 고쳤다. 오프닝 기상 연출은 1차부터
-**호출자가 없어** 4차에야 실제로 돌았다.
-**이월**: 레이드 · 함선 트랙을 끝까지 주행하는 스모크와 `smoke-fall-damage` 가 없다 · `TUTORIAL_RAID_XP` 를 읽는 곳이 없다 ·
-낙하 피해 전용 피드백이 없다 → [TODO.md](TODO.md) E-12 · A-17 · B-14.
-
----
-
-## 2026-09-14 — NPC 첫 연락 3단 · 메신저 UI
-
-사용자 명세 [퀘스트] · [UI 개선] — 튜토리얼 3차와 같은 묶음 (`AskUserQuestion` 3라운드 12문항). 경과는 [HISTORY.md](HISTORY.md) 5차.
-세부 규칙은 [src/meta/README.md](../src/meta/README.md) 「첫 연락 3단 · 진행 플래그」 · [src/ui/README.md](../src/ui/README.md).
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 첫 연락 | **NPC 10명 전부** 인사(1–3마디) → 내 대답 → 본론(`introAfter`) → 퀘스트 카드. 두 번째 퀘스트부터는 예전대로 제안 대사 → 카드 |
-| 「생각해볼게」 | **은퇴** — 퀘스트 목록은 받은 것(진행 중 · 완료)만, 제안은 대화창 카드로만 받는다. 이름은 계약에 남는다 |
-| 4기업 NPC 연락 조건 | 레벨이 아니라 **플레이한 흔적** — 채집 1회 · 레이드 복귀 1회 · 선행 퀘스트 (`MetaSave.npc.flags` · csv `reqFlag`). 튜토리얼 직후 연락 오는 NPC 는 레이븐 하나 |
-| 메신저 | 목록 한 줄 = 초상 + 이름 + 마지막 대사. 신뢰도는 대화창 머리 · 초상 radial 로. **새로 도착하는** 말풍선만 타이핑 연출 (다시 연 기록은 즉시) |
-
-**구현 결과** — 전 항목 완료. 덤으로 `sanitizeNpcSave` 가 `choice` · `flags` 를 버리던 구멍과, 튜토리얼 중에는 연락이 통째로 막혀
-함선 트랙의 메신저 단계가 오지 않는 연락을 기다리던 것을 고쳤다.
-
----
-
-## 2026-09-15 — TODO 묶음 (E-12 · E-13 · A-17 · B-14 · B-15 · B-16 · D-7 · D-8)
-
-사용자 요청 「TODO 의 이 항목들 구현을 위해 AskUserQuestion」. 결정은 작업 **전에** 물어서 정했다 (`AskUserQuestion` 3라운드 12문항).
-경과는 [HISTORY.md](HISTORY.md) 12차.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| E-12 주행 스모크 | **셋으로 분리** — `smoke-tutorial-raid` · `smoke-tutorial-ship` · `smoke-fall-damage`. 구간 사이는 순간이동, 판정이 걸린 행동(낙하 · 스위치 · 홀드)만 실제 입력 |
-| A-17 튜토리얼 XP | **고정 지급 · 정확히 Lv.2** — 본편 정산식을 대신하고 값은 120 (900 은 레벨 3 이었다) |
-| B-14 낙하 피드백 | **착지음 + 화면 흔들림 + 붉은 비네트 + 분대원에게도 소리**(`fall` 와이어) |
-| B-15 조리대 숙련 잠김 | **전부 딤드 + 숙련 배지** — 재료 · 단계는 보이고 시작만 막힌다, 잠긴 것은 아래로 |
-| B-16 화염 지대 | **소리 + 위험 표시 + 드론 피해, 플레이어 소이 가젯에도** · 사용자가 덧붙인 버그 「소이 가젯에 불 지대가 안 만들어진다」 수정 |
-| B-16 G-10 소이 수류탄 | **진짜 화염 지대** — gadgets 의 같은 `fire` 지대, 화염수류탄보다 작고 짧게 |
-| B-16 인간형 발소리 | **로그 · 레이더 모두 켬** (로든 · 스캔 드론은 조용히) |
-| E-13 피칭 | **행성 페이지 + 31쪽 전수 점검**, 스크린샷은 그대로 |
-| D-7 장갑 | **병사 전용 fresnel 림** — 광원이 아니라 셰이더, 씬 전체 env map 은 고르지 않았다 |
-| D-8 드랍쉽 | **병합 지오메트리 그리블만** — 실루엣 · 착륙 외피 콜라이더는 그대로 |
-| 진행 | 별도 worktree 에서 이 묶음만 커밋 + push · WinNAT 을 풀고 `verify:all` |
-
-리드가 판단한 것: G-10 은 고폭이 아니라 **작은 폭발**(40 / 3 m) + 화염 지대 — 고폭 피해를 그대로 두면 소이가 고폭의 상위 호환이 된다 ·
-원격 수류탄 폭발은 **받는 쪽 로컬 플레이어에게 피해를 주므로** 종류를 추측하지 않고 `GrenadeMessage.fire` 로 싣는다 ·
-화염 지대 드론 피해는 지대 바닥에서 `FIRE_ZONE_DRONE_HEIGHT` 안의 드론만 · HUD 의 화염 지대는 날아오는 위험물보다 늘 뒤에 선다.
-
-**실측이 드러낸 것** — 화염수류탄의 「불이 안 생긴다」 는 스폰 실패가 아니라 **높이**였다: 지대를 지형 높이에 세워 옥상 · 2층 착탄이 바닥판 밑에 묻혔다
-(2026-09-11 부터 투척물은 실제 표면에 떨어진다). 효과를 표면에 세우는 코드는 `getSurfaceY` 를 쓴다.
-요리 레시피의 요구 숙련이 데이터상 `crafting` 이라 배지는 사용자에게 제시한 「요리 n」 이 아니라 「제작 n」 이다.
-
-**이월**: 오프닝 기상 연출이 끝나지 않는 버그는 같은 날 다른 세션이 고치는 중 · 서버 프로필이 `stats` 단계 도중 도착하면 넘어갈 수 있다 ·
-레이븐 수락 순간 메신저가 닫힌다 · 피칭 `28-status` · `23-corp` · `25-quest` 의 낡은 내용 → [HISTORY.md](HISTORY.md) 12차 미해결.
-
-## 2026-09-15 — 결과 창 · 키캡 · 튜토리얼 다듬기
-
-사용자 요청 한 묶음 (UI 개선 + 튜토리얼 개선). 리드가 계약을 먼저 넣고 7개 에이전트가 폴더를 나눠 병렬로 구현했다.
-
-| 갈림길 | 고른 것 |
-|---|---|
-| 꾹 누르기 키캡 | **강조색 테두리 · 흔들림 삭제**, chevron 만 강조색으로 키캡 **안** 윗변 (글자를 가리지 않게) |
-| 마우스 버튼 표기 | **마우스 윗부분 그림**(좌 / 휠 / 우, 누를 칸 흰색 · 꾹이면 강조색 + chevron) — **키캡이 뜨는 모든 곳**, 키 설정 메뉴 · ESC 조작 도표 포함 |
-| 탈출 결과 창 | 임무 시간(제목 줄 오른쪽) · 전리품 가치(쉼표) · 보상만. 처치 · 개봉한 상자 · 받은 피해 삭제, **`다시 배치 (같은 시드)` 기능째 삭제** |
-| 사망 결과 창 | **잃은 전리품 가치 = 그 레이드의 최고 소지품 가치**(빨강) + 사망 원인(막타) + 획득 경험치 |
-| 적이 아닌 사망 원인 | **아이콘 + 원인 이름** (낙하 · 재해 · 행성 환경 · 폭발 · 자기 / 아군 폭발물) — 숨기지 않는다 |
-| 함선 앞 벽 | **왼쪽 끝이 열린 `\` 사선 방벽** + 가운데 블라인드 철조망(키 1.5배, 보이되 총알은 막힌다) · 함선은 끝을 돌면 왼쪽에 약간 사선 |
-| 처치 안 한 마지막 안드로이드 | 스위치를 누르면 화물칸의 플레이어를 **실제로 쏜다 · 죽지는 않는다** (체력 1 클램프) 그리고 곧 출발 |
-| 튜토리얼 흐름 | 보급품 시체 루팅 단계 `supplyLoot` 신설 · 구간마다 지나가면 건너뛰어지고 앞 구간 적의 어그로가 풀린다 · 부활은 쓰러졌다 일어난다 · 건너뛰기는 암전 → 결과 창 → 함선 |
-| 목표 문구 | 명사구 + 줄 안 키캡 · 선택 목표도 회색이 아니다(완료만 회색 + 취소선) |
-
-리드가 판단한 것: 키캡 · 피해 출처 · 결과 통계 · 튜토리얼 계약을 **에이전트보다 먼저** `src/shared` 에 넣었다(병렬 작업이 같은 API 를 보게) ·
-사망 원인은 적 **개체** 단위(`enemyId`)로 합산한다(「그 개체에게서 받은 피해」) · 잃은 전리품 가치는 시체로 비우기 **직전**까지 잰다 ·
-분대 탈출 때 쓰러져 있던 사람도 사망 모습의 결과 창을 본다 · 적 이름은 csv 에 칸이 없어 enemies/ 의 이름표가 원본이다.
-
-**에이전트가 스스로 더한 것**: 철조망 뒤 **수류탄 멈춤 방벽**(`BACKSTOP`) — 2.7 m 를 넘기려면 7.5° 이상 올려 던져야 해 수류탄이 안드로이드 뒤 15–26 m 에서
-터졌다 · `PlayerRef.setBurning` 셋째 인자(화상에도 출처) · 튜토리얼 이륙 순간 외피 콜라이더 제거(1.6 s 동안 사선을 막고 있었다).
-
-**실측이 드러낸 것** — 자세 라벨이 안 바뀌던 것은 구독 누락이 아니라 **단계**였다: `crouch` 는 앉는 순간 끝나 `crouchAim` 으로 넘어가는데 그 단계에 줄이 없어
-직전(선 자세) 줄이 그대로 남았다 · 빠른 이동 뒤 남는 툴팁은 **지워진 요소에는 `pointerleave` 가 오지 않아서**다 ·
-「튜토리얼을 마치면 레벨 3」 은 A-17 이전 값(900 = Lv.3)의 보고였다 — 지금 120 은 정확히 Lv.2 이고, 레이드 도중 귀환이 본편 정산식(최대 ~330)으로 가던 틈만 막았다.
-
-## 2026-09-15 — 전설 무기 후속 (이름 · 종류 · 활 · 화염 · 전격총 게이지 · 탄약 · 로켓 점프 · 훈련장 · 대전차포)
-
-09-14 전설 총기 개편의 후속이다. 사용자가 확인 요청 → 11개 전부 미반영을 보고받고 셋을 정했다.
-
-**사용자가 정한 것**
-- 전설 유니크는 **이름(별명) 하나**로만 부른다(`롱혼` · `테슬라 코일` …). 보이는 종류는 기존 계열(기관단총 · 지정사수소총 …)이 아니라 고유 종류
-  (`UNIQUE_WEAPON_LABEL_KO` — 화염방사기 · 전격총 · 표창 · 컴포짓 보우 · 바주카 · 미니건).
-- 전설 무기는 **사격 숙련 보너스를 받지 않고 계열별 처치에도 세지 않는다.** csv `class` 는 값이 있어야 해서 남는다.
-- 활 「롱혼」: 가로로 쥐고, 시위는 몸 쪽, **재장전 없이** 쏜다, 크로스헤어 가로 두 배.
-- 화염방사기: 불길 크기가 출렁이고, 쏘는 순간 작게 시작해 피어오른다.
-- 전격총 우클릭 충전 게이지: 크로스헤어 **오른쪽**, 가득 차면 빨강이 아니라 **더 밝은 파랑**, 퍼센트만(「충전」 · 「충전 완료」 삭제).
-- 전설 탄약 무게 **절반**, 그중 표창은 **개당 0.02 kg · 한 칸 30**, 화살은 **개당 0.04 kg · 한 칸 15** (한 칸 무게가 같고 표창이 더 가볍다).
-- 바주카 로켓 점프: 09-14 강화는 **천장 있는 훈련장에서 잰 것**이라 세게 느껴지지 않았다 → **수직 17** 로 되돌리고 **전방 8 · 점프대 비거리(`airCarry`)는 그대로**.
-- 훈련장: **천장 없음**, 벽은 **보이지 않는 벽**.
-- 전술 임플란트 **대전차포 제거** (바주카와 겹친다).
-
-**리드가 판단한 것**
-- 숙련 보너스를 안 받으니 **숙련 경험치도 주지 않는다** (`ProgressionSystem.weaponClassOf` 가 유니크면 null). 각성제 장전 배수는 숙련이 아니라 남긴다.
-- 대전차포는 `airstrike` 선례대로 **타입에만 남기고** 목록 · 정의 · 동작 코드를 뺐다. 장착 세이브는 `Profile.migrate` 가 null → 다음 함선 진입에 갈고리.
-- 전격총 게이지의 「위로 뜨고 빨개지는」 원인은 색 설정이 아니라 **CSS 클래스 충돌**이었다 — 게이지 루트 `wcharge charge` 에 함선 호출 링의
-  `.charge svg { rotate(-90deg) }` · `.charge.ready` 가 같이 걸렸다 → 종류 클래스를 `wc-*` 로 갈랐다 (2026-09-12 「CSS 클래스 접두사는 폴더마다 달라야 한다」 와 같은 뿌리).
-
-**에이전트가 스스로 정한 것**
-- 활 장전 없음 = **즉시 채워지는 1발 탄창**(`UniqueHandler.autoFeed` → `Slots.autoFeed`) — 탄약 계약(`ammoInMag` · `reserveRounds`)을 안 바꾸고 HUD 가 합을 한 숫자로 그린다.
-  옛 12발 세이브는 남는 화살을 가방으로 돌려준다.
-- 보이지 않는 벽은 높이와 무관한 XZ 클램프라 로켓 점프로도 못 넘는다. 레이는 벽을 모르고 바깥 40 m 에이프런 바닥에 맞거나 사거리 끝에서 조용히 사라진다
-  (허공에 탄착 불꽃이 없다). 경계는 바닥 청록 선 · 어두워지는 에이프런 · 수평선 고리로 읽힌다. 부작용: 훈련장에서 갈고리를 벽 · 천장에 못 건다.
+| Entry | New characters **skip the ship**, wake on a hand-built planet (`MissionMode 'tutorial'`), escape on a real landed extraction ship and **keep it** |
+| Tracks | **Three** (raid controls · level-up/stats/messenger · build/craft), **each skippable** |
+| Made global | **Fall damage** (can kill) · auto-equip of consumables to quick slots |
+| Tutorial-only | Checkpoint respawn, gradual HUD, narrow-detection fixed enemies, cliff `kill`/`clamp` volumes |
+| Death | Main rule: gear stays on your corpse; killed enemies stay dead |
+| NPC | Raven with **dialogue choices** that converge (branches not saved) |
+
+Rules: ① a respawned player's corpse must not sit in enemy detection — solved **by the map** (checkpoints outside detection). ② No holes in
+main-game rules — checkpoint respawn is a separate branch inside `missionMode === 'tutorial'` via `player:respawn`.
+
+Later passes: **full HP at start and respawn** (tension comes from fall damage) · skip lives in the **ESC menu and the raid track
+extracts immediately** (hiding hints would strand you) · **no starting implant**, hook granted on first ship entry (hiding the HUD still
+let Q fire) · control guide **replaced per step**, objectives revealed in sequence · per-section corridor widths, **decks not narrowed** ·
+bugs **ambush from pits** · tutorial ship **lifts off at once** with enemies holding fire · ship marker **hidden** (read as an unknown
+object) · **"move forward" steps** between sections · fall respawn at the **last ground you stood on** · tutorial corpses **never despawn**.
+
+Also: **in the ship, `타이틀로` and `게임 종료` are a single tap** — the hold exists because something is lost; `파티 떠나기` keeps the hold.
+
+## 2026-09-14 — NPC 첫 연락 3단 · 메신저 UI · NPC first contact · messenger UI
+
+- **All 10 NPCs**: greeting → my answer → the point (`introAfter`) → quest card; later quests use offer line → card.
+- **"Think about it" retired** — quest list shows accepted only; offers arrive only as chat cards.
+- Corp NPCs contact you after **traces of play, not level** (one gather · one raid return · prerequisite quest; `reqFlag`). After the tutorial only Raven writes.
+- List row = portrait + name + last line; trust in the chat header and portrait ring; **only newly arriving** bubbles type out.
+
+## 2026-09-15 — TODO 묶음 (E-12 · E-13 · A-17 · B-14 · B-15 · B-16 · D-7 · D-8) · TODO batch
+
+- E-12: **three smokes** (`smoke-tutorial-raid` · `smoke-tutorial-ship` · `smoke-fall-damage`), teleporting between sections, real input only for judged actions.
+- A-17: tutorial XP = **fixed grant of exactly Lv.2** (`TUTORIAL_RAID_XP`). B-14: landing sound + shake + red vignette + **sound for squadmates** (`fall`).
+- B-15: locked cooking recipes **dimmed with a skill badge**, sorted last (badge says `제작 n` — the data's required skill is `crafting`).
+- B-16: fire zones get sound, danger indicator and drone damage, player incendiaries too; **G-10 makes a real, smaller fire zone**; rogue/raider footsteps on.
+- D-7: **soldier-only fresnel rim shader** (scene-wide env map rejected). D-8: **merged-geometry greebles only**. E-13: pitch pages audited, screenshots unchanged.
+
+Design: G-10 is a **small blast** + zone (full HE damage would make it strictly better); remote grenade
+type is **carried on the wire** (`GrenadeMessage.fire`), never guessed, because the receiver's local player takes the damage; ground
+effects stand on `getSurfaceY`, not terrain height; the HUD fire-zone indicator ranks behind incoming projectiles.
+
+## 2026-09-15 — 결과 창 · 키캡 · 튜토리얼 다듬기 · Result screens · keycaps · tutorial polish
+
+- Hold keycap: **chevron only, inside the top edge** (no accent border, no wobble). Mouse buttons = **mouse-top drawing everywhere keycaps appear**.
+- Extraction result: mission time · loot value · rewards; **`다시 배치 (같은 시드)` removed**. Death result: **lost loot = the raid's peak
+  carried value** + cause of death (last hit; non-enemy causes as icon + name, never hidden) + XP.
+- Tutorial: `\` diagonal barrier + tall blind barbed wire before the ship; the last android **shoots you in the bay but cannot kill**
+  (HP clamped to 1); `supplyLoot` step; passing a section skips it and releases earlier aggro; skip = blackout → result → ship;
+  objectives are noun phrases with inline keycaps, only completed lines grey.
+
+Design: cause of death sums per enemy **instance** (`enemyId`); lost loot measured until just before the corpse fill; downed players in a squad
+extraction see the death-style result.
+
+## 2026-09-15 — 전설 무기 후속 (이름 · 종류 · 활 · 화염 · 전격총 게이지 · 탄약 · 로켓 점프 · 훈련장 · 대전차포) · Legendary follow-up
+
+User choices:
+- Legendaries are named **by nickname only**; shown type is a unique type (`UNIQUE_WEAPON_LABEL_KO`), not the regular class.
+- **No gun-skill bonus and no per-class kill credit**; csv `class` stays only because it needs a value.
+- Bow `롱혼`: horizontal grip, string toward the body, **no reload**, wide crosshair. Flamethrower flame pulses and blooms from small.
+- Shock-gun gauge right of the crosshair, full = brighter blue, percentage only.
+- Legendary ammo weight halved; shuriken/arrow stacks sized so one cell weighs the same.
+- Bazooka rocket jump: the buff was tuned in the **ceilinged** training range → vertical impulse restored; forward impulse and air carry kept.
+- Training range: **no ceiling, invisible walls**. Tactical implant **anti-tank gun removed** (overlaps the bazooka).
+
+Design: no skill bonus ⇒ **no skill XP** (`weaponClassOf` → null for uniques), stimulant reload multiplier stays; anti-tank gun kept only in
+the type (like `airstrike`), saves migrate to the hook; bow no-reload = **instantly refilled 1-round magazine** (`autoFeed`) so the ammo
+contract is unchanged; invisible walls are a height-independent XZ clamp (side effect: no grappling onto range walls).

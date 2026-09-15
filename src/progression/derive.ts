@@ -206,6 +206,9 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean,
  * 2026-09-13 (요리 품질, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」): `quality`(별 0 … 5)가 줄마다 `amount × (1 + mealQualityBonus(quality))` 로
  * 수치를 키운 **뒤에** 위 규칙(가산 + 0 하한)을 적용한다 — 음수 줄(`durabilityLossMul`)은 더 크게 깎이고 하한은 그대로다.
  * 생략 = 0 = 원래 수치 100 %.
+ *
+ * ⚠ 크레딧 · 판매가 배수는 버프로 만들지 않는다 — 릴레이가 크레딧을 사유별 표로 검산하므로(`shared/credits.ts`)
+ * 클라이언트가 얹은 배수는 그대로 `credits:tx` 거절이 된다. 보상계 버프는 클라이언트가 권위를 갖는 수치로 낸다.
  */
 export function applyMealBuff(d: DerivedStats, meal: MealDef, quality = 0): void {
   const mul = 1 + mealQualityBonus(quality);

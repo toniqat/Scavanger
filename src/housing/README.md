@@ -1,1220 +1,280 @@
-# src/housing/ — 함선 꾸미기 (ship housing rules, state, DOM panels)
+# housing/ — ship housing: rooms, furniture, stations, library, mining, persistence
 
-Owner system: `HousingSystem` → publishes `ctx.housing` (`HousingRef`, contract in `src/shared/housing.ts`).
-Registered in `main.ts` right after `ProgressionSystem`, before `WorldSystem` / `HubSystem`, so the hub builds the
-personal ship from an already-loaded `ShipState`. This folder owns **every rule and number** (placement, costs,
-prerequisites, derived multipliers), persistence, housing-mode *state*, and the remaining DOM panels
-(프리셋 · 재배; the 방 메뉴 and 시설 메뉴 were removed in the Phase 8 UI pass). `src/hub/` owns the
-3D side (rooms, furniture meshes, housing-mode camera / cursor) and calls into this API; `src/inventory/` supplies the
-materials (`countDefAll` / `consumeDefAll`), the stash grid (`housing:stashSizeChanged`) and loadout
-capture / apply; `src/progression/` reads `getSkillGainMul` inside `addSkillXp`.
+`HousingSystem` publishes `ctx.housing` (`HousingRef`, contract in `src/shared/housing.ts` — several appended
+`interface HousingRef` blocks). It owns **every housing rule** (placement, access faces, costs, generator gates,
+station timers, library effects, mining cycles), the persisted `ShipState` (localStorage + the `ship` server profile
+document), housing-mode *state*, and the DOM screens of ship furniture (grow station, analyzer, culture tank, dining
+table, library shelves, cooking, gym / video games, mining, TV). `src/hub/` owns the 3D side (rooms, furniture meshes,
+housing-mode camera / cursor, staging poses) and calls this API; `src/inventory/` supplies materials and grids;
+`src/progression/` reads `getSkillGainMul` / `getLibraryEffects`. Registered in `main.ts` after `ProgressionSystem`
+and **before** `InventorySystem` / `WorldSystem` / `HubSystem`.
 
 ## Files
-| File | Role |
+
+| File | Responsibility |
 |---|---|
-| `HousingSystem.ts` | The system + `HousingRef` implementation. Loads the state in the constructor (so `ctx.housing.state` is valid from `init`), emits `housing:loaded` and one `housing:stashSizeChanged` after load, owns housing-mode state (`housingMode / housingRoom / selectedFurniture / selectedYaw`). Every mutation (`setRoomPurpose`, `upgrade`, `place / move / recover`, `craftFurniture`, `upgradeFurniture`, `savePreset / deletePreset / applyPreset`) emits its own event **and** `housing:changed {reason}` and schedules a save. Helpers the panels use beyond the contract: `housingModeBlock(room)`, `purposeBlock(room, purpose)`, `furnitureUpgradeBlock(uid)`, `captureLoadout()`, `countDef`, `nameOf`. Closes panels + leaves housing mode on `game:newMission`, `game:abort`, `hub:left` and any phase change away from `hub`. Phase 7: `onProfileLoaded()` (`net:profileLoaded`) replaces the state with the server `ship` document (see Persistence). **Phase 8**: 함선 관리 state (`shipManageMode` / `openShipManage(room?)` / `setManageRoom` / `closeShipManage`, `shipManageBlock()`, `housing:shipManageChanged`), 온실 재배 (`getPlots / plantSeed / harvestPlot / harvestAll / getOwnedSeeds / openGrowMenu`, `nowMs()` = `ctx.net.serverNow() ?? Date.now()`), stack layers in `place / move / recover` (+ `recoverBlock(uid)`), `defOf(defId)` for the cost chips and `createShipView(host)` (delegates to `ui/ShipView.ts`). **Phase 9**: 서재 책장 — `getBooks / placeBook / takeBook / getOwnedBooks / getBookBonus / getBookDex / openBookshelfMenu`, the private helpers behind them (`books()` prunes ids `ctx.loot` no longer knows, `shelfOf / booksOf / bookAt / dropBooksOf / stashBooksOf / booksBlock / freeStashCells`), `getSkillGainMul` = 사격장 × 서재, and the 책장-aware `recoverBlock` / `purposeBlock('empty')` (`BOOKS_BLOCK_REASON` = `책을 먼저 빼세요`). **2026-09-11 (연구실 · B-13)**: the 분석 화면 panel (`analyzerPanel` — the field is not called `analyzer` so it does not collide with the `openAnalyzer` method), `analysesPruned`, and one-line delegations to `parts/Lab` (`analyses / sampleDex / analyzerOf / analysisAt / dropAnalysesOf / readyAnalyses / analysisChanged / sampleDef` + the nine contract methods) and to `parts/Furniture` (`furnitureUpgradeCost / furnitureCraftBlock`). **2026-09-11 (배양조 A-14 · 식탁 A-3c)**: the 배양 화면 (`cultureTank`) and 식사 화면 (`diningTable`) panels, `culturesPruned`, and one-line delegations to `parts/Culture` (`cultures / tankOf / cultureAt / dropCulturesOf / readyCultures / cultureChanged / mediumDef / strainDef` + the nine contract methods) and to `parts/Dining` (`isSharedTable / diningBlock / mealDef / getOwnedMeals / eatMeal / serveMealToSquad / openDiningTable`). **2026-09-13 (요리 재료 티어)**: 계약 8종 한 줄 위임 — `getAnalysisLevel / getAnalysisResults / getAnalysisFound` → `parts/Lab`, `insertGrowSocket` → `parts/Garden`, `insertCultureSocket / insertScaffold / takeScaffold` → `parts/Culture`, `getOwnedSockets` → `parts/Sockets`. **2026-09-14 5차 (채굴 화면 통합)**: `clusterScreen` · `miningComputer` 필드 둘이 **`miningScreen` 하나**(`MiningScreen`)가 됐다. 옛 이름 둘은 같은 창을 가리키는 `@deprecated` getter 로 남아 `parts/Presets.panels()` 와 옛 호출자가 그대로 컴파일된다(`panels()` 에 같은 패널이 두 번 들어가지만 `close()` 가 멱등이라 문제없다). `openComputeCluster` · `openMiningComputer` 는 **계약 그대로**이고 기본 탭만 다르다. **2026-09-14 5차 (음악 재생)**: `parts/Music` 위임 — 필드 `musicState` + `bindMusic` · `tickMusic` · `stopMusic` + 계약 다섯(`getMusicState` · `musicNext` · `musicPrev` · `setMusicMode` · `musicStop`). **2026-09-15 3차**: `devAdvanceAnalysis(hours, uid?)` 한 줄 위임 (`parts/Lab`). |
-| `model.ts` | 폴더 공용 어휘 — `HousingSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `HousingSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다. **2026-09-14 5차**: `SHELF_GLYPH`(매체 글리프 — 선반 칸 · 도감 썸네일 · 서재 레일 항목 공용) · `LIBRARY_GLYPH`(레일의 「서재」) 추가, `shelfAuxNames` 는 `@deprecated`(보조 가구 줄을 지워 부르는 곳이 없다). **2026-09-11**: `ACTIVE_FURNITURE_DEFS`(= `FURNITURE_DEFS` − `retired`) 와 `RETIRED_RACK_REASON` |
-| `parts/Rooms.ts` | **방 용도와 시설 레벨**. 빈 방에 용도를 주는 것이 **시설 증축**(재료 소모, 발전기 게이트 — **2026-09-13 부터 용도마다 다르다**: `purposeGeneratorLevel` 작업실 1 · 온실 · 주방 2 · 연구실 3 · 헬스장 · 서재 4 · 채굴 시설 5, **모든 용도 함선당 하나**)이다. **2026-09-12: 방 시설(작업실 · 시뮬레이션실)에는 레벨이 없다** — `upgrade('workshop' \| 'range')` 는 거절하고 발전기 · 창고만 레벨을 올린다. 방의 강화는 그 안의 가구가 하고 `placedLevelOf(sys, interaction)` 이 배치된 가구 중 가장 높은 레벨을 읽는다(`getSkillGainMul` = 시뮬레이션 허브). `getCraftCostMul` 은 늘 1. 제거하면 가구는 가구 창고로, 증축 재료는 함선 창고로 전액 돌아온다. 규칙 자체는 `Rules.ts` 가 갖고, 여기서는 그 규칙에 따라 재료를 소모하고 상태를 쓴다. |
-| `parts/Furniture.ts` | **가구 배치 · 제작 · 회수**와 시설 관리 모드. 가구는 **아이템이 아니다** — 가구 창고에만 존재하고 거기서 제작된다. 배치 규칙(방 용도에 맞는가, 겹치지 않는가, 쌓을 수 있는가)과 시설 관리 모드의 커서 상태가 여기 있다. **2026-09-13**: 조종석 전용 시설(`isCockpitOnlyFurniture`)은 `recoverBlock` 이 `COCKPIT_ONLY_RECOVER_REASON` 을 돌려주고 `recover` 가 거절한다. **2026-09-15 3차 (사용자 결정)**: 시설 관리가 **마지막으로 보던 방**을 슬롯별 localStorage `scav.housing.manageRoom` 에 적고 `openShipManage` 가 그 방을 먼저 연다 (`ShipState` 버전은 안 올렸다). `furnitureCraftBlock` 의 재료 사유가 `Rules.MISSING_MATERIALS_REASON` 하나다. |
-| `parts/Garden.ts` | **온실 재배 스테이션** (2026-09-11 개편). 한 칸은 두 단계다 — 흙을 붓고(`fillSoil`) 그 위에 씨앗을 심는다(`plantSeedAt`). 재배층은 가구 레벨이 열고(Lv.1 중앙 · Lv.2 아래 · Lv.3 위, 층 id 는 업그레이드해도 그대로), 한 층에 `GROW_SLOTS_PER_TIER`(3) 칸이다. 성장은 `ctx.net.serverNow()` 기준 **실제 시간**이고 토양 궁합 · 원예 숙련은 **심는 순간 `readyAt` 에 확정**된다. ~~토양은 수확마다 1회 닳아(`soilUsesLeft`) 0 이면 칸이 완전히 비워진다.~~ **2026-09-13 (요리 재료 티어)**: 부은 흙은 **내구도**(`soilDurability`, 최대 = `SoilDef.durability` — 값이 없는 옛 표면 `uses × SOIL_WEAR_PER_HARVEST`)와 **소켓**(`sockets`, 칸 수 = 흙 등급 `growSocketSlotsFor`)을 칸에 들고 있다. `fillSoil` = 최대 · 소켓 없음, `plantSeedAt` = `growDurationMs(…, 비율, 소켓 speed 합)`, `harvestAt` = 수확량 + `Sockets.yieldBonus`(마모 **전** 비율, `gather:collected.qty` 포함) → `Rules.wearAfterHarvest` → **칸은 비지 않는다**. `soilUsesLeft` 는 「내구도 0 까지 남은 수확」(`Rules.harvestsUntilWorn`, 0 도 된다). 런타임 정리(`grows()`)가 옛 칸의 내구도를 `round(최대 × usesLeft / uses)` 로 옮기고 소켓을 거른다(`normalizeSoil`). `insertGrowSocket` · `soilMaxDurability`(export). `GrowSlotInfo` 새 5필드. 은퇴한 재배층 API 6종은 「없는 재배층」 응답으로 남아 있고 `getOwnedSeeds` 만 살아 있다. |
-| `parts/Lab.ts` | **연구실 분석기** (A-12, 2026-09-11). `parts/Garden.ts` 와 같은 모양이다 — 상태 접근자(`analyses()` 는 `ctx.loot` 로 한 번 걸러 낸다 · `sampleDex()`) + `analyzerOf` / `analysisAt` / `dropAnalysesOf` / `readyAnalyses` / `analysisChanged` / `sampleDef`, 그리고 계약 9종(`getAnalyses` · `startAnalysis` · `cancelAnalysis` · `collectAnalysis` · `collectAllAnalyses` · `getOwnedSamples` · `getSampleDex` · `getSampleDexRatio` · `openAnalyzer`). 해석 칸은 **가구 레벨이 연다**(`analyzerSlotsForLevel`) 이고 칸 번호는 강화해도 밀리지 않는다. 걸리는 시간은 **넣는 순간** `readyAt` 에 확정된다. **2026-09-13 (요리 재료 티어 — 결과표)**: 표본은 계열(`SampleDef.family`, 표에 없으면 `cell`)로 해석된다 — `startAnalysis` 가 그 계열의 분석 레벨(`ShipState.analysisXp` → `analysisLevelForXp`)로 시간(`Rules.analysisDurationMs`)을 정하고 **결과를 그 자리에서 굴려**(`Rules.rollAnalysisResult`, 받을 수 있는 = 있고 은퇴하지 않은 아이템만; 표가 비면 `rewardDefId` 대체; 그것도 없으면 `이 표본에서 얻을 수 있는 결과가 없습니다`) `family` · `resultDefId` · `resultQty` 를 칸에 적는다. `getAnalyses` 는 결과 · reward 를 **끝난 칸에서만** 채우고 `firstTime` = 결과가 분석 도감에 없다. `collectAnalysis` = 결과 없는 옛 칸은 지금 레벨로 굴려 **칸에 먼저 적고 저장**(자리 없어 실패해도 다시 안 굴린다) → 산출물 하나 전달(첫 해석 보너스 없음) → 칸 제거 → 경험치 `ANALYSIS_XP_BY_RARITY[표본 등급]` → 넘은 레벨마다 `housing:analysisLevelUp` → 새 산출물이면 `analysisFound` + `housing:analysisFound`; 옛 `sampleDex` 는 조용히 채우고 `housing:sampleDexAdded` 는 더 안 낸다. `getAnalysisLevel` · `getAnalysisResults`(받을 수 있는 줄만, minLevel ↑ → weight ↓, 확률 = `Rules.analysisChances`) · `getAnalysisFound`, `getSampleDexRatio` 는 `@deprecated`(발견 산출물 ÷ 결과표 산출물). `getOwnedSamples` = 은퇴 포함 · 계열 순 → 시간 순. **2026-09-13 (연구 숙련)**: 해석 시간 = `analysisMsFor` = `max(1000, round(analysisDurationMs × derived.researchTimeMul))`(넣는 순간 확정) · `researchTimeMul` · `analysisEstimateMs`, 회수한 칸마다 연구 숙련 경험치 `RESEARCH_XP_ANALYSIS`. **2026-09-15 3차**: `devAdvanceAnalysis(sys, hours, uid?)` — 해석 시계를 앞당기고 이번에 끝난 칸 수를 돌려준다 (회수 없음, 콘솔 `analyze ff` · `analyze done`). |
-| `parts/Culture.ts` | **온실 배양조** (A-14, 2026-09-11). `parts/Lab.ts`(레벨이 칸을 연다) 와 `parts/Garden.ts`(두 단계)를 합친 모양이다 — 상태 접근자(`cultures()` 는 `ctx.loot` 로 한 번 걸러 낸다) + `tankOf` / `cultureAt` / `dropCulturesOf` / `readyCultures` / `cultureChanged` / `mediumDef` / `strainDef`, 그리고 계약 9종(`getCultureSlots` · `fillMedium` · `clearMedium` · `insertStrain` · `harvestCulture` · `harvestAllCultures` · `getOwnedMediums` · `getOwnedStrains` · `openCultureTank`). 칸은 **배지 먼저, 세포주 나중**이다. 배양 시간은 **넣는 순간** `readyAt` 에 확정된다(`Rules.cultureDurationMs`). 수확물에는 원예 `gatherYieldMul` 을 **곱하지 않는다** — 배양조는 채집이 아니라 산출량이 세포주에 적혀 있다. **2026-09-13 (요리 재료 티어)**: 배지는 흙과 **같은 내구도 규칙**(`mediumDurability` · `sockets` · `mediumMaxDurability` · `normalizeMedium` — 0 이어도 칸 유지, 배지 속도 보너스 · 소켓 speed / yield 가 비율로 준다, `mediumUsesLeft` = 0 까지 남은 수확). 칸 = 배지 → **배양 스캐폴드**(`insertScaffold` · `takeScaffold`, `ItemDef.scaffold`) → 세포주: 스캐폴드가 있으면 `scaffoldOutputDefId` × `scaffoldOutputQty` 를 `scaffoldHours` 동안(스캐폴드 산출이 없는 세포주는 `이 세포주는 스캐폴드에서 자라지 않습니다`), 수확 때 스캐폴드 소모. 은퇴 세포주는 `insertStrain` 이 `더 이상 배양할 수 없는 세포주입니다` 로 거절하고, 런타임 정리가 `strain` 데이터 없는 세포주 필드만 지운다(배지는 남는다) · 스캐폴드 아닌 `scaffoldDefId` 도 지운다. `clearMedium` 은 세포주 없이 스캐폴드만 든 칸이면 **스캐폴드를 되돌려준다**(가방 먼저, 자리 없으면 거절). `insertCultureSocket`. `CultureSlotInfo` 새 6필드(`yieldDefId/Qty` 는 스캐폴드 반영). |
-| `parts/Sockets.ts` | **흙 · 배지 소켓** (요리 재료 티어, 2026-09-13). 재배 · 배양이 같이 쓰는 한 벌: `socketDef` · `socketSum(ids, effect)` · `yieldBonus(ids, ratio, rng01)`(yield 소켓마다 `amount × ratio` 확률로 +1) · `sanitizeSocketIds(ids, target, slots)`(런타임 정리 — 진짜 소켓 · 대상 · 칸 수) · `insertSocket(holder, target, id, slots, replaceIndex?)`(사유 순서: `흙을 먼저 채우세요` / `배지를 먼저 채우세요` → `소켓이 아닙니다` → `배지 소켓은 배양조에 끼웁니다` / `토양 소켓은 재배 스테이션에 끼웁니다` → `없는 소켓 칸입니다`(replaceIndex 가 끼운 수 밖) → `소켓 칸이 가득 찼습니다` → `<이름>이(가) 없습니다`; 1개 소모, 교체면 옛 소켓 **파괴**, `housing:socketInserted {uid, target, defId, replaced}`) · `getOwnedSockets(target?)`(대상 → 효과 → 수치 순). 칸 게이트와 `housing:changed` 는 부르는 쪽(`Garden.insertGrowSocket` · `Culture.insertCultureSocket`)이 한다. |
-| ~~`PowerRules.ts`~~ · ~~`parts/Power.ts`~~ | **2026-09-13 같은 날 삭제** (사용자 결정 — 전력 할당 폐지). 발전기 전력의 순수 판정 · 할당 · 비활성화 · 멈춤 기록 · 자동 보충 · v12 이관이 여기 있었다. 남은 질의 둘은 `HousingSystem` 에 산다: `furnitureOperationalBlock(uid)` = `parts/Mining.clusterOperationalBlock` · `stationNow(uid)` = `nowMs()`. 발전기 규칙은 `Rules.purposeBuildBlockReason` · `purposeRequirementsFor`(용도별 `purposeGeneratorLevel`) 와 `ShipState` v13 절 — 아래 변경 이력. |
-| `parts/Dining.ts` | **주방 식탁** (A-3c, 2026-09-11). `isSharedTable` · `diningTableOf` · `diningBlock`(레이드 중에는 열리지 않는다) · `mealDef` · `getOwnedMeals` · `eatMeal` · `serveMealToSquad` · `openDiningTable`. 「먹기」는 `ctx.progression.useMeal` 에 **먼저 묻고 성공할 때만** 아이템을 뺀다 (A-13 의 `inventory/parts/StashOps.usePrepItem` 규약 그대로 — 거꾸로 하면 거절당했을 때 되돌릴 곳이 없다). 「분대에 차리기」는 공유 함선에서만 보이고 요리 **1개**를 소모한 뒤 나에게 `serveMeal` 하고 `housing:mealServed {defId, by}` 를 낸다 — **전파는 net 의 몫**이다. **2026-09-13 (요리 품질)**: `getMealStacks`(요리 × 품질, `inventory.getMealStacks` — 없으면 `getOwnedMeals` 를 품질 0 으로) · `eatMeal(uid, defId, quality)` = `useMeal(defId, quality)` 에 먼저 묻고 `consumeDefQualityAll(defId, quality, 1)` · `serveMealToSquad(uid, defId, quality)` = 같은 품질로 `serveMeal` + `housing:mealServed {quality}` (분대원은 차린 품질 그대로). |
-| `parts/Library.ts` | **서재 책장** (Phase 9). 숙련도마다 책이 하나씩 있고, 책장에 꽂으면 그 숙련도의 XP 배율이 오른다(상한 있음). 책은 **함선 단위**이지 캐릭터 단위가 아니며, 도감은 **꽂아 본 적 있는** 책만 기록한다. **A-3e (2026-09-12) 서재 매체**: 디스크 전시대 · 레코드랙(`ShipState.media` / `mediaDex`) · 보조 가구 · TV / 레코드 플레이어 켜짐(`toggled`) — 계약 11종 + `media()` · `mediaDex()` · `toggledUids()` · `shelfItemsOf` · `shelfBlock` · `stashShelfItemsOf` · `dropToggled`. 책장은 매체 공통 API 가 옛 `placeBook` / `takeBook` 으로 넘긴다. `getBookBonus` = 서재 배율 전체(`getShelfBonus(skill).total`). **2026-09-13 (서재 시리즈, H1)**: 효과 합산 캐시(`ensureLibrary` · `markLibraryDirty` · `bindLibrary` · `tickLibrary`) + 계약 5종 `getLibraryEffects` · `getLibrarySources` · `getSeriesProgress` · `isShelfItemWanted` · `isRecipeUnlocked`, 화면용 `librarySeriesStates` · `libraryAuxActive` · `isShelvedAnywhere`. `getBookBonus` = `1 + skillGain[skill]`, `getShelfBonus` = 그 매체별 분해. 게임 디스크 매체 `'game'` 도 `media` 에 산다 (`shelfItemDef` = `Rules.shelfHolderMediumOfItem`). **같은 def 는 한 칸만** — `placeBook` / `placeShelfItem` 이 `이미 꽂혀 있는 책입니다` (디스크 · 레코드 · 게임 디스크). 런타임 정리 `pruneShelfList` = 옛 id 치환 + 모르는 def 버림 + 중복은 함선 창고로. |
-| `parts/Presets.ts` | **로드아웃 프리셋** (시뮬레이션실의 관물대). 저장은 `inventory.captureLoadout`, 적용은 `applyLoadout` 을 그대로 부른다 — 여기서 하는 일은 **배치된 관물대의 레벨**(2026-09-12 까지는 사격장 방 레벨)이 정한 개수(`PRESETS_BY_RANGE_LEVEL`)만큼 슬롯을 관리하는 것뿐이다. 관물대가 없으면 0 이고 저장된 프리셋은 지워지지 않는다. **2026-09-12 (사용자 결정 — 프리셋 기능 제거)**: 관물대가 은퇴하면서 프리셋 자체를 걷어냈다 — `getPresetCount` 0 · `getPresets` [] · `savePreset` / `deletePreset` false · `applyPreset` null · `openPresetMenu` no-op (`ui/PresetMenu.ts` 삭제). `state.presets` 는 세이브에 그대로 남는다. 패널 목록(`panels`)과 옛 메뉴 진입점(`openRoomMenu` · `openFacilityMenu`)은 이 파일에 그대로 있다. |
-| `Rules.ts` | Pure functions, no ctx / DOM: `facilityLevel / facilityMaxLevel / nextFacilityCost / facilityBlockReason` (order: max → room → generator gate → materials), `missingIngredients`, `formatCost`, `stashSizeFor`, `presetCountFor` (관물대 level), `craftCostMulFor` (always 1 since 2026-09-12), `skillGainMulFor` (시뮬레이션 허브 level), `legacyRoomLevelCost(id, level)` (2026-09-12 — what an old 작업실 / 사격장 level cost, read only by the v7 migration), `purposeChangeReason` (`lab` needs a greenhouse; **every purpose at most one per ship** since 2026-09-12 — was 작업실 / 사격장 only), `furnitureAllowedIn`, `insideGrid`, `furnitureAtCell`, `canPlaceAt` (purpose or `'any'` + inside `ROOM_GRID_COLS × ROWS` after `furnitureFootprint` + no overlap, `ignoreUid` for moves), `nextFurnitureCost`, `furnitureUpgradeReason`; **Phase 9** `bookWeightOf(def)` (a book's `BOOK_RARITY_MUL[rarity]`, 0 for a non-book) and `bookGainMulFor(skill, books, defOf)` (the 서재 multiplier). **Phase 8 stacking**: `stackLimitOf(def)`, `layerOf(item)`, `stackMembers(state, room, def, x, y, yaw, ignoreUid?)`, `nextFreeLayer(members, limit)`, `topLayer(members)`, `recoverBlockReason(state, item)`; `canPlaceAt` lets a `stackLimit > 1` def share its footprint with the **same** def at the same cell + yaw while the stack is below its limit (everything else keeps the strict no-overlap rule), and `furnitureAtCell` now returns the **top** layer. Callbacks `CountFn` / `NameFn` stand in for inventory and item names. **2026-09-10 자동 배치**: `AUTO_PLACE_YAWS` · `DOOR_CLEAR_DEPTH` / `DOOR_CLEAR_SPAN` · `doorClearanceCell(room)` · `autoPlaceSpot(state, room, def)` → `FurniturePlacement | null` (2026-09-11: 2차 패스 + `doorPassageOpen(state, room, extra?)`) — **2026-09-12 (방 8 × 8 m)**: 순회 상한은 `ROOM_GRID_COLS/ROWS` 라 저절로 따라가고, `DOOR_CLEAR_DEPTH` 2 · `DOOR_CLEAR_SPAN` 4 는 **그대로 둔다** — 둘 다 칸수의 비율이 아니라 문 치수(폭 1.6 m · 플레이어 지름 0.9 m)에서 나오고, `(ROWS − SPAN)/2` 가 16칸에서도 구역을 방 중앙(칸 6…9 = 3.0…5.0 m, 문 3.2…4.8 m)에 물렸다 — 「화면 좌측 상단부터 가로줄 먼저, 가구는 화면 아래를 향한다(yaw 1), 출입구 앞은 비운다」 (아래 `자동 배치` 절). **연구실 (2026-09-11)**: `analyzeDurationMs(analyzeHours, dexRatio, known)` — `growDurationMs` 바로 옆의 순수 함수다 (`analyzeHours × 3600e3 × (1 − ANALYZE_DEX_SPEEDUP × dexRatio) × (known ? 1 − ANALYZE_KNOWN_SPEEDUP : 1)`, 최소 1000 ms). 진행도 · 남은 초는 `growProgress` / `growRemainingS` 를 **그대로 쓴다** — 둘은 순수한 시각 계산이라 작물인지 표본인지 모른다 (같은 폴더 안이므로 한 번 더 베끼지 않는다). **배양조 (2026-09-11)**: `cultureDurationMs(cultureHours, mediumSpeedMul, gardening)` — `analyzeDurationMs` 옆의 순수 함수다 (`cultureHours × 3600e3 × mediumSpeedMul × (1 − GROW_SKILL_SPEEDUP × 원예/SKILL_LEVEL_MAX)`, 최소 1000 ms); 원예 항은 `growDurationMs` 가 쓰는 것과 **같은 항**이다 (온실 가구이므로 같은 숙련이 일한다). **주방 (2026-09-11)**: `NEEDS_GREENHOUSE` (= `['lab','kitchen']`) — 「온실이 먼저 있어야 한다」의 단일 원본이고 `purposeChangeReason` · `ShipState.sanitize` · `Rooms.setRoomPurpose` 셋이 그 한 줄을 읽는다. **2026-09-12 (조종석 · 시설 레벨 요구)**: `isPlaceRoom(state, room)` (방 또는 `COCKPIT_ROOM_INDEX`) · `placeRoomPurpose` (조종석 = `'cockpit'`) · `isAssignablePurpose` (`ROOM_PURPOSES_ASSIGNABLE`); `purposeChangeReason` 은 조종석 · 지을 수 없는 용도(시뮬레이션실 · 휴식 공간)를 한국어 사유로 거절; `insideGrid(def, x, y, yaw, room = 0)` 와 `canPlaceAt` 은 `roomGridSize(room)` · `roomRectBlocked` 를 읽고, `autoPlaceSpot` 은 조종석에서 문 앞 구역 없이 한 패스만 돈다. `generatorRequirement` · `furnitureUpgradeRequirementsFor` · `purposeRequirementsFor` (채워지지 않은 시설 레벨 요구만). `presetCountFor` · `skillGainMulFor` 는 `@deprecated`(호출자 없음). **요리 재료 티어 (2026-09-13)**: `growDurationMs(…, stationLevel = 1, bonusRatio = 1, socketSpeed = 0)` · `cultureDurationMs(…, gardening, bonusRatio = 1, socketSpeed = 0)` — **기본값이면 옛 값과 같다**; 흙 궁합은 **보너스만** 비율을 탄다(`1 − SOIL_MATCH_SPEEDUP × 비율`, 패널티 그대로), 배지는 `1 − (1 − speedMul) × 비율`, 소켓 항 `max(GROW_SOCKET_TIME_FLOOR, 1 − speed × 비율)`(소켓 없으면 정확히 1). `durabilityRatio` · `wearAfterHarvest(cur, wear, wearSum)`(소수 둘째 자리) · `effectiveWear` · `harvestsUntilWorn` · `durabilityFromUses`(옛 세이브 이관) · `rollAnalysisResult(family, level, rng01, defOk)`(rng 두 번 — 줄 · 개수) · `analysisChances` · `analysisDurationMs(hours, level)`; `analyzeDurationMs` 는 `@deprecated`. **2026-09-13 (배치 규칙 — 접근 면)**: `placementBlockOf(state, room, def, x, y, yaw, ignoreUid?)` → `{kind, reason} | null` (자리 → 용도 → 격자 → 고정 소품 → 쌓기 → 겹침 → 내 접근 면(`front` 벽 · 앞 줄 / `sides` 넓은 면 / `all` 네 면 — 조종석 고정 소품 자리도 몸체) → 남의 접근 면, 문장은 `PLACEMENT_REASON_KO`) · `placementBlockReason` · `canPlaceAt` = 그것이 null · `autoPlaceSpot` 은 선호 회전 `[1, 0]` 다음에 `AUTO_PLACE_FALLBACK_YAWS` `[3, 2]` (앞이 벽인 자리에서 돌아서면 선다). **2026-09-13 (서재 시리즈, H1 — 서재 절)**: `computeLibraryEffects(items, defOf, aux, seriesMap?)` → `{effects, series}` (작동 중인 보관함 칸만 받는다 · def 한 번 · 서로 다른 권 수 → `librarySeriesFraction` · 줄 값 = 전권 값 × 몫 × 보조 가구 배율 · `recipe` 는 몫 1 만) · `libraryLineValue` · `librarySourcesIn` · `shelfBonusFromLibrary` · `libraryEffectsSignature` · `librarySeriesOfItem(def)` · `shelfHolderMediumOfItem(def)` (게임 디스크 = `'game'`), 타입 `LibrarySeriesState` · `LibraryComputation`. 옛 `bookWeightOf` · `bookGainMulFor` · `shelfItemWeightOf` · `shelfPartFor` · `shelfGainFor` 는 이름만 남는다. **2026-09-15 3차 (사용자 결정)**: `MISSING_MATERIALS_REASON`(= `재료 부족`) — 사유에 **모자란 재료를 열거하지 않는다** (재료 칩의 `.is-short` 가 말한다). 사유 함수 넷이 이 한 줄을 돌려준다. |
-| `ShipState.ts` | `freshState()` (**2026-09-07: ten empty rooms and no furniture** — the built-in 작업실 with its 총기 작업대 + 정비 벤치 is gone; generator 0, storage 0, empty furniture storage, no presets, `plots: []`, `nameLocked: false`), `sanitize(raw)` (clamps levels, drops unknown defs / purposes, keeps **at most one facility room of each kind** and moves furniture whose room no longer accepts it into furniture storage, a `lab` without a greenhouse becomes `empty`, every placed piece must pass `canPlaceAt` against the pieces accepted before it, duplicate / malformed uids are re-minted after the highest valid one), `loadState()`, `writeState()`, `ShipStore` (350 ms debounce, `pagehide` / `beforeunload` flush, try/catch around localStorage; Phase 7: `flush()` also `upload()` = `ctx.net.profile.set('ship', state)` when a profile is available, `cancel()` drops a pending write). Key `SHIP_STORAGE_KEY` (`scav.ship`), version **`SHIP_STATE_VERSION_CURRENT` = 3** (Phase 9 — `Math.max(3, SHIP_STATE_VERSION)`; the contract's `SHIP_STATE_VERSION` is 3 now, so the two agree again). Phase 8 also sanitises `plots` (rack must still exist, slot < `GROW_PLOTS_PER_RACK`, one plot per (uid, slot), usable timestamps), re-assigns stack `layer`s (persisted layer kept when free, else the lowest free one; a full stack drops the piece) and ran the **v1 → v2 정비 벤치 grant** (one `furn_repair_bench` Lv.1 into the furniture storage). **2026-09-12 에 그 지급을 걱어냈다** (사용자 결정 — 정비 벤치 은퇴, `data/furniture.csv` 의 `retired=1`): 은퇴 가구를 걱어내는 두 자리(배치 · 보관)가 둘 다 그 줄보다 **위**라, 지급하면 걸러지지 않고 가구 창고에 은퇴 가구가 남았다. `REPAIR_BENCH_DEF_ID` 는 이름만 남긴다(추가만 하고 지우지 않는다); private `hasRepairBench` 는 쓰는 곳이 없어졌다. `isGrowRackDefId(defId)`. **Phase 9 (v3)**: `freshState()` gains empty `books` / `bookDex`; `sanitize` keeps a `PlacedBook` only when its 책장 uid is still placed, its slot is `< BOOKS_PER_SHELF`, the (uid, slot) pair is free and the def id has the `book_*` shape (`isBookDefIdShape` — whether it still resolves to a real 서적 is a runtime check in `HousingSystem.books()`), and rebuilds the 도감 as a unique list of `book_*` ids that always contains every shelved book. `isBookshelfDefId(defId)` (`interaction === 'bookshelf'`). `ShipStore.upload()` dropped its `available` guard: it calls `profile.set('ship', …)` **offline too** and `ProfileSync` queues it (newest-wins on the next connection). **온실 개편 (v4, 2026-09-11)**: `freshState()` gains `grows: []`; `sanitize(raw, out?)` takes an optional `SanitizeOutcome` and (a) sweeps out every `retired` def — placed and stored — accumulating `Rules.furnitureRefundCost × qty` into `out.refund`, (b) drops the old `plots` wholesale (always written back `[]`), (c) validates `grows` against the 재배 스테이션 that owns them (placed uid · a tier the station's **current level** opens · slot `< GROW_SLOTS_PER_TIER` · one entry per (uid, tier, slot) · `soil_*`-shaped id · planting fields only when `plantedAt > 0`). `loadState()` now returns `{state, fresh, refund}`. `isGrowStationDefId(defId)` (`interaction === 'grow_station'`) and `isRetiredDefId(defId)` join `isGrowRackDefId` (deprecated but kept). **연구실 (v5, 2026-09-11)**: `freshState()` gains `analyses: []` / `sampleDex: []`; `sanitize` validates an `AnalysisSlot` against the 분석기 that owns it (placed uid · `slot < analyzerSlotsForLevel(현재 레벨)` · one entry per (uid, slot) · `spec_*`-shaped id (`isSampleDefIdShape`) · a real `startedAt`, `readyAt` clamped to ≥ it) and rebuilds `sampleDex` as a unique list of `spec_*` ids. **v4 → v5 has no migration** — 없던 필드가 생기는 것뿐이라 버릴 데이터도 환불 경로도 없다. `isAnalyzerDefId(defId)` (`interaction === 'analyzer'`). **배양조 (v6, 2026-09-11)**: `freshState()` gains `cultures: []`; `sanitize` validates a `CultureSlot` against the 배양조 that owns it (placed uid · `slot < cultureSlotsForLevel(현재 레벨)` · one entry per (uid, slot) · an item-id-shaped 배지 · the 세포주 fields only together with a real `startedAt` — a half-written entry leaves plain 배지 behind, like `grows` does with its seed). 배지 · 세포주 ids carry **no prefix of their own** (`mat_medium_*` · `strain_*` are ordinary `material` ids), so the shape check only keeps out junk and the real def check is the runtime prune in `parts/Culture.cultures()`. **v5 → v6 도 마이그레이션이 없다.** `isCultureTankDefId(defId)` (`interaction === 'culture_tank'`) · `isDiningTableDefId(defId)` (`interaction === 'dining_table'`). 그리고 「온실 선행」 낙오 처리가 `lab` 뿐 아니라 `Rules.NEEDS_GREENHOUSE` 전부(= 연구실 · 주방)를 본다. **방 시설 레벨 제거 (v7, 2026-09-12)**: 모양은 그대로이고 `RoomState.level` 이 늘 1(빈 방 0)로 내려간다. `version < 7` 세이브만 한 번 옮긴다 — 사격장 Lv.n(n ≥ 2)은 배치된 관물대 · 시뮬레이션 허브의 레벨을 `max` 로 올리고(창고에만 있으면 가장 높은 한 점을 그 레벨로 떼어 낸다), 둘 다 함선에 없으면 `legacyRoomLevelCost('range', n)` 을, 작업실 Lv.n 은 늘 `legacyRoomLevelCost('workshop', n)` 을 `out.refund` 에 더한다(은퇴 가구와 같은 자루 → 함선 창고). `SanitizeOutcome.migratedRoomLevels` · `loadState().migrated` 가 참이면 `HousingSystem` 이 곧바로 저장을 걸고 `editPending` 을 세워, 디바운스 안에 온 옛 서버 사본이 옮긴 결과를 덮지 못하게 한다. 이미 두 개 지어 둔 같은 용도 방은 **그대로 둔다**(강제 철거 없음). **조종석 · 방 8 개 (v8, 2026-09-12)**: `freshState()` 가 `ensureCockpitFurniture` 로 조종석에 시술대(f-1) · 컴퓨터(f-2)를 놓는다. `sanitize` 는 원본 방을 최대 `MAX_SAVED_ROOMS` 개 읽어 방 번호 ≥ `SHIP_ROOM_COUNT` 인 시설 방과 `ROOM_PURPOSES_ASSIGNABLE` 밖의 용도(시뮬레이션실 · 휴식 공간)를 **제거 + 환불**(`roomRefundCost(purpose, 1)` → `out.refund`, 가구 → 가구 창고, 가구 창고로 간 책장의 책 → `out.refund`)하고, 조종석 가구는 `'any'` + `canPlaceAt` 을 지나야 남는다. v7 절(v6 이하 방 레벨)은 관물대 · 허브가 은퇴해 사격장 Lv.n 을 늘 환불한다. 끝에서 `ensureCockpitFurniture` 가 어디에도 없는 공용 시설 가구를 채운다. `SanitizeOutcome.migratedRooms` · `grantedCockpit`, `loadState()` → `{…, migrated, granted}`. **조종석 전용 시설 · 꾸밈 가구 (v10, 2026-09-13)**: `ensureCockpitFurniture` 가 `room: 'cockpit'` def 를 조종석에 **정확히 한 대**로 모으고(사본 · 다른 방 · 가구 창고 → 조종석), `placeCockpitDecor(state)` 가 `COCKPIT_DECOR_FURNITURE`(침상 · 사물함 ×2 · 서랍장)를 `freshState` 와 `version < 10` 세이브에만 한 번 놓는다 (`SanitizeOutcome.migratedCockpit`, `loadState().migrated` 에 포함). **요리 재료 티어 (v11, 2026-09-13)**: `freshState()` 에 `analysisXp: {}` · `analysisFound: []`. `sanitize` 가 **새 필드를 버리지 않는다** — `grows[].soilDurability`(유한 ≥ 0) · `sockets`(아이템 id 모양, 최대 `GROW_SOCKET_SLOTS_MAX`), `cultures[].mediumDurability` · `sockets` · `scaffoldDefId`(id 모양), `analyses[].family`(enum) · `resultDefId`(id 모양) + `resultQty`(정수 ≥ 1), `analysisXp`(계열별 유한 ≥ 0), `analysisFound`(id 모양, 중복 없이). `soilUsesLeft` · `mediumUsesLeft` 는 이제 0 도 남긴다(옛: 최소 1). 환불 · 마이그레이션 경로 없음 — 옛 칸의 내구도 이관 · 최대 · 칸 수 자르기는 런타임 정리가 한다. **2026-09-13 (배치 규칙)**: `sanitize` 가 `placementBlockOf` 로 검사해 **접근 면 규칙만** 어기는 조각은 가구 창고로(`displaced` · `displacedUids` — 버리지 않는다, 저장 순서대로 먼저 받아들인 쪽이 이긴다), 그 조각의 재배 칸(흙 · 심은 씨앗 · 소켓) · 해석 칸(표본) · 배양 칸(배지 · 스캐폴드 · 넣은 세포주 · 소켓)은 `refundSlotOnce` 로 `out.refund`(함선 창고)에 · 책 · 매체는 예전 경로 그대로. `SanitizeOutcome.evictedByAccess` · `loadState().evicted`. `ensureCockpitFurniture` 는 기본 자리 → 자동 배치 → 기본 자리 둘레의 꾸밈 가구를 가구 창고로 → 조종석 꾸밈 가구 전부를 가구 창고로 순으로 조종석 전용 시설을 **반드시** 세운다(`evictCockpitDecor`). **2026-09-13 (서재 시리즈 · 비디오게임, H1 — 버전 12 그대로)**: 모든 로드가 `books` · `media` · `bookDex` · `mediaDex` · `tvConsoles` 의 옛 id 를 `resolveItemAlias` 로 바꾸고(`out.aliasedLibrary` → 저장만 예약), 같은 def 가 두 칸 이상이면 먼저 온 칸만 남기고 여분을 `refund` 로(`out.migratedLibrary` → 다시 쓰기 = 두 번 환불 없음). `tvConsoles` 는 배치된 TV · `console_*` 모양 · TV 당 하나, 설 자리가 없는 게임기는 `refund`. `freshState().tvConsoles = []`. |
-| `ui/Panel.ts` | `HousingPanel` base for the three menus: `.menu.housing-menu` root under `ctx.uiRoot`, blocker token **`'housing'`** added first and then the **in-game cursor** (`ctx.input.setCursorMode(true, 'housing')` — Phase 10: the pointer lock is *kept*, so there is no `exitPointerLock()` and no microtask re-lock; `close()` releases both), **`Keys.INTERACT` (E)** through a capture-phase `window` keydown listener (registered only while open, `stopImmediatePropagation` so `Input` never sees it) — 2026-09-08: **was Escape**, which is the 일시정지 메뉴 everywhere now; E is the key that opened the panel from the furniture. Ignored while `MENU_BLOCKER` is up, and skipped when the event target is an `<input>` / `<textarea>` (capture runs before the field's own handler, so the E of a 프리셋 이름 would otherwise close the panel), `ui:housingToggled {open, page}` (the 재배 and 책장 pages report `page: null` — the contract's page union is frozen — and carry `ui:growToggled` / `ui:bookshelfToggled` instead). **2026-09-09**: **Tab (`Keys.INVENTORY`) closes them too** (taken even from a focused field), and each panel is a 키 가이드 owner `housing.<page>` with `keys: []` (`ui:keyGuide`). Auto-refresh on `housing:changed`, `inventory:changed`, `inventory:stashChanged`. **2026-09-12**: `coalesceRefresh` (스테이션 네 화면이 켠다) — 한 호출 스택의 이벤트 여러 개를 `queueMicrotask` 로 refresh **한 번**에 합친다 (`requestRefresh()`, `refreshStats {requests, runs}`); `overlays: PanelOverlay[]` — 열린 모달 · 우클릭 메뉴가 있으면 E · Tab 이 그 맨 위 하나만 닫고, `close()` 가 전부 닫는다; `deny(reason)` = 거절음 + `ui:notify` 토스트 + 메시지 줄. **2026-09-15 3차**: Tab 은 `ctx.escape.topKey` 가 `'housing'` 일 때만 가로챈다 — 위에 나중에 연 화면(무한 상자 · 인벤토리)이 있으면 그쪽 것이다 (E 는 그대로). |
-| `ui/GrowStation.ts` | **재배 화면** (온실 개편 2026-09-11 · 화면 개편 2026-09-12, `openGrowStation(uid)` ← E on a 재배 스테이션). `StationShell` 틀 — 머리줄 「재배 스테이션」 + `Lv. n` · 우상단 업그레이드(`UpgradeModal`, 여는 층은 `growTiersForLevel` 에서 유도), **좌 = 재배층, 우 = 가방 + 함선 창고.** 한 층은 **하얀 바** 하나에 **흙구멍**(위가 잘린 39 px 원, `clip-path`) 3개가 박혀 있고 바의 윗변이 구멍의 윗변이다. 흙을 부으면 구멍이 `SOIL_TAG_COLOR` 로 80 % 차고, 심으면 구멍 위 `--gs-plant-h` 영역에서 줄기 · 잎(씨앗 글리프 → 다 자라면 수확물 글리프)이 `--g`(진행도) transform 으로 자란다 — 그 높이가 층 간격이다. 구멍 아래 한 줄은 **어느 상태에서도 높이가 한 픽셀도 변하지 않는다** (2026-09-12, 사용자 결정): 흙 없음 = 「토양 필요」(빨강) · 흙만 = `00:00`(딤드) · 자라는 중 = `HH:MM:SS` · 다 자람 = 「수확 가능」(초록). CSS 가 `.gs-time` 의 `height` · `line-height` · `font-size` 를 못 박고 상태별로는 **색과 굵기만** 바꾼다. 나머지는 **영역별 호버 카드**(`StationTip`)다 — **흙구멍(`.gs-pot`) 위 = 토양 카드**(종류 · 속성 태그 · 남은 수확 횟수), **그 위의 식물 공간(`.gs-plant`, 시계 · 칸 나머지 포함) = 작물 카드**(씨앗 · 남은 시간 · 궁합 % · 수확물); 정보가 없으면 「비어 있음」 한 줄이다. `.gs-plant` 는 그래서 `pointer-events` 를 되돌려 받았고, **드롭 대상은 여전히 `.gs-pot[data-tier]` 하나**다(둘은 세로로 겹치지 않는다). 우클릭은 `StationMenu`(「흙 비우기」 / 「작물 버리고 흙 비우기」). **잠긴 층은 테두리만**(자식 없음). 드롭은 `createTradeGrids({dropSelector:'.gs-pot[data-tier]'})` → 토양이면 `fillSoil`, 씨앗이면 `plantSeedAt`. **맨 왼쪽 레일 = 함선의 재배 스테이션 목록**(`StationShell.rail`): 항목마다 이름 + **3×3 원형 점 9개**(`getGrowSlots(uid)` 순서 그대로 — 회색 = 자라는 중 · 까망 = 자랄 게 없음(잠긴 칸 포함) · 초록 = 수확 가능) + 익은 칸이 있으면 **레드닷**(이름 왼쪽의 자리를 늘 차지하는 점 — 레일이 세로 스크롤 컨테이너라 모서리 배지는 잘린다), 누르면 그 스테이션으로 전환한다. 목록은 배치 구성이 바뀔 때만 짓고 점 색은 1초 틱(`paint`)이 칠한다. 스테이션이 하나뿐이어도 숨기지 않는다 — 현황 점이 한 대짜리 함선에서도 쓸모 있고 분석기 탭 레일과 같은 자리에 서야 하기 때문이다. 다 자란 칸은 `ProductDrag` — 더블클릭 `harvestAt(…, 'stash-first')`, 격자에 끌어다 놓기 `'bag'` / `'stash'`, 거절은 `deny` 토스트. **층 DOM 은 스테이션 uid · 레벨이 바뀔 때만 다시 짓고**(`debug.builds`), 나머지 변화 · 1초 틱은 `paint()` (클래스 · 흙 색 · `--g` · 시계 · 열린 카드)만. Emits `ui:growToggled {open, uid}`; `ui:housingToggled` 에는 `page: null`. **2026-09-13 요리 재료 티어**: 흙구멍 호버 카드 = 속성 · **내구도 `n / max`** · **보너스 `%`(내구도 비율)** · 소켓 줄(「남은 수확 n회」 삭제), 작물 카드의 궁합 % 는 비율을 곱한다. 흙구멍 **안** 소켓 점(`.gs-socks`, 구멍 아래 시계 줄 높이는 그대로), 다 닳은 흙 `.is-worn`. 드롭 `def.growSocket` → 빈 칸이면 `insertGrowSocket`, 흙이 있고 가득이면 `SocketAsk.askReplace`, 거절은 `deny` 토스트. 우클릭 「흙 비우기」 는 소켓이 있으면 `hs-soil-clear` 1초 홀드 경고. 수확 메시지는 가방 + 창고 차이로 개수를 읽어 소켓 덤 +1 을 보여 준다. `overlays` = 모달 · 메뉴 · `SocketAsk`. |
-| `ui/Analyzer.ts` | **분석 화면** (A-12, 2026-09-11 · 화면 개편 2026-09-12, `openAnalyzer(uid)` ← E on a 분석기). `StationShell` 틀 (업그레이드 모달이 여는 칸 수는 `analyzerSlotsForLevel` 에서 유도). **맨 왼쪽 레일 = 세로 탭(「해석」 · 「해석 도감」, `StationShell.rail` — 2026-09-12 에 좌 패널 안 `.az-split` 에서 화면 바깥의 독립 열로 나갔다. 재배 스테이션 목록과 같은 자리 · 같은 결), 좌 패널 = 그 페이지, 우 = 가방 · 함선 창고 격자.** 해석 칸 `ANALYZER_MAX_SLOTS` 줄 중 **잠긴 칸은 빈 칸**(자식 없음, 드롭 대상 아님)이고, 열린 칸은 **세 열**이다 — 글리프 칸(`.az-cell[data-slot]` = 드롭 대상, 표본이면 `data-item-tip` 으로 아이템 카드) | 본문(이름 · `HH:MM:SS`(끝나면 「해석 완료」) · 진행바) | 버튼(「회수」 `collectAnalysis(…, 'stash-first')` · 「중단」). 버튼은 2026-09-12 에 `position: absolute` 를 버리고 자기 열로 들어왔다 — 좌 패널이 좁아져도 남은 시간 게이지와 겹치지 않는다. 끝난 칸은 `ProductDrag` 로 더블클릭 · 끌기 회수. 도감(`createSampleDex`)은 도감 탭일 때만 갱신한다. 칸 DOM 은 레벨이 바뀔 때만 다시 짓는다. 소비자는 `housing:analysisChanged` 를 본다. **2026-09-13 결과표**: 레일 탭 「해석」 · 「**분석 도감**」. 칸 = 글리프 | 본문(이름 + **계열 칩** `.az-fam` `SAMPLE_FAMILY_*` · 시계 · 진행바) | **결과 `.az-result`**(해석 중 · 결과를 안 굴린 옛 칸 = 「?」 점선, 끝나면 `resultDefId ×resultQty` 아이템 칩 + `firstTime` 이면 「새 발견」 `.az-new`) | 버튼. `ProductDrag` 산물 = `resultDefId ?? rewardDefId ?? 표본`. `housing:analysisChanged` · `analysisFound` · `analysisLevelUp` 에서 refresh (합쳐짐). **2026-09-13 (연구 숙련)**: 해석 탭 머리 `.az-research` = `연구 숙련 — 해석 시간 ×0.85 (넣는 순간 정해집니다)`(배수 1 이면 숨김) · 넣을 때 안내에 정해진 시간. |
-| `ui/SampleDex.ts` | **분석 도감** (2026-09-13 재작성 — 옛 「해석 도감」; `createSampleDex(ctx, housing, host)` → `{root, refresh()}`, BookDex 규약 그대로): `SAMPLE_FAMILIES` 순 3구획 `.az-dex-fam[data-family]` — 머리줄 = 계열 칩 · `Lv.n`(최대면 `MAX`) · 경험치 막대 `(xp − levelXp)/(next − levelXp)` + `n / m` · 「해석 시간 ×0.85」(`getAnalysisLevel`); 결과 행(`getAnalysisResults` 순) = 발견 = 아이템 칩 + 이름 / 미발견 = 직접 그린 검은 실루엣(`data-def-id` 없음 — 호버 카드로 이름이 새지 않는다) + 「???」 / 잠김 = 흐린 실루엣 + 「Lv.n 해금」, 개수 범위 `×1–2`, 확률(잠김 「—」). 행은 산출물 목록이 바뀔 때만 다시 짓는다. housing 호출이 던지면 그 구획만 빈다. |
-| `ui/CultureTank.ts` | **배양 화면** (A-14, 2026-09-11 · 화면 개편 2026-09-12, `openCultureTank(uid)` ← E on a 배양조). `StationShell` 틀이고 **수확 규칙은 재배 스테이션과 같다** — 칸 버튼 · 모두 수확이 없고, 끝난 칸은 `ProductDrag`(더블클릭 = 창고 먼저 · 끌기 = 그 격자), 배지 비우기는 우클릭(「배지 비우기」 / 「세포주 버리고 배지 비우기」 = `clearMedium(…, discardStrain)`), 부연은 호버 카드(배지 · 배양 속도 · 세포주 · 남은 시간 · 산출물). 한 줄 = 배양관(`.cult-cell[data-slot]` = 드롭 대상, 안이 배지 색으로 78 % 차오른다 `.cult-fluid`) + 위 이름 · 아래 `HH:MM:SS` / 「수확 가능」 + 진행바. 잠긴 칸은 빈 칸. 떨어뜨린 것이 `def.medium` 이면 `fillMedium`, `def.strain` 이면 `insertStrain`. CSS 이름은 **`.cult-*`** (옛 `.ct-*` 는 기업 화면과 겹쳤다). 소비자는 `housing:cultureChanged` 를 본다. **2026-09-13 요리 재료 티어**: 액체 높이 = **배지 내구도 ÷ 최대**(없으면 옛 횟수), 세포주 없는 관 아래 줄 「내구도 n/max」, 다 닳으면 유리 경고색 `.is-worn`. 칸 순서 배지 → **스캐폴드** → 세포주: 드롭 `def.scaffold` → `insertScaffold`, `def.growSocket` → `insertCultureSocket`(가득이면 `SocketAsk`). 유리 안 스캐폴드 격자 `.cult-scaffold`(`.has-scaffold`) · 소켓 점 `.cult-socks`. 우클릭 = 세포주 없고 스캐폴드 있으면 「스캐폴드 빼기」(`takeScaffold`, 가방 먼저) + 「배지 비우기」(소켓이 있으면 `hs-medium-clear` 1초 홀드 — 홀로 든 스캐폴드는 `clearMedium` 이 돌려주므로 경고는 소켓만 말한다). 호버 카드 = 배지 · 내구도 · 배양 속도(내구도 비율 반영) · 소켓 · 스캐폴드 · 세포주 · 남은 시간 · 산출물(스캐폴드면 종별 고기). |
-| `ui/DiningTable.ts` | **식사 화면** (A-3c, 2026-09-11 · 화면 개편 2026-09-12, `openDiningTable(uid \| null)` ← E on a 식탁; **null = 공유 함선의 고정 식탁**). `StationShell` 틀(`upgrade: false` — `Lv.` · 업그레이드 없음, 설명 줄 없음). **좌 = 접시**(지금 실린 식사 칩 + `mealBuffText` 한 줄 + 안내, `.dt-plate` 자체가 드롭 대상이라 요리를 끌어다 놓아도 먹는다) **+ 가진 요리 목록**(칩 + 이름 · 일반/특선 · 버프 + `먹기`, 공유 함선이면 `분대에 차리기`), **우 = 가방 · 함선 창고 격자.** 규칙은 하나도 여기 없다 — `parts/Dining` 이 돌려주는 한국어 사유를 메시지 줄에 옮길 뿐이다. 버프 표기의 원본은 계약의 `MEAL_BUFF_LABEL_KO` · `MEAL_BUFF_UNIT` 한 쌍이고(`mealBuffText` 가 이 파일에서 export 된다), 단위가 `'%'` 인 줄만 `amount × 100`, 부호는 값이 정한다 — `durabilityLossMul` 은 음수라 「장비 손상 −20 %」로 읽힌다. 1초 틱이 **없다**(현실 시간 타이머가 없는 화면이다). **2026-09-13**: 접시 이름 옆 티어 이름(`MEAL_TIER_LABEL_KO`), 버프 = `meal.effects` 전부 줄마다(`pre-line`); 가진 요리 줄 = 티어 이름 `.dt-tier` + 능력치 전부 `.dt-effects`(줄바꿈, 자르지 않음). export: `mealEffectText(buff, amount)` · `mealEffects(meal)`(`effects` 없으면 `buff/amount`) · `mealEffectLines(meal)` · `mealBuffText(meal)`(이름 그대로, 이제 전부를 ` · ` 로) · `mealTierText(meal)`. |
-| `ui/BookshelfMenu.ts` | **책장 패널** (Phase 9, `openBookshelfMenu(uid)` ← E on a 서재 책장): `BOOKS_PER_SHELF` slot cards (item chip, the skill the book teaches and its weight, 꽂기 / 빼기), a picker of the books the player owns (`getOwnedBooks()` = bag + stash, `buildItemChip` with the count; click = select, click again = deselect) and the 도감 below it. Every rule lives in `HousingSystem.placeBook / takeBook` — the panel only shows their 한국어 refusals. Emits `ui:bookshelfToggled {open, uid}`, `page: null` on the `ui:housingToggled` wire. **A-3e (2026-09-12)**: one panel for **every 서재 보관함** — `openShelf(uid)` reads `getShelfMedium(uid)` and redraws (`data-medium`, `SHELF_SLOTS[m]` cards rebuilt only when the medium changes, `getOwnedShelfItems(m)` picker, 도감 `setMedium(m)`, 매체별 설명 · 단위) plus the 보조 가구 line `.hs-shelf-aux` (`… 배치됨 — 디스크 몫 +25 %`, from `SHELF_AUX_BONUS`). Rules: `placeShelfItem / takeShelfItem`. 책장 → `ui:bookshelfToggled`, 디스크 전시대 · 레코드랙 → `ui:shelfToggled {open, uid, medium}`; switching pieces closes (and emits for) the old one first. **2026-09-13 (재작성)**: `StationShell` 카드 배치(`upgrade: false`) — 보관함 카드(레일 「선반」 · 「도감」 탭; 선반 페이지 = `.lib-count` `n / 8권` · 그려진 선반 `ui/ShelfDrawing` · 호버한 칸의 정보 줄 `.lib-info` · `.hs-shelf-aux`) + 함선 창고 카드 + 가방 카드. 보유 칩 목록 · 꽂기 / 빼기 버튼 삭제. **꽂기** = 격자 타일을 `.lib-slot[data-slot]` 에 끌어 놓기(타일 더블클릭 = 첫 빈 칸, 매체가 다르면 `책장에는 서적만 꽂을 수 있습니다`), **꽂힌 칸에 놓기 = 교체**(`takeShelfItem` → `placeShelfItem`, 거절되면 뺀 것을 다시 꽂는다), **빼기** = 꽂힌 칸을 격자로 끌기 · 더블클릭(`ProductDrag` → `takeShelfItem`, 가방 먼저). `coalesceRefresh` 켬, `debug.builds`. **2026-09-13 (서재 시리즈, H1)**: 칸 = 시리즈 색 · 권 번호 배지 · 전권이면 초록 윤곽, 정보 줄 = `n번 칸 · 이름 · 시리즈 II (2 / 5권 · 몫 20 %) · 효과`; 보조 가구 줄은 **작동 중**을 본다(`libraryAuxActive`); 새 `.lib-series` 시리즈 진척(권 칸 `is-on` 작동 중 · `is-here` 이 보관함, `n / N권 · 몫`, 효과 줄의 지금 값 + 전권 값). 게임 디스크 전시대 = 보조 가구 줄 숨김 + 꽂힌 게임 목록(게임기 · 능력치 · 방식). 다른 칸에 이미 꽂힌 종류를 꽂힌 칸에 놓으면 빼기 전에 `이미 꽂혀 있는 책입니다`. `housing:libraryChanged` 에도 다시 그린다. **2026-09-14 5차 (서재 화면 개편, 사용자 결정)**: 레일과 탭의 역할이 바뀌었다. **좌측 레일(`.hs-rail`) = 서재 가구 목록**이다(작업대 제작 창의 `.inv-craft-benches` 와 같은 결) — 맨 위가 **「서재」**, 그 아래로 **함선에 배치된** 책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대가 여러 대여도 한 줄씩(글리프 + 이름 + `n / N` 칸 수, `interaction` 으로 고른다 — **defId 를 코드에 적지 않는다**). 고르면 창을 닫지 않고 그 자리에서 바뀌고, 어느 가구로 열든 그 가구가 선택된 채로 시작한다(`openShelf(uid)` 그대로). **「서재」** 는 `getLibraryEffects()` **한 곳**을 읽어 효과 이름과 값만 한 줄씩 적는다(`.lib-eff`, 글은 `BookDex.libraryEffectText` 재사용 · 레시피는 `해금된 레시피 n종` 한 줄 · 없으면 `효과 없음`). 선반 · 도감 **탭은 콘텐츠 상단 가로 줄**로 나갔다(`StationShell` 의 새 옵션 `tabs: true` → `shell.tabsRow` = `.hs-tabs`; 「서재」 를 고르면 탭 줄이 숨는다). **지운 것**: 보조 가구 줄(`.hs-shelf-aux`) · 시리즈 진척 패널(`.lib-series` · `.lib-ser*`) · 바닥 힌트(`.hs-foot .hint`) · `.lib-info` 의 기본 사용법 문구 · 게임 전시대의 「꽂힌 게임」 목록. `.lib-count` 는 `n / 40권` 만 남는다. **빈 칸 호버는 아무것도 말하지 않는다**(`ShelfSlotPaint.line` 이 빈 문자열) — 꽂힌 칸은 예전대로 `.lib-item` 의 `data-item-tip` + `data-def-id` 로 `ui/hud/ItemTip` 의 아이템 카드가 뜨고, 호버한 칸의 시리즈 · 몫 · 효과는 `.lib-info` 한 줄이다. 고른 보관함이 회수되면 목록이 다시 서고 화면은 「서재」 로 떨어진다. `ui:bookshelfToggled` / `ui:shelfToggled` 는 **보여 주는 보관함이 바뀔 때마다** 닫기 → 열기 한 쌍으로 난다(`announce()` 가 중복을 막는다). **2026-09-15 3차 (사용자 결정)**: 칸 번호 표기 삭제(그림 · 메시지 둘 다), 「서재」 항목이 `적용 효과` 라벨 + **보관함 가구마다 한 칸**인 패널(`.lib-effcard`, 맨 아래 전체 합산 `.is-total`, 비면 같은 크기 패널 가운데 `아무 것도 배치되어 있지 않습니다.`). 값은 `librarySeriesStates` · `libraryLineValue` · `getLibraryEffects` 를 읽기만 한다. |
-| `ui/ShelfDrawing.ts` | **그려진 선반** (2026-09-13): `buildShelfDrawing(host, medium)` → `{root, medium, slots}` (틀 `.lib-case[data-medium]` + 단 `.lib-tier` × `ceil(SHELF_SLOTS/2)` + 칸 `.lib-slot[data-slot]` × 2 + 받침; 칸 번호 위 → 아래 · 왼 → 오른쪽 = 3D 책장과 같다), `paintShelfSlot(view, {defId, color, glyph, label, line})` (꽂힌 칸 = `.is-filled` + `.lib-item` 에 `data-item-tip` · `data-def-id` · `--rc` 희귀도 색, 칸 정보 줄은 `data-line`; 바뀐 것만 쓴다). 모양은 전부 CSS(`housing.css` 의 `.lib-*`): 책장 = 나무 틀 · 책등(세로쓰기 숙련 이름) · 디스크 전시대 = 금속 틀 · 아크릴 턱 · 케이스 속 디스크 · 레코드랙 = 검은 랙 · LP 가 삐져나온 슬리브, 빈 칸 = 같은 모양 점선 윤곽. 상태 · 리스너 없음. **2026-09-13 (H1)**: 게임 디스크 전시대(`data-medium="game"`, 3 × 2 — 윗단이 디스크 테마 색인 게임 케이스), 칸마다 `.lib-vol` 권 번호 배지(`ShelfSlotPaint.volume`, 단편이면 숨김) · `.is-full`(`full`). **2026-09-14 5차 (층당 여러 줄)**: `SHELF_COLS = 2` 고정을 버리고 계약(`shared/housing`)의 `SHELF_TIERS` · `SHELF_TIER_COLS` · `shelfSlotsPerTier` 를 **그대로 그린다** — 한 층(`.lib-tier`, 아래가 두꺼운 선반 판)이 `.lib-row` 를 필요한 만큼 품고 한 줄이 `SHELF_TIER_COLS` 열 격자다(열 수는 `.lib-case` 의 `--lib-cols` 로 CSS 에 넘어간다). **책장 = 4층 × (5칸 × 2줄) = 40권**, 디스크 · 게임 3층 × 4칸, 레코드 2층 × 4칸. 칸이 좁아져 책등 · 케이스 · 번호 · 권 배지의 크기를 줄였다(`--lib-row-h` · `--lib-item-w/h` · 글자 8–11 px). **층은 표시일 뿐이고 저장되는 것은 `slot` 하나**라 옛 세이브는 앞 칸이 그대로 남고 빈 칸만 는다 — 마이그레이션이 없다. `SHELF_COLS` 는 `@deprecated` 로만 남는다. **2026-09-15 3차 (사용자 결정)**: `.lib-num` 삭제 · 한 줄 가운데 `floor(cols/2)` 칸에 `.is-div`(CSS 가 그 왼쪽에 **구분막**을 세운다 — `.lib-row` 의 자식은 여전히 칸뿐이다). |
-| `ui/BookDex.ts` | `createBookDex(ctx, housing, host)` → `BookDexView {root, refresh()}`: the **도감**, one row per skill in `SKILL_IDS` order — 한국어 skill name (`ctx.progression.getSkillDef`), the book that teaches it (`ItemDef.book.skill`, chip + title), 보유 / 미보유 from `housing.getBookDex()` and the live 서재 multiplier from `housing.getBookBonus(skill)`. Pure DOM into `host`: no blocker, no listeners — the owner (책장 panel, 함선 tab) calls `refresh()` on its own events. **A-3e (2026-09-12)**: `createBookDex(ctx, housing, host, medium = 'book')` + `setMedium(m)` — rows list the item of that medium per skill (`shelfItemOf`), 보유 from `getShelfDex(m)`, the multiplier column is the whole 서재 배율 and its `title` breaks it down per medium. **2026-09-13 (서재 시리즈, H1 — 재작성)**: 서재 효과 매체면 **시리즈마다 한 줄** `.lib-dexrow[data-series]` (시리즈 이름 · 권 칸 `.lib-pip` — 도감에 적힌 권 `is-on`, 지금 효과를 내는 권 `is-live` · `n / N권` · 등장 행성 · 전권 효과), 게임 디스크면 디스크마다 `[data-def]` (발견 · 게임기 · 능력치 · 방식). `owned` · `complete` · `boosted`. 효과 글 헬퍼 `libraryEffectText(ctx, effect, value)` · `gameDiscText` · `volumeRoman` · `seriesTint` · `statName` 도 여기서 내보낸다 (보관함 화면이 쓴다). **2026-09-14 5차 (단순화, 사용자 결정)**: 한 줄이 **[정사각 썸네일][이름 + 권 칸][모은 수]** 뿐이다 — 등장 행성 · 전권 효과 설명 · `미발견` 글자를 걷어냈다(`.lib-dex-sub` 없음, 상태는 늘 `n / N권`). 썸네일은 시리즈 **대표 권**(1권)의 `ctx.inventory.buildItemTile`(없으면 글리프 상자)이고 `data-item-tip` + `data-def-id` 를 달아 호버하면 아이템 툴팁이 뜬다. 게임 디스크 도감도 같은 결(썸네일 + 이름 + `0 / 1장`). 요약 줄은 `n / N 시리즈 · x / y권` 으로 짧아졌다. |
-| `ui/FacilityRows.ts` | The 시설 rows + 효과 summary renderer used by `ShipView` (embedded 함선 tab): level, pips, `renderCost` chips, 한국어 block reason, upgrade button, derived summary. Takes the facility ids to list and the section label (**Phase 8 UI pass**: the 함선 tab passes `['generator','storage']` under 기본 시설). **2026-09-12**: 작업실 / 시뮬레이션실 have no levels; the 효과 summary dropped the 제작 비용 배율 line and labels the preset / 사격 숙련 lines with the furniture that drives them (관물대 · 시뮬레이션 허브). Touches only the host element it is handed — **no blocker, no pointer lock, no window listener**. **2026-09-12 (시뮬레이션실 · 프리셋 제거)**: 효과 요약은 창고 크기 · 작업대 레벨만 — 프리셋 슬롯 · 사격 숙련 줄을 뺐다. |
-| `ui/ShipView.ts` | `createShipView(ctx, housing, host)` → `EmbeddedView` for the **함선 tab** of the inventory Tab screen. **Phase 8 UI pass layout**: two columns — left `FacilityRows(['generator','storage'], '기본 시설')` + 효과 summary, right the 방 목록 (10 rows: `방 n · 용도`, 가구 n개 + purpose description, a `<select>` purpose picker whose options are disabled from `purposeBlock`, and for a 작업실 / 사격장 room its facility level, cost chips, block reason and 업그레이드 button) — plus a **sticky 시설 관리 (M)** button in the bottom-right corner (`.hs-ship-foot`, `position: sticky`) that calls `ctx.inventory.closeAll()` and then `housing.openShipManage()`. Its own inline `.form-msg`, refreshes on `housing:changed` / `inventory:changed` / `inventory:stashChanged` / `input:bindingsChanged`, `dispose()` unsubscribes and empties the host. Adds **no** ui blocker, never exits the pointer lock, installs **no** Escape listener — the inventory window owns all three. **2026-09-09**: while the 제거 confirm / 증축 popup is up, a capture-phase **Tab** listener closes that popup first (the window stays), removed when both are hidden and in `dispose()`. **2026-09-12**: room rows lost their level tag, cost chips and 업그레이드 button (room facilities have no levels), and the 시설 증축 popup no longer lists purposes the ship already has. **2026-09-12 (방 8 개)**: 방 행은 `state.rooms` 길이(8)만큼, 시설 증축 목록은 `ROOM_PURPOSES_ASSIGNABLE` 만 그리고(시뮬레이션실 · 휴식 공간 없음) 발전기 게이트가 막고 있으면 재료 칩 뒤에 `buildFacilityChip` 을 붙인다 (`purposeRequirements`). 조종석은 이 목록에 없다 (시설 관리 전용). **2026-09-15 3차**: 시설 레벨 칩을 `facilityChipTip` 으로 감싼다 (아이콘만 + 호버 툴팁). Tab 팝업 리스너는 무변경 — 자기 팝업이 열린 동안만 등록된다. |
-| `ui/dom.ts` | `el / section / setText / toggleClass / clear / isolateInput`, `renderCost` (Phase 8: delegates to `renderItemCost` from `@/shared` — thumbnail + 보유/필요 chips, dimmed + red when short; sizes `CHIP_SIZE` 32 / `CHIP_SIZE_SMALL` 28), `levelText`, `formatRemaining` (`2시간 5분` / `12분 30초` / `45초` — 거절 사유 문장용). **2026-09-12**: `clockParts(s)` → `{hm, ss}` (`HH:MM` / `:SS`, 올림 — `00:00:00` 은 진짜 끝났을 때만), `clockText(s)`, `renderClock(host, s)` (`.hs-clock-hm` + `.hs-clock-ss` 두 span 을 재사용 — 2026-09-12 부터 `:SS` 도 `HH:MM` 과 **같은 크기**다), `renderClockText(host, text)`. **2026-09-15 3차 (사용자 결정)**: `facilityChipTip(chip, name, have, need)` — `buildFacilityChip` 이 만든 칩에 `data-fc-tip`(+ `title`)을 붙인다. 칩은 아이콘만 그리고(모양은 `housing.css`) 시설 이름 · 현재 · 필요 레벨은 이 툴팁이 말한다. 글의 원본은 이 한 줄이다. |
-| `ui/StationShell.ts` | **2026-09-13 카드 배치 (사용자 결정 「작업대 제작 화면처럼」 — 이 칸의 옛 설명보다 우선한다)**: 바깥 틀 없이 **따로 떨어진 카드 셋이 한 줄** — `.frame`(투명한 세로 줄) > `.hs-cards` > **`.hs-card.hs-card-station`**(`.hs-head.hs-station-head` = `.hl`[`.title` · `.hs-lv` · `.hs-meta`] + 카드 우상단 `.hs-up-open` · `.hs-station-body` = `.hs-rail` + `.hs-pane.hs-pane-left`) + **`.hs-pane-right.hs-inv-cards`**(= `right` = `invHost`) > `section.hs-card.hs-card-inv.hs-card-stash[data-hs-grid="stash"]` · `…hs-card-bag[data-hs-grid="bag"]`(각 `.hs-card-head > .hs-card-title` 「함선 창고」/「가방」 + 격자 호스트 `.hs-inv`), 그 아래 패널이 붙이는 메시지 줄 · `.hs-foot`. **API (옛 이름 · 시그니처 그대로)**: `buildStationShell(frame, {title, upgrade, onUpgrade, button, inventory?})` → 옛 필드 `{head, title, level, upBtn, body, rail, left, right, invHost}` + 추가 `{cards, stationCard, meta, stashCard, bagCard}` (`inventory: false` 면 격자 카드 없음 · 두 카드 null); `paintStationLevel(shell, level \| null, max)`; 추가 `paintStationMeta(shell, text)` (Lv 옆 작은 글, 빈 문자열 = 숨김); `mountStationGrids(ctx, shell.invHost, dropSelector, onTake)` → **카드마다 `TradeGrids` 하나 · 격자 하나**(`grids:['stash']` · `grids:['bag']`, inventory 의 카드 API `layout: 'split'` + `chips: 'block'`, `className: 'hs-tg'`)를 끼운 `EmbeddedView` 하나 — 칸 크기는 `stationGridCell()`(뷰포트 ≥ 1760 = 54, 아니면 46 — 1440 에서도 세 카드가 한 줄), 창 크기가 경계를 넘으면 살아 있는 뷰에 `TradeGridsView.setCell` (필터 · 스크롤 유지, 없으면 다시 끼운다); `data-hs-grid` 카드가 없는 옛 호스트면 예전처럼 두 격자 `'wrap'` 뷰 하나. 카드마다 **자기 세로 스크롤**(split 의 `.tg-gridwrap`)과 자기 필터 줄(좁은 가방은 다섯씩 두 줄), 격자 블록의 `.tg-label` 은 카드 머리와 겹쳐 숨긴다. 좁은 창(< 1280)은 스테이션 카드 위 · 두 격자 카드 아래, < 900 은 격자 카드도 위아래(각자 스크롤). ─ 옛 설명 (2026-09-12): `buildStationShell(frame, {title, upgrade, onUpgrade, button})` → `{head, title, level, upBtn, body, rail, left, right, invHost}` — 머리줄 = 제목 + `Lv. n` (좌) · 「업그레이드」 (우), 몸통 = **`.hs-rail`(맨 왼쪽 세로 레일, 기본 `hidden`) + `.hs-pane-left` + `.hs-pane-right`**(격자 호스트 `.hs-inv`). 몸통은 flex 라 레일을 쓰지 않는 화면(배양조 · 식탁)에서는 gap 까지 함께 사라진다. 레일을 쓰는 두 화면은 **재배 스테이션 목록**(`GrowStation`)과 **분석기 탭**(`Analyzer`)이고, 같은 자리 · 같은 폭이라 좌측 정렬이 흔들리지 않는다. `paintStationLevel(shell, level \| null, max)` (마지막 레벨이면 `MAX` + 비활성), `mountStationGrids(ctx, host, dropSelector, onTake)` (`createTradeGrids({grids:['stash','bag']})` — 2026-09-12 사용자 결정 「창고 왼쪽 · 가방 오른쪽」이고 기본값과 같다; housing 이 inventory 보다 먼저 등록되므로 열 때 게으르게 — `cell` 은 넘기지 않아 기본 54, 기업 화면과 같다. 스테이션에서는 `housing.css` 가 **블록마다 자기 스크롤**을 주고, 창이 좁아 두 열이 안 들어가면(`@media (max-width: 1599px)`) 세로로 반씩 쌓는다 — 어느 배치에서도 두 격자가 드래그 전에 다 보인다). 식탁은 `upgrade: false`. **2026-09-14 5차**: 옵션 `tabs?: boolean` + `shell.tabsRow`(`.hs-tabs` — 좌 패널 맨 위의 가로 탭 줄). **옵션이라 기존 화면(분석기 · 재배 스테이션 · 배양조 · 식탁 · 조리대)은 한 줄도 바뀌지 않는다** — `.hs-rail` 도 그대로다. ⚠ 같은 날 생긴 통합 채굴 화면의 탭은 **이것이 아니다**: 그쪽은 좌 패널 안이 아니라 `.frame` 첫 줄(화면 상단)이라 `mining.css` 에 `.mn-tabs` / `.mn-tab` 을 따로 적었다. 둘을 합칠지는 열어 둔 판단이다. **2026-09-15 4차 (사용자 결정)**: 격자 카드가 **하나**다 — `mountStationGrids` 가 `createTradeGrids` 를 `grids: ['stash','bag']` 로 **한 번**만 부르고(옛: 카드마다 한 번씩 두 번), `buildInvCard` 는 머리줄 없는 `.hs-card-inv[data-hs-grid="inv"]` 하나를 만든다. 계약에 `invCard` 추가 · `stashCard`/`bagCard` 는 같은 요소를 가리키는 `@deprecated` 별칭. |
-| `ui/UpgradeModal.ts` | **업그레이드 모달** (2026-09-12, `PanelOverlay`): `open(spec, run)` — `spec()` = `UpgradeSpec {name, level, maxLevel, gain, cost, reason}` 를 매 `refresh()` 마다 다시 읽는다(재료가 오갈 수 있다). 비용은 `renderCost` 44 px 칩, 사유가 있거나 최대 레벨이면 확정 버튼 비활성. 확정은 **`UI_HOLD_CONFIRM_S` 홀드만**(`setInterval` + `performance.now()` — rAF 가 멈춘 헤드리스에서도 된다), 놓거나 벗어나면 0, **Enter 는 삼킨다**, Escape 는 `ctx.escape` 토큰 `housing.upgrade`, 바깥 막을 누르면 닫힘. `holdProgress` (스모크). **2026-09-12**: `UpgradeSpec.requirements?` (`furnitureUpgradeRequirements(uid)`) — 재료 칩 뒤에 같은 줄로 `buildFacilityChip`(가로로 긴 이중 테두리, `현재/필요 레벨`, 칩 크기 44). 재배 스테이션 · 분석기 · 배양조가 넘긴다. **2026-09-15 3차**: 시설 칩을 `facilityChipTip` 으로 감싼다. |
-| `ui/StationTip.ts` | **호버 카드** (2026-09-12): `.item-tip` 겉모습을 빌린 비아이템 툴팁 — `show(spec, x, y)` · `update(spec)` · `move(x, y)` · `hide()`, `TipSpec {name, sub, color(--rc), rows[{k, v, tone}], foot}`. 크기는 내용이 바뀔 때만 재고, 움직일 때는 좌표만 적고 rAF 한 번에 `transform`. |
-| `ui/StationMenu.ts` | **우클릭 메뉴** (2026-09-12, `PanelOverlay`): `show(x, y, items[{label, danger, run}])` · `close()`. 가장 안쪽 팝업 규약 — Escape 는 자기 capture 에서 삼키고 닫는다, 바깥 pointerdown · 휠이면 닫힘. |
-| `ui/SocketFlow.ts` | **흙 · 배지 소켓 화면 공용** (2026-09-13, 요리 재료 티어): `socketEffectText(def, target, ratio)` (`성장 속도 −8 %` · `추가 수확 30 % 확률 +1` — `speed`/`yield` 는 내구도 비율을 곱한 지금 값, `wear` 는 그대로), `socketTipRows(...)` (호버 카드의 `소켓 n / m칸` + 소켓마다 한 줄), `paintSocketDots(host, slots, filled)` (칸 수만큼 `<i>`, 끼운 것 `.on`, 바뀔 때만 씀), `SocketAsk` (`PanelOverlay` — `askReplace(spec)`: 칸이 둘 이상이면 `StationMenu` 로 교체할 소켓 고르기 → `openHoldAsk` `data-ask="hs-socket-replace"` 「끼운 소켓은 빼낼 수 없습니다 — 교체하면 <이름>은(는) 파괴됩니다」 빨간 「교체」 1초 홀드 → `run(replaceIndex)`; `confirm(spec)` = 되돌릴 수 없는 비우기 경고; E · Tab · 패널 닫기 = 아무것도 안 하고 닫힘). 규칙 없음 — 사유는 `insertGrowSocket` / `insertCultureSocket` 가 준다. |
-| `ui/ProductDrag.ts` | **다 된 산물을 아이템처럼** (2026-09-12): 호스트(층 · 칸 목록)에 pointerdown · dblclick 을 달고 `productAt(target)` 이 돌려주는 산물만 다룬다. 5 px 넘게 끌면 `buildItemChip` 고스트(`.hs-ghost`, `document.body`), 놓은 자리의 `closest('[data-tg-grid]')` 가 `'bag'` / `'stash'` 면 `collect(key, 그 격자)`, 더블클릭은 `collect(key, 'stash-first')`. 고스트 `transform` · 격자 강조(`.hs-drop-over`)는 rAF 한 번, 놓을 때 판정은 `pointerup` 좌표로 다시 잰다. |
-| `parts/Gym.ts` | **헬스장 운동 세션** (A-3a, 2026-09-12). `GymState {info, pose, finished, result, score}` 가 `sys.gymState` 에 산다. `gymEquipmentAt(uid)` (배치 · def · `gymEquipmentOf`), `gymBlock` — 순서대로 `운동 기구가 아닙니다` · `함선에서만 운동할 수 있습니다`(레이드 · hub 페이즈 아님) · `내 함선에서만 운동할 수 있습니다`(공유 함선 · 방문) · `이미 운동 중입니다` · `다른 화면을 먼저 닫으세요`(하우징 모드 · 시설 관리 · 패널 · 아무 블로커), `startGymSession` (화면을 열고 `housing:gymSession {active:true}` — hub 가 같은 호출 스택에서 취소하면 사유를 돌려준다), `cancelGymSession`, `completeGymSession(score)` (한 세션에 한 번 — `ctx.progression.applyGymSession` 을 duck-type 으로 부르고 `gym_finish` · `housing:gymResult`; 메서드가 없거나 null 이면 결과 null), `endGymSession` (`housing:gymSession {active:false, completed: finished}`), `bindGym` (`game:newMission` · `game:abort` · `hub:left` · hub 밖 페이즈 · 이 세션 자세의 `player:furniturePoseEnded`(caller 제외) → 취소), `gymDebug` (스모크 — `screen` · `game` · `result` · `start()` · `finish(score)` · `makeGame(kind)`). 블로커 토큰은 `GYM_BLOCKER = 'housing.gym'` (패널의 `'housing'` 과 따로). **2026-09-13 (서재 헬스 보너스)**: `completeGymSession` 이 운동 기구 4종의 점수에 `getLibraryEffects().gymScore[기구 interaction]` 을 더해 1 로 자른다 (게임 세션은 해당 없음). |
-| `parts/GymGames.ts` | **미니게임 판정 — DOM · ctx 없는 순수 클래스** (A-3a). `GymGame` (`update(dt)` · `press(action)` · `release(action)` · `judgements` · `done` · `score` = 판정 평균 · `counts()` · `drain()` → `judge` / `sound` 이벤트), `PressGame` (커서 `pos` 0…1 왕복, 속도 `GYM_PRESS_SPEED + 회차 × _STEP`, 가운데 거리 ≤ `_PERFECT` 완벽 · ≤ `_ZONE` 성공), `BreathGame` (후 · 후 · 하 × `GYM_BREATH_CYCLES`, 「하」 뒤 한 박 쉼 · 시작 오차 창 안 **그리고** 떼기 오차 ≤ `_HOLD_TOL`, 완벽은 둘 다 1/3 안), `CycleGame` (A · D 번갈아, 틀린 발 = 실패). 박자 게임 공통: **예비 박자 `GYM_LEAD_BEATS`(4)** 동안 입력 무시, **헛누름 = 다음 표식의 실패**(직전 창이 닫힌 뒤 · 다음 창보다 이를 때 — 연타가 최선의 전략이 되지 않게), 창 밖으로 지나간 표식은 자동 실패. `createGymGame(kind)`, `GYM_QUALITY_LABEL_KO`. **2026-09-14 5차 (보이는 것 = 판정, 사용자 결정)**: `judgeBands` 하나가 csv 창(`GYM_*_WINDOW_S`)을 두 띠로 나눈다 — **`perfect` 는 그 창 그대로**이고 화면에 그려지는 표식 · 구역의 크기가 **곧 그 값**, `good` 은 그 바깥으로 `GYM_GOOD_OF_PERFECT`(1.6)배까지다(이웃 표식과 겹치지 않게 `WINDOW_MAX_OF_BEAT` = 반 박자로 자른다). 옛 규칙 「완벽 = 창의 1/3」 을 뒤집은 것이라 **csv 를 한 줄도 안 고쳐도 완벽 띠가 3배**가 된다. 벤치프레스는 처음부터 `GYM_PRESS_ZONE` · `GYM_PRESS_PERFECT` 두 값을 그대로 그렸으므로 한 줄도 바뀌지 않았다. 새 게터 `GymGame.completion`(0 … 1) — 화면의 진행 바가 그것을 그대로 읽는다. |
-| `ui/gym/GymScreen.ts` | **운동 화면** (A-3a) — 한 오버레이 `.gym` 가 시작 안내 → 게임 → 결과를 갈아 끼운다. **커서 모드 없음**(키보드 게임): 블로커 `housing.gym` · ESC 토큰 `housing.gym` · 키 가이드 owner `housing.gym`(시작 / 들어 올리기 / 후 · 하(꾹) / 왼발 · 오른발 / 결과는 닫기뿐). `window` capture keydown 이 `Keys.JUMP` · `LEFT` · `RIGHT` 를 사용 시점에 읽어 삼키고(`Input` 은 기록 못 한다), keyup 은 **keydown 을 삼킨 키만** 삼킨다. Tab = 닫기(게임 도중이면 취소) · E = 시작 안내 · 결과에서 닫기, 게임 도중엔 삼키기만 · 반복 keydown 무시 · 입력 필드 · 일시정지 메뉴 위에서는 손대지 않는다. **루프는 `requestAnimationFrame` 한 프레임에 한 번** + `performance.now()` dt (rAF 가 `FALLBACK_STALE_MS` 100 ms 넘게 멈췄을 때만 도는 예비 `setInterval` 50 ms, 닫으면 둘 다 멈춘다 — `ticking`), 키가 오면 그 순간까지 먼저 민 뒤 판정하고 **그 자리에서 다시 그린다**. 판정마다 `housing:gymBeat` + `audio:play gym_perfect/good/miss` (판정 객체의 `gym_breath` · `gym_pedal` 도), 시작 `gym_start`, 마지막 판정 뒤 `RESULT_DELAY_MS`(700) 동안 판정 글자를 보여 주고 결과 화면. 시작 안내: 기구 이름 · 미니게임 · `근력 +n 단련` + 진행도(`다음 단련까지 a / b`, 상한이면 `단련 최대치`) · 규칙 한 줄 · 근육통이면 `근육통 — 이번 운동으로는 근력이 오르지 않습니다 (남은 HH:MM:SS)`(틱마다 갱신) · `Space 시작`. 결과: 점수 % · 완벽 / 좋음 / 실패 수 · `단련 경험치 +n` · `근력 단련 +1!` · 진행도 · `근육통 · 남은 HH:MM:SS`, progression 이 반영하지 못했으면 `단련 결과를 반영하지 못했습니다`. `finishWith(score)` (스모크). **2026-09-14 5차**: 머리줄의 `N / M` 글자(`.gym-count`)가 **라벨 없는 진행 바** `.gym-prog` 로 바뀌었다 — 채움은 `GymGame.completion`(0 … 1)을 그대로 읽고 CSS `transform: scaleX()` + `cubic-bezier(0.16, 1, 0.3, 1)` 이라 처음 빠르고 점점 느려진다. 벤치프레스의 회차 pips(`.gym-pip`)는 **남겼다** — 그것은 진행이 아니라 회차마다의 **판정 색**이다(박자 게임의 표식과 같은 역할). **2026-09-15 3차**: Tab 은 `ctx.escape.topKey` 가 이 화면의 토큰일 때만 가로챈다 (`ui/Panel` 과 같은 규칙). |
-| `ui/gym/GymViews.ts` | 게임 무대 (`createGymView(game, parent)` → `GymView {paint, judged, input, relabel, dispose}`). 벤치프레스 = 굵은 바 · 성공 구역 · 완벽 구역 · 가운데 눈금 · 왕복 원형 커서(구역 안이면 강조) · 회차 칸. 호흡 · 사이클 = 오른쪽에서 흘러와 판정선(`--judge` 10 %)에 닿는 표식 — 호흡 한 줄(후 = 원 · 하 = 길이가 있는 알약, 쥐는 동안 `--f` 로 차오름), 사이클 두 줄(줄 머리에 A / D 키캡, 누르면 불이 들어온다). 판정선~오른쪽 끝 = 예비 박자 + 1 박. DOM 은 한 번 짓고 틱마다 `left` · `--x` · `--f` · 클래스만. `replayClass` (한 번 도는 애니메이션 재생). **2026-09-14 5차**: 판정 띠와 탭 표식의 폭이 `judgeBands` 가 준 값 그대로다 — **그린 폭이 곧 판정**이라 「표식이 띠를 덮는 순간이 완벽」이 눈으로 성립한다. |
-| `parts/CookGames.ts` | **요리 미니게임 판정** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」). DOM · ctx 없는 순수 클래스 6종 — `ChopGame` 썰기(예비 박 · 창 · 헛클릭 = 다음 표식 실패, `notes` · `upcoming`) · `MinceGame` 다지기(`h` · `v` 게이지 · 같은 버튼 연타 = 반대 −DRAIN · 걸린 시간 선형 점수 · `MAX_S` 강제 0 점) · `GrillGame` 굽기(`pieces` · `progressOf(i)` · `onGrill(i)` · 뒤집기 / 늦으면 뒤집기 실패 + 꺼내기 / 꺼내기 · `BURN_AT` 탐) · `StirfryGame` 볶기(가장 가까운 박자 · 한 박자 한 번 · `bar` · `usedBeats`) · `StirGame` 젓기(`temp` · `progress` · `ratio` · 240 Hz 적분 · 누르는 동안 `COOK_STIR_BEAT_INTERVAL_S` 마다 `stir` 연출) · `PourGame` 붓기(`flow` 램프 사다리꼴 정확 적분 · `amount` · `SETTLE_S` · 넘침). 공통: 스스로 `time` 을 들고 `update(dt)` / `press('left'\|'right')` / `release` / `clickPiece(i)`, `done` · `score`(0 … 1) · `judgements` · `counts()` · `drain()` 이벤트(`judge` · `beat {action, quality}` · `sound cook_sizzle`). `createCookGame(step)` · `cookGrade` · `cookJudgeScore` · `cookJudgeAverage`. 수치는 전부 `shared/cooking` 의 `COOK_*`. **2026-09-14 5차 (사용자 결정)**: ① **보이는 것 = 판정** — `cookJudgeBands` 가 csv 창(`COOK_*_WINDOW_S`)을 두 띠로 나누고 `perfect` 는 **창 그대로**(그려지는 표식 · 호의 크기가 곧 그 값), `good` 은 `COOK_GOOD_OF_PERFECT`(1.6)배까지에서 **반 박자로 잘린다**. ② **멈추지 않는다** — 입력이 한 번도 없으면 영영 안 끝나던 볶기 · 젓기 · 붓기에 `CookGameBase.maxTime` 안전핀(다지기의 `COOK_MINCE_MAX_S` 와 같은 자리). **판정 수치가 아니라 그때까지의 점수로 끝내는 멈춤 방지**이고 길이는 csv 에서 유도한다(볶기 = 최악의 사람이 바를 채우는 박자 수, 젓기 · 붓기 = 제대로 하는 시간 × `COOK_STEP_TIMEOUT_MUL`). ③ 새 게터 `completion`(0 … 1). |
-| `parts/Cooking.ts` | **조리대 · 조리 세션** (2026-09-13). `COOK_BLOCKER` · `CookState {info, benchLevel, stepScores, stepAuto, finished, anyCompleted, result}` · `cookBenchAt` · `cookRecipes`(원본 표 `loot.getAllRecipes()` 중 조리대 레시피이고 `cookStepsOf` 가 있는 것 **전부** — 2026-09-15 부터 숙련 · 조리대 레벨 · 책 잠김을 거르지 않는다, inventory 가 없을 때만 대체 경로) · `cookRecipeSkillBlock`(숙련이 모자라면 `{label, need, have}` — 표시용) · `cookSkillLabel`(progression `getSkillDef().name`, 없으면 대체 표) · `cookRecipeOf`(원본 표 — 사유는 inventory 가) · `cookSession` · `getCookAuto`(배치된 자동 가구 중 가장 높은 레벨) · `cookBlock`(계약 순서: 조리대 아님 → 함선 / 내 함선 → 조리 중 → 요리 레시피 아님 · 단계 없음 → `inventory.cookBlock`, 없으면 레벨 · 숙련 · 재료 대체 검사) · `restartBlock` · `startCook`(오버레이를 먼저 열고 → 조리대 화면을 닫고 → `cook_start` · `housing:cookSession {active:true}` → hub 가 같은 스택에서 취소하지 않았으면 `beginSteps`) · `restartCook`(같은 세션 · 자세 유지) · `cancelCook` · `recordCookStep` · `completeCookRun`(평균 → `mealQualityForScore` → 덕 타이핑 `inventory.completeCook(recipeId, 조리대 레벨, 품질)` → `housing:cookResult` · `cook_finish`, 없거나 거절이면 `reason`) · `endCook`(`housing:cookSession {active:false, completed: anyCompleted}`) · `openCookStation` · `bindCooking`(`game:newMission` · `game:abort` · `hub:left` · 페이즈 변경 · 자세 `cook` 이 `caller` 아닌 이유로 풀림 = 취소) · `cookDebug`(스모크 훅). **재료는 `completeCookRun` 에서만 빠진다.** **2026-09-13 (요리 숙련 · 서재)**: `recordCookStep(원점수)` → `min(1, 원점수 + cookScoreBonus + 서재 cookScore[game])` 을 적고 돌려준다(직접 · 자동 모두, `CookState.stepRaw` · `stepBonus`) · `cookStepBonus` · `applyCookStepBonus` · `cookRecipeBookBlock`(레시피 책 — `cookBlock` 이 단계 검사 뒤에 거절) · `cookRecipes` 가 책으로 걸러진 요리를 되살린다 · 요리가 나온 판마다 요리 숙련 경험치 `round(COOK_SKILL_XP × max(0.25, 점수))` · `cookDebug.bonus` · `stepRaw`. |
-| `ui/cook/CookStation.ts` | **조리대 화면** (`HousingPanel` page `'cook'`, `StationShell` 카드 배치 · `UpgradeModal` = 조리대 강화, gain `요리 n가지 개방`). 레일(`.cook-rail`) = 요리 목록을 티어 이름 아래로 묶고 지금 만들 수 있으면 초록 점 · 조리대 레벨 잠김은 `Lv.n` 딤드 · **숙련 잠김도 딤드 + `제작 20` 배지**(`is-skill`, 둘 다 모자라면 배지 둘, 호버 = 모자란 것) · 티어 안 순서는 시작할 수 있음 → 막힘 → 잠김(2026-09-15 B-15). 좌 패널 = 고른 요리: 칩 · 티어 · 조리대 Lv · 단계 수 / 능력치 줄(`☆☆☆☆☆ 기준 → ★★★★★ +25 %` 머리 + 줄마다 기준 → 최대) / 재료 칩(`renderCost` = 가방 + 창고) / 단계 칩(`① ⫽ 썰기 → ② ◎ 젓기`, 자동 가구가 있으면 칩 아래 `푸드 프로세서 Lv.2 · 자동 60 %`) / `조리 시작`(막히면 딤드 + 사유 줄, 누르면 `deny` 토스트). `select(recipeId)` · `start()` · `benchUid` · `selectedRecipeId` · `startBlock`. `ui:cookStationToggled`. 창고 / 가방 카드는 보기 · 정리용(드롭하면 안내 한 줄). **2026-09-13**: 레시피 책 잠김 = `is-locked is-book` + 「책」 배지 + 사유 줄(`housing:libraryChanged` 에 다시 그림) · 단계 칩 아래 `점수 +n (숙련 +a · 서재 +b)`. **2026-09-14 5차**: 조리대 조각에 자세를 못 걸어도 세션이 죽지 않는다 — 연출(`hub/interiors/CookStaging`)이 실패해도 `cancelCook` 을 부르지 않으므로 `beginSteps()` 까지 간다(주석만 고쳤다, 규칙은 hub 쪽 변경이다). **2026-09-15 4차 (사용자 결정)**: 세로 레일 → **왼쪽 썸네일 격자(`.cook-list`, `COOK_LIST_COLS` 4칸) + 오른쪽 상세(`.cook-detail`)** (작업대 제작 창과 같은 배치). 칸 `.cook-cell[data-recipe]`(옛 이름 `.cook-rail-item` 병기) · 정렬이 **전역 순위**(만들 수 있는 것 먼저) · 상세에 설명 · 보유 수 추가 · 수량 스테퍼 · 홀드 없음. **B-15 숙련 잠김 표시 유지**(`is-bench-locked`/`is-skill`/`is-book` + 배지). `CraftDetail` 은 `InventorySystem` 을 요구해 폴더 간 import 없이는 못 쓰므로 자기 구현. |
-| `ui/cook/CookScreen.ts` | **조리 오버레이** — 화면 하단 가운데 패널(위쪽 3D 자세가 보인다). 화면 `choose`(자동 가구가 있을 때만: 「직접 하기」 / 「자동 — 이름 Lv.n · n %」) → `game` / `auto`(연출 1.1 초) → `step`(단계 점수 글자 0.7 초) → … → `result`(큰 별 · 점수 % · 능력치 +n % · 단계별 점수 · 요리 칩 + `★n` · 보너스 반영 능력치 · `→ 함선 창고` 또는 사유 · 「다시 만들기」(막히면 딤드 + 사유) · 「닫기」). 머리줄 `① 썰기 ✓ → ② 젓기 …`. 입력 = 무대 `pointerdown`(button 0 / 2, `preventDefault`) + `window` capture `pointerup` · 패널 `contextmenu` 막기 · 굽기 조각은 `.cook-piece[data-i]`. 커서 모드 · 블로커 · ESC 토큰 · 키 가이드 owner 모두 `housing.cook`, Tab(capture + `consume`) = 닫기, E = 선택 카드 · 결과에서 닫기 · 게임 도중 삼키기. 루프 = rAF + 예비 타이머(GymScreen 규약), 입력 순간까지 먼저 민다. 이벤트: `housing:cookStep` (choose / play / done) · `housing:cookBeat` · `audio:play`(`cook_*` 16종 중 화면 몫 — 연출 입력 소리 · 판정 소리 · `cook_step` · `cook_auto`). `open` · `beginSteps` · `choose` · `finishStepWith` · `restart` · `close` · `ticking`. **2026-09-13**: 보너스가 붙은 단계는 `72 → 84 % (+요리 숙련 · 서재)` — 단계 점수 글자 · 자동 연출 · 결과 단계 줄(호버 = 수치), 자동 버튼 `· 60 % (+12)`. **2026-09-14 5차 (사용자 결정)**: ① **입력을 화면 어디서나 받는다** — `.cook.is-playing` 이 게임 도중에만 루트의 `pointer-events` 를 켠다(예전에는 `.cook-stage`(패널 가운데의 작은 상자) 안만 받아 780 px 패널의 여백을 누르면 아무 반응이 없었다). 우클릭(다지기)의 `contextmenu` 차단도 같은 범위로 넓혔다 — **입력을 받는 범위와 메뉴를 막는 범위는 같아야 한다.** ② 패널 하단에 라벨 없는 진행 바 `.cook-prog`(= `CookGameBase.completion`). 3D 연출은 그대로 보이고 판정만 이 오버레이가 한다(사용자 결정). **2026-09-15 3차**: Tab 은 `ctx.escape.topKey === ESCAPE_TOKEN` 일 때만 가로챈다 (`ui/Panel` 과 같은 규칙). |
-| `ui/cook/CookViews.ts` | 게임 무대 6종 (`createCookView(game, parent, defOf)` → `CookView {paint, judged, beat, input, dispose}`) — 도마 + 칼 + 흘러오는 표식(썰기) · 좌우 / 상하 세로 게이지 + 다진 조각 + 시계(다지기) · 그릴 위 조각 진행 링(0 … `BURN_AT`, 50 % · 100 % 눈금, 익을수록 짙게 · 탐 · 뒤집힘)(굽기) · 팬 + 줄어드는 박자 링 + 퍼센트 바(볶기) · 냄비 + 국자 + 거품 + 온도계(초록 구간) + 완성 바(젓기) · 계량 비커(목표선 · 액체 색 `COOK_LIQUID_COLOR`) + 기울어지는 비커 + 흐름 줄기(붓기). 재료는 `buildItemChip`, 나머지는 CSS 도형 — 외부 에셋 없음. DOM 은 한 번 짓고 틱마다 CSS 변수 · 클래스만. `replayCookClass`. **2026-09-14 5차**: 판정 띠 · 표식 폭 · 굽기 판정 호가 `cookJudgeBands` 가 준 값 그대로다(**그린 폭이 곧 판정**), 볶기에 안내원이 붙었다. |
-| `ui/cook/cook.css` | `.cook-*` 전용 (CookScreen · CookStation 이 import) — 오버레이(z 44, 루트 `pointer-events: none`, 패널만 입력) · 판정 글자 · 단계 점수 글자 · 게임 무대 6종 · 선택 카드 · 자동 연출 · 결과 · 조리대 화면 레일 / 좌 패널 · 식탁 품질 배지(`.cook-dt-q` · `.cook-dt-stars`). 2026-09-13: `.cook-rail-book` · `.cook-stepchip-bonus` · `.cook-stepscore-bonus` · `.cook-result-step-bonus`. 2026-09-15: `.cook-rail-locks` · `.cook-rail-skill` · 레일 176 → 196 px. **2026-09-14 5차**: `.cook.is-playing`(게임 도중에만 루트가 입력을 받는다) · `.cook-window`(판정 띠) · `.cook-arc`(굽기 판정 호) · `.cook-beatguide`(볶기 안내원) · `.cook-prog`(진행 바) · 패널 그림자. |
-| `ui/mining/MiningScreen.ts` | **채굴 화면** (2026-09-14 5차 통합, 사용자 결정 — 연산 클러스터 화면과 메인 컴퓨터 화면이 **한 창**이다). `HousingPanel` page `'cluster'`(`.menu.mining-screen`, `HousingPage` 는 계약이라 값을 더하지 않았다), `StationShell` 카드 배치(`upgrade: false`). `.frame` 첫 줄이 **상단 가로 탭** `nav.mn-tabs > button.mn-tab[data-tab]` 네 개(`MINING_TABS` · `MINING_TAB_LABEL_KO` = 채굴 · 클러스터 현황 · 지갑 · 거래소) — 모양은 인벤토리/캐릭터 Tab 화면의 `.scr-tabs > .scr-tab` 과 같은 결이지만 자리가 달라(그쪽은 화면에 절대 배치) 값을 `mining.css` 에 따로 적었다. 탭이 좌 패널의 페이지 넷을 갈아 끼우고, **채굴 탭에서만** 레일(`shell.rail`)과 [함선 창고] [가방] 카드(`shell.right`)가 보인다(루트 클래스 `is-cluster`). 페이지는 `HousingPanel` 이 아니라 창 안의 한 쪽이고, 창이 protected 헬퍼를 `MiningHost`(`shell` · `isOpen` · `debug` · `showMsg` · `denyMsg` · `addOverlay` · `setTitle` · `setBanner` · `setTab` · `refreshLater` · `openCluster`)로 열어 준다. 머리줄 제목 · 부가 글 · 빨간 배너(`.mn-banner`)는 **지금 탭의 페이지**가 칠한다. 1초 틱은 창이 돌리고 활성 페이지의 `tick()` 만 부른다. `ui:miningToggled` 의 `page` 는 계약이라 둘뿐이므로 **채굴 탭 = `'cluster'`, 나머지 셋 = `'computer'`**. 스모크 · 콘솔용 통과 getter: `currentTab` · `currentUid` · `selectedCoin` · `chart` · `debug`(11칸 하나를 네 페이지가 나눠 쓴다). **진입점 둘은 계약이라 이름이 그대로이고 기본 탭만 다르다**(사용자 결정 「가구마다 제 탭이 기본」): `openComputeClusterScreen(sys, uid)` → `채굴`, `openMiningComputerScreen(sys, uid \| null, tab?)` → `클러스터 현황`(이미 열려 있으면 메인 컴퓨터 uid 만 바꾸고 채굴 탭일 때만 현황으로 옮긴다). |
-| `ui/mining/ClusterPage.ts` | **채굴 탭** (2026-09-14 5차, 옛 `ClusterScreen` 의 내용). 위에서 아래로 **코어 9칸 → 이번 주기 → 채굴 코인 드롭다운 + 현황 수치**(사용자 결정 — 옛 배치의 「코어 오른쪽 상태 줄」이 진행 막대 **아래**로 내려왔다). **레일** = 함선의 연산 클러스터 전부(`클러스터 n` + 코어 점 9개, 채굴 중 초록 / 멈춤 회색, 코인 · 코어가 있는데 멈추면 레드닷 · 하나도 없으면 레일을 닫는다). **코어 칸** `.mn-core[data-core]` = `mountStationGrids` 의 드롭 대상 — 연산 코어가 `data/items.csv` 에서 **2×1** 이 되어 칸도 가로로 길고(3열 × 3줄, 가운데 정렬), 드롭 · 우클릭 · 더블클릭 · 끌어내기가 전부 **한 개씩** 옮긴다(`insertClusterCores(uid, 1)` · `removeClusterCores(uid, 1, dest)`). ⚠ 세이브(`ComputeClusterSlot.cores`)는 **개수 하나**라 꽂힌 칸은 늘 앞에서부터 n칸이다 — 어느 빈 칸에 놓아도 다음 빈 칸이 켜진다(칸별 상태를 만들려면 세이브 모양을 바꿔야 해서 그대로 뒀다). 꽂힌 칸에는 `data-item-tip` + `data-def-id` 가 붙어 `ui/hud/ItemTip` 의 아이템 카드가 뜬다. **현황 수치** = 채굴 주기 · 코어 +1 이면 · 주기당 채굴 · 시간당 예상 · 시간당 크레딧. 코인 목록 버튼 줄(`.mn-coins`) · 안내문(`.mn-hint`) · 푸터 안내 · 「코인을 바꾸면 진행도가 초기화됩니다」 는 **없어졌다** — 코인은 첫 현황 줄의 드롭다운이 고르고, 진행도가 있으면 1초 홀드 경고(`MiningAsk`, `mn-coin-change` · `mn-coin-clear`)가 그것을 말한다. |
-| `ui/mining/CoinPicker.ts` | **채굴 코인 드롭다운** (2026-09-14 5차, 사용자 결정). 「채굴 코인」 현황 칸이 곧 버튼(`.mn-cp-btn`)이고, 누르면 **텍스트 필터**(이름 · 티커 · id, `isolateInput`)가 달린 목록이 펼쳐진다. **잠긴 코인도 목록에 남고 딤드**이며 사유는 그 줄의 부제 + `title`. 코인이 정해져 있으면 맨 위에 「채굴 해제」 줄. 가장 안쪽 팝업 규약(`ui/StationMenu` 와 같은 결): Escape 는 자기 capture 핸들러가 삼켜 닫고(창의 `ctx.escape` 스택이 흔들리지 않는다), 바깥을 누르면 닫히며, E · Tab 은 창이 `PanelOverlay` 로 먼저 닫는다. 팝업은 `position: fixed` 다 — 좌 패널(`.hs-pane-left`)이 세로 스크롤 컨테이너라 그 안에 두면 잘린다(우클릭 메뉴 `.hs-ctx` 와 같은 처리). |
-| `ui/mining/ComputerPages.ts` | **클러스터 현황 · 지갑 · 거래소** (2026-09-14 5차, 옛 `MiningComputer` 의 내용 그대로). 달라진 것은 셋뿐이다 — 탭 줄이 화면 상단으로 올라갔고(창이 갖는다 · 옛 `.hs-tab` 레일 탭은 없다), 머리줄 · 배너를 `MiningHost` 로 칠하며, **현황 줄 클릭이 창을 닫는 대신 `채굴` 탭으로 바꾼다**. 나머지(요약 · 줄 모양 · 차트 · 매매 · 1초 홀드 확정 · 오래된 시세 게이트 · **시세 구독 규약** = 지갑 · 거래소 탭이 열린 동안 하나 + 거래 한 건마다 답이 올 때까지 하나 더)는 옛 문단 그대로다. `debug {watches, unwatches, requests, trades}` 도 이제 창의 `debug` 한 칸에 함께 산다. |
-| `ui/mining/CryptoChart.ts` | **거래소 차트** (canvas 2D, 외부 라이브러리 없음): `setData(candles, range, color)` · `setMode('candle' \| 'line')` · `setMessage(text \| null)`(차트 대신 가운데 글) · `resize()`(`ResizeObserver`, dpr ≤ 2). 오른쪽 가격 축(1 · 2 · 2.5 · 5 × 10ⁿ 눈금) · 아래 시간 축(기간별 형식) · 마지막 가격 점선 + 꼬리표 · 호버 = 십자선 + 가격 꼬리표 + OHLC 카드 `.mn-chart-tip`(포인터 이벤트에서 바로 그린다). `withLivePrice(hist, range, price, at)` = 마지막 봉에 지금 시세를 얹은 **새 배열**. `debug {draws, candles, hoverIndex}`. |
-| `ui/mining/common.ts` | 채굴 탭(`ClusterPage`) · 코인 드롭다운(`CoinPicker`) · 메인 컴퓨터 세 탭(`ComputerPages`) 공용 (2026-09-14 5차까지는 「두 화면 공용」이었다): `coinInfos`(housing 이 없으면 csv 정의만) · `clusterList` / `clusterOf`(duck-typed) · `livePrice` / `liveChange` · `unitsPerHour` · `unitsValue` · `affordableUnits` · 표기(`fmtCredits` · `fmtPrice` · `fmtChange` · `fmtDuration`) · `coinGlyph` · **`bindHoldButton(btn, fill, onDone, onTap)`**(`UI_HOLD_CONFIRM_S` — 클릭 · Enter · Space 무시, 게이지 rAF · 확정 타이머, 기업 거래 성사와 같은 규약) · `MiningAsk`(`openHoldAsk` 경고, `PanelOverlay`). `mining.css` 를 import 한다. |
-| `ui/mining/mining.css` | `.mn-*` 전용 — 코인 글리프(`--cc`) · 배너 · 막대 · 세그먼트 버튼 · 코어 칸(칩 · LED) · 상태 줄 · 코인 버튼(잠김) · 현황 줄 grid · 지갑 줄 grid · 거래소(목록 · 머리 · 차트 · 툴팁 · 매매 · 홀드 버튼 채움) · 1280 px 이하 한 열. **2026-09-14 5차 (통합 창)**: 상단 가로 탭 `.mn-tabs` / `.mn-tab`(모양은 Tab 화면의 `.scr-tab` 과 같은 결이지만 **자리가 달라** 값을 여기 따로 적었다 — 그쪽은 화면에 절대 배치다) · 루트 `is-cluster`(채굴 탭에서만 레일 · 창고/가방 카드) · 가로로 긴 코어 칸 3열 × 3줄 가운데 정렬(연산 코어 2×1) · 코인 드롭다운 `.mn-cp-btn` / `.mn-cp-filter` / `.mn-cpi(.is-locked)` / `.mn-cpi-clear`(`position: fixed` — 좌 패널이 스크롤 컨테이너라 그 안에 두면 잘린다). 옛 코인 버튼 줄 `.mn-coins` · 안내문 `.mn-hint` 는 없어졌다. |
-| `ui/gym/gym.css` | `.gym-*` 전용 (GymScreen 이 import). 루트는 투명한 막(`pointer-events: none`, z 44) — hub 의 운동 자세가 보여야 해서 화면을 덮지 않는다. 카드는 일시정지 메뉴 자리(가로 25vw · 세로 가운데), 게임 패널은 아래 가운데. `.menu .frame` 결의 반투명 판 + 호박색 모서리. 판정 색: 완벽 = `--c-accent` · 좋음 = `--c-text` · 실패 = `--c-danger`; 판정 글자 `.gym-verdict.show` 620 ms. 2026-09-13: 게임 모드는 루트에 `is-game` + 디스크 색으로 `--c-accent` 를 덮어 쓴다 (CSS 는 무변경). **2026-09-14 5차**: `.gym-window`(판정 띠) · `.gym-prog`(진행 바, `.gym-count` 글자 대체) · 알약 모양 표식. |
-| `parts/VideoGame.ts` | **비디오게임** (2026-09-13, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」). 게임기 장착(`attachTvConsole` 가방 → 창고 소모 · 교체 = 옛 것 가방 → 창고 반환 · `detachTvConsole` · `housing:tvConsoleChanged`) · TV 회수 훅(`tvConsoleRecoverBlock` · `returnTvConsoleForRecover` — 게임기는 **함선 창고**로, 못 넣으면 회수 거절) · 좌석(`getTvSeat` / `tvSeatBlock` → `Rules.tvSeatFor`) · 게임 목록(`getPlayableGames` — 모든 `game_stand` 의 디스크, 사유 = 게임기 없음 · 불일치 · 전시대 멈춤; 디버프 · 좌석은 사유 아님) · `gameBlock`(TV 화면 블로커 `'housing'` 는 봐준다) · 세션(`startGameSession` = TV 화면 닫기 · TV 켜기 · `sys.gameState` · `gymScreen.openGame` · `housing:gameSession {active:true}` → `completeGameSession` = `applyGymSession(stat, score)` + `housing:gameResult` → `endGameSession`) · `bindVideoGame`(페이즈 · `hub:left` · `game:abort` · 앉은 자세 `reset`/`interact` · 회수 · 하우징 모드 진입이 세션과 TV 화면을 끊는다) · `openTvMenu` · 스모크 훅 `videoGameDebug`(screen · game · result · start · finish · makeGame(kind, tuning) · seatFor). 토큰 `GAME_BLOCKER = 'housing.game'`, 방식 이름 `GAME_MINIGAME_LABEL_KO`(벤치프레스형 · 호흡형 · 사이클형). |
-| `ui/tv/TvMenu.ts` | **TV 화면** (`HousingPanel`, 2026-09-13 H2). 머리(TV 이름 · 켜짐 / 전력 사유 · `켜기`/`끄기`) · 게임기(장착된 것 + `빼기`, 가진 게임기 `장착`/`교체` — 되돌릴 수 있어 1초 홀드 없음) · 좌석 한 줄(`tvSeatBlock`) · 게임 줄(디스크 칩 · 능력치 · 방식 · 게임기 · 사유 · 피로 남은 시간 1 Hz · `플레이` — 막히면 흐리게 두고 누르면 사유 토스트). `ui:tvMenuToggled {open, uid}`. ⚠ `HousingPage` 에 `'tv'` 가 없어 형 변환으로 넘기고 `parts/Presets.panels()` 밖이라 닫기는 `bindVideoGame` 이 한다 (두 파일은 H2 소유가 아니다). |
-| `ui/tv/tv.css` | `.tvm-*` 전용 (TvMenu 가 import). 머리 · 게임기 상자 · 줄(왼쪽 띠 = 디스크 색 `--tvm-c`) · 좌석 줄(`is-bad` = 위험색). |
-| `parts/Mining.ts` | **암호화폐 채굴 · 지갑 · 거래소** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」). 계약 `HousingRef` 10종(`getCryptoCoins` · `getCryptoWallet` · `getMiningComputerUid` · `getComputeClusters` · `getComputeCluster` · `setClusterCoin` · `insertClusterCores` · `removeClusterCores` · `cryptoQuote` · `tradeCrypto`) + 개발용 3종(`devSetCryptoWallet` · `devSetClusterCores` · `devAdvanceMining`) + `tickMining`(1 Hz, 레이드 중 제외) · `bindMining`(`housing:operationalChanged {pausedMs}` → 동기로 `segmentAt += pausedMs`, `housing:furnitureRecovered` → 칸 지움) · `clusterRecoverBlock`. 클러스터 한 대 = 시계 하나: 「지금」 = `stationNow(uid)`(전력 모듈이 없으면 `nowMs` + 막힌 동안 구간을 새로 연다), 틱이 끝난 주기를 한 번에 넣는다(`housing:cryptoMined` 클러스터마다 1건 · `housing:walletChanged {mined}` · `cryptoMined` 누적). 코어 수 변경 = 끝난 주기 넣고 옛 주기로 접기, 코인 변경 = 진행도 0(끝난 주기는 넣어 준다). 잠긴 코인 = `ctx.meta.getQuestState(unlockQuest) !== 'complete'` → `<기업> 퀘스트 「…」 완료 필요`. 코어 넣기 = `consumeDefAll`(가방 → 창고, 빈 칸 · 가진 만큼만), 빼기 = `Deliver.deliverItem` 스택 단위 all-or-nothing(자리 없으면 건넨 만큼 `consumeDefAll` 로 되돌림). 매매: `ctx.net.crypto.available` + 시세 → 잠금 → 단위 → 지갑 / 크레딧 순 사유, 매도는 지갑을 먼저 떼고 `meta.creditsTx` 거절이면 복구, 매수는 성공했을 때만 지갑 +. |
-| `parts/Music.ts` | **음악 재생** (2026-09-14 5차, 사용자 결정) — **소리는 나지 않는다.** 축음기 · 주크박스 · 턴테이블(`record_player`)을 E 로 켜면 그 함선의 **레코드랙 전부**에 꽂힌 레코드가 재생 목록이 되고 `housing:musicChanged {state}` 가 난다. 재생 중인 플레이어는 **늘 하나** — `ShipState.toggled` 의 **마지막** 레코드 플레이어가 이긴다(그 목록은 켠 순서대로 push 되므로 「가장 마지막에 켠 것」과 같고, 끄면 그 전에 켜 둔 것으로 자연히 돌아간다). 목록은 보관함 배치 순서 → 칸 번호 순이고 **같은 def 는 한 번만**. 트랙 = `{ defId, title: 시리즈 name, artist: musicArtistOf, lengthS: musicLengthOf }`(`record_<시리즈id>` → `resolveItemAlias` → `LIBRARY_SERIES_MAP`). 「곡이 끝났다」는 `startedAt + lengthS × 1000` 과 시각의 비교뿐이라 `tickMusic` 이 `update()` 에서 **시각만** 본다(꺼져 있으면 비교 한 번, 시계가 크게 뛰어도 한 프레임에 한 곡). **조작 넷**(`HousingRef` 2026-09-14 추가 계약): `musicNext` / `musicPrev` 는 **`'repeat'` 이어도 사람이 누르면 넘어간다**(반복은 자동 진행에만 건다), `setMusicMode` 는 같은 값이면 false, **`musicStop` 은 그 가구의 `toggled` 도 함께 내린다** — 새 저장 경로를 만들지 않고 **가구 E 토글과 같은 경로**(`Library.toggleFurniture`)를 그대로 타므로 `changed('toggle')` · `housing:furnitureToggled` · `record_off` 소리까지 같고, 그 사건이 `refreshMusic` 을 부른다. **함선 전용** — 레이드 · 훈련장 · 타이틀에서는 `MUSIC_PLAYER_OFF`(`game:newMission` · `game:abort` · `hub:left` · `game:phaseChanged` · `dispose`). 레코드랙 내용이 바뀌면(`housing:libraryChanged` · `housing:shelfChanged` · `housing:furnitureRecovered` · `housing:loaded` · `hub:entered`) 목록을 다시 세우되 **듣던 곡이 목록에 그대로 있으면 `startedAt` 을 지킨다**(한 장 더 꽂았다고 처음으로 돌아가지 않는다). 상태가 정말 달라질 때만 emit 한다(서명 비교) — 다만 **사람이 누른 곡 넘김은 `force` 로 반드시 나간다**(곡이 한 장뿐인 목록에서 `▶` 를 눌러 같은 곡이 처음부터 도는 경우 서명까지 같아질 수 있다). **`parts/Library.ts` 를 고치지 않는다** — 꽂힌 목록은 있는 공개 질의(`getPlaced` · `getShelfMedium` · `shelfItemsOf` · `toggledUids`)로만 읽는다. |
-| `MiningRules.ts` | **채굴 순수 규칙** (2026-09-13 — `Rules.ts` 는 배치 규칙 에이전트 소유라 갈라 두었다): `CLUSTER_CORES_BLOCK_REASON`(`코어를 먼저 빼세요`) · `MINING_TICK_MS` · `COIN_ID_SHAPE` · `takeCompletedCycles(slot, cycleMs, now)`(정수 부분 = 끝난 주기, 소수 부분 · 새 구간을 칸에) · `foldProgress(slot, cycleMs, now)` · `slotWorthKeeping` · `sanitizeClusters(raw, placedUids, maxCores, now)` → `{clusters, orphanCores}`(코어 0 … 최대 · 진행도 [0,1) · 구간 시작 유한 양수 · 코인 id 모양 · 같은 uid 두 번째 버림 · 배치되지 않은 uid 의 코어를 센다) · `sanitizeUnitsMap`(지갑 · 누적 채굴: id 모양 키 · 정수 ≥ 1). 주기 식 자체는 `shared/cryptoMarket`. |
-| `parts/Deliver.ts` | **수확물을 넣을 격자** (2026-09-12): `deliverItem(sys, item, dest)` → `'bag' \| 'stash' \| null` (`'bag-first'` = `tryAddItemAnywhere` · `'stash-first'` = 창고 → 가방 · `'bag'` / `'stash'` = 그 격자만, 넘치지 않는다), `noRoomReason(dest)`. `Garden.harvestAt` · `Lab.collectAnalysis`(all-or-nothing 롤백은 그대로) · `Culture.harvestCulture` 가 부른다. |
-| `housing.css` | Panel styles (`.hs-*`, Phase 9 adds `.hs-shelf` / `.hs-book` / `.hs-books` / `.hs-bookpick` and the shared `.hs-dex*` 도감 rows; 2026-09-11 adds the 분석 화면 `.az-*` block right under the `.gs-*` one, same 결 — `.az-body/left/right/inv/dexhost`, `.az-up*` 강화 줄, `.az-slot` · `.az-cell` · `.az-glyph` · `.az-prog` · `.az-acts`, `.az-dex-row`; 2026-09-11 adds the 배양 화면 `.ct-*` block — same 결 as `.az-*`, the one difference being `.ct-cell` (a rounded tube) + `.ct-fluid` (배지가 차오른다) — and the 식사 화면 `.dt-*` block: `.dt-body/left/right/inv`, `.dt-plate*` (접시 = 드롭 대상), `.dt-list` · `.dt-row` · `.dt-acts`; **2026-09-12 가구 화면 개편**: those four blocks were replaced by one 공통 틀 block — `.hs-station` frame (`--hs-inv-w` = 가방 5칸 + 창고 10칸이 **가로로** 서는 폭) · `.hs-station-head` · `.hs-lv` · `.hs-up-open` · `.hs-station-body` (**flex**: 레일 + 좌 + 우) · `.hs-pane(-left/-right)` · `.hs-inv` (블록마다 자기 스크롤 — `.tg-scroll` 은 `nowrap` + `stretch`, `.inv-grid` 가 `flex: 0 1 auto` + `overflow-y: auto`; `@media (max-width: 1599px)` 에서는 세로 스택 + `flex: 1 1 0` 반씩) · `[data-tg-grid].hs-drop-over`, `.hs-clock(-hm/-ss)`, the 모달 `.hs-modal*` + `.hs-hold*`, 호버 카드 `.hs-tip*`, 우클릭 `.hs-ctx*`, 고스트 `.hs-ghost`, 맨 왼쪽 레일 `.hs-rail` + `.hs-tab`(분석기 탭) + `.hs-rail-item/-name/-dots/-red`(스테이션 목록) — then `.gs-*` (흙구멍 `--gs-pot` 39 px · `--gs-clip` · `--gs-plant-h`, 바 · 줄기 · 잎 transform, 고정 높이 `.gs-time`), `.az-*` (`.az-pages` · 흐름 안의 `.az-acts`), **`.cult-*`** (was `.ct-*`, which collided with the 기업 화면) and `.dt-*` (plate + list only); no transitions / animated shadows on drop targets), reusing `.menu .frame .ui-btn .ui-input .ui-label .form-msg` from `ui/styles/base.css`; same scrolling-page layout as `hub/hub.css`. **`--inv-*` 팔레트는 여기서 다시 선언하지 않는다** — `.trade-grids`(inventory) 가 원본이다. **2026-09-15 3차 (사용자 결정)**: `.lib-num` 삭제 · `.lib-slot.is-div` 구분막(`--lib-div-gap`) · 책은 `--lib-item-w: 100%` 로 붙여 꽂는다 · `적용 효과` 패널(`.lib-eff-head` · `.lib-eff-list` `--lib-eff-min-h` · `.lib-effcard*` · `.lib-eff-none` · 가운데 정렬 `.lib-eff-empty`) · **`.facility-chip` 아이콘만 + `[data-fc-tip]::after` 호버 툴팁**(칩을 쓰는 네 화면이 함께 쓰므로 규칙이 여기 산다). |
-| `index.ts` | Re-exports `HousingSystem`, the rules and the state helpers. |
-
-## Rules (single source of truth — `Rules.ts`)
-- **Generator (2026-09-13, 사용자 결정 — 전력 할당 폐지)**: starts at `GENERATOR_START_LEVEL` (1), max `GENERATOR_MAX_LEVEL` (5). A 시설 증축 needs `generatorLevel ≥ purposeGeneratorLevel(purpose)` (`data/room_purposes.csv` `generator`: 작업실 1 · 온실 · 주방 2 · 연구실 3 · 헬스장 · 서재 4 · 채굴 시설 5); a saved room above the ship's level is removed + refunded on load (`ShipState` v13). No power, no paused timers.
-- **Generator gate**: every facility / furniture upgrade needs `generatorLevel ≥ target level`; the generator itself is ungated. Ship-wide tables (`GENERATOR/STORAGE_UPGRADE_COST[level]`) start at level 1. The room tables (`WORKSHOP/RANGE_UPGRADE_COST`) are **retired** (2026-09-12) and read only by the v7 migration's refund (`Rules.legacyRoomLevelCost`).
-  - **2026-09-14 5차 (사용자 결정 — 「재료 썸네일에 발전기 레벨 썸네일도」)**: `generatorRequirement(state, targetLevel)`
-    이 이제 **채워진 요구도 돌려준다**(요구가 `GENERATOR_START_LEVEL`(1) 이하일 때만 빈 배열 — 늘 채워져 있어
-    잡음이다). 재료 칩이 가진 것과 필요한 것을 늘 함께 보여 주듯 발전기도 `현재/필요` 를 늘 보여 줘야 하기
-    때문이고, 모자랄 때는 칩이 스스로 `.is-short`(빨강)로 말한다. ⚠ 그래서 **빈 배열이 더 이상 「문제 없음」을
-    뜻하지 않는다** — 막는지 여부는 예전부터 그랬듯 사유 함수(`generatorGateReason` · `furnitureUpgradeReason` ·
-    `purposeBuildBlockReason`)가 답한다. 그 배열의 길이로 게이트를 판단하는 코드를 새로 만들지 않는다.
-- **Storage** level → `getStashSize()` = `STASH_COLS × STASH_ROWS_BY_STORAGE_LEVEL[level]`; `housing:stashSizeChanged` once after load and whenever the level changes.
-- **Workshop / range (2026-09-12, 사용자 결정 — 방 시설 레벨 제거)**: no levels. `getFacility('workshop' | 'range')` still answers (level 1 with a room, 0 without; `maxLevel` 1, `nextCost` null, `blocked` = "… 용도의 방이 필요합니다" or "시설 레벨은 없습니다 — 시설 안의 가구를 강화하세요") and `upgrade` refuses. What the levels used to buy moved into the furniture: `getPresetCount()` = `PRESETS_BY_RANGE_LEVEL[highest placed 관물대 level]`, `getSkillGainMul(gun_*)` = `1 + RANGE_SKILL_GAIN_PER_LEVEL × highest placed 시뮬레이션 허브 level` — both pieces are `maxLevel` 5 with the old 사격장 costs in `data/furniture_upgrades.csv`, and `furnitureMaxLevel` applies `BENCH_MAX_LEVEL` (3) to **작업대 only**. The 작업실 craft discount is abolished (`getCraftCostMul()` = 1). **Same day, later (사용자 결정 — 시뮬레이션실 · 프리셋 제거)**: 관물대 · 표적 레인 · 시뮬레이션 허브는 `retired` 이고 시뮬레이션실은 지을 수 없다 — `getPresetCount()` 는 늘 0, `getSkillGainMul` 은 서재 책(`getBookBonus`)뿐이다. 훈련장 입장은 hub 의 함선 터미널로 옮겼다.
-- **Purposes**: `setRoomPurpose` refuses `lab` without a greenhouse elsewhere and any purpose while purpose-bound furniture of another purpose is still placed (`'any'` pieces stay); `empty` recovers every piece; same purpose = no-op `true`; removing the last greenhouse resets labs to `empty`. New purpose → level 1, `empty` → 0.
-- **작업실 (2026-09-07)**: the Phase 8 UI pass locked a free 작업실 to room 1 (`WORKSHOP_ROOM_INDEX`) with both benches already placed. That is **gone**: a new ship is ten 빈 방 with no furniture, and the 작업실 is an ordinary purpose — buildable in **any** room for `ROOM_PURPOSE_BUILD_COST` behind the 발전기 Lv.1 gate, one per ship like the 사격장 (`facilityPurposeOf`), removable through 시설 제거. The 총기 작업대 and the 정비 벤치 are crafted like any other furniture. `WORKSHOP_ROOM_INDEX` still exists in the contract (append-only) but nothing reads it; `sanitize()` keeps only the "one facility room per kind" rule and still moves furniture whose room no longer accepts it into **furniture storage** instead of dropping it.
-- **Furniture**: `place` needs a `StoredFurniture` entry (highest level first) and `canPlace`; uid `f-<n>` continues after the highest persisted uid. `recover` keeps the level. `craftFurniture` → level 1 in storage. `upgradeFurniture` uses `def.upgradeCost[level − 1]` behind the generator gate. `getBenchLevel(kind)` = highest placed bench of that kind. `selectFurniture` ignores defs that are not in storage; `null` clears. **`furn_sim_hub` 시뮬레이션 허브** (Phase 7, `FURNITURE_DEFS` in `shared/housing.ts`: 사격장 only, 2×2, 폐금속 8 + 케이블 2 + 회로 2, `interaction 'sim_hub'`) is plain data here — it appears in `getFurnitureFor('range')`, the room menu's 가구 제작 / 가구 창고 lists and is crafted / placed like every other piece; hub/ draws the model and turns E on it into the training-arena entry. Furniture is never an inventory item (it lives only in `furnitureStorage`).
-- **Server profile (Phase 7)**: every flush mirrors the state into the `ship` profile document. `net:profileLoaded` → when the server has a `ship` document it is `sanitize`d and **replaces** the state (panels + housing mode closed first, pending local write cancelled, uid counter re-seeded, localStorage rewritten as the cache, not re-uploaded), then `housing:loaded {state}` + `housing:changed {reason:'profile'}` fire so hub/ rebuilds the personal ship, and `housing:stashSizeChanged` follows when the storage level differs; no document → the local state is uploaded.
-- **Presets (2026-09-12, 사용자 결정 — 제거)**: 로드아웃 프리셋 기능이 없어졌다. `getPresetCount()` 는 늘 0 이라 `savePreset` / `deletePreset` 은 false, `applyPreset` 은 null, `openPresetMenu()` 는 아무 일도 하지 않는다. 세이브의 `presets` 는 `sanitize` 가 그대로 읽고 쓴다.
-- **조종석 (2026-09-12, 사용자 결정)**: `COCKPIT_ROOM_INDEX`(100)는 `rooms[]` 밖의 고정 공간이다 — 용도 `cockpit`, 레벨 1, 증축 · 제거 · 용도 변경 불가(`조종석은 용도를 바꾸거나 제거할 수 없습니다`). 격자는 `roomGridSize` (`COCKPIT_GRID_COLS × ROWS`), 고정 소품 자리(`COCKPIT_BLOCKED_RECTS`)에는 놓을 수 없고 `room: 'any'` 가구만 받는다. 공용 시설 가구(전술 임플란트 시술대 · 기업 네트워크 컴퓨터)는 모든 함선이 늘 하나씩 가진다 — `ShipState.ensureCockpitFurniture` 가 새 함선 · 모든 로드에서 없으면 조종석(기본 자리 → 자동 배치 → 가구 창고)에 채운다. 제작할 수 없고(`이미 보유 중입니다`), 회수 · 이동은 된다.
-- **방 8 개 · 사라진 용도 (v8, 2026-09-12, 사용자 결정 「전부 제거 + 환불」)**: 옛 세이브의 방 9 · 10 과 시뮬레이션실 · 휴식 공간 방은 로드할 때 빈 방/삭제 — 가구는 가구 창고, 증축 재료와 책장의 책은 함선 창고. 빈 방이 될 수 있는 용도는 `ROOM_PURPOSES_ASSIGNABLE` 뿐이다.
-- **시설 레벨 요구 (2026-09-12)**: `furnitureUpgradeRequirements(uid)` · `purposeRequirements(purpose)` 는 채워지지 않은 발전기 게이트만 `{facility, have, need}` 로 돌려준다 — 사유 문장(`furnitureUpgradeBlock` · `purposeBlock`)은 그대로이고, ui 는 이것을 재료 칩 옆의 칩으로 그린다.
-- **Housing mode**: `enterHousingMode(room)` only in phase `hub` on the personal ship (`ctx.hub.ship === 'personal'`); and only while `ctx.hub.currentRoom === room` (corridor / cockpit = null → `방 n 안에서만 꾸밀 수 있습니다`). Since the Phase 8 UI pass nothing in the game calls it — 시설 관리 (`openShipManage`) is the only entry point — but the gate is kept for API users. Adds **no** ui blocker (hub intercepts input); closes the panels first; `exitHousingMode` resets selection + yaw. The panels open with `exitHousingMode()` so mode and menu never overlap.
-- Materials: `countDefAll / consumeDefAll` are guarded with `typeof` (0 / refused when missing); the whole cost is verified before the first `consumeDefAll` call.
-- **Stacking (Phase 8)**: `FurnitureDef.stackLimit > 1` (only `furn_grow_rack`, limit 4) lets copies of the same def share one footprint, each on its own `PlacedFurniture.layer` (0 = deck; hub/ lifts layer n by `GROW_RACK_LAYER_HEIGHT`). A stack is homogeneous — same defId, same `x`/`y`, same `yaw`; anything else overlapping is still refused. `place` takes the lowest free layer, `move` requires the piece to be on top and re-seats it on the target stack's lowest free layer, `recover` refuses anything but the top layer (`위층 … 을(를) 먼저 회수하세요`, surfaced by `recoverBlock(uid)` and the 방 메뉴's 회수 button). `setRoomPurpose('empty')` recovers top-down.
-- **~~온실 재배 (Phase 8)~~ → 온실 재배 스테이션 (2026-09-11, 사용자 결정)**: 옛 재배층(`furn_grow_rack`, 스택 4층 × 4칸)은
-  **은퇴**했고 `furn_grow_station`(maxLevel 3) 하나가 그 자리를 받는다.
-  - **층은 레벨이 연다** — Lv.1 중앙(`GrowTier` 0) · Lv.2 아래(1) · Lv.3 위(2). **층 id 는 업그레이드해도 바뀌지 않아**
-    자라던 작물이 다른 층으로 옮겨지지 않는다. 화면이 그리는 순서는 `GROW_TIER_DRAW_ORDER`(위 → 중앙 → 아래).
-    `getGrowSlots(uid)` 는 **언제나 `3 × GROW_SLOTS_PER_TIER` = 9칸**을 그 순서로 돌려주고 잠긴 층은
-    `locked: true` + `unlockLevel`(아래 2 · 위 3)로 표시한다 — 화면이 「Lv.2 강화로 열립니다」를 그릴 수 있어야 하기 때문이다.
-    `unlockLevel` 은 코드에 적힌 숫자가 아니라 계약 `growTiersForLevel` 에서 **유도한다**(`Rules.growTierUnlockLevel`).
-  - **칸은 두 단계다** — ① `fillSoil(uid, tier, slot, soilDefId)` 로 흙을 붓고(`consumeDefAll` 1개, `soilUsesLeft` 는
-    `ItemDef.soil.uses`) ② `plantSeedAt(...)` 로 그 위에 심는다. 흙 없이는 심을 수 없다(`흙을 먼저 채우세요`).
-    `clearSoil` 은 흙을 **돌려주지 않는다**(남은 횟수가 있어도 버린다, 사용자 결정) 그리고 심겨 있으면 거부한다.
-  - **성장 시간은 심는 순간 확정된다** — `Rules.growDurationMs` =
-    `growHours × 3600e3 × (1 − GROW_SKILL_SPEEDUP × 원예/SKILL_LEVEL_MAX) × (궁합 ? 1 − SOIL_MATCH_SPEEDUP : 1 + SOIL_MISMATCH_PENALTY)`.
-    궁합은 씨앗의 `soilTag` 와 부어 둔 토양의 `soil.tag` 가 **같은가** 하나뿐이다(토양 없이 심는 경우가 없으므로 기준선이
-    「어긋남」이다). 이후 숙련이 오르거나 흙이 바뀌어도 `readyAt` 은 움직이지 않고, 게임을 꺼 둬도 계속 자란다.
-  - **토양은 수확마다 1회 닳는다** — `harvestAt` 이 성공하면 `soilUsesLeft − 1`; 0 이면 칸이 **완전히 비워지고**(흙 없음),
-    0 이 아니면 「심을 준비가 된 흙」으로 돌아간다. 수확물은 예전처럼 `yieldQty × derived.gatherYieldMul`(≥ 1) 을
-    `tryAddItemAnywhere` 로 가방 → 창고에 넣고, 실패하면 `가방과 창고에 자리가 없습니다` 로 거부하며 상태를 유지한다.
-    원예 숙련은 그대로 `gather:collected {nodeId: 'grow:<uid>:<tier>:<slot>'}` 로 오른다.
-  - `harvestAllStation(uid)` 는 **열린 층만** 훑는다. 스테이션을 회수하면 그 uid 의 `grows` 가 전부 사라진다
-    (`dropGrowsOf`, 옛 `dropPlotsOf` 와 같은 자리). 온실 방에 스테이션을 **여러 대** 놓는 것은 기존 가구 규칙 그대로다.
-  - 모든 거부 사유는 메서드의 반환값(한국어 한 줄)이다.
-- **연구실 분석기 (A-12, 2026-09-11)**: `furn_analyzer`(maxLevel 3, `interaction: 'analyzer'`)는 재배 스테이션과
-  **같은 모양의 스테이션**이다 — 레벨이 자리를 연다.
-  - **칸은 레벨이 연다** — `analyzerSlotsForLevel(level)` = `ANALYZER_SLOTS_PER_LEVEL × level` (지금 1칸씩 늘어 Lv.3 = 3칸).
-    `getAnalyses(uid)` 는 **언제나 `ANALYZER_MAX_SLOTS` 개**를 칸 번호 순으로 돌려주고 잠긴 칸은 `locked: true` +
-    `unlockLevel`(계약 `analyzerSlotUnlockLevel` 에서 **유도**)로 표시한다 — 화면이 「Lv.N 강화로 열립니다」를 그릴 수
-    있어야 하기 때문이다. **칸 번호는 강화해도 밀리지 않는다** (돌아가던 해석이 다른 칸으로 옮겨 가면 안 된다).
-  - **시간은 넣는 순간 확정된다** — `Rules.analyzeDurationMs` =
-    `analyzeHours × 3600e3 × (1 − ANALYZE_DEX_SPEEDUP × 도감진척) × (아는 표본이면 1 − ANALYZE_KNOWN_SPEEDUP)`.
-    그 뒤로 도감이 더 차도 **돌아가던 해석은 빨라지지 않는다** (온실의 `readyAt` 과 같은 규약). 시계는
-    `ctx.net.serverNow() ?? Date.now()` 이므로 함선을 떠나 있어도 흐른다.
-  - **도감 진척은 아이템 표가 분모다** — `getSampleDexRatio()` = 「지금 아이템 표가 아는 표본 중 도감에 든 것」의 비율.
-    도감에 남아 있는 옛 id 는 세지 않는다 (그러지 않으면 비율이 1 을 넘는다).
-  - **넣기 / 중단 / 회수** — `startAnalysis` 는 `consumeDefAll`(가방 → 창고)로 1개를 빼고, `cancelAnalysis` 는
-    **표본을 돌려주지 않는다**(부은 흙과 같다, 계약에 적힌 그대로). `collectAnalysis` 는 산출물을
-    `tryAddItemAnywhere` 로 넣고, 처음 보는 표본이면 `SampleDef.firstDefId` 보너스를 얹은 뒤 도감에 적고
-    `housing:sampleDexAdded` 를 낸다 — **all-or-nothing**: 보너스가 들어갈 자리가 없으면 이미 넣은 산출물을
-    `takeItem` 으로 되돌리고 칸을 그대로 둔다(`stashBooksOf` 와 같은 롤백 규약).
-  - 분석기를 회수하면 그 uid 의 `analyses` 가 전부 사라진다 (`dropAnalysesOf`, `dropGrowsOf` 옆).
-    상태가 바뀔 때마다 `housing:analysisChanged {uid, ready}` 를 낸다 — **강화도 포함**이다(계약의 그 이벤트 설명 그대로).
-  - 모든 거부 사유는 메서드의 반환값(한국어 한 줄)이다.
-- **온실 배양조 (A-14, 2026-09-11)**: `furn_culture_tank`(maxLevel 3, `interaction: 'culture_tank'`, 온실 방)는
-  분석기와 **같은 모양의 스테이션**이고 칸의 몸짓만 온실에서 왔다.
-  - **칸은 레벨이 연다** — `cultureSlotsForLevel(level)` = `CULTURE_SLOTS_PER_LEVEL × level`. `getCultureSlots(uid)` 는
-    **언제나 `CULTURE_MAX_SLOTS` 개**를 칸 번호 순으로 돌려주고 잠긴 칸은 `locked: true` + `unlockLevel`(계약
-    `cultureSlotUnlockLevel` 에서 **유도**)이다. **칸 번호는 강화해도 밀리지 않는다.**
-  - **칸은 두 단계다** — ① `fillMedium(uid, slot, 배지)` 로 영양 배지를 붓고(`consumeDefAll` 1개, `mediumUsesLeft` 는
-    `ItemDef.medium.uses`) ② `insertStrain(...)` 으로 세포주를 넣는다. 배지 없이는 넣을 수 없다(`영양 배지를 먼저
-    채우세요`). `clearMedium` 은 배지를 **돌려주지 않고**(부은 흙과 같다) 배양 중이면 거부한다.
-  - **시간은 넣는 순간 확정된다** — `Rules.cultureDurationMs` = `cultureHours × 배지 등급(`MediumDef.speedMul`) ×
-    원예 단축`. 토양의 태그 매칭에 해당하는 축은 **없다**: 배지는 등급 하나다 (사용자 결정 — 축을 하나 더 만들 이유가
-    없다). 그 뒤로 배지를 갈거나 숙련이 올라도 `readyAt` 은 움직이지 않고, 시계는 `ctx.net.serverNow() ?? Date.now()` 다.
-  - **배지는 수확마다 1회 닳는다** — 0 이면 칸이 **완전히 비워지고**, 아니면 「넣을 준비가 된 배지」로 돌아간다.
-    수확물은 `tryAddItemAnywhere`(가방 → 창고)이고 자리가 없으면 상태를 유지한 채 거부한다. 산출량에 원예
-    `gatherYieldMul` 을 **곱하지 않는다** — 배양조는 채집이 아니다(`StrainDef.outputQty` 그대로).
-  - 배양조를 회수하면 그 uid 의 `cultures` 가 전부 사라진다 (`dropCulturesOf`, `dropAnalysesOf` 옆).
-    상태가 바뀔 때마다 `housing:cultureChanged {uid, ready}` 를 낸다 — **강화도 포함**이다.
-- ⚠ **요리 재료 티어 (2026-09-13, 사용자 결정)가 위 분석기 · 배양조 절의 일부를 대체한다** — 분석 결과는 계열 결과표를 분석 레벨로
-  **넣는 순간** 굴리고(도감 진척 시간 단축 · 첫 해석 보너스 없음), 흙 · 배지는 「수확마다 1회 · 0 이면 칸이 빈다」 가 아니라 **내구도**라
-  칸이 저절로 비지 않으며 보너스 · 소켓 효과가 `내구도 / 최대` 비율로 준다. 규칙 전문은 변경 이력 「2026-09-13 (요리 재료 티어 — housing 규칙)」.
-  아래 주방 · 연구실의 **온실 선행은 2026-09-14 에 폐지**됐다(`NEEDS_GREENHOUSE = []`).
-- **주방 · 식탁 (A-3c, 2026-09-11, 사용자 결정)**: `kitchen` 이 `ROOM_PURPOSES_ACTIVE` 에 들어왔고 **온실 선행**이
-  붙었다 — 작물이 유일한 요리 재료이기 때문이다. 연구실이 쓰던 규칙을 그대로 재사용한다: `Rules.NEEDS_GREENHOUSE`
-  한 줄이 `purposeChangeReason` · `ShipState.sanitize` 의 낙오 처리 · 「마지막 온실이 사라지면 딸린 방도 비운다」
-  (`Rooms.setRoomPurpose`) 셋의 원본이다.
-  - ⚠ **2026-09-14 5차 (사용자 결정) — 선행 시설 조건은 없다.** `Rules.NEEDS_GREENHOUSE` 가 `['lab', 'kitchen']` 에서
-    **빈 배열**이 됐다: 연구실 · 주방을 짓기 전에 온실이 있어야 한다는 규칙이 없어졌고, **증축을 막는 것은 이제
-    발전기 레벨 하나뿐**이다(`purposeGeneratorLevel` · `generatorGateReason` · `purposeRequirementsFor` 는 그대로).
-    이름은 계약대로 **지우지 않고 값만 비웠다** — 위 세 소비처가 `includes` 하나로 저절로 no-op 이 되므로 그
-    갈래들은 한 줄도 고치지 않았고, 배열에 용도를 다시 넣으면 규칙이 그대로 살아난다.
-  - **먹는 행위는 식탁에서 일어난다**. 개인 함선에서는 `furn_dining_table` 가구가(`uid`), 공유 함선에서는 hub 가
-    심어 둔 **고정 식탁**이(**`uid` = null**) `openDiningTable` 을 부른다. 레이드 중에는 열리지 않는다.
-  - **규칙의 주인은 progression 이다** — `eatMeal` 은 `ProgressionRef.useMeal(defId)` 에 **먼저 묻고 null 일 때만**
-    `consumeDefAll` 로 1개를 뺀다 (A-13 의 `StashOps.usePrepItem` 규약: 거꾸로 하면 거절당했을 때 되돌릴 곳이 없다).
-    이미 차려 둔 식사는 **교체**된다 — 거절 사유가 아니다.
-  - **분대에 차리기**는 공유 함선에서만 보이고 요리 **1개**만 소모한다: 내 몫은 `serveMeal` 로 직접 챙기고
-    `housing:mealServed {defId, by}` 를 낸다 — `by` 는 PeerId 가 아니라 **표시 이름**(`ctx.net.playerName`, 없으면
-    `나`)이다: 토스트가 그대로 찍는다. **실제 전파와 권위 검사는 net 의 몫**이다 — housing 은 이벤트만 낸다
-    (「남에게 영향 주는 메시지는 권위에서만 받는다」). 그리고 **housing 은 그 이벤트를 구독하지 않는다** —
-    net 의 수신 경로가 같은 이벤트를 다시 내므로, 여기서 듣고 소모하면 차린 본인의 요리가 두 번 빠진다.
-- **B-13 — 배치된 가구 강화 · 제작 잠금 (2026-09-11, 사용자 결정)**: `furnitureUpgradeBlock(uid)` 은 예전부터
-  `HousingSystem` 에 있던 것을 계약에 올린 것뿐이고, `furnitureUpgradeCost(uid)` 는 `Rules.nextFurnitureCost` 에
-  위임한다(최대 레벨 · 없는 uid → null). `furnitureCraftBlock(defId)` 의 순서는 다른 block 함수와 같다 —
-  **구조(알 수 없는 · 은퇴 · 제작 불가) → 튜토리얼 → 보유 → 재료**. 「보유」가 B-13 이다: `isUtilityFurniture(def)`
-  (= `interaction !== 'none'`, E 로 뭔가를 하는 가구)를 **배치 + 가구 창고 합산**으로 하나라도 갖고 있으면
-  `'이미 보유 중입니다'` — 벤치 레벨은 가장 높은 하나만 세므로 두 번째를 만들 이유가 없다. 장식 가구는 제한 없다.
-- **은퇴 가구 (`FurnitureDef.retired`, 2026-09-11)**: 목록 · 제작 · 배치 어디에도 나오지 않는다 —
-  `getAllFurnitureDefs` / `getFurnitureFor` 는 `model.ACTIVE_FURNITURE_DEFS` 를 보고, `canCraftFurniture` · `place` 는
-  맨 앞에서 거절한다. **`getFurnitureDef(id)` 만은 계속 돌려준다** — 옛 세이브의 그 가구를 재료로 환불하려면 값을
-  알아야 하기 때문이다. `ShipState.sanitize` 가 배치 · 보관된 은퇴 가구를 전부 걷어내고 `Rules.furnitureRefundCost`
-  (제작비 + 그 레벨까지의 강화비)를 `SanitizeOutcome.refund` 에 모으며, `HousingSystem.flushRetiredRefund()` 가
-  **`ctx.inventory` 가 생긴 첫 프레임**에 함선 창고로 넣는다(housing 은 inventory 보다 **먼저** 등록되므로 로드
-  시점에는 창고가 없다). 창고가 모자라면 들어가는 만큼만 넣고 남은 것은 버리되 **한국어 경고 토스트 + `console.warn`**
-  을 남긴다 — 조용히 사라지지 않는다.
-- **함선 관리 (Phase 8)**: `openShipManage(room?)` = housing mode **without** the room-presence gate (only phase `hub` + personal ship, `shipManageBlock()`); the room defaults to `ctx.hub.currentRoom`, else the first room with a purpose, else room 1. `setManageRoom` retargets it, `closeShipManage` (and any `exitHousingMode`) leaves both and emits `housing:shipManageChanged {active:false, room:null}`. hub/ drives the camera off that event; `enterHousingMode` keeps its old room-local gate for API users.
-- **서재 책장 (Phase 9)**: `ShipState.books` holds one `PlacedBook {uid, slot, defId}` per filled shelf slot (`BOOKS_PER_SHELF` = 6 per 책장, `furn_bookshelf`, 서재 room, 2×1, 폐금속 6 + 합금판 1). `placeBook(uid, slot, defId)` works only in phase `hub`, on a real 책장, into a free slot, with a book the player owns — it consumes 1 through `consumeDefAll` (**bag first, then stash**) and adds the id to the 도감 (`bookDex`, append-only: a book that was ever shelved stays listed even after it leaves). `takeBook(uid, slot)` re-creates the item and places it with `tryAddItemAnywhere` (bag → stash, refused with `공간 없음 …`). Both return `null` on success and a 한국어 reason otherwise, and emit `housing:booksChanged {uid, count}` + `housing:changed`. **Bonus**: `getBookBonus(skill)` = `min(BOOK_GAIN_MAX 2.0, 1 + BOOK_XP_PER_BOOK 0.05 × Σ BOOK_RARITY_MUL[rarity])` over **every** shelved book of that skill on the ship (any shelf, any room; weights common 1 / uncommon 1.5 / rare 2.5 / epic 4 / legendary 6 — so one epic book = ×1.20, and the cap needs Σ 20). It is multiplied into `getSkillGainMul` next to the 사격장 factor, so progression/ keeps reading exactly one number. `getOwnedBooks()` lists owned books in `SKILL_IDS` order; `getBookDex()` is the 도감 list.
-- **Recovering a 책장**: `recover(uid)` first hands its books to the **stash** (`stashBooksOf`, all-or-nothing — a partial move is rolled back with `takeItem`); when they do not fit, nothing moves and the refusal is `책을 먼저 빼세요` (`BOOKS_BLOCK_REASON`). `recoverBlock(uid)` and `purposeBlock(room, 'empty')` (which recovers everything) report the same reason ahead of the click, using a cheap free-stash-cell estimate (`freeStashCells`; unknown → let `recover` try for real).
-- **음악 재생 (2026-09-14 5차, 사용자 결정)**: TV · 레코드 플레이어의 켜짐(`toggled`)은 **여전히 배율에 관여하지
-  않는다** — 레코드 플레이어의 켜짐에 **재생 상태**라는 뜻이 하나 더 붙었을 뿐이다(`parts/Music.ts`). 그래서 재생
-  창의 `정지` 도 새 개념이 아니라 **E 토글 그 자체**다(`musicStop` 이 `toggled` 를 함께 내린다). 재생은 `ShipState`
-  에 저장되지 않는다(파생 상태 — 켜짐만 저장되고 곡 위치는 함선에 들어올 때마다 처음부터). 레코드랙 칸 수가
-  4 → 8 로 늘어도 **목록 길이를 어디에도 적지 않았다**(`shelfItemsOf` 가 주는 만큼이 목록이다).
-- **서재 매체 (A-3e, 2026-09-12 · 칸 수는 2026-09-14 5차)**: 디스크 전시대(`disc_stand`, **12칸**) · 레코드랙(`record_rack`, **8칸**)은 책장(**40칸**)과 같은 규칙이고 `ShipState.media` 에 산다 — 매체가 보관함과 맞아야 꽂히고(`disc_*` 는 전시대에만), 도감은 `mediaDex`. 배율은 매체마다 따로 잘라 더한다(`Rules.shelfGainFor`, 변경 이력 참고). 보조 가구(흔들의자 → 책 · TV → 디스크 · 축음기/주크박스/턴테이블 → 레코드)는 **배치만으로** 켜지고 여러 대여도 한 번이다. TV · 레코드 플레이어의 켜짐(`toggled`)은 겉모습일 뿐 배율에 관여하지 않는다. 회수 · 빈 방 · 시설 제거는 디스크 · 레코드도 책처럼 창고로(all-or-nothing) 옮긴다.
-- **자동 배치 (2026-09-10)**: `HousingRef.findFreeSpot(room, defId)` = `Rules.autoPlaceSpot`. 시설 관리의 가구 창고
-  `배치` 버튼만 이 질의를 쓴다 — 손으로 놓는 경로(하우징 모드 고스트 · `move`)와 `canPlaceAt` 자체는 **하나도
-  바뀌지 않았다.** 규칙 세 줄:
-  - **순서**: 화면 **좌측 상단부터 가로줄을 먼저** 채우고 다음 줄로 내려간다. 화면 ↔ 격자 대응의 근거는
-    `hub/interiors/RoomLayout`(격자 `x` = 월드 +X, `y` = 월드 +Z)과 `hub/HousingMode`(시설 관리 카메라는 모든 방을
-    +X 쪽에서 −X 로 내려다본다 ⇒ **화면 오른쪽 = −Z, 화면 아래 = +X**)이다. 그래서 훑는 순서는
-    **`x` 오름차순(바깥) × `y` 내림차순(안쪽)**이고, 앵커가 격자 최소 모서리라 `y` 는 `ROOM_GRID_ROWS − fp.rows`
-    에서 시작한다.
-  - **회전**: `AUTO_PLACE_YAWS = [1, 0]`. 모델 정면은 로컬 −Z 이고 월드 회전이 `−yaw·π/2` 라
-    `R_y(−yaw·π/2)·(0,0,−1) = (−sinθ, −cosθ)` → **yaw 1 = +X = 화면 아래**. 예전 `[0, 1]` 은 yaw 0 = −Z =
-    **화면 오른쪽 벽**이라, 총기 작업대가 벽을 보고 서서 쓰려면 벽 틈으로 끼어 들어가야 했다.
-  - **출입구 앞은 비운다**: 방문은 ±X 벽 한가운데(폭 1.6 m)에 있고 어느 벽인지는 방 번호가 정한다 —
-    앞 절반(0…4, 좌현)은 +X 벽, 뒤 절반(5…9, 우현)은 −X 벽. 순서만 바꾸면 우현 방에서 첫 자리가 문 앞이 되어
-    4×2 작업대가 문틈의 절반(0.8 m)을 막고 `PLAYER_RADIUS × 2` = 0.9 m 인 플레이어가 **드나들지 못한다.**
-    그래서 자동 배치만 `DOOR_CLEAR_DEPTH`(2칸 = 1.0 m) × `DOOR_CLEAR_SPAN`(4칸 = 2.0 m) 상자를 비켜 간다.
-    좌현 방에서는 그 상자가 화면 **아래쪽 끝**이라 「좌측 상단부터」가 그대로 성립한다.
-    이 여유를 `canPlaceAt` 에 넣지 **않은** 이유는 세이브다 — `ShipState.sanitize` 가 저장된 배치를 전부
-    `canPlaceAt` 으로 다시 검사하므로, 이미 문 앞에 가구를 둔 함선이 로드할 때 그 가구를 가구 창고로 빼앗겼을 것이다.
-  두 칸 수치는 밸런스가 아니라 **치수**라 csv 가 아니라 `Rules.ts` 에 있다 (`data/README.md` 의 "csv 로 옮기지
-  않은 것" — `world/structures/model.ts` 가 벽 두께 · 문 폭을 TS 에 두는 것과 같은 이유).
-  실패 처리는 그대로 `null` → 호출부의 `자리 없음` 이다. ~~**한계**: 출입구 여유 때문에 손으로는 아직 놓을 수 있는
-  방이 자동 배치에서는 `자리 없음` 이 될 수 있다 (그 경우 하우징 모드에서 직접 놓으면 된다).~~
-  - **2차 패스 (2026-09-11, C-27)**: 여유 상자를 통째로 피해서는 자리가 없으면 같은 순서로 다시 훑되 상자에 걸치는
-    자리도 받는다 — 단 놓은 뒤에도 **`doorPassageOpen(state, room, extra)`**, 즉 문 폭 4칸 중 **인접 2칸**(1.0 m ≥
-    플레이어 지름 0.9 m)이 문 쪽 벽에서 깊이 2칸까지 전부 비어 있어야 한다. 그래서 거의 찬 방에서도 통로 한 줄은
-    남기고 `자리 없음` 이 줄어든다. 이미 손으로 통로를 막아 둔 방이면 2차 패스도 아무것도 주지 않는다.
-    `canPlaceAt` 은 여전히 문을 모른다.
-- **온실 순수 규칙 (2026-09-11)**: `growTierUnlockLevel(tier)` (계약 `growTiersForLevel` 에서 유도) · `growTierOpen(level, tier)` ·
-  `soilMatches(soilTag, seedTag)` · `growDurationMs(growHours, matched, gardening)` · `growProgress(now, plantedAt, readyAt)` ·
-  `growRemainingS(now, readyAt)`, 그리고 은퇴 가구 환불용 `furnitureRefundCost(def, level)` · `mergeCost(into, add, times?)`.
-  수치는 하나도 여기 적지 않는다 — 전부 `@/shared`(= `data/*.csv`) 에서 온다.
-
-- **Removed panels (Phase 8 UI pass)**: `openRoomMenu(room)` and `openFacilityMenu()` are still on `HousingRef` but now **redirect to `openShipManage(room?)`** — the standalone 방 메뉴 / 시설 메뉴 (and the 시설 메뉴's 프리셋 button) are gone. Loadout presets are reached only through the **관물대** (`furn_range_console`, renamed from 사격장 콘솔, model `locker`) placed in a 사격장 room.
-
-## Verification
-`node scripts/smoke-housing.mjs` (**151 checks**, 0 console errors, 2026-09-06 — Phase 7 added the 15th def `furn_sim_hub` in the 사격장 catalogue only, its craft (회로 −2) / `canPlace` (workshop refused, range allowed) / place `f-5` / room-menu rows, and the server `ship` document through a fake `ctx.net.profile`: `profile.set('ship')` on save, no document → upload, `net:profileLoaded` replace → room 8 kitchen / storage 2 → 36 rows / crate `f-90` / uid `f-91` next / `housing:loaded` + `housing:changed {profile}` / cache updated without echo; the relay socket is parked so a relay on 8787 cannot interfere). Earlier coverage: fresh state + first-run bench, `hub:enter`, lab refused / workshop assigned / events, `canPlace` bounds · rotation · purpose · overlap, place → `f-1`, move (+ ignoreUid), recover (level kept) → re-place `f-2`, purpose change refused while a bench is placed, 40 폐금속 via `tryAddItem`, generator 0→1→2 (케이블), storage 1 → rows 30 mirrored by `inventory.getStashSize()`, workshop gated → unblocked → level 2 → cost ×0.9, 한국어 block reasons, furniture craft (stacking, refused when short), bench Lv2 + Lv3 gated, range room → 3 presets, skill ×1.1, save / refuse index 3 / apply (`{equipped: 4, missing: []}`) / delete, target lane, lounge keeps an `'any'` locker and `empty` recovers it, gym + greenhouse + lab, housing mode + selection + rotation, three panels (DOM contents, 7 badges, red materials, blocked click → message, Esc + blocker, 닫기, single-blocker switching, `closeMenus`), reload persistence (rooms / levels / furniture / storage / preset / stash 30 / uid `f-5`), corrupt save sanitised (lab → empty, generator clamped to 5, bad room / purpose / overlap / duplicate uid handled).
-Registered in `scripts/verify.mjs` (`smoke-housing`, folders housing / hub / inventory / progression).
-**Phase 8 changes the smoke's expectations**: a fresh state now holds **two** furniture-storage entries (총기 작업대 + 정비 벤치), only **6** purposes carry the 다음 업데이트 badge (온실 is active), cost lines are `.item-chip` elements instead of `.mat` spans, and there are new cases to add — 재배층 stacking (4 layers on one footprint, 5th refused, only the top recovers), 온실 plots (plant → progress → harvest → `gather:collected`), 함선 관리 (`openShipManage` outside the room, `setManageRoom`, `housing:shipManageChanged`), `createShipView` (renders, adds no blocker, disposes clean) and the v1 → v2 정비 벤치 grant (**2026-09-12 부터 그 지급은 없다** — 정비 벤치 은퇴).
-
-## Phase 8 additions (2026-09-06)
-- **재배층 stacking** — `Rules.ts` stack helpers + `place / move / recover` layer handling (see the Rules section above).
-- **온실 재배** — `getPlots / plantSeed / harvestPlot / harvestAll / getOwnedSeeds / openGrowMenu` + `ui/GrowMenu.ts`.
-- **함선 관리** — `shipManageMode / openShipManage / setManageRoom / closeShipManage` (`housing:shipManageChanged`).
-- **함선 tab** — `createShipView(host)` → `ui/ShipView.ts` on top of the extracted `ui/FacilityRows.ts`.
-- **Cost chips** — every cost line (방 메뉴 level / 가구 업그레이드 / 가구 제작, 시설 rows, 재배 seeds) renders through
-  `renderItemCost` from `@/shared`; the text-only `renderCost` is gone (the name survives as a thin wrapper).
-- **정비벤치 지급** — state version 2: `freshState()` and the v1 → v2 migration each hand out exactly one
-  `furn_repair_bench` Lv.1, never twice.
-- **온실 용도** is active (`ROOM_PURPOSES_ACTIVE`), so the 방 메뉴 no longer badges it 다음 업데이트 (data-driven, no code change).
-
-## Phase 9 additions (2026-09-06)
-- **서재 책장** — state v3 (`books` / `bookDex`), `Rules.bookWeightOf / bookGainMulFor`, the seven `HousingRef` book
-  methods, `ui/BookshelfMenu.ts` + the shared `ui/BookDex.ts` 도감 (also rendered under the 방 목록 of the 함선 tab).
-  Items owns the 14 book defs (`ItemDef.book.skill`), housing owns the shelves, the bonus and the 도감.
-- **`getSkillGainMul` = 사격장 × 서재** — the only number progression/ reads (it was not changed). *(2026-09-12: the first factor is the placed 시뮬레이션 허브's level now, not the room.)*
-- **Offline profile saves** — `ShipStore.upload()` no longer checks `profile.available`; `ProfileSync` queues the
-  document and the newest stamp wins on the next connection (Phase 9 contract).
-
-## Known follow-ups
-- `housing:loaded` fires inside `init()`, before later systems subscribe — consumers should read `ctx.housing.state` directly in their own init (the event only reaches systems registered earlier). The Phase 7 re-emit on `net:profileLoaded` does reach everyone; hub/ must rebuild the personal ship on it (also while the player stands inside — furniture may vanish under them).
-- `ROOM_PURPOSES_ACTIVE` gates nothing beyond the badge: the seven inactive purposes accept `'any'` furniture only (no purpose-bound defs exist for them yet).
-- Facility levels of workshop / range are read from the *first* room of that purpose; a second workshop room is decorative.
-- The preset name field saves on `change` (blur / Enter); Esc **blurs the field** without saving the edit (2026-09-08: it no longer closes the panel — E does).
-- ~~Hydroponics / kitchen / lab mechanics~~ (2026-09-11: 온실 · 연구실 · 주방이 모두 붙었다 — 재배 스테이션 ·
-  분석기 · 배양조 · 식탁) and a buy-only path (`craft: null`) are not wired — `craftFurniture` refuses non-craftable defs. Furniture is by design not an inventory item (`ItemDef.furnitureId` stays unused).
-- The server `ship` document is uploaded whole on every save (no delta); two clients on the same token overwrite each other last-writer-wins.
-- **Phase 8**: `SHIP_STATE_VERSION` in `src/shared/constants.ts` was still `1` back then, so housing/ wrote its own
-  `SHIP_STATE_VERSION_CURRENT`; Phase 9 bumped the contract to `3` and the 온실 개편 to **`4`**, and the two agree again
-  (the local `Math.max` stays as the guard). ~~`GrowPlot` has no per-plot fertiliser / soil quality~~ (2026-09-11: 토양이
-  생겼다) and a 칸 keeps growing even if the room later loses its
-  온실 purpose (only recovering the station drops it). Growth uses the relay clock when connected and the local clock
-  otherwise, so a client with a wrong system clock can plant "in the future" — the progress bar clamps, nothing breaks.
-  `getOwnedSeeds` walks every item def on each refresh (fine at panel scale). The embedded 함선 view uses a `<select>`
-  per room rather than the 방 메뉴's 10-button purpose grid (the grid does not fit a tab column); the 하우징 모드 /
-  가구 제작 lists stay in the 방 메뉴 and the M screen.
-- **Phase 9**: the 도감 is append-only and never forgets, so there is no way to "unsee" a book. A shelved book leaves the
-  inventory entirely (it is neither weight nor stash space until it is taken back), and books on a shelf are not part of
-  any loadout preset. `getOwnedBooks` / the 도감 walk every item def per refresh (panel scale, fine). `booksBlock` is a
-  free-cell estimate — a stash that is fragmented but not full can still refuse a 회수 at the real `tryAddToStash` call
-  (the recover then rolls back and toasts). `placeBook` requires phase `hub`; `takeBook` does not (nothing calls it
-  elsewhere). Shelves are per-ship state, so the books never appear in a raid.
-- **온실 개편 (2026-09-11)**: ① 은퇴 가구 환불은 `ctx.inventory` 가 생기기를 기다리므로(첫 `update` 프레임),
-  그 전에 브라우저를 닫으면 다음 로드 때 다시 계산된다 — 저장된 상태에는 이미 그 가구가 없으므로 **두 번 환불되지는
-  않는다**(같은 이유로, 창고가 꽉 찬 채로 계속 플레이하면 그 판의 잔여분은 버려진다). ② 환불액은 **지금의 표**
-  (`data/furniture.csv` + `furniture_upgrades.csv`)로 계산한다 — 시설 환불과 같은 성질이다. ③ `sanitize` 는
-  `soil_*` **모양**만 보고, 진짜 토양인지는 `parts/Garden.grows()` 가 `ctx.loot` 로 한 번 걸러 낸다(서재와 같다).
-  ④ 드래그해 온 스택이 창고에 있어도 실제 소모는 `consumeDefAll`(가방 → 창고) 이라 **가방에 같은 토양이 있으면
-  그쪽이 먼저 빠진다** — 책 꽂기와 같은 규약이다. ⑤ 스테이션을 회수하면 자라던 작물도 함께 사라진다(경고 없음).
-  ⑥ `ui/GrowStation` 의 격자 뷰는 `--inv-*` 팔레트를 `housing.css` 에서 다시 선언한다(패널이 `.inv-root` 밖이라
-  `inventory/ui/CrewLoadoutView` 와 같은 처지다) — **값의 원본은 `inventory/inventory.css` 다.**
-- **연구실 분석기 (2026-09-11)**: ① **「이미 보유 중」은 규칙이 아니라 화면의 질의다** — `furnitureCraftBlock` 만
-  그것을 말하고 `canCraftFurniture` / `craftFurniture` 는 예전 그대로라, API 로 직접 부르면 실용 가구를 두 번
-  만들 수 있다 (설계안 §3.1 의 범위 그대로다: 잠그는 곳은 시설 관리 카드다). 규칙으로 올릴 때는 튜토리얼의
-  총기 작업대 경로와 v1 → v2 정비 벤치 지급을 함께 본다. ② 분석기를 회수하면 해석 중이던 표본이 **경고 없이**
-  사라진다 (재배 스테이션과 같다). ③ 해석 취소도 표본을 돌려주지 않는다 — 계약에 적힌 사용자 결정이다.
-  ④ 해석은 `ctx.net.serverNow()` 를 쓰므로 시스템 시계가 틀린 클라이언트는 「미래에」 넣을 수 있다 — 진행바가
-  클램프될 뿐 깨지지 않는다(온실과 같다). ⑤ 분석 화면에는 전용 toggled 이벤트가 **없다**(계약에 그런 이벤트가
-  없다) — 열렸는지 알아야 하는 폴더가 생기면 계약에 추가해야 한다. ⑥ `getOwnedSamples` · 도감은 매 refresh 마다
-  아이템 def 를 전부 훑는다 (패널 규모라 괜찮다, 서재 · 온실과 같다).
-
-## Phase 9 UI pass (2026-09-07)
-
-- `Rules.facilityRefundCost(id, level)` — the cumulative upgrade cost of a facility, merged per material. Room
-  facilities start at level 1 (granted with the purpose) so only levels 2… are summed; ship-wide ones start at 0.
-- `HousingSystem.facilityRefund(index)` / `removeRoomFacility(index)` implement 시설 제거: the room is emptied through
-  the existing `setRoomPurpose(index, 'empty')` path (every piece goes to furniture storage) and the refund is dropped
-  into the 함선 창고 with `inventory.tryAddToStash`, split at each item's `stackMax`. The stash space is **pre-checked**
-  with the same free-cell estimate `booksBlock` uses, so a full stash refuses the removal instead of eating materials.
-- `ui/ShipView.ts` rewritten: no 도감 (books are read on a 책장 in the 서재), no 용도 드롭다운 (assignment moved to
-  시설 관리), no room numbers / furniture counts / purpose descriptions. A room row is **thumbnail + 용도 + 레벨** with
-  the upgrade cost chips, a wide 업그레이드 button and a red 🗑 제거 icon that opens an in-screen confirmation card
-  (never a browser dialog — the inventory window owns the keyboard). Empty rooms keep the same row height. The
-  시설 관리 (M) button moved into its own sticky `.hs-ship-bar` under the two columns.
-- `ui/FacilityRows.ts` lost `FACILITY_DESC` (the pips, the cost chips and the block reason already say it) and each row
-  now leads with the shared `facilityThumb`.
-- `ui/dom.facilityThumb(parent, glyph, color)` is the single thumbnail renderer for a facility / room purpose.
-
-### Known follow-ups (Phase 9 UI pass)
-- The refund is computed from the **current cost tables**: rebalancing `RANGE_UPGRADE_COST` / `WORKSHOP_UPGRADE_COST`
-  changes what an already-built facility hands back. It also refunds at 100 %, so 짓고 부수기 is free — deliberate for
-  now (there is no other way to move a facility to another room).
-- `removeRoomFacility` pre-checks stash space with a free-cell estimate; a fragmented stash can still lose the tail of
-  a refund at the real `tryAddToStash` call (a warning toast says so). Furniture storage is unbounded, so the pieces
-  always land.
-- A room's purpose can still be **assigned** only in 시설 관리 — the 함선 tab levels and removes, it does not create.
-
-## Phase 9 UI/UX 개선 pass (2026-09-07)
-
-- **시설 증축 costs materials.** Giving an empty room a purpose is no longer free: `ROOM_PURPOSE_BUILD_COST`
-  (`@/shared`) is the price of the facility's level 1 and `ROOM_PURPOSE_BUILD_GENERATOR_LEVEL` (1) gates it like every
-  other upgrade. `Rules.purposeBuildCost` / `purposeBuildBlockReason` are the pure rules, `HousingRef.purposeCost`
-  exposes the table to the pickers, `setRoomPurpose` consumes it (all-or-nothing, bag → stash) and `purposeBlock` now
-  reports 발전기 / 재료 shortages alongside the structural reasons. 빈 방 stays free.
-- **시설 제거 refunds it too.** `Rules.roomRefundCost(purpose, level)` = the 시설 증축 price **plus** every upgrade
-  above level 1, so `facilityRefund` works on any assigned room (it used to return `[]` for a room without a
-  작업실 / 사격장 facility and for a facility still at level 1).
-- **`ui/ShipView.ts` (함선 tab)** — the `용도가 정해진 방 n / m · 발전기 Lv.x` subtitle is gone; the host gets an
-  `is-ship` class so the **panel no longer scrolls** and the 방 목록 scrolls on its own; an **empty** room row carries a
-  **시설 증축** button that opens a centred `.hs-build` popup — one row per purpose with its cost chips, disabled with
-  the 한국어 reason when the rules or the materials refuse it, dismissed with 닫기 or a click on the backdrop. The
-  popup re-renders on every `refresh()`, so material counts and block reasons follow the state while it is open.
-- The 용도 지정 picker and the 가구 제작 / 가구 창고 tabs live in `ui/hud/ShipManage.ts` (the ui folder owns that
-  screen's DOM); this folder only supplies `purposeCost`, `purposeBlock`, `getFurnitureFor`, `getStored`,
-  `canCraftFurniture` / `craftFurniture` and `selectFurniture`.
-
-## Phase 10 UI 개선 pass (2026-09-07)
-
-- **인게임 커서 (§2 of `docs/DECISIONS.md`).** `ui/Panel.ts` — the shell every housing panel (프리셋 / 재배 /
-  책장 / 도감) inherits — now adds the `'housing'` blocker and then calls `ctx.input.setCursorMode(true, 'housing')`
-  **without** exiting the pointer lock; `close()` deletes the token and calls `setCursorMode(false, 'housing')`, and
-  the `relock()` microtask is gone (nothing ever unlocked). `close(relock)`'s parameter survives for the call
-  signature only. `setCursorMode` is ref-counted per blocker token, so a housing panel opened over another cursor
-  surface never steals the cursor from it on close.
-- **No DOM handler changed.** The software cursor dispatches real bubbling `pointer*` / `mouse*` / `click` /
-  `contextmenu` / `wheel` events at its virtual position, so every panel's click / hover / input wiring works
-  untouched. This folder polls neither `input.mouseX / mouseY` nor `document.elementFromPoint` (the top-down
-  placement cursor lives in `hub/HousingMode`, not here), so there was nothing else to migrate.
-- **크레딧 없음.** Material requirements keep rendering through `shared/itemChip.ts` (`renderItemCost`) — they are
-  item counts, not credits, so the new `formatCredits` rollout does not touch this folder.
-
-## Phase 12 (2026-09-08) — "재료가 충분해 보이는데 증축이 안 됨" (plan item 16)
-
-**Root cause (reproduced headless on a fresh ship with the 기본 지급품, `smoke-housing` "fresh ship → 발전기 → 작업실").**
-Nothing in this folder was wrong in the sense of a broken rule — the rules were *invisible*:
-
-1. `ShipState.freshState()` starts the ship at **`generatorLevel: 0`** (deliberate since the 2026-09-07 기본 작업실 폐지),
-   and `Rules.purposeBuildBlockReason` refuses **every** 시설 증축 behind `generatorGateReason(state,
-   ROOM_PURPOSE_BUILD_GENERATOR_LEVEL)` (= 1) **before** it looks at the materials. So on a brand-new ship all nine
-   purposes answer `발전기 레벨 1 필요 (현재 0)` even though the `ROOM_PURPOSE_BUILD_COST` chips render as fully
-   affordable (폐금속 16 · 케이블 3 · 합금 2 in the 창고 vs 작업실 8 + 2).
-2. The 시설 관리 picker (`ui/hud/ShipManage`) surfaced that reason only as the `title` tooltip of a **`disabled`**
-   button — so a click did literally nothing, and with the pointer-lock cursor there is rarely a hover to read it.
-3. The only place the generator could be raised was Tab → 함선 tab (`ui/FacilityRows`); the screen that refused the
-   build never pointed there.
-
-Not the cause (checked): `countDefAll` / `consumeDefAll` agree (bag + stash both sides), `setRoomPurpose` returns false
-only when `purposeBlock` is set or `consume` fails, and the click handler reads the live `this.room`.
-
-**Fix.** The rules are unchanged (the gate is the design, and the 함선 tab already obeys it). The presentation moved to
-the screen that refused: `ui/hud/ShipManage` now leads the 용도 지정 picker with a **발전기 row** (`getFacility('generator')`
-→ level, `nextCost` chips, 가동 / 업그레이드 → confirm popup → `upgrade('generator')`), prints every `purposeBlock`
-reason inline under its row, keeps blocked rows clickable (→ the reason as a toast) and confirms a build in a centred
-modeless popup (`정말로 N번 방을 <용도> 시설로 만들겠습니까?` + `purposeCost` chips; Esc closes the popup only). This
-folder only supplies what it already did — `getFacility`, `upgrade`, `purposeBlock`, `purposeCost`, `setRoomPurpose`.
-
-**Follow-up for items/ (not this folder):** the 기본 지급품 is 폐금속 16 · 케이블 3 · 합금 2. 발전기 Lv.1 (폐금속 4) +
-작업실 증축 (폐금속 8 · 케이블 2) fits, leaving 폐금속 4 · 케이블 1 · 합금 2 — the 총기 작업대 (`furn_bench_gun.craft` =
-폐금속 8 · 합금 2 · 케이블 1) is then **4 폐금속 short**. `STARTER_STASH`'s comment says it covers 작업실 + 작업대, but
-it was sized before the generator gate applied to a fresh ship; +4 폐금속 (or a 3rd stack) would make the intended
-first-session chain complete.
-
-
-## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
-
-`HousingSystem.ts` 는 한 파일에 다 있기에는 너무 커져서 **동작을 바꾸지 않고** 갈랐다. 규칙은 세 줄이다.
-
-1. **`model.ts`** — 폴더 공용 어휘(타입 · 상수 · 스크래치 객체, 상태 없는 보조 클래스).
-   `HousingSystem.ts` 이 `export * from './model'` 로 재수출하므로 **기존 import 경로는 전부 그대로 동작한다.**
-2. **`parts/*.ts`** — 클래스에서 떼어낸 메서드 묶음. 각 함수는 인스턴스를 첫 인자 `sys` 로 받는다:
-   ```ts
-   export function foo(sys: HousingSystem, …) { … }   // 예전의 this → sys
-   ```
-   클래스에는 같은 이름의 **한 줄 위임 메서드**가 남아 있으므로 호출부는 하나도 바뀌지 않았다.
-3. `parts/` 가 닿는 클래스 멤버는 `private` 이 벗겨져 있다. **폴더 밖에서 쓰라는 뜻이 아니다** —
-   외부와의 계약은 `@/shared` 의 `*Ref` 인터페이스가 전부다.
-
-새 `parts/` 파일은 맨 위 doc 주석에 **그 파일이 답하는 질문 한 줄**을 적고 위 표에 행을 추가한다.
-순환 import 를 만들지 않으려면 `parts/` 는 `HousingSystem.ts` 에서 **타입만** 가져와야 한다 — 값은 `model.ts` 로.
-
----
-
-## 변경 이력
-
-- **2026-09-15 (키캡 다듬기 — 마우스 버튼 그림, 사용자 결정)** — 미니게임 · 함선 화면의 키캡이 공용 `shared/keycap` 을 지난다.
-  - `ui/cook/CookViews` 다지기 게이지의 `LMB` · `RMB` 글자 키캡 → `createKeycap('Mouse0' | 'Mouse2')` 마우스 그림(`gauge(label, code)`).
-  - `ui/cook/CookScreen` 단계 안내의 `좌클릭` · `우클릭` 글자 → `{L}` · `{R}` 토큰을 파일 안 `renderMouseRule` 이 문장 속 키캡(`kc-inline`)으로
-    끼운다(요리 입력은 `Keys.FIRE` 가 아니라 실제 좌 / 우 버튼이라 `renderKeyText` 의 액션 토큰을 쓰지 않는다). 굽기 안내의 「클릭」 은
-    조각을 누르는 것이라 글자로 남겼다.
-  - `ui/gym/GymScreen` 안내(`.gym-hint` · `.gym-rule`)가 `{JUMP}` · `{LEFT}` · `{RIGHT}` 토큰 + `renderKeyText` 로 키캡을 끼운다(리바인드 =
-    `relabel()` 이 다시 그린다) · 시작 키캡과 `ui/gym/GymViews` 줄 앞 키캡은 `paintKeycap`. 표식 안의 키 글자는 키캡이 아니라 글자로 남는다.
-  - `ui/ShipView` 의 `시설 관리` 버튼 키캡 → `createKeycap(Keys.MAP, {tag: 'kbd', cls: 'hs-keycap'})`. 공용 함수가 `.keycap` 을 더하므로
-    `housing.css` 가 `.keycap.hs-keycap` 으로 글자색 · 바탕 · 굵기를 버튼 쪽으로 되돌린다.
-
-- **2026-09-15 (B-15 — 조리대 화면이 숙련 잠김 요리를 숨기던 것, 사용자 결정 「전부 딤드 + 숙련 배지」)**
-  - **뿌리**: `parts/Cooking.cookRecipes` 가 `inventory.getRecipes('ship', 'cook', 99)` 를 읽었는데 그 경로는 **숙련이 모자란 레시피를 걸러 낸다**.
-    그래서 조리대 레벨 잠김만 `Lv.n` 딤드로 보이고 숙련 잠김 요리는 레일에 아예 없어, 무엇을 올려야 열리는지 알 수 없었다.
-  - **목록** (`parts/Cooking`): `cookRecipes` 가 원본 표(`loot.getAllRecipes()`)에서 조리대 레시피 + 조리 단계가 있는 것을 **전부** 싣는다(inventory 경로는
-    loot 가 없을 때의 대체로만). 책 요리를 되살리던 루프는 필요 없어져 지웠다. 새 `cookRecipeSkillBlock(sys, recipe)` → `{label, need, have} | null`(표시용) ·
-    `cookSkillLabel`(숙련 이름 원본 = progression `getSkillDef(skill).name` = `skills.csv` — 지금 조리대 레시피는 전부 `crafting` 이라 `제작`, 옛 로컬 표는 대체로만) ·
-    `fallbackBlock` 도 같은 이름을 쓴다. **시작 게이트는 한 줄도 안 바뀌었다** — `cookBlock` → `inventory.cookBlock` 이 여전히 `제작 숙련 n 이 필요합니다` 로 거절한다.
-  - **화면** (`ui/cook/CookStation`): 숙련 잠김 줄 = `is-locked is-skill` 딤드 + `.cook-rail-skill` 배지 `제작 20`, 조리대 레벨도 모자라면 `Lv.n` 배지와 나란히
-    (`.cook-rail-locks`), 호버 = `조리대 Lv.2 필요 · 제작 숙련 20 필요 (지금 0)`. 책 잠김 줄은 예전 그대로(「책」 배지 · 사유 호버). 티어 안 순서 = 시작할 수 있음 →
-    잠기지 않았지만 막힘(재료 · 자리) → 잠김(조리대 레벨 · 숙련 · 책), 그 밖은 표 순서(안정 정렬). 기본 선택은 여전히 시작할 수 있는 요리 → 잠기지 않은 요리 → 첫 줄.
-    잠긴 요리를 골라도 재료 칩 · 단계 칩이 보이고 부제에 `제작 숙련 20` 이 붙으며, 조리 시작만 딤드 + 진짜 사유. 레일 폭 176 → 196 px(배지 둘에도 이름이 읽힌다).
-    `UpgradeModal` 의 `요리 n가지 개방` 은 이제 숙련과 무관하게 그 레벨이 여는 요리를 센다.
-  - 스모크 `smoke-cooking` 「숙련 잠김 요리 (B-15)」: 숙련 0 에서 숙련만 모자란 요리가 레일에 딤드 + 숙련 배지(Lv 배지 없음) · 둘 다 모자란 요리는 배지 둘 ·
-    티어마다 시작 가능 → 막힘 → 잠김 순 · 골라도 재료 · 단계가 보이고 시작 버튼 딤드 + `cookBlock` 과 같은 사유 · `startCook` · 버튼 모두 거절 · 세션 없음 ·
-    기본 선택은 시작할 수 있는 요리 · 숙련을 채우면 숙련 잠김이 풀린다.
-
-- **2026-09-14 5차 (UI 2차 개편 — 서재 화면 · 채굴 화면 통합 · 미니게임 · 음악 재생 · 선행 시설 폐지, 사용자 결정)**
-
-  다섯 갈래를 병렬로 했고 공통점이 하나다 — **규칙은 거의 그대로이고 화면의 모양과 「무엇이 무엇의 원본인가」가
-  바뀌었다.**
-
-  - **서재 화면 (`ui/BookshelfMenu` · `ui/ShelfDrawing` · `ui/BookDex` · `ui/StationShell` · `model`)** — 레일과 탭의
-    역할을 맞바꿨다. 좌측 레일이 **서재 가구 목록**(맨 위 「서재」 = `getLibraryEffects()` 요약)이 되고 `선반` /
-    `도감` 은 콘텐츠 상단 가로 탭으로 나갔다(`StationShell` 의 새 **옵션** `tabs` — 옵션이라 다른 스테이션 화면은
-    한 줄도 안 바뀐다). 가구 목록은 `interaction` 으로 고른다 — **defId 를 코드에 적지 않는다**.
-    선반은 `SHELF_COLS = 2` 고정을 버리고 계약의 `SHELF_TIERS` · `SHELF_TIER_COLS` 를 **그대로 그린다**(책장
-    4층 × 5칸 × 2줄 = 40권). **옛 세이브에 손댈 것이 없었다** — `sanitize` 는 `slot < 칸 수` 로 거르고 목록은 매번
-    0 … 칸 수 −1 로 새로 만들므로, 상수가 커지면 앞 칸은 살아남고 빈 칸만 는다(배열을 늘리는 코드도 마이그레이션도
-    필요 없다). 지운 것: 보조 가구 줄 · 시리즈 진척 패널 · 바닥 힌트 · 기본 사용법 문구 · 게임 전시대의 꽂힌 게임
-    목록. **빈 칸 호버는 침묵**하고 꽂힌 칸은 `ItemTip` 의 아이템 카드가 말한다. 도감 한 줄은 썸네일 + 이름 +
-    모은 수뿐이다. `hasShelfAux` · `libraryAuxActive` 는 화면에서 안 쓰게 됐지만 계약 · 다른 소비자를 위해 남는다
-    (`model.shelfAuxNames` 만 `@deprecated`).
-  - **채굴 화면 통합 (`ui/mining/*`)** — `ClusterScreen` · `MiningComputer` 두 창을 **`MiningScreen` 한 창**으로
-    합치고 내용을 `ClusterPage`(채굴) · `ComputerPages`(현황 · 지갑 · 거래소) · `CoinPicker`(코인 드롭다운)로 갈랐다.
-    탭은 `.frame` 첫 줄의 가로 줄이고 **가구마다 제 탭이 기본**이다(사용자 결정 — 연산 클러스터 → 채굴, 메인
-    컴퓨터 → 현황). 계약은 한 줄도 안 바꿨다: `openComputeCluster` · `openMiningComputer` 는 그대로이고
-    `HousingPage` 에 값을 더하지 않았으며 `ui:miningToggled` 의 `page` 는 **탭에서 유도한다**(채굴 = `cluster`,
-    나머지 = `computer`). `HousingSystem` 의 옛 필드 둘은 같은 창을 가리키는 `@deprecated` getter 로 남는다.
-    코어 칸은 연산 코어가 2×1 이 되어 가로로 길어졌고 드롭 · 빼기가 **한 개씩**이다. ⚠ **`ComputeClusterSlot.cores`
-    는 개수 하나**라 「놓은 그 칸에 꽂힌다」를 글자 그대로 할 수 없어 「앞에서부터 n칸이 찼다」로 그린다 —
-    칸별 상태를 만들려면 세이브 모양을 바꿔야 한다. 코인 버튼 줄 · 안내문 · 푸터 문구는 드롭다운과 1초 홀드
-    경고가 같은 말을 하므로 지웠다.
-  - **미니게임 (`parts/GymGames` · `parts/CookGames` · `ui/gym/*` · `ui/cook/*`)** — 「**보이는 것 = 판정**」.
-    판정 띠를 `judgeBands` · `cookJudgeBands` 두 함수로 모으고 **완벽 = csv 창 그대로**, 좋음은 그 바깥 1.6배
-    (반 박자 클램프)로 뒤집었다 — 옛 「완벽 = 창의 1/3」 은 그린 것과 판정이 어긋나 있었고, 뒤집은 것만으로
-    csv 를 한 줄도 안 고쳐도 완벽 띠가 3배다(csv 완화는 그 **위에서** 했다). 입력이 한 번도 없으면 영영 안 끝나던
-    볶기 · 젓기 · 붓기에 `CookGameBase.maxTime` 안전핀을 달았다(판정 수치가 아니라 그때까지의 점수로 닫는다).
-    진행 표시는 `completion`(0 … 1)을 읽는 **라벨 없는 바** 하나이고 `N / M` 글자는 없앴다 — 벤치프레스의 회차
-    pips 는 진행이 아니라 **회차마다의 판정 색**이라 남겼다. 그리고 요리 입력은 **판 전체**에서 받는다
-    (`.cook.is-playing` 이 게임 도중에만 루트의 `pointer-events` 를 켠다): 예전에는 `.cook-stage` 안만 받아
-    780 px 패널의 여백을 누르면 아무 반응이 없었다. **입력을 받는 범위와 `contextmenu` 를 막는 범위는 같아야
-    한다** — 우클릭 차단도 같이 루트로 넓혔다.
-  - **음악 재생 (새 파일 `parts/Music.ts`)** — **소리는 나지 않는다**(사용자 결정: 외부 에셋 금지 · 절차 음악
-    미구현). 그래서 이것은 오디오가 아니라 **상태**이고, 주인이 `audio/` 가 아니라 여기인 이유는 재생 목록이
-    **레코드랙에 꽂힌 것**이기 때문이다. `parts/Library.ts` 를 고치지 않고 있는 공개 질의(`getPlaced` ·
-    `getShelfMedium` · `shelfItemsOf` · `toggledUids`)로만 읽는다. 「곡의 끝」은 `startedAt + lengthS × 1000` 과
-    시각의 비교 하나뿐이고, `정지` 는 새 개념이 아니라 **가구 E 토글 그 자체**(`Library.toggleFurniture` 를 그대로
-    타서 `housing:furnitureToggled` · `record_off` 까지 같다). 재생은 `ShipState` 에 저장하지 않는다 — 켜짐만
-    저장되는 파생 상태다.
-  - **선행 시설 조건 폐지 (`Rules.NEEDS_GREENHOUSE` = `[]`)** — 연구실 · 주방의 온실 선행이 없어졌다. 이름은
-    계약대로 남기고 **값만 비웠다**: 세 소비처(`purposeChangeReason` · `Rooms.setRoomPurpose` · `ShipState.sanitize`)가
-    `includes` 하나로 저절로 no-op 이 되므로 그 갈래들을 한 줄도 안 고쳤고, 배열에 용도를 다시 넣으면 규칙이
-    살아난다. **발전기 레벨 게이트는 그대로**이고, 같은 날 `generatorRequirement` 가 **채워진 요구도 돌려주도록**
-    바뀌었다(칩이 `현재/필요` 를 늘 보여 준다) — 그래서 **빈 배열 ≠ 「문제 없음」**이고 막는지는 사유 함수가 답한다.
-
-- **2026-09-13 (리드 통합 — 서재 시리즈 · 비디오게임)** — TV 화면을 다른 하우징 패널처럼 등록했다: `ui/Panel.HousingPage += 'tv'`(TvMenu 의 형 변환 제거) ·
-  `parts/Presets.panels()` 에 `tvMenu`(그래서 `closeMenus` · `isMenuOpen` 이 함께 본다). 대신 `VideoGame.otherScreenOpen` 은 `isMenuOpen` 이 아니라 **TV 화면을 뺀** 패널만 본다
-  (TV 화면에서 `플레이` 를 누르면 그 화면이 스스로를 막으면 안 된다). 요리 숙련 경험치는 반올림하지 않는다(`COOK_SKILL_XP` 0.8 — 숙련 경험치는 소수 눈금).
-- **2026-09-13 (서재 시리즈 — 효과 합산 · 소스 · 띠 · 레시피 해금 · 게임 디스크 전시대 · 옛 id 변환, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」, H1)**
-  - **공식** (`Rules.computeLibraryEffects`, 사용자 결정): 작동 중인 보관함에 꽂힌 **서로 다른 권**을 시리즈마다 세고(def 한 번 · 여러 보관함에 걸쳐) 몫 =
-    `librarySeriesFraction`(권당 `SHELF_SERIES_VOLUME_SHARE` · 전권 100 %), 줄 값 = 전권 값 × 몫 × (그 매체 보조 가구 작동 ? 1 + `SHELF_AUX_BONUS` : 1),
-    같은 (종류, 대상)끼리 더해 `LibraryEffectsSummary`. `recipe` 는 몫 1 인 시리즈만. 옛 등급 가중치 · 매체 상한은 은퇴(이름만 남음).
-    `getBookBonus` = `getSkillGainMul` = `1 + skillGain[skill]` (progression 경로 그대로).
-  - **캐시 · 이벤트** (`parts/Library` 절 머리): `housing:changed` · `loaded` · `powerChanged` · `operationalChanged` · `shelfChanged` · `furniturePlaced/Moved/Recovered` ·
-    `roomPurposeChanged` 가 더럽히고 마이크로태스크 한 번으로 합쳐 다시 센다. **`housing:libraryChanged {revision}` 는 서명이 바뀔 때만** — 합산 내용 **또는**
-    꽂힌 def 집합(전력 무관) **또는** 보유 보관함 매체 집합(배치 + 가구 창고). 뒤의 둘은 합산이 같아도 띠가 바뀌므로 넣었다 (멈춘 보관함에 꽂기 · 게임 디스크 ·
-    첫 책장 제작). `parts/Furniture` 는 고치지 않았다. loot 없이 센 합산은 `update` 의 `tickLibrary` 가 다시 센다.
-  - **질의**: `getLibrarySources`(값 0 인 시리즈 제외, 값 큰 순) · `getSeriesProgress`(모르는 시리즈 null) · `isShelfItemWanted`(O(1) — 캐시 집합 둘 + def 조회,
-    옛 id 도 치환해서 본다) · `isRecipeUnlocked`(잠그는 시리즈 = `CraftRecipe.unlockSeries` 우선, 없으면 시리즈 표의 `recipe:` 대상 — items 로더가 늦어도 잠긴다).
-  - **보관함**: 게임 디스크 전시대(`'game'`)가 `media` · `mediaDex` 를 쓴다. **같은 def 는 한 칸만**(`이미 꽂혀 있는 책입니다` / 디스크 / 레코드 / 게임 디스크).
-    매체마다 여러 대(`multi`) — 규칙은 uid 기준이라 바뀐 곳이 없다. `hasShelfAux('game')` 은 늘 false (보조 가구 interaction `'none'` 이 꾸밈 가구와 겹치던 것을 막았다).
-  - **세이브** (`ShipState`, 버전 12 그대로 — 머리 주석): 옛 id 치환 · 중복 여분 환불 · `tvConsoles` 정리(배치된 TV · `console_*` · TV 당 하나, 나머지 환불).
-    `SanitizeOutcome.migratedLibrary`(환불 — `migrated`, 곧 다시 쓴다) · `aliasedLibrary`(치환만 — `granted`, 저장만 예약). `HousingSystem.onProfileLoaded` 도 둘을 본다.
-  - **화면**: 보관함 = 권 번호 배지 · 전권 윤곽 · 시리즈 진척 · 게임 디스크 전시대 그림 / 목록, 도감 = 시리즈 줄(권 칸 · 행성 · 전권 효과). CSS `.lib-vol` · `.lib-ser*` ·
-    `.lib-pip*` · `.lib-dex*` · `.lib-case[data-medium="game"]` (접두사 `.lib-` 는 이 화면만 쓴다 — rg 확인).
-  - **스모크** `scripts/smoke-library.mjs` 재작성 — 기대값을 로드된 시리즈 표에서 유도한다 (값을 조정해도 규칙이 같으면 통과). 옛 Phase 9 절(책 14권 · 등급 분포 · 드롭 표)은
-    데이터 에이전트(`data:check` · `check-planet-loot`) 몫이라 뺐다.
-
-- **2026-09-13 (비디오게임 — TV 게임기 · 좌석 · 게임 세션, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」, H2)**
-  - **새 파일** `parts/VideoGame.ts` · `ui/tv/TvMenu.ts` · `ui/tv/tv.css` (위 파일 표). `HousingSystem` 끝에 `/* ══ 비디오게임 (H2) ══ */` 블록(계약 11종 위임 + `tvMenu` ·
-    `gameState` · `videoGameDebug`) + `init` 한 줄(`TvMenu` · `bindVideoGame`). CSS 접두사 `.tvm-`(빈 이름을 확인했다).
-  - **좌석 규칙** `Rules.tvSeatFor(state, tvUid)` (끝에 붙인 절) — 격자 규약은 접근 면 절과 같다(앞 = 로컬 −Z = `furnitureFaceDir(yaw, 'front')`).
-    같은 방 · `SEAT_INTERACTIONS` · 좌석 몸체가 TV 앞 끝 **바깥** · 폭 축 칸 범위가 겹침 · 좌석 yaw = (TV yaw + 2) % 4 · 통로(겹친 폭 × 사이 칸)에
-    `low` 아닌 가구 없음. 여럿이면 통로가 짧은 것 → 폭이 넓은 것. 사유는 가장 멀리 간 후보: 막힘 > 보고 있지 않음 > 정면에 없음. 결과에 `corridor` 사각형.
-  - **판정 튜닝** `createGymGame(kind, tuning?)` — `speedMul`(커서 × · 박자 · 쥐기 ÷) · `windowMul`(구역 · 창 ×, 박자형 창은 박자의 절반 이하) ·
-    `countMul`(판정 수 ×, 반올림 최소 1) · `pattern`(`t`/`h`/`r` · `L`/`R`/`r`, 한 토큰 = 한 박, 맞지 않는 토큰은 버림). **튜닝이 없으면 옛 판정과
-    같은 값**(곱 · 나눗셈 1, 기본 패턴은 옛 루프와 같은 덧셈 순서) — `smoke-gym` 그대로. `PressGame.zone` · `perfect` 를 화면이 읽는다.
-  - **운동 화면의 게임 모드** `GymScreen.openGame(info, {title, color, tuning, consoleName})` — 헬스 모드(`open`)는 동작 무변경. 게임 모드는 토큰
-    `housing.game`(블로커 · ESC · 키 가이드) · `housing:gameBeat` · 끝 = `completeGameSession` / `endGameSession` · 루트 `is-game` + `--c-accent` = 디스크 색 ·
-    부제 `게임기 · 방식` · 호흡형 표식 `톡` / `꾹` · 키 가이드 `누르기` / `톡 · 꾹` / `왼쪽 · 오른쪽`. `mode` 게터 · `lastGameResult`.
-  - **TV 회수**(`parts/Furniture`): `recoverBlock` 에 `tvConsoleRecoverBlock`, `recover` 가 보관함 정리 뒤 게임기를 함선 창고로(못 넣으면 거절 · 아무것도 안 바뀜).
-  - 게임 세션은 헬스와 같은 소리 id(`gym_*`)를 쓴다. 게임 세션에는 서재 헬스 보너스가 붙지 않는다(H3 는 `completeGymSession` 에만).
-  - ⚠ 계약 주석(`PlayableGameInfo.block`)은 「게임기 불일치는 사유가 아니다」로 읽히지만 리드 지시대로 **불일치는 사유**다 — 디버프 · 좌석만 사유가 아니다.
-  - 스모크 `scripts/smoke-video-games.mjs` (verify 매핑 housing · progression · hub · items).
-
-- **2026-09-13 (요리 · 연구 · 헬스 보너스 — 서재 시리즈 소비자, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」, H3)**
-  - **요리 단계 점수 보너스** (`parts/Cooking`): `recordCookStep` 이 원점수를 받아 `min(1, 원점수 + derived.cookScoreBonus + getLibraryEffects().cookScore[game])` 을
-    적고 돌려준다 — **직접 하기 · 자동 모두** (사용자 결정 · 리드 결정). 서재 몫은 썰기 · 다지기 · 굽기 · 볶기(`LIBRARY_COOK_TARGETS`)만. `CookState` 에
-    `stepRaw` · `stepBonus` 가 늘었고 `stepScores` 는 보너스를 반영한 값이라 요리 점수 · 품질 · `housing:cookStep done.score` 가 그것을 쓴다.
-    새 함수 `cookStepBonus` · `applyCookStepBonus` · `cookRecipeBookBlock`, 스모크 훅 `cookDebug.bonus(game)` · `cookDebug.stepRaw`.
-  - **요리 숙련 경험치**: 요리가 실제로 나온 판(`completeCookRun`, 사유 없음)마다 `addSkillXp('cooking', round(COOK_SKILL_XP × max(0.25, 요리 점수)))`. 취소 · 실패는 0.
-  - **레시피 책**: `CraftRecipe.unlockSeries` 가 있는 요리는 `HousingRef.isRecipeUnlocked(id) === false` 면 `『시리즈 이름』 을(를) 서재에 꽂아야 합니다` —
-    `cookBlock` 이 단계 검사 뒤 · inventory 사유 앞에서 거절한다(`startCook` · `restartBlock` 도). 서재 에이전트가 메서드를 아직 주지 않으면 책이 필요한 레시피는
-    잠긴 채다. `cookRecipes` 는 inventory 가 책으로 걸러 낸 요리도 숙련이 되면 되살려 목록에 딤드로 보인다
-    (⚠ 2026-09-15 B-15 부터는 원본 표를 읽어 숙련과 무관하게 전부 싣는다 — 되살리기 루프는 없어졌다).
-  - **화면**: 조리대 화면 레일 = 책 잠김 `is-locked is-book` + 「책」 배지(호버 = 사유) · 사유 줄, `housing:libraryChanged` 에 다시 그림. 단계 칩 아래
-    `점수 +12 (숙련 +6 · 서재 +6)`. 조리 오버레이 = 선택 카드 자동 버튼 `… · 60 % (+12)` · 자동 연출 `단계 점수 60 → 72 % (+요리 숙련 · 서재)` ·
-    단계 점수 글자 `썰기 72 → 84 % (+요리 숙련 · 서재)` · 결과 단계 줄 `72 → 84 %` + 출처(호버 = 수치). CSS `.cook-rail-book` · `.cook-stepchip-bonus` ·
-    `.cook-stepscore-bonus` · `.cook-result-step-bonus`.
-  - **연구 숙련 — 분석 시간** (`parts/Lab`): `startAnalysis` 가 `max(1000, round(Rules.analysisDurationMs(시간, 분석 레벨) × derived.researchTimeMul))` 로
-    `readyAt` 을 적는다 — **넣는 순간 확정**(숙련이 올라도 돌아가던 해석은 그대로). 새 함수 `researchTimeMul` · `analysisMsFor` · `analysisEstimateMs`.
-    회수한 칸마다 `addSkillXp('research', RESEARCH_XP_ANALYSIS)`. 분석 화면: 해석 탭 머리에 `연구 숙련 — 해석 시간 ×0.85 (넣는 순간 정해집니다)`(배수 1 이면 숨김) ·
-    넣을 때 안내에 정해진 시간. ⚠ `SampleDex` 의 `해석 시간 ×n` 은 여전히 분석 레벨 배수만이다(내 파일 아님).
-  - **헬스 서재 보너스** (`parts/Gym.completeGymSession`, 표시된 블록 하나): 운동 기구 4종(`LIBRARY_GYM_TARGETS`)의 점수에 `gymScore[기구 interaction]` 을
-    더해 1 로 자른 뒤 `applyGymSession` 에 넘긴다. 게임(TV) 세션은 기구 interaction 이 아니라 붙지 않는다.
-  - 스모크: `smoke-cooking`(숙련 0 에서 시작 · 경험치 · 직접 / 자동 보너스 · 젓기에는 서재 없음 · 1 로 자르기 · 레시피 책 거절 → libraryChanged 로 풀림) ·
-    `smoke-food-chain`(연구 숙련 50 → 해석 시간 · 넣는 순간 확정 · 연구 경험치) · `smoke-gym`(스미스 머신 0.5 + 0.1 · 벤치 랙 0.9 + 0.3 → 1). 서재 합산 ·
-    레시피 해금은 housing 인스턴스에 가짜를 덮어 써서 규칙만 본다.
-
-- **2026-09-13 (암호화폐 채굴 화면, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 에이전트 ④)**
-  - **새 폴더** `ui/mining/` — `ClusterScreen.ts` · `MiningComputer.ts` · `CryptoChart.ts` · `common.ts` · `mining.css` (위 파일 표). 규칙 · 지갑 · 매매는 하나도 없다 —
-    전부 `parts/Mining`(에이전트 ③)의 계약 메서드를 부르고 그 한국어 사유를 옮긴다. CSS 접두사 `.mn-`(빈 이름을 확인했다).
-  - `HousingSystem`: 필드 `clusterScreen` · `miningComputer`(init 에서 만들고 dispose), 계약 메서드 **`openComputeCluster(uid)`** · **`openMiningComputer(uid | null, tab?)`**
-    (몸통은 `ClusterScreen.openComputeClusterScreen` · `MiningComputer.openMiningComputerScreen`). `parts/Presets.panels()` 에 둘을 더해 페이즈 전환 · `hub:left` ·
-    `game:abort` 에 닫힌다. `ui/Panel.ts` 의 `HousingPage` 에 `'cluster'` · `'computer'` 추가.
-  - 두 화면 모두 `ui:miningToggled {open, uid, page}` 를 낸다(열기 · 레일 전환 · 닫기). Tab · E · Esc 닫기는 `HousingPanel` 그대로, 경고 팝업은 `overlays`.
-  - **되돌릴 수 없는 확정은 1초 홀드**: 매매(`bindHoldButton`) · 진행도가 있는 클러스터의 코인 변경 / 해제(`MiningAsk`).
-  - 매매 확정은 **오래된 시세(25 s)** 에서 잠긴다 — 서버가 거절할 거래를 보내지 않는다 (리드 지시). 거래 한 건은 답이 올 때까지 시세 구독을 따로 쥔다.
-  - 스모크 `scripts/smoke-mining-ui.mjs` (housing · hub 매핑).
-
-- **2026-09-13 (같은 날 후속 — 전력 할당 폐지 · 발전기 = 상위 시설 증축 조건 · v13, 사용자 결정 「전력 할당 시스템이 너무 빡세다」)** — 아래 「발전기 전력」 항목을 **대체한다**.
-  - **지운 파일** `PowerRules.ts` · `parts/Power.ts`. `HousingSystem` 에서 `bindPower` 와 전력 위임 7개(`getPowerOverview` · `getFacilityPower` · `setPowerAllocation` ·
-    `isFurnitureDisabled` · `setFurnitureDisabled` · `getOperationalBenchLevel` · `benchOperationalBlock`)를 걷어냈다 — 계약(`shared/housing.ts`)은 추가만이라 이름만 은퇴 표시로 남는다.
-    남은 둘: `furnitureOperationalBlock(uid)` = `parts/Mining.clusterOperationalBlock`(메인 컴퓨터 없는 연산 클러스터만 사유) · `stationNow(uid)` = `nowMs()`.
-  - **규칙** (사용자 결정): 발전기 **Lv.1 시작 · Lv.5 최대**(`GENERATOR_START_LEVEL` · `GENERATOR_MAX_LEVEL`). 시설 증축 게이트가 용도마다 다르다 — `Rules.purposeBuildBlockReason` ·
-    `purposeRequirementsFor` 가 `purposeGeneratorLevel(purpose)`(`data/room_purposes.csv` 의 `generator`: 작업실 1 · 온실 · 주방 2 · 연구실 3 · 헬스장 · 서재 4 · 채굴 시설 5)을 본다.
-    가구 · 창고 강화의 발전기 게이트(Lv.n → 발전기 Lv.n)는 **그대로**(사용자 결정). 발전기 강화 비용은 더 무거워졌다(`data/facility_upgrades.csv`, Lv.4–5 에 상위 재료).
-  - **`ShipState` v13**: 발전기 레벨을 방보다 먼저 읽어 [1, 5] 로 자른다(0 → 1, 옛 Lv.6–10 → 5 **환불 없음** — 사용자 결정). 발전기가 용도 요구보다 낮은 방은 v8 「사라진 방」 과 같은 길로
-    **제거 + 전액 환불**(증축 재료 · 담긴 것 → `refund`, 가구 → 가구 창고 — 사용자 결정) · `SanitizeOutcome.removedByGenerator` → `HousingSystem.generatorNotice` 토스트
-    `발전기 레벨이 모자란 시설 n곳을 제거했습니다 — …`(로컬 로드 · 서버 사본 둘 다). 전력 필드(`powerAlloc` · `disabledFurniture` · `pausedAt`)는 옮기지 않는다 — 멈춰 있던 칸은 저장된 시각 그대로 다시 흐른다.
-  - **멈춘 시계 제거**: `parts/Garden` · `Culture` · `Lab` 의 `shiftPaused*` 삭제, `parts/Mining` 은 `nowMs` 시계 + 메인 컴퓨터가 없으면 구간을 새로 연다(`operationalChanged` 구독 삭제 ·
-    `ComputeClusterInfo.power` 늘 0). `parts/Library` 는 모든 보관함 · 보조 가구를 센다(전력 필터 · 구독 삭제) · TV / 레코드 플레이어는 늘 켜진다. `parts/Cooking` · `Gym` · `VideoGame` 의
-    전력 게이트 삭제(자동 조리 가구도 늘 대신한다).
-  - **화면**: `ui/StationShell` 의 `power` 옵션 · `.hpw-toggle` · `.hpw-banner` · `paintStationPower` 삭제(재배 · 분석기 · 배양조 · 식탁 · 보관함 · 조리대 · 클러스터 · 메인 컴퓨터가
-    넘기던 옵션도), 클러스터 화면의 `요구 전력` · `시설 전력` 줄 · 메인 컴퓨터 현황의 `전력` 열 · `.mn-cpower` 삭제, TV 화면 머리의 전력 사유 삭제. `housing.css` 의 `.hpw-` 절 삭제.
-  - 스모크 `smoke-power` → **`smoke-generator`** (housing · ui).
-
-- **2026-09-13 (발전기 전력 — 할당 · 비활성화 · 멈춤 · v12, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 전력 에이전트)** — ⚠ **같은 날 폐지됐다** (바로 위 항목). 기록으로만 남긴다.
-  - **새 파일** `PowerRules.ts`(순수 판정 · 세이브 정리 · v12 이관) · `parts/Power.ts`(recompute · 계약 9종) — 위 파일 표. `HousingSystem` 에 한 줄 위임 9개 +
-    `saveSoon()`(저장만 예약, `housing:changed` 없음) + `init` 의 `Power.bindPower`.
-  - **규칙** (사용자 결정): 공급 = `GENERATOR_POWER_BY_LEVEL[발전기 Lv]`(최대 Lv.10) · 시설 요구 = `ROOM_PURPOSE_POWER` + 활성 가구 power (+ 코어) · **수동 할당**, 할당 < 요구면
-    그 시설의 전력을 쓰는 가구 전부 멈춤 · 비활성화는 요구에서 빠지고 멈춤 · 클러스터는 가동 중인 메인 컴퓨터가 있어야 · 조종석 · 전력 0 가구는 늘 작동.
-  - **리드 지시에 없던 결정 — 자동 보충** (`data/tuning.csv` `POWER_AUTO_TOPUP`, 기본 1): 가동 중이던(또는 새로 증축한) 시설의 요구가 늘면 **남는 전력에서만** 부족분을 채운다.
-    다른 시설의 할당은 가져오지 않고, 남는 전력이 모자라면 채우지 않고 멈춘 뒤 토스트. 근거: 튜토리얼(총기 작업대를 놓고 곧바로 제작)과 가구를 놓고 곧바로 쓰는
-    스모크 8종(cooking · food-chain · gym · housing · inventory-p6 · library · stations · tutorial)이 할당 없이는 전부 멈춘다. 완전 수동은 표의 값 0.
-  - **멈춤**: 작동하지 않는 동안 `pausedAt[uid]` 가 서 있고 `stationNow(uid)` 가 그 시각을 준다 — 재배(`parts/Garden` 진행도 · 남은 시간 · 여묾 · 수확 · 파종 시각 ·
-    `rescaleGrowsForUpgrade`) · 배양(`parts/Culture`) · 해석(`parts/Lab`)이 전부 `stationNow` 를 읽는다. 다시 돌면 `housing:operationalChanged {pausedMs}` →
-    `shiftPausedGrows` · `shiftPausedCultures` · `shiftPausedAnalyses` 가 그 칸들의 시작 · 완료 시각을 민다 (썩지 않는다). 멈춘 스테이션에 심은 작물은 다시 돌 때부터 자란다.
-  - **게이트**: 조리(`openCookStation` · `cookBlock` / `startCook`, 자동 조리 가구는 작동할 때만 `getCookAuto`) · 운동(`gymBlock`) · 서재 보너스(`getShelfBonus` 가
-    작동하는 보관함의 매체 · 보조 가구만 센다) · TV / 레코드 켜기(`toggleFurniture` — 끄기는 된다). 작업대는 hub 의 E(`interiors/Furniture`) · 인벤토리 제작 목록
-    (`getOperationalBenchLevel` · `benchOperationalBlock`).
-  - **`ShipState` v12**: `powerAlloc` · `disabledFurniture` · `pausedAt` 정리(`sanitizePowerFields`) · `version < 12` 는 방 순서대로 요구량 할당 → `SanitizeOutcome.migratedPower`
-    (로컬 로드는 `migrated`, 서버 사본은 `markDirty`). 새 함선도 세 필드를 빈 값으로 갖는다. 방 용도가 바뀌면 그 방 할당을 지우고, 회수된 uid 의 비활성 · 멈춤 기록은 다음 계산이 지운다.
-  - **화면**: `ui/StationShell` 에 `power` 옵션(`{ctx, uid()}`) — 업그레이드 왼쪽 `.hpw-toggle` `비활성화` / `활성화` + 머리 아래 `.hpw-banner`
-    (`전력 부족 — 시계가 멈췄습니다 (시설 요구 r · 할당 a)` / `비활성화됨 — 시계가 멈췄습니다` / 그 밖의 사유), `paintStationLevel` 이 함께 칠하고 레벨 없는 화면(식탁 · 서재)은
-    `paintStationPower(shell)`. 재배 · 분석기 · 배양조 · 식탁 · 보관함 · 조리대 화면이 옵션을 넘긴다. CSS 접두사 `.hpw-`(`housing.css`).
-  - 스모크 `scripts/smoke-power.mjs`(housing · ui). 옛 스모크의 버전 기대값 11 → 12(smoke-housing · smoke-library · smoke-food-chain) · 발전기 최대 5 → 10(smoke-housing).
-
-- **2026-09-13 (배치 규칙 — 접근 면, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 배치 에이전트 · 사용자 결정)**
-  - **규칙** (`Rules.placementBlockOf`): `FurnitureDef.access` 가 `front` 면 앞(로컬 −Z) 한 줄에 몸체가 없어야 하고 그 줄이 벽이어도 안 된다,
-    `sides` 는 넓은 두 면(로컬 ±Z), `all` 은 네 면 한 줄씩(모서리 제외, 벽은 된다). 조종석 고정 소품 자리는 몸체로 센다. 양방향 — 새 몸체가 남의
-    비워야 하는 줄에 들어가도 거절. 줄끼리는 겹쳐도 된다(마주보는 작업대의 1칸 통로). 면은 칸 목록이 아니라 한 줄 **사각형**으로 본다(하우징
-    모드가 매 프레임 묻는다 — 방향표는 계약의 `furnitureFaceDir` 로 모듈 로드 때 한 번 채운다). `canPlaceAt` 은 서명 · 쌓기 규칙 그대로이고
-    `placementBlockOf(...) === null` 이다 — 손 배치 · `move` · 자동 배치 · `sanitize` 가 한 규칙을 본다.
-  - **`HousingRef.placementBlock`** (계약에 이미 있던 선택 멤버) = `HousingSystem.placementBlock` → `Rules.placementBlockReason`. 문장 원본 `PLACEMENT_REASON_KO`.
-  - **자동 배치**: 순서 · 선호 회전 `[1, 0]` 은 그대로, 그다음 `AUTO_PLACE_FALLBACK_YAWS` `[3, 2]` — 발자국이 같아도 앞이 반대라 벽 쪽 끝 줄에서 돌아서면 선다.
-  - **옛 세이브** (사용자 결정 「가구 창고로」): `sanitize` 가 접근 면 규칙**만** 어기는 조각을 버리지 않고 가구 창고로 옮긴다(겹침 · 격자 밖은 예전처럼 버린다).
-    담긴 것이 조용히 사라지지 않게 재배 칸(흙 · 심은 씨앗 · 소켓) · 해석 칸(표본) · 배양 칸(배지 · 스캐폴드 · 넣은 세포주 · 소켓)을 함선 창고 환불 자루에 넣는다
-    (칸당 한 번 — 흙 · 배지는 새것으로, 다 자란 작물 · 해석 결과는 돌아오지 않는다). 책 · 매체는 원래 있던 `displacedUids` 경로. `evictedByAccess` →
-    `HousingSystem` 이 첫 프레임에 `배치 규칙에 맞지 않는 가구 n개를 가구 창고로 옮겼습니다` 를 알리고 곧바로 저장한다(서버 사본을 받았을 때도 같다).
-    ⚠ 채굴 클러스터의 코어 환불은 채굴 쪽이 `displacedUids`(가구 루프 뒤에 채워져 있다)를 보고 붙인다.
-  - **조종석 전용 시설**: 기본 좌표(`COCKPIT_DEFAULT_FURNITURE` · `COCKPIT_DECOR_FURNITURE`)는 새 규칙을 이미 지켜 계약 값은 바꾸지 않았다. 대신
-    `ensureCockpitFurniture` 가 기본 자리 · 자동 배치가 모두 막히면 기본 자리 둘레 → 조종석 전체의 꾸밈 가구를 가구 창고로 옮겨서라도 시설을 세운다
-    (`evictCockpitDecor` — 조종석에는 담긴 것이 있는 가구가 들어가지 않는다).
-  - 스모크 `smoke-furniture-access` (새) · `smoke-housing` · `smoke-library` 의 고정 좌표(앞이 벽이던 y 0 작업대 · 책장)를 한 줄씩 내렸다.
-- **2026-09-13 (암호화폐 채굴 규칙 · 지갑 · 거래소 — 에이전트 ③, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」)**
-  - **새 파일** `parts/Mining.ts` · `MiningRules.ts` (위 표). `HousingSystem` = 계약 10종 + 개발용 3종 한 줄 위임, `init` 에 `Mining.bindMining`, `update` 에 `Mining.tickMining`.
-    화면(`openComputeCluster` · `openMiningComputer`)은 채굴 화면 에이전트 몫이다.
-  - **시계 규약** (전력 에이전트와의 약속): 「지금」 = `stationNow(uid)`, 다시 돌면 `housing:operationalChanged {pausedMs}` 를 받은 자리에서 동기로 `segmentAt += pausedMs`
-    (저장은 다음 틱). 틱은 전력으로 막혀 있어도 끝난 주기를 넣는다 — 멈춘 시각까지 쌓인 것뿐이다. 잠긴 코인은 넣지도 구간을 건드리지도 않는다
-    (서버 프로필이 늦게 와 잠깐 잠겨 보여도 오프라인 시간을 잃지 않게). 레이드 중에는 넣지 않고 함선에서 따라잡는다.
-  - **회수 · 제작**: `parts/Furniture.recoverBlock` 이 `… ?? clusterRecoverBlock(sys, uid)`, `recover` 가 코어가 있으면 토스트 + 거절(코어가 가구 창고로 사라지지 않게).
-    `furnitureCraftBlock` 의 「이미 보유 중」 은 `!def.multi` 일 때만 — 연산 클러스터는 여러 대, 메인 컴퓨터는 여전히 하나.
-  - **`ShipState.sanitize`**: 끝(전력 v12 절 뒤, `if (out)` 앞)에서 **최종** `state.furniture` 의 클러스터 uid 로 `sanitizeClusters` → 배치되지 않은 클러스터의 코어는
-    `mergeCost(refund, mat_compute_core × n)` (은퇴 가구와 같은 자루 → 함선 창고). 지갑 · 누적 채굴은 `sanitizeUnitsMap`. 버전은 올리지 않았다(없던 필드).
-  - 검증: `scripts/smoke-mining.mjs` 61/61.
-- **2026-09-13 (요리 미니게임 · 요리 품질 — 조리대 화면 · 판정 · 오버레이 · 식탁, 에이전트 cook-housing, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」)**
-  - **판정 6종**(`parts/CookGames.ts`) — `GymGames` 구조 그대로(스스로 `time` · `drain()`), 규칙은 설계안 §4 표 그대로, 수치는 전부 `COOK_*`.
-    설계안에 없던 빈칸: 썰기의 헛클릭 · 예비 박 무시는 헬스장 `strayMiss` 와 같은 식이고 **판정이 난 클릭에만** `cut` 연출을 낸다 · 볶기는
-    박자를 놓쳐도 판정이 없다(바가 안 찰 뿐) · 젓기 점수 비율의 분모는 게임 전체 시간 · 누르는 동안 `stir` 연출 간격 0.25 초는 구현 값(hub 국자가 마지막 `stir` 0.45 초 뒤 멈춘다 —
-    「뗐다」 이벤트가 없다; `cook_stir` 소리는 화면이 0.45 초 간격으로 솎는다) ·
-    붓기는 한 번도 붓지 않았으면 가만히 있어도 끝나지 않는다 · 굽기 조각이 불에 닿는 순간마다 `cook_sizzle`.
-  - **세션**(`parts/Cooking.ts`) — `parts/Gym` 구조. 계약 `HousingRef` 6종(`openCookStation` · `cookSession` · `cookBlock` · `startCook` · `cancelCook` ·
-    `getCookAuto`) 한 줄 위임 + `cookRecipes()` · `cookDebug`. 재료는 **끝에서만**(`inventory.completeCook`) 빠지고, 결과 뒤 「다시 만들기」는 같은 세션
-    (자세 · 카메라 유지)에서 처음 단계부터다 — 세션 끝의 `completed` 는 「이 세션에서 요리가 하나라도 나왔다」.
-    레시피 목록은 처음에 리드 지시대로 `getRecipes('ship', 'cook', 99)` 라 숙련이 모자란 요리가 레일에 없었다 — ⚠ **2026-09-15 (B-15) 에 뒤집혔다**:
-    목록(`cookRecipes`)도 조회(`cookRecipeOf`)도 원본 표를 읽고, 숙련 잠김 요리는 딤드 + 숙련 배지로 레일에 보이며 시작만 inventory 의 진짜 사유로 막힌다.
-    inventory 메서드가 없으면 대체 게이트(레벨 · 숙련 · 재료) + 결과 `reason`.
-  - **화면** — `ui/cook/CookStation.ts`(조리대 화면, `StationShell` · 업그레이드 모달) · `ui/cook/CookScreen.ts`(오버레이) · `ui/cook/CookViews.ts` · `ui/cook/cook.css`
-    (`.cook-` 접두사). `ui/Panel.HousingPage` += `'cook'`, `parts/Presets.panels` 에 조리대 화면.
-  - **식탁 품질** — `parts/Dining`(위 표) · `ui/DiningTable`: 목록 = (요리, 품질) 한 줄씩 · 칩 `★n` 배지 · 이름 옆 별 · 능력치는 보너스 반영, 접시에 실린
-    식사의 별(`getMealQuality`) · 이번 레이드 식사 문구에도 별, 접시로 끌어다 놓으면 그 아이템의 품질로 먹는다. `mealEffectLines(meal, quality = 0)` ·
-    `mealBuffText(meal, quality = 0)` 에 선택 인자 — 줄마다 `amount × (1 + mealQualityBonus(품질))`(progression `applyMealBuff` 와 같은 식).
-  - 스모크: 새 `scripts/smoke-cooking.mjs`(verify: housing · inventory · progression · hub · player).
-
-- **2026-09-13 (요리 재료 티어 — 화면, 에이전트 C)** — 재배 · 배양 화면에 흙 · 배지 **내구도 · 보너스 비율 · 소켓 점**, 소켓 드롭(빈 칸 = 곧장, 가득 = `ui/SocketFlow` 의 교체 소켓 고르기 → 1초 홀드 「교체하면 파괴」), 소켓이 있는 칸 비우기 경고, 배양관의 **스캐폴드 격자** · 「스캐폴드 빼기」, 분석 화면의 계열 칩 · 결과 칸(「?」 → 결과 칩 + 「새 발견」), **분석 도감**(`ui/SampleDex` 재작성 — 계열별 레벨 · 경험치 · 시간 배수 · 결과 행, 미발견은 실루엣이라 호버로 이름이 새지 않는다), 식탁의 능력치 여러 줄 · 티어 이름. `housing.css`: `.gs-socks` · `.gs-slot.is-worn` · `.az-fam` · `.az-name-text` · `.az-result` · `.az-new`(분석 칸 4열) · `.az-dex-*`(옛 도감 블록 대체) · `.cult-scaffold` · `.cult-socks` · `.cult-slot.is-worn` · `.dt-plate-buff`/`.dt-effects` 여러 줄. `scripts/smoke-stations.mjs` 가 `spec_cell` · `cell_cow` 로 새 동작을 본다. 규칙은 한 줄도 화면에 없다 — 사유는 전부 B 의 메서드가 준다.
-- **2026-09-13 (요리 재료 티어 — housing 규칙, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, 사용자 결정 12문항)**
-  - **분석기 = 계열 결과표.** 표본은 세포 · 광물 · DNA 계열로 해석되고, 결과는 `data/analysis_results.csv`(`ANALYSIS_RESULTS`)를 그 계열의
-    **분석 레벨**로 가중 추첨한다 — **넣는 순간** 굴려 칸에 적으므로(`AnalysisSlot.resultDefId/Qty`) 회수에 실패하거나 레벨이 올라도 바뀌지 않는다.
-    레벨은 시간(`analysisTimeMul`)과 결과 해금(`minLevel`)을 정하고, 경험치는 회수마다 `ANALYSIS_XP_BY_RARITY[표본 등급]`. 옛 「도감 진척 ·
-    기지식 → 시간 단축」과 첫 해석 보너스는 없어졌다 (`analyzeDurationMs` · `getSampleDexRatio` 는 `@deprecated`). 분석 도감은 **산출물** 단위
-    (`ShipState.analysisFound`, `housing:analysisFound`)이고 옛 표본 도감은 조용히 채우기만 한다(`housing:sampleDexAdded` 안 냄).
-    결과 없는 옛 칸은 회수할 때 굴린다. 은퇴 표본도 자기 계열로 해석된다.
-  - **흙 · 배지 = 내구도 + 소켓, 칸은 저절로 비지 않는다.** 수확마다 `SOIL_WEAR_PER_HARVEST` / `MEDIUM_WEAR_PER_HARVEST`(× `wear` 소켓,
-    바닥 `GROW_WEAR_MUL_FLOOR`) 만큼 닳고, 흙 궁합 **보너스** · 배지 속도 보너스 · 소켓 speed / yield 가 `내구도 / 최대` 비율로 준다 (궁합 패널티는 그대로).
-    `soilUsesLeft` · `mediumUsesLeft` 는 필드만 남고 뜻이 「0 까지 남은 수확」이다. 소켓은 새 `parts/Sockets.ts` 한 벌을 재배 · 배양이 같이 쓴다 —
-    칸 수 = 흙 · 배지 등급, 영구, 가득 차면 `replaceIndex` 로 교체(옛 것 파괴), 흙 · 배지를 비우면 함께 사라진다. 옛 칸은 런타임 정리가
-    `round(최대 × usesLeft / uses)` 로 옮긴다. 아이템 표에 `durability` 가 아직 없으면 `uses × 수확당 마모` 를 최대로 읽는다(옛 횟수와 같은 수확 뒤 0).
-  - **배양 스캐폴드.** 배지 → 스캐폴드 → 세포주. 스캐폴드가 있으면 종별 고기(`StrainDef.scaffold*`)를 `scaffoldHours` 동안 만들고 수확 때 소모된다;
-    세포주가 들어가기 전이면 `takeScaffold` 로 돌려받는다. 스캐폴드 산출이 없는 세포주 · 은퇴 세포주는 거절, 은퇴 세포주가 든 옛 칸은 세포주 필드만 지운다.
-    (계약에 없던 결정) `clearMedium` 은 세포주 없이 스캐폴드만 든 칸이면 스캐폴드를 되돌려준다 — 아직 쓰지 않은 아이템을 조용히 버리지 않는다.
-  - **`ShipState` v11**: 새 필드를 전부 검증해 남긴다(`sanitize` 가 칸을 필드별로 다시 짓는 자리라 적지 않으면 조용히 사라진다), `freshState` 에
-    `analysisXp` · `analysisFound`. 환불 · 마이그레이션 없음.
-  - **`Rules.ts`** 순수 함수 추가(위 Files 표) — `growDurationMs` · `cultureDurationMs` 의 새 뒤 인자는 기본값이면 옛 값과 **같다**(`smoke-food-chain` 이 검산).
-    난수는 주입(`rng01`), 부르는 곳은 `Math.random`.
-  - 스모크: 새 `scripts/smoke-food-chain.mjs`(verify: housing · items · progression), `smoke-housing` 의 「다 닳으면 칸이 빈다」 · v10 검사를 새 규칙으로.
-
-- **2026-09-13 (스테이션 카드 배치 · 재배 스테이션 성장 속도 · 배양관 · 추출기 배지 레시피, 사용자 결정)**
-  - **재배 스테이션: 층 대신 속도** — 세 층(위 · 중앙 · 아래, 층 id 그대로)이 **Lv.1 부터 모두 열려 있다** (계약 `growTiersForLevel`
-    이 레벨과 무관하게 `[0, 1, 2]` — hub 가 그리는 선반도, `ShipState.sanitize` 의 `grows` 검사도 저절로 따라간다; 옛 세이브는
-    할 일 없음). 강화(최대 Lv.3, 비용 그대로)는 레벨마다 **성장 속도 +15 %** — `data/tuning.csv` 의 `GROW_STATION_SPEED_PER_LEVEL`
-    (0.15, 계약 `src/shared/housing.ts` 에 추가) · `Rules.growStationSpeedMul(level)` = `1 + 0.15 × (레벨 − 1)` ·
-    `Rules.growStationSpeedPct` · `Rules.growDurationMs(growHours, matched, gardening, stationLevel = 1)` 이 토양 궁합 · 원예 항을
-    곱한 뒤 **그 배율로 나눈다**. `parts/Garden.plantSeedAt` 이 스테이션 레벨을 넘긴다.
-  - **강화 순간의 재조정 — 「readyAt 은 심는 순간 확정」의 유일한 예외**: `parts/Furniture.upgradeFurniture` 가 재배 스테이션의
-    레벨을 올린 직후 `Garden.rescaleGrowsForUpgrade(sys, uid, from, to)` 를 부르고, 자라던(아직 안 여문) 작물마다
-    `Rules.rescaleGrowTimes(now, plantedAt, readyAt, oldMul, newMul)` 가 타임라인을 **지금을 축으로 `oldMul / newMul` 만큼 압축**한다 —
-    남은 시간이 그 비율로 줄고(= remaining × oldMul / newMul), 지난 구간도 같은 비율로 줄여 **진행도가 그대로** 이어진다. 여문 작물 ·
-    흙만 있는 칸은 그대로. `housing:changed` 보다 먼저라 같은 저장에 실린다.
-  - **재배 화면**: 업그레이드 모달 한 줄 `성장 속도 +0% → +15% · 자라는 작물에도 바로 적용`, 성공 메시지 `재배 스테이션 Lv.2 — 성장 속도 +15%`,
-    Lv 옆 `성장 속도 +N%`(`StationShell.meta`), 작물 호버 카드에 `스테이션 · Lv.n · 성장 속도 +N%` 줄. `data/furniture.csv` 의 재배
-    스테이션 설명에서 「층이 늘어난다」를 걷어냈다.
-  - **가구 화면 카드 배치 (「작업대 제작 화면처럼」)**: `ui/StationShell` 이 바깥 틀을 없애고 **[스테이션 카드] [함선 창고 카드]
-    [가방 카드]** 를 한 줄로 세운다 — 제목 · Lv · 업그레이드(카드 우상단) · 레일은 스테이션 카드 안, 격자 카드는 카드마다 머리와
-    자기 세로 스크롤 (`mountStationGrids` 가 `TradeGrids` 를 카드마다 격자 하나씩 — inventory 가 같은 날 낸 카드 API
-    `layout: 'split'` · `chips: 'block'` · `setCell` 을 그대로 쓴다, 칸 `stationGridCell()` 54 / 46). 틀이 투명해진 만큼
-    화면 아래 84 px 를 비워 둔다(함선 HUD 의 PC 체력바 · 키 가이드와 발이 겹치지 않게). API 는 옛
-    이름 · 시그니처 그대로이고 `cards` · `stationCard` · `meta` · `stashCard` · `bagCard` · `paintStationMeta` · `inventory?` 가
-    늘었다 (위 Files 표의 `ui/StationShell.ts` 행). `housing.css` 는 옛 `--hs-inv-w` · 1599 / 1180 미디어 쿼리를 걷어내고
-    `.hs-cards` · `.hs-card(-station/-inv/-stash/-bag)` · `.hs-card-head/-title` · `.hs-meta` · `.hs-inv-cards` + 1279 / 919 쌓기.
-    레일 폭 176 → 156.
-  - **배양조 = 세로 유리 배양관 3개** (`ui/CultureTank`): 늘 3열(`.cult-slots` grid), 관 = `.cult-cap` · `.cult-glass`(열린 관은
-    `.cult-cell[data-slot]` = 드롭 대상) · `.cult-base`, 액체 `.cult-fluid` 높이 = `--lvl`(남은 수확 ÷ 그 배지의 최대 횟수, transform
-    `scaleY`), 색 = `--mc`(배지 아이템 색), 떠 있는 세포주 글리프, 관 아래 이름 · 시계(배양 중이 아니면 `배지 n/m회` / `배지 필요`) ·
-    진행바(자리 고정 `.is-idle`). 잠긴 관은 점선 + `Lv.N 필요`(드롭 대상 아님). 빈 관에 배지를 부으면 한 번 `cult-rise` 가 돈다
-    (`debug.fills`). 업그레이드 문구 `배양관 n개 개방`.
-  - **추출기 배지 레시피**: `extract_medium_basic` · `extract_medium_rich` 삭제 → 작물 8 · 약초 6 · 미세조류 1 = 15줄
-    (`src/items/README.md` 변경 이력).
-  - 스모크: `smoke-housing` 의 층 잠금 · 「강화가 층을 연다」 검사를 **Lv.1 전부 열림 + 남은 시간 재조정 비율 + Lv.2 파종 비율**로,
-    `smoke-stations` 의 틀 검사를 **카드 셋 한 줄 · 카드마다 격자 하나 · 성장 속도 표시 · 배양관 3열 · 액체 높이**로 바꿨다.
-
-- **2026-09-13 (서재 보관함 화면 — 그려진 선반 · 드래그, 책장 8칸, 사용자 결정)**
-  - **책장 6 → 8칸** (`data/constants.csv` 의 `BOOKS_PER_SHELF`, 4 선반 × 2). 디스크 전시대 6 · 레코드랙 4 · `SHELF_GAIN_MAX` 그대로.
-    **세이브 마이그레이션이 없다**: 책은 `{uid, slot, defId}` 성긴 목록이고 `ShipState.sanitize` · `placeBook` 이 `slot < BOOKS_PER_SHELF` 만
-    보므로 옛 6칸 세이브의 칸 0–5 는 그대로 남고 6–7 은 빈 칸으로 열린다 (`ShipState` · 버전 무변경). 3D 책장(`hub/interiors/Furniture`)도
-    4 × 2 로 같은 칸 순서(위 → 아래 · 왼 → 오른쪽)라 옛 책이 같은 자리에 선다. 방문 와이어(`hub/parts/Hangar`)는 상수를 읽어 따라온다.
-  - **화면** (`ui/BookshelfMenu.ts` 재작성 + 새 `ui/ShelfDrawing.ts`): `StationShell` 카드 배치(`upgrade: false`) — 보관함 카드(레일 「선반」 ·
-    「도감」 탭, 선반 페이지 = `n / 8권` 줄 + 가구 그림 + 호버한 칸의 정보 줄 + 보조 가구 줄) · 함선 창고 카드 · 가방 카드. 제목은 그대로
-    `책장 · 방 n`. 옛 보유 서적 칩 목록과 칸 카드의 꽂기 / 빼기 버튼은 없어졌다.
-  - **그림**은 CSS 뿐이다(`housing.css` 의 `.lib-*` — 접두사가 비어 있음을 rg 로 확인): 틀 + 단 × 2칸 + 받침, 책장 = 나무 · 희귀도 색 책등
-    (글리프 + 세로쓰기 숙련 이름), 디스크 전시대 = 금속 · 아크릴 턱 · 케이스 속 디스크, 레코드랙 = 검은 랙 · LP 가 삐져나온 슬리브. 빈 칸 =
-    같은 모양 점선 윤곽 + `+`. 꽂힌 칸 호버 = `ui/hud/ItemTip` 아이템 카드 + 선반 아래 정보 줄(`n번 칸 · 이름 · 숙련 · 가중치 · 배율`).
-  - **조작**: 격자 타일을 칸에 끌어 놓기 = 꽂기, 타일 더블클릭 = 첫 빈 칸, 매체가 다르면 `책장에는 서적만 꽂을 수 있습니다`(디스크 전시대 ·
-    레코드랙도 같은 문장). **꽂힌 칸에 놓으면 교체**다 — `takeShelfItem`(가방 먼저 · 없으면 창고) → `placeShelfItem`; 꽂기가 거절되면 뺀 것을
-    같은 칸에 다시 꽂아 되돌리고(같은 def 라 방금 돌아온 한 권이 소모된다), 같은 아이템이면 아무 일도 없고, 함선 밖에서는 교체를 시도하지
-    않고 `placeShelfItem` 의 사유를 보인다. 꽂힌 칸을 격자로 끌기 · 더블클릭 = 빼기(`ProductDrag` → `takeShelfItem` — 놓은 격자와 무관하게
-    가방 먼저, 기존 규칙). 함선 전용 규칙(`placeBook` 의 hub 검사)은 그대로. **`parts/Library.ts` 는 무변경**이다.
-  - `scripts/smoke-library.mjs`: 뷰포트 1440×900(카드 배치 · 진짜 포인터 드래그), 8칸 상수, 그림(단 순서 `01|23|45|67` · 매체별 단 수) ·
-    탭 · 카드 순서 · 타일 더블클릭 / 포인터 드래그 / 교체 / 끌어 빼기 / 칸 더블클릭 / 매체 거절.
-  - 알려진 한계: `data/furniture.csv` 의 책장 설명이 아직 `(6권)` 을 적는다 (그 파일은 이 작업의 소유가 아니다 — 숫자를 설명에서 빼는 게 규칙).
-
-- **2026-09-13 (조종석 전용 시설 · 조종석 꾸밈 가구 · `ShipState` v10, 사용자 결정)**
-  - **조종석 전용 시설**: `furn_implant_bay` · `furn_corp_computer` 의 `room` 이 `any` → **`cockpit`** 이다 (`data/furniture.csv`,
-    판정은 계약의 `isCockpitOnlyFurniture`). `furnitureAllowedIn` 은 한 줄도 안 바뀌었다 — 조종석의 용도가 원래 `'cockpit'` 이라
-    `def.room === purpose` 로 조종석에서만 통과하고, 방의 가구 목록(`getFurnitureFor`)에서도 저절로 빠진다.
-    `parts/Furniture.recoverBlock` 이 `조종석 전용 시설은 회수할 수 없습니다`(`COCKPIT_ONLY_RECOVER_REASON`, 문장의 원본은
-    `shared/housing` — hub 의 토스트도 쓴다)를 돌려주고 `recover` 는 거절한다(직접 부른 호출자에게는 `notify`). 조종석 안 `move` 는 그대로다.
-    제작은 여전히 불가(`craft` 비어 있음 · `이미 보유 중입니다`).
-  - **정확히 한 대**: `ShipState.ensureCockpitFurniture` 가 조종석 전용 def 에 대해 「조종석에 놓인 첫 한 대」만 남기고 다른 방 ·
-    두 번째 조각 · 가구 창고 사본을 걷어 낸 뒤, 조종석에 없으면 기본 자리 → 조종석 자동 배치 → (최후) 가구 창고로 놓는다. 다른 방에
-    놓여 있던 것은 먼저 기존 가구 규칙이 가구 창고로 빼므로(용도 불일치) 결국 조종석으로 돌아온다. **모든 로드**가 지난다.
-  - **꾸밈 가구**: 조종석의 고정 소품이던 침상 · 사물함 두 칸 · 창고 캐비닛이 `furn_bunk` · `furn_locker` ×2 · 새 `furn_drawer`(서랍장,
-    `any`, 폐금속 4 + 합금 판 1, 모델 `drawer`)가 됐다. 자리는 계약의 `COCKPIT_DECOR_FURNITURE`. `placeCockpitDecor(state)` 가
-    `freshState()`(uid f-3 … f-6, 시설 f-1 · f-2 뒤)와 **`sanitize` 의 `version < 10` 절에서만** 놓는다(막혀 있으면 가구 창고) —
-    v10 으로 저장된 뒤에는 회수해도 다시 채우지 않는다. `sanitize` 에서는 꾸밈 가구를 조종석 전용 시설보다 **먼저** 놓는다: 그 칸들은
-    v9 까지 `COCKPIT_BLOCKED_RECTS` 라 옛 세이브에서 늘 비어 있고, 시설이 기본 자리를 잃었을 때 자동 배치가 옛 소품 자리를 먼저 차지하지
-    않게 하려는 것이다. `SanitizeOutcome.migratedCockpit` → `loadState().migrated`(= `editPending`) · 서버 사본이면 `markDirty`.
-  - `COCKPIT_BLOCKED_RECTS` 는 계기판 · 좌석 + 통로 · 포드 소켓 + 탑승 동선(`{13,7,7,4}` + `{16,11,4,1}`)만 남았다.
-  - smoke-housing: 새 함선 6 조각 · v10 · 카탈로그 수(any 10 → 9, 조종석 11) · 시술대 회수 거절 + 조종석 안 이동 · 서랍장 회수 → 재배치(f-7) ·
-    뒤 uid 가 +4 씩 밀림(f-10 · f-11) · 마이그레이션 B/C/D 기대값 + 새 E(v10 은 꾸밈 가구를 다시 놓지 않고 시술대를 조종석 한 대로 모은다).
-    `src/tutorial/TutorialSystem.looksFresh` 가 조종석의 꾸밈 가구를 「꾸민 함선」으로 세지 않게 한 줄 고쳤다 (그 폴더 밖 수정).
-- **2026-09-12 (F — 헬스 미니게임이 끊겨 흐르던 것, docs/DECISIONS.md 「2026-09-12 — 전투 소모품」)** — 사용자 보고: 벤치프레스 원 커서가
-  스르륵 흐르지 않고 키를 누를 때마다 끊겨 움직이고, 호흡 · 사이클 표식도 키를 누를 때만 온다.
-  - **원인**: `ui/gym/GymScreen` 의 루프가 `setInterval(16 ms)` 태스크였다. Chrome 은 렌더링 · 입력 태스크를 타이머보다 먼저 돌리므로, 3D
-    프레임이 무겁고 입력(포인터 락 마우스 · 키)이 들어오는 동안 그 타이머가 굶는다. 실측(헤드리스 GPU, 실제 헬스장 기구 세션 — hub 고정
-    카메라 · 자세 · 연출이 켜진 채, 엔진 프레임에 30 ms 부하 + CDP 마우스 이동 · 키 입력 스트림, 입력 창 1.6 s): rAF 52 번 동안 타이머는
-    **24–25 번**(간격 중간 61 ms · 최대 122 ms)만 돌았고 DOM 커서 · 표식도 그만큼만 바뀌었다(50 ms 넘는 간격 19–22 번) — 2–4 프레임씩
-    건너뛴다. 그리고 키 핸들러는 `tick()`(판정 객체 이동)만 하고 `paint()` 를 안 해서, 화면에 보이는 자리가 키 입력 순간과 어긋났다.
-    가벼운 프레임(2 ms)에서는 헤드리스 · 헤드풀 모두 타이머가 16 ms 로 돌아 재현되지 않았다 — 기존 스모크는 판정 객체만 몰아 이 경로를 못 봤다.
-  - **수정**: 루프를 `requestAnimationFrame` 로(그리기 직전에 돌므로 화면이 바뀌는 프레임마다 반드시 한 번 칠한다), rAF 가 멈춘 경우(헤드리스 ·
-    가려진 창)에만 일하는 예비 타이머(`FALLBACK_MS` 50 · `FALLBACK_STALE_MS` 100 — 구현 값), keydown / keyup 이 판정 뒤 곧바로 `paint()`,
-    `teardown` · `dispose` 가 rAF 와 타이머를 둘 다 거둔다(`ticking` 게터 — 스모크). 같은 부하에서 DOM 변경 = rAF 프레임 수(52 / 51 / 49), 최대 간격 34 ms.
-    판정 규칙(`parts/GymGames`)은 무변경.
-  - `scripts/smoke-gym.mjs`: 입력 없이 실제 DOM 이 흐르는지(벤치프레스 커서 `left` · 호흡 · 사이클 첫 표식 `--x` 가 줄어든다, MutationObserver ·
-    900 ms · 변경 ≥ 12 · 최대 간격 < 250 ms), 키 핸들러가 판정 직후의 커서 · 회차를 그 자리에서 그리는지, Tab · 취소 뒤 루프가 멈추는지.
-
-- **2026-09-12 (A-3a 헬스장 — 운동 미니게임 세션)** — 계약(`HousingRef.gymSession` · `gymBlock` · `startGymSession` · `cancelGymSession`,
-  `housing:gymSession` · `gymBeat` · `gymResult`)의 housing 몫. 새 파일 `parts/Gym.ts` · `parts/GymGames.ts` · `ui/gym/{GymScreen,GymViews}.ts` ·
-  `ui/gym/gym.css`, `HousingSystem.ts` 에는 `/* ══ 헬스장 (A-3a) ══ */` 블록 + `init` · `dispose` 한 줄씩(`GymScreen` · `bindGym`).
-  - **판정은 순수 클래스**라 스모크가 화면 없이 규칙만 몬다(`gymDebug.makeGame`). 설계안 §4 에 없던 빈칸 두 개를 여기서 정했다:
-    박자 게임의 **예비 박자 4 박**(첫 표식이 걸어올 시간 — `data/constants.csv` 의 `GYM_LEAD_BEATS`)과 **헛누름 = 다음 표식의
-    실패**(Space 연타로 모든 창을 줍지 못하게). 호흡의 「하」 뒤에는 한 박 쉼이 있다(`하` 길이 1.2 s 가 박자 0.6 s 보다 길어 겹친다).
-  - **화면은 커서 모드를 켜지 않는다** — 블로커 `housing.gym` 만 올리고 capture keydown 으로 `Keys.JUMP` · `LEFT` · `RIGHT` 를 삼킨다.
-    keyup 은 keydown 을 삼킨 키만 삼킨다(열리기 전부터 쥐고 있던 D 의 keyup 을 먹으면 `Input` 이 그 키를 영영 눌린 것으로 안다).
-    게임 도중의 E 는 닫지 않고 삼키기만 한다(사이클의 D 바로 위 키).
-  - `completed` = 게임을 끝까지 했다(점수를 넘겼다). 취소(Esc · Tab · 페이즈 변경 · `cancelGymSession`)는 결과도 디버프도 없다.
-    progression 이 `applyGymSession` 을 갖고 있지 않으면 결과 화면이 「반영하지 못했습니다」라고 말한다.
-  - 새 스모크 `scripts/smoke-gym.mjs` (verify 매핑: housing · progression · hub · player).
-
-- **2026-09-12 (A-3e 서재 매체 — 디스크 전시대 · 레코드랙 · 보조 가구, docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」)**
-  - **공식** (`Rules.shelfGainFor` · `shelfPartFor` · `shelfAuxPlaced` · `shelfItemWeightOf` · `shelfMediumOfDefId` · `SHELF_ID_PREFIX`):
-    매체마다 `min(SHELF_GAIN_MAX[m] − 1, SHELF_XP_PER_ITEM[m] × Σ BOOK_RARITY_MUL)` 로 **따로 자르고**, 보조 가구(`SHELF_AUX_INTERACTION[m]`)가
-    함선 어디든 배치돼 있으면 자른 뒤 `× (1 + SHELF_AUX_BONUS[m])`, 셋을 더해 `1 + Σ`. 레코드 플레이어 셋은 모두 `record_player` 라 몇 대든
-    한 번이다. `getBookBonus(skill)` = 이 합(`getShelfBonus(skill).total`) — 책만 있고 보조 가구가 없으면 옛 `bookGainMulFor` 와 같은 값이고
-    그 함수는 남겨 뒀다. `getSkillGainMul` 이 이것을 읽으므로 progression/ 무변경.
-  - **`parts/Library.ts`**: 계약 11종(`getShelfMedium` · `getShelfSlots` · `placeShelfItem` · `takeShelfItem` · `getOwnedShelfItems` · `getShelfDex` ·
-    `getShelfBonus` · `hasShelfAux` · `openShelf` · `isFurnitureOn` · `toggleFurniture`) + `media()`(런타임 prune — `books()` 와 같은 규약, 배열 기준
-    `WeakSet` 이라 서버 사본으로 바뀐 상태도 다시 거른다) · `mediaDex()` · `toggledUids()` · `shelfItemsOf` · `shelfBlock` · `stashShelfItemsOf` ·
-    `dropToggled`. **책장은 옛 경로 그대로**(`placeBook` · `takeBook` · `housing:booksChanged`, 사유 `bookPlace` / `bookTake`)이고 매체 공통 API 가
-    책장이면 그리로 넘긴다 — `booksChanged` 는 이제 `housing:shelfChanged {medium:'book'}` 도 낸다. 디스크 · 레코드는 `shelfPlace` / `shelfTake`.
-    켜기는 `toggled` 를 뒤집고 `changed('toggle')` + `housing:furnitureToggled` + `audio:play`(`tv_on` · `tv_off` · `record_on` · `record_off`).
-  - **회수 · 시설 제거**: `recover` 가 디스크 · 레코드도 책처럼 창고로(all-or-nothing, 실패 사유 `model.SHELF_BLOCK_REASON` =
-    `디스크를 먼저 빼세요` / `레코드를 먼저 빼세요`) 옮기고 `housing:shelfChanged {count: 0}`, 회수한 조각의 uid 는 `toggled` 에서 뺀다.
-    `recoverBlock` · `Rooms.emptyRoomBlock`(= `purposeBlock(room, 'empty')` · `removeRoomFacility`) 이 모든 보관함을 본다.
-  - **`ShipState` v9** (`SHIP_STATE_VERSION_CURRENT = max(9, …)`): `media`(배치된 디스크 전시대 · 레코드랙 uid · **보관함 매체 = id 모양의 매체** ·
-    칸 < `SHELF_SLOTS[m]` · (uid, slot) 하나), `mediaDex`(`disc_*` · `record_*` 모양 유일 목록, 꽂힌 것 전부 포함), `toggled`(배치된 켤 수 있는
-    조각 uid, 중복 없이). v8 의 사라진 방 환불이 가구 창고로 간 보관함의 **같은 매체** 디스크 · 레코드도 `out.refund` 로 돌려준다.
-  - **화면**: `ui/BookshelfMenu.ts` 한 장이 매체를 바꿔 그린다(`openShelf(uid)` → `data-medium`, 칸 카드 수 · 보유 목록 · 도감 · 설명이 매체를 따른다) +
-    보조 가구 한 줄(`.hs-shelf-aux`, `TV 배치됨 — 디스크 몫 +25 %`, 수치는 `SHELF_AUX_BONUS`). 책장은 `ui:bookshelfToggled`, 디스크 · 레코드는
-    `ui:shelfToggled`. `ui/BookDex.ts` 는 `createBookDex(…, medium)` + `setMedium(m)`, 배율 칸은 서재 합산이고 `title` 이 매체별 몫을 적는다.
-    `model.ts`: `SHELF_BLOCK_REASON` · `SHELF_OBJ_KO` · `SHELF_UNIT_KO` · `shelfHolderName(m)` · `shelfAuxNames(m)`.
-  - 스모크: `smoke-library` 8절(매체 질의 · 꽂기/빼기 · 거절 · 매체별 상한과 합산 · 보조 가구 · 레코드 플레이어 3대 = 한 번 · 켜기 저장 · 패널 전환 ·
-    회수 · v9 sanitize · 사라진 방 환불), `smoke-housing` 의 버전 기대값 8 → 9.
-
-- **2026-09-12 (시설관리 정리 — 조종석 · 방 8 개 · 시뮬레이션실 / 휴식 공간 / 프리셋 제거, 사용자 결정)**
-  - **조종석** (`COCKPIT_ROOM_INDEX` = 100, 계약 `shared/housing.ts`): `rooms[]` 에 들지 않는 고정 공간이다.
-    `Rules.isPlaceRoom` · `placeRoomPurpose` 가 「가구를 놓을 자리」를 방과 조종석으로 넓히고, `canPlaceAt` · `insideGrid` ·
-    `autoPlaceSpot` 은 `roomGridSize(room)` 과 `roomRectBlocked(...)`(고정 소품 표 `COCKPIT_BLOCKED_RECTS`)를 읽는다 — 조종석에는
-    문 앞 여유 구역이 없다(표가 통로를 이미 비운다). `getRoom(100)` = `{purpose: 'cockpit', level: 1}`, `getFurnitureFor('cockpit')` =
-    `room: 'any'` 가구, `openShipManage` · `setManageRoom` 이 받는다. `purposeBlock` · `setRoomPurpose` · `removeRoomFacility` 는
-    `조종석은 용도를 바꾸거나 제거할 수 없습니다`, `facilityRefund` 는 `[]`.
-  - **공용 시설 가구 두 점**(전술 임플란트 시술대 `furn_implant_bay` · 기업 네트워크 컴퓨터 `furn_corp_computer`, `craft` 없음):
-    `ShipState.ensureCockpitFurniture` 가 **새 함선과 모든 로드**에서 「어디에도(배치 · 가구 창고) 없으면」 조종석 기본 자리
-    (`COCKPIT_DEFAULT_FURNITURE`) → 자동 배치 자리 → 가구 창고 순으로 채운다. 새 함선의 uid 는 f-1 · f-2. `furnitureCraftBlock` 은
-    보유 판정을 `craft` 검사보다 먼저 해 늘 `이미 보유 중입니다` 로 답한다. 회수는 허용된다.
-  - **ShipState v8**: 방은 `SHIP_ROOM_COUNT`(8). 옛 세이브의 방 번호 ≥ 8 인 시설 방과 `ROOM_PURPOSES_ASSIGNABLE` 밖의 용도
-    (시뮬레이션실 · 휴식 공간)는 **전부 제거 + 환불** — 증축 재료(`roomRefundCost(purpose, 1)`) → `out.refund`(함선 창고), 그 방의
-    가구 → 가구 창고, 가구 창고로 간 책장에 꽂혀 있던 책 → `out.refund`. 관물대 · 표적 레인 · 시뮬레이션 허브는 `retired=1` 이라 은퇴
-    청소가 재료로 돌려준다. v6 이하 사격장 Lv.n 을 가구로 옮기던 v7 절은 옮길 곳이 없어져 **늘 환불**로 줄었다(방 레벨은 제거 전
-    원본 목록 `rawPurposes` 에서 읽는다). `SanitizeOutcome.migratedRooms` · `grantedCockpit` 추가, `loadState()` 는 `granted` 도 돌려준다
-    — `migrated` 는 `editPending` 을 세우고(옛 서버 사본이 덮지 못한다), `granted` 는 저장만 건다.
-  - **시설 레벨 요구 질의** `furnitureUpgradeRequirements(uid)` · `purposeRequirements(purpose)` (`Rules.furnitureUpgradeRequirementsFor` ·
-    `purposeRequirementsFor` · `generatorRequirement` — `generatorGateReason` 과 같은 식, 채워지지 않은 것만).
-    `ui/UpgradeModal` 의 `UpgradeSpec.requirements` 와 `ui/ShipView` 의 시설 증축 목록이 재료 칩 뒤에 `buildFacilityChip` 으로 그린다.
-  - **프리셋 기능 제거**: `ui/PresetMenu.ts` 삭제, `parts/Presets.ts` 는 「슬롯 없음」(`getPresetCount` 0 · `save` false · `apply` null ·
-    `openPresetMenu` no-op), `state.presets` 는 세이브에 그대로. `getSkillGainMul` = 서재 책뿐(`Rules.presetCountFor` ·
-    `skillGainMulFor` 는 `@deprecated`, 호출자 없음). `FacilityRows` 효과 요약에서 프리셋 · 사격 숙련 줄을 뺐다.
-  - 스모크: `smoke-housing`(조종석 · v8 마이그레이션 · 은퇴 · 프리셋 no-op · 시설 제거 1초 홀드 · 인스펙터 위치 이동 버튼 제거) ·
-    `smoke-library`(사격 숙련 = 책뿐 · 방 8 개) · `smoke-controls-hub`(Tab 함선 탭 방 8 개).
-
-- **2026-09-12 (방 8 × 8 m · 정비 벤치 은퇴 — hub 에이전트가 결들인 부분)** — 이 폴더에서 실제로 바뀐 것은 세 줄이다.
-  - **`Rules.ts`** — 동작은 한 줄도 안 바뀐다. `ROOM_GRID_COLS/ROWS` 가 8 → 16 이 된 뒤에도 `insideGrid` · `autoPlaceSpot`
-    은 상수를 읽으므로 저절로 따라가고, `DOOR_CLEAR_DEPTH`(2) · `DOOR_CLEAR_SPAN`(4)은 **일부러 그대로 둔다** — 둘 다
-    방 크기의 비율이 아니라 문 폭 1.6 m · 플레이어 지름 0.9 m 에서 나온 치수라, 같이 키우면 새로 생긴 공간을 도로 빼앗는다.
-    구역이 여전히 문 앞인지만 다시 재서 주석으로 남겼다 (16칸: 칸 6…9 = 3.0…5.0 m, 문은 3.2…4.8 m).
-    `canPlaceAt` 에는 여전히 문 앞 여유를 넣지 않는다(CLAUDE.md 의 경고 — `sanitize` 가 이미 문 앞에 둔 가구를 빼앗는다).
-  - **`ShipState.ts` — 버전을 올리지 않았다.** `PlacedFurniture.x/y` 는 좌상단(방의 min-x / min-z) 원점 정수라 격자가
-    **커지기만** 하면 뜻이 한 자도 안 바뀌고, `canPlaceAt` 의 세 조건 중 용도 · 겹침은 격자와 무관 · `insideGrid` 는
-    느슬해지기만 한다 — 8칸에서 통과한 배치는 16칸에서 전부 통과한다. 그 근거를 `sanitize` 의 해당 줄 위에 적어 두었다
-    (⚠ 그 검사는 **클램프가 아니라 드롭**이라, 격자를 **줄이는** 변경을 한다면 그때는 마이그레이션이 필요하다).
-  - **`ShipState.ts` — v1 → v2 정비 벤치 지급을 걱어냈다.** 그 가구가 은퇴하면서(사용자 결정, `data/furniture.csv` 의
-    `retired=1`) 지급은 낝비를 넘어 **버그**가 됐다 — 은퇴 가구 청소 두 자리(배치 · 보관)가 둘 다 지급보다 **위**라,
-    밀어 넣으면 걸러지지 않고 가구 창고에 남아 `getStored()` 에 뜨면서 배치는 안 된다. 이미 벤치를 가진 세이브는
-    `sanitize` 의 은퇴 환불을 받는다. 계약 이름 `REPAIR_BENCH_DEF_ID` 는 남긴다.
-  - 나머지(실내 지오메트리 · 광원 자리 · 정비 벤치 배선 제거)는 전부 `src/hub/` 쪽이다 — `src/hub/README.md` 의 같은 날짜 항목.
-
-- **2026-09-12 (가구 화면 2차 — 좌측 레일 · 영역별 툴팁 · 겹침/크기 정리, 사용자 결정)** — 아래 개편의 뒤처리다.
-  `ui/**` 와 `housing.css` 만 건드렸고 규칙 · 상태 · 질의는 한 줄도 바뀌지 않았다 (`ctx.housing` 의 기존 질의만 읽는다).
-  - **맨 왼쪽 세로 레일 `StationShell.rail`** — 화면이 여러 대상 · 여러 페이지를 가질 때 그것을 고르는 줄이 **늘 같은
-    자리**에 선다. 몸통을 grid 에서 **flex** 로 바꿔, 레일을 쓰지 않는 화면(배양조 · 식탁)에서는 `hidden` 한 줄로
-    gap 까지 함께 사라진다.
-  - **재배 스테이션 목록** (레일) — 함선의 재배 스테이션 한 줄씩, 각 줄에 **3×3 원형 점 9개**(`getGrowSlots` 순서 ·
-    회색 자라는 중 / 까망 자랄 게 없음(잠긴 칸 포함) / 초록 수확 가능)와 익은 칸이 있으면 **레드닷**. 누르면 그
-    스테이션으로 전환한다. 목록은 배치 구성이 바뀔 때만 짓고 점은 기존 1초 틱(`paint`)이 칠한다. 스테이션이 하나여도
-    숨기지 않는다 — 현황 점이 한 대짜리 함선에서도 쓸모 있고, 분석기 탭 레일과 같은 자리에 서야 두 화면의 좌측이
-    어긋나지 않는다. 레드닷은 모서리 배지가 아니라 **이름 왼쪽의 자리를 늘 차지하는 점**이다: 레일은 세로 스크롤
-    컨테이너라 `overflow-x` 가 `visible` 로 계산되지 않아 모서리 배지가 잘린다.
-  - **분석기 탭이 레일로** — `.az-split`(좌 패널 안의 세로 탭 + 페이지)을 없애고 탭을 `shell.rail` 로 옮겼다.
-    좌 패널에는 `.az-pages` 만 남는다.
-  - **분석기 버튼 ↔ 게이지 겹침** — 원인은 `.az-acts { position: absolute }` 가 흐름에서 빠져 본문 위에 얹힌 것
-    하나였다(좌 패널이 좁아질수록 남은 시간 · 진행바를 덮었다). 칸을 **세 열**(글리프 | 본문 | 버튼)로 만들고
-    버튼을 자기 열에 세로로 쌓았다 — `.az-slot-body` 에 우측 예약 폭을 주는 우회가 필요 없어진다.
-  - **재배 칸 하단 시간의 높이 고정** — 상태마다 인라인 박스 구성이 달라(`renderClock` 은 span 둘, `renderClockText`
-    는 텍스트 노드 하나) 전환 때 베이스라인이 흔들렸다. `.gs-time` 에 **고정 `height` + 한 가지 `font-size`**,
-    상태별로는 **색과 굵기만**. 빈 칸도 자리를 차지한다: **흙 없음 = 「토양 필요」(빨강) · 흙만 = `00:00`(딤드)**.
-  - **`:SS` 가 `HH:MM` 과 같은 크기** — `.hs-clock-ss` 의 `font-size: 0.5em` 을 걷어냈다. **스테이션 네 화면 공용**으로
-    같게 뒀다: 화면마다 다른 크기를 쓰면 같은 시계가 화면마다 달라 보이고, 위의 높이 고정도 글자 크기가 하나여야
-    성립한다. `tabular-nums` 는 `.hs-clock` 에 그대로 있다.
-  - **영역별 호버 카드** — 칸 전체에 하나이던 툴팁을 **흙구멍(`.gs-pot`) = 토양 카드 / 그 위 식물 공간(`.gs-plant`)
-    = 작물 카드**로 갈랐다. 「식물 이미지뿐 아니라 자라날 공간 전체」가 대상이라 `.gs-plant` 의 `pointer-events: none`
-    을 풀었다 — **드롭 대상은 여전히 `.gs-pot[data-tier]` 하나**이고 두 영역은 세로로 겹치지 않으므로 드래그 드롭
-    경로(`TradeGrids` → `dropSelector`)는 한 줄도 바뀌지 않는다. 정보가 없는 영역은 「비어 있음」으로 짧게 답한다.
-  - **가방 · 창고가 제작 UI 와 같아 보이게** — `.hs-inv` 의 `--inv-*` **재선언을 통째로 걷어냈다**. 그 사본에만
-    `--inv-bg` · `--inv-bg-2` · `--inv-swap` 이 더 있어 `.trade-grids`(inventory, **값의 원본**)와 어긋나 있었다.
-    같은 배치에서 우 패널 폭을 `auto`(창 폭과 무관하게 늘어난다)에서 **`flex: 0 1 auto` + `max-width: --hs-inv-w`**
-    로 바꿔 새 **가로 2열** `TradeGrids`(가방 5칸 + 창고 10칸이 나란히)에 맞췄고, 프레임을 1180 → 1540 px 로
-    넓혔다(레일 176 + 좌 300 + 우 936 + gap 32 + `.menu .frame` 여백 80). 스택 전환 breakpoint 는 1100 → 1180 px.
-  - **스테이션의 격자는 블록마다 자기 스크롤** (같은 날 회귀 수정 — 드래그 두 방향이 다 막혔던 자리) —
-    두 격자가 가로로 나란히 서려면 우 패널에 892 px 이 필요하고, 레일 176 + gap 16 + 좌 패널 최소 300 + gap 16 +
-    프레임 여백 80 + `.menu` 여백 48 을 더하면 **뷰포트 1580 px 부터**다 (실측: 1560 줄바꿈 · 1580 나란히).
-    그보다 좁으면 `.tg-scroll` 의 `flex-wrap` 이 가방을 아랫줄로 내리는데, **한 스크롤에 세로로 이어 붙이는 한
-    어느 쪽을 위에 올려도 다른 쪽이 화면 밖**이다 — 창고 격자 24행 = 1381 px · 가방 틀 12행 = 709 px 인데 스크롤
-    창은 600 px 남짓이라, 창고가 위면 가방이 y≈1574, 가방이 위면 창고가 y≈900 에서 시작한다. **끌고 있는
-    동안에는 스크롤할 수 없으므로** 그때마다 「창고 → 흙구멍」이나 「수확물 → 가방」 한 쪽이 통째로 막혔다
-    (`smoke-stations` 의 `elementFromPoint` 가 null 이던 것 · `soil: null` 이던 것 둘 다 이것이다).
-    그래서 `.hs-inv` 안에서는 **`.tg-scroll` 이 한 줄(`flex-wrap: nowrap`)이고 블록이 그 높이를 나눠 가지며,
-    넘치는 행은 각자 `.inv-grid` 안에서 스크롤한다** (`flex: 0 1 auto` + `overflow-y: auto`). 가로 2열일 때는
-    `align-items: stretch` 로 높이를 채우는데, `nowrap` 이 **필수**다 — 여러 줄 flex 상자에서 `stretch` 는 상자가
-    아니라 그 줄(= 1381 px)까지만 늘린다. 좁을 때(`@media (max-width: 1599px)`)는 세로 스택 + `flex: 1 1 0` 으로
-    **반씩** 나눈다(비례로 나누면 창고가 대부분을 가져가 기본 6행 가방이 잘린다); 순서는 DOM 그대로 **창고 위 ·
-    가방 아래**다 — 「창고 왼쪽 · 가방 오른쪽」을 읽는 순서대로 내린 것이고, 이제 둘 다 보이므로 순서가 닿고
-    못 닿고를 정하지 않는다. 실측(1280 · 1440 · 1536 · 1600 · 1920) 다섯 폭 모두 두 블록이 화면 안에 있다.
-    값 · 기본 배치의 원본(`.trade-grids`)은 손대지 않았다 — **기업 거래 화면은 한 줄도 바뀌지 않는다**.
-
-- **2026-09-12 (가구 화면 개편 — 재배 스테이션 · 분석기 · 배양조 · 식탁, 사용자 결정)** — 네 화면이 한 틀을 쓴다.
-  - **공통 틀 `ui/StationShell`** — 제목(방 번호 없음) + 옆에 `Lv. n` · 우상단 「업그레이드」, 좌 패널(가구 내용) / 우 패널
-    (가방 · 함선 창고 격자). 설명 줄 · 「가방 · 함선 창고」 라벨 · 안내문 · 「모두 수확」 · 「모두 회수」를 걷어냈다. 식탁은
-    레벨이 없어 `Lv.` · 업그레이드만 없다.
-  - **업그레이드 모달 `ui/UpgradeModal`** — 옛 강화 줄(`.gs-up` · `.az-up` · `.ct-up`)을 대신한다. 재료 칩 · 여는 것 한 줄 ·
-    사유, **`UI_HOLD_CONFIRM_S` 1초 홀드**(클릭 · Enter 로는 확정 안 됨). Escape 는 `ctx.escape`, E · Tab 은 패널의
-    `overlays` 가 먼저 닫는다 (`ui/Panel` 의 `PanelOverlay`). 홀드는 rAF 가 아니라 `setInterval` + 경과 시간.
-  - **시간 `HH:MM:SS`** (`dom.clockParts` · `renderClock` — `:SS` 는 절반 크기). 끝나면 「수확 가능」 / 「해석 완료」.
-  - **재배 스테이션** — 잠긴 층은 테두리만, 흙구멍 50 %(39 px) · 하얀 바 윗변 = 흙구멍 윗변 · 작물은 구멍 위에서 자라고
-    (`--g` transform) 그 높이만큼 층 사이를 벌렸다. 층 라벨 · 「N칸 사용 중」 · 궁합 줄 · 수확 버튼은 **호버 카드
-    `ui/StationTip`**(씨앗 · 토양 · 남은 시간 · 궁합 %) 와 **우클릭 메뉴 `ui/StationMenu`**(「흙 비우기」 /
-    「작물 버리고 흙 비우기」 = `clearSoil(…, discardCrop)`) 로 옮겼다.
-  - **수확 = 아이템처럼 (`ui/ProductDrag`)** — 더블클릭 = **함선 창고 먼저**, 끌어서 격자에 놓으면 **그 격자에만**
-    (`[data-tg-grid]`). 배양조도 똑같다 (우클릭 「배지 비우기」 = `clearMedium(…, discardStrain)`), 분석기는 버튼(우하단)
-    + 더블클릭 · 끌기. 넣을 곳은 새 `parts/Deliver.deliverItem(sys, item, dest)` 하나가 정한다 — 계약에 `HarvestDestination`
-    과 `harvestAt` · `collectAnalysis` · `harvestCulture` 의 선택 인자 `dest` 를 **추가**했다 (기본 `'bag-first'` = 예전 그대로).
-  - **분석기** — 좌측 세로 탭 「해석」 · 「해석 도감」 (도감이 격자 밑에서 자기 탭으로), 잠긴 칸 = 빈 칸, 위 이름 · 아래 시간,
-    「처음 해석」 부연 제거.
-  - **드래그 렉** — 드롭 한 번에 `refresh()` 가 명시 호출 + `housing:changed` + `inventory:changed` + `stashChanged` 로 3–4번
-    돌고 매번 층 DOM 을 통째로 다시 지었다(+ 격자 뷰 `refresh`). 이제 `HousingPanel.coalesceRefresh` 가 한 마이크로태스크로
-    합치고(스테이션 네 화면만 켠다 — 프리셋 · 책장은 동기 그대로), 층 DOM 은 **레벨이 바뀔 때만** 짓는다 (`debug.builds` ·
-    `refreshStats`). 드롭 강조는 전환 없는 배경색이다. 격자 쪽 고스트 · hit test 는 inventory 의 `TradeGrids` 가 고쳤다.
-  - **`.ct-*` → `.cult-*`** — 배양조 CSS 가 기업 화면의 `.ct-cell` · `.ct-slots` 와 이름이 같아 거래 칸이 배양관 모양으로
-    그려졌다. 스모크 `scripts/smoke-stations.mjs` (verify 매핑 housing · inventory · items).
-
-- **2026-09-12 (하우징 모드 UI 개선 · 방 시설 레벨 제거 · 이름 변경 — 사용자 결정)** — 셋 다 이 폴더의 규칙에서 시작한다.
-  - **모든 용도가 함선당 하나** (`Rules.purposeChangeReason`) — 시설 관리의 용도 지정 목록과 함선 탭의 증축 팝업이
-    이미 지은 용도를 아예 그리지 않는다. 두 개 지어 둔 옛 세이브는 그대로 둔다.
-  - **방 시설 레벨 제거** — 작업실 · 시뮬레이션실에는 레벨이 없다. 프리셋 슬롯은 **관물대**, 사격 숙련 상승은
-    **시뮬레이션 허브** 레벨(둘 다 maxLevel 5, 옛 사격장 강화비를 `furniture_upgrades.csv` 로 옮겼다)이 정하고 제작 재료
-    할인은 폐지. `furnitureMaxLevel` 의 `BENCH_MAX_LEVEL` 상한은 작업대에만. `ShipView` 의 방 행에서 레벨 · 비용 ·
-    업그레이드 버튼을, `FacilityRows` 효과 요약에서 제작 비용 배율을 걷어냈다. `facility_upgrades.csv` 의 workshop · range
-    묶음은 **은퇴 표**(환불 계산용)로 남는다.
-  - **ShipState v7** — 옛 방 레벨을 가구 레벨로 옮기거나 재료로 환불한다 (위 `ShipState.ts` 행). 환불 토스트 문구가
-    「없어진 시설 · 가구를 정리…」로 넓어졌다 (은퇴 재배층과 같은 자루).
-  - **이름**: 사격장 → **시뮬레이션실**, 채굴 시설 → **암호화폐 채굴 시설** (`shared/housing.ts` 의 표시 이름만 — id 는
-    `range` · `mining` 그대로). 이 폴더의 프리셋 안내 문구도 따라 바뀌었다.
-  - 선택 → 위치 이동 상태 · 인스펙터 토스트는 `hub/HousingMode` · `ui/hud/ShipManage` 의 일이다 (각 README).
-  - 스모크: `smoke-housing` (방 레벨 단언 교체 · 관물대/허브 레벨 · v7 마이그레이션 3건 · 하위 탭 · 위치 이동 상태),
-    `smoke-library` (허브를 놓아야 ×1.1).
-
-- **2026-09-11 (배양조 A-14 · 주방 식탁 A-3c)** — 계약(`src/shared/housing.ts` 의 「온실 — 배양조」 · 「주방 —
-  식탁」 블록 · `types.ts` 의 `MealDef` · `StrainDef` · `MediumDef` · `labels.ts` 의 `MEAL_BUFF_*` ·
-  `progression.ts` 의 `useMeal` / `serveMeal`)과 `data/furniture.csv` · `data/items.csv` · `data/meals.csv` 는 먼저
-  커밋됐고(61ef305) 이 폴더는 그것을 구현했다. 결정은 `docs/DECISIONS.md` 「2026-09-11 — 주방 · 배양조 · 3D 프린터」.
-  - 새 것: `parts/Culture.ts`(배양조 상태 · 규칙 전부), `parts/Dining.ts`(식탁), `Rules.cultureDurationMs`
-    (`analyzeDurationMs` 바로 옆) · `Rules.NEEDS_GREENHOUSE`, `ui/CultureTank.ts`(배양 화면 — `ui/Analyzer` 가
-    본보기) · `ui/DiningTable.ts`(식사 화면 + `mealBuffText`), `housing.css` 의 `.ct-*` · `.dt-*` 블록,
-    `ShipState` **v6**(`cultures`) + `isCultureTankDefId` · `isDiningTableDefId`.
-  - 고친 것: `HousingSystem` 에 한 줄 위임 24개 + 패널 둘(`cultureTank` · `diningTable`) + `culturesPruned` 플래그,
-    `parts/Furniture.recover` 가 `dropCulturesOf(uid)` 도 부른다, `parts/Presets.panels` 에 새 패널 둘,
-    `ui/Panel.HousingPage` += `'culture'` · `'dining'`(와이어는 그대로 `page: null` — 계약의 page union 은 동결이라
-    이제 `WIRE_PAGES` **화이트리스트**로 거른다: 새 페이지를 더할 때마다 부정 목록을 늘리지 않는다),
-    `index.ts` 가 두 def-id 판별자를 재수출.
-  - **주방도 온실 선행**이다(작물이 유일한 요리 재료다). 연구실이 쓰던 조건을 복사하지 않고 `NEEDS_GREENHOUSE`
-    한 줄로 합쳤다 — 그래서 `purposeChangeReason` · `sanitize` 낙오 처리 · 「마지막 온실이 사라지면」 셋이 저절로
-    같이 움직인다 (전에는 `sanitize` 와 `setRoomPurpose` 가 `'lab'` 을 각자 적고 있었다).
-  - v5 → v6 은 **마이그레이션이 없다**: 없던 필드가 생기는 것뿐이라 버릴 데이터도 환불 경로도 없고, 옛 세이브는
-    빈 `cultures` 로 열린다.
-  - 이 폴더가 **하지 않는 것**: 배양조 · 조리대 · 식탁 · 프린터의 절차 모델과 공유 함선 고정 식탁의 상호작용
-    지점(hub), 새 아이템 로더(items), 주머니 격자(inventory), `PlayerProfile.meal` 영속화 · `derived` 접기
-    (progression), `meal serve` 와이어(net), 식사 배지 · 툴팁(ui).
-
-- **2026-09-11 (연구실 — 분석기 A-12 · B-13 ref)** — 계약(`src/shared/housing.ts` 의 「연구실 — 분석기」 블록 ·
-  `types.ts` 의 `SampleDef` · `constants.ts` 의 `ANALYZE_*`)과 `data/samples.csv` · `data/furniture.csv` 는 먼저
-  커밋됐고(652aff6) 이 폴더는 그것을 구현했다.
-  - 새 것: `parts/Lab.ts`(분석기 상태 · 규칙 전부), `Rules.analyzeDurationMs`(`growDurationMs` 바로 옆),
-    `ui/Analyzer.ts`(분석 화면 — `ui/GrowStation` 이 본보기), `ui/SampleDex.ts`(해석 도감 — `ui/BookDex` 의
-    `{root, refresh}` 패턴 그대로), `housing.css` 의 `.az-*` 블록, `ShipState` **v5**(`analyses` · `sampleDex`).
-  - 고친 것: `HousingSystem` 에 한 줄 위임 15개 + `analyzerPanel` 패널 + `analysesPruned` 플래그,
-    `parts/Furniture.recover` 가 `dropAnalysesOf(uid)` 도 부르고 `upgradeFurniture` 가 분석기면
-    `housing:analysisChanged` 를 함께 낸다, `parts/Presets.panels` 에 새 패널, `ui/Panel.HousingPage` += `'analyzer'`
-    (와이어는 그대로 `page: null` — 계약의 page union 은 동결), `index.ts` 가 `isAnalyzerDefId` 재수출.
-  - **B-13**: `furnitureUpgradeCost` · `furnitureCraftBlock` 신설, `furnitureUpgradeBlock` 은 이미 있던 것이 계약에
-    올라온 것뿐이다. 「이미 보유 중」은 **`furnitureCraftBlock` 의 사유일 뿐 규칙이 아니다** — `canCraftFurniture` ·
-    `craftFurniture` 는 한 줄도 바뀌지 않았다 (아래 `알려진 한계` 참고).
-  - v4 → v5 는 **마이그레이션이 없다**: 없던 필드가 생기는 것뿐이라 버릴 데이터도 환불 경로도 없고, 옛 세이브는
-    빈 `analyses` · `sampleDex` 로 열린다.
-
-- **2026-09-11 (재배 스테이션 강화 줄 — 닿을 수 없던 Lv.2 · Lv.3)** — 온실 개편이 「가구 레벨이 재배층을 연다」로
-  설계됐는데 `HousingRef.upgradeFurniture` / `furnitureUpgradeBlock` 을 부르는 UI 가 `src/` 어디에도 없었다
-  (옛 방 메뉴가 Phase 8 에 시설 관리로 리다이렉트되면서 사라졌고, 시설 관리의 `.fcard` 는 **배치된 가구가 아니라
-  가구 def** 카드다). 그래서 Lv.2 · Lv.3 재배층이 통째로 죽은 콘텐츠였다. 이제 **재배 화면이 자기 스테이션을
-  강화한다** — `ui/GrowStation` 의 재배층 열 **위**에 `.gs-up` 한 줄: `Lv.n / 3` · 다음 레벨이 여는 층
-  (`growTiersForLevel` 에서 **유도** — 층 번호를 코드에 적지 않는다) · 비용 칩(`renderCost` → `shared/itemChip`) ·
-  「강화」 버튼. 사유는 전부 `furnitureUpgradeBlock(uid)` 의 한국어 한 줄이고 버튼 비활성 + 인라인 + `title` 로
-  같이 보인다. 성공하면 `refresh()` 가 새 층과 우측 `createTradeGrids` 격자(재료가 가방 · 창고에서 빠진다)를
-  함께 다시 그린다. 되돌릴 수 있는 확정이라 **1초 홀드는 쓰지 않는다**(그 규약은 파티 떠나기 · 캐릭터 삭제 같은
-  빨간 버튼 전용). 잠긴 층 문구도 버튼을 가리키게 다듬었다 (`🔒 Lv.N 강화로 열립니다 · 위 「강화」`).
-  `housing.css` 에 `.gs-up*` 5종 추가 — 이 패널 전용 이름이라 HUD 위젯 클래스와 겹치지 않는다.
-  **작업대(`bench_*`) Lv.2–3 도 같은 이유로 못 닿지만 이번 범위가 아니다** — 그것은 시설 관리 화면(`src/ui/` 소유)의
-  일이고 `docs/TODO.md` 에 별도 항목으로 남아 있다.
-
-- **2026-09-11 (온실 개편 — 재배층 → 재배 스테이션)** — 사용자 결정 「옛 것 폐기」. 스택 4층짜리 옛 재배층
-  (`furn_grow_rack`)은 `FurnitureDef.retired` 로 은퇴했고, 레벨이 재배층을 여는 **재배 스테이션**(`furn_grow_station`,
-  maxLevel 3 · Lv.1 중앙 / Lv.2 아래 / Lv.3 위 · 층마다 3칸)이 그 자리를 받는다. 칸은 **두 단계**다 — 흙을 붓고
-  (`fillSoil`, 토양에는 `SoilTag` 속성이 있다) 그 위에 심는다(`plantSeedAt`); 씨앗의 `soilTag` 와 맞으면
-  `SOIL_MATCH_SPEEDUP` 만큼 빨리, 아니면 `SOIL_MISMATCH_PENALTY` 만큼 느리게 자라고 **그 값은 심는 순간
-  `readyAt` 에 확정**된다. 토양은 수확마다 1회 닳아(`soilUsesLeft` ← `ItemDef.soil.uses`) 0 이면 칸이 비워진다.
-  - 새 것: `Rules` 의 순수 규칙 6종 + `furnitureRefundCost` / `mergeCost`, `parts/Garden.ts` 전면 재작성
-    (`getGrowSlots` · `fillSoil` · `clearSoil` · `plantSeedAt` · `harvestAt` · `harvestAllStation` · `getOwnedSoils` ·
-    `openGrowStation`), `ui/GrowStation.ts`(좌 재배층 · 우 `createTradeGrids` 가방 + 창고, 드래그&드롭), `model` 의
-    `ACTIVE_FURNITURE_DEFS`, `ShipState` **v4**.
-  - 지운 것: `ui/GrowMenu.ts` (은퇴 가구의 패널) 와 `.hs-plots` / `.hs-plot` / `.hs-seed` 스타일.
-  - 남긴 것: Phase 8 계약 6종은 **지우지 않고** 「없는 재배층」 응답으로 만들었다 (`getPlots` → `[]`, 변경자 →
-    한국어 사유, `harvestAll` → 0, `openGrowMenu` → 아무 일 없음). `getOwnedSeeds` 는 새 화면도 쓰므로 그대로 살아 있다.
-  - 마이그레이션: 로드할 때 배치 · 보관된 은퇴 가구를 전부 걷어내고 제작비 + 강화비를 **함선 창고**로 환불한다.
-    `sanitize` 는 ctx 가 없으므로 금액만 계산하고(`SanitizeOutcome.refund`), `HousingSystem.flushRetiredRefund()` 가
-    `ctx.inventory` 가 생긴 첫 프레임에 실제로 넣는다 — 창고가 차면 들어가는 만큼만 넣고 경고 토스트 + `console.warn`
-    을 남긴다. 옛 `plots` 는 전부 버린다.
-
-- **2026-09-11 (프로필 로드가 방금 한 편집을 되돌리던 것)** — `net:profileLoaded`(릴레이 welcome)가 편집 직후 350 ms 저장
-  debounce 안에 도착하면 `onProfileLoaded` 가 `p.get('ship')` — 서버 사본이거나 **우리가 먼저 큐에 넣은 더 오래된 저장**
-  (부팅 때의 fresh 상태) — 으로 상태를 갈아 끼우고 `store.cancel()` 로 대기 중인 저장까지 버려, **놓은 가구가 조용히
-  사라졌다** (부하가 걸린 머신에서 `smoke-training` 의 시뮬레이션 허브가 0 메시 · 상호작용 없음으로 빨갛게 됐다. 릴레이
-  수신을 붙잡아 두는 재현 스크립트로 확정). 이제 `changed()` 가 세우는 `editPending` 과 새 `ShipStore.isDirty` 가 둘 다
-  참이면 로컬 편집이 가장 새 문서이므로(ProfileSync = newest wins) **그것을 곧바로 저장 · 업로드하고 교체하지 않는다.**
-  부팅 fresh 저장만 대기 중일 때는 예전처럼 서버 사본을 받는다 (새 브라우저의 기존 플레이어). `smoke-housing` 에 단언 1개.
-
-- **2026-09-11 (C-27 자동 배치 2차 패스 · C-7 스모크)** — `Rules.autoPlaceSpot` 이 1차(문 앞 여유 상자 밖)에서 자리를
-  못 찾으면 2차로 상자 안의 자리를 받되, 놓은 뒤에도 문 폭 4칸 중 인접 2칸이 깊이 전부 비어 있어야 한다
-  (새 export `doorPassageOpen`). `canPlaceAt` · `ShipState.sanitize` 는 그대로라 세이브는 소급해서 바뀌지 않는다.
-  `scripts/smoke-housing.mjs`: 합성 `ShipState` 로 2차 패스 단언 3개(빈 방 = 1차 그대로 · 꽉 찬 방 = 구역 안 4개 후 통로
-  2줄 남김 · 통로가 이미 막힌 방 = 자리 없음 + `canPlaceAt` 은 허용), 그리고 `openRoomMenu(5)` · `openRoomMenu(3)` 호출을
-  `openShipManage(n)` 로 바꿨다 (C-7 — `openRoomMenu` · `openFacilityMenu` 는 `@deprecated`, 리다이렉트 단언 두 개는
-  계약 보존 확인용으로 남겼다).
-
-- **2026-09-10 (자동 가구 배치 방향 · 순서)** — 사용자 보고: 튜토리얼에서 자동 배치된 총기 작업대가 **오른쪽 벽을
-  바라보고** 서서, 쓰려면 벽 사이로 끼어 들어가야 했다. 규칙이 `ui/hud/ShipManage.findFreeSpot` 안에 있었는데
-  (`yaw 0` → `yaw 1`, `y` 바깥 × `x` 안쪽), 그건 **배치 규칙**이라 housing 이 가질 것이다. 새 `Rules.autoPlaceSpot`
-  (+ `AUTO_PLACE_YAWS` · `doorClearanceCell` · `DOOR_CLEAR_DEPTH` / `SPAN`) → `parts/Furniture.findFreeSpot` →
-  `HousingRef.findFreeSpot` (계약 **추가만**) 으로 옮기면서 순서를 **화면 좌측 상단부터 가로줄 먼저**
-  (`x` 오름차순 × `y` 내림차순), 회전을 **화면 아래(yaw 1)** 로 바꿨고, 그 첫 자리가 우현 방(5…9)에서는 문 앞이라
-  문을 막아 버리므로 **출입구 앞 상자를 비켜 가는 규칙**을 자동 배치에만 더했다. 자세한 근거는 위 `자동 배치` 절.
-  `canPlaceAt` · 하우징 모드의 손 배치 · 저장된 `ShipState` 는 **한 줄도 바뀌지 않았다** (사용자가 돌려 놓은 회전과
-  이미 놓인 가구는 그대로다 — 새로 자동 배치되는 것만 바뀐다). `ui/hud/ShipManage` 는 자기 루프를 지우고
-  `ctx.housing.findFreeSpot` 을 부르기만 한다 (`FreeSpot.yaw` 를 `0|1` → `0|1|2|3` 으로 넓힌 것이 딸린 변경).
-  튜토리얼(`benchPlace`)은 손댈 것이 없었다 — 스포트라이트는 `.sm-store .fcard[data-def-id=…]` 를, 바닥 안내선은
-  `hub_furn_<uid>` 를 잡으므로 둘 다 자리 · 회전을 전제하지 않는다.
-
-- **2026-09-10 (보조무기 제거)** — 프리셋 메뉴(`ui/PresetMenu`)의 행이 `주무기 I · 주무기 II · 가방 · 방탄복`
-  넷이다. `LoadoutPreset.secondary` 필드와 `ShipState` 직렬화는 **그대로** 둔다 — 저장된 프리셋을 깨지 않는다
-  (읽을 때 그 칸은 언제나 null 이 된다).
-
-프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
-
-- **2026-09-09 (키 가이드 · Tab 닫기)** — 계약 `ui:keyGuide` (`src/shared/events.ts`) 채택. ① `ui/Panel.ts` 의 capture
-  keydown 이 **`Keys.INVENTORY`(Tab)** 도 닫기 키로 받는다 (E 와 같이 `stopImmediatePropagation` 이라 `Input` 이 누름을
-  기록하지 않고 인벤토리가 열리지 않는다; E 와 달리 포커스된 입력 필드에서도 받는다 — Tab 으로 타이핑하는 글자는 없다).
-  열릴 때 owner **`housing.<page>`** (`housing.bookshelf` · `housing.grow` · `housing.presets`) 로 `keys: []` 를,
-  닫힐 때 `null` 을 보낸다 — 패널은 버튼만 있어 가이드에는 `Tab 닫기` 만 뜬다. ② `ui/ShipView.ts` — 시설 제거 확인
-  카드와 시설 증축 팝업이 열려 있는 동안만 window capture Tab 리스너를 달아 **그 팝업을 먼저** 닫는다 (Tab 창은 남는다);
-  `dispose()` 가 리스너를 거둔다. 시설 관리 모드 자체의 Tab 종료와 `'housing'` owner 는 `hub/HousingMode` 가 한다
-  (규칙: 내부 팝업 → 모드 순으로 닫힌다)
-
-- **2026-09-09 (수치 csv 이관)** — 가구 표가 `shared/housing.ts` 에서 `data/furniture.csv` +
-  `data/furniture_upgrades.csv`(레벨별 강화 비용) 로, 방 용도 증축 비용이 `data/room_purposes.csv` 로 나갔다.
-  시설(발전기 · 창고 · 작업실 · 사격장) 강화 비용은 `data/facility_upgrades.csv`, 시설 레벨 상한 · 보관함 행 수 ·
-  프리셋 수 · 서재/온실 계수는 `data/constants.csv` 와 `data/tables.csv` 에 있다
-
-- **Phase 7** — server `ship` document (`profile.set` on save, replace + `housing:loaded` on `net:profileLoaded`), `furn_sim_hub` in the 사격장 catalogue
-
-- **Phase 8** — 온실 active — stackable 재배층 (`FurnitureDef.stackLimit` 4, `PlacedFurniture.layer`, top-layer-only recover) with real-time 재배 (`getPlots / plantSeed / harvestPlot / harvestAll / getOwnedSeeds / openGrowMenu`, `ui/GrowMenu`, epoch stamps from `ctx.net.serverNow()`), **함선 관리** (`shipManageMode / openShipManage / setManageRoom / closeShipManage`, `housing:shipManageChanged`), `createShipView(host)` for the 함선 tab, `lockCrewName()`, ship state **v2** (+ a free `furn_repair_bench`), costs via `renderItemCost`
-
-- **Phase 8 UI pass** — the standalone `ui/RoomMenu` + `ui/FacilityMenu` are **deleted** (`openRoomMenu / openFacilityMenu` redirect to `openShipManage`), **방 1 = 작업실 forever** (`WORKSHOP_ROOM_INDEX`, enforced in `Rules.purposeChangeReason` + migrated in `ShipState.sanitize`, fresh ships start with the 총기 작업대 + 정비 벤치 already **placed** in it, displaced furniture goes to storage), `FacilityRows` takes the facility list (`기본 시설` = 발전기 · 창고 only), `ui/ShipView` is two columns + a sticky **시설 관리 (M)** button
-
-- **Phase 9** — **서재 활성화** — `furn_bookshelf` (2×1, `BOOKS_PER_SHELF` 6) holds 서적 items (`ShipState.books` / `bookDex`, v3), `getBooks / placeBook / takeBook / getOwnedBooks / getBookBonus / getBookDex / openBookshelfMenu`, bonus `1 + BOOK_XP_PER_BOOK × Σ BOOK_RARITY_MUL` capped at `BOOK_GAIN_MAX` and folded into `getSkillGainMul`, recovering a shelf returns its books to the stash, `ui/BookshelfMenu` + `ui/BookDex` (도감 — 책장 패널 전용)
-
-- **Phase 9 UI/UX 개선** — **시설 증축 비용** (`ROOM_PURPOSE_BUILD_COST`, 발전기 Lv.1 게이트, `Rules.purposeBuildCost / purposeBuildBlockReason`, `purposeCost`, `setRoomPurpose` 가 소모) 과 그만큼 늘어난 환급 (`Rules.roomRefundCost` = 증축 + 업그레이드), `ui/ShipView` 는 부제 삭제 · 패널 고정 (`is-ship`, 방 목록만 스크롤) · 빈 방마다 **시설 증축** 버튼 → 중앙 `.hs-build` 팝업. **Phase 9 UI pass**: `Rules.facilityRefundCost` + `facilityRefund / removeRoomFacility` (시설 제거: 가구는 가구 창고로, 업그레이드 재료는 함선 창고로, 창고가 차면 거부), `ui/dom.facilityThumb` (모든 시설 표시의 아이콘), `ui/ShipView` 재작성 — 도감 · 용도 드롭다운 · 방 번호 · 가구 수 · 설명 제거, 행은 썸네일 + 용도 + 레벨 + 업그레이드 + 빨간 🗑 제거(확인 카드), 빈 방도 같은 높이, 시설 관리(M) 버튼은 별도 하단 바(`.hs-ship-bar`); `FacilityRows` 설명문 제거
-
-- **2026-09-07 (기본 작업실 폐지)** — `freshState()` 가 **빈 방 10개 · 가구 0**이 되고(무료 작업실 + 총기 작업대 + 정비 벤치 삭제), 작업실은 아무 방에나 지을 수 있는 보통 용도가 되었다 — `Rules.purposeChangeReason` 의 방 1 분기 삭제, `sanitize` 는 "시설 방은 종류당 하나"만 유지, `ui/ShipView` 의 잠금 표시(`is-locked` · `기본` 태그) 제거
-
-- **Phase 12 (2026-09-08)** — 규칙 무변경 — "재료가 충분해 보이는데 증축이 안 됨"의 원인은 새 함선의 발전기 Lv.0 게이트가 **비활성 버튼의 tooltip 으로만** 표시된 것이었고(포인터 락 아래에서는 보이지 않는다), 수정은 `ui/hud/ShipManage`(발전기 행 + 확인 팝업) 쪽이다 — README 에 근본 원인을 적어 두었다
-
-- **2026-09-08 (UI/UX)** — `LoadoutPreset.implantItems` (append-only, 임플란트 **아이템** def id 배열)를 프리셋이 함께 나른다: `parts/Presets.savePreset` 이 문자열만 남겨 최대 16개까지 복사하고(필드가 없으면 아예 넣지 않는다 — 빈 배열은 "전부 해제"라는 뜻이라 옛 경로가 실수로 만들면 안 된다), `ShipState.sanitize` 가 로드할 때 같은 규칙으로 걸러내며, `ui/PresetMenu` 가 카드에 `임플란트` 줄로 이름을 이어 붙인다. 전술 임플란트 줄은 `전술 임플란트` 로 이름이 바뀌었다. 실제 장착/해제는 `inventory.applyLoadout` 이 한다
-
-- **2026-09-08 (튜토리얼 게이트)** — `parts/Rooms.purposeBlock` 과 `parts/Furniture.canCraftFurniture` / `place`
-  가 맨 앞에서 `ctx.tutorial?.blockReason('roomPurpose' | 'furniture', id)` 를 본다. 튜토리얼이 도는 동안에는
-  작업실과 총기 작업대만 허용되고, 사유는 기존 차단 문구 자리에 그대로 실린다. 규칙은 하나도 바뀌지 않았다 —
-  튜토리얼이 없으면 이 호출은 언제나 null 이다
-
-
-## 2026-09-08 — 하우징 패널은 E 로 닫는다
-
-`ui/Panel.ts` (the shared shell of 재배 / 책장 / 프리셋) no longer captures Escape — Escape is the 일시정지 메뉴
-everywhere now. It captures **`Keys.INTERACT` (E)** instead, the key that opened the panel from the furniture, and
-ignores it while `MENU_BLOCKER` is up. Because the listener is capture-phase on `window` it runs *before* a focused
-field's own handler, so it skips events whose target is an `<input>` / `<textarea>` — otherwise the E of a 프리셋
-이름 would close the panel. `ui/PresetMenu`'s name field keeps `isolateInput`, but its Escape now only blurs.
-
-함선 관리 mode itself is left with **M** (`hub/HousingMode`), not Escape.
-
-### 2026-09-09 — ESC 닫기
-
-`ui/Panel` 이 `openPanel()` 에서 `ctx.escape.push(BLOCKER, () => this.close())` 하고 `close()` 에서 `remove` 한다 —
-하우징 패널(재배 · 서재 · 프리셋)이 E 외에 Tab · ESC 로도 닫힌다. E 캡처 리스너와 `PresetMenu` 이름 칸의
-`isolateInput` 은 그대로다. 순서는 `shared/escape`(열린 순서의 역순), 정책은 `game/parts/Phases.escapeKey`.
-
----
-
-## 변경 이력 — 2026-09-15 2차 (사용자 결정): 홀드 버튼 안의 좌클릭 키캡
-
-꾹 눌러야 실행되는 버튼은 버튼 **위**의 홀드 안내 문구 대신 **버튼 안, 라벨 왼쪽**의 좌클릭 홀드 키캡
-(`shared/keycap.createHoldButtonCap` → `.keycap.kc-btn`)으로 말한다.
-- `ui/UpgradeModal` — `.hs-modal-ok`. `.hs-modal-note` 는 이제 **차단 사유 전용**이다: 「「업그레이드」를 1초 동안
-  누르고 있으면 강화합니다」 기본 문구가 빠졌고, 사유 · 「최대 레벨입니다」는 그대로 쓰며 **없으면 `hidden`** 이다
-  (`.hs-modal-gain` 이 이미 쓰던 규약). ⚠ **빈 배열 ≠ 문제 없음** 과 같은 눈으로, 이 줄이 비었다는 것만으로
-  「막히지 않았다」를 판단하지 않는다 — 그건 사유 함수의 일이다.
-- `ui/mining/ComputerPages` — `.mn-hold`(매수 / 매도). `.mn-trade-block` 도 차단 사유 전용(없으면 `hidden`).
-- `ui/mining/common` — `bindHoldButton` 은 그대로이고, 주석에 「키캡은 부르는 쪽이 라벨 왼쪽에 둔다」 규약만 적었다.
-- `ui/SocketFlow` — **무변경**: 확정이 전부 공용 `shared/holdAsk.openHoldAsk` 로 가므로 그쪽에서 캡이 붙는다.
-
-## 변경 이력 — 2026-09-15 3차 (사용자 결정): 서재 UI · 시설 칩 · 마지막 방 기억 · 분석기 치트 · Tab 순서
-
-### 서재 (`ui/ShelfDrawing` · `ui/BookshelfMenu` · `housing.css`)
-- **칸의 숫자 표기를 없앴다.** 그림의 `.lib-num` 요소 · 규칙이 사라졌고, 메시지 줄도 칸 번호를 말하지 않는다
-  (`n번 칸에 … 꽂기 완료` → `… 꽂기 완료`, `n번 칸의 책을 뺐습니다` → `책을 뺐습니다` — 스모크가 읽는 어미는 그대로다).
-- **층마다 가운데 구분막.** `buildShelfDrawing` 이 한 줄의 `floor(cols / 2)` 번째 칸에 `.is-div` 를 붙이고, CSS 가 그 칸의
-  **왼쪽**에 판을 세운다(`.lib-slot.is-div::before`). 새 자식을 만들지 않았으므로 `.lib-row` 의 자식은 여전히 **칸뿐**이다
-  (열 수를 세는 CSS 격자 · 스모크가 안 흔들린다). 열이 하나면 구분막이 없다.
-- **책은 서로 붙여 꽂는다** — `.lib-case[data-medium="book"]` 의 `--lib-item-w: 100%`. 줄 안의 유일한 여백이 구분막
-  좌우(`--lib-div-gap`)다. 디스크 · 레코드 · 게임은 자기 고정 폭 그대로.
-- **「서재」 항목 = `적용 효과` 패널.** 좌측 상단 라벨(`.lib-eff-head`) + **가로로 긴 패널**(`.lib-eff-list`) 하나이고,
-  패널 안은 **배치된 보관함 가구마다 한 칸**(`.lib-effcard` — 글리프 · 이름 · `n / N` + 그 가구가 지금 내고 있는 효과 줄)
-  이다. 맨 아래 한 칸이 시설 전체 합산(`.is-total`). **아무 보관함도 배치돼 있지 않으면** 같은 크기의 패널
-  (`--lib-eff-min-h`) 가운데에 `아무 것도 배치되어 있지 않습니다.` 한 줄만 선다.
-  ⚠ 값을 **새로 계산하지 않는다** — 시리즈 상태는 `librarySeriesStates()`, 줄 값은 `libraryLineValue`(선반 칸 정보 줄과
-  같은 함수), 합산은 `getLibraryEffects()` 다 (2026-09-13 「효과의 원본은 하나」 규약 그대로).
-- ⚠ **리드에게 요청한 계약 값이 아직 안 들어왔다**: 책장 3층 × 6칸(왼쪽 3 · 오른쪽 3) = 18권은 `BOOKS_PER_SHELF`(40) ·
-  `SHELF_TIERS.book`(4) · `SHELF_TIER_COLS.book`(5) 셋이 바뀌어야 나온다. 이 폴더의 그리기 코드는 **그 값을 읽어 쓰므로**
-  상수만 바뀌면 그대로 3층 × 한 줄 6칸이 된다.
-
-### 시설 레벨 요구 칩 — 아이콘만 + 호버 툴팁
-- 칩 마크업(`shared/itemChip.buildFacilityChip`)은 **계약이라 안 고쳤다.** `housing.css` 가 `.facility-chip` 을
-  **아이템 칩처럼 정사각형**으로 좁히고 썸네일 안의 시설 이름(`.facility-chip-name`)을 숨긴다. 이름 · 현재 · 필요
-  레벨은 **호버 툴팁**(`[data-fc-tip]::after`)이 말한다.
-- 툴팁 글의 원본은 `ui/dom.facilityChipTip(chip, name, have, need)` 한 줄이고 `ui/UpgradeModal` · `ui/ShipView` 가 쓴다
-  (`ui/hud/ShipManage` 는 폴더 간 import 금지라 같은 문장을 자기 `facilityChip()` 안에 옮겨 적었다).
-
-### 재료 부족 사유에서 재료 목록을 뺐다
-- `Rules.MISSING_MATERIALS_REASON`(= `재료 부족`) 하나를 `facilityBlockReason` · `purposeBuildBlockReason` ·
-  `furnitureUpgradeReason` · `parts/Furniture.furnitureCraftBlock` 넷이 돌려준다. 모자란 것은 **재료 칩이 스스로**
-  `.is-short`(빨강)로 말하므로 같은 말을 문장으로 반복하지 않는다. `Rules.formatCost` 는 다른 쓰임을 위해 남는다.
-
-### 시설 관리가 마지막으로 보던 방을 기억한다 (`parts/Furniture`)
-- 슬롯별 localStorage 한 줄 `scav.housing.manageRoom`(`slotKey`)이다 — **`ShipState` 버전을 올리지 않았다**: 함선의
-  내용이 아니라 화면이 마지막으로 보던 자리이고, 못 읽거나 이상하면 예전 기본값으로 조용히 돌아가면 그만이다.
-- `openShipManage` 의 방 고르는 순서는 **부르는 쪽이 준 방 → 마지막으로 보던 방 → 서 있는 방 → 용도가 있는 첫 방 →
-  방 1** 이다. `setManageRoom` 이 고를 때마다 적는다. 우측 탭(가구 제작 / 가구 창고)은 화면의 것이라
-  `ui/hud/ShipManage` 가 자기 키(`scav.shipManage.tab`)로 따로 기억한다.
-  ⚠ **2026-09-15 4차 정정 (리드)**: 처음에는 기억한 방을 **맨 앞**에 두었는데, 그러면 `openShipManage(COCKPIT_ROOM_INDEX)`
-  처럼 **방을 지정해 부르는 호출**(콘솔 · 상호작용 · 스모크)이 지난번에 보던 방으로 끌려갔다 (`smoke-housing` 의
-  `{"room":1,…}`). **기억은 「아무 말 없이 열었을 때의 기본값」이지 명령을 덮는 것이 아니다.** 그래서 「서 있는 방」은
-  인자로 넘기지 않고 이 폴백 사슬에 두고(`hub/HubSystem.openShipManage` 는 **인자 없이** 부른다) 기억이 그 앞에 선다.
-
-### Tab 은 맨 위 화면의 것이다 (`ui/Panel` · `ui/cook/CookScreen` · `ui/gym/GymScreen`)
-- 세 곳의 window **capture** 리스너가 패널이 열려 있기만 하면 Tab 을 삼켜, 책장 화면 위에 무한 상자를 열고 Tab 을
-  누르면 **상자가 아니라 책장**이 닫혔다. 이제 `ctx.escape.topKey` 가 내 토큰일 때만 가로챈다 — Escape 가 이미 도는
-  순서와 **같은 규칙**(`shared/escape`)이고 계약은 한 줄도 안 바뀌었다. 내 안의 오버레이(업그레이드 모달 · 우클릭
-  메뉴)는 스택 맨 위가 그 토큰이므로 예전처럼 패널이 닫는다. **E 는 가구에 붙은 키라 그대로** 패널이 가져간다.
-  `ui/ShipView` 의 `onPopupKey` 는 **무변경** — 자기 팝업이 열려 있는 동안만 등록되는 리스너라 이미 같은 뜻이다.
-
-### `devAdvanceAnalysis` (`parts/Lab`, 콘솔 `analyze ff` · `analyze done`)
-- 배치된 분석기(`uid` 생략 = 전부)의 `startedAt` · `readyAt` 을 `hours` 만큼 당기고 **이번에 끝난 칸 수**를 돌려준다.
-  `parts/Mining.devAdvanceMining` 과 같은 결이고 **회수는 하지 않는다**. 건드린 분석기마다 `analysisChanged(uid, 'analysisCheat')`.
-
-## 변경 이력 — 2026-09-15 4차 (사용자 결정): 창고 + 가방 한 패널 · 조리대 = 목록 + 상세
-
-### 스테이션 격자 카드가 **하나**가 됐다 (`ui/StationShell`)
-- 인벤토리가 2026-09-15 2차에 `TradeGrids` 를 **한 패널**(왼쪽 창고 · 오른쪽 내 가방, 칸마다 자기 스크롤 · 자기 정렬 ·
-  자기 필터)로 바꿨는데 `mountStationGrids` 는 여전히 `createTradeGrids` 를 **카드마다 한 번씩 두 번**
-  (`grids:['stash']` · `grids:['bag']`) 부르고 있었다 — 그래서 재배 · 분석기 · 배양조 · 식탁 · 서재 · 조리대만
-  카드 두 장이었다. 이제 **한 번**(`grids: ['stash','bag']`)이다.
-- `buildInvCard` 는 카드 하나(`.hs-card.hs-card-inv[data-hs-grid="inv"]` > `.hs-inv`)를 만들고 **머리줄이 없다** —
-  이름은 격자 블록이 스스로 말한다(창고는 그림이, 가방은 `내 가방` 라벨이). 계약에 `invCard` 가 생겼고
-  `stashCard` · `bagCard` 는 **같은 요소를 가리키는 `@deprecated` 별칭**으로 남는다(옛 이름을 지우지 않는다).
-- `StationGrids` 는 뷰 하나 + `stationGridCell()` · `setCell` 만 남았다.
-- `housing.css`: `.hs-inv .tg-label { display: none }` **삭제**(카드 머리가 없어졌으니 가방 라벨이 유일한 글이다),
-  `.hs-inv .trade-grids:not(.is-split) …` 세 줄 **삭제**(인벤토리가 늘 `.is-split` 이라 영영 안 걸린다 — 블록 스크롤 ·
-  `scrollbar-gutter: stable` 은 이제 `inventory.css` 의 split 규칙이 한다).
-
-### 조리대 = 왼쪽 썸네일 격자 + 오른쪽 상세 (`ui/cook/CookStation` · `ui/cook/cook.css`)
-- 작업대 제작 창과 **같은 배치**다: `.cook-split` > `.cook-list`(가로 `COOK_LIST_COLS` = 4칸 격자) + `.cook-detail`.
-  세로 레일(`.hs-rail.cook-rail`)은 `hidden` 이 됐다.
-- 칸 `.cook-cell[data-recipe]` = 산출물 썸네일(`InventoryRef.buildItemTile`, 없으면 `buildItemChip`) + 티어 배지
-  `T2` + 초록 점 + 잠김 배지. **옛 이름 `.cook-rail-item` 도 함께 단다**(스모크 · 옛 선택자).
-- 정렬이 **전역**으로 바뀌었다 — 지금 만들 수 있는 것 → 막힌 것 → 잠긴 것, 그 안에서 티어 순, 그 안에서 csv 순
-  (안정 정렬). 옛 정렬은 「티어 먼저」라 티어 머리줄(`.cook-rail-tier`)이 필요했는데 그 줄이 없어졌다.
-- 상세에 **설명(`.cook-sel-desc`)** 과 **보유 수(`.cook-sel-owned`)** 가 생겼고 재료 칩 줄이 `data-tip-anchor="left"`
-  를 받는다. **수량 스테퍼 · 홀드 버튼은 넣지 않았다** — 요리는 미니게임 한 판에 하나이고, 재료는 조리가 **끝날 때**
-  빠지므로 「되돌릴 수 없는 확정」이 아니다.
-- **B-15(숙련 잠김 표시)는 그대로 살아 있다** — `is-bench-locked` · `is-skill` · `is-book` 세 클래스와 배지
-  (`.cook-rail-locks` · `.cook-rail-skill` · `.cook-rail-book`)가 칸 안으로 옮겨왔을 뿐이다. `smoke-cooking` 의
-  B-15 단언 5개가 전부 통과한다(120/123 — 남은 셋은 이번 개편으로 낡은 단언이다, 아래 `검증`).
-- ⚠ `inventory/ui/CraftPanel.CraftDetail` 을 **그대로 쓰지 않았다**: 그 클래스는 `InventorySystem`(구체 클래스)을
-  생성자로 받고 `craftCost` · `maxCraftCount` · `craftProgress` 같은 폴더 내부 API 를 부른다. housing 이 가진 것은
-  `ctx.inventory: InventoryRef` 뿐이고 폴더 내부 import 은 CLAUDE.md 가 금지한다. 그리고 조리대의 버튼은 제작이 아니라
-  `startCook`(미니게임 시작)이라 **동작 자체가 다르다** — 배치와 결만 맞췄다 (리드가 허용한 갈래).
-
-### 검증 (2026-09-15, `node scripts/verify.mjs --only smoke-library,smoke-stations,smoke-cooking`)
-이번 개편이 **의도적으로** 낡게 만든 단언 (전부 `scripts/` — 이 폴더 소유가 아니다):
-- `smoke-library.mjs:27,30` — `BOOKS_PER_SHELF = 40` · `BOOK_TIERS = 4, BOOK_COLS = 5` 가 옛 값이다. 실제 화면은
-  **3층 × 1줄 × 6칸 = 18칸**으로 정확히 뜬다(`3/3/18`, `cols 6,6,6`). 18 · 3 · 6 으로 고치면 셋 다 초록이다.
-- `smoke-stations.mjs:210, 219-225` — `.hs-card-stash` · `.hs-card-bag` 두 카드를 기대한다(이제 `.hs-card-inv` 하나).
-  같은 파일의 「잠긴 해석 칸」 단언도 옛 1칸 기준이다 — 실제는 **Lv.1 = 2칸 · 잠김 2칸**(= 2/3/4 가 그대로 산다).
-- `smoke-cooking.mjs:418` `.cook-rail-tier` · `:425` `grids === 2` · `:465-475` 티어 묶음 순서 — 각각 티어 머리줄 제거 ·
-  격자 카드 하나 · **전역** 순위 정렬로 바뀌었다.
-
-## 변경 이력 — 2026-09-15 5차: `smoke-housing` 낡은 단언 둘
-
-`npm run verify:all` 의 `smoke-housing` 실패 7건 중 **다섯**은 리드가 잡은 `openShipManage` 순서 버그
-(위 「시설 관리가 마지막으로 보던 방을 기억한다」 절의 ⚠ 정정) **하나**가 뿌리였다 — 조종석을 지정해 열어야 할
-자리가 지난번 방으로 끌려가 용도 지정 카드(`.sm-purposes .sm-purpose`)가 하나도 안 그려졌고, 거기에 매달린
-발전기 칩 · 사유 줄 · 클릭까지 함께 넘어졌다. 그 한 줄이 고쳐지자 다섯이 같이 초록이 됐다.
-**코드가 아니라 단언이 낡았던 것은 둘**이고 `scripts/smoke-housing.mjs` 에서 고쳤다:
-
-- `getFurnitureFor` 개수 — **쇼파가 서재 전용**이 되며 `any` 가 12 → **11** 이라 그 11 을 받는 방이 전부 하나씩
-  줄었다(서재만 하나 늘었다). 다섯 방의 숫자를 통째로 적던 단언을 **`FURN_ANY` 하나 + 방마다의 전용 가구 수**로
-  다시 썼다 — 이제 `any` 가구가 늘거나 줄어도 한 줄만 고치면 되고, 실패 메시지가 실제 개수를 통째로 찍는다.
-- `storage Lv2 blocked …` — 사유가 `재료 부족: 합금 판 2` → **`재료 부족`** 이다
-  (2026-09-15 3차 `Rules.MISSING_MATERIALS_REASON`, 사용자 결정: 모자란 재료는 **칩이** `.is-short` 로 말한다).
-  단언을 `합금 판` → `재료 부족` 으로 옮겼다. 발전기 게이트 갈래는 예전 문장 그대로다.
-
-**⚠ `.sm-purpose` 안의 `.sm-purpose-build` 는 중첩 `<button>` 이지만 문제가 아니다** — 이 화면은 DOM 을
-`document.createElement` + `appendChild` 로 짓는다(HTML 파서를 타지 않는다). 가구 카드 `.fcard > .fcard-craft` 가
-2026-09-09 부터 같은 모양으로 멀쩡히 서 있다. 이번 실패의 원인이 아니었다.
-
-**검증 (2026-09-15)** — 이 폴더가 매핑된 스모크 넷이 전부 초록이다:
-`smoke-housing 324/324` · `smoke-stations 98/98` · `smoke-library 85/85` · `smoke-cooking 123/123`
-(+ `net-selftest 583/583` · `data-check ok`).
-⚠ **러너가 「vite already up」 이라고 말할 때를 조심한다** — 앞 실행의 vite 가 아직 죽는 중이면 그것을 살아 있다고 읽고
-자기 서버를 안 띄우며, 그 vite 가 내려앉는 순간 `setup()` 의 페이지 새로고침이 `timeout waiting for boot` 로 터진다
-(같은 스모크가 232 · 263 에서 제각각 죽었다가, 포트가 빈 것을 확인하고 다시 돌리니 324/324 로 통과했다). 스모크가
-「boot 타임아웃」으로 실패하면 **먼저 5273 · 8787 이 비었는지 보고 다시 돌린다** — 코드를 먼저 의심하지 않는다.
+| `HousingSystem.ts` | System + `HousingRef` implementation. Loads state in the constructor, owns housing-mode / ship-manage state and panel instances, server-profile replace (`onProfileLoaded`), retired-furniture refund (`flushRetiredRefund`), one-line delegations into `parts/*`. Re-exports `model.ts`. |
+| `model.ts` | Folder vocabulary (no state): `FACILITY_IDS`, `BOOKS_BLOCK_REASON` / `SHELF_BLOCK_REASON`, shelf labels / glyphs (`SHELF_GLYPH`, `LIBRARY_GLYPH`), `ACTIVE_FURNITURE_DEFS` (= defs minus `retired`), retired-rack answers. |
+| `Rules.ts` | Pure rules, no ctx / DOM — see **Rules** below. |
+| `MiningRules.ts` | Pure mining rules: `takeCompletedCycles`, `foldProgress`, `sanitizeClusters`, `sanitizeUnitsMap`, `CLUSTER_CORES_BLOCK_REASON`, `MINING_TICK_MS`. Cycle formulas live in `shared/cryptoMarket`. |
+| `ShipState.ts` | `freshState`, `sanitize(raw, out?)` (all migrations + validation), `loadState`, `writeState`, `ShipStore` (debounced write + `pagehide` flush + profile upload), `ensureCockpitFurniture`, `placeCockpitDecor`, `is*DefId` helpers, `SHIP_STATE_VERSION_CURRENT`. |
+| `index.ts` | Barrel: `HousingSystem`, `Rules`, state helpers. |
+| `housing.css` | Shared panel styles (`.hs-*` shell / cards / modal / tip / context menu / rail / tabs, `.gs-*` grow, `.az-*` analyzer, `.cult-*` culture, `.dt-*` dining, `.lib-*` library, `.facility-chip` icon + `[data-fc-tip]` tooltip). Does **not** redeclare the `--inv-*` palette (owner: `inventory/inventory.css`). |
+| `parts/Rooms.ts` | Room purposes (build = consume `purposeCost`, remove = full refund), facility info / upgrade (generator, storage), `getBenchLevel`, `getSkillGainMul`, stash size, `consume` / `canAfford`. |
+| `parts/Furniture.ts` | Place / move / recover / craft / upgrade furniture, housing mode + ship-manage mode (`openShipManage` remembers the last room in `slotKey('scav.housing.manageRoom')`), `furnitureCraftBlock` / `furnitureUpgradeBlock` / `furnitureUpgradeCost`. |
+| `parts/Garden.ts` | Grow station: `fillSoil` → `plantSeedAt` → `harvestAt`, soil durability + sockets, `rescaleGrowsForUpgrade`, `insertGrowSocket`; retired grow-rack API answers "no rack". |
+| `parts/Lab.ts` | Analyzer: `startAnalysis` (rolls the result on insert), `cancelAnalysis`, `collectAnalysis` (analysis XP → level-ups, found-dex, research XP), `getAnalysisLevel/Results/Found`, `researchTimeMul`, `devAdvanceAnalysis`. |
+| `parts/Culture.ts` | Culture tank: medium → scaffold → strain, medium durability + sockets, harvest, `insertScaffold` / `takeScaffold` / `insertCultureSocket`. |
+| `parts/Sockets.ts` | Soil / medium sockets shared by Garden and Culture: `socketSum`, `yieldBonus`, `insertSocket` (replace destroys the old socket), `getOwnedSockets`. |
+| `parts/Deliver.ts` | `deliverItem(sys, item, dest)` — the single path a station product takes to the player (`HarvestDestination`: `bag-first` · `stash-first` · `bag` · `stash`; named grids never overflow). |
+| `parts/Dining.ts` | Dining table (furniture uid, or `null` = shared-ship fixed table): `getMealStacks`, `eatMeal`, `serveMealToSquad`, `diningBlock`. |
+| `parts/Cooking.ts` | Cooking session: `cookRecipes` (all cook-bench recipes with steps, unfiltered), `cookBlock`, `startCook` / `restartCook` / `cancelCook`, `recordCookStep` (+ skill / library score bonus), `completeCookRun` (quality → `inventory.completeCook`), `getCookAuto`, `bindCooking`, `cookDebug`. |
+| `parts/CookGames.ts` | DOM-free judges of the six cooking minigames (`ChopGame`, `MinceGame`, `GrillGame`, `StirfryGame`, `StirGame`, `PourGame`), `createCookGame`, `cookJudgeBands`. |
+| `parts/Gym.ts` | Gym session: `gymBlock`, `startGymSession`, `completeGymSession` (→ `progression.applyGymSession`, + library `gymScore`), `bindGym`, `gymDebug`. |
+| `parts/GymGames.ts` | DOM-free judges `PressGame` / `BreathGame` / `CycleGame`, `createGymGame(kind, tuning?)`, `judgeBands`, `completion`. |
+| `parts/VideoGame.ts` | TV consoles (`attachTvConsole` / `detachTvConsole`), seat check (`Rules.tvSeatFor`), `getPlayableGames`, game sessions (gym rules via `applyGymSession`), `bindVideoGame`, `videoGameDebug`. |
+| `parts/Library.ts` | Library shelves for every medium (`book` · `disc` · `record` · `game`): place / take / dex / recover-to-stash, on/off toggles, library-effects cache (`ensureLibrary`, `bindLibrary`, `tickLibrary`) and its queries. |
+| `parts/Music.ts` | Music player state (no audio): playlist from record racks, `tickMusic`, `musicNext/Prev`, `setMusicMode`, `musicStop`, `housing:musicChanged`. |
+| `parts/Mining.ts` | Compute clusters, wallet, trading: `setClusterCoin`, `insertClusterCores` / `removeClusterCores`, `tickMining` (1 Hz, not in raid), `tradeCrypto`, `coinLockReason`, dev cheats. |
+| `parts/Presets.ts` | Retired loadout presets (all answer "no slots"), `panels()` registry, `closeMenus`, legacy `openRoomMenu` / `openFacilityMenu` → `openShipManage`. |
+| `ui/Panel.ts` | `HousingPanel` base: `.menu.housing-menu`, blocker `'housing'` + cursor mode, `ctx.escape` entry, E / Tab close, `PanelOverlay` stack, `coalesceRefresh`, `ui:housingToggled`, key-guide owner `housing.<page>`. |
+| `ui/StationShell.ts` | Common station layout: station card (title, `Lv.`, meta, upgrade button, `rail`, optional `tabsRow`) + one inventory card; `mountStationGrids` mounts one `TradeGrids` (`stash` + `bag`); `stationGridCell`. |
+| `ui/UpgradeModal.ts` | Furniture upgrade modal (`PanelOverlay`): cost chips + facility chips, 1 s hold confirm (Enter swallowed), escape token `housing.upgrade`. |
+| `ui/StationTip.ts` | Non-item hover card (`TipSpec`) with `.item-tip` looks. |
+| `ui/StationMenu.ts` | Right-click menu (`PanelOverlay`), swallows its own Escape. |
+| `ui/ProductDrag.ts` | Treat a finished product like an item: drag to a grid (`bag` / `stash`) or double-click (`stash-first`). |
+| `ui/SocketFlow.ts` | Socket effect text / tip rows / dots, `SocketAsk` (pick + 1 s hold replace confirm, destructive clear confirm). |
+| `ui/dom.ts` | `el`, `section`, `setText`, `renderCost` (→ shared `renderItemCost`), clock helpers (`renderClock`), `formatRemaining`, `facilityChipTip`. |
+| `ui/GrowStation.ts` | Grow station screen: rail of stations (9-dot status), tiers of soil pots, drop soil / seed / socket, harvest via `ProductDrag`, right-click clear. `ui:growToggled`. |
+| `ui/Analyzer.ts` | Analyzer screen: rail tabs `해석` / `분석 도감`, slots with family chip + result chip, collect / cancel. |
+| `ui/SampleDex.ts` | Analysis dex per family (level, XP bar, result rows: found / silhouette / locked). |
+| `ui/CultureTank.ts` | Culture tank screen: tubes (fluid = medium durability), drop medium / scaffold / strain / socket, harvest. |
+| `ui/DiningTable.ts` | Dining screen: plate (drop target) + meal list (`먹기`, shared ship `분대에 차리기`); exports meal text helpers (`mealEffectText`, `mealBuffText`, `mealTierText`). |
+| `ui/BookshelfMenu.ts` | Library screen for every shelf medium: rail = `서재` summary + placed shelf furniture, tabs `선반` / `도감`, drag to place / swap / take. `ui:bookshelfToggled` / `ui:shelfToggled`. |
+| `ui/ShelfDrawing.ts` | Drawn shelf (`.lib-case` › `.lib-tier` › `.lib-row` › `.lib-slot`), layout from `SHELF_TIERS` / `SHELF_TIER_COLS`; `.is-div` divider; `paintShelfSlot`. |
+| `ui/BookDex.ts` | Library dex rows (series / game discs), exports `libraryEffectText`, `gameDiscText`, `volumeRoman`, `seriesTint`, `statName`. |
+| `ui/ShipView.ts` | `createShipView(host)` — the embedded ship tab of the inventory window (generator / storage rows, room list, build / remove popups, `시설 관리` button). No blocker, no pointer lock, no Escape listener. |
+| `ui/FacilityRows.ts` | Facility rows + effect summary used by `ShipView`. |
+| `ui/cook/CookStation.ts` | Cooking-bench screen (page `cook`): recipe thumbnail grid (`COOK_LIST_COLS`) + detail (effects, ingredients, steps, auto appliance, lock badges), `조리 시작`. `ui:cookStationToggled`. |
+| `ui/cook/CookScreen.ts` | Bottom-center cooking overlay: choose (manual / auto) → game → step score → result. Blocker / escape / key-guide `housing.cook`; input on the whole panel while playing. |
+| `ui/cook/CookViews.ts` | Six cooking game stages (CSS shapes + item chips, no assets). |
+| `ui/cook/cook.css` | `.cook-*`. |
+| `ui/gym/GymScreen.ts` | Gym / video-game overlay: intro → game → result, keyboard input via `Keys.JUMP` / `LEFT` / `RIGHT`, rAF loop + fallback interval. Token `housing.gym`. |
+| `ui/gym/GymViews.ts` | Gym game stages (press bar, breath / cycle lanes). |
+| `ui/gym/gym.css` | `.gym-*`. |
+| `ui/tv/TvMenu.ts` | TV screen (page `tv`): power, console attach / swap, seat line, playable games. `ui:tvMenuToggled`. |
+| `ui/tv/tv.css` | `.tvm-*`. |
+| `ui/mining/MiningScreen.ts` | One mining window (page `cluster`) with top tabs `MINING_TABS` (`채굴` · `클러스터 현황` · `지갑` · `거래소`); rail + grids only on the mining tab. `ui:miningToggled` page = `cluster` for the mining tab, `computer` otherwise. |
+| `ui/mining/ClusterPage.ts` | Mining tab: core slots (one core per drop / take), cycle bar, coin picker, stats. |
+| `ui/mining/CoinPicker.ts` | Filterable coin dropdown (locked coins dimmed), `position: fixed`. |
+| `ui/mining/ComputerPages.ts` | Cluster overview, wallet, exchange (chart, hold-to-trade, stale-quote gate, price subscription). |
+| `ui/mining/CryptoChart.ts` | Canvas candle / line chart with axes and hover OHLC. |
+| `ui/mining/common.ts` | Shared mining helpers (`coinInfos`, formatting, `bindHoldButton`, `MiningAsk`). |
+| `ui/mining/mining.css` | `.mn-*`. |
+
+## Public API
+
+Contract: `HousingRef` in `src/shared/housing.ts` (types `ShipState`, `FurnitureDef`, slot infos, etc. live there
+too). Most mutations return `null` on success or a Korean refusal string. Grouped surface:
+
+- **State / persistence**: `state`, `save()`, `getStashSize()`.
+- **Rooms & facilities**: `getRoom`, `setRoomPurpose`, `purposeBlock`, `purposeCost`, `purposeRequirements`,
+  `emptyRoomBlock`, `findRoom`, `getFacilities` / `getFacility`, `upgrade('generator' | 'storage')`,
+  `facilityRefund`, `removeRoomFacility`, `getBenchLevel`, `getCraftCostMul` (always 1), `getSkillGainMul`.
+- **Furniture**: `getFurnitureDef`, `getAllFurnitureDefs`, `getFurnitureFor`, `getPlaced`, `getPlacedByUid`,
+  `getStored`, `canPlace`, `placementBlock`, `findFreeSpot`, `place`, `move`, `recover`, `recoverBlock`,
+  `canCraftFurniture`, `craftFurniture`, `furnitureCraftBlock`, `upgradeFurniture`, `furnitureUpgradeBlock`,
+  `furnitureUpgradeCost`, `furnitureUpgradeRequirements`, `isFurnitureOn`, `toggleFurniture`,
+  `furnitureOperationalBlock` (cluster without main computer), `stationNow` (= `nowMs()`).
+- **Housing / ship-manage mode**: `enterHousingMode` (no in-game caller), `exitHousingMode`, `openShipManage(room?)`,
+  `setManageRoom`, `closeShipManage`, `selectFurniture`, `rotateSelection`, `housingMode`, `shipManageMode`.
+- **Grow station**: `getGrowSlots`, `fillSoil`, `clearSoil`, `plantSeedAt`, `harvestAt`, `harvestAllStation`,
+  `insertGrowSocket`, `getOwnedSoils` / `getOwnedSeeds`, `openGrowStation`. Retired: `getPlots`, `plantSeed`,
+  `harvestPlot`, `harvestAll`, `openGrowMenu`.
+- **Analyzer**: `getAnalyses`, `startAnalysis`, `cancelAnalysis`, `collectAnalysis`, `collectAllAnalyses`,
+  `getOwnedSamples`, `getAnalysisLevel`, `getAnalysisResults`, `getAnalysisFound`, `openAnalyzer`,
+  `devAdvanceAnalysis`. Deprecated: `getSampleDex`, `getSampleDexRatio`.
+- **Culture tank**: `getCultureSlots`, `fillMedium`, `clearMedium`, `insertStrain`, `insertScaffold`,
+  `takeScaffold`, `insertCultureSocket`, `harvestCulture`, `harvestAllCultures`, `getOwnedMediums` /
+  `getOwnedStrains` / `getOwnedSockets`, `openCultureTank`.
+- **Dining / cooking**: `getMealStacks`, `eatMeal`, `serveMealToSquad`, `diningBlock`, `openDiningTable(uid | null)`;
+  `openCookStation`, `cookSession`, `cookBlock`, `startCook`, `cancelCook`, `getCookAuto`, `cookRecipes`.
+- **Gym / video games**: `gymSession`, `gymBlock`, `startGymSession`, `cancelGymSession`; `getTvConsole`,
+  `attachTvConsole`, `detachTvConsole`, `getTvSeat`, `tvSeatBlock`, `getPlayableGames`, `openTvMenu`, `gameSession`,
+  `gameBlock`, `startGameSession`, `cancelGameSession`.
+- **Library**: `getShelfMedium`, `getShelfSlots`, `placeShelfItem`, `takeShelfItem`, `getOwnedShelfItems`,
+  `getShelfDex`, `openShelf`, `getLibraryEffects`, `getLibrarySources`, `getSeriesProgress`, `isShelfItemWanted`,
+  `isRecipeUnlocked`, `getBookBonus`, `getShelfBonus`, `hasShelfAux`; book-only legacy names (`getBooks`,
+  `placeBook`, `takeBook`, `getOwnedBooks`, `getBookDex`, `openBookshelfMenu`).
+- **Music**: `getMusicState`, `musicNext`, `musicPrev`, `setMusicMode`, `musicStop`.
+- **Mining**: `getCryptoCoins`, `getCryptoWallet`, `getMiningComputerUid`, `getComputeClusters` /
+  `getComputeCluster`, `setClusterCoin`, `insertClusterCores`, `removeClusterCores`, `cryptoQuote`, `tradeCrypto`,
+  `openComputeCluster` (default tab `채굴`), `openMiningComputer(uid, tab?)` (default `클러스터 현황`); dev
+  `devSetCryptoWallet`, `devSetClusterCores`, `devAdvanceMining`.
+- **Presets (retired)**: `getPresetCount` 0, `getPresets` [], `savePreset` / `deletePreset` false, `applyPreset` null,
+  `openPresetMenu` no-op. `captureLoadout` delegates to inventory.
+- **Embedded view**: `createShipView(host)` → `EmbeddedView`.
+
+**Events emitted** (payloads in `src/shared/events.ts`): `housing:loaded`, `housing:changed {reason}`,
+`housing:stashSizeChanged`, `housing:roomPurposeChanged`, `housing:facilityUpgraded`, `housing:furniturePlaced` /
+`Moved` / `Recovered` / `Upgraded` / `Toggled`, `housing:modeChanged`, `housing:selectionChanged`,
+`housing:shipManageChanged`, `housing:growChanged`, `housing:analysisChanged` / `analysisFound` / `analysisLevelUp`,
+`housing:cultureChanged`, `housing:socketInserted`, `housing:booksChanged`, `housing:shelfChanged`,
+`housing:libraryChanged`, `housing:mealServed`, `housing:cookSession` / `cookStep` / `cookBeat` / `cookResult`,
+`housing:gymSession` / `gymBeat` / `gymResult`, `housing:gameSession` / `gameBeat` / `gameResult`,
+`housing:tvConsoleChanged`, `housing:musicChanged`, `housing:clusterChanged`, `housing:cryptoMined`,
+`housing:walletChanged`; UI: `ui:housingToggled`, `ui:growToggled`, `ui:bookshelfToggled`, `ui:shelfToggled`,
+`ui:cookStationToggled`, `ui:miningToggled`, `ui:tvMenuToggled`, `ui:keyGuide`, `ui:notify`; plus `audio:play`,
+`gather:collected` (harvest).
+
+**Events consumed**: `game:newMission`, `game:abort`, `hub:left`, `game:phaseChanged` (close panels, leave modes,
+cancel sessions, stop music), `hub:entered`, `net:profileLoaded`, `inventory:changed` / `inventory:stashChanged`,
+`input:bindingsChanged`, `player:furniturePoseEnded` (cancel gym / cook / game session),
+`progress:trainedChanged` / `progress:gymFatigue`, `meta:creditsChanged`, `net:cryptoPrices` / `net:cryptoHistory`.
+
+**Blocker / escape tokens**: panels `'housing'` (`ui/Panel`), upgrade modal `housing.upgrade`, gym `housing.gym`,
+video game `housing.game`, cooking `housing.cook`.
+
+## Rules
+
+Placement, facility and station rules live in `Rules.ts` as pure functions; the code comments above each carry the
+reasoning. The list below is what a maintainer would otherwise break.
+
+### Facilities and rooms
+- Generator starts at `GENERATOR_START_LEVEL`, max `GENERATOR_MAX_LEVEL`. It is only a **gate**: building a purpose
+  needs `generatorLevel ≥ purposeGeneratorLevel(purpose)` (`data/room_purposes.csv` `generator`), and every
+  furniture / storage upgrade to Lv.n needs generator Lv.n. No power allocation exists — the retired power
+  contract names in `shared` have no implementation. — `Rules.ts` (`generatorGateReason`, `purposeBuildBlockReason`)
+- `generatorRequirement` / `purposeRequirementsFor` / `furnitureUpgradeRequirementsFor` return **satisfied**
+  requirements too (for the `have/need` chip). Never gate on array length — the `*Reason` / `*Block` functions decide.
+  — `Rules.ts` (`generatorRequirement`)
+- Every assignable purpose (`ROOM_PURPOSES_ASSIGNABLE`) is at most one per ship; rooms have no levels (only
+  generator and storage do). Room effects come from the furniture inside. `NEEDS_GREENHOUSE` is an empty array
+  (no purpose prerequisites); refilling it revives the rule in all three consumers. — `Rules.ts` (`purposeChangeReason`)
+- Building a purpose consumes `purposeCost` (all-or-nothing, bag → stash); removing a facility sends furniture to
+  furniture storage and refunds the full build price into the ship stash (pre-checked stash space).
+  — `parts/Rooms.ts` (`setRoomPurpose`, `removeRoomFacility`)
+- Material shortage reasons are always `MISSING_MATERIALS_REASON` (`재료 부족`) — the chips' `.is-short` list what is
+  missing. — `Rules.ts`
+- The cockpit is `COCKPIT_ROOM_INDEX`, outside `rooms[]`: no purpose change, own grid (`roomGridSize`) with
+  `COCKPIT_BLOCKED_RECTS`, accepts `room: 'any'` plus cockpit-only furniture. Cockpit-only facilities (implant bay,
+  corp computer) always exist exactly once, can be moved inside the cockpit but never recovered.
+  — `ShipState.ts` (`ensureCockpitFurniture`), `parts/Furniture.ts` (`recoverBlock`)
+
+### Furniture
+- Furniture is **not an item** — it lives only in `furnitureStorage` / placed `furniture`. `retired` defs are hidden
+  from every list and refused by craft / place, but `getFurnitureDef` still resolves them (needed for refunds).
+- `furnitureCraftBlock` answers `이미 보유 중입니다` for a utility piece (`isUtilityFurniture`, not `multi`) already
+  placed or stored. It is a **query for the UI**, not a rule: `craftFurniture` does not enforce it.
+  — `parts/Furniture.ts` (`furnitureCraftBlock`)
+- One placement check for every path: `placementBlockOf` (slot → purpose → grid → fixture → stack → overlap → own
+  access faces → others' access faces). Access face comes from `data/furniture.csv` `access`: `front` (row in front
+  of local −Z clear, not a wall), `sides` (both long faces), `all`, `none`. Clearance cells may overlap each other.
+  Hand placement, `move`, `autoPlaceSpot` and `ShipState.sanitize` all go through it. — `Rules.ts` (`placementBlockOf`)
+- Auto placement (`findFreeSpot` = `autoPlaceSpot`) scans screen top-left first, prefers yaw 1 (faces screen-down),
+  then `AUTO_PLACE_FALLBACK_YAWS`, and keeps a door clearance box free (second pass allows it only while
+  `doorPassageOpen`). The door box is **only** in auto placement — putting it in `canPlaceAt` would evict existing
+  saves on load. — `Rules.ts` (`autoPlaceSpot`, `DOOR_CLEAR_DEPTH`)
+- Recovering a shelf moves its contents to the stash all-or-nothing (`SHELF_BLOCK_REASON` if they do not fit); a
+  cluster with cores is refused (`CLUSTER_CORES_BLOCK_REASON`); a TV returns its console to the stash first;
+  recovering a station drops its slots (growing crops / samples / cultures are lost).
+
+### Stations (grow station, analyzer, culture tank)
+- Timers are real time: `nowMs()` = relay `serverNow()` else `Date.now()`. Duration is **fixed at insert**
+  (`readyAt`). The only exception is a grow-station upgrade, which compresses running crops by the speed ratio.
+  — `parts/Garden.ts` (`rescaleGrowsForUpgrade`), `Rules.ts` (`rescaleGrowTimes`)
+- Grow station: every tier is open from Lv.1 (`growTiersForLevel`); tier ids never shift. Level raises growth speed
+  (`GROW_STATION_SPEED_PER_LEVEL`). A slot is soil first, then seed; soil tag vs seed tag gives
+  `SOIL_MATCH_SPEEDUP` / `SOIL_MISMATCH_PENALTY`. — `Rules.ts` (`growDurationMs`)
+- Soil and culture media carry **durability** and **sockets** in the slot (not in the item); a worn slot stays
+  filled, bonuses and socket `speed` / `yield` scale by `durabilityRatio`, `wear` does not. Clearing soil / medium
+  never refunds it; replacing a socket destroys the old one. — `parts/Sockets.ts`, `Rules.ts` (`wearAfterHarvest`)
+- Analyzer / culture slots are opened by furniture level (`analyzerSlotsForLevel`, `cultureSlotsForLevel`); slot
+  indices never shift. `getAnalyses` / `getCultureSlots` always return the max slot count with `locked` +
+  `unlockLevel` derived from the contract.
+- Analysis result is rolled **on insert** from `data/analysis_results.csv` by family and analysis level; time =
+  `analysisDurationMs × derived.researchTimeMul`. Cancel never returns the sample. Collect is all-or-nothing through
+  `deliverItem`. — `parts/Lab.ts` (`startAnalysis`, `collectAnalysis`)
+- Culture output ignores `gatherYieldMul`; a scaffold switches output to `scaffoldOutputDefId` and is consumed on
+  harvest. Retired strains are refused.
+- Products reach the player only through `parts/Deliver.deliverItem`; a named grid never overflows into the other.
+
+### Kitchen, gym, video games
+- Eating / serving: ask `progression.useMeal` / `serveMeal` **first**, consume the item only on success.
+  `housing:mealServed` is emitted for net to propagate; housing must **not** subscribe to it (net re-emits it, the
+  meal would be consumed twice). — `parts/Dining.ts`
+- Cooking materials are consumed only in `completeCookRun` (closing mid-way costs nothing). Step score =
+  raw + `derived.cookScoreBonus` + library `cookScore[game]`, clamped to 1; average → `mealQualityForScore`.
+  Cooking-bench recipes are excluded from the generic craft path. — `parts/Cooking.ts`
+- Minigames: "what you see is the judgement" — the perfect band equals the csv window, good extends to
+  `GYM_GOOD_OF_PERFECT` / `COOK_GOOD_OF_PERFECT` × it, clamped to half a beat. Stirfry / stir / pour end on
+  `CookGameBase.maxTime` even with no input. — `parts/GymGames.ts` (`judgeBands`), `parts/CookGames.ts` (`cookJudgeBands`)
+- Sessions (gym, cook, video game) cancel on `game:newMission`, `game:abort`, `hub:left`, phase change and on the
+  player's furniture pose ending for another reason. Gym / cook are own ship only (not shared ship / visit).
+- Video games use gym rules (`applyGymSession`, per-stat fatigue). A TV needs a console and a valid seat:
+  same room, in front, facing the TV (yaw = TV yaw + 2), corridor free except `low` furniture. The TV's E opens the
+  TV screen, not a power toggle. — `Rules.ts` (`tvSeatFor`)
+
+### Library
+- Effects are per **series** (`data/library_series.csv`); share = full set 100 %, else distinct volumes ×
+  `SHELF_SERIES_VOLUME_SHARE`. The same def may be shelved only once across all shelves (`이미 꽂혀 있는 …`).
+  — `Rules.ts` (`computeLibraryEffects`), `parts/Library.ts` (`isShelvedAnywhere`)
+- `getLibraryEffects()` is the single source; consumers (progression, gym, cooking, meta, inventory) read it — UI
+  must not recompute. `housing:libraryChanged` fires when the summary signature, shelved kinds or owned shelves
+  change. `getSkillGainMul(skill)` = `1 + skillGain[skill]`. — `parts/Library.ts` (`ensureLibrary`)
+- Old item ids are resolved with `resolveItemAlias` on load; duplicates beyond the first are refunded.
+- Shelf tiers / columns (`SHELF_TIERS`, `SHELF_TIER_COLS`) are display only; the save stores just `slot`.
+
+### Music
+- No sound is produced. The last toggled record player wins; the playlist is every record rack's records (placement
+  order → slot, unique defs). `musicStop` is the furniture E toggle itself (`toggleFurniture`). Ship only; music
+  state is not persisted. `parts/Library.ts` is read only through its public queries. — `parts/Music.ts`
+
+### Mining
+- Each cluster is one clock; `tickMining` banks completed cycles into `cryptoWallet` (skipped during raids).
+  Changing cores folds progress; changing coin resets progress. A cluster needs a main computer.
+- Coin unlock = `ctx.meta.getQuestState(def.unlockQuest) === 'complete'`. Trading is a `credits:tx` reason
+  validated by the relay against the quote window; the exchange screen keeps a price subscription open until each
+  trade resolves. — `parts/Mining.ts`, `ui/mining/ComputerPages.ts`
+
+### Persistence (`ShipState`)
+- Key `slotKey(SHIP_STORAGE_KEY)`; version `SHIP_STATE_VERSION_CURRENT` (≥ the contract's `SHIP_STATE_VERSION`).
+  Every load goes through `sanitize`, which carries all migrations (retired furniture refund, removed rooms /
+  purposes, generator-gated facilities removed + refunded, access-face violations evicted to storage with slot
+  contents refunded, cockpit furniture / decor, library alias + dedupe). **A new state field must be copied in
+  `sanitize`**, or the first save drops it. — `ShipState.ts` (`sanitize`)
+- Refunds computed during load are paid on the first `update` frame where `ctx.inventory` exists (housing is
+  registered before inventory). — `HousingSystem.ts` (`flushRetiredRefund`)
+- `ShipStore` debounces writes, flushes on `pagehide`, and uploads the whole state as the `ship` profile document
+  (offline too — `ProfileSync` queues it). On `net:profileLoaded` the server copy replaces local state **unless** a
+  local edit is still inside the debounce (`editPending` + `isDirty`) — then the edit is flushed and kept.
+  — `HousingSystem.ts` (`onProfileLoaded`)
+- `housing:loaded` is emitted inside `init`, so systems registered later never see the boot emit — read
+  `ctx.housing.state` in your own `init`; the re-emit after `net:profileLoaded` reaches everyone and hub must rebuild
+  the personal ship on it.
+
+### UI conventions
+- Panels close with E (the key that opened them) and Tab; Tab is taken only when `ctx.escape.topKey` is the
+  panel's own token (a screen opened later owns Tab). Inner overlays (`PanelOverlay`) close first. — `ui/Panel.ts`
+- `ui:housingToggled` only knows `room` / `facility` / `presets`; newer pages report `page: null` and have their own
+  toggle events. — `ui/Panel.ts` (`wirePage`)
+- Hold buttons put the left-click hold keycap inside the button (`createHoldButtonCap`); note lines under them are
+  refusal-only (hidden when empty).
+- Station inventory is one `TradeGrids` card (stash left, bag right). — `ui/StationShell.ts` (`mountStationGrids`)
+
+## Known limits
+- The analysis dex's time multiplier (`ui/SampleDex`) shows only the analysis-level `timeMul`; it does not include
+  `derived.researchTimeMul`.
+- The whole `ship` document is uploaded on every save (no delta).
+- A client with a wrong system clock (offline) can start timers "in the future"; progress bars clamp.
+- Mining cores are saved as a count, so filled core slots are always the first n.
+
+## Recent changes
+Last 5 only — older: `git log -- src/housing`.
+- 2026-09-15 — Station inventory is a single card; cooking bench is a recipe thumbnail grid + detail pane.
+- 2026-09-15 — Library: no slot numbers, per-shelf effect cards, shelf divider; facility chips icon-only with tooltip;
+  ship manage remembers last room; Tab only for the top screen; `devAdvanceAnalysis`.
+- 2026-09-15 — Left-click hold keycaps inside hold buttons; minigame / ship keycaps via `shared/keycap`.
+- 2026-09-15 — Cooking bench shows skill-locked recipes dimmed with a skill badge (B-15).
+- 2026-09-14 — Mining screen unified (four tabs), library screen rail/tabs rework, music player state, minigame
+  judgement bands = csv windows, `NEEDS_GREENHOUSE` emptied.

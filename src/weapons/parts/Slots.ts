@@ -1,7 +1,7 @@
 /**
- * src/weapons/parts/Slots.ts — **세 무기 슬롯의 상태**.
+ * src/weapons/parts/Slots.ts — **무기 슬롯의 상태**.
  *
- * 1 주무기 I · 2 주무기 II · 3 보조무기 — 어떤 `ItemInstance` 가 어느 슬롯에 있고, 그 실효 스탯 ·
+ * 1 주무기 I · 2 주무기 II (`WEAPON_SLOTS` — 보조무기는 목록에서 빠졌고 `secondary` 는 타입 · 옛 세이브 호환으로만 남는다) — 어떤 `ItemInstance` 가 어느 슬롯에 있고, 그 실효 스탯 ·
  * 탄창 · 예비탄 · 내구도 · 부착물이 무엇인지. 인벤토리 쪽 변화(`loadout:changed`, 소켓 변경,
  * 아이템 갱신)를 받아 여기서 무기 모델과 HUD 숫자를 다시 맞춘다. **발사는 하지 않는다.**
  */

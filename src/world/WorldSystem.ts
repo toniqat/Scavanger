@@ -708,6 +708,7 @@ export class WorldSystem implements GameSystem, WorldRef {
         area += circleOverlap(Math.hypot(this.hullAC.x - x, this.hullAC.z - z), radius, req);
         continue;
       }
+      // 사각 콜라이더는 외접원(`radius`)으로 센다 — 실제보다 크게 잡히지만 대형 적 스폰 거르기에서는 넉넉히 막는 쪽이 안전하다.
       area += circleOverlap(Math.hypot(o.position.x - x, o.position.z - z), radius, o.radius);
     }
     out.length = 0;

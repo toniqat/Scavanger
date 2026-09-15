@@ -9,7 +9,7 @@ import {
 import { csvRows } from './data/tables';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 받는 쪽 버프 상한 (2026-09-11, E-4 — docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」 (a)(b)).
+ * 받는 쪽 버프 상한 (2026-09-11, E-4 — 커밋 `9bd72ce`(계약) · `b3fc2f0`(구현) (a)(b)).
  *
  * `buff` (heal · boost · revive · cloak) goes peer → peer with no host in between. The receiver is the only place that
  * can refuse a forged one, and two folders receive them (implants: heal · boost, gadgets: revive · cloak), so the rules

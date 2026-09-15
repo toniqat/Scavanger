@@ -1,1731 +1,233 @@
-# src/enemies — Terminid-style bug swarms, rogue gunners, gimmick bugs, lootable corpses
+# enemies/ — bugs, humanoid factions, spawning, AI, corpses, host/replica enemy sync
 
-Owner system: `EnemySystem` (publishes `ctx.enemies`, implements `EnemyManagerRef`). Enemy types in four **factions**
-(`bug` / `rogue` / `android` / `raider` — every different pair is hostile, 2026-09-13) with procedural models/animation, per-type AI,
-ambient patrol spawning, extraction waves, **planet-threat site groups** (`SiteGroups.ts` — replaced the old rogue crate guards),
-raider drops, hit detection (incl. armour plate + interceptable shells), gore FX and lootable corpses.
-`Enemy.isHumanoid` (= not a bug) is the "humanoid AI / sounds / never recycled" test; `Enemy.isRogue` is now only the faction check.
-No asset files: every bug is built from primitives with vertex-colored chitin; rogues are a vertex-coloured humanoid rig.
+`EnemySystem` publishes `ctx.enemies` (`EnemyManagerRef`, `src/shared/types.ts`). It owns every enemy: pooled bodies,
+procedural rigs, per-type AI, spawning (ambient patrols, planet-threat site groups, raider drops, named rogues, the
+sandworm event, tutorial placements), hit detection, status effects, explosions against enemies, lootable corpses, and
+the enemy half of multiplayer (host snapshots/events, replica rendering, guarded client requests). Numbers live in
+`data/enemies.csv`, `data/enemy_abilities.csv`, `data/constants.csv`, `data/tables.csv`; loot tables belong to `items/`.
+No asset files — every rig is built from primitives.
 
-**Multiplayer (host-authoritative).** The same system runs in two modes, decided per mission from `ctx.isMultiplayer` /
-`ctx.isAuthority` at `world:ready` / `game:newMission` (`refreshMode`) and switched **live** by `setAuthority` on
-`net:hostChanged` (Phase 7 host migration — see "Live authority" below; nothing else caches the flag):
-- **Authority** (single-player, or the lobby host): full AI hunting *every* player through `Targets.ts` (and enemies of the
-  other faction through `Enemy.asTarget`); in a session it also streams `EnemySnapshot`s (10 Hz) + `EnemyEvent`s to the
-  other clients and serves their `hit` / `explode` / `intq` requests.
-- **Replica** (joined client): no AI / spawner / waves / damage. `net/Replica.ts` buffers host snapshots and renders the
-  interpolated enemies through the same `Enemy` pools, so `raycast`, `getEnemies`, gore FX, map and HUD keep working.
-  `Enemy.takeDamage` becomes an optimistic hit flash + `HitRequest`; `applyExplosion` sends an `ExplodeRequest`; a shell
-  shot down locally sends `intq`.
-Single-player behaviour is unchanged: only the `'local'` target exists and nothing is sent.
-
-## Enemy types
-
-| Type | Faction | hp | Role | Gimmick / hitboxes |
-|---|---|---|---|---|
-| `scavenger` | bug | 60 | swarm melee | head ×2 |
-| `hunter` | bug | 180 | flanker, leap 5–9 m | head ×2 |
-| `warrior` | bug | 320 | heavy melee | head ×2 |
-| `spewer` | bug | 260 | acid globs 8–22 m, death burst | head ×2 |
-| `charger` | bug | 900 | wind-up + rush 7–30 m | rear ×2.5, front ×0.5 |
-| `rogue` | rogue | 560 (2026-09-13: 280 → 560) | humanoid gunner — threat 2 거점(연구소 · 전진기지 · 플랫폼 · 폐허) 그룹 ≥ 3명 (`SiteGroups`) | head ×2; rifle hitscan `ROGUE_DAMAGE`, `ROGUE_BURST` rounds, `ROGUE_MAG_ROUNDS` magazine + `ROGUE_RELOAD_TIME` reload, grenade toss from a **carried** 1–3 (2026-09-13) |
-| `rogue_boss` | rogue | `=280 × ROGUE_BOSS_HP_MUL` | `ROGUE_BOSS_SCALE`× rogue with pauldron + red visor — 2026-09-13: 로그 **그룹장** (레이드당 ≤ 1 · 40 %), 그룹원이 `escortOf` | 6-round burst, damage ×1.6, grenade cooldown ×0.7 |
-| `android` | android | 280 | 2026-09-13: threat 1 전용 — 연구소 · 전진기지의 집사 · 경비 로봇, 그룹당 1–2명 × 2–3그룹 | 엄폐 · 수류탄 없음, 둔한 사격, 피 대신 불꽃 · 금속 피격음 |
-| `raider` | raider | 840 | 2026-09-13: threat 2 (거점 35 % · 레이더 강하) · threat 3 (전부) — 함선을 타는 약탈 조직 | 먼 거리 정확 사격, 긴 수류탄, 그룹마다 우회조(`squadRole 'flanker'`) 1명. 네임드 3종 · 스캔 드론도 이 팩션 |
-| `artillery` | bug | 420 | stand-off mortar at `ARTILLERY_RANGE` | never melees; lobs interceptable shells every 6–9 s; rear ×1.5 |
-| `toxic` | bug | 70 | fast suicide runner | swells 0.6 s within `TOXIC_TRIGGER_DIST`, bursts `TOXIC_DAMAGE` in `TOXIC_RADIUS` (friendly fire); no stagger |
-| `behemoth` | bug | 1400 | `BEHEMOTH_SCALE`× warrior (4.8 m tall / 2.4 m radius since Phase 7's scale 3; every number derives from the constant: `ENEMY_STATS` radius / height / head / attack range, `BugParams.scaled`) | **front plate** = armoured hitbox (`EnemyHit.armored`, front ×0.35), rear ×2; wind-up + line charge with knockback (remote victims get `dmg.kb`) |
-| `tut_bug_loot` · `tut_bug` | bug | 120 (= `scavenger`) | **튜토리얼 전용** (2026-09-14 3차) — `world/tutorial` 의 고정 목록만이 세운다 | 리그 · AI · 소리는 `scavenger` 그대로(`baseTypeOf`). 다른 것은 고정 드롭뿐 — `_loot` 만 생체 조직 · 터미니드 분비선 100 %, 다른 하나는 빈 시체. 땅속에서 기다리다 굴착 스폰으로 솟는다 |
-| `tut_android_loot` · `tut_android` | android | **140** (= `android` 의 절반) | **튜토리얼 전용** (2026-09-14 3차) | 리그 · AI · 소리는 `android` 그대로. `_loot` 만 돌격소총 I · 전력 케이블 · 준중량탄 한 스택 100 %, 다른 하나는 빈 시체 |
-| `sandworm` | bug | 2000–3000 (host roll; csv 2500 = placeholder) | **이벤트 보스 지하벌레** (2026-09-13) — 땅에 박힌 채 30 s 동안 입에서 버그를 뱉고, 그 뒤 독극물을 뱉는다 (`sandworm/Director`) | 입(머리) ×1.5; speed 0 · 넉백 · 경직 · 도주 · 전차 탑승 · 재활용 없음; 자기 리그 `models/WormModel` |
-
-Gameplay numbers live in `EnemyTypes.ts` (`ENEMY_STATS`, `HUNTER_LEAP`, `SPEWER_SPIT`, `CHARGER_CHARGE`, `ROGUE_AI`,
-`ARTILLERY_AI`, `TOXIC_AI`, `BEHEMOTH_AI`); world-level constants (`CORPSE_*`, `ROGUE_*`, `ARTILLERY_RANGE`, `SHELL_*`,
-`TOXIC_*`, `BEHEMOTH_*`) come from `@/shared/constants`.
-
+## Files
 | File | Responsibility |
 |---|---|
-| `EnemySystem.ts` | The `GameSystem`. Pools `Enemy` instances per type (`acquire(id, …)` for both host spawns and replicas; `byId` map), refreshes `TargetList` + spatial grid + every enemy's `asTarget` proxy each frame, ticks AI only on the authority while `ctx.isGameplayPhase()` (visuals always tick), despawns finished corpses (`Enemy.corpseLife` = `CORPSE_LIFETIME`; replicas +1 s) and fled bugs (2 s). Implements `EnemyManagerRef`: `raycast` (analytic ray vs vertical hit capsule + head sphere + behemoth plate capsule → `part: 'front', armored: true`), `raycastInterceptable` (shell spheres), `applyExplosion` (host: `shared/explosion` 2단 계단 감쇠 + 하한 0.15, returns kills; replica: FX + `explode` request, returns 0), `setThreatLevel`, `startExtractionWaves` / `stopExtractionWaves`, `killAll`, `reset`. Listens: `world:ready` (mode refresh, reset, initial patrols + **rogue guards** on authority → `enemy:bossSpawned`), `game:newMission`/`game:abort`, `game:paused` (pauses only when `freeze !== false`), `weapon:fired` + `net:remoteFired` (hearing 55 m, authority), `grenade:exploded` (80 m), `extraction:activated`, `extraction:liftoff` (stop waves; authority: bugs within 18 m flee), `enemy:waveStarted` (host → `ee wave`), `crate:looted` (corpse searched). Net messages: host handles `hit` (→ `takeDamage(dmg, p, d, from)` → replies `hitc` with actual damage / killed / part; ignores `dmg > 500`), `explode` (→ `hitc` per kill) and `intq` (validates the shell still flies → pop + `ee intercept`); replica handles `es`, `ee`, `hitc` (kill hitmarker). Emits all `enemy:*` / `corpse:*` events, `audio:play`, `camera:shake`, `player:applySlow`. Damage routing `applyDamage`: local target → `ctx.player.takeDamage` + `enemy:attacked`; remote → `dmg` to that peer (+ `ee attack` to the others for melee/leap/charge); **enemy target** (`CombatTarget.enemy`) → `Enemy.takeDamage(…, 'ai')` + `noteClash`. Kill credit: `ctx.stats.kills++` only when `e.lastDamager === 'local'` (Phase 9 tightened this so a credit belonging to another peer never bumps the local stats even in single-player); `enemy:killed {by}` is emitted for **every player-credited** kill — `by` is `'local'` for our own (our peer id is folded back by `normalizeAttacker`, so the payload reads the same online and offline) and the peer id when someone else gets the credit (e.g. a burn lit by a remote peer, `Enemy.burnAttacker`). An AI (faction) kill would be `by: null` and stays **off** the bus; the replica's `ee kill` still emits only for our own credit (`msg.killer === localId` → `by: 'local'`), because a remote killer counts its own kill on its client. ⚠ Consumers must key on `by` (`by === 'local'` = mine; `undefined` = a legacy / synthetic emit): `src/meta/MetaSystem.ts` currently counts every `enemy:killed` toward the contract goal, so a peer-credited kill on the host is counted locally **and** relayed as `meta contractHit` — that handler needs the same `by` filter its `stratagem:called` handler already uses (meta's owner, not this folder). Also the `EnemyHost` (`pickTarget`, `fireGun`, `fireShell`, `chargeHit`, `onChargeStarted`) / `SpawnHost` (`countAlive`) / `RogueSpawnHost` (`spawnRogue`) / `AcidHost` / `ShellHost` / `ReplicaHost` services. Debug: `debugSpawn(type, {x,z}, chase?)`, `debugShell(sid)`, `shellCount`, `bossId`, `corpses`, `active`. **Phase 7**: `setAuthority` (`promote` / `demote`, from its own `net:hostChanged` handler), `throwGrenade` (`EnemyHost`) + `onGrenadeExploded` (`GrenadeHost`) + `grenadeVisual / grenadeHitRemote` (`ReplicaHost`), `applyDamage(…, kbDir, kbSpeed)` with the `suspended` → `ghost:damage` branch, `explode(…, skipFaction)`, `training` gate, `wavesSeen`, debug `grenadeCount / debugGrenade / grenadesThrown / grenadesExploded / lastGrenadeBlast / debugHint / isAuthority / isTrainingWorld`. **Phase 9**: the delta `snapCache` (reset on `reset()` and on promotion with `replicaMgr.lastSeq + PROMOTE_SEQ_GAP`; `flow rejoined / takeover` sets `forceFull` so the next `es` is a keyframe), `applyStatus(id, status, dps, duration, attacker?)` storing `Enemy.burnAttacker`, `applyStatusBits(…, from)` (a replica's status request is credited to the relay `from`), `normalizeAttacker` (folds our own peer id back to `'local'`, also used by `applyAreaDamage`), barrier checks on rogue hitscan / shell blasts / acid (`barrierBlocks`), and debug `debugSnapshot(force?) / debugApplySnapshot(msg) / debugSnapshotState`. **Phase 10**: `onEnemyKilled` no longer registers the corpse itself — a ground kill goes straight to the new `registerCorpse(e)` (same frame as before), a **mid-air** kill only sets `Enemy.corpsePending` and the update loop calls `registerCorpse` once `deathLanded` or `CORPSE_LAND_TIMEOUT`; `registerCorpse` runs the `CORPSE_LOOT_CHANCE` roll (`rollCorpseLootable`), writes `Enemy.lootable` and sends `ee corpse` with `dd` / `lt`. `enemy:killed` carries `deathDir` and `ee kill` carries `dd` (`deathDirIndex`, 0 = `'left'` omitted); `corpseSpawnedRemote(…, opts)` applies the host's `lt` / `dd` to the local body. |
-| `model.ts` | **2026-09-13**: `humanoidDeathSound` · `humanoidPainSound` · `EnemyStepVoice.layer`(안드로이드 서보 걸음 겹침), 안드로이드 피격 `android_hit`, `hurtSound` 는 인간형 팩션 전부. 폴더 공용 어휘 — 상수 · 타입 · 스크래치 벡터. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. **2026-09-11**: 적 타입별 소리 표 `stepSound` · `meleeHitSound` · `hurtSound` 와 발소리 방출 `emitEnemyStep`(C-51 · C-23 · C-22), 리플리카 넉백 요청 상한 `MAX_REQUEST_KNOCKBACK`(C-1), **요청 가드 상한 `ENEMY_STATUS_BITS_ALL` · `STATUS_SOURCE_REACH` · `EXPLODE_SOURCE_REACH`**(E-8, csv 수치는 `@/shared` 에서 온다) |
-| `ai/Ride.ts` | **2026-09-11 (C-18)**: 적 · 적 시체의 차량 탑승. 플레이어와 같은 `shared/ride.ts` 규약 — 진입만 `getStandingObstacle` 의 `velocity` 발판, 유지는 차량 OBB + 헤드룸(`rideContains`), 이동은 지난 프레임 자리를 차량 로컬로 적어 두었다가(`rideRecord`) 이번 프레임 차량의 **지금** 변환으로 풀어 차이만 더한다(`rideCarry`). `carryCorpse` = 시체(땅에 닿은 몸만, 벗어나면 `deathLanded` 를 풀어 떨어뜨림). `replicaRidePredict` = 리플리카가 보간 지연만큼 앞당겨 그린다(`rideBlend` 로 섞음). **2026-09-11 (C-63)**: `rideCarry(e, world, dt)` 가 하차 관성(`rideRelease(e, true)` → `Enemy.rideInertia` · `rideInertiaT`, 플레이어와 같은 `RIDE_INERTIA_*`)을 흘리고, 예측의 앞당김이 `속도 × lag` 가 아니라 **차량 이동 이력**(발판마다 링 버퍼 · `WeakMap`)의 `P(now) − P(now − lag)` 다 — 가속 · 즉시 정차가 맞는다 |
-| `parts/Damage.ts` | **적이 피해를 입는 모든 경로.** 히트스캔 · 폭발 · 광역 · 리플리카의 `hit` 요청이 전부 여기로 모여 `applyDamage` 하나로 수렴하고, 죽으면 시체 등록(`registerCorpse`, `CORPSE_LOOT_CHANCE` 추첨)까지 이어진다. 배리어 판정(`resolveBarrier` / `absorbedByShield`)도 여기 있다 — 방패는 **적을 막는 벽**이자 정면 근접을 대신 받는 면이라 피해 경로의 일부다. **호스트가 클라 요청을 믿기 전의 가드도 전부 여기다** (E-4 · X-6 · E-8): `spendHitBudget`(`hit` · `explode` 공용 DPS 버킷) · `knockbackInReach` · `statusInReach` · `spendStatusBudget` · `explodeInReach`. |
-| `parts/Attacks.ts` | **2026-09-13**: `throwGrenade` 는 보유분을 쓰고 0 이면 거절, 흩어짐 = 팩션 `grenadeScatter`, `ee grenade.k`. `onGrenadeExploded(…, kind)` — 제외 팩션은 **던진 쪽**(예전엔 `'rogue'` 고정이라 레이더 수류탄이 레이더를 다치게 했다), 소이는 작은 폭발 + 화염 지대. `onFireZoneTick` — 로컬 플레이어 `setBurning` · 원격 `dmg` · 끊긴 분대원 `ghost:damage` · 다른 팩션 적 화상(크레딧 `'ai'`), 권위 전용. **적이 하는 공격.** 산성 침 · 로그의 총 · 포병 포탄(요격 가능) · 로그 수류탄 · 독성 자폭. 전부 **호스트에서만** 결정되고 결과가 `ee` 이벤트로 나가며, 각 클라이언트는 `parts/RemoteFx.ts` 에서 연출만 재생한다. **2026-09-10**: `fireShell` 이 `boolean` 을 돌려준다 — 풀이 꽉 찼거나 새 `shellArcBlocked` 가 궤적을 막힌 것으로 읽으면 `false`(발사도 `sid` 소모도 없다). `shellArcBlocked(world, from, target, flight)` 는 궤적의 앞쪽 `SHELL_ARC_CHECK_FRAC`(0.75)를 `SHELL_ARC_SAMPLES`(4)개의 현으로 나눠 `world.raycast` 한다: 현은 포물선 **아래**를 지나므로 검사는 보수적이고(뚫린 것을 막혔다고 볼 수는 있어도 그 반대는 없다), 마지막 하강 구간은 조준점이 땅이라 무조건 걸리므로 일부러 보지 않는다. 발사 시점(포 하나가 6~9초에 한 번)에만 도는 4회 레이캐스트라 핫 패스가 아니다. **2026-09-11**: 로그의 총알이 첫 표면인 **창문 유리**(`Obstacle.fragile`)를 깬다. |
-| `parts/Alerts.ts` | **2026-09-14 2차 (빗나간 총알, 사용자 결정 「모든 적」)**: `reportShot` · `onShotReport` 의 `sys.tutorial` no-op 을 걷어내 **튜토리얼 적도 총알 추적을 받는다** (훈련장은 적이 0 마리라 그대로). 그리고 `alertShot` 이 선분을 **총알이 실제로 멈춘 곳까지만** 센다 — `range` 는 총의 사거리(최대 300 m)라 코앞의 벽을 쏴도 그 방위 300 m 안의 적이 「스쳤다」로 읽고 있었다(저격 · 은신에서 가장 아픈 오판). **적이 무엇을 눈치채는가.** 소리(총성 · 유인탄) · 시야 · 팩션 충돌 · 그리고 Phase 12 의 **총알 추적**: 감지 범위 밖에서 날아온 총알의 발사 지점을 향해 돌아서서(`alertShot`) 그 방향 감지를 넓히고, 못 찾으면 전진한다. 표적 선택(`pickTarget`)과 도주(`fleeFrom`)도 같은 인지 계통이다. |
-| `parts/Status.ts` | **상태이상: 화상 · 전소 · 감전 · 둔화, 그리고 정찰 스캔의 x-ray 실루엣.** 호스트가 상태를 소유하고 `EnemyWire.sb` 비트로 리플리카에 미러링한다. 리플리카는 직접 걸 수 없으므로 `hit {dmg:0, st, dur}` 로 **요청**한다(`requestStatus`). DoT 처치의 킬 크레딧은 불을 놓은 사람에게 간다. |
-| `parts/Pool.ts` | **적 인스턴스 풀.** 적은 생성/파괴하지 않고 고정 풀에서 빌려 쓴다(`acquire` / `release`) — 프레임당 할당을 피하려는 것이고, 그래서 id 재사용 규칙(`find`)과 용량 확장(`ensureCapacity`)이 한곳에 있어야 한다. 미션 리셋(`reset`)과 지오메트리 dispose(`disposePools`)도 이 파일의 책임이다. |
-| `parts/RemoteFx.ts` | **리플리카에서 재생하는 연출.** 비호스트 클라이언트는 AI 를 돌리지 않는다. 호스트가 보낸 `ee` 이벤트(피격 · 산성 · 포탄 · 돌진 · 시체 · 수류탄)를 받아 여기서 **그림과 소리만** 만든다. 게임 상태는 하나도 바꾸지 않는 것이 이 파일의 계약이다. |
-| `Targets.ts` | `CombatTarget { id: PeerId \| 'local' \| 'ai'; position; velocity; isDead; downed; isDeadOrDowned; present; yaw; eyeHeight; enemy; suspended; getEyePosition/getForward/getChest/dist2D; bodyRadius/bodyHeight }` — a stable object per player, plus one per enemy (`Enemy.asTarget`, `id 'ai'`, `enemy` set, synced by the system). `TargetList.refresh(ctx)` rebuilds `all` / `alive` each frame from `ctx.player` plus `ctx.net.getRemotePlayers()` filtered to `connected && !(stale && !suspended) && !DROPPING` (Phase 7: a **suspended** member — socket down, slot kept — stays a target; its position / hp / downed / dead come from the host's ghost through the same ref, `CombatTarget.suspended` routes damage to `ghost:damage`); `downed` = `player.isDowned` / `r.isDowned \|\| flags & DOWNED`. `alive` = present && !dead && !downed (the only players the AI may target or damage); `all` also holds downed and dead bodies (separation, `minDist`, spawn-distance checks). Enemy proxies are **not** in the list — `EnemySystem.pickTarget` scans `active` instead. Queries: `nearestAlive`, `nearestAliveWithin`, `minDist`, `distToLocal`, `randomAlive`, `randomPresent`, `local`, `anyAlive`. |
-| `Enemy.ts` | Entity implementing `EnemyRef` (`faction` getter, `isRogue`, `isCombatant`). Holds gameplay state (hp, state machine fields, timers, charge/leap/spit phases, cached obstacles), `target: CombatTarget \| null` + `targetTimer` + `distToTarget`, `lastDamager` (kill credit), `lastLocalHit` / `netBuf` (replica), Phase 4 memory (`roguePhase`, `guardPos`/`leash`/`escortOf`, `coverPos`, burst timers, `weaponId`; `shellTimer`/`dug`; `toxicPhase`/`swellTimer`; `chargeSeq`/`chargeEnd`/`chargeVictims`/`hitByCharge`; `corpseLife`) and the rig (`EnemyRig = BugRig \| RogueRig`) + `BugAnim`. `takeDamage(amount, hitPoint?, hitDir?, attacker = 'local')` classifies the hit (`head` / `rear` / `front`; behemoth `isFrontPlate(point)` → `front`), applies per-type multipliers, hit-flash/flinch, stagger (never for a swelling toxic), death; a popped-out rogue that gets hit ducks (`hitCrouchTimer`); on a replica it stops after the visuals and calls `host.requestHit`. `muzzle(out)` = rifle tip (rogues). `animate()` syncs the rig every frame (`fade` over the last 3 s of `corpseLife`; Phase 7 blends `anim.reload` / `anim.throwing` from `reloadTimer` / `throwTimer`). Phase 7 rogue memory: `magRounds`, `reloadTimer`, `grenadeCd` (staggered at reset), `noLosHold`, `throwTimer`, `grenadeTarget`, `popPos` / `hasPop`; `enterStagger` / `kill` drop a wind-up. `EnemyHost` interface lives here (`throwGrenade` appended). **Phase 10**: `kill(countKill, dir?)` carries the live `vy` into `deathVy` **before** clearing `airborne` (clamped to `CORPSE_FALL_MAX_SPEED`), picks `deathDir` from its own seeded stream (`rollDeathDir`, `worldSeed ^ id·0x85ebca6b`) unless the wire supplies one, and decides `deathLanded` on the spot (a normal ground kill lands in the same frame, so its corpse still registers immediately); `lootable` / `corpsePending` are the Phase 10 corpse fields and `animate` drives `BugAnim.deathFall` from `deathTimer / DEATH_FALL_TIME`. **2026-09-10**: `EnemyHost.fireShell` 이 `boolean` 이 되었고(거절 = 궤적이 막혔다), 총구 사선 캐시 5개(`fireLineAt` / `fireLineClear` / `fireLineGap` / `fireBlockTimer` / `fireStrafeSign`)가 붙었다 — `reset` 에서 초기화되고 `fireStrafeSign` 은 무작위라 한 분대가 전부 같은 쪽으로 비켜서지 않는다. |
-| `EnemyTypes.ts` | `ENEMY_STATS` table (with `faction`) plus ability tuning `HUNTER_LEAP`, `SPEWER_SPIT`, `CHARGER_CHARGE`, `ROGUE_AI`, `ARTILLERY_AI`, `TOXIC_AI`, `BEHEMOTH_AI`; `BugType` (rig type), `isRogueType`. |
-| `RayTests.ts` | Allocation-free `raySphere`, `rayCapsule`, `rayStandingCapsule` shared by hit detection, rogue shots and shell interception. 2026-09-11 (C-55): `raySegmentCapsule` (any-orientation capsule — the prone sniper's lying body) + `closestOnSegment` (its hit normal). 2026-09-11 (C-62): `nearestOnCapsule` · `nearestOnStandingCapsule` — the same capsules as nearest-point queries (`Enemy.nearestBodyPoint` → melee). |
-| `SpatialGrid.ts` | Allocation-free uniform XZ hash grid, rebuilt per frame, used for separation queries. |
-| `Spawner.ts` | `AmbientSpawner` (threat 0..1 → cap `12 + 24·threat`, patrol every 12–25 s from nests 60–140 m around a random alive player — or a random present body via `randomPresent` when everyone is downed — initial population on `world:ready`; from threat 0.5 `maybeArtillery` digs one in 80–120 m out, ≤ `MAX_ARTILLERY` alive), spawn helpers `findSpawnCenter`, `isVisibleToAnyPlayer`, `spawnGroup`, compositions `ambientGroup` (toxics from threat 0.4) / `waveGroup` (toxics from wave 2, a behemoth from wave 3), and the `SpawnHost` interface (`targets`, `countAlive`). Phase 7: `resume()` restarts the trickle mid-mission after a host promotion with a normal-length gap. **Phase 11**: `AmbientSpawner.eco` (the 목표 행성's `PlanetEcosystem`) — `cap` is `ambientCap` (`× eco.pressure`), the artillery ceiling is `maxArtilleryOf` and a planet whose `eco.bugs` has no artillery digs none in; `ambientGroup(threat, eco)` / `waveGroup(index, count, eco)` keep the whole ladder (same rolls, same probabilities, same gates in `AMBIENT_GATE` / `WAVE_GATE`) and only draw each slot's silhouette from `eco.bugs` inside its power tier (`TIER_FILLER` / `MEDIUM` / `HEAVY` / `RUNNER`). `eco === null` → every helper returns the pre-Phase-11 answer verbatim. **2026-09-09**: `needsSpawnClearance(type)` / `spawnBlocked(world, type, x, z)` (exported) + the private `placeMember` — a body of radius ≥ `ENEMY_BIG_RADIUS` re-rolls its offset (up to `ENEMY_SPAWN_RETRIES`, widening the ring each try) while `world.obstacleCoverage(x, z, radius × ENEMY_SPAWN_CLEARANCE_MUL)` exceeds `ENEMY_SPAWN_BLOCK_RATIO`, and is **skipped entirely** if none works (never downgraded to a smaller type). `spawnGroup` is the single funnel for ambient / wave / nest groups; `maybeArtillery` repeats the check because it calls `host.spawn` directly. |
-| `SiteGroups.ts` | **거점 점거 (2026-09-13)** — `placeSiteGroups(host, seed, threat)` 가 `world:ready` 호스트 1회로 행성 threat 에 따라 연구소 · 전진기지(`getStructures`, 불시착 함선 제외) · 선로 플랫폼 · 폐허 전초(`getRuinSites`)에 인간형 그룹을 세운다: threat 1 = 연구소 · 전진기지마다 안드로이드 실내 1 + 실외 1–2그룹(1–2명), threat 2 = 연구소 · 전진기지 항상 점거 로그 65 % / 레이더 35 % 실내 1 + 실외 1그룹(3–4명) · 플랫폼 로그 1그룹 60 % · 폐허 20 %(바깥 거점 그룹은 `SITE_OUTLYING_GROUP_SIZE_*` 2–3명), threat 3 = 같은 자리 전부 레이더. 로그 그룹 중 하나에 40 % 로 `rogue_boss` 그룹장(레이드당 ≤ `SITE_BOSS_MAX_PER_RAID`, 역할 `leader`, 그룹원 `escortOf`, `enemy:bossSpawned`), 레이더 그룹마다 우회조(`flanker`) 정확히 1명, 그룹마다 `allocSquadId()`, `site` = 거점 종류, 총 = `HUMANOID_WEAPONS[팩션]`. 자리는 `WorldRef.getSiteSpawnPoints`(그룹 합 + 6 개를 받아 첫 그룹 = 첫 점, 다음 그룹 = 앞 앵커에서 가장 먼 점 + 가까운 점들, 실내가 모자라면 실외로 채움; 없으면 `scatterPoints` 대비책). `guardPos` = 거점 중심, `leash` = 거점 반경 + `SITE_GROUP_LEASH_INDOOR_M`(4) / `_OUTDOOR_M`(30). 시드는 거점마다 `hash('sites:<id>@<seed>')` (`seed ^ hash` 는 가까운 시드끼리 첫 굴림이 겹쳤다). 디버그 `EnemySystem.debugSites()`. |
-| `factionTables.ts` | 2026-09-13: `SITE_*` · `RAIDER_DROP_*` · `NAMED_ROGUE_CHANCE_BY_THREAT` csv 로더 — `scripts/data-owners.mjs` 의 로더 목록에 있어 data:check 가 "읽힌 상수" 로 센다. 2026-09-14: 벌레 난이도 6표 + `BugThreatTuning` / `bugThreatTuning(threat)` (아래 `## 벌레 난이도`). |
-| `RogueGuards.ts` | **2026-09-13: 은퇴** — `RogueSpawnHost` 계약(`spawnRogue(…, opts?)` + `allocSquadId`)만 살아 있고 `placeRogueGuards` · `guardCap` · `MAX_GUARDS` · `ECO_BOSS_CHANCE` 는 import 를 깨지 않으려고 남긴 no-op 이름이다. 아래는 옛 설명. `placeRogueGuards(host, seed)` on `world:ready` (authority): squads of 2–4 rogues 6–12 m around every tier-3/4 crate and 30 % of tier-2 crates (> 45 m from the player spawn), ≤ `MAX_GUARDS` (16) in total; one random tier-3/4 crate gets the `rogue_boss` + `ROGUE_BOSS_ESCORTS` escorts (leash to the boss). Seeded by the world seed; rifles from `ROGUE_AI.weapons` (boss `ROGUE_AI.bossWeapon`). `RogueSpawnHost.spawnRogue`. Guards are not waves and are never recycled by `ensureCapacity`. **Phase 11**: `placeRogueGuards(host, seed, eco)` — `guardCap` = `MAX_GUARDS × eco.rogues` (0 = a planet with no raiders, placed without touching the rng), the tier-2 share is `0.3 × eco.rogues`, and on an `eco.boss === false` planet the boss squad only appears when the seed rolls `ECO_BOSS_CHANCE`. Still fully seeded: same seed + same planet = same placement. |
-| `WaveDirector.ts` | Extraction waves: first wave 3 s after activation, then every 14 s → 9 s; size 6, 8, 10 … (≤ 22) **× `WAVE_SQUAD_SCALE[분대 인원 − 1]`, 최소 2마리** (2026-09-10 — 표는 4인 분대 기준이고 `squadSize(host)` 가 `RogueDrop` 과 같은 계산으로 인원을 센다), split into 1–3 groups spawned 45–90 m from the target, facing the nearest alive player; pauses while nobody is alive. A behemoth over the cap becomes a warrior (**Phase 11**: the cap is `maxBehemothOf(eco)` — 0 on a planet with none — and the count now includes behemoths rolled earlier in the same wave; `WaveDirector.eco` also feeds `waveGroup`). Emits `enemy:waveStarted`. Alive cap 60. Authority only. Phase 7: `prime(index)` — the next `start` (re-requested by extraction/ after a host promotion) continues the escalation from that wave index with a ≤ 6 s gap instead of restarting at wave 0. |
-| `RogueDrop.ts` | **2026-09-13: 레이더 강하** — 계약 이름(`rogueDrop:*` · `rdrop` · `callRogueDrop` · `getRogueDrops`)은 그대로. 확률 `RAIDER_DROP_CHANCE_BY_THREAT[threat − 1]`(threat 1 = 굴림 자체가 없고 기록도 안 한다), 인원은 분대 인원별 **두 파도** `RAIDER_DROP_WAVE1/2_MIN/MAX`(1인 3 · 2인 3→2 · 3인 3→3 · 4인 4→3–4, 파도당 ≤ `RAIDER_DROP_WAVE_MAX` 4), 두 번째 파도는 호스트가 `RAIDER_DROP_WAVE_GAP_S`(10 s) 뒤 **따로 예고**하는 강하(`dropId` = `${zoneId}#2`, 자기 `rdrop incoming/landed` · 포드 · 착지 시드) — 리플리카는 `zone#2` 와 `zone` 을 둘 다 굴린 것으로 기록한다. 파도마다 레이더 분대 하나 · 우회조 1명 · `site 'drop'` · `boss` false. 호스트 이관 때 10 s 대기 중인 두 번째 파도는 사라진다. 디버그 `debugSetDropSquad(n)` · `debugDropWaves`. 아래는 옛 설명. **로그 강하** (2026-09-09). `RogueDropDirector` — `structure:investigated` 를 받아 **호스트만** 구역당 1회 `ROGUE_DROP_CHANCE` 를 굴리고(`worldSeed ^ hash(zoneId)` 시드 스트림이라 호스트가 바뀌어도 같은 답), 성공하면 `callRogueDrop(dropId, position)` 이 분대 인원표(`ROGUE_DROP_COUNT_MIN/MAX` · `ROGUE_DROP_BOSS_CHANCE`, index 0 = 1명)로 인원 · 보스를 뽑아 `world.scatterPoints(position, ROGUE_DROP_RADIUS, count, 4.5, seed)` 에 포드를 떨어뜨린다. 예고 → `ROGUE_DROP_ETA_S` → 착지: `rogueDrop:incoming` / `landed` + `rdrop incoming` / `landed`. **2026-09-10 — 알림 · 소리는 이 파일이 내지 않는다**: 포드마다의 착지 충격음 `rogue_pod_impact`(아군 `hellpod_impact` 가 아니다)만 `impactFx` 에 남고, 무전 경보(`rogue_drop_alarm`)와 대기를 찢는 낙하 굉음(`rogue_pod_fall`)은 `audio/AudioSystem` 이 `rogueDrop:incoming` 을 받아 낸다 — 둘 다 **인지력이 아니라 전용 반경 `ROGUE_DROP_ALERT_RADIUS`(260 m)** 로 게이트하고 그 안에서 거리에 따라 줄어들며(원격 발소리와 같은 곡선), 굉음은 착지 `ROGUE_DROP_FALL_LEAD_S` 초 전에 나간다. 화면은 `ui/hud/RaidAlerts` 의 토스트와 `ui/hud/DangerIndicators` 의 위험 표시(화면 안 = 머리 마커 · 밖 = 방향 호, 같은 반경). 착지에서 `host.spawnRogue` 로 `rogue` / `rogue_boss` 를 세우고(`guardPos` = 트리거 지점, `ee spawn` 은 기존 스폰 경로가 낸다) `beginInvestigation(e, 트리거 지점)` 으로 **구조물까지 진격**시킨다 — 도착하면 그 자리를 지키는 기존 가드 순찰로 넘어간다. 구역당 1회 기록은 자체 `used` 집합(리플리카가 받은 `rdrop incoming` 도 넣으므로 승격된 호스트가 다시 굴리지 않는다) ∪ `WorldRef.getStructures()` 의 `StructureDef.rogueDropUsed`; `Pool.reset` 이 레이드마다 비운다. 비호스트는 `rdrop` 을 받아 같은 이벤트를 내고 **포드 연출만** 그린다(적은 기존 `es` / `ee` 리플리카 경로). 포드는 외부 에셋 없이 여기서 절차 생성한 붉은 육각 캡슐(공유 지오메트리 · 머티리얼, `disposeRogueDropAssets`), 낙하 연기 · 착지 `groundBlast` / `dust` / `sparks` 는 `@/core/fx`. `ctx.isTraining()` 훈련장에서는 전부 no-op. |
-| `named/Director.ts` | **2026-09-13**: 네임드 3종은 팩션 `raider`, 확률 `NAMED_ROGUE_CHANCE_BY_THREAT[threat − 1]`(0 · 0.25 · 0.5 — 옛 `…_BY_RANK` 은퇴), 시드 `hash('named@<seed>')`(같은 시드의 네임드가 예전과 다르다), `NamedRollResult.threat`, 헤비 = 역할 `leader` + SMG **레이더** 호위가 같은 `squadId`(우회조 없음). **네임드 로그 스폰 디렉터** (2026-09-11). `NamedRogueDirector` — `world:ready` 권한 분기에서 가드 배치 뒤 `roll(planet)` 한 번: 시드 스트림 `worldSeed ^ hash('named')` 에서 등장(`NAMED_ROGUE_CHANCE_BY_RANK[planetTier − 1]`) → 종류(3종 균등) → 자리를 차례로 뽑는다. 자리는 전부 스폰에서 `NAMED_ROGUE_MIN_SPAWN_DIST` 이상 · 맵 안 · 선로 회랑(`RAIL_CLEARANCE_M` + 4 m) 밖 · 구조물 발자국 밖 · `obstacleCoverage` 로 막히지 않은 곳: 로든 = 개활 · 구조물에서 멀고 둘레보다 높은 후보(스폰을 바라본다), 타길라 = 스폰에서 먼 구조물 둘레 `NAMED_HAMMER.structureRadius` 안 엄폐가 가장 많은 자리(`guardPos` = 구조물), 헤비 = 먼 구조물 · 상자(폐허) 곁 + SMG 호위 `NAMED_HEAVY_ESCORTS_BY_SQUAD[분대 인원 − 1]` 명(`escortOf` = 헤비, `escortRadius` 안). 스폰은 `spawnRogue`(무기 `sr` / `u_minigun` / 없음, 호위 `smg`) → `ee spawn` 그대로. `enemy:namedSpawned` 는 권한이면 스폰 직후, 리플리카면 `enemy:spawned` 에서 id 당 한 번. `reset()` 은 `Pool.reset`. 디버그 `EnemySystem.debugSpawnNamed(type, at?)` · `debugNamedRoll()`. |
-| `Tutorial.ts` | **튜토리얼 전용 적 (2026-09-14)** — `placeTutorialEnemies(host, spawns)` 가 `ctx.world.tutorial.enemySpawns()` 목록을 **그대로** 세운다 (난수 0회 · 굴림 없음 · 웨이브 없음 · 스포너 없음 · 거점 그룹 없음 · 네임드 없음 · 지하벌레 없음 · 레이더 강하 없음 — 훈련장이 전부 끄는 것과 같고, 다른 점은 **적이 있다**는 것뿐이다). 벌레는 `spawn`, 인간형은 `spawnRogue`(자기 자리가 `guardPos` · 총은 `HUMANOID_WEAPONS[팩션]` 첫 항목)라 **몸 · AI · 외피 · 시체 전리품이 본편 그대로**다. 그 위에 마리마다 `Enemy.senseRadius`(csv `TUTORIAL_ENEMY_SENSE_M`) · `Enemy.homeLeash`(csv `TUTORIAL_ENEMY_LEASH_M`)를 얹는 것이 전부. `tutorialHold(e, dt)` = `ai/EnemyAI` 가 매 프레임 부르는 자기 자리 지키기(리시 밖 → 접고 귀환 · 싸움이 끝나고 자리를 벗어나 있으면 귀환 · 자리에 섰으면 `wanderTimer` 를 도로 채워 **순찰하지 않는다**); `homeLeash === 0` 이면 첫 줄에서 그대로 돌아간다. 목록은 `world:ready` 에서 **한 번만** 읽는다 — 처치된 적은 체크포인트 부활로 되살아나지 않는다. **2026-09-14 3차**: 전용 타입 4종(`tut_bug_loot` · `tut_bug` · `tut_android_loot` · `tut_android` — 리그 · AI 는 `EnemyTypes.baseTypeOf` 의 바탕 종류, 다른 것은 고정 드롭뿐)과 **구덩이 스폰** — 벌레 줄은 세우지 않고 `TutorialPlacement.ambush` 에 담아 두었다가 `updateTutorialAmbush` 가 플레이어가 그 마리의 감지 반경에 들어설 때 `BURROW_EMERGE_S` 굴착 스폰으로 꺼낸다 (좌표는 코드에 없다 — **계기는 튜토리얼 단계가 아니라 거리다**). |
-| `Corpses.ts` | `Corpse` (`Interactable` `corpse:<enemyId>`, `CORPSE_INTERACT_RADIUS`, `holdTime` 0.6, prompt `시체 수색` → `수색 완료`; `canInteract` = `ctx.isGameplayActive()` && player alive & not downed && `ctx.inventory.openContainerItems` exists; `interact()` rolls once via `ctx.loot.rollCorpse(type, new Random(seed ^ id·φ), weaponId)` and calls `ctx.inventory.openContainerItems(id, items, position, '시체')`; an empty roll counts as searched; **2026-09-08** the first `interact()` also sets the appended `Interactable.hidePillar`, so `ui/hud/Detection` stops drawing this body's 빛기둥 while it stays searchable — deliberately **not** synced, another player looting the same corpse leaves our pillar up and ours never clears theirs) and `CorpseManager` (`add` → `corpse:spawned`, `remove` → `corpse:removed`, `markLooted(containerId)` from `crate:looted`, own `CORPSE_LIFETIME` safety timer, `clear`). Contents are per-client like crates. **Phase 10**: `rollCorpseLootable(seed, enemyId, type)` decides whether a body can be searched at all from `CORPSE_LOOT_CHANCE` on an **independent** seeded stream (`worldSeed ^ (enemyId · 0x9e3779b1)`) — never on the `rng` that feeds `rollCorpse`, whose exact output `src/inventory/__selftest__.ts` pins for `warrior` / `rogue` / `rogue_boss` at seeds 5 / 11 / 3. `add(…, opts?: CorpseWireOpts)` takes the host's `lootable` / `deathDir` (`ee corpse.lt / .dd`) over the local roll, **returns null and registers no interactable** when the roll fails, and emits `corpse:spawned { lootable, deathDir }` either way (so a listener can tell "a body is here" from "loot is here"). **2026-09-14 4차**: `CorpseManager.lifetime`(기본 `CORPSE_LIFETIME`)이 `add` 에서 `Corpse.life` 로 들어간다 — `EnemySystem` 이 `world:ready` 에 넣고 튜토리얼 레이드는 `Infinity` 다. |
-| `ai/EnemyAI.ts` | State machine per bug: `idle` → `wander` → `alert` → `chase` → `attack` → `stagger`, plus `dead`/`flee`. Everything target-relative reads `e.target` (`acquireTarget` each tick). Rogues branch to `RogueAI.updateRogue` after perception; artillery / toxic / behemoth chase & attack dispatch to `GimmickAI`. Charger rush contact and hunter leap landing hit the nearest alive (not downed) player in range; melee / spit fire only while `!e.target.isDeadOrDowned`. **2026-09-10 (총구 사선)**: 스퓨어의 원거리 침(`startSpit`)에 `ai/FireLine.hasFireLine` 가 붙었다 — 눈에는 보여도 **입**(산탄이 나가는 `headCenter + 0.1`) 사선이 막혔으면 뱉지 않고, `d ≤ SPEWER_SPIT.maxDist` 가지에서는 `fireLineStrafe` 로 옆으로 돈다(이 가지만 `hasMoveTarget = false` 로 굳어 있어서 벽에 침을 뱉던 그림이 나왔다). 후퇴 가지(6.5–9 m)는 어차피 자리가 바뀌므로 사격만 막는다. 연막 속 추정 사격(`suspicion`)은 원래 맹목 사격이라 검사하지 않는다. `integrate()` (exported) handles steering, separation, obstacle avoidance (a charging body that deviates → `stumble` with the type's cooldown; behemoth shakes the camera), terrain snapping, gait, footsteps, yaw, slope. **Phase 10**: `integrateDeathFall(e, dt, world)` (exported, called from the `state === 'dead'` early-return here **and** from `net/Replica.update`) integrates `deathVy` under `GRAVITY` and snaps to `world.getHeightAt` → `deathLanded`, so a body killed mid-leap falls instead of freezing in the air. |
-| `ai/HumanoidProfile.ts` | 2026-09-13: 팩션 → 프로필(csv `HUMANOID_ANDROID` · `HUMANOID_ROGUE` · `HUMANOID_RAIDER`), `humanoidAimError`(거리 곡선 × 서서 쏘면 `settleMul`), `rollBurst` · `rollBurstPause`, `rollGrenadeLoadout`(`Pool.spawnRogue` — 1–3개, 소이 확률 로그 30 % · 레이더 40 %, 안드로이드 · 네임드 0). |
-| `ai/SquadFlank.ts` | 2026-09-13: 레이더 우회조 — 분대원이 교전 중이고 우회조가 `flankDelay` 이상 교전했으면 표적 측후방으로 넓은 호를 달려 `roguePhase` 4 로 푸시, `flankCooldown`. 스스로 돌격하지 않고, 분대원이 없으면 보통 레이더. |
-| `ai/RogueAI.ts` | **2026-09-13**: 모든 인간형 팩션이 이 상태 기계를 쓰고 수치는 `ai/HumanoidProfile` 에서 — 조준 오차는 거리 곡선(로그 20 m ≈ 90 % · 80 m ≈ 3 % 명중, 레이더 80 m ≈ 19 %), 한 번 나와 `burstsPerPop` 점사 · 엄폐 유지 짧게, 벌레 표적은 엄폐 없이 서서 쏘고 가까우면 물러난다(`enemyDamageMul`). 안드로이드 = `androidCycle`(엄폐 · 투척 · 돌격 없음, `roguePhase` 0/3, 교전 거리 띠, 느린 점사, 피격 웅크림 없음). 수류탄은 `grenadeCount > 0` 일 때만, 우회조는 `ai/SquadFlank`. 대기 순찰 반경 ≤ `leash − 5 m`(1.5 m 밑이면 제자리 — 실내 그룹이 문 밖으로 새지 않는다). Humanoid gunner: guards idle / patrol 6–12 m around `guardPos` (escorts 3–6 m around the boss, `guardPos` follows it), `alert` = `ROGUE_REACTION` delay with the rifle raised, then the **cover cycle** in `chase` via `roguePhase`: 0 pick cover (`ai/RogueCover.ts`, Phase 7: LOS-validated + flank scored, also yields the **pop-out spot** `popPos`) → 1 move there (snap shots while relocating) → 2 crouch-hold 2–4 s (hint 6; boss ×0.6; target < 6 m pops out early; a running reload extends the hold) → 3 **step out to `popPos`** (≤ 2.5 s, no LOS penalty while stepping), stand and fire `ROGUE_BURST` rounds 0.12 s apart (hint 5) with aim error `ROGUE_AIM_ERROR` → `ROGUE_AIM_ERROR_SETTLED` over 1.2 s standing; no LOS for 1.2 s → new cover; after the burst `ROGUE_RUSH_CHANCE` → 4 **rush** to ~8 m firing from the hip every 0.28 s (hint 7, error ×1.6, ≤ 6 s) else back to 0. Leash: never farther than `leash` (45 m; escorts 18 m) from `guardPos` unless rushing or the target is visible within 30 m. Every shot goes through `shoot()` → `host.fireGun` and spends one of `ROGUE_MAG_ROUNDS` (`Enemy.magRounds`); an empty magazine starts a `ROGUE_RELOAD_TIME` **reload** in any phase (`reloadTimer`: crouched, rifle down, no shots, `reload` audio at the rogue, hint 12; a burst caught mid-reload ducks back to phase 2; `popOut` never loads more rounds than the mag holds). **Grenade** (`maybeStartThrow`, not while rushing): target hidden (`noLosHold` ≥ `ROGUE_GRENADE_HOLD_S`), `ROGUE_GRENADE_RADIUS + 1.5` < distance ≤ `ROGUE_GRENADE_RANGE`, `grenadeCd` ≤ 0, no reload → walk to `popPos` (≤ 2 s) then `ROGUE_GRENADE_WINDUP` throw pose (hint 13, sphere in the off hand) → `host.throwGrenade(e, grenadeTarget)`; success arms `ROGUE_GRENADE_COOLDOWN` (boss ×0.7, ±10 %), a refused launch (rock in the face) retries in 2 s; then back to phase 0. The boss and its escorts throw too. Stagger drops a wind-up (cooldown unspent). **2026-09-10 (총구 사선)**: `canShoot` 에 `ai/FireLine.hasFireLine` 가 붙어 **총구**가 막혀 있으면 어느 단계에서도 방아쇠가 당겨지지 않는다 (단계 1 의 스냅 샷은 `Math.random()` 을 먼저 보고 나서 검사한다 — 총구 월드 행렬 갱신이 공짜가 아니다). 단계 3 에서 `hasLOS` 는 참인데 사선만 막혔으면(= 바위 · 벽에 몸을 붙였다) 서 있지 않고 `fireLineStrafe` 로 옆으로 비켜서고, 한 다리를 다 걸어도 못 뚫으면 `roguePhase = 0` 으로 **새 엄폐물**을 고른다. `popPos` 로 걸어 나가는 중(`stepping`)에는 원래 자리가 막힌 게 정상이라 건드리지 않는다. 단계 4(돌격)는 **사격만** 멈추고 계속 달린다. |
-| `ai/RogueCover.ts` | Phase 7 cover selection. Candidates keep the Phase 4 filters (within `COVER_SEARCH_RADIUS` 16 m, not behind the rogue, inside the map, 4 m … 90 % of the rifle range from the target, inside the leash); a candidate's point is the obstacle's far side. **2026-09-08**: every one of those geometric numbers reads the cylinder *rays stop at* — `blockRadius(o)` / `blockHeight(o)`, i.e. `shotRadius` / `shotHeight` when the prop declares them — not the movement collider. Since the 바위 엄폐 fix the two differ on purpose (the collider is narrower and taller than the rock it draws), and offsetting by `o.radius` alone put both the cover point and the pop-out spot **inside** the rock as far as `world.raycast` was concerned: `findPopSpot` read both flanks as 'still hidden' and rejected every candidate, so a rogue near wide rocks took no cover at all. The `≥ 0.5` / `≥ 0.8` size filters use the same measure, so a rock the crouched-eye line now passes over is never a candidate in the first place. Score = `distance + ROGUE_COVER_FLANK_WEIGHT × (1 − \|sin θ\|)` (`flankCost`: θ between `target.getForward()` and target → candidate, so flanks are free and the target's front / back cost the full weight) + 6 when it is the rock we stand at / just left + `max(0, toTarget − 35) × 0.5`. Cheap terms first, then two raycasts only for candidates that beat the best so far: `coverBlocksLine` from a **crouched** eye (0.9 m) at the point to the target's chest must be blocked, and `findPopSpot` must find a flank of the obstacle (perpendicular to the target line, `radius + 0.9` out, pulled 35 % back) from which a **standing** eye (1.45 m) sees the chest — cover you cannot fight from is skipped (otherwise rogues hide forever). Writes `coverPos / hasCover / popPos / hasPop`. |
-| `ai/GimmickAI.ts` | `chaseArtillery` (retreat when < 60 m, approach when > 125 m, otherwise dig in over 1.2 s — `dug`, hint 8 — and `host.fireShell` every 6–9 s at ≤ 140 m; never melees; **2026-09-10** `fireShell` 가 `false` 를 돌려주면 = 낮아진 궤적이 언덕 · 나무 · 벽에 막혔다 → `artilleryRelocate` 로 굴착을 풀고 표적 수직 방향으로 `ARTILLERY_RELOCATE_M`(7 m) 옮겨 다시 판다. 방향은 매번 뒤집고 `Enemy.fireBlockTimer`(= `ENEMY_FIRE_STRAFE_S`) 동안 걷는다 — 같은 자리에서 6~9초마다 제 발치에 쏘지 않게), `chaseToxic` / `attackToxic` (weaving runner; within `TOXIC_TRIGGER_DIST` of its target or any alive player → swell 0.6 s, hint 9, then `kill(false)` → burst), `chaseBehemoth` / `attackBehemoth` (approach to 18 m; wind-up `BEHEMOTH_WINDUP` with roar, hint 10; then a straight line at `BEHEMOTH_CHARGE_SPEED` toward the target's position at wind-up end + 6 m, hint 11; players within radius + 0.85 m → `host.chargeHit` once per charge with a sideways knock direction; enemies of either faction in the path → 160 damage `'ai'` + shove + stagger; end / 3.2 s / obstacle → stumble, cooldown 4 s; melee like a warrior in between). |
-| `ai/FireLine.ts` | **총구 사선 (2026-09-10).** `ai/Perception.hasLineOfSight` 는 **눈** → 가슴 레이라, 벽에 몸을 붙인 적은 그 검사를 통과하면서 총구는 벽 안에 박혀 있다 — 벽에 대고 쏘던 그림의 뿌리다. `fireOrigin(e)` 가 **총알/침이 실제로 나가는 지점**(로그 = `Enemy.muzzle` 소총 끝, 스퓨어 = `headCenter + 0.1`)을 주고, `hasFireLine(e, host, t)` 가 거기서 표적 가슴까지 `world.raycast` 한다. 두 가지가 규약이다: ① 레이는 총구에서 `ENEMY_WALL_STANDOFF` **뒤**(제 몸 안 — 적은 월드 장애물이 아니다)에서 출발한다. 총구가 이미 벽 안이면 총구에서 밖으로 쏜 레이는 벽을 만나지 못해 "뚫렸다" 가 되기 때문이고, 이것이 "벽과 최소 거리를 둔다" 규칙의 실체다. ② 결과는 적별로 `ENEMY_FIRE_LOS_S`(0.25 s) 캐시(`Enemy.fireLineAt` / `fireLineClear` / `fireLineGap`) — 매 프레임 · 매 발 레이캐스트를 쏘지 않는다. 표적이 바뀌면 `acquireTarget` 이 캐시를 버린다. 막혔을 때의 답은 `fireLineStrafe` — 표적을 보면서 수직으로 `FIRE_STRAFE_STEP` 옆으로 조향 목표를 잡고(총구가 물체 안이면 `fireLineGap` 을 보고 뒤로도 조금), `ENEMY_FIRE_STRAFE_S` 한 다리를 다 걸을 때까지 `true` 를 돌려준다. **사격만 보류하고 이동은 절대 막지 않는다** — 문 · 틈을 지나느라 한순간 막히는 것은 정상이라 AI 가 굳으면 훨씬 나쁘다. 지형 · 장애물만 본다(아군 오사는 보지 않는다). 포병의 곡사 궤적은 직선이 아니라 `parts/Attacks.shellArcBlocked` 가 맡는다. |
-| `ai/Common.ts` | `lookAtTarget`, `startMelee`, `stumble(e, cooldown, duration)`, `AttackResult` shared by the three AI modules. |
-| `ai/Steering.ts` | `seek`, `separate` (mass-weighted positional correction via the grid + push-out from every alive `CombatTarget`), `avoidObstacles`, `turnToward`, `yawTo`. |
-| `ai/Perception.ts` | `acquireTarget`: `host.pickTarget(e)` (players and hostile enemies), re-evaluated every 0.5–0.9 s or when the target dies / goes down / leaves; hysteresis (switch only when another is < 0.6× / 0.75× as far, with/without LOS). Staggered 0.3 s perception tick: sight `sightRadius` (bugs 40, rogues 60, artillery 130) with LOS to the target's chest, target loss after 10 s unseen & > 60 m — skipped for `relentless`, artillery, and rogues with a target inside 80 m. `becomeAlert` emits `enemy:alerted`, screech audio (rogues stay silent), propagates 20 m within the same faction. |
-| `net/HostSync.ts` | Host encoding: `encodeSnapshot(active, time, cache, force?)` → `EnemySnapshot { seq, full, e: EnemyWire[], gone? }` with p 2 dp / yaw 3 dp / hp 1 dp, `a` hint (1 charger windup, 2 rush, 3 spewer windup, 4 hunter airborne, **5 rogue shooting, 6 rogue in cover, 7 rogue rushing, 8 artillery dug in, 9 toxic swelling, 10 behemoth windup, 11 behemoth rush**, Phase 7: **12 rogue reloading, 13 rogue throwing** — both outrank the cover phases, 전소 / stagger outrank them) and `w` (rogue rifle id), `sb` status bits (`statusBits`, Phase 6). Corpses leave the snapshot 1.5 s after death (replicas keep them from their own corpse timer). **Phase 9 — `es` is a delta stream**: `SnapshotCache` remembers the rounded fields last sent per id (plus `seenSeq`), holds the monotonic `seq` and the `forceFull` flag, and `reset(seqBase?)` clears it + forces the next keyframe (a promoted host passes the last seq it saw as a replica so its counter cannot be confused with the old host's). A **keyframe** — `force`, `cache.forceFull`, or every `KEYFRAME_EVERY` = `NET_ENEMY_KEYFRAME_S × NET_ENEMY_SNAPSHOT_HZ` snapshots — carries every field of every eligible enemy with `full: true` (`a` / `sb` omitted when 0, which a keyframe reads as 0). A **delta** carries only enemies whose rounded fields changed, and only those fields; an id the cache does not hold gets the full set (`ty` / `w` included) so a replica can build it, and `a` / `sb` falling back to 0 are written explicitly because an omitted delta field means "unchanged". `gone` lists ids the cache held that are no longer eligible. A keyframe is ~90 B per enemy as JSON; a delta over an idle swarm is a few bytes per moving enemy. |
-| `net/Replica.ts` | Client replica: `ReplicaBuffer` (8-sample ring per enemy) with lerp / shortest-arc yaw / ≤ 0.25 s extrapolation; `EnemyReplica.onSnapshot` (get-or-create by host id; ids missing from a `full` snapshot → release, **except dead bodies**), `onEvent` (`spawn`, `kill` + kill credit when `killer === localId` (2026-09-11 E-4: another member's `killer` → `enemy:squadKill`), `despawn`, `damaged`, `attack`, `acid`, `wave`; Phase 4: `shoot` → tracer/flash/audio + `enemy:shot`, `shell` → visual shell, `intercept` → pop, `shellHit` → landing FX (skipped when the local copy already landed), `charge` → `enemy:chargeStarted`, `toxic` → green burst FX + `enemy:toxicBurst`, `corpse` / `corpseGone` → `CorpseManager`; Phase 7: `grenade` → `ReplicaHost.grenadeVisual` (visual copy flown from the wire position / velocity / fuse), `grenadeHit` → `grenadeHitRemote` (pops the local copy in place, or just the FX)), `update` renders at `ctx.time − NET_INTERP_DELAY`, clamps y to terrain unless airborne, drives `BugAnim` (gait from displacement; shake/abdomen/crouch/aim/mandible from state + hint — hint 12 crouch + reload pose, 13 throw pose via the held `reloadTimer` / `throwTimer`; head tracking; slope) and mirrors `sb` into the status timers (`applyStatusBits`, Phase 6). Phase 7 host migration: `adopt(e, now)` seeds a demoted enemy's ring buffer with its current pose so it keeps rendering until the new host's first snapshot; `latestOf(e)` hands the promotion the newest wire sample. **Phase 9 delta intake**: `seq` comes from `msg.seq` (the host's counter, `lastSeq` feeds a promotion); `ReplicaBuffer.applyWire(now, w, keyframe)` lays a partial wire over the newest sample as a new sample (absent fields keep their value; in a keyframe an absent `a` / `sb` is 0) while `push` stays the seeding path for `ee spawn` / `adopt`; an enemy absent from a **delta** gets `hold(now)` (the newest sample repeated) so the interpolator sees it standing still instead of extrapolating past the stop; an unknown id **without** `ty` / `p` is ignored and counted in `ignoredUnknown` (`ee spawn` or the next keyframe brings it); the sweep that releases unseen replicas runs on **keyframes only**; `gone` releases at once except bodies whose newest sample is `dead` (the corpse timer owns those). **Phase 10**: a dead body runs `integrateDeathFall` here (the host drops corpses from `es` after 1.5 s, so the client must fall on its own), `ee kill.dd` / `ee corpse.dd` are handed to `Enemy.kill(false, dir)` / `corpseSpawnedRemote` so the host's fall direction and lootable roll win. |
-| `fx/RogueGrenade.ts` | **2026-09-15 (B-16)**: `getFireZones()`(칸별 view 재사용 · id `e:<n>` · `hostile`), 점화 `fire_ignite` · 지대마다 `FIRE_ZONE_CRACKLE_S` 지지직 `fire_crackle`(모든 클라이언트 · 와이어 없음). **2026-09-13**: 종류별 몸체 재질, 소이 화염 지대 풀 6개(`ENEMY_INCENDIARY` — 4.5 m · 8 s · 16 dps, 파티클 + 가산 바닥 원판, 광원 0), 권위 지대만 `onFireZoneTick`, 리플리카는 `ee grenadeHit.k` 로 모습만, `explodeNear(p, kind?)`, 디버그 `debugFireZones` · `fireZoneCount`. |
-| `fx/RogueGrenade.ts` (옛 설명) | Phase 7: 8 pooled rogue grenades (small dark spheres, ember emissive, `NO_RAYCAST`). `throw(owner, from, vel, fuse, authority)`; `launchVelocity(from, target, flight, out)` (ballistic solve, `GRAVITY`); `update` integrates gravity, spins, tests obstacles / terrain along each step (`world.raycast`, height field) — **one bounce** (normal × 0.3, tangent × 0.3) then a damped roll (× 0.5 per contact) to rest below 0.8 m/s, out-of-bounds rests too; fuse → `explode` → blast FX (fireball / sparks / ground blast / smoke / flash, no lights) + `GrenadeHost.onGrenadeExploded(p, authority, owner)`. `explodeNear(p)` (replica `grenadeHit`) pops the nearest still-flying local copy within 4 m or plays the FX alone; `setAuthorityAll` flips in-flight grenades on host migration; `findByOwner` / `count` for debugging. **2026-09-11**: 걸음마다 `breakFragileAlong` — 창문 유리에서 튕기지 않고 깨고 지나간다. |
-| `ai/Investigate.ts` | **Phase 12 (총알 추적)**: the investigate state an enemy enters when `EnemySystem.reportShot` decides it noticed a bullet it cannot attribute to anyone. Rides on the shared machine as `state = 'alert'` with `aware = false` (`Enemy.investigating`), so the wire needs nothing new (a replica reads `alert` as the raised-rifle / crouched pose it already has). `beginInvestigation(e, origin)` starts it (false = already running, only the origin moved), `updateInvestigate` runs one tick instead of the state switch, `endInvestigation` restores the previous behaviour. Phases: **0 watch** — face the origin, stand still, `ENEMY_SHOT_ALERT_WATCH_S`; **1 advance** — bugs walk straight at it, rogues leg cover-to-cover (`pickApproachCover`, a `COVER_HOLD_MIN..MAX` crouched hold at each rock = wire hint 6, `OPEN_LEG_S` straight ahead when no rock qualifies, `COVER_LEG_TIMEOUT` per leg) until within `SHOT_ALERT_ARRIVE` (8 m) or past its leash (humanoids, and **2026-09-14 2차** any enemy with a `homeLeash` — the tutorial ones: `EnemyAI` skips `tutorialHold` while investigating, so the tether has to live here too); **2 arrived** — a last `ARRIVE_HOLD_S` look, then stand down. `ENEMY_SHOT_ALERT_GIVE_UP_S` ends it wherever it is. Perceiving anyone (the cone in `ai/Perception.ts`) flips `aware` and `EnemyAI` drops straight into the ordinary alert → chase (rogues open fire); a hit, a barrier bump, a stagger or `flee` cancels it. |
-| `fx/Xray.ts` | **Phase 12 (정찰 x-ray)**: `EnemyXray` — the red through-wall silhouette behind `EnemyManagerRef.setXray`. One overlay `THREE.Mesh` per body mesh under `Enemy.object`, **parented to that mesh** so it inherits the animated part transform for free (no per-frame matrix copy), all sharing ONE `MeshBasicMaterial` (`DETECT_ENEMY_COLOR`, `depthFunc: GreaterDepth`, `depthTest: true`, `depthWrite: false`, `DoubleSide`, `fog: false`, `toneMapped: false`, `NO_RAYCAST`) — the same trick as the player's occlusion silhouette. Opaque rather than translucent, and drawn at `XRAY_ORDER` 1 with the body lifted to `BODY_ORDER` 2: a transparent overlay sorts after the body and would paint the *visible* enemy red wherever a far leg lies behind the torso. Overlays are built lazily once per pooled `Enemy` and only toggled afterwards (`show` extends and never shortens; `remove` on death / despawn, `tick` expires, `clear` on mission reset, `dispose` detaches before the rigs are freed). No per-frame allocation. |
-| `models/BugParams.ts` | Per-type visual parameters for the six-legged rig (`BugType`), incl. Phase 4 `mortar` (artillery tube), `frontPlate` (behemoth), `sacSwell` (toxic); `behemoth` = warrior params scaled ×`BEHEMOTH_SCALE`. |
-| `models/BugModel.ts` | Shared per-type geometry/material assets, `createBugRig` (`kind: 'bug'`, `baseScale`, optional `mortar` group), `animateBug` (tripod gait, bob/lean/slope, head tracking, mandibles, hit flash, flinch, sac pulse/swell, wind-up shake, leap crouch, mortar recoil, death roll — the body **stays on the ground** and only sinks during `fade`). `BugAnim` adds `fade`, `aim`, `recoil`. **Phase 10**: the canned death roll became **three real directions** — `BugAnim.deathDir` (0 left / 1 right / 2 back, replacing the unseeded `rollSign`) and `deathFall` (blend over `DEATH_FALL_TIME` with one small settle bounce); left / right roll the thorax over and shift it sideways, back rears the bug over onto its abdomen with almost no roll. `curl` (leg fold) and `sink` are unchanged. |
-| `models/HumanoidParts.ts` | 2026-09-13: 휴머노이드 리그 부품 도구(box · limb · ball · disc · ring · merge)와 `HumanoidAssets`(발광 부품 `glow` · `eyeGlow`). |
-| `models/FactionLooks.ts` | 2026-09-13: 안드로이드(무광 백색 외피 · 단안 청록 렌즈 · 골반 · 허리 · 어깨 · 팔꿈치 · 무릎 발광 링 · 가슴 코어 · 백색 카빈) · 레이더(검은 전투 장비 · 붉은 표식 · 호박색 바이저 · 방독면 · 야시경 마운트 · 배낭 무전 안테나) 외피. 같은 리그 · 같은 총구 · 광원 0 (발광은 emissive). |
-| `models/RogueModel.ts` | **2026-09-13**: 외피별 발광 메시(`eyeMat` 와 함께 사망 때 꺼진다) · `RogueRig.eyeGlow`, 안드로이드 · 레이더는 `FactionLooks` 가 짓는다. Procedural humanoid rig (`kind: 'rogue'`): pelvis/torso/head with emissive visor, arms + rifle block (`gun` group, `muzzle` marker), two legs, and (Phase 7) a small `grenade` sphere at the off hand (shared ember material, hidden unless throwing); boss = same geometry scaled by `ROGUE_BOSS_SCALE` (`baseScale`) with a pauldron and red visor. `animateRogue` from the shared `BugAnim`: walk cycle, cover crouch, low-ready ↔ aimed rifle (`aim`), recoil kick, look/aim from `headYaw/headPitch`, flinch, hit flash, fall + fade; Phase 7 `reload` (rifle tipped down and rolled in, hands jitter at the magazine) and `throwing` (rifle dropped to the hip, grenade rises above / behind the shoulder) blends, both driven by `Enemy.animate` from `reloadTimer` / `throwTimer`. **Phase 10**: the fall is three directions from `BugAnim.deathDir` blended over `DEATH_FALL_TIME` — before, `rollSign > 0` fell backward and `< 0` fell right, and **left did not exist**. |
-| `fx/BloodFX.ts` | Pooled `Points` cloud (1600 droplets) and 40 pooled ground splat decals (blood or acid). Particle-only kinds `ember` (burning / 전소, orange) and `spark` (shocked, cyan). |
-| `fx/AcidProjectile.ts` | 14 pooled arcing acid globs: `fire(from, target)` aims at the target's predicted position, `fireAt(from, feet)` for replica visuals / enemy targets; hit tests vs every alive player's capsule and `world.raycast`/terrain; damage goes through `AcidHost.damageTargetAcid`. |
-| `fx/ShellProjectile.ts` | 10 pooled artillery shells (dark sphere, smoke trail from `FxManager.alpha`, ballistic arc reaching the aim point after `SHELL_FLIGHT_TIME`). Each shell is an `InterceptableRef` (`radius` `SHELL_RADIUS`, `intercept()`); `raycast` = nearest sphere hit for `EnemyManagerRef.raycastInterceptable`; landing (terrain/obstacle raycast, ground, bounds, timeout) → `ShellHost.onShellLanded` (host: `SHELL_DAMAGE` with falloff to players in `SHELL_BLAST_RADIUS` + `explode` on every enemy — friendly fire; everyone: crater dust / fireball / shake / `enemy:shellLanded`); `interceptShell` → pop FX + `ShellHost.onShellIntercepted(sid, p, local)`. Same class renders host and replica shells. **궤적 수식은 여기 없다** — `@/shared/ballistics`(`shellPositionAt` / `shellLaunchVelocity`, 중력은 `SHELL_ARC_GRAVITY`)를 부르고 파일 상단에서 그대로 재수출한다(`ui/hud/ShellMarkers` 가 같은 식을 써야 마커가 포탄에 붙는다). **2026-09-10**: 순간 속도 적분(`s.vel`)도 `GRAVITY` 가 아니라 `SHELL_ARC_GRAVITY` 다 — 위치는 낮은 궤적을 따라가는데 속도만 5배 빨리 아래를 향해 리본 꼬리 방향이 어긋나 있었다. 궤적이 낮아져 지형 · 나무 · 폐허 벽에 걸리면 **그 자리에서 터진다**(단계별 `world.raycast` → 기존 `onShellLanded` 그대로, 새 경로 없음). `HALO_SCALE` 2.4 → 2.9: 포탄이 이제 하늘이 아니라 **지형을 배경으로** 수평선 근처에서 날아오므로 거리에서 읽히는 것은 가산 혼합 헤일로뿐이다. 리본(`TRAIL_*`)은 그대로 — 궤적이 낮아지면서 카메라에 옆면을 길게 보여 오히려 잘 읽힌다. |
-| `index.ts` | Barrel export. |
-| `sandworm/Director.ts` | **지하벌레 이벤트 디렉터** (2026-09-13). 레이드당 굴림(시드 · 모든 클라이언트 같은 답, `SANDWORM_CHANCE_BY_THREAT`) · 발동 조건(싱글 = 발밑, 멀티 = 2명 이상 무리의 한가운데) · 전조(`ee wormWarn`, 흔들림 증가 · 토스트 · 링) · 분출(피해 + 넉백 `applyDamage` · 다른 팩션 `explode` · 드론 · 최대 체력 굴림 · 분출 무리 · `ee wormErupt`) · 지하벌레 틱(버그 뱉기 `ee wormSpit` → 독극물 `fireAcid`/`fireAcidAt`) · 리플리카 수신(`onWire`, 메타 적용) · `resync`(`flow rejoined`) · 사망 연출 · `debugForce` / `debugState`. 아래 `## 굴착 스폰 · 지하벌레` |
-| `sandworm/Pose.ts` | 지하벌레 와이어 힌트(21 뱉기 · 22 독극물) → 입 벌림 · 꿀렁임 · 숙임 · 떨림. 권위와 `net/Replica.drive` 가 같은 함수를 부른다. |
-| `models/Portrait.ts` | **적 얼굴 썸네일 · 표시 이름** (2026-09-15, 결과 창 개편). `renderEnemyPortrait(type, px)` = `EnemySystem.renderPortrait` — 그 종류의 리그를 새로 짓고(`tut_*` 는 `baseTypeOf`) `animateBug` / `animateRogue` 기본 자세 한 번, 얼굴이 카메라를 보되 **보는 사람의 왼쪽 사선**(`FACE_YAW` −0.62 rad, 리그 +Z = 정면)으로 세운 뒤 인간형 = 머리 + 어깨 · 벌레 = 머리 · 턱 · 지하벌레 = 입(앞 위에서) · 스캔 드론 = 몸 전체를 `Box3` 로 잡는다. **자기 씬 + 반구광 + 3점 방향광(키 · 필 · 림) + 잠깐 쓰는 오프스크린 `WebGLRenderer`**(alpha · `preserveDrawingBuffer` · ACES · sRGB)로 한 번 그려 `toDataURL` → 리그 머티리얼(`dispose*Rig`) · 렌더러(`dispose` + `forceContextLoss`)를 버린다. 공유 지오메트리 캐시는 건드리지 않는다. 메인 씬 · 광원 개수 무관. (종류, 크기)마다 캐시, WebGL 없음 · 모르는 종류 → null. `enemyDisplayNameOf(type)` = `EnemySystem.enemyDisplayName` — `data/enemies.csv` 에 이름 칸이 없어 한국어 이름표를 여기 둔다(meta/ NPC 목표 이름과 같은 낱말 + `NAMED_ROGUE_NAME_KO`, 튜토리얼 종류는 바탕 종류의 이름). |
-| `models/WormModel.ts` | 지하벌레 절차 리그 (`kind: 'worm'`): 흙 무덤 + 마디 9개 사슬(위로 갈수록 앞숙임) + 턱 4장 · 이빨 고리 · emissive 목구멍. 머티리얼은 버그와 같은 두 프로그램 · 광원 없음. `animateWorm(rig, anim, sink)` — 굴착 중에는 몸통만 내린다, 사망 = 옆으로 말리며 굴로 가라앉음. |
-| `fx/BurrowFx.ts` | 굴착 · 전조 · 분출 연출. 분진 · 흙덩이는 `core/fx` 알파 입자 풀(새 드로우콜 · 셰이더 없음, 방출기 24 풀, 스폰 인자 스크래치, 재질별 색), 전조 링은 가산 띠 메시 2장(생성 때 씬에 숨겨 둬 `world:ready` 선컴파일에 들어간다). 흔들림 · 소리는 없다. |
-| `ai/Burrow.ts` | `updateBurrowGate` — 파고 나오는 중(`emergeT`) · 뱉어져 나는 중(`spatT`)인 몸은 공격 · 이동하지 않는다 (`updateEnemyAI` 가 사망 검사 직후 부른다). `stepSpatFlight` — 뱉어진 몸의 포물선 한 걸음 (권위 · 리플리카 공용). |
-| `parts/Burrow.ts` | `emergeFx` (연출 + `burrow_emerge` + 흔들림) · `spatLandedFx` · `burrowShake` (로컬 반경 + **마지막 실제 흔들림 뒤 `BURROW_SHAKE_GAP_S`** — 겹치지 않는다). 권위 `Pool.spawn` 과 리플리카 `ee spawn.em` 이 같은 함수. |
-
-## Faction warfare (Phase 4)
-- Every `Enemy` owns a `CombatTarget` proxy (`asTarget`, id `'ai'`, `enemy` back-reference) synced each frame, so the existing
-  hunting code (chase / melee / spit / charge / `hitTarget`) works on enemies unchanged.
-- `EnemySystem.pickTarget(e)`: **bugs** take the nearest of (alive players, rogues within `sightRadius`) — equal priority;
-  **rogues** prefer the nearest alive player within `ROGUE_RANGE` (55 m) unless a bug is within `ROGUE_AI.bugRange` (25 m) and
-  clearly closer, else the nearest bug, else the player. Downed players stay excluded (Phase 2 rules untouched).
-- Damage between enemies goes through `Enemy.takeDamage(…, 'ai')` — no kill credit, no stats; the `kill` wire event carries
-  `killer: null`. `alertNear` propagation stays inside a faction; rogue gunfire wakes bugs through `weapon:fired`-style hearing
-  only via their own perception (they see the rogues).
-- `enemy:factionClash {position}` fires on the first bug ↔ rogue damage / rogue shot at a bug within 40 m of the local player,
-  throttled 15 s (`noteClash`).
-
-## Corpses
-Every death (authority) emits `corpse:spawned` at the body's **resting** position and registers `corpse:<id>` there when the
-body's `CORPSE_LOOT_CHANCE` roll succeeded (Phase 10 — a trash bug is searchable only 10 % of the time; behemoth / rogue /
-boss always). A kill in the air is registered once the body lands (`CORPSE_LAND_TIMEOUT` fallback). Hosts send
-`ee corpse {id, ty, p, w, dd?, lt?}` so replicas register the same interactable (`lt: 0` = un-searchable, `dd` = fall
-direction); `ee corpseGone` / `corpse:removed` when the body despawns (after `CORPSE_LIFETIME` 45 s, or when recycled by
-`ensureCapacity`, `CORPSE_SLACK` 30). Bodies stay visible for the whole lifetime — searchable or not — and sink/fade during
-the last 3 s (`BugAnim.fade`). Toxic bugs leave a corpse too (their loot table is the items folder's call).
-**2026-09-14 4차**: 수명은 레이드마다 `EnemySystem.corpseLifetime` 이 정한다 — 평소 `CORPSE_LIFETIME`,
-**튜토리얼 레이드는 `Infinity`**(사라지지 않는다 · 페이드도 없다). 아래 `## 튜토리얼 시체가 사라지지 않는다`.
-
-## Audio ids emitted
-`bug_screech`, `bug_attack`, `bug_death`, `bug_step` (hunter leap landing only since 2026-09-11),
-`bug_hit`, `acid_splash`, `shot_rifle` (rogue shots, pitch 0.9), `hit_flesh` (rogue hit / shot landing on a player),
-`player_death` (rogue death), `explosion` (shell landing / interception) — throttled per id.
-**2026-09-11 (C-51 · C-23 · C-22)**: 타입마다 흩어져 있던 선택이 `model.ts` 의 표 셋으로 모였다 — `meleeHitSound(type)`
-(벌레 `bug_attack` + 타입 피치, 로그 `melee_hit`, 타길라 · 스캔 드론 null), `hurtSound(type)` (벌레 `bug_hit` · 로그
-`hit_flesh` · 스캔 드론 `drone_hit`, 호스트와 리플리카가 같은 답), `stepSound(type)` (`stepSound` 가 true 인 타입의 피치 ·
-밑값). **적 발소리는 `footstep_<SurfaceMaterial>`** 이다 — 밟은 재질(`WorldRef.getSurfaceMaterial?`, 없으면 `dirt`)의
-id 를 위치와 함께 `audio:play` 로 내고(`model.emitEnemyStep`, **적 id 별** 스로틀 `ENEMY_STEP_MIN_GAP`, **카메라** 거리
-`ENEMY_STEP_EMIT_RANGE` 게이트), 크기 감쇠는 audio/ 의 `RANGED_SOUNDS` 곡선이 한 번만 건다(볼륨 = 타입 밑값 그대로).
-**로그 강하** (2026-09-10): `rogue_pod_impact` 만 여기서 낸다 (포드마다, 착지 지점에서). 경보 `rogue_drop_alarm`
-과 낙하 굉음 `rogue_pod_fall` 은 `audio/AudioSystem` 이 `rogueDrop:incoming` 을 보고 직접 낸다 — 크기가
-`ROGUE_DROP_ALERT_RADIUS` 기준 거리 감쇠의 함수라 패너 설정(`panOnly`)을 아는 audio/ 안에서만 정할 수 있다.
-
-## Downed players (Phase 2, 2026-09-05)
-A downed player (`PlayerRef.isDowned` / `RemotePlayerRef.isDowned` or `PlayerFlags.DOWNED`) is a **body, not a target**:
-- `TargetList.alive` excludes them, so `nearestAlive*`, `randomAlive`, `anyAlive`, the spawner's visibility cone, wave facing and both
-  `AcidProjectile` capsule/splash loops never see them. They stay in `all` for `minDist` (spawn distance / recycling) and `separate()` push-out.
-- `acquireTarget` treats a downed current target like a dead one: the bug re-targets the nearest alive player if any, otherwise keeps the
-  reference so the existing "nobody left to hunt → aware=false, idle/wander" branch in `EnemyAI.update` runs. `updatePerception` skips it too.
-- Damage is impossible: `hitTarget`, `damageTargetAcid`, `applyDamage`, rogue shots (capsule tests use `targets.alive`), shell blasts,
-  toxic bursts and behemoth charges all read `targets.alive` / return on `target.isDeadOrDowned`.
-- Ambient pressure continues: `AmbientSpawner.update` anchors on `randomAlive() ?? randomPresent()` so patrols still spawn while the whole
-  squad is downed. `WaveDirector` still pauses while nobody is alive.
-
-## Shared contract additions (append-only)
-- `types.ts` (consumed): `EnemyType` Phase 4 members, `EnemyFaction` + `EnemyRef.faction`, `EnemyHit.part` / `armored`, `InterceptableRef`,
-  `EnemyManagerRef.raycastInterceptable`, `InventoryRef.openContainerItems`, `LootRef.rollCorpse`, `PlayerRef.applyKnockback`, `Interactable`,
-  `WorldRef.getCrates` / `getObstaclesNear`.
-- `events.ts` (emitted): `enemy:shot`, `enemy:shellFired/Intercepted/Landed`, `enemy:chargeStarted`, `enemy:toxicBurst`, `enemy:bossSpawned`,
-  `corpse:spawned`, `corpse:removed`, `enemy:factionClash`, `player:applySlow`; consumed: `crate:looted`.
-- `net.ts` (consumed): `EnemySnapshot`, `EnemyEvent` (+ `shoot/shell/intercept/shellHit/charge/toxic/corpse/corpseGone`), `EnemyWire.a` 5–11,
-  `EnemyWire.w`, `HitRequest`, `ExplodeRequest`, `InterceptRequest`, `HitConfirm`, `DamageMessage`, `NET_ENEMY_SNAPSHOT_HZ`, `NET_INTERP_DELAY`.
-
-## Shared contract consumed (Phase 7)
-- `constants.ts`: `ROGUE_MAG_ROUNDS`, `ROGUE_RELOAD_TIME`, `ROGUE_COVER_FLANK_WEIGHT`, `ROGUE_GRENADE_HOLD_S / COOLDOWN / FUSE / DAMAGE / RADIUS / RANGE / WINDUP`, `BEHEMOTH_SCALE` 3.
-- `net.ts`: `EnemyWire.a` 12 / 13, `EnemyEvent 'grenade' / 'grenadeHit'`, `DamageMessage.kb`, `RemotePlayerRef.suspended`, `PeerId`.
-- `events.ts` (emitted): `ghost:damage`; (consumed): `net:hostChanged`. `types.ts`: `EnemyManagerRef.setAuthority` (implemented), `WorldRef.mode`, `EnemyFaction`.
-- `GameContext.ts`: `ctx.isTraining()`, `ctx.missionMode`.
-- Audio ids reused: `reload` (rogue reload), `grenade_throw`, `explosion`.
-
-## Shared contract consumed (tactical kit)
-- `types.ts`: `EnemyManagerRef.queryNear / addDistraction / applyStatus / applyAreaDamage`, `PlayerRef.getStealthFactor`.
-- `constants.ts`: `CLOAK_DETECT_MUL`, `CLOAK_REVEAL_DISTANCE`, `GADGET_LURE_RADIUS`.
-- `gadgets.ts`: `ctx.gadgets?.visionFactor / findDistraction / findEnemyTarget / blocksProjectile / fireDamageAt`, `DeployableRef.takeDamage`.
-- `net.ts`: `PlayerFlags.CLOAKED`.
-Every one of these is optional-chained with a neutral default (factor 1, no lure, no structure), so the bugs behave exactly as before while `gadgets/`, `implants/`, `progression/` and the new `player/` members are still landing.
-
-## Shared contract consumed (2026-09-10 — 낮은 곡사 궤적 · 총구 사선)
-- `ballistics.ts`: `shellPositionAt` / `shellLaunchVelocity` (`fx/ShellProjectile` 이 부르고 재수출, `parts/Attacks.shellArcBlocked` 가 발사 전 검사에 쓴다 — 수식을 베껴 두지 않는다: `ui/hud/ShellMarkers` 가 같은 함수를 쓴다).
-- `constants.ts`: `SHELL_ARC_GRAVITY` (2.6 → **2** 로 확정), 새로 붙인 `ENEMY_WALL_STANDOFF` · `ENEMY_FIRE_LOS_S` · `ENEMY_FIRE_STRAFE_S` (`data/constants.csv` 에 줄이 먼저 있고 `K.num` 한 줄씩만 추가했다 — 이름 변경 · 삭제 없음).
-- 폴더 안 코드 상수(csv 대상 아님, `model.ts`): `SHELL_ARC_SAMPLES` · `SHELL_ARC_CHECK_FRAC`; `ai/FireLine` 의 `FIRE_STRAFE_STEP`, `ai/GimmickAI` 의 `ARTILLERY_RELOCATE_M` (그림/알고리즘 수치라 `TRAIL_SAMPLES` 와 같은 부류이고, `model.ts` 에 두면 `ai/*` → `model` → `ai/EnemyAI` 순환이 생겨 각 파일에 둔다).
-
-## Shared contract consumed (2026-09-11 — E-8 요청 가드)
-- `constants.ts`: `FLAME_RANGE` · `SHOCK_RANGE`(→ `STATUS_SOURCE_REACH`), `STRAT_MAX_CALL_RANGE`(→ `EXPLODE_SOURCE_REACH`) — 이름을 새로 더하지 않았다.
-- `net.ts`: `ENEMY_STATUS_BITS`(→ `ENEMY_STATUS_BITS_ALL` 마스크). `ExplodeRequest` · `HitRequest.st` 의 주석이 이 가드의 명세다.
-- `constants.ts` 에 새로 더해진 넷: `EXPLODE_REQUEST_RANGE_SLACK` · `STATUS_REQUEST_RANGE_SLACK` · `STATUS_REQUEST_RATE_MAX` · `STATUS_REQUEST_BURST_S` (`HIT_KNOCKBACK_RANGE_SLACK` · `CRATE_OPEN_RANGE_SLACK` 바로 아래 — 다른 가드 상수와 같은 자리다). `model.ts` 가 `@/shared` 에서 읽어 두 개의 reach 로 합친다.
-
-## Status effects: 전소 / 감전 (Phase 6, 2026-09-06)
-`EnemyManagerRef.applyStatus(id, status, dps, duration)` now covers all four `EnemyStatusKind`s (`burning` / `slowed` are the
-tactical-kit originals):
-
-| Status | Gameplay (authority) | Visual (every client) | Event |
-|---|---|---|---|
-| `incinerated` 전소 | `Enemy.incinerate(duration)`: rides on the **`stagger`** state (`staggerTimer` is kept ≥ `incapTimer`, `enterStagger` never shortens it) so movement, melee, spits, charges, bursts, toxic swells and rogue shots all stop; `isIncapacitated` true; `isCombatant` false (the other faction drops it as a target, `pickTarget` skips it; players can still shoot it and a kill mid-writhe works — `kill()` clears the timer). The AI stagger case ticks `incapTimer` and, when both timers are out, resumes `chase` / `idle` like a normal stagger. `dps` ignored; `duration` 0 clears it. | `BugAnim.writhe` (damped from `incapTimer` in `Enemy.animate`): bugs twist / buck the thorax, kick all six legs out of phase and snap the mandibles; rogues drop to a half-crouch, buck the pelvis, kick and wave the rifle. Chitin emissive glows orange (`statusEmissive`) and ember puffs come every `INCAP_EMBER_INTERVAL` (0.12 s, 5 particles — the burning pool, no lights). Scream (`bug_screech` pitch 1.35 / rogues `player_hurt`) + 14-ember burst on entry. | `enemy:incinerated {id, position, duration}` once per 전소 (re-applying while it runs only extends it) |
-| `shocked` 감전 | Slow: `dps` is the **speed multiplier** (`SHOCK_SLOW_FACTOR` 0.55 → 55 % speed, clamped 0.2…1; strongest wins) for `duration` s via the existing `slowFactor` / `slowTimer`. | `shockTimer` (≤ `SHOCK_SPARK_TIME` 0.6 s per application): `BugAnim.spark` cyan-white emissive strobe + `spark` particle puffs every 0.09 s. | `enemy:shocked {id, position}` once per shock (the arc calls `applyStatus` every frame — only a fresh `shockTimer` emits) |
-
-**Multiplayer.** `HitRequest.st` (bits of `ENEMY_STATUS_BITS`) + `dur` ride on the existing `hit` message: a replica's `applyStatus` keeps its
-optimistic local visual (and emits the event) and calls `requestStatus` → `hit {id, dmg: 0, p, d, st, dur}` to the host, throttled to one
-request per enemy per `STATUS_REQUEST_INTERVAL` (0.25 s) for repeated bits (flame / arc callers). The host (`onHitRequest`) now accepts
-`dmg` 0 when `st` is set, applies the damage first (unchanged `hitc` reply), then `applyStatusBits` with the wire duration clamped to
-`MAX_STATUS_DURATION` (10 s); the wire carries no dps, so burning uses `FLAME_AFTERBURN_DPS`, shocked `SHOCK_SLOW_FACTOR`, slowed 0.4.
-`EnemyWire.sb` (`HostSync.statusBits`: burning / slowed / incinerated / shocked, omitted when 0) is stored in the replica ring buffer and
-`EnemyReplica.applyStatusBits` mirrors it into the same timers the authority uses (`burnTimer` / `slowTimer` / `incapTimer` / `shockTimer`,
-held `STATUS_HOLD` 0.35 s per snapshot, clamped down when the bit disappears) — so **burning is no longer host-local** (old follow-up
-closed) and a bit that rises with an idle local timer emits `enemy:incinerated` / `enemy:shocked` on the client too. `animHint` returns 0
-for an incapacitated rogue so the replica shows the writhe rather than the cover crouch.
-
-## Rogue AI v2 · behemoth knockback · ghost targets · live authority · training (Phase 7, 2026-09-06)
-Brief: `docs/DECISIONS.md` Phase 7. Everything below is inside `src/enemies/`; the contract (`ROGUE_MAG_ROUNDS / ROGUE_RELOAD_TIME /
-ROGUE_COVER_FLANK_WEIGHT / ROGUE_GRENADE_*`, `BEHEMOTH_SCALE` 3, `EnemyWire.a` 12 / 13, `ee grenade / grenadeHit`, `DamageMessage.kb`,
-`ghost:damage`, `net:hostChanged`, `RemotePlayerRef.suspended`, `EnemyManagerRef.setAuthority`, `WorldRef.mode`, `ctx.isTraining`) was pre-written.
-
-- **Cover that hides and a spot to fight from.** `ai/RogueCover.ts` validates every candidate with a crouched-eye raycast (the rock must
-  block the line to the target's chest) and scores it by distance + the flank term, and also finds the obstacle flank a standing rogue
-  can shoot from (`popPos`). Phase 3 now *steps out* to that spot before the burst and phase 0 walks back — the old "pop out in place"
-  would never have seen the target once cover really blocks LOS (found by the smoke: 0 shots in 90 s).
-- **Magazine.** `Enemy.magRounds` starts full, `shoot()` spends one per `fireGun`; 0 → `reloadTimer = ROGUE_RELOAD_TIME`, `reload`
-  audio, crouch + `BugAnim.reload` pose, hint 12, no shots in any phase, mag refilled when it ends. The boss's 6-round burst gets two
-  bursts per mag. The smoke measured exactly 12 shots → reload ≈ 2.0 s → 12 again.
-- **Grenade.** `noLosHold` counts hidden-target time while hunting; `maybeStartThrow` needs `ROGUE_GRENADE_HOLD_S`, range
-  `(RADIUS + 1.5, ROGUE_GRENADE_RANGE]`, cooldown 0, no reload. Wind-up = walk to `popPos` (≤ 2 s) then `ROGUE_GRENADE_WINDUP` of the
-  throw pose (hint 13, sphere in the off hand) → `EnemySystem.throwGrenade`: launch from the off hand (0.78 × height, 0.8 × radius ahead),
-  ±1 m scatter on the target's feet, flight `clamp(dist / 11, 0.8, 1.8)` s solved with `RogueGrenades.launchVelocity`, refused when a
-  2.5 m raycast along the launch direction hits (the rock the rogue is hugging — the AI retries after 2 s from elsewhere), `grenade_throw`
-  audio, `ee grenade {id, p, v, fuse}`. `RogueGrenades` flies it with one bounce and `ROGUE_GRENADE_FUSE`; `onGrenadeExploded` on the
-  authority deals `ROGUE_GRENADE_DAMAGE × max(0.1, explosionFalloff(max(0, d − PLAYER_RADIUS), ROGUE_GRENADE_RADIUS))` (2026-09-15: 공용 2단 계단, d = blast → player
-  centre) to every alive player through `applyDamage` (local direct + `enemy:attacked {id: thrower}` + shake + `applyKnockback`, remote
-  `dmg {kb}`, suspended `ghost:damage {kb}`; knockback 7 m/s × falloff, lifted 0.35), `explode(…, 'ai', skipFaction 'rogue')` to bugs
-  only, `alertHearing` 60 m, `ee grenadeHit {p}`. Every client plays the blast FX / `explosion` audio / shake ≤ 30 m. Replicas fly a
-  visual copy from `ee grenade` (`authority` false → no damage) and `grenadeHit` pops the copy in place so the explosion shows once.
-  Per-rogue cooldown `ROGUE_GRENADE_COOLDOWN` (boss ×0.7), initial value staggered 25–75 % so a squad never volleys at once.
-- **Behemoth.** `BEHEMOTH_SCALE` 3 flows through `ENEMY_STATS` (radius 2.4, height 4.8, head 1.08, attack range 6.6) and
-  `BugParams.scaled` (all rig lengths); nothing hard-codes the old 6.4 m. `chargeHit` routes the knock direction through `applyDamage`,
-  so a remote victim's `dmg` carries `kb: { d, s: BEHEMOTH_KNOCKBACK }` (net applies `applyKnockback`) and a suspended one gets it in
-  `ghost:damage.kb` — the old "remote victims get no knockback" gap is closed.
-- **Ghost targets.** `TargetList` keeps `suspended` refs (`!connected || (stale && !suspended) || DROPPING` filter) with
-  `CombatTarget.suspended`; `applyDamage` emits `ghost:damage {id, amount, from, kb?}` for them instead of sending `dmg` (the host's
-  `RemotePlayerSystem` owns the ghost's hp / bleed / death). `ee attack` announcements still go out so the squad hears the bite.
-- **Live authority.** `setAuthority(authority)` is called from the system's own `net:hostChanged` handler with `isLocalHost` (and is
-  exposed on `ctx.enemies` for tests / the console). Promotion (`promote`): every live replica is seeded from its newest wire sample
-  (`hp`, `aware` = wire state not idle / wander → `chase` else `idle`, target / perception reset so `acquireTarget` runs next tick,
-  `guardPos` = current position, escorts freed, full magazine, no wind-up), status holds become real durations (전소 ≥ 1.5 s via
-  `incinerate`, burning ≥ 1 s at `FLAME_AFTERBURN_DPS`, slow ≥ 1 s), `lastDamager = 'ai'` (no kill credit for damage the old host
-  dealt), corpses stay as registered from `ee corpse` (the new host now sends their `corpseGone`), `nextId = max(id) + 100` and
-  `nextShellId += 1000` so late messages from the old host cannot collide, `spawner.resume()` (a normal-length gap, threat unchanged —
-  game/ keeps setting it), `waves.prime(wavesSeen)` (the `ee wave` count seen as a replica; extraction/ re-requests
-  `startExtractionWaves` and the director continues from that index), snapshots (`es` / `ee`) start on the next frame because
-  `hosting` reads the live flag. Demotion (`demote`): waves stop, lures drop, in-flight grenades become visual, every live enemy is
-  `adopt`ed into a replica buffer at its current pose and keeps rendering until the new host's first full `es` (ids missing there
-  despawn as usual). Outside a ready world only the flag changes; `refreshMode` at `world:ready` / `game:newMission` / `game:abort`
-  still seeds it per mission.
-- **Training.** `world:ready` sets `training` when `ctx.isTraining()`, `ctx.missionMode === 'training'` or `ctx.world.mode ===
-  'training'`: no initial population, no guards, the spawner / wave director never tick and `startExtractionWaves` is ignored.
-  `debugSpawn` (console / smoke) still works there on purpose.
-- Debug: `grenadeCount`, `debugGrenade(id)`, `grenadesThrown / grenadesExploded`, `lastGrenadeBlast`, `debugHint(id)` (the wire `a`
-  hint), `isAuthority`, `isTrainingWorld`.
-
-## Delta snapshots · burn credit · enemy fire vs 배리어 (Phase 9, 2026-09-06)
-Brief: `docs/DECISIONS.md` Phase 9. Contract: `EnemyWire` pose fields optional, `EnemySnapshot.seq / gone?`,
-`NET_ENEMY_KEYFRAME_S`, `EnemyManagerRef.applyStatus(..., attacker?)`, `enemy:killed.by?`.
-
-- **`es` is a delta stream.** `SnapshotCache` (in `net/HostSync.ts`) keeps the rounded fields the host last sent per id;
-  every `NET_ENEMY_KEYFRAME_S` (and on `flow rejoined` / `flow takeover`, and right after `reset()` / a promotion) the
-  next snapshot is a **keyframe** with every field of every eligible enemy, otherwise only the changed enemies and their
-  changed fields go out, plus `gone` for ids that dropped out. Replicas apply partial wires over the newest sample
-  (`applyWire`), `hold` the ones a delta omitted, ignore a delta for an id they never saw (no `ty` → `ignoredUnknown`,
-  the next keyframe or an `ee spawn` fixes it) and sweep unseen replicas **only on keyframes**. A promoted host starts
-  its own counter at `replicaMgr.lastSeq + PROMOTE_SEQ_GAP` (1000) so the two hosts' `seq` streams can never overlap.
-- **Burn kills credit whoever lit the fire.** `applyStatus(id, status, dps, duration, attacker?)` writes
-  `Enemy.burnAttacker` for `burning` / `incinerated` (host side only, cleared with the burn and on reset / respawn); the
-  DoT tick in `updateStatuses` uses `burnAttacker ?? lastDamager`, and when that kill belongs to a remote peer the host
-  also sends it a `hitc {killed:true}` so the hitmarker lands there. Callers pass `ctx.net?.localId ?? 'local'` and
-  `normalizeAttacker` folds our own id back to `'local'`; a replica's status request is credited to the relay `from`.
-  The old "burn kills go to the last damager" gap is closed for fire zones (gadgets/) and the 화염방사기 (weapons/).
-- **Enemy fire respects a 배리어.** Rogue hitscan (`fireGun`), artillery blasts and spewer acid now query
-  `ctx.implants.raycastBarrier(..., true)` — a **pure** query since Phase 9 — before dealing damage; when the line is
-  blocked the round stops, no damage is applied and the barrier takes the hit through `ctx.implants.damageBarrier`
-  (one raycast per hit, never per tick; `barrierBlocks` is the shared helper).
-
-## 공중 사망 낙하 · 사망 방향 · 확률 루팅 (Phase 10, 2026-09-07)
-Brief: `docs/DECISIONS.md` Phase 10. Contract (read-only): `EnemyDeathDir` / `ENEMY_DEATH_DIRS` / `CORPSE_LOOT_CHANCE`,
-`EnemyRef.deathDir? / lootable?`, `DEATH_FALL_TIME` / `CORPSE_FALL_MAX_SPEED` / `CORPSE_LAND_TIMEOUT`,
-`ee kill.dd?` + `ee corpse.dd? / lt?`, `enemy:killed.deathDir?`, `corpse:spawned.lootable? / deathDir?`.
-
-- **A body that dies in the air falls.** The bug was a three-way interaction: `kill()` cleared `airborne` / `leaping`
-  (so the leap integration stopped), `ai/EnemyAI` early-returns for `state === 'dead'` (so `integrate()`'s ground snap
-  was never reached) and `onEnemyKilled` registered the corpse **at the mid-air position** — and `GameContext.findBest`
-  measures a 3-D distance, so that corpse was unlootable as well as floating. Now `kill()` carries the live `vy` into
-  `Enemy.deathVy` (clamped to `CORPSE_FALL_MAX_SPEED`) *before* clearing `airborne`, and the new
-  `integrateDeathFall(e, dt, world)` runs in **both** drivers — `ai/EnemyAI`'s dead branch and `net/Replica.update`,
-  because a replica never calls `drive()` on a dead body and the host drops corpses from `es` 1.5 s after death, so the
-  client has to run the same (deterministic) fall itself. The corpse interactable is **deferred**: `kill()` decides
-  `deathLanded` immediately, so a normal ground kill still registers in the same frame, while a mid-air kill sets
-  `corpsePending` and `EnemySystem.update` registers it at the landing spot (or after `CORPSE_LAND_TIMEOUT`).
-- **Three fall directions.** `Enemy.deathDir` is picked at death from an **independent** seeded stream
-  (`worldSeed ^ (id · 0x85ebca6b)`) and replicated as `ee kill.dd` / `ee corpse.dd` (the receiver prefers the wire).
-  The old `BugAnim.rollSign` is gone — it was rolled at *spawn* with unseeded `Math.random()` and never re-rolled at
-  death, so host and replica already disagreed. `BugAnim.deathDir` (index) + `deathFall` (blend over `DEATH_FALL_TIME`,
-  driven by `Enemy.animate`) replace it, following the `incinerated` writhe pattern; `animateBug` and `animateRogue`
-  each grew a real 좌 / 우 / 뒤 branch (the rogue had no left at all).
-- **Probabilistic corpse looting.** `CORPSE_LOOT_CHANCE` (trash bug 0.1 · 상위 버그 0.35 · behemoth / rogue / boss 1)
-  is rolled in `Corpses.rollCorpseLootable` on its **own** seeded stream (`worldSeed ^ (id · 0x9e3779b1)`) — deliberately
-  **not** drawn from the `rng` that later feeds `rollCorpse`, because `src/inventory/__selftest__.ts:131-142` asserts the
-  exact `rollCorpse` output for `warrior` / `rogue` / `rogue_boss` at seeds 5 / 11 / 3. A body that fails the roll gets
-  **no interactable** (the corpse mesh stays, so the world still reads right) and `corpse:spawned` reports
-  `lootable: false`. `rollCorpse` and `CORPSE_TABLES` (items/) are untouched.
-
-## 행성 생태계 (Phase 11, 2026-09-07)
-Brief: `docs/DECISIONS.md` Phase 11. Contract (read-only): `src/shared/planets.ts` (`PlanetEcosystem.bugs` /
-`pressure` / `rogues` / `boss` / `maxArtillery` / `maxBehemoth`), `world:ready.planet?`, `WorldRef.planet`.
-
-- **Where it enters.** `EnemySystem`'s `world:ready` handler resolves `getPlanet(planet ?? ctx.world.planet ??
-  ctx.missionPlanet)?.eco` into `this.eco` and pushes it into `spawner.eco` / `waves.eco` / `placeRogueGuards`. A
-  training and a mission without a planet keep it null, which means **every number is exactly what it was** — this is
-  a re-weighting of existing content, not new content.
-- **Host only.** The ecosystem changes what the authority *composes*; `es` / `ee`, the replica path and every wire
-  type are untouched, so a joined client needs to know nothing about the planet.
-- **Composition = same ladder, planet-drawn silhouettes.** The rolls, their probabilities and their gates are
-  transcribed unchanged into `AMBIENT_GATE` / `WAVE_GATE`; each slot then draws from `eco.bugs` inside its power tier
-  (filler `scavenger` · medium `hunter / warrior / spewer` · heavy `behemoth / charger` · runner `toxic`). A weighted
-  type still cannot appear before its gate opens, a type the planet does not list can never appear at all, and a slot
-  whose whole tier is missing here is skipped — in a wave the leftover count falls through to the filler, so waves
-  keep their size. Artillery is never part of a group (it digs in through `maybeArtillery`) and the ambient gate for
-  the behemoth is closed, exactly as before.
-- **Ceilings.** `ambientCap(threat, eco)` = `(12 + 24 × threat) × eco.pressure`; `maxArtilleryOf` / `maxBehemothOf`
-  replace the module constants (which stay as the no-planet defaults).
-- **Guards.** Density scales `MAX_GUARDS` and the tier-2 share; `eco.rogues === 0` places nothing (아무 행성도 아직
-  0 은 아니다); `eco.boss === false` (보레아스 IX, 베르단트 III) turns the boss squad into a `ECO_BOSS_CHANCE` seed roll.
-- **Determinism.** Guard placement is drawn from the world-seeded `Random` as before, so **same seed + same planet =
-  same placement**; the ecology only changes how many draws are taken. Group **composition** is still unseeded
-  `Math.random()` — deliberately left as it was (it never was reproducible, and making it seeded would change every
-  existing smoke's expectations).
-- Debug hooks for the smoke: `debugEcology`, `debugAmbientCap`, `debugAmbientGroup(threat)`,
-  `debugWaveGroup(index, count)`, `debugGuardCount()`.
-
-### Known follow-ups (Phase 11)
-- A planet that lists a type but caps it at 0 (`tundra` / `mossy` carry `maxArtillery` 1 with no artillery weight,
-  `maxBehemoth` 1 with no behemoth weight) gets **none** — `eco.bugs` wins, per the contract's "a type absent from
-  the map never spawns". The two numbers can therefore disagree without an error.
-- The heavy tier draws behemoth vs charger **by weight**, so 피로스 VII's wave-3 behemoth slot is a charger most of
-  the time (charger 3 : behemoth 1) and its charger slot can be a behemoth in return — the cap (`maxBehemoth` 2)
-  bounds the outcome, but the exact behemoth cadence is now planetary, not fixed.
-- A behemoth over the cap still becomes a **warrior** without consulting the weights (every current planet lists
-  warriors, so it never produces a forbidden type — a future planet without warriors would).
-- `eco.rogues` scales the guard **cap** and the tier-2 crate share, not the squad size (still `rng.int(2, 4)`), so a
-  dense planet mostly means *more squads*, not bigger ones.
-- The ecosystem is read once at `world:ready`: a host promoted mid-mission re-reads it from `ctx.world.planet`, but a
-  client that never generated the world (impossible today) would have none.
-- Ambient / wave composition remains unseeded, so two hosts on the same seed compose different patrols — as before.
-
-## 배리어 충돌 · 정면 흡수 · 총알 추적 · 정찰 x-ray (Phase 12, 2026-09-08)
-
-Four contract items land here; `src/shared` was frozen for this lane, so everything below uses the committed signatures.
-
-**배리어 = a wall for enemies.** `ai/EnemyAI.integrate` calls `EnemyHost.resolveBarrier(e)` right after
-`world.resolveCollision`, for **every** grounded enemy (bugs and rogues alike — harmless for the latter).
-`EnemySystem.resolveBarrier` forwards to `ctx.implants.resolveBarrierCollision(e.position, e.stats.radius)`, which
-pushes the body out and names the carrier. On contact the enemy hunts that carrier for `BARRIER_RETARGET_S` (6 s) —
-`Enemy.barrierOwner` / `barrierUntil`, honoured at the top of `EnemySystem.pickTarget`, so the hysteresis in
-`acquireTarget` cannot pull it back to a nearer player — it wakes up (`becomeAlert`, quietly) and any 총알 추적 ends.
-`implant:barrierBumped {owner, enemyId, point}` fires at most every `BARRIER_BUMP_INTERVAL` (0.5 s) **per enemy**, with
-the contact point at the body's front toward the carrier. A charging behemoth keeps its own knockback: the shield reads
-as a rock, so the deviation test already in `integrate` stumbles it.
-
-**정면 근접공격 흡수.** `applyDamage(..., melee)` — set by `hitTarget` (bite / leap / melee) and `chargeHit`, and
-**not** by rifle / shell / acid / grenade damage, which keep their `raycastBarrier` path — consults
-`ctx.implants.absorbFrontalAttack(owner, from, amount)` before anything reaches a player. True ends it there: for the
-local owner implants already deducted the shield; for a **peer** owner the host sends
-`{t:'ee', ev:'barrierHit', id, amount, p}` to that peer alone (no `dmg`, no `ee attack`), and the receiver's
-`net/Replica` -> `ReplicaHost.barrierHitRemote` calls `ctx.implants.damageBarrier('local', p, amount)` plus the bite
-audio. A suspended member is absorbed on the host without a message (its ghost has no client to tell).
-
-**총알 추적** (`reportShot(origin, dir, range, hit)`, called by weapons for every local shot). A non-host forwards it
-as `{t:'shotq', o, d, r, h?}` to the host and does nothing locally (a replica has no AI); the host runs the same
-routine for its own shots and for a peer's `shotq` (validated: finite tuples, `r > 0` clamped to `MAX_SHOT_RANGE`, the
-direction normalised). The routine walks the simulated enemies and picks those that (a) are alive combatants, unaware,
-not `relentless` / staggered, (b) lie within `ENEMY_SHOT_ALERT_DIST` of the **bullet path** (closest approach of the
-body centre to `origin -> origin + dir x range`, plus the body radius) or `ENEMY_SHOT_IMPACT_DIST` of the impact, and
-(c) could **not** perceive the shooter by the normal rule (`Perception.canPerceive`, no cone — an enemy about to spot
-the shooter anyway needs no hint). Those enter `ai/Investigate.ts` and emit `enemy:shotAlerted` **once**; an enemy
-already investigating only refreshes its origin, and the perception test is throttled per enemy by
-`SHOT_CHECK_INTERVAL` (an SMG reports 10+ shots a second). No-op in a 훈련장.
-
-**The widened cone.** While investigating, `Perception.shotConeFactor` multiplies the acquisition range by
-`ENEMY_SHOT_ALERT_CONE_MUL` for targets inside about +-45 degrees of the shot origin, and by 1 outside it — a cone, not
-a sphere. It is applied **on top of** `detectionRange`, so the cloak (`target.stealth`) and smoke (`visionClarity`)
-factors still scale the widened range and a 은폐 player stays proportionally hard to see. Only the unaware branch of
-`updatePerception` uses it; tracking and target loss are untouched.
-
-**정찰 x-ray.** `setXray(ids, seconds)` shows `fx/Xray.ts` silhouettes for those enemies (simulated **or** replica — it
-only walks `byId`), extends on a second call, ignores unknown ids and dead bodies, and clears one with
-`seconds <= 0`. Expiry runs in the update loop; death, despawn and `reset()` drop a silhouette immediately, and
-`disposePools` detaches the overlays before the rigs are disposed.
-
-**실드 배쉬 knockback** (asked for by implants/ after the contract froze): `EnemySystem.pushBack(center, radius, speed,
-dir?)` shoves every alive enemy in range away from `center` (or along `dir`) with a linear falloff to 40 % at the rim,
-using the same `velocity` nudge an explosion applies — so the existing steering / stumble rules absorb it and a
-charging behemoth is skipped, exactly like an explosion. **2026-09-11 (C-1 · X-6)**: it is `EnemyManagerRef.pushBack`
-now (no cast), and a **replica** no longer returns 0 — it sends one `HitRequest { dmg: 0, kb }` per enemy in range
-(falloff applied, `d` = push direction) and the host's `onHitRequest` applies it (see *C 항목 배치*).
-
-New `Enemy` fields: `investigating` / `shotOrigin` / `shotTimer` / `shotPhase` / `shotHold` / `shotCheckAt` and
-`barrierOwner` / `barrierUntil` / `barrierBumpAt`, all cleared in `reset()`, on promotion and by `flee`.
-
-## Known gaps / follow-ups
-- Phase 12: an investigation is **host state only** — it rides on the `alert` wire state, so a replica shows the
-  raised-rifle / alert pose but no dedicated hint, and a mid-investigation host migration drops it (`promote()` clears
-  `investigating`). `reportShot` is per **local** shot: an enemy shot at by another enemy (faction warfare) is never
-  alerted this way. The alert routine is O(active enemies) per shot with only cheap maths per enemy and the
-  `canPerceive` raycast throttled to `SHOT_CHECK_INTERVAL` per enemy — a full-auto weapon on a 60-enemy map is fine,
-  but a future shotgun that reported one call per pellet should report once per trigger pull instead. A `shotq` is
-  trusted apart from its shape (a client can make host enemies investigate any point, which is harmless: it wakes
-  nobody and deals no damage). The widened cone points **at the origin**, so a shooter who moves 90 degrees off the
-  firing line while the enemy walks in is seen no better than before. `resolveBarrierCollision` is called once per
-  grounded enemy per frame — the implants side must keep it cheap (it is a no-op when nobody carries a raised shield).
-  The frontal absorb runs on the host only, so a peer's shield hp there is whatever `absorbFrontalAttack` says, and
-  `ee barrierHit` is fire-and-forget (a peer that never receives it simply keeps its shield hp). The x-ray overlays are
-  built on first reveal per pooled enemy and then kept for the life of the pool (about 17 hidden meshes per body), so a
-  long mission that revealed many enemies keeps those meshes around until `disposePools`.
-- Phase 10: a **replica** has no real `vy` (it only mirrors the `airborne` hint), so a body that dies mid-leap starts
-  its fall from rest on the client and lands a fraction of a second later than on the host — the resting spot is the
-  same. A body killed in the air while the gameplay phase is paused does not fall until it resumes (the AI / replica
-  drivers are gated on `isGameplayPhase()`), and `CORPSE_LAND_TIMEOUT` then registers the corpse mid-air. A **promoted**
-  host inherits no `corpsePending` (the old host never sent `ee corpse` for a body still falling), so such a corpse is
-  simply never registered. The lootable roll and the fall direction are per-enemy-id and per-world-seed, so re-entering
-  the same seed gives the same answers — deliberate (it is how corpse *contents* already work). A non-lootable corpse
-  sends `ee corpse` with `lt: 0` but never a matching `ee corpseGone` (nothing was registered).
-- Phase 7: a promoted host does not know the old host's rogue guard anchors / escort links (they re-anchor where they stand) nor its
-  lures / suspicion points; the wave index resumes from the `ee wave` count this client saw (a client that joined mid-extraction
-  undercounts); the promotion happens on the *next* `es` from us — clients keep extrapolating for up to `NET_HOST_MIGRATE_DELAY_MS`
-  meanwhile. `ghost:damage` is one-way (the ghost's revive / death state comes back through the ref, not to enemies/). Replica
-  grenade copies match the host's `grenadeHit` by proximity (≤ 4 m), not by id (`ee grenadeHit` carries only `p`). A rogue whose
-  every reachable rock has no valid pop-out flank simply crouches in the open; rogues still ignore friendly fire for their grenades
-  (bugs are hit, rogues never are). Rogue cover still ignores terrain ridges (obstacle cylinders only).
-- Phase 6: the replica's optimistic 전소 lasts the caller's full duration even if the host rejects it (only a `dead` snapshot or the
-  missing `sb` bit — clamped to 0.35 s — ends it); status requests are not validated against distance / weapon. `applyStatus`'s Phase 9 `attacker`
-  is stored for `burning` / `incinerated` only — a slow / shock that finishes an enemy is still credited to the last damager. Snapshot `sb` adds ~8 B per
-  affected enemy.
-- `EnemyEvent 'damaged'` carries no damager id; replicas suppress the echoed flash with a 0.4 s window after their own hit.
-- `DamageMessage` has no shake field: remote victims of a charger / behemoth get the damage (and, since Phase 7, the behemoth's
-  knockback through `dmg.kb`) but no camera shake beyond what net/ adds; charger charges still send no `kb`. Rogue shots at remote
-  players send `dmg` without `ee attack`, so other clients see the tracer (`ee shoot`) but no bite audio.
-- Acid hits on remote players send only `dmg` (with `slow`), no `ee attack`.
-- Phase 9 deltas: a lost delta is only repaired by the next keyframe (`NET_ENEMY_KEYFRAME_S`) — the relay is TCP, so this
-  costs latency, not correctness. `gone` is sent on keyframes too (harmless duplication with the sweep). The cache
-  compares rounded values only, so sub-precision drift is never re-sent; `a` / `sb` changing back to 0 costs an explicit
-  field. Corpses are still dropped from the snapshot after 1.5 s, so a client that joins mid-mission (`rejoinMission`)
-  sees no existing bodies / corpse interactables. A burn started by a peer that leaves keeps crediting that id (the
-  `hitc` simply goes nowhere).
-- Replica shells are simulated locally from `ee shell`; the host's `shellHit` is only used when the local copy is still flying, so a shell
-  may land a few cm apart on different clients. The host validates `intq` only by shell id (no distance check).
-- Rogues never use the melee path — a bug in their face gets shot point-blank. Rogues ignore friendly fire (a same-faction rogue in
-  the line just stops the tracer). Behemoth hitbox for the plate is a round capsule, thicker than the visual plate. Toxic corpses use
-  the generic `rollCorpse('toxic')` (items decides what a toxic drops).
-- The behemoth is `BEHEMOTH_SCALE` (3 since Phase 7, was 4)× a warrior = 4.8 m tall / 2.4 m radius; the smaller body passes between
-  most rock pairs now, but a charge still stumbles on any obstacle it clips (`resolveCollision` deviation > 5 cm).
-- Guard placement is host-seeded but the individual rogue ids depend on spawn order after the ambient population; clients only ever
-  receive ids from the wire, so this is cosmetic.
-
-## Verification (Phase 11, 2026-09-07)
-`npm run typecheck` 0 errors in `src/enemies` / `src/world`. New `scripts/smoke-ecology.mjs` (single-player, private
-`npx vite --port 5297`, sim-time waits, HMR + relay sockets parked) — **83/83**, 0 console errors. Enemy side: the
-no-planet baseline keeps the old type set (no behemoth in an ambient patrol, behemoth from wave 3, no toxic before
-wave 2), the cap is `12 + 24 × threat` and 16 guards + a boss are placed; each of the five planets composes 24
-patrols at threat 0.3 / 0.5 / 0.9 and 24 waves per index 0..7 with **no type outside `eco.bugs`**, **no gate broken**,
-no artillery in a group, behemoths only where `eco.bugs.behemoth` and `maxBehemoth` allow (피로스 VII 10, everywhere
-else 0), the cap scaled by `pressure` (20 / 24 / 28 / 29 / 22 at threat 0.5) and guard counts following `eco.rogues`
-(카민 I 26 > 베르단트 III 10, 보레아스 IX / 베르단트 III bossless on this seed); the same seed + planet reproduces the
-guard placement exactly. Regressions on the same build: `smoke-rogue-v2` **52/52**, `smoke-enemy-delta` **52/52**,
-`smoke-phase4` **49/49**, `smoke-tactical` 63/64 (the miss is the relay socket, not the kit), `smoke-training`
-101/109 — those 8 failures are the **hub lane's new launch-pod 목표 행성 gate** (the smoke boards `hub_pod_0` with no
-planet selected), not this lane's.
-
-## Verification (Phase 12, 2026-09-08)
-`npm run typecheck` 0 errors (whole tree). New `scripts/smoke-enemy-alert.mjs` (single-player, seed 21, headless Chrome
-on the real GPU, sim-time waits, HMR socket parked; `ctx.implants.resolveBarrierCollision` / `absorbFrontalAttack` are
-monkeypatched because implants/ owns the real ones) — **42/42**, 0 console errors, on a private `npx vite --port 5302`.
-Covered: a rogue 66 m from the shot origin and 142 m from the player (out of every perception range) gets exactly one
-`enemy:shotAlerted` from a bullet passing 3 m beside it, turns to the origin inside 1.2 s, does not move for the watch
-with the rifle raised, refreshes its origin from a second shot without a second event, advances 3+ m after
-`ENEMY_SHOT_ALERT_WATCH_S` while still `alert` / unaware on the wire, and stands down at
-`ENEMY_SHOT_ALERT_GIVE_UP_S`; a shot fired from 90 m — outside the rogue's 60 m sight, inside the x2 cone — ends the
-investigation into a normal chase with `target 'local'`; a shot far from everyone alerts nobody; a bug alerted by an
-impact inside `ENEMY_SHOT_IMPACT_DIST` faces the origin, walks straight at it (30.0 -> 25.8 m) and stops at the ~8 m
-arrival; a replica forwards `shotq {o, d, r, h}` to the host and alerts nobody locally, and the host rejects a `shotq`
-with `r <= 0` or a malformed `h` while acting on a valid one. Barrier: a scavenger charging a plane 4 m in front of the
-player is held there (184 push-outs, 0 bites, hp untouched), `implant:barrierBumped {owner:'local', enemyId}` fires and
-stays under 2 Hz (7 in 3.5 s), and the bug retargets the carrier for 6 s; `absorbFrontalAttack('local', from, 8)` is
-consulted before the bite and true suppresses both `enemy:attacked` and the damage while false lets the same bite land;
-`ee barrierHit` -> `damageBarrier('local', p, 25)`. X-ray: `setXray` builds 17 overlays on a warrior (one per body mesh,
-`DETECT_ENEMY_COLOR`, `GreaterDepth`, `depthTest` on, no depth write, bodies lifted to render order 2), a second call
-extends and never shortens the reveal, expiry and death both drop it. `reportShot` is a no-op in a 훈련장. Regression on
-the same build: `smoke-rogue-v2` **52/52**, `smoke-enemy-delta` **52/52**.
-Not covered here (needs a second client): the real `ee barrierHit` round trip and a peer's `shotq` over the relay —
-`e2e:mp` territory.
-
-## Fix (2026-09-05): initial population survived only by accident
-`WorldSystem` (registered earlier) generates synchronously inside its own `game:newMission` handler and emits `world:ready` **before** `EnemySystem`'s `game:newMission` handler runs, so the old `game:newMission → reset()` wiped the bugs that `initialPopulate` had just spawned. The handler now resets only when `ctx.world` is not ready for that seed. Verified in headless Chrome: 18–20 bugs alive right after deploy (host and client replicas agree on ids/counts).
-
-## Verification (Phase 7, 2026-09-06)
-`npm run typecheck` 0 errors. New `scripts/smoke-rogue-v2.mjs` (single-player, seed 21, headless Chrome on the GPU, parks the
-`vite-hmr` socket, sim-time waits) — **46/46**, 4 consecutive runs green on a private `npx vite --port 5305`: behemoth stats / rig params
-= warrior × 3, front ray → `part 'front', armored`, rear ray → `rear`; a rogue spawned across a rock cluster picks 1–3 cover points in
-≤ 40 s and every one blocks the crouched-eye → chest line while staying ≥ 4 m from the player; from 14 m with LOS the rogue fires
-exactly 12 rounds, reloads (`magRounds` 0, hint 12, `reload` audio, crouch + reload pose, no shots for ≈ 2.0 s, mag 12 again); with
-every long raycast walled off the LOS hold reaches 3.0 s, the wind-up shows hint 13 + the hand sphere, the grenade flies (`grenade_throw`),
-explodes within the fuse 1.3–2.4 m from the player for 26–37 damage (`enemy:attacked {id: thrower, type 'rogue'}`), `explosion` audio +
-shake, cooldown ≈ 10 s; `setAuthority(false)` keeps 33 enemies as replicas (every live one buffered, a hit leaves hp untouched) and
-`setAuthority(true)` keeps 33, restarts them in chase / idle, damage applies again, `debugSpawn` ids continue ≥ max + 100, 33 enemies
-steering / targeting after 1.5 s; a `game:newMission {mode: 'training'}` world has 0 enemies and ignores `startExtractionWaves`;
-0 console errors. Regression: `smoke-phase4` 46/46 (its behemoth height check updated to 4.8 m), `smoke-tactical` 45/45, `smoke-uniques` 71/71.
-Not covered here (needs a second client): `dmg.kb` / `ghost:damage` routing and the replica grenade visuals — `e2e:mp` territory.
-
-## Verification (Phase 4, 2026-09-06)
-`npm run typecheck` 0 errors. `node scripts/smoke-phase4.mjs` (single-player, seed 21, headless Chrome, sim-time waits): 16 guards placed
-around tier ≥ 2 crates + one boss with 3 escorts, a rogue engages the player at 22 m with LOS (`enemy:shot`, burst of 4, hits registered),
-warrior spawned beside a rogue → `enemy:factionClash` + hp exchanged, artillery 95 m out digs in and fires (`enemy:shellFired`),
-`raycastInterceptable` hits the shell sphere at 5.4 m and misses 5 m aside, `intercept()` → `enemy:shellIntercepted` + pool freed, later
-shell lands (`enemy:shellLanded` radius 5), toxic killed by gunfire bursts and takes a neighbouring scavenger from 60 hp to < 1,
-behemoth front raycast → `part 'front', armored true` (×0.35), rear → `rear` (×2), corpse `corpse:<id>` registered (hold 0.6, radius 2.4,
-prompt 시체 수색 → 수색 완료 after `crate:looted`), `interact()` → `openContainerItems('corpse:<id>', items, pos, '시체')`, bodies stay in
-the scene. 0 console errors besides the relay socket (no server running).
-
-## Tactical kit (merged 2026-09-06)
-
-Files added by the tactical-kit branch (their rows were kept out of the main table above so the Phase 4 descriptions stay intact):
-
-| File | Role |
-|---|---|
-| `ai/Lures.ts` | `LureField`: ≤ 12 noise beacons (`add` merges within 2 m, drops the weakest when full, `prune` expires them). `best(pos, out, now)` returns the strongest 0..1 weight whose radius covers `pos` with a mild distance falloff. Fed by `EnemyManagerRef.addDistraction` (lure grenade) and by gunfire (weight 0.25, 4 s); merged with `ctx.gadgets.findDistraction` (weight 0.85) in `EnemySystem.lureFor`. |
-| `ai/Structures.ts` | Deployable targeting. `refreshStructureTarget` (≤ every 0.7 s per bug, one `findEnemyTarget` + one `blocksProjectile` call): melee types take a deployable only when it stands between them and their player (`blocksProjectile(eye, chest, true)`) or is already within biting range; spewers take one whenever the player is hidden, something blocks the line, or the structure is closer. `biteStructure` deals `attackDamage × STRUCT_DAMAGE_MUL` (1.6). |
-
-Perception rework (`ai/Perception.ts`, merged with the Phase 4 artillery / rogue exceptions): `acquireTarget`: nearest alive player, re-evaluated every 0.5–0.9 s or when the target dies/leaves; hysteresis (switch only when another is < 0.6× / 0.75× as far, with/without LOS). Staggered 0.3 s perception tick. **Detection rework (tactical kit)**: `detectionRange = sightRadius × target.stealth × visionClarity`, where `stealth` comes from `PlayerRef.getStealthFactor()` (remote: `CLOAK_DETECT_MUL` when `CLOAKED`) and `visionClarity` from `ctx.gadgets.visionFactor(eye, chest)` (smoke). An alerted bug always sees within `CLOAK_REVEAL_DISTANCE`. Once alerted it tracks up to `min(90 × clarity, max(range × 2.2, CLOAK_REVEAL_DISTANCE))` — ~88 m for a plain target, ~16 m for a cloaked one, 0 through smoke (`clarity ≤ 0.4` blinds it beyond 4 m). Target loss after 10 s past that range. The same tick refreshes the bug's lure (`host.lureFor`) and applies `ctx.gadgets.fireDamageAt` so fire zones burn bugs even if `gadgets/` never calls `applyStatus`. `becomeAlert` emits `enemy:alerted`, screech audio, propagates 20 m.
-
-- `EnemyManagerRef` additions: `queryNear`, `addDistraction` (lure grenade / gunfire noise), `applyStatus` (burning DoT with ember puffs, slow), `applyAreaDamage` (turret / mine / rocket, credited to the caller).
-- `Enemy` carries lure / suspicion (smoke return fire) / burning / slow / deployable-target state; `EnemyHost` gained `lureFor`, `fireAcidAt`, `emberBurst`.
-  Phase 6 added `incapTimer` (전소), `shockTimer` / `sparkTimer` (spark visual), `statusReqBits` / `statusReqAt` (replica request throttle),
-  `incinerate(duration)`, `isIncapacitated`, and `BugAnim.writhe` / `spark` (`models/BugModel.ts`, shared `statusEmissive` used by both rigs).
-- Melee bugs bite a barricade / dome that stands between them and their target (`ai/Structures.ts`); spewers spit at deployables and at the last heard shot when the shooter hides in smoke.
-- Lures and distractions are authority-only state; a joining client does not learn about an existing lure (it only matters for AI, which the host owns).
-
-
-## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
-
-`EnemySystem.ts` 는 한 파일에 다 있기에는 너무 커져서 **동작을 바꾸지 않고** 갈랐다. 규칙은 세 줄이다.
-
-1. **`model.ts`** — 폴더 공용 어휘(타입 · 상수 · 스크래치 객체). 상태도 클래스 참조도 없다.
-   `EnemySystem.ts` 이 `export * from './model'` 로 재수출하므로 **기존 import 경로는 전부 그대로 동작한다.**
-2. **`parts/*.ts`** — 클래스에서 떼어낸 메서드 묶음. 각 함수는 인스턴스를 첫 인자 `sys` 로 받는다:
-   ```ts
-   export function applyDamage(sys: EnemySystem, …) { … }   // 예전의 this → sys
-   ```
-   클래스에는 같은 이름의 **한 줄 위임 메서드**가 남아 있으므로 `ctx.*` 를 통한 호출부와
-   폴더 안의 `this.foo()` 호출은 **하나도 바뀌지 않았다.**
-3. `parts/` 가 닿는 클래스 멤버는 `private` 이 벗겨져 있다. **폴더 밖에서 쓰라는 뜻이 아니다** —
-   접근 범위는 여전히 이 폴더이고, 외부와의 계약은 `@/shared` 의 `*Ref` 인터페이스가 전부다.
-
-`parts/` 에 새 파일을 만들 때는 맨 위 doc 주석에 **그 파일이 답하는 질문 한 줄**을 적고
-위 표에 행을 추가한다. 순환 import 를 만들지 않으려면 `parts/` 는 `EnemySystem.ts` 에서 **타입만**
-가져와야 한다(`import type { EnemySystem }`) — 값이 필요하면 `model.ts` 로 옮긴다.
-
-## 로그 강하 (2026-09-09)
-
-> **2026-09-13: 레이더 강하로 바뀌었다** (행성별 적 팩션 — `docs/DECISIONS.md` 「2026-09-13 — 행성별 적 팩션」). 트리거 · 구역당 1회 ·
-> 호스트 권한 · 상한 예외 · 진격은 아래 그대로이고, 아래 「규모」 절(인원 · 보스)은 **더 이상 사실이 아니다**. 확률 = 행성 threat 표
-> `RAIDER_DROP_CHANCE_BY_THREAT`(threat 1 은 굴리지 않는다), 병력 = **레이더만 · 분대장 없음**, 규모 = **최대 두 파도** — 파도마다
-> 분대 인원이 정한 수(`RAIDER_DROP_WAVE1_*` · `WAVE2_*`), 한 파도 `RAIDER_DROP_WAVE_MAX` 이하, 두 번째는 `RAIDER_DROP_WAVE_GAP_S` 뒤
-> 따로 예고되는 독립 강하(dropId `${zoneId}#2`)다. 두 번째 파도는 호스트가 들고 있는 예약이라 그사이 호스트가 바뀌면 오지 않는다.
-> 파도마다 분대 하나 · 우회조 한 명. 원본은 `RogueDrop.ts` 머리 주석.
-
-버려진 **전진기지 · 연구실 · 선로 플랫폼**의 컨테이너를 처음 조사하면 로그 분대가 강하할 수 있다.
-구현은 전부 `RogueDrop.ts` 안에 있고, 계약은 `EnemyManagerRef.callRogueDrop` / `getRogueDrops` ·
-`rogueDrop:incoming` / `landed` · `rdrop` · `ROGUE_DROP_*` 다.
-
-### 흐름
-```
-world/  structure:investigated {zoneId, kind, position}
-  → (호스트만) 구역당 1회 ROGUE_DROP_CHANCE 굴림
-  → callRogueDrop(zoneId, position)
-      rogueDrop:incoming + rdrop incoming                    ← 예고 (소리 · 토스트는 audio/ · ui/ 가 낸다)
-      ROGUE_DROP_ETA_S 초 동안 포드가 하늘에서 내려온다        ← 모든 클라이언트
-      rogueDrop:landed + rdrop landed + spawnRogue × count    ← 착지 (스폰은 호스트만)
-      beginInvestigation(e, position)                        ← 구조물로 진격
-```
-
-### 규모 = 분대 인원
-`data/tables.csv` 의 배열 표를 **index 0 = 분대 1명**으로 읽는다: 1명 2–3 · 2명 4–5 · 3명 5–6 · 4명 6–8,
-보스(`rogue_boss`) 확률 0 / 0.5 / 1 / 1. 인원은 `ctx.net.getRemotePlayers()` 중 `connected` 수 + 1 에서 세고
-1..4 로 클램프한다 (싱글은 1). **호출자는 인원을 정하지 않는다** — 계약이 그렇게 되어 있다.
-자리가 모자라 `scatterPoints` 가 요청보다 적게 돌려주면 그만큼만 내려온다.
-
-### 호스트 권한 · 구역당 1회 · 호스트 이관
-굴리는 것은 호스트뿐이고, 굴림 자체는 `worldSeed ^ hash(zoneId)` 시드 스트림이라 **누가 호스트여도 같은 답**이
-나온다. "이 구역은 이미 썼다"는 기록은 두 곳의 합집합이다:
-
-1. `RogueDropDirector.used` — 이 클라이언트가 본 모든 `dropId`. 호스트가 굴린 구역(**실패한 굴림 포함** —
-   사용자 규칙이 "구역당 1회만 발생"이다)과, **리플리카가 받은 `rdrop incoming`** 이 함께 들어간다.
-   그래서 호스트 이관으로 승격된 사람도 이미 쓴 구역을 다시 굴리지 않는다.
-2. `WorldRef.getStructures()` 의 `StructureDef.rogueDropUsed` — world/ 가 `struct sync` 로 채워 주는
-   구조물별 플래그. 레이드 도중 합류해 `rdrop` 을 한 번도 못 본 사람이 호스트가 되는 경우를 덮는다.
-   enemies/ 는 이 값을 **읽기만** 한다 (구조물 상태의 주인은 world/ 다).
-
-`dropId` 는 `structure:investigated.zoneId` 를 그대로 쓴다 — 두 기록이 같은 열쇠를 써야 하기 때문이다.
-`used` 는 `Pool.reset` 에서(= `world:ready` / `game:newMission` / `game:abort`) 레이드마다 비워진다.
-
-**남은 구멍**: 호스트가 굴려서 **실패**한 구역은 와이어에 아무 것도 나가지 않으므로, 그 뒤 승격된 새 호스트는
-그 구역을 모른다. 실제로는 world/ 가 `structure:investigated` 를 **구역의 첫 조사에만** 내므로 재굴림의 계기
-자체가 없고, world/ 가 `rogueDropUsed` 를 조사 시점에 세워 주면 이 구멍도 사라진다.
-
-### 상시 개체수 상한 (`AmbientSpawner.cap`)
-강하 병력은 **`ensureCapacity` 를 거치지 않는다** — `host.spawnRogue` 를 직접 부른다. 근거: 상한은 *상시
-순찰의 압력 조절* 장치이고, 예고한 8명이 상한에 눌려 2명으로 줄면 연출도 인원 규칙도 무너진다 (포병이
-`maybeArtillery` 에서 `cap + 2` 로 스폰하는 것과 같은 성격의 예외다).
-반대로 **조용히 회수되지도 않는다**: `ensureCapacity` 의 재활용 패스는 `e.isRogue` 를 건너뛰므로 로그는
-애초에 회수 대상이 아니다 (로그 가드가 그렇게 유지되던 규칙 그대로다).
-다만 `aliveCount()` 에는 그대로 잡히므로 **강하가 살아 있는 동안 벌레 순찰이 그만큼 덜 나온다** — 의도한
-것이다. 로그 분대와 벌레 압박이 같은 자리에서 겹치면 감당이 안 되고, 강하 병력이 정리되면 저절로 원래
-압박으로 돌아온다.
-
-### 비호스트 클라이언트
-`rdrop incoming` / `landed` 를 받아 같은 버스 이벤트를 내고 **포드 연출만** 그린다. 적 자체는 손대지 않는다 —
-기존 `ee spawn` / `es` 리플리카 경로가 처리한다. 착지 지점은 호스트와 같은 시드 · 같은 인자로
-`scatterPoints` 를 다시 뽑으므로 포드가 실제로 로그가 서는 자리에 꽂힌다. 예고를 못 본 `rdrop landed` 는
-무시한다 (적은 어차피 리플리카 경로로 보인다).
-
-### 진격
-새 AI 를 만들지 않았다. Phase 12 의 `ai/Investigate.ts` 를 그대로 쓴다 — 착지한 로그마다
-`beginInvestigation(e, 트리거 지점)` 을 걸면 `ENEMY_SHOT_ALERT_WATCH_S` 주시 → 엄폐 이동 전진 →
-`SHOT_ALERT_ARRIVE`(8 m) 도착의 기존 사이클이 그대로 돈다. 도중에 누군가를 인지하면 평소의 교전으로
-넘어가고, `guardPos` 를 트리거 지점으로 잡아 두었으므로 도착 뒤에는 **기존 로그 가드 순찰**(guardPos 주위
-6–12 m)이 이어받아 구조물을 지킨다.
-
-### 포드
-외부 에셋 없이 `RogueDrop.ts` 안에서 절차 생성한 붉은 육각 캡슐이다 — `player/Hellpod` 와 `stratagems` 의
-구조 포드를 **참고만** 했고 import 하지 않는다 (아군 헬포드와 실루엣이 달라야 한다). 지오메트리 · 머티리얼은
-모듈 단위로 공유하고 포드 인스턴스는 풀링하며, `disposeRogueDropAssets()` 가 `Pool.disposePools` 에서 정리한다.
-낙하 중 연기 · 착지 `groundBlast` / `dust` / `sparks` · 카메라 흔들림은 전부 `@/core/fx` 의 기존 도구다.
-착지한 포드는 30 초 뒤 씬에서 빠진다.
-
-## 네임드 로그 (2026-09-11)
-
-레이드마다 **최대 한 명**, 위험한 행성일수록 자주 나오는 이름 붙은 로그 셋 — 로든(`rogue_sniper`, 개활지 저격수 +
-스캔 드론) · 타길라(`rogue_hammer`, 망치 근접, 구조물 곁) · 헤비(`rogue_heavy`, 미니건 + SMG 호위).
-계약은 `shared/named.ts` · `EnemyType` 네 줄 · `enemy:namedSpawned` · `NAMED_ROGUE_*` / `NAMED_HEAVY_ESCORTS_BY_SQUAD`,
-수치는 `EnemyTypes` 의 `NAMED_*` 블록(`data/enemy_abilities.csv`)이다. 스폰은 `named/Director.ts`, AI 는 `ai/named/*`
-(종류마다 한 파일), 겉모습은 `models/named/*`. 담당별 소절이 이 절 아래에 붙는다.
-
-### 스폰 디렉터 (`named/Director.ts`)
-```
-world:ready (권한 · 훈련장 아님) → 로그 가드 배치 → named.roll(planet)
-  rng = Random(worldSeed ^ hash('named'))
-  rng.next() < NAMED_ROGUE_CHANCE_BY_RANK[planetTier(planet) − 1] ?   (행성 없음 = 난이도 1 = 4 %)
-  → 종류 = NAMED_ROGUE_TYPES[rng.int(0, 2)]
-  → 자리 (같은 rng) → spawnRogue(...)  → ee spawn (기존 경로)
-  → enemy:namedSpawned {id, type, position}
-```
-- **레이드당 1회**: 굴림은 `world:ready` 의 권한 분기에서만 일어난다. 호스트 이관(`setAuthority` → `promote`)은
-  굴리지 않는다 — 승격된 사람은 리플리카일 때 이미 `ee spawn` 으로 그 네임드를 받았고, 같은 시드라 굴렸어도 같은
-  답이다. 결과 · 알림 기록은 `Pool.reset` 이 레이드마다 비운다.
-- **자리 공통 필터** (`spotOk`): 맵 가장자리 24 m 안쪽 · 스폰 지점에서 `NAMED_ROGUE_MIN_SPAWN_DIST`(140 m) 이상 ·
-  선로 중심선에서 `RAIL_CLEARANCE_M + 4` m 밖 · `structureAt` 이 null(발자국 밖 — 실내 바닥 높이를 믿지 않는다) ·
-  자기 반경 × `ENEMY_SPAWN_CLEARANCE_MUL` 원의 `obstacleCoverage` ≤ `ENEMY_SPAWN_BLOCK_RATIO`. 마지막 것은
-  `Spawner.spawnBlocked` 와 같은 규칙인데 네임드는 반경이 `ENEMY_BIG_RADIUS` 밑이라 그 함수가 늘 false 라서
-  반경으로 직접 부른다. 고른 자리는 `resolveCollision` 후 `getSurfaceY` 로 발을 붙인다.
-- **로든**: 무작위 후보 48개 중 점수 최고 — `(높이 − 반경 30 m 링 8점 평균) − 40 × coverage(22 m) + 0.1 ×
-  min(구조물 발자국까지 거리, 80)` 에서 맵 반폭 75 % 바깥으로 치우친 만큼 깎는다. 구조물 30 m 안 후보는 버린다.
-  `guardPos` = 자기 자리, 스폰 지점을 바라본다. 무기 `sr`.
-- **타길라**: 스폰에서 `MIN_SPAWN_DIST` 이상인 구조물을 먼 순으로 정렬해 먼 쪽 절반에서 시작, 발자국 바깥
-  1.5 m ~ `min(NAMED_HAMMER.structureRadius, radius + 12)` 링을 16번 표본해 `coverage(10 m)` 최고 자리.
-  `guardPos` = 구조물, 구조물을 등지고 선다. 무기 없음(`''`). 구조물이 없는 맵이면 장애물이 가장 빽빽한 후보.
-- **헤비**: 같은 방식으로 먼 구조물 → 없으면 등급 2 이상 상자(폐허) → 없으면 무작위 후보. 앵커 발자국 바깥
-  6–18 m. `guardPos` = 앵커. 무기 `u_minigun`(아이템 `wpn_u_minigun`). 호위 `rogue` × `NAMED_HEAVY_ESCORTS_BY_SQUAD
-  [분대 인원 − 1]`(분대 인원은 `RogueDrop` · `WaveDirector` 와 같은 계산)을 헤비 둘레 `NAMED_HEAVY.escortRadius`
-  의 40–100 % 링에 고르게 — 무기 `smg`, `escortOf` = 헤비라 `spawnRogue` 가 리시를 `ROGUE_AI.escortLeash` 로,
-  `RogueAI` 가 `guardPos` 를 매 틱 헤비 위치로 옮긴다(보스 호위 규칙 그대로). 헤비가 죽으면 호위는 제자리 가드가 된다.
-- **개체수 상한**: 네임드 · 호위는 `ensureCapacity` 를 거치지 않고, 로그 팩션이라 재활용 패스(`e.isRogue`)도
-  건드리지 않는다 — 로그 가드 · 로그 강하와 같은 처리라 `Pool.ts` 에는 리셋 한 줄만 붙었다.
-- **알림**: 권한은 스폰 직후 `enemy:namedSpawned`. 리플리카는 두 경로에서 `isNamedRogueType` 이면 **id 당 한 번** —
-  ① `Replica.onEvent('spawn')` 이 내는 `enemy:spawned` → `Director.onSpawned`, ② `ee spawn` 을 못 받고 **스냅샷
-  (키프레임 · `ty` 가 붙은 델타)으로만** 적을 만든 늦은 합류자 → `Replica.onSnapshot` 의 get-or-create 가
-  `ReplicaHost.named.onReplicaCreated(e)` (2026-09-11 C-52). 두 경로가 같은 `announced` 기록을 보므로 `ee spawn` 과
-  키프레임이 어느 순서로 와도 중복이 없다. 스냅샷 경로는 여전히 `enemy:spawned` 를 **내지 않는다**(소리 · HUD 같은
-  다른 구독자의 동작이 바뀐다) — 네임드 알림만이다. 기록은 `Pool.reset` 이 레이드마다 비우고 호스트 이관(승격 ·
-  강등)은 건드리지 않는다: id 가 그대로라 강등 뒤 새 호스트의 키프레임이 이미 알린 네임드를 다시 알리지 않는다.
-- `namedData` · `namedPhase` 등은 건드리지 않는다 — 각 AI 파일이 첫 틱에 스스로 초기화한다. 디렉터가 넣는
-  초기값은 `guardPos` · `weaponId` · `escortOf`(호위) 뿐이다.
-- 디버그: `debugSpawnNamed(type, {x, z}?)` = 판정 없이 플레이어 앞 40 m(헤비는 호위 포함, 알림은 나가고 굴림 기록은
-  그대로), `debugNamedRoll()` = `{rolled, planet, tier, chance, roll, type, placed, id, position, anchor, escorts}`.
-
-### 로든 (`ai/named/Sniper.ts` · `models/named/SniperLook.ts` · `named/SniperShot.ts`)
-넓은 개활지에서 엎드려 대물 저격총으로 **머리**를 노리는 저격수. **전조 없는 한 발은 없다** — 모든 발사는
-`glintTime` 동안의 조준경 반짝임 뒤에만 나간다.
-```
-updateSniper (호스트 · namedData = SniperData, 첫 틱에 생성 · aware 는 늘 true)
-  경직 · 전소            → 힌트 0 (일반 로그 자세) · 반짝임 취소
-  자리 옮기기(relocate)  → 힌트 0 · 서서 coverPos 로 달린다 (≤ 4.5 s)
-     조건: 반짝임 중 아님 · relocateCooldown 끝 · (피격 || 플레이어 < closeThreat)
-     자리: 위협 반대쪽 옆으로 6–10 m, guardPos(둥지)에서 nestLeash 안
-  엎드림(힌트 14)
-     반짝임 중 → 힌트 15 · 표적을 따라 돈다 · glintLeft 0 → fire
-     아니면 0.3 s 마다 pick (가장 가까운 한 명):
-        ① 근거리  detectRange × 은폐 계수 안 · 엎드린 눈 → 머리 사선 열림(연막 포함)
-        ② 스캔    드론 done · exposure ≥ exposeNeeded · range 안 · 사선 열림
-        proneTurnRate 로 돌아 방향 오차 < 0.12 rad · fireCooldown 끝 · 엎드린 지 0.7 s → startGlint
-        (C-62: 그 직전 몸 → 총구가 막혔으면 반짝임 없이 buriedBeforeGlint → 1.2 s 뒤 재검사 / relocateCd 끝이면 총구가 트인 자리로)
-     드론 없음 · droneCooldown 끝 → detectRange < 거리 ≤ droneRange 의 가장 가까운 플레이어에게 launchScanDrone
-```
-- **플레이어만 쏜다** (리드 결정): 인자 `t`(`pickTarget` 의 답 — 벌레 · 드론일 수 있다)는 쓰지 않고
-  `host.targets.alive` 중 `enemy === null && !isDrone` 에서 직접 고른다. 드론에는 반짝임도 150 피해도 없다.
-- **전조**: `startGlint` → 호스트 로컬 `named:sniperGlint {targetLocal}` + `sniper_glint` + (멀티 호스트)
-  `ee glint {id, dur, target = PeerId, 호스트 자신은 localId}`. 반짝임 동안 사선을 끊으면(엄폐) 탄은 엄폐물에 박힌다.
-- **발사**: 명중 확률 = `lerp(nearAccuracyMax, nearAccuracyMin, 거리 / detectRange)`, 스캔 표적이면
-  `max(그것, scannedAccuracy)`. 맞히기로 굴렸으면 머리(`eyeHeight + 0.06`), 빗나가기면 머리 옆 1–2 m 로
-  `host.fireGun(e, t, 0, 1, {damage, range, aimAt, fx: false, wire: false, out})` — 가림 · 배리어 · 유리 · 피해는 기존
-  경로 그대로다. 그 뒤 `sniperShotFx` + `ee snipe {from, to, hit, target}` + 반동, `fireCooldown = fireInterval`.
-  `enemy:shot` 은 `fireGun` 이(리플리카는 `onSniperEvent` 가) 낸다.
-- **소염기 매몰** (C-56): `fireGun` 은 리그 총구(몸 ≈ 2.3 m 앞)에서 월드 레이를 쏘는데 월드 레이는 원점이 장애물 안이면
-  무충돌이라, 반짝임 동안 돌다 총열이 바위 · 둔덕에 파묻히면 탄이 그대로 통과했다. 발사 직전 **몸 중심(발 + `EYE_UP`)
-  → 총구** 선분을 `world.raycast` 하고, 막혔으면 `fireGun` 대신 그 점(섬광은 0.12 m 몸 쪽)까지 `sniperShotFx(hit:false)` +
-  `ee snipe(hit:false)` + `enemy:shot(hit:false)` + 쿨다운 — **전조를 띄운 한 발은 쏜다**(발사 순간에는 옮기지 않는다 — C-62 부터
-  반짝임 **전**에도 같은 검사를 해 막힌 자리에서는 전조를 띄우지 않고 옮긴다, 위 도식).
-  같은 이유로 사선 검사 원점 `EYE_FWD` 를 0.9 → **0.3 m**(몸 반경 0.4 안)로 당겼다.
-- **몸통 판정** (C-55): 엎드린 몸은 세로 캡슐이 아니라 **눕힌 캡슐**이다 — `models/named/SniperLook.sniperBodyCapsule`,
-  리그 실측으로 뒤 끝 구 중심 (z −0.80, y 0.20) · 앞 끝 (z 0.50, y 0.30) · 반경 0.25 (발끝 −1.05 · 어깨 앞 0.75 · 윗면
-  0.55 를 덮는다, 벌린 발끝만 조금 밖). 비율은 **보이는 자세**(`SniperLookState.pose` = smoothstep 한 엎드림)이고 그
-  사이는 서 있는 캡슐 끝점 · 반경과 섞으며, 경사(`anim.slopePitch`)는 자세와 같은 규약으로 골반 피벗 둘레로 기울인다.
-  `EnemySystem.raycastEx` 가 `models/named.namedBodyRay` 로 묻고(kind 4, 법선 = 명중점 − 축 최근접점) 모든 히트스캔
-  경로(무기 · 원격 무기 · 로그 `fireGun` · 핑)가 그대로 받는다. 광역 반경 R(엎드림 1.68 m)은 캡슐 끝(≤ ≈ 1.35 m)을
-  덮는다. 폭발 중심 높이도 `namedBodyCenterY` — 엎드리면 ≈ 0.25 m(`parts/Damage.applyExplosion` 리플리카 가지 · `explode`).
-- **드론 수명** (`trackDrone`): `done` 을 보면 `scanWait` 창을 연다(스캔 표적에게 반짝이는 동안은 멈춘다) — 끝까지
-  사선이 없으면 포기 → `droneRetry`. `done` 전에 `dead` · `flee` · 사라짐 · `loiterMax + 20 s` → `droneRetry`. 스캔
-  표적에게 쐈으면 `droneCooldown`. 세 경우 모두 `resolvedDroneId = 드론 id` · `droneId = null` — 드론이 노출을 풀고
-  복귀하는 신호다(`model.ts` 에 적힌 계약).
-- **드론 입양** (C-49): `droneId === null` 이면 `trackDrone` 앞에서 `sniperId === 자기 id` 인 **아직 아무도 붙잡지 않은**
-  (`!claimed`) 스캔 · 대기 단계 드론을 집어 온다 — 방금 놓아 준 드론(`resolvedDroneId`) · 귀환 중인 드론은 되잡지 않는다.
-  호스트 승격으로 넘어온 드론을 `ScanDrone.ts` 가 가장 가까운 로든에게 붙여 주는 짝이다.
-- **사격 연출** (`named/SniperShot.ts`, 호스트 · 리플리카 공용): 트레이서 세 겹(심지 · 탄연 · 달려가는 섬광) ·
-  `FlashPool` 섬광(광원 세기 0) · 소염기 연기 · 엎드린 자리 흙먼지 · 탄착 먼지 · `sniper_shot` · 스친 탄 흔들림.
-  소리의 거리 곡선은 `audio/AudioSystem` 의 `RANGED_SOUNDS` 가 갖고 여기서는 실제 위치로만 낸다.
-- **리플리카**: `afterSniperReplica` = 힌트 14/15 에서 웅크림 0 · 조준 0.7/1. `onSniperEvent` — `glint` →
-  `holdSniperGlint`(스냅샷 힌트 15 가 오기 전부터 스프라이트) + 소리 + `named:sniperGlint {targetLocal = target ===
-  localId}`, `snipe` → 연출 + `clearSniperGlint` + 반동 + `enemy:shot`. 피해는 이미 호스트의 `dmg` 로 왔다.
-- **겉모습** (`SniperLook`): 기본 소총 메시(팔 합본)를 숨기고 `rig.gun` 에 팔 + 대물 저격총(개머리 · 뺨받침 · 긴
-  총열 · 소염기 · 대형 조준경 · 양각대), `rig.muzzle` 을 소염기 끝으로. 길리 숄 · 등 덮개 · 너덜너덜한 띠(`torso`),
-  두건(`head`). 부품은 리그의 `chitin` 을 같이 써 피격 번쩍임이 공짜다. 엎드림 비율(힌트 14/15 → 1)로 `animateRogue`
-  **뒤에** 몸을 π/2 눕히고(골반 0.14 m) 머리 · 총을 다시 수평으로 세우며 양각대를 펼친다. 엎드린 채 죽으면 일어서지
-  않고 옆으로 늘어진다. 반짝임 = 가산 `THREE.Sprite`(`sizeAttenuation: false` → 화면 크기 일정 = 월드 크기가 거리에
-  비례), `onBeforeRender` 에서 조준경이 카메라를 향하는 정도로 opacity, 확대 조준이면 다음 프레임 크기 보정.
-  **광원 없음**, 스프라이트 `raycast` 는 끈다. 지오메트리 · 텍스처는 리그마다 만들고 `disposeSniperLook` 이 버린다.
-- **머리 판정**: `rig.params` 를 리그별 사본으로 바꿔 끼우고 `head.y / head.z` 를 엎드림 비율로 1.66/0.02 ↔
-  0.27/0.84 사이에서 옮긴다 — `Enemy.headCenter`(헤드샷 구) · `lookAtTarget` 이 엎드린 머리를 본다.
-- **알려진 한계**: ① 경직 · 전소 · 자리 옮기기 동안은 서 있다. ② `aware` 고정이라 총알 추적에 끌려가지 않는 대신
-  `enemy:alerted` 도 내지 않는다. ③ 벌레가 붙어도 쏘지 않는다(플레이어만) — 맞으면 자리만 옮긴다. ④ ~~근접 판정은
-  서 있는 몸 기준~~ → C-62 에서 `Enemy.nearestBodyPoint`(눕힌 캡슐)로 고쳤다. ⑤ ~~매몰 판정은 발사 순간 한 번뿐~~ → C-62 에서
-  반짝임 전에도 검사하고 막혔으면 총구가 트인 자리로 옮긴다. 남은 틈: 반짝임 **동안** 돌다가 파묻히면 여전히 그 한 발은 박힌다(발사 순간
-  검사), 후보 검사는 도착 뒤의 실제 자세 · 표적 이동을 모르므로 도착한 자리가 막혀 있을 수 있다(그때는 쿨다운까지 기다린다).
-
-### 스캔 드론 (`ai/named/ScanDrone.ts` · `models/named/ScanDroneLook.ts` · `fx/ScanPulseFx.ts`)
-로든이 먼 플레이어를 노릴 때 띄우는 쿼드콥터(`rogue_scan_drone`, hp 60 · 반경 0.45 · 높이 0.4). **휴머노이드 리그
-위에 꾸민다** — `isRogueType` 에 그대로 두고 `rig.body` 를 숨긴 뒤 드론 몸체를 `rig.root` 에 붙인다.
-```
-launchScanDrone(host, sniper, target)   ← Sniper.ts 가 부른다 (호스트만). 반환 id 를 SniperData.droneId 에 적는 것은 로든 쪽
-  이미 떠 있음(droneId 살아 있음 · 같은 sniperId 드론) / 리플리카 / 표적이 플레이어 아님 → null
-  spawnRogue('rogue_scan_drone', 저격수 옆 1.3 m · 위 2.4 m) → ee spawn (기존 경로)
-  namedData = ScanDroneData { sniperId, targetId, exposure: Map, pulses, done, loiter, claimed, glinting, shotGrace, leave }
-updateScanDrone (namedPhase)
-  0 스캔   표적 머리 위 altitude (표적 둘레 5 m 느린 원) · 표적 수평 pulseRadius×0.6 안에서 pulseInterval 마다 음파
-  1 대기   done 뒤 — 로든이 놓아 주거나(resolvedDroneId = 내 id · droneId ≠ 내 id) · 스캔 저격 뒤 fireInterval+glintTime
-           안에 다음 반짝임이 없거나 · loiterMax → 2
-  2 귀환   저격수 위 3 m 까지 → flee 퇴장 (최대 45 s)
-  3 이탈   저격수 사망 → 3.5 s 솟구친 뒤 flee 퇴장
-```
-- **비행**: `e.airborne = true` 로 지형 스냅을 끄고 스스로 3D 적분한다 — 수평 속도 지수 블렌드(`ACCEL_RATE`) + 도착
-  감속, 수직 속도 클램프, 순항 고도보다 6 m 넘게 낮으면 수평 속도를 줄여 **먼저 오른다**. 바닥은 `getSurfaceY(x, z)`
-  (발 높이 없음 = 제일 높은 윗면)를 지금 자리와 0.8 s 앞에서 재 + 3 m — 장애물은 **고도로 넘는다**. 경직(전소)은 지상
-  AI 의 stagger 가지가 돌지 않으므로 여기서 `staggerTimer` / `incapTimer` 를 직접 줄이고, 그 동안은 느리게 떠돌며 음파를
-  쏘지 않는다. 매 틱 `aware` · `relentless` 를 켜고 `investigating` · 유인 · 구조물 표적을 끈다(총알 추적 · 유인에 끌려
-  지상 AI 분기로 새지 않게).
-- **음파**: `host.targets.alive` 중 수평 `pulseRadius` 안, 은폐(`stealth < 0.5`) 아님, 드론 밑 → 가슴 `world.raycast`
-  가 열린 사람의 `exposure[t.id]++`. 지붕 · 벽 · 언덕 뒤에 숨으면 걸리지 않는다. `scanPulses` 번째에 `done`.
-  한 번의 음파가 내는 것: `ScanPulseFx` · `scan_pulse` · `named:scanPulse {exposedLocal}` · (멀티 호스트면)
-  `ee scanPulse {id, p, r, n, of = scanPulses, tg = 노출된 PeerId[] — 호스트 자신은 localId}` · 힌트 20 을 0.6 s.
-  비행음 `scan_drone_hum` 은 1.8 s 마다(리플리카도 자기 쪽에서).
-- **퇴장은 `flee` 경로다**: `state = 'flee'` + `fleeTimer = FLEE_DURATION` 이면 `EnemySystem.update` 가 **같은 프레임**
-  AI 루프 뒤에서 `despawn`(+ `ee despawn`)한다 — AI 루프 안에서 `despawn` 을 부르면 배열이 밑에서 바뀐다.
-- **격추**: 공중 사망 규칙 그대로 — `Enemy.kill` 이 `vy` 를 `deathVy` 로 넘기고 `integrateDeathFall` 이 떨어뜨린다
-  (리플리카는 `afterScanDroneReplica` 가 스냅샷 높이 차분으로 `vy` 를 채워 둔다). 경직이 없다(`takeDamage` 는
-  `airborne` 이면 경직을 걸지 않는다). 시체는 `CORPSE_LOOT_CHANCE` 0 이라 수색할 수 없는 잔해로 누운다.
-  `raycastEx` 는 `position` 기준 캡슐이라 공중 위치에서 그대로 맞는다 — 발 위 0.45 m 에 중심을 둔 구 + 머리 구(0.2 m),
-  겉모습 몸체 중심(`FRAME_Y` 0.42)을 거기 맞췄다.
-- **로컬 노출 표시** (`ScanRuntime`, ctx 하나당 하나): 드론 id 별 슬롯 4개에서 최대 카운트를 `named:scanExposure
-  {count, total = scanPulses, sniperId}` 로 **바뀔 때만** 낸다(리플리카의 `sniperId` 는 모름 = null). 0 으로 떨어지는
-  경우: 드론이 없어짐(격추 · 퇴장) · `SniperData.resolvedDroneId` = 그 드론(호스트) · `named:sniperGlint.targetLocal` 의
-  `duration` + 0.15 s 뒤(나를 겨눈 저격 발사, 모든 클라이언트) · 20 s 무갱신 · `world:ready` / `game:newMission` /
-  `game:abort`. 드론이 이미 없어진 뒤에도 시간이 흘러야 하므로, 할 일(퍼지는 음파 · 노출 슬롯 · 예약된 해제)이 있는
-  동안만 `requestAnimationFrame` 한 줄로 스스로 틱한다(`ctx.time` 기준 · 프레임당 한 번 멱등). 없으면 멈춘다.
-- **음파 FX** (`fx/ScanPulseFx.ts`): 풀 4개 × (드론 → 땅 열린 원뿔 셸 — 아래로 흐르는 줄무늬, 지면 높이의 짧은 열린
-  원기둥 띠 — 세로 가운데만 밝아 지형과 만나는 곳이 붉은 선). 둘 다 가산 · `depthWrite: false` · `NO_RAYCAST` ·
-  logdepth 청크 포함 `ShaderMaterial`, `PULSE_S` 1.15 s 에 반경까지 `easeOut`. **광원 없음.** 메시는 처음 한 번 만들고
-  `game:abort` 에서 dispose(다음 음파에서 다시 만든다), 레이드 리셋에서는 숨기기만.
-- **겉모습** (`ScanDroneLook`): 허브 · 대각선 팔 4 · 모터 · 날개(회전) · 반투명 날개 원판 · 아래를 향한 스캐너 접시와
-  렌즈 · 빨간 LED 4. 본체 · 날개는 `rig.chitin`(피격 섬광 · 화상 발광 공짜), 렌즈 · LED 는 리그마다 emissive 머티리얼.
-  비행 방향으로 기울고 떠 있는 채로 까딱이며, 힌트 20 에서 렌즈가 번쩍이며 맥동한다. 죽으면 날개가 멎고 굴러 떨어져
-  옆으로 누운 잔해가 된다. 공유 지오메트리는 참조 카운트로 마지막 리그가 dispose 될 때 해제된다.
-- **리플리카**: `beforeScanDroneReplica` = 직전 y 기억 + `airborne`(Replica 가 지형 스냅을 건너뛴다),
-  `afterScanDroneReplica(e, hint, dt, host)` = `vy` 차분 · 휴머노이드 자세 목표 무시 · 비행음(`host.playAudio`), `onScanDroneEvent` = FX · 소리 ·
-  `named:scanPulse` · 로컬 노출(`tg` 에 내 `localId`).
-- **호스트 승격** (C-49): 리플리카 시절의 드론에는 `namedData` 가 없다(호스트 전용). 예전에는 첫 틱에 `retire` →
-  같은 프레임 despawn 이라 **공중에서 사라졌고**, 로든도 `createData` 의 `LAUNCH_RETRY_S`(3 s) 뒤 새 드론을 스캔 0 부터
-  띄웠다. 이제 `adoptOrphan` 이 새 `ScanDroneData` 를 준다 — `sniperId` = 살아 있는 `rogue_sniper` 중 가장 가까운 것
-  (없으면 -1 → 이탈 단계가 솟구쳐 치운다), 표적 무효(`'ai'` → 스캔 가지의 대체 로직이 로든 사거리 안 가장 가까운
-  플레이어를 고른다), 스캔 0 · 단계 SCAN · **`namedTimer = 0`**(리플리카 훅이 직전 y 를 적어 두어 안 비우면 힌트 20 이
-  수십 초 방송된다). 로든 쪽이 `droneId === null` 이면 그 드론을 입양한다(위 `로든` 소절). 디버그 스폰 드론도 같은 길이다.
-- **알려진 한계**: ① 격추 시 `parts/Damage.onEnemyKilled` 가 로그 공통으로 `player_death` 소리와 피 튀김을 낸다.
-  ② 드론 처치도 `enemy:killed` 로 킬 · 계약 카운트에 들어간다. ③ `Steering.separate` 는 2D 라 드론 바로 밑의 적이 살짝
-  밀릴 수 있다(스폰은 그래서 저격수 옆으로 비켜 선다). ④ 승격 순간 진행 중이던 스캔 · 노출은 잃는다(스캔은 0 부터 — 결정).
-
-### 헤비 (`ai/named/Heavy.ts` · `models/named/HeavyLook.ts`)
-```
-chase (엄폐 사이클 없음)
-  발놀림: 안 보이거나 > keepMax → 다가감 · < keepMin → 뒤로 물러섬(드론 표적은 제외) ·
-          보이는데 총구 사선만 막힘 → fireLineStrafe · 띠 안 먼 쪽 → creepMul 로 밀고 들어옴
-          (총열이 도는 동안은 전부 × spinMoveMul — 사격만 보류하고 이동은 막지 않는다)
-  namedPhase: 0 ADVANCE ─사선 + 쿨다운 끝→ 1 SPINUP(힌트 18, minigun_spinup, spinUp s, 끝까지 돌림)
-              → 사선 있음 → 2 FIRE(힌트 19, ee spray on, burstTime s)   → 끝 → ee spray off + spindown + burstCooldown
-              → 사선 없음 → 3 LINGER(힌트 18, linger s 헛돌기)          ↖ FIRE 중 사선이 끊겨도 여기로 (ee spray off)
-              LINGER 안에 사선이 돌아오면 남은 연사를 곧바로 잇는다(ee spray on), 아니면 spindown + 쿨다운 절반
-  경직 · 표적 상실로 chase 를 벗어나면 그 자리에서 연사를 끊는다
-```
-- **발사**: FIRE 틱마다(`1 / rof`, 프레임당 최대 3발) `host.fireGun(e, t, spread, 1, { damage, range, fx:false,
-  event:false, wire:false, out })`. 피해 · 가림 · 배리어 · 유리 · 드론 판정은 전부 `fireGun` 이 한다. 몸이 표적에서
-  0.35 rad 넘게 돌아가 있으면 총열만 돌고 쏘지 않는다(측면을 잡을 틈). 조준점은 `getChest`(드론이면 몸체 가운데).
-- **와이어**: 연사 시작/끝의 `ee spray {id, on}` 두 번뿐 — 발마다 `ee shoot` 을 보내지 않는다. 힌트 18/19 는
-  `Enemy.namedHint` 로 스냅샷에 실린다. 헤비가 연사 중 죽으면 `off` 는 나가지 않지만 리플리카는 시체를 `drive` 하지 않아 멈춘다.
-- **호스트 연출**: 트레이서 2발에 하나(`fx.tracers`) · 섬광 프레임당 하나(`fx.flashes`, 세기 0 — 광원 개수 불변) ·
-  `minigun_fire` 0.1 s 틱(버스로 직접 — `host.playAudio` 의 기본 스로틀 0.12 s 가 틱을 절반으로 깎는다) · 명중 시 `hit_flesh`.
-- **리플리카**: `onHeavyEvent(on)` 이 연사 상태만 켜고, `afterHeavyReplica(e, hint, dt, host)` 가 **스스로** 같은 박자로
-  트레이서 · 섬광 · 틱을 낸다. `off` 를 놓쳐도 `burstTime + 1.5 s` 또는 힌트가 19 에서 0.5 s 벗어나면 멈춘다. 회전음은
-  힌트 18/19 가장자리에서 — `host` 를 `net/Replica.drive` 가 늘 넘기므로 첫 `ee spray` 전의 회전음도 난다(C-54).
-- **리플리카 트레이서 방향** (C-50): 와이어에는 `ee spray {on}` 뿐이라 누구를 쏘는지 모른다. `remoteAimPoint` 가 몸 방향
-  (`e.yaw`, 스냅샷)에서 `FIRE_FACING_TOL`(0.35 rad — 호스트가 실제로 방아쇠를 당기는 콘. 계획의 ±0.25 대신 이 값을 써서
-  호스트가 쏜 발의 표적이 반드시 후보에 든다) · `range` 안의 후보 중 **가장 가까운** 것의 가슴을 고른다 — 플레이어
-  (`targets.alive`) ∪ 적이 노리는 드론(`targets.drones`) ∪ 반대 팩션 적(키 × 0.6). 방향 = 총구 → 그 점 + `spread`
-  (클램프 없음), 후보가 없으면 예전처럼 yaw 전방 + 머리 피치. 끝점은 `world.raycast`. 연사 중 매 프레임 돌므로 클로저 ·
-  배열 없이 모듈 스크래치로 센다.
-- **호위**: SMG 로그는 `escortOf` → 기존 `RogueAI` 가드 로직. 헤비는 기다리지 않고, 죽으면 `RogueAI` 가 호위를 풀어 준다.
-- **겉모습**: 흉부 · 골반 메시만 넓히고(히트박스 파라미터 불변) 흉갑 · 견갑 · 허리/허벅지/정강이 판 · 헬멧 + 노란 바이저
-  (`eyeMat`) · 탄통 백팩 + 탄띠. 기본 소총 메시는 **숨기기만** 하고, 두 어깨 사이 피벗에 미니건 + 그것을 쥔 팔을 붙인다(허리 높이
-  약 1.1 m). **`rig.muzzle` 을 미니건 총구로 옮겨 붙여** `Enemy.muzzle` · `FireLine` · `fireGun` 이 거기서 쏜다. 총열 묶음은 힌트
-  18/19 에서 댐핑된 속도로 돌고, 19 에서 총 전체가 떨리고 총구 끝(자체 머티리얼 하나)이 달아오른다. 걸음은 보폭 70 % ·
-  디딤마다 내려앉기 · 좌우 흔들림. 지오메트리는 리그마다 만들고 `disposeHeavyLook` 이 해제한다.
-- 수치: `NAMED_HEAVY` 의 `spinUp` · `rof` · `damage` · `burstTime` · `burstCooldown` · `spread` · `range` 에 이번에
-  `keepMin` 15 · `keepMax` 45 · `creepMul` 0.5 · `spinMoveMul` 0.45 · `linger` 1 을 더했다.
-
-### 타길라 (`ai/named/Hammer.ts` · `models/named/HammerLook.ts`)
-망치 근접 보스 — hp 2800(일반 로그 × 10), **붙으면 초당 50** (`enemies.csv` attackDamage 50 / attackCooldown 1).
-엄폐 사이클 · 사격 · 수류탄이 없다.
-```
-idle / wander   guardPos(구조물) 둘레 patrolRadius 순찰 · guardPos 에서 patrolRadius × 1.6 밖이면 복귀(wander + phase 3)
-alert           ROGUE_REACTION 동안 돌아선다
-chase  phase 0  추격 ─ d ≤ 준비 사거리 · attackCd 끝 → attack phase 1
-                     ─ d ≤ chargeDist · 준비 사거리 + 2 m 밖 · 사선 · 무릎 높이 길 트임 · chargeCooldown 끝 → phase 2
-                     ─ 길을 막은 설치물(structTarget) → 그것부터 휘두른다
-chase  phase 2  돌진(힌트 17) chargeSpeed, 표적을 1.1 rad/s 로 따라 꺾음 · 사거리 닿음 → 곧장 휘두르기
-                · 지나침 / chargeDist ÷ chargeSpeed × 1.6 s → 끝 · 벽 · 바위 · 배리어에 막힘 → stumble(경직)
-attack phase 1  휘두르기 준비(힌트 16, windup s, hammer_swing) — 표적 쪽으로 천천히 밀고 들어간다
-       ↓ 타격   사거리 + 0.6 m 안 · 정면 ±70° (1.1 m 안은 방향 무관) · 위아래로 닿음 → host.hitTarget(50) 1회
-                늘: 망치 머리 자리 먼지 · 파편 · 불꽃 · 16 m 안 camera:shake · hammer_impact · ee hammer {id, p}
-                attackCd = attackCooldown − windup  → 다음 타격이 정확히 attackCooldown 뒤
-attack phase 4  0.25 s 회복 → chase
-표적이 giveUpDist(60 m) 밖에서 giveUpTime(4 s) 안 보임 → aware 해제 + guardPos 로 복귀
-```
-- **돌진은 `Enemy.chargePhase = 2` 를 빌린다** — `integrate` 의 직선 이동(velocity 를 직접 씀, 회전 × 0.3)과
-  "의도한 자리에서 0.05 m 넘게 밀리면 `stumble`" 판정을 그대로 쓰므로 새 충돌 코드가 없다. 그 경직 길이는
-  차저의 `CHARGER_CHARGE.stumble`(1.5 s)이다. 분리(separation)는 `_prev` 기록 전에 밀어서 편차로 세지 않는다.
-  돌진 접촉 피해 · 넉백은 **없다** — 간격을 닫는 수단일 뿐이고, 피해는 휘두르기 한 경로로만 나간다(드론에 넉백 경로를 타지 않는다).
-- **설치물**: `ai/Structures.refreshStructureTarget` 가 이미 모든 종류에 대해 돌고 있으므로 벌레 근접형과 같은
-  규칙(길을 막음 · 물기 거리 안)으로 바리케이드 · 돔 · 포탑을 부순다 — `attackDamage × STRUCT_DAMAGE_MUL`(80). 망치 보스를
-  바리케이드 하나로 영원히 묶어 둘 수 없게 한 판단이다.
-- **드론 표적**: 지상 드론은 친다(`hitTarget` → `ctx.drones.damageDrone`, 흔들림 0). 표적 밑면이 제 키(2.05 m)보다
-  높이 떠 있으면 준비 · 돌진 · 타격 셋 다 하지 않는다(`canReachVertically` — `pickTarget` 의 고도 필터 뒤의 안전망).
-- **와이어**: 힌트 16/17 은 `Enemy.namedHint` 로 스냅샷에 실리고, 타격마다 `ee hammer {id, p}`. 리플리카는
-  `onHammerEvent` 가 `anim.recoil = 1`(내려찍기 자세) + 같은 FX · 흔들림 · `hammer_impact`, `afterHammerReplica` 가
-  조준 자세를 지우고 힌트 16 이 새로 켜질 때 `hammer_swing`(`host` 인자로 — 첫 `ee hammer` 전의 준비음도 난다, C-54).
-- **겉모습**: 기본 로그 × 1.12(머리 1.86 · 키 ≈ 2.05, csv 히트박스에 맞춤) + 장갑판으로 폭(반경 0.55)을 채운다 — 가슴 ·
-  등 · 옆구리 · 견갑 · 탄부 · 허벅지 · 정강이 · 철판 장화, 용접 마스크 + 방독 필터 2 + **붉은 바이저 틈**(`eyeMat`, 리그마다
-  `emissive` 를 붉게). 소총 메시(`rig.gun`, 팔과 한 메시)는 **숨기고** 가슴 피벗에 양손 대형 망치 + 팔을 붙인다(`muzzle` 은
-  숨은 채 남는다 — 타길라는 쏘지 않는다). 피벗 X 회전 하나로 자세를 만든다: 경계 전 낮게 늘어뜨림 → 교전 비스듬히 →
-  힌트 16 머리 뒤로 들어 올리며 상체 젖힘 → `anim.recoil` 이 튀면 0.1 s 안에 내려찍으며 숙이고 주저앉음 → 천천히 들어
-  올림 · 힌트 17 앞으로 기울임 · 경직 늘어뜨림 · 사망 늘어뜨림. 지오메트리는 모듈 공유(참조 수), 머티리얼은 리그의
-  `chitin` / `eyeMat` 그대로(피격 번쩍임 · 전소 발광 공짜). **광원 없음.**
-- 수치: `NAMED_HAMMER` 의 `windup` · `chargeDist` · `chargeSpeed` · `chargeCooldown`(`structureRadius` 는 디렉터)에 이번에
-  `giveUpDist` 60 · `giveUpTime` 4 · `patrolRadius` 10 을 더했다. `enemies.csv` 의 `attackWindup`(0.3)은 **읽지 않는다** —
-  준비 시간은 `NAMED_HAMMER.windup` 하나다.
-- **알려진 한계**: ③ 준비 중 경직(단발 2240 피해)이면 들어 올린 채 멈췄다가 내려온다. (① 돌진 막힘의 `bug_step` ·
-  ② `hitTarget` 의 공용 `bug_attack` 은 2026-09-11 C-51 에서 없어졌다 — `model.stepSound` / `meleeHitSound` 표: 막힘 = 그
-  타입의 재질 발소리를 낮은 피치로, 타길라 타격음 = null 이라 `hammer_impact` 하나만 난다.)
-
-## 적 ↔ 드론 (2026-09-11)
-
-플레이어가 조종하는 지상 · 공중 드론(`shared/drones.ts`, **소유자 권한**)을 적이 알아채고 · 노리고 · 때리는 규칙.
-드론 자체의 규칙(체력 · 질주 소음 · `aggroable` · 피해 전달)은 `gadgets/drones` 가 갖고, 이 폴더는 **호스트 AI** 쪽만
-갖는다. 리플리카 경로는 바뀐 것이 없다 — 드론 표적은 호스트 AI 만의 개념이고 와이어에 새 필드가 없다.
-
-- **표적 프록시** (`Targets.ts`): `TargetList.drones` — 매 프레임 `ctx.drones.getDrones()` 중 `aggroable` · hp > 0
-  인 것만. 걷는 지상 드론은 `aggroable` 이 false 라 목록에 없다(= 적이 봐도 무시). **`all` / `alive` 에는 넣지
-  않는다** — 스포너 · 웨이브 · 분리(separation) · 포탄/독성/수류탄의 플레이어 루프가 드론을 플레이어로 착각하지 않게.
-  프록시는 드론 id 당 하나(`id` 는 `'ai'`, `drone` / `droneId` 필드, `isDrone`)이고 꺼낼 때 한 번만 만든다.
-  `position` = 몸체 **밑면**(지상 = 바닥점, 공중 = 중심 − 높이/2)이라 발 기준으로 짜인 `getChest` · `lookAtTarget` ·
-  캡슐 판정이 그대로 맞는다. `velocity` 는 위치 차분, `droneAltitude` = 밑면 − `getSurfaceY`. 드론이 사라져도 `drone`
-  참조는 남기고 `present` / `isDead` 만 내린다(그 순간 표적으로 들고 있던 적이 `'ai'` 에게 `dmg` 를 보내지 않게).
-- **노리기** (`parts/Alerts.pickTarget` → `pickDroneTarget`): 배리어 캐리어 다음, 기존 (플레이어 · 반대 팩션) 규칙
-  **앞에서** 드론을 본다. 조건: 플레이어보다 **< 0.6×** 가깝거나 플레이어가 없음 · 반대 팩션 적보다 가깝거나 같음 ·
-  `canPerceive`(시야 반경 × 은폐 · 연막, 5 m 근접 또는 사선, 총알 추적 콘) · **근접형**(스퓨어 · 포병 · 로그 — 타길라
-  제외 — 가 아닌 전부)은 `droneAltitude ≤ 키 + 공격 사거리` (공중 드론 밑에서 영원히 맴돌지 않게). 레이캐스트는 앞의
-  값싼 검사를 통과한 드론에만. 스캔 드론은 드론을 노리지 않고, **버그는 스캔 드론(`rogue_scan_drone`)을 반대 팩션
-  표적으로 고르지 않는다**.
-- **소리** (`world:noise` → `EnemySystem.onWorldNoise` → `parts/Alerts.onWorldNoise`, 권한만): 총성과 같은 들리는
-  거리(`hearingReach`) 안의 **인지 전** 적(웨이브 벌레 · 경직 · 스캔 드론 제외)이 `beginInvestigation(소리 지점)` —
-  소리만으로 표적을 주지는 않는다. 조사 중 넓어진 인지 콘에 드론이 보이면 위 규칙으로 표적이 된다.
-- **때리기** (`parts/Damage.applyDamage` 의 첫 가지): 표적이 드론이면 `ctx.drones.damageDrone(droneId, amount, from)`
-  하나로 끝난다 — `enemy:attacked` · `dmg` · `ee attack` · 배리어 흡수 · 넉백 · 둔화는 없다. 이리로 오는 경로:
-  근접(`hitTarget`) · 차저 돌진 접촉 · 헌터 도약 착지 · 독성 팽창 트리거(셋 다 `nearestAliveWithin` — 드론은 **수직으로도**
-  반경 안일 때만) · 산성 직격 / 스플래시(`fx/AcidProjectile` 이 드론 몸체도 판정하고 `fire` 가 `bodyHeight` 로 조준을
-  보정한다 — 플레이어는 보정 0) · 로그 사격(`parts/Attacks.fireGun` — 드론 캡슐, 납작한 몸체는 중심의 구, 맞으면 불꽃).
-  `fireGun` 의 반환값 · `enemy:shot.hit` · `ee shoot.hit` 은 여전히 **플레이어** 명중만 뜻한다.
-- **폭발**: 권한 분기에서 한 곳씩 `ctx.drones.applyExplosion(center, radius, damage)` — 로그 수류탄(`onGrenadeExploded`) ·
-  포탄 착탄(`onShellLanded`) · 독성 자폭(`toxicBurst`) · 스퓨어 사망 폭발(`acidBurst`). 공용 `explode()` 에는 넣지
-  않았다 — 플레이어 · 가젯 폭발(리플리카의 `explode` 요청 포함)도 거기를 지나 이중 적용이 된다.
-- **알려진 한계**: ③ 네임드 AI(`ai/named/*`)도 드론을 표적으로 받을 수 있다 — 필요하면 `t.isDrone` 으로 거른다.
-  (① 베헤모스 돌진이 드론을 치지 않던 것은 2026-09-11 C-47, ② 드론 · 적 표적 산성이 리플리카에 안 보이던 것은 C-48
-  `ee acidAt` 으로 닫혔다 — 아래 *C 항목 배치* 절.)
-- 디버그: `debugDroneTargets` = `[{ id, altitude }]`.
-
-## C 항목 배치 — 적(일반) (2026-09-11, 에이전트 4)
-
-`docs/HISTORY.md` 「2026-09-11 (14차: C 항목 배치)」 의 일반 적 항목. 계약(`EnemyManagerRef.pushBack` · `HitRequest.kb` · `Interactable.kind` ·
-`SurfaceMaterial` · `shared/ride.ts` · `ee acidAt` · `HAZARD_ENEMY_DPS`)은 리드 커밋이다.
-
-- **C-1 · X-6 배쉬 넉백 (비호스트)** — `parts/Damage.pushBack` 이 역할을 가른다: 권위는 예전처럼 `velocity` 에 더하고,
-  리플리카는 범위 안 적마다 `HitRequest { dmg: 0, p: 몸 가운데, d: 밀 방향, kb: 감쇠 적용된 m/s }` 를 호스트로 보내고 보낸
-  수를 돌려준다(`applyStatus` 의 `st` 요청과 같은 모양). 호스트 `onHitRequest` 는 `dmg 0 · st 0` 이어도 `kb` 가 있으면 받아
-  `d` 의 수평 방향으로 더한다 — 돌진 중(`chargePhase 2`) · 비전투원 제외, `MAX_REQUEST_KNOCKBACK`(20)으로 자름, `dmg 0` 이라
-  `hitc` 없음. 기하는 `dmg` · `st` 처럼 검증하지 않는다(E-4 계열 신뢰 경로 +1).
-- **C-4** — `Corpse.kind = 'corpse'` (빛기둥 · 정찰 스캔이 접두어를 추측하지 않는다).
-- **C-14 재해가 적에게도** — `parts/Status.updateHazardDot`: 권위 · 게임플레이 페이즈에서 `HAZARD_TICK_S` 마다 살아 있는 적 중
-  `ctx.world.hazard.isInside` 인 몸에 `HAZARD_ENEMY_DPS × HAZARD_TICK_S`. `Enemy.applyDot(…, 'ai', quiet)` 라 번쩍임 · 피 FX ·
-  `bug_hit` · `ee damaged` · 경직 · `aware` · `alertNear` 가 없고, 킬 크레딧도 없다(`'ai'` → `enemy:killed` 없음). 떨어지는 hp 는
-  평소 스냅샷이 싣는다. 재해가 `missionTime` 의 함수라 호스트 이관 뒤에도 이어진다. `EnemySystem.hazardTick` 은 `Pool.reset` 이 비운다.
-- **C-18 전차 탑승 · 시체 · 강하 목표** — `ai/Ride.ts` (위 파일 표). ① 권위: `integrate` 의 `_prev` 기록 **앞**에서 `rideCarry`,
-  표면 재접지 **뒤**에서 `rideRecord` — `velocity` · 보행 · 발소리 · 돌진 이탈 검사는 차량 이동을 보지 않는다. 헌터 도약
-  (`airborne`)은 하차. 네임드 AI 도 `integrate` 를 타므로 같이 탄다. ② 리플리카: `net/Replica.drive` 가 가장 새 샘플을 차량
-  속도로 앞당겨 차량 부피 안이면 보간 자리에 `속도 × lag`(= 지금 − min(renderT, 샘플 + 추정 한도))를 더하고, 보행 이동량에서 그
-  몫을 뺀다. ③ 시체: `EnemySystem.update` 가 죽은 몸마다 `carryCorpse` 를 부르고, 움직였으면(또는 차량에서 흘러 떨어지는 중이면)
-  `corpse:<id>` 상호작용 자리를 몸에 맞춘다. `Enemy.kill` 은 탄 채 죽은 몸의 로컬 자리를 다시 적는다(리플리카 예측 오프셋 포함).
-  ④ `RogueDrop.dropTargetFor`: `structure:investigated.zoneId` 가 `tram_*`(전차 컨테이너)면 목표를 **가장 가까운 플랫폼**으로 —
-  달리던 전차 자리(= 선로 한가운데)에 분대가 떨어지지 않는다. 전차 치임(world/)은 탑승 상태를 묻지 않는다(데크 윗면 −
-  ~~`RIDE_FOOT_DROP`~~ → **C-63: `TRAM_HIT_FLOOR_CLEAR`** 위의 몸은 치지 않고, 그 밑 띠는 발밑 발판이 그 전차일 때만 뺀다 —
-  선로 발판 위의 적이 면제받던 틈을 닫았다). 검사 `scripts/smoke-tram-ride.mjs`.
-- **C-23 · X-3 · X-10 적 발소리** — `ai/EnemyAI.footfall(e, ctx, targets, moved)` 하나를 권위(`integrate`)와 리플리카(`drive`,
-  한 프레임 2 m 미만 이동만)가 같이 부른다: 반 보폭마다 `model.emitEnemyStep` + 베헤모스는 40 m 안 흔들림(예전엔 30 m 블록
-  안이라 30–40 m 에서 안 흔들렸다). 방출부 선형 감쇠 · 로컬 PC **몸** 30 m 게이트 · 전역 id 스로틀이 없어졌다(→ 카메라 60 m ·
-  적 id 별 0.12 s · audio/ 곡선). 돌진 막힘 쿵도 같은 함수(× 1.8 크기 · × 0.85 피치).
-- **C-24 · X-4 곡사포 재배치** — `ai/GimmickAI.artilleryRelocate`: 거절되면 후보 7곳(좌우 7 · 14 m, 표적 쪽 10 m, 조합) +
-  오르막 한 곳을 `parts/Attacks.shellArcBlocked` 로 사전 검사(맵 안 · 후퇴~최대 사거리 · `obstacleCoverage` ≤ 0.25)해
-  **가장 가까운 뚫린 자리**로 걷고(`Enemy.shellSpot` — `chase()` 가 `moveTarget` 을 매 프레임 표적으로 덮기 때문에 예전
-  재배치는 사실 **표적 쪽으로** 걸었다), 걷는 시간은 거리에서(`walkFor`), 도착하면 바로 다시 판다. 부호 교대 없음. 없으면 표적
-  쪽으로 접근. 연속 `ARTILLERY_AI.maxRefusals`(3) 번이면 다른 살아 있는 플레이어로 표적을 바꾸고 `refusalCooldown`(8 s) 쉰다.
-- **C-25** — `ai/RogueCover` 의 `COVER_STANDOFF` 0.7 삭제 → `ENEMY_WALL_STANDOFF`(1) — 엄폐 · 사격 자리가 `FireLine` 이
-  물러서는 거리와 같다.
-- **C-47 베헤모스 돌진 → 드론** — `attackBehemoth` 가 `targets.drones` 도 훑는다(수평 `반경 + 몸체 + 0.4`, 수직 겹침, 한 돌진에
-  `Enemy.chargeDrones` 로 드론 id 당 1회 → `chargeHit` → `damageDrone`). `chaseBehemoth` 는 밑면이 제 키보다 높이 뜬 표적(공중
-  드론)에게 돌진을 시작하지 않는다(`canBodyReach`, 타길라 `canReachVertically` 와 같은 식).
-- **C-48 · X-5 산성** — 드론 · 적 표적(`fireAcid`)과 `fireAcidAt`(연막 반격 · 설치물)이 조준점을 `ee acidAt {id, from, to}` 로
-  방송하고 리플리카가 `acidVisualAt` 으로 날린다. `AcidProjectiles` 가 쏜 쪽 팩션을 들고(`fire` / `fireAt` 의 `faction`) **다른
-  팩션 적**의 몸통 캡슐 직격 · 스플래시도 판정한다 → `damageTargetAcid(e.asTarget)` → `applyDamage` 적 가지(킬 크레딧 없음).
-  **밸런스 변화**: 예전엔 벌레 산성이 로그를 그냥 지나가 버그 ↔ 로그 교전에서 스퓨어가 피해 0 이었다 — 이제 직격 18 · 스플래시 10.
-- **C-51 소리 표** — 위 *Audio ids emitted*. `Damage.hitTarget` · `chargeHit` · `barrierHitRemote` · 리플리카 `ee attack` 이
-  `meleeHitSound`, `requestHit` · `onEnemyDamaged` · 리플리카 `ee damaged` · 감전 비명이 `hurtSound`. `Attacks.bitePitch` 는 표를 읽는다.
-
----
-
-## 굴착 스폰 · 지하벌레 (2026-09-13)
-
-사용자 요구: 버그는 뿅 나타나지 말고 **땅을 파고 올라온다** (분진 · 흙 파임 · 가까우면 약한 흔들림 한 번), 행성 난이도 2–3 에는 **지하벌레 이벤트**,
-그리고 **탈출 디펜스 웨이브 제거**. 수치는 전부 `data/constants.csv` 의 `BURROW_*` · `SANDWORM_*` 와 `data/tables.csv` 의 `SANDWORM_*` 표.
-
-### 굴착 스폰
-- **어떤 스폰이 파고 나오나** — `Pool.spawn(…, emerge)` 의 `emerge > 0` 이고 팩션이 `bug` 일 때만: 상시 순찰(`AmbientSpawner.update` →
-  `spawnGroup(…, BURROW_EMERGE_S)`) · 포병 굴착(`maybeArtillery`) · 지하벌레 분출 무리 · (아무도 부르지 않는) 탈출 웨이브. **파고 나오지 않는 것**:
-  월드 생성 때의 첫 배치(`initialPopulate` — 플레이어가 도착하기 전이라 보일 일이 없다) · 인간형 전부 · `debugSpawn` · 지하벌레가 뱉은 버그(날아온다).
-- **판정** — `Enemy.startEmerge(dur)` 가 `emergeT` · `emergeDur` · `emergeDepth`(몸 높이 + `BURROW_SINK_EXTRA_M`)를 적는다. **그림만** 내린다:
-  `Enemy.animate` 가 리그 root 의 y 에서 `burrowSink`(ease-out)를 빼고 `emergeT` 를 줄인다 — 권위 · 리플리카가 같은 시계다. `position` 은 땅 위라
-  **올라오는 동안에도 맞는다**. `ai/Burrow.updateBurrowGate` 가 `updateEnemyAI` 의 사망 검사 바로 뒤에서 이동 · 공격을 막고(표적 쪽으로 천천히
-  돌아볼 뿐) 다 나오면 평소 상태 기계로 돌려준다. 파다가 죽은 몸은 그 깊이에서 멈춘다.
-- **연출** — `parts/Burrow.emergeFx`: `fx/BurrowFx`(core 알파 입자 풀에 분진 · 흙덩이 — 새 드로우콜 · 셰이더 없음, 밟은 재질 색) + `burrow_emerge` +
-  `burrowShake`. **흔들림은 겹치지 않는다**: 로컬 플레이어가 `BURROW_SHAKE_RADIUS` 안이고 **마지막으로 실제 흔든 뒤** `BURROW_SHAKE_GAP_S` 가
-  지났을 때만(`EnemySystem.burrowShakeAt`) — 분출 무리 여덟 마리가 한 프레임에 올라와도 한 번이다.
-- **와이어** — `ee spawn.em`(굴착 초, 생략 = 없음). 리플리카는 `ee spawn` 으로 **새로 만든** 몸에만 `startEmerge` + 같은 연출을 건다. 스냅샷이 조용히
-  만든 몸(늦은 합류)은 굴착 없이 선다.
-
-### 지하벌레 (`sandworm`)
-- **굴림** (`sandworm/Director.onWorldReady`, 모든 클라이언트): 시드 `worldSeed ^ hash('sandworm')` → 등장 `SANDWORM_CHANCE_BY_THREAT[행성 threat − 1]`
-  (threat 1 = 0) → 발동 시각(창 `SANDWORM_WINDOW_START_S..END_S` 의 앞쪽 절반, `ctx.missionTime`). **레이드당 최대 1회**. 굴림이 성공하면 지하벌레 리그
-  하나를 풀에 미리 만들어 숨긴 채 씬에 넣고 `ctx.shaders.warm` 한다. 벌레 후보가 하나도 없는 행성은 0.
-- **발동** (호스트, `playing` 페이즈): 발동 시각부터 창 끝까지 `SANDWORM_CHECK_S` 마다 — 싱글(또는 분대에 나 혼자)은 인원수 상관없이 그 발밑, 멀티는
-  살아 있는 플레이어 **2명 이상**이 `SANDWORM_GROUP_RADIUS` 안에 모인 가장 큰 무리의 **한가운데** 발밑. 구조물 발자국 · 무리 중 누가 지형보다 1.2 m
-  이상 높이 서 있음(데크 · 지붕 · 전차) · 발밑 바위면 그 검사는 건너뛴다.
-- **순서**: 전조 `SANDWORM_WARN_S`(5 s, `ee wormWarn`) — 모든 클라이언트가 커지는 흙 파임 · 분진 · 피해 반경 링(`BurrowFx.warn`) · 0.2 초마다
-  `SANDWORM_SHAKE_MAX × (0.12 + 0.88·진행도²) × 거리 감쇠` 흔들림(약 → 강) · 토스트 「지상이변 발생」(`ui:notify` danger) · `sandworm_rumble` ·
-  `sandworm:warning`. → **분출**(호스트): 반경 `SANDWORM_ERUPT_RADIUS` 안 플레이어에 피해 + 넉백(`applyDamage` — 로컬 직접 · 원격 `dmg.kb` · 끊긴 사람
-  `ghost:damage`), 다른 팩션 적 `explode(…, skipFaction 'bug')`, 드론 `applyExplosion`, 지하벌레 스폰(`em = SANDWORM_RISE_S` 동안 솟는다, 최대 체력
-  `SANDWORM_HP_MIN..MAX` 굴림), 분대 인원표만큼 링 위에서 파고 나오는 무리, `ee wormErupt {id, hp, spit}`, `sandworm:erupted`. → **버그 뱉기**
-  `SANDWORM_SPIT_PHASE_S`(30 s): `SANDWORM_SPIT_INTERVAL_S` 마다 입에서 `SANDWORM_SPIT_COUNT` 마리(행성 생태계 가중치, 생존 상한
-  `SANDWORM_ALIVE_CAP` — `ensureCapacity`)를 가까운 플레이어 쪽으로 포물선 비행(`Enemy.startSpat`, `ee wormSpit`) — **먼저 죽이면 더 뱉지 않는다**.
-  → **독극물**: 땅에 박힌 채 `SANDWORM_ACID_RANGE` 안의 가장 가까운 플레이어에게 `SANDWORM_ACID_VOLLEY` 연발(첫 발 예측 조준 `ee acid`, 나머지 흩뿌림
-  `ee acidAt` — 피해는 기존 산성 경로).
-- **몸** — 자기 리그(`models/WormModel`, `kind: 'worm'`), `ai/EnemyAI` 는 곧장 돌려보내고 틱은 디렉터가 권위에서만 돌린다. speed 0 이고 넉백 ·
-  폭발 nudge 는 `velocity` 에만 닿아 움직이지 않는다. `fleeFrom` 제외 · `relentless` 라 재활용 제외 · `staggerFraction` 99 · 전차에 타지 않는다(적분을
-  안 한다). 전소는 stagger 를 타고 그동안 뱉지 않는다. 입(머리) 구 ×1.5. 와이어 힌트 21(뱉기) · 22(독극물)는 `Enemy.namedHint` 에 적어
-  `HostSync.animHint` 의 첫 줄이 그대로 싣고, 리플리카는 `sandworm/Pose.applyWormHint` 로 같은 자세를 푼다.
-- **뱉어진 몸** — `Enemy.spatT > 0` 동안 `airborne` · 와이어 힌트 4(종류 분기보다 먼저)이고 공격하지 않는다. 권위는 AI 게이트에서, 리플리카는
-  `ee wormSpit` 을 받아 `ai/Burrow.stepSpatFlight` 로 같은 포물선을 스스로 그린다. 공중에서 죽으면 기존 사망 낙하.
-- **보상** — `CORPSE_LOOT_CHANCE.sandworm` 1 + `loot_corpses.csv` 의 `sandworm` 블록(미확인 세포 · 광물 · DNA · 생체 조직 · 분비선 · 유물). 킬 크레딧 ·
-  `enemy:squadKill` · 계약(`kill_bugs` 는 csv 팩션에서 파생)은 기존 경로 그대로. 사망 연출(분진 · `sandworm_death` · 토스트)은 모든 클라이언트
-  (`parts/Damage.onEnemyKilled` → `SandwormDirector.onWormKilled`).
-- **늦은 합류 · 재접속 · 이관** — 호스트가 `flow rejoined` 에 `resync()`: 진행 중인 전조(남은 eta) · 살아 있는 지하벌레마다 `wormErupt {sy: 1}`
-  (최대 체력 · 남은 뱉기 시간, 연출 없음) · 이미 끝났으면 `wormErupt {id: 0, sy: 1}`(표식). 리플리카는 받은 값을 지하벌레에 적어 두므로(`maxHp` ·
-  `wormSpitUntil`, 적이 아직 없으면 생길 때 적용) **승격되면 그대로 이어 돌린다**. 진행 중인 전조도 새 호스트가 분출시킨다. 계획은 시드라 새 호스트가
-  같은 계획을 갖고, 방송을 받은 클라이언트는 `done` 이라 두 번 일어나지 않는다.
-- **디버그** — `EnemySystem.debugSandworm({at?, spitS?})` (콘솔 `worm [뱉기초]` = `cheat:sandworm`) · `debugSandwormState` · `debugSpawnBurrow(type, {x,z}, s?)`.
-- **알려진 빈틈** — ① HUD 위험 인디케이터(`ui/hud/DangerIndicators`)에는 아직 지하벌레 표시가 없다 — `sandworm:warning {position, radius, eta}` 가 그 입력이
-  될 자리다(ui 담당). ② `flow rejoined` 가 재접속자의 `world:ready` 보다 먼저 처리되면 그 동기화가 리셋에 지워진다 (적 스냅샷 키프레임과 같은 가정).
-  ③ 밑동에 붙은 플레이어를 때리는 근접 공격은 없다 (요구에 없음 — 독극물 · 뱉은 무리가 그 몫).
-
-### 탈출 디펜스 웨이브 제거
-`EnemySystem` 의 `extraction:activated → startExtractionWaves` 구독과 `extraction:liftoff` 의 `stopExtractionWaves` 를 걷어냈고, 호스트 승격(`promote`)이
-`waves.prime(wavesSeen)` 을 더 부르지 않는다 — 새 호스트도 웨이브를 이어 붙이지 않는다. `WaveDirector` 클래스 · `startExtractionWaves` /
-`stopExtractionWaves`(계약) · `enemy:waveStarted` 경로는 **지우지 않고 아무도 부르지 않는다** (`airstrike` · `secondary` 와 같은 처리). 이륙 순간 18 m 안
-벌레가 달아나는 것은 그대로다.
-
-## 적 ↔ 탐사 차량 (2026-09-13)
-
-레이드당 1대인 자동 장갑차(`ctx.world.rover: RoverRef`, **호스트 권위**, 규칙 원본은 `shared/types.ts` 의 탐사 차량 절)를 적이 알아채고 ·
-노리고 · 때리는 규칙, 그리고 **차량 안 탑승자는 표적이 아니라는** 규칙. 차량 자체(경로 · 포탑 · 체력 · 재해 피해)는 `world/rover` 가,
-탑승 모드(피해 면제 · 궤도 카메라)는 `player/` 가 갖는다. 사용자 결정: **적과 재해만** 차량에 피해를 준다 — 플레이어 무기 · 가젯 ·
-함선 호출이 지나는 공용 `explode()` · `applyAreaDamage` · `hit` 요청에는 차량 경로를 넣지 않았다. 와이어 무변경.
-
-- **탑승자 제외** (`Targets.ts`): `CombatTarget.riding` = 로컬 `PlayerRef.roverRide` · 원격 `PlayerFlags.IN_ROVER`. `isDeadOrDowned` 에
-  접히고 `alive` 에서 빠진다 — `targets.alive` 를 읽는 모든 선택 · 피해 루프(근접 · 산성 · 포탄 · 수류탄 · 소이 · 독성 · 지하벌레 분출 ·
-  로든 스캔/저격 · 스캔 드론 추적)가 한 줄도 안 바뀌고 탑승자를 건너뛰며, 탑승자를 들고 있던 적은 `acquireTarget` 에서 다시 고른다.
-  `all` 에는 남는다(스폰 · 재활용 거리). 분리(`Steering.separate`)는 탑승자를 밀지 않는다 — 차체가 막는다.
-- **표적 프록시** (`TargetList.vehicles`, 0 또는 1개 · `vehicleTarget()`): `RoverRef.targetable` 인 동안. `all` / `alive` 에는 넣지 않는다
-  (드론과 같은 이유). `id 'ai'`, `vehicle` 참조(사라져도 남기고 `present` / `isDead` 만 내린다), `position` = 차체 중심 바닥,
-  `vehicleYaw`(차체 규약) · `yaw`(플레이어 규약으로 옮긴 값) · `vehicleMoving`(`patrol` · `trip`) · 위치 차분 속도.
-  **`dist2D` = 차체 발자국(OBB) 가장자리까지의 거리**, `bodyRadius` 0, `bodyHeight` = 차체 높이, `getChest` = 높이의 절반 — 그래서
-  `distToTarget` · 근접 사거리 · 독성 트리거 · 타길라 사거리가 차체 옆면 기준으로 그대로 맞는다. OBB 질의: `vehicleGap2D` · `vehicleGap3D` ·
-  `vehicleContainsXZ` · `vehicleApproach` · `rayVehicle`(슬랩). `VEHICLE_RAY_MARGIN`(0.5 m) = 판정 상자와 차체 콜라이더의 여유.
-- **노리기** (`parts/Alerts.pickVehicleTarget` → `pickTarget`): ① **어그로** — 차량 포탑 · 들이받기(`attacker === ROVER_DAMAGE_SOURCE`)에 맞은 적과
-  `ROVER_AGGRO_GROUP_RADIUS` 안의 같은 팩션 전투원(`Enemy.noteVehicleAggro`, 무리 깨우기는 `alertNear`)이 `ROVER_AGGRO_S` 동안 배리어 캐리어
-  다음 · 다른 모든 규칙 앞에서 차량을 고르고, `acquireTarget` 은 히스테리시스 없이 바꾼다. ② 그 밖에는 플레이어보다 **확실히** 가까울 때
-  (`< DRONE_PREFER_MUL ×`, 플레이어가 없으면 무관) · 반대 팩션 적보다 가깝거나 같을 때: **달리는** 차량은 청각 반경(`stats.hearRadius`) 안 또는
-  `canPerceive`, **서 있는** 차량은 `ROVER_NOTICE_STOPPED_M` 안 + 사선. 스캔 드론 · 지하벌레 · 로든은 차량을 노리지 않는다.
-  인지 전 적은 달리는 차량이 청각 반경 안이면 사선 없이 깨어난다(`ai/Perception.updatePerception`, `hasLOS` 는 그대로 사선).
-- **사선** (`ai/Perception.hasLineOfSight` · `ai/FireLine.hasFireLine`): 차량 표적이면 레이를 차체 입구 − `VEHICLE_RAY_MARGIN` 에서 끊는다 —
-  안 그러면 차체 자신의 콜라이더가 늘 사선을 막아 차량이 영영 안 보이고 로그가 옆걸음만 한다.
-- **다가가기** (`ai/EnemyAI.integrate` → `steerToVehicleSide`): 이동 목표가 표적 차량의 차체 안이면(추격 · 돌격 · 근접 기동이 `t.position` 을
-  넣는다) 차체 가장자리의 가장 가까운 점(몸 반경 + 0.15 m)으로 바꾸고, 차체까지 공격 사거리 × 0.6 안이면 멈춘다 — 움직이는 콜라이더에
-  몸을 들이밀어 떨지 않게. 엄폐 · 후퇴 · 옆걸음 목표는 건드리지 않는다.
-- **때리기** (`parts/Damage.applyDamage` 의 드론 다음 가지): 표적이 차량이면 권한에서 `RoverRef.damage(amount, from)` 하나로 끝난다 — 플레이어
-  이벤트 · `dmg` · `ee attack` · 배리어 흡수 · 넉백 · 둔화 없음. 이리로 오는 경로: 근접(`hitTarget`) · 차저 돌진 · 헌터 도약 착지 · 독성 팽창
-  트리거(`nearestAliveWithin` 이 차체 가장자리 거리 + 수직 겹침으로 차량도 본다) · 베헤모스 돌진(한 돌진에 한 번, `chargeDrones` 의 `#rover`
-  표식) · 로그/헤비 사격(`parts/Attacks.fireGun` — 차체 슬랩 판정, 월드 탄착이 차체 입구의 여유 안이면 차량이 맞은 것 = **플레이어를 노린
-  총알이 가로막은 차량에 맞아도** 차량, 불꽃) · 산성(`fx/AcidProjectile` — 차체 상자 직격 · 스플래시 2.4 m, 조준은 `fireAcid` 의 드론 · 차량
-  가지 → `ee acidAt`). `fireGun` 의 반환값 · `enemy:shot.hit` 은 여전히 플레이어 명중만.
-- **적의 폭발** (`TargetList.damageVehicleAt(center, radius, damage, minFalloff)`, 권한만 — 드론의 `applyExplosion` 옆 한 줄씩): 로그 수류탄 · 소이
-  폭발(`onGrenadeExploded`) · 포탄(`onShellLanded`) · 스퓨어 사망 폭발(`acidBurst`) · 독성 자폭(`toxicBurst`) · 지하벌레 분출. 적 소이 화염
-  지대(`onFireZoneTick`)는 차체 발자국이 겹치면 초당 피해 × 틱.
-- **킬 크레딧**: 차량이 준 피해는 `Enemy.takeDamage` 가 `'ai'` 로 접는다 — `lastDamager` · `enemy:killed` · `ee kill.killer` ·
-  `enemy:squadKill` · 계약 카운터 어디에도 `'rover'` 가 PeerId 로 흘러가지 않는다. 리플리카에서 차량 피해가 들어오면 요청을 만들지 않고 버린다.
-- 리플리카: 헤비의 방위 추론(`remoteAimPoint`)이 차량 프록시도 후보로 본다 (`ctx.world.rover` 는 클라이언트에도 있다).
-- 새 수치: `ROVER_AGGRO_S` · `ROVER_AGGRO_GROUP_RADIUS` · `ROVER_NOTICE_STOPPED_M` (`data/constants.csv` 의 `[R4]`).
-
-## 벌레 난이도 — 행성 threat (2026-09-14)
-
-사용자 결정: 높은 threat 행성에서 **벌레 체력이 오르고(×1.0 / 1.2 / 1.4)** · 「네임드 버그」 는 없으므로 **대형 벌레 비중이 오른다.** 수치는 전부
-`data/tables.csv` 의 6표(`BUG_HP_MUL_BY_THREAT` · `BIG_BUG_WEIGHT_MUL_BY_THREAT` · `MID_BUG_WEIGHT_MUL_BY_THREAT` · `PATROL_BEHEMOTH_BY_THREAT` ·
-`ARTILLERY_CAP_BONUS_BY_THREAT` · `BEHEMOTH_CAP_BONUS_BY_THREAT`, 값과 근거는 `data/README.md`), 로더는 `factionTables.ts` 의 `bugThreatTuning(threat)` 하나다.
-**threat 1 칸 = 배수 1 · 보너스 0 · 순찰 베헤모스 없음**이라 행성 없음 · 훈련장 · 아켈론 II 는 굴림 수 · 확률 · 상한까지 예전과 같다.
-
-- **들어가는 곳 하나.** `EnemySystem` 의 `world:ready` 가 `planetThreatLevel` 옆에서 `bugTuning = bugThreatTuning(훈련장 ? 1 : threat)` 과
-  `spawnEco = threatEcosystem(eco, bugTuning)` 을 정하고 순찰(`spawner.eco` · `spawner.tuning`) · 웨이브(`waves.eco`) · 지하벌레(`sandworm.onWorldReady`)에 넘긴다.
-  `eco` 는 행성 원본 그대로 남는다(`debugEcology` 의 원본 필드 · 기존 단언).
-- **체력** (`parts/Pool.acquire`): `reset` 직후 팩션 `bug` 이고 지하벌레가 아니면 `hp = maxHp = round(stats.hp × hpMul)`. **권위 스폰도 리플리카(`ee spawn` ·
-  스냅샷이 처음 본 id)도 이 함수를 지나고** 모든 클라이언트가 같은 `world:ready` 로 배수를 정하므로 **와이어 무변경** — 리플리카의 `maxHp`(피격 흔들림 · 승격 때
-  `hp = min(maxHp, 받은 hp)`)가 호스트와 같다. 경직 문턱(`maxHp × staggerFraction`, `Damage` 의 10 %)도 늘어난 최대 체력 기준이다. 옛 버전 피어는 ×1 로
-  보지만(표시만 — hp 는 호스트 스냅샷) 릴레이는 버전을 섞지 않는다.
-- **실효 생태계** (`Spawner.threatEcosystem`): `BIG_BUG_TYPES`(charger · behemoth · artillery) 가중치 × `bigMul`, `MID_BUG_TYPES`(warrior · spewer) × `midMul`,
-  `maxArtillery` / `maxBehemoth` + 보너스. 가중치를 읽는 경로(`weightedPick` · `pickEcoType` · `maxArtilleryOf` · `maxBehemothOf` · 웨이브 베헤모스 상한)는 그대로 이것을 본다.
-  가중치가 없는 종류는 여전히 안 나온다.
-- **가중치로 안 되는 둘** — 대형 슬롯은 차저 · 베헤모스가 **같은** 배수를 받아 슬롯 안 비율이 그대로라: ① 순찰 대형 슬롯 확률 `(threat − 0.5) × 0.4 × heavyMul`
-  (`ambientGroup` 의 세 번째 인자 `AmbientOpts`, `ambientOptsOf(tuning)`) ② 포병 굴착 확률 `artilleryDigInChance(threat, bigMul)` (1 에서 자른다). 둘 다 난수 소비 횟수는 그대로다.
-- **순찰 베헤모스** (`PATROL_BEHEMOTH_BY_THREAT`): 탈출 웨이브가 없어진 뒤(2026-09-13) 베헤모스는 나올 길이 없었다. 켜진 칸에서는 대형 슬롯의 베헤모스 게이트가 차저와 같은
-  `threat > 0.5` 로 열리고, 스폰 직전 `capPatrolBehemoths` 가 상한을 넘는 것을 차저(없으면 전사)로 바꾼다. 꺼진 칸(threat 1–2)의 게이트는 예전처럼 닫혀 있다.
-- **분포** (`smoke-ecology`, 피로스 VII 원본 생태계 × threat 1/2/3, ramp 0.7 순찰 6000 개): 차저 + 베헤모스 몫이 오르고 베헤모스는 threat 3 에서만, 카민 I 중형 슬롯의 전사 + 스퓨어 몫이 오른다.
-- 디버그 훅: `debugBugTuning(planetThreat?, rampThreat = 0.7)` · `debugAmbientGroup(threat, planetThreat?)`(행성 원본에 그 threat 를 얹어 굴린다) · `debugEcology` 의
-  `planetThreat` · `bugHpMul` · `effBugs` · `effMaxArtillery` · `effMaxBehemoth`.
-
----
-
-## 튜토리얼 전용 적 (2026-09-14)
-
-`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」 의 `D` 절. 튜토리얼 레이드(`ctx.missionMode === 'tutorial'`)는 **고정 자리 · 고정 종류**의 적만 세운다 —
-**굴림 없음 · 웨이브 없음 · 순찰 없음 · 스포너 없음 · 지하벌레 없음 · 네임드 없음 · 레이더 강하 없음 · 총알 추적 없음.**
-훈련장(`training`)이 전부 끄는 것과 **같은 요령이고 같은 자리**이며, 다른 점은 **적이 있다**는 것 하나뿐이다.
-
-- **월드가 자리를, 여기가 몸을 갖는다.** `EnemySystem` 의 `world:ready` 가 훈련장 갈래 바로 옆에서 `tutorial` 을 정하고
-  (`ctx.missionMode === 'tutorial' || ctx.world.mode === 'tutorial'`), 권한 클라이언트면 `ctx.world.tutorial?.enemySpawns()` 를 **한 번** 읽어
-  `Tutorial.placeTutorialEnemies` 에 넘긴 뒤 `return` 한다 — 거점 그룹 · 네임드 굴림에 닿지 않는다. `ctx.world.tutorial` 이 아직 null 인
-  스텁이면 목록이 비고 **적 0 마리로 조용히 끝난다**. 목록은 다시 읽지 않으므로 **처치된 적은 체크포인트 부활로 되살아나지 않는다.**
-- **행성이 없다** → `planetId`/`eco` 가 null 이고 `bugTuning = bugThreatTuning(1)` — **벌레 난이도 threat 배수는 붙지 않는다**(훈련장과 같은 처리, ×1).
-- **마리마다의 값 둘** (`Enemy.senseRadius` · `Enemy.homeLeash`, 기본값은 csv `TUTORIAL_ENEMY_SENSE_M` 12 · `TUTORIAL_ENEMY_LEASH_M` 22).
-  **둘 다 0 이 기본값**이고 `placeTutorialEnemies` 만이 채우며 `Enemy.reset` 이 풀에서 빌려 올 때마다 0 으로 되돌린다 —
-  그래서 본편 레이드 · 훈련장의 적은 **이 배치로 한 글자도 바뀌지 않는다**(모든 새 가지가 `senseRadius > 0` · `homeLeash > 0` · `sys.tutorial` 뒤에 있다).
-
-### `sense` — 이 반경 밖의 플레이어는 아예 알아채지 못한다
-
-12 m 는 매우 좁다: **플레이어가 먼저 다가가야 싸움이 난다.** 걸리는 자리는 여섯 곳이고 전부 「반경을 정하는 한 줄」이다.
-
-| 경로 | 어디 | 무엇 |
+| `EnemySystem.ts` | `GameSystem` + `EnemyManagerRef`: mode (authority/replica), bus + net subscriptions, update loop (grid, statuses, AI, despawn), `raycast` / `raycastEx`, host services (`EnemyHost`, `SpawnHost`, `RogueSpawnHost` …), debug hooks; delegates to `parts/` |
+| `model.ts` | Folder vocabulary: constants, request-guard limits (`MAX_REQUEST_*`, `STATUS_SOURCE_REACH`, `EXPLODE_SOURCE_REACH`), sound tables (`stepSound`, `meleeHitSound`, `hurtSound`, `STEP_VOICES`, `emitEnemyStep`), scratch |
+| `Enemy.ts` | Entity (`EnemyRef`): gameplay state, timers, target, kill credit, rig selection (`baseTypeOf`), `takeDamage`, `kill`, `startEmerge`, `animate`, `muzzle`; `EnemyHost` interface |
+| `EnemyTypes.ts` | csv loaders: `ENEMY_STATS`, ability blocks (`HUNTER_LEAP`, `SPEWER_SPIT`, `CHARGER_CHARGE`, `ROGUE_AI`, `ARTILLERY_AI`, `TOXIC_AI`, `BEHEMOTH_AI`, `NAMED_*`, `HUMANOID_*`, `ENEMY_INCENDIARY`), `isRogueType`, `isWormType`, `baseTypeOf` |
+| `factionTables.ts` | csv loaders for `SITE_*`, `RAIDER_DROP_*`, `NAMED_ROGUE_CHANCE_BY_THREAT`, bug-threat tables → `bugThreatTuning(threat)` |
+| `Targets.ts` | `CombatTarget` (player / enemy / drone / vehicle proxy) and `TargetList` (`all`, `alive`, `drones`, `vehicles`, nearest queries, `damageVehicleAt`) |
+| `Spawner.ts` | `AmbientSpawner` (initial population, patrols, artillery dig-in), group composition from planet ecosystem, spawn clearance (`spawnBlocked`), `threatEcosystem`, `ambientCap` |
+| `SiteGroups.ts` | `placeSiteGroups`: humanoid groups at labs / outposts / rail platforms / ruins by planet threat |
+| `RogueDrop.ts` | `RogueDropDirector`: raider drops after structure investigation (two waves, pods, landing spawns) |
+| `RogueGuards.ts` | `RogueSpawnHost` contract only; `placeRogueGuards` / `guardCap` / `MAX_GUARDS` are retired no-op names |
+| `WaveDirector.ts` | Extraction wave director — kept but never started (extraction defense removed) |
+| `Tutorial.ts` | Tutorial enemies: `placeTutorialEnemies`, `tutorialHold`, burrow ambush + chain spawn (`updateTutorialScript`), aggro release (`onTutorialCheckpoint`, `onTutorialFell`), liftoff fire window (`onTutorialLiftoff`) |
+| `Corpses.ts` | `Corpse` interactable (`corpse:<id>`, `시체 수색`), `CorpseManager` (lifetime, looted), `rollCorpseLootable` |
+| `RayTests.ts` | Allocation-free ray/nearest tests: sphere, standing capsule, segment capsule |
+| `SpatialGrid.ts` | Per-frame XZ hash grid for separation |
+| `parts/Damage.ts` | Every damage path into and out of enemies: `applyDamage` (player / remote / ghost / drone / vehicle / enemy target), `explode`, `applyAreaDamage`, `pushBack`, barrier checks, `onHitRequest` / `onExplodeRequest` guards, `enemyDamageSource`, `onEnemyKilled`, `registerCorpse` |
+| `parts/Attacks.ts` | Host-decided enemy attacks: acid, humanoid gun (`fireGun`), shells (`fireShell`, `shellArcBlocked`), grenades + incendiary fire zones (`onFireZoneTick`), toxic / spewer bursts |
+| `parts/Alerts.ts` | Awareness: gunshot hearing, lures, `alertNear`, `pickTarget` (+ drone / vehicle), shot tracking (`reportShot`, `alertShot`, `onShotReport`), `onWorldNoise`, faction clash, `fleeFrom` |
+| `parts/Status.ts` | Burning / slowed / incinerated / shocked, replica status requests + bits, hazard DoT (`updateHazardDot`), x-ray (`setXray`) |
+| `parts/Pool.ts` | Pools per type: `acquire` / `release`, `spawn`, `spawnRogue` (weapon, grenade loadout, squad), `ensureCapacity`, `reset`, `disposePools` |
+| `parts/RemoteFx.ts` | Replica-side visuals/sounds for `ee` events; changes no game state |
+| `parts/Burrow.ts` | Burrow emerge / spat-landing FX and the non-overlapping shake |
+| `ai/EnemyAI.ts` | Bug state machine, `integrate` (steering, collision, barrier, extraction keep-out, riding, slope), `footfall`, `integrateDeathFall` |
+| `ai/Perception.ts` | `acquireTarget`, `detectionRange` (stealth × smoke), `canPerceive`, `shotConeFactor`, sense/hear radii, `becomeAlert` |
+| `ai/RogueAI.ts` | Humanoid state machine: cover cycle (rogue / raider), `androidCycle`, reload, grenades, rush, leash |
+| `ai/RogueCover.ts` | Cover + pop-out spot selection (ray-validated, flank-scored) |
+| `ai/HumanoidProfile.ts` | Faction profiles: aim-error curve, bursts, grenade loadout |
+| `ai/SquadFlank.ts` | Raider flanker role |
+| `ai/FireLine.ts` | Muzzle line-of-fire check with cache and strafe response |
+| `ai/GimmickAI.ts` | Artillery (dig in, relocate on blocked arc), toxic swell, behemoth wind-up/charge |
+| `ai/Investigate.ts` | Investigation state after an unattributed shot or noise |
+| `ai/Structures.ts` | Biting / spitting at player deployables in the way |
+| `ai/Lures.ts` | `LureField` noise beacons |
+| `ai/Ride.ts` | Enemy / corpse tram riding via `shared/ride.ts`; replica prediction |
+| `ai/Burrow.ts` | Emerge / spat-flight gate (no attack or move) |
+| `ai/Steering.ts` · `ai/Common.ts` | Seek / separate / avoid; `lookAtTarget`, `startMelee`, `stumble`, `holdingFire` |
+| `ai/named/` | Named AI: `Sniper.ts` (Roden), `ScanDrone.ts`, `Hammer.ts` (Tagilla), `Heavy.ts`; `model.ts` data types, `remote.ts` replica hooks, `index.ts` dispatch |
+| `named/Director.ts` · `named/SniperShot.ts` | Named roll + placement; sniper shot / glint FX |
+| `sandworm/Director.ts` · `sandworm/Pose.ts` | Sandworm event (roll, warn, erupt, spit, acid, resync); hint → pose |
+| `net/HostSync.ts` | `animHint`, `statusBits`, `SnapshotCache`, `encodeSnapshot` (delta `es`) |
+| `net/Replica.ts` | `ReplicaBuffer`, `EnemyReplica` (snapshots, events, interpolation, adopt on demotion) |
+| `models/BugModel.ts` · `BugParams.ts` | Six-legged rig + animation; per-type params |
+| `models/RogueModel.ts` · `HumanoidParts.ts` · `FactionLooks.ts` | Humanoid rig + animation; part helpers; android / raider looks |
+| `models/WormModel.ts` | Sandworm rig |
+| `models/named/` | Named looks + `namedBodyRay` (prone sniper capsule) |
+| `models/Portrait.ts` | `renderEnemyPortrait` (offscreen renderer, cached data URL), `enemyDisplayNameOf` (Korean names) |
+| `fx/` | `BloodFX`, `AcidProjectile`, `ShellProjectile` (uses `shared/ballistics`), `RogueGrenade` (grenades + fire zones), `BurrowFx`, `ScanPulseFx`, `Xray` |
+| `index.ts` | Barrel |
+
+## Enemy types
+Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Factions `bug` · `rogue` · `android` · `raider`; every different pair is hostile.
+
+| Type | Faction | Role |
 |---|---|---|
-| 시야 | `ai/Perception.detectionRange` | 기본 반경이 `senseRadiusOf(e)`. 튜토리얼 적은 `CLOAK_REVEAL_DISTANCE` 바닥도 받지 않는다 (그 바닥이 12 m 보다 넓으면 규칙이 깨진다) |
-| 소리 | `parts/Alerts.hearingReach` | 총성 · 수류탄 · 드론 소음 — 평소 식을 그대로 구한 뒤 `hearRadiusOf(e)` 로 **한 번 더 자른다** |
-| 유인 | `ai/Perception.updatePerception` · `parts/Alerts.addDistraction` | 감지 반경 밖에서 난 유인은 `hasLure` 자체가 서지 않는다 (총성 유인이 자기 자리를 뜨게 하지 못한다) |
-| 무리 전파 | `parts/Alerts.alertNear` | 비명이 닿아도 자기 감지 반경 밖이면 안 깨어난다 (옆 구간이 이 구간을 깨우지 않는다) |
-| 다른 팩션 | `parts/Alerts.pickTarget` | 적대 팩션을 찾는 반경도 `min(평소, sense)` — 벌레와 안드로이드가 구간 너머로 서로를 물지 않는다 |
-| 차량 · 드론 | `pickVehicleTarget` · `pickDroneTarget` | 같은 두 헬퍼를 쓴다 (튜토리얼에는 둘 다 없지만 반경 계산을 한 곳으로 모은다) |
-
-총알 추적(`reportShot` · `onShotReport`)과 소음 조사(`onWorldNoise`)는 **훈련장처럼 통째로 no-op** 이다 — 「고정 자리 · 순찰 없음」과 정면으로 부딪힌다.
-총에 맞으면 `Enemy.takeDamage` 가 여전히 깨운다(그 뒤는 아래 리시가 받는다).
-
-### `leash` — 자기 자리를 지키고 구간 밖까지 쫓아오지 않는다
-
-`Tutorial.tutorialHold(e, dt)` 하나가 정하고 `ai/EnemyAI.updateEnemyAI` 가 **인지 갱신 뒤 · 팩션 분기 앞**에서 매 프레임 부른다
-(`homeLeash === 0` 이면 첫 줄에서 그대로 돌아가므로 본편에는 이 가지가 없는 것과 같다):
-
-1. **리시 밖** — 무슨 일이 있어도 추격을 접고 `wander` 로 `guardPos` 를 향한다. 벗어나 있는 동안 매 프레임 `aware` 를 끄므로 **다시 달려들 수 없다.**
-2. **리시 안에서 교전 중** — 평소 AI 그대로 (튜토리얼이 가르치려는 전투가 여기서 벌어진다).
-3. **싸움이 끝났는데 자리를 벗어나 있다** — 걸어서 돌아간다.
-4. **자리에 섰다** — `idle` 이 깎는 만큼 `wanderTimer` 를 도로 채워 **순찰하지 않는다.** 그래야 위험 구역이 목록에 적힌 자리 둘레 `sense` 로
-   **정확히** 고정되고, 월드가 「체크포인트는 그 구간 적의 감지 범위 밖」을 지킬 수 있다.
-
-돌아가는 **걸음 · 애니메이션 · 충돌은 평소 상태 기계**(벌레 `ai/EnemyAI` · 인간형 `ai/RogueAI`)가 그대로 맡는다 — `tutorialHold` 는 상태만 되돌린다.
-공중(도약) · 돌진 중 · 경직 중에는 건드리지 않는다 (이미 날아간 것은 착지해야 끝난다). 인간형은 `ai/RogueAI` 의 **부드러운** 리시(`Enemy.leash`, 보이면
-조금 더 따라간다)도 같은 값으로 채워 두지만, 겹치면 **단단한 쪽이 이긴다.**
-
-### 그대로 둔 것
-
-안드로이드의 **외피 · 피 대신 불꽃 · 금속 피격음**은 본편 그대로다.
-(**전리품만 2026-09-14 3차에 갈렸다** — 아래 `## 튜토리얼 전용 적 타입 4종` 참조.)
-`senseRadius` · `homeLeash` 는 **와이어에 없다**: 튜토리얼 레이드는 솔로 강제(매치메이킹 · 로비 진입 자체가 없다)라 리플리카가 생기지 않는다.
-
-디버그 훅: `EnemySystem.isTutorialWorld` · `debugTutorial()` (세운 마리 · 건너뛴 줄 · 땅속에서 기다리는 벌레 수 · 마리별 `sense` / `leash` / 생사 / 자리).
-
----
-
-## 튜토리얼 전용 적 타입 4종 · 구덩이 스폰 · 사격 보류 (2026-09-14 3차)
-
-`docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」 의 `D` 절. 위 `## 튜토리얼 전용 적`(자리 · `sense` · `leash`)은 **한 줄도 안 바뀌었고**, 그 위에 셋이 얹혔다.
-
-### 1. 전용 타입 4종 — 새로 갖는 것은 **고정 드롭 하나**뿐이다
-
-| id | 바탕 종류 | 수치 (`data/enemies.csv` 자기 줄) | 드롭 |
-|---|---|---|---|
-| `tut_bug_loot` | `scavenger` | scavenger 와 같다 | **100 %** 생체 조직 1 · 터미니드 분비선 1 |
-| `tut_bug` | `scavenger` | scavenger 와 같다 | **0 %** (빈 시체 — 수색되지 않는다) |
-| `tut_android_loot` | `android` | android 의 **체력 절반** (280 → 140) | **100 %** 돌격소총 I 1 · 전력 케이블 1 · 준중량탄 한 스택 |
-| `tut_android` | `android` | android 의 **체력 절반** | **0 %** (빈 시체) |
-
-이 id 는 **계약**이다 — `world/tutorial/model.ts` 의 `ENEMIES` 가 그대로 쓴다.
-
-- **리그 · 겉모습 · AI 가지 · 소리는 바탕 종류의 것**이다. 타입별 표(`BUG_PARAMS` · `ROGUE_RIG_PARAMS` · `STEP_VOICES` · `MELEE_VOICES` ·
-  `HUMANOID_DEATH` · `HUMANOID_PAIN`)에 줄을 **더하지 않고**, 그 표를 읽는 자리에서 `EnemyTypes.baseTypeOf(type)` 을 한 번 지난다
-  (`Enemy` 생성자의 리그 선택 · `model.ts` 의 소리/파편 여섯 함수 · `ai/EnemyAI` 의 `alert` 길이와 추격 `switch` · `ai/Perception` 의 비명 ·
-  `parts/Damage` 의 사망 비명 피치). 표에 줄을 더했다면 튜토리얼 벌레가 **자기 지오메트리를 새로 구웠을** 것이고(셰이더 예산),
-  새 종류를 넣을 때마다 표 예닐곱 개를 함께 고쳐야 했다. `baseTypeOf` 는 튜토리얼 종류가 아니면 **첫 줄에서 자기 자신을 그대로** 돌려준다.
-- **수치는 자기 csv 줄**이다 — 바탕 종류는 "무엇처럼 생겼고 무엇처럼 움직이나" 만 답한다 (안드로이드 체력 절반이 그 줄에 있다).
-- `isRogueType` 에 `tut_android*` 가 들어가 인간형 리그를 타고, `BugType` 은 네 종류를 **빼서** `BUG_PARAMS` 가 예전 그대로 빠짐없다.
-- **벌레 난이도 배수는 곱해지지 않는다** — 튜토리얼은 행성이 없어 `scripted` 가지가 `bugThreatTuning(1)` 을 쓴다 (×1, 훈련장과 같은 처리).
-  `Pool.acquire` 의 배수 줄은 `hpMul !== 1` 에서 먼저 걸린다.
-- 드롭 표가 사는 곳:
-  - `data/loot_corpses.csv` — 아이템 줄 (`tut_bug_loot` 둘 · `tut_android_loot` 의 전력 케이블 · 빈 시체 둘의 **확률 0 안전핀**.
-    표가 없으면 `Loot.rollCorpseWithMax` 가 "모르는 적 = 생체 조직 1" 로 떨어진다 — `rogue_scan_drone` 과 같은 요령).
-  - `data/loot_corpse_rolls.csv` — `tut_android_loot` 한 줄. `ammoFrac 1` = 준중량탄 **한 스택 가득**, `weaponDur 1` = 내구도 최대
-    (첫 총이라 낡은 것을 주지 않는다). 총 **계열**은 스폰이 쥐여 준 것 그대로이고 그것이 `HUMANOID_WEAPONS,android` 의 첫 항목 = `ar` 다.
-    등급 분포 줄(`loot_factions.csv`)이 없어 등급 I 그대로 나온다. 서적 · 임플란트 · 유니크 칸은 비었다.
-  - `shared/types.ts` 의 `CORPSE_LOOT_CHANCE` — `_loot` 둘 1, 나머지 둘 **0**(상호작용이 서지 않는다 — 빈 격자를 여는 것보다 조용하다).
-- **굴림이 결정적이라 미리보기와 여는 것이 저절로 같다** (「열지 않고 미리 보는 것은 여는 것과 같은 함수여야 한다」). 확률이 1 아니면 0 뿐이라
-  `Loot.rollCorpseOn` 이 소비하는 draw 가 늘 같고, 드론 스캔 미리보기(`gadgets/drones/parts/Scan`)와 리플리카가 같은 `shared/lootRolls` 시드로
-  **같은 목록**을 받는다 (튜토리얼에는 드론도 리플리카도 없지만 경로는 확인했다).
-
-### 2. 벌레는 구덩이에서 솟는다 — 새 개념 없이 굴착 스폰 재사용
-
-`world:ready` 에 세우는 것은 **인간형뿐**이다(엄폐 · 앉아쏴가 그림의 절반이라 숨길 이유가 없다). 벌레 줄은 `TutorialPlacement.ambush` 에
-담아 두었다가, `EnemySystem.update` 의 권한 · 게임플레이 가지가 부르는 `Tutorial.updateTutorialAmbush` 가 하나씩 꺼낸다:
-
-- 방아쇠는 **그 마리의 자기 감지 반경**(`TutorialEnemySpawn.sense`, 기본 `TUTORIAL_ENEMY_SENSE_M` 12 m)이고 기준점은 **그 마리의 자기 자리**다 —
-  **좌표가 코드에 없으므로** 월드가 벌레를 옮겨도 · 구간을 늘려도 이 파일은 안 바뀐다. 체크포인트가 그 반경 밖이라는 월드의 규약이 곧
-  "부활 자리에서는 아직 솟지 않았다" 는 뜻이기도 하다.
-- 꺼내는 방법은 2026-09-13 의 **버그 굴착 스폰 그대로**다: `spawn(type, at, yaw, chase=true, relentless=false, BURROW_EMERGE_S)` →
-  `Enemy.startEmerge` + `parts/Burrow.emergeFx`(먼지 · 흔들림 · `burrow_emerge`) + `ee spawn.em`. 솟는 1 초 동안 **맞기는 하지만 공격 · 이동이 없다**는
-  `ai/Burrow` 의 규칙이 그대로라 "튀어나오고 → 달려든다" 가 저절로 된다. 솟자마자 `chase` 라 `tutorialHold` 의 `aware` 가지가 그 뒤를 받는다.
-- 세로 거리는 보지 않는다 (튜토리얼 통로는 한 층이고, 데크가 갈리는 곳은 구간 자체가 멀다).
-
-### 3. `ExtractionRef.holdFire()` — 바라보되 쏘지 않는다
-
-튜토리얼 탈출선이 뜨는 동안 미처 처치하지 못한 안드로이드가 화물칸의 플레이어를 쏘는 것을 막는다. 구현은 E 레인(extraction)에 있고
-여기는 **부르는 쪽**이다 (`?.()` — 없으면 늘 false). 막는 것은 **공격뿐**이고 조준 · 바라보기 · 이동은 그대로다:
-
-| 자리 | 무엇 |
-|---|---|
-| `ai/Common.holdingFire(host)` | 유일한 질의 (`host.ctx.extraction?.holdFire?.() === true`) |
-| `ai/FireLine.hasFireLine` | 첫 줄에서 **막힌 것과 똑같이** false. 호출부는 평소의 "막혔다" 경로(`fireLineStrafe` — 겨눈 채 옆으로 비켜섬)를 그대로 탄다. 캐시(`fireLineAt` · `fireLineClear`)는 건드리지 않으므로 풀리면 다음 갱신에 원래 답으로 돌아온다 |
-| `parts/Attacks.fireGun` | 사선 게이트를 지나지 않는 사격(네임드 저격 · 미니건 스프레이)까지 한 번 더. 총구 FX · 소리 · 탄약 소모 **전**이다 |
-| `ai/Common.startMelee(e, host?)` | 근접도 보류 — 휘두르는 시늉조차 하지 않고 쫓기만 한다. `host` 는 **선택 인자**라 넘기지 않는 호출부(네임드 타길라의 자기 망치)는 예전 그대로다 |
-
-튜토리얼이 아니면 `holdFire` 자체가 늘 false 라 비용은 호출 하나다.
-
----
-
-## 변경 이력
-
-- **2026-09-15 (폭발 감쇠 2단 계단 — 사용자 결정)** — 폭발 피해의 거리 감쇠가 `shared/explosion.explosionFalloff` 하나가 됐다(안쪽 절반 100 % ·
-  바깥 띠 `EXPLOSION_OUTER_MUL` 고정 · 반경 밖 0). 바뀐 자리 셋: `parts/Damage.explode`(적이 받는 모든 폭발 — 거리는 예전 그대로 **몸 표면까지**
-  `d - e.stats.radius`, 하한 0.15 는 그 위에 얹는다) · `parts/Attacks.onGrenadeExploded`(적 수류탄이 플레이어에게, 하한 0.1) ·
-  `Targets.damageVehicleAt`(탐사 차량, 하한 `minFalloff`). 호스트 · 리플리카가 같은 함수를 지나므로 어긋나지 않는다.
-  **안 바꾼 것**(스스로 다른 곡선을 적어 둔 감쇠): 곡사포탄 `SHELL_DAMAGE × …0.75`(하한 0.25) · 독성 자폭 `×0.8`(하한 0.2) ·
-  스퓨어 사망 분출 `×0.6` · 지하벌레 분출(「가장자리에서 30 % 까지」). 넉백 · 카메라 흔들림 · 소리 곡선도 그대로다.
-
-- **2026-09-15 (튜토리얼 벌레 연쇄 스폰 · 구간 어그로 해제 · 이륙 사격 창, 사용자 결정)** — `Tutorial.ts` · `Enemy.ts`(`tutorialReleased` 한 필드 + reset) ·
-  `EnemySystem.ts`(구독 둘 · 이륙 갈래 · 틱 한 줄) · `index.ts`. **좌표를 코드에 적지 않았다** — 전부 월드 목록 · 체크포인트 순서 · 높이에서 고른다.
-  ① **연쇄 스폰**: 매복의 방아쇠(접근)는 **첫 벌레뿐**이다. 첫 벌레가 솟는 순간 `TutorialPlacement.chainTimer` = `TUTORIAL_BUG_CHAIN_SPAWN_S`(csv 1 s)가
-  서고, 남은 매복은 **시계만** 따라 하나씩 솟는다(다음 = 방금 솟은 자리에서 가장 가까운 매복). 연쇄 중에는 접근을 보지 않는다 — 봤다면 두 번째 벌레 곁으로
-  뛰어든 사람에게 1초보다 일찍 솟는다. `updateTutorialAmbush(host, placement, dt)`(dt 생략 = 0 — 옛 호출부 호환), 틱 입구는 새 `updateTutorialScript`.
-  ② **구간 어그로 해제** (`onTutorialCheckpoint` ← `tutorial:checkpoint`, `onTutorialFell` ← `player:fell`, 권한만): 체크포인트 순서가 `crawl` 이상이면
-  **벌레 전부**가 추격을 접고 남은 매복 · 연쇄 시계를 버린다. `supply` 이상 · 또는 `drop` 이후의 비즉사 낙하(`rule !== 'kill'`)면 **플레이어 발보다
-  `TUTORIAL_AGGRO_DROP_M`(3 m) 넘게 위에 자리를 둔 인간형**(= 절벽 위에 남은 첫 안드로이드 둘)이 접는다 — 같은 데크의 무너진 벽 뒤 · 함선 곁 적은 남는다.
-  해제된 적은 `tutorialReleased` 가 서고 감지 반경이 `RELEASED_SENSE_M`(0.01 — 0 은 「평소 표」라 못 쓴다), `tutorialHold` 가 매 프레임 알아챘거나
-  (맞아서 깨어난 경우) 싸우는 중이면 `leashHome` 으로 돌려보낸다. 체크포인트는 앞으로만 가므로 해제는 영구다(되돌아가도 다시 싸우지 않는다).
-  ③ **이륙 사격 창** (`onTutorialLiftoff` ← `extraction:liftoff`, 사용자 결정 「실제 피해 · 죽지 않음」): 튜토리얼에서는 **18 m 도주(`fleeFrom`)를 걸지 않는다**
-  (함선 곁 안드로이드가 총을 내리고 등을 돌렸다). 대신 `TUTORIAL_LIFTOFF_FIRE_S`(3 s) 동안 `TUTORIAL_LIFTOFF_FIRE_RANGE_M`(40 m) 안의 해제되지 않은
-  인간형이 탑승자(로컬 표적)를 잡고 감지 반경을 그 거리까지 넓힌다 — 12 m 반경으로는 오르는 함선을 곧 놓친다. 사격은 평소 AI 가 한다. 창이 끝나거나
-  탑승자가 없어지면(건너뛰기 · 리셋) 넓힌 반경을 되돌린다. `ExtractionRef.holdFire` 는 이제 늘 false 라 아래 절 3 의 보류 자리들은 튜토리얼에서도 열려 있다
-  (질의 · 호출은 계약이라 그대로다).
-
-- **2026-09-14 3차 (튜토리얼 전용 적 타입 · 구덩이 스폰 · 사격 보류, 에이전트 D)** — 위 `## 튜토리얼 전용 적 타입 4종 · 구덩이 스폰 · 사격 보류`.
-  `data/enemies.csv`(tut_* 4줄 추가), `data/loot_corpses.csv`(tut_* 5줄), `data/loot_corpse_rolls.csv`(`tut_android_loot` 1줄),
-  `EnemyTypes`(`ENEMY_TYPE_VALUES` · `ALL_ENEMY_TYPES` · `BugType` · `isRogueType` + 새 `TutorialEnemyType` · `TUTORIAL_ENEMY_BASE` ·
-  `isTutorialEnemyType` · `baseTypeOf`), `Enemy`(리그 선택이 `baseTypeOf` 를 지난다), `model.ts`(소리 · 파편 6함수),
-  `ai/EnemyAI`(`alert` 길이 · 추격 `switch` · `startMelee` 에 host), `ai/Perception`(비명), `parts/Damage`(사망 비명 피치),
-  `ai/Common`(새 `holdingFire` · `startMelee(e, host?)`), `ai/FireLine` · `parts/Attacks.fireGun`(사격 보류),
-  `Tutorial.ts`(`TutorialPlacement.ambush` · 새 `updateTutorialAmbush`), `EnemySystem`(ambush 틱 · `debugTutorial().ambush`), `index.ts`.
-  `src/shared/types.ts` 는 **추가만** 했다 — `EnemyType` 유니온 4개와 `CORPSE_LOOT_CHANCE` 네 줄(계약상 빠짐없는 표라 필수).
-  **본편 · 훈련장 무변경** — 새 타입은 `world/tutorial` 의 목록만이 쓰고, `baseTypeOf` 는 그 밖의 종류에 항등이며, `holdFire` 는 튜토리얼 밖에서 늘 false 다.
-
-- **2026-09-14 (튜토리얼 전용 적, 에이전트 D)** — 위 `## 튜토리얼 전용 적`. 새 파일 `Tutorial.ts`(`placeTutorialEnemies` · `tutorialHold`),
-  `Enemy`(`senseRadius` · `homeLeash` 두 필드 + `reset` 초기화), `ai/Perception`(`senseRadiusOf` · `hearRadiusOf` · `detectionRange` 기본 반경 · 유인 반경),
-  `parts/Alerts`(`hearingReach` · `alertNear` · `addDistraction` · `pickTarget` · `pickDroneTarget` · `pickVehicleTarget` 의 반경, `reportShot` · `onShotReport` ·
-  `onWorldNoise` 의 튜토리얼 no-op), `ai/EnemyAI`(`tutorialHold` 한 줄), `EnemySystem`(`tutorial` · `tutorialPlacement` · `world:ready` 갈래 · 스포너 · 웨이브 ·
-  강하 · 지하벌레 게이트 · `isTutorialWorld` · `debugTutorial`), `parts/Pool.reset`. **본편 · 훈련장 무변경** — 모든 새 가지가 `senseRadius > 0` ·
-  `homeLeash > 0` · `sys.tutorial` 뒤에 있고 셋 다 그 월드에서는 0 / false 다.
-
-- **2026-09-14 (정보상 「현상 수배」 — 네임드 지정, 에이전트 D)** — `named/Director.roll` 이 `ctx.missionIntel?.namedId` 를 보고
-  **등장 굴림 · 종류 굴림을 건너뛰어** 그 네임드로 확정한다 (`isNamedRogueType` 로 거른다 — 모르는 id 는 평소대로 굴린다).
-  **굴림은 둘 다 그대로 소비한다**: 이 rng 는 월드 스트림과 아예 별개(`Random.hash('named@' + seed)`)지만, 소비해야
-  뒤따르는 **자리 굴림**이 산 사람이나 안 산 사람이나 같은 자리에서 시작한다. 고를 수 있는 id 는 `NAMED_ROGUE_TYPES` 셋 —
-  `rogue_sniper`(로든) · `rogue_hammer`(타길라) · `rogue_heavy`(헤비). 다른 것은 한 줄도 안 바뀌지 않았다.
-
-- **2026-09-14 (벌레 난이도 — 행성 threat)** — 위 `## 벌레 난이도`. `factionTables.ts`(6표 · `BugThreatTuning` · `bugThreatTuning`) · `parts/Pool.acquire`(bug 최대 체력 배수 —
-  권위 · 리플리카 공용) · `Spawner.ts`(`threatEcosystem` · `BIG_BUG_TYPES` / `MID_BUG_TYPES` · `AmbientOpts` / `ambientOptsOf` · `ambientGroup(…, opts)` 대형 슬롯 확률 ·
-  베헤모스 게이트 · `artilleryDigInChance` · `capPatrolBehemoths` · `AmbientSpawner.tuning`) · `EnemySystem`(`bugTuning` · `spawnEco` · 지하벌레에 실효 생태계 · 디버그 훅).
-  계약 · 와이어 무변경. `smoke-ecology` 확장.
-
-- **2026-09-13 (적 ↔ 탐사 차량)** — 위 `## 적 ↔ 탐사 차량`. 탑승자(`CombatTarget.riding`)는 `alive` 에서 빠지고 `isDeadOrDowned` 에 접힌다 ·
-  차량 프록시 `TargetList.vehicles`(OBB 가장자리 거리 `dist2D` · 슬랩 `rayVehicle` · `damageVehicleAt`) · `pickVehicleTarget`(어그로 · 달리면 청각 /
-  서 있으면 근거리 사선) · `Enemy.vehicleAggroUntil` / `noteVehicleAggro`(`attacker === ROVER_DAMAGE_SOURCE` → `'ai'` 로 접는다) · 사선 · 총구 사선이
-  차체 입구에서 끊긴다 · `steerToVehicleSide` · `applyDamage` 차량 가지 · `fireGun` 차체 판정 · 산성 직격/스플래시 · 베헤모스 돌진 · 적 폭발 여섯 곳 ·
-  소이 지대 · `SquadFlank` / 로든은 차량 제외 · 헤비 리플리카 조준 후보. 계약 소비만(`RoverRef` · `ROVER_DAMAGE_SOURCE` · `PlayerFlags.IN_ROVER` ·
-  `PlayerRef.roverRide`), 상수 `[R4]` 3개 추가. 스모크 없음 (차량 런타임(R2)이 서야 검증할 수 있다).
-  리드 후속: `named/Director.spotOk` 가 선로 회랑에 더해 **흙길 회랑**(`ROVER_ROUTE_CLEARANCE_M` + 여유, `roverRouteDistance`)도 피한다 — 로든이 차량 길 한가운데 엎드리지 않게.
-
-- **2026-09-13 (곡사포 재배치 핑퐁 재발 — `ai/GimmickAI.artilleryRelocate`)** — 발사가 계속 거절되는 동안 「가장 가까운 뚫린 자리」 만 고르면 A 에서 옆 7 m 의 B,
-  B 에서 다시 A 를 고르는 X-4 핑퐁이 지형에 따라 되살아났다(`smoke-phase4` C-24, 표적 기준 −1 · +1 · −1). 이제 **연속 거절 중에는 지난번 옆걸음과 같은 편**(앞쪽 ·
-  옆 성분 0 포함)을 먼저 고르고, 그쪽이 전부 막혔을 때만 반대편으로 간다. 지난 편은 `Enemy.fireStrafeSign` 에 적는다(포병은 `ai/FireLine` 옆걸음을 쓰지 않아 겹치지 않는다),
-  첫 거절과 `maxRefusals` 재표적 뒤는 자유. 레이 수 · 후보는 그대로.
-- **2026-09-13 (버그 굴착 스폰 · 지하벌레 · 탈출 디펜스 웨이브 제거)** — 위 `## 굴착 스폰 · 지하벌레`. 새 파일: `sandworm/Director.ts` · `sandworm/Pose.ts` ·
-  `models/WormModel.ts` · `fx/BurrowFx.ts` · `ai/Burrow.ts` · `parts/Burrow.ts`. 기존 파일은 얇은 훅만: `Enemy`(굴착 · 뱉어짐 · 지하벌레 필드와
-  `startEmerge` / `burrowSink` / `startSpat`, 리그 유니온 `WormRig`, `kill` 이 `spatT` 를 끈다, `EnemyHost.burrowLanded?`) · `EnemyTypes`(`sandworm` ·
-  `isWormType` · `BugType` 에서 제외) · `Pool.spawn(…, emerge)`(+ `ee spawn.em`, 리셋 · dispose) · `Spawner`(`SpawnHost.spawn` · `spawnGroup` 의 `emerge`,
-  순찰 · 포병 굴착, `pickEcoType`) · `WaveDirector`(아무도 부르지 않는다는 머리 주석, 굴착 인자) · `ai/EnemyAI`(지하벌레 return · 굴착 게이트) ·
-  `net/HostSync.animHint`(뱉어진 몸 = 4) · `net/Replica`(`em` · 지하벌레 이벤트 3종 · 뱉어진 몸 비행 · 지하벌레 자세, `ReplicaHost` 3개) · `parts/Alerts.fleeFrom`
-  (지하벌레 제외) · `parts/Damage.onEnemyKilled`(지하벌레 사망 연출, `bug_death` 대신) · `EnemySystem`(디렉터 · `burrowFx` · 흔들림 기록, 웨이브 구독 제거,
-  `flow rejoined` 재동기화, 디버그 3개). 계약(추가만): `EnemyType 'sandworm'` · `CORPSE_LOOT_CHANCE.sandworm` · `ee spawn.em` · `EnemyEventAppended2026_09_13`
-  (`wormWarn` · `wormErupt` · `wormSpit`) · 이벤트 `sandworm:warning` · `sandworm:erupted` · `cheat:sandworm` · 상수 `BURROW_*` · `SANDWORM_*`. 스모크
-  `smoke-burrow` · `smoke-sandworm` (verify 매핑 등록 — 작성 에이전트는 서버를 띄우지 않아 첫 실행은 리드).
-
-- **2026-09-13 (행성별 적 팩션 — 안드로이드 · 로그 · 레이더)** — 결정 `docs/DECISIONS.md` 「2026-09-13 — 행성별 적 팩션」. 어떤 인간형 팩션이 나오는지는 행성 threat(`planetThreat`)가 정한다.
-  **리드 계약**: `EnemyType` += `android` · `raider`, `EnemyFaction` 넷(서로 다르면 전부 적대), `enemies.csv` 두 줄 · 로그 hp 560 · 네임드 + 스캔 드론 팩션 raider,
-  옛 `isRogue` 의 인간형 쓰임을 전부 `Enemy.isHumanoid` 로(AI 분기 · 재활용 제외 · 사람 소리 · HostSync 힌트 · 리플리카), `Enemy.site` · `squadId` · `squadRole` ·
-  `grenadeKind` · `grenadeCount`, `spawnRogue(…, opts?: HumanoidSpawnOpts)`, `registerCorpse` → `ee corpse.si/gc/gk` → 리플리카 → `Corpse.lootOpts` →
-  `rollCorpseOn(…, opts)`(드론 스캔 미리보기도 같은 값), `HUMANOID_WEAPONS`, `debugSpawn(…, opts?)` 가 안드로이드 · 레이더를 인간형 경로로.
-  **스폰**: 상자 경비 폐지 → `SiteGroups`(위 표), 로그 강하 → 레이더 강하 두 파도, 네임드 threat 표 · 헤비 호위 레이더 분대, `EnemySystem.planetThreatLevel` · `allocSquadId`.
-  **AI**: `ai/HumanoidProfile` · `ai/SquadFlank` · `RogueAI` 재작성 — 안드로이드(엄폐 · 투척 · 돌격 없음, 반응 1.8 s · 피해 ×0.6), 로그(거리 명중 곡선 · 공격적 점사 · 벌레는 서서 정리 ×3),
-  레이더(원거리 정확 · 투척 40 m · 흩어짐 ±0.4 m · 분대 우회조), 수류탄 **실제 보유분**(스폰 굴림 · 던질 때 차감 · 남은 것은 시체로), 적 소이 화염 지대(`fx/RogueGrenade`, `ee grenadeHit.k`).
-  은퇴한 상수(로그 AI 가 더는 안 읽는다): `ROGUE_AIM_ERROR` · `ROGUE_AIM_ERROR_SETTLED` · `ROGUE_BURST` · `ROGUE_RUSH_CHANCE` · `ROGUE_GRENADE_RANGE` (`ROGUE_REACTION` 은 타길라 · 헤비가 아직 쓴다).
-  **외형 · 소리**: `FactionLooks` · `HumanoidParts`, 안드로이드 SFX 4종, **안드로이드는 피 대신 불꽃 · 핏자국 없음**(`model.goreKindOf` — 호스트 `parts/Damage` · 리플리카 `ee damaged` 의 `RemoteFx.bloodBurst(…, kind)` 가 같은 답).
-  **인원 (후속 결정)**: 첫 구현이 threat 2–3 맵에 인간형 39–44명을 세웠다(옛 상자 경비 상한 16, 폐허 맵당 5–8곳 × 50 %) → 폐허 20 % · 바깥 거점 그룹 2–3명으로 **19–27명**(`smoke-faction-sites` 15맵 실측). 분대 id 는 와이어에 없어 승격 호스트가 1부터 다시 센다.
-- **2026-09-13 (탈출 함선 출입 금지, extraction 에이전트)** — `ai/EnemyAI.integrate` 가 `world.resolveCollision` · `host.resolveBarrier` 뒤에,
-  헌터 도약 가지가 `resolveCollision` 뒤에 `host.ctx.extraction?.keepEnemyOut(pos, radius)` 한 줄씩을 부른다. 착륙한 함선 외피는 월드 콜라이더라 누구에게나
-  벽이지만 뒤쪽 램프 입구는 사람이 드나드는 구멍이라 **적에게만** 닫는다 — 화물칸에 든 몸은 입구 밖으로 밀려나고, 돌진은 벽에 부딪힌 것처럼 넘어진다.
-  로그 · 네임드 · 조사 AI 가 전부 `integrate` 를 지나므로 이 두 곳이 전부다. 리플리카는 호스트 위치를 따른다. (탈출 웨이브 제거는 이 폴더 소유자의 작업이다.)
-
-- **2026-09-12 (아이템 회수 계약 — 레이드 루팅 표식)** — `Corpses.Corpse.interact` 가 굴린 시체 내용물(네임드 확정 드롭 포함)에
-  `shared/raidFound.markRaidFound(items, raidFoundSeed(ctx))` 로 「이번 레이드에서 얻은」 표식을 찍은 뒤 `openContainerItems` 로 넘긴다.
-  훈련장이면 시드가 null 이라 찍지 않는다. `corpseLootRandom` 스트림은 그대로(표식은 rng 를 안 쓴다) — 드론 스캔 미리보기와 같은 내용물이다.
-- **2026-09-12 (리드 통합 — 시체 굴림 시드 식)** — `Corpses.Corpse.interact` 의 rng 가 `shared/lootRolls.corpseLootRandom(seed, enemyId)` 를
-  부른다. 식은 그대로(`seed ^ enemyId × 2654435761`, 0 이면 1)이고 지상 드론 스캔(`gadgets/drones/parts/Scan`)이 열지 않고 같은 내용물을
-  미리 보려고 같은 함수를 쓴다 — 이 식을 폴더 안에서 다시 적지 않는다.
-- **2026-09-11 (E-8 (a)(b) — `explode` · `st` 요청 가드, 에이전트 ①)** — `docs/DECISIONS.md` 「2026-09-11 — 신뢰 경로의 남은 틈」.
-  **와이어 계약은 한 칸도 안 바뀐다** (주석만 — 리드가 `shared/net.ts` 에 먼저 적었다).
-  ① **`onExplodeRequest`** 가 `hosting` + 상한 둘만 보던 것을 네 겹으로 — **모양**(`isVec3Tuple(p)` · `r`/`dmg` 유한 +
-  기존 `MAX_REQUEST_DAMAGE` 500 · `MAX_REQUEST_RADIUS` 20) → **보낸 사람**(`getRemotePlayer(from)` 이 있고 `isDead` 가
-  아니다) → **거리**(보낸 사람 스냅샷과 폭심의 **수평** 거리 ≤ `EXPLODE_SOURCE_REACH` = `STRAT_MAX_CALL_RANGE` +
-  `EXPLODE_REQUEST_RANGE_SLACK`; 기준이 함선 호출인 이유는 폭발원 중 가장 먼 것이 호출 낙하물이라서다) → **요율**
-  (`spendHitBudget` — `hit` 과 **같은** 버킷이다: 따로 두면 두 경로를 번갈아 써서 합계가 두 배가 된다. 깎이면 깎인
-  값으로 터뜨리고 0 이면 버린다). ⚠ **죽은 보낸 사람도 받는다** — 리드 통합에서 계약을 뒤집었다: 수류탄 퓨즈 ·
-  호출 `eta` 안에 던진 사람이 죽는 것은 정상이다. 거리는 시체의 마지막 스냅샷으로 재고, `kb` 만 `isDead` 로 거른다 (`explodeInReach` 주석).
-  ② **`HitRequest.st`** 도 같은 순서로 — **비트 마스크**(`ENEMY_STATUS_BITS_ALL` = 알려진 비트 전부의 합, 남은 게 0 이면
-  상태이상 부분만 건너뛴다) → **거리**(`STATUS_SOURCE_REACH` = `max(FLAME_RANGE, SHOCK_RANGE)` +
-  `STATUS_REQUEST_RANGE_SLACK` **+ 적 반지름** — 두 원뿔 다 몸 표면까지 재기 때문이다: `coneTargets` 의
-  `dist > range + e.radius`) → **요율**(보낸 사람별 **건수** 토큰 버킷 `STATUS_REQUEST_RATE_MAX`/s ×
-  `STATUS_REQUEST_BURST_S`, DPS 버킷과 **별도**다 — 단위가 다르다) → 기존 `dur ≤ MAX_STATUS_DURATION`. 셋 다
-  **상태이상 부분만** 버린다(같은 프레임의 피해 · 넉백은 그대로). **DoT 예상 총량을 DPS 버킷에서 미리 차감하지 않는다**
-  (사용자 결정 — 사거리 검사가 이미 원격 남발을 막고, 선차감하면 정당한 다중 대상 화염 플레이가 깎인다).
-  **실측**(착수 전): `gadgets/parts/Simulate.updateFireZone` 의 `applyStatus('burning', …, d.owner)` 는 `GadgetSystem.update`
-  의 `if (authority)` 안에서만 돌므로 리플리카에서는 아예 실행되지 않는다 → 와이어를 타지 않는다 → 소이 구역 소유자가
-  구역에서 멀어도 ② 에 걸리지 않는다. 그래서 reach 에 `GADGET_INCENDIARY_RADIUS` 를 더하지 않았다.
-  ③ **지뢰 킬 크레딧**: `applyAreaDamage` 의 리플리카 강등이 `by` 를 버리는 것은 **맞는 동작**임을 확인하고 주석으로
-  근거를 남겼다(고친 코드 없음) — 이 가지에 닿는 호출자는 AT 런처(`by = localId`)뿐이고 가젯 쪽(지뢰 · 원격 지뢰 ·
-  포탑 · 화염지대)은 전부 권한에서만 돌아 리플리카에서는 실행되지 않는다. 호스트가 크레딧으로 쓰는 릴레이 `from` 이
-  곧 그 소유자다.
-  **수치**: `data/constants.csv` 의 새 키 넷은 **`shared/constants.ts`** 가 다른 가드 상수들과 같은 자리에서 내보내고
-  `model.ts` 가 `@/shared` 로 읽는다 (에이전트는 `src/shared` 를 못 건드려 `EnemyTypes.ts` 에 임시로 뒀고 리드가 옮겼다).
-  코드에 적은 숫자는 0 개.
-  **디버그 훅**: `EnemySystem.hitGuardStats` 에 `explodeShape` · `explodeSender` · `explodeRange` · `statusBits` ·
-  `statusRange` · `statusRate` 6개 추가(기존 `trimmed` · `dropped` · `kbRefused` 는 그대로이고, 깎인 explode 도 그 둘에
-  센다). 거절은 아무 일도 일으키지 않으므로 스모크가 거절을 볼 수 있는 **유일한** 수단이다.
-
-- **2026-09-11 (C-72 — 서 있는 캡슐 축 높이의 원본 하나, 리드)** — `RayTests.standingTopY` 를 **export** 하고
-  `EnemySystem.raycastEx` 가 인라인으로 또 적던 `Math.max(y0, position.y + h − r)` 를 그 호출로 바꿨다. C-62 에서
-  `rayStandingCapsule` · `nearestOnStandingCapsule` 이 이미 그 함수를 쓰고 있었지만 `raycastEx` 는 `rayCapsule` 의
-  원시 결과(`kind` · `capY` — 법선 계산에 쓴다)가 필요해 `rayStandingCapsule` 을 못 쓰고 식을 베껴 두고 있었다.
-  **동작은 한 줄도 바뀌지 않는다**(같은 식). 새 수치 없음.
-
-- **2026-09-11 (C-63 — 적 하차 관성 · 리플리카 탑승 예측의 가속도 항, 에이전트 c63)** — `ai/Ride.ts` 둘.
-  ① **하차 관성**: `rideCarry(e, world, dt)` 가 차량 부피를 벗어난 몸을 `rideRelease(e, true)` 로 내리면서 그 순간의 차량
-  속도(XZ)를 `Enemy.rideInertia` · `rideInertiaT` 에 넘기고, 타고 있지 않은 프레임마다 위치에만 더하며 지수 감쇠시킨다 —
-  **플레이어와 같은 `RIDE_INERTIA_S` · `RIDE_INERTIA_DAMP`, 같은 식**(`PlayerController.applyRideInertia`)이고 `velocity` 는
-  건드리지 않는다(조향 · 보행 · 발소리 불변). 권위만 돈다(리플리카는 스냅샷을 따른다). 도약(`airborne`) · 사망 · `reset` 은
-  관성 없이 내린다(도약 속도는 이미 월드 좌표로 풀린 값이다). 새 수치 없음.
-  ② **리플리카 예측**: 예전 `차량 속도 × lag` 는 가속 · 제동 순간 어긋났다. 지난 lag 초의 실제 이동은 `v·lag − ½·ā·lag²` 인데
-  전차는 cubic 가속 뒤 정차 창에서 **즉시** 멈추므로(`Rails.checkDock`) 상수 가속도 하나로는 못 맞춘다 — 그래서 그 항을 통째로
-  **차량 이동 이력**에서 읽는다: 발판 `Obstacle` 마다 링 버퍼(`TRACK_N` 96 · `TRACK_GAP_S` 0.5 초 끊기면 비움, 모듈 안
-  `WeakMap`)에 프레임마다 지금 자리를 적고 `P(now) − P(now − lag)` 를 보간으로 꺼낸다. 이력이 못 덮는 앞부분은 지금 속도로
-  채워 예전 선형 예측으로 되돌아간다. `replicaRidePredict` 의 **시그니처 · 호출부(`net/Replica`)는 한 줄도 안 바뀌었다.**
-  실측(합성 전차 8초 — 대기 0.5 · cubic 가속 3 · 순항 · 6초에 즉시 정차, lag 0.12): 최대 오차 가속 구간 0.068 → **0.002 m**,
-  정차 순간 1.344 → **0.000 m**, 순항 0. 검사: `scripts/smoke-tram-ride.mjs`(5번 = 순항 회귀, 6번 = 하차 관성 0.4 s 에 2.74 m) 26/26.
-
-- **2026-09-11 (C-52 — 늦은 합류자의 네임드 알림, 에이전트 c52)** — `ee spawn` 을 놓치고 스냅샷(키프레임 · `ty` 가 붙은 델타)으로만
-  네임드를 만든 리플리카도 `enemy:namedSpawned` 를 id 당 한 번 낸다. `net/Replica.onSnapshot` 의 get-or-create 가 새로 만든 적에
-  `ReplicaHost.named.onReplicaCreated(e)` 를 부르고(`ReplicaHost` 에 `named: Pick<NamedRogueDirector, 'onReplicaCreated'>` 추가 —
-  `EnemySystem.named` 가 구조적으로 채워 `EnemySystem.ts` 는 안 바뀌었다), `named/Director.onReplicaCreated` 는 권한이면 no-op,
-  아니면 `onSpawned` 와 **같은 `announced`** 로 알린다. `enemy:spawned` 는 여전히 스냅샷 경로에서 나가지 않는다. 권한 스폰 경로 ·
-  `reset()`(기록 비움) · 승격/강등(기록 유지) 동작은 그대로. 확인: 스크래치 브라우저 스크립트(키프레임만 1회 · 같은 id 재키프레임 ·
-  늦은 `ee spawn` · 먼저 온 `ee spawn` · `ty` 델타 · 일반 로그 · 승격/강등 · 해제 뒤 재등장 · `reset` 뒤 재알림, 10/10). 새 수치 없음.
-
-- **2026-09-11 (C-62 — 로든 판정의 남은 틈, 에이전트 c62)** — ① **`Enemy.nearestBodyPoint(from, out)`** (계약 `EnemyRef.nearestBodyPoint?`):
-  `raycastEx` 가 보는 **몸통** 캡슐에서 `from` 에 가장 가까운 점 — 엎드린 로든은 `models/named.namedBodyNearest`(`namedBodyRay` 와 같은
-  `sniperBodyCapsule`), 그 밖에는 `RayTests.nearestOnStandingCapsule`(세로 캡슐, 대부분의 벌레는 구). 수학은 `RayTests.nearestOnCapsule`
-  (`closestOnSegment` + 반경) 하나이고 `rayStandingCapsule` 과 축 높이 규칙(`standingTopY`)을 나눠 쓴다. **머리 구 · 베헤모스 장갑판은 넣지
-  않았다** — 정면으로 튀어나와 근접 사거리가 charger +0.6 · behemoth +2.3 m 늘어난다. `weapons/Melee` 가 이 점으로 사거리 · 원뿔 · 타격
-  지점을 잡는다(리플리카도 같은 기하). ~~⚠ `EnemySystem.raycastEx` 의 세로 캡슐은 여전히 같은 규칙을 인라인으로 적고 있다~~
-  (2026-09-11 C-72 에서 정리했다 — 아래 항목). ② **반짝임 전 매몰 검사**: `Sniper.ts` 가 `startGlint` 직전에 `muzzleBuried` 를 돌려 막혔으면 전조를 띄우지
-  않고 `buriedBeforeGlint` — `fireCooldown ≥ 1.2 s` 로 재검사를 늦추고, `relocateCd` 가 끝났으면 `startRelocate` 를 탄다. 이때만
-  후보 6개(옆 두 쪽 × 무작위 · 10 · 6 m)를 차례로 보고 **표적 쪽 총구 선분이 트인 첫 자리**(`muzzleClearAt`)를 고른다(없으면 예전의 첫
-  후보). 쿨다운 중이면 제자리에서 기다리므로 같은 자리의 매몰 → 대기 → 매몰은 `relocateCooldown`(10 s)을 넘지 않고, 이동은 10 s 에
-  한 번보다 잦지 않다. 피격 · 근접 자리 옮기기는 난수 호출 순서까지 그대로. 발사 순간 검사 · `ee glint`/`ee snipe` 는 그대로.
-  새 수치 없음. `scripts/smoke-named.mjs` +7 (C-62 절).
-
-- **2026-09-11 (E-4 · X-6 — 신뢰 경로, 에이전트 ⑤)** — ① **`enemy:squadKill`**: 호스트는 `parts/Damage.onEnemyKilled` 에서 `ee kill` 과
-  **같은 `killer`** 가 분대원이면, 리플리카는 `net/Replica` 의 `case 'kill'` 에서 `killer` 가 내가 아니면 낸다 — 모든 클라이언트가 같은
-  분대 킬을 센다 (meta/ 가 계약 분대 몫을 여기서 센다). `enemy:killed`(= 내 킬)의 뜻은 그대로. ② **셈하지 않는 죽음은 킬러도 없다**:
-  `kill(false)`(독성 벌레 자폭 · `killAll`)는 `ee kill.killer = null` — `lastDamager` 기본값이 `'local'` 이라 지금까지 "호스트가 죽였다" 로
-  나갔다. ③ `EnemySystem` 의 `ee` 는 **로비 호스트에게서만** 받는다(로비 없음 = 하네스, 통과). ④ `onHitRequest`: `p`/`d` 튜플 검사 +
-  **보낸 사람별 DPS 버킷**(`HIT_REQUEST_DPS_MAX` 5000/s × `HIT_REQUEST_BURST_S` 2, 벽시계 — 넘치면 깎고 0.5 미만이면 버린다;
-  ~~explode 요청은 세지 않는다~~ → **2026-09-11 E-8 에서 explode 요청도 같은 버킷을 탄다**) + **X-6 넉백 기하**: 보낸 사람
-  스냅샷과 적의 수평 거리 ≤ 배리어 오프셋 + 배쉬 사거리 × 1.5 + 방패 폭/2 + 적 반지름 +
-  `HIT_KNOCKBACK_RANGE_SLACK`. 디버그 카운터 `EnemySystem.hitGuardStats {trimmed, dropped, kbRefused}`(E-8 에서 6개 추가). 검사: `scripts/smoke-trust.mjs` + `smoke-enemy-delta` 의 C-1 · X-6 절(가짜 보낸 사람에게 적 곁 몸을 주고, 몸 없는 보낸 사람은 거절되는지 1건 추가).
-
-- **2026-09-11 (C 배치 — 일반 적 C-1 · C-4 · C-14 · C-18 · C-23 · C-24 · C-25 · C-47 · C-48 · C-51, 에이전트 4)** — 위 *C 항목
-  배치* 절. 새 파일 `ai/Ride.ts`. `Enemy` 필드 추가: `carrier` · `rideLocal` · `rideWorld` · `rideBlend` · `lastCarrier` ·
-  `corpseDropped`(탑승) · `stepAt`(발소리 스로틀) · `shellRefusals` · `shellSpot`(곡사포) · `chargeDrones`(베헤모스),
-  `applyDot(…, quiet)`. `ReplicaHost.acidVisualAt`, `AcidHost.active` · `find`. 새 수치: `data/enemy_abilities.csv` 의
-  `ARTILLERY_AI.maxRefusals` 3 · `refusalCooldown` 8 (코드 상수: `MAX_REQUEST_KNOCKBACK` 20, `ENEMY_STEP_EMIT_RANGE` 60 ·
-  `ENEMY_STEP_MIN_GAP` 0.12, 곡사포 후보 거리). 스모크: 새 `scripts/smoke-tram-ride.mjs`(19 체크), `smoke-phase4` +11
-  (C-14 · C-51 · C-47 · C-24), `smoke-enemy-delta` +13 (C-1 · C-48 · X-5 · C-51 · C-23).
-
-- **2026-09-11 (C 배치 — 네임드 C-49 · C-50 · C-54 · C-55 · C-56, 에이전트 4N)** — ① C-54: `ai/named/remote.afterNamedReplica`
-  의 `host` 를 필수로 하고 네 종류 모두에 넘긴다. 스캔 드론의 `hostOf`(private 필드 캐스트) 삭제, 헤비 `replicaHost` · 타길라
-  `replicaAudio` 모듈 전역 캐시 삭제(인자로). ② C-49: 호스트 승격으로 넘어온(= `namedData` 없는) 스캔 드론을 `retire` 대신
-  입양 — 가장 가까운 로든 · 스캔 0 · `namedTimer` 0, 로든은 `droneId === null` 이면 미입양 드론을 집어 온다. ③ C-50: 리플리카
-  헤비 트레이서가 방위 콘 안 가장 가까운 후보(플레이어 ∪ 드론 ∪ 반대 팩션)의 가슴을 향한다. ④ C-55: `RayTests.raySegmentCapsule`
-  · `closestOnSegment` 신규, 엎드린 로든 몸통 = 눕힌 캡슐(`SniperLook.sniperBodyCapsule`, 리그 실측, 보이는 자세 비율 · 경사) →
-  `models/named.namedBodyRay / namedBodyNormal / namedBodyCenterY` → `EnemySystem.raycastEx` 몸통 가지(kind 4) · `parts/Damage`
-  폭발 중심 두 줄. ⑤ C-56: 로든 사선 원점 `EYE_FWD` 0.9 → 0.3, 발사 직전 몸 → 총구 레이가 막히면 그 점에 박힌다(`hit:false`,
-  쿨다운 · 전조 유지). 새 스모크 `scripts/smoke-named.mjs`(32 체크, verify 미등록). 새 수치 없음. 위 네임드 소절들.
-- **2026-09-11 (네임드 로그 — 로든)** — `ai/named/Sniper.ts` · `models/named/SniperLook.ts` 스텁을 채우고
-  `named/SniperShot.ts`(호스트 · 리플리카 공용 사격 연출) 신규. 둥지 엎드림 → 근거리 사선 저격 / 원거리 스캔 드론 →
-  스캔 표적 저격, **모든 발사는 조준경 반짝임 뒤**(힌트 15 · `named:sniperGlint` · `ee glint`). 발사는 `fireGun` opts
-  (피해 150 · 사거리 320 · 머리 조준 · 자기 연출 · 와이어 없음) + `ee snipe`. 피격 · 근접 시 둥지 리시 안에서 자리
-  옮기기. 플레이어만 쏜다(드론 · 벌레 표적 무시). 겉모습 = 대물 저격총(양각대) + 길리 망토 · 두건 + 엎드림 자세 +
-  가산 스프라이트 반짝임(광원 없음), 엎드린 머리 판정(`rig.params` 리그별 사본). `ai/named/model.ts` 의 `SniperData` 에
-  드론 신호 `resolvedDroneId` + 내부 필드 추가. `NAMED_SNIPER` 키 5개 추가(`relocateCooldown` · `nestLeash` ·
-  `closeThreat` · `scanWait` · `proneTurnRate`, `EnemyTypes` 유니온 + csv). 위 `로든` 소절.
-
-- **2026-09-11 (네임드 로그 — 헤비)** — `ai/named/Heavy.ts` · `models/named/HeavyLook.ts` 스텁을 채웠다. 엄폐 없이
-  15–45 m 를 유지하며 걷는 미니건 AI(회전 → 연사 → 헛돌기 → 정지), 발사는 `fireGun` opts 로 와이어 없이, 연사
-  시작/끝만 `ee spray`. 리플리카는 그 이벤트로 트레이서 · 섬광 · 소리를 스스로 그린다. 겉모습은 중장갑 + 헬멧 ·
-  노란 바이저 + 허리 높이 6연장 미니건(총열 회전 · 열 · 떨림) + 탄통 백팩, `rig.muzzle` 을 미니건 끝으로 옮겼다.
-  드론 표적도 쏜다(물러서지 않음). `NAMED_HEAVY` 에 `keepMin` · `keepMax` · `creepMul` · `spinMoveMul` · `linger`
-  (`EnemyTypes` 유니온 + csv). 위 `헤비` 소절.
-
-- **2026-09-11 (네임드 로그 — 스캔 드론)** — 계약 스텁 셋을 채웠다. `ai/named/ScanDrone.ts`: `launchScanDrone`
-  (저격수 옆 위 스폰, `ScanDroneData`) · 공중 비행 AI(자체 3D 적분, 고도로 장애물 넘기) · 음파(수평 반경 + 사선 노출,
-  `named:scanPulse` · `ee scanPulse` · 힌트 20) · 대기 → 귀환/이탈 → `flee` 퇴장 · 리플리카 훅 · 로컬 노출 표시
-  런타임(`named:scanExposure`, 드론 없어짐 · 저격 발사 · 20 s 무갱신에서 0). `models/named/ScanDroneLook.ts`: 쿼드콥터
-  (휴머노이드 숨김, 회전 날개, emissive 렌즈 · LED, 격추 시 굴러 떨어짐). 신규 `fx/ScanPulseFx.ts`: 풀링된 가산 원뿔 셸
-  + 바닥 띠(광원 없음). `ai/named/model.ts` 의 `ScanDroneData` 에 드론 전용 필드 4개 추가(`claimed` · `glinting` ·
-  `shotGrace` · `leave`). 새 수치 없음(`NAMED_SCAN_DRONE` · `NAMED_SNIPER` 그대로). 위 `스캔 드론` 소절.
-
-- **2026-09-11 (적 ↔ 드론)** — 적이 `aggroable` 드론을 알아채고 · 노리고 · 때린다. `Targets.ts` 에 별도 목록
-  `TargetList.drones`(프록시 = 몸체 밑면, `all` / `alive` 밖) · `nearestAliveWithin` 이 드론을 수직 판정과 함께 본다,
-  `pickTarget` 에 드론 후보(< 0.6× 플레이어 · 인지 규칙 · 근접형 고도 제한)와 **버그의 스캔 드론 제외**,
-  `world:noise` → 조사(`beginInvestigation`), `applyDamage` 드론 가지 → `ctx.drones.damageDrone`, 로그 사격 · 산성의
-  드론 몸체 판정, 적 광역 피해 네 곳의 `ctx.drones.applyExplosion`. 새 수치 없음.
-
-- **2026-09-11 (네임드 로그 — 타길라)** — `ai/named/Hammer.ts` · `models/named/HammerLook.ts` 스텁을 채웠다. 추격 →
-  (짧은 돌진, 힌트 17) → 휘두르기 준비(힌트 16) → 1회 타격(`hitTarget` 50) → `attackCooldown − windup` 쿨다운이라
-  붙어 있으면 초당 50. 설치물 부수기 · 지상 드론 타격 · 60 m / 4 s 리시 복귀 · 구조물 둘레 순찰. `ee hammer` 연출 ·
-  리플리카 자세. 겉모습 = × 1.12 장갑 거구 + 용접 마스크 · 붉은 바이저 + 양손 망치(소총 메시 숨김). 수치 키 3개 추가
-  (`NAMED_HAMMER.giveUpDist / giveUpTime / patrolRadius`). 위 `타길라` 소절.
-- **2026-09-11 (네임드 로그 — 스폰 디렉터)** — `named/Director.ts` 신규. `world:ready` 권한 분기가 가드 배치 뒤
-  `named.roll(planet)` 을 한 번 부른다: 시드 `worldSeed ^ hash('named')` → 등장 확률 `NAMED_ROGUE_CHANCE_BY_RANK
-  [planetTier − 1]` → 3종 균등 → 종류별 자리(로든 개활 언덕 · 타길라 구조물 곁 엄폐 · 헤비 먼 구조물/폐허 + SMG
-  호위 분대 인원별) → 기존 `spawnRogue` → `enemy:namedSpawned`(리플리카는 `enemy:spawned` 에서). `EnemySystem` 에
-  `named` 필드 · `enemy:spawned` 구독 · `debugSpawnNamed` / `debugNamedRoll`, `Pool.reset` 에 `named.reset()`.
-  재활용 규칙은 바꾸지 않았다(네임드 · 호위는 로그라 원래 제외). 위 `네임드 로그` 절.
-- **2026-09-11** — 로그의 총알 · 수류탄이 구조물 창문 유리를 깬다 (`parts/Attacks.fireGun`, `fx/RogueGrenade`). 적은 사다리를 타지 않는다.
-- **2026-09-10 (강하가 조용하지 않다)** — 로그 강하가 소리도 표시도 거의 없이 일어나 플레이어가 알아채지
-  못했다. 이 폴더에서 바뀐 것은 둘뿐이다: ① `begin()` 의 `wave_alarm`(벌레 웨이브와 **같은 소리**였다) +
-  `hellpod_fall`(아군 헬포드) 을 걷어내고, ② 착지 충격음을 `hellpod_impact` → **`rogue_pod_impact`** 로
-  바꿨다. 경보 · 낙하 굉음은 `audio/AudioSystem` 이 `rogueDrop:incoming` 을 받아 낸다 — 크기가
-  **인지력이 아닌 전용 반경 `ROGUE_DROP_ALERT_RADIUS`(260 m = 인지력 26 m 의 10배)** 기준 거리 감쇠의
-  함수이고, 그 곡선은 패너의 감쇠와 겹치면 안 되므로(`panOnly`) audio/ 안에서만 정할 수 있기 때문이다.
-  굉음은 예고가 아니라 착지 `ROGUE_DROP_FALL_LEAD_S` 초 전에 난다. 화면은 `ui/hud/RaidAlerts` 의 토스트
-  (원래 있었다)와 `ui/hud/DangerIndicators` 의 위험 표시(화면 안 머리 마커 · 밖 방향 호, 같은 반경) —
-  2026-09-09 의 `hud/OffscreenIndicators` 화살표는 그리로 옮겨 갔다. **강하 규칙(구역당 1회 · 분대 인원
-  비례 · 호스트 권한)은 한 줄도 건드리지 않았다.**
-
-- **2026-09-10 (곡사포 궤적을 시야 안으로)** — "지금 너무 높은 곳에서 날아와서 날아온지도 모름". 정점 높이는
-  `0.5 × SHELL_ARC_GRAVITY × (SHELL_FLIGHT_TIME/2)²` 이고 실제 중력 9.81 로는 **48.7 m** 라 포탄이 화면 밖으로
-  솟았다가 머리 위에서 떨어졌다 — 경고가 되지 않는다. 리드가 깔아 둔 임시값 2.6(12.9 m)을 실측해 **2 로 확정**
-  (정점 **9.9 m**). 근거: 카메라 수직 화각은 70°(= 수평선 위 35°)이고, 표적에서 올려다본 포탄의 앙각은
-  `atan(0.5·g·(T−τ)·T / range)` 라 표준 교전거리 `ARTILLERY_RANGE` 63 m 에서 착탄 3초 전 18° · 1초 전 28° ·
-  0.5초 전 30° 로 **내려오는 내내 화면 안**이다 (2.6 은 29→35° 라 마지막 1초가 위로 빠진다). 그러면서도 발사각은
-  63 m 에서 32°(최대사거리 98 m 22°, 최소 42 m 43°) 라 여전히 곡사포다 — 1.5 아래로 내리면 직사포로 보인다.
-  딸린 정리 셋: ① `fx/ShellProjectile` 의 순간 속도 적분이 아직 `GRAVITY` 였다(위치는 낮은 궤적, 속도만 5배
-  가파름 → 리본 꼬리 방향이 어긋남) → `SHELL_ARC_GRAVITY` 로. `GRAVITY` import 는 죽어서 지웠다.
-  ② **낮은 궤적은 지형에 걸린다.** 걸리면 그 자리에서 터지는 것은 기존 `onShellLanded` 경로 그대로 두고,
-  그 자리가 **제 발치**면 포병이 6~9초마다 자살하므로 쏘기 전에 `parts/Attacks.shellArcBlocked` 가 궤적 앞쪽
-  75 % 를 현 4개로 훑는다(현은 포물선 아래를 지나 보수적이다; 마지막 하강은 조준점이 땅이라 일부러 안 본다).
-  막히면 `fireShell` 이 `false` → `chaseArtillery` 가 굴착을 풀고 옆으로 7 m 옮겨 다시 판다. ③ `HALO_SCALE`
-  2.4 → 2.9 (포탄이 하늘이 아니라 지형을 배경으로 오게 되어 실루엣만으로는 묻힌다). 착탄 예고는 손대지 않았다 —
-  `SHELL_FLIGHT_TIME` 이 그대로 6.3 s 라 경고음 · `enemy:shellFired` · `ui/hud/ShellMarkers` 의 여유가 같고,
-  마커는 이미 `@/shared/ballistics` 의 같은 식을 쓰므로 낮아진 궤적 위에 그대로 붙는다.
-
-- **2026-09-10 (벽에 딱 붙은 채로 쏘지 않는다)** — 원거리 적이 장애물 바로 뒤/옆에 붙어 **벽에다 대고** 쏘고
-  있었다. 뿌리는 인지와 사격이 같은 레이를 쓴 것이다: `ai/Perception.hasLineOfSight` 는 **눈** → 가슴이고
-  총알은 총구에서 나간다. 새 `ai/FireLine.ts` 가 `fireOrigin`(로그 = 소총 끝 `Enemy.muzzle`, 스퓨어 =
-  `headCenter + 0.1`) → 표적 가슴을 따로 검사한다. 레이는 총구에서 `ENEMY_WALL_STANDOFF`(1 m) **뒤**, 제 몸
-  안에서 출발한다 — 총구가 이미 벽 안이면 총구 기준 레이는 벽을 만나지 못해 "뚫렸다" 가 되기 때문이고, 이것이
-  "장애물과 최소 거리" 규칙의 실체다. 결과는 적별 `ENEMY_FIRE_LOS_S`(0.25 s) 캐시라 매 프레임 · 매 발
-  레이캐스트가 아니고, 표적이 바뀌면 `acquireTarget` 이 버린다. 막히면 **사격만 보류**하고 `fireLineStrafe` 로
-  옆(표적 수직) 3.5 m 조향 목표를 잡아 비켜선다: 로그는 한 다리(`ENEMY_FIRE_STRAFE_S` 1.5 s)를 못 뚫으면 새
-  엄폐물, 스퓨어는 반대쪽, 포병은 위 ②. **이동은 어디서도 막지 않는다** — 문 · 틈을 지나느라 한순간 막히는 것은
-  정상이라 그때 굳으면 훨씬 나쁘다(로그 단계 4 돌격은 사격만 멈추고 계속 달린다). 지형 · 장애물만 본다;
-  아군 오사(다른 적 관통)는 보지 않는다.
-
-- **2026-09-10 (탈출 웨이브가 분대 인원을 본다)** — 웨이브 표(`6 + 웨이브×2`, 최대 22)는 4인 분대 기준이었다.
-  1인 분대가 세 번째 웨이브에서 점프 사냥꾼을 **두 마리** 한꺼번에 받아 사실상 막을 수 없던 것이 계기다.
-  `WaveDirector` 가 `RogueDrop.squadSize` 와 **같은 계산**으로 인원을 세고 `WAVE_SQUAD_SCALE[인원−1]`
-  (`data/tables.csv`, 1인 0.45 … 4인 1)을 곱한다 (최소 2마리). 구성은 `waveGroup` 의 슬롯이 남은 마릿수로
-  잘리므로 저절로 따라온다 — 사냥꾼 슬롯이 하나로 줄어든다. 상시 개체수(`AmbientSpawner`)와 로그 강하는
-  손대지 않았다 (로그 강하는 이미 분대 인원별 표를 쓴다).
-
-프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
-
-- **2026-09-09 (로그 강하)** — `RogueDrop.ts` 신규. 버려진 전진기지 · 연구실 · 선로 플랫폼의 컨테이너를 처음
-  조사하면(`structure:investigated`) **호스트가** 그 구역에 대해 딱 한 번 `ROGUE_DROP_CHANCE` 를 굴리고, 성공하면
-  로그 분대가 하늘에서 내려온다: 예고(`rogueDrop:incoming` + `rdrop incoming` + `wave_alarm`) → `ROGUE_DROP_ETA_S`
-  초 낙하 → 착지(`rogueDrop:landed` + `rdrop landed`) → 스폰 → **트리거 지점으로 진격**.
-  인원 · 보스는 **분대 인원**이 정한다 (`ROGUE_DROP_COUNT_MIN/MAX` · `ROGUE_DROP_BOSS_CHANCE`, index 0 = 1명).
-  구역당 1회는 두 기록의 합집합이다 — 자체 `used` 집합(호스트의 굴림 + **리플리카가 받은 `rdrop incoming`**, 그래서
-  승격된 새 호스트도 안다)과 world/ 가 `struct sync` 로 채워 주는 `StructureDef.rogueDropUsed`.
-  진격은 새 코드가 아니라 Phase 12 의 `ai/Investigate.ts` 를 그대로 쓴다(`beginInvestigation`), 도착하면
-  `guardPos` = 구조물이라 기존 로그 가드 순찰로 자연스럽게 넘어간다. `EnemyManagerRef.callRogueDrop` /
-  `getRogueDrops` stub 이 채워졌고, 디버그 훅 `debugRogueDrops` / `debugInvestigate` 가 붙었다
-
-- **2026-09-09 (지형지물 위 걷기 · 큰 적의 스폰 자리 · 헤드샷)** — 세 가지.
-  ① **접지가 `WorldRef.getSurfaceY` 로 옮겨졌다.** `ai/EnemyAI.integrate` 는 XZ 를 옮긴 **직후** 표면을 잡고
-  (`pos.y = getSurfaceY(x, z, pos.y)`) **그 다음에** `resolveCollision` 을 부른다 — 순서가 핵심이다. 표면을
-  먼저 잡아야 낮은 바위 위로 발이 올라가고, 그러면 `resolveCollision` 이 같은 `PROP_TOP_MARGIN` 판정으로 그
-  바위를 밀어내지 않는다. 반대로 하면 밀려난 뒤라 영원히 못 올라간다. 밀려난 뒤 한 번 더 표면을 잡는다.
-  헌터의 착지(`getSurfaceY(x, z, position.y)`), `integrateDeathFall`, `Enemy.kill` 의 착지 판정,
-  `net/Replica` 의 높이 클램프도 같은 질의로 바뀌어 **바위 위에서 죽으면 바위 위에 눕는다** (호스트/리플리카
-  가 같은 함수를 쓰므로 결정적).
-  ② **덩치 큰 적의 스폰 여유**(`Spawner.ts`): `needsSpawnClearance` (반경 ≥ `ENEMY_BIG_RADIUS` 0.9 →
-  스퓨어 · 포병 · 차저 · 베헤모스 · 로그 보스) 인 종은 `spawnBlocked` 로 자기 반경 ×
-  `ENEMY_SPAWN_CLEARANCE_MUL` 원의 `world.obstacleCoverage` 를 재고 `ENEMY_SPAWN_BLOCK_RATIO` 를 넘으면 자리를
-  버린다. 재추첨은 `placeMember` 안에서 최대 `ENEMY_SPAWN_RETRIES` 번, 시도할수록 링을 넓혀 막힌 주머니를
-  벗어난다. 앰비언트 · 웨이브 · 둥지 스폰이 전부 `spawnGroup` 한 곳으로 모이므로 여기 하나면 되고,
-  `spawnGroup` 을 타지 않는 포병만 `maybeArtillery` 에서 같은 검사를 한다. **전부 실패하면 그 한 마리를
-  건너뛴다** — 작은 종으로 바꾸지 않는다(구성표가 밸런스의 원본이라 몰래 바꾸면 웨이브 난이도가 달라진다).
-  ③ **`Enemy.classifyHit` 이 머리를 먼저 본다.** 베헤모스의 전면 장갑 캡슐(`plateRadius` = 반경 × 0.5,
-  머리보다 `head.z + head.r × 0.9` 앞)이 자기 머리 구를 거의 삼키고 있어서, `raycastEx` 가 이미 `'head'` 로
-  판정한 측면 · 상방 사격을 `takeDamage` 가 같은 점으로 다시 분류하며 장갑 `'front'` 로 강등시켰다 —
-  즉 베헤모스에게는 헤드샷이 없었다. `data/enemies.csv` 가 `headMul` 을 1 → 2 로 올리면서 드러난 문제다.
-  정면 사격은 그대로 장갑(광선이 판을 먼저 맞는다)이고, **실제로 머리 구 안에 떨어진 점만** 헤드샷이 된다.
-
-- **2026-09-09 (수치 csv 이관)** — `EnemyTypes.ts` 에 표가 없다. 적 10종의 기본 스탯은 `data/enemies.csv`,
-  특수 능력 블록(`HUNTER_LEAP` · `SPEWER_SPIT` · `CHARGER_CHARGE` · `ROGUE_AI` · `ARTILLERY_AI` · `TOXIC_AI` ·
-  `BEHEMOTH_AI`)은 `data/enemy_abilities.csv` 의 `block` 단위 표다. 로그가 드는 무기 목록만 문자열이라
-  `ROGUE_AI_TEXT` 블록으로 갈라져 있다 (한 블록은 전부 숫자거나 전부 문자열이어야 한다).
-  보스 · 베헤모스처럼 상수에서 파생되던 칸은 `=140*ROGUE_BOSS_HP_MUL` 같은 식으로 남아 `constants.csv` 를 따라간다.
-  `ENEMY_STATS` · `ROGUE_AI` 등의 export 이름과 모양은 그대로라 읽는 쪽은 바뀌지 않았다
-
-- **2026-09-08 (main 병합)** — `ai/RogueCover.ts` 의 엄폐/사격 지점 오프셋과 크기 필터가 `shotRadius` / `shotHeight`(총알이 멈추는 원기둥, `blockRadius` · `blockHeight`)를 읽는다. 바위 엄폐 수정으로 이동 콜라이더와 갈라진 뒤로 `findPopSpot` 이 양쪽 측면을 모두 '아직 가려짐' 으로 판정해 로그가 엄폐를 아예 잡지 않던 것을 고쳤다
-
-- **tactical kit** — perception scaled by cloak × smoke (`ai/Perception.ts`), lures (`ai/Lures.ts`, `addDistraction`, gunfire noise), deployable targeting (`ai/Structures.ts`), burning / slow status (`applyStatus`), `queryNear`, `applyAreaDamage`
-
-- **Phase 6** — `applyStatus('incinerated')` 전소 (writhing pose on bugs + rogues, `isIncapacitated`, non-combatant, `enemy:incinerated`) / `'shocked'` (slow + cyan sparks, `enemy:shocked`), replica → host status requests via `hit {dmg:0, st, dur}` (`ENEMY_STATUS_BITS`), `EnemyWire.sb` mirrors burning / slowed / 전소 / shocked on replicas
-
-- **Phase 7** — **rogue AI v2** (`ai/RogueCover.ts`: cover must block LOS, flank-angle scoring, `popPos` step-out; magazine `ROGUE_MAG_ROUNDS` → `ROGUE_RELOAD_TIME` reload hint 12; grenade toss after `ROGUE_GRENADE_HOLD_S` without LOS, `fx/RogueGrenade.ts`, `ee grenade / grenadeHit`, hint 13), behemoth scale 3 + remote knockback `dmg.kb`, suspended members stay targets (`ghost:damage`), **live authority** `setAuthority` (replicas → simulated on promotion, adopt on demotion, from `net:hostChanged`), no spawns in a training
-
-- **Phase 9** — **delta `es`** (`SnapshotCache` in `net/HostSync`: monotonic `seq`, keyframe every `NET_ENEMY_KEYFRAME_S` and right after `flow rejoined / takeover`, changed fields only, `gone` list; `ReplicaBuffer.applyWire` merges onto the latest sample, an unknown id without `ty` is ignored), `Enemy.burnAttacker` (DoT kills credit whoever lit the fire, `applyStatus(..., attacker)`, host fills it from the relay `from`), `enemy:killed.by` + a `hitc` kill marker for the credited peer, enemy fire is stopped by a barrier (`raycastBarrier` + `damageBarrier`)
-
-- **Phase 10** — a body that dies **in the air now falls** (`deathVy` carried over from the live `vy` before `kill()` clears `airborne`, integrated + terrain-snapped in **both** `ai/EnemyAI` and `net/Replica` because a replica never `drive()`s a corpse and corpses leave `es` after 1.5 s, capped by `CORPSE_FALL_MAX_SPEED`, corpse registration deferred to the landing or `CORPSE_LAND_TIMEOUT`), **three death directions** (left / right / **back** for bugs and rogues, blended over `DEATH_FALL_TIME`; `BugAnim.rollSign` replaced by a seeded `EnemyDeathDir` so host and replica finally agree, replicated as `ee kill.dd` / `ee corpse.dd`), and **probabilistic corpse looting** (`CORPSE_LOOT_CHANCE` drawn from an *independent* seeded stream so the existing `rollCorpse` selftest vectors do not shift; a corpse that fails registers **no** interactable, `corpse:spawned.lootable`, `ee corpse.lt`)
-
-- **Phase 11** — `world:ready` 에서 `PlanetEcosystem` 을 스포너 / 웨이브 / 로그 가드에 주입 — 기존 위협 게이트(`AMBIENT_GATE` / `WAVE_GATE`)는 그대로 두고 각 슬롯의 실루엣만 `eco.bugs` 가중 추첨으로 뽑으며, 앰비언트 상한 `× eco.pressure`, `maxArtillery` / `maxBehemoth`, 가드 밀도 `× eco.rogues` (`eco.boss:false` 면 보스는 시드 확률). 호스트 권한 · `es` / `ee` 는 불변
-
-- **Phase 12 (2026-09-08)** — `resolveBarrier` 를 지상 적마다 호출(`ctx.implants.resolveBarrierCollision` → 밀려남 + 6초 캐리어 재타겟 + `implant:barrierBumped` ≤ 2 Hz), 근접 피해는 `absorbFrontalAttack` 을 거쳐(피어 소유면 `dmg` 대신 `ee barrierHit`, 수신 측은 `damageBarrier('local', …)`), `reportShot` / `shotq` → `ai/Investigate.ts`(주시 `ENEMY_SHOT_ALERT_WATCH_S` → 전진: 로그는 `pickApproachCover` 엄폐 이동 · 버그는 직진 → `ENEMY_SHOT_ALERT_GIVE_UP_S` 포기, 인지하면 즉시 정상 교전 — 와이어 무변경), `Perception.shotConeFactor`(원점 방향 ±45° 콘 ×`ENEMY_SHOT_ALERT_CONE_MUL`, 은폐 · 연막 계수 유지), `setXray` = `fx/Xray.ts` 빨간 관통 실루엣(GreaterDepth · 공유 머티리얼 · 풀), 실드 배쉬용 내부 `pushBack`(인터페이스 밖)
-
-## 막타 계열 — NPC 퀘스트 kill 목표 (2026-09-14)
-
-`enemy:killed` 에 **`weaponClass`** 가 붙는다 (`by === 'local'` 일 때만): 이 클라이언트의 마지막 피해가 총기 한 발이면 그 계열, 아니면 null.
-- `Enemy.lastLocalWeaponClass` — `takeDamage(attacker 'local')` 가 `shared/damageSource.localGunHitClass()` 를 적는다(리플리카는 `requestHit` 로 넘기기 **전에**), `applyDot(…, 'local')` 은 null, `reset` 은 null.
-- weapons 의 `WeaponSystem.applyHit` 가 총알 한 발의 피해 구간을 `withLocalGunHit(손에 든 총의 계열)` 로 감싼다. 수류탄 · 가젯 · 근접 · 방패 배쉬는 그 구간 밖이라 null.
-- 호스트 = 막타 그 순간의 값(`parts/Damage.onEnemyKilled`). 리플리카 = 호스트의 `ee kill {killer: 나}` 를 받을 때 **내가 그 적에게 보낸 마지막 요청**의 값(`net/Replica`) — 호스트의 화상 지속 피해가 끝낸 경우는 알 수 없어 마지막 요청의 계열이 남는다(알려진 한계).
-
-- **2026-09-14 (에이전트 B)** — `enemy:killed.weaponClass` (`Enemy.lastLocalWeaponClass` · `Damage.onEnemyKilled` · `Replica kill`).
-
-## 빗나간 총알에 적이 반응한다 — 게임 전역 (2026-09-14 2차, 사용자 결정)
-
-> 적 근처에 총을 쏘면(빗나가도) **감지 범위가 좁더라도** 총알이 날아온 곳을 바라보고 사수를 추적한다.
-
-**새 개념을 만들지 않았다.** 이 동작은 Phase 12 의 총알 추적(`reportShot` → `parts/Alerts.alertShot` →
-`ai/Investigate`)이 이미 전부 갖고 있었다 — 「바라본다」 = phase 0 watch(`ENEMY_SHOT_ALERT_WATCH_S` 동안 원점을
-향해 선다), 「추적한다」 = phase 1 advance + `ai/Perception.shotConeFactor`(원점 방향 ±45° 콘에서 감지 반경
-×`ENEMY_SHOT_ALERT_CONE_MUL`). 판정에 쓰는 신호도 이미 흐르고 있다: weapons 가 **방아쇠 한 번에 한 번**
-`ctx.enemies.reportShot(origin, dir, range, hit)` 를 부르고(2026-09-14 부터 일반 총탄이 전부 발사체지만
-`ProjectilePool` 에 `report:false` 를 주고 `fire()` 가 판정선으로 한 번 보고한다 — 샷건 8펠릿도 한 번),
-비호스트는 `shotq` 로 호스트에게 넘긴다. **호스트 권위 · 와이어 무변경**이고 `src/weapons/` 는 안 고쳤다.
-
-바뀐 것은 셋뿐이다:
-
-1. **튜토리얼 예외 제거** (`reportShot` · `onShotReport`). 같은 날 아침에 「고정 자리 · 순찰 없음과 부딪힌다」로
-   넣었던 `sys.tutorial` no-op 을 걷어냈다 — 예외를 두면 좁은 감지 반경(12 m)이 곧 「쏴도 모른다」가 된다.
-   훈련장(`sys.training`)은 적이 한 마리도 없으므로 그대로 no-op 이다.
-2. **조사에도 리시를 건다** (`ai/Investigate` phase 1). 예전에는 인간형만 `e.leash` 에서 멈췄다. 이제
-   `e.homeLeash > 0` 인 적(= `Tutorial.placeTutorialEnemies` 가 세운 적)도 멈춘다 — `EnemyAI` 는 조사 중에
-   `tutorialHold` 를 **건너뛰므로** 여기서 막지 않으면 튜토리얼 벌레가 자기 구간을 떠난다. 본편 · 훈련장의
-   벌레는 `homeLeash` 가 0 이라 **한 글자도 안 바뀐다.** 조사가 끝나면 평소대로 `tutorialHold` 가 자리로 돌려보낸다.
-3. **선분을 총알이 멈춘 곳까지로 자른다** (`alertShot`). `range` 는 총의 사거리라, 코앞의 벽을 쏴도 그 방위
-   수백 m 안의 적이 전부 「스쳤다」로 읽었다. `hit` 이 있으면 `min(range, |hit − origin|)` 이다 —
-   **알리는 범위가 줄기만 하는** 변경이다.
-
-### 왜 이 반경이 은신을 깨지 않나
-
-수치는 **한 줄도 새로 만들지 않았다** — Phase 12 의 `data/constants.csv` 다섯 줄이 그대로 원본이다
-(`ENEMY_SHOT_ALERT_DIST` 6 m = 탄도선까지의 최단 거리 · `ENEMY_SHOT_IMPACT_DIST` 10 m = 착탄점 ·
-`ENEMY_SHOT_ALERT_WATCH_S` 3 s · `ENEMY_SHOT_ALERT_CONE_MUL` 2 · `ENEMY_SHOT_ALERT_GIVE_UP_S` 20 s).
-근거: 같은 사격이 내는 **총성**은 이미 `onGunshot` 이 `stats.hearRadius`(55 m)로 깨우고 있다. 탄도선 6 m 는
-그보다 한 자릿수 좁으므로 「총을 쏘면 들킨다」의 한계를 정하는 것은 여전히 총성이지 이 규칙이 아니다.
-거기에 ③ 의 선분 자르기가 알리는 집합을 **줄였다**. 그리고 `alertShot` 은 예전처럼 ① 이미 `aware` 이거나
-웨이브 벌레 · 경직 중인 적, ② `canPerceive` 로 어차피 다음 틱에 사수를 볼 적을 건너뛰고, 깨우는 것이 아니라
-`aware = false` 인 **조사**만 시작한다.
-
-**주의(알려진 한계)**: 조사 중에는 감지 반경이 원점 방향으로 ×2 가 되므로 튜토리얼 적은 12 → **24 m** 까지 본다.
-「체크포인트는 그 구간 적의 감지 범위 밖」(가장 빡빡한 곳 14.3 m)이라는 튜토리얼 규칙은 **그 20 초 동안만**
-느슨해진다. 보호 대상(무기를 잃고 부활해 자기 시체까지 걸어가는 사람)은 총을 쏘지 않으므로 조사를 유발하지
-않고, 사망 → 부활 지연 + `ENEMY_SHOT_ALERT_GIVE_UP_S` 가 지나면 원래대로다. 그래도 걸린다면 규칙이 아니라
-맵(체크포인트 자리)을 고친다 — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」 의 결정 그대로다.
-
-- **2026-09-14 2차 (에이전트 ②)** — `parts/Alerts.reportShot` · `onShotReport` 의 튜토리얼 예외 제거,
-  `alertShot` 의 `pathLen` 클램프, `ai/Investigate` 의 `homeLeash` 리시. csv 무변경 · 와이어 무변경.
-
-## 튜토리얼 시체가 사라지지 않는다 · 파다 죽은 몸도 마저 솟는다 (2026-09-14 4차, 에이전트 D)
-
-> 사용자 보고: 「튜토리얼 몹들의 드롭률이 적용 안 됐다 — 왼쪽 벌레의 생체 조직 · 터미니드 분비선도,
-> 오른쪽 안드로이드의 돌격소총 · 준중량탄 · 전력 케이블도 안 나온다.」
-
-**표도 굴림도 정상이었다.** `CORPSE_TABLE_MAP` · `CORPSE_LOOT_CHANCE`(`tut_bug_loot` · `tut_android_loot` = 1,
-`tut_bug` · `tut_android` = 0) · `rollCorpseOn` 을 실제 로더로 돌려 확인했고 `baseTypeOf` 는 전리품 경로에
-끼어들지 않는다 (리그 · AI · 소리에서만 쓴다 — 구체 타입이 `Corpses.rollCorpseOn(this.type, …)` 까지 그대로 간다).
-문제는 **`Corpse.interact()` 에 닿기 전에 시체가 없어지는 것**이었고 뿌리가 둘이다.
-
-### 1. 45초 — 튜토리얼에는 수명 규칙이 없었다
-
-`CORPSE_LIFETIME`(45 s)은 몸(`Enemy.corpseLife` → `EnemySystem.update` 의 despawn)과 수색 자리
-(`CorpseManager` 의 안전망 `Corpse.life`) 양쪽에 걸려 있고 **튜토리얼 예외가 없었다.** 목표 패널을 읽고
-조작을 익히며 걷는 속도에서는 가르치려고 놓아 둔 고정 드롭 두 구가 도착 전에 사라진다 (빛기둥까지 함께).
-
-이제 **이번 레이드의 시체 수명**을 `EnemySystem.corpseLifetime` 하나가 정한다 —
-평소 `CORPSE_LIFETIME`, **튜토리얼 레이드는 `Infinity`**. `world:ready` 에서 `this.tutorial` 을 정한 직후
-`corpses.lifetime` 에 넣고, 몸 쪽은 `parts/Pool.acquire` 가 `reset` 이 넣은 값을 덮는다 (리플리카도 같은 값 —
-레이드 종류는 모든 클라이언트가 `world:ready` 에서 같이 정한다). `Infinity` 는 despawn 조건
-(`deathTimer >= corpseLife`)과 페이드(`(deathTimer − (corpseLife − 3)) / 3` → 0)를 **둘 다** 자연히 끈다.
-
-**csv 에 새 수치를 만들지 않았다.** 「튜토리얼 시체는 레이드가 끝날 때까지 남는다」는 튜닝값이 아니라 규칙이고
-(플레이어 시체 `ctx.corpses` 와 같다), 99999 같은 센티넬을 `constants.csv` 에 넣으면 고칠 수 있는 수치인 척하는
-거짓말이 된다. **본편 · 훈련장의 45초는 한 글자도 안 바뀐다** — `tutorial === false` 면 getter 가 옛 상수 그대로다.
-
-### 2. 파다 죽은 몸이 땅속에 얼어붙었다
-
-굴착 스폰(2026-09-13)은 **그림만** 내린다 — 판정 위치(`Enemy.position`)는 굴착 내내 지표에 있고
-`ai/Burrow` 가 이동을 막으므로, 솟는 중에 죽어도 `kill()` 의 `getSurfaceY` 스냅이 걸려 `corpse:<id>` 는
-**처음부터 땅 위에 옳게 선다** (리드가 의심한 「데크 아래 y 등록」은 일어나지 않는다 — `parts/Damage.registerCorpse`
-는 한 줄도 안 고쳤다). 진짜 문제는 `Enemy.animate` 가 죽는 순간 `emergeT` 를 얼려 **리그가 그 깊이에 영영
-묻혀 있던 것**이다: 묻힌 깊이는 몸 높이 + `BURROW_SINK_EXTRA_M` 이라 갓 솟기 시작한 벌레는 통째로 지하고,
-플레이어에게는 「시체가 없다 = 드롭이 없다」로 보인다. 튜토리얼 첫 벌레가 정확히 그 자리다.
-
-이제 죽어도 남은 굴착 시간 동안 마저 솟는다 (사망 연출과 겹쳐 구덩이에서 빠져나오며 쓰러진다).
-**지하벌레만 예전대로 그 자리에서 멈춘다** — 뿌리박힌 채 죽는 연출이고 리그가 몸통만 내리기 때문이다.
-**본편 굴착 스폰(순찰 · 포병 · 분출 무리)도 같이 고쳐졌다** — 같은 버그를 갖고 있었다.
-
-### 배치 · 계기 확인 (고치지 않았다)
-
-- `world/tutorial/model.ts` 의 `ENEMIES` 는 **왼쪽 벌레(x −2.5, z 34) = `tut_bug_loot`**,
-  **오른쪽 안드로이드(x +7, z −54) = `tut_android_loot`** 다 — 사용자 기대와 일치한다.
-  `tut_bug` · `tut_android` 는 `CORPSE_LOOT_CHANCE` 0 이라 애초에 수색 자리가 서지 않는다 (빈 시체가 아니라 **없는 시체**다).
-- **벌레가 솟는 계기는 튜토리얼 단계가 아니라 거리다.** `updateTutorialAmbush` 가 권한 프레임마다 돌며 플레이어가
-  그 마리의 감지 반경(`TUTORIAL_ENEMY_SENSE_M` 12 m) 안에 들어오면 꺼낸다 — `shoot` 단계에 걸려 있지 않다.
-  결과는 같다(`bugs` 체크포인트 z 60 에서 가장 가까운 벌레까지 26.1 m 라 그 자리에서는 아직 땅속이고,
-  걸어 들어가는 동안 솟는다). 단계에 묶지 않은 것은 의도다 — 좌표를 옮겨도 이 파일이 안 바뀐다.
-
-- **2026-09-14 4차 (에이전트 D)** — `EnemySystem`(새 getter `corpseLifetime` + `world:ready` 한 줄),
-  `Corpses.CorpseManager`(새 필드 `lifetime`, `add` 가 `c.life` 에 넣는다), `parts/Pool.acquire`(`e.corpseLife`),
-  `Enemy.animate` · `burrowSink` 주석(죽어도 마저 솟는다). csv 무변경 · 와이어 무변경 · 계약 무변경.
-
-## 적 화염 지대 피드백 · 인간형 발소리 (2026-09-15, B-16)
-
-TODO B-16 의 적 쪽 절반 — 「적 소이 화염 지대에 소리 · HUD 표시 · 드론 피해가 없고, 레이더 · 로그 발소리가 꺼져 있다」.
-플레이어 화염 지대(gadgets `fire`) · 소리 정의(audio) · HUD 그리기(ui)는 다른 폴더의 몫이고, 여기는 **지대를 가진 폴더가
-내는 것**만 한다. 계약은 리드가 넣은 것 그대로다 — `shared/types.ts` 끝 `FireZoneInfo` · `EnemyManagerRef.getFireZones?`,
-`constants.csv` 의 `FIRE_ZONE_CRACKLE_S` · `FIRE_ZONE_DRONE_HEIGHT`. 와이어 무변경.
-
-1. **HUD 질의** — `EnemySystem.getFireZones()` → `fx/RogueGrenade.getFireZones()`: 권위 지대와 리플리카의 시각 지대
-   (`ee grenadeHit.k`) 전부, `hostile: true`. 풀 칸마다 view 객체 하나를 들고 목록 배열도 재사용한다(`getViews` 와 같은
-   규약) — HUD 가 매 프레임 불러도 할당이 없다. id `e:<n>` 은 **불이 붙을 때마다** 번호가 는다: 풀 칸이 재활용돼 다른
-   자리에 새 지대가 서면 HUD 는 그것을 새 지대로 본다. `position` = 바닥 위 중심(`getSurfaceY` — 원판 메시에서 `GLOW_LIFT`
-   를 뺀 높이, 지대가 사는 동안 같은 `Vector3`), `remaining` = 남은 `life`. 풀이 없으면(dispose 뒤) `model.EMPTY_FIRE_ZONES`.
-2. **소리** — `ignite` 가 `fire_ignite` 한 번, `updateZones` 가 지대마다 `FIRE_ZONE_CRACKLE_S × (0.85–1.15)` 주기로
-   `fire_crackle`. 첫 주기는 무작위 위상이라 여러 지대가 한 박자로 울리지 않고, 긴 프레임은 한 번만 낸다. 거리 감쇠는
-   audio/ 의 것이고 여기서는 마지막 `FIRE_FADE_OUT_S` 의 페이드만 볼륨에 곱한다. **모든 클라이언트가 자기가 그리는 지대에
-   대해** 내므로 와이어가 없다 (폭발음 `explosion` 과 같은 규약).
-3. **드론 피해** — `parts/Attacks.onFireZoneTick`(권위만)이 `ctx.drones.getDrones()` 를 돌며 수평 거리 ≤ `radius` 이고
-   지대 위 높이가 `FIRE_ZONE_DRONE_HEIGHT`(2.5 m) 미만 · 아래층(−`FIRE_ZONE_HEIGHT`) 아님이면 `damageDrone(id, dps × tick, p)`.
-   드론은 플레이어의 것이라 **던진 팩션과 무관하게** 탄다. 소유자에게 넘기는 것은 `damageDrone` 이 스스로 한다(드론 = 소유자
-   권위). 지상 드론은 늘, 공중 드론은 낮게 떴을 때만. 예전 주석의 「드론은 건드리지 않는다」를 뒤집었다 — 불 위에 세운
-   지상 드론이 멀쩡했다.
-4. **발소리** — `data/enemies.csv` 의 `rogue` · `raider` `stepSound` → true (사용자 「로그 · 레이더 모두 켬다」),
-   `model.STEP_VOICES.rogue` = 피치 0.86 · 밑값 0.6 (레이더 0.8 · 0.68 보다 가벼운 발). 로든(`rogue_sniper`) · 스캔 드론 ·
-   튜토리얼 줄은 그대로. 리플리카는 원래 `net/Replica.drive` 가 `stepSound` 를 보고 `footfall` 을 부르므로 따로 할 일이 없다.
-   `stepSound` 의 소비자는 `ai/EnemyAI.integrate` · `net/Replica.drive` · `model.emitEnemyStep` 셋뿐이고 전부 소리다 —
-   은신 · 매복 · 인지 판단이 「인간형은 조용하다」 를 가정한 곳은 없다. 비용: 카메라 `ENEMY_STEP_EMIT_RANGE` 60 m 게이트와
-   적 id 별 `ENEMY_STEP_MIN_GAP` 스로틀이 그대로라, 거점 인간형이 19–27명이어도 실제로 소리를 내는 것은 카메라 주변 몇 명뿐이다.
-
-- **2026-09-15 (B-16)** — `fx/RogueGrenade`(칸별 view · `getFireZones` · `fire_ignite` · `fire_crackle`),
-  `EnemySystem.getFireZones`, `model`(`EMPTY_FIRE_ZONES` · `STEP_VOICES.rogue`), `parts/Attacks.onFireZoneTick`(드론),
-  `data/enemies.csv`(`rogue` · `raider` `stepSound`). 스모크 `smoke-humanoid-ai` 에 화염 지대 질의 · 점화/지지직 소리 ·
-  지상 드론 피해 · 로그/레이더 발소리 검사를 더했다.
-
-## 플레이어 피해 출처 — 사망 결과 창 (2026-09-15, 결과 창 개편)
-
-- 적이 플레이어에게 넣는 피해는 전부 `parts/Damage.applyDamage(target, amount, from, id, type, …)` 한 곳을 지나고, 출처는 거기서 붙는다.
-  로컬 = `ctx.player.takeDamage(amount, from, enemyDamageSource(id, type))`, 원격 = `dmg.src {k:'enemy', et: type, ei: id}`
-  (받는 쪽 net 이 자기 `takeDamage` 셋째 인자로 넘긴다). 끊긴 분대원(`ghost:damage`)은 출처가 없다 — 호스트가 시뮬레이션하는 몸이라 결과 창이 없다.
-- `enemyDamageSource(id, type)` — 개체 id 당 frozen 객체 하나를 캐시한다 (`ENEMY_SOURCE_CACHE_MAX` 1024, 넘으면 비운다 — 이미 넘겨준 객체는
-  그대로 유효). 화염 지대 틱 · 연사에서 할당하지 않는다. 종류는 `EnemyType` id 그대로다(`tut_bug` 를 `baseTypeOf` 로 접지 않는다).
-  id ≤ 0(개체를 모른다)이면 `enemyId` 를 싣지 않는다.
-- `enemyTypeOf(sys, id, fallback)` — 산 개체 → 캐시 → fallback. 산성(`damageTargetAcid`)이 늘 `'spewer'` 로 적던 것을 **실제로 쏜 개체의 종류**로
-  고쳤고(지하벌레 독 포함), 수류탄 · 적 화염 지대는 던진 개체가 죽은 뒤에도 제 종류로 잡힌다.
-- 포병 포탄: `parts/Attacks` 의 `_shellOwners`(sid → 쏜 개체 — 발사 때 적고 착탄 · 요격 때 지운다, 상한 256). 예전엔 id 0 · `'artillery'` 고정이었다.
-  승격 전 호스트가 쏜 포탄은 여전히 id 0.
-- 적 화염 지대 안의 로컬 플레이어: `setBurning(dps, afterburn, enemyDamageSource(owner, type))` — 화상 틱과 화상사가 그 개체로 잡힌다.
-- 덮는 경로: 근접 · 도약 · 돌진(차저 · 베헤모스 넉백 포함 — `hitTarget` · `chargeHit`) · 인간형 사격 · 네임드(로든 저격 · 타길라 망치 · 헤비 미니건 —
-  전부 `fireGun` / `hitTarget`) · 산성 침 · 스퓨어 사망 폭발 · 독성 자폭 · 포탄 · 적 수류탄(파편 · 소이) · 적 화염 지대 · 지하벌레 분출. 스캔 드론은 피해가 없다.
-- **2026-09-15 (결과 창 개편, 피해 출처 에이전트)** — `parts/Damage.ts`(`enemyDamageSource` · `enemyTypeOf` · 로컬/원격 출처 · 산성 종류),
-  `parts/Attacks.ts`(수류탄 · 화염 지대 · 포탄 주인). 와이어 `DamageMessage.src` 는 append 만.
-- **2026-09-15 (결과 창 개편, 적 얼굴 썸네일 · 이름)** — 새 `models/Portrait.ts`(`renderEnemyPortrait` · `enemyDisplayNameOf`)와
-  `EnemySystem` 의 한 줄 위임 둘(`renderPortrait(enemyType, sizePx)` · `enemyDisplayName(enemyType)` — 계약 `EnemyManagerRef` 의 새 옵셔널 메서드).
-  리그를 새로 지어 자기 씬 · 자기 3점 조명 · 잠깐 쓰는 오프스크린 `WebGLRenderer` 로 한 번 그리고 버린다 — 메인 씬 광원 개수 · 공유 지오메트리
-  캐시 · 풀 · AI 무변경, csv · 와이어 무변경. 계약 주석은 이름을 `data/enemies.csv` 에서 읽는다고 적었지만 그 표에는 이름 칸이 없어(수치 표)
-  이름표는 `Portrait.ts` 에 두었다.
+| `scavenger` | bug | Swarm melee |
+| `hunter` | bug | Flanker with leap |
+| `warrior` | bug | Heavy melee |
+| `spewer` | bug | Acid globs, death burst |
+| `charger` | bug | Wind-up rush; weak rear |
+| `artillery` | bug | Stand-off mortar, interceptable shells, never melees |
+| `toxic` | bug | Suicide runner, swells then bursts (friendly fire) |
+| `behemoth` | bug | Scaled warrior (`BEHEMOTH_SCALE`), armored front plate, knockback charge |
+| `sandworm` | bug | Event boss, rooted: spits bugs then acid (`sandworm/Director`) |
+| `rogue` | rogue | Threat-2 site gunner, cover cycle, carried grenades |
+| `rogue_boss` | rogue | Site group leader (≤ `SITE_BOSS_MAX_PER_RAID`) |
+| `android` | android | Threat-1 site robot: no cover, no grenades, sparks instead of blood |
+| `raider` | raider | Threat 2–3 sites and drops: accurate long range, flanker per group |
+| `rogue_sniper` | raider | Named "Roden": prone sniper + scan drone |
+| `rogue_scan_drone` | raider | Flying scanner, unlootable wreck |
+| `rogue_hammer` | raider | Named "Tagilla": hammer melee near structures |
+| `rogue_heavy` | raider | Named "Heavy": minigun + SMG escorts |
+| `tut_bug_loot` · `tut_bug` | bug | Tutorial scavenger (fixed drop / empty) |
+| `tut_android_loot` · `tut_android` | android | Tutorial android, half hp (fixed drop / empty) |
+
+`Enemy.isHumanoid` (faction ≠ bug) gates humanoid AI, sounds and recycling; `Enemy.isRogue` is only the rogue faction check.
+
+## Public API
+- `ctx.enemies`: `getEnemies`, `getAliveCount`, `raycast`, `raycastInterceptable`, `applyExplosion`, `applyAreaDamage`,
+  `applyStatus`, `queryNear`, `addDistraction`, `setThreatLevel`, `killAll`, `reset`, `setAuthority`, `reportShot`, `setXray`,
+  `callRogueDrop`, `getRogueDrops`, `getEnemyGrenades`, `pushBack`, `getFireZones`, `renderPortrait`, `enemyDisplayName`;
+  `startExtractionWaves` / `stopExtractionWaves` exist but nothing calls them.
+- Emits: `enemy:spawned|killed|squadKill|damaged|attacked|alerted|shot|shotAlerted|chargeStarted|toxicBurst|shellFired|shellIntercepted|shellLanded|incinerated|shocked|bossSpawned|namedSpawned|factionClash|waveStarted`,
+  `corpse:spawned|removed`, `rogueDrop:incoming|landed`, `sandworm:warning|erupted`, `named:sniperGlint|scanPulse|scanExposure`,
+  `implant:barrierBumped`, `ghost:damage`, `player:applySlow`, `ui:hitmarker`, `ui:notify`, `camera:shake`, `audio:play`.
+  `enemy:killed {by, deathDir, weaponClass}` — `by === 'local'` is our kill; `weaponClass` is set only for our gun kills.
+- Listens: `world:ready`, `game:newMission`, `game:abort`, `game:paused`, `weapon:fired`, `net:remoteFired`, `grenade:exploded`,
+  `extraction:liftoff`, `tutorial:checkpoint`, `player:fell`, `crate:looted`, `world:noise`, `structure:investigated`,
+  `net:hostChanged`, `cheat:sandworm`.
+- Wire (`src/shared/net.ts`):
+  - Host → all: `es` (`EnemySnapshot`, delta), `ee` (`EnemyEvent`: `spawn` · `kill` · `despawn` · `damaged` · `attack` · `acid` ·
+    `acidAt` · `wave` · `shoot` · `shell` · `intercept` · `shellHit` · `charge` · `toxic` · `corpse` · `corpseGone` · `grenade` ·
+    `grenadeHit` · `barrierHit` · `glint` · `snipe` · `scanPulse` · `hammer` · `spray` · `wormWarn` · `wormErupt` · `wormSpit`),
+    `rdrop incoming|landed`, `dmg` to a victim, `hitc` to a requester.
+  - Client → host: `hit` (`HitRequest`: damage, `st` status bits, `kb`), `explode`, `intq` (shell interception), `shotq` (shot report).
+- Snapshot `a` hints: 1 charger windup · 2 rush · 3 spewer windup · 4 airborne/spat · 5 humanoid shooting · 6 cover/stagger ·
+  7 rush · 8 artillery dug in · 9 toxic swell · 10/11 behemoth windup/charge · 12 reload · 13 throw · 14/15 sniper prone/glint ·
+  16/17 hammer windup/charge · 18/19 heavy spin/fire · 20 scan pulse · 21/22 worm spit/acid (`net/HostSync.animHint`).
+- Debug on `getSystem('enemies')`: `debugSpawn`, `debugSpawnNamed`, `debugNamedRoll`, `debugSites`, `debugEcology`,
+  `debugBugTuning`, `debugAmbientGroup`, `debugWaveGroup`, `debugSandworm`, `debugSandwormState`, `debugSpawnBurrow`,
+  `debugTutorial`, `debugDroneTargets`, `debugSnapshot`, `debugApplySnapshot`, `debugHint`, `debugGrenade`, `debugShell`,
+  `debugXray`, `debugSetDropSquad`, `debugDropWaves`, `hitGuardStats`, `isAuthority`, `isTrainingWorld`, `isTutorialWorld`.
+
+## Authority and replicas
+- Mode is decided per mission (`refreshMode` at `world:ready` / `game:newMission` / `game:abort`) and switched live only by
+  `setAuthority` from `net:hostChanged`. Authority = single-player or lobby host: AI, spawning, damage; in a session it
+  streams `es` at `NET_ENEMY_SNAPSHOT_HZ` and `ee` events. Replica: no AI/spawner/damage; interpolates host snapshots
+  through the same pools so `raycast`, FX, map and HUD work; `takeDamage` becomes a hit flash + `hit` request.
+- `es` is a delta stream: keyframe every `NET_ENEMY_KEYFRAME_S`, on `flow rejoined|takeover`, after `reset()` and on
+  promotion; deltas carry changed rounded fields only, `gone` lists removed ids. Replicas sweep unseen ids only on
+  keyframes, `hold` omitted ones, ignore unknown ids without `ty`. Corpses leave snapshots 1.5 s after death.
+- Promotion seeds enemies from the newest wire sample, resets targets, sets `lastDamager = 'ai'`, offsets ids / shell ids /
+  `seq` (`PROMOTE_ID_GAP`, `PROMOTE_SEQ_GAP`) and resumes the spawner. Demotion `adopt`s every live enemy into a replica
+  buffer. In-flight grenades flip authority.
+- Replicas accept `ee` only from the lobby host. Host request guards run shape → sender → distance → rate:
+  `hit` damage ≤ `MAX_REQUEST_DAMAGE` and a per-sender DPS bucket (`HIT_REQUEST_DPS_MAX`) shared with `explode`;
+  `kb` ≤ `MAX_REQUEST_KNOCKBACK` within reach; `st` bits masked to `ENEMY_STATUS_BITS`, within `STATUS_SOURCE_REACH`, own
+  rate budget; `explode` within `EXPLODE_SOURCE_REACH` of the sender (dead senders allowed — grenades outlive throwers).
+- Kill credit: `ctx.stats.kills` only for `lastDamager === 'local'`; faction/AI kills (`'ai'`) emit no `enemy:killed`.
+  Replicas count their own kill from `ee kill.killer` and emit `enemy:squadKill` for other members. Burn/incinerate
+  kills credit `Enemy.burnAttacker`.
+
+## Spawning
+- `world:ready` (authority, not training/tutorial): `AmbientSpawner.initialPopulate` → `placeSiteGroups(seed, threat)` →
+  `named.roll(planet)`. The sandworm director rolls on every client. Training: no enemies at all.
+- Ambient patrols: cap `ambientCap(threat, eco)`, groups from the planet ecosystem (`src/shared/planets.ts`) within power
+  tiers; bugs burrow in (`BURROW_EMERGE_S`). Initial population does not burrow. Large bodies re-roll positions while
+  `obstacleCoverage` blocks them and are skipped rather than downgraded (`spawnBlocked`).
+- Site groups: threat 1 androids; threat 2 rogues/raiders by `SITE_RAIDER_SHARE_*` at labs/outposts, rogues at platforms
+  and ruins; threat 3 raiders. Positions from `WorldRef.getSiteSpawnPoints`; per-site seed `hash('sites:<id>@<seed>')`;
+  leash = site radius + `SITE_GROUP_LEASH_INDOOR_M` / `_OUTDOOR_M`; one raider flanker per group; rogue boss leader with escorts.
+- Raider drops: on the first `structure:investigated` of a zone the host rolls `RAIDER_DROP_CHANCE_BY_THREAT` once
+  (seeded by zone, so any host gets the same answer). Up to two waves sized by squad (`RAIDER_DROP_WAVE1/2_*`,
+  ≤ `RAIDER_DROP_WAVE_MAX`); wave 2 is a separate drop `<zoneId>#2` after `RAIDER_DROP_WAVE_GAP_S` (lost on host change).
+  Landed raiders investigate toward the structure; tram containers target the nearest platform. Alarms/sounds/HUD for
+  `rogueDrop:incoming` are owned by `audio/` and `ui/`; this folder plays only `rogue_pod_impact`.
+- Named rogues: at most one per raid, `NAMED_ROGUE_CHANCE_BY_THREAT`, seed `hash('named@<seed>')`; `ctx.missionIntel.namedId`
+  (intel broker) forces the type after consuming the rolls so placement is unchanged. Spots avoid rail corridors,
+  structure footprints and blocked ground (`named/Director.ts` header).
+- Drop and named bodies bypass `ensureCapacity`; humanoids and `relentless` bodies are never recycled.
+
+## Burrow spawns and sandworm (`굴착 스폰 · 지하벌레`)
+- Burrow: `Pool.spawn(…, emerge)` for bug faction only. `Enemy.startEmerge` lowers only the rig; `position` stays on the
+  surface so hits work; `ai/Burrow.updateBurrowGate` blocks attack/move until out; a body killed while emerging keeps
+  rising (sandworm excepted). Shake once per `BURROW_SHAKE_GAP_S`. Wire `ee spawn.em`.
+- Sandworm (`BURROW_*` / `SANDWORM_*` in `data/constants.csv` + `data/tables.csv`): per-raid roll
+  `SANDWORM_CHANCE_BY_THREAT` on every client; host triggers in `playing` under a solo player or the centre of a group of
+  ≥ 2; warn (`ee wormWarn`, `sandworm:warning`) → erupt (damage + knockback, other factions, drones, rolled max hp,
+  `ee wormErupt`) → spit bugs for `SANDWORM_SPIT_PHASE_S` (`ee wormSpit`) → acid volleys. Immobile, not recycled, no
+  stagger. `flow rejoined` → `resync()` so a promoted host continues.
+
+## Bug difficulty by planet threat (`벌레 난이도`)
+`bugThreatTuning(threat)` from six `data/tables.csv` tables (`BUG_HP_MUL_BY_THREAT`, `BIG_BUG_WEIGHT_MUL_BY_THREAT`,
+`MID_BUG_WEIGHT_MUL_BY_THREAT`, `PATROL_BEHEMOTH_BY_THREAT`, `ARTILLERY_CAP_BONUS_BY_THREAT`, `BEHEMOTH_CAP_BONUS_BY_THREAT`).
+Applied at `world:ready` on every client: bug max hp in `Pool.acquire` (not sandworm, not humanoids; no wire field),
+`threatEcosystem` weights/caps for patrols, waves and sandworm spit. Threat-1 row = identity; training and tutorial use it.
+
+## AI
+- Targets: `pickTarget` order = barrier carrier → rover aggro → drone / noticed rover → players and hostile
+  factions (hysteresis in `acquireTarget`).
+  Downed, dead and rover-riding players are not `alive` and never targeted or damaged. Drones (`aggroable` only) and the
+  rover are separate proxy lists, not in `all` / `alive`.
+- Perception: `detectionRange = sightRadius × target stealth × smoke clarity`; alert propagates within a faction.
+- Bugs: `idle → wander → alert → chase → attack → stagger`, `dead` / `flee`; artillery, toxic, behemoth in `GimmickAI`.
+- Humanoids: `RogueAI` cover cycle (pick cover → move → crouch hold → step out to `popPos` → burst → optional rush),
+  magazine reload, carried grenades (`grenadeCount`), faction profile from `HumanoidProfile`; androids use `androidCycle`.
+- Fire line: shots and spit are held (never movement) when the muzzle line from `ENEMY_WALL_STANDOFF` behind the muzzle is
+  blocked; the AI strafes (`ai/FireLine.ts`). Artillery checks the arc before firing and relocates (`shellArcBlocked`).
+- Shot tracking: weapons call `reportShot` once per trigger pull (non-hosts send `shotq`). The host puts unaware enemies
+  near the bullet path (clipped at the impact point) or impact into `ai/Investigate` with a widened cone toward the origin.
+  `world:noise` (drones) does the same except in the tutorial.
+- `holdingFire` (`ctx.extraction.holdFire`) is checked in `FireLine`, `fireGun` and `startMelee`.
+- Barrier: `integrate` calls `resolveBarrier`; contact retargets the carrier; frontal melee is absorbed via implants.
+- Named: Roden shoots players only, always after a scope glint; scan drone pulses expose players; Heavy sends only
+  `ee spray on/off` and replicas simulate tracers; Tagilla's charge borrows `chargePhase 2`. Details in each file header.
+
+## Damage, statuses, corpses
+- Enemy explosion damage uses `shared/explosion.explosionFalloff` (distance to body surface, per-source floors).
+- Every enemy hit on a player goes through `parts/Damage.applyDamage` and carries `enemyDamageSource(id, type)` locally or
+  `dmg.src` remotely; ghosts (`suspended`) get `ghost:damage`.
+- Statuses: host owns timers; replicas mirror `EnemyWire.sb` and request via `hit {dmg: 0, st, dur}`. Hazard zones apply a
+  quiet DoT (`HAZARD_ENEMY_DPS`, no credit).
+- Corpses: `CORPSE_LOOT_CHANCE` (`src/shared/types.ts`) decides searchability on its own seed stream; loot is rolled on
+  interact with `shared/lootRolls.corpseLootRandom` and inputs (`site`, remaining grenades) replicated in `ee corpse`.
+  Mid-air kills fall (`integrateDeathFall`) and register on landing. Lifetime = `EnemySystem.corpseLifetime`
+  (`CORPSE_LIFETIME`, `Infinity` in the tutorial).
+
+## Tutorial enemies
+Tutorial raids place only `ctx.world.tutorial.enemySpawns()` (read once; killed enemies stay dead): no rolls, patrols,
+sites, drops, named, sandworm. Humanoids spawn at `world:ready`; bugs wait as an ambush and burrow in when the player
+enters their own sense radius, then chain-spawn every `TUTORIAL_BUG_CHAIN_SPAWN_S`. Per-enemy `senseRadius`
+(`TUTORIAL_ENEMY_SENSE_M`) clips sight, hearing, lures, alert propagation and faction targeting; `homeLeash`
+(`TUTORIAL_ENEMY_LEASH_M`) returns them home and stops patrolling. Checkpoints release zones (`crawl` → bugs, `supply` or a
+cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftoff there is no flee; humanoids within
+`TUTORIAL_LIFTOFF_FIRE_RANGE_M` target the rider for `TUTORIAL_LIFTOFF_FIRE_S`. Both fields are 0 outside the tutorial.
+
+## Rules
+- Bodies are pooled; spawn only through `Pool.acquire` / `spawn` / `spawnRogue` (threat hp multiplier and corpse lifetime are applied there) — `parts/Pool.ts`.
+- `parts/` import only types from `EnemySystem.ts`; shared values go in `model.ts` (circular import).
+- Tutorial enemy types reuse the base type's rig/AI/sound tables via `baseTypeOf`; never add rows to those tables — `EnemyTypes.ts`.
+- `ai/RemoteFx` and replica hooks must not change game state; only the authority decides damage and spawns.
+- Humanoid vs bug checks use `isHumanoid`, not `isRogue` — `Enemy.ts`.
+- Keep drones and the rover out of `TargetList.all` / `alive`; paths that need them read `drones` / `vehicles` — `Targets.ts`.
+- Drone blast damage is added at each enemy blast site (`ctx.drones.applyExplosion`), not inside `explode()`: player and
+  gadget explosions (and replica `explode` requests) also pass through `explode()` and would hit drones twice — `parts/Attacks.ts`.
+- Only enemies and hazards damage the rover: never add a vehicle path to `explode()`, `applyAreaDamage` or `hit`, which
+  carry player weapons, gadgets and ship calls — `parts/Damage.ts`, `Targets.ts` (`damageVehicleAt`).
+- Rover damage folds to attacker `'ai'`; no `'rover'` id may reach kill credit or contracts — `Enemy.takeDamage`.
+- A lootable/fall-direction roll must never draw from the `rollCorpse` rng (`src/inventory/__selftest__.ts` pins it) — `Corpses.ts`.
+- Corpse preview (drone scan) and opening must use the same seeded roll and inputs — `shared/lootRolls`, `ee corpse`.
+- Visibility-based sight to a vehicle stops short of its own collider (`VEHICLE_RAY_MARGIN`) — `ai/Perception.ts`, `ai/FireLine.ts`.
+- No lights on enemies or FX; glows are emissive (`smoke-lights` enforces a constant light count).
+- `game:newMission` resets only if the world has not already generated for that seed (world emits `world:ready` first) — `EnemySystem.ts`.
+- Sniper fires only after the glint; blocked muzzle before a glint relocates instead — `ai/named/Sniper.ts`.
+
+## Recent changes
+Last 5 only — older: `git log -- src/enemies`.
+- 2026-09-15 — All enemy explosion falloff (grenade, shell, toxic, spewer burst, sandworm, rover) uses `shared/explosion`.
+- 2026-09-15 — Tutorial bug chain spawn, zone aggro release on checkpoints/falls, liftoff fire window instead of flee.
+- 2026-09-15 — Player damage source for the death screen (`enemyDamageSource`, `dmg.src`); enemy portraits and names (`models/Portrait.ts`).
+- 2026-09-15 — Enemy fire zones: `getFireZones`, ignite/crackle sounds, drone damage; rogue/raider footsteps on.
+- 2026-09-14 — Tutorial corpses never despawn; bodies killed while burrowing finish emerging.

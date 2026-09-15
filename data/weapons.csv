@@ -35,7 +35,7 @@
 #   AR  320 m/s · g 7.2 → 100 m 0.35 · 200 m 1.41 · 300 m 3.16 m
 #   DMR 480 m/s · g 5.5 → 100 m 0.12 · 200 m 0.48 · 300 m 1.07 m
 #   SR  650 m/s · g 5.1 → 100 m 0.06 · 200 m 0.24 · 300 m 0.54 m
-#   확장 총열(attachments.csv att_barrel_ext)은 g × 0.6. 벌레별 킬 시간 표는 data/README.md 의 2026-09-14 절.
+#   확장 총열(attachments.csv att_barrel_ext)은 g × 0.6. 벌레별 킬 시간 표는 현행 문서에서 뺐다 — `git show 3949d37:data/README.md` 의 2026-09-14 절.
 #
 # ── 2026-09-15 무게 (사용자 결정) ──
 # weight 칸은 등급과 무관하다 (등급 I–V 가 한 줄의 같은 값을 쓴다 — 계단 상수가 없다).

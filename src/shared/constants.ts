@@ -1554,7 +1554,7 @@ export const NAMED_ROGUE_CHANCE_BY_RANK: readonly number[] = numberList('tables.
 /** 헤비의 SMG 호위 인원 — index 0 = 분대 1명 … 3 = 4명. */
 export const NAMED_HEAVY_ESCORTS_BY_SQUAD: readonly number[] = numberList('tables.csv', 'NAMED_HEAVY_ESCORTS_BY_SQUAD');
 
-/* ── 2026-09-11: C 항목 배치 (docs/HISTORY.md 「2026-09-11 (14차: C 항목 배치)」) ── */
+/* ── 2026-09-11: C 항목 배치 (커밋 `36e15e3`(계약)) ── */
 /** 재해 구역 안의 적이 받는 조용한 초당 피해 (C-14, owner: enemies — world/Hazard 가 구역을 정한다). */
 export const HAZARD_ENEMY_DPS = K.num('HAZARD_ENEMY_DPS');
 /** 채집 노드 수량 굴림 (C-20, owner: world/Gather) — 고철 2개 · 약초 2개 확률, 고철 부가 코어 확률 · 개수. */
@@ -1568,7 +1568,7 @@ export const GATHER_SALVAGE_MINERAL_QTY = K.num('GATHER_SALVAGE_MINERAL_QTY');
 /** 장착 가방이 레이드 1회마다 잃는 내구도 (C-36, owner: inventory). */
 export const BAG_DURABILITY_PER_RAID = K.num('BAG_DURABILITY_PER_RAID');
 
-/* ── 2026-09-11: 소셜 · 신뢰 · 연결 (docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」) ── */
+/* ── 2026-09-11: 소셜 · 신뢰 · 연결 (커밋 `9bd72ce`(계약) · `b3fc2f0`(구현)) ── */
 /** E-4 (owner: shared/buffRules — implants · gadgets 가 쓴다): 버프 사거리 여유(m). */
 export const BUFF_RANGE_SLACK = K.num('BUFF_RANGE_SLACK');
 /** E-4: 받는 쪽 치유 토큰 버킷 배수. */

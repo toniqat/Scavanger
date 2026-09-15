@@ -4,7 +4,7 @@
  *
  * 브라우저 스모크는 `window.__scavDesktop = true` 로 셸을 *흉내* 낸다 — 그래서 셸 쪽 코드(창 서버 · `/ws` 프록시 ·
  * 임베디드 릴레이 지연 시작 · 릴레이 주소 결정 · 창 포트 = 세이브 오리진 · 단일 인스턴스 락)는 지금까지 사람이
- * CDP 로 붙어 손으로만 확인했다 (`electron/README.md` · `docs/VERIFICATION.md` 의 수동 기록). 이 스크립트가 그 절차다.
+ * CDP 로 붙어 손으로만 확인했다 (수동 기록은 git 이력에 있다). 이 스크립트가 그 절차다.
  *
  *   0. 준비   `dist/` 가 `src/` · `data/` 보다, `dist-electron/main.js` 가 `electron/` · `server/` · `src/shared/` 보다
  *             오래됐으면 다시 굽는다 (`vite build` + `node electron/build.mjs` — `npm run app:build` 에서 tsc 만 뺐다:
@@ -46,7 +46,7 @@
  *     그래서 1번은 메인 프로세스의 `sendInputEvent` 로 넣는데, 숨긴 창은 포커스가 없어 포인터 락을 잡을 수 없으므로
  *     "Escape 로 락을 푼 직후 ≈1.25초 재요청 거부" 쿨다운과 `shared/Input` 의 미루기는 여전히 재지 못한다. 여기서 보는
  *     것은 **배선**뿐이다 — Escape key-up 이 `before-input-event` → `executeJavaScript(…, true)` → `window.__scavShellRelock`
- *     까지 닿는지. 락이 실제로 돌아오는 시각은 `docs/VERIFICATION.md` 2026-09-10 의 계측이 원본이다.
+ *     까지 닿는지. 락이 실제로 돌아오는 시각은 `src/shared/Input.ts` 의 「Escape 직후의 재잠금은 미룬다」 주석(커밋 `3b12420`)이 원본이다.
  *   - 숨긴 창은 포커스 · 전체화면 · 창 상태 복원(`windowState.ts`)을 보지 못한다. 강제 종료(작업 관리자) 뒤 세이브 유지
  *     (`flushStorageData`)도 여기서는 재지 않는다 — 정상 종료만.
  *

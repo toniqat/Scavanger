@@ -1,117 +1,125 @@
-# 시스템 아키텍처 · 미션 플로우
+# System architecture · mission flow
 
-[CLAUDE.md](../CLAUDE.md) 에서 분리했다. 폴더별 상세는 각 폴더의 `README.md` 에 있다.
+Split out of [CLAUDE.md](../CLAUDE.md). Per-folder detail is in each folder's `README.md`.
 
 ---
 
-## 1. 시스템 수명주기
+## 1. System lifecycle
 
 ```ts
 interface GameSystem { name; init(ctx); update(dt, ctx); lateUpdate?(dt, ctx); dispose?() }
 ```
 
-폴더 간 통신은 **`ctx.bus` 이벤트**(비동기 알림)와 **`ctx` 의 `*Ref` 인터페이스**(동기 질의) 둘뿐이다.
-다른 기능 폴더의 내부를 import 하지 않는다 — `@/shared` 만.
+Folders talk through exactly two channels: **`ctx.bus` events** (async notifications) and **`*Ref` interfaces on `ctx`**
+(sync queries). Never import another feature folder's internals — only `@/shared`.
 
-### 등록 · 업데이트 순서 (`main.ts`)
+### Registration · update order (`src/main.ts`)
 
 ```
 NetSystem → ProgressionSystem → HousingSystem → WorldSystem → HubSystem → PlayerSystem →
 RemotePlayerSystem → ImplantSystem → WeaponSystem → EnemySystem → InventorySystem → MetaSystem →
-GadgetSystem → PickupSystem → StratagemSystem → ExtractionSystem → HudSystem → AudioSystem →
+GadgetSystem → DroneSystem → PickupSystem → StratagemSystem → ExtractionSystem → HudSystem → AudioSystem →
 GameFlowSystem → TutorialSystem → ConsoleSystem
 ```
 
-이 순서에는 이유가 있다:
+Registration order is update order, and it matters:
 
-| 위치 | 왜 |
+| Position | Why |
 |---|---|
-| `NetSystem` 첫 번째 | 아무도 `ctx.net` 을 읽기 전에 이번 프레임의 스냅샷이 적용돼 있어야 한다 |
-| `ProgressionSystem` 두 번째 | 거의 모든 시스템이 `ctx.progression.derived` 를 읽는다 |
-| `HousingSystem` → 허브 · 인벤토리보다 앞 | 허브가 함선 상태로 내부를 짓고, 인벤토리가 창고 크기를 읽는다 |
-| `ImplantSystem` → `WeaponSystem` 앞 | 같은 프레임의 `blocksWeapons` 가 최신이어야 총이 홀스터된다 |
-| `GadgetSystem` → `InventorySystem` 뒤 | `use()` 가 아이템을 소모할 수 있어야 한다 |
-| `TutorialSystem` → 지켜보는 시스템들 뒤, 콘솔 앞 | 진행을 이벤트로만 판단하므로 순서에 민감하지 않지만, `init` 에서 `ctx.console` 에 `tutorial` 명령을 붙인다 |
-| `ConsoleSystem` 마지막 | 치트가 그 프레임의 최종 상태를 본다. dev 호스트가 아니면 아예 동작하지 않는다 |
+| `NetSystem` first | This frame's snapshots must be applied before anyone reads `ctx.net` |
+| `ProgressionSystem` second | Almost every system reads `ctx.progression.derived` |
+| `HousingSystem` before hub · inventory | The hub builds the personal ship from ship state; inventory reads the stash size |
+| `ImplantSystem` before `WeaponSystem` | The same frame's `blocksWeapons` must be current so the gun holsters |
+| `MetaSystem` after `InventorySystem` | Buy / sell / deliveries use the bag + stash |
+| `GadgetSystem` after `InventorySystem` | `use()` must be able to consume items |
+| `DroneSystem` right after `GadgetSystem` | `gadgets.use` hands deployment to it (control input · drone camera · owner-authoritative sync) |
+| `TutorialSystem` after the systems it watches, before the console | Progress is event-driven so order barely matters, but `init` attaches the `tutorial` command to `ctx.console` |
+| `ConsoleSystem` last | Cheats see the frame's final state. It does not exist at all outside a dev host |
 
-> **주의**: `WorldSystem` 은 자기 `game:newMission` 핸들러 **안에서 동기적으로** 월드를 생성하므로,
-> `world:ready` 는 뒤에 등록된 시스템들의 `game:newMission` 핸들러보다 **먼저** 발생한다.
-> 그래서 `world:ready` 에서 무조건 `reset()` 하면 안 된다 — `ctx.world.seed` 를 확인한다.
+> **Gotcha**: `WorldSystem` generates the world **synchronously inside its own `game:newMission` handler**, so
+> `world:ready` fires **before** the `game:newMission` handlers of systems registered after it.
+> Never unconditionally `reset()` on `world:ready` — check `ctx.world.seed`.
 
-> **셰이더 hold (2026-09-10)**: `world:ready` 가 나면 `core/Engine` 이 `ctx.shaders.holdForScene()` 을 건다. 그 순간부터
-> `holding` 이고, 같은 프레임의 나머지 `game:newMission` 핸들러(허브 철거 · 헬포드 · 탈출 콘솔 …)가 다 돈 뒤
-> **그리기 직전에** 씬 전체를 컴파일한 다음, 드라이버가 끝낼 때까지 **시뮬레이션 dt 가 0 이고 그리지 않는다**
-> (`game:paused {freeze}` 와 같은 방식 — 시스템은 dt 0 으로 계속 돌고 네트워크 메시지도 처리한다). 그래서 hold
-> 동안 `ctx.missionTime` 은 멈추고 `ctx.time` 은 흐른다. 함선 진입 · 도킹 컷씬 시작 · 공유 함선 도착 · 격납고
-> 드나들기도 같은 hold 를 건다 (`hub/parts/Transitions`). 씬의 점광원 개수는 `core/LightBudget` 이 세션 내내
-> 고정한다 — 광원을 더하는 코드는 CLAUDE.md 의 광원 규칙을 먼저 읽는다.
+> **Shader hold**: on `world:ready`, `core/Engine` calls `ctx.shaders.holdForScene()`. From then on the engine is
+> `holding`: after the rest of that frame's `game:newMission` handlers run (hub teardown · hellpods · extraction consoles …)
+> it compiles the whole scene **right before drawing**, and until the driver finishes **simulation dt is 0 and nothing is
+> drawn** (same mechanism as `game:paused {freeze}` — systems keep ticking with dt 0 and network messages are still
+> processed). So during a hold `ctx.missionTime` stops while `ctx.time` runs. Ship entry · docking cutscene start · shared
+> ship arrival · hangar transitions take the same hold (`hub/parts/Transitions`). `core/LightBudget` keeps the scene's
+> point-light count fixed for the whole session — code that adds lights reads the light rule in CLAUDE.md first.
 
-## 2. 게임 루프 (플레이어 관점, 목표)
+## 2. Game loop (player view)
 
-게임 시작 → 개인 함선 → 컴퓨터(기업 접촉 · 계약 · 퀘스트) → 공유 함선 호출(큐) → 매칭 → 목표 행성 설정 →
-로드아웃 → 준비 → 행성 도착 → 레이드 → 탈출구에서 함선 호출 → 60 초 디펜스 → 탈출 →
-정산(경험치 · 계약) → 공유 함선 → 컴퓨터(퀘스트 완료).
+Game start (new characters begin in the tutorial raid) → personal ship → computer (corporations · contracts) and messenger
+(NPC quests) → matchmaking to a shared ship → set target planet → loadout → launch-pod ready → planet → raid → call the ship
+at an extraction pad → ship lands → board and depart → results (XP · contracts) → ship.
 
-## 3. 미션 플로우 (이벤트)
+## 3. Mission flow (events)
 
-1. `GameFlowSystem` 이 `game:newMission {seed}` 발행 → `WorldSystem` 이 **동기 생성** 후 `world:ready {seed, playerSpawn}`.
-2. `world:ready` 에서: 플레이어가 스폰 지점에 강하, 적 리셋 + 앰비언트 스폰 시작,
-   인벤토리가 (아무 것도 없을 때만) 최소 킷을 주고 `loadout:changed`,
-   탈출 시스템이 `ctx.world.getExtractionPoints()` 에 콘솔을 세운다.
-3. 플레이어가 패드 스위치를 누름 → `extraction:activated` → 적의 탈출 웨이브 시작, HUD 카운트다운, 매 프레임 `extraction:tick`.
-4. 카운트다운 종료 → `extraction:shipIncoming` → 착륙 → `extraction:shipLanded`; 탑승하면 `extraction:boarded`.
-5. 함선 스위치 → `extraction:liftoff` → 문이 닫히고 상승 → `game:complete {stats}`.
-6. `player:died` → `game:over {stats}`. 결과 화면이 `hub:enter {ship}` 발행 →
-   `HubSystem` 이 (미션 / 결과 페이즈였다면) 먼저 `game:abort` 를 내고 함선을 지은 뒤
+1. `GameFlowSystem` emits `game:newMission {seed}` → `WorldSystem` generates **synchronously**, then `world:ready {seed, playerSpawn}`.
+2. On `world:ready`: the player drops to the spawn, enemies reset and ambient spawning starts, inventory gives a minimum kit
+   (only when empty) and emits `loadout:changed`, extraction builds consoles on `ctx.world.getExtractionPoints()`.
+3. Player activates a pad console → `extraction:activated` → HUD countdown, `extraction:tick` every frame. There are no
+   defense waves.
+4. Countdown ends → `extraction:shipIncoming` → landing → `extraction:shipLanded`; boarding → `extraction:boarded`.
+   While landed: `extraction:departureTick` (idle timer, then grace).
+5. Interior switch or idle timeout → `extraction:departureStarted` (uncancellable grace) → `extraction:liftoff {aboard, squadDone}`.
+   Riders get `game:complete {stats}`; players left behind keep playing and get `extraction:reset` (they can call again).
+   Details: [src/extraction/README.md](../src/extraction/README.md).
+6. Solo death or squad wipe → `game:raidFailed` then `game:over {stats}`. The result screen emits `hub:enter {ship}` →
+   `HubSystem` first emits `game:abort` (if coming from a mission / result phase), builds the ship, then
    `player.setInterior(collider)` + `spawnStanding`, `setPhase('hub')`, `hub:entered`.
-   `game:newMission` 은 허브를 허문다 (`hub:left`). **허브에서는 `ctx.world` 가 null 이다.**
+   `game:newMission` tears the hub down (`hub:left`). **`ctx.world` is null in the hub.**
 
-## 4. 입력 게이트 · UI blocker · 커서 규약
+## 4. Input gates · UI blockers · cursor
 
-- `ctx.isGameplayActive()` — 무기 · 핑 · 지도 · 수류탄의 게이트.
-- `ctx.isControlActive()` — 이동 · 자세 · 상호작용 · 카메라의 게이트 (게임플레이 **또는** `hub` 페이즈, blocker 없음).
+- `ctx.isGameplayActive()` — gate for weapons · pings · map · grenades.
+- `ctx.isControlActive()` — gate for movement · stance · interaction · camera (gameplay **or** `hub` phase, and no blocker).
 
-**UI blocker 토큰**: `menu` · `inventory` · `map` · `chat` · `hub`(터미널) · `ready`(발사 준비 패널 —
-허브의 하차 경로는 이 토큰 하나만 무시한다) · ~~`cursor`(Alt 커서 — 2026-09-10 제거, 쓰는 곳 없음)~~ · `housing` · `shipmanage` ·
-`COMMUNITY_BLOCKER` · `RESUME_GATE_BLOCKER`.
+**UI blocker tokens** (`ctx.uiBlockers`; grep `uiBlockers.add(` for the full list): `menu` · `inventory` · `map` · `chat` ·
+`hub` (terminal) · `hub:intel` · `hub:match` · `ready` (launch-ready panel — the hub's exit-pod path ignores only this token) ·
+`housing` · `housing.cook` · `housing.gym` · `housing.game` · `shipmanage` · `stats` · `tutorial` · `rescuePick` · `console` ·
+`COMMUNITY_BLOCKER` · `RESUME_GATE_BLOCKER`. `FREE_CURSOR_BLOCKER` (`cursor`) is exported for contract stability but has no users.
 
-### 커서 = 포인터 락 해제 (2026-09-07 rework)
+### Cursor = pointer-lock release
 
-UI 화면은 자기 토큰을 추가하고 `ctx.input.setCursorMode(true, TOKEN)` 를 부른다.
-그것이 **포인터 락을 놓는다** — 그래서 진짜 OS 커서가 돌아오고, `ui/hud/GameCursor` 가 그 커서를
-절차 생성한 CSS 커서 아트로 다시 칠한다. `setCursorMode` 는 토큰별 ref-count 다.
+A UI screen adds its token and calls `ctx.input.setCursorMode(true, TOKEN)`. That **releases the pointer lock**, so the real
+OS cursor comes back and `ui/hud/GameCursor` repaints it with procedurally drawn CSS cursor art. `setCursorMode` is
+ref-counted per token.
 
-- 화면은 **스스로 `exitPointerLock()` 하지 않고**(`setCursorMode` 가 한다) **스스로 재잠금하지도 않는다**(`main.ts` 가 한다).
-- 일시정지 메뉴(`menu`)도 예외가 아니다 — `ui/menus/MenuBase` 가 같은 토큰을 쓴다.
-- 커서 모드 **밖에서** 락을 잃는 것(Chrome 이 돌려주지 않는 Escape, 알트탭 복귀)은 그냥 커서가 보이는 상태다.
-  게임은 계속 돌고, `Input` 이 다음 진짜 제스처에서 락을 재시도하며, 캔버스 좌클릭이 폴백이다.
-  **창 포커스를 잃었을 때만 일시정지된다.**
+- Screens **never call `exitPointerLock()` themselves** (`setCursorMode` does) and **never re-lock themselves** (`main.ts` does).
+- The pause menu (`menu`) is no exception — `ui/menus/MenuBase` uses the same token.
+- Losing the lock **outside** cursor mode (an Escape Chrome does not return, alt-tab back) just leaves the cursor visible.
+  The game keeps running, `Input` retries the lock on the next real gesture, and a left click on the canvas is the fallback.
+  **Only losing window focus pauses.**
+- `shared/Input` filters lock bounces (`LOCK_BOUNCE_GRACE_MS`) and defers re-lock requests right after Escape; see the
+  comment 「Escape 직후의 재잠금은 미룬다」 in `src/shared/Input.ts`.
 
-### ESC 닫기 스택 (2026-09-09)
+### ESC close stack
 
-blocker 토큰과 짝을 이루는 두 번째 등록부다. 화면은 `uiBlockers.add(TOKEN)` **옆에서**
-`ctx.escape.push(TOKEN, () => this.close())` 하고, `delete` 옆에서 `ctx.escape.remove(TOKEN)` 한다
-(`shared/escape` 의 `EscapeStack`). Escape 한 번은 **열린 순서의 역순으로 맨 위 하나**를 닫고, 스택이 비어
-있을 때만 일시정지 메뉴가 열린다 — 정책은 `game/parts/Phases.escapeKey` 한 곳이다.
+A second registry paired with blocker tokens. A screen calls `ctx.escape.push(TOKEN, () => this.close())` **next to**
+`uiBlockers.add(TOKEN)`, and `ctx.escape.remove(TOKEN)` next to `delete` (`shared/escape` → `EscapeStack`). One Escape closes
+**the topmost screen, in reverse opening order**; only when the stack is empty does the pause menu open — the policy lives
+in one place, `game/parts/Phases.escapeKey`.
 
-- 순서를 `shared` 가 아는 이유: Tab 공용 닫기처럼 화면마다 키를 폴링하면 닫히는 순서가 **시스템 등록 순서**로
-  정해져(`main.ts`), 위에 뜬 패널보다 아래 모드가 먼저 닫힌다.
-- 한 토큰을 여럿이 나눠 쓰는 곳(`hub`)은 `'hub:terminal'` 처럼 자기 key 를 쓴다. 토큰이 아예 없는 팝업도
-  자기 key 로 올릴 수 있다 (`'hub:crewLoadout'`).
-- 가장 안쪽 팝업(수량 지정 · 우클릭 메뉴 · 경고 팝업 · 설정 · 키 바꾸기 · 채팅 · 콘솔)은 스택에 없다 —
-  자기 **window capture** 핸들러에서 Escape 를 삼켜 `Input` 이 기록조차 못 하게 한다.
-- 일시정지 메뉴 자신은 **데스크톱 앱에서만** Escape 로 닫힌다(`isDesktopShell()`, `ui/menus/PauseMenu`).
-- 닫기 함수가 **`false`** 를 돌려주면 항목이 스택에 남는다 — 화면 안에서 한 걸음만 되돌린 경우
-  (하우징 모드가 들고 있던 가구만 내려놓는 것처럼).
+- Why `shared` knows the order: if every screen polled the key, closing order would follow **system registration order**
+  (`main.ts`) and a lower mode could close before the panel on top of it.
+- Places that share one token (`hub`) push their own key, e.g. `'hub:terminal'`. Popups with no token can push a key too.
+- The innermost popups (quantity picker · context menu · warning popup · settings · key rebinding · chat · console) are not
+  on the stack — they swallow Escape in their own **window capture** handler so `Input` never records it.
+- The pause menu itself closes on Escape **only in the desktop app** (`isDesktopShell()`, `ui/menus/PauseMenu`).
+- If a close function returns **`false`** the entry stays on the stack — the screen only stepped back one level
+  (e.g. housing mode putting down the held furniture).
 
-키 레이아웃과 커서의 자세한 사정은 [CONTROLS.md](CONTROLS.md).
+Key layout and cursor details: [CONTROLS.md](CONTROLS.md).
 
-## 5. `src/main.ts` — 부트스트랩
+## 5. `src/main.ts` — bootstrap
 
-Engine 을 띄우고 시스템을 위 순서대로 등록한다. 그 외에 두 가지 일을 더 한다:
+Starts the Engine and registers systems in the order above. It also:
 
-1. 커서의 `onModeChange` 를 버스의 `input:cursorModeChanged` 로 **중계**한다
-   (`shared` 가 커서를 소유하지만 버스는 갖고 있지 않다).
-2. 마지막 커서 소유자가 사라졌을 때 **포인터 락을 다시 요청하는 유일한 지점**이다.
-   조건은 페이즈뿐이다(`isGameplayPhase()` 또는 `isHubPhase()`, 죽지 않았을 것) — blocker 검사는 없다.
-   커서를 쓰는 화면은 전부 커서 모드 소유자이므로, **마지막 소유자가 사라졌다는 사실 자체가 조건**이다.
+1. **Relays** the cursor's `onModeChange` onto the bus as `input:cursorModeChanged` (`shared` owns the cursor but has no bus).
+2. Is **the only place that re-requests the pointer lock** when the last cursor owner leaves. The only conditions are phase
+   (`isGameplayPhase()` or `isHubPhase()`) and not dead — no blocker check. Every screen that uses the cursor is a cursor-mode
+   owner, so **the last owner leaving is itself the condition**.
+3. Forwards `input.onUserUnlock` to `input:pointerLockLost` (game/ opens the pause menu for it) and applies display settings
+   (`ui:displayChanged` → bloom · shadows · resolution scale).

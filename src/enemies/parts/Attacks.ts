@@ -147,6 +147,8 @@ export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority:
       sys.applyDamage(t, damage * falloff, p, owner, type, null, 0.9 * falloff, false, _kb, GRENADE_KNOCKBACK * falloff);
     }
     sys.explode(p, radius, damage, 'ai', null, null, thrower?.faction ?? 'rogue');
+    // 드론 · 탐사 차량 몫은 `explode()` 안이 아니라 **적 폭발 자리마다** 따로 부른다 — `explode()` 는 플레이어 무기 · 가젯 ·
+    // 함선 호출 · 리플리카 `explode` 요청도 지나가므로, 거기 넣으면 드론은 두 번 맞고 차량은 플레이어 공격에 깎인다.
     ctx.drones?.applyExplosion(p, radius, damage);   // 2026-09-11: 권한에서만 (소유자에게는 damageDrone 이 넘긴다)
     sys.targets.damageVehicleAt(p, radius, damage);  // 2026-09-13: 탐사 차량 (적의 폭발만)
     sys.alertHearing(p, GRENADE_NOISE);

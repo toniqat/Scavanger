@@ -1,1103 +1,251 @@
 # src/hub — Ship hub (`HubSystem`)
 
-Helldivers 2-style ship interior between missions. The player walks around a small **personal ship** (solo), finds a
-signal at the terminal (quick match / code / broadcast), flies a **docking cutscene** into the large **shared ship**
-(up to 4 players, remote avatars rendered by `player/RemotePlayerSystem`), walks the deck (and the **격납고** behind its aft 자동문, where every member's 개인 함선 is parked and can be boarded), and boards a **launch pod** to ready up. When
-every connected member is boarded the host runs `HUB_LAUNCH_COUNTDOWN` and calls `ctx.net.startGame(seed)`; solo, the
-personal pod emits `game:newMission` directly. Publishes `ctx.hub` (`HubRef`). Owns phases `hub` and `docking`
-(not gameplay: `ctx.world` is null, no weapons / enemies / pings; movement + interaction use `ctx.isControlActive()`).
-Everything is procedural Three.js geometry — no asset files. Import via `@/hub` → `HubSystem`.
+The walkable ship between missions. Solo play happens in the small **personal ship**; joining a lobby plays a
+**docking cutscene** into the large **shared ship** (up to 4 players), whose aft **hangar** parks every member's personal
+ship for boarding and visits. Players sit in **launch slots**, hold to ready up, and the host (or the solo player)
+launches. The full-screen **terminal** picks the target planet (window warp), buys intel and opens matchmaking and the
+training arena. The folder also builds every furniture model and the 3D staging of gym, cooking and video-game sessions,
+and runs the 3D side of ship management (`시설 관리`). Publishes `ctx.hub` (`HubRef`) and owns phases `hub` and
+`docking` (not gameplay: `ctx.world` is null). Everything is procedural Three.js geometry. Import via `@/hub`.
 
-| File | Purpose |
+Rules for rooms, furniture, placement and stations live in `ctx.housing` (`src/housing`); this folder renders them and
+forwards interactions.
+
+## Files
+
+| File | Responsibility |
 |---|---|
-| `HubSystem.ts` | `GameSystem` (`name: 'hub'`) + `HubRef`. Enter / build / teardown, docking transitions, pod boarding, lobby → pod sync, launch countdown, Esc / E handling, pointer-lock etiquette (see below). **함선 꾸미기** (2026-09-06): `setMissionSeed` (console `/seed` only; lobby host pushes `setLobbySeed`, non-host refused), `currentRoom` + `hub:roomEntered` (player XZ vs the room boxes, every frame), door-sign refresh on `housing:roomPurposeChanged / changed / loaded`, owns the `FurnitureLayer` and the `HousingMode` controller (debug getters `.housing`, `.furnitureLayer`). **Phase 8**: Esc never opens the terminal any more (game/ owns the hub 일시정지 메뉴) and neither does a lost pointer lock; `Keys.MAP` (M, read live, no blocker / not boarded / personal ship) calls `openShipManage()` → `ctx.housing.openShipManage(currentRoom)` (the HUD calls it **시설 관리**); **Phase 8 UI pass**: the room door consoles (`hub_room_<i>`) and the cockpit facility console (`hub_facility`) are gone, geometry included — rooms / purposes / facilities are managed from the Tab 함선 tab and from 시설 관리; `refreshRoomSign` also drives 방 조명 (`PersonalShip.setRoomLit`); `updateNear` runs the 자동문 + room-light pool every frame; the built-in workbench is optional (shared ship only) and `furn_repair_bench` / `furn_grow_rack` furniture route to `WorkbenchMenu.open()` / `ctx.housing.openGrowMenu(uid)` — **셋 다 2026-09-12 · 2026-09-11 에 은퇴했다** (`wbMenu` 필드도 없다). **2026-09-08 (격납고)**: `visit` / `visitShip` / `pendingBay` + the `HubRef` members `hubSite` · `visitingPeer` · `visitReadOnly` · `getShipBays()` · `enterShipBay(slot)` · `returnToHangar()`, and the `ship state` broadcast (`bindShipRequests`, the debounced `shipStateDirty` flush in `update`, re-sent on `housing:changed / loaded / booksChanged`). |
-| `model.ts` | 폴더 공용 어휘 — `HubSystem` 에서 떼어낸 상수 · 타입 · 스크래치. 클래스를 참조하지 않으므로 `parts/*` 가 순환 import 없이 쓴다. `HubSystem.ts` 가 재수출하므로 기존 import 경로는 그대로다 |
-| `parts/Planet.ts` | **목표 행성 선택과 워프 이동** (Phase 11 · **창문 워프** 2026-09-09). 임무는 여전히 무작위 시드로 생성되지만 **어느 행성인지**는 플레이어가 고른다. 로비에서는 **호스트만** 정하고 나머지는 `lobby:state` 로 같은 워프를 본다. 이동은 함선 내부를 재생성하지 않는다 — 창밖만 바뀐다. 목표 행성이 없으면 발사 슬롯에 탑승할 수 없다. **2026-09-09**: 이동은 더 이상 컷씬이 아니다 — `startTravel` 이 `HubSystem.warp`(`WarpState`)를 켜고 `tickTravel` 이 매 프레임 `speed`(smoothstep 램프 `HUB_WARP_RAMP_S` 위/아래, 중간 1)를 계산해 `interior.setWarp(speed, dest)` · `hub:warpProgress {planet, t, speed}` · `camera:shake`(`HUB_WARP_SHAKE_INTERVAL_S` 마다 `HUB_WARP_SHAKE_PEAK × speed`) 를 낸다. 카메라 오버라이드 · 조작 잠금 **없음**. `finishTravel` = 도착 꼬리(`applyPlanetLook` · 화면 · 포드 · `hub:travel end` · `hub:planetChanged` · 토스트 · `hub_dock_clamp`), `cancelTravel` = 내부가 허물어질 때 이벤트 없이 접기(`travelling` off · `setWarp(0)` · `applyPlanetLook`). `warpSpeedAt(elapsed)` 은 순수 함수. |
-| `parts/Pods.ts` | **발사 포드 · 준비 · 카운트다운 · 출격**. **2026-09-14: 탑승과 준비를 가른다** — 포드 E 는 `setReady(false)` 로 앉는 것이고, 앉은 채 스페이스를 `UI_HOLD_CONFIRM_S` 동안 꾹 눌러야 `toggleReady()` → `setReadyLocal(true)` 다 (다시 꾹 = 해제, 홀드는 `ui/ReadyPanel` 이 잰다). 출격 준비 경고도 그 홀드 뒤에 뜬다. 로컬 준비의 단일 원본은 `HubSystem.readyLocal` 이고 서버의 `LobbyPlayer.ready` 는 메아리다 — 메아리가 `READY_ECHO_GRACE` 안에 안 오면 `syncPods` 가 **준비만 풀고 포드에서 내리지는 않는다**. 접속한 전원이 준비되면 `HUB_LAUNCH_COUNTDOWN` 뒤 호스트가 `startGame` 한다. 임무가 진행 중이면 포드는 재합류 입구가 된다. 탑승을 막는 이유(`podBlockReason`)는 프롬프트로 보여 준다 — `canInteract:false` 로 막으면 프롬프트 자체가 사라져 이유를 알 수 없다. |
-| `parts/Interior.ts` | **함선 내부 짓기 · 허물기**. 개인 함선(조종석 → 복도 → 방 10개 → 에어락)과 공유 함선의 지오메트리, 스테이션 배치, 가구 배치(`buildHousing`), 방 추적과 표지판. 모든 클라이언트가 같은 지오메트리를 만들어야 공유 함선의 위치 스냅샷이 맞는다. **2026-09-11 (연구실)**: `buildHousing` 이 `FurnitureCallbacks.onAnalyzer(uid)` → `ctx.housing.openAnalyzer(uid)` 를 잇고, `refreshRoomSign` 의 문패 악센트가 모든 방 공통 호박색 대신 **그 용도의 색**(`ROOM_PURPOSE_COLOR`, 함선 탭 · 시설 관리 카드와 같은 표)이다 — 온실은 초록, 연구실은 보라로 복도에서 읽힌다. **2026-09-11 (주방 · 배양조 A-3c · A-14)**: `buildHousing` 이 `onCultureTank(uid)` → `ctx.housing.openCultureTank(uid)` 와 `onDiningTable(uid)` → `openDiningTable(ctx, uid)` 를 잇고, `buildStations` 가 **공유 함선의 고정 식탁** `hub_dining_table`(`ShipStations.diningTable`, 프롬프트 `식탁 · 식사`)을 등록해 `openDiningTable(ctx, null)` 을 부른다 — `null` 이 곧 「가구가 아닌 그 식탁」이라는 계약이다. 두 길이 같은 지역 헬퍼 `openDiningTable(ctx, uid|null)` 하나를 쓴다(duck-typed, 없으면 `식탁을 사용할 수 없습니다` 토스트). 주방(`kitchen`) 방 자체는 **새 지오메트리가 없다** — 방의 생김새는 용도와 무관하고 용도를 말하는 것은 문패뿐이라(2026-09-11 연구실 항목), `ROOM_PURPOSE_COLOR.kitchen` 이 이미 있으므로 `refreshRoomSign` 이 그대로 살구색 문패 + 방 조명을 켠다. **2026-09-13 (요리 미니게임)**: `buildHousing` 에 `onCookStation(uid)` — null 이면 `조리대가 없습니다`, 아니면 `ctx.housing.openCookStation(uid)`(duck-typed · try-caught, 없으면 `조리대를 사용할 수 없습니다`). 조리대는 더 이상 `onBench` → `openBenchCraft` 로 가지 않는다. |
-| `parts/Transitions.ts` | **함선을 드나드는 전환**. 타이틀 → 개인 함선, 도킹 → 공유 함선, 임무 종료 → 함선, 재접속 복귀. 컷씬을 태울지 바로 바꿔치울지(`swapDirect`)와, 진행 중인 레이드로 자동 재투입할지를 정한다. **2026-09-10**: 도킹 컷씬이 `PREBUILD_AFTER_S` 지나면 도착할 함선을 미리 짓고 `ctx.shaders.warm(ship.root, cutscene.root)` 로 백그라운드 컴파일해 둔다(`prebuildTarget` → `HubSystem.pendingInterior`, `finishTransition` 이 `build(…, prebuilt)` 로 붙이고 `disposeInterior` 가 못 쓴 것을 버린다). 진입 · 컷씬 시작 · 도착 · 직접 교체 · 격납고 드나들기마다 `ctx.shaders.holdForScene()`. **2026-09-11 (B-6)**: `net:lobbyLeft {reason:'moved', to}` 는 분리 컷씬을 틀지 않고 `HubSystem.pendingMove` 에 적어 두며, 이어지는 그 로비의 `net:lobbyUpdated` 가 **도킹 컷씬 한 번**을 부른다(공유 A → 공유 B · 격납고 방문 중에도). 새 로비가 **분리 컷씬 도중**에 오면(옛 릴레이의 `lobby:left` → `lobby:state`) 컷씬을 도킹으로 뒤집는다. `lobby:state` 가 `MOVE_WAIT_MS`(4 s) 안에 안 오면 평범한 떠남으로 처리한다. |
-| `parts/Hangar.ts` | **공용 함선 격납고** (2026-09-08). 정박 구역 4곳의 상호작용(`hub_ship_bay_<slot>`)과 프롬프트 · 거절 사유, 개인 함선 배치(`refreshBays`), 그리고 남의 함선을 그리기 위한 배치 정보 교환 (`ship state` / `shipq state`, 크루 카드와 같은 방식 — 도착 시 1회 · 내 함선이 바뀌면 디바운스 · 요청에는 즉시). 레이아웃이 아직 안 왔으면 `SHIP_VISIT_WAIT_S` 동안 기다렸다가(`tickPendingVisit`) 들여보내거나 포기한다. |
-| `parts/Crew.ts` | **크루 카드** (Phase 10) · 훈련장 입장 · **분대장 넘기기 상호작용** (2026-09-09, `updateLeaderHandoff` / `clearLeaderHandoff` — 같은 함선 안의 원격 분대원마다 `lead:<peerId>` `Interactable`, 내가 호스트일 때만). 허브에서는 `PlayerSnapshot` 의 무기 · 임플란트가 null 이고 `LobbyPlayer` 에는 레벨이 없다. 그래서 발사 준비 패널이 쓸 정보(이름 · 레벨 · 장착 임플란트 · 방어구)를 별도 `crew` 메시지로 주고받는다. 요청이 오면 그 대원의 장비 문서도 보낸다. |
-| `HousingMode.ts` | 3D side of housing mode (rules live in `ctx.housing`): reacts to `housing:modeChanged` **and `housing:shipManageChanged`** (함선 관리, Phase 8), controls off + oblique top-down camera over the room, pointer-locked cursor, ghost + footprint frame, LMB / R / X / C / wheel / `[ ]` / **M** (2026-09-08: was Esc — M is the key that entered the mode), `housing:cursorChanged`. See **Housing mode** below. **2026-09-09**: Tab (`Keys.INVENTORY`) leaves the mode exactly like M (consumed, so the inventory never opens on it); owns 키 가이드 owner `'housing'` (`LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소`, live labels) — replaces the deleted `ui/hud/HousingHint`. **2026-09-11 (B-13 클릭 인스펙터의 입력 절반)**: 시설 관리(`manage`)에서만, 방 안을 클릭하면 기존 배치 · 이동 경로가 끝난 **뒤** 커서 밑에 남은 조각을 `housing:furnitureSelected {uid}` 로 알리고(방 밖 클릭 · 회수 · 방 바꾸기 · 모드 나가기 = `{uid:null}`), 같은 값이면 다시 내지 않는다(`selectedUid`). **읽기 전용**이다 — 이 컨트롤러는 그 값을 되읽지 않고 아무것도 옮기지 않는다. 인스펙터 화면은 `ui/hud/ShipManage` 가 그린다. **2026-09-12 (방 8 × 8 m)**: `CAM_TOWARD_DOOR` · `CAM_HEIGHT` · `CURSOR_M_PER_PX` 가 리터럴(2.2 · 6.6 · 0.012)에서 **`ROOM_DEPTH` 의 분수**(×0.55 · ×1.65 · ×0.003)가 됐다 — 8 m 방에서는 화면 아래쪽(월드 +X) 바닥 모서리가 시야축에서 34.2° 라 수직 반시야각 35° 를 거의 넘어 고스트 · 발자국 틀이 화면 밖으로 떨어졌다. 비율을 쓰면 프레이밍이 4 m 시절과 픽셀 단위로 같다. **2026-09-13**: 시설 관리가 열려 있는 동안 매 프레임 `PersonalShip.setCockpitCeilingHidden(manage)` (나가면 false) · 조종석 전용 시설(`isCockpitOnlyFurniture`)은 X 회수를 거절(토스트)하고 키 가이드에서 `회수` 를 뺀다. **2026-09-13 (배치 규칙)**: 고스트가 있는 동안 비워야 하는 칸 타일(`syncClearanceTiles` — 고스트 칸 초록 / 빨강(벽 · 고정 소품 · 몸체), 놓인 가구의 칸 흐린 청록 → 고스트 몸체가 들어가면 빨강; 재질은 `frameMat` 과 같은 설정이라 새 셰이더 없음 · 광원 없음 · 메시 풀 · 바뀔 때만 다시 깐다, 디버그 `clearanceTiles`) · 거절 사유는 `ctx.housing.placementBlock` (시설 관리 토스트, 방 콘솔 모드는 `ui:notify`). |
-| `LaunchPod.ts` | Pod mesh (open cylinder + sliding door with a window, slot-coloured floor ring / rear strip / lamp, CanvasTexture name tag that billboards), `Interactable` `hub_pod_<slot>` (`holdTime` 0.4) in front of the door, toggles the pod-door collider blocker while a *remote* occupant closes the door. `getCameraShot()` = boarded over-shoulder framing. |
-| `Terminal.ts` | `Interactable` `hub_terminal` (instant, `함선 터미널`) → opens `HubMenu`; `setScreen()` writes status lines to the console's CanvasTexture. |
-| ~~`Workbench.ts`~~ | **Deleted 2026-09-12** (사용자 결정 — 정비 벤치 제거). It registered `hub_workbench` (`정비 벤치`, radius 2.2) in front of the shared ship's bench prop and opened `WorkbenchMenu`. 함선에서의 무기 수리는 이제 **인벤토리에서 재료로** 한다 — 벤치 가구(`furn_repair_bench`)는 `data/furniture.csv` 에서 `retired=1` 이고, 공유 함선 병기고의 벤치는 **소품으로만** 남았다(`SharedShip` 은 앵커를 더 이상 내보내지 않고 `ShipInterior.workbench` 도 없다). 되돌리려면 이 파일 + `ui/WorkbenchMenu.ts` 를 되살리고 `HubSystem` 의 필드 둘, `parts/Interior` 의 `new Workbench(...)` · `FurnitureCallbacks.onRepairBench` 를 다시 잇는다. |
-| `Computer.ts` | **함선 컴퓨터** (Phase 5): `Interactable` `hub_computer` (instant, radius 2.2, prompt `기업 네트워크`) in front of the computer desk → `HubSystem.openCorpMenu()` = `ctx.meta.openCorpMenu()`; when `ctx.meta` is missing / a stub / refuses (the menu is not open afterwards) a `ui:notify` warning `기업 네트워크에 접속할 수 없습니다` is shown instead. Same registration / disposal pattern as `Terminal` / `Workbench`. |
-| `DockingCutscene.ts` | Exterior cutscene on a stage 900 m above the origin: personal-ship model flies a bezier into the shared ship's hangar bay (or out, for undock — half duration) with a chase camera via `ctx.player.setCameraOverride`. `finishNow()` skips to the end. `elapsed` (2026-09-10) — the hub prebuilds the destination ship off it. `DockDirection = 'dock' \| 'undock'` — **2026-09-09**: the Phase 11 `'travel'` direction and `TravelOptions` are gone; 행성 이동 is the 창문 워프 in `parts/Planet.ts`, watched from inside the ship. The docking cutscene itself stays exterior (decision 2026-09-09). |
-| ~~`GardenStation.ts`~~ | **Deleted in Phase 8** (2026-09-06). 재배 moved to the 온실 room: `furn_grow_rack` furniture → `ctx.housing.openGrowMenu(uid)` (housing owns the plots, the seeds and the panel). The old `scav.hub.garden.v1` localStorage key is abandoned, not migrated. |
-| `Labels.ts` | `TextPlane`: CanvasTexture text plane (redraws only when text changes). Used for pod tags, terminal / dashboard screens, slot signs. |
-| `hub.css` | **2026-09-14 (발사 슬롯 UI 대개편)**: `.hub-ready` 는 화면 한가운데 세로 70 % (`top: 48%` · `height: 70vh`) — 초상 캔버스 층 `.hr-portraits` 가 **카드 위 55 %** 만 덮고(`bottom: var(--hr-body-h)`), `.hr-row` 는 여전히 `repeat(4, 1fr)` · `gap: 0` 이다 (`player/Portraits` 가 캔버스를 균등 4열로 자른다 — 깨면 몸이 칸 밖으로 나간다). 카드 = `.hr-cell{.hr-edge, .hr-head{.hr-top{.hr-name,.hr-lv}, .hr-state}, .hr-body{.hr-gear > .hr-slot{.hr-slot-icon,.hr-slot-socks>.hr-pip,.hr-slot-key}, .hr-value, .hr-hold{.hr-hold-fill,.hr-hold-label}}}` + `.is-ready/.is-confirmed/.is-empty/.is-off/.is-local/.needs-ready`. 옛 `.hr-imp*` 와 상태 줄을 패널 위로 밀던 `.hub-ready:not([hidden]) ~ .hub-status` 는 없어졌다 (패널이 더 이상 바닥에 붙지 않는다). **Phase 10** adds `.hub-crew-loadout` (`.hcl-head{.hcl-bar,.hcl-titles{.hcl-eyebrow,.hcl-name},.hcl-close}/.hcl-status/.hcl-body`, centred fixed frame in the shape of `inv-modeless`). Then: `.menu.hub-menu` layout (`.hub-head/.hub-section/.hub-code/.hub-crew-name/.hub-crew/.crew-row/.hub-foot`, footer right-aligned since the 캐릭터 button left), `.menu.hub-menu.workbench` (`.wb-mats/.wb-list/.wb-row{.slot,.mid,.name,.tag,.dur{.ok,.warn,.low},.dur-text,.cost{.short}}/.wb-empty`, wider frame, single-column under 720 px) and `.hub-status` (bottom-centre status / countdown). Reuses `.menu .frame .ui-btn .ui-input .ui-label .status-pill .form-msg .keycap` from `ui/styles/base.css`. **2026-09-11**: `.hp-env` (행성 상시 환경 줄 — 색은 인라인 `--env-c` = `ENV_COLOR`, `.warn` 이 준비물 없음). **2026-09-14 (정보상 · 사용자 결정)**: `.hub-grid` 는 **2열**(`minmax(0,1fr)` 행성 + `minmax(300px,360px)` 우측)이고 `.hub-col.left` 는 없다; `.hub-col.right` 는 `justify-content: flex-start`(위에서부터 정보상 → 훈련장); `.hub-head` 가 `.hl{flex:1}` + `.status-pill{margin-left:auto}` + `.ui-btn.hub-matching`(`.on` = 도킹 중) 을 오른쪽에 나란히 놓는다; 행성 카드가 넓어졌다(`.hub-planet` 760px · `.hp-holo` 400px/`min(46vh,34vw)` · `.hp-brief` 620px). 1180px 아래에서는 두 열이 **세로로 쌓이고** 우측 열이 가로 두 칸이 된다. 새 화면 셋(매칭 팝업 · 정보상 패널 · 정보상 화면)의 CSS 는 **`intel.css`** 다. **2026-09-14 5차 (발사 슬롯 탑승 UI)**: `.hub-ready` 가 **56vh**(옛 70vh, ≤ 900 px 는 78 → 64vh)이고 `--hr-body-h` 는 **퍼센트가 아니라 장비 판 내용의 실제 높이**다 — 인셋 식(`.hr-portraits { bottom: var(--hr-body-h) }` · `.hr-body { flex: 0 0 var(--hr-body-h) }`)과 `player/Portraits` 계약(`repeat(4, 1fr)` · `gap: 0`)은 **한 줄도 안 바뀌었다**. 45 % 는 내용보다 한참 커서 홀드 바 **아래에 죽은 여백**이 남았으므로 식으로 못박았다: `--hr-body-h = 52px + --hr-gear-h + --hr-hold-h`, 여기서 `--hr-gear-h = (패널폭 / 4 − 40px) / 5`(썸네일이 정사각이라 칸 너비에서 나온다 — 칸 = 패널폭 ÷ 4, 좌우 패딩 24, 열 간격 4 × 4)이고 52 = 패딩 10 + 12 · gap 8 · 가치 줄 14 · gap 8. 그래서 **어느 창 너비에서도 홀드 바 아래 여백이 0** 이고, 장비 판이 얇아진 만큼 초상이 넓어진다(같은 변수를 `bottom` 이 쓴다). ≤ 900 px 미디어 쿼리는 패널 폭이 `100vw - 16px` 이므로 `--hr-gear-h` 를 같은 식으로 다시 적는다. 가치 줄은 `line-height: 14px` 로 못박혀 있다(기본 `normal` 이면 폰트마다 달라져 식이 깨진다). 홀드 게이지는 `.hr-holdrow`(= `.keycap.kc-hold` + `.hr-hold`) 안에 있고 높이는 `--hr-hold-h` **40px**(옛 20px), `margin-top: auto` 는 식이 어긋나도 여백이 **홀드 바 위**로 가게 하는 안전핀이다. `.menu.hub-menu.launch-warn` 에 **z-index 74** 가 생겼다 — `.hub-ready` 는 z 20 이다. |
-| `ui/HubMenu.ts` | Terminal menu DOM. **승무원 name** — an input on the very first run only: `change` → `setPlayerName` + `nameChosen`, and once `ctx.housing.state.nameLocked` (or the name was set this session) it is the read-only `.hub-crew-name` line with `호출명은 처음 한 번만 정할 수 있습니다.` (Phase 8; housing/ owns persisting `nameLocked`). A read-only `.seed-hint` line (`임무 시드는 개발자 콘솔 /seed 로만 설정합니다. 현재: …` — the seed section was removed on 2026-09-06; `parseSeed` / `randomSeed` stay in `ui/dom.ts`), personal ship: `신호 찾기 (자동 매칭)` → `ensureConnected()` then `quickMatch()`, `코드로 도킹` (`joinLobby`), `신호 송출 (비공개 함선 생성)` (`createLobby`); shared ship: code + `초대 링크 복사` (`getInviteUrl`), host `공개/비공개` (`setPublic`), crew list, `도킹 해제` (`leaveLobby`); **`시뮬레이션 훈련장` section (Phase 7, shared ship only)**: one button → `host.startTraining()` reading `시작` (idle lobby), `합류 (n명 훈련 중)` (training running, n = connected `inMission` members; enabled while we are in the hub) or `임무 진행 중` disabled (raid running); crew rows read `훈련장` / `함선` during a training; footer `닫기` alone (the **캐릭터** button was removed in Phase 8 — 캐릭터 is a Tab-screen tab now; **타이틀로 was removed 2026-09-09** — the 일시정지 메뉴 owns it, behind a 경고 팝업 with a 1초 홀드). Inline `net:error` / matched / peer messages. | **Phase 11 — full screen** (`.menu.hub-menu.fullscreen`): three columns — **left** 신호 / 공유 함선 (behaviour unchanged), **centre** the 행성 카드 (`ui/PlanetHologram` canvas + `◀ ▶`, name, 지형, 위협 badge, brief, `hp-dots`, 행성 이동), **right (bottom)** 시뮬레이션 훈련장 + `.seed-hint`; footer 닫기 (E) / 타이틀로 (2026-09-08: the terminal closes on E, not Escape). **The 승무원 이름 section is deleted** — the call sign is entered once on the title screen, so `ctx.housing.lockCrewName()` is no longer called from here. Stepping (`◀ ▶`, `←` / `→`, `A` / `D` through a **bubble-phase** window listener, so `isolateInput` fields keep their own keys) only **previews**; 행성 이동 calls `HubMenuHost.travelTo` → `HubRef.setPlanet`. The button reads `현재 목표` (disabled) on the ship's own planet, the `travelBlock()` reason (disabled) when refused, else `<행성>(으)로 이동`. Emits `hub:terminalToggled` next to the legacy `ui:hubMenuToggled`; `update(dt)` also drives the hologram's render loop. `no_planet` added to `errorText`. **2026-09-09**: also closes on **Tab** (polled in `update()`, consumed). **2026-09-09 (2차)**: the footer's `타이틀로` button and `HubMenuHost.toTitle` are **gone** (the 일시정지 메뉴 already asks first and holds for `UI_HOLD_CONFIRM_S`), and so is the bottom-right 키 가이드 — no `guideKeys()` / `emitGuide()`, no emit on open, no `keys:null` on close, so owner `'terminal'` never reaches `ui/hud/KeyGuide` and cannot leave a stale entry. `←` / `→` (and `A` / `D`) still step the hologram; the `tutorial:changed` listener stayed for the `refresh()` that hides the arrows. **2026-09-11 (A-13 환경 브리핑)**: 브리핑 밑에 `.hp-env` 한 줄 — `PlanetDef.env` 가 있으면 `ENV_ICON` + `ENV_LABEL_KO` + `ENV_DESC_KO`(전부 `shared/labels`), 없으면 `hidden`. `ctx.progression.hasEnvPrep(env)`(duck-typed)가 false 면 `.warn`(테두리 발광 · 불투명) 이고 true 면 뒤에 `(준비물 있음)`. **행성 이동을 막지 않는다** — 소프트 게이트라 `refreshTravel` 의 버튼 상태에는 손대지 않는다. `refreshEnv()` 는 `syncPlanet` 과 `refreshTravel` 양쪽에서 불린다(터미널을 연 채 가방에서 준비물을 써도 줄이 따라온다). **2026-09-14 (정보상 — 3열 → 2열, 사용자 결정)**: 좌측 매치메이킹 열이 통째로 **`ui/MatchPanel`** 로 갔고 머리 우상단 `📡 매칭` 버튼(`.hub-matching`, 도킹 중에는 `📡 매칭 · <코드>` + `.on`)이 그것을 연다 — `join` · `renderCrew` · 코드 입력 필드는 이 파일에서 사라졌고 `connectThen` · `copyInvite` · `showMsg` · `busy` 만 남아 `MatchPanelHost` 로 넘어간다(동작은 한 줄도 안 바뀌었다). 행성 카드는 중앙에서 넓게, 우측 열은 **정보상 패널**(`.hub-section.hub-intel`, `.hi-`) → 시뮬레이션 훈련장이다. `refreshIntel()`: 보유 정보가 없으면 레이븐 소개 + `정보 구매`, 있으면 `.hi-planet`(행성 이름 + 지금 목표와 다르면 `.hi-warn` 「다른 행성의 정보」 + `.is-mismatch`) + 줄마다 `label` · `intelEffectText` 요약 + `정보 확인` / `지역 재배치`; 막히면 `.hi-note` 에 사유(`정보상을 사용할 수 없습니다` · **`분대장만 정보를 살 수 있습니다`**(비호스트 = 읽기 전용) · `목표 행성을 먼저 지정하세요`) 를 적고 버튼을 딤드한다(`정보 확인` 만은 비호스트도 열린다). `intel:changed` · `meta:creditsChanged` 를 구독한다. **맨 위 하나만 닫는다**: `closeTop()` 이 정보상 → 매칭 → 터미널 순으로 닫고 Tab(`update`) · E(`HubSystem`) 가 그것을 지난다; `close()` 는 자식을 먼저 닫아 blocker · escape 토큰을 남기지 않는다. 자식 화면이 떠 있는 동안에는 `←` / `→` 행성 넘김이 멎는다. 홀로그램은 **빌려 준다** (`borrowHologram` / `returnHologram` → `PlanetHologram.attachTo`) — 정보상 화면이 두 번째 WebGL 컨텍스트를 만들지 않는다.
-| `ui/PlanetHologram.ts` | **행성 홀로그램** (Phase 11): `createPlanetHologram(host)` → a `PLANET_HOLOGRAM_PX` square canvas with its **own** `THREE.WebGLRenderer` / scene / camera / lights — the `player/Portraits` precedent, because `core/Engine` composes the world through an `EffectComposer` and offers no post-render hook. Reuses the hub's `Planet` in the def's `hologram` / `hologramAtmo`, spinning at `PLANET_HOLOGRAM_SPIN`, tilted `PLANET_HOLOGRAM_TILT`, inside a procedural icosahedron wire cage with two additive rings and a drifting scanline grid. `setPlanet(def, dir)` cross-slides over `PLANET_SWAP_TIME` (two slots, the outgoing one fades and leaves the other way); `render(dt)` is a no-op while `setVisible(false)`, so a closed terminal costs nothing. Returns **null** when a second GL context is unavailable → the menu adds `.no-holo` and degrades to the text card. **2026-09-14 (정보상)**: `attachTo(host)` 가 캔버스를 다른 패널로 옮긴다 (정보상 화면이 터미널의 홀로그램을 **빌려** 쓴다 — 두 번째 컨텍스트를 만들지 않기 위한 유일한 길, 다음 `render` 가 새 부모 크기로 다시 잰다). `startLockOn(u, v, seconds, onDone?)` = **행성 락온 연출**: 링 둘이 `LOCK_RING_START`(3.2 R)에서 표면으로 수렴하며 회전이 멎고(케이지 스핀 ×0.12), 뒷부분 45 % 에서 팔면체 표식 + 표면 십자선이 떠오른다. 전부 절차 지오메트리이고 **광원을 하나도 더하지 않는다** — 켜고 끄는 것은 `opacity` 뿐이다(CLAUDE.md 광원 규칙을 자체 씬에서도 지킨다). `lockProgress` · `lockTarget` · `clearLockOn()`; `setPlanet` 과 `dispose` 가 락온을 지운다. |
-| `intel.css` | **정보상 · 매칭 팝업 CSS** (2026-09-14). 접두사 셋 — `.hm-` 매칭 팝업(`ui/MatchPanel`), `.hi-` 정보상 패널(터미널 우측 열), `.it-` 정보상 화면(`ui/IntelMenu` + `ui/IntelMap`). `rg "\.hm-\|\.hi-\|\.it-" src` 가 **비어 있음을 확인하고** 골랐다 (CLAUDE.md 「CSS 클래스 접두사는 폴더마다 달라야 한다」 — `.ct-` 충돌 사고와 같은 뿌리). `.menu.it-menu` 는 전체 화면이라 뒤의 터미널이 비치지 않게 `.menu` 기본보다 훨씬 어두운 배경을 쓰고, 프레임 아래 62 px 은 우측 하단 키 가이드 자리다. 지도는 `aspect-ratio: 1/1` · `min(100%, 60vh, 620px)` 정사각형(맵이 정사각형이라 왜곡하면 거짓말이 된다). 1180px · 높이 780px 아래 미디어 쿼리로 두 패널이 세로로 쌓이고 홀로그램 · 총액 글자가 줄어든다. |
-| `ui/MatchPanel.ts` | **매칭 팝업** (2026-09-14, `.menu.hub-menu.hm-match`). 옛 터미널 좌측 열 **그대로** — `신호`(신호 찾기 자동 매칭 · 함선 코드 입력 + 코드로 도킹 · 신호 송출) · `공유 함선`(코드 · 공개/비공개 태그 · 초대 링크 복사 · 공개 전환 · 승무원 4행 · 도킹 해제). 네트워크를 직접 만지지 않고 `MatchPanelHost`(`connectThen` · `showMsg` · `isBusy` · `copyInvite` · `onClosed`)로 터미널에 묻는다. 화면 규약: blocker · escape 토큰 **`hub:match`**(터미널의 `hub` 와 다른 토큰이라 뒤의 터미널이 커서를 잃지 않는다) · `ui:keyGuide {owner:'hub.match', keys:[]}` · Tab 은 `HubMenu.closeTop()` 이 보낸다. 튜토리얼이 `matchmaking` 을 감추는 동안에는 버튼째 사라지고 열려 있으면 닫힌다. |
-| `ui/IntelMenu.ts` | **정보상 화면** (2026-09-14, `.menu.it-menu.fullscreen`, 접두사 `.it-`). 두 국면이다 — ① **고르는 국면**: 좌 = 후보 지역 지도(`ui/IntelMap`), 우 = `INTEL_OPTIONS_IN_ORDER` 7줄(`label` · `intelEffectText` · `◀ 0 / N ▶` · 줄 비용, `note` 는 호버 툴팁, `maxTierOf === 0` 이면 딤드 + `위험도 n 이상 행성에서만`, `named` 줄은 tier ≥ 1 일 때 로든 · 타길라 · 헤비 칩) + 우하단 **총액 큰 폰트** · 사유 · `취소` / `확정`. **`확정` 은 `UI_HOLD_CONFIRM_S` 홀드뿐이다** — click 핸들러를 아예 달지 않아 Enter · Space 로는 아무 일도 없고, Escape 가 취소이며 최초 포커스는 `취소` 다. ② **확정 국면**: 좌 = 빌려 온 홀로그램의 **락온 연출**(`PlanetHologram.startLockOn`, 좌표 텍스트는 시드의 함수) · 우 = **같은 그리기 함수**의 지도 + 산 기믹 요약, 우상단 `지역 재배치`. 재배치는 `openHoldAsk`(`shared/holdAsk`) 경고 + 1초 홀드 → `discard()` + **후보 시드 재굴림** → 고르는 국면 (전부 폐기 · 환불 없음, 사용자 결정). 수치는 하나도 코드에 없다: `ctx.meta.intel.costOf` / `maxTierOf` 를 쓰고 **그 ref 가 없으면** `shared/intel.intelCost` + `INTEL_COST_TABLE` 로 떨어진다. `buy` 는 서버 답을 기다릴 수 있어 `Promise.resolve(...)` 로 감싸고 진행 중에는 화면을 잠근다(실패는 `ui:notify` 토스트). 살 수 없는 이유: 목표 행성 없음 · **비호스트**(`분대장만 정보를 살 수 있습니다`) · 빈 선택 · 크레딧 부족. blocker · escape 토큰 `hub:intel`, `ui:keyGuide {owner:'hub.intel'}`, `intel:changed` · `meta:creditsChanged` 구독. |
-| `ui/IntelMap.ts` | **행성 지도 미리보기** (2026-09-14) — 순수 그리기. `ctx.world.previewLayout(seed, planet, resolveIntelEffects(picks))` 의 결과(**계약 타입 `MapPreviewLayout`**, `shared/types`)를 받아 `intelMapCells()` 로 종류별 「칠할 칸」 집합을 만들고 `drawIntelMap()` 이 ① 뭉갠 블록(`ctx.filter = blur(칸×0.7)`) ② 아주 옅은 또렷한 칸 ③ 격자선 ④ 테두리 + 모서리 표식 순으로 그린다. 사용자 결정 **「실제 레이아웃을 격자로 흐릿하게」** — 모든 것을 18칸(≈ 60 m) 격자에 **스냅**하므로 정확한 좌표는 읽히지 않는다. 종류 6개(강하 · 탈출 · 구조물 · 전초 · 벌레 둥지 · 선로 · 플랫폼 · 흙길 · 정류장)의 색은 `INTEL_MAP_LEGEND` **하나**가 원본이고 범례 DOM 이 그것을 읽는다(두 벌이 되면 색이 어긋난다). 선로 중심선의 식은 `world/layout` 과 **같다**. `createIntelMapView()` = 캔버스 + 범례 한 줄 + `ResizeObserver`, `mount(host)` 로 고르는 화면 ↔ 확정 화면을 오간다. 모양이 깨진 레이아웃을 받아도 **던지지 않는다** — 지도가 안 그려지는 것과 화면이 안 열리는 것은 다른 일이다. |
-| ~~`ui/WorkbenchMenu.ts`~~ | **Deleted 2026-09-12** (사용자 결정 — 정비 벤치 제거). 무기 수리 창(`.menu.hub-menu.workbench`) 이었다: 장착 무기 + 가방 무기 한 줄씩, 내구도 바, `ctx.loot.getRepairCost` 비용, `수리` / `모두 수리`. 같은 일을 이제 인벤토리(우클릭 · 제작 패널의 `모두 수리`)가 한다. `hub:workbenchToggled` 는 계약이라 `shared/events` 에 남아 있지만 **아무도 내지 않는다**; `.menu.hub-menu.workbench` CSS 도 `hub.css` 에 남아 있다(쓰는 화면 없음). |
-| `ui/LaunchWarnPanel.ts` | **출격 준비 경고** (2026-09-08, `.menu.hub-menu.launch-warn`). **2026-09-14: 탑승이 아니라 준비 직전에 뜬다** — `toggleReady` 가 `ctx.inventory.getLaunchWarnings()` 로 받은 사유를 한 줄씩(`!` 표식 + 표제 + 상세) 세우고 **[취소] / [그래도 준비]** 를 준다. 막지 않는다 — 확인하면 그대로 준비되고, 그 조합(`signatureOf` = id 목록)을 `HubSystem.launchWarnAck` 이 기억해 같은 상태로는 다시 묻지 않는다(경고가 하나도 없는 상태를 지나면 기억이 지워진다). 커서 예절은 `HubMenu` 와 같은 `'hub'` blocker + 소프트 커서(포인터 락 유지). 2026-09-08 ESC 규칙 변경 이후 키보드 취소는 **E** — `HubSystem.update` 의 E 사슬이 첫 분기로 잡는다, `podCanInteract` 는 이 패널이 떠 있는 동안 포드를 잠근다. **2026-09-14 5차**: 팝업이 발사 준비 패널 **위로** 온다(`.launch-warn` z 74 > `.hub-ready` z 20). 둘 다 `ctx.uiRoot` 의 형제인데 `HubSystem.init` 이 ReadyPanel 을 나중에 붙여 DOM 순서상 4칸 카드가 팝업을 덮고 있었고, 카드가 `.interactive`(= `#ui-root .interactive { pointer-events: auto }`)일 때는 `취소` / `그래도 준비` 클릭까지 먹었다. 딤은 `.menu` 기본 규칙(`radial-gradient … rgba(3,4,6,0.9)`, `inset: 0`)이 그대로 깔아 준다. 홀드 입력은 이미 `ReadyPanel.tickHold` 가 **우리 토큰 말고 blocker 가 하나라도 있으면** 건너뛰므로(팝업이 `'hub'` 를 잡는다) 팝업이 떠 있는 동안 스페이스는 먹지 않는다 — **새 게이트를 만들지 않았다.** |
-| `ui/ReadyPanel.ts` | **발사 준비 패널** (Phase 10 · **2026-09-14 대개편**): four cells across the **middle** of the ship screen (화면 세로 70 %), shown as soon as **any** launch slot is filled. One canvas from `ctx.player.createPortraits(host, HUB_READY_CELLS)` (four **equal** scissored columns, owned by `player/`) fills the cells' **top 55 %**; `setMember(i, {slot, armorId})` + `setYaw(i, HUB_READY_PORTRAIT_YAW)` fill a cell and **a member not in a launch slot draws no character** (`setMember(i, null)`). A null `PortraitRef` (no second WebGL context) degrades to name-only cells (`.no-portraits`). Cell 위 55 %: slot-coloured top edge, name + `Lv. n` (`ctx.progression.level` locally, `ctx.net.getCrewCard(id)?.level` for a peer) + a state line. **아래 45 % = 장비 판**: 주무기 I · II · 가방 · 방탄복 · 전술 임플란트 썸네일(`data-item-tip` + `data-def-id` → 기존 `ui/hud/ItemTip` 카드) + **착용 장비 가치 합계**(`itemCreditValue` 합, `formatCredits`). 내 소켓 핍은 `ctx.inventory.getEquipped(slot)` 인스턴스의 진짜 부착물, 분대원 것은 `ctx.loot.getWeaponDef(...).sockets` 의 **윤곽 핍만**(와이어에 부착물이 없다), 분대원의 가방은 `CrewCardWire` 에 아예 없어 `?` 다. 전술 임플란트는 아이템이 아니라 글리프뿐(`ctx.implants.getDef` — `IMPLANT_DEFS` 는 `implants/` 에 산다) · 가치에 안 들어간다. **준비 홀드**: 포드에 앉아 있는 동안 `Keys.JUMP` 를 `UI_HOLD_CONFIRM_S` 재어 `ReadyPanelHost.toggleReady()` 를 부르고, 게이지는 **내 카드 하단**(`.hr-hold`) — 준비 전에는 내 카드가 `needs-ready` 로 펄스한다. 키는 **우리 blocker 토큰 말고 아무것도 없을 때만** 잰다. **Right-click** a cell → `CrewLoadoutPanel`. Takes `HUB_READY_BLOCKER` (`'ready'`) + `ctx.input.setCursorMode(true, …)` — **never** `exitPointerLock()` — only while the **local** player is boarded (`sync(cells, interactive)`), so a squadmate readying up never steals our mouse look. `hub:readyPanelToggled` on every visibility change; `HubSystem.uiBlocked()` ignores the token so E still leaves the pod. **2026-09-09**: Tab closes the 분대원 장비 popup first (`update()`, only while the inventory is closed). Un-boarding stays on E — Tab opens the bag while boarded. **2026-09-14 5차 (사용자 결정)**: 준비 홀드 게이지 왼쪽에 `Space` 키캡(`.keycap.kc-hold` — chevron 은 `ui/styles/base.css` 한 곳이 그린다)이 붙고, 라벨은 `keyLabel(Keys.JUMP)` 를 **그릴 때마다** 다시 읽는다(모듈 상수 캐시 금지 규약). **조작 키는 중앙 하단(`ui/HubStatus`)에서 우측 하단 키 가이드로 옮겼다** — owner `'pod'`, 항목 둘(`E 내리기` · `Space 준비`(꾹), 준비된 상태면 `준비 해제`). 올리고 내리는 곳은 `ReadyPanel.syncGuide()` **하나**이고 `sync()` · `setInteractive()` · `hide()` · `dispose()` · `setLaunching()` · `input:bindingsChanged` 가 전부 그것을 지나므로 도킹 · 임무 시작 · 함선 허물기에 항목이 남지 않는다. `parts/Pods.tickCountdown` 이 매 프레임 `sys.ready.setLaunching(sys.countdown >= 0)` 을 밀어 카운트다운 중에는 가이드가 내려간다(그때는 내릴 수도 준비를 바꿀 수도 없다). `'pod'` 는 `ui/hud/KeyGuide` 의 `NO_CLOSE_OWNERS` 에 들어 있다 — **화면이 아니라 상태**이므로 `닫기` 항목을 붙이지 않는다. 중앙 하단 `.hub-status` 에는 상태 텍스트(`준비 대기 (1/4)`)와 카운트다운만 남는다. |
-| `ui/CrewLoadoutPanel.ts` | **분대원 장비** modeless popup behind that right-click: header (slot bar + name + 닫기) around `ctx.inventory.createCrewLoadoutView(body, loadout, {name, slot, blocks:['equip','bag','quick']})` — **no 함선 창고 column and no credits**. Local cell = `ctx.inventory.captureCrewLoadout()` directly; a peer = `ctx.net.requestCrewLoadout(id)` then the first matching `net:crewLoadout` (5 s timeout → `장비 정보를 받지 못했습니다`). No blocker, no pointer-lock call, no window Escape listener (the `EmbeddedView` convention): dismissed by 닫기, an outside pointerdown, the hub's **E** chain (`ReadyPanel.closePopup()`, 2026-09-08: was Esc) or by losing the cursor. Emits `hub:crewLoadoutToggled {open, peerId}`. `inventory/ui/Modeless.ts` could not be reused — it is a child of the inventory window — so the frame lives in `hub.css`. **2026-09-09**: 키 가이드 owner `'pod.loadout'` (`[]`). |
-| `ui/HubStatus.ts` | `.hub-status` line: `탑승 대기 중 (n/m)`, big countdown digits + progress bar, `임무 진행 중` rejoin hint, docking text. `pointer-events: none`, no blocker. |
-| `ui/dom.ts` | Local DOM helpers (`el/setText/toggleClass`), `parseSeed` (blank → null, digits → uint32, else FNV-1a), `randomSeed`, `isolateInput` (stops WASD — and E — reaching `Input`; Esc **blurs only** since 2026-09-08, the `onEscape` callback is no longer passed anywhere). |
-| `interiors/types.ts` | `ShipInterior` (root, collider, spawn / airlock, `pods: PodSlotDef[]`, `terminal`, **`computer: StationDef`** (Phase 5), `stations`, optional `rooms: RoomDef[]` for the personal ship — the `facility` anchor was removed in the Phase 8 UI pass), `PodSlotDef` (position, yaw, `door` direction, `doorBlocker` index), `TerminalDef` (**2026-09-12**: `WorkbenchDef` 와 `ShipInterior.workbench?` 는 정비 벤치와 함께 없어졌다 — 근거는 이 파일 머리 주석), `RoomDef` (index, side, floor box, door `sign` TextPlane, `furnitureGroup`; the door `console` anchor was removed in the Phase 8 UI pass). | **Phase 11**: optional `setPlanetLook(color, atmo)` — both ships re-tint their decorative window `Planet` to the 목표 행성 (called on build and when a warp ends; the interior is never rebuilt for a planet change). **2026-09-09**: optional `setWarp(speed, dest?: WarpDestination)` — the 창문 워프 view (`speed` 0..1 = `hub:warpProgress.speed`; the hub calls it every frame of a trip and once with 0 on arrival / cancel). Both ships implement it through `interiors/WarpStreaks.ViewportWarp`.
-| `interiors/Doors.ts` | **자동문** (Phase 8): `ShipDoors` — two-leaf sliding doors that can **not** join the merged `GeoBatch` because they animate. `add(x, z, width, height, thickness, axis)` builds two leaf meshes (one shared `BoxGeometry` per door, shared `HUB_MATS.hullLight`); `update(dt, px, pz)` opens a door whose threshold is within `DOOR_OPEN_DISTANCE` of the player and slides at `DOOR_SLIDE_SPEED` (fraction of the travel per second), the leaves disappearing into the wall slab. **No collider is added or toggled** — the doorway stays the open shared collider edge it has always been, so movement is unchanged. `openAmount(i)` / `count` for smokes. |
-| `interiors/RoomLayout.ts` | **Single source of the personal-ship coordinates** (table below): `COCKPIT / CORRIDOR / AIRLOCK` boxes, `ROOM_BOXES` (10 × `RoomBox {index, side, minX..maxZ, doorZ}`), `roomAtWorld(x, z)`, `roomCellToWorld(room, x, y, out, cols, rows)` (centre of a footprint whose top-left cell is (x, y)), `worldToRoomCell`, `yawToRotation(yaw)` (= −yaw·π/2; quarter turns clockwise seen from above). Grid `x` runs along world +X, `y` along +Z, cell (0, 0) = the room's min-x / min-z corner. **2026-09-12 (방 8 × 8 m)**: `ROOM_GRID_COLS/ROWS` 가 8 → 16 이 되면서 `ROOM_SIZE` · `ROOM_DEPTH` 가 4 → 8 m 다. `SEGMENT` 가 **5 로 박혀** 있어 `(SEGMENT − ROOM_DEPTH)/2 = −1.5` → 방들이 z 로 3 m 씩 겹쳤다. 이제 `SEGMENT = ROOM_DEPTH + ROOM_GAP`(1 m), `CORRIDOR.maxZ = ROOMS_PER_SIDE × SEGMENT`(25 → **45 m**), `AIRLOCK = CORRIDOR.maxZ … + AIRLOCK_DEPTH`(2.5) 로 **전부 방 깊이에서 유도한다** — 자유 상수는 `ROOM_GAP` · `AIRLOCK_DEPTH` 둘뿐이라 격자를 또 바꿔도 따라온다. `roomCellToWorld` · `worldToRoomCell` 은 처음부터 상수 기반이라 한 줄도 안 바뀌었다. |
-| `interiors/Furniture.ts` | Procedural builders for every `FurnitureModelKind` (`buildFurniture(def, level)` → `{group, meshes, w, d}`; centred, bottom at y 0, front toward −Z, merged per material through a `GeoBatch`; benches share `benchBody()` with per-kind top items + a tinted accent, `range_console`, `target_lane`, `locker`, `table`, `shelf`, `crate`, emissive `lamp` (no light), `plant`, `chair`, `bunk`; tinted materials cached per catalogue colour, `GHOST_OK / GHOST_BAD` preview materials). `FurnitureLayer`: renders `ctx.housing.getPlaced(room)` into each `RoomDef.furnitureGroup`, one collider blocker per piece (`addBox` / `removeBlocker`), a `Lv.n` `TextPlane` for upgradeable pieces and an `Interactable` `hub_furn_<uid>` for pieces whose `interaction !== 'none'` (benches → `ctx.inventory.openBenchCraft(kind, level)`, 사격장 콘솔 → `ctx.housing.openPresetMenu()`); rebuilds a room on `housing:furniturePlaced / Moved / Upgraded / Recovered`, everything on `housing:loaded`, and on `housing:changed` only for a `reason` outside `COVERED_CHANGE_REASONS` (place / move / recover / furnitureUpgrade / craft / preset / purpose / facility:* all arrive per piece or touch no piece — so a facility upgrade no longer disposes and rebuilds every piece on the ship); `pieceAt(room, x, y)`. **Phase 7**: `sim_hub` = 시뮬레이션 허브 holo pedestal (base plate, glowing foot ring, ribbed column, dish with three control pads, emitter disc, translucent core beam) + `simHubRings()` — an outer ring with three emitter nodes and a tilted inner ring pair in their own groups (`sim-spin` / `sim-spin-inner`, `FurnitureModel.spin / spinInner`) that `FurnitureLayer.update(time)` rotates every frame (the hub calls it; the ghost preview stays still); `HOLO_RING` / `HOLO_CORE` emissive translucent materials, no light. `FurnitureCallbacks.onSimHub()` → interaction `'sim_hub'` (prompt `시뮬레이션 허브 · 훈련장 입장`) → `HubSystem.startTraining()`. **Phase 8**: two new models — `repair_bench` (the old cockpit `Parts.workbench` silhouette at furniture scale on `benchBody`, → `onRepairBench()` = `WorkbenchMenu.open()`) and `grow_rack` (재배층: four legs, a shallow tray with `GROW_PLOTS_PER_RACK` plot pads on a soil bed and a magenta `stripGrow` strip **under** the tray so a stack reads as a vertical farm; the whole model stays below `GROW_RACK_LAYER_HEIGHT` so layers never intersect, → `onGrowRack(uid)` = `ctx.housing.openGrowMenu(uid)`). `addPiece` offsets a piece by `(item.layer ?? 0) × GROW_RACK_LAYER_HEIGHT` in Y (model, collider blocker and `Lv.n` sign) and, for stackable defs (`stackLimit > 1`), spreads the per-layer interactables along the piece's front edge (`(layer − (stack−1)/2) × width/stack`, radius 1.2, prompt `재배층 n층`) so `findBest` can tell the layers apart; `pieceAt` returns the **top** layer of a stack. **Phase 9**: `buildFurniture(def, level, extra?)` takes a `BuildExtra` (`{books?: (Rarity|null)[]}`) and the **`bookshelf`** builder draws a real 책장 — body, plinth, accent lip, `BOOK_SHELF_ROWS` (3) shelf boards and one upright **spine box + title band per shelved book**, coloured by the book's rarity (`RARITY_COLORS` through a cached `spine()` material, slot 0 = top-left, empty slots stay empty). `FurnitureLayer.shelfBooks(uid)` reads `ctx.housing.getBooks(uid)` (duck-typed, try/caught) and passes it for `def.model === 'bookshelf'` pieces only; `housing:booksChanged {uid}` rebuilds that piece's room, and `'books'` joined `COVERED_CHANGE_REASONS` so the matching `housing:changed` does not rebuild the whole ship. `FurnitureCallbacks.onBookshelf(uid)` → interaction `'bookshelf'` → `ctx.housing.openBookshelfMenu(uid)` (falls back to a `책장을 사용할 수 없습니다` toast). **2026-09-08 (개인 함선 방문)**: the constructor takes an optional `FurnitureSource` (`{getPlaced(room), getBooks(uid)}`). With one, the layer reads **that** instead of `ctx.housing` — a visited member's `ShipVisitWire` — and because such a ship never changes under it, it subscribes to no `housing:*` event and registers **no interactables at all** (둘러보기 전용). **2026-09-11 (온실 개편)**: `grow_station` = 재배 스테이션 — 프레임(받침 · 기둥 · 뒷판 · 천장 · 급액 파이프 · 레벨 핍 제어반) 안에 **`growTiersForLevel(level)` 이 돌려준 재배층만** 세운다(Lv.1 중앙 · Lv.2 아래 · Lv.3 위). 층 높이는 `GROW_TIER_Y` 하나가 원본이고 **레벨과 무관하게 고정**이다(tier id 가 강화해도 안 바뀌는 계약과 같은 뜻). 층마다 `GROW_SLOTS_PER_TIER` 개의 위가 뚫린 화분 + `M.stripGrow` 재배등 — **광원은 만들지 않는다**. 새 콜백 `onGrowStation(uid)` → `ctx.housing.openGrowStation(uid)`; 은퇴한 `grow_rack` / `onGrowRack` 경로는 계약대로 그대로 남아 있다. **2026-09-11 (연구실 A-12 · A-13)**: 모델 3종이 더 붙었다 — **`analyzer`**(분석기: 받침 · 뒷기둥 · 뒷판 · 천장 프레임 + 앞으로 기운 조작 콘솔 위에 **언제나 `ANALYZER_MAX_SLOTS` 개**의 시료 챔버(위가 뚫린 유리관)가 서고, `analyzerSlotsForLevel(level)` 개만 안쪽 코어에 불이 들어온다 — 잠긴 칸은 `M.hullDark`, 해석 중은 `M.stripCyan`, **회수 대기는 `M.stripAmber`**), **`bench_extract`**(추출기: `benchBody` + 상판 위로 솟은 유리 증류관 · 응축 코일 · 투입 깔때기 · 받이 플라스크 3개), **`bench_mixer`**(조합대: `benchBody` + 뚜껑 · 교반 축이 달린 혼합 드럼 · 계량 저울 · 성분 병 4개). `BuildExtra` 에 **`analysisReady`**(회수 대기 칸 수)가 붙었고 `FurnitureLayer` 가 `housing:analysisChanged` 를 받아 **그 조각의 방만** 다시 짓는다(책장의 `housing:booksChanged` 와 같은 길) — 재질이 조각마다가 아니라 공용이므로 색을 바꾸는 유일한 길이고, **`THREE.PointLight` 는 하나도 만들지 않는다**. `private buildExtra(def, uid)` 가 모델별 extra 를 고르고 `private analysisReady(uid)` 가 `ctx.housing.getAnalyses(uid)` 를 duck-typed / try-caught 로 센다(방문 중인 함선 = 0). 새 콜백 `onAnalyzer(uid)` → `ctx.housing.openAnalyzer(uid)`, E 프롬프트는 작업대와 같은 `분석기 Lv.n`. **2026-09-11 (주방 · 배양조 · 프린터 A-3c · A-14 · A-15)**: 모델 4종이 더 붙었다 — **`bench_cook`**(조리대: `benchBody` + 화구 판 · 달아오른 링 4개 · 냄비 · **상판 위로 내려온 후드 캐노피 + 덕트** · 도마 · 재료 상자 · 조미료 병), **`dining_table`**(식탁: `maxLevel 1` 이라 **레벨을 읽지 않는다** — 상판 · 식탁보 · 다리 · 가로 보 · 접시 4벌 · 가운데 불빛 + 발자국 안에 들어오는 의자 넷), **`culture_tank`**(배양조: 받침 캐비닛(배지 저장조 창 · 제어 화면 · 레벨 핍) 위로 **언제나 `CULTURE_MAX_SLOTS` 개**의 유리 배양관이 상단 매니폴드까지 서고 `cultureSlotsForLevel(level)` 개만 안의 배양액이 빛난다 — 잠긴 관 `M.hullDark` · 배양 중 `M.stripGrow` · **회수 대기 `M.stripAmber`**), **`bench_print`**(3D 프린터: def height 1.6 이라 `benchBody` 를 쓰지 않고 **캐비닛 + 기둥 4 · 옆 유리 · 천장의 챔버**를 세운다 — 조형판 · 쌓이는 조형물 · 가로 갠트리 · 달아오른 노즐 · 필라멘트 스풀 2). `BuildExtra` 에 **`cultureReady`**(회수 대기 칸 수)가 붙었고 `FurnitureLayer` 가 `housing:cultureChanged` 를 받아 **그 조각의 방만** 다시 짓는다(분석기의 `housing:analysisChanged` 와 같은 길), `private cultureReady(uid)` 가 `ctx.housing.getCultureSlots(uid)` 를 duck-typed / try-caught 로 센다. 새 콜백 `onCultureTank(uid)` · `onDiningTable(uid)`; **`THREE.PointLight` 는 여전히 하나도 만들지 않는다**. **2026-09-12 (정비 벤치 제거)**: `FurnitureCallbacks.onRepairBench` 가 없어졌다. `repair_bench` 모델 빌더는 `MODELS` 가 `FurnitureModelKind` 전체를 덮어야 해서 **그대로 남고**, dispatch 의 `kind === 'repair_bench'` 분기도 **아무것도 하지 않는 채로 남는다** — 없애면 마지막 `else cb.onRangeConsole()` 로 흘러 엉뚱한 창이 열린다. 실제로는 `retired=1` 이라 `ShipState.sanitize` 가 조각을 먼저 걷어내므로 도달하지 않는다. **2026-09-13**: 모델 `drawer`(서랍장 `furn_drawer` — 옛 조종석 창고 캐비닛의 모습, 서랍이 −Z, 광원 없음). **2026-09-13 (요리 미니게임)**: `BUILDERS` 가 `FurnitureKitchen.KITCHEN_APPLIANCE_BUILDERS`(자동 조리 가구 4종)를 펼쳐 넣는다(`Builder` 타입 export). `bench_cook` 빌더는 몸체(화구 판 · 링 · 후드 · 재료 상자 · 조미료 병)만 병합하고, `buildFurniture` 가 병합 뒤 `cookBenchTools` 로 **움직이는 도구 그룹**을 붙인다(`FurnitureModel.cook`, `BuildExtra.cookGame`). `FurnitureLayer`: 조리대 E → `onCookStation(uid)`(프롬프트 `조리대 · 요리하기`, `onBench` 보다 먼저 잡는다), 자동 조리 가구 E → `onCookStation(cookBenchUid(uid))`(같은 방 우선 → 레벨 높은 조리대, 없으면 null · 프롬프트 `<이름> · 조리대 열기`), `CookStaging` 소유 · 매 프레임 `update` · 원격 연출의 `isLocal` 에 조리 중인 조리대 · `poseFor` 가 조리대에도 · 디버그 `cookStage`. **2026-09-13 (배치 규칙 — 접근 면)**: `addPiece` 의 상호작용이 `FurnitureDef.access` 를 따른다 — `front` 는 플레이어 발이 앞면 밖(조각 중심에서 `furnitureFaceDir(yaw, 'front')` 로 투영한 거리 ≥ 몸체 반 두께)일 때만, `sides` 는 넓은 두 면(|투영| ≥ 반 두께)에서만, `all` · `none` 은 어디서든 (`canInteract` · `getPrompt` 둘 다). `front` 조각의 anchor 는 앞면 0.4 m 앞, 반지름 = 앞면 반 폭 + 1.1. 고정 설비 id(`hub_computer` · `hub_implant_bay`)는 그대로. |
-| `interiors/InteriorCollider.ts` | `BoxInteriorCollider` implements the shared `InteriorCollider`: rooms = walkable AABBs (floor / ceiling), blockers = solid AABBs with an `enabled` flag. `resolveCollision` = clamp into the room union (edges shared with a neighbouring room stay open) + circle-vs-AABB push-out (2 passes); `raycast` = slab test vs blockers + floor / ceiling planes; `bounds`. `removeBlocker(index)` (furniture) disables the slot and recycles it on the next `addBlocker`, so earlier indices stay valid. Only allocates the returned `TerrainHit`. |
-| `interiors/FurnitureLeisure.ts` | **A-3e · A-3a (2026-09-12)** — 서재 매체 · 헬스장 가구 11종의 빌더 `LEISURE_BUILDERS` (`isLeisureKind`; `Furniture.ts` 의 `BUILDERS` 는 나머지 kind 만 갖는다). 같은 규약(가운데 · 바닥 y 0 · 앞 −Z · `GeoBatch`)에 더해 **움직이는 하위 그룹**(바벨 · 원반 · 벨트 줄무늬 · 크랭크 + 수평 페달 · 플라이휠 · 흔들의자 전체 · 도는 레코드)과 **자세 기하** `FurnitureRig`(가구 로컬 `anchor` · `forward` · 카메라 `focus/camDist/camUp` · `barRest` · `barPress`)를 `FurnitureModel.rig` 로 낸다. 하위 그룹 메시도 `model.meshes` 에 들어가 dispose · 고스트 재질이 그대로 먹는다. 공용 재질(원목 · 크롬 · 고무 · 음반 · TV 화면 · 따뜻한 불빛 · 등급색 케이스 `caseMat` · 네온 `neon(css, on)`)은 전부 불투명 `MeshStandardMaterial` — 새 셰이더 프로그램 없음, **점광원 0**. **2026-09-13 (서재 시리즈 · 비디오게임)**: kind 5개가 더 붙었다 — `game_stand`(게임 매장 매대: 네온 테두리 · 픽셀 간판 · 앞으로 기운 선반에 케이스가 앞면을 보이며 선다, 색 = `BuildExtra.gameColors`(디스크 테마 색) → 없으면 `media` 등급색), `sofa`(원목 다리 · 받침 · 팔걸이 · 뒤로 기운 등받이 · 쿠션 2–3개(폭 ≥ 1.7 m 면 3), 천 = 카탈로그 색을 어둡게 한 무광 `fabricMat`, **등받이 +Z · 앉는 방향 −Z**, 쿠션마다 `FurnitureRig.seats`), `low_table`(두꺼운 원목 상판 · 짧은 다리 · 아래 선반 · 상감 · 잡지 · 컵 · 패드), `rug`(판 y 0.010 … 0.018 — 격자선 윗면 0.007 위, 테두리 · 마름모 무늬 · 긴 쪽 양 끝 술, 3 cm 이하라 콜라이더가 걸음을 막지 않는다 — `BODY_MIN` 0.12), 그리고 **`chair` 를 `Furniture.ts` 에서 옮겨 왔다**(앉는 `rig` 가 필요 — 좌판 윗면이 옛 `h × 0.5`(0.45) 에서 `SIT_SEAT_TOP` 0.36 으로 내려갔다: player `FURN_SIT` 의 발이 바닥에 닿는다). 흔들의자 · 의자 · 쇼파가 같은 `SIT_SEAT_TOP` 을 쓴다. **TV** 는 `BuildExtra.consoleLook` 이면 상판 왼쪽에 게임기(0 펄스 스테이션 슬랩 · 1 레트로 큐브 · 2 홀로 데크 · 3 모르는 게임기 상자 — `TV_CONSOLE_LOOK_BY_KIND` 가 `GameConsoleDef.console` 을 모양에 잇는다) + 오른쪽 패드를 올리고, 화면 앞에 **늘 숨긴 게임 화면** `model.tv`(`TvRig` — 판 · 판정 구역 · 표식 `tv-game-marker` · 진행 막대 `tv-game-progress`, `BuildExtra.gameActive` 면 보이는 채로)를 짓는다. 새 재질: `TV_GAME_SCREEN` · `TV_GAME_HUD`(export — `GameStaging` 이 발광만 바꾼다) · 판정 구역 · 게임기 검정/흰색/초록 · 컵 · 테마 색 케이스 `gameCaseMat` — 전부 불투명 `MeshStandardMaterial`, 광원 0. **2026-09-14 5차 (사용자 결정)**: 축음기(`gramophone`)의 **소리가 나오는 곳(나팔 입구 · 목구멍)은 켜져도 빛나지 않는다** — 켜진 것은 앞 명판 · 레코드 라벨의 발광과 도는 음반이 말한다. 주크박스 · 턴테이블은 무변경, 점광원 0개 그대로. |
-| `interiors/GymStaging.ts` | **A-3a (2026-09-12)** — `worldPoseOf` · `sitPoseOf` · `gymPoseOf(piece, blockers)` · `gymCameraOf`(12 방위 × 거리 둘 × 높이 둘 후보를 점수로 — 옆일수록 · 낮을수록 좋고, 방 상자를 벗어나거나 몸 · 초점까지의 시선이 같은 방 다른 가구의 `FootBox` 를 지나면 크게 감점) + `GymStaging`: `housing:gymSession` → 원반 표시 · `setFurniturePose`(false → `cancelGymSession`), `housing:gymBeat` → 벤치 반복(실패 = 반쯤 밀다 버팀) · 트레드밀 속도 저하 · 크랭크 반 바퀴, 매 프레임 기구와 `setFurniturePoseDrive` 에 **같은 위상**, `player:furniturePoseEnded`(우리가 푼 것이 아니면) → 세션 취소. 조각은 늘 uid 로 다시 찾는다(방 재빌드에 안전). **2026-09-12**: 두 자세(`sitPoseOf` · `gymPoseOf`)에 `furnitureUid` 를 넣고, 기구 모습 한 벌을 함수로 뽑았다 — `poseBenchBar(rig, unrack, phase)` · `poseBelt(rig, offset)` · `poseCrank(rig, revolutions)` · `poseRock(rig, time)` · `restRig(rig)` + `UNRACK_S` · `RUN_STRIDE_LENGTH`. 로컬 연출과 원격 연출이 **같은 식**을 쓴다. |
-| `interiors/FurnitureKitchen.ts` | **2026-09-13 (요리 미니게임 §6-4)** — ① 자동 조리 가구 4종의 빌더 `KITCHEN_APPLIANCE_BUILDERS` (`Furniture.ts` 의 `BUILDERS` 에 펼쳐 넣는다 — 같은 `Builder` 모양): 네 대 모두 같은 주방 캐비닛(`counter` — 상판 0.72 m, 앞면 오른쪽 표시등 3개 중 `level` 개 점등) 위에 선다. `food_processor` = 모터 받침(표시창 · 다이얼 · 상태등) + **맑은 유리 볼**(S자 칼날 둘 · 청록 허브 · 다진 조각) + 뚜껑 · 투입구 · 손잡이 + 여분 칼날 거치대, `auto_grill` = 화실 위 왼쪽 **그릴 쇠살 사이로 달아오른 열선**(emissive) · 패티, 오른쪽 그릴 자국 난 **철판**, 뒤 경첩에서 열린 **후드**, 앞면 다이얼 · 오른쪽 뒤집개 걸이, `auto_stirrer` = 인덕션 판(달아오른 링) 위 냄비(국물) + 뒤 **스탠드** 기둥 → **팔** → 모터 머리(청록 띠) → 축 → 십자 **날개**, `pour_dispenser` = 벽판에 **액체 탱크 4개**(`COOK_LIQUIDS` 순서 · `COOK_LIQUID_COLOR`) → 밸브 → 매니폴드 → **노즐** → 받침판 위 **눈금 비커** + 조작 화면 · 액체색 버튼. ② 조리대 **도구 rig** `cookBenchTools(model, w, d, h, accent, extra)` → `FurnitureModel.cook` (`CookRig`): 하위 그룹 `cook-board`(+`cook-knife`) · `cook-pot`(+`cook-ladle`) · `cook-wok` · `cook-grill` · `cook-beaker`(+`cook-liquid`), 쉬는 자리 · **작업 자리**(player 오른손 작업점 밑) · 도마가 비켜 가는 자리 · 서는 자리(anchor, 바닥) · 초점 · 후드 상자. `COOK_TOOL_OF`(게임 → 도구) · `cookToolTarget` · `poseCookKnife`(칼이 오른손 경로를 따른다) · `restCookRig` · `liquidMat(liquid)`. player `SoldierModel.FURN_COOK` 의 거울 상수 `COOK_EDGE_GAP` 0.30 · `COOK_WORK_IN` 0.22 · `COOK_KNIFE_X` 0.10 · `COOK_CHOP_LIFT` 0.12 · `COOK_STIR_R` 0.05 (원본은 player). 재질 전부 공용 — 투명 유리 `CLEAR_GLASS` · 국물 · 볶는 재료 · 액체 4색. **점광원 0**. |
-| `interiors/FurnitureMining.ts` | **2026-09-13 (암호화폐 채굴)** — `MINING_BUILDERS` (`Furniture.ts` 의 `BUILDERS` 에 펼쳐 넣는다 — 리드의 임시 몸체 둘을 대신한다). **`compute_cluster`** = 폭 2칸 × 깊이 1칸 × 1.9 m 서버 랙: 받침 · 속 몸체 · 기둥 4 · 윗판 · 옆판 + 냉각 핀 11 · 케이블 묶음(파랑 · 주황) · 윗면 팬 둘(날개 · 시안 허브). **넓은 두 면(로컬 ±Z) 모두** 코어 칸 3×3(`COMPUTE_CLUSTER_MAX_CORES`, 위 줄 왼쪽부터) — 칸마다 움푹한 테두리 · 모듈 · 발광 막대 · 상태등 · 통풍 줄; **`BuildExtra.cores` 개만 켜지고**(`MINING_CORE_LIT`, 재질 이름 `mining-core-lit` — 스모크가 찾는다) 상태등은 `clusterMining` 이면 초록, 아니면 호박색; 면마다 가구 색 머리 띠 · 랙 상태등(채굴 초록 / 코어만 호박 / 없음 빨강) · 아래 통풍 격자. **`mining_computer`** = 3×2칸 책상(뒤로 붙은 상판 · 옆판 다리 · 뒷판) + 모니터 셋(가운데 정면 = 봉 차트, 왼쪽 −0.42 rad = 선 차트, 오른쪽 +0.42 rad = 시세 목록 — 전부 화면 위의 발광 막대, `rotXZ` 로 돈 화면에 붙인다) + 키보드(발광 키 줄) · 마우스 · 컵 · 책상 밑 본체(통풍 격자 · 시안 세로 띠 · 전원 버튼) · 케이블. 재질은 모듈 상수(버리지 않는다), **점광원 0**. |
-| `interiors/CookStaging.ts` | **2026-09-13 (요리 미니게임 §6-4)** — `GymStaging` 을 본뜬 조리 연출. `cookPoseOf(piece, blockers)` = `{kind:'cook', anchor(조리대 앞 바닥), yaw(조리대를 본다), camera, furnitureUid}` · `cookCameraOf` = 어깨 너머 고정 카메라 후보 16 × 2 (오른 어깨 · 옆 0.95/0.7 · 뒤 0.55/0.85 · 높이 2.25/2.5 m)를 점수로 — 방 벽(`CAMERA_WALL_MARGIN`) · 같은 방 다른 가구 상자 · 조리대 후드 · 몸(숙인 머리와 어깨)에 시선이 가리면 감점(`GymStaging.segmentHits` 재사용). `CookStaging`: `housing:cookSession` → `setFurniturePose`(false → `cancelCook`, 같은 세션을 다시 알리면 자세를 다시 걸지 않는다), `housing:cookStep` → 그 게임의 도구가 작업 자리로 미끄러져 나오고(감쇠 + 살짝 드는 호) 도마는 뒤로 비킨다, `housing:cookBeat` → 누적 손 위상 (썰기 · 다지기 · 볶기 = 입력마다 한 주기를 0.24 · 0.15 · 0.34 초에, 젓기 = `stir` 뒤 0.45 초 동안 연속, 굽기 · 붓기 · 단계 사이 = 느린 흔들림), 칼 · 국자 · 웍 튕김 · 그릴 팬 들썩임 · 붓는 동안 오르는 비커 액체(색 = 단계의 `liquid`), `setFurniturePoseDrive(소수부)` 매 프레임. 끝 → 자세 풀기 + 도구가 제자리로 돌아간다. `player:furniturePoseEnded`(cook, 우리가 푼 것이 아니면) → `cancelCook`. 디버그 `stage`. 프레임당 할당 없음, 광원 없음. **2026-09-14 5차 (사용자 결정) — 연출을 못 걸어도 미니게임은 진행한다**: 조리대 조각에 `model.cook` 이 없거나 `setFurniturePose` 가 false 면 같은 호출 스택에서 `cancelCook()` 을 불러 **세션이 그 자리에서 죽었다**(`startCook` 이 `beginSteps()` 까지 못 가서 「화면만 뜨고 단계가 시작되지 않는」 것이 그것이다). 이제 연출만 포기하고(`held` false) housing 은 건드리지 않는다. 세션을 거두는 것은 **우리가 실제로 건 자세가 남의 손에 풀렸을 때**와 조리대가 통째로 사라졌을 때뿐이다. |
-| `interiors/GameStaging.ts` | **2026-09-13 (서재 시리즈 · 비디오게임 §3)** — `GymStaging` · `CookStaging` 을 본뜬 게임 연출. `tvScreenWorld(tv)` · `gamePoseOf(seat, tv, blockers)` = `{kind:'sit', anchor(좌석 중 **TV 화면에 가장 가까운** 쿠션 — `sitPoseOf(piece, near)`), yaw(좌석 방향에서 TV 화면 쪽으로 ±0.6 rad 까지), camera, releaseOnInteract:false, furnitureUid}` · `gameCameraOf` = 어깨 너머 고정 카메라 후보 2 × 3 × 3 × 2 (오른 어깨 · 옆 0.45/0.8/1.25 · 뒤 1.1/0.7/0.3 · 바닥에서 1.55/1.85 m, lookAt = 머리 → 화면 0.7)를 점수로 — 방 벽(`CAMERA_WALL_MARGIN`) · 같은 방 다른 가구(**TV 화면을 품은 상자 = TV 자신은 뺀다**) 안 · 시선 가림 · 머리가 화면을 가림에 감점. `GameStaging`: `housing:gameSession {active:true}` → TV 게임 화면 켜기 · `setFurniturePose`(false → **그 자리에서** `cancelGameSession`, 같은 세션을 다시 알리면 다시 걸지 않는다), `housing:gameBeat` → 판정 색(완벽 금 · 좋음 청록 · 실패 빨강) 번쩍임 · 진행 막대 · 표식 반응, 매 프레임 공용 재질 `TV_GAME_SCREEN` · `TV_GAME_HUD` 의 **발광 색 · 세기만** 바꾼다(재질 교체 · `needsUpdate` 없음 → 셰이더 컴파일 없음) + 화면 속 표식(벤치프레스 = 좌우 커서 · 호흡 = 부푸는 막대 · 사이클 = 박자마다 좌우). `{active:false}` → 자세 풀기(reason `caller`) · 화면 숨김 · 재질 원래 값. `player:furniturePoseEnded`(sit, 우리가 푼 것이 아니면) → `cancelGameSession`. 디버그 `stage`. 프레임당 할당 없음, 광원 없음. **2026-09-14 5차 (사용자 결정) — 키를 누를 때마다 화면이 번쩍이지 않는다**: 판정마다 `TV_GAME_SCREEN` · `TV_GAME_HUD` 의 `emissive` · `emissiveIntensity` 를 판정 색으로 튀기던 `flash` 를 걷어냈다. 화면은 디스크 테마 색 + 잔잔한 `SCREEN_PULSE` 맥동뿐이고, 판정 반응은 화면 **속** 표식(`kick`) · 진행 막대가 말한다. uniform 만 바꾸는 성질은 그대로다(점광원 0개). 디버그 `stage.flash` → **`stage.kick`**. |
-| `interiors/RemoteFurnitureStaging.ts` | **2026-09-12 (캐릭터 버프 · 가구 자세 동기화 §6-C)** — 같은 `hubSite` 의 원격 분대원이 `RemotePlayerRef.furniturePose.furnitureUid` 로 가리키는 조각을 그 사람의 보간된 누적 위상으로 돌린다: 벤치 · 스미스 = 원반 표시 + 바 거치대 → 누르기 경로(`UNRACK_S`) · 위상 0 … 1, 트레드밀 = 누적 걸음 수 **차이** × `RUN_STRIDE_LENGTH`(뒤로 가거나 한 프레임에 1.5 걸음 넘게 뛰면 안 민다 — 헛돌지 않는다), 사이클 = 누적 바퀴 수(절대 위치), 흔들의자 = 시각으로 흔들기. 자세 끝 · 목록에서 사라짐 · 끊김 · stale · suspended · 다른 함선 → `restRig`. 로컬이 쓰는 조각(`GymStaging.uid` · 앉은 의자)은 건드리지 않고, 먼저 잡은 분대원이 이긴다. 조각은 매 프레임 uid 로 찾는다. 프레임당 할당 없음(인덱스 루프 · swap-remove · `spare` 재사용), 광원 없음. `FurnitureLayer` 가 **우리 함선과 방문 중인 함선 둘 다**에서 소유한다. |
-| `interiors/GeoBatch.ts` | `HUB_MATS` shared material palette (constant, never disposed; `grid` = the faint self-lit room grid lines), `GeoBatch` (accumulates Box/Cylinder/Plane geometry per material with a `YXZ` yaw-then-tilt transform and merges to one mesh per material via `BufferGeometryUtils.mergeGeometries`), `disposeMeshes`, `yawFromForward(fx, fz)` (player forward = (−sin yaw, −cos yaw)). |
-| `interiors/parts.ts` | `Parts`: deck (floor + grate + ceiling + light channels + amber edge strips), `walls()` with openings (viewports / airlock) that also emit collider blockers, `glass()`, ribs / beams, crate stacks, locker rows, `consolePedestal()` (returns the screen transform), `workbench()` (steel table + drawer block + vise + parts tray + wall tool board + cyan lamp strip, one 1.95 × 0.8 m collider box; returns the interaction anchor 0.95 m in front, the yaw looking at it and the transform for the `정비` `TextPlane` sign), sign strips. (`fixture()` — a `PointLight` of the ship's own — was removed on 2026-09-10: ships list `LightFixture`s for a `LightPool`.) `GLASS_MAT` transparent viewport glass. **2026-09-13**: `CeilingTarget {b, plate, beam, strip}` — `deck(room, grate, ceil?)` / `beam(…, ry, ceil?)` put the ceiling plane + light channels / the beam into another batch with other materials (the personal ship's fading cockpit ceiling). **2026-09-14 5차**: `Parts.workbench()` 는 **부르는 곳이 하나도 없다**(공유 함선의 정비 벤치 소품을 걷어냈다) — 좌표와 모양을 잃지 않도록 파일에는 그대로 남겨 뒀다. `interiors/stations.ts` 의 `repairBench()` · `ShipStations.bench?` 도 같은 처지다(계약으로만 남고 늘 미지정). |
-| `interiors/PersonalShip.ts` | **Cockpit → corridor → 8 rooms → airlock** (2026-09-06, coordinates in `RoomLayout.ts` and the table below). **Cockpit (current, 2026-09-13)** 10 × 6 m at −Z — the only **fixed** props left are the viewport + dashboard (its centre readout is the **terminal** screen, anchor (0, 0, −4.5)), the two pilot seats + the walkway to the corridor arch, and the launch pod socket (slot 0 at (4, 0, −1.2), door faces −X); `COCKPIT_BLOCKED_RECTS` (shared/housing) keeps exactly those cells off the furniture grid. Everything else in the cockpit is **furniture** that housing places: the 조종석 전용 시설 `furn_implant_bay` (시술대, cells x 0 … 3 · y 3 … 5) and `furn_corp_computer` (컴퓨터, rear wall port side) since 2026-09-12, and since 2026-09-13 the decor pieces on the old prop spots — `furn_bunk` (−X wall), two `furn_locker` (+X wall), `furn_drawer` (the old stash cabinet, rear wall starboard) (`COCKPIT_DECOR_FURNITURE`). The **cockpit ceiling** (plane, light channels, the three full-depth beams, the bar over the dashboard) is its own group `cockpit-ceiling` with own always-transparent material clones and fades out while 시설 관리 is open (`setCockpitCeilingHidden`, `cockpitCeilingFade`). *Historical (pre-2026-09-12) layout, kept for reference:* −X wall implant bay (−4.05, −4.9) + bunk; +X wall 2 lockers at (4.73, −4.7), **ship computer** desk at (4.65, −3.1) facing −X; +Z wall stash cabinet prop — the 함선 시설 console was removed in the Phase 8 UI pass. Corridor 3 × 25 m with a rib / beam / wall fill every 5 m; each room: floor + ceiling reaching to the corridor face, 8 × 8 grid lines (`HUB_MATS.grid`), walls with a 1.6 × 2.4 m door on the corridor, trim door frame, **its own** white wall bands + cyan outer-wall band + amber threshold material instances (`setRoomLit` → `ROOM_STRIP_LIT` / `ROOM_STRIP_DIM`), `방 n` / purpose `TextPlane` above the door (corridor side), an empty `furnitureGroup`, and a two-leaf **자동문** in the doorway. Airlock 3 × 2.5 m at +Z with 3 lockers (−X), the 3 supply crates (+X), a decorative door, `에어락` sign + blinking beacon. **Light fixtures** (cockpit 4, corridor 5, airlock 1 + one per room) served by a `LightPool` of `HUB_POINT_LIGHTS` lights nearest the player — only the nearest `ROOM_LIGHT_POOL` **lit** rooms are candidates (`pickRooms`), never toggled (2026-09-10; was 13 lights of its own). Spawn (0, 0, −1.8) facing −Z; `airlock` (0, 0, 26) facing −Z. `setRoomLabel(i, text, accent)`, `setRoomLit(i, lit)`, `updateNear(dt, px, pz)` (doors + light pool), debug `isRoomLit(i)` / `roomLightRooms` (room per pool light, −1 = other fixture) / `doors` / `lights` (the pool). **2026-09-09**: `setWarp(speed, dest)` via a `ViewportWarp` (nose −Z, streak shell 26–240 m, span 900) — the cockpit viewport is where the 창문 워프 is watched. **2026-09-12 (방 8 × 8 m)**: 이 파일에는 좌표를 새로 적지 않았다 — 방 · 복도 · 에어락은 `RoomLayout` 에서 오고, 박혀 있던 에어락 z(26.0 airlock · 26.4 사물함/보급 상자 · 26.3 비콘 광원)만 `AIRLOCK` 기준 오프셋이 됐다. 셋이 더 바뀌었다: ① 복도 구간 경계의 벽 채움 폭이 0.4 → **`ROOM_GAP`**(방 벽과 채움 사이에 0.3 m 씩 뚫려 있었다), ② 구간 한가운데(문 위)에 천장 보 하나씩(장식 · 콜라이더 없음), ③ **광원 자리** — 복도 구간당 하나 → 둘(10개), 방마다 하나 → **둘**(z ± `ROOM_DEPTH`/4, `ROOM_LIGHT_DISTANCE` 7 m 로는 8 m 방의 구석에 못 닿는다). **진짜 점광원은 여전히 `HUB_POINT_LIGHTS` 개**이고 `roomFixtures` 가 방당 배열이 되면서 `pickRooms` 는 그 방의 가장 가까운 자리로 순위를 매기고 `roomLightRooms` 는 `fixtureRoom` 역인덱스를 쓴다. |
-| `interiors/SharedShip.ts` | 26×14×4.2 m hangar deck: bridge dash + 4 readouts + viewport (−X) + terminal (faces +X), **ship computer** in the bridge's forward-port corner against the −Z wall at (−11, −6.65) facing +Z (anchor (−11, 0, −5.18)), **4 pod sockets in a row on the −Z wall** at x −6/−2/2/6 (doors face +Z, slot-numbered signs, separators), armoury (weapon racks, 5 lockers, **workbench** at (2.5, 0, 6.38) facing −Z — anchor (2.5, 0, 5.43), `정비` sign — crate stacks), central holo table, airlock door on +X. Docking arrivals spawn at (11, 0, 0) facing −X; direct enter spawns at (3, 0, 0.5) facing the pods. 6 light fixtures + the hangar's 9, served by a `LightPool` of `HUB_POINT_LIGHTS` (2026-09-10; `zone` 0 = deck, 1 = 격납고 — `updateNear` passes the player's zone so a lamp behind the bulkhead ranks last; debug `lights`). **Phase 8**: its hydroponics rack is gone (`ShipStations.garden` removed). **2026-09-12 (정비 벤치 제거)**: 병기고의 벤치는 그대로 서 있지만 `hub_workbench` 상호작용이 없어졌다 — `P.workbench(...)` 의 앵커를 버리고 표지 변환만 쓴다(`ShipInterior.workbench` 도 없다). 무기 수리는 인벤토리에서 재료로 한다. **2026-09-08 (격납고)**: the middle of the +Z wall is a 4 m opening with a two-leaf **자동문** (`ShipDoors`, `updateNear`) onto the `Hangar` deck, which is built into the **same** batch / collider; the armoury moved aside for it (racks + the 정비 bench to port at x −3.7, lockers at 4.2 and the crate stacks at 7.8 / 10.8 to starboard) and the aft rib at x 0 is skipped. `bays` / `setBayOccupants(names)` expose the four 정박 구역. **2026-09-09**: `setWarp(speed, dest)` via a `ViewportWarp` (nose −X — the bridge viewport; streak shell 48–300 m so nothing crosses the hangar at z ≈ +37, span 1000). **2026-09-11 (주방 A-3c)**: `ShipStations.diningTable` — 우현 중갑판 (8.6, 2.2) 의 **고정 식탁**(`stations.diningTable`) + `식당` `TextPlane`. 공유 함선에는 가구가 없으므로 분대가 함께 먹는 자리를 인테리어가 심는다. 자리는 사물함 · 보급 상자(+Z) · 임플란트 시술대 · 에어락(+X) · 발사 포드(−Z) · 홀로 테이블 어느 콜라이더와도 겹치지 않고 에어락 → 갑판의 z ≈ 0 통로를 비켜 간다. 좌현 x ≈ −8 은 비워 뒀다 — `smoke-hangar` 가 「출입구 옆에서는 후벽에 막힌다」를 (−8, 4) 에서 걸어 확인한다. **2026-09-14 5차 (사용자 결정 — 정비 벤치 제거 2차)**: 병기고 후벽의 **정비 벤치 소품을 통째로 걷어냈다**(`P.workbench(...)` 호출 · `wbSign` · `stations.bench`, 콜라이더 상자 하나 감소 — x ≈ −3.7 · z ≈ +6.4). 2026-09-12 에 상호작용(`hub_workbench`)만 없애고 테이블 · 바이스 · 공구판 · `정비` 표지는 「병기고 실루엣」으로 남겨 뒀는데, **누를 것이 없는 정비대가 서 있는 것 자체가 거짓말**이다. 광원은 손대지 않았다. |
-| `interiors/Starfield.ts` | `Starfield` (deterministic `Points` sphere, no size attenuation, slow spin) and `Planet` (lit sphere + additive atmosphere shell, group named `HubPlanet` / body `HubPlanetBody`). **Phase 11**: `Planet` takes a `spin` and a shell opacity, and gained `setColors(color, atmo)` (the window planet follows the 목표 행성 in place — no rebuild) and `setOpacity(0..1)` (the terminal hologram's `PLANET_SWAP_TIME` cross-fade). **2026-09-09**: `Starfield.setOpacity(0..1)` (scales `STARFIELD_BASE_OPACITY` 0.95, hides the points at 0) — the point stars give way to the streaks during a warp. |
-| `interiors/WarpStreaks.ts` | **행성 이동 워프** (Phase 11 · 창문 워프 2026-09-09): `WarpStreaks` — one `LineSegments` with two vertices per streak in a cylinder shell around the ship's travel axis. `setStretch(k)` pushes the tail vertex back (a `PointsMaterial` cannot be stretched, which is why this is not `Starfield`) and **quantises** the buffer write by `STRETCH_STEP`, so a 6 s warp uploads a couple of dozen times instead of once per frame; `setOpacity` fades the layer in only while the warp runs (0 hides the group and skips `update`), `update` drifts it **backwards along the nose** so the streaks fly past the viewports. **2026-09-09**: constructor takes `WarpStreaksOptions {count, seed, forward, rMin, rMax, span}` — geometry is generated along −Z and the group is rotated onto `forward` (personal ship −Z, shared ship −X); `rMin` must clear the hull (26 m personal, 48 m shared — the hangar reaches z ≈ +37). Also exports **`ViewportWarp`**, the one `setWarp` implementation both interiors share: owns the streaks, borrows the interior's `Starfield` + window `Planet`; `set(speed, dest)` fades stars out / streaks in and stretches them to `HUB_TRAVEL_WARP_STRETCH × speed`, fades the planet out on the way up and — re-tinted to `dest` at full speed or the first easing frame — back in on the way down (planet `visible = false` at opacity 0 so it stops writing depth over the streaks). Deterministic RNG, additive, `frustumCulled = false`. |
-| `interiors/Hangar.ts` | **격납고 데크** (2026-09-08). 44 × 30 m, 천장 9 m. 호출자(`SharedShip`)의 `GeoBatch` 와 `BoxInteriorCollider` 에 **그대로 섞여 들어간다** — 드로우콜이 늘지 않고, walkable room 이 **벽을 뚫고 함선 바닥면(`ship.deckZ`)까지 닿아** 출입구가 열린 공유 모서리가 된다(개인 함선의 방이 복도 면까지 닿는 것과 같은 규약). 갠트리 4틀 · 양옆 캣워크 · 닫힌 외부 게이트 · 슬롯 색 정박 구역 4개(점선 윤곽 + 위험 해칭 + 기둥 + 이름 표지판) + **광원 자리 9개**(`lightFixtures` — 5.6 m 갠트리 높이, 130/30 — 첫 판은 8.2 m 에 6개였고 데크가 새까맸다. 2026-09-10 부터 광원 자체는 `SharedShip` 의 `LightPool` 이 가까운 자리에 건다). `setOccupants(names)` 가 개인 함선 모델 · 착륙 다리 · 램프(`buildGear`)를 켜고 끈다. |
-| `interiors/LightPool.ts` | **함선 광원 풀** (2026-09-10). `LightFixture {x, y, z, color, intensity, distance, zone?}` = 광원이 걸릴 **자리**, `LightPool(parent, size, fixtures)` = 진짜 `PointLight` `size` 개. `update(dt, px, pz, zone?)` 가 플레이어에게 가까운 자리 순으로(이미 켜진 자리는 `KEEP_BONUS_M` 가산, 다른 구역은 `ZONE_PENALTY_M` 감산) 광원을 배정하고, 옮길 광원은 intensity 를 0 까지 내렸다가 옮겨 다시 올린다(`RAMP_PER_S` — 0.4 초). `visible` 은 절대 건드리지 않는다. 첫 호출은 페이드 없이 바로 켠다. `setFixtures(list)` 는 **객체 identity** 로 기존 배정을 이어 준다(방이 켜지고 꺼질 때). 씬 전체의 점광원 개수가 셰이더 프로그램 키에 들어가기 때문에 있다 — `core/LightBudget` 의 예산 23 = 상주 광원 15 + 이 풀 8. |
-| `interiors/ExteriorShips.ts` | Low-poly exterior models for the cutscene: `buildPersonalExterior()` (~9 m wedge, nacelles, additive engine discs) and `buildSharedExterior()` (~80 m spine, bridge tower, side hangar with an emissive-lined bay mouth at local (16, 0, 4), 4 engines, bay point light). `setThrust()` drives engine glow. |
+| `HubSystem.ts` | `GameSystem` (`name: 'hub'`) + `HubRef`: lifecycle, event wiring, per-frame update, the E close chain, M → ship management, terminal screen text, one-line delegates into `parts/`. Re-exports `model.ts`. |
+| `model.ts` | Folder vocabulary: `LOCK_REQUEST_GRACE_MS`, `UNBOARD_GRACE`, `READY_ECHO_GRACE`, `REBOARD_GRACE`, `DockTransition`, `WarpState`, scratch vectors. |
+| `parts/Interior.ts` | Build / dispose interiors: pods, terminal, shared-ship computer, stations (`hub_implant_bay`, `hub_dining_table`), `FurnitureLayer` + callbacks into `ctx.housing`, hangar exit, room signs / lights, room tracking, `teardown`. |
+| `parts/Transitions.ts` | `enter`, background resume (`tryResume`), docking / undocking cutscene start / finish with destination prebuild, `swapDirect`, bay board / leave, `net:lobbyUpdated` / `net:lobbyLeft` (incl. server `moved`) / `net:resumed`. |
+| `parts/Pods.ts` | Launch slots: prompt / availability / refusal reasons, board, ready toggle (with launch warnings), un-board, lobby echo sync, seed resolution (intel seed first), countdown, launch. |
+| `parts/Planet.ts` | Target planet: `setPlanet`, `travelBlockReason`, persistence (`PLANET_STORAGE_KEY`), window warp (`startTravel` / `tickTravel` / `finishTravel` / `cancelTravel`, pure `warpSpeedAt`), `applyPlanetLook`. |
+| `parts/Crew.ts` | Crew card sending (`crew` / `crewq`), training arena entry (`startTraining`), squad-leader handoff interactables (`lead:<peerId>`). |
+| `parts/Hangar.ts` | Hangar bays (`hub_ship_bay_<slot>`): prompts / refusals, bay occupants, ship-layout exchange (`ship` / `shipq`), visit wait, `furnitureSource` for a visited ship, visit status line. |
+| `HousingMode.ts` | 3D side of housing / ship management: top-down camera, floor cursor, ghost + footprint + clearance tiles, select / hold-to-move / place / rotate / recover, outlines, grid and cockpit-ceiling visibility, key guide `housing`. |
+| `LaunchPod.ts` | Pod mesh, name tag, `hub_pod_<slot>` interactable (hold 0.4 s), door collider blocker for remote occupants, boarded camera shot. |
+| `Terminal.ts` | `hub_terminal` interactable → `HubMenu`; `setScreen()` writes the console status lines. |
+| `Computer.ts` | Shared-ship `hub_computer` → `ctx.meta.openCorpMenu()` (warning toast on failure). |
+| `DockingCutscene.ts` | Exterior dock / undock cutscene 900 m above the origin (undock half duration), chase camera via `setCameraOverride`, `elapsed`, `finishNow()`. |
+| `Labels.ts` | `TextPlane`: CanvasTexture text plane, redraws only on change. |
+| `hub.css` | Terminal, launch-slot panel (`.hub-ready`, `.hr-*`), crew loadout popup (`.hub-crew-loadout`), launch warning, status line, planet card (`.hub-planet`, `.hp-*`). |
+| `intel.css` | Matchmaking popup (`.hm-`), intel panel in the terminal (`.hi-`), intel screen (`.it-`). |
+| `ui/HubMenu.ts` | Full-screen terminal (`.menu.hub-menu.fullscreen`): two columns — planet card with hologram (preview stepping, travel button, environment line `.hp-env`) and right column (intel panel → training arena); header `매칭` button; `closeTop()` closes intel → matchmaking → terminal. |
+| `ui/MatchPanel.ts` | Matchmaking popup: quick match, code docking, broadcast, lobby code / public toggle / invite link / crew rows / undock. Token `hub:match`. |
+| `ui/IntelMenu.ts` | Intel screen: pick phase (map + gimmick rows + total + hold-only `확정`) and confirmed phase (hologram lock-on + map + summary, `지역 재배치` hold → discard + reroll). Token `hub:intel`. |
+| `ui/IntelMap.ts` | Pure drawing of `ctx.world.previewLayout(...)` (`MapPreviewLayout`) snapped to a coarse grid and blurred; legend colours from `INTEL_MAP_LEGEND`. Never throws on malformed layouts. |
+| `ui/PlanetHologram.ts` | Planet hologram on its own WebGL renderer; cross-slide swap, `attachTo(host)` (lent to the intel screen), `startLockOn` / `clearLockOn`; returns null without a second GL context (`.no-holo`). |
+| `ui/ReadyPanel.ts` | Launch-slot panel: 4 cells (portrait top, gear board with 5 thumbnails + carried value, ready hold gauge with `Space` keycap), right-click → crew loadout popup, key guide owner `pod`, blocker `HUB_READY_BLOCKER` only while the local player is boarded. |
+| `ui/CrewLoadoutPanel.ts` | Modeless squadmate loadout popup (`ctx.inventory.createCrewLoadoutView`, equip / bag / quick; no stash, no credits). Escape token `hub:crewLoadout`, key guide owner `pod.loadout`. |
+| `ui/LaunchWarnPanel.ts` | Launch warning popup before readying (`ctx.inventory.getLaunchWarnings()`), `취소` / `그래도 준비`; the acknowledged signature is not asked again. |
+| `ui/HubStatus.ts` | Bottom-centre status line / countdown digits (`pointer-events: none`). |
+| `ui/dom.ts` | DOM helpers, `parseSeed`, `randomSeed`, `isolateInput` (keeps field typing out of `Input`; Escape only blurs). |
+| `interiors/types.ts` | `ShipInterior`, `PodSlotDef`, `TerminalDef`, `RoomDef`, optional interior hooks (`setGridVisible`, `setCockpitCeilingHidden`, `setPlanetLook`, `setPlanetVisible`, `setWarp`, `updateNear`, `setBayOccupants`). |
+| `interiors/RoomLayout.ts` | Single source of personal-ship coordinates: `COCKPIT`, `CORRIDOR`, `AIRLOCK`, `ROOM_BOXES`, `COCKPIT_ROOM_BOX`, `roomBox`, `roomAtWorld`, `editAreaAtWorld`, `roomCellToWorld`, `worldToRoomCell`, `yawToRotation`. |
+| `interiors/PersonalShip.ts` | Cockpit (fixed props: viewport + dashboard terminal, pilot seats, launch pod socket; rest is furniture) → corridor → `SHIP_ROOM_COUNT` rooms with doors, strips, signs, grid → airlock. Fading cockpit ceiling group, `LightPool`, `ViewportWarp`. |
+| `interiors/SharedShip.ts` | Shared deck: bridge + terminal + viewport, 4 pod sockets, computer, implant bay, fixed dining table, holo table, airlock; aft door to the hangar; `LightPool` (deck + hangar zones); `ViewportWarp`. |
+| `interiors/Hangar.ts` | Hangar deck merged into the shared ship's batch and collider: gantries, catwalks, 4 bays, parked personal-ship models (`setOccupants`), light fixtures. |
+| `interiors/Furniture.ts` | `buildFurniture(def, level, extra?)` builders for every non-leisure `FurnitureModelKind` (merges kitchen and mining builders); `FurnitureLayer`: per-room pieces, collider blockers, `Lv.n` signs, interactables `hub_furn_<uid>` with access-face checks, rebuild on `housing:*` events, owns `GymStaging` / `CookStaging` / `GameStaging` / `RemoteFurnitureStaging`. |
+| `interiors/FurnitureLeisure.ts` | `LEISURE_BUILDERS` (`isLeisureKind`): library media stands, TV with console + hidden game screen rig, record players, gym machines, sofa, chair, low table, rug; moving sub-groups and pose geometry (`FurnitureRig`). |
+| `interiors/FurnitureKitchen.ts` | Auto-cooking appliance builders (`KITCHEN_APPLIANCE_BUILDERS`) and the cook-bench tool rig (`cookBenchTools` → `CookRig`, `COOK_TOOL_OF`, `poseCookKnife`, `restCookRig`). |
+| `interiors/FurnitureMining.ts` | `MINING_BUILDERS`: compute cluster (lit core slots = `BuildExtra.cores`) and mining computer desk. |
+| `interiors/GymStaging.ts` | Pose / camera helpers (`worldPoseOf`, `sitPoseOf`, `gymPoseOf`, `gymCameraOf`, `segmentHits`) and shared rig posers (`poseBenchBar`, `poseBelt`, `poseCrank`, `poseRock`, `restRig`); `GymStaging` drives `housing:gymSession` / `housing:gymBeat`. |
+| `interiors/CookStaging.ts` | `cookPoseOf` / `cookCameraOf`; `CookStaging` drives `housing:cookSession` / `cookStep` / `cookBeat` (tools slide in, hand phase). |
+| `interiors/GameStaging.ts` | `tvScreenWorld`, `gamePoseOf`, `gameCameraOf`; `GameStaging` drives `housing:gameSession` / `gameBeat` (TV screen emissive tint, in-screen markers, progress bar). |
+| `interiors/RemoteFurnitureStaging.ts` | Animates pieces used by remote squadmates in the same `hubSite` from their interpolated cumulative pose phase. |
+| `interiors/InteriorCollider.ts` | `BoxInteriorCollider`: walkable AABB rooms + toggleable / removable blocker boxes; `resolveCollision`, `raycast`, `bounds`. |
+| `interiors/GeoBatch.ts` | `HUB_MATS` shared palette, `GeoBatch` (merge per material), `disposeMeshes`, `yawFromForward`. |
+| `interiors/parts.ts` | `Parts` geometry kit (deck, walls with openings + blockers, glass, ribs, crates, lockers, `consolePedestal`, unused `workbench`, signs), `GLASS_MAT`, `CeilingTarget`. |
+| `interiors/stations.ts` | Station geometry: `implantBay`, `diningTable`, `shipComputer` (+ body helpers), unused `repairBench`; `StationDef`, `ComputerStationDef`, `ShipStations`. |
+| `interiors/Doors.ts` | `ShipDoors`: animated two-leaf sliding doors (no collider change). |
+| `interiors/LightPool.ts` | Re-export of `LightPool` / `LightFixture` from `@/shared`. |
+| `interiors/Starfield.ts` | `Starfield` (points) and window `Planet` (`setColors`, `setOpacity`). |
+| `interiors/WarpStreaks.ts` | `WarpStreaks` line field and `ViewportWarp`, the shared `setWarp` implementation (stars → streaks, planet fade / re-tint). |
+| `interiors/ExteriorShips.ts` | Low-poly exterior ship models for the docking cutscene, `setThrust()`. |
 | `index.ts` | Barrel. |
 
-## Flow (events in → actions → events out)
+## Public API
+
+- **`ctx.hub: HubRef`** (`src/shared/types.ts`, three `interface HubRef` blocks): `ship`, `active`, `collider`,
+  `getLaunchSlots()`, `missionSeed`, `setMissionSeed(seed)` (console `/seed`; lobby host pushes `setLobbySeed`, non-host
+  refused), `currentRoom`, `launchReady?` (boarded ∧ ready — `inventory` read-only gate), `planet`, `setPlanet(id)`,
+  `travelling`, `hubSite`, `visitingPeer`, `visitReadOnly`, `getShipBays()`, `enterShipBay(slot)`, `returnToHangar()`.
+- **Emits**: `hub:entered {ship, spawn}`, `hub:left`, `hub:docking {stage, direction}`, `hub:travel {stage, planet}`,
+  `hub:warpProgress {planet, t, speed}`, `hub:planetChanged {planet, by}`, `hub:slotChanged`, `hub:launchCountdown`,
+  `hub:readyPanelToggled`, `hub:crewLoadoutToggled`, `hub:terminalToggled` (+ legacy `ui:hubMenuToggled`),
+  `hub:roomEntered {room, purpose}`, `hub:shipVisit {peerId, readOnly}`, `leader:transferRequested {peerId}`,
+  `housing:modeChanged` / `shipManageChanged` (local exit fallback), `housing:cursorChanged`, `housing:selectionChanged`,
+  `housing:furnitureSelected {uid}`, `housing:moveStateChanged`, `housing:moveHold {progress}`, `housing:placeRefused`,
+  `game:newMission` (solo launch / training), `game:abort` (entering the hub from a mission phase), `camera:shake`,
+  `ui:keyGuide`, `ui:notify`, `audio:play`.
+- **Consumes**: `hub:enter`, `game:newMission`, `game:abort`, `net:lobbyUpdated`, `net:lobbyLeft`, `net:resumed`,
+  `net:statusChanged`, `net:crewCard`, `meta:creditsChanged`, `meta:loaded`, crew-card triggers (`progress:levelUp`,
+  `implant:equipped`, `equip:changed`, `loadout:changed`, `inventory:loadoutSaved`), ship-state triggers
+  (`housing:changed` / `loaded` / `booksChanged` / `shelfChanged` / `furnitureToggled`), `housing:roomPurposeChanged`,
+  `housing:modeChanged`, `housing:shipManageChanged`, `housing:moveRequested`, `housing:furniture*`,
+  `housing:analysisChanged`, `housing:cultureChanged`, `housing:clusterChanged`, `housing:tvConsoleChanged`,
+  `housing:gymSession` / `gymBeat`, `housing:cookSession` / `cookStep` / `cookBeat`, `housing:gameSession` / `gameBeat`,
+  `player:furniturePoseEnded`, `intel:changed`, `tutorial:changed`, `input:bindingsChanged`.
+- **Wire** (`src/shared/net.ts`): sends `crew card` (broadcast on arrival in the shared ship + debounced by
+  `CREW_CARD_MIN_INTERVAL_S`), answers `crewq sync` and `crewq loadout` (per requester `CREW_LOADOUT_COOLDOWN_S`); sends
+  `ship state` (`ShipVisitWire`, debounced `SHIP_VISIT_MIN_INTERVAL_S`), answers `shipq state` (`SHIP_VISIT_COOLDOWN_S`).
+  Receiving and storing is `net/`'s. Planet travel has no message: every client warps off its own `lobby:state`.
+- **Debug**: `getSystem('hub')` → `.housing` (`HousingMode`), `.furnitureLayer`, `.openShipManage()`,
+  `.debugRemoteFurniture(refs)`; interactables `hub_terminal`, `hub_computer`, `hub_implant_bay`, `hub_dining_table`,
+  `hub_pod_<slot>`, `hub_ship_bay_<slot>`, `hub_hangar_exit`, `hub_furn_<uid>`, `lead:<peerId>`. Scene names:
+  `PersonalShip`, `room-<i>`, `furn-<defId>`, `HubPlanet` / `HubPlanetBody`, `cockpit-ceiling`.
+
+## Flow
+
 | Trigger | Action |
 |---|---|
-| `hub:enter {ship}` | `ship` is coerced: a lobby exists → `shared`, else `personal`. If the phase is a mission / result phase (`deploying`, gameplay, `complete`, `dead`) emit **`game:abort` first** (GameFlow → `menu`, World / Player / etc. reset). Build the interior at the origin, `player.setInterior(collider)`, `player.spawnStanding(spawn, yaw)`, `setControlsEnabled(true)`, atmosphere space mode on, `ctx.setPhase('hub')`, emit `hub:entered {ship, spawn}`, request pointer lock. Personal ship: `ctx.net.ensureConnected()` in the background — a lobby on `welcome` (resume) swaps straight to the shared ship. Idempotent when already in the same ship. |
-| `game:newMission` | Teardown (`'mission'`): un-board silently, close the menu, dispose interior / pods / terminal, `player.setInterior(null)` + `setCameraOverride(null)` + `setInPod(false)`, emit `hub:left`. Space mode is restored by Engine on `world:ready`. (World generated and Player respawned already — World is registered before Hub.) |
-| `game:abort` (while hub active) | Teardown (`'menu'`) + space mode off. GameFlow sets `menu`. |
-| Terminal `E` | `HubMenu.open()`: adds `ctx.uiBlockers` token `'hub'` **before** `ctx.input.setCursorMode(true, 'hub')` (the lock is released; `main.ts` re-locks when the last cursor owner leaves), emits `ui:hubMenuToggled {open:true}`. **Close is `E` again** (2026-09-08 — the footer reads 닫기 (E)) or the button; it removes the token and leaves cursor mode. Typing in the 도킹 코드 field never reaches `Input` (`ui/dom.isolateInput`), and that field's Escape now only **blurs** instead of closing the terminal. |
-| Workbench `E` | `WorkbenchMenu.open()` (same token / cursor etiquette as the terminal, emits `hub:workbenchToggled {open:true}`); close → `{open:false}` + re-lock. The terminal, the workbench and the pods are mutually exclusive: none is interactable while either menu is open, during a cutscene or while boarded. Force-closed (no re-lock) on teardown (`game:newMission` / `game:abort` / 타이틀로), docking start and direct swaps. `HubSystem.isWorkbenchOpen` (debug getter). |
-| `E` in `hub` (2026-09-08: **was `Esc`**) | steps out one level in the old Escape order: 정비 벤치 menu → 함선 터미널 → **분대원 장비 popup** → un-board the pod (that last one still gated on `UNBOARD_GRACE`). Each branch `consume`s the key — **the un-board branch deliberately does not**, because `consume()` only clears `pressed` and `Interactable.holdTime` reads `isDown`: the still-held press would start a fresh boarding hold and put the player straight back in. `REBOARD_GRACE` (0.5 s, `podCanInteract`) is what actually stops that (2026-09-09). Ignored while `MENU_BLOCKER` is up. `HubSystem` updates **before** `PlayerSystem`, so the E that *opens* one of these is polled here while it is still closed and one tap can never open and close it in the same frame. **Escape is not read here at all any more** — it falls through to `game/` and is the 일시정지 메뉴, which stacks over whatever is open. |
-| Pod `E` (hold 0.4 s) | Only the local slot's pod (`ctx.net.localSlot`, 0 solo) while free. `missionInProgress` → `ctx.net.rejoinMission()` (prompt `임무 진행 중 — 재투입`). Else board: `spawnStanding(pod)`, `setInPod(true)`, `setControlsEnabled(false)`, camera override to the pod shot, `ctx.net.setReady(true)`, `audio:play ui_equip`, `hub:slotChanged {slot, peerId: localId ?? 'local', local:true}`. `E` again (after 0.6 s) or Esc → un-board (`setReady(false)`, placed 1.3 m in front of the door, camera released). |
-| crew cards (Phase 10) | **Sending only** — receiving / storing / `net:crewCard` is `net/`'s. `hub:entered {ship:'shared'}` → `announceCrew()`: broadcast `crew card` (level / ship implant / armor / 3 weapon slots, read off `ctx.progression` · `ctx.implants` · `ctx.inventory.getEquipped`) to `'others'` **and** send `crewq sync` so everyone answers with theirs. `progress:levelUp` / `implant:equipped` / `equip:changed` / `loadout:changed` / `inventory:loadoutSaved` re-broadcast it, debounced by `CREW_CARD_MIN_INTERVAL_S` (a change inside the window sets `cardDirty` and `update()` sends it when the window expires). Inbound `crewq sync` → our card to that peer (undebounced); inbound `crewq loadout` → `crew loadout {card, loadout: ctx.inventory.captureCrewLoadout()}` to that peer, at most once per `CREW_LOADOUT_COOLDOWN_S` per requester. Nothing is sent without a lobby. |
-| `net:lobbyUpdated` | Personal ship + lobby appeared → docking cutscene (`lobby.started` → direct swap, resume case). Shared ship → `syncPods()`: pod occupant = `players[slot].ready && connected` (door closed, ring lit, tag `탑승 완료` / `임무 중` / `대기 중` / `연결 끊김`), `hub:slotChanged` on change; if the server dropped our own `ready` (lobby reset) > 1.5 s after we sent it → step out with `발사 슬롯이 초기화되었습니다`. Terminal screen refreshed. |
-| `net:lobbyLeft` | Shared ship (or docking) → undock cutscene → personal ship. |
-| `net:resumed {inProgress}` | Hub active → swap to the shared ship without a cutscene. **2026-09-07**: a **running raid** is then re-entered automatically (`진행 중인 임무로 복귀합니다` + `net.rejoinMission()` one microtask later, so the interior `swapDirect` just built is torn down cleanly) — the relay keeps a dropped raider's slot for the whole mission and the host parks their body, so walking to a pod first was busywork. A 훈련장 (individual entry) still only toasts `함선에 재접속했습니다 — 훈련장이 열려 있습니다 (터미널에서 합류)`; no mission → `함선에 재접속했습니다`. Outside the hub GameFlow handles it. |
-| ~~`net:peerJoined / peerLeft`~~ | **2026-09-11 (B-12): 없다.** 이 폴더는 합류 · 이탈에 아무것도 띄우지 않는다 — `ui/hud/Notifications` 가 같은 이벤트에 `<이름> 합류` · `<이름> 이탈`(`'분대'` 라벨)을 띄우고 `ui:notify` 가 **그것과 같은 토스트 스택**이라, 함선에서만 두 줄이 나란히 떴다. 잃은 것은 `함선` 이라는 낱말 하나이고(지금 함선에 있다는 상황과 `'분대'` 라벨이 문맥을 준다) 토스트의 주인은 `ui/` 하나가 됐다. `HubSystem.bind` 의 그 자리에 이유가 주석으로 남아 있다. |
-| Docking | `startTransition(dir)`: un-board, close menu, dispose the interior (the player keeps the old collider reference), `setPhase('docking')`, `hub:docking {stage:'start', direction}`, `ui:notify`, cutscene (`HUB_DOCKING_DURATION`, undock ×0.5, `setControlsEnabled(false)`). End: build target (`shared` spawns at the airlock), `setPhase('hub')`, `hub:docking {stage:'end'}`, `hub:entered`, re-lock. A lobby that vanished mid-dock lands back in the personal ship. |
-| Launch countdown | Every frame while boarded: `allReady` = solo → boarded; lobby → `!started` and every **connected** member `ready`. Starts `HUB_LAUNCH_COUNTDOWN`; the authority (solo / host) emits `hub:launchCountdown {seconds, ready, total}` on each second and at 0 calls `ctx.net.startGame(seed)` (host, once) or emits `game:newMission {seed}` (solo). Clients mirror the countdown locally for display only. Anyone un-readying cancels (`발사 취소 — 승무원 대기`). Seed = `lobby.seed ?? hub.missionSeed ?? random`. |
-| Terminal `◀ ▶` / `행성 이동` (Phase 11) | Stepping is a **preview**: the hologram swaps (`PLANET_SWAP_TIME`) and the labels change, `ctx.hub.planet` does not. `행성 이동` → `HubRef.setPlanet(id)`, refused (false, and the button carries the reason) for a non-host in a lobby (`호스트만 지정할 수 있습니다`), during a cutscene / travel (`이동 중`), during a launch countdown (`발사 카운트다운 중`), outside the `hub` phase, for an unknown id and for the planet we are already at. Solo it writes `PLANET_STORAGE_KEY`; in a lobby the **host** calls `ctx.net.setLobbyPlanet` (which mirrors `lobby.planet` optimistically) and every member's own `lobby:state` starts the same cutscene. |
-| 행성 이동 — **창문 워프** (Phase 11, rebuilt 2026-09-09) | `startTravel(planet, by)`: un-board (`setReady(false)`), close terminal / workbench, hide the READY panel, cancel the countdown, `travelling = true`, arm `warp: WarpState`, `hub:travel {stage:'start', planet}` + `ui:notify '<행성> 행성으로 이동합니다'` + `hub_dock_thrusters`, `relock()` (the terminal closed with `relock = false`; the player is about to walk). **No cutscene, no camera override, no control lock** — the player walks the ship for the whole `HUB_TRAVEL_DURATION` (6 s). **The interior is kept** — no `disposeInterior`, no rebuild, the phase stays `'hub'`, and `update()` no longer returns early: 자동문 · 방 조명 · star drift keep running. Every frame `tickTravel` (after `tickCountdown`, so its `<행성> 항로 이동 중` status line wins): `speed = smoothstep(min(e / HUB_WARP_RAMP_S, (D − e) / HUB_WARP_RAMP_S))` → `interior.setWarp(speed, dest)` (stars → streaks, planet out / re-tinted / back in), `hub:warpProgress {planet, t, speed}`, and every `HUB_WARP_SHAKE_INTERVAL_S` a `camera:shake {intensity: HUB_WARP_SHAKE_PEAK × speed, duration: 1.5 × interval}` — weak at first, strongest mid-trip, easing off toward arrival. Pods (`podCanInteract`), bays (`Hangar.bayBlockReason`), consoles (`stationUsable`, now checks `travelling`) and `setPlanet` (`이동 중`) refuse for the trip. End (`finishTravel`): `applyPlanetLook` + `setWarp(0)`, terminal screen + pods re-synced, `hub:travel {stage:'end'}` + `hub:planetChanged {planet, by}` + `<행성> 궤도 진입 — 발사 슬롯 개방` + `hub_dock_clamp`; **no re-lock** (the pointer was never released). Every path that tears the interior down or swaps it (`enter`, `teardown`, `startTransition`, `swapDirect`, `finishTransition`, `boardShip`, `leaveShip`) calls `cancelTravel()` — `travelling` off, `setWarp(0)`, `applyPlanetLook`, **no** `hub:travel {end}` (those paths emit their own `hub:docking` / `hub:entered` / `hub:left`, which the listeners reset on). The streaks are the interior's and die with it. |
-| `net:lobbyUpdated` (planet, Phase 11) | Handled **after** the personal→shared docking branch, so joining a lobby only fills the value (`build()` seeds `knownLobbyPlanet` + `applyPlanetLook`, no cutscene). Afterwards a `lobby.planet` different from `knownLobbyPlanet` starts `startTravel(lp, 'squad')` while we are in the hub, not travelling and the lobby has not started; otherwise it just re-tints the window planet. There is **no travel message on the wire** — each client plays its own 창문 워프 off `lobby:state` (same `HUB_TRAVEL_DURATION`, same curve, so the squad lands together). |
-| Pod `E` gate (Phase 11) | `podCanInteract` is only *availability* (phase / cutscene / **travelling** / boarded / **`REBOARD_GRACE`** / menus / our slot / free). The refusals live in `podBlockReason`, which stays **interactable on purpose**: `ctx.interactables.findBest` skips anything that answers `canInteract() === false`, and the player would then get no prompt and no reason at all. Order: a training runs → `훈련 진행 중 — 터미널에서 합류`; 목표 행성 미지정 → `목표 행성 미지정 — 터미널에서 지정`. `boardPod` refuses both with a `ui:notify` + `ui_deny`. **2026-09-09**: `boardPod` no longer has a silent path — an unavailable pod answers `지금은 발사 슬롯에 탈 수 없습니다` + `ui_deny` instead of returning into the void (the one exception is the `REBOARD_GRACE` window, where silence *is* the intent), and `getLaunchWarnings()` is wrapped in try/catch so a throw in the check cannot swallow the boarding — `player/perform` catches an `interact()` exception into a console line, which is what made the failure invisible. |
-| Launch (Phase 11) | `launch()` returns early without a planet (the pod gate caught it, and the server would answer `no_planet`). Lobby host: `ctx.net.startGame(seed, 'raid', planet)`. Solo: `ctx.missionMode = 'raid'` **and `ctx.missionPlanet = planet`** before `game:newMission {seed, mode:'raid', planet}` (the emitter sets both first — `world/` generates inside the emit). `startTraining()` sets `ctx.missionPlanet = null`: the arena has no planet. |
-| `M` in the hub (Phase 8) | `Keys.MAP` (read live) with no blocker, not boarded, no cutscene, not already decorating and only in the **personal** ship → `openShipManage()` → `ctx.housing.openShipManage(currentRoom ?? undefined)`; housing answers with `housing:shipManageChanged` which `HousingMode` turns into the top-down camera. The shared ship / a missing housing ref answer with a `ui:notify` warning. `ui/` draws the `함선 관리 (M)` hint, the 방 목록 and the 가구 카드 바. |
-| every frame (personal ship) | `updateNear(dt, playerX, playerZ)`: 자동문 (open within `DOOR_OPEN_DISTANCE`, slide `DOOR_SLIDE_SPEED`, no collider change) + the `ROOM_LIGHT_POOL` room lights (re-anchored to the nearest non-empty rooms, intensity ramped through 0, **never** `visible`-toggled). `trackRoom()`: `roomAtWorld(player.x, player.z)` → `currentRoom`; on change emit `hub:roomEntered {room, purpose}` (`null` in the corridor / cockpit / airlock; also emitted with `null` on teardown). |
-| 시뮬레이션 훈련장 (Phase 7) | `HubSystem.startTraining()` (public; the 사격장 `furn_sim_hub` and the shared-ship terminal call it): refused outside `hub`, during a cutscene, while boarded or decorating. **Lobby**: a raid running (`lobby.started`, mode ≠ training) → `ui:notify` `임무 진행 중 — 훈련장을 열 수 없습니다` + `ui_deny`; a training already running (`net.missionMode === 'training'` / `lobby.mode`) and we are in the hub (`missionInProgress`) → `net.rejoinMission()` (join, toast with the member count); otherwise `net.startGame(seed, 'training')` — any member, no ready gating, the server marks only the caller `inMission` and `game:start {mode:'training'}` → net emits `game:newMission` for us → `teardown('mission')`. **Solo**: `ctx.missionMode = 'training'` **before** `game:newMission {seed, mode:'training'}` (contract: the emitter sets the mode first; the pod launch likewise sets `'raid'`). Seed = `resolveSeed()`. Coming back (`game/` handles `training:exitRequested` → `game:abort` + `hub:enter`) builds the ship directly — `enter()` never plays the docking cutscene, so a lobby member lands straight in the shared ship. While a training runs in the lobby: pod prompt `훈련 진행 중 — 터미널에서 합류`, boarding refused with a notice + `ui_deny`, pod tags `훈련 중` / `대기 중` (no door closes for a training), status line `훈련 진행 중 (n명)` / `터미널에서 합류할 수 있습니다`, terminal screen line `훈련장 n명`; the launch countdown never starts because `lobby.started` is true. |
-| Furniture `E` | `hub_furn_<uid>`: bench → `ctx.inventory.openBenchCraft(kind, level)`, **관물대** (`furn_range_console`, renamed from 사격장 콘솔 in the Phase 8 UI pass — the only way into the loadout presets) → `ctx.housing.openPresetMenu()`, 시뮬레이션 허브 → `startTraining()` (Phase 7), **정비 벤치 → `WorkbenchMenu.open()`**, **재배층 → `ctx.housing.openGrowMenu(uid)`** (Phase 8; a missing housing ref degrades to a `재배층을 사용할 수 없습니다` toast), **재배 스테이션 → `ctx.housing.openGrowStation(uid)`** (온실 개편 2026-09-11; fallback toast `재배 스테이션을 사용할 수 없습니다`. 옛 재배층 경로는 은퇴 가구가 로드에서 걷혀 실제로는 불리지 않지만 계약대로 남아 있다). |
-| Computer `E` (Phase 5) | `hub_computer` → `ctx.meta.openCorpMenu()`; fallback `ui:notify` warning when meta is missing / a stub / the screen did not open. **2026-09-07**: that screen is the Tab window's 기업 tab (`ctx.inventory.openScreen('corp')`), so there is no `'corp'` blocker any more — the window's own `'inventory'` token covers the station gating (`stationUsable()` / `podCanInteract()` already read `ctx.inventory.isOpen`) and the pointer-lock loss. **Esc** is left to inventory/: while `corpMenuOpen()` the hub's whole Escape chain is skipped, and the old one-frame `corpWasOpen` swallow is gone. Terminal status screen gets a 4th line `크레딧 n` (`ctx.meta.credits`, refreshed on `meta:creditsChanged` / `meta:loaded`; omitted while meta is missing). |
-| `housing:modeChanged {active:true, room}` | `HousingMode.activate(room)` (see below); `{active:false}` → restore camera / controls. Terminal, pods, stations and furniture are not interactable while active (`stationUsable()` / `podCanInteract()` check `housingMode.active`; the player's own interaction loop is off because controls are disabled). `HubSystem.update` hands the whole input frame to `HousingMode.update()` while active (Esc never reaches the menu toggle). A pointer-lock loss while decorating exits housing mode and re-locks instead of opening the terminal. |
-| `housing:furniture* / changed / loaded` | `FurnitureLayer` rebuilds the room (meshes, blockers, `Lv.n` sign, interactable; `changed` only for uncovered reasons); `housing:roomPurposeChanged / changed / loaded` rewrite the door signs. |
+| `hub:enter {ship}` | Ship coerced (lobby → `shared`, else `personal`). From a mission / result phase emit `game:abort` first. Build at the origin, spawn, space mode on, `ctx.shaders.holdForScene()`, phase `hub`, `hub:entered`, relock. Personal ship tries to resume a lobby in the background (skipped when `net.link.state === 'refused'`). Idempotent. |
+| `game:newMission` | `teardown('mission')`: un-board, close menus, dispose interior, release player interior / camera, `hub:left`. |
+| `game:abort` | `teardown('menu')` + space mode off. |
+| `net:lobbyUpdated` | Personal ship + lobby → dock cutscene (`lobby.started` → direct swap). Pending server move → one dock cutscene. During a visit: leave the ship when a raid starts or the owner left. Shared ship: refresh bays, start a squad warp when `lobby.planet` changed, `syncPods`. |
+| `net:lobbyLeft` | `moved` → wait `MOVE_WAIT_MS` for the new lobby; otherwise undock cutscene → personal ship. |
+| `net:resumed` | Swap to shared ship; a running raid is re-entered automatically (`rejoinMission()` one microtask later); a running training only toasts. |
+| Docking | `startTransition(dir)`: un-board, close menus, dispose interior, phase `docking`, cutscene (`HUB_DOCKING_DURATION`, undock ×0.5). After `PREBUILD_AFTER_S` the destination ship is built and warmed (`pendingInterior`). End: attach, phase `hub`, `hub:docking {end}`, `hub:entered`. |
+| Terminal E | `HubMenu.open()`: blocker `'hub'` before `setCursorMode(true, 'hub')`, escape token `hub:terminal`. |
+| E in `hub` | Closes the top of: launch warning → terminal stack (`closeTop`) → crew loadout popup → un-board (after `UNBOARD_GRACE`). Ignored under `MENU_BLOCKER`. Escape is not read here — `game/` and `ctx.escape`. |
+| Tab | `HubMenu.update` closes its top screen (consumed); `HousingMode` leaves the mode. |
+| M | No blocker, not boarded → `openShipManage()` → `ctx.housing.openShipManage()` (personal ship only; refused while visiting). |
+| Pod E | See Launch slots. |
+| Terminal `행성 이동` | `setPlanet(id)`: refused for non-host in a lobby, during cutscene / travel / countdown, outside `hub`, unknown id, current planet. Solo saves `PLANET_STORAGE_KEY`; host calls `ctx.net.setLobbyPlanet`. |
+| Window warp | `startTravel`: un-board, close terminal, hide ready panel, cancel countdown, `hub:travel {start}`. Controls, camera and interior stay live for `HUB_TRAVEL_DURATION`; `tickTravel` drives `setWarp(speed)`, `hub:warpProgress`, hull shake (`HUB_WARP_*`). Pods, bays, consoles refuse meanwhile. `finishTravel` → `hub:travel {end}` + `hub:planetChanged`. Interior teardown / swap paths call `cancelTravel()` (no end event). |
+| Training | `startTraining()` (terminal, both ships): refused outside `hub`, cutscene, boarded, decorating, raid running. Lobby: join a running training (`rejoinMission`) or `net.startGame(seed, 'training')`. Solo: sets `missionMode = 'training'`, clears `missionPlanet` / `missionIntel`, emits `game:newMission`. |
+| Every frame (hub) | Interior update, doors + light pool (`updateNear`), furniture layer, pods, room tracking (`hub:roomEntered`), pending visit, leader handoff interactables, housing mode (owns input while active), E / M, countdown, warp. |
 
-## Personal-ship coordinates (`interiors/RoomLayout.ts`, metres, ship at the origin, spawn faces −Z)
-| Part | X | Z | Notes |
-|---|---|---|---|
-| Cockpit | −5 … 5 | −6 … 0 | viewport on −Z, 2.6 m arch to the corridor on +Z (x −1.5 … 1.5) |
-| Corridor | −1.5 … 1.5 | 0 … 45 | `ROOMS_PER_SIDE` × `SEGMENT` 9 m; rib + beam + wall fill on every segment **boundary**, a decorative beam and two light places **inside** each segment (2026-09-12: was 0 … 25, 5 × 5 m) |
-| Room i (0..4, port −X) | −9.8 … −1.8 | 9·i + 0.5 … 9·i + 8.5 | 2026-09-12: **8 × 8 m** (was 4 × 4 at −5.8 … −1.8 / 5·i + 0.5 … + 4.5). Door 1.6 m centred at z 9·i + 4.5 on x −1.8 … −1.5; sign above the door |
-| Room i (5..9, starboard +X) | 1.8 … 9.8 | 9·(i−5) + 0.5 … 9·(i−5) + 8.5 | mirror image (door on x 1.5 … 1.8) |
-| Airlock | −1.5 … 1.5 | 45 … 47.5 | `CORRIDOR.maxZ` … + `AIRLOCK_DEPTH` (2026-09-12: was 25 … 27.5). 3 lockers on −X, 3 supply crates on +X, decorative door + beacon on +Z, `airlock` spawn (0, 0, `AIRLOCK.minZ` + 1) |
-| Ship computer (cockpit) | 4.65 (desk centre; collider x 3.83 … 4.98) | −3.1 (collider z −3.87 … −2.33) | `stations.shipComputer`: 1.5 × 0.65 m desk against the +X wall facing −X, chair tucked in front, one collider box (desk + chair), anchor `hub_computer` (3.18, 0, −3.1); shared ship: desk (−11, −6.65) facing +Z, collider x −11.77 … −10.23 / z −7 … −5.85, anchor (−11, 0, −5.18) |
-| Walls / ceiling | thickness 0.3 | ceiling 3.2 everywhere | collider rooms: cockpit, corridor, airlock and each room extended through its door wall to the corridor face (shared edge = open doorway) |
+## Launch slots
 
-Grid: `ROOM_GRID_COLS × ROOM_GRID_ROWS` = **16 × 16** cells of `HOUSING_CELL_SIZE` 0.5 m (2026-09-12, 사용자 결정: was 8 × 8 — 작업대 가구 4×2 네 개가 들어가지 않았다); cell `x` along +X, `y` along +Z from the room's min corner. A piece with top-left cell (x, y) and rotated footprint (cols, rows) is centred at `(minX + (x + cols/2)·0.5, minZ + (y + rows/2)·0.5)`; `yaw` 0..3 = quarter turns clockwise from above (`rotation.y = −yaw·π/2`), models are built with their front toward −Z.
+- Only the local slot's pod (`ctx.net.localSlot`, 0 solo). Boarding = seated + `setReady(false)`; readiness is a
+  `Keys.JUMP` hold for `UI_HOLD_CONFIRM_S` measured by `ReadyPanel` (skipped while any blocker other than its own is up).
+  Ready → launch warnings first (`LaunchWarnPanel`), then `setReadyLocal(true)`; holding again un-readies.
+- `HubSystem.readyLocal` is the single source; the server `LobbyPlayer.ready` is its echo. No echo within
+  `READY_ECHO_GRACE` → `syncPods` clears readiness but keeps the player seated. Reconnect → `resendReady()`.
+- `podCanInteract` = availability only (phase, cutscene, travel, boarded, `REBOARD_GRACE`, menus, slot free);
+  `podBlockReason` = refusals shown as the prompt (tutorial gate, training running, no target planet).
+- A running lobby mission turns the pod into a rejoin entrance (`임무 진행 중 — 재투입`).
+- Countdown: all connected members ready (and `!lobby.started`) → `HUB_LAUNCH_COUNTDOWN`; authority (solo / host)
+  launches. Host: `net.startGame(seed, 'raid', planet, intel)`. Solo: sets `missionMode`, `missionPlanet`,
+  `missionIntel` then emits `game:newMission`. Seed = held intel for this planet → lobby seed → `missionSeed` → random.
+- Ready panel: portraits come from `ctx.player.createPortraits(host, HUB_READY_CELLS)` at `HUB_READY_PORTRAIT_YAW`;
+  members not seated draw no body. Local gear thumbnails use real instances (attachment pips); squadmates use the crew
+  card (outline pips only, bag unknown `?`). Key guide owner `pod` (`E 내리기`, `Space 준비`), hidden during countdown.
+
+## Terminal, intel, matchmaking
+
+- Planet stepping only previews the hologram; `행성 이동` commits. The environment line (`PlanetDef.env`) warns when
+  `ctx.progression.hasEnvPrep(env)` is false but never blocks travel.
+- Intel panel: no intel → Raven intro + `정보 구매`; held intel → summary (mismatch warning if for another planet) +
+  `정보 확인` / `지역 재배치`. Only the host can buy (`분대장만 정보를 살 수 있습니다`); squadmates read
+  `ctx.net.lobbyIntel` with the lobby planet, because `ctx.meta.intel.get()` is local-profile only.
+- Intel screen costs and tiers come from `ctx.meta.intel` (`costOf`, `maxTierOf`), falling back to
+  `shared/intel.intelCost`. `buy` may be async — the screen locks until it settles. Re-roll = discard, no refund.
+- The map must use `ctx.world.previewLayout` (same planner as the real map) so it never lies; without it only the grid
+  is drawn.
+
+## Personal-ship layout (`interiors/RoomLayout.ts`)
+
+Metres, ship at the origin, spawn faces −Z. All values derive from csv keys (`SHIP_ROOM_COUNT`, `ROOM_GRID_COLS/ROWS`,
+`HOUSING_CELL_SIZE`, `COCKPIT_GRID_COLS/ROWS`) plus `WALL` 0.3, `CEIL` 3.2, `ROOM_GAP` 1, `AIRLOCK_DEPTH` 2.5.
+
+| Part | X | Z |
+|---|---|---|
+| Cockpit (`COCKPIT_ROOM_INDEX` edit area) | ± cockpit width / 2 | −cockpit depth … 0 |
+| Corridor | −1.5 … 1.5 | 0 … `ROOMS_PER_SIDE × SEGMENT` (`SEGMENT = ROOM_DEPTH + ROOM_GAP`) |
+| Room i (port, i < `ROOMS_PER_SIDE`) | `CORRIDOR.minX − WALL − ROOM_SIZE` … `CORRIDOR.minX − WALL` | `k·SEGMENT + ROOM_GAP/2` … `+ ROOM_DEPTH` (k = i mod per side), door at the middle |
+| Room i (starboard) | `CORRIDOR.maxX + WALL` … `+ ROOM_SIZE` | same as port |
+| Airlock | −1.5 … 1.5 | `CORRIDOR.maxZ` … `+ AIRLOCK_DEPTH` |
+
+Grid cell `x` runs along +X, `y` along +Z from the area's min corner; a piece with top-left cell (x, y) and rotated
+footprint (cols, rows) is centred by `roomCellToWorld`. `yaw` 0..3 = quarter turns clockwise from above
+(`rotation.y = −yaw·π/2`); models face −Z. Collider rooms extend through each door wall to the corridor face, so a
+doorway is an open shared edge.
 
 ## Housing mode (`HousingMode.ts`)
-- **Entry** (Phase 8 UI pass: 시설 관리 is the only in-game entry — the room door consoles are gone): `ctx.housing.enterHousingMode(room)` (API only, still gated on standing in the room) emits `housing:modeChanged {active:true, room}`, and **함선 관리** (Phase 8) `ctx.housing.openShipManage(room?)` emits `housing:shipManageChanged {active:true, room}` from anywhere in the ship (`HousingMode.manage = true`); `setManageRoom` re-emits it with another room and `activate()` **retargets** — same camera blend, cursor recentred on the new room, a carried piece dropped. Either way the hub then calls `player.setControlsEnabled(false)` and `setCameraOverride(pos, lookAt)` with `pos = (roomCentre**X + `ROOM_DEPTH`·0.55**, `ROOM_DEPTH`·1.65, roomCentreZ)` (2026-09-12: was the literals 2.2 / 6.6, tuned for a 4 m room — see the `HousingMode.ts` row) looking at the room centre — **Phase 10**: the eye is on the room's **+X side looking −X for every room**, not over each room's own door wall (`cx − rb.side · 2.2`), which is what made rooms 6–10 read 180° rotated. A port room therefore keeps its familiar framing (door at the bottom) and a starboard room is now seen from the outer hull toward the corridor (door at the **top**), with the same world→screen mapping in both. The starboard eye is inside the outer hull slab in XZ but well above `CEIL` 3.2, and the ceiling plane is back-face culled from above — nothing occludes the floor. Tilted ~70° down, blended by the rig (not snapped); nothing hangs under the room ceiling (the light bands sit on the walls), so the whole floor is visible.
-- **Cursor (함선 관리, Phase 8 · Phase 10 · 2026-09-07 rework)**: the manage session takes the `shipmanage` blocker token and then `ctx.input.setCursorMode(true, 'shipmanage')`, which **releases the pointer lock** and hands the real OS cursor back (restyled by `ui/hud/GameCursor`). The floor cursor is a **camera ray onto the deck plane** (`Input.uiX/uiY` → NDC on `ctx.canvas` → y = 0, clamped into the room), so the ghost follows the cursor like an editor. `input.elementUnderCursor()` inside `#ui-root` swallows the LMB placement and the wheel cycle, so clicking a furniture card never drops a piece behind the panel. Because cursor mode leaves `Input`'s gameplay button sets empty (the press belongs to whatever the cursor is over), placement and the selection wheel also read the DOM directly: window `pointerdown` **and** `mousedown` (a Set dedupes the pair a real browser fires; the headless smokes send only `mousedown`) plus `wheel` are collected into a per-frame buffer that `update()` ORs with the native path. The blocker token is what stops `player/`'s click-to-relock fallback (`isControlActive()`); leaving the mode deletes the token, leaves cursor mode and still fires the defensive relock, though `main.ts` normally gets there first. `HousingMode.update` ignores every *other* blocker token as before.
-- **Cursor (room console)**: the pointer **stays locked**; `Input.mouseDX / mouseDY` move a continuous floor cursor (`CURSOR_M_PER_PX` = `ROOM_DEPTH`·0.003 m/px — 2026-09-12, was the literal 0.012; clamped to the room). **Phase 10**: screen right = world −Z and screen down = world +X **for every room** (the `× rb.side` factor went with the mirrored camera, so the starboard rooms are no longer inverted). The footprint's top-left cell is `round(cursor/cell − footprint/2)` clamped so the piece fits. (Chosen over an unlocked ray-cast so the hub never has to juggle the pointer-lock etiquette mid-mode; the mouse cannot leave the room anyway.)
-- **Ghost**: `buildFurniture` of the selection (`ctx.housing.selectedFurniture` + `selectedYaw`, level = best stored level) with every mesh's material swapped to `GHOST_OK` / `GHOST_BAD` by `canPlace`; rebuilt only when def / yaw / level change. An additive floor frame the size of the footprint follows the cursor (cyan = nothing selected, amber = a placed piece under the cursor, green / red = placement validity).
-- **Cursor outside the room (2026-09-07)**: `raycastCursor` still clamps the deck hit into the room box (the ghost needs a defined pose) but now records whether the **raw** hit was inside (`cursorInRoom`). While it is not, `refresh()` hides the frame *and* the ghost, forces `valid` false in `housing:cursorChanged`, and LMB / X do nothing — pointing at the corridor or another room used to leave the cyan highlight stuck on the nearest edge cell and would place there on a click. The locked-delta (room-console) path can never leave the room, so it always reports inside.
-- **시설 관리의 선택 · 위치 이동 상태 (2026-09-12, 사용자 결정)** — `manage` 에서만 아래 **Keys** 줄을 대신한다. LMB 로 놓인 가구를 누르면 **선택만** 한다(`select` → `housing:furnitureSelected`, 빈 곳 · 방 밖 = 해제) — 곧바로 집는 경로는 없다(`primary()` 가 `manage` 면 집기 전에 돌아간다). **위치 이동 상태**(`moving` getter = 들고 있는 조각 `carry` 또는 가구 창고 선택)에는 인스펙터의 `위치 이동` 버튼(`housing:moveRequested {uid}` → `beginMove`) 또는 선택한 채 **E**(`Keys.INTERACT`, 모드가 `consume`)로 들어간다. 그 안에서만 LMB = `placeMoving`(유효한 칸이면 `move` / `place` 후 창고 선택까지 비우고 상태 끝, 아니면 거부음 + `housing:placeRefused {reason}` — `방 밖에는 설치할 수 없습니다` · `<용도> 전용 가구입니다` · `설치할 수 없는 곳입니다`), R = 회전, X = 들고 있는 조각 회수(창고 선택이면 되돌리기), C / Esc = 제자리로 취소. 휠 창고 순환은 `manage` 에서 꺼졌다. 상태가 바뀌면 `housing:moveStateChanged {active, uid, defId}` 가 한 번 나가고(`syncState`), 키 가이드도 내용이 바뀔 때만 다시 보낸다 — 이동 상태 `LMB 설치 · R 회전 · X 회수`, 선택만 있으면 `E 위치 이동`, 아무것도 없으면 빈 목록(가이드가 `닫기` 만 붙인다). 커서를 가구 중앙으로 옮기는 기능은 없다(브라우저가 OS 커서를 못 옮겨 요청에서 뺐다). 방 콘솔 모드(`manage` false)는 아래 줄 그대로다. 디버그: `moving` · `movingUid`.
-- **Keys** (read live from `Keys`): `MouseButtons.FIRE` = `place(room, def, x, y, yaw)` when something is selected; otherwise picks up the piece under the cursor (carried piece is ghosted, `canPlace(…, ignoreUid)`) and the next click puts it down with `move(uid, x, y, yaw)`. `Keys.ROTATE_ITEM` = `rotateSelection()` (or rotates the carried piece). `Keys.DROP_ITEM` = `recover(uid)` of the piece under the cursor / in hand. Mouse wheel or `BracketLeft` / `BracketRight` = cycle `selectFurniture` through `[null, …getStored() defIds]`. `CANCEL_KEY` (fixed **`KeyC`**, Phase 8) = cancel: a carried piece goes back where it was picked up (it was never removed from the state), otherwise `selectFurniture(null)` — and when the cursor holds **nothing** it leaves the mode, exactly like Esc (Phase 8 UI pass). `Keys.MENU` = `closeShipManage()` in 함선 관리, else `exitHousingMode()`; if housing stays silent (stub) the hub leaves locally and emits `housing:modeChanged {active:false}` (+ `housing:shipManageChanged {active:false}`) itself. Input is ignored while `ctx.uiBlockers` is non-empty (console / housing panels).
-- **Events out**: `housing:cursorChanged {room, x, y, valid}` on activation and whenever the cell or validity changes (`valid` = `canPlace` with a selection, else "there is a piece under the cursor"). Audio `ui_equip / ui_deny / ui_click` on actions.
-- **Carry** (`HousingMode.announceSelection`): picking up a placed piece, rotating it with R, dropping it (`move`) and recovering it with X each emit `housing:selectionChanged` — the carried piece's def + yaw while in hand, the housing selection again afterwards — so the HUD hint (`ui/hud/HousingHint`) never reads `선택 없음` while a piece is being moved.
-- **Exit**: `setCameraOverride(null)` + `setControlsEnabled(true)` (only while the phase is still `hub`; teardown handles the rest), ghost disposed, carry dropped (the piece stays where it was), and the `shipmanage` blocker token released + the pointer re-locked. The release is **not** gated on `active` and the `housing:*Changed` handlers must not clear `manage` before calling `deactivate()` — doing so was the Phase 8 bug where Esc gave the camera back but left the token up, so the player had no controls and the 시설 관리(M) hint stayed hidden.
+
+- Enters on `housing:shipManageChanged` (ship management, from anywhere in the personal ship) or `housing:modeChanged`
+  (room-console path). Controls off; camera on the +X side of every area looking −X at `camSpan` fractions
+  (`CAM_TOWARD_FRAC`, `CAM_HEIGHT_FRAC`), gliding between rooms (`CAM_GLIDE`). Grid lines and cockpit-ceiling fade are on
+  only while the mode runs.
+- Ship management takes blocker + escape token `shipmanage` and `setCursorMode(true)`; the floor cursor is a camera ray
+  onto the deck. Clicks over `#ui-root` never place. DOM `pointerdown` / `mousedown` / `wheel` are buffered because
+  cursor mode empties `Input`'s gameplay buttons.
+- Ship management: LMB selects (`housing:furnitureSelected`); E or LMB held `HOUSING_MOVE_HOLD_S`
+  (`housing:moveHold`) enters the move state (`housing:moveStateChanged`), in which LMB places, R rotates, X recovers,
+  C / Escape put it back. Refusals emit `housing:placeRefused {reason}` (reason from `ctx.housing.placementBlock`).
+  Cockpit-only facilities cannot be recovered. Hover / selected outlines through `ctx.outline`. Clearance tiles show
+  cells a ghost needs clear. Room-console path (`manage` false): click picks up / puts down, X recovers, wheel / `[ ]`
+  cycle storage.
+- Leaves on M, Tab, C with an empty cursor, or the escape stack. Exit always releases the blocker / cursor token, even
+  if `active` was already cleared.
+
+## Furniture and staging
+
+- `FurnitureLayer` reads `ctx.housing.getPlaced(room)` (or a `FurnitureSource` for a visited ship — then it subscribes to
+  nothing and registers no interactables). Defs always come from `FURNITURE_DEF_MAP`. It rebuilds only the affected
+  room on per-piece events and rebuilds everything only for `housing:changed` reasons outside `COVERED_CHANGE_REASONS`.
+- Interaction dispatch by `FurnitureDef.interaction`: benches → `ctx.inventory.openBenchCraft(kind, level)`; cook bench
+  and cooking appliances → `openCookStation(uid)` (never the craft window); grow station, analyzer, culture tank, dining
+  table, shelves, TV menu, compute cluster / mining computer, gym, toggles, seats → the matching `ctx.housing` / player
+  call, each duck-typed with a warning toast. Access face (`furnitureAccessOf` / `furnitureFaceDir`) gates prompts.
+- Retired kinds (`repair_bench`, `grow_rack`, `range_console`, `target_lane`, `sim_hub`) keep builders and no-op branches
+  because the model / interaction unions must be covered; `ShipState.sanitize` removes such pieces on load.
+- Staging classes find their piece by uid every frame (safe across room rebuilds), change only material uniforms /
+  sub-group transforms, create no lights and allocate nothing per frame. Local and remote staging use the same poser
+  functions. Staging only decorates: failing to pose never cancels the housing session; a session is cancelled only when
+  the pose we set is ended by someone else or the piece disappears.
+- Cook-bench body offsets mirror `player/SoldierModel.FURN_COOK` (source of truth); seat heights mirror player
+  `FURN_SIT`.
+
+## Rules
+
+- The scene point-light count must never change: each interior owns exactly `HUB_POINT_LIGHTS` pool lights that move by
+  ramping intensity; never toggle `visible` or add / remove lights. — `interiors/LightPool.ts` (`@/shared` `LightPool`)
+- Compile a ship before showing it: every build is followed by `ctx.shaders.holdForScene()`; docking prebuilds and warms
+  the destination. — `parts/Transitions.ts` (`prebuildTarget`)
+- Every client must build identical geometry at the origin — remote snapshots in the shared ship depend on it.
+- The emitter sets `ctx.missionMode`, `ctx.missionPlanet`, `ctx.missionIntel` **before** `game:newMission`; `world/`
+  generates inside the emit. — `parts/Pods.ts` (`launch`), `parts/Crew.ts` (`startTraining`)
+- Keep refused pods interactable and put the reason in the prompt: `interactables.findBest` skips `canInteract() === false`
+  and the player would see nothing. — `parts/Pods.ts` (`podBlockReason`)
+- `HubSystem` updates before `PlayerSystem`, so the E that opens a panel cannot also close it that frame. The un-board
+  branch deliberately does not consume E; `REBOARD_GRACE` stops the held press from re-boarding.
+- `HubSystem.uiBlocked()` ignores `HUB_READY_BLOCKER` — the ready panel must not block E un-board or lock-loss handling.
+- Child screens over the terminal use their own blocker / escape tokens (`hub:match`, `hub:intel`) so closing them does
+  not drop the terminal's cursor. Only one hologram WebGL context exists; the intel screen borrows it (`attachTo`).
+- `.hub-ready .hr-row` must stay `repeat(4, 1fr)` with `gap: 0`: `player/Portraits` slices its canvas into equal columns.
+  `--hr-body-h` is a content-height formula (value line `line-height: 14px` is part of it). — `hub.css`
+- `.launch-warn` sits above `.hub-ready` (z-index), since the panel is appended later and would eat its clicks.
+- A visited ship registers no consoles, pods or furniture interactables; only `hub_hangar_exit`. A personal ship entered
+  from a bay has no launch pod (the squad launches from the shared deck). — `parts/Interior.ts` (`build`)
+- Pod cells stay walkable (rear wall + side lips + toggleable door slab) so a boarded player is never pushed out by
+  `resolveCollision`. — `interiors/PersonalShip.ts`, `LaunchPod.ts`
+- Pod doors and furniture change the collider through `setBlockerEnabled` / `removeBlocker` (indices stay valid), never
+  a collider rebuild. — `interiors/InteriorCollider.ts`
+- New screen tilt: a box frame with `rx = +tilt` and a `TextPlane` with `Euler(−tilt, ry + π, 0, 'YXZ')` lean the same
+  way; `consolePedestal` tilts its housing opposite its screen — do not copy that pair.
+- `parts/` import only types from `HubSystem.ts`; values go to `model.ts`.
 
 ## Notes
-- **Atmosphere**: `core/Atmosphere.setSpaceMode(on)` (sky dome hidden, black background, fog 0, cool dim key + hemi). Reached through `ctx.scene.userData.atmosphere` (feature folders may not import `core/`); `applySeed` on the next `world:ready` restores the palette automatically. Each interior renders its own `Starfield` + `Planet` outside the viewports — the `Planet` only while a 목표 행성 is set (2026-09-09, `setPlanetVisible`).
-- **Lights** (rewritten 2026-09-10): each ship owns exactly `HUB_POINT_LIGHTS` (8) `PointLight`s in a `LightPool`, hung on the **nearest** of its light fixtures (personal: cockpit 4, corridor 5, airlock 1 + the nearest `ROOM_LIGHT_POOL` lit rooms; shared: deck 6 + 격납고 9, zone-weighted). The scene-wide point-light count is in every lit shader's program key, so it **must never change** — `core/LightBudget` pads it to `SCENE_POINT_LIGHT_BUDGET` and `smoke-lights` fails on any change; a pool light that moves ramps its intensity to 0, is repositioned and ramps back, and **no light is ever toggled**. **A ship is compiled before it is shown**: every build is followed by `ctx.shaders.holdForScene()`, and a docking cutscene prebuilds and warms the destination ship while it plays (measured 2026-09-10: shared-ship arrival 0.4 / 0.8 / 0.4 s hitches → none). Static geometry is merged per material (personal ≈ 22 renderables + pod + 11 signs, shared ≈ 29 + 4 pods); **Phase 8** adds 3 merged meshes per room for its own strip material instances (white / cyan / amber clones, disposed with the ship) and 2 door-leaf meshes per doorway (11 doors: 10 rooms + the cockpit arch). Each placed furniture piece is 2–5 merged meshes in its room group (+1 `Lv.n` plane for benches). Pod-door colliders are toggled via `BoxInteriorCollider.setBlockerEnabled`, furniture blockers via `removeBlocker`, not by rebuilding the collider.
-- **Optional refs**: `ctx.implants` / `ctx.inventory` / `ctx.progression` / `ctx.loot` may all be null (other systems register separately). Every station and page checks them and degrades to a disabled state with a Korean explanation; no formula from progression is re-derived here — only `derived.gatherYieldMul` and `derived.interactSpeedMul` are read.
-- **재배 (Phase 8)** is no longer a hub station: the 온실 room's `furn_grow_rack` pieces own the plots and `ctx.housing` owns the timers / seeds / panel. The hub only renders the racks (stacked by `PlacedFurniture.layer`) and forwards `E` to `openGrowMenu(uid)`.
-- **재배 (온실 개편, 2026-09-11)** — 재배층은 은퇴하고 **재배 스테이션** 한 대가 그 자리를 대신한다. 이 폴더가 아는 것은 **모양과 문**뿐이다:
-  `buildFurniture` 가 `growTiersForLevel(level)` 로 선반 층 수를 정하고(`GROW_TIER_Y` 가 높이의 원본), `E` 를 `openGrowStation(uid)` 으로
-  넘긴다. 토양 · 씨앗 · 타이머 · 패널은 전부 `housing/` 것이고, 레벨이 바뀌면 `housing:furnitureUpgraded` 가 그 방을 다시 짓는다.
-  **2026-09-13**: `growTiersForLevel` 이 레벨과 상관없이 늘 세 층을 돌려주므로 Lv.1 부터 선반 세 층이 다 서 있다 (강화는 성장 속도만 올린다 — 코드 변경 없음, 계약에서 따라온다).
-- **Pod cells stay walkable** (rear wall + side lips + toggleable door slab) so a boarded player (r 0.45) is never pushed out by `resolveCollision`; open pods can be walked into.
-- Remote players / nameplates / pings in the shared ship are rendered by `player/`, `ui/`; the hub only provides identical geometry on every client (built at the origin) and `getLaunchSlots()`.
-- Debug: `__game.ctx.hub` (`.currentRoom`, `.setMissionSeed`, **`.planet` / `.setPlanet(id)` / `.travelling`**), `__game.getSystem('hub')` (`.isWorkbenchOpen`, `.housing` = `HousingMode` with `.active / .manage / .room / .cell`, `.openShipManage()`, `.furnitureLayer` with `.count / .pieceAt`), `__game.ctx.bus.emit('hub:enter', {ship:'personal'})`; interactables `hub_terminal`, `hub_workbench`, `hub_computer`, `hub_implant_bay`, `hub_pod_<slot>`, `hub_furn_<uid>` via `ctx.interactables.all()`. Scene: the ship root is named `PersonalShip`, furniture groups `room-<i>`, ghost group `furn-<defId>`, the window planet `HubPlanet` (its lit sphere `HubPlanetBody`), the travel cutscene `DockingCutscene` with a `HubWarpStreaks` child. The terminal screen's drawn text is `getSystem('hub').terminal.def.screen.last`.
-- `ctx.meta` (Phase 5) is optional too: the computer degrades to a warning toast, the credits line disappears from the terminal screen, and every read goes through `corpMenuOpen()` / `credits()` (try/catch, `typeof` guards). The monitor tilt convention: a box frame with `rx = +tilt` and a `TextPlane` with `Euler(−tilt, ry + π, 0, 'YXZ')` lean the same way (top away from the user) — note `consolePedestal` tilts its housing box the opposite way from its screen plane, so do not copy that pair for new screens.
-- `ctx.housing` is optional everywhere in this folder (`typeof fn === 'function'` / try-catch); with the skeleton the rooms are all `빈 방`, `getPlaced` is empty and the consoles show a warning toast. Furniture defs are always read from the contract's `FURNITURE_DEF_MAP`, never from `ctx.housing.getFurnitureDef`.
-- Workbench materials are read by def id (`mat_scrap`, `mat_alloy`; names come from the item defs, with a Korean fallback). The repair rule itself (`REPAIR_SCRAP_PER` / `REPAIR_ALLOY_PER`) lives in `items/` behind `ctx.loot.getRepairCost`; the hub only renders and calls `ctx.inventory.repairWeapon`.
 
-## Verified (headless Chrome, `scripts`-style puppeteer smoke, no relay server)
-`hub:enter personal` → phase `hub`, `ctx.player.interior === ctx.hub.collider`, spawn (0,0,1.2), space mode on, `hub:entered`; collider push-out (+X wall, out-of-room clamp, dashboard blocker, free spot unchanged), raycast −Z → dashboard normal +Z, up → ceiling 3.2; terminal → menu open (`'hub'` blocker, `isControlActive()` false) → Esc close / reopen / 닫기; pod `E` → `isInPod`, slot occupant `local`, status line, `hub:launchCountdown` → `game:newMission` → `deploying`, hub torn down, `player.interior` null, space mode restored; `hub:enter` from the mission → abort → personal ship again; `타이틀로` → `menu`. Shared ship: 4 pods, boarded position not pushed, separators solid. 41/42 checks; the single failure is the browser's WebSocket console error from `ensureConnected()` with no server on 8787. `npm run typecheck` 0 errors.
-
-Workbench (2026-09-05, headless Chrome, hub only): personal ship registers `hub_workbench` (prompt `정비 벤치`, anchor (3.5, 0, −1.85)), bench collider pushes a 0.45 m circle out, E → menu open with the `'hub'` blocker (`isControlActive()` false, terminal not interactable), `hub:workbenchToggled {open:false}` + blocker removed on close, `닫기` click, Esc via `Input`; shared ship registers it too (anchor (2.5, 0, 5.43)); `game:abort` unregisters + closes. With `getRepairCost` / `repairWeapon` mocked on top of the real `getEffectiveStats` (AR-23 max 500, P-2 350, SMG-37 550): rows in loadout → bag order, `120 / 500` + `폐금속 ×4`, `정비 완료` disabled, 수리 consumes materials and re-renders (`500 / 500`), `파손` tag + red cost when broken and unaffordable, `inventory:changed` re-enables `모두 수리`, `모두 수리` with 7 scrap → `1정 수리 완료 · 1정 재료 부족`. 25/25 checks, 0 console errors. Screenshots: bench prop + `정비` sign + `E 정비 벤치` prompt in both ships.
-
-## Tactical kit (merged 2026-09-06)
-
-| File | Role |
-|---|---|
-| `interiors/stations.ts` | 함선 시설 geometry (Phase 8 deleted `hydroponics()` / `GardenStationDef` / `ShipStations.garden`; `ShipStations.bench` is optional now): `repairBench()` (bench + vise + wall tool board; `withTable=false` decorates an existing bench), `implantBay()` (surgical chair + scanner canopy) and **`shipComputer()`** (Phase 5: steel desk with drawer block + PC tower, keyboard / mouse, two monitors tilted 0.14 rad top-away on stands — right = emissive `M.screen` panel with dark title bar + cyan lines, left = the caller's `TextPlane` at `ComputerStationDef.screenPos / screenRot` reading `기업 네트워크 / 접속 대기` — chair tucked under the front edge, cyan lamp strip on the wall above, one collider box; no lights, no new materials), plus **`diningTable()`** (주방 A-3c, 2026-09-11: 공유 함선의 **고정 식탁** — 상판 · 식탁보 · 다리 넷 · 가로 보 · 접시 4벌 + 수저 · 가운데 emissive 불빛 · 긴 변 양쪽의 벤치 의자, 테이블 + 의자를 덮는 콜라이더 상자 하나. `ShipStations.diningTable` 은 **공유 함선에만** 있다 — 개인 함선의 식탁은 주방에 놓는 `furn_dining_table` 가구이고, 가구가 아닌 이 식탁은 uid 가 없어서 `HousingRef.openDiningTable(null)` 의 `null` 이 곧 이것을 가리킨다. 광원은 만들지 않는다), plus the `StationDef` / `ComputerStationDef` / `ShipStations` types. Everything goes through the interior's `GeoBatch`, so a station adds **no draw call**. Each returns a deck-level interaction anchor in front of itself. |
-
-
-- The terminal (`ui/HubMenu`) is ship-only again (2026-09-06): the 임플란트 / 정비 tabs and `ui/ImplantPanel` / `ui/RepairPanel` were removed — implants are equipped on the **Tab ship screen** (inventory folder) and repairs live in its right-click menu. The 캐릭터 footer button (`ui:statsToggled`) stays. Both ships carry a hydroponics rack, an implant bay (interactable `hub_implant_bay` → `ctx.inventory.toggleBag()`, i.e. the Tab screen; `stationUsable()` also requires the inventory to be closed) and a repair bench.
-- Terminal frame: `overflow: hidden` with the corner brackets kept inside the box and the page (`.hub-page`) scrolling only when the viewport is too short — the old `overflow-y: auto` on the frame plus the −1 px brackets produced permanent scrollbars.
-
-## 함선 꾸미기 (2026-09-06) — verified
-`node scripts/smoke-ship-rooms.mjs` **47/47** (headless Chrome on the GPU, real `ctx.housing`): personal ship spawns at
-(0, −1.8) with `hub_terminal / hub_implant_bay / hub_pod_0`
-registered, exactly 10 point lights and 10 room groups under `PersonalShip`; terminal has no 임무 시드 section and the hint
-names `/seed`, `setMissionSeed(1234)` accepted solo; W from the corridor (yaw π/2) walks through room 0's door
-(x −5.35 after 2 s), `currentRoom` 0 + `hub:roomEntered {0, empty}`, the outer wall clamps at x ≥ −5.8, leaving emits
-`{room:null}`, (3.8, 12.5) is room 7, `hub_room_0` prompt `방 1 · 빈 방`; `enterHousingMode(0)` → controller active,
-`housing:modeChanged`, initial `housing:cursorChanged`, camera at y 6.6 over the room, W no longer moves the player, the
-door console is not interactable, −160 px of mouse movement emits a new cursor cell; selecting the starter 총기 작업대
-shows a green ghost (`furn-furn_bench_gun` under the ship root), R → yaw 1, LMB → `housing:furniturePlaced` at the ghost
-cell, 7 merged meshes under `room-0`, `hub_furn_f-1`, centre matches `roomCellToWorld`, `resolveCollision` pushes a 0.45 m
-circle out of it; Esc → `{active:false}`, camera back (y 1.76), a player spawned inside the bench is pushed out, prompt
-`총기 작업대 Lv.1`, door console `방 1 · 작업실`; re-entering and moving the cursor over the bench + X → `housing:furnitureRecovered`,
-0 meshes / 0 interactables; `game:abort` disposes the layer and emits `hub:roomEntered {null}`, re-entering rebuilds
-the 10 consoles. 0 console errors. `node scripts/smoke-controls-hub.mjs` still **60/60** with the relay up (59/60 without
-it — the single miss is the browser's WebSocket error from `ensureConnected()`). `npm run typecheck` 0 errors.
-Screenshots checked: cockpit props in place, corridor with signed doors and consoles, dark self-lit room, top-down housing
-view with the ghost + HUD hint, placed bench with its `Lv.1` sign, airlock end.
-
-## 함선 컴퓨터 (Phase 5, 2026-09-06) — verified
-`node scripts/smoke-ship-rooms.mjs http://localhost:5303/` **61/61** (headless Chrome on the GPU, real `ctx.meta` corp screen
-from the meta agent): `hub_computer` registered in the personal ship (prompt `기업 네트워크`, radius 2.2, instant, anchor
-(3.18, −3.10)), the desk + chair collider pushes a 0.45 m circle / a spawned player from the desk's front edge back into the
-room (x 3.38), the terminal screen carries `크레딧 500` and follows `meta:creditsChanged` (`크레딧 600`), `findBest` at the
-anchor is the computer, E → `ui:corpToggled {open:true, corp:'helix'}` with blocker `corp` and the terminal locked, Esc →
-`{open:false}` with **no** terminal menu and no blocker left, the computer usable again, `game:abort` + re-enter re-registers
-it. Every earlier room / housing check still passes; 0 console errors. `smoke-controls-hub` and `smoke-housing` re-run
-against the same vite for regressions (numbers in `docs/VERIFICATION.md`). `npm run typecheck` 0 errors.
-
-## 시뮬레이션 훈련장 (Phase 7, 2026-09-06) — verified
-`node scripts/smoke-training.mjs http://localhost:5308/` **61/61**, 0 console errors (private vite, no relay): a real `furn_sim_hub` crafted and
-placed through `ctx.housing` in room 0 (사격장) renders 9 merged meshes under `room-0` with no light, both ring groups rotate, `hub_furn_f-1`
-prompts `시뮬레이션 허브 · 훈련장 입장` and is usable; E → `game:newMission {mode:'training'}`, the hub is torn down, the arena world comes up (see
-`src/world/README.md`), the exit console emits one `training:exitRequested` per press and `game/` brings the player straight back to the
-personal ship (`hub:entered`, space mode on, arena disposed). Faked lobby (`NetSystem._lobby`): the shared-ship terminal shows the
-`시뮬레이션 훈련장` section with `시작` enabled, `합류 (1명 훈련 중)` + crew `훈련장` while a member trains, `임무 진행 중` disabled during a raid;
-`hub_pod_0` prompt `훈련 진행 중 — 터미널에서 합류`, boarding refused with the notice, status line `훈련 진행 중 (1명)`; `startTraining()` refused
-during a raid with `임무 진행 중 — 훈련장을 열 수 없습니다`. `smoke-ship-rooms` 61/61 and `smoke-controls-hub` 60/60 still pass. Screenshot
-checked: the holo pedestal with its rings in the 사격장 room. A real two-client training (server `lobby:start {mode:'training'}`, `inMission`,
-join via `rejoinMission`) is the net/server agent's `e2e:mp` territory — the hub only calls the contract.
-
-## Phase 8 (2026-09-06) — UI/UX pass, hub section 2.3
-- **터미널 to the cockpit centre**: the −X wall `consolePedestal` is gone; the terminal stands on the ship's centre line
-  between the two pilot seats at (0, −4.55), screen facing **+Z**, anchor (0, 0, −3.55), same `hub_terminal` id and
-  radius 2.4 (so it is already in range at the spawn (0, 0, −1.8)). The shared ship's bridge terminal is unchanged.
-- **정비 벤치 out of the cockpit**: `ShipInterior.workbench` is optional and the personal ship no longer sets it —
-  `hub_workbench` only exists in the shared ship. A placed `furn_repair_bench` (작업실) opens the same `WorkbenchMenu`.
-- **GardenStation deleted** (file, registration, both hydroponics racks, `ShipStations.garden`, `GardenStationDef`,
-  `hydroponics()`). `scav.hub.garden.v1` is abandoned — no migration by design.
-- **New furniture models** `grow_rack` / `repair_bench` + stacked rendering (`layer × GROW_RACK_LAYER_HEIGHT` on the
-  model, the collider blocker and the `Lv.n` sign; one interactable per 층, spread along the front edge).
-- **자동문** (`interiors/Doors.ts`): 10 room doorways + the cockpit arch, two leaves each, open within
-  `DOOR_OPEN_DISTANCE`, `DOOR_SLIDE_SPEED` per second, **no collider change** (the doorway was and stays an open
-  shared edge of the walkable boxes, so movement is exactly what it was).
-- **방 조명**: per-room emissive strip material instances (`ROOM_STRIP_DIM` when the purpose is `empty`,
-  `ROOM_STRIP_LIT` otherwise, driven by `housing:roomPurposeChanged / changed / loaded`) plus a constant pool of
-  `ROOM_LIGHT_POOL` point lights that re-anchor to the nearest non-empty rooms.
-- **함선 관리**: `M` (`Keys.MAP`, read live) → `ctx.housing.openShipManage()`; the mode runs **unlocked** with a
-  raycast floor cursor and a `shipmanage` blocker token (see Housing mode above); `HousingMode` listens to
-  `housing:shipManageChanged`, has no "stand in the room" gate and retargets on `setManageRoom`; `C` cancels the
-  selection / a carried piece, `Esc` leaves manage mode.
-- **Esc in the hub** no longer opens the terminal (nor does a lost pointer lock) — `game/` opens the 일시정지 메뉴.
-  Esc here only closes the corp screen / workbench / terminal menu or steps out of a pod.
-- **터미널 메뉴**: the 캐릭터 button is gone and the 승무원 name is a one-time choice (read-only after
-  `ShipState.nameLocked`; the hub reads the flag, housing/ persists it).
-- Not done here (other folders own them): the `함선 관리 (M)` HUD hint, the 방 목록 / 가구 카드 바 screen and the
-  `HousingHint` C line are `ui/`; the pause menu is `game/` + `ui/`; the grow panel, the stacking rules and
-  `nameLocked` persistence are `housing/`.
-
-## Phase 9 UI pass (2026-09-07) — cockpit clean-up + housing-mode camera
-
-- `interiors/parts.ts` — `Parts.walls()` splits the waist-high **wainscot band** around a floor-level opening
-  (`o.y0 < band`). It used to run the full length of every side, leaving a waist-high slab standing across each room
-  doorway and the cockpit arch.
-  - **2026-09-07**: the *corridor* wainscot in `PersonalShip.buildLayout` was a separate one-piece trim bar per side and
-    was **not** covered by that split, so the 1.05 m amber line still ran straight across all ten room doorways and read
-    as a rope barring the door. It is now emitted as the segments **between** the doorways (`rb.doorZ ± DOOR_WIDTH/2`
-    plus 12 cm of clearance).
-- `interiors/PersonalShip.ts`:
-  - the cockpit **console pedestal terminal is gone**; the dashboard's centre monitor *is* `terminal.screen` now (a
-    `TextPlane` on the tilted bezel's front face, anchor between the pilot seats). The 항법 / 통신 side readouts went
-    with it, so the one screen reads at a glance and nothing stands on the walk-in line;
-  - the **함선 컴퓨터** moved from the +X wall — where its 기업 네트워크 prompt fought the launch pod's boarding prompt
-    — to the port half of the rear wall, replacing the lockers that overlapped the bunk. The port rear rib went with
-    them (it stood inside the desk and hid the monitor);
-  - the stash cabinet moved to the starboard half of the rear wall and the bunk sits flush against the −X wall;
-  - **door frames** stand in the corridor clear of the wall slab (`face − side · 0.06`); they used to sit 3 cm inside
-    the 30 cm door wall and intersected the wall segments around the opening.
-- `HousingMode.ts` — switching rooms in 시설 관리 **glides** the camera instead of cutting: the mode keeps its own
-  override pose (`camPos` / `lookPos`) and eases it toward the new room's goal every frame (`glideCamera`, rate
-  `CAM_GLIDE`). The rig only blends the override *weight*, which is long since 1 by then, so copying the new position
-  straight in teleported the camera across the ship in a single frame. `update(dt)` takes the frame time now.
-
-## Phase 9 UI/UX 개선 pass (2026-09-07)
-
-- **훈련장 재접속 fix.** `onResumed` (and `ui/hud/Notifications` / `game/GameFlowSystem` on the same `net:resumed`)
-  now read the lobby's mode: a 훈련장 is entered individually and keeps the lobby open, so it is **not** the squad's
-  mission. Reconnecting while one runs says `함선에 재접속했습니다 — 훈련장이 열려 있습니다 (터미널에서 합류)` instead
-  of `분대가 임무 중입니다 — 발사 슬롯에 탑승하면 재투입됩니다`. The pod prompts, the pod tags and the status line
-  already branched on `trainingRunning()`; this closes the last three places that did not.
-
-## Phase 10 UI 개선 pass (2026-09-07)
-
-- **발사 준비 패널** (`ui/ReadyPanel.ts` + `ui/CrewLoadoutPanel.ts` + `hub.css`, see the file table). Four cells at
-  the bottom of the ship screen while any launch slot is filled, one portrait canvas from
-  `ctx.player.createPortraits`, name + `Lv. n` top-left, the equipped 전술 임플란트 on the right, right-click → the
-  modeless 분대원 장비 popup (장비 / 가방 / 빠른 사용, no 함선 창고, no credits). It holds `HUB_READY_BLOCKER` +
-  `setCursorMode` only while the **local** player is boarded, and `HubSystem.uiBlocked()` — the shape of
-  `HousingMode.blockedByPanel()` — makes the Esc / E un-board paths and `onPointerLockChange` ignore that one token.
-- **crew card 송신** in `HubSystem`: `crew card` broadcast on `hub:entered` (shared ship) and on every level /
-  implant / equipment change (debounced by `CREW_CARD_MIN_INTERVAL_S`), `crewq sync` sent on arrival, and answers to
-  inbound `crewq sync` / `crewq loadout` (the latter rate-limited per requester by `CREW_LOADOUT_COOLDOWN_S`).
-  Receiving, storing and `net:crewCard` / `net:crewLoadout` are `net/`'s half of the wire.
-- **하우징 카메라, 6~10번 방**: one camera convention for every room (`cx + CAM_TOWARD_DOOR`, the port framing) and
-  the matching cursor mapping without the `rb.side` mirror. See **Housing mode** above.
-- **커서 이관** (plan §2): `ui/HubMenu`, `ui/WorkbenchMenu` (`'hub'`) and `HousingMode.enterManage`
-  (`'shipmanage'`) call `ctx.input.setCursorMode(true, TOKEN)` and never `exitPointerLock()`; `HousingMode`
-  reads `input.uiX / uiY` / `elementUnderCursor()` instead of `input.mouseX / mouseY` + `document.elementFromPoint`.
-  `ui/dom.isolateInput` now focuses the field on pointerdown, because a synthesised (untrusted) click performs no
-  default action and the 승무원 이름 / 도킹 코드 fields would otherwise never take the caret.
-
-### Known follow-ups (Phase 10)
-- The READY panel is **visible** whenever a slot is filled but **interactive** only while we are boarded, so a
-  squadmate's loadout can only be inspected from inside our own pod. That is deliberate (the alternative steals the
-  mouse look from a player walking the ship), but it also means the `'ready'` blocker is up while boarded — and
-  `inventory/`'s Tab gate is `ctx.uiBlockers.size === 0`, so **Tab no longer opens the ship screen while boarded**.
-  One line in that gate (ignore `HUB_READY_BLOCKER`) would restore it.
-- Portrait viewports are assumed to be four equal columns left→right; the row uses `gap: 0` so the cells line up.
-  A `PortraitRef` that lays its viewports out differently would drift from the cells.
-- A peer's cell shows `Lv. —` (no chip) and no implant until their `crew card` arrives; nothing re-requests it after
-  `CREW_LOADOUT_COOLDOWN_S`-throttled or dropped answers except opening the popup again.
-- The 분대원 장비 popup renders whatever `createCrewLoadoutView` accepts; a peer running an older build (no
-  `crew loadout` answer) shows `장비 정보를 받지 못했습니다` after 5 s.
-- `HousingMode` keeps a defensive relock on exit even though the lock is never released, because Chrome drops it on
-  every Escape and the software cursor silently falls back to mirroring the real one in that state.
-- Rooms 6–10 now read with the door at the **top** while rooms 1–5 keep the door at the **bottom** (both share one
-  world→screen mapping, which is what the 180° complaint was about). Flipping the port group instead would need the
-  smoke's port-cursor expectations rewritten.
-
-## Phase 11 (2026-09-07) — 행성 선택 · 전체화면 터미널 · 이동 컷씬
-
-The terminal stopped being a 680 px card. It is now the ship's **행성 선택** screen: the matchmaking sections moved
-into a left column, the centre is a live **행성 홀로그램**, and 시뮬레이션 훈련장 + the `/seed` hint sit bottom-right
-over the 닫기 (Esc) / 타이틀로 footer.
-
-- **`ui/HubMenu` full screen** (`.fullscreen` + a `.hub-grid` of three `.hub-col`s in `hub.css`). Behaviour of every
-  existing section is unchanged (that is why `smoke-training`'s `.hub-section` / `.crew-row` selectors still pass).
-  The **승무원 이름 section is gone** — `ui/menus/TitleMenu` already owns the one-time call sign, so the terminal no
-  longer calls `net.setPlayerName` / `ctx.housing.lockCrewName()`. `hub:terminalToggled` joins `ui:hubMenuToggled`.
-  Cursor etiquette is exactly Phase 10's: `'hub'` blocker → `setCursorMode(true, 'hub')`, never `exitPointerLock()`.
-- **`ui/PlanetHologram`** — its own `THREE.WebGLRenderer` on a square canvas (`player/Portraits` precedent: the main
-  composer has no post-render hook). Procedural only: the hub's `Planet` in the def's hologram colours inside a wire
-  cage, two additive rings and a scanline grid. Two slots cross-slide over `PLANET_SWAP_TIME`; the render loop is
-  gated on the terminal being open, and a missing second GL context degrades to `.no-holo` + the text card.
-- **`HubSystem` planet state.** `HubRef.planet` is a **getter**: `ctx.net.lobbyPlanet` in a lobby, else the local
-  pick restored from / saved to `PLANET_STORAGE_KEY`. `setPlanet` + `travelBlockReason` + `startTravel` /
-  `finishTravel` / `applyPlanetLook` are described in the Flow table above. **2026-09-09:** `applyPlanetLook` also
-  gates the window planet's visibility — `HubRef.planet === null` → `ShipInterior.setPlanetVisible(false)` (stars only).
-- **`DockingCutscene` `'travel'`** + the new `interiors/WarpStreaks`: our own hull from behind, stars stretched to
-  `HUB_TRAVEL_WARP_STRETCH` for `HUB_TRAVEL_WARP_FRACTION` of the run, then the destination sphere resolving. The
-  ship interior is never rebuilt for a planet change — `Planet.setColors` re-tints the window planet in place.
-  *(Superseded 2026-09-09: the `'travel'` direction and `HUB_TRAVEL_WARP_FRACTION` are gone — the warp is the in-ship
-  `ViewportWarp`, see the 2026-09-09 entry in 변경 이력.)*
-- **Launch-slot gate**: no 목표 행성 → the pod prompts `목표 행성 미지정 — 터미널에서 지정` and refuses; the terminal
-  screen carries a `목표 <행성>` line (`목표 미지정` / `<행성> 이동 중` while travelling).
-
-### Known follow-ups (Phase 11)
-- A **first** pick plays the full `HUB_TRAVEL_DURATION` warp even though the ship was not orbiting anything before
-  it, so a brand-new profile spends 4.5 s in a cutscene before its first launch. Deliberate (the warp is the feature),
-  but it is also why a fresh profile cannot board a pod until it has visited the terminal once.
-- `podBlockReason` keeps `canInteract()` **true** while boarding is refused (training / no planet) so the prompt is
-  visible at all — `ctx.interactables.findBest` filters on `canInteract`, and the plan's literal "add `planet !== null`
-  to `podCanInteract`" would have hidden the very message it asks for. The refusal itself lives in `boardPod`.
-- ~~The travel cutscene keeps the phase at `'hub'` and returns early from `update()`, so the interior's own `update`
-  (자동문, room lights, star drift) is frozen for those 4.5 s.~~ **Resolved 2026-09-09** — the 창문 워프 is exactly that
-  in-ship travel shot: `update()` runs the interior every frame of the trip and `tickTravel` rides at its tail.
-- `WarpStreaks.setStretch` quantises its buffer write (`STRETCH_STEP`), so the stretch ramp is visibly stepped if the
-  constant is ever lowered; and the field wraps by its whole span (900 m personal / 1000 m shared) rather than per-streak.
-- The hologram is a **second GL context**. With the READY panel's portrait canvas that makes three contexts in the
-  ship; browsers cap them (~16), but a machine that refuses one falls back to `.no-holo` silently (console warn only).
-- A non-host sees `호스트만 지정할 수 있습니다` on the button but can still step the hologram — that is intentional
-  (looking at where the squad is going), yet there is no visual that the preview is not the squad's target beyond the
-  green `현재 목표` tag / dot.
-- `scripts/smoke-training.mjs` now seeds `localStorage['scav.planet']` at boot; `scripts/e2e-multiplayer.mjs` needs the
-  host to pick a planet before `boardPod` for the same reason (owned by the net / server lanes).
-
-## Verified — Phase 11 (2026-09-07, headless Chrome on the GPU, own vite, no relay)
-- **`scripts/smoke-planets.mjs` 76/76, 0 console errors** (solo path; the lobby path is `e2e:mp`'s). 목표 미지정 state
-  + terminal screen + pod prompt / refusal; the full-screen terminal (three columns, frame = viewport, no scroll
-  overflow, 신호 left / 행성 centre / 훈련장 right, **no 승무원 이름**, `.seed-hint` kept, `닫기 (Esc)`, `'hub'`
-  blocker + software cursor + lock kept, `hub:terminalToggled`); the hologram canvas (square, own context, no
-  `.no-holo`) and its ◀ ▶ / `←` `→` / `A` `D` stepping incl. wrap-around, preview-only and no `hub:travel`;
-  행성 이동 → `hub:travel start`, terminal self-closed, phase still `hub`, cutscene + `HubWarpStreaks` + one
-  destination sphere, interior **not** rebuilt, status line, pods locked, `setPlanet` refused mid-travel → `hub:travel
-  end` + `hub:planetChanged {by:'local'}`, cutscene disposed, controls back, `scav.planet` written, window planet
-  re-tinted, terminal screen line, slot opened; refusals (same planet / unknown id) and the reopened terminal showing
-  `현재 목표`; reload persistence with **no** cutscene; launch → `game:newMission {planet, mode:'raid'}` with
-  `ctx.missionPlanet` already set.
-- **`scripts/smoke-training.mjs` 109/109** (one line added at its boot: the profile now needs a 목표 행성 before a pod
-  will take it) and **`scripts/smoke-ship-rooms.mjs` 70/71** (the one failure is the no-relay WebSocket console error).
-  `scripts/smoke-controls-hub.mjs` 75/77: its two failures are the no-relay console error and
-  `mouse LMB / RMB / MMB lit (6)` — `ui/menus/SettingsMenu` now builds a **second** `ControlsPanel`, so that smoke's
-  document-wide `.ctl-mouse-svg .btn.bound` selector counts both. Both belong to the `ui/` lane, not here.
-- `npm run typecheck` 0 errors.
-
-## 2026-09-07 UI/UX pass — 기업 네트워크가 Tab 창으로
-
-- `hub_computer`(함선 컴퓨터) 의 `E` 는 그대로 `ctx.meta.openCorpMenu()` 를 부르지만, 기업 화면에는 이제 전용
-  오버레이도 `'corp'` blocker 도 없다 — meta/ 가 `ctx.inventory.openScreen('corp')` 로 **Tab 창을 기업 탭으로**
-  연다. 성공 판정은 예전과 같이 `meta.isMenuOpen`(= 창이 기업 탭을 보여주는 중)이다.
-- **Escape**: 기업 화면이 떠 있는 동안 hub/ 는 Escape 를 건드리지 않는다 — 그 창은 inventory/ 의 것이고 blocker 도
-  `'inventory'` 하나다. 예전의 `corpWasOpen` 한 프레임 스왈로우 규칙은 삭제했다.
-- `stationUsable()` / `onPointerLockChange` 는 이미 `ctx.inventory.isOpen` · `uiBlocked()` 로 같은 상태를 보고
-  있어 그대로 둔다.
-
-
-## 2026-09-08 — the hub stops reading Escape
-
-`HubSystem.update` no longer polls `Keys.MENU` at all. Escape falls straight through to `game/`, which puts the
-일시정지 메뉴 over whatever is open (see `game/README.md` for why). Everything here closes on the key that opened it:
-
-- **`Keys.INTERACT` (E)** steps out one level, in the old Escape order: 정비 벤치 menu → 함선 터미널 → 분대원 장비
-  popup → un-board the pod. `HubSystem` updates **before** `PlayerSystem`, so the E that *opens* one of these is
-  polled here while it is still closed — one tap can never open and close it in the same frame. The un-board branch
-  keeps `UNBOARD_GRACE`, so an E aimed at the popup and a following E aimed at the pod need ~0.6 s between them.
-  Typing in the terminal's 도킹 코드 field never reaches `Input` (`ui/dom.isolateInput` stops it at the field), and
-  that field's Escape now only **blurs** instead of closing the terminal.
-- **`Keys.MAP` (M)** both enters 함선 관리 and, in `HousingMode.update`, leaves it (C with an empty cursor still
-  leaves too). The `ui/hud/HousingHint` exit chip names M.
-- The terminal footer reads **닫기 (E)**.
-- E is ignored while `MENU_BLOCKER` is up, so it cannot reach through the pause menu.
-
-## 파일 분할 규약 (`model.ts` + `parts/`, 2026-09-08)
-
-`HubSystem.ts` 는 한 파일에 다 있기에는 너무 커져서 **동작을 바꾸지 않고** 갈랐다. 규칙은 세 줄이다.
-
-1. **`model.ts`** — 폴더 공용 어휘(타입 · 상수 · 스크래치 객체, 상태 없는 보조 클래스).
-   `HubSystem.ts` 이 `export * from './model'` 로 재수출하므로 **기존 import 경로는 전부 그대로 동작한다.**
-2. **`parts/*.ts`** — 클래스에서 떼어낸 메서드 묶음. 각 함수는 인스턴스를 첫 인자 `sys` 로 받는다:
-   ```ts
-   export function foo(sys: HubSystem, …) { … }   // 예전의 this → sys
-   ```
-   클래스에는 같은 이름의 **한 줄 위임 메서드**가 남아 있으므로 호출부는 하나도 바뀌지 않았다.
-3. `parts/` 가 닿는 클래스 멤버는 `private` 이 벗겨져 있다. **폴더 밖에서 쓰라는 뜻이 아니다** —
-   외부와의 계약은 `@/shared` 의 `*Ref` 인터페이스가 전부다.
-
-새 `parts/` 파일은 맨 위 doc 주석에 **그 파일이 답하는 질문 한 줄**을 적고 위 표에 행을 추가한다.
-순환 import 를 만들지 않으려면 `parts/` 는 `HubSystem.ts` 에서 **타입만** 가져와야 한다 — 값은 `model.ts` 로.
-
----
-
-## 변경 이력
-
-- **2026-09-15 (키캡 다듬기, 사용자 결정)** — `ui/ReadyPanel` 의 준비 홀드 `Space` 키캡을 공용 `shared/keycap.createKeycap(Keys.JUMP, {hold: true})`
-  으로 만들고 `paintHold` · `syncGuide` 가 `paintKeycap` 으로 다시 칠한다(손으로 쓰던 `'keycap kc-hold'` 클래스 · `setText(keyLabel)` 삭제).
-  chevron 이 키캡 **안** 윗변으로 들어갔고 강조색 테두리가 없어졌다(`ui/styles/base.css`). `.hr-holdrow .keycap` 크기 규칙은 그대로다.
-
-- **2026-09-14 5차 (UI 2차 개편 — 발사 슬롯 탑승 UI · 미니게임 연출 · 정비 벤치 소품 제거, 사용자 결정)**
-  - **발사 슬롯 패널은 「내용이 자리를 정한다」로 바뀌었다** (`hub.css` · `ui/ReadyPanel`). 옛 `--hr-body-h: 45%` 는
-    장비 판 내용보다 한참 커서 **홀드 바 아래에 죽은 여백**이 남았다 — 퍼센트를 **내용 높이 식**으로 바꾸고
-    (`52px + --hr-gear-h + --hr-hold-h`, `--hr-gear-h` 는 썸네일이 정사각이라 칸 너비에서 유도한다) 패널 자체를
-    70 → 56vh 로 줄였다. **인셋 식도 초상 계약도 한 줄 안 바뀌었다** — `.hr-portraits { bottom: var(--hr-body-h) }`
-    하나라 장비 판이 얇아진 만큼 초상이 저절로 넓어진다. 가치 줄의 `line-height: 14px` 는 장식이 아니라 **식의
-    일부**다(기본 `normal` 이면 폰트마다 달라져 여백이 다시 생긴다). 홀드 바는 20 → 40px 이고 그 왼쪽에
-    `Space` 키캡(`.keycap.kc-hold`)이 붙는다 — 라벨은 규약대로 **그릴 때마다** `keyLabel(Keys.JUMP)` 를 다시 읽는다.
-  - **포드의 조작 키는 화면이 아니라 상태다** — `E 슬롯에서 내리기` 를 중앙 하단 `.hub-status` 에서 **우측 하단 키
-    가이드**(owner `'pod'`)로 옮겼다. 그래서 `KeyGuide.NO_CLOSE_OWNERS` 에 넣어 `닫기` 항목을 붙이지 않는다.
-    올리고 내리는 자리를 `ReadyPanel.syncGuide()` **하나**로 모은 것이 요점이다 — `sync` · `setInteractive` ·
-    `hide` · `dispose` · `setLaunching` · `input:bindingsChanged` 가 전부 거기를 지나므로 도킹 · 임무 시작 · 함선
-    허물기 어디서도 항목이 남지 않고, 카운트다운 중에는 `parts/Pods.tickCountdown` 이 밀어 주는
-    `setLaunching(true)` 로 가이드가 내려간다(그때는 내릴 수도 준비를 바꿀 수도 없다).
-  - **출격 경고 팝업이 실제로 눌린다** — `.launch-warn` 에 `z-index: 74`(패널은 z 20). 둘 다 `ctx.uiRoot` 의
-    형제인데 `HubSystem.init` 이 ReadyPanel 을 **나중에** 붙여 DOM 순서상 4칸 카드가 팝업을 덮었고, 카드가
-    `.interactive` 일 때는 버튼 클릭까지 먹었다. **새 게이트는 만들지 않았다** — 스페이스가 안 먹는 것은 이미
-    `tickHold` 가 「우리 토큰 말고 blocker 가 있으면 건너뛴다」이기 때문이고, 팝업이 `'hub'` 를 잡는다.
-  - **`interiors/CookStaging` 이 조리 세션을 죽이지 않는다.** 자세를 못 걸면(`model.cook` 없음 ·
-    `setFurniturePose` 실패) 같은 호출 스택에서 `cancelCook()` 을 불러 `startCook` 이 `beginSteps()` 까지 가지
-    못했다 — 「조리 시작을 눌렀는데 화면만 뜨고 단계가 시작되지 않는다」의 뿌리다. 이제 **연출만 포기**하고
-    housing 은 건드리지 않으며, 세션을 거두는 것은 우리가 건 자세가 **남의 손에** 풀렸을 때와 조리대가 사라졌을
-    때뿐이다. 연출은 거들 뿐이라는 것이 규칙이 됐다.
-  - **`interiors/GameStaging` 은 판정마다 TV 화면을 번쩍이지 않는다**(`flash` 제거, 디버그 이름도 `stage.kick`).
-    화면은 디스크 테마 색 + 잔잔한 맥동뿐이고 판정은 화면 **속** 표식과 진행 막대가 말한다. 같은 결로
-    **`interiors/FurnitureLeisure` 축음기의 나팔 입구 · 목구멍 발광**을 껐다 — 소리가 나오는 구멍이 빛날 이유가
-    없다(켜짐은 앞 명판 · 레코드 라벨과 도는 음반이 말한다). 둘 다 uniform · 재질만 건드려 **점광원 0개** 그대로다.
-  - **공유 함선 병기고의 정비 벤치 소품을 걷어냈다**(`interiors/SharedShip`). 2026-09-12 에 상호작용만 없애고
-    모델 · 콜라이더 · `정비` 표지를 「실루엣」으로 남겼는데, 누를 것이 없는 정비대는 **거짓말하는 지형지물**이다.
-    `Parts.workbench` · `stations.repairBench` · `ShipStations.bench?` 는 좌표를 잃지 않도록 부르는 곳 없이 남는다
-    (계약은 추가만 · 삭제 금지와 같은 처리). 콜라이더는 하나 **줄기만** 했고 광원은 손대지 않았다.
-  - `parts/Interior` · `interiors/Furniture` 의 채굴 진입 주석을 통합 창 · 「가구마다 제 탭이 기본」 규약으로
-    고쳤다(코드 변화 없음 — 여는 곳은 계약 그대로 `openComputeCluster` · `openMiningComputer` 다).
-
-- **2026-09-14 (정보상 화면 · 터미널 재배치 · 매칭 팝업, docs/DECISIONS.md 「2026-09-14 — 정보상」, 에이전트 E)** —
-  - **터미널이 3열 → 2열** (`ui/HubMenu` · `hub.css` 의 `.hub-grid` / `.hub-col` / `.hub-head` / `.hub-planet` / `.hp-*`).
-    좌측 매치메이킹 열이 통째로 **`ui/MatchPanel`**(`.menu.hub-menu.hm-match`, 접두사 `.hm-`)로 갔고 머리 우상단
-    `📡 매칭` 버튼이 그것을 연다 — **동작은 한 줄도 바뀌지 않았다**(신호 찾기 · 코드 도킹 · 신호 송출 · 코드 · 공개 전환 ·
-    초대 링크 · 승무원 4행 · 도킹 해제). 행성 브리핑이 **중앙에서 넓게**(760px · 홀로그램 400px), 우측 열은 위에서부터
-    **정보상 패널 → 시뮬레이션 훈련장**이다. 1180px 아래에서는 두 열이 세로로 쌓인다.
-  - **정보상 패널** (`.hub-section.hub-intel`, `.hi-`): 없으면 레이븐 소개 + `정보 구매`, 있으면 요약 + 그 정보의 행성
-    (지금 목표와 다르면 경고색 「다른 행성의 정보」) + `정보 확인` / `지역 재배치`. **멀티에서 비호스트는 읽기 전용**
-    (`분대장만 정보를 살 수 있습니다`, 탐사 차량 요금의 「결제자 한 명」 규약과 같다). `intel:changed` · `meta:creditsChanged` 로 다시 그린다.
-    ⚠ **분대원이 보는 정보는 `ctx.net.lobbyIntel` 이다** — `ctx.meta.intel.get()` 은 **로컬 프로필만** 읽으므로 비호스트에게는 늘 null 이고
-    (`meta/parts/Intel.syncLobby` 가 호스트 쪽에서만 민다), `IntelWire` 에는 행성이 없어 **로비의 목표 행성**을 붙여 그린다. 패널과
-    `ui/IntelMenu.heldSpec()` 이 같은 폴백을 쓰고 `net:lobbyUpdated` 로 다시 그린다.
-  - **정보상 화면** (`ui/IntelMenu`, `.it-`): 좌 지도 / 우 기믹 7줄 `◀ 0 / N ▶` · 줄 비용 · **총액 큰 폰트** ·
-    `취소` / `확정`(**`UI_HOLD_CONFIRM_S` 홀드만** — click 핸들러가 아예 없어 Enter 로는 확정되지 않는다, Escape 가 취소,
-    최초 포커스 `취소`). 확정 → `intel.buy(planet, seed, picks)`(**답을 기다릴 수 있어** Promise 로 감싸고 그동안 잠근다) →
-    **행성 락온 연출** → 우측 패널에 지도 + 요약, 우상단 `지역 재배치`(경고 팝업 `openHoldAsk` + 1초 홀드 → `discard()` +
-    후보 시드 재굴림, **전부 폐기 · 환불 없음**). 비용 · 잠김 · 글자는 전부 `ctx.meta.intel` / `shared/intelDefs` 에서 온다.
-  - **지도** (`ui/IntelMap`): `ctx.world.previewLayout?.(seed, planet, resolveIntelEffects(picks))`(에이전트 D 가 만든 계약)의
-    `MapPreviewLayout` 을 18칸 격자에 **스냅**해 뭉갠 블록으로 그린다 — 사용자 결정 「실제 레이아웃을 격자로 흐릿하게」.
-    칸 크기는 `layout.mapSize` 에서 나온다(`MAP_SIZE` 는 그것이 없을 때의 기본값). 고르는 화면과 확정 화면이
-    **같은 캔버스 · 같은 함수**이고, 고른 줄이 바뀌면 지도도 다시 그려진다(사기 전에 본다). `previewLayout` 은 선택
-    메서드라 없으면 격자만 그린다 — 화면은 그대로 열린다.
-  - **락온 연출** (`ui/PlanetHologram.startLockOn` · `attachTo`): 정보상 화면은 홀로그램을 **빌려** 쓴다(두 번째 WebGL
-    컨텍스트를 만들지 않는다). 링 둘이 수렴하고 회전이 멎으며 표면에 표식 + 십자선이 뜬다 — **광원은 하나도 더하지 않았다**.
-  - **맨 위 하나만 닫는다**: `HubMenu.closeTop()` 이 정보상 → 매칭 → 터미널 순서로 닫고 **Tab**(`HubMenu.update`)과
-    **E**(`HubSystem` 의 E 사슬)가 그것을 지난다. Escape 는 각 화면이 `ctx.escape` 에 올린 토큰(`hub:intel` · `hub:match`)이
-    맡는다. blocker · 커서 토큰도 터미널의 `hub` 와 **다른 토큰**이라 자식이 닫혀도 터미널이 커서를 잃지 않는다.
-  - 검사(헤드리스 크롬, 1920×1080 · 1440×900): 2열 · 매칭 버튼 · 우측 열 순서 · 팝업이 옛 동작 전부를 들고 있음 ·
-    Tab 이 팝업만 닫음 · 7줄 · 계약 순서 · threat 1 에서 `현상 수배` 잠김 · csv 비용(900 C) · 클릭으로는 안 사짐 ·
-    1초 홀드 → `buy` → 락온 → 요약 · `지역 재배치` 경고 + 홀드 → `discard` → 고르는 화면 · Escape 가 정보상만 닫음 ·
-    가로 스크롤 없음. **CSS 접두사 `.hm-` / `.hi-` / `.it-` 은 쓰기 전에 `rg` 로 비어 있음을 확인했다.**
-
-- **2026-09-14 (발사 슬롯 UI 대개편, docs/DECISIONS.md 「2026-09-14 — 정보상」, 에이전트 A)** —
-  - **패널이 화면 한가운데로 · 세로 70 %** (`hub.css` `.hub-ready`: `top: 48%` · `height: 70vh`). 4칸 가로 · `gap: 0` · 균등 4열은
-    **그대로 지킨다** — `player/Portraits` 가 캔버스 하나를 `HUB_READY_CELLS` 개 **균등 열**로 잘라 쓰기 때문이다. 초상 캔버스 호스트는
-    카드 위 55 %(`bottom: var(--hr-body-h)`)로 잘리고, 아래 45 % 는 불투명한 장비 판(`.hr-body`)이다. 상태 줄을 패널 위로 밀던
-    `.hub-ready:not([hidden]) ~ .hub-status` 규칙은 필요 없어져 사라졌다.
-  - **캐릭터가 카메라 쪽을 본다.** `HUB_READY_PORTRAIT_YAW` 를 `data/constants.csv` 로 옮기고 −π/4 → **−3π/4** 로. 모델 정면은 −Z 라
-    yaw θ 의 정면은 `(−sinθ, 0, −cosθ)` 이고 카메라는 +Z 쪽 — 옛 값은 `(0.707, 0, −0.707)`(등을 반쯤 보임), 새 값은
-    `(0.707, 0, 0.707)`(카메라 쪽 · 화면 오른쪽 45°). 세로로 길어진 뷰포트에 맞춰 `player/Portraits` 의 FOV · 거리도 다시 잡았다.
-  - **카드 하단 장비 줄** (`.hr-gear` 5칸 + `.hr-value`): 주무기 I · II · 가방 · 방탄복 · 전술 임플란트 썸네일 + **착용 장비 가치 합계**.
-    내 것은 `ctx.inventory.getEquipped(slot)` 의 **인스턴스**라 소켓 핍이 실제 부착물을 칠하고, 분대원 것은 `CrewCardWire` 의 def id 뿐이라
-    그 무기가 **받는** 소켓(`ctx.loot.getWeaponDef(...).sockets`)을 **윤곽 핍으로만** 그린다 (와이어를 늘리지 않는다는 결정). `CrewCardWire`
-    에는 가방이 아예 없어 분대원의 가방 칸은 `?` 다 — 진짜 답은 우클릭 `CrewLoadoutPanel`. 호버 카드는 `data-item-tip` + `data-def-id`
-    하나로 기존 `ui/hud/ItemTip` 이 그린다 (새 툴팁 없음). 전술 임플란트는 아이템이 아니므로 글리프만이고 가치에도 안 들어간다.
-  - **탑승과 준비를 갈랐다** (`parts/Pods.ts` · `HubSystem.readyLocal`). 포드 E = `setReady(false)` 로 앉기, 앉은 채 **스페이스
-    `UI_HOLD_CONFIRM_S` 홀드** = `toggleReady()` → 준비 / 준비 해제. 게이지는 크로스헤어 홀드 링이 아니라 **내 카드 하단**(`.hr-hold`)이고,
-    준비 전 내 카드는 `needs-ready` 로 펄스한다. 키를 재는 조건은 **우리 토큰 말고 blocker 가 하나도 없을 때**다(채팅 · 메신저 ·
-    인벤토리 · 일시정지가 전부 스페이스를 쓴다 — 토큰을 열거하면 새 화면이 생길 때마다 빠진다). 카운트다운 · 상태 줄 · 재접속
-    재전송(`resendReady`)이 전부 `readyLocal` 을 본다. 서버 · 와이어는 한 줄도 안 바뀌었다.
-    ⚠ 서버가 준비를 되돌리면(`READY_ECHO_GRACE` 안에 메아리가 없으면) 이제 **포드에서 내리지 않고 준비만 푼다**.
-  - **출격 경고가 준비 시점으로** (`ui/LaunchWarnPanel.ts`): 버튼이 `그래도 준비`, 뜨는 곳이 `boardPod` → `toggleReady`. 포드 탑승 자체는
-    이제 아무것도 묻지 않는다 (앉는 것은 확정이 아니다).
-  - **준비 중 로드아웃 읽기 전용**: `inventory/InventorySystem.readOnlyReason()` 한 곳이 사유를 답하고, 그 값의 원본이
-    `HubSystem.launchReady`(`boardedSlot >= 0 && readyLocal`)다. `HubRef` 에 아직 그 필드가 없어 inventory 가 **선택 필드로 읽기만** 한다 —
-    계약(`HubRef.launchReady?: boolean`) 추가는 리드에게 보고했다.
-
-- **2026-09-13 (서재 시리즈 · 비디오게임 — 모델 · 상호작용 · 게임 연출, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」, 에이전트 B)** —
-  - **모델** (`interiors/FurnitureLeisure.ts`, 리드의 임시 상자 넷 삭제): `game_stand` · `sofa` · `low_table` · `rug` 절차 모델, `chair` 를 `Furniture.ts` 의 `BUILDERS` 에서
-    `LEISURE_BUILDERS` 로 옮기고 앉는 `rig` 를 붙였다(좌판 윗면 0.45 → **0.36** — 앉은 발이 바닥에 닿는다; 옛 의자도 등받이가 +Z 라 앞 −Z 규약은 그대로). 앉는 방향은
-    의자 · 흔들의자 · 쇼파 모두 **가구 앞(로컬 −Z)** 이다 — 쇼파 yaw = (TV yaw + 2) % 4 면 TV 를 본다. TV 에 게임기 모양 셋 + 일반 상자 · 숨긴 게임 화면(`model.tv`). 전부 emissive, **점광원 0**.
-  - **`FurnitureRig.seats`** + `GymStaging.sitPoseOf(piece, near?)` — 자리가 여럿이면 `near` 에 가장 가까운 자리 (평소 = 플레이어 발, 게임 = TV 화면). 인자를 안 주면 옛 동작 그대로.
-  - **상호작용** (`interiors/Furniture.ts`): `seat`(의자 · 쇼파) = 흔들의자와 같은 앉기 토글(`· 앉기`, `onSit` · `releaseOnInteract`) · `game_stand` = 보관함(`onShelf` → `openShelf`) ·
-    **TV 의 E** 는 `ctx.housing.openTvMenu` 가 있으면 프롬프트 `TV 화면` → 새 optional 콜백 `FurnitureCallbacks.onTvMenu(uid)`(없으면 layer 가 직접 부른다) — 이때 전력 사유로
-    막지 않는다(TV 화면이 켜기 · 전력을 말한다), 없으면 옛 `TV · 켜기/끄기`. 접근 면 게이트(`accessOk`)는 그대로. `parts/Interior.ts` 가 `onTvMenu` 를 채운다(duck-typed, 없으면 토스트).
-  - **빌드 입력** (`BuildExtra`): `gameColors`(게임 디스크 전시대 칸별 `GameDiscDef.color` — 방문 중이면 없음 → 와이어의 등급색) · `consoleLook`(`getTvConsole(uid)` → 게임기 종류 →
-    `TV_CONSOLE_LOOK_BY_KIND`, 모르는 종류는 카탈로그 종류 목록 순번 % 3, def 를 모르면 일반 상자) · `gameActive`. `housing:tvConsoleChanged` → 그 TV 의 방만 다시 짓는다;
-    게임 디스크 전시대는 기존 `housing:shelfChanged`(medium ≠ book) 길로 다시 지어진다.
-  - **게임 연출** (새 `interiors/GameStaging.ts`, 위 파일 표): layer 가 소유(우리 함선만) · 매 프레임 `update` · 원격 연출의 `isLocal` 에 게임 좌석 · 게임 좌석이 흔들의자면 흔든다
-    (평소 앉기의 `sitUid` 는 비운다) · 디버그 `FurnitureLayer.gameStage`.
-  - **후속 (안 함)**: 방문 와이어(`ShipVisitWire`)에 `tvConsoles` 가 없어 남의 함선 TV 에는 게임기가 안 보인다 — `shared/net` 계약에 필드를 더해야 한다(hub 는 `Hangar.furnitureSource` · `consoleLookOf` 두 곳만 고치면 된다).
-    게임 세션 중 손 · 패드 동작(`setFurniturePoseDrive`)은 넣지 않았다 — player 의 `sit` 자세는 위상을 쓰지 않는다. 원격 분대원의 게임 화면 연출도 없다(와이어에 세션이 없다).
-  - 스모크 **`smoke-tv-games`** (새, verify 매핑 `hub`) — `scripts/README.md` 에 항목.
-  - 검증 (verify 러너, `--log-dir scripts/logs/B`): typecheck 0 오류 · `smoke-tv-games` **29/29** · `smoke-lights` **30/30**(점광원 수 불변) · `smoke-furniture-access` 49/49 ·
-    `smoke-ship-rooms` 77/77 · `smoke-hangar` 58/58. `smoke-housing` 298/300 — 남은 둘은 hub 밖이다: 카탈로그 수(`getFurnitureFor` — D 가 더한 `any` 가구 쇼파 · 좌식 테이블 · 러그)와
-    옛 책 id alias(`book_gun_AR` → `book_drill_ar_1`)를 스모크가 아직 옛 값으로 기대한다.
-
-- **2026-09-13 (암호화폐 채굴 — 모델 · 상호작용, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 에이전트 ④)** — 새 파일 `interiors/FurnitureMining.ts`(위 파일 표). `interiors/Furniture.ts`:
-  `BUILDERS` 가 `...MINING_BUILDERS` 를 펼친다(리드의 임시 상자 둘 삭제) · `BuildExtra` 에 **`cores`** · **`clusterMining`** · `buildExtra` 가 연산 클러스터에
-  `ctx.housing.getComputeCluster(uid)` 의 코어 수 · 채굴 여부를 주고(duck-typed / try-caught, 방문 중인 함선 = 0) 지은 모습의 열쇠(`clusterKeys`)를 적는다 ·
-  `housing:clusterChanged` · `operationalChanged` · `powerChanged` 에서 **열쇠가 바뀐 클러스터만** 그 방을 다시 짓는다(`refreshClusterPiece` — 채굴 주기마다 오는
-  이벤트에 방을 짓지 않는다) · 상호작용: 연산 클러스터 프롬프트 `연산 클러스터 · 코어 n/9`(지금 값을 읽는다) → `onComputeCluster(uid)`, 메인 컴퓨터 프롬프트
-  `메인 컴퓨터` → `onMiningComputer(uid)` — 둘 다 **optional 콜백**이고 없으면 layer 가 `ctx.housing.openComputeCluster` / `openMiningComputer` 를 직접 부른다(`openMining`).
-  `parts/Interior.ts` 가 두 콜백을 채운다(duck-typed, 없으면 토스트). 점광원은 하나도 늘지 않는다 (`smoke-mining-ui` 가 배치 · 코어 변경 전후로 센다).
-
-- **2026-09-13 (같은 날 후속 — 전력 할당 폐지, 사용자 결정)** — 아래 항목의 `interact()` 전력 검사를 걷어냈다(작업대 · 운동 기구 · TV 가 막히지 않는다) · 연산 클러스터 모델의
-  `housing:operationalChanged` · `housing:powerChanged` 구독도 삭제(`housing:clusterChanged` 만 — 메인 컴퓨터를 놓거나 회수하면 같은 채굴 시설 방이 어차피 다시 지어진다).
-
-- **2026-09-13 (발전기 전력, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 전력 에이전트)** — ⚠ 같은 날 폐지됐다 (바로 위). `interiors/Furniture.addPiece` 의 `interact()` 맨 앞 **한 줄 검사**:
-  작업대(조리대 포함) · 운동 기구 · **꺼져 있는** TV / 레코드 플레이어면 `ctx.housing.furnitureOperationalBlock(uid)` 를 묻고, 사유가 있으면
-  `ui_deny` + 토스트 `<가구> — <사유>`(`전력이 부족합니다` · `비활성화된 가구입니다`) 뒤 끝낸다. 스테이션(재배 · 분석기 · 배양조 · 보관함 · 식탁 · 채굴)은
-  **그대로 열린다** — 안을 관리할 수 있어야 하고, 멈춘 사유는 그 화면의 배너(`housing/ui/StationShell`)가 말한다. 자동 조리 가구는 조리대 화면을 여므로
-  조리대의 게이트(`openCookStation`)를 탄다. 켜진 TV 를 끄는 것은 막지 않는다.
-
-- **2026-09-13 (배치 규칙 — 접근 면, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 배치 에이전트)** — 규칙은 housing 이 갖고(`Rules.placementBlockOf`) hub 는 둘을 따른다.
-  ① `interiors/Furniture.addPiece`: 작업대 · 분석기 · 조리대 · 책장류 · TV · 시술대 · 기업 컴퓨터(`front`)는 **앞에서만**, 재배 스테이션 · 배양조 · 식탁(`sides`)은
-  **넓은 두 면에서만** E 가 뜬다 — 뒤 · 옆에 서면 `canInteract` 가 false 라 `findBest` 가 건너뛰어 다른 대상을 가리지 않는다. 헬스 기구(`all`)는 예전 그대로.
-  ② `HousingMode`: 고스트의 비워야 하는 칸을 바닥 타일로(초록 / 빨강 · 놓인 가구의 칸은 흐린 청록), 설치 거절 토스트가 구체 사유(`앞쪽이 벽에 막힙니다` ·
-  `앞쪽 1칸을 비워야 합니다` · `넓은 면 1칸을 비워야 합니다` · `사방 1칸을 비워야 합니다` · `다른 가구의 접근 공간을 막습니다` …). 스모크 `smoke-furniture-access`.
-- **2026-09-13 (책장 4 × 2, 서재 에이전트)** — `interiors/Furniture.ts` 의 `bookshelf` 모델만: `BOOK_SHELF_ROWS` 3 → 4 (`BOOKS_PER_SHELF` 6 → 8), 책등을 칸 가운데에 세우고 선반마다 가운데 칸막이 한 장. 칸 번호는 여전히 위 → 아래 · 왼 → 오른쪽이라 옛 6칸 세이브의 책이 같은 자리에 선다. 광원 없음.
-
-- **2026-09-13 (조종석 전용 시설 · 조종석 소품 → 꾸밈 가구 · 시설 관리 중 조종석 천장 페이드, 사용자 결정)**
-  - `interiors/PersonalShip`: −X 벽 침상 · +X 벽 사물함 두 칸 · 뒷벽 창고 캐비닛(`stashCabinet`)의 **지오메트리와 콜라이더를 걷어냈다** —
-    housing 이 같은 자리에 `furn_bunk` · `furn_locker` ×2 · `furn_drawer` 를 놓는다(`COCKPIT_DECOR_FURNITURE`). 남은 고정물은 계기판 · 좌석 ·
-    포드 소켓뿐이고 `COCKPIT_BLOCKED_RECTS` 도 그만큼 줄었다.
-  - `interiors/Furniture`: 새 모델 `drawer` (옛 캐비닛과 같은 모습 — 어두운 몸체 · 서랍 세 칸 · 호박색 띠, 발자국 1.0 × 0.5 m 에 맞춰 깊이만
-    줄였다, 서랍이 −Z). 시술대 · 컴퓨터는 csv `room: cockpit` 이 됐을 뿐 빌더 · 상호작용 id(`hub_implant_bay` · `hub_computer`)는 그대로다.
-  - **조종석 천장 페이드**: 천장판 · 천장 조명 띠 · 전체 길이 천장 보 셋 · 계기판 위 천장 띠가 함선 병합 배치에서 빠져 자기 그룹
-    `cockpit-ceiling` + 자기 재질(`HUB_MATS` 복제, **처음부터 `transparent`** — 도중에 켜면 프로그램 키의 `OPAQUE` 가 바뀌어 재컴파일된다)을
-    갖는다. `Parts.deck(room, grate, ceil?)` · `Parts.beam(…, ceil?)` 가 `CeilingTarget` 을 받는다. `HousingMode.update` 가 매 프레임
-    `setCockpitCeilingHidden(this.manage)`(어느 방을 골랐든), `deactivate` 가 `false`; `PersonalShip.update` 가 `0.4 s` smoothstep 으로
-    불투명도를 옮기고 투명한 동안 `depthWrite` 를 끄며, 다 지워지면 그룹 `visible` 만 끈다. 포드 윗 프레임은 병합 배치에 남는다. 광원 무변경.
-    방문 중인 함선 · 공유 함선 · 격납고에는 시설 관리가 없어 닿지 않는다 (`ShipInterior.setCockpitCeilingHidden?` 은 optional).
-  - `HousingMode`: 조종석 전용 시설을 들고 있으면 키 가이드에 `회수` 가 없고, X 는 거부음 + `housing:placeRefused`(`조종석 전용 시설은
-    회수할 수 없습니다`)로 끝난다(`housing.recover` 를 부르지 않는다). 방에 놓으려 하면 `조종석 전용 시설입니다`.
-  - smoke-ship-rooms 7b: 시설 관리를 열면 `cockpitCeilingFade` 1 · 그룹 숨김 · 재질 transparent · 광원 수 그대로, 닫으면 0 · 불투명 · depthWrite.
-- **2026-09-12 (원격 가구 연출 — 캐릭터 버프 · 가구 자세 동기화 §6-C, hub 에이전트)** — 결정 `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」.
-  계약(`FurniturePose.furnitureUid` · `RemoteFurniturePose` · `RemotePlayerRef.furniturePose`)은 리드가 썼고 이 폴더는 `src/shared` 를
-  고치지 않았다. 바로 아래 A-3a 항목의 알려진 한계 「자세 · 운동 연출은 네트워크로 보내지 않는다」를 hub 쪽에서 닫는다.
-  - **uid**: `sitPoseOf` · `gymPoseOf` 가 `furnitureUid: piece.item.uid` 를 싣는다 — player 가 `furniturePoseState` 로, net 이 스냅샷
-    `fu` 로 나른다.
-  - **식 한 벌** (`interiors/GymStaging.ts`): 바 · 벨트 · 크랭크 · 흔들림 · 쉬는 모습을 `poseBenchBar` · `poseBelt` · `poseCrank` ·
-    `poseRock` · `restRig` 로 뽑았다. 로컬 `GymStaging.update/stop` 과 `FurnitureLayer` 의 흔들의자가 그것을 부르므로 **동작은
-    그대로**다 (플라이휠만 다섯 바퀴 주기로 감아 넣는다 — 보이는 자리는 같다).
-  - **원격 연출** (새 파일 `interiors/RemoteFurnitureStaging.ts`): 같은 `hubSite` 의 분대원 · 지금 그려진 함선의 조각 · rig 의
-    자세가 ref 의 자세와 같을 때만 돌린다. 트레드밀은 위상 **차이**로 벨트를 미는데, 차이가 음수(자세 재시작)거나 한 프레임에
-    1.5 걸음을 넘으면 그 프레임은 밀지 않는다. 사이클은 누적 바퀴 수를 절대 위치로 넣으므로 되감겨도 순간 이동일 뿐이다.
-  - **`FurnitureLayer`**: `remote` 를 **source 가 있든 없든** 만든다(방문 중인 함선의 layer 는 여전히 구독 · 상호작용 0). `update` 가 로컬
-    `GymStaging` 다음에 돌리고, `buildExtra.gymActive` 가 원격이 쓰는 기구도 원반을 낀 채로 짓는다. `FurnitureCallbacks` 에 optional
-    `remotePlayers()` · `hubSite()` — `parts/Interior.buildHousing` 이 `sys.remoteFurnitureRefs()` · `sys.hubSite` 로 채운다(없으면
-    `ctx.net.getRemotePlayers()` · `ctx.hub.hubSite`). 디버그: `layer.remoteStage`.
-  - **`HubSystem`**: `debugRemoteFurniture(refs | null)` — 스모크가 릴레이 없이 가짜 ref 를 심는다(`HudSystem.debugRemotes` 와 같은 모양,
-    null 이 아니면 net 목록 **대신** 쓴다) · `remoteFurnitureRefs()`.
-  - **스모크** `smoke-housing` 끝 절 「원격 가구 연출」: 헬스장에 벤치 랙 · 트레드밀 · 사이클을 놓고 가짜 원격 셋 — `poseFor().furnitureUid`,
-    쉬는 모습(원반 숨김 · 바 y 1.14), 벤치 위상 0 → 원반 · 바 가슴(0.90 / 0.57), 위상 1 → 팔 다 편 자리(1.21), 트레드밀 +1 걸음 → 벨트
-    +0.857 m(감김), 사이클 0.25 · 2.75 바퀴 → 크랭크 −π/2 · −1.5π, 방 재빌드 뒤에도 새 rig 로 이어짐 · 위상 11 → 0 에 벨트 안 감김,
-    다른 `hubSite` → 연출 없음 + 복원, 자세 끝(null) → 원반 숨김 · 바 거치대.
-  - **알려진 한계**: 헤드리스 수치 검사뿐이다 — 실제 두 브라우저에서 net 의 보간 위상(`fp`)으로 기구가 부드럽게 도는지, player 의 원격
-    아바타 자세와 바 · 페달이 맞는지는 net · player 가 합쳐진 뒤 `e2e-mp` / 눈으로 본다.
-
-- **2026-09-12 (서재 매체 A-3e · 헬스장 A-3a, hub 에이전트)** — 결정 `docs/DECISIONS.md` 「2026-09-12 — 헬스장 · 서재 매체」. 계약(`src/shared/*` ·
-  `data/furniture.csv`)은 리드가 먼저 커밋했고 이 폴더는 **한 줄도 고치지 않았다**.
-
-  **① 절차 모델 11종** (새 파일 `interiors/FurnitureLeisure.ts`, 리드의 임시 `pendingBody` 는 지웠다). 전부 `GeoBatch` 박스 ·
-  원기둥 · 부분 원기둥 · 토러스이고 외부 에셋 없음, **점광원 0**(빛나는 것은 전부 emissive 재질).
-  - **`disc_stand`** 디스크 전시대: 금속 진열장 · 선반 셋 × 칸 둘(`SHELF_SLOTS.disc`) · 선반마다 흰 LED 띠. 꽂힌 칸마다 뒤로 기운
-    **등급색 케이스** + 은빛 디스크 면 + 진열 턱의 등급 표찰, 빈 칸은 받침만.
-  - **`record_rack`** 레코드랙: 짧은 다리의 원목 캐비닛(앞면 칸 둘에 레코드 등) 위 칸막이 레코드 통 · 악센트 머리판. 칸마다
-    (`SHELF_SLOTS.record`) 등급색 슬리브 + 위로 반쯤 솟은 음반.
-  - **`rocking_chair`** 흔들의자: 원호를 짧은 상자 8개로 이은 흔들 다리 · 쿠션 좌판 · 뒤로 기운 등받이(살 다섯) · 팔걸이. **의자
-    전체가 `rig.rock` 그룹**이라 앉아 있는 동안 흔들린다(피벗 = 원호 바닥점).
-  - **`tv`** 미디어 콘솔 + 받침대 패널. `on` = 발광 화면 위에 하늘 · 지평선 · 해 · UI 막대, 꺼짐 = 검은 유리 + 빨간 대기등.
-  - **`gramophone`** 둥근 원목 탁자 · 나무 상자 · 태엽 손잡이 · 톤암 · 앞 위로 벌어지는 황동 나팔(원기둥 다섯, 입구는 원판으로
-    막아 `DoubleSide` 없이 속이 비어 보이게). `on` = 나팔 입구 · 명판 · 라벨이 따뜻하게 빛나고 레코드가 돈다.
-  - **`jukebox`** 버건디 몸체 + 반원 아치 지붕 · 아치 네온 두 줄 · 옆 네온 기둥 · 음반 창 · 곡명 카드 · 버튼 · 크롬 그릴.
-    `on` = 네온(카탈로그 색 + 청록) · 창 · 카드 점등, 꺼짐 = 같은 색을 어둡게.
-  - **`turntable`** 띄운 슬레이트 캐비닛(원목 상판 · 레코드 칸) 위 데크 · 플래터 · 톤암 · 앰프 · 스피커. `on` = 받침 LED 띠 ·
-    스트로브 점 · 피치 슬라이더 · VU 점등 + 플래터 회전.
-  - **`bench_rack`** 머리 쪽(+Z) J 훅 기둥 둘 · 위 가로대 · 플랫 벤치 · 훅 위 바벨(`rig.bar`). **원반(`rig.plates`)은 세션 중에만**.
-  - **`smith_machine`** 기둥 넷 케이지 · 크롬 레일 둘 · 레일 슬라이더에 물린 바벨(수직으로만) · 안전 멈춤쇠 · 같은 벤치.
-  - **`treadmill`** 모터 덮개 · 기운 기둥 · 러너 쪽으로 기운 콘솔 화면 · 손잡이 · 벨트(`rig.belt` 줄무늬가 뒤로 끊김 없이 흐른다).
-  - **`exercise_bike`** 발 · 안장 기둥 · 앞 포크 사이 플라이휠(`rig.flywheel`) · 반원 덮개 · 핸들 · 콘솔 · 크랭크(`rig.crank`,
-    페달은 반대로 돌려 수평 유지).
-  `FurnitureModel` 에 `rig?` · `spinRate?`(턴테이블 · 축음기 레코드 3.5 rad/s; 없으면 시뮬레이션 허브의 0.6).
-
-  **② `BuildExtra` · 배선** (`interiors/Furniture.ts`). `BuildExtra` += `media`(칸별 등급 — `ctx.housing.getShelfSlots`) · `on`
-  (`isFurnitureOn`) · `gymActive`(연출 중인 기구). `FurnitureCallbacks` += `onShelf` → `openShelf(uid)` · `onSit(uid, pose)` →
-  `ctx.player.setFurniturePose` + `audio:play chair_creak`(거절이면 토스트) · `onToggle` → `toggleFurniture(uid)` · `onGym` →
-  `startGymSession(uid)`(한국어 사유 토스트) — 전부 `parts/Interior.buildHousing` 에서 duck-typed. 프롬프트: 가구 이름 ·
-  `흔들의자 · 앉기` · `TV · 켜기/끄기`(**지금 상태를 매번 읽는다**) · `벤치 랙 · 벤치프레스`(`GYM_MINIGAME_LABEL_KO`).
-  은퇴 · 붙박이 분기는 그대로. `COVERED_CHANGE_REASONS` += `shelfPlace` · `shelfTake` · `toggle`, 그리고
-  `housing:shelfChanged`(책은 `booksChanged` 가 이미 짓는다) · `housing:furnitureToggled` 에 **그 조각의 방만** 다시 짓는다.
-  디버그: `FurnitureLayer.poseFor(uid)` · `gymStage`.
-
-  **③ 운동 세션 연출** (새 파일 `interiors/GymStaging.ts`). 자세 기하는 모델과 한 파일(`FurnitureRig`, 가구 로컬)이고 여기서 월드로 푼다.
-  치수는 player 의 `SoldierModel` `FURN_SIT` · `FURN_BENCH` · `FURN_CYCLE`(anchor 기준, 손발 IK 가 그 점에 내려앉는다)에 맞췄다.
-  | 기구 | anchor (로컬) | forward | 카메라 | 움직임 → drive |
-  |---|---|---|---|---|
-  | 벤치 랙 · 스미스 | 패드 윗면 `(0, 0.40, 0.6)` — 패드 z −0.2 … 0.78, 머리 끝이 +Z (발바닥 −0.40 → 패드 0.40) | `+Z`(엉덩이 → 머리) | focus `(0, 0.78/0.9, 0.3)` · 거리 2.9/3.2 · 높이 +0.55/0.6 | 바(= 주먹) 위상 0 `(y 0.90, z 0.57)` → 1 `(y 1.21, z 0.66)` **선형**. 스미스는 레일이 수직이라 z 0.615 고정(양 끝 ±4.5 cm). 훅 1.14 / 거치 핀 1.15 에서 0.6 초에 가슴 위로. 완벽/좋음 = 1→0→1 (1.0 초), 실패 = 0 → 0.42 버팀 → 0.3 → 1 (1.95 초) |
-  | 트레드밀 | 벨트 윗면 가운데 `(0, 0.19, 0.2)` | `−Z`(콘솔) | focus `(0, 0.85, 0)` · 2.7 · +0.4 | 위상 = **한 걸음**, 첫 박자부터 2.8 걸음/초 · 벨트 2.4 m/s, 실패 = 1.2 초 동안 속도 50 % |
-  | 사이클 | 안장 윗면 `(0, 0.93, 0.3)` | `−Z`(핸들) | focus `(0, 0.7, −0.1)` · 2.4 · +0.4 | 크랭크 축 `(0, 0.33, 0.05)`(= 안장 기준 아래 0.60 · 앞 0.25) · 반지름 0.16 · 페달 x ±0.13, 고무 손잡이 `(±0.22, 1.07, −0.2)`. 박자 i 에서 i/2 바퀴 → 다음 박자까지 반 바퀴(실패 = 35 %), 0 = 왼발(−X) 위 · 위 페달이 앞으로 |
-  | 흔들의자 | 쿠션 윗면 `(0, 0.36, 0.02)` (발바닥 −0.36, 앞 0.40) | `−Z` | 없음 | 앉아 있는 동안 ±0.04 rad |
-  카메라는 기구 둘레 **12 방위 × 거리(D · 0.8 D) × 높이(기본 · +0.8 m) = 48 후보**를 점수로 고른다 — 옆에서 볼수록 · 낮을수록 ·
-  멀수록 좋고, 방 상자(벽에서 0.45 m 안)를 벗어나면(방 안으로 당긴 뒤) 또는 카메라 → 몸 · 초점 시선이 **같은 방 다른 가구의 월드
-  상자**(`Piece.box` = 콜라이더 치수)를 지나면 크게 깎인다. 처음 판은 "옆 → 대각선 중 방 안에 드는 첫 후보" 였는데, 자동 배치가
-  헬스장 기구를 벽을 따라 1.5 – 2 m 간격으로 붙여 놓아 **옆 카메라가 이웃 스미스 머신 틀 안에서** 찍혔다 (헤드리스 인게임 스크린샷으로
-  확인 — 지금은 옆이 막히면 기구의 축 방향이나 대각선에서 비춘다). 세션이 끝나면 원반을 숨기고 바를 거치대로, `setFurniturePose(null)`
-  (흔들의자 자세면 건드리지 않는다). 우리가 풀지 않은 자세 종료(`reset`)는 세션도 `cancelGymSession()` 한다.
-
-  **④ 방문 와이어** (`parts/Hangar.ts` · `HubSystem.ts`). `shipStateWire` 가 `books` 옆에 `media`(`ctx.housing.state.media`) ·
-  `toggled`(`state.toggled`)를 싣고(비면 생략), `furnitureSource` 가 그것으로 `getMedia(uid)`(칸 수 = 그 조각 매체의 `SHELF_SLOTS`,
-  범위 밖 · 보관함 아닌 조각은 버림, 등급은 로컬 카탈로그) · `isOn(uid)` 를 준다(`FurnitureSource` 의 두 optional 메서드).
-  `housing:shelfChanged` · `housing:furnitureToggled` 도 `shipStateChanged` 로 재방송한다.
-
-  **알려진 한계**: 자세 · 운동 연출은 네트워크로 보내지 않는다(설계 §3). 헤드리스 렌더로 모델 11종 · 켜짐/꺼짐 · 원반 · 계산된
-  옆 카메라 구도는 봤지만, player 의 자세 애니메이션이 이 anchor · 바 높이 · 크랭크 치수와 맞는지는 두 폴더가 합쳐진 뒤에야 보인다.
-
-- **2026-09-12 (함선 빈 방 2배 · 정비 벤치 제거, 사용자 결정)** — 둘 다 계약(`data/constants.csv` · `data/furniture.csv`)은
-  리드가 먼저 바꿔 두었고 이 폴더는 그 새 치수를 따라갔다.
-  - **방이 4 × 4 → 8 × 8 m** (`ROOM_GRID_COLS/ROWS` 8 → 16). 실제로 깨진 곳은 `interiors/RoomLayout` 의 **`SEGMENT = 5`**
-    하나였다 — `(SEGMENT − ROOM_DEPTH)/2` 가 −1.5 가 돼 **방들이 z 축으로 3 m 씩 겹쳤다**(방 1과 2 의 바닥 · 벽 ·
-    콜라이더가 서로의 안으로 들어갔다). 이제 `SEGMENT = ROOM_DEPTH + ROOM_GAP`(1 m) · `CORRIDOR.maxZ = ROOMS_PER_SIDE × SEGMENT`
-    · `AIRLOCK = CORRIDOR.maxZ … + AIRLOCK_DEPTH` 로 **전부 방 깊이에서 유도한다** — 자유 상수는 `ROOM_GAP` · `AIRLOCK_DEPTH` 둘뿐이라
-    격자를 또 바꿨도 따라온다. 함선이 길어진 것(복도 25 → 45 m, 에어락 45 … 47.5)은 의도한 결과다.
-    `PersonalShip` 은 좌표를 새로 적지 않았고 **박혀 있던 에어락 z 셋**(26.0 · 26.4 · 26.3)만 `AIRLOCK` 기준 오프셋이 됐다.
-    그 김에 세 가지를 더 고쳤다 — 복도 구간 경계의 벽 채움 폭 0.4 → `ROOM_GAP`(양쪽으로 0.3 m 씩 뷫리게 뚫려 있었다),
-    구간 한가운데 천장 보(장식), 그리고 **광원 자리** — 복도 구간당 하나 → 둘, 방마다 하나 → 둘(z ± `ROOM_DEPTH`/4).
-    **진짜 점광원 개수는 그대로 `HUB_POINT_LIGHTS` 8 개**다 (「씨의 광원 개수를 플레이 중에 바꾸지 않는다」 — `LightPool`
-    은 자리가 몇개든 `size` 개만 건다). `HousingMode` 의 카메라 세 상수는 리터럴을 때고 `ROOM_DEPTH` 의 분수가 됐다 —
-    8 m 방에서는 화면 아래쪽 바닥 모서리가 시야축에서 34.2° 라 수직 반시야각 35° 를 거의 넘어 고스트가 화면 밖으로 떨어졌다.
-    세이브는 그대로다 — `PlacedFurniture.x/y` 는 좌상단 원점 정수라 격자가 **커지기만** 하면 옵 좌표가 전부 그대로 유효하다.
-  - **정비 벤치 제거** — `Workbench.ts` · `ui/WorkbenchMenu.ts` 를 **파일째 지웠고**, `HubSystem` 의 `workbench` · `wbMenu`
-    필드, `parts/Interior` 의 `new Workbench(...)` · `onRepairBench` · `stationUsable` 의 `wbMenu.isOpen`, `parts/{Planet,Pods,Transitions}`
-    의 `wbMenu.close/isOpen`, `ShipInterior.workbench?` · `WorkbenchDef`, `SharedShip` 의 앵커, `FurnitureCallbacks.onRepairBench` 가
-    함께 걱혀났다. 함선에서의 무기 수리는 이제 **인벤토리에서 재료로** 한다(다른 에이전트가 맡은 몴). 남긴 것 둘 —
-    병기고의 벤치 **소품**(+ `정비` 표지)과, `repair_bench` 모델 빌더 · dispatch 의 **아무것도 하지 않는** 분기
-    (`MODELS` 는 `FurnitureModelKind` 전체를 덮어야 하고, 분기를 없애면 `else cb.onRangeConsole()` 로 샠다).
-    `hub:workbenchToggled` 이벤트 · `.menu.hub-menu.workbench` CSS 는 계약/자산이라 남아 있고 아무도 쓰지 않는다.
-
-- **2026-09-12 (시설 관리 — 선택과 위치 이동 상태, 사용자 결정)** — `HousingMode.ts` 만 고쳤다 (위 `Housing mode` 의
-  「시설 관리의 선택 · 위치 이동 상태」 줄). 클릭 = 선택, `위치 이동` 버튼 / E = 위치 이동 상태, 그 안에서만 LMB · R · X,
-  놓을 수 없는 곳 = `housing:placeRefused`(인스펙터 위 토스트는 `ui/hud/ShipManage`), 키 가이드가 상태를 따라간다.
-  새 계약 이벤트 셋(`housing:moveRequested` · `housing:moveStateChanged` · `housing:placeRefused`, `shared/events.ts` 추가만).
-  방 콘솔 모드는 한 줄도 안 바뀌었다(`smoke-ship-rooms` 의 클릭 집기 · X 회수 · R 회전 그대로). 요청의 「커서를 가구
-  중앙으로」는 사용자 결정으로 뺐다.
-
-- **2026-09-11 (주방 · 배양조 · 3D 프린터 — A-3c · A-14 · A-15, hub 에이전트)** — 결정 `docs/DECISIONS.md` 「2026-09-11 — 주방 · 배양조 · 3D 프린터」.
-  계약(`src/shared/*` · `data/*.csv`)은 먼저 커밋돼 있었고 이 폴더는 **한 줄도 고치지 않았다**. 네 가지를 했다.
-
-  **① 절차 모델 4종** (`interiors/Furniture.ts` 의 `Record<FurnitureModelKind, Builder>` — 타입 에러가 정확히 그 자리를
-  가리키고 있었다). 전부 `GeoBatch` 박스 · 원기둥이고 **외부 에셋 · 텍스처 파일은 없다**.
-  - **`bench_cook`** (조리대, `cols 4 · rows 2 · height 1.1`, 악센트 `#ffb0a0`): `benchBody` 위에 화구 판 + 달아오른
-    링 넷(`M.stripRed`) · 냄비 · 도마 · 재료 상자 · 조미료 병, 그리고 **상판 위로 내려온 후드 캐노피 + 덕트**.
-    다른 작업대와 멀리서 갈라지는 실루엣은 그 후드다.
-  - **`dining_table`** (식탁, `4 × 3 · height 0.9`, `maxLevel 1`): **레벨을 읽지 않는다** — 레벨 핍도 없다.
-    상판 · 식탁보 · 앞 가장자리 악센트 · 다리 넷 · 가로 보 + 접시 4벌 · 수저 · 가운데 불빛(emissive), 그리고
-    의자 넷. 의자는 테이블을 `w−0.72 × d−0.72` 로 줄여 **발자국 안에 들어오게** 했다 — 콜라이더는 `def.cols × rows`
-    한 장이라 의자가 밖으로 나가면 보이는 것과 막히는 것이 어긋난다.
-  - **`culture_tank`** (배양조, `4 × 2 · height 2.0`, 악센트 `#8fe8ff`): 분석기 · 재배 스테이션과 **같은 규약** —
-    받침 캐비닛(배지 저장조 창 · 제어 화면 · 레벨 핍) 위에 **언제나 `CULTURE_MAX_SLOTS` 개**의 유리 배양관이
-    상단 매니폴드까지 서고, `cultureSlotsForLevel(level)` 개만 안의 배양액에 불이 들어온다(잠긴 관은 어둡다).
-    실루엣으로 분석기와 갈라지는 것은 **기울어진 콘솔이 없고 관이 천장까지 길다**는 점이다. 배양 중은 자홍
-    (`M.stripGrow` — 분석기의 청록과 안 헷갈린다), **회수 대기는 호박색**(`M.stripAmber`).
-  - **`bench_print`** (3D 프린터, `4 × 2 · height 1.6`, 악센트 `#d0c4ff`): **`benchBody` 를 쓰지 않는다** — 그 몸체는
-    다리를 `h − 0.1` 까지 세우므로 1.6 m 짜리 def 에서는 사람 키만 한 식탁이 된다. 대신 받침 캐비닛 위에
-    기둥 넷 · 옆 유리 · 천장으로 챔버를 세우고 그 안에 히팅 베드 · 쌓이는 조형물 · 가로 갠트리 · 달아오른
-    노즐, 뒤쪽에 필라멘트 스풀 두 개(Z 축 원기둥이라 앞에서 원이 보인다).
-
-  **광원은 넷 다 하나도 만들지 않는다.** 화구 링 · 후드 조명 · 식탁 불빛 · 배양액 · 챔버 조명 · 히팅 베드 · 노즐이
-  전부 emissive 재질이다 (CLAUDE.md 「씬의 광원 개수를 플레이 중에 바꾸지 않는다」 · `smoke-lights` 가 강제한다).
-
-  **② 회수 대기 색 · 배선** (`interiors/Furniture.ts`). `BuildExtra` 에 **`cultureReady`** 가 붙었고 `FurnitureLayer` 가
-  `housing:cultureChanged` 를 받아 **그 조각의 방만** 다시 짓는다 — 분석기의 `housing:analysisChanged` 와 **같은 길**이고,
-  재질이 조각마다가 아니라 공용이므로 광원 없이 색을 바꿀 수 있는 유일한 방법이다. `private cultureReady(uid)` 는
-  `ctx.housing.getCultureSlots(uid)` 를 duck-typed / try-caught 로 센다(방문 중인 함선 = 0). 새 콜백
-  `onCultureTank(uid)` → `ctx.housing.openCultureTank(uid)`, `onDiningTable(uid)` → `openDiningTable(ctx, uid)`.
-  E 프롬프트는 배양조가 작업대 · 분석기와 같은 `배양조 Lv.n`, 식탁은 `maxLevel 1` 이라 이름뿐이다. 작업대
-  `cook` · `print` 는 `benchKindOf` 가 `workbench_` 접두사로 풀므로 **배선이 필요 없었다** — 확인만 했다.
-
-  **③ 공유 함선의 고정 식탁** (`interiors/stations.ts` · `interiors/SharedShip.ts` · `parts/Interior.ts`). 공유 함선에는
-  가구가 없으므로 분대가 함께 먹는 자리를 인테리어가 심는다: 새 `stations.diningTable()`(상판 · 다리 · 벤치 의자 둘 ·
-  식기 · emissive 불빛, 테이블 + 의자를 덮는 콜라이더 하나)을 `ShipStations.diningTable` 로 두고, `buildStations` 가
-  `hub_dining_table`(프롬프트 `식탁 · 식사`)을 등록해 **`ctx.housing.openDiningTable(null)`** 을 부른다 —
-  `null` 이 곧 「가구가 아닌 그 식탁」이라는 계약이다. 가구 식탁과 이 식탁이 **같은 지역 헬퍼**
-  `openDiningTable(ctx, uid|null)` 을 쓴다(없으면 `식탁을 사용할 수 없습니다` 토스트). 자리는 **우현 중갑판 (8.6, 2.2)**:
-  사물함 · 보급 상자(+Z) · 임플란트 시술대 · 에어락(+X) · 발사 포드(−Z) · 홀로 테이블 어느 콜라이더와도 겹치지
-  않고, 에어락에서 갑판으로 들어오는 z ≈ 0 통로를 비켜 간다. **좌현 x ≈ −8 은 일부러 피했다** — `smoke-hangar` 가
-  「출입구 옆에서는 후벽에 막힌다」를 (−8, 4) 에서 걸어서 확인하므로 거기 콜라이더를 놓으면 그 줄이 빨개진다.
-  (지오메트리가 모든 클라이언트에서 같아야 공유 함선의 위치 스냅샷이 맞는다는 규약은 그대로다 — 상수 배치다.)
-
-  **④ 주방 방 · 정비 목록** (`parts/Interior.ts` · `ui/WorkbenchMenu.ts`). 주방(`kitchen`)이 `ROOM_PURPOSES_ACTIVE` 에
-  들어왔지만 **hub 에 새 지오메트리는 없다** — 2026-09-11 연구실 항목에서 확인한 그대로 방의 생김새는 용도와
-  무관하고 용도를 말하는 것은 문패뿐이며, `ROOM_PURPOSE_COLOR.kitchen`(`#ffb0a0`)이 이미 계약에 있으므로
-  `refreshRoomSign` 이 손대지 않고도 살구색 문패 + 방 조명(기존 `interiors/LightPool`, 개수 불변)을 켠다.
-  `ui/WorkbenchMenu` 의 `SLOT_LABEL` 은 손으로 적던 `Exclude<LoadoutSlot, 'bag'|'armor'>` 대신 계약의
-  **`WeaponSlot`** 을 쓴다 — `LoadoutSlot` 에 `'pouch'` 가 생겨 어긋난 자리이고, **주머니는 내구도가 없으므로
-  정비 목록에 넣지 않는다**. 타입만 맞췄고 행 구성은 그대로다.
-
-- **2026-09-11 (연구실 A-11 · A-12 · A-13 + B-13, hub 에이전트)** — 결정 `docs/DECISIONS.md` 「2026-09-11 — 연구실」. 계약
-  (`src/shared/*` · `data/*.csv`)은 먼저 커밋돼 있었고 이 폴더는 **한 줄도 고치지 않았다**. 네 가지를 했다.
-
-  **① 절차 모델 3종** (`interiors/Furniture.ts` 의 `Record<FurnitureModelKind, Builder>` — 타입 에러가 정확히 그 자리를
-  가리키고 있었다). 전부 `GeoBatch` 박스 · 원기둥이고 **외부 에셋 · 텍스처 파일은 없다**.
-  - **`analyzer`** (분석기, `cols 4 · rows 2 · height 1.8`): 받침 · 뒷기둥 2 · 뒷판 · 천장 프레임 안에, 앞으로 기운
-    화면이 달린 조작 콘솔과 그 위의 **시료 챔버**. 챔버는 **언제나 `ANALYZER_MAX_SLOTS` 개**를 세우고
-    `analyzerSlotsForLevel(level)` 개에만 안쪽 코어의 불을 켠다 — 패널이 잠긴 칸을 딤드 + 필요 레벨로 그리는 것과 같은
-    규약이라, 강화하면 **다음 관에 불이 들어오는 것**으로 보인다 (`grow_station` 이 재배층을 그리는 방식 그대로).
-  - **`bench_extract`** (추출기): `benchBody` + 상판 위로 솟은 유리 증류관(호박색 끓는 액) · 응축 코일 3단 · 이송관 ·
-    투입 깔때기 · 받이 플라스크 3개. 다른 작업대가 "책상" 이라면 이것은 **탑**이라 실루엣만으로 갈린다.
-  - **`bench_mixer`** (조합대): `benchBody` + 뚜껑 · 교반 축 · 모터 암이 달린 혼합 드럼 · 계량 저울(계기판) · 성분 병 4개.
-
-  **② 해석이 끝난 칸이 알아보이게** — `BuildExtra.analysisReady`(회수 대기 칸 수)가 그 칸을 `M.stripCyan` 대신
-  **`M.stripAmber`** 로 켜고 캡 표시등 · 칸 표식까지 같이 바꾼다. **`THREE.PointLight` 는 하나도 만들지 않는다** —
-  CLAUDE.md 「씬의 광원 개수를 플레이 중에 바꾸지 않는다」. 재질은 조각별이 아니라 **공용**이므로 색을 바꾸는 길은
-  그 조각을 다시 짓는 것뿐이고, 그래서 `FurnitureLayer` 가 `housing:analysisChanged {uid}` 를 받아 **그 조각의 방만**
-  `rebuildRoom` 한다 — 책장의 `housing:booksChanged` 와 **같은 길**이다 (해석은 사람이 손댈 때만 바뀌므로 드물다).
-  값은 `private analysisReady(uid)` 가 `ctx.housing.getAnalyses(uid)` 를 duck-typed / try-caught 로 세고
-  (방문 중인 남의 함선 = 와이어에 해석이 없으므로 0), 모델별 extra 선택은 `private buildExtra(def, uid)` 하나가 한다.
-  배선은 `FurnitureCallbacks.onAnalyzer(uid)` → `parts/Interior.buildHousing` 에서 `ctx.housing.openAnalyzer(uid)`
-  (없으면 `분석기를 사용할 수 없습니다` 토스트). E 프롬프트는 레벨이 뜻을 갖는 가구라 작업대와 같은 `분석기 Lv.n` 이고,
-  머리 위 `Lv.n` 표지판은 `def.maxLevel > 1` 로 이미 뜬다. 추출기 · 조합대는 `benchKindOf('workbench_extract') = 'extract'`
-  라 **기존 작업대 경로가 그대로 먹는다** — 배선을 한 줄도 안 더했다.
-
-  **③ B-13 클릭 인스펙터의 입력 절반** (`HousingMode.ts`). 시설 관리(`manage`)에서 방 안을 클릭하면 기존
-  배치 · 집어들기 · 내려놓기 경로가 **끝난 뒤** 커서 밑에 남은 조각을 읽어 `housing:furnitureSelected {uid}` 를 낸다
-  (`selectUnderCursor`). 방 밖 클릭 · `X` 회수 · 방 바꾸기 · 모드 나가기는 `{uid:null}` 이고, 같은 값이면 다시 내지
-  않는다(`selectedUid`). **읽기 전용이다** — 이 컨트롤러는 그 값을 되읽지 않고 아무것도 옮기지 않으며, 배치 · 이동
-  코드는 한 줄도 바뀌지 않았다. "행동 뒤에 읽는다" 로 고른 이유: 새로 놓은 조각 · 방금 집어든 조각 · 옮겨 놓은 조각이
-  전부 자동으로 선택돼 따로 분기할 것이 없다. 인스펙터 화면은 `ui/hud/ShipManage` 가 그린다.
-
-  **④ 행성 터미널 환경 브리핑** (`ui/HubMenu.ts` · `hub.css`). 브리핑 밑 `.hp-env` 한 줄에
-  `ENV_ICON` + `ENV_LABEL_KO` + `ENV_DESC_KO`(전부 `shared/labels` — 이 폴더에 문장을 베끼지 않았다), 환경이 없는
-  행성에서는 `hidden`. `ctx.progression.hasEnvPrep(env)` 가 false 면 `.warn`(불투명 + 테두리 발광), true 면 뒤에
-  `(준비물 있음)`. **행성 이동은 막지 않는다** (사용자 결정 = 소프트 게이트) — `refreshTravel` 의 버튼 상태에는 손대지
-  않았다. `refreshEnv()` 를 `syncPlanet` 과 `refreshTravel` 양쪽에서 부르므로 터미널을 연 채 가방에서 준비물을 써도
-  줄이 따라온다. `ctx.progression` 이 아직 그 메서드를 갖기 전(다른 에이전트 진행 중)에는 duck-typed 검사가
-  「준비물 없음」으로 읽어 경고를 보여 준다.
-
-  **곁다리**: `parts/Interior.refreshRoomSign` 의 문패 악센트가 모든 배정된 방 공통 호박색(`#ffd27a`) 대신 그 용도의 색
-  (`shared` 의 `ROOM_PURPOSE_COLOR` — 함선 탭 방 목록 · 시설 관리 카드가 이미 쓰는 표)이다. 연구실 방이 다른 용도 방과
-  같은 수준으로 보이는지 확인한 결과 **방 자체의 지오메트리는 용도와 무관**하고(온실도 특별한 벽이 없다) 용도를 말하는
-  것은 문패뿐이었으므로, 벽 · 바닥을 새로 만드는 대신 이미 `shared` 에 있던 색표를 문패가 읽게 했다.
-
-- **2026-09-11 (온실 개편 — 재배 스테이션 모델 · 배선, hub 에이전트)** — 옛 재배층(`furn_grow_rack`, model `grow_rack`, 4층 스택)이
-  은퇴하고(`FurnitureDef.retired`) **재배 스테이션**(`furn_grow_station`, model `grow_station`, interaction `grow_station`, `cols 4 · rows 2 ·
-  height 2.2`, maxLevel 3)이 들어왔다. 이 폴더가 한 일은 둘이다.
-  ① `interiors/Furniture.ts` 에 **`grow_station` 절차 빌더**: 받침 · 기둥 4개 · 뒷판 · 천장 · 앞면 급액 파이프 두 줄 · 받침 위 제어반
-  (화면 + `level` 개의 핍)으로 된 프레임 안에, **`growTiersForLevel(level)` 이 돌려준 층만** 선반판을 세운다 —
-  **Lv.1 = 중앙 한 층 · Lv.2 는 아래 · Lv.3 은 위**. 층 높이는 새 상수 `GROW_TIER_Y`(가구 높이 대비 중앙 0.44 · 아래 0.16 · 위 0.72)
-  **한 곳**에서만 오고 레벨과 무관하게 고정이다 — 계약이 "강화해도 tier id 가 안 바뀐다" 이므로 **자라던 작물이 자리를 옮기면 안 된다**.
-  층마다 `GROW_SLOTS_PER_TIER`(3) 개의 화분(위가 뚫린 원통 + 바닥 디스크라 흙을 붓기 전에는 **안이 비어 보인다**) · 앞 가장자리 트림 ·
-  칸 표식 · 재배등(`M.stripGrow`). **광원은 하나도 만들지 않는다** — 재배등은 emissive 재질뿐이다 (「씬의 광원 개수를 플레이 중에
-  바꾸지 않는다」 · `smoke-lights`). 악센트는 `data/furniture.csv` 의 `color`(`#7ee08a`)가 `tint()` 로 들어온 것 그대로다.
-  ② **배선**: `FurnitureCallbacks.onGrowStation(uid)` → `parts/Interior.buildHousing` 에서 `ctx.housing.openGrowStation(uid)`
-  (없으면 `재배 스테이션을 사용할 수 없습니다` 토스트). E 프롬프트는 `def.name` = `재배 스테이션`, 머리 위에는 `def.maxLevel > 1` 이라
-  기존 `Lv.n` 표지판이 그대로 뜬다. **옛 `grow_rack` 경로(`onGrowRack` · `stackLimit` 층별 앵커 · `GROW_RACK_LAYER_HEIGHT` 오프셋)는
-  한 줄도 지우지 않았다** — 계약은 추가만 하고, 은퇴 가구는 `ShipState.sanitize` 가 걷어내므로 실제로 불리지 않을 뿐이다.
-  레벨이 바뀌면 이미 있던 `housing:furnitureUpgraded` → `rebuildRoom` → `buildFurniture(def, item.level)` 경로가 모델을 다시 짓는다
-  (작업대와 같은 길, 새 배선 불필요).
-
-- **2026-09-11 (B-12 — 합류 알림 두 줄을 한 줄로, 에이전트 ⑤)** — 결정 `docs/DECISIONS.md` 「2026-09-11 — 신뢰 경로의 남은 틈」.
-  `HubSystem.bind` 의 `net:peerJoined` → `ui:notify '<이름> 함선 합류'` 와 `net:peerLeft` → `'<이름> 함선 이탈'` **두 줄을 지웠다**
-  (TODO 에는 합류만 적혀 있었지만 이탈도 대칭으로 같은 겹침이었다). 같은 이벤트에 `ui/hud/Notifications` 가 `<이름> 합류` ·
-  `<이름> 이탈`(`'분대'` 라벨, 3 초)을 띄우는데 `ui:notify` 가 **그 토스트 스택으로 되돌아오므로** 함선 · 도킹 중에만 두 줄이
-  나란히 떴다. 잃는 것은 `함선` 이라는 낱말 하나다. **방향이 중요하다** — `Notifications` 쪽을 지우면 초대 수락 알림이 통째로
-  사라진다(`Notifications` 의 `social:inviteResult {accepted}` 가 "합류 줄이 이미 뜬다" 를 근거로 자기 토스트를 뺐다).
-  지운 자리에는 그 이유가 주석으로 남아 있다. 이 폴더의 다른 `ui:notify`(도킹 · 워프 · 발사 슬롯 거절 …)는 그대로다.
-  검사: `scripts/smoke-social.mjs` 의 `B-12` 절 — 함선에서 `net:peerJoined` · `net:peerLeft` 토스트가 각각 한 줄뿐이다.
-
-- **2026-09-11 (B-1 통합 — 거절당한 연결은 함선 진입으로 다시 붙지 않는다, 리드)** — `parts/Transitions.tryResume` 이 `net.link.state === 'refused'`
-  (서버 추방 · 인원 초과 · 다른 창 접속)면 `ensureConnected()` 를 부르지 않는다. `ensureConnected` 는 명시적 접속이라 `refused` 를 지우므로,
-  개인 함선에 들어설 때마다 추방된 사람이 자동으로 다시 붙고 있었다. 다시 붙는 길은 터미널 `신호 찾기` · 타이틀 `다시 시도` 뿐이다.
-
-- **2026-09-11 (B-6 — 서버가 옮겨 준 분대 이동은 도킹 컷씬 한 번, 에이전트 ②)** — 같이 하기 · 초대 수락으로 릴레이가
-  나를 다른 로비로 옮기면 `lobby:left {reason:'moved', to}` 뒤에 곧바로 새 `lobby:state` 가 온다(배가 없던 사람은
-  `lobby:state` 만 — 개인 함선에서의 기존 도킹 경로 그대로). `parts/Transitions.onLobbyLeft(sys, reason, to)` 가 `moved` 면
-  분리 컷씬 없이 `HubSystem.pendingMove` 만 적고, `onLobbyUpdated` 가 그 로비를 받으면 `startTransition('dock')`(시작된
-  로비면 `swapDirect`) — 공유 함선 A → B 가 **도킹 컷씬 한 번**이다(사용자 결정). `HubSystem` 은 `net:lobbyLeft` 의
-  `reason` · `to` 를 넘기기만 한다.
-  **실측한 경쟁(수정 전)**: 공유 함선에서 `lobby:left`(사유 없음) → `lobby:state(B)` 를 연달아 먹이면 분리 컷씬이 시작되고
-  새 로비는 `phase === 'docking'` 이라 무시돼, 3 초 뒤 **로비 B 에 있는데 개인 함선**에 멈췄다(12 초 관찰, 도킹 없음).
-  이제 분리 컷씬 도중 온 새 로비는 컷씬을 도킹으로 뒤집는다 — 옛 릴레이에서도 결국 공유 함선 B 에 선다.
-  `moved` 뒤 `lobby:state` 가 `MOVE_WAIT_MS`(4 s) 안에 오지 않으면 평범한 떠남(분리)으로 처리한다.
-  검사: `scripts/smoke-controls-hub.mjs` 3c (moved → `start:dock` 하나 · 도착 · 옛 흐름 `start:undock,start:dock` → 공유 함선 · 폴백 분리).
-
-- **2026-09-11 (C-59 — 터미널이 닫혀 있어도 거절 사유가 사라지지 않는다, 에이전트 ④)** — `ui/HubMenu.showMsg(text, kind, toast = true)`
-  는 터미널이 닫혀 있으면 아무것도 안 했다 → 서버 콘솔 `kick` · `max`(`server_full`) · 다른 창(`duplicate`)의 한국어 문구가
-  `net:error` 로만 와서 사라졌다. 이제 닫혀 있고 **함선 안(phase `hub`)이면 `ui:notify` 토스트로** 넘긴다. 같은 순간 다른 폴더가 이미
-  토스트를 내는 줄은 `toast:false` — `net:lobbyLeft` 셋(hostLeft = ui/Notifications · kicked = 이어지는 `net:error` 가 진짜 사유 ·
-  disconnected = ui/hud/NetBadge), `net:matched` · `net:peerJoined` · `net:peerLeft`, 초대 링크 복사. 레이드 · 타이틀에서는 닫힌 터미널이
-  그대로 조용하다(레이드 문구는 game/ 소유). `errorText` 에 `kicked` · `server_full`(서버 문구 우선). 검사: `scripts/smoke-netlink.mjs` 7절.
-
-- **2026-09-11** — `interiors/LightPool.ts` 의 구현을 `@/shared` (`lightPool.ts`) 로 옮겼다. 행성 구조물이 같은 풀을 쓴다. 이 파일은 다시 내보내기만 하므로 함선 코드의 import 는 그대로다.
-- **2026-09-10 (멀티 렉: 광원 풀 · 도착 함선 선빌드 · 셰이더 hold)** — 공유 함선에 합류하면 도착 직후 0.4 / 0.8 /
-  0.4초씩 끊겼다. 원인은 셰이더 컴파일 둘이었다: ① 장면마다 점광원 개수가 달라(개인 27 · 컷씬 15 · 공유 29)
-  이미 컴파일한 프로그램을 못 썼고, ② 도착한 함선의 머티리얼이 **보이는 순간** 하나씩 컴파일됐다.
-  - `interiors/LightPool` 신규 — 광원 **자리**는 그대로(`PersonalShip` 10 + 방, `SharedShip` 6 + `Hangar` 9)이고
-    진짜 광원 `HUB_POINT_LIGHTS`(8) 개가 가까운 자리를 따라다닌다. 방 조명 풀(2026-09-06)의 규칙을 함선 전체로
-    넓힌 것이다. 공유 함선은 데크/격납고 `zone` 가중치 — 격납고에서 6 개로 해 보니 안쪽 벽과 게이트가 어두워서
-    8 로 올리고 구역 가중치를 넣었다 (스크린샷 전후 비교: 복도 · 데크 · 격납고 동일, 격납고 맨 안쪽 오른쪽 벽만
-    약간 어둡다). `parts.fixture()` 삭제.
-  - `parts/Transitions.prebuildTarget` — 도킹 컷씬 0.5초 시점에 도착할 함선을 짓고 `ctx.shaders.warm` 으로
-    백그라운드 컴파일, `finishTransition` 이 그것을 붙인다. 진입 · 교체마다 `holdForScene()`.
-  - 계측 (헤드리스 2대, 50 ms 넘는 프레임): 도킹 시작 240 ms → 없음, 도착 394 + 788 + 401 ms → 없음 (hold 19 ms),
-    타이틀 → 개인 함선 1,649 ms → 131 ms.
-
-- **2026-09-10 (보조무기 제거)** — `ui/WorkbenchMenu` 의 로드아웃 행이 `주무기 I · 주무기 II` 둘이다
-  (보조무기 행 삭제). `SLOT_LABEL` 표에는 이름이 남아 있다 — 타입이 아직 그 칸을 안다.
-
-프로젝트 전체 이력은 [docs/HISTORY.md](../../docs/HISTORY.md) 에 있다.
-
-- **2026-09-09 (목표 행성이 없으면 창밖에 행성도 없다)** — 개인 · 공유 함선 둘 다, 창문 밖의 장식 행성은
-  **목표 행성이 정해져 있을 때만** 보인다. 진실의 원본은 `HubRef.planet`(로비면 `lobbyPlanet`, 아니면 슬롯별 저장
-  pick) 하나이고 게이트는 **`parts/Planet.applyPlanetLook`** 한 곳이다: `getPlanet(sys.planet)` 이 없으면
-  `ShipInterior.setPlanetVisible(false)`, 있으면 `true` + 기존 `setPlanetLook` 재착색. 인테리어 빌드
-  (`parts/Interior.build`) · `lobby:state` 의 행성 변경(`parts/Transitions`) · 워프 도착 `finishTravel` · 워프 취소
-  `cancelTravel` 이 이미 전부 `applyPlanetLook` 을 부르므로 새 캐릭터(저장된 pick 없음) · 호스트가 아직 고르지
-  않은 로비 · 지워진 목표 모두 별만 보인다. **워프 페이드와 싸우지 않는다**: `interiors/Starfield.Planet` 이
-  `group.visible` 을 혼자 소유하고 `setShown(on)`(목표 존재) **AND** `opacity > HIDE_BELOW`(워프 페이드) 로 계산한다 —
-  `WarpStreaks.ViewportWarp` 는 더 이상 `group.visible` 을 직접 쓰지 않고 `setOpacity` 만 부르며, 목적지 색을
-  입히는 순간(`k ≥ 0.98` 또는 감속 시작)에 `setShown(true)` 를 열어 **첫 목표를 고른 함선**에서 새 행성이 감속
-  구간에 페이드인으로 나타난다(워프 시작 때 기본색 구가 튀어나오지 않는다). `ShipInterior.setPlanetVisible?(on)`
-  은 `setPlanetLook` 처럼 선택 사항이고 `PersonalShip` · `SharedShip` 이 `planet.setShown` 으로 구현한다.
-  터미널 홀로그램(`ui/PlanetHologram`)은 `setShown` 을 부르지 않으므로(기본 true) 전과 같다. `Planet.isShown`
-  게터(디버그). `npm run typecheck` 통과; 스모크는 리드가 돈다 (`scripts/smoke-planets.mjs` 의 목표 미지정 구간에
-  `HubPlanet` 그룹의 `visible === false` 확인을 더할 자리).
-
-- **2026-09-09 (함선 안에서 분대장 넘기기)** — 공용 함선에서 다른 분대원에게 다가가면 `분대장 넘기기`
-  상호작용이 뜬다 (`parts/Crew.updateLeaderHandoff`, `HubSystem.leaderHandoffs`, `LEADER_DEVICE_RANGE`).
-  **내가 호스트일 때만** 등록되고, `RemotePlayerRef.hubSite` 가 우리 `hubSite` 와 같은 사람만 대상이다 —
-  격납고에서 남의 개인 함선을 구경 중인 사람은 애초에 보이지도 않으니 말을 걸 수도 없어야 한다.
-  원격 아바타는 `player/RemotePlayerSystem` 소유라 **위치만 읽어** 우리 쪽 `Vector3` 에 복사한다.
-  상호작용이 하는 일은 `leader:transferRequested {peerId}` 한 줄뿐이다 — 커뮤니티 창의 우클릭과 **같은 입구**이고,
-  실제 이관은 net → 서버 → `lobby:state` 가 확정한다. 인테리어를 걷을 때(`parts/Interior.disposeInterior`) 함께 지운다.
-
-- **2026-09-09 (터미널에서 타이틀로 · 키 가이드 제거)** — 전체화면 터미널의 오른쪽 아래에 있던 것 둘을 지웠다.
-  - **`타이틀로` 버튼.** 행성을 고르러 여는 화면의 구석에 "전부 버리고 나가기" 를 한 번의 클릭으로 두는 것은
-    지름길이 아니라 함정이다. 같은 기능이 일시정지 메뉴(ESC)에 **경고 팝업 + `UI_HOLD_CONFIRM_S` 홀드** 뒤로 이미
-    있다. 부르는 곳이 하나도 남지 않아 `HubMenuHost.toTitle` · `HubSystem.toTitle` · `parts/Transitions.toTitle`
-    까지 같이 지웠다(`ctx.net.leaveLobby` → `teardown('menu')` → `setPhase('menu')` 는 `ui/menus/PauseMenu.toTitle`
-    이 `game:abort` 로 하는 것과 같은 일이라 잃는 경로가 없다).
-  - **우측 하단 키 가이드**(`ui:keyGuide`, owner `'terminal'`). 눈에 보이는 `닫기 (E)` 버튼과 화면 안의 `◀ ▶`
-    화살표가 이미 있는 전체화면에서 한 줄 키 안내는 소음이었다. `guideKeys()` · `emitGuide()` · 열 때의 emit ·
-    닫을 때의 `keys:null` 을 전부 지웠으므로 owner `'terminal'` 은 이제 어디에서도 나오지 않는다(가이드 스택에
-    남을 항목 자체가 없다). **화살표 행성 넘김은 그대로 동작한다** — `onKeyDown` 은 손대지 않았다.
-    `ui/hud/KeyGuide` 와 다른 owner(housing · inventory · map · community · workbench · pod.loadout)는 무변경.
-
-- **2026-09-09 (키 가이드 · Tab 닫기)** — 결정 2026-09-09: Tab 이 모든 화면 · 모드의 공용 닫기 키다. 터미널 · 정비 벤치 ·
-  시설 관리 · 분대원 장비 팝업이 `ui:keyGuide` owner 를 내고 Tab 으로 닫힌다 (`HubSystem.update` 가 `InventorySystem` 보다
-  먼저 돌아 `consume(Keys.INVENTORY)` 가 통한다). 포드 하차는 Tab 에 두지 않았다 — 탑승 중 Tab 은 가방이다 (Phase 10
-  `onlyReadyBlocked`). 우측 하단 한 줄 가이드 자체는 `ui/hud/KeyGuide` 가 그리고 `Tab 닫기` 를 맨 오른쪽에 스스로 붙인다.
-
-- **2026-09-09 (창문 워프 — 행성 이동이 컷씬에서 내려왔다)** — 결정 2026-09-09: 행성 이동은 카메라를 뺏는 4.5초
-  컷씬이 아니라 **함선 안에서 창밖으로 보는 6초 워프**다. 플레이어는 그동안 걸어 다닌다.
-  `parts/Planet.startTravel` 은 `DockingCutscene` 을 만들지 않고 `HubSystem.warp`(`model.WarpState`)를 켠다;
-  `tickTravel`(매 프레임, `tickCountdown` 뒤) 이 `speed` = smoothstep 램프(`HUB_WARP_RAMP_S` 1.6초 위 · 중간 1 ·
-  마지막 1.6초 아래)를 계산해 `interior.setWarp(speed, dest)` · `hub:warpProgress {planet, t, speed}` ·
-  `camera:shake`(`HUB_WARP_SHAKE_INTERVAL_S` 0.18초마다 `HUB_WARP_SHAKE_PEAK` 0.28 × speed — 약하게 시작해 중간에
-  가장 세고 도착 즈음 다시 약해진다) 를 낸다. `setCameraOverride` · `setControlsEnabled(false)` 호출 **없음**.
-  `hub:travel start/end` · `hub:planetChanged` · `travelling` 은 전과 똑같이 나가므로 튜토리얼 `travel` 단계 ·
-  `ui/hud/CutsceneWatch` · `HubMenu` 는 손대지 않았다. 토스트는 `<행성> 행성으로 이동합니다`(시작) /
-  `<행성> 궤도 진입 — 발사 슬롯 개방`(도착), 소리는 `hub_dock_thrusters` / `hub_dock_clamp` 그대로 + `audio/` 의
-  새 워프 드라이브 험(`hub:warpProgress.speed` 추종). **창밖**: `interiors/types.ShipInterior.setWarp?(speed, dest)`
-  (+ `WarpDestination`)를 두 함선이 `interiors/WarpStreaks.ViewportWarp` 로 구현한다 — 점 별(`Starfield.setOpacity`
-  신설)은 사라지고 `WarpStreaks` 가 `HUB_TRAVEL_WARP_STRETCH × speed` 로 늘어나며 이동 방향(개인 −Z · 공유 −X,
-  `WarpStreaksOptions.forward`)을 따라 창을 스쳐 지나가고, 창밖 행성은 올라갈 때 사라져 새 색으로 내려올 때
-  다시 나타난다 (`rMin` 26 / 48 m 로 선체 · 격납고를 비켜 간다). `DockingCutscene` 의 `'travel'` 갈래 ·
-  `TravelOptions` · `placeTravel` 은 지웠다 (dock / undock 은 그대로 — 외부 도킹 컷씬은 남긴다는 결정).
-  `cancelTravel` 이 `enter` · `teardown` · `startTransition` · `swapDirect` · `boardShip` · `leaveShip` 의 옛
-  `travelling = false` 자리를 맡는다 — 이벤트 없이 접고 `setWarp(0)` + `applyPlanetLook`. `stationUsable` 이
-  `travelling` 을 직접 본다 (컷씬이 막아 주던 자리). `update()` 는 워프 중 더 이상 일찍 돌아가지 않는다 —
-  자동문 · 방 조명 · 별 드리프트가 계속 돈다 (Phase 11 알려진 한계 해소). 검증: 자체 헤드리스 스모크 38/38,
-  콘솔 에러 0 (개인 함선 진입 → `setPlanet` → 6초 동안 걸어 3 m 이동 · `controlsEnabled` 유지 · 컷씬 객체 없음 ·
-  `speed` 0→1→0 · 흔들림 33회 첫 0.01 / 정점 0.28 / 끝 0.001 · 창밖 별→줄기→별 · 행성 재착색 · `hub:enter` 로
-  중단 시 잔여 이미터 없음). `scripts/smoke-planets.mjs` 84/86 — 실패 2건은 옛 컷씬 전제(`DockingCutscene`
-  객체 + 그 아래 `HubWarpStreaks`, 목적지 구체 1개) 로 스크립트 갱신 대상.
-- **2026-09-09 (발사 슬롯이 조용히 죽던 세 갈래)** — 사용자 보고: 멀티에서 행성을 지정한 뒤 발사 슬롯을 몇 번
-  타고 내렸더니 `발사 슬롯 탑승` 프롬프트는 그대로 뜨는데 E 가 아무 반응이 없다. 자동 재현(릴레이 + 헤드리스
-  크롬 2대, 홀드/체류 시간을 흔들며 60여 회, 격납고 왕복 · 출격 · 복귀 포함)에서는 잡히지 않아, 그 증상이
-  **구조적으로 가능한 경로 셋을 전부 막았다**.
-  ① **`boardPod` 의 무음 반환** — `if (!podCanInteract) return;` 이 유일하게 아무 말도 안 하는 갈래였다.
-  이제 `지금은 발사 슬롯에 탈 수 없습니다` + `ui_deny` 로 답한다 (`REBOARD_GRACE` 창만 예외 — 거기서는 침묵이 옳다).
-  ② **`getLaunchWarnings()` 의 예외** — `player/perform` 이 `interact()` 예외를 콘솔 한 줄로 삼키므로, 점검 중
-  던지면 화면에는 정확히 "E 를 눌러도 아무 일도 없다"로 보였다. try/catch 로 감싸 경고 없음으로 진행한다.
-  ③ **끊긴 소켓에 삼켜진 준비 플래그** — `NetClient.send` 는 소켓이 OPEN 이 아니면 메시지를 **버리고** 아무도
-  반환값을 안 봤다. 그래서 재접속 중에 탑승하면 서버는 우리를 ready 로 모르고, `syncPods` 의 에코 검사가 그
-  낡은 `ready:false` 를 로비 초기화로 읽어 **1.5초마다 포드에서 내보냈다**. 검사에 `net.connected` 조건을 걸고,
-  `net:statusChanged` 에서 `resendReady()` 로 다시 보낸다 (탑승 중에 끊겨 있으면 그 사실을 토스트로 알린다).
-  덤으로 **`REBOARD_GRACE`(0.5초)** — 내리는 E 를 조금 길게 누르면 그 누름이 그대로 새 탑승 홀드가 되어 즉시
-  다시 타지던 것(=`탔다가 내렸다가` 가 저절로 반복되던 것)을 막는다. `consume()` 은 `pressed` 만 지우므로
-  `isDown` 을 읽는 홀드에는 듣지 않아, 포드 쪽에서 잠깐 닫는 것이 유일한 방법이다.
-
-- **2026-09-08 (하우징 모드 취소 = Escape)** — `HousingMode` 가 `Keys.MENU` 를 **먼저 먹고 모드를 빠져나온다**
-  (들고 있는 가구 · 고른 가구가 있으면 C 처럼 그것부터 되돌린다). 전역 규칙은 "Escape = 일시정지"지만 예외가
-  "가장 안쪽이 먼저 먹는다"이고, 하우징 모드는 카메라와 조작을 통째로 가져간 **모드**라 그 위에 일시정지 메뉴가
-  쌓이면 어느 쪽을 닫는 건지 알 수 없었다. `HubSystem` 은 `GameFlowSystem` 보다 먼저 도므로 `input.consume` 이면
-  충분하다. 터미널에서 `자동 매칭은 …` · `임무 시드는 …` 안내 두 줄을 지웠다 (당연한 설명은 화면에 두지 않는다).
-
-- **tactical kit** — terminal is ship-only again (2026-09-06: the 임플란트 / 정비 tabs and their panels are gone — implants / repairs live on the Tab ship screen; frame `overflow: hidden`, no scrollbars) + 캐릭터 button (`ui:statsToggled`), hydroponics `GardenStation.ts`, implant bay interactable → `ctx.inventory.toggleBag()`, station geometry in `interiors/stations.ts`
-
-- **Phase 6** — personal ship rebuilt as **cockpit → corridor → 10 rooms → airlock** (`interiors/RoomLayout.ts` single source of coordinates, `roomAtWorld`, `roomCellToWorld`), `currentRoom` + `hub:roomEntered`, room consoles `hub_room_<i>` → `housing.openRoomMenu`, `hub_facility` → `openFacilityMenu`, `interiors/Furniture.ts` procedural furniture per `FurnitureModelKind` + `FurnitureLayer` (collider blockers, `Lv.n` signs, `hub_furn_<uid>` → `inventory.openBenchCraft` / `housing.openPresetMenu`), `HousingMode.ts` (top-down camera, pointer-locked cursor, ghost, LMB place / R rotate / X recover / wheel select / Esc), terminal seed field removed (`setMissionSeed` console-only), 10 constant lights
-
-- **Phase 5** — `Computer.ts` — ship computer desk (`stations.shipComputer`, both ships) with `Interactable` `hub_computer` `기업 네트워크` → `ctx.meta.openCorpMenu()`, stations locked while the corp screen is open, terminal screen `크레딧 n` line
-
-- **Phase 7** — `sim_hub` furniture model (holo pedestal + spinning rings) → `startTraining()` (solo `game:newMission {mode:'training'}`, lobby `net.startGame(seed, 'training')` by any member, join a running training via `rejoinMission`), shared-ship terminal 시뮬레이션 훈련장 section (시작 / 합류 n명 / 임무 진행 중), pods locked with `훈련 진행 중 — 터미널에서 합류`, return from a training without a docking cutscene
-
-- **Phase 8** — terminal moved to the **cockpit centre** (no 캐릭터 button, one-time 승무원 이름), the cockpit 정비 벤치 and 수경 재배 rack are gone (`furn_repair_bench` / `furn_grow_rack` furniture instead), `interiors/Doors.ts` **자동문** (`DOOR_OPEN_DISTANCE` / `DOOR_SLIDE_SPEED`, no colliders), per-room strip materials + a constant `ROOM_LIGHT_POOL` that re-anchors to non-empty rooms (empty rooms stay dark), **M** → `ctx.housing.openShipManage()`, housing mode runs **unlocked** in 함선 관리 (blocker `shipmanage`, camera-ray floor cursor, `#ui-root` clicks swallowed, **C** cancels), Esc no longer opens the terminal and consumes itself
-
-- **Phase 8 UI pass** — the room door consoles (`hub_room_<i>`) and the cockpit 함선 시설 console (`hub_facility`) are removed, geometry included, `HousingMode` releases its `shipmanage` blocker on **every** exit path (the Esc bug: camera back but no controls / no hint) and **C** with an empty cursor leaves the mode like Esc
-
-- **Phase 9** — `bookshelf` furniture model (shelves + one spine per shelved book, colour by rarity, rebuilt on `housing:booksChanged`) and the `onBookshelf` callback → `ctx.housing.openBookshelfMenu(uid)`
-
-- **Phase 9 UI/UX 개선** — `net:resumed` 는 훈련장을 임무로 보고하지 않는다 (재접속 시 `분대가 임무 중` 대신 터미널 합류 안내). **Phase 9 UI pass**: 조종석 정리 — the console-pedestal terminal is gone (the dashboard's centre monitor **is** `terminal.screen`; 항법 / 통신 readouts dropped), the **함선 컴퓨터** moved from the +X wall (pod-prompt clash) to the port rear wall replacing the lockers that overlapped the bunk, the stash cabinet moved starboard, door frames stand clear of the wall slab and `Parts.walls` splits the waist-high wainscot band around every doorway; `HousingMode` **glides** the camera between rooms (`glideCamera`, `update(dt)`)
-
-- **Phase 10** — **발사 준비 패널** (`ui/ReadyPanel.ts` — four horizontal cells shown as soon as a launch slot fills, each drawing that member's character from one `ctx.player.createPortraits` canvas through four viewports at `HUB_READY_PORTRAIT_YAW`; an un-ready member's cell draws no character; name + `Lv. n` top-left, equipped implant on the right; right-click → `ui/CrewLoadoutPanel.ts`, a hub-owned modeless frame hosting `inventory.createCrewLoadoutView` — `HUB_READY_BLOCKER` + cursor mode, and the Esc / E un-board paths plus `onPointerLockChange` now ignore that one token), **crew-card sending** (`crew card` to `others` on `hub:entered` in the shared ship and on level / implant / armor / loadout changes, debounced by `CREW_CARD_MIN_INTERVAL_S`; `crewq sync` on arrival; `crewq loadout` answered with `crew loadout` per `CREW_LOADOUT_COOLDOWN_S`), and the **housing camera fix** — rooms 6–10 no longer flip (the `rb.side` factor is gone from both `camGoal` and the locked-cursor mapping, so every room reads with its door at the top)
-
-- **Phase 11 (2026-09-07)** — the terminal is **full-screen** (`.fullscreen` · 좌 매치메이킹 / 중앙 행성 카드 / 우 훈련장 + 닫기 (Esc), 승무원 이름 섹션 삭제 — 호출명은 타이틀 화면 전용, `hub:terminalToggled`), `ui/PlanetHologram.ts` (자체 `WebGLRenderer` · `Starfield.Planet` 재사용 + 절차적 와이어 케이지 · 링 · 스캔라인, `PLANET_SWAP_TIME` 크로스 슬라이드, 닫히면 렌더 정지), `HubRef.planet / setPlanet / travelling` (로비면 `net.lobbyPlanet`, 솔로면 `PLANET_STORAGE_KEY`; 호스트 전용), `startTravel` → `DockingCutscene` `'travel'` + `interiors/WarpStreaks.ts` (**내부를 재생성하지 않는다** — 창밖만 바뀐다) → `hub:travel` / `hub:planetChanged`, 비호스트는 `net:lobbyUpdated` 로 미러, 발사 슬롯은 `podBlockReason` 으로 `목표 행성 미지정 — 터미널에서 지정` (`canInteract:false` 로 막으면 `findBest` 가 프롬프트 자체를 숨긴다), `launch()` 가 행성을 실어 보낸다
-
-- **2026-09-07 UI/UX pass** — `hub_computer` 의 `E` 는 여전히 `ctx.meta.openCorpMenu()` 지만 그 화면은 이제 Tab 창의 기업 탭이라 `'corp'` blocker 가 없고, 기업 화면이 떠 있는 동안 hub 는 **Escape 를 건드리지 않는다** (`corpWasOpen` 한 프레임 스왈로우 삭제)
-
-- **2026-09-07 (안정화)** — 복도 징두리 트림을 **문마다 끊어서** 그린다(허리 높이 노란 선이 방 문을 가로지르던 문제), `HousingMode` 의 커서가 방 밖을 가리키면 셀 프레임 · 고스트 · 설치/회수를 모두 끈다(`cursorInRoom`), `onResumed` 가 진행 중인 **레이드에 자동 재투입**한다(`rejoinMission()`)
-
-- **2026-09-08 (UI/UX)** — **출격 준비 경고** (`ui/LaunchWarnPanel.ts`): 발사 슬롯에 타기 직전 주무기 · 탄약(구경별 한 세트) · 가방 · 방탄복 · 전술 임플란트 · 회복 아이템을 훑어 걸리는 것을 **전부** 보여주고 확인을 받는다. 판정은 `ctx.inventory.getLaunchWarnings()`(inventory 소유)가 하고 여기서는 그리기만 한다. 경고일 뿐 탑승을 막지 않으며, 한 번 넘긴 조합은 `HubSystem.launchWarnAck` 에 남아 다시 묻지 않는다
-
-- **2026-09-08 (튜토리얼 게이트)** — `parts/Pods.podBlockReason`(탑승) · `parts/Interior`(터미널 `canInteract`) ·
-  `parts/Planet.travelBlockReason`(행성)이 `ctx.tutorial?.blockReason()` 을 본다. `travelBlockReason` 은 이제
-  **행성 인자를 선택적으로** 받는다 (`travelBlockReason(planet?)`) — 튜토리얼이 첫 번째 행성만 허용하므로
-  어느 행성인지 알아야 한다. `ui/HubMenu` 는 미리보기 중인 행성을 넘기고(`travelBlock(d.id)`),
-  `ctx.tutorial.hides('matchmaking')` 이면 **신호 · 공유 함선 섹션을 통째로 감춘다**
-
-- **2026-09-08 (ESC = 항상 일시정지)** — 허브는 Escape 를 아예 읽지 않는다. E 가 정비 벤치 → 터미널 → 분대원 장비 popup → 포드 하차를 한 단계씩 되짚고(출격 준비 경고도 E 로 취소), 함선 관리는 M 으로 나간다. Escape 는 `game/` 으로 흘러가 일시정지 메뉴가 그 위에 쌓인다
-
-- **2026-09-08 (커서 · 튜토리얼 숨김)** — `parts/Transitions.enter` 가 `hub:entered` 직후 부르던
-  `ctx.input.requestPointerLock()` 을 **`sys.relock()`** 으로 바꿨다: 그 이벤트를 듣고 방금 커서를 잡은 화면
-  (튜토리얼 시작 카드)에서 마우스를 도로 빼앗아 **카드를 클릭할 수 없었다**. `relock` 은 blocker 가 있으면
-  요청하지 않는다 (`Input` 쪽에도 같은 가드가 생겼다 — `src/shared/README.md`).
-  `ui/HubMenu`: `ctx.tutorial.hides('planet')` 이면 행성 **넘김 화살표 · 점을 감추고** 첫 번째 행성을 보여 준
-  채로 연다 (`step()` 도 막는다). `tutorial:changed` 로 다시 그린다
-
-- **2026-09-08 (공용 함선 격납고)** — 공유 함선 **뒤쪽 벽 한가운데가 4 m 자동문**이고 그 너머가 44 × 30 m
-  **격납고**다. 격납고는 별도 인테리어가 **아니다** — `interiors/Hangar.ts` 가 `SharedShip` 의 같은 `GeoBatch` 와
-  같은 `BoxInteriorCollider` 에 지어지므로 드로우콜이 늘지 않고, 바닥이 함선 방과 맞닿아 출입구가 **열린 공유
-  모서리**가 된다(원격 아바타가 그대로 걸어 나온다). 바닥에는 로비 슬롯마다 슬롯 색 정박 구역이 네모로 그려져
-  있고, 참여한 대원의 **개인 함선**이 착륙 다리를 펴고 한 대씩 서 있다.
-
-  함선 **뒷문(램프)** 앞에서 E → 그 사람의 개인 함선 안으로 들어간다. 컷씬도 없고 **로비도 그대로다**:
-  `parts/Transitions.boardShip` 이 인테리어만 `PersonalShip` 으로 갈아 끼우고(`swapDirect` 와 같은 모양),
-  `sys.visit` 가 "지금 어느 함선 안인가"를 들고 있다. 나오는 길은 에어락의 `hub_hangar_exit` — 들어간 그 구역
-  앞에 다시 선다(`build(..., fromBay)`).
-
-  - **남의 함선은 둘러보기 전용.** `stationUsable()` 이 `visitReadOnly` 면 false 를 돌려주고, 방문 중에는
-    **터미널 · 함선 컴퓨터 · 정비대 · 임플란트 시술대를 아예 만들지 않으며**(쓸 수 없는 상호작용이 레지스트리에
-    남아 `findBest` 와 프롬프트를 다투는 것도 막는다), 가구는 그려지되 E 에 답하지 않고, 시설 관리(M)는
-    한국어 사유와 함께 거절된다. 발사 포드도 없다 — 분대는 공유 함선에서 출격한다.
-  - **남의 함선을 그리려면 그 사람의 배치가 필요하다.** 어떤 메시지도 그걸 나르지 않아서 `ship state`
-    (`ShipVisitWire`: 방 용도 · 시설 레벨 · 배치 가구 · 꽂힌 책)를 새로 만들었고, 동작은 크루 카드와 **똑같다** —
-    공유 함선 도착 시 한 번 뿌리고(+ 나머지에게 `shipq state` 요청), 내 함선이 바뀌면 `SHIP_VISIT_MIN_INTERVAL_S`
-    로 디바운스해 다시 뿌리고, 요청에는 `SHIP_VISIT_COOLDOWN_S` 로 답한다. 창고 · 프리셋 · 도감처럼 **그릴 필요가
-    없는 것은 보내지 않는다**. 렌더링은 `FurnitureLayer` 의 새 `FurnitureSource` 가 받는다.
-  - **같은 함선에 있는 사람만 서로 보인다.** 모든 인테리어가 원점에 지어지므로 서로 다른 함선 안의 두 사람은
-    좌표가 겹친다. `HubRef.hubSite`(공유 데크 = null, 그 외 = 함선 주인의 PeerId)가 `PlayerSnapshot.hs` 로 나가고,
-    `player/RemoteAvatar` 가 값이 다른 아바타를 숨긴다. 같은 함선을 구경 중인 둘은 서로 보인다.
-  - 검증: `scripts/smoke-hangar.mjs` (클라이언트 2대, 55개). `npm run verify` 의 hub · net · housing · player
-    매핑에 들어 있다.
-
-- **2026-09-08 (격납고 리뷰 수정 5건)** — `/code-review` 가 잡은 것들. 첫 번째는 **기능 자체가 죽어 있었다**.
-  - **격납고에 걸어 들어갈 수 없었다.** `Hangar` 의 walkable room 이 벽 **바깥쪽 면**(`ROOM.maxZ + WALL` = 7.35)에서
-    시작해 함선 방(z ≤ 7.0)과 0.35 m 떨어져 있었다. `BoxInteriorCollider.resolveCollision` 은 두 방이 **공유하는**
-    모서리만 넘게 해 주므로, 문 앞에서 `z = ROOM.maxZ − radius = 6.55` 에 영원히 붙잡혔다. 이 폴더의 다른 인테리어는
-    전부 **정확히 맞닿게** 짓는다(`COCKPIT.maxZ === CORRIDOR.minZ`, 방은 복도 면까지 뻗는다) — 격납고 room 과 바닥이
-    `ship.deckZ` 까지 닿도록 고쳤다(벽 슬래브의 blocker 가 문간 말고는 그 띠를 여전히 다 막는다).
-    스모크가 놓친 이유: 전부 `teleport()` 로 위치를 옮겼고 "열린 모서리" 단언도 이미 7.35 에 선 원이 안 밀린다는
-    것만 봤다 — **blocker 가 없다는 증명이지 union 이 이어졌다는 증명이 아니다.** 이제 0.1 m 씩 `resolveCollision`
-    을 통과해 **걸어서** 들어가고 나오고, 문 옆으로는 벽에 막히는 것까지 본다.
-  - **`announceShip` 이 베이를 드나들 때마다 분대에 재방송을 시켰다.** `hub:entered {ship:'shared'}` 는
-    `leaveShip` 에서도 나오므로, 함선을 한 번 들락거릴 때마다 분대원 셋이 각자 수 kB 를 다시 보냈다. 게다가
-    `shipAnsweredAt.clear()` 가 그 홍수를 막으라고 있는 쿨다운을 매번 지웠다. **없는 것만** 요청하고, 우리 문서를
-    아무도 못 받았을 때만 방송하게 바꿨다(쿨다운은 이제 지우지 않는다 — 크루 카드에서 베껴 온 습관이었다).
-  - **셀 좌표를 0…63 으로 클램프하고 있었다.** 방 격자는 8 × 8 이고 `roomCellToWorld` 는 외삽하므로, 이상한 문서
-    하나가 방문자 함선 **어디에나** 메시와 **단단한 콜라이더**를 놓을 수 있었다 — 방문의 유일한 출구인 에어락
-    위에도. `ROOM_GRID_COLS/ROWS − 1` 로 조인다.
-  - **64 kB 를 넘는 `ship state` 는 릴레이가 조용히 버린다**(에러 프레임도 없다). 보내는 쪽에서 이미 디바운스를
-    올려 놓은 뒤라 영영 재전송되지 않고, 그 정박 구역 방문자는 계속 `함선 정보를 받지 못했습니다` 를 본다.
-    `SHIP_VISIT_MAX_FURNITURE` 를 `shared/constants.ts` 로 올려 **보내는 쪽과 받는 쪽이 같은 수**를 쓴다.
-  - 방문 입장 위치가 출구 상호작용 반경(2.6 m)보다 **가까워서**(1.9 m) 들어서자마자 `격납고로 나가기` 가 떠 있었다.
-    3.0 m 로 들어가고 반경은 2.2 m.
-
-### 2026-09-09 — ESC 닫기 (hub/ 쪽)
-
-- **`HousingMode`**: `Keys.MENU` 폴링을 걷어내고 `enterManage()` 에서 `ctx.escape.push(MANAGE_BLOCKER, …)` 로
-  올린다 (닫기 동작은 예전 폴링과 같다 — 들고 있는 가구 · 골라 둔 선택을 먼저 되돌리고, 빈 커서일 때만 모드를
-  나간다). 되돌리기만 한 경우는 닫기 함수가 **`false`** 를 돌려줘 항목을 스택에 남긴다 — 그러지 않으면 다음
-  ESC 가 아직 살아 있는 모드 위로 일시정지 메뉴를 띄운다. 잠금을 유지하는 **평상시 하우징 모드**(관리 모드가
-  아닌 쪽)는 그대로 `HubSystem.onPointerLockChange` 가 락 상실로 빠져나간다 — 거기서는 Escape 가 keydown 이
-  되지 않으므로 스택에 올릴 것도 없다.
-  폴링을 남겨 두면 `HubSystem`(등록 89)이 `GameFlowSystem`(105)보다 먼저 돌아 **위에 떠 있는 패널보다 모드가
-  먼저 닫혔다**. C · M · Tab 은 그대로. 순서는 `shared/escape`, 정책은 `game/parts/Phases.escapeKey`.
-- **`ui/HubMenu`(터미널) · `ui/WorkbenchMenu` · `ui/LaunchWarnPanel`**: 세 화면이 `'hub'` blocker 토큰을 나눠 쓰므로
-  닫기 스택에는 각자 자기 key 를 쓴다 — `'hub:terminal'` · `'hub:workbench'` · `'hub:launchWarn'`.
-- **`ui/CrewLoadoutPanel`**: 자기 blocker 가 없는 팝업(아래 포드 패널이 들고 있다)이라 `'hub:crewLoadout'` key 로
-  올린다. 포드 패널보다 나중에 열리므로 ESC 한 번은 이 팝업만 닫는다.
-
-### 2026-09-12 — 조종석 가구 공간 · 격자는 시설 관리에서만 · 꾹 눌러 옮기기 · 외곽선 · 터미널 훈련장 (사용자 결정)
-
-- **조종석이 꾸미는 공간이다.** `interiors/RoomLayout` 의 `COCKPIT` 은 이제 계약 격자(`COCKPIT_GRID_COLS/ROWS × HOUSING_CELL_SIZE`
-  = 10 × 6 m)에서 유도하고, `COCKPIT_ROOM_BOX`(방 번호 `COCKPIT_ROOM_INDEX`)가 `roomBox` · `roomCellToWorld` ·
-  `worldToRoomCell` 에 들어간다. `ROOM_BOXES` 에는 조종석이 없다(방 표지 · 방 조명 · `roomAtWorld`/`hub:roomEntered` 는 그대로) —
-  조종석까지 보는 질의는 `editAreaAtWorld`. `ShipInterior.cockpit?: EditAreaDef` (`RoomDef extends EditAreaDef`),
-  그룹 이름 `cockpit-furniture`.
-- **붙박이 임플란트 시술대 · 함선 컴퓨터가 개인 함선에서 빠졌다** — 공용 시설 가구 `furn_implant_bay` · `furn_corp_computer`
-  (모델 `implant_bay` · `corp_computer`)이고 housing 이 `COCKPIT_DEFAULT_FURNITURE` 자리에 놓아 준다. 모델은 `stations.ts` 에서
-  떼어 낸 몸체 함수(`implantBayBody` · `shipComputerBody`, 모니터 자리는 순수 함수 `computerScreenPose`)를 그대로 쓰고 공유 함선의
-  붙박이도 같은 함수를 부른다. `ShipInterior.computer` · `ShipStations.implantBay` 는 optional(공유 함선만). 가구 층은 두 가구를
-  **옛 상호작용 id 그대로** 등록한다(`hub_computer` 반경 2.2 `기업 네트워크` · `hub_implant_bay` 반경 2.3 `전술 임플란트 장착`, 앵커는
-  가구 앞 0.6 m) — 튜토리얼 · 스모크 · 게임 코드 어디도 바뀔 필요가 없다. 컴퓨터의 글자판 `TextPlane` 은 조각 그룹의 자식이고 조각과 함께 버린다.
-- **조종석 격자의 구멍** = `shared/housing` 의 `COCKPIT_BLOCKED_RECTS`(계기판 + 앞 띠 · 좌석과 복도 아치까지의 통로 · 사물함 · 발사 포드와
-  탑승 동선 + 창고 · 침상). 격자선은 막힌 칸 사이에는 긋지 않는다. 기본 자리: 시술대 `(0, 3) yaw 1`(좌현 앞, 앞이 +X), 컴퓨터
-  `(2, 9) yaw 0`(뒷벽 좌현, 모니터가 −Z). 조종석 소품을 옮기면 그 표를 같이 고친다.
-- **격자선은 시설 관리 중에만** (방 · 조종석 전부): `PersonalShip.gridGroup` 이 자기 `GeoBatch` 로 지어지고 `setGridVisible` 로
-  `visible` 만 바꾼다(`HousingMode.activate` 켬 · `deactivate` 끔, 디버그 `gridVisible`). 머티리얼은 `M.grid` — 맵 없는
-  `MeshStandardMaterial` 이라 이미 화면에 있는 갑판과 프로그램 키가 같아 처음 보일 때 컴파일이 없다. 광원 없음.
-- **은퇴 상호작용**: `FurnitureCallbacks.onRangeConsole` · `onSimHub` 제거(관물대 · 시뮬레이션 허브 은퇴, 프리셋 기능 제거). 새 콜백
-  `onImplantBay` · `onCorpComputer`. `RETIRED_INTERACTIONS`(`range_console` · `sim_hub` · `repair_bench`)는 그려도 E 가 없고, 모르는
-  상호작용은 더 이상 `onRangeConsole` 로 흘러가지 않는다.
-- **터미널 훈련장** (`ui/HubMenu`): 시뮬레이션 훈련장 섹션이 개인 함선(솔로 포함)에도 늘 보인다 — 솔로는 `시작` 이 늘 켜져 있고
-  `host.startTraining()` 이 네트 없이 연다. 로비 상태(합류 n명 · 임무 진행 중)는 예전 그대로.
-- **`HousingMode` (시설 관리)**:
-  - 방 · 조종석 공통 — `roomBox` · `roomGridSize` 로 커서 레이 · 발자국 클램프, 카메라 틀은 `camSpan(rb)`(방 8 m 그대로, 조종석 10 m).
-  - **외곽선**: 커서 밑 조각(위치 이동 상태 · UI 위 · 방 밖이 아닐 때) → `ctx.outline.set('hover', …)`, 선택한 uid →
-    `set('selected', …)`. 위치 이동 중에는 둘 다 끈다. 대상 오브젝트는 `FurnitureLayer.objectOf(uid)` 이고 방이 다시 지어지면
-    참조가 바뀌므로 매 프레임 참조를 비교해 바뀔 때만 다시 넣는다. 모드를 나가거나 함선이 바뀌면 `clear()`.
-  - **꾹 눌러 옮기기**: 조각을 LMB 로 누르면 선택되고(예전 그대로), 같은 조각 위에서 `HOUSING_MOVE_HOLD_S`(0.5 s) 동안 누르고 있으면
-    `beginMove` — 떼거나 · 커서가 조각을 벗어나거나 · UI 위로 가면 취소. 진행은 `housing:moveHold {progress}`(0 … 1)로 매 프레임,
-    끝 · 취소 · 완료에 `{progress:null}` — 짧은 클릭에 게이지가 깜빡이지 않게 `HOLD_GAUGE_MIN_PROGRESS`(0.15)부터 낸다. 누름은
-    **진짜 `pointerdown`** 만 무장하고 `pointerup` / `mouseup` / `blur` 가 푼다 — 맨 `mousedown` 만 흉내 내는 헤드리스 스모크의
-    클릭은 예전처럼 선택으로 끝난다. 놓기는 여전히 **누르는 순간** 판정이라 게이지를 채운 뒤 손을 떼도 놓이지 않는다.
-  - **키 가이드**: 선택만 된 상태의 한 줄이 `E 또는 LMB(꾹) 위치 이동` — `KeyGuideEntry.alt` 로 보낸다(그리는 것은 ui/KeyGuide).
-- **방문 문서** (`src/net/model.sanitizeShipVisit`): 조종석 가구(`COCKPIT_ROOM_INDEX`)를 받고 칸 클램프를 `roomGridSize` 로 한다.
-  방 수 8 은 `SHIP_ROOM_COUNT` 를 그대로 따라온다.
-- 스모크(정적 수정): `smoke-ship-rooms`(방 그룹 8 · `cockpit-furniture` · 격자 숨김 · 컴퓨터 주석), `smoke-training`(개인 함선
-  터미널의 `시작` 으로 입장 — 가구로 훈련장에 들어가는 길은 없다), `smoke-hangar`(방문 함선의 조각 수는 조종석 가구 포함 → 총기 작업대 존재로 본다).
-
-### 2026-09-13 — 요리 미니게임: 자동 조리 가구 모델 · 조리대 배선 · 조리 연출
-
-- **자동 조리 가구 4종의 절차 모델** (`interiors/FurnitureKitchen.ts` `KITCHEN_APPLIANCE_BUILDERS`) — 리드가 넣어 둔 임시 상자 몸체와
-  그 주석을 지웠다. 푸드 프로세서(맑은 유리 볼 + S자 칼날 + 모터 받침) · 자동 그릴(쇠살 사이로 달아오른 열선 + 철판 + 열린 후드) ·
-  자동 교반기(스탠드 + 팔 + 냄비 속 날개) · 계량 디스펜서(벽걸이 탱크 4색 + 노즐 + 눈금 비커). 공용 주방 캐비닛의 표시등이 `level` 개
-  켜진다. **점광원 0** — 열선 · 링 · 표시등 · 액체는 전부 emissive 재질이다.
-- **조리대 도구 rig**: `bench_cook` 빌더에서 냄비 · 도마를 걷어내고 `cookBenchTools` 가 **움직이는 하위 그룹**으로 다시 세운다 —
-  도마(+칼) · 냄비(+국자) · 웍 · 그릴 팬 · 계량 비커(+액체). 쉬는 자리는 화구 링 셋(냄비 뒤 왼쪽 · 웍 뒤 오른쪽 · 그릴 팬 앞 왼쪽) ·
-  작업 자리 바로 뒤(도마) · 재료 상자 뒤(비커)이고, 조리 중에는 지금 단계 게임의 도구가 **작업 자리**(player 오른손 작업점 밑 —
-  상판 앞 가장자리 안쪽 0.22 m, x = w·0.15 라 후드 캐노피 밖)로 나오고 도마는 뒤로 비킨다. `BuildExtra.cookGame` 이 조리 중에 방이
-  다시 지어져도 같은 자리에 짓는다. 치수는 player `SoldierModel.FURN_COOK`(edgeZ −0.30 · workZ −0.52 · knifeX 0.10 · chopLift 0.12 ·
-  stirR 0.05)을 `COOK_*` 거울 상수로 옮겨 적었다 — **원본은 player** 이고 바뀌면 같이 고친다.
-- **배선** (`interiors/Furniture.ts` · `parts/Interior.ts`): 조리대(`workbench_cook`)의 E 는 더 이상 `onBench` → `openBenchCraft('cook')` 로
-  가지 않는다 — 새 콜백 `FurnitureCallbacks.onCookStation(uid)` → `ctx.housing.openCookStation(uid)`(없으면 토스트 `조리대를 사용할 수
-  없습니다`), 프롬프트 `조리대 · 요리하기`. 자동 조리 가구(`cookGamesOfAppliance(kind)` 가 비어 있지 않은 것)의 E 는 layer 가 찾은 함선의
-  조리대(같은 방 우선 → 레벨 높은 것) uid 로 같은 콜백을 부르고, 조리대가 없으면 `조리대가 없습니다`, 프롬프트 `<이름> · 조리대 열기`.
-  `benchKindOf('workbench_cook')` 는 여전히 `'cook'` 이지만 dispatch 가 그 분기보다 먼저 조리대를 잡는다.
-- **조리 연출** (`interiors/CookStaging.ts`, `GymStaging` 을 본뜸): `housing:cookSession {active:true}` → 조리대 앞 바닥 anchor(앞 가장자리
-  앞 0.30 m, 오른손이 작업 자리 위에 오도록 x 를 0.10 m 옮김) · 조리대를 보는 yaw · **어깨 너머 고정 카메라**(오른 어깨 뒤 위 — 칼 쥔 손을
-  보는 선이 어깨를 넘도록 2.25 m 이상, 방 벽 · 같은 방 가구 · 후드 · 몸에 가리면 감점) → `setFurniturePose({kind:'cook', …})`, false 면
-  `cancelCook()`. `housing:cookStep` → 도구 이동, `housing:cookBeat` → 누적 손 위상 — 썰기 · 다지기 · 볶기는 **입력마다 한 주기**(φ 0 = 칼이 위 →
-  0.5 = 도마 → 1)를 빠르게 돈다(설계안의 「반 주기 튕김」을 player 규약의 한 번 내려쳤다 올라오는 동작으로 읽었다), 젓기는 `stir` 가 오는
-  동안 연속, 굽기 · 붓기는 느린 흔들림. 칼 · 국자 · 웍이 같은 위상을 읽고, 그릴 팬은 뒤집기 · 꺼내기에 들썩이고, 비커 액체는 부는 동안
-  오른다(색 = 그 단계의 `liquid`). `{active:false}` → 자세를 풀고 도구가 제자리로 돌아간다. `player:furniturePoseEnded`(cook, 우리가 푼 것이
-  아니면) → `cancelCook()`. 디버그 `FurnitureLayer.cookStage`, `poseFor(uid)` 가 조리대에도 자세를 돌려준다.
-- `GymStaging` 의 `segmentHits` · `CAMERA_WALL_MARGIN` 을 export 했다(조리대 카메라가 같은 가림 판정을 쓴다). `RemoteFurnitureStaging` 은
-  `cook` 에 돌릴 조각이 없어 조용히 넘어간다(조리대에는 `rig` 가 없다 — 주석만 더했다).
-- 스모크 `smoke-housing`: 주방 카탈로그 11 → **15**(자동 조리 가구 4) · 조리대 / 자동 그릴 프롬프트와 E → `openCookStation(조리대 uid)` ·
-  도구 rig 그룹 8개 · `poseFor` = cook 자세 · 버스로 흘린 세션 / 단계 / 박자에 자세 · 도구 · 위상이 따라오는지 · 끝나면 풀리고 제자리.
-
----
-
-## 변경 이력 — 2026-09-15 2차 (사용자 결정): 정보상 확정 버튼의 좌클릭 키캡
-
-`ui/IntelMenu` 의 `.it-confirm` 안, 라벨 왼쪽에 좌클릭 홀드 키캡(`shared/keycap.createHoldButtonCap`)이 선다.
-- 버튼 라벨 `확정 (1초 꾹)` → **`확정`** — 「1초 꾹」은 이제 캡이 그림으로 말한다.
-- `.it-reason` 은 **차단 사유 전용**이다: 「「확정」을 1초 누르고 있으면 결제합니다」 기본 문구가 빠졌고, 사유가
-  없으면 `hidden`(`intel.css` 에 `[hidden]{display:none}` 한 줄).
-- `ui/ReadyPanel` 의 `Space` 키캡은 코드가 한 줄도 안 바뀌었지만 **모습이 바뀐다** — 공용 `.keycap.kc-hold` 가
-  이제 「눌린 키 + 윗변에 걸친 chevron」이다 (`ui/styles/base.css`).
+- Space look: `core/Atmosphere.setSpaceMode(on)` via `ctx.scene.userData.atmosphere`; the window planet is visible only
+  while a target planet is set.
+- Optional refs (`ctx.housing`, `ctx.inventory`, `ctx.progression`, `ctx.meta`, `ctx.loot`, `ctx.implants`) are
+  duck-typed everywhere and degrade to warning toasts.
+- `hub:workbenchToggled` and `.menu.hub-menu.workbench` CSS are leftovers of the removed repair bench; nothing emits or
+  uses them. `Parts.workbench`, `stations.repairBench`, `ShipStations.bench?` are kept but never called.
+- Join / leave toasts are owned by `ui/hud/Notifications`; this folder shows none.
+- Known limits: a visited ship does not show TV consoles or remote video-game staging; a peer's ready cell shows no
+  level until their crew card arrives; the exterior docking cutscene carries its own bay `PointLight`.
+
+## Recent changes
+
+Last 5 only — older: `git log -- src/hub`.
+- 2026-09-15 — Intel `확정` button: label `확정` + left-click hold keycap (`createHoldButtonCap`); `.it-reason` shows block reasons only.
+- 2026-09-15 — Ready hold `Space` keycap built with `shared/keycap.createKeycap` / `paintKeycap`.
+- 2026-09-15 — Ship management no longer passes the standing room to `openShipManage` (housing remembers the last room).
+- 2026-09-14 — Launch-slot panel sized by content formula, pod keys moved to key guide owner `pod`; launch warning above panel; cook staging never cancels sessions; game staging no screen flash; shared-ship repair bench prop removed.
+- 2026-09-14 — Terminal two columns + matchmaking popup + intel panel / screen / map + hologram lock-on; boarding separated from readiness.

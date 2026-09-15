@@ -17,6 +17,9 @@
  *
  * stub 은 Windows 에 항상 있는 .NET Framework 컴파일러(`csc.exe`)로 굽는다 — 새 빌드 의존성이 없고,
  * `/target:winexe` 라 콘솔이 깜빡이지 않으며, `/win32icon` 으로 게임과 같은 아이콘을 박는다.
+ *
+ * ⚠ `package.json` 의 `build.electronDist = "node_modules/electron/dist"` 를 지우지 않는다 (JSON 이라 거기엔 주석을 못 단다) —
+ * 없으면 electron-builder 의 `win-unpacked.tmp` 이름 바꾸기가 보안 스캐너의 파일 잠금과 부딪혀 `app:dist` 가 `EPERM` 으로 죽는다.
  */
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';

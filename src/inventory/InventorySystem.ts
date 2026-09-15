@@ -39,7 +39,7 @@ import {
 /** 폴더 공용 어휘는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 그대로 재수출한다. */
 export * from './model';
 
-/* 분할된 구현 모듈 — 같은 이름의 위임 메서드가 이 안의 함수를 부른다. 폴더 README 의 `파일 구성` 참고. */
+/* 분할된 구현 모듈 — 같은 이름의 위임 메서드가 이 안의 함수를 부른다. 폴더 README 의 `Files` 참고. */
 import * as Life from './parts/Lifecycle';
 import * as CNet from './parts/ContainerNet';
 import * as Docs from './parts/ProfileDocs';

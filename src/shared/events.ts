@@ -1115,7 +1115,7 @@ export interface KeyGuideKey {
   hold?: boolean;
 }
 
-/* ══ appended: 2026-09-11 — 소셜 · 신뢰 · 연결 (docs/HISTORY.md 「2026-09-11 (16차: 소셜 · 신뢰 경로 · 연결 배치)」) ══ */
+/* ══ appended: 2026-09-11 — 소셜 · 신뢰 · 연결 (커밋 `9bd72ce`(계약) · `b3fc2f0`(구현)) ══ */
 import type { InviteOutcome } from './social';
 import type { NetLinkInfo, NetLinkState } from './net';
 import type { ProfileDocKey } from './profile';

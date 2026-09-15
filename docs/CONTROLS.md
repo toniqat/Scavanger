@@ -1,96 +1,104 @@
-# 키 바인딩 · 입력 계약
+# Key bindings · input contract
 
-[CLAUDE.md](../CLAUDE.md) 에서 분리했다.
-구현: [src/shared/constants.ts](../src/shared/constants.ts) (`Keys`) · [src/shared/Keybinds.ts](../src/shared/Keybinds.ts) ·
+Split out of [CLAUDE.md](../CLAUDE.md).
+Implementation: [src/shared/constants.ts](../src/shared/constants.ts) (`DEFAULT_KEYS`, `Keys`) · [src/shared/Keybinds.ts](../src/shared/Keybinds.ts) ·
 [src/ui/menus/KeybindMenu.ts](../src/ui/menus/KeybindMenu.ts) · [src/ui/menus/ControlsPanel.ts](../src/ui/menus/ControlsPanel.ts)
 
 ---
 
-## 1. 규칙
+## 1. Rules
 
-- 키는 **가변 `Keys` 테이블**에 있다 (`DEFAULT_KEYS` = 공장 초기값, `MouseButtons` 는 `Keys.FIRE / AIM / PING` 에서 파생).
-- `Keybinds.ts` 가 플레이어의 리바인딩을 localStorage `scav.keybinds` 에 저장하고 (`loadKeybinds()` 는 `main.ts` 에서 한 번),
-  액션 목록(`KEY_ACTION_DEFS`: 라벨 · 그룹 · 범위 · 마우스 전용)과 충돌 검사, 표시 이름(`keyLabel`)을 갖는다.
-- **`Keys.X` 는 항상 사용 시점에 읽는다** — 키나 그 라벨을 모듈 상수로 캐시하지 않는다.
-  표시 중인 라벨은 `input:bindingsChanged` 에서 갱신한다.
-- `scav.keybinds` 는 **기본값이 아닌 항목만** 저장한다. 그래서 기존 세이브도 새 기본 레이아웃을 그대로 받는다.
-- 옛 `KEY_IMPLANT` / `KEY_MELEE` / `KEY_THROW_MODE` 기본값 상수는 2026-09-11 에 지웠다 (C-8) — `Keys.X` 만 읽는다.
-- 옛 세이브의 은퇴한 액션 · 새 기본키와의 충돌은 `loadKeybinds()` 가 모아 두고(`takeKeybindLoadReport()`) ui 가 한 번 알린다 (C-9).
-- `MENU`(Esc)는 고정이고 리바인딩할 수 없다. 게임패드는 미지원.
+- Keys live in the **mutable `Keys` table** (`DEFAULT_KEYS` = factory defaults; `MouseButtons` is derived from `Keys.FIRE / AIM / PING`).
+- `Keybinds.ts` saves the player's rebinds to localStorage `scav.keybinds` (`loadKeybinds()` runs once in `main.ts`) and owns the
+  action catalogue (`KEY_ACTION_DEFS`: label · group · scope · mouse-only), conflict checks, and display names (`keyLabel`).
+  Contextual actions follow another binding through `KEY_ALIASES` (`RESPAWN`/`GIVE_UP` → `JUMP`, `CARRY` → `MELEE`, `GRENADE` → `SHIP_CALL`).
+- **Always read `Keys.X` at use time** — never cache a key or its label in a module constant. Displayed labels refresh on
+  `input:bindingsChanged`.
+- `scav.keybinds` stores **only non-default entries**, so existing saves pick up new default layouts.
+- Retired actions in an old save and collisions with new defaults are collected by `loadKeybinds()` (`takeKeybindLoadReport()`)
+  and reported once by ui (`ui/menus/keybindNotice`).
+- `MENU` (Esc) is fixed and cannot be rebound. No gamepad support.
+- Retired bindings kept only as contract (not in `KEY_ACTION_DEFS`, not in settings, read by nobody): `SECONDARY` (Digit3 — the
+  secondary weapon slot was removed), `CURSOR` (Alt — the free-cursor feature was removed), `STIM` (H, now `COMMS`).
+- Key glyphs in UI are drawn only through `shared/keycap` (`paintKeycap` · `createKeycap` · `renderKeyText` with `{ACTION}` /
+  `{ACTION:hold}` tokens); hold keys get the `.kc-hold` chevron.
 
-## 2. 기본 레이아웃
+## 2. Default layout
 
-| 키 | 동작 | 비고 |
+| Key | Action (`Keys.*`) | Notes |
 |---|---|---|
-| `W A S D` | 이동 | |
-| `Shift` | 달리기 | 스태미나 소모 |
-| `C` / `Z` | 앉기 / 엎드리기 | 함선에서는 엎드리기 불가 |
-| **`V`** | **구르기** | 2026-09-07 에 Alt 에서 옮겨 왔다. 함선 · 실내 · 무게 `무거움` 이상에서는 거부 |
-| `1` / `2` | 주무기 I / 주무기 II | 교체 0.4 s. **2026-09-10: 보조무기(3번) 칸이 사라졌다** — `Keys.SECONDARY` 바인딩은 계약으로 남아 있지만 아무 칸도 가리키지 않고 설정 목록에도 없다 |
-| `Q` | **전술 임플란트** | 임플란트마다 즉발 / 홀드 / 손에 들기 — 장착은 Tab 함선 화면 |
-| **`X`** | **어깨 전환** | 2026-09-12. 3인칭 카메라를 오른쪽 ↔ 왼쪽 어깨로 옮긴다 (`CameraRig.shoulderSide`, 전환은 부드럽게 미끄러진다). 왼쪽 엄폐물 뒤에서 쏠 때 쓴다. 병사 모델은 뒤집지 않고, 사격 판정은 크로스헤어 선이라 어느 쪽이든 같다. 인벤토리의 `X`(버리기) · 시설 관리의 `X`(회수)는 커서 화면이라 겹치지 않는다. 세션 동안 유지되고 저장하지 않는다 |
-| `F` | 근접 공격 | 전투불능 아군이 `PLAYER_CARRY_RANGE` 안이면 **탭 = 들쳐메기 / 내려놓기** (E 홀드 구조는 그대로) |
-| `T` | 빠른 사용 | 탭 = 손에 든 아이템, 홀드 = 8방향 휠 (가젯 포함). **2026-09-11**: 월드에 내 원격 지뢰가 남아 있으면 탭이 **기폭기**를 다시 잡는다 — 쓸 퀵슬롯이 없을 때, 또는 마지막으로 쓴 것이 C4 였고 그 슬롯이 비었을 때(휠에는 기폭기 칸이 없다). 드론 아이템은 꺼낸 뒤에도 손에 남는 조종기다 |
-| `E` | 상호작용 | 탭 / 홀드. 홀드형이면 중앙 캡션의 keycap 에도 같은 chevron 이 붙고 (`interact:promptChanged.hold`) 진행 링은 크로스헤어에 찬다 — **함선 안에서도** (발사 슬롯 탑승: 점 크로스헤어 둘레의 radial 게이지) |
-| `R` | 재장전 · 수류탄 핀 뽑기(쿠킹) · **드론 조종(꾹)** | **2026-09-11**: 드론 아이템(지상 · 공중)을 손에 든 채 `DRONE_CONTROL_HOLD_S` 누르면 드론 시점으로 조종하고, 조종 중 같은 홀드로 복귀한다(크로스헤어 둘레 홀드 링). 조종 중에는 WASD · Shift(지상 질주) · Space(지상 점프 / 공중 상승) · C(공중 하강) · 마우스가 **드론**을 움직이고, PC 는 앉은 채 멈춘다 — 무기 · T · F · Q · G · H 는 막히고 **휠클릭 핑은 드론 시점에서 나간다**. PC 가 맞거나 사거리를 넘으면 끊긴다. **2026-09-12**: **지상 드론** 조종 중 렌즈 중심을 6 m 안의 상자 · 컨테이너 · 시체 · 보급 상자에 맞추고 **좌클릭 꾹(3초)** = 안에 든 가장 좋은 것의 등급 스캔 (월드 라벨 · 분대 공유 · 조준이 벗어나면 게이지 초기화) |
-| `G` | 함선 호출 휠 | 톡 = 마지막 호출 무장 / 해제, 꾹 = 4칸 휠. **2026-09-10: 쿨타임 중에는 휠이 아예 열리지 않는다** — 네 호출이 하나의 쿨타임을 공유하므로(구조선 30 · 보급품/트라이포드 90 · 궤도 폭격 120초, `data/stratagems.csv`) 고를 수 있는 칸이 하나도 없다. 거부음 + `재충전 n초` 토스트만 나간다. HUD 표시는 **전술 임플란트 왼쪽의 정사각 썸네일**(`ui/hud/StratagemPanel`) — 쿨타임이 아래에서 위로 차오르고 한가운데에 남은 초가 뜬다 |
-| **`H`** | **의사소통 휠** (꾹 눌러 연다) | 2026-09-09. `COMMS_WHEEL_HOLD_S` 이상 누르면 방사형 휠이 열리고, 마우스를 밀어(`COMMS_WHEEL_DEAD_PX` 초과) 한 칸을 고른 뒤 **키를 놓으면** 그 한 마디가 나간다 — **짧게 톡 누르면 아무 일도 없다**. 서 있을 때 4칸(회복 필요 · 탈출 · 내 계약 · 앞장서라), **전투불능이면 2칸**(살려줘 · 나를 버려). 배치와 문구는 `shared/comms.ts` 가 소유하고 `내 계약` 만 `ctx.meta.activeContract` 에서 이름과 남은 건수를 채운다. 쿨다운 `COMMS_COOLDOWN_S`. 결과는 **채팅 한 줄**(`request`)이고 원격에게는 토스트도 뜬다. 휠은 blocker · 포인터 락 · ESC 스택 어디에도 손대지 않는다(빠른 사용 · 함선 호출 휠과 같다) — 그래서 키 가이드에도 올라가지 않고 안내는 휠 중앙 한 줄이다. 은퇴한 `STIM` 이 비운 자리를 쓴다 |
-| `M` | 전술 지도 | `isGameplayActive()` 필요. M 또는 **Tab** 으로 닫는다 (2026-09-09) |
-| ~~`Alt`~~ | (없음) | **2026-09-10: 마우스 커서 표시 기능을 제거했다.** 커서는 화면(인벤토리 · 지도 · 터미널 …)이 열릴 때만 나온다. `Keys.CURSOR` 바인딩은 계약으로 남아 있지만 아무도 읽지 않고 설정 목록에도 없다 |
-| `Tab` | 인벤토리 (함선에서는 4탭 화면) · **열린 화면 닫기** | 2026-09-09: 어떤 화면 · 모드가 열려 있든 Tab 은 그것을 닫는다 (지도 · 채팅 · 메신저 · 터미널 · 작업대 · 시설 관리). 닫은 화면이 Tab 을 consume 하므로 같은 누름으로 인벤토리가 열리지 않는다. 우하단 **키 가이드** (`ui/hud/KeyGuide`) 가 열린 화면의 키와 `Tab`·`Esc` `닫기` 를 한 줄로 보여 준다 (2026-09-09: ESC 도 닫으므로 keycap 이 둘이다) (일시정지 메뉴 · 채팅 입력 중에는 숨김). **꾹 눌러야 하는 키는 keycap 위에 아래 방향 chevron 이 붙는다** (`KeyGuideEntry.hold`, 2026-09-09) — 탭하는 키는 예전 그대로다 |
-| `X` | 아이템 버리기 | 인벤토리가 열려 있을 때 |
-| `Space` | 포기(전투불능) / 부활(사망) | |
-| `Enter` | 채팅 | 2026-09-09: Enter 는 **보내고 입력창을 유지**한다 (빈 Enter 는 무시). 닫기는 **Tab / Esc** — 입력창 오른쪽 끝의 `Tab 키로 닫기` 힌트가 그 키를 가리킨다. Esc 는 빈 개인 대화(옛 귓속말) 입력에서 대상만 먼저 해제한다. 채팅창의 개인 대화는 메신저 대화 기록에 그대로 남는다 (2026-09-14) |
-| `P` | **메신저** (함선 전용) · 분대 초대 수락(꾹) | 2026-09-14: 커뮤니티 패널을 메신저가 대체했다 — 탭하면 토글, `Tab` · `Esc` 로도 닫힌다. 탭 `대화`(NPC · 개인 대화 · 단체방) · `친구` · `퀘스트`. 분대 초대 카드가 떠 있으면 꾹 눌러 수락 (`SQUAD_INVITE_HOLD_S`). 레이드 중에는 열리지 않는다 — 퀘스트 진행은 지도(`M`)의 퀘스트 패널로 본다 |
-| `Esc` | **열린 화면 닫기** · 일시정지 메뉴 | 2026-09-09: 열려 있는 화면 중 **맨 위 하나**를 닫는다 (열린 순서의 역순 — `shared/escape` 의 `ctx.escape`, 정책은 `game/parts/Phases.escapeKey`). 닫을 화면이 없을 때만 일시정지 메뉴가 열린다. 팝업(수량 지정 · 우클릭 메뉴 · 경고 팝업 · 설정 · 키 바꾸기 · 채팅 · 콘솔)은 그 위에서 자기가 Escape 를 먼저 먹는다. **메뉴 자신은 데스크톱 앱에서만** Esc 로 닫힌다 — 브라우저에서는 `게임으로 돌아가기` 클릭이 재잠금 제스처를 겸하므로 그대로다 |
-| 좌클릭 | 발사 · 사용 · 수류탄 들기 | **회복 소모품은 아이템별 시간만큼 홀드** (크로스헤어 링) · **2026-09-12: 전투 소모품(아드레날린 주사 · 각성제 · 안정제)은 3초 홀드**, 체력이 가득해도 쓴다 |
-| 우클릭 | 조준(ADS) | **2026-09-12: 정조준 중에는 화면이 천천히 8자로 흔들린다** — 무기 계열 · 자세(앉기 · 엎드리기 줄어듦) · 이동에 따라 크기가 다르고 마우스로 보정한다 (각성제가 줄인다). 손에 든 가젯 · 수류탄은 언더핸드 토글, 유니크 무기는 **보조 발사**(활 제외, ADS 없음). **2026-09-11: 손에 든 것이 원격 지뢰(C4)면 우클릭 = 내가 설치한 원격 지뢰 전부 기폭** — 마지막 C4 를 설치해도 손은 **기폭기**로 남고(좌클릭 거부 · 우클릭 기폭), 월드에 내 C4 가 없어지면 총으로 돌아간다. 이미 떠났으면 쓸 퀵슬롯이 없을 때 `T` 탭이 기폭기를 다시 잡는다 |
-| 휠클릭 | 핑 | 홀드 + 드래그. 2026-09-09 부터 **보이는 좌/우 2칸 휠**이 뜬다 (`ui/hud/PingWheel`, 0.15 s 뒤) — 좌 = **여기 조심해**, 우 = **저쪽으로 가자**, **전투불능이면** 좌 = **살려줘**, 우 = **나를 버려**(`PING_HOLD_KINDS`). **2026-09-10 부터 아래로 드래그하던 탄약 요청은 없다** — `H` 의사소통 휠과 인벤토리의 장착 무기 휠클릭이 같은 부탁을 이미 하고 있어 제스처가 겹쳤다. 이제 세로 드래그는 그냥 평범한 핑이다. 지도 위에서도 놓을 수 있다 |
+| `W A S D` | Move | |
+| `Shift` | Sprint (`SPRINT`) | Drains stamina |
+| `Space` | Jump (`JUMP`) · give up while downed · respawn when allowed | |
+| `C` / `Z` | Crouch / prone (`CROUCH` / `PRONE`) | Prone works in the ship too |
+| `V` | Roll (`DIVE`) | The roll itself refuses in the hub · indoors · at `무거움` weight or above |
+| `1` / `2` | Primary I / Primary II (`PRIMARY` / `PRIMARY2`) | Only two weapon slots exist |
+| `Q` | Tactical implant (`IMPLANT`) | Instant / hold / hand-held per implant — equipped in the Tab ship screen |
+| `X` | Shoulder swap (`SHOULDER`) | Moves the third-person camera to the other shoulder (`CameraRig.shoulderSide`, smooth). The soldier model does not flip; hit resolution is the crosshair line either way. Session-only, not saved. `X` in the inventory (drop) and ship management (retrieve) are cursor screens, so the scopes do not overlap |
+| `F` | Melee (`MELEE`) | With a downed ally within `PLAYER_CARRY_RANGE`, a **tap = carry / put down** (E-hold revive is unchanged) |
+| `T` | Quick use (`QUICK`) | Tap = item in hand, hold = 8-way wheel (gadgets included). If my remote mines (C4) are still in the world, a tap re-takes the **detonator** when there is no quick slot to use, or when the last item used was C4 and that slot is empty (the wheel has no detonator cell). A drone item stays in hand as a controller after deployment |
+| `B` | Throw style toggle for gadgets (`THROW_MODE`) | Overhand ↔ underhand toast (`gadget:throwModeChanged`) |
+| `E` | Interact (`INTERACT`) | Tap / hold. Hold prompts get the same chevron on the caption keycap (`interact:promptChanged.hold`) and the progress ring fills on the crosshair — also inside the ship (launch-slot boarding: radial gauge around the dot crosshair) |
+| `R` | Reload (`RELOAD`) · pull grenade pin (cooking) · **drone control (hold)** | Holding a drone item (ground · air) for `DRONE_CONTROL_HOLD_S` switches to the drone view; the same hold returns. While controlling, WASD · Shift (ground sprint) · Space (ground jump / air climb) · C (air descend) · mouse drive the **drone**; the PC sits still. Weapons · T · F · Q · G · H are blocked; the middle-click ping fires from the drone view. Being hit or leaving range disconnects. **Ground drone**: aim the lens at a crate · container · corpse · supply crate within range and **hold left click** to scan the best grade inside (world label, squad-shared; aiming away resets the gauge) |
+| `G` | Ship-call wheel (`SHIP_CALL`) | Tap = arm / disarm the last call, hold = 4-cell wheel. **The wheel does not open during cooldown** — the four calls share one cooldown (`cooldown` in `data/stratagems.csv`), so there is nothing to pick; only a deny sound + `재충전 n초` toast. HUD: square thumbnail left of the tactical implant (`ui/hud/StratagemPanel`), cooldown fills bottom-up with seconds in the centre |
+| `H` | Communication wheel (`COMMS`, hold) | Hold ≥ `COMMS_WHEEL_HOLD_S` to open a radial wheel, push the mouse past `COMMS_WHEEL_DEAD_PX` to pick a cell, **release** to send — a short tap does nothing. Standing: 4 cells (heal needed · extract · my contract · lead the way); **downed: 2 cells** (help me · leave me). Layout and text are owned by `shared/comms.ts`; only `내 계약` fills name and remaining count from `ctx.meta.activeContract`. Cooldown `COMMS_COOLDOWN_S`. Result is one chat line (`request`) plus a toast for remote players. The wheel touches no blocker, pointer lock or ESC stack (like the quick-use and ship-call wheels), so it is not in the key guide |
+| `M` | Tactical map (`MAP`) | Needs `isGameplayActive()`. Closes with M, **Tab** or Esc. In the hub, `MAP` also opens ship management |
+| `Tab` | Inventory (4-tab screen in the ship) · **close the open screen** (`INVENTORY`) | Tab closes whatever screen or mode is open (map · chat · messenger · terminal · workbench · ship management); the closing screen consumes Tab so the same press does not open the inventory. The bottom-right **key guide** (`ui/hud/KeyGuide`) shows the open screen's keys plus `Tab` · `Esc` `닫기` (hidden in the pause menu and while typing in chat). **Hold keys get a chevron** (`KeyGuideEntry.hold`) |
+| `X` (inventory open) | Drop item (`DROP_ITEM`) | `R` rotates the held item (`ROTATE_ITEM`) |
+| `Enter` | Chat (`CHAT`) | Enter **sends and keeps the input open** (empty Enter is ignored). Close with **Tab / Esc** — the `Tab 키로 닫기` hint at the right end of the input points at it. Esc on an empty private-chat input first clears the target. Private chats (`개인 대화`, formerly whispers) typed here are stored in the messenger conversation |
+| `P` | **Messenger** (ship only) · accept squad invite (hold) (`INVITE`) | Tap toggles; Tab · Esc also close. Tabs `대화` (NPCs · private chats · group rooms) · `친구` · `퀘스트`. With a squad-invite card up, hold to accept (`SQUAD_INVITE_HOLD_S`). Does not open during a raid — quest progress is in the map's (`M`) quest panel |
+| `Esc` | **Close the open screen** · pause menu (`MENU`) | Closes **the topmost** open screen (reverse opening order — `ctx.escape` in `shared/escape`, policy in `game/parts/Phases.escapeKey`). Only with nothing to close does the pause menu open. Popups (quantity · context menu · warning popup · settings · key rebinding · chat · console) eat Escape first. **The menu itself closes on Esc only in the desktop app** — in the browser the `게임으로 돌아가기` click doubles as the re-lock gesture |
+| Left click | Fire · use · raise grenade (`FIRE`) | **Healing consumables: hold for the item's use time** (crosshair ring). **Combat consumables** (adrenaline · stimulant · stabilizer): 3 s hold, usable at full health. Bow: hold to draw, release to shoot |
+| Right click | Aim (ADS) (`AIM`) | While aiming the view sways in a slow figure-8 — size depends on weapon class (`data/aim_sway.csv`), stance (crouch · prone reduce it) and movement; stimulant reduces it. Hand-held gadgets · grenades: underhand toggle. Unique weapons: **secondary fire**, no ADS (bow: right click cancels the draw). **Holding a remote mine (C4): right click detonates all my remote mines** — after placing the last C4 the hand stays a **detonator** (left click refused, right click detonates); once none of my C4 remain in the world the hand returns to the gun |
+| Middle click | Ping (`PING`) | Hold + drag. A visible left/right 2-cell wheel appears after a short delay (`ui/hud/PingWheel`) — left = `여기 조심해`, right = `저쪽으로 가자`; **downed**: left = `살려줘`, right = `나를 버려` (`PING_HOLD_KINDS`). There is no ammo request gesture — `H` and middle-clicking an equipped weapon in the inventory cover that. Can also be placed on the map |
 
-### 개발자 전용 (dev 호스트에서만)
+### Developer only (dev host)
 
-| 키 | 동작 |
+| Key | Action |
 |---|---|
-| `` ` `` (`Keys.CONSOLE`) | 개발자 콘솔 |
-| `Home` (`Keys.MOVE_CHEAT`) | `/movecheat 1` 인 동안 시선 방향 고속 이동 |
+| `` ` `` (`Keys.CONSOLE`) | Developer console |
+| `Home` (`Keys.MOVE_CHEAT`) | Fast move along view direction while `/movecheat 1` |
 
-### 시설 관리 (하우징) 모드
+### Ship management (housing) mode
 
-좌클릭 설치 · `R` 회전 · `X` 회수 · 휠 선택 · `C` / `Esc` 취소 · `M` / `Tab` 종료. 키 목록은 하단 중앙 바 대신
-우하단 **키 가이드**가 보여 준다 (hub/HousingMode 가 `ui:keyGuide {owner:'housing'}` 를 내고 `ui/hud/KeyGuide` 가
-`Tab 닫기` 를 붙여 그린다 — 2026-09-09).
+Clicking furniture only **selects** it. `E` or a **left-click hold** enters the move state: left click places · `R` rotates ·
+`X` retrieves (cockpit-only furniture cannot be retrieved) · `C` / `Esc` put it back. The room-console path additionally
+lists wheel = select and `C` = cancel (`CANCEL_KEY`, fixed, not rebindable). `M` / `Tab` exit. Keys are shown in the
+bottom-right **key guide** (`hub/HousingMode` emits `ui:keyGuide {owner:'housing'}`; `ui/hud/KeyGuide` appends `닫기`).
 
-### 인벤토리 · 루팅 · 거래 화면 (마우스)
+### Inventory · looting · trade screens (mouse)
 
-2026-09-12 (사용자 결정): **우클릭 = 모든 아이템에 메뉴** — 「빠른 이동 (가방 / 창고 / 상자)」 · 「즐겨찾기 켜기 / 끄기」 + 그 아이템의 기존 항목
-(장착 · 퀵슬롯 · 분해 · 나누기 …). 예전에는 메뉴가 없는 아이템이 우클릭 한 번에 옮겨졌고 메뉴는 Shift+우클릭이었다.
-**더블클릭 = 빠른 이동**이고 예외는 그대로다 — 무기 · 가방 · 방탄복은 장착, 상자가 열려 있지 않을 때 가방 속 회복제 · 수류탄은 퀵슬롯 등록.
-기업 거래 · 가구 화면의 가방 / 창고 격자도 우클릭 메뉴(그 화면의 더블클릭 동작 · 즐겨찾기)를 연다. 퀘스트 납품 · 제작 재료 · 계약 아이템
-**칩**과 기업 상점 타일은 우클릭 = 「즐겨찾기 켜기 / 끄기」 — 가지고 있지 않은 아이템도 켤 수 있다.
+- **Right click = context menu on every item** — quick move (bag / stash / crate) · favourite on/off, plus the item's own
+  entries (equip · quick slot · salvage · split …).
+- **Double click = quick move**, with exceptions: weapons · bags · armor equip (an item from a crate/stash only goes to an empty slot — already
+  equipped items are never silently replaced); with no crate open, healing
+  items · grenades in the bag register to a quick slot.
+- Bag / stash grids in corporation trade and furniture screens open the same right-click menu. Item **chips** (quest delivery ·
+  craft materials · contract items) and corporation shop tiles: right click = favourite on/off — works for items you do not own.
+- Hold an item tile still for a moment to pin its tooltip (`ui:cursorHold` ring); click outside, the diamond, or Esc unpins.
 
-## 3. 폴더 사이의 책임
+## 3. Responsibilities across folders
 
-- **무기 폴더가 근접 키를 소유**하지만, 실제로 휘두르는 것은 `ctx.player.startMelee()` 가 수락했을 때뿐이다
-  (스태미나 · 쿨다운 · 포즈는 `src/player/` 의 것).
-- 엎드리기와 구르기는 함선에서 비활성이고, 핑과 지도는 `isGameplayActive()` 를 요구한다.
-- 미션 시드는 **오직 `/seed` 콘솔 명령**으로만 정한다 (터미널의 시드 입력란은 없어졌다).
+- **The weapons folder owns the melee key**, but the swing only happens when `ctx.player.startMelee()` accepts it
+  (stamina · cooldown · pose belong to `src/player/`).
+- Rolling is refused in the ship; pings and the map need `isGameplayActive()`.
+- The mission seed is set **only by the `/seed` console command**.
 
-## 4. 커서와 포인터 락 (2026-09-07 rework)
+## 4. Cursor and pointer lock
 
-커서를 쓰는 화면은 포인터 락을 **놓고** 진짜 OS 커서를 쓴다 — 그 커서는
-[`ui/hud/GameCursor`](../src/ui/hud/GameCursor.ts) 가 절차 생성한 CSS 커서 아트로 다시 칠해진다.
+Screens that use the cursor **release** the pointer lock and use the real OS cursor, repainted with procedural CSS cursor art by
+[`ui/hud/GameCursor`](../src/ui/hud/GameCursor.ts).
 
-**락이 없다는 것만으로는 일시정지가 아니다.** 일시정지는 창 포커스를 잃었을 때뿐이다.
-락을 되찾는 경로는 세 가지다 — 마지막 커서 소유자가 사라질 때 `main.ts` 의 재요청, 거부된 요청의
-다음 진짜 제스처 재시도(`Input.awaitingLockGesture`), 그리고 **캔버스 좌클릭**(그 클릭은 삼켜지므로
-카메라를 되찾는 클릭이 총을 쏘지 않는다).
+**No lock does not mean paused.** Only losing window focus pauses. The lock comes back three ways: `main.ts` re-requests it when
+the last cursor owner leaves; a denied request retries on the next real gesture (`Input.awaitingLockGesture`); and a **left click on
+the canvas** (that click is swallowed, so the click that takes the camera back does not fire the gun).
 
-전체화면에서는 `navigator.keyboard.lock(['Escape'])` 로 Escape 가 락을 깨지 않는다. 창 모드 Chrome 은
-Escape 에 사용자 활성화를 주지 않으므로 Escape 로 화면을 닫으면 커서가 다음 입력까지 남고, 재잠금이
-거부되면 게임이 **`좌측 클릭으로 게임 재개`** 게이트를 띄운다 (Phase 12, `src/game/ResumeGate.ts`).
-2026-09-09 부터 Esc 가 화면을 닫으므로 브라우저에서는 이 게이트를 그만큼 더 보게 된다 — 조작을 환경마다
-갈라 놓지 않기로 한 대가다(사용자 결정). **데스크톱 앱에는 없다**: 메인 프로세스가 Escape **key-up** 마다
-`executeJavaScript(code, true)` 로 activation 을 건네 `window.__scavShellRelock` 을 부르므로 카메라가 바로
-돌아온다 (`electron/main.ts`).
+In fullscreen, `navigator.keyboard.lock(['Escape'])` keeps Escape from breaking the lock. Windowed Chrome gives Escape no user
+activation, so closing a screen with Escape leaves the cursor up until the next input, and if the re-lock is refused the game shows
+the **`좌측 클릭으로 게임 재개`** gate (`src/game/ResumeGate.ts`). Because Esc closes screens, browser players see this gate more
+often — the accepted cost of not splitting controls by environment. **The desktop app has no gate**: the main process hands over
+activation on every Escape **key-up** via `executeJavaScript(code, true)` calling `window.__scavShellRelock`, so the camera returns
+immediately (`electron/main.ts`). Chromium also refuses any re-lock for about 1.25 s after a user exit; `shared/Input` defers requests
+around Escape itself (`LOCK_ESCAPE_DEFER_MS`, `LOCK_USER_EXIT_COOLDOWN_MS`, `LOCK_RELOCK_RETRIES`).
 
-UI blocker 토큰과 커서 모드의 전체 규약은 [ARCHITECTURE.md](ARCHITECTURE.md) 3절에 있다.
+The full UI-blocker and cursor-mode contract is in [ARCHITECTURE.md](ARCHITECTURE.md) section 4.

@@ -1,950 +1,294 @@
 # SCAVANGER — Project Command Center
 
 Helldivers 2-inspired third-person extraction shooter in the browser. Three.js + Vite + TypeScript.
-Arc Raiders-style minimalist UI, Diablo 2-style grid inventory, procedural maps, 60 s extraction countdown.
-게임은 걸어 다닐 수 있는 **개인 함선**(허브)에서 시작하고, 매치메이킹으로 **공유 함선**에 도킹해 분대가 발사 포드를 타고 임무로 나간다.
-릴레이 서버는 토큰별 **프로필 저장소**(크레딧 · 메타 · 창고 · 로드아웃 · 진행도 · 함선)와 **레이드 세션 저장소**를 함께 들고 있어
-중간에 끊긴 플레이어가 레이드로 복귀할 수 있다. 서버 없이 하는 싱글 플레이는 localStorage 로 그대로 동작한다.
+Arc Raiders-style minimalist UI, Diablo 2-style grid inventory, procedural maps. The game starts in a walkable
+**personal ship** (hub); matchmaking docks the squad into a **shared ship**, and drop pods take it to a raid.
+The relay server keeps a per-token **profile store** (credits · meta · stash · loadout · progression · ship) and a
+**raid session store**, so a disconnected player can rejoin the raid. Single player without a server runs on localStorage.
 
-> **이 파일은 내비게이션 허브다.** 상세 설명은 전부 아래 링크 대상에 있다.
-> 새 작업을 시작하기 전에 ① 이 파일의 폴더 지도에서 담당 폴더를 찾고 ② **그 폴더의 `README.md` 를 먼저 읽는다.**
+> **This file is a navigation hub.** Before any task: ① find the owning folder in the folder map below,
+> ② **read that folder's `README.md` first.**
 
 ---
 
-## 1. 문서 지도
+## 1. Doc map
 
-| 찾는 것 | 볼 곳 |
+| Looking for | Go to |
 |---|---|
-| **수치(밸런스)를 조정하고 싶다** | [data/README.md](data/README.md) — csv 만 고치면 된다. 코드는 안 건드린다 |
-| **어떤 폴더를 고쳐야 하나** | 아래 [3. 폴더 지도](#3-폴더-지도) |
-| **그 폴더가 어떻게 생겼나 · 왜 이렇게 됐나** | 각 폴더의 `README.md` (구조 + 하단 `변경 이력`) |
-| 시스템 등록 순서 · 미션 플로우 · UI blocker / 커서 규약 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| 멀티플레이 토폴로지 · 와이어 계약 · 호스트 권한 | [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md) |
-| 키 바인딩 기본 레이아웃 · 리바인딩 규칙 | [docs/CONTROLS.md](docs/CONTROLS.md) |
-| 검증 절차 · 소요 시간 · 테스트 기록 | [docs/VERIFICATION.md](docs/VERIFICATION.md) |
-| 스크립트 하나하나가 무엇을 검사하나 | [scripts/README.md](scripts/README.md) |
-| 날짜별 작업 기록 · 알려진 한계(미해결 항목) | [docs/HISTORY.md](docs/HISTORY.md) |
-| **앞으로 해야 할 작업** | [docs/TODO.md](docs/TODO.md) — 다음 페이즈 후보 묶음 + 항목별 코드 근거 |
-| 완료된 단계 목록 | [docs/HISTORY.md](docs/HISTORY.md) 의 `완료된 단계` |
-| 무엇을 왜 결정했나 (Phase 5–12 · 2026-09-09 이후 — 옛 설계안 `docs/plans/` 도 여기로 합쳤다) | [docs/DECISIONS.md](docs/DECISIONS.md) |
-| **투자자 · 퍼블리셔용 소개 문서** (위키형 HTML, 빌드 없음 · 공개본 **https://toniqat.github.io/Scavanger/**) | [docs/pitch/README.md](docs/pitch/README.md) → `docs/pitch/index.html` (페이지 원본은 `docs/pitch/pages/00-intro.html` … `30-controls.html` **31개**. 페이지 순서 · 파일 번호 · 절 번호의 원본은 `docs/pitch/app.js` 의 `TREE` 하나이고, 깨지면 `node scripts/smoke-pitch.mjs` 가 잡는다) |
+| **Tune a number (balance)** | [data/README.md](data/README.md) — edit csv only, no code |
+| **Which folder to change** | [3. Folder map](#3-folder-map) below |
+| **How a folder is built** | that folder's `README.md` (files · public API · rules · last 5 changes) |
+| **Why code looks the way it does / what breaks if violated** | the comment right above that code (source of truth); project-wide rules in [4. Stack & conventions](#4-stack--conventions) |
+| System registration order · mission flow · UI blocker / cursor rules | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Multiplayer topology · wire contract · host authority | [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md) |
+| Default key layout · rebinding rules | [docs/CONTROLS.md](docs/CONTROLS.md) |
+| Verification procedure · known flaky smokes | [docs/VERIFICATION.md](docs/VERIFICATION.md) |
+| What each script checks | [scripts/README.md](scripts/README.md) |
+| **When / what / why something changed** | `git log` — **commit messages are the source** (`git log -- src/<folder>`, `git log --grep '<keyword>'`) |
+| **Work to do · known limits** | [docs/TODO.md](docs/TODO.md) (Korean) |
+| Completed phases | [docs/HISTORY.md](docs/HISTORY.md) |
+| What the user chose and what was rejected | [docs/DECISIONS.md](docs/DECISIONS.md) |
+| **Investor / publisher wiki** (HTML, no build, public at **https://toniqat.github.io/Scavanger/**) | [docs/pitch/README.md](docs/pitch/README.md) → `docs/pitch/index.html`; page order · file numbers · section numbers come from `TREE` in `docs/pitch/app.js`; `node scripts/smoke-pitch.mjs` catches breakage |
 
 ---
 
-## 2. 명령어
+## 2. Commands
 
 ```
-npm run dev        # http://localhost:5273 (싱글 플레이는 서버 없이 동작)
-npm run server     # WebSocket 릴레이 (ws://localhost:8787/ws, GET /health)
-npm run dev:all    # 릴레이 + vite 동시 (vite 가 /ws → 8787 프록시)
-npm run typecheck  # tsc --noEmit — 끝내기 전에 반드시 통과 (서버는 typecheck:server)
-npm run data:check # data/*.csv 스키마 검사 (오타 · 빠진 칸 · 범위 · 모르는 이름) — verify 가 자동으로 돌린다
+npm run dev        # http://localhost:5273 (single player works without a server)
+npm run server     # WebSocket relay (ws://localhost:8787/ws, GET /health)
+npm run dev:all    # relay + vite together (vite proxies /ws → 8787)
+npm run typecheck  # tsc --noEmit — must pass before finishing (server: typecheck:server)
+npm run data:check # data/*.csv schema check; `-- --write` re-bakes server/economy.gen.json after economy changes
 npm run build
 
-npm run app:build  # 데스크톱(Electron) 빌드: vite dist/ + 메인 프로세스 dist-electron/
-npm run app        # 빌드된 데스크톱 앱 실행 (임베디드 릴레이 + 로컬 http, 브라우저 불필요)
-npm run app:dist   # 배포 폴더 release/SCAVANGER/ 전체 (아이콘 + app/ + stub exe + server.txt + 서버 exe)
-npm run server:dist # 서버만: release/SCAVANGER-Server.exe (Node 없이 도는 단독 exe, 약 86MB)
-npm run icon       # 앱 아이콘 electron/resources/icon.ico 를 코드로 다시 그린다 (--png = 미리보기)
+npm run app:build  # desktop (Electron) build: vite dist/ + main process dist-electron/
+npm run app        # run the built desktop app (embedded relay + local http)
+npm run app:dist   # full deploy folder release/SCAVANGER/
+npm run server:dist # server only: release/SCAVANGER-Server.exe (standalone, no Node)
+npm run icon       # redraw electron/resources/icon.ico from code (--png = preview)
 
-npm run verify     # 기능 하나 끝낸 뒤: typecheck + selftest + 건드린 폴더에 매핑된 스모크만 (4 병렬)
-npm run verify:all # 머지 전: 전부 + build + e2e:mp (~10 분)
-npm run net:selftest   # 서버 프로토콜 셀프테스트 (브라우저 불필요)
-npm run e2e:mp         # 헤드리스 크롬 2대로 릴레이+vite 관통 테스트
+npm run verify     # after a feature: typecheck + selftest + smokes mapped to touched folders (4 lanes)
+npm run verify:all # before merge: everything + build + e2e:mp (~10 min)
+npm run net:selftest   # relay protocol self-test (no browser)
+npm run e2e:mp         # two headless Chromes through relay + vite
 
-npm run pitch:webp # 피칭 문서 배포본 이미지: docs/pitch/assets/*.png → 같은 이름의 .webp (30MB → 2.8MB)
-node scripts/shots-pitch.mjs  # 피칭 문서 스크린샷 자동 촬영 (npm run dev 가 떠 있어야 한다)
-node scripts/smoke-pitch.mjs  # 피칭 문서 31쪽이 뜨는지 (링크 · 사이드바 · nextnav · 카드 넘기기)
-node scripts/smoke-desktop.mjs  # 데스크톱 셸을 진짜 Electron 으로 (--hidden · 임시 userData · 창 8820) — --release 는 배포 폴더까지
-npm run data:check -- --write  # 경제 수치(아이템 가치 · 계약/퀘스트 보상 · 가격 배수 · 수리비)를 바꿨으면 server/economy.gen.json 을 다시 굽는다
+npm run pitch:webp             # pitch wiki images png → webp
+node scripts/shots-pitch.mjs   # pitch screenshots (needs npm run dev)
+node scripts/smoke-pitch.mjs   # pitch wiki pages load (links · sidebar · nextnav · card flip)
+node scripts/smoke-desktop.mjs # real Electron shell (--hidden · temp userData · window 8820); --release = deploy folder
 ```
 
-개별 스모크 스크립트 50종의 목록과 각각이 검사하는 내용은 **[scripts/README.md](scripts/README.md)** 에 있다.
-`npm run verify` 가 폴더 → 스크립트 매핑으로 알아서 고르므로 손으로 하나씩 돌리지 않는다 (`node scripts/verify.mjs --list`).
-2026-09-11: `data/<file>.csv` 만 바꿔도 그 수치를 소비하는 폴더의 스모크를 고른다 (`scripts/data-owners.mjs` — `constants.csv` ·
-`tables.csv` 는 거의 전부가 읽으므로 `note:` 만 찍는다). 모르는 옵션 · `--help` 는 **아무것도 실행하지 않고** 도움말만 찍는다.
-여러 러너를 같은 트리에서 동시에 돌리면 `--log-dir scripts/logs/<이름>` 으로 로그를 가르고 `--keep-relay` 로 공용 릴레이를 지킨다.
+`npm run verify` picks smokes by folder (`node scripts/verify.mjs --list`); a `data/<file>.csv` change picks the folders that
+consume it (`scripts/data-owners.mjs`). Unknown options / `--help` print help and run nothing. Several runners in one tree:
+`--log-dir scripts/logs/<name> --keep-relay`.
 
-### 배포 (2026-09-10)
+**Deploy folder** (`npm run app:dist`, ship it zipped): `app/` (Electron build) · `SCAVANGER.exe` (stub launcher,
+`electron/launcher.cs`) · `server.txt` (server address, the only file a receiver edits) · `SCAVANGER-Server.exe`
+(`server/tool.ts`). The host double-clicks the server exe and shares the printed address; its console takes
+`list` · `lobbies` · `kick <id> [reason]` · `max <n|off>` · `gc` · `help`. Receivers enter the address in `설정 › 서버 설정`
+(overrides `server.txt`). Details: [electron/README.md](electron/README.md), [server/README.md](server/README.md).
 
-`npm run app:dist` 가 만드는 것은 exe 하나가 아니라 **그대로 압축해 보낼 폴더**다:
-
-```
-release/SCAVANGER/
-  app/                    electron 빌드 전부 (SCAVANGER.exe + .pak · dll · locales …)
-  SCAVANGER.exe           stub 런처 — app\SCAVANGER.exe 를 띄운다 (electron/launcher.cs, csc.exe 로 굽는다)
-  server.txt              접속할 서버 주소 한 줄 — 받는 사람이 고치는 유일한 파일 (구 relay.txt)
-  SCAVANGER-Server.exe    서버를 켤 사람만 실행 (server/tool.ts, Node 불필요)
-```
-
-서버를 켤 사람은 `SCAVANGER-Server.exe` 를 더블클릭하고 창에 적히는 주소를 알려 주면 된다.
-창에 명령을 칠 수 있다 (2026-09-11): `list` · `lobbies` · `kick <아이디> [사유]` · `max <n|off>` · `help` (밴은 없다 —
-강퇴당한 사람은 재접속을 멈추고 `server_full` 은 새 접속만 막는다). 프로필 저장소는 `profiles.json.bak` 한 세대를 두고,
-읽다 깨지면 원본을 `profiles.corrupt-<시각>.json` 으로 남긴 뒤 `.bak` 에서 복구한다.
-받는 사람은 게임 안 **`설정 › 서버 설정`** 에 그 주소를 적는다 (`server.txt` 를 고쳐도 된다 — 게임 안 설정이 우선).
-자세한 것은 [electron/README.md](electron/README.md) 의 `배포 폴더` 와 [server/README.md](server/README.md) 의 `배포`.
-
-Windows 원클릭 실행 (프로젝트 루트에서 더블클릭):
-
-```
-start-server.bat         # node 확인 → 필요시 npm install → npm run dev:all (릴레이 8787 + vite 5273)
-start-server.bat relay   # 릴레이만 (npm run server, 0.0.0.0:8787) — 데스크톱 앱만 쓸 때
-```
-
-배너에 이 PC 의 LAN 주소(`ws://<IP>:8787/ws`)를 찍는다 — 데스크톱 앱이 접속할 값이다.
-(배포본을 받은 사람에게는 `start-server.bat` 대신 `SCAVANGER-Server.exe` 가 그 역할을 한다.)
-게임 실행은 `SCAVANGER.exe` 또는 `npm run dev`.
-`start-server.bat` 은 한국어 메시지를 위해 **CP949(시스템 ANSI)** 로 저장한다 — UTF-8 + `chcp 65001` 조합은 cmd 가 label 을 재탐색할 때 파싱이 깨진다.
+Windows one-click (repo root): `start-server.bat` (npm install if needed → `npm run dev:all`) · `start-server.bat relay`
+(relay only, 0.0.0.0:8787). It prints the LAN address. The bat file is saved as **CP949** — UTF-8 + `chcp 65001` breaks
+cmd label scanning.
 
 ---
 
-## 3. 폴더 지도
+## 3. Folder map
 
-각 행의 README 가 그 폴더의 파일 구성 · 공개 API · 변경 이력을 갖는다. **폴더 내부를 고치기 전에 그 README 를 읽는다.**
+Each README holds the folder's files · public API · rules · last 5 changes. **Read it before changing the folder.**
+Rows state **responsibility only** — no dates or change notes (those go in commit messages). Edit a row only when the
+folder's responsibility changes.
 
-### 3.1 계약 · 엔진
+### 3.1 Contracts · engine
 
-| 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
+| Folder | System | Publishes on `ctx` | Responsibility |
 |---|---|---|---|
-| [`data/`](data/README.md) | — | — | **폭발 감쇠 · 고폭 수류탄 수치(2026-09-15 3차, 사용자 결정 — `constants.csv` 신규 5줄: `GRENADE_RADIUS` 6 → **7.2**(×1.2) · `GRENADE_DAMAGE` 250 · `GRENADE_PLAYER_DAMAGE_MUL` 0.6 — 셋 다 `weapons/Grenade.ts` 에 박혀 있던 것 · `EXPLOSION_FULL_FRACTION` 0.5 · `EXPLOSION_OUTER_MUL` 0.6 = 모든 폭발물 공용 2단 계단)** · **무게 · 가젯 개편(2026-09-15 2차, 사용자 결정 — `weapons.csv` 유니크를 뺀 전 계열 ×1.2 **그 뒤 산탄총 ↔ 지정사수소총 맞바꾸기**(ar 5.04 · smg 3.72 · sg 5.28 · dmr 5.52 · sr 8.16 — 지정사수가 산탄총보다 무겁다, 무게는 등급과 무관하고 계단 상수가 없다) · `attachments.csv` 전 부착물 0.1 kg · `seeds.csv` **`weight` 열 신설** 전부 0 (빈 칸은 0.1 kg 라 명시해야 한다 — 두 값 모두 그 전까지는 `ItemDefs.ts` 의 `ATTACHMENT_WEIGHT` 상수와 `tuning.csv` 의 `SEED_WEIGHT` 에서 왔다, 둘 다 은퇴) / `items.csv` 에 **`grenade` · `gadgetUseTime` 열** 신설 — `ItemCategory` 의 `'grenade'` 폐지로 수류탄도 `category: gadget` 이라 **수류탄인지를 가르는 값은 `grenade` 열 하나**다 · `gadgetUseTime` 은 회복약 · 실드 충전기 · 전투 소모품과 같은 홀드 틀(그 전까지 가젯은 전부 0 이었고 그것이 「바리케이드 설치 시간이 안 먹힌다」의 정체) / 수류탄 `파편 수류탄` · `화염 수류탄` 무게 −30 % · `gad_incendiary` 삭제 + `item_aliases.csv` 흡수 · 돔 실드 1×1 · 바리케이드 2×1 이 `durabilityMax` 를 갖는다 · `constants.csv` 에 `DEFIB_AIM_CONE_DEG` · `GADGET_DOME_RECOVER_TIME` · `HAZARD_SPORES_BYPASS_SHIELD` 신설, `GADGET_INCENDIARY_RADIUS` · `_DURATION` 은퇴(화염 통합) · `BOOKS_PER_SHELF` 18 · `tuning.csv` `ANALYZER_SLOTS_BASE` 신설 · `tables.csv` 서재 권 표 4·5권 줄 삭제** · **전설 무기 후속(2026-09-15 — `ammo.csv` 전설 탄약 무게 절반 · 표창 0.02 kg / 한 칸 30 · 화살 0.04 kg / 한 칸 15(`tables.csv` 두 표), `BAZOOKA_SUPER_JUMP` 26 → 17, `weapons_unique.csv` u_bow 탄창 1 · 재장전 0, `IMPLANT_AT_*` 은퇴 표시)** · **낙하 피드백 · 화염 지대 · 병사 림 · 튜토리얼 XP(2026-09-15 — `constants.csv` `FALL_SHAKE_*` · `FALL_VIGNETTE_*` · `FALL_REMOTE_SOUND_RANGE` · `GRENADE_INCENDIARY_*`(G-10 지대 3.5 m · 6 s · 폭발 40 / 3 m) · `FIRE_ZONE_*` · `SOLDIER_RIM_*`, `TUTORIAL_RAID_XP` 900 → 120, `items.csv` `grenadeFire` 열, `enemies.csv` 로그 · 레이더 `stepSound` true)** · **UI 2차 개편 수치(2026-09-14 5차, 사용자 결정 — **제작 재료 절반**(`recipes.csv` · `furniture.csv` 작업대 9종. 반올림은 **올림 · 최소 1**, 내구도가 있는 장비(무기 · 방탄복 · 가방)는 「재료 종류당 2 이상」 불변식 때문에 2 에서 멈춘다) · **합금 판이 폐금속 3 → 5** 로 비싸진 대신 합금 판을 쓰는 모든 레시피의 합금 판 수량이 절반 · **탄약**은 전 계열 `화약 1 + 폐금속 1`(중량탄의 합금 판이 폐금속으로) · 한 칸/제작량 60/20 · 50/25 · 20/10 · 20/10(`tables.csv` `AMMO_STACK_ROUNDS`) · 분해는 「2회분의 절반」(`salvage.csv` — `checkSalvageEconomy()` 의 「제작 → 분해 무한 이득 없음」을 통과시키는 값이다) · **미니게임 판정 창 25개 완화** + 새 키 `GYM_GOOD_OF_PERFECT` · `COOK_GOOD_OF_PERFECT` · `COOK_STEP_TIMEOUT_MUL` · `AUDIO_DEFAULT_BGM` · **보관함 칸** 책장 40 · 디스크 12 · 레코드 8 · 게임 디스크 12 · 실드 충전기 I `station field` · 연산 코어 `width` 2)** · **NPC 첫 연락 조건 · 3단 대사 · 튜토리얼 전용 적(2026-09-14 3차 — `npcs.csv` 새 열 `reqFlag`(`gathered` · `raidReturned`) · `introAfter`(선택지에 답한 뒤의 말풍선; 있으면 답하기 전에 퀘스트 제안이 오지 않는다) + NPC 10명 전부 3단으로 다시 씀 · 연락 조건 넷(민지후 채집 1회 · 차유나 레이드 복귀 1회 · 오세라 `q_nm_s1` · 박도윤 `q_rv_1`), `enemies.csv` 튜토리얼 전용 4종(`tut_bug_loot` · `tut_bug` · `tut_android_loot` · `tut_android` — 안드로이드는 체력 절반), `loot_corpses.csv` · `loot_corpse_rolls.csv` 고정 드롭 + 빈 시체 **확률 0 안전핀**, `constants.csv` 의 `TUTORIAL_INTRO_WAKE_S` 4.5 → 9)** · **정보상 기믹 표(2026-09-14 2차 — `intel_options.csv` 기믹 7종 · 기본 비용 · 최대 단계 · 최소 threat, `tables.csv` 의 `INTEL_TIER_COST_MUL` · `INTEL_THREAT_COST_MUL` · `NEST_COUNT_MIN/MAX`, `tuning.csv` 의 `INTEL_BUNDLE_COST_MUL`, `npc_quests.csv` 의 `npcTrust` 열, `npcs.csv` 의 `reqNpcRep` 열 · 레이븐 `reqLevel` 1)** · **메신저 NPC 퀘스트(2026-09-14 — `npcs.csv` NPC 10 · `npc_quests.csv` 퀘스트 41 · `npc_objectives.csv` 목표 94(deliver · recover · interact · kill · discover · search, `planet` · `chain`), `quests.csv` 삭제, 코인 해금 `crypto.csv unlockQuest` = `q_*_permit`)** · **서재 시리즈 · 비디오게임(2026-09-13 — `library_series.csv` 시리즈 · 효과 줄 · 행성, `item_aliases.csv` 옛 id → 새 id, `game_discs.csv` · `game_consoles.csv`, 옛 `books` · `discs` · `records.csv` 삭제, `furniture.csv` 의 `low` 열)** · **게임 수치의 단일 원본 (csv 52개 — 2026-09-13 `analysis_results.csv` · `sockets.csv` · `cook_steps.csv` · `cook_grill.csv`).** 데미지 · 체력 · 가격 · 확률 · 쿨다운 — `src/` 에는 같은 숫자가 없다 |
-| [`src/shared/`](src/shared/README.md) | — | `GameContext`, `EventBus`, `Input`, `Random` | **폭발 공식 · 메신저 읽음 · 암전 유지 계약(2026-09-15 3차, 추가만 — `explosion.ts` = `explosionFalloff` · `explosionDamage`(같은 한 줄이 7곳에 복사돼 있던 것 — 「같은 수식을 두 폴더가 쓰면 shared 로 뽑는다」) / `npc.ts` 의 `NpcQuestRef.readAtOf?` / `events.ts` 의 `ui:screenFade.hold?`(생략 = 예전 동작) / `constants.ts` 의 폭발 5종)** · **가젯 · 수류탄 · 피해 계약(2026-09-15 2차, 사용자 결정 — `types` 의 `ItemCategory` 에서 **`'grenade'` 삭제**(유일한 삭제다 — 사용자 결정) + `ItemDef.grenade?: GrenadeKind`(`'frag' | 'fire'` — **수류탄인지를 가르는 유일한 값**, `category === 'grenade'` 를 보던 자리가 전부 이리로 왔다) · `ItemDef.gadgetUseTime?` · `PlayerRef.takeDamage(…, opts?: PlayerDamageOptions)` 넷째 인자(`bypassShield` — 독성 포자) / `gadgets` 의 `GadgetDef.wearsItemDurability?`(배치물 최대 hp = 그 아이템의 `durabilityMax`, 회수하면 남은 hp 가 `ItemInstance.durability` 로) · `GadgetId 'grenadeFire'` 은퇴 표시 · `GADGET_IDS` 에서 `incendiary` 제외(`airstrike` 선례) / `events` 의 `gadget:defibAim` / `net` 의 `GadgetRequest.place.hp?` / `housing` 의 `SHELF_TIERS.book` 3 · `SHELF_TIER_COLS.book` 6 · `ANALYZER_SLOTS_BASE` · `HousingRef.devAdvanceAnalysis?` / `library` 의 `LIBRARY_MAX_VOLUMES.book` 3 / `constants` 의 `QUICK_USABLE_CATEGORIES` 에서 `'grenade'` 제거)** · **눌린 키캡 · 홀드 버튼 키캡 · 튜토리얼 `corpseOpen`(2026-09-15 2차, 추가만 — `keycap` 의 `createHoldButtonCap`(꾹 누르는 **버튼 안** 라벨 왼쪽의 좌클릭 키캡 `.kc-btn`) / `mouseGlyphSvg` 가 chevron 을 안 그린다 — 꾹 누르기 표시는 키보드 · 마우스 가릴 것 없이 `base.css` 의 `.keycap.kc-hold::before` 하나 / `tutorial` 의 `TutorialStepId += corpseOpen` · `TUTORIAL_TRACK_STEPS.raid` 16단계)** · **결과 창 · 키캡 · 튜토리얼 계약(2026-09-15, 추가만 — `keycap.ts` 공용 키캡 `paintKeycap` · `createKeycap` · `renderKeyText`(토큰 `{FIRE:hold}` · `{br}`) · 마우스 좌/휠/우 그림(`<title>` 로 textContent 유지) / `PlayerDamageSource`(`takeDamage` 셋째 인자 · `player:damaged.source` · `player:died.source` · `setBurning` 셋째 인자 · 와이어 `DamageMessage.src`) / `MissionStats.peakLootValue` · `death`(`MissionDeathCause`) / `EnemyManagerRef.renderPortrait` · `enemyDisplayName` / `TutorialStepId += supplyLoot`(raid 15단계) / `playIntroWake(d, {respawn})` · `setSceneLock(on, {allowDamage, minHp})` · `ExtractionRef.skipToComplete`)** · **기상 연출 질의(2026-09-14, 추가만 — `PlayerRef.introWaking?` · `TUTORIAL_COMPASS_FADE_S`)** · **음악 재생 · 보관함 층 · 채굴 탭 계약(2026-09-14 5차, 추가만 — `housing` 끝에 `SHELF_TIERS` · `SHELF_TIER_COLS` · `shelfSlotsPerTier`(**층은 칸 번호를 나누는 표시일 뿐**이고 저장되는 것은 `slot` 하나라 층을 바꿔도 꽂힌 것이 안 옮겨진다) / `MiningTab` = `'cluster' \| MiningComputerTab` · `MINING_TABS` · `MINING_TAB_LABEL_KO`(부분집합이라 `openMiningComputer(uid, tab)` 인자 타입이 안 바뀐다) / `MusicTrack` · `MusicMode` · `MUSIC_MODES` · `MUSIC_MODE_LABEL_KO` · `MusicPlayerState` · `MUSIC_PLAYER_OFF`(frozen) · `musicArtistOf` · `musicLengthOf`(시리즈 id 해시 — 외부 에셋 금지와 같은 이유로 **이름표도 코드에서 만든다**) · `HousingRef` 조작 넷 `getMusicState?` · `musicNext?` · `musicPrev?` · `setMusicMode?` · `musicStop?`, `events` 의 `housing:musicChanged`, `types` 의 `AudioChannel += 'bgm'` · `AudioSettings.bgm` — **소리는 나지 않는다**(외부 에셋 금지 · 절차 음악 미구현이라 채널은 저장 · 표시 전용), `constants` 의 `AUDIO_DEFAULT_BGM` · `GYM_GOOD_OF_PERFECT` · `cooking` 의 `COOK_GOOD_OF_PERFECT` · `COOK_STEP_TIMEOUT_MUL`)** · **「앞으로 이동」 단계 계약(2026-09-14 4차 — `TutorialStepId += advance1 · advance2 · advance3` 와 `TUTORIAL_TRACK_STEPS.raid` 14단계. 셋 다 **이미 있는 체크포인트**로 끝나 월드에 새 트리거가 없다. 같은 날 `TutorialHudPart.shipMarker` 의 뜻이 「`extract` 에서 풀린다」 → **레이드 내내 숨김**으로 뒤집혔다)** · **NPC 진행 플래그 · 각본 잠금 · 사격 보류 계약(2026-09-14 3차 — `npc` 의 `NPC_FLAGS`(`gathered` · `raidReturned`) · `NpcFlag` · `NpcRequirement.flags` · `NpcDef.introAfter` · `NpcSave.flags` · `NpcQuestRef.flagOf`/`bumpFlag`, `extraction` 의 `ExtractionRef.holdFire?`(적이 바라보되 쏘지 않는다 — `keepEnemyOut` 과 같은 이유로 질의다), `types` 의 `PlayerRef.setSceneLock?`(입력 전부 + 피해 전부 무시), `tutorial` 의 `TUTORIAL_STEPS` 에서 `manageDone` 제거(`openCraft` 와 같은 처리 — 타입 · 표에는 남는다 · build 트랙 16단계), `EnemyType` + 튜토리얼 4종 · `CORPSE_LOOT_CHANCE` 4줄. **은퇴 표시**: `NpcQuestState 'deferred'` · `NpcQuestRef.defer` · `NPC_REPLY_KO.decline`/`brief`)** · **튜토리얼 개편 계약(2026-09-14 3차 — `tutorialWorld` = `TutorialWorldRef`(`ctx.world.tutorial`) · 체크포인트 · `TutorialFallRule`, `MissionMode += 'tutorial'`, `tutorial` 의 `TutorialTrack` 3종 · `TUTORIAL_TRACK_STEPS` · `TutorialSave.tracks`(v2) · `TutorialGate += 'hud'`, `PlayerRef.playIntroWake?` · `ExtractionRef.beginPreLanded?`, `NpcDef.introChoices`(대사 선택지) · `NpcLogEvent += 'choice'`, events `player:fell`(전역 낙하 피해) · `tutorial:checkpoint` · `player:introWakeDone`)** · **정보상 · NPC 신뢰도 계약(2026-09-14 2차 — `intel` = `IntelGimmick` · `IntelPick` · `IntelSpec` · `IntelEffects` · `resolveIntelEffects` · `intelCost` · `intelCode`(릴레이 공용 **순수** — 런타임 import 금지), `intelDefs` = csv 표 로더, `ctx.missionIntel`(= `missionPlanet` 과 같은 규약: emit 전에 세팅), `MetaRef.intel` · `npcTrust*`, `HubRef.launchReady`, `WorldRef.previewLayout` + `MapPreviewLayout`, `net` 의 `IntelWire` · `lobby:intel`, `credits` 의 `intel:<planet>:<code>`, `npc` 의 `NpcSave.trust` · `rewards.npcTrust` · `NpcRequirement.npcRep`, events `intel:*` · `meta:npcTrustChanged`)** · **메신저 · NPC 퀘스트 · 단체방 계약(2026-09-14 — `npc` = NPC · 퀘스트 · 목표 로더 + `NpcQuestRef`(`MetaRef.npc`), `damageSource` = 로컬 총기 피해 출처, `social` 끝 절 = 단체방 타입 · `RoomsRef`(`NetRef.rooms`) · 개인 대화 읽음 · `PRIVATE_CHAT_LABEL_KO`, `net` 끝 절 = `room:*` 와이어, events = `npc:*` · `room:*` · `world:interacted` · `ui:openMessenger` · `enemy:killed.weaponClass` · `crate:open.zoneId`, `QUEST_DEFS` 는 빈 배열)** · **서재 시리즈 · 비디오게임 계약(2026-09-13 — `library` = 시리즈 로더 · `LibraryEffect` · `librarySeriesFraction` · `resolveItemAlias` · `GameDiscDef` · `GymGameTuning` · `SEAT_INTERACTIONS`, `ShelfMedium += 'game'`(`SHELF_HOLDER_MEDIA`), `SkillId += cooking · research`, `GymStat += intelligence · perception`, 카테고리 `game_disc` · `console`, `HousingRef` 서재 · TV 질의, `housing:libraryChanged` · `housing:gameSession`)** · **탐사 차량 계약(2026-09-13 — `types.ts` 탐사 차량 절이 규칙 원본: `RoverRef` · `RoverRouteDef` · `RoverVehicleDef` · `RoverRideBinding` · `ROVER_STATES` · `ROVER_DAMAGE_SOURCE` · `PlayerRef.setRoverRide`, `net.ts` `RoverMessage`/`RoverRequest` · `IN_ROVER`, `events.ts` `rover:*`, `credits.ts` `rover:` 사유)** · **계약. 제일 먼저 읽는다.** **요리 미니게임 · 요리 품질(`cooking` — 게임 6종 · 단계표 `cookStepsOf`(← `data/cook_steps.csv`) · 판정 수치 `COOK_*` · 자동 조리 가구 `COOK_APPLIANCE_GAMES` · 품질 별 0–5 `mealQualityForScore` / `mealQualityBonus`, `ItemInstance.quality` · `FurniturePoseKind 'cook'` · 버프 `cooking`, 2026-09-13)** · **공용 홀드 확인 팝업(`holdAsk` — `openHoldAsk(ctx, spec)`, 버튼마다 `hold` 1초 · Escape 취소 · Enter 무시, 캐릭터 시트가 첫 사용자 · ui/meta/inventory 의 옛 복사본은 그대로, 2026-09-13)** · **`EmbeddedView.requestLeave?` · `ProgressionRef.spendStatPoints?`(2026-09-13)** · **루팅 굴림 시드 식(`lootRolls` — 상자 · 적 시체 굴림을 여는 코드와 미리보기(world · 드론 스캔)가 같이 쓴다, 2026-09-12)** · 타입 · 이벤트 · 상수(값은 `data/constants.csv`) · 키바인드 · csv 로더(`data/`) · 각 시스템의 `*Ref` 인터페이스 · **캐릭터 세이브 슬롯(`saveSlot`)** · **캐릭터 생성 규칙(`character`)** · **재화 칩(`currency`)** · **캐릭터 버프(`charBuffs` — 식사 · 준비물 · 운동 디버프 · 환경 노출 · 휴식/운동 중을 한 목록으로, 표시 · 동기화 전용 · `sanitizeCharBuffs`, 2026-09-12)** · **ESC 닫기 스택(`escape`)** · **포탄 궤적 닫힌 식(`ballistics` — enemies 와 ui 가 같은 자리를 그린다)** · **셰이더 선컴파일 · 점광원 예산(`render` — `ctx.shaders`)** · **점광원 풀(`lightPool` — 함선 · 구조물 공용)** · **투척물이 창문 유리를 깨는 한 줄(`fragile`)** · **차량 탑승 수학(`ride` — 플레이어 · 적 · 시체 공용)** · **발밑 재질 `SurfaceMaterial`** · **키 설정 로드 리포트(`takeKeybindLoadReport`)** | 
-| [`src/core/`](src/core/README.md) | `Engine` | scene / camera / renderer / **`ctx.shaders`** · **`ctx.outline`** | **화면 공간 외곽선(`Outline` — 채널 `hover` 흰색 · `selected` 연두색, 대상이 없으면 패스가 꺼져 비용 0, 블룸이 꺼져도 캔버스 경로로 그려 씬 재컴파일 없음, 프로그램은 미리 링크 — 2026-09-12)** · 렌더러 · 조명 · 하늘 · 포그 · 포스트프로세스 · 메인 루프 · 리사이즈 · 시스템 레지스트리 · **점광원 개수 고정(`LightBudget` — intensity 0 여분이 `SCENE_POINT_LIGHT_BUDGET` 을 채운다)** · **셰이더 선컴파일 + hold(`ShaderWarmup` — 새 장면은 컴파일이 끝난 뒤에 그린다)** · **화면 설정 토글(블룸 · 그림자)은 값이 실제로 바뀔 때만 셰이더 hold · perf guard 가 다시 산다)** · **guard 가 스스로 끈 것은 `render:autoAdjusted` 로 알린다 — 설정 행이 `꺼짐 (성능 자동)`, 저장값은 그대로** |
-| [`src/main.ts`](src/main.ts) | — | — | Engine 부트스트랩 + 시스템 등록 순서, 커서 모드 ↔ 버스 브리지, 포인터 락 재요청의 **유일한** 지점 |
+| [`data/`](data/README.md) | — | — | **Single source of game numbers**: csv for damage · hp · prices · chances · cooldowns · weights · recipes · loot · planets · NPC/quest text. `src/` holds no copies |
+| [`src/shared/`](src/shared/README.md) | — | `GameContext`, `EventBus`, `Input`, `Random` | **The contract — read first.** Types · events · constants (values from `data/`) · keybinds · csv loaders · every `*Ref` · pure formulas used by 2+ folders (ballistics, explosion falloff, ride math, loot seeds, intel cost) · shared UI bits (keycap, hold confirm, currency chip) · save slots · ESC stack · light pool |
+| [`src/core/`](src/core/README.md) | `Engine` | scene / camera / renderer / `ctx.shaders` · `ctx.outline` | Renderer · lights · sky · fog · post-processing · screen-space outline · main loop · resize · system registry · fixed point-light count (`LightBudget`) · shader pre-compile hold (`ShaderWarmup`) |
+| [`src/main.ts`](src/main.ts) | — | — | Engine bootstrap + system registration order, cursor-mode ↔ bus bridge, the **only** pointer-lock re-request site |
 
-### 3.2 플레이어 · 전투
+### 3.2 Player · combat
 
-| 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
+| Folder | System | Publishes on `ctx` | Responsibility |
 |---|---|---|---|
-| [`src/player/`](src/player/README.md) | `PlayerSystem` | `ctx.player` | **실드를 건너뛰는 피해(2026-09-15 2차 — `PlayerDamageOptions.bypassShield` 를 읽는 쪽. 갈래는 `parts/Vitals.applyDamage` 안의 흡수 한 줄뿐이라 **새 우회 경로가 없다** — 각본 잠금 · 무적 창 · 전투불능 · 사망 · 통계 · 이벤트가 전부 같은 줄을 지나고, 생략하면 지금까지와 똑같다)** · **피해 출처 · 튜토리얼 부활(2026-09-15 — `applyDamage(…, source)` → `player:damaged.source`, `_deathSource` 가 막타(전투불능이면 쓰러뜨린 출처)를 `player:died.source` 로, 환경 `env` · 낙하 `fall` · 화상 출처 / `playIntroWake(d, {respawn})` = 쓰러짐 → 기상 + 입력 잠금만(페이드 · 전용 카메라 · `introWaking` · 완료 신호 없음) / `setSceneLock(on, {allowDamage, minHp})` = 실드 → 체력, minHp 클램프, 전투불능 · 사망 없음)** · **낙하 착지 피드백 · 병사 림(2026-09-15 — `parts/Fall` 이 피해 비례 `camera:shake` + 분대원에게 `fall` 와이어, 받는 쪽은 모양 · 로비 멤버 · 45 m · 최소 간격(피해가 나는 최소 낙하 시간)을 지나 `player:remoteFell` / `SoldierRim` = 병사 재질 fresnel 림, 프로그램 하나 공유 · 광원 0 · 주변광 비례 · 바이저 제외)** · **기상 연출이 끝나고 카메라가 일어서며 백뷰로 돌아온다(2026-09-14 — 타이머가 음수로 넘어간 프레임에 `endIntroWake` 가 「연출 중 아님」 으로 읽고 돌아가 카메라 · 튜토리얼 `wake` 가 갇히던 것, 0 에서 멈춤 · 진행도 0.55 → 1 동안 옆 카메라가 리그 백뷰로 smoothstep · 계약 `PlayerRef.introWaking`)** · **공중 임펄스 운동량 유지(2026-09-14 9차 — `PlayerController.airCarry`: 공중에서 `applyImpulse` 를 받으면 착지 · `reset` · 갈고리까지 목표 속도를 넘는 수평 운동량을 공중 조작이 깎지 않는다(방향만 틀고 반대로 누를 때만 감속). 바주카 로켓 점프의 「더 멀리」 가 여기 기대고, 부작용으로 달려서 밟은 점프대도 13.4 → 17.4 m 날아간다)** · **각본 잠금 · 느린 기상 · 함선 포복(2026-09-14 3차 — `setSceneLock(on)` 은 새 잠금 경로를 만들지 않고 기상 연출의 `waking` 을 `scripted` 로 넓힌 것이다(이동 · 자세 · 룩 · 조준 · 무기 · 상호작용) + 피해는 단일 입구 `Vitals.applyDamage` 와 그것을 우회하는 유일한 갈래 `Statuses.updateEnv` · `applyKnockback` 에서 막는다 · 카메라는 안 건드린다 / `TUTORIAL_INTRO_WAKE_S` 9 로 기상이 절반 속도 · `FADE_HOLD` 0.04 · `FADE_DONE` 0.26 = 실시간 약 2초 / `allowProne` 의 `hub` 예외 제거 — 함선에서도 Z 로 엎드린다)** · **오프닝 검은 페이드(2026-09-14 2차 — `parts/IntroWake` 가 `ui:screenFade` 를 낸다(그리는 쪽은 ui) · 취소 경로가 모두 `cancelIntroWake` 를 지나므로 검은 화면에 갇히는 길이 없다) · 튜토리얼도 풀피로 시작 · 부활(`setHp` 는 부르는 곳 없이 계약으로 남는다)** · **발사 슬롯 초상(2026-09-14 2차 — 세로로 길어진 셀에 맞춰 `Portraits` 재프레이밍, yaw 는 `HUB_READY_PORTRAIT_YAW`(csv) = 오른쪽 **앞**)** · **탐사 차량 탑승 모드(2026-09-13, `parts/RoverRide` — `setRoverRide` · `roverBoardBlock` · `roverSafePosition`: 몸 숨김 · 좌석 고정 · 입력 잠금(`droneControl` 게이트에 같이) · 모든 피해 · 넉백 · 화상 · 행성 환경 · 재해 피해 면제 · `CameraRig` 궤도 카메라(마우스 · 휠 줌 · 레이 당김) · E 꾹 하차 · 원격 아바타 `IN_ROVER` 숨김 · 강제 해제는 차량 오른쪽 3.5 m)** · **조리 자세 `cook`(2026-09-13 — 조리대 앞에 서서 숙이고 오른손 칼질 · 젓기 주기 · 왼손 누르기, 상판 기준 수치 `SoldierModel.FURN_COOK` 가 hub 조리대 연출의 원본 · 버프 `cooking` · 식사 버프에 품질)** · **지형 경사 판정은 발이 지형 위일 때만(2026-09-13 — 바닥판 밑 지하실 구덩이 경사 때문에 실내에서 바깥벽 · 정문에 못 다가가던 것) · `PlayerRef.die?()`(자발적 귀환)** · **전투 소모품 효과(`parts/Boosts`, 2026-09-12 — 아드레날린 = 스태미나 전량 + 15 s 지속 소모 0 · 각성제 = 30 s 장전 ×1.3 · 정조준 ×1.4 · 흔들림 ×0.7 · 스태미나 소모 ×1.5, 서로 지운다, 버프 목록 `adrenaline`/`stimulant`)** · **조준 흔들림(`CameraRig` — 정조준 중에만 카메라가 8자로 떠돈다 · 계열별 `data/aim_sway.csv` × 자세 × 이동 × `aimSwayMul`, 반동과 같은 룩 오프셋이라 사격 · 빨간 원 · 크로스헤어가 같은 각)** · **가구 자세(`parts/FurniturePose` — sit · bench · run · cycle, 손발 IK, 함선 전용, 풀면 첫 자세 직전 자리로, 자세 점 수치 `FURN_*` 가 hub 모델의 기준, 와이어용 누적 위상 `furniturePoseState`, 원격 아바타도 같은 자세 · 같은 블렌드 `RemoteAvatar` ← `ref.furniturePose`, 2026-09-12)** · **캐릭터 버프 목록(`parts/Buffs` — 식사 · 준비물 pending/active · 환경 노출 · 운동 디버프 타이머 · 휴식 · 운동 중을 모아 바뀔 때만 새 배열 + `buffsRevision` + `player:buffsChanged`, 2026-09-12)** · **행성 상시 환경 피해(`parts/Statuses.updateEnv` — 맞는 준비물이 없으면 `PLANET_ENV_TICK_S` 마다 체력만 깎는다 · 실드 우회 · player 는 상태를 안 들고 매 프레임 `ctx` 로 다시 판정한다)** · 3인칭 컨트롤러 · 카메라 리그(**어깨 전환 `Keys.SHOULDER` X — `CameraRig.shoulderSide`, 2026-09-12**) · 절차 생성 병사 모델 · **강하 포드 동기화(아군 헬포드가 보인다) · 구조선 부활** · **차량 탑승(전차 OBB 안이면 유지 · 로컬 좌표로 이동 · 하차 관성)** · 체력(**100 고정 아님 — getter**)/**실드(방탄복 = 추가 체력, 피해는 실드부터)**/전투불능(**1인 분대는 즉사**)/스태미나 · 자세 · 상호작용 · 실내 충돌 · 원격 아바타(**같은 함선끼리만 보인다** · **병사 모델은 색별 풀 `SoldierPool` + 지오메트리 공유** · **원격 포드 3개 상주**) · 호스트 고스트 · **사다리(`climbingLadder` — E 매달림 · W/S · Shift 스태미나 · Space 도약 · E 놓기 · 꼭대기 올라서기, 매달린 동안 무기 · 상호작용 잠금, 원격은 `CLIMBING`)** · **단차 보간(`bodyOffset` — 모델 · 카메라만)** · **월드 천장 클램프(발 + `BOX_HEADROOM`)** · **드론 조종 모드(`setDroneControl` — 앉은 채 멈춤 · 이동/자세/조준/상호작용 입력 무시 · 무기 불가, 사다리 · 포드 · 들쳐메기 중엔 거부, 드론 시점 카메라는 흔들림 · FOV 가산 없음, 해제는 `setCameraOverride(null, undefined, true)` 하드 컷)** · **탑승 수학은 `shared/ride`** · **초상화 색 변경은 옛 모델을 다음 render 뒤 dispose(재컴파일 없음)** |
-| [`src/weapons/`](src/weapons/README.md) | `WeaponSystem` | — | **폭발 감쇠 공용화(2026-09-15 3차 — 수류탄 자해 · 바주카 엄폐물이 `shared/explosion` 을 지난다 · `GRENADE_RADIUS` 7.2 · 수치는 전부 csv, `weapons/index.ts` 의 export 이름은 별칭으로 유지)** · **가젯 사용 시간 · 제세동기 조준(2026-09-15 2차, 사용자 결정 + 사용자 버그 「바리케이드 설치 시간이 안 먹힌다」 — `model.useTimeOf` 가 `ItemDef.gadgetUseTime` 을 회복약 · 실드 충전기 · 전투 소모품과 **같은 홀드 틀**로 읽는다(배관 무변경: `updateQuickHand` 가 이미 `useTimeOf > 0` 이면 `beginHeal` 로 보내고 있었다) / `model.quickKindOf` = `ItemCategory 'grenade'` 폐지 뒤 수류탄을 가르는 유일한 자리 — **이것을 놓쳐 쿠킹 · 투척이 통째로 죽어 있었다** / 새 `parts/Defib` — 제세동기는 **떼는 순간** 발동한다: 좌클릭 충전 → 준비 완료(이동 감속 해제) → 쓰러진 아군을 겨눔(`DEFIB_AIM_CONE_DEG`) → 떼면 소생, 대상 없이 떼면 **소모 없음**, 상태는 `gadget:defibAim` 하나로만 나가고 그리는 곳은 `ui/hud/Reticle`)** · **전설 무기 후속(2026-09-15, 사용자 결정 — 「롱혼」 가로 파지 · 시위는 라이저 뒤(몸 쪽) · **장전 없음**(`UniqueHandler.autoFeed` + `UniqueServices.feed` → `parts/Slots.autoFeed`: 탄창 1 = 건 화살, `ammoInMag + reserveRounds` = 지닌 화살, R · 빈 격발이 재장전하지 않는다) / 「인페르노」 화염이 0.26 s 피어나고 길이 · 반지름이 숨쉰다(연출만) / 유니크는 사격 숙련 반동 · 장전 배수 없음(각성제 유지) · 계열 처치 아님(`withLocalGunHit(null)`) / 로켓 점프 수직 17 되돌림 · 전방 8 · `airCarry` 유지)** · **투척 궤적 = 연한 빨강 반투명 트레일(2026-09-15, 사용자 결정 — 점선 → 손 0.12 m 에서 끝 한 점으로 좁아지고 옅어지는 카메라 향 리본 한 장, 궤적 계산 무변경 · 광원 0) · 수류탄 자해 `self` / 분대원 복제 `ally` 피해 출처** · **G-10 소이 수류탄(2026-09-15 — 화염 갈래가 아예 없어 고폭으로 터지던 것: `ItemDef.grenadeFire` 면 작은 폭발 + **로컬** 폭발만 `ctx.gadgets.igniteGrenadeFire`, 종류는 `GrenadeMessage.fire` 로 싣는다 — 원격 폭발은 받는 쪽 피해라 추측하지 않는다)** · **전설 총기 개편(2026-09-14 9차, 사용자 결정 — 바주카 = 탄창 3 · 약 0.35 s 간격 · **자해 피해 없음**(`BAZOOKA_SELF_DAMAGE` 은퇴) · 로켓 점프 = 더 강한 수직 임펄스 26 + 넉백 **전** 수평 속도 방향 `BAZOOKA_JUMP_FORWARD` 8(중력은 그대로 — 사용자가 고른 것은 임펄스뿐) / 활 = **좌클릭 홀드로 시위** 0.8 s · 놓으면 발사 · 우클릭 = 당기기 취소(정조준 폐지) · 당긴 정도 → 속도 45–140 · 낙차 12–0.5 · 피해 30–100 % 의 유일한 식 `unique/Bow.bowBallistics`(원격 복제가 `fire.c` 로 같은 식을 부른다) · `weapon:chargeChanged kind 'draw'` / 표창 · 화살 = **하얀 트레일** 0.25 s(`Projectile` 전용 링 버퍼 한 메시, 광원 0 · 코어 tracer 풀 안 씀) / 테슬라 코일 좌클릭이 「아예 안 나가던」 것 = 판정은 멀쩡했고 **대상이 없으면 아무것도 안 그리고 안 울렸다** + 훈련장 표적(파괴 가능 장애물)을 못 잡았다 → 대상이 없어도 조준점으로 갈래 전격 3개 · 지지직 소리 · 훈련장 표적도 대상)** · **투척 궤적 = 순수 포물선(2026-09-14 2차, 사용자 결정 — `fx/ThrowArc` 에서 충돌 판정 3종을 걷어냈다. 사용자가 본 「튕김」은 `resolveCollision` 이 점선을 꺾던 것이다 · 벽을 통과해 보이는 것은 의도(어디로 **던지는지**만 말한다) · `THROW_ARC_PREVIEW_FRACTION` 0.5 · 착지 고리 없음은 그대로 · 실제 수류탄의 비행 · 튕김 · 신관은 무변경)** · **총탄 피해에 총기 계열 출처(2026-09-14 — `WeaponSystem.applyHit` 가 `shared/damageSource` 로 감싼다, NPC 퀘스트의 계열 처치)** · **모든 일반 총탄 = 스윕 발사체(2026-09-14, 사용자 결정 — `ProjectilePool` 성장형 · 로컬 탄 무손실(복제 탄 먼저 퇴출) · 스텝마다 `raycastAll` 로 터널링 없음 · 낙차 `stats.bulletGravity` · 날아간 거리로 거리 감소 `damageFalloffStats` · 총구 3 m 안 `near` 는 즉시 · 창문은 깨고 지나감 · 예광 InstancedMesh 광원 0 · 미니건 포함, 새 `smoke-ballistics`) · 연사 퍼짐 계열별(`stats.bloomPerShot` · `bloomSpread` · `bloomDecay`) · 조준 흔들림 × `stats.swayMul` · 레이저 사이트가 정조준 / 사격 직후 0.6 s 동안 크로스헤어를 향한다 · 확장 총열 메시(`barrel`)** · **전투 소모품 3초 홀드 사용(`parts/Healing` — 체력이 가득해도 쓴다 · 안정제 = `implants.refillAll`) · 장전 배수 `boostReloadSpeedMul` · 계열별 흔들림 `setAimSway`(`AimSway.ts`, 2026-09-12)** · **하이브리드 사격 판정(`parts/AimLine` — 크로스헤어 선으로 판정, 총구는 앞 `WEAPON_MUZZLE_BLOCK_RANGE` 3 m 에서만 막는다 · 막히면 그 표면에 빨간 원 `fx/AimBlockMarker` + `weapon:aimBlocked` · `fire()` · 유니크 `hitscan`/`aimShot`(발사체 포함) · 빨간 원이 같은 resolver, 2026-09-12)** · 무기 **2슬롯(주무기 I · II — 2026-09-10 보조무기 제거)** · 실효 스탯 · 내구도 · 탄약 v2 · 히트스캔/발사체 · 빠른 사용 휠 · 수류탄 · 근접 · 유니크 무기 · 원격 재생 · **투척 궤적은 실제 비거리의 50 % 까지만(착지 표시 없음, `THROW_ARC_PREVIEW_FRACTION`)** · **원격 지뢰 = 손에 든 채 우클릭 기폭 · 마지막 C4 를 놓으면 슬롯 없는 기폭기 손(`remoteState.detonator`, `T` 탭으로 다시 잡기)** · **드론 아이템은 꺼낸 뒤에도 손에 남는 조종기(R 은 무기가 먹지 않는다) · 드론 조종 중 무기 전부 정지** |
-| [`src/implants/`](src/implants/README.md) | `ImplantSystem` | `ctx.implants` | **대시 = 걸어서 닿는 가장 먼 자리(2026-09-14, `parts/Devices.dashReach` — 몸을 0.15 m 씩 밀어 표면 먼저 · `resolveCollision` 나중, 진행이 걸음의 50 % 미만이면 막힘 · 창(깨졌어도) · 창턱 벽 · 개구멍은 막고 문 · 계단 · 낮은 상자는 지난다 · 지형 오르막 50° 한계) · 갈고리 쿨타임 31.2 s(+30 %) · 붙기 전 취소 최소 3.9 s** · **갈고리 쿨타임 24 s + 환급(2026-09-12 — 붙은 뒤 당겨진 거리 0 m = 50 % → 15 m = 0 %, 붙기 전에 끝나면 90 % · 최소 3 s 남김, `implant:cooldownRefunded` → HUD `−N초`) · 대시 11.25 m · `refillAll`(안정제) · 준비 이벤트 `implant:ready`(대시는 충전마다)** · 전술 임플란트 5종 (갈고리 · 대시 · 배리어 방패 · 오버차지 · 정찰 스캔 — **대전차포는 2026-09-15 은퇴**: 전설 바주카와 겹친다, `ImplantId` 타입에만 남고 `IMPLANT_IDS` · `IMPLANT_DEFS` · 동작 코드에서 빠졌다, 장착 세이브는 `Profile.migrate` 가 null → 다음 함선 진입에 갈고리), Q 키 구동, 배리어 충돌/흡수/실드 배쉬 · **HUD 는 화면 중앙 하단 가로 썸네일(`ui/hud/ImplantWidget`)** · **갈고리가 공중 드론에 걸린다(움직이는 앵커 — 드론 위치까지 당겨지고 끝) · 드론 조종 중 Q 불가** · **실드 배쉬 넉백 = 계약 `pushBack` 한 줄(비호스트도 넉백)** · **원격 장치는 재생성된 아바타 소켓에 다시 붙는다** |
-| [`src/gadgets/`](src/gadgets/README.md) | `GadgetSystem` · **`DroneSystem`** | `ctx.gadgets` · **`ctx.drones`** | **폭발 감쇠 공용화(2026-09-15 3차 — 지뢰 · C4 한 발 · 드론이 `shared/explosion` 을 지난다. C4 중첩 규칙 `GADGET_REMOTE_MINE_STACK_MUL` 은 무변경)** · **가젯 개편(2026-09-15 2차, 사용자 결정 — 돔 실드가 **방어막 발생기 개체 + 둘레 돔**이 되고 `GADGET_DOME_RECOVER_TIME` 홀드로 회수된다(발생기는 `body` 가 아니라 `root` 에 붙는다 — 전개 연출이 `body` 를 스케일한다, 광원 0) / 돔 실드 · 바리케이드는 `GadgetDef.wearsItemDurability` = 배치물 최대 hp 가 그 아이템의 `durabilityMax` 이고 회수하면 남은 hp 가 `ItemInstance.durability` 로 — **깎인 것을 다시 쓰면 그만큼 약하게 선다**(`consumeItem` → `startHp` → `spawnDeployable`), 와이어는 `maxHp` 가 원래 있어 추가 없음 / **화염 통합** — `gad_incendiary` 아이템이 사라지고 화염 수류탄 하나가 「폭발 + 지대」를 맡는다, `fire` 를 만드는 정의도 `incendiary` **하나**(내부 정의 `grenadeFire` · id `-gf` 표식 은퇴, 살린 수치는 `GRENADE_INCENDIARY_*` 3.5 m · 6 s) / 포탑 이름 `자동 사격 포탑` / 설명에서 수치 제거 — 스펙 줄이 그린다)** · **설치물 피해 출처(2026-09-15 — 받는 사람 기준 `self` / `ally`: 지뢰 · 포탑 · C4 · 화염 지대, 원격 `dmg.src`)** · **화염 지대(2026-09-15 — 내부 정의 `grenadeFire`(아이템 없음 · `use()` 거절 · 복제본은 id 꼬리 `-gf` 로 크기를 안다) · `getFireZones` · 점화/지지직 소리 · 권위 틱의 드론 피해 · 지대를 **착탄 지점 아래 표면**에 세운다 — 지형 높이라 옥상 · 2층에서 바닥판 밑에 묻히던 것이 화염수류탄 「불이 안 생긴다」 의 정체)** · **지상 드론 스캔(`drones/parts/Scan`, 2026-09-12 — 조종 중 렌즈 중심 6 m + 좌클릭 3 s → 상자 · 구조물 컨테이너 · 시체 · 보급 상자 안 최고 등급을 레이드 내내 월드 라벨 + `drone scan` 분대 방송 + 채팅, 미리보기는 여는 굴림 그대로) · 지상 드론은 몸 높이로 충돌해 잠긴 문 옆 환풍구를 지나간다** · 소모품 가젯 **13종** (은폐 · 돔 실드 · 바리케이드 · 수류탄류 · 지뢰 · 포탑 · 제세동기 · 점프대 · **원격 지뢰(C4 — 손에 들고 우클릭 = 내 것 전부 기폭, 한 대상이 여러 발 맞으면 가장 센 한 발만 100 % · 나머지 각 50 %, 마지막 것을 놓으면 손은 기폭기)** · **지상/공중 드론**), 호스트 권한 배치물 · **설치 미리보기(`parts/Preview` — 손에 든 place 가젯은 조준점 고스트 초록/빨강, 대형(바리케이드 · 점프대 · 포탑) = 평평 + 공간, 소형(지뢰 · 원격 지뢰)만 드론 윗면 탑재 · 드론 위 지뢰는 적만 감지)** · **드론(`drones/` — 소유자 권한, 아이템은 조종기로 남고 파괴 시 1개 소모, 손에 들고 R 꾹 = 조종 · PC 는 앉아서 멈춤 · PC 피격 / 사거리(지상 70 · 공중 90 m) 초과 시 끊김, 지상 = 걷기 무소음 · 질주 소리+어그로 · 점프, 공중 = 호버 · Space/C 상승하강 · 갈고리가 걸린다)** |
-| [`src/stratagems/`](src/stratagems/README.md) | `StratagemSystem` | `ctx.stratagems` | **폭발 감쇠 공용화(2026-09-15 3차 — `impactDamage` 하나가 공용 2단 계단이라 낙하물 · 구조물 · **궤도 레이저 틱**이 모두 그 곡선이다)** · **함선 호출 착탄 피해 출처 `explosion`(2026-09-15)** · **쿨타임이 끝나면 `stratagem:ready`(거절 환불이면 `refunded`) — HUD 플래시 · 글로우 · 차임(2026-09-12)** · 함선 호출 4종 (**궤도 폭격 = 호스트 전용** · 보급품 · 트라이포드 · **구조선(분대 공용 5회)**), G 휠 · 상단 시점 조준 · **네 호출이 하나의 쿨타임을 공유(구조선 30 · 보급품/트라이포드 90 · 궤도 폭격 120초) · 쿨타임 중에는 휠이 열리지 않는다** · **분대원 호출은 호스트 경유(`stratq call` → 종류 · 호출자별 쿨타임 · 사거리 검사 → `strat call {by}` 재방송, 받는 쪽은 호스트가 보낸 것만)** · **거절은 더 이상 조용하지 않다(`strat deny` → 호출자가 쿨타임을 전액 환불받고 사유 토스트를 본다 · 내 `callId` + 호스트가 보낸 것만 받는다)** |
+| [`src/player/`](src/player/README.md) | `PlayerSystem` | `ctx.player` | Third-person controller · camera rig (shoulder swap, aim sway) · procedural soldier · hp/shield/stamina/downed · damage sources · fall damage · stance · interaction · ladders · tram/rover riding · drone-control mode · furniture poses · intro wake · scene lock · character buff list · remote avatars · drop pods |
+| [`src/weapons/`](src/weapons/README.md) | `WeaponSystem` | — | 2 primary slots · effective stats · durability · ammo · hybrid shot resolution (crosshair line + 3 m muzzle block) · swept projectiles · recoil/spread · grenades · throw arc · melee · quick-use wheel · healing/combat consumables · legendary uniques · remote replay |
+| [`src/implants/`](src/implants/README.md) | `ImplantSystem` | `ctx.implants` | 5 tactical implants (grapple · dash · barrier · overcharge · recon), Q key · cooldowns · refunds |
+| [`src/gadgets/`](src/gadgets/README.md) | `GadgetSystem` · `DroneSystem` | `ctx.gadgets` · `ctx.drones` | Consumable gadgets — placement preview · mines · remote mines · turret · dome shield · barricade · jump pad · fire zones (host-authoritative) · ground/air drones (owner-authoritative control and scan) |
+| [`src/stratagems/`](src/stratagems/README.md) | `StratagemSystem` | `ctx.stratagems` | 4 ship calls — G wheel · top-down aim · shared cooldown · rescue drop (5 per squad); squad calls relayed by the host, denials fully refunded |
 
-### 3.3 월드 · 적
+### 3.3 World · enemies
 
-| 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
+| Folder | System | Publishes on `ctx` | Responsibility |
 |---|---|---|---|
-| [`src/world/`](src/world/README.md) | `WorldSystem` | `ctx.world` | **튜토리얼 마지막 구간(2026-09-15 3차, 사용자 결정 — 가로 블라인드 철조망 **절반 높이**(`BARRIER.fenceHeight` 2.7 → 1.35)인데 콜라이더는 두 겹이다: 아래는 실체 · 위 1.35 는 `passRays` + `passSmall` 유령 토막이라 총알 · 적 시야 · 수류탄만 넘어가고 사람은 못 넘는다 / 안드로이드 둘이 선 자리가 **웅덩이**(깊이 `PLAYER_HEIGHT / 2` = 0.9 = **정확히 `PROP_STEP_UP_MAX`** — 사람은 어느 가장자리로든 걸어 오르내리지만 같은 가지가 `!small` 이라 수류탄은 굴러 나가지 못한다, 함선 쪽 −X 면만 19.8° 오르막 `addRamp`, 나머지 세 면은 데크를 도려내고 남은 띠의 옆면 = 0.9 m 턱), `BACKSTOP` 은 밑면만 웅덩이 바닥으로 — 턱은 구르는 것을, 그 벽은 **날아 들어오는** 것을 멈춘다)** · **독성 포자는 실드를 건너뛴다(2026-09-15 2차, 사용자 결정 — `Hazard.hazardDamageOpts(kind)` 가 `spores` 일 때만 `takeDamage` 넷째 인자로 `{bypassShield:true}`(게이트 `HAZARD_SPORES_BYPASS_SHIELD`) · 근거는 A-13 의 「대기를 방탄복이 막는 것이 이상하다」를 재해에 편 것 · 모래 폭풍 · 눈보라 · 폭풍의 눈은 그대로 실드 먼저 · 적 · 고스트 · 드론 무변경)** · **시뮬레이션 훈련장 천장 · 벽 메시 제거(2026-09-15, 사용자 결정 — 천장 레이 평면이 로켓 점프 상한이었다: 보이지 않는 벽 = 높이 무관 `clampInside`, 레이는 벽을 모르고 바닥 + 40 m 에이프런만 맞힌다, 바닥 청록 경계선 · 검정으로 사라지는 에이프런 · 수평선 고리, 광원 0 · 갈고리는 벽 · 천장에 못 건다)** · **튜토리얼 맵 5차(2026-09-15, 사용자 결정 — 가까운 벌레 오른쪽 · 포복 입구 1.35 → 1.70(앉은 머리 1.55) · 무너진 벽 → `\` 사선 방벽(콘크리트 + 높이 2.7 블라인드 철조망, 전체 높이 OBB 라 보이지만 총알 · 적 시야 차단, 수류탄이 멈추는 뒤 방벽 `BACKSTOP`) · 함선 (−8.5, −158) yaw −10° · 앞은 끝없는 절벽(`ABYSS_EDGE_Z` −172, `VOID_Y` −100 + `CHASM_FLOOR_Y` −34, `kill` 볼륨) — 이륙이 벽을 뚫지 않는다) · 재해 틱 `hazard` · 전차 충돌 `explosion` 피해 출처** · **튜토리얼 맵 다듬기(2026-09-14 4차, 사용자 결정 — 벌레 구간 반폭 15.4 → **4.6**(`CORRIDOR_BUG_HALF_X`, −70 % · 벌레를 x ±2.5 로 당겨 정면에 세운다) · 포복 천장 기울기를 **뒤집어** 입구 1.35 → 출구 1.95(조각 7장 전부 `PLAYER_CROUCH_CLEARANCE_M` 1.3 ~ `BOX_HEADROOM` 2.1 사이, 슬래브는 **위로만** 2.4 두껍게 — 출구가 트여야 앉아 정조준할 때 카메라가 안 박힌다) · 절벽 2 가장자리 −82 → **−77**(`CLIFF2_EDGE_Z` 하나로 데크 · clamp 볼륨 · 꾸밈이 같은 값을 읽는다, 안드로이드 구간 끝에서 16 → 11 m) + `drop` 체크포인트를 절벽 바로 앞(−71)으로 · **낙사 부활 = 마지막으로 땅에 서 있던 자리**(`TutorialWorld.pollSafeGround` → `respawnPose`, `game/parts/Death` 는 묻기만 한다: `kill` 볼륨 밖 · 데크 윗면 0.4 안 · 절벽 1 **접근 쪽만** `CHASM_RUNUP_M`(12 = `cliff` 체크포인트가 쓰는 그 값) 폭으로 기록 금지 — 코앞에 되살리면 달려 뛰기를 못 해 「다시 떨어지라」가 된다, 이어하기 `gotoCheckpoint` 는 그대로 체크포인트))** · **튜토리얼 맵 3차 개편(2026-09-14 3차, 사용자 결정 — 반폭 22 → **15.4** · 통과 구간 7.7(`CORRIDOR_PROFILE` 만, 포복 틈 2.1 · 무너진 벽 틈 2.5 는 그대로) · 벌레 구간을 26 → 62 m 로 늘려 `Z_END` −129 → **−165** · 절벽 1 이 **사선**(20°, `CHASM_TILT` — 계단식 타일은 안쪽 모서리에서 틈이 좁아져 지름길이 생기므로 회전 OBB 두 장 `Ground.buildChasmEdges`, 축 정렬 `DECKS` 는 사선에서 물러난 자리에서 끝난다) · 포복 슬래브를 기울이고(밑면 1.81 … 1.39 — `BOX_HEADROOM` 2.1 과 `PLAYER_CROUCH_CLEARANCE_M` 1.3 사이) 철근 · 바닥 장식 제거 · 무너진 벽 뒤 안드로이드를 벽에서 14 m 로 물려 수류탄 하나에 둘이 들어온다 · `corpse` 체크포인트 74 → 72(사선 때문에 틈 오른쪽 끝이 옛 띠와 겹쳐 **떨어지는 중에** 건너편 체크포인트를 얻던 구멍))** · **튜토리얼 구간별 통로 폭(2026-09-14 2차, 사용자 결정 — `tutorial/model.corridorHalfXAt(z)`: 통로 11 · 전투 22 · 사이는 계단이 아니라 **깔때기**(회전 OBB, 빈틈 0) · 포복 통과 폭 −30 % · **데크는 안 줄인다**(늘 ±22, 좁은 구간은 벽이 그 위에 선다)라 체크포인트 · 적 · 시체 · 함선 좌표가 하나도 안 움직였다 · 벽 바깥 면은 늘 25)** · **구조물 도달성 2(2026-09-14 — 「비울 자리」는 중심이 아니라 **덩치**로 지킨다: `structures/parts/Build.clearFor(reach) = reach + PLAYER_RADIUS × 2` · 컨테이너는 `CONTAINER_REACH`(`parts/Containers`) 로 **셔플한 뒤** 거른다(rng draw 수 보존). 컨테이너가 밀어내는 띠가 계단 구멍 난간의 띠와 맞닿아 2층 도착 자리가 봉인되던 것 — 연구소 · 전진기지 같은 뿌리, 두 스모크의 조기 종료도 걷어냈다)** · **정보상 기믹 고정(2026-09-14 2차 — `preview.ts` 의 `planLayoutFor` **하나**가 진짜 맵과 미리보기를 함께 만든다(그것이 지도가 거짓말하지 않는 근거다) · `ctx.world.previewLayout` · `LayoutOptions.intel` · 탈출 패드 / 지하 시설(채를 더 세운다 — `maxCount` 초과 허용) / 선로+플랫폼 / 탐사 차량(`ROVER_CHANCE` 신설 — 전에는 배치율 100 % 라 살 것이 없었다) / 둥지 보너스 · 재해 지연 · **draw 는 소비하고 결과만 덮는다**)** · **NPC 퀘스트 사건(2026-09-14 — `world:interacted` = 이 클라이언트가 한 맵 스캐너 · 잠긴 문 · 전차 · 탐사 차량 탑승(문 · 차량은 호스트 확정 뒤, 스캐너 · 전차는 요청 시점) · 구조물/플랫폼/전차 컨테이너의 `crate:open.zoneId/zoneKind`)** · **탐사 차량(2026-09-13, `rover/` — `ctx.world.rover: RoverRef` · 레이드당 1대 · 호스트 권위): 흙길 고리 · 정류장 4–5곳을 선로 다음에 계획하고 뒤 배치가 회랑을 비운다(`RoadPlan` · `roverClearance` — `isSpotFree` · `SiteSpawns`) · 흙길 · 표지 기둥 메시(`RoadMesh` · `StationMesh`, 광원 0) · 안개 `fog:discovered kind 'rover'` · 차량 본체 · 상태 기계 stopped(60 s, 탑승자 있으면 대기)/departing(5 s)/patrol/trip/destroyed · 포탑(이동 중 28 m) · 들이받기 · 재해 피해 ×5 · 체력 2000 · 탑승 E 꾹 · 결제 = `rover:<from>:<to>` · 와이어 `rover`/`roverq` · 요금 식 `model.roverFareFor`** · **거점 스폰 자리(`SiteSpawns.ts`, 2026-09-13 — `getSiteSpawnPoints` · `getRuinSites`: 실내 = 정문에서 몸 반지름 flood fill 로 닿는 층 바닥 · 벽 안 · 잠긴 방 · 지하실 · 옥상 밖(거점마다 한 번 계산해 캐시), 플랫폼 = 데크 위, 폐허 = 바닥판 안 · 실외 = 발자국 바깥 3–14 m · 선로 회랑 밖 · 충돌 없음 · 네 개 안팎 무리로, 시드 결정적 · 생성 rng 무소비)** · **재해 · 탈출 패드(2026-09-13, 사용자 결정) — 재해 종류를 레이아웃보다 먼저(`drawHazardKind`, 같은 `'hazard'` fork 첫 굴림) · 탈출 패드 threat 1/2/3 = 2–3 / 2 / 1–2(`EXTRACTION_PADS_MIN/MAX_BY_THREAT`) · 독성 포자 레이드 = 중앙 강하 · 중앙 군락 · 외곽 패드 2–3 · 폭풍의 눈은 가장 먼 꼭짓점 반경에서 시작(맵 전체가 안전) · 모래 폭풍 · 눈보라 전선은 강하 지점 쪽 가장자리에서 들어오고 벽은 포그를 안 받는다(「못 봤다」 = 추첨이 아니라 노출 문제) · 피해 1→5/s · 시야 · 입자가 진행도로 오른다(`HazardRef.damageMul` — 플레이어 · 고스트 · 적) · 포자 벽 합집합 셰이더 · 착륙 함선 외피용 `addObstacle` 가 `box` 를 싣는다** · **고철 더미 부가 미확인 광물(2026-09-13 — 자기 fork `gather_mineral`, 코어와 둘 다 붙는다 · `Node.bonus` 는 목록, 채집지 추첨은 은퇴 아이템을 거른다)** · **잠긴 문 = 소모형 만능 열쇠(2026-09-12 — 전진기지 지하실 = 열쇠 `key_basement` · 2층이 굴려진 연구소의 2층 잠긴 방 = 키카드 `keycard_lab`(컨테이너 2–3 · 티어 4 위주, 옥상 사다리와 떨어진 좁은 방), 연구소 지하실 없음, 확정 열쇠 없음 · 구조물 컨테이너 부가 굴림 `keyChance` · 문 옆 벽 아래 드론 환풍구 = `resolveCollision(position, radius, height?)` · `previewContainerItems` = 여는 굴림 그대로)** · **구조물 도달성(2026-09-12 — 2층 계단 층계참 1.6 m · 출입구 앞마당 `OPENING_APPROACH` 를 먼저 비우고 지하 계단 · 무너진 틈 · 창을 배치 · 실내 소품 · 컨테이너 · 불시착 함선 콜라이더 = 그린 메시, `smoke-structure-reach` 가 몸 반지름 flood fill 로 검사)** · **야생 씨앗 군락 · 미확인 표본 채집지(`flora.ts` · `specimen.ts` — 행성마다 다른 품종 · 표본, 전용 rng fork 라 기존 배치가 안 흔들린다)** · **행성 상시 환경 질의(`ctx.world.env`)** · 절차 지형 · 바이옴 · 소품/장애물(**콜라이더 = 보이는 실루엣** — 바위 · 첨탑은 **땅 위로 보이는 윤곽**에서 잰다(`Props.footprintOf`), 낮은 것은 `getSurfaceY` 로 **올라선다**) · **상자(허허벌판에는 없다 — 폐허 전초 · 구조물 둘레 · 둥지에만)** · 탈출 패드 · 채집 노드(약초 · **고철 더미**) · **전장의 안개(`ctx.world.fog`)** · **버려진 구조물(전진기지 · 연구실 · 불시착 함선 — 들어간다 · 지하실 · 잠긴 방은 열쇠 · 키카드로 연다 · 지상층 바닥에 계단 구멍이 뚫려 있다 · 컴퓨터로 행성 스캔)** · **선로 · 플랫폼 · 전차(선로 방향으로 길쭉한 차체 · **시동 콘솔은 운전실 안** · 플랫폼 안내판 = **호출 콘솔**(부르기만 하고 출발은 안에서 · **「곧 출발합니다」는 전차 곁 `TRAM_DEPART_NOTICE_RANGE` 에만, 부른 사람은 「호출했다」**) · **콘솔류(전차 · 탈출 · 행성 스캔)에는 감지 빛기둥이 없다(`hidePillar`)** · 도착하면 `idle` 로 서고 **자동 재출발 없음** · 최고 속도에서 치이면 피해 + 넉백)** · **선로 회랑(`RAIL_CLEARANCE_M`) 안에는 아무것도 놓지 않는다 — 그래서 선로를 제일 먼저 잡고 나머지가 피한다** · **환경 재해(`ctx.world.hazard` — 모래 폭풍 · 눈보라 · 폭풍의 눈 · 독성 포자. 6–8분에 시작해 맵을 덮는다 = 사실상 강제 탈출, 눈 지형에는 모래 폭풍 대신 눈보라, 폭풍의 눈 안은 앞이 안 보이고 벽만 또렷하다, 포자는 거대 버섯 군락에서 피어오른다)** · 시뮬레이션 훈련장 · 충돌/레이캐스트 질의(**사각 OBB 콜라이더 `Obstacle.box`**) · **볼록 윤곽 콜라이더(`Obstacle.hull` — 바위 · 첨탑 · 크리스탈 · 잔해, 총알은 높이별 층)** · **경사 계단(`Obstacle.ramp` — 보이는 것은 계단, 밟는 것은 경사면)** · **구조물: 층마다 천장 · 무작위 2층(실내 계단) · 옥상(격벽 사다리 `getLadders` · 해치) · 맵 스캐너는 옥상에만 + 맵 끝까지 퍼지는 파동 · 깨지는 창문(총알 · 투척물만 통과) · 지하실 = 방(계단 복도 끝의 서 있는 문) · 컨테이너 있는 방마다 조명(광원 풀 `STRUCTURE_POINT_LIGHTS`)** · **상자 · 컨테이너의 열린 모습 분대 동기화(`crate opened`)** · **발밑 재질 `getSurfaceMaterial`(`surface.ts` — 11종, 발소리가 고른다)** · **폐허 전초 발견 → 지도** · **달리는 전차가 적 · 끊긴 분대원 몸을 친다(면제는 실제로 그 전차를 탄 몸만 — 선로 발판 위는 치인다 · 대상별 쿨다운)** · **고철 더미 부가 코어(시드)** · **폭풍의 눈은 0 m 까지 닫힌다** · **토양 더미(`GatherNodeKind 'soil'` — 행성마다 나오는 토양이 다르다: `data/planets.csv` 의 `soils` · `soilNodes` 열을 `world/soil.ts` 하나가 읽는다, 전용 rng fork 라 약초 · 고철 배치가 흔들리지 않는다)** · **생성 약 197 ms(같은 시드 결과 바이트 동일 — `noise.ts` 머리 주석의 동일성 검사)** |
-| [`src/enemies/`](src/enemies/README.md) | `EnemySystem` | `ctx.enemies` | **폭발 감쇠 공용화(2026-09-15 3차 — 적 피해 `parts/Damage.explode` · 적 수류탄 · 곡사포탄 · 독성 자폭 · 스퓨어 분출 · 탐사 차량 · 지하벌레 분출이 `shared/explosion` 을 지난다. 기존 하한은 `Math.max` 로 얹어 남겼고 지하벌레는 **넉백만 옛 선형**이다)** · **결과 창 · 튜토리얼 스크립트(2026-09-15 — 적 얼굴 썸네일 `models/Portrait.renderPortrait`(왼쪽 사선, 자기 씬 · 임시 오프스크린 렌더러, 종류 · 크기별 캐시) · `enemyDisplayName` / 적 피해 출처 `enemyDamageSource(id, type)`(개체별 캐시, 실제 EnemyType) · 원격 `dmg.src` · 포탄 주인 기록 / 튜토리얼 벌레 연쇄 스폰(첫 벌레 뒤 `TUTORIAL_BUG_CHAIN_SPAWN_S`) · 구간 어그로 해제(`crawl` → 벌레, `supply` · 절벽 낙하 → 절벽 위 인간형, `Enemy.tutorialReleased`) · 이륙 사격 창(`TUTORIAL_LIFTOFF_FIRE_S` 동안 탑승자 조준))** · **적 화염 지대 피드백 · 인간형 발소리(2026-09-15 — `fx/RogueGrenade` 가 `getFireZones`(재사용 배열, `e:` id) · `fire_ignite` · `fire_crackle`, 권위 틱이 지대 안 드론을 태운다, `data/enemies.csv` 로그 · 레이더 `stepSound` true + `STEP_VOICES.rogue` — 로든 · 스캔 드론은 조용히)** · **튜토리얼 시체가 사라지던 것(2026-09-14 4차 — 고정 드롭이 「적용 안 된」 것이 아니라 **뒤지기 전에 없어졌다**: ① `CORPSE_LIFETIME` 45초에 튜토리얼 예외가 없어 안내를 읽으며 걷는 속도에서 사라졌다 → `EnemySystem.corpseLifetime`(튜토리얼이면 `Infinity` — 튜닝값이 아니라 규칙이라 csv 센티넬을 만들지 않았다) 하나가 몸(`Pool.acquire` → `Enemy.corpseLife`)과 수색 자리(`CorpseManager.lifetime`) 양쪽에 주입된다, **본편 45초 불변** · ② 굴착 중 죽으면 `Enemy.animate` 가 `emergeT` 를 얼려 리그가 **땅속에 묻힌 채** 남았다(등록 좌표는 처음부터 옳았다) → 죽어도 마저 솟는다(`worm` 만 예외), 본편 굴착 스폰 공통)** · **튜토리얼 전용 적 · 구덩이 스폰 · 사격 보류(2026-09-14 3차 — `EnemyTypes.baseTypeOf()` 하나로 `tut_*` 4종이 바탕 종류(`scavenger` · `android`)의 리그 · 겉모습 · AI · 소리를 그대로 쓴다(타입별 표에 줄을 더하지 않는다) · 안드로이드 체력 절반 · 드롭은 csv 고정(확률 1 아니면 0 뿐이라 draw 수가 늘 같아 드론 스캔 미리보기와 저절로 일치) / 튜토리얼 벌레는 `TutorialPlacement.ambush` 에 담아 뒀다가 **그 마리의 자기 감지 반경** 안에 들어서면 기존 굴착 스폰으로 솟는다 — 좌표가 코드에 없다 / `ai/Common.holdingFire` = `ctx.extraction.holdFire?.()` 를 `ai/FireLine` · `parts/Attacks.fireGun` · `startMelee` 셋에서 본다 — 사선이 막힌 것과 **똑같이** 처리)** · **빗나간 총알에 반응 — 게임 전역(2026-09-14 2차, 사용자 결정 — 새 개념 없음: Phase 12 의 `reportShot` → `parts/Alerts.alertShot` → `ai/Investigate`(원점을 바라보고 → 전진 → 콘 안 감지 ×2) 배관에서 **튜토리얼 예외를 지운 것**이 전부다 · 탄도선을 총 사거리(최대 300 m)가 아니라 **탄착까지**로 자른다 · 조사에도 `homeLeash` · 은신은 총성 55 m 가 정하지 탄도선 6 m 가 정하지 않는다 · 무리 전파 없음)** · **네임드 지정(2026-09-14 2차 — `ctx.missionIntel.namedId` 가 있으면 등장 · 종류 굴림을 **소비한 뒤** 결과를 덮는다, 자리 굴림 그대로. id 는 `NAMED_ROGUE_TYPES` = `rogue_sniper` · `rogue_hammer` · `rogue_heavy`)** · **막타 총기 계열(2026-09-14 — `Enemy` 가 마지막 로컬 타격 계열을 기록 → `enemy:killed.weaponClass`, 비호스트는 호스트의 `kill` 을 받을 때 자기 마지막 요청의 계열, 지속 피해 · 비총기 = null)** · **벌레 난이도(2026-09-14, 사용자 결정) — 행성 threat 별 벌레 최대 체력 ×1 / 1.2 / 1.4(`parts/Pool.acquire`, 리플리카 공용 · 지하벌레 · 인간형 · 훈련장 제외, 와이어 없음) · 대형 벌레 비중(차저 · 베헤모스 · 포병 가중치 · 대형 슬롯 · 포병 굴착 확률 × 1 / 1.4 / 1.9, 워리어 · 스퓨어 × 1 / 1.15 / 1.3) · threat 3 순찰 베헤모스 · 포병 / 베헤모스 상한 +0 / 1 / 1 — `tables.csv` 6표 · `factionTables.bugThreatTuning`** · **탐사 차량(2026-09-13) — 탑승자(`roverRide` · `IN_ROVER`)는 표적 · 피해 대상이 아니다 · 차량 프록시(`TargetList`, 거리 = OBB 가장자리) · 포탑/들이받기에 맞으면(`ROVER_DAMAGE_SOURCE` → 크레딧 없는 `'ai'`) 12 s 어그로 + 무리 전파 · 움직이는 차량은 청각/시야, 서 있는 차량은 14 m + 시야 · 근접 · 사격 · 산성 · 적 폭발 · 지하벌레 분출이 `rover.damage` 로 · 네임드 저격 자리가 흙길 회랑을 피한다** · **행성별 인간형 팩션(2026-09-13 — 적대 팩션 넷 `bug` · `rogue` · `android` · `raider`, 난이도 = 행성 threat: 1 = 안드로이드 · 2 = 로그 65 % / 레이더 35 % · 3 = 레이더만 · `SiteGroups` 거점 점거(연구소 · 전진기지 실내 + 실외, 플랫폼 60 % · 폐허 20 %(바깥 거점 그룹 2–3명 — 시작 인간형 19–27명), 상자 경비 폐지, 로그 분대장 = 그룹장 레이드당 ≤ 1 · 40 %, 레이더 그룹마다 우회조 1명) · 레이더 강하 두 파도(1인 3 · 2인 3→2 · 3인 3→3 · 4인 4→3–4, 파도당 ≤ 4) · 네임드 = 레이더 팩션 threat 표 0 · 25 · 50 % · AI 프로필 `ai/HumanoidProfile`(안드로이드 엄폐 · 투척 없음 / 로그 거리 명중 곡선 · 공격적 점사 / 레이더 원거리 정확 · 긴 투척 · `ai/SquadFlank`) · 수류탄 실제 보유분 1–3 · 적 소이 화염 지대 · `Enemy.isHumanoid` 가 옛 `isRogue` 의 인간형 쓰임을 대신한다 · 안드로이드 · 레이더 외피 `models/FactionLooks` · 안드로이드는 피 대신 불꽃 · 시체 전리품 입력 `ee corpse.si/gc/gk`)** · **버그 굴착 스폰(2026-09-13 — 순찰 · 포병 · 분출 무리가 1 s 땅에서 솟는다, 맞지만 공격 · 이동 없음 · 흔들림 중복 없음 · `ee spawn.em`)** · **지하벌레 이벤트(`sandworm/Director` — threat 2 낮음 · 3 높음 시드 굴림, 레이드당 1회, 멀티는 모인 2명 이상 무리 한가운데, 5 s 전조 → 분출 피해 · 넉백 → 30 s 버그 뱉기 → 뿌리박힌 채 독극물, 체력 2000–3000 호스트 굴림, 보스 시체, `wormWarn`/`wormErupt`/`wormSpit` + 재접속 재동기화, 콘솔 `worm`)** · **탈출 디펜스 웨이브 트리거 제거(`WaveDirector` 는 남음)** · **시체 굴림 시드 = `shared/lootRolls.corpseLootRandom`(드론 스캔 미리보기와 공용, 2026-09-12)** · 버그 5종 + 휴머노이드 로그 AI · 포병(**사거리 −30 % · 비행 −50 % · 리본 궤적 · 궤적 높이는 `SHELL_ARC_GRAVITY`(정점 9.9 m) — 화면 안으로 날아온다**) · 베헤모스 · 팩션 · 시체 루팅 · 상태이상 · 총알 추적 · **지형지물 접지(`getSurfaceY`) · 대형 적 스폰 여유** · **레이더 강하(옛 로그 강하 — 구조물 조사 → 구역당 1회 · threat 확률 · 분대 인원별 두 파도 · 구조물로 진격)** · **벽에 붙은 채로 쏘지 않는다(`ai/FireLine` — 총구 기준 사선, 막히면 사격만 보류하고 스트레이프)** · **탈출 웨이브도 분대 인원 비례(`WAVE_SQUAD_SCALE`)** · 호스트/리플리카 동기화 · **네임드 로그(레이드당 최대 1명, `named/Director` — 로든 = 개활지 엎드려쏴 · 스캔 드론 음파 5회 → 4회 이상 노출된 플레이어를 저격 150 · 감지 90 m 안은 드론 없이 거리 비례 명중률 · 반드시 조준경 반짝임 전조 · 플레이어만 쏜다 / 타길라 = 구조물 곁 · 망치 초당 50 · 체력 ×10 · 짧은 돌진 / 헤비 = 미니건 + SMG 호위 3–6명 · 사선 열리면 회전 → 연사, 와이어는 `ee spray` on/off 뿐)** · **적 ↔ 드론(`TargetList.drones` — `aggroable` 드론만 노린다 · 걷는 지상 드론은 무시 · `world:noise` 로 조사 · 적 폭발이 드론에 닿는다)** · **적 · 적 시체 전차 탑승(`ai/Ride` — 리플리카는 속도 이력으로 예측)** · **재해 구역 안 적에게 조용한 피해** · **비호스트 넉백 요청(`HitRequest.kb`)** · **곡사포 사전 검사 재배치** · **`ee acidAt` · 산성이 다른 팩션 적에게도** · **타입별 소리 표(`meleeHitSound` · `stepSound`) · 적 발소리 = 재질 · 거리 곡선 · 리플리카도 발소리** · **엎드린 로든 = 눕힌 캡슐 판정(레이 · 근접 공용 `RayTests.nearestOnCapsule`) · 승격 시 스캔 드론 입양** · **적도 전차 하차 관성(플레이어와 같은 상수) · 리플리카 탑승 예측은 차량 속도 이력** · **분대원 킬 `enemy:squadKill`(호스트 권위 킬에서 파생) · `ee` 는 로비 호스트가 보낸 것만 · `hit` 요청 보낸 사람별 DPS 상한 · 넉백은 보낸 사람 거리 검사** · **`explode` · 상태이상 요청도 가드를 지난다(E-8 — 좌표 · 보낸 사람 · 거리 · 요율, `explode` 는 `hit` 과 같은 DPS 버킷 · `st` 는 비트 마스크 + 짧은 사거리 + 전용 버킷)** |
-| [`src/extraction/`](src/extraction/README.md) | `ExtractionSystem` | `ctx.extraction` | **드랍쉽 동일평면 셋(2026-09-15 2차 — 함선 원점이 지면 위에 있어 로컬 y 0 에 그리는 것은 무엇이든 발밑 지면과 같은 평면이다: 바닥 판 · `hullBelly` · 지면이 y 0, 라이닝 벽 · 옆판이 x ±1.6, 천장 · 지붕이 y 2.6 — `BAY_FLOOR_LIFT` 0.025 · `HULL_SKIN_GAP` 0.01 로 갈랐다. **`floorYAt` · `BAY_HEIGHT` · `Hull.ts` · 실루엑 · 광원은 무변경**)** · **튜토리얼 이륙 · 건너뛰기(2026-09-15, 사용자 결정 — `holdFire` 해제 · 이륙 탑승자 `setSceneLock(true, {allowDamage, minHp: 1})` = 처치 안 한 안드로이드에게 맞되 죽지 않는다 · 뜨는 순간 외피 콜라이더 제거 · `skipToComplete()` = 연출 없이 `extraction:liftoff` 한 번 → 곧장 결과 화면)** · **드랍쉽 그리블(2026-09-15 — `ShipGreebles` 가 외피 패널 이음새 · 리벳 띠 · 환풍구 · 해치 · 배관 · 안테나 · 엔진 리브를 재질별로 병합(+4 드로우콜 · 새 셰이더 없음), 실루엣 · `Hull.ts` · 데크 무변경, 선체에 묻혀 있던 착륙등을 밖으로)** · **튜토리얼 함선은 스위치를 누르면 즉시 뜬다(2026-09-14 3차, 사용자 결정 — 실내 스위치가 10초 유예 대신 `skipToLiftoff()` 를 **그대로 재사용**하고(실패하면 평소 유예로 폴백) 탑승자를 태우는 자리에서 `setSceneLock(true)`(나갈 수도 죽을 수도 없다) · `holdFire()` = 이륙 중 ∧ 튜토리얼 · 도착 토스트는 `extraction:shipLanded` 를 **내지 않는 것이 아니라** ui 가 `missionMode` 로 그 문장만 거른다 — 함선 마커 · 음악이 같은 이벤트에 매달려 있다)** · **`skipToLiftoff()`(2026-09-14 2차, 사용자 결정 — 튜토리얼 건너뛰기 = 즉시 탈출. 걸어가서 타는 것만 건너뛰고 몸을 화물칸에 세운 뒤 유예 없이 평소 `liftoff()` 로 간다 — 이륙 연출 · 결과 화면 · 정산 · 함선 획득이 **새 갈래 없이** 흐른다. `missionMode !== 'tutorial'` · 함선이 없거나 이미 이륙 중 · 태울 몸이 사망 · 전투불능이면 false)** · **탈출 개편(2026-09-13, 사용자 결정) — 디펜스 웨이브 없음 · 호출 **20초** · 착륙 외피 = 월드 사각 콜라이더 8개(`Hull.ts`) + 적 전용 입구 차단(`ctx.extraction.keepEnemyOut`) · 착륙 60초 무응답 자동 / 스위치 → **취소 불가 10초 유예**(유예 중 탑승 · 하차 가능) → 함선 안에 살아 있는 사람만 이륙(외부 카메라 연출 `Cinematic.ts` · `ui:cinematic` HUD 페이드) · 남겨진 사람은 레이드를 계속하고 `extraction:reset` 뒤 재호출(탑승자는 결과 화면 뒤 `leaveMission` → 분대장 이관, 전원 떠나면 전원 종료) · 화물칸 시체는 데크에 붙어 함께 떠난다** · 탈출 콘솔(**평상시 빛기둥 없음 — 활성화 뒤에만 켜진다**) · 카운트다운(`EXTRACTION_COUNTDOWN`) · 함선 착륙/탑승/이륙(**뒷문 자리는 실제로 뚫려 있고 램프만이 막는다 · 탑승하면 데크 평면을 따라 함선과 함께 실려 올라간다**), 호스트 권한 | 
+| [`src/world/`](src/world/README.md) | `WorldSystem` | `ctx.world` | Procedural terrain · biomes · props (convex-hull colliders) · collision/ray/surface queries · crates · gather nodes · fog of war · abandoned structures (floors · stairs · roof · locked doors · windows) · rails/trams · rover · hazards · site spawn points · intel layout preview · training range · tutorial planet |
+| [`src/enemies/`](src/enemies/README.md) | `EnemySystem` | `ctx.enemies` | Bugs · humanoid factions (android · rogue · raider) AI · spawns/site occupation/drops · named rogues · sandworm · artillery · corpse looting · status effects · enemy explosions · reactions to shots · host/replica sync + request guards · tutorial enemies |
+| [`src/extraction/`](src/extraction/README.md) | `ExtractionSystem` | `ctx.extraction` | Extraction console · call countdown · ship landing (hull colliders, enemy entry block) · boarding · non-cancellable grace · liftoff cinematic; host-authoritative |
 
-### 3.4 아이템 · 인벤토리 · 메타
+### 3.4 Items · inventory · meta
 
-| 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
+| Folder | System | Publishes on `ctx` | Responsibility |
 |---|---|---|---|
-| [`src/items/`](src/items/README.md) | (데이터) | `ctx.loot` | **가젯 개편 · 설명에서 수치 빼기 · 루팅 카테고리 분리(2026-09-15 2차, 사용자 결정 — `ItemText.ts` 설명 인라인 마크업 `{em}` · `{dim}` · `{br}` · `ItemSpec.ts` 의 `itemSpecRows(def)` 가 **두 툴팁이 함께 쓰는** 스펙 줄(맨 위는 언제나 `사용 시간`, 값이 조각 목록이라 숫자만 흰색) / `Salvage` 의 수리 · 분해 대상이 카테고리 목록 → 술어 둘(`isRepairable` · `isSalvageable` + `wearsDurability` = 내구도가 있는 가젯만 — `'gadget'` 을 통째로 넣으면 내구도 없는 연막탄 · 드론까지 분해 레시피가 생긴다) / ⚠ **루팅 추첨의 카테고리 축은 `ItemCategory` 가 아니다**: `LootCategory = ItemCategory | 'grenade'` · `lootCategoryOf(def)` — `'grenade'` 폐지로 `loot_category_weights.csv` 의 그 줄 5개가 **아무 아이템에도 안 맞는 유령 카테고리**가 됐고, `pickDef` 가 null 을 돌려주면 채우기 루프가 `break` 라 **상자가 통째로 잘렸다**(티어 1 약 13 % · 티어 5 약 23 %). 축을 분리해 가중치 · rng 소비를 그대로 두었고, 로더가 카테고리 이름을 **검증**하며 후보 없는 카테고리는 이제 상자를 자르지 않고 **그 카테고리만 빼고 다시 뽑는다**)** · **전설 무기 이름 = 별명 하나(2026-09-15, 사용자 결정 — `인페르노` · `테슬라 코일` · `카게` · `롱혼` · `해머헤드` · `사이클론`, 옛 `「롱혼」 컴포짓 보우`) · 전설 탄약 무게 절반 + 표창 한 칸 30 · 화살 한 칸 15** · **`grenadeFire` 열(2026-09-15 — `items.csv` → `ItemDef.grenadeFire`, G-10 소이 수류탄만, 수류탄이 아닌 줄이 켜면 로더가 알린다)** · **총기 밸런스(2026-09-14, 사용자 결정) — 등급 조작감 배수 `WEAPON_GRADE_HANDLING_MUL`(I ×1.6 … V ×1.0 — 퍼짐 · 반동 · 정조준 시간 · 흔들림) · 계열별 소켓(`weapons.csv` `sockets` → `stats.sockets`, SG 총구(초크) · 탄창 · 조준경 / SMG 개머리판 없음 / DMR · SR 총구 · 탄창 · 조준경) · 계열별 정조준 시간 · 탄속 · 낙차 · 연사 퍼짐(`bloomDecay` 포함) · 등급별 연사(SMG · SG) · SMG · SG 피해 ↑ + 거리 감소 가파르게 · SG 전 구간 +20 % · AR 약한 기본기 · DMR 반동 ↑ · 개머리판 흔들림 ×0.65 · 손잡이 ×0.8 · 새 희귀 부착물 확장 총열 `att_barrel_ext`(낙차 ×0.6 · 거리 감소 완화) · `damageFalloffStats` · 규칙 밖 부착물은 효과 없음(`fittingAttachments`) · 유니크 미니건 340 m/s** · **서재 매체 = 시리즈 권(2026-09-13 — `book_<시리즈>_<권>` · `disc_…` · `record_…`, 책은 등급 없이 권이 가치를 정한다, 행성에 묶인 드롭 + 권 가중치 `LIBRARY_VOLUME_DROP_WEIGHT`, 레코드 · 게임 디스크 · 게임기는 threat 2 이상, 레시피 책 요리 4종, 게임기 3 · 게임 디스크 9, `getItemDef` · `createItem` 이 옛 id 를 푼다, 상점 판매 제거)** · **팩션 시체(2026-09-13 — `loot_factions.csv` · `loot_faction_sites.csv`: 안드로이드 총 I 95 · 실드 충전기만 / 로그 85 · 14 · 1 · 방탄복 5 % · 가방 3 % 최대 고급 · 회복 1회 40 % / 레이더 50 · 45 · 4.5 · 0.5 · 연구소 = 씨앗 · 표본 · 전진기지 = 등급 교체, 남은 수류탄 그대로, 방탄복 · 가방 낡은 것, 행성 상한 유지 · `rollCorpseOn(…, opts)`)** · **요리 재료 티어(2026-09-13 — 표본 3종 `spec_cell` · `spec_mineral` · `spec_dna`(`SampleDef.family`) · 소켓 14종(`data/sockets.csv`, category `socket`) · 세포 8 · 식재료 16 · T2–T4 요리 11종(`meals.csv` `effects` = 능력치 여러 줄, 티어 n = n줄) · 흙/배지 `durability` · 세포주 스캐폴드 산출 · `ItemDef.retired`(옛 표본 11 · 옛 세포주 5 · `cult_*` 5 · 특선 요리 4 — 정의만 남고 모든 출처에서 빠진다, `LootTables` 안전핀 + `data:check` 참조 검사))** · **전투 소모품 3종(2026-09-12 — 아드레날린 주사 일반 · 각성제 고급 · 안정제 희귀, `items.csv` `boostEffect` · `boostUseTime` · 의학 작업대 Lv.1–3 · 상자 · 로그 시체 · 세레스) · 열쇠 · 키카드(서사 · 1×1 · 스택 없음 · 상자 T3–4 · 구조물 컨테이너 · 로그/네임드 시체 · 노마드 신뢰도 3)** · **디스크 · 레코드 숙련 14종씩(2026-09-12 — `data/discs.csv` · `records.csv`, 2×2 · 3×3, 등급 = 같은 숙련의 책, 상자 티어 2–4 / 3–4 + 세레스 상점)** · **요리 10종(`data/meals.csv` — 대단계 버프 하나씩, 버프 이름은 `DerivedStats` 의 필드명) · 주머니 4종(`ItemDef.pouch` — 받는 카테고리가 격자를 거절한다) · 열쇠(`key`) · 세포주 5종 · 배양 산물 5종 · 영양 배지 2종 · 필라멘트 3등급** · **미확인 표본 11종(`data/samples.csv` — `spec_*`, 분석기 전용 · 제작도 상점도 없다) · 준비물 2종(`prep_*` — `prepEnv`/`prepShort`) · 성분 2종 · 작물 8종 · 토양 6종** · 무기 6계열 × 등급 I–V · 탄약 · 부착물 · 가방 · **방탄복(= 실드 20/40/60/80/100)** · 회복 소모품 · **실드 충전기 3종** · 씨앗(**10종 · `soilTag`**) · **토양 4종(`ItemDef.soil` — 속성 태그 + 수확 횟수, 채집 전용이라 루팅 · 상점에 없다)** · **작물 8종(판매 · 세레스 납품 · 추출기 · **조리대** 네 곳이 소비처다)** · 서적 · 임플란트 아이템 · 루팅 테이블 · **제작(`data/recipes.csv` — 상위 재료 5종 · 정제 · 추출 · 조합 · **조리 · 프린터** 작업대 · 무기 25종 전부. 희귀 · 서사 · 전설 가방은 **프린터 + 필라멘트**로 옮겨 갔다 — 수리비 · 분해도 같이 움직였다) · 분해/수리(`data/salvage.csv` + 제작 재료 × 내구도 20 % 5구간 배수 — 「제작 → 분해」 무한 이득이 없다는 것을 `data:check` 가 매번 검산한다)** · **가젯 아이템 3종 추가(원격 지뢰 · 지상 드론 · 공중 드론 — 가젯 작업대 Lv.2/2/3, 공중 드론은 상위 재료) · 네임드 확정 드롭(`data/loot_named.csv` — 로든 = 저격소총 III–V 85 %, 타길라 = 방탄복 III–V 85 %, 헤비 = 유니크 미니건 80 %, 내구도 1–5 %, 행성 등급 곡선 무시)** · **가방 내구도(100 · 레이드당 소모 · 0 = 효과 없음, 수리 대상)** · **상위재 상자 비율 T3–5 = 5 · 10 · 15 %** |
-| [`src/inventory/`](src/inventory/README.md) | `InventorySystem` | `ctx.inventory` | **창고+가방 한 패널 · 필터 드롭다운 · 제작 UI 개편(2026-09-15 3차, 사용자 결정 — 어느 화면에서든 `.inv-panel-grids` **한 카드** 안에 창고 왼쪽 · 가방 오른쪽이고 칸마다 자기 스크롤 · 자기 정렬 · 자기 필터(`STASH 함선 창고` 라벨 삭제 · 장비 열이 두 격자 사이 → **카드 왼쪽**) · 필터 칩 줄 → **정렬 버튼 오른쪽 네이티브 드롭다운**(`buildFilterSelect` — 직접 그린 목록은 스크롤 상자에 잘리지 않으려면 `position:fixed` 여야 하고 바깥 클릭 · Escape 를 스스로 먹어야 하는데 **그 Escape 가 인벤토리 창을 닫는 키**다) · 제작 = **왼쪽 썸네일 4칸 격자(`.inv-craft-cell`) + 오른쪽 상세(`.inv-craft-detail`, 옛 `.inv-craft-row` 이름을 함께 갖는다 — 튜토리얼 선택자)**, 상세의 설명 · 스펙은 `ui/Tooltip` 카드를 그 자리에 붙여 쓰고(클래스만 `.inv-tt-card` — `.inv-tooltip` 이면 DOM 앞이라 떠다니는 카드를 찾는 `querySelector` 를 가로챈다) 「재료 부족: …」 글자 줄 없이 재료 썸네일만, 수량은 `지금 목표 / 최대`, 빈 작업대는 가운데 한 줄 · **산출물은 함선이면 창고 먼저 · 차면 가방**(현장은 가방만 — `parts/Crafting.addCraftOutputs` 와 `roomForOutputs` 가 **같은 순서**를 본다) · **분해 산출도 같은 길**(`break_*` 가 `updateCraft` 하나를 탄다) · `CatalogView.setOpen` 이 검색창에 포커스 · `CraftDetail` 은 `CraftDetailHandle` 로 공개)** · **홀드 버튼 키캡(2026-09-15 2차 — `.inv-craft-btn` 라벨 `길게 눌러 제작` → **`제작`** + 좌클릭 홀드 키캡(비활성 줄은 숨긴다) · `min-width` 132 → 124px · 분해 확인 버튼에도 키캡 · 안내 줄 삭제)** · **유니크 무기 종류 표기(2026-09-15 — `labels.weaponClassLabel` 이 `UNIQUE_WEAPON_LABEL_KO`, 툴팁 부제 `컴포짓 보우 · 전설`, 활은 `장전` 줄 없음)** · **빠른 이동 뒤 남는 툴팁 수정(2026-09-15 — 커서 아래 타일이 DOM 에서 떨어지면 `pointerleave` 가 오지 않던 것 → `InventoryUI.validateHover` 가 `refresh` 끝 · 조작 다음 프레임에 마지막 포인터 위치로 확인) · 툴팁 고정 링은 진행도 25 % 부터(`TipPin.RING_SHOW_AT`)** · **Tab 은 기상 연출이 끝날 때까지 가방을 안 연다(2026-09-14, `PlayerRef.introWaking`)** · **함선 제작은 창고 재료를 쓴다 · `모두 수리` 이사(2026-09-14 5차, 사용자 결정 — `craftCountDef`(함선 = 가방 + 함선 창고 · 레이드 현장 = 가방) 하나가 `canCraft` · `maxCraftCount` · 제작 창 보유 칩의 원본이고 `consumeFor` 가 함선에서 `consumeDefAll` 로 뺀다(게이트는 수리와 **같은 「함선인가」 판정**) · `benchRepairRows` 가 장비칸 · 가방에 더해 **주머니 · 퀵슬롯**까지(창고 제외 — 수리는 들고 나갈 장비를 손보는 일이다) · `모두 수리` 버튼이 작업대 헤더 → **가방 필터 칩 줄 맨 왼쪽**(`.inv-bag-tools` · `.inv-repair-open-btn`, 레이드 중 숨김) · 필요 아이템 줄 `.inv-craft-costs` 에 `data-tip-anchor="left"`)** · **제작 버튼 너비 고정(2026-09-14 3차 — `.inv-craft-btn` `min-width` 96 → 132 px. `길게 눌러 제작`(≈ 114 px)이 `제작 중…` 으로 바뀌며 96 px 로 클램프돼 18 px 좁아졌고, 누르고 있던 커서가 버튼 밖으로 나가 홀드가 풀렸다. `.inv-dis-btn` 은 뒤 규칙이 `width:100%` 로 덮어 영향 없음)** · **더블클릭 = 빈 자리가 있으면 곧장 그리로(2026-09-14 2차, 사용자 결정 — 격자마다 달랐던 세 갈래가 `parts/DropResolver.tryAutoPlace` 한 벌: 빈 장비칸 → 빈 임플란트 칸 → 빈 퀵슬롯. **이미 장착한 것은 절대 조용히 밀어내지 않는다** · 상자 · 시체에서 곧장 간 것은 그 칸이 번쩍이고 창고만 토스트 · ⚠ **가방의 `equipTargetFor` 교체 폴백은 그대로**(빼면 주무기 두 칸이 다 찬 상태에서 거부음이 난다) · 튜토리얼 중 임플란트 칸 숨김)** · **격자 칸 크기의 단일 원본 = `ui/labels.CELL`(2026-09-14, 사용자 결정 — 창 높이별 사다리 `data/tuning.csv` `INV_CELL_*`: ≤ 800 px → 40 · ≤ 900 px → 46 · 그 위 54, `syncGridCell()` · `applyGridCellVar()` 가 `--inv-cell` 을 인라인으로 덮으므로 CSS 에 미디어 쿼리가 없다 · `GridView.setCell` + `InventoryUI` resize, 1920×1080 배치 무변경 · `.inv-bag-scroll` 예산은 무변경)** · **준비 중 읽기 전용(2026-09-14 2차 — `readOnlyReason()` **한 곳**이 게이트이고 `HubRef.launchReady` 를 본다 · 변경 진입점 전부 거절 + 토스트) · `.inv-hints` 제거(우하단 KeyGuide 와 중복) · 상자 더블클릭 폴백은 토스트 대신 칸 플래시(`.is-flash`) · 창 세로 정렬 `safe center` + 줄어드는 균형 칸** · **툴팁 고정(2026-09-14 — `ui/TipPin`: 타일을 1초 가만히 누르면 커서 링 `ui:cursorHold` → 고정 카드 + 우상단 마름모, 바깥 누르기 · 마름모 · Esc · 창 닫기로 해제 · 가방 · 창고 · 장비칸 · 휠 · 주머니 · 상자 창 · TradeGrids 전부) · 고정한 무기 카드의 소켓 호버 = 부착물 카드 · 끌어내기 = `detachSocket`(`parts/SocketDetach`, 막힌 칸은 거절 · 상자 무기는 호버만) · 무기 툴팁 소켓 줄 가운데 정렬 · 받는 소켓만(핍 포함) · 내구도가 있는 모든 타일에 초록→노랑→주황→빨강 게이지(숫자 없음) · 로드할 때 규칙 밖 부착물을 떼어 창고(레이드 blob 은 가방)로(`parts/SocketRules`)** · **서재 「아직 안 꽂음」 띠(2026-09-13 — `parts/ShelfWanted` ← `isShelfItemWanted`, 즐겨찾기와 같은 띠 하나) · 옛 아이템 id 변환(`Serialize.reviveItem`) · 연구실 작업대 제작 = 연구 경험치 + 재료 환급 굴림** · **요리 품질(2026-09-13 — `ItemInstance.quality` 가 스택 열쇠에 들어가 품질이 다르면 합쳐지지 않는다 · 나누기 · 창고/로드아웃/레이드 저장(`SavedExtras.q`) · 픽업/시체 와이어 `q` · 타일 ★n 배지 · 격자 툴팁 품질 · 조리 순서 줄 · `parts/MealQuality`(`countDefQualityAll` · `consumeDefQualityAll` · `getMealStacks`) · 조리 API `cookBlock` / `completeCook`(가방 → 창고 소모, 산출물 창고 먼저) · 조리대 레시피는 일반 제작 창 · `canCraft` · `craft` 에서 빠졌다)** · **2026-09-13 — 창고 패널 높이 = 가방 패널 높이 · 작업대 목록은 같은 시설(방 용도, `furniture.csv` `room`)끼리만(작업실 = 빠른제작 + 총기 · 장비 · 가젯 · 의학 · 가공 / 연구실 = 추출기 · 조합대 · 3D 프린터 / 주방 = 조리대, 하나여도 표시) · 무한 상자는 창고 + 가방만(장비 · 퀵슬롯 · 주머니 숨김, 드롭 대상도 아님) · `TradeGrids` 가 창고 · 가방을 따로 된 카드로 그린다(`layout: 'split'`) · 떠날 때 경고 훅(`EmbeddedView.requestLeave`)** · **즐겨찾기(`parts/Favorites`, 2026-09-12 — 종류(def) 단위 · 로드아웃 문서 `fav` · `isFavorite` / `toggleFavorite` / `inventory:favoritesChanged`, 파란 사선 띠(필요 탄약 노란 띠는 그 아래) · 정렬 앞 · 필터 칩 · 분해 확인 · 루팅 창 글로우) · 우클릭 = 모든 아이템 메뉴(빠른 이동 · 즐겨찾기 — TradeGrids 포함) · 더블클릭 = 빠른 이동(장착 · 퀵슬롯 등록 예외) · 드론 스캔 미리보기(`parts/Peek` — 여는 경로와 같은 굴림 · 같은 채우기)** · **가방은 전부 가로 5칸 · 틀은 가장 긴 가방 높이로 고정(`BAG_FRAME_ROWS` — 빈 줄은 드롭 대상 아님, 작업대 제작 중에는 틀을 끈다) · 자동 정렬(`parts/Sort`, 카테고리→등급→크기) · 필터 칩(딤드) · 같은 아이템 퀵슬롯 합치기 + 넘친 수량은 커서에(`DragState.held`) · 이동 애니메이션 없음 · `buildItemTile`(2026-09-12)** · **준비물 사용(우클릭 — `progression.usePrep` 에 **먼저 묻고** 성공할 때만 아이템을 뺀다) · 출격 점검의 `noEnvPrep` 경고(막지 않는다)** · **주머니(장비칸 1칸 · 퀴슬롯 아래 별도 격자 — `PouchDef.accepts` 밖은 거절하고, 벗을 때 내용물이 가방에 안 들어가면 이동 자체를 거절한다)** · 디아블로2식 격자 모델 · 가방/장비(**주무기 I · II · 가방 · 방탄복 · 주머니**)/**임플란트 칸**/**퀵슬롯(= 또 하나의 가방 공간, 올리면 격자에서 사라진다 · 상자 · 창고와 곧장 오간다)** · 함선 창고 · **사망 시 전량 시체로(`stripForCorpse`) · 컨테이너별 격자 크기** · 컨테이너 감정 · 소켓 · 제작(**1초 홀드 · 한 칸 산출물 썸네일 · 제작 수량 ◀▶ · 넣을 자리 없으면 버튼 잠금(가방 → 창고) · 만들 수 있는 항목이 위로 · 작업대를 열면 그 작업대 레시피만**)/**분해 · 수리(둘 다 남은 내구도 20 % 5구간을 탄다 — 팝업이 구간과 배율을 적는다)** · 출격 준비 점검 · Tab 화면(인벤토리/캐릭터/기업/함선) · **무기 툴팁 = 2×2 게이지(대미지 · 연사 · 반동 · 사거리, 소켓 보너스 초록 · 반동 감소 초록 윤곽) + 우상단 탄종 썸네일 + 소켓 썸네일 한 줄**, **탄약 요청은 장착 무기 휠클릭 (`탄약 필요: <탄종>`)** · **사망 시 장착 임플란트의 망가진 짝도 시체로 · 시체 격자는 모자라면 행을 늘리고 컨테이너 창이 세로로 스크롤한다(드래그 가장자리 자동 스크롤 · 잘린 행은 드롭 대상이 아니다)** · **같은 컨테이너 재오픈은 무시** · **툴팁에 내구도 구간 한 줄** | 
-| [`src/pickups/`](src/pickups/README.md) | `PickupSystem` | `ctx.pickups` | 월드에 떨어진 아이템 (투척 궤적 · 절차 메시 · 호스트 권한 동기화 · **빛기둥 없음 · 착지 = `getSurfaceY`** — 2026-09-11 · **요리 품질 와이어 `q`** — 2026-09-13) |
-| [`src/meta/`](src/meta/README.md) | `MetaSystem` | `ctx.meta` | **메신저 읽음 시각 질의(2026-09-15 3차 — `NpcQuests.readAtOf(npcId)` = `contacts[id].readAt` 을 그대로 돌려준다. 기록 · 저장 · `markRead` · `unreadTotal` · `npc:unreadChanged` 는 무변경)** · **창고+가방 한 카드(2026-09-15 3차 — `CorpView.makeInvCards` 가 카드 하나 · `createTradeGrids` 한 번, `fitLayout` 이 그 카드만 격자 칸 수를 **합**으로 잰다(`gridColsIn(…, 'sum')`) — 두 격자가 나란히 서므로 카드 폭이 둘 다와 함께 자란다. 넓은 쪽 하나만 재면 나머지 격자 폭이 고정 몫으로 잡혀 칸 크기를 바꿀 때마다 어긋난다)** · **홀드 버튼 키캡(2026-09-15 2차 — `.cv-confirm` · `.cv-ask-ok` 안 좌클릭 홀드 키캡 · `.cv-ask-hint` 삭제 · ⚠ `.cv-confirm` 의 `textContent` 는 `LMB거래 성사` 라 라벨은 `.cv-confirm-label` 로 읽는다)** · **NPC 첫 연락 3단 · 진행 플래그 · 「생각해볼게」 은퇴(2026-09-14 3차, 사용자 결정 — `evaluate()` 가 `introAfter` 를 가진 NPC 는 `choice` 사건이 찍히기 전까지 제안하지 않고 `chooseIntro` 가 그 자리에서 다시 평가한다 · `getMessages` 가 선택지 답 뒤에 `introAfter` 를 푼다 · `getQuests()` 가 `offered` · `deferred` 를 뺀다(받은 것만 표시, `getQuest(id)` 는 그대로) · `defer()` 는 늘 false · `flagOf`/`bumpFlag` 가 `gather:collected` · `game:complete`(**`missionMode === 'raid'` 일 때만**)를 센다 · `tutorialBlocks()` 가 ship 트랙만 통과시킨다 — 그 전에는 `ctx.tutorial.active` 가 연락을 통째로 막아 `messenger` · `ravenQuest` 단계가 오지 않는 연락을 기다렸다 · `sanitizeNpcSave` 가 `choice` 와 `flags` 를 버리던 구멍 둘을 막았다)** · **정보상(2026-09-14 2차 — `ctx.meta.intel` = `parts/Intel`: 보유 **하나** · **분대장만** 구매 · `creditsTx` 답을 기다린다 · 환불 없는 덮어쓰기 / 폐기 · `MetaSave.intel` 은 프로필 문서로 왕복) · **NPC 개인 신뢰도**(기업과 별개 · 같은 `REP_TABLE` 0–5 · `NpcSave.trust` · 퀘스트 `npcTrust` 보상, 지금은 적립 · 표시까지만)** · **NPC 퀘스트 엔진 `ctx.meta.npc`(2026-09-14 — `NpcRules` · `parts/NpcQuests` · `parts/NpcObjectives`: 함선에서만 첫 연락 · 순차 제안, 사건 로그 → 말풍선, 수락 · 보류(퀘스트 탭 재수주 = brief) · 나눠 납품 · 완료 보고(아이템 먼저 → `quest:<id>` → 신뢰도 → XP) · 포기 없음, 레이드 목표는 채우는 순간 확정 · `chain` 동시 확정 · 레이드 끝 되돌림 · 회수는 탈출 정산, 저장 `MetaSave` v2 `npc`, 콘솔 `npc` · 기업 퀘스트와 퀘스트 탭 삭제, `getQuestState` 는 NPC 퀘스트로 답한다)** · **계약 신뢰도 × 서재 `trustXp`(2026-09-13, 퀘스트 제외)** · **`kill_rogues` = 인간형 적 전부(2026-09-13 — `enemies.csv` faction, 스캔 드론 제외 · 라벨 `인간형 적 처치`, 전에는 네임드가 벌레로 세졌다)** · **2026-09-13 화면 개편 — 기업 목록이 맨 왼쪽 독립 패널 · 거래 = [기업 목록][판매 물품][거래 테이블][함선 창고][가방] 개별 카드 한 줄(퀘스트 · 임플란트 페이지도 창고/가방 분리) · 격자 칸 40 px, 창이 좁으면 32 px 까지 자동 축소한 뒤에야 창고/가방 카드를 숨긴다** · **새 계약 종류 「아이템 회수」(`extract_with_items`, 2026-09-12 — 지정 아이템 N 개를 몸(가방 · 퀵슬롯 · 주머니)에 지니고 탈출, 기업마다 2개 · **그 레이드에서 생겨난 것만 센다** — `ItemInstance.raidFound` = 맵 시드, 한 레이드 안에 다 모아야 한다) · 계약 행 아이템 칩 · 상점 타일 우클릭 즐겨찾기 · 즐겨찾기 판매는 1초 홀드 확인 · 「귀중품 전부 담기」 는 즐겨찾기를 뺀다** · 기업 4곳 · 신뢰도(모자란 거래/계약 탭은 잠김) · 크레딧 · 상점/거래대 · 계약 · 임플란트 수리 데스크. 화면은 **왼쪽 트리**(기업 버튼 아래에 그 기업의 신뢰도 게이지 + 거래/계약 탭이 펼쳐진다 · 크레딧 표시 없음 — 우상단에 있다) + 페이지 + **창고 · 가방 카드 / 진행 중인 계약(계약마다 그 기업 색)**, 재고 · 거래칸은 **인벤토리 타일(`buildItemTile` + `ui/TileGrid`) + 호버 카드** · 거래 성사 **1초 홀드** · 셰브런 + 가운데 크레딧 변화 · CSS 접두사 `.cv-`, 보상은 **재화 썸네일** · **`open_crates` 계약 진척은 상자 id 당 레이드 1회** · **크레딧 사유는 `formatCreditReason`(서버가 검증 — 판매는 수량 포함, 거절된 판매는 아이템을 되돌린다) · 분대 킬 목표는 `enemy:squadKill` 로 세고 `contractHit` 은 킬이 아닌 목표만 + 토큰 버킷** | 
-| [`src/progression/`](src/progression/README.md) | `ProgressionSystem` | `ctx.progression` | **홀드 버튼 키캡(2026-09-15 2차 — `.pg-confirm` 안 좌클릭 홀드 키캡)** · **전설 유니크는 사격 숙련 밖(2026-09-15, 사용자 결정 — `weaponClassOf` 가 `def.unique` 면 null → 경험치 없음, 보너스는 weapons 가 뺀다)** · **시작 전술 임플란트(2026-09-14 2차, 사용자 결정 — 새 캐릭터는 `implant: null` 로 시작하고(`shared/character.makeCharacterProfile` · `Profile.freshProfile` 둘 다) 갈고리는 **첫 함선 진입**에서 `grantStarterImplant`(`hub:entered`, 멱등)가 지급 · 장착한다. 튜토리얼 레이드에 임플란트가 없다는 것이 전제라 레이드 도중에 쥐어지면 안 된다 — HUD 게이트만으로는 위젯만 접히고 Q 는 여전히 나갔다)** · **새 숙련 요리 · 연구 + 파생 4줄(2026-09-13) · 서재 파생 효과를 `derived` 에 접는다(`housing:libraryChanged` 에 재계산) · 게임 단련 = 지능 · 인지력 · 숙련 `시설 ×n` 툴팁 = 받는 시리즈 · 파생 미리보기는 결과 값 하나(넘치면 글자 축소) · 능력치 툴팁 부제/절 제목 삭제 · 연구실 작업대 제작은 제작 경험치 없음** · **식사 품질(2026-09-13 — `PlayerProfile.mealQuality` · `mealActiveQuality`(`migrate` 가 옮긴다) · `useMeal` / `serveMeal(defId, quality)` = 같은 요리 · 같은 품질만 거절 · `applyMealBuff` 가 줄마다 `× (1 + mealQualityBonus)` · 출격 · 종료가 품질도 함께 옮기고 비운다)** · **요리 버프 = 능력치 여러 줄(2026-09-13 — `applyMealBuff` 가 `MealDef.effects` 전부를 `derived` 에 접는다, `mealEffectsOf`)** · **캐릭터 시트 개편(2026-09-13) — 능력치 포인트는 미확정(＋/－ · 되돌리기) → `포인트 투자 확정` 1초 홀드(`spendStatPoints` 한 번에 저장) · 미확정 중 파생 능력치 `현재 → 확정 후` 미리보기(`previewDerived`) · 확정 안 하고 떠나면 경고(버리고 이동 / 돌아가기, 강제 종료는 조용히 버림) · 능력치 · 숙련 이름 호버 = 인게임 툴팁(`ui/SheetTip`, CSS `.pg-tip`) + 연관 숙련 · 파생 하이라이트(원본 = `stats.csv` · `skills.csv` 의 `derived` 열) · 숙련 아래 장착 임플란트 썸네일(전술 제외, 호버 = 연관 능력치 · 숙련 · 파생) · 초기화 = 경고 팝업 + 1초 홀드** · **단련 보너스 · 운동 디버프(2026-09-12 — `trained` · `trainedProgress` · `gymFatigueUntil`, 스탯 포인트와 따로 세고 실효 능력치에 임플란트처럼 더한다, 시트 `(+n 단련)` · 근육통 카운트다운, 콘솔용 `addTrainedXp` · `clearGymFatigue`)** · **식사(`PlayerProfile.meal` · `mealActive` — 식탁에서 먹으면 다음 레이드 1회분 · 칸은 하나라 두 번째는 교체 · `armPreps`/`clearActivePreps` 가 준비물과 함께 옮긴다) · 요리 버프는 `derive.applyMealBuff` 가 **`derived` 에 접어 넣는다** — 소비자가 한 줄도 안 바뀐다** · **준비물(`PlayerProfile.prep` 대기 · `prepActive` 이번 레이드 — 함선에서 쓰면 다음 레이드 1회분, `Profile.migrate` 가 옮겨 담아야 새로고침을 견딘다)** · 레벨/XP · 능력치 5종 · 숙련도 14종 · 파생 수치(`derived`, **투척 거리는 m 로 표기**) · 임플란트 장착칸 규칙 · 캐릭터 시트(능력치 · 숙련도만 — 임플란트 UI 는 인벤토리) · 프로필 영속화(**슬롯별**, `accent`/`createdAt` 포함) · **사망 전용 `stripImplantsForCorpse`(함선 게이트 우회 · 즉시 저장)** · **감정 XP 는 컨테이너 id 당 레이드 1회** | 
-| [`src/housing/`](src/housing/README.md) | `HousingSystem` | `ctx.housing` | **창고+가방 한 패널 · 서재 UI · 조리대 목록+상세 · 마지막 방 기억(2026-09-15 2–4차, 사용자 결정 — `mountStationGrids` 가 `createTradeGrids` 를 **한 번**(`grids:['stash','bag']`) 부르고 격자 카드가 **하나**(`.hs-card-inv`, 머리줄 없음 · `invCard` 계약 추가 · `stashCard`/`bagCard` 는 같은 요소 별칭)라 재배 · 분석기 · 배양조 · 식탁 · 서재 · 조리대가 전부 한 카드 / 선반 칸 **숫자 표기 삭제** · 층마다 가운데 **구분막**(`.lib-slot.is-div` — 새 자식 없이 CSS 로, 열 수를 세는 격자가 안 흔들린다) · 책은 붙여 꽂고 여백은 구분막 좌우에만 · **책장 3층 × 6칸 = 18권** · 책 시리즈 최대 3권 / 「서재」 항목이 **`적용 효과` 패널**(보관함 가구마다 한 칸 + 맨 아래 합산, 비면 같은 크기 패널 가운데 `아무 것도 배치되어 있지 않습니다.` — 값은 `getLibraryEffects` 등을 **읽기만** 한다) / **조리대**가 왼쪽 썸네일 격자(`.cook-cell`) + 오른쪽 상세(설명 · 보유 수 추가, **수량 스테퍼 · 홀드 없음** — 요리는 미니게임 한 판에 하나이고 재료가 끝날 때 빠져 「되돌릴 수 없는 확정」이 아니다)로 바뀌고 정렬이 **전역 순위** · B-15 숙련 잠김 유지 / **분석기 2 · 3 · 4칸**(`ANALYZER_SLOTS_BASE`) / 시설 레벨 칩은 아이콘만 + 호버 툴팁 · 사유에서 **모자란 재료 목록을 뺐다**(`Rules.MISSING_MATERIALS_REASON`) · 용도 지정 줄에 `시설 증축` 버튼 · 쇼파 서재 전용 / **시설 관리가 마지막으로 보던 방**을 기억한다(`scav.housing.manageRoom`, `ShipState` 버전 안 올림) — ⚠ 방 순서는 **준 방 → 기억한 방 → 서 있는 방 → 용도가 있는 첫 방 → 방 1** 이고 **기억은 명령을 덮지 않는다**(그 반대였을 때 `openShipManage(조종석)` 이 지난번 방을 열어 용도 카드가 통째로 안 그려졌다) / **Tab 은 맨 위 화면의 것**(`ctx.escape.topKey` — `ui/Panel` · `CookScreen` · `GymScreen`) / `parts/Lab.devAdvanceAnalysis`)** · **홀드 버튼 키캡(2026-09-15 2차 — `.hs-modal-ok` · `.mn-hold` 안 좌클릭 홀드 키캡, `.hs-modal-note` · `.mn-trade-block` 은 **차단 사유 전용**(없으면 `hidden`))** · **미니게임 · 함선 화면 키캡 공용화(2026-09-15 — 다지기 게이지 LMB/RMB → 마우스 그림 · 요리 안내 `{L}`/`{R}` · 헬스 안내 `{JUMP}` 토큰)** · **조리대 숙련 잠김 표시(2026-09-15, B-15 — 레일이 원본 레시피 표를 읽어 숙련이 모자란 요리도 딤드 + 숙련 배지(요구 숙련이 데이터상 `crafting` 이라 `제작 n`), 재료 · 단계는 보이고 시작만 `cookBlock` 이 막는다, 잠긴 것은 아래로)** · **서재 화면 개편(2026-09-14 5차, 사용자 결정 — 좌측 레일 = **서재 가구 목록**(맨 위 「서재」 = `getLibraryEffects()` 요약 한 줄씩) · `선반` / `도감` 은 콘텐츠 상단 가로 탭(`StationShell` 새 옵션 `tabs`) · 선반은 층당 여러 줄(`SHELF_TIERS` · `SHELF_TIER_COLS` — 책장 4층 × 5칸 × 2줄 = 40권) · 빈 칸 호버는 침묵 · 꽂힌 칸은 `ItemTip` 아이템 카드 · 도감은 썸네일 + 이름 + 모은 수뿐 · 보조 가구 줄 · 시리즈 진척 패널 · 바닥 힌트 삭제)** · **채굴 화면 통합(2026-09-14 5차, 사용자 결정 — `ui/mining/MiningScreen` 하나가 연산 클러스터 화면 + 메인 컴퓨터를 **한 창**으로: 상단 가로 탭 넷(`MINING_TABS` = 채굴 · 클러스터 현황 · 지갑 · 거래소) · **가구마다 제 탭이 기본**(클러스터 → 채굴 · 컴퓨터 → 현황) · 채굴 탭에서만 레일 + 창고/가방 카드 · 코어 칸은 2×1 아이템에 맞춘 가로로 긴 9칸이고 드롭 · 빼기가 **한 개씩**(세이브 `cores` 는 개수 하나라 앞에서부터 찬다) · 코인은 필터 달린 드롭다운 `CoinPicker`(잠긴 코인 딤드) · 옛 코인 버튼 줄 · 안내문 · 푸터 문구 삭제)** · **미니게임 개편(2026-09-14 5차, 사용자 결정 — 「보이는 것 = 판정」 `judgeBands` / `cookJudgeBands`: 완벽 = csv 창 **그대로**이고 화면에 그려지는 표식 크기가 곧 그 값, 좋음은 그 바깥 `GOOD_OF_PERFECT`(1.6)배까지(반 박자 클램프) — 옛 「완벽 = 창의 1/3」 을 뒤집었다 · 입력 없는 단계의 `maxTime` 안전핀(볶기 · 젓기 · 붓기) · 라벨 없는 진행 바 `completion`(`N / M` 글자 삭제, 벤치프레스 회차 pips 는 판정 색이라 남는다) · 요리 입력은 **판 전체**에서 받는다(우클릭 차단 범위도 같다))** · **음악 재생(2026-09-14 5차 — `parts/Music.ts`: 레코드 플레이어를 켜면 그 함선의 레코드랙에 꽂힌 레코드가 재생 목록 · 재생 중인 플레이어는 늘 하나(`toggled` 의 마지막) · 「곡의 끝」은 `startedAt + lengthS` 비교뿐 · 조작 넷은 `HousingRef` 추가 계약이고 **`musicStop` 은 가구 E 토글 그 자체**(`toggled` 를 함께 내린다) · 함선 전용 · `housing:musicChanged`, **소리는 나지 않는다**)** · **선행 시설 조건 폐지(2026-09-14 5차, 사용자 결정 — `Rules.NEEDS_GREENHOUSE` = `[]`, 연구실 · 주방의 온실 선행이 없어졌다. 이름은 계약대로 남고 세 소비처가 `includes` 로 저절로 no-op · **발전기 레벨 게이트는 그대로**이고 `generatorRequirement` 는 이제 **채워진 요구도 돌려준다**(빈 배열 ≠ 「문제 없음」))** · **서재 시리즈(2026-09-13 — `Rules.computeLibraryEffects` · 효과 · 소스 · 띠 · 레시피 해금 질의, 종류당 1 개 꽂기 · 보관함 여러 대 · 게임 디스크 전시대(매체 `game`) · 옛 id alias · 중복 환불) · 비디오게임(`parts/VideoGame` · `ui/tv/TvMenu` — 게임기 장착 · 좌석 규칙 `Rules.tvSeatFor` · 튜닝된 운동 화면 · `applyGymSession`) · 요리/연구/헬스 보너스(단계 점수 + 요리 숙련 · 서재, 분석 시간 × 연구, 헬스 서재 점수, 레시피 책 잠금)** · **채굴 화면(2026-09-13 — `ui/mining/`: 연산 클러스터 화면(코어 칸 3×3 드롭 · 코인 지정 · 진행도 있으면 1초 홀드) · 메인 컴퓨터(현황 · 지갑 · 거래소 캔버스 차트 · 1초 홀드 매매 · 오래된 시세면 잠김 · 거래 중 시세 구독 유지), CSS `.mn-`, `openComputeCluster` · `openMiningComputer`)** · **조리대 · 요리 미니게임(2026-09-13 — 조리대 화면 `ui/cook/CookStation`(요리 레일 · 재료 칩 · 단계 칩 + 자동 가구 Lv · `조리 시작`) · 판정은 DOM 없는 `parts/CookGames` 6종(썰기 박자 · 다지기 균형+시간 · 굽기 뒤집기/꺼내기 · 볶기 박자 채움 · 젓기 온도 구간 · 붓기 램프+오차) · 흐름 `parts/Cooking`(단계마다 「직접 하기 / 자동」 · 평균 점수 → 품질 별 · 재료는 끝날 때 `inventory.completeCook` · 취소 = 소모 없음 · `housing:cookSession/Step/Beat/Result`) · 하단 중앙 오버레이 `ui/cook/CookScreen`(마우스 입력 · CSS `.cook-`) · 식탁은 (요리, 품질)별 줄 · `cookDebug` · `smoke-cooking`)** · **요리 재료 티어(2026-09-13 — 분석기 = 계열(세포 · 광물 · DNA) 결과표를 **넣는 순간** 굴려 칸에 적는다 · 계열 경험치 → 분석 레벨(시간 배수 + 결과 해금, `analysis_results.csv` `minLevel`) · 분석 도감 `analysisFound` · 흙 · 배지 **내구도**(수확마다 닳고 0 이어도 칸이 안 빈다 — 보너스 · 소켓이 비율로 줄어든다) · **영구 소켓**(`parts/Sockets`, 등급별 1–3칸, 가득이면 `replaceIndex` 로 파괴 교체 — 화면 `ui/SocketFlow` 1초 홀드) · 배양 칸 배지 → **스캐폴드** → 세포주 = 종별 고기(없으면 고기 페이스트, 스캐폴드는 수확 때 소모) · 은퇴 세포주 거절 · `ShipState` v11 · `smoke-food-chain`)** · **2026-09-13 — 스테이션 화면(`ui/StationShell`)이 작업대처럼 [스테이션 카드(우상단 업그레이드)][함선 창고][가방] 개별 카드 · 재배 스테이션은 Lv.1 부터 3층, 강화 = 레벨당 성장 속도 +15 %(`GROW_STATION_SPEED_PER_LEVEL`, 자라던 작물의 남은 시간도 즉시 줄인다 — 「심는 순간 확정」의 유일한 예외) · 배양조 = 세로 유리관 3열(배지는 관마다, 액체 높이 = 남은 사용 횟수) · 서재 선반 화면 = 2D 선반 그림(`ui/ShelfDrawing`, CSS `.lib-` — 책장 4층 × 2 = 8칸 · 디스크 3 × 2 · 레코드 2 × 2) + 창고 · 가방, 드래그로 꽂기 · 교체, 도감은 레일 탭 · 조종석 전용 시설(`room=cockpit` — 시술대 · 컴퓨터는 조종석 안에서 이동만, 회수 · 제거 불가) · 조종석 고정 소품(침상 · 사물함 2 · 서랍장)은 꾸밈 가구로(`furn_bunk` · `furn_locker` ×2 · 신규 `furn_drawer`, `ShipState` v10 이 한 번만 배치)** · **운동 미니게임 루프는 렌더 프레임마다(rAF, 2026-09-12 — 무거운 프레임 + 입력 스트림에서 `setInterval` 이 굶어 커서 · 노트가 끊겨 움직이던 것)** · **서재 매체 · 헬스장(2026-09-12) — 디스크 전시대 · 레코드랙 · 보조 가구(흔들의자 · TV · 레코드 플레이어 3종, 배치만으로 그 매체 몫 +25 %) · 매체별 상한으로 자른 뒤 합산(`getBookBonus` = 서재 배율 전체) · TV/레코드 켜기(`toggled`) · `ShipState` v9(`media` · `mediaDex` · `toggled`) · 운동 세션 + 미니게임 3종(`parts/Gym` · 판정은 DOM 없는 `parts/GymGames` · 화면 `ui/gym/`, 끝까지 한 세션만 `applyGymSession`)** · **방 8개 · 조종석(`COCKPIT_ROOM_INDEX` — `rooms[]` 밖, 20×12 격자 + 고정 소품 칸 `COCKPIT_BLOCKED_RECTS`, 공용 가구만, 시술대 · 컴퓨터가 늘 존재하도록 로드마다 채운다) · 시뮬레이션실 · 휴식 공간 · 프리셋 폐지(휴식 공간은 서재에 합침, 관물대 · 표적 레인 · 시뮬레이션 허브 은퇴, `getPresetCount` 0, 사격 숙련 배율 = 책뿐) · `ShipState` v8 이 방 9 · 10 과 그 두 용도 방을 제거 + 환불 · 시설 레벨 요구 질의 `furnitureUpgradeRequirements` · `purposeRequirements`(업그레이드 모달이 `buildFacilityChip` 으로 그린다)(2026-09-12)** · **방 용도는 함선당 1개 · 방 시설 레벨(작업실 · 시뮬레이션실) 폐지 — `ShipState` v7 이 옛 레벨을 환불(2026-09-12)** · **가구 화면 공통 틀 `ui/StationShell`(재배 스테이션 · 분석기 · 배양조 · 식탁 — 제목 옆 Lv · 우상단 업그레이드 모달 1초 홀드 · `HH:MM:SS` · 더블클릭/끌기 수확은 `parts/Deliver`(창고 먼저) · 우클릭 비우기 · 호버 카드 `StationTip` · 분석기 해석/도감 탭 · 배양조 CSS `.cult-`)** · **배양조(`furn_culture_tank` — 온실 · 레벨이 칸을 열고 「배지 먼저, 세포주 나중」 · 배지는 수확마다 1회 닳는다, `parts/Culture.ts` + `ui/CultureTank.ts`)** · **주방 · 식탁(`parts/Dining.ts` + `ui/DiningTable.ts` — 먹기는 `progression.useMeal` 에 **먼저 묻고** 성공할 때만 아이템을 뺀다 · 공유 함선은 `openDiningTable(null)` 이고 「분대에 차리기」가 요리 1개로 전원을 먹인다)** · **온실 선행 규칙은 `NEEDS_GREENHOUSE` 한 곳(`lab` · `kitchen`)** · 함선 꾸미기 규칙 · 방 용도 · 발전기/창고 레벨 · 가구(**자동 배치 `autoPlaceSpot` — 좌측 상단부터 가로줄 우선 · 아래를 향한다 · 문 앞은 비운다**) · 서재 · 로드아웃 프리셋 · `ShipState` 영속화(**v7**) · **자동 배치 2차 패스(문 앞 구역이라도 문 폭 인접 2칸은 비운다)** · **저장 debounce 중 도착한 서버 문서가 로컬 편집을 덮지 않는다** · **분석기(`furn_analyzer` — 미확인 표본을 현실 시간에 해석 · 레벨이 칸을 연다 · 해석 도감 `sampleDex` 가 찰수록 빨라진다 · 회수는 all-or-nothing, `parts/Lab.ts` + `ui/Analyzer.ts`)** · **B-13 질의 3종(`furnitureUpgradeBlock` · `furnitureUpgradeCost` · `furnitureCraftBlock` — 이미 가진 실용 가구는 제작 잠김)** · **온실 재배 스테이션(`furn_grow_station` — 재배층 3개(중앙 · 아래 · 위, 2026-09-13 부터 레벨과 무관하게 전부 열림), 층당 `GROW_SLOTS_PER_TIER` 3칸 · 층 id 는 강화해도 안 바뀐다 · 칸은 「토양 먼저, 씨앗 나중」 · 토양 속성이 씨앗과 맞으면 −30 % 틀리면 +20 % · 토양은 수확마다 1회 닳고 0 이면 칸이 빈다 · 화면은 `ui/GrowStation` 좌 재배층 / 우 가방+창고, 강화는 우상단 모달)** · **은퇴 가구(`FurnitureDef.retired`)는 로드할 때 재료로 함선 창고에 환불 — `sanitize` 가 계산만 하고 `update()` 첫 프레임이 지급한다(로드 시점에는 `ctx.inventory` 가 없다)** | 
+| [`src/items/`](src/items/README.md) | (data) | — (`ctx.loot` is published by inventory) | Item defs (weapons · ammo · attachments · bags · armor · consumables · materials · meals · library media · samples …) · effective weapon stats · loot/corpse tables · craft/salvage/repair economy · item spec text |
+| [`src/inventory/`](src/inventory/README.md) | `InventorySystem` | `ctx.inventory` · `ctx.loot` | Grid model · bag/equipment/quick/pouch/implant slots · ship stash · container looting · sockets · craft/salvage/repair UI · favourites · tooltip pin · strip-to-corpse · Tab screen |
+| [`src/pickups/`](src/pickups/README.md) | `PickupSystem` | `ctx.pickups` | World-dropped items (throw arc · procedural mesh · host-authoritative sync) |
+| [`src/meta/`](src/meta/README.md) | `MetaSystem` | `ctx.meta` | 4 corporations · reputation · credits · shop/trade desk · contracts · implant repair desk · NPC quest engine (messenger) · NPC trust · intel purchase |
+| [`src/progression/`](src/progression/README.md) | `ProgressionSystem` | `ctx.progression` | Level/XP · 5 stats · 16 skills · derived stats `derived` (meals · library · training · implants fold in here) · prep/meal lifetimes · implant slot rules · character sheet · per-slot profile persistence |
+| [`src/housing/`](src/housing/README.md) | `HousingSystem` | `ctx.housing` | Ship decoration rules · room purposes · generator/storage · furniture placement (access faces) · greenhouse/analyzer/culture tank · cooking minigames · gym/video games · library series effects · crypto mining · music player state · `ShipState` persistence |
 
-### 3.5 셸 · 흐름 · 표현
+### 3.5 Shell · flow · presentation
 
-| 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
+| Folder | System | Publishes on `ctx` | Responsibility |
 |---|---|---|---|
-| [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | **정보상 확정 키캡(2026-09-15 2차 — `.it-confirm` 라벨 `확정 (1초 꾹)` → **`확정`** + 좌클릭 홀드 키캡, `.it-reason` 은 차단 사유 전용)** · **발사 슬롯 `Space` 홀드 키캡 공용화(2026-09-15)** · **발사 슬롯 UI 2차(2026-09-14 5차, 사용자 결정 — 패널 70 → **56vh** · `--hr-body-h` 가 퍼센트가 아니라 장비 판 **내용 높이 식**(`52px + 썸네일 + 홀드 40px`)이라 어느 창 너비에서도 홀드 바 아래 여백이 0 · 홀드 바 20 → **40px** + 왼쪽 `Space` 키캡 · `E 슬롯에서 내리기` 가 중앙 하단에서 **우측 하단 키 가이드**로(owner `'pod'`, `KeyGuide.NO_CLOSE_OWNERS` — 화면이 아니라 상태라 `닫기` 를 안 붙인다, 올리고 내리는 곳은 `ReadyPanel.syncGuide()` 하나 · 카운트다운 중에는 내려간다) · 출격 경고 팝업 `z 74` > 패널 `z 20` 이라 버튼이 실제로 눌린다(DOM 순서상 4칸 카드가 덮고 있었다))** · **공유 함선 정비 벤치 완전 제거(2026-09-14 5차, 사용자 결정 — 2026-09-12 에 상호작용만 뺐던 소품 · 콜라이더 · `정비` 표지를 전부 걷어냈다. 누를 것이 없는 정비대가 서 있는 것 자체가 거짓말이다 · `Parts.workbench` · `stations.repairBench` 는 좌표를 잃지 않도록 부르는 곳 없이 파일에만 남는다)** · **미니게임 연출(2026-09-14 5차, 사용자 결정 — `CookStaging` 이 자세를 못 걸어도 `cancelCook` 하지 않는다(「화면만 뜨고 단계가 시작되지 않던」 것의 뿌리) · `GameStaging` 은 키를 누를 때마다 TV 화면을 번쩍이지 않는다(화면 속 표식 `kick` · 진행 막대만) · 축음기 나팔 입구 · 목구멍 발광 제거, 점광원 0개 그대로)** · **정보상 화면 · 터미널 2열(2026-09-14 2차 — `ui/IntelMenu`(고르는 국면 ↔ 확정 국면) · `ui/IntelMap`(실제 레이아웃을 격자로 흐릿하게) · `ui/MatchPanel`(매칭은 **우상단 버튼 → 팝업**, 옛 좌측 열 전부) · `intel.css` 접두사 `.hm-` · `.hi-` · `.it-` · `PlanetHologram.attachTo` + 락온 연출(광원 0개 추가)) · **발사 슬롯 준비**(탑승 ≠ 준비 — 스페이스 1초 홀드 → 출격 경고 승인 → `setReady`, 패널 화면 세로 70 % · 4칸 가로 유지(초상 캔버스와의 계약) · 장비 5칸 + 가치 합계)** · **비디오게임 · 서재 가구(2026-09-13 — 게임 디스크 전시대 · 쇼파 · 좌식 테이블 · 러그 · TV 게임기 3종 모델, 의자/쇼파 앉기, TV E = `openTvMenu`, `interiors/GameStaging` 좌석 자세 + 고정 카메라 + TV 화면 박자 연출, 광원 0)** · **채굴 가구 모델(2026-09-13 — `interiors/FurnitureMining`: 연산 클러스터 = 양면 코어 칸 3×3 중 꽂힌 코어만 발광(`BuildExtra.cores`, 바뀔 때만 방 재빌드) · 메인 컴퓨터 = 모니터 셋, 점광원 0 · E → `openComputeCluster` / `openMiningComputer`)** · **조리대 · 자동 조리 가구(2026-09-13 — `interiors/FurnitureKitchen`: 푸드 프로세서 · 자동 그릴 · 자동 교반기 · 계량 디스펜서 절차 모델(레벨 표시등, 점광원 0) · 조리대 도구(도마 · 냄비 · 웍 · 그릴팬 · 비커)가 지금 단계 게임의 도구로 손 앞에 나온다 · 조리대 E = `ctx.housing.openCookStation(uid)`(인벤토리 제작 창이 아니다) · 자동 가구 E = 함선의 조리대 화면 · `interiors/CookStaging` = 조리대 앞 바닥 anchor + 어깨 너머 고정 카메라(후보 32개 가림 판정) + `housing:cookBeat` 마다 손 위상)** · **조종석 2026-09-13 — 고정 소품은 발사 슬롯 · 계기판(터미널) · 조종사 좌석뿐(침상 · 사물함 · 서랍장은 가구가 됐다) · 시설 관리 모드 동안 조종석 천장(판 · 보 3개 · 계기판 위 바)이 0.4 s 에 걸쳐 투명해졌다 돌아온다(전용 그룹 `cockpit-ceiling`, 처음부터 투명 재질이라 opacity 만 바뀐다 — 재컴파일 · 광원 변화 없음) · 서랍장 절차 모델 `drawer` · 책장 모델 4층 × 2** · **서재 · 헬스장 가구 11종(`interiors/FurnitureLeisure` — 점광원 0, 켜짐은 emissive) · 운동 연출(`interiors/GymStaging` — 기구 로컬 자세 점 → anchor · yaw, 방 안 · 다른 가구에 안 가리는 옆 고정 카메라, 박자마다 바벨 · 벨트 · 크랭크 동작과 같은 위상을 `setFurniturePoseDrive` 로) · 흔들의자 앉기 · 방문 와이어 `media` · `toggled`(2026-09-12)** · **원격 가구 연출(`interiors/RemoteFurnitureStaging` — 같은 `hubSite` 분대원의 `furniturePose.furnitureUid` 조각을 그 사람의 보간 위상으로: 원반 · 바벨 · 벨트 · 크랭크 · 흔들림, 내 함선과 방문한 함선 둘 다, 로컬 `GymStaging` 과 같은 함수)** · **시설 관리 모드: 가구 클릭 = 선택만, E 또는 LMB 꾹(`HOUSING_MOVE_HOLD_S` — `housing:moveHold` 게이지) = 이동 상태(LMB 설치 · R 회전 · X 회수 · C/Esc 원위치 — 키 가이드도 이 상태에서만), 거절은 `housing:placeRefused` 토스트 · 호버 흰색 / 선택 연두색 외곽선(`ctx.outline`) · 격자선은 시설 관리에서만 · 조종석도 편집 영역(`COCKPIT_ROOM_INDEX`, 고정 설비였던 전술 임플란트 시술대 · 기업 네트워크 컴퓨터가 공용 가구 — 상호작용 id 는 옛 `hub_implant_bay` · `hub_computer` 그대로) · 방 8개 · 시뮬레이션 훈련장은 개인 함선 터미널에서도 시작(2026-09-12)** · **주방 · 온실 · 연구실 가구 4종 추가(조리대 · 식탁 · 배양조 · 3D 프린터 — 배양조는 레벨만큼 배양관이 켜진다, 전부 emissive · 광원 0개)** · **공유 함선의 고정 식탁(가구가 아니라 uid 가 없다 — `openDiningTable(null)`)** · **연구실 가구 3종 절차 모델(분석기 = 레벨만큼 챔버 점등 · 해석 완료면 호박색, 추출기 · 조합대 — 전부 emissive, 광원 0개)** · **시설 관리에서 배치 가구 클릭 → `housing:furnitureSelected`(B-13 인스펙터의 입력)** · **행성 브리핑의 상시 환경 줄(준비물이 없으면 경고색 · 이동은 안 막는다)** · 개인/공유 함선 내부 · **격납고(개인 함선 4대 정박 · 방문)** · 도킹 컷씬 · **창문 워프(행성 이동, 조작 유지)** · **목표 행성이 없으면 창밖에 행성이 없다** · 발사 포드(출격 준비 경고) · 전체화면 터미널(**닫기 버튼만 · 키 가이드 없음**) · 행성 선택 · 작업대 · 시설 관리 모드 · **분대원 상호작용 → 분대장 넘기기** · **광원 풀(광원 자리 중 가까운 `HUB_POINT_LIGHTS` 개에만 불을 건다)** · **도킹 컷씬 도중 도착 함선 선빌드 + 선컴파일** · **서버가 옮겨 준 분대 이동(`lobby:left moved`)은 도킹 컷씬 한 번 · 분리 도중 새 로비 → 도킹으로 전환 · 닫힌 터미널의 거절 사유는 토스트 · `refused` 면 함선 진입으로 재접속하지 않는다** | 
-| [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase`, `ctx.corpses` | **튜토리얼 이어하기(2026-09-15 3차, 사용자 결정 — `soloRaidStatus` 가 `mode === 'tutorial'` 이면 5분 유예도 시계 방어도 보지 않고 늘 `fresh`(잃을 전리품도 실패도 없다) · 저장 시점이 **단계마다 · 체크포인트마다**로 늘었다: `tutorial:changed`(단계 id 가 실제로 바뀐 프레임만) · `tutorial:checkpoint` → `parts/Session.saveTutorialStep` · `saveTutorialCheckpoint`, 둘 다 평소 `saveRaid` 를 지나 C-70 사망 가드가 그대로다)** · **결과 창 재료 · 튜토리얼 흐름(2026-09-15 — `parts/RaidReport`: 레이드 최고 소지품 가치(장착 포함, 시체로 비우기 직전까지) `stats.peakLootValue` · 원인별(적은 개체별) 받은 피해 · 막타 = `player:died.source` → 마지막 출처 → `stats.death` / 튜토리얼 부활이 기상 연출을 건다 · 건너뛰기 탈출 즉시 `complete()` · 튜토리얼 정산은 완주 `TUTORIAL_RAID_XP` 아니면 0, 계약 정산 없음 / `ResumeGate` Esc 키캡 공용화)** · **튜토리얼 XP(2026-09-15, A-17 — 튜토리얼을 탈출로 끝내면 정산식 · 서재 배율 · 계약 정산 대신 `TUTORIAL_RAID_XP`(120 = 정확히 Lv.2)만, 탈출이 아닌 끝은 옛 식)** · **정보상 솔로 이어하기(2026-09-14 2차 — `intel` 저장 · 복원, 훈련장은 `ctx.missionIntel = null`)** · **레이드 종료 경험치 × 서재 `raidXp`(2026-09-13)** · **자발적 귀환(`game:returnToShip`, 2026-09-13 — 레이드 중이면 그 자리에서 사망 → 사망 연출 뒤 함선, 분대는 `leaveMission` 으로 나 혼자 빠지고 분대장은 살아 있는 대원에게)** · 페이즈 상태 기계 · **사망/시체(`ctx.corpses`, 자동 부활 없음 — 구조선만)** · **분대장 기기** · 레이드 실패 · **ESC = 맨 위 화면 닫기 → 없으면 일시정지(`escapeKey`)** · 재접속 UX · 레이드 세션 저장/복귀(**사망 즉시 1회 강제 저장 — 솔로는 대신 세션을 즉시 지운다**) · 재개 게이트 · **플레이어 시체가 전차에 실려 간다 · 시체 높이 = 밟을 수 있는 표면** · **솔로 사망은 장착 임플란트를 잃는다** · **솔로 레이드 시계 방어(`clockHigh` 역행 감지 · 미래 저장 허용 폭 · 로드아웃 `raidSeed` 표식)** |
-| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | **결과 창 머리줄 · 암전 유지 · 메신저 순차 도착(2026-09-15 3차, 사용자 결정 — 탈출 부제 `스캐빈저 회수 완료 …` 삭제(요소는 남기고 `hidden`, 사망 부제는 유지) · 행성 줄 = `행성`(회색 12px) + 이름(흰색 15px) 두 조각 `ResultReport.buildPlanetLine`(사망 화면과 공용) / `ui:screenFade.hold` 를 `applyVisibility` 가 걷지 않는다 — 치우는 곳은 `game:abort` · `hub:entered` 뿐, ⚠ `.menu` 에 z-index 가 없어 결과 창이 검은 판(82) 밑에 깔리던 것 → `.menu.complete, .menu.death { z-index: 84 }` / `ChatTab` 이 대화를 **처음 그릴 때** 시작점을 「이미 읽은 말풍선 수」로 잡아 안 읽은 줄이 `···` 뒤에 하나씩 도착한다(경계 = `readAt`, 밀린 대화는 뒤 6줄만))** · **제세동기 크로스헤어 · Tab 순서(2026-09-15 2차 — `.reticle.defibmode`: 작은 하얀 원이 충전을 따라 커져 큰 반투명 원과 겹치고 테두리가 굵어진다(`scale` 하나라 **reduced-motion 에 안 잘린다**) · 겨누면 둘 다 주황, 근거는 `gadget:defibAim` 하나이고 사거리 · 반각을 UI 가 다시 판정하지 않는다 / `map/MapScreen` 의 Tab 폴링에 `ctx.escape.topKey === BLOCKER` 한 줄 — Tab 은 화면마다 폴링이라 닫히는 순서가 `main.ts` 등록 순서로 정해지던 것을 ESC 와 같은 **열린 순서**로 맞췄다 / 제세동기 손 힌트가 새 조작 문구)** · **눌린 키캡 · 홀드 버튼 키캡 · 캐릭터 화면 · 탑승 토스트 삭제(2026-09-15 2차, 사용자 결정 — `.keycap.kc-hold` 가 아래 테두리 1px · 내용 1px 아래 · chevron 이 윗변에 걸쳐 절반은 밖으로(마우스 그림 키캡도 같다) / 새 `.keycap.kc-btn` = 꾹 누르는 버튼 안 라벨 왼쪽의 좌클릭 키캡, 그 대신 「N초 동안 누르고 있어야」 안내 줄 5종(`.tm-ask-hint` · `.pause-ask-hint` · `.sm-confirm-hint` · `.sh-ask-hint` · `.cv-ask-hint`)을 요소째 삭제 / 캐릭터 선택 결과가 바닥 줄 오른쪽 글자 `.ts-msg`(안내 라벨 삭제) · 생성 확정 팝업 능력치 세로 5행 / `hud/Notifications` 의 `extraction:boarded` 탑승 토스트 삭제 — **모든 레이드**, 이벤트는 계약이라 유지)** · **전설 총기 HUD(2026-09-15, 사용자 결정 — 활 크로스헤어 가로 두 배 · 전격총 충전 게이지 종류 클래스 `wc-*`(`.charge` 함선 호출 링과 충돌해 호가 위로 돌고 가득이면 빨개지던 것) · 퍼센트만 · 가득 = 밝은 파랑 · 유니크 태그 = 자기 종류(`weaponTypeLabel`, ItemTip 부제) · 활 잔탄 한 숫자(`.single-ammo`) · 활 재장전 링 무시 · 1 kg 미만 한 발 무게 유효 자리까지)** · **결과 창 · 키캡(2026-09-15, 사용자 결정 — 탈출 창 `다시 배치 (같은 시드)` 기능째 삭제 · 제목 줄 오른쪽 임무 시간만 · `전리품 가치` 한 줄(쉼표 · 호박색) → 보상 / 사망 창 `잃은 전리품 가치`(`peakLootValue`, 빨강) → 사망 원인 줄(적 = 얼굴 썸네일 · 이름 · 그 개체에게서 받은 피해, 그 밖 = 절차 SVG 아이콘 · 원인 이름 · 피해, 모르면 숨김) → 획득 경험치, 분대 탈출 때 쓰러져 있던 사람도 사망 모습(`menus/ResultReport` · `styles/results.css` `.rs-`) / 모든 키캡이 `shared/keycap` 한 경로 · 꾹 누르기는 강조색 테두리 · 흔들림 없이 chevron 만 키캡 안 윗변 · 마우스 좌/휠/우 그림(키 설정 · ESC 조작 도표 포함) / `hud/ItemTip` 이 설명 중인 칩이 DOM 에서 떨어지면 내린다)** · **화염 지대 위험 표시 · 낙하 비네트(2026-09-15 — `DangerIndicators` 칸 `fire` 「화염 지대」(적 빨강 · 아군 호박 · 지대 가장자리 `FIRE_ZONE_DANGER_RANGE` · 날아오는 위험물보다 늘 뒤 · 요소마다 `data-cat`), `hud/FallVignette` `.fall-vignette`(z 25, 피해 비례, `update(dt)` 페이드 — CSS 전이는 reduced-motion 에 잘린다))** · **캐릭터 확정 요약 카드 · 코드로 도는 페이드(2026-09-14, 사용자 결정 — `menus/CharacterCreate.buildSummary` 값 / 5 가로 게이지 + `SoldierPreview.snapshotFace` 얼굴 정지 썸네일 · 「정말로」 삭제 · `만들기` 1초 홀드(`AskSpec.hold` · `content` · `cardCls`) / 검은 페이드는 CSS 전이가 아니라 `HudSystem.stepScreenFade`(이 PC 의 reduced motion 이 전이를 0.01 ms 로 잘랐다) / `hud/Compass` 기상 연출 중 0 → 끝나면 `TUTORIAL_COMPASS_FADE_S` 페이드인 / `hud/Objective` 튜토리얼 레이드에서 시계 · 탈출 타이머 전부 숨김)** · **활 크로스헤어(2026-09-14 9차, 사용자 결정 — 활을 들면 `hud/Reticle` 이 4틱을 숨기고 점 + 아래 2단 가이드 바 + 시위(`weapon:chargeChanged kind 'draw'`)에 따라 맨 아래에서 중앙으로 올라오는 가로 바(`.reticle.bowmode` · `.rbow-*`, 풀충 = 중앙 + 흰 글로우) · 활 판정은 `weapon:equipped` → `getWeaponDef().unique === 'bow'` · 호 게이지 `WeaponChargeGauge` 는 `draw` 를 무시)** · **음악 재생 창(2026-09-14 5차 — `hud/MusicPlayer` + `styles/music.css` `.mus-`: 좌상단 z 81 · 제목 · 아티스트 · 음량(`ctx.audio.settings.bgm`) · 진행 막대 · `◀ ▶` · 재생 목록 ↔ 한 곡 반복 · `■ 정지`(옵셔널 계약이 없는 빌드에서는 그 버튼을 숨긴다) · 창은 `pointer-events: none` · 버튼만 `auto` · 함선에서만 · 메뉴 blocker 아래에서 숨김(`KeyGuide` 와 같은 규칙) · 목록이 비면 창은 뜨되 `꽂힌 레코드가 없습니다` 한 줄, **소리는 나지 않는다** · 설정 `오디오` 에 `음악` 채널 줄이 생겼다)** · **제작 · 수리 UI 정리(2026-09-14 5차 — 재료 칩 호버 카드가 커서 **좌상단**(`hud/ItemTip` 의 옵트인 `data-tip-anchor="left"` · 원본 상수 `TIP_ANCHOR_ATTR`, 격자 타일은 우하단 그대로 · 어느 쪽이든 화면 밖이면 반대편으로 뒤집는다) · `hud/ShipManage` 에서 `multi` 가구의 「이미 보유 중」 삭제(규칙 쪽은 2026-09-13 부터 `!def.multi` 를 보고 있었는데 이 화면만 안 봤다) · 발전기 행의 레벨별 해금 표(`.sm-gen-unlocks`) 삭제(같은 정보를 용도 지정 카드의 발전기 레벨 칩이 그 자리에서 말한다) · 가구 카드 썸네일 정사각형 54×54 + `align-self: stretch`(인스펙터 46×46) · 시설 레벨 칩은 `nowrap` 인 `.fcard-cost` · `.inv-craft-costs` 안에서만 정사각형)** · **함선에서는 타이틀 · 종료가 한 번 탭(2026-09-14 4차, 사용자 결정 — `Ask.tap` 한 칸: 임무 중이 아니면(`inHub` = `ctx.isHubPhase()`, 「함선으로 귀환」 버튼이 이미 쓰던 판정) 경고 팝업의 임무 문구(「진행 중인 임무를 포기 … 전리품은 사라집니다」)를 함선용으로 갈고 1초 홀드 대신 클릭 한 번 · 홀드 안내 줄도 안 그린다. 「되돌릴 수 없는 확정은 1초 홀드」의 근거는 **잃는 것**이라 함선에는 그 근거가 없다 — 다만 「파티 떠나기」는 분대에 영향을 주므로 함선에서도 홀드)** · **메신저 개편(2026-09-14 3차, 사용자 결정 — 대화 목록 한 줄 = 초상 + 이름 + **마지막 대사 미리보기**뿐(퀘스트 라벨 · 소속 · `NN분` · 신뢰도 게이지 제거, 제안이 마지막이면 퀘스트 `summary`) · 대화창 머리는 `bio` 를 빼고 신뢰도를 중앙 우측(`.ms-trust.in-right`)으로, 초상에 conic-gradient radial + 우하단 레벨 배지(`.ms-avwrap` · `.ms-avlv`, 퀘스트 탭 상세도 같은 초상) · 하단 `퀘스트 카드로 답합니다` 안내와 `[생각해보지]` 버튼 삭제 · **타이핑 연출** `.ms-bubble.ms-typing`(새로 붙는 말풍선만 `clamp(글자수 × 0.028, 0.5, 2.0)` 초 뒤에 나타난다 — 대화 전환 · 닫기 · dispose 가 큐를 버리고 전부 즉시 표시) / 튜토리얼 함선 도착 토스트는 `missionMode === 'tutorial'` 이면 쓰지 않는다)** · **화면 페이드 · 튜토리얼 숨김(2026-09-14 2차 — `ui:screenFade` 의 주인(`.screen-fade`, z 82 · `pointer-events:none` · 메뉴보다 아래라 opacity 1 에서도 ESC 메뉴가 보인다) · ESC 메뉴의 `함선으로 귀환` 자리가 튜토리얼 중에는 `튜토리얼 건너뛰기`(경고 팝업 + 1초 홀드) · 탈출 함선 마커는 `map/MapScreen` · `hud/WorldMarkers` 가 `extract` 단계에서 켜고 `hud/Compass` 는 레이드 내내 끈다 · `hud/Objective` 의 「자동 출발까지」 · 「도착」 삭제(취소 불가 10초 유예는 **사실이라 남긴다**) · 캐릭터 생성창에서 시작 임플란트 제거)** · **NPC 개인 신뢰도 표시(2026-09-14 2차 — 메신저 대화 목록 · 대화창 머리 · 퀘스트 상세의 게이지, 보상 칩, 레벨업 토스트 — CSS `ms-trust`) · 피격 잔상 **연한 빨강**(체력 색 변경 + **실드 잔상 신규 구현**, 원본은 `.vitals` 의 `--vt-ghost` · `--vt-ghost-down`)** · **메신저(2026-09-14, 사용자 결정 — `menus/messenger/`: P 패널이 커뮤니티를 대체 · 함선 전용 · 탭 대화 / 친구 / 퀘스트 · 대화 = NPC · 개인 대화 · 단체방을 최근 순으로 섞은 목록 + 말풍선(NPC 퀘스트 카드 [수락] [생각해보지] · 개인 대화 전송 상태 · 단체방 멤버/초대/이름 변경/내보내기/나가기 1초 홀드 · 이전 쪽 자동 로드 · 차단한 사람 줄 숨김) · 친구 = 옛 소셜 열(우클릭 「개인 대화」 → 대화 탭) · 퀘스트 = 진행 중/보류/완료 + 상세 카드 [납품] [완료 보고] · 썸네일 `✉ 메신저` 읽지 않음 숫자 · NPC 첫 연락/제안 토스트(닫혀 있을 때만) · CSS `ms-` · 1180×780 위쪽 고정 · 귓속말 → 개인 대화 문자열)** · **지도 퀘스트 패널(2026-09-14 — `map/QuestPanels`: 좌측 열 = 머리 → `getRaidTracks()` 패널(이름 · NPC · 이 레이드 목표 · 하단 게이지) → 범례 좌측 하단(2열) → 발밑 줄, 열 280 px, 호버 = 상세 툴팁(목표 전부 · `함선에서` · 보상), CSS `mq-`) · 퀘스트 토스트(목표 확정 · 보고 가능 · 완료 보상, 옛 기업 퀘스트 토스트 삭제)** · **커서 홀드 링 `ui:cursorHold`(2026-09-14 — `hud/CursorHoldGauge` 가 시설 관리 이동 홀드와 인벤토리 툴팁 고정을 함께 그린다 · z 215) · 고정 카드가 있으면 `ItemTip` 숨김** · **아이템 툴팁 서재 시리즈 줄(2026-09-13 — 시리즈 · 권 · 효과 · 진척 · 꽂힘 · 등장 행성, 게임 디스크 · 게임기) · 칩에도 「아직 안 꽂음」 띠** · **월드맵 정리 · 탐사 차량(2026-09-13) — 지도 라벨 = 짧은 원래 이름(연구소 · 전진기지 · 불시착 함선 · 폐허 전초 · 플랫폼 · 벌레 둥지 · 버섯 군락 · 정류장 X, 겹치면 우선순위) · 떨어진 아이템 · 설치물 · 지뢰는 지도에 안 그린다 · 범례는 지도와 같은 그리기 함수(`map/mapIcons`)의 캔버스 견본 · 탈출 지점 한 줄 · 구조물류 · 핑 · 상자 줄 삭제 · 플레이어/분대원 1.6× · 좌하단 초기화 · 힌트 삭제 · 닫기 `Tab 또는 Esc 또는 M` · 지도 핑 키 = `Keys.PING` · 흙길 경로선(공개 뒤) · 정류장 · 차량 마커 · 목적지 선택 모드(요금 · 1초 홀드 결제) · `hud/RoverHud`(차량 체력 · 상태 줄 · `rover-view` 로 전투 HUD 숨김 · `M 목적지 선택` 키 가이드) · RaidAlerts 차량 토스트** · **요리 품질 표시(2026-09-13 — 요리 툴팁 `품질 ★★★☆☆ +15 %` · 보너스 반영 수치 · `조리 ① 썰기 → ② 젓기` 줄(`hud/mealText` 의 `mealQualityText` · `cookStepsText`) · 버프 썸네일 식사 ★n 배지 · `cooking` 썸네일 · 조리 결과 토스트 `<요리> ★★★★☆ → 함선 창고`(조리대 레시피의 일반 제작 토스트는 뺀다) · 자동 조리 가구 글리프 4종)** · **레이더 강하 문구(2026-09-13 — `레이더 n명 강하 감지` · 착지 라벨 `레이더 n`, 분대장 갈래 삭제)** · **요리 재료 티어(2026-09-13 — 툴팁: 요리 티어 + 능력치 줄 전부 · 흙/배지 내구도 · 소켓 칸 · 소켓 효과 · 스캐폴드 · 표본 계열 · 은퇴 아이템, `hud/mealText` 헬퍼, 분석 도감 발견 · 분석 레벨업 토스트)** · **일시정지 메뉴 `함선으로 귀환` 도 경고 팝업 + 1초 홀드 → `game:returnToShip`(2026-09-13)** · **준비 연출(2026-09-12 — 전술 임플란트 · 함선 호출 썸네일이 준비되는 순간 강한 플래시 1회 + 준비된 동안 윤곽 글로우, 대시는 충전마다 · 갈고리 환급 `−N초`) · 칩 즐겨찾기(`hud/ItemFavoriteMenu` — `.item-chip[data-def-id]` 우클릭 위임 메뉴 · 파란 띠) · 드론 스캔 라벨(`hud/DroneScanLabels`) · 계약 패널에 회수 아이템 이름 · 버프 썸네일에 `adrenaline` · `stimulant`** · **함선에서도 PC 체력바(이름 · 실드 · 체력 — `Vitals` 가 social 레이어로, 스태미나는 레이드 전용) · 버프 썸네일 줄(`hud/BuffStrip` — PC 체력바 아래 22 px · 분대 목록 분대원 행 체력바 아래 14 px, 대기는 흐리게 · 디버프 빨간 테두리 · 시간 게이지 + 남은 시간 글자, 2026-09-12 — 식사 · 환경 · 운동 디버프 글자 배지 3개를 대체했다) · 책 · 디스크 · 레코드 툴팁의 숙련 · 꽂는 곳 줄** · **시설 관리 2026-09-12: 방 목록 맨 위 조종석 + 방 8개 · 머리 라벨은 시설 이름만 · 가구 카드 재료 한 줄 4칸(`99+`) · 가구 창고도 시설/꾸밈 탭 · 인스펙터 하단 업그레이드 구역(비용 라벨 · 재료 + 시설 요구 칩 `buildFacilityChip` · 딤드 버튼을 누르면 `재료가 부족하여 업그레이드할 수 없습니다.` 토스트, `위치 이동` 버튼 제거) · 빨간 `시설 제거` + 확인 1초 홀드(돌려받는 재료는 `×N`) · 커서 원형 게이지(`hud/CursorHoldGauge` ← `housing:moveHold`) · 키 가이드 `또는` / `+`(`KeyGuideEntry.alt` · `combo`, 닫기 = `Tab 또는 Esc`) · 창고 → 가방 이동은 획득 티커 없음(`fromStash`)** · **B-13 클릭 인스펙터(`hud/ShipManage` — 레벨 · 다음 비용 · 강화 · 좌하단 `위치 이동`, 모달리스 · 1초 홀드 없음. `upgradeFurniture` 의 첫 호출자다)** · **가구 제작은 시설 가구 / 꾸밈용 가구 탭 · 이미 가진 시설 가구는 버튼이 `이미 보유 중` + 맨 아래(보유 수 없음) · 빈 방 용도 목록은 이미 지은 용도와 발전기를 뺀다(2026-09-12)** · 모든 DOM UI — HUD 2계층(**레이드 HUD 2026-09-10 개편: 좌상단 = 임무 시간만 · 우하단 무기 패널 = 가로로 긴 상자(`.wbox`) 안에 등급색 정사각 썸네일 + `24 / 120` + 클래스 태그, 바닥에 내구도 바 · 퀵슬롯 54 px + `T` · 좌하단 = 이름 + 실드 게이지 + 5등분 체력 · 하단 중앙 = 함선 호출 정사각 썸네일(`.scall`) + 전술 임플란트, 둘 다 쿨타임이 아래에서 위로 차오르고 한가운데 남은 초**) · 메뉴(**타이틀 = 워드마크 + 게임 시작/설정/종료**, **캐릭터 선택 3칸 · 캐릭터 생성(3D 프리뷰)**, **ESC = 중앙 왼쪽 고정**, 설정 3분할 · 화면 중앙 · 조작 다이어그램, **경고 팝업의 확정은 1초 홀드**) · 지도(**전장의 안개 — 미탐색은 회색 윤곽, 발견한 것만 마커, 밝혀진 경계에는 또렷한 선, 재해는 안개 위에 빗금으로 덮인다**) · 채팅(**Enter 전송 후 유지 · Tab 닫기**) · **우측 하단 키 가이드(`ui:keyGuide`)** · 소셜(메신저 패널 단일 — 2026-09-14 까지는 커뮤니티 패널, **고정 크기**) · 크로스헤어(**총구 막힘 경고색 `.reticle.blocked` ← `weapon:aimBlocked`, 2026-09-12** · **헤드샷 타격 표시 = 1.6배 X · 소모품을 들면 점 + 수량/내구도 · 함선 안에서도 점(`HubDot`) + 탑승 홀드 링**) · **위험 인디케이터(`ui/hud/DangerIndicators` — 적 곡사포탄 · 수류탄(아군 + 적) · 함선 호출 낙하물. 화면 밖이면 크로스헤어 바깥 방향 호, 화면 안이면 머리 마커, 둘이 겹치지 않는다. 색 = 누구 것인가, `hot` = 임박)** · **핑 v3(함선 안에서도 · 플레이어별 3개 · 관대한 조준 · 확인 핑 = 분대 색 원 · 모든 핑이 채팅 한 줄 · 화면 밖 화살표는 수명 내내 · 2026-09-10 아래 드래그 탄약 요청 제거 — H 의사소통 휠 · 인벤토리 휠클릭으로 대체)** · **입력 중 `…` 말풍선(원격만)** · 굵은 피격 방향 호 · 아이템 툴팁(**크기 줄 없음 · 무게 좌하단 · 가치 우하단**) · 커서 아트 · 스타일시트 · **빛기둥은 시체에만(`hud/pillar.pillarAllowed`, 2026-09-11)** · **드론 조종 HUD(`hud/DroneHud` — `drone-view` 클래스 하나로 무기 · 임플란트 · 함선 호출 · 스태미나를 숨기고 뷰파인더 · 하단 사거리 게이지(스태미나 자리) · 90 % 넘으면 외곽 지지직 · 공중 = 크로스헤어 좌 고도 / 우 Space·C · 지상 = Space·Shift + 소음 배지 · 조종 전환 홀드 링 · 끊김 알림)** · **로든 경고(`hud/NamedScanWarning` — 스캔 노출 배너 n/5 · 노출 음파 가장자리 · 조준경 반짝임 = 내가 표적이면 방향 호 + `저격 조준!`)** · **손에 든 가젯 안내(`hud/GadgetHandHint` — 설치 가능/사유 · `우클릭 기폭 (n)` · 기폭기 · `R 꾹 조종` / `신호 범위 밖`)** · **옛 키 설정 알림(`menus/keybindNotice` — 은퇴 액션 · 새 기본키 겹침)** · **원격 명판 실드 바** · **화면 투영은 `HudSystem.lateUpdate`(카메라 행렬 갱신 뒤)** · **지도에 폐허 전초 · 닫힌 폭풍의 눈** · **서버 연결 배지(`hud/NetBadge` — 함선 · 타이틀 우측 상단, 레이드 숨김, 연결 전이 토스트의 유일한 주인)** · **소셜: 친구 목록 `초대 중` 배지 · 차단 목록 페이지(대화 기록 페이지는 2026-09-14 메신저 대화로 대체) · 차단한 분대원 채팅 숨김 **+ `…` 말풍선도 숨김(`socialSource.isPeerBlocked` — 이름표 · 핑은 그대로)** · 개인 대화 pending → 확정 줄 · `/r`** · **합류 · 이탈 토스트의 유일한 주인(hub 의 `함선 합류` 두 줄을 걷어냈다)** | 
-| [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | **낙하 · 화염 SFX(2026-09-15 — `fall_impact`(피해 비례 + 발밑 재질 발소리 층, 분대원 낙하는 `RANGED_SOUNDS` 45 m 곡선 · `panOnly`) · `fire_crackle` · `fire_ignite` 다시 짬, 동시 보이스 상한 `VOICE_CAP` 신설 — 조용한 새 소리는 버리고 큰 소리는 가장 작은 보이스를 뺏는다)** · **탐사 차량 SFX 8종(2026-09-13, `rover_*` — 엔진은 0.5 s 마다 짧은 클립 · 포탑 · 해치 · 출발 · 제동 · 피격 · 파괴, 거절은 `tram_deny`)** · **조리 SFX 16종(2026-09-13 — `cook_chop` · `cook_mince` · `cook_sizzle` · `cook_flip` · `cook_toss` · `cook_stir` · `cook_pour` · 판정 · 자동 · 완료, 거리 감쇠 없음 · 조리대 레시피는 `craft_done` 을 겹쳐 울리지 않는다)** · **안드로이드 SFX 4종(2026-09-13 — `android_hit` · `android_death` · `android_step` 서보 겹침 · `android_glitch`)** · **준비 소리 `implant_ready`(전에는 정의가 없어 한 번도 안 울렸다) · `stratagem_ready`(2026-09-12)** · 절차 WebAudio SFX 전량 + 앰비언트, 버스 이벤트에 반응, 볼륨 영속화 · **발소리(로컬은 늘 같은 크기 · 원격은 거리 감쇠 · 자세별 크기)** · **로그 강하 경보(무전 경보 + 착지 직전 낙하 굉음 — 인지력이 아니라 전용 반경 `ROGUE_DROP_ALERT_RADIUS` 로 게이트하고 거리 감쇠는 남긴다)** · **드론 · C4 · 네임드 SFX 25종(`RANGED_SOUNDS` 거리 곡선 — `sniper_shot` · `scan_pulse` · `sniper_glint` 는 "전조가 들려야 공정하다" 라 멀리까지 최소 크기 보장)** · **재질별 발소리 11종(`footstep_<mat>`, 허브 · 도킹 = 금속)** · **적 발소리 거리 곡선** · **`shield_charge` · `tram_call` · `tram_hit` · `tram_deny`** · **헬스장 · 서재 가구 SFX 12종(`gym_*` · `chair_creak` · `tv_on/off` · `record_on/off`, 2026-09-12)** |
-| [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | **건너뛰기 암전이 결과 화면까지 간다(2026-09-15 3차, 사용자 결정 — `beginSkipFade` 가 `hold: true` 로 걸고 `game:complete` 에서 **소유를 유지**한다. 치우는 주인은 `hub:entered` 의 `clearSkipFade(0)` 하나이고 폴백 사다리(`skipToLiftoff` · `game:returnToShip`)는 예전대로 밝아진다)** · **제작 산출물이 창고로 가도 튜토리얼이 산다(2026-09-15 3차 — `equipGun` 의 **문구 · 포커싱만** 창고까지 넓혔다: 힌트 `함선 창고의 소총을…` · 포커싱 마지막 대상 `.inv-panel-bag` → **`.inv-panel-grids`**(창고+가방 한 카드). **완료 판정(`onLoadout`)은 한 줄도 안 바꿨다** — 그것은 처음부터 가방을 본 적이 없고 `locate()` 가 창고도 훑는다. `stowAmmo`(「창고의 탄약을 가방으로」)는 **원래 있던 단계**라 이제 늘 제 일을 한다)** · **시체 상호작용 단계 · 목표 카운트 · 패널 1.2배(2026-09-15 2차, 사용자 결정 — `corpseOpen`(`corpse` 체크포인트가 열고 `inventory:containerOpened` 의 `corpse:` 가 닫는다 · 접기 · 목표 마커도 함께) · `TutorialObjective.count` → 목표 줄 뒤 `(n/m)`(수의 원본은 `RAID_KILLS_PER_STEP` · `setCounts` 는 숫자 노드만 고쳐 체크 애니메이션을 안 깨뚜다) · `move` 목표 = `앞으로 이동` · 좌측 상단 목표 패널만 글자 ×1.2 · 폭 346px)** · **다듬기(2026-09-15, 사용자 결정 — 목표 명사구 + 목표 줄 키캡 토큰(`renderKeyText`, 리바인드 시 다시 그림) · 선택 목표 회색 폐지(완료만 회색 + 취소선) · 자세 라벨 버그 수정(`crouch` 가 곧바로 `crouchAim` 으로 넘어가 라벨이 선 자세로 굳어 있었다 → `STANCE_HINT_IDS`) · 앉아 조준 TIP(`ui/Tip`) · 시체 ① 포커싱이 방탄복 칸까지 · 가방을 닫으면 포커싱 해제 · `supplyLoot`(`supply` → 붕대 획득 후 창 닫기 → `heal`, 줍지 않고 `wall` 까지 가면 `grenade`) · `heal` 순차 공개 · 꺼내기 / 휠 열기 두 줄 · 수류탄 조작 토큰 문장 줄(`ControlHint.text`, 핀 뽑기) · 레이드 건너뛰기 = 암전 → `skipToComplete` → 결과 창)** · **함선 트랙 주행이 잡은 버그 셋(2026-09-15, E-12 — `messenger` 포커싱이 투명해진 메신저 버튼을 집던 것(`.community.show`) · `ravenQuest` 선택자 오타 `.ms-page.chat` · 「레이븐의 연락에 대답한다」 를 레이븐 `choice` 사건으로 체크(`TUTORIAL_RAVEN_NPC`), 주행 스모크 `smoke-tutorial-raid` · `smoke-tutorial-ship`)** · **기상 연출이 실제로 끝난다(2026-09-14 5차 — player 음수 타이머 버그로 `wake` 에 갇혀 안내가 안 뜨던 것, 이 폴더 코드는 무변경 · 회귀 `smoke-intro-wake`)** · **오프닝 배선 · 「앞으로 이동」 세 구간(2026-09-14 4차, 사용자 결정 — `PlayerRef.playIntroWake` 를 **아무도 안 부르고 있었다**(도입 커밋부터 빠져 있었고 `cliff` 체크포인트가 단계를 대신 접어 줘서 안 들켰다): `startRaidTrack` 이 `pendingWake` 만 세우고 **다음 프레임** `update()` 가 부른다 — 같은 `game:newMission` emit 안에서 부르면 뒤쪽 핸들러인 `PlayerSystem` 의 `cancelIntroWake` 가 조용히 지운다 · `wake` 단계는 목표 줄이 없고 연출 동안 패널 · 조작 가이드를 **안 그린다**(끝나면 `WAKE_REVEAL_DELAY_S` 2초 **또는** `WAKE_REVEAL_MOVE_M` 1 m 이동 중 먼저 오는 때) · 새 단계 `advance1`·`2`·`3` = 구간 사이의 「앞으로 이동」(raid 11 → **14단계**, `shoot` 은 **실제 굴착 스폰**(`enemy:spawned`)이 열고 `CHECKPOINT_STEP.bugs` 는 `advance1` 로 내려갔다 — 체크포인트는 감지 반경 밖이라 14 m 먼저 온다) · `corpseLoot` = 총 장착이 끝이고(포커싱만 끄고 **가방을 닫을 때** 넘어간다) `corpseStim` · `corpseClose` 삭제 · `heal` 은 자동 퀵슬롯 등록 전제로 두 줄 + 선택 「수류탄을 챙긴다」 · `grenade` 선택 목표는 **던져 터지면** 달성 · `shipMarker` 를 레이드 내내 숨긴다(마지막 단계의 초록 구슬 = `.wmarker.ship`) · `Spotlight.find` 가 **보이는 사본**을 고른다(캐릭터 시트가 DOM 에 둘이라 숨은 오버레이를 집어 `stats` 포커싱이 탭 줄로 흘러내렸다) + 구멍은 ＋ 버튼이 함께 들어오는 `.cs-col`)** · **목표 순차 공개 · 조작 가이드 교체식(2026-09-14 3차, 사용자 결정 — `TutorialObjective.reveal`(앞 줄을 달성해야 보인다) · `revealOn`(바깥 사건이 여는 줄) + 순수 함수 `model.visibleObjectives` 하나가 고른다 / `TUTORIAL_CONTROL_HINTS[step]` 이 「그 단계에 **보일** 줄 전부」가 되고 `TutorialControls.set` 이 문구만 고쳐 살아남은 줄이 안 깜빡인다(표에 없는 단계 = 직전 줄 유지, 머리 라벨 `배운 조작` → `조작`) · `crouch` 의 C · Z 라벨이 `player:stanceChanged` 마다 자세에 맞게 바뀐다 / `corpseLoot` → `shoot` 은 **가방을 닫을 때** / 시체 목표 마커 `parts/Marker`(세로선 + 주황 chevron, 광원 0 · 좌표 없음 — `ctx.interactables` 에서 찾는다) / 회복은 「퀵슬롯에 올린다」 필수 뒤 선택 3줄 / 함선 트랙이 「…으로 이동 → …작동」 으로 잘게 갈렸다(`StepDef.arriveObjective`, StepDef 수 불변) / `manageDone` 은 순서에서 빠졌다(build 16단계) / `levelUp` 은 이미 열린 창에서 탭만 바꿔도 넘어가고, `equipGun` 은 제작 창이 열려 있으면 「제작 창을 닫는다」를 먼저 보인다)** · **퀘스트형 목표 패널 · 건너뛰기 = 즉시 탈출(2026-09-14 2차, 사용자 결정 — 패널이 `[글리프] 트랙 이름` + **체크박스 목표 줄**(`StepDef.objectives`, 한 단계에 필수 + 선택) + 트랙 진행 바로 바뀌었다(옛 `n / m` 라벨 · 건너뛰기 버튼 삭제) · 달성하면 체크 · 취소선이 좌→우로 그어지고 그 연출이 보이도록 **목표 줄만** `TUTORIAL_STEP_DELAY_S` 미뤄진다(단계 기계 무변경) · 건너뛰기는 ESC 메뉴 → `skipTrack` → 레이드면 `ExtractionRef.skipToLiftoff` · **풀피 시작 · 풀피 부활**(`applyLowHp` 은퇴) · `corpseLoot` 은 딤 없는 포커싱 + 무기 장착 즉시 진행(가방 · 탄약 · 회복은 선택) · `heal` 은 체력이 가득이면 지나간다 · 우측 조작 가이드 4구간 + 인벤토리 열면 접기 + 퀵슬롯 위)** · **3트랙 계약(2026-09-14, 사용자 결정 — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): ① `raid`(튜토리얼 레이드) · ② `ship`(레벨업 · 스탯 · 메신저) · ③ `build`(함선 증축 — 2026-09-14 3차에 `manageDone` 이 빠져 16단계), 각각 따로 건너뛰기 — 계약과 단계 자리만 들어왔고 구현은 아직 build 하나다)** · 새 캐릭터 안내 **16단계** — 목표 패널 · UI 스포트라이트(**합집합 포커싱 · 0.5초 늦게 · 딤 페이드인**) · 바닥 안내선, 순서 강제 게이트(`blockReason`) + **잠긴 항목 숨김**(`hides`, **함선 창고 아이템 포함**) · 부족한 재료 top-up · **1초 홀드 건너뛰기** | 
-| [`src/console/`](src/console/README.md) | `ConsoleSystem` | `ctx.console` | **`analyze [ff <시간>|done [uid|all]]` — 분석기 해석 시간 치트(2026-09-15 2차, 사용자 결정 — 공개 `HousingRef` 만 쓴다: 목록은 `interaction === 'analyzer'` 로 고르고 dev 는 `devAdvanceAnalysis?(hours, uid?)` 하나 · `done` 은 `remainingS` 중 가장 긴 것만큼만 앞당긴다)** · **`/items` 가 열자마자 검색창에 포커스(2026-09-15 2차 — 제자리는 `inventory/ui/CatalogView.setOpen`)** · **`library [give <시리즈> [권|all]]` — 서재 효과 요약 · 시리즈 아이템 지급(2026-09-13)** · **`rover [hp|speed|depart|arrive]` — 탐사 차량 치트(`cheat:rover`, 2026-09-13)** · 개발자 콘솔 + 치트 (**dev 호스트에서만** 존재 — 그 외에는 DOM 도 키도 없다) · **`colliders [0|1]` — 주변 30 m 콜라이더 와이어프레임(`ColliderOverlay`, 광원 없음, 2026-09-12)** · **`gym [clear|str|end <xp>]` — 단련 경험치 · 운동 디버프 지우기** · **`cook give <요리> [품질 0-5] [수량]` · `cook` = 지금 조리 세션(2026-09-13)** |
+| [`src/hub/`](src/hub/README.md) | `HubSystem` | `ctx.hub` | Personal/shared ship interiors · hangar · docking cutscene · window warp · launch pods/slot readiness · full-screen terminal (planets · intel · matchmaking) · furniture models and staging (gym · cooking · games) · ship management mode · light pool |
+| [`src/game/`](src/game/README.md) | `GameFlowSystem` | `ctx.phase`, `ctx.corpses` | Phase state machine · death/corpses · squad-leader device · raid session save/resume (solo clock defence · tutorial resume) · resume gate · ESC policy · voluntary return · result-screen data |
+| [`src/ui/`](src/ui/README.md) | `HudSystem` | — | All DOM UI — raid/ship HUD · crosshair · danger indicators · map (fog) · pings · chat · messenger · menus (title · character · ESC · settings) · result screens · key guide · item tooltips · stylesheets · **sole owner of toasts** |
+| [`src/audio/`](src/audio/README.md) | `AudioSystem` | `ctx.audio` | Procedural WebAudio SFX + ambience · distance curves · per-surface footsteps · volume persistence (`bgm` channel is storage/display only) |
+| [`src/tutorial/`](src/tutorial/README.md) | `TutorialSystem` | `ctx.tutorial` | New-character guide, 3 tracks (raid · ship · build) — objective panel · spotlight · control guide · order gates · per-track skip |
+| [`src/console/`](src/console/README.md) | `ConsoleSystem` | `ctx.console` | Dev console + cheats (**dev hosts only** — no DOM, no key elsewhere) |
 
-### 3.6 네트워크 · 배포
+### 3.6 Network · deploy
 
-| 폴더 | 시스템 | `ctx` 게시 | 한 줄 책임 |
+| Folder | System | Publishes on `ctx` | Responsibility |
 |---|---|---|---|
-| [`src/net/`](src/net/README.md) | `NetSystem` | `ctx.net` | **피해 출처 수신(2026-09-15 — `dmg.src` 검사 `damageSourceFromWire` → `takeDamage` 셋째 인자)** · **원격 수류탄 종류(2026-09-15 — `grenade` 메시지의 `fire` 1 을 `net:remoteGrenade.fire` 로 넘긴다, 생략 = undefined)** · **정보상 와이어(2026-09-14 2차 — `NetRef.lobbyIntel` · `setLobbyIntel` · `startGame(…, intel)`, `beginSession` 이 `game:newMission` **emit 전에** `ctx.missionIntel` 세팅, `rejoinMission` 이 `lobby.intel` 복원)** · **단체방 `ctx.net.rooms`(2026-09-14 — `RoomSync`: 서버가 welcome 뒤 `room:state` 를 먼저 보낸다 · pending 줄 → ack · 쪽 단위 이력 · 방별 읽음 표시(슬롯 localStorage)) · 개인 대화(옛 귓속말) 읽지 않음 `whisperUnread` · `markWhisperRead` · `social:unreadChanged`** · **스냅샷 플래그 `PlayerFlags.IN_ROVER`(탐사 차량 탑승, 2026-09-13 — 원격 아바타 · 이름표 · 말풍선을 숨긴다)** · **식탁 와이어에 요리 품질 `q`(2026-09-13 — `req` · `serve`, 받는 쪽 `normalizeMealQuality` → `serveMeal(def, q)`) · 가구 자세 번호 4 = `cook`** · **방문 와이어가 `media` · `toggled` 를 버리지 않는다(2026-09-12)** · **캐릭터 버프 와이어(`parts/CharBuffs`, 2026-09-12 — 목록은 바뀔 때 `cbuf state`, 스냅샷에는 리비전 `bfr` 하나, 다르면 `cbufq sync` 로 다시 받는다 = 늦게 합류 · 방문도 따라온다 · 목록은 멤버별로 보관해 함선 ↔ 레이드 ref 재생성에도 안 깜빡인다 · 가구 자세 `fp` · `fu` 는 스냅샷에서 누적 위상 선형 보간)** · **공유 함선 식탁(`MealMessage` — `req` 는 요청 · `serve` 는 사실, 받는 쪽은 로비 호스트가 보난 것만 · 호스트는 `createBuffGuard` 네 겹을 지난 뒤 사거리 안의 사람에게만 개별 전송, 서버 무변경)** · 릴레이 WebSocket 클라이언트 · 세션 토큰 · 로비 · 20 Hz 스냅샷 · 프로필 동기화 · 소셜 · 크루 카드 · **함선 배치(`ship state`)** · **분대장 지명 이관** · `PlayerFlags.TYPING`(채팅 입력 중) · **접속할 서버 주소(`설정 › 서버 설정` → `defaultUrl`) · 익명 연결 테스트** · **`kicked` · `server_full` 을 받으면 재접속을 멈춘다** · **링크 상태 `ctx.net.link`(접속 타임아웃 6 s · unreachable 이면 익명 배경 프로브 — 함선 · 타이틀에서만 자동 접속, 셸 임베디드 목표는 프로브 안 함)** · **프로필 문서 리비전(`baseRev` · ack · 서버 우선 충돌 · 영속 쓰기 큐 · `setMany` 트랜잭션 · 리비전 전환 1회는 Phase 9 스탬프로 판정)** · **소셜 초대 id 응답 · 차단 · 개인 대화 ack · 대화 기록(슬롯 localStorage)** · **암호화폐 시세 창구 `ctx.net.crypto`(`parts/Crypto` — `watch()` 참조 계수 · 봉 캐시 · welcome 뒤 재구독, 2026-09-13)** |
-| [`server/`](server/README.md) | (Node) | — | **정보상 검증(2026-09-14 2차 — `Lobby.intel` 에코 · `lobby:intel` 은 **호스트만** · `Economy` 의 `case 'intel'` 이 클라와 **같은 `intelCost`** 로 검산 · `intelAt` 시간당 상한 · **환불 불가**)** · **단체방(2026-09-14 — `Rooms.ts` `RoomStore` → `rooms.json`(.bak · 손상 보존) · 친구만 초대 · 방장만 초대/강퇴/이름 변경 · 방장 승계 · 마지막 멤버가 나가면 삭제 · 20명 · 200줄 · 한 사람 20방 · `room:say` 버스트 12 + 초당 2 · 차단 규칙 = 소셜 · 프로필 GC 연동 · selftest part 14)** · **탐사 차량 요금 검증(2026-09-13 — `rover:<from>:<to>` · delta 음수 정수 · [ROVER_FARE_MIN, MAX] · 프로필당 시간당 30회 `roverAt` · 환불 불가)** · `ws` 릴레이 — 로비 · 5분 재접속 유예 · 호스트 이관(**자동 + 지명 `lobby:transferHost`**) · 프로필/레이드/소셜 저장소 · `selftest.ts` · **배포용 엔트리 `tool.ts`(단독 exe → `npm run server:dist`)** · **콘솔 `list` · `lobbies` · `kick` · `max` · `gc` · `help`** · **저장소 비동기 쓰기 + fsync + `.bak` 세대 · 손상 파일 보존 · 복구 · `--data`/`SCAV_DATA_DIR`** · **프로필 GC(90일 안 온 프로필 삭제 · 접속자/로비 멤버 보호 · 최근 목록 · 친구 요청 30일 만료 — 시작 시 + 6시간마다)** · **소셜 서버(원자적 이동 `LobbyManager.move` · 초대 표 `Invites.ts` · 네 목록 watch + 250 ms 푸시 합치기 · 조용한 차단 · 개인 대화 ack + 친구 오프라인 보관 20줄/7일 · **차단은 로비 참가도 막는다 — 내가 차단한 상대가 있으면 `blocked`, 나를 차단한 사람이 있으면 `not_found` 로 위장하고 quickmatch 는 그 로비를 건너뛴다**)** · **문서 리비전(`docsRev` · 전부 또는 전무 `setMany`)** · **크레딧 검증(`Economy.ts` — 사유 해석 + `economy.gen.json` 표 + 원장, migrate 는 `CREDITS_MAX` 까지 1회)** · **암호화폐 시세(`CryptoMarket.ts` — 틱마다 평균 회귀 시세 · 1분/1시간봉 · `crypto.json`, `crypto:watch` · `crypto:history`, `cbuy`/`csell` 는 시세 창으로 검증, 2026-09-13)** |
-| [`electron/`](electron/README.md) | (Electron main) | — | 데스크톱 스탠드얼론 셸 — 같은 프로세스에 릴레이 + `dist/` 를 로컬 http 로 서빙(**창 포트 8790 고정 = 세이브 오리진**), `src/`·`server/` 무변경 · **배포 폴더 = `app/` + stub 런처(`launcher.cs`) + `server.txt`** · 아이콘 · **임베디드 릴레이는 첫 `/ws` 접속 때 켜진다(`--lan`/`--port` 면 즉시)** · **테스트 격리 플래그 `--user-data` · `--hidden` · `--lazy-relay` · `/__scav/relay` 의 `embedded`** · **포트가 Windows 예약(`EACCES` — WinNAT 대역)이면 막힌 칸으로 보고 다음 칸, 창 포트가 전부 막히면 오류 창에 winnat 해제 명령(2026-09-14)** |
+| [`src/net/`](src/net/README.md) | `NetSystem` | `ctx.net` | Relay WebSocket client · session token · lobby · 20 Hz snapshots · profile document sync (revisions · write queue) · social · private chat · group rooms · char-buff wire · crypto quotes · link state · server address |
+| [`server/`](server/README.md) | (Node) | — | `ws` relay — lobbies · 5-min reconnect grace · host transfer · profile/raid/social/room stores (`.bak` · GC) · credit reason validation · crypto market · console commands · standalone exe entry (`tool.ts`) |
+| [`electron/`](electron/README.md) | (Electron main) | — | Desktop shell — embedded relay + `dist/` over local http (**window port 8790 fixed = save origin**) · deploy folder · stub launcher · icon |
 
 ---
 
-## 4. 스택 & 규약
+## 4. Stack & conventions
 
-- Three.js 0.185, TypeScript strict, ES modules, 경로 별칭 `@/` → `src/`.
-- **수치는 코드에 적지 않는다.** 데미지 · 체력 · 가격 · 확률 · 쿨다운 · 무게는 전부 `data/*.csv` 에 있고 TS 는
-  그 표를 읽어 자기 타입으로 옮기기만 한다 ([data/README.md](data/README.md)). 새 수치를 넣을 때도 csv 에 줄을
-  먼저 만든다. csv 는 `import.meta.glob(..., '?raw')` 로 **빌드 시점에** 번들에 인라인된다 — 런타임 fetch 없음.
-- **외부 에셋 파일 금지.** 모든 모델(플레이어 · 벌레 · 상자 · 함선 · 소품)은 Three.js 지오메트리로 코드에서 절차 생성한다.
-  GLTF 도 디스크 텍스처도 없다. 필요하면 절차 CanvasTexture / 셰이더를 쓴다.
-- 모든 HTML UI 는 `ctx.uiRoot` (`#ui-root`) 아래 DOM 이고 스타일은 `src/ui/styles/`. **React 없음.**
-- 게임 내 텍스트는 **한국어**.
-- 폴더마다 `README.md` 가 파일 구성을 설명한다. **폴더를 고치면 그 README 를 갱신한다.**
-- `src/shared/*` 는 조율 없이 고치지 않는다 — 모든 모듈이 의존하는 계약이다.
-  새 이벤트/필드가 정말 필요하면 **추가만** 한다(이름 변경 · 삭제 금지).
-- 폴더 간 통신은 `ctx.bus` 이벤트, 동기 질의는 `ctx` 의 `*Ref` 인터페이스.
-  **다른 기능 폴더의 내부를 import 하지 않는다 — `@/shared` 만.**
-- **큰 시스템 파일은 `model.ts` + `parts/` 로 가른다** (2026-09-08). `model.ts` = 폴더 공용 어휘(타입 · 상수 ·
-  스크래치, 상태 없음), `parts/*.ts` = 클래스에서 떼어낸 메서드 묶음으로 인스턴스를 첫 인자 `sys` 로 받는다.
-  클래스에는 같은 이름의 한 줄 위임 메서드가 남으므로 **호출부는 바뀌지 않는다.** 순환 import 를 피하려면
-  `parts/` 는 시스템 파일에서 **타입만** 가져와야 한다 — 값이 필요하면 `model.ts` 로 옮긴다.
-  자세한 규약은 각 폴더 README 의 `파일 분할 규약` 절.
-- `THREE.Vector3` 스크래치 객체를 재사용하고 핫 패스에서 프레임당 할당을 피한다.
-- 미션 리셋(`game:abort`, `game:newMission`) 때 직접 만든 지오메트리/머티리얼을 dispose 한다.
-- 키는 **사용 시점에 `Keys.X` 를 읽는다** — 모듈 상수로 캐시하지 않는다 ([docs/CONTROLS.md](docs/CONTROLS.md)).
-- **포인터 락이 튕겨 나온 것은 Escape 가 아니다** (2026-09-09). 화면 · 모드가 닫히면 `main.ts` 가 락을 다시
-  요청하는데, 전체화면 Chrome 과 데스크톱 셸은 그 락을 넘겨줬다가 곧바로 도로 가져갈 때가 있다. 그것을
-  `onUserUnlock` 으로 흘려 보내면 `game/` 이 플레이어의 Escape 로 읽어 **일시정지 메뉴를 혼자 띄운다** —
-  하우징 모드를 Tab 으로 닫으면 ESC 메뉴가 뜨던 문제이고, 닫으면서 락을 되찾는 화면 전부가 같은 뿌리였다.
-  `shared/Input` 이 락을 **잡은 직후**(`lockAcquiredAt`) `LOCK_BOUNCE_GRACE_MS` 안의 락 상실을 걸러 내고
-  제스처 재시도만 건다. 이 창 안에서 진짜 Escape 를 놓쳐도 락 없는 Escape 는 진짜 keydown 으로 들어온다.
-- **Escape 직후에는 포인터 락을 요청하지 않는다** (2026-09-10). 데스크톱 앱에서 ESC 로 화면을 닫으면 조작이
-  죽고 좌클릭을 해야 살아나던 문제의 뿌리다. Escape 를 처리하는 중에 락을 요청하면 Chromium 이 그것을
-  **허가했다가 같은 Escape 로 도로 가져가고**(= 사용자 해제), 그 뒤 **약 1.25초 동안 모든 재요청을 거부한다**
-  ("Pointer lock cannot be acquired immediately after the user has exited the lock"). 이 쿨다운은 시간에만
-  반응한다 — 클릭도 키도, `electron/main.ts` 가 건네는 user activation 도 앞당기지 못한다(그래서 좌클릭이
-  듣는 것처럼 보였다: 클릭할 즈음이면 1.25초가 지나 있었을 뿐이다). 그래서 `shared/Input` 이 요청을 보낼
-  시각을 스스로 고른다 — Escape 를 누르고 있는 동안 + 뗀 뒤 `LOCK_ESCAPE_DEFER_MS`, 사용자 해제 뒤
-  `LOCK_USER_EXIT_COOLDOWN_MS` 안에 들어온 요청은 **브라우저에 보내지 않고** 의사만 적어 뒀다가
-  (`deferredRelock`) `endFrame` 이 풀리는 첫 프레임에 한 번만 보낸다. 겹친 요청은 하나로 합쳐지고
-  (`lockInFlight`), 타이밍 때문에 거부되면 `LOCK_RELOCK_RETRIES` 회까지 스스로 다시 보낸다. 새 코드에서
-  **락을 다시 잡는 지점은 여전히 `main.ts` 하나**이고, 미루는 일은 전부 `Input` 안에서 끝난다.
-- **Escape 는 열려 있는 화면 중 맨 위 하나를 닫는다** (2026-09-09, 2026-09-08 규칙 개정). 닫을 화면이 없을 때만
-  일시정지 메뉴가 열린다. 순서는 **열린 순서의 역순**이고 그것을 아는 곳은 `shared/escape` 의 `ctx.escape`
-  하나다 — 화면은 `uiBlockers.add` **옆에서** `escape.push(token, () => this.close())`, `delete` 옆에서
-  `escape.remove(token)` 한다. 정책은 `game/parts/Phases.escapeKey` 한 곳뿐이다 (폴링으로 흉내내지 않는다 —
-  키를 각자 읽으면 닫히는 순서가 `main.ts` 의 시스템 등록 순서로 정해져, 위에 뜬 패널보다 아래 모드가 먼저 닫힌다.
-  그래서 **하우징 모드**도 자기 Escape 폴링을 걷어내고 이 스택에 올라갔다 — C 는 그대로다).
-  가장 안쪽 팝업(수량 지정 · 우클릭 메뉴 · 경고 팝업 · 설정 · 키 바꾸기 · 채팅 · 콘솔)은 그대로 자기 capture
-  핸들러에서 Escape 를 삼켜 `Input` 이 기록조차 못 하게 한다. **일시정지 메뉴 자신은 데스크톱 앱에서만** ESC 로
-  닫힌다 (`isDesktopShell()`, `ui/menus/PauseMenu`) — 브라우저에서는 `게임으로 돌아가기` 클릭이 재락에 필요한
-  제스처를 겸하므로 그대로다. 2026-09-08 에 닫기를 걷어낸 이유(Escape 에는 user activation 이 없어 재락이
-  거부된다)는 이제 양쪽 모두 답이 있다: 앱은 메인 프로세스가 ESC key-up 에 activation 을 만들어 주고
-  (`__scavShellRelock`), 브라우저는 `좌측 클릭으로 게임 재개` 게이트가 그 한 클릭을 받는다.
-- **Tab 은 모든 화면 · 모드의 공용 닫기 키다** (2026-09-09). 자기를 연 키(E · M …)로도 여전히 닫히지만 Tab 도 닫는다 —
-  Tab 을 먹는 화면은 `ctx.input.consume(Keys.INVENTORY)` 로 인벤토리가 같은 키에 열리지 않게 한다. 열린 화면은
-  `ui:keyGuide {owner, keys}` 를 내보내 **우측 하단 한 줄 키 가이드**(`ui/hud/KeyGuide`)에 자기 키를 올리고, 닫을 때
-  `keys:null` 을 보낸다. `닫기` 항목은 가이드가 스스로 맨 오른쪽에 붙이므로 `keys` 에 넣지 않는다 — 2026-09-09
-  부터 그 항목의 keycap 은 **둘**(`Tab` · `Esc`)이다. ESC 메뉴는 예외(가이드 없음).
-- **행성 이동은 컷씬이 아니다** (2026-09-09). 함선 창문 밖의 별이 줄기로 늘어나는 **창문 워프**(`hub:warpProgress`)이고
-  조작은 그대로 살아 있다 — 이동 중에도 함선 안을 걸어 다닌다. 개인 → 공유 함선 **도킹 컷씬은 그대로**다.
-- **캐릭터 세이브는 슬롯별이다** (2026-09-09). 새 캐릭터 데이터를 저장할 때는 반드시 `slotKey(KEY)` 를 통과시킨다
-  (`scav.profile` → `scav.s2.profile`, `shared/saveSlot`). `scav.sessionToken` 도 슬롯별이라 릴레이의 서버 프로필까지
-  캐릭터마다 갈라진다. 공용으로 남는 것은 `SHARED_KEYS` 뿐 — 키 바인딩 · 오디오 · 화면 설정 · 콘솔 기록.
-  시스템은 부팅 때 한 번 저장소를 읽으므로 **슬롯 전환은 언제나 `location.reload()`** 다
-  (`setActiveSlot` → `markAutoStart` → reload; 새로고침 뒤 `takeAutoStart()` 가 타이틀을 건너뛴다).
-- **보상 단위는 아이템이 아니라 재화다** (2026-09-09). 신뢰도(기업별) · XP · 크레딧은 `data/currencies.csv` +
-  `shared/currency.ts` 의 **재화**이고 `buildCurrencyChip` 이 아이템 칩과 같은 크기 · 다른 틀(육각)로 그린다.
-  가짜 아이템 정의를 만들지 않는다 — 루팅 · 제작 표에 샌다. 툴팁은 `ui/hud/ItemTip` 의 `.is-currency`.
-- **되돌릴 수 없는 확정은 1초 홀드다** (2026-09-09). 파티 떠나기 · 타이틀로 · 게임 종료 · 캐릭터 삭제의 빨간 버튼은
-  `UI_HOLD_CONFIRM_S` 동안 눌러야 실행된다(제작 · 분해와 같은 게이지). **Enter 로는 확정되지 않는다** — 먹기만 하고,
-  Escape 가 취소이며 초기 포커스는 `취소` 다.
-- **일시정지 메뉴는 자리가 고정이다** (2026-09-09). 화면 세로 중앙 · 가로는 **왼쪽 절반**(중심이 약 25vw)에
-  CSS 로 못 박혀 있다 (`.menu.pause`). 2026-09-08 의 "메뉴가 커서를 찾아간다"(`parkUnderCursor` · `--menu-dx/dy`)는
-  걷어냈다 — 매번 다른 자리보다 늘 같은 자리가 낫다는 사용자 결정. **설정**은 그 위에 **화면 중앙**으로 뜬다.
-- **완전한 사망에는 자동 부활이 없다** (2026-09-09). 전투불능은 여전히 제세동기로 살릴 수 있지만, 피가 다 빠져
-  `player:died` 가 나면 그 자리에 **레이드가 끝날 때까지 남는 시체**가 서고(`ctx.corpses`) 사망 시점의 장비 ·
-  가방 · 퀵슬롯이 전부 그 안으로 옮겨진다(`InventoryRef.stripForCorpse`, 아무나 루팅 가능). 되살아나는 길은
-  분대원이 부르는 **구조선 투하**뿐이고 그때도 **빈손**이다 — 자기 시체를 찾아가 되찾아야 한다.
-  **장착 임플란트도 몸에 남지 않는다** (2026-09-11 C-12, 사용자 결정 — 2026-09-09 의 "임플란트는 예외" 를 뒤집었다):
-  분대 레이드에서는 `ProgressionRef.stripImplantsForCorpse` 가 장착을 전부 풀어 **망가진 짝**(`imp_broken_*`)을
-  시체 격자에 넣고(세레스 수리로 되살린다) 즉시 저장한다 — 사망 직후 새로고침으로 되돌릴 수 없다. 시체가 없는
-  **솔로 레이드 사망은 짝도 없이 완전히 잃는다** (장비 · 가방과 같다). 함선에서의 탈착 게이트는 그대로다. `PLAYER_RESPAWN_DELAY` ·
-  `game:respawn` · `game:respawnAvailable` 은 계약이라 **지우지 않았을 뿐** 아무도 발행하지 않는다.
-- **레이드 세션 세이브는 사망을 담아야 한다** (2026-09-11 C-70). 주기 저장(`RAID_SAVE_INTERVAL_S` 5초)만으로는 사망 순간을
-  못 담아, 죽고 새로고침하면 **사망 전** 상태로 돌아왔다 — 멀티는 장비가 시체에도 가방에도 있는 **복제**였고, 시체가 없는
-  솔로는 그냥 **부활**이었다. 그래서 멀티는 `spawnLocalCorpse`(= `stripForCorpse`) **직후** 한 번 강제 저장하고(순서가
-  요점이다 — 빈 가방을 찍어야 한다), 솔로는 죽는 즉시 `clearSoloRaid()` 다(「죽는 순간 레이드는 끝났다」). 새 저장 경로를
-  만들면 **사망 뒤에 쓰지 않는지**를 먼저 본다 — 솔로 저장은 `Session.saveRaid` 와 `GameFlowSystem.onPageHide` 둘 다
-  `isDead` / `isLocalOut()` 을 본다.
-- **구조선 횟수는 호스트가 들고 있다** (2026-09-09). 분대 공용 `RESCUE_DROPS_PER_RAID`(5)회이고 아무나
-  `rescue req` 를 보내면 호스트가 `grant` 하면서 1 차감한다 — **호출 확정 시점**이고 취소해도 환불은 없다.
-  착륙 지점은 호스트가 `world.scatterPoints` 로 뽑아 포드끼리 겹치지 않게 정한다. 소진 뒤의 사망자는
-  탈출/전멸까지 관전이다.
-- **강하 포드는 이제 남에게도 보인다** (2026-09-09). 미션 시작 강하와 구조선 강하 모두 `pod drop` 을 보내고
-  `player/RemotePods` 가 원격 헬포드를 떨어뜨린다. 그 전까지 아군은 그냥 자리에 나타났다.
-- **함선 호출은 하나의 쿨타임을 공유한다** (2026-09-10, 사용자 결정). `_cooldown` 은 처음부터 네 호출이
-  함께 쓰는 값이었고 길이만 새로 정했다 — **구조선 30 · 보급품 90 · 트라이포드 90 · 궤도 폭격 120초**
-  (`data/stratagems.csv` 의 `cooldown`, 코드에는 없다). 그래서 **쿨타임 중에는 `G` 홀드로 휠도 열리지 않는다**:
-  고를 수 있는 칸이 하나도 없으므로 여는 대신 `denyCooldown` (거부음 + `재충전 n초` 토스트)으로 끝낸다 —
-  `arm` 의 거부와 **같은 함수**다. HUD 는 우측 하단 텍스트 패널이 아니라 **전술 임플란트 왼쪽의 정사각
-  썸네일**(`ui/hud/StratagemPanel`, `.scall`)이고, 쿨타임 연출이 임플란트와 완전히 같다(딤드 + 아래에서 위로
-  차오름 + 한가운데 남은 초). 하단 중앙 줄의 자리 · 크기는 `styles/implant.css` 의 `:root` 변수
-  (`--imp-th` · `--imp-tw` · `--imp-bottom` · `--imp-gap`) 하나가 원본이다.
-- **함선 호출 휠은 4칸 고정이다** (2026-09-09). `STRATAGEM_ORDER` 가 정확히 4개(N/E/S/W)이고 지금은
-  궤도 폭격 · 보급품 · 트라이포드 · 구조선이다. `airstrike` 는 목록에서만 빠졌고 타입 · csv 줄 · 구현은
-  남아 있다 — 계약은 **추가만** 한다는 규칙 그대로다. `STRATAGEM_HOST_ONLY` 의 호출은 멀티에서 분대장만 무장한다.
-- **분대장은 지명해서 넘긴다** (2026-09-09). 서버의 `lobby:transferHost {targetId, claim?}` 이 유일한 관문이고
-  허용은 둘뿐이다 — ① 지금 호스트가 넘긴다(커뮤니티 우클릭 · 함선 안 상호작용), ② 호스트가 `lobby:hostDown` 으로
-  사망 표시를 켜 둔 상태에서 누군가 시체 옆 **분대장 기기**를 `LEADER_DEVICE_HOLD_S`(3초) 홀드해 `claim` 한다.
-  호스트가 바뀌었다는 **토스트는 `game/parts/Leader` 한 곳만** 띄운다.
-- **지도는 처음부터 열려 있지 않다** (2026-09-09). `ctx.world.fog`(`FogRef`)가 `FOG_CELL_M` 격자 하나를 들고,
-  분대원 **전원**의 위치 주위 `FOG_REVEAL_RADIUS` 를 `FOG_UPDATE_HZ` 로 칠한다 — 밝힌 칸은 레이드가 끝날 때까지
-  유지된다. 평상시 **와이어가 없다**(이미 흐르는 `ps` 스냅샷으로 각자 칠하면 저절로 같아진다); 늦게 합류한
-  사람만 `fogq sync` 로 마스크를 받는다. 미탐색 구역은 회색 윤곽만 보이고 **아직 발견하지 않은 오브젝트는
-  지도 · 월드 마커 · 나침반 어디에도 뜨지 않는다** (`fog.isDiscovered`). 그래서 탈출 신호소의 빛기둥도
-  평상시에는 꺼져 있다 — 탈출이 **활성화된 뒤에만** 켜진다.
-- **콜라이더는 보이는 실루엣이고 낮은 것은 올라선다** (2026-09-09). 소품의 이동 · 총알 실린더를 둘 다
-  `hullOf` 실측에서 만든다(예외는 나무 줄기와 회전한 잔해 상자 — 코드에 근거가 적혀 있다).
-  걷는 바닥은 `getHeightAt` 이 아니라 **`WorldRef.getSurfaceY(x, z, feetY)`** 다: 발 높이에서
-  `PROP_STEP_UP_MAX` 안에 있는 장애물 윗면만 잡으므로 낮은 바위에는 올라서고 첨탑은 벽으로 남는다.
-  **표면을 먼저 잡고 `resolveCollision` 을 부른다** — 순서를 뒤집으면 옆으로 밀려난 뒤라 영영 못 올라간다.
-  플레이어(`PlayerController`) · 적(`EnemyAI` · `Replica`) · 시체가 모두 같은 질의를 쓴다.
-- **소품 콜라이더는 지오메트리에서 재고, 그 지오메트리는 믿을 수 있어야 한다** (2026-09-09). `Props.hullOf`
-  가 바운딩 박스로 콜라이더를 만드는 이상 **정점 하나만 튀어도 소품 전체가 거대한 보이지 않는 원기둥이
-  된다.** 실제로 `world/noise.ts` 의 `noise3` 가 `lerp` 인자를 `(t, a, b)` 로 넣어 `[-1,1]` 대신
-  `[-31, +52]` 를 돌려주고 있었고, `build.displace` 가 그만큼 정점을 밀어 첨탑 콜라이더가 반지름 18 m 로
-  부풀었다 — 걸어서 못 지나가고 총알이 허공에서 멈추던 그것이다. 소품 지오메트리를 손보면 **콜라이더도
-  같이 재는 것**임을 기억한다.
-- **땅에 박힌 소품은 땅 위로 보이는 부분에서 잰다** (2026-09-10). 바위 · 첨탑은 일부러 묻어 두는데
-  (`s×0.28` · `s×0.4` — 가장 넓은 둘레가 지하다) `hullOf` 는 메시 전체를 재서, 행성마다 바위의 절반이 보이는
-  바위보다 0.5 m 이상 앞에서 막았다 — 폭풍 안개 속 "보이지 않는 벽" 보고의 정체다(폭풍의 눈 경계 자체에는
-  아무것도 없었다). `Props.footprintOf` 가 지형 위 정점 + 지형 교차점만 모아 **그 윤곽의 중심**에 원기둥을
-  세우고(경사지에서는 인스턴스 원점과 몇 m 어긋난다 — `Obstacle.position` XZ 를 원점으로 가정하지 않는다)
-  32 방위 최대 거리의 평균을 반지름으로 삼는다. 이동 · 총알 원기둥이 같은 값이다. 검사는 `smoke-props-collision`
-  의 4번(내려 쏘는 레이로 보이는 가장자리와 비교)이 한다 — 2번(정점 전부와 비교)은 묻힌 정점을 "그려진 것" 으로
-  세서 이것을 못 잡았다.
-- **데스크톱 앱의 세이브는 창 포트에 묶여 있다** (2026-09-09). localStorage 는 오리진 단위이고 앱의
-  오리진은 `http://127.0.0.1:<창 포트>` 다. 그래서 `electron/main.ts` 의 창 서버는 **임의 포트를 절대
-  쓰지 않는다** — `APP_PORT`(8790)부터 정해진 순서로만 훑고, 릴레이 포트와는 완전히 분리돼 있다.
-  포트를 바꾸는 것은 캐릭터를 통째로 새로 시작하는 것과 같다.
-- **퀵슬롯은 가방 격자가 아니다** (2026-09-09). 휠에 올린 소모품은 **가방에서 사라진다** — 퀵슬롯이 자기
-  컨테이너(`InventorySystem.quickSlots: QuickSlotItems`)이고 스택 자체를 들고 있다. 무게 · `countWhere` ·
-  `consumeWhere` · 시체(`stripForCorpse`) · 레이드 blob 은 휠을 함께 보지만 `getAllItems()`(거래 · 수리 목록)는
-  여전히 가방 격자만이다. `setQuickSlot` 은 **옮기기**이고 밀려난 스택이 가방에 못 들어가면 **이동 자체를
-  거절한다** — 휠 아이템을 조용히 버리지 않는다. 세이브는 **v2** 이고 `quick[i]` 가 인덱스가 아니라 스택이다
-  (v1 은 `sanitizeLoadoutSave` 가 읽을 때 가방에서 빼내 이관한다). UI 는 휠 칸을 `{ kind: 'quick', index }`
-  로 넘긴다 — `BAG_LOC` 으로 넘기면 `findItem` 이 못 찾는다.
-- **꾹 누르는 키는 키캡 위에 chevron 을 단다** (2026-09-09). `KeyGuideEntry.hold` 가 true 면 키 가이드가,
-  `interact:promptChanged.hold` 면 상호작용 캡션이 같은 `.keycap.kc-hold::before` 화살표를 그린다. 탭하는 키는
-  예전 그대로다. **modifier 클래스는 `kc-hold` 이고 그냥 `hold` 가 아니다** (2026-09-10): `.hold` 는 이미
-  크로스헤어 홀드 링(`ui/hud/HoldGauge`)이 쓰는 이름이라 키캡이 **120×120 투명 상자**가 되어 통째로 사라졌다
-  (여백만 남아 프롬프트가 세로로 길어졌다). **HUD 위젯 클래스와 같은 이름을 modifier 로 쓰지 않는다.**
-- **보조무기는 목록에서만 뺐다** (2026-09-10, 사용자 결정). 무기 칸은 주무기 I · II 둘뿐이고 권총 아이템 ·
-  판매 규칙 · 확정 드롭 · 3번 키 · 설정의 리바인드 줄이 전부 없어졌다. 그런데 `LoadoutSlot` · `WeaponSlot` ·
-  `Loadout.secondary` · `Keys.SECONDARY` **타입은 그대로 남아 있다** — `src/shared` 는 추가만 하는 계약이고
-  저장된 프리셋 · 크루 카드 · 로드아웃 세이브가 그 이름을 쓴다 (`airstrike` 와 같은 처리). 칸을 실제로 정하는
-  곳은 `inventory/model` 의 `LOADOUT_SLOTS` · `WEAPON_SLOT_IDS`, `weapons/WeaponDefaults` 의 `WEAPON_SLOTS`,
-  `hub/ui/WorkbenchMenu` 의 정비 목록 셋뿐이다 (2026-09-11 정정 — 여기 적혀 있던 `ui/hud/SlotStrip` 은 소비자가
-  없는 헬퍼였고 C-26 에서 파일째 지웠다).
-- **선로는 걸어 올라설 수 있는 높이여야 한다** (2026-09-10). `RAIL_DECK_Y` 는 0.75 m 다 — `PROP_STEP_UP_MAX`
-  (0.9) 안이라야 땅에서 선로 위로 올라선다. 예전 1.7 m 처럼 그 사이 높이로 올리면 **올라설 수도, 밑으로
-  지날 수도 없는 담**이 된다 (`obb.BOX_HEADROOM` 2.1 밑이라 `resolveCollision` 이 밀어낸다). 2.4 m 위로
-  올리면 밑으로 지나갈 수는 있지만 플랫폼 말고는 오를 길이 없다. 발판은 `RAIL_DECK_STEP` 마다 이어 붙인
-  얇은 상자 콜라이더이고, 중심선은 **좌우 구간의 지형 최고점을 실측해** 그보다 위로만 끌어올린다.
-- **사각 콜라이더는 `Obstacle.box` 다** (2026-09-09). 들어갈 수 있는 건물의 벽을 원기둥으로 흉내낼 수 없어
-  2026-09-09 앞 배치의 "OBB 는 버린다" 를 뒤집었다. 다만 **재작성은 하지 않았다** — `SpatialHash.addBox` 가
-  **외접원을 `radius` 로 채워** 버킷팅 · `overlaps` · `query` 는 그대로이고, `resolveCollision` · `raycast` ·
-  `getSurfaceY` · `getStandingObstacle` 만 `if (o.box)` 가지에서 새 수학으로 간다. 그래서 **원기둥 소품의
-  동작은 한 줄도 바뀌지 않는다.** 상자를 만들 때 `radius >= hypot(halfX, halfZ)` 를 반드시 채운다 — 안 채우면
-  광역 질의가 그 상자를 놓친다.
-- **움직이는 발판은 `Obstacle.velocity` 다** (2026-09-09, 2026-09-11 개정). 전차 데크처럼 스스로 움직이는 장애물은
-  `velocity` 를 **갖고 있다는 것 자체로** 움직이는 발판이다(정지한 전차도 0 벡터) — `getStandingObstacle` 은 윗면이
-  `PROP_TOP_MARGIN` 창 안에서 겹치면 높이보다 이것을 먼저 고른다 (C-38, 선로 발판과의 동점). 타는 방법은 아래
-  "탑승은 차량 부피로" 절이고 그 수학은 **`shared/ride.ts` 하나**다(`recordRideLocal` · `restoreRideLocal` ·
-  `rideContains`) — 플레이어(`PlayerController`) · 적(`enemies/ai/Ride`, 리플리카는 보간 지연만큼 앞당겨 그린다) ·
-  플레이어 시체(`game/Corpses`) · 적 시체가 전부 같은 식으로 탄다. `velocity` 를 위치에 더하는 곳은 없고
-  **하차 관성**에만 쓴다. 달리는 전차는 탑승자가 아닌 적 · 끊긴 분대원 몸을 친다 (`world/rails/parts/Tram`, 대상별 쿨다운).
-- **재해는 시드에서 나오고 와이어를 쓰지 않는다** (2026-09-09). 종류 · 시작 시각(6–8분, 30초 단위) · 전선 방향 ·
-  눈 중심 · 포자 발생지와 그 순서가 전부 **미션 시드의 함수**이고 진행은 `ctx.missionTime` 의 함수다 — 안개와
-  같은 철학이라 평상시 흐르는 메시지가 **없고** 늦게 합류한 사람만 `hzq sync` 를 받는다. 시야 제한은
-  `atmo:override` **한 경로로만** 간다 (`core/Atmosphere.setOverride`; `world/` 가 `scene.fog` 를 직접 만지지 않는다).
-- **인게임 스크롤바는 어두운 UI 색을 쓴다** (2026-09-09). `:root` 의 `--sb-track` · `--sb-thumb` ·
-  `--sb-thumb-hover` 가 단일 원본이고 `#ui-root` 아래 모든 스크롤러에 한 규칙으로 걸린다
-  (`src/ui/styles/base.css`). `src/inventory/inventory.css` 는 그 스타일시트를 import 하지 않으므로 같은 이름을
-  fallback 과 함께 참조한다 — **값은 base.css 에서만 고친다**.
+Each rule is the short form; the reason lives in the comment at the pointed code. Change a rule here only together with that code.
 
-- **방탄복은 피해를 깎지 않는다 — 실드다** (2026-09-10, 사용자 결정). 들어온 피해는 `PlayerRef.shield` 를
-  먼저 비우고 남은 만큼만 `hp` 로 간다. 등급별 20/40/60/80/100 (`ARMOR_SHIELD_BY_TIER`, tier 기준이고
-  `data/armor.csv` 의 rarity 를 거기 맞춰 재조정했다), 유니크 3벌은 옛 뎀감률을 `round(DR / 0.3 × 100)`
-  으로 환산해 90 / 33 / 27 이다. **`damageReduction` 은 지우지 않았지만 늘 0 이다** — `ArmorDef` 에는
-  유니크 환산의 근거로, `PlayerRef` 에는 계약으로 남아 있을 뿐이다 (`airstrike` · `secondary` 와 같은 처리).
-  내구도는 그대로여서 실드가 흡수한 만큼 닳고 0 = 파손 = 실드 최대치 0, 함선 작업대 수리로 되살아난다.
-  **함선에 있는 동안은 늘 가득**이고 레이드 중 회복은 **실드 충전기**뿐이다 — 레이드 중 방탄복을 갈아
-  끼워도 채워 주지 않는다 (여벌 방탄복이 공짜 충전기가 되면 충전기가 의미를 잃는다).
-- **재접속으로 돌아온 사람이 조용히 무언가를 잃으면 안 된다** (2026-09-10). 실드처럼 **아이템에서 파생되지
-  않는 별도 풀**을 새로 만들면, 그 값이 와이어와 세이브에 없는 한 재접속·이어하기 한 사람만 0 으로 시작한다.
-  실드는 `PlayerSnapshot.sh/.shm` → `GhostWire.sh` → `PlayerRestoreState.shield` → `SoloRaidPose.shield`
-  까지 `dhp` 와 같은 규약(방탄복을 입었을 때만 실린다)으로 이었다. 두 가지가 규약이다 — ① **생략은 0 이
-  아니라 "모른다"** 이고 받는 쪽이 최대치로 복구한다(옛 세이브 · 옛 호스트), ② 복귀 프레임에는 `PlayerGear`
-  가 아직 인벤토리를 다시 읽기 전이라 최대치가 0 이므로 값을 `pendingShield` 에 적어 뒀다가 방탄복을 실제로
-  읽은 첫 프레임에 한 번만 넣는다.
-- **같은 수식을 두 폴더가 쓰면 `shared` 로 뽑는다** (2026-09-10). 포탄 궤적이 `enemies/fx/ShellProjectile`
-  과 `ui/hud` 에 **각자 베껴져** 있었다 — 폴더끼리 import 하지 않는다는 규칙을 지키느라 복사한 것인데,
-  한쪽만 고치면 HUD 마커가 포탄에서 떨어진다. `shared/ballistics.ts` 가 유일한 원본이고 양쪽이 그것을 부른다.
-  중력은 `GRAVITY` 가 아니라 **`SHELL_ARC_GRAVITY`** 다: 정점 높이가 `0.5 × g × (T/2)²` 라 실제 중력으로는
-  6.3 s 비행에서 48.7 m 까지 솟아 화면(FOV 70° = 수평선 위 35°) 밖에서 떨어졌다. 2.0(정점 9.9 m)이면
-  하강 내내 화면 안이고 발사각 32° 라 여전히 곡사포로 읽힌다.
-- **적의 사선은 눈이 아니라 총구에서 잰다** (2026-09-10). `Perception.hasLineOfSight` 는 **눈**에서 레이를
-  쏘는데 총알은 **총구**에서 나가므로, 벽 뒤에 붙은 적이 벽에다 대고 쏘고 있었다. `enemies/ai/FireLine` 이
-  총구 기준으로 검사하되 **시작점을 `ENEMY_WALL_STANDOFF` 만큼 뒤로 당긴다** — 벽에 박힌 총구에서 그냥 쏘면
-  벽 안쪽에서 바깥으로 나가는 레이라 "뚫려 있다" 고 읽힌다. 막히면 **사격만 보류하고 이동은 막지 않는다**:
-  문·틈을 지나는 중이라 순간 막히는 것은 정상이고, 거기서 AI 가 굳으면 더 나쁘다.
-- **자동 가구 배치는 화면 기준이고 문 앞을 비운다** (2026-09-10). 시설 관리 카메라가 모든 방을 +X 에서
-  내려다보므로 **화면 아래 = 격자 x 증가, 화면 오른쪽 = 격자 y 감소** 다 — "좌측 상단부터 가로줄 우선" 은
-  `x` 오름차순 바깥 × `y` 내림차순 안쪽이고, "아래를 향한다" 는 **yaw 1**(옛 `AUTO_PLACE_YAWS` 첫 값 yaw 0
-  이 사용자가 본 "오른쪽 벽을 본다" 였다). 규칙은 `housing/Rules.autoPlaceSpot` 하나가 갖고 UI 는
-  `HousingRef.findFreeSpot` 으로 묻는다. 문 앞 여유는 **자동 배치에만** 있다 — `canPlaceAt` 에 넣으면
-  `ShipState.sanitize` 가 이미 문 앞에 가구를 둔 함선에서 그 가구를 창고로 빼앗는다.
-- **HUD 위험 표시는 화면 안/밖에 따라 하나만 뜬다** (2026-09-10). `ui/hud/DangerIndicators` 하나가 적
-  곡사포탄 · 수류탄(아군 + 적) · 함선 호출 낙하물 · **로그 강하 포드**를 전부 들고, 화면 밖이면 크로스헤어
-  바깥 방향 호를, 화면 안이면 머리 마커를 그린다 — 같은 위험물에 둘이 겹치지 않는다. **색이 누구 것인지를,
-  `hot` 이 임박을 말한다** (아군 호박 · 적 빨강). 인지력 반경 게이트는 포탄에만 남기되 착탄 지점이
-  `DANGER_NEAR_RADIUS` 안이면 무조건 보여 준다. **전장의 안개 게이트는 걸지 않는다** — 지금 벌어지는
-  사건이지 발견된 오브젝트가 아니다.
+### 4.1 Code · data · docs
 
-- **한 아이템의 값어치를 정하는 자리는 `data/recipes.csv` 하나다** (2026-09-10, 제작 대개편). 수리비도 분해
-  산출도 **그 아이템의 제작 재료**에서 나오고, 곱해지는 것은 `data/tables.csv` 의 남은 내구도 20 % 5구간 배수
-  (`REPAIR_COST_BY_DURABILITY` 0.5→0.1 · `SALVAGE_YIELD_BY_DURABILITY` 0.08→0.40)뿐이다. 그래서 세 값이
-  **따로 놀 수 없다** — 재료를 고치면 셋이 같이 움직인다. 두 표를 같은 구간에서 더한 값이 1 보다 작아야
-  「제작 → 분해 → 제작」이, `분해(4) − 수리(b) ≤ 분해(b)` 여야 「고쳐서 뜯기」가 이득이 되지 않는다.
-  `src/items/Salvage.checkSalvageEconomy()` 가 분해 38종 × 5구간 × 재료 종류 전부를 **실제 정수로** 돌려
-  `npm run data:check` 가 매번 검산한다 — 값을 고치고 그 검사를 통과하면 그것이 곧 증명이다.
-  분해 최소 보장은 **재료당 1 이 아니라 주재료 한 종류에만** 있다: 종류마다 보장하면 등급 IV 총의 「잉곳 2」가
-  0 % 구간에서도 1 개 돌아오는데 같은 구간 수리비도 `ceil(2×0.5)=1` 이라 **잉곳이 스스로 늘어난다**.
+- Three.js 0.185, TypeScript strict, ES modules, alias `@/` → `src/`.
+- **No numbers in code.** Damage · hp · prices · chances · cooldowns · weights live in `data/*.csv`; TS only maps them to types. New number → csv row first. csv is inlined at build via `import.meta.glob(..., '?raw')`.
+- **No external asset files.** Every model, icon and texture is generated in code (Three.js geometry, CanvasTexture, shaders; icon: `scripts/make-icon.mjs`).
+- All HTML UI is DOM under `ctx.uiRoot` (`#ui-root`), styles in `src/ui/styles/`. No React. In-game text is **Korean**.
+- **Docs language: English** for `CLAUDE.md`, every folder `README.md` and `docs/*.md` except `docs/TODO.md` (Korean). Code comments and in-game text stay Korean. Keep identifiers, csv keys, event names and Korean UI strings verbatim in backticks.
+- `src/shared/*` is add-only (no renames/deletes) — every folder depends on it. Documented exception: `ItemCategory` `'grenade'` was removed on 2026-09-15 (loot rolls use a separate `LootCategory` axis — `src/items/LootTables.ts`).
+- Cross-folder: bus events for messages, `ctx.*Ref` for sync queries. **Never import another feature folder's internals — `@/shared` only.** Accepted library-like exceptions (don't add new kinds): engine helpers `@/core/fx` and `@/core/util/MathUtil`; the `@/items` barrel (item data — inventory, weapons, ui); the `@/player` barrel for `SoldierModel` (`game/Corpses.ts`, `ui/menus/SoldierPreview.ts`).
+- The same formula in two folders moves to `src/shared` (e.g. `shared/ballistics.ts`, `shared/explosion.ts`, `shared/lootRolls.ts`, `shared/keycap.ts`).
+- Big system files split into `model.ts` (vocabulary, no state) + `parts/*.ts` (functions taking the system as `sys`); the class keeps one-line delegates so call sites never change; `parts/` imports only types from the system file.
+- Reuse `THREE.Vector3` scratch objects; no per-frame allocation on hot paths. Dispose own geometries/materials on `game:abort` / `game:newMission`.
+- CSS class prefixes are unique per folder — `rg "\.<prefix>-" src` before choosing. Never reuse a HUD widget class name as a modifier (`.kc-hold`, not `.hold`).
+- Removing an item def → add a row to `data/item_aliases.csv` (saves resolve through `resolveItemAlias`). Retiring content → `ItemDef.retired` / `FurnitureDef.retired`, never delete the row (refunds and old saves need it).
 
-- **상위 재료의 주 경로는 가공 작업대다** (2026-09-10, 사용자 결정 · 2026-09-12 이름만 '정제' → '가공' 으로 바뀌었다 —
-  `WorkbenchKind` 의 `refine` 은 계약이라 그대로다 · 2026-09-11 C-35 정정 — "에서만" 은 사실이
-  아니었다: 가중치 표에 줄이 없어 상자에서 T5 재료 픽의 91 % 가 상위재였다. 이제 상자는 재료 픽 중 T1–2 0 · T3 5 ·
-  T4 10 · T5 15 % 만 주고(`data/loot_item_weights.csv`), IV–V 장비 분해로도 나온다 — 둘 다 의도). 3계열 × 2단계다 — 금속(합금 판 →
-  강화합금 잉곳 · 폐금속+케이블 → 기계 부품) · 전자(구동 코어 → 축전 모듈 · 회로기판+파워셀 → 제어 모듈) ·
-  섬유(천조각 → 강화 직조포 · 천조각+생체조직 → 복합 방탄섬유). 등급 IV~V 장비는 전부 그 장비군의 상위
-  재료를 요구하므로 **가공 작업대가 후반 제작의 관문**이고, 그것만이 현장 빠른제작이 없는 계열이다.
-  `WorkbenchKind` 에 `'refine'` 을 더한 것이 이번 계약 추가의 전부다 (나머지 넷은 한 줄도 안 바뀌었다).
+### 4.2 Input · screens · UI
 
-- **`bench` 는 「그 레시피가 속한 작업대」다** (2026-09-10, 사용자 결정). 작업대를 열면 **그 작업대의 레시피만**
-  보인다 — 예전에는 `bench` 가 없는 줄을 전부 실어 가공 작업대 Lv.3 에도 붕대 · 탄약이 떴고, 레시피가 94줄로
-  늘면서 읽을 수 없어졌다. 그래서 현장 레시피도 자기 작업대를 밝힌다: 탄약 → 총기, 붕대 → 의학, 연막 → 가젯.
-  `station: 'field'` + `bench` 는 **모순이 아니다** — "어디서든 만들 수 있고, 그 작업대 창에도 뜬다" 는 뜻이다
-  (튜토리얼의 "같은 작업대 창에서 소총 → 탄약" 이 여기 기댄다). 가방 화면의 `빠른제작` 탭은 여전히
-  `station` 으로 가른다 — 그 탭의 뜻은 "작업대 없이도 되는 것" 이다.
+- Read keys at use time (`Keys.X`), never cache in module constants — `docs/CONTROLS.md`.
+- **Pointer lock:** a lock lost right after acquiring is a bounce, not Escape (`LOCK_BOUNCE_GRACE_MS`); a relock requested during/just after Escape or a user exit is deferred and sent once (`LOCK_ESCAPE_DEFER_MS`, `LOCK_USER_EXIT_COOLDOWN_MS`, `deferredRelock`) — `src/shared/Input.ts`. `src/main.ts` is the only relock site.
+- **Escape closes the topmost screen**, else opens pause. Screens `ctx.escape.push(token, close)` next to `uiBlockers.add` — `src/shared/escape.ts`; policy only in `src/game/parts/Phases.ts` (`escapeKey`). Innermost popups swallow Escape in capture. The pause menu itself closes on ESC only in the desktop shell (`isDesktopShell()`).
+- **Tab is the universal close key** (consume `Keys.INVENTORY`); open screens publish `ui:keyGuide {owner, keys}` and the guide appends `닫기` itself — `src/ui/hud/KeyGuide.ts`.
+- Irreversible confirms need a 1 s hold (`UI_HOLD_CONFIRM_S`); Enter never confirms; Escape cancels; initial focus `취소`. With nothing to lose (in the ship) title/quit use a tap (`tap` in `src/ui/menus/PauseMenu.ts`).
+- Pause menu position is fixed (left half, `.menu.pause`); settings are centred. Hidden `.menu` has `pointer-events: none` so fading screens never eat clicks (`src/ui/styles/base.css`).
+- Held keys show a chevron via `.keycap.kc-hold`; every keycap goes through `src/shared/keycap.ts` (`paintKeycap`, text tokens `{ACTION}` / `{ACTION:hold}`).
+- Rewards are **currencies** (`data/currencies.csv`, `shared/currency.ts`, `buildCurrencyChip`), never fake item defs.
+- Toasts are owned by `src/ui` only; other folders emit events.
+- Screen projection (`Vector3.project`) happens in `HudSystem.lateUpdate` after `camera.updateMatrixWorld()`.
+- Danger HUD: one indicator per hazard — off-screen arc or on-screen marker; colour = owner, `hot` = imminent; no fog gate — `src/ui/hud/DangerIndicators.ts`.
+- Story-carrying fades are stepped in code, not CSS transitions (reduced-motion clips transitions to 0.01 ms) — `HudSystem.stepScreenFade`.
+- Descriptions never repeat numbers the tooltip already shows (armor shield, bag cells).
+- Scrollbar colours: `--sb-*` in `src/ui/styles/base.css` (inventory.css references them with fallbacks).
+- Stash is left, bag right, in one panel with two panes that each scroll/sort/filter — `src/inventory/ui/TradeGrids.ts`. Bags are 5 wide; the frame is the tallest bag (`BAG_FRAME_ROWS`); padding rows are not drop targets.
+- Right-click = item menu, double-click = quick move (never silently displaces equipped items — `inventory/parts/DropResolver.tryAutoPlace`). Merge overflow stays on the cursor (`DragState.held`).
+- Hold-to-pin screens use the `ui:cursorHold` ring (`src/ui/hud/CursorHoldGauge.ts`) and the escape stack.
+- Minigames: the drawn marker size **is** the perfect window from csv; good = ×`GYM_GOOD_OF_PERFECT` / `COOK_GOOD_OF_PERFECT`, clamped to half a beat; widen by slowing beats, not windows; no-input steps end via `maxTime` — `housing/parts/GymGames.judgeBands`, `parts/CookGames.cookJudgeBands`.
 
-- **작업대 글리프의 원본은 `shared/WORKBENCH_ICON` 이다** (2026-09-10). 같은 글자가 제작 탭
-  (`inventory/ui/labels`)과 가구 카드(`ui/hud/ShipManage`) **두 폴더에 복사돼** 있어 한쪽만 고치면 같은
-  작업대가 두 화면에서 다른 그림이 됐다 — 「같은 것을 두 폴더가 쓰면 `shared` 로 뽑는다」 그대로다.
+### 4.3 Saves · profiles · network trust
 
-- **좁은 계단은 콜라이더가 벽이 된다** (2026-09-10). `resolveCollision` 의 상자 가지가 발이 윗면
-  `PROP_TOP_MARGIN`(0.15) 안일 때만 통과시켜서, 디딤폭이 `PLAYER_RADIUS`(0.45)보다 좁으면 **어느 단에 서
-  있든 바로 윗단이 늘 몸에 겹쳐** 매 프레임 아래로 밀렸다 — 지하실 계단에서 미끄러져 떨어지고 다시 올라오지
-  못하던 그것이다. 이제 윗면이 `발 높이 + PROP_STEP_UP_MAX` 이하인 상자는 밀어내지 않는다(`getSurfaceY` 의
-  천장과 **같은 식**). **원기둥 경로는 한 줄도 안 바뀌었다** — 낮은 바위까지 풀면 옆구리에 몸이 반지름만큼
-  파고들고 수류탄 · 아이템이 그것을 넘어간다. 계단 치수도 **단 높이를 고정하고 단수를 거기서 뽑는다**
-  (지하실 `STAIR_RISE_MAX` · 플랫폼 `RAIL_STAIR_MAX_RISE`): 데크 높이가 자리마다 다른데 단수를 고정하면
-  언덕에서 한 단이 `PROP_STEP_UP_MAX` 를 넘는다.
-- **들어가는 건물의 바닥은 한 장이어야 한다** (2026-09-10). 지상층이 *장식 바닥*(발자국 전체, 콜라이더 없음)과
-  *천장 슬래브*(구덩이 + `PIT_BLEND` 만큼만, 콜라이더 있음) **두 겹**이라 그 사이 띠에서는 지형을 밟았는데,
-  지형 격자(2 m)가 지하실 페더(1.6 m)보다 넓어 벽 안쪽이 최대 3.6 m 파여 있었다 — 문으로 들어서면 그 도랑에
-  빠지고 턱을 마주쳐 **점프해야만** 들어갔다. `Build.floorPlate` 하나가 발자국 + `FLOOR_OVERHANG` 까지 덮고
-  **콜라이더 윗면이 정확히 `y0`** 다 (그린 윗면만 `FLOOR_LIP` 만큼 띄워 z-fighting 을 피한다).
-- **탑승은 발판 프레임이 아니라 차량 부피로 판정한다** (2026-09-10, 사용자 결정). 전차 위에서 조금만 움직여도
-  내려지던 것은 `getStandingObstacle(...).velocity` 를 **밟고 있는 프레임에만** 더했기 때문이다 — 점프 · 경사 ·
-  승강구 · 데크 가장자리에서 질의가 한 프레임만 빠져도 그만큼 차가 발밑에서 빠져나간다. 진입만 발판 질의를
-  쓰고 **유지는 차량 OBB + 헤드룸**, **이동은 차량 로컬 좌표를 매 프레임 차량의 현재 변환으로 다시 푼다**
-  (스냅샷을 찍지 않는다 — 함선 실내가 같은 이유로 깨졌다). `vel` 은 끝까지 **로컬 속도**라 2026-09-09 의
-  "위치에 직접 더한다" 가 지키려던 것(이동 속도 · 스태미나 · 보행 애니메이션이 안 흔들린다)이 그대로 산다.
-  ⚠ 같은 자리에서 `RAIL_DECK_STEP` 을 5 → 3 m 로 줄였다: 발판 상자는 평평한데 선로는 기울어 있어 윗면 오차가
-  `step/2 × RAIL_MAX_GRADE` = **정확히 `TRAM_FLOOR_UP`(0.35)** 였고, 최대 경사 구간에서 선로 발판과 전차
-  바닥이 같은 높이가 되면 `getStandingObstacle` 이 동점을 임의로 골라 **탑승이 시작조차 안 됐다**.
-- **선로는 제일 먼저 잡고 나머지가 피한다** (2026-09-10). `line` 은 원점을 지나는 선분, `loop` 은 원점 중심
-  원이라 `RailPlan` 의 자유도는 하나뿐이다 — 패드를 다 뽑은 **뒤에** 선로를 굴리면 비켜 갈 곳이 없다
-  (반지름 20 m 원반 하나가 막는 방향 폭이 0.4 rad 라 스무 개면 π 를 넘는다). 그래서 `generateLayout` 이
-  선로를 먼저 정하고 구조물 · 전초 · 둥지 · 크레이터 · 소품 · 상자 · 채집물이 `RAIL_CLEARANCE_M` 을 비운다.
-  **대가**: 같은 시드의 매크로 레이아웃이 2026-09-09 이전과 다르다 (멀티 결정성은 그대로).
+- Character data keys go through `slotKey(KEY)` (`src/shared/saveSlot.ts`); only `SHARED_KEYS` are global. Slot switch = `location.reload()`.
+- Desktop saves are bound to the window origin: `electron/main.ts` scans ports from `APP_PORT` (8790) in a fixed order, never random.
+- New profile fields that must survive reload go into `Profile.migrate` (its result is the next save) — prep, meal, trained stats all live there.
+- Profile documents merge by revision: `profile:set {baseRev, writeId}`, conflict = server wins; persisted write queue; multi-document edits use `ProfileRef.setMany` — `src/net/ProfileSync.ts`. A pending local edit is uploaded, not replaced, when `net:profileLoaded` arrives.
+- Raid session saves must capture death: squad force-saves right after `spawnLocalCorpse`; solo calls `clearSoloRaid()` on death; new save paths check `isDead` / `isLocalOut()` — `src/game/parts/Session.ts`.
+- Rejoin must not silently lose separate pools (e.g. shield): send it in snapshot/ghost/restore; omitted = unknown → max; apply after gear reloads (`pendingShield`).
+- Server address order: in-game `설정 › 서버 설정` (`scav.relay`) → `--relay=` / `SCAV_RELAY` → `server.txt` → same-origin `/ws`. Parse only with `shared/net.ts` `relayUrlFrom`. Connection tests connect without a token.
+- A `refused` link never auto-reconnects; automatic callers check `net.link.state` before `ensureConnected()`.
+- The relay validates credit reasons (`shared/credits.ts` `formatCreditReason`, `server/Economy.ts`, `server/economy.gen.json`); it does not check item ownership. Dev reasons need a relay with `SCAV_DEV_ECONOMY=1` (only `scripts/verify.mjs` starts one). No client-side credit/sell-price multipliers.
+- Messages that affect others are accepted only from the authority (lobby host for `strat call`, `ee`, `crate sync`). Host-bound requests pass shape → sender → distance → rate (`shared/buffRules.ts` `createBuffGuard`); two paths of one ability share a bucket; limits derive from data; flying things may outlive their dead sender.
+- Denials return to the sender: `strat deny` → full cooldown refund, accepted only from the host with the caller's own `callId`.
 
-- **강하는 조용히 일어나지 않는다** (2026-09-10). 로그 강하(`enemies/RogueDrop`)는 규칙(구역당 1회 · 분대
-  인원 비례 · 호스트 권한)은 그대로이고 **알림만 붙었다**: `rogueDrop:incoming` 하나를 세 폴더가 나눠 받는다 —
-  `audio/AudioSystem` 이 무전 경보 `rogue_drop_alarm`(즉시)와 대기를 찢는 `rogue_pod_fall`(착지
-  `ROGUE_DROP_FALL_LEAD_S` 초 전)을, `ui/hud/RaidAlerts` 가 토스트를, `ui/hud/DangerIndicators` 가 위험 표시를.
-  `enemies/` 에 남은 소리는 포드마다의 `rogue_pod_impact` 뿐이다. **소리도 표시도 인지력 반경을 보지 않는다** —
-  대기를 찢는 굉음이라 인지력이 좁아도 알아야 하므로 전용 반경 `ROGUE_DROP_ALERT_RADIUS`(260 m = 인지력의
-  10배) **하나를 소리와 표시가 함께** 쓴다("들리는데 안 보인다" 가 없다). 그 대신 **감쇠는 남긴다** — 원격
-  발소리와 같은 곡선이라 맵 반대편까지 들리지는 않는다. 소리를 audio/ 가 갖는 이유는 그 곡선이 패너 설정
-  (`panOnly`)과 얽혀 있어서다 — 다른 폴더에서 볼륨을 정하면 감쇠가 두 번 곱해진다.
+### 4.4 World · collision · movement
 
-- **씬의 광원 개수를 플레이 중에 바꾸지 않는다** (2026-09-10). three.js 는 `projectObject` 에서 **보이지 않는
-  가지를 통째로 건너뛰므로** 숨긴 그룹 밑의 광원은 세지 않는다. 그래서 그 그룹을 보이게 하는 순간
-  `numPointLights` 가 늘고, 그러면 **씬에 있는 모든 머티리얼이 셰이더를 다시 컴파일한다** — 프레임 하나가
-  통째로 멈춘다. 탈출 함선(광원 3)과 신호탄(광원 1)이 정확히 그 짓을 하고 있었고, 그것이 "함선이 도착할 때
-  렉이 심하다" 의 정체였다. **규칙은 `core/fx/FlashPool` 이 처음부터 적어 둔 것 그대로다** — 광원은 씬에
-  계속 두고 **`intensity` 만 0 으로 내린다**. 그러려면 표시 토글을 광원이 **아닌** 곳에 둬야 한다:
-  `Dropship.root` 는 영영 보이는 채로 광원을 들고 `Dropship.body` 가 메시 전부와 `visible` 을 갖는다
-  (`FlareColumn` 은 `group` 대신 `shown` 플래그). 같은 이유로 **헬포드**도 `group`(광원) / `body`(메시)로
-  갈라져 있고(재접속 복귀의 `hide()` + 구조선 강하의 `start()` 가 레이드 중에 두 번 바꾸고 있었다),
-  **분대장 기기**의 광원은 기기 안이 아니라 `init` 때 씬에 심어 둔 것 하나다(`Leader.installLeaderLight`) —
-  광원을 든 오브젝트를 씬에 넣고 빼는 것만으로도 같은 일이 난다. 이 규칙은 **`npm run verify` 가
-  `smoke-lights` 로 강제한다**: 세션 한 바퀴(함선 · 도킹 · 공유 함선 · 행성 · 분대원 포드)를 돌며
-  `traverseVisible` 로 세어, **숫자가 한 번이라도 바뀌면 실패한다** (아래 2차). 광원을 새로 만드는 코드는 이 규칙을 먼저 읽는다.
-- **장면이 바뀌어도 점광원 개수는 같고, 새 장면은 셰이더를 컴파일한 뒤에 그린다** (2026-09-10 2차). 멀티에서
-  공유 함선 합류 · 강하 때 수 초씩 멈추던 렉의 정체는 네트워크가 아니라 **셰이더 컴파일**이었다 (같은 시드로 두
-  번째 강하 = 2.8 → 0.4초). 셋이 겹쳐 있었다: ① 분대원의 첫 `pod drop` 마다 `new Hellpod()` 가 광원을 씬에
-  넣었다(분대원마다 2.7 · 3.1초) — `player/RemotePods` 가 포드 3개를 상주시킨다. ② 개인 함선 27 · 도킹 컷씬 15 ·
-  공유 함선 29 · 행성 20 — **장면마다 개수가 달라** 이미 컴파일한 프로그램을 다음 장면이 못 썼다 —
-  `core/LightBudget` 이 intensity 0 여분으로 `SCENE_POINT_LIGHT_BUDGET`(23)을 세션 내내 지키고, 함선은 광원
-  자리를 그대로 둔 채 **가까운 `HUB_POINT_LIGHTS`(8) 자리에만** 불을 건다(`hub/interiors/LightPool`).
-  ③ 첫 프레임이 컴파일을 떠안았다 — **`ctx.shaders`**(`core/ShaderWarmup`)가 `world:ready` · 함선 진입마다 씬을
-  컴파일하고 드라이버가 끝낼 때까지 **시뮬레이션 dt 0 + 그리기 생략으로 hold** 하며, 도킹 컷씬은 도착할 함선을
-  미리 짓는다. **컴파일은 반드시 `ctx.shaders` 로 한다** — 프로그램 키의 색공간 · 톤매핑이 *바인딩된 렌더
-  타깃*에서 오므로 업데이트 도중 `renderer.compile` 을 부르면(타깃 = 캔버스) 쓰이지 않을 변형만 만든다
-  (`WeaponFx.warmUp` 이 그랬다). 광원을 더하는 코드는 **상주 광원 15 + 자기 장면 광원 ≤ 예산**인지 본다.
-- **함선처럼 움직이는 실내는 박스를 매 프레임 다시 쓴다** (2026-09-10). `PlayerRef.setShipInterior(bounds)` 는
-  **참조를 들고 있고** `PlayerController` 가 거기서 바닥 높이와 XZ 클램프를 읽는다 — 탑승 순간 찍어 둔
-  스냅샷을 넘기면 함선이 이륙할 때 바닥만 땅에 남아 플레이어가 떨어진다. 바닥 높이는 박스의 상수가 아니라
-  **데크 평면**에서 푼다 (`Dropship.floorYAt`): 이륙 상승은 기수를 0.35 rad 들어 올리므로 평평한 높이 하나로는
-  화물칸 끝에서 0.9 m 가 어긋난다. 그리고 `attachTo` 로 붙은 몸은 **`update` 와 `lateUpdate` 양쪽에서**
-  부모 행렬로부터 월드 좌표를 다시 읽는다 — 태우는 쪽(`extraction`)이 `player` **뒤에** 등록돼 있어서다.
-- **접속할 서버 주소는 네 곳에서 오고 순서가 정해져 있다** (2026-09-10). ① 게임 안 `설정 › 서버 설정`
-  (localStorage `scav.relay`, **슬롯 공용**) → ② `--relay=` · `SCAV_RELAY` → ③ 배포 폴더의 `server.txt`
-  첫 줄 → ④ 같은 오리진 `/ws` (vite 프록시 · 데스크톱 앱의 임베디드 릴레이). ②③④ 를 고르는 곳은
-  `electron/main.ts` 하나이고 렌더러에는 **같은 오리진 `/ws`** 로만 보이므로, `src/` 가 갈라지는 지점은
-  `net/parts/Socket.defaultUrl()` 의 ① 하나다. 주소 문자열을 해석하는 곳도 **하나뿐**이다 —
-  `shared/net.relayUrlFrom` (예전 `electron/main.ts` 의 `toRelayUrl`). 설정 UI · 렌더러 · 셸이 각자
-  정규화하면 초록불이 뜬 주소로 앱이 다른 데 붙는다. **연결 테스트는 토큰 없이** 붙는다: 같은 토큰으로
-  두 번 붙으면 서버가 중복 세션으로 보고 살아 있는 내 소켓을 끊는다.
-- **배포 폴더에는 누를 것만 둔다** (2026-09-10, 사용자 결정). electron 빌드 전부를 `app/` 으로 내리고 루트에는
-  stub `SCAVANGER.exe` · `server.txt` · `SCAVANGER-Server.exe` 만 남긴다 (`scripts/pack-release.mjs`).
-  그래서 `electron/main.ts` 의 `configDirs()` 는 **`execPath` 의 부모까지** 후보로 본다 — 사람이 고치는
-  `server.txt` 는 `app/` 밖에 있다. 서버 exe 의 프로필 저장소도 같은 이유로 `%LOCALAPPDATA%\SCAVANGER\server`
-  다 (`--data=` 로 옮긴다). **아이콘도 코드로 그린다** (`scripts/make-icon.mjs` — 외부 에셋 금지는 아이콘에도
-  적용된다) 그리고 게임 · stub · 서버 exe 가 같은 `icon.ico` 를 쓴다.
+- Colliders match the visible silhouette. Props measure only the part above ground (`world/Props.ts` `footprintOf`); terrain features use convex hulls (`Obstacle.hull`); boxes need `radius >= hypot(halfX, halfZ)` (`Obstacle.box`); stairs are ramps (`Obstacle.ramp`, `structures/parts/Stairs.buildStairFlight`, overlap the upper plate by 0.08 m).
+- Walking floor = `WorldRef.getSurfaceY(x, z, feetY)`; **query the surface before `resolveCollision`**. Boxes whose top ≤ feet + `PROP_STEP_UP_MAX` are stepped on, not pushed (box branch only).
+- World ceiling = feet + `BOX_HEADROOM`. Only bodies that pass `height` measure headroom by it (`resolveCollision(position, radius, height?)` — drone vents).
+- Small bodies (`radius < SMALL_BODY_R`) use their own size for headroom; falling objects and ground effects use `getSurfaceY(x, z, top − PROP_STEP_UP_MAX)`, never `getHeightAt`.
+- Slope checks apply only when feet are on terrain (`getHeightAt(x, z) >= feet − 0.02`).
+- Moving platforms: `Obstacle.velocity` present = platform. Riding enters via the standing query, stays while inside the vehicle OBB + headroom, and re-solves vehicle-local coordinates every frame — `src/shared/ride.ts`. Rail deck steps satisfy `RAIL_DECK_STEP/2 × RAIL_MAX_GRADE < TRAM_FLOOR_UP`; `RAIL_DECK_Y` ≤ `PROP_STEP_UP_MAX`.
+- Moving interiors: `PlayerRef.setShipInterior(bounds)` holds a reference rewritten every frame; floor height from the deck plane (`Dropship.floorYAt`); attached bodies re-read world transforms in `update` and `lateUpdate`.
+- Layout order: rails first, then rover road, then everything else avoids `RAIL_CLEARANCE_M` and `roverClearance` — `world/generateLayout`. Structure placement clears doorway approaches first (`OPENING_APPROACH`, `structures/parts/Build.clearFor`).
+- Enterable buildings have one floor plate whose collider top is exactly `y0` (`Build.floorPlate`). Broken windows still block people (`passRays` / `passSmall`); throwables break glass along their path (`shared/fragile.ts`).
+- Fog of war: `ctx.world.fog`, painted locally from snapshots (late joiners `fogq sync`); undiscovered objects appear nowhere (`fog.isDiscovered`). Hazards are seed + mission-time functions with no wire (`hzq sync`), fog density only via `atmo:override`. New hazard shapes must be measured over thousands of seeds for "when does it reach the drop point".
+- Moving ships have world colliders while landed (`extraction/Hull.ts`); enemy entry is a query (`ctx.extraction.keepEnemyOut`).
+- Teleport/dash movement steps the body like walking, never a single ray — `implants/parts/Devices.dashReach`.
+- Airborne impulses keep horizontal momentum until landing (`PlayerController.airCarry`).
 
-- **지형지물 콜라이더는 볼록 윤곽이다** (2026-09-11, 사용자 결정). 바위 · 첨탑 · 크리스탈 · 잔해는 원 하나가 아니라
-  `Obstacle.hull` — 땅 위로 보이는 메시의 2D 볼록 껍질(`world/propHull.ts` → `world/hull.ts`)이고, 이동 · 발판은 몸
-  높이까지의 윤곽 하나, 총알 · 시야는 높이별 층(`hull.bands`)을 본다. `radius` 는 계약대로 외접원으로 채운다(해시용).
-  원기둥과 같이 **올라설 수 있는 단 예외가 없다**. 콜라이더 반지름으로 소품 크기를 추정하는 코드를 새로 짜지 않는다 —
-  `obstacleCoverage` 처럼 윤곽의 넓이를 쓴다.
-- **계단은 경사 콜라이더다** (2026-09-11, 사용자 결정 "스르륵"). `Obstacle.ramp`(상자 + 로컬 +X 로 오르는 윗면)이고
-  단은 그림뿐이다 — 새 계단은 `world/structures/parts/Stairs.buildStairFlight` 로 만든다. 경사면은 디딤판 한가운데를
-  잇고, **위 끝이 위층 바닥판과 0.08 m 겹쳐야 한다**: 정확히 같은 선이면 부동소수 오차로 두 콜라이더가 이음매의 점을
-  모두 놓쳐 발밑이 한 층 아래가 된다. 그 밖의 단차는 `player/` 가 모델 · 카메라만 따라가게 한다(`bodyOffset`).
-- **작은 몸은 사람 규칙으로 밀지 않는다** (2026-09-11). `resolveCollision(position, radius)` 에서 `radius <
-  SMALL_BODY_R`(0.25, 수류탄 · 투척 가젯 · 아이템)이면 뜬 상자의 머리 위 여유가 제 크기(`2r`)뿐이고 "올라설 수 있는 단"
-  예외가 없다 — 사람 기준 `BOX_HEADROOM`(2.1)을 그대로 쓰면 실내 수류탄이 천장판에 걸려 **건물 밖으로 밀려 나갔다**.
-  그리고 **떨어지는 물건의 바닥은 `getHeightAt` 이 아니라 `getSurfaceY(x, z, 몸 윗면 − PROP_STEP_UP_MAX)`** 다 —
-  지형만 보면 2층 바닥판을 뚫고 떨어진다. 새 투척물 · 낙하물도 이 두 규칙을 따른다.
-- **월드 천장은 머리가 아니라 발 + `BOX_HEADROOM` 으로 잰다** (2026-09-11). `resolveCollision` 의 상자 가지가 발 + 2.1 m
-  가 밑면을 넘는 순간 옆으로 밀어내므로, 점프 클램프(`PlayerController`)가 1.8 m 머리만 막으면 낮은 판 밑에서 몸이 튕겨
-  나간다. 두 값은 `data/constants.csv` 의 `BOX_HEADROOM` 하나다.
-- **빛기둥은 시체에만 선다** (2026-09-11, 사용자 결정). `ui/hud/pillar.pillarAllowed`(`corpse:` · `pcorpse:`)가
-  `Detection` · `ScanReveal` 의 유일한 관문이고 떨어진 아이템 기둥도 껐다. 상자 · 컨테이너는 대신 **열린 모습**이
-  조사 여부를 말한다 — 연 사람이 `crate opened` 를 보내고(확정 불필요) 호스트가 `crate sync {ids}` 로 늦게 합류한
-  사람에게 준다. 열린 **모습**(`def.opened` / `opened`)과 **내 첫 개봉**(`rolled` — 통계 · 열쇠 부가 굴림 ·
-  `structure:investigated`)은 따로다: 남이 먼저 열어도 내 컨테이너 캐시에는 열쇠가 없다.
-- **깨진 창은 사람을 막는다** (2026-09-11, 사용자 결정 "총알 · 투척물만 통과"). 유리 콜라이더는 깨져도 hash 에 남고
-  `passRays` · `passSmall`(world 내부 플래그)로 바뀐다. 투척물은 걸음마다 `shared/fragile.breakFragileAlong` 으로
-  유리를 깬다 — `resolveCollision` 은 누가 부르는지 모르므로 레이로 훑어야 한다.
-- **구조물 방 조명은 광원 풀이다** (2026-09-11, 사용자 결정). 컨테이너가 놓인 방마다 광원 **자리**를 두고 진짜 광원은
-  `STRUCTURE_POINT_LIGHTS`(4)개만 가까운 자리에 건다 (`shared/lightPool` — 함선과 같은 코드, 층이 다르면 뒤로 민다).
-  풀은 **구조물이 없는 맵에서도** 만든다. 그래서 `SCENE_POINT_LIGHT_BUDGET` 은 23 → **25** (레이드 = 상주 15 + 패드 3 +
-  콘솔 3 + 구조물 4) — 레이드에 광원을 더하는 코드는 여분이 **0** 이라는 것을 먼저 안다.
-- **맵 스캐너는 전진기지 · 연구실의 옥상에만 있다** (2026-09-11, 사용자 결정). 옥상은 층수와 상관없이 늘 있고 맨 위층의
-  격벽 사다리로만 오른다 (적은 사다리를 못 탄다). 불시착 함선에는 스캐너가 없다.
-- **드론은 소유자 권한이다** (2026-09-11). 배치물(`gad`, 호스트 권한)과 반대로 드론의 위치 · 체력 · 조종은 **소유자
-  클라이언트**가 시뮬레이션하고 `drone state` 로 방송한다 — 조종 입력 지연을 없애려고. 호스트의 적이 때리면
-  `ctx.drones.damageDrone` 이 `droneq damage` 로 소유자에게 넘긴다. 드론 아이템은 **꺼내도 소모되지 않고 조종기로
-  남으며** 파괴될 때만 1개가 빠진다 · 종류당 1대. 조종 중 PC 는 `PlayerRef.setDroneControl` 로 **앉은 채 멈추고**
-  (사용자 결정) 카메라는 매 프레임 `setCameraOverride(pos, look, true)`, 복귀는 `setCameraOverride(null, undefined, true)`
-  (하드 컷 — 먼 드론에서 블렌드하면 카메라가 지형을 훑는다). 조종 중 막히는 입력은 폴더마다 `ctx.player.droneControl`
-  을 본다(무기 · T · F · Q · G · H). 핑은 `ctx.camera` 기준이라 드론 시점에서 그대로 나간다.
-- **드론 yaw 는 「코 = 모델 +Z」 규약이다** (2026-09-11). forward = `(sin yaw, 0, cos yaw)` — 플레이어 카메라
-  (`−sin, −cos`)와 반대라 꺼낼 때 `droneYawFromPlayer`(+π) 를 거친다. 두 몸체(`GroundDrone` · `AirDrone`)가 같은 규약을
-  써야 `DroneInput.yaw` · 카메라 · 이동이 맞는다 (공중 드론이 한 번 반대 규약으로 만들어졌다가 고쳐졌다 — `drones/model.ts` 주석이 원본).
-- **설치 미리보기와 실제 설치는 같은 함수다** (2026-09-11). `gadgets/parts/Preview` 의 판정 하나가 고스트 색 · 거부
-  사유 · 드론 탑재를 정하고, 좌클릭은 그 순간 같은 판정을 다시 돌린다 — 초록이면 선다. 대형
-  (`LARGE_DEPLOYABLE_KINDS` — 바리케이드 · 점프대 · 포탑)은 평평 + 공간, 소형(`MOUNTABLE_DEPLOYABLE_KINDS`)만 드론
-  윗면. 설치 높이는 이제 판정이 준 y(표면 · 2층 바닥 · 드론 윗면)이고 지형으로 덮지 않는다.
-- **원격 지뢰 중첩 피해는 대상마다 합산 1회다** (2026-09-11, 사용자 결정). 한 번의 기폭에서 한 대상에 대해 C4 마다의
-  피해를 모아 `최대 + (합 − 최대) × GADGET_REMOTE_MINE_STACK_MUL` 을 **한 번만** 적용한다(복리 아님). 그래서 원격 지뢰는
-  공용 `applyExplosion` 류를 부르지 않는다 — 드론에도 `damageDrone(합산)` 이다.
-- **네임드 로그는 레이드당 최대 한 명이다** (2026-09-11, 사용자 결정). 확률은 2026-09-13 부터 행성 threat 표 `NAMED_ROGUE_CHANCE_BY_THREAT`
-  (0 · 25 · 50 %, 옛 `…_BY_RANK` 은퇴 — 네임드는 팩션 raider), 굴림은 `enemies/named/Director` 가 `world:ready` 에서만 한다. AI · 겉모습 · 리플리카 연출은 **종류별
-  파일**(`ai/named/*` · `models/named/*`)이 갖고 공용 파일에는 **훅만** 있다 — `Enemy.named*` 필드, `HostSync.animHint`
-  의 `namedHint`(14–20), `Replica` 의 before/after/event 훅, `EnemyHost.fireGun` 의 `RogueShotOpts`(생략하면 예전 로그
-  사격과 똑같다). 로든의 스캔 저격은 150(실드 100 + 체력 100 이면 산다, 사용자 결정)이고 반드시 조준경 반짝임이 먼저 뜬다.
-  네임드 확정 드롭은 **행성 등급 곡선을 무시한다**("최소 희귀부터"), 내구도 1–5 %.
-- **적이 드론을 노리는 목록은 `alive` 와 따로다** (2026-09-11). `TargetList.drones` 는 `aggroable` 드론만 담는다 —
-  걷는 지상 드론은 절대 안 들어간다. `alive` 에 넣으면 스포너 · 웨이브 · 스플래시가 드론을 플레이어로 착각한다.
-  `world:noise` 는 권한에서만 나오고 소리만으로는 표적이 되지 않는다(가서 보고, 보이면 노린다).
-- **화면 투영(`Vector3.project`)은 `HudSystem.lateUpdate` 에서 한다** (2026-09-11 C-53 · X-9). `project` 는
-  `camera.matrixWorldInverse` 만 읽는데 카메라 리그는 그것을 갱신하지 않으므로, `update` 에서 투영하면 **직전 프레임의
-  뷰**로 그린다(월드 마커 · 핑 · 화면 밖 화살표가 한 프레임 늦던 것). `lateUpdate` 첫 줄이 `camera.updateMatrixWorld()` 다.
-- **서버 문서가 로컬 편집을 덮지 않는다** (2026-09-11). 편집 뒤 저장 debounce 안에 릴레이 welcome(`net:profileLoaded`)이
-  오면 그 문서는 편집보다 **오래된** 것이다 — `housing` 이 그걸로 상태를 갈아 끼우고 대기 중인 저장까지 취소해 방금 놓은
-  가구가 사라졌다(부하에서 smoke-training 이 빨갛던 원인). 프로필 문서를 받는 폴더는 **저장 대기 중인 로컬 편집이 있으면
-  그 편집을 올리고 교체하지 않는다**. 스모크도 상태를 직접 심기 전에 `net:profileLoaded` 를 기다린다.
+### 4.5 Rendering
 
-- **레이드를 넘어 사는 준비는 프로필에 둔다** (2026-09-11, A-13 사용자 결정). 조합대에서 만든 준비물
-  (`prep_respirator` 방독 · `prep_coolant` 내열)은 **함선에서 쓰면 다음 레이드 1회분**으로 실린다 —
-  `PlayerProfile.prep`(대기) → 출격에 `armPreps()` → `prepActive`(이번 레이드) → 종료에 `clearActivePreps()`.
-  **사망으로는 안 비운다**(「이미 마신 약」). 프로필에 두는 이유는 하나다 — 2026-09-10 의 「재접속으로 돌아온
-  사람이 조용히 무언가를 잃으면 안 된다」. 그리고 **`Profile.migrate` 에 그 필드를 넣는 것이 결정적이다**:
-  migrate 의 결과가 곧 다음 `saveProfile` 의 내용이라, 안 옮기면 새로고침 한 번에 사라진다 (2026-09-09 `accent`
-  사고와 같은 자리). 소비하는 쪽(`player`)은 **상태를 하나도 두지 않고** 매 프레임 `ctx` 에서 다시 판정한다 —
-  그래야 스폰 · 구조선 부활(`Spawn.resetTactical` 이 버프를 전부 지운다)이 건드릴 수 없다. 요리 버프(A-3c)도
-  같은 두 필드에 얹는다.
-- **행성 환경은 막지 않고 깎는다** (2026-09-11, A-13 사용자 결정). `PlanetDef.env` 는 **threat 3 두 곳뿐**이고
-  (피로스 VII `heat` · 카민 I `toxin`) 맞는 준비물이 없으면 `PLANET_ENV_DPS` 가 **체력만** 깎는다 —
-  `applyDamage` 를 타지 않는다. 대기를 방탄복 실드가 막는 것이 이상하기 때문이다. 입장은 **소프트 게이트**라
-  출격 점검에 `noEnvPrep` 경고 한 줄이 늘 뿐이고(`LaunchWarnPanel` 은 원래 「그래도 출격」이다) 행성 이동도
-  그대로다. 진행 게이트를 새로 만들 때 이 결정을 먼저 본다.
-- **같은 실용 가구를 둘 만들 이유가 없다** (2026-09-11, B-13 사용자 결정). `isUtilityFurniture`
-  (`interaction !== 'none'`)인 가구를 이미 배치했거나 가구 창고에 갖고 있으면 `HousingRef.furnitureCraftBlock`
-  이 사유를 돌려주고 시설 관리가 그 카드를 **딤드 + 목록 맨 아래**로 그린다 (벤치 레벨은 가장 높은 하나만 센다).
-  ⚠ 이것은 **규칙이 아니라 질의**다 — `craftFurniture` 자체는 안 막는다. 규칙으로 올리려면 튜토리얼의 작업대
-  경로와 v1→v2 정비 벤치 지급을 함께 봐야 한다. 같은 배치에서 **`upgradeFurniture` 가 드디어 호출자를 얻었다**:
-  Phase 8 부터 `src/` 에 부르는 곳이 없어 작업대 Lv.2–3 이 플레이로 도달 불가였다 (시설 관리 클릭 인스펙터).
+- **Never change the point-light count at runtime** — adding a light recompiles every material. Keep lights in the scene and set `intensity` to 0; put visibility toggles on non-light groups. `scripts/smoke-lights.mjs` enforces it.
+- Every scene keeps `SCENE_POINT_LIGHT_BUDGET` via `core/LightBudget.ts`; hub/structures light only the nearest slots (`HUB_POINT_LIGHTS`, `STRUCTURE_POINT_LIGHTS`, `shared/lightPool.ts`). Raid budget has zero spare lights.
+- New scenes compile before drawing, and compilation goes only through `ctx.shaders` (`core/ShaderWarmup.ts`) — the program key depends on the bound render target.
+- Light pillars only on corpses (`ui/hud/pillar.pillarAllowed`); opened containers show an opened model synced by `crate opened` / `crate sync`.
 
-- **재배는 「토양 먼저, 씨앗 나중」이고 은퇴한 가구는 재료로 돌아온다** (2026-09-11, 사용자 결정). 옛 재배층
-  (`furn_grow_rack` — 같은 자리에 4층까지 쌓는 가구)은 **폐기**했다: `FurnitureDef.retired` 가 붙은 def 는 목록 ·
-  제작 · 배치 어디에도 안 나오고, 이미 함선에 있던 것은 로드할 때 제작 재료 + 강화 재료로 **함선 창고에 환불**된다
-  (`airstrike` · `secondary` 처럼 def 자체는 csv 에 남는다 — 환불액을 계산하려면 그 줄이 필요하다). 환불을
-  `ShipState.sanitize` 에서 지급하지 않는 이유는 하나다: **housing 이 inventory 보다 먼저 등록돼** 로드 시점에는
-  `ctx.inventory` 가 없다. `sanitize` 는 `SanitizeOutcome` 에 금액만 적고 `HousingSystem.update()` 의 첫 프레임이
-  지급한다. 새 재배 스테이션(`furn_grow_station`)은 **가구 레벨이 재배층을 여는** 평범한 강화 가구다 —
-  Lv.1 중앙 · Lv.2 아래 · Lv.3 위, 층당 3칸(`GROW_SLOTS_PER_TIER`). **층 id(`GrowTier`)는 강화해도 안 바뀐다**
-  (0 = 중앙 · 1 = 아래 · 2 = 위) — 번호가 밀리면 자라던 작물이 다른 층으로 옮겨 간다. 칸은 **흙을 먼저 붓고**
-  (`fillSoil`) 그 위에 심는다(`plantSeedAt`): 토양 속성(`SoilTag` 4종)이 씨앗의 `soilTag` 와 맞으면
-  `SOIL_MATCH_SPEEDUP` 만큼 빨라지고 다르면 `SOIL_MISMATCH_PENALTY` 만큼 느려진다 — **토양 없이 심는 경우가 없으므로
-  그 둘이 곧 기준선**이다. 궁합 · 원예 숙련은 심는 순간 `readyAt` 에 확정되고 이후 무엇을 바꿔도 움직이지 않는다.
-  토양은 **수확마다 1회** 닳아(`soilUsesLeft`, 등급별 2·3·5) 0 이면 칸이 완전히 빈다. 토양은 **바이오별 채집
-  전용**이라 루팅 · 상점에 없다 (`data/planets.csv` 의 `soils` 열).
-- **프로필 문서는 시계가 아니라 리비전으로 병합한다** (2026-09-11 E-6, 사용자 결정 "서버 우선 + 경고"). `profile:set {baseRev, writeId}` 가
-  서버 `docsRev[key]` 와 같을 때만 저장되고(`profile:ack`), 다르면 `profile:conflict` 로 **서버 사본이 이긴다**. 쓰기 큐는
-  `slotKey(PROFILE_QUEUE_STORAGE_KEY)` 에 영속돼 ack 를 받아야 지워진다 — 오프라인에서 한 진행은 다음 접속 때 `baseRev === 서버 rev` 면
-  로컬이 이긴다. **한 편집이 문서 두 개 이상을 걸치면 `ProfileRef.setMany`** 다(창고+로드아웃 · 시체 벗기기 · 퀘스트 완료). `baseRev`
-  없는 옛 프레임은 Phase 9 도장 규칙 그대로.
-- **서버 크레딧은 사유를 검증한다** (2026-09-11 E-4, 사용자 결정). `credits:tx` 의 `reason` 은 `shared/credits.formatCreditReason` 문법
-  (`buy:` · `sell:<id>:<qty>` · `refund:` · `repair:` · `contract:` · `quest:` · `migrate`)이고 릴레이가 `server/economy.gen.json`(csv 에서
-  생성 — `data:check` 가 stale 을 잡는다)과 원장으로 금액을 맞춘다. **아이템 소유는 보지 않는다**(창고 문서가 클라이언트 쓰기 — TODO E-9).
-  **dev 사유(`/credits` 콘솔 · `smoke:*` · `e2e:*` · `shot`)는 `SCAV_DEV_ECONOMY=1` 릴레이만 받는다** — 켜는 곳은 `scripts/verify.mjs` 가
-  스스로 띄우는 릴레이뿐이고 `dev:all` · `start-server.bat` · `npm run server` · 배포 exe · 데스크톱 셸은 끈다(`/health.devEconomy`).
-  **공용 릴레이를 손으로 띄워 병렬 스모크에 쓸 때는 `SCAV_DEV_ECONOMY=1` 을 붙인다.**
-- **남에게 영향 주는 메시지는 권위에서만 받는다** (2026-09-11 E-4). 함선 호출 `strat call` · 적 이벤트 `ee` · `crate sync` 는 로비 호스트가 보낸
-  것만, 분대원 호출은 `stratq call` 로 호스트가 검사해 재방송한다. 피어끼리 가는 `buff` 는 받는 폴더(implants · gadgets)가
-  `shared/buffRules.createBuffGuard` 로 로비 멤버 · 스냅샷 거리 · 양 · 빈도를 자르고, 보내는 쪽은 가슴 → 가슴 레이로 벽 뒤에 보내지 않는다.
-  분대 계약의 킬 몫은 `enemy:squadKill`(호스트 킬에서 파생)로 센다. "내가 나에게" 치트는 범위 밖이다.
-- **링크가 `refused` 면 스스로 다시 붙지 않는다** (2026-09-11 B-1). 추방 · 인원 초과 · 다른 창 접속 뒤에는 배경 프로브도, 함선 진입의
-  `tryResume` 도 접속하지 않는다 — `ensureConnected()` 는 명시적 접속이라 `refused` 를 지우므로 **자동으로 부르는 코드는 먼저 `net.link.state` 를 본다.**
-- **호스트가 받는 요청은 모양 · 보낸 사람 · 거리 · 요율 네 겹을 지난다** (2026-09-11 E-8). `shared/buffRules.createBuffGuard`
-  가 정한 순서이고 `hit` · `explode` · 상태이상이 모두 그것을 따른다. 두 가지가 규약이다 — ① **한 능력의 두 경로는 버킷을
-  같이 쓴다**: `explode` 가 `hit` 과 다른 버킷을 가지면 둘을 번갈아 써서 합계가 두 배가 된다. ② **거리 기준은 코드가 아니라
-  데이터에서 유도한다** — 상태이상은 `max(FLAME_RANGE, SHOCK_RANGE)`(그것을 거는 무기가 그 둘뿐이다), `explode` 는
-  `STRAT_MAX_CALL_RANGE`(폭발원 중 가장 먼 것이 함선 호출 낙하물이다). 새 상한을 코드에 적지 않는다.
-  **단, 날아가는 것은 던진 사람보다 오래 산다** — `explode` 는 죽은 보낸 사람도 받아들인다(수류탄 신관 · 호출 `eta` 안에
-  죽는 것은 정상이다). 시체가 낼 수 없는 요청(`kb` = 실드 배쉬)만 `isDead` 로 거른다.
-- **거절은 보낸 사람에게 돌아가야 한다** (2026-09-11 E-8). 호스트가 분대원의 함선 호출을 거절하면 `strat deny` 로
-  알리고 호출자는 쿨타임을 **전액** 환불받는다(`StratagemSystem.refundCooldown`) — 거절은 "호출이 아예 서지 않았다" 는
-  뜻이라 부분 환불에 근거가 없다. 받는 쪽은 **호스트가 보냈고 `callId` 가 내 것일 때만** 받아들인다(남의 쿨타임을 되돌릴
-  수 없다). 환불이 내는 `stratagem:cooldown` 에는 `refunded: true` 가 실린다 — 그것을 안 보면 「거절」 옆에
-  「준비 완료」 토스트가 같이 뜬다.
+### 4.6 Combat · enemies
 
-- **버프는 새 개념이 아니라 파생 수치에 접는다** (2026-09-11 A-3c). 요리 버프(`MealBuff`)의 값은 전부
-  **`DerivedStats` 에 이미 있는 필드 이름**이고 `progression/derive.applyMealBuff` 가 `recompute` 끝에서
-  그 자리에 더한다. 그래서 **player · weapons · world · inventory 는 한 줄도 안 바뀌었다** — 이미
-  `ctx.progression.derived` 를 읽고 있기 때문이다. 새 버프를 만들 때 「누가 이 개념을 읽어야 하나」를
-  묻기 전에 **파생 수치로 표현되는가**를 먼저 묻는다. ⚠ 다만 **크레딧 · 판매가 배수는 만들지 않는다**:
-  서버가 크레딧을 사유별로 검증하므로(E-4) 클라이언트가 얹은 배수는 그대로 `credits:tx` 거절이 된다.
-  보상계 버프는 숙련 XP · 채집량 · 감정 속도처럼 **클라이언트가 권위를 갖는 수치**로 낸다.
-- **함선에서 먹고 다음 레이드에 실리는 것은 프로필에 산다** (2026-09-11 A-3c, A-13 규약의 확장). 식사
-  (`PlayerProfile.meal` → `mealActive`)는 준비물(`prep` → `prepActive`)의 형제이고 수명 규칙이 똑같다 —
-  출격에 옮기고, 사망해도 그 레이드는 유지하고, 끝나면 비운다. **`armPreps()` · `clearActivePreps()` 가
-  식사도 함께 처리하므로 `game/` 은 한 줄도 안 바뀌었다** — 같은 수명을 가진 것을 새로 만들면 그 둘에 얹는다.
-  그리고 `Profile.migrate` 에 필드를 넣는 것이 매번 결정적이다 (2026-09-09 `accent` 사고와 같은 자리).
-- **작업대를 더하는 발자국은 정해져 있다** (2026-09-10 `refine` → 2026-09-11 `extract`·`mixer` → `cook`·`print`,
-  세 번 같았다). `WorkbenchKind` + `WORKBENCH_LABEL_KO` + `WORKBENCH_ICON` + `FurnitureModelKind` +
-  `FurnitureInteraction`(`workbench_<kind>` — `benchKindOf` 가 접두사로 푼다) + `data/furniture.csv` 줄 +
-  `data/recipes.csv` 의 `bench` 열이 전부이고 **제작 UI · 탭 · 레벨 게이트는 한 줄도 안 바뀐다**
-  (`CraftPanel` 의 `TAB_ORDER` 가 `WORKBENCH_KINDS` 에서 자동으로 늘어난다). 열거값을 **베껴 적지 않는다** —
-  `items/Recipes` 가 그러고 있어서 작업대를 더할 때마다 고쳐야 했고, 2026-09-11 에 `WORKBENCH_KINDS` 를
-  그대로 쓰도록 바꿨다.
-- **주머니는 가방 격자가 아니다** (2026-09-11 A-15). 「퀵슬롯은 가방 격자가 아니다」(2026-09-09)가 그은 선을
-  그대로 따른다 — 무게 · `countWhere` · `consumeWhere` · `stripForCorpse` · 레이드 blob 은 주머니를 보고,
-  `getAllItems()`(거래 · 수리 목록)는 **여전히 가방 격자만**이다. `PouchDef.accepts` 밖의 아이템은 격자가
-  거절하고, 주머니를 바꿀 때 내용물이 가방에 못 들어가면 **이동 자체를 거절한다**(바닥에 흘리지 않는다).
-  세이브는 **v3** 이고 `pouch` 가 `bag` 과 같은 모양의 자리 목록이다.
+- Shots resolve on the crosshair line; the muzzle blocks only within `WEAPON_MUZZLE_BLOCK_RANGE` — use `weapons/parts/AimLine` (`sys.aim.begin` / `resolve`, `aimShot`). Flashes/tracers/wire origin use the real muzzle.
+- Bullets are swept projectiles (`ProjectilePool`, `stats.projectileSpeed`, `stats.bulletGravity`, falloff by travelled distance `damageFalloffStats`); new fire paths send one `reportShot` per trigger.
+- Aim sway is a camera look offset computed before the aim line is read (`CameraRig`, `data/aim_sway.csv`).
+- Weapon handling scales by grade (`WEAPON_GRADE_HANDLING_MUL`); accepted sockets come from `weapons.csv` `sockets` → `stats.sockets`; non-fitting attachments have no effect (`items/WeaponStats.fittingAttachments`). Legendary uniques are outside class rules (`def.unique`).
+- Weapons must look and sound fired even with no target; training targets are obstacles, not enemies.
+- Damage to the local player carries a source (`PlayerDamageSource`, wire `dmg.src`); new gun damage paths wrap `shared/damageSource.ts` so NPC kill objectives count.
+- Enemy line of fire is measured from the muzzle pulled back by `ENEMY_WALL_STANDOFF`; blocked = hold fire only — `enemies/ai/FireLine.ts`.
+- Humanoid faction = planet threat (1 android · 2 rogue/raider · 3 raider). Use `Enemy.isHumanoid`, not `isRogue`. Corpse loot depends on enemy state (`CorpseLootOpts`) and that state must be on the wire (`ee corpse.si/gc/gk`).
+- Bug difficulty multipliers come from `world:ready`, applied in `enemies/parts/Pool.acquire`; no wire.
+- Named rogue: at most one per raid (`NAMED_ROGUE_CHANCE_BY_THREAT`, `enemies/named/Director.ts`); per-type AI/model files, shared files hold hooks only. Enemy drone targets are a separate list (`TargetList.drones`).
+- Remote-mine stacking per target: `max + (sum − max) × GADGET_REMOTE_MINE_STACK_MUL`, applied once.
+- Placement preview and placement run the same judgement (`gadgets/parts/Preview.ts`). Drones are owner-authoritative; yaw convention nose = model +Z (`drones/model.ts`).
+- Remote explosion type is carried by the sender (`GrenadeMessage.fire`); fire zones are read through `getFireZones()`.
+- Ship calls share one cooldown (`data/stratagems.csv`); the wheel has exactly 4 slots (`STRATAGEM_ORDER`) and does not open during cooldown; rescue count is host-owned (`RESCUE_DROPS_PER_RAID`, deducted on grant, no refund).
+- Full death has no auto-revive: the corpse takes equipment, bag and quick slots (`InventoryRef.stripForCorpse`); squad raids turn implants into broken pairs (`ProgressionRef.stripImplantsForCorpse`), solo loses them. Revival only by rescue drop, empty-handed.
+- Squad leader changes only via `lobby:transferHost {targetId, claim?}` (host transfer or claim after `lobby:hostDown`); the toast is only in `game/parts/Leader.ts`.
+- `game:returnToShip` during a raid is death (`PlayerRef.die`) and `leaveMission`; never emit `hub:enter` for it. Liftoff extracts only those aboard and alive; the rest keep playing.
+- Rover: one per raid, host-authoritative; riders take no damage and are not targets; only enemies and hazards damage it; one payer per trip (`rover:<from>:<to>`) — rules in `shared/types.ts` rover section. New combat input gates check both `droneControl` and `roverRide`.
 
-- **CSS 클래스 접두사는 폴더마다 달라야 한다** (2026-09-12). 기업 화면의 판매 물품이 아래가 둥근 54×76 통 모양으로
-  그려지고 호버 카드가 안 뜨던 것은 코드 버그가 아니라 **배양조(`housing.css`)와 기업(`meta.css`)이 둘 다 `.ct-cell` ·
-  `.ct-slots` 를 쓴 충돌**이었다 — 스타일시트는 전역이라 import 순서가 이긴 쪽을 정한다. 지금은 기업 `.cv-` · 배양조 `.cult-`.
-  새 화면의 접두사를 고를 때 `rg "\.<접두사>-" src` 로 먼저 비어 있는지 본다 (`kc-hold` 사고와 같은 뿌리).
-- **가방은 가로 5칸이고 화면의 틀은 가장 긴 가방 높이다** (2026-09-12, 사용자 결정). 칸 수는 옛 값을 5의 배수로 반올림했고
-  (`data/bags.csv`), 틀은 표에서 읽은 `BAG_FRAME_ROWS` 라 더 긴 가방을 넣으면 같이 자란다. 모자란 줄은 **드롭 대상이 아닌 빈
-  여백**이다. 틀이 커진 만큼 창이 짧으면 가방이 `.inv-bag-scroll` 안에서 스크롤하고, 작업대 제작 중(가방 위 · 창고 아래로
-  쌓이는 열)에는 틀을 끈다 — 1280×760 과 1920×1080 제작 창에서 패널이 화면 밖으로 나가던 것을 그렇게 막았다.
-- **격자 합치기에서 넘친 수량은 커서에 남는다** (2026-09-12, 사용자 결정). 드래그에 "들고 있음"(`DragState.held`) 상태가
-  생겼고 다음 클릭이 놓는다. 들고 있는 동안 남은 수량은 **원래 스택에 그대로 있다**(줄어든 채) — 세이브 · 시체 벗기기가
-  허공의 아이템을 볼 일이 없다. Esc · 우클릭 · 빈 곳 클릭 · 창 닫기는 원래 자리로 되돌린다.
-- **방에는 레벨이 없고 효과는 그 방 가구의 레벨이다** (2026-09-12, 사용자 결정). 작업실 · 시뮬레이션실(구 사격장)의 방 레벨과
-  제작 할인은 없어졌고, 프리셋 칸은 **관물대**, 사격 숙련 배율은 **시뮬레이션 허브** 레벨(각 Lv.5)이 정한다. 함선 전체 시설인
-  발전기 · 창고는 그대로다. 옛 레벨은 `ShipState` v7 이 가구로 옮기거나 재료로 환불한다(`facility_upgrades.csv` 의 옛 줄은 그
-  환불 계산용으로 남아 있다). 방 용도는 이제 **전부 함선당 1개**다.
-- **가방과 창고는 어느 화면에서든 창고가 왼쪽, 가방이 오른쪽이다** (2026-09-12, 사용자 결정). 그 배치를 아는 곳은
-  `inventory/ui/TradeGrids` 하나이고 기업 화면 · 함선 스테이션 4종(재배 · 분석기 · 배양조 · 식탁)이 그것을 함께 쓴다 —
-  예전에는 `housing/ui/StationShell` 이 `grids: ['bag','stash']` 를 **명시로 덮어써서** 두 화면의 좌우가 서로 반대였다.
-  ⚠ **두 격자를 한 스크롤에 세로로 이어 붙이지 않는다**: 창고는 24행(1381 px) · 가방 틀은 12행(709 px)인데 스크롤 창은
-  600 px 남짓이라, 어느 쪽을 위로 올려도 **다른 쪽이 통째로 화면 밖**이고 끌고 있는 동안에는 스크롤할 수 없다
-  (1440×900 노트북에서 수확물을 옮기는 길이 막혔다). 블록마다 자기 스크롤을 주되 **`flex-wrap: nowrap` 이 필수**다 —
-  여러 줄 flex 에서 `align-items: stretch` 는 상자가 아니라 *그 줄*까지만 늘린다. 그리고 격자에 직접 `overflow-y` 를
-  걸면 **스크롤바가 마지막 열을 갉아먹으므로**(`overflow-x: hidden` 이라 조용히 잘린다) 감싸는 상자(`.tg-gridwrap`)에
-  건다. 헤드리스는 오버레이 스크롤바 전용이라 이 잘림은 스모크가 못 잡는다 — `scrollbar-gutter: stable` 로 자리를 예약한다.
-- **사라지는 중인 화면은 클릭을 먹으면 안 된다** (2026-09-12). `.menu` 의 `visibility` 전이는 **끝나는 순간에야**
-  `hidden` 이 되므로, `.hidden` 이 붙은 뒤에도 `--t-med`(약 300 ms) 동안 그 화면은 `inset: 0` 에 투명한 채 살아 있고
-  `elementFromPoint` 도 그것을 집는다. 타이틀에서 함선으로 들어가며 클릭을 연타하면 보이지 않는 `게임 시작` 이 눌렸고,
-  `smoke-stations` 는 347 ms 시점에 격자 대신 타이틀 프레임을 집어 red 를 냈다. `.menu.hidden` 이 `pointer-events: none`
-  을 함께 갖는다 (`ui/styles/base.css`) — 전이는 그대로 두고 입력만 끊는다. 새 오버레이도 이 세 줄을 같이 쓴다.
-- **설명 글에 툴팁이 이미 보여 주는 숫자를 적지 않는다** (2026-09-12, 사용자 결정). 방탄복의 실드량, 가방의 칸 수 ·
-  퀵슬롯 수가 그랬다 — 같은 숫자를 두 번 말하고, 표를 고칠 때 글이 따라오지 않는다. 유니크 방탄복의 `description` 은
-  이제 곧 **그 퍽의 효과 문장**이고 툴팁의 `특성` 행이 그 글을 그대로 쓴다. 같은 이유로 **가방이 늘려 주는 소지 한계**는
-  `data/tuning.csv` 의 `BAG_CAPACITY_PER_CELL` 하나에서 나오고 식은 `inventory/Gear.bagCapacityBonus` 뿐이다 —
-  툴팁의 「소지 한계 +N kg」 줄과 실제 한계가 **같은 함수**를 읽어야 어긋나지 않는다.
-- **구조물 배치는 출입구 앞마당을 먼저 비운다** (2026-09-12). 정문 → 지하 계단 구멍(난간이 정문 · 계단 앞을 막으면 탈락) →
-  격벽 통로 → 무너진 틈 · 창(계단 · 층계참 · 구멍을 피한다) 순이고 앞마당 폭은 `OPENING_APPROACH` 다. 계단 입구 폭은 플레이어
-  지름(0.9 m)보다 넓어야 한다 — 0.8 m 틈이 "1층에서 계단이 벽으로 막혀 있다" 의 정체였다. 구조물을 고치면
-  `smoke-structure-reach` 가 몸 반지름으로 걸어서 방 · 계단 · 2층 · 사다리 · 지하실 문에 닿는지 본다.
+### 4.7 Items · economy
 
-- **서재 배율은 매체마다 따로 자르고 더한다** (2026-09-12, A-3e). 책 · 디스크 · 레코드는 같은 역할이고 계수만 다르다(책 < 디스크 <
-  레코드). 한 매체의 몫을 `SHELF_GAIN_MAX[m] − 1` 로 자른 **뒤에** 보조 가구 배율(`1 + SHELF_AUX_BONUS[m]`)을 곱하고 세 몫을 더한다 —
-  그래서 보조 가구가 상한을 넘기는 유일한 길이다. `getBookBonus(skill)` 이 이제 그 합 전체이고, 매체가 책뿐이고 보조 가구가 없으면
-  옛 값과 **정확히 같다**(`smoke-library` 가 그 동일성을 지킨다). 보조 가구는 **배치만으로** 켜지고 켜기 / 끄기(`toggled`)는 모습뿐이다.
-  축음기 · 주크박스 · 턴테이블은 외형만 다른 한 역할이라 몇 대여도 한 번만 곱한다 (사용자 결정). 전부 서재에 놓인다 —
-  휴식 공간을 되살리지 않았다 (사용자 결정).
-- **운동으로 오른 능력치는 스탯 포인트가 아니다** (2026-09-12, A-3a, 사용자 결정). `PlayerProfile.trained` 는 `stats` 와 섞이지 않고
-  `derived` 직전에 임플란트 보너스처럼 더해진다 — `getStat` 은 여전히 기본값, `getStatWithImplants` 가 기본 + 임플란트 + 단련이다.
-  디버프(`gymFatigueUntil`)는 **끝까지 한 세션**에만 걸리고, 디버프 중의 운동은 막지 않되 경험치가 0 이고 디버프를 늘리지 않는다.
-  세 필드 모두 `Profile.migrate` 에 들어 있다 (새로고침에 사라지면 안 되는 준비물 · 식사와 같은 자리).
-- **가구 자세는 player 가 몸을, hub 가 자리를 갖는다** (2026-09-12). `PlayerRef.setFurniturePose` 의 anchor 는 「몸을 받치는 면」 이고
-  엉덩이 높이 · 누운 몸 길이 · 페달 원 같은 **몸 쪽 오프셋의 원본은 `player/SoldierModel` 의 `FURN_*`** 다 — hub 의 기구 모델
-  (`interiors/FurnitureLeisure`)이 그 수치에 맞춰 좌판 · 패드 · 크랭크를 짓는다. 한쪽을 고치면 다른 쪽을 같이 본다. 운동 동작의 위상은
-  hub 가 기구 모델과 같은 값으로 `setFurniturePoseDrive` 에 넘긴다 (바벨과 손이 따로 놀지 않게). 원격 동기화(같은 날 후속)는 **누적 위상**을
-  스냅샷(`fp` · `fu`)에 싣는다 — 감긴 위상(0 … 1)을 보내면 스냅샷 사이 보간이 거꾸로 돈다. 방문자 쪽에서도 몸은 player 의 `RemoteAvatar`,
-  기구는 hub 의 `RemoteFurnitureStaging` 이 **같은 위상**으로 돌리고, 로컬과 원격이 같은 함수를 부른다.
-- **캐릭터 버프는 효과가 아니라 표시 · 동기화다** (2026-09-12, 사용자 결정). 식사 · 준비물 · 운동 디버프 · 환경 노출 · 휴식 / 운동 중이
-  `CharBuff` 한 목록(`shared/charBuffs`)에 모이고 **모으는 곳은 player 하나**다 — 효과의 원본(요리 `derived` · `hasEnvPrep` ·
-  `applyGymSession` · 가구 자세)은 그대로다. 그래서 받는 쪽에는 권위 검사가 없고 로비 멤버 · `sanitizeCharBuffs` 만 본다. 목록은 바뀔 때만
-  `cbuf state` 로 가고 스냅샷에는 **리비전 숫자 하나**(`bfr`)만 실린다 — 받는 쪽 리비전과 다르면 `cbufq sync` 로 다시 받으므로 늦게 합류한
-  사람 · 개인 함선을 방문한 사람 · 메시지를 놓친 사람을 따로 다루지 않는다. 새 버프 종류는 `CharBuffKind` 에 **추가만** 한다 (옛 클라이언트는
-  모르는 종류를 버린다). 버프를 그리는 곳은 `ui/hud/BuffStrip` 하나이고, 옛 글자 배지(식사 · 환경 · 운동 디버프)는 없어졌다.
-- **총알은 크로스헤어 선으로 판정하고 총구는 앞 3 m 에서만 막는다** (2026-09-12, 사용자 결정). 3인칭 총구는 카메라보다 옆 · 아래라,
-  총구 → 카메라 조준점 수렴은 크로스헤어가 빈 공간을 가리킬 때 중간 거리에서 ~0.3 m 옆으로 샜다("가끔 왼쪽으로"). 이제
-  `weapons/parts/AimLine` 의 `ShotResolver` 하나가 정한다 — 크로스헤어 선을 **총구 깊이에서** 시작하고, 몸 축 → 총구(총열이 벽을
-  뚫었나)와 총구 → 조준점 앞 `WEAPON_MUZZLE_BLOCK_RANGE` 에서 걸리면 거기에 맞는다. **사격을 새로 짜는 코드는 총구에서 레이를 쏘지 말고
-  `sys.aim.begin` / `resolve` 를 탄다** (발사체는 `aimShot`) — 그래야 벽의 빨간 원 · 크로스헤어 경고색이 실제 탄착과 어긋나지 않는다.
-  머즐 플래시 · 예광탄 · 원격 `fire` 메시지의 `o` 는 여전히 실제 총구다.
-- **조준 흔들림은 카메라 룩 오프셋이다** (2026-09-12, 사용자 결정). 각성제의 「에임 흔들림 감소」 가 가리킬 것이 없어 **정조준 전용** 흔들림을
-  새로 만들었고, 반동과 같은 자리(`CameraRig` 의 룩 방향)에 더한다 — 그래서 `PlayerSystem.update` 가 조준 선을 읽기 **전에** 이번 프레임의
-  흔들림을 계산해야 사격 · 빨간 원 · 크로스헤어가 같은 각을 본다. 크기 = 계열(`data/aim_sway.csv`) × 정조준 블렌드 × 자세 × 이동 × `aimSwayMul`.
-  함선 · 사다리 · 드론 시점 · 컷씬 카메라 · 가구 자세에서는 0 으로 사라진다.
-- **잠긴 문은 소모형 만능 열쇠로 연다** (2026-09-12, 사용자 결정). 2026-09-09 의 「키카드는 그 건물 지상층 컨테이너에 정확히 하나」를 뒤집었다 —
-  전진기지 지하실 = 열쇠(`key_basement` id 그대로), 2층이 굴려진 연구소의 2층 잠긴 방 = 키카드(`keycard_lab`), 같은 종류면 어느 건물이든 열리고
-  연 사람의 것이 1 개 사라진다. 확정 배치는 없고 상자 T3–4 · 구조물 컨테이너 부가 굴림 · 로그/네임드 시체 · 노마드 상점에서 드물게 나온다.
-- **몸 높이를 넘기는 이동체만 그 높이로 머리 위를 잰다** (2026-09-12). `WorldRef.resolveCollision(position, radius, height?)` — 넘기지 않으면
-  사람 기준 `BOX_HEADROOM` 그대로다. 잠긴 문 옆 환풍구(폭 1.0 · 높이 0.6 m)는 **폭이 아니라 인방 높이로** 사람 · 적을 막고, 높이를 넘기는
-  지상 드론만 지나간다. 낮은 통로를 새로 만들 때 사람을 막는 근거는 이 한 줄뿐이다 — 적 · 원격 · 시체 호출부에 높이를 넘기지 않는다.
-- **열지 않고 미리 보는 것은 여는 것과 같은 함수여야 한다** (2026-09-12). 드론 스캔이 「서사」 라고 했는데 열어 보니 없으면 안 된다.
-  시드 식은 `shared/lootRolls`(`crateLootRandom` · `corpseLootRandom`) 하나이고, 구조물 컨테이너의 열쇠 부가 굴림은 world 의 `contents()` 가
-  여는 코드와 `previewContainerItems` 양쪽에서, 격자 채우기(넘침 · 병합 · 남의 가져가기)는 inventory `parts/Peek` 이 `Container.fill` 과
-  같은 순서로 흉내 낸다. 굴림 식을 폴더에 복사하지 않는다 (에이전트가 두 번 복사했고 리드가 뽑았다).
-- **우클릭은 메뉴, 더블클릭은 빠른 이동** (2026-09-12, 사용자 결정). 인벤토리 격자 · 장비칸 · 휠 · 루팅 창 · TradeGrids 의 **모든 아이템**이
-  우클릭에 메뉴(빠른 이동 · 즐겨찾기 + 기존 항목)를 연다 — 예전의 「메뉴가 없으면 우클릭 = 즉시 이동」은 없어졌다. 칩(`.item-chip[data-def-id]`)과
-  기업 상점 타일은 `ui/hud/ItemFavoriteMenu` 한 곳의 위임 메뉴다. **즐겨찾기는 종류(def) 단위**이고 로드아웃 문서의 `fav` 에 산다 — 레이드 중
-  토글은 표시만 하고 다음 로드아웃 저장이 싣는다(레이드 중에는 로드아웃 문서를 쓰지 않는다).
-- **「아이템 회수」 는 그 레이드에서 생겨난 아이템만 센다** (2026-09-12, 사용자 결정). 레이드 루팅 굴림(상자 · 구조물/플랫폼/전차 컨테이너 ·
-  보급 · 적 시체 · 채집)이 `ItemInstance.raidFound`(맵 시드)를 찍고, 표식은 **아이템을 따라 다닌다**(픽업 · 플레이어 시체 와이어 · 레이드 blob) —
-  분대원이 주워 넘겨도 세고, 누가 함선에서 가져온 것은 시체에 남아도 절대 안 센다. 규칙은 `shared/raidFound.ts` 하나다. **활성 회수 계약의
-  아이템만** 이번 레이드 스택과 가져온 스택이 합쳐지지 않고(`Grid.setStackKeyRule` — 모든 합치기 경로가 같은 키를 본다), 다른 아이템은 전처럼
-  합쳐지되 표식 있는 것과 없는 것이 합쳐지면 **표식 없음**이다(세탁 금지). 세는 스택은 레이드 중에만 즐겨찾기와 **똑같은** 사선 띠
-  (`.is-recovery-item`)를 단다. 레이드가 끝나면(`game:complete` 정산 뒤 · `game:over` · `game:abort` · `hub:entered`) 표식을 지우고 진행도는 0 —
-  새 루팅 경로를 만들면 표식을 찍는지, 새 아이템 복사 · 와이어 · 저장 경로를 만들면 `raidFound` 를 옮기는지를 먼저 본다(생략 = 안 센다).
-- **창고와 가방은 어느 화면에서든 따로 된 카드다** (2026-09-13, 사용자 결정). 2026-09-12 의 「창고 왼쪽 · 가방 오른쪽」 은 그대로이고, 이제
-  두 격자가 **한 틀을 나눠 쓰지도 않는다** — 작업대 제작 화면처럼 카드마다 머리줄(이름 · 개수 · 정렬)과 스크롤을 갖는다. 기업 화면 · 함선
-  스테이션 4종 · 서재 선반이 `TradeGrids` 의 분리 배치를 쓴다. 기업 화면만 칸이 40 px(좁으면 32 px 까지 자동 축소)이다 — 한 줄에 격자가
-  가로 25칸 들어가야 해서다.
-- **능력치 포인트는 확정해야 들어간다** (2026-09-13, 사용자 결정). ＋ 는 미확정으로만 쌓이고 `포인트 투자 확정` 을 1초 눌러야
-  `spendStatPoints` 가 **한 번에** 적용 · 저장한다. 미확정은 시트 인스턴스가 아니라 시스템이 들고 있어 `refresh()` 에 안 날아간다.
-  탭 이동 · Tab · Esc 로 떠나려 하면 `EmbeddedView.requestLeave` 가 가로채 경고를 띄우고, 페이즈 전환 · 사망 · `net:profileLoaded` ·
-  초기화 같은 **강제 종료는 묻지 않고 버린다**. 화면을 새로 만들어 인벤토리 창에 끼울 때 「떠나면 잃는 입력」 이 있으면 같은 훅을 쓴다.
-- **캐릭터 시트의 연관 표시는 csv 에서 온다** (2026-09-13). 능력치 · 숙련이 바꾸는 파생 행은 `stats.csv` · `skills.csv` 의 `derived`
-  열이고(키는 로더가 `DERIVED_PANEL_KEYS` 로 검사), 능력치 ↔ 숙련 연결은 원래 있던 `skills.csv` `stats` 열(= 성장 속도에 영향)을 거꾸로
-  읽는다. `derive.ts` 에 새 효과를 넣으면 **그 열도 같이 고친다** — 안 고치면 툴팁이 거짓말을 한다. 총기 숙련은 파생 패널에 행이 없어
-  (계열별 반동 · 장전) 툴팁에 수치만 적고 `derived` 는 비워 둔다.
-- **조종석 전용 가구는 `room=cockpit` 이고 회수되지 않는다** (2026-09-13, 사용자 결정). 전술 임플란트 시술대 · 기업 네트워크 컴퓨터는
-  조종석 안에서 옮기기 · 돌리기만 되고, 로드할 때마다 조종석에 정확히 한 대씩 있도록 맞춘다(다른 방 · 가구 창고에 있으면 조종석으로
-  옮긴다). 조종석의 옛 고정 소품(침상 · 사물함 · 서랍장)은 **v10 이 한 번만** 꾸밈 가구로 놓아 줄 뿐 다시 채워 주지 않는다 — 회수해도,
-  다른 방에 놓아도 된다. 새 함선의 가구 uid 는 f-1 시술대 · f-2 컴퓨터 · f-3…f-6 꾸밈이다 (튜토리얼의 「새 함선인가」 판정이 이것을 안다).
-- **재배 스테이션 강화는 자라는 작물에도 즉시 적용된다** (2026-09-13, 사용자 결정). 「궁합 · 원예 숙련은 심는 순간 확정」(2026-09-11)은
-  그대로이고 **스테이션 레벨만 예외**다 — `Garden.rescaleGrowsForUpgrade` 가 강화 순간 자라는 칸의 `plantedAt` · `readyAt` 을 지금을 기준으로
-  `옛 배율 / 새 배율` 만큼 압축한다(남은 시간이 그 비율로 줄고 진행 막대는 튀지 않는다).
-- **지형 경사 판정은 발이 지형 위에 있을 때만이다** (2026-09-13). `getNormalAt` 은 **지형** 법선이라 바닥판 · 데크 · 바위 윗면에 선 몸에 쓰면 그 밑
-  지형의 경사를 읽는다 — 지하실 구덩이 위 1층 바닥에서 바깥벽 쪽이 전부 가파른 오르막이 되어 실내에서 벽 · 정문에 못 다가갔다. 경사로 이동을 막거나
-  미끄러뜨리는 코드는 `getHeightAt(x, z) >= feet − 0.02` 를 먼저 본다(투척물 · 아이템의 `surface > terrain + 0.02` 와 같은 식).
-- **레이드 중 `함선으로 귀환` 은 그 자리에서의 사망이다** (2026-09-13, 사용자 결정). 경고 팝업 1초 홀드 → `game:returnToShip` → `PlayerRef.die()` →
-  평소 사망 정리(분대 = 시체에 장비 · 망가진 임플란트 짝, 솔로 = 전부 잃음) → `DEATH_TO_SCREEN` 뒤 함선. 분대에서는 **나 혼자** 빠진다 — `leaveMission`
-  (`lobby:mission false`)이라 호스트였어도 분대장이 살아 있는 대원에게 넘어가고 `flow abort` 는 나가지 않는다. 귀환 경로를 새로 만들면
-  `hub:enter` 를 곧장 쏘지 말고 이 명령을 탄다 — `hub:enter` 가 부르는 `game:abort` 는 호스트면 분대 전체를 끝낸다.
-- **요리 재료는 티어 사다리이고 분석기가 그 관문이다** (2026-09-13, 사용자 결정 · `docs/DECISIONS.md` 「2026-09-13 — 요리 재료 티어」). T1 채소(온실만) → T2 고기 페이스트(세포주 + 배지 · 소금) →
-  T3 종별 고기 · 동물기름(스캐폴드) → T4 달걀 · 우유 · 치즈(DNA 세포 → 추출기 → 조합대). 표본은 **3종**(`spec_cell` · `spec_mineral` · `spec_dna`)이고 결과는
-  `data/analysis_results.csv` 에서 **넣는 순간** 굴린다 — 분석 레벨(계열별)이 시간을 줄이고 줄을 해금한다. 요리는 **버프 하나에 능력치 여러 줄**(`MealDef.effects`,
-  티어 n = n줄)이라 식사 칸은 여전히 하나다. **옛 콘텐츠는 지우지 않고 은퇴시킨다** — `ItemDef.retired` 아이템은 정의가 남아 가진 것이 사라지지 않지만 루팅 · 상점 ·
-  레시피 · 분석 결과 · 채집지 · 퀘스트 어디에도 쓰지 않는다 (`LootTables` 안전핀 + `data:check` 참조 검사가 잡는다). 흙 · 배지의 내구도 · 소켓은 **아이템이 아니라
-  부어 둔 칸**이 들고 있어 가방의 토양은 여전히 겹친다 — 새 「칸에 붓는 재료」 를 만들면 같은 선을 따른다.
-- **함선 출발은 레이드 종료가 아니다** (2026-09-13, 사용자 결정). 이륙은 **그 순간 함선 안에 살아 있는 사람만** 탈출시키고, 남은 사람은 레이드를 이어 가다
-  `extraction:reset` 뒤 다시 부른다(솔로도 같다). 탑승자는 결과 화면 뒤 `leaveMission` 으로 빠지므로 호스트였어도 분대장이 남은 사람에게 넘어간다 —
-  `flow abort` 를 보내지 않는다. 전원이 탔을 때만(`squadDone`) 예전처럼 분대 전체가 끝난다. 탈출에 새 경로를 만들면 **「출발 = 모두 끝」을 가정하지 않는다.**
-- **움직이는 함선도 월드 콜라이더를 가져야 한다** (2026-09-13). 탈출 함선은 콜라이더가 하나도 없어 적이 외피를 그냥 지나갔다. 착륙 동안 `Hull.ts` 가 사각
-  콜라이더를 올리고, 사람은 들어가되 적은 못 들어가는 입구는 콜라이더가 아니라 **질의**(`ctx.extraction.keepEnemyOut` — `EnemyAI.integrate` 가 부른다)다.
-- **재해는 플레이어에게 닿아야 재해다** (2026-09-13). 「모래 폭풍을 못 봤다」 는 추첨이 아니라 노출 문제였다(시작 1분 안에 강하 지점에 닿는 비율 2.7 %).
-  재해 도형 · 방향을 바꾸면 **시드 수천 개로 「언제 강하 지점에 닿나」 를 재 본다** — 분포만 맞아서는 모른다.
+- An item's worth is decided in `data/recipes.csv`: repair and salvage derive from its materials × durability buckets (`REPAIR_COST_BY_DURABILITY`, `SALVAGE_YIELD_BY_DURABILITY`); `items/Salvage.checkSalvageEconomy()` proves no infinite profit on every `data:check`.
+- Halving materials rounds up, minimum 1; durable gear keeps ≥ 2 per material type.
+- A recipe's `bench` is the workbench window it appears in (`station: 'field'` + `bench` is valid). Adding a workbench = `WorkbenchKind` + label + `WORKBENCH_ICON` + furniture model/interaction + `furniture.csv` + `recipes.csv` — use `WORKBENCH_KINDS`, never copy the enum.
+- Armor is a shield pool (`ARMOR_SHIELD_BY_TIER`), refilled in the ship and in raids only by chargers; `damageReduction` stays 0.
+- Quick slots and pouches are containers, not bag grid: weight/count/consume/corpse include them, `getAllItems()` does not; moves that would drop items are refused.
+- Recovery contracts count only items found in that raid (`ItemInstance.raidFound`, `shared/raidFound.ts`); mixed stacks lose the mark.
+- Meal quality is part of the stack key (`ItemInstance.quality`); meals come only from the cooking minigame (`shared/cooking.ts`); cook recipes are excluded from normal crafting.
+- Previewing contents must equal opening (`shared/lootRolls.ts`, inventory `parts/Peek`).
+- Crypto quotes are relay-authoritative; trades are credit reasons `cbuy:` / `csell:` checked against the quote window; trade screens hold `watch()`; unlock quests need `rewardCredits > 0` (`shared/cryptoMarket.ts`).
 
-- **인간형 적의 팩션은 행성 threat 가 정한다** (2026-09-13, 사용자 결정 · `docs/DECISIONS.md` 「2026-09-13 — 행성별 적 팩션」). threat 1 = 안드로이드(연구소 · 전진기지 집사 로봇,
-  엄폐 · 수류탄 없음), 2 = 로그 65 % / 레이더 35 %(플랫폼 · 폐허는 로그), 3 = 레이더만. 팩션은 넷이고 **서로 다르면 전부 적대**다. 옛 `Enemy.isRogue` 는 「벌레가 아니다」 뜻으로
-  쓰이고 있었으므로 그 쓰임을 전부 `isHumanoid` 로 옮겼다 — **새 코드에서 인간형 AI · 소리 · 재활용 제외를 가를 때 `isRogue` 를 쓰지 않는다**(그건 이제 로그 팩션만이다).
-  네임드 3종의 타입 id 는 계약이라 `rogue_*` 그대로이고 팩션만 raider 다. 수류탄은 **실제 보유분**이라 던지지 못한 것이 그 종류 그대로 시체에 남는다 —
-  그래서 시체 전리품이 적의 상태(`site` · `grenadeCount`)를 입력으로 받고(`CorpseLootOpts`), 리플리카 · 드론 스캔 미리보기가 같은 목록을 굴리도록 `ee corpse.si/gc/gk` 에 싣는다.
-  적 상태에서 나오는 전리품을 새로 만들면 이 입력에 필드를 **추가**하고 와이어에도 실어야 한다 (안 실으면 리플리카의 시체만 내용물이 다르다).
-- **요리는 조리대 미니게임으로만 만들고, 점수는 요리 아이템의 품질이 된다** (2026-09-13, 사용자 결정 · `shared/cooking.ts`). 조리대 E 는 인벤토리 제작 창이 아니라
-  housing 의 조리대 화면이고, 요리마다 `data/cook_steps.csv` 의 미니게임 1–3개(썰기 · 다지기 · 굽기 · 볶기 · 젓기 · 붓기)를 한다. 요리 점수 = 단계 점수의 평균 →
-  품질 별 0–5(`MEAL_QUALITY_SCORE_MIN`) → 먹으면 능력치 줄마다 `× (1 + MEAL_QUALITY_BONUS)`(최대 +25 %). **점수가 낮아도 요리는 나오고**, 재료는 **끝날 때만** 빠진다
-  (중간에 닫으면 아무것도 잃지 않는다). 주방 자동 조리 가구 4종이 배치돼 있으면 단계마다 「직접 하기 / 자동」 을 고르고, 자동 점수는 가구 레벨(Lv.1 0 · Lv.2 60 · Lv.3 100 %)이다.
-  `ItemInstance.quality` 는 **스택 열쇠**라 품질이 다르면 합쳐지지 않고, `raidFound` 와 달리 창고 · 로드아웃 문서에도 실린다 — 아이템을 나누거나 복사하거나 와이어로
-  보내는 새 경로는 품질을 옮긴다(생략 = 0). 조리대 레시피(`bench cook`)는 일반 제작 경로(`canCraft` · `craft` · 제작 창)에서 빠졌다 — 품질 없이 만드는 뒷문을 두지 않는다.
-  판매가는 품질과 무관하다(서버 크레딧 검증이 def 가치만 안다). 조리 자세의 상판 기준 수치는 `player/SoldierModel.FURN_COOK` 가 원본이고 `hub/interiors/FurnitureKitchen` 이 베껴 쓴다 — 함께 고친다.
-- **탐사 차량은 레이드당 1대이고 호스트 권위다** (2026-09-13, 사용자 결정 · 규칙 원본은 `shared/types.ts` 의 탐사 차량 절). 선로처럼 **경로를 먼저 잡고 나머지가 피한다** —
-  `generateLayout` 이 선로 → 강하 지점 → 흙길 고리 · 정류장 순으로 정하고, 그 뒤 배치는 `roverFree`, 작은 배치는 `isSpotFree` · `SiteSpawns` 가 `roverClearance` 를 본다
-  (`ignorePads` 로 못 끈다). 새 배치 코드를 만들면 선로 회랑과 **흙길 회랑 둘 다** 비운다. 차량은 콜라이더를 무시하고 경로를 따라가므로 회랑이 비어 있는 것이 전제다.
-  탑승자는 **어떤 피해도 받지 않는다** — 피해 · 넉백 · 상태이상 경로를 새로 만들면 `ctx.player.roverRide` 를 먼저 보고, 적이 플레이어를 고르는 새 코드는 탑승자를 뺀다
-  (`PlayerFlags.IN_ROVER`). 차량을 깎는 것은 **적과 재해뿐**이고(`RoverRef.damage` 는 호스트에서만 적용) 플레이어 무기 · 가젯 · 함선 호출에서 부르지 않는다.
-  요금 식은 `world/rover/model.roverFareFor` 하나이고 서버는 범위만 본다 — **결제자 한 명만** `rover:<from>:<to>` 로 크레딧을 낸다(환불 없음).
-  탑승 중 막는 입력은 `droneControl` 을 보는 곳에 `roverRide` 를 같이 건다 — 새 전투 키를 만들면 둘 다 본다.
-- **가구에는 접근 면이 있다** (2026-09-13, 사용자 결정 · `docs/DECISIONS.md` 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」). `data/furniture.csv` 의 `access` — `front`(앞 = 로컬 −Z 한 줄 비움 · 벽 불가 · 앞에서만 E) ·
-  `sides`(넓은 두 면 = 로컬 ±Z, csv 는 cols ≥ rows · 벽 가능) · `all`(네 면 · 헬스 기구) · `none`. 판정은 `housing/Rules.placementBlockOf` **하나**이고 손 배치 · `move` · `autoPlaceSpot` ·
-  `ShipState.sanitize` 가 같은 함수를 지난다(규칙을 어기는 옛 배치는 가구 창고로, 담긴 것은 함선 창고로). 비워야 하는 칸끼리는 겹쳐도 된다. 새 가구를 넣으면 `access` 칸부터 정한다 —
-  상호작용 방향은 `hub/interiors/Furniture` 의 `accessOk` 가 같은 면 규칙으로 막는다.
-- **발전기는 상위 시설의 증축 조건이다 — 전력 할당은 없다** (2026-09-13, 사용자 결정 — 같은 날 넣었던 「시설마다 수동 전력 할당 · 비활성화 · 멈춘 시계」 를 「너무 빡세다」 로 걷어냈다).
-  발전기는 **Lv.1 로 시작해 Lv.5 까지**(`GENERATOR_START_LEVEL` · `GENERATOR_MAX_LEVEL`)이고 하는 일은 둘뿐이다 — ① 용도별 **증축 게이트** `purposeGeneratorLevel(purpose)`
-  (`data/room_purposes.csv` 의 `generator`: 작업실 1 · 온실 · 주방 2 · 연구실 3 · 헬스장 · 서재 4 · 채굴 시설 5), ② 예전 그대로 가구 · 창고 강화 게이트(Lv.n → 발전기 Lv.n).
-  발전기가 요구보다 낮은데 이미 지어진 시설은 로드할 때 **제거 + 전액 환불**이다(`ShipState` v13 — 옛 Lv.6–10 은 환불 없이 5). 가구는 멈추지 않으므로 시계형 가구는 그냥 `nowMs()` 로
-  재고(`stationNow(uid)` 는 그 별칭으로만 남았다), `furnitureOperationalBlock(uid)` 는 「메인 컴퓨터 없는 연산 클러스터」 만 답한다. 전력 계약 이름(`getPowerOverview` · `housing:powerChanged` …)은
-  추가만 규약이라 은퇴 표시로 남아 있을 뿐 **구현도 발행도 없다** — 새 코드가 그것을 부르지 않는다.
-- **암호화폐 시세는 릴레이 권위이고 매매는 크레딧 사유다** (2026-09-13, 사용자 결정). 시세 시뮬레이션 · 봉 이력은 `server/CryptoMarket`(`crypto.json`), 클라이언트 창구는 `ctx.net.crypto`,
-  매매는 새 메시지가 아니라 `credits:tx` 의 `cbuy:<coin>:<units>` · `csell:<coin>:<units>` 이고 릴레이가 **최근 `CRYPTO_QUOTE_WINDOW_S` 시세 창**으로 금액을 맞춘다 — 릴레이는
-  `watch()` 를 쥔 소켓에만 시세를 보내므로 **거래 화면은 거래 약속이 끝날 때까지 구독을 쥔다**. 기업 코인 해금은 서버 원장의 `quest:<id>` 로 확인하므로 해금 퀘스트는 `rewardCredits > 0` 이어야 한다
-  (`data:check` 가 본다). 거래 · 채굴 주기 식은 `shared/cryptoMarket.ts` 하나(런타임 import 없음 — 릴레이와 공용)이고 수치는 `data/crypto.csv` → `server/economy.gen.json` 의 `crypto` 절로 간다.
-- **서재 매체는 시리즈로 세고 종류당 한 번이다** (2026-09-13, 사용자 결정 · `docs/DECISIONS.md` 「2026-09-13 — 서재 시리즈 · 비디오게임」, 규칙 원본 `shared/library.ts`). 효과 줄(책 1 · 비디오 2 · 레코드 3)은
-  **시리즈**(`data/library_series.csv`)에 붙고 몫 = 전권이면 100 %, 아니면 꽂힌 서로 다른 권 × `SHELF_SERIES_VOLUME_SHARE`(10 %). 같은 권은 한 번만 세고 두 번째는 꽂기 자체를 거절한다.
-  보관함 넷(책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대)은 여러 대 만든다(`multi`). 효과는 `HousingRef.getLibraryEffects()` 하나이고 **소비자가 자기 자리에서 읽는다** —
-  숙련 상승량(`getSkillGainMul`) · 파생(progression 이 요리 버프처럼 접는다) · 헬스/요리 점수 · 레이드 XP · 계약 신뢰도 · 레시피(꽂혀 있는 동안만). 합산 · 꽂힌 종류 · 보유 보관함이 바뀌면
-  `housing:libraryChanged` 이고 인벤토리의 「아직 안 꽂음」 띠(즐겨찾기와 같은 띠, 겹쳐도 하나)가 이것으로 다시 그린다. 시리즈 · 레코드 · 게임 디스크는 행성에 묶여 그 행성의 상자 · 시체에서만
-  나온다(레코드 · 게임 디스크 · 게임기는 threat 2 이상 · 0.0x % 대, `scripts/check-planet-loot.mjs` 가 잰다). **아이템 def 를 없애면 `data/item_aliases.csv` 에 줄을 넣는다** — 세이브를 읽는 곳
-  (inventory `Serialize.reviveItem` · housing `ShipState`)과 `ctx.loot.getItemDef/createItem` 이 `resolveItemAlias` 를 지나므로 옛 아이템이 조용히 사라지지 않는다.
-- **비디오게임은 헬스 규칙 그대로다** (2026-09-13, 사용자 결정). `GymStat` 에 지능 · 인지력이 더해졌고 결과는 `applyGymSession`(능력치별 24 h 디버프 · 같은 단련 풀). 게임 디스크 = 헬스 미니게임 3종 +
-  디스크별 `GymGameTuning`(`createGymGame(kind, tuning?)` — 튜닝이 없으면 헬스와 같은 판정). TV 에 게임기를 장착하고(`ShipState.tvConsoles`) 게임 디스크 전시대의 디스크를 고르며, **TV 정면에서 TV 를
-  보는 좌석**(의자 · 쇼파 · 흔들의자, yaw = (TV yaw + 2) % 4, 앞 = 로컬 −Z)과 그 사이 통로에 `low` 가 아닌 가구가 없어야 한다(`housing/Rules.tvSeatFor`). **TV 의 E 는 켜기 토글이 아니라 TV 화면**이다.
-  가구의 시야 높이 구분이 필요하면 `furniture.csv` 의 `low` 를 쓴다.
-- **연구실 작업대 · 조리대는 제 숙련 경험치만 준다** (2026-09-13, 사용자 결정). 추출기 · 조합대 · 3D 프린터 제작은 제작 경험치 대신 `RESEARCH_XP_CRAFT` 와 재료 환급 굴림
-  (`derived.researchRefundChance/Frac`)을, 조리대 요리는 요리 경험치(`COOK_SKILL_XP`)만 받는다 — 벤치 셋이 두 곳(progression `LAB_BENCHES` · inventory `RESEARCH_BENCHES`)이니 함께 고친다.
-  숙련 경험치는 행동당 0.2 – 3 눈금이다(`CRAFT_XP` 0.5) — 새 숙련 경험치를 정수 두 자리로 넣지 않는다.
-- **게임 세션은 「게임 중」 버프로 분대원에게 보인다** (2026-09-13, 사용자 결정). `CharBuffKind += 'gaming'` — player `parts/Buffs` 가 좌석 자세(`sit`) + `housing.gameSession`
-  (좌석 uid 가 같을 때)이면 휴식 대신 이것을 싣는다(`defId` = 게임 디스크 · `stat` · `minigame`). 동기화 · 그리기는 운동 중과 같은 길(`cbuf` · `BuffStrip`)이다.
-- **총알은 발사체다** (2026-09-14, 사용자 결정). 판정선은 여전히 `weapons/parts/AimLine` 이고 탄은 `shot.origin` 에서 조준점으로 **보정 없이** 난다 — 낙차 · 이동 표적 앞쏘기는
-  플레이어 몫이다. 총구 3 m 안에서 막힌 `near` 만 즉시 맞는다(빨간 원 자리). 탄속 · 낙차는 `stats.projectileSpeed` · `stats.bulletGravity`(계열별 `weapons.csv`, 부착물이 곱한다)이고
-  거리 감소는 **날아간 거리**로 `damageFalloffStats(stats, d)` 다 — 원시 def 의 `damageFalloff` 는 부착물을 모른다. 풀은 스텝마다 선분 전체를 `raycastAll` 로 훑어 650 m/s × 50 ms 에도
-  얇은 기둥을 뚫지 않는다. 새 사격 코드는 `ProjectilePool` 에 `report: false` 를 주고 트리거당 `reportShot` 을 한 번 스스로 부른다(샷건 펠릿마다 보내면 호스트 메시지가 폭증한다).
-  착탄을 기다리는 스모크는 **방아쇠 순간**을 기준으로 잰다.
-- **무기 조작감은 등급이 정하고 소켓이 편다** (2026-09-14, 사용자 결정). `tables.csv` `WEAPON_GRADE_HANDLING_MUL`(I ×1.6 … V ×1.0)이 퍼짐 · 반동 · 정조준 시간 · 흔들림에 붙고
-  부착물은 그 위에 곱해진다. 계열이 받는 소켓의 원본은 `weapons.csv` `sockets` → `EffectiveWeaponStats.sockets` 하나이고 `canAttach` · 타일 핍 · 툴팁 소켓 줄이 같은 목록을 본다.
-  규칙 밖 부착물은 **효과가 없고**(`items/WeaponStats.fittingAttachments`) inventory 가 로드할 때 떼어 창고로(레이드 blob 은 가방) 돌려준다 — 칸이 없으면 무기에 남긴다(버리지 않는다).
-  연사 퍼짐은 쌓이는 양(`bloomPerShot`)과 식는 양(`bloomDecay` × 발 간격)을 **함께** 본다 — 식는 양이 크면 값을 올려도 아무 일이 없다(펌프 · 볼트 총이 그랬다).
-- **순간이동 이동기는 레이 하나로 거리를 자르지 않는다** (2026-09-14). 대시가 1 m 레이만 봐서 창틀 · 깨진 창을 뚫고 넘어갔다. `implants/parts/Devices.dashReach` 가 몸을 걸음처럼
-  0.15 m 씩 밀어(표면 먼저 · `resolveCollision` 나중 — 걷기와 같은 순서) 걸어서 닿는 가장 먼 자리에서 멈춘다. 새 순간이동 · 돌진도 이 함수를 쓴다.
-- **꾹 눌러 고정하는 화면은 `ui:cursorHold` 링을 쓴다** (2026-09-14). 커서 홀드 게이지는 `ui/hud/CursorHoldGauge` 하나이고 다른 폴더는 이벤트로만 부른다. 고정된 것은 `ctx.escape`
-  맨 위에 올라가 Esc 로 풀리고, 카드 바깥 누르기는 풀기만 하고 그 누름은 그대로 아래로 간다. 새 오버레이가 `.inv-tooltip` 을 DOM 에 더할 때는 떠다니는 카드 **뒤**에 붙인다 —
-  스모크가 첫 `.inv-tooltip` 을 떠다니는 카드로 찾는다.
-- **벌레 난이도 배수는 와이어가 아니라 `world:ready` 에서 온다** (2026-09-14). 행성 threat 표(`BUG_HP_MUL_BY_THREAT` · 대형 벌레 가중치 · 상한)를 모든 클라이언트가 같은 행성에서
-  같이 계산하고 최대 체력은 `enemies/parts/Pool.acquire` 한 곳에서 곱해진다 — 리플리카 · 승격된 호스트도 같은 값이다. 벌레를 새로 스폰하는 경로는 `Pool.acquire` 를 지난다.
-  지하벌레(자기 체력 굴림) · 인간형 · 훈련장(행성 없음)은 ×1.
-- **퀘스트는 NPC 가 메신저로 준다** (2026-09-14, 사용자 결정 · `docs/DECISIONS.md` 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」). 기업 퀘스트는 전부 지웠고(`QUEST_DEFS` 는 계약이라 빈 배열로 남는다)
-  기업 네트워크에는 계약만 남는다. NPC · 퀘스트 · 목표 · 대사의 원본은 `data/npcs.csv` · `npc_quests.csv` · `npc_objectives.csv` 이고 규칙은 `ctx.meta.npc` 하나가 갖는다.
-  대화 기록은 **사건만** 저장하고 글은 표에서 다시 풀므로 대사를 고치면 옛 기록도 바뀐다. 첫 연락 · 제안은 함선에서만 온다. 수락한 퀘스트는 포기할 수 없고
-  [완료 보고] 로만 끝난다. 크레딧 보상은 서버 원장 `quest:<id>` 라 퀘스트 id 를 바꾸면 다시 받을 수 있게 된다 — 코인 해금 퀘스트(`q_*_permit`)는 `rewardCredits > 0` 이어야 한다.
-- **레이드 목표는 채우는 순간 확정되고, 확정 안 된 진행은 레이드가 끝나면 0 이다** (2026-09-14, 사용자 결정). 목표마다 독립이고 같은 `chain` 값끼리만 한 레이드 안에서
-  함께 채워야 한다. 회수(recover)는 탈출 정산에서 확정된다. 분대 공유는 **구조물 발견뿐**이고 처치(막타) · 상호작용 · 조사 · 회수는 본인만이라, 사건 배관이 전부 「내 것」 이다 —
-  `enemy:killed.weaponClass`(weapons 가 총탄 피해를 `shared/damageSource` 로 감싸고 enemies 가 마지막 로컬 타격 계열을 기록), `world:interacted`(이 클라이언트의 조작일 때만),
-  `crate:open.zoneId/zoneKind`. **새 총기 피해 경로는 그 래퍼를 지나야** 계열 처치가 센다.
-- **귓속말의 공식 명칭은 개인 대화이고 메신저 대화와 한 저장소다** (2026-09-14, 사용자 결정). 채팅창 `/r` 과 메신저 입력이 모두 `ctx.net.social.whisper` 로 가고
-  `slotKey(WHISPER_STORAGE_KEY)` 에 같이 남는다. UI 문자열은 `PRIVATE_CHAT_LABEL_KO`. 단체방(`ctx.net.rooms`)은 서버 권위 · 영속(`server/Rooms.ts` → `rooms.json`)이고
-  **메신저 안에서만** 쓴다 — 채팅창에 연결하지 않는다. 방 멤버십의 원본은 방 저장소 하나다(`SocialRecord.rooms` 를 쓰지 않는다 — 두 파일을 함께 원자적으로 쓸 수 없다).
-- **미니게임은 보이는 것이 곧 판정이다** (2026-09-14, 사용자 결정). 헬스 · 비디오게임 · 요리의 판정 띠는
-  `housing/parts/GymGames.judgeBands` · `parts/CookGames.cookJudgeBands` 두 함수가 정하고, **완벽 띠 = csv 의 판정
-  창 그대로**이며 화면에 그려지는 표식 · 호 · 구역의 크기가 **바로 그 값**이다. 좋음은 그 바깥으로
-  `GYM_GOOD_OF_PERFECT` · `COOK_GOOD_OF_PERFECT`(1.6)배까지이고 이웃 표식과 겹치지 않게 **반 박자로 자른다**.
-  옛 규칙(「완벽 = 창의 1/3」)은 그린 것과 판정이 어긋나 있었다 — 뒤집은 것만으로 csv 를 한 줄도 안 고쳐도 완벽
-  띠가 3배가 됐고, csv 값 조정은 그 **위에서** 한 것이다. ⚠ 박자 게임은 `창 × 1.6 ≤ 박자 × 0.5` 를 넘으면 좋음이
-  반 박자에서 잘리고 `박자 − 2 × 창 × 1.6` 이 0 에 가까우면 **헛누름이 실패로 안 잡혀 연타가 최적 전략**이 된다 —
-  그래서 창을 넓히지 말고 **박자를 늦춘다**. 그리고 **입력이 한 번도 없어도 단계는 끝나야 한다**:
-  볶기 · 젓기 · 붓기의 `CookGameBase.maxTime` 은 판정 수치가 아니라 그때까지의 점수로 닫는 안전핀이고 길이는
-  csv(`COOK_STEP_TIMEOUT_MUL`)에서 유도한다.
-- **음악은 소리가 아니라 상태다** (2026-09-14, 사용자 결정). `AudioChannel 'bgm'` 과 `AudioSettings.bgm` 은 **저장 ·
-  표시 전용**이다 — 외부 에셋 금지라 오디오 파일을 넣을 수 없고 절차 음악은 아직 없으므로 `audio/` 는 그 채널의
-  GainNode 를 만들어 두기만 하고 **그 밑에 아무것도 걸지 않는다**(설정의 미리듣기도 sfx 버스의 중립 블립이다).
-  재생 상태의 주인은 `audio/` 가 아니라 **`housing/parts/Music`** 이고(레코드랙에 꽂힌 것이 목록이므로 서재의 일이다),
-  `ui/hud/MusicPlayer` 는 `housing:musicChanged` 하나만 보고 그린다. 음악을 실제로 넣게 되면 그 GainNode 에 걸면 되고
-  **설정 · 저장 · UI 는 한 줄도 안 바뀐다.**
-- **재료를 절반으로 줄일 때의 반올림은 올림이고 최소 1 이다** (2026-09-14, 사용자 결정). 다만 **내구도가 있는
-  장비**(무기 · 방탄복 · 가방)는 재료 종류당 **2 미만으로 내리지 않는다** — 수리비도 분해 산출도 그 제작 재료에서
-  나오므로(2026-09-10 「한 아이템의 값어치를 정하는 자리는 `data/recipes.csv` 하나다」), 1 이 되면 같은 구간에서
-  `ceil(1 × 수리 배수)` 와 분해 최소 보장이 맞물려 **재료가 스스로 늘어난다**. 이 불변식을 지키는지는 여전히
-  `src/items/Salvage.checkSalvageEconomy()` 가 실제 정수로 검산하고 `npm run data:check` 가 매번 돌린다.
-- **채워진 시설 요구도 칩으로 보여 준다 — 빈 배열이 「문제 없음」이 아니다** (2026-09-14, 사용자 결정).
-  `housing/Rules.generatorRequirement` 는 이제 발전기 레벨이 넉넉해도 요구를 돌려주고(`GENERATOR_START_LEVEL` 이하
-  = 늘 채워져 있는 요구만 뺀다), 칩이 재료처럼 `현재/필요` 를 늘 적되 모자랄 때만 `.is-short` 로 말한다.
-  그래서 **막는지 여부를 그 배열의 길이로 판단하지 않는다** — 그것은 예전부터 사유 함수(`generatorGateReason` ·
-  `furnitureUpgradeReason` · `purposeBuildBlockReason`)의 일이다.
-- **원격 폭발의 종류는 보낸 쪽이 싣는다 — 추측하지 않는다** (2026-09-15). 원격 수류탄 폭발은 **받는 쪽 로컬 플레이어에게
-  피해를 준다**(`weapons/RemoteWeapons.onGrenade`) — G-10 소이 수류탄을 던진 사람의 손 스냅샷으로 추측하면 스냅샷 하나를
-  놓친 순간 고폭(250 / 6 m)으로 맞는다. 피해를 바꾸는 속성은 `GrenadeMessage.fire` 처럼 메시지에 싣고, 추측은 그 필드를
-  모르는 옛 클라이언트의 폴백으로만 남긴다.
-- **땅에 남는 효과는 지형이 아니라 표면에 세운다** (2026-09-15). 화염수류탄의 불 지대가 「안 생긴다」 는 스폰 실패가 아니라
-  **높이**였다 — `getHeightAt` 으로 세워 옥상 · 2층 착탄이 바닥판 밑에 묻혔고 위층 사람도 타지 않았다. 투척물 · 낙하물 규칙
-  (`getSurfaceY(x, z, 몸 윗면 − PROP_STEP_UP_MAX)`)을 그 자리에 남는 지대 · 설치물에도 그대로 쓴다.
-- **화염 지대는 질의 하나로 읽는다** (2026-09-15). 적 소이(enemies `fx/RogueGrenade`)와 플레이어 화염수류탄 · G-10(gadgets 배치물
-  `fire`)은 따로 시뮬레이션하지만 HUD 는 `getFireZones()` 둘을 같은 `FireZoneInfo` 로 읽고 색은 `hostile`(주인) 하나가 정한다.
-  소리(`fire_ignite` · `fire_crackle`)와 드론 피해는 지대를 가진 폴더가 낸다. 땅을 태우는 것을 새로 만들면 그 질의에 싣는다.
-- **공중에서 받은 임펄스의 수평 운동량은 착지까지 산다** (2026-09-14). 공중 조작이 수평 속도를 목표 속도(달리기 7.2 m/s)로
-  끌어당기고 있어서, 수평 임펄스를 줘도 1초 안에 사라졌다 — 바주카 로켓 점프가 「더 멀리」 날 수 없던 이유다.
-  `PlayerController.airCarry` 는 `applyImpulse` 가 켜고 착지 · `reset` · 갈고리가 끈다. **모든 임펄스에 적용된다**
-  (점프대 · 넉백 포함) — 특정 발사원만 운동량을 지키게 하려면 `applyImpulse` 계약에 옵션을 **추가**해야 한다.
-- **대상이 없어도 무기는 쐈다는 것을 보여 줘야 한다** (2026-09-14). 테슬라 코일 좌클릭은 판정 · 피해가 멀쩡했는데
-  사거리 안에 적이 없으면 전격도 소리도 없어 「아예 안 나간다」 로 보고됐다. 지속형 · 유도형 무기를 새로 만들면
-  빈 허공에 쏠 때의 모습과 소리를 먼저 정한다. 그리고 **훈련장 표적은 적이 아니라 파괴 가능한 장애물**이다 —
-  `ctx.enemies` 만 훑는 무기는 훈련장에서 영영 아무것도 못 맞힌다.
+### 4.8 Ship · progression · quests
 
-- **의미를 싣는 페이드는 CSS 전이로 만들지 않는다** (2026-09-14). `ui/styles/base.css` 의 `prefers-reduced-motion: reduce` 규칙이 모든
-  `transition` · `animation` 을 0.01 ms 로 자르고, OS 애니메이션 효과를 끈 PC(이 개발 PC — 헤드리스 크롬도 같은 값을 보고한다)에서는
-  튜토리얼 오프닝의 검은 페이드가 한 프레임에 사라졌다. 줄거리를 싣는 페이드(오프닝 · 연출 뒤 나침반 나타나기)는 시스템 `update(dt)` 가
-  opacity 를 보간한다(`HudSystem.stepScreenFade` · `Compass.updateReveal`) — 호버 같은 장식용 전이는 그대로 CSS 다. 스모크도
-  `getComputedStyle` 이 아니라 코드가 칠한 값을 잰다.
+- Buffs fold into `DerivedStats` fields (`progression/derive.applyMealBuff`), so consumers need no change. Trained stats are separate from stat points (`PlayerProfile.trained`).
+- Ship-bought preparations live in the profile: `prep`/`meal` → armed on launch (`armPreps`) → cleared at raid end (`clearActivePreps`), kept on death.
+- Planet environment damages hp but never gates travel (`PlanetDef.env`, `PLANET_ENV_DPS`, soft `noEnvPrep` warning).
+- Character buffs are display/sync only (`shared/charBuffs.ts`, collected in `player/parts/Buffs.ts`, wire `cbuf` + revision `bfr`); new kinds are add-only.
+- Furniture poses: player owns the body offsets (`SoldierModel` `FURN_*`), hub owns anchors and staging; the wire carries accumulated phase.
+- Furniture access faces are judged only by `housing/Rules.placementBlockOf` (manual, move, auto placement, load). Auto placement keeps the door clear (`autoPlaceSpot`).
+- Generator levels gate room purposes and upgrades only — no power allocation (`purposeGeneratorLevel`). A satisfied requirement is still returned; blocking is decided by the `*Reason` functions.
+- Rooms have no levels; one room per purpose; cockpit-only furniture (`room=cockpit`) cannot be removed. Retired furniture is refunded on the first `HousingSystem.update` (inventory is not registered at load).
+- Grow station: soil first, then seed; tier ids never change; station upgrades rescale growing crops (`Garden.rescaleGrowsForUpgrade`).
+- Library: each series volume counts once; consumers read `HousingRef.getLibraryEffects()` — `shared/library.ts`, `housing/Rules.ts`. Video games follow gym rules (`applyGymSession`); the TV's E opens the TV screen.
+- Stat points are pending until confirmed (`spendStatPoints`); leaving warns via `EmbeddedView.requestLeave`; forced exits discard. Stat/skill relations come from `stats.csv` / `skills.csv` `derived` columns.
+- Lab benches and the cooking station give only their own skill XP (`LAB_BENCHES` in progression, `RESEARCH_BENCHES` in inventory).
+- Quests come from NPCs via the messenger (`data/npcs.csv`, `npc_quests.csv`, `npc_objectives.csv`, `ctx.meta.npc`); first contact only in the ship; accepted quests cannot be abandoned; quest ids are credit ledger keys (`quest:<id>`). Raid objectives commit instantly; uncommitted progress resets at raid end.
+- Private chat and whispers share one store (`PRIVATE_CHAT_LABEL_KO`); group rooms are relay-authoritative and messenger-only.
+- Music is state, not sound: the `bgm` channel has nothing connected — `housing/parts/Music.ts`, `ui/hud/MusicPlayer.ts`.
 
-- **키캡은 `shared/keycap` 한 경로로 그린다** (2026-09-15, 사용자 결정). `paintKeycap` · `createKeycap` · `renderKeyText` 가 마우스 좌 / 휠 / 우를 그림으로,
-  꾹 누르기를 `.kc-hold`(키캡 안 윗변 chevron, 테두리 · 흔들림 없음) 또는 그림 속 강조색 + chevron 으로 그린다. 문장 안 키는 토큰 `{ACTION}` ·
-  `{ACTION:hold}` · `{br}` 이고 그릴 때 `Keys` 를 읽으므로 리바인드해도 거짓말이 되지 않는다 (튜토리얼 목표 줄이 그렇게 키를 적는다). 새 화면에서
-  `el('span', { cls: 'keycap', text: keyLabel(...) })` 를 따로 적으면 그 화면만 `LMB` 글자로 남는다. 그림 키캡의 `textContent` 는 SVG `<title>` 덕에
-  예전 글자와 같다 — 스모크가 글자로 읽던 자리가 그대로 맞는다.
-- **로컬 플레이어에게 피해를 넣는 경로는 출처를 싣는다** (2026-09-15, 사용자 결정 — 사망 결과 창의 「사망 원인」). `PlayerRef.takeDamage(amount, from, source)` 의
-  `PlayerDamageSource` 이고 적은 **개체** 단위(`enemyId`)라 결과 창이 「그 개체에게서 받은 피해」를 합산한다. 원격 피해는 `DamageMessage.src` 로 온다.
-  생략은 「모름」이라 사망 원인 줄이 사라질 뿐 깨지지는 않는다 — 새 적 공격 · 재해 · 폭발물을 만들면 출처를 먼저 정한다.
+---
 
-- **전설 유니크는 등급 총기의 계열 규칙 밖이다** (2026-09-15, 사용자 결정). 이름은 별명 하나, 보이는 종류는 `UNIQUE_WEAPON_LABEL_KO`
-  (화염방사기 · 전격총 · 표창 · 컴포짓 보우 · 바주카 · 미니건)이고, csv `class` 는 **값이 있어야 해서 남았을 뿐** 사격 숙련 보너스 · 숙련 경험치 ·
-  NPC 「계열 처치」 어디에도 쓰이지 않는다 (`Firing.recoilMulFor/reloadSpeedFor(…, unique)` · `ProgressionSystem.weaponClassOf` · `withLocalGunHit(null)`).
-  계열로 무엇을 가르는 새 코드를 만들면 `def.unique` 를 먼저 본다.
+## 5. Quality bar
 
-## 5. 품질 기준
+AAA feel in the browser: readable silhouettes, strong lighting (sun + hemisphere + fog + emissive glow), smooth animation
+(procedural walk · tweened UI), screen shake, hit feedback, particle FX (instanced/points), 60 fps with ~60 enemies. Clean typecheck.
 
-브라우저 안에서의 AAA 감각: 읽히는 실루엣, 강한 조명(태양 + 반구광 + 포그 + emissive 글로우), 부드러운 애니메이션(절차 보행 · 트윈 UI),
-화면 흔들림, 타격 피드백, 파티클 FX(instanced/points), 적 ~60마리에서 60 fps 목표. 타입체크 클린.
+---
 
-## 6. 검증 (자세히는 [docs/VERIFICATION.md](docs/VERIFICATION.md))
+## 6. Verification & recording (details: [docs/VERIFICATION.md](docs/VERIFICATION.md))
 
-- **매 편집 후**: `npm run typecheck` (수 초). `data/*.csv` 를 만졌으면 `npm run data:check` 도 (수 초).
-- **기능 하나 끝낸 뒤**: `npm run verify` — 건드린 폴더에 매핑된 스모크만 GPU 4레인 병렬, vite/릴레이는 러너가 띄운다.
-- **머지 전, 또는 `src/shared` · `src/core` · `main.ts` 를 건드렸으면**: `npm run verify:all` (+ build + `e2e:mp`).
-  스모크를 손으로 하나씩 돌리지 않는다 — 그게 1시간짜리 검증이었다.
-- **배포물을 건드렸으면**(`server/tool.ts` · `scripts/build-server.mjs` · `pack-release.mjs` · `electron/`):
-  `npm run verify` 가 `smoke-server-dist` 를 자동으로 돌린다(번들 · 부팅 · 주소 규약). 실제 exe · 배포 폴더는
-  `npm run app:dist` 를 한 번 돌려 `release/SCAVANGER/` 가 넷으로만 채워지는지 눈으로 본다 — 이건 자동화하지 않았다.
-  `electron/` · `pack-release.mjs` 를 건드리면 verify 가 `smoke-desktop` 도 고른다 (약 30 초, 오래된 `dist/` 면 빌드 추가). CDP 키는
-  `before-input-event` 를 타지 않으므로 Escape 배선은 메인 프로세스 `sendInputEvent` 로 본다 — 포인터 락 타이밍은 여전히 수동.
-- 디버그 훅: `window.__game.ctx`, `window.__game.getSystem('player'|'weapons'|'net'|'enemies'|…)`.
-- **끝나면 문서**: 건드린 폴더의 `README.md`(구조 + `변경 이력`), 이 파일의 폴더 지도 행(한 줄),
-  [docs/HISTORY.md](docs/HISTORY.md) 의 작업 기록, 러너가 뱉은 `docs line:` 을 [docs/VERIFICATION.md](docs/VERIFICATION.md) 에.
+- **After every edit**: `npm run typecheck`; `npm run data:check` if `data/*.csv` changed.
+- **After a feature**: `npm run verify` (smokes mapped to touched folders, 4 GPU lanes; the runner starts vite/relay).
+- **Before merge, or after touching `src/shared` · `src/core` · `main.ts`**: `npm run verify:all` (+ build + `e2e:mp`). Don't run smokes one by one by hand.
+- **Deploy files touched** (`server/tool.ts`, `scripts/build-server.mjs`, `pack-release.mjs`, `electron/`): `verify` runs `smoke-server-dist` / `smoke-desktop`; run `npm run app:dist` once and check `release/SCAVANGER/` has exactly four entries.
+- Debug hooks: `window.__game.ctx`, `window.__game.getSystem('player'|'weapons'|'net'|'enemies'|…)`.
+- **When done, record each fact in exactly one place:**
+  - What / why changed + verification result → **commit message** (paste the runner's `docs line:` as its `검증:` line).
+  - Invariant or reason for a value → **comment right above that code**; cross-folder rules also get a short bullet in §4.
+  - Folder structure / public API changed → that folder's `README.md` body; its `Recent changes` keeps the **last 5 one-liners** (add at top, drop the bottom).
+  - User's choice and rejected alternatives → [docs/DECISIONS.md](docs/DECISIONS.md) (no implementation narration).
+  - New limit or to-do → [docs/TODO.md](docs/TODO.md). Edit the folder map row only if the folder's responsibility changed.
+  - **Never** write work logs into [docs/HISTORY.md](docs/HISTORY.md) or [docs/VERIFICATION.md](docs/VERIFICATION.md).
+  - Write docs in **English** (except `docs/TODO.md`).

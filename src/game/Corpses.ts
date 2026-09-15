@@ -9,7 +9,7 @@
  *   **가져가기**는 상자와 똑같이 기존 `cont` / `contq` 호스트 권한 경로를 탄다 (새 경로 없음).
  * - 메시는 절차 생성이다 — `SoldierModel` 을 죽은 자세로 한 번 굳혀 두고 다시는 갱신하지 않는다.
  *   (`@/player` 의 `SoldierModel` 은 game/ 이 쓰는 유일한 외부 폴더 심볼이다. 병사 모델을 두 번
- *   만들지 않기 위한 의도적인 예외 — 폴더 README 의 `알려진 한계` 참고.)
+ *   만들지 않기 위한 의도적인 예외 — 폴더 README 의 `Notes` 참고.)
  */
 import * as THREE from 'three';
 import {

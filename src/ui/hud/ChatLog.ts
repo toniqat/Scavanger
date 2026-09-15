@@ -23,8 +23,8 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  * arrive unless the input is open (then the whole log shows and the panel scrolls with the wheel).
  *
  * Input: `Keys.CHAT` (Enter) while `ctx.isControlActive()` (gameplay OR hub) opens a text field — blocker token
- * `'chat'` plus `input.setCursorMode(true, 'chat')` (Phase 10 §2: the pointer lock is **kept**, the software cursor
- * owns the UI, and there is no relock microtask on close). A capture-phase keydown listener with
+ * `'chat'` plus `input.setCursorMode(true, 'chat')` (cursor mode **releases** the pointer lock and the real cursor owns the UI;
+ * the relock on close is `main.ts`'s single relock point). A capture-phase keydown listener with
  * `stopImmediatePropagation` keeps Esc from pausing and letters from moving the player.
  *
  * **2026-09-09 (채팅 UI 정리).**
@@ -377,7 +377,7 @@ export class ChatLog {
     const ctx = this.ctx;
     this._open = true;
     ctx.uiBlockers.add(BLOCKER);
-    // Phase 10 (§2): keep the pointer lock and hand UI input to the software cursor (ref-counted by this token).
+    // Cursor mode releases the pointer lock and hands UI input to the real cursor (ref-counted by this token).
     ctx.input.setCursorMode(true, BLOCKER);
     this.root.classList.add('interactive', 'open');
     for (const l of this.lines) if (l.faded) { l.faded = false; toggleClass(l.el, 'faded', false); }
