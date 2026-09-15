@@ -1627,6 +1627,13 @@ export interface PlayerRef {
    * WebGL context is unavailable — callers must degrade to a name-only cell.
    */
   createPortraits(host: HTMLElement, cells: number): PortraitRef | null;
+  /**
+   * appended (2026-09-15, 터미널 매칭 탭): one square face portrait with the **same framing as the character-creation
+   * confirm card** (head and shoulders, turned toward the camera's left diagonal), rendered once and returned as a PNG
+   * data URL. `accent` = `#rrggbb` (`LobbyPlayer.accent`, falling back to the slot colour). null when no second WebGL
+   * context is available — callers draw a name-only tile. May return a cached image for an accent it already drew.
+   */
+  snapshotFace?(opts: { accent: string; size?: number }): string | null;
 }
 
 /* ── 분대원 장비 열람 (owner: inventory) ── */

@@ -284,3 +284,30 @@ User choices:
 Design: no skill bonus ⇒ **no skill XP** (`weaponClassOf` → null for uniques), stimulant reload multiplier stays; anti-tank gun kept only in
 the type (like `airstrike`), saves migrate to the hook; bow no-reload = **instantly refilled 1-round magazine** (`autoFeed`) so the ammo
 contract is unchanged; invisible walls are a height-independent XZ clamp (side effect: no grappling onto range walls).
+
+## 2026-09-15 — 분대 · 도킹 매칭 · 빌드에서 서버 제외 · 핑 휠 · 해머헤드 넉백 · Squads · docked matching · server out of builds
+
+User choices:
+- **Builds ship no server.** The desktop app loses its embedded relay and the deploy folder loses `SCAVANGER-Server.exe` (and the
+  exe tooling is deleted). A server runs only from the repo via `start-server.bat`, which now carries the operator console
+  (`list` · `kick` · `max` · `gc`). With no address configured the app looks for `ws://127.0.0.1:8787/ws`.
+- **Squad ≠ shared ship.** Sending an invite makes the sender squad leader at once (lobby created, `docked: false`); the invitee
+  becomes a member **only by accepting** (P hold). Members stay in their own personal ships and see the squad list bottom-left.
+- The leader docks from the terminal's new **매칭** tab: `비공개 매칭` / `공개 매칭` under the 4 square face portraits (me first,
+  empty cells = invite button → modal with friends + recent players). The leader fades out → docking cutscene at once; members count
+  down 3 s on the right, everything they had open closes, then fade → cutscene. Members cannot press the matching buttons. A member who
+  accepts after the leader docked also counts down and docks.
+- **공개 매칭 never merges squads**: players on their own fill free slots of open public ships (or open one); a squad of 2+ opens its own.
+- While undocked, **personal launch and the training range are locked** for the whole squad; ship management, inventory, crafting stay free.
+- Once docked, `도킹 해제` takes out **only the one who pressed it** (rejected: leader undocks everyone).
+- Lobby codes, invite links and the public/private toggle are **removed from the UI**.
+- Terminal: 행성 / 매칭 top tabs (same look as the Tab screen tabs); planet visual centred; `시뮬레이션 훈련장` button bottom-right with a
+  confirm popup, its hint line removed.
+- Ping wheel: holding the ping button locks the camera like the H/T wheels. Pinging (inventory request) the **equipped armor while the
+  shield is not full** asks for a shield recharge; otherwise it is the plain item request.
+- Hammerhead: blast throw distance ×0.5 (knockback and airborne rocket jump), ×0.25 when grounded; a grounded blast no longer triggers
+  the rocket jump (it did, because the knockback cleared `grounded` before the check).
+
+Design: `lobby:create` / `join` / `quickmatch` still make docked lobbies (smokes, old clients); an undocked lobby left with one member and
+no open invite is dissolved by the relay; distance multipliers are applied as √ on speeds (flight distance ∝ speed²); portrait accent
+travels as `LobbyPlayer.accent` (in-raid avatars keep slot colours).

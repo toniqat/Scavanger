@@ -147,6 +147,11 @@ export const PICKUP_MAX = K.num('PICKUP_MAX');
 export const HUB_LAUNCH_COUNTDOWN = K.num('HUB_LAUNCH_COUNTDOWN');
 /** Docking cutscene length (s). */
 export const HUB_DOCKING_DURATION = K.num('HUB_DOCKING_DURATION');
+/* appended (2026-09-15): 분대 · 도킹 매칭 */
+/** Seconds of the right-side countdown a squad member sees after the leader docked, before their own fade → docking cutscene. */
+export const HUB_SQUAD_DOCK_COUNTDOWN_S = K.num('HUB_SQUAD_DOCK_COUNTDOWN_S');
+/** Fade-out before, and fade-in after the start of, a docking cutscene into the shared ship (s). */
+export const HUB_DOCK_FADE_S = K.num('HUB_DOCK_FADE_S');
 
 /* ── appended: weapon package (2026-09-05) ── */
 import type { SocketSlot, AmmoType, WeaponClass } from './types';
@@ -642,6 +647,10 @@ export const BAZOOKA_SUPER_JUMP = K.num('BAZOOKA_SUPER_JUMP');
  * `min(1, speed / PLAYER_WALK_SPEED)` — standing still gets none.
  */
 export const BAZOOKA_JUMP_FORWARD = K.num('BAZOOKA_JUMP_FORWARD');
+/** 2026-09-15: distance multiplier for Hammerhead knockback + airborne rocket jump — speeds are scaled by its square root. */
+export const BAZOOKA_KNOCKBACK_DIST_MUL = K.num('BAZOOKA_KNOCKBACK_DIST_MUL');
+/** 2026-09-15: further distance multiplier when the shooter was grounded at the blast (square root on speed); no rocket jump then. */
+export const BAZOOKA_GROUNDED_DIST_MUL = K.num('BAZOOKA_GROUNDED_DIST_MUL');
 export const BAZOOKA_FIRE_RATE = K.num('BAZOOKA_FIRE_RATE');
 
 /* 미니건: LMB hold spins up, fires once spun; movement slowed while spinning. */

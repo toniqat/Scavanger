@@ -61,6 +61,8 @@ export class NetSystem implements GameSystem, NetRef {
   /** Last id the server gave us; kept through a drop so `isHost`/`isAuthority` do not flip while reconnecting. */
   lastLocalId: PeerId | null = null;
   pendingQuickMatch = false;
+  /** 2026-09-15 (분대 · 도킹 매칭): `requestDock` sent, no docked lobby / error back yet — `NetRef.dockPending`. */
+  _dockPending = false;
 
   /* ── reconnect state machine ── */
   private lastStatus: NetStatus = 'offline';
@@ -407,6 +409,8 @@ export class NetSystem implements GameSystem, NetRef {
 
   quickMatch(): void { return Lobby.quickMatch(this); }
   setPublic(isPublic: boolean): void { return Lobby.setPublic(this, isPublic); }
+  requestDock(isPublic: boolean): void { return Lobby.requestDock(this, isPublic); }
+  get dockPending(): boolean { return this._dockPending; }
   setLobbySeed(seed: number): void { return Lobby.setLobbySeed(this, seed); }
 
   /* ══ 2026-09-09: 분대장(호스트) 지명 이관 ═════════════════════════════ */

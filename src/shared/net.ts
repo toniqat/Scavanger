@@ -187,7 +187,9 @@ export type LobbyErrorCode =
    * shows through (the invite path hides it the same way, `server/Invites.ts` `hidden`). Only this direction,
    * my own choice, is told plainly.
    */
-  | 'blocked';
+  | 'blocked'
+  /** appended (2026-09-15, 분대 · 도킹 매칭): `lobby:ready` · `lobby:start` (raid or training) · `lobby:mission` in a squad that has not docked yet. */
+  | 'not_docked';
 
 /* ── Wire protocol: client ↔ server (JSON) ─────────────────────────────────── */
 export type RelayTarget = PeerId | 'host' | 'all' | 'others';
@@ -293,7 +295,9 @@ export type ClientToServer =
   /* appended (2026-09-13): 암호화폐 시세 — see the 암호화폐 section */
   | ClientToServerAppended2026_09_13crypto
   /* appended (2026-09-14): 단체 메신저방 — see the 단체 메신저방 section */
-  | ClientToServerAppended2026_09_14rooms;
+  | ClientToServerAppended2026_09_14rooms
+  /* appended (2026-09-15): 분대 · 도킹 매칭 — see the 분대 · 도킹 매칭 section */
+  | ClientToServerAppended2026_09_15dock;
 
 export type ServerToClient =
   /**
@@ -2030,3 +2034,82 @@ export interface GrenadeMessage {
   /** 1 = G-10 소이 수류탄(`ItemDef.grenadeFire`) — 작은 폭발로 재생한다. 생략 = 모른다(옛 클라이언트 → 받는 쪽이 손 스냅샷으로 추측). */
   fire?: 1;
 }
+
+/* ══ appended (2026-09-15): 분대 · 도킹 매칭 — docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」 ══════════════════════
+ *
+ * The squad (lobby) and the shared ship are **separate** now. Before, a lobby *was* the shared ship: getting one (create ·
+ * join · quick match · 같이 하기 · invite accept) played the docking cutscene at once. Now:
+ * - **Sending an invite** creates a lobby led by the sender with `docked: false`. Everyone stays in **their own personal
+ *   ship**. The invitee joins only by accepting (P hold). The relay dissolves an undocked lobby left with one member and
+ *   no open invite into it.
+ * - The leader docks from 터미널 > 매칭 (`비공개 매칭` / `공개 매칭` → `lobby:dock`): `docked` becomes true. The player who
+ *   pressed it fades out → docking cutscene at once; every other member sees a `HUB_SQUAD_DOCK_COUNTDOWN_S` countdown,
+ *   then their screens close and the same fade → cutscene runs. Nobody moves until the leader docked. A member cannot
+ *   send `lobby:dock` (`not_host`). A member who joins an **already docked** lobby also counts down, then docks.
+ * - 공개 매칭: a player **on their own** (no lobby, or alone in an undocked lobby) joins an open public shared ship as a
+ *   member, or creates one when none is open. A **squad of 2+** docks its own lobby as public and never merges with another
+ *   squad — only players on their own fill its free slots.
+ * - In an undocked squad the personal launch pod and the training range are locked (`not_docked`). Once docked,
+ *   `lobby:leave` (도킹 해제) takes out **only me** (as before).
+ * - The old paths (`lobby:create` · `lobby:join` · `lobby:quickmatch`) still create / join **docked** lobbies — smokes and
+ *   older clients rely on them. The UI no longer offers codes, links or the public/private toggle.
+ * Server rules: server/Lobby.ts (`docked`), server/RelayServer.ts (`lobby:dock`, `social:play`, lonely-party prune).
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** URL query param carrying my personal accent colour (`#rrggbb`) on connect, next to `NET_NAME_PARAM`. */
+export const NET_ACCENT_PARAM = 'a';
+
+export interface LobbyPlayer {
+  /**
+   * This member's personal accent colour (`#rrggbb`, their character's `PlayerProfile.accent`), from `?a=` on connect or
+   * `lobby:look`. Absent = unknown (anonymous / older client) → portraits fall back to `NET_SLOT_COLORS_CSS[slot]`.
+   * Only the 매칭 탭 portraits read it; in-raid avatars keep the slot colour.
+   */
+  accent?: string;
+}
+
+export interface LobbyState {
+  /**
+   * false = the squad is formed but every member is still in their own personal ship (an invite created it).
+   * true = the squad lives in the shared ship. **Absent = true** (older server) — always read it through `isDockedLobby`.
+   */
+  docked?: boolean;
+}
+
+export type ClientToServerAppended2026_09_15dock =
+  /**
+   * 터미널 > 매칭: take the squad to the shared ship. No lobby → the relay makes one (private = a new docked lobby;
+   * public = join an open public ship, or create one). With a lobby: leader only (`not_host`), before a start
+   * (`started`), not already docked (`in_lobby`). Public + alone in an undocked lobby → moved into an open public ship
+   * when there is one (`lobby:left {reason:'moved'}` then its `lobby:state`), else the own lobby docks as public.
+   * A squad of 2+ → its own lobby becomes `docked: true` with `isPublic` and is broadcast.
+   */
+  | { t: 'lobby:dock'; isPublic: boolean }
+  /** Update my `LobbyPlayer.accent` (the relay keeps it for later lobbies too; invalid per `sanitizeAccent` → ignored). */
+  | { t: 'lobby:look'; accent: string };
+
+/** Is this lobby's squad in the shared ship? null / undefined → false; `docked` absent (older server) → true. */
+export function isDockedLobby(lobby: LobbyState | null | undefined): boolean {
+  return !!lobby && lobby.docked !== false;
+}
+
+/** `#rrggbb` (lower-cased) or null. The one parser for an accent on the wire — relay and client alike. */
+export function sanitizeAccent(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(s) ? s : null;
+}
+
+export interface NetRef {
+  /**
+   * 터미널 > 매칭: `비공개 매칭` (false) / `공개 매칭` (true) → `lobby:dock`. Not connected → `net:error`. The result is
+   * the usual `net:lobbyUpdated` (a docked lobby) or `net:error`.
+   */
+  requestDock(isPublic: boolean): void;
+  /**
+   * true from `requestDock` until a docked lobby state arrives, a `lobby:error` comes back or the lobby is left. hub/
+   * reads it to tell **my own** dock (fade → cutscene at once) from the leader's dock reaching me (countdown first).
+   */
+  readonly dockPending: boolean;
+}
+/* ══ end 2026-09-15 분대 · 도킹 매칭 ══ */

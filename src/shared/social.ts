@@ -142,17 +142,25 @@ export interface WhisperLine {
  * Why 같이 하기 cannot be offered, or null when it can. `mySquad` = members in my own lobby (0 = none).
  * `maxSquad` is `NET_MAX_PLAYERS`; passed in so this file stays free of a runtime import from `net.ts`.
  */
-export type PlayBlock = 'self' | 'offline' | 'in_mission' | 'squad_full' | 'my_squad_full';
+/* `in_other_squad` · `not_leader` appended (2026-09-15, 분대 · 도킹 매칭). `squad_full` is no longer produced (kept: add-only). */
+export type PlayBlock = 'self' | 'offline' | 'in_mission' | 'squad_full' | 'my_squad_full' | 'in_other_squad' | 'not_leader';
 
+/**
+ * 2026-09-15 (분대 · 도킹 매칭, docs/DECISIONS.md): 같이 하기 is **invite only** now — the old branch "the target already
+ * has a squad → I move into it" is gone. So a target already in a squad of 2+ cannot be asked (`in_other_squad`; a
+ * player alone in their own lobby — e.g. waiting on their own invite — still can), only the leader of my squad (or a
+ * player with no squad) may invite (`iAmMember` = I am in a lobby I do not lead → `not_leader`), and my squad needs a
+ * free slot. The caller checks "they are already in **my** squad" first (the server answers `in_squad`).
+ */
 export function playBlockReason(
-  target: Pick<SocialPlayer, 'presence' | 'squad'>, mySquad: number, maxSquad: number, isSelf = false,
+  target: Pick<SocialPlayer, 'presence' | 'squad'>, mySquad: number, maxSquad: number, isSelf = false, iAmMember = false,
 ): PlayBlock | null {
   if (isSelf) return 'self';
+  if (iAmMember) return 'not_leader';
   if (target.presence === 'offline') return 'offline';
   if (target.presence !== 'ship') return 'in_mission';
-  if (target.squad >= maxSquad) return 'squad_full';
-  /* Joining them frees my slot; inviting them needs a slot on my side. Only the invite direction can fail here. */
-  if (target.squad === 0 && mySquad >= maxSquad) return 'my_squad_full';
+  if (target.squad > 1) return 'in_other_squad';
+  if (mySquad >= maxSquad) return 'my_squad_full';
   return null;
 }
 
@@ -162,6 +170,8 @@ export const PLAY_BLOCK_LABELS: Readonly<Record<PlayBlock, string>> = {
   in_mission: '임무 중',
   squad_full: '상대 분대가 가득 참',
   my_squad_full: '내 분대가 가득 참',
+  in_other_squad: '이미 다른 분대에 있음',
+  not_leader: '분대장만 초대할 수 있음',
 };
 
 /** How the server resolved a 같이 하기 (`social:play`), reported back so the UI can toast the right sentence. */
@@ -186,9 +196,14 @@ export type SocialErrorCode =
   | 'in_mission'
   | 'invalid'
   /* appended (2026-09-11, B-3): the invite answered is no longer open (`social:inviteReply` after it closed). */
-  | 'expired';
+  | 'expired'
+  /* appended (2026-09-15, 분대 · 도킹 매칭 — see `playBlockReason`) */
+  | 'in_other_squad' // the target already sits in a squad of 2+ (같이 하기 is invite-only now)
+  | 'not_leader';    // I am in a squad I do not lead — only the leader invites
 
 export const SOCIAL_ERROR_MESSAGE_KO: Readonly<Record<SocialErrorCode, string>> = {
+  in_other_squad: '상대가 이미 다른 분대에 있습니다',
+  not_leader: '분대장만 초대할 수 있습니다',
   unavailable: '소셜 기능을 사용할 수 없습니다',
   not_found: '해당 아이디를 찾을 수 없습니다',
   self: '본인에게는 보낼 수 없습니다',

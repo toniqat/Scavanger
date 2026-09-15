@@ -27,6 +27,8 @@ PICKUP_LIFETIME,0,Seconds a dropped item pickup stays in the world (0 = forever)
 PICKUP_MAX,96,Max simultaneous pickups per mission (oldest removed).
 HUB_LAUNCH_COUNTDOWN,3,"Seconds between ""everyone boarded"" and mission launch in the hub."
 HUB_DOCKING_DURATION,6,Docking cutscene length (s).
+HUB_SQUAD_DOCK_COUNTDOWN_S,3,"2026-09-15: seconds of the right-side countdown a squad member sees after the leader docked into the shared ship; then their own screens close, fade out and the docking cutscene plays."
+HUB_DOCK_FADE_S,0.6,"2026-09-15: fade-out before, and fade-in after the start of, a docking cutscene into the shared ship (s)."
 
 # ── appended: weapon package (2026-09-05) ──
 WEAPON_DURABILITY_PER_SHOT,1,Durability lost per trigger pull (shotgun pellets count once).
@@ -304,6 +306,8 @@ BAZOOKA_SELF_DAMAGE,22,"2026-09-14 은퇴 — 바주카는 자해 피해가 없�
 BAZOOKA_KNOCKBACK,15,Knockback speed away from the blast when the player is inside the radius.
 BAZOOKA_SUPER_JUMP,17,"Extra vertical impulse when the blast is below the player's feet while airborne (rocket jump). 2026-09-14: 17 → 26 (사용자 결정 — 더 높이 · 더 멀리, 중력은 그대로). 2026-09-15: 26 → 17 되돌림 (사용자 결정 — 훈련장 천장에 막혀 강하게 느껴지지 않았음; 수평 BAZOOKA_JUMP_FORWARD 8 · airCarry 는 유지)."
 BAZOOKA_JUMP_FORWARD,8,"2026-09-14: 로켓 점프의 수평 가속 (m/s) — 폭발 순간의 수평 이동 방향으로 더한다. 걷기 속도(PLAYER_WALK_SPEED) 보다 느리면 그 비율만큼 줄고 제자리면 0."
+BAZOOKA_KNOCKBACK_DIST_MUL,0.5,"2026-09-15 (사용자 결정): distance multiplier for everything a Hammerhead blast throws the shooter — knockback and the airborne rocket jump alike. Flight distance goes with speed squared, so the code scales the speeds by its square root."
+BAZOOKA_GROUNDED_DIST_MUL,0.5,"2026-09-15 (사용자 결정): extra knockback distance multiplier when the shooter was on the ground at the blast (square root on speed again). A grounded blast never adds the rocket jump."
 BAZOOKA_FIRE_RATE,2.85,"2026-09-14: 연달아 세 발 — 발 간격 1/2.85 ≈ 0.35 초 (탄창 크기는 weapons_unique.csv 의 magSize)."
 MINIGUN_SPINUP_TIME,1.2,
 MINIGUN_SPINDOWN_TIME,0.8,

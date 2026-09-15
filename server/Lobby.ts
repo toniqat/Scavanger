@@ -33,6 +33,8 @@ export const LOBBY_ERROR_MESSAGE_KO: Record<LobbyErrorCode, string> = {
   server_full: '서버 접속 인원이 가득 찼습니다.',
   /* 2026-09-11 (B-11): 내가 차단한 상대가 있는 분대. 반대 방향(나를 차단한 사람)은 not_found 로 위장한다. */
   blocked: '차단한 상대가 있는 분대입니다.',
+  /* 2026-09-15: 분대 · 도킹 매칭 — 미도킹 분대에서는 개인 출격 · 훈련장이 잠긴다 */
+  not_docked: '분대가 아직 공용 함선에 도킹하지 않았습니다.',
 };
 
 export class Lobby {

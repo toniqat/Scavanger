@@ -15,6 +15,7 @@ import { isPlanetId } from '@/shared';
 /* 2026-09-14: 정보상 — 로비에 실리는 기믹 고정 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelWire } from '@/shared';
 import { resolveIntelEffects, sanitizeIntelPicks } from '@/shared';
+import { isDockedLobby } from '@/shared';
 import {
   NET_INVITE_PARAM, NET_MISSION_RESUME_TIMEOUT_MS, NET_NAME_PARAM, NET_PLAYER_SNAPSHOT_HZ, NET_RECONNECT_BACKOFF_MS,
   NET_TOKEN_LENGTH, NET_TOKEN_PARAM, NET_TOKEN_STORAGE_KEY, NET_WS_PATH, PlayerFlags, RAID_BLOB_MAX_BYTES,
@@ -121,6 +122,20 @@ export function quickMatch(sys: NetSystem): void {
   }
 
 export function setPublic(sys: NetSystem, isPublic: boolean): void { sys.client.send({ t: 'lobby:setPublic', isPublic }); }
+
+/**
+ * 2026-09-15 (분대 · 도킹 매칭): 터미널 > 매칭의 `비공개 매칭` / `공개 매칭`. `dockPending` 은 도킹된 로비가 오거나
+ * (`applyLobby`) · 에러가 오거나 · 로비를 떠날 때(`dropLobby`) 꺼진다 — hub/ 가 「내가 누른 도킹」 을 가르는 근거다.
+ */
+export function requestDock(sys: NetSystem, isPublic: boolean): void {
+  if (!sys.client.connected) {
+    sys.ctx.bus.emit('net:error', { code: 'server', message: '서버에 연결되어 있지 않습니다.' });
+    return;
+  }
+  sys.pendingQuickMatch = false;
+  sys._dockPending = true;
+  sys.client.send({ t: 'lobby:dock', isPublic });
+  }
 
 /* ══ 2026-09-09: 분대장(호스트) 지명 이관 ═══════════════════════════════════════════════════════════════════
  *
@@ -245,6 +260,7 @@ export function beginSession(
 export function applyLobby(sys: NetSystem, next: LobbyState): void {
   const prev = sys._lobby;
   sys._lobby = next;
+  if (isDockedLobby(next)) sys._dockPending = false;   // 2026-09-15: the dock I asked for (or the leader's) arrived
   const bus = sys.ctx.bus;
   if (prev && prev.code === next.code) {
     const me = sys.localId;
@@ -298,6 +314,7 @@ export function dropLobby(sys: NetSystem, reason: 'left' | 'disconnected' | 'kic
   sys.missionSeed = null;
   sys.lobbySuspended = false;
   sys.pendingQuickMatch = false;
+  sys._dockPending = false;   // 2026-09-15: a dock request dies with the lobby
   sys._tookOver = false;
   sys._raidBlob = null;
   sys.prevHostId = null;
