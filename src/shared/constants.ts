@@ -2127,6 +2127,23 @@ export const ALLY_HAZARD_SAFE_MARGIN_M = K.num('ALLY_HAZARD_SAFE_MARGIN_M');
 export const ALLY_NET_INTERVAL_S = K.num('ALLY_NET_INTERVAL_S');
 export const ALLY_BAY_HOLD_S = K.num('ALLY_BAY_HOLD_S');
 export const ALLY_HUB_FOLLOW_M = K.num('ALLY_HUB_FOLLOW_M');
+/** 자유 탐색 (2026-09-16 사용자 결정) — 관심 지점 반경 · 선점 거리 · 최소 이동 · 둘러보는 시간. */
+export const ALLY_ROAM_POI_RADIUS_M = K.num('ALLY_ROAM_POI_RADIUS_M');
+export const ALLY_ROAM_POI_TAKEN_M = K.num('ALLY_ROAM_POI_TAKEN_M');
+export const ALLY_ROAM_MIN_STEP_M = K.num('ALLY_ROAM_MIN_STEP_M');
+export const ALLY_ROAM_PAUSE_MIN_S = K.num('ALLY_ROAM_PAUSE_MIN_S');
+export const ALLY_ROAM_PAUSE_MAX_S = K.num('ALLY_ROAM_PAUSE_MAX_S');
+/** 겹치지 않기 · 산개 (2026-09-16 사용자 결정). */
+export const ALLY_SEPARATION_M = K.num('ALLY_SEPARATION_M');
+export const ALLY_SPREAD_M = K.num('ALLY_SPREAD_M');
+/** 「앞장서라」 — 하네스 배수 · 자동 해제 시간 (s). */
+export const ALLY_LEAD_HARNESS_MUL = K.num('ALLY_LEAD_HARNESS_MUL');
+export const ALLY_LEAD_DURATION_S = K.num('ALLY_LEAD_DURATION_S');
+/** 무기별 교전 거리 — 피해가 이 비율까지 떨어지는 거리 · 그 하한 (m). */
+export const ALLY_ENGAGE_DAMAGE_FRAC = K.num('ALLY_ENGAGE_DAMAGE_FRAC');
+export const ALLY_ENGAGE_MIN_M = K.num('ALLY_ENGAGE_MIN_M');
+/** 한가할 때만 줍는 상자의 반경 (m) — 핑으로 찍힌 상자는 제한이 없다. */
+export const ALLY_IDLE_LOOT_M = K.num('ALLY_IDLE_LOOT_M');
 /** 레이드 진입 로딩 (owner: hub 암전 시작 · game `parts/LoadGate` · ui 원형 게이지). */
 export const RAID_LOAD_FADE_OUT_S = K.num('RAID_LOAD_FADE_OUT_S');
 export const RAID_LOAD_FADE_IN_S = K.num('RAID_LOAD_FADE_IN_S');

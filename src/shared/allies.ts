@@ -19,7 +19,7 @@
  *
  * ## 규칙 (사용자 결정)
  * - 체력 = 사람 × `ALLY_HP_MUL`. 사람처럼 **쓰러지고** PC 가 일으킬 수 있다 (구조 드롭 대상은 아니다). 안드로이드도 쓰러진 PC 를
- *   일으킨다. 사람이 전원 사망하면 레이드 실패 — 안드로이드는 전멸 판정에 들어가지 않는다.
+ *   일으킨다. 2026-09-16 사용자 결정: **사람과 안드로이드가 모두 쓰러지거나 죽어야** 레이드 실패다 (안드로이드가 한 기라도 서 있으면 일으키러 온다). 다른 모든 인원 셈(프레즌스 · prune · 유예)에서 안드로이드는 여전히 사람이 아니다.
  * - 하네스 기준 = **분대장**. 요청(회복 · 실드 · 탄약 · 아이템 · 상자 · 탈출 · 계약)은 **먼저 온 하나**를 받고
  *   `ALLY_REQUEST_COOLDOWN_S` 동안 다른 요청을 무시한다. 이동(`attack` 저쪽으로 가자) · 주의(`caution`) 핑은 분대장 것만 따른다.
  * - 상태가 바뀌면 행동까지 `ALLY_REACT_MIN_S` … `ALLY_REACT_MAX_S` 의 무작위 지연 — 무거운 행동(`ALLY_STATE_WEIGHT`)일수록 길다.
@@ -63,7 +63,7 @@ export const ALLY_MODES: readonly AllyMode[] = ['dormant', 'hub', 'raid'];
 
 /**
  * FSM 상태. 함선: `dormant` · `emerge`(캡슐에서 나온다) · `retire`(캡슐로 돌아간다) · `hubIdle`(발사 포드 앞 대기 · 치트는 PC 곁).
- * 레이드: `follow`(하네스) · `moveTo`(가자 핑) · `lead`(앞장서라) · `watch`(주의 핑) · `combat`(은엄폐) · `loot`(상자) · `pickup`(바닥 아이템) ·
+ * 레이드: `follow`(하네스로 돌아간다) · `roam`(하네스 안 자유 탐색 — 2026-09-16) · `moveTo`(가자 핑) · `lead`(앞장서라) · `watch`(주의 핑) · `combat`(은엄폐) · `loot`(상자) · `pickup`(바닥 아이템) ·
  * `deliver`(요청자에게 떨궈 주기) · `dropJunk`(무거움 해소) · `seekExtract`(탈출구 탐색) · `callExtract`(콘솔 누르기) · `board`(착륙선 탑승) ·
  * `contract`(계약 목표 탐색) · `rescue`(쓰러진 PC 일으키기) · `carry`(재해 밖으로 업고 뛰기) · `downed` · `dead` · `aboard`(이륙선에 탔다).
  */
@@ -72,7 +72,8 @@ export type AllyStateId =
   | 'idle' | 'follow' | 'moveTo' | 'lead' | 'watch' | 'combat'
   | 'loot' | 'pickup' | 'deliver' | 'dropJunk'
   | 'seekExtract' | 'callExtract' | 'board' | 'contract'
-  | 'rescue' | 'carry' | 'downed' | 'dead' | 'aboard';
+  | 'rescue' | 'carry' | 'downed' | 'dead' | 'aboard'
+  | 'roam';
 /** 와이어 순서 (`AllyWire.st`). 재정렬 금지 — 새 상태는 끝에 붙인다. */
 export const ALLY_STATES: readonly AllyStateId[] = [
   'dormant', 'emerge', 'retire', 'hubIdle',
@@ -80,6 +81,8 @@ export const ALLY_STATES: readonly AllyStateId[] = [
   'loot', 'pickup', 'deliver', 'dropJunk',
   'seekExtract', 'callExtract', 'board', 'contract',
   'rescue', 'carry', 'downed', 'dead', 'aboard',
+  /* 2026-09-16 (자유 탐색) — 새 상태는 반드시 끝에 붙인다 (와이어 인덱스). */
+  'roam',
 ];
 
 /** 그리는 자세 (player/ 가 `SoldierModel` 자세로 옮긴다). */

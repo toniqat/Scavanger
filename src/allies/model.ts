@@ -17,7 +17,9 @@ import type { AllyStateId, PeerId } from '@/shared';
  */
 export const PRIO = {
   idle: 0,
+  /** 하네스 밖 = 분대장에게 돌아간다 · 하네스 안 = 자유 탐색 (2026-09-16). 같은 서열이라 `Fsm.decide` 가 둘 중 하나만 제안한다. */
   follow: 5,
+  roam: 5,
   autoLoot: 10,
   order: 20,
   orderLoot: 30,
@@ -60,6 +62,10 @@ export const CHAT_KO = {
   noContract: '계약 목표를 찾지 못했다.',
   noItem: '건넬 만한 물건이 없다.',
   wantExtract: '탈출해야 한다!',
+  /* 2026-09-16 (핑 동의) — PC 의 핑을 받아들였다고 한 줄 말한다 (`Ping.say` 가 같은 문장의 반복을 막는다). */
+  agreeEnemy: '적 확인. 요격한다.',
+  agreeExtract: '그 탈출구로 간다.',
+  agreeCrate: '그 상자를 확인한다.',
 } as const;
 
 /* ── 스크래치 (프레임마다 재할당하지 않는다 — CLAUDE.md §4.1) ─────────────────────────────── */

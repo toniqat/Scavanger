@@ -93,6 +93,24 @@ export class Ally implements AllyBodyView {
   nearObs: Obstacle[] = [];
   obsT = 0;
 
+  /* ── 자유 탐색 (2026-09-16 사용자 결정 「분대장 범위 안을 자유롭게 탐색」) ── */
+  /** 지금 향하는 순찰 지점 (`hasRoamDest` 가 false 면 값은 의미 없다). */
+  readonly roamDest = new THREE.Vector3();
+  hasRoamDest = false;
+  /** 도착해 주위를 둘러보는 남은 시간 (s). 0 이 되면 다음 지점을 고른다. */
+  roamPauseT = 0;
+  /** 지금 잡은 관심 지점(구조물 · 엄폐물)의 중심 — 없으면 무작위 순찰이다. */
+  readonly roamPoi = new THREE.Vector3();
+  hasRoamPoi = false;
+  /** 관심 지점을 다시 고를 때까지 남은 시간 (s) — 월드 질의는 싸지 않다. */
+  roamPoiT = 0;
+
+  /* ── 교전 거리 (무기에서 잰다 — 무기가 바뀔 때만 다시 잰다) ── */
+  /** 지금 무기로 붙는 거리 (m). `engageFor` 가 채운다. */
+  engageRange = 0;
+  /** `engageRange` 를 잰 무기의 def id (바뀌면 다시 잰다). */
+  engageDefId: string | null = null;
+
   /* ── 시선 ── */
   readonly lookVec = new THREE.Vector3();
 
@@ -144,6 +162,12 @@ export class Ally implements AllyBodyView {
   extractRequester: PeerId | null = null;
   /** 같은 사람이 확인 창 안에 다시 「탈출하고 싶다」 했다 → 호출 버튼을 누른다. */
   confirmExtract = false;
+  /**
+   * 2026-09-16 (사용자 결정): PC 가 탈출구 핑을 찍고 「탈출하고 싶다」를 말했다 — 그 핑 자리로 간다.
+   * `hasExtractPing` 이 false 면 좌표는 의미 없다.
+   */
+  readonly extractPingPos = new THREE.Vector3();
+  hasExtractPing = false;
 
   /* ── 구조 ── */
   rescueTarget: PeerId | null = null;
@@ -179,6 +203,12 @@ export class Ally implements AllyBodyView {
     this.running = false;
     this.stuckT = 0;
     this.sideT = 0;
+    this.hasRoamDest = false;
+    this.hasRoamPoi = false;
+    this.roamPauseT = 0;
+    this.roamPoiT = 0;
+    this.engageRange = 0;
+    this.engageDefId = null;
     this.targetEnemyId = null;
     this.burstLeft = 0;
     this.fireCd = 0;
@@ -208,6 +238,7 @@ export class Ally implements AllyBodyView {
     this.extractPingAt = -Infinity;
     this.extractRequester = null;
     this.confirmExtract = false;
+    this.hasExtractPing = false;
     this.rescueTarget = null;
     this.reviveHoldT = 0;
     this.hasCarryDest = false;

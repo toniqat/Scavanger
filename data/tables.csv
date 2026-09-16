@@ -468,6 +468,7 @@ ROVER_PLAN_ATTEMPTS_INTEL,0,1024
 #   사용자 결정 「무게가 무거울수록 딜레이 큼」. key = shared/allies.ts 의 AllyStateId. 빠진 상태(쓰러짐 · 사망처럼 즉시인 것)는 0.
 ALLY_STATE_WEIGHT,hubIdle,0.1
 ALLY_STATE_WEIGHT,follow,0.1
+ALLY_STATE_WEIGHT,roam,0.15
 ALLY_STATE_WEIGHT,watch,0.2
 ALLY_STATE_WEIGHT,moveTo,0.3
 ALLY_STATE_WEIGHT,lead,0.3
