@@ -3,25 +3,30 @@
  * Verification runner — the one command to run after a change.
  *
  *   node scripts/verify.mjs                      # --changed: smokes for the folders touched in the working tree
+ *                                                #   (a narrow src/shared change picks the folders that use the changed exports;
+ *                                                #    a wide one still goes full — see the comment at GLOBAL_PATHS)
  *   node scripts/verify.mjs --all                # everything (typecheck, build, selftest, every smoke in SMOKES, e2e) — before a merge
  *   node scripts/verify.mjs --folders weapons,ui # smokes mapped to those feature folders
  *   node scripts/verify.mjs --only smoke-weapons,e2e-mp
  *   node scripts/verify.mjs --rerun-failed       # only what failed in the previous run (scripts/logs/last-run.json)
  *   node scripts/verify.mjs --list               # folder → smoke map (+ src/ 밖의 경로 매핑)
+ *   node scripts/verify.mjs --dry-run            # what the current change would run, and why — runs nothing
  *   node scripts/verify.mjs --help               # this text (an unknown option prints it too and runs nothing)
  *
- * Options: --jobs N (parallel Chrome instances, default 4; use 1–2 with SMOKE_GL=swiftshader, which is CPU-bound) · --serial · --base <git ref> (diff base for --changed,
+ * Options: --jobs N (parallel Chrome instances, default 4 — **measured: 8 is slower**, see the note at `opts.jobs`;
+ *          use 1–2 with SMOKE_GL=swiftshader, which is CPU-bound) · --serial · --base <git ref> (diff base for --changed,
  *          default = working tree vs HEAD, falling back to HEAD~1) · --build · --no-typecheck · --no-e2e ·
  *          --keep-relay (do not restart a relay already listening on 8787) · --url http://host:port/ · --timeout <min> ·
  *          --log-dir <dir> (default scripts/logs — give each concurrent runner its own, e.g. scripts/logs/agent-3)
  *
  * What it does:
- *   1. typecheck (client + server), net:selftest and data:check (data/*.csv 스키마) in parallel — seconds.
+ *   1. typecheck (client + server) and data:check (data/*.csv 스키마) in parallel — seconds. net:selftest (~50 s, its own
+ *      random port) runs **alongside the smokes** and is awaited just before the summary.
  *   2. Starts vite (5273) and the relay (8787) if they are not up — **unless every selected script is `standalone`**
  *      (smoke-pitch, smoke-desktop, smoke-intel), which use neither. When e2e-mp is in the set the relay is always
  *      restarted first: public lobbies left by an interrupted run live for the 5-min grace and hijack quick match.
  *   3. Runs the selected smoke scripts concurrently (each owns its own headless Chrome on the real GPU via ANGLE D3D11,
- *      10–50 s each; lanes start 8 s apart so vite warm-up and Chrome launches never coincide). Output goes to
+ *      40–90 s each; the lanes' start times share one ~24 s ramp budget, so vite warm-up and Chrome launches never coincide). Output goes to
  *      scripts/logs/<name>.log; only the summary and the FAIL lines are printed. SMOKE_GL=swiftshader (no GPU / CI) is
  *      ~10× slower and CPU-bound: measured 2026-09-06, one script ≈ 140 s alone and 2 lanes gained nothing (31 min total).
  *   4. e2e-mp runs alone at the end (two browsers, 15 s waits — sensitive to CPU contention).
@@ -291,8 +296,19 @@ const SMOKES = {
   'smoke-desktop':      { file: 'scripts/smoke-desktop.mjs',      folders: [], standalone: true, exclusive: true },
   'e2e-mp':             { file: 'scripts/e2e-multiplayer.mjs',    folders: ['net', 'server', 'game', 'extraction', 'hub', 'pickups', 'player', 'enemies'], exclusive: true, freshRelay: true },
 };
-// Anything under these paths touches the contract / bootstrap → run everything.
-const GLOBAL_PATHS = [/^src\/shared\//, /^src\/core\//, /^src\/main\.ts$/, /^index\.html$/, /^vite\.config/, /^package\.json$/, /^tsconfig/];
+// Anything under these paths touches the engine / bootstrap → run everything.
+const GLOBAL_PATHS = [/^src\/core\//, /^src\/main\.ts$/, /^index\.html$/, /^vite\.config/, /^package\.json$/, /^tsconfig/];
+
+/* 2026-09-16: `src/shared` 는 **바뀐 크기로** 판단한다. 예전에는 shared 아래 아무 파일이나 걸리면 전체(95종 · 18~21분)로
+   올라갔는데, 최근 40커밋 중 28건이 shared 를 건드려서 「연관된 것만」 돌리려고 `verify` 를 쳐도 7할이 전체였다.
+   재보니 그 확대가 **대부분은 옳다** — shared 를 건드린 커밋은 대개 기능 배치라 진짜로 넓다(144파일 · 15폴더 →
+   shared 를 빼고 폴더로만 골라도 91/95 스모크). 낭비는 **좁은 커밋**에 몰려 있었다: 계약 커밋 `4e96c64`(6파일 ·
+   1폴더)가 21분. 그래서 좁을 때만 심볼로 좁힌다. 심볼 매핑을 넓은 커밋에까지 쓰지 않는 이유는 효과가 없어서다 —
+   바뀐 export 가 수십 개로 불어나 소비 폴더가 22개 중 중앙값 17개였다(전체와 사실상 같다).
+   `.md` 는 세지 않는다: shared 는 코드와 README 가 늘 같이 바뀌므로 README 가 판정을 흔들면 안 된다. */
+const SHARED_RE = /^src\/shared\//;
+const SHARED_NARROW_FILES = 2;    // 바뀐 shared **코드** 파일 수
+const SHARED_NARROW_FOLDERS = 3;  // 같은 변경이 건드린 기능 폴더 수
 
 // `src/` 밖에 사는 것들 — 폴더 이름으로는 안 잡히므로 경로에서 스모크를 직접 고른다.
 const EXTRA_PATHS = [
@@ -303,11 +319,16 @@ const EXTRA_PATHS = [
   { label: 'scripts/smoke-desktop.mjs', re: /^scripts\/smoke-desktop\.mjs$/, smokes: ['smoke-desktop'] },
 ];
 
+/* 2026-09-16: 레인 시동 간격은 **레인당**이 아니라 **총 예산**이다. 예전의 8초 × 레인은 4레인에서 24초, 8레인에서는
+   56초를 그냥 버렸다 — 한 웨이브로 끝나는 묶음(`--only`, `--changed`)에서는 그게 실행 시간의 대부분이었다.
+   vite 예열과 Chrome 기동이 겹치지 않게 하려는 원래 목적에는 총 24초면 충분하고, 레인을 몇 개로 주든 램프는 같다. */
+const RAMP_BUDGET_MS = 24_000;
+
 // ─── CLI ───────────────────────────────────────────────────────────────────────────────────────────────────────
 const argv = process.argv.slice(2);
 /* 2026-09-11: 모르는 플래그 · --help 는 **아무것도 돌리지 않고** 머리 주석을 찍고 끝낸다. 예전에는 조용히 무시돼서
    `verify.mjs --help` 가 인자 없는 --changed 전체 검증(릴레이 재시작 + e2e 포함)을 시작했다. */
-const KNOWN_FLAGS = new Set(['--all', '--list', '--rerun-failed', '--serial', '--build', '--no-typecheck', '--no-e2e', '--keep-relay']);
+const KNOWN_FLAGS = new Set(['--all', '--list', '--dry-run', '--rerun-failed', '--serial', '--build', '--no-typecheck', '--no-e2e', '--keep-relay']);
 const VALUE_FLAGS = new Set(['--folders', '--only', '--base', '--jobs', '--url', '--timeout', '--log-dir']);
 {
   const unknown = argv.filter((a, i) => a.startsWith('-') && !KNOWN_FLAGS.has(a) && !VALUE_FLAGS.has(a) && !VALUE_FLAGS.has(argv[i - 1]));
@@ -322,10 +343,20 @@ const VALUE_FLAGS = new Set(['--folders', '--only', '--base', '--jobs', '--url',
 const has = (f) => argv.includes(f);
 const val = (f, d) => { const i = argv.indexOf(f); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
 const opts = {
-  all: has('--all'), list: has('--list'), rerunFailed: has('--rerun-failed'),
+  all: has('--all'), list: has('--list'), dryRun: has('--dry-run'), rerunFailed: has('--rerun-failed'),
   folders: val('--folders', '').split(',').filter(Boolean),
   only: val('--only', '').split(',').filter(Boolean),
   base: val('--base', null),
+  /* 2026-09-16 — **레인을 4에서 올리지 마라. 측정해서 더 느렸다.**
+     28스레드 · RTX 4070 SUPER 에서 `--all` 전체: 4레인 18분 30초 → 8레인 **20분 00초**. 기계는 놀고 있었다
+     (CPU 40 % · GPU 3D 20 % · VRAM 5/12 GB · 디스크 2 %) — 병목은 자원이 아니라 **프레임**이다.
+     `Engine.MAX_DT = 0.05` 는 20 fps 바닥이다: 페이지가 그 밑으로 떨어지면 게임 안 시간이 실제보다 느리게 흐르고,
+     스모크는 대부분 "게임 시간 N초 경과"를 기다리므로 그만큼 그대로 늘어난다 (10 fps = 2배, 7 fps = 3배).
+     8레인 전체 실행에서 스모크별 배수가 두 갈래로 갈렸다 — 가벼운 씬은 ×1.05 (phase2 · pose · aim-sway · ghost),
+     무거운 씬은 ×1.7~3.5 (tutorial-raid ×3.47 · allies-core ×3.39 · site-spawns ×3.33 · social ×3.26). 작업량 총합이
+     ×1.68 로 불어 레인 2배가 정확히 상쇄됐다. 4레인에서는 이 부풀림이 없다(같은 스모크가 단독 실행과 같은 속도).
+     레인을 늘리려면 먼저 페이지당 렌더 비용을 낮춰 20 fps 여유를 만들어야 한다 — 레인 수만 올리는 것은 손해다.
+     SMOKE_GL=swiftshader 는 CPU 바운드라 `--jobs 1~2` 를 직접 준다. */
   jobs: has('--serial') ? 1 : Math.max(1, Number(val('--jobs', 4)) || 4),
   build: has('--build') || has('--all'),
   typecheck: !has('--no-typecheck'),
@@ -340,7 +371,8 @@ if (opts.list) {
   for (const [name, j] of Object.entries(SMOKES)) for (const f of j.folders) (byFolder[f] ??= []).push(name);
   console.log('folder → smoke scripts');
   for (const f of Object.keys(byFolder).sort()) console.log(`  ${f.padEnd(12)} ${byFolder[f].join(', ')}`);
-  console.log(`  ${'(global)'.padEnd(12)} src/shared, src/core, main.ts, package.json → all`);
+  console.log(`  ${'(global)'.padEnd(12)} src/core, main.ts, index.html, vite.config, package.json, tsconfig → all`);
+  console.log(`  ${'(shared)'.padEnd(12)} src/shared: 코드 ${SHARED_NARROW_FILES}개 이하 + 기능 폴더 ${SHARED_NARROW_FOLDERS}개 이하 → 바뀐 export 를 쓰는 폴더, 그보다 넓으면 all`);
   // `src/` 밖의 경로로 붙는 것들은 폴더 표에 안 나오므로 따로 찍는다.
   for (const e of EXTRA_PATHS) console.log(`  ${'(path)'.padEnd(12)} ${e.label} → ${e.smokes.join(', ')}`);
   // 2026-09-11: data/*.csv → 소비 폴더 (`scripts/data-owners.mjs`). 스모크는 위 폴더 표를 따라간다.
@@ -363,11 +395,47 @@ function changedFiles() {
   if (status.length) return status;
   return git(['diff', '--name-only', 'HEAD~1', 'HEAD']).split('\n').filter(Boolean);
 }
+/* 2026-09-16: 좁은 shared 변경에서 **바뀐 export 를 쓰는 기능 폴더**를 찾는다. diff 의 바뀐 줄에서 식별자를 뽑아
+   shared 가 export 하는 이름만 남기고, 그 이름을 작업 트리에서 낱말 단위로 찾는다 (`git grep -w` — `\b` 는 이
+   git 빌드에서 안 먹는다). 바뀐 줄이 함수 본문 안이라 export 이름이 하나도 안 잡히면 그 파일이 export 하는 것을
+   전부 후보로 삼고, 그래도 비면 `ok: false` 로 알려 전체를 돌게 한다 — 좁히다 놓치느니 도는 편이 낫다. */
+function sharedConsumers(sharedTs) {
+  const diff = opts.base
+    ? git(['diff', '-U0', opts.base, '--', ...sharedTs])
+    : (git(['diff', '-U0', 'HEAD', '--', ...sharedTs]) || git(['diff', '-U0', 'HEAD~1', 'HEAD', '--', ...sharedTs]));
+  const exported = new Set(
+    git(['grep', '-h', '-oE', 'export (const|function|type|interface|class|enum|let) [A-Za-z0-9_]+', '--', 'src/shared'])
+      .split('\n').map((l) => l.trim().split(/\s+/).pop()).filter(Boolean),
+  );
+  const ids = new Set();
+  for (const line of diff.split('\n')) {
+    if (!/^[+-][^+-]/.test(line)) continue;
+    for (const m of line.matchAll(/[A-Za-z_][A-Za-z0-9_]{2,}/g)) if (exported.has(m[0])) ids.add(m[0]);
+  }
+  if (!ids.size) {
+    for (const f of sharedTs) {
+      let text = ''; try { text = readFileSync(resolve(ROOT, f), 'utf8'); } catch { /* 지워진 파일 */ }
+      for (const m of text.matchAll(/export (?:const|function|type|interface|class|enum|let) ([A-Za-z0-9_]+)/g)) ids.add(m[1]);
+    }
+  }
+  if (!ids.size) return { syms: 0, consumers: [], ok: false };
+  const list = [...ids]; const consumers = new Set();
+  // 이름을 한 번에 다 던지면 git grep 이 조용히 빈손으로 돌아온다 — 15개씩 끊는다.
+  for (let i = 0; i < list.length; i += 15) {
+    for (const h of git(['grep', '-l', '-w', '-E', list.slice(i, i + 15).join('|'), '--', 'src']).split('\n')) {
+      const m = h.replace(/\\/g, '/').match(/^src\/([^/]+)\//);
+      if (m && m[1] !== 'shared') consumers.add(m[1]);
+    }
+  }
+  return { syms: list.length, consumers: [...consumers].sort(), ok: true };
+}
 function foldersOf(files) {
-  const folders = new Set(); const extra = new Set(); const notes = []; let global = false;
+  const folders = new Set(); const extra = new Set(); const notes = []; const shared = []; let global = false;
   for (const f of files) {
     const p = f.replace(/\\/g, '/');
     if (GLOBAL_PATHS.some((re) => re.test(p))) { global = true; continue; }
+    // shared 는 기능 폴더가 아니다 — 모아뒀다가 루프 뒤에서 크기로 판단한다.
+    if (SHARED_RE.test(p)) { if (p.endsWith('.ts')) shared.push(p); continue; }
     const m = p.match(/^src\/([^/]+)\//); if (m) folders.add(m[1]);
     if (/^server\//.test(p)) folders.add('server');
     for (const e of EXTRA_PATHS) if (e.re.test(p)) e.smokes.forEach((n) => extra.add(n));
@@ -377,6 +445,19 @@ function foldersOf(files) {
       if (CSV_WIDE.has(csv)) notes.push(`data/${csv} 는 거의 모든 폴더가 읽는다 — 스모크를 고르지 않았다 (--folders 로 직접 주거나 verify:all)`);
       else if (CSV_FOLDERS[csv]) CSV_FOLDERS[csv].forEach((x) => folders.add(x));
       else notes.push(`data/${csv} 가 scripts/data-owners.mjs 의 CSV_FOLDERS 에 없다 — 스모크를 고르지 못했다`);
+    }
+  }
+  if (!global && shared.length) {
+    if (shared.length > SHARED_NARROW_FILES || folders.size > SHARED_NARROW_FOLDERS) {
+      global = true;
+      notes.push(`src/shared 코드 ${shared.length}개 · 기능 폴더 ${folders.size}개 — 넓은 변경이라 전체를 돈다 (좁은 기준: 파일 ${SHARED_NARROW_FILES} 이하 · 폴더 ${SHARED_NARROW_FOLDERS} 이하)`);
+    } else {
+      const { syms, consumers, ok } = sharedConsumers(shared);
+      if (!ok) { global = true; notes.push('src/shared 변경에서 바뀐 export 를 못 찾았다 — 안전하게 전체를 돈다'); }
+      else {
+        for (const f of consumers) folders.add(f);
+        notes.push(`src/shared 좁은 변경 — 바뀐 export ${syms}개를 쓰는 폴더: ${consumers.join(', ') || '(없음)'}`);
+      }
     }
   }
   return { folders: [...folders], extra: [...extra], global, notes };
@@ -402,7 +483,7 @@ function select() {
     const files = changedFiles();
     const { folders, extra, global, notes } = foldersOf(files);
     for (const n of notes) console.log(`  note: ${n}`);
-    if (global) { picked = names; reason = `changed: shared/core/bootstrap → all (${files.length} files)`; }
+    if (global) { picked = names; reason = `changed: engine/bootstrap or a wide shared change → all (${files.length} files)`; }
     else {
       // `extra` = `src/` 밖의 경로가 직접 고른 것 (docs/pitch → smoke-pitch). 폴더 매핑과 합집합이다.
       picked = names.filter((n) => extra.includes(n) || SMOKES[n].folders.some((f) => folders.includes(f)));
@@ -512,6 +593,8 @@ try {
   const { picked, reason } = select();
   console.log(`verify — ${reason}`);
   console.log(`  smokes: ${picked.length ? picked.join(', ') : '(none)'}   jobs: ${opts.jobs}   cpus: ${os.cpus().length}`);
+  /* 2026-09-16: `--dry-run` 은 고른 것만 찍고 끝낸다. shared 변경이 전체로 올라갈지 아닐지를 20분 써서 알아낼 수는 없다. */
+  if (opts.dryRun) { console.log(`  (--dry-run: ${picked.length} scripts, nothing run)`); process.exit(0); }
 
   // 1. Fast static checks, all in parallel.
   const npx = isWin ? 'npx.cmd' : 'npx';
@@ -520,7 +603,11 @@ try {
     fast.push(runCapture(npx, ['tsc', '--noEmit'], 'typecheck', { shell: isWin }).then((r) => summarize('typecheck', r)));
     fast.push(runCapture(npx, ['tsc', '--noEmit', '-p', 'server/tsconfig.json'], 'typecheck-server', { shell: isWin }).then((r) => summarize('typecheck-server', r)));
   }
-  fast.push(runCapture(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'server/selftest.ts'], 'net-selftest').then((r) => summarize('net-selftest', r)));
+  /* 2026-09-16: net:selftest 는 50초쯤 걸리는데 `fast` 를 다 기다린 뒤에야 스모크가 시작돼, 매 실행이 브라우저를 한 대도
+     안 띄운 채 50초를 버렸다. 이 검사는 **랜덤 포트에 자기 릴레이를 띄우는 순수 Node 테스트**(`server/selftest.ts` 머리 주석)라
+     8787 릴레이 · vite · 스모크와 겹쳐도 서로 건드리지 않는다 — 스모크와 나란히 돌리고 요약 직전에만 기다린다. */
+  const slow = [runCapture(process.execPath, ['--experimental-strip-types', '--disable-warning=ExperimentalWarning', 'server/selftest.ts'], 'net-selftest')
+    .then((r) => { const s = summarize('net-selftest', r); results.push(s); report(s); return s; })];
 
   // data/*.csv 는 수치의 단일 원본이다 — 오타는 게임을 죽이지 않고 조용히 기본값으로 굴러가므로 여기서 잡는다.
   fast.push(runCapture(process.execPath, ['scripts/data-check.mjs'], 'data-check').then((r) => summarize('data-check', r)));
@@ -571,10 +658,12 @@ try {
       results.push(s); report(s);
     };
     let next = 0;
-    const lane = async (i) => { await sleep(i * 8_000); while (next < pool.length) await runSmoke(pool[next++]); };
+    const stagger = Math.max(1_000, Math.round(RAMP_BUDGET_MS / Math.max(1, opts.jobs)));
+    const lane = async (i) => { await sleep(i * stagger); while (next < pool.length) await runSmoke(pool[next++]); };
     await Promise.all(Array.from({ length: Math.min(opts.jobs, pool.length) }, (_, i) => lane(i)));
     for (const name of solo) await runSmoke(name);
   }
+  await Promise.all(slow);
 } catch (err) {
   console.error(`\nverify aborted: ${err.message}`);
   results.push({ name: 'runner', ok: false, score: 'aborted', seconds: 0, fails: [], log: `${LOG_REL}/` });

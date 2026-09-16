@@ -12,14 +12,31 @@ runner options: `node scripts/verify.mjs --help`.
 |---|---|---|---|
 | 1. Static | `npm run typecheck` (`typecheck:server` if you touched the server) | seconds | After every edit |
 | 1b. Data | `npm run data:check` | seconds | When you touched `data/*.csv` |
-| 2. Feature | `npm run verify` | 1–2 min | After finishing a feature — only the smokes mapped to folders changed in the working tree (`--list` shows the map, `--folders` · `--only` override) |
+| 2. Feature | `npm run verify` | 1–2 min | After finishing a feature — only the smokes mapped to folders changed in the working tree (`--list` shows the map, `--dry-run` shows what this change picks, `--folders` · `--only` override) |
 | 3. Re-check | `node scripts/verify.mjs --rerun-failed` | < 1 min | Only what just failed (`scripts/logs/last-run.json`) |
-| 4. Full | `npm run verify:all` | ~10 min | Before a merge, or when you touched `src/shared` · `src/core` · `main.ts` (a change on those paths makes the runner go full by itself) |
+| 4. Full | `npm run verify:all` | ~18 min | **Once at the end of a work session, and before a merge** — not per commit. An engine/bootstrap path or a wide `src/shared` change makes the runner go full by itself anyway (see below) |
 | 5. Release | Run `npm run app:dist` once → check by eye that `release/SCAVANGER/` holds **only** `app/` · `SCAVANGER.exe` · `server.txt` (three entries — builds ship no server) | ~3 min | When you touched `electron/` · `scripts/pack-release.mjs` (the shell and the deploy folder are checked automatically by `smoke-desktop`) |
 
 The runner starts vite and the relay itself (it restarts the relay before `e2e:mp`), runs smokes on 4 GPU lanes, and prints
 one line per script plus the `FAIL` lines (full output in `scripts/logs/<name>.log`). On a machine without a GPU use
 `SMOKE_GL=swiftshader --jobs 1` (about 10× slower).
+
+## When step 2 becomes step 4
+
+`src/core` · `main.ts` · `index.html` · `vite.config` · `package.json` · `tsconfig` always select everything. `src/shared` is
+judged by size: **≤ 2 changed code files and ≤ 3 feature folders** picks the folders that use the changed exports (`.md` is not
+counted, and the runner falls back to full if it cannot name a single changed export); anything wider goes full. The reason is
+measured, not a guess — a wide shared change is a feature batch that its own folders already map to 91 of 95 smokes, while a
+narrow one (a contract commit: 6 files, 1 folder) used to cost the full 18 minutes for 5 smokes' worth of risk.
+
+`node scripts/verify.mjs --dry-run` prints the selection and the reason without running anything — use it when you are not sure
+whether a change is about to go full.
+
+The full run grows with the suite — 94 smokes × 40–90 s of simulated time each. **Raising `--jobs` does not shorten it**
+(measured: 4 lanes 18 min 30 s vs 8 lanes 20 min 00 s); a smoke waits on `ctx.time`, and below the 20 fps floor set by
+`Engine.MAX_DT` the game clock itself slows down, so extra lanes buy contention instead of throughput. If a single run is
+suddenly 2–3× slower, something else on the machine is holding the fast cores — re-run rather than tuning. The reasoning and
+the numbers live in [scripts/README.md](../scripts/README.md#why-the-run-takes-as-long-as-it-does).
 
 ## Several sessions in the same tree
 

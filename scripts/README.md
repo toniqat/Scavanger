@@ -8,7 +8,7 @@ each script's header comment — read it before editing a smoke.
 
 | File | Role |
 |---|---|
-| `verify.mjs` | **Verification runner** — `npm run verify` (smokes mapped to changed folders) / `npm run verify:all`. Runs typecheck (client + server) · `net:selftest` · `data:check` in parallel, starts vite 5273 + relay 8787 when needed, runs smokes on GPU lanes, `e2e-mp` alone last, writes `scripts/logs/last-run.json` and a `docs line:` for the commit's `검증:` line. Changes to `src/shared` · `src/core` · `main.ts` · `package.json` select everything; `EXTRA_PATHS` maps `docs/pitch/` and `electron/` |
+| `verify.mjs` | **Verification runner** — `npm run verify` (smokes mapped to changed folders) / `npm run verify:all`. Runs typecheck (client + server) · `net:selftest` · `data:check` in parallel, starts vite 5273 + relay 8787 when needed, runs smokes on GPU lanes, `e2e-mp` alone last, writes `scripts/logs/last-run.json` and a `docs line:` for the commit's `검증:` line. `src/core` · `main.ts` · `package.json` select everything, `src/shared` only when the change is wide (see the options below); `EXTRA_PATHS` maps `docs/pitch/` and `electron/` |
 | `data-check.mjs` | `npm run data:check` — loads `data/*.csv` through the game's own loaders in headless vite and prints `dataIssues()` as `data/file:line [col] — reason`; runs the salvage-economy check; `-- --write` regenerates `server/economy.gen.json` |
 | `data-owners.mjs` | Which modules load / consume each csv (`DATA_OWNERS`, `CSV_FOLDERS`, `CSV_WIDE`) — shared by `data-check` and `verify` |
 | `economy-table.mjs` | Builds, checks and staleness-tests `server/economy.gen.json` (item values, contract/quest rewards, price multipliers, repair, crypto, intel) |
@@ -160,20 +160,44 @@ app — typically red only on a long-lived dev server. Smokes that mutate module
 
 ### Runner options (`node scripts/verify.mjs --help`)
 
-- `--only a,b` · `--folders weapons,ui` · `--rerun-failed` (from `last-run.json`) · `--all` · `--list`.
-- `--jobs N` (default 4) · `--serial` · `--base <ref>` · `--build` · `--no-typecheck` · `--no-e2e` · `--url` · `--timeout <min>`.
+- `--only a,b` · `--folders weapons,ui` · `--rerun-failed` (from `last-run.json`) · `--all` · `--list` · `--dry-run` (print the selection and why, run nothing).
+- `--jobs N` (default 4 — **do not raise it**, see “Why the run takes as long as it does” below) · `--serial` · `--base <ref>` · `--build` · `--no-typecheck` · `--no-e2e` · `--url` · `--timeout <min>`.
 - `--log-dir scripts/logs/<name>` gives each concurrent runner its own logs and `last-run.json`; `--keep-relay` keeps a relay already on 8787.
 - Unknown options and `--help` print help and **run nothing**.
 - The runner starts its own relay with `SCAV_DEV_ECONOMY=1` so dev credit reasons (`smoke:*` · `e2e:*` · console · `shot`) are accepted.
   **A shared relay started by hand for parallel smokes needs `SCAV_DEV_ECONOMY=1`** — otherwise top-ups are reverted (the runner prints a note
   when `/health.devEconomy` is false).
 - `data/<file>.csv` changes select smokes of the consuming folders (`data-owners.mjs`); `constants.csv` / `tables.csv` are wide and only print a note.
+- **`src/shared` is judged by size, not by being touched.** ≤ `SHARED_NARROW_FILES` (2) changed `.ts` files **and** ≤ `SHARED_NARROW_FOLDERS` (3)
+  feature folders → the runner greps the changed exports and adds the folders that use them (`sharedConsumers`); wider → everything, as before.
+  `.md` under `src/shared` is ignored, and a change whose diff names no export at all falls back to everything. Raising the two constants trades
+  safety for time: measured over the last 40 commits, the full run fires 29× under the old rule, 25× at (2, 3), and 18× at (3, no folder limit) —
+  a wide commit selects 91 of 95 smokes through its own folders anyway, so the folder limit mostly buys the last handful.
+
+## Why the run takes as long as it does
+
+Measured 2026-09-16 on 28 threads (i7-14700K, 8 P-cores + 12 E-cores) / RTX 4070 SUPER.
+
+- A smoke's wall-clock time is **simulation time, not machine work**. Smokes wait on `ctx.time`, and `Engine.MAX_DT = 0.05`
+  puts a **20 fps floor** under it: below 20 fps the game clock runs slower than the wall clock, so a page at 10 fps makes
+  its smoke take exactly twice as long. The page's game loop is single-threaded JS, so what matters is one fast core per lane,
+  not total cores.
+- **More lanes is a loss, not a win.** `--all` on 4 lanes = 18 min 30 s, on 8 lanes = **20 min 00 s**, with the machine idle
+  either way (CPU 40 % · GPU 3D 20 % · VRAM 5/12 GB · disk 2 %). At 8 lanes the per-smoke times split in two: light scenes stay
+  at ×1.05 (`smoke-phase2` · `smoke-pose` · `smoke-aim-sway`), heavy ones stretch ×1.7–3.5 (`smoke-tutorial-raid` ×3.47 ·
+  `smoke-allies-core` ×3.39 · `smoke-site-spawns` ×3.33) — total work ×1.68, which cancels twice the lanes. 4 lanes ≈ 8 busy
+  threads fits the P-cores; past that Chrome main threads land on E-cores and drop under the floor.
+- **A run that is suddenly 2–3× slower is the machine, not the suite.** Anything that takes the P-cores (a browser, Excel, a
+  corporate agent) pushes the smoke Chromes onto E-cores for as long as it lasts; whole groups of smokes then finish in the
+  same second. Re-run before believing a slow number — and do not tune anything from one.
+- To make the suite genuinely faster, cut the frames a smoke has to wait through (fewer full reboots, less simulated time), or
+  cut the per-frame JS cost of a smoke page. Raising lane count cannot do it.
 
 ## Recent changes
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
+- 2026-09-16 — `verify.mjs`: a `src/shared` change no longer selects everything by itself — narrow ones pick the folders that use the changed exports (`sharedConsumers`); new `--dry-run`.
+- 2026-09-16 — `verify.mjs`: `net:selftest` now runs alongside the smokes (it used to hold the browsers back ~50 s), and the lane start times share one 24 s ramp budget instead of 8 s per lane; measured why `--jobs` must stay at 4.
 - 2026-09-16 — `smoke-cooking` covers dining plates (table gate, replace warning, eat without consuming, squad plates, launch warning, raid-start clear); `smoke-inventory-p6` cook section tests `consumeCookInputs` (meal quality stack checks removed); data-check resolves meal ids in the meal table.
 - 2026-09-15 — New `smoke-thumper` (진동 장치 in gadgets/; stubs `burrowGroundOk` until world publishes it).
 - 2026-09-15 — `e2e-multiplayer.mjs`: player names are set after both clients join the lobby (profile load was resetting them).
-- 2026-09-15 — New `smoke-allies-core` · `smoke-allies-orders` (the android AI itself in allies/).
-- 2026-09-15 — New `smoke-ally-ui` (android squad rows / nameplates / map / pings / chat / toasts and the loading gauge in ui/).

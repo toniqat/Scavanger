@@ -48,7 +48,8 @@ npm run app:dist   # full deploy folder release/SCAVANGER/ (3 entries, no server
 npm run icon       # redraw electron/resources/icon.ico from code (--png = preview)
 
 npm run verify     # after a feature: typecheck + selftest + smokes mapped to touched folders (4 lanes)
-npm run verify:all # before merge: everything + build + e2e:mp (~10 min)
+node scripts/verify.mjs --dry-run   # what the current change would run, and why — runs nothing
+npm run verify:all # end of a work session / before merge: everything + build + e2e:mp (~18 min; --jobs stays 4)
 npm run net:selftest   # relay protocol self-test (no browser)
 npm run e2e:mp         # two headless Chromes through relay + vite
 
@@ -59,8 +60,10 @@ node scripts/smoke-desktop.mjs # real Electron shell (--hidden · temp userData 
 ```
 
 `npm run verify` picks smokes by folder (`node scripts/verify.mjs --list`); a `data/<file>.csv` change picks the folders that
-consume it (`scripts/data-owners.mjs`). Unknown options / `--help` print help and run nothing. Several runners in one tree:
-`--log-dir scripts/logs/<name> --keep-relay`.
+consume it (`scripts/data-owners.mjs`). A **narrow** `src/shared` change (≤ 2 code files and ≤ 3 feature folders) picks the folders
+that use the changed exports instead of going full; anything wider, or `src/core` · `main.ts` · `vite.config` · `package.json` ·
+`tsconfig`, still selects everything. `--dry-run` prints the selection and its reason without running. Unknown options / `--help`
+print help and run nothing. Several runners in one tree: `--log-dir scripts/logs/<name> --keep-relay`.
 
 **Deploy folder** (`npm run app:dist`, ship it zipped): exactly `app/` (Electron build) · `SCAVANGER.exe` (stub launcher,
 `electron/launcher.cs`) · `server.txt` (server address, the only file a receiver edits). **Builds ship no server**: a server
@@ -310,8 +313,8 @@ AAA feel in the browser: readable silhouettes, strong lighting (sun + hemisphere
 ## 6. Verification & recording (details: [docs/VERIFICATION.md](docs/VERIFICATION.md))
 
 - **After every edit**: `npm run typecheck`; `npm run data:check` if `data/*.csv` changed.
-- **After a feature**: `npm run verify` (smokes mapped to touched folders, 4 GPU lanes; the runner starts vite/relay).
-- **Before merge, or after touching `src/shared` · `src/core` · `main.ts`**: `npm run verify:all` (+ build + `e2e:mp`). Don't run smokes one by one by hand.
+- **After a feature**: `npm run verify` (smokes mapped to touched folders, 4 GPU lanes; the runner starts vite/relay). `--dry-run` first if you want to see what it picked.
+- **End of a work session, and before merge**: `npm run verify:all` (+ build + `e2e:mp`, ~18 min). Once, not per commit — during the session `verify` is the check. Don't run smokes one by one by hand.
 - **Deploy files touched** (`pack-release.mjs`, `electron/`): `verify` runs `smoke-desktop`; run `npm run app:dist` once and check `release/SCAVANGER/` has exactly three entries (`node scripts/smoke-desktop.mjs --release` checks it).
 - Debug hooks: `window.__game.ctx`, `window.__game.getSystem('player'|'weapons'|'net'|'enemies'|…)`.
 - **When done, record each fact in exactly one place:**
