@@ -1,5 +1,5 @@
 import type { TutorialStepId, TutorialTrack } from '@/shared';
-import { PLANET_IDS, TUTORIAL_STEPS, TUTORIAL_TRACK_STEPS, tutorialTrackOf } from '@/shared';
+import { PLANET_IDS, TUTORIAL_RAID_EXTRACT_VALUE_C, TUTORIAL_STEPS, TUTORIAL_TRACK_STEPS, tutorialTrackOf } from '@/shared';
 import {
   RAID_KILLS_PER_STEP, SPOT_STATS_RAISE, STATS_RAISE_TEXT, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE,
   type StepDef,
@@ -22,14 +22,34 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     // 2026-09-15: 목표 줄은 문장이 아니라 명사구다 — `hint` 가 목표가 되던 단계에도 짧은 줄을 적는다
     objectives: [{ id: 'introRead', text: '시작 안내 확인' }],
   },
+  /*
+   * 2026-09-17 (사용자 결정 — 「여러 스텝을 하나의 스텝 내 여러 목표로」): **① 시설 관리 → 작업실 증축** 한 단계다 (옛 `manage` ·
+   * `generator` · `workshop`). 목표가 순차 공개되고, 포커싱 · 안내선은 **지금 할 목표**의 것이다 (`model.currentObjective`).
+   * 「발전기 가동」 줄은 발전기가 Lv.0 인 함선에서만 선다 — 새 함선은 처음부터 Lv.1 이라 `TutorialSystem.objectivesFor` 가
+   * 그 줄을 목록에서 뺀다 (옛 `generator` 단계의 「조용히 지나치기」와 같은 뜻). 넘어가는 신호는 작업실 증축 하나다.
+   */
   manage: {
-    id: 'manage', title: '함선 관리를 여세요',
-    hint: '화면 우측 아래의 시설 관리 버튼이 알려 주는 키(M)를 누르면 함선 관리 화면이 열립니다.',
-    objectives: [{ id: 'manageOpen', text: '함선 관리 열기' }],
-    // 2026-09-08: 아무것도 안 열린 상태라 밝힐 화면이 없었다 — 우측 하단에 늘 떠 있는 `시설 관리` 키 힌트를
-    //   가리켜 "어디를 봐야 하는지"부터 알려 준다 (`ui/hud/ShipManageHint`).
+    id: 'manage', title: '빈 방을 작업실로 증축하세요',
+    hint: '시설 관리 키를 눌러 함선 관리 화면을 열고, 빈 방을 작업실로 증축합니다.',
+    objectives: [
+      {
+        id: 'manageOpen', text: '{MAP} 시설 관리 열기',
+        // 2026-09-08: 아무것도 안 열린 상태라 밝힐 화면이 없었다 — 우측 하단에 늘 떠 있는 `시설 관리` 키 힌트를 가리킨다
+        spot: ['.ship-hint'], spotText: '시설 관리 {MAP}',
+      },
+      {
+        id: 'generatorOn', text: '발전기 가동', reveal: true,
+        spot: ['.sm-gen .sm-gen-btn', '.sm-gen', '.sm-side'], spotText: '발전기 가동',
+      },
+      {
+        id: 'workshopBuilt', text: '빈 방을 작업실로 증축', reveal: true,
+        spot: ['.sm-purposes .sm-purpose[data-purpose="workshop"]', '.sm-purposes', '.sm-side'], spotText: '빈 방의 시설 증축 → 작업실',
+      },
+    ],
+    // 작업실은 처음부터 열어 둔다 — 줄이 바뀔 때마다 용도 목록이 흔들리지 않게 (`ui/hud/ShipManage` 는 단계 id 로만 다시 그린다)
+    allow: { roomPurpose: [TUTORIAL_ROOM_PURPOSE] },
     spot: ['.ship-hint'],
-    spotText: '시설 관리 — M',
+    spotText: '시설 관리 {MAP}',
   },
   /* 2026-09-13 (사용자 결정 — 전력 할당 폐지): 새 함선의 발전기는 처음부터 Lv.1 이라 이 단계는 `TutorialSystem.setStep` 이 늘 조용히 지나친다.
      발전기가 Lv.0 인 함선이 없어졌을 뿐 단계 id 는 계약(`TUTORIAL_STEPS`)이라 남긴다. */
@@ -50,13 +70,40 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     spot: ['.sm-purposes .sm-purpose[data-purpose="workshop"]', '.sm-purposes', '.sm-side'],
     spotText: '빈 방의 시설 증축 → 작업실',
   },
+  /*
+   * 2026-09-17 (사용자 결정): **② 총기 작업대 제작 → 가구 창고 탭 → 가구 배치 → 하우징 모드 닫기** (옛 `bench` · `benchPlace` ·
+   * `manageDone`). 가구 제작은 가운데 모달(`.sm-craft`)의 **1초 홀드** 버튼(`.sm-craft-ok`)이다 — 모달이 떠 있으면 그 버튼을,
+   * 아니면 카드를 밝힌다 (먼저 찾히는 하나). 「가구 창고 탭」은 탭 버튼이 켜져 있는가를 `TutorialSystem.poll` 이 본다.
+   * 가구를 집은(커서에 든) 동안에는 포커싱을 접는다 — 내려놓을 바닥을 어두운 판이 덮으면 안 된다 (`benchArmed`).
+   * 배치가 끝났는데 하우징 모드가 이미 닫혀 있으면 마지막 줄은 할 일이 없으므로 그대로 넘어간다 (옛 `manageDone` 의 조용히 지나치기).
+   */
   bench: {
-    id: 'bench', title: '총기 작업대를 만드세요',
-    hint: '가구 제작 탭에서 총기 작업대의 제작을 누릅니다. 만든 가구는 가구 창고로 들어갑니다.',
-    objectives: [{ id: 'benchCrafted', text: '총기 작업대 제작' }],
-    allow: { furniture: [TUTORIAL_BENCH_DEF] },
-    spot: ['.sm-cards .fcard[data-def-id="furn_bench_gun"]', '.sm-cards', '.sm-side'],
-    spotText: '총기 작업대 제작',
+    id: 'bench', title: '총기 작업대를 만들어 배치하세요',
+    hint: '가구 제작에서 총기 작업대를 길게 눌러 만들고, 가구 창고 탭에서 작업실에 배치한 뒤 하우징 모드를 닫습니다.',
+    objectives: [
+      {
+        id: 'benchCrafted', text: '총기 작업대 제작',
+        spot: ['.sm-craft .sm-craft-ok', '.sm-cards .fcard[data-def-id="furn_bench_gun"]', '.sm-cards', '.sm-side'],
+        spotText: '길게 눌러 총기 작업대 제작',
+      },
+      {
+        id: 'benchStore', text: '가구 창고 탭으로 이동', reveal: true,
+        spot: ['.sm-tabs .sm-tab[data-tab="store"]', '.sm-side'], spotText: '가구 창고 탭',
+      },
+      {
+        id: 'benchDown', text: '가구 배치', reveal: true,
+        spot: ['.sm-store .fcard[data-def-id="furn_bench_gun"]', '.sm-tabs .sm-tab[data-tab="store"]', '.sm-side'],
+        spotText: '가구 창고 → 총기 작업대 배치',
+      },
+      {
+        id: 'manageClose', text: '{INVENTORY} 하우징 모드 닫기', reveal: true,
+        // 관리 모드가 켜져 있는 동안 우측 하단 키 가이드(`ui/hud/KeyGuide`)가 스스로 붙이는 `Tab 닫기` 항목
+        spot: ['.key-guide .kg-close', '.key-guide'], spotText: 'Tab — 하우징 모드 닫기',
+      },
+    ],
+    allow: { furniture: [TUTORIAL_BENCH_DEF], manageExit: true },
+    spot: ['.sm-craft .sm-craft-ok', '.sm-cards .fcard[data-def-id="furn_bench_gun"]', '.sm-cards', '.sm-side'],
+    spotText: '길게 눌러 총기 작업대 제작',
   },
   benchPlace: {
     id: 'benchPlace', title: '만든 작업대를 배치하세요',
@@ -98,14 +145,25 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
    * 사라지므로(`hides`), 소총을 만드는 순간 그 행이 빠지고 탄약 행이 튀어나오면 목록이 흔들린다. 어느 것을
    * 만들 차례인지는 스포트라이트가 가리킨다.
    */
+  /*
+   * 2026-09-17 (사용자 결정): **③ 작업실로 이동 → 작업대 작동 → 돌격소총 → 준중량탄 → 제작창 닫기** (옛 `craftGun` · `craftAmmo` ·
+   * `openBag`). 준중량탄 재료는 소총이 완성되는 순간 채운다 (`TutorialSystem.onCrafted` → `ensureMaterials`). 닫기는 작업대 창째
+   * 닫는다 (`inventory/parts/Crafting.closeCraftWindow`) — 그것이 이 단계의 끝이다.
+   * 걸어가는 두 줄은 스포트라이트가 없고(아직 창이 없다) 안내선이 작업대를 가리킨다. 창 안의 줄은 안내선이 없다.
+   */
   craftGun: {
-    id: 'craftGun', title: '작업대에서 돌격소총을 만드세요',
-    hint: '작업실로 걸어가 총기 작업대를 사용하고 돌격소총 제작을 1초간 누릅니다.',
-    // 2026-09-14 3차: 「이동 → 작동 → 만들기」 세 줄 (순차 공개). 첫 줄은 작업대 앞에 서면 달성이다.
+    id: 'craftGun', title: '작업대에서 돌격소총과 탄약을 만드세요',
+    hint: '작업실로 걸어가 총기 작업대를 사용하고 돌격소총 · 준중량탄 제작을 1초간 누른 뒤 제작창을 닫습니다.',
     objectives: [
-      { id: 'craftGunWalk', text: '작업실로 이동' },
-      { id: 'craftGunOpen', text: '총기 작업대 작동', reveal: true },
-      { id: 'craftGunMade', text: '돌격소총 제작', reveal: true },
+      { id: 'craftGunWalk', text: '작업실로 이동', arrive: true, spot: [] },
+      { id: 'craftGunOpen', text: '총기 작업대 작동', reveal: true, spot: [] },
+      { id: 'craftGunMade', text: '돌격소총 제작', reveal: true, guide: null },
+      {
+        id: 'craftAmmoMade', text: '준중량탄 제작', reveal: true, guide: null,
+        spot: [`.inv-craft-row[data-recipe="${TUTORIAL_AMMO_RECIPE}"] .inv-craft-btn`, `.inv-craft-cell[data-recipe="${TUTORIAL_AMMO_RECIPE}"]`, '.inv-panel-craft'],
+        spotText: '준중량탄 제작',
+      },
+      { id: 'craftClosed', text: '제작창 닫기', reveal: true, guide: null, spot: ['.inv-craft-close', '.inv-panel-craft'], spotText: '제작창 닫기' },
     ],
     arriveObjective: 'craftGunWalk',
     // 관리 모드를 다시 열어도(콘솔 · 저장 복구 · 되돌아간 사람) 가구 카드가 통째로 비지 않도록 작업대는 계속
@@ -160,9 +218,15 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
      * 닫혀 있으면 `TutorialSystem` 이 단계에 들어서는 순간 그 줄을 달성으로 적어 다음 줄이 바로 열린다.
      * 스포트라이트도 `craftOpen` 을 따라 닫기 버튼 ↔ 장비칸+가방으로 갈린다 (`TutorialSystem.stepView`).
      */
+    /*
+     * 2026-09-17 (사용자 결정): **④ Tab 인벤토리 열기 → 돌격소총 장착.** 포커싱은 **딤 없이**(`spotNoDim`). 장착하면 체크만 긋고
+     * **인벤토리를 닫을 때까지 조용히 기다린다** — 목표 줄은 없다 (`TutorialSystem.poll`). 예전의 `stowAmmo`(탄약을 가방으로)는
+     * 없어졌다. 옛 `equipClose` 줄은 앞 단계가 제작창 닫기로 끝나므로 빠졌다 — 제작 창이 열린 채 들어서는 드문 길(콘솔)만
+     * `stepView` 가 닫기 버튼을 먼저 밝힌다.
+     */
     objectives: [
-      { id: 'equipClose', text: '제작 창 닫기' },
-      { id: 'equipSlot', text: '소총을 주무기 I · II 칸에 장착', reveal: true },
+      { id: 'equipOpen', text: '{INVENTORY} 인벤토리 열기', spot: [] },
+      { id: 'equipSlot', text: '돌격소총 장착', reveal: true },
     ],
     // 직전 단계의 레시피는 그대로 열어 둔다 — 막힌 레시피는 목록에서 사라지므로 작업대가 통째로 비지 않게.
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
@@ -175,6 +239,8 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     // 2026-09-16: 함선 Tab 이 창고 | 장비 | 가방이 되어 창고가 그 카드 밖(장비 열 왼쪽)이다 → 마지막 칸은 `.inv-panel-stash`.
     spot: ['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-stash'],
     spotUnion: true,
+    // 2026-09-17 (사용자 결정): 화면 전체 딤은 없다 — 구멍 · 링 · 말풍선만 (`corpseLoot` 과 같다)
+    spotNoDim: true,
     spotText: '창고의 소총 → 주무기 I · II 칸',
   },
   openCraft: {
@@ -198,15 +264,28 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     spotUnion: true,
     spotText: '준중량탄을 가방으로',
   },
+  /*
+   * 2026-09-17 (사용자 결정): **⑤ 조종석 이동 → 터미널 작동 → 목표 행성 지정 → (워프 대기) → 발사 슬롯으로 이동 → 탑승 →
+   * `{JUMP:hold}` 준비** (옛 `terminal` · `planet` · `travel` · `board`). 워프를 기다리는 줄은 없다 — 「발사 슬롯으로 이동」은 워프가
+   * 끝나야(`travelDone`, 목록에 없는 id) 열린다. 포드는 그 줄이 보이는 순간부터 열린다 (목표별 `allow`). 이 트랙 동안
+   * 터미널의 `시뮬레이션 훈련장` 버튼과 준비 때의 출격 준비 경고는 감춰진다 (`training` · `launchWarn` 게이트).
+   * 레이드가 시작되면(`game:newMission`) 다음 단계다.
+   */
   terminal: {
-    id: 'terminal', title: '조종석 터미널을 사용하세요',
-    hint: '조종석으로 걸어가 터미널에 상호작용합니다.',
+    id: 'terminal', title: '행성을 정하고 출격하세요',
+    hint: '조종석 터미널에서 목표 행성을 정하고, 워프가 끝나면 발사 슬롯에 타서 준비합니다.',
     objectives: [
-      { id: 'terminalWalk', text: '조종석으로 이동' },
-      { id: 'terminalOpen', text: '조종석 터미널 작동', reveal: true },
+      { id: 'terminalWalk', text: '조종석으로 이동', arrive: true, guide: 'terminal' },
+      { id: 'terminalOpen', text: '조종석 터미널 작동', reveal: true, guide: 'terminal' },
+      {
+        id: 'planetPicked', text: '목표 행성 지정', reveal: true, guide: null,
+        spot: ['.hp-travel', '.hub-col.centre', '.menu.hub-menu.fullscreen .frame'], spotText: '행성 이동',
+      },
+      { id: 'boardWalk', text: '발사 슬롯으로 이동', reveal: true, revealOn: 'travelDone', arrive: true, guide: 'pod', allow: { board: true } },
+      { id: 'boardOn', text: '발사 슬롯 탑승', reveal: true, guide: 'pod' },
+      { id: 'readyHold', text: '{JUMP:hold} 를 길게 눌러 시작 준비', reveal: true, guide: null },
     ],
-    arriveObjective: 'terminalWalk',
-    allow: { terminal: true },
+    allow: { terminal: true, planet: [PLANET_IDS[0]] },
     guide: 'terminal',
   },
   planet: {
@@ -234,10 +313,20 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     allow: { terminal: true, board: true },
     guide: 'pod',
   },
+  /*
+   * 2026-09-17 (사용자 결정): **⑥ 레이드 퀘스트** — 이번 레이드에서 얻은 아이템(`raidFound`)의 판매가 합이
+   * `TUTORIAL_RAID_EXTRACT_VALUE_C` 이상인 채로 탈출. **기회는 한 번**: 탈출 · 사망 · 포기 어느 쪽이든 그 레이드가 끝나면 트랙이
+   * 끝나고, 목표는 조건을 채워 탈출했을 때만 체크된다 (`TutorialSystem.onBuildRaidEnd`). 진행 수는 지금 몸에 지닌 그 합이다.
+   * 우측에는 이 레이드에서만 조작 가이드가 뜬다 (`model.RAID_GUIDE_HINTS`, `]` 로 접기).
+   */
   raid: {
-    id: 'raid', title: '탈출 지점을 확인하세요',
-    hint: '나침반과 화면의 마커가 탈출 지점을 가리킵니다. 안내는 여기까지입니다.',
-    objectives: [{ id: 'raidExit', text: '탈출 지점 확인' }],
+    id: 'raid', title: '행성에서 전리품을 챙겨 탈출하세요',
+    hint: '레이드에서 얻은 아이템을 챙겨 무사히 탈출합니다.',
+    objectives: [{
+      id: 'raidValue',
+      text: `행성에서 가치 ${TUTORIAL_RAID_EXTRACT_VALUE_C.toLocaleString('en-US')} C 이상 아이템을 획득한 후 무사히 탈출`,
+      count: TUTORIAL_RAID_EXTRACT_VALUE_C, countUnit: 'C',
+    }],
     // 레이드는 그대로 진행된다 — 이 단계에서는 아무것도 막지 않고 아무것도 감추지 않는다.
     allow: {
       roomPurpose: true, furniture: true, manageExit: true, craft: true,
@@ -560,10 +649,37 @@ export const isOrderedStep = (id: string): id is TutorialStepId =>
  */
 export function normalizeStep(id: string | null | undefined): TutorialStepId | null {
   if (typeof id !== 'string') return null;
-  if (id === 'openCraft') return 'craftAmmo';
+  // 2026-09-17: 증축 트랙이 7 단계로 묶였다 — 빠진 단계는 자기를 삼킨 단계로 (`RETIRED_BUILD`)
+  const grouped = RETIRED_BUILD[id];
+  if (grouped) return grouped.step;
   // 2026-09-16 2차: 「메뉴 열기」는 `stats` 의 첫 목표가 됐다 — 그 자리에 서 있던 저장은 `stats` 를 처음부터 한다
   if (id === 'levelUp') return 'stats';
   return isOrderedStep(id) ? id : null;
+}
+
+/**
+ * 2026-09-17 (사용자 결정 — 증축 트랙 17 → 7 단계): 순서에서 빠진 증축 단계 → **그것을 삼킨 단계**와 그 자리에 서 있던 사람이
+ * **이미 한 목표**. 옛 저장이 새 단계의 첫 줄부터 다시 하지 않게 `TutorialSystem.load` 가 목표를 채워 넣는다.
+ * (`openCraft` 는 2026-09-09 부터 `craftAmmo` 로 옮겨졌고, 이제 그 `craftAmmo` 도 `craftGun` 에 들어갔다.)
+ * `stowAmmo` 는 할 일이 없어진 단계라 다음 단계(`terminal`)의 처음이다.
+ */
+const RETIRED_BUILD: Readonly<Record<string, { step: TutorialStepId; done: readonly string[] }>> = {
+  generator: { step: 'manage', done: ['manageOpen'] },
+  workshop: { step: 'manage', done: ['manageOpen', 'generatorOn'] },
+  benchPlace: { step: 'bench', done: ['benchCrafted'] },
+  manageDone: { step: 'bench', done: ['benchCrafted', 'benchStore', 'benchDown'] },
+  craftAmmo: { step: 'craftGun', done: ['craftGunWalk', 'craftGunOpen', 'craftGunMade'] },
+  openCraft: { step: 'craftGun', done: ['craftGunWalk', 'craftGunOpen', 'craftGunMade'] },
+  openBag: { step: 'craftGun', done: ['craftGunWalk', 'craftGunOpen', 'craftGunMade', 'craftAmmoMade'] },
+  stowAmmo: { step: 'terminal', done: [] },
+  planet: { step: 'terminal', done: ['terminalWalk', 'terminalOpen'] },
+  travel: { step: 'terminal', done: ['terminalWalk', 'terminalOpen', 'planetPicked'] },
+  board: { step: 'terminal', done: ['terminalWalk', 'terminalOpen', 'planetPicked', 'travelDone'] },
+};
+
+/** 옛 증축 단계 id 면 그 자리에서 이미 한 목표 (새 단계 기준), 아니면 null. */
+export function retiredObjectives(id: string | null | undefined): readonly string[] | null {
+  return typeof id === 'string' ? RETIRED_BUILD[id]?.done ?? null : null;
 }
 
 /**

@@ -3,7 +3,7 @@ import type {
   ShopItem, TradeGridsView, TradeGridsViewOptions,
 } from '@/shared';
 import {
-  CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, ITEM_FAVORITE_MENU_ATTR, REP_TABLE, SHOP_UNLOCK_REP_LEVEL, UI_HOLD_CONFIRM_S,
+  CONTRACT_GOAL_LABEL_KO, CORP_ACCESS_REP_LEVEL, CORP_DEFS, CORP_IDS, ITEM_FAVORITE_MENU_ATTR, REP_TABLE, SHOP_UNLOCK_REP_LEVEL, UI_HOLD_CONFIRM_S,
   appendCurrencyRewards, buildItemChip, createHoldButtonCap, formatCreditAmount, formatCredits, renderItemCost, repCurrencyId,
 } from '@/shared';
 import type { ImplantRepairInfo, ImplantRepairResult, MetaSystem, PurchaseFailure } from '../MetaSystem';
@@ -320,6 +320,14 @@ export class CorpView {
 
   setCorp(corp: CorpId): void {
     if (this.corp === corp || !CORP_DEFS[corp]) return;
+    // 2026-09-17 (사용자 결정): 신뢰도가 `CORP_ACCESS_REP_LEVEL` 미만인 기업은 고를 수 없다 — 하위 탭 잠금과 같은 결로 클릭은 받아 이유를 말한다
+    const lock = this.corpLock(corp);
+    if (lock) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      this.ctx.bus.emit('ui:notify', { text: `${CORP_DEFS[corp].name} · ${lock}`, kind: 'warning', duration: 2.2 });
+      this.showMsg(`${CORP_DEFS[corp].name} · ${lock}`, 'danger');
+      return;
+    }
     this.corp = corp;
     this.clearBasket();              // a basket belongs to the corp it was assembled at
     this.selectedImplant = null;
@@ -332,7 +340,25 @@ export class CorpView {
 
   /** Used by the overlay when it is (re-)opened on a specific corp, without the click SFX / repaint. */
   setCorpSilent(corp: CorpId): void {
-    if (CORP_DEFS[corp]) this.corp = corp;
+    if (CORP_DEFS[corp] && !this.corpLock(corp)) this.corp = corp;
+  }
+
+  /**
+   * 2026-09-17 (사용자 결정): why `corp` cannot be selected (Korean), or null. A corp opens at `CORP_ACCESS_REP_LEVEL` — the
+   * first level comes from that corp's first NPC quest (`data/npc_quests.csv`), and every contract starts at Lv.1.
+   */
+  corpLock(corp: CorpId): string | null {
+    return this.meta.getRep(corp).level < CORP_ACCESS_REP_LEVEL ? `신뢰도 Lv.${CORP_ACCESS_REP_LEVEL} 필요` : null;
+  }
+
+  /** `this.corp` when it is open, else the first open corp in rail order (unchanged when none is — the tab is hidden then). */
+  private resolveCorp(): void {
+    if (!this.corpLock(this.corp)) return;
+    const open = CORP_IDS.find((id) => !this.corpLock(id));
+    if (!open) return;
+    this.corp = open;
+    this.clearBasket();
+    this.selectedImplant = null;
   }
 
   /**
@@ -387,10 +413,16 @@ export class CorpView {
   refresh(): void {
     if (this.disposed) return;
     const meta = this.meta;
+    this.resolveCorp();              // 2026-09-17: a Lv.0 corp is never the selected one while an open corp exists
     for (const id of CORP_IDS) {
       const r = meta.getRep(id);
       const tab = this.corpTabs.get(id)!;
       setText(this.corpLv.get(id)!, `Lv.${r.level}`);
+      // never `disabled`: the locked corp still takes the click that explains itself (same as the sub-tabs)
+      const lock = this.corpLock(id);
+      tab.title = lock ?? '';
+      toggleClass(tab, 'is-locked', lock !== null);
+      tab.setAttribute('aria-disabled', lock ? 'true' : 'false');
       toggleClass(tab, 'is-on', id === this.corp);
       tab.setAttribute('aria-expanded', id === this.corp ? 'true' : 'false');
     }

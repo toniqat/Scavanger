@@ -19,7 +19,7 @@ aboard and alive. No defense waves. Host-authoritative in multiplayer. All geome
 
 ## Timeline
 Numbers are `data/constants.csv` keys.
-1. Hold E on a console (`탈출 신호 전송 (E 길게)`) → `extraction:activated`, flare on, other consoles off.
+1. Hold E on a console (`탈출 신호 전송`; the hold keycap shows the hold) → `extraction:activated`, flare on, other consoles off.
 2. `EXTRACTION_COUNTDOWN` (`extraction:tick`); 12 s left → `extraction:shipIncoming` + approach.
 3. Touchdown → hull registered, ramp open, `extraction:shipLanded`, idle `EXTRACTION_AUTO_DEPART_IDLE_S` (`departureTick waiting`).
 4. Living boarded player holds the switch, or idle hits 0 → `EXTRACTION_DEPART_GRACE_S` grace (`departureStarted`,
@@ -84,8 +84,8 @@ sees the usual events. Host takeover promotes the mirror fields, rebuilds `board
 
 ## Recent changes
 Last 5 only — older: `git log -- src/extraction`.
+- 2026-09-17 — Console caption `탈출 신호 전송` (no `(E 길게)`); `FlareColumn` emits group-local (smoke/embers were drawn at twice the pad's world position).
 - 2026-09-16 — Liftoff switch prompt is `출발 시퀀스 작동` for every ship.
 - 2026-09-15 — `Ship.ts` drawn-deck ground clearance (`GROUND_DRAW_LIFT_MAX`, no landed bob); tutorial switch caption `출발 시퀀스 시작`.
 - 2026-09-15 — Android hooks: `getPads` / `requestActivate` / `boardingPoint` on `ctx.extraction`.
 - 2026-09-15 — `Ship.ts` coplanar budget fixes floor / side wall / ceiling z-fighting.
-- 2026-09-15 — Tutorial liftoff: riders hit but clamped at 1 hp, hull removed at once, `holdFire` false; `skipToComplete`.

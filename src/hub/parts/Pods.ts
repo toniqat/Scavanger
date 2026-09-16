@@ -193,6 +193,8 @@ export function toggleReady(sys: HubSystem): void {
   // into a console line, so an inventory hiccup here would look exactly like "스페이스를 눌러도 아무 일도 없다".
   let warnings: readonly LaunchWarning[] = [];
   try { warnings = ctx.inventory?.getLaunchWarnings?.() ?? []; } catch (e) { console.error('[hub] getLaunchWarnings threw', e); warnings = []; }
+  // 2026-09-17 (사용자 결정): 튜토리얼 증축 안내 동안에는 준비 경고(기업 계약 · 방탄복 없음 …)를 띄우지 않는다 — 곧바로 준비된다
+  if (ctx.tutorial?.hides('launchWarn')) warnings = [];
   const sig = LaunchWarnPanel.signatureOf(warnings);
   if (warnings.length === 0) sys.launchWarnAck = '';   // fully kitted out again → the next lapse asks afresh
   else if (sig !== sys.launchWarnAck) {

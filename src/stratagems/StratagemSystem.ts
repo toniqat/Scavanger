@@ -256,7 +256,7 @@ export class StratagemSystem implements GameSystem, StratagemsRef {
     this._cooldownTotal = 0;
     this.cooldownEmitAcc = 0;
     // `refunded` (E-8): tells the toast this 0 is a refusal being given back, not a cooldown that ran out —
-    // without it 「호출이 거절되었습니다」 and 「함선 호출 준비 완료」 pop side by side (`ui/hud/Notifications`).
+    // without it 「호출이 거절되었습니다」 and 「함선 지원 준비 완료」 pop side by side (`ui/hud/Notifications`).
     this.ctx.bus.emit('stratagem:cooldown', { remaining: 0, total: 0, refunded: true });
     // 2026-09-12: still a ready moment for the HUD (a weak flash), but audio/ keeps the chime for real run-outs
     if (wasRunning) this.emitReady(true);

@@ -221,7 +221,7 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Enterable buildings have one floor plate whose collider top is exactly `y0` (`Build.floorPlate`). Broken windows still block people (`passRays` / `passSmall`); throwables break glass along their path (`shared/fragile.ts`).
 - Fog of war: `ctx.world.fog`, painted locally from snapshots (late joiners `fogq sync`); undiscovered objects appear nowhere (`fog.isDiscovered`). Hazards are seed + mission-time functions with no wire (`hzq sync`), fog density only via `atmo:override`. New hazard shapes must be measured over thousands of seeds for "when does it reach the drop point".
 - Moving ships have world colliders while landed (`extraction/Hull.ts`); enemy entry is a query (`ctx.extraction.keepEnemyOut`).
-- Teleport/dash movement steps the body like walking, never a single ray — `implants/parts/Devices.dashReach`. Thrown grenades sub-step by at most their diameter, surface before `resolveCollision` — `weapons/Grenade.ts`.
+- Teleport/dash movement steps the body like walking, never a single ray — `implants/parts/Devices.dashReach`. Thrown grenades sub-step by at most their diameter, surface before `resolveCollision`, and query the wall push with the body lowered by `PROP_TOP_MARGIN − radius` (else the top 7 cm of every wall lets them through) — `weapons/Grenade.ts`.
 - Airborne impulses keep horizontal momentum until landing (`PlayerController.airCarry`).
 - Skill XP from movement reads `PlayerRef.selfMovedMeters` (self-propelled odometer), never a position delta — ship / vehicle / carried / grapple / dash / impulse movement never counts (`PlayerController.selfMoved`).
 

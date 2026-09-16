@@ -105,7 +105,7 @@ export class StratagemWheel {
     });
 
     const centre = el('div', { cls: 'centre', parent: this.root });
-    el('div', { cls: 'ui-label', text: '함선 호출', parent: centre });
+    el('div', { cls: 'ui-label', text: '함선 지원', parent: centre });
     this.nameEl = el('div', { cls: 'sname', text: '—', parent: centre });
     this.cdEl = el('div', { cls: 'scd ui-mono', text: '', parent: centre });
     this.subEl = el('div', { cls: 'ssub', text: '마우스로 선택 · G 놓기', parent: centre });

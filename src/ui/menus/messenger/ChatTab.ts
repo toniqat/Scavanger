@@ -2,7 +2,7 @@ import type {
   GameContext, HoldAskHandle, NpcDef, NpcMessage, NpcQuestRef, PlayerCode, PresenceState, RoomInfo, RoomLine,
 } from '@/shared';
 import {
-  CORP_DEFS, NPC_DEF_MAP, NPC_ROLE_LABEL_KO, PRESENCE_LABELS, PRIVATE_CHAT_LABEL_KO, ROOM_MEMBER_MAX, ROOM_NAME_MAX,
+  CORP_DEFS, MESSENGER_CHOICE_DELAY_S, NPC_DEF_MAP, NPC_ROLE_LABEL_KO, PRESENCE_LABELS, PRIVATE_CHAT_LABEL_KO, ROOM_MEMBER_MAX, ROOM_NAME_MAX,
   ROOM_TEXT_MAX, SOCIAL_WHISPER_MAX, formatPlayerCode, openHoldAsk,
 } from '@/shared';
 import { el, setText, toggleClass } from '../../dom';
@@ -49,6 +49,15 @@ const TYPE_MAX_S = 2.0;
  * 타이핑으로 풀고 그보다 앞의 것은 즉시 그린다 (최악 `6 × 2 s`).
  */
 const TYPE_BACKLOG_MAX = 6;
+/**
+ * 타이핑 `...` 의 점 셋 (2026-09-17, 사용자 결정 — 「점 3개가 서로 천천히 부드럽게 작아졌다가 커졌다가」). 한 점이 작아졌다
+ * 커졌다 돌아오는 한 주기(ms)와 점 사이의 어긋남(ms), 가장 작을 때의 배율 · 불투명도. 위의 `TYPE_*` 와 같은 UI 타이밍이다.
+ * CSS `@keyframes` 가 아니라 Web Animations 로 거는 이유는 `typingBubble` 주석.
+ */
+const TYPE_DOT_PERIOD_MS = 1400;
+const TYPE_DOT_STAGGER_MS = 220;
+const TYPE_DOT_MIN_SCALE = 0.45;
+const TYPE_DOT_MIN_OPACITY = 0.35;
 const PRESENCE_RANK: Readonly<Record<PresenceState, number>> = { ship: 0, training: 1, raid: 2, offline: 3 };
 
 const FILTERS: readonly { id: ConvFilter; label: string }[] = [
@@ -124,6 +133,11 @@ export class ChatTab {
   private typingShown = 0;
   /** `window.setTimeout` 손잡이 (0 = 없음). */
   private typingTimer = 0;
+  /* ── 선택지 지연 (2026-09-17) ── 선택지를 그려도 되는 대화(`MESSENGER_CHOICE_DELAY_S` 가 지났다)와 그 타이머. */
+  private choiceReadyConv: string | null = null;
+  private choiceTimer = 0;
+  /** 말풍선 뒤의 빈 꼬리 (대화창 높이 절반 — `paintBody`). 늘 body 의 마지막 자식이다. */
+  private readonly tail: HTMLElement;
 
   constructor(parent: HTMLElement, frame: HTMLElement, private readonly host: ChatTabHost) {
     this.root = el('div', { cls: 'ms-chat', parent });
@@ -156,6 +170,7 @@ export class ChatTab {
     this.body = el('div', { cls: 'ms-tbody', parent: wrap });
     this.body.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
     this.body.addEventListener('scroll', () => { if (this.body.scrollTop < 40) this.loadOlder(); });
+    this.tail = el('div', { cls: 'ms-tail', attrs: { 'aria-hidden': 'true' } });
     this.members = el('div', { cls: 'ms-members', parent: wrap });
     this.members.hidden = true;
     this.members.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
@@ -468,6 +483,27 @@ export class ChatTab {
     if (this.typingTimer) { window.clearTimeout(this.typingTimer); this.typingTimer = 0; }
     this.typingConv = null;
     this.typingShown = 0;
+    this.clearChoiceGate();
+  }
+
+  /** 선택지 지연을 처음으로 (타이머 해제 + 「아직 안 됐다」). */
+  private clearChoiceGate(): void {
+    if (this.choiceTimer) { window.clearTimeout(this.choiceTimer); this.choiceTimer = 0; }
+    this.choiceReadyConv = null;
+  }
+
+  /**
+   * 2026-09-17 (사용자 결정): 선택지는 NPC 의 마지막 말풍선이 붙고 `MESSENGER_CHOICE_DELAY_S` 뒤에 선다. 타이머가 이미 돌고 있으면
+   * 다시 걸지 않는다 (4 Hz 다시 그리기가 지연을 계속 미루지 않게). 대화가 바뀌었으면(`flushTyping`) 타이머째 버려진다.
+   */
+  private scheduleChoices(id: string): void {
+    if (this.choiceTimer) return;
+    this.choiceTimer = window.setTimeout(() => {
+      this.choiceTimer = 0;
+      if (this.typingConv !== id) return;
+      this.choiceReadyConv = id;
+      this.renderThread(true);
+    }, Math.round(Math.max(0, MESSENGER_CHOICE_DELAY_S) * 1000));
   }
 
   /** 다음 말풍선을 `delay` 초 뒤에 연다 (0 = 다음 프레임 — 내 대답 · 시스템 줄은 기다리지 않는다). */
@@ -500,7 +536,14 @@ export class ChatTab {
     return Math.min(all.length, Math.max(shown, all.length - TYPE_BACKLOG_MAX));
   }
 
-  /** `...` 말풍선 (점 셋이 순차로 커진다 — 애니메이션은 CSS). */
+  /**
+   * `...` 말풍선 — 점 셋이 **어긋난 박자로 천천히 작아졌다 커진다** (2026-09-17, 사용자 결정).
+   *
+   * 애니메이션은 CSS `@keyframes` 가 아니라 **Web Animations(`element.animate`)** 다: `base.css` 의 `prefers-reduced-motion` 규칙이
+   * CSS 의 `animation-duration` 을 0.01 ms 로 잘라 이 개발 PC 에서는 점이 멈춰 있었다 (그 규칙은 WAAPI 에는 닿지 않는다).
+   * 또 말풍선은 다시 그릴 때마다 새로 지어지므로(`replaceChildren`), 각 애니메이션의 `startTime` 을 문서 타임라인의 고정점
+   * (점 i 는 `i × TYPE_DOT_STAGGER_MS`)에 맞춰 **다시 지어도 위상이 이어지게** 한다 — 처음부터 다시 튀지 않는다.
+   */
   private typingBubble(def: NpcDef | undefined, withAvatar: boolean): HTMLElement {
     const row = el('div', { cls: `ms-msg in typing${withAvatar ? '' : ' cont'}` });
     if (withAvatar) {
@@ -508,21 +551,45 @@ export class ChatTab {
       av.style.setProperty('--av', def?.color ?? PC_COLOR);
     }
     const bubble = el('div', { cls: 'ms-bubble ms-typing', parent: row });
-    for (let i = 0; i < 3; i++) el('i', { parent: bubble });
+    // 구간마다 ease-in-out — 작아지는 쪽 · 커지는 쪽 둘 다 끝에서 부드럽게 멈췄다 돈다
+    const small = { transform: `scale(${TYPE_DOT_MIN_SCALE})`, opacity: TYPE_DOT_MIN_OPACITY, easing: 'ease-in-out' };
+    const big = { transform: 'scale(1)', opacity: 1, easing: 'ease-in-out' };
+    for (let i = 0; i < 3; i++) {
+      const dot = el('i', { parent: bubble });
+      if (typeof dot.animate !== 'function') continue;   // 정지한 작은 점으로 남는다 (CSS 기본값)
+      try {
+        const anim = dot.animate([small, big, small], { duration: TYPE_DOT_PERIOD_MS, iterations: Infinity });
+        anim.startTime = i * TYPE_DOT_STAGGER_MS;
+      } catch { /* WAAPI 없음 — 정지한 점 */ }
+    }
     return row;
   }
 
-  /** Swap the body's children, keeping the reader where they were (bottom-pinned, or anchored after an older page). */
+  /** 마지막 말풍선의 아래 끝 (body 안 좌표, 꼬리 여백 제외). 꼬리가 붙어 있지 않으면 스크롤 높이. */
+  private contentEnd(): number {
+    return this.tail.parentElement === this.body ? this.tail.offsetTop : this.body.scrollHeight;
+  }
+
+  /**
+   * Swap the body's children, keeping the reader where they were (pinned to the latest line, or anchored after an older page).
+   *
+   * 2026-09-17 (사용자 결정): 말풍선 뒤에는 늘 **대화창 높이 절반의 빈 꼬리**(`.ms-tail`, CSS `50cqh`)가 붙어, 끝까지 내리면
+   * 마지막 말풍선이 창 가운데쯤에 온다. 그래서 「맨 아래인가」는 스크롤 끝이 아니라 **마지막 말풍선의 아래 끝**(`contentEnd`)이
+   * 보이는가로 판단하고, 따라 내릴 때는 그 끝이 창 아래에 닿는 데(`latest`)까지만 내린다 — 이미 꼬리 쪽으로 더 내려 둔 독자는
+   * 그 자리에 둔다 (최대 스크롤이 `contentEnd − 창 절반` 이므로 새 말풍선은 거기서도 늘 보인다).
+   */
   private paintBody(nodes: HTMLElement[], oldest: number): void {
     const b = this.body;
     const convChanged = this.paintedConv !== this.selected;
-    const atBottom = b.scrollHeight - b.scrollTop - b.clientHeight < 32;
+    const atBottom = b.scrollTop + b.clientHeight >= this.contentEnd() - 32;
     const prevH = b.scrollHeight;
     const prevTop = b.scrollTop;
     const prepended = !convChanged && oldest > 0 && this.paintedOldest > 0 && oldest < this.paintedOldest;
-    b.replaceChildren(...nodes);
+    b.replaceChildren(...nodes, this.tail);
+    const latest = Math.max(0, this.contentEnd() - b.clientHeight);
     if (prepended && !atBottom) b.scrollTop = prevTop + (b.scrollHeight - prevH);
-    else if (convChanged || atBottom) b.scrollTop = b.scrollHeight;
+    else if (convChanged) b.scrollTop = latest;
+    else if (atBottom) b.scrollTop = Math.max(prevTop, latest);
     this.paintedConv = this.selected;
     this.paintedOldest = oldest;
   }
@@ -581,6 +648,9 @@ export class ChatTab {
       if (this.typingTimer) { window.clearTimeout(this.typingTimer); this.typingTimer = 0; }
       this.typingConv = id;
       this.typingShown = this.readShownCount(npc, id, all);
+      /* 선택지 지연: 이미 읽은 대화(= 풀 말풍선이 없다)를 여는 것이면 기다리지 않는다. 풀 것이 남아 있으면 마지막 말풍선 뒤에 건다. */
+      this.clearChoiceGate();
+      if (this.typingShown >= all.length) this.choiceReadyConv = id;
     } else if (all.length < this.typingShown) this.typingShown = all.length;   // 기록이 줄었다 (초기화 · 다른 캐릭터)
     /* 내 대답 · 시스템 줄은 기다리지 않는다 — 같은 그리기에서 바로 붙인다 (기다리는 것은 NPC 말풍선 · 퀘스트 카드뿐). */
     while (this.typingShown < all.length) {
@@ -640,8 +710,15 @@ export class ChatTab {
      * 아직 대답하지 않았으면 말풍선 아래에 내 대답 버튼 줄이 선다 — 퀘스트 카드의 [수락] 과 같은
      * 문법(`ms-btn`)이다. 고르면 `choice` 사건이 하나 붙어 내 대답 + NPC 의 답 두 줄이 대화에 들어오고
      * `getPendingChoices` 가 빈 배열이 되어 줄이 사라진다. 고르기 전에 닫고 나가도 다시 열면 그대로 있다.
-     * 아직 타이핑 중인 말풍선이 남아 있으면 그것부터 다 붙은 뒤에 보인다. */
-    const choices = pending ? [] : npc?.getPendingChoices(id) ?? [];
+     * 아직 타이핑 중인 말풍선이 남아 있으면 그것부터 다 붙은 뒤에 보인다.
+     * 2026-09-17 (사용자 결정): 마지막 말풍선이 붙은 뒤에도 `MESSENGER_CHOICE_DELAY_S` 만큼 더 기다렸다 선다 (`scheduleChoices`).
+     * 새 말풍선이 도착해 타이핑이 다시 시작되면 지연도 처음부터다. */
+    if (pending) this.clearChoiceGate();
+    let choices = pending ? [] : npc?.getPendingChoices(id) ?? [];
+    if (choices.length > 0 && this.choiceReadyConv !== id) {
+      this.scheduleChoices(id);
+      choices = [];
+    }
     if (choices.length > 0) {
       const row = el('div', { cls: 'ms-msg out choices' });
       const box = el('div', { cls: 'ms-choices', parent: row });
@@ -770,7 +847,7 @@ export class ChatTab {
     /* A page too short to scroll can never fire the scroll-up load — keep pulling older pages until it overflows (once per
        history length, so a server that answers `more` with nothing cannot spin this). */
     if (rooms.available && rooms.hasMore(roomId) && this.historyPending !== roomId
-      && this.body.scrollHeight <= this.body.clientHeight + 4 && this.autoLoadLen !== all.length) {
+      && this.contentEnd() <= this.body.clientHeight + 4 && this.autoLoadLen !== all.length) {
       this.autoLoadLen = all.length;
       window.setTimeout(() => this.loadOlder(), 0);
     }

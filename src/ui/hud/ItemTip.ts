@@ -80,6 +80,15 @@ export const TIP_ANCHOR_ATTR = 'data-tip-anchor';
  * 속성이 없는 칩(가방 · 창고 · 월드 · 제작 재료)은 예전 그대로 「가치」다.
  */
 export const TIP_PRICE_ATTR = 'data-tip-price';
+
+/**
+ * 2026-09-17 (사용자 버그 「퀘스트 보상의 신뢰도 썸네일에 호버해도 툴팁이 안 뜬다」): **글 카드** 옵트인. 아이템도 재화도 아닌 칩 —
+ * 퀘스트 카드의 NPC 개인 신뢰도 칩(`menus/messenger/Trust.buildTrustChip`)이 그것이다. 그 칩은 기업 신뢰도 칩과 같은 육각 틀 · 같은
+ * `◈` 인데, NPC 신뢰도는 `data/currencies.csv` 의 재화가 아니라서(가짜 재화 정의를 만들지 않는다) `data-currency-id` 를 달 수 없고
+ * 네이티브 `title` 에만 기대고 있었다 — 게임 카드는 뜨지 않았다. 이제 칩이 `data-tip-name` (+ `data-tip-sub` · `data-tip-desc` ·
+ * `data-tip-color`)을 찍으면 재화 카드와 같은 모양(가치 바 없음)으로 그 글을 그린다. 다른 폴더는 `dataset.tipName` 만 쓴다.
+ */
+export const TIP_NAME_ATTR = 'data-tip-name';
 /** 라벨을 주지 않은 `data-tip-price` 의 기본 이름. */
 const TIP_PRICE_LABEL_DEFAULT = '가격';
 /** 아래 바 오른쪽의 기본 이름 (아이템의 `가치`). */
@@ -163,6 +172,8 @@ export class ItemTip {
   private uid: string | null = null;
   /** 지금 카드가 재화를 그리고 있다면 그 재화 id (아이템일 때 null). */
   private currencyId: string | null = null;
+  /** 지금 카드가 글 카드(`TIP_NAME_ATTR`)라면 그 내용 키 (아니면 null). */
+  private textKey: string | null = null;
   private visible = false;
   private unsubs: Array<() => void> = [];
   /** 2026-09-15: the element the card is describing — watched while visible (see `watch`). */
@@ -303,6 +314,12 @@ export class ItemTip {
       if (!this.visible || cy !== this.currencyId) this.renderCurrency(cy);
       return this.watching(chip);
     }
+    const tipName = chip.dataset.tipName;
+    if (tipName) {
+      const key = [tipName, chip.dataset.tipSub ?? '', chip.dataset.tipDesc ?? '', chip.dataset.tipColor ?? ''].join('');
+      if (!this.visible || key !== this.textKey) this.renderText(chip, key);
+      return this.watching(chip);
+    }
     const id = chip.dataset.defId ?? null;
     if (!id) return false;
     const uid = chip.dataset.uid ?? null;
@@ -347,7 +364,7 @@ export class ItemTip {
     // (inventory/ui/TradeGrids stamps it on the 기업 거래 grids' tiles, which are not chips).
     // `[data-currency-id]` is the 재화 칩 (2026-09-09) — same card, a different body.
     return node.closest(
-      '.item-chip[data-def-id], [data-item-tip][data-def-id], [data-currency-id]',
+      `.item-chip[data-def-id], [data-item-tip][data-def-id], [data-currency-id], [${TIP_NAME_ATTR}]`,
     ) as HTMLElement | null;
   }
 
@@ -407,6 +424,7 @@ export class ItemTip {
     this.defId = defId;
     this.uid = uid;
     this.currencyId = null;
+    this.textKey = null;
     this.root.classList.remove('is-currency');
     this.valueEl.hidden = false;
     this.root.style.setProperty('--rc', RARITY_COLORS[def.rarity] ?? RARITY_COLORS.common);
@@ -624,6 +642,7 @@ export class ItemTip {
     const def: CurrencyDef | undefined = currencyDef(id);
     if (!def) { this.hide(); return; }
     this.currencyId = id;
+    this.textKey = null;
     this.defId = null;
     this.uid = null;
     this.root.classList.add('is-currency');
@@ -632,6 +651,26 @@ export class ItemTip {
     setText(this.nameEl, `${def.icon} ${def.name}`);
     setText(this.subEl, '재화');
     setText(this.descEl, def.description);
+    this.statsEl.replaceChildren();
+    this.statsEl.hidden = true;
+    this.valueEl.hidden = true;
+    this.root.hidden = false;
+    this.visible = true;
+  }
+
+  /** 글 카드 (`TIP_NAME_ATTR`) — 재화 카드와 같은 틀에 칩이 찍어 둔 이름 · 분류 줄 · 설명을 그린다. */
+  private renderText(chip: HTMLElement, key: string): void {
+    const color = chip.dataset.tipColor || 'var(--c-text-dim)';
+    this.textKey = key;
+    this.currencyId = null;
+    this.defId = null;
+    this.uid = null;
+    this.root.classList.add('is-currency');
+    this.root.style.setProperty('--rc', color);
+    this.root.style.setProperty('--ic', color);
+    setText(this.nameEl, chip.dataset.tipName ?? '');
+    setText(this.subEl, chip.dataset.tipSub ?? '');
+    setText(this.descEl, chip.dataset.tipDesc ?? '');
     this.statsEl.replaceChildren();
     this.statsEl.hidden = true;
     this.valueEl.hidden = true;
@@ -811,6 +850,7 @@ export class ItemTip {
     this.defId = null;
     this.uid = null;
     this.currencyId = null;
+    this.textKey = null;
     this.chip = null;
     this.stopWatch();
     this.root.hidden = true;

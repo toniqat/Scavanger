@@ -275,6 +275,8 @@ try {
 
   // clear any leftover sample canisters from the body so the count starts at 0
   await P(() => { const c = window.__game.ctx; for (const it of [...c.inventory.getAllItems()]) if (it.defId === 'sample_canister') c.inventory.takeItem(it.uid); });
+  // 2026-09-17: contracts.csv minRepLevel +1 — ceres_samples needs 신뢰도 Lv.2 (300)
+  await P(() => { const m = window.__game.ctx.meta; if (m.getRep('ceres').level < 2) m.addRep('ceres', 300 - m.getRep('ceres').rep, 'smoke'); });
   ok(await P(() => window.__game.ctx.meta.acceptContract('ceres_samples')), 'acceptContract(ceres_samples)');
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]').click());
   await waitSim(0.15);

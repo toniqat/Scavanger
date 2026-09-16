@@ -85,6 +85,15 @@ export const SHOP_UNLOCK_REP_LEVEL = T.num('SHOP_UNLOCK_REP_LEVEL');
 /** Highest rarity sold at each reputation level (index = level). Bags get one extra step (`SHOP_BAG_RARITY_BONUS`). */
 export const SHOP_RARITY_CAP_BY_REP: readonly Rarity[] = stringList('tables.csv', 'SHOP_RARITY_CAP_BY_REP') as Rarity[];
 export const SHOP_BAG_RARITY_BONUS = T.num('SHOP_BAG_RARITY_BONUS');
+/**
+ * appended (2026-09-17): reputation level at which a corp can be selected in the Tab window's 기업 tab. While **every**
+ * corp is below it the 기업 screen tab itself is hidden (`inventory/ui/parts/Screens.markTab`) and `openCorpMenu` refuses.
+ */
+export const CORP_ACCESS_REP_LEVEL = T.num('CORP_ACCESS_REP_LEVEL');
+/** appended (2026-09-17): true when at least one corp's level (`levelOf`) reaches `CORP_ACCESS_REP_LEVEL`. */
+export function anyCorpAccessible(levelOf: (corp: CorpId) => number): boolean {
+  return CORP_IDS.some((c) => levelOf(c) >= CORP_ACCESS_REP_LEVEL);
+}
 /** Reputation level from cumulative `rep`. */
 export function repLevelOf(rep: number): number {
   let lv = 0;
@@ -119,7 +128,7 @@ export type ContractGoalKind = 'kill_bugs' | 'kill_rogues' | 'open_crates' | 'lo
   | 'extract_with_items';
 export const CONTRACT_GOAL_LABEL_KO: Readonly<Record<ContractGoalKind, string>> = {
   kill_bugs: '터미니드 처치', kill_rogues: '인간형 적 처치', open_crates: '상자 개봉', loot_corpses: '시체 수색',
-  extract_with_value: '전리품 가치와 함께 탈출', use_stratagems: '함선 호출 사용',
+  extract_with_value: '전리품 가치와 함께 탈출', use_stratagems: '함선 지원 사용',
   extract_with_items: '아이템 회수',
 };
 

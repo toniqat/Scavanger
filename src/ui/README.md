@@ -47,7 +47,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/ImplantWidget.ts` | Tactical implant thumbnail, bottom centre: cooldown / charges / gauge display, ready flash + glow, refund text |
 | `hud/InteractionPrompt.ts` | Bottom-centre `E — action` caption; hold interactables get a hold keycap |
 | `hud/ItemFavoriteMenu.ts` | Right-click favorite menu on any `.item-chip[data-def-id]` or opted-in tile; registers the chip favorite source |
-| `hud/ItemTip.ts` | Hover card for item chips / `data-item-tip` tiles / currency chips (def data, series, meal quality, sockets…); weapons get the **same body as the grid card** through `shared/weaponTip` (대미지 · 연사 · 반동 · 사거리 · 탄종 · 장전 · 발사 모드 · 배율 · 내구도 · 소켓); exports `TIP_ANCHOR_ATTR`, `TIP_PRICE_ATTR` |
+| `hud/ItemTip.ts` | Hover card for item chips / `data-item-tip` tiles / currency chips / text chips (`data-tip-name` · `-sub` · `-desc` · `-color` — the NPC trust reward chip) (def data, series, meal quality, sockets…); weapons get the **same body as the grid card** through `shared/weaponTip` (대미지 · 연사 · 반동 · 사거리 · 탄종 · 장전 · 발사 모드 · 배율 · 내구도 · 소켓); exports `TIP_ANCHOR_ATTR`, `TIP_PRICE_ATTR`, `TIP_NAME_ATTR` |
 | `hud/KeyGuide.ts` | Bottom-right key line for the topmost `ui:keyGuide` owner; appends the `Tab · Esc 닫기` entry itself |
 | `hud/LoadingGauge.ts` (+ `styles/loading.css`) | Raid-entry loading gauge: bottom-right radial ring over the black plate, `squad` fill, `n명 대기 중`; driven by `performance.now()` because the load gate hands every system `dt 0` |
 | `hud/mealText.ts` | Meal buff / quality / cook-step text helpers shared by ItemTip, BuffStrip, Notifications |
@@ -74,7 +74,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/ScanReveal.ts` | Through-wall pillars for scan-revealed corpses/enemies (`scan:cast`) |
 | `hud/ScanTracker.ts` | Shared list of scan-revealed enemies (Compass + Detection) |
 | `hud/ScopeOverlay.ts` | Sniper scope mask + mil-dot (`weapon:scopeChanged`) |
-| `hud/ShipManage.ts` | Facility management (`시설 관리`) screen: room list, purpose picker, furniture craft/storage tabs (last tab remembered per slot), inspector with upgrade/remove, confirm popups |
+| `hud/ShipManage.ts` | Facility management (`시설 관리`) screen: room list, purpose picker, furniture craft/storage tabs (last tab remembered per slot), furniture craft modal (`.sm-craft`, 1 s hold on `.sm-craft-ok`), session-only 가구 창고 red dots (`.sm-dot` on the tab / sub-tab / new or recovered store cards), inspector with upgrade/remove, confirm popups |
 | `hud/ShipManageHint.ts` | `시설 관리` + `Keys.MAP` keycap hint on the personal ship |
 | `hud/SpectateOverlay.ts` | Multiplayer death banner with remaining squad and rescue drops |
 | `hud/Squad.ts` | Bottom-left squad list of **other members only** — the local row is never drawn (2026-09-16), in the shared ship or in a raid, and the whole list hides when no row is filled. Slot colour, name, mission badge, hp, state, host-ghost bleed, mini buff strip; an **undocked** squad's rows read `개인 함선`. Bot lobby members are never human rows — androids come last from `ctx.allies.roster` (`안드로이드` badge, shield bar, `쓰러짐` / `사망`), and one android alone puts the list up with no lobby |
@@ -88,7 +88,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/Vitals.ts` | PC name + segmented shield and hp bars with red damage ghost, downed mode, give-up caption, buff strip; stamina bar stays in the gameplay layer |
 | `hud/WeaponChargeGauge.ts` | Unique weapon wind-up arc (`weapon:chargeChanged` kinds `charge` / `spinup` / `slash`; ignores `draw`) |
 | `hud/WeaponPanel.ts` | Bottom-right weapon box: rarity thumbnail, `mag / reserve`, type tag (`weaponTypeLabel`), durability, modes; consumable mode |
-| `hud/WorldMarkers.ts` | Screen diamonds for discovered / active extraction pads and the landed ship |
+| `hud/WorldMarkers.ts` | Screen diamonds for discovered / active extraction pads (no landed-ship marker; the active pad's hides once the ship lands) |
 | **map/** | |
 | `map/MapScreen.ts` | Tactical map (`M`): cached terrain, fog layer + edges, hazard hatch over fog, discovered landmarks, squad, pings (middle-click places), legend swatches, rover route + destination pick with 1 s hold payment |
 | `map/mapIcons.ts` | Stateless canvas marker painters shared by map and legend (`MAP_COL`, `MARKER_SCALE`, `draw*`), `MapLabels` overlap culling |
@@ -113,7 +113,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `menus/ResultReport.ts` | Shared result body: `buildResultHeader`, `buildPlanetLine`, loot value line, death cause row (enemy portrait or procedural icon) |
 | `menus/RewardsBlock.ts` | XP count-up, level-up moment + `level_up` chime, contract settlement line (`contractOutcome`) |
 | `menus/messenger/Messenger.ts` | Messenger panel body inside the Community frame: tabs `대화` / `친구` / `퀘스트`, `ui:openMessenger` targets |
-| `menus/messenger/ChatTab.ts` | Conversation list (NPC, private chat, group rooms) + bubbles, NPC quest cards, room management, staged "typing" reveal of unread NPC lines |
+| `menus/messenger/ChatTab.ts` | Conversation list (NPC, private chat, group rooms) + bubbles, NPC quest cards, room management, staged "typing" reveal of unread NPC lines (WAAPI dots), intro choices `MESSENGER_CHOICE_DELAY_S` after the last line, half-height empty tail (`.ms-tail`) under every thread |
 | `menus/messenger/QuestsTab.ts` | Active / completed NPC quests + detail card (deliver, report) |
 | `menus/messenger/QuestCard.ts` | NPC quest card shared by chat bubble and quest detail |
 | `menus/messenger/Popover.ts` | Single in-panel popover (create room, invite, rename) |
@@ -253,6 +253,7 @@ Types live in `src/shared/events.ts`, `src/shared/types.ts`, `src/shared/net.ts`
 | ChatLog | `'chat'` | — (own capture handler) | — |
 | Community / messenger | `COMMUNITY_BLOCKER` | `COMMUNITY_BLOCKER`; `messenger:pop` (Popover), `community:page` (SocialPages) | `community` |
 | RescuePicker | `'rescuePick'` | `'rescuePick'` | `rescue` |
+| ShipManage furniture craft modal | `'shipManage:craft'` | `'shipManage:craft'` (Tab also closes it; Enter swallowed) | — |
 | ItemFavoriteMenu | — | `ui:itemFavoriteMenu` | — |
 | SettingsMenu, KeybindMenu, AskPopup, SocialMenu | none (open over a surface that already holds one; capture-phase keydown) | — | — |
 
@@ -347,8 +348,8 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
+- 2026-09-17 — No toast on tactical implant equip / unequip / swap (`implant:equipped` subscription removed from `Notifications`); ship-call strings read `함선 지원` (wheel centre, call/ready toasts).
+- 2026-09-17 — Messenger: intro choices wait `MESSENGER_CHOICE_DELAY_S` (0.5 s) after the last NPC line; typing `...` dots scale/fade in a staggered slow loop via Web Animations (CSS keyframes were clipped by reduced motion); every thread ends in a half-height empty tail (`.ms-tail`, `50cqh`) with pinning measured to the last line; the NPC trust reward chip now gets the hover card through the new `ItemTip` text-chip hook (`TIP_NAME_ATTR`) instead of a native `title`.
+- 2026-09-17 — 시설 관리: furniture `제작` opens a centred craft modal (`.sm-craft`: list thumbnail, `{이름} 제작`, all material chips, `제작` = 1 s hold on `.sm-craft-ok`; blocker/escape token `shipManage:craft`); session-only red dots (`.sm-dot`) on the `가구 창고` tab for crafted / recovered pieces, moved onto their store cards when the list shows, cleared on close or placement.
+- 2026-09-17 — `WorldMarkers` no longer draws the landed ship's green `탈출 함선` marker (it floated over the ramp) in any raid; map and compass ship markers stay.
 - 2026-09-16 — Key guide: action-keys panel + separate `닫기` panel (`.kg-panel-close`), vertical-bar separators; pickup toast = item chip + `이름 ×수량`; `crate:looted` toast removed; toasts start below `.tut-controls`; weapon panel frameless thumb + other-primary thumb with slot keycap, empty state `주무기 없음`, dims the last primary while anything else is in hand (consumable mode gone); `Community` root on `#ui-root`, usable over Tab window / pause menu, `Keys.INVITE` keycap under the button, NPC message = red-dot pop (`MESSENGER_DOT_POP_*`) not a toast; `menus/ShipReturn` (`ui:shipReturn` fade → loading gauge → fade in); tutorial results show `표류 행성`; `ShipManageHint` hides on tutorial gate `shipManage`.
-- 2026-09-16 — Item hover card draws the **weapon body** (대미지 · 연사 · 반동 · 사거리 · 탄종 · 장전 · 발사 모드 · 배율 · 내구도 · 소켓) from the new `shared/weaponTip`, the same builder the grid card's gauges use — a gun at the 기업 거래 desk now reads exactly like the same gun in the bag.
-- 2026-09-16 — Item hover card: `.item-tip` now fixes its own text flow and `.it-head` its flex axes, so the colliding global `.it-head` of `hub/intel.css` (same `.it-` prefix) no longer right-aligns 이름 · 종류 (기업 거래 · 재료 칩 · 서재 전시대 · 연산 클러스터). XP readouts are compact (`formatCompactNumber` / `formatCompactSigned`): result screen `획득 경험치` + `x / y XP`, the `+n XP` toast chip, the quest-complete toast and the map quest panel reward line.
-- 2026-09-16 — Squad list drops the local row entirely (shared ship and raid; `.srow.me` / `(나)` / the "no buffs on my row" rule are gone) and hides itself when no row is filled (`Squad.finish`); the music window is personal-ship only (`ctx.hub?.ship === 'personal'`, state untouched).
-- 2026-09-16 — Dining plates: squadmate plate toast on `net:squadPlate` (`fresh`, shared ship only) replaces the `housing:mealServed` toast; cook result toast says `→ 식탁`; BuffStrip / ItemTip fall back to `getMealDef` for meal ids.

@@ -23,7 +23,7 @@ import { FxManager, ParticleBurst } from '@/core/fx';
 import { damp, dampAngle, wrapAngle } from '@/core/util/MathUtil';
 import { SOLDIER_DEFAULT_ACCENT, SoldierModel, type SoldierPose } from './SoldierModel';
 import { buildHeldWeapon, type WeaponLook } from './GearLook';
-import { resolveArmorDef } from './RemoteAvatar';
+import { inLeavingShip, resolveArmorDef } from './RemoteAvatar';
 import type { SoldierPool } from './SoldierPool';
 import { STRIDE_MIN_SPEED } from './PlayerController';
 
@@ -187,7 +187,8 @@ export class AllyAvatar {
     const dormant = v.pose === 'dormant';
     if (dormant !== this.greyed) { this.greyed = dormant; this.model.setGreyed(dormant); }
     const downed = v.downed || v.pose === 'downed';
-    this.model.setSilhouette(!dormant);
+    // 2026-09-17: 떠나는 탈출 함선 안의 몸은 닫힌 선체 너머로 실루엣을 비추지 않는다 (`inLeavingShip`)
+    this.model.setSilhouette(!dormant && !inLeavingShip(ctx, v.position));
 
     this.syncArmor(ctx, v);
     const carry = v.pose === 'carry';

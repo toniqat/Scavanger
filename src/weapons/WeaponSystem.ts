@@ -211,11 +211,12 @@ export class WeaponSystem implements GameSystem {
       getGrenades: () => this.grenades.getViews(),
       // Phase 7: per-frame pose / held item / attachment list for the player snapshot (`PlayerSnapshot.h / att`, THROWING… flags)
       remoteState: this.remoteState,
-      // 2026-09-16 (우하단 무기 패널): HUD 가 매 프레임 묻는다 — 소모품 · 근접 · 홀스터 중에도 「마지막으로 든 주무기」를
+      // 2026-09-16 (우하단 무기 패널): HUD 가 매 프레임 묻는다 — 소모품 · 홀스터 중에도 「마지막으로 든 주무기」를
       //   흐리게 보여 주려면 `weapon:equipped` 만으로는 모자란다 (소모품을 든 채 교체 · 장비 변경이 끝나면 그 이벤트가 안 온다).
+      //   근접 공격은 세지 않는다 (2026-09-17 사용자 결정: 근접은 주무기를 든 채 때리는 동작 — 패널이 깜빡이면 안 된다).
       get activeSlot() { return sys.slots[sys.active] ? sys.active : null; },
       get primaryInHand() {
-        return !!sys.slots[sys.active] && !sys.quick && !sys.holstered && sys.ctx.player?.isMeleeing !== true;
+        return !!sys.slots[sys.active] && !sys.quick && !sys.holstered;
       },
       ammoOf: (slot) => {
         const w = this.slots[slot];

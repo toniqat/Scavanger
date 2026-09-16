@@ -3216,6 +3216,34 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .sm-confirm-card .acts .ui-btn.sm-danger:hover, .sm-confirm-card .acts .ui-btn.sm-danger.is-holding { border-color: var(--c-danger); color: #ffb3b3; }
 /* 2026-09-15 2차 (사용자 결정): 옛 안내 줄 `.sm-confirm-hint` 는 없어졌다 — 버튼 안의 좌클릭 홀드 키캡이 그 말을 한다. */
 
+/* 2026-09-17 (사용자 결정): 가구 제작 모달 (hud/ShipManage `openCraft`) — `.sm-confirm` 판 위에 가운데 썸네일 · `{이름} 제작` ·
+   재료 칩 · 우측 하단 `제작`(`.sm-craft-ok`, 1초 홀드 — 게이지는 accent). 썸네일은 목록의 `.fcard-thumb` 를 키운 것이다. */
+.sm-craft-card { width: min(440px, 88vw); }
+.sm-craft-head { display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 4px; }
+.sm-craft-thumb { width: 96px; height: 96px; }
+.sm-craft-thumb .fcard-glyph { font-size: 42px; }
+.sm-craft-thumb .fcard-size { font-size: 10px; right: 4px; bottom: 2px; }
+.sm-confirm-card .sm-craft-title { text-align: center; letter-spacing: 0.08em; }
+.sm-craft-label { font-size: 10px; letter-spacing: 0.14em; color: var(--c-text-faint); text-align: center; padding-top: 4px; border-top: 1px solid var(--c-border); }
+.sm-craft-cost { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; min-height: 44px; }
+.sm-craft-cost .item-chip-free { font-size: 11px; letter-spacing: 0.1em; color: var(--c-text-dim); }
+.sm-craft-note { font-size: 11px; text-align: center; color: var(--c-danger); }
+.sm-craft-note[hidden] { display: none; }
+.sm-craft-ok .sm-hold-fill { background: color-mix(in srgb, var(--c-accent) 38%, transparent); }
+.sm-craft-ok.is-disabled { opacity: 0.45; border-style: dashed; }
+
+/* 2026-09-17 (사용자 결정): 가구 창고 레드닷 — 메신저 버튼의 `.cm-dot` 과 같은 점 (세션 한정, `ShipManage.paintDots`) */
+.sm-tab, .sm-subtab { position: relative; }
+.sm-dot {
+  position: absolute; right: 3px; top: 3px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--c-danger); box-shadow: 0 0 6px rgba(255, 77, 77, 0.8);
+  animation: cmDot 1.4s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+.sm-dot[hidden] { display: none; }
+.fcard-thumb > .sm-dot { right: -4px; top: -4px; z-index: 1; }
+
 /* 조종석 행 (방 목록 맨 위, 2026-09-12): 번호 칸이 없고 아래 방들과 한 줄 띄운다 */
 .sm-room.is-cockpit { margin-bottom: 4px; border-bottom-color: var(--c-border); }
 

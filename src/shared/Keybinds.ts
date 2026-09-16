@@ -55,7 +55,7 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
 
   { id: 'IMPLANT', label: '전술 임플란트', group: '장비', scope: 'game' },
   { id: 'QUICK', label: '빠른 사용 (길게: 휠) · 회복약은 좌클릭 2초', group: '장비', scope: 'game' },
-  { id: 'SHIP_CALL', label: '함선 호출', group: '장비', scope: 'game' },
+  { id: 'SHIP_CALL', label: '함선 지원', group: '장비', scope: 'game' },
   { id: 'THROW_MODE', label: '투척 방식 전환 (가젯)', group: '장비', scope: 'game' },
 
   { id: 'INTERACT', label: '상호작용 (길게) · 전투불능 아군 구조', group: '상호작용', scope: 'game' },
@@ -77,6 +77,8 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   // `Keys.CURSOR` · `DEFAULT_KEYS.CURSOR` 자체는 계약이라 그대로 있다 — `SECONDARY` 와 같은 처리, 아무도 읽지 않을 뿐이다.
   /* appended (Phase 11); 2026-09-08: a tap is the 커뮤니티 panel, a hold still accepts a 분대 초대. */
   { id: 'INVITE', label: '커뮤니티 (길게: 분대 초대 수락)', group: '인터페이스', scope: 'global' },
+  /* appended (2026-09-17): 튜토리얼 레이드의 우측 조작 가이드 접기 / 펴기 (그 레이드에서만 뜬다 — `tutorial/TutorialSystem`). */
+  { id: 'GUIDE_TOGGLE', label: '조작 가이드 숨김 / 표시 (튜토리얼)', group: '인터페이스', scope: 'game' },
 
   /* dev console (only active on a dev client; listed so the key can be moved off a layout that lacks `) */
   { id: 'CONSOLE', label: '개발자 콘솔 (서버 PC 전용)', group: '인터페이스', scope: 'global', menuOnly: true },

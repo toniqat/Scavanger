@@ -573,6 +573,7 @@ CHAR_NAME_RANDOM_MAX,9999,이름 주사위가 붙이는 숫자의 상한 (스캐
 # ── 위험한 버튼의 홀드 확정 (2026-09-09, owner: ui) ──
 UI_HOLD_CONFIRM_S,1,파티 떠나기 · 타이틀로 · 게임 종료 확정 버튼을 눌러 두어야 하는 시간(초).
 HOUSING_MOVE_HOLD_S,0.5,"시설 관리에서 가구를 꾹 눌러 위치 이동 상태로 드는 시간(초). 2026-09-12 사용자 결정 — 짧은 클릭(선택)과 구분되면서 답답하지 않은 길이."
+MESSENGER_CHOICE_DELAY_S,0.5,"2026-09-17 사용자 결정: 메신저에서 NPC 의 마지막 말풍선이 (타이핑 연출을 거쳐) 붙은 뒤 내 대답 선택지가 뜨기까지 기다리는 시간(초). 이미 읽은 대화를 다시 열 때는 기다리지 않는다."
 
 # ── 사망 · 시체 · 구조선 (2026-09-09, owner: game · player · inventory · stratagems) ──
 PLAYER_CORPSE_LOOT_RANGE,2.4,사망한 플레이어의 시체를 열 수 있는 거리(m).
@@ -1225,6 +1226,7 @@ THUMPER_SHAKE_RADIUS,30,"타격의 흔들림(camera:shake)이 느껴지는 반�
 THUMPER_SHAKE,0.14,"타격 흔들림의 세기 (한가운데). 전조 흔들림 SANDWORM_SHAKE_MAX(0.18) 보다 조금 약하다."
 
 # ── appended (2026-09-16, 사용자 결정): 튜토리얼 포복 구간 조작 가이드 (owner: tutorial) ──
+TUTORIAL_RAID_EXTRACT_VALUE_C,1000,"증축 안내(함선 튜토리얼)의 마지막 목표 — 이번 레이드에서 얻은 아이템(`ItemInstance.raidFound`)을 판매가 합으로 이만큼 이상 들고 탈출하면 달성 (크레딧). 레이드는 한 번뿐이라 못 채워도 그 레이드가 끝나면 트랙은 끝난다 (`TutorialSystem.onBuildRaidEnd`)."
 TUTORIAL_CRAWL_AIM_HINT_FRAC,0.5,"무너진 통로(포복 구간)를 이 비율만큼 지나면 우측 조작 가이드의 앉기 · 포복 아래에 발사 · 정조준 줄이 붙는다 (0 = 입구 · 1 = 출구). 통로의 입구 · 출구 z 는 월드가 갖는다 (`TutorialWorldRef.crawlProgress`)."
 
 # ── 메신저 버튼 빨간 점 튀어오르기 (2026-09-16, owner: ui) ──

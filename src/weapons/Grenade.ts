@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  GRAVITY, GRENADE_FUSE as SHARED_GRENADE_FUSE, GRENADE_INCENDIARY_BLAST_DAMAGE, GRENADE_INCENDIARY_BLAST_RADIUS, PROP_STEP_UP_MAX,
+  GRAVITY, GRENADE_FUSE as SHARED_GRENADE_FUSE, GRENADE_INCENDIARY_BLAST_DAMAGE, GRENADE_INCENDIARY_BLAST_RADIUS, PROP_STEP_UP_MAX, PROP_TOP_MARGIN,
   GRENADE_DAMAGE as SHARED_GRENADE_DAMAGE, GRENADE_PLAYER_DAMAGE_MUL, GRENADE_RADIUS as SHARED_GRENADE_RADIUS,
   breakFragileAlong, explosionDamage, type GameContext, type GrenadeView,
 } from '@/shared';
@@ -49,7 +49,11 @@ interface GrenadeBody {
   fire: boolean;
 }
 
-const _n = new THREE.Vector3(), _tmp = new THREE.Vector3(), _prev = new THREE.Vector3();
+const _n = new THREE.Vector3(), _tmp = new THREE.Vector3(), _prev = new THREE.Vector3(), _probe = new THREE.Vector3();
+/** 바닥 · 벽 튕김의 반발 계수 (법선 속도의 이 비율로 되튄다). 예전 바닥 식 `−vn × 1.4` 의 0.4 그대로다. */
+const BOUNCE_RESTITUTION = 0.4;
+/** 밀어내기 질의에서 몸을 내리는 높이 — 「위에 있다」의 경계를 몸 윗면으로 맞춘다 (`update` 의 2026-09-17 주석). */
+const PROBE_DROP = PROP_TOP_MARGIN - BODY_R;
 
 /**
  * Pooled frag grenades: arc with gravity, bounce on terrain, fuse, radial damage (enemies + player),
@@ -156,9 +160,36 @@ export class GrenadeManager {
             if (surface > terrain + 0.02) _n.set(0, 1, 0); else world.getNormalAt(g.pos.x, g.pos.z, _n);
             const vn = g.vel.dot(_n);
             // reflect with restitution (friction is applied once per frame below)
-            if (vn < 0) { g.vel.addScaledVector(_n, -vn * 1.4); impact = Math.max(impact, -vn); }
+            if (vn < 0) { g.vel.addScaledVector(_n, -vn * (1 + BOUNCE_RESTITUTION)); impact = Math.max(impact, -vn); }
           }
-          world.resolveCollision(g.pos, BODY_R);
+          /*
+           * 2026-09-17 — **윗면 여유 띠로 벽을 뚫었다** (튜토리얼: 철조망 · 웅덩이 벽을 뚫고 절벽으로 떨어졌다).
+           * `resolveCollision` 은 몸 가운데가 윗면 − `PROP_TOP_MARGIN`(0.15) 위면 「위에 있다」고 보고 밀지 않는데, 표면 질의의
+           * 천장은 몸 윗면(가운데 + `BODY_R`)이라 가운데가 [윗면 − 0.15, 윗면 − 0.08) 인 7 cm 띠에서는 **올려 주지도 밀지도 않아**
+           * 수평으로 날아가는 수류탄이 벽 · 철조망의 윗부분을 그대로 지나갔다 (실측: 철조망을 수평에 가깝게 넘기면 윗면 바로 밑을 뚫었다).
+           * 그래서 밀어내기 질의에는 몸을 `PROP_TOP_MARGIN − BODY_R` 만큼 **내려서** 묻는다 — 「위에 있다」의 경계가 몸 윗면 = 윗면이 되어
+           * 표면 질의의 천장과 정확히 맞물린다 (그보다 높으면 위에서 이미 윗면에 올려졌다). 결과는 x · z 만 되받는다.
+           */
+          _probe.set(g.pos.x, g.pos.y - PROBE_DROP, g.pos.z);
+          world.resolveCollision(_probe, BODY_R);
+          const px = _probe.x - g.pos.x, pz = _probe.z - g.pos.z;
+          const push2 = px * px + pz * pz;
+          if (push2 > 1e-10) {
+            g.pos.x = _probe.x; g.pos.z = _probe.z;
+            /*
+             * 2026-09-17 — **벽에서 튕긴다.** 전에는 밀어내기만 하고 속도는 그대로라 벽에 붙어 미끄러져 내려갔다(벽을 향한 속도가
+             * 남아 매 걸음 다시 파고든다). 밀려난 방향을 벽의 법선으로 보고 그 성분을 바닥 튕김과 같은 반발(`BOUNCE_RESTITUTION`)로 뒤집는다.
+             */
+            const inv = 1 / Math.sqrt(push2);
+            const nx = px * inv, nz = pz * inv;
+            const vn = g.vel.x * nx + g.vel.z * nz;
+            if (vn < 0) {
+              g.vel.x -= nx * vn * (1 + BOUNCE_RESTITUTION);
+              g.vel.z -= nz * vn * (1 + BOUNCE_RESTITUTION);
+              contact = true;
+              impact = Math.max(impact, -vn);
+            }
+          }
         }
         if (contact) {
           if (impact > 0) {

@@ -146,7 +146,7 @@ export function closeWheel(sys: StratagemSystem, host: Host): void {
 /** 공유 쿨타임이 도는 동안의 거부 — 휠 열기와 무장이 같은 소리 · 같은 문구를 쓴다. */
 function denyCooldown(sys: StratagemSystem): void {
   sys.audio('ui_deny', undefined, 0.6);
-  sys.ctx.bus.emit('ui:notify', { text: `함선 호출 재충전 중 (${Math.ceil(sys._cooldown)}초)`, kind: 'warning', duration: 1.5 });
+  sys.ctx.bus.emit('ui:notify', { text: `함선 지원 재충전 중 (${Math.ceil(sys._cooldown)}초)`, kind: 'warning', duration: 1.5 });
 }
 
 export function arm(sys: StratagemSystem, id: StratagemId): void {

@@ -372,7 +372,7 @@ try {
     };
   }, n0);
   ok(!s4b.open && s4b.shipDone && s4b.track === 'build' && s4b.step === 'intro' && s4b.popup && s4b.popupTitle === '튜토리얼'
-    && s4b.trail.join(' ') === 'build:intro:1/17',
+    && s4b.trail.join(' ') === 'build:intro:1/7',   // 2026-09-17: 증축 트랙은 7 단계 (묶인 목표 줄)
   `메뉴를 닫은 뒤에야 같은 함선에서 증축 트랙이 시작된다 (${s4b.trail.join(' → ')})`, JSON.stringify(s4b));
   ok(s4b.shipManage === false, '증축 트랙에서는 시설 관리가 막히지 않는다 (manage 단계가 연다)', JSON.stringify(s4b));
   ok(s4b.toggled === 0 && !s4b.messengerOpen && s4b.hidesCommunity === true,

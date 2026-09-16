@@ -713,3 +713,19 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
 - **Revive from downed**: tutorial revive only. A normal raid's rescue drop keeps the raid-start pod sequence (already the case).
 - **Inventory credits as text** (`n C`, compact above 10k), not the currency chip.
 - **Stat tutorial control guide shows Tab only** (agent's call, pending user review): the ESC pause menu has no route to the character tab.
+
+## 2026-09-17 — 가구 제작 모달 · 기업 신뢰도 게이트 · 함선 튜토리얼 묶기 · furniture craft modal, corp gate, grouped build tutorial
+
+- **Furniture craft = centre modal** (list thumbnail, `{이름} 제작`, material chips, 1 s hold `제작` bottom right). **Storage red dots are
+  session-only** (tab dot → cleared when the store list shows; per-card dots cleared on close / placement). Rejected: saving dots in `ShipState`.
+- **Corp access starts at Lv.1**: the Tab `기업` screen tab is hidden until any corp is Lv ≥ 1 (`CORP_ACCESS_REP_LEVEL`), Lv.0 corps cannot be
+  selected, **every** contract `minRepLevel` shifted +1. Lv.1 comes from the first 세레스 / 노마드 NPC quest (`q_ce_s1` / `q_nm_s1` +100).
+  Rejected: shifting only Lv.0 contracts; giving Helix / Bastion first quests Lv.1 too.
+- **민지후 · 차유나 first contact also needs `q_rv_0`** (Raven's first quest) — Raven alone opens the NPC chain.
+- **「함선 호출」 → 「함선 지원」 game-wide** (stratagem wheel, keybind, toasts, contracts). Extraction naming unchanged.
+- **Build tutorial = 7 steps with sequential objectives**; training button and launch readiness warnings hidden during it. The last step
+  (`가치 1,000 C 이상 … 무사히 탈출`) is **one attempt**: the track ends when that raid ends, whatever the outcome. Rejected: keeping the
+  objective until a successful extraction.
+- **Tutorial-raid control guide** (M · Q · G hold · V · X, `]` folds it to one line) only in that raid.
+- **No toast** on tutorial track completion or tactical implant swap. Barbed-wire fence ×1.5 (2.025 m). Extraction ship's world HUD marker
+  removed (map / compass keep it); the player silhouette never shows through the leaving ship.

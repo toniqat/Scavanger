@@ -573,6 +573,8 @@ try {
 
   /* ── 8. TradeGrids (기업 tab) ──────────────────────────────────────────────────────────────────────────────────── */
   console.log('TradeGrids pin');
+  // 2026-09-17: the 기업 tab is hidden until some corp reaches 신뢰도 Lv.1 (`CORP_ACCESS_REP_LEVEL`)
+  await page.evaluate(() => { const m = window.__game.ctx.meta; if (m && typeof m.addRep === 'function' && m.getRep('helix').level < 1) m.addRep('helix', 100 - m.getRep('helix').rep, 'smoke'); });
   await openInv();
   const corpOk = await page.evaluate(() => window.__game.getSystem('inventory').ui.showScreenTab('corp'));
   let tgTile = null;

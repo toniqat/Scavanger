@@ -282,7 +282,7 @@ export class Notifications {
       b.on('stratagem:called', ({ kind, caller }) => {
         if (caller === null) return; // own calls: the panel / targeting HUD already say it
         const name = ctx.net?.getLobbyPlayer(caller)?.name ?? ctx.net?.getRemotePlayer(caller)?.name ?? '분대원';
-        this.push(`<b>${escapeHtml(name)}</b> 함선 호출: <b>${escapeHtml(stratagemDef(kind)?.name ?? kind)}</b>`, 'warning', '호출', 4);
+        this.push(`<b>${escapeHtml(name)}</b> 함선 지원: <b>${escapeHtml(stratagemDef(kind)?.name ?? kind)}</b>`, 'warning', '호출', 4);
       }),
       b.on('stratagem:landed', ({ kind }) => {
         if (kind === 'orbital_laser' || kind === 'airstrike') this.push(`착탄 — <b>${escapeHtml(stratagemDef(kind)?.name ?? kind)}</b>`, 'danger', '호출', 3);
@@ -300,7 +300,7 @@ export class Notifications {
         // 2026-09-11 (E-8): 이 0 이 호스트의 거절을 되돌려 준 것이면(`refundCooldown`) 준비 완료를 띄우지 않는다 —
         // `stratagems` 가 이미 거절 사유 토스트를 띄웠고, 두 줄이 나란히 뜨면 무엇이 일어났는지 오히려 흐려진다.
         if (refunded) return;
-        this.push('함선 호출 준비 완료', 'success', '호출', 3);
+        this.push('함선 지원 준비 완료', 'success', '호출', 3);
       }),
       b.on('game:abort', () => { this.clear(); this.cooldownWasRunning = false; }),
       b.on('game:newMission', ({ mode }) => {
@@ -399,11 +399,8 @@ export class Notifications {
         if (kind === 'mine') this.push('지뢰 설치됨 — 피아 구분 없음, 접근 주의', 'danger', '경고', 3.5);
       }),
       b.on('player:gritSaved', () => this.push('인내 — 치명상을 버텨냈습니다', 'warning', '생명력', 3)),
-      b.on('implant:equipped', ({ id }) => {
-        if (!id) { this.push('전술 임플란트 해제', 'info', '임플란트', 2.5); return; }
-        const name = ctx.implants?.getDef(id)?.name ?? id;
-        this.push(`전술 임플란트 장착: <b>${escapeHtml(name)}</b>`, 'info', '임플란트', 3);
-      }),
+      // 2026-09-17 (사용자 결정): 전술 임플란트 장착 · 해제 · 교체는 토스트를 띄우지 않는다 — 슬롯 그림(임플란트 위젯)과
+      // 장착 소리(`audio` 의 `ui_equip`)로 충분하다. `implant:equipped` 구독이 여기서 없어진 것뿐이다.
       /* ── Phase 5: corporations (short lines; the credits chip / rep / contract toasts live in MetaToasts) ── */
       /* ── 2026-09-14: NPC 퀘스트 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — 옛 기업 퀘스트 완료 토스트(`meta:questChanged`)는 기업 퀘스트와 함께
        * 없어졌다. 새 NPC 메시지(`npc:message`)는 메신저(ui/menus/messenger)가 띄운다. 훈련장에서는 아무것도 띄우지 않는다. ── */

@@ -118,8 +118,25 @@ try {
   const loaded = await lastEv('meta:loaded');
   ok(loaded && loaded.credits === 500, 'meta:loaded {credits 500} emitted by resetMeta (the boot-time one fires before any listener)', JSON.stringify(loaded));
 
+  // 2026-09-17 (사용자 결정): 모든 기업이 신뢰도 Lv.0 이면 Tab 창의 기업 탭이 숨고, 함선 컴퓨터(openCorpMenu)도 열리지 않는다
+  console.log('corp tab gate (all Lv.0)');
+  const gate0 = await P(() => {
+    const c = window.__game.ctx;
+    c.meta.openCorpMenu('helix');
+    const refused = !c.inventory.isOpen;
+    const opened = c.inventory.openScreen('corp');
+    const ui = window.__game.getSystem('inventory').ui;
+    return { refused, opened, tab: c.inventory.screenTab, hidden: ui.tabButtons.get('corp').hidden, invOpen: c.inventory.isOpen };
+  });
+  ok(gate0.refused && gate0.opened === false && gate0.tab === 'inventory' && gate0.hidden === true,
+    '신뢰도 Lv.0 뿐이면 기업 탭은 숨고 openCorpMenu / openScreen(corp) 는 인벤토리에 머문다', JSON.stringify(gate0));
+
   console.log('reputation → shop');
   await P(() => window.__game.ctx.meta.addRep('helix', 100, 'smoke'));
+  // the Tab window is still open from the gate check — the tab appears live on meta:repChanged
+  const gate1 = await P(() => ({ hidden: window.__game.getSystem('inventory').ui.tabButtons.get('corp').hidden }));
+  ok(gate1.hidden === false, '헬릭스가 Lv.1 이 되자 열린 Tab 창에 기업 탭이 바로 나타난다', JSON.stringify(gate1));
+  await P(() => window.__game.ctx.inventory.closeAll());
   let rc = await lastEv('meta:repChanged');
   ok(rc && rc.corp === 'helix' && rc.rep === 100 && rc.level === 1 && rc.levelUp === true && rc.delta === 100, 'meta:repChanged {helix, 100, Lv.1, levelUp}', JSON.stringify(rc));
   r = await rep('helix');
@@ -608,51 +625,42 @@ try {
   // 2026-09-12: 좌하단 크레딧은 없앴다 — 창 우측 상단 CREDITS 가 이미 찍는다
   ok(dom && dom.railTabs === 4 && !dom.credits && !dom.foot,
     '기업 열에 기업 목록 4개, 크레딧 표시 없음, 푸터 없음', JSON.stringify(dom && { railTabs: dom.railTabs, credits: dom.credits, foot: dom.foot }));
-  // 2026-09-12: 기업 목록은 트리다 — 신뢰도 게이지와 페이지 탭이 **선택한 기업 버튼 바로 아래** 가지로 열린다
-  const ceresAt = dom ? dom.tree.indexOf('ceres') : -1;
+  // 2026-09-17 (사용자 결정): 세레스는 아직 신뢰도 Lv.0 — 고를 수 없으므로 openCorpMenu(ceres) 도 Lv.1 인 첫 기업(헬릭스)으로 열린다
+  const helixAt = dom ? dom.tree.indexOf('helix') : -1;
   ok(dom && dom.railDetached && dom.railOrder.join(',') === 'corp-tabs' && dom.tree.filter((t) => t === 'branch').length === 1
-    && dom.tree[ceresAt + 1] === 'branch' && dom.branchParts.join(',') === 'corp-rep,corp-subtabs' && dom.expanded === 'ceres' && !dom.oldPanel && !dom.oldTop,
-    '기업 트리: 패널과 분리된 독립 열(라벨 없음), 선택한 세레스 바로 아래에 가지 하나(신뢰도 게이지 → 페이지 탭), aria-expanded',
+    && dom.tree[helixAt + 1] === 'branch' && dom.branchParts.join(',') === 'corp-rep,corp-subtabs' && dom.expanded === 'helix' && !dom.oldPanel && !dom.oldTop,
+    '기업 트리: 패널과 분리된 독립 열(라벨 없음), 선택한 헬릭스 바로 아래에 가지 하나(신뢰도 게이지 → 페이지 탭), aria-expanded',
     JSON.stringify(dom && { railDetached: dom.railDetached, railOrder: dom.railOrder, tree: dom.tree, branchParts: dom.branchParts, expanded: dom.expanded }));
-  ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'ceres')?.on && dom.panel === '세레스 바이오' && /^Lv\.\d+$/.test(dom.repLv ?? '') && !dom.motto,
-    '4 corp tabs, ceres selected, 게이지가 그 기업의 Lv 를 읽는다 (no motto banner)', JSON.stringify(dom && { tabs: dom.tabs, repLv: dom.repLv }));
-  // 2026-09-14: 퀘스트 탭 삭제 (기업 퀘스트 폐지) — 거래 / 계약 / 임플란트
-  ok(dom && dom.subs.map((s) => s.page).join(',') === 'trade,contracts,implants', 'sub-tabs 거래 / 계약 / 임플란트 at ceres (퀘스트 탭 없음)', JSON.stringify(dom && dom.subs));
-  // 2026-09-08 UI/UX: 신뢰도 Lv.0 → 거래 탭은 잠기고, 화면은 잠기지 않은 첫 탭(2026-09-14: 계약)으로 열린다.
-  // 계약은 세레스에 minRepLevel 0 짜리가 있으므로 잠기지 않는다 (요구사항: Lv.0 에서도 계약은 가능).
-  const subTrade = dom && dom.subs.find((s) => s.page === 'trade');
-  const subContracts = dom && dom.subs.find((s) => s.page === 'contracts');
-  ok(subContracts && subContracts.on && !subContracts.locked, '신뢰도가 모자라면 계약 탭으로 열린다', JSON.stringify(subContracts));
-  // 2026-09-08: `disabled` 였을 때는 클릭 이벤트가 아예 안 나서 왜 잠겼는지 볼 방법이 툴팁뿐이었다.
-  ok(subTrade && subTrade.locked && !subTrade.disabled && /신뢰도 Lv\.1 부터 거래 가능/.test(subTrade.why), '거래 탭이 잠긴다 (흐려지되 클릭은 받는다)', JSON.stringify(subTrade));
-  const lockToast = await P(() => {
+  ok(dom && dom.tabs.length === 4 && dom.tabs.find((t) => t.corp === 'helix')?.on && dom.panel === '헬릭스 방산' && /^Lv\.\d+$/.test(dom.repLv ?? '') && !dom.motto,
+    '4 corp tabs, Lv.0 ceres 대신 helix selected, 게이지가 그 기업의 Lv 를 읽는다 (no motto banner)', JSON.stringify(dom && { tabs: dom.tabs, panel: dom.panel, repLv: dom.repLv }));
+  const corpLock0 = await P(() => {
     window.__ev['ui:notify'] = [];
-    const before = window.__game.getSystem('meta')?.corpView?.page ?? null;
-    document.querySelector('.corp-subtabs .scr-tab[data-page="trade"]').click();
-    return { notes: window.__ev['ui:notify'].map((n) => n.text), msg: document.querySelector('.corp-msg-slot .form-msg')?.textContent ?? '', page: document.querySelector('.corp-page')?.dataset.page ?? null, before };
+    const b = document.querySelector('.corp-tab[data-corp="ceres"]');
+    const before = { locked: b.classList.contains('is-locked'), disabled: b.disabled, why: b.title };
+    b.click();
+    return { ...before, notes: window.__ev['ui:notify'].map((n) => n.text), on: document.querySelector('.corp-tab.is-on')?.dataset.corp };
   });
-  ok(lockToast.notes.some((t) => /신뢰도 Lv\.1 부터 거래 가능/.test(t)), '잠긴 거래 탭을 누르면 필요한 신뢰도가 토스트로 뜬다', JSON.stringify(lockToast));
-  ok(lockToast.page !== 'trade', '그리고 페이지는 바뀌지 않는다', JSON.stringify(lockToast));
-  ok(subContracts && !subContracts.locked && !subContracts.disabled, 'Lv.0 에서도 계약 탭은 열려 있다 (minRepLevel 0 계약이 있다)', JSON.stringify(subContracts));
-  // 잠긴 탭은 눌러도 넘어가지 않고 사유만 뜬다
-  const clickLocked = await P(() => {
-    document.querySelector('.corp-subtabs .scr-tab[data-page="trade"]').click();
-    const on = document.querySelector('.corp-subtabs .scr-tab.is-on');
-    return { on: on?.dataset.page, msg: document.querySelector('.corp-view .form-msg')?.textContent ?? '' };
-  });
-  ok(clickLocked.on === 'contracts', '잠긴 거래 탭을 눌러도 계약 탭에 머문다', JSON.stringify(clickLocked));
-  // 신뢰도를 Lv.1 로 올리면 거래 탭이 풀린다
+  ok(corpLock0.locked && !corpLock0.disabled && /신뢰도 Lv\.1 필요/.test(corpLock0.why) && corpLock0.notes.some((t) => /신뢰도 Lv\.1 필요/.test(t)) && corpLock0.on === 'helix',
+    'Lv.0 세레스 탭은 잠겨 있고(흐리게, 클릭은 받는다) 누르면 신뢰도 Lv.1 필요 토스트, 선택은 헬릭스에 머문다', JSON.stringify(corpLock0));
+  // 신뢰도를 Lv.1 로 올리면 세레스가 풀리고 고를 수 있다
   const unlocked = await P(() => {
     window.__game.ctx.meta.addRep('ceres', 100, 'smoke');
-    const b = document.querySelector('.corp-subtabs .scr-tab[data-page="trade"]');
-    return { locked: b.classList.contains('is-locked'), disabled: b.disabled, lv: window.__game.ctx.meta.getRep('ceres').level };
+    const b = document.querySelector('.corp-tab[data-corp="ceres"]');
+    const out = { locked: b.classList.contains('is-locked'), lv: window.__game.ctx.meta.getRep('ceres').level };
+    b.click();
+    return { ...out, on: document.querySelector('.corp-tab.is-on')?.dataset.corp };
   });
-  ok(unlocked.lv === 1 && !unlocked.locked && !unlocked.disabled, '신뢰도 Lv.1 이 되면 거래 탭이 풀린다', JSON.stringify(unlocked));
+  ok(unlocked.lv === 1 && !unlocked.locked && unlocked.on === 'ceres', '신뢰도 Lv.1 이 되면 세레스 탭이 풀리고 선택된다', JSON.stringify(unlocked));
+  const subsCeres = await P(() => [...document.querySelectorAll('.corp-subtabs .scr-tab:not([hidden])')].map((b) => ({ page: b.dataset.page, locked: b.classList.contains('is-locked') })));
+  // 2026-09-14: 퀘스트 탭 삭제 (기업 퀘스트 폐지) — 거래 / 계약 / 임플란트
+  ok(subsCeres.map((s) => s.page).join(',') === 'trade,contracts,implants' && subsCeres.every((s) => !s.locked),
+    'sub-tabs 거래 / 계약 / 임플란트 at ceres, Lv.1 이면 잠긴 탭 없음 (계약도 Lv.1 부터)', JSON.stringify(subsCeres));
   await P(() => { document.querySelector('.corp-subtabs .scr-tab[data-page="trade"]').click(); });
   await sleep(60);
   ok(await P(() => document.querySelector('.corp-subtabs .scr-tab.is-on')?.dataset.page === 'trade'), '풀린 거래 탭으로 전환된다');
   let tg = await lastEv('ui:corpToggled');
-  ok(tg && tg.open === true && tg.corp === 'ceres', 'ui:corpToggled {open:true, ceres}', JSON.stringify(tg));
+  // 2026-09-17: 열 때 세레스는 Lv.0 이라 첫 열린 기업(헬릭스)으로 열렸다 — 탭 클릭은 이 이벤트를 다시 내지 않는다
+  ok(tg && tg.open === true && tg.corp === 'helix', 'ui:corpToggled {open:true, helix}', JSON.stringify(tg));
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]').click());
   const contractsDom = await P(() => ({
     rows: [...document.querySelectorAll('.cc-list .corp-row.contract')].map((r) => ({ id: r.dataset.id, btn: r.querySelector('.ui-btn')?.textContent, disabled: r.querySelector('.ui-btn')?.disabled })),

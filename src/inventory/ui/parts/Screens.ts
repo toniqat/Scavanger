@@ -6,7 +6,7 @@
  * 제작 열과 무한 상자 카탈로그의 열고 닫기도 여기 있다.
  */
 import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
-import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
+import { Keys, QUICK_SLOTS, anyCorpAccessible, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
 import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../../Container';
 import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../../InventorySystem';
@@ -53,6 +53,8 @@ export function setTab(sys: InventoryUI, tab: ScreenTab): void {
   if (tab !== 'inventory' && !sys.hub) tab = 'inventory'; // the embedded screens are ship-only
   // 2026-09-08: 튜토리얼 중에는 인벤토리 탭만 — 나머지는 잠긴 채로 그려지고 클릭도 되돌려진다
   if (tab !== 'inventory' && sys.ctx.tutorial?.blockReason('screenTab', tab)) tab = 'inventory';
+  // 2026-09-17 (사용자 결정): 기업 탭은 신뢰도 Lv.1 기업이 하나라도 생기기 전까지 감춰져 있고 열리지도 않는다
+  if (tab === 'corp' && corpTabLocked(sys)) tab = 'inventory';
   if (tab === sys.activeTab && (tab === 'inventory' || sys.screenView)) return;
   // leaving a screen: dispose its view, close the popups that belong to the grid
   sys.screenView?.dispose();
@@ -91,6 +93,27 @@ export function setTab(sys: InventoryUI, tab: ScreenTab): void {
   sys.emitGuide();
   }
 
+/**
+ * 2026-09-17 (사용자 결정): true while no corp has reached `CORP_ACCESS_REP_LEVEL` — the 기업 screen tab is hidden then
+ * (the first level comes from the corp NPCs' first quests). Without `ctx.meta` the tab is not rep-gated here; `buildScreenView`
+ * already answers "unavailable".
+ */
+export function corpTabLocked(sys: InventoryUI): boolean {
+  const meta = sys.ctx.meta;
+  if (!meta || typeof meta.getRep !== 'function') return false;
+  try { return !anyCorpAccessible((c) => meta.getRep(c).level); } catch { return false; }
+  }
+
+/**
+ * Re-evaluate the rep gate live (`meta:repChanged` / `meta:loaded`): re-mark the tabs, and leave the 기업 screen when it
+ * just became locked (a reset profile).
+ */
+export function onCorpAccessChanged(sys: InventoryUI): void {
+  if (!sys.root) return;
+  if (sys.activeTab === 'corp' && corpTabLocked(sys)) sys.setTab('inventory');
+  sys.markTab();
+  }
+
 /** `createSheetView` / `createCorpView` / `createShipView`; null when that system is not present. */
 export function buildScreenView(sys: InventoryUI, tab: ScreenTab): EmbeddedView | null {
   try {
@@ -127,7 +150,8 @@ export function markTab(sys: InventoryUI): void {
       b.dataset.alert = alert ? String(statPoints) : '';
     }
     // 함선 needs the housing system; hide the tab entirely when there is none
-    b.hidden = tutHidden || (id === 'ship' && !sys.ctx.housing);
+    // 2026-09-17: 기업 is hidden until any corp reaches 신뢰도 Lv.1 (`corpTabLocked`)
+    b.hidden = tutHidden || (id === 'ship' && !sys.ctx.housing) || (id === 'corp' && corpTabLocked(sys));
   }
   }
 

@@ -72,6 +72,8 @@ interface Row {
   total: number | null;
   /** 지금 그려져 있는 진행 수. */
   at: number;
+  /** 진행 수의 단위 (2026-09-17, `TutorialObjective.countUnit`) — 있으면 ` (420 / 1,000 C)` 모양. */
+  unit?: string;
 }
 
 /** 퀘스트 글리프 — 외부 에셋 금지라 인라인 SVG 다 (마름모 + 가운데 점). */
@@ -89,7 +91,8 @@ const CHECK_SVG = '<svg class="tut-obj-box" viewBox="0 0 16 16" aria-hidden="tru
  * 진행 수는 문구가 아니라 **자기 노드**가 들고 있어(`setCounts`) 세는 동안 줄을 다시 짓지 않는다 —
  * 그래서 아래 `rowKey` 에도 `count` 가 없다.
  */
-const countText = (at: number, total: number): string => ` (${at}/${total})`;
+const countText = (at: number, total: number, unit?: string): string =>
+  (unit ? ` (${at.toLocaleString('en-US')} / ${total.toLocaleString('en-US')} ${unit})` : ` (${at}/${total})`);
 
 export class TutorialPanel {
   readonly root: HTMLElement;
@@ -196,7 +199,7 @@ export class TutorialPanel {
       const n = Math.max(0, Math.min(row.total, Math.round(counts[id] ?? 0)));
       if (n === row.at) continue;
       row.at = n;
-      const label = countText(n, row.total);
+      const label = countText(n, row.total, row.unit);
       for (const host of [row.txt, row.strike]) {
         const el = host.querySelector('.tut-obj-n');
         if (el) el.textContent = label;
@@ -229,7 +232,7 @@ export class TutorialPanel {
       strike.setAttribute('aria-hidden', 'true');
       label.append(txt, strike);
       el.appendChild(label);
-      const row: Row = { el, txt, strike, text, total: o.count ?? null, at: 0 };
+      const row: Row = { el, txt, strike, text, total: o.count ?? null, at: 0, unit: o.countUnit };
       this.paint(row);
       this.list.appendChild(el);
       this.rows.set(o.id, row);
@@ -246,7 +249,7 @@ export class TutorialPanel {
       if (row.total === null) continue;
       const n = document.createElement('i');
       n.className = 'tut-obj-n';
-      n.textContent = countText(row.at, row.total);
+      n.textContent = countText(row.at, row.total, row.unit);
       host.appendChild(n);
     }
   }

@@ -1,6 +1,6 @@
 import type { TutorialGate, TutorialHudPart, TutorialStepId } from '@/shared';
 import { TUTORIAL_TRACK_STEPS } from '@/shared';
-import { HUD_GEAR_STEP, HUD_STAMINA_STEP, TUTORIAL_STASH_WHITELIST, blockedBy, type HudRevealState } from '../model';
+import { HUD_GEAR_STEP, HUD_STAMINA_STEP, TUTORIAL_STASH_WHITELIST, blockedBy, type HudRevealState, type StepDef } from '../model';
 import { stepDef, trackOf } from '../Steps';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -88,18 +88,29 @@ function stashItemBlock(step: TutorialStepId, allow: true | readonly string[] | 
 const shipManageBlocked = (step: TutorialStepId): boolean => trackOf(step) === 'ship';
 
 /**
+ * `training` · `launchWarn` (2026-09-17, 사용자 결정) — **증축 트랙 내내** 감추는 것 둘 (숨김 전용, 막지는 않는다):
+ * 터미널의 `시뮬레이션 훈련장` 버튼, 준비 홀드의 출격 준비 경고(기업 계약 없음 · 방탄복 없음 …). 튜토리얼 캐릭터는 둘 다 없는 것이
+ * 정상이라 안내 한가운데에서 경고 팝업이 흐름을 끊었다.
+ */
+const buildOnlyHidden = (step: TutorialStepId): boolean => trackOf(step) === 'build';
+
+/** 단계의 `allow` 대신 쓸 허용 표 (2026-09-17 — 보이는 목표 줄이 더 연 게이트까지 합친 것, `model.mergedAllow`). */
+export type AllowTable = StepDef['allow'];
+
+/**
  * `step` 에서 `gate`(+ `id`)가 막히는지. 막히면 한국어 사유, 아니면 null.
  * `step` 이 null(비활성)이면 호출부가 부르기 전에 걸러 주지만, 방어적으로 여기서도 null 을 돌려준다.
+ * @param allowTable 2026-09-17: 목표별 `allow` 를 합친 표 (`TutorialSystem` 이 넘긴다). 없으면 단계의 `allow`.
  */
-export function blockReason(step: TutorialStepId | null, gate: TutorialGate, id?: string): string | null {
+export function blockReason(step: TutorialStepId | null, gate: TutorialGate, id?: string, allowTable?: AllowTable): string | null {
   if (!step) return null;
   // `hud` 는 **숨김 전용**이다 — 아무것도 "막지" 않는다 (막힌 것을 숨기는 규칙의 예외, 위 절 참고)
-  if (gate === 'hud') return null;
+  if (gate === 'hud' || gate === 'training' || gate === 'launchWarn') return null;
   if (gate === 'shipManage') return shipManageBlocked(step) ? '튜토리얼 중에는 시설 관리를 열 수 없습니다' : null;
   // 인벤토리 탭은 언제나 열려 있다 — 장착 · 제작 · 탄약 넣기가 전부 그 창에서 일어난다
   if (gate === 'screenTab' && (id === undefined || id === 'inventory')) return null;
   const def = stepDef(step);
-  const allow = def.allow?.[gate];
+  const allow = (allowTable !== undefined ? allowTable : def.allow)?.[gate];
   if (gate === 'stashItem') return stashItemBlock(step, allow, id);
   if (allow === undefined) {
     if (gate === 'community') return '튜토리얼 중에는 사용할 수 없습니다';
@@ -121,11 +132,14 @@ export function blockReason(step: TutorialStepId | null, gate: TutorialGate, id?
  *     (행성 넘김 화살표처럼 "고를 수 있는 것이 하나뿐"인 자리).
  * 튜토리얼이 끝나거나 건너뛰어지면 `step` 이 null 이라 전부 false 로 돌아간다 — 잠금과 숨김이 함께 풀린다.
  */
-export function hides(step: TutorialStepId | null, gate: TutorialGate, id?: string, hud: HudRevealState = HUD_NONE): boolean {
+export function hides(
+  step: TutorialStepId | null, gate: TutorialGate, id?: string, hud: HudRevealState = HUD_NONE, allowTable?: AllowTable,
+): boolean {
   if (!step) return false;
   if (gate === 'hud') return hudHidden(step, id, hud);
   if (gate === 'shipManage') return shipManageBlocked(step);
+  if (gate === 'training' || gate === 'launchWarn') return buildOnlyHidden(step);
   if (ALWAYS_HIDDEN.includes(gate)) return true;
-  if (id !== undefined) return blockReason(step, gate, id) !== null;
-  return stepDef(step).allow?.[gate] !== true;
+  if (id !== undefined) return blockReason(step, gate, id, allowTable) !== null;
+  return (allowTable !== undefined ? allowTable : stepDef(step).allow)?.[gate] !== true;
 }

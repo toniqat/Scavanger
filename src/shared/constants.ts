@@ -68,6 +68,8 @@ export interface KeyBindings {
   COMMS: string;
   /* appended (2026-09-12): 어깨 전환 — 3인칭 카메라를 왼쪽 / 오른쪽 어깨로 옮긴다 (owner: player/CameraRig). */
   SHOULDER: string;
+  /* appended (2026-09-17): 튜토리얼 레이드 우측 조작 가이드 접기 / 펴기 (owner: tutorial — 증축 안내의 마지막 레이드에서만 읽는다). */
+  GUIDE_TOGGLE: string;
 }
 
 /** Factory defaults; `Keys` is the live (rebindable) copy. Both are keyed by `KeyAction`. */
@@ -106,6 +108,8 @@ export const DEFAULT_KEYS: Readonly<KeyBindings> = {
   COMMS: 'KeyH',
   /* 2026-09-12: 어깨 전환. X 는 인벤토리(DROP_ITEM) · 시설 관리(회수)에서도 쓰지만 그 둘은 커서 화면이라 범위가 겹치지 않는다. */
   SHOULDER: 'KeyX',
+  /* 2026-09-17: `]` = 튜토리얼 조작 가이드 숨김 / 표시. 시설 관리 모드의 `]`(가구 넘기기, 고정 키 — `hub/HousingMode`)는 커서 화면이라 범위가 겹치지 않는다. */
+  GUIDE_TOGGLE: 'BracketRight',
 };
 
 /**
@@ -1184,6 +1188,8 @@ export const CHAR_NAME_RANDOM_MAX = K.num('CHAR_NAME_RANDOM_MAX');
 export const UI_HOLD_CONFIRM_S = K.num('UI_HOLD_CONFIRM_S');
 /** appended (2026-09-12): 시설 관리에서 가구를 꾹 눌러 위치 이동 상태로 드는 시간 (hub/HousingMode · ui 의 커서 게이지). */
 export const HOUSING_MOVE_HOLD_S = K.num('HOUSING_MOVE_HOLD_S');
+/** appended (2026-09-17): 메신저 — NPC 의 마지막 말풍선이 붙은 뒤 대사 선택지가 뜨기까지의 시간(초) (`ui/menus/messenger/ChatTab`). */
+export const MESSENGER_CHOICE_DELAY_S = K.num('MESSENGER_CHOICE_DELAY_S');
 
 /* ══ 2026-09-09: 사망 · 시체 · 구조선 · 안개 · 지형지물 ═════════════════════════════════════════════════════ */
 
@@ -2239,6 +2245,9 @@ export const THUMPER_SHAKE = K.num('THUMPER_SHAKE');
 /* ── 2026-09-16 튜토리얼 포복 구간 조작 가이드 (owner: tutorial `TutorialSystem.pollCrawlHint`) ── */
 /** 무너진 통로를 이 비율만큼 지나면 조작 가이드에 발사 · 정조준 줄이 붙는다 (0 입구 · 1 출구). */
 export const TUTORIAL_CRAWL_AIM_HINT_FRAC = K.num('TUTORIAL_CRAWL_AIM_HINT_FRAC');
+/* ── 2026-09-17 증축 안내 마지막 레이드 (owner: tutorial `TutorialSystem.onBuildRaidEnd`) ── */
+/** 레이드에서 얻은 아이템의 판매가 합이 이만큼 이상인 채로 탈출하면 증축 안내의 마지막 목표가 달성된다 (크레딧). */
+export const TUTORIAL_RAID_EXTRACT_VALUE_C = K.num('TUTORIAL_RAID_EXTRACT_VALUE_C');
 
 /* ── 2026-09-16 메신저 버튼 빨간 점 튀어오르기 (owner: ui — `hud/Community`) ── */
 /** 새 NPC 메시지 → 메신저 버튼 빨간 점이 튀어올랐다 내려앉는 시간 (초). 토스트 대신이다. */

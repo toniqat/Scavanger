@@ -75,6 +75,7 @@ CARRY_XP_PER_METER,0.01,무거운 상태로 1 m 이동당
 CREDITS_INITIAL,500,새 프로필의 시작 크레딧
 CREDITS_MAX,9999999,보유 상한
 SHOP_UNLOCK_REP_LEVEL,1,상점이 열리는 신뢰도 레벨
+CORP_ACCESS_REP_LEVEL,1,"2026-09-17 사용자 결정: 이 레벨 미만인 기업은 Tab 창 기업 탭에서 고를 수 없고, 모든 기업이 미만이면 기업 탭 자체가 숨는다 (첫 신뢰도는 민지후 · 차유나 첫 퀘스트)"
 SHOP_PRICE_BASE_MUL,3,구매가 = 아이템 value × 이 값
 SHOP_PRICE_DISCOUNT_PER_REP,0.15,신뢰도 레벨마다 할인
 SHOP_PRICE_MIN_MUL,0.9,할인해도 이 배수 밑으로는 안 내려간다

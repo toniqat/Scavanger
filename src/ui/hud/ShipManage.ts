@@ -108,6 +108,10 @@ const CARD_COST_MAX = 4;
 const CARD_CHIP = 36;
 /** The 재료 부족 toast of the inspector's dimmed 업그레이드 button (사용자 결정 문장 그대로). */
 const SHORT_UPGRADE_TEXT = '재료가 부족하여 업그레이드할 수 없습니다.';
+/** 2026-09-17: blocker / cursor / escape token of the 가구 제작 modal (`openCraft`). */
+const CRAFT_MODAL_TOKEN = 'shipManage:craft';
+/** Material chip edge inside the 가구 제작 modal (UI size, not balance). */
+const CRAFT_MODAL_CHIP = 44;
 
 /**
  * 시설 관리 screen (`.ship-manage`, Phase 8) — the DOM half of `ctx.housing`'s manage mode (M in the ship). It lives in
@@ -193,6 +197,17 @@ const SHORT_UPGRADE_TEXT = '재료가 부족하여 업그레이드할 수 없습
  * 항목은 목록에서 **빠진다** — "튜토리얼에서는 ~" 사유를 단 줄을 남겨 두는 대신, 지금 지을 수 있는 것만
  * 보여 준다 (안내 단계에서는 발전기 행 + 작업실 한 줄). 단계가 넘어가거나 튜토리얼을 건너뛰면
  * `tutorial:changed` 로 목록을 다시 그려 감춰 둔 것이 전부 돌아온다.
+ *
+ * **2026-09-17 (사용자 결정 — 제작 모달 · 가구 창고 레드닷):**
+ *   - 가구 카드의 `제작`(또는 창고에 없는 카드 클릭)은 곧바로 만들지 않고 화면 중앙의 **제작 모달**(`.sm-craft`)을 연다 —
+ *     목록과 같은 썸네일(`.fcard-thumb`) · `{가구 이름} 제작` · 그 아래 재료 칩 전부(`renderItemCost`, 보유/필요 · `.is-short`) ·
+ *     우측 하단 `제작`(`.sm-craft-ok`)을 `UI_HOLD_CONFIRM_S` 동안 누르면 `craftFurniture` → `housing:changed {reason:'craft'}`
+ *     (튜토리얼 `bench` 단계가 여기서 넘어간다). 모달은 `CRAFT_MODAL_TOKEN` 으로 blocker · 커서 · `ctx.escape` 를 쥔다 —
+ *     Escape · Tab · `취소` · 뒤판 클릭이 닫는다. Enter 는 삼킨다. 막힌 카드(재료 부족 · 이미 보유)는 예전처럼 사유 토스트만.
+ *   - **레드닷 (세션 한정, 저장하지 않는다):** 새로 만들었거나(`craftFurniture` 성공) 회수된(`housing:furnitureRecovered`) 가구는
+ *     `dotPending` 에 들어가 `가구 창고` 탭에 점(`.sm-dot`)을 띄운다. 창고 목록이 보이는 순간(탭을 누르거나 이미 그 탭이면)
+ *     탭의 점은 사라지고 그 가구 카드들의 썸네일에 점이 선다(`dotCards`). 화면을 닫거나 그 가구를 배치하면 카드의 점이 사라진다.
+ *     다른 하위 탭에 가려진 점이 있으면 그 하위 탭에도 점이 선다.
  */
 export class ShipManage {
   readonly root: HTMLElement;
@@ -257,8 +272,41 @@ export class ShipManage {
   private inspectCost: HTMLElement;
   private inspectBtn: HTMLButtonElement;
   private inspectUid: string | null = null;
+  /* 2026-09-17: 가구 제작 모달 (blocker · escape 토큰 `CRAFT_MODAL_TOKEN`) */
+  private craftEl: HTMLElement;
+  private craftThumb: HTMLElement;
+  private craftGlyph: HTMLElement;
+  private craftSize: HTMLElement;
+  private craftTitle: HTMLElement;
+  private craftCost: HTMLElement;
+  private craftNote: HTMLElement;
+  private craftCancel: HTMLButtonElement;
+  private craftOk: HTMLButtonElement;
+  private craftFill: HTMLElement;
+  private craftDefId: string | null = null;
+  private craftHoldStart = 0;
+  private craftHoldTimer = 0;
+  private craftHoldT = 0;
+  private readonly onCraftHoldUp = (): void => this.stopCraftHold();
+  /* 2026-09-17: 가구 창고 레드닷 (세션 한정) — 탭에 뜬 것 / 카드에 뜬 것 */
+  private dotPending = new Set<string>();
+  private dotCards = new Set<string>();
+  private storeTabDot: HTMLElement | null = null;
+  private kindDots = new Map<FurnKind, HTMLElement>();
 
   private onKey = (e: KeyboardEvent): void => {
+    if (this.isCraftOpen) {
+      // 2026-09-17: 제작 모달 — Enter 로는 확정되지 않는다(삼킨다), Tab 은 모달만 닫는다 (뒤의 시설 관리 · 인벤토리가 보지 않는다).
+      // Escape 는 여기서 먹지 않는다: `ctx.escape` 의 맨 위가 이 모달이라 game/ 의 정책이 이것부터 닫는다.
+      if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); e.stopImmediatePropagation(); return; }
+      if (e.code === Keys.INVENTORY) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        this.ctx?.input.consume(Keys.INVENTORY);
+        this.closeCraft(true);
+      }
+      return;
+    }
     if (!this.isConfirmOpen) return;
     // 2026-09-12: Enter 로는 되돌릴 수 없는 확정(시설 제거)이 되지 않는다 — 먹기만 한다 (포커스된 취소도 누르지 않는다)
     if (this.confirmDanger && (e.code === 'Enter' || e.code === 'NumpadEnter')) {
@@ -310,6 +358,7 @@ export class ShipManage {
       b.dataset.tab = id;               // 2026-09-08: 튜토리얼 스포트라이트가 '가구 창고' 탭을 집는 손잡이
       b.addEventListener('click', (e) => { e.stopPropagation(); this.pickTab(id); });
       this.tabBtns.set(id, b);
+      if (id === 'store') { this.storeTabDot = el('i', { cls: 'sm-dot', parent: b }); this.storeTabDot.hidden = true; }
     }
     // 2026-09-12: 가구 제작 안의 하위 탭 — 시설 가구(E 로 뭔가를 하는 가구) / 꾸밈용 가구
     this.subtabsEl = el('div', { cls: 'sm-subtabs', parent: side });
@@ -318,6 +367,9 @@ export class ShipManage {
       b.dataset.kind = id;
       b.addEventListener('click', (e) => { e.stopPropagation(); this.pickKind(id); });
       this.kindBtns.set(id, b);
+      const dot = el('i', { cls: 'sm-dot', parent: b });
+      dot.hidden = true;
+      this.kindDots.set(id, dot);
     }
     this.purposesEl = el('div', { cls: 'sm-purposes', parent: side });
     this.purposesEl.hidden = true;
@@ -362,6 +414,34 @@ export class ShipManage {
     // a click on the dimmed backdrop cancels, like the 함선 tab's popups
     this.confirmEl.addEventListener('mousedown', (e) => { if (e.target === this.confirmEl) this.closeConfirm(true); });
 
+    /* 2026-09-17 (사용자 결정): 가구 제작 모달 — 가운데 썸네일(목록과 같은 `.fcard-thumb`) · `{이름} 제작` · 재료 칩 ·
+       우측 하단 `제작` 1초 홀드. `.sm-confirm` 의 판(z 79, 튜토리얼 스포트라이트 위)을 그대로 쓴다. */
+    this.craftEl = el('div', { cls: 'sm-confirm sm-craft interactive', parent: this.root });
+    this.craftEl.hidden = true;
+    const ccard = el('div', { cls: 'sm-confirm-card sm-craft-card', parent: this.craftEl });
+    ccard.setAttribute('role', 'dialog');
+    const chead = el('div', { cls: 'sm-craft-head', parent: ccard });
+    this.craftThumb = el('div', { cls: 'fcard-thumb sm-craft-thumb', parent: chead });
+    this.craftGlyph = el('span', { cls: 'fcard-glyph', text: '▨', parent: this.craftThumb });
+    this.craftSize = el('span', { cls: 'fcard-size', text: '', parent: this.craftThumb });
+    this.craftTitle = el('div', { cls: 'title sm-craft-title', text: '', parent: chead });
+    el('div', { cls: 'sm-craft-label', text: '필요 재료', parent: ccard });
+    this.craftCost = el('div', { cls: 'sm-craft-cost', parent: ccard });
+    this.craftNote = el('div', { cls: 'sm-craft-note', text: '', parent: ccard });
+    this.craftNote.hidden = true;
+    const cacts = el('div', { cls: 'acts', parent: ccard });
+    this.craftCancel = el('button', { cls: 'ui-btn', text: '취소', parent: cacts });
+    this.craftOk = el('button', { cls: 'ui-btn primary sm-confirm-ok sm-craft-ok', parent: cacts });
+    createHoldButtonCap(this.craftOk);
+    this.craftFill = el('i', { cls: 'sm-hold-fill', parent: this.craftOk });
+    el('span', { cls: 'sm-confirm-ok-t', text: '제작', parent: this.craftOk });
+    this.craftCancel.addEventListener('click', (e) => { e.stopPropagation(); this.closeCraft(true); });
+    // a click never crafts — only the `UI_HOLD_CONFIRM_S` hold does
+    this.craftOk.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); });
+    this.craftOk.addEventListener('pointerdown', (e) => { if (e.button === 0) { e.preventDefault(); e.stopPropagation(); this.startCraftHold(); } });
+    this.craftOk.addEventListener('pointerleave', () => this.stopCraftHold());
+    this.craftEl.addEventListener('mousedown', (e) => { if (e.target === this.craftEl) this.closeCraft(true); });
+
     /* B-13 (2026-09-11): 클릭 인스펙터. `.sm-confirm` 과 같은 상자 언어를 쓰지만 배경을 덮지 않는 **모달리스**
        카드다 — 방 목록(좌) · 가구 목록(우) 사이 하단 중앙에 서서, 카드를 띄운 채로 다음 가구를 클릭할 수 있다. */
     /* 2026-09-12: 인스펙터와 그 위의 토스트가 하단 중앙 한 줄기(`.sm-dock`)에 쌓인다 — 토스트는 늘 카드 바로 위다 */
@@ -405,9 +485,10 @@ export class ShipManage {
       b.on('housing:changed', () => { if (this.active) this.refresh(); }),
       // 2026-09-09: the 배치 button's fit check depends on what is on the floor and how big the room is — every
       // change to the room re-scans (the list memo carries the result, so an unchanged answer redraws nothing)
-      b.on('housing:furniturePlaced', () => { if (this.active) this.refresh(); }),
+      // 2026-09-17: 배치된 가구의 레드닷은 사라진다 · 회수된 가구는 가구 창고 레드닷 (화면이 닫혀 있어도 센다 — 세션 한정)
+      b.on('housing:furniturePlaced', ({ item }) => { this.clearDot(item.defId); if (this.active) this.refresh(); }),
       b.on('housing:furnitureMoved', () => { if (this.active) this.refresh(); }),
-      b.on('housing:furnitureRecovered', () => { if (this.active) this.refresh(); }),
+      b.on('housing:furnitureRecovered', ({ defId }) => { this.markNew(defId); if (this.active) this.refresh(); }),
       b.on('housing:facilityUpgraded', () => { if (this.active) this.refresh(); }),
       b.on('housing:roomPurposeChanged', () => { if (this.active) this.refresh(); }),
       b.on('housing:selectionChanged', ({ defId }) => this.markSelection(defId)),
@@ -453,6 +534,13 @@ export class ShipManage {
   /** 2026-09-12: which 가구 제작 sub-tab is showing, and the refusal toast text while it is up (debug / smoke). */
   get craftKind(): FurnKind { return this.kind; }
   get toastText(): string | null { return this.toastEl.hidden ? null : this.toastEl.textContent; }
+  /** 2026-09-17: the 가구 제작 modal — open, which def, hold fill 0 … 1 (debug / smoke). */
+  get isCraftOpen(): boolean { return !this.craftEl.hidden; }
+  get craftModalDefId(): string | null { return this.craftEl.hidden ? null : this.craftDefId; }
+  get craftHoldProgress(): number { return this.craftHoldT; }
+  /** 2026-09-17: 가구 창고 red dots — the tab dot's pending defs and the defs whose store cards carry a dot (debug / smoke). */
+  get storeDotPending(): readonly string[] { return [...this.dotPending]; }
+  get storeDotCards(): readonly string[] { return [...this.dotCards]; }
 
   /**
    * 2026-09-08 — 튜토리얼이 막는 항목은 사유를 달아 두지 않고 **아예 그리지 않는다**. 목록에 지금 할 수
@@ -471,9 +559,13 @@ export class ShipManage {
     this.room = active ? room : null;
     toggleClass(this.root, 'show', active);
     if (changed && this.isConfirmOpen) this.closeConfirm();
+    if (changed && this.isCraftOpen) this.closeCraft();
     // B-13: the inspector describes one placed piece — a different room (or a closed screen) is a different subject
     if (changed) this.setInspect(null);
     if (!active) {
+      // 2026-09-17 (사용자 결정): 창을 닫으면 카드의 레드닷이 사라진다 (탭에 아직 뜬 것은 남는다)
+      this.dotCards.clear();
+      this.paintDots();
       this.selected = null;
       this.cardsKey = '';
       this.storeKey = '';
@@ -514,7 +606,10 @@ export class ShipManage {
     this.refreshSide();
   }
 
-  /** A 가구 제작 row: craft one piece into furniture storage (materials come from bag + stash). */
+  /**
+   * A 가구 제작 row: open the 제작 modal for it. 2026-09-17 (사용자 결정): nothing is crafted from the row any more —
+   * the modal's `제작` hold (`craftNow`) is the only path. A blocked row still answers with its reason toast.
+   */
   private craftCard(defId: string): void {
     const housing = this.ctx.housing;
     if (!housing) return;
@@ -525,11 +620,177 @@ export class ShipManage {
       this.ctx.bus.emit('ui:notify', { text: block, kind: 'warning' });
       return;
     }
-    if (!housing.craftFurniture(defId)) { this.ctx.bus.emit('audio:play', { id: 'ui_deny' }); return; }
+    this.openCraft(defId);
+  }
+
+  /** The modal's hold finished: re-check (materials may have moved while it was up), craft, mark the store red dot. */
+  private craftNow(defId: string): void {
+    const housing = this.ctx.housing;
+    if (!housing) return;
+    const block = this.craftBlock(defId);
+    if (block) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      this.ctx.bus.emit('ui:notify', { text: block, kind: 'warning' });
+      this.paintCraft();
+      return;
+    }
+    // `craftFurniture` emits `housing:changed {reason:'craft'}` — the tutorial's `bench` step advances on it
+    if (!housing.craftFurniture(defId)) { this.ctx.bus.emit('audio:play', { id: 'ui_deny' }); this.paintCraft(); return; }
+    this.closeCraft();
+    this.markNew(defId);
     this.ctx.bus.emit('audio:play', { id: 'ui_equip' });
     const def = housing.getFurnitureDef(defId);
     this.ctx.bus.emit('ui:notify', { text: `${def?.name ?? defId} 제작 완료 — 가구 창고에 있습니다`, kind: 'success' });
     this.refresh();
+  }
+
+  /* ── 2026-09-17: 가구 제작 모달 ─────────────────────────────────────── */
+  private openCraft(defId: string): void {
+    const ctx = this.ctx;
+    const def = ctx.housing?.getFurnitureDef(defId);
+    if (!def || !def.craft) return;
+    this.stopCraftHold();
+    this.craftDefId = defId;
+    this.paintCraft();
+    if (this.craftEl.hidden) {
+      this.craftEl.hidden = false;
+      ctx.uiBlockers.add(CRAFT_MODAL_TOKEN);
+      ctx.input.setCursorMode(true, CRAFT_MODAL_TOKEN);
+      ctx.escape.push(CRAFT_MODAL_TOKEN, () => { this.closeCraft(true); });
+    }
+    ctx.bus.emit('audio:play', { id: 'ui_click' });
+    this.craftCancel.focus({ preventScroll: true });   // 되돌릴 수 없는 확정의 첫 포커스는 취소
+  }
+
+  /** Redraw the modal's thumbnail, title, material chips and blocked state for `craftDefId` (materials can change while open). */
+  private paintCraft(): void {
+    const housing = this.ctx.housing;
+    const defId = this.craftDefId;
+    const def = defId ? housing?.getFurnitureDef(defId) : undefined;
+    if (!housing || !defId || !def) return;
+    this.craftThumb.style.setProperty('--fc', def.color);
+    setText(this.craftGlyph, MODEL_GLYPH[def.model] ?? '▨');
+    setText(this.craftSize, `${def.cols}×${def.rows}`);
+    setText(this.craftTitle, `${def.name} 제작`);
+    this.craftCost.replaceChildren();
+    if (def.craft && def.craft.length) this.renderCostRow(this.craftCost, def.craft, CRAFT_MODAL_CHIP);
+    else el('span', { cls: 'item-chip-free', text: '재료 없음', parent: this.craftCost });
+    const block = this.craftBlock(defId);
+    // 재료 부족은 칩이 `.is-short` 로 말하므로 글로 적지 않는다 (2026-09-15 규약) — 그 밖의 사유만 한 줄
+    const short = (def.craft ?? []).some((c) => this.owned(c.defId) < c.qty);
+    this.craftNote.hidden = !block || short;
+    setText(this.craftNote, block ?? '');
+    toggleClass(this.craftOk, 'is-disabled', !!block);
+    this.craftOk.setAttribute('aria-disabled', block ? 'true' : 'false');
+  }
+
+  private closeCraft(sound = false): void {
+    if (this.craftEl.hidden) return;
+    this.stopCraftHold();
+    this.craftEl.hidden = true;
+    this.craftDefId = null;
+    const ctx = this.ctx;
+    if (ctx) {
+      ctx.uiBlockers.delete(CRAFT_MODAL_TOKEN);
+      ctx.input.setCursorMode(false, CRAFT_MODAL_TOKEN);
+      ctx.escape.remove(CRAFT_MODAL_TOKEN);
+      if (sound) ctx.bus.emit('audio:play', { id: 'ui_close' });
+    }
+    if (this.craftEl.contains(document.activeElement)) (document.activeElement as HTMLElement | null)?.blur?.();
+  }
+
+  /** `UI_HOLD_CONFIRM_S` hold on 제작 — `setInterval` + `performance.now()` like the 시설 제거 hold (rAF stalls headless). */
+  private startCraftHold(): void {
+    if (this.craftHoldTimer || this.craftEl.hidden || !this.craftDefId) return;
+    const block = this.craftBlock(this.craftDefId);
+    if (block) {
+      this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
+      this.ctx.bus.emit('ui:notify', { text: block, kind: 'warning' });
+      return;
+    }
+    this.craftHoldStart = performance.now();
+    this.craftHoldT = 0;
+    this.craftOk.classList.add('is-holding');
+    window.addEventListener('pointerup', this.onCraftHoldUp);
+    window.addEventListener('pointercancel', this.onCraftHoldUp);
+    this.ctx.bus.emit('audio:play', { id: 'ui_pickup' });
+    this.craftHoldTimer = window.setInterval(() => {
+      this.craftHoldT = Math.min(1, (performance.now() - this.craftHoldStart) / (Math.max(0.05, UI_HOLD_CONFIRM_S) * 1000));
+      this.craftFill.style.width = `${(this.craftHoldT * 100).toFixed(1)}%`;
+      if (this.craftHoldT >= 1) {
+        const id = this.craftDefId;
+        this.stopCraftHold();
+        if (id) this.craftNow(id);
+      }
+    }, 16);
+  }
+
+  private stopCraftHold(): void {
+    if (this.craftHoldTimer) { clearInterval(this.craftHoldTimer); this.craftHoldTimer = 0; }
+    window.removeEventListener('pointerup', this.onCraftHoldUp);
+    window.removeEventListener('pointercancel', this.onCraftHoldUp);
+    this.craftHoldStart = 0;
+    this.craftHoldT = 0;
+    this.craftFill.style.width = '0%';
+    this.craftOk.classList.remove('is-holding');
+  }
+
+  /* ── 2026-09-17: 가구 창고 레드닷 (세션 한정) ─────────────────────────── */
+  /** Whether the 가구 창고 list is on screen right now (tab `store`, a room with a purpose, screen open). */
+  private get storeShowing(): boolean {
+    return this.active && this.tab === 'store' && !this.storeEl.hidden;
+  }
+
+  /** A piece just went into furniture storage (crafted / recovered). Seen at once if the store list is up, else the tab dot. */
+  private markNew(defId: string): void {
+    if (this.storeShowing) this.dotCards.add(defId);
+    else this.dotPending.add(defId);
+    this.paintDots();
+  }
+
+  /** That def was placed: its card dot goes; the tab dot too once none of it is left in storage. */
+  private clearDot(defId: string): void {
+    this.dotCards.delete(defId);
+    if ((this.storedCounts().get(defId) ?? 0) <= 0) this.dotPending.delete(defId);
+    this.paintDots();
+  }
+
+  /** The store list became visible: the tab dot is consumed and its defs move onto their cards. */
+  private revealDots(): void {
+    if (!this.dotPending.size) return;
+    for (const id of this.dotPending) this.dotCards.add(id);
+    this.dotPending.clear();
+  }
+
+  /** Paint the tab / sub-tab / card dots from the two sets (defs no longer in storage are dropped first). */
+  private paintDots(): void {
+    const stored = this.storedCounts();
+    for (const set of [this.dotPending, this.dotCards]) {
+      for (const id of [...set]) if ((stored.get(id) ?? 0) <= 0) set.delete(id);
+    }
+    if (this.storeTabDot) this.storeTabDot.hidden = this.dotPending.size === 0;
+    const showing = this.storeShowing;
+    const housing = this.ctx?.housing;
+    for (const [kind, dot] of this.kindDots) {
+      let on = false;
+      if (showing && kind !== this.kind && housing) {
+        for (const id of this.dotCards) {
+          const def = housing.getFurnitureDef(id);
+          if (def && isUtilityFurniture(def) === (kind === 'utility')) { on = true; break; }
+        }
+      }
+      dot.hidden = !on;
+    }
+    if (!showing) return;
+    for (const c of this.cards) {
+      const on = this.dotCards.has(c.defId);
+      let dot = c.root.querySelector<HTMLElement>('.fcard-thumb > .sm-dot');
+      if (on && !dot) {
+        const thumb = c.root.querySelector<HTMLElement>('.fcard-thumb');
+        if (thumb) dot = el('i', { cls: 'sm-dot', parent: thumb });
+      }
+      if (dot) dot.hidden = !on;
+    }
   }
 
   /** A 가구 제작 row with a piece in storage: arm it for ghost placement (housing refuses a def with nothing stored). */
@@ -1029,6 +1290,8 @@ export class ShipManage {
     this.refreshSide();
     // B-13: 인스펙터도 같은 한 바퀴에 올라탄다 — 재료 · 레벨 · 조각의 존재가 바뀌면 카드가 따라간다
     this.refreshInspect();
+    // 2026-09-17: 열린 제작 모달의 재료 칩 · 막힘도 같은 한 바퀴 (재료가 들어오거나 빠지면 따라간다)
+    if (this.isCraftOpen) this.paintCraft();
   }
 
   private refreshSide(): void {
@@ -1059,8 +1322,13 @@ export class ShipManage {
     }
     this.cardsEl.hidden = this.tab !== 'craft';
     this.storeEl.hidden = this.tab !== 'store';
-    if (this.tab === 'craft') this.refreshCards(room, purpose);
-    else this.refreshStore(room, purpose);
+    if (this.tab === 'craft') { this.refreshCards(room, purpose); this.paintDots(); }
+    else {
+      // 2026-09-17: 창고 목록이 보이는 순간 탭의 레드닷은 사라지고 그 가구 카드에 옮겨 붙는다
+      if (this.active && room !== null) this.revealDots();
+      this.refreshStore(room, purpose);
+      this.paintDots();
+    }
   }
 
   /** A purpose some **other** room of the ship already has (2026-09-12: every purpose is one per ship). */
@@ -1227,6 +1495,7 @@ export class ShipManage {
       if (block && !have) el('div', { cls: 'fcard-note is-locked', text: block, parent: body });
       // the row selects a stored piece for placement; the 제작 button spends materials for a new one
       card.addEventListener('click', (e) => { e.stopPropagation(); if (owned > 0) this.pickCard(def.id); else this.craftCard(def.id); });
+      // 2026-09-17: 이 버튼은 제작 모달을 연다 — 실제 제작은 모달의 `제작`(.sm-craft-ok) 1초 홀드
       const make = el('button', { cls: 'fcard-craft', text: have ? '이미 보유 중' : def.craft ? '제작' : '제작 불가', parent: card });
       make.disabled = !!block || !def.craft;
       make.title = block ?? (def.craft ? `${def.name} 제작` : `${def.name} — 제작할 수 없는 가구입니다`);
@@ -1327,6 +1596,7 @@ export class ShipManage {
 
   dispose(): void {
     this.stopHold();
+    this.closeCraft();
     for (const u of this.unsubs) u();
     clearTimeout(this.toastTimer);
     window.removeEventListener('keydown', this.onKey, true);

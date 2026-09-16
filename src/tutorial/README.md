@@ -107,36 +107,31 @@ only after the ship track is done **and no track is running** (`meta/parts/NpcQu
 `false` while `pendingShip` is set (raid just completed, ship track about to start) so that meta's `hub:entered`
 handler cannot read the track as done before this system starts it.
 
-## Track ③ `build` (17 steps)
+## Track ③ `build` (7 steps)
 
-| # | id | Objective | Advances on |
+2026-09-17 (user decision): the old 17 steps are grouped into 7; each step reveals its objectives one at a time. Focus
+(spotlight · floor guide · arrive check) follows the **current objective** = first visible, not-done required row
+(`model.currentObjective`); a row's own `spot` / `spotText` / `spotUnion` / `spotNoDim` / `guide` / `arrive` / `allow`
+override the step's. Gates a row adds (`allow`) open from the moment the row is visible (`model.mergedAllow` →
+`Gates.blockReason(…, allowTable)`).
+
+| # | id | Objectives (in reveal order) | Advances on |
 |---|---|---|---|
 | 1 | `intro` | intro card | card's start button |
-| 2 | `manage` | open ship management (`.ship-hint`) | `housing:shipManageChanged {active:true}` / `housing:modeChanged` |
-| 3 | `generator` | run the generator — silently skipped when already ≥ Lv.1 (always, on new ships) | `housing:facilityUpgraded {id:'generator'}` |
-| 4 | `workshop` | empty room → workshop | `housing:roomPurposeChanged {purpose:'workshop'}` |
-| 5 | `bench` | craft the gun bench | `housing:changed {reason:'craft'}` + `furn_bench_gun` stored |
-| 6 | `benchPlace` | pick from furniture storage → place in workshop (spotlight folds once picked) | `housing:selectionChanged` → `housing:furniturePlaced` |
-| 7 | `manageDone` | close housing mode (`하우징 모드 닫기`, spotlights `.key-guide .kg-close`) — silently skipped when housing mode is already closed | `housing:shipManageChanged {active:false}` / `housing:modeChanged {active:false}` |
-| 8 | `craftGun` | walk to workshop → use bench → craft assault rifle | `craft:completed {recipeId:'make_wpn_ar'}` |
-| 9 | `craftAmmo` | craft medium ammo in the same window | `craft:completed {recipeId:'make_ammo_medium'}` |
-| 10 | `openBag` | close the craft window — a bench's `닫기` closes the whole window (`closeCraftWindow`) | `ui:craftToggled {open:false}` / `inventory:opened` without craft column |
-| 11 | `equipGun` | reopen the window (Tab, control-guide line) → equip rifle in primary I or II (union focus: slots + stash panel) | `loadout:changed` with `wpn_ar` |
-| 12 | `stowAmmo` | move ammo into the bag | `inventory:changed` with `ammo_medium` in bag |
-| 13 | `terminal` | walk to cockpit → open terminal | `hub:terminalToggled {open:true}` |
-| 14 | `planet` | pick the target planet | `hub:planetChanged` / `hub:travel {start}` |
-| 15 | `travel` | wait for warp | `hub:travel {stage:'end'}` |
-| 16 | `board` | walk to launch slot → board | `hub:slotChanged` (local) / `game:newMission` |
-| 17 | `raid` | find the extraction marker | 6 s after `world:ready` |
+| 2 | `manage` | `{MAP} 시설 관리 열기` → `발전기 가동` (only while the generator is Lv.0 — `objectivesFor` drops the row on new ships) → `빈 방을 작업실로 증축` | `housing:roomPurposeChanged {purpose:'workshop'}` |
+| 3 | `bench` | `총기 작업대 제작` (centre modal hold button `.sm-craft .sm-craft-ok`, fallback card) → `가구 창고 탭으로 이동` (polled `.sm-tab[data-tab="store"].is-on`, or picking from the store) → `가구 배치` → `{INVENTORY} 하우징 모드 닫기` | `housing:shipManageChanged` / `modeChanged {active:false}` after placing; already closed → `pollBuild` advances |
+| 4 | `craftGun` | `작업실로 이동` (arrive, guide bench) → `총기 작업대 작동` → `돌격소총 제작` → `준중량탄 제작` (materials topped up when the rifle is made) → `제작창 닫기` | `ui:craftToggled {open:false}` after the ammo (or `pollBuild` when the window is already closed) |
+| 5 | `equipGun` | `{INVENTORY} 인벤토리 열기` → `돌격소총 장착` (union focus, **no dim**) | rifle equipped → waits silently for `inventory:closed` (no objective row); focus off once equipped |
+| 6 | `terminal` | `조종석으로 이동` (guide terminal) → `조종석 터미널 작동` → `목표 행성 지정` → *(warp; `travelDone` is an unlisted id)* → `발사 슬롯으로 이동` (`revealOn: 'travelDone'`, guide pod, opens `board`) → `발사 슬롯 탑승` → `{JUMP:hold} 를 길게 눌러 시작 준비` (polled `HubRef.launchReady`) | `game:newMission` (not tutorial / training) |
+| 7 | `raid` | `행성에서 가치 1,000 C 이상 아이템을 획득한 후 무사히 탈출 (n / 1,000 C)` — n = sell value (`sellPriceOf`) of carried `raidFound` items, polled every `RAID_VALUE_POLL_FRAMES`, recounted at `extraction:liftoff {aboard}` | **one attempt**: `game:complete` / `game:over` end the track (`onBuildRaidEnd`); ticked only when extracted with ≥ `TUTORIAL_RAID_EXTRACT_VALUE_C`. A `hub:entered` while still on `raid` (abandon, reload) also ends it |
 
-`openCraft` (build) and `ravenQuest` (ship) stay in `TutorialStepId` and the `Steps.ts` table but not in
-`TUTORIAL_TRACK_STEPS`; `normalizeStep` maps old saves (`openCraft` → `craftAmmo`); `messenger` / `ravenQuest` (ship) have
-no successor and load as a finished ship track (`retiredTrackEnd`).
-`manageDone` was out of the order between 2026-09-14 and 2026-09-15 and is back (user decision: the walk to the
-workshop must start with housing mode closed). "Walk to X" rows are ticked by `arriveObjective` when the player enters
-the guide target's interaction range (polled; no coordinates in this folder). The floor guide is hidden whenever
-housing mode is open (`housingOpen()` in `refreshVisuals`, re-evaluated on every `housing:shipManageChanged` /
-`housing:modeChanged`) and returns half a beat after it closes.
+Retired build ids stay in `TutorialStepId` and the `Steps.ts` table. `normalizeStep` maps them to the step that absorbed
+them and `load()` pre-fills the rows already done there (`Steps.retiredObjectives`): `generator` / `workshop` → `manage`,
+`benchPlace` / `manageDone` → `bench`, `craftAmmo` / `openCraft` / `openBag` → `craftGun`, `stowAmmo` / `planet` /
+`travel` / `board` → `terminal`. `messenger` / `ravenQuest` (ship) still load as a finished ship track (`retiredTrackEnd`).
+While the build track runs the terminal's `시뮬레이션 훈련장` button and the ready-time launch warnings are hidden
+(`training` · `launchWarn`). The floor guide is hidden whenever housing mode is open. Finishing a track shows **no toast**
+(2026-09-17); skipping still does.
 
 ## Objectives
 
@@ -158,11 +153,13 @@ caller's existing UI. Blocked items are **hidden**, not shown locked: `hides(gat
 |---|---|---|
 | `roomPurpose` | `housing/parts/Rooms`, `ui/hud/ShipManage` | only workshop |
 | `furniture` | `housing/parts/Furniture`, `ui/hud/ShipManage` | only gun bench craft / place |
-| `manageExit` | (allow flag in `Steps.ts`; no caller asks it) | closing housing mode — allowed from `manageDone` on |
+| `manageExit` | (allow flag in `Steps.ts`; no caller asks it) | closing housing mode — allowed from `bench` on |
 | `craft` | `inventory/parts/Crafting`, `inventory/ui/CraftPanel` | only the step's recipes |
 | `terminal` | `hub/parts/Interior` | terminal before its step |
 | `planet` | `hub/parts/Planet`, `hub/ui/HubMenu` | only `PLANET_IDS[0]`; hides planet arrows |
-| `board` | `hub/parts/Pods` | launch slot before its step |
+| `board` | `hub/parts/Pods` | launch slot until the `terminal` step's `발사 슬롯으로 이동` row is visible |
+| `training` | `hub/ui/HubMenu` | hide-only: `시뮬레이션 훈련장` button row, whole build track |
+| `launchWarn` | `hub/parts/Pods.toggleReady` | hide-only: launch warning popup (no contract / no armor …), whole build track |
 | `screenTab` | `inventory/ui/parts/Screens` | tabs other than inventory (inventory always open) |
 | `matchmaking` | `hub/ui/HubMenu` | the terminal's `매칭` tab, always hidden while active |
 | `community` | `ui/hud/Community` | hidden while any track runs (no ordered step allows it since 2026-09-16) |
@@ -181,6 +178,12 @@ until first use (latest after `HUD_STAMINA_STEP`); `implant`, `stratagem`, `ship
 - Crouch / prone labels follow the current stance (`crouchHints`) whenever a visible row id is in `STANCE_HINT_IDS`;
   stance is read from `ctx.player.stance`.
 - The guide folds while the inventory screen is open. Current row ids persist in `learned`.
+- Raid track: `shoot` = move/sprint | fire/aim; from `advance2` (bugs dead) a `재장전` row sits under fire / aim (also in the
+  crawl's fire/aim block).
+- Build track: `equipGun` = `Tab 가방 · 장비`; `terminal` clears it; `raid` (the build track's raid only) = `M 지도 / Q 전술 임플란트 /
+  G(hold) 함선 지원 / V 구르기 / X 시점 변경` ─ `] 조작 가이드 숨김` (section `meta`). `Keys.GUIDE_TOGGLE` (default `]`) folds it into
+  one line `] 조작 가이드 표시` in the same box (`ui/Controls.setFolded`, `.tut-controls.is-folded`); read only in
+  `FOLDABLE_CONTROL_STEPS` while `isGameplayActive()`. Toasts keep starting below `.tut-controls` (folded or not).
 - Hold keys use `.keycap.kc-hold`; do not invent a modifier that collides with a HUD widget class.
 
 ## Start, save, restart
@@ -198,8 +201,8 @@ until first use (latest after `HUD_STAMINA_STEP`); `implant`, `stratagem`, `ship
 
 ## Material grants
 
-`craftGun` grants `TUTORIAL_CRAFT_GRANT` once (`granted`). On entering `craftGun` / `craftAmmo`, `ensureMaterials(recipeId)`
-tops up `required − owned` per ingredient, read from the recipe in `ctx.loot` (bag first, then stash). Idempotent, so
+`craftGun` grants `TUTORIAL_CRAFT_GRANT` once (`granted`). On entering `craftGun` (rifle recipe) and when the rifle is
+crafted (ammo recipe), `ensureMaterials(recipeId)` tops up `required − owned` per ingredient, read from the recipe in `ctx.loot` (bag first, then stash). Idempotent, so
 csv recipe changes never break the tutorial.
 
 ## Rules
@@ -218,14 +221,14 @@ csv recipe changes never break the tutorial.
 - `stashItem` hiding applies to the build track only — the ship track must not hide loot brought back from the raid. —
   `parts/Gates.ts` (`stashItemBlock`)
 
-Smokes: `scripts/smoke-tutorial.mjs` (build track + three-track contract), `smoke-tutorial-raid.mjs`,
+Smokes: `scripts/smoke-tutorial.mjs` (build track — grouped objectives, gates, old-save mapping, raid step rows / fold / end — + three-track contract), `smoke-tutorial-raid.mjs`,
 `smoke-tutorial-ship.mjs`, `smoke-intro-wake.mjs`.
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/tutorial`.
+- 2026-09-17 — Build track 17 → 7 steps (objectives grouped with sequential reveal; per-objective spot / guide / arrive / allow; old ids → grouped step + pre-filled rows); `stowAmmo` gone; equip focus without dim and waits for the inventory to close; final `raid` step = extract with ≥ `TUTORIAL_RAID_EXTRACT_VALUE_C` raid-found sell value, one attempt, `(n / 1,000 C)`; raid control guide (M/Q/G/V/X + `]` fold, `Keys.GUIDE_TOGGLE`); gates `training` · `launchWarn`; reload row after the bugs; no track-complete toast.
+- 2026-09-17 — Raid control guide: `시체 상호작용` row (after the bugs) draws the hold chevron — enemy corpses open on a hold (`enemies/Corpses` `holdTime`).
 - 2026-09-16 — Raid control guide: pressed keycaps light orange; `stance` section; shoot = move/sprint | fire/aim(hold) (+ `E 시체 상호작용` after the kill), crawl = WASD | C/Z (+ fire/aim past `TUTORIAL_CRAWL_AIM_HINT_FRAC`), heal = wheel on top, `길게 눌러 사용` only with a stim in hand; ship track = one `stats` step with 4 staged objectives (menu → character tab → ＋ → confirm), ends on confirm, build track starts on close (`autoStartOnClose`), old `levelUp` → `stats`; gate `shipManage`.
 - 2026-09-16 — A bench's `닫기` now closes the whole window (`inventory` `closeCraftWindow`), so `equipGun` starts with no UI to light: its hint leads with Tab and the control guide carries the `가방 · 장비` line (`EQUIP_HINTS`); the spotlight still folds itself while the targets are gone.
 - 2026-09-16 — Ship track is 2 steps (`messenger` out; `stats` ends on inventory close, old `messenger`/`ravenQuest` saves = done); checkpoints never fold past `supplyLoot`/`heal` while hurt (`healSafeFold`); tutorial DOM + 3D guide/marker hide during the liftoff cinematic (`ui:cinematic`).
-- 2026-09-15 — `restartTrack(track)`: a tutorial raid abandoned from the title clears the raid track (and `pendingShip`) instead of marking it done.
-- 2026-09-15 — Ship track is 3 steps (`ravenQuest` out; Raven writes after the tutorial); build track is 17 steps again (`manageDone` = `하우징 모드 닫기` before `craftGun`); floor guide hidden while housing mode is open; `isTrackDone('ship')` false while `pendingShip`.

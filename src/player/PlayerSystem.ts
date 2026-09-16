@@ -1329,7 +1329,10 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (this._cloaked && !this.isDead) alpha = Math.min(alpha, CLOAK_FADE);
     this.model.setFade(alpha);
     // ── occlusion silhouette (black where the world hides the body); off while dead / dropping / in a pod / faded
-    this.model.setSilhouette(this.spawned && !this.isDead && !this.hellpod.isActive && !this._inPod && !this.scopeHidden && this._roverRide === null);
+    // 2026-09-17 (사용자 결정): 탈출 함선에 실려 떠나는 동안(`ctx.extraction.riding`, 튜토리얼 포함)도 끈다 — 램프가 닫힌
+    // 선체 안의 몸이 이륙 연출 카메라에 실루엣으로 비쳐 보였다.
+    const ridingShip = this.ctx.extraction?.riding ?? false;
+    this.model.setSilhouette(this.spawned && !this.isDead && !this.hellpod.isActive && !this._inPod && !this.scopeHidden && this._roverRide === null && !ridingShip);
   }
 
   dispose(): void {

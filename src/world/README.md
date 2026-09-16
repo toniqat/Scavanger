@@ -367,6 +367,7 @@ gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — �
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world`.
+- 2026-09-17 — Tutorial fence drawn height ×1.5 (`BARRIER.fenceHeight` 1.35 → 2.025; lower collider follows, slats rescale).
 - 2026-09-16 — Tutorial corpses hold their sink clock while the loot window shows them; `TutorialWorld.crawlProgress` (0 entrance → 1 exit of the low passage).
 - 2026-09-16 — 행성 광맥 (`mineral.ts` + `Gather.ts` `vein_*`): hillside-only spawns (`mineralNodes`), rarity rolled at harvest
   from the threat's `loot_tiers.csv` row (mythic included) with 채광 as a multiplier, the only gather node with a collider.
@@ -375,4 +376,3 @@ Last 5 only — older: `git log -- src/world`.
   from the lobby host is trusted without the distance check (the host opens for an android).
 - 2026-09-16 — Tutorial end area: everything past the fence is abyss except path · ship hill (+0.9 m, slope) · pit island (north rim),
 - 2026-09-16 — Tutorial corpses: emptied ones sink and are removed (`TutorialCorpses.update`, called from `TutorialWorld.update`).
-- 2026-09-16 — `WorldRef.crateLootOpts`: lab locked-room containers (`ContainerSpec.lockedRoom`) roll exempt from the epic+ gate.

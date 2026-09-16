@@ -93,6 +93,10 @@
 .corp-tab.is-on { color: var(--c-text); border-color: var(--cc); background: color-mix(in srgb, var(--cc) 14%, transparent); box-shadow: 0 0 12px color-mix(in srgb, var(--cc) 30%, transparent); }
 .corp-tab.is-on .lv { color: var(--cc); }
 .corp-tab.is-on .caret { transform: rotate(45deg); opacity: 1; color: var(--cc); }
+/* 2026-09-17: 신뢰도 Lv.1 미만 기업 — 흐리게, 자물쇠. 클릭은 받아 이유를 토스트로 말한다 (`CorpView.setCorp`) */
+.corp-tab.is-locked { opacity: 0.4; cursor: not-allowed; color: var(--c-text-faint); }
+.corp-tab.is-locked:hover { background: none; }
+.corp-tab.is-locked .lv::after { content: ' 🔒'; font-size: 10px; opacity: 0.85; }
 
 /* the branch: a guide line in the corp colour down its left edge, indented under the corp button */
 .corp-branch {

@@ -429,6 +429,8 @@ try {
     out.raidMul = D.libraryRaidXpMul(ctx);
     // a real settlement
     if (ctx.meta.activeContract) ctx.meta.abandonContract();
+    // 2026-09-17: every contract starts at 신뢰도 Lv.1 (contracts.csv minRepLevel +1)
+    if (ctx.meta.getRep('helix').level < 1) ctx.meta.addRep('helix', 100, 'smoke');
     out.accepted = ctx.meta.acceptContract('helix_1');
     const def = meta.activeDef?.();
     if (out.accepted && def) {

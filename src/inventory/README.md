@@ -53,7 +53,7 @@ inventory only through `InventoryRef` (`src/shared/types.ts`) and bus events.
 | `ui/GridTools.ts` | `buildFilterSelect` (`FILTER_GROUPS` on `shared/dropdown.buildDropdown`), `buildSortButton` |
 | `ui/parts/Drag.ts` | Pointer state machine; held remainder after partial merges |
 | `ui/parts/ContextMenu.ts` | Which right-click entries each item gets |
-| `ui/parts/Screens.ts` | Screen tabs, embedded views, craft column, catalog layout, key guide |
+| `ui/parts/Screens.ts` | Screen tabs (기업 hidden and refused until any corp reaches `CORP_ACCESS_REP_LEVEL` — `corpTabLocked`, re-checked live by `onCorpAccessChanged`), embedded views, craft column, catalog layout, key guide |
 | `ui/parts/SlotPanel.ts` | Equipment slot cards |
 | `ui/parts/QuickPanel.ts` | Wheel rose |
 | `ui/ContextMenu.ts` | Menu widget (mouse-glyph hints) |
@@ -124,7 +124,7 @@ scroll in `.tg-gridwrap`, so the host needs a height-constrained flex parent.
 - Consumes `crate:open`, `world:ready`, `game:{newMission, complete, over, abort, phaseChanged}`, `player:died`,
   `player:respawn`, `hub:entered`, `net:profileLoaded`, `net:hostChanged`, `housing:stashSizeChanged`,
   `housing:libraryChanged`, `tutorial:changed`, `implant:equipped`, `progress:*`, `meta:creditsChanged`,
-  `input:bindingsChanged`.
+  `meta:repChanged` / `meta:loaded` (기업 tab gate), `input:bindingsChanged`.
 - Androids (2026-09-15, `parts/Allies.ts`): `createAllyBag(cols, rows)` → `AllyBagRef` (a DOM-less `Grid` with the
   player's stack rules), `weightInfoFor(carried, bag)` (the player formula with no carry relief, base capacity
   `DEFAULT_CARRY_CAPACITY`), `takeContainerItemFor(containerId, tier, defId, by)` (authority only; `containerId` is
@@ -384,8 +384,8 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 
 Older: `git log -- src/inventory`.
 
+- 2026-09-17 — The Tab window's `기업` screen tab is hidden (and `setTab('corp')` / `openScreen('corp')` fall back to 인벤토리) until any corp reaches 신뢰도 Lv.1 (`CORP_ACCESS_REP_LEVEL`); re-evaluated live on `meta:repChanged` / `meta:loaded` (`Screens.corpTabLocked`, `onCorpAccessChanged`).
 - 2026-09-16 — `CREDITS` pill removed; bag footer = small `가방 내 가치 n C` (left) + current credits `n C` (right); Tab / Escape popups / R / X ignored while the messenger is open over the window.
 - 2026-09-16 — Craft cells no longer paint the bench-level requirement over the thumbnail (only the detail's hold button says it — `CraftPanel.build`, `.inv-craft-locktag` gone), an uncraftable cell is dimmed much harder (`.inv-craft-cell.is-locked` / `.is-bench-locked`), and `표본` is its own filter chip (`FILTER_GROUPS`, split out of `bio` = `재배`) and its own 무한 상자 tab (`CATALOG_TABS`).
 - 2026-09-16 — Crafting has no skill **speed**, and no live skill gate (every `recipes.csv` `skillRequired` is `0`) — but the gate is still read, so raising a csv number makes that recipe a locked cell tagged `제작 20 필요` (`getRecipes` / `cookBlock` / `CraftPanel.lockedReason`). Instead every craft path refunds materials through one place (`parts/Crafting.refundAfterCraft` — craft skill per **unit**, research bench per run, merged into one delivery and one `재료 회수: …` toast; `researchAfterCraft` is gone).
 - 2026-09-16 — Bench craft window: `닫기` closes the window the bench opened (`closeCraftWindow`), `업그레이드` next to it (`HousingRef.openStorageUpgrade`, ship only), the bench lists **all** of its recipes with level / skill lock reasons (`getBenchRecipes`, `lockedReason`), an empty bench keeps the 5-thumbnail frame, and the detail card no longer scrolls sideways (`.inv-tt-value` bleed).
-- 2026-09-16 — Embedded `TradeGrids` grids move items again: a release on a cell goes through `previewDrop` / `drop` (same grid, 창고 ↔ 가방, `R` rotate, merge with the remainder held on the cursor); the caller's `dropSelector` tray is still tested first; the header's `N점` became the Tab-stash `사용칸 / 전체칸` readout (`labels.capacityLabel`) left of 정렬.

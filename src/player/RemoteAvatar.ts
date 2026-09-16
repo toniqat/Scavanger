@@ -281,7 +281,8 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const wantFade = cloaked && !ref.isDead ? CLOAK_FADE : 1;
     if (wantFade !== this.fadeTarget) { this.fadeTarget = wantFade; this.model.setFade(wantFade); }
     // slot-tinted occlusion silhouette (same GreaterDepth pass as the local soldier); off while dead / cloaked / suspended
-    this.model.setSilhouette(!ref.isDead && wantFade >= 1 && !suspended);
+    // 2026-09-17: and while the extraction ship carries the body away (`inLeavingShip`) — no silhouette through the closed hull
+    this.model.setSilhouette(!ref.isDead && wantFade >= 1 && !suspended && !inLeavingShip(ctx, ref.position));
     // overcharge buff → rim glow
     this.model.setGlow((flags & PlayerFlags.OVERCHARGED) !== 0 && !ref.isDead);
     // gear looks: armor plates from `ar`, held consumable from `h`
@@ -606,6 +607,17 @@ function validFurniturePose(fp: RemoteFurniturePose | null | undefined): RemoteF
 }
 
 /** `ar` may be an ArmorDef id or the item def id that links to one (`ItemDef.armorId`). */
+/**
+ * 2026-09-17 (사용자 결정 — 「마지막 함선을 탔을 때 PC 가 함선 내부에 실루엣으로 보이지 않도록」): the extraction ship is
+ * leaving (`stage === 'liftoff'`, ramp closing / closed) and this body stands in its bay. The occlusion silhouette would
+ * paint it through the closed hull, so remote squadmates and android bodies drop it here; the local player reads
+ * `ExtractionRef.riding` instead (`PlayerSystem`). Tutorial and every raid alike — same ship, same query.
+ */
+export function inLeavingShip(ctx: GameContext, position: THREE.Vector3): boolean {
+  const ex = ctx.extraction;
+  return !!ex && ex.stage === 'liftoff' && ex.isInShipBay(position);
+}
+
 export function resolveArmorDef(ctx: GameContext, id: string): ArmorDef | null {
   const loot = ctx.loot;
   if (!loot) return null;

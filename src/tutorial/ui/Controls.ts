@@ -66,6 +66,13 @@ export class TutorialControls {
   private _visible = false;
   /** `show()` 가 말한 뜻 (실제 표시는 줄이 하나라도 있을 때만). */
   private want = false;
+  /**
+   * 접힌 모습의 한 줄 (2026-09-17, 사용자 결정 — 증축 안내 마지막 레이드의 `]`). 접히면 머리 · 줄 목록이 숨고 이 줄만 같은 자리에 선다
+   * (`.tut-controls.is-folded`). 패널 요소는 그대로라 토스트 스택이 그 바닥을 재는 규칙(`ui/hud/Notifications`)이 그대로 산다.
+   */
+  private readonly fold: HTMLElement;
+  private foldText = '';
+  private _folded = false;
 
   constructor(parent: HTMLElement) {
     const root = this.root = document.createElement('div');
@@ -79,8 +86,23 @@ export class TutorialControls {
     this.list = document.createElement('div');
     this.list.className = 'tut-ctl-list';
 
-    root.append(head, this.list);
+    this.fold = document.createElement('div');
+    this.fold.className = 'tut-ctl-fold';
+    this.fold.hidden = true;
+
+    root.append(head, this.list, this.fold);
     parent.appendChild(root);
+  }
+
+  get folded(): boolean { return this._folded; }
+
+  /** 접기 / 펴기 (2026-09-17). `text` 는 접힌 줄의 키캡 토큰 문장 (`{GUIDE_TOGGLE} 조작 가이드 표시`). */
+  setFolded(on: boolean, text: string): void {
+    if (on === this._folded && text === this.foldText) return;
+    this._folded = on;
+    if (text !== this.foldText) { this.foldText = text; renderKeyText(this.fold, text); }
+    this.fold.hidden = !on;
+    this.root.classList.toggle('is-folded', on);
   }
 
   get visible(): boolean { return this._visible; }
@@ -208,7 +230,10 @@ export class TutorialControls {
   }
 
   /** 리바인드 — 키캡을 살아 있는 `Keys` 에서 다시 칠한다 (토큰 문장 줄은 문장째 다시 푼다). */
-  relabel(): void { for (const row of this.rows.values()) this.relabelRow(row); }
+  relabel(): void {
+    for (const row of this.rows.values()) this.relabelRow(row);
+    if (this.foldText) renderKeyText(this.fold, this.foldText);
+  }
 
   private relabelRow(row: Row): void {
     if (row.textEl) {

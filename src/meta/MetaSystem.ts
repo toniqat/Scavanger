@@ -4,7 +4,7 @@ import type {
   QuestState, RepInfo, ShopItem, SquadContractInfo,
 } from '@/shared';
 import {
-  CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, formatCredits,
+  CONTRACT_DEFS, CONTRACT_GOAL_LABEL_KO, CORP_DEFS, CORP_IDS, CREDITS_MAX, META_HIT_MAX, QUEST_DEFS, anyCorpAccessible, formatCredits,
   repLevelOf, sellPriceOf,
 } from '@/shared';
 import { MAX_PROGRESS, MetaStorage } from './Storage';
@@ -455,6 +455,9 @@ export class MetaSystem implements GameSystem, MetaRef {
    */
   openCorpMenu(corp?: CorpId): void {
     if (this.ctx.isRaidActive()) return;
+    // 2026-09-17 (사용자 결정): no corp at `CORP_ACCESS_REP_LEVEL` yet → the 기업 tab is hidden, so refuse (the caller —
+    // `hub.openCorpMenu` — sees the screen stayed closed and toasts its warning; no second toast here)
+    if (!anyCorpAccessible((c) => this.level(c))) return;
     if (corp && CORP_DEFS[corp]) this.preferredCorp = corp;
     const inv = this.ctx.inventory;
     if (!inv || typeof inv.openScreen !== 'function') return;

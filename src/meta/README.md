@@ -97,7 +97,11 @@ Main consumers: `game/` (`settleMission` before `game:complete`/`game:over`), `h
 
 ## Contracts
 
-- One active contract (`CONTRACT_MAX_ACTIVE`), accepted in the ship at `minRepLevel`; abandoning loses progress.
+- One active contract (`CONTRACT_MAX_ACTIVE`), accepted in the ship at `minRepLevel`; abandoning loses progress. Since 2026-09-17 every
+  contract starts at 신뢰도 Lv.1 — Lv.0 → 1 comes from the corp NPCs' first quests (`q_ce_s1` / `q_nm_s1` `rewardRep`), not from contracts.
+- **Corp access (2026-09-17)**: a corp below `CORP_ACCESS_REP_LEVEL` cannot be selected in the corp view (`CorpView.corpLock` — `.corp-tab.is-locked`,
+  title and click toast `신뢰도 Lv.1 필요`; the selection falls to the first open corp in `resolveCorp`, `setCorpSilent` ignores locked
+  corps). While every corp is below it the inventory hides the `기업` screen tab and `openCorpMenu` refuses (`anyCorpAccessible`).
 - Goals (`ContractGoalKind`) count only during gameplay and never in the training sim: `enemy:killed` by the local player →
   `kill_rogues` for humanoid factions (from `enemies.csv` `faction`, scan drone excluded) else `kill_bugs`; `crate:open` → `open_crates`
   (once per crate id per raid); first open of a `corpse:` container → `loot_corpses`; own `stratagem:called` → `use_stratagems`;
@@ -204,8 +208,8 @@ but no content gates on it yet.
 
 Last 5 only — older: `git log -- src/meta`.
 
+- 2026-09-17 — Corp access gate: Lv.0 corps are locked in the corp rail (`corpLock`, `resolveCorp`, `.corp-tab.is-locked`), `openCorpMenu` refuses while no corp is Lv.1 (`anyCorpAccessible`); every contract's `minRepLevel` +1; `q_ce_s1` / `q_nm_s1` grant 100 rep (→ Lv.1).
 - 2026-09-16 — Trade desk tile pass: the price badge is bottom-left everywhere (판매칸 no longer top-left), the 구매칸 got one at all, 매대 · 구매칸 hide the always-full durability gauge, and the 총 크레딧 변동 line lost its ▲ ▼ chevrons (sign + colour already say it).
 - 2026-09-16 — Ammo is sold as a full stack (`shopQtyOf`), trade tiles show 구매가 / 판매가 instead of 가치 (`data-tip-price`), shelf fixed at 10 columns, quest XP in `rewardSummary` uses the compact formatter.
 - 2026-09-15 — NPC evaluation waits for the tutorial `ship` track to finish and for no track to run (`tutorialBlocks`); Raven no longer writes during the tutorial.
 - 2026-09-15 — Corp screen: stash + bag is one card (`createTradeGrids` once, columns summed in `fitLayout`).
-- 2026-09-15 — Left-click hold keycap inside the `거래 성사` and `HoldAsk` confirm buttons; hint line removed.

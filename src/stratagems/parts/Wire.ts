@@ -175,7 +175,7 @@ export function onCallRequest(sys: StratagemSystem, msg: Extract<StratagemReques
  */
 const CALL_DENY_KO: Readonly<Partial<Record<StratagemDenyReason, string>>> = {
   host_only: '분대장만 쓸 수 있습니다',
-  cooldown: '함선 호출 재충전 중입니다',
+  cooldown: '함선 지원 재충전 중입니다',
   range: '호출 지점이 너무 멉니다',
   bounds: '지도 밖에는 호출할 수 없습니다',
   phase: '지금은 함선을 호출할 수 없습니다',

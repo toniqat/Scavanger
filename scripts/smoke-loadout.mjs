@@ -347,6 +347,8 @@ try {
   /* ── 5. ship Tab screen: 크레딧 readout + 기업 tab ──────────────────── */
   console.log('ship screen');
   await enterHub();
+  // 2026-09-17: the 기업 tab is hidden until some corp reaches 신뢰도 Lv.1 (`CORP_ACCESS_REP_LEVEL`)
+  await page.evaluate(() => { const m = window.__game.ctx.meta; if (m && typeof m.addRep === 'function' && m.getRep('helix').level < 1) m.addRep('helix', 100 - m.getRep('helix').rep, 'smoke'); });
   await tap('Tab');
   await waitFor(page, () => window.__game.ctx.inventory.isOpen && document.querySelector('.inv-root.is-hub'), 'ship screen open');
   await sleep(150);

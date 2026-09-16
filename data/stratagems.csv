@@ -1,8 +1,8 @@
-# 함선 호출 (G 휠). id 는 코드가 찾는 값이므로 바꾸지 않는다.
+# 함선 지원 (G 휠 — 2026-09-17 「함선 호출」에서 이름만 바뀌었다). id 는 코드가 찾는 값이므로 바꾸지 않는다.
 # targeting: topview = LMB 충전 후 상단 시점 조준 · ground = 조준선 지점.
 # cooldown/delay 초, radius 미터.
 # 휠에 뜨는 목록과 순서는 src/shared/constants.ts 의 STRATAGEM_ORDER (4방위 고정).
-# cooldown 은 **분대원 개인의 함선 호출 전체가 함께 쓰는 하나의 쿨타임**이다 (StratagemSystem._cooldown).
+# cooldown 은 **분대원 개인의 함선 지원 전체가 함께 쓰는 하나의 쿨타임**이다 (StratagemSystem._cooldown).
 # 어느 호출을 쓰든 그 줄의 cooldown 만큼 네 종류가 모두 잠긴다 — 2026-09-10 사용자 결정:
 #   구조선 30 · 보급품/트라이포드 90 · 궤도 폭격 120.
 # airstrike 는 2026-09-09 에 휠에서 내렸다 — 정의는 남기지만 STRATAGEM_ORDER 에 없다.

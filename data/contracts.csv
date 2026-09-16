@@ -2,33 +2,35 @@
 # goal: kill_bugs | kill_rogues | open_crates | loot_corpses | extract_with_value | use_stratagems | extract_with_items.
 # kill_rogues (2026-09-13) = 인간형 적 전부 — 로그 · 그룹장 · 안드로이드 · 레이더 · 네임드 (스캔 드론 제외, meta/Rules.killGoalOf).
 # target = 목표 수치, minRepLevel = 받을 수 있는 신뢰도 레벨.
+# 2026-09-17 사용자 결정: 모든 계약의 minRepLevel 을 +1 (0→1 … 3→4). 신뢰도 Lv.0 기업은 기업 탭에서 고를 수 없으므로 계약도 Lv.1 부터다.
+#   Lv.0 → 1 은 계약이 아니라 NPC 퀘스트로 오른다 (세레스 = 민지후 q_ce_s1, 노마드 = 차유나 q_nm_s1 — npc_quests.csv rewardRep).
 # itemDefId (2026-09-12) = extract_with_items(특정 아이템 회수) 전용 — 그 아이템을 target 개 몸에 지니고(가방 격자 + 퀵슬롯 + 주머니,
 #   창고 제외) 탈출하면 달성이다. 다른 목표의 줄은 비워 둔다. 모르는 id 는 npm run data:check 가 잡는다.
 id,corp,minRepLevel,goal,target,repReward,xpReward,creditsReward,name,desc,itemDefId
-helix_1,helix,0,kill_bugs,25,60,150,120,소탕 작전 I,터미니드 25마리를 처치한다.
-helix_2,helix,1,kill_bugs,60,120,320,260,소탕 작전 II,터미니드 60마리를 처치한다.
-helix_3,helix,2,kill_bugs,120,220,600,500,소탕 작전 III,터미니드 120마리를 처치한다.
-helix_4,helix,3,kill_bugs,200,380,1000,900,소탕 작전 IV,터미니드 200마리를 처치한다.
-helix_calls,helix,1,use_stratagems,4,90,200,180,화력 시연,함선 호출을 4회 사용한다.
-bastion_1,bastion,0,kill_rogues,5,70,180,150,용병 제거 I,인간형 적 5명을 처치한다.
-bastion_2,bastion,1,kill_rogues,12,140,380,320,용병 제거 II,인간형 적 12명을 처치한다.
-bastion_3,bastion,2,kill_rogues,25,260,700,600,용병 제거 III,인간형 적 25명을 처치한다.
-bastion_4,bastion,3,kill_rogues,40,420,1100,1000,용병 제거 IV,인간형 적 40명을 처치한다.
-nomad_1,nomad,0,extract_with_value,1500,60,150,100,회수 임무 I,"가방에 1,500 이상의 전리품을 담고 탈출한다."
-nomad_2,nomad,1,extract_with_value,4000,130,340,240,회수 임무 II,"가방에 4,000 이상의 전리품을 담고 탈출한다."
-nomad_3,nomad,2,extract_with_value,9000,240,640,480,회수 임무 III,"가방에 9,000 이상의 전리품을 담고 탈출한다."
-nomad_4,nomad,3,extract_with_value,20000,400,1050,900,회수 임무 IV,"가방에 20,000 이상의 전리품을 담고 탈출한다."
-nomad_crates,nomad,0,open_crates,8,70,160,120,보급 조사,상자 8개를 연다.
-ceres_1,ceres,0,loot_corpses,6,60,150,110,검체 채취 I,시체 6구를 수색한다.
-ceres_2,ceres,1,loot_corpses,15,130,330,250,검체 채취 II,시체 15구를 수색한다.
-ceres_3,ceres,2,loot_corpses,30,240,620,480,검체 채취 III,시체 30구를 수색한다.
-ceres_4,ceres,3,loot_corpses,50,400,1000,850,검체 채취 IV,시체 50구를 수색한다.
+helix_1,helix,1,kill_bugs,25,60,150,120,소탕 작전 I,터미니드 25마리를 처치한다.
+helix_2,helix,2,kill_bugs,60,120,320,260,소탕 작전 II,터미니드 60마리를 처치한다.
+helix_3,helix,3,kill_bugs,120,220,600,500,소탕 작전 III,터미니드 120마리를 처치한다.
+helix_4,helix,4,kill_bugs,200,380,1000,900,소탕 작전 IV,터미니드 200마리를 처치한다.
+helix_calls,helix,2,use_stratagems,4,90,200,180,화력 시연,함선 지원을 4회 사용한다.
+bastion_1,bastion,1,kill_rogues,5,70,180,150,용병 제거 I,인간형 적 5명을 처치한다.
+bastion_2,bastion,2,kill_rogues,12,140,380,320,용병 제거 II,인간형 적 12명을 처치한다.
+bastion_3,bastion,3,kill_rogues,25,260,700,600,용병 제거 III,인간형 적 25명을 처치한다.
+bastion_4,bastion,4,kill_rogues,40,420,1100,1000,용병 제거 IV,인간형 적 40명을 처치한다.
+nomad_1,nomad,1,extract_with_value,1500,60,150,100,회수 임무 I,"가방에 1,500 이상의 전리품을 담고 탈출한다."
+nomad_2,nomad,2,extract_with_value,4000,130,340,240,회수 임무 II,"가방에 4,000 이상의 전리품을 담고 탈출한다."
+nomad_3,nomad,3,extract_with_value,9000,240,640,480,회수 임무 III,"가방에 9,000 이상의 전리품을 담고 탈출한다."
+nomad_4,nomad,4,extract_with_value,20000,400,1050,900,회수 임무 IV,"가방에 20,000 이상의 전리품을 담고 탈출한다."
+nomad_crates,nomad,1,open_crates,8,70,160,120,보급 조사,상자 8개를 연다.
+ceres_1,ceres,1,loot_corpses,6,60,150,110,검체 채취 I,시체 6구를 수색한다.
+ceres_2,ceres,2,loot_corpses,15,130,330,250,검체 채취 II,시체 15구를 수색한다.
+ceres_3,ceres,3,loot_corpses,30,240,620,480,검체 채취 III,시체 30구를 수색한다.
+ceres_4,ceres,4,loot_corpses,50,400,1000,850,검체 채취 IV,시체 50구를 수색한다.
 # ── 특정 아이템 회수 (2026-09-12) — 기업마다 둘. 아이템은 전부 레이드에서 나오는 것이다 (상점에서 팔지 않는다) ──
-helix_cores,helix,1,extract_with_items,2,130,340,280,기록 회수,전초기지의 데이터 코어를 가방에 담아 온다.,data_core
-helix_crypto,helix,3,extract_with_items,1,380,1000,900,암호 해독 의뢰,군 등급 암호화 코어를 가방에 담아 온다.,data_core_encrypted
-bastion_salvage,bastion,1,extract_with_items,3,140,360,300,장비 인양,추락한 장비의 전자장비를 뜯어 온다.,salvage_electronics
-bastion_parts,bastion,2,extract_with_items,8,250,660,540,부품 수거,로그 장비에서 뜯어낸 기계 부품을 모아 온다.,mat_machine_parts
-nomad_chips,nomad,0,extract_with_items,5,60,160,110,칩 수거,흩어진 크레딧 칩을 모아 온다.,cred_chip
-nomad_artifact,nomad,3,extract_with_items,1,400,1050,900,유물 운반,외계 유물을 온전히 가지고 돌아온다.,alien_artifact
-ceres_samples,ceres,1,extract_with_items,2,130,330,260,샘플 확보,터미니드 조직 샘플 캐니스터를 가지고 돌아온다.,sample_canister
-ceres_pure,ceres,2,extract_with_items,1,250,640,500,고순도 검체,정제 샘플 캐니스터를 가지고 돌아온다.,sample_canister_pure
+helix_cores,helix,2,extract_with_items,2,130,340,280,기록 회수,전초기지의 데이터 코어를 가방에 담아 온다.,data_core
+helix_crypto,helix,4,extract_with_items,1,380,1000,900,암호 해독 의뢰,군 등급 암호화 코어를 가방에 담아 온다.,data_core_encrypted
+bastion_salvage,bastion,2,extract_with_items,3,140,360,300,장비 인양,추락한 장비의 전자장비를 뜯어 온다.,salvage_electronics
+bastion_parts,bastion,3,extract_with_items,8,250,660,540,부품 수거,로그 장비에서 뜯어낸 기계 부품을 모아 온다.,mat_machine_parts
+nomad_chips,nomad,1,extract_with_items,5,60,160,110,칩 수거,흩어진 크레딧 칩을 모아 온다.,cred_chip
+nomad_artifact,nomad,4,extract_with_items,1,400,1050,900,유물 운반,외계 유물을 온전히 가지고 돌아온다.,alien_artifact
+ceres_samples,ceres,2,extract_with_items,2,130,330,260,샘플 확보,터미니드 조직 샘플 캐니스터를 가지고 돌아온다.,sample_canister
+ceres_pure,ceres,3,extract_with_items,1,250,640,500,고순도 검체,정제 샘플 캐니스터를 가지고 돌아온다.,sample_canister_pure

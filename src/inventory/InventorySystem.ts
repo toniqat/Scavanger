@@ -283,6 +283,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
       bus.on('progress:levelUp', () => { if (this._open) this.ui?.markTab(); }),
       bus.on('progress:statChanged', () => { if (this._open) this.ui?.markTab(); }),
       bus.on('progress:loaded', () => { if (this._open) this.ui?.markTab(); }),
+      // 2026-09-17: the 기업 tab appears once any corp reaches 신뢰도 Lv.1 (and hides again on a reset profile) — live
+      bus.on('meta:repChanged', () => { if (this._open) this.ui?.onCorpAccessChanged(); }),
+      bus.on('meta:loaded', () => { if (this._open) this.ui?.onCorpAccessChanged(); }),
       // 2026-09-08: 임플란트 칸이 인벤토리로 옮겨왔으므로 밖에서 바뀐 장착(프리셋 적용 · 수리)도 여기서 다시 그린다
       bus.on('progress:implantsChanged', () => { if (this._open) this.ui?.refresh(); }),
     );

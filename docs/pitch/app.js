@@ -10,7 +10,7 @@
 const TREE = [
   { n:'1', t:'개요',      pages:[['p-intro','프로젝트 개요']] },
   { n:'2', t:'캐릭터',    pages:[['p-create','캐릭터 생성'],['p-stats','스탯'],['p-skills','숙련도'],['p-implant-item','임플란트'],['p-tactical','전술 임플란트']] },
-  { n:'3', t:'전투',      pages:[['p-weapons','무기 · 방어구'],['p-gadget','가젯'],['p-stratagem','함선 호출']] },
+  { n:'3', t:'전투',      pages:[['p-weapons','무기 · 방어구'],['p-gadget','가젯'],['p-stratagem','함선 지원']] },
   { n:'4', t:'레이드',    pages:[['p-raid-flow','레이드 흐름'],['p-comms','분대 커뮤니케이션'],['p-planets','행성'],['p-structures','버려진 구조물'],['p-rails','선로 · 전차'],['p-hazards','환경 재해'],['p-fog','전장의 안개'],['p-enemies','적'],['p-extraction','탈출'],['p-dungeon','던전 레이드']] },
   { n:'5', t:'함선',      pages:[['p-ship','개인 함선'],['p-facility','시설'],['p-hangar','격납고 · 분대'],['p-guild','길드 함선']] },
   { n:'6', t:'기업',      pages:[['p-corp','기업 · 인물'],['p-rep','신뢰도 · 계약'],['p-quest','퀘스트']] },

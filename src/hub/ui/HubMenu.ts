@@ -278,8 +278,10 @@ export class HubMenu {
     for (const [id, b] of this.tabButtons) toggleClass(b, 'is-on', id === tab);
     this.panePlanet.hidden = tab !== 'planet';
     this.paneMatch.hidden = tab !== 'match';
-    this.btnTrain.hidden = tab !== 'planet';
-    this.trainRow.hidden = tab !== 'planet';       // 줄째 감춰야 매칭 탭에 빈 줄이 남지 않는다
+    // 2026-09-17 (사용자 결정): 튜토리얼 증축 안내 동안에는 훈련장 버튼이 줄째 없다 (`ctx.tutorial.hides('training')`)
+    const trainHidden = tab !== 'planet' || (this.ctx.tutorial?.hides('training') ?? false);
+    this.btnTrain.hidden = trainHidden;
+    this.trainRow.hidden = trainHidden;            // 줄째 감춰야 매칭 탭에 빈 줄이 남지 않는다
     // 매칭 탭에서는 홀로그램이 보이지 않는다 — 두 번째 GL 컨텍스트가 헛돌지 않게 멈춘다
     this.holo?.setVisible(this._open && tab === 'planet');
     if (changed && sound) this.ctx.bus.emit('audio:play', { id: 'ui_click' });

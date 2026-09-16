@@ -693,7 +693,8 @@ export class ExtractionSystem implements GameSystem {
         holdTime: 1.2,
         // 2026-09-10: 콘솔은 그 자체로 눈에 띄는 장치다 — 감지 빛기둥(`ui/hud/Detection`)을 세우지 않는다.
         hidePillar: true,
-        getPrompt: () => (this.ctx.phase === 'playing' ? '탈출 신호 전송 (E 길게)' : null),
+        // 2026-09-17 (사용자 결정): 캡션은 행동 이름뿐 — 「(E 길게)」는 홀드 키캡(`InteractionPrompt`)이 이미 말한다
+        getPrompt: () => (this.ctx.phase === 'playing' ? '탈출 신호 전송' : null),
         canInteract: () => this.ctx.phase === 'playing' && !this.activePad,
         interact: () => {
           // Client: ask the host; the host's `activated` message drives our visuals.

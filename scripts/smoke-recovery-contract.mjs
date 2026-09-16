@@ -90,6 +90,7 @@ try {
   const accepted = await P(() => {
     const m = window.__game.ctx.meta;
     m.resetMeta();
+    m.addRep('nomad', 100, 'smoke');   // 2026-09-17: contracts start at 신뢰도 Lv.1
     if (m.activeContract) m.abandonContract();
     window.__game.ctx.inventory.toggleFavorite('cred_chip', false);
     window.__game.ctx.inventory.toggleFavorite('mat_scrap', false);

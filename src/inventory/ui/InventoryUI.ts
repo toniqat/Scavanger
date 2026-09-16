@@ -791,6 +791,9 @@ export class InventoryUI {
 
   markTab(): void { return Screens.markTab(this); }
 
+  /** 2026-09-17: corp reputation changed — re-gate the 기업 screen tab (`Screens.corpTabLocked`). */
+  onCorpAccessChanged(): void { return Screens.onCorpAccessChanged(this); }
+
   /** `크레딧 n` readout on the ship screen (`ctx.meta.credits`; refreshed on `meta:creditsChanged`). */
   refreshCredits(): void { return Screens.refreshCredits(this); }
 

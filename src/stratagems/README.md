@@ -1,4 +1,4 @@
-# stratagems/ — ship calls (`함선 호출`): G wheel, targeting, shared cooldown, rescue drops
+# stratagems/ — ship calls (`함선 지원`, formerly `함선 호출`): G wheel, targeting, shared cooldown, rescue drops
 
 `StratagemSystem` (`name: 'stratagems'`) publishes `ctx.stratagems` (`StratagemsRef`, `src/shared/types.ts`). It owns
 the G-key input state machine, the four wheel calls (`STRATAGEM_ORDER`: orbital laser, supply drop, tripod structures,
@@ -75,8 +75,8 @@ point with `world.scatterPoints(…, RESCUE_SCATTER_RADIUS, 1, RESCUE_POD_MIN_GA
 
 ## Recent changes
 Last 5 only — older: `git log -- src/stratagems`.
+- 2026-09-17 — UI name `함선 호출` → `함선 지원` (cooldown toast, deny reason `cooldown`); ids and code names unchanged.
 - 2026-09-15 — `drifted` members (raid abandoned from the title) are never rescue-drop candidates.
 - 2026-09-15 — Androids are never rescue-drop candidates or targets (`isBotPlayer` filter + `isAndroidId` guard in `grant`).
 - 2026-09-15 — Player impact and grenade→structure damage use `shared/explosion` two-step falloff.
 - 2026-09-15 — Local player impact damage carries `{kind:'explosion'}`.
-- 2026-09-13 — Targeting disabled while riding the rover.

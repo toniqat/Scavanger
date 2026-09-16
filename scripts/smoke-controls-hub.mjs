@@ -179,7 +179,7 @@ try {
   ok(title.bound >= 18 && title.wasd, `${title.bound} bound keys lit (W, Q included)`);
   ok(title.mouseBound === 3, `mouse LMB / RMB / MMB lit (${title.mouseBound})`);
   ok(title.rows.includes('재장전 / (수류탄을 들고 있을 때) 코킹'), 'reload row carries the cook hint');
-  ok(title.rows.includes('함선 호출'), 'ship call row is just 함선 호출');
+  ok(title.rows.includes('함선 지원'), 'ship call row is just 함선 지원');
   ok(!title.rows.some((r) => /수류탄:|아이템 버리기|회전/.test(r)), 'no grenade / inventory-internal rows');
   ok(!title.oldList && title.btn, 'old text list gone, 키 설정 변경 button present');
   await shot('01-title-controls');

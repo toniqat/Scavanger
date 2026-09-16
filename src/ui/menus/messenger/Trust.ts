@@ -13,7 +13,8 @@ import { clamp01, el } from '../../dom';
  *   `buildNpcAvatar`  → 초상 테두리를 도는 **radial 게이지** + 우하단 레벨 배지 (2026-09-14 3차)
  *   `buildTrustChip`  → 퀘스트 카드 보상 줄의 칩. 기업 신뢰도 재화 칩(`buildCurrencyChip`)과 **같은 틀**(`.item-chip.currency-chip`)
  *                       이되 `data-currency-id` 는 붙이지 않는다 — NPC 신뢰도는 `data/currencies.csv` 의 재화가 아니고
- *                       가짜 재화 · 가짜 아이템 정의를 만들지 않는다는 규약 때문이다 (호버 카드 대신 네이티브 title).
+ *                       가짜 재화 · 가짜 아이템 정의를 만들지 않는다는 규약 때문이다. 호버 카드는 `ItemTip` 의 **글 카드**
+ *                       (`data-tip-name` · `-sub` · `-desc` · `-color`)로 뜬다 — 2026-09-17 전에는 네이티브 title 뿐이라 게임 카드가 뜨지 않았다.
  *
  * CSS 는 `ui/styles/messenger.css` 의 `.ms-trust*` (접두사 `ms-`).
  */
@@ -120,7 +121,11 @@ export function buildTrustChip(name: string, amount: number, color: string, size
   chip.style.setProperty('--cy', color);
   chip.style.setProperty('--rc', color);
   chip.style.setProperty('--ic', color);
-  chip.title = `${name} 신뢰도 +${fmt(amount)} — NPC 개인 신뢰도 (기업 신뢰도와 별개)`;
+  /* 2026-09-17 (사용자 버그 「신뢰도 보상 썸네일에 툴팁이 없다」): 네이티브 title 대신 게임 호버 카드 (`ui/hud/ItemTip` 의 글 카드). */
+  chip.dataset.tipName = `◈ ${name} 신뢰도`;
+  chip.dataset.tipSub = 'NPC 신뢰도';
+  chip.dataset.tipDesc = `${name} 개인이 대원을 얼마나 믿는가. 퀘스트를 완료하면 +${fmt(amount)} 오른다. 기업 신뢰도와는 따로 쌓인다.`;
+  chip.dataset.tipColor = color;
   const thumb = el('div', { cls: 'item-chip-thumb currency-thumb', parent: chip });
   el('span', { cls: 'item-chip-icon', text: '◈', parent: thumb });
   const count = el('div', { cls: 'item-chip-count', parent: thumb });

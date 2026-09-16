@@ -156,9 +156,12 @@
 .ms-thead-acts { display: flex; gap: 4px; flex: none; }
 .ms-thread-empty { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--c-text-faint); }
 .ms-thread-empty[hidden] { display: none; }
-.ms-tbody-wrap { flex: 1; min-height: 0; display: flex; gap: 10px; }
+.ms-tbody-wrap { flex: 1; min-height: 0; display: flex; gap: 10px; container-type: size; }
 .ms-thread.is-empty .ms-tbody-wrap { display: none; }
-.ms-tbody { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 4px; padding: 4px 6px 8px 0; scrollbar-width: thin; }
+.ms-tbody { position: relative; flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 4px; padding: 4px 6px 8px 0; scrollbar-width: thin; }
+/* 2026-09-17 (사용자 결정): 말풍선 뒤의 빈 꼬리 — 대화창 높이의 절반. 끝까지 내리면 마지막 말풍선이 창 가운데쯤에 온다.
+   높이는 `.ms-tbody-wrap` 컨테이너의 `cqh` 다. `position: relative` 는 `ChatTab.contentEnd` 가 꼬리의 `offsetTop` 을 body 기준으로 읽게 한다. */
+.ms-tail { flex: none; height: 50cqh; pointer-events: none; }
 .ms-members { flex: none; width: 210px; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding-left: 10px; border-left: 1px solid var(--c-border); scrollbar-width: thin; }
 .ms-members[hidden] { display: none; }
 .ms-members-head { margin-top: 4px; font-size: 9px; letter-spacing: 0.18em; }
@@ -201,15 +204,11 @@
 }
 .ms-btn.ms-choice:hover:not(:disabled) { background: rgba(255, 179, 71, 0.2); }
 /* 타이핑 `...` (2026-09-14 3차, 사용자 결정) — **새로 도착하는** 말풍선 앞에만 잠깐 선다 (`ChatTab.typingBubble`).
-   점 셋이 순차로 커진다. 그리는 길이 말풍선과 같으므로(`.ms-msg.in`) 자리 · 초상 · 이어 붙이기 규칙을 그대로 탄다. */
-.ms-bubble.ms-typing { display: inline-flex; align-items: center; gap: 4px; padding: 11px 13px; }
-.ms-bubble.ms-typing i { display: block; width: 5px; height: 5px; border-radius: 50%; background: var(--c-text-dim); animation: ms-type-dot 1.05s ease-in-out infinite; }
-.ms-bubble.ms-typing i:nth-child(2) { animation-delay: 0.15s; }
-.ms-bubble.ms-typing i:nth-child(3) { animation-delay: 0.3s; }
-@keyframes ms-type-dot {
-  0%, 60%, 100% { transform: scale(0.7); opacity: 0.4; }
-  30% { transform: scale(1.15); opacity: 1; }
-}
+   그리는 길이 말풍선과 같으므로(`.ms-msg.in`) 자리 · 초상 · 이어 붙이기 규칙을 그대로 탄다.
+   2026-09-17 (사용자 결정): 점 셋이 어긋난 박자로 천천히 작아졌다 커진다 — 움직임은 CSS `@keyframes` 가 아니라 ChatTab 의
+   Web Animations 다 (`base.css` 의 reduced-motion 규칙이 CSS 애니메이션을 0.01 ms 로 자른다). 여기 값은 애니메이션이 없을 때의 정지 모습. */
+.ms-bubble.ms-typing { display: inline-flex; align-items: center; gap: 5px; padding: 11px 13px; }
+.ms-bubble.ms-typing i { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--c-text-dim); transform: scale(0.7); opacity: 0.6; will-change: transform, opacity; }
 .ms-msg.pending .ms-bubble { opacity: 0.55; }
 .ms-msg.stored .ms-state, .ms-msg.backlog .ms-state { color: var(--c-accent); }
 .ms-msg.failed .ms-bubble { text-decoration: line-through; color: var(--c-text-dim); }
@@ -243,7 +242,7 @@
 .ms-trust.compact .ms-trust-bar { flex: none; width: 34px; }
 .ms-trust-num { flex: none; font-size: 10px; color: var(--c-text-faint); }
 /* 보상 칩 — 재화 칩(`base.css` 의 `.currency-chip`)과 같은 틀, 색만 NPC 색이다 */
-.ms-trust-chip { cursor: default; }
+.ms-trust-chip { cursor: help; }   /* 2026-09-17: 기업 신뢰도 칩처럼 호버 카드가 뜬다 (`ItemTip` 글 카드) */
 
 /* ── 퀘스트 카드 (말풍선 · 상세 공용) ── */
 .ms-qcard {

@@ -196,7 +196,10 @@ export class FlareColumn {
       this.core.scale.setScalar(0.9 + 0.2 * flicker);
       while (this.acc > 0.02) {
         this.acc -= 0.02;
-        _p.set((Math.random() - 0.5) * 0.4, 0.4, (Math.random() - 0.5) * 0.4).add(this.group.position);
+        // 2026-09-17: group-local — the pools' `Points` are children of `group`, so the GPU already adds
+        // `group.position`. Adding it here too drew the smoke and embers at twice the pad's world coordinates,
+        // i.e. far across the map, while the core and light sat on the pad. (DustRing's pool lives in the scene → world.)
+        _p.set((Math.random() - 0.5) * 0.4, 0.4, (Math.random() - 0.5) * 0.4);
         _v.set((Math.random() - 0.5) * 0.9 + Math.sin(this.time * 0.6) * 0.5, 3.2 + Math.random() * 1.8, (Math.random() - 0.5) * 0.9 + Math.cos(this.time * 0.45) * 0.5);
         this.smoke.emit(_p, _v, 4.5 + Math.random() * 2.5, 1.4 + Math.random() * 0.8);
         if (Math.random() < 0.6) {

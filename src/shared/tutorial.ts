@@ -104,14 +104,22 @@ export type TutorialStepId =
   | 'raid';        // 레이드 시작 — 탈출구 인디케이터를 강조하고 끝난다
 
 export const TUTORIAL_STEPS: readonly TutorialStepId[] = [
-  'intro', 'manage', 'generator', 'workshop', 'bench', 'benchPlace',
+  // (2026-09-17 전의 17단계: intro manage generator workshop bench benchPlace manageDone craftGun craftAmmo openBag equipGun
+  //   stowAmmo terminal planet travel board raid)
   // 2026-09-09: 총기 작업대에서 소총 → 탄약을 **한 번에** 만든다 — `openCraft` 는 순서에서 빠졌다 (id 는 계약이라 남긴다).
   // 2026-09-14 3차 (사용자 결정 — 「닫기 누르기는 튜토리얼 스텝에서 뺀다」): `manageDone` 도 같은 처리였다.
   // 2026-09-15 (사용자 결정 — 뒤집음): **`manageDone` 이 순서로 돌아왔다** — 「작업실로 이동」 바로 앞에 「하우징 모드 닫기」
   //   한 줄이 선다. 관리 모드가 열린 채로는 작업실로 걸어갈 수 없는데 안내는 걸어가라고 하고 있었고, 바닥 안내선도
   //   관리 카메라 아래에 깔려 있었다. 16 → 17 단계. (`openCraft` 는 그대로 순서 밖이다.)
-  'manageDone', 'craftGun', 'craftAmmo', 'openBag', 'equipGun', 'stowAmmo',
-  'terminal', 'planet', 'travel', 'board', 'raid',
+  // 2026-09-17 (사용자 결정 — 「여러 스텝을 하나의 스텝 내 여러 목표로 묶기」): **17 → 7 단계.** 한 단계가 순차 공개 목표 여럿을 갖는다.
+  //   manage  = 시설 관리 열기 → (발전기 Lv.0 일 때만: 발전기 가동) → 빈 방을 작업실로 증축           (`generator` · `workshop` 흡수)
+  //   bench   = 총기 작업대 제작 → 가구 창고 탭 → 가구 배치 → 하우징 모드 닫기                      (`benchPlace` · `manageDone` 흡수)
+  //   craftGun= 작업실로 이동 → 작업대 작동 → 돌격소총 → 준중량탄 → 제작창 닫기                       (`craftAmmo` · `openBag` 흡수)
+  //   equipGun= Tab 인벤토리 열기 → 돌격소총 장착 (인벤토리를 닫을 때까지 조용히 기다린다)            (`stowAmmo` 는 없어졌다)
+  //   terminal= 조종석 이동 → 터미널 작동 → 목표 행성 → (워프 대기) → 발사 슬롯 → 탑승 → 준비 홀드   (`planet` · `travel` · `board` 흡수)
+  //   raid    = 가치 `TUTORIAL_RAID_EXTRACT_VALUE_C` 이상을 들고 탈출 — **한 번의 레이드**, 끝나면 결과와 무관하게 트랙 종료
+  //   빠진 id 는 계약이라 `TutorialStepId` 에 남고, 옛 저장은 `tutorial/Steps.normalizeStep` 이 묶인 단계로 옮긴다.
+  'intro', 'manage', 'bench', 'craftGun', 'equipGun', 'terminal', 'raid',
 ];
 
 /**
@@ -168,7 +176,15 @@ export type TutorialGate =
    * 감춰진다 — 우하단 `시설 관리` 키 힌트(`ui/hud/ShipManageHint`)가 `hides` 로, `housing/parts/Furniture.shipManageBlock` 이
    * `blockReason` 으로 묻는다. 다른 트랙(증축 트랙의 `manage` 단계가 바로 이것을 연다)에서는 언제나 열려 있다.
    */
-  | 'shipManage';
+  | 'shipManage'
+  /**
+   * appended (2026-09-17, 사용자 결정): **숨김 전용** 둘 — 증축 트랙이 도는 동안만 참이다 (id 를 쓰지 않는다).
+   *   • `training`   함선 터미널 행성 탭 우하단의 `시뮬레이션 훈련장` 버튼 (`hub/ui/HubMenu`) — 출격 안내 도중 딴 길로 새지 않게.
+   *   • `launchWarn` 발사 슬롯에서 준비할 때의 출격 준비 경고 팝업 (`hub/parts/Pods.toggleReady` — 기업 계약 없음 · 방탄복 없음 …).
+   *     튜토리얼 캐릭터는 둘 다 없는 것이 정상이라 경고가 안내를 끊었다.
+   */
+  | 'training'
+  | 'launchWarn';
 
 /**
  * `hides('hud', id)` 의 id. 이 이름을 그리는 위젯이 제 이름으로 묻는다.
