@@ -282,7 +282,8 @@ try {
   ok(fat && fat.debuff && near(fat.ratio, 12.5 / 24.5, 0.01) && fat.time === '12h' && sq.tDisp === 'none', 'row gauge ratio from the ref\'s timer; the time label is hidden at mini size', JSON.stringify(fat));
   ok(meal && !meal.dim && meal.glyph === '♨' && meal.title === '콩죽', 'row meal thumbnail (active, def glyph, def name)', JSON.stringify(meal));
   ok(sq.rowH > 30, `row grows to fit the strip (${sq.rowH} px)`);
-  ok(sq.meHas && sq.meCells === 0, 'the local row has no thumbnails', JSON.stringify({ meHas: sq.meHas, meCells: sq.meCells }));
+  // 2026-09-16 (사용자 결정): 내 행 자체가 없어졌다 — 내 버프는 PC 체력바 아래 띠가 그린다.
+  ok(!sq.meHas && sq.meCells === -1, '내 행이 아예 없다 (2026-09-16)', JSON.stringify({ meHas: sq.meHas, meCells: sq.meCells }));
 
   await P(() => {
     const peer = window.__peer;

@@ -52,7 +52,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/LoadingGauge.ts` (+ `styles/loading.css`) | Raid-entry loading gauge: bottom-right radial ring over the black plate, `squad` fill, `n명 대기 중`; driven by `performance.now()` because the load gate hands every system `dt 0` |
 | `hud/mealText.ts` | Meal buff / quality / cook-step text helpers shared by ItemTip, BuffStrip, Notifications |
 | `hud/MetaToasts.ts` | Top-centre credits chip (coalesced), reputation level, contract settlement toasts |
-| `hud/MusicPlayer.ts` | Ship-only music player window (`housing:musicChanged`): title, artist, volume, progress, prev/next, mode, stop — no sound |
+| `hud/MusicPlayer.ts` | **Personal-ship-only** music player window (`ctx.phase === 'hub'` + `ctx.hub?.ship === 'personal'`, re-read every frame; `housing:musicChanged`): title, artist, volume, progress, prev/next, mode, stop — no sound. Hiding it never clears the state |
 | `hud/NamedScanWarning.ts` | Named sniper warnings: scan exposure banner, exposure sweep, scope glint head/arc (`named:*`) |
 | `hud/Nameplates.ts` | Remote player name / shield / hp plates (projected, distance fade); android bodies in a raid get the same plate (`.ally`, `쓰러짐` tag) |
 | `hud/NetBadge.ts` | Server link badge in ship and title (hidden in raids); owns link-transition toasts |
@@ -77,7 +77,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/ShipManage.ts` | Facility management (`시설 관리`) screen: room list, purpose picker, furniture craft/storage tabs (last tab remembered per slot), inspector with upgrade/remove, confirm popups |
 | `hud/ShipManageHint.ts` | `시설 관리` + `Keys.MAP` keycap hint on the personal ship |
 | `hud/SpectateOverlay.ts` | Multiplayer death banner with remaining squad and rescue drops |
-| `hud/Squad.ts` | Bottom-left squad list: slot colour, name, mission badge, hp, state, host-ghost bleed, mini buff strip. Shown in the hub whenever a lobby exists; an **undocked** squad's rows read `개인 함선`. Bot lobby members are never human rows — androids come last from `ctx.allies.roster` (`안드로이드` badge, shield bar, `쓰러짐` / `사망`), and one android alone puts the list up with no lobby |
+| `hud/Squad.ts` | Bottom-left squad list of **other members only** — the local row is never drawn (2026-09-16), in the shared ship or in a raid, and the whole list hides when no row is filled. Slot colour, name, mission badge, hp, state, host-ghost bleed, mini buff strip; an **undocked** squad's rows read `개인 함선`. Bot lobby members are never human rows — androids come last from `ctx.allies.roster` (`안드로이드` badge, shield bar, `쓰러짐` / `사망`), and one android alone puts the list up with no lobby |
 | `hud/StatusMarkers.ts` | World markers for burned / shocked enemies |
 | `hud/stratagemGlyphs.ts` | Ship-call glyph, colour, def lookup, arm/target hints |
 | `hud/StratagemPanel.ts` | Ship-call square thumbnail left of the implant: shared cooldown fill, armed colour, rescue count, ready flash |
@@ -337,8 +337,8 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
+- 2026-09-16 — Squad list drops the local row entirely (shared ship and raid; `.srow.me` / `(나)` / the "no buffs on my row" rule are gone) and hides itself when no row is filled (`Squad.finish`); the music window is personal-ship only (`ctx.hub?.ship === 'personal'`, state untouched).
 - 2026-09-16 — Dining plates: squadmate plate toast on `net:squadPlate` (`fresh`, shared ship only) replaces the `housing:mealServed` toast; cook result toast says `→ 식탁`; BuffStrip / ItemTip fall back to `getMealDef` for meal ids.
 - 2026-09-16 — Liftoff hides all remaining HUD (social layer, key guide, item card, music, net badge, 3D pillars) with a code-stepped fade; crosshair/rings hide instantly. Crosshair hidden during the intro wake, then fades in (`TUTORIAL_RETICLE_FADE_S`).
 - 2026-09-15 — Title resume / abandon: `이어하기` (highlighted) above a red `게임 시작` while `ctx.raidResume.offer` exists; `게임 시작` then opens the abandon popup (`menus/raidResumeCard`, `.trs-`, `[닫기] [레이드 포기]` 1 s hold); `enterShip` waits for the squad raid check; `AskSpec.cancel`; debug `HudSystem.titleResume`.
 - 2026-09-15 — Android squadmates + raid-entry loading: `hud/allySource` (the one `ctx.allies` reader, `debugAllies`); squad rows / nameplates / compass ticks / map markers + `안드로이드` legend row for androids, bots never drawn as human rows (Squad, SocialColumn, Community, RescuePicker, SpectateOverlay); `ally:ping` → android-owned ping + `ally:chat` callout, `ping:placedV3` on every ping; `ally:chat` line; seven android toasts (Korean particle picked by the final syllable); new `hud/LoadingGauge` + `styles/loading.css` (z 87, real-time driven).
-- 2026-09-15 — Squads vs shared ship: squad list `개인 함선` for undocked squads; `같이 하기` → `분대 초대` (invite only, `in_other_squad` / `not_leader` / `in_squad` reasons); hub pings / acks relay only while `ctx.net.inHubSession`. `menus/SettingsMenu` closes on `game:paused {paused:false}` and on any phase change (it has no blocker / escape entry and used to outlive the pause menu); `SocialMenu.closeAll()` (menu + confirm card) runs when the messenger closes.

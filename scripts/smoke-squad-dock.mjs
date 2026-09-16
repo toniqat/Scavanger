@@ -2,7 +2,7 @@
 // a relay this script starts itself from the working tree's `server/index.ts` (port 8894, temp profile store), so the
 // shared relay (8787, possibly older code) is never touched:
 //   1. A invites B (`social.playWith`) → A leads an **undocked** lobby; B accepts (P-hold path = `acceptInvite`) → both stay in
-//      their personal ships, exchange no hub snapshots (no remote refs, `inHubSession` false), squad HUD shows 2 rows `개인 함선`.
+//      their personal ships, exchange no hub snapshots (no remote refs, `inHubSession` false), squad HUD shows the other member's row as `개인 함선` (2026-09-16: my own row is never drawn).
 //   2. Undocked locks: personal pod `podBlockReason` = 분대 대기 …, `startTraining()` refused with a toast.
 //   3. A member's `requestDock` → `net:error not_host`, nobody moves.
 //   4. B opens the inventory; A docks **public** → A fades out at once (`ui:screenFade {1, hold}`, never a countdown) → docking;
@@ -208,8 +208,9 @@ try {
   });
   const hudA = await squadHud(A);
   const hudB = await squadHud(B);
-  ok(hudA.shown && hudA.rows === 2 && hudA.states.every((s) => s === '개인 함선'), `A squad HUD: 2 rows 개인 함선 (${JSON.stringify(hudA)})`);
-  ok(hudB.shown && hudB.rows === 2 && hudB.states.every((s) => s === '개인 함선'), `B squad HUD: 2 rows 개인 함선 (${JSON.stringify(hudB)})`);
+  // 2026-09-16 (사용자 결정): 내 행은 그리지 않는다 — 미도킹 분대 2인이면 상대 한 줄만 남는다.
+  ok(hudA.shown && hudA.rows === 1 && hudA.states.every((s) => s === '개인 함선'), `A squad HUD: 1 row 개인 함선 (${JSON.stringify(hudA)})`);
+  ok(hudB.shown && hudB.rows === 1 && hudB.states.every((s) => s === '개인 함선'), `B squad HUD: 1 row 개인 함선 (${JSON.stringify(hudB)})`);
 
   /* ── 2. undocked locks ─────────────────────────────────────────────────── */
   console.log('pod / training locked');
@@ -263,7 +264,7 @@ try {
   await waitFor(B, () => window.__game.ctx.net.getRemotePlayers().length === 1, 'B sees A aboard', 20000);
   ok(true, 'squadmates exchange hub snapshots once docked');
   const hudDocked = await squadHud(A);
-  ok(hudDocked.rows === 2 && hudDocked.states.every((s) => s !== '개인 함선'), `docked squad HUD no longer says 개인 함선 (${JSON.stringify(hudDocked.states)})`);
+  ok(hudDocked.rows === 1 && hudDocked.states.every((s) => s !== '개인 함선'), `docked squad HUD: 상대 한 줄, 더 이상 개인 함선이 아니다 (${JSON.stringify(hudDocked.states)})`);
   const shipCode = a.lobby.code;
 
   /* ── 5. lone C: public matching joins the open public ship ─────────────── */

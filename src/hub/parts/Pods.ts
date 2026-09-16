@@ -321,7 +321,11 @@ export function syncPods(sys: HubSystem): void {
     if (sys.slots[i]) sys.slots[i].occupant = occupant;
     if (changed) ctx.bus.emit('hub:slotChanged', { slot, peerId: occupant, local });
   }
-  // interactive (blocker + software cursor) only while WE are boarded — see `ui/ReadyPanel`
+  /*
+   * 2026-09-16 (사용자 결정): 이 한 값이 발사 준비 패널의 **보이는 조건이자 조작 조건**이다 — 내가 실제로 발사
+   * 슬롯에 앉아 있을 때만. 예전에는 「어느 칸이든 `ready`」면 떴는데, 안드로이드를 영입하면 봇 칸이 곧바로
+   * `ready`(위에서 `inSlot = true`)가 되어 공용 함선을 걸어다니는 내내 패널이 화면 가운데를 덮었다.
+   */
   sys.ready.sync(cells, sys.boardedSlot >= 0 && ctx.phase === 'hub' && !sys.cutscene);
   }
 

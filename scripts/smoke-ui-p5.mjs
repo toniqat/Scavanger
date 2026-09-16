@@ -577,8 +577,9 @@ try {
     return { h: Math.round(sr.height), above: sr.bottom <= vr.top + 4, left: Math.round(sr.left), vLeft: Math.round(vr.left) };
   });
   ok(squadPos.h > 0 && squadPos.above && squadPos.left === squadPos.vLeft, `분대 목록이 좌하단 체력바 바로 위 (h ${squadPos.h}, left ${squadPos.left})`, JSON.stringify(squadPos));
-  const meRow = await P(() => { const r = document.querySelector('.squad .srow.me'); return r ? { badge: r.querySelector('.badge').textContent, name: r.querySelector('.name').textContent } : null; });
-  ok(!!meRow && meRow.badge === '임무 중' && meRow.name.endsWith('(나)'), 'local row also carries 임무 중', JSON.stringify(meRow));
+  // 2026-09-16 (사용자 결정): 내 행은 어디에도 그리지 않는다 — 내 체력은 조준선 아래 바이탈이 이미 말한다.
+  const meRow = await P(() => ({ me: !!document.querySelector('.squad .srow.me'), names: [...document.querySelectorAll('.squad .srow')].filter((e) => !e.hidden).map((e) => e.querySelector('.name').textContent) }));
+  ok(!meRow.me && !meRow.names.some((n) => n.endsWith('(나)')), '분대 목록에 내 행이 없다 (2026-09-16)', JSON.stringify(meRow));
   let plate = await P(() => { const p = [...document.querySelectorAll('.nameplate')].find((e) => e.querySelector('.name').textContent === '브라보'); return p ? { cls: p.className, op: p.style.opacity, tagHidden: p.querySelector('.tag').hidden, tag: p.querySelector('.tag').textContent } : null; });
   ok(!!plate && Number(plate.op) > 0 && !/\bsuspended\b/.test(plate.cls) && plate.tagHidden, 'nameplate visible over the avatar, no tag while connected', JSON.stringify(plate));
   // C-19 (2026-09-11): thin shield bar above the hp bar from ref.shield / maxShield (PlayerSnapshot.sh / shm)
@@ -650,8 +651,8 @@ try {
   await waitSim(0.3);
   row = await rowOf('브라보');
   ok(!!row && row.state === '' && !/\bsuspended\b/.test(row.cls) && row.badge === '함선' && /\bship\b/.test(row.badgeCls), 'reconnected + out of the training → state clear, badge 함선 (.ship)', JSON.stringify(row));
-  const meRow2 = await P(() => { const r = document.querySelector('.squad .srow.me'); return r ? { badge: r.querySelector('.badge').textContent, cls: r.querySelector('.badge').className } : null; });
-  ok(!!meRow2 && meRow2.badge === '훈련장' && /\btraining\b/.test(meRow2.cls), 'local row badge 훈련장 while lobby.mode = training', JSON.stringify(meRow2));
+  const meRow2 = await P(() => ({ me: !!document.querySelector('.squad .srow.me'), rows: [...document.querySelectorAll('.squad .srow')].filter((e) => !e.hidden).length }));
+  ok(!meRow2.me && meRow2.rows === 1, 'lobby.mode = training 에서도 내 행은 없다 (상대 한 줄뿐)', JSON.stringify(meRow2));
   sysLines = await texts('.chat-line.system .txt');
   ok(sysLines.some((t) => t === '브라보 재연결'), 'suspended:false → chat line 브라보 재연결', JSON.stringify(sysLines.slice(-3)));
   await P(() => { window.__lobby.started = false; });

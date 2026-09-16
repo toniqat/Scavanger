@@ -41,7 +41,7 @@ forwards interactions.
 | `ui/IntelMenu.ts` | Intel screen: pick phase (map + gimmick rows + total + hold-only `확정`) and confirmed phase (hologram lock-on + map + summary, `지역 재배치` hold → discard + reroll). Token `hub:intel`. |
 | `ui/IntelMap.ts` | Pure drawing of `ctx.world.previewLayout(...)` (`MapPreviewLayout`) snapped to a coarse grid and blurred; legend colours from `INTEL_MAP_LEGEND`. Never throws on malformed layouts. |
 | `ui/PlanetHologram.ts` | Planet hologram on its own WebGL renderer; cross-slide swap, `attachTo(host)` (lent to the intel screen), `startLockOn` / `clearLockOn`; returns null without a second GL context (`.no-holo`). |
-| `ui/ReadyPanel.ts` | Launch-slot panel: 4 cells (portrait top, gear board with 5 thumbnails + carried value, ready hold gauge with `Space` keycap), right-click → crew loadout popup, key guide owner `pod`, blocker `HUB_READY_BLOCKER` only while the local player is boarded. |
+| `ui/ReadyPanel.ts` | Launch-slot panel, up **only while the local player sits in a launch slot** (`sync(cells, boarded)` — visibility and interactivity are one value): 4 cells (portrait top, gear board with 5 thumbnails + carried value, ready hold gauge with `Space` keycap), right-click → crew loadout popup, key guide owner `pod`, blocker `HUB_READY_BLOCKER`. Bot cells draw the same full-body portrait as a human (`PortraitRef.setAndroid` + `armorIdOf`). |
 | `ui/CrewLoadoutPanel.ts` | Modeless squadmate loadout popup (`ctx.inventory.createCrewLoadoutView`, equip / bag / quick; no stash, no credits). Escape token `hub:crewLoadout`, key guide owner `pod.loadout`. |
 | `ui/LaunchWarnPanel.ts` | Launch warning popup before readying (`ctx.inventory.getLaunchWarnings()`), `취소` / `그래도 준비`; the acknowledged signature is not asked again. |
 | `ui/HubStatus.ts` | Bottom-centre status line / countdown digits (`pointer-events: none`). |
@@ -153,12 +153,16 @@ forwards interactions.
   intel for this planet → lobby seed → `missionSeed` → random. Rejoin and training skip all of this (no countdown).
 - 안드로이드 봇 멤버 (2026-09-15): a `LobbyPlayer.bot` occupies the pod of its lobby slot and is **always ready** — the
   pod closes and the ready cell is confirmed with no remote avatar (the body stands in front of the pod, drawn by
-  `allies/` at `getPodStandPose(slot)`). Its cell shows `snapshotAndroidFace` instead of a 3D body, the `ANDROID_KIT`
-  gear board (or `ctx.allies.getLoadout(id)` once that exists) and refuses the right-click crew-loadout popup.
-  Bots are filtered out of hangar bays, ship visits, leader handoff, training counts and crew counts.
-- Ready panel: portraits come from `ctx.player.createPortraits(host, HUB_READY_CELLS)` at `HUB_READY_PORTRAIT_YAW`;
-  members not seated draw no body. Local gear thumbnails use real instances (attachment pips); squadmates use the crew
-  card (outline pips only, bag unknown `?`). Key guide owner `pod` (`E 내리기`, `Space 준비`), hidden during countdown.
+  `allies/` at `getPodStandPose(slot)`). Its cell draws the **same full-body portrait as a human** (2026-09-16 —
+  `PortraitRef.setAndroid` for the android look, armor from `ctx.allies.getLoadout(id)?.equip.armor` falling back to
+  `ANDROID_KIT.armor`), the `ANDROID_KIT` gear board (or `ctx.allies.getLoadout(id)` once that exists) and refuses the
+  right-click crew-loadout popup. Bots are filtered out of hangar bays, ship visits, leader handoff, training counts and crew counts.
+- Ready panel: visible **only while WE are in a launch slot** (2026-09-16 — a recruited android's cell is `ready` at once,
+  which used to put the panel up while the player just walked the shared ship); `parts/Pods.syncPods` passes that as
+  `sync(cells, boarded)` and it is both the visibility and the interactivity condition. Portraits come from
+  `ctx.player.createPortraits(host, HUB_READY_CELLS)` at `HUB_READY_PORTRAIT_YAW`; members not seated draw no body.
+  Local gear thumbnails use real instances (attachment pips); squadmates use the crew card (outline pips only, bag
+  unknown `?`). Key guide owner `pod` (`E 내리기`, `Space 준비`), hidden during countdown.
 
 ## 조종실 안드로이드 슬롯 (2026-09-15)
 
@@ -319,8 +323,8 @@ doorway is an open shared edge.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/hub`.
+- 2026-09-16 — Ready panel is up only while the local player is in a launch slot (`sync(cells, boarded)`; a recruited android no longer puts it on screen), and a bot cell draws the same full-body portrait as a human (`PortraitRef.setAndroid`, kit armor via `armorIdOf`) — the `snapshotAndroidFace` path and `.hr-face` are gone from this panel.
 - 2026-09-16 — Dining plates in 3D: `interiors/TablePlates.ts` (`addPlateToBatch` on the dining-table furniture, squad plates + name tags on the shared-ship table via `diningTablePlateSlots`); cook bench prompt says `식탁이 없습니다` without a table.
 - 2026-09-15 — Raid abandoned from the title (`LobbyPlayer.drifted`): `Pods.driftedFromRaid` blocks the rejoin pod (prompt, status, boarding) and `onResumed` skips the auto-rejoin; terminal error text for `drifted`.
 - 2026-09-15 — Terminal: `시뮬레이션 훈련장` on its own row above the footer line (`.hub-train-row`; footer = `닫기 (E)` only); 매칭 tab offline = `다시 연결` replaces the two matching buttons, `초대` dimmed + hint flash (`MatchTab.onInvite` / `flashHint`).
 - 2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩: cockpit bays (`interiors/AndroidBays.ts`, `parts/Androids.ts`, `hub_android_<bay>`, `getAndroidBays` / `getPodStandPose`), bots in pods / ready cells / match tab and filtered out of hangar · handoff · counts, and the countdown-end fade + delayed launch (`beginRaidLoad`); `scripts/smoke-android-bays.mjs`.
-- 2026-09-15 — Terminal rebuilt: top tabs 행성 / 매칭, centred planet, bottom-right training button + `TrainingConfirm`, `MatchTab` (face tiles, private / public dock, undock) + `InviteModal`; `MatchPanel` deleted.

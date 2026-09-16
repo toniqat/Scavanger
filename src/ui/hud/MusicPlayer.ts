@@ -8,8 +8,12 @@ import { el, setText, toggleClass } from '../dom';
  * 지금 곡의 제목 · 아티스트 · 볼륨 · 진행을 보여 준다. **소리는 나지 않는다** (`housing/parts/Music` 이 상태의 주인이고
  * 여기서는 그 사실을 그린다 — 상태는 `housing:musicChanged` 로 받고, 버튼만 옵셔널 조작 계약 `musicPrev` · `musicNext` · `setMusicMode` · `musicStop` 을 부른다).
  *
- *  - **함선에서만** 보인다 (`ctx.phase === 'hub'`). 레이드 · 훈련장 · 타이틀에서는 housing 이 이미 상태를 끄지만
- *    페이즈 게이트를 한 번 더 둬서 「상태가 남았는데 창이 뜬다」가 원천적으로 없다.
+ *  - **개인 함선에서만** 보인다 (`ctx.phase === 'hub'` **+** `ctx.hub?.ship === 'personal'`, 2026-09-16 사용자 결정).
+ *    축음기 · 주크박스 · 턴테이블은 내 함선의 가구이므로 공용 함선(분대 갑판) · 격납고에서는 창이 뜨지 않는다.
+ *    레이드 · 훈련장 · 타이틀에서는 housing 이 이미 상태를 끄지만 페이즈 게이트를 한 번 더 둬서 「상태가 남았는데
+ *    창이 뜬다」가 원천적으로 없다. **상태는 지우지 않는다** — 창만 숨고, 개인 함선으로 돌아오면 그대로 다시 뜬다
+ *    (도킹 · 언도킹에 이벤트를 구독하지 않는 이유: `update` 가 매 프레임 `ctx.hub` 를 다시 읽으므로 함선이 바뀌면
+ *    그 프레임에 저절로 따라온다).
  *  - **`housing:musicChanged` 를 한 번도 못 받으면 `MUSIC_PLAYER_OFF` 이고 창은 안 뜬다** (기본값 = 꺼짐).
  *  - 메뉴 blocker(`'menu'`)가 서면 숨는다 — `hud/KeyGuide.apply()` 와 **같은 규칙**이다(인벤토리 · 지도 같은 다른
  *    화면 위에는 그대로 떠 있다). 그래서 z 는 그 창들(≤ 80)보다 위, `.screen-fade`(82) · `.key-guide`(84)보다 아래인 **81**.
@@ -124,7 +128,9 @@ export class MusicPlayer {
   update(ctx: GameContext): void {
     const playing = this.state.furnitureUid !== null;
     const menu = ctx.uiBlockers.has('menu');
-    const on = playing && ctx.phase === 'hub' && !menu;
+    // 2026-09-16: 개인 함선 전용. `ctx.hub` 는 임무 중 null 이고 `ship` 도 null 일 수 있어 옵셔널로 읽는다.
+    const personalShip = ctx.hub?.ship === 'personal';
+    const on = playing && ctx.phase === 'hub' && personalShip && !menu;
     if (on !== this.shown) { this.shown = on; toggleClass(this.root, 'show', on); }
     if (!on) return;
 

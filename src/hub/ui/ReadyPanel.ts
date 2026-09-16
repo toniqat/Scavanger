@@ -1,5 +1,5 @@
 import type {
-  GameContext, ImplantDef, ImplantId, ItemDef, ItemInstance, KeyGuideEntry, LoadoutSlot, PeerId, PortraitRef,
+  AllyEquip, GameContext, ImplantDef, ImplantId, ItemDef, ItemInstance, KeyGuideEntry, LoadoutSlot, PeerId, PortraitRef,
   SocketSlot, WeaponDef,
 } from '@/shared';
 import {
@@ -34,8 +34,12 @@ export interface ReadyCellInfo {
   /** Equipped armor def id, handed to the portrait so the body wears the right plates. */
   armorId: string | null;
   /**
-   * 2026-09-15 (안드로이드 분대원): 이 칸이 **봇 멤버**인가. 몸(`createPortraits`)을 그리지 않고 `snapshotAndroidFace`
-   * 한 장을 얹으며, 장비 판은 `ctx.allies.getLoadout` (없으면 `ANDROID_KIT`)에서 오고 우클릭 장비 창은 열리지 않는다.
+   * 2026-09-15 (안드로이드 분대원): 이 칸이 **봇 멤버**인가. 장비 판은 `ctx.allies.getLoadout` (없으면 `ANDROID_KIT`)에서
+   * 오고 우클릭 장비 창은 열리지 않는다.
+   *
+   * 2026-09-16 (사용자 결정): 초상은 사람 칸과 **똑같이** `createPortraits` 의 전신이다 — 얼굴 한 장(`snapshotAndroidFace`)을
+   * 얹던 길은 사라졌다. 몸은 `PortraitRef.setAndroid` 로 안드로이드 외형이 되고, 입는 방탄복은 `armorId` 가 아니라
+   * `ctx.allies.getLoadout(peerId)?.equip.armor` (없으면 기본 킷 `ANDROID_KIT.armor`)다 — `armorIdOf` 참고.
    */
   bot?: boolean;
   /** 봇의 조종실 슬롯 번호 (이름 · 얼굴 색). 사람이면 무시된다. */
@@ -80,8 +84,6 @@ interface GearView {
 
 interface CellDom {
   root: HTMLElement;
-  /** 안드로이드 얼굴 한 장 (`snapshotAndroidFace`) — 봇 칸에서만 보인다. */
-  face: HTMLImageElement;
   name: HTMLElement;
   lv: HTMLElement;
   state: HTMLElement;
@@ -100,8 +102,8 @@ interface CellDom {
 const GUIDE_OWNER = 'pod';
 
 /**
- * 발사 준비 패널 (Phase 10 · **2026-09-14 대개편**) — four cells across the middle of the ship screen, shown as soon as
- * **any** launch slot is filled. Each cell is 위 55 % 초상 · 아래 45 % 장비 (`docs/DECISIONS.md` 「2026-09-14 — 정보상」).
+ * 발사 준비 패널 (Phase 10 · **2026-09-14 대개편**) — four cells across the middle of the ship screen, shown **only while
+ * the local player is in a launch slot**. Each cell is 위 55 % 초상 · 아래 45 % 장비 (`docs/DECISIONS.md` 「2026-09-14 — 정보상」).
  *
  * The bodies come from `ctx.player.createPortraits(host, HUB_READY_CELLS)` — **one** canvas with `HUB_READY_CELLS`
  * scissored viewports, owned by `player/` because it needs `SoldierModel`. That code slices the canvas into `n`
@@ -126,10 +128,12 @@ const GUIDE_OWNER = 'pod';
  * 중앙 하단 줄에는 상태 텍스트(`준비 대기 (1/4)`)와 카운트다운만 남는다. 키 가이드를 올리고 내리는 곳은
  * `syncGuide()` 하나이고, `setInteractive` · `hide()` · `dispose()` · `setLaunching()` 이 전부 그것을 지난다.
  *
- * Interactivity is deliberately narrower than visibility: the panel only takes `HUB_READY_BLOCKER` + the software
- * cursor (`setCursorMode`, **never** `exitPointerLock`) while the **local** player is boarded, i.e. while they are
- * strapped into the pod and have no controls anyway. A remote readying up while we walk the ship shows the panel but
- * must not steal our mouse look. `HubSystem` ignores that one token in its un-board / pointer-lock gates.
+ * **2026-09-16 (사용자 결정) — 보이는 조건 = 내가 슬롯에 앉아 있을 때.** 예전에는 「어느 칸이든 `ready` 면 뜬다」였다.
+ * 안드로이드 분대원이 생기면서 영입한 봇 칸이 곧바로 `ready: true` 로 앉게 되어(릴레이가 그렇게 붙들어 둔다), 공용
+ * 함선을 그냥 걸어다니는 동안에도 패널이 화면 가운데를 덮었다. 이제 `sync(cells, boarded)` 의 `boarded` 가
+ * **보이는 조건이자 조작 조건**이다 — 둘이 갈라지지 않으므로 `_visible` 이면 `_interactive` 다. 패널은 여전히
+ * `HUB_READY_BLOCKER` + 소프트웨어 커서(`setCursorMode` — **절대 `exitPointerLock` 이 아니다**)만 잡고, 그때 플레이어는
+ * 포드에 묶여 조작이 없다. `HubSystem` 은 그 토큰 하나를 하선 · 포인터 락 게이트에서 무시한다.
  */
 export class ReadyPanel {
   readonly root: HTMLElement;
@@ -147,8 +151,6 @@ export class ReadyPanel {
   private memberKey: string[] = [];
   /** Per-cell gear key so the thumbnails are only rebuilt on a real change. */
   private gearKey: string[] = [];
-  /** Per-cell android-face key (the accent it was drawn with; `''` = no face). */
-  private faceKey: string[] = [];
   /** Seconds the ready key has been held (0 = not holding). */
   private hold = 0;
   /** The current hold already fired — the key must be released before it can fire again. */
@@ -170,9 +172,6 @@ export class ReadyPanel {
       el('span', { cls: 'hr-edge', parent: cell });
       // ── top 55 %: the portrait shows through; only the name / level / state float over it
       const head = el('div', { cls: 'hr-head', parent: cell });
-      // 2026-09-15: 봇 칸의 안드로이드 얼굴 (`player/FaceSnapshot` 의 오프스크린 렌더러 한 장 — 칸마다 캔버스를 만들지 않는다)
-      const face = el('img', { cls: 'hr-face', parent: cell }) as HTMLImageElement;
-      face.alt = ''; face.draggable = false; face.hidden = true;
       const top = el('div', { cls: 'hr-top', parent: head });
       const name = el('span', { cls: 'hr-name', text: '빈 슬롯', parent: top });
       const lv = el('span', { cls: 'hr-lv', text: '', parent: top });
@@ -202,10 +201,9 @@ export class ReadyPanel {
       const holdFill = el('i', { cls: 'hr-hold-fill', parent: hold });
       const holdLabel = el('span', { cls: 'hr-hold-label', text: '', parent: hold });
       cell.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); this.openLoadout(i, cell); });
-      this.cells.push({ root: cell, face, name, lv, state, gear, slots, value, holdRow, holdKey, hold, holdFill, holdLabel });
+      this.cells.push({ root: cell, name, lv, state, gear, slots, value, holdRow, holdKey, hold, holdFill, holdLabel });
       this.memberKey.push('');
       this.gearKey.push('');
-      this.faceKey.push('');
     }
     this.loadout = new CrewLoadoutPanel(ctx);
     // 리바인드하면 키 가이드 · 카드의 키캡이 따라와야 한다 (서명을 비워 다음 `syncGuide` 가 반드시 다시 보낸다)
@@ -220,14 +218,17 @@ export class ReadyPanel {
   get holdProgress(): number { return Math.max(0, Math.min(1, this.hold / Math.max(0.01, UI_HOLD_CONFIRM_S))); }
 
   /**
-   * Push the whole row. `interactive` is `HubSystem`'s "the local player is boarded" — see the class doc for why that
-   * is narrower than `visible`.
+   * Push the whole row. `boarded` is `HubSystem`'s **「내가 지금 발사 슬롯에 앉아 있다」** — `parts/Pods.syncPods` 가
+   * `sys.boardedSlot >= 0 && ctx.phase === 'hub' && !sys.cutscene` 로 계산해 넘긴다. 2026-09-16 사용자 결정으로
+   * 이것이 **보이는 조건이자 조작 조건**이다 (class doc 참고): 예전에는 「누군가 슬롯에 있다」면 떴는데, 안드로이드를
+   * 영입하면 봇 칸이 곧바로 `ready: true` 가 되어 공용 함선을 걸어다니는 내내 패널이 떠 있었다.
    */
-  sync(cells: readonly (ReadyCellInfo | null)[], interactive: boolean): void {
+  sync(cells: readonly (ReadyCellInfo | null)[], boarded: boolean): void {
     this.info = cells.slice(0, HUB_READY_CELLS);
-    const visible = this.info.some((c) => !!c && c.ready);
+    // 앉아 있는데 내 칸이 없는 경우(로비 스냅샷이 아직 나를 모른다)까지 재서, 빈 패널이 뜨는 길을 막는다
+    const visible = boarded && this.info.some((c) => !!c && c.ready);
     this.setVisible(visible);
-    this.setInteractive(visible && interactive);
+    this.setInteractive(visible);
     for (let i = 0; i < this.cells.length; i++) this.paint(i, this.info[i] ?? null);
     if (visible) this.ensurePortraits();
     this.portraits?.setVisible(visible);
@@ -250,8 +251,9 @@ export class ReadyPanel {
    *
    * 예전에는 `슬롯에서 내리기` 가 화면 **중앙 하단**(`ui/HubStatus`)에 있었다. 그 줄은 이제 상태 텍스트 ·
    * 카운트다운만 말하고, 조작 키는 게임의 다른 모든 화면과 같은 자리(`ui/hud/KeyGuide`)로 모였다.
-   * 올리는 조건은 **패널이 `interactive` 일 때** = 내가 실제로 발사 슬롯에 앉아 있을 때뿐이다. `setInteractive` ·
-   * `hide()` · `dispose()` 가 모두 여기를 지나므로(도킹 · 임무 시작 · 함선 허물기 포함) 남는 항목이 없다.
+   * 올리는 조건은 **패널이 `interactive` 일 때** = 내가 실제로 발사 슬롯에 앉아 있을 때뿐이다 (2026-09-16 부터는
+   * 패널이 보이는 조건과 같은 값이다 — `sync` 참고). `setInteractive` · `hide()` · `dispose()` 가 모두 여기를
+   * 지나므로(도킹 · 임무 시작 · 함선 허물기 포함) 남는 항목이 없다.
    */
   private syncGuide(): void {
     const info = this._interactive && !this.launching ? this.localCell() : null;
@@ -296,37 +298,38 @@ export class ReadyPanel {
 
     /*
      * Portrait: only a member in the slot gets a body; the key keeps `setMember` off the hot path.
-     * 2026-09-15: 봇 칸은 3D 몸 **대신** 안드로이드 얼굴 한 장이다 — `createPortraits` 는 사람 몸(방탄복 · 무기)을 그리는
-     * 물건이라 안드로이드 외형 인자가 없다 (리드에게 보고: 칸마다 `android` 플래그가 필요하면 player/ 가 갖는다).
+     * 2026-09-16 (사용자 결정): **봇 칸도 사람과 같은 전신 초상**이다. 몸은 `PortraitRef.setAndroid` 로 안드로이드
+     * 외형이 되고(`SoldierModel.setAndroidLook` — 칸이 기억하므로 몸이 새로 지어져도 유지된다), 방탄복은
+     * `armorIdOf` 가 킷까지 되짚어 준다. 그래서 키에 `bot` 이 들어간다 — 같은 슬롯에서 사람 ↔ 안드로이드가
+     * 바뀌면 방탄복이 같아도 외형을 다시 걸어야 한다.
      */
     const bot = !!info?.bot && filled;
-    const key = filled && info && !bot ? `${info.slot}|${info.armorId ?? ''}` : '';
+    const armorId = filled && info ? this.armorIdOf(info) : null;
+    const key = filled && info ? `${info.slot}|${bot ? 'a' : 'h'}|${armorId ?? ''}` : '';
     if (key !== this.memberKey[i]) {
       this.memberKey[i] = key;
       if (this.portraits) {
         if (key === '') this.portraits.setMember(i, null);
         else if (info) {
-          this.portraits.setMember(i, { slot: info.slot, armorId: info.armorId });
+          this.portraits.setAndroid?.(i, bot);
+          this.portraits.setMember(i, { slot: info.slot, armorId });
           this.portraits.setYaw(i, HUB_READY_PORTRAIT_YAW);
         }
       }
     }
     toggleClass(c.root, 'is-bot', bot);
-    this.paintFace(i, bot ? info : null);
   }
 
-  /** 봇 칸의 안드로이드 얼굴 — 색만 바뀌므로 악센트를 키로 다시 찍지 않는다. */
-  private paintFace(i: number, info: ReadyCellInfo | null): void {
-    const c = this.cells[i];
-    const accent = info ? (NET_SLOT_COLORS_CSS[info.slot % NET_SLOT_COLORS_CSS.length] ?? NET_SLOT_COLORS_CSS[0]) : '';
-    if (accent === this.faceKey[i]) return;
-    this.faceKey[i] = accent;
-    if (!info) { c.face.hidden = true; c.face.removeAttribute('src'); return; }
-    let url: string | null = null;
-    try { url = this.ctx.player?.snapshotAndroidFace?.({ accent }) ?? null; } catch { url = null; }
-    // player/ 가 아직 이 계약을 구현하지 않았거나 두 번째 GL 컨텍스트가 없으면 이름만 남는다
-    if (url) { c.face.src = url; c.face.hidden = false; }
-    else { c.face.removeAttribute('src'); c.face.hidden = true; }
+  /**
+   * 이 칸의 몸이 입을 방탄복 def id. 사람은 크루 카드가 준 `armorId` 그대로다.
+   *
+   * 2026-09-16 (사용자 결정): 안드로이드는 **기본 킷 방탄복**을 입은 채 서 있어야 한다. 소지품(`ctx.allies.getLoadout`)이
+   * 이미 있으면 그쪽의 인스턴스가 진짜고(레이드에서 주워 갈아입었을 수 있다), 아직 없으면 `ANDROID_KIT.armor` 로
+   * 되짚는다 — 로드아웃이 늦게 와도 맨몸으로 그리지 않기 위한 대비다.
+   */
+  private armorIdOf(info: ReadyCellInfo): string | null {
+    if (!info.bot) return info.armorId;
+    return this.androidEquip(info)?.armor?.defId ?? ANDROID_KIT.armor;
   }
 
   /* ── 장비 줄 (2026-09-14) ──────────────────────────────────────────────── */
@@ -392,11 +395,7 @@ export class ReadyPanel {
    * 임플란트는 안드로이드에게 없다 (사용자 결정 — 기본 킷은 주무기 · 방탄복 · 가방 셋뿐이다).
    */
   private androidGearOf(info: ReadyCellInfo): GearView[] {
-    let equip: { primary: ItemInstance | null; armor: ItemInstance | null; bag: ItemInstance | null } | null = null;
-    const allies = this.ctx.allies;
-    if (info.peerId && allies && typeof allies.getLoadout === 'function') {
-      try { equip = allies.getLoadout(info.peerId)?.equip ?? null; } catch { equip = null; }
-    }
+    const equip = this.androidEquip(info);
     const view = (kind: GearKind, inst: ItemInstance | null, defId: string | null): GearView => this.itemView(kind, inst, defId);
     return [
       view('primary', equip?.primary ?? null, equip ? null : ANDROID_KIT.primary),
@@ -405,6 +404,16 @@ export class ReadyPanel {
       view('armor', equip?.armor ?? null, equip ? null : ANDROID_KIT.armor),
       this.blankView('implant'),
     ];
+  }
+
+  /**
+   * 이 안드로이드가 지금 들고 있는 것 (`ctx.allies.getLoadout`) — 초상(방탄복)과 장비 판이 **같은 답**을 쓴다.
+   * 계약이 없는 빌드 · 아직 몸이 없는 순간에는 null 이고, 그때 부르는 쪽이 `ANDROID_KIT` 으로 되짚는다.
+   */
+  private androidEquip(info: ReadyCellInfo): Readonly<AllyEquip> | null {
+    const allies = this.ctx.allies;
+    if (!info.peerId || !allies || typeof allies.getLoadout !== 'function') return null;
+    try { return allies.getLoadout(info.peerId)?.equip ?? null; } catch { return null; }
   }
 
   private blankView(kind: GearKind): GearView {
@@ -554,7 +563,6 @@ export class ReadyPanel {
     for (let i = 0; i < this.cells.length; i++) {
       this.memberKey[i] = '';
       this.gearKey[i] = '';
-      // `faceKey` 는 비우지 않는다 — 바로 아래 `paint(i, null)` 이 그것과 달라야 얼굴을 지운다
       this.portraits?.setMember(i, null);
       this.paint(i, null);
     }
@@ -649,11 +657,14 @@ export class ReadyPanel {
     if (!ref) { toggleClass(this.root, 'no-portraits', true); return; }
     this.portraits = ref;
     toggleClass(this.root, 'no-portraits', false);
-    // the cells were painted before the strip existed — replay what they hold
+    // the cells were painted before the strip existed — replay what they hold (안드로이드 칸 포함, `paint` 와 같은 순서)
     for (let i = 0; i < this.cells.length; i++) {
       const info = this.info[i] ?? null;
-      if (info && info.ready) { ref.setMember(i, { slot: info.slot, armorId: info.armorId }); ref.setYaw(i, HUB_READY_PORTRAIT_YAW); }
-      else ref.setMember(i, null);
+      if (info && info.ready) {
+        ref.setAndroid?.(i, !!info.bot);
+        ref.setMember(i, { slot: info.slot, armorId: this.armorIdOf(info) });
+        ref.setYaw(i, HUB_READY_PORTRAIT_YAW);
+      } else ref.setMember(i, null);
     }
   }
 }

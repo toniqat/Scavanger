@@ -711,8 +711,8 @@ try {
       window.__game.ctx.bus.emit('net:lobbyUpdated', { lobby: net._lobby });
     });
     await waitSim(0.2);
-    // Phase 10: a REMOTE member filling a slot shows the panel but must not steal our mouse look — the blocker and
-    // the software cursor are only taken while WE are boarded.
+    // 2026-09-16 (사용자 결정): 발사 슬롯 패널은 **내가 앉았을 때만** 뜬다 — 예전에는 원격 멤버(또는 들인 안드로이드)가
+    // 슬롯을 채우기만 해도 떴다. 블로커 · 소프트웨어 커서는 예전과 같이 내가 앉았을 때만 잡힌다.
     const remoteReady = await P(() => {
       const root = document.querySelector('.hub-ready');
       const c0 = root?.querySelector('.hr-cell[data-slot="0"]');
@@ -723,8 +723,8 @@ try {
         blocker: window.__game.ctx.uiBlockers.has('ready'), cursor: window.__game.ctx.input.isCursorMode,
       };
     });
-    ok(remoteReady.hidden === false && remoteReady.ready && !remoteReady.local && remoteReady.name === '동료',
-      `a ready squadmate fills their READY cell (${remoteReady.name})`);
+    ok(remoteReady.hidden === true,
+      `a ready squadmate alone does NOT open the panel while we walk the ship (hidden ${remoteReady.hidden})`);
     ok(!remoteReady.interactive && !remoteReady.blocker && remoteReady.cursor === false,
       'the panel stays non-interactive while we walk the ship (no blocker, no cursor)');
     await page.evaluate(() => window.__game.ctx.interactables.all().find((i) => i.id === 'hub_terminal').interact());

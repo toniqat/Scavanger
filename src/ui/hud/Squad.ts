@@ -25,7 +25,7 @@ interface Row {
   root: HTMLElement; name: HTMLElement; badge: HTMLElement; fill: HTMLElement; bleed: HTMLElement; state: HTMLElement; lastKey: string;
   /** 2026-09-15 (안드로이드): 체력 바 위의 얇은 실드 바 — 사람 행에서는 숨는다 (`.has-shield` 가 붙지 않는다). */
   sh: HTMLElement; shFill: HTMLElement;
-  /** 2026-09-12: member id the row shows (`''` = hidden) and its buff thumbnails under the hp bar (never on the local row). */
+  /** 2026-09-12: member id the row shows (`''` = hidden) and its buff thumbnails under the hp bar. */
   id: string;
   strip: BuffStrip;
 }
@@ -44,7 +44,14 @@ const NO_GHOST: Ghost = { bleed: -1, dead: false };
 
 /**
  * Compact squad list (bottom-left `.hud-bl` column, above the local vitals): slot colour bar, name, mission badge, hp bar, state text.
- * Local player first (from `ctx.player`), then lobby members by slot (`ctx.net.getRemotePlayer`).
+ * Lobby members by slot (`ctx.net.getRemotePlayer`), then androids.
+ *
+ * **2026-09-16 (사용자 결정) — 내 행은 그리지 않는다.** 공용 함선에서도 레이드에서도 마찬가지다: 내 체력 · 실드 ·
+ * 버프는 크로스헤어 아래 `Vitals` 가 이미 말하고 있어 한 줄을 더 쓰는 것은 같은 말을 두 번 하는 것이다. 그래서
+ * 이 목록은 **남만** 담고(분대원 + 안드로이드), `.srow.me` · `(나)` 꼬리표 · 「내 행에는 버프 썸네일을 안 붙인다」
+ * 규칙이 전부 사라졌다. 분대원만 남아도 목록은 그대로 뜨고, **한 줄도 없으면 목록 전체가 숨는다**(`finish`) —
+ * 제목만 있는 빈 상자를 남기지 않는다.
+ *
  * Visible while `ctx.isMultiplayer` (mission) or in the shared ship (hub phase with a lobby); refreshed at ≤ 10 Hz
  * and only writes the DOM when a row changed. Hub states: `함선 내` / `탑승 준비` (`LobbyPlayer.ready`);
  * `연결 끊김` (`SUSPENDED_LABEL_KO`, `.off` grey) for `LobbyPlayer.connected === false` / `RemotePlayerRef.suspended`
@@ -59,7 +66,7 @@ const NO_GHOST: Ghost = { bleed: -1, dead: false };
  * (`.bleeding`, `ghostDownHp / PLAYER_DOWN_HP`) on the grey hp bar, `ghostState === 2` reads `사망` (`.suspended.dead`).
  *
  * 2026-09-12 (캐릭터 버프, 사용자 결정): every **squadmate** row carries a mini `BuffStrip` under its hp bar — `ref.buffs`
- * (net's `cbuf state`, a new array on change) drawn as-is; the local row has none (mine sit under the PC hp bar).
+ * (net's `cbuf state`, a new array on change) drawn as-is; mine sit under the PC hp bar (`Vitals`), not here.
  * `net:remoteBuffsChanged` forces the next refresh; the row key carries `ref.buffsRevision`, and the strip itself compares
  * the list by reference, so a 10 Hz refresh never rebuilds a thumbnail.
  *
@@ -132,26 +139,21 @@ export class Squad {
      * 안드로이드 행만으로 그린다 (아래 사람 행 구간은 통째로 `net` 을 요구한다). */
     const roster = allyRoster(ctx);
     const mp = (!!net && (ctx.isMultiplayer || !!this.debugLobby || (hub && !!lobby))) || roster.length > 0;
-    if (mp !== this.shown) { this.shown = mp; setVisible(this.root, mp); if (!mp) this.reset(); }
-    if (!mp) return;
+    /* 2026-09-16: 여기는 「목록을 그릴 자리인가」까지만 본다. 실제로 **보이고 숨는 것은 채운 행 수**가 정한다
+     * (`finish`) — 분대에 나밖에 없으면 행이 0 줄이고, 그때 빈 상자가 남으면 안 된다. */
+    if (!mp) {
+      if (this.shown) { this.shown = false; setVisible(this.root, false); }
+      this.reset();          // 이미 비어 있으면 `hideRow` 가 줄마다 즉시 돌아온다 (할당 없음)
+      return;
+    }
     this.acc += dt;
     if (this.acc < REFRESH) return;
     this.acc = 0;
 
     let i = 0;
-    if (!net) { i = this.fillAndroidRows(ctx, roster, i); for (; i < this.rows.length; i++) this.hideRow(this.rows[i]); return; }
+    if (!net) { i = this.fillAndroidRows(ctx, roster, i); this.finish(i); return; }
     // 2026-09-15: an undocked squad (docked absent = true, as on the wire) — every member is still in their own personal ship
     const personal = hub && !!lobby && !isDockedLobby(lobby);
-    // local player first
-    const p = ctx.player;
-    const localLp = net.localId ? this.bySlotOrId(lobby?.players, net.localId) : undefined;
-    const localState = !net.connected ? SUSPENDED_LABEL_KO
-      : personal ? SQUAD_PERSONAL_SHIP_KO
-      : hub ? (localLp?.ready ? '탑승 준비' : '함선 내')
-      : p?.isDead ? '전사' : p?.isDropping ? '강하 중' : '';
-    // Without a lobby entry for us (offline / debug lobby) our own membership is simply "are we in a mission phase".
-    const localBadge = lobby ? this.badgeOf(lobby, localLp, ctx.isGameplayPhase() || ctx.phase === 'deploying') : '';
-    this.fillRow(this.rows[i++], net.localSlot, net.playerName, hub ? 1 : p ? p.hp / Math.max(1, p.maxHp) : 1, localState, localBadge, true, NO_GHOST, { id: net.localId ?? 'local' });
 
     // squad members by slot (lobby list is the source of truth; the RemotePlayerRef may lag by a snapshot)
     const players = lobby?.players;
@@ -170,7 +172,7 @@ export class Squad {
           : personal ? SQUAD_PERSONAL_SHIP_KO
           : hub ? (lp.ready ? '탑승 준비' : '함선 내') : this.remoteState(ref, net.connected || isDebug);
         const hp = hub ? 1 : ref ? ref.hp / Math.max(1, ref.maxHp) : 0;
-        this.fillRow(this.rows[i++], slot, lp.name, hp, state, lobby ? this.badgeOf(lobby, lp, ref?.inMission) : '', false, ghost,
+        this.fillRow(this.rows[i++], slot, lp.name, hp, state, lobby ? this.badgeOf(lobby, lp, ref?.inMission) : '', ghost,
           { id: lp.id, buffs: ref?.buffs ?? null, rev: ref?.buffsRevision ?? 0 });
       }
     } else {
@@ -179,12 +181,22 @@ export class Squad {
         if (i >= this.rows.length) break;
         const ghost = ref.suspended ? this.ghostOf(ref) : NO_GHOST;
         const state = ref.suspended ? (ghost.dead ? GHOST_DEAD_LABEL_KO : SUSPENDED_LABEL_KO) : this.remoteState(ref, net.connected);
-        this.fillRow(this.rows[i++], ref.slot, ref.name, ref.hp / Math.max(1, ref.maxHp), state, '', false, ghost,
+        this.fillRow(this.rows[i++], ref.slot, ref.name, ref.hp / Math.max(1, ref.maxHp), state, '', ghost,
           { id: ref.id, buffs: ref.buffs ?? null, rev: ref.buffsRevision ?? 0 });
       }
     }
     i = this.fillAndroidRows(ctx, roster, i);
-    for (; i < this.rows.length; i++) this.hideRow(this.rows[i]);
+    this.finish(i);
+  }
+
+  /**
+   * 2026-09-16 (사용자 결정): 채운 행이 `n` 줄이다 — 나머지를 감추고, **한 줄도 없으면 목록 자체를 감춘다**.
+   * 내 행이 사라진 뒤로 「분대원이 아무도 없는 공용 함선」이 흔해졌는데, 그때 제목(`분대`)만 뜬 빈 상자가 남으면 안 된다.
+   */
+  private finish(n: number): void {
+    for (let i = n; i < this.rows.length; i++) this.hideRow(this.rows[i]);
+    const on = n > 0;
+    if (on !== this.shown) { this.shown = on; setVisible(this.root, on); }
   }
 
   /**
@@ -202,7 +214,7 @@ export class Squad {
       const state = body?.dead ? ANDROID_DEAD_KO : body?.downed ? ANDROID_DOWNED_KO : '';
       // 쓰러졌으면 사람 행의 호스트 유령과 같은 붉은 출혈 바를 쓴다 (출혈 풀 = `ALLY_DOWN_HP`).
       const ghost: Ghost = body?.downed ? { bleed: Math.min(1, Math.max(0, body.downHp / Math.max(1, ALLY_DOWN_HP))), dead: false } : NO_GHOST;
-      this.fillRow(this.rows[i++], entry.slot, entry.name, hp, state, ANDROID_BADGE_KO, false, ghost,
+      this.fillRow(this.rows[i++], entry.slot, entry.name, hp, state, ANDROID_BADGE_KO, ghost,
         { id: entry.id, shield, android: true });
     }
     return i;
@@ -210,12 +222,6 @@ export class Squad {
 
   private bySlot(players: readonly LobbyPlayer[], slot: number): LobbyPlayer | undefined {
     for (let k = 0; k < players.length; k++) if (players[k].slot === slot) return players[k];
-    return undefined;
-  }
-
-  private bySlotOrId(players: readonly LobbyPlayer[] | undefined, id: string): LobbyPlayer | undefined {
-    if (!players) return undefined;
-    for (let k = 0; k < players.length; k++) if (players[k].id === id) return players[k];
     return undefined;
   }
 
@@ -244,21 +250,22 @@ export class Squad {
     return '';
   }
 
-  private fillRow(row: Row, slot: number, name: string, hp01: number, state: string, badge: SquadBadge, me: boolean, ghost: Ghost = NO_GHOST, extra: RowExtra = {}): void {
+  /** 2026-09-16: `me` 인자는 사라졌다 — 이 목록에 내 행은 없다 (`update` 의 머리 주석). 모든 행이 남(분대원 · 안드로이드)이다. */
+  private fillRow(row: Row, slot: number, name: string, hp01: number, state: string, badge: SquadBadge, ghost: Ghost = NO_GHOST, extra: RowExtra = {}): void {
     const hp = Math.min(1, Math.max(0, hp01));
     const bleeding = ghost.bleed >= 0;
     row.id = extra.id ?? '';
     // Reference-compared inside the strip (no-op for the same array); the 1 s gauge tick is gated in there too.
-    row.strip.set(me ? null : (extra.buffs ?? null), this.ctx);
+    row.strip.set(extra.buffs ?? null, this.ctx);
     row.strip.update(this.ctx);
     const android = extra.android === true;
     const shield = Math.min(1, Math.max(0, extra.shield ?? 0));
-    const key = `${slot}|${name}|${hp.toFixed(2)}|${state}|${badge}|${me ? 1 : 0}|${bleeding ? ghost.bleed.toFixed(2) : '-'}|${me ? 0 : extra.rev ?? 0}|${android ? shield.toFixed(2) : '-'}`;
+    const key = `${slot}|${name}|${hp.toFixed(2)}|${state}|${badge}|${bleeding ? ghost.bleed.toFixed(2) : '-'}|${extra.rev ?? 0}|${android ? shield.toFixed(2) : '-'}`;
     if (key === row.lastKey) return;
     row.lastKey = key;
     row.root.hidden = false;
     row.root.style.setProperty('--sc', NET_SLOT_COLORS_CSS[slot] ?? '#fff');
-    setText(row.name, me ? `${name} (나)` : name);
+    setText(row.name, name);
     setText(row.state, state);
     setText(row.badge, badge);
     row.badge.hidden = !badge;
@@ -270,7 +277,6 @@ export class Squad {
     toggleClass(row.root, 'android', android);
     toggleClass(row.root, 'has-shield', android && shield > 0);
     row.shFill.style.transform = `scaleX(${shield.toFixed(3)})`;
-    toggleClass(row.root, 'me', me);
     toggleClass(row.root, 'dead', state === '전사' || state === ANDROID_DEAD_KO || ghost.dead);
     toggleClass(row.root, 'off', state === SUSPENDED_LABEL_KO || state === '연결 중' || ghost.dead);
     toggleClass(row.root, 'suspended', state === SUSPENDED_LABEL_KO || ghost.dead);
