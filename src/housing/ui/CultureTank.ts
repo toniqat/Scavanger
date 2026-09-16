@@ -1,5 +1,5 @@
-import type { CultureSlotInfo, EmbeddedView, GameContext, HarvestDestination, ItemDef, ItemInstance } from '@/shared';
-import { cultureSlotsForLevel } from '@/shared';
+import type { CultureSlotInfo, EmbeddedView, GameContext, HarvestDestination, HoldAskHandle, ItemDef, ItemInstance, PlacedFurniture } from '@/shared';
+import { cultureSlotsForLevel, openHoldAsk } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
 import { furnitureMaxLevel, nextFurnitureCost } from '../Rules';
 import { HousingPanel } from './Panel';
@@ -41,9 +41,22 @@ interface TankCard {
   time: HTMLElement;
   prog: HTMLElement;
   fill: HTMLElement;
+  /** 2026-09-17: 관 아래 「배양 시작」 버튼 — 배지 + 세포주가 든 시작 전 칸에서만 눌린다 (→ 1초 홀드 확인). */
+  start: HTMLButtonElement;
   /** Medium id painted last time (`''` = none, `null` = never painted) — a null → medium change plays the rising fluid. */
   medium: string | null;
 }
+
+/** 2026-09-17: 좌측 배양조 목록 한 줄 (`.hs-rail-item`) — 이름 + 관마다 점 하나 + 레드닷 (재배 스테이션 목록과 같은 결). */
+interface TankRailItem {
+  uid: string;
+  el: HTMLElement;
+  dots: HTMLElement[];
+  red: HTMLElement;
+}
+
+/** 스모크 · CSS 가 배양 시작 확인 팝업을 찾는 표식 (`.sh-ask[data-ask]`). */
+export const CULTURE_START_ASK_ID = 'cult-start';
 
 /**
  * **배양 화면** (배양조 A-14, 2026-09-11 · 화면 개편 2026-09-12 · 배양관 2026-09-13 — `openCultureTank(uid)` ← E on a 배양조).
@@ -63,6 +76,11 @@ interface TankCard {
  * `insertStrain` · 배지 소켓은 재배 화면과 같은 흐름(가득이면 고르기 → 1초 홀드, `SocketAsk`). 우클릭에 세포주가 없을 때
  * 「스캐폴드 빼기」(`takeScaffold`), 소켓이 있는 칸의 「배지 비우기」는 1초 홀드 경고를 거친다. 호버 카드 = 배지 · 내구도 ·
  * 배양 속도(비율 반영) · 소켓 · 스캐폴드 · 세포주 · 남은 시간 · 산출물(스캐폴드면 종별 고기 — housing 이 `yieldDefId` 에 반영한다).
+ *
+ * **2026-09-17 (사용자 결정)**: ① 세포주를 넣어도 배양은 시작되지 않는다 — 관 아래 **「배양 시작」** 버튼이 공용 `openHoldAsk` 로
+ * 「배양을 시작하겠습니까?」를 묻고(확정 = `UI_HOLD_CONFIRM_S` 홀드, Enter 는 확정하지 않는다, Escape = 취소, 최초 포커스 = 취소),
+ * 확정해야 `startCulture` 가 타이머를 건다. 시작 전에는 우클릭으로 세포주 · 스캐폴드 · 새 배지를 되돌려받는다. ② 함선에 배양조가 여러 대일
+ * 수 있어 **맨 왼쪽 레일**이 배양조 목록이다 (재배 스테이션 목록과 같은 `.hs-rail-item` — 이름 + 관마다 점 + 레드닷).
  */
 export class CultureTank extends HousingPanel {
   private uid = '';
@@ -76,6 +94,12 @@ export class CultureTank extends HousingPanel {
   private grids: StationGridsView | null = null;
   private cards: TankCard[] = [];
   private builtKey = '';
+  private railItems: TankRailItem[] = [];
+  private railKey = '';
+  /** 떠 있는 「배양을 시작하겠습니까?」 (한 번에 하나). 화면이 닫히거나 배양조를 바꾸면 아무것도 부르지 않고 닫는다. */
+  private startAsk: HoldAskHandle | null = null;
+  /** 스모크: 떠 있는 시작 확인을 홀드 없이 확정한다. */
+  startAskConfirm: (() => void) | null = null;
   private hoverSlot: number | null = null;
   private timer = 0;
   /** Smoke / perf counters. `fills` = rising-fluid animations started. */
@@ -91,6 +115,7 @@ export class CultureTank extends HousingPanel {
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });
     this.slotsEl = el('div', { cls: 'cult-slots', parent: this.shell.left });
+    this.shell.rail.addEventListener('click', (e) => this.onRailClick(e));
 
     this.mountMsg();
     const foot = el('div', { cls: 'hs-foot', parent: this.frame });
@@ -133,6 +158,7 @@ export class CultureTank extends HousingPanel {
   }
 
   override close(relock = true): void {
+    this.closeStartAsk();
     this.stopTicking();
     this.hideTip();
     this.drag.end();
@@ -166,7 +192,7 @@ export class CultureTank extends HousingPanel {
       done = `${def.name}을(를) 배양관 ${slot + 1}에 부었습니다`;
     } else if (def.strain) {
       reason = this.housing.insertStrain(this.uid, slot, item.defId);
-      done = `${def.name} 배양을 시작했습니다`;
+      done = `${def.name}을(를) 배양관 ${slot + 1}에 넣었습니다 — 「배양 시작」을 누르면 배양이 시작됩니다`;
     } else if (def.scaffold) {
       reason = this.housing.insertScaffold(this.uid, slot, item.defId);
       done = `${def.name}을(를) 배양관 ${slot + 1}에 넣었습니다 — 이제 세포주를 넣으세요`;
@@ -242,6 +268,80 @@ export class CultureTank extends HousingPanel {
     const reason = this.housing.clearMedium(this.uid, slot, discardStrain);
     if (reason) { this.deny(reason); return; }
     this.showMsg(discardStrain ? '세포주를 버리고 배지를 비웠습니다' : '배지를 비웠습니다 (배지 · 소켓은 돌려받지 않습니다)', 'info');
+  }
+
+  /* ── 배양 시작 (2026-09-17) ────────────────────────────────────────────── */
+  /** 이 칸을 지금 시작할 수 없는 사유 (버튼 `title`), null = 시작할 수 있다. 판정의 원본은 `startCulture` — 이것은 화면용이다. */
+  private startBlock(info: CultureSlotInfo): string | null {
+    if (info.locked) return `배양조를 Lv.${info.unlockLevel} 로 강화해야 열립니다`;
+    if (!info.mediumDefId) return '영양 배지를 먼저 채우세요';
+    if (!info.strainDefId) return '세포주를 넣으면 배양을 시작할 수 있습니다';
+    if (info.started) return info.ready ? '수확할 수 있습니다' : '배양 중입니다';
+    return null;
+  }
+
+  /** 「배양 시작」 → 「배양을 시작하겠습니까?」 (1초 홀드 확인). 확정해야 `startCulture` 를 부른다. */
+  private askStart(slot: number): void {
+    const info = this.infoOf(slot);
+    if (!info) return;
+    const block = this.startBlock(info);
+    if (block) { this.deny(block); return; }
+    this.hideTip();
+    this.closeStartAsk();
+    const h = this.housing;
+    const lines = [`배지: ${h.nameOf(info.mediumDefId!)}`];
+    if (info.scaffoldDefId) lines.push(`스캐폴드: ${h.nameOf(info.scaffoldDefId)}`);
+    lines.push(`세포주: ${h.nameOf(info.strainDefId!)}`);
+    const uid = this.uid;
+    const run = (): void => {
+      this.startAsk = null;
+      this.startAskConfirm = null;
+      if (!this.isOpen || this.uid !== uid) return;
+      const reason = h.startCulture(uid, slot);
+      if (reason) { this.deny(reason); return; }
+      this.showMsg(`배양관 ${slot + 1} 배양을 시작했습니다`, 'success');
+    };
+    const clear = (): void => { this.startAsk = null; this.startAskConfirm = null; };
+    const handle = openHoldAsk(this.ctx, {
+      id: CULTURE_START_ASK_ID,
+      title: '배양을 시작하겠습니까?',
+      body: [
+        `배양관 ${slot + 1}`,
+        ...lines,
+        '',
+        '배양을 시작하면 넣은 영양 배지 · 세포주 · 스캐폴드는 다시 꺼낼 수 없습니다.',
+      ].join('\n'),
+      danger: true,
+      buttons: [
+        { label: '취소', cancel: true, run: clear },
+        { label: '배양 시작', kind: 'danger', hold: true, run },
+      ],
+      onCancel: clear,
+    });
+    this.startAsk = handle;
+    this.startAskConfirm = () => { if (!handle.isOpen) return; handle.close(); run(); };
+  }
+
+  /** 떠 있는 시작 확인을 **아무것도 부르지 않고** 닫는다 (화면이 닫힐 때 · 배양조를 바꿀 때). */
+  private closeStartAsk(): void {
+    const a = this.startAsk;
+    this.startAsk = null;
+    this.startAskConfirm = null;
+    if (a?.isOpen) a.close();
+  }
+
+  private takeStrain(slot: number): void {
+    const id = this.infoOf(slot)?.strainDefId ?? null;
+    const reason = this.housing.takeStrain(this.uid, slot, 'bag-first');
+    if (reason) { this.deny(reason); return; }
+    this.showMsg(`${id ? this.housing.nameOf(id) : '세포주'}을(를) 돌려받았습니다`, 'info');
+  }
+
+  private takeMedium(slot: number): void {
+    const id = this.infoOf(slot)?.mediumDefId ?? null;
+    const reason = this.housing.takeMedium(this.uid, slot, 'bag-first');
+    if (reason) { this.deny(reason); return; }
+    this.showMsg(`${id ? this.housing.nameOf(id) : '영양 배지'}을(를) 돌려받았습니다`, 'info');
   }
 
   private takeScaffold(slot: number): void {
@@ -324,7 +424,9 @@ export class CultureTank extends HousingPanel {
     if (!info || info.locked) return null;
     const h = this.housing;
     const hasMedium = !!info.mediumDefId;
-    const running = !!info.strainDefId;
+    const hasStrain = !!info.strainDefId;
+    const running = hasStrain && info.started !== false;
+    const pending = hasStrain && !running;
     const scaffold = info.scaffoldDefId ?? null;
     const mediumDef = hasMedium ? h.defOf(info.mediumDefId!) : undefined;
     const ratio = mediumRatio(info);
@@ -337,18 +439,20 @@ export class CultureTank extends HousingPanel {
       rows.push(...socketTipRows((id) => h.defOf(id), (id) => h.nameOf(id), 'medium', info.sockets, info.socketSlots, ratio));
       rows.push({ k: '스캐폴드', v: scaffold ? `${h.nameOf(scaffold)} · 수확할 때 소모` : '없음' });
     }
-    if (running) {
+    if (hasStrain) {
       rows.push({ k: '세포주', v: h.nameOf(info.strainDefId!) });
-      rows.push({ k: '남은 시간', v: info.ready ? '수확 가능' : clockText(info.remainingS), tone: info.ready ? 'good' : undefined });
+      rows.push({ k: '남은 시간', v: pending ? '시작 전' : info.ready ? '수확 가능' : clockText(info.remainingS), tone: info.ready ? 'good' : undefined });
       if (info.yieldDefId) rows.push({ k: '산출물', v: `${h.nameOf(info.yieldDefId)} ×${info.yieldQty}`, tone: scaffold ? 'good' : undefined });
     }
     const foot: string[] = [];
     if (info.ready) foot.push('더블클릭 · 끌어다 놓기: 수확');
-    if (hasMedium && scaffold && !running) foot.push('우클릭: 스캐폴드 빼기 · 배지 비우기');
-    else if (hasMedium) foot.push('우클릭: 배지 비우기');
+    if (pending) foot.push('「배양 시작」: 배양 시작 · 우클릭: 꺼내기');
+    else if (hasMedium && scaffold && !running) foot.push('우클릭: 스캐폴드 빼기 · 배지 비우기');
+    else if (hasMedium) foot.push(info.mediumReturnable ? '우클릭: 배지 빼기' : '우클릭: 배지 비우기');
     return {
-      name: running ? h.nameOf(info.strainDefId!) : mediumDef?.name ?? '빈 배양관',
+      name: hasStrain ? h.nameOf(info.strainDefId!) : mediumDef?.name ?? '빈 배양관',
       sub: info.ready ? '수확 가능'
+        : pending ? '시작 대기 — 「배양 시작」을 누르세요'
         : running ? (scaffold ? '스캐폴드 배양 중' : '배양 중')
           : !hasMedium ? '영양 배지를 부을 수 있습니다'
             : scaffold ? '세포주를 넣으면 종별 고기를 만듭니다'
@@ -367,11 +471,18 @@ export class CultureTank extends HousingPanel {
     const info = this.infoOf(slot);
     if (!info || info.locked || !info.mediumDefId) return;
     this.hideTip();
-    const running = !!info.strainDefId;
+    const running = !!info.strainDefId && info.started !== false;
+    const pending = !!info.strainDefId && !running;
     const socketCount = info.sockets?.length ?? 0;
     const items: StationMenuItem[] = [];
-    // 세포주가 들어가기 전의 스캐폴드만 되돌려받는다 (계약 `takeScaffold`)
+    // 2026-09-17: 시작 전이면 넣은 것을 되돌려받는다 — 세포주 → 스캐폴드 순 (넣은 반대 순서), 한 번도 쓰지 않은 배지는 칸째
+    if (pending) items.push({ label: '세포주 빼기', run: () => this.takeStrain(slot) });
     if (!running && info.scaffoldDefId) items.push({ label: '스캐폴드 빼기', run: () => this.takeScaffold(slot) });
+    if (info.mediumReturnable) {
+      items.push({ label: '배지 빼기', run: () => this.takeMedium(slot) });
+      this.menu.show(e.clientX, e.clientY, items);
+      return;
+    }
     const label = running ? '세포주 버리고 배지 비우기' : '배지 비우기';
     items.push({
       label,
@@ -393,6 +504,9 @@ export class CultureTank extends HousingPanel {
   /* ── state → DOM ───────────────────────────────────────────────────────── */
   refresh(): void {
     const h = this.housing;
+    const list = this.tanks();
+    const railKey = list.map((p) => p.uid).join(',');
+    if (railKey !== this.railKey) { this.railKey = railKey; this.buildRail(list); }
     const tank = h.getPlacedByUid(this.uid);
     const def = tank ? h.getFurnitureDef(tank.defId) : undefined;
     setText(this.shell.title, def?.name ?? '배양조');
@@ -454,20 +568,29 @@ export class CultureTank extends HousingPanel {
     const time = el('div', { cls: 'cult-time hs-clock', text: '', parent: body });
     const prog = el('div', { cls: 'cult-prog', parent: body });
     const fill = el('i', { parent: prog });
-    return { slot: info.slot, wrap, cell, fluid, scaffold, socks, glyph, name, time, prog, fill, medium: null };
+    // 2026-09-17: 배양 시작 — 늘 자리를 차지하고(관 아래 줄 높이가 흔들리지 않게) 시작할 수 있을 때만 눌린다
+    const slot = info.slot;
+    const start = this.button(body, '배양 시작', () => this.askStart(slot), 'cult-start');
+    start.type = 'button';
+    return { slot: info.slot, wrap, cell, fluid, scaffold, socks, glyph, name, time, prog, fill, start, medium: null };
   }
 
   /** Cheap repaint: fluid level / colour, scaffold, socket dots, glyph, name, clock and progress only. */
   private paint(infos: readonly CultureSlotInfo[] = this.housing.getCultureSlots(this.uid)): void {
     this.debug.paints++;
+    this.paintRail();
     const bySlot = new Map<number, CultureSlotInfo>();
     for (const i of infos) bySlot.set(i.slot, i);
     for (const card of this.cards) {
       const info = bySlot.get(card.slot);
       if (!info) continue;
       const hasMedium = !!info.mediumDefId;
-      const running = !!info.strainDefId;
+      const hasStrain = !!info.strainDefId;
+      // 2026-09-17: 세포주가 있어도 시작 전이면 배양 중이 아니다 (`is-pending` — 세포는 떠 있지만 움직이지 않고 진행바도 비어 있다)
+      const running = hasStrain && info.started !== false;
       toggleClass(card.wrap, 'has-medium', hasMedium);
+      toggleClass(card.wrap, 'has-strain', hasStrain);
+      toggleClass(card.wrap, 'is-pending', hasStrain && !running);
       toggleClass(card.wrap, 'is-running', running);
       toggleClass(card.wrap, 'is-ready', info.ready);
       toggleClass(card.wrap, 'has-scaffold', hasMedium && !!info.scaffoldDefId);
@@ -498,12 +621,17 @@ export class CultureTank extends HousingPanel {
       }
       paintSocketDots(card.socks, hasMedium ? info.socketSlots : 0, info.sockets?.length ?? 0);
 
-      const strainDef = running ? this.housing.defOf(info.strainDefId!) : undefined;
-      // 떠 있는 세포는 CSS 가 그린다 (`.cult-glyph`, 배양 중일 때만) — 색은 배양 산물 아이템의 색
-      const organism = running && info.yieldDefId ? this.housing.defOf(info.yieldDefId)?.color || '' : '';
+      const strainDef = hasStrain ? this.housing.defOf(info.strainDefId!) : undefined;
+      // 떠 있는 세포는 CSS 가 그린다 (`.cult-glyph`, 세포주가 들었을 때 — 배양 중에만 아주 천천히 흔들린다) — 색은 배양 산물 아이템의 색
+      const organism = hasStrain && info.yieldDefId ? this.housing.defOf(info.yieldDefId)?.color || '' : '';
       if (card.glyph.dataset.c !== organism) { card.glyph.dataset.c = organism; if (organism) card.glyph.style.setProperty('--oc', organism); else card.glyph.style.removeProperty('--oc'); }
-      setText(card.name, running ? (strainDef?.name ?? '세포주') : mediumDef?.name ?? '빈 배양관');
-      if (running) {
+      setText(card.name, hasStrain ? (strainDef?.name ?? '세포주') : mediumDef?.name ?? '빈 배양관');
+      const startBlock = this.startBlock(info);
+      card.start.disabled = startBlock !== null;
+      if (card.start.title !== (startBlock ?? '')) card.start.title = startBlock ?? '';
+      if (hasStrain && !running) {
+        renderClockText(card.time, '시작 대기');
+      } else if (running) {
         if (info.ready) renderClockText(card.time, '수확 가능');
         else renderClock(card.time, info.remainingS);
       } else {
@@ -521,7 +649,62 @@ export class CultureTank extends HousingPanel {
     }
   }
 
+  /* ── 좌측 배양조 목록 (`StationShell.rail`, 2026-09-17) ───────────────────── */
+  /** 함선에 배치된 배양조 전부 — `interaction` 으로 고른다 (defId 를 코드에 적지 않는다). */
+  private tanks(): readonly PlacedFurniture[] {
+    return this.housing.getPlaced().filter((p) => this.housing.getFurnitureDef(p.defId)?.interaction === 'culture_tank');
+  }
+
+  /** 목록은 배양조 구성이 바뀔 때만 짓는다. 한 대뿐이어도 숨기지 않는다 (재배 스테이션 목록과 같은 이유 — 레드닷 · 좌측 정렬). */
+  private buildRail(list: readonly PlacedFurniture[]): void {
+    const rail = this.shell.rail;
+    clear(rail);
+    this.railItems = [];
+    rail.hidden = list.length === 0;
+    list.forEach((p, i) => {
+      const btn = el('button', { cls: 'hs-rail-item cult-rail-item', attrs: { 'data-uid': p.uid }, parent: rail });
+      btn.type = 'button';
+      const red = el('i', { cls: 'hs-rail-red', parent: btn });
+      const name = this.housing.getFurnitureDef(p.defId)?.name ?? '배양조';
+      el('span', { cls: 'hs-rail-name', text: `${name} ${i + 1}`, parent: btn });
+      const dotsEl = el('span', { cls: 'hs-rail-dots cult-rail-dots', parent: btn });
+      const dots = this.housing.getCultureSlots(p.uid).map(() => el('i', { parent: dotsEl }));
+      this.railItems.push({ uid: p.uid, el: btn, dots, red });
+    });
+  }
+
+  /** 점 색 · 레드닷 · 선택 표시만 다시 칠한다 (1초 틱과 같은 자리). 회색 = 배양 중 · 초록 = 수확 가능 · 까망 = 그 밖. */
+  private paintRail(): void {
+    for (const it of this.railItems) {
+      toggleClass(it.el, 'is-active', it.uid === this.uid);
+      const slots = this.housing.getCultureSlots(it.uid);
+      let ready = 0;
+      for (let i = 0; i < it.dots.length; i++) {
+        const s = slots[i];
+        const alive = !!s && !s.locked && !!s.strainDefId && s.started !== false;
+        toggleClass(it.dots[i], 'growing', alive && !s!.ready);
+        toggleClass(it.dots[i], 'ready', alive && !!s!.ready);
+        if (alive && s!.ready) ready++;
+      }
+      toggleClass(it.red, 'on', ready > 0);
+    }
+  }
+
+  private onRailClick(e: MouseEvent): void {
+    const uid = (e.target as Element | null)?.closest<HTMLElement>('.hs-rail-item')?.dataset.uid;
+    if (!uid || uid === this.uid) return;
+    e.stopPropagation();
+    this.ctx.bus.emit('audio:play', { id: 'ui_click' });
+    this.closeStartAsk();
+    this.hideTip();
+    this.drag.end();
+    this.sockAsk.close();
+    this.uid = uid;                       // `builtKey` 가 uid 를 담고 있어 `refresh()` 가 관을 다시 짓는다
+    this.refresh();
+  }
+
   override dispose(): void {
+    this.closeStartAsk();
     this.stopTicking();
     this.drag.dispose();
     this.modal.dispose();

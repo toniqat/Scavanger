@@ -202,20 +202,22 @@ try {
   // 2026-09-13: 시술대 · 컴퓨터가 조종석 전용(cockpit)이 되고 서랍장(any)이 들어와 any 10 → 9 — 조종석은 9 any + 2 전용 = 11
   // 2026-09-15 3차 (사용자 결정 — 쇼파가 서재 전용): `any` 가 12 → **11** 이라 그 11 을 받는 방이 전부 하나씩 줄었다
   // (서재만 10 + 11 = 21 로 하나 늘었다). 숫자의 원본은 `data/furniture.csv` 의 `room` 열 하나다.
-  const FURN_ANY = 11;
+  // 2026-09-17 (사용자 결정 — 쇼파가 다시 어느 방에든): any 11 → **12**, 서재 전용 10 → 9 (서재 합계 21 은 그대로)
+  const FURN_ANY = 12;
   const furnCounts = await H(() => {
     const h = window.__game.ctx.housing;
     const n = (p) => h.getFurnitureFor(p).length;
     return { workshop: n('workshop'), empty: n('empty'), greenhouse: n('greenhouse'), kitchen: n('kitchen'), cockpit: n('cockpit'), library: n('library') };
   });
   ok(furnCounts.empty === FURN_ANY && furnCounts.workshop === FURN_ANY + 5 && furnCounts.greenhouse === FURN_ANY + 2
-    && furnCounts.kitchen === FURN_ANY + 6 && furnCounts.cockpit === FURN_ANY + 2 && furnCounts.library === FURN_ANY + 10,
-  `getFurnitureFor: any ${FURN_ANY} · workshop +5 벤치 · greenhouse +2 · kitchen +6 · cockpit +2 전용 · library +10 (2026-09-15 쇼파가 서재로) (${JSON.stringify(furnCounts)})`);
+    && furnCounts.kitchen === FURN_ANY + 6 && furnCounts.cockpit === FURN_ANY + 2 && furnCounts.library === FURN_ANY + 9,
+  `getFurnitureFor: any ${FURN_ANY} · workshop +5 벤치 · greenhouse +2 · kitchen +6 · cockpit +2 전용 · library +9 (2026-09-17 쇼파가 any 로) (${JSON.stringify(furnCounts)})`);
   /* 아래 화면 검사들은 이 수를 **그때그때 물어서** 쓴다 — 작업대가 하나 늘 때마다 세 자리를 손으로 고치던 것이
      2026-09-10 정제 작업대에서 실제로 red 를 냈다. 위 한 줄만 카나리아로 남긴다. */
   const workshopFurniture = await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').length);
   // 2026-09-12: 가구 제작 목록은 시설 가구 / 꾸밈용 가구 하위 탭으로 갈린다 — 기본 탭(시설 가구)에 보이는 카드 수
-  const workshopUtility = await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').filter((d) => d.interaction !== 'none').length);
+  // 2026-09-17: 좌석(`seat` — 의자 · 쇼파)은 꾸밈용 가구다 (`shared/housing.isUtilityFurniture`)
+  const workshopUtility = await H(() => window.__game.ctx.housing.getFurnitureFor('workshop').filter((d) => d.interaction !== 'none' && d.interaction !== 'seat').length);
   ok(await H(() => window.__game.ctx.housing.getPresetCount() === 0 && window.__game.ctx.housing.getCraftCostMul() === 1 && window.__game.ctx.housing.getSkillGainMul('gun_AR') === 1), 'no rooms: 0 presets, cost ×1, skill ×1');
   // `housing:loaded` fired inside init() before the recorder existed; the saved file proves the fresh state was written
   await sleep(500);
@@ -863,7 +865,7 @@ try {
     const h = window.__game.ctx.housing;
     const kind = root.querySelector('.sm-subtab.is-on')?.dataset.kind ?? 'utility';
     const stored = new Set(h.getStored().map((s) => s.defId)
-      .filter((id) => ((h.getFurnitureDef(id)?.interaction ?? 'none') !== 'none') === (kind === 'utility')));
+      .filter((id) => !['none', 'seat'].includes(h.getFurnitureDef(id)?.interaction ?? 'none') === (kind === 'utility')));   // 2026-09-17: 좌석은 꾸밈용
     return {
       cardsHidden: root.querySelector('.sm-cards').hidden, storeHidden: root.querySelector('.sm-store').hidden,
       rows: root.querySelectorAll('.sm-store .fcard').length, stored: stored.size,
@@ -1541,7 +1543,7 @@ try {
     return {
       hidden: root.querySelector('.sm-subtabs').hidden,
       labels: [...root.querySelectorAll('.sm-subtabs .sm-subtab')].map((b) => `${b.textContent}${b.classList.contains('is-on') ? '*' : ''}`).join(' '),
-      allUtility: cards.every((c) => h.getFurnitureDef(c.dataset.defId).interaction !== 'none'),
+      allUtility: cards.every((c) => !['none', 'seat'].includes(h.getFurnitureDef(c.dataset.defId).interaction)),
       ownCounts: root.querySelectorAll('.sm-cards .fcard .fcard-own').length,
       benchBtn: bench?.querySelector('.fcard-craft')?.textContent ?? null, benchDisabled: bench?.querySelector('.fcard-craft')?.disabled ?? null,
       benchNote: bench?.querySelector('.fcard-note')?.textContent ?? '',
@@ -1557,11 +1559,13 @@ try {
     const root = document.querySelector('.ship-manage');
     const h = window.__game.ctx.housing;
     const cards = [...root.querySelectorAll('.sm-cards .fcard')];
-    return { n: cards.length, want: h.getFurnitureFor('workshop').filter((d) => d.interaction === 'none').length,
-      allDecor: cards.every((c) => h.getFurnitureDef(c.dataset.defId).interaction === 'none'),
+    return { n: cards.length, want: h.getFurnitureFor('workshop').filter((d) => ['none', 'seat'].includes(d.interaction)).length,
+      allDecor: cards.every((c) => ['none', 'seat'].includes(h.getFurnitureDef(c.dataset.defId).interaction)),
+      seatsDecor: ['furn_chair', 'furn_sofa'].every((id) => cards.some((c) => c.dataset.defId === id)),
       own: cards.every((c) => !!c.querySelector('.fcard-own')), kind: window.__game.getSystem('hud').shipManage.craftKind };
   });
   ok(decor.n === decor.want && decor.allDecor && decor.own && decor.kind === 'decor', `꾸밈용 가구 tab: ${decor.n} decor cards, each with its 보유 count`, JSON.stringify(decor));
+  ok(decor.seatsDecor, '2026-09-17: 의자 · 쇼파는 꾸밈용 가구 탭에 있다 (작업실에도 놓인다)', JSON.stringify(decor));
   await H(() => document.querySelector('.ship-manage .sm-subtab[data-kind="utility"]').click());
 
   // 선택만 한다: 시설 관리의 클릭 경로(`primary`)는 놓인 조각을 집지 않는다

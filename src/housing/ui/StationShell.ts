@@ -191,6 +191,14 @@ export function mountStationGrids(
 export interface StationGridsView extends EmbeddedView {
   /** 격자 밖에서 온 아이템을 `x, y` 밑의 칸에 놓는다 — `'blocked'` = 그 칸이 받지 못한다, null = 격자 밖이다. */
   placeExternalAt(item: ItemInstance, x: number, y: number): 'bag' | 'stash' | 'blocked' | null;
+  /**
+   * 2026-09-17: 끄는 동안 커서 밑 **칸**의 발자국 강조 (`TradeGridsView.previewExternalAt`). null = 격자 밖이거나
+   * 옛 인벤토리 — 부른 쪽은 강조하지 않는다.
+   */
+  previewExternalAt(defId: string, qty: number, x: number, y: number): 'ok' | 'merge' | 'bad' | null;
+  /** false = 이 인벤토리에는 칸 미리보기가 없다 (부른 쪽이 옛 「격자 통째 강조」로 떨어진다). */
+  readonly canPreview: boolean;
+  clearExternalPreview(): void;
 }
 
 class StationGrids implements StationGridsView {
@@ -239,6 +247,19 @@ class StationGrids implements StationGridsView {
   placeExternalAt(item: ItemInstance, x: number, y: number): 'bag' | 'stash' | 'blocked' | null {
     const live = this.view as Partial<TradeGridsView> | null;
     return live && typeof live.placeExternalAt === 'function' ? live.placeExternalAt(item, x, y) : null;
+  }
+
+  get canPreview(): boolean {
+    return typeof (this.view as Partial<TradeGridsView> | null)?.previewExternalAt === 'function';
+  }
+
+  previewExternalAt(defId: string, qty: number, x: number, y: number): 'ok' | 'merge' | 'bad' | null {
+    const live = this.view as Partial<TradeGridsView> | null;
+    return live && typeof live.previewExternalAt === 'function' ? live.previewExternalAt(defId, qty, x, y) : null;
+  }
+
+  clearExternalPreview(): void {
+    (this.view as Partial<TradeGridsView> | null)?.clearExternalPreview?.();
   }
 
   dispose(): void {

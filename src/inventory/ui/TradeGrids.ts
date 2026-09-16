@@ -757,6 +757,35 @@ export class TradeGrids implements TradeGridsView {
     return hit.bl.id;
   }
 
+  /**
+   * 2026-09-17 (사용자 보고 「가구에서 끌어낸 것은 창고 · 가방 **전체**가 아니라 커서 밑 **칸**이 강조돼야 한다」):
+   * `placeExternalAt` 이 할 판정의 **미리보기** — 같은 칸 찾기(`cellAt`)와 같은 「밀어내지 않는다」 규칙으로 발자국을
+   * 칠한다 (`showHighlight`, 타일 드래그와 같은 `.inv-hl`). 아무것도 바꾸지 않는다. 합치기는 전부 들어갈 때만 `merge` 다.
+   */
+  previewExternalAt(defId: string, qty: number, x: number, y: number): 'ok' | 'merge' | 'bad' | null {
+    this.hideHighlights();
+    if (this.disposed) return null;
+    const def = this.inv.getDef(defId);
+    if (!def) return null;
+    const size = tileSizeAt(def.width, def.height, this.cellPx);
+    const hit = this.cellAt(x - size.width / 2, y - size.height / 2, def.width, def.height, x, y);
+    if (!hit) return null;
+    const grid = this.inv.getGrid(hit.bl.id);
+    if (!grid) return null;
+    const occupant = grid.at(hit.x, hit.y)?.item;
+    let state: 'ok' | 'merge' | 'bad';
+    if (occupant) {
+      state = occupant.defId === defId && def.stackMax > 1 && def.stackMax - occupant.qty >= qty ? 'merge' : 'bad';
+    } else {
+      const probe: ItemInstance = { uid: '', defId, qty, rotated: false };
+      state = grid.canPlace(probe, hit.x, hit.y, false, '') ? 'ok' : 'bad';
+    }
+    hit.bl.view.showHighlight(hit.x, hit.y, def.width, def.height, state);
+    return state;
+  }
+
+  clearExternalPreview(): void { if (!this.drag) this.hideHighlights(); }
+
   /** Cell of one of this view's grids under a ghost box — the two-pass order every drop path here shares. */
   private cellAt(left: number, top: number, w: number, h: number, px: number, py: number): { bl: Block; x: number; y: number } | null {
     for (const bl of this.blocks) {

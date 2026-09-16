@@ -131,7 +131,9 @@ export class CookScreen {
   private readonly down = new Set<CookButton>();
 
   constructor(private readonly ctx: GameContext, private readonly sys: HousingSystem) {
-    this.root = el('div', { cls: 'cook', parent: ctx.uiRoot });
+    // 2026-09-17: 루트는 `.cook-ovl` 이다 — 옛 이름 `.cook` 은 `ui/styles/base.css` 의 수류탄 쿠킹 게이지(`opacity: 0` · 120 px 상자)와
+    // 겹쳐, 세션 · 블로커 · DOM 은 다 살아 있는데 오버레이가 **투명한 120 px 상자**가 되어 미니게임이 한 번도 보이지 않았다
+    this.root = el('div', { cls: 'cook-ovl', parent: ctx.uiRoot });
     this.root.hidden = true;
     this.panel = el('div', { cls: 'cook-panel', parent: this.root });
     const head = el('div', { cls: 'cook-head', parent: this.panel });
@@ -636,7 +638,7 @@ export class CookScreen {
   /**
    * 2026-09-14 (사용자 결정): 미니게임 입력은 **화면 어디를 눌러도** 먹는다. 예전에는 `.cook-stage`(패널 가운데의 작은 상자) 안만
    * 받아서 780 px 패널의 여백을 누르면 아무 반응이 없었다 — 헬스장은 키보드라 없던 문제다. 게임 도중에만 루트가 입력을 받으므로
-   * (`.cook.is-playing`) 선택 카드 · 결과 화면의 버튼은 그대로 눌린다.
+   * (`.cook-ovl.is-playing`) 선택 카드 · 결과 화면의 버튼은 그대로 눌린다.
    */
   private readonly onPointerDown = (e: PointerEvent): void => {
     if (!this.opened || this.screen !== 'game' || !this.game) return;

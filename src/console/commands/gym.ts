@@ -8,8 +8,11 @@ import { resolveStatId } from './stat';
  * `gym [clear [str|end] | <str|end> <±xp>]` — 헬스장 (A-3a, 2026-09-12) 개발용 명령. **`ProgressionRef` 의 공개 API 만** 쓴다
  * (`profile.trained` · `gymFatigueUntil` 를 직접 만지지 않는다).
  *
- *   - `gym`                    두 운동 능력치의 단련 보너스 · 진행도 · 디버프 남은 시간.
- *   - `gym <stat> <±xp>`       `addTrainedXp(stat, xp)` — 디버프 · 함선 게이트 · 세션 상한 없음, 음수는 뺀다 (0 아래로는 progression 이 막는다).
+ *   - `gym`                    운동 능력치의 단련 보너스 · 능력치 경험치 바 · 디버프 남은 시간.
+ *   - `gym <stat> <±xp>`       `addTrainedXp(stat, xp)` — 디버프 · 함선 게이트 · 세션 상한 없음. 2026-09-17: 양수 = 미니게임 경험치로
+ *                              능력치 경험치 바에 (넘기면 단련 +1), 음수 = 단련 보너스를 내린다 (0 아래로는 progression 이 막는다).
+ *
+ * 2026-09-17 (사용자 결정): 단련 수치는 `+N` 으로만 적는다 (`단련 +N` 아님).
  *   - `gym clear [str|end]`    `clearGymFatigue(stat?)` — 생략하면 둘 다.
  *
  * 두 dev 메서드는 계약상 optional 이라 `typeof` 로 묻고, 없으면 빨간 줄로 무엇이 없는지 말한다.
@@ -44,7 +47,7 @@ function statusLine(prog: ProgressionRef, id: GymStat, ctx: GameContext): string
   const next = typeof prog.trainedXpToNext === 'function' ? prog.trainedXpToNext(id) : 0;
   const left = fatigueLeft(prog, id, now(ctx));
   const fatigue = left > 0 ? `${GYM_FATIGUE_LABEL_KO[id]} ${formatRemaining(left)}` : '디버프 없음';
-  return `${name} 단련 +${bonus} (${Math.round(progress * next)}/${next}) · ${fatigue}`;
+  return `${name} +${bonus} (${Math.round(progress * next)}/${next}) · ${fatigue}`;
 }
 
 /** `str` / `end` / `strength` / `근력` … → 운동 능력치, 아니면 null. */
@@ -93,8 +96,8 @@ export const gym: CommandFactory = () => ({
     const after = prog.getTrainedBonus(id);
     const name = prog.getStatDef(id)?.name ?? id;
     const diff = after - before;
-    const step = diff !== 0 ? ` · ${name} 단련 ${diff > 0 ? '+' : '−'}${Math.abs(diff)}` : '';
-    return `단련 경험치 ${xp >= 0 ? '+' : '−'}${Math.abs(xp)}${step}\n${statusLine(prog, id, ctx)}`;
+    const step = diff !== 0 ? ` · ${name} ${diff > 0 ? '+' : '−'}${Math.abs(diff)}` : '';
+    return `${xp >= 0 ? '운동 경험치 +' : '단련 −'}${Math.abs(xp)}${step}\n${statusLine(prog, id, ctx)}`;
   },
   complete(args) {
     const shorts = GYM_STATS.map((s) => STAT_SHORT[s]);

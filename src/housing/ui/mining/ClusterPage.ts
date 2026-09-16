@@ -1,8 +1,8 @@
 import type { ComputeClusterInfo, CryptoCoinInfo, EmbeddedView, GameContext, HarvestDestination, ItemInstance, PlacedFurniture } from '@/shared';
-import { COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES, PROCESSOR_DEF_ID, formatCoinUnits } from '@/shared';
+import { COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES, PROCESSOR_DEF_ID, formatCoinUnits, itemGridBox } from '@/shared';
 import { clusterCycleMs } from '../../MiningRules';
 import type { HousingSystem } from '../../HousingSystem';
-import { buildStationItemTile, stationTileBox } from '../ItemTile';
+import { buildFootprintCells, buildStationItemTile, itemFootprint } from '../ItemTile';
 import { ProductDrag } from '../ProductDrag';
 import type { Product } from '../ProductDrag';
 import { mountStationGrids } from '../StationShell';
@@ -25,6 +25,8 @@ const NO_API = '채굴 기능을 사용할 수 없습니다';
 const SLOT_DEF_ID = PROCESSOR_DEF_ID;
 /** 칸 한 변(px) — 가구 화면의 격자(`stationGridCell`)와 같은 결의 배치 상수. 칸 상자는 아이템 발자국에서 나온다. */
 const SLOT_CELL_PX = 52;
+/** 빈 칸 · 꽂힌 칸을 그린 모양의 기억 열쇠 접두사 (발자국이 바뀌면 — 아이템 데이터가 늦게 붙으면 — 다시 그린다). */
+const EMPTY_KEY = 'e:';
 
 interface RailItem { uid: string; el: HTMLElement; dots: HTMLElement[]; red: HTMLElement }
 interface StatRow { row: HTMLElement; v: HTMLElement }
@@ -58,6 +60,8 @@ export class ClusterPage {
   private readonly stats: Record<'cycle' | 'next' | 'yield' | 'rate' | 'credits', StatRow>;
   /** 칸마다 마지막으로 그린 상태 (`빈 칸` = '' · `내구도`) — 1초마다 도는 `paint` 가 DOM 을 다시 만들지 않게. */
   private readonly cellKeys: string[] = [];
+  /** 칸 모양(`w×h`) — 마지막으로 격자에 쓴 발자국. */
+  private cellShape = '';
   private readonly progFill: HTMLElement;
   private readonly progClock: HTMLElement;
   private readonly progPct: HTMLElement;
@@ -84,10 +88,9 @@ export class ClusterPage {
     this.coreCount = el('span', { cls: 'mn-sec-count', text: `0 / ${MAX_CORES}`, parent: coreHead });
     this.coresEl = el('div', { cls: 'mn-cores', parent: coreBox });
     /* 2026-09-16 (사용자 결정): 칸은 **아이템 격자 칸**이다 — 전용 그림(`.mn-core-chip` · LED)을 걷어내고, 꽂힌
-       칸에는 가방에서 보던 타일이 그대로 선다 (`ui/ItemTile`). 칸 상자는 그 아이템의 발자국 크기다. */
-    const box = stationTileBox(ctx, SLOT_DEF_ID, SLOT_CELL_PX);
-    this.coresEl.style.setProperty('--mn-core-w', `${box.width}px`);
-    this.coresEl.style.setProperty('--mn-core-h', `${box.height}px`);
+       칸에는 가방에서 보던 타일이 그대로 선다 (`ui/ItemTile`). 칸 상자는 그 아이템의 발자국 크기다.
+       2026-09-17 (버그): 그 크기를 **여기서** 재면 1×1 이었다 — housing 은 inventory 보다 먼저 등록되어 생성자 시점에
+       `ctx.loot` 이 없다. 발자국은 `paint` 가 잰다 (`applyCellShape`). */
     for (let i = 0; i < MAX_CORES; i++) {
       this.coreCells.push(el('div', { cls: 'mn-core', attrs: { 'data-core': String(i) }, parent: this.coresEl }));
     }
@@ -331,15 +334,33 @@ export class ClusterPage {
 
   /* ── state → DOM ───────────────────────────────────────────────────────── */
   refresh(): void {
+    /* 2026-09-17 (버그: 메인 컴퓨터로 연 창에서 「채굴」 탭을 누르면 「연산 클러스터가 없습니다」 배너) — 그 길에는
+       클러스터 uid 가 없다(`''`) · 고른 클러스터가 회수됐을 수도 있다. 함선에 클러스터가 있으면 **첫 번째**를 보여 준다. */
+    const placedList = this.clusters();
+    if (placedList.length && !placedList.some((p) => p.uid === this.uid)) this.uid = placedList[0].uid;
     if (!this.grids) {
       this.grids = mountStationGrids(this.ctx, this.host.shell.invHost, '.mn-core[data-core]', (item, target) => this.dropOn(item, target));
     }
-    const list = this.clusters();
+    const list = placedList;
     const key = list.map((p) => p.uid).join(',');
     if (key !== this.railKey) { this.railKey = key; this.buildRail(list); }
     // 레일은 `MiningScreen.applyTab` 이 탭으로 한 번 열고, 클러스터가 하나도 없으면 여기서 다시 닫는다
     this.host.shell.rail.hidden = list.length === 0;
     this.paint();
+  }
+
+  /**
+   * 칸 상자 = 꽂는 아이템의 발자국 (`--mn-core-w/h`). 아이템 데이터(`ctx.loot`)는 생성자보다 늦게 붙으므로 매번 재고,
+   * 바뀐 때만 쓴다 (1 초 틱이 스타일을 흔들지 않는다).
+   */
+  private applyCellShape(): void {
+    const fp = itemFootprint(this.ctx, SLOT_DEF_ID);
+    const shape = `${fp.w}x${fp.h}`;
+    if (shape === this.cellShape) return;
+    this.cellShape = shape;
+    const box = itemGridBox(fp.w, fp.h, SLOT_CELL_PX);
+    this.coresEl.style.setProperty('--mn-core-w', `${box.width}px`);
+    this.coresEl.style.setProperty('--mn-core-h', `${box.height}px`);
   }
 
   private paint(): void {
@@ -349,12 +370,17 @@ export class ClusterPage {
     const def = coinDef(info?.coinId);
     const index = this.clusters().findIndex((p) => p.uid === this.uid);
 
+    /* 2026-09-17 (사용자 결정): **프로세서가 하나도 없으면 아무 안내도 하지 않는다** — 빨간 배너(`프로세서를 꽂으세요` ·
+       `채굴할 코인을 정하세요`)도, 머리줄의 빨간 사유도 없다. 빈 칸 격자가 스스로 말한다. 사유 자체(`info.block`)는
+       규칙 쪽에 그대로 있고 다른 곳(레일 레드닷 · 현황 탭)이 읽는다. */
+    const empty = !!info && info.cores <= 0;
     const status = !placed ? '없는 클러스터'
       : !info ? NO_API
         : info.mining ? `채굴 중 · ${def?.ticker ?? ''}`.trim()
-          : info.block ?? '대기';
-    this.host.setTitle(index >= 0 ? `연산 클러스터 ${index + 1}` : '연산 클러스터', status, !info?.mining);
-    this.host.setBanner(!placed ? '연산 클러스터가 없습니다' : !info ? NO_API : info.mining ? null : info.block ?? null);
+          : empty ? '대기' : info.block ?? '대기';
+    this.host.setTitle(index >= 0 ? `연산 클러스터 ${index + 1}` : '연산 클러스터', status, !info?.mining && !empty);
+    this.host.setBanner(!placed ? '연산 클러스터가 없습니다' : !info ? NO_API : info.mining || empty ? null : info.block ?? null);
+    this.applyCellShape();
 
     // 프로세서 칸 — 꽂힌 칸은 **가방과 같은 아이템 타일**이고 그 칸의 내구도 막대를 들고 선다 (2026-09-16 사용자 결정)
     const cores = info?.cores ?? 0;
@@ -369,11 +395,16 @@ export class ClusterPage {
       toggleClass(c, 'is-closed', i >= max);
       // 타일은 **칸의 내구도가 바뀔 때만** 짓는다 (1 초마다 도는 `paint` 가 DOM 을 다시 만들지 않게).
       // 꽂힌 칸의 호버 카드(`ui/hud/ItemTip`)는 타일이 `data-item-tip` 을 달고 오므로 칸은 아무것도 달지 않는다.
-      const key = on ? String(dur) : '';
+      // 빈 칸은 **발자국만큼의 격자 칸**이다 (2026-09-17 사용자 결정 — 프로세서 2×1 = 가로 두 칸, `ui/ItemTile.buildFootprintCells`)
+      const key = on ? String(dur) : EMPTY_KEY + this.cellShape;
       if (this.cellKeys[i] === key) return;
       this.cellKeys[i] = key;
       clear(c);
       if (on) c.appendChild(buildStationItemTile(this.ctx, SLOT_DEF_ID, { cell: SLOT_CELL_PX, durability: dur }));
+      else {
+        const fp = itemFootprint(this.ctx, SLOT_DEF_ID);
+        c.appendChild(buildFootprintCells(fp.w, fp.h, SLOT_CELL_PX));
+      }
     });
     if (def) this.coresEl.style.setProperty('--cc', def.color); else this.coresEl.style.removeProperty('--cc');
 
@@ -397,7 +428,8 @@ export class ClusterPage {
        (다 닳은 것을 더하면 그 절반이라, 새것 기준이 사람이 기대하는 수치다). */
     const perf = info?.perf ?? 0;
     const cycle = info && info.cycleMs > 0 ? info.cycleMs : def && perf > 0 ? clusterCycleMs(def, perf) : 0;
-    statText(s.cycle, !def ? '코인을 고르세요' : cores <= 0 ? '프로세서가 필요합니다' : fmtDuration(cycle), !def || cores <= 0 ? 'bad' : '');
+    // 2026-09-17: 프로세서가 없으면 안내 문구 없이 `—` (빈 클러스터는 아무것도 요구하지 않는다)
+    statText(s.cycle, cores <= 0 ? '—' : !def ? '코인을 고르세요' : fmtDuration(cycle), cores > 0 && !def ? 'bad' : '');
     s.next.row.hidden = !def || cores >= max;
     if (def && cores < max) statText(s.next, `${fmtDuration(clusterCycleMs(def, perf + 1))}`, 'good');
     statText(s.yield, def ? `${formatCoinUnits(def.yieldUnits)} ${def.ticker}` : '—');

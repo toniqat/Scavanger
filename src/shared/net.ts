@@ -1608,6 +1608,11 @@ export interface ShipVisitWire {
   media?: PlacedBook[];
   /** appended (2026-09-12, A-3e): 켜 둔 TV · 레코드 플레이어 uid (`ShipState.toggled`). 없으면 생략. */
   toggled?: string[];
+  /**
+   * appended (2026-09-17): 배양조 칸의 겉모습 — 배지 def id (색은 받는 쪽 카탈로그에서) 와 세포주가 들었는가 (`s: 1`).
+   * 스캐폴드 · 세포주 종류 · 타이머는 싣지 않는다 (3D 는 「무언가 들어 있다」만 그린다). 없으면 생략.
+   */
+  cultures?: { uid: string; slot: number; medium: string; s?: 1 }[];
 }
 export type ShipVisitMessage = { t: 'ship'; ev: 'state'; ship: ShipVisitWire };
 export type ShipVisitRequest = { t: 'shipq'; ev: 'state' };

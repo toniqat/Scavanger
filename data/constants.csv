@@ -405,9 +405,9 @@ SHELF_AUX_BONUS_DISC,0.25,"TV 가 배치돼 있으면 디스크 몫 × (1 + 이 
 SHELF_AUX_BONUS_RECORD,0.25,"축음기 · 주크박스 · 턴테이블 중 하나라도 배치돼 있으면 레코드 몫 × (1 + 이 값). 셋은 외형만 다른 한 역할이라 여러 대여도 한 번만 곱한다 — 사용자 결정."
 
 # ── 2026-09-12: 헬스장 (A-3a; owner: progression rules, housing minigames, hub geometry) ──
-GYM_SESSION_XP,100,"운동 한 세션 만점(점수 1)이 주는 단련 경험치. 실제 = round(이 값 × 점수)."
-GYM_TRAIN_XP_BASE,150,"단련 +n → +(n+1) 에 필요한 경험치 = round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT). 능력치당 하루 한 세션이라 만점이면 첫 +1 이 이틀이다."
-GYM_TRAIN_XP_EXPONENT,1.4,
+GYM_SESSION_XP,560,"운동 · 비디오게임 한 세션 만점(점수 1)이 그 능력치의 **능력치 경험치 바**에 넣는 경험치. 실제 = round(이 값 × 점수). 2026-09-17: 단련 전용 바가 사라지고 능력치 경험치(STAT_XP_BASE × v^STAT_XP_EXPONENT, 기본 5 → 1118)와 같은 단위다 — 기본값 5 에서 만점 두 세션(= 이틀)에 단련 +1, 예전 속도와 같다. 기본값이 높을수록 바가 길어 느려진다."
+GYM_TRAIN_XP_BASE,150,"2026-09-17 은퇴 — 읽는 코드 없음 (단련 전용 경험치 바가 능력치 경험치 바로 합쳐졌다). shared 상수는 추가 전용이라 줄을 남긴다."
+GYM_TRAIN_XP_EXPONENT,1.4,"2026-09-17 은퇴 — 읽는 코드 없음 (GYM_TRAIN_XP_BASE 와 같다)."
 GYM_TRAINED_MAX,5,"능력치 하나가 운동으로 얻는 단련 보너스 상한. 스탯 포인트 · 임플란트 보너스와 따로 센다."
 GYM_FATIGUE_HOURS,24,"운동을 끝낸 능력치에 걸리는 디버프(근력 = 근육통 · 지구력 = 심폐 피로)의 현실 시간 — 사용자 명세."
 GYM_FATIGUE_GAIN_MUL,0,"디버프 중 같은 능력치 운동의 상승 배율. 0 = −100 % (사용자 명세). 디버프를 다시 늘리지는 않는다."

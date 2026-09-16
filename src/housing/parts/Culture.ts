@@ -15,6 +15,12 @@
  * `mediumUsesLeft` 는 「0 까지 남은 수확」이다. 칸에는 **배양 스캐폴드**가 들어갈 수 있다: 배지 → (스캐폴드) → 세포주. 스캐폴드가
  * 있으면 세포주의 `scaffoldOutputDefId`(종별 고기)를 `scaffoldHours` 동안 만들고 **수확할 때 소모된다**. 세포주가 들어가기 전이면
  * `takeScaffold` 로 되돌려받는다. 은퇴한 세포주(`strain` 데이터가 없다)는 배양조가 받지 않는다.
+ *
+ * **2026-09-17 (배양 시작 확인 — 사용자 결정)**: 세포주를 넣어도 **배양은 시작되지 않는다**. 칸은 「시작 대기」(`strainDefId` 만 있고
+ * `startedAt` · `readyAt` 가 없다)로 서고, 화면의 「배양 시작」 → 1초 홀드 확인이 `startCulture` 를 불러 **그 순간** `readyAt` 을 확정한다.
+ * 시작 전에는 세포주(`takeStrain`) · 스캐폴드(`takeScaffold`) · 한 번도 쓰지 않은 배지(`takeMedium`)를 되돌려받고, 시작한 뒤에는 셋 다
+ * 꺼낼 수 없다. 「시작했는가」 = `startedAt > 0` 하나다 — 옛 세이브의 세포주는 넣는 순간 시작돼 늘 `startedAt` 을 들고 있으므로
+ * 마이그레이션 없이 그대로 배양 중이다 (`ShipState.sanitize` 도 같은 기준으로 시작 대기 칸을 남긴다).
  */
 import type { CultureSlot, CultureSlotInfo, HarvestDestination, ItemDef, PlacedFurniture } from '@/shared';
 import { CULTURE_MAX_SLOTS, MEDIUM_WEAR_PER_HARVEST, cultureSlotUnlockLevel, cultureSlotsForLevel, growSocketSlotsFor } from '@/shared';
@@ -122,6 +128,18 @@ export function cultureAt(sys: HousingSystem, uid: string, slot: number): Cultur
   return sys.cultures().find((c) => c.uid === uid && c.slot === slot) ?? null;
 }
 
+/** 2026-09-17: 배양이 시작됐는가 (타이머가 걸렸다). 세포주가 있고 false 면 「시작 대기」 — 넣은 것을 아직 되돌려받는다. */
+export function cultureStarted(c: CultureSlot | null | undefined): boolean {
+  return !!c && typeof c.startedAt === 'number' && c.startedAt > 0 && typeof c.readyAt === 'number';
+}
+
+/** 2026-09-17: 한 번도 쓰지 않은 배지 — 세포주 · 스캐폴드 · 소켓이 없고 내구도가 가득하다 (`takeMedium` 이 되돌려준다). */
+function mediumPristine(sys: HousingSystem, c: CultureSlot): boolean {
+  if (c.strainDefId || c.scaffoldDefId || (c.sockets?.length ?? 0) > 0) return false;
+  const st = mediumStats(sys, c);
+  return st.max > 0 && st.dur >= st.max;
+}
+
 /** Drop every 배양 칸 of a tank that is being recovered (its 배지 · 세포주 go with it). */
 export function dropCulturesOf(sys: HousingSystem, uid: string): void {
   const list = sys.cultures();
@@ -189,6 +207,9 @@ export function getCultureSlots(sys: HousingSystem, uid: string): CultureSlotInf
       sockets: c?.sockets ? [...c.sockets] : [],
       socketSlots: st?.slots ?? 0,
       scaffoldDefId: c?.scaffoldDefId ?? null,
+      // 2026-09-17: 시작 대기 칸은 `strainDefId` 가 있어도 `started` false (진행도 −1 · 남은 0 은 `readyAt` 이 없어서 저절로 나온다)
+      started: cultureStarted(c),
+      mediumReturnable: !!c && mediumPristine(sys, c),
     });
   }
   return out;
@@ -267,7 +288,15 @@ export function clearMedium(sys: HousingSystem, uid: string, slot: number, disca
   const c = sys.cultureAt(uid, slot);
   if (!c) return '배지가 없습니다';
   // 2026-09-12: 우클릭 「세포주 버리고 배지 비우기」 — 버리겠다고 한 경우만 통과한다
-  if (c.strainDefId && !discardStrain) return '배양 중인 세포주를 먼저 수확하세요';
+  const started = cultureStarted(c);
+  if (c.strainDefId && started && !discardStrain) return '배양 중인 세포주를 먼저 수확하세요';
+  // 2026-09-17: 시작 전의 세포주는 버리지 않고 되돌려준다 (스캐폴드와 같은 규칙 — 쓰지 않은 아이템을 조용히 버리지 않는다)
+  if (c.strainDefId && !started) {
+    const loot = sys.ctx.loot;
+    if (!loot || typeof loot.createItem !== 'function') return '세포주를 되돌려받을 수 없습니다';
+    if (!deliverItem(sys, loot.createItem(c.strainDefId, 1), 'bag-first')) return noRoomReason('bag-first');
+    delete c.strainDefId;
+  }
   if (c.scaffoldDefId && !c.strainDefId) {
     const loot = sys.ctx.loot;
     if (!loot || typeof loot.createItem !== 'function') return '스캐폴드를 되돌려받을 수 없습니다';
@@ -291,7 +320,7 @@ export function insertStrain(sys: HousingSystem, uid: string, slot: number, stra
   if (block) return block;
   const c = sys.cultureAt(uid, slot);
   if (!c) return '영양 배지를 먼저 채우세요';
-  if (c.strainDefId) return '이미 배양 중인 칸입니다';
+  if (c.strainDefId) return cultureStarted(c) ? '이미 배양 중인 칸입니다' : '이미 세포주가 들어 있습니다';
   if (sys.defOf(strainDefId)?.retired) return '더 이상 배양할 수 없는 세포주입니다';
   const def = sys.strainDef(strainDefId);
   if (!def || !def.strain) return '세포주가 아닙니다';
@@ -300,12 +329,69 @@ export function insertStrain(sys: HousingSystem, uid: string, slot: number, stra
   if (sys.countDef(strainDefId) < 1) return `${def.name}이(가) 없습니다`;
   const inv = sys.ctx.inventory;
   if (!inv || typeof inv.consumeDefAll !== 'function' || !inv.consumeDefAll(strainDefId, 1)) return '세포주를 꺼낼 수 없습니다';
+  // 2026-09-17: 넣기만 한다 — 타이머는 `startCulture` (화면의 1초 홀드 확인) 가 건다
+  c.strainDefId = strainDefId;
+  delete c.startedAt; delete c.readyAt;
+  sys.cultureChanged(uid, 'strain');
+  return null;
+}
+
+/**
+ * 2026-09-17: 시작 대기 칸의 배양을 시작한다 (`HousingRef.startCulture`). `readyAt` 은 **여기서** `cultureHours`(스캐폴드면
+ * `scaffoldHours`) × 배지 등급 × 원예 × 배지 내구도 비율 × 소켓 speed 로 확정되고, 그 뒤로 배지 · 세포주 · 스캐폴드는 꺼낼 수 없다.
+ * 스캐폴드 산출이 없는 세포주가 스캐폴드 칸에 있으면(넣은 뒤 데이터가 바뀐 경우) 거절한다. 한국어 사유 / null.
+ */
+export function startCulture(sys: HousingSystem, uid: string, slot: number): string | null {
+  const block = slotBlock(sys, uid, slot);
+  if (block) return block;
+  const c = sys.cultureAt(uid, slot);
+  if (!c) return '영양 배지를 먼저 채우세요';
+  if (!c.strainDefId) return '세포주를 먼저 넣으세요';
+  if (cultureStarted(c)) return '이미 배양 중인 칸입니다';
+  const def = sys.strainDef(c.strainDefId);
+  if (!def || !def.strain || def.retired) return '더 이상 배양할 수 없는 세포주입니다';
+  const scaffold = c.scaffoldDefId ? scaffoldOutputOf(def) : null;
+  if (c.scaffoldDefId && !scaffold) return '이 세포주는 스캐폴드에서 자라지 않습니다';
   const st = mediumStats(sys, c);
   const hours = scaffold ? scaffold.hours : def.strain.cultureHours;
   c.startedAt = sys.stationNow(uid);
   c.readyAt = c.startedAt + cultureDurationMs(hours, st.speedMul, sys.gardening(), st.ratio, socketSum(sys, c.sockets, 'speed'));
-  c.strainDefId = strainDefId;
   sys.cultureChanged(uid, 'cultureStart');
+  return null;
+}
+
+/** 2026-09-17: 시작 전 칸의 세포주를 되돌려받는다 (`HousingRef.takeStrain`, 가방 → 창고 · 자리가 없으면 거절). 한국어 사유 / null. */
+export function takeStrain(sys: HousingSystem, uid: string, slot: number, dest: HarvestDestination = 'bag-first'): string | null {
+  const block = slotBlock(sys, uid, slot);
+  if (block) return block;
+  const c = sys.cultureAt(uid, slot);
+  if (!c || !c.strainDefId) return '세포주가 없습니다';
+  if (cultureStarted(c)) return '배양을 시작한 세포주는 꺼낼 수 없습니다';
+  const loot = sys.ctx.loot;
+  if (!loot || typeof loot.createItem !== 'function') return '세포주를 되돌려받을 수 없습니다';
+  if (!deliverItem(sys, loot.createItem(c.strainDefId, 1), dest)) return noRoomReason(dest);
+  delete c.strainDefId; delete c.startedAt; delete c.readyAt;
+  sys.cultureChanged(uid, 'strainTake');
+  return null;
+}
+
+/**
+ * 2026-09-17: 한 번도 쓰지 않은 배지를 칸째 되돌려받는다 (`HousingRef.takeMedium`). 내구도 · 소켓은 칸에 사는 값이라 아이템에 실을 수
+ * 없으므로 **새것 그대로인 배지만** 돌려준다 — 한 번이라도 수확했거나 소켓을 끼웠으면 기존 「배지 비우기」(버림)뿐이다. 한국어 사유 / null.
+ */
+export function takeMedium(sys: HousingSystem, uid: string, slot: number, dest: HarvestDestination = 'bag-first'): string | null {
+  const block = slotBlock(sys, uid, slot);
+  if (block) return block;
+  const c = sys.cultureAt(uid, slot);
+  if (!c) return '배지가 없습니다';
+  if (c.strainDefId || c.scaffoldDefId) return '세포주 · 스캐폴드를 먼저 빼세요';
+  if (!mediumPristine(sys, c)) return '사용한 배지는 되돌려받을 수 없습니다';
+  const loot = sys.ctx.loot;
+  if (!loot || typeof loot.createItem !== 'function') return '배지를 되돌려받을 수 없습니다';
+  if (!deliverItem(sys, loot.createItem(c.mediumDefId, 1), dest)) return noRoomReason(dest);
+  const list = sys.cultures();
+  list.splice(list.indexOf(c), 1);
+  sys.cultureChanged(uid, 'mediumTake');
   return null;
 }
 
@@ -318,7 +404,8 @@ export function insertScaffold(sys: HousingSystem, uid: string, slot: number, sc
   if (block) return block;
   const c = sys.cultureAt(uid, slot);
   if (!c) return '영양 배지를 먼저 채우세요';
-  if (c.strainDefId) return '이미 배양 중인 칸입니다';
+  // 2026-09-17: 칸 순서는 배지 → 스캐폴드 → 세포주 — 시작 전이라도 세포주가 먼저 들어 있으면 빼고 넣는다
+  if (c.strainDefId) return cultureStarted(c) ? '이미 배양 중인 칸입니다' : '세포주를 뺀 뒤에 스캐폴드를 넣으세요';
   if (c.scaffoldDefId) return '이미 스캐폴드가 들어 있습니다';
   const def = sys.defOf(scaffoldDefId);
   if (!def || !def.scaffold) return '배양 스캐폴드가 아닙니다';
@@ -337,7 +424,8 @@ export function takeScaffold(sys: HousingSystem, uid: string, slot: number, dest
   const c = sys.cultureAt(uid, slot);
   if (!c) return '배지가 없습니다';
   if (!c.scaffoldDefId) return '스캐폴드가 없습니다';
-  if (c.strainDefId) return '배양 중에는 스캐폴드를 뺄 수 없습니다';
+  // 2026-09-17: 시작 대기 칸이면 뺄 수 있다 — 남은 세포주는 기본 산출(`outputDefId`)로 자란다
+  if (cultureStarted(c)) return '배양 중에는 스캐폴드를 뺄 수 없습니다';
   const loot = sys.ctx.loot;
   if (!loot || typeof loot.createItem !== 'function') return '스캐폴드를 되돌려받을 수 없습니다';
   if (!deliverItem(sys, loot.createItem(c.scaffoldDefId, 1), dest)) return noRoomReason(dest);
@@ -367,9 +455,10 @@ export function harvestCulture(sys: HousingSystem, uid: string, slot: number, de
   const block = slotBlock(sys, uid, slot);
   if (block) return block;
   const c = sys.cultureAt(uid, slot);
-  if (!c || !c.strainDefId || !c.readyAt) return '배양 중인 세포주가 없습니다';
+  if (!c || !c.strainDefId || !cultureStarted(c) || c.readyAt === undefined) return '배양 중인 세포주가 없습니다';
   const now = sys.stationNow(uid);
-  if (now < c.readyAt) return `아직 배양 중입니다 (${formatRemaining(Math.ceil((c.readyAt - now) / 1000))} 남음)`;
+  const readyAt = c.readyAt;
+  if (now < readyAt) return `아직 배양 중입니다 (${formatRemaining(Math.ceil((readyAt - now) / 1000))} 남음)`;
   const output = outputOf(sys, c);
   const loot = sys.ctx.loot;
   if (!output || !loot || typeof loot.createItem !== 'function') return '배양 산물을 만들 수 없습니다';

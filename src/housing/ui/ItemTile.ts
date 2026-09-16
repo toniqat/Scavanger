@@ -42,6 +42,35 @@ export function stationTileBox(ctx: GameContext, defId: string, cell: number): {
   return itemGridBox(def?.width ?? 1, def?.height ?? 1, cell);
 }
 
+/** 그 아이템의 발자국 (칸 수, 회전 없음). 모르는 아이템은 1×1. */
+export function itemFootprint(ctx: GameContext, defId: string): { w: number; h: number } {
+  const def = ctx.loot?.getItemDef(defId);
+  return { w: Math.max(1, Math.floor(def?.width ?? 1)), h: Math.max(1, Math.floor(def?.height ?? 1)) };
+}
+
+/**
+ * **빈 칸 = 그 아이템 발자국만큼의 격자 칸** (2026-09-17, 사용자 결정 「프로세서는 2×1 이니 빈 칸도 인벤토리 격자
+ * 2칸처럼 그린다 — 칸 모양은 받는 아이템의 크기를 따른다」). 가구 화면의 꽂는 칸(연산 클러스터 · 서재 보관함)이
+ * 비어 있을 때 점선 상자 하나 대신 `w × h` 개의 `.hs-fcell`(인벤토리 빈 칸과 같은 결)을 칸 간격 `ITEM_GRID_GAP` 으로
+ * 세운다 — 상자 크기는 `itemGridBox(w, h, cell)` 이라 꽂힌 타일과 정확히 같다. 포인터는 통과한다 (드롭 대상은 바깥 칸).
+ * ⚠ 재배 스테이션 · 배양조의 칸은 여기를 쓰지 않는다 (그 화면의 네모 칸은 그대로다).
+ */
+export function buildFootprintCells(w: number, h: number, cell: number): HTMLElement {
+  const cw = Math.max(1, Math.floor(w)), ch = Math.max(1, Math.floor(h));
+  const px = Math.max(MIN_TILE_CELL, Math.round(cell));
+  const box = document.createElement('div');
+  box.className = 'hs-fcells';
+  box.style.gridTemplateColumns = `repeat(${cw}, ${px}px)`;
+  box.style.gridTemplateRows = `repeat(${ch}, ${px}px)`;
+  box.style.gap = `${ITEM_GRID_GAP}px`;
+  for (let i = 0; i < cw * ch; i++) {
+    const c = document.createElement('i');
+    c.className = 'hs-fcell';
+    box.appendChild(c);
+  }
+  return box;
+}
+
 /**
  * 한 칸에 들어갈 **인벤토리 타일 하나**. 수량 배지는 숨어 있고, 호버 카드(`data-item-tip`)는 인벤토리 타일이
  * 스스로 달고 온다. 반환 요소에는 `.hs-tile` 이 붙어 글리프 · 이름 크기가 칸 크기를 따라간다 (`housing.css`).

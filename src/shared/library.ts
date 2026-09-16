@@ -219,7 +219,8 @@ export interface GameDiscDef {
 /** 진행 중인 게임 세션 (`HousingRef.gameSession`). */
 export interface GameSessionInfo {
   tvUid: string;
-  seatUid: string;
+  /** 앉은 좌석 uid. 2026-09-17 (사용자 결정): 좌석은 조건이 아니다 — TV 를 보는 유효한 좌석이 없으면 null (서서 플레이). */
+  seatUid: string | null;
   discDefId: string;
   stat: GameStat;
   minigame: GymMinigame;
@@ -232,7 +233,7 @@ export interface PlayableGameInfo {
   standUid: string;
   /**
    * 이 디스크를 고를 수 없는 한국어 사유 (게임기 없음 · 게임기 불일치 · 전시대가 작동하지 않음), 되면 null.
-   * 좌석은 TV 한 대의 문제라 `tvSeatBlock` 이 따로 답하고, 디버프는 사유가 아니다 — 경험치 0 으로 플레이는 된다 (헬스와 같다).
+   * 좌석은 사유가 아니다 (2026-09-17 — 없으면 서서 플레이), 디버프도 사유가 아니다 — 경험치 0 으로 플레이는 된다 (헬스와 같다).
    */
   block: string | null;
 }

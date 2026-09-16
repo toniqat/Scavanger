@@ -233,7 +233,8 @@ export function startCook(sys: HousingSystem, uid: string, recipeId: string): st
     info, benchLevel: bench.item.level, stepScores: [], stepRaw: [], stepBonus: [], stepAuto: [], finished: false, anyCompleted: false, result: null,
   };
   // 오버레이가 먼저 커서 · 블로커를 잡고 나서 조리대 화면을 닫는다 — 그 사이에 포인터 락이 되돌아갔다 풀리지 않게
-  screen.open(info, sys.nameOf(recipe.outputDefId));
+  // 2026-09-17: 요리는 아이템이 아니다 — `nameOf` 는 요리 id 를 그대로 돌려주므로 머리줄 이름은 요리 표에서 읽는다
+  screen.open(info, sys.mealDef(recipe.outputDefId)?.name ?? sys.nameOf(recipe.outputDefId));
   sys.exitHousingMode();
   sys.closeMenus(false);
   sys.ctx.bus.emit('audio:play', { id: 'cook_start' });

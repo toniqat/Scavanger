@@ -10,6 +10,7 @@ import { SIT_SEAT_TOP, TV_GAME_HUD, TV_GAME_SCREEN } from './FurnitureLeisure';
  *
  *   housing:gameSession {active:true}  → 좌석(`seatUid`)의 TV 에 가장 가까운 자리에 `sit` 자세 · TV 화면 쪽 yaw · 어깨 너머 고정 카메라
  *                                         → setFurniturePose (false 면 **그 자리에서** cancelGameSession) · TV 의 게임 화면(`model.tv.overlay`)을 켠다
+ *                                         2026-09-17: `seatUid` null(좌석 없음) = 자세 · 카메라 없이 선 자리 그대로, 게임 화면만 켠다
  *   housing:gameBeat                   → 화면 **속** 표식이 튀고 진행 막대가 오른다 (2026-09-14, 사용자 결정: 키를 누를 때마다 화면이 번쩍이지 않는다)
  *   housing:gameSession {active:false} → 자세를 푼다 (reason `caller`) · 게임 화면을 숨기고 재질을 원래 색으로
  *   player:furniturePoseEnded (sit, 우리가 푼 것이 아니면) → cancelGameSession (자세 없이 미니게임만 남지 않게)
@@ -177,22 +178,25 @@ export class GameStaging {
     };
   }
 
-  private onSession(tvUid: string, seatUid: string, discDefId: string, minigame: GymMinigame, active: boolean): void {
+  private onSession(tvUid: string, seatUid: string | null, discDefId: string, minigame: GymMinigame, active: boolean): void {
     if (!active) { if (this.tvUid === tvUid) this.stop(true); return; }
     const same = this.tvUid === tvUid && this.seatUid === seatUid;
     if (this.tvUid && !same) this.stop(true);
-    const tv = this.find(tvUid), seat = this.find(seatUid);
-    if (!tv?.model.tv || !seat || seat.model.rig?.pose !== 'sit') { this.cancelHousing(); return; }
+    const tv = this.find(tvUid), seat = seatUid ? this.find(seatUid) : null;
+    if (!tv?.model.tv || (seatUid && (!seat || seat.model.rig?.pose !== 'sit'))) { this.cancelHousing(); return; }
     if (!same) {
       this.tvUid = tvUid; this.seatUid = seatUid; this.minigame = minigame;
       this.clock = 0; this.kick = 0; this.progress = 0; this.shownProgress = 0; this.side = 1;
       this.theme.set(this.discColor(discDefId));
     }
     tv.model.tv.overlay.visible = true;
+    // 2026-09-17 (사용자 결정): 좌석은 조건이 아니다 — 좌석이 없으면 자세 · 고정 카메라 없이 **선 자리 그대로** 한다 (게임 화면이 떠 있는
+    // 동안 `housing.game` 블로커가 이동을 막는다). 서는 가구 자세는 조리대용(`cook`)뿐이라 새 자세를 만들지 않았다.
+    if (!seat) return;
     const p = this.ctx.player;
     if (!p || typeof p.setFurniturePose !== 'function') return;   // player 가 아직 자세를 모른다 — 미니게임은 그대로 둔다
     if (same && this.held && p.furniturePose === 'sit') return;    // 같은 세션을 다시 알렸다 — 다시 걸면 풀 때 돌아갈 자리가 좌석이 된다
-    const pose = gamePoseOf(seat, tv, this.blockers(seatUid));
+    const pose = gamePoseOf(seat, tv, this.blockers(seat.item.uid));
     let ok = false;
     // 우리 호출 안에서 나오는 자세 끝 알림(앉아 있던 흔들의자 · 이전 자세)은 우리 것이다
     this.releasing = true;
@@ -216,7 +220,7 @@ export class GameStaging {
     const tv = this.find(this.tvUid);
     const seat = this.seatUid ? this.find(this.seatUid) : null;
     const rig = tv?.model.tv;
-    if (!rig || !seat) { this.stop(true); this.cancelHousing(); return; }   // 세션 도중 TV · 좌석이 사라졌다
+    if (!rig || (this.seatUid && !seat)) { this.stop(true); this.cancelHousing(); return; }   // 세션 도중 TV · (앉아 있던) 좌석이 사라졌다
     rig.overlay.visible = true;
     this.kick = Math.max(0, this.kick - dt / KICK_S);
     // 화면은 늘 같은 밝기다 — 디스크 테마 색 + 잔잔한 맥동만 (2026-09-14, 사용자 결정)

@@ -105,7 +105,9 @@ rotate key is bound only while a drag is in flight); it has no equipment / wheel
 so a release over nothing leaves the item where it was. 2026-09-16 (2nd): `placeExternalAt(item, x, y)` puts an item that is in **no grid yet** (a shelf's book, a cluster's core,
 a station's product — `housing/ui/ProductDrag`) into the cell under the cursor, resolved by the same two-pass hit test as a
 tile drag: free cell → placed, matching stack with room for all of it → merged, anything else → `'blocked'` (nothing is
-displaced; the caller refuses), not over a cell → `null` (the caller falls back to its own rule). Options
+displaced; the caller refuses), not over a cell → `null` (the caller falls back to its own rule). 2026-09-17:
+`previewExternalAt(defId, qty, x, y)` paints the same judgement as the tile-drag footprint highlight (`ok` / `merge` / `bad`,
+nothing changes) and `clearExternalPreview()` hides it — furniture drags light the **cell** under the cursor, not the block. Options
 (`TradeGridsViewOptions`): `grids` (default `['stash', 'bag']`), `layout` (`'wrap'`
 and `'split'` render the same side-by-side panel), `chips` (`'block'` own dropdown per block, `'shared'`, `'none'` +
 `mountFilterChips(host)`), `cell`, `isStaged`, `takeLabel`, `className`. `setCell(px)` rebuilds keeping filter and
@@ -164,6 +166,10 @@ scroll in `.tg-gridwrap`, so the host needs a height-constrained flex parent.
 
 Auto-place never displaces equipped gear — only drag or the context menu `장착` (`equip`) does. Stash double-clicks
 toast (`notifySentTo`); other grids flash the landing slot (`.is-flash`).
+
+**무한 상자** double-click (`Catalog.takeFromCatalog`, 2026-09-17): a fresh instance goes to the **stash first** when the
+stash pane shows (`hubMode`, ship), else / then the bag; on a mission the bag only. No equipment auto-place. Container
+windows never show the stash (`showContainer` clears `hubMode`), so container double-clicks are unchanged.
 
 ## Bag grid
 
@@ -384,8 +390,8 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 
 Older: `git log -- src/inventory`.
 
+- 2026-09-17 — `TradeGridsView.previewExternalAt` / `clearExternalPreview` (shared contract, add-only): the cell-footprint highlight for an item dragged in from a furniture screen, same hit test and rule as `placeExternalAt`.
+- 2026-09-17 — 무한 상자 double-click puts the item into the stash first while the stash shows (ship), then the bag (`takeFromCatalog`; failure toast `창고와 가방에 공간이 없습니다`).
 - 2026-09-17 — The Tab window's `기업` screen tab is hidden (and `setTab('corp')` / `openScreen('corp')` fall back to 인벤토리) until any corp reaches 신뢰도 Lv.1 (`CORP_ACCESS_REP_LEVEL`); re-evaluated live on `meta:repChanged` / `meta:loaded` (`Screens.corpTabLocked`, `onCorpAccessChanged`).
 - 2026-09-16 — `CREDITS` pill removed; bag footer = small `가방 내 가치 n C` (left) + current credits `n C` (right); Tab / Escape popups / R / X ignored while the messenger is open over the window.
 - 2026-09-16 — Craft cells no longer paint the bench-level requirement over the thumbnail (only the detail's hold button says it — `CraftPanel.build`, `.inv-craft-locktag` gone), an uncraftable cell is dimmed much harder (`.inv-craft-cell.is-locked` / `.is-bench-locked`), and `표본` is its own filter chip (`FILTER_GROUPS`, split out of `bio` = `재배`) and its own 무한 상자 tab (`CATALOG_TABS`).
-- 2026-09-16 — Crafting has no skill **speed**, and no live skill gate (every `recipes.csv` `skillRequired` is `0`) — but the gate is still read, so raising a csv number makes that recipe a locked cell tagged `제작 20 필요` (`getRecipes` / `cookBlock` / `CraftPanel.lockedReason`). Instead every craft path refunds materials through one place (`parts/Crafting.refundAfterCraft` — craft skill per **unit**, research bench per run, merged into one delivery and one `재료 회수: …` toast; `researchAfterCraft` is gone).
-- 2026-09-16 — Bench craft window: `닫기` closes the window the bench opened (`closeCraftWindow`), `업그레이드` next to it (`HousingRef.openStorageUpgrade`, ship only), the bench lists **all** of its recipes with level / skill lock reasons (`getBenchRecipes`, `lockedReason`), an empty bench keeps the 5-thumbnail frame, and the detail card no longer scrolls sideways (`.inv-tt-value` bleed).

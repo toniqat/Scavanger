@@ -1,9 +1,9 @@
 import type { EquippedImplant, EnvKind, ImplantItemDef, ItemInstance, MealBuff, MealDef,
   DerivedStats, EmbeddedView, GameContext, GameSystem, GymSessionResult, GymStat, PlayerProfile, ProfileRef, ProgressionRef,
-  SkillDef, SkillId, StatDef, StatId, WeaponClass,
+  SkillDef, SkillId, StatDef, StatId, StatXpSource, WeaponClass,
 } from '@/shared';
 import {
-  GYM_FATIGUE_GAIN_MUL, GYM_FATIGUE_HOURS, GYM_SESSION_XP, GYM_STATS, GYM_TRAIN_XP_BASE, GYM_TRAIN_XP_EXPONENT, GYM_TRAINED_MAX,
+  GYM_FATIGUE_GAIN_MUL, GYM_FATIGUE_HOURS, GYM_SESSION_XP, GYM_STATS, GYM_TRAINED_MAX,
   brokenImplantIdOf,
   IMPLANT_SLOTS_BASE, IMPLANT_SLOTS_MAX, IMPLANT_SLOTS_PER_LEVELS,
   SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN, STAT_POINTS_PER_LEVEL,
@@ -34,12 +34,6 @@ const SKILL_COST_SLOPE = 0.06;
  * Phase 8 (`ui:statsToggled` still opens the overlay for anyone who emits it), and P now belongs to `Keys.INVITE`
  * (분대 초대 수락 홀드). Both listened with `uiBlockers.size === 0`, so they would have fought each other.
  */
-
-/** 단련 경험치 needed to go from 단련 보너스 `n` to `n + 1`: round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT) (A-3a). */
-export function trainedXpFor(n: number): number {
-  const k = Math.max(0, Math.round(Number.isFinite(n) ? n : 0));
-  return Math.max(1, Math.round(GYM_TRAIN_XP_BASE * Math.pow(k + 1, GYM_TRAIN_XP_EXPONENT)));
-}
 
 const isGymStat = (id: unknown): id is GymStat => (GYM_STATS as readonly unknown[]).includes(id);
 /**
@@ -491,23 +485,22 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /* ══ 헬스장 — 단련 보너스 · 운동 디버프 (A-3a, 2026-09-12 — 사용자 결정: 스탯 포인트와 따로 센다) ══════════════════════
-   * housing 의 미니게임이 끝나면 `applyGymSession(stat, 점수)` 를 부른다. 점수 → 단련 경험치 → `profile.trained[stat]`
-   * (상한 `GYM_TRAINED_MAX`, 넘친 경험치는 이월). 단련 보너스는 `stats` 와 섞이지 않고 `derive.stat()` 가 임플란트 보너스와
+   * housing 의 미니게임이 끝나면 `applyGymSession(stat, 점수)` 를 부른다. 점수 → 경험치 → **능력치 경험치 바**
+   * (2026-09-17, `addStatXp(stat, xp, 'minigame')` — 규칙은 그 함수 위) → 바를 넘기면 `profile.trained[stat]` +1
+   * (상한 `GYM_TRAINED_MAX`). 단련 보너스는 `stats` 와 섞이지 않고 `derive.stat()` 가 임플란트 보너스와
    * **같은 자리**에서 더한다. 끝낸 세션은 디버프가 없던 능력치에 `GYM_FATIGUE_HOURS` 의 디버프를 건다 (디버프 중이면
    * 경험치 × `GYM_FATIGUE_GAIN_MUL` 이고 디버프는 늘지 않는다). 시각은 `ctx.net.serverNow() ?? Date.now()` (온실과 같은
-   * 현실 시간). 세 필드 모두 프로필에 살고 `Profile.sanitizeGym` 이 migrate 에서 옮겨 담는다.
+   * 현실 시간). `trained` · `gymFatigueUntil` 은 프로필에 살고 `Profile.sanitizeGym` 이 migrate 에서 옮겨 담는다
+   * (옛 `trainedProgress` 는 2026-09-17 부터 버린다).
    * ──────────────────────────────────────────────────────────────────────────────────────────────────── */
 
   getTrainedBonus(id: StatId): number { return trainedBonusOf(this._profile, id); }
 
-  getTrainedProgress(id: StatId): number {
-    if (!isGymStat(id)) return 0;
-    if (this.getTrainedBonus(id) >= GYM_TRAINED_MAX) return 1;
-    const p = this._profile.trainedProgress?.[id];
-    return typeof p === 'number' && Number.isFinite(p) ? Math.max(0, Math.min(0.999999, p)) : 0;
-  }
+  /** 2026-09-17: the shared stat-XP bar (`getStatProgress`) — there is no separate 단련 bar any more. 0 for a non-gym stat. */
+  getTrainedProgress(id: StatId): number { return isGymStat(id) ? this.getStatProgress(id) : 0; }
 
-  trainedXpToNext(id: StatId): number { return trainedXpFor(this.getTrainedBonus(id)); }
+  /** 2026-09-17: the shared stat-XP bar's need (`statXpToNext`). */
+  trainedXpToNext(id: StatId): number { return this.statXpToNext(id); }
 
   getGymFatigueUntil(id: StatId): number {
     if (!isGymStat(id)) return 0;
@@ -531,7 +524,8 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   /**
    * 함선 전용. 끝낸 운동 세션 하나를 반영한다 (§4 공식). null — 아무것도 바꾸지 않는다 — 레이드 중 · 함선 phase 가 아님 ·
    * 운동 능력치가 아님. 점수는 0 … 1 로 자르고(NaN = 0), 점수 0 이어도 끝낸 세션이면 디버프가 걸린다.
-   * `xp` 는 **실제로 더해진** 경험치다 — 디버프 중이거나 이미 상한이면 0.
+   * `xp` 는 **실제로 더해진** 경험치다 — 디버프 중이면 0. 2026-09-17: 단련이 상한이어도 바에는 들어간다 (넘기지 못할 뿐 —
+   * `addStatXp` 의 minigame 규칙). `progress` = 세션 뒤 능력치 경험치 바, `capped` = 단련 보너스가 상한.
    */
   applyGymSession(id: GymStat, score: number): GymSessionResult | null {
     const ctx = this.ctx;
@@ -544,7 +538,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     const activeUntil = this.getGymFatigueUntil(id);
     const wasFatigued = activeUntil > 0;
     const earned = Math.round(GYM_SESSION_XP * s) * (wasFatigued ? GYM_FATIGUE_GAIN_MUL : 1);
-    const xp = this.getTrainedBonus(id) >= GYM_TRAINED_MAX ? 0 : Math.max(0, Math.round(earned));
+    const xp = Math.max(0, Math.round(earned));
 
     // the debuff is written before the step, whose immediate save then carries both
     let fatigueUntil = activeUntil;
@@ -553,23 +547,36 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       const p = this._profile;
       (p.gymFatigueUntil ?? (p.gymFatigueUntil = {}))[id] = fatigueUntil;
     }
-    const step = this.stepTrained(id, xp);
+    const before = this.getTrainedBonus(id);
+    this.addStatXp(id, xp, 'minigame');                   // always saves immediately on the minigame path (even xp 0)
     if (!wasFatigued) ctx.bus.emit('progress:gymFatigue', { id, until: fatigueUntil });
+    const after = this.getTrainedBonus(id);
 
     return {
-      stat: id, score: s, xp, wasFatigued, trainedBefore: step.before, trainedAfter: step.after,
-      progress: step.progress, capped: step.capped, fatigueUntil,
+      stat: id, score: s, xp, wasFatigued, trainedBefore: before, trainedAfter: after,
+      progress: this.getStatProgress(id), capped: after >= GYM_TRAINED_MAX, fatigueUntil,
     };
   }
 
   /**
-   * 개발자 콘솔 `gym` 전용 (계약 appended 2026-09-12): 단련 경험치를 디버프 · 함선 게이트 · 세션 상한 없이 더한다.
-   * 음수는 뺀다 — 진행도가 0 아래로 가면 한 단계씩 내려가고 0 · 0 이 바닥이다. 상한 `GYM_TRAINED_MAX`.
+   * 개발자 콘솔 `gym` 전용 (계약 appended 2026-09-12): 디버프 · 함선 게이트 · 세션 상한 없이.
+   * 2026-09-17: 양수 = 미니게임 경험치 그대로 (`addStatXp(id, xp, 'minigame')`). 음수 = 바는 건드리지 않고 단련 보너스를
+   * ⌈|xp| / 지금 바의 필요량⌉ 단계 내린다 (0 이 바닥) — 바를 깎으면 기본 능력치가 내려가므로 콘솔 · 스모크의 「단련 초기화」가 되지 않는다.
    * 운동 능력치가 아니거나 유한한 수가 아니면 아무것도 하지 않는다.
    */
   addTrainedXp(id: GymStat, xp: number): void {
     if (!isGymStat(id) || typeof xp !== 'number' || !Number.isFinite(xp)) return;
-    this.stepTrained(id, xp);
+    if (xp >= 0) { this.addStatXp(id, xp, 'minigame'); return; }
+    const before = this.getTrainedBonus(id);
+    const n = Math.max(0, before - Math.ceil(-xp / Math.max(1, this.statXpToNext(id))));
+    this.writeTrained(id, n);
+    const changed = n !== before;
+    if (changed) this.recompute();
+    this.markDirty(true);
+    const bus = this.ctx?.bus;
+    bus?.emit('progress:trainedChanged', { id, value: n, progress: this.getStatProgress(id), delta: xp });
+    if (changed) bus?.emit('progress:statChanged', { id, value: this.getStat(id), pointsLeft: this._profile.statPoints });
+    this.refreshSheetStat(id);
   }
 
   /**
@@ -588,46 +595,11 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     for (const k of cleared) this.ctx?.bus.emit('progress:gymFatigue', { id: k, until: 0 });
   }
 
-  /**
-   * The one 단련 step shared by `applyGymSession` and `addTrainedXp`: signed `xp` on top of the stored progress.
-   * The stored fraction becomes raw XP at the current step (0 at the cap — progress 1 there is only a pin), then the bonus
-   * climbs as many steps as the XP pays for (carry-over, cap `GYM_TRAINED_MAX` → progress 1) or, for a deficit, drops one
-   * step at a time adding that step's need back (floor 0 · 0). Both loops are bounded by the cap width.
-   * Writes the profile, recomputes `derived` when the bonus moved, saves **immediately**, and emits
-   * `progress:trainedChanged {delta: xp}` (+ `progress:statChanged` when the bonus moved).
-   */
-  private stepTrained(id: GymStat, xp: number): { before: number; after: number; progress: number; capped: boolean } {
-    const before = this.getTrainedBonus(id);
-    let n = before;
-    let raw = (before >= GYM_TRAINED_MAX ? 0 : this.getTrainedProgress(id) * trainedXpFor(n)) + xp;
-    for (let i = 0; i <= GYM_TRAINED_MAX && n < GYM_TRAINED_MAX && raw >= trainedXpFor(n); i++) {
-      raw -= trainedXpFor(n);
-      n += 1;
-    }
-    for (let i = 0; i <= GYM_TRAINED_MAX && n > 0 && raw < 0; i++) {
-      n -= 1;
-      raw += trainedXpFor(n);
-    }
-    if (!(raw > 0)) raw = 0;
-    const capped = n >= GYM_TRAINED_MAX;
-    if (capped) n = GYM_TRAINED_MAX;
-    let progress = capped ? 1 : Math.max(0, Math.min(0.999999, raw / trainedXpFor(n)));
-    if (!Number.isFinite(progress)) progress = 0;
-
+  /** Store 단련 bonus `n` for `id` (0 = key removed, so an untouched character keeps an empty map). */
+  private writeTrained(id: GymStat, n: number): void {
     const p = this._profile;
     const trained = p.trained ?? (p.trained = {});
-    const prog = p.trainedProgress ?? (p.trainedProgress = {});
     if (n > 0) trained[id] = n; else delete trained[id];
-    if (progress > 0) prog[id] = progress; else delete prog[id];
-
-    const changed = n !== before;
-    if (changed) this.recompute();                        // the bonus feeds every stat formula (carry · stamina …)
-    this.markDirty(true);                                 // immediate: a reload must neither drop the gain nor the debuff
-
-    const bus = this.ctx?.bus;
-    bus?.emit('progress:trainedChanged', { id, value: n, progress, delta: xp });
-    if (changed) bus?.emit('progress:statChanged', { id, value: this.getStat(id), pointsLeft: p.statPoints });
-    return { before, after: n, progress, capped };
   }
 
   /** Re-announce the 헬스장 state (boot · server document · reset): `trainedChanged` with delta 0, `gymFatigue` while active. */
@@ -1029,9 +1001,10 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
    * STAT_MIN pins it at 0. Always emits `progress:statXp`; a value change also emits `progress:statChanged`
    * (level-up points untouched), recomputes `derived` and saves immediately.
    */
-  addStatXp(id: StatId, amount: number): void {
+  addStatXp(id: StatId, amount: number, source: StatXpSource = 'action'): void {
     if (!(STAT_IDS as readonly string[]).includes(id)) return;
     if (typeof amount !== 'number' || !Number.isFinite(amount)) return;
+    if (source === 'minigame' && isGymStat(id) && amount >= 0) { this.addMinigameStatXp(id, amount); return; }
     const profile = this._profile;
     const sp = profile.statProgress ?? (profile.statProgress = zeroStatProgress());
     const prev = Math.min(STAT_MAX, Math.max(STAT_MIN, Math.round(this.getStat(id))));
@@ -1071,6 +1044,49 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     const bus = this.ctx?.bus;
     bus?.emit('progress:statXp', { id, value, progress, delta: amount });
     if (changed) bus?.emit('progress:statChanged', { id, value, pointsLeft: profile.statPoints });
+    this.refreshSheetStat(id);
+  }
+
+  /**
+   * 2026-09-17 (사용자 결정 「헬스 · 비디오게임은 능력치 경험치 바를 같이 쓴다」) — the `'minigame'` branch of `addStatXp`.
+   *
+   * Invariant (one bar, two payouts): a stat has **one** XP bar (`statProgress[id]` × `statXpFor(base)`). Whoever's addition
+   * crosses the need decides what the crossing pays —
+   *   - action XP (`addStatXp` default) crossing → base stat +1 (`profile.stats`), as before;
+   *   - minigame XP (this branch) crossing → 단련 bonus +1 (`profile.trained`), the base stat and the level-up
+   *     `statPoints` are never touched. The need is the base stat's, so it stays the same across the whole addition and
+   *     every full need in it is one 단련 step (carry-over like action XP).
+   * At `GYM_TRAINED_MAX` a minigame addition can no longer cross: the bar is held just below full (0.999999) and the rest
+   * is dropped, so the *next action XP* that tips it over pays a base point — minigame XP never pays a base point by itself.
+   * A base stat at `STAT_MAX` pins the bar at 1 for action XP; that pinned-full bar counts as empty here (it was not
+   * filled by a minigame), so 단련 can still grow on a maxed stat.
+   * Callers pass only finite `amount >= 0` for a `GYM_STATS` id (`addStatXp` routes anything else to the action path).
+   * Always saves immediately (a gym session also writes its debuff) and emits `progress:statXp` + `progress:trainedChanged`
+   * (+ `progress:statChanged` and a `derived` recompute when the bonus moved).
+   */
+  private addMinigameStatXp(id: GymStat, amount: number): void {
+    const profile = this._profile;
+    const sp = profile.statProgress ?? (profile.statProgress = zeroStatProgress());
+    const base = Math.min(STAT_MAX, Math.max(STAT_MIN, Math.round(this.getStat(id))));
+    const need = statXpFor(base);
+    const stored = this.getStatProgress(id);
+    let xp = (stored >= 1 ? 0 : stored * need) + amount;
+    const before = this.getTrainedBonus(id);
+    let n = before;
+    // bounded by the cap width — a console grant of millions still ends in ≤ GYM_TRAINED_MAX steps
+    for (let i = 0; i <= GYM_TRAINED_MAX && n < GYM_TRAINED_MAX && xp >= need; i++) { xp -= need; n += 1; }
+    let progress = Math.max(0, Math.min(0.999999, xp / need));    // at the cap: held just below full (see above)
+    if (!Number.isFinite(progress)) progress = 0;
+    sp[id] = progress;
+    this.writeTrained(id, n);
+
+    const changed = n !== before;
+    if (changed) this.recompute();                        // the bonus feeds every stat formula (carry · stamina …)
+    this.markDirty(true);                                 // immediate: a reload must neither drop the gain nor the debuff
+    const bus = this.ctx?.bus;
+    bus?.emit('progress:statXp', { id, value: base, progress, delta: amount });
+    bus?.emit('progress:trainedChanged', { id, value: n, progress, delta: amount });
+    if (changed) bus?.emit('progress:statChanged', { id, value: this.getStat(id), pointsLeft: profile.statPoints });
     this.refreshSheetStat(id);
   }
 

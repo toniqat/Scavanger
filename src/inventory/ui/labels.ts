@@ -347,6 +347,8 @@ export const TEXT = {
     empty: '일치하는 아이템이 없습니다',
     close: '닫기',
     bagFull: '가방에 공간이 없습니다',
+    /** 2026-09-17: 함선에서는 더블클릭이 창고 → 가방 순서라 둘 다 찼다고 말한다. */
+    stashBagFull: '창고와 가방에 공간이 없습니다',
     tabs: {
       all: '전체', weapon: '무기', ammo: '탄약', attachment: '부착물', bag: '가방', armor: '방탄복',
       gadget: '가젯', consumable: '소모품', material: '재료', herb: '약초', seed: '씨앗', book: '서재', furniture: '가구',

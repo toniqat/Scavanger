@@ -65,6 +65,26 @@ const HOLO_CORE = new THREE.MeshStandardMaterial({ color: 0xc8f4ff, roughness: 0
  * 들어갈 만큼(가구 높이의 0.28 ≈ 0.62 m) 띄웠다.
  */
 const GROW_TIER_Y: Readonly<Record<GrowTier, number>> = { 0: 0.44, 1: 0.16, 2: 0.72 };
+/**
+ * 배양조 유리관 · 배지 · 세포 덩어리 (2026-09-17). 예전 관은 불투명한 `glassDark` 라 안의 배양액이 보이지 않았다 — 칸에 무엇이
+ * 들었는지 보이려면 유리가 비쳐야 한다. 유리 · 배지는 반투명(`depthWrite: false`)이고 세포 덩어리는 불투명이라 불투명 패스에서 먼저 그려져
+ * 두 겹 너머로 비친다. 전부 재질뿐이다 — 광원은 하나도 만들지 않는다.
+ */
+const CULTURE_GLASS = new THREE.MeshStandardMaterial({ color: 0xbfe6ff, roughness: 0.08, metalness: 0.1, emissive: 0x10243a, emissiveIntensity: 0.4, transparent: true, opacity: 0.22, depthWrite: false });
+const CULTURE_MASS = new THREE.MeshStandardMaterial({ color: 0xf6ece2, roughness: 0.6, metalness: 0, emissive: 0xffe2c8, emissiveIntensity: 0.6 });
+/** 색이 없는 배지 def 의 배양액 색 (배양 화면 `FLUID_FALLBACK` 과 같은 색). */
+const CULTURE_FLUID_FALLBACK = '#8fe8ff';
+const cultureFluidCache = new Map<string, THREE.MeshStandardMaterial>();
+/** 배지 색의 배양액 재질 (반투명 · 은은한 자체 발광). 색마다 한 번 만들고 버리지 않는다 (`tint` 와 같은 규약). */
+function cultureFluid(css: string): THREE.MeshStandardMaterial {
+  let m = cultureFluidCache.get(css);
+  if (!m) {
+    const c = new THREE.Color(css);
+    m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.25, metalness: 0, emissive: c, emissiveIntensity: 0.9, transparent: true, opacity: 0.5, depthWrite: false });
+    cultureFluidCache.set(css, m);
+  }
+  return m;
+}
 
 /** Ghost materials for the housing-mode preview. */
 export const GHOST_OK = new THREE.MeshBasicMaterial({ color: 0x5cff8a, transparent: true, opacity: 0.45, depthWrite: false });
@@ -106,6 +126,11 @@ export interface BuildExtra {
    */
   cultureReady?: number;
   /**
+   * 배양조 (2026-09-17, 사용자 결정): 칸별 겉모습 — `null` = 빈 칸, 아니면 배지 색 (`ItemDef.color`) · 세포주가 들었는가 (시작 전이든
+   * 배양 중이든 같다 — 스캐폴드 · 세포주 종류는 가르지 않는다) · 수확 가능. 있으면 `cultureReady` 대신 이것을 본다. 광원 없음.
+   */
+  cultureSlots?: readonly (CultureLook | null)[];
+  /**
    * 식탁 (2026-09-16 접시 모델): 이 식탁에 놓인 내 접시 (`HousingRef.getPlate`), 없으면 null · 생략. 빌더가 상판 위에 요리 모양을 올린다
    * (`TablePlates.addPlateToBatch` — 광원 없음). 접시가 바뀌면 `housing:tablePlatesChanged` 로 식탁이 있는 방만 다시 짓는다.
    */
@@ -138,6 +163,15 @@ export interface BuildExtra {
   consoleLook?: number | null;
   /** TV: 이 TV 로 게임 세션이 진행 중이다 — 게임 화면(`model.tv.overlay`)을 보이는 채로 짓는다. */
   gameActive?: boolean;
+}
+
+/** 배양조 칸 하나의 겉모습 (`BuildExtra.cultureSlots`). */
+export interface CultureLook {
+  /** 배지 색 (CSS). */
+  color: string;
+  /** 세포주가 들어 있다 (시작 대기 포함). */
+  filled: boolean;
+  ready: boolean;
 }
 
 /** Build the model of `def` (unrotated, centred, front toward −Z). `extra` carries per-piece state (책장 books). */
@@ -475,6 +509,7 @@ const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
   culture_tank: (b, w, d, h, a, lv, extra) => {
     const open = cultureSlotsForLevel(lv);
     const ready = Math.max(0, Math.min(CULTURE_MAX_SLOTS, Math.floor(extra?.cultureReady ?? 0)));
+    const looks = extra?.cultureSlots;
     // ── 받침 · 배지 캐비닛 · 제어반
     b.boxB(w - 0.08, 0.14, d - 0.06, 0, 0, 0, M.hullDark);
     const cabY = 0.14, cabH = 0.5;
@@ -494,9 +529,31 @@ const BUILDERS: Record<Exclude<FurnitureModelKind, LeisureKind>, Builder> = {
     const tubeY = deck + 0.05, tubeH = Math.max(0.3, h - tubeY - 0.24);
     for (let s = 0; s < CULTURE_MAX_SLOTS; s++) {
       const px = -w / 2 + (s + 0.5) * (w / CULTURE_MAX_SLOTS);
-      const lit = s < open, done = s < ready;
-      const glow = lit ? (done ? M.stripAmber : M.stripGrow) : M.hullDark;
+      const lit = s < open;
       b.cyl(0.12, 0.14, 0.06, 14, px, tubeY + 0.03, 0, M.gunmetal);                              // 관 받침
+      if (looks) {
+        // 2026-09-17: 칸의 실제 상태 — 배지를 부은 관만 그 배지 색의 배양액이 차고, 세포주가 들었으면 액체 속에 세포 덩어리가 선다
+        const look = lit ? looks[s] ?? null : null;
+        const done = !!look?.ready;
+        b.cyl(0.115, 0.115, tubeH, 14, px, tubeY + 0.06 + tubeH / 2, 0, lit ? CULTURE_GLASS : M.glassDark, 0, 0, 0, true);   // 유리관
+        const fluidH = tubeH * 0.62, fluidY = tubeY + 0.06;
+        if (look) b.cyl(0.1, 0.1, fluidH, 14, px, fluidY + fluidH / 2, 0, cultureFluid(look.color));                     // 배양액
+        else b.cyl(0.1, 0.1, 0.02, 14, px, fluidY + 0.01, 0, lit ? M.hullDark : M.gunmetal);                             // 빈 관 바닥
+        if (look?.filled) {
+          // 세포 덩어리 셋 — 종류를 가르지 않는 「무언가 들어 있다」. 불투명이라 배양액 · 유리 너머로 비친다
+          b.add(new THREE.SphereGeometry(0.042, 10, 8), CULTURE_MASS, px, fluidY + fluidH * 0.42, -0.012);
+          b.add(new THREE.SphereGeometry(0.03, 10, 8), CULTURE_MASS, px + 0.035, fluidY + fluidH * 0.62, 0.018);
+          b.add(new THREE.SphereGeometry(0.024, 8, 6), CULTURE_MASS, px - 0.032, fluidY + fluidH * 0.27, 0.02);
+        }
+        b.cyl(0.018, 0.018, tubeH * 0.78, 6, px, tubeY + 0.06 + tubeH * 0.39, 0.075, M.trim);       // 폭기관
+        b.cyl(0.13, 0.13, 0.06, 14, px, tubeY + 0.09 + tubeH, 0, M.hullLight);                      // 상단 캡
+        b.cyl(0.024, 0.024, d / 2 - 0.1, 8, px, h - 0.13, (d / 2 - 0.1) / 2, M.trim, Math.PI / 2);  // 급액 라인 (매니폴드 → 관)
+        b.cyl(0.02, 0.02, 0.09, 6, px, h - 0.18, 0, M.trim);                                        // 노즐
+        b.box(0.09, 0.02, 0.03, px, tubeY + 0.02, -(d / 2 - 0.1), lit ? (done ? M.stripAmber : a) : M.hullDark);   // 칸 표식
+        continue;
+      }
+      const done = s < ready;
+      const glow = lit ? (done ? M.stripAmber : M.stripGrow) : M.hullDark;
       b.cyl(0.115, 0.115, tubeH, 14, px, tubeY + 0.06 + tubeH / 2, 0, M.glassDark, 0, 0, 0, true);   // 유리관
       b.cyl(0.085, 0.085, tubeH * 0.52, 12, px, tubeY + 0.06 + tubeH * 0.26, 0, glow);            // 배양액
       b.cyl(0.018, 0.018, tubeH * 0.78, 6, px, tubeY + 0.06 + tubeH * 0.39, 0.055, M.trim);       // 폭기관
@@ -819,6 +876,8 @@ export interface FurnitureSource {
   getMedia?(uid: string): readonly (Rarity | null)[];
   /** A-3e (2026-09-12): TV · 레코드 플레이어가 켜져 있는가 (`ShipVisitWire.toggled`). */
   isOn?(uid: string): boolean;
+  /** 2026-09-17: 배양조 칸 — 배지 def id · 세포주가 들었는가 (`ShipVisitWire.cultures`). */
+  getCultures?(uid: string): readonly { slot: number; medium: string; filled: boolean }[];
 }
 
 interface Piece {
@@ -1262,7 +1321,7 @@ export class FurnitureLayer {
   private buildExtra(def: FurnitureDef, uid: string): BuildExtra | undefined {
     if (def.model === 'bookshelf') return { books: this.shelfBooks(uid) };
     if (def.model === 'analyzer') return { analysisReady: this.analysisReady(uid) };
-    if (def.model === 'culture_tank') return { cultureReady: this.cultureReady(uid) };
+    if (def.model === 'culture_tank') return { cultureReady: this.cultureReady(uid), cultureSlots: this.cultureLooks(uid) };
     // A-3e · A-3a (2026-09-12)
     const medium = shelfMediumOfInteraction(def.interaction);
     // 2026-09-13 비디오게임: 게임 디스크 전시대는 등급(방문 와이어의 대체값)과 함께 칸별 테마 색을 받는다
@@ -1423,6 +1482,34 @@ export class FurnitureLayer {
    * `ctx.housing` is duck-typed / try-caught, so an unfinished folder degrades to a dark tank instead of throwing
    * in the middle of a room rebuild.
    */
+  /**
+   * 배양조 칸별 겉모습 (2026-09-17). 우리 함선은 `ctx.housing.getCultureSlots`, 방문한 함선은 와이어(`FurnitureSource.getCultures`
+   * ← `ShipVisitWire.cultures`). 배지 색은 어느 쪽이든 로컬 카탈로그에서 찾는다 (책 등급과 같은 길). 둘 다 duck-typed / try-caught.
+   */
+  private cultureLooks(uid: string): (CultureLook | null)[] {
+    const out: (CultureLook | null)[] = new Array(CULTURE_MAX_SLOTS).fill(null);
+    const colorOf = (defId: string): string => {
+      try { return this.ctx.loot?.getItemDef(defId)?.color || CULTURE_FLUID_FALLBACK; } catch { return CULTURE_FLUID_FALLBACK; }
+    };
+    if (this.source) {
+      try {
+        for (const c of this.source.getCultures?.(uid) ?? []) {
+          if (c.slot >= 0 && c.slot < CULTURE_MAX_SLOTS) out[c.slot] = { color: colorOf(c.medium), filled: c.filled, ready: false };
+        }
+      } catch { /* old wire */ }
+      return out;
+    }
+    const h = this.ctx.housing;
+    if (!h || typeof h.getCultureSlots !== 'function') return out;
+    try {
+      for (const s of h.getCultureSlots(uid)) {
+        if (s.locked || !s.mediumDefId || s.slot < 0 || s.slot >= CULTURE_MAX_SLOTS) continue;
+        out[s.slot] = { color: colorOf(s.mediumDefId), filled: !!s.strainDefId, ready: s.ready };
+      }
+    } catch { /* unfinished folder */ }
+    return out;
+  }
+
   private cultureReady(uid: string): number {
     if (this.source) return 0;
     const h = this.ctx.housing;

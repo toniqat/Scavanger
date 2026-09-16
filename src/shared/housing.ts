@@ -907,9 +907,11 @@ export interface AnalysisSlotInfo {
  * 같은 실용 가구를 **이미 가지고 있으면 제작이 잠기고**(`HousingRef.furnitureCraftBlock`) 제작 목록의 맨 아래로
  * 내려간다 (사용자 결정 2026-09-11 — 벤치 레벨은 가장 높은 하나만 세므로 두 번째를 만들 이유가 없다).
  * 장식 가구(`interaction: 'none'`)는 얼마든지 만든다.
+ * 2026-09-17 (사용자 결정): 앉기만 하는 좌석(`seat` — 의자 · 쇼파)도 **꾸밈용 가구**다. E 로 앉고 TV 앞이면 게임 자리가 되는 것은
+ * 그대로지만 시설 관리의 「시설 가구 / 꾸밈용 가구」 하위 탭에서는 꾸밈용에 선다 (흔들의자는 서재 보너스가 있어 시설 가구로 남는다).
  */
 export function isUtilityFurniture(def: FurnitureDef): boolean {
-  return def.interaction !== 'none';
+  return def.interaction !== 'none' && def.interaction !== 'seat';
 }
 
 export interface ShipState {
@@ -2094,7 +2096,8 @@ export interface HousingRef {
  * 2. **띠.** 매체 보관함을 보유(배치 · 가구 창고)하고 있고 그 종류가 어느 보관함에도 꽂혀 있지 않으면 `isShelfItemWanted` 가 true.
  * 3. **레시피 책.** `recipe` 효과는 그 책이 **꽂혀 있는 동안만** 레시피를 연다 (`isRecipeUnlocked`).
  * 4. **비디오게임.** TV 에 게임기를 장착하고(`tvConsoles`), 게임 디스크 전시대에 꽂힌 디스크 중 게임기가 맞는 것을 플레이한다.
- *    TV 정면의 좌석(`SEAT_INTERACTIONS`)이 TV 를 보고 있고 그 사이 통로에 `low` 가 아닌 가구가 없어야 한다 (`tvSeatBlock`).
+ *    TV 정면의 좌석(`SEAT_INTERACTIONS`)이 TV 를 보고 있고 그 사이 통로에 `low` 가 아닌 가구가 없으면 거기 앉아 한다 (`getTvSeat`).
+ *    2026-09-17 (사용자 결정): 좌석은 **조건이 아니다** — 없으면 서서 한다 (`tvSeatBlock` 은 좌석을 못 쓰는 이유일 뿐 게임을 막지 않는다).
  *    결과는 헬스와 같은 `ProgressionRef.applyGymSession(stat, score)` 이다 (능력치별 24 h 디버프 — 사용자 결정).
  *
  * 새 `HousingRef` 메서드는 전부 optional — 병렬로 짓는 동안에도 트리가 타입체크를 통과하고, 소비자는 `typeof h.x === 'function'` 로 방어한다.
@@ -2144,7 +2147,10 @@ export interface HousingRef {
   detachTvConsole?(tvUid: string): string | null;
   /** TV 를 보고 있는 유효한 좌석 uid (가장 가까운 것), 없으면 null. */
   getTvSeat?(tvUid: string): string | null;
-  /** 좌석 규칙이 거절하는 한국어 사유 (`TV 정면에 의자나 쇼파가 없습니다` · `TV 와 좌석 사이를 가구가 막고 있습니다` …), 되면 null. */
+  /**
+   * 좌석 규칙이 좌석을 고르지 못한 한국어 사유 (`TV 정면에 의자나 쇼파가 없습니다` · `TV 와 좌석 사이를 가구가 막고 있습니다` …), 되면 null.
+   * 2026-09-17: 진단용이다 — 게임을 막지 않고(`gameBlock` 이 보지 않는다) TV 화면에도 뜨지 않는다.
+   */
   tvSeatBlock?(tvUid: string): string | null;
   /** 이 TV 로 고를 수 있는 게임 디스크 전부 (함선의 게임 디스크 전시대에 꽂힌 것) + 각각의 거절 사유. */
   getPlayableGames?(tvUid: string): readonly PlayableGameInfo[];
@@ -2326,3 +2332,24 @@ export interface HousingRef {
   clearPlate?(): boolean;
 }
 /* ══ end 2026-09-16 식탁 접시 ══ */
+
+/* ══ 2026-09-17 배양 시작 확인 (owner: housing/parts/Culture) ══════════════════════════════════════════════════
+ * 세포주를 넣는 것만으로는 배양이 시작되지 않는다 — 칸 아래 「배양 시작」 버튼 → 1초 홀드 확인(`startCulture`)이 타이머를 건다.
+ * 시작 전(`CultureSlot.strainDefId` 는 있고 `startedAt` · `readyAt` 는 없다)에는 세포주 · 스캐폴드 · 쓰지 않은 배지를 되돌려받는다.
+ * 옛 세이브의 세포주는 늘 `startedAt` 을 들고 있으므로 그대로 배양 중이다 (마이그레이션이 따로 없다). */
+export interface CultureSlotInfo {
+  /** 배양이 시작됐다 (타이머가 걸렸다). 세포주가 있고 이것이 false = 시작 대기. */
+  started: boolean;
+  /** 배지를 되돌려받을 수 있다 (`takeMedium`) — 세포주 · 스캐폴드 · 소켓이 없고 내구도가 가득. */
+  mediumReturnable: boolean;
+}
+
+export interface HousingRef {
+  /** 배지 + 세포주가 든 시작 전 칸의 배양을 시작한다 — `readyAt` 이 **여기서** 확정되고, 그 뒤로는 넣은 것을 되돌려받지 못한다. 한국어 사유 / null. */
+  startCulture?(uid: string, slot: number): string | null;
+  /** 시작 전 칸의 세포주를 되돌려받는다 (`dest` 기본 `'bag-first'`). 한국어 사유 / null. */
+  takeStrain?(uid: string, slot: number, dest?: HarvestDestination): string | null;
+  /** 한 번도 쓰지 않은 배지(내구도 가득 · 소켓 · 스캐폴드 · 세포주 없음)를 칸째 되돌려받는다. 한국어 사유 / null. */
+  takeMedium?(uid: string, slot: number, dest?: HarvestDestination): string | null;
+}
+/* ══ end 2026-09-17 배양 시작 확인 ══ */

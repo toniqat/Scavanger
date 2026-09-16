@@ -830,7 +830,7 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     if (open === undefined) {
       if (displacedUids.has(c.uid)) {
         // 2026-09-13: 옮겨진 배양조의 배지 · 스캐폴드 · 넣은 세포주 · 소켓
-        refundSlotOnce(`c#${c.uid}#${c.slot}`, [c.mediumDefId, c.scaffoldDefId, int(c.startedAt, 0, 0) > 0 ? c.strainDefId : null, ...(socketIdsOf(c.sockets) ?? [])]);
+        refundSlotOnce(`c#${c.uid}#${c.slot}`, [c.mediumDefId, c.scaffoldDefId, c.strainDefId, ...(socketIdsOf(c.sockets) ?? [])]);
       }
       continue;
     }
@@ -855,6 +855,10 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
       entry.strainDefId = c.strainDefId;
       entry.startedAt = startedAt;
       entry.readyAt = int(c.readyAt, startedAt, startedAt);
+    } else if (isItemDefIdShape(c.strainDefId)) {
+      // 2026-09-17 (배양 시작 확인): 세포주만 넣고 아직 시작하지 않은 칸 — 타이머 없이 세포주만 남긴다. 옛 세이브에는 이런 칸이
+      // 없다 (넣는 순간 시작됐고 `startedAt` 이 없으면 위에서 버렸다) → 배양 중이던 칸은 그대로 배양 중이다.
+      entry.strainDefId = c.strainDefId;
     }
     cultures.push(entry);
   }

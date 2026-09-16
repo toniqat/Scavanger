@@ -389,7 +389,9 @@ try {
   const bagDiag = await H((t) => {
     const u = document.elementFromPoint(t.tx, t.ty);
     return { under: u ? `${u.tagName}.${u.className}` : null, grid: u?.closest('[data-tg-grid]')?.dataset.tgGrid ?? null,
-      over: !!document.querySelector('[data-tg-grid].hs-drop-over') };
+      // 2026-09-17: 격자 통째가 아니라 **커서 밑 칸**의 발자국이 강조된다 (`ProductDrag` → `previewExternalAt`, `.inv-hl`)
+      over: [...document.querySelectorAll('[data-tg-grid="bag"] .inv-hl')].some((h) => !h.hidden && !h.classList.contains('is-bad'))
+        && !document.querySelector('[data-tg-grid].hs-drop-over') };
   }, bagAt);
   await page.mouse.up();
   await sleep(50);
@@ -397,7 +399,7 @@ try {
   ok(ghost, '다 자란 작물을 끌면 고스트가 따라온다');
   ok(bag2 > bag1 && stash2 === stash1, `가방 격자에 놓으면 가방으로만 (${bag1} → ${bag2}, 창고 ${stash1} → ${stash2})`,
     JSON.stringify({ bagDiag, notify: await H(() => window.__notify.slice(-3)) }));
-  ok(bagDiag.over && bagDiag.grid === 'bag', `끄는 동안 가방 격자가 강조된다 (${JSON.stringify(bagDiag)})`);
+  ok(bagDiag.over && bagDiag.grid === 'bag', `끄는 동안 가방 격자의 커서 밑 칸이 강조된다 (${JSON.stringify(bagDiag)})`);
   ok(await H(() => !document.querySelector('.hs-ghost')), '놓으면 고스트가 사라진다');
 
   /* ── 우클릭 메뉴: 흙 비우기 / 작물 버리고 흙 비우기 ── */
@@ -644,7 +646,7 @@ try {
   await giveStash('mat_medium_basic', 1); await giveStash(STRAIN, 3);
   await H((u) => window.__game.ctx.housing.openCultureTank(u), CT);
   await waitFor(page, () => !document.querySelector('.menu.culture-tank')?.hidden, 'culture tank open');
-  const started = await H(({ u, s }) => { const h = window.__game.ctx.housing; return [h.fillMedium(u, 0, 'mat_medium_basic'), h.insertStrain(u, 0, s)]; }, { u: CT, s: STRAIN });
+  const started = await H(({ u, s }) => { const h = window.__game.ctx.housing; return [h.fillMedium(u, 0, 'mat_medium_basic'), h.insertStrain(u, 0, s), h.startCulture(u, 0)]; }, { u: CT, s: STRAIN });
   await sleep(20);
   const ct = await H(() => {
     const r = document.querySelector('.menu.culture-tank');
@@ -665,8 +667,9 @@ try {
   // 2026-09-13 (사용자 결정): 세로로 긴 유리 배양관 3개가 늘 3열로 나란히, 잠긴 관은 점선 + 「Lv.N 필요」
   ok(ct.cols === 3 && ct.slots.length === 3 && ct.slots[0].drop && ct.slots[0].h > ct.slots[0].w * 2 && ct.slots.every((s) => s.top === ct.slots[0].top),
     `배양관 3개가 한 줄 3열 · 세로로 긴 유리관 (${JSON.stringify(ct.slots)})`);
-  ok(ct.slots.slice(1).every((s, i) => s.locked && !s.drop && s.lock === `Lv.${i + 2} 필요`) && ct.buttons === 0 && CLOCK.test(ct.time),
-    `잠긴 관 = 드롭 대상 아님 + 「Lv.N 필요」 · 칸 버튼 없음 · HH:MM:SS (${ct.time})`);
+  // 2026-09-17: 열린 관마다 「배양 시작」 버튼 하나 (잠긴 관에는 없다)
+  ok(ct.slots.slice(1).every((s, i) => s.locked && !s.drop && s.lock === `Lv.${i + 2} 필요`) && ct.buttons === 1 && CLOCK.test(ct.time),
+    `잠긴 관 = 드롭 대상 아님 + 「Lv.N 필요」 · 칸 버튼 = 배양 시작 ${ct.buttons}개 · HH:MM:SS (${ct.time})`);
   ok(ct.lvl === '1.000' && ct.fills >= 1, `배지를 부으면 그 관의 액체가 차오른다 (--lvl ${ct.lvl} = 새 배지 내구도 가득, 연출 ${ct.fills}회)`);
   const cm = await H(() => {
     const c = document.querySelector('.menu.culture-tank .cult-slot[data-slot="0"] .cult-cell');
@@ -755,7 +758,7 @@ try {
     // 스캐폴드 + 세포주 → 종별 고기 (산출물 = 세포주의 스캐폴드 산출) → 수확하면 스캐폴드 소모 · 배지는 남는다
     await dropVia('cultureTank', 'food_scaffold', CELL);
     const out = await H((s) => window.__game.ctx.loot.getItemDef(s)?.strain?.scaffoldOutputDefId ?? null, STRAIN);
-    const ins = await H(({ u, s }) => window.__game.ctx.housing.insertStrain(u, 0, s), { u: CT, s: STRAIN });
+    const ins = await H(({ u, s }) => { const h = window.__game.ctx.housing; return h.insertStrain(u, 0, s) ?? h.startCulture(u, 0); }, { u: CT, s: STRAIN });
     await sleep(20);
     const meatInfo = await ctInfo();
     ok(ins === null && !!out && meatInfo.yieldDefId === out, `스캐폴드 칸의 세포주 → 산출물 = 종별 고기 (${meatInfo.yieldDefId}, 기대 ${out}) ${ins ?? ''}`);

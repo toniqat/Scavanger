@@ -1,5 +1,7 @@
-import type { ShelfMedium } from '@/shared';
-import { SHELF_SLOTS, SHELF_TIERS, SHELF_TIER_COLS, shelfSlotsPerTier } from '@/shared';
+import type { ItemDef, ShelfMedium } from '@/shared';
+import { SHELF_SLOTS, SHELF_TIERS, SHELF_TIER_COLS, itemGridBox, shelfSlotsPerTier } from '@/shared';
+import { shelfHolderMediumOfItem } from '../Rules';
+import { buildFootprintCells, cellToFit } from './ItemTile';
 import { clear, el, setText, toggleClass } from './dom';
 
 /**
@@ -57,6 +59,21 @@ export function shelfSlotBox(medium: ShelfMedium): { width: number; height: numb
   return SHELF_SLOT_BOX[medium] ?? SHELF_SLOT_BOX.book;
 }
 
+/**
+ * **그 매체가 받는 아이템의 발자국** (칸 수) — 2026-09-17 (사용자 결정 「칸 모양은 받는 아이템의 크기를 따른다」).
+ * 매체에 속하는 아이템 def 들(`shelfHolderMediumOfItem`)의 **가장 큰 폭 · 높이**다: 어느 것을 꽂아도 칸에 통째로 들어간다.
+ * 데이터에 적힌 크기가 원본이라 코드에 1×2 · 2×2 를 적지 않는다. def 가 없으면(부팅 순서) null — 칸 상자 하나로 그린다.
+ */
+export function shelfFootprint(defs: readonly ItemDef[] | null | undefined, medium: ShelfMedium): { w: number; h: number } | null {
+  let w = 0, h = 0;
+  for (const d of defs ?? []) {
+    if (d.retired || shelfHolderMediumOfItem(d) !== medium) continue;
+    w = Math.max(w, Math.floor(d.width ?? 1));
+    h = Math.max(h, Math.floor(d.height ?? 1));
+  }
+  return w > 0 && h > 0 ? { w, h } : null;
+}
+
 export interface ShelfSlotView {
   readonly slot: number;
   /** `.lib-slot[data-slot]` — the drop target; `.is-filled` while something is shelved, `.is-full` while its series is complete. */
@@ -71,6 +88,10 @@ export interface ShelfDrawing {
   readonly root: HTMLElement;
   readonly medium: ShelfMedium;
   readonly slots: readonly ShelfSlotView[];
+  /** 2026-09-17: 칸의 발자국 (칸 수) — 빈 칸이 이만큼의 격자 칸으로 그려진다. */
+  readonly footprint: { w: number; h: number };
+  /** 2026-09-17: 격자 칸 한 변(px) — 꽂힌 타일도 이 칸 크기로 짓는다 (빈 칸과 꽂힌 칸이 같은 상자다). */
+  readonly cell: number;
 }
 
 /** What one slot shows. `defId` null = empty (the other fields are ignored except `line`). */
@@ -84,15 +105,22 @@ export interface ShelfSlotPaint {
   full?: boolean;
 }
 
-/** (Re)draw the case for `medium` into `host` (emptied first). */
-export function buildShelfDrawing(host: HTMLElement, medium: ShelfMedium): ShelfDrawing {
+/**
+ * (Re)draw the case for `medium` into `host` (emptied first).
+ * 2026-09-17: `footprint` (칸 수, `shelfFootprint`) 를 주면 칸 상자가 **그 발자국의 격자 상자**다 — 매체의 자리
+ * (`SHELF_SLOT_BOX`) 안에 통째로 들어가는 칸 크기(`cellToFit`)로 잰다. 주지 않으면 1×1 칸 하나로 자리를 채운다.
+ */
+export function buildShelfDrawing(host: HTMLElement, medium: ShelfMedium, footprint?: { w: number; h: number } | null): ShelfDrawing {
   clear(host);
   const root = el('div', { cls: 'lib-case', attrs: { 'data-medium': medium }, parent: host });
   const count = SHELF_SLOTS[medium];
   const cols = Math.max(1, SHELF_TIER_COLS[medium]);
   const perTier = shelfSlotsPerTier(medium);
   const tiers = Math.max(1, SHELF_TIERS[medium]);
-  const box = shelfSlotBox(medium);
+  const room = shelfSlotBox(medium);
+  const fp = footprint ?? { w: 1, h: 1 };
+  const cell = cellToFit(room.width, room.height, fp.w, fp.h);
+  const box = itemGridBox(fp.w, fp.h, cell);
   root.style.setProperty('--lib-cols', String(cols));
   root.style.setProperty('--lib-item-w', `${box.width}px`);
   root.style.setProperty('--lib-item-h', `${box.height}px`);
@@ -118,7 +146,7 @@ export function buildShelfDrawing(host: HTMLElement, medium: ShelfMedium): Shelf
     }
   }
   el('div', { cls: 'lib-plinth', parent: root });
-  return { root, medium, slots };
+  return { root, medium, slots, footprint: fp, cell };
 }
 
 /**
@@ -126,10 +154,16 @@ export function buildShelfDrawing(host: HTMLElement, medium: ShelfMedium): Shelf
  * `buildTile` makes the inventory tile for a def id; it is only called when the slot's item **changed**
  * (`data-def-id` on the cell box is the memo), so a 1 Hz refresh never rebuilds a tile.
  */
-export function paintShelfSlot(v: ShelfSlotView, p: ShelfSlotPaint, buildTile: (defId: string) => HTMLElement): void {
+export function paintShelfSlot(
+  v: ShelfSlotView, p: ShelfSlotPaint, buildTile: (defId: string) => HTMLElement, empty?: { w: number; h: number; cell: number },
+): void {
   const filled = p.defId !== null;
   toggleClass(v.root, 'is-filled', filled);
   toggleClass(v.root, 'is-full', filled && p.full === true);
+  // 2026-09-17: 빈 칸 = 발자국만큼의 격자 칸 (`empty` 를 준 화면만). 한 번 지은 빈 칸은 다시 짓지 않는다.
+  if (!filled && empty && v.item.dataset.defId === undefined && !v.item.firstChild) {
+    v.item.appendChild(buildFootprintCells(empty.w, empty.h, empty.cell));
+  }
   if (v.item.dataset.defId !== (p.defId ?? undefined)) {
     clear(v.item);
     if (filled) {
@@ -141,6 +175,7 @@ export function paintShelfSlot(v: ShelfSlotView, p: ShelfSlotPaint, buildTile: (
     } else {
       delete v.item.dataset.itemTip;
       delete v.item.dataset.defId;
+      if (empty) v.item.appendChild(buildFootprintCells(empty.w, empty.h, empty.cell));
     }
   }
   const vol = filled ? p.volume ?? '' : '';

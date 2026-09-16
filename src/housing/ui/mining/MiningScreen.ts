@@ -71,9 +71,11 @@ export class MiningScreen extends HousingPanel {
     super(ctx, 'cluster', 'mining-screen hs-station');
     this.coalesceRefresh = true;
 
-    const tabs = el('nav', { cls: 'mn-tabs', parent: this.frame });
+    /* 2026-09-17 (사용자 결정): 탭 줄은 Tab 화면과 **같은 자리**다 — 같은 `.scr-tabs` 를 프레임이 아니라 화면 루트에
+       붙인다 (절대 배치 `top: 22px`, `ui/styles/base.css`). 프레임은 그 밑에서 시작한다 (`mining.css`). */
+    const tabs = el('nav', { cls: 'scr-tabs mn-tabs', parent: this.root });
     for (const id of MINING_TABS) {
-      const b = el('button', { cls: 'mn-tab', text: MINING_TAB_LABEL_KO[id], attrs: { 'data-tab': id }, parent: tabs });
+      const b = el('button', { cls: 'scr-tab mn-tab', text: MINING_TAB_LABEL_KO[id], attrs: { 'data-tab': id }, parent: tabs });
       b.type = 'button';
       b.addEventListener('click', (e) => {
         e.stopPropagation();

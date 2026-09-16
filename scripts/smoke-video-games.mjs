@@ -358,10 +358,21 @@ try {
           ctx.uiBlockers.add('smoke');
           r.blockOther = h.gameBlock(TV, discA);
           ctx.uiBlockers.delete('smoke');
-          // 좌석을 치우면 좌석 사유
+          // 2026-09-17 (사용자 결정): 좌석은 조건이 아니다 — 치워도 시작할 수 있고 서서 한다 (`seatUid` null, 앉기 자세 없음)
           const chairItem = h.getPlacedByUid(CHAIR);
           r.recoverChair = h.recover(CHAIR);
           r.noSeat = h.gameBlock(TV, discA);
+          r.noSeatUid = h.getTvSeat(TV);
+          r.noSeatReason = h.tvSeatBlock(TV);
+          h.openTvMenu(TV);
+          r.standMenu = { seat: document.querySelector('.tv-menu .tvm-seat')?.textContent ?? null, bad: !!document.querySelector('.tv-menu .tvm-seat.is-bad') };
+          h.tvMenu?.close(false);
+          r.standStart = h.startGameSession(TV, discA);
+          window.__game.getSystem('player').recomputeBuffs?.();
+          r.stand = { info: h.gameSession ? { ...h.gameSession } : null, ev: window.__rec.sessions.at(-1) ?? null, pose: ctx.player.furniturePose ?? null,
+            gaming: (ctx.player.buffs ?? []).some((b) => b.kind === 'gaming') || null };
+          h.cancelGameSession();
+          r.standEnd = { info: h.gameSession, ev: window.__rec.sessions.at(-1) ?? null };
           r.chair = h.place(chairItem.room, chairItem.defId, chairItem.x, chairItem.y, chairItem.yaw)?.uid ?? null;
           r.back = h.gameBlock(TV, discA);
           return r;
@@ -371,7 +382,13 @@ try {
         ok(withC.blockOk === null, `gameBlock: 시작할 수 있다 (${withC.blockOk})`);
         ok(withC.blockNotShelved === '게임 디스크가 아닙니다', `gameBlock: 게임 디스크가 아님 (${withC.blockNotShelved})`);
         ok(withC.blockOther === '다른 화면을 먼저 닫으세요', `gameBlock: 다른 블로커 (${withC.blockOther})`);
-        ok(withC.recoverChair === true && withC.noSeat === R_NONE && !!withC.chair && withC.back === null, `좌석을 치우면 ${withC.noSeat} → 다시 놓으면 시작 가능`);
+        ok(withC.recoverChair === true && withC.noSeat === null && withC.noSeatUid === null && withC.noSeatReason === R_NONE && !!withC.chair && withC.back === null,
+          `좌석을 치워도 시작할 수 있다 (gameBlock ${withC.noSeat} · 좌석 ${withC.noSeatUid} · 진단 ${withC.noSeatReason})`, JSON.stringify(withC));
+        ok(withC.standMenu.seat === '서서 플레이합니다' && !withC.standMenu.bad, `좌석 없는 TV 화면: 「${withC.standMenu.seat}」 (경고 아님)`);
+        ok(withC.standStart === null && withC.stand.info?.seatUid === null && withC.stand.ev?.active === true && withC.stand.ev.seatUid === null && withC.stand.pose === null,
+          `좌석 없이 시작 → 서서 플레이 (seatUid null · 자세 ${withC.stand.pose})`, JSON.stringify(withC.stand));
+        ok(withC.stand.gaming === true, '서서 하는 게임도 「게임 중」 버프 (player/parts/Buffs)', JSON.stringify(withC.stand));
+        ok(withC.standEnd.info === null && withC.standEnd.ev?.active === false, '서서 하던 세션 취소 → 정리', JSON.stringify(withC.standEnd));
         const CHAIR2 = withC.chair;
 
         /* ══ 6. 세션 ═══════════════════════════════════════════════════════════ */

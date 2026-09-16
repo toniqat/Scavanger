@@ -69,6 +69,7 @@ Input accepts `/move …` and `move …`, case-insensitive; output is Korean.
 ## Recent changes
 
 Older: `git log -- src/console`.
+- 2026-09-17 — `gym`: status `근력 +2 (x/y)` against the stat-XP bar; positive XP = minigame stat XP, negative lowers 단련 steps; no `단련 +N` wording.
 - 2026-09-16 — `cook give` replaced by `cook plate <요리> [품질]` / `cook clear` (meals are not items).
 - 2026-09-15 — `analyze` command; `items` search focus moved into the inventory catalog.
 - 2026-09-13 — `crypto` command (dev `HousingRef` mining methods).

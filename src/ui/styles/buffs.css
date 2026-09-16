@@ -19,6 +19,9 @@
 }
 .bfs.has-items { display: flex; }
 .bfs.is-mini { --bfs: 14px; gap: 3px; }
+/* 2026-09-17: 캐릭터 시트 이름 옆 줄 (`shared/charBuffView` interactive) — 썸네일이 마우스를 받고 `hud/ItemTip` 글 카드가 뜬다 */
+.bfs.is-interactive { pointer-events: auto; }
+.bfs.is-interactive .bfs-cell { cursor: help; }
 
 .bfs-cell {
   --bc: var(--c-text-dim);

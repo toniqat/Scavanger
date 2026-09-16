@@ -248,6 +248,20 @@ try {
   const stashAfter = await page.evaluate(() => { const s = window.__game.getSystem('inventory').getStashItems(); return { n: s.length, alloy: s.filter((i) => i.defId === 'mat_alloy').reduce((n, i) => n + i.qty, 0) }; });
   // 2026-09-07: the 기본 지급품 already put 합금 판 in the 창고, so the drag merges into that stack instead of adding a tile
   ok(stashAfter.n === stashBefore + 1 && stashAfter.alloy > alloyBefore, `mouse drag into the stash created a 합금 판 stack (${alloyBefore} → ${stashAfter.alloy})`);
+  // 2026-09-17 (사용자 결정): 창고와 가방이 둘 다 보이면(함선) 무한 상자 더블클릭은 창고가 먼저다 — 확인한 뒤 그 타일을 걷어 낸다
+  const dblHub = await page.evaluate(() => {
+    const sys = window.__game.getSystem('inventory');
+    const owned = new Set([...sys.getStashItems(), ...sys.getAllItems()].map((i) => i.defId));
+    const def = window.__game.ctx.loot.getAllItemDefs().find((d) => !d.retired && d.stackMax === 1 && d.width === 1 && d.height === 1 && !owned.has(d.id));
+    if (!def) return null;
+    const bagN = sys.getAllItems().length;
+    const r = sys.takeFromCatalog(def.id);
+    const hit = sys.getStashItems().find((i) => i.defId === def.id);
+    const out = { id: def.id, r, inStash: !!hit, bagSame: sys.getAllItems().length === bagN };
+    if (hit) { sys.getStash().remove(hit.uid); sys.afterChange(); }
+    return out;
+  });
+  ok(dblHub && dblHub.r === 'ok' && dblHub.inStash && dblHub.bagSame, '함선: 무한 상자 더블클릭(takeFromCatalog)은 창고로 간다', JSON.stringify(dblHub));
   /* 2026-09-13 (사용자 결정): 무한 상자가 열린 동안 장비 열은 숨고 드롭 대상도 아니다 — 예전의 「카탈로그 타일을
      주무기 II 칸에 끌어다 놓기」는 화면에서 할 수 없다. 칸이 숨었는지 보고, 카탈로그 → 장비칸 규칙 자체는 시스템 경로
      (`dropFromCatalog`, 드롭 판정과 같은 함수)로 검증한다 — 아래 프리셋 검사가 이 AR III 를 주무기 II 로 기대한다. */
@@ -263,16 +277,17 @@ try {
     return l.primary2 ? { r, id: l.primary2.defId, dur: l.primary2.durability, mag: l.primary2.ammoInMag } : { r };
   });
   ok(p2 && p2.id === 'wpn_ar_g3' && p2.dur > 0 && p2.mag > 0, `dropFromCatalog onto 주무기 II equipped a loaded AR III (${JSON.stringify(p2)})`);
-  // double-click → into the bag
+  // double-click → 2026-09-17 (사용자 결정): 창고와 가방이 둘 다 보이는 함선에서는 창고가 먼저 (가방은 그대로)
   await page.evaluate(() => [...document.querySelectorAll('.inv-cat-tab')].find((b) => b.textContent === '소모품').click());
   const stimTile = await centre('.inv-cat-item[data-def="heal_bandage"] .inv-tile');
-  const stimBefore = await page.evaluate(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'heal_bandage'));
+  const stimCount = () => page.evaluate(() => ({ bag: window.__game.ctx.inventory.countWhere((d) => d.id === 'heal_bandage'), stash: window.__game.getSystem('inventory').getStashItems().filter((i) => i.defId === 'heal_bandage').reduce((n, i) => n + i.qty, 0) }));
+  const stimBefore = await stimCount();
   await page.mouse.click(stimTile.x, stimTile.y);
   await sleep(80);
   await page.mouse.click(stimTile.x, stimTile.y);
   await sleep(150);
-  const stimAfter = await page.evaluate(() => window.__game.ctx.inventory.countWhere((d) => d.id === 'heal_bandage'));
-  ok(stimAfter > stimBefore, `double-click put 붕대 into the bag (${stimBefore} → ${stimAfter})`);
+  const stimAfter = await stimCount();
+  ok(stimAfter.stash > stimBefore.stash && stimAfter.bag === stimBefore.bag, `double-click put 붕대 into the stash, not the bag (${JSON.stringify(stimBefore)} → ${JSON.stringify(stimAfter)})`);
   // 2026-09-08: Tab closes the whole window incl. the catalog (Esc is the 일시정지 메뉴)
   await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'window closed');

@@ -1513,8 +1513,11 @@ export interface GameEvents {
   'housing:libraryChanged': { revision: number };
   /** Fact (housing): TV 에 장착된 게임기가 바뀌었다 (`defId` null = 뺐다). hub 가 TV 모델을 다시 짓는다. */
   'housing:tvConsoleChanged': { uid: string; defId: string | null };
-  /** Fact (housing): 게임 세션 시작 / 끝 — hub 가 좌석에 앉히고 고정 카메라를 건다(`active`), 풀어 준다(`!active`). `completed` = 끝까지 했다. */
-  'housing:gameSession': { tvUid: string; seatUid: string; discDefId: string; active: boolean; stat: GameStat; minigame: GymMinigame; completed: boolean };
+  /**
+   * Fact (housing): 게임 세션 시작 / 끝 — hub 가 좌석에 앉히고 고정 카메라를 건다(`active`), 풀어 준다(`!active`). `completed` = 끝까지 했다.
+   * 2026-09-17: `seatUid` null = 유효한 좌석이 없어 **서서** 한다 (자세 · 카메라를 걸지 않고 TV 게임 화면만 켠다).
+   */
+  'housing:gameSession': { tvUid: string; seatUid: string | null; discDefId: string; active: boolean; stat: GameStat; minigame: GymMinigame; completed: boolean };
   /** Fact (housing): 게임 판정 한 번 — hub 의 TV 화면 연출. */
   'housing:gameBeat': { tvUid: string; quality: 'perfect' | 'good' | 'miss'; index: number; total: number };
   /** Fact (housing): 게임 세션 결과 (`applyGymSession` 이 돌려준 그대로). */

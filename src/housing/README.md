@@ -32,7 +32,7 @@ and **before** `InventorySystem` / `WorldSystem` / `HubSystem`.
 | `parts/CookGames.ts` | DOM-free judges of the six cooking minigames (`ChopGame`, `MinceGame`, `GrillGame`, `StirfryGame`, `StirGame`, `PourGame`), `createCookGame`, `cookJudgeBands`. |
 | `parts/Gym.ts` | Gym session: `gymBlock`, `startGymSession`, `completeGymSession` (→ `progression.applyGymSession`, + library `gymScore`), `bindGym`, `gymDebug`. |
 | `parts/GymGames.ts` | DOM-free judges `PressGame` / `BreathGame` / `CycleGame`, `createGymGame(kind, tuning?)`, `judgeBands`, `completion`. |
-| `parts/VideoGame.ts` | TV consoles (`attachTvConsole` / `detachTvConsole`), seat check (`Rules.tvSeatFor`), `getPlayableGames`, game sessions (gym rules via `applyGymSession`), `bindVideoGame`, `videoGameDebug`. |
+| `parts/VideoGame.ts` | TV consoles (`attachTvConsole` / `detachTvConsole`), optional seat pick (`Rules.tvSeatFor` — no seat = standing session), `getPlayableGames`, game sessions (gym rules via `applyGymSession`), `bindVideoGame`, `videoGameDebug`. |
 | `parts/Library.ts` | Library shelves for every medium (`book` · `disc` · `record` · `game`): place / take / dex / recover-to-stash, on/off toggles, library-effects cache (`ensureLibrary`, `bindLibrary`, `tickLibrary`) and its queries. |
 | `parts/Music.ts` | Music player state (no audio): playlist from record racks, `tickMusic`, `musicNext/Prev`, `setMusicMode`, `musicStop`, `housing:musicChanged`. |
 | `parts/Mining.ts` | Compute clusters, wallet, trading: `setClusterCoin`, `insertClusterProcessor` / `removeClusterProcessor` (one named cell) and their count-based wrappers `insertClusterCores` / `removeClusterCores`, `tickMining` (1 Hz, not in raid — settles cycles **and wears the mounted processors**), `tradeCrypto`, `coinLockReason`, dev cheats. |
@@ -41,24 +41,24 @@ and **before** `InventorySystem` / `WorldSystem` / `HubSystem`.
 | `ui/StationShell.ts` | Common station layout: station card (title, `Lv.`, meta, upgrade button, `rail`, optional `tabsRow`) + one inventory card; `mountStationGrids` mounts one `TradeGrids` (`stash` + `bag`); `stationGridCell`. |
 | `ui/UpgradeModal.ts` | Upgrade modal (`PanelOverlay`): cost chips + facility chips, 1 s hold confirm (Enter swallowed), escape token `housing.upgrade`. `UpgradeModalOptions.standalone` mounts it on `ctx.uiRoot` instead of a panel (`.hs-modal-top` z, own `.interactive`, swallows Tab, `onClose` hook) — used by the 창고 variant. |
 | `ui/StorageUpgrade.ts` | The one standalone `UpgradeModal` the screens outside housing open, for **two subjects**: 창고 시설 (`openStorageUpgrade` — level, cells before/after from `STASH_ROWS_BY_STORAGE_LEVEL × STASH_COLS`, `getFacility('storage')`, confirm = `upgrade('storage')`) and **one placed workbench** (`openBenchUpgrade(kind)` = `HousingRef.openBenchUpgrade` — highest-level piece of that bench kind, `제작 n가지 개방` counted from `InventoryRef.getRecipes`, confirm = `upgradeFurniture(uid)`). `openStorageUpgrade()` routes to the bench while the craft column is in bench mode (`InventoryRef.getBench()`), so the workbench header's 업그레이드 no longer opens the 창고 modal. Toggles on a second call for the same subject, re-reads on housing / inventory events, closed by `closeMenus`. |
-| `ui/ItemTile.ts` | `buildStationItemTile(ctx, defId, {cell, durability?})` — the **inventory tile** (`InventoryRef.buildItemTile`) as one station cell: `.hs-tile`, no quantity badge, `--inv-cell` so the glyph follows the cell; `cellToFit(boxW, boxH, w, h)` (the cell edge a footprint fits a box at) and `stationTileBox`. The one place furniture screens draw an item. |
+| `ui/ItemTile.ts` | `buildStationItemTile(ctx, defId, {cell, durability?})` — the **inventory tile** (`InventoryRef.buildItemTile`) as one station cell: `.hs-tile`, no quantity badge, `--inv-cell` so the glyph follows the cell; `cellToFit(boxW, boxH, w, h)` (the cell edge a footprint fits a box at), `stationTileBox`, `itemFootprint(ctx, defId)` and `buildFootprintCells(w, h, cell)` — an **empty** mount slot drawn as the accepted item's `w × h` grid cells (`.hs-fcells` › `.hs-fcell`, inventory empty-cell look; cluster + shelves, not grow / culture). The one place furniture screens draw an item. |
 | `ui/StationTip.ts` | Non-item hover card (`TipSpec`) with `.item-tip` looks. |
 | `ui/StationMenu.ts` | Right-click menu (`PanelOverlay`), swallows its own Escape. |
-| `ui/ProductDrag.ts` | Treat a finished product like an item: drag to a grid (`bag` / `stash`) or double-click (`stash-first`). The ghost keeps the item's grid footprint (`shared/itemChip` `buildItemGridChip` / `itemGridBox` at `stationGridCell()`, overridable with `cellPx`). With `grids()` given, a release lands in the **cell under the cursor** (`parts/Deliver.withDropCell` → `StationGridsView.placeExternalAt`). |
+| `ui/ProductDrag.ts` | Treat a finished product like an item: drag to a grid (`bag` / `stash`) or double-click (`stash-first`). The ghost keeps the item's grid footprint (`shared/itemChip` `buildItemGridChip` / `itemGridBox` at `stationGridCell()`, overridable with `cellPx`). With `grids()` given, a release lands in the **cell under the cursor** (`parts/Deliver.withDropCell` → `StationGridsView.placeExternalAt`) and while dragging only that cell's footprint is highlighted (`StationGridsView.previewExternalAt`); the whole-block `.hs-drop-over` is the fallback for a view without preview. |
 | `ui/SocketFlow.ts` | Socket effect text / tip rows / dots, `SocketAsk` (pick + 1 s hold replace confirm, destructive clear confirm). |
 | `ui/dom.ts` | `el`, `section`, `setText`, `renderCost` (→ shared `renderItemCost`), clock helpers (`renderClock`), `formatRemaining`, `facilityChipTip`. |
 | `ui/GrowStation.ts` | Grow station screen: rail of stations (9-dot status), tiers of soil pots, drop soil / seed / socket, harvest via `ProductDrag`, right-click clear. `ui:growToggled`. |
 | `ui/Analyzer.ts` | Analyzer screen: rail tabs `해석` / `분석 도감`, slots with family chip + **sample-level chip** (`Lv.n −x %`) + result chip, the 등급별 도감 단축 line above the slots, collect / cancel. |
 | `ui/SampleDex.ts` | Analysis dex per family (level, XP bar, result rows: found / silhouette / locked). |
-| `ui/CultureTank.ts` | Culture tank screen: tubes (fluid = medium durability), drop medium / scaffold / strain / socket, harvest. |
-| `ui/DiningTable.ts` | Dining screen (no grid card): plates on the table (`.dt-plate`, cook's name on the shared table, `먹기` / `먹음`) + the pending-meal card (`.dt-meal`); exports meal text helpers (`mealEffectText`, `mealBuffText`, `mealTierText`, `qualityName`). |
+| `ui/CultureTank.ts` | Culture tank screen: rail of tanks (3-dot status), tubes (fluid = medium durability), drop medium / scaffold / strain / socket, `배양 시작` button per tube (1 s hold ask `cult-start`), right-click take back before start, harvest. |
+| `ui/DiningTable.ts` | Dining screen (no grid card): plates on the table (`.dt-plate`, cook's name on the shared table, `먹기` / `먹음`) + the pending-meal card (`.dt-meal`), `닫기` inside the card's bottom-right (`.dt-foot`); exports meal text helpers (`mealEffectText`, `mealBuffText`, `mealTierText`, `qualityName`). |
 | `ui/BookshelfMenu.ts` | Library screen for every shelf medium: rail = `서재` summary + placed shelf furniture, tabs `선반` / `도감`, drag to place / swap / take. `ui:bookshelfToggled` / `ui:shelfToggled`. |
-| `ui/ShelfDrawing.ts` | Drawn shelf (`.lib-case` › `.lib-tier` › `.lib-row` › `.lib-slot` › `.lib-item`), layout from `SHELF_TIERS` / `SHELF_TIER_COLS`; `.is-div` divider; `SHELF_SLOT_BOX` / `shelfSlotBox(medium)` = the cell box (CSS reads it as `--lib-item-w/h`); `paintShelfSlot(view, paint, buildTile)` — a filled cell holds one **inventory tile**, an empty one a dashed box. |
+| `ui/ShelfDrawing.ts` | Drawn shelf (`.lib-case` › `.lib-tier` › `.lib-row` › `.lib-slot` › `.lib-item`), layout from `SHELF_TIERS` / `SHELF_TIER_COLS`; `.is-div` divider; `SHELF_SLOT_BOX` / `shelfSlotBox(medium)` = the room a slot may take; `shelfFootprint(defs, medium)` = largest footprint of that medium's items, and `buildShelfDrawing(host, medium, footprint)` sizes every slot to that footprint's grid box (`drawing.cell`, CSS `--lib-item-w/h`); `paintShelfSlot(view, paint, buildTile, empty?)` — a filled cell holds one **inventory tile**, an empty one the footprint's grid cells. |
 | `ui/BookDex.ts` | Library dex rows (series / game discs), exports `libraryEffectText`, `gameDiscText`, `volumeRoman`, `seriesTint`, `statName`. |
 | `ui/ShipView.ts` | `createShipView(host)` — the embedded ship tab of the inventory window (generator / storage rows, room list, build / remove popups, `시설 관리` button). No blocker, no pointer lock, no Escape listener. |
 | `ui/FacilityRows.ts` | Facility rows + effect summary used by `ShipView`. |
-| `ui/cook/CookStation.ts` | Cooking-bench screen (page `cook`): recipe thumbnail grid (`COOK_LIST_COLS`) + detail (effects, ingredients, steps, auto appliance, lock badges), `조리 시작`. `ui:cookStationToggled`. |
-| `ui/cook/CookScreen.ts` | Bottom-center cooking overlay: choose (manual / auto) → game → step score → result. Blocker / escape / key-guide `housing.cook`; input on the whole panel while playing. |
+| `ui/cook/CookStation.ts` | Cooking-bench screen (page `cook`): vertical recipe list (`.cook-cell` rows: thumbnail + name, `data-rank`; bench-level- and recipe-book-locked recipes are not listed) + detail (base effects, ingredients, steps, auto appliance, skill-lock badge), `조리 시작`. `ui:cookStationToggled`. |
+| `ui/cook/CookScreen.ts` | Bottom-center cooking overlay (root `.cook-ovl` — never `.cook`, that is the grenade cook gauge in `ui/styles/base.css`): choose (manual / auto) → game → step score → result. Blocker / escape / key-guide `housing.cook`; input on the whole panel while playing. |
 | `ui/cook/CookViews.ts` | Six cooking game stages (CSS shapes + item chips, no assets). |
 | `ui/cook/cook.css` | `.cook-*`. |
 | `ui/cook/PlateAsk.ts` | 「식탁의 요리를 바꿉니다」 warning (`openHoldAsk`, id `cook-replace-plate`) before a cook starts / restarts while a plate exists; one at a time in `sys.plateAsk`, `closePlateAsk` on forced exits. |
@@ -67,8 +67,8 @@ and **before** `InventorySystem` / `WorldSystem` / `HubSystem`.
 | `ui/gym/gym.css` | `.gym-*`. |
 | `ui/tv/TvMenu.ts` | TV screen (page `tv`): power, console attach / swap, seat line, playable games. `ui:tvMenuToggled`. |
 | `ui/tv/tv.css` | `.tvm-*`. |
-| `ui/mining/MiningScreen.ts` | One mining window (page `cluster`) with top tabs `MINING_TABS` (`채굴` · `클러스터 현황` · `지갑` · `거래소`); rail + grids only on the mining tab. `ui:miningToggled` page = `cluster` for the mining tab, `computer` otherwise. |
-| `ui/mining/ClusterPage.ts` | Mining tab: **processor cells** (index = grid cell; the dropped instance goes into the cell it was dropped on, with its durability), cycle bar, coin picker, stats. |
+| `ui/mining/MiningScreen.ts` | One mining window (page `cluster`) with top tabs `MINING_TABS` (`채굴` · `클러스터 현황` · `지갑` · `거래소`) — the Tab screen's own `.scr-tabs` on the menu root (same fixed top as 인벤토리/캐릭터/기업/함선; frame starts below it); rail + grids only on the mining tab. `ui:miningToggled` page = `cluster` for the mining tab, `computer` otherwise. |
+| `ui/mining/ClusterPage.ts` | Mining tab: **processor cells** (index = grid cell; the dropped instance goes into the cell it was dropped on, with its durability; slot box = processor footprint measured at paint, empty = 2×1 grid cells), cycle bar, coin picker, stats. No cluster uid (opened from the main computer) → the first placed cluster; an empty cluster shows no banner / red reason. |
 | `ui/mining/CoinPicker.ts` | Filterable coin dropdown (locked coins dimmed), `position: fixed`. |
 | `ui/mining/ComputerPages.ts` | Cluster overview, wallet, exchange (chart, hold-to-trade, stale-quote gate, price subscription). |
 | `ui/mining/CryptoChart.ts` | Canvas candle / line chart with axes and hover OHLC. |
@@ -100,7 +100,7 @@ too). Most mutations return `null` on success or a Korean refusal string. Groupe
   `getAnalysisDexByRarity()` (2026-09-16 — sample level, dex entries by rarity and the resulting speed-up),
   `openAnalyzer`, `devAdvanceAnalysis`. Deprecated: `getSampleDex`, `getSampleDexRatio`.
 - **Culture tank**: `getCultureSlots`, `fillMedium`, `clearMedium`, `insertStrain`, `insertScaffold`,
-  `takeScaffold`, `insertCultureSocket`, `harvestCulture`, `harvestAllCultures`, `getOwnedMediums` /
+  `takeScaffold`, `startCulture`, `takeStrain`, `takeMedium`, `insertCultureSocket`, `harvestCulture`, `harvestAllCultures`, `getOwnedMediums` /
   `getOwnedStrains` / `getOwnedSockets`, `openCultureTank`.
 - **Dining / cooking**: `hasDiningTable`, `getPlate`, `getTablePlates(uid | null)`, `plateEatBlock`, `eatPlate(uid, ownerId?)`,
   `devSetPlate`, `clearPlate`, `mealDef` (→ `shared/meals`), `diningBlock`, `openDiningTable(uid | null)`;
@@ -216,6 +216,11 @@ reasoning. The list below is what a maintainer would otherwise break.
   `deliverItem`. — `parts/Lab.ts` (`startAnalysis`, `collectAnalysis`)
 - Culture output ignores `gatherYieldMul`; a scaffold switches output to `scaffoldOutputDefId` and is consumed on
   harvest. Retired strains are refused.
+- Inserting a strain does **not** start a culture (2026-09-17): "started" = `startedAt > 0` (`parts/Culture.cultureStarted`),
+  set only by `startCulture` after the UI's 1 s hold confirm; `readyAt` is fixed there. Before start the strain / scaffold /
+  an unused medium come back; after start nothing does. `sanitize` keeps a waiting strain without a timer. — `parts/Culture.ts`
+- 재배 스테이션 and 배양조 are `multi` in `data/furniture.csv` — any number, each with its own level and slots (floor space is the
+  only limit).
 - Products reach the player only through `parts/Deliver.deliverItem`; a named grid never overflows into the other.
 
 ### Kitchen, gym, video games
@@ -240,9 +245,11 @@ reasoning. The list below is what a maintainer would otherwise break.
   `CookGameBase.maxTime` even with no input. — `parts/GymGames.ts` (`judgeBands`), `parts/CookGames.ts` (`cookJudgeBands`)
 - Sessions (gym, cook, video game) cancel on `game:newMission`, `game:abort`, `hub:left`, phase change and on the
   player's furniture pose ending for another reason. Gym / cook are own ship only (not shared ship / visit).
-- Video games use gym rules (`applyGymSession`, per-stat fatigue). A TV needs a console and a valid seat:
-  same room, in front, facing the TV (yaw = TV yaw + 2), corridor free except `low` furniture. The TV's E opens the
-  TV screen, not a power toggle. — `Rules.ts` (`tvSeatFor`)
+- Video games use gym rules (`applyGymSession`, per-stat fatigue). A TV needs a console; a seat is **optional**
+  (2026-09-17): a valid seat (same room, in front, facing the TV — yaw = TV yaw + 2, corridor free except `low`
+  furniture) is sat on, otherwise the session runs standing (`seatUid` null, no pose). `gameBlock` never returns a
+  seat reason; `tvSeatBlock` is diagnostic only. The TV's E opens the TV screen, not a power toggle. — `Rules.ts` (`tvSeatFor`), `parts/VideoGame.ts`
+- 의자 · 쇼파 (`interaction seat`) are decor furniture (`shared/housing.isUtilityFurniture`) and go in any room.
 
 ### Library
 - Effects are per **series** (`data/library_series.csv`); share = full set 100 %, else distinct volumes ×
@@ -311,8 +318,8 @@ reasoning. The list below is what a maintainer would otherwise break.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/housing`.
-- 2026-09-16 — `shipManageBlock` refuses while the tutorial gate `shipManage` blocks (ship track).
-- 2026-09-16 — 표본 개편 · 프로세서 직접 장착 (ship state v14): the sample's rarity is now the **floor** of the analysis result (`analysis_results.csv` `sampleRarity` rows are rarity-exclusive and exempt), analysis time is cut by `등급별 도감 칸수 × PER_ENTRY + 표본 레벨 보너스` capped at `ANALYSIS_SPEEDUP_CAP` (`ShipState.sampleLevels`, shown as `Lv.n −x %` on the slot and a 등급별 line on the 해석 tab), and 연산 코어 is gone — the 연산 클러스터 takes **프로세서** in a per-cell list with durability, wearing `PROCESSOR_WEAR_PER_CYCLE` per cycle and running at `PROCESSOR_PERF_MIN … 1` of speed.
-- 2026-09-16 — Station cells **are item grid cells** (`ui/ItemTile`): the 연산 클러스터 slots and every 보관함 shelf (책장 · 디스크 · 레코드 · 게임) draw the item's own inventory tile with no quantity badge instead of bespoke art, and a mounted item dragged out lands in the **cell it was dropped on** (`ProductDrag.grids` → `Deliver.withDropCell` → `TradeGridsView.placeExternalAt`; a blocked cell is refused, not auto-placed). The workbench header's 업그레이드 now opens that bench's own modal (`openBenchUpgrade`), not the 창고 one.
-- 2026-09-16 — The cook rail's skill lock is back (`cookRecipeSkillBlock`, `cookSkillLabel`, `.cook-rail-skill` badge, `is-skill`): every `recipes.csv` `skillRequired` is `0` so it never fires, but a raised csv number dims the row, badges `제작 20` and refuses `startCook`. The skill's standing job is the material refund.
-- 2026-09-16 — `openStorageUpgrade()`: `UpgradeModal` gained a `standalone` mode (mounts on `ctx.uiRoot`, `.hs-modal-top` z 100, swallows Tab, `onClose`) and `ui/StorageUpgrade.ts` opens the 창고 시설 variant from the inventory / workbench headers; product drag ghosts keep the item's grid footprint; the 시설 관리 furniture popup no longer draws over the inventory windows.
+- 2026-09-17 — Gym / game result card: `+N` without `단련` (`근력 +1!`, trained block `+N`), XP line `<능력치> 경험치 +n`, progress tail `다음 +1까지 x / y` against the stat-XP bar (`statXpToNext`) — 단련 now fills the stat-XP bar (progression).
+- 2026-09-17 — 배양 시작 확인: `insertStrain` no longer starts the timer — a 시작 대기 slot (`strainDefId`, no `startedAt`) starts only through `startCulture` (UI: `배양 시작` button under each tube → `openHoldAsk` 「배양을 시작하겠습니까?」, 1 s hold); before that `takeStrain` / `takeScaffold` / `takeMedium` (unused medium only) give items back. `CultureSlotInfo.started` / `mediumReturnable`; saves need no migration (old strains always carry `startedAt`). 배양조 · 재배 스테이션 are `multi` (build several); the culture screen got the left tank rail; both rails widened to 200 px so `재배 스테이션 n` fits; cell bob 14 s / ±1.5 px.
+- 2026-09-17 — Mount slots take the accepted item's shape: the 연산 클러스터 (processor 2×1, footprint read at paint — the constructor ran before `ctx.loot`) and every 보관함 (`shelfFootprint`) draw empty slots as that footprint's grid cells; dragging a mounted item out highlights the target **cell** footprint (`previewExternalAt`) instead of the whole grid. Mining tabs moved to the Tab screen's `.scr-tabs` position; the 채굴 tab opened from the main computer picks the first cluster (was `연산 클러스터가 없습니다`); an empty cluster shows no guidance banner.
+- 2026-09-17 — Video games need no seat: `gameBlock` drops the seat reason, `startGameSession` sends `seatUid` null when no valid seat (standing play); TV screen seat line = seat name or `서서 플레이합니다`. 의자 · 쇼파 are decor furniture in any room (sofa no longer library-only).
+- 2026-09-17 — Cooking minigame visible again: the overlay root was `.cook`, which `ui/styles/base.css` styles as the grenade cook gauge (`opacity: 0`, 120 px box), so it is now `.cook-ovl`. Cook bench list = vertical rows (thumbnail + name, no tier badge / green dot) without bench-level- or book-locked recipes; detail shows base effects only; bench and dining footer notes removed; dining `닫기` moved into the card.

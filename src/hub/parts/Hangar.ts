@@ -78,6 +78,13 @@ export function shipStateWire(sys: HubSystem): ShipVisitWire | null {
   const state = h.state;
   if (state?.media && state.media.length > 0) wire.media = state.media.map((m) => ({ uid: m.uid, slot: m.slot, defId: m.defId }));
   if (state?.toggled && state.toggled.length > 0) wire.toggled = [...state.toggled];
+  // 2026-09-17: 배양조 칸의 겉모습 (배지 id · 세포주 유무) — 방문자의 배양조 모델이 주인의 것과 같은 색 · 같은 덩어리를 그린다
+  if (state?.cultures && state.cultures.length > 0) {
+    const placed = new Set(furniture.map((f) => f.uid));
+    const cultures = state.cultures.filter((c) => placed.has(c.uid))
+      .map((c) => (c.strainDefId ? { uid: c.uid, slot: c.slot, medium: c.mediumDefId, s: 1 as const } : { uid: c.uid, slot: c.slot, medium: c.mediumDefId }));
+    if (cultures.length > 0) wire.cultures = cultures;
+  }
   return wire;
   }
 
@@ -176,6 +183,15 @@ export function furnitureSource(ctx: GameContext, wire: ShipVisitWire): Furnitur
     slots[m.slot] = rarity;
   }
   const toggled = new Set(wire.toggled ?? []);
+  // 2026-09-17: 배양조 칸 (배지 id · 세포주 유무) — 배양조가 아닌 조각의 것은 버린다
+  const culturesByUid = new Map<string, { slot: number; medium: string; filled: boolean }[]>();
+  for (const c of wire.cultures ?? []) {
+    const defId = defOfUid.get(c.uid);
+    if (!defId || FURNITURE_DEF_MAP.get(defId)?.interaction !== 'culture_tank') continue;
+    let list = culturesByUid.get(c.uid);
+    if (!list) { list = []; culturesByUid.set(c.uid, list); }
+    list.push({ slot: c.slot, medium: c.medium, filled: c.s === 1 });
+  }
   const EMPTY_ROOM: readonly PlacedFurniture[] = [];
   const EMPTY_SHELF: readonly (Rarity | null)[] = new Array(BOOKS_PER_SHELF).fill(null);
   const EMPTY_MEDIA: readonly (Rarity | null)[] = [];
@@ -184,6 +200,7 @@ export function furnitureSource(ctx: GameContext, wire: ShipVisitWire): Furnitur
     getBooks: (uid) => byUid.get(uid) ?? EMPTY_SHELF,
     getMedia: (uid) => mediaByUid.get(uid) ?? EMPTY_MEDIA,
     isOn: (uid) => toggled.has(uid),
+    getCultures: (uid) => culturesByUid.get(uid) ?? [],
   };
   }
 

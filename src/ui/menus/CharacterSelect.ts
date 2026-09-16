@@ -3,7 +3,7 @@ import {
   CREATE_STAT_MAX, CREATE_STAT_MIN, DEFAULT_ACCENT, SLOT_IDS, STAT_IDS, activeSlot, deleteSlot, formatCredits,
   markAutoStart, readSlotCards, setActiveSlot,
 } from '@/shared';
-import { el, fmtInt, setText, toggleClass } from '../dom';
+import { el, setText, toggleClass } from '../dom';
 import { AskPopup } from './askPopup';
 import { enterShip, hasPendingInvite } from './enterShip';
 
@@ -18,8 +18,6 @@ interface CardEls {
   name: HTMLElement;
   level: HTMLElement;
   credits: HTMLElement;
-  raids: HTMLElement;
-  extractions: HTMLElement;
   stats: Map<StatId, { value: HTMLElement; fill: HTMLElement }>;
   del: HTMLButtonElement;
 }
@@ -30,7 +28,7 @@ interface CardEls {
  * `SLOT_IDS` 만큼(기본 3칸)의 큰 카드를 가운데 나란히 놓고 `readSlotCards()` 로 채운다. 색인 파일은 없다 —
  * 요약은 그 슬롯의 세이브에서 바로 읽는다(`shared/saveSlot`).
  *
- *  - **채워진 칸**: 이름 · `Lv. n` · 크레딧 · 레이드/탈출 횟수 · 능력치 다섯, 그리고 그 캐릭터의 악센트 색이
+ *  - **채워진 칸**: 이름 · `Lv. n` · 크레딧 · 능력치 다섯, 그리고 그 캐릭터의 악센트 색이
  *    카드의 색(`--ac`)이다. 카드를 누르면 그 캐릭터로 시작하고, `삭제` 는 되돌릴 수 없는 것이므로
  *    무엇이 사라지는지 적은 경고 팝업(`menus/askPopup`)을 지난다.
  *  - **빈 칸**: `＋ 캐릭터 생성` — 그 슬롯의 생성창을 연다.
@@ -116,8 +114,6 @@ export class CharacterSelect {
       return el('div', { cls: 'v', text: '0', parent: c });
     };
     const credits = cell('크레딧');
-    const raids = cell('레이드');
-    const extractions = cell('탈출');
 
     el('div', { cls: 'cs-divider', parent: filled });
 
@@ -139,7 +135,7 @@ export class CharacterSelect {
       this.pick(id);
     });
 
-    return { root, bar, slotTag, filled, empty, name, level, credits, raids, extractions, stats, del };
+    return { root, bar, slotTag, filled, empty, name, level, credits, stats, del };
   }
 
   /** 카드 하나의 능력치 다섯 줄 (시트와 같은 어휘의 축소판: 이름 · mono 값 · 얇은 바). */
@@ -223,8 +219,6 @@ export class CharacterSelect {
     setText(card.name, data.name ?? '');
     setText(card.level, `Lv. ${data.level}`);
     setText(card.credits, formatCredits(data.credits, { suffix: true }));
-    setText(card.raids, `${fmtInt(data.raids)}회`);
-    setText(card.extractions, `${fmtInt(data.extractions)}회`);
     // 바의 기준은 생성 상한(5)이되, 게임 안에서 그 위로 자란 능력치가 있으면 **그 카드의 최댓값**으로 늘린다 —
     // 상한을 `STAT_MAX`(20) 로 고정하면 갓 만든 캐릭터의 다섯 줄이 전부 바닥에 붙어 읽히지 않는다.
     let top = CREATE_STAT_MAX;

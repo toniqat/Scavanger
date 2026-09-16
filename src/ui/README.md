@@ -19,7 +19,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | **hud/** | |
 | `hud/ActionFeedback.ts` | Pooled CSS screen feedback: melee swipe/hit, dive, dash, barrier hit, grit save, burning, cloak |
 | `hud/allySource.ts` | The one reader of `ctx.allies` for this folder (`alliesOf`, `allyRoster`, `allyBodies`, `allyBody`) + the `setDebugAllies` smoke hook |
-| `hud/BuffStrip.ts` | Character buff thumbnails (`CharBuff[]`) under the PC vitals (22 px) and each squad row (mini 14 px); pending dim, debuff red border, time gauge |
+| `hud/BuffStrip.ts` | Character buff thumbnails (`CharBuff[]`) under the PC vitals (22 px) and each squad row (mini 14 px); pending dim, debuff red border, time gauge; registered in `shared/charBuffView` so the character sheet header borrows an `interactive` strip (ItemTip text-card data instead of `title`) |
 | `hud/ChargeGauge.ts` | Ship-call LMB charge ring at the crosshair (`stratagem:chargeChanged`) |
 | `hud/ChatLog.ts` | Squad chat log + input (Enter opens, sends and stays open; Tab/Esc closes), `/r` reply to the last private chat, hides lines from blocked peers, relays `chat:post` |
 | `hud/CheatTag.ts` | `MOVE CHEAT` corner tag (`cheat:moveCheat`) |
@@ -348,8 +348,8 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
+- 2026-09-17 — `CharacterSelect` cards drop the 레이드 / 탈출 cells (credits only in `.cs-meta`).
+- 2026-09-17 — `BuffStrip` registers itself in `shared/charBuffView` and takes `{interactive}`: `.bfs.is-interactive` receives the pointer and each cell carries `data-tip-name` / `-sub` (`디버프 · 남은 23h`) / `-desc` / `-color` for the `ItemTip` text card instead of a native `title` (used by the character sheet header).
 - 2026-09-17 — No toast on tactical implant equip / unequip / swap (`implant:equipped` subscription removed from `Notifications`); ship-call strings read `함선 지원` (wheel centre, call/ready toasts).
 - 2026-09-17 — Messenger: intro choices wait `MESSENGER_CHOICE_DELAY_S` (0.5 s) after the last NPC line; typing `...` dots scale/fade in a staggered slow loop via Web Animations (CSS keyframes were clipped by reduced motion); every thread ends in a half-height empty tail (`.ms-tail`, `50cqh`) with pinning measured to the last line; the NPC trust reward chip now gets the hover card through the new `ItemTip` text-chip hook (`TIP_NAME_ATTR`) instead of a native `title`.
 - 2026-09-17 — 시설 관리: furniture `제작` opens a centred craft modal (`.sm-craft`: list thumbnail, `{이름} 제작`, all material chips, `제작` = 1 s hold on `.sm-craft-ok`; blocker/escape token `shipManage:craft`); session-only red dots (`.sm-dot`) on the `가구 창고` tab for crafted / recovered pieces, moved onto their store cards when the list shows, cleared on close or placement.
-- 2026-09-17 — `WorldMarkers` no longer draws the landed ship's green `탈출 함선` marker (it floated over the ramp) in any raid; map and compass ship markers stay.
-- 2026-09-16 — Key guide: action-keys panel + separate `닫기` panel (`.kg-panel-close`), vertical-bar separators; pickup toast = item chip + `이름 ×수량`; `crate:looted` toast removed; toasts start below `.tut-controls`; weapon panel frameless thumb + other-primary thumb with slot keycap, empty state `주무기 없음`, dims the last primary while anything else is in hand (consumable mode gone); `Community` root on `#ui-root`, usable over Tab window / pause menu, `Keys.INVITE` keycap under the button, NPC message = red-dot pop (`MESSENGER_DOT_POP_*`) not a toast; `menus/ShipReturn` (`ui:shipReturn` fade → loading gauge → fade in); tutorial results show `표류 행성`; `ShipManageHint` hides on tutorial gate `shipManage`.

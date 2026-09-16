@@ -178,6 +178,15 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
         b.minigame = session.minigame;
       }
     }
+  } else {
+    // 2026-09-17 (사용자 결정): 좌석 없이 **서서** 하는 게임 세션(`seatUid` null)도 「게임 중」이다 — 걸린 자세가 없어 위 절을 지나지 않는다
+    const game = ctx.housing?.gameSession ?? null;
+    if (game && !game.seatUid) {
+      const b = take(sys, 'gaming', 'pose', 'active');
+      b.defId = game.discDefId;
+      b.stat = game.stat;
+      b.minigame = game.minigame;
+    }
   }
 
   sortCharBuffs(list);

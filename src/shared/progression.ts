@@ -173,8 +173,13 @@ export interface ProgressionRef {
   /**
    * Add raw stat XP (negative allowed). Crossing 1 → +1 stat (also `progress:statChanged`), dropping below 0 → −1
    * stat (never below STAT_MIN). Emits `progress:statXp`, recomputes `derived` when the value changes, saves.
+   *
+   * appended (2026-09-17, 사용자 결정 「단련은 능력치 경험치 바를 같이 쓴다」): `source` — 생략 = `'action'` (위 규칙 그대로).
+   * `'minigame'`(헬스 · 비디오게임, `GYM_STATS` 만, 양수만)은 **같은 바**를 채우지만, 그 더하기가 바를 넘기면 기본 능력치가 아니라
+   * 단련 보너스 `trained[stat]` 가 +1 이다 (`progress:trainedChanged`). 단련이 `GYM_TRAINED_MAX` 면 바는 가득 직전(0.999999)에서
+   * 멈추고 넘친 몫은 버린다 — 다음 행동 경험치가 넘기면 기본 능력치 +1 이다. 규칙 원문: `ProgressionSystem.addStatXp`.
    */
-  addStatXp(id: StatId, amount: number): void;
+  addStatXp(id: StatId, amount: number, source?: StatXpSource): void;
   /** 0..1 toward the next level of `id`. */
   getSkillProgress(id: SkillId): number;
   /**
@@ -380,15 +385,19 @@ export interface ProgressionRef {
   serveMeal(defId: string, quality?: number): void;   // 2026-09-13: `quality` = 차린 요리의 품질 (생략 = 0)
 }
 
+/** appended (2026-09-17): 능력치 경험치의 출처 — 바를 넘겼을 때 무엇이 오르는가 (`ProgressionRef.addStatXp`). */
+export type StatXpSource = 'action' | 'minigame';
+
 /* ══ appended (2026-09-12, A-3a): 헬스장 — 단련 보너스 · 운동 디버프 (사용자 결정: 스탯 포인트와 따로 센다) ═══════════════
  *
- * 운동 기구 미니게임을 끝내면 housing 이 `applyGymSession(stat, 점수)` 를 부른다. 점수(0 … 1)가 **단련 경험치**
- * (`round(GYM_SESSION_XP × 점수)`)가 되고, 경험치가 `trainedXpToNext` 를 넘으면 그 능력치의 **단련 보너스** `trained[stat]` 가
- * +1 이다 (상한 `GYM_TRAINED_MAX`, 넘친 경험치는 다음 단계로 이월, 상한이면 진행도 1).
+ * 운동 기구 미니게임을 끝내면 housing 이 `applyGymSession(stat, 점수)` 를 부른다. 점수(0 … 1)가 경험치
+ * (`round(GYM_SESSION_XP × 점수)`)가 된다. 2026-09-17 (사용자 결정): 단련 전용 바는 없다 — 그 경험치는 **능력치 경험치 바**
+ * (`addStatXp(stat, xp, 'minigame')`)에 들어가고, 미니게임 경험치가 바를 넘기면 기본 능력치 대신 **단련 보너스** `trained[stat]` 가
+ * +1 이다 (상한 `GYM_TRAINED_MAX`, 넘친 경험치는 이월; 상한이면 바는 가득 직전에서 멈춘다).
  *
  * 단련 보너스는 스탯 포인트(`stats`)와 섞이지 않는다 — `getStat` 은 여전히 기본값이고, 임플란트 보너스처럼 `derived` 를
  * 계산하기 직전에 더해지며(`getStatWithImplants` = 기본 + 임플란트 + 단련, 「`derived` 가 계산되는 값」 이라는 뜻 그대로)
- * 캐릭터 시트는 `10 (+2 단련)` 처럼 따로 보여 준다. `STAT_MAX` 로 자르지 않는다 (임플란트와 같은 의도).
+ * 캐릭터 시트는 `10 (+2)` 처럼 따로 보여 준다 (2026-09-17: `단련` 글자 없이). `STAT_MAX` 로 자르지 않는다 (임플란트와 같은 의도).
  *
  * 세션을 끝낼 때 그 능력치에 디버프가 없으면 `gymFatigueUntil[stat] = 지금 + GYM_FATIGUE_HOURS` 가 걸린다 (근력 = 근육통 ·
  * 지구력 = 심폐 피로). 디버프 중의 세션은 경험치 × `GYM_FATIGUE_GAIN_MUL`(0 = −100 %)이고 디버프를 **다시 늘리지 않는다**.
@@ -409,7 +418,10 @@ export const GYM_FATIGUE_LABEL_KO: Readonly<Record<GymStat, string>> = { strengt
 export interface PlayerProfile {
   /** 운동으로 얻은 단련 보너스 (정수, 0 … GYM_TRAINED_MAX). 옛 세이브에는 없다 = 0. */
   trained?: Partial<Record<GymStat, number>>;
-  /** 다음 단련 보너스까지의 진행도 0 … 1 (상한이면 1). */
+  /**
+   * 은퇴 (2026-09-17): 단련 전용 진행도였다. 단련은 이제 능력치 경험치 바(`statProgress`)를 같이 쓰고, `Profile.migrate` 가
+   * 이 필드를 버린다 (계약은 추가 전용이라 선언만 남는다). 새로 쓰지 않는다.
+   */
   trainedProgress?: Partial<Record<GymStat, number>>;
   /** 운동 디버프가 끝나는 시각 (epoch ms). 지난 값은 「디버프 없음」 과 같다. */
   gymFatigueUntil?: Partial<Record<GymStat, number>>;
@@ -437,9 +449,9 @@ export interface GymSessionResult {
 export interface ProgressionRef {
   /** 운동으로 얻은 단련 보너스 (운동 능력치가 아니면 0). */
   getTrainedBonus?(id: StatId): number;
-  /** 다음 단련 보너스까지의 진행도 0 … 1. */
+  /** 다음 단련 보너스까지의 진행도 0 … 1. 2026-09-17: 능력치 경험치 바와 같은 값 (`getStatProgress`, 운동 능력치가 아니면 0). */
   getTrainedProgress?(id: StatId): number;
-  /** 지금 단계에서 다음 단련 보너스에 필요한 경험치. */
+  /** 지금 단계에서 다음 단련 보너스에 필요한 경험치. 2026-09-17: `statXpToNext` 와 같은 값. */
   trainedXpToNext?(id: StatId): number;
   /** 운동 디버프가 끝나는 시각 (epoch ms). 디버프가 없거나 지났으면 0. */
   getGymFatigueUntil?(id: StatId): number;
@@ -452,6 +464,7 @@ export interface ProgressionRef {
   /**
    * appended (2026-09-12, 개발자 콘솔 `gym` 전용): 단련 경험치를 **디버프 · 함선 게이트 · 세션 상한 없이** 더한다 (음수 = 뺀다,
    * 0 아래로는 안 내려간다 · 상한 `GYM_TRAINED_MAX`). `progress:trainedChanged` · 보너스가 바뀌면 `derived` 재계산 · 저장.
+   * 2026-09-17: 양수 = `addStatXp(id, xp, 'minigame')`; 음수 = 바는 그대로 두고 단련을 ⌈|xp| / statXpToNext⌉ 단계 내린다.
    * 정상 플레이는 `applyGymSession` 을 쓴다.
    */
   addTrainedXp?(id: GymStat, xp: number): void;

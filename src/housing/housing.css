@@ -273,6 +273,16 @@
 .inv-tile.hs-tile .inv-tile-name { left: 4px; right: 4px; top: 3px; font-size: max(8px, calc(var(--inv-cell) * 0.19)); letter-spacing: 0; }
 .inv-tile.hs-tile .inv-tile-qty { display: none; }
 .inv-tile.hs-tile .inv-tile-sockets { right: 3px; top: 3px; gap: 2px; }
+/* 2026-09-17 (사용자 결정): 빈 꽂는 칸 = 받는 아이템 발자국만큼의 격자 칸 (`ui/ItemTile.buildFootprintCells`). 한 칸의 결은
+   인벤토리의 빈 칸(`.inv-cell`)과 같다 — 클래스를 빌리지 않고 값을 옮겨 적는다 (접두사 규약). 칸 크기 · 열은 JS 가 쓴다. */
+.hs-fcells { display: grid; pointer-events: none; }
+.hs-fcell {
+  display: block;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 2px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  box-sizing: border-box;
+}
 
 /* ── 맨 왼쪽 세로 레일 (`ui/StationShell.ts` 의 `rail`, 2026-09-12) ──────────
  * 두 화면이 같은 자리 · 같은 결로 쓴다 — 재배 스테이션 **목록**(이름 + 3×3 현황 점 + 레드닷)과 분석기의
@@ -326,6 +336,13 @@
  * 드래그 렉 규약: 전환 · 애니메이션 없는 배경색 강조, 성장은 transform 만.
  * ────────────────────────────────────────────────────────────────────────── */
 .grow-station { --gs-pot: 39px; --gs-clip: 0.13; --gs-plant-h: 64px; }
+/* 2026-09-17 (사용자 결정): 재배 스테이션 · 배양조 목록은 이름(「재배 스테이션 3」)이 레드닷 · 현황 점과 한 줄에 서야 한다 — 공용 156 px
+   레일에서는 「재배 스테이...」로 잘렸다. 글자를 줄이지 않고 **이 두 화면의 레일만** 넓히고 항목 안 간격을 좁힌다. 좁은 화면
+   (`max-width: 919px`, 레일이 가로로 눕는다)의 `width: auto` 는 건드리지 않는다. */
+@media (min-width: 920px) {
+  .grow-station .hs-rail, .culture-tank .hs-rail { width: 200px; }
+}
+.grow-station .hs-rail-item, .culture-tank .hs-rail-item { gap: 8px; letter-spacing: 0.02em; }
 .gs-tiers { display: flex; flex-direction: column; gap: 8px; }
 .gs-tier {
   padding: 0 12px 6px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.025);
@@ -569,9 +586,12 @@
   content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -4px 0 0 -3px; border-radius: 50%;
   background: color-mix(in srgb, var(--oc) 70%, black); box-shadow: 9px 6px 0 -3px color-mix(in srgb, var(--oc) 60%, black);
 }
-.cult-slot.is-running .cult-glyph { display: block; animation: cult-float 3.2s ease-in-out infinite; }
+/* 2026-09-17 (사용자 결정): 세포는 세포주가 **들어 있으면** 보이고(시작 대기 포함), 배양 중에만 **아주 천천히 · 아주 조금** 떠오른다
+   (예전 3.2 s · ±7 px 는 너무 빠르고 컸다). transform 만 — 레이아웃을 흔들지 않는다. */
+.cult-slot.has-strain .cult-glyph { display: block; }
+.cult-slot.is-running .cult-glyph { animation: cult-float 14s ease-in-out infinite; }
 .cult-slot.is-ready .cult-glyph { --oc: var(--c-success); }
-@keyframes cult-float { 0%, 100% { transform: translateY(6px); } 50% { transform: translateY(-8px); } }
+@keyframes cult-float { 0%, 100% { transform: translateY(1.5px); } 50% { transform: translateY(-1.5px); } }
 .cult-slot-body { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; min-width: 0; }
 .cult-name { max-width: 100%; font-size: 13px; font-weight: 600; letter-spacing: 0.03em; color: var(--c-text); min-height: 18px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cult-slot:not(.has-medium) .cult-name { color: var(--c-text-faint); }
@@ -581,6 +601,14 @@
 .cult-prog { width: 80%; height: 3px; margin-top: 2px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
 .cult-prog.is-idle { background: transparent; }
 .cult-prog i { display: block; height: 100%; width: 0%; background: #8fe8ff; }
+/* 2026-09-17: 관 아래 「배양 시작」 — 늘 자리를 차지하고 시작 대기 칸에서만 눌린다 (→ 1초 홀드 확인 `openHoldAsk`) */
+.ui-btn.cult-start { width: 88%; min-width: 0; height: 26px; margin-top: 4px; padding: 0 6px; font-size: 11px; letter-spacing: 0.08em; white-space: nowrap; }
+.cult-slot.is-pending .ui-btn.cult-start:not(:disabled) { border-color: var(--c-accent); color: var(--c-accent); background: rgba(255, 179, 71, 0.08); }
+.ui-btn.cult-start:disabled { opacity: 0.35; cursor: default; }
+.ui-btn.cult-start:disabled:active { transform: none; }
+/* 시작 대기 — 세포는 떠 있지만 움직이지 않고, 유리 테두리가 강조색으로 「눌러야 한다」를 말한다 */
+.cult-slot.is-pending .cult-cell { border-color: color-mix(in srgb, var(--c-accent) 55%, transparent); }
+.cult-slot.is-pending .cult-time { color: var(--c-accent); }
 /* 2026-09-13 (요리 재료 티어): 배양 스캐폴드 = 액체 속에 선 **격자** (들어 있을 때만) · 배지 소켓 = 유리 아래쪽의 점.
  * 둘 다 `pointer-events: none` 이라 유리(드롭 대상)를 가리지 않는다. 색 `--sc` = 스캐폴드 아이템 색. */
 .cult-scaffold {
@@ -604,6 +632,9 @@
  * + 다음 레이드에 실린 식사 카드(`.dt-meal`).
  * ────────────────────────────────────────────────────────────────────────── */
 .dining-table .hs-card-station { min-width: min(560px, calc(100vw - 48px)); }
+/* 2026-09-17 (사용자 결정): 「닫기」는 식탁 카드 안의 우하단 (카드가 틀 높이까지 늘어나므로 `margin-top: auto` 로 바닥에 붙는다) */
+.dt-foot { flex: none; margin-top: auto; display: flex; justify-content: flex-end; padding-top: 6px; }
+.dt-foot .ui-btn { min-width: 0; padding: 0 18px; }
 .dt-active { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
 .dt-active[hidden] { display: none; }
 .dt-plates { display: flex; flex-direction: column; gap: 8px; }
@@ -719,16 +750,12 @@
    쓴다 (아이템 타일의 칸 크기를 같은 값에서 재야 해서 CSS 에 두 번째 표를 두지 않는다). */
 .lib-item {
   position: relative; flex: none; display: grid; place-items: center;
-  /* 테두리는 상자 **밖**이다 (`box-sizing: border-box` — 안쪽이 타일 크기 그대로여야 타일이 눌리지 않는다) */
-  width: calc(var(--lib-item-w) + 2px); height: calc(var(--lib-item-h) + 2px);
-  border: 1px dashed rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.015);
+  /* 2026-09-17 (사용자 결정): 칸 상자 = 받는 아이템 **발자국의 격자 상자** 그대로 (`ShelfDrawing` 이 `--lib-item-w/h` 를 쓴다).
+     빈 칸은 점선 상자 대신 그 발자국만큼의 격자 칸(`.hs-fcell`)이 서고, 꽂힌 칸은 타일이 스스로 테두리를 갖는다. */
+  width: var(--lib-item-w); height: var(--lib-item-h);
 }
-.lib-slot.is-filled .lib-item { border-color: transparent; background: none; }
-.lib-slot:not(.is-filled) .lib-item::after {
-  content: '+'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  font-size: 18px; color: rgba(255, 255, 255, 0.14); pointer-events: none;
-}
-.lib-slot.is-over .lib-item { border: 1px solid var(--c-accent); background-color: rgba(255, 179, 71, 0.18); box-shadow: 0 0 14px rgba(255, 179, 71, 0.45); }
+.lib-slot.is-over .lib-item { outline: 1px solid var(--c-accent); box-shadow: 0 0 14px rgba(255, 179, 71, 0.45); }
+.lib-slot.is-over .lib-item .hs-fcell { background: rgba(255, 179, 71, 0.18); border-color: rgba(255, 179, 71, 0.5); }
 .lib-slot.is-filled:hover .lib-item { filter: brightness(1.14); }
 
 /* 책장 — 나무 틀. 2026-09-15 3차: 3층 × 6칸(왼쪽 3 · 구분막 · 오른쪽 3) = 18권이라 **층을 높여** 세로로 긴

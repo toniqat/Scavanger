@@ -198,8 +198,8 @@ connected and prices received on this connection. `requestHistory(coin, range)` 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/net`.
+- 2026-09-17 — `sanitizeShipVisit` keeps `cultures` (placed uid · slot < `CULTURE_MAX_SLOTS` · medium id · `s: 1` strain flag, one per slot) for the visited culture tank model.
 - 2026-09-16 — `parts/Meal.ts` (host-relayed `meal req` / `serve`) replaced by `parts/Plates.ts`: each member's own `plate state` + `plateq sync` on hub-session entry → `net:squadPlate`.
 - 2026-09-15 — Title resume / abandon: the reload's `lobby:mission false` carries `keep`; `abandonRaid()` → `lobby:abandon` (optimistic `drifted`); `rejoinMission` refuses a drifted raid.
 - 2026-09-15 — `PlayerSnapshot.ws` (carry-weight state, raid only, from `InventoryRef.getWeight()`) sent by `Snapshotter`; `RemotePlayer.weightState` decoded through `WEIGHT_STATE_WIRE` for the host's sandworm director.
 - 2026-09-15 — Android squadmates: `setAndroidBay(bay, recruit)` → `lobby:android`, `lobby:androidReturned` → `net:androidReturned`, bot members excluded from peers / remote refs / meal targets, `squadSize` humans-only.
-- 2026-09-15 — Squads vs shared ship: `inHubSession` needs a docked lobby + standing in its shared ship (hub `ps` from anywhere else dropped); `withSession` adds `&a=<accent>`; `dockPending` also set by create / join / quick match, cleared after the docked `net:lobbyUpdated`, on `lobby:error`, kept through `moved`; `SocialSync.playBlock` → `in_squad` / `not_leader`.

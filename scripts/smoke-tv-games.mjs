@@ -327,6 +327,20 @@ try {
     return { pose: ctx.player.furniturePose ?? null, stage: layer.gameStage, overlay: layer.objectOf(u.tv)?.getObjectByName('tv-game')?.visible, cancels: window.__cancels };
   }, U);
   ok(ended.pose === null && ended.stage === null && ended.overlay === false && ended.cancels === 0, `session end → pose released, overlay hidden, no cancel (${JSON.stringify(ended)})`);
+  // 2026-09-17 (사용자 결정): 좌석 없는 세션(`seatUid` null) = 자세 · 카메라 없이 서서, 게임 화면만 켠다 (취소하지 않는다)
+  const standing = await H((u) => {
+    const ctx = window.__game.ctx, layer = window.__game.getSystem('hub').furnitureLayer;
+    const base = { tvUid: u.tv, seatUid: null, discDefId: 'game_sniper_vr', stat: 'perception', minigame: 'press' };
+    const before = window.__cancels;
+    ctx.bus.emit('housing:gameSession', { ...base, active: true, completed: false });
+    const on = { pose: ctx.player.furniturePose ?? null, stage: layer.gameStage, overlay: layer.objectOf(u.tv)?.getObjectByName('tv-game')?.visible === true, cancels: window.__cancels - before };
+    ctx.bus.emit('housing:gameSession', { ...base, active: false, completed: false });
+    const off = { stage: layer.gameStage, overlay: layer.objectOf(u.tv)?.getObjectByName('tv-game')?.visible === true, cancels: window.__cancels - before };
+    return { on, off };
+  }, U);
+  ok(standing.on.pose === null && standing.on.stage?.seatUid === null && standing.on.stage.held === false && standing.on.overlay && standing.on.cancels === 0,
+    `seatUid null → no pose, overlay on, not cancelled (${JSON.stringify(standing.on)})`);
+  ok(standing.off.stage === null && !standing.off.overlay && standing.off.cancels === 0, `standing session end → overlay hidden (${JSON.stringify(standing.off)})`);
   // 자세 거절 → 그 자리에서 cancelGameSession
   const refused = await H((u) => {
     const ctx = window.__game.ctx, p = ctx.player;

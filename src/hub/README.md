@@ -58,7 +58,7 @@ forwards interactions.
 | `interiors/FurnitureMining.ts` | `MINING_BUILDERS`: compute cluster (lit core slots = `BuildExtra.cores`) and mining computer desk. |
 | `interiors/GymStaging.ts` | Pose / camera helpers (`worldPoseOf`, `sitPoseOf`, `gymPoseOf`, `gymCameraOf`, `segmentHits`) and shared rig posers (`poseBenchBar`, `poseBelt`, `poseCrank`, `poseRock`, `restRig`); `GymStaging` drives `housing:gymSession` / `housing:gymBeat`. |
 | `interiors/CookStaging.ts` | `cookPoseOf` / `cookCameraOf`; `CookStaging` drives `housing:cookSession` / `cookStep` / `cookBeat` (tools slide in, hand phase). |
-| `interiors/GameStaging.ts` | `tvScreenWorld`, `gamePoseOf`, `gameCameraOf`; `GameStaging` drives `housing:gameSession` / `gameBeat` (TV screen emissive tint, in-screen markers, progress bar). |
+| `interiors/GameStaging.ts` | `tvScreenWorld`, `gamePoseOf`, `gameCameraOf`; `GameStaging` drives `housing:gameSession` / `gameBeat` (TV screen emissive tint, in-screen markers, progress bar); `seatUid` null = standing session (no pose / fixed camera, screen only). |
 | `interiors/RemoteFurnitureStaging.ts` | Animates pieces used by remote squadmates in the same `hubSite` from their interpolated cumulative pose phase. |
 | `interiors/InteriorCollider.ts` | `BoxInteriorCollider`: walkable AABB rooms + toggleable / removable blocker boxes; `resolveCollision`, `raycast`, `bounds`. |
 | `interiors/GeoBatch.ts` | `HUB_MATS` shared palette, `GeoBatch` (merge per material), `disposeMeshes`, `yawFromForward`. |
@@ -323,8 +323,8 @@ doorway is an open shared edge.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/hub`.
+- 2026-09-17 — Culture tank model shows each slot: medium-coloured translucent fluid (`BuildExtra.cultureSlots`, `cultureFluid` cache) and opaque cell masses when a strain is inside; tubes are translucent glass (no lights). Visited ships get it from `ShipVisitWire.cultures` (`Hangar.shipStateWire` / `furnitureSource.getCultures`).
+- 2026-09-17 — `GameStaging` accepts a seatless video-game session (`seatUid` null): TV game screen on, no furniture pose or camera, not cancelled; a vanished seat still cancels only when one was used.
 - 2026-09-17 — Tutorial gates: the terminal's training row hides while `ctx.tutorial.hides('training')` (`HubMenu.setTab`); `Pods.toggleReady` skips launch warnings while `hides('launchWarn')` (build tutorial track).
 - 2026-09-16 — Sliding 자동문 removed (`interiors/Doors.ts` deleted); arch/doorway trims no longer share planes with wall openings, room door signs clear the ceiling beam.
 - 2026-09-16 — Ready panel is up only while the local player is in a launch slot (`sync(cells, boarded)`; a recruited android no longer puts it on screen), and a bot cell draws the same full-body portrait as a human (`PortraitRef.setAndroid`, kit armor via `armorIdOf`) — the `snapshotAndroidFace` path and `.hr-face` are gone from this panel.
-- 2026-09-16 — Dining plates in 3D: `interiors/TablePlates.ts` (`addPlateToBatch` on the dining-table furniture, squad plates + name tags on the shared-ship table via `diningTablePlateSlots`); cook bench prompt says `식탁이 없습니다` without a table.
-- 2026-09-15 — Raid abandoned from the title (`LobbyPlayer.drifted`): `Pods.driftedFromRaid` blocks the rejoin pod (prompt, status, boarding) and `onResumed` skips the auto-rejoin; terminal error text for `drifted`.

@@ -120,7 +120,7 @@
 .cs-card .cs-lv {
   font-family: var(--ui-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.14em; color: var(--ac);
 }
-.cs-card .cs-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.cs-card .cs-meta { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .cs-card .cs-meta .cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .cs-card .cs-meta .k { font-size: 9.5px; letter-spacing: 0.14em; color: var(--c-text-faint); }
 .cs-card .cs-meta .v {

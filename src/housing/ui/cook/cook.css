@@ -1,16 +1,18 @@
 /* ============================================================================
  * SCAVANGER — 조리대 화면 · 조리 오버레이 (2026-09-13; housing/ui/cook). 접두사 `.cook-` 전용.
  *
- * 오버레이(`.cook`)는 **화면 전체를 덮지 않는다** — hub 가 비추는 조리대 앞 자세가 위쪽에 보여야 한다. 루트는 투명한 막
+ * 오버레이(`.cook-ovl`)는 **화면 전체를 덮지 않는다** — hub 가 비추는 조리대 앞 자세가 위쪽에 보여야 한다. 루트는 투명한 막
  * (`pointer-events: none`)이고 패널(`.cook-panel`)만 화면 아래 가운데에서 입력을 받는다. 결은 `ui/gym/gym.css` 와 같다
  * (반투명 판 · 호박색 모서리 · 모노 숫자). 판정 색: 완벽 = 강조색 · 좋음 = 본문색 · 실패 = 위험색.
  * 조리대 화면(`.cook-station`)은 `StationShell` 카드 배치 위에 레일 · 좌 패널 내용만 더한다.
  * ========================================================================== */
 
-.cook { position: absolute; inset: 0; z-index: 44; pointer-events: none; }
-.cook[hidden] { display: none; }
+/* 2026-09-17: 루트 이름은 `.cook-ovl` 이다 — `.cook` 은 `ui/styles/base.css` 의 수류탄 쿠킹 게이지(`opacity: 0`, 120 px 상자) 것이라
+   같은 이름을 쓰면 오버레이 전체가 투명해져 미니게임이 보이지 않는다. 접두사 `.cook-` 의 다른 이름도 `.cook` 하나로는 쓰지 않는다. */
+.cook-ovl { position: absolute; inset: 0; z-index: 44; pointer-events: none; }
+.cook-ovl[hidden] { display: none; }
 /* 2026-09-14 (사용자 결정): 미니게임 도중에는 **판 전체**가 입력을 받는다 — 패널 여백을 눌러도 칼질이 먹는다 */
-.cook.is-playing { pointer-events: auto; cursor: pointer; }
+.cook-ovl.is-playing { pointer-events: auto; cursor: pointer; }
 
 .cook-panel {
   position: absolute; left: 50%; bottom: 14vh; transform: translateX(-50%);
@@ -328,21 +330,18 @@
 .cook-again-reason { margin-right: auto; font-size: 11px; color: var(--c-text-faint); }
 
 /* ── 조리대 화면 (`CookStation`) ─────────────────────────────────────────────────────────────────────────────
- * 2026-09-15 3차 (사용자 결정 — 「모든 제작 관련 UI」를 한 모양으로): 조리대 카드 안이 **왼쪽 썸네일 격자 +
- * 오른쪽 상세**다 (작업대 제작 창 `.inv-craft-list` / `.inv-craft-detail` 과 같은 결). 세로 레일은 걷어냈고
- * `.cook-rail*` 이름 몇 개는 **칸 안에서** 그대로 쓴다 (초록 점 · 잠김 배지 · 책 배지 — 옛 선택자도 산다). */
+ * 2026-09-15 3차 (사용자 결정 — 「모든 제작 관련 UI」를 한 모양으로): 조리대 카드 안이 **왼쪽 목록 + 오른쪽 상세**다.
+ * 2026-09-17 (사용자 결정): 목록은 4칸 썸네일 격자가 아니라 **세로로 쌓인 넓은 줄**(썸네일 · 이름)이고 티어 배지 · 초록 점은
+ * 없다. 넘치면 목록만 세로로 스크롤한다. `.cook-rail*` 이름 몇 개(숙련 잠김 배지)는 줄 안에서 그대로 쓴다. */
 .cook-station .hs-pane-left { overflow: hidden; padding-right: 0; }
 .cook-split { display: flex; flex-direction: row; gap: 16px; flex: 1; min-width: 0; min-height: 0; }
-/* 목록 = 산출물 썸네일만의 격자 — 칸 수의 원본은 `ui/cook/CookStation.COOK_LIST_COLS` 하나다 (`--cook-cols`) */
 .cook-list {
-  flex: none; display: grid; align-content: start; gap: 6px;
-  grid-template-columns: repeat(var(--cook-cols, 4), 58px);
+  flex: none; width: 232px; display: flex; flex-direction: column; gap: 4px;
   min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 4px;
 }
-.cook-list-empty { grid-column: 1 / -1; }
 .cook-cell {
-  position: relative; display: flex; align-items: center; justify-content: center;
-  width: 58px; height: 58px; padding: 0;
+  position: relative; flex: none; display: flex; align-items: center; gap: 10px;
+  width: 100%; min-height: 50px; padding: 4px 10px 4px 4px; text-align: left;
   border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03);
   font: inherit; color: var(--c-text); cursor: pointer;
   transition: border-color var(--t-fast) var(--ease), background-color var(--t-fast) var(--ease);
@@ -350,22 +349,14 @@
 .cook-cell:hover { border-color: var(--c-border-strong); background: rgba(255, 255, 255, 0.07); }
 .cook-cell.is-on { border-color: var(--c-accent); background: rgba(255, 179, 71, 0.12); box-shadow: 0 0 0 1px var(--c-accent) inset; }
 .cook-cell.is-locked .cook-cell-thumb { filter: saturate(0.5) brightness(0.8); }
+.cook-cell.is-locked .cook-cell-name { color: var(--c-text-dim); }
 .cook-cell.is-bench-locked { background: rgba(10, 12, 16, 0.92); border-style: dashed; }
 .cook-cell.is-bench-locked .cook-cell-thumb { filter: saturate(0.35) brightness(0.6); }
-.cook-cell-thumb { pointer-events: none; display: flex; align-items: center; justify-content: center; }
+.cook-cell-thumb { flex: none; pointer-events: none; display: flex; align-items: center; justify-content: center; }
 .cook-cell-thumb .inv-tile { position: static; }
-/* 티어 배지 · 초록 점 · 잠김 배지는 칸 모서리에 얹힌다 (칸 크기를 건드리지 않는다) */
-.cook-cell-tier {
-  position: absolute; left: 2px; top: 1px; pointer-events: none;
-  font-family: var(--ui-mono); font-size: 9px; letter-spacing: 0.04em; color: var(--c-text-faint);
-}
-.cook-cell-dot { position: absolute; right: 3px; top: 3px; pointer-events: none; }
-.cook-cell-locks, .cook-cell-book {
-  position: absolute; left: 1px; right: 1px; bottom: 1px; justify-content: center; pointer-events: none;
-  background: rgba(6, 8, 12, 0.88); font-size: 9px; line-height: 1.5;
-}
-.cook-cell-locks { display: flex; gap: 3px; overflow: hidden; }
-.cook-cell-book { text-align: center; }
+.cook-cell-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; pointer-events: none; }
+.cook-cell-name { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cook-cell-locks { display: flex; gap: 3px; font-size: 9px; line-height: 1.5; }
 /* 상세 = 남은 폭 전부 (자기 스크롤) */
 .cook-detail { flex: 1 1 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 4px; }
 .cook-sel-desc { font-size: 12px; line-height: 1.6; color: var(--c-text-dim); letter-spacing: 0.02em; }
@@ -375,8 +366,6 @@
 .cook-rail { width: 196px; }   /* 2026-09-15 3차: 조리대는 레일을 쓰지 않는다 — 규칙만 남긴다 */
 .cook-rail-tier { flex: none; padding: 8px 2px 2px; font-size: 10px; font-weight: 600; letter-spacing: 0.16em; color: var(--c-text-faint); }
 .cook-rail-tier:first-child { padding-top: 0; }
-.cook-rail-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #05070a; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16); }
-.cook-rail-dot.on { background: var(--c-success); box-shadow: 0 0 5px rgba(126, 224, 138, 0.85); }
 .cook-rail-lv { flex: none; font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-faint); }
 .cook-rail-item.is-locked { opacity: 0.5; }
 /* 잠김 배지 묶음 — 조리대 `Lv.n` · 숙련 `제작 20` (둘 다 모자라면 나란히). 2026-09-16: `skillRequired` 가 전부 0 이라
@@ -395,11 +384,8 @@
 .cook-sel-name { font-size: 18px; font-weight: 700; letter-spacing: 0.08em; }
 .cook-sel-sub { font-size: 11px; color: var(--c-text-dim); letter-spacing: 0.04em; }
 .cook-sel-effects { display: flex; flex-direction: column; gap: 3px; }
-.cook-eff-head { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.04em; }
 .cook-eff-line { display: flex; gap: 8px; align-items: baseline; font-family: var(--ui-mono); font-size: 12px; }
 .cook-eff-base { color: #ffb0a0; }
-.cook-eff-arrow { color: var(--c-text-faint); }
-.cook-eff-max { color: var(--c-accent); font-weight: 700; }
 .cook-sel-cost { display: flex; flex-wrap: wrap; gap: 6px; }
 .cook-sel-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .cook-stepchip { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border: 1px solid var(--c-border); background: rgba(255, 255, 255, 0.03); }
@@ -411,7 +397,6 @@
 .cook-start.is-blocked { opacity: 0.45; }
 .cook-sel-reason { font-size: 12px; color: var(--c-danger); letter-spacing: 0.03em; }
 .cook-sel-reason[hidden] { display: none; }
-.cook-sel-note { font-size: 11px; color: var(--c-text-faint); letter-spacing: 0.03em; line-height: 1.5; }
 
 /* 식탁 — 품질 별 (DiningTable) */
 .dt-row .cook-dt-chip { position: relative; flex: none; }

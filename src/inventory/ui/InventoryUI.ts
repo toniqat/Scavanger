@@ -992,7 +992,7 @@ export class InventoryUI {
   /** Double-press on a catalog tile: a fresh instance straight into the bag. */
   catalogTake(def: ItemDef): void { return Screens.catalogTake(this, def); }
 
-  /** Last catalog press (double-press detection: a second press on the same tile within `CATALOG_DBL_MS` = 가방에 넣기). */
+  /** Last catalog press (double-press detection: a second press on the same tile within `CATALOG_DBL_MS` = 창고(함선) → 가방에 넣기). */
   lastCatalogPress: { defId: string; t: number } | null = null;
 
   /**

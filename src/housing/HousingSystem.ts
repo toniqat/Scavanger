@@ -583,6 +583,11 @@ export class HousingSystem implements GameSystem, HousingRef {
 
   insertStrain(uid: string, slot: number, strainDefId: string): string | null { return Culture.insertStrain(this, uid, slot, strainDefId); }
 
+  /** 2026-09-17: 시작 대기 칸의 배양 시작 (화면의 1초 홀드 확인 뒤) · 시작 전 세포주 / 새 배지 되돌려받기. */
+  startCulture(uid: string, slot: number): string | null { return Culture.startCulture(this, uid, slot); }
+  takeStrain(uid: string, slot: number, dest?: HarvestDestination): string | null { return Culture.takeStrain(this, uid, slot, dest); }
+  takeMedium(uid: string, slot: number, dest?: HarvestDestination): string | null { return Culture.takeMedium(this, uid, slot, dest); }
+
   harvestCulture(uid: string, slot: number, dest?: HarvestDestination): string | null { return Culture.harvestCulture(this, uid, slot, dest); }
 
   harvestAllCultures(uid: string): number { return Culture.harvestAllCultures(this, uid); }

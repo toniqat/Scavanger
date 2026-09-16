@@ -442,13 +442,25 @@ try {
     const h = window.__game.ctx.housing;
     return { picked: h.cookDebug.station.recipeId, rail: r.querySelectorAll('.cook-rail-item').length, recipes: h.cookDebug.recipes().length,
       /* 2026-09-15 4차: 티어 머리줄이 없어졌다(정렬이 전역) — 티어는 칸 모서리 배지다. */
-      tiers: r.querySelectorAll('.cook-cell-tier').length, chips: [...r.querySelectorAll('.cook-stepchip-main')].map((x) => x.textContent),
+      tiers: r.querySelectorAll('.cook-cell-tier, .cook-cell-dot, .cook-rail-dot').length, chips: [...r.querySelectorAll('.cook-stepchip-main')].map((x) => x.textContent),
       cost: r.querySelectorAll('.cook-sel-cost .item-chip').length, effects: r.querySelectorAll('.cook-eff-line').length,
       start: r.querySelector('.cook-start')?.classList.contains('is-blocked'), name: r.querySelector('.cook-sel-name')?.textContent,
-      grids: r.querySelectorAll('.hs-card-inv .trade-grids').length };
+      grids: r.querySelectorAll('.hs-card-inv .trade-grids').length,
+      // 2026-09-17 (사용자 결정): 조리대 레벨 · 레시피 책이 모자란 요리는 목록에 없다 — 기대 개수는 화면 밖 API 로 센다
+      listable: (() => {
+        const lv = h.getPlacedByUid(h.cookDebug.station.uid)?.level ?? 0;
+        const book = (id) => typeof h.isRecipeUnlocked === 'function' ? h.isRecipeUnlocked(id) !== false : true;
+        const byId = new Map(window.__game.ctx.loot.getAllRecipes().map((x) => [x.id, x]));
+        return h.cookDebug.recipes().filter((x) => { const rr = byId.get(x.id); return (rr?.benchLevel ?? 1) <= lv && (!rr?.unlockSeries || book(x.id)); }).length;
+      })(),
+      column: getComputedStyle(r.querySelector('.cook-list')).flexDirection,
+      rowName: r.querySelector('.cook-cell[data-recipe="cook_tuber_stew"] .cook-cell-name')?.textContent ?? '',
+      noteGone: !r.textContent.includes('재료는 요리가 끝날 때 빠집니다'),
+      maxGone: !r.querySelector('.cook-eff-max, .cook-eff-head') };
   });
   ok(pick && stDom.picked === 'cook_tuber_stew' && stDom.name === '덩이줄기 스튜', `레일 클릭으로 요리 선택 (${stDom.picked} · ${stDom.name})`);
-  ok(stDom.rail === stDom.recipes && stDom.tiers >= 1, `조합 목록 = 조리대 레시피 ${stDom.rail}칸 · 티어 배지 ${stDom.tiers}`);
+  ok(stDom.rail === stDom.listable && stDom.rail < stDom.recipes && stDom.tiers === 0, `목록 = 조리대 레벨 · 책이 되는 요리 ${stDom.rail}/${stDom.recipes}줄 · 티어 배지 · 초록 점 없음 (${stDom.tiers})`);
+  ok(stDom.column === 'column' && stDom.rowName === '덩이줄기 스튜' && stDom.noteGone && stDom.maxGone, `세로 줄 목록 (썸네일 · 이름 「${stDom.rowName}」) · 안내문 · 최고 품질 보너스 없음`);
   ok(stDom.chips.length === 2 && /① .*썰기/.test(stDom.chips[0]) && /② .*젓기/.test(stDom.chips[1]), `단계 칩 줄 (${JSON.stringify(stDom.chips)})`);
   // 2026-09-15 4차 (사용자 결정): 창고 · 가방이 **한 카드 안의 한 격자 뷰**다 (옛 카드 둘 → 하나)
   ok(stDom.cost === 2 && stDom.effects >= 1 && stDom.start === false && stDom.grids === 1, `재료 칩 ${stDom.cost} · 능력치 줄 ${stDom.effects} · 조리 시작 활성 · 창고+가방 한 카드`);
@@ -483,17 +495,16 @@ try {
     const item = root.querySelector(`.cook-rail-item[data-recipe="${skillOnly.id}"]`);
     out.row = { present: !!item, locked: !!item?.classList.contains('is-locked'), skill: !!item?.classList.contains('is-skill'), book: !!item?.classList.contains('is-book'),
       badge: item?.querySelector('.cook-rail-skill')?.textContent ?? null, lv: item?.querySelectorAll('.cook-rail-lv:not(.cook-rail-skill)').length ?? -1,
-      dot: !!item?.querySelector('.cook-rail-dot.on'), title: item?.title ?? '' };
+      dot: item?.dataset.rank === '0', title: item?.title ?? '' };
     if (both) {
       const bi = root.querySelector(`.cook-rail-item[data-recipe="${both.id}"]`);
-      out.bothRow = { locked: !!bi?.classList.contains('is-locked'), lv: bi?.querySelector('.cook-rail-lv:not(.cook-rail-skill)')?.textContent ?? null,
-        badge: bi?.querySelector('.cook-rail-skill')?.textContent ?? null, want: `Lv.${both.benchLevel ?? 1}`, wantSkill: `${p.getSkillDef(both.skill).name} ${both.skillRequired}` };
+      out.bothRow = { present: !!bi };                               // 2026-09-17: 조리대 레벨이 모자라면 숙련과 상관없이 목록에 없다
     }
     /* 2026-09-15 4차 (사용자 결정): 티어 묶음이 없어지고 순위가 **전역**이다 — 시작할 수 있음(초록 점) → 막힘 → 잠김.
        비교는 한 묶음(전체) 안에서 한다: 그래야 「만들 수 있는 것이 앞으로」가 목록 전체에 대해 검사된다. */
     const groups = [[]];
     for (const c of root.querySelectorAll('.cook-rail-item')) {
-      groups[0].push({ id: c.dataset.recipe, rank: c.querySelector('.cook-rail-dot.on') ? 0 : c.classList.contains('is-locked') ? 2 : 1 });
+      groups[0].push({ id: c.dataset.recipe, rank: Number(c.dataset.rank) });
     }
     out.sorted = groups.every((g) => g.every((x, i) => i === 0 || g[i - 1].rank <= x.rank));
     const g = groups.find((gr) => gr.some((x) => x.id === skillOnly.id)) ?? [];
@@ -526,7 +537,7 @@ try {
   else {
     ok(sk.row.present && sk.row.locked && sk.row.skill && !sk.row.book && !sk.row.dot && sk.row.lv === 0 && sk.row.badge === sk.label,
       `숙련 잠김 ${sk.skillOnly}: 레일에 있다 · 딤드 · 숙련 배지 「${sk.row.badge}」 (조리대 Lv 배지 없음) · 호버 ${sk.row.title}`, JSON.stringify(sk.row));
-    if (sk.both) ok(sk.bothRow.locked && sk.bothRow.lv === sk.bothRow.want && sk.bothRow.badge === sk.bothRow.wantSkill, `조리대 레벨 + 숙련 둘 다 모자란 ${sk.both}: 배지 둘 (${sk.bothRow.lv} · ${sk.bothRow.badge})`, JSON.stringify(sk.bothRow));
+    if (sk.both) ok(!sk.bothRow.present, `조리대 레벨 + 숙련 둘 다 모자란 ${sk.both}: 목록에 없다`, JSON.stringify(sk.bothRow));
     ok(sk.sorted && sk.startableAbove, `티어마다 시작할 수 있는 요리 → 막힌 요리 → 잠긴 요리 (${JSON.stringify(sk.ranks)})`);
     ok(sk.sel.picked === sk.skillOnly && sk.sel.cost === sk.inputs && sk.sel.steps === sk.stepsWant && sk.sel.sub.includes(`숙련 ${sk.need}`),
       `잠긴 요리를 골라도 재료 칩 ${sk.sel.cost} · 단계 칩 ${sk.sel.steps} · 부제 ${sk.sel.sub}`, JSON.stringify(sk.sel));
@@ -546,12 +557,27 @@ try {
     const ctx = window.__game.ctx, h = ctx.housing;
     return { info: h.cookSession, ev: window.__rec.sessions.at(-1) ?? null, blocker: ctx.uiBlockers.has('housing.cook'), esc: ctx.escape.has('housing.cook'),
       cursor: ctx.input.cursor?.has?.('housing.cook') ?? ctx.input.isCursorMode ?? null, stationOpen: h.cookDebug.station.open, screen: h.cookDebug.screen, game: h.cookDebug.game?.game ?? null,
-      step: window.__rec.steps.at(-1) ?? null, guide: window.__rec.guide.at(-1) ?? null, panel: !document.querySelector('.cook').hidden,
+      step: window.__rec.steps.at(-1) ?? null, guide: window.__rec.guide.at(-1) ?? null, panel: !document.querySelector('.cook-ovl').hidden,
       head: document.querySelector('.cook-steps')?.textContent ?? '', again: h.startCook(h.cookDebug.station.uid || '', 'cook_tuber_stew'),
-      audio: window.__rec.audio.includes('cook_start'), stage: !!document.querySelector('.cook-panel .cook-stage.cook-chop') };
+      audio: window.__rec.audio.includes('cook_start'), stage: !!document.querySelector('.cook-panel .cook-stage.cook-chop'),
+      // 2026-09-17: 오버레이가 **실제로 보이는가** — 옛 루트 `.cook` 은 수류탄 쿠킹 게이지(base.css, opacity 0 · 120 px 상자)와 이름이 겹쳐
+      // DOM · 세션은 다 살아 있는데 화면에 아무것도 안 보였다. hidden 만 보던 검사는 그것을 놓쳤다.
+      seen: (() => {
+        const root = document.querySelector('.cook-ovl'), panel = root?.querySelector('.cook-panel');
+        if (!root || !panel) return null;
+        const r = panel.getBoundingClientRect(), rr = root.getBoundingClientRect();
+        let op = 1;
+        // 패널 자신은 등장 애니메이션(cookIn, 260 ms) 중이라 뺀다 — 가려지는 것은 루트 · 조상의 불투명도다
+        for (let e = root; e; e = e.parentElement) op *= Number(getComputedStyle(e).opacity);
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { op, rootW: rr.width, rootH: rr.height, onScreen: r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight && r.width > 300,
+          hit: !!hit && panel.contains(hit) };
+      })() };
   });
   ok(s1.info?.recipeId === 'cook_tuber_stew' && s1.info.mealDefId === 'meal_tuber_stew' && s1.info.steps.length === 2, `조리 시작 버튼 → 세션 (${JSON.stringify(s1.info?.steps?.map((x) => x.game))})`);
   ok(s1.ev?.active === true && s1.ev.completed === false && s1.audio, 'housing:cookSession {active:true} · cook_start');
+  ok(!!s1.seen && s1.seen.op > 0.99 && s1.seen.rootW === 1440 && s1.seen.rootH === 900 && s1.seen.onScreen && s1.seen.hit,
+    `조리 오버레이가 화면에 보인다 — 불투명 · 화면 전체 루트 · 패널이 화면 안 · 맨 위에서 눌린다 (${JSON.stringify(s1.seen)})`);
   ok(s1.blocker && s1.esc && s1.cursor === true && !s1.stationOpen && s1.panel, `블로커 · ESC · 커서 모드 housing.cook · 조리대 화면은 닫힌다 (cursor=${s1.cursor})`);
   ok(s1.screen === 'game' && s1.game === 'chop' && s1.stage && s1.step?.phase === 'play' && s1.step.index === 0 && s1.step.total === 2, `자동 가구가 없으면 곧장 미니게임 (${JSON.stringify(s1.step)})`);
   ok(JSON.stringify(s1.guide) === JSON.stringify(['썰기']) && /① 썰기 …/.test(s1.head), `키 가이드 · 머리줄 (${s1.head})`);
@@ -642,7 +668,7 @@ try {
   const closed = await H(() => {
     const ctx = window.__game.ctx, h = ctx.housing;
     return { ev: window.__rec.sessions.at(-1), info: h.cookSession, blocker: ctx.uiBlockers.has('housing.cook'), esc: ctx.escape.has('housing.cook'),
-      hidden: document.querySelector('.cook').hidden, inv: !!ctx.inventory.isOpen, guide: window.__rec.guide.at(-1), ticking: h.cookScreen?.ticking };
+      hidden: document.querySelector('.cook-ovl').hidden, inv: !!ctx.inventory.isOpen, guide: window.__rec.guide.at(-1), ticking: h.cookScreen?.ticking };
   });
   ok(closed.ev.active === false && closed.ev.completed === true && closed.info === null, 'Tab → housing:cookSession {active:false, completed:true}');
   ok(!closed.blocker && !closed.esc && closed.hidden && !closed.inv && closed.guide === null && closed.ticking === false, 'Tab: 블로커 · ESC · 화면 · 키 가이드 · 루프 정리, 인벤토리는 안 열린다');
@@ -721,7 +747,9 @@ try {
     const S = await import('/src/shared/index.ts');
     const all = ctx.loot.getAllRecipes();
     const skillOk = (x) => (ctx.progression.getSkill(x.skill) ?? 0) >= x.skillRequired;
-    let r = all.find((x) => x.bench === 'cook' && x.unlockSeries && S.cookStepsOf(x.outputDefId).length > 0 && skillOk(x));
+    // 2026-09-17: 조리대 레벨이 모자란 요리는 책과 상관없이 목록에 없다 — 책만 보려면 지금 조리대 레벨로 되는 요리를 고른다
+    const benchLv = h.getPlacedByUid(BENCH)?.level ?? 1;
+    let r = all.find((x) => x.bench === 'cook' && x.unlockSeries && (x.benchLevel ?? 1) <= benchLv && S.cookStepsOf(x.outputDefId).length > 0 && skillOk(x));
     let stub = false;
     if (!r) {
       r = all.find((x) => x.id === 'cook_green_salad');
@@ -749,18 +777,17 @@ try {
     if (bk.realLocked !== null) ok(bk.realLocked === true, `실제 isRecipeUnlocked: 책을 꽂지 않은 새 함선에서 ${bk.id} 는 잠김`);
     ok(bk.block === bk.want && bk.start === bk.want && bk.noSession, `책이 없으면 cookBlock · startCook 거절 (${bk.block})`);
     ok(bk.other !== bk.want, `책이 필요 없는 요리는 책으로 막히지 않는다 (${bk.other})`);
-    await waitFor(page, (id) => !!document.querySelector(`.menu.cook-station .cook-rail-item.is-book[data-recipe="${id}"]`), '레일에 책 잠김 표시', 5000, bk.id);
+    await waitFor(page, () => document.querySelectorAll('.menu.cook-station .cook-rail-item').length > 0, '조리대 목록', 5000);
     const bk2 = await H((id) => {
       const root = document.querySelector('.menu.cook-station');
-      const item = root?.querySelector(`.cook-rail-item[data-recipe="${id}"]`);
-      return { locked: !!item?.classList.contains('is-locked'), badge: item?.querySelector('.cook-rail-book')?.textContent ?? null,
-        reason: root?.querySelector('.cook-sel-reason')?.textContent ?? '', dim: !!root?.querySelector('.cook-start')?.classList.contains('is-blocked'),
-        picked: window.__game.ctx.housing.cookDebug.station.recipeId, startBlock: window.__game.ctx.housing.cookDebug.station.startBlock };
+      return { present: !!root?.querySelector(`.cook-rail-item[data-recipe="${id}"]`), picked: window.__game.ctx.housing.cookDebug.station.recipeId };
     }, bk.id);
-    ok(bk2.locked && bk2.badge === '책' && bk2.picked === bk.id && bk2.reason === bk.want && bk2.startBlock === bk.want && bk2.dim, `조리대 화면: 딤드 · 「책」 배지 · 사유 줄 (${bk2.reason})`);
+    // 2026-09-17 (사용자 결정): 책이 없는 요리는 목록에 없다 — 골라도 선택이 목록의 요리로 되돌아간다
+    ok(!bk2.present && bk2.picked !== bk.id, `조리대 화면: 책이 없는 요리는 목록에 없다 (선택 ${bk2.picked})`);
     // 꽂았다 → housing:libraryChanged 로 화면이 풀린다
     await H(() => { const ctx = window.__game.ctx; window.__patch(ctx.housing, 'isRecipeUnlocked', () => true); ctx.bus.emit('housing:libraryChanged', { revision: 9010 }); });
-    await waitFor(page, (id) => { const it = document.querySelector(`.menu.cook-station .cook-rail-item[data-recipe="${id}"]`); return !!it && !it.classList.contains('is-book'); }, 'libraryChanged → 잠김 풀림', 5000, bk.id);
+    await waitFor(page, (id) => !!document.querySelector(`.menu.cook-station .cook-rail-item[data-recipe="${id}"]`), 'libraryChanged → 목록에 나타남', 5000, bk.id);
+    await H((id) => window.__game.ctx.housing.cookStation.select(id), bk.id);
     const bk3 = await H(({ id, BENCH }) => ({ block: window.__game.ctx.housing.cookBlock(BENCH, id), reason: document.querySelector('.menu.cook-station .cook-sel-reason')?.textContent ?? '' }), { id: bk.id, BENCH });
     ok(bk3.block !== bk.want && bk3.reason !== bk.want, `책을 꽂으면 풀린다 — housing:libraryChanged 에 화면도 (${bk3.block})`);
     // 서재 API 가 없을 때: 책이 필요한 레시피는 잠긴 채다
@@ -798,7 +825,7 @@ try {
     // game:abort 은 페이즈를 함선 밖으로 옮긴다 — 마지막에 하고, 아래에서 함선으로 다시 들어간다
     out.startAbort = h.startCook(BENCH, 'cook_green_salad');
     ctx.bus.emit('game:abort', {});
-    out.evAbort = { ev: window.__rec.sessions.at(-1), info: h.cookSession, hidden: document.querySelector('.cook').hidden };
+    out.evAbort = { ev: window.__rec.sessions.at(-1), info: h.cookSession, hidden: document.querySelector('.cook-ovl').hidden };
     out.c1 = count();
     out.c0 = c0;
     out.results = window.__rec.results.length - res0;

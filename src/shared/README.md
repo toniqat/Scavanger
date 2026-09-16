@@ -41,6 +41,7 @@ never each other. This folder owns no system and no gameplay state; it must not 
 | `meals.ts` | Meal table (`data/meals.csv`): `MEAL_DEFS`, `MEAL_DEF_MAP`, `getMealDef`, `isMealDefId`, `MealItemDef` (ItemDef-shaped display def — meals are **not** items since 2026-09-16) |
 | `cooking.ts` | Cooking minigames (`CookGame`), step table `cookStepsOf` (`data/cook_steps.csv`), grill times, `COOK_*` judge values, auto-cook appliances, meal quality (`mealQualityForScore` · `mealQualityBonus` · `normalizeMealQuality`), session / result shapes |
 | `charBuffs.ts` | `CharBuff` list shape (display + sync only): kinds, order, labels, `sanitizeCharBuffs`, `sameCharBuffs`, `charBuffTitle` |
+| `charBuffView.ts` | Factory slot for the buff thumbnail strip: ui registers `BuffStrip` (`provideCharBuffStrip`), other folders get one with `createCharBuffStrip(parent, {mini, interactive})` (null without ui) |
 | `meta.ts` | Corps, reputation table, contracts, shop rules, price helpers, `formatCredits`, `MetaRef` (`ctx.meta`) + `IntelRef`; `QUEST_DEFS` (empty) — all from csv |
 | `npc.ts` | Messenger NPCs / NPC quests / objectives loaders (`data/npcs.csv` · `npc_quests.csv` · `npc_objectives.csv`), `NPC_FLAGS`, `NpcSave`, `NpcQuestRef` (`ctx.meta.npc`) |
 | `intel.ts` | Intel broker, **relay-shared pure module**: `IntelGimmick`, `IntelPick`, `IntelEffects`, `resolveIntelEffects`, `intelCost`, `intelCode` / `parseIntelCode`, `sanitizeIntelPicks` |
@@ -118,8 +119,8 @@ constructor before any `init`). Nested: `ctx.net.profile` / `social` / `rooms` /
 ## Recent changes
 
 Last 5 only — older: `git log -- src/shared`.
+- 2026-09-17 — `charBuffView.ts` (add-only): `provideCharBuffStrip` / `createCharBuffStrip` (ui registers `BuffStrip`; progression's sheet borrows it, `interactive` = hover card); `StatXpSource` + optional `source` on `ProgressionRef.addStatXp`; `PlayerProfile.trainedProgress` retired (dropped by migrate); `GYM_TRAIN_XP_BASE` / `_EXPONENT` unread.
+- 2026-09-17 — Video game seat optional: `GameSessionInfo.seatUid` / `housing:gameSession.seatUid` widened to `string | null` (null = standing); `isUtilityFurniture` treats `seat` (의자 · 쇼파) as decor.
 - 2026-09-17 — Tutorial (add-only): build order `TUTORIAL_STEPS` = 7 grouped steps (retired ids stay in `TutorialStepId`); gates `training` · `launchWarn` (hide-only, build track); key action `GUIDE_TOGGLE` (default `BracketRight`, scope `game`); constant `TUTORIAL_RAID_EXTRACT_VALUE_C`.
 - 2026-09-17 — Labels only: keybind `SHIP_CALL` = `함선 지원`, contract kind `use_stratagems` = `함선 지원 사용`.
 - 2026-09-16 — `corpseViewers.ts` `CorpseViewTracker` + `CorpseViewRequest` (`cviewq`); `WeaponsRef.activeSlot` / `primaryInHand` / `ammoOf` + `WeaponSlotAmmo`; keycap fixed tokens `{MOUSE_LEFT}` / `{DOUBLE_CLICK}`; `TutorialWorldRef.crawlProgress?`; `TUTORIAL_PLANET_LABEL` + `missionPlanetLabel`; events `ui:shipReturn`, `progress:statPending`; gate `shipManage`, ship track `['stats']`; `DOOR_*` constants marked unused (add-only).
-- 2026-09-16 — `weaponTip.ts` (add-only): `WEAPON_TIP_LABEL_KO`, `weaponEffectiveRange`, `weaponRecoilText`, `weaponGaugeValues` / `weaponGaugeTexts`, `weaponTipRows`, `weaponSocketText` — the one source of a weapon card's numbers and Korean labels, so the grid card (`inventory/ui/Tooltip`, gauges) and the floating chip card (`ui/hud/ItemTip`, table rows — the card the 기업 거래 screen shows) can never read differently.
-- 2026-09-16 — `craftRefund.ts` (add-only): `CRAFT_REFUND_CHANCE_AT_MAX` (`data/tuning.csv`), `craftRefundChance`, `craftCostFactor`, `rollCraftRefund` — the crafting skill's only effect is now a per-unit material refund; `CraftRecipe.skillRequired` is kept but unused (every csv row is `0`) and `DerivedStats.craftSpeedMul` is pinned at 1.

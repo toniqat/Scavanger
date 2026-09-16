@@ -4,7 +4,7 @@
  * hub 의 TV E 가 `ctx.housing.openTvMenu(uid)` 로 연다 (같은 날부터 TV 의 E 는 켜기/끄기 토글이 아니다). 한 화면에:
  *   • 머리 — TV 이름 · 켜짐 상태 · `켜기` / `끄기` 버튼 (`toggleFurniture`)
  *   • 게임기 — 장착된 게임기 + `빼기`, 가진 게임기(가방 + 창고) 목록 + `장착` / `교체` (되돌릴 수 있는 일이라 1초 홀드 없음)
- *   • 좌석 — `tvSeatBlock` 한 줄 (좌석이 있으면 그 이름)
+ *   • 좌석 — 한 줄 (좌석이 있으면 그 이름, 없으면 서서 — 2026-09-17 좌석은 조건이 아니다)
  *   • 게임 — `getPlayableGames` 한 줄씩: 디스크 칩 · 이름 · 단련 능력치 · 방식 · 게임기, 막힌 사유, 디버프 남은 시간(경험치 0 안내), `플레이`
  * 규칙은 하나도 여기 없다 — 전부 `parts/VideoGame` 이 돌려주는 한국어 사유를 옮긴다.
  *
@@ -45,7 +45,7 @@ export class TvMenu extends HousingPanel {
     const foot = el('div', { cls: 'hs-foot', parent: this.frame });
     el('div', {
       cls: 'hint',
-      text: '게임 디스크 전시대에 꽂은 게임이 목록에 뜹니다 — 게임기가 맞아야 하고, TV 정면의 좌석에 앉아 플레이합니다.',
+      text: '게임 디스크 전시대에 꽂은 게임이 목록에 뜹니다 — 게임기가 맞아야 합니다.',
       parent: el('div', { cls: 'left', parent: foot }),
     });
     this.button(el('div', { cls: 'right', parent: foot }), '닫기', () => this.close());
@@ -154,15 +154,18 @@ export class TvMenu extends HousingPanel {
     }
   }
 
+  /**
+   * 2026-09-17 (사용자 결정): 좌석은 조건이 아니다 — 좌석이 있으면 그 이름, 없으면 「서서 플레이합니다」. 좌석을 못 쓰는 이유
+   * (`tvSeatBlock`)는 경고로 띄우지 않는다.
+   */
   private buildSeat(uid: string): void {
     const h = this.housing;
     const s = this.section(this.body, '좌석');
-    const reason = typeof h.tvSeatBlock === 'function' ? h.tvSeatBlock(uid) : null;
-    const seatUid = !reason && typeof h.getTvSeat === 'function' ? h.getTvSeat(uid) : null;
+    const seatUid = typeof h.getTvSeat === 'function' ? h.getTvSeat(uid) : null;
     const seat = seatUid ? h.getPlacedByUid(seatUid) : null;
     const name = seat ? h.getFurnitureDef(seat.defId)?.name ?? '좌석' : '';
-    const line = el('div', { cls: `tvm-seat${reason ? ' is-bad' : ''}`, parent: s });
-    setText(line, reason ?? `${name}에 앉아 플레이합니다`);
+    const line = el('div', { cls: 'tvm-seat', parent: s });
+    setText(line, seat ? `${name}에 앉아 플레이합니다` : '서서 플레이합니다');
     if (seatUid) line.dataset.seat = seatUid;
   }
 

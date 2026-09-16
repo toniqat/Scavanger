@@ -19,7 +19,7 @@ default (multiplier 1, bonus 0).
 | `derive.ts` | `computeDerived(profile, specialBackpack, implants?)`, `applyMealBuff`, `applyLibraryDerived`, `mealEffectsOf`, `trainedBonusOf`, `xpForLevel`, `throwRangeMetres`, `DEFAULT_DERIVED`. Stat / skill effect sizes are code constants at the top (`SKILL_GAIN_PER_INT`, `SKILL_STAT_FACTOR`, `*_AT_MAX`); base values come from `data/constants.csv`. |
 | `Profile.ts` | localStorage load / save / clear (`slotKey(PROFILE_STORAGE_KEY)`, every access in try/catch), `freshProfile`, `migrate`, `sanitizeGym` / `sanitizePreps` / `sanitizeMeal` / `sanitizeImplants`, `DEFAULT_IMPLANT`. |
 | `index.ts` | Barrel. |
-| `ui/SheetBody.ts` | The single sheet renderer shared by both shells: header, XP bar, stats (pending allocation `＋`/`－`, `되돌리기`, `포인트 투자 확정` 1 s hold), skills (+ `시설 ×n` badge), implant thumbnails (`.pg-imps`), derived grid (preview + `fitDerived`), reset (warning + 1 s hold), leave warning (`requestLeave`). Exports `el`, `CharacterSheetHost`. Knows nothing about blockers / pointer lock / tabs. |
+| `ui/SheetBody.ts` | The single sheet renderer shared by both shells: header (character name + interactive buff / debuff thumbnails borrowed through `shared/charBuffView`), XP bar, stats (pending allocation `＋`/`－`, `되돌리기`, `포인트 투자 확정` 1 s hold), skills (+ `시설 ×n` badge), implant thumbnails (`.pg-imps`), derived grid (preview + `fitDerived`), reset (warning + 1 s hold), leave warning (`requestLeave`). Exports `el`, `CharacterSheetHost`. Knows nothing about blockers / pointer lock / tabs. |
 | `ui/SheetTip.ts` | Name tooltips (`.pg-tip`) for stats, skills, facility badge; highlight of linked rows (`.pg-linked`). |
 | `ui/CharacterSheet.ts` | Standalone overlay (`.menu.char-sheet`): `.scr-tabs` + frame + `SheetBody`. Blocker `'stats'`, cursor mode, `ctx.escape` entry, capture-phase Tab close, key-guide owner `character`. |
 | `ui/SheetView.ts` | Embedded character tab of the inventory window (`EmbeddedView`): `.cs-embed` + `SheetBody`; no blocker / lock / Escape. |
@@ -33,7 +33,7 @@ default (multiplier 1, bonus 0).
   (base + implant + gym training), `getImplantBonus`, `getSkill`, `getSkillProgress`, `getStatProgress`,
   `statXpToNext`, `getStatDef` / `getSkillDef` / `getAllStatDefs` / `getAllSkillDefs`, `skillForWeaponClass`,
   `getSkillGainMul(id)` (= `ctx.housing?.getSkillGainMul(id) ?? 1`).
-- **Progress**: `addXp`, `addSkillXp(id, amount)`, `addSkillXpRaw` (cheat / debuff, no scaling), `addStatXp`,
+- **Progress**: `addXp`, `addSkillXp(id, amount)`, `addSkillXpRaw` (cheat / debuff, no scaling), `addStatXp(id, amount, source?)` (`'action'` default · `'minigame'`),
   `spendStatPoint`, `spendStatPoints(alloc)` (all-or-nothing), `previewDerived(alloc)` (sheet host only), `resetProfile`,
   `save()` (forced write).
 - **Implant items**: `implantSlots`, `implantSlotsUsed`, `getEquippedImplants`, `equipImplant(uid)`,
@@ -42,7 +42,7 @@ default (multiplier 1, bonus 0).
 - **Meals**: `getMeal`, `getActiveMeal`, `getMealQuality`, `getActiveMealQuality`, `useMeal(defId, quality)`,
   `serveMeal(defId, quality)` (contract only — no caller since 2026-09-16). Meal defs come from `shared/meals`
   (`getMealDef`), not `ctx.loot` — meals are not items.
-- **Gym training**: `applyGymSession(stat, score)`, `getTrainedBonus`, `getTrainedProgress`, `trainedXpToNext`,
+- **Gym training**: `applyGymSession(stat, score)`, `getTrainedBonus`, `getTrainedProgress` / `trainedXpToNext` (= the stat-XP bar since 2026-09-17),
   `getGymFatigueUntil`, `gymNow`; console-only `addTrainedXp`, `clearGymFatigue`.
 - **UI**: `createSheetView(host)` → `EmbeddedView` (with `requestLeave`); the overlay opens on `ui:statsToggled`.
 
@@ -98,8 +98,12 @@ default (multiplier 1, bonus 0).
   quality (refused, so the caller does not consume an item). Callers ask first and consume the item only on success.
   2026-09-16: meals are eaten from housing dining plates (`eatPlate`), which are never consumed; `serveMeal` has no
   caller left.
-- **Gym training** is separate from stat points: `applyGymSession` is ship-only, one formula (`stepTrained`) shared
-  with `addTrainedXp`, fatigue (`GYM_FATIGUE_HOURS`) set only on a stat without active fatigue; a session during
+- **Gym training** is separate from stat points: `applyGymSession` is ship-only. Since 2026-09-17 there is no separate
+  단련 bar — session XP goes into the stat's **stat-XP bar** through `addStatXp(id, xp, 'minigame')`: a minigame addition
+  that crosses the need pays 단련 +1 (`profile.trained`, cap `GYM_TRAINED_MAX`; base stat and `statPoints` untouched), an
+  action addition pays a base point; at the cap minigame XP is held at 0.999999 and the next action XP tips it over; a
+  `STAT_MAX` bar pinned at 1 counts as empty for minigame XP. `addTrainedXp` (console) = minigame XP when positive, whole
+  단련 steps down when negative (bar untouched). Old `trainedProgress` is dropped by `migrate`. Fatigue (`GYM_FATIGUE_HOURS`) set only on a stat without active fatigue; a session during
   fatigue gives XP × `GYM_FATIGUE_GAIN_MUL` and does not extend it. `GYM_STATS` covers video-game stats too.
   Clock = `gymNow()` (relay time). Saves immediately. — `ProgressionSystem.ts` (`applyGymSession`)
 - **Implant items**: slots = `min(IMPLANT_SLOTS_MAX, IMPLANT_SLOTS_BASE + ⌊level / IMPLANT_SLOTS_PER_LEVELS⌋)`. The item
@@ -120,6 +124,10 @@ default (multiplier 1, bonus 0).
   `levelUp`); no document → upload local. Autosave every `AUTOSAVE_INTERVAL` s when dirty; immediate saves on level-up,
   stat spend, skill level-up, implant / prep / meal / gym changes. Boot events are emitted one microtask after `init`
   so later-registered systems receive them.
+- **Sheet header** (2026-09-17): the character name replaces the `캐릭터` title (no 레이드 / 탈출 counts); `(+n)` 단련 after
+  the stat value without the word; no 단련 / debuff line under the stats — debuffs are the name row's thumbnails
+  (`createCharBuffStrip(…, {interactive: true})`, fed by `ctx.player.buffs` + `player:buffsChanged`, hover card = `ui/hud/ItemTip`
+  text card). No ui registration → no thumbnails. — `ui/SheetBody.ts`
 - **Sheet overlay keys**: closes on Tab (capture phase; ignored under `MENU_BLOCKER` or in a text field) and via
   `ctx.escape`; it never handles Escape directly. The tooltip card must not use the `.item-tip` class (smokes locate the
   HUD item card by it).
@@ -127,8 +135,8 @@ default (multiplier 1, bonus 0).
 ## Recent changes
 
 Last 5 only — older: `git log -- src/progression`.
+- 2026-09-17 — 단련 shares the stat-XP bar (`addStatXp` `source: 'minigame'` → crossing pays 단련 +1, cap holds the bar at 0.999999; `trainedProgress` dropped by `migrate`, `stepTrained` / `trainedXpFor` removed; `data/constants.csv` `GYM_SESSION_XP` 100 → 560 stat-XP units); sheet header = character name + buff thumbnails (hover card), `(+n)` without `단련`, 단련 / debuff lines under stats and 레이드 / 탈출 counts removed.
 - 2026-09-16 — `SheetBody` emits `progress:statPending {total}` when the pending ＋ total changes.
 - 2026-09-16 — The crafting skill no longer speeds up crafting: `craftSpeedMul` is pinned at 1 (field kept — `DerivedStats` is add-only) and dropped from `DERIVED_PANEL_KEYS` / the sheet, so the always-×1.0 `제작 속도` row is gone; `data/skills.csv` crafting has no `derived` key and describes the material refund instead.
 - 2026-09-16 — Character-sheet XP readouts are compact (`shared/numberFormat` `formatCompactNumber`): the level bar `x / y XP` and every stat row's `x / y XP` format both sides; stat values, 단련 bonuses, percentages and timers stay exact.
 - 2026-09-16 — Meal defs read from `shared/meals` (`getMealDef`) instead of `ctx.loot`; `serveMeal` kept as contract with no caller.
-- 2026-09-16 — 운반 XP counts `ctx.player.selfMovedMeters` growth instead of the raw position delta (extraction liftoff / grapple / dash no longer train it).

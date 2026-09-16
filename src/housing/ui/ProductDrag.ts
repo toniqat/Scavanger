@@ -82,8 +82,24 @@ export class ProductDrag {
     const s = this.press;
     if (!s || !this.ghost) return;
     this.placeGhost(s.x, s.y);
-    this.setOver(this.gridAt(s.x, s.y));
+    this.aim(s.p, s.x, s.y);
   };
+
+  /**
+   * 2026-09-17 (사용자 보고 「장비칸에서 가방으로 끌 때처럼 **커서 밑 칸**이 강조돼야 한다 — 지금은 창고 · 가방 칸
+   * 전체가 빛난다」): 격자 뷰가 칸 미리보기를 주면 **발자국 강조**(`previewExternalAt`, 타일 드래그와 같은 `.inv-hl`)만
+   * 쓰고 격자 통째 강조는 하지 않는다. 놓을 때의 칸(`withDropCell` → `placeExternalAt`)과 같은 칸 찾기다.
+   * 미리보기가 없는 옛 인벤토리 · `grids` 를 안 준 화면만 예전처럼 격자 블록 전체를 칠한다.
+   */
+  private aim(p: Product, x: number, y: number): void {
+    const view = this.o.grids?.() ?? null;
+    if (view?.canPreview) {
+      this.setOver(null);
+      view.previewExternalAt(p.defId, p.qty, x, y);
+      return;
+    }
+    this.setOver(this.gridAt(x, y));
+  }
 
   private readonly onUp = (e: PointerEvent): void => {
     const s = this.press;
@@ -152,6 +168,7 @@ export class ProductDrag {
     window.removeEventListener('pointermove', this.onMove, true);
     window.removeEventListener('pointerup', this.onUp, true);
     if (this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
+    if (this.ghost) this.o.grids?.()?.clearExternalPreview();
     this.ghost?.remove();
     this.ghost = null;
     this.setOver(null);

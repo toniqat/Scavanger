@@ -32,7 +32,7 @@ import type {
   GameContext, GameSessionInfo, GymGameTuning, GymMinigame, GymSessionInfo, GymSessionResult, GymStat, KeyGuideEntry,
 } from '@/shared';
 import {
-  GYM_FATIGUE_LABEL_KO, GYM_MINIGAME_LABEL_KO, GYM_PRESS_REPS, GYM_TRAINED_MAX, Keys, MENU_BLOCKER, formatCompactSigned, keyLabel, paintKeycap,
+  GYM_FATIGUE_LABEL_KO, GYM_MINIGAME_LABEL_KO, GYM_PRESS_REPS, GYM_TRAINED_MAX, Keys, MENU_BLOCKER, formatCompactNumber, formatCompactSigned, keyLabel, paintKeycap,
   renderKeyText,
 } from '@/shared';
 import type { HousingSystem } from '../../HousingSystem';
@@ -421,15 +421,19 @@ export class GymScreen {
     return '박자에 맞춰 왼발 {LEFT} · 오른발 {RIGHT} 을 번갈아 밟습니다';
   }
 
-  /** 단련 보너스 · 진행도 한 덩어리 (시작 안내 · 결과 공용). */
+  /**
+   * 단련 보너스 · 진행도 한 덩어리 (시작 안내 · 결과 공용).
+   * 2026-09-17 (사용자 결정): 단련 수치는 `+N` 만 적는다. 진행도는 **능력치 경험치 바** 그 자체다 (단련 전용 바가 없어졌다 —
+   * `ProgressionSystem.addStatXp` 의 minigame 규칙). 상한이면 바는 가득 직전에서 멈춘다.
+   */
   private trainedBlock(parent: HTMLElement, stat: GymStat, trained: number, progress: number, need: number | null, capped: boolean): void {
     const box = el('div', { cls: 'gym-trained', parent });
     const line = el('div', { cls: 'gym-trained-line', parent: box });
     el('span', { cls: 'gym-trained-stat', text: this.statName(stat), parent: line });
-    el('span', { cls: 'gym-trained-val', text: `+${trained} 단련`, parent: line });
+    el('span', { cls: 'gym-trained-val', text: `+${trained}`, parent: line });
     const tail = capped
       ? '단련 최대치'
-      : need !== null && need > 0 ? `다음 단련까지 ${Math.round(progress * need)} / ${need}` : `다음 단련까지 ${pct(progress)} %`;
+      : need !== null && need > 0 ? `다음 +1까지 ${formatCompactNumber(Math.round(progress * need))} / ${formatCompactNumber(need)}` : `다음 +1까지 ${pct(progress)} %`;
     el('span', { cls: 'gym-trained-next', text: tail, parent: line });
     const bar = el('div', { cls: 'gym-bar', parent: box });
     el('i', { cls: 'gym-bar-fill', parent: bar }).style.width = `${capped ? 100 : pct(progress)}%`;
@@ -494,10 +498,11 @@ export class GymScreen {
       el('div', { cls: 'gym-warn', text: '단련 결과를 반영하지 못했습니다', parent: card });
     } else {
       // 2026-09-16: 경험치 수는 공용 축약 표기(`formatCompactSigned` — 10,000 → `10.0k`). 개수 · 단련 수치 · 시계는 그대로 정확히 적는다.
-      el('div', { cls: 'gym-xp', text: `단련 경험치 ${formatCompactSigned(r.xp, true)}`, parent: card });
+      // 2026-09-17: 경험치는 능력치 경험치 바로 들어간다 (단련 전용 바 없음) — 라벨도 그 바의 이름
+      el('div', { cls: 'gym-xp', text: `${name} 경험치 ${formatCompactSigned(r.xp, true)}`, parent: card });
       const gained = r.trainedAfter - r.trainedBefore;
-      if (gained > 0) el('div', { cls: 'gym-level', text: `${name} 단련 +${gained}!`, parent: card });
-      this.trainedBlock(card, s.stat, r.trainedAfter, r.progress, null, r.capped);
+      if (gained > 0) el('div', { cls: 'gym-level', text: `${name} +${gained}!`, parent: card });
+      this.trainedBlock(card, s.stat, r.trainedAfter, r.progress, this.ctx.progression?.statXpToNext?.(s.stat) ?? null, r.capped);
       const label = GYM_FATIGUE_LABEL_KO[s.stat];
       if (r.wasFatigued) el('div', { cls: 'gym-warn', text: `${label} 중이라 ${name}이 오르지 않았습니다`, parent: card });
       if (r.fatigueUntil > this.sys.nowMs()) {

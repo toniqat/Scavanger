@@ -10,8 +10,8 @@ import { HousingPanel } from './Panel';
 import { type BookDexView, createBookDex, gameDiscText, libraryEffectText, volumeRoman } from './BookDex';
 import { ProductDrag } from './ProductDrag';
 import type { Product } from './ProductDrag';
-import { buildStationItemTile, cellToFit } from './ItemTile';
-import { type ShelfDrawing, buildShelfDrawing, paintShelfSlot, shelfSlotBox } from './ShelfDrawing';
+import { buildStationItemTile } from './ItemTile';
+import { type ShelfDrawing, buildShelfDrawing, paintShelfSlot, shelfFootprint } from './ShelfDrawing';
 import { buildStationShell, mountStationGrids } from './StationShell';
 import type { StationGridsView } from './StationShell';
 import type { StationShell } from './StationShell';
@@ -72,6 +72,8 @@ export class BookshelfMenu extends HousingPanel {
   private readonly dex: BookDexView;
   private readonly drag: ProductDrag;
   private drawing: ShelfDrawing | null = null;
+  /** 지금 그림의 매체 + 발자국 (`book:1x2`) — 아이템 데이터가 늦게 붙으면 발자국이 바뀌어 다시 짓는다. */
+  private drawingKey = '';
   private grids: StationGridsView | null = null;
   private hoverSlot: number | null = null;
   private railKey = '';
@@ -163,10 +165,16 @@ export class BookshelfMenu extends HousingPanel {
 
   /** (Re)build the drawing when the medium on screen changes (the slot count / shape follow it). */
   private buildDrawing(medium: ShelfMedium): void {
-    if (this.drawing?.medium === medium) return;
+    /* 2026-09-17 (사용자 결정 「칸 모양은 받는 아이템의 크기를 따른다」): 칸 = 그 매체 아이템의 발자국 격자.
+       생성자 시점에는 `ctx.loot` 이 없어(housing 이 inventory 보다 먼저 등록) 발자국을 모른다 — 알게 되면 다시 짓는다. */
+    const loot = this.ctx.loot;
+    const fp = shelfFootprint(loot && typeof loot.getAllItemDefs === 'function' ? loot.getAllItemDefs() : null, medium);
+    const key = `${medium}:${fp ? `${fp.w}x${fp.h}` : '-'}`;
+    if (this.drawing && this.drawingKey === key) return;
+    this.drawingKey = key;
     this.debug.builds++;
     this.hoverSlot = null;
-    this.drawing = buildShelfDrawing(this.caseHost, medium);
+    this.drawing = buildShelfDrawing(this.caseHost, medium, fp);
   }
 
   /** The medium on screen (smoke / consumers). */
@@ -399,19 +407,19 @@ export class BookshelfMenu extends HousingPanel {
     setText(this.countEl, shelf ? `${filled} / ${slots}${SHELF_UNIT_KO[m]}` : `${holder}이(가) 사라졌습니다`);
 
     this.buildDrawing(m);
-    // 2026-09-16: 칸에 서는 것은 가방과 **같은 타일**이다 — 칸 상자에 맞는 칸 크기를 발자국에서 잰다 (`ui/ItemTile`)
-    const box = shelfSlotBox(m);
-    const tileOf = (defId: string): HTMLElement => {
-      const d = h.defOf(defId);
-      return buildStationItemTile(this.ctx, defId, { cell: cellToFit(box.width, box.height, d?.width ?? 1, d?.height ?? 1) });
-    };
+    // 2026-09-16: 칸에 서는 것은 가방과 **같은 타일**이다. 2026-09-17: 타일의 칸 크기는 그림의 격자 칸(`drawing.cell`)
+    // 그대로다 — 빈 칸(발자국 격자)과 꽂힌 칸이 같은 상자다
+    const drawing = this.drawing!;
+    const cell = drawing.cell;
+    const empty = { w: drawing.footprint.w, h: drawing.footprint.h, cell };
+    const tileOf = (defId: string): HTMLElement => buildStationItemTile(this.ctx, defId, { cell });
     const states = h.librarySeriesStates();
-    for (const view of this.drawing!.slots) {
+    for (const view of drawing.slots) {
       const info = infos[view.slot];
       const def = info?.defId ? h.defOf(info.defId) : undefined;
       if (!info || !info.defId) {
         // 2026-09-14 (사용자 결정): 빈 칸은 아무 말도 하지 않는다 — 호버해도 정보 줄이 비어 있다
-        paintShelfSlot(view, { defId: null, line: '' }, tileOf);
+        paintShelfSlot(view, { defId: null, line: '' }, tileOf, empty);
         continue;
       }
       const name = def?.name ?? info.defId;
@@ -419,13 +427,13 @@ export class BookshelfMenu extends HousingPanel {
         paintShelfSlot(view, {
           defId: info.defId,
           line: `${name}${def ? ` · ${gameDiscText(this.ctx, def)}` : ''}`,
-        }, tileOf);
+        }, tileOf, empty);
         continue;
       }
       const s = librarySeriesOfItem(def);
       const series = s ? LIBRARY_SERIES_MAP.get(s.seriesId) : undefined;
       if (!s || !series) {
-        paintShelfSlot(view, { defId: info.defId, line: `${name} · 효과 없음` }, tileOf);
+        paintShelfSlot(view, { defId: info.defId, line: `${name} · 효과 없음` }, tileOf, empty);
         continue;
       }
       const st = states.get(series.id);
@@ -437,7 +445,7 @@ export class BookshelfMenu extends HousingPanel {
         volume: series.volumes > 1 ? volumeRoman(s.volume) : '',
         full: fraction >= 1,
         line: `${name} · ${series.name}${progress}${st ? ` · ${effects}` : ''}`,
-      }, tileOf);
+      }, tileOf, empty);
     }
     this.paintInfo();
   }

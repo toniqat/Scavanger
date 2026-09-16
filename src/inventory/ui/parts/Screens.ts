@@ -239,11 +239,14 @@ export function setCatalog(sys: InventoryUI, open: boolean): void {
   if (!open) sys.tooltip.hide();
   }
 
-/** Double-press on a catalog tile: a fresh instance straight into the bag. */
+/** Double-press on a catalog tile: a fresh instance into the stash when it shows (ship), else / then the bag (2026-09-17). */
 export function catalogTake(sys: InventoryUI, def: ItemDef): void {
   const r = sys.sys.takeFromCatalog(def.id);
   if (r === 'ok') sys.sys.sfx('ui_pickup');
-  else { sys.sys.sfx('ui_error'); sys.catalogView.shake(def.id); sys.ctx.bus.emit('ui:notify', { text: TEXT.catalog.bagFull, kind: 'warning', duration: 1.6 }); }
+  else {
+    sys.sys.sfx('ui_error'); sys.catalogView.shake(def.id);
+    sys.ctx.bus.emit('ui:notify', { text: sys.sys.hubMode ? TEXT.catalog.stashBagFull : TEXT.catalog.bagFull, kind: 'warning', duration: 1.6 });
+  }
   }
 
 /**

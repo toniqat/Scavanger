@@ -6,23 +6,17 @@
  * 상승 = 성공색, 하락 = 위험색. 드래그 렉 규약: 진행 막대는 `transform: scaleX` 만, 전이 없음.
  * ========================================================================== */
 
-/* ── 상단 가로 탭 (2026-09-14) ───────────────────────────────────────────────
- * 인벤토리 · 캐릭터 Tab 화면의 `nav.scr-tabs > button.scr-tab` 과 **같은 결**이다 (알약 테두리 · 활성은 밝은 판).
- * 그 클래스를 빌려 쓰지 않고 값을 여기 적는 이유는 자리다 — `.scr-tabs` 는 화면에 절대 배치로 떠 있는 줄이고,
- * 이 탭은 채굴 창 `.frame` 의 첫 줄이다.
+/* ── 상단 가로 탭 (2026-09-14 → 2026-09-17 자리 통일) ─────────────────────────
+ * 2026-09-17 (사용자 결정 「채굴 · 메인 컴퓨터 화면의 탭이 Tab 화면(인벤토리/캐릭터/기업/함선)의 탭과 **같은 높이**에
+ * 있어야 한다」): 탭 줄은 이제 **그 클래스 그대로**(`nav.scr-tabs.mn-tabs > button.scr-tab.mn-tab`, base.css)이고
+ * 프레임 안의 첫 줄이 아니라 화면(`.menu` 루트)에 절대 배치로 뜬다 — `top: 22px`, 가로 가운데. 허브 터미널
+ * (`.hub-tabs`)과 같은 길이다. `.mn-tab` 은 선택자 손잡이(스모크)로만 남는다.
+ * 프레임은 그 알약(~42 px) 밑에서 시작한다 — Tab 화면의 `.inv-root.is-hub { padding-top: 74px }` 와 같은 값.
  * ────────────────────────────────────────────────────────────────────────── */
-.mn-tabs {
-  flex: none; align-self: center; display: flex; gap: 4px; padding: 4px;
-  border: 1px solid var(--c-border); border-radius: 999px; background: rgba(8, 9, 11, 0.7);
+.menu.housing-menu.mining-screen .frame { height: min(810px, calc(100vh - 158px)); margin-top: 74px; }
+@media (max-width: 1279px) {
+  .menu.housing-menu.mining-screen .frame { height: calc(100vh - 158px); }
 }
-.mn-tab {
-  appearance: none; border: 1px solid transparent; border-radius: 999px;
-  padding: 7px 18px; font: inherit; font-size: 12px; font-weight: 600; letter-spacing: 0.14em;
-  color: var(--c-text-dim); background: none; cursor: pointer;
-  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
-}
-.mn-tab:hover { color: var(--c-text); background: rgba(255, 255, 255, 0.06); }
-.mn-tab.is-on { color: #1a1408; background: var(--c-text); border-color: var(--c-text); }
 
 /* ── 공용 조각 ─────────────────────────────────────────────────────────────── */
 .mn-glyph {
@@ -79,21 +73,22 @@
    발자국에서 나오므로(JS 가 쓴다) 아이템이 2×1 이든 1×1 이든 격자가 따라간다. */
 .mn-cores {
   --cc: #8fd0ff; --mn-core-w: 104px; --mn-core-h: 52px;
-  /* 칸은 1 px 점선 테두리를 **밖에** 두른다 (`box-sizing: border-box` — 안쪽이 타일 크기 그대로여야 겹치지 않는다) */
-  display: grid; grid-template-columns: repeat(3, calc(var(--mn-core-w) + 2px)); grid-auto-rows: calc(var(--mn-core-h) + 2px);
+  /* 2026-09-17: 칸 상자 = 발자국 상자 그대로 (테두리 없음 — 빈 칸은 `.hs-fcell` 격자 칸이, 꽂힌 칸은 타일이 스스로 테두리를 갖는다) */
+  display: grid; grid-template-columns: repeat(3, var(--mn-core-w)); grid-auto-rows: var(--mn-core-h);
   gap: 8px; padding: 12px;
   justify-content: center; margin-inline: auto;
   background: rgba(0, 0, 0, 0.35); border: 1px solid var(--c-border);
 }
 .mn-core {
   position: relative; display: grid; place-items: center; cursor: default;
-  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 3px, transparent 3px 6px), rgba(5, 7, 10, 0.8);
-  border: 1px dashed rgba(255, 255, 255, 0.16);
+  width: var(--mn-core-w); height: var(--mn-core-h);
 }
 .mn-core.is-closed { opacity: 0.25; }
-.mn-core.is-on { border-color: transparent; background: none; cursor: grab; }
+.mn-core.is-on { cursor: grab; }
 .mn-cores.is-mining .mn-core.is-on { box-shadow: 0 0 12px color-mix(in srgb, var(--cc) 35%, transparent); }
-.mn-core.hs-drop-over, .mn-core.tg-drop-over { background: rgba(255, 179, 71, 0.18); }
+/* 드롭 강조 — 격자 뷰(`TradeGrids`)가 드롭 대상에 `.is-over` 를 붙인다 */
+.mn-core.is-over, .mn-core.hs-drop-over, .mn-core.tg-drop-over { outline: 1px solid var(--c-accent); box-shadow: 0 0 14px rgba(255, 179, 71, 0.45); }
+.mn-core.is-over .hs-fcell, .mn-core.hs-drop-over .hs-fcell { background: rgba(255, 179, 71, 0.18); border-color: rgba(255, 179, 71, 0.5); }
 
 .mn-cl-prog { display: flex; flex-direction: column; gap: 6px; }
 .mn-cl-prog .mn-bar { height: 8px; }

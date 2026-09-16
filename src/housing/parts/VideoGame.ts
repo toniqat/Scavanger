@@ -2,16 +2,18 @@
  * src/housing/parts/VideoGame.ts — **비디오게임** (2026-09-13, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」).
  *
  * TV 에 게임기를 장착하고(`ShipState.tvConsoles`), 게임 디스크 전시대(`game_stand`, 서재 매체 `game`)에 꽂힌 디스크 중 게임기가 맞는 것을
- * TV 앞 좌석에 앉아 플레이한다. 운동 세션(`parts/Gym`)과 **같은 모양**이다:
- *   ① `gameBlock` — TV 아님 · 함선 아님(레이드 포함) · 남의 함선 · 이미 세션 중 · 다른 화면 · 디스크 · 게임기 · 좌석.
+ * 플레이한다. TV 앞에 TV 를 보는 좌석이 있으면 거기 앉고, 없으면 **서서** 한다 (2026-09-17 사용자 결정 — 좌석은 조건이 아니다).
+ * 운동 세션(`parts/Gym`)과 **같은 모양**이다:
+ *   ① `gameBlock` — TV 아님 · 함선 아님(레이드 포함) · 남의 함선 · 이미 세션 중 · 다른 화면 · 디스크 · 게임기.
  *      TV 화면(`ui/tv/TvMenu`)이 열려 있는 것은 사유가 아니다 — `startGameSession` 이 그것을 닫고 시작한다.
  *   ② 세션 상태(`sys.gameState`)를 세우고 운동 화면(`ui/gym/GymScreen` 의 게임 모드 — 제목 = 디스크 이름 · 강조색 = 디스크 색 ·
- *      판정 = `createGymGame(minigame, tuning)`)을 연 뒤 `housing:gameSession {active:true}` — hub 가 좌석에 앉히고 TV 를 보는 고정 카메라를 건다.
- *      자세가 거절되면 hub 가 **같은 호출 스택 안에서** `cancelGameSession` 을 부른다.
+ *      판정 = `createGymGame(minigame, tuning)`)을 연 뒤 `housing:gameSession {active:true}` — 좌석이 있으면 hub 가 앉히고 TV 를 보는 고정
+ *      카메라를 건다 (좌석 자세가 거절되면 hub 가 **같은 호출 스택 안에서** `cancelGameSession` 을 부른다). `seatUid` null 이면 자세 없이
+ *      플레이어가 선 자리 · 평소 카메라 그대로 TV 게임 화면만 켠다.
  *   ③ 끝까지 하면 `completeGameSession` — `ctx.progression.applyGymSession(disc.stat, 점수)` → `housing:gameResult`.
  *      경험치 식 · 24 h 디버프는 헬스와 같다(사용자 결정 「헬스와 동일」) — 규칙은 progression 이 갖는다. 디버프 중에도 플레이는 된다(경험치 0).
  *   ④ 화면이 닫히면 `endGameSession` — `housing:gameSession {active:false, completed}`. 취소는 보상 · 디버프 없음.
- * 시작하면 꺼져 있던 TV 는 켠다(`toggleFurniture`). 좌석 규칙은 `Rules.tvSeatFor` 하나다.
+ * 시작하면 꺼져 있던 TV 는 켠다(`toggleFurniture`). 어느 좌석에 앉는지는 `Rules.tvSeatFor` 하나가 정한다.
  *
  * 게임기 장착은 **되돌릴 수 있는** 일이라 1초 홀드가 없다. 가방 → 창고 순서로 꺼내고(`consumeDefAll`), 교체 · 빼기는 가방 → 창고로 돌려준다.
  * TV 를 회수하면 게임기는 **함선 창고**로 돌아간다 — 자리가 없으면 회수 자체를 거절한다 (`parts/Furniture.recover`, 서재 보관함과 같은 규약).
@@ -206,7 +208,7 @@ function gameStands(sys: HousingSystem): PlacedFurniture[] {
 
 /**
  * 이 TV 로 고를 수 있는 게임 — 함선의 모든 게임 디스크 전시대에 꽂힌 디스크 (같은 디스크가 여러 대에 꽂혀 있으면 한 줄, 작동하는 전시대 우선).
- * `block` = 게임기 없음 · 게임기 불일치 · 전시대가 멈춤. **디버프 · 좌석은 사유가 아니다** (디버프 = 경험치 0 으로 플레이, 좌석 = TV 단위의 `tvSeatBlock`).
+ * `block` = 게임기 없음 · 게임기 불일치 · 전시대가 멈춤. **디버프 · 좌석은 사유가 아니다** (디버프 = 경험치 0 으로 플레이, 좌석 = 없으면 서서 — 2026-09-17).
  */
 export function getPlayableGames(sys: HousingSystem, tvUid: string): PlayableGameInfo[] {
   const consoleId = tvOf(sys, tvUid) ? getTvConsole(sys, tvUid) : null;
@@ -258,16 +260,17 @@ export function gameBlock(sys: HousingSystem, tvUid: string, discDefId: string):
   if (!gameDiscDefOf(sys, discDefId)) return '게임 디스크가 아닙니다';
   const entry = getPlayableGames(sys, tvUid).find((g) => g.defId === discDefId);
   if (!entry) return '게임 디스크 전시대에 꽂혀 있지 않습니다';
-  if (entry.block) return entry.block;
-  return tvSeatFor(sys.state, tvUid).reason;
+  // 2026-09-17 (사용자 결정): 좌석은 사유가 아니다 — 없으면 서서 한다 (`startGameSession` 의 `seatUid` null)
+  return entry.block;
 }
 
 export function startGameSession(sys: HousingSystem, tvUid: string, discDefId: string): string | null {
   const reason = gameBlock(sys, tvUid, discDefId);
   if (reason) return reason;
   const def = gameDiscDefOf(sys, discDefId);
+  // 유효한 좌석이 있으면 거기 앉고(hub `GameStaging`), 없으면 null — 자세 없이 서서 TV 게임 화면만 켠다
   const seatUid = tvSeatFor(sys.state, tvUid).seatUid;
-  if (!def?.gameDisc || !seatUid || !sys.gymScreen) return '게임을 시작할 수 없습니다';
+  if (!def?.gameDisc || !sys.gymScreen) return '게임을 시작할 수 없습니다';
   const disc = def.gameDisc;
   if (sys.tvMenu?.isOpen) sys.tvMenu.close(false);             // TV 화면을 닫고 게임 화면으로
   if (!sys.isFurnitureOn(tvUid)) sys.toggleFurniture(tvUid);   // 꺼져 있던 TV 를 켠다
@@ -335,7 +338,8 @@ export function bindVideoGame(sys: HousingSystem): Array<() => void> {
     b.on('game:phaseChanged', ({ phase }) => { if (phase !== 'hub') stop(); }),
     // 자세가 스스로 풀렸다(스폰 · 리셋 · E 로 일어남) — 앉은 자세가 아닌데 게임 화면만 남기지 않는다. `caller` = hub 가 우리 끝을 받아 푼 것
     b.on('player:furniturePoseEnded', ({ kind, reason }) => {
-      if (sys.gameState && reason !== 'caller' && kind === 'sit') cancelGameSession(sys);
+      // 2026-09-17: 서서 하는 세션(`seatUid` null)은 걸린 자세가 없다 — 다른 앉기 자세가 풀린 것은 그 세션과 무관하다
+      if (sys.gameState?.info.seatUid && reason !== 'caller' && kind === 'sit') cancelGameSession(sys);
     }),
     b.on('housing:furnitureRecovered', ({ uid }) => {
       const s = sys.gameState?.info;

@@ -1,7 +1,6 @@
-import type { CraftRecipe, EmbeddedView, GameContext, ItemInstance, MealBuff } from '@/shared';
+import type { CraftRecipe, EmbeddedView, GameContext, ItemInstance } from '@/shared';
 import {
-  COOK_GAME_ICON, COOK_GAME_LABEL_KO, MEAL_BUFF_UNIT, MEAL_QUALITY_MAX, MEAL_TIER_LABEL_KO, buildItemChip, cookStepsOf,
-  getMealDef, mealQualityBonus, mealQualityStars,
+  COOK_GAME_ICON, COOK_GAME_LABEL_KO, MEAL_TIER_LABEL_KO, buildItemChip, cookStepsOf, getMealDef,
 } from '@/shared';
 import type { HousingSystem } from '../../HousingSystem';
 import { furnitureMaxLevel, nextFurnitureCost } from '../../Rules';
@@ -20,14 +19,8 @@ import './cook.css';
 const CIRCLED = ['①', '②', '③', '④', '⑤'];
 /** 선택한 요리의 칩 크기 (px, 레이아웃 값). */
 const SEL_CHIP = 52;
-/**
- * 왼쪽 목록의 가로 칸 수 (2026-09-15 3차, 사용자 결정 「가로 최대 4칸」) — 작업대 제작 창의 `CRAFT_LIST_COLS` 와 같은 값이다.
- * 그 상수는 `inventory/ui/CraftPanel` 에 있고 폴더 간 import 이 금지라 여기서 다시 적는다 (밸런스가 아니라 **레이아웃** 값이다).
- * CSS 는 `--cook-cols` 로 받는다.
- */
-const COOK_LIST_COLS = 4;
-/** 목록 칸의 썸네일 한 변 (px, 레이아웃 값). */
-const CELL_THUMB = 48;
+/** 목록 줄의 썸네일 한 변 (px, 레이아웃 값). 2026-09-17 (사용자 결정): 4칸 격자 → 세로로 쌓인 넓은 줄 (썸네일 · 이름). */
+const CELL_THUMB = 40;
 
 interface RecipeRow {
   r: CraftRecipe;
@@ -44,18 +37,10 @@ interface RecipeRow {
 
 /* 2026-09-16 (사용자 결정 2차): 숙련 잠김 갈래(`is-skill` 배지)는 같은 날 오전에 지웠다가 되살렸다 — `skillRequired`
    열을 남겨 둔 이상 csv 숫자만 올리면 켜져야 한다. 값이 전부 0 인 지금은 `x.skill` 이 언제나 null 이다. */
-/** 레일 안 순서 — 지금 시작할 수 있음 0 · 잠기지 않았지만 막힘(재료 · 자리) 1 · 잠김(조리대 레벨 · 숙련 · 책) 2. */
+/** 목록 안 순서 — 지금 시작할 수 있음 0 · 잠기지 않았지만 막힘(재료 · 자리) 1 · 숙련 잠김 2 (조리대 레벨 · 책 잠김은 목록에 없다). */
 const rowRank = (x: RecipeRow): number => (!x.block ? 0 : x.locked || x.skill || x.book ? 2 : 1);
 
 const pct = (v: number): number => Math.round(Math.max(0, Math.min(1, v)) * 100);
-
-/** 능력치 값만 (`+5 %`) — `mealEffectText` 에서 이름을 뗀 것. 단위 규칙은 계약 `MEAL_BUFF_UNIT` 그대로. */
-function effectValueText(buff: MealBuff, amount: number): string {
-  const unit = MEAL_BUFF_UNIT[buff] ?? '';
-  const value = unit === '%' ? amount * 100 : amount;
-  const rounded = Math.round(value * 10) / 10;
-  return `${rounded < 0 ? '−' : '+'}${Math.abs(rounded)}${unit ? ` ${unit}` : ''}`;
-}
 
 /**
  * **조리대 화면** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」 — `openCookStation(uid)` ← E on a 조리대 · 자동 조리 가구).
@@ -63,14 +48,14 @@ function effectValueText(buff: MealBuff, amount: number): string {
  * 틀은 `StationShell` 공통이다: [조리대 카드(우상단 업그레이드 = 조리대 강화)] [창고 · 가방].
  *
  * **2026-09-15 3차 (사용자 결정 — 「모든 제작 관련 UI」를 한 모양으로)**: 작업대 제작 창(`inventory/ui/CraftPanel`)과
- * **같은 배치**가 됐다 — 조리대 카드 안이 **왼쪽 = 산출물 썸네일만의 격자**(`.cook-list`, 가로 `COOK_LIST_COLS` 칸) ·
- * **오른쪽 = 고른 요리의 상세**(`.cook-detail`)다. 옛 세로 레일(`.hs-rail.cook-rail`)은 걷어냈다.
- *   • 목록 칸(`.cook-cell[data-recipe]`)은 산출물 썸네일 하나 + 티어 배지이고, **지금 만들 수 있는 것이 앞으로**
- *     온다(안정 정렬 — csv 순서는 그 안에서 그대로). 재료 · 숙련 · 책 · 조리대 레벨이 바뀌면 다시 정렬한다.
- *   • **2026-09-15 (B-15) 숙련 잠김 표시는 그대로 살아 있다** — 숙련 · 책 · 조리대 레벨이 모자란 요리도 목록에
- *     **딤드(`.is-bench-locked`) + 배지**로 남고(`.cook-cell-locks`), 고르면 상세까지 다 보이며 **시작만** 막힌다.
+ * **같은 배치**가 됐다 — 조리대 카드 안이 **왼쪽 = 요리 목록**(`.cook-list`) · **오른쪽 = 고른 요리의 상세**(`.cook-detail`)다.
+ *   • **2026-09-17 (사용자 결정)**: 목록은 4칸 썸네일 격자가 아니라 **세로로 쌓인 넓은 줄**이다 — 줄(`.cook-cell[data-recipe]`)
+ *     = 왼쪽 썸네일(공용 칩 — 등급 테두리는 다른 곳과 같다) + 오른쪽 이름. 티어 배지 · 초록 점은 없앴다. 넘치면 세로 스크롤.
+ *     **지금 만들 수 있는 것이 앞으로** 온다(안정 정렬 — csv 순서는 그 안에서 그대로; 순위는 `data-rank`).
+ *   • **2026-09-17 (사용자 결정)**: 레시피 책이 없거나(`cookRecipeBookBlock`) 조리대 레벨이 모자란 요리는 **목록에 없다**.
+ *     숙련 잠김(B-15, `skillRequired` 가 전부 0 이라 지금은 뜨지 않는다)만 딤드 + 배지(`.cook-cell-locks`)로 남는다.
  *   • 상세 = 썸네일 + 이름 · 종류(티어 · 조리대 Lv · 숙련 · 단계 수) → **설명** → **보유 수** → 능력치 줄
- *     (☆ 기준 → ★★★★★ 보너스 반영) → **재료 썸네일**(글자 줄 없음 — 모자란 것은 칩이 빨갛게 말한다) →
+ *     (2026-09-17: 기준값만 — 최고 품질 보너스는 보이지 않는다) → **재료 썸네일**(글자 줄 없음 — 모자란 것은 칩이 빨갛게 말한다) →
  *     단계 칩 줄(`① ⫽ 썰기 → ② ◎ 젓기`, 자동 가구가 있으면 칩 아래 `푸드 프로세서 Lv.2 · 자동 60 %`) → `조리 시작`
  *     (막히면 딤드 + 사유 줄 · 누르면 거절음 + 토스트).
  *   ⚠ **수량 스테퍼는 없다** — 요리는 미니게임 한 판에 하나다. 홀드 버튼도 없다: 재료는 조리가 **끝날 때** 빠지므로
@@ -95,7 +80,7 @@ export class CookStation extends HousingPanel {
   private grids: EmbeddedView | null = null;
   /** 마지막으로 DOM 에 반영한 목록 구성 — 같으면 칸을 다시 만들지 않는다. */
   private railKey = '';
-  /** 왼쪽 산출물 썸네일 격자 (2026-09-15 3차). */
+  /** 왼쪽 요리 목록 (2026-09-17: 세로 줄 목록). */
   private readonly listEl: HTMLElement;
   private readonly selChip: HTMLElement;
   private readonly selName: HTMLElement;
@@ -119,12 +104,11 @@ export class CookStation extends HousingPanel {
       onUpgrade: () => this.openUpgrade(),
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });
-    // 2026-09-15 3차 (사용자 결정): 세로 레일 대신 **왼쪽 썸네일 격자 + 오른쪽 상세** (작업대 제작 창과 같은 배치)
+    // 2026-09-15 3차 (사용자 결정): 옛 레일 대신 **왼쪽 요리 목록 + 오른쪽 상세** (작업대 제작 창과 같은 배치)
     this.shell.rail.hidden = true;
 
     const split = el('div', { cls: 'cook-split', parent: this.shell.left });
     this.listEl = el('div', { cls: 'cook-list', parent: split });
-    this.listEl.style.setProperty('--cook-cols', String(COOK_LIST_COLS));
     this.listEl.addEventListener('click', (e) => this.onListClick(e));
     const left = el('div', { cls: 'cook-detail', parent: split });
 
@@ -135,7 +119,7 @@ export class CookStation extends HousingPanel {
     this.selSub = el('div', { cls: 'cook-sel-sub', parent: ht });
     this.selDesc = el('div', { cls: 'cook-sel-desc', parent: left });
     this.selOwned = el('div', { cls: 'cook-sel-owned', parent: left });
-    el('div', { cls: 'ui-label', text: '능력치 · 요리 품질', parent: left });
+    el('div', { cls: 'ui-label', text: '능력치', parent: left });
     this.selEffects = el('div', { cls: 'cook-sel-effects', parent: left });
     el('div', { cls: 'ui-label', text: '재료', parent: left });
     this.selCost = el('div', { cls: 'cook-sel-cost', parent: left });
@@ -147,12 +131,7 @@ export class CookStation extends HousingPanel {
     this.startBtn = this.button(start, '조리 시작', () => this.start(), 'primary cook-start');
     this.reasonEl = el('div', { cls: 'cook-sel-reason', parent: start });
     this.reasonEl.hidden = true;
-    el('div', {
-      cls: 'hint cook-sel-note',
-      // 2026-09-16 (접시 모델, 사용자 결정): 요리는 아이템이 아니라 식탁의 접시다 — 함선당 한 접시, 다시 만들면 바뀐다
-      text: '재료는 요리가 끝날 때 빠집니다 — 중간에 그만두면 아무것도 쓰지 않습니다. 완성된 요리는 식탁에 차려집니다 (함선당 한 접시, 다음 레이드가 시작되면 치워집니다).',
-      parent: left,
-    });
+    // 2026-09-17 (사용자 결정): 상세 아래의 「재료는 요리가 끝날 때 빠집니다 …」 안내문은 걷어냈다
 
     this.mountMsg();
     const foot = el('div', { cls: 'hs-foot', parent: this.frame });
@@ -274,7 +253,7 @@ export class CookStation extends HousingPanel {
     setText(this.shell.title, bench?.def.name ?? '조리대');
     const level = bench?.item.level ?? 0;
     paintStationLevel(this.shell, bench ? level : null, bench ? furnitureMaxLevel(bench.def) : 0);
-    // 2026-09-15 (B-15): 숙련 잠김 요리도 레일에 있다 — 티어 안에서 시작할 수 있는 것 → 막힌 것 → 잠긴 것 (그 밖의 순서는 표 그대로, 안정 정렬)
+    // 2026-09-17 (사용자 결정): 레시피 책이 없거나 조리대 레벨이 모자란 요리는 목록에서 뺀다 — 숙련 잠김(B-15)만 딤드로 남는다
     const rows: RecipeRow[] = cookRecipes(h).map((r) => ({
       r,
       locked: (r.benchLevel ?? 1) > level,
@@ -282,7 +261,7 @@ export class CookStation extends HousingPanel {
       book: cookRecipeBookBlock(h, r),
       skill: cookRecipeSkillBlock(h, r),
       tier: h.mealDef(r.outputDefId)?.meal?.tier ?? 0,
-    })).map((x, i) => ({ x, i }))
+    })).filter((x) => !x.locked && !x.book).map((x, i) => ({ x, i }))
       // 2026-09-15 3차 (사용자 결정): **지금 만들 수 있는 것이 앞으로** — 그 안에서 티어 순, 그 안에서 csv 순 (안정 정렬)
       .sort((a, b) => rowRank(a.x) - rowRank(b.x) || a.x.tier - b.x.tier || a.i - b.i)
       .map(({ x }) => x);
@@ -298,10 +277,10 @@ export class CookStation extends HousingPanel {
   }
 
   /**
-   * 왼쪽 목록 = **산출물 썸네일만의 격자** (2026-09-15 3차, 사용자 결정 — 작업대 제작 창의 `.inv-craft-list` 와 같은 결).
-   * 칸은 `.cook-cell[data-recipe]` 이고 옛 이름 `.cook-rail-item` 도 함께 단다 (스모크 · 옛 선택자).
-   * 딤드는 두 갈래다 — 지금 재료 · 자리가 모자라면 `.is-locked`, 조리대 레벨 · 숙련 · 책이 모자라면 `.is-bench-locked`
-   * (2026-09-15 B-15 그대로: **목록에서 사라지지 않고** 배지로 무엇이 모자란지 말한다).
+   * 왼쪽 목록 = **세로로 쌓인 넓은 줄** (2026-09-17, 사용자 결정 — 옛 4칸 썸네일 격자를 대신한다): 줄 = 썸네일(공용 칩, 등급
+   * 테두리) + 이름. 줄은 `.cook-cell[data-recipe][data-rank]` 이고 옛 이름 `.cook-rail-item` 도 함께 단다 (스모크 · 옛 선택자).
+   * 조리대 레벨 · 책 잠김 요리는 `refresh` 가 이미 뺐다. 재료 · 자리가 모자라면 `.is-locked`, 숙련이 모자라면
+   * `.is-bench-locked .is-skill` + 이름 아래 배지 (B-15 — csv `skillRequired` 가 전부 0 인 지금은 뜨지 않는다).
    */
   private buildList(rows: readonly RecipeRow[]): void {
     const list = this.listEl;
@@ -309,12 +288,10 @@ export class CookStation extends HousingPanel {
     if (!rows.length) { el('div', { cls: 'hs-empty cook-list-empty', text: '만들 수 있는 요리가 없습니다.', parent: list }); return; }
     const inv = this.ctx.inventory;
     for (const x of rows) {
-      const gated = !!(x.locked || x.book || x.skill);
       const cell = el('button', {
-        // `is-book` · `is-skill` 은 **잠김 갈래를 구분하는 표시**다 (옛 레일과 같은 이름 — 스모크도 이것으로 읽는다)
         cls: `cook-cell cook-rail-item${x.r.id === this.selectedRecipeId ? ' is-on is-active' : ''}`
-          + `${gated ? ' is-bench-locked is-locked' : x.block ? ' is-locked' : ''}${x.book ? ' is-book' : ''}${x.skill ? ' is-skill' : ''}`,
-        attrs: { 'data-recipe': x.r.id },
+          + `${x.skill ? ' is-bench-locked is-locked is-skill' : x.block ? ' is-locked' : ''}`,
+        attrs: { 'data-recipe': x.r.id, 'data-rank': String(rowRank(x)) },
         parent: list,
       });
       cell.type = 'button';
@@ -324,24 +301,14 @@ export class CookStation extends HousingPanel {
       const thumb = el('div', { cls: 'cook-cell-thumb', parent: cell });
       if (def || !inv || typeof inv.buildItemTile !== 'function') thumb.appendChild(buildItemChip(def, { size: CELL_THUMB }));
       else thumb.appendChild(inv.buildItemTile(x.r.outputDefId, x.r.outputQty, { cell: CELL_THUMB }));
-      if (x.tier > 0) el('span', { cls: 'cook-cell-tier', text: `T${x.tier}`, parent: cell });
-      // 지금 만들 수 있으면 초록 점 (옛 레일의 표시 그대로)
-      el('i', { cls: `cook-rail-dot cook-cell-dot${x.block ? '' : ' on'}`, parent: cell });
+      const text = el('div', { cls: 'cook-cell-text', parent: cell });
+      el('div', { cls: 'cook-cell-name', text: name, parent: text });
       const why: string[] = [];
-      if (x.book) why.push(x.book);
-      if (x.locked || x.skill) {
-        // 2026-09-15 (B-15): 조리대 레벨 · 숙련 — 모자란 것마다 배지 하나 (둘 다면 둘), 호버 = 무엇이 모자란지
-        const locks = el('span', { cls: 'cook-rail-locks cook-cell-locks', parent: cell });
-        if (x.locked) {
-          el('span', { cls: 'cook-rail-lv', text: `Lv.${x.r.benchLevel ?? 1}`, parent: locks });
-          why.push(`조리대 Lv.${x.r.benchLevel ?? 1} 필요`);
-        }
-        if (x.skill) {
-          el('span', { cls: 'cook-rail-lv cook-rail-skill', text: `${x.skill.label} ${x.skill.need}`, parent: locks });
-          why.push(`${x.skill.label} 숙련 ${x.skill.need} 필요 (지금 ${x.skill.have})`);
-        }
+      if (x.skill) {
+        const locks = el('span', { cls: 'cook-rail-locks cook-cell-locks', parent: text });
+        el('span', { cls: 'cook-rail-lv cook-rail-skill', text: `${x.skill.label} ${x.skill.need}`, parent: locks });
+        why.push(`${x.skill.label} 숙련 ${x.skill.need} 필요 (지금 ${x.skill.have})`);
       }
-      if (x.book) el('span', { cls: 'cook-rail-lv cook-rail-book cook-cell-book', text: '책', parent: cell });
       const tierName = MEAL_TIER_LABEL_KO[x.tier as 1 | 2 | 3 | 4] ?? '';
       cell.title = [name, tierName, ...why].filter(Boolean).join(' · ');
     }
@@ -381,15 +348,11 @@ export class CookStation extends HousingPanel {
     setText(this.selOwned, plate ? `식탁: 「${plateName}」 — 요리하면 바뀝니다` : '식탁: 비어 있음');
     toggleClass(this.selOwned, 'is-none', !plate);
 
-    // 능력치: ☆ 기준값 → ★★★★★ 보너스 반영 (한 줄에 한 능력치)
-    const maxBonus = mealQualityBonus(MEAL_QUALITY_MAX);
-    el('div', { cls: 'cook-eff-head', text: `${mealQualityStars(0)} 기준  →  ${mealQualityStars(MEAL_QUALITY_MAX)} +${Math.round(maxBonus * 100)} %`, parent: this.selEffects });
+    // 능력치: 기준값만 (한 줄에 한 능력치). 2026-09-17 (사용자 결정): 최고 품질(★★★★★) 보너스 반영값은 보이지 않는다
     if (def?.meal) {
       for (const e of mealEffects(def.meal)) {
         const line = el('div', { cls: 'cook-eff-line', parent: this.selEffects });
         el('span', { cls: 'cook-eff-base', text: mealEffectText(e.buff, e.amount), parent: line });
-        el('span', { cls: 'cook-eff-arrow', text: '→', parent: line });
-        el('span', { cls: 'cook-eff-max', text: effectValueText(e.buff, e.amount * (1 + maxBonus)), parent: line });
       }
     }
 

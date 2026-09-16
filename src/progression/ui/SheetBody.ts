@@ -1,6 +1,6 @@
-import type { DerivedStats, EquippedImplant, GameContext, GymStat, HoldAskHandle, LibrarySourceInfo, PlayerProfile, SkillDef, SkillId, StatDef, StatId } from '@/shared';
+import type { CharBuffStripView, DerivedStats, EquippedImplant, GameContext, HoldAskHandle, LibrarySourceInfo, PlayerProfile, SkillDef, SkillId, StatDef, StatId } from '@/shared';
 import {
-  GYM_FATIGUE_LABEL_KO, GYM_STATS, GYM_TRAINED_MAX, SHELF_MEDIUM_LABEL_KO, SKILL_LEVEL_MAX, STAT_IDS, STAT_MAX, UI_HOLD_CONFIRM_S, buildItemChip, createHoldButtonCap, openHoldAsk,
+  createCharBuffStrip, SHELF_MEDIUM_LABEL_KO, SKILL_LEVEL_MAX, STAT_IDS, STAT_MAX, UI_HOLD_CONFIRM_S, buildItemChip, createHoldButtonCap, openHoldAsk,
 } from '@/shared';
 /* 2026-09-16 (사용자 결정 「큰 수 축약」): 레벨 경험치 · 능력치 경험치도 크레딧 · 가치와 같은 표기를 쓴다
    (`shared/numberFormat`). 능력치 값 · 단련 보너스 · 퍼센트 · 잔여 포인트처럼 **정확한 값이 곧 뜻인 수**는 그대로다. */
@@ -8,16 +8,6 @@ import { formatCompactNumber } from '@/shared';
 import { DERIVED_PANEL_KEYS, derivedKeysOfSkill, derivedKeysOfStat, type DerivedPanelKey } from '../defs';
 import { SKILL_GAIN_PER_INT, SKILL_STAT_FACTOR } from '../derive';
 import { SheetTip, type SheetTipRow, type SheetTipSpec } from './SheetTip';
-
-const isGymStat = (id: StatId): id is GymStat => (GYM_STATS as readonly string[]).includes(id);
-
-/** `HH:MM:SS` of a positive span in ms (hours are not wrapped — a fresh 24 h debuff reads `24:00:00`). */
-function hms(ms: number): string {
-  const total = Math.max(0, Math.ceil(ms / 1000));
-  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
-  const p2 = (n: number): string => String(n).padStart(2, '0');
-  return `${p2(h)}:${p2(m)}:${p2(s)}`;
-}
 
 /** What the sheet needs from ProgressionSystem (kept structural so there is no circular import). */
 export interface CharacterSheetHost {
@@ -38,11 +28,11 @@ export interface CharacterSheetHost {
   /** Stat XP (2026-09-06): 0..1 toward the next point, and the raw XP that point costs. */
   getStatProgress(id: StatId): number;
   statXpToNext(id: StatId): number;
-  /** 헬스장 (A-3a): 단련 보너스 · 다음 단계까지의 진행도 · 디버프 끝 시각 (0 = 없음) and the clock it is measured on. */
+  /**
+   * 헬스장 (A-3a): 단련 보너스. 2026-09-17: the sheet no longer draws a 단련 progress line or the debuff countdown under the stats
+   * (the bar is the stat-XP bar; debuffs are thumbnails next to the name), so it reads only the bonus.
+   */
   getTrainedBonus?(id: StatId): number;
-  getTrainedProgress?(id: StatId): number;
-  getGymFatigueUntil?(id: StatId): number;
-  gymNow?(): number;
   /** Ship-facility skill-gain multiplier (사격장); 1 when nothing applies. */
   getSkillGainMul(id: SkillId): number;
   getAllStatDefs(): readonly StatDef[];
@@ -90,11 +80,8 @@ interface StatRow {
   plus: HTMLButtonElement; fill: HTMLElement; xp: HTMLElement;
   /** 2026-09-13: `－` (removes pending points only) and the `+n` pending span after the base value. */
   minus: HTMLButtonElement; pend: HTMLElement;
-  /** A-3a: ` (+n 단련)` after the implant bonus (empty + hidden at 0). */
+  /** A-3a: ` (+n)` 단련 bonus after the implant bonus (empty + hidden at 0; 2026-09-17: no `단련` word). */
   trained: HTMLElement;
-  /** A-3a, `GYM_STATS` only (근력 · 지구력 — 2026-09-13 + 지능 · 인지력 from the video games): `단련 +n · p %` / `단련 최대` and the debuff countdown line. */
-  gymProg: HTMLElement | null;
-  fatigue: HTMLElement | null;
 }
 
 interface SkillRow { root: HTMLElement; name: HTMLElement; level: HTMLElement; fill: HTMLElement; bonus: HTMLElement }
@@ -140,7 +127,14 @@ export class SheetBody {
   private derivedRows = new Map<DerivedPanelKey, DerivedRow>();
   private created: HTMLElement[] = [];
 
-  private subtitle: HTMLElement;
+  /** 2026-09-17: the character's name, large, where the `캐릭터` title was. */
+  private nameEl: HTMLElement;
+  /**
+   * 2026-09-17 (사용자 결정): the character's buffs / debuffs as thumbnails next to the name — the HUD's `ui/hud/BuffStrip`, borrowed
+   * through `shared/charBuffView` (null when ui registered no factory). Interactive: hovering a thumbnail shows its card.
+   */
+  private buffStrip: CharBuffStripView | null;
+  private readonly offBuffs: () => void;
   private levelText: HTMLElement;
   private pointsTag: HTMLElement;
   private xpFill: HTMLElement;
@@ -163,9 +157,9 @@ export class SheetBody {
   /** The warning popup this body raised (leave · reset), if any. */
   private ask: HoldAskHandle | null = null;
   /**
-   * A-3a: 1 Hz repaint of the debuff countdown. Runs **only** while a debuff is active **and** the body is on screen — the
-   * tick stops itself when the body is hidden (closed overlay / other inventory tab) or no debuff is left; both shells call
-   * `refresh()` when they show the body again, which restarts it.
+   * 1 Hz repaint of the buff thumbnails' time gauges (was the debuff countdown line until 2026-09-17). Runs **only** while a
+   * thumbnail is shown **and** the body is on screen — the tick stops itself when the body is hidden (closed overlay / other
+   * inventory tab) or the strip is empty; both shells call `refresh()` when they show the body again, which restarts it.
    */
   private ticker: number | null = null;
   /**
@@ -189,8 +183,14 @@ export class SheetBody {
     /* ── header ── */
     const head = this.own(el('div', { cls: 'cs-head', parent }));
     const hl = el('div', { cls: 'hl', parent: head });
-    el('div', { cls: 'title', text: '캐릭터', parent: hl });
-    this.subtitle = el('div', { cls: 'subtitle', text: '', parent: hl });
+    // 2026-09-17 (사용자 결정): the name replaces the `캐릭터` title, and the 레이드 / 탈출 counts are gone
+    const nameRow = el('div', { cls: 'pg-namerow', parent: hl });
+    this.nameEl = el('div', { cls: 'title pg-name', text: host.profile.name, parent: nameRow });
+    this.buffStrip = createCharBuffStrip(nameRow, { interactive: true });
+    this.offBuffs = ctx.bus.on('player:buffsChanged', ({ buffs }) => {
+      this.buffStrip?.set(buffs, this.ctx);
+      this.syncTicker();
+    });
     const lvBox = el('div', { cls: 'cs-level', parent: head });
     this.levelText = el('div', { cls: 'lv', text: 'LV 1', parent: lvBox });
     this.pointsTag = el('div', { cls: 'pts', text: '', parent: lvBox });
@@ -452,7 +452,9 @@ export class SheetBody {
     const inRaid = this.ctx.isRaidActive();
     this.reconcilePending(inRaid);
 
-    setText(this.subtitle, `${p.name} · 레이드 ${p.raids}회 · 탈출 ${p.extractions}회`);
+    setText(this.nameEl, p.name);
+    this.buffStrip?.set(this.ctx.player?.buffs ?? null, this.ctx);
+    this.syncTicker();
     setText(this.levelText, `LV ${host.level}`);
     const pts = host.statPoints;
     const total = this.pendingTotal;
@@ -559,21 +561,14 @@ export class SheetBody {
     const hasBonus = Number.isFinite(bonus) && bonus !== 0;
     row.bonus.hidden = !hasBonus;
     setText(row.bonus, hasBonus ? ` (${bonus > 0 ? '+' : ''}${bonus})` : '');
-    // A-3a: 헬스장 단련 보너스 — its own span and colour after the implant one: `10 (+2) (+1 단련)`
+    // A-3a: 헬스장 단련 보너스 — its own span and colour after the implant one: `10 (+2) (+1)`
+    // 2026-09-17 (사용자 결정): plain `+N` (no `단련` word); the 단련 progress line and the debuff countdown under the stat are gone —
+    // 단련 fills the stat-XP bar below (`ProgressionSystem.addStatXp` minigame source), debuffs are the name row's thumbnails.
     const tb = typeof this.host.getTrainedBonus === 'function' ? this.host.getTrainedBonus(id) : 0;
     const hasTrained = Number.isFinite(tb) && tb > 0;
     row.trained.hidden = !hasTrained;
-    setText(row.trained, hasTrained ? ` (+${tb} 단련)` : '');
+    setText(row.trained, hasTrained ? ` (+${tb})` : '');
     row.root.classList.toggle('has-bonus', hasBonus || hasTrained || pend > 0);
-    if (row.gymProg) {
-      const maxedT = hasTrained && tb >= GYM_TRAINED_MAX;
-      const tp = typeof this.host.getTrainedProgress === 'function' ? this.host.getTrainedProgress(id) : 0;
-      const pc = Math.floor(Math.min(1, Math.max(0, Number.isFinite(tp) ? tp : 0)) * 100);
-      setText(row.gymProg, maxedT ? '단련 최대' : `단련 +${hasTrained ? tb : 0} · ${pc} %`);
-      row.gymProg.classList.toggle('maxed', maxedT);
-    }
-    this.paintFatigue(id, row);
-    this.syncTicker();
     const maxed = v >= STAT_MAX;
     const need = Math.max(1, this.host.statXpToNext(id));
     const p = Math.min(1, Math.max(0, this.host.getStatProgress(id)));
@@ -605,30 +600,10 @@ export class SheetBody {
     }
   }
 
-  /* ── 헬스장 디버프 countdown (A-3a) ───────────────────────────────────── */
-  /** Remaining ms of the debuff on `id` (0 when none / expired / the host has no gym API). */
-  private fatigueLeft(id: StatId): number {
-    const h = this.host;
-    if (typeof h.getGymFatigueUntil !== 'function') return 0;
-    const until = h.getGymFatigueUntil(id);
-    if (!(until > 0)) return 0;
-    const now = typeof h.gymNow === 'function' ? h.gymNow() : Date.now();
-    return Math.max(0, until - now);
-  }
-
-  private paintFatigue(id: StatId, row: StatRow): void {
-    if (!row.fatigue || !isGymStat(id)) return;
-    const left = this.fatigueLeft(id);
-    row.fatigue.hidden = left <= 0;
-    setText(row.fatigue, left > 0 ? `${GYM_FATIGUE_LABEL_KO[id]} · 남은 ${hms(left)}` : '');
-    row.root.classList.toggle('is-fatigued', left > 0);
-  }
-
-  private anyFatigue(): boolean { return GYM_STATS.some((id) => this.fatigueLeft(id) > 0); }
-
-  /** Start the 1 Hz countdown when a debuff is showing, stop it when none is left. */
+  /* ── buff thumbnail gauges (2026-09-17; was the 헬스장 debuff countdown, A-3a) ─────────────── */
+  /** Start the 1 Hz gauge repaint while thumbnails are showing, stop it when the strip is empty. */
   private syncTicker(): void {
-    const need = this.anyFatigue();
+    const need = (this.buffStrip?.count ?? 0) > 0;
     if (need && this.ticker === null) this.ticker = window.setInterval(() => this.tick(), 1000);
     else if (!need) this.stopTicker();
   }
@@ -641,11 +616,8 @@ export class SheetBody {
     const anchor = this.created[0];
     // hidden (closed overlay, another inventory tab) or torn down → stop; the next `refresh()` restarts it
     if (!anchor || !anchor.isConnected || anchor.getClientRects().length === 0) { this.stopTicker(); return; }
-    for (const id of GYM_STATS) {
-      const row = this.statRows.get(id);
-      if (row) this.paintFatigue(id, row);
-    }
-    if (!this.anyFatigue()) this.stopTicker();
+    this.buffStrip?.update(this.ctx);
+    if ((this.buffStrip?.count ?? 0) === 0) this.stopTicker();
   }
 
   /* ── tooltips + linked-row outline (2026-09-13) ──────────────────────── */
@@ -807,15 +779,6 @@ export class SheetBody {
     const bar = el('div', { cls: 'bar', parent: prog });
     const fill = el('i', { parent: bar });
     const xp = el('div', { cls: 'xp ui-mono', text: '', parent: prog });
-    // A-3a: the `GYM_STATS` (근력 · 지구력, 2026-09-13 + 지능 · 인지력) carry a short 단련 line (`단련 +2 · 40 %` / `단련 최대`) and, while a debuff runs, its countdown
-    let gymProg: HTMLElement | null = null;
-    let fatigue: HTMLElement | null = null;
-    if (isGymStat(def.id)) {
-      const gy = el('div', { cls: 'gy', parent: txt });
-      gymProg = el('span', { cls: 'gtr ui-mono', text: '', parent: gy });
-      fatigue = el('span', { cls: 'fat ui-mono', text: '', parent: gy });
-      fatigue.hidden = true;
-    }
     const minus = el('button', { cls: 'ui-btn minus', text: '－', parent: row });
     minus.type = 'button';
     const value = el('div', { cls: 'v ui-mono', parent: row });
@@ -824,13 +787,13 @@ export class SheetBody {
     pend.hidden = true;
     const bonus = el('span', { cls: 'ib', text: '', parent: value });   // Phase 12: ` (+n)` from 임플란트 items
     bonus.hidden = true;
-    const trained = el('span', { cls: 'tb', text: '', parent: value });  // A-3a: ` (+n 단련)` from the 헬스장
+    const trained = el('span', { cls: 'tb', text: '', parent: value });  // A-3a: ` (+n)` 단련 from the 헬스장 · video games
     trained.hidden = true;
     const plus = el('button', { cls: 'ui-btn plus', text: '＋', parent: row });
     plus.type = 'button';
     plus.addEventListener('click', (e) => { e.stopPropagation(); this.stepPending(def.id, 1); });
     minus.addEventListener('click', (e) => { e.stopPropagation(); this.stepPending(def.id, -1); });
-    this.statRows.set(def.id, { root: row, name, value, base, pend, bonus, plus, minus, fill, xp, trained, gymProg, fatigue });
+    this.statRows.set(def.id, { root: row, name, value, base, pend, bonus, plus, minus, fill, xp, trained });
     this.hover(name, () => this.statTip(def), () => {
       const out = this.linksForStats([def.id], false);
       return out;
@@ -892,6 +855,9 @@ export class SheetBody {
 
   dispose(): void {
     this.stopTicker();
+    this.offBuffs();
+    this.buffStrip?.dispose();
+    this.buffStrip = null;
     this.derivedRO?.disconnect();
     this.derivedRO = null;
     if (this.fitRaf) { cancelAnimationFrame(this.fitRaf); this.fitRaf = 0; }

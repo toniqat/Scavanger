@@ -26,7 +26,7 @@ import { Snapshotter } from './Snapshotter';
 import type { CrewCardWire, ImplantId } from '@/shared';
 /* appended (2026-09-08): 공용 함선 격납고 — a visited member's ship layout */
 import type { PlacedBook, PlacedFurniture, RoomPurpose, ShipVisitWire } from '@/shared';
-import { COCKPIT_ROOM_INDEX, ROOM_PURPOSES, SHIP_ROOM_COUNT, SHIP_VISIT_MAX_FURNITURE, roomGridSize } from '@/shared';
+import { COCKPIT_ROOM_INDEX, CULTURE_MAX_SLOTS, ROOM_PURPOSES, SHIP_ROOM_COUNT, SHIP_VISIT_MAX_FURNITURE, roomGridSize } from '@/shared';
 import { IMPLANT_IDS } from '@/shared';
 /* appended (Phase 11): 행성 선택 · 소셜 */
 /* appended (Phase 10): 발사 준비 패널 crew cards */
@@ -139,6 +139,23 @@ export function sanitizeShipVisit(v: unknown): ShipVisitWire | null {
       if (uid !== null && placed.has(uid) && !toggled.includes(uid)) toggled.push(uid);
     }
     if (toggled.length > 0) out.toggled = toggled;
+  }
+  /* 2026-09-17: 배양조 칸의 겉모습 (`cultures` — 배지 id · 세포주 유무). 배치된 조각의 uid 만, (uid, 칸) 하나에 하나, 칸 번호는
+     `CULTURE_MAX_SLOTS` 안. 배지가 진짜 배지인지 · 조각이 배양조인지는 그리는 쪽(hub `FurnitureSource`)이 카탈로그로 가린다. */
+  if (Array.isArray(w.cultures)) {
+    const placed = new Set(furniture.map((f) => f.uid));
+    const seen = new Set<string>();
+    const cultures: NonNullable<ShipVisitWire['cultures']> = [];
+    for (const c of w.cultures.slice(0, SHIP_VISIT_MAX_FURNITURE * CULTURE_MAX_SLOTS)) {
+      const e = c as Partial<{ uid: unknown; slot: unknown; medium: unknown; s: unknown }> | null;
+      const uid = defIdOrNull(e?.uid), medium = defIdOrNull(e?.medium);
+      if (uid === null || medium === null || !placed.has(uid) || !isNum(e?.slot)) continue;
+      const slot = Math.floor(e?.slot as number);
+      if (slot < 0 || slot >= CULTURE_MAX_SLOTS || seen.has(`${uid}#${slot}`)) continue;
+      seen.add(`${uid}#${slot}`);
+      cultures.push(e?.s === 1 ? { uid, slot, medium, s: 1 } : { uid, slot, medium });
+    }
+    if (cultures.length > 0) out.cultures = cultures;
   }
   return out;
 }

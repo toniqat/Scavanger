@@ -19,7 +19,7 @@ import { clear, el, setText, toggleClass } from './dom';
  *     개인 함선 식탁 = 내 접시 하나, 공유 함선 식탁 = 내 접시 + 분대원 접시(요리한 사람 이름).
  *   • **먹어도 접시는 줄지 않는다** — 「먹기」는 `parts/Dining.eatPlate`(→ `ProgressionRef.useMeal`)이고, 이미 대기 식사가 그 요리 · 그 품질이면
  *     버튼이 딤드되고 「먹음」 표시가 붙는다(`plateEatBlock`). 다른 접시를 먹으면 대기 식사가 **바뀐다**.
- *   • 접시는 다음 레이드가 시작되면 치워진다 — 바닥 안내문이 그 규칙을 말한다.
+ *   • 접시는 다음 레이드가 시작되면 치워진다 (2026-09-17: 그 규칙을 말하던 바닥 안내문은 사용자 결정으로 걷어냈다).
  *
  * 규칙은 하나도 여기 없다 — 화면은 `eatPlate` · `plateEatBlock` 이 돌려주는 한국어 사유를 그대로 옮긴다.
  *
@@ -59,13 +59,9 @@ export class DiningTable extends HousingPanel {
     this.activeNote = el('div', { cls: 'hint dt-active', text: '', parent: left });
 
     this.mountMsg();
-    const foot = el('div', { cls: 'hs-foot', parent: this.frame });
-    el('div', {
-      cls: 'hint',
-      text: '식탁의 요리는 먹어도 줄지 않고, 다음 레이드가 시작되면 치워집니다. 먹은 식사는 출격할 때 실려 그 레이드 내내 유지됩니다.',
-      parent: el('div', { cls: 'left', parent: foot }),
-    });
-    this.button(el('div', { cls: 'right', parent: foot }), '닫기', () => this.close());
+    // 2026-09-17 (사용자 결정): 바닥 안내문은 걷어냈고, 「닫기」는 화면 전체의 우하단이 아니라 **식탁 카드 안의 우하단**이다
+    const foot = el('div', { cls: 'dt-foot', parent: this.shell.stationCard });
+    this.button(foot, '닫기', () => this.close(), 'dt-close');
     // 접시는 housing 상태 · 분대원 와이어에서, 식사는 progression 에서 바뀐다 — 둘 다 `housing:changed` 가 아니다
     this.unsubs.push(
       ctx.bus.on('housing:tablePlatesChanged', () => this.refreshIfOpen()),

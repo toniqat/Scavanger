@@ -87,35 +87,32 @@ export function freshProfile(name = '스캐빈저'): PlayerProfile {
     // 2026-09-13 (요리 품질): 식사 id 옆에 붙어 다니는 별 수 0 … MEAL_QUALITY_MAX. 안 먹었으면 0.
     mealQuality: 0,
     mealActiveQuality: 0,
-    // A-3a (2026-09-12): 헬스장 — 단련 보너스 · 진행도 · 운동 디버프. 새 캐릭터는 셋 다 비어 있다 (= 0 · 없음).
+    // A-3a (2026-09-12): 헬스장 — 단련 보너스 · 운동 디버프. 새 캐릭터는 둘 다 비어 있다 (= 0 · 없음).
+    // 2026-09-17: 단련 진행도(`trainedProgress`)는 없다 — 미니게임 경험치는 능력치 경험치 바(`statProgress`)를 같이 쓴다.
     trained: {},
-    trainedProgress: {},
     gymFatigueUntil: {},
   };
 }
 
 /**
- * Sanitise the three 헬스장 maps of a stored profile (A-3a). Only `GYM_STATS` keys survive; `trained` is an integer
- * 0 … `GYM_TRAINED_MAX`, `trainedProgress` 0 … 0.999999 (exactly 1 only while `trained` sits at the cap — the same rule as
- * `statProgress`), `gymFatigueUntil` a finite epoch ms > 0. Zero entries are left out so a fresh / untouched character
- * keeps empty maps. An expired fatigue stamp is kept (it reads as 「없음」 through `getGymFatigueUntil`) — the clock that
+ * Sanitise the 헬스장 maps of a stored profile (A-3a). Only `GYM_STATS` keys survive; `trained` is an integer
+ * 0 … `GYM_TRAINED_MAX`, `gymFatigueUntil` a finite epoch ms > 0. Zero entries are left out so a fresh / untouched character
+ * keeps empty maps. 2026-09-17: the old `trainedProgress` map (a separate 단련 bar) is **dropped** — 단련 now fills the
+ * stat-XP bar (`ProgressionSystem.addStatXp` minigame source); `trained` values are kept as they were. An expired fatigue stamp is kept (it reads as 「없음」 through `getGymFatigueUntil`) — the clock that
  * decides expiry is the relay's, which `Profile.ts` does not have.
  */
-export function sanitizeGym(raw: { trained?: unknown; trainedProgress?: unknown; gymFatigueUntil?: unknown }): Pick<PlayerProfile, 'trained' | 'trainedProgress' | 'gymFatigueUntil'> {
+export function sanitizeGym(raw: { trained?: unknown; gymFatigueUntil?: unknown }): Pick<PlayerProfile, 'trained' | 'gymFatigueUntil'> {
   const rec = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {});
-  const tr = rec(raw.trained), pr = rec(raw.trainedProgress), fa = rec(raw.gymFatigueUntil);
+  const tr = rec(raw.trained), fa = rec(raw.gymFatigueUntil);
   const trained: Partial<Record<GymStat, number>> = {};
-  const trainedProgress: Partial<Record<GymStat, number>> = {};
   const gymFatigueUntil: Partial<Record<GymStat, number>> = {};
   for (const id of GYM_STATS) {
     const n = Math.round(num(tr[id], 0, 0, GYM_TRAINED_MAX));
     if (n > 0) trained[id] = n;
-    const p = n >= GYM_TRAINED_MAX ? 1 : num(pr[id], 0, 0, 0.999999);
-    if (p > 0) trainedProgress[id] = p;
     const until = num(fa[id], 0, 0, 8.64e15);
     if (until > 0) gymFatigueUntil[id] = until;
   }
-  return { trained, trainedProgress, gymFatigueUntil };
+  return { trained, gymFatigueUntil };
 }
 
 /** Hard cap on stored prep ids (there is one per `EnvKind`; this only bounds junk from a corrupt file). */
@@ -246,7 +243,7 @@ export function migrate(raw: unknown): PlayerProfile | null {
   p.mealQuality = p.meal ? normalizeMealQuality(r.mealQuality) : 0;
   p.mealActiveQuality = p.mealActive ? normalizeMealQuality(r.mealActiveQuality) : 0;
 
-  /* A-3a (2026-09-12): 헬스장 — 단련 보너스 · 진행도 · 운동 디버프. 같은 자리의 같은 교훈이다: migrate 의 결과가 곧 다음
+  /* A-3a (2026-09-12): 헬스장 — 단련 보너스 · 운동 디버프 (2026-09-17: 옛 `trainedProgress` 는 옮기지 않는다 = 버린다). 같은 자리의 같은 교훈이다: migrate 의 결과가 곧 다음
    * `saveProfile` (그리고 서버 `progression` 문서) 의 내용이라, 여기서 옮기지 않으면 운동으로 얻은 보너스와 24시간 디버프가
    * 새로고침 한 번에 사라진다 — 디버프가 사라지면 곧바로 다시 운동할 수 있다. */
   Object.assign(p, sanitizeGym(r));

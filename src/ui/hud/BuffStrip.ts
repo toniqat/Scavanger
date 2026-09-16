@@ -1,4 +1,4 @@
-import type { CharBuff, GameContext, ItemDef } from '@/shared';
+import type { CharBuff, CharBuffStripOptions, CharBuffStripView, GameContext, ItemDef } from '@/shared';
 import {
   CHAR_BUFF_COLOR, CHAR_BUFF_GLYPH, ENV_COLOR, ENV_ICON,
   charBuffRemainingRatio, charBuffRemainingS, charBuffTitle,
@@ -9,6 +9,8 @@ import { cookStepsText, mealEffectLines } from './mealText';
 import { getMealDef, normalizeMealQuality } from '@/shared';
 /* 2026-09-13 (비디오게임): 게임 중 버프의 방식 줄 */
 import { GYM_MINIGAME_LABEL_KO } from '@/shared';
+/* 2026-09-17 (캐릭터 탭 버프 썸네일): 이 줄을 progression 의 캐릭터 시트가 빌려 쓴다 — 공장은 shared 에 등록한다 */
+import { provideCharBuffStrip } from '@/shared';
 import '../styles/buffs.css';
 
 /** 시간 글자 · 게이지를 다시 쓰는 주기 (UI 타이밍, 밸런스 아님). 타이머가 있는 썸네일이 보일 때만 돈다. */
@@ -74,15 +76,23 @@ interface Cell {
  * 타이머가 있는 썸네일이 있을 때만 1초에 한 번 게이지 · 글자를 다시 쓴다. 시각은 `ctx.net.serverNow() ?? Date.now()` —
  * 목록의 시각을 찍은 player 와 같은 시계다.
  */
-export class BuffStrip {
+export class BuffStrip implements CharBuffStripView {
   readonly root: HTMLElement;
   private cells = new Map<string, Cell>();
   private list: readonly CharBuff[] | null = null;
   private timed = false;
   private nextTickAt = 0;
+  /**
+   * 2026-09-17 (사용자 결정 「캐릭터 탭 이름 옆 썸네일, 호버하면 툴팁」): 썸네일이 마우스를 받고(`.is-interactive`) 칸마다 공용 글 카드
+   * 속성(`data-tip-name` 이름 · `-sub` 버프/디버프 · 남은 시간 · `-desc` 능력치 · 단계 줄 · `-color`)을 찍는다 — `hud/ItemTip` 이 그린다.
+   * 네이티브 `title` 은 인게임 커서 위에서 뜨지 않으므로 이 모드에서는 달지 않는다. HUD 의 줄은 false (`pointer-events: none`).
+   */
+  private readonly interactive: boolean;
 
-  constructor(parent: HTMLElement, opts: { mini?: boolean } = {}) {
+  constructor(parent: HTMLElement, opts: CharBuffStripOptions = {}) {
     this.root = el('div', { cls: opts.mini ? 'bfs is-mini' : 'bfs', parent });
+    this.interactive = !!opts.interactive;
+    if (this.interactive) this.root.classList.add('is-interactive');
   }
 
   /** Install a new list (same reference = no-op). `null` / empty clears the strip. */
@@ -187,8 +197,17 @@ export class BuffStrip {
       const parts = [statName ? `${statName} 단련` : '', b.minigame ? GYM_MINIGAME_LABEL_KO[b.minigame] : ''].filter(Boolean);
       if (parts.length) lines = [parts.join(' · ')];
     }
-    const domTitle = lines.length > 0 ? `${title}\n${lines.join('\n')}` : title;
-    if (cell.root.title !== domTitle) cell.root.title = domTitle;
+    if (this.interactive) {
+      const d = cell.root.dataset;
+      if (d.tipName !== title) d.tipName = title;
+      const desc = lines.join(' · ');
+      if ((d.tipDesc ?? '') !== desc) { if (desc) d.tipDesc = desc; else delete d.tipDesc; }
+      if (d.tipColor !== color) d.tipColor = color;
+      if (!hasTimer) this.writeTipSub(cell, '');
+    } else {
+      const domTitle = lines.length > 0 ? `${title}\n${lines.join('\n')}` : title;
+      if (cell.root.title !== domTitle) cell.root.title = domTitle;
+    }
     // 2026-09-13 (요리 품질): 좌상단 별 배지 — 글자는 CSS `::after { content: attr(data-q) }`
     const q = quality > 0 ? `★${quality}` : '';
     if ((cell.root.dataset.q ?? '') !== q) { if (q) cell.root.dataset.q = q; else delete cell.root.dataset.q; }
@@ -213,6 +232,13 @@ export class BuffStrip {
     const rs = (r ?? 1).toFixed(3);
     if (cell.rs !== rs) { cell.rs = rs; cell.root.style.setProperty('--r', rs); }
     if (cell.time !== time) { cell.time = time; setText(cell.timeEl, time); }
+    if (this.interactive && ratio !== null) this.writeTipSub(cell, time);
+  }
+
+  /** 글 카드 둘째 줄: `디버프` / `버프` (· `남은 23h`). 실어 둔 것은 이름이 이미 `· 다음 레이드` 를 말한다. */
+  private writeTipSub(cell: Cell, time: string): void {
+    const sub = `${cell.buff.debuff ? '디버프' : '버프'}${time ? ` · 남은 ${time}` : ''}`;
+    if (cell.root.dataset.tipSub !== sub) cell.root.dataset.tipSub = sub;
   }
 }
 
@@ -238,3 +264,6 @@ export function formatRemaining(sec: number): string {
   if (s >= 60) return `${Math.floor(s / 60)}m`;
   return `${Math.ceil(s)}s`;
 }
+
+/* 2026-09-17: 캐릭터 시트(progression)가 `createCharBuffStrip` 으로 같은 줄을 받는다 — 폴더 간 import 없이 shared 에 등록 */
+provideCharBuffStrip((parent, opts) => new BuffStrip(parent, opts));

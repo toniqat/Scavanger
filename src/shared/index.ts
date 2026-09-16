@@ -106,3 +106,5 @@ export * from './craftRefund';
 export * from './weaponTip';
 /* appended (2026-09-16): 시체를 들여다보는 사람 — 빈 시체는 마지막 사람이 창을 닫은 뒤에 가라앉는다 (game · enemies · world/tutorial) */
 export * from './corpseViewers';
+/* appended (2026-09-17): 버프 썸네일 줄을 ui 밖(캐릭터 시트)에서 빌려 쓰는 공장 등록 자리 — ui/hud/BuffStrip 이 등록한다 */
+export * from './charBuffView';

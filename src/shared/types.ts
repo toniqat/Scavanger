@@ -1373,6 +1373,15 @@ export interface TradeGridsView extends EmbeddedView {
    * cursor was not over a cell at all (the caller falls back to its own destination rule).
    */
   placeExternalAt?(item: ItemInstance, x: number, y: number): 'bag' | 'stash' | 'blocked' | null;
+  /* ── appended 2026-09-17 (사용자 보고 「가구에서 끌어낸 것도 장비칸에서 끌 때처럼 **커서 밑 칸**이 강조돼야 한다」) ── */
+  /**
+   * Hover feedback for the same drop `placeExternalAt` would make: highlights the footprint of `defId × qty`
+   * (unrotated) in the cell under viewport point `x, y` — `'ok'` (free), `'merge'` (joins that stack) or `'bad'`
+   * (would be refused) — exactly like a tile drag inside the view. `null` = not over a cell (no highlight).
+   * Call `clearExternalPreview` when the drag ends or leaves.
+   */
+  previewExternalAt?(defId: string, qty: number, x: number, y: number): 'ok' | 'merge' | 'bad' | null;
+  clearExternalPreview?(): void;
 }
 
 /* ══ appended: Phase 7 — known follow-ups (2026-09-06) ═══════════════════════════════════════════════════════ */

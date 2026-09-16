@@ -135,11 +135,19 @@ export function dropFromCatalog(sys: InventorySystem, item: ItemInstance, target
   return 'ok';
   }
 
-/** Catalog double-click: a fresh instance straight into the bag (merge into stacks first). */
+/**
+ * Catalog double-click: a fresh instance (merge into stacks first).
+ * 2026-09-17 (사용자 결정): 창고와 가방이 **둘 다 보이면 창고가 먼저**다 (`sys.hubMode` = 창고 패널이 보이는 조건,
+ * `InventoryUI.show`) — 창고에 안 들어가면 가방. 임무 중(창고 없음)은 예전처럼 가방뿐이다.
+ */
 export function takeFromCatalog(sys: InventorySystem, defId: string): OpResult {
   const def = ITEM_DEF_MAP.get(defId);
   if (!def || !sys.catalogOpen) return 'fail';
   const item = sys.loot.createItem(defId, sys.catalogQty(def));
+  if (sys.hubMode && sys.stash.grid.autoPlace(item)) {
+    sys.afterChange();   // 창고로 간 것은 `inventory:itemAdded` 를 내지 않는다 (카탈로그 드래그를 창고에 놓을 때와 같다)
+    return 'ok';
+  }
   if (!sys.bag.autoPlace(item)) {
     sys.ctx.bus.emit('inventory:full', { item, name: def.name });
     return 'fail';

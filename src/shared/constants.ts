@@ -871,9 +871,9 @@ export const SHELF_AUX_BONUS_DISC = K.num('SHELF_AUX_BONUS_DISC');
 export const SHELF_AUX_BONUS_RECORD = K.num('SHELF_AUX_BONUS_RECORD');
 
 /* ── appended (2026-09-12): 헬스장 (A-3a; owner: progression rules, housing minigames, hub geometry) ── */
-/** 운동 한 세션 만점(점수 1)이 주는 단련 경험치 — 실제 = round(GYM_SESSION_XP × 점수). */
+/** 운동 · 게임 한 세션 만점(점수 1)이 능력치 경험치 바에 넣는 경험치 — 실제 = round(GYM_SESSION_XP × 점수). 2026-09-17: 능력치 경험치 단위. */
 export const GYM_SESSION_XP = K.num('GYM_SESSION_XP');
-/** 단련 +n → +(n+1) 에 필요한 경험치: round(GYM_TRAIN_XP_BASE × (n+1)^GYM_TRAIN_XP_EXPONENT). */
+/** 은퇴 (2026-09-17, 읽는 코드 없음 — shared 는 추가 전용): 옛 단련 전용 바의 필요 경험치. */
 export const GYM_TRAIN_XP_BASE = K.num('GYM_TRAIN_XP_BASE');
 export const GYM_TRAIN_XP_EXPONENT = K.num('GYM_TRAIN_XP_EXPONENT');
 /** 능력치 하나가 운동으로 얻는 단련 보너스의 상한. */

@@ -729,3 +729,24 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
 - **Tutorial-raid control guide** (M · Q · G hold · V · X, `]` folds it to one line) only in that raid.
 - **No toast** on tutorial track completion or tactical implant swap. Barbed-wire fence ×1.5 (2.025 m). Extraction ship's world HUD marker
   removed (map / compass keep it); the player silhouette never shows through the leaving ship.
+
+## 2026-09-17 — 무한 상자 창고 우선 · 좌석 꾸밈 가구 · 좌석 없는 게임 · catalog stash-first, seats as decor, seatless video games
+
+- **Double-click quick move prefers the stash when both stash and bag are visible**; bag only if it does not fit. Applied to the
+  무한 상자 (ship). Container windows never show the stash, so their double-click order (empty slot → bag) is unchanged.
+- **의자 · 쇼파 are 꾸밈용 가구** (not 시설 가구) and may be placed **in any room** — reverses 2026-09-15 「쇼파는 서재 전용」. Sitting
+  and the TV game seat behaviour stay. The 흔들의자 stays a facility (library book bonus).
+- **Video games need no seat.** A valid seat in front of the TV (existing rule) is sat on; otherwise the player plays standing where
+  they are, with the normal camera (agent's call: no new standing pose — the only standing furniture pose is the cook one). Seat
+  block reasons and the "sit in front of the TV" hint are gone from the TV screen.
+
+## 2026-09-17 — 단련 → 스탯 XP · 배양 시작 확인 · 배양조/재배 스테이션 여러 대 · 캐릭터 시트 머리
+
+- **Gym / video game XP goes into the stat's normal XP bar.** Whoever's XP crosses the bar decides: minigame → trained +1 (shown as
+  plain `+N`), action → base stat +1. Rejected: minigame XP raising the base stat; a separate 단련 bar drawn in the stat XP slot.
+  Old `trainedProgress` is dropped, `trained` kept.
+- **Culture starts only on a 1 s hold confirm** (`배양을 시작하겠습니까?`); before that cell line and scaffold come back out.
+- **Culture tanks and grow stations: no count limit** (floor space only). Rejected: generator-level cap, fixed cap.
+- **Chair / sofa seat rule: video games no longer require a seat** (sits if one is placed under the old rule).
+- **Character sheet header = character name**, buff/debuff thumbnails beside it; 레이드 / 탈출 counts removed from the sheet **and** the
+  title character-select cards.

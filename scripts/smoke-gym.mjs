@@ -353,14 +353,15 @@ try {
       const h = window.__game.ctx.housing, p = window.__game.ctx.progression;
       const r = h.gymDebug.finish(1);
       return { r, ev: window.__rec.results.at(-1) ?? null, screen: h.gymDebug.screen, fatigue: p.getGymFatigueUntil('strength'), now: Date.now(),
-        prog: p.getTrainedProgress('strength'), text: document.querySelector('.gym-result')?.textContent ?? '', audio: window.__rec.audio.includes('gym_finish') };
+        prog: p.getTrainedProgress('strength'), statProg: p.getStatProgress('strength'), text: document.querySelector('.gym-result')?.textContent ?? '', audio: window.__rec.audio.includes('gym_finish') };
     });
-    ok(fin.r && fin.r.xp === K.GYM_SESSION_XP && fin.r.wasFatigued === false && fin.r.stat === 'strength', `finish(1) → 단련 경험치 +${fin.r?.xp}`, JSON.stringify(fin.r));
+    ok(fin.r && fin.r.xp === K.GYM_SESSION_XP && fin.r.wasFatigued === false && fin.r.stat === 'strength', `finish(1) → 근력 경험치 +${fin.r?.xp}`, JSON.stringify(fin.r));
     ok(fin.ev && fin.ev.uid === BENCH && JSON.stringify(fin.ev.result) === JSON.stringify(fin.r), 'housing:gymResult = applyGymSession 결과 그대로');
     const hours = (fin.fatigue - fin.now) / 3600e3;
     ok(Math.abs(hours - K.GYM_FATIGUE_HOURS) < 0.01 && fin.r.fatigueUntil === fin.fatigue, `근육통 ${hours.toFixed(2)} 시간`);
-    ok(Math.abs(fin.prog - K.GYM_SESSION_XP / Math.round(K.GYM_TRAIN_XP_BASE)) < 1e-6 || fin.r.trainedAfter > 0, `단련 진행도 ${fin.prog.toFixed(3)}`);
-    ok(fin.screen === 'result' && /100/.test(fin.text) && fin.text.includes(`단련 경험치 +${K.GYM_SESSION_XP}`) && /근육통 · 남은 \d{2}:\d{2}:\d{2}/.test(fin.text) && fin.audio,
+    // 2026-09-17: 단련 전용 바가 없다 — 진행도는 근력의 능력치 경험치 바이고 결과가 그 값을 그대로 돌려준다
+    ok(fin.prog === fin.r.progress && fin.prog === fin.statProg, `근력 경험치 바 ${fin.prog.toFixed(3)} (getTrainedProgress = getStatProgress = result.progress)`);
+    ok(fin.screen === 'result' && /100/.test(fin.text) && fin.text.includes(`근력 경험치 +${K.GYM_SESSION_XP}`) && !/단련 경험치|\+\d+ 단련|단련 \+\d/.test(fin.text) && /근육통 · 남은 \d{2}:\d{2}:\d{2}/.test(fin.text) && fin.audio,
       `결과 화면 (${fin.text.slice(0, 90)})`);
     ok(JSON.stringify(await H(() => window.__rec.guide.at(-1))) === '[]', '결과 화면의 키 가이드는 닫기뿐');
   }

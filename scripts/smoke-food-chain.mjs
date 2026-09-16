@@ -706,6 +706,9 @@ try {
       r.retired = h.insertStrain(CT, 0, 'strain_myocyte');
       r.retiredKept = inv.countDefAll('strain_myocyte') === myo0;
       r.cow = h.insertStrain(CT, 0, 'cell_cow');
+      // 2026-09-17: 넣기만으로는 시작하지 않는다 — 시작 전에는 타이머가 없고, `startCulture` 가 건다
+      r.pendingNoTimer = !h.state.cultures.find((x) => x.uid === CT && x.slot === 0).readyAt && h.getCultureSlots(CT)[0].started === false;
+      r.cowStart = h.startCulture(CT, 0);
       const c = h.state.cultures.find((x) => x.uid === CT && x.slot === 0);
       r.ms = c.readyAt - c.startedAt;
       r.msWant = R.cultureDurationMs(cow.scaffoldHours, md.medium.speedMul, h.gardening(), 1, 0);
@@ -718,6 +721,7 @@ try {
       r.s2 = at();
       r.rows = h.state.cultures.filter((x) => x.uid === CT).length;
       r.cow2 = h.insertStrain(CT, 0, 'cell_cow');
+      r.cow2Start = h.startCulture(CT, 0);
       const c2 = h.state.cultures.find((x) => x.uid === CT && x.slot === 0);
       r.ms2 = c2.readyAt - c2.startedAt;
       r.ms2Want = R.cultureDurationMs(cow.cultureHours, md.medium.speedMul, h.gardening(), h.getCultureSlots(CT)[0].mediumBonusRatio, 0);
@@ -734,13 +738,14 @@ try {
       && cu.take === null && cu.scDelta2 === 0 && cu.scIn2 === null, '스캐폴드 넣기(1개 소모) · 두 번 거절 · 빼면 돌아온다', JSON.stringify(cu));
     ok(cu.algae === '이 세포주는 스캐폴드에서 자라지 않습니다' && cu.algaeKept, `스캐폴드 산출이 없는 세포주 거절 (${cu.algae})`);
     ok(typeof cu.retired === 'string' && cu.retiredKept, `은퇴 세포주 거절 (${cu.retired}) — def ${JSON.stringify(cu.retiredDef)}`);
+    ok(cu.pendingNoTimer && cu.cowStart === null, '세포주를 넣어도 시작 대기 (타이머 없음) → startCulture 로 시작', JSON.stringify({ p: cu.pendingNoTimer, s: cu.cowStart }));
     ok(cu.cow === null && cu.ms === cu.msWant && cu.s1.yieldDefId === cu.cowOut.id && cu.s1.yieldQty === cu.cowOut.qty && cu.s1.scaffoldDefId === 'food_scaffold',
       `스캐폴드 + 소 세포주 → ${cu.cowOut.id} ×${cu.cowOut.qty} · scaffoldHours (${cu.ms} ms)`, JSON.stringify(cu.s1));
     ok(typeof cu.takeBusy === 'string', `배양 중에는 스캐폴드를 뺄 수 없다 (${cu.takeBusy})`);
     ok(cu.harvest === null && cu.gotScaffoldOut === cu.cowOut.qty && cu.s2.strainDefId === null && cu.s2.scaffoldDefId === null
       && cu.s2.mediumDurability === cu.max - cu.mwear && cu.s2.mediumDefId === 'mat_medium_basic' && cu.rows === 1,
     '수확 → 종별 고기 · 스캐폴드 소모 · 배지가 닳고 칸은 남는다', JSON.stringify(cu.s2));
-    ok(cu.cow2 === null && cu.ms2 === cu.ms2Want && cu.s3.yieldDefId === cu.cowOut.base && cu.s3.yieldQty === cu.cowOut.baseQty && cu.s3.scaffoldDefId === null,
+    ok(cu.cow2 === null && cu.cow2Start === null && cu.ms2 === cu.ms2Want && cu.s3.yieldDefId === cu.cowOut.base && cu.s3.yieldQty === cu.cowOut.baseQty && cu.s3.scaffoldDefId === null,
       `스캐폴드 없이 = ${cu.cowOut.base} · 기본 시간 × 배지 비율 (${cu.ms2} ms)`, JSON.stringify(cu.s3));
     ok(cu.clear === null && cu.rowsAfterClear === 0, '세포주 버리고 배지 비우기');
 
