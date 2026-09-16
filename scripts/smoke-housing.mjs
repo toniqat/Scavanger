@@ -13,6 +13,7 @@
 // 같은 수의 프로세서로 함선 창고에 환불된다 (연산 코어가 아이템 표에서 사라졌다 — smoke-mining 이 그 환불을 본다).
 // Usage: node scripts/smoke-housing.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -1823,7 +1824,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e && e.stack ? e.stack : e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

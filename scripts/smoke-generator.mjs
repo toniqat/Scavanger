@@ -21,6 +21,7 @@
 //      환불이 함선 창고에 들어온다 · 가구 창고 · 방 상태.
 // Usage: node scripts/smoke-generator.mjs [http://localhost:5273/]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -620,7 +621,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e.stack ?? e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed${skip ? `, ${skip} skipped` : ''}`);
 process.exit(fail ? 1 : 0);

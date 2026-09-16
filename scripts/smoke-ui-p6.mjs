@@ -8,6 +8,7 @@
 // updated in place, mutes `player:stimUsed`) and the gather ticker (no 채집 toast, one 획득 line). 87 checks.
 // Usage: node scripts/smoke-ui-p6.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -468,7 +469,7 @@ try {
   fail++; console.log('  FAIL', e.message);
   console.log(errors.slice(0, 10).join('\n'));
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

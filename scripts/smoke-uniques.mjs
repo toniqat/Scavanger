@@ -2,6 +2,7 @@
 // 「카게」 shuriken + 용검 slash, 「롱혼」 bow, 「해머헤드」 bazooka (+ rocket jump), 「사이클론」 minigun (spin-up / RMB pre-spin).
 // Usage: node scripts/smoke-uniques.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -596,7 +597,7 @@ try {
   console.log(`  FAIL exception: ${e && e.stack ? e.stack : e}`);
   if (errors.length) console.log('  console errors:', errors.slice(0, 8).join('\n    '));
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

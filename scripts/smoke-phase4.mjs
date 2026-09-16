@@ -4,6 +4,7 @@
 // startMelee('heavy'), setViewWiden).
 // Usage: node scripts/smoke-phase4.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -581,7 +582,7 @@ try {
   console.log('  FAIL', e.message);
   if (errors.length) console.log('  console errors:', errors.slice(0, 5).join(' | '));
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

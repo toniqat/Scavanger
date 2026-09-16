@@ -14,6 +14,7 @@
 // 거래대 판매칸에 담기고 가격 배지가 `0`).
 // Usage: node scripts/smoke-meta.mjs [http://localhost:5273/]   (needs a vite dev server; no relay required)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -1010,7 +1011,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e && e.stack ? e.stack : e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed, ${skip} skipped`);
 process.exit(fail ? 1 : 0);

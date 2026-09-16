@@ -6,6 +6,7 @@
 // 안드로이드 얼굴 초상 · 분대에 안드로이드가 있으면 솔로 PC 도 즉사하지 않고 쓰러진다.
 // Usage: node scripts/smoke-ally-avatars.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -309,7 +310,7 @@ try {
   console.log('  FAIL', e.message);
   if (errors.length) console.log('  console errors:', errors.slice(0, 5).join(' | '));
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

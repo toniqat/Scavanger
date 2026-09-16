@@ -19,6 +19,7 @@
 // A **private** lobby joined by code (never quick match): a public lobby left by another run would join the squad.
 // Usage: node scripts/smoke-trust.mjs [http://localhost:5273]   (needs `npm run dev` + `npm run server`, or the verify runner)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -641,7 +642,7 @@ try {
   console.log(`  FAIL harness: ${e.message}`);
   for (const tag of ['A', 'B']) if (errors[tag].length) console.log(`  ${tag} console errors: ${errors[tag].slice(0, 6).join(' | ')}`);
 } finally {
-  for (const b of browsers) await b.close().catch(() => {});
+  for (const b of browsers) await closeBrowser(b);
 }
 
 console.log(`\nsmoke: ${pass}/${pass + fail} passed`);

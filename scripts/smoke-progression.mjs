@@ -19,6 +19,7 @@
 // 더 이상 숫자를 박지 않고 `shared/progression.SKILL_IDS` · `progression/defs.SKILL_DEFS` 에서 읽는다 (`SKILL_N` · `DEX_SKILLS`).
 // Usage: node scripts/smoke-progression.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -1488,7 +1489,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e && e.stack ? e.stack : e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

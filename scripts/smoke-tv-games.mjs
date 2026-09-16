@@ -11,6 +11,7 @@
 //     자세가 밖에서 풀림 → `cancelGameSession`.
 // Usage: node scripts/smoke-tv-games.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -355,7 +356,7 @@ try {
   fail++;
   console.log(`  FAIL threw: ${err?.stack ?? err}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\nsmoke-tv-games: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

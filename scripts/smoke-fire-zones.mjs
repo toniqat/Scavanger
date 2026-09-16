@@ -11,6 +11,7 @@
 // Usage: node scripts/smoke-fire-zones.mjs [http://localhost:5273/]
 // Timing: headless dt is clamped to 50 ms — every wait is on `ctx.time` (sim seconds), never wall time.
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -328,7 +329,7 @@ try {
   console.log(`  FAIL harness: ${e.message}`);
   if (errors.length) console.log(`  console errors: ${errors.slice(0, 8).join(' | ')}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\nsmoke: ${pass}/${pass + fail} passed`);
 process.exit(fail === 0 ? 0 : 1);

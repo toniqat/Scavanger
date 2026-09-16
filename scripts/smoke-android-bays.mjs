@@ -12,6 +12,7 @@
 //      `game:newMission` 은 `RAID_LOAD_FADE_OUT_S` 뒤에야 온다. 암전이 시작된 뒤의 준비 해제는 발사를 취소하지 못한다.
 // Usage: node scripts/smoke-android-bays.mjs [http://localhost:5273/]   (needs `npm run dev`; no relay needed)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -269,7 +270,7 @@ try {
   fail++;
   console.log(`  FAIL harness ${e.message}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

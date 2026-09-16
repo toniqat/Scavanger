@@ -14,6 +14,7 @@
 //   8. C leaves again, then `requestDock(false)` alone → a private docked lobby of one, own dock at once.
 // Usage: node scripts/smoke-squad-dock.mjs [http://localhost:5273/]   (needs vite; starts and stops its own relay)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -350,7 +351,7 @@ try {
   console.log(`  FAIL harness ${e.message}`);
   if (relayOut && /error/i.test(relayOut)) console.log(`  relay tail: ${relayOut.trim().split('\n').slice(-4).join(' | ')}`);
 } finally {
-  for (const b of browsers) { try { await b.close(); } catch { /* gone */ } }
+  for (const b of browsers) { await closeBrowser(b); }
   stopRelay();
   try { rmSync(dataDir, { recursive: true, force: true }); } catch { /* windows lock */ }
 }

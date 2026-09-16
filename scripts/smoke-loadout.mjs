@@ -4,6 +4,7 @@
 // the ship Tab screen's 크레딧 readout + active 기업 tab.
 // Usage: node scripts/smoke-loadout.mjs [http://localhost:5273/]   (needs a vite dev server)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -600,7 +601,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e && e.stack ? e.stack : e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 const errs = errors.filter((e) => !/favicon|ERR_CONNECTION_REFUSED|WebSocket/.test(e));
 ok(errs.length === 0, `no console errors (${errs.length})`, errs.slice(0, 3).join(' | '));

@@ -8,6 +8,7 @@
 //   5. 돌려보내기(`recruit:false`)로 명단이 줄고, 사람이 나가면 `net:peerLeft` 는 그 사람 하나뿐이다.
 // Usage: node scripts/smoke-android-lobby.mjs [http://localhost:5273/]   (needs vite; starts and stops its own relay)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -237,7 +238,7 @@ try {
   fail++;
   console.log(`  FAIL exception ${e && e.message ? e.message : e}`);
 } finally {
-  for (const b of browsers) { try { await b.close(); } catch { /* already gone */ } }
+  for (const b of browsers) { await closeBrowser(b); }
   stopRelay();
   try { rmSync(dataDir, { recursive: true, force: true }); } catch { /* temp dir */ }
 }

@@ -17,6 +17,7 @@
 //
 // Usage: node scripts/smoke-intro-wake.mjs [http://localhost:5273/] [shotDir]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, mkdirSync } from 'node:fs';
 
@@ -247,7 +248,7 @@ try {
   fail++;
   console.log('  FAIL (exception)', e?.message ?? e);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 if (errors.length) { console.log('page errors:'); for (const e of errors.slice(0, 10)) console.log('  ', e); }
 const fatal = errors.filter((e) => !/favicon|ResizeObserver/.test(e));

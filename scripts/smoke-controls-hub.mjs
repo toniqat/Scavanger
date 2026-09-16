@@ -9,6 +9,7 @@
 // Timing: Engine clamps dt to 50 ms and the frame rate depends on the machine (swiftshader fallback = a few fps), so every wait
 // is on simulation time (`waitSim`), never wall-clock. Key taps dispatch keydown+keyup in the same frame.
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, mkdirSync } from 'node:fs';
 
@@ -1012,7 +1013,7 @@ try {
   console.log(`  FAIL harness: ${e.message}`);
   if (errors.length) console.log(`  console errors: ${errors.slice(0, 8).join(' | ')}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 
 console.log(`\nsmoke: ${pass}/${pass + fail} passed`);

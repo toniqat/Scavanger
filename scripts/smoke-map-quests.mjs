@@ -14,6 +14,7 @@
 //
 // Usage: node scripts/smoke-map-quests.mjs [http://localhost:5273/] [screenshot dir]
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -330,7 +331,7 @@ try {
   fail++;
   console.log(`  FAIL harness ${String(e && e.stack || e)}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

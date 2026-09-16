@@ -10,6 +10,7 @@
 //
 // Usage: node scripts/smoke-planets.mjs [http://localhost:5299/]   (needs a vite instance, no relay required)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -665,7 +666,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e.message}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 
 const real = errors.filter((e) => !/WebSocket|websocket|favicon|404|net::ERR/.test(e));

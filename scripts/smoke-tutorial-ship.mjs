@@ -26,6 +26,7 @@
 //
 // Usage: node scripts/smoke-tutorial-ship.mjs [http://localhost:5273/]   (needs `npm run dev`; no relay needed)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -453,7 +454,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e.message}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed, ${errors.length} console errors (${((Date.now() - T0) / 1000).toFixed(1)} s)`);
 process.exit(fail === 0 ? 0 : 1);

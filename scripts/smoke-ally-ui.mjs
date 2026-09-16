@@ -13,6 +13,7 @@
 //           `raid:loadReleased` 뒤 사라진다.
 // Usage: node scripts/smoke-ally-ui.mjs [http://localhost:5273]   (needs vite; the runner starts it)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -327,7 +328,7 @@ try {
   fail++; console.log('  FAIL', e.message);
   console.log([...pageErrors, ...consoleErrors].slice(0, 10).join('\n'));
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

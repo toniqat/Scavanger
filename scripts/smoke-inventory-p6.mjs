@@ -14,6 +14,7 @@
 // Timing: Engine clamps dt to 50 ms and the frame rate depends on the machine, so every wait is on simulation time
 // (`waitSim`), never wall-clock. Key taps dispatch keydown+keyup in the same frame on document.body.
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -1551,7 +1552,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e && e.stack ? e.stack : e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 const errs = errors.filter((e) => !/favicon|ERR_CONNECTION_REFUSED|WebSocket/.test(e));
 ok(errs.length === 0, `no console errors (${errs.length})`, errs.slice(0, 3).join(' | '));

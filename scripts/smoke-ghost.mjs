@@ -14,6 +14,7 @@
 // the body is revived / `setCarriedBy` riding along on a carrier's shoulder (`debugCarryLocal`).
 // Usage: node scripts/smoke-ghost.mjs [http://localhost:5273]   (needs `npm run dev` or a private `npx vite --port 5303`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -583,7 +584,7 @@ try {
   console.log('  FAIL', e.message);
   if (errors.length) console.log('  console errors:', errors.slice(0, 5).join(' | '));
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

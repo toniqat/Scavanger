@@ -2,6 +2,7 @@
 // Usage: node scripts/smoke-stratagems.mjs [http://localhost:5273]   (needs `npm run dev`)
 // Registers StratagemSystem at runtime when main.ts has not added it yet.
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -351,7 +352,7 @@ try {
 } catch (e) {
   fail++; console.log('  FAIL exception', e);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed, ${errors.length} console errors`);
 for (const e of errors.slice(0, 10)) console.log('  console:', e.slice(0, 300));

@@ -10,6 +10,7 @@
 // 아이템 데이터(게임기 · 게임 디스크 def)가 아직 없으면 4–6 은 note 로 건너뛴다.
 // Usage: node scripts/smoke-video-games.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -512,7 +513,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e.stack ?? e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

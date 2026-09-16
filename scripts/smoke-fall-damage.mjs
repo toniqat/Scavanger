@@ -20,6 +20,7 @@
 //
 // Usage: node scripts/smoke-fall-damage.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -430,7 +431,7 @@ try {
   console.log(`  FAIL harness ${String(e && e.stack || e)}`);
   if (errors.length) console.log(`    page errors: ${errors.slice(0, 3).join(' | ')}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 
 console.log(`\n${pass} passed, ${fail} failed (${((Date.now() - T0) / 1000).toFixed(1)} s)`);

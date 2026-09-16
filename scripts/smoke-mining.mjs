@@ -22,6 +22,7 @@
 //      (내구도를 실을 수 없는 자루라 **새것으로** 돌아간다), localStorage 에 적힌 것도 같다.
 // Usage: node scripts/smoke-mining.mjs [http://localhost:5273/]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -552,7 +553,7 @@ try {
   fail++;
   console.log(`  FAIL (exception) ${e?.stack ?? e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\nsmoke-mining: ${pass} passed, ${fail} failed${skip ? `, ${skip} skipped` : ''}`);
 process.exit(fail ? 1 : 0);

@@ -9,6 +9,7 @@
 // E1(inventory 즐겨찾기 코어)이 아직 없으면 `ctx.inventory` 인스턴스에 같은 모양의 스텁을 심는다 (`stub` 로그).
 // Usage: node scripts/smoke-favorite-chips.mjs [http://localhost:5273/]   (vite dev server; the relay socket is parked)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -345,7 +346,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e?.stack ?? e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\nsmoke-favorite-chips: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

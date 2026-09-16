@@ -5,6 +5,7 @@
 //  · `aimSwayMul` 0.5 → 절반 · 앉기 < 서기 · 엎드리기 ≪ 서기 · 걸으면 커진다 · 어깨 전환 X 는 그대로 · 연출 카메라 · 조준 해제 → 0
 // Usage: node scripts/smoke-aim-sway.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -267,7 +268,7 @@ try {
   fail++; console.log('  FAIL', e.message);
   console.log(errors.slice(0, 10).join('\n'));
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

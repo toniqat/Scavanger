@@ -8,6 +8,7 @@
 // 2026-09-11 (E-4): the credits check uses real game reasons (`buy:` + `refund:` priced from server/economy.gen.json), so it
 // needs no SCAV_DEV_ECONOMY relay; the relay only has to run the same economy table as the working tree.
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 
@@ -886,7 +887,7 @@ try {
   console.log('  A errors:', errors.A.slice(0, 5));
   console.log('  B errors:', errors.B.slice(0, 5));
 } finally {
-  await Promise.all(browsers.map((b) => b.close()));
+  await Promise.all(browsers.map((b) => closeBrowser(b)));
 }
 console.log(`\ne2e: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

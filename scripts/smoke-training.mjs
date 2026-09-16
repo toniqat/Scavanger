@@ -13,6 +13,7 @@
 // `training_rack` → `ui:catalogToggled {open:true}` and the catalog-granted weapon gone after the exit restore.
 // Usage: node scripts/smoke-training.mjs [http://localhost:5273/]   (needs a vite dev server; no relay needed)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -770,7 +771,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e.message}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 const realErrors = errors.filter((e) => !/WebSocket/.test(e));
 console.log(`\n${pass} passed, ${fail} failed, ${realErrors.length} console errors${errors.length !== realErrors.length ? ` (+${errors.length - realErrors.length} WebSocket/no-relay)` : ''}`);

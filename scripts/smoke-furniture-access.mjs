@@ -10,6 +10,7 @@
 //   6. 시설 관리 고스트의 칸 타일(초록 · 빨강 · 흐린 청록).
 // Usage: node scripts/smoke-furniture-access.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -292,7 +293,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e?.stack ?? e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\nsmoke-furniture-access: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

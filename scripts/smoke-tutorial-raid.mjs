@@ -38,6 +38,7 @@
 //
 // Usage: node scripts/smoke-tutorial-raid.mjs [http://localhost:5273/]   (needs `npm run dev`; no relay needed)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -643,7 +644,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e.message}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed, ${errors.length} console errors (${Math.round((Date.now() - t0) / 1000)} s)`);
 process.exit(fail === 0 ? 0 : 1);

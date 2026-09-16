@@ -13,6 +13,7 @@
 // Usage: node scripts/smoke-social.mjs [http://localhost:5273/]   (needs a vite; the relay is optional — without it
 // the hub's `ensureConnected` logs one `ws://…/ws` error, which the final console check tolerates).
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -1183,7 +1184,7 @@ try {
   fail++;
   console.log(`  FAIL harness ${e.message}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);   // the tally format `scripts/verify.mjs` parses
 process.exit(fail === 0 ? 0 : 1);

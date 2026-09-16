@@ -15,6 +15,7 @@
 // so wall time is NOT game time. Anything with a cooldown or a duration must be advanced with
 // `gameSleep`, which waits on `ctx.time`.
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -1160,7 +1161,7 @@ try {
   console.log(`  FAIL harness: ${e.message}`);
   if (errors.length) console.log(`  console errors: ${errors.slice(0, 8).join(' | ')}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 
 console.log(`\nsmoke: ${pass}/${pass + fail} passed`);

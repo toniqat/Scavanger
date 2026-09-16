@@ -7,6 +7,7 @@
 //   ⑥ `game:abort` → 결과 · 라벨이 사라진다
 // Usage: node scripts/smoke-drone-scan.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -323,7 +324,7 @@ try {
   fail++; console.log('  FAIL', e.message);
   console.log(errors.slice(0, 10).join('\n'));
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

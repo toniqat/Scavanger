@@ -6,6 +6,7 @@
 // Usage: node scripts/smoke-hangar.mjs [http://localhost:5273]
 // Requires `npm run server` and `npm run dev` to be running (or `npm run dev:all`).
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -354,7 +355,7 @@ try {
   console.log(`  FAIL harness: ${e.message}`);
   for (const tag of ['A', 'B']) if (errors[tag].length) console.log(`  ${tag} console errors: ${errors[tag].slice(0, 6).join(' | ')}`);
 } finally {
-  for (const b of browsers) await b.close();
+  for (const b of browsers) await closeBrowser(b);
 }
 
 console.log(`\nsmoke: ${pass}/${pass + fail} passed`);

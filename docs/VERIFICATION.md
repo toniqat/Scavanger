@@ -14,7 +14,7 @@ runner options: `node scripts/verify.mjs --help`.
 | 1b. Data | `npm run data:check` | seconds | When you touched `data/*.csv` |
 | 2. Feature | `npm run verify` | 1–2 min | After finishing a feature — only the smokes mapped to folders changed in the working tree (`--list` shows the map, `--dry-run` shows what this change picks, `--folders` · `--only` override) |
 | 3. Re-check | `node scripts/verify.mjs --rerun-failed` | < 1 min | Only what just failed (`scripts/logs/last-run.json`) |
-| 4. Full | `npm run verify:all` | ~18 min | **Once at the end of a work session, and before a merge** — not per commit. An engine/bootstrap path or a wide `src/shared` change makes the runner go full by itself anyway (see below) |
+| 4. Full | `npm run verify:all` | ~17 min | **Once at the end of a work session, and before a merge** — not per commit. An engine/bootstrap path or a wide `src/shared` change makes the runner go full by itself anyway (see below) |
 | 5. Release | Run `npm run app:dist` once → check by eye that `release/SCAVANGER/` holds **only** `app/` · `SCAVANGER.exe` · `server.txt` (three entries — builds ship no server) | ~3 min | When you touched `electron/` · `scripts/pack-release.mjs` (the shell and the deploy folder are checked automatically by `smoke-desktop`) |
 
 The runner starts vite and the relay itself (it restarts the relay before `e2e:mp`), runs smokes on 4 GPU lanes, and prints
@@ -27,15 +27,16 @@ one line per script plus the `FAIL` lines (full output in `scripts/logs/<name>.l
 judged by size: **≤ 2 changed code files and ≤ 3 feature folders** picks the folders that use the changed exports (`.md` is not
 counted, and the runner falls back to full if it cannot name a single changed export); anything wider goes full. The reason is
 measured, not a guess — a wide shared change is a feature batch that its own folders already map to 91 of 95 smokes, while a
-narrow one (a contract commit: 6 files, 1 folder) used to cost the full 18 minutes for 5 smokes' worth of risk.
+narrow one (a contract commit: 6 files, 1 folder) used to cost the full run for 5 smokes' worth of risk.
 
 `node scripts/verify.mjs --dry-run` prints the selection and the reason without running anything — use it when you are not sure
 whether a change is about to go full.
 
-The full run grows with the suite — 94 smokes × 40–90 s of simulated time each. **Raising `--jobs` does not shorten it**
-(measured: 4 lanes 18 min 30 s vs 8 lanes 20 min 00 s); a smoke waits on `ctx.time`, and below the 20 fps floor set by
-`Engine.MAX_DT` the game clock itself slows down, so extra lanes buy contention instead of throughput. If a single run is
-suddenly 2–3× slower, something else on the machine is holding the fast cores — re-run rather than tuning. The reasoning and
+The full run grows with the suite — 94 smokes × 40–90 s of simulated time each (a smoke waits on `ctx.time`). Every smoke
+closes Chrome with `closeBrowser` (`scripts/close-browser.mjs`); a bare `browser.close()` can hold a lane ~2 min after the
+test is over, and that stall once took 41 % of the run. `--jobs 6` is faster (12 min 56 s vs 16 min 40 s) but pushes pages
+under the 20 fps floor set by `Engine.MAX_DT` and adds timing reds, so the default stays 4. If a single run is suddenly much
+slower, re-run before tuning anything. The reasoning and
 the numbers live in [scripts/README.md](../scripts/README.md#why-the-run-takes-as-long-as-it-does).
 
 ## Several sessions in the same tree
@@ -63,6 +64,7 @@ Read the log first when something fails — a check that fell out of a timing wi
 | `smoke-humanoid-ai` | C-24 left/right · raider accuracy · rogue vs android shot count | AI timing — a different assertion fails on each serial re-run |
 | `smoke-inventory-p6` | Bag · stash · `primary2` edits silently roll back to the state at ship entry | It is **not** single-client: `hub:enter` connects to the relay and `net:profileLoaded` replaces stash and loadout ~260 ms later (`inventory/parts/ProfileDocs.ts`). A broken link (`ws proxy error: write ECONNABORTED` in `vite.log`) reverts the edits — check the relay before the code |
 | `smoke-aim-sway` | `shot lands on the rendered crosshair ray under sway` — a few cm over the allowance | The shot is fired **at a sway peak** (the smoke waits for `|swayYaw| > 1°`), where the angular rate is highest, and the allowance `0.08 m + drop × 1.3` is **metric**, not angular. When the search for a look line lands on distant ground instead of the intended ~25 m (seen at 97 m), the same sub-frame angular lag turns into a much larger miss in metres. Re-run — a different ground hit passes |
+| `smoke-desktop` | `9340/json/version 이 45 초 안에 응답하지 않았다` in `verify:all` only | Red in 3 of 3 full runs on 2026-09-16 (before and after `closeBrowser`, which it does not use) and green alone (`--only smoke-desktop`, 50/50). Cause not found — see `docs/TODO.md` E-13 |
 | `smoke-library-consumers` and similar | A module-state value set by the smoke is not visible to the app | A long-lived vite's `?t=` stamp makes the module evaluate twice — see the `import('/src/…')` section in [scripts/README.md](../scripts/README.md) |
 
 ## Not automated

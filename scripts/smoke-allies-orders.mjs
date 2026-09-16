@@ -5,6 +5,7 @@
 // not failed — while that member is missing, so this stays green during the parallel build.
 // Usage: node scripts/smoke-allies-orders.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -281,7 +282,7 @@ try {
   fail++;
   console.log(`  FAIL ${e && e.message ? e.message : e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${fail === 0 ? 'PASS' : 'FAIL'}  ${pass} ok, ${fail} failed, ${skip} skipped`);
 process.exit(fail === 0 ? 0 : 1);

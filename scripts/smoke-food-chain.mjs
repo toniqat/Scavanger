@@ -20,6 +20,7 @@
 // 아이템 데이터(agent A: 표본 family · 토양/배지 durability · 소켓 · 세포주 · 스캐폴드)가 아직 없으면 그 구획은 한 줄 FAIL 뒤 건너뛴다.
 // Usage: node scripts/smoke-food-chain.mjs [http://localhost:5273/]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -817,7 +818,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e.stack ?? e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed${skip ? `, ${skip} skipped` : ''}`);
 process.exit(fail ? 1 : 0);

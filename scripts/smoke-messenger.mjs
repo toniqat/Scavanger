@@ -11,6 +11,7 @@
 //
 // Usage: node scripts/smoke-messenger.mjs [http://localhost:5273/]   (screenshots → $SHOT_DIR or scripts/shots/messenger)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -628,7 +629,7 @@ try {
   fail++;
   console.log(`  FAIL harness ${e.message}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);   // the tally format `scripts/verify.mjs` parses
 process.exit(fail === 0 ? 0 : 1);

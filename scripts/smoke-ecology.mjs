@@ -10,6 +10,7 @@
 // No planet (and a training) must behave exactly as before. Drives `window.__game` only — no console, no relay.
 // Usage: node scripts/smoke-ecology.mjs [http://localhost:5273]   (needs a running vite; agents use a private port)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -457,7 +458,7 @@ try {
   console.log('  FAIL', e.message);
   if (errors.length) console.log('  console errors:', errors.slice(0, 5).join(' | '));
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

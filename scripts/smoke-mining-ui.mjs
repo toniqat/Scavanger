@@ -14,6 +14,7 @@
 //     없는 컴퓨터 토스트.
 // Usage: node scripts/smoke-mining-ui.mjs [http://localhost:5273]   (needs `npm run dev`)   SMOKE_SHOTS=1 → scripts/logs/mining-ui-*.png
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, mkdirSync } from 'node:fs';
 
@@ -607,7 +608,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e?.stack ?? e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\nsmoke-mining-ui: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -14,6 +14,7 @@ each script's header comment — read it before editing a smoke.
 | `economy-table.mjs` | Builds, checks and staleness-tests `server/economy.gen.json` (item values, contract/quest rewards, price multipliers, repair, crypto, intel) |
 | `check-planet-loot.mjs` | Manual: per-planet weapon-grade and rarity drop tables from `data/planet_loot.csv`, rolled through the real loot code |
 | `quiet-hmr.mjs` | Smoke helper `quietViteHmr(page, { parkRelay?, logSockets? })` — parks the `vite-hmr` WebSocket (see Rules) |
+| `close-browser.mjs` | Smoke helper `closeBrowser(browser)` — kills a launched Chrome's process tree before `browser.close()` so the lane never waits on a stuck shutdown (see Rules) |
 | `dev-all.mjs` | `npm run dev:all` — relay + vite with prefixed output; forwards the terminal's input lines to the relay (operator console) |
 | `lan-address.mjs` | Prints the LAN IPv4 for `start-server.bat` (`--all`, `--url`) |
 | `pack-release.mjs` | Last step of `npm run app:dist` — assembles `release/SCAVANGER/` with exactly three entries (`app/` · stub `SCAVANGER.exe` · `server.txt`); no server |
@@ -145,6 +146,9 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
   session's file save would otherwise full-reload the page mid-run. `{ parkRelay: true }` also blocks the relay socket for single-player
   smokes (default leaves the relay alone). Not needed by `smoke-desktop` · `smoke-pitch`. If flakes remain, run a
   dedicated `npx vite --port 5299` and pass its URL.
+- **Close with `closeBrowser(browser)`** (`close-browser.mjs`), never a bare `browser.close()`: on Windows a D3D11 Chrome that exits while
+  other Chromes still render keeps its process alive for up to ~2 min after CDP disconnects, and puppeteer waits for it with no limit —
+  the smoke is done but its lane is not (measured and explained in the helper's header). `smoke-desktop` keeps its own graceful close: it tests the app's quit.
 - **Wait for `net:profileLoaded`** before seeding state directly — a server profile arriving later replaces it.
 - Two-client smokes join a **private lobby by code**, never quick match (stale public lobbies hijack it). Counters that are never reset
   (e.g. `EnemySystem.hitGuardStats`) are read as before/after deltas.
@@ -161,7 +165,7 @@ app — typically red only on a long-lived dev server. Smokes that mutate module
 ### Runner options (`node scripts/verify.mjs --help`)
 
 - `--only a,b` · `--folders weapons,ui` · `--rerun-failed` (from `last-run.json`) · `--all` · `--list` · `--dry-run` (print the selection and why, run nothing).
-- `--jobs N` (default 4 — **do not raise it**, see “Why the run takes as long as it does” below) · `--serial` · `--base <ref>` · `--build` · `--no-typecheck` · `--no-e2e` · `--url` · `--timeout <min>`.
+- `--jobs N` (default 4; 6 is faster but adds timing reds — see “Why the run takes as long as it does” below) · `--serial` · `--base <ref>` · `--build` · `--no-typecheck` · `--no-e2e` · `--url` · `--timeout <min>`.
 - `--log-dir scripts/logs/<name>` gives each concurrent runner its own logs and `last-run.json`; `--keep-relay` keeps a relay already on 8787.
 - Unknown options and `--help` print help and **run nothing**.
 - The runner starts its own relay with `SCAV_DEV_ECONOMY=1` so dev credit reasons (`smoke:*` · `e2e:*` · console · `shot`) are accepted.
@@ -176,28 +180,29 @@ app — typically red only on a long-lived dev server. Smokes that mutate module
 
 ## Why the run takes as long as it does
 
-Measured 2026-09-16 on 28 threads (i7-14700K, 8 P-cores + 12 E-cores) / RTX 4070 SUPER.
+Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER; the earlier numbers came from a 28-thread i7-14700K / RTX 4070 SUPER.
 
-- A smoke's wall-clock time is **simulation time, not machine work**. Smokes wait on `ctx.time`, and `Engine.MAX_DT = 0.05`
-  puts a **20 fps floor** under it: below 20 fps the game clock runs slower than the wall clock, so a page at 10 fps makes
-  its smoke take exactly twice as long. The page's game loop is single-threaded JS, so what matters is one fast core per lane,
-  not total cores.
-- **More lanes is a loss, not a win.** `--all` on 4 lanes = 18 min 30 s, on 8 lanes = **20 min 00 s**, with the machine idle
-  either way (CPU 40 % · GPU 3D 20 % · VRAM 5/12 GB · disk 2 %). At 8 lanes the per-smoke times split in two: light scenes stay
-  at ×1.05 (`smoke-phase2` · `smoke-pose` · `smoke-aim-sway`), heavy ones stretch ×1.7–3.5 (`smoke-tutorial-raid` ×3.47 ·
-  `smoke-allies-core` ×3.39 · `smoke-site-spawns` ×3.33) — total work ×1.68, which cancels twice the lanes. 4 lanes ≈ 8 busy
-  threads fits the P-cores; past that Chrome main threads land on E-cores and drop under the floor.
-- **A run that is suddenly 2–3× slower is the machine, not the suite.** Anything that takes the P-cores (a browser, Excel, a
-  corporate agent) pushes the smoke Chromes onto E-cores for as long as it lasts; whole groups of smokes then finish in the
-  same second. Re-run before believing a slow number — and do not tune anything from one.
-- To make the suite genuinely faster, cut the frames a smoke has to wait through (fewer full reboots, less simulated time), or
-  cut the per-frame JS cost of a smoke page. Raising lane count cannot do it.
+- **The biggest cost was not the tests.** A D3D11 Chrome closed while other smoke Chromes still render stays alive for up to ~2 min
+  after CDP disconnects (0 CPU, threads in `LpcReply`), and `browser.close()` waits for it with no limit. Stuck closes are released
+  together in ~120 s steps, which is why whole groups of smokes used to finish in the same second. `verify:all`: **26 min 46 s → 16 min 40 s**
+  after `closeBrowser` (smoke process time 5476 s → 3287 s; time after the browser disconnected 2244 s → 17 s). Details in `close-browser.mjs`.
+- The rest is **simulation time**. Smokes wait on `ctx.time`; pages run at ~55–60 fps on 4 lanes, so game time ≈ wall time.
+  `Engine.MAX_DT = 0.05` puts a **20 fps floor** under it: below 20 fps the game clock runs slower than the wall clock.
+- **Lanes: 4 is the default, 6 is faster but less reliable.** `--jobs 6` = 12 min 56 s, with more time under 20 fps (292 s vs 210 s
+  over all pages) and three timing reds that 4 lanes do not show (`smoke-ladder` climb speed, `smoke-tutorial-raid` HUD fade value,
+  `smoke-rover` turret hit). The older "8 lanes is slower" result (18 min 30 s → 20 min 00 s) most likely included the close stall (its "groups finish in the same second" is that symptom),
+  which grows with lane count — do not quote it as the frame-rate limit.
+- The exclusive scripts run one at a time after the pool (~3.5 min: `smoke-hangar` · `smoke-squad-dock` · `smoke-android-lobby` ·
+  `smoke-desktop` · `e2e-mp`).
+- Before believing a slow run, re-run it; another app holding the fast cores slows the smoke Chromes for as long as it lasts.
+- To make the suite faster from here, cut the simulated seconds a smoke waits through (fewer full reboots — `smoke-raidflow` has 8 page
+  loads — and shorter scripted waits), or cut per-frame cost so more lanes stay above the 20 fps floor.
 
 ## Recent changes
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
+- 2026-09-16 — New `close-browser.mjs`; every smoke and `e2e-mp` closes Chrome through `closeBrowser` (kills the process tree first) — `verify:all` 26 min 46 s → 16 min 40 s on this machine.
 - 2026-09-16 — `verify.mjs`: a `src/shared` change no longer selects everything by itself — narrow ones pick the folders that use the changed exports (`sharedConsumers`); new `--dry-run`.
 - 2026-09-16 — `verify.mjs`: `net:selftest` now runs alongside the smokes (it used to hold the browsers back ~50 s), and the lane start times share one 24 s ramp budget instead of 8 s per lane; measured why `--jobs` must stay at 4.
 - 2026-09-16 — `smoke-cooking` covers dining plates (table gate, replace warning, eat without consuming, squad plates, launch warning, raid-start clear); `smoke-inventory-p6` cook section tests `consumeCookInputs` (meal quality stack checks removed); data-check resolves meal ids in the meal table.
 - 2026-09-15 — New `smoke-thumper` (진동 장치 in gadgets/; stubs `burrowGroundOk` until world publishes it).
-- 2026-09-15 — `e2e-multiplayer.mjs`: player names are set after both clients join the lobby (profile load was resetting them).

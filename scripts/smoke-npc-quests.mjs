@@ -10,6 +10,7 @@
 //   ⑦ 저장 v2 · 새로고침 · 깨진 npc 저장 정리
 // Usage: node scripts/smoke-npc-quests.mjs [http://localhost:5273/]
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -466,7 +467,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e?.stack ?? e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\nsmoke-npc-quests: ${pass} passed, ${fail} failed, ${skip} skipped`);
 process.exit(fail > 0 ? 1 : 0);

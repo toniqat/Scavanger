@@ -33,6 +33,7 @@
 // (`TutorialSystem.autoStart` — `pendingShip` 이 없으면 함선 트랙은 켜지지 않는다).
 // Usage: node scripts/smoke-tutorial.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -920,7 +921,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e.message}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed, ${errors.length} console errors`);
 process.exit(fail === 0 ? 0 : 1);

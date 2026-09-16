@@ -14,6 +14,7 @@
 //   bare `import('/src/…')`. On a dev server that has seen an edit, vite stamps the app's own imports and a bare
 //   specifier evaluates a *second* copy of the module; stubbing / mutating that copy changes nothing the app sees.
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -506,7 +507,7 @@ try {
   fail++;
   console.log(`  FAIL crashed: ${e?.stack ?? e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\nsmoke-library-consumers: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

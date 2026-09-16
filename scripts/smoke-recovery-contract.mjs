@@ -9,6 +9,7 @@
 //   ⑦ 훈련장: 범위 없음 · 상자 굴림에 표식 없음
 // Usage: node scripts/smoke-recovery-contract.mjs [http://localhost:5273/]   (vite dev server; the relay socket is parked)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -330,7 +331,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e?.stack ?? e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\nsmoke-recovery-contract: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

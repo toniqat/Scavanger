@@ -7,6 +7,7 @@
 // reload, server document replace + the pending-local-edit guard, crew card / raid blob stay without `fav`).
 // Usage: node scripts/smoke-favorites.mjs [http://localhost:5273/]   (needs a vite dev server)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -449,7 +450,7 @@ try {
   fail++;
   console.log(`  FAIL crashed: ${e?.stack ?? e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\nsmoke-favorites: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

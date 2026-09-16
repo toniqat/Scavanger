@@ -7,6 +7,7 @@
 //   ③ 재접속 · 훈련장은 게이트를 타지 않는다.
 // Usage: node scripts/smoke-raid-loading.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -185,7 +186,7 @@ try {
   fail++;
   console.log(`  FAIL ${e && e.message ? e.message : e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

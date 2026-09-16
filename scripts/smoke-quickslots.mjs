@@ -1,6 +1,7 @@
 // Single-player smoke test for the quick-use wheel slots (inventory side of Phase 2).
 // Usage: node scripts/smoke-quickslots.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -800,7 +801,7 @@ try {
   fail++;
   console.log('  FAIL exception', e && e.stack || e);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed, ${errors.length} console errors`);
 for (const e of errors.slice(0, 10)) console.log('  console:', e.slice(0, 300));

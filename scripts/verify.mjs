@@ -13,7 +13,7 @@
  *   node scripts/verify.mjs --dry-run            # what the current change would run, and why — runs nothing
  *   node scripts/verify.mjs --help               # this text (an unknown option prints it too and runs nothing)
  *
- * Options: --jobs N (parallel Chrome instances, default 4 — **measured: 8 is slower**, see the note at `opts.jobs`;
+ * Options: --jobs N (parallel Chrome instances, default 4 — 6 is faster but adds timing reds, see the note at `opts.jobs`;
  *          use 1–2 with SMOKE_GL=swiftshader, which is CPU-bound) · --serial · --base <git ref> (diff base for --changed,
  *          default = working tree vs HEAD, falling back to HEAD~1) · --build · --no-typecheck · --no-e2e ·
  *          --keep-relay (do not restart a relay already listening on 8787) · --url http://host:port/ · --timeout <min> ·
@@ -347,15 +347,15 @@ const opts = {
   folders: val('--folders', '').split(',').filter(Boolean),
   only: val('--only', '').split(',').filter(Boolean),
   base: val('--base', null),
-  /* 2026-09-16 — **레인을 4에서 올리지 마라. 측정해서 더 느렸다.**
-     28스레드 · RTX 4070 SUPER 에서 `--all` 전체: 4레인 18분 30초 → 8레인 **20분 00초**. 기계는 놀고 있었다
-     (CPU 40 % · GPU 3D 20 % · VRAM 5/12 GB · 디스크 2 %) — 병목은 자원이 아니라 **프레임**이다.
-     `Engine.MAX_DT = 0.05` 는 20 fps 바닥이다: 페이지가 그 밑으로 떨어지면 게임 안 시간이 실제보다 느리게 흐르고,
-     스모크는 대부분 "게임 시간 N초 경과"를 기다리므로 그만큼 그대로 늘어난다 (10 fps = 2배, 7 fps = 3배).
-     8레인 전체 실행에서 스모크별 배수가 두 갈래로 갈렸다 — 가벼운 씬은 ×1.05 (phase2 · pose · aim-sway · ghost),
-     무거운 씬은 ×1.7~3.5 (tutorial-raid ×3.47 · allies-core ×3.39 · site-spawns ×3.33 · social ×3.26). 작업량 총합이
-     ×1.68 로 불어 레인 2배가 정확히 상쇄됐다. 4레인에서는 이 부풀림이 없다(같은 스모크가 단독 실행과 같은 속도).
-     레인을 늘리려면 먼저 페이지당 렌더 비용을 낮춰 20 fps 여유를 만들어야 한다 — 레인 수만 올리는 것은 손해다.
+  /* 2026-09-16 — 기본 4레인. 같은 날 두 번 쟀다.
+     ① 28스레드 · RTX 4070 SUPER: 4레인 18분 30초 → 8레인 20분 00초 — 그때는 "프레임 바닥(`Engine.MAX_DT` 20 fps) 때문"으로 읽었지만
+        그 실행에는 **`browser.close()` 가 최대 2분씩 붙잡히는 멈춤**(`scripts/close-browser.mjs` 머리 주석)이 섞여 있었을 공산이 크다
+        (그때 적은 「스모크 묶음이 같은 초에 끝난다」가 이 멈춤의 증상이다).
+        닫히는 Chrome 이 많을수록 더 걸리므로 레인을 늘린 쪽이 손해로 보였던 것이다.
+     ② 7800X3D(8코어 16스레드) · RTX 4080 SUPER, 멈춤을 고친 뒤 `--all`: 4레인 16분 40초 · 6레인 **12분 56초**.
+        하지만 6레인에서 20 fps 밑 시간이 210초 → 292초로 늘고, 4레인에서는 안 나던 타이밍 빨강 3개가 나왔다
+        (`smoke-ladder` 사다리 속도 · `smoke-tutorial-raid` HUD 페이드 값 · `smoke-rover` 포탑 명중). 그래서 기본값은 4 로 둔다 —
+        빨리 돌리고 빨강을 다시 확인할 각오면 `--jobs 6`.
      SMOKE_GL=swiftshader 는 CPU 바운드라 `--jobs 1~2` 를 직접 준다. */
   jobs: has('--serial') ? 1 : Math.max(1, Number(val('--jobs', 4)) || 4),
   build: has('--build') || has('--all'),

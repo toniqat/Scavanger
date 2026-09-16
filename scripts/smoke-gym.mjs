@@ -10,6 +10,7 @@
 // 안 걸린다 · 게임 도중 E 는 삼키기만 → 새로고침 뒤에도 단련 · 근육통이 남는다.
 // Usage: node scripts/smoke-gym.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -501,7 +502,7 @@ try {
   // 2026-09-13: 예외로 끝나면 모아 둔 페이지 오류도 찍는다 (새로고침 뒤 boot 가 멈춘 이유가 여기 있다)
   if (errors.length) console.log(`  page errors (${errors.length}): ${errors.slice(0, 5).join(' | ')}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

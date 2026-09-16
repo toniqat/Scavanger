@@ -7,6 +7,7 @@
 // stands on its own while allies/ is being written.
 // Usage: node scripts/smoke-ally-hooks.mjs [http://localhost:5273/]   (needs a vite dev server)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -369,7 +370,7 @@ try {
   console.log(`  FAIL ${e && e.message ? e.message : e}`);
   for (const err of errors.slice(0, 8)) console.log(`       page error: ${err}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass}/${pass + fail} checks passed`);
 process.exit(fail === 0 ? 0 : 1);

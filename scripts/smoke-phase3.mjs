@@ -1,6 +1,7 @@
 // Single-player smoke test for Phase 3: ship-call wheel, cooldown, top-view targeting, airstrike / laser / supply / structures, off-screen indicators.
 // Usage: node scripts/smoke-phase3.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -287,7 +288,7 @@ try {
   fail++; console.log('  FAIL', e.message);
   console.log(errors.slice(0, 10).join('\n'));
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

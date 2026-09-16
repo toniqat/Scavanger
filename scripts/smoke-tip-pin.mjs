@@ -16,6 +16,7 @@
 // Optional: SMOKE_SHOT_DIR=<dir> saves `tip-pin-weapon.png` (pinned weapon card) and `tip-pin-gauges.png` (창고 tiles).
 // Usage: node scripts/smoke-tip-pin.mjs [http://localhost:5273/]   (needs a vite dev server)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, mkdirSync } from 'node:fs';
 
@@ -621,7 +622,7 @@ try {
   fail++;
   console.log(`  FAIL crashed: ${e?.stack ?? e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\nsmoke-tip-pin: ${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

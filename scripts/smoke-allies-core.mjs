@@ -5,6 +5,7 @@
 // the extraction pads or the inventory ally APIs other agents are still writing.
 // Usage: node scripts/smoke-allies-core.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -250,7 +251,7 @@ try {
   fail++;
   console.log(`  FAIL ${e && e.message ? e.message : e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${fail === 0 ? 'PASS' : 'FAIL'}  ${pass} ok, ${fail} failed, ${skip} skipped`);
 process.exit(fail === 0 ? 0 : 1);

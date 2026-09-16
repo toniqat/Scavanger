@@ -6,6 +6,7 @@
 // back to playing, console callable again) · a corpse in the bay lies on the deck, rides the ship and is gone with it.
 // Usage: node scripts/smoke-extraction.mjs [http://localhost:5273]   (needs a running vite)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -332,7 +333,7 @@ try {
   fail++; console.log('  FAIL', e.message);
   console.log(errors.slice(0, 10).join('\n'));
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

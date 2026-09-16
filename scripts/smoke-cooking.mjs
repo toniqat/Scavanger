@@ -11,6 +11,7 @@
 // 2026-09-16 (접시 모델, 사용자 결정): 요리는 아이템이 아니다 — 식탁 가구가 없으면 조리대를 쓸 수 없다 (그 게이트도 본다).
 // Usage: node scripts/smoke-cooking.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -1072,7 +1073,7 @@ try {
   fail++;
   console.log(`  FAIL exception: ${e.stack ?? e}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

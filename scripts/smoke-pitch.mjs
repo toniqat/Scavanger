@@ -18,6 +18,7 @@
  * Usage: node scripts/smoke-pitch.mjs
  */
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { createServer } from 'node:http';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
@@ -135,7 +136,7 @@ if (!solo.skip) {
   console.log(`  ✔ 단독 이미지: 화살표 없음(${!solo.multi}) · 장수 표시 없음`);
 }
 
-await b.close();
+await closeBrowser(b);
 server.close();
 console.log(`\n${passes} passed, ${fails} failed`);
 process.exit(fails ? 1 : 0);

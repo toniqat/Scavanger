@@ -13,6 +13,7 @@
 //
 // Usage: node scripts/smoke-rover.mjs [http://localhost:5273]
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -274,7 +275,7 @@ try {
   fail++;
   console.log(`  FAIL harness ${String(e)}`);
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

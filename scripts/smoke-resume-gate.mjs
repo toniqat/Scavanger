@@ -12,6 +12,7 @@
 // and it is what arms `Input.awaitingLockGesture`, the gate's trigger.
 // Usage: node scripts/smoke-resume-gate.mjs [http://localhost:5273]   (needs a running vite, no relay)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { existsSync } from 'node:fs';
 
@@ -399,6 +400,6 @@ try {
   console.log(`\n${pass} passed, ${fail} failed`);
   if (errors.length) { console.log('page errors:'); for (const e of errors.slice(0, 10)) console.log('  ', e); }
 } finally {
-  await browser.close();
+  await closeBrowser(browser);
 }
 process.exit(fail ? 1 : 0);

@@ -17,6 +17,7 @@
 // 릴레이 포트는 **8885**(죽은 포트 → 스모크가 띄우는 릴레이), 8886(대답 없는 TCP) — 공용 릴레이(8787)는 건드리지 않는다.
 // Usage: node scripts/smoke-netlink.mjs [http://localhost:5273]   (needs a running vite; the relay it needs it starts itself)
 import puppeteer from 'puppeteer-core';
+import { closeBrowser } from './close-browser.mjs';
 import { quietViteHmr } from './quiet-hmr.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
@@ -353,7 +354,7 @@ try {
   console.log(`  FAIL crashed: ${e.message}`);
   console.log(`\n${pass} passed, ${fail} failed`);
 } finally {
-  await browser.close().catch(() => {});
+  await closeBrowser(browser);
   await stopRelay();
   for (const s of hanging) s.destroy();
   try { hangServer.close(); } catch { /* not listening */ }
