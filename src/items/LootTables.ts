@@ -183,7 +183,13 @@ export interface TierTable {
   itemWeightMul?: Readonly<Record<string, number>>;
 }
 
-const RARITY_ORDER_5: readonly Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+/**
+ * 드롭이 굴리는 등급은 **5단계다** — 2026-09-16 에 `Rarity` 가 6단계(신화)로 늘어난 뒤에도 그러하다.
+ * 신화는 유니크 무기 6종 · 특성 방탄복 3벌 · 신화 표본/광물 처럼 자기 경로로만 나오고, 상자·시체 굴림은
+ * 신화를 뽑지 않는다. loot csv 에 mythic 칸을 적어도 이 줄이 자르므로 무시된다 — 드롭을 열려면 여기부터 고친다.
+ */
+export const RARITY_ORDER_LOOT: readonly Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+const RARITY_ORDER_5 = RARITY_ORDER_LOOT;
 
 /** 티어별 카테고리 가중치 / 확정 픽 / 아이템 배수를 티어 번호로 모아 둔다. */
 const CATEGORY_WEIGHTS_BY_TIER = csvGroups('loot_category_weights.csv', 'tier');

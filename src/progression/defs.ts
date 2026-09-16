@@ -24,6 +24,8 @@ export const DERIVED_PANEL_KEYS = [
   'shipCallSpeedMul', 'implantCooldownMul', 'durabilityLossMul', 'gatherYieldMul', 'carryReliefFactor',
   /* 2026-09-13 요리 · 연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
   'cookScoreBonus', 'researchTimeMul', 'researchRefundChance', 'researchRefundFrac',
+  /* 2026-09-16 (사용자 결정): 행성 광맥 · 채광 숙련 */
+  'miningRarityBonus',
 ] as const satisfies readonly (keyof DerivedStats)[];
 export type DerivedPanelKey = (typeof DERIVED_PANEL_KEYS)[number];
 

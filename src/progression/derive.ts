@@ -65,6 +65,8 @@ const RECOIL_AT_MAX = 0.4;          // −40 % recoil
 const RELOAD_AT_MAX = 0.45;         // ×1.45 reload speed
 const DURABILITY_AT_MAX = 0.5;      // −50 % wear
 const GATHER_YIELD_AT_MAX = 1;      // ×2 herbs
+/** 채광 100 에서 광맥 굴림의 상위 등급 가중치에 얹히는 보정 (2026-09-16 사용자 결정 — 행성 광맥). */
+const MINING_RARITY_AT_MAX = 1;
 
 /** 특수 가방 (legendary) perk: implant cooldowns halved, stacked multiplicatively on the skill. */
 export const SPECIAL_BACKPACK_CD_MUL = 0.5;
@@ -189,6 +191,8 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean,
     researchTimeMul: 1 - RESEARCH_TIME_AT_MAX * frac(profile, 'research'),
     researchRefundChance: RESEARCH_REFUND_CHANCE_AT_MAX * frac(profile, 'research'),
     researchRefundFrac: RESEARCH_REFUND_FRAC_MIN + (RESEARCH_REFUND_FRAC_MAX - RESEARCH_REFUND_FRAC_MIN) * frac(profile, 'research'),
+    /* 2026-09-16: 채광 — 광맥이 굴리는 미확인 광물의 등급만 올린다 (world/ 의 광맥 채집이 읽는다). */
+    miningRarityBonus: MINING_RARITY_AT_MAX * frac(profile, 'mining'),
     /* Phase 12: legendary perks of the equipped 임플란트 items (every PerkId present) */
     perks: { ...emptyPerks(), ...imp.perks },
   };
@@ -262,11 +266,11 @@ export const DEFAULT_DERIVED: DerivedStats = computeDerived(
     stats: { strength: STAT_BASE, endurance: STAT_BASE, perception: STAT_BASE, intelligence: STAT_BASE, dexterity: STAT_BASE },
     skills: {
       carry: 0, appraisal: 0, grit: 0, gardening: 0, crafting: 0, medicine: 0, cryptography: 0,
-      implant: 0, gun_AR: 0, gun_SMG: 0, gun_SR: 0, gun_DMR: 0, gun_SG: 0, equipment: 0, cooking: 0, research: 0,
+      implant: 0, gun_AR: 0, gun_SMG: 0, gun_SR: 0, gun_DMR: 0, gun_SG: 0, equipment: 0, cooking: 0, research: 0, mining: 0,
     },
     skillProgress: {
       carry: 0, appraisal: 0, grit: 0, gardening: 0, crafting: 0, medicine: 0, cryptography: 0,
-      implant: 0, gun_AR: 0, gun_SMG: 0, gun_SR: 0, gun_DMR: 0, gun_SG: 0, equipment: 0, cooking: 0, research: 0,
+      implant: 0, gun_AR: 0, gun_SMG: 0, gun_SR: 0, gun_DMR: 0, gun_SG: 0, equipment: 0, cooking: 0, research: 0, mining: 0,
     },
     implant: null, raids: 0, extractions: 0, implants: [],
   },

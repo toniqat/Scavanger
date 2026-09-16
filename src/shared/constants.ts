@@ -154,7 +154,7 @@ export const HUB_SQUAD_DOCK_COUNTDOWN_S = K.num('HUB_SQUAD_DOCK_COUNTDOWN_S');
 export const HUB_DOCK_FADE_S = K.num('HUB_DOCK_FADE_S');
 
 /* ── appended: weapon package (2026-09-05) ── */
-import type { SocketSlot, AmmoType, WeaponClass } from './types';
+import type { SocketSlot, AmmoType, Rarity, WeaponClass } from './types';
 /** Durability lost per trigger pull (shotgun pellets count once). */
 export const WEAPON_DURABILITY_PER_SHOT = K.num('WEAPON_DURABILITY_PER_SHOT');
 /** Fallback `WeaponDef.maxDurability`. */
@@ -741,8 +741,8 @@ export const RAID_FAILED_AUTO_RETURN_S = K.num('RAID_FAILED_AUTO_RETURN_S');
 
 /* container search (감정) — owner: inventory */
 /** Seconds to reveal one item by rarity, before bulk (`1 + (w·h − 1) × 0.05`) and `derived.searchSpeedMul` (÷). */
-export const SEARCH_TIME_BY_RARITY: Readonly<Record<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary', number>> =
-  numberMap<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'>('tables.csv', 'SEARCH_TIME_BY_RARITY');
+export const SEARCH_TIME_BY_RARITY: Readonly<Record<Rarity, number>> =
+  numberMap<Rarity>('tables.csv', 'SEARCH_TIME_BY_RARITY');
 /** Searching only runs while the container window is open and the player is within this many metres of it. */
 export const SEARCH_MAX_DISTANCE = K.num('SEARCH_MAX_DISTANCE');
 
@@ -791,8 +791,8 @@ export const GROW_RACK_LAYER_HEIGHT = K.num('GROW_RACK_LAYER_HEIGHT');
  */
 export const GROW_SKILL_SPEEDUP = K.num('GROW_SKILL_SPEEDUP');
 /** Real hours a seed needs by its rarity, before `GROW_SKILL_SPEEDUP` (items' `ItemDef.seed.growHours` overrides it). */
-export const SEED_GROW_HOURS_BY_RARITY: Readonly<Record<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary', number>> =
-  numberMap<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'>('tables.csv', 'SEED_GROW_HOURS_BY_RARITY');
+export const SEED_GROW_HOURS_BY_RARITY: Readonly<Record<Rarity, number>> =
+  numberMap<Rarity>('tables.csv', 'SEED_GROW_HOURS_BY_RARITY');
 
 /* ── 온실 개편 — 토양 궁합 (2026-09-11, owner: housing rules, items soil data) ── */
 /**
@@ -804,8 +804,8 @@ export const SOIL_MATCH_SPEEDUP = K.num('SOIL_MATCH_SPEEDUP');
 /** 궁합이 맞지 않는 토양에 심었을 때 성장 시간이 늘어나는 비율. */
 export const SOIL_MISMATCH_PENALTY = K.num('SOIL_MISMATCH_PENALTY');
 /** 한 번 부은 토양이 견디는 수확 횟수 — 등급 곡선 (`ItemDef.soil.uses` 가 실제 값이다). */
-export const SOIL_USES_BY_RARITY: Readonly<Record<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary', number>> =
-  numberMap<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'>('tables.csv', 'SOIL_USES_BY_RARITY');
+export const SOIL_USES_BY_RARITY: Readonly<Record<Rarity, number>> =
+  numberMap<Rarity>('tables.csv', 'SOIL_USES_BY_RARITY');
 
 /* ── audio settings (owner: audio) ── */
 /** localStorage key of the volume settings (`AudioSettings`). */
@@ -843,8 +843,8 @@ export const JUMP_PAD_RETRIGGER_S = K.num('JUMP_PAD_RETRIGGER_S');
 export const BOOKS_PER_SHELF = K.num('BOOKS_PER_SHELF');
 /** Skill-XP multiplier bonus per shelved book, weighted by `BOOK_RARITY_MUL[rarity]`: mul = 1 + BOOK_XP_PER_BOOK × Σ weight. */
 export const BOOK_XP_PER_BOOK = K.num('BOOK_XP_PER_BOOK');
-export const BOOK_RARITY_MUL: Readonly<Record<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary', number>> =
-  numberMap<'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'>('tables.csv', 'BOOK_RARITY_MUL');
+export const BOOK_RARITY_MUL: Readonly<Record<Rarity, number>> =
+  numberMap<Rarity>('tables.csv', 'BOOK_RARITY_MUL');
 /** Cap of the 서재 multiplier for one skill. */
 export const BOOK_GAIN_MAX = K.num('BOOK_GAIN_MAX');
 

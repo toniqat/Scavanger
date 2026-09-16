@@ -26,13 +26,17 @@ export type SkillId =
   | 'equipment'     // 장비 관리 (재주)
   /* appended (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
   | 'cooking'       // 요리 (재주) — 조리 단계 점수 (자동 포함)
-  | 'research';     // 연구 (지능) — 분석 시간 · 추출기/조합대/3D 프린터 재료 환급
+  | 'research'      // 연구 (지능) — 분석 시간 · 추출기/조합대/3D 프린터 재료 환급
+  /* appended (2026-09-16, 사용자 결정): 행성 광맥 */
+  | 'mining';       // 채광 (재주) — 광맥에서 나오는 미확인 광물의 등급이 올라간다
 
 export const SKILL_IDS: readonly SkillId[] = [
   'carry', 'appraisal', 'grit', 'gardening', 'crafting', 'medicine', 'cryptography',
   'implant', 'gun_AR', 'gun_SMG', 'gun_SR', 'gun_DMR', 'gun_SG', 'equipment',
   /* appended (2026-09-13) */
   'cooking', 'research',
+  /* appended (2026-09-16) */
+  'mining',
 ];
 
 export interface StatDef {
@@ -498,5 +502,12 @@ export interface DerivedStats {
   researchRefundChance: number;
   /** 연구: 돌려받을 때 재료마다 돌려받는 비율 (`RESEARCH_REFUND_FRAC_MIN` … `RESEARCH_REFUND_FRAC_MAX`, 재료당 최소 1 개). */
   researchRefundFrac: number;
+  /**
+   * appended (2026-09-16, 사용자 결정 — 행성 광맥): 채광 숙련이 광맥 드롭에 얹는 **등급 가중치 보정** (0 … `MINING_RARITY_AT_MAX`).
+   * 광맥은 총기와 **같은 확률 테이블**(`data/loot_tiers.csv`)로 미확인 광물의 등급을 굴린다 — 이 값은 그 굴림의
+   * 상위 등급 쪽 가중치에 곱해지는 보너스이고, 난이도가 막아 둔 상한(난이도 1 = 희귀까지)을 **넘기지는 못한다**.
+   * 채광 숙련은 이것 하나만 바꾼다 (홀드 시간 · 수확 개수는 `gatherYieldMul` · `interactSpeedMul` 이 이미 맡는다).
+   */
+  miningRarityBonus: number;
 }
 /* ══ end 2026-09-13 서재 시리즈 ══ */

@@ -48,7 +48,9 @@ export type WeaponDefLookup = (weaponId: string) => WeaponDef | undefined;
 export function shopRarityCap(level: number, def: ItemDef): number {
   const idx = Math.max(0, Math.min(SHOP_RARITY_CAP_BY_REP.length - 1, level));
   let cap = rarityRank(SHOP_RARITY_CAP_BY_REP[idx]);
-  if (def.category === 'bag') cap = Math.min(RARITY_ORDER.length - 1, cap + SHOP_BAG_RARITY_BONUS);
+  // 상점은 **전설까지**만 판다. 2026-09-16 에 `Rarity` 가 신화로 한 칸 늘어나면서 `RARITY_ORDER.length - 1` 로 두면
+  // 가방 보너스가 신화 가방을 진열에 올리는 상한이 된다 — 신화는 상점 물건이 아니므로 전설에 멈춘다.
+  if (def.category === 'bag') cap = Math.min(rarityRank('legendary'), cap + SHOP_BAG_RARITY_BONUS);
   return cap;
 }
 

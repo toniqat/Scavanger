@@ -23,3 +23,4 @@ gun_SG,사격 · 산탄총,perception,SG,산탄총 명중으로 오른다. 반�
 equipment,장비 관리,dexterity,,장비를 수리하면 오른다. 장비 내구도 소모가 줄어든다.,durabilityLossMul
 cooking,요리,dexterity,,조리를 끝내면 오른다. 조리 단계 점수가 오른다 (자동 조리 가구로 처리한 단계 포함).,cookScoreBonus
 research,연구,intelligence,,분석을 회수하거나 추출기 · 조합대 · 3D 프린터로 만들면 오른다. 분석 시간이 줄고 제작 재료 일부를 돌려받는다.,researchTimeMul|researchRefundChance|researchRefundFrac
+mining,채광,dexterity,,행성 광맥을 캐면 오른다. 광맥에서 더 높은 등급의 미확인 광물이 나온다.,miningRarityBonus

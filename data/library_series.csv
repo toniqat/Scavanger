@@ -88,3 +88,7 @@ no_receiver,record,《수신자 없는 방송》,1,crimson,skillGain:cryptograph
 drill_assault,record,《교관의 목소리: 돌격과 제압》,1,tundra|ashen,skillGain:gun_AR:0.06|skillGain:gun_SMG:0.06|skillGain:gun_SG:0.06,epic,,사격장 교관의 구령과 돌격 · 근접 사격 강의를 한 면에 담은 교육용 음반.
 drill_marksman,record,《교관의 목소리: 정밀 사격》,1,crimson,skillGain:gun_SR:0.06|skillGain:gun_DMR:0.06|derived:detectRadius:1,legendary,,호흡을 고르는 저격수의 강연과 긴 침묵이 담긴 음반.
 iron_rhythm,record,《강철의 리듬》,1,ashen|tundra,gymScore:gym_treadmill:0.04|gymScore:gym_cycle:0.04|gymScore:gym_bench_press:0.04,epic,grit,헬스장 스피커에서 흘러나오던 훈련용 박자 음반.
+# ── 2026-09-16 (사용자 결정 — 행성 광맥 · 채광 숙련) ──
+mining_basics,book,『광맥 읽는 법』,3,ashen,skillGain:mining:0.15,,,화산 암반의 결을 보고 광맥을 찾아내던 채굴공의 수기. 어디를 때려야 결정이 통째로 떨어지는지가 권마다 이어진다.
+ore_survey,disc,〈광맥 탐사 기록〉,2,tundra,skillGain:mining:0.08|skillGain:research:0.06,rare,mining,동토의 노두를 따라 미확인 광물을 캐내는 탐사대의 기록 영상.
+deep_vein,record,《깊은 광맥》,1,crimson,skillGain:mining:0.06|skillGain:carry:0.05|derived:gatherYieldMul:0.02,epic,mining,적색 평원의 갱도에서 녹음된 늙은 채굴공의 강연. 곡괭이 소리가 박자처럼 섞여 있다.

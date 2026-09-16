@@ -74,7 +74,7 @@ const ITEM_TEXT = {
   failed: '장착할 수 없습니다',
 };
 
-const RARITY_ORDER: readonly string[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+const RARITY_ORDER: readonly string[] = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'];
 
 /** `근력 +2 · 재주 +1` for an implant def (empty string when it has no stat bonus). */
 function implantStatLine(def: ItemDef | undefined, statName: (id: StatId) => string): string {

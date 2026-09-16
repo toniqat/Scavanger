@@ -926,6 +926,8 @@ const DERIVED_LABEL: Readonly<Record<DerivedPanelKey, string>> = {
   researchTimeMul: '분석 시간',
   researchRefundChance: '재료 회수 확률',
   researchRefundFrac: '재료 회수량',
+  /* 2026-09-16 행성 광맥 · 채광 숙련 */
+  miningRarityBonus: '광맥 등급 보정',
 };
 
 function derivedText(key: DerivedPanelKey, d: DerivedStats): string {

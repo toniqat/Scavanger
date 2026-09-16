@@ -1,4 +1,4 @@
-import type { EnvKind, GrowSocketEffect, GrowSocketTarget, ItemCategory, MealBuff, MealDef, Rarity, SampleFamily, SoilTag, WeaponGrade } from './types';
+import type { EnvKind, GrowSocketEffect, GrowSocketTarget, ItemCategory, MealBuff, MealDef, Rarity, SampleFamily, SoilTag, SuperCategory, WeaponGrade } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Item rarity / category labels and palette (Phase 7, 2026-09-06).
@@ -6,11 +6,22 @@ import type { EnvKind, GrowSocketEffect, GrowSocketTarget, ItemCategory, MealBuf
  * importing another feature folder. Data-only, like FURNITURE_DEFS / CONTRACT_GOAL_LABEL_KO.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-export const RARITY_ORDER: readonly Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+export const RARITY_ORDER: readonly Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'];
 export const rarityRank = (r: Rarity): number => RARITY_ORDER.indexOf(r);
-/** Rarity ↔ weapon grade (1 common … 5 legendary). */
+/**
+ * Rarity ↔ weapon grade (1 common … 5 legendary). 총기는 여전히 5등급까지만 있다 — 신화 총기는
+ * 등급이 없는 유니크 6종이므로 `WeaponGrade` 를 6 으로 늘리지 않는다 (2026-09-16 사용자 결정).
+ */
 export const rarityForGrade = (g: WeaponGrade): Rarity => RARITY_ORDER[g - 1];
 export const gradeForRarity = (r: Rarity): WeaponGrade => (rarityRank(r) + 1) as WeaponGrade;
+
+/**
+ * 등급을 로마자로 읽는다 (I … VI). 총기 등급 표기와 같은 글자를 표본 이름이 쓴다 —
+ * 「미확인 유전자 III」 의 III 가 이것이고, 같은 줄이 그 표본이 보장하는 최소 등급이기도 하다.
+ * 표본 이름을 csv 에 손으로 적기도 하지만, 아이콘 배경 · 툴팁은 이 함수를 거친다.
+ */
+export const RARITY_ROMAN: readonly string[] = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+export const romanForRarity = (r: Rarity): string => RARITY_ROMAN[rarityRank(r)] ?? '';
 
 export const RARITY_COLORS: Readonly<Record<Rarity, string>> = {
   common: '#9aa3ad',
@@ -18,10 +29,12 @@ export const RARITY_COLORS: Readonly<Record<Rarity, string>> = {
   rare: '#4aa3ff',
   epic: '#b56cff',
   legendary: '#ffb347',
+  /* 2026-09-16 (사용자 결정): 신화는 분홍이다. 전설의 주황·서사의 보라 사이가 아니라 순수 마젠타라 둘 다와 겹치지 않는다. */
+  mythic: '#ff6fd0',
 };
 
 export const RARITY_LABEL_KO: Readonly<Record<Rarity, string>> = {
-  common: '일반', uncommon: '고급', rare: '희귀', epic: '서사', legendary: '전설',
+  common: '일반', uncommon: '고급', rare: '희귀', epic: '서사', legendary: '전설', mythic: '신화',
 };
 
 export const CATEGORY_LABEL_KO: Readonly<Record<ItemCategory, string>> = {
@@ -150,7 +163,7 @@ export const MEAL_TIER_LABEL_KO: Readonly<Record<MealDef['tier'], string>> = {
  * appended (2026-09-13, 요리 재료 티어): 미확인 표본 계열의 이름 · 색 · 글리프. 분석 화면 · 분석 도감 · 표본 툴팁 ·
  * 레벨업 토스트가 **이 표 하나**를 읽는다.
  */
-export const SAMPLE_FAMILY_LABEL_KO: Readonly<Record<SampleFamily, string>> = { cell: '세포', mineral: '광물', dna: 'DNA' };
+export const SAMPLE_FAMILY_LABEL_KO: Readonly<Record<SampleFamily, string>> = { cell: '세포', mineral: '광물', dna: '유전자' };
 export const SAMPLE_FAMILY_COLOR: Readonly<Record<SampleFamily, string>> = { cell: '#ff9fb0', mineral: '#d8c49a', dna: '#9fd0ff' };
 export const SAMPLE_FAMILY_ICON: Readonly<Record<SampleFamily, string>> = { cell: '⬮', mineral: '◈', dna: '⧬' };
 
@@ -159,4 +172,28 @@ export const GROW_SOCKET_TARGET_LABEL_KO: Readonly<Record<GrowSocketTarget, stri
 export const GROW_SOCKET_EFFECT_LABEL_KO: Readonly<Record<GrowSocketTarget, Readonly<Record<GrowSocketEffect, string>>>> = {
   soil: { speed: '성장 속도', yield: '추가 수확', wear: '토양 마모 감소' },
   medium: { speed: '배양 속도', yield: '추가 산물', wear: '배지 마모 감소' },
+};
+
+/**
+ * appended (2026-09-16, 사용자 결정): 카테고리 → **대분류**. 서재에 꼽는 매체는 종류가 달라도 한 덩이로 「수집품」 이다 —
+ * 툴팁의 종류 줄이 「수집품 > 서적」 로 읽히고, 퀘스트·계약 목표가 「가치 10,000 이상의 수집품」 처럼
+ * 책·디스크·레코드를 구분하지 않고 물을 수 있게 하려는 것이다.
+ * **카테고리를 바꾸지 않는다** — 기존 필터·정렬·저장·loot 는 여전히 `ItemCategory` 를 보므로 그대로 돌아간다.
+ * 대분류가 없는 카테고리는 이 표에 줄이 없고 `superCategoryOf` 가 null 을 돌려준다.
+ */
+export const SUPER_CATEGORY_OF: Readonly<Partial<Record<ItemCategory, SuperCategory>>> = {
+  book: 'collectible', disc: 'collectible', record: 'collectible', game_disc: 'collectible', console: 'collectible',
+};
+
+export const SUPER_CATEGORY_LABEL_KO: Readonly<Record<SuperCategory, string>> = { collectible: '수집품' };
+
+export const superCategoryOf = (cat: ItemCategory): SuperCategory | null => SUPER_CATEGORY_OF[cat] ?? null;
+
+/**
+ * 툴팁·목록의 「종류」 줄 문자열. 대분류가 있으면 두 단, 없으면 한 단이다.
+ * 구분자를 바꾸려면 여기 하나만 고친다 — 부르는 곳이 여럿이다.
+ */
+export const categoryPathKo = (cat: ItemCategory): string => {
+  const sup = superCategoryOf(cat);
+  return sup ? `${SUPER_CATEGORY_LABEL_KO[sup]} > ${CATEGORY_LABEL_KO[cat]}` : CATEGORY_LABEL_KO[cat];
 };

@@ -95,7 +95,22 @@ export type ItemCategory =
   | 'socket'
   | 'record';     // 레코드 (see `ItemDef.record`): 서재 레코드랙에 꽂는다 — 디스크보다 조금 세다. loot + corp shop, never craftable
 
-export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
+/**
+ * 아이템 희귀도. **6단계** — 2026-09-16 (사용자 결정) 에 `'mythic'` 신화가 전설 위에 붙었다.
+ * 신화는 **드롭 테이블이 굴리지 않는다**: 유니크 무기 6종 · 특성 방탄복 3벌 · 신화 표본/광물만이 신화다
+ * (`src/items/LootTables.ts` 의 `RARITY_ORDER_LOOT` 가 굴림을 5단계로 잘라 두므로, 새 표에 mythic 가중치를
+ *  적어도 굴려지지 않는다 — 신화를 드롭에 넣으려면 그 상수를 먼저 고쳐야 한다).
+ * `Record<Rarity, …>` 를 쓰는 곳은 `data/tables.csv` 의 대응 표에 mythic 행이 있어야 한다.
+ */
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
+
+/**
+ * 아이템 **대분류** (2026-09-16 사용자 결정). `ItemCategory` 위에 한 겹 얹은 축이고, 카테고리를 바꾸지 않는다 —
+ * 툴팁의 종류 줄이 「수집품 > 서적」 처럼 두 단으로 읽히고, 퀘스트 · 계약 목표가 「수집품」 단위로 물어볼 수 있게 하려는 것이다.
+ * 매핑과 라벨은 `src/shared/labels.ts` 의 `SUPER_CATEGORY_OF` · `SUPER_CATEGORY_LABEL_KO` 하나뿐이다.
+ * 대분류가 없는 카테고리(주무기 · 탄약 …)는 `superCategoryOf` 가 `null` 을 돌려주고 종류 줄이 한 단으로 남는다.
+ */
+export type SuperCategory = 'collectible';
 
 /**
  * Ammo calibres. v2 (weapon package): `light` 경량탄 (SMG, HG) · `medium` 준중량탄 (AR) · `heavy` 중량탄 (SR, DMR) ·
