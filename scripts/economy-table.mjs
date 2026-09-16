@@ -117,7 +117,11 @@ export async function checkEconomyTable(server, table) {
       for (const line of rules.buildShop(corp, all, lv, Number.MAX_SAFE_INTEGER, true, (id) => weapons.getWeaponDef(id))) {
         const it = table.items[line.def.id];
         if (!it) { push(`${corp.id} Lv.${lv}: 상점이 파는 ${line.def.id} 가 표에 없다 (value ${line.def.value})`); continue; }
-        if (line.price !== shared.tableBuyPrice(table, it.value, lv)) push(`${corp.id} Lv.${lv}: ${line.def.id} 상점가 ${line.price} ≠ 표 ${shared.tableBuyPrice(table, it.value, lv)}`);
+        /* 2026-09-16 (사용자 결정): 탄약 매대 칸은 **풀 스택**이라 한 칸 값이 `표 × 묶음 수`다 (`Rules.shopQtyOf`).
+           표 자체는 한 개 값 그대로 둔다 — 릴레이의 `buy:` 검사는 "이 값보다 적게 내지 않았나"라는 하한이므로
+           묶음 값(더 큰 값)은 그대로 통과한다. 여기서 묶음 수를 곱하지 않으면 이 불변식만 거짓으로 깨진다. */
+        const want = shared.tableBuyPrice(table, it.value, lv) * rules.shopQtyOf(line.def);
+        if (line.price !== want) push(`${corp.id} Lv.${lv}: ${line.def.id} 상점가 ${line.price} ≠ 표 ${want}`);
       }
     }
   }

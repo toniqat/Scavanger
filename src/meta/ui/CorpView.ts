@@ -7,6 +7,8 @@ import {
   appendCurrencyRewards, buildItemChip, createHoldButtonCap, formatCreditAmount, formatCredits, renderItemCost, repCurrencyId,
 } from '@/shared';
 import type { ImplantRepairInfo, ImplantRepairResult, MetaSystem, PurchaseFailure } from '../MetaSystem';
+/* 2026-09-16: 매대 한 칸이 몇 개인가 (탄약 = 풀 스택) — 규칙은 `Rules.shopQtyOf` 하나다 */
+import { shopQtyOf } from '../Rules';
 import { chevrons, el, fmtNum, setText, toggleClass } from './dom';
 import { HoldAsk } from './HoldAsk';
 import { TileGrid, type TileSpec } from './TileGrid';
@@ -81,6 +83,19 @@ const CV_CELL_MIN = 32;
 const CV_GAP = 2;
 /** Columns of a 구매 / 판매 tray — an item is at most five cells wide. */
 const TRAY_COLS = 5;
+/**
+ * 2026-09-16 (사용자 결정): **기업 판매 물품 매대는 가로 10 칸 고정**이다. 남는 폭을 전부 먹던 유동 카드(`.is-fluid`)라
+ * 창이 넓을수록 매대만 끝없이 넓어지고 타일이 성기게 흩어졌다 — 칸 수를 못 박으면 매대 폭이 창 크기와 무관해지고,
+ * 좁은 창에서는 `fitLayout` 이 칸 변(40 → 32 px)을 줄여 맞춘다. CSS 의 `.cv-col.shop` 최소 폭이 같은 10 을 쓴다.
+ */
+const SHOP_COLS = 10;
+/**
+ * 2026-09-16 (사용자 결정): 기업 거래 화면의 타일은 호버 카드 아래 바에 「가치」 대신 **이 화면에서 오가는 값**을
+ * 적는다 — 매대 · 구매칸은 구매가, 판매칸은 판매가. 공용 카드(`ui/hud/ItemTip`)가 `closest` 로 읽는 옵트인 속성이라
+ * 여기서는 `dataset` 으로만 찍는다 (폴더 간 import 금지). 값이 없는 타일(가방 · 창고)은 그대로 「가치」다.
+ */
+const TIP_PRICE_ATTR = 'data-tip-price';
+const TIP_PRICE_LABEL_ATTR = 'data-tip-price-label';
 /** Below this fraction of the hold a release reads as a click — say how the button works instead of failing silently. */
 const HOLD_TAP_HINT = 0.35;
 /** A window resize re-fits the cell size once it has settled for this long. */
@@ -532,6 +547,16 @@ export class CorpView {
     return { tile, w: def?.width ?? 1, h: def?.height ?? 1 };
   }
 
+  /**
+   * 2026-09-16 (사용자 결정): 이 타일의 호버 카드는 「가치」 대신 `label`(`구매가` · `판매가`)과 `credits` 를 적는다.
+   * 가치는 아이템이 어디에 있든 같은 수라 거래 화면에서는 읽을 값이 아니다 — 여기서 실제로 오가는 돈은 신뢰도
+   * 할인이 든 구매가이거나 `SELL_PRICE_MUL` 이 든 판매가다. 공용 카드가 `closest` 로 읽으므로 타일에 찍으면 된다.
+   */
+  private tagTipPrice(tile: HTMLElement, label: string, credits: number): void {
+    tile.setAttribute(TIP_PRICE_ATTR, String(Math.max(0, Math.round(credits))));
+    tile.setAttribute(TIP_PRICE_LABEL_ATTR, label);
+  }
+
   /* ══ 거래 (상점 + 판매) ═══════════════════════════════════════════════════ */
 
   private buildTrade(): HTMLElement {
@@ -540,10 +565,11 @@ export class CorpView {
     toggleClass(root, 'is-inv-hidden', this.invHidden);
     const grid = { cell: this.cell, gap: CV_GAP };
 
-    // 판매 물품 — the one fluid card: at least five columns (`data-cv-cols`), it takes whatever width the row leaves
-    const shop = el('div', { cls: 'cv-col shop cv-card is-fluid', parent: root, attrs: { 'data-cv-cols': String(TRAY_COLS) } });
+    /* 판매 물품 — 2026-09-16 (사용자 결정): 가로 `SHOP_COLS` 칸 **고정**이다. 옛 유동 카드(`.is-fluid`)가 아니라
+       내용 폭 카드라 `fitLayout` 이 다른 카드들처럼 실측한다 (CSS `.cv-col.shop` 의 최소 폭도 같은 칸 수다). */
+    const shop = el('div', { cls: 'cv-col shop cv-card', parent: root, attrs: { 'data-cv-cols': String(SHOP_COLS) } });
     el('div', { cls: 'cv-title', text: '기업 판매 물품', parent: shop });
-    this.shopGrid = new TileGrid(shop, { ...grid, minCols: TRAY_COLS, className: 'cv-shop' });
+    this.shopGrid = new TileGrid(shop, { ...grid, cols: SHOP_COLS, className: 'cv-shop' });
 
     // 거래 테이블 — the two trays are **stacked** (구매 over 판매) so each is a real five-column item grid
     const deal = el('div', { cls: 'cv-col deal cv-card', parent: root });
@@ -692,10 +718,14 @@ export class CorpView {
 
     /* 중앙: 거래칸 */
     const cost = this.buyCost(), revenue = this.sellRevenue();
+    /* 2026-09-16: 구매칸 타일의 호버 카드도 「구매가」다 — 한 번의 구매 값(매대와 같은 수)을 적는다. */
+    const shopPrices = new Map(this.meta.getShop(this.corp).map((l) => [l.def.id, l.price] as const));
     const buySpecs: TileSpec[] = [];
     for (const line of this.buyLines) {
-      const spec = this.makeTile(line.defId, 1, 'buy');
+      const def = this.itemDef(line.defId);
+      const spec = this.makeTile(line.defId, def ? shopQtyOf(def) : 1, 'buy');
       spec.tile.dataset.def = line.defId;
+      this.tagTipPrice(spec.tile, '구매가', shopPrices.get(line.defId) ?? 0);
       el('div', { cls: 'cv-count', text: `×${line.qty}`, parent: spec.tile });
       spec.tile.addEventListener('click', (e) => { e.stopPropagation(); this.unstageBuy(line.defId); });
       buySpecs.push(spec);
@@ -707,7 +737,9 @@ export class CorpView {
       if (!inst) continue;
       const spec = this.makeTile(inst.defId, line.qty, 'sell', inst.durability);
       spec.tile.dataset.uid = line.uid;
-      el('div', { cls: 'cv-price', text: formatCreditAmount(this.meta.sellPriceOf(line.uid, line.qty) ?? 0), parent: spec.tile });
+      const sellPrice = this.meta.sellPriceOf(line.uid, line.qty) ?? 0;
+      el('div', { cls: 'cv-price', text: formatCreditAmount(sellPrice), parent: spec.tile });
+      this.tagTipPrice(spec.tile, '판매가', sellPrice);
       spec.tile.addEventListener('click', (e) => { e.stopPropagation(); this.unstageSell(line.uid); });
       sellSpecs.push(spec);
     }
@@ -750,13 +782,17 @@ export class CorpView {
   /**
    * One stock **tile** in the 기업 판매 물품 grid: price badge bottom-left, a `×n` badge while the line is staged.
    * Click or drag onto the 구매 tray to stage it; a blocked line is dimmed and its click says why.
+   *
+   * 2026-09-16 (사용자 결정): 타일이 들고 있는 개수는 **한 번의 구매가 주는 개수**(`Rules.shopQtyOf` — 탄약은 풀
+   * 스택)이고 `line.price` 도 그 개수의 값이다. 그래서 가방 타일과 똑같이 묶음 수가 찍힌다.
    */
   private shopTile(line: ShopItem): TileSpec {
     const d = line.def;
-    const spec = this.makeTile(d.id, 1, 'shop');
+    const spec = this.makeTile(d.id, shopQtyOf(d), 'shop');
     const tile = spec.tile;
     tile.dataset.def = d.id;
     el('div', { cls: 'cv-price', text: formatCreditAmount(line.price), parent: tile });
+    this.tagTipPrice(tile, '구매가', line.price);
     const staged = this.buyLines.find((b) => b.defId === d.id);
     if (staged) el('div', { cls: 'cv-staged', text: `×${staged.qty}`, parent: tile });
     toggleClass(tile, 'blocked', line.blocked !== null);
@@ -803,7 +839,7 @@ export class CorpView {
         if (!moved && Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 5) return;
         moved = true;
         if (!ghost) {
-          ghost = this.makeTile(def.id, 1, 'cv-ghost').tile;
+          ghost = this.makeTile(def.id, shopQtyOf(def), 'cv-ghost').tile;
           // the ghost lives on <body>, outside the view — carry the cell edge its content scales with
           ghost.style.setProperty('--inv-cell', `${this.cell}px`);
           document.body.appendChild(ghost);

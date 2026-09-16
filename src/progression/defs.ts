@@ -20,7 +20,8 @@ const T = /* data/tuning.csv */ keyTable('tuning.csv');
 export const DERIVED_PANEL_KEYS = [
   'carryCapacity', 'maxStamina', 'detectRadius', 'enemyDetectRadius', 'meleeDamageMul', 'throwRangeMul',
   'skillGainMul', 'useSpeedMul', 'interactSpeedMul', 'gritChance', 'searchSpeedMul', 'healPowerMul',
-  'shipCallSpeedMul', 'implantCooldownMul', 'durabilityLossMul', 'gatherYieldMul', 'craftSpeedMul', 'carryReliefFactor',
+  /* 2026-09-16 (사용자 결정): `craftSpeedMul` 은 빠졌다 — 제작 숙련이 속도를 바꾸지 않아 언제나 ×1.0 인 죽은 줄이다 (`derive.ts`). */
+  'shipCallSpeedMul', 'implantCooldownMul', 'durabilityLossMul', 'gatherYieldMul', 'carryReliefFactor',
   /* 2026-09-13 요리 · 연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
   'cookScoreBonus', 'researchTimeMul', 'researchRefundChance', 'researchRefundFrac',
 ] as const satisfies readonly (keyof DerivedStats)[];

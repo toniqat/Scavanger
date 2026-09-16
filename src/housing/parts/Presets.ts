@@ -78,4 +78,7 @@ export function openPresetMenu(_sys: HousingSystem): void { /* retired */ }
 /** Close every panel; `relock` false when another panel opens right away. */
 export function closeMenus(sys: HousingSystem, relock = true): void {
   for (const p of sys.panels()) if (p.isOpen) p.close(relock);
+  // 2026-09-16: 창고 업그레이드 모달은 패널이 아니라 `ctx.uiRoot` 직계라 `panels()` 에 없다 — 강제 퇴장(레이드 시작 ·
+  // 함선 전환)에 혼자 남지 않게 여기서 같이 닫는다.
+  sys.storageUpgrade?.close();
 }

@@ -127,7 +127,7 @@ try {
     const m = window.__game.ctx.meta, loot = window.__game.ctx.loot;
     return m.getShop('helix').map((s) => {
       const w = s.def.weaponId ? loot.getWeaponDef(s.def.weaponId) : null;
-      return { id: s.def.id, cat: s.def.category, rarity: s.def.rarity, value: s.def.value, price: s.price, blocked: s.blocked, cls: w ? w.weaponClass : null, unique: w ? !!w.unique : false, ammo: s.def.ammoType ?? null };
+      return { id: s.def.id, cat: s.def.category, rarity: s.def.rarity, value: s.def.value, stack: s.def.stackMax, price: s.price, blocked: s.blocked, cls: w ? w.weaponClass : null, unique: w ? !!w.unique : false, ammo: s.def.ammoType ?? null };
     });
   });
   const ids1 = shop1.map((s) => s.id);
@@ -136,7 +136,12 @@ try {
   ok(shop1.every((s) => !s.unique), 'no unique weapons on the shelf');
   const helixRule = (s) => (s.cat === 'primary' && (s.cls === 'AR' || s.cls === 'SMG')) || (s.cat === 'ammo' && (s.ammo === 'light' || s.ammo === 'medium'));
   ok(shop1.every(helixRule), 'only helix stock rules match (AR/SMG, light/medium ammo)', JSON.stringify(shop1.filter((s) => !helixRule(s)).map((s) => s.id)));
-  ok(shop1.every((s) => s.price === Math.max(1, Math.round(s.value * 1.45))), 'price = round(value × (1.6 − 0.15)) at Lv.1', JSON.stringify(shop1.slice(0, 3)));
+  /* 2026-09-16: SHOP_PRICE_BASE_MUL 3 − SHOP_PRICE_DISCOUNT_PER_REP 0.15 × Lv.1 (data/tuning.csv), 그리고 탄약은
+     한 칸이 풀 스택이라 값도 `× stackMax` 다 (meta/Rules.shopQtyOf — 사용자 결정 「탄약은 풀 스택으로 판매」). */
+  const shopQty = (s) => (s.cat === 'ammo' ? Math.max(1, Math.floor(s.stack || 1)) : 1);
+  ok(shop1.every((s) => s.price === Math.max(1, Math.round(s.value * 2.85)) * shopQty(s)),
+    'price = round(value × (3 − 0.15)) × 매대 묶음 수 at Lv.1', JSON.stringify(shop1.slice(0, 3)));
+  ok(shop1.filter((s) => s.cat === 'ammo').every((s) => shopQty(s) > 1), '탄약 매대 칸은 풀 스택이다', JSON.stringify(shop1.filter((s) => s.cat === 'ammo').map((s) => [s.id, s.stack])));
   ok(shop1.every((s) => s.blocked === null || s.blocked === '크레딧 부족'), 'blocked reasons are null or 크레딧 부족 in the ship', JSON.stringify(shop1.map((s) => s.blocked)));
 
   console.log('buy');
@@ -212,6 +217,12 @@ try {
   ok(afterS.pu && afterS.pu.defId === cheap.id && afterS.pu.price === cheap.price && (afterS.pu.placed === 'bag' || afterS.pu.placed === 'stash'), 'meta:purchase emitted once the transaction answered', JSON.stringify(afterS.pu));
   ok(afterS.credits === afterS.server && afterS.credits === credS0 - cheap.price && !afterS.pending, 'credits = server balance after the answer', JSON.stringify(afterS));
   // refused transaction: the optimistic debit is reverted, no item, failure reported
+  /* 2026-09-16: 매대 한 칸이 **풀 스택**이라(`meta/Rules.shopQtyOf`) 한 번 사면 잔액이 크게 줄어든다. 거절은
+     서버까지 가야 보이는데, 잔액이 값보다 적으면 `Trade.buy` 가 로컬에서 먼저 (크레딧 부족) 거절해 버린다 —
+     그래서 여기서 한 번 더 살 만큼만 채운다 (값은 매대에서 읽으므로 가격이 또 바뀌어도 따라간다). */
+  await P((p) => { const m = window.__game.ctx.meta; if (m.credits < p) m.addCredits(p - m.credits, 'smoke:fund'); }, cheap.price);
+  await waitFor(page, () => !window.__game.ctx.meta.hasPendingTx, 'fund answered', 10000);
+  ok(await credits() >= cheap.price, `refusal test funded to ≥ ${cheap.price} C`, `${await credits()}`);
   await fp(() => { window.__fakeProfile.refuseNext = true; window.__game.ctx.meta.lastPurchaseFailure = null; });
   const credR0 = await credits();
   const purchasesR = (await ev('meta:purchase')).length;
@@ -268,8 +279,16 @@ try {
   console.log('sell');
   const gem = await P(() => { const c = window.__game.ctx; const it = c.loot.createItem('gem_amber', 1); return c.inventory.tryAddItem(it) ? it.uid : null; });
   ok(!!gem, 'gem_amber added to the bag');
+  /* 2026-09-16: 기대 판매가를 적어 두지 않는다 — `data/items.csv` 의 value 와 `shared/meta.sellPriceOf`
+     (= floor(value × SELL_PRICE_MUL)) 에서 그대로 끌어온다. 상수를 읽기만 하므로 두 번 평가돼도 안전하다
+     (scripts/README 「import('/src/…')」). 다음 가치 재조정이 이 단언을 또 깨지 않게. */
+  const gemPrice = await P(async () => {
+    const m = await import('/src/shared/meta.ts');
+    const def = window.__game.ctx.loot.getItemDef('gem_amber');
+    return { value: def.value, mul: m.SELL_PRICE_MUL, expect: m.sellPriceOf(def.value, 1) };
+  });
   const sp = await P((uid) => window.__game.ctx.meta.sellPriceOf(uid), gem);
-  ok(sp === 130, 'sellPriceOf(gem_amber) = 260 × 0.5 = 130', `${sp}`);
+  ok(sp === gemPrice.expect, `sellPriceOf(gem_amber) = ${gemPrice.value} × ${gemPrice.mul} = ${gemPrice.expect}`, `${sp}`);
   const sellable = await P((uid) => window.__game.ctx.meta.getSellable().some((i) => i.uid === uid), gem);
   ok(sellable, 'getSellable() includes the gem');
   const equippedRefused = await P(() => { const lo = window.__game.ctx.inventory.getLoadout(); return lo.primary ? window.__game.ctx.meta.sellPriceOf(lo.primary.uid) : 'no-primary'; });
@@ -280,16 +299,16 @@ try {
     // inventory.takeItem may still be the Phase 5 stub (returns 0, item untouched) while inventory/ is implemented concurrently
     const stub = await P((uid) => { const inv = window.__game.ctx.inventory; return typeof inv.takeItem !== 'function' || (inv.takeItem(uid, 1) === 0 && !!inv.findItem(uid)); }, gem);
     if (stub) {
-      skipped('sell(gem_amber) → +130 credits', '(inventory.takeItem is still the stub returning 0)');
-      skipped('meta:sale {gem_amber, 1, 130}');
+      skipped(`sell(gem_amber) → +${gemPrice.expect} credits`, '(inventory.takeItem is still the stub returning 0)');
+      skipped(`meta:sale {gem_amber, 1, ${gemPrice.expect}}`);
       skipped('sold item removed from the bag');
     } else {
       ok(false, 'sell(gem_amber) → true', 'takeItem works but sell returned false');
     }
   } else {
-    ok(await credits() === creditsBeforeSell + 130, 'sell(gem_amber) → +130 credits', `${creditsBeforeSell} → ${await credits()}`);
+    ok(await credits() === creditsBeforeSell + gemPrice.expect, `sell(gem_amber) → +${gemPrice.expect} credits`, `${creditsBeforeSell} → ${await credits()}`);
     const sale = await lastEv('meta:sale');
-    ok(sale && sale.defId === 'gem_amber' && sale.qty === 1 && sale.credits === 130, 'meta:sale {gem_amber, 1, 130}', JSON.stringify(sale));
+    ok(sale && sale.defId === 'gem_amber' && sale.qty === 1 && sale.credits === gemPrice.expect, `meta:sale {gem_amber, 1, ${gemPrice.expect}}`, JSON.stringify(sale));
     ok(await P((uid) => !window.__game.ctx.inventory.findItem(uid), gem) === true, 'sold item removed from the bag');
   }
 
@@ -711,7 +730,8 @@ try {
   ok(shopDom.rows === shopDom.live && shopDom.rows > shop1.length && !shopDom.buyBtn,
     `거래 tab: one stock tile per shop line (${shopDom.live}, more than the ${shop1.length} at Lv.1), no per-tile 구매 button`, JSON.stringify(shopDom));
   ok(shopDom.tips === shopDom.rows, `모든 재고 타일이 인벤토리 타일 + 호버 카드 갈고리 (${shopDom.tips}/${shopDom.rows})`);
-  ok(shopDom.prices.length === shopDom.rows && shopDom.prices.every((t) => /^[\d,]+$/.test(t ?? '')),
+  /* 2026-09-16: 값이 커지면서(구매가 ×3 · 탄약 풀 스택) 배지에 `shared/numberFormat` 의 축약형(`10.0k` · `1.00m`)이 나온다 */
+  ok(shopDom.prices.length === shopDom.rows && shopDom.prices.every((t) => /^[\d,]+(\.\d+)?[kmb]?$/.test(t ?? '')),
     `재고 타일 가격 배지 (${shopDom.prices[0]})`, JSON.stringify(shopDom.prices.slice(0, 3)));
   ok(shopDom.trayCols === 5 && shopDom.fit >= 32 && shopDom.fit <= 40 && shopDom.cellPx === shopDom.fit
     && shopDom.bagCell === `${shopDom.fit}px` && shopDom.stashCell === `${shopDom.fit}px` && shopDom.invCards === 'inv:2',

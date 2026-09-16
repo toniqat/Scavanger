@@ -32,7 +32,7 @@ import type {
   GameContext, GameSessionInfo, GymGameTuning, GymMinigame, GymSessionInfo, GymSessionResult, GymStat, KeyGuideEntry,
 } from '@/shared';
 import {
-  GYM_FATIGUE_LABEL_KO, GYM_MINIGAME_LABEL_KO, GYM_PRESS_REPS, GYM_TRAINED_MAX, Keys, MENU_BLOCKER, keyLabel, paintKeycap,
+  GYM_FATIGUE_LABEL_KO, GYM_MINIGAME_LABEL_KO, GYM_PRESS_REPS, GYM_TRAINED_MAX, Keys, MENU_BLOCKER, formatCompactSigned, keyLabel, paintKeycap,
   renderKeyText,
 } from '@/shared';
 import type { HousingSystem } from '../../HousingSystem';
@@ -493,7 +493,8 @@ export class GymScreen {
     if (!r) {
       el('div', { cls: 'gym-warn', text: '단련 결과를 반영하지 못했습니다', parent: card });
     } else {
-      el('div', { cls: 'gym-xp', text: `단련 경험치 +${r.xp}`, parent: card });
+      // 2026-09-16: 경험치 수는 공용 축약 표기(`formatCompactSigned` — 10,000 → `10.0k`). 개수 · 단련 수치 · 시계는 그대로 정확히 적는다.
+      el('div', { cls: 'gym-xp', text: `단련 경험치 ${formatCompactSigned(r.xp, true)}`, parent: card });
       const gained = r.trainedAfter - r.trainedBefore;
       if (gained > 0) el('div', { cls: 'gym-level', text: `${name} 단련 +${gained}!`, parent: card });
       this.trainedBlock(card, s.stat, r.trainedAfter, r.progress, null, r.capped);

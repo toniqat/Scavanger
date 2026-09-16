@@ -1,4 +1,5 @@
 import { csvRows } from './data/tables';
+import { formatCompactNumber } from './numberFormat';
 import { CORP_DEFS, CORP_IDS, type CorpId } from './meta';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -124,9 +125,12 @@ const UNKNOWN: CurrencyDef = {
   id: 'credits', kind: 'credits', name: '알 수 없는 재화', icon: '?', color: '#7b828c', description: '',
 };
 
-/** `1234` → `1,234`. 재화 수량은 전부 정수로 보여 준다. */
+/**
+ * `1234` → `1,234`, `12345` → `12.3k`. 재화 수량은 전부 정수로 보여 준다.
+ * 2026-09-16 (사용자 결정): 10,000 부터는 축약한다 — 크레딧과 같은 포매터(`shared/numberFormat.ts`)를 쓴다.
+ */
 function groupDigits(n: number): string {
-  return Math.abs(Math.round(n)).toLocaleString('ko-KR'); // 2026-09-11 (C-10): 게임 전체 숫자 포매터와 같은 로캘
+  return formatCompactNumber(n); // 2026-09-11 (C-10): 게임 전체 숫자 포매터와 같은 로캘
 }
 
 /**

@@ -18,7 +18,11 @@ import type {
   ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
 } from '@/shared';
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight, needsRepairCost } from '@/items';
+/* 2026-09-16 (사용자 결정): 제작 숙련이 하는 일은 재료 환급 하나다 — 굴림은 shared, 대상 판정은 items (분해 · 경제 불변식과 같은 자리) */
+import { rollCraftRefund } from '@/shared';
+import {
+  AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isCraftRefundable, isWeaponItemDef, itemWeight, needsRepairCost,
+} from '@/items';
 import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
 /* 2026-09-10: 수리 재료를 정하는 곳은 하나다 (`getRepairCost` → 없으면 회복 스프레이). */
 import { repairMaterials } from './Durability';
@@ -43,6 +47,11 @@ import type { InventorySystem } from '../InventorySystem';
 /** 2026-09-13 (요리 미니게임): 조리대 kind 와 그 한국어 사유들 (`cookBlock` · `completeCook` · `openBenchCraft`). */
 const COOK_BENCH: WorkbenchKind = 'cook';
 const COOK_USE_STATION = '조리대에서 요리하세요';
+/*
+ * 2026-09-16 (사용자 결정 2차): 숙련 사유(`skill`)를 **되살렸다**. 같은 날 오전에 「제작에 숙련은 전혀 관여하지
+ * 않는다」로 지웠지만, `skillRequired` 열과 계약 필드는 남겨 두기로 한 이상 **읽는 쪽도 남아 있어야** 나중에 csv
+ * 숫자만 올려서 켤 수 있다. 지금은 모든 값이 0 이라 이 갈래는 한 번도 타지 않는다 (데이터가 꺼 둔 기계다).
+ */
 const COOK_REASON = {
   notCook: '조리대 레시피가 아닙니다',
   shipOnly: '조리대는 함선에서만 사용할 수 있습니다',
@@ -81,6 +90,19 @@ export function craftCountDef(sys: InventorySystem, defId: string): number {
   }
 
 /**
+ * **작업대가 스스로 연 Tab 창** (2026-09-16, 사용자 보고 「작업대 창의 닫기를 누르면 가방이 열린다」).
+ *
+ * `openBenchCraft` 는 제작 열을 그릴 자리로 Tab 창을 **같이 연다**. 그런데 `닫기` 는 `closeBench` 하나였고 그것은
+ * 제작 열만 접으므로, 작업대에서 E → 닫기 를 누르면 밑에 깔려 있던(= 방금 이 함수가 연) 가방 창이 드러났다 —
+ * 닫았는데 가방이 열린 것처럼 보인 이유다. 그래서 「이 창을 연 것이 작업대인가」를 여기 적어 두고,
+ * `닫기`(`closeCraftWindow`)만 그때 창째 닫는다.
+ *
+ * ⚠ `closeBench` 자체는 계약 그대로 창을 닫지 **않는다** — `InventorySystem.closeAll` 이 그 함수를 지나므로
+ * 거기서 창을 닫으면 닫기 경로가 두 번 돈다(`inventory:closed` 두 번).
+ */
+const BENCH_WINDOW = new WeakSet<InventorySystem>();
+
+/**
  * Open the craft panel in bench mode (ship only): recipes of `getRecipes('ship', bench, level)` + locked rows for
  * the bench's higher-level recipes, workshop cost discount, and the repair list of the gear that bench services.
  */
@@ -102,6 +124,9 @@ export function openBenchCraft(sys: InventorySystem, bench: WorkbenchKind, level
     sys.setOpen(true);
     sys.ui?.show(null, true);
     ctx.bus.emit('inventory:opened', { containerId: null });
+    BENCH_WINDOW.add(sys);           // 이 창의 주인은 작업대다 — 닫기는 창째 닫는다
+  } else {
+    BENCH_WINDOW.delete(sys);        // Tab 으로 이미 열려 있던 창이면 닫기는 제작 열만 접는다
   }
   sys.ui?.setCraftOpen(true);
   ctx.bus.emit('ui:craftToggled', { open: true });
@@ -127,6 +152,7 @@ export function switchBench(sys: InventorySystem, bench: WorkbenchKind | null, l
 
 /** Leave bench mode (panel 닫기 / window closed). The window itself stays open. */
 export function closeBench(sys: InventorySystem): void {
+  BENCH_WINDOW.delete(sys);   // 작업대를 떠나면 그 창의 주인도 아니다 (`closeAll` 도 여기를 지난다)
   if (!sys.bench) return;
   sys.bench = null;
   sys.cancelCraft();
@@ -134,14 +160,36 @@ export function closeBench(sys: InventorySystem): void {
   sys.ctx.bus.emit('ui:craftToggled', { open: false });
   }
 
-/** Rows for the craft panel: available recipes, then (bench mode) the bench's recipes above its level as locked. */
+/**
+ * 제작 창의 `닫기` (2026-09-16). **작업대가 연 창이면 창째** 닫고(`BENCH_WINDOW`), Tab 으로 연 창 안에서 고른
+ * 작업대면 제작 열만 접는다. `false` = 닫을 작업대가 없었다 (가방의 `제작` 열 — 부른 쪽이 자기 열을 접는다).
+ */
+export function closeCraftWindow(sys: InventorySystem): boolean {
+  // `closeAll` 은 안에서 `closeBench` 를 부르므로 표시도 함께 지워진다 (재귀 없음)
+  if (BENCH_WINDOW.has(sys)) { sys.closeAll(); return true; }
+  if (sys.bench) { sys.closeBench(); return true; }
+  return false;
+  }
+
+/**
+ * Rows for the craft panel: the recipes this bench can craft now, then the rest of the bench's recipes as locked.
+ *
+ * **2026-09-16 (사용자 보고 「작업대 레벨을 올려도 제작 가능한 레시피가 늘지 않는다」) — 이 작업대의 레시피는 전부 보인다.**
+ * 잠김 줄은 예전에 `station === 'ship'` 이면서 **숙련이 이미 되는** 것만이었다. 그런데 `data/recipes.csv` 의 상위 줄은
+ * 레벨과 숙련을 같이 올린다 (총기 Lv.2 는 15줄 전부 제작 숙련 15 이상). 그래서 제작 숙련이 낮은 사람에게는 작업대를
+ * Lv.2 로 올려도 화면이 **한 줄도 바뀌지 않았고**, 막고 있는 것이 레벨이 아니라 숙련이라는 사실조차 보이지 않았다.
+ * 조리대 화면이 2026-09-15 (B-15, 사용자 결정 「전부 딤드 + 숙련 배지」)에 같은 이유로 같은 선택을 했다 —
+ * 무엇을 올려야 열리는지는 목록이 말해야 한다.
+ *
+ * 잠긴 줄은 **그림일 뿐**이다: `craft()` 는 `availableRecipes()`(= `getRecipes`, 레벨 · 숙련을 그대로 거른다) 밖의
+ * 레시피를 거절하고, 상세 패널의 홀드 버튼도 `locked` 면 비활성이다. 잠긴 이유(레벨 / 숙련)는 `ui/CraftPanel.lockedReason`.
+ */
 export function getBenchRecipes(sys: InventorySystem): BenchRecipeRow[] {
   const b = sys.bench;
   if (!b) return sys.getRecipes(sys.currentStation()).filter((r) => !isDisassembleRecipe(r)).map((recipe) => ({ recipe, locked: false }));
   const open = sys.getRecipes('ship', b.kind, b.level).filter((r) => !isDisassembleRecipe(r));
-  const skillOf = (id: CraftRecipe['skill']): number => sys.ctx.progression?.getSkill(id) ?? 0;
-  const locked = sys.loot.getAllRecipes().filter((r) =>
-    r.station === 'ship' && r.bench === b.kind && (r.benchLevel ?? 1) > b.level && skillOf(r.skill) >= r.skillRequired);
+  const openIds = new Set(open.map((r) => r.id));
+  const locked = sys.loot.getAllRecipes().filter((r) => r.bench === b.kind && !isDisassembleRecipe(r) && !openIds.has(r.id));
   return [...open.map((recipe) => ({ recipe, locked: false })), ...locked.map((recipe) => ({ recipe, locked: true }))];
   }
 
@@ -203,18 +251,28 @@ export function benchRepairAll(sys: InventorySystem, skip?: ReadonlySet<string>)
   }
 
 /**
- * Recipes for a station given the current skills. Field: `station: 'field'` recipes only. Ship: field recipes
- * too; a recipe with `bench` needs that bench — at `bench` (given) with `benchLevel ≤ level`, otherwise a placed
- * bench of that kind at that level (`ctx.housing.getBenchLevel`, 0 without housing).
+ * Recipes a station may craft. Field: `station: 'field'` recipes only. Ship: field recipes too; a recipe with
+ * `bench` needs that bench — at `bench` (given) with `benchLevel ≤ level`, otherwise a placed bench of that kind
+ * at that level (`ctx.housing.getBenchLevel`, 0 without housing).
+ *
+ * **2026-09-16 (사용자 결정) — 숙련은 제작을 막지 않는다.** 예전에는 첫 줄이 `skillOf(r.skill) < r.skillRequired`
+ * 로 걸렀다. 이제 무엇을 만들 수 있는가는 **작업대와 그 레벨**만 정하고, 숙련이 하는 일은 재료 환급 하나다
+ * (`shared/craftRefund.ts`). `CraftRecipe.skillRequired` 열은 `data/recipes.csv` 에 남아 있지만 값이 전부 0 이고
+ * 아무도 읽지 않는다 — 나중에 다시 올릴 수 있도록 계약과 로더는 그대로 둔다.
  */
 export function getRecipes(sys: InventorySystem, station: CraftStation, bench?: WorkbenchKind, level = 0): readonly CraftRecipe[] {
-  const skillOf = (id: CraftRecipe['skill']): number => sys.ctx.progression?.getSkill(id) ?? 0;
   const housing = sys.ctx.housing;
   const placedLevel = (kind: WorkbenchKind): number => {
     if (!housing) return 0;
     return typeof housing.getBenchLevel === 'function' ? Math.max(0, housing.getBenchLevel(kind) || 0) : 0;
   };
+  const skillOf = (id: CraftRecipe['skill']): number => sys.ctx.progression?.getSkill(id) ?? 0;
   return sys.loot.getAllRecipes().filter((r) => {
+    /* 2026-09-16 (사용자 결정 2차): **숙련이 모자란 레시피는 만들 수 없다.** 오전에 「제작에 숙련은 전혀 관여하지
+       않는다」로 지웠던 줄을 되살린 것이다 — `skillRequired` 열을 남기기로 한 이상 읽는 쪽이 없으면 나중에 csv
+       숫자를 올려도 아무 일도 안 일어난다. `data/recipes.csv` 는 지금 전부 0 이라 이 줄은 아무것도 거르지 않는다.
+       거른 레시피는 사라지지 않고 **잠긴 줄**로 뜬다 (`getBenchRecipes` 는 `getRecipes` 밖의 것을 전부 잠금 처리한다),
+       이유는 `ui/CraftPanel.lockedReason` 이 말한다. 숙련의 상시 역할(재료 환급)은 `refundAfterCraft` 쪽이다. */
     if (skillOf(r.skill) < r.skillRequired) return false;
     /* 2026-09-13 (요리 미니게임): 조리대 레시피는 일반 제작 목록(가방의 `제작` · 빠른제작 · 다른 작업대)에 뜨지 않는다.
        **조리대를 이름으로 물을 때만**(`getRecipes('ship', 'cook', lv)` — housing 조리대 화면의 요리 목록) 돌려준다.
@@ -584,23 +642,32 @@ export function updateCraft(sys: InventorySystem, dt: number): void {
   sys.ctx.bus.emit('inventory:itemAdded', { item: first, name: outDef.name, rarity: outDef.rarity });
   sys.ctx.bus.emit('craft:completed', { recipeId: r.id, item: first, count });
   sys.ctx.bus.emit('audio:play', { id: 'craft_done' });
-  // 2026-09-13 (연구 숙련): 추출기 · 조합대 · 3D 프린터 제작은 연구 경험치 + 재료 일부 환급 굴림
-  if (r.bench && RESEARCH_BENCHES.has(r.bench) && !isDisassembleRecipe(r)) researchAfterCraft(sys, costs, count);
+  // 2026-09-16: 재료 환급 한 자리 — 제작 숙련(모든 제작) + 연구 숙련(연구실 작업대) + 연구 경험치. 분해는 지나지 않는다.
+  if (!isDisassembleRecipe(r)) refundAfterCraft(sys, r, costs, count);
   sys.afterChange();
   sys.ui?.refreshCraft();
   job.resolve(first);
   }
 
-/* ══ 2026-09-13 — 연구 숙련: 연구실 작업대 제작 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」, 사용자 결정) ═══════════════════════════════
- * 「조합대 · 추출기 · 3D 프린터로 제작 시 일부 재료를 돌려받을 확률 및 양」 이 연구 숙련으로 오른다. 수치는 progression 의 파생
- * (`derived.researchRefundChance` · `researchRefundFrac`, 원본 `data/constants.csv`)이고 여기는 굴림과 지급만 한다.
- *   - **굴림 단위 = 제작 1회분(run)**: 제작 수량 스테퍼로 5회를 한 번에 누르면 5번 굴린다 — 한 번씩 다섯 번 누른 것과 기대값이 같아야
- *     스테퍼가 손해가 되지 않는다.
- *   - **환급량**: 성공한 1회마다 재료 줄마다 `min(1회분 수량, max(1, round(1회분 수량 × 비율)))` — 작업실 할인이 걸린 실제 소비량 기준.
- *   - **지급**: 가방 → (함선이면) 창고 → 바닥, 제작 산출물과 같은 길. 토스트 `재료 회수: <이름> ×n · …` 한 줄.
- *   - **경험치**: 성공과 무관하게 제작 1회분마다 `RESEARCH_XP_CRAFT` (`addSkillXp('research', …)`, 서재 · 숙련 배율은 progression 몫).
- *   - 조리대 요리는 여기를 지나지 않는다(housing 의 조리대 화면 → `completeCook`). 분해(`break_*`)도 환급 대상이 아니다.
- * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+/* ══ 재료 환급 — 제작이 끝난 뒤 돌아오는 것 (한 자리) ═══════════════════════════════════════════════════════════════════════
+ *
+ * **2026-09-16 (사용자 결정) — 「숙련도가 관여하는 것은 제작 시 재료 아이템을 일부 돌려받을 확률, 돌려받는 양 등에만 관여」.**
+ * 그래서 이제 갈래가 둘이고, **지급과 토스트는 한 번**이다 (두 번 굴렸다고 토스트가 두 줄이면 무슨 일이 일어난 건지 읽을 수 없다):
+ *
+ *   ① **제작 숙련 환급** (2026-09-16, 모든 제작) — 그 레시피의 숙련(`CraftRecipe.skill`) 수준에 비례해 **소모한 재료 한 개씩**
+ *      따로 굴린다 (`shared/craftRefund.rollCraftRefund`). ⚠ 내구도 장비(무기 · 방탄복 · 가방 · 내구 가젯)는 제외 —
+ *      그 장비의 수리비 · 분해 산출이 「제작 재료」에서 나오므로 제작만 싸지면 「제작 → 분해」 가 이득이 된다
+ *      (`items/Salvage.isCraftRefundable` · `checkSalvageEconomy`).
+ *   ② **연구 숙련 환급** (2026-09-13, 추출기 · 조합대 · 3D 프린터) — `derived.researchRefundChance` · `researchRefundFrac`.
+ *      **굴림 단위 = 제작 1회분(run)**: 수량 스테퍼로 5회를 한 번에 눌러도 5번 굴린다 — 한 번씩 다섯 번 누른 것과 기대값이 같아야
+ *      스테퍼가 손해가 되지 않는다. 환급량은 줄마다 `min(1회분 수량, max(1, round(1회분 수량 × 비율)))`.
+ *
+ * **지급 순서 = 가방 → (함선이면) 창고 → 바닥** (`giveRefund`). 제작 산출물(창고 먼저)과 **반대로 가방이 먼저**인 것은
+ * 돌아온 것이 「방금 쓰려던 재료」이기 때문이다 — 이어서 한 번 더 만들 때 손이 닿는 곳에 있어야 한다. 바닥(`throwToWorld`)은
+ * 함선에서는 창고를 먼저 보므로 실제로 사라지는 경우는 없다: **게임 경로는 아이템을 조용히 버리지 않는다**(`inventory/README` 규칙).
+ *
+ * `costs` 는 언제나 **1회분 실제 소비량**(`craftCost` — 작업실 할인이 걸린 뒤)이다. 분해(`break_*`)는 여기를 지나지 않는다.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /** 연구 숙련이 붙는 작업대. */
 const RESEARCH_BENCHES: ReadonlySet<WorkbenchKind> = new Set<WorkbenchKind>(['extract', 'mixer', 'print']);
@@ -611,38 +678,25 @@ function unit01(v: unknown): number {
   return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0;
 }
 
-/** 재료 한 줄이 환급 1회에 돌려주는 개수. */
+/** 재료 한 줄이 **연구** 환급 1회에 돌려주는 개수. */
 export function researchRefundQty(qty: number, frac: number): number {
   const q = Math.max(0, Math.floor(qty));
   if (q <= 0) return 0;
   return Math.min(q, Math.max(1, Math.round(q * unit01(frac))));
 }
 
-/**
- * 연구실 작업대 제작이 끝난 뒤 — 환급 굴림(`count` 번) + 연구 경험치. `costs` 는 **1회분** 실제 소비량(`craftCost`).
- * `rng` 는 스모크 · 테스트용 (생략 = `Math.random`). 돌려준 재료 합계를 반환한다 (굴림 실패 = 빈 배열).
- */
-export function researchAfterCraft(sys: InventorySystem, costs: readonly CraftIngredient[], count: number, rng: () => number = Math.random):
-  Array<{ defId: string; qty: number }> {
+/** 이 레시피의 숙련(`crafting` / `medicine` / `gardening`) 수준. progression 이 없으면 0 = 환급 없음. */
+export function craftSkillLevel(sys: InventorySystem, recipe: CraftRecipe): number {
+  const prog = sys.ctx.progression;
+  return prog && typeof prog.getSkill === 'function' ? (prog.getSkill(recipe.skill) ?? 0) : 0;
+}
+
+/** 돌려받은 재료를 실제로 준다 — 가방 → (함선이면) 창고 → 바닥. 토스트 한 줄까지. 실린 것이 없으면 아무 일도 없다. */
+function giveRefund(sys: InventorySystem, back: ReadonlyMap<string, number>): CraftIngredient[] {
   const ctx = sys.ctx;
-  const prog = ctx.progression;
-  const derived = (prog?.derived ?? null) as { researchRefundChance?: number; researchRefundFrac?: number } | null;
-  const chance = unit01(derived?.researchRefundChance);
-  const frac = unit01(derived?.researchRefundFrac);
-  const runs = normCount(count);
-  const back = new Map<string, number>();
-  if (chance > 0) {
-    for (let i = 0; i < runs; i++) {
-      if (rng() >= chance) continue;
-      for (const c of costs) {
-        const n = researchRefundQty(c.qty, frac);
-        if (n > 0) back.set(c.defId, (back.get(c.defId) ?? 0) + n);
-      }
-    }
-  }
-  const out: Array<{ defId: string; qty: number }> = [];
+  const out: CraftIngredient[] = [];
   for (const [defId, qty] of back) {
-    if (!ITEM_DEF_MAP.has(defId)) continue;
+    if (!ITEM_DEF_MAP.has(defId) || qty <= 0) continue;
     for (const item of sys.addUnits(defId, qty)) {
       if (ctx.isHubPhase() && sys.tryAddToStash(item)) continue;
       sys.throwToWorld(item, false);
@@ -653,8 +707,48 @@ export function researchAfterCraft(sys: InventorySystem, costs: readonly CraftIn
     const text = out.map((o) => `${ITEM_DEF_MAP.get(o.defId)?.name ?? o.defId} ×${o.qty}`).join(' · ');
     ctx.bus.emit('ui:notify', { text: `재료 회수: ${text}`, kind: 'success', duration: 2.5 });
   }
+  return out;
+}
+
+/**
+ * 제작 한 판(`count` 회분)이 끝난 뒤의 환급 전부 — 위 절의 ① + ②를 모아 한 번에 지급하고, 연구실 작업대면 연구 경험치까지 준다.
+ * `rng` 는 스모크 · 테스트용 (생략 = `Math.random`). 돌려준 재료 합계를 반환한다 (없으면 빈 배열).
+ */
+export function refundAfterCraft(
+  sys: InventorySystem, recipe: CraftRecipe, costs: readonly CraftIngredient[], count: number, rng: () => number = Math.random,
+): CraftIngredient[] {
+  const ctx = sys.ctx;
+  const prog = ctx.progression;
+  const runs = normCount(count);
+  const back = new Map<string, number>();
+
+  // ① 제작 숙련 — 재료 한 개씩 (내구도 장비는 대상이 아니다)
+  if (isCraftRefundable(recipe)) {
+    for (const c of rollCraftRefund(costs, runs, craftSkillLevel(sys, recipe), rng)) {
+      back.set(c.defId, (back.get(c.defId) ?? 0) + c.qty);
+    }
+  }
+
+  // ② 연구 숙련 — 1회분마다 (추출기 · 조합대 · 3D 프린터)
+  const research = !!recipe.bench && RESEARCH_BENCHES.has(recipe.bench);
+  if (research) {
+    const derived = (prog?.derived ?? null) as { researchRefundChance?: number; researchRefundFrac?: number } | null;
+    const chance = unit01(derived?.researchRefundChance);
+    const frac = unit01(derived?.researchRefundFrac);
+    if (chance > 0) {
+      for (let i = 0; i < runs; i++) {
+        if (rng() >= chance) continue;
+        for (const c of costs) {
+          const n = researchRefundQty(c.qty, frac);
+          if (n > 0) back.set(c.defId, (back.get(c.defId) ?? 0) + n);
+        }
+      }
+    }
+  }
+
+  const out = giveRefund(sys, back);
   // 경험치는 굴림 뒤에 준다 — 이번 제작의 확률은 제작 전 숙련으로 정해진다
-  if (prog && typeof prog.addSkillXp === 'function' && RESEARCH_XP_CRAFT > 0) {
+  if (research && prog && typeof prog.addSkillXp === 'function' && RESEARCH_XP_CRAFT > 0) {
     try { prog.addSkillXp('research', RESEARCH_XP_CRAFT * runs); } catch (e) { console.warn('[inventory] research XP failed', e); }
   }
   return out;
@@ -662,7 +756,8 @@ export function researchAfterCraft(sys: InventorySystem, costs: readonly CraftIn
 
 /* ══ 2026-09-13 — 요리 미니게임: 조리 1회 (`InventoryRef.cookBlock` · `consumeCookInputs`, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ══════
  * housing 의 조리대 화면이 미니게임을 끝낸 뒤 부른다. 규칙은 함선 작업대 제작과 같다:
- *   게이트 — 조리대 레시피(산출물이 요리 표 `getMealDef` 에 있다) · 함선 · 작업대 레벨 · 숙련 · 튜토리얼 · 재료(`craftCost`, 작업실 할인 포함).
+ *   게이트 — 조리대 레시피(산출물이 요리 표 `getMealDef` 에 있다) · 함선 · 작업대 레벨 · 튜토리얼 · 재료(`craftCost`, 작업실 할인 포함).
+ *            2026-09-16 (사용자 결정): **숙련 게이트는 없다** — 요리 숙련은 재료 환급에만 관여한다.
  *   재료   — **가방 먼저**(작은 스택부터 → 주머니 → 휠 = `consumeWhere` 순서) → **함선 창고** (`consumeDefAll`). 이 파일 머리의
  *            「함선에서는 가방 + 함선 창고」 그대로다.
  *   산출   — **없다.** 2026-09-16 (접시 모델, 사용자 결정): 요리는 아이템이 아니라 식탁의 접시다 — housing 이 `ShipState.plate` 에 놓는다.
@@ -680,6 +775,8 @@ export function cookBlock(sys: InventorySystem, recipeId: string, benchLevel: nu
   const need = r.benchLevel ?? 1;
   const lv = Number.isFinite(benchLevel) ? Math.floor(benchLevel) : 0;
   if (lv < need) return COOK_REASON.level(need);
+  /* 2026-09-16 (사용자 결정 2차): 숙련 게이트는 **데이터가 켜면** 다시 산다 — `skillRequired` 가 전부 0 인 지금은
+     한 번도 막지 않는다. 숙련이 늘 하는 일(재료 환급)은 `consumeCookInputs` 쪽이라 이것과 별개다. */
   const skill = ctx.progression?.getSkill(r.skill) ?? 0;
   if (skill < r.skillRequired) return COOK_REASON.skill(SKILL_WORD[r.skill] ?? r.skill, r.skillRequired);
   const tut = ctx.tutorial?.blockReason('craft', recipeId);
@@ -698,7 +795,8 @@ export function consumeCookInputs(sys: InventorySystem, recipeId: string, benchL
   const blocked = cookBlock(sys, recipeId, benchLevel);
   const r = getRecipe(recipeId);
   if (blocked || !r) return blocked ?? COOK_REASON.notCook;
-  for (const i of sys.craftCost(r)) {
+  const costs = sys.craftCost(r);
+  for (const i of costs) {
     if (!sys.consumeDefAll(i.defId, i.qty)) {
       // `cookBlock` 이 방금 확인했으므로 오지 않는 가지다 (같은 def 가 재료에 두 번 적힌 레시피가 아닌 한)
       console.error('[inventory] 조리 재료를 빼지 못했다', recipeId, i.defId, i.qty);
@@ -706,6 +804,8 @@ export function consumeCookInputs(sys: InventorySystem, recipeId: string, benchL
       return COOK_REASON.missing;
     }
   }
+  // 2026-09-16 (사용자 결정): 요리도 제작이다 — 재료 환급은 제작 · 연구실과 **같은 한 자리**를 지난다 (조리 1회분)
+  refundAfterCraft(sys, r, costs, 1);
   sys.afterChange();
   return null;
   }

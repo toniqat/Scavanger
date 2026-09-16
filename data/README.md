@@ -63,7 +63,7 @@ One line per csv. "Loader" is the parsing module under `src/`; values usually ta
 
 | File | What it holds | Loader |
 |---|---|---|
-| `recipes.csv` | Crafting recipes: `station` (`field` \| `ship`), `bench` (the workbench the recipe belongs to), `benchLevel`, `inputs`, outputs, skill gates. Also the value source for repair cost and gear salvage | `items/Recipes.ts` |
+| `recipes.csv` | Crafting recipes: `station` (`field` \| `ship`), `bench` (the workbench the recipe belongs to), `benchLevel`, `inputs`, outputs, `skill` (XP + material refund; `skillRequired` is kept at `0` and unread since 2026-09-16). Also the value source for repair cost and gear salvage | `items/Recipes.ts` |
 | `salvage.csv` | Hand-defined salvage only (ammo, some materials/chargers). Weapon, armor, bag and durable-gadget salvage is generated from `recipes.csv` | `items/Salvage.ts` |
 | `corps.csv` | The 4 corporations | `shared/meta.ts` |
 | `corp_stock.csv` | Shop rules per corp: category, classes/ammo, rep level, max rarity, implant repair materials | `shared/meta.ts` |
@@ -167,6 +167,11 @@ Use a formula whenever the same number is also used by code, so that one edit mo
   needs **≥ 2 of each input**; otherwise repair (rounded up) plus the salvage minimum can create materials.
   `src/items/Salvage.ts` (`checkSalvageEconomy`) proves "craft → repair → salvage" never profits on every run of `data:check`.
   When changing ammo craft amounts, move `salvage.csv` in the same edit.
+- **Craft material refund** (2026-09-16, `tuning.csv` `CRAFT_REFUND_CHANCE_AT_MAX`): a recipe's `skill` refunds consumed material
+  **per unit**, up to that chance at skill 100 (`src/shared/craftRefund.ts`). **Durable gear is excluded** — weapons, armor, bags and
+  durable gadgets pay their repair / salvage out of the very `inputs` the refund would discount. `checkSalvageEconomy` therefore reads
+  every craft baseline as `inputs × maxSkillCraftFactor(recipe)`, so raising the chance or making gear refundable fails `data:check`
+  immediately (the hand-written rows in `salvage.csv` are the ones that actually compete with the discounted baseline).
 - **Retiring an item**: set `retired` (items, samples, meals, furniture) instead of deleting the row. The def stays so owned
   copies survive, but it must not appear in any source; `data:check` fails if a recipe, loot table, analysis result, planet or
   strain output references a retired id. Crate rolls also skip retired defs in code (`LootTables.isLootableDef`).

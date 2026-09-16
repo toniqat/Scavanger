@@ -237,3 +237,45 @@ export function isItemChipFavorite(defId: string): boolean {
   if (!favoriteSource) return false;
   try { return favoriteSource(defId) === true; } catch { return false; }
 }
+
+/* ══ appended: 2026-09-16 — 격자 발자국 크기의 칩 ═══════════════════════════════════════════════════════════════
+ * 「가방에서 끌 때와 같은 크기」를 칩으로 그리기 위한 것이다. 인벤토리 격자는 아이템을 `ItemDef.width × height`
+ * **칸**으로 그리고 드래그 고스트도 그 상자 크기 그대로 뜬다(`inventory/ui/labels.tileSizeAt`). 가구 화면의 산물
+ * 드래그(`housing/ui/ProductDrag`)는 그동안 정사각형 칩 하나만 띄워 「끌면 크기가 유지되지 않는다」로 보였다.
+ *
+ * 식은 한 줄이고 두 폴더가 같이 쓰므로 여기(§4.1 「같은 식이 두 폴더에 있으면 shared 로」)에 둔다.
+ * `inventory/ui/labels.ts` 의 `GAP` 이 같은 값이다 — 그쪽이 격자를 그리는 원본이고, 여기는 그 격자 **밖에서**
+ * 같은 크기를 재야 하는 칩용이다. 한쪽을 바꾸면 다른 쪽도 같이 바꾼다.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+
+/** px — 격자 칸과 칸 사이 (`inventory/ui/labels.ts` 의 `GAP` 과 같은 값). */
+export const ITEM_GRID_GAP = 2;
+
+/** px — `w × h` 칸 발자국이 차지하는 상자 (칸 한 변 `cell`, 칸 사이 `gap`). */
+export function itemGridBox(w: number, h: number, cell: number, gap: number = ITEM_GRID_GAP): { width: number; height: number } {
+  const cw = Math.max(1, Math.floor(w)), ch = Math.max(1, Math.floor(h));
+  return { width: cw * (cell + gap) - gap, height: ch * (cell + gap) - gap };
+}
+
+export interface ItemGridChipOptions extends ItemChipOptions {
+  /** 격자 칸 한 변(px) — 부르는 쪽이 자기 격자가 쓰는 값을 준다 (`housing/ui/StationShell.stationGridCell`). */
+  cell: number;
+  gap?: number;
+}
+
+/**
+ * 격자 한 칸이 아니라 **아이템의 발자국만큼** 큰 칩. 겉모습(테두리 · 글리프 · 개수 배지)은 `buildItemChip` 그대로이고
+ * 썸네일만 `w × h` 상자로 늘어난다 — CSS 를 건드리지 않고 인라인으로 덮으므로(`.item-chip` 의 `min/max-width` 포함)
+ * 칩 마크업 계약은 그대로다. 크기는 `itemGridBox` 가 잰다.
+ */
+export function buildItemGridChip(def: ItemDef | undefined, opts: ItemGridChipOptions): HTMLElement {
+  const { cell, gap, ...chip } = opts;
+  const el = buildItemChip(def, { ...chip, size: cell });
+  const box = itemGridBox(def?.width ?? 1, def?.height ?? 1, cell, gap);
+  el.style.width = `${box.width}px`;
+  el.style.minWidth = `${box.width}px`;
+  el.style.maxWidth = `${box.width}px`;
+  const thumb = el.querySelector<HTMLElement>('.item-chip-thumb');
+  if (thumb) { thumb.style.width = `${box.width}px`; thumb.style.height = `${box.height}px`; }
+  return el;
+}

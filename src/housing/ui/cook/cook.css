@@ -379,7 +379,8 @@
 .cook-rail-dot.on { background: var(--c-success); box-shadow: 0 0 5px rgba(126, 224, 138, 0.85); }
 .cook-rail-lv { flex: none; font-family: var(--ui-mono); font-size: 10px; color: var(--c-text-faint); }
 .cook-rail-item.is-locked { opacity: 0.5; }
-/* 2026-09-15 (B-15): 잠김 배지 묶음 — 조리대 `Lv.n` · 숙련 `제작 20` (둘 다 모자라면 나란히) */
+/* 잠김 배지 묶음 — 조리대 `Lv.n` · 숙련 `제작 20` (둘 다 모자라면 나란히). 2026-09-16: `skillRequired` 가 전부 0 이라
+   지금은 숙련 배지가 뜨지 않지만, csv 숫자를 올리면 그대로 산다. */
 .cook-rail-locks { flex: none; display: flex; align-items: center; gap: 5px; }
 .cook-rail-skill { padding: 0 4px; border: 1px solid var(--c-border); white-space: nowrap; }
 /* 2026-09-13 (H3): 레시피 책 잠김 · 요리 숙련 / 서재 보너스 */

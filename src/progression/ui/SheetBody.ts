@@ -2,6 +2,9 @@ import type { DerivedStats, EquippedImplant, GameContext, GymStat, HoldAskHandle
 import {
   GYM_FATIGUE_LABEL_KO, GYM_STATS, GYM_TRAINED_MAX, SHELF_MEDIUM_LABEL_KO, SKILL_LEVEL_MAX, STAT_IDS, STAT_MAX, UI_HOLD_CONFIRM_S, buildItemChip, createHoldButtonCap, openHoldAsk,
 } from '@/shared';
+/* 2026-09-16 (사용자 결정 「큰 수 축약」): 레벨 경험치 · 능력치 경험치도 크레딧 · 가치와 같은 표기를 쓴다
+   (`shared/numberFormat`). 능력치 값 · 단련 보너스 · 퍼센트 · 잔여 포인트처럼 **정확한 값이 곧 뜻인 수**는 그대로다. */
+import { formatCompactNumber } from '@/shared';
 import { DERIVED_PANEL_KEYS, derivedKeysOfSkill, derivedKeysOfStat, type DerivedPanelKey } from '../defs';
 import { SKILL_GAIN_PER_INT, SKILL_STAT_FACTOR } from '../derive';
 import { SheetTip, type SheetTipRow, type SheetTipSpec } from './SheetTip';
@@ -450,7 +453,8 @@ export class SheetBody {
     const need = Math.max(1, host.xpToNext);
     const ratio = Math.min(1, Math.max(0, host.xp / need));
     this.xpFill.style.transform = `scaleX(${ratio.toFixed(4)})`;
-    setText(this.xpText, `${Math.floor(host.xp)} / ${need} XP`);
+    // `x / y` 쌍은 양쪽 다 같은 표기다 (한쪽만 축약하면 비교가 안 된다).
+    setText(this.xpText, `${formatCompactNumber(Math.floor(host.xp))} / ${formatCompactNumber(need)} XP`);
 
     for (const id of this.statRows.keys()) this.refreshStat(id);
     for (const id of this.skillRows.keys()) this.refreshSkill(id);
@@ -565,7 +569,7 @@ export class SheetBody {
     const need = Math.max(1, this.host.statXpToNext(id));
     const p = Math.min(1, Math.max(0, this.host.getStatProgress(id)));
     row.fill.style.transform = `scaleX(${(maxed ? 1 : p).toFixed(4)})`;
-    setText(row.xp, maxed ? '최대' : `${Math.floor(p * need)} / ${need} XP`);
+    setText(row.xp, maxed ? '최대' : `${formatCompactNumber(Math.floor(p * need))} / ${formatCompactNumber(need)} XP`);
     row.root.classList.toggle('maxed', maxed);
   }
 
@@ -916,7 +920,6 @@ const DERIVED_LABEL: Readonly<Record<DerivedPanelKey, string>> = {
   implantCooldownMul: '임플란트 쿨타임',
   durabilityLossMul: '내구도 소모',
   gatherYieldMul: '채집 수확',
-  craftSpeedMul: '제작 속도',
   carryReliefFactor: '운반 부담 경감',
   /* 2026-09-13 요리 · 연구 숙련 */
   cookScoreBonus: '요리 점수',
@@ -944,7 +947,6 @@ function derivedText(key: DerivedPanelKey, d: DerivedStats): string {
     case 'implantCooldownMul': return mul(d.implantCooldownMul);
     case 'durabilityLossMul': return mul(d.durabilityLossMul);
     case 'gatherYieldMul': return mul(d.gatherYieldMul);
-    case 'craftSpeedMul': return mul(d.craftSpeedMul);
     case 'carryReliefFactor': return pct(d.carryReliefFactor);
     // 2026-09-13: 요리 — added to every cook step score (shown like the cook screen's `단계 점수 72 %`); 연구 — analysis time ×, refund chance / share
     case 'cookScoreBonus': return `+${Math.round((d.cookScoreBonus ?? 0) * 100)} %`;

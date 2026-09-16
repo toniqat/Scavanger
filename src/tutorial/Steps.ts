@@ -135,7 +135,9 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     id: 'openBag', title: '제작 창을 닫고 가방을 여세요',
     // 2026-09-08: 제작 중에는 장착 장비 칸이 숨는다 (`.inv-root.is-craft`) — 만든 무기를 장착하려면 먼저 작업대를
     //   닫아야 한다. 그 순서를 안내 없이 두면 "장비 칸이 어디 갔지"에서 막힌다.
-    hint: '작업대 우측 상단의 닫기를 누르면 장착 장비와 가방이 나타납니다.',
+    // 2026-09-16 (`inventory/parts/Crafting.closeCraftWindow`): 닫기는 제작 열만 접는 것이 아니라 **작업대 창째**
+    //   닫는다 — 예전 문구(「장착 장비와 가방이 나타납니다」)는 이제 거짓말이다. 다시 여는 키까지 여기서 적는다.
+    hint: '작업대 우측 상단의 닫기를 누르면 작업대 창이 닫힙니다. 이어서 Tab 으로 가방을 엽니다.',
     objectives: [{ id: 'craftClosed', text: '제작 창 닫기' }],
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
     spot: ['.inv-craft-close', '.inv-panel-craft'],
@@ -149,7 +151,9 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
      * 오는가**뿐이라 안내 문구와 포커싱만 창고까지 넓혔다. 창고 · 가방이 이제 한 패널(`.inv-panel-grids`)이므로
      * 구멍은 여전히 「장비칸 두 개 + 그 옆 격자 카드」 하나로 이어진 사각형이다.
      */
-    hint: '함선 창고의 소총을 왼쪽 장착 장비의 주무기 I 또는 II 칸으로 끌어다 놓습니다 (창이 닫혔으면 Tab).',
+    // 2026-09-16: 작업대 창의 닫기가 창째 닫으므로 이 단계는 **창이 닫힌 채로 시작한다** — Tab 이 앞에 온다
+    //   (우측 조작 가이드도 그 한 줄을 띄운다: `model.EQUIP_HINTS`).
+    hint: 'Tab 으로 가방을 열고, 함선 창고의 소총을 왼쪽 장착 장비의 주무기 I 또는 II 칸으로 끌어다 놓습니다.',
     /*
      * 2026-09-14 3차 — **제작 창이 열려 있으면 장비 칸이 없다** (`.inv-root.is-craft` 가 숨긴다). 그 상태에서
      * 장비칸+가방을 포커싱하면 가방만 밝고 링이 허공을 두른다. 그래서 「제작 창을 닫는다」가 앞줄이고,

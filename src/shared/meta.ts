@@ -1,6 +1,7 @@
 import type { AmmoType, EmbeddedView, ItemCategory, ItemDef, ItemInstance, MissionStats, Rarity, WeaponClass } from './types';
 import { addDataIssue, csvGroups, csvRows, keyTable, numberList, stringList } from './data/tables';
 import { buyPriceFrom, sellPriceFrom } from './credits';
+import { formatCompactNumber } from './numberFormat';
 
 /*
  * 메타 수치의 원본은 `data/` 의 csv 다 — 기업(`corps.csv` · `corp_stock.csv`), 계약(`contracts.csv`),
@@ -353,10 +354,15 @@ export interface SquadContractInfo {
 /** Credit unit suffix. Never a prefix, never `₩` / `\`. */
 export const CREDIT_SUFFIX = 'C';
 
-/** `100` → `'100 C'`; `12345` → `'12,345 C'`. `sign` prefixes `+` / `−`; `suffix: false` drops the ` C`. */
+/**
+ * `100` → `'100 C'`; `9999` → `'9,999 C'`; `12345` → `'12.3k C'`. `sign` prefixes `+` / `−`; `suffix: false` drops the ` C`.
+ *
+ * 2026-09-16 (사용자 결정): 10,000 부터는 `shared/numberFormat.ts` 의 축약 표기(`10.0k` · `1.00m` · `1.00b`)를 쓴다 —
+ * 크레딧은 자릿수가 얼마든 커지는 값이라 쉼표만으로는 한눈에 안 읽힌다. 규칙과 이유는 그 파일에 있다.
+ */
 export function formatCredits(n: number, opts?: { sign?: boolean; suffix?: boolean }): string {
   const v = Math.round(Number.isFinite(n) ? n : 0);
-  const body = Math.abs(v).toLocaleString('ko-KR');
+  const body = formatCompactNumber(v);
   const sign = opts?.sign ? (v < 0 ? '−' : '+') : (v < 0 ? '−' : '');
   const tail = opts?.suffix === false ? '' : ` ${CREDIT_SUFFIX}`;
   return `${sign}${body}${tail}`;

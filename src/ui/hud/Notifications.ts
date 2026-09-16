@@ -9,6 +9,9 @@ import { ANALYSIS_RESULTS, SAMPLE_FAMILY_LABEL_KO, analysisTimeMul } from '@/sha
 import { cookStepsOf, getMealDef, mealQualityStars, normalizeMealQuality } from '@/shared';
 /* 2026-09-13 (탈출 개편): 자동 출발 문구 (출발 유예 `EXTRACTION_DEPART_GRACE_S` 는 2026-09-15 에 탑승 토스트와 함께 빠졌다) */
 import { EXTRACTION_AUTO_DEPART_IDLE_S } from '@/shared';
+/* 2026-09-16 (사용자 결정 「큰 수 축약」): 퀘스트 보상 줄의 경험치도 크레딧과 같은 표기 (`shared/numberFormat`).
+   신뢰도 · 아이템 개수는 정확한 값이 뜻이라 그대로다. */
+import { formatCompactSigned } from '@/shared';
 import { el, escapeHtml, rarityColor } from '../dom';
 /* 2026-09-11 (B-3): 초대 결과 토스트 */
 import type { SocialErrorCode } from '@/shared';
@@ -412,7 +415,7 @@ export class Notifications {
         const parts: string[] = [];
         if (r) {
           if (r.credits > 0) parts.push(`크레딧 ${formatCredits(r.credits, { sign: true })}`);
-          if (r.xp > 0) parts.push(`XP +${r.xp}`);
+          if (r.xp > 0) parts.push(`XP ${formatCompactSigned(r.xp, true)}`);
           for (const rep of r.rep) parts.push(`${escapeHtml(CORP_DEFS[rep.corp]?.name ?? rep.corp)} 신뢰도 +${rep.amount}`);
           /* 2026-09-14: NPC 개인 신뢰도 — 기업 신뢰도 바로 뒤 (메신저 대화의 `보상 — …` 줄 · 퀘스트 카드 칩과 같은 순서) */
           if (r.npcTrust > 0 && def) parts.push(`${escapeHtml(NPC_DEF_MAP.get(def.npc)?.name ?? def.npc)} 신뢰도 +${r.npcTrust}`);

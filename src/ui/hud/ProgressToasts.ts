@@ -1,5 +1,7 @@
 import type { GameContext, SkillId } from '@/shared';
-import { el, setText, fmtInt } from '../dom';
+/* 2026-09-16 (사용자 결정 「큰 수 축약」): 경험치 칩도 크레딧과 같은 표기 (`shared/numberFormat`). */
+import { formatCompactSigned } from '@/shared';
+import { el, setText } from '../dom';
 
 const SKILL_TOAST_TTL = 2.6;   // seconds a skill-up toast stays
 const MAX_TOASTS = 4;
@@ -72,7 +74,7 @@ export class ProgressToasts {
       this.xpTimer -= dt;
       if (this.xpTimer <= 0 && this.xpPending > 0) {
         const t = this.push('xp', 1.6);
-        setText(t, `+${fmtInt(this.xpPending)} XP`);
+        setText(t, `${formatCompactSigned(this.xpPending, true)} XP`);
         this.xpPending = 0;
       }
     }

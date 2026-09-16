@@ -65,6 +65,20 @@ const positive = (v: unknown): v is number => typeof v === 'number' && Number.is
 export const TIP_ANCHOR_ATTR = 'data-tip-anchor';
 
 /**
+ * 2026-09-16 (사용자 결정): **아래 바의 「가치」를 그 화면의 값으로 갈아끼우는 옵트인 속성.** 기업 거래 화면의
+ * 매대 타일은 「구매가」, 판매칸 타일은 「판매가」를 보여야 한다 — 가치는 아이템이 어디에 있든 같은 수라 거래
+ * 화면에서 읽을 값이 아니다. 칩(또는 칩을 담은 상자)에 `data-tip-price`(크레딧 정수) + `data-tip-price-label`
+ * (한국어 라벨)을 찍으면 아래 바 오른쪽의 이름과 금액이 그 둘로 바뀐다. `data-tip-anchor` 와 같은 규약이라
+ * `move()` 처럼 `closest` 로 읽고, 다른 폴더는 이 상수를 import 하지 않고 `dataset.tipPrice` 만 쓴다.
+ * 속성이 없는 칩(가방 · 창고 · 월드 · 제작 재료)은 예전 그대로 「가치」다.
+ */
+export const TIP_PRICE_ATTR = 'data-tip-price';
+/** 라벨을 주지 않은 `data-tip-price` 의 기본 이름. */
+const TIP_PRICE_LABEL_DEFAULT = '가격';
+/** 아래 바 오른쪽의 기본 이름 (아이템의 `가치`). */
+const TIP_VALUE_LABEL = '가치';
+
+/**
  * 재료 요구 칩 hover card (`.item-tip`, Phase 8 UI pass). Every cost chip anywhere in the game — 시설 업그레이드,
  * 가구 제작, 필드 · 작업대 제작, 수리, 퀘스트 납품, 씨앗 — is rendered by `src/shared/itemChip.ts`, which stamps the
  * item def on the element as `data-def-id`. This component is the single reader of that hook: one delegated
@@ -286,7 +300,29 @@ export class ItemTip {
     if (!id) return false;
     const uid = chip.dataset.uid ?? null;
     if (!this.visible || id !== this.defId || uid !== this.uid) this.render(id, uid);
+    // 2026-09-16: `render` 를 건너뛴 경우에도 **칩이 바뀌었을 수 있다** (같은 def 가 매대에도 판매칸에도 있다) —
+    //   아래 바는 매번 이 칩 기준으로 다시 쓴다. `render` 는 늘 「가치」로 되돌려 놓으므로 여기서만 덮으면 된다.
+    this.applyPriceTag(chip);
     return this.watching(chip);
+  }
+
+  /**
+   * 아래 바 오른쪽을 이 칩이 요구하는 값으로 쓴다 (`TIP_PRICE_ATTR` — 없으면 아이템의 「가치」). 재화 카드는 바 자체가
+   * 숨겨져 있으므로(`renderCurrency`) 아이템일 때만 손댄다.
+   */
+  private applyPriceTag(chip: HTMLElement): void {
+    if (!this.visible || !this.defId) return;
+    const host = chip.closest<HTMLElement>(`[${TIP_PRICE_ATTR}]`);
+    const price = host ? Number(host.getAttribute(TIP_PRICE_ATTR)) : Number.NaN;
+    const label = this.valueEl.querySelector<HTMLElement>('.val > .k');
+    if (host && Number.isFinite(price)) {
+      if (label) setText(label, host.dataset.tipPriceLabel || TIP_PRICE_LABEL_DEFAULT);
+      setText(this.valueAmount, formatCredits(price));
+      return;
+    }
+    if (label) setText(label, TIP_VALUE_LABEL);
+    const def = this.defOf(this.defId);
+    setText(this.valueAmount, def ? formatCredits(itemCreditValue(def)) : '—');
   }
 
   /** 2026-09-15: remember the described chip and keep an eye on it while the card is up. Returns `visible`. */

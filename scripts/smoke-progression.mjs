@@ -12,6 +12,9 @@
 // its sub / section title, the preview as the resulting value only + value font fit (never wraps), the `시설 ×n` 서재 breakdown tooltip
 // (stubbed `ctx.housing.getLibrarySources`), the library `derived` fold on `housing:libraryChanged` (stubbed `getLibraryEffects`),
 // and 지능 · 인지력 as gym stats (video games: applyGymSession · 단련 derived · sheet line · migrate · 4 trainedChanged re-emits).
+// 2026-09-16 (제작 숙련 = 재료 환급만): the sheet's XP readouts go through `shared/numberFormat.formatCompactNumber` (expected
+// strings are built from that helper, not pasted), and the 파생 능력치 panel is checked against `progression/defs.DERIVED_PANEL_KEYS`
+// itself — the always-×1.0 `제작 속도` (`craftSpeedMul`) row is gone.
 // Usage: node scripts/smoke-progression.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -351,7 +354,11 @@ try {
   await waitSim(0.5);
   await page.evaluate(() => window.__game.ctx.bus.emit('ui:statsToggled', { open: true }));
   await sleep(200);
-  const dom = await page.evaluate(() => {
+  const dom = await page.evaluate(async () => {
+    // 2026-09-16: XP readouts go through `shared/numberFormat.formatCompactNumber` (쉼표 자리 구분 + 10,000 부터 축약).
+    // 기대 문자열은 UI 가 쓰는 바로 그 헬퍼 + 살아 있는 진행도에서 만든다 — 리터럴을 박으면 규칙이 바뀔 때마다 또 빨개진다.
+    const { formatCompactNumber } = await import('/src/shared/index.ts');
+    const p = window.__game.ctx.progression;
     const root = document.querySelector('.char-sheet');
     const rows = [...document.querySelectorAll('.cs-stat')];
     return {
@@ -359,17 +366,27 @@ try {
       cursor: window.__game.ctx.input.isCursorMode,
       rows: rows.length, bars: document.querySelectorAll('.cs-stat .sp .bar i').length,
       xp: rows.map((r) => r.querySelector('.sp .xp')?.textContent ?? ''),
+      expXp: rows.map((r) => {
+        const need = Math.max(1, p.statXpToNext(r.dataset.stat));
+        const frac = Math.min(1, Math.max(0, p.getStatProgress(r.dataset.stat)));
+        return `${formatCompactNumber(Math.floor(frac * need))} / ${formatCompactNumber(need)} XP`;
+      }),
       fill: rows.map((r) => r.querySelector('.sp .bar i')?.style.transform ?? ''),
       bonusHidden: [...document.querySelectorAll('.cs-skill .bonus')].every((b) => b.hidden),
+      // the helper itself: below 10,000 comma-grouped, from 10,000 abbreviated (truncated decimals)
+      fmt: [formatCompactNumber(1118), formatCompactNumber(9999), formatCompactNumber(10000), formatCompactNumber(999999), formatCompactNumber(1e6)],
     };
   });
   // Phase 10: the sheet keeps the pointer lock and turns on the in-game cursor instead of exiting the lock
   ok(dom.open && dom.blocker && dom.cursor, 'character sheet opens (blocker stats + in-game cursor)', JSON.stringify({ open: dom.open, blocker: dom.blocker, cursor: dom.cursor }));
   ok(dom.rows === 5 && dom.bars === 5, '5 stat rows each carry a stat-XP bar', `${dom.rows}/${dom.bars}`);
-  ok(dom.xp.every((t) => / \/ \d+ XP$/.test(t)), 'stat rows show `xp / next XP`', JSON.stringify(dom.xp));
+  ok(JSON.stringify(dom.fmt) === JSON.stringify(['1,118', '9,999', '10.0k', '999.9k', '1.00m']), 'formatCompactNumber: comma-grouped below 10,000, abbreviated above (truncated)', JSON.stringify(dom.fmt));
+  ok(dom.xp.every((t, i) => / \/ [\d,]+(\.\d+)?[kmb]? XP$/.test(t) && t === dom.expXp[i]),
+    'stat rows show `xp / next XP` through formatCompactNumber', JSON.stringify({ xp: dom.xp, exp: dom.expXp }));
   // strength progress is the migrated 0.999999 → floor(99.9999) = 99 / 100, bar scaleX(1.0000) after toFixed(4)
   ok(/^99 \/ 100 XP$/.test(dom.xp[0]) && /scaleX\((0\.99|1)/.test(dom.fill[0]), '근력 row: 99 / 100 XP, bar ≈ 1', `${dom.xp[0]} ${dom.fill[0]}`);
-  ok(/^0 \/ \d+ XP$/.test(dom.xp[4]) && /scaleX\(0(\.0+)?\)/.test(dom.fill[4]), '재주 row: 0 / next XP, empty bar', `${dom.xp[4]} ${dom.fill[4]}`);
+  // 2026-09-16: the level-1 재주 need is four digits, so this row also proves the `1,852` comma grouping reaches the DOM
+  ok(/^0 \/ [\d,]+ XP$/.test(dom.xp[4]) && dom.xp[4] === dom.expXp[4] && /scaleX\(0(\.0+)?\)/.test(dom.fill[4]), '재주 row: 0 / next XP, empty bar', `${dom.xp[4]} ${dom.fill[4]}`);
   ok(dom.bonusHidden, 'skill facility bonus badges hidden while the multiplier is 1');
   await page.evaluate(() => window.__game.ctx.progression.addStatXp('strength', 1000));
   await sleep(100);
@@ -523,17 +540,25 @@ try {
     out.hiddenAfter = !tip || tip.hidden;
     return out;
   }, sel);
-  const sk16 = await P(() => {
+  const sk16 = await P(async () => {
+    // 파생 줄 수는 `progression/defs.DERIVED_PANEL_KEYS` 가 원본이다 (2026-09-16 에 `craftSpeedMul` 이 빠지며 21 줄이 됐다).
+    // 숫자를 박아 두면 줄이 늘고 줄 때마다 스모크가 빨개지므로, 패널이 그 목록을 **그대로** 그리는지를 본다.
+    const { DERIVED_PANEL_KEYS } = await import('/src/progression/defs.ts');
     const root = document.querySelector('.char-sheet'), p = window.__game.ctx.progression;
     const v = (k) => root.querySelector(`.cs-derived .cell[data-key="${k}"] .v`)?.textContent ?? null;
     const rd = () => ({ cook: v('cookScoreBonus'), time: v('researchTimeMul'), chance: v('researchRefundChance'), frac: v('researchRefundFrac') });
-    const out = { rows: root.querySelectorAll('.cs-skill').length, last: [...root.querySelectorAll('.cs-skill')].slice(-2).map((r) => r.dataset.skill), cells: root.querySelectorAll('.cs-derived .cell').length, zero: rd() };
+    const out = { rows: root.querySelectorAll('.cs-skill').length, last: [...root.querySelectorAll('.cs-skill')].slice(-2).map((r) => r.dataset.skill),
+      cells: root.querySelectorAll('.cs-derived .cell').length, keys: [...DERIVED_PANEL_KEYS],
+      drawn: [...root.querySelectorAll('.cs-derived .cell')].map((c) => c.dataset.key), zero: rd() };
     p.addSkillXpRaw('cooking', 100); p.addSkillXpRaw('research', 100);
     out.max = rd();
     out.d = { cook: p.derived.cookScoreBonus, time: p.derived.researchTimeMul, chance: p.derived.researchRefundChance, frac: p.derived.researchRefundFrac };
     return out;
   });
-  ok(sk16.rows === 16 && JSON.stringify(sk16.last) === '["cooking","research"]' && sk16.cells === 22, 'sheet: 16 skill rows (요리 · 연구 last), 22 derived rows', JSON.stringify(sk16));
+  ok(sk16.rows === 16 && JSON.stringify(sk16.last) === '["cooking","research"]' && sk16.cells === sk16.keys.length && JSON.stringify(sk16.drawn) === JSON.stringify(sk16.keys),
+    'sheet: 16 skill rows (요리 · 연구 last), one derived row per DERIVED_PANEL_KEYS in order', JSON.stringify(sk16));
+  // 2026-09-16 (사용자 결정): 제작 숙련은 제작 속도를 바꾸지 않는다 → 언제나 ×1.0 이던 `제작 속도` 줄이 시트에서 사라졌다
+  ok(!sk16.keys.includes('craftSpeedMul') && !sk16.drawn.includes('craftSpeedMul'), '제작 속도 (craftSpeedMul) row is gone from the sheet', JSON.stringify(sk16.drawn));
   ok(sk16.zero.cook === '+0 %' && sk16.zero.time === '×1.00' && sk16.zero.chance === '0 %' && sk16.zero.frac === '20 %', 'new derived rows at level 0: 요리 점수 +0 % · 분석 시간 ×1.00 · 재료 회수 확률 0 % · 재료 회수량 20 %', JSON.stringify(sk16.zero));
   ok(near(sk16.d.cook, 0.15, 1e-9) && near(sk16.d.time, 0.7, 1e-9) && near(sk16.d.chance, 0.35, 1e-9) && near(sk16.d.frac, 0.5, 1e-9)
     && sk16.max.cook === '+15 %' && sk16.max.time === '×0.70' && sk16.max.chance === '35 %' && sk16.max.frac === '50 %',

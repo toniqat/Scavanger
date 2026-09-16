@@ -63,6 +63,23 @@ try {
       setInterval(() => { const now = performance.now(); if (now - lastRaf > 100) window.__game.frame(now); }, 33);
       const canvas = document.getElementById('game-canvas');
       Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
+      /**
+       * 2026-09-16 (사용자 결정 「목록은 우리가 그린다」, `src/shared/dropdown.ts`) — 필터는 더 이상 네이티브
+       * `<select>` 가 아니므로 `.value =` 로 몰 수 없다. 사람이 하는 그대로 **트리거를 눌러 목록을 펼치고
+       * 항목을 클릭한다**. 목록(`.dd-pop`)은 `document.body` 바로 아래에 **열려 있는 동안만** 있으므로 창
+       * 안에서 찾지 않는다. 항목은 글자로 고른다 (`★ 즐겨찾기` 처럼 글리프 + 이름).
+       */
+      window.__pickFilter = (scope, label) => {
+        const dd = document.querySelector(`${scope} .inv-filter-sel`);
+        if (!dd) throw new Error(`no filter dropdown at ${scope}`);
+        dd.querySelector('.dd-trigger').click();
+        const pop = document.querySelector('.dd-pop');
+        if (!pop) throw new Error(`filter list did not open at ${scope}`);
+        const opt = [...pop.querySelectorAll('.dd-opt')].find((b) => b.textContent.includes(label));
+        if (!opt) throw new Error(`no filter option ${label}`);
+        opt.click();                             // 고르면 목록은 스스로 닫힌다
+        if (document.querySelector('.dd-pop')) throw new Error('filter list stayed open after a pick');
+      };
       window.__ev = {};
       const bus = window.__game.ctx.bus;
       for (const n of names) {
@@ -246,7 +263,7 @@ try {
   console.log('filter chip');
   const flt = await page.evaluate(() => {
     const inv = window.__game.ctx.inventory;
-    { const s = document.querySelector('.inv-panel-bag .inv-filter-select'); s.value = 'favorite'; s.dispatchEvent(new Event('change', { bubbles: true })); }
+    window.__pickFilter('.inv-panel-bag', '즐겨찾기');
     const favs = new Set(inv.favoriteDefIds);
     const tiles = [...document.querySelectorAll('.inv-grid-bag .inv-tile')].map((t) => {
       const p = inv.getGrid('bag').get(t.dataset.uid);
@@ -267,7 +284,7 @@ try {
     const t = p && document.querySelector(`.inv-grid-bag .inv-tile[data-uid="${p.item.uid}"]`);
     return t && !t.classList.contains('is-filtered-out') && t.classList.contains('is-favorite');
   }, 'toggling a favourite under the lit chip repaints the dimming', 5000, AMMO);
-  await page.evaluate(() => { const s = document.querySelector('.inv-panel-bag .inv-filter-select'); s.value = 'all'; s.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.evaluate(() => window.__pickFilter('.inv-panel-bag', '전체'));
 
   /* ── 7. TradeGrids + buildItemTile ─────────────────────────────────────────────────────────────────────── */
   console.log('TradeGrids / buildItemTile');
@@ -289,7 +306,7 @@ try {
   await page.evaluate(() => window.__game.ctx.inventory.toggleFavorite('gem_amber', true));
   const tgf = await page.evaluate(async () => {
     const inv = window.__game.ctx.inventory;
-    { const s = document.querySelector('#fav-tg .inv-filter-select'); s.value = 'favorite'; s.dispatchEvent(new Event('change', { bubbles: true })); }
+    window.__pickFilter('#fav-tg', '즐겨찾기');
     await new Promise((r) => setTimeout(r, 120));
     const favs = new Set(inv.favoriteDefIds);
     const tiles = [...document.querySelectorAll('#fav-tg .tg-bag .inv-tile')].map((t) => ({ fav: favs.has(inv.getGrid('bag').get(t.dataset.uid)?.item.defId), dim: t.classList.contains('is-filtered-out') }));

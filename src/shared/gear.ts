@@ -86,8 +86,15 @@ export interface CraftRecipe {
   outputQty: number;
   /** Seconds of hold-to-craft interaction before 재주 / 제작 modifiers. */
   duration: number;
-  /** Skill that gains XP and, above `skillRequired`, unlocks it. */
+  /**
+   * Skill that gains XP from this craft **and decides the material refund** (`shared/craftRefund.ts`) —
+   * 2026-09-16 (사용자 결정): a skill no longer gates or speeds up crafting.
+   */
   skill: 'crafting' | 'medicine' | 'gardening';
+  /**
+   * **Unused since 2026-09-16** — every `data/recipes.csv` row is `0` and no code reads it. The column, the loader
+   * and this field stay so a future design can raise the gate again without a data migration.
+   */
   skillRequired: number;
   description: string;
   /* appended (ship housing, 2026-09-06) */

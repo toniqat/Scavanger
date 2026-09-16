@@ -1294,6 +1294,12 @@ kbd {
 .inv-panel-craft {
   min-width: 340px; max-width: none;
   flex-direction: row; align-items: stretch; gap: 16px;
+  /* 목록 격자의 칸 사이 간격과 **그 격자의 폭** — 칸 수는 `ui/CraftPanel.CRAFT_LIST_COLS`(`--inv-craft-cols`),
+     칸 크기는 창 높이를 타는 `--inv-cell` 이다. 빈 작업대가 같은 폭을 지키는 근거이기도 하다 (`.inv-craft-empty`). */
+  --inv-craft-gap: 8px;
+  --inv-craft-list-w: calc(
+    var(--inv-craft-cols, 5) * (var(--inv-cell, 54px) + 2px) + (var(--inv-craft-cols, 5) - 1) * var(--inv-craft-gap)
+  );
 }
 .inv-craft-main { display: flex; flex-direction: column; gap: 14px; flex: 1; min-width: 0; }
 /* ── 2026-09-15 2차 (사용자 결정): 제작 = **조합 목록 + 상세** ───────────────────────────────────────────────
@@ -1308,7 +1314,7 @@ kbd {
   display: grid;
   /* 칸의 **내용**이 정확히 한 격자 칸(`--inv-cell`)이어야 한다 — 전역이 `border-box` 라 테두리 2 px 를 더한다 */
   grid-template-columns: repeat(var(--inv-craft-cols, 5), calc(var(--inv-cell, 54px) + 2px));
-  align-content: start; justify-content: start; gap: 8px;
+  align-content: start; justify-content: start; gap: var(--inv-craft-gap, 8px);
   flex: none; overflow-y: auto; overflow-x: hidden; padding-right: 4px;
   scrollbar-width: thin; scrollbar-gutter: stable;
   scrollbar-color: var(--sb-thumb, rgba(52, 58, 66, 0.95)) var(--sb-track, rgba(4, 6, 9, 0.55));
@@ -1340,9 +1346,12 @@ kbd {
   padding: 1px 0; text-align: center; font-size: 8px; letter-spacing: 0;
   background: rgba(6, 7, 9, 0.88);
 }
-/* 고를 것이 하나도 없는 작업대 (사용자 결정): 목록 · 상세 대신 **가운데 한 줄** */
+/* 고를 것이 하나도 없는 작업대 (사용자 결정): 목록 · 상세 대신 **가운데 한 줄**.
+   2026-09-16 (사용자 보고 「빈 작업대는 창이 쪼그라든다」): 목록이 `hidden` 이 되어도 **틀은 그대로**다 — 폭은
+   썸네일 5칸(`--inv-craft-list-w`, 목록 격자와 같은 식). 높이는 아래 `.inv-panel-craft .inv-craft-empty`. */
 .inv-craft-empty {
   flex: 1; display: flex; align-items: center; justify-content: center;
+  min-width: var(--inv-craft-list-w);
   color: var(--inv-muted); font-size: 12px; padding: 40px 12px; text-align: center;
 }
 .inv-craft-empty[hidden] { display: none; }
@@ -1394,7 +1403,10 @@ kbd {
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.03);
 }
-.inv-craft-detail { flex: 1 1 0px; min-width: 240px; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+/* 2026-09-16 (사용자 보고 「제작 아이템 패널에 가로 스크롤이 생긴다」): 이 칸은 **세로로만** 흐른다.
+   `overflow-y: auto` 만 적으면 가로축은 `visible` 이 아니라 `auto` 로 계산돼(CSS 규칙), 한 조각이라도 삐져나오면
+   가로 막대가 생긴다 — 실제 범인은 아래 `.inv-tt-value` 의 음수 마진이었고, 여기서는 축을 못박아 둔다. */
+.inv-craft-detail { flex: 1 1 0px; min-width: 240px; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
 .inv-craft-detail[hidden] { display: none; }
 .inv-craft-dhead { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
 .inv-craft-dtitles { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding-top: 2px; }
@@ -1410,6 +1422,11 @@ kbd {
 .inv-panel-craft-detail::before { display: none; }   /* 패널 윗줄 하이라이트 대신 등급색 선 */
 .inv-panel-craft-detail > .inv-craft-row { padding: 0; border: 0; border-radius: 0; background: none; }
 .inv-panel-craft-detail .inv-tt-card { padding: 0; border: 0; border-radius: 0; background: none; }
+/* ⚠ 2026-09-16 (가로 스크롤의 진짜 원인): 떠다니는 툴팁에서 `.inv-tt-value`(무게 · 가치 띠)는 카드의 좌우 패딩
+   14 px 를 **음수 마진으로 뚫고** 끝까지 닿는 띠다. 임베드 카드는 바로 위 줄에서 그 패딩을 버리므로(`padding: 0`)
+   음수 마진만 남아 띠가 카드 밖으로 28 px 삐져나갔고, 상세 칸이 그만큼 가로로 흘렀다. 패딩을 지운 곳에서는
+   마진도 지운다 (카드가 이미 폭 전체다). */
+.inv-panel-craft-detail .inv-tt-card .inv-tt-value { margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0; }
 .inv-panel-craft-detail.is-crafting { border-color: var(--inv-accent); }
 .inv-panel-craft-detail.is-nospace { border-color: color-mix(in srgb, var(--inv-bad) 55%, var(--inv-line)); }
 .inv-panel-craft-detail.is-locked,
@@ -1633,6 +1650,8 @@ kbd {
 .inv-panel-craft .inv-craft-body {
   flex: none; height: min(560px, calc(100vh - 330px)); max-height: none;
 }
+/* 2026-09-16: 빈 작업대도 목록과 **같은 높이**의 틀을 지킨다 (위 `.inv-craft-empty` 의 폭과 한 짝) */
+.inv-panel-craft .inv-craft-empty { flex: none; height: min(560px, calc(100vh - 330px)); }
 .inv-panel-craft .inv-craft-list::-webkit-scrollbar,
 .inv-panel-craft-detail .inv-craft-detail::-webkit-scrollbar { width: 6px; }
 .inv-panel-craft .inv-craft-list::-webkit-scrollbar-thumb,
@@ -1679,47 +1698,33 @@ kbd {
 .inv-bag-scroll::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(52, 58, 66, 0.95)); }
 /* 2026-09-15 2차 (사용자 결정): 필터는 **정렬 버튼 오른쪽의 드롭다운 하나**다 — 열 개짜리 글리프 칩 줄
    (`.inv-filters` · `.inv-filter-chip`)은 격자 위 한 줄을 통째로 먹으면서도 어느 칩이 무엇인지 글자로 말하지
-   못했다. 목록은 네이티브 `<select>` 라 스크롤 상자에 잘리지 않고 Escape 가 인벤토리 창까지 내려가지 않는다
-   (`ui/GridTools.buildFilterSelect` 머리 주석). `color-scheme: dark` 가 그 목록을 어두운 UI 색으로 그린다. */
-.inv-filter-sel { flex: none; position: relative; display: inline-flex; align-items: stretch; min-width: 0; }
-.inv-filter-sel::after {
-  content: "\25be";
-  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-  font-size: 9px; line-height: 1; color: var(--inv-muted, rgba(233, 236, 239, 0.55)); pointer-events: none;
-}
-.inv-filter-select {
-  appearance: none; -webkit-appearance: none;
-  color-scheme: dark;
-  min-width: 0; max-width: 132px; height: 22px; padding: 0 18px 0 7px;
-  font: inherit; font-size: 10px; letter-spacing: 0.04em; line-height: 1;
+   못했다.
+   2026-09-16 (사용자 결정): 네이티브 `<select>` 는 공용 드롭다운(`src/shared/dropdown.ts`, `.dd-*` 는
+   `ui/styles/base.css`)으로 갈아 끼웠다 — 펼친 목록까지 우리가 그린다. 여기 남는 것은 **이 도구 줄에 맞춘 크기**뿐이다:
+   `.dd-trigger` 기본값(26 px · 12 px)은 20 px 짜리 `모두 수리` · `정렬` 과 나란히 서기에 크다. */
+.inv-filter-sel { flex: none; max-width: 132px; }
+.inv-filter-sel .dd-trigger {
+  height: 22px; padding: 0 18px 0 7px;
+  font-size: 10px; letter-spacing: 0.04em;
   color: var(--inv-muted, rgba(233, 236, 239, 0.55));
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--inv-line, rgba(255, 255, 255, 0.12));
+  border-color: var(--inv-line, rgba(255, 255, 255, 0.12));
   border-radius: 2px;
-  cursor: pointer;
-  text-overflow: ellipsis;
 }
-.inv-filter-select:hover { color: var(--inv-text, #e9ecef); border-color: var(--inv-line-strong, rgba(255, 255, 255, 0.26)); }
-.inv-filter-select:focus-visible { outline: 1px solid var(--inv-accent, #f0c46a); outline-offset: 1px; }
+.inv-filter-sel .dd-trigger::after { right: 6px; font-size: 9px; }
 /* 「전체」가 아닌 것을 고르면 컨트롤 자체가 켜진 것처럼 보인다 — 어느 격자가 걸러져 있는지 한눈에 보이게 */
-.inv-filter-sel.is-on .inv-filter-select {
+.inv-filter-sel.is-on .dd-trigger {
   color: var(--inv-accent, #f0c46a);
   border-color: color-mix(in srgb, var(--inv-accent, #f0c46a) 70%, transparent);
   background: color-mix(in srgb, var(--inv-accent, #f0c46a) 14%, transparent);
 }
-/* 2026-09-16 (사용자 결정 — 목록이 안 읽힌다): `color-scheme: dark` 만으로는 모자랐다. Chromium(Electron 포함)은 펼친
-   목록의 칸을 **`<option>` 의 색**으로 칠하고, 없으면 `<select>` 의 계산값을 물려받는다 — 그 값이 반투명 흰색 4 % 배경 +
-   흐린 글자라, 불투명한 팝업 위에서 밝은 회색 바탕 · 밝은 글자가 되어 호버 전에는 읽히지 않았다. 그래서 목록 칸에
-   **불투명한** 어두운 바탕과 밝은 글자를 직접 준다 (`TradeGrids` 의 드롭다운도 같은 클래스라 함께 고쳐진다).
-   `.is-on` 의 강조색 글자는 닫힌 컨트롤에만 — 목록 칸은 자기 색이 이긴다. */
-.inv-filter-select option,
-.inv-filter-select optgroup {
-  color: #e9ecef;
-  background-color: #0c0f13;
-}
-.inv-filter-select option:checked { color: #f0c46a; background-color: #1c2027; }
-.inv-filter-select option:disabled { color: rgba(233, 236, 239, 0.38); }
 .inv-sort-btn { padding: 4px 9px; font-size: 10px; letter-spacing: 0.08em; }
+
+/* 2026-09-16 (사용자 결정): 창고 머리 왼쪽의 조용한 제목 `함선 창고` + 오른쪽 끝의 `업그레이드`.
+   `.is-bare` 는 도구 줄 하나뿐이라 오른쪽에 붙이는 규칙인데, 창고 머리는 제목이 생겨 양 끝으로 갈라진다. */
+.inv-panel-stash .inv-head.is-bare { justify-content: space-between; align-items: center; }
+.inv-stash-name { flex: none; white-space: nowrap; }
+.inv-stash-upgrade-btn { flex: none; padding: 4px 9px; font-size: 10px; letter-spacing: 0.08em; }
 
 /* 2026-09-14 → 2026-09-15 2차: 가방 머리의 도구 줄 = `모두 수리` + `정렬` + 필터 드롭다운 한 줄. */
 .inv-bag-tools { flex: none; display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -2177,10 +2182,15 @@ kbd {
    거는 것은 가구 화면(`housing.css` 의 `.hs-inv`)이고, 격자가 아니라 이 상자여야 하는 이유는 하나다: 격자는 자기
    폭을 px 로 못박은 상자라(`GridView.syncDims`) 스크롤바가 그 폭 안에서 마지막 열을 갉아먹는다. */
 .tg-gridwrap { min-width: 0; min-height: 0; }
-/* 2026-09-15 2차: 머리 한 줄 = (가방만) 라벨 · 개수 · 정렬 · 필터 드롭다운. 창고 쪽 라벨은 없앴다 (사용자 결정). */
+/* 2026-09-15 2차: 머리 한 줄 = (가방만) 라벨 · 칸 readout · 정렬 · 필터 드롭다운. 창고 쪽 라벨은 없앴다 (사용자 결정).
+   2026-09-16 (사용자 결정): readout 은 종류 수 `N점` 이 아니라 **`사용칸 / 전체칸`** 이다 (Tab 창 창고 머리의
+   `.inv-capacity` 와 같은 문구 — `ui/labels.capacityLabel`). `flex: 1` 이 정렬 버튼 · 필터를 오른쪽 끝으로 민다. */
 .tg-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tg-label { font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; font-weight: 700; color: var(--inv-muted, #8b94a0); }
-.tg-count { flex: 1; font-family: var(--ui-mono); font-size: 10px; color: var(--inv-muted, #8b94a0); }
+.tg-count {
+  flex: 1; font-family: var(--ui-mono); font-variant-numeric: tabular-nums;
+  font-size: 10px; letter-spacing: 0.08em; color: var(--inv-muted, #8b94a0);
+}
 .trade-grids .inv-tile { cursor: grab; }
 .trade-grids .inv-tile.is-staged { opacity: 0.3; filter: grayscale(0.7); cursor: default; }
 /* drag ghost: same tile content, following the cursor above everything. Moved by `transform` only, one write per
@@ -2213,10 +2223,10 @@ kbd {
 }
 .tg-head .tg-label { white-space: nowrap; }
 .tg-head .tg-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 좁은 블록(가방 5칸 · 40 px 칸 = 208 px)에서는 머리 도구가 둘째 줄로 내려간다 — 한 줄이면 개수 readout 이 사라진다. */
+/* 좁은 블록(가방 5칸 · 40 px 칸 = 208 px)에서는 머리 도구가 둘째 줄로 내려간다 — 한 줄이면 칸 readout 이 사라진다. */
 .tg-block.is-narrow .tg-count { flex: 1 0 100%; }
 .tg-block.is-narrow .tg-head { gap: 6px 8px; }
-.tg-block.is-narrow .inv-filter-select { max-width: 104px; }
+.tg-block.is-narrow .inv-filter-sel { max-width: 104px; }
 /* ── 2026-09-13: 칸이 기본(54)보다 작은 뷰(`.tg-compact`) — 타일 내용이 칸 크기를 따라 줄어든다 (54 에서의 값과 같은 비율).
    드래그 고스트는 <body> 에 붙으므로 자기 `--inv-cell` · `.tg-compact` 를 달고 다닌다. */
 .trade-grids.tg-compact .inv-tile-icon, .tg-ghost.tg-compact .inv-tile-icon { font-size: calc(var(--inv-cell) * 0.41); }

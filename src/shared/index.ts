@@ -96,3 +96,9 @@ export * from './cover';
 export * from './raidResume';
 /* appended (2026-09-16): 요리 정의 표 — 요리는 아이템이 아니라 식탁의 접시다 (`getMealDef`, `data/meals.csv`) */
 export * from './meals';
+/* appended (2026-09-16): 큰 수 축약 표기 — 크레딧 · 가치 · 재화 · 경험치가 모두 이 포매터 하나를 쓴다 (`10.0k` · `1.00m`) */
+export * from './numberFormat';
+/* appended (2026-09-16): 공용 드롭다운 — 게임 안의 모든 `<select>` 를 대신한다 (네이티브 목록은 OS 가 그려 어울리지 않는다) */
+export * from './dropdown';
+/* appended (2026-09-16): 제작 재료 환급 — 제작 숙련이 하는 일은 이제 이것 하나다 (게이트 · 제작 속도 없음) */
+export * from './craftRefund';

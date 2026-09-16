@@ -1,15 +1,17 @@
 import type { EmbeddedView, GameContext, ItemDef, ItemInstance, TradeGridsView } from '@/shared';
+import { Keys } from '@/shared';
 import type { InventorySystem, GridId } from '../InventorySystem';
 import { BAG_FRAME_ROWS, filterPredicate, type FilterGroupId } from '../model';
-import { GridView, buildTileContent, setNeededAmmoFrom } from './GridView';
+import { GridView, buildTileContent, setNeededAmmoFrom, type HighlightState } from './GridView';
 import { buildFilterSelect, buildSortButton, type FilterControl } from './GridTools';
-import { CELL, GAP, TEXT, tileSizeAt } from './labels';
+import { CELL, GAP, TEXT, capacityLabel, tileSizeAt } from './labels';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 /* 2026-09-14: 툴팁 고정 · 고정 카드에서 소켓 끌어내기 */
-import type { DetachTarget } from '../model';
+/* 2026-09-16: 격자 안 / 격자 사이 옮기기 — 판정은 `parts/DropResolver` 가 하고 여기는 물어보기만 한다 */
+import type { DetachTarget, DropTarget, ItemLocation } from '../model';
 import { Tooltip } from './Tooltip';
 import { TipPin, inventoryTooltipLookups, type DetachAim, type SocketDrag } from './TipPin';
-import { DRAG_THRESHOLD } from './model';
+import { CLICK_SUPPRESS_MS, DRAG_THRESHOLD } from './model';
 
 /** Which of the player's grids a trade screen may show, top to bottom. */
 export type TradeGridId = Extract<GridId, 'bag' | 'stash'>;
@@ -76,14 +78,29 @@ interface Block {
   filter: FilterGroupId;
 }
 
+/**
+ * 2026-09-16 (사용자 결정 「창고 · 가방 아이템을 여기서도 옮길 수 있어야 한다 — 회전 · 머지 · 칸 옮기기 전부」):
+ * 끌고 있는 것 한 벌. 예전에는 「호출자의 트레이로 끌어내기」밖에 없어서 `uid` · 고스트 · 반쪽 크기뿐이었다.
+ */
 interface DragInfo {
   uid: string;
   gridId: TradeGridId;
+  /** `DropResolver` 가 묻는 출발지 (`{kind:'grid', grid: gridId}`) — 매번 새로 만들지 않고 들고 다닌다. */
+  from: ItemLocation;
+  def: ItemDef;
+  /** R 로 뒤집힌 방향 (아이템 자체는 놓일 때까지 그대로다 — `DropTarget.rotated` 로만 전해진다). */
+  rotated: boolean;
   ghost: HTMLElement;
-  el: HTMLElement;
   /** Half the ghost's size, known at pick-up (never measured while moving — that forced a layout per event). */
   halfW: number;
   halfH: number;
+  /**
+   * 2026-09-16: 합치고 **남은 수량이 커서에 남은** 상태 (Tab 창의 `DragState.held` 와 같은 규칙). 남은 몫은
+   * 출발 스택을 떠나지 않았고 — 그 스택의 수량이 줄었을 뿐이다 — 다음 좌클릭이 그것을 놓는다.
+   */
+  held: boolean;
+  /** `held` 드래그: 다음 누름이 도착했으니 그 **놓음**이 드롭이다. */
+  armed: boolean;
 }
 
 /** Smallest cell edge a caller can ask for (tiles stop being legible well before this). */
@@ -97,10 +114,17 @@ const clampCell = (px: number | undefined): number => Math.max(MIN_CELL, Math.ro
  * **Embedded 가방 / 함선 창고 grids** (Phase 9 UI pass) — real inventory grids, rendered by the same `GridView` the
  * Tab window uses, for another folder's screen (기업 거래 · 재배 스테이션 · 분석기 · 배양조 · 식탁).
  *
- * Scope on purpose: a **read + drag-out** view, not the full inventory window. There is no rearranging, no rotation,
- * no socketing and no drop-to-world — a tile can only be dragged onto one of the caller's `dropSelector` targets (or
- * double-clicked), which calls `onTake`. Everything the trade then does to the item goes through the public
- * `InventoryRef` API in the caller.
+ * **2026-09-16 (사용자 결정) — 여기서도 아이템을 옮길 수 있다.** 예전 이 뷰는 「읽기 + 끌어내기」 전용이라 드롭을
+ * 아예 판정하지 않았다 (`pointerup` 이 호출자의 `dropSelector` 만 보고, 격자 위에서 놓으면 아무 일도 일어나지 않았다).
+ * 이제 **같은 격자 안의 다른 칸 · 창고 ↔ 가방 · 드래그 중 `R` 회전 · 같은 스택 위에 합치기**가 Tab 인벤토리와
+ * 똑같이 된다 — 판정과 실행은 전부 `parts/DropResolver`(`InventorySystem.previewDrop` / `drop`)이고, 이 파일은
+ * 커서 밑의 칸을 찾아 물어보고 하이라이트를 칠할 뿐이다. 그래서 Tab 창의 규칙이 그대로 따라온다:
+ * 합치고 남은 수량은 커서에 남고(`DragInfo.held`), 장착 장비를 조용히 밀어내는 길은 없으며, 주머니 · 퀵슬롯처럼
+ * **아이템을 떨어뜨릴 이동은 거절**된다. 여기 없는 것은 여전히 없다 — 장비칸 · 퀵슬롯 · 상자 격자가 이 뷰에 없으므로
+ * 그것들은 드롭 대상이 아니고, 바닥에 버리기(`X`)도 없다 (격자 밖에서 놓으면 제자리로 돌아간다).
+ *
+ * 호출자의 트레이는 그대로다: `dropSelector` 에 맞는 요소 위에서 놓으면 (또는 더블클릭하면) `onTake` 가 불린다 —
+ * **트레이가 격자보다 먼저**라 기업 거래의 판매 트레이는 예전과 똑같이 동작한다.
  *
  * **2026-09-12 (사용자 결정)** —
  *   - **창고가 왼쪽, 가방이 오른쪽**으로 나란히 선다 (`.tg-scroll` 이 가로 2열). 한 스크롤 안에 위아래로 쌓던 앞
@@ -152,6 +176,11 @@ export class TradeGrids implements TradeGridsView {
   private moveRaf = 0;
   private refreshRaf = 0;
   private disposed = false;
+  /**
+   * 2026-09-16: 커서에 남은 몫을 내려놓거나(좌클릭) 놓아 준(우클릭) **그 클릭**이 밑에 있는 타일의
+   * `dblclick` / `contextmenu` 로 이어지면 안 된다 — Tab 창의 `suppressClicksUntil` 과 같은 창(`CLICK_SUPPRESS_MS`).
+   */
+  private suppressUntil = 0;
   /**
    * 2026-09-12 (사용자 결정 「모든 아이템 우클릭 = 메뉴」): 빠른 이동(= 더블클릭) · 즐겨찾기. `ctx.uiRoot` 에 붙인다 —
    * `.inv-menu` 는 `position: fixed` 라 transform 이 걸린 화면 안에 두면 자리가 어긋난다.
@@ -224,7 +253,8 @@ export class TradeGrids implements TradeGridsView {
   }
 
   /**
-   * One block: header (label · count · 정렬 · 필터 드롭다운) and the grid inside its scrolling wrap.
+   * One block: header (label · 칸 readout · 정렬 · 필터 드롭다운) and the grid inside its scrolling wrap.
+   * 2026-09-16: 그 readout 은 `사용칸 / 전체칸` 이고 **정렬 버튼 왼쪽**이다 (`refresh`, `labels.capacityLabel`).
    *
    * **2026-09-15 2차 (사용자 결정)** — 두 가지가 바뀌었다:
    *  - **창고 쪽 라벨(`함선 창고`)은 없앴다.** 창고 · 가방이 한 패널의 두 칸으로 나란히 서면서 왼쪽 큰 격자가
@@ -268,7 +298,7 @@ export class TradeGrids implements TradeGridsView {
       onMove: () => { /* no-op */ },
       onLeave: () => { /* no-op */ },
       onContext: (uid, gridId, e) => this.openMenu(uid, gridId as TradeGridId, e),
-      onDblClick: (uid, gridId) => this.take(uid, gridId as TradeGridId, null),
+      onDblClick: (uid, gridId) => { if (!this.clicksSuppressed()) this.take(uid, gridId as TradeGridId, null); },
     }, this.cellPx);
     if (block.id === 'bag') view.setFrameRows(BAG_FRAME_ROWS);
     view.setFilter(this.predicate(block.filter));
@@ -299,7 +329,9 @@ export class TradeGrids implements TradeGridsView {
       const grid = this.inv.getGrid(bl.id);
       if (bl.view.current !== grid) bl.view.setGrid(grid);
       else bl.view.refresh(ammoChanged);   // version-gated; only changed tiles are rebuilt
-      bl.countEl.textContent = grid ? `${grid.count}점` : '';
+      // 2026-09-16 (사용자 결정): 머리의 `N점`(종류 수)은 없앴다 — Tab 창의 창고 머리와 **같은** `사용칸 / 전체칸`
+      // (`labels.capacityLabel`). 가방 틀의 빈 줄(`BAG_FRAME_ROWS`)은 칸이 아니므로 전체칸에 들어가지 않는다.
+      bl.countEl.textContent = grid ? capacityLabel(grid.usedCells(), grid.cols * grid.rows) : '';
       const w = grid ? grid.cols * step - GAP : 0;
       bl.el.classList.toggle('is-narrow', w > 0 && w < NARROW_BLOCK_PX);
       // staging can change without the grid changing (the caller calls `refresh()` after staging) — flags only
@@ -403,7 +435,7 @@ export class TradeGrids implements TradeGridsView {
   /** The chip currently lit (smoke tests): the shared row's, else the first block's. */
   get filterGroup(): FilterGroupId { return this.sharedChips ? this.sharedFilter : this.blocks[0]?.filter ?? 'all'; }
 
-  /* ── drag out ─────────────────────────────────────────────────────────── */
+  /* ── drag: 격자 안 / 격자 사이 옮기기 · 호출자 트레이로 끌어내기 ──────────── */
   /**
    * 2026-09-14: a press no longer lifts the ghost at once. The tile is only **pressed** until the pointer moves past
    * `DRAG_THRESHOLD` — then the ghost lifts exactly as before (`liftGhost`). Holding still for `UI_HOLD_CONFIRM_S` pins the
@@ -437,20 +469,45 @@ export class TradeGrids implements TradeGridsView {
     const p = pr ? grid?.get(pr.uid) : undefined;
     const def = p ? this.inv.getDef(p.item.defId) : undefined;
     if (!pr || !grid || !p || !def) { this.endDrag(); return false; }
-    const fp = grid.footprintOf(p.item);
-    const size = tileSizeAt(fp.w, fp.h, this.cellPx);
+    this.drag = {
+      uid: pr.uid, gridId: pr.gridId, from: { kind: 'grid', grid: pr.gridId }, def,
+      rotated: p.item.rotated, ghost: this.makeGhost(), halfW: 0, halfH: 0, held: false, armed: false,
+    };
+    this.rebuildGhost(this.drag);
+    this.blockOf(pr.gridId)?.view.setDragging(pr.uid);
+    window.addEventListener('keydown', this.onKey, true);   // 2026-09-16: R 회전 — 끄는 동안만 (그 밖에는 키를 듣지 않는다)
+    this.inv.sfx('ui_pickup');
+    return true;
+  }
+
+  /** The empty `<body>` ghost box (content is written by `rebuildGhost`, which a rotation runs again). */
+  private makeGhost(): HTMLElement {
     const ghost = document.createElement('div');
-    buildTileContent(ghost, p.item, def, fp.w, fp.h, this.inv.getStats(p.item), this.cellPx);
     ghost.classList.add('tg-ghost');
     // the ghost lives on <body>, outside this root — carry the cell edge the tile content scales with
     ghost.style.setProperty('--inv-cell', `${this.cellPx}px`);
     if (this.cellPx < CELL) ghost.classList.add('tg-compact');
-    const halfW = size.width / 2, halfH = size.height / 2;
-    ghost.style.transform = `translate3d(${this.moveX - halfW}px, ${this.moveY - halfH}px, 0)`;
     document.body.appendChild(ghost);
-    pr.el.classList.add('is-dragging');
-    this.drag = { uid: pr.uid, gridId: pr.gridId, ghost, el: pr.el, halfW, halfH };
-    return true;
+    return ghost;
+  }
+
+  /** Footprint the ghost occupies right now (`R` swaps width and height without touching the item). */
+  private footprint(d: DragInfo): { w: number; h: number } {
+    return d.rotated ? { w: d.def.height, h: d.def.width } : { w: d.def.width, h: d.def.height };
+  }
+
+  /** Redraw the ghost at the current rotation and re-centre it on the cursor (the footprint changed). */
+  private rebuildGhost(d: DragInfo): void {
+    const item = this.inv.findItem(d.uid, d.from);
+    if (!item) return;
+    const { w, h } = this.footprint(d);
+    buildTileContent(d.ghost, { ...item, rotated: d.rotated }, d.def, w, h, this.inv.getStats(item), this.cellPx);
+    d.ghost.classList.add('tg-ghost');
+    if (this.cellPx < CELL) d.ghost.classList.add('tg-compact');
+    const size = tileSizeAt(w, h, this.cellPx);
+    d.halfW = size.width / 2;
+    d.halfH = size.height / 2;
+    d.ghost.style.transform = `translate3d(${this.moveX - d.halfW}px, ${this.moveY - d.halfH}px, 0)`;
   }
 
   private onMove = (e: PointerEvent): void => {
@@ -472,20 +529,146 @@ export class TradeGrids implements TradeGridsView {
     const d = this.drag;
     if (!d) return;
     d.ghost.style.transform = `translate3d(${this.moveX - d.halfW}px, ${this.moveY - d.halfH}px, 0)`;
-    const target = this.dropTargetAt(this.moveX, this.moveY);
-    d.ghost.classList.toggle('is-ok', !!target);
-    this.setOver(target);
+    this.hideHighlights();
+    // 호출자의 트레이가 **먼저**다 — 기업 거래의 판매 트레이는 격자와 겹치지 않으므로 순서만 지키면 예전 그대로다
+    const tray = this.dropTargetAt(this.moveX, this.moveY);
+    this.setOver(tray);
+    if (tray) { d.ghost.classList.toggle('is-ok', true); return; }
+    const hit = this.cellUnderGhost(d);
+    if (!hit) { d.ghost.classList.toggle('is-ok', false); return; }
+    const pv = this.inv.previewDrop(d.uid, d.from, this.targetOf(d, hit));
+    const { w, h } = this.footprint(d);
+    const state: HighlightState = pv === 'bad' ? 'bad' : pv === 'swap' ? 'swap' : pv === 'merge' ? 'merge' : 'ok';
+    hit.bl.view.showHighlight(hit.x, hit.y, w, h, state);
+    d.ghost.classList.toggle('is-ok', pv !== 'bad');
   };
+
+  /**
+   * Cell of one of **this view's** grids under the ghost, resolved **strictly first** — a grid that really contains
+   * the pointer beats one that only sits within its half-cell tolerance, so 창고 and 가방 (side by side with a gap)
+   * never steal each other's edge column. Same two-pass order as the Tab window (`ui/parts/Drag.resolveGridTarget`).
+   */
+  private cellUnderGhost(d: DragInfo): { bl: Block; x: number; y: number } | null {
+    const { w, h } = this.footprint(d);
+    const left = this.moveX - d.halfW, top = this.moveY - d.halfH;
+    for (const bl of this.blocks) {
+      if (!bl.view.hitTest(this.moveX, this.moveY, 0)) continue;
+      const c = bl.view.cellForGhost(left, top, w, h, this.moveX, this.moveY, 0);
+      if (c) return { bl, x: c.x, y: c.y };
+    }
+    for (const bl of this.blocks) {
+      const c = bl.view.cellForGhost(left, top, w, h, this.moveX, this.moveY);
+      if (c) return { bl, x: c.x, y: c.y };
+    }
+    return null;
+  }
+
+  private targetOf(d: DragInfo, hit: { bl: Block; x: number; y: number }): DropTarget {
+    return { kind: 'grid', grid: hit.bl.id, x: hit.x, y: hit.y, rotated: d.rotated };
+  }
 
   private onUp = (e: PointerEvent): void => {
     const d = this.drag;
+    if (!d) { this.endDrag(); return; }
+    if (d.held) {
+      // 합치고 남은 몫은 **다음** 누름의 놓음에서 내려놓는다 (`onHeldDown` 이 무장한다)
+      if (e.type === 'pointercancel') { this.endDrag(); return; }
+      if (!d.armed || e.button !== 0) return;
+      d.armed = false;
+    }
+    this.moveX = e.clientX;
+    this.moveY = e.clientY;
     this.endDrag();
+    this.finishDrop(d);
+  };
+
+  /**
+   * Release: the caller's tray first (`onTake` — the item is **not** moved here), else a cell of 창고 / 가방 through
+   * `InventoryRef.drop`. Released over neither, the item simply stays where it was — this view has no 버리기 zone, so
+   * nothing can be lost by missing.
+   */
+  private finishDrop(d: DragInfo): void {
+    const tray = this.dropTargetAt(this.moveX, this.moveY);
+    if (tray) { this.take(d.uid, d.gridId, tray); return; }
+    const hit = this.cellUnderGhost(d);
+    if (!hit) { if (d.held) this.inv.sfx('ui_drop'); return; }
+    const target = this.targetOf(d, hit);
+    // 2026-09-12 규칙 그대로: 합치기 판정과 출발 수량을 **놓기 전에** 읽는다 — 남은 몫은 움직이지 않은 만큼이다
+    const pv = this.inv.previewDrop(d.uid, d.from, target);
+    const r = this.inv.drop(d.uid, d.from, target);
+    if (r === 'ok') this.inv.sfx('ui_drop');
+    else if (r === 'fail') { this.inv.sfx('ui_error'); this.blockOf(d.gridId)?.view.shake(d.uid); }
+    this.refresh();
+    if (r !== 'ok' || pv !== 'merge') return;
+    const src = this.inv.findItem(d.uid, d.from);
+    if (src && src.qty > 0) this.holdRemainder(d);
+  }
+
+  /**
+   * 2026-09-16 (Tab 창의 `DragState.held` 와 같은 규칙): 대상 스택이 다 받지 못한 나머지는 **커서에 남는다**.
+   * 그 수량은 출발 스택을 떠난 적이 없으므로(줄었을 뿐이다) 세이브 · 시체 벗기기 · 화면 닫기가 끼어들어도
+   * 아이템은 제자리에 있다. 다음 좌클릭이 놓고, 우클릭 · Escape · 빈 곳 · `dispose` 가 놓아 준다.
+   */
+  private holdRemainder(prev: DragInfo): void {
+    const item = this.inv.findItem(prev.uid, prev.from);
+    if (!item) return;
+    const d: DragInfo = {
+      uid: prev.uid, gridId: prev.gridId, from: prev.from, def: prev.def,
+      rotated: item.rotated, ghost: this.makeGhost(), halfW: 0, halfH: 0, held: true, armed: false,
+    };
+    this.drag = d;
+    this.rebuildGhost(d);
+    window.addEventListener('pointermove', this.onMove, true);
+    window.addEventListener('pointerup', this.onUp, true);
+    window.addEventListener('pointercancel', this.onCancel, true);
+    window.addEventListener('pointerdown', this.onHeldDown, true);
+    window.addEventListener('keydown', this.onKey, true);
+    this.moveFrame();
+  }
+
+  /** A press while a remainder is held: swallow it (no tile press underneath) and arm the release. RMB lets go. */
+  private onHeldDown = (e: PointerEvent): void => {
+    const d = this.drag;
+    if (!d?.held) return;
+    e.preventDefault();
+    e.stopPropagation();
+    this.suppressUntil = performance.now() + CLICK_SUPPRESS_MS;
+    if (e.button === 2) { this.endDrag(); this.inv.sfx('ui_drop'); return; }
+    if (e.button !== 0) return;
+    this.moveX = e.clientX;
+    this.moveY = e.clientY;
+    d.armed = true;
+    this.moveFrame();
+  };
+
+  /**
+   * `R` rotates the ghost while a drag is in flight (`Keys.ROTATE_ITEM`, read at use time), Escape lets a held
+   * remainder go. The listener exists **only for the length of a drag** — this view still installs no standing window
+   * key listener, so an embedded screen keeps every key it owns.
+   */
+  private onKey = (e: KeyboardEvent): void => {
+    const d = this.drag;
     if (!d) return;
-    const target = this.dropTargetAt(e.clientX, e.clientY);
-    if (target) this.take(d.uid, d.gridId, target);
+    if (e.code === Keys.ROTATE_ITEM) {
+      if (d.def.width === d.def.height) return;
+      e.preventDefault();
+      e.stopPropagation();
+      d.rotated = !d.rotated;
+      this.rebuildGhost(d);
+      this.inv.sfx('ui_rotate');
+      this.moveFrame();
+      return;
+    }
+    if (d.held && e.code === Keys.MENU) { e.preventDefault(); e.stopPropagation(); this.endDrag(); }
   };
 
   private onCancel = (): void => { this.endDrag(); };
+
+  private blockOf(id: TradeGridId): Block | undefined { return this.blocks.find((bl) => bl.id === id); }
+
+  private clicksSuppressed(): boolean { return performance.now() < this.suppressUntil; }
+
+  private hideHighlights(): void { for (const bl of this.blocks) bl.view.hideHighlight(); }
 
   private dropTargetAt(x: number, y: number): HTMLElement | null {
     const sel = this.opts.dropSelector;
@@ -511,9 +694,12 @@ export class TradeGrids implements TradeGridsView {
     window.removeEventListener('pointermove', this.onMove, true);
     window.removeEventListener('pointerup', this.onUp, true);
     window.removeEventListener('pointercancel', this.onCancel, true);
+    window.removeEventListener('pointerdown', this.onHeldDown, true);
+    window.removeEventListener('keydown', this.onKey, true);
+    this.hideHighlights();
+    for (const bl of this.blocks) bl.view.setDragging(null);
     if (!d) return;
     d.ghost.remove();
-    d.el.classList.remove('is-dragging');
   }
 
   /* ── 2026-09-14: 고정 카드에서 소켓 끌어내기 — `TipPin` 에 이 뷰가 주는 대답 ─────────────────────────────── */
@@ -556,9 +742,7 @@ export class TradeGrids implements TradeGridsView {
     return { target, ok };
   }
 
-  private clearDetachAim(): void {
-    for (const bl of this.blocks) bl.view.hideHighlight();
-  }
+  private clearDetachAim(): void { this.hideHighlights(); }
 
   private take(uid: string, gridId: TradeGridId, target: HTMLElement | null): void {
     const p = this.inv.getGrid(gridId)?.get(uid);
@@ -568,7 +752,7 @@ export class TradeGrids implements TradeGridsView {
 
   /** 2026-09-12: 우클릭 메뉴 — 이 화면의 더블클릭 동작(`takeLabel`) · 즐겨찾기 켜기 / 끄기 (Tab 창의 `favoriteEntry` 와 같은 문구). */
   private openMenu(uid: string, gridId: TradeGridId, e: MouseEvent): void {
-    if (this.drag || this.disposed) return;
+    if (this.drag || this.disposed || this.clicksSuppressed()) return;
     const p = this.inv.getGrid(gridId)?.get(uid);
     if (!p) return;
     const defId = p.item.defId;
@@ -596,6 +780,9 @@ export class TradeGrids implements TradeGridsView {
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     for (const bl of this.blocks) bl.view.dispose();
+    // 2026-09-16: 필터 목록은 `document.body` 의 자식이라(`shared/dropdown`) 뷰를 지워도 저 혼자 화면에 남는다
+    for (const bl of this.blocks) bl.chips?.dispose();
+    this.sharedChips?.dispose();
     this.sharedTools?.remove();
     this.root.remove();
   }

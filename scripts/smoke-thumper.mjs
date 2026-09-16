@@ -1,6 +1,7 @@
 // Smoke: 진동 장치 (thumper — 2026-09-15 땅굴벌레, docs/DECISIONS.md 「2026-09-15 — 땅굴벌레 · 진동 장치」). Solo raid.
 //
-// - catalogue: `gad_thumper` → `GadgetId 'thumper'` (place · deployable `thumper` · no recover), listed in `getDefs`, quick-usable, stacks
+// - catalogue: `gad_thumper` → `GadgetId 'thumper'` (place · deployable `thumper` · no recover), listed in `getDefs`, quick-usable,
+//   **does not stack** (`stackMax` 1 — 2026-09-16 사용자 결정: 제작법 없는 드랍 전용)
 // - placement judgement: only where `world.burrowGroundOk(x, z, THUMPER_GROUND_R)` — the ghost preview (`ctx.gadgets.placement`) and
 //   `use()` share it; on a structure roof the preview is red with the burrow reason and `use()` refuses without consuming the item.
 //   When world has not published `burrowGroundOk` yet (parallel development) the script stubs it — true on bare terrain, false inside
@@ -93,7 +94,8 @@ try {
     };
   });
   ok(cat.item && cat.item.gadgetId === 'thumper' && cat.item.cat === 'gadget' && cat.item.quick === true, `items.csv gad_thumper → gadgetId thumper, quick-usable (${JSON.stringify(cat.item)})`);
-  ok(cat.item && cat.item.w === 1 && cat.item.h === 2 && cat.item.stack >= 2 && cat.item.rarity === 'rare', `1×2, stacks (${cat.item?.stack}), rare`);
+  /* 2026-09-16 (사용자 결정): 진동 장치는 **겹치지 않는다** — 제작법이 없는 드랍 전용 물건이라 한 칸에 하나다. */
+  ok(cat.item && cat.item.w === 1 && cat.item.h === 2 && cat.item.stack === 1 && cat.item.rarity === 'rare', `1×2, does not stack (${cat.item?.stack}), rare`);
   ok(cat.def && cat.def.use === 'place' && cat.def.dep === 'thumper' && cat.def.recover === 0 && cat.def.hp > 0 && cat.def.radius > 0, `GadgetDef thumper: place · deployable thumper · recoverTime 0 (not recoverable) · hp ${cat.def?.hp} · radius ${cat.def?.radius}`);
   ok(cat.listed && cat.def?.name === '진동 장치', `listed in getDefs as 「${cat.def?.name}」`);
   const GROUND_R = cat.def?.radius ?? 3;   // = THUMPER_GROUND_R (GadgetDef.radius is that value)
@@ -132,11 +134,13 @@ try {
   if (realJudge) note('world.burrowGroundOk is published — the real judgement is used');
   else note('world.burrowGroundOk not published yet — stubbed (bare terrain true, inside a structure radius false)');
 
-  /** Put a thumper stack into a quick slot and take it into the hand. */
+  /* 겹치지 않는 물건이라 한 번 놓으면 손이 빈다 — 매번 새로 한 개를 빠른 칸에 넣고 다시 든다. */
+  const needTake = async () => await page.evaluate(() => window.__game.ctx.weapons.remoteState.heldItemId !== 'gad_thumper' || window.__count() < 1);
+  /** Put one thumper into a quick slot and take it into the hand. */
   const takeInHand = async () => {
     const slot = await page.evaluate(() => {
       const ctx = window.__game.ctx;
-      const it = ctx.loot.createItem('gad_thumper', 3);
+      const it = ctx.loot.createItem('gad_thumper', 1);
       if (!ctx.inventory.tryAddItem(it)) return -2;
       const n = ctx.inventory.getQuickSlots().length;
       for (let i = 0; i < n; i++) if (ctx.inventory.setQuickSlot(i, it.uid)) return i;
@@ -248,8 +252,7 @@ try {
     ctx.player.setBurning?.(0, 0);
   }, spot);
   await waitSim(0.8);
-  const held2 = await page.evaluate(() => window.__game.ctx.weapons.remoteState.heldItemId);
-  if (held2 !== 'gad_thumper') await takeInHand();
+  if (await needTake()) await takeInHand();
   const again = await page.evaluate(() => {
     const ctx = window.__game.ctx, g = window.__game.getSystem('gadgets');
     const t = ctx.time;
@@ -278,8 +281,7 @@ try {
   ok(!!roof, `stood on a structure roof (${roof ? `${roof.kind}, roof ${roof.top.toFixed(2)} / terrain ${roof.terrain.toFixed(2)}` : 'none'})`);
   if (roof) {
     await waitSim(0.8);
-    const heldR = await page.evaluate(() => window.__game.ctx.weapons.remoteState.heldItemId);
-    if (heldR !== 'gad_thumper') await takeInHand();
+    if (await needTake()) await takeInHand();
     const pvR = await page.evaluate(() => { const p = window.__game.ctx.gadgets.placement; return p ? { gadget: p.gadget, valid: p.valid, reason: p.reason } : null; });
     ok(pvR && pvR.gadget === 'thumper' && pvR.valid === false, `preview red on the roof (${pvR?.reason})`);
     ok(pvR?.reason === R_BURROW, `refusal reason is the burrow one: 「${pvR?.reason}」`);

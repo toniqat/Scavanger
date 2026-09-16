@@ -18,6 +18,8 @@ import { DiningTable } from './ui/DiningTable';
 import { BookshelfMenu } from './ui/BookshelfMenu';
 import { createShipView } from './ui/ShipView';
 import type { HousingPanel } from './ui/Panel';
+// 2026-09-16: 창고 업그레이드 모달 — 인벤토리 Tab · 작업대 창이 `HousingRef.openStorageUpgrade()` 로 부른다
+import { StorageUpgrade, openStorageUpgrade } from './ui/StorageUpgrade';
 import './housing.css';
 
 import { BOOKS_BLOCK_REASON, FACILITY_IDS, PRESET_NAME_MAX } from './model';
@@ -89,6 +91,11 @@ export class HousingSystem implements GameSystem, HousingRef {
   /** 식사 화면 (주방 A-3c, 2026-09-11) — 메서드는 `openDiningTable` 이다. */
   diningTable: DiningTable | null = null;
   bookshelfMenu: BookshelfMenu | null = null;
+  /**
+   * 창고 업그레이드 모달 (2026-09-16) — 가구 화면이 아니라 `ctx.uiRoot` 직계에 홀로 뜨므로 패널 목록(`panels()`)이
+   * 아니라 여기에 산다. 처음 열 때 만들어지고 `dispose()` 가 걷는다.
+   */
+  storageUpgrade: StorageUpgrade | null = null;
   lastStash = { cols: 0, rows: 0 };
   /** `books` were checked against `ctx.loot` once (unknown / non-book ids dropped) — see `books()`. */
   booksPruned = false;
@@ -196,6 +203,7 @@ export class HousingSystem implements GameSystem, HousingRef {
     this.cookScreen?.dispose(); this.cookScreen = null;        // 요리 미니게임 (2026-09-13)
     this.cookStation?.dispose(); this.cookStation = null;
     this.miningScreen?.dispose(); this.miningScreen = null;    // 채굴 화면 (2026-09-14 통합)
+    this.storageUpgrade?.dispose(); this.storageUpgrade = null; // 창고 업그레이드 모달 (2026-09-16)
     Music.stopMusic(this);                                     // 음악 재생 (2026-09-14): 창이 사라진 채 상태만 남지 않게
     this.store?.dispose(); this.store = null;
   }
@@ -873,6 +881,8 @@ export class HousingSystem implements GameSystem, HousingRef {
   openFacilityMenu(): void { return Preset.openFacilityMenu(this); }
 
   openPresetMenu(): void { return Preset.openPresetMenu(this); }
+  /* appended (2026-09-16): 창고 업그레이드 모달 — 인벤토리 Tab · 작업대 창의 「업그레이드」가 `HousingRef` 로 부른다. */
+  openStorageUpgrade(): void { return openStorageUpgrade(this); }
 
   /** Close every panel; `relock` false when another panel opens right away. */
   closeMenus(relock = true): void { return Preset.closeMenus(this, relock); }

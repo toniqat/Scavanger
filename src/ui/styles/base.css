@@ -2204,8 +2204,24 @@ button.item-chip[data-def-id] { cursor: pointer; }
   border: 1px solid var(--rc);
   box-shadow: 0 20px 48px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   pointer-events: none;
+  /* 2026-09-16 (사용자 버그 「기업 거래 · 재료 칩 · 서재 전시대 · 연산 클러스터에서 카드 이름 · 종류가 오른쪽에 붙는다」):
+     카드는 언제나 `#ui-root` 바로 밑에 뜨므로(hud/ItemTip) 어느 화면에서 띄우든 똑같이 보여야 한다. 글 정렬은
+     상속되는 속성이라 카드 스스로 못박아 둔다 — 남의 컨테이너가 `text-align`/`direction` 을 바꿔도 이 카드는 그대로다. */
+  text-align: left; direction: ltr;
 }
-.item-tip .it-head { display: flex; flex-direction: column; gap: 2px; }
+/* **오른쪽 정렬 버그의 진짜 원인은 상속이 아니라 클래스 접두사 충돌이었다** (2026-09-16).
+   정보상 화면(`hub/intel.css`, 2026-09-14)이 같은 `.it-` 접두사를 골라 전역 규칙
+   `.it-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px }` 를 선언했고,
+   스타일시트는 전역이라 그 규칙이 이 카드의 머리에도 걸렸다. 여기서는 `display`·`flex-direction`·`gap` 만 다시
+   적고 있었으므로 `align-items: flex-end` 가 살아남았는데 **세로 flex 에서 그것이 곧 「오른쪽 정렬」**이다 —
+   이름(`.it-name`)과 종류(`.it-sub`)만 오른쪽에 붙던 이유이고, `.is-currency .it-sub` 가 `align-self: flex-start`
+   로 자기 한 줄만 되돌리고 있던 것이 그 흔적이다. 가방·창고는 `inventory/ui/Tooltip`(`.inv-tooltip`)이라 멀쩡했다.
+   화면마다 덮어쓰지 않고 여기서 한 번 막는다: 머리의 **교차축·주축·글 정렬을 전부 명시**해 새 `.it-*` 규칙이
+   또 들어와도 이 카드가 이긴다(`.item-tip` 이 붙어 특정도가 더 높다). — `src/hub/intel.css` 의 `.it-head` */
+.item-tip .it-head {
+  display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 2px;
+  text-align: left;
+}
 .item-tip .it-name { font-size: 14px; font-weight: 700; letter-spacing: 0.04em; color: var(--rc); }
 .item-tip .it-sub { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-faint); }
 .item-tip .it-desc { margin: 0; font-size: 11px; line-height: 1.5; color: var(--c-text-dim); }
@@ -3086,8 +3102,14 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
    그것이 위다. */
 /* 2026-09-12: the card and the placement-refusal toast above it share one bottom-centre column (`.sm-dock`) — the
    toast always lands right above the card, or on the same spot when no card is up. */
+/* 2026-09-16 (버그: 가구를 고른 채 무한상자 치트를 치면 이 팝업이 무한상자 창 · 인벤토리 우클릭 메뉴 **위**에 그려졌다).
+   옛 값 77 은 `.sm-confirm`(79) 바로 아래라는 이유만으로 골랐는데, `.ship-manage` 가 든 `.hud` 는 z-index 가 없어
+   쌓임 맥락을 만들지 않으므로 이 77 은 `#ui-root` 안에서 **인벤토리 창(50) · 그 우클릭 메뉴(75)와 직접 겨룬다**.
+   창은 언제나 이 팝업을 이겨야 하므로 **49** — 인벤토리 창 바로 아래, 곧 HUD 층의 맨 위다. 지도(40) · 커뮤니티(46)
+   위라 함선에서 이 팝업은 여전히 HUD 무엇에도 가리지 않고, `.sm-confirm`(79) · 튜토리얼 스포트라이트(78)보다
+   아래라는 원래 관계도 그대로다 (둘 다 77 일 때도 위였다). 반대쪽 숫자는 건드리지 않는다. */
 .sm-dock {
-  position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 77;
+  position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); z-index: 49;
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   pointer-events: none;
 }
@@ -3218,3 +3240,45 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 .cursor-hold circle { fill: none; stroke-width: 4; stroke-linecap: butt; }
 .cursor-hold .track { stroke: rgba(255, 255, 255, 0.18); }
 .cursor-hold .fill { stroke: var(--c-accent); filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.8)); }
+
+/* ══ 2026-09-16 — 공용 드롭다운 (`src/shared/dropdown.ts`) ══════════════════════════════════════════════════════
+ * 게임 안의 네이티브 `<select>` 를 대신한다. 목록(`.dd-pop`)은 `document.body` 바로 아래 `position: fixed` 로
+ * 떠서 어떤 스크롤 상자에도 잘리지 않으므로, **z-index 는 이 파일에서 가장 높다**(400 — 아이템 메뉴 302 위).
+ * 껍데기 `.dd` 는 크기를 정하지 않는다 — 부른 쪽 클래스(`.inv-filter-sel` 등)가 정한다.
+ * ────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+.dd { position: relative; display: inline-flex; align-items: stretch; min-width: 0; }
+.dd-trigger {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0; width: 100%;
+  padding: 0 24px 0 9px; height: 26px;
+  font: inherit; font-size: 12px; line-height: 1;
+  color: var(--inv-text-dim, rgba(233, 236, 239, 0.72));
+  background: var(--inv-slot, rgba(255, 255, 255, 0.045));
+  border: 1px solid var(--inv-line, rgba(255, 255, 255, 0.14));
+  border-radius: 4px; cursor: pointer; text-align: left;
+  transition: color 0.12s, border-color 0.12s, background-color 0.12s;
+}
+.dd-trigger::after {
+  content: '▾'; position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  font-size: 10px; opacity: 0.6; pointer-events: none;
+}
+.dd-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-trigger:hover { color: var(--inv-text, #e9ecef); border-color: var(--inv-line-strong, rgba(255, 255, 255, 0.26)); }
+.dd-trigger:focus-visible { outline: 1px solid var(--inv-accent, #f0c46a); outline-offset: 1px; }
+.dd.is-open .dd-trigger { color: var(--inv-text, #e9ecef); border-color: var(--inv-accent, #f0c46a); }
+
+.dd-pop {
+  position: fixed; z-index: 400; display: flex; flex-direction: column;
+  padding: 4px; overflow-y: auto; overscroll-behavior: contain;
+  background: #14181e; border: 1px solid var(--inv-line-strong, rgba(255, 255, 255, 0.26));
+  border-radius: 5px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.62);
+  scrollbar-width: thin; scrollbar-color: var(--sb-thumb, rgba(255, 255, 255, 0.22)) transparent;
+}
+.dd-opt {
+  display: block; width: 100%; padding: 5px 10px;
+  font: inherit; font-size: 12px; line-height: 1.25; text-align: left; white-space: nowrap;
+  color: var(--inv-text-dim, rgba(233, 236, 239, 0.78));
+  background: transparent; border: 0; border-radius: 3px; cursor: pointer;
+}
+.dd-opt.is-cursor { background: rgba(255, 255, 255, 0.09); color: var(--inv-text, #e9ecef); }
+.dd-opt.is-sel { color: var(--inv-accent, #f0c46a); }
+.dd-opt:disabled { color: rgba(233, 236, 239, 0.34); cursor: default; background: transparent; }

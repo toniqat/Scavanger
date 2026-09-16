@@ -118,8 +118,8 @@ constructor before any `init`). Nested: `ctx.net.profile` / `social` / `rooms` /
 ## Recent changes
 
 Last 5 only — older: `git log -- src/shared`.
+- 2026-09-16 — `craftRefund.ts` (add-only): `CRAFT_REFUND_CHANCE_AT_MAX` (`data/tuning.csv`), `craftRefundChance`, `craftCostFactor`, `rollCraftRefund` — the crafting skill's only effect is now a per-unit material refund; `CraftRecipe.skillRequired` is kept but unused (every csv row is `0`) and `DerivedStats.craftSpeedMul` is pinned at 1.
 - 2026-09-16 — Dining plates (add-only): `meals.ts` (`getMealDef`), `DiningPlate` / `TablePlateInfo` / `ShipState.plate` / plate `HousingRef` members / `DINING_TABLE_MISSING_REASON`, `InventoryRef.consumeCookInputs`, `CookResult.landed 'table'` + `replaced`, `LaunchWarningId 'plateDiscard'`, `PlateMessage` / `PlateRequest`, events `housing:plateChanged` · `housing:tablePlatesChanged` · `net:squadPlate`.
 - 2026-09-16 — `CrateLootOpts` (`lockedRoom`), `LootRef.rollCrateOn(…, opts?)`, `WorldRef.crateLootOpts?` (epic+ gate, locked-room exemption).
 - 2026-09-15 — `raidResume.ts` (`ctx.raidResume`, `raid:resumeChanged`); `LobbyPlayer.drifted`, `LobbyErrorCode 'drifted'`, `lobby:abandon`, `lobby:mission.keep`, `NetRef.abandonRaid?`, `RaidSessionBlob.pose`, `TutorialRef.restartTrack?`.
 - 2026-09-15 — `ItemCategory 'grenade'` retired (grenades are `category: gadget` + `ItemDef.grenade`); `ItemDef.gadgetUseTime`, `GadgetDef.wearsItemDurability`, `PlayerRef.takeDamage` opts `bypassShield`, `gadget:defibAim`, `HousingRef.devAdvanceAnalysis?`, `ANALYZER_SLOTS_BASE`.
-- 2026-09-15 — `ui:screenFade.hold?`; `NpcQuestRef.readAtOf?`.

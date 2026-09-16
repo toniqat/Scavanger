@@ -1,5 +1,5 @@
 import type { CraftIngredient, CraftRecipe, DurabilityBucketInfo, ItemCategory, ItemDef, ItemInstance, WeaponClass } from '@/shared';
-import { WEAPON_DEFAULT_DURABILITY, csvRows, keyTable, numberList } from '@/shared';
+import { SKILL_LEVEL_MAX, WEAPON_DEFAULT_DURABILITY, craftCostFactor, csvRows, keyTable, numberList } from '@/shared';
 import { ITEM_DEF_MAP, itemIdForWeapon } from './ItemDefs';
 import { WEAPON_DEFS, WEAPON_DEF_MAP, gradeOf, isUniqueWeapon, weaponClassOf } from './WeaponDefs';
 import { CRAFT_RECIPES, craftCostOf } from './Recipes';
@@ -64,6 +64,28 @@ const wearsDurability = (def: ItemDef): boolean => def.category === 'gadget' && 
 const isRepairable = (def: ItemDef): boolean => REPAIRABLE.includes(def.category) || wearsDurability(def);
 /** 제작 재료에서 분해 레시피를 자동 생성하는 아이템인가. */
 const isSalvageable = (def: ItemDef): boolean => SALVAGEABLE.includes(def.category) || wearsDurability(def);
+
+/* ══ 2026-09-16 (사용자 결정) — 제작 재료 환급의 **대상 판정** ═══════════════════════════════════════════════
+ * 제작 숙련은 이제 재료를 일부 돌려준다 (`shared/craftRefund.ts`). 그런데 **내구도 장비(무기 · 방탄복 · 가방 ·
+ * 내구 가젯)만은 빼야 한다** — 이 파일의 머리에 적힌 대로 그 장비들의 수리비 · 분해 산출이 바로 「제작 재료」에서
+ * 나오기 때문이다. 제작만 싸지면 「제작 → 분해」 · 「분해 → 재제작」 쪽으로 저울이 기울고, 아래 `checkSalvageEconomy`
+ * 의 네 가지 검사 중 세 가지가 전부 「제작 재료」를 기준선으로 쓰므로 그 기준선이 통째로 흔들린다.
+ * 재료 · 소모품 · 탄약 · 부착물 · 요리는 분해로 되돌릴 수 없으므로(또는 손으로 적은 고정 분해뿐이라 검산이 잡는다)
+ * 그대로 환급을 받는다. → docs/DECISIONS.md 「2026-09-16 — 제작과 숙련」
+ * ══════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** 이 레시피의 재료가 **제작 숙련 환급** 대상인가. 분해(`break_*`)와 내구도 장비는 아니다. */
+export function isCraftRefundable(recipe: CraftRecipe): boolean {
+  if (recipe.id.startsWith('break_')) return false;              // 분해는 제작이 아니다
+  const def = ITEM_DEF_MAP.get(recipe.outputDefId);
+  if (!def) return true;                                          // 요리(접시)처럼 아이템이 아닌 산출물 — 분해 대상이 될 수 없다
+  return !isSalvageable(def) && !isRepairable(def);
+}
+
+/** 최대 숙련에서 이 레시피가 **실제로 먹는** 재료 배수 (환급 대상이 아니면 1). 검산과 설명이 같은 값을 읽는다. */
+export function maxSkillCraftFactor(recipe: CraftRecipe): number {
+  return isCraftRefundable(recipe) ? craftCostFactor(SKILL_LEVEL_MAX) : 1;
+}
 
 /** 분해 홀드 시간(초) — 카테고리별 (`data/tuning.csv`). */
 function salvageDuration(category: ItemCategory): number {
@@ -246,6 +268,11 @@ interface SalvageSource {
   craft: readonly CraftIngredient[];
   /** 구간 4 기준으로 조립해 둔 레시피 (`getAllRecipes()` 에 실리는 것). */
   listed: CraftRecipe;
+  /**
+   * 2026-09-16: 최대 숙련에서 **실제로 먹는** 재료 배수 (`maxSkillCraftFactor`). 내구도 장비는 환급 대상이 아니라
+   * 언제나 1 이지만, 그 규칙이 깨지는 순간 아래 검산이 바로 잡도록 값으로 들고 있는다.
+   */
+  factor: number;
 }
 
 const SALVAGE_SOURCES: ReadonlyMap<string, SalvageSource> = (() => {
@@ -263,7 +290,7 @@ const SALVAGE_SOURCES: ReadonlyMap<string, SalvageSource> = (() => {
         + (gun ? ' 부착물은 먼저 가방으로 돌아온다.' : ''),
     };
     const listed = withOutputs(shell, scaleSalvage(r.inputs, TOP_SALVAGE_MUL));
-    if (listed) out.set(def.id, { craft: r.inputs, listed });
+    if (listed) out.set(def.id, { craft: r.inputs, listed, factor: maxSkillCraftFactor(r) });
   }
   return out;
 })();
@@ -307,6 +334,12 @@ export function salvageFor(inst: ItemInstance): CraftRecipe | null {
  *  (2) 수리 재료 + 분해 산출 ≤ 제작 재료, 그리고 적어도 한 종류는 **엄격히 작다**
  *  (3) 분해(구간 4) − 수리(구간 b) ≤ 분해(구간 b) — "고쳐서 뜯는" 편이 "지금 뜯는" 것보다 이득이면 안 된다
  *  (4) 제작에 안 쓰는 재료가 분해에서 나오지 않는다
+ *
+ * **2026-09-16 (제작 재료 환급) — 기준선은 「최대 숙련 플레이어가 실제로 낸 재료」다.** 불변식은 제일 잘하는
+ * 플레이어에게도 성립해야 하므로, 위 네 검사의 「제작 재료」는 전부 `제작 재료 × maxSkillCraftFactor(recipe)` 로
+ * 읽는다 (`shared/craftRefund.craftCostFactor`, 기댓값 — 무한 이득은 한 번의 운이 아니라 반복의 기댓값이다).
+ * 내구도 장비는 환급 대상이 아니므로 배수가 1 이라 이 절의 숫자가 예전 그대로이고, 손으로 적은 분해(탄약 · 기계
+ * 부품 · 실드 충전기)만 깎인 기준선과 겨룬다. 배수를 값으로 들고 있으므로 환급 규칙이 바뀌면 여기서 바로 터진다.
  */
 export interface EconomyViolation {
   defId: string;
@@ -315,11 +348,14 @@ export interface EconomyViolation {
   message: string;
 }
 
-const asMap = (list: readonly CraftIngredient[]): Map<string, number> => {
+const asMap = (list: readonly CraftIngredient[], factor = 1): Map<string, number> => {
   const m = new Map<string, number>();
-  for (const c of list) m.set(c.defId, (m.get(c.defId) ?? 0) + c.qty);
+  for (const c of list) m.set(c.defId, (m.get(c.defId) ?? 0) + c.qty * factor);
   return m;
 };
+
+/** 검산 메시지의 수량 — 환급 배수가 걸려 소수가 될 수 있다 (`5.2` · `8`). */
+const q = (n: number): string => (Number.isInteger(n) ? `${n}` : n.toFixed(2).replace(/0+$/, '').replace(/\.$/, ''));
 
 /** 무한 이득 루프가 없는지 실제 숫자로 검사한다. 비어 있으면 통과. */
 export function checkSalvageEconomy(): EconomyViolation[] {
@@ -335,7 +371,8 @@ export function checkSalvageEconomy(): EconomyViolation[] {
   }
 
   for (const [defId, src] of SALVAGE_SOURCES) {
-    const craft = asMap(src.craft);
+    // 2026-09-16: 기준선은 **최대 숙련이 실제로 낸 재료** (내구도 장비는 환급 대상이 아니라 배수 1 → 예전과 같은 숫자)
+    const craft = asMap(src.craft, src.factor);
     const def = ITEM_DEF_MAP.get(defId);
     const repairable = !!def && isRepairable(def) && maxDurabilityOf(def) > 0;
     const top = asMap(scaleSalvage(src.craft, TOP_SALVAGE_MUL));
@@ -351,8 +388,8 @@ export function checkSalvageEconomy(): EconomyViolation[] {
       for (const [m, c] of craft) {
         const s = salvage.get(m) ?? 0;
         const r = repair.get(m) ?? 0;
-        if (s > c) bad.push({ defId, bucket: b, message: `분해 산출 ${m} ${s} > 제작 ${c}` });
-        if (r + s > c) bad.push({ defId, bucket: b, message: `수리 ${r} + 분해 ${s} > 제작 ${c} (${m})` });
+        if (s > c) bad.push({ defId, bucket: b, message: `분해 산출 ${m} ${s} > 제작 ${q(c)}` });
+        if (r + s > c) bad.push({ defId, bucket: b, message: `수리 ${r} + 분해 ${s} > 제작 ${q(c)} (${m})` });
         if (r + s < c) strictlyLess = true;
         if ((top.get(m) ?? 0) - r > s) bad.push({ defId, bucket: b, message: `수리하고 뜯는 편이 이득 (${m}: ${top.get(m) ?? 0} − ${r} > ${s})` });
       }
@@ -382,15 +419,21 @@ export function checkSalvageEconomy(): EconomyViolation[] {
     const input = h.listed.inputs[0];
     const recipe = CRAFT_RECIPES.find((c) => c.outputDefId === input.defId);
     if (!recipe) continue;
-    /* 탄약처럼 한 번에 여러 개를 만드는 레시피는 "분해에 들어가는 개수" 에 맞춰 환산한다. */
+    /* 탄약처럼 한 번에 여러 개를 만드는 레시피는 "분해에 들어가는 개수" 에 맞춰 환산한다.
+       2026-09-16: 그리고 **최대 숙련의 재료 환급**을 먹인다 — 탄약 · 기계 부품 · 실드 충전기는 내구도 장비가
+       아니라 환급 대상이므로, 여기가 환급이 실제로 겨루는 유일한 자리다 (기준선이 0.65 배로 내려온다). */
+    const factor = maxSkillCraftFactor(recipe);
     const runs = input.qty / recipe.outputQty;
-    const craft = asMap(recipe.inputs.map((i) => ({ defId: i.defId, qty: i.qty * runs })));
+    const craft = asMap(recipe.inputs.map((i) => ({ defId: i.defId, qty: i.qty * runs })), factor);
     const outs = asMap([{ defId: h.listed.outputDefId, qty: h.listed.outputQty }, ...(h.listed.extraOutputs ?? [])]);
     let strictlyLess = false;
     for (const [m, c] of craft) {
       const s = outs.get(m) ?? 0;
-      if (s > c) bad.push({ defId: input.defId, bucket: -1, message: `${h.listed.id}: ${m} ${s} > 제작 ${c}` });
-      if (s < c) strictlyLess = true;
+      if (s > c + 1e-9) {
+        bad.push({ defId: input.defId, bucket: -1, message: `${h.listed.id}: ${m} ${s} > 제작 ${q(c)}`
+          + (factor < 1 ? ` (최대 숙련 재료 환급 ×${q(factor)} 뒤)` : '') });
+      }
+      if (s < c - 1e-9) strictlyLess = true;
     }
     for (const [m, s] of outs) if (!craft.has(m)) bad.push({ defId: input.defId, bucket: -1, message: `${h.listed.id}: 제작에 안 쓰는 ${m} 이 ${s} 나온다` });
     if (!strictlyLess) bad.push({ defId: input.defId, bucket: -1, message: `${h.listed.id}: 분해 산출이 제작 재료와 완전히 같다` });

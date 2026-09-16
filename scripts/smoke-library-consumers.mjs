@@ -4,6 +4,8 @@
 //   2. legacy item id conversion (`resolveItemAlias`) in `reviveItem`, the stash document (a converted stack re-merges), the loadout bag
 //      and the favourite list — a temporary alias `smoke_old_scrap → mat_scrap` is added to the live alias map,
 //   3. research refund + research XP at a lab bench (추출기 `extract_min`, `derived.researchRefundChance` forced to 1 / 0),
+//      with the 제작 숙련 refund (2026-09-16, `shared/craftRefund.ts`) held at skill 0 so those two cases see the research roll
+//      alone, plus one deterministic `refundAfterCraft(…, rng)` run where both rolls fire and still deliver ONE toast,
 //   4. item tooltip lines for a series book and a game disc (skipped with a note when those defs are not in the data yet),
 //   5. contract trust × `libraryTrustMul` and raid-end XP × `1 + raidXp` with a stubbed `getLibraryEffects`,
 //   6. the dev console `library` command.
@@ -244,7 +246,15 @@ try {
   const setup = await page.evaluate(async () => {
     const ctx = window.__game.ctx, inv = ctx.inventory, prog = ctx.progression;
     const K = await window.__imp('/src/shared/constants.ts');
-    for (let i = 0; i < 60 && (prog.getSkill('crafting') ?? 0) < 12; i++) prog.addSkillXpRaw('crafting', 400);
+    const CR = await window.__imp('/src/shared/craftRefund.ts');
+    /*
+     * 2026-09-16 (사용자 결정 「숙련은 재료 환급에만 관여」): 제작이 끝나면 환급 굴림이 **둘**이다 —
+     * 제작 숙련(재료 한 개씩) + 연구 숙련(1회분마다), 지급과 토스트는 한 번(`Crafting.refundAfterCraft`).
+     * 이 절이 보는 것은 **연구 쪽**이므로 제작 숙련을 0 으로 내려 ①을 꺼 둔다 (`craftRefundChance(0) === 0`).
+     * 예전에 여기서 제작 숙련을 12 까지 올렸던 것은 옛 `skillRequired` 게이트 때문인데, `data/recipes.csv` 의
+     * 그 열은 이제 전부 0 이라 올릴 이유가 없다. 둘이 겹쳤을 때 한 줄로 합쳐지는지는 아래 `refundAfterCraft` 가 본다.
+     */
+    prog.addSkillXpRaw('crafting', -1e6);
     const r = ctx.loot.getAllRecipes().find((x) => x.id === 'extract_min');
     if (!r) return { error: 'no extract_min recipe' };
     window.__derivedDesc = Object.getOwnPropertyDescriptor(prog, 'derived') ?? null;
@@ -266,11 +276,15 @@ try {
       const max = ctx.loot.getItemDef(c.defId)?.stackMax ?? 1;
       while (left > 0) { const n = Math.min(max, left); inv.tryAddItem(ctx.loot.createItem(c.defId, n)); left -= n; }
     }
-    return { cost, skill: prog.getSkill('crafting'), xpConst: K.RESEARCH_XP_CRAFT, can: inv.canCraft('extract_min', 2) };
+    return { cost, skill: prog.getSkill('crafting'), xpConst: K.RESEARCH_XP_CRAFT, can: inv.canCraft('extract_min', 2),
+      chance0: CR.craftRefundChance(0), chanceMax: CR.craftRefundChance(K.SKILL_LEVEL_MAX), refundable: (await window.__imp('/src/items/index.ts')).isCraftRefundable(r) };
   });
   if (setup.error) ok(false, 'research refund setup', setup.error);
   else {
     ok(setup.can, 'extract_min is craftable at 추출기 Lv.3 with 2 runs of materials', JSON.stringify(setup));
+    // 2026-09-16: 제작 숙련 0 = 환급 없음. 이 절이 연구 쪽만 보려면 이 성질이 참이어야 한다 (`shared/craftRefund.ts`)
+    ok(setup.skill === 0 && setup.chance0 === 0 && setup.chanceMax > 0 && setup.refundable === true,
+      'craftRefundChance(0) === 0 (skill 0 → 제작 숙련 환급 없음), > 0 at SKILL_LEVEL_MAX; extract_min is refundable gear-free', JSON.stringify(setup));
     const runCraft = (count) => page.evaluate(async (n) => {
       const ctx = window.__game.ctx, inv = ctx.inventory;
       const r = ctx.loot.getAllRecipes().find((x) => x.id === 'extract_min');
@@ -297,6 +311,38 @@ try {
     const expB = Object.fromEntries(b.cost.map((c) => [c.defId, b.before[c.defId] - c.qty]));
     ok(b.made && JSON.stringify(b.after) === JSON.stringify(expB) && b.notes.length === 0, 'chance 0: nothing comes back, no toast', JSON.stringify({ b, expB }));
     ok(b.xp.length === 1 && b.xp[0][1] === setup.xpConst, 'research XP still paid on a failed roll', JSON.stringify(b.xp));
+    /*
+     * 2026-09-16 — **두 굴림이 겹쳐도 지급과 토스트는 한 번.** 위 두 경우는 제작 숙련을 0 으로 꺼 두고 연구 쪽만 봤다.
+     * 여기서는 둘 다 켜고 `refundAfterCraft` 를 `rng: () => 0` 으로 직접 부른다 (게임 경로는 `Math.random` 이라 결과가
+     * 굴림마다 달라진다): 0 은 어떤 확률보다도 작으므로 **재료 한 개도 빠짐없이** 돌아오고, 기대값이 한 줄로 정해진다.
+     */
+    const merged = await page.evaluate(async () => {
+      const ctx = window.__game.ctx, inv = ctx.inventory, prog = ctx.progression;
+      const C = await window.__imp('/src/inventory/parts/Crafting.ts');
+      const CR = await window.__imp('/src/shared/craftRefund.ts');
+      const K = await window.__imp('/src/shared/constants.ts');
+      const r = ctx.loot.getAllRecipes().find((x) => x.id === 'extract_min');
+      prog.addSkillXpRaw('crafting', 1e9);                     // 제작 숙련 최대 → ① 이 켜진다
+      window.__refundStub.chance = 1; window.__refundStub.frac = 0.5;   // 연구 ② 도 켠다
+      const cost = inv.craftCost(r);
+      const before = Object.fromEntries(cost.map((c) => [c.defId, inv.countDefAll(c.defId)]));
+      const n0 = window.__ev['ui:notify'].length;
+      const out = C.refundAfterCraft(inv, r, cost, 1, () => 0);
+      const after = Object.fromEntries(cost.map((c) => [c.defId, inv.countDefAll(c.defId)]));
+      return {
+        skill: prog.getSkill('crafting'), max: K.SKILL_LEVEL_MAX, chance: CR.craftRefundChance(prog.getSkill('crafting')),
+        out, before, after,
+        exp: Object.fromEntries(cost.map((c) => [c.defId, c.qty + C.researchRefundQty(c.qty, 0.5)])),
+        notes: window.__ev['ui:notify'].slice(n0).map((e) => e.text).filter((t) => /재료 회수/.test(t ?? '')),
+      };
+    });
+    const mergedGain = Object.fromEntries(Object.keys(merged.exp).map((k) => [k, merged.after[k] - merged.before[k]]));
+    ok(merged.skill === merged.max && merged.chance > 0 && JSON.stringify(mergedGain) === JSON.stringify(merged.exp)
+      && JSON.stringify(Object.fromEntries(merged.out.map((o) => [o.defId, o.qty]))) === JSON.stringify(merged.exp),
+      '제작 숙련 + 연구 숙련이 겹치면 재료가 한 번에 합쳐져 돌아온다 (per-unit + per-run)', JSON.stringify({ merged, mergedGain }));
+    ok(merged.notes.length === 1 && /^재료 회수: .+ · .+$/.test(merged.notes[0]),
+      '합쳐진 환급도 「재료 회수: …」 토스트 한 줄', JSON.stringify(merged.notes));
+    await page.evaluate(() => window.__game.ctx.progression.addSkillXpRaw('crafting', -1e9));
   }
   await page.evaluate(() => {
     const ctx = window.__game.ctx, inv = ctx.inventory, prog = ctx.progression;

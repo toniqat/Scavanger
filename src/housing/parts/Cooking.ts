@@ -68,10 +68,12 @@ export function cookBenchAt(sys: HousingSystem, uid: string): { item: PlacedFurn
 
 /**
  * 조리대 레시피 **전부** — 원본 표(`ctx.loot.getAllRecipes()`) 중 조리대(`bench cook`) 레시피이고 산출물에 조리 단계(`cookStepsOf`)가 있는 것.
- * 잠김은 하나도 거르지 않는다 — 조리대 레벨(`benchLevel`) · 숙련(`cookRecipeSkillBlock`) · 레시피 책(`cookRecipeBookBlock`)은 화면이 딤드 + 배지로
- * 가르고, 시작은 `cookBlock` 이 막는다.
- * 2026-09-15 (B-15, 사용자 결정 「전부 딤드 + 숙련 배지」): 예전에는 `inventory.getRecipes('ship', 'cook', 99)` 를 읽어 **숙련이 모자란 요리가
- * 레일에 아예 없었다** — 무엇을 올려야 열리는지 알 수 없었다. 그 경로는 inventory 가 없을 때의 대체로만 남는다(그때는 숙련으로 걸러진다).
+ * 잠김은 하나도 거르지 않는다 — 조리대 레벨(`benchLevel`) · 숙련(`cookRecipeSkillBlock`) · 레시피 책(`cookRecipeBookBlock`)은
+ * 화면이 딤드 + 배지로 가르고, 시작은 `cookBlock` 이 막는다.
+ * 2026-09-16 (사용자 결정 2차): 숙련 배지는 같은 날 오전에 지웠다가 **되살렸다** — `skillRequired` 열을 남겨 둔 이상 나중에 csv
+ * 숫자만 올려서 켤 수 있어야 한다. 값이 전부 0 인 지금은 배지가 한 번도 뜨지 않는다 (데이터가 꺼 둔 표시다).
+ * 이 목록이 원본 표를 읽는 이유는 그대로다 (B-15): `inventory.getRecipes` 를 읽으면 **숙련이 모자란 요리가 레일에 아예 없어져**
+ * 무엇을 올려야 열리는지 알 수 없었다. 그 경로는 inventory 가 없을 때의 대체로만 남는다 (그때는 숙련으로 걸러진다).
  */
 export function cookRecipes(sys: HousingSystem): CraftRecipe[] {
   const inv = sys.ctx.inventory;
@@ -82,7 +84,11 @@ export function cookRecipes(sys: HousingSystem): CraftRecipe[] {
   return all.filter((r) => r.bench === 'cook' && cookStepsOf(r.outputDefId).length > 0);
 }
 
-/** 레시피 숙련 이름 — progression 표(`skills.csv` 의 `name`)가 원본, 없을 때만 아래 대체 표 → id. */
+/**
+ * 레시피 하나 — 원본 표를 읽는다 (목록 `cookRecipes` 와 같은 원본): 잠긴 요리를 부른 곳도 「요리 레시피가 아닙니다」 가 아니라
+ * inventory `cookBlock` 의 진짜 사유(`조리대 Lv.2 이 필요합니다`)를 받아야 한다.
+ */
+/** 레시피 숙련 이름 — progression 표(`skills.csv` 의 `name`)가 원본, 없을 때만 대체 표 → id. */
 export function cookSkillLabel(sys: HousingSystem, skill: CraftRecipe['skill']): string {
   const prog = sys.ctx.progression;
   const def = prog && typeof prog.getSkillDef === 'function' ? prog.getSkillDef(skill) : null;
@@ -90,8 +96,9 @@ export function cookSkillLabel(sys: HousingSystem, skill: CraftRecipe['skill']):
 }
 
 /**
- * 2026-09-15 (B-15): 숙련이 모자라 잠긴 요리면 `{ label, need, have }` (배지 `제작 20` 의 재료), 아니면 null.
- * 표시용이다 — 시작을 막는 것은 여전히 `cookBlock`(inventory 의 진짜 사유)이다.
+ * 숙련이 모자라 잠긴 요리면 `{ label, need, have }` (배지 `제작 20` 의 재료), 아니면 null (2026-09-15 B-15 → 2026-09-16 복원).
+ * 표시용이다 — 시작을 막는 것은 여전히 `cookBlock`(inventory 의 진짜 사유)이다. `need === 0` 이면 언제나 null 이라
+ * `recipes.csv` 가 전부 0 인 지금은 아무것도 잠그지 않는다.
  */
 export function cookRecipeSkillBlock(sys: HousingSystem, recipe: CraftRecipe): { label: string; need: number; have: number } | null {
   const need = recipe.skillRequired;
@@ -100,10 +107,6 @@ export function cookRecipeSkillBlock(sys: HousingSystem, recipe: CraftRecipe): {
   return have >= need ? null : { label: cookSkillLabel(sys, recipe.skill), need, have };
 }
 
-/**
- * 레시피 하나 — 원본 표를 읽는다(목록 `cookRecipes` 와 같은 원본): 숙련이 모자란 요리를 부른 곳도 「요리 레시피가 아닙니다」 가 아니라
- * inventory `cookBlock` 의 진짜 사유(`제작 숙련 n 이 필요합니다`)를 받아야 한다.
- */
 export function cookRecipeOf(sys: HousingSystem, recipeId: string): CraftRecipe | null {
   const loot = sys.ctx.loot;
   const all = loot && typeof loot.getAllRecipes === 'function' ? loot.getAllRecipes() : cookRecipes(sys);

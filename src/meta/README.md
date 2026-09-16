@@ -15,7 +15,7 @@ All numbers come from `data/` (`corps.csv`, `corp_stock.csv`, `contracts.csv`, `
 | `index.ts` | Barrel |
 | `MetaSystem.ts` | `GameSystem` + `MetaRef`: bus subscriptions for contract goals, settlement entry, corp screen open/close, embedded views (`views`), purchase-failure / repair listener sets, console registration on first `update()`; one-line delegates into `parts/` |
 | `model.ts` | Folder vocabulary (types, constants, `isValidHit`); re-exported by `MetaSystem.ts` |
-| `Rules.ts` | Pure rules: `repInfoOf`, shop filter (`ruleMatches`, `corpSells`, `shopRarityCap`, `buildShop`, `implantRepairMaterialIds`), `killGoalOf`, `contractBlockReason`, `contractHitDelta`, `settleContract`, implant repair (`IMPLANT_REPAIR_FEE`, `implantGrade`, `implantRepairFee`, `isRepairableImplantDef`, `implantRepairCost`, `canRepairImplant`), legacy `questStateOf`/`questBlockReason`, Korean `REASON` strings |
+| `Rules.ts` | Pure rules: `repInfoOf`, shop filter (`ruleMatches`, `corpSells`, `shopRarityCap`, `shopQtyOf`, `buildShop`, `implantRepairMaterialIds`), `killGoalOf`, `contractBlockReason`, `contractHitDelta`, `settleContract`, implant repair (`IMPLANT_REPAIR_FEE`, `implantGrade`, `implantRepairFee`, `isRepairableImplantDef`, `implantRepairCost`, `canRepairImplant`), legacy `questStateOf`/`questBlockReason`, Korean `REASON` strings |
 | `NpcRules.ts` | Pure NPC rules: `enemyMatches`, `weaponSpecClass`, `itemMatches`, `requirementMet` (level, corp rep, NPC trust, completed quests, progress flags), `objectiveLabel`, `rewardSummary`, `npcTrustLabel`, `npcTrustReason`, `legacyQuestState`, `freshNpcSave`, `sanitizeNpcSave`, `NPC_REASON` |
 | `Storage.ts` | `MetaSave` (`META_SAVE_VERSION`) in localStorage `slotKey(META_STORAGE_KEY)`: `freshMetaSave`, `sanitizeMetaSave`, `MetaStorage` (debounced `markDirty`, `flush` on `pagehide`/`beforeunload`/hub entry/dispose, `upload` → `ctx.net.profile.set('meta', …)`, `replace` adopts a server document without echoing), `MAX_PROGRESS` |
 | `parts/Credits.ts` | Credit balance owner: `addCredits` (optimistic + `credits:tx`), `creditsTx` (awaits the relay answer), `serverTx`, `adoptServerCredits`, `onProfileLoaded`, `getRep`/`addRep`; relayed `meta` / `metaq` validation (`onMetaMessage`, `onMetaRequest`) |
@@ -77,10 +77,14 @@ Main consumers: `game/` (`settleMission` before `game:complete`/`game:over`), `h
   local apply reverted. Use it where the caller must change state only on success (intel, crypto trades).
 - **Shop**: opens at `SHOP_UNLOCK_REP_LEVEL`. Items from `ctx.loot.getAllItemDefs()` filtered by the corp's `ShopRule`s (category, weapon
   class, ammo type, tactical bag, `minRepLevel`, `maxRarity`, `implantRepairMaterials`), rarity ≤ `SHOP_RARITY_CAP_BY_REP[level]`
-  (+`SHOP_BAG_RARITY_BONUS` for bags), `value > 0`; uniques and broken implants are never sold. Price `buyPriceOf(value, level)`.
-- **`buy`** is synchronous and answers "was the request accepted" (ship, on shelf, `canFit`, credits). With a server profile the item is
-  created only after an `ok` answer; placement failure refunds with `refund:<def>`. Refusals go to `onPurchaseFailure(fn)` listeners; the
-  screen refreshes on `meta:purchase`, never on `buy()`'s return value.
+  (+`SHOP_BAG_RARITY_BONUS` for bags), `value > 0`; uniques and broken implants are never sold.
+- **One shelf slot = one purchase = `shopQtyOf(def)` units** (2026-09-16 사용자 결정): ammo comes as a **full stack** (`stackMax`),
+  everything else as a single unit. So `ShopItem.price` is `buyPriceOf(value, level) × shopQtyOf(def)` and `canFit` is checked for that
+  many units. The relay's `buy:<defId>` rule is a **lower** bound (`|delta| ≥ the best-discount price`), so the bigger amount still passes
+  and `qty ≤ stackMax` holds by construction.
+- **`buy`** is synchronous and answers "was the request accepted" (ship, on shelf, `canFit`, credits) and delivers `shopQtyOf(def)` units.
+  With a server profile the item is created only after an `ok` answer; placement failure refunds with `refund:<def>`. Refusals go to
+  `onPurchaseFailure(fn)` listeners; the screen refreshes on `meta:purchase`, never on `buy()`'s return value.
 - **Selling**: bag + stash items with a value, equipped gear excluded. `sellPriceOf` floors (`shared/credits.sellPriceFrom` ×
   `SELL_PRICE_MUL`), so a value-1 single is worth 0 C and still sells; a 0 C chunk sends no `credits:tx` (the relay requires `delta > 0`).
   The server transaction is `sell:<def>:<qty>` per `stackMax` chunk; a refusal reverts credits and restores the units.
@@ -181,6 +185,11 @@ but no content gates on it yet.
 - **Credit readouts go through `formatCredits` / `formatCreditAmount`** (`@/shared`); `ui/dom.fmtNum` is for non-credit numbers.
 - **Corp page cell size** is 40 px and `fitLayout` shrinks it to 32 px to keep all cards in one row; below that the stash + bag card is
   hidden (`.is-inv-hidden`). The stash + bag card holds both grids side by side, so its columns are summed (`gridColsIn(…, 'sum')`).
+- **기업 판매 물품 is a fixed `SHOP_COLS` (10) columns wide** — a content-sized card, not `.is-fluid` any more. `CorpView.SHOP_COLS`,
+  its `data-cv-cols` and `.cv-col.shop`'s `min-width` in `meta.css` are the same number and change together.
+- **Trade tiles say the screen's price, not 가치** — a tile stamped `data-tip-price` (credits) + `data-tip-price-label` (Korean) makes the
+  shared hover card (`ui/hud/ItemTip`, `TIP_PRICE_ATTR`) replace its bottom-right bar: 구매가 on the shelf / 구매 tray, 판매가 on the
+  판매 tray. The stash + bag grids stamp nothing, so they keep 가치 (`CorpView.tagTipPrice`).
 - `.cv-confirm`'s `textContent` includes the keycap SVG `<title>` (`LMB거래 성사`); read the label from `.cv-confirm-label`.
 - `.inv-screen.corp-view`'s `height: calc(100vh - 130px)` mirrors inventory's `.inv-screen` `max-height`; change both together.
 - Folder split: `model.ts` holds shared vocabulary, `parts/*.ts` take `sys: MetaSystem` as first argument and import only types from
@@ -190,8 +199,8 @@ but no content gates on it yet.
 
 Last 5 only — older: `git log -- src/meta`.
 
+- 2026-09-16 — Ammo is sold as a full stack (`shopQtyOf`), trade tiles show 구매가 / 판매가 instead of 가치 (`data-tip-price`), shelf fixed at 10 columns, quest XP in `rewardSummary` uses the compact formatter.
 - 2026-09-15 — NPC evaluation waits for the tutorial `ship` track to finish and for no track to run (`tutorialBlocks`); Raven no longer writes during the tutorial.
 - 2026-09-15 — Corp screen: stash + bag is one card (`createTradeGrids` once, columns summed in `fitLayout`).
 - 2026-09-15 — Left-click hold keycap inside the `거래 성사` and `HoldAsk` confirm buttons; hint line removed.
 - 2026-09-15 — `NpcQuests.readAtOf(npcId)` for the messenger's sequential bubble reveal.
-- 2026-09-14 — First contact in three steps, progress flags `gathered`/`raidReturned`, `getQuests()` filters offers, defer retired.

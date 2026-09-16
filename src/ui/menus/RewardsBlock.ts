@@ -1,5 +1,8 @@
 import type { ContractSettlement, GameContext, MissionRewards } from '@/shared';
-import { formatCredits } from '@/shared';
+/* 2026-09-16 (사용자 결정 「큰 수 축약」): 경험치도 크레딧 · 가치와 같은 표기를 쓴다 (`shared/numberFormat`) —
+   자릿수가 얼마든 커지는 값이라 `1,204,800` 보다 `1.20m` 이 한눈에 읽힌다. 계약 진척 `p / t` 처럼 **정확한 값이
+   곧 뜻인 수**는 그대로 `fmtInt` 다. */
+import { formatCompactNumber, formatCompactSigned, formatCredits } from '@/shared';
 import { el, fmtInt, setText } from '../dom';
 
 const COUNT_DELAY = 0.35;   // seconds before the XP count-up starts (after the frame's entry animation)
@@ -97,7 +100,8 @@ export class RewardsBlock {
     this.root.classList.remove('up');
     this.upEl.hidden = true;
     setText(this.lvEl, this.levelUp ? `Lv. ${rewards.levelBefore} → ${rewards.levelAfter}` : `Lv. ${rewards.levelAfter}`);
-    setText(this.numEl, `${fmtInt(rewards.xp)} / ${fmtInt(rewards.xpToNext)} XP`);
+    // `x / y` 쌍은 **양쪽 다** 같은 표기여야 비교가 된다 (한쪽만 축약하면 `1.2k / 240000` 처럼 읽힌다).
+    setText(this.numEl, `${formatCompactNumber(rewards.xp)} / ${formatCompactNumber(rewards.xpToNext)} XP`);
     this.lastGain = '+0';
     setText(this.gainEl, '+0');
     this.timer = 0;
@@ -124,7 +128,7 @@ export class RewardsBlock {
     const t = Math.min(1, (this.timer - COUNT_DELAY) / COUNT_DUR);
     if (t < 0) return;
     const eased = 1 - Math.pow(1 - t, 3);
-    const gain = `+${fmtInt(this.rewards.xpEarned * eased)}`;
+    const gain = formatCompactSigned(this.rewards.xpEarned * eased, true);
     if (gain !== this.lastGain) { this.lastGain = gain; setText(this.gainEl, gain); }
     // With a level-up the bar runs to full first, then refills to the new fraction.
     let fill: number;

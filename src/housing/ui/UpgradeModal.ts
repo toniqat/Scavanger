@@ -1,12 +1,17 @@
 import type { CraftIngredient, FacilityRequirement, GameContext } from '@/shared';
-import { FACILITY_COLOR, FACILITY_GLYPH, FACILITY_LABEL_KO, UI_HOLD_CONFIRM_S, buildFacilityChip, createHoldButtonCap } from '@/shared';
+import { FACILITY_COLOR, FACILITY_GLYPH, FACILITY_LABEL_KO, Keys, UI_HOLD_CONFIRM_S, buildFacilityChip, createHoldButtonCap } from '@/shared';
 import type { PanelOverlay } from './Panel';
 import type { CostSource } from './dom';
 import { clear, el, facilityChipTip, renderCost, setText, toggleClass } from './dom';
 
-/** What the modal shows for one piece of furniture — re-read on every refresh (재료가 가방 · 창고에서 오갈 수 있다). */
+/**
+ * What the modal shows for **one upgradable thing** — re-read on every refresh (재료가 가방 · 창고에서 오갈 수 있다).
+ *
+ * 2026-09-16: 가구 전용이었던 것을 **시설도 쓴다** (창고 업그레이드). 필드는 원래부터 「이름 · 레벨 · 다음 레벨이 여는
+ * 것 · 재료 · 막힌 사유」뿐이라 가구 고유의 것이 하나도 없었다 — 이름만 일반화하고 모양 · 규칙은 그대로다.
+ */
 export interface UpgradeSpec {
-  /** 가구 이름 (`FurnitureDef.name`). */
+  /** 대상 이름 (가구 `FurnitureDef.name` · 시설 `FACILITY_LABEL_KO`). */
   name: string;
   level: number;
   maxLevel: number;
@@ -28,8 +33,23 @@ const ESCAPE_TOKEN = 'housing.upgrade';
 const MODAL_CHIP_SIZE = 44;
 
 /**
+ * 2026-09-16 (창고 업그레이드): 가구 화면 **밖**에서 홀로 뜰 때 붙이는 것들.
+ *
+ * `standalone` 이면 모달이 `ctx.uiRoot` 직계로 붙으므로 스스로 `.interactive`(= `#ui-root` 의 `pointer-events: none`
+ * 을 푼다)와 `.hs-modal-top`(인벤토리 창 위 z, `housing.css`)을 쓰고, **Tab 도 스스로 삼켜 닫는다** — 패널이
+ * 대신 닫아 주지 않는데 Tab 을 흘리면 뒤의 인벤토리 창만 닫히고 모달이 혼자 남는다 (§4.2 「Tab 은 만능 닫기」).
+ * blocker 는 더하지 않는다: 이 모달을 여는 두 곳(인벤토리 Tab · 작업대 창)이 이미 blocker 와 커서를 쥐고 있다.
+ */
+export interface UpgradeModalOptions {
+  standalone?: boolean;
+  /** 어떤 길로 닫혔든(취소 · Escape · Tab · 바깥 클릭 · 확정) 한 번 불린다 — 부르는 쪽이 구독을 끊는다. */
+  onClose?(): void;
+}
+
+/**
  * **업그레이드 모달** (2026-09-12) — 가구 화면 머리줄 오른쪽 「업그레이드」가 연다. 옛 「강화 줄」(`.gs-up` · `.az-up` ·
- * `.ct-up`)을 대신한다.
+ * `.ct-up`)을 대신한다. **2026-09-16 부터 시설(창고)도 같은 모달을 쓴다** (`ui/StorageUpgrade.ts` — 가구 화면이
+ * 아니라 `ctx.uiRoot` 에 홀로 뜨는 `standalone` 갈래다). 보이는 것도 규칙도 하나다.
  *
  * 재료를 소모하는 확정이라 제작 · 분해 · 거래와 같은 **`UI_HOLD_CONFIRM_S` 홀드**다 (사용자 결정): 클릭만으로는 아무
  * 일도 없고, 누르는 동안 채움 바가 버튼을 쓸고 가며 도중에 놓거나 벗어나면 0 으로 돌아간다. **Enter 는 삼킨다.**
@@ -55,14 +75,21 @@ export class UpgradeModal implements PanelOverlay {
 
   private readonly onKey = (e: KeyboardEvent): void => {
     if (this.root.hidden) return;
-    if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); e.stopImmediatePropagation(); }
+    if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    // 2026-09-16: 홀로 뜬 모달은 Tab 도 자기가 먹고 닫는다 (키는 늘 쓰는 시점에 읽는다 — `docs/CONTROLS.md`)
+    if (this.opts.standalone && e.code === Keys.INVENTORY) { e.preventDefault(); e.stopImmediatePropagation(); this.close(); }
   };
 
   /** 포인터를 어디서 놓든 홀드가 남지 않게 `window` 에서 듣는다. */
   private readonly onUp = (): void => this.stopHold();
 
-  constructor(private readonly ctx: GameContext, parent: HTMLElement, private readonly costs: CostSource) {
-    this.root = el('div', { cls: 'hs-modal', parent });
+  constructor(
+    private readonly ctx: GameContext,
+    parent: HTMLElement,
+    private readonly costs: CostSource,
+    private readonly opts: UpgradeModalOptions = {},
+  ) {
+    this.root = el('div', { cls: opts.standalone ? 'hs-modal hs-modal-top interactive' : 'hs-modal', parent });
     this.root.hidden = true;
     const card = el('div', { cls: 'hs-modal-card', parent: this.root });
     this.titleEl = el('div', { cls: 'hs-modal-title', text: '', parent: card });
@@ -150,6 +177,7 @@ export class UpgradeModal implements PanelOverlay {
     this.ctx.escape.remove(ESCAPE_TOKEN);
     window.removeEventListener('keydown', this.onKey, true);
     window.removeEventListener('pointerup', this.onUp, true);
+    this.opts.onClose?.();
   }
 
   /* ── 홀드 확인 ────────────────────────────────────────────────────────── */

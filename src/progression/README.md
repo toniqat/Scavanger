@@ -127,8 +127,8 @@ default (multiplier 1, bonus 0).
 ## Recent changes
 
 Last 5 only — older: `git log -- src/progression`.
+- 2026-09-16 — The crafting skill no longer speeds up crafting: `craftSpeedMul` is pinned at 1 (field kept — `DerivedStats` is add-only) and dropped from `DERIVED_PANEL_KEYS` / the sheet, so the always-×1.0 `제작 속도` row is gone; `data/skills.csv` crafting has no `derived` key and describes the material refund instead.
+- 2026-09-16 — Character-sheet XP readouts are compact (`shared/numberFormat` `formatCompactNumber`): the level bar `x / y XP` and every stat row's `x / y XP` format both sides; stat values, 단련 bonuses, percentages and timers stay exact.
 - 2026-09-16 — Meal defs read from `shared/meals` (`getMealDef`) instead of `ctx.loot`; `serveMeal` kept as contract with no caller.
 - 2026-09-16 — 운반 XP counts `ctx.player.selfMovedMeters` growth instead of the raw position delta (extraction liftoff / grapple / dash no longer train it).
 - 2026-09-15 — No cryptography XP for `extraction:activated` with `duration <= 0` or in the tutorial (the pre-landed tutorial ship replays the event).
-- 2026-09-15 — `포인트 투자 확정` hold keycap: mouse glyph white, chevron accent (`character.css`, scoped to `.pg-confirm`).
-- 2026-09-15 — Left-click hold keycap inside `포인트 투자 확정` (`createHoldButtonCap`).

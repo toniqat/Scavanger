@@ -65,7 +65,6 @@ const RECOIL_AT_MAX = 0.4;          // −40 % recoil
 const RELOAD_AT_MAX = 0.45;         // ×1.45 reload speed
 const DURABILITY_AT_MAX = 0.5;      // −50 % wear
 const GATHER_YIELD_AT_MAX = 1;      // ×2 herbs
-const CRAFT_SPEED_AT_MAX = 1;       // ×2 craft speed
 
 /** 특수 가방 (legendary) perk: implant cooldowns halved, stacked multiplicatively on the skill. */
 export const SPECIAL_BACKPACK_CD_MUL = 0.5;
@@ -175,7 +174,16 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean,
     reloadSpeedMul,
     durabilityLossMul: 1 - DURABILITY_AT_MAX * frac(profile, 'equipment'),
     gatherYieldMul: 1 + GATHER_YIELD_AT_MAX * frac(profile, 'gardening'),
-    craftSpeedMul: 1 + CRAFT_SPEED_AT_MAX * frac(profile, 'crafting'),
+    /**
+     * **2026-09-16 (사용자 결정) — 제작 숙련은 제작 속도를 바꾸지 않는다.** 「숙련도가 관여하는 것은 제작 시 재료
+     * 아이템을 일부 돌려받을 확률, 돌려받는 양 등에만」. 그래서 이 값은 **1 에 못 박혀 있다**. 필드 자체는 계약
+     * (`shared/progression.DerivedStats`)이 add-only 라 지우지 않는다 — `inventory/Gear.gearMultipliers` ·
+     * `Crafting.craftDuration` 이 계속 읽어도 곱이 1 이라 아무 일도 하지 않는다. 캐릭터 시트의 `제작 속도` 줄은
+     * 언제나 ×1.0 이 되므로 `DERIVED_PANEL_KEYS` 에서 뺐다. 숙련이 실제로 하는 일은 `shared/craftRefund.ts` 다.
+     * (식사 · 서재 버프가 이 필드를 올릴 수는 있다 — `MealBuff` 는 `DerivedStats` 의 필드 이름이므로. 지금
+     * `data/meals.csv` · `library_series.csv` 에 그런 줄은 없다.)
+     */
+    craftSpeedMul: 1,
     /* 2026-09-13: 요리 · 연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
     cookScoreBonus: COOK_SKILL_SCORE_AT_MAX * frac(profile, 'cooking'),
     researchTimeMul: 1 - RESEARCH_TIME_AT_MAX * frac(profile, 'research'),

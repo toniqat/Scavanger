@@ -74,6 +74,23 @@ try {
     // fake pointer lock so gameplay input is accepted in headless mode
     const canvas = document.getElementById('game-canvas');
     Object.defineProperty(Document.prototype, 'pointerLockElement', { get: () => canvas, configurable: true });
+    /**
+     * 2026-09-16 (사용자 결정 「목록은 우리가 그린다」, `src/shared/dropdown.ts`) — 필터는 더 이상 네이티브
+     * `<select>` 가 아니므로 `.value =` 로 몰 수 없다. 사람이 하는 그대로 **트리거를 눌러 목록을 펼치고 항목을
+     * 클릭한다**. 목록(`.dd-pop`)은 `document.body` 바로 아래에 **열려 있는 동안만** 있으므로 창 안에서 찾지
+     * 않는다 — 그것이 스크롤 상자에 안 잘리는 이유이기도 하다. 항목은 글자로 고른다 (`✱ 전체` 처럼 글리프 + 이름).
+     */
+    window.__pickFilter = (scope, label) => {
+      const dd = document.querySelector(`${scope} .inv-filter-sel`);
+      if (!dd) throw new Error(`no filter dropdown at ${scope}`);
+      dd.querySelector('.dd-trigger').click();
+      const pop = document.querySelector('.dd-pop');
+      if (!pop) throw new Error(`filter list did not open at ${scope}`);
+      const opt = [...pop.querySelectorAll('.dd-opt')].find((b) => b.textContent.includes(label));
+      if (!opt) throw new Error(`no filter option ${label}`);
+      opt.click();                               // 고르면 목록은 스스로 닫힌다
+      if (document.querySelector('.dd-pop')) throw new Error('filter list stayed open after a pick');
+    };
     window.__ev = {};
     const bus = window.__game.ctx.bus;
     for (const n of ['ui:catalogToggled', 'inventory:itemAdded', 'inventory:stashChanged', 'inventory:opened', 'inventory:closed', 'ui:craftToggled', 'loadout:changed', 'inventory:changed']) {
@@ -333,7 +350,7 @@ try {
   ok(sortRun.partialScrap <= 1 && sortRun.stacksAfter < sortRun.stacksBefore, 'same-item stacks were merged (at most one partial 폐금속 stack left)', JSON.stringify(sortRun));
   ok(sortRun.originCat === 'primary' && sortRun.gunY !== null && sortRun.gunY < 27, 'weapons sort to the top-left (category order)', JSON.stringify(sortRun));
   const filt = await page.evaluate(() => {
-    { const s = document.querySelector('.inv-panel-bag .inv-filter-select'); s.value = 'ammo'; s.dispatchEvent(new Event('change', { bubbles: true })); }
+    window.__pickFilter('.inv-panel-bag', '탄약');
     const sys = window.__game.getSystem('inventory'), loot = window.__game.ctx.loot;
     const read = (sel, grid) => [...document.querySelectorAll(`${sel} .inv-tile[data-uid]`)].map((t) => {
       const p = sys.getGrid(grid).get(t.dataset.uid); return { cat: p ? loot.getItemDef(p.item.defId).category : null, dim: t.classList.contains('is-filtered-out') };
@@ -341,22 +358,45 @@ try {
     const bag = read('.inv-grid-bag', 'bag'), stash = read('.inv-grid-stash', 'stash');
     const right = [...bag, ...stash].every((t) => t.dim === (t.cat !== 'ammo'));
     const stashChipOn = document.querySelector('.inv-panel-stash .inv-filter-sel').classList.contains('is-on');
-    { const s2 = document.querySelector('.inv-panel-stash .inv-filter-select'); s2.value = 'all'; s2.dispatchEvent(new Event('change', { bubbles: true })); }
+    // 창고 쪽 컨트롤이 「전체」를 고르면 두 격자가 함께 풀린다 (필터 상태는 창 하나가 들고 있다)
+    window.__pickFilter('.inv-panel-stash', '전체');
     const cleared = document.querySelectorAll('.inv-tile.is-filtered-out').length === 0;
     return { right, stashChipOn, cleared, n: bag.length + stash.length, ammo: [...bag, ...stash].filter((t) => t.cat === 'ammo').length };
   });
   ok(filt.right && filt.n > 0, `탄약 chip dims every non-ammo tile in the bag and the stash (${filt.ammo}/${filt.n} lit)`, JSON.stringify(filt));
   ok(filt.stashChipOn && filt.cleared, 'the chip state is shared by both grids and 전체 clears the dimming', JSON.stringify(filt));
-  /* 2026-09-16 (사용자 결정): 필터 목록 칸은 불투명한 어두운 바탕 + 밝은 글자 (펼친 목록이 호버 전에도 읽힌다). */
-  const optColors = await page.evaluate(() => {
-    // 고른 항목(`:checked`)은 강조색 글자다 — 평범한 목록 칸을 본다
-    const o = document.querySelector('.inv-panel-bag .inv-filter-select option:not(:checked)');
-    const cs = getComputedStyle(o);
+  /* 2026-09-16 (사용자 결정 「목록은 우리가 그린다」): 펼친 목록은 **`document.body` 바로 아래**에 떠서 어떤
+     스크롤 상자에도 잘리지 않고(그것이 네이티브를 버린 값이다), 불투명한 어두운 바탕 + 밝은 글자라 호버 전에도
+     읽힌다. 항목 수는 `FILTER_GROUPS` 그대로다 — 스모크에 숫자를 적지 않고 "하나보다 많다"만 본다. */
+  const popLook = await page.evaluate(() => {
+    const dd = document.querySelector('.inv-panel-bag .inv-filter-sel');
+    dd.querySelector('.dd-trigger').click();
+    const pop = document.querySelector('.dd-pop');
+    if (!pop) return { opened: false };
     const rgba = (s) => (s.match(/[\d.]+/g) ?? []).map(Number);
-    const bg = rgba(cs.backgroundColor), fg = rgba(cs.color);
-    return { bg: cs.backgroundColor, fg: cs.color, opaque: bg.length === 3 || bg[3] === 1, dark: Math.max(bg[0], bg[1], bg[2]) < 40, light: Math.min(fg[0], fg[1], fg[2]) > 180 };
+    const pcs = getComputedStyle(pop);
+    // 고른 항목(`.is-sel`)은 강조색 글자다 — 평범한 목록 칸을 본다
+    const opt = pop.querySelector('.dd-opt:not(.is-sel)');
+    const ocs = getComputedStyle(opt);
+    const bg = rgba(pcs.backgroundColor), fg = rgba(ocs.color);
+    const r = pop.getBoundingClientRect(), t = dd.getBoundingClientRect();
+    const out = {
+      opened: true, onBody: pop.parentElement === document.body, fixed: pcs.position === 'fixed',
+      z: Number(pcs.zIndex), opts: pop.querySelectorAll('.dd-opt').length,
+      // 트리거 바로 아래(또는 위)에 붙고 화면 안에 선다
+      placed: Math.abs(r.top - t.bottom) < 40 || Math.abs(r.bottom - t.top) < 40,
+      inView: r.left >= 0 && r.right <= window.innerWidth && r.top >= 0 && r.bottom <= window.innerHeight,
+      bg: pcs.backgroundColor, fg: ocs.color,
+      opaque: bg.length === 3 || bg[3] === 1, dark: Math.max(bg[0], bg[1], bg[2]) < 40,
+      light: Math.min(fg[0], fg[1], fg[2]) > 180 && (fg.length === 3 || fg[3] >= 0.7),
+    };
+    dd.querySelector('.dd-trigger').click();     // 같은 트리거를 다시 누르면 닫힌다
+    out.closes = !document.querySelector('.dd-pop');
+    return out;
   });
-  ok(optColors.opaque && optColors.dark && optColors.light, 'filter dropdown options: opaque dark background, light text', JSON.stringify(optColors));
+  ok(popLook.opened && popLook.onBody && popLook.fixed && popLook.z >= 400 && popLook.opts > 1 && popLook.placed && popLook.inView && popLook.closes,
+    'the filter list is our own: a fixed layer under <body> (z 400), placed on the trigger, and it closes again', JSON.stringify(popLook));
+  ok(popLook.opaque && popLook.dark && popLook.light, 'filter list: opaque dark background, light option text', JSON.stringify(popLook));
 
   /* ── 2026-09-16 (사용자 결정): 가방 머리의 `모두 창고로 이동` ─────────────────────────────────────────── */
   console.log('모두 창고로 이동');
@@ -1363,6 +1403,12 @@ try {
     const ctx = window.__game.ctx, sys = window.__game.getSystem('inventory');
     const recipe = ctx.loot.getAllRecipes().find((r) => r.id === id);
     const cost = sys.craftCost(recipe);
+    /* 2026-09-16 (사용자 결정 「숙련은 재료 환급에만 관여한다」, `shared/craftRefund.ts`): 제작이 끝나면 소모한
+       재료가 **개당 굴림**으로 일부 돌아온다 (가방 먼저). 여기서 재는 것은 「수량 스테퍼가 재료를 n 배로 뺀다」
+       하나이므로 숙련을 0 으로 잡아 굴림을 끈다 (확률은 숙련 0 에서 정확히 0 이다 — 환급 자체는
+       `smoke-library-consumers` · `smoke-housing` 이 본다). */
+    const origSkill = ctx.progression.getSkill;
+    ctx.progression.getSkill = () => 0;
     const before = cost.map((c) => sys.countDef(c.defId));
     // 2026-09-15 3차: 산출물은 함선 창고 먼저 — 가방만 세면 0 이다 (`countDefAll` = 가방 + 창고)
     const outBefore = sys.countDefAll(recipe.outputDefId);
@@ -1372,6 +1418,7 @@ try {
     void sys.craft(id, undefined, 3);
     const ev = await Promise.race([done, new Promise((r) => setTimeout(() => r(null), 5000))]);
     off();
+    ctx.progression.getSkill = origSkill;
     return {
       started: started[0] ?? null, completed: ev ? { recipeId: ev.recipeId, count: ev.count } : null,
       spent: cost.map((c, i) => before[i] - sys.countDef(c.defId)), need: cost.map((c) => c.qty * 3),
@@ -1438,10 +1485,18 @@ try {
     r.api = typeof i.consumeCookInputs === 'function' && typeof i.completeCook !== 'function' && typeof i.useMealItem !== 'function';
     r.notCook = i.cookBlock('make_bandage', 3);
     r.level = i.cookBlock('cook_sausage', 1);
+    /* 숙련 게이트 (2026-09-16, 사용자 결정 「제작에 숙련은 전혀 관여하지 않는다」 + 같은 날 2차 「읽는 쪽은 남긴다」):
+       `data/recipes.csv` 의 `skillRequired` 는 이제 전부 0 이라 숙련은 **아무 요리도 막지 않는다**. 그래도 기계는
+       살아 있어야 한다 (csv 숫자만 올리면 다시 잠긴다) — 그래서 살아 있는 레시피의 숫자를 잠깐 올려 두 가지를 함께 본다.
+       숙련이 늘 하는 일(재료 환급)은 아래 소비량 계산에서 끈다. */
     const origSkill = ctx.progression.getSkill;
     ctx.progression.getSkill = () => 0;
+    const soup = loot.getAllRecipes().find((x) => x.id === 'cook_mushroom_soup');
+    r.skillZero = soup.skillRequired;
+    r.skillOff = i.cookBlock('cook_mushroom_soup', 3);     // 숙련 0 인데도 막히지 않는다 (사유는 재료)
+    soup.skillRequired = 10;
     r.skill = i.cookBlock('cook_mushroom_soup', 3);
-    ctx.progression.getSkill = origSkill;
+    soup.skillRequired = r.skillZero;
     r.missing = i.cookBlock(RID, 1);
     // partial materials: failure consumes nothing
     const [first, second] = Object.keys(cost);
@@ -1466,13 +1521,17 @@ try {
     r.expect = { firstStash: 2, secondStash: 1 };
     r.events = events;
     r.cost = cost;
+    // 소비량을 다 센 뒤에야 숙련을 되돌린다 — 숙련이 0 인 동안에는 재료 환급 굴림이 없다 (`shared/craftRefund`)
+    ctx.progression.getSkill = origSkill;
     for (const id of Object.keys(cost)) clear(id);
     return r;
   });
   ok(cook.mealNotItem && cook.api, `요리는 아이템 표에 없다 · consumeCookInputs 만 있다 (useMealItem · completeCook 없음) (${JSON.stringify({ mealNotItem: cook.mealNotItem, api: cook.api })})`);
   ok(cook.notCook === '조리대 레시피가 아닙니다', `cookBlock: 조리대 레시피가 아니면 ('${cook.notCook}')`);
   ok(cook.level === '조리대 Lv.2 이 필요합니다', `cookBlock: 조리대 레벨 ('${cook.level}')`);
-  ok(cook.skill === '제작 숙련 10 이 필요합니다', `cookBlock: 숙련 ('${cook.skill}')`);
+  ok(cook.skillZero === 0 && cook.skillOff === '재료가 부족합니다',
+    `cookBlock: csv 의 제작 숙련 요구는 0 — 숙련은 요리를 막지 않는다 ('${cook.skillOff}')`);
+  ok(cook.skill === '제작 숙련 10 이 필요합니다', `cookBlock: csv 숫자를 올리면 숙련 게이트가 되살아난다 ('${cook.skill}')`);
   ok(cook.missing === '재료가 부족합니다', `cookBlock: 재료 ('${cook.missing}')`);
   ok(cook.failed.reason === '재료가 부족합니다' && cook.failed.firstLeft === cook.cost[Object.keys(cook.cost)[0]],
     '재료가 모자라면 consumeCookInputs 는 아무것도 빼지 않는다', JSON.stringify(cook.failed));

@@ -210,7 +210,15 @@ try {
   ok(!tip.hidden && tip.q === 'mq_1', `호버 → 툴팁 (${tip.q})`);
   ok(tip.text.includes('헬릭스의 신형 산탄총') && tip.objs === 3, `툴팁: 설명 · 목표 전부 3줄 (${tip.objs})`);
   ok(tip.text.includes('함선에서') && tip.text.includes('4 / 10'), '툴팁: 납품 목표는 「함선에서」 · 진행');
-  ok(tip.text.includes('+900') && tip.text.includes('XP +1500') && tip.text.includes('헬릭스'), '툴팁: 보상 (크레딧 · XP · 신뢰도)', tip.text);
+  /* 2026-09-16: 보상 문자열을 적어 두지 않는다 — 크레딧 · XP 는 UI 와 **같은 공용 포맷터**(`formatCredits` ·
+     `formatCompactSigned`, 10,000 부터 축약 · 그 아래는 쉼표)로 만든다. 순수 함수를 읽기만 하므로 모듈이 두 번
+     평가돼도 안전하다 (scripts/README 「import('/src/…')」). 신뢰도는 정확한 값이 곧 뜻이라 그대로다. */
+  const RW = await page.evaluate(async () => {
+    const s = await import('/src/shared/index.ts');
+    const r = window.__mqBase()[0].def.rewards;
+    return { credits: s.formatCredits(r.credits, { sign: true }), xp: `XP ${s.formatCompactSigned(r.xp, true)}`, rep: `신뢰도 +${r.rep[0].amount}` };
+  });
+  ok(tip.text.includes(RW.credits) && tip.text.includes(RW.xp) && tip.text.includes('헬릭스'), `툴팁: 보상 (${RW.credits} · ${RW.xp} · 신뢰도)`, tip.text);
   ok(tip.left >= tip.sideRight && tip.bottom <= tip.vh, `툴팁은 열 오른쪽 · 화면 안 (${tip.left.toFixed(0)} ≥ ${tip.sideRight.toFixed(0)})`);
   await hover('mq_3');
   const tip3 = await page.evaluate(() => ({ off: document.querySelectorAll('.mq-tip .mq-tip-obj.is-off').length, text: document.querySelector('.mq-tip').textContent }));
@@ -279,7 +287,8 @@ try {
   const has = (s) => toasts.all.some((t) => t.includes(s));
   ok(has('퀘스트 목표 달성') && has('연구소 컨테이너 3개 조사'), '토스트: 퀘스트 목표 달성 — 퀘스트: 목표', JSON.stringify(toasts.all));
   ok(has('함선에서 메신저로 완료 보고'), '토스트: 보고 가능');
-  ok(toasts.all.some((t) => t.includes('퀘스트 완료') && t.includes('+900') && t.includes('XP +1500') && t.includes('신뢰도 +300')), '토스트: 완료 보상 요약');
+  ok(toasts.all.some((t) => t.includes('퀘스트 완료') && t.includes(RW.credits) && t.includes(RW.xp) && t.includes(RW.rep)),
+    `토스트: 완료 보상 요약 (${RW.credits} · ${RW.xp} · ${RW.rep})`, JSON.stringify(toasts.all));
 
   /* ── 7 ── */
   await page.evaluate(() => { window.__mqTracks = window.__mqBase(); window.__game.ctx.bus.emit('npc:questChanged', { id: 'mq_1', npc: 'npc_mq_hx', state: 'active', prev: 'offered' }); });

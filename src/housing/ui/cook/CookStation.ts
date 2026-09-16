@@ -37,11 +37,13 @@ interface RecipeRow {
   block: string | null;
   /** 2026-09-13 (H3): 레시피 책이 꽂혀 있지 않아 잠겼으면 그 사유 (`cookRecipeBookBlock`). */
   book: string | null;
-  /** 2026-09-15 (B-15): 숙련이 모자라 잠겼으면 배지 재료 (`cookRecipeSkillBlock`). */
+  /** 2026-09-15 (B-15 → 2026-09-16 복원): 숙련이 모자라 잠겼으면 배지 재료 (`cookRecipeSkillBlock`). */
   skill: { label: string; need: number; have: number } | null;
   tier: number;
 }
 
+/* 2026-09-16 (사용자 결정 2차): 숙련 잠김 갈래(`is-skill` 배지)는 같은 날 오전에 지웠다가 되살렸다 — `skillRequired`
+   열을 남겨 둔 이상 csv 숫자만 올리면 켜져야 한다. 값이 전부 0 인 지금은 `x.skill` 이 언제나 null 이다. */
 /** 레일 안 순서 — 지금 시작할 수 있음 0 · 잠기지 않았지만 막힘(재료 · 자리) 1 · 잠김(조리대 레벨 · 숙련 · 책) 2. */
 const rowRank = (x: RecipeRow): number => (!x.block ? 0 : x.locked || x.skill || x.book ? 2 : 1);
 
@@ -309,7 +311,7 @@ export class CookStation extends HousingPanel {
     for (const x of rows) {
       const gated = !!(x.locked || x.book || x.skill);
       const cell = el('button', {
-        // `is-book` · `is-skill` 은 **B-15 의 잠김 갈래를 구분하는 표시**다 (옛 레일과 같은 이름 — 스모크도 이것으로 읽는다)
+        // `is-book` · `is-skill` 은 **잠김 갈래를 구분하는 표시**다 (옛 레일과 같은 이름 — 스모크도 이것으로 읽는다)
         cls: `cook-cell cook-rail-item${x.r.id === this.selectedRecipeId ? ' is-on is-active' : ''}`
           + `${gated ? ' is-bench-locked is-locked' : x.block ? ' is-locked' : ''}${x.book ? ' is-book' : ''}${x.skill ? ' is-skill' : ''}`,
         attrs: { 'data-recipe': x.r.id },

@@ -39,10 +39,11 @@ and **before** `InventorySystem` / `WorldSystem` / `HubSystem`.
 | `parts/Presets.ts` | Retired loadout presets (all answer "no slots"), `panels()` registry, `closeMenus`, legacy `openRoomMenu` / `openFacilityMenu` → `openShipManage`. |
 | `ui/Panel.ts` | `HousingPanel` base: `.menu.housing-menu`, blocker `'housing'` + cursor mode, `ctx.escape` entry, E / Tab close, `PanelOverlay` stack, `coalesceRefresh`, `ui:housingToggled`, key-guide owner `housing.<page>`. |
 | `ui/StationShell.ts` | Common station layout: station card (title, `Lv.`, meta, upgrade button, `rail`, optional `tabsRow`) + one inventory card; `mountStationGrids` mounts one `TradeGrids` (`stash` + `bag`); `stationGridCell`. |
-| `ui/UpgradeModal.ts` | Furniture upgrade modal (`PanelOverlay`): cost chips + facility chips, 1 s hold confirm (Enter swallowed), escape token `housing.upgrade`. |
+| `ui/UpgradeModal.ts` | Upgrade modal (`PanelOverlay`): cost chips + facility chips, 1 s hold confirm (Enter swallowed), escape token `housing.upgrade`. `UpgradeModalOptions.standalone` mounts it on `ctx.uiRoot` instead of a panel (`.hs-modal-top` z, own `.interactive`, swallows Tab, `onClose` hook) — used by the 창고 variant. |
+| `ui/StorageUpgrade.ts` | `openStorageUpgrade(sys)` = `HousingRef.openStorageUpgrade()`: the standalone 창고 시설 variant of `UpgradeModal` (level, cells before/after from `STASH_ROWS_BY_STORAGE_LEVEL × STASH_COLS`, `getFacility('storage').nextCost` / `.blocked`, 발전기 requirement chip; confirm = `upgrade('storage')`). Toggles on a second call, re-reads on housing / inventory events, closed by `closeMenus`. |
 | `ui/StationTip.ts` | Non-item hover card (`TipSpec`) with `.item-tip` looks. |
 | `ui/StationMenu.ts` | Right-click menu (`PanelOverlay`), swallows its own Escape. |
-| `ui/ProductDrag.ts` | Treat a finished product like an item: drag to a grid (`bag` / `stash`) or double-click (`stash-first`). |
+| `ui/ProductDrag.ts` | Treat a finished product like an item: drag to a grid (`bag` / `stash`) or double-click (`stash-first`). The ghost keeps the item's grid footprint (`shared/itemChip` `buildItemGridChip` / `itemGridBox` at `stationGridCell()`, overridable with `cellPx`). |
 | `ui/SocketFlow.ts` | Socket effect text / tip rows / dots, `SocketAsk` (pick + 1 s hold replace confirm, destructive clear confirm). |
 | `ui/dom.ts` | `el`, `section`, `setText`, `renderCost` (→ shared `renderItemCost`), clock helpers (`renderClock`), `formatRemaining`, `facilityChipTip`. |
 | `ui/GrowStation.ts` | Grow station screen: rail of stations (9-dot status), tiers of soil pots, drop soil / seed / socket, harvest via `ProductDrag`, right-click clear. `ui:growToggled`. |
@@ -81,7 +82,8 @@ too). Most mutations return `null` on success or a Korean refusal string. Groupe
 - **State / persistence**: `state`, `save()`, `getStashSize()`.
 - **Rooms & facilities**: `getRoom`, `setRoomPurpose`, `purposeBlock`, `purposeCost`, `purposeRequirements`,
   `emptyRoomBlock`, `findRoom`, `getFacilities` / `getFacility`, `upgrade('generator' | 'storage')`,
-  `facilityRefund`, `removeRoomFacility`, `getBenchLevel`, `getCraftCostMul` (always 1), `getSkillGainMul`.
+  `facilityRefund`, `removeRoomFacility`, `getBenchLevel`, `getCraftCostMul` (always 1), `getSkillGainMul`,
+  `openStorageUpgrade()` (2026-09-16 — the standalone 창고 upgrade modal the inventory Tab / workbench headers call).
 - **Furniture**: `getFurnitureDef`, `getAllFurnitureDefs`, `getFurnitureFor`, `getPlaced`, `getPlacedByUid`,
   `getStored`, `canPlace`, `placementBlock`, `findFreeSpot`, `place`, `move`, `recover`, `recoverBlock`,
   `canCraftFurniture`, `craftFurniture`, `furnitureCraftBlock`, `upgradeFurniture`, `furnitureUpgradeBlock`,
@@ -285,10 +287,8 @@ reasoning. The list below is what a maintainer would otherwise break.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/housing`.
-  ship manage remembers last room; Tab only for the top screen; `devAdvanceAnalysis`.
-  judgement bands = csv windows, `NEEDS_GREENHOUSE` emptied.
+- 2026-09-16 — The cook rail's skill lock is back (`cookRecipeSkillBlock`, `cookSkillLabel`, `.cook-rail-skill` badge, `is-skill`): every `recipes.csv` `skillRequired` is `0` so it never fires, but a raised csv number dims the row, badges `제작 20` and refuses `startCook`. The skill's standing job is the material refund.
+- 2026-09-16 — `openStorageUpgrade()`: `UpgradeModal` gained a `standalone` mode (mounts on `ctx.uiRoot`, `.hs-modal-top` z 100, swallows Tab, `onClose`) and `ui/StorageUpgrade.ts` opens the 창고 시설 variant from the inventory / workbench headers; product drag ghosts keep the item's grid footprint; the 시설 관리 furniture popup no longer draws over the inventory windows.
 - 2026-09-16 — Meals are not items: a finished cook is the ship's one dining plate (`ShipState.plate`, replaced on the next cook after a 1 s hold warning, eaten without being consumed, cleared at raid start); no dining table = no cook bench; shared-ship table lists squad plates; `serveMealToSquad` removed.
 - 2026-09-15 — Station inventory is a single card; cooking bench is a recipe thumbnail grid + detail pane.
 - 2026-09-15 — Library: no slot numbers, per-shelf effect cards, shelf divider; facility chips icon-only with tooltip;
-- 2026-09-15 — Left-click hold keycaps inside hold buttons; minigame / ship keycaps via `shared/keycap`.
-- 2026-09-15 — Cooking bench shows skill-locked recipes dimmed with a skill badge (B-15).

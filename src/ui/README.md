@@ -331,14 +331,20 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 - Legendary uniques show their own kind (`UNIQUE_WEAPON_LABEL_KO`), never their csv class. — `hud/WeaponPanel.ts` (`weaponTypeLabel`)
 - Item hover cards anchor bottom-right of the cursor; an element opts into top-left with `data-tip-anchor="left"`
   (`TIP_ANCHOR_ATTR`). ItemTip hides when its chip leaves the DOM or a tooltip is pinned. — `hud/ItemTip.ts`
+- `.item-tip` pins its own text flow (`text-align`, `direction`) and its head's flex axes (`align-items: stretch`,
+  `justify-content: flex-start`), because `hub/intel.css` owns the same `.it-` prefix: its global
+  `.it-head { align-items: flex-end }` right-aligned the card's 이름 / 종류 wherever the card was shown.
+  — `styles/base.css` (`.item-tip .it-head`)
+- XP readouts go through `formatCompactNumber` / `formatCompactSigned` (`shared/numberFormat`), both sides of an
+  `x / y` pair; counts, weights, durability, ammo, percentages and times stay exact. — `menus/RewardsBlock.ts`
 - UI timing constants (fade holds, typing reveal speed, poll intervals) live in the component; gameplay numbers come
   from `@/shared` constants backed by `data/*.csv`.
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
+- 2026-09-16 — Item hover card: `.item-tip` now fixes its own text flow and `.it-head` its flex axes, so the colliding global `.it-head` of `hub/intel.css` (same `.it-` prefix) no longer right-aligns 이름 · 종류 (기업 거래 · 재료 칩 · 서재 전시대 · 연산 클러스터). XP readouts are compact (`formatCompactNumber` / `formatCompactSigned`): result screen `획득 경험치` + `x / y XP`, the `+n XP` toast chip, the quest-complete toast and the map quest panel reward line.
 - 2026-09-16 — Squad list drops the local row entirely (shared ship and raid; `.srow.me` / `(나)` / the "no buffs on my row" rule are gone) and hides itself when no row is filled (`Squad.finish`); the music window is personal-ship only (`ctx.hub?.ship === 'personal'`, state untouched).
 - 2026-09-16 — Dining plates: squadmate plate toast on `net:squadPlate` (`fresh`, shared ship only) replaces the `housing:mealServed` toast; cook result toast says `→ 식탁`; BuffStrip / ItemTip fall back to `getMealDef` for meal ids.
 - 2026-09-16 — Liftoff hides all remaining HUD (social layer, key guide, item card, music, net badge, 3D pillars) with a code-stepped fade; crosshair/rings hide instantly. Crosshair hidden during the intro wake, then fades in (`TUTORIAL_RETICLE_FADE_S`).
 - 2026-09-15 — Title resume / abandon: `이어하기` (highlighted) above a red `게임 시작` while `ctx.raidResume.offer` exists; `게임 시작` then opens the abandon popup (`menus/raidResumeCard`, `.trs-`, `[닫기] [레이드 포기]` 1 s hold); `enterShip` waits for the squad raid check; `AskSpec.cancel`; debug `HudSystem.titleResume`.
-- 2026-09-15 — Android squadmates + raid-entry loading: `hud/allySource` (the one `ctx.allies` reader, `debugAllies`); squad rows / nameplates / compass ticks / map markers + `안드로이드` legend row for androids, bots never drawn as human rows (Squad, SocialColumn, Community, RescuePicker, SpectateOverlay); `ally:ping` → android-owned ping + `ally:chat` callout, `ping:placedV3` on every ping; `ally:chat` line; seven android toasts (Korean particle picked by the final syllable); new `hud/LoadingGauge` + `styles/loading.css` (z 87, real-time driven).

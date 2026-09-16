@@ -194,9 +194,8 @@ so outside lab locked rooms it drops about half as often as that back-solve assu
 ## Recent changes
 
 Last 5 only — older: `git log -- src/items`.
-  barricade join repair/salvage, attachment and seed weights read from csv.
+- 2026-09-16 — `Salvage.isCraftRefundable` / `maxSkillCraftFactor`: durable gear (weapons · armor · bags · durable gadgets) is excluded from the craft-skill material refund, and `checkSalvageEconomy` now measures every craft baseline at **max skill** (`craft × maxSkillCraftFactor`).
 - 2026-09-16 — Meals removed from `ITEM_DEFS` (`MEAL_ITEM_DEFS` gone); `data/meals.csv` is parsed by `shared/meals.ts`.
 - 2026-09-16 — Epic+ gate (`planet_loot.csv` `epicPlusMul`, `PlanetGradeCurve.epicPlusMul`) on every crate and corpse roll; lab locked rooms exempt via `rollCrateOn(…, opts: CrateLootOpts)`.
 - 2026-09-15 — Loot category axis split (`LootCategory`, `lootCategoryOf`); crates skip a category with no candidates instead of stopping.
 - 2026-09-15 — `ItemSpec.ts` (spec rows) and `ItemText.ts` (description markup); numbers removed from item descriptions.
-- 2026-09-15 — Gadget data overhaul: grenades are `gadget` + `grenade`, `gad_incendiary` removed (aliased), durable dome shield and

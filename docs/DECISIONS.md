@@ -530,3 +530,102 @@ Rejected: showing the launch-slot panel whenever any member is seated; keeping m
 portrait; androids outside the wipe decision (a squad of one human + androids ended the moment the human went down); purely random
 roaming; pure point-of-interest roaming (two androids would pile onto the same structure); 앞장서라 that never expires; a per-weapon
 engage-range table in csv (the falloff columns already say it); leaving autonomous looting on with a priority tweak.
+
+
+## 2026-09-16 — UI 대묶음 · 기업 가격 · 가치 재조정 · UI batch · shop prices · value rebalance
+
+A single pass over the inventory / workbench / trade screens and the item economy.
+
+User choices (UI):
+- **The native `<select>` is gone from the whole game.** The inventory filter — the only one — is now a drawn dropdown
+  (`shared/dropdown.ts`). The three reasons the native control had been chosen for (clipping inside `.tg-gridwrap` /
+  `.inv-stash-scroll`, outside-click dismissal, Escape) are paid for by a `position: fixed` list under `document.body`,
+  a capture-phase `pointerdown`, and a capture-phase Escape that the list swallows so the inventory window behind it
+  stays open.
+- **The stash header says `함선 창고` on the left and only `사용칸 / 전체칸` on the right** — the item-*kind* count is
+  dropped; the player wants to know how full the grid is, not how many distinct things are in it. `TradeGrids`'s
+  `N점` readout is replaced by the same string (`ui/labels.capacityLabel`), so the two headers cannot drift.
+- **`[업그레이드]` opens the 창고 upgrade modal from two places** — the inventory Tab stash header and the workbench
+  window's title bar. It is the existing housing `UpgradeModal` made standalone, not a second modal, and the two callers
+  reach it through **one new `HousingRef.openStorageUpgrade()`** rather than importing housing internals.
+- **An empty workbench keeps its size** — the frame stays as wide as five item thumbnails so upgrading a bench does not
+  make the window jump.
+- **The furniture popup sits below the inventory family.** It had z-index 77 against the inventory window's 50, and its
+  ancestors make no stacking context, so a cheat-opened container drew under it.
+
+User choices (items · economy):
+- **기업 판매가 = 가치 × 3** (`SHOP_PRICE_BASE_MUL`). Reputation discount and the player's sell price are untouched.
+- **A shop tooltip shows the price of that screen, not 가치** — 구매가 on the shelf and the buy tray, 판매가 on the sell
+  tray. Everywhere else the tooltip keeps showing 가치.
+- **Ammo is sold by the full stack** (`Rules.shopQtyOf` → `AMMO_STACK_ROUNDS`), and the shelf is **10 columns** wide.
+- **Numbers of credits, value, currency and XP are abbreviated from 10,000** — `10.0k` (one decimal), `1.00m` / `1.00b`
+  (two decimals), decimals truncated so `999,999` reads `999.9k` and `1.00m` starts exactly at a million. `k` starts at
+  ten thousand, not one thousand: four digits are read at a glance, five are not. Counts, weights, durability, ammo and
+  times stay exact.
+- **모든 재료 가치 −50 %** (`category: material`, 61 items) and **모든 귀중품 가치 −80 %, then the ones digit dropped**
+  (`category: valuable`, 14 items — the only category holding samples and artefacts). Truncated, floor 10, so nothing
+  becomes worthless.
+- **가젯은 노마드 장비가 판다**, not 세레스 바이오 — and since `grenade` stopped being an `ItemCategory` on 2026-09-15,
+  that one `corp_stock` row moves grenades with it. 세레스 keeps 회복 소모품 · 부착물 · 임플란트.
+- **생체 조직 is gone from every facility and furniture cost** (의학 작업대 · 재배층 · 재배 스테이션 · 분석기 ·
+  배양조 · 조합대). Deleted outright, not substituted — those things are simply cheaper now.
+- **진동 장치 does not stack and has no recipe**; it stays a drop (아켈론 II 전진기지 지하실, 5 %).
+
+Bugs whose cause was not what the symptom suggested:
+- **Right-aligned item tooltips** in the corp / craft-ingredient / bookshelf / compute-cluster screens were a CSS
+  **prefix collision**: `hub/intel.css` took the `.it-` prefix the item card had used since Phase 8 and declared a global
+  `.it-head { align-items: flex-end }`. In a column flex that is "right-align", which is why only 이름 and 종류 moved.
+  Fixed at the card (it now states every axis, so a future foreign `.it-*` rule loses on specificity); renaming
+  `intel.css`'s class is left as a to-do for hub/.
+- **Items could not be moved inside the embedded 창고 | 가방 card.** Not a broken drop — `TradeGrids` had never had one:
+  its `pointerup` only looked at the caller's drop tray. Cell moves, 창고 ↔ 가방, rotation and merge now all go through
+  `DropResolver`, so every existing rule (no silent displacement of equipped gear, merge overflow stays on the cursor,
+  bag padding rows are not targets) holds unchanged.
+- **The workbench 닫기 opened the bag**: `openBenchCraft` opens the Tab window as the host for the craft column, and
+  `닫기` closed only the column, revealing it. Fixing it broke the tutorial in a way only the smoke caught — step 11
+  `equipGun` spotlights slots inside the inventory window, which `닫기` now closes, so the step began with no window,
+  no spotlight and a hint that still described the old behaviour. The tutorial's `openBag` / `equipGun` hints now say
+  Tab reopens it, and `equipGun` carries the `Tab 가방 · 장비` control guide while the window is shut.
+- **Drag ghosts from grow stations and display stands were a fixed square** — they ignored `ItemDef.width/height`.
+  The footprint formula moved to `shared/itemChip.ts` so housing and inventory cannot drift.
+
+Rejected: a second inventory-styled upgrade modal beside housing's; moving the `[업그레이드]` button to the ship
+management screen; replacing 생체 조직 with another material or raising the remaining quantities; abbreviating item
+counts and weights along with credits; `k` from 1,000; rounding (rather than truncating) the abbreviations and the
+귀중품 values; locking the embedded grids read-only.
+
+## 2026-09-16 — 제작과 숙련 · Crafting and skills
+
+The crafting skills (제작 · 의학 · 원예) were doing three jobs: they gated recipes (`recipes.csv` `skillRequired`), they
+shortened the craft hold (`craftSpeedMul`), and — for the research benches only — they refunded materials. The user cut
+that down to **one**: *"아이템 제작에 관련 숙련도는 전혀 관여하지 않도록 변경 (요리, 연구 등 모든 제작관련). 숙련도가
+관여하는 것은 제작 시 재료 아이템을 일부 돌려받을 확률, 돌려받는 양 등에만 관여."*
+
+User choices:
+- **No skill gate anywhere** — normal crafting, the cooking bench and the lab benches. What a bench can make is decided by
+  the **workbench level** alone (and, for a dish, its recipe book). `skillRequired` stays as a csv column and a contract
+  field with every value `0`, so a future design can raise it again without a data migration.
+- **…and, the same day, the reading side was put back** (2차 결정): *"작업대에 숙련도 부족한 아이템에 대한 잠금 처리도
+  넣어줘 (현재 숙련도에 의한 잠금은 없으나, 숙련도 요구 컬럼 자체는 존재하므로 추후에 추가될 수도 있음)."* A column with
+  nobody reading it is not a switch that can be flipped later — it is a number that silently does nothing. So the gate is
+  live in all four places (`Crafting.getRecipes`, `cookBlock`, `CraftPanel.lockedReason`, `Cooking.cookRecipeSkillBlock`)
+  and simply never fires while every value is `0`. A gated recipe does **not** vanish from the list: it becomes a locked
+  cell tagged `제작 20 필요` in the workbench window and a `제작 20` badge on the cook rail, and crafting it is refused.
+  Verified with temporary fake csv values (gadget bench `20` / `15`, cook `20` / `25`): `smoke-cooking` 136/136 with its
+  skill-lock section actually running for the first time, plus a throwaway check of the workbench window; the values were
+  then returned to `0`.
+- **No skill craft speed** either. Every craft is the same `CRAFT_HOLD_TIME`.
+- **The refund is rolled per consumed material unit**, not once per craft: the chance is linear from 0 at skill 0 to
+  `CRAFT_REFUND_CHANCE_AT_MAX` (`data/tuning.csv`) at skill 100. A big recipe therefore feels bigger and the outcome
+  spreads out naturally, instead of one all-or-nothing roll making a 35-scrap sniper feel like a 1-powder round of ammo.
+- **Durable gear (무기 · 방탄복 · 가방 · 내구 가젯) is excluded from the refund** (lead's call inside the user's decision).
+  Those items' repair cost and salvage yield *are* their craft materials, so discounting the craft alone moves the
+  economy invariant's own baseline; with the refund applied to them, `checkSalvageEconomy` reports 66 violations of
+  「수리 + 분해 ≤ 제작」 (all from rounding on 2–6-unit material lines: repair rounds up, so `ceil(0.5 × 3) = 2` already
+  exceeds `0.65 × 3 = 1.95`). Materials, consumables, ammo, attachments and dishes keep the refund; those are exactly the
+  things salvage cannot pay out on, and the hand-written salvage rows (탄약 · 기계 부품 · 실드 충전기) are now checked
+  against the **discounted** craft cost.
+
+Rejected: lowering `CRAFT_REFUND_CHANCE_AT_MAX` to make durable gear fit; deleting the `skillRequired` column, its loader
+and `CraftRecipe.skillRequired`; keeping the always-×1.0 `제작 속도` row on the character sheet; a separate
+`재료 회수` toast per refund source (craft skill and research skill now share one line).

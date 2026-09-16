@@ -599,6 +599,44 @@ try {
   await waitStep('equipGun');
   ok(true, '제작 창을 닫으면 장착 단계로 넘어간다');
 
+  /* 2026-09-16 (사용자 보고 「작업대 창을 닫았는데 가방이 열린다」, `inventory/parts/Crafting.closeCraftWindow`):
+     **작업대가 연 창은 작업대 창**이라 `닫기` 는 제작 열만 접는 것이 아니라 창째 닫는다. 그래서 `equipGun` 은
+     창이 닫힌 채로 시작하고, 밝힐 DOM 이 없으니 스포트라이트는 뜨지 않는다 (`parts/Spotlight` 는 대상을 못 찾으면
+     스스로 접힌다 — 어두운 판만 남아 아무것도 못 누르는 상태를 만들지 않는다). 남은 안내는 「창을 다시 여는 키」
+     하나이고, 그것을 적는 자리는 우측 조작 가이드다 (`model.EQUIP_HINTS`). */
+  await sleep(900);      // 반 박자(`TUTORIAL_STEP_DELAY_S` 0.5 s)를 넘기고도 안 뜨는지 본다 (뜬다면 허공에 링이 걸린 것)
+  const afterClose = await P(() => {
+    const spot = document.querySelector('.tut-spot');
+    const ctl = document.querySelector('.tut-controls');
+    const row = ctl?.querySelector('.tut-ctl[data-hint="bag"]');
+    const r = document.querySelector('.inv-root');
+    return {
+      invOpen: window.__game.ctx.inventory.isOpen, invShown: !!r && !r.hidden && r.getClientRects().length > 0,
+      spotLit: !!spot && !spot.hidden && spot.classList.contains('is-lit'),
+      panes: [...document.querySelectorAll('.tut-spot-pane')].filter((p) => p.getClientRects().length > 0).length,
+      ctlShown: !!ctl && !ctl.hidden, bagRow: row ? row.textContent : null,
+      hint: document.querySelector('.tut-hint')?.textContent ?? '',
+    };
+  });
+  ok(!afterClose.invOpen && !afterClose.invShown,
+    '작업대 창의 닫기는 창째 닫는다 — 장비 칸도 가방도 화면에 없다', JSON.stringify(afterClose));
+  ok(!afterClose.spotLit && afterClose.panes === 0,
+    '밝힐 것이 없으면 스포트라이트도 뜨지 않는다 (어두운 판만 남지 않는다)', JSON.stringify(afterClose));
+  ok(afterClose.ctlShown && /가방/.test(afterClose.bagRow ?? ''),
+    `조작 가이드가 창을 다시 여는 키를 적는다 ("${afterClose.bagRow}")`, JSON.stringify(afterClose));
+  /* 튜토리얼은 인벤토리 탭을 언제나 열어 둔다 (`parts/Gates.blockReason` 의 `screenTab`) — Tab 으로 다시 연다. */
+  await P(() => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'Tab', key: 'Tab', bubbles: true }));
+    document.body.dispatchEvent(new KeyboardEvent('keyup', { code: 'Tab', key: 'Tab', bubbles: true }));
+  });
+  await waitFor(page, () => {
+    const r = document.querySelector('.inv-root');
+    return window.__game.ctx.inventory.isOpen && !!r && !r.hidden;
+  }, 'Tab reopens the inventory window', 10000);
+  ok(true, 'Tab 이 장착할 창을 다시 연다 (창이 열리면 조작 가이드는 스스로 접힌다)');
+  ok(await P(() => { const c = document.querySelector('.tut-controls'); return !c || c.hidden; }),
+    '인벤토리 창이 열려 있는 동안 조작 가이드는 접힌다');
+
   /* 2026-09-09: `equipGun` 은 장비 열 **전체**가 아니라 주무기 I · II 칸 + 가방만 밝힌다 — 보조무기 · 방탄복 ·
      가방 칸 · 임플란트 칸은 이 단계와 상관없다. 구멍은 언제나 사각형 하나이므로 셋을 감싸는 최소 사각형이
      되고, `parts/Spotlight.place` 가 `PAD`(6 px)만큼 넓혀 정수 모서리로 굳힌다. */

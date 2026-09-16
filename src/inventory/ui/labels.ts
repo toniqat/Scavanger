@@ -69,6 +69,14 @@ export const tileSizeAt = (w: number, h: number, cell: number): { width: number;
 });
 
 /**
+ * **격자 머리의 칸 readout** — `사용칸 / 전체칸` (2026-09-16, 사용자 결정). 정렬 버튼 **왼쪽**에 서고, 종류 수(`N점`)는
+ * 세지 않는다: 격자에서 알고 싶은 것은 "몇 칸 남았나" 하나이고 종류 수는 타일을 보면 된다. Tab 창의 창고 머리
+ * (`InventoryUI.stashCount`, `.inv-capacity`)와 끼워 넣는 격자(`ui/TradeGrids`)가 **같은 문자열**을 써야 두 화면이
+ * 같은 것을 말한다 — 그래서 문구는 여기 한 곳에만 있다.
+ */
+export const capacityLabel = (usedCells: number, totalCells: number): string => `${usedCells} / ${totalCells}`;
+
+/**
  * Credit value of an item / a grid (Phase 10): the one shared formatter, `1,200 C`. The old `₩` prefix is gone —
  * credits are the game's only currency and their unit is `CREDIT_SUFFIX`.
  */
@@ -413,6 +421,9 @@ export const TEXT = {
     eyebrow: (facility: RoomPurpose): string => `${FACILITY_EYEBROW[facility] ?? facility.toUpperCase()} BENCH`,
     level: (n: number): string => `Lv.${n}`,
     lockedLevel: (n: number): string => `작업대 Lv.${n} 필요`,
+    /* 2026-09-16 (사용자 결정 2차): 숙련이 모자라 잠긴 줄 — `제작 20 필요`. 지금은 `recipes.csv` 의
+       `skillRequired` 가 전부 0 이라 나오지 않지만, 숫자만 올리면 그대로 뜬다. */
+    lockedSkill: (label: string, n: number): string => `${label} ${n} 필요`,
     discount: (pct: number): string => `작업실 할인 −${pct} %`,
     repairTitle: '수리',
     repairNone: '수리할 장비가 없습니다',

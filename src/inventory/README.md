@@ -48,9 +48,9 @@ inventory only through `InventoryRef` (`src/shared/types.ts`) and bus events.
 | `parts/LaunchCheck.ts` | `getLaunchWarnings()` (drawn by `hub/ui/LaunchWarnPanel`) |
 | `ui/InventoryUI.ts` | Window DOM, panels, drag wiring, pouch block, flashes, hover validation, resize cell sync |
 | `ui/model.ts` | UI vocabulary: `DragState`, `SCREEN_TABS`, thresholds |
-| `ui/labels.ts` | Cell size source (`CELL`, `STEP`, `gridCellForHeight`, `applyGridCellVar`), `TEXT`, formatters, `weaponClassLabel` |
+| `ui/labels.ts` | Cell size source (`CELL`, `STEP`, `gridCellForHeight`, `applyGridCellVar`), `TEXT`, formatters, `weaponClassLabel`, `capacityLabel` (the one `사용칸 / 전체칸` string) |
 | `ui/GridView.ts` | Renders one `Grid` (signature-diffed tiles, highlight, frame rows, clip, hidden mask, scan gauge, vanish); `buildTileContent`, `buildSlotCardContent`; display copies of favourites / needed ammo / recovery scope / shelf-wanted |
-| `ui/GridTools.ts` | `buildFilterSelect` (native `<select>`), `buildSortButton` |
+| `ui/GridTools.ts` | `buildFilterSelect` (`FILTER_GROUPS` on `shared/dropdown.buildDropdown`), `buildSortButton` |
 | `ui/parts/Drag.ts` | Pointer state machine; held remainder after partial merges |
 | `ui/parts/ContextMenu.ts` | Which right-click entries each item gets |
 | `ui/parts/Screens.ts` | Screen tabs, embedded views, craft column, catalog layout, key guide |
@@ -65,7 +65,7 @@ inventory only through `InventoryRef` (`src/shared/types.ts`) and bus events.
 | `ui/Modeless.ts` | Modeless popup frame (no blocker, no cursor owner) |
 | `ui/ImplantPanel.ts` | Implant block: tactical implant picker + implant items |
 | `ui/CrewLoadoutView.ts` | Read-only squad member loadout view |
-| `ui/TradeGrids.ts` | Real bag / stash grids for other folders' screens |
+| `ui/TradeGrids.ts` | Real bag / stash grids for other folders' screens (move · rotate · merge through `DropResolver`; caller tray first) |
 | `ui/TipPin.ts` | Hold-to-pin tooltip, socket hover / drag-out |
 | `ui/Tooltip.ts` | Instance tooltip card (weapon gauges, sockets, durability bar, `items/itemSpecRows`, implant / book / meal lines, weight · value bar) |
 
@@ -95,9 +95,14 @@ Folder-internal (not contract): `previewDrop` / `drop`, `quickMove`, `activate`,
 
 ### TradeGrids (`createTradeGrids`)
 
-Used by `meta/ui/CorpView` and `housing/ui/StationShell`. Real stash / bag grids, read + drag-out only: a tile
-dropped on the caller's `dropSelector` (or double-clicked) calls `onTake(item, gridId, target)`; the caller mutates
-through `InventoryRef`. Options (`TradeGridsViewOptions`): `grids` (default `['stash', 'bag']`), `layout` (`'wrap'`
+Used by `meta/ui/CorpView` and `housing/ui/StationShell`. Real stash / bag grids. A tile dropped on the caller's
+`dropSelector` (or double-clicked) calls `onTake(item, gridId, target)` and the caller mutates through `InventoryRef`;
+the tray is tested **before** the grids, so a caller's drop zone always wins. 2026-09-16: a tile released on a **cell**
+instead is a real move — same cell, the other grid, `R` to rotate mid-drag, merge onto a matching stack — judged and
+executed by `parts/DropResolver` (`previewDrop` / `drop`), exactly as in the Tab window, including the merge remainder
+left on the cursor (`DragInfo.held`). The view still owns no blocker, no pointer lock and no standing key listener (the
+rotate key is bound only while a drag is in flight); it has no equipment / wheel / container targets and no world drop,
+so a release over nothing leaves the item where it was. Options (`TradeGridsViewOptions`): `grids` (default `['stash', 'bag']`), `layout` (`'wrap'`
 and `'split'` render the same side-by-side panel), `chips` (`'block'` own dropdown per block, `'shared'`, `'none'` +
 `mountFilterChips(host)`), `cell`, `isStaged`, `takeLabel`, `className`. `setCell(px)` rebuilds keeping filter and
 scroll (narrow with `typeof view.setCell === 'function'`). Call it **once** for stash + bag to get one card; blocks
@@ -249,7 +254,7 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 
 - Station: `'field'` in a raid, `'ship'` otherwise (`currentStation`). Counting is `craftCountDef` (ship = bag +
   stash, field = bag) for chips, `canCraft`, `maxCraftCount`; consumption is `consumeFor` (ship: `consumeDefAll`).
-- `getRecipes(station, bench?, level?)`: skill gate; field = `station: 'field'`; with bench = that bench up to its
+- `getRecipes(station, bench?, level?)`: **no skill gate** (2026-09-16); field = `station: 'field'`; with bench = that bench up to its
   level; without = field recipes + ship recipes whose bench is placed at level. Cook-bench recipes are returned only
   when `'cook'` is asked explicitly and `canCraft` rejects them — cooking goes only through `cookBlock` /
   `consumeCookInputs` (2026-09-16: meals are not items — the output is a housing plate, so no output room check).
@@ -257,7 +262,13 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
   `빠른제작`); `break_*` hidden; hold `CRAFT_HOLD_TIME`; craftable recipes sort first (stable); costs via `craftCost`
   (`HousingRef.getCraftCostMul`).
 - Outputs (craft and salvage): ship → stash, then bag; field → bag (`roomForOutputs` / `addCraftOutputs` share the
-  order). Research benches give research XP + refund roll instead of craft XP (`researchAfterCraft`).
+  order). Research benches give research XP instead of craft XP.
+- **Material refund** (`refundAfterCraft`, 2026-09-16 — every craft path: `craft()`, the lab benches and
+  `consumeCookInputs`, never `break_*`): the recipe's own `skill` refunds each consumed **unit** with probability
+  `craftRefundChance` (`shared/craftRefund.ts`), plus the older per-run research-bench roll (`researchRefundQty`).
+  Durable gear is excluded (`items/Salvage.isCraftRefundable` — its repair / salvage tables are those same inputs).
+  Both rolls land in **one** delivery — bag → (ship) stash → ground, the reverse of craft outputs because the
+  materials are what you were about to use again — and **one** `재료 회수: <이름> ×n · …` toast.
 - Salvage: `disassembleRecipeFor(uid)` = `ctx.loot.getSalvageFor(inst)` (durability-scaled); preview, room check and
   `updateCraft` all go through `resolveRecipe`. Not offered for container, stash or pouch stacks.
 - Repair (ship only): materials only from `repairMaterials` (`LootRef.getRepairCost`, spray refill fallback); a worn
@@ -310,13 +321,20 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
   its neighbour is always the equipment column (or the bag card in catalog mode). Stash and bag each keep their own
   scroll, sort and filter dropdown. Other tabs host `EmbeddedView`s from `progression`, `meta`, `housing`; a missing
   owner falls back to the inventory tab with a note.
+- **Stash header** (`.inv-panel-stash .inv-head.is-bare`): `함선 창고` (`.inv-stash-name`, `.inv-eyebrow` look) on the
+  left, then `[사용칸 / 전체칸][정렬][filter][업그레이드]` on the right. The readout is cells only (no item-kind
+  count); `.inv-stash-upgrade-btn` calls `HousingRef.openStorageUpgrade()` and is `hidden` without `ctx.housing`
+  (raid / no ship) — housing owns the modal, level, cost and hold.
 - **Bag tools** (bag header): `[모두 수리][모두 창고로 이동][정렬][filter]`. `.inv-stash-all-btn` (ship only, hidden in
   raids, disabled with an empty bag grid) → `moveBagToStash()`: bag **grid** only (not wheel, pouch or slots),
   favourites included, largest first, one `emitTransfer` per moved item and one `afterChange`; stash-hidden tutorial
   items stay; what does not fit stays with one toast `창고에 공간이 없습니다 (n개 남음)`.
-- **Native `<select>`** (`.inv-filter-select`, also used by `TradeGrids`): options carry an opaque dark
-  `background-color` and light `color` — Chromium paints the open list from the option styles, and the control's
-  translucent background made it unreadable.
+- **Filter dropdown** (`buildFilterSelect` → `shared/dropdown.buildDropdown`, also used by `TradeGrids`): no native
+  `<select>` anywhere — the list is drawn into a `position: fixed` layer under `document.body`, so it is never clipped
+  by `.tg-gridwrap` / `.inv-stash-scroll` and its Escape is swallowed in capture (the window stays open). The wrapper
+  keeps `.inv-filter-sel` (`.is-on` = a filter other than `전체`); `inventory.css` only sizes `.inv-filter-sel
+  .dd-trigger` down to the tool row. `FilterControl` = `{el, set, close, dispose}` — the owning screen must
+  `close()` on hide and `dispose()` on teardown, or the floating list outlives it.
 - **Cell size**: `ui/labels.CELL` is the only source; `STEP` drives grid size, hit tests, highlight and ghost. It
   follows **window height** (`gridCellForHeight`, `INV_CELL_*` in `data/tuning.csv`). Renderers write `--inv-cell`
   inline (`applyGridCellVar`); CSS has no media query for it.
@@ -361,13 +379,9 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 ## Recent changes
 
 Older: `git log -- src/inventory`.
-  bag header `모두 창고로 이동` (`moveBagToStash`); filter dropdown options opaque dark.
-  detail moved to a sibling card `.inv-panel-craft-detail` (`CraftPanel.detailEl`) with a tooltip-style header.
-  `announceTake(by)`), `inventory:itemRequested` / `containerViewed` / `allyDeposit`.
-  `wantsShieldRecharge(from)` is the one check for both.
-  craft / salvage outputs go to the stash first.
+
+- 2026-09-16 — Crafting has no skill **speed**, and no live skill gate (every `recipes.csv` `skillRequired` is `0`) — but the gate is still read, so raising a csv number makes that recipe a locked cell tagged `제작 20 필요` (`getRecipes` / `cookBlock` / `CraftPanel.lockedReason`). Instead every craft path refunds materials through one place (`parts/Crafting.refundAfterCraft` — craft skill per **unit**, research bench per run, merged into one delivery and one `재료 회수: …` toast; `researchAfterCraft` is gone).
+- 2026-09-16 — Bench craft window: `닫기` closes the window the bench opened (`closeCraftWindow`), `업그레이드` next to it (`HousingRef.openStorageUpgrade`, ship only), the bench lists **all** of its recipes with level / skill lock reasons (`getBenchRecipes`, `lockedReason`), an empty bench keeps the 5-thumbnail frame, and the detail card no longer scrolls sideways (`.inv-tt-value` bleed).
+- 2026-09-16 — Embedded `TradeGrids` grids move items again: a release on a cell goes through `previewDrop` / `drop` (same grid, 창고 ↔ 가방, `R` rotate, merge with the remainder held on the cursor); the caller's `dropSelector` tray is still tested first; the header's `N점` became the Tab-stash `사용칸 / 전체칸` readout (`labels.capacityLabel`) left of 정렬.
+- 2026-09-16 — Stash header: `함선 창고` title on the left, cells-only readout (the item-kind count is gone), `업그레이드` → `HousingRef.openStorageUpgrade()` (hidden without `ctx.housing`); the filter is the shared dropdown (`shared/dropdown.ts`) and `FilterControl` gained `close()` / `dispose()`.
 - 2026-09-16 — Meals are not items: `completeCook` / `roomForCook` / `useMealItem` and the `먹기` context entry removed; `consumeCookInputs` only consumes; launch check reports uneaten dining plates (`noMeal` text / `plateDiscard`).
-- 2026-09-16 — Crate rolls pass `WorldRef.crateLootOpts(id)` (open, peek, android prime, host materialize) — locked-room exemption from the epic+ gate.
-- 2026-09-16 — Ship Tab is `창고 | 장비 | 가방` (stash card out of `.inv-panel-grids`, joined via `--inv-panel-gap`);
-- 2026-09-15 — Craft UI: stash + bag card hidden in craft mode, recipe grid 4 → 5 columns, cell hover = output tooltip,
-- 2026-09-15 — Android hooks (`parts/Allies.ts`): ally bag / weight, `takeContainerItemFor` (`ContainerStore.prime`,

@@ -120,8 +120,8 @@ handler cannot read the track as done before this system starts it.
 | 7 | `manageDone` | close housing mode (`하우징 모드 닫기`, spotlights `.key-guide .kg-close`) — silently skipped when housing mode is already closed | `housing:shipManageChanged {active:false}` / `housing:modeChanged {active:false}` |
 | 8 | `craftGun` | walk to workshop → use bench → craft assault rifle | `craft:completed {recipeId:'make_wpn_ar'}` |
 | 9 | `craftAmmo` | craft medium ammo in the same window | `craft:completed {recipeId:'make_ammo_medium'}` |
-| 10 | `openBag` | close the craft window | `ui:craftToggled {open:false}` / `inventory:opened` without craft column |
-| 11 | `equipGun` | close craft window (if open) → equip rifle in primary I or II (union focus: slots + stash/bag panel) | `loadout:changed` with `wpn_ar` |
+| 10 | `openBag` | close the craft window — a bench's `닫기` closes the whole window (`closeCraftWindow`) | `ui:craftToggled {open:false}` / `inventory:opened` without craft column |
+| 11 | `equipGun` | reopen the window (Tab, control-guide line) → equip rifle in primary I or II (union focus: slots + stash panel) | `loadout:changed` with `wpn_ar` |
 | 12 | `stowAmmo` | move ammo into the bag | `inventory:changed` with `ammo_medium` in bag |
 | 13 | `terminal` | walk to cockpit → open terminal | `hub:terminalToggled {open:true}` |
 | 14 | `planet` | pick the target planet | `hub:planetChanged` / `hub:travel {start}` |
@@ -224,8 +224,8 @@ Smokes: `scripts/smoke-tutorial.mjs` (build track + three-track contract), `smok
 ## Recent changes
 
 Last 5 only — older: `git log -- src/tutorial`.
+- 2026-09-16 — A bench's `닫기` now closes the whole window (`inventory` `closeCraftWindow`), so `equipGun` starts with no UI to light: its hint leads with Tab and the control guide carries the `가방 · 장비` line (`EQUIP_HINTS`); the spotlight still folds itself while the targets are gone.
 - 2026-09-16 — Ship track is 2 steps (`messenger` out; `stats` ends on inventory close, old `messenger`/`ravenQuest` saves = done); checkpoints never fold past `supplyLoot`/`heal` while hurt (`healSafeFold`); tutorial DOM + 3D guide/marker hide during the liftoff cinematic (`ui:cinematic`).
 - 2026-09-15 — `restartTrack(track)`: a tutorial raid abandoned from the title clears the raid track (and `pendingShip`) instead of marking it done.
 - 2026-09-15 — Ship track is 3 steps (`ravenQuest` out; Raven writes after the tutorial); build track is 17 steps again (`manageDone` = `하우징 모드 닫기` before `craftGun`); floor guide hidden while housing mode is open; `isTrackDone('ship')` false while `pendingShip`.
 - 2026-09-15 — Gate `matchmaking` now hides the terminal's `매칭` tab (the matchmaking popup is gone).
-- 2026-09-15 — Raid skip keeps the black plate (`hold: true`) over the result screen; cleared on `hub:entered`.

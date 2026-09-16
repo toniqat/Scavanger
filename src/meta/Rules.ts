@@ -101,12 +101,28 @@ const CATEGORY_SORT: readonly ItemDef['category'][] = [
   'valuable', 'furniture',
 ];
 
-/** Would one unit of `defId` fit in the bag / stash right now? (`InventoryRef.canFit`, Phase 7). */
-export type FitLookup = (defId: string) => boolean;
+/** Would `qty` units of `defId` fit in the bag / stash right now? (`InventoryRef.canFit`, Phase 7). */
+export type FitLookup = (defId: string, qty: number) => boolean;
+
+/**
+ * 2026-09-16 (사용자 결정): **탄약은 한 묶음 통째로 판다.** 한 발씩 파는 매대는 한 탄창을 채우려고 같은 칸을 수십 번
+ * 눌러야 했고, 가격표도 「1 C」 처럼 읽혀 아무 뜻이 없었다. 그래서 매대 한 칸 = `stackMax` 발이고 값도 그만큼이다
+ * (구매 한 번 = 풀 스택 하나). 다른 분류는 지금까지대로 1 개다 — 총 · 방탄복 · 임플란트는 묶음이 없다.
+ *
+ * 릴레이의 사유 검증(`shared/credits.ts` `buy:<defId>`)은 **하한**만 본다(`|delta| ≥ 최저 신뢰도 할인가`), 그래서
+ * 금액이 커지는 쪽은 그대로 통과한다. `qty ≤ stackMax` 는 정의상 만족한다.
+ */
+export function shopQtyOf(def: Pick<ItemDef, 'category' | 'stackMax'>): number {
+  if (def.category !== 'ammo') return 1;
+  return Math.max(1, Math.floor(def.stackMax || 1));
+}
 
 /**
  * Sorted shop lines with prices and a blocking reason (`credits` = current balance; `inShip` = buying allowed now;
  * `fits` = grid pre-check → `공간 없음`, checked last so the reason order is 함선 → 크레딧 → 공간).
+ *
+ * `price` is what **one purchase** costs, i.e. `buyPriceOf × shopQtyOf` — for ammo that is the whole stack
+ * (2026-09-16). Every caller that stages / settles a line multiplies by the number of purchases, never by the units.
  */
 export function buildShop(
   corp: CorpDef, defs: readonly ItemDef[], level: number, credits: number, inShip: boolean, getWeaponDef: WeaponDefLookup,
@@ -116,11 +132,12 @@ export function buildShop(
   const repairMats = implantRepairMaterialIds(defs);
   for (const def of defs) {
     if (!corpSells(corp, def, level, getWeaponDef, repairMats)) continue;
-    const price = buyPriceOf(def.value, level);
+    const qty = shopQtyOf(def);
+    const price = buyPriceOf(def.value, level) * qty;
     let blocked: string | null = null;
     if (!inShip) blocked = REASON.shipOnly;
     else if (credits < price) blocked = REASON.credits;
-    else if (!fits(def.id)) blocked = REASON.space;
+    else if (!fits(def.id, qty)) blocked = REASON.space;
     out.push({ def, price, blocked });
   }
   out.sort((a, b) => {

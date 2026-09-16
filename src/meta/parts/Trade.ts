@@ -18,6 +18,7 @@ import { MAX_PROGRESS, MetaStorage } from '../Storage';
 import {
   REASON, buildShop, canRepairImplant, contractBlockReason, contractHitDelta, corpSells, implantRepairCost, implantRepairFee,
   implantRepairMaterialIds, isRepairableImplantDef, killGoalOf, questBlockReason, questStateOf, repInfoOf, settleContract,
+  shopQtyOf,
 } from '../Rules';
 import { CorpView } from '../ui/CorpView';
 import { CORP_ALIASES, GOAL_IDS, type ImplantRepairInfo, type ImplantRepairResult, type PurchaseFailure, isValidHit } from '../model';
@@ -70,7 +71,7 @@ export function getShop(sys: MetaSystem, corp: CorpId): ShopItem[] {
   const loot = sys.ctx.loot;
   const def = CORP_DEFS[corp];
   if (!loot || !def) return [];
-  return buildShop(def, loot.getAllItemDefs(), sys.level(corp), sys.credits, sys.inShip, (id) => loot.getWeaponDef(id), (id) => sys.fits(id));
+  return buildShop(def, loot.getAllItemDefs(), sys.level(corp), sys.credits, sys.inShip, (id) => loot.getWeaponDef(id), (id, qty) => sys.fits(id, qty));
   }
 
 export function priceOf(sys: MetaSystem, corp: CorpId, defId: string): number | null {
@@ -92,6 +93,9 @@ export function priceOf(sys: MetaSystem, corp: CorpId, defId: string): number | 
  * defensively). With a server profile the credits are debited optimistically, the server transaction runs, and only
  * an `ok` answer creates + places the item (a placement failure refunds through the server); either way completion
  * is announced by `meta:purchase` and a failure by `onPurchaseFailed` / `lastPurchaseFailure`.
+ *
+ * 2026-09-16: **한 번의 구매가 주는 개수는 `shopQtyOf`** (탄약은 풀 스택, 나머지는 1) — `priceOf` 가 이미 그 개수의
+ * 값을 돌려주므로 여기서 값을 다시 곱하지 않는다. 공간 검사 · 환불도 같은 개수 기준이다.
  */
 export function buy(sys: MetaSystem, corp: CorpId, defId: string): boolean {
   const fail = (reason: string, price = 0): false => {
@@ -102,7 +106,9 @@ export function buy(sys: MetaSystem, corp: CorpId, defId: string): boolean {
   const loot = sys.ctx.loot;
   const price = sys.priceOf(corp, defId);
   if (!loot || price === null) return fail('판매하지 않는 품목');
-  if (!sys.fits(defId)) return fail(REASON.space, price);
+  const def = loot.getItemDef(defId);
+  const qty = def ? shopQtyOf(def) : 1;
+  if (!sys.fits(defId, qty)) return fail(REASON.space, price);
   if (sys.credits < price) return fail(REASON.credits, price);
   sys.lastPurchaseFailure = null;
   const reason = formatCreditReason({ kind: 'buy', id: defId });
@@ -111,7 +117,7 @@ export function buy(sys: MetaSystem, corp: CorpId, defId: string): boolean {
   if (!sys.serverCredits) {
     if (!sys.applyCreditsLocal(-price, reason)) return fail(REASON.credits, price);
     let placed: 'bag' | 'stash' | null = null;
-    try { placed = sys.addAnywhere(loot.createItem(defId, 1)); } catch { placed = null; }
+    try { placed = sys.addAnywhere(loot.createItem(defId, qty)); } catch { placed = null; }
     if (!placed) { sys.applyCreditsLocal(price, refund); return fail(REASON.space, price); }
     sys.completePurchase(corp, defId, price, placed);
     return true;
@@ -126,7 +132,7 @@ export function buy(sys: MetaSystem, corp: CorpId, defId: string): boolean {
     }
     // `null` = socket gone mid-transaction: the local debit stands (offline fallback) and the item is delivered
     let placed: 'bag' | 'stash' | null = null;
-    try { placed = sys.addAnywhere(loot.createItem(defId, 1)); } catch { placed = null; }
+    try { placed = sys.addAnywhere(loot.createItem(defId, qty)); } catch { placed = null; }
     if (!placed) {
       sys.applyCreditsLocal(price, refund);
       if (res) void sys.serverTx(price, refund, false);   // pairs with the `buy:` debit on the relay's ledger (60 s window)

@@ -75,7 +75,7 @@ CARRY_XP_PER_METER,0.01,무거운 상태로 1 m 이동당
 CREDITS_INITIAL,500,새 프로필의 시작 크레딧
 CREDITS_MAX,9999999,보유 상한
 SHOP_UNLOCK_REP_LEVEL,1,상점이 열리는 신뢰도 레벨
-SHOP_PRICE_BASE_MUL,1.6,구매가 = 아이템 value × 이 값
+SHOP_PRICE_BASE_MUL,3,구매가 = 아이템 value × 이 값
 SHOP_PRICE_DISCOUNT_PER_REP,0.15,신뢰도 레벨마다 할인
 SHOP_PRICE_MIN_MUL,0.9,할인해도 이 배수 밑으로는 안 내려간다
 SHOP_BAG_RARITY_BONUS,1,가방은 등급 상한을 이만큼 더 받는다
@@ -111,3 +111,5 @@ CRYPTO_TRADE_MAX_UNITS,1000000,"거래 한 번에 사고팔 수 있는 최대 �
 CRYPTO_QUOTE_WINDOW_S,30,"서버가 거래 금액을 맞춰 보는 시세 창(초) — 이 안의 어느 시세로 계산했어도 받아 준다."
 CRYPTO_TICK_S,10,"서버 시세가 한 번 움직이는 간격(초)."
 INTEL_BUNDLE_COST_MUL,1.22,"정보상 누진 배수 — 고정한 줄이 하나 늘 때마다 총합에 곱한다 (총합 × 이 값^(줄 수−1)). 사용자 결정 「많이 활성화할수록 선형이 아니게 더 많이」."
+# inventory — 제작 재료 환급 (2026-09-16 사용자 결정: 숙련도는 제작을 막지 않고, 재료를 돌려주는 데에만 쓴다)
+CRAFT_REFUND_CHANCE_AT_MAX,0.35,"숙련도 100 일 때 소모한 재료 **한 개**가 돌아올 확률. 숙련 0 에서 이 값까지 선형. 개당 따로 굴린다(사용자 결정) — 큰 레시피일수록 체감이 크고 결과가 자연스럽게 퍼진다."

@@ -56,6 +56,39 @@ export function benchFacility(kind: WorkbenchKind | null): RoomPurpose {
   return kind ? BENCH_FACILITY.get(kind) ?? 'workshop' : 'workshop';
 }
 
+/**
+ * 작업대 창 머리의 **창고 업그레이드** 버튼 (2026-09-16, 사용자 결정) — 인벤토리 Tab 창고 머리줄의 것과 같은 모달을
+ * 연다 (`HousingRef.openStorageUpgrade`). 시설 레벨 · 비용 · 홀드 확정은 전부 housing 것이라 여기서는 한 줄만 부른다.
+ */
+const UPGRADE_KO = { label: '업그레이드', title: '창고 업그레이드' } as const;
+
+/** 숙련 이름 대체 표 — progression 이 없을 때만. 원본은 `data/skills.csv` 의 `name` 이다. */
+const SKILL_LABEL_KO: Readonly<Record<CraftRecipe['skill'], string>> = { crafting: '제작', medicine: '의학', gardening: '원예' };
+
+/** 레시피 숙련의 한국어 이름 — `ProgressionRef.getSkillDef` 가 원본, 없으면 대체 표 → id. */
+function skillLabel(sys: InventorySystem, skill: CraftRecipe['skill']): string {
+  const prog = sys.ctx.progression;
+  const def = prog && typeof prog.getSkillDef === 'function' ? prog.getSkillDef(skill) : null;
+  return def && def.id === skill && def.name ? def.name : (SKILL_LABEL_KO[skill] ?? skill);
+}
+
+/**
+ * **잠긴 레시피가 말하는 이유** (2026-09-16). 목록 칸의 아래 띠와 상세의 홀드 버튼 글자가 같은 말을 하도록 여기
+ * 하나에서 만든다.
+ *
+ * 갈래는 둘이고 **작업대 레벨이 먼저**다: 레벨이 모자라면 숙련은 물어볼 것도 없이 못 만든다. 레벨이 되는데도
+ * `getRecipes` 밖이면 남은 이유는 숙련뿐이다 (`skillRequired`).
+ *
+ * 2026-09-16 (사용자 결정 2차): 숙련 갈래는 같은 날 오전에 「제작에 숙련은 전혀 관여하지 않는다」로 지웠다가
+ * 되살렸다 — `skillRequired` 열을 남겨 둔 이상 나중에 csv 숫자만 올려서 켤 수 있어야 한다. 값이 전부 0 인
+ * 지금은 이 갈래가 나오지 않는다.
+ */
+function lockedReason(sys: InventorySystem, r: CraftRecipe, benchLevel: number): string {
+  const need = r.benchLevel ?? 1;
+  if (benchLevel < need) return TEXT.bench.lockedLevel(need);
+  return TEXT.bench.lockedSkill(skillLabel(sys, r.skill), r.skillRequired);
+}
+
 /** 왼쪽 조합 목록의 한 칸 — 산출물 썸네일 하나. 재료 · 수량 · 버튼은 전부 오른쪽 상세 패널이 갖는다. */
 interface CellView {
   recipe: CraftRecipe;
@@ -124,6 +157,16 @@ export interface CraftDetailHandle {
  * `.inv-craft-row` 라는 이름도 함께 갖는다** (그 안에 `.inv-craft-btn` 이 있다). 그리고 목록이 다시 만들어질 때
  * 고른 것이 없으면 **첫 칸을 자동으로 고른다** — 튜토리얼은 그 단계의 레시피 하나만 남기므로 그 하나가 곧 상세다.
  *
+ * ## 2026-09-16 — **닫기 · 업그레이드 · 잠긴 줄** (사용자 보고 · 결정)
+ *
+ *  - **닫기는 작업대 창을 닫는다**: 작업대가 스스로 연 Tab 창이면 창째 닫는다 (`InventoryRef.closeCraftWindow` →
+ *    `parts/Crafting.BENCH_WINDOW`). 예전에는 제작 열만 접혀 밑에 깔린 가방 창이 드러났다.
+ *  - 머리 오른쪽 **닫기 왼쪽**에 `업그레이드` (`HousingRef.openStorageUpgrade` — 인벤토리 Tab 창고 머리줄과 같은 모달).
+ *    `ctx.housing` 이 없거나 레이드면 버튼 자체가 없다.
+ *  - 목록은 이제 그 작업대의 레시피를 **전부** 싣는다 (`getBenchRecipes`) — 레벨이 모자란 줄도 잠긴 채로 보이고,
+ *    띠 · 버튼이 이유를 말한다 (`lockedReason`: `작업대 Lv.2 필요`. 2026-09-16 사용자 결정으로 숙련 갈래는 없어졌다).
+ *  - 고를 것이 없는 작업대도 **폭 · 높이를 지킨다** (css `.inv-craft-empty` — 썸네일 5칸 폭).
+ *
  * ## 그대로인 것
  *
  * - **왼쪽 세로 작업대 리스트**(`.inv-craft-benches`, 2026-09-12) · 같은 시설의 작업대만(2026-09-13).
@@ -145,6 +188,8 @@ export class CraftPanel {
   private bodyEl: HTMLElement;
   private stationEl: HTMLElement;
   private discountEl: HTMLElement;
+  /** 2026-09-16 (사용자 결정): 머리 오른쪽 · 닫기 **왼쪽**의 창고 업그레이드 버튼 (`ctx.housing` 없음 · 레이드 = 숨김). */
+  private upgradeBtn: HTMLButtonElement;
   private closeBtn: HTMLButtonElement;
   /** **만든 순서(= csv 순서) 그대로**의 칸 목록. 화면의 순서는 `applySort` 가 DOM 에서만 바꾼다. */
   private cells: CellView[] = [];
@@ -206,14 +251,29 @@ export class CraftPanel {
     this.discountEl = document.createElement('div');
     this.discountEl.className = 'inv-capacity inv-craft-discount';
     this.discountEl.hidden = true;
+    // 2026-09-16 (사용자 결정): 창고 업그레이드는 인벤토리 Tab 뿐 아니라 작업대 창에서도 닿는다 — 닫기 바로 왼쪽
+    this.upgradeBtn = document.createElement('button');
+    this.upgradeBtn.type = 'button';
+    this.upgradeBtn.className = 'inv-btn inv-craft-upgrade';
+    this.upgradeBtn.textContent = UPGRADE_KO.label;
+    this.upgradeBtn.title = UPGRADE_KO.title;
+    this.upgradeBtn.hidden = true;                 // `refresh()` 가 함선 · `ctx.housing` 을 보고 켠다
+    this.upgradeBtn.addEventListener('click', () => {
+      const h = this.sys.ctx.housing;
+      if (!h || typeof h.openStorageUpgrade !== 'function') return;
+      this.sys.sfx('ui_pickup');
+      h.openStorageUpgrade();
+    });
     this.closeBtn = document.createElement('button');
     this.closeBtn.type = 'button';
     this.closeBtn.className = 'inv-btn inv-craft-close';
     this.closeBtn.textContent = TEXT.bench.close;
     this.closeBtn.addEventListener('click', () => {
-      if (this.sys.getBench()) this.sys.closeBench(); else this.onClose();
+      /* 2026-09-16 (사용자 보고): 작업대가 연 창은 **작업대 창**이다 — 제작 열만 접으면 밑의 가방 창이 드러나
+         「닫았는데 가방이 열린다」가 된다. 창의 주인을 아는 것은 `parts/Crafting` 하나다. */
+      if (!this.sys.closeCraftWindow()) this.onClose();
     });
-    actions.append(this.discountEl, this.closeBtn);
+    actions.append(this.discountEl, this.upgradeBtn, this.closeBtn);
     head.append(titles, actions);
 
     // 2026-09-12: 맨 왼쪽 세로 작업대 리스트 (빠른제작 + 이 함선에 설치된 작업대)
@@ -290,6 +350,11 @@ export class CraftPanel {
       this.stationEl.textContent = station === 'ship' ? TEXT.craftStationShip : TEXT.craftStationField;
       this.titleEl.textContent = TEXT.craftPanel;
     }
+    /* 2026-09-16: 창고 업그레이드는 **함선에서만** — `ctx.housing` 이 없거나 레이드면 버튼 자체를 숨긴다
+       (`HousingRef.openStorageUpgrade` 의 규약: 「함선 밖에서는 부르는 쪽이 버튼을 숨긴다」). */
+    const housing = this.sys.ctx.housing;
+    this.upgradeBtn.hidden = !housing || typeof housing.openStorageUpgrade !== 'function' || !this.sys.ctx.isHubPhase();
+
     const mul = this.sys.craftCostMul();
     this.discountEl.hidden = mul >= 1;
     if (mul < 1) this.discountEl.textContent = TEXT.bench.discount(Math.round((1 - mul) * 100));
@@ -416,6 +481,7 @@ export class CraftPanel {
     this.dropHover();   // 칸이 통째로 새로 만들어진다 — 올려 두었던 칸은 떼어져 `pointerleave` 를 못 받는다
     this.listEl.innerHTML = '';
     this.cells = [];
+    const benchLevel = this.sys.getBench()?.level ?? 0;
     for (const { recipe, locked } of recipes) {
       const cell = document.createElement('button');
       cell.type = 'button';
@@ -456,7 +522,8 @@ export class CraftPanel {
       if (locked) {
         const tag = document.createElement('span');
         tag.className = 'inv-craft-locktag';
-        tag.textContent = TEXT.bench.lockedLevel(recipe.benchLevel ?? 1);
+        // 2026-09-16: 잠긴 줄은 작업대 레벨이 모자란 것뿐이다 — 띠가 그 이유를 말한다
+        tag.textContent = lockedReason(this.sys, recipe, benchLevel);
         cell.appendChild(tag);
       }
       cell.addEventListener('click', () => this.select(recipe.id));
@@ -476,10 +543,10 @@ export class CraftPanel {
   }
 
   /**
-   * **2026-09-10 — 지금 만들 수 있는 것이 위로.** 재료 · 숙련도 · 작업대 레벨을 전부 만족한 칸이 먼저 오고,
+   * **2026-09-10 — 지금 만들 수 있는 것이 위로.** 재료 · 작업대 레벨을 전부 만족한 칸이 먼저 오고,
    * 그 안에서는 **원래 순서(csv 순서)를 유지**한다 (안정 정렬).
    *
-   * - 숙련도는 애초에 `getRecipes` 가 걸러 목록에 없고, 작업대 레벨은 `locked` 다. 그래서 여기서 볼 것은
+   * - 작업대 레벨이 `locked` 다 (2026-09-16: 숙련은 더 이상 제작을 막지 않는다). 그래서 여기서 볼 것은
    *   `!locked && canCraft(id, 1)` 하나뿐이다 — **한 번이라도 만들 수 있나**이지 상세의 수량이 아니다.
    * - 넣을 자리(`craftHasRoom`)는 보지 **않는다**: 가방 · 창고가 찬 것은 레시피의 성질이 아니고, 상세 패널의
    *   버튼이 이미 이유를 말하고 있다.
@@ -793,7 +860,8 @@ export class CraftDetail implements CraftDetailHandle {
     /* ⑥ 버튼 */
     this.el.classList.toggle('is-crafting', active);
     this.fill.style.width = active ? `${Math.round((job?.progress ?? 0) * 100)}%` : '0%';
-    this.labelEl.textContent = this.locked ? TEXT.bench.lockedLevel(r.benchLevel ?? 1)
+    // 2026-09-16: 잠긴 이유는 목록 칸의 띠와 같은 말이다 (작업대 레벨 — `lockedReason`)
+    this.labelEl.textContent = this.locked ? lockedReason(this.sys, r, this.sys.getBench()?.level ?? 0)
       : active ? TEXT.craftMaking
       : ok && !room ? (ship ? TEXT.craftNoRoomShip : TEXT.craftNoRoomField)
       : TEXT.craftHold;

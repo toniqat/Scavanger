@@ -18,7 +18,7 @@ import { Tooltip } from './Tooltip';
 import { TipPin, inventoryTooltipLookups } from './TipPin';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
-import { CELL, QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, applyGridCellVar, fmtValue, pouchAcceptsLabel, slotKeyLabel, syncGridCell, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
+import { CELL, QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, applyGridCellVar, capacityLabel, fmtValue, pouchAcceptsLabel, slotKeyLabel, syncGridCell, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
 
 import { BAG_LOC, CATALOG_DBL_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from './model';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
@@ -80,6 +80,8 @@ export class InventoryUI {
   private searchStatus!: HTMLElement;
   private stashPanel!: HTMLElement;
   private stashCount!: HTMLElement;
+  /** 2026-09-16: 창고 머리 오른쪽 끝의 `업그레이드` (`ctx.housing` 이 없으면 숨는다 — `refresh`). */
+  private stashUpgradeBtn!: HTMLButtonElement;
   private bagCapacity!: HTMLElement;
   private valueEl!: HTMLElement;
   containerView!: GridView;
@@ -245,20 +247,34 @@ export class InventoryUI {
     sPanel.className = 'inv-panel inv-panel-stash';
     sPanel.hidden = true;
     /*
-     * 2026-09-15 2차 (사용자 결정): **창고 쪽 좌측 상단의 `STASH` / `함선 창고` 라벨은 없앴다.** 창고와 가방이
-     * 한 패널의 두 칸으로 나란히 서면서 「왼쪽 넓은 격자 = 창고」는 그림이 말한다. 머리에 남는 것은 개수 readout 과
-     * **이 칸만의** 정렬 버튼 · 필터 드롭다운뿐이다.
+     * 2026-09-15 2차: 좌측 상단 라벨을 한 번 없앴다가, **2026-09-16 (사용자 결정) 다시 넣는다** — 창고가
+     * `.inv-layout` 의 직속 카드로 나와 [창고][장비][가방] 한 장으로 이어지면서, 머리 왼쪽이 통째로 빈 여백이 됐고
+     * 이음매 너머의 장비 열과 구분이 서지 않았다. 조용한 섹션 제목(`.inv-eyebrow` 계열)이라 도구 줄보다 앞서지 않는다.
      */
     const sHead = document.createElement('header');
     sHead.className = 'inv-head is-bare';
+    const sName = document.createElement('div');
+    sName.className = 'inv-eyebrow inv-stash-name';
+    sName.textContent = '함선 창고';
     this.stashCount = document.createElement('div');
     this.stashCount.className = 'inv-capacity';
     const sActions = document.createElement('div');
     sActions.className = 'inv-head-actions';
     const sChips = buildFilterSelect((id) => this.setFilterGroup(id));
     this.filterChips.push(sChips);
-    sActions.append(this.stashCount, buildSortButton(() => this.sortGrid('stash')), sChips.el);
-    sHead.append(sActions);
+    /*
+     * 2026-09-16 (사용자 결정): 필터 오른쪽의 **`업그레이드`** — 창고 칸 수를 늘리는 모달은 housing 것이므로
+     * `HousingRef.openStorageUpgrade()` 한 줄만 부른다 (시설 레벨 · 비용 · 홀드 확정은 그쪽 규칙이다).
+     * `ctx.housing` 이 없으면(레이드 · 함선 밖) 누를 데가 없는 버튼이라 **통째로 숨긴다** — 딤드로 남기지 않는다.
+     */
+    this.stashUpgradeBtn = document.createElement('button');
+    this.stashUpgradeBtn.type = 'button';
+    this.stashUpgradeBtn.className = 'inv-btn inv-stash-upgrade-btn';
+    this.stashUpgradeBtn.textContent = '업그레이드';
+    this.stashUpgradeBtn.title = '창고 칸 수 늘리기';
+    this.stashUpgradeBtn.addEventListener('click', (e) => { e.stopPropagation(); this.ctx.housing?.openStorageUpgrade(); });
+    sActions.append(this.stashCount, buildSortButton(() => this.sortGrid('stash')), sChips.el, this.stashUpgradeBtn);
+    sHead.append(sName, sActions);
     this.stashView = new GridView('stash', getDef, getStats, this.tileHandlers());
     // 2026-09-09: 튜토리얼 중에는 창고에서 그 단계의 재료 · 산출물만 보인다 (`stashItem` 게이트, 꺼져 있으면 항상 false)
     this.stashView.setHideItem((item) => this.ctx.tutorial?.hides('stashItem', item.defId) ?? false);
@@ -677,6 +693,8 @@ export class InventoryUI {
     this.pin.cancelHold();   // 2026-09-14: a closing window drops the pinned card (and a hold in progress)
     this.pin.unpin();
     this.hovered = null;
+    // 2026-09-16: 필터 목록은 `document.body` 의 자식이라 창이 사라져도 저 혼자 화면에 남는다 — 닫으면서 같이 치운다
+    for (const f of this.filterChips) f.close();
     this.ctx.bus.emit('ui:keyGuide', { owner: 'inventory', keys: null });   // … then the window's line goes
     this.root.classList.remove('is-visible');
     const root = this.root;
@@ -734,6 +752,8 @@ export class InventoryUI {
     this.repair?.dispose();
     this.implantPanel?.dispose();   // the two pickers are `ctx.uiRoot` children — they must go with the window
     this.pin?.dispose();
+    for (const f of this.filterChips) f.dispose();   // 2026-09-16: 떠 있는 필터 목록은 창의 자식이 아니다
+    this.filterChips.length = 0;
     this.tooltip.dispose();
     this.root?.remove();
     this.root = null;
@@ -794,7 +814,7 @@ export class InventoryUI {
       else this.bagView.refresh();
       // 2026-09-08: used / total cells only. The `5×3` grid size and the `퀵슬롯 n` count both restate what the
       //   grid and the rose right below already draw.
-      this.bagCapacity.textContent = `${bag.usedCells()} / ${bag.cols * bag.rows}`;
+      this.bagCapacity.textContent = capacityLabel(bag.usedCells(), bag.cols * bag.rows);
       this.valueEl.textContent = fmtValue(bag.totalValue() + this.equippedValue());
     }
     const c = this.sys.getActiveContainer();
@@ -814,9 +834,13 @@ export class InventoryUI {
       const stash = this.sys.getStash();
       if (this.stashView.current !== stash) this.stashView.setGrid(stash);
       else this.stashView.refresh();
-      this.stashCount.textContent = `${stash.count} · ${stash.usedCells()} / ${stash.cols * stash.rows}`;
+      // 2026-09-16 (사용자 결정): **사용칸 / 전체칸만.** 앞에 붙던 아이템 종류 수(`stash.count`)는 격자가 이미
+      //   그리고 있는 것을 숫자로 한 번 더 적는 줄이었고, 창고에서 궁금한 것은 「얼마나 찼나」 하나다.
+      this.stashCount.textContent = capacityLabel(stash.usedCells(), stash.cols * stash.rows);
       this.refreshCredits();
     }
+    // 2026-09-16: 창고 업그레이드는 함선 기능 — `ctx.housing` 이 없으면 부를 데가 없으니 버튼을 지운다
+    this.stashUpgradeBtn.hidden = !this.ctx.housing;
     /*
      * 2026-09-14: `모두 수리` 는 **함선에서만** — 레이드 중에는 `benchRepairRows` 가 빈 목록이라 버튼도 숨긴다.
      * 고칠 것이 하나도 없으면 딤드로 남긴다 (없앴다 나타나면 칩 줄의 자리가 흔들린다).

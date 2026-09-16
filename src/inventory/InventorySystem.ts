@@ -706,6 +706,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Leave bench mode (panel 닫기 / window closed). The window itself stays open. */
   closeBench(): void { return Craft.closeBench(this); }
 
+  /** 2026-09-16: 제작 창의 `닫기` — 작업대가 연 창이면 **창째** 닫는다. false = 닫을 작업대가 없었다. */
+  closeCraftWindow(): boolean { return Craft.closeCraftWindow(this); }
+
   /** Rows for the craft panel: available recipes, then (bench mode) the bench's recipes above its level as locked. */
   getBenchRecipes(): BenchRecipeRow[] { return Craft.getBenchRecipes(this); }
 

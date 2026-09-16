@@ -3,13 +3,16 @@
 # weaponClass 는 사격 숙련만 — 그 무기 종류로 맞히면 이 숙련이 오른다 (대응표는 tables.csv 의 WEAPON_CLASS_SKILL).
 # derived = 이 숙련이 바꾸는 캐릭터 시트 「파생 능력치」 줄의 키 (| 로 여러 개, progression/defs.ts 의 DERIVED_PANEL_KEYS 중 하나).
 #   사격 숙련은 무기 종류별 반동 · 장전이라 패널에 줄이 없다 — 비워 두고 툴팁이 숫자만 보여 준다.
+# 2026-09-16 (사용자 결정): **제작 숙련은 제작을 막지도, 빠르게 하지도 않는다.** 제작(crafting) · 의학(medicine) ·
+#   원예(gardening) 숙련이 하는 일은 「제작에 쓴 재료를 일부 돌려받는다」 하나다 (data/tuning.csv 의
+#   CRAFT_REFUND_CHANCE_AT_MAX, src/shared/craftRefund.ts). 파생 줄이 없으므로 crafting 의 derived 칸은 비어 있다.
 id,name,stats,weaponClass,description,derived
 carry,운반,strength,,무거운 짐을 지고 이동하면 오른다. 「조금 무거움」 상태의 스태미나 손해를 줄인다.,carryReliefFactor
 appraisal,감정,perception,,상자를 뒤지면 오른다. 아이템 서치 속도가 빨라진다.,searchSpeedMul
 grit,인내,endurance,,치명상을 버텨내면 오른다. 치명타를 체력 1로 버틸 확률이 늘어난다.,gritChance
-gardening,원예,dexterity|intelligence,,약초를 채집하면 오른다. 채집 수확량이 늘어난다.,gatherYieldMul
-crafting,제작,dexterity|intelligence,,현장 제작을 완료하면 오른다. 제작 속도가 빨라진다.,craftSpeedMul
-medicine,의학,intelligence,,치료 물자를 조제하면 오른다. 회복 아이템의 효과가 커진다.,healPowerMul
+gardening,원예,dexterity|intelligence,,약초를 채집하면 오른다. 채집 수확량이 늘고 원예 제작에 쓴 재료를 일부 돌려받는다.,gatherYieldMul
+crafting,제작,dexterity|intelligence,,제작을 완료하면 오른다. 제작에 쓴 재료를 일부 돌려받는다 (재료 한 개마다 따로 굴린다).,
+medicine,의학,intelligence,,치료 물자를 조제하면 오른다. 회복 아이템의 효과가 커지고 조제에 쓴 재료를 일부 돌려받는다.,healPowerMul
 cryptography,암호학,intelligence,,탈출 콘솔을 해킹하면 오른다. 탈출선 호출이 빨라진다.,shipCallSpeedMul
 implant,전술 임플란트,intelligence,,임플란트를 사용하면 오른다. 재사용 대기시간이 줄어든다.,implantCooldownMul
 gun_AR,사격 · 돌격소총,perception,AR,돌격소총 명중으로 오른다. 반동이 줄고 재장전이 빨라진다.,

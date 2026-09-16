@@ -366,10 +366,21 @@ const MOVE_HINTS: readonly ControlHint[] = [
  * 루팅 두 줄 — 첫 시체(`corpseLoot`)와 보급품 시체(`supplyLoot`, 2026-09-15)가 **같은 배열**을 쓴다
  * (`MOVE_HINTS` 와 같은 이유: 참조가 같으면 `applyControls` 의 id 비교가 DOM 을 안 건드린다).
  */
+const BAG_HINT: ControlHint = { id: 'bag', keys: ['INVENTORY'], label: '가방 · 장비', section: 'screen' };
+
 const LOOT_HINTS: readonly ControlHint[] = [
   { id: 'interact', keys: ['INTERACT'], label: '상호작용 · 루팅', hold: true, section: 'screen' },
-  { id: 'bag', keys: ['INVENTORY'], label: '가방 · 장비', section: 'screen' },
+  BAG_HINT,
 ];
+
+/**
+ * 장착 단계의 한 줄 (2026-09-16) — **작업대 창의 `닫기` 는 창째 닫는다** (`inventory/parts/Crafting.closeCraftWindow`,
+ * 사용자 보고 「작업대 창을 닫았는데 가방이 열린다」). 그래서 `equipGun` 에 들어서는 순간 장비 칸도 가방도 화면에
+ * 없고, 밝힐 DOM 이 없으니 스포트라이트도 뜨지 못한다 (`parts/Spotlight` 는 대상이 없으면 스스로 접힌다).
+ * 남은 안내는 「창을 다시 열어라」 하나이고, 그것을 적는 자리는 우측 조작 가이드다 — 창이 열리면 가이드가
+ * 스스로 접히므로(`TutorialSystem.setInventoryOpen`) 줄은 필요한 동안에만 떠 있다.
+ */
+const EQUIP_HINTS: readonly ControlHint[] = [BAG_HINT];
 
 /** 사격 + 정조준 한 줄 — `shoot` 과 `crouchAim`(2026-09-15)이 함께 쓴다. */
 const FIRE_HINT: ControlHint = { id: 'fire', keys: ['FIRE'], label: '사격', section: 'combat', more: [{ keys: ['AIM'], label: '정조준' }] };
@@ -402,6 +413,8 @@ export const TUTORIAL_CONTROL_HINTS: Readonly<Partial<Record<TutorialStepId, rea
   //   저장에서 줄을 되살릴 때(`restoreControls`) id 를 찾는 것 하나다.
   crouch: crouchHints('stand'),
   crouchAim: [...crouchHints('stand'), FIRE_HINT],
+  // 증축 트랙에서 유일하게 줄이 있는 단계 — 작업대 창이 통째로 닫힌 뒤 「가방을 다시 열어라」 (위 `EQUIP_HINTS`)
+  equipGun: EQUIP_HINTS,
   supplyLoot: LOOT_HINTS,
   heal: [
     QUICK_HINT,

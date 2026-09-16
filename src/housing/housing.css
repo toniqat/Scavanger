@@ -203,6 +203,17 @@
 /* 업그레이드 모달 (`ui/UpgradeModal.ts`) — 1초 홀드 확정 */
 .hs-modal { position: fixed; inset: 0; z-index: 45; display: flex; align-items: center; justify-content: center; background: rgba(4, 6, 9, 0.62); }
 .hs-modal[hidden] { display: none; }
+/* ── 홀로 뜬 모달 (2026-09-16, `ui/StorageUpgrade.ts`) ────────────────────────────────────────────────────────
+ * 창고 업그레이드는 가구 화면이 아니라 **인벤토리 Tab · 작업대 창 위**에서 열리므로 `#ui-root` 직계로 붙는다.
+ * 기본값 45 는 인벤토리 창(50) 아래라 그대로 쓰면 창 뒤에 가려진다.
+ *
+ * **100 을 고른 이유** (눈금은 `src/ui/styles/base.css` 의 주석이 원본이다): 인벤토리 창(50)과 그 딸림 층
+ * **전부** — 드래그 고스트 층 60 · 호버 카드 69/70 · 모달리스 팝업 70 · 우클릭 메뉴 75 · 분할 창 80 ·
+ * 임플란트 피커 90 — 보다 위여야 하므로 90 초과여야 하고, **떠다니는 카드 무리(190 +)보다는 아래**여야 한다:
+ * 이 모달 안의 재료 칩이 곧 `data-def-id` 라 공용 아이템 카드(`.item-tip`, 200)와 즐겨찾기 메뉴(210)를 자기
+ * 위에 띄워야 한다. 90 과 190 사이의 빈 구간에서 가장 읽기 쉬운 값이 100 이다.
+ * (공용 드롭다운 400 · 아이템 메뉴 300 은 늘 위, 이 모달은 임시 확인 창이라 그 아래가 맞다.) */
+.hs-modal.hs-modal-top { z-index: 100; }
 .hs-modal-card {
   width: min(460px, 90vw); display: flex; flex-direction: column; gap: 12px; padding: 22px 24px;
   background: rgba(14, 17, 21, 0.98); border: 1px solid color-mix(in srgb, var(--c-accent) 45%, transparent);

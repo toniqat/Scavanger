@@ -11,7 +11,7 @@ import type {
 } from '@/shared';
 import {
   CORP_DEFS, NAMED_ROGUE_NAME_KO, NAMED_ROGUE_TYPES, NPC_DEF_MAP, NPC_FLAGS, NPC_ITEM_WEAPON_PREFIX, NPC_LOG_MAX, NPC_QUEST_MAP,
-  STRUCTURE_LABEL_KO, csvRows, formatCredits, planetLabel,
+  STRUCTURE_LABEL_KO, csvRows, formatCompactSigned, formatCredits, planetLabel,
 } from '@/shared';
 
 /** 한국어 사유 (메신저 버튼 · 콘솔이 그대로 찍는다). */
@@ -153,12 +153,14 @@ export function objectiveLabel(o: NpcObjectiveDef, itemName: (defId: string) => 
 /**
  * 보상 한 줄 — `1,200 C · 경험치 +600 · 헬릭스 방산 신뢰도 +300 · 박도윤 신뢰도 +200 · 회로 기판 ×2`. 보상이 없으면 ''.
  * 2026-09-14: 기업 신뢰도 바로 뒤에 **그 NPC 의 개인 신뢰도**가 붙는다 (둘은 서로를 대신하지 않는다).
+ * 2026-09-16 (사용자 결정): **경험치도 크레딧과 같은 축약형**이다 (`shared/numberFormat` — 10,000 이상 `10.0k`).
+ * 신뢰도 · 아이템 개수는 그대로 정확한 수다 — 세 자리를 넘지 않고, 몇 점인지가 바로 읽혀야 하는 값이다.
  */
 export function rewardSummary(def: NpcQuestDef, itemName: (defId: string) => string): string {
   const r = def.rewards;
   const parts: string[] = [];
   if (r.credits > 0) parts.push(formatCredits(r.credits, { sign: true }));
-  if (r.xp > 0) parts.push(`경험치 +${r.xp}`);
+  if (r.xp > 0) parts.push(`경험치 ${formatCompactSigned(r.xp, true)}`);
   for (const x of r.rep) if (x.amount > 0) parts.push(`${CORP_DEFS[x.corp]?.name ?? x.corp} 신뢰도 +${x.amount}`);
   if (r.npcTrust > 0) parts.push(`${npcTrustLabel(def.npc)} +${r.npcTrust}`);
   for (const it of r.items) parts.push(`${itemName(it.defId)} ×${it.qty}`);

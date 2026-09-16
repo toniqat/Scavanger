@@ -576,6 +576,14 @@ export interface HousingRef {
   getSkillGainMul(skill: SkillId): number;
   /** Stash grid from the storage level. inventory/ resizes its stash on `housing:stashSizeChanged`. */
   getStashSize(): { cols: number; rows: number };
+  /*
+   * appended (2026-09-16, 사용자 결정): **창고 업그레이드 모달**. 인벤토리 Tab 창고 머리줄과 작업대 창 머리줄의
+   * 「업그레이드」 버튼이 부른다 — 두 화면 다 `storage` 시설을 직접 만지지 않고 이 한 줄만 부른다
+   * (「다른 폴더 내부를 import 하지 않는다」 — 시설 레벨 · 비용 · 홀드 확정은 housing 것이다).
+   * 모달은 `housing/ui/UpgradeModal` 과 같은 모양 · 같은 규칙(재료 칩 + `UI_HOLD_CONFIRM_S` 홀드 + `ctx.escape`)이고,
+   * 인벤토리 창 **위**에 뜬다. 함선 밖(`ctx.housing` 없음 · 레이드)에서는 부르는 쪽이 버튼 자체를 숨긴다.
+   */
+  openStorageUpgrade(): void;
 
   /* ── furniture ── */
   getFurnitureDef(id: string): FurnitureDef | undefined;
