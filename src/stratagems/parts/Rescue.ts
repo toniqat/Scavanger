@@ -10,7 +10,7 @@
  * 시점**이고 이후 무슨 일이 있어도 환불하지 않는다. 싱글 플레이는 자기가 호스트인 셈 치고 그대로 처리한다.
  *
  * 여기서 **헬포드는 그리지 않는다**. 원격에서 보이는 강하 포드는 `player/` 가 `pod drop` 으로 그리는 것이
- * 유일한 원본이라, 이 파일은 표적 마커 · 착륙 먼지 · 이벤트(`rescue:called` / `rescue:landed`)까지만 낸다.
+ * 유일한 원본이라, 이 파일은 표적 마커 · 이벤트(`rescue:called` / `rescue:landed`)까지만 낸다.
  */
 import * as THREE from 'three';
 import {
@@ -18,7 +18,6 @@ import {
   isAndroidId, isBotPlayer,
   type PeerId, type RescueCandidate, type RescueMessage, type StratagemId,
 } from '@/shared';
-import { dustBurst } from '../Visuals';
 import { Call, defOf, toTuple } from '../model';
 import type { StratagemSystem } from '../StratagemSystem';
 import { callRefusal, fromHost, rescueDenyId, sendCallDeny, wallSeconds } from './Wire';
@@ -213,17 +212,16 @@ export function applyGrant(sys: StratagemSystem, callId: string, target: string,
 
 /* ─────────────────────────── 강하 ─────────────────────────── */
 /**
- * 착륙 한 프레임. 포드 메시는 없다 (player/ 가 그린다) — 마커를 걷고 착륙 먼지 · 흔들림만 남긴 뒤
- * `rescue:landed` 를 낸다. 부활 자체는 그 이벤트를 듣는 쪽(player / game)이 한다.
+ * 착륙 한 프레임. 포드 메시는 없다 (player/ 가 그린다) — 마커를 걷고 `rescue:landed` 를 낸다. 부활 자체는 그 이벤트를
+ * 듣는 쪽(player / game)이 한다.
+ * 2026-09-17: 여기서 먼지 · 흔들림 · 폭발음을 내지 않는다 — 이 순간부터 부활자의 헬포드가 떨어지기 시작하므로, 빈 자리에서 한 번
+ *   「쾅」 하고 포드가 닿을 때 또 「쾅」 하던 이중 충격이었다. 착지 연출은 헬포드(`player/Hellpod` · `RemotePods`)의 것 하나뿐이다.
  */
 export function updateRescue(sys: StratagemSystem, c: Call, t: number): void {
   if (c.stage !== 'incoming') return;
   if (t < c.landsAt) return;
   c.stage = 'active';
   sys.removeMarker(c);
-  sys.burst(dustBurst(c.position, c.def.radius));
-  sys.shakeFrom(c.position, 0.5);
-  sys.audio('explosion', c.position, 0.45);
   sys.landed(c);
   if (c.rescueTarget) sys.ctx.bus.emit('rescue:landed', { callId: c.id, target: c.rescueTarget, position: c.position });
   sys.ended(c);

@@ -704,9 +704,9 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
 ## 2026-09-16 — HUD · 메신저 · 튜토리얼 다듬기 · HUD, messenger, tutorial polish
 
 - **Empty corpses, all kinds** (player, android, tutorial, enemy) sink 1 s after the looting ends — empty *and* nobody
-  (local or squadmate) has the loot window open. Rejected: enemy-only / player-only.
-- **Weapon panel dims for anything non-primary in hand** (quick use, grenade, stim, melee swing, holstered). Rejected: T quick
-  use only. The old consumable mode of the big panel is gone.
+  (local or squadmate) has the loot window open. Once sinking starts the corpse can't be interacted with (2026-09-17). Rejected: enemy-only / player-only.
+- **Weapon panel dims for anything non-primary in hand** (quick use, grenade, stim, holstered). Rejected: T quick
+  use only. A melee swing does **not** dim it — melee is hitting with the primary in hand (2026-09-17). The old consumable mode of the big panel is gone.
 - **Pickup toast always shows the quantity** (`×1` included).
 - **Messenger stays ship-only**: button, `P` hint and red-dot pop exist only in the ship, including over Tab / ESC menus.
 - **Ship doors**: sliding leaves removed, frames kept, with overlapping trim at the openings cleaned up. Rejected: removing frames.

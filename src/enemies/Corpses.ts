@@ -55,6 +55,8 @@ export class Corpse implements Interactable {
    */
   hidePillar = false;
   life = CORPSE_LIFETIME;
+  /** 2026-09-17: 몸이 땅으로 가라앉는 중 — 상호작용 불가 (`EnemySystem.update` 가 매 프레임 `anim.fade` 로 세운다). */
+  sinking = false;
   private items: ItemInstance[] | null = null;
 
   /**
@@ -73,7 +75,7 @@ export class Corpse implements Interactable {
 
   canInteract(): boolean {
     const ctx = this.ctx;
-    if (this.looted || !ctx.isGameplayActive()) return false;
+    if (this.looted || this.sinking || !ctx.isGameplayActive()) return false;
     const p = ctx.player;
     if (!p || p.isDead || p.isDowned) return false;
     return !!ctx.inventory && typeof ctx.inventory.openContainerItems === 'function';

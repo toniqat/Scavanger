@@ -498,6 +498,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         if (e.deathLanded) e.corpseDropped = false;
       }
       e.animate(dt);
+      // 2026-09-17: 가라앉기 시작한 시체는 더 뒤질 수 없다 (빈 시체 · 수명 끝 시체 공통 — `anim.fade` > 0 이 가라앉는 중)
+      if (e.state === 'dead') { const c = this.corpses.get(e.id); if (c) c.sinking = e.anim.fade > 0; }
       // Phase 10: a mid-air kill registers its corpse once the body has come to rest (or after CORPSE_LAND_TIMEOUT)
       if (e.corpsePending && this.authority && !this.resetting && (e.deathLanded || e.deathTimer >= CORPSE_LAND_TIMEOUT)) this.registerCorpse(e);
       if ((e.state === 'dead' && e.deathTimer >= e.corpseLife + slack) || (e.state === 'flee' && e.fleeTimer >= FLEE_DURATION)) this.despawn(e);
