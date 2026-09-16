@@ -203,6 +203,10 @@ try {
       compMid: post.some((x) => x.comp > 0.02 && x.comp < 0.98), compEnd: f[f.length - 1].comp,
       compWakeZero: f.filter((x) => x.waking).every((x) => x.comp === 0),
       retWakeZero: f.filter((x) => x.waking).every((x) => x.ret === 0),
+      // 실패했을 때 어느 프레임이 범인인지 바로 보이게 (첫 3개: 몇 번째 프레임 · 그때의 opacity · 앞뒤 waking)
+      retBad: f.map((x, i) => ({ i, t: x.t, ret: x.ret, wake: x.waking, prevWake: f[i - 1]?.waking ?? null }))
+        .filter((x) => x.wake && x.ret !== 0).slice(0, 3),
+      wakeFirst: f.findIndex((x) => x.waking), frames: f.length,
       retMid: post.some((x) => x.ret > 0.02 && x.ret < 0.98), retEnd: f[f.length - 1].ret,
       retFirstPost: post[0]?.ret ?? null, reveal: g.getSystem('hud').reticle.revealAmount,
     };
@@ -218,7 +222,7 @@ try {
   ok(after.compMid, '나침반이 서서히 나타난다 (중간값)');
   ok(after.compEnd === 1, '나침반이 다 나타났다', `(${after.compEnd})`);
   // 2026-09-16 (사용자 결정): 크로스헤어는 카메라가 평소 시점으로 돌아올 때까지 없고, 그 뒤 서서히 나타난다
-  ok(after.retWakeZero, '연출 프레임 내내 크로스헤어가 보이지 않았다');
+  ok(after.retWakeZero, '연출 프레임 내내 크로스헤어가 보이지 않았다', JSON.stringify({ bad: after.retBad, wakeFirst: after.wakeFirst, frames: after.frames }));
   ok(after.retFirstPost !== null && after.retFirstPost < 0.5, '연출이 끝난 첫 프레임에 크로스헤어가 한 번에 켜지지 않는다', `(${after.retFirstPost})`);
   ok(after.retMid, '크로스헤어가 서서히 나타난다 (중간값)');
   ok(after.retEnd === 1 && after.reveal === 1, '크로스헤어가 다 나타났다', JSON.stringify({ ret: after.retEnd, reveal: after.reveal }));

@@ -142,6 +142,8 @@ export class Reticle {
   private innerEl: HTMLElement;
   /** 2026-09-16: 기상 연출 뒤 나타나는 정도 0..1 (연출이 없으면 늘 1). */
   private reveal = 1;
+  /** 지금 `reveal` 을 코드가 밟고 있는가 (`.reticle` 의 CSS 전이를 끈 상태인가). */
+  private revealStepping = false;
   private ctx: GameContext | null = null;
   private unsubs: Array<() => void> = [];
 
@@ -474,10 +476,21 @@ export class Reticle {
     if (this.root.style.opacity !== opacity) this.root.style.opacity = opacity;
   }
 
-  /** 기상 연출 동안 0, 끝나면 `TUTORIAL_RETICLE_FADE_S` 에 걸쳐 1 로 (시뮬레이션 dt — 일시정지 · 셰이더 hold 에 멈춘다). */
+  /**
+   * 기상 연출 동안 0, 끝나면 `TUTORIAL_RETICLE_FADE_S` 에 걸쳐 1 로 (시뮬레이션 dt — 일시정지 · 셰이더 hold 에 멈춘다).
+   *
+   * 밟는 동안에는 `.reticle` 의 CSS 전이(`--t-fast`)를 끈다 (`.reveal-step`) — 서사를 나르는 페이드는 코드가 밟는다
+   * (CLAUDE.md §4.2). 끄지 않으면 연출이 시작되는 프레임에 크로스헤어가 **1 에서 `--t-fast` 동안 사라지며 깜빡이고**
+   * (튜토리얼 부팅에서 실제로 보인다), 나타날 때도 코드 계단 위에 전이가 한 번 더 겹친다.
+   */
   private updateReveal(ctx: GameContext, dt: number): number {
     if (ctx.player?.introWaking ?? false) this.reveal = 0;
     else if (this.reveal < 1) this.reveal = TUTORIAL_RETICLE_FADE_S > 0 ? Math.min(1, this.reveal + Math.max(0, dt) / TUTORIAL_RETICLE_FADE_S) : 1;
+    const stepping = this.reveal < 1;
+    if (stepping !== this.revealStepping) {
+      this.revealStepping = stepping;
+      this.root.classList.toggle('reveal-step', stepping);
+    }
     return this.reveal;
   }
 

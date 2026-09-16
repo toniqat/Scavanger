@@ -227,6 +227,8 @@ input { font: inherit; color: inherit; }
   width: 0; height: 0;
   transition: opacity var(--t-fast) var(--ease);
 }
+/* 기상 연출의 나타남은 코드가 밟는다 (`hud/Reticle.updateReveal`) — 그 동안 전이가 겹치면 시작 프레임에 크로스헤어가 깜빡인다 */
+.reticle.reveal-step { transition: none; }
 .reticle .tick {
   position: absolute; left: 0; top: 0;
   background: rgba(255, 255, 255, 0.9);
