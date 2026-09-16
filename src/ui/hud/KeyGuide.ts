@@ -31,7 +31,10 @@ const NO_CLOSE_OWNERS: ReadonlySet<string> = new Set(['rover', 'pod']);   // `'p
  * glyph (pressed button white, accent + chevron when held), and the chevron now sits **inside** the cap's top edge, so
  * the guide no longer grows `padding-top` for a hold key.
  *
- * DOM: `.key-guide(.show)` > `.kg-item` (`.keycap` + `.kg-label`) separated by `.kg-sep` (`·`). A direct child of
+ * DOM: `.key-guide(.show)` > `.kg-panel` > `.kg-item` (`.keycap` + `.kg-label`) separated by `.kg-sep` (a thin vertical
+ * line, 2026-09-16 — was a `·`). **2026-09-16 (사용자 결정):** the appended 닫기 sits in its **own** panel to the right
+ * (`.kg-panel.kg-panel-close` > `.kg-item.kg-close`) — every screen, not just the inventory, so the close keys always
+ * read apart from the screen's action keys; an owner with no keys shows the close panel alone. A direct child of
  * `ctx.uiRoot` (z 84) so it floats over the inventory window, the hub terminal, the 시설 관리 panel and the map in
  * both hub and gameplay phases. Hidden while the stack is empty, while the ESC 일시정지 메뉴 is up (`'menu'` blocker,
  * polled in `update`) and while the chat input is open (`ui:chatToggled` — the chat carries its own close hint).
@@ -105,12 +108,17 @@ export class KeyGuide {
       this.renderKey = key;
       this.rendered = entries;
       this.root.replaceChildren();
+      // 2026-09-16 (사용자 결정): 화면의 행동 키 패널 | 닫기 패널 — 두 상자로 나눈다. 행동 키가 없으면 닫기 패널만.
+      let panel: HTMLElement | null = null;
       entries.forEach((e, i) => {
-        if (i) el('span', { cls: 'kg-sep', text: '·', parent: this.root });
         // 2026-09-09: the appended 닫기 (always last) carries `kg-close` so something can point at just the close
         // key — the tutorial's 함선 관리 닫기 step spotlights `.key-guide .kg-close`.
         const close = !noClose && i === entries.length - 1;
-        const item = el('span', { cls: close ? 'kg-item kg-close' : 'kg-item', parent: this.root });
+        if (close) panel = el('div', { cls: 'kg-panel kg-panel-close', parent: this.root });
+        else if (!panel) panel = el('div', { cls: 'kg-panel', parent: this.root });
+        // 2026-09-16 (사용자 결정): 항목 사이 구분은 가운뎃점이 아니라 얇은 세로 막대 (`.kg-sep` 는 빈 span, CSS 가 선을 그린다)
+        else el('span', { cls: 'kg-sep', parent: panel });
+        const item = el('span', { cls: close ? 'kg-item kg-close' : 'kg-item', parent: panel });
         // 2026-09-09: `hold: true` → `.keycap.kc-hold` (the ⌄ chevron above the cap lives in the stylesheet, once).
         this.cap(item, e.key, e.hold);
         // 2026-09-12 (사용자 결정): keys pressed **together** are joined by a small `+`, keys that do the **same**

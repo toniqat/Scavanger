@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { Layers, type ArmorDef, type FurniturePoseKind } from '@/shared';
 import { damp } from '@/core/util/MathUtil';
+/** `snapDowned` 가 관절 `damp` 를 **수렴**시키는 가짜 `dt` (s) — exp(−8 × 1000) = 0. 연출 값이 아니라 수치 트릭이라 코드에 둔다. */
+const SNAP_POSE_DT = 1000;
 import { buildArmorPlate, type GearLook } from './GearLook';
 import { applySoldierRim } from './SoldierRim';
 
@@ -1210,6 +1212,22 @@ export class SoldierModel {
       m.emissiveIntensity = k;
     }
   }
+
+  /**
+   * 2026-09-16 (사용자 결정 — 튜토리얼 부활 전용): 전투불능 자세(`poseDowned`, 진행도 1)로 **즉시** 선다. 관절은 평소 `damp` 로
+   * 따라가므로 `resetPose`(선 자세) 뒤에 `downed` 1 을 주면 첫 몇 프레임 동안 선 몸이 쓰러지는 것이 보였다 — 그 프레임을 없앤다.
+   * 수렴한 `dt` 로 한 번 풀어 둘 뿐이라 다음 `update` 부터는 평소 블렌드가 그대로 이어받는다 (`player/parts/IntroWake`).
+   */
+  snapDowned(time: number): void {
+    this.snapDownedPose.downed = 1;
+    this.poseDowned(SNAP_POSE_DT, time, this.snapDownedPose);
+  }
+  private readonly snapDownedPose: SoldierPose = {
+    moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
+    verticalVel: 0, flinch: 0, hasWeapon: false, twoHanded: false, reloading: false, recoil: 0, dead: 0,
+    prone: 0, throw: 0, holdItem: 0, roll: 0, rollPhase: 0, melee: 0, hover: 0, downed: 1,
+    meleeHeavy: 0, charging: 0, spraying: 0, heavyCarry: 0, cooking: 0, carry: 0,
+  };
 
   /** Snap all joints to a neutral standing pose (respawn). */
   resetPose(): void {

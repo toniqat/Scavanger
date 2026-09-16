@@ -13,6 +13,9 @@ import { EXTRACTION_AUTO_DEPART_IDLE_S } from '@/shared';
    신뢰도 · 아이템 개수는 정확한 값이 뜻이라 그대로다. */
 import { formatCompactSigned } from '@/shared';
 import { el, escapeHtml, rarityColor } from '../dom';
+/* 2026-09-16: 획득 토스트 썸네일 — 인벤토리 · 비용 줄과 같은 공용 칩 */
+import type { ItemDef } from '@/shared';
+import { buildItemChip } from '@/shared';
 /* 2026-09-11 (B-3): 초대 결과 토스트 */
 import type { SocialErrorCode } from '@/shared';
 import { SOCIAL_ERROR_MESSAGE_KO, SOCIAL_INVITE_OUTCOME_KO } from '@/shared';
@@ -62,6 +65,10 @@ function starsHtml(quality: unknown): string {
 
 type Kind = 'info' | 'warning' | 'danger' | 'success';
 const MAX_VISIBLE = 6;
+/** 2026-09-16: 획득 토스트 썸네일 한 변 (px). */
+const ITEM_TOAST_THUMB_PX = 30;
+/** 2026-09-16: 튜토리얼 조작 가이드 패널 바닥과 토스트 스택 사이 (px). */
+const TUT_PANEL_GAP_PX = 10;
 /** Durability warning tiers (fraction of max). */
 const DUR_WARN = 0.25;
 const DUR_CRIT = 0.1;
@@ -83,6 +90,9 @@ export class Notifications {
   private channel: { el: HTMLElement; text: HTMLElement; defId: string; pct: number } | null = null;
   /** 2026-09-15: 안드로이드 id → 표시 이름. 슬롯으로 돌아간 기는 명단에 없으므로 이름을 여기서 꺼낸다. */
   private allyNames = new Map<AllyId, string>();
+  /** 2026-09-16: 튜토리얼 조작 가이드 패널 (DOM 으로 찾은 것) · 지금 적용한 스택 top (px, -1 = 기본 우측 중앙). */
+  private tutPanel: HTMLElement | null = null;
+  private belowTop = -1;
 
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'notifs', parent });
@@ -95,8 +105,8 @@ export class Notifications {
       b.on('inventory:itemAdded', ({ name, rarity, item, fromStash }) => {
         // 2026-09-12 (사용자 결정): 함선 창고 → 가방은 옮긴 것이지 얻은 것이 아니다 — 획득 티커를 띄우지 않는다
         if (fromStash) return;
-        const qty = item.qty > 1 ? ` <span style="color:var(--c-text-dim)">×${item.qty}</span>` : '';
-        this.push(`획득: <b style="color:${rarityColor(rarity)}">${escapeHtml(name)}</b>${qty}`, 'info', '아이템', 3);
+        // 2026-09-16 (사용자 결정): 획득 토스트 = 왼쪽 썸네일 칩 + 오른쪽 `이름 ×수량` (×1 도 쓴다) — `아이템` 머리 · `획득:` 접두어 없음
+        this.pushItem(ctx.loot?.getItemDef(item.defId), name, rarity, item.qty);
       }),
       b.on('inventory:full', ({ name }) => this.push(`가방이 가득 찼습니다 — <b>${escapeHtml(name)}</b>`, 'warning', '인벤토리', 3)),
       b.on('inventory:bagChanged', ({ dropped }) => {
@@ -133,7 +143,8 @@ export class Notifications {
         else this.push('함선이 출발했습니다 — 탑승하지 못했습니다', 'danger', '탈출', 5);
       }),
       b.on('extraction:reset', () => this.push('함선이 떠났습니다 — 탈출 신호소를 다시 작동할 수 있습니다', 'info', '탈출', 5)),
-      b.on('crate:looted', () => this.push('상자를 모두 비웠습니다.', 'info', '보급', 2.5)),
+      /* 2026-09-16 (사용자 결정): `crate:looted`(상자 · 시체를 모두 비움) 토스트 「상자를 모두 비웠습니다.」를 없앴다 —
+         마지막 아이템의 획득 토스트가 이미 같은 순간을 말한다. 이벤트는 계약이라 그대로 흐른다 (enemies/ 시체 가라앉기가 쓴다). */
       // Phase 12: the 회복 스프레이 calls `applyHeal` (→ `player:stimUsed`) ten times a second while it is held; the
       // channel line below stands in for all of them, so this toast is muted while a channel is active.
       b.on('player:stimUsed', () => { if (!this.channel) this.push('회복제 사용', 'success', '생명력', 2); }),
@@ -465,6 +476,28 @@ export class Notifications {
     const n = el('div', { cls: `notif ${kind}` });
     if (label) el('span', { cls: 'k', text: label, parent: n });
     el('span', { cls: 't', html, parent: n });
+    this.show(n, duration);
+  }
+
+  /**
+   * 2026-09-16 (사용자 결정): 아이템 획득 한 줄 — `.notif.info.nt-item` > 공용 칩 썸네일(`buildItemChip`, 개수 배지 없음) +
+   * `.t`(`이름 ×수량`). 수량은 1 이어도 쓴다. 칩의 `data-def-id` 는 떼어 호버 카드 · 우클릭 메뉴가 토스트에 걸리지 않게 한다.
+   */
+  private pushItem(def: ItemDef | undefined, name: string, rarity: string, qty: number): void {
+    const n = el('div', { cls: 'notif info nt-item' });
+    const chip = buildItemChip(def, { size: ITEM_TOAST_THUMB_PX });
+    delete chip.dataset.defId;
+    n.appendChild(chip);
+    const count = Math.max(1, Math.floor(qty));
+    el('span', {
+      cls: 't',
+      html: `<b style="color:${rarityColor(rarity)}">${escapeHtml(name)}</b> <span style="color:var(--c-text-dim)">×${count}</span>`,
+      parent: n,
+    });
+    this.show(n, 3);
+  }
+
+  private show(n: HTMLElement, duration: number): void {
     this.root.appendChild(n);
     this.live.push(n);
     requestAnimationFrame(() => n.classList.add('in'));
@@ -514,6 +547,26 @@ export class Notifications {
       this.channel.pct = pct;
       this.channel.text.innerHTML = `<b>${escapeHtml(name)}</b> 사용 중 · <span class="pct">${pct} %</span>`;
     }
+  }
+
+  /**
+   * 2026-09-16 (사용자 결정): 튜토리얼 우측 조작 가이드(`tutorial/ui/Controls`, `.tut-controls`)가 떠 있으면 토스트 스택을
+   * **그 패널 바로 아래**에서 시작시킨다 — 우측 중앙 스택이 패널 뒤에 가려지지 않게. 폴더 import 없이 DOM 클래스로만 찾는다
+   * (튜토리얼 스포트라이트가 `.key-guide .kg-close` 를 찾는 것과 같은 결합). 패널은 띠 안에서 세로 가운데에 서고 줄 수에 따라
+   * 키가 바뀌므로 매 프레임 잰다 — 패널이 없거나 숨었으면 비교 하나로 끝난다. HudSystem.update 가 레이어 가시성과 무관하게 부른다.
+   */
+  update(): void {
+    let panel = this.tutPanel;
+    if (!panel || !panel.isConnected) panel = this.tutPanel = document.querySelector<HTMLElement>('.tut-controls');
+    let top = -1;
+    if (panel && !panel.hidden) {
+      const r = panel.getBoundingClientRect();
+      if (r.height > 0) top = Math.ceil(r.bottom) + TUT_PANEL_GAP_PX;
+    }
+    if (top === this.belowTop) return;
+    this.belowTop = top;
+    this.root.classList.toggle('below-tut', top >= 0);
+    this.root.style.top = top >= 0 ? `${top}px` : '';
   }
 
   /** Text of the live channel line (debug), null when none. */

@@ -18,7 +18,7 @@ import { Tooltip } from './Tooltip';
 import { TipPin, inventoryTooltipLookups } from './TipPin';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
-import { CELL, QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, applyGridCellVar, capacityLabel, fmtValue, pouchAcceptsLabel, slotKeyLabel, syncGridCell, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
+import { CELL, QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, applyGridCellVar, capacityLabel, fmtCreditNumber, pouchAcceptsLabel, slotKeyLabel, syncGridCell, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
 
 import { BAG_LOC, CATALOG_DBL_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from './model';
 /** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
@@ -71,7 +71,7 @@ export class InventoryUI {
   private bagToStashBtn!: HTMLButtonElement;
   /** 2026-09-08: 전술 임플란트 + 임플란트 아이템, under 장착 장비 (moved here from the 캐릭터 시트). */
   implantPanel!: ImplantPanel;
-  creditsEl!: HTMLElement;
+  /** 2026-09-16: 가방 바닥 줄 오른쪽 끝의 보유 크레딧 글자 (`Screens.refreshCredits`). */
   creditsValue!: HTMLElement;
   private containerPanel!: HTMLElement;
   private containerTitle!: HTMLElement;
@@ -178,16 +178,10 @@ export class InventoryUI {
       this.tabsEl.appendChild(b);
       this.tabButtons.set(t.id, b);
     }
-    /* credits readout (Phase 5, ship screen only) */
-    this.creditsEl = document.createElement('div');
-    this.creditsEl.className = 'inv-credits';
-    this.creditsEl.hidden = true;
-    const crEyebrow = document.createElement('span');
-    crEyebrow.className = 'inv-eyebrow';
-    crEyebrow.textContent = TEXT.credits.eyebrow;
-    this.creditsValue = document.createElement('span');
-    this.creditsValue.className = 'inv-credits-value';
-    this.creditsEl.append(crEyebrow, this.creditsValue);
+    /*
+     * 2026-09-16 (사용자 결정): 우측 상단의 `CREDITS n` 알약은 없어졌다 — 그 모서리는 메신저 버튼 자리이고(Tab 창 위에서도
+     * 보인다), 보유 크레딧은 가방 패널 **바닥 줄 오른쪽 끝**의 글자(`12,345 C`)가 말한다. 그 요소는 가방 발바닥을 지을 때 만든다.
+     */
 
     const layout = document.createElement('div');
     layout.className = 'inv-layout';
@@ -362,12 +356,22 @@ export class InventoryUI {
     bBody.append(bScroll, this.buildQuickPanel(), pPanel);
     const bFoot = document.createElement('footer');
     bFoot.className = 'inv-foot';
+    /*
+     * 2026-09-16 (사용자 결정): 바닥 한 줄 = **왼쪽 끝 작은 `가방 내 가치 1,000 C`**(숫자만 흰색, 나머지 회색) +
+     * **오른쪽 끝 보유 크레딧 `12,345 C`**(칩이 아니라 글자). 예전에는 오른쪽 끝이 가방 가치였다.
+     */
+    const vWrap = document.createElement('span');
+    vWrap.className = 'inv-bagval';
     const vLabel = document.createElement('span');
-    vLabel.className = 'inv-eyebrow';
-    vLabel.textContent = TEXT.value;
+    vLabel.textContent = `${TEXT.bagValue} `;
     this.valueEl = document.createElement('span');
-    this.valueEl.className = 'inv-value';
-    bFoot.append(vLabel, this.valueEl);
+    this.valueEl.className = 'inv-bagval-num';
+    const vUnit = document.createElement('span');
+    vUnit.textContent = ` ${TEXT.creditUnit}`;
+    vWrap.append(vLabel, this.valueEl, vUnit);
+    this.creditsValue = document.createElement('span');
+    this.creditsValue.className = 'inv-credits-value';
+    bFoot.append(vWrap, this.creditsValue);
     /* weight readout (tactical kit) */
     this.weightEl = document.createElement('div');
     this.weightEl.className = 'inv-weight';
@@ -519,7 +523,7 @@ export class InventoryUI {
     footer.className = 'inv-footer';
     footer.append(dropZone);
 
-    root.append(this.tabsEl, this.creditsEl, layout, this.screenHost, this.screenNote, footer,
+    root.append(this.tabsEl, layout, this.screenHost, this.screenNote, footer,
       this.modelessLayer, this.tooltip.el, this.pin.el, this.ghostLayer);
     this.menu = new ContextMenu(root);
     // 2026-09-09: the 수량 지정 dialog is its own 키 가이드 owner (`Enter 확인`) stacked over the window's line
@@ -653,7 +657,6 @@ export class InventoryUI {
     this.markTab();
     this.containerPanel.hidden = !container;
     this.stashPanel.hidden = !hub;
-    this.creditsEl.hidden = !hub;
     if (container) {
       if (container.title) {
         // caller-supplied contents (corpses etc.): custom title, no tier eyebrow
@@ -815,7 +818,7 @@ export class InventoryUI {
       // 2026-09-08: used / total cells only. The `5×3` grid size and the `퀵슬롯 n` count both restate what the
       //   grid and the rose right below already draw.
       this.bagCapacity.textContent = capacityLabel(bag.usedCells(), bag.cols * bag.rows);
-      this.valueEl.textContent = fmtValue(bag.totalValue() + this.equippedValue());
+      this.valueEl.textContent = fmtCreditNumber(bag.totalValue() + this.equippedValue());
     }
     const c = this.sys.getActiveContainer();
     if (c !== this.container) {
@@ -837,8 +840,9 @@ export class InventoryUI {
       // 2026-09-16 (사용자 결정): **사용칸 / 전체칸만.** 앞에 붙던 아이템 종류 수(`stash.count`)는 격자가 이미
       //   그리고 있는 것을 숫자로 한 번 더 적는 줄이었고, 창고에서 궁금한 것은 「얼마나 찼나」 하나다.
       this.stashCount.textContent = capacityLabel(stash.usedCells(), stash.cols * stash.rows);
-      this.refreshCredits();
     }
+    // 2026-09-16: 보유 크레딧은 가방 바닥 줄에 있어 레이드 창에서도 보인다 — 함선 분기 밖에서 쓴다
+    this.refreshCredits();
     // 2026-09-16: 창고 업그레이드는 함선 기능 — `ctx.housing` 이 없으면 부를 데가 없으니 버튼을 지운다
     this.stashUpgradeBtn.hidden = !this.ctx.housing;
     /*

@@ -1,4 +1,4 @@
-import type { KeyBindings } from '@/shared';
+import type { Input, KeyBindings } from '@/shared';
 import { Keys, paintKeycap, renderKeyText } from '@/shared';
 import { CONTROL_SECTIONS, CONTROLS_TITLE_KO, hintPairs, type ControlHint, type ControlSection } from '../model';
 
@@ -42,7 +42,18 @@ interface Row {
   hint: ControlHint;
   /** 토큰 문장 줄(`hint.text`)의 글자 상자 — 쌍 줄이면 null. */
   textEl: HTMLElement | null;
+  /** 누르는 동안 켜는 키캡과 그 키 코드 (2026-09-16) — 칠할 때마다 다시 모은다 (`relabelRow`). */
+  lit: LitCap[];
 }
+
+/** 눌림 강조 대상 — 키캡 요소 · 그 키 코드(`Keys[action]` · `MouseN`) · 지금 켜져 있나. */
+interface LitCap { el: HTMLElement; code: string; on: boolean }
+
+/**
+ * 누르는 동안의 키캡 강조 클래스 (2026-09-16, 사용자 결정 — 「패널에 떠 있는 키를 누르면 그 키캡이 주황으로」).
+ * `tut-` 접두사 — HUD 위젯 클래스와 겹치지 않는다 (`.kc-hold` 사고, 위 머리 주석).
+ */
+const CAP_DOWN = 'tut-kc-down';
 
 const sectionOf = (h: ControlHint): ControlSection => h.section ?? 'gear';
 
@@ -104,7 +115,7 @@ export class TutorialControls {
     const el = document.createElement('div');
     el.className = 'tut-ctl is-new';
     el.dataset.hint = hint.id;
-    const row: Row = { el, caps: [], hint, textEl: null };
+    const row: Row = { el, caps: [], hint, textEl: null, lit: [] };
     this.render(row, hint);
     this.sectionEl(sectionOf(hint)).appendChild(el);
     this.rows.set(hint.id, row);
@@ -200,9 +211,44 @@ export class TutorialControls {
   relabel(): void { for (const row of this.rows.values()) this.relabelRow(row); }
 
   private relabelRow(row: Row): void {
-    if (row.textEl) { renderKeyText(row.textEl, row.hint.text ?? ''); return; }
-    // `paintKeycap` 은 바뀐 것이 없으면 DOM 을 건드리지 않는다 (`data-kc` 도장)
-    for (const cap of row.caps) paintKeycap(cap.el, Keys[cap.action], { hold: cap.hold });
+    if (row.textEl) {
+      renderKeyText(row.textEl, row.hint.text ?? '');
+    } else {
+      // `paintKeycap` 은 바뀐 것이 없으면 DOM 을 건드리지 않는다 (`data-kc` 도장)
+      for (const cap of row.caps) paintKeycap(cap.el, Keys[cap.action], { hold: cap.hold });
+    }
+    this.collectLit(row);
+  }
+
+  /**
+   * 그 줄의 키캡을 모은다 — 쌍 줄이든 토큰 문장 줄이든 키캡은 전부 `paintKeycap` 을 거치므로 `data-kc`(`코드|hold`) 도장에서
+   * 키 코드를 읽는다. 키가 아닌 라벨(`더블클릭`)은 눌릴 일이 없어 그대로 꺼져 있다. 새로 칠한 요소는 강조가 없는 상태다.
+   */
+  private collectLit(row: Row): void {
+    row.lit = [];
+    for (const el of row.el.querySelectorAll<HTMLElement>('.keycap')) {
+      const stamp = el.dataset.kc ?? '';
+      const code = stamp.slice(0, stamp.lastIndexOf('|'));
+      if (!code) continue;
+      row.lit.push({ el, code, on: el.classList.contains(CAP_DOWN) });
+    }
+  }
+
+  /**
+   * 프레임마다 (2026-09-16, 사용자 결정) — **패널에 떠 있는 키**를 누르고 있는 동안 그 키캡을 주황으로 켠다 (마우스 버튼 포함 —
+   * `Input` 이 `MouseN` 을 키 코드로 함께 적는다). 패널에 없는 키는 아무것도 켜지 않는다. 바뀐 캡만 클래스를 만진다.
+   * 패널이 숨어 있으면 보지 않는다 — 다시 뜰 때 켜진 채로 남은 캡은 첫 프레임에 꺼진다.
+   */
+  update(input: Input): void {
+    if (!this._visible) return;
+    for (const row of this.rows.values()) {
+      for (const cap of row.lit) {
+        const on = input.isDown(cap.code);
+        if (on === cap.on) continue;
+        cap.on = on;
+        cap.el.classList.toggle(CAP_DOWN, on);
+      }
+    }
   }
 
   /** 보이기 / 숨기기. 줄이 하나도 없으면 언제나 숨는다. */

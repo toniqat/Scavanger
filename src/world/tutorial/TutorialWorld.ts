@@ -9,7 +9,7 @@ import { Ground } from './parts/Ground';
 import { Dressing } from './parts/Dressing';
 import { TutorialCorpses } from './parts/Corpses';
 import {
-  ABYSS_EDGE_Z, ABYSS_SAFE_MARGIN_M, CHASM_RUNUP_M, CHECKPOINTS, CORRIDOR_OUTER_X, DECK_LOWER_Y, DECK_UPPER_Y, ENEMIES,
+  ABYSS_EDGE_Z, ABYSS_SAFE_MARGIN_M, CHASM_RUNUP_M, CHECKPOINTS, CRAWL, CORRIDOR_OUTER_X, DECK_LOWER_Y, DECK_UPPER_Y, ENEMIES,
   ENEMY_LEASH, ENEMY_SENSE, FALL_RULES, PIT_FLOOR_Y, RUINS, SHIP_HILL_Y, SHIP_POS, SHIP_YAW, TUTORIAL_MAP_SIZE, VOID_Y, Z_END,
   Z_START, chasmFarZAt, chasmNearZAt, inAbyssCut, lowerTilingErrors, type TutorialSpawnSpec, type Volume,
 } from './model';
@@ -231,6 +231,11 @@ export class TutorialWorld implements TutorialWorldRef {
     }
     const spec = CHECKPOINTS[this.index];
     return { position: spec.at.clone(), yaw: spec.yaw };
+  }
+
+  /** 2026-09-16: 포복 구간 진행 비율 — 입구 `CRAWL.z0` 0 · 출구 `CRAWL.z1` 1 (튜토리얼 조작 가이드가 읽는다). */
+  crawlProgress(position: THREE.Vector3): number {
+    return (CRAWL.z0 - position.z) / (CRAWL.z0 - CRAWL.z1);
   }
 
   fallRule(position: THREE.Vector3): TutorialFallRule {

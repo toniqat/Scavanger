@@ -78,6 +78,7 @@ import { GadgetHandHint } from './hud/GadgetHandHint';
 import { NetBadge } from './hud/NetBadge';
 /* 2026-09-15 (레이드 진입 로딩): 암전 위에서 도는 우측 하단 원형 게이지 */
 import { LoadingGauge } from './hud/LoadingGauge';
+import { ShipReturn } from './menus/ShipReturn';
 /* 2026-09-15 (안드로이드 분대원): ui 가 `ctx.allies` 를 읽는 유일한 창구 (스모크가 가짜 ref 를 꽂는다) */
 import type { AlliesRef } from '@/shared';
 import { setDebugAllies } from './hud/allySource';
@@ -148,6 +149,8 @@ export class HudSystem implements GameSystem {
   private fallVignette!: FallVignette;
   /** 2026-09-15: 레이드 진입 로딩 게이지 — `#ui-root` 직계 z 87 (검은 페이드 82 위에서 돈다). */
   private loadingGauge!: LoadingGauge;
+  /** 2026-09-16: 결과 화면 → 함선 귀환 암전 (`ui:shipReturn`, `menus/ShipReturn`). */
+  private shipReturn!: ShipReturn;
   /** 2026-09-14: 지금 판에 칠해진 불투명도 · 전이의 시작값 · 경과 · 길이 — CSS 전이 대신 `update` 가 옮긴다. */
   private fadeShown = 0;
   private fadeFrom = 0;
@@ -362,7 +365,9 @@ export class HudSystem implements GameSystem {
     // Phase 12: both corner widgets hide during a docking / warp cutscene; the hint is personal-ship only.
     this.shipHint = new ShipManageHint(this.socialRoot, this.cutscene);
     // Phase 11: the 커뮤니티 thumbnail + 분대 초대 panels — ship only, self-gated on `ctx.isHubPhase()`.
-    this.community = new Community(this.socialRoot, this.cutscene);
+    // 2026-09-16: 일시정지 메뉴 위에도 선다 — 메뉴가 그 자체로 떠 있을 때만 (설정 오버레이 · 경고 팝업이 위에 없을 때). 늦게 읽는다.
+    this.community = new Community(this.socialRoot, this.cutscene,
+      () => !!this.pause?.visible && !this.pause.isAskOpen && !(this.settings?.isOpen ?? false));
 
     // Housing layer: its own `.hud.housing` root (always attached) so the 시설 관리 screen is visible in the ship where
     // the gameplay HUD is hidden. (The housing hint bar that used to live here was replaced by `KeyGuide`, 2026-09-09.)
@@ -397,6 +402,8 @@ export class HudSystem implements GameSystem {
     /* 2026-09-15 (레이드 진입 로딩): 같은 이유로 `#ui-root` 직계다 — 검은 페이드(z 82) **위**에서 돌아야 한다.
      * 이것도 연출이지 화면이 아니다 (blocker · escape 없음, 포인터를 먹지 않는다). */
     this.loadingGauge = new LoadingGauge(ctx.uiRoot);
+    // 2026-09-16: 결과 화면의 `함선으로 귀환` — 같은 검은 판과 같은 게이지를 쓴다 (판은 버스가 아니라 직접 칠한다: `ShipReturn` 머리 주석)
+    this.shipReturn = new ShipReturn(ctx, this.loadingGauge, (o, d, h) => this.setScreenFade(o, d, h), () => this.fadeShown);
 
     this.deploy = new DeployOverlay(ctx.uiRoot);
     this.map = new MapScreen(ctx.uiRoot);
@@ -467,12 +474,15 @@ export class HudSystem implements GameSystem {
       /* 2026-09-14: 화면 전체 검은 페이드. `game:newMission` 은 **일부러 듣지 않는다** — `world:ready` 가 그
        * 이벤트 안에서 동기로 발행되므로(`hud/Compass` 주석), 월드가 뜨자마자 켜는 오프닝 페이드를 우리가 도로
        * 지워 버린다. 방어는 `game:abort` 와 아래 `applyVisibility` 의 페이즈 가드 둘이면 충분하다. */
-      b.on('ui:screenFade', ({ opacity, durationS, hold }) => this.setScreenFade(opacity, durationS, hold ?? false)),
-      b.on('game:abort', () => this.setScreenFade(0, 0)),
+      /* 2026-09-16: 함선 귀환 암전이 판을 쥔 동안(`shipReturn.ownsPlate`)은 남의 요청 · 중단 · 도착이 판을 걷지 않는다 —
+       * 그 암전이 낸 `hub:enter` 가 동기로 `game:abort` · `hub:entered` 를 내고, 튜토리얼도 거기서 `{0, 0}` 을 보낸다. */
+      b.on('ui:screenFade', ({ opacity, durationS, hold }) => { if (!this.shipReturn.ownsPlate) this.setScreenFade(opacity, durationS, hold ?? false); }),
+      b.on('ui:shipReturn', () => this.shipReturn.start()),
+      b.on('game:abort', () => { if (!this.shipReturn.ownsPlate) this.setScreenFade(0, 0); }),
       /* 2026-09-15: `hold` 로 걸어 둔 판도 **함선에 들어서면 반드시** 걷는다 — 걸어 둔 쪽이 어떤 이유로 못 걷어도
        * 함선이 검게 남지 않는다 (`game:abort` 와 같은 자리의 같은 방어). `hold` 가 아닌 판은 이미 페이즈
        * 가드(`applyVisibility`)가 걷은 뒤라 이 줄은 아무 일도 하지 않는다. */
-      b.on('hub:entered', () => this.setScreenFade(0, 0)),
+      b.on('hub:entered', () => { if (!this.shipReturn.ownsPlate) this.setScreenFade(0, 0); }),
       b.on('extraction:tick', ({ remaining }) => {
         if (ctx.phase !== 'extracting') return;
         // Keep the objective in sync with the timer (cheap: text only changes once a second).
@@ -605,6 +615,7 @@ export class HudSystem implements GameSystem {
       this.spectate.update(dt, ctx);
       this.implantWidget.update(dt, ctx);
       this.quickStrip.update();
+      this.weapon.update(ctx);   // 2026-09-16: 들고 있는 주무기 슬롯 · 흐림 · 옆 썸네일 (`ctx.weapons.activeSlot` / `primaryInHand`)
       this.droneHud.update(dt, ctx);
       // 2026-09-11 (C-53): `scanWarning` 은 화면 투영을 하므로 `lateUpdate` 로 옮겼다.
       this.handHint.update(dt, ctx);
@@ -634,6 +645,8 @@ export class HudSystem implements GameSystem {
     this.hazard.update(ctx);
     // 키 가이드: hides under the 일시정지 메뉴 (one blocker lookup per frame).
     this.keyGuide.update();
+    // 2026-09-16: 토스트 스택은 튜토리얼 조작 가이드 패널이 떠 있으면 그 아래에서 시작한다 (없으면 비교 하나).
+    this.notifs.update();
     // 음악 재생 창: 꺼져 있으면 비교 둘로 끝난다 (함선 전용 · 메뉴 blocker 아래에서 숨는다 — 키 가이드와 같은 규칙).
     this.musicPlayer.update(ctx);
     this.contractPanel.update(ctx);
@@ -649,6 +662,8 @@ export class HudSystem implements GameSystem {
     /* 2026-09-15: 로딩 게이지는 **dt 를 받지 않는다** — 로딩 게이트가 엔진을 잡고 있는 동안 dt 가 0 이라
      * 시뮬레이션 시계로는 한 프레임도 움직이지 않는다 (`hud/LoadingGauge` 머리 주석). 꺼져 있으면 비교 하나. */
     this.loadingGauge.update();
+    // 2026-09-16: 함선 귀환 암전 — 실시간 시계 (hold 동안 dt 0), 도는 중이 아니면 비교 하나
+    this.shipReturn.update();
     this.complete.update(dt);
     this.death.update(dt);
     // 타이틀 흐름: 캐릭터 생성창의 3D 미리보기만 돈다 (닫혀 있으면 즉시 돌아온다).
@@ -694,8 +709,8 @@ export class HudSystem implements GameSystem {
   get isChatOpen(): boolean { return this.chat.isOpen; }
   /** Whether the quick-use wheel is showing (debug). */
   get isWheelOpen(): boolean { return this.wheel.isOpen; }
-  /** Whether the weapon panel is in consumable mode (debug). */
-  get isConsumableMode(): boolean { return this.weapon.isConsumable; }
+  /** 2026-09-16: weapon panel state — dimmed (primary not in hand) · empty · shown slot · side thumbnail def + key (debug). */
+  get weaponPanelView(): WeaponPanel['view'] { return this.weapon.view; }
   /** Whether the ship-call wheel is showing (debug). */
   get isStratagemWheelOpen(): boolean { return this.swheel.isOpen; }
   /** 2026-09-09 의사소통 휠 (H 홀드): 떠 있나 · 가리키는 칸 · 칸 수(4 = 서 있을 때, 2 = 전투불능) (debug / smoke). */
@@ -971,7 +986,8 @@ export class HudSystem implements GameSystem {
     for (const c of [this.wcharge, this.statusMarkers, this.cheatTag, this.roomLabel, this.shipManage, this.shipHint, this.itemTip, this.itemFavMenu, this.keyGuide]) c.dispose();
     this.musicPlayer.dispose();                                // 음악 재생 창 (2026-09-14)
     this.fallVignette.dispose();                               // 낙하 붉은 비네트 (2026-09-15)
-    this.loadingGauge.dispose();                               // 레이드 진입 로딩 게이지 (2026-09-15)
+    this.shipReturn.dispose();
+    this.loadingGauge.dispose();                             // 레이드 진입 로딩 게이지 (2026-09-15)
     for (const c of [this.reload, this.heal, this.hold, this.gameCursor, this.hubDot]) c.dispose();
     for (const c of [this.contractPanel, this.trainingPanel, this.metaToasts]) c.dispose();
     for (const c of [this.droneHud, this.scanWarning, this.handHint, this.roverHud]) c.dispose();

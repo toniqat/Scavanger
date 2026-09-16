@@ -39,6 +39,8 @@
  */
 import type * as THREE from 'three';
 import { BURROW_EMERGE_S, TUTORIAL_ENEMY_LEASH_M, TUTORIAL_ENEMY_SENSE_M, type EnemyType, type TutorialEnemySpawn } from '@/shared';
+/* appended (2026-09-16): 낭떠러지 가장자리 막기 */
+import { PROP_STEP_UP_MAX, TUTORIAL_ENEMY_EDGE_MARGIN_M, type WorldRef } from '@/shared';
 /* appended (2026-09-15): 벌레 연쇄 스폰 · 구간 어그로 해제 · 이륙 사격 창 */
 import {
   TUTORIAL_AGGRO_DROP_M, TUTORIAL_BUG_CHAIN_SPAWN_S, TUTORIAL_CHECKPOINTS, TUTORIAL_LIFTOFF_FIRE_RANGE_M, TUTORIAL_LIFTOFF_FIRE_S,
@@ -425,6 +427,61 @@ export function tutorialHold(e: Enemy, dt: number): void {
   if (e.state !== 'idle') return;                     // `wander` = 걸어서 돌아가는 중이니 그대로 둔다
   if (home > HOME_EPS * HOME_EPS) leashHome(e);
   else e.wanderTimer += dt;
+}
+
+/* ═══════════════ 낭떠러지 가장자리 막기 (2026-09-16, 사용자 결정) ═══════════════════════════════════════════
+ * 「튜토리얼 안드로이드가 플레이어를 보고 싸우러 나설 때 절벽 쪽으로는 **아예** 걸어가지 않는다」. 전에는 쫓아 나온 안드로이드가
+ * 철조망 너머의 절벽 구멍(`world/tutorial/model.ts` 의 `ABYSS_CUTS`)으로 걸어 나가 `FALL_RESET_M` 으로 자기 자리에 순간이동했다.
+ *
+ * 좌표를 적지 않는다 — **월드 질의로 잰다**: 몸 가운데에서 `TUTORIAL_ENEMY_EDGE_MARGIN_M` 떨어진 여덟 방향의 발밑을 보고,
+ *   - 그 자리의 가장 높은 윗면이 발보다 `PROP_STEP_UP_MAX` 넘게 위면 **벽**이다 → 가장자리가 아니다 (웅덩이 벽 · 절벽 벽은 밑에 데크가 없다),
+ *   - 아니면 지금 발 높이에서 딛는 표면(`getSurfaceY(x, z, feetY)`)이 발보다 `PROP_STEP_UP_MAX` 넘게 아래면 **낭떠러지**다.
+ * 웅덩이 턱(정확히 0.9 = `PROP_STEP_UP_MAX`)은 걸어 오르내리는 단이라 낭떠러지가 아니다 (`>` 비교). 절벽 2 (10 m) 도 낭떠러지다 —
+ * 위 데크의 안드로이드가 뛰어내린 플레이어를 따라 가장자리로 오지 않는다.
+ * 새 자리가 가장자리 띠 안이고 옛 자리가 밖이면 걸음을 **축별로** 깎는다 (x 만 → z 만 → 제자리) — 띠를 따라 미끄러지고, 띠 안으로는
+ * 들어오지 않는다. 옛 자리가 이미 띠 안이면(밀려 들어온 몸) 막지 않는다 — 가둬 버리면 못 나온다; 떨어지면 `FALL_RESET_M` 이 받는다.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* 표본 기하 (밸런스가 아니라 질의 해상도 · 부동소수 허용치라 코드에 둔다): 여덟 방향 × 방향마다 세 칸 (3 m 띠면 1 m 간격 —
+   0.6 m 벽을 표본이 건너뛰면 그 방향은 낭떠러지로 읽혀 **보수적으로** 막힐 뿐이다 — 떨어지는 쪽으로 틀리지는 않는다). */
+const EDGE_DIRS = 8;
+const EDGE_RAY_SAMPLES = 3;
+/** 웅덩이 턱 = 정확히 `PROP_STEP_UP_MAX` 인 낙차를 낭떠러지로 읽지 않게 하는 여유 (m). */
+const EDGE_STEP_EPS = 1e-3;
+const _edgeDirX: number[] = [], _edgeDirZ: number[] = [];
+for (let i = 0; i < EDGE_DIRS; i++) { const a = (i / EDGE_DIRS) * Math.PI * 2; _edgeDirX.push(Math.cos(a)); _edgeDirZ.push(Math.sin(a)); }
+
+/** `(x, z)` 에 발 `feetY` 로 선 몸이 낭떠러지 가장자리 `margin` 안인가. */
+function nearDrop(world: WorldRef, x: number, z: number, feetY: number, margin: number): boolean {
+  for (let i = 0; i < EDGE_DIRS; i++) {
+    // 한 방향을 `EDGE_RAY_SAMPLES` 칸으로 걸어 나간다 — 먼저 벽을 만나면 그 너머의 낭떠러지는 막혀 있으므로 이 방향은 안전하다
+    // (웅덩이 남쪽 벽 뒤의 절벽 구멍 `cut_s` 때문에 웅덩이 안쪽 3 m 가 통째로 막히지 않게).
+    for (let k = 1; k <= EDGE_RAY_SAMPLES; k++) {
+      const d = (margin * k) / EDGE_RAY_SAMPLES;
+      const px = x + _edgeDirX[i] * d, pz = z + _edgeDirZ[i] * d;
+      if (world.getSurfaceY(px, pz) > feetY + PROP_STEP_UP_MAX) break;   // 벽
+      if (world.getSurfaceY(px, pz, feetY) < feetY - PROP_STEP_UP_MAX - EDGE_STEP_EPS) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * `ai/EnemyAI.integrate` 가 걸음을 옮기고 밀어낸 **뒤**, 최종 표면을 다시 잡기 **전**에 부른다. `homeLeash === 0`(본편 · 훈련장)이면 첫 줄에서 돌아간다.
+ * `prevX · prevZ · prevY` = 이번 걸음 전의 자리. `pos` 를 제자리에서 고친다 (y 는 호출부가 다시 잡는다).
+ */
+export function tutorialEdgeGuard(e: Enemy, world: WorldRef, pos: THREE.Vector3, prevX: number, prevZ: number, prevY: number): void {
+  if (e.homeLeash <= 0 || e.airborne) return;
+  const margin = Number.isFinite(TUTORIAL_ENEMY_EDGE_MARGIN_M) ? Math.max(0, TUTORIAL_ENEMY_EDGE_MARGIN_M) : 0;
+  if (margin <= 0) return;
+  if (pos.x === prevX && pos.z === prevZ) return;
+  if (!nearDrop(world, pos.x, pos.z, prevY, margin)) return;
+  if (nearDrop(world, prevX, prevZ, prevY, margin)) return;
+  const nx = pos.x, nz = pos.z;
+  if (!nearDrop(world, nx, prevZ, prevY, margin)) { pos.z = prevZ; e.velocity.z = 0; return; }
+  if (!nearDrop(world, prevX, nz, prevY, margin)) { pos.x = prevX; e.velocity.x = 0; return; }
+  pos.x = prevX; pos.z = prevZ;
+  e.velocity.x = 0; e.velocity.z = 0;
 }
 
 /**

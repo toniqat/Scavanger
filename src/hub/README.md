@@ -323,8 +323,8 @@ doorway is an open shared edge.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/hub`.
+- 2026-09-16 — Sliding 자동문 removed (`interiors/Doors.ts` deleted); arch/doorway trims no longer share planes with wall openings, room door signs clear the ceiling beam.
 - 2026-09-16 — Ready panel is up only while the local player is in a launch slot (`sync(cells, boarded)`; a recruited android no longer puts it on screen), and a bot cell draws the same full-body portrait as a human (`PortraitRef.setAndroid`, kit armor via `armorIdOf`) — the `snapshotAndroidFace` path and `.hr-face` are gone from this panel.
 - 2026-09-16 — Dining plates in 3D: `interiors/TablePlates.ts` (`addPlateToBatch` on the dining-table furniture, squad plates + name tags on the shared-ship table via `diningTablePlateSlots`); cook bench prompt says `식탁이 없습니다` without a table.
 - 2026-09-15 — Raid abandoned from the title (`LobbyPlayer.drifted`): `Pods.driftedFromRaid` blocks the rejoin pod (prompt, status, boarding) and `onResumed` skips the auto-rejoin; terminal error text for `drifted`.
 - 2026-09-15 — Terminal: `시뮬레이션 훈련장` on its own row above the footer line (`.hub-train-row`; footer = `닫기 (E)` only); 매칭 tab offline = `다시 연결` replaces the two matching buttons, `초대` dimmed + hint flash (`MatchTab.onInvite` / `flashHint`).
-- 2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩: cockpit bays (`interiors/AndroidBays.ts`, `parts/Androids.ts`, `hub_android_<bay>`, `getAndroidBays` / `getPodStandPose`), bots in pods / ready cells / match tab and filtered out of hangar · handoff · counts, and the countdown-end fade + delayed launch (`beginRaidLoad`); `scripts/smoke-android-bays.mjs`.

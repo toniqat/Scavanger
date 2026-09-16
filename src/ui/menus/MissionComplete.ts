@@ -1,5 +1,5 @@
 import type { GameContext, MissionStats } from '@/shared';
-import { planetLabel } from '@/shared';
+import { missionPlanetLabel } from '@/shared';
 import { el, fmtTime, setText, toggleClass } from '../dom';
 import { MenuBase } from './MenuBase';
 import { RewardsBlock } from './RewardsBlock';
@@ -8,7 +8,7 @@ import { ResultReport, buildPlanetLine, buildResultHeader, type PlanetLine, type
 const SUB_DEAD = '스캐빈저 신호 소실 — 장비는 유해에 남았습니다';
 
 /**
- * Extraction summary, shown on `game:complete`. `함선으로 귀환` (primary) → `hub:enter {ship}` (shared while in a lobby).
+ * Extraction summary, shown on `game:complete`. `함선으로 귀환` (primary) → `ui:shipReturn` (fade → loading → `hub:enter` → fade in, `ShipReturn`).
  * Phase 5: a `RewardsBlock` (XP count-up, level, XP bar, contract line) between the stats and the actions, shown only
  * when `stats.rewards` is present. Phase 11: the banner carries the 목표 행성 name (`planetLabel(ctx.missionPlanet)`).
  *
@@ -42,7 +42,7 @@ export class MissionComplete extends MenuBase {
     this.rewards = new RewardsBlock(this.frame);
 
     const actions = el('div', { cls: 'actions', parent: this.frame });
-    this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('hub:enter', { ship: this.ctx.net?.lobby ? 'shared' : 'personal' }), 'primary');
+    this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('ui:shipReturn', {}), 'primary');   // 2026-09-16: 암전 → 로딩 → 페이드인 (`ShipReturn`)
   }
 
   override bind(ctx: GameContext): void {
@@ -63,7 +63,7 @@ export class MissionComplete extends MenuBase {
     setText(this.head.title, dead ? '전사' : '탈출 성공');
     setText(this.subtitleEl, dead ? SUB_DEAD : '');
     this.subtitleEl.hidden = !dead;
-    setText(this.planet.value, planetLabel(this.ctx.missionPlanet));
+    setText(this.planet.value, missionPlanetLabel(this.ctx.missionMode, this.ctx.missionPlanet));   // 2026-09-16: 튜토리얼 = `표류 행성`
     setText(this.head.time, fmtTime(s.timeSeconds));
     this.report.fill(s, dead ? 'death' : 'extract');
     this.rewards.fill(s.rewards, dead ? 'dead' : 'complete');

@@ -54,6 +54,8 @@ export function unhookCorpseNet(sys: GameFlowSystem): void {
  * `from` (2026-09-16): `emptied` 는 이제 시체를 **치우는** 사실이라 로비 호스트가 보낸 것만 받는다 (`ee` 와 같은 규칙).
  * 호스트는 모든 `pcorpse` 와이어로 컨테이너를 미리 만들어 두므로(`inventory/parts/CorpseLoot.primeCorpseContainer` — `'all'` 은
  * 보낸 사람에게도 되돌아온다) 누가 마지막 아이템을 가져가든 호스트의 `crate:looted` 가 먼저 안다. 로비가 없으면(스모크) 비교하지 않는다.
+ * 2026-09-16 (2차): 호스트는 그 시체를 **아무도 들여다보지 않게 된 뒤에** 보낸다 (`Corpses.update`) — 받는 쪽은 받은 순간부터
+ * 가라앉기 시계를 센다 (`releaseEmptied`).
  */
 export function onCorpseMessage(sys: GameFlowSystem, msg: CorpseMessage, from?: PeerId): void {
   if (msg.ev === 'spawn') applyCorpseWire(sys, msg.corpse);
@@ -61,7 +63,7 @@ export function onCorpseMessage(sys: GameFlowSystem, msg: CorpseMessage, from?: 
   else if (msg.ev === 'emptied') {
     const hostId = sys.ctx.net?.lobby?.hostId;
     if (hostId && from !== undefined && from !== hostId) return;
-    sys.corpses?.markEmptied(msg.id);
+    if (typeof msg.id === 'string') sys.corpses?.releaseEmptied(msg.id);
   }
 }
 
@@ -134,9 +136,9 @@ export function sendCorpseSync(sys: GameFlowSystem, to: PeerId): void {
  * 2026-09-16: 분대에 `pcorpse emptied` 를 알리는 것은 **호스트뿐**이다. 클라이언트 쪽 `crate:looted` 는 호스트가 확인한
  * `cont taken` / `cont sync` 에서만 나오므로(클라이언트는 컨테이너에서 낙관적으로 빼지 않는다) 자기 사본을 표시하는 것은 맞고,
  * 같은 순간 호스트의 사본도 비어 호스트가 방송한다. 빈손으로 선 시체는 `add` 가 모든 클라이언트에서 따로 표시한다.
+ * 2026-09-16 (2차): 방송은 관리자(`Corpses.markEmptied` / `update`)가 한다 — 들여다보는 사람이 모두 창을 닫은 뒤에.
  */
 export function onContainerLooted(sys: GameFlowSystem, containerId: string): void {
   if (!containerId.startsWith('pcorpse:')) return;
-  if (!sys.corpses?.markEmptied(containerId)) return;
-  if (sys.ctx.isMultiplayer && sys.ctx.isAuthority) sys.ctx.net?.send({ t: 'pcorpse', ev: 'emptied', id: containerId }, 'others');
+  sys.corpses?.markEmptied(containerId);
 }

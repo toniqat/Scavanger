@@ -111,8 +111,8 @@ export interface ShipInterior {
    */
   setWarp?(speed: number, dest?: WarpDestination): void;
   /**
-   * 자동문 · 방 조명 (2026-09-08): per-frame animation that follows the player. Optional — an interior without
-   * sliding doors simply omits it. `PersonalShip` moves its room-light pool here too.
+   * 방 조명 (2026-09-08): per-frame animation that follows the player — both ships move their light pool here
+   * (the sliding 자동문 it also drove were removed 2026-09-16). Optional.
    */
   updateNear?(dt: number, px: number, pz: number): void;
   /**

@@ -69,6 +69,9 @@ export function shipManageBlock(sys: HousingSystem): string | null {
   const ctx = sys.ctx;
   if (ctx.phase !== 'hub') return '함선에서만 꾸밀 수 있습니다';
   if (ctx.hub?.ship !== 'personal') return '개인 함선에서만 꾸밀 수 있습니다';
+  // 2026-09-16: 함선 트랙 튜토리얼(능력치 투자 안내)이 도는 동안에는 시설 관리에 들어가지 않는다 — 판정은 tutorial 이 한다
+  const tut = ctx.tutorial?.blockReason('shipManage') ?? null;
+  if (tut) return tut;
   return null;
   }
 

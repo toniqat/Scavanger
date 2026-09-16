@@ -685,11 +685,11 @@ export class HubSystem implements GameSystem, HubRef {
       return;
     }
     if (ctx.phase !== 'hub' || !this.interior) return;
-    // (2026-09-09) a 창문 워프 does **not** return early here: the interior keeps animating (자동문 · 방 조명 · star
+    // (2026-09-09) a 창문 워프 does **not** return early here: the interior keeps animating (방 조명 · star
     // drift — and now the streaks), the player keeps walking, and `tickTravel` runs at the tail of this frame.
 
     this.interior.update(dt, ctx.time);
-    // 자동문 + 방 조명 follow the player — both interiors have sliding doors since the 격납고 (2026-09-08)
+    // 방 조명 follow the player (the sliding 자동문 that also rode this call were removed 2026-09-16)
     if (this.interior.updateNear) {
       const pp = ctx.player?.position;
       this.interior.updateNear(dt, pp?.x ?? 0, pp?.z ?? 0);

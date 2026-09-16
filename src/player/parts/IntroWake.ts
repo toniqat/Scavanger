@@ -134,7 +134,9 @@ export function playIntroWake(sys: PlayerSystem, durationS: number, opts?: { res
   sys.introWakeT = sys.introWakeDur;
   sys.introWakeRespawn = respawn;
   // 부활 연출: 카메라는 평소 리그 그대로 · 화면도 가리지 않는다
-  if (respawn) return;
+  // 2026-09-16 (사용자 결정 — 튜토리얼 부활만): **첫 프레임부터 누워 있다.** `respawnAt` 이 `resetPose`(선 자세)로 세운 몸을 관절 블렌드가
+  // 따라 눕히면 「선 채로 나타나 → 털썩 쓰러지고 → 천천히 일어난다」가 됐다 — 자세를 곧장 쓰러진 자리로 옮겨 일어서기만 남긴다.
+  if (respawn) { sys.model.snapDowned(sys.ctx?.time ?? 0); return; }
   // 첫 프레임부터 그 자리에서 시작한다 (블렌드해 들어가면 백뷰에서 몸으로 카메라가 훑고 지나간다)
   updateIntroCamera(sys, true);
   // 그리고 그 첫 프레임은 **아무것도 보이지 않는다** — 밝아지는 것은 `updateIntroWake` 가 건다

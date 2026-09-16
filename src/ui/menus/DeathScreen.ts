@@ -1,5 +1,5 @@
 import type { GameContext, MissionStats } from '@/shared';
-import { RAID_FAILED_AUTO_RETURN_S, planetLabel } from '@/shared';
+import { RAID_FAILED_AUTO_RETURN_S, missionPlanetLabel } from '@/shared';
 import { el, fmtTime, setText, toggleClass } from '../dom';
 import { MenuBase } from './MenuBase';
 import { RewardsBlock } from './RewardsBlock';
@@ -7,7 +7,7 @@ import { ResultReport, buildPlanetLine, buildResultHeader, type PlanetLine, type
 
 /**
  * "전사" screen with mission stats, shown on `game:phaseChanged {phase:'dead'}` (solo; also on the legacy `game:over`).
- * `함선으로 귀환` → `hub:enter {ship}`. Hidden whenever the phase leaves `dead`. Phase 5: a `RewardsBlock` under the
+ * `함선으로 귀환` → `ui:shipReturn` (2026-09-16, `ShipReturn`). Hidden whenever the phase leaves `dead`. Phase 5: a `RewardsBlock` under the
  * stats (death wording for an unfinished contract: `진척 유지 안 됨`), shown only when `stats.rewards` is present;
  * `update(dt)` drives its count-up.
  *
@@ -52,7 +52,7 @@ export class DeathScreen extends MenuBase {
     this.rewards = new RewardsBlock(this.frame);
 
     const actions = el('div', { cls: 'actions', parent: this.frame });
-    this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('hub:enter', { ship: this.ctx.net?.lobby ? 'shared' : 'personal' }), 'primary');
+    this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('ui:shipReturn', {}), 'primary');   // 2026-09-16: 암전 → 로딩 → 페이드인 (`ShipReturn`)
     this.autoEl = el('div', { cls: 'auto-return', text: '', parent: this.frame });
     this.autoEl.hidden = true;
   }
@@ -116,7 +116,7 @@ export class DeathScreen extends MenuBase {
   }
 
   private fill(s: MissionStats): void {
-    setText(this.planet.value, planetLabel(this.ctx.missionPlanet));
+    setText(this.planet.value, missionPlanetLabel(this.ctx.missionMode, this.ctx.missionPlanet));   // 2026-09-16: 튜토리얼 = `표류 행성`
     setText(this.head.time, fmtTime(s.timeSeconds));
     this.report.fill(s, 'death');
     this.rewards.fill(s.rewards, 'dead');

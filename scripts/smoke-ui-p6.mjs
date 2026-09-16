@@ -441,7 +441,7 @@ try {
     const added = ctx.inventory.tryAddItem(ctx.loot.createItem(def.id, 1));
     const notifs = [...document.querySelectorAll('.notifs .notif')];
     return { added, before, after: notifs.length, gatherLabel: notifs.filter((n) => n.querySelector('.k')?.textContent === '채집').length,
-      acquired: notifs.filter((n) => /획득:/.test(n.textContent) && n.textContent.includes(def.name)).length, name: def.name };
+      acquired: notifs.filter((n) => n.classList.contains('nt-item') && !/획득:/.test(n.textContent) && n.textContent.includes(def.name) && /×1/.test(n.textContent)).length, name: def.name };
   });
   ok(!!gathered && gathered.added, `herb ${gathered && gathered.name} added to the bag`);
   ok(gathered && gathered.gatherLabel === 0 && gathered.acquired === 1 && gathered.after === gathered.before + 1, `exactly one 획득 ticker, no 채집 toast (${gathered && `${gathered.before} → ${gathered.after}`})`, JSON.stringify(gathered));

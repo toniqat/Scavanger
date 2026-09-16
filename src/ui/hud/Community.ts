@@ -1,11 +1,10 @@
 import type { GameContext, SquadInvite } from '@/shared';
 import {
-  COMMUNITY_BLOCKER, COMMUNITY_TAP_MAX_S, Keys, NPC_DEF_MAP, NPC_QUEST_MAP, SQUAD_INVITE_HOLD_S, SQUAD_INVITE_MAX,
-  formatPlayerCode, isBotPlayer, keyLabel,
+  COMMUNITY_BLOCKER, COMMUNITY_TAP_MAX_S, Keys, MENU_BLOCKER, MESSENGER_DOT_POP_PX, MESSENGER_DOT_POP_S, SQUAD_INVITE_HOLD_S,
+  SQUAD_INVITE_MAX, createKeycap, formatPlayerCode, isBotPlayer, keyLabel, paintKeycap,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { AskPopup } from '../menus/askPopup';
-import { clip } from '../menus/messenger/format';
 import { Messenger, messengerUnreadTotal } from '../menus/messenger/Messenger';
 import type { SocialColumn } from '../menus/social/SocialColumn';
 import { socialOf } from '../menus/social/socialSource';
@@ -37,7 +36,20 @@ const STALE_KEY = '#';
  *     calls `social.acceptInvite(from)`.
  *
  * `ui:openMessenger {tab, npc, code, room}` opens the panel onto that target (ignored outside the ship / in a cutscene /
- * while the tutorial hides the button). A new NPC message (`npc:message` intro · offer) toasts while the panel is closed.
+ * while the tutorial hides the button).
+ *
+ * **2026-09-16 (사용자 결정 — 메신저는 여전히 함선 전용):**
+ *  - 새 NPC 메시지(`npc:message`)는 **토스트를 띄우지 않는다.** 대신 버튼의 빨간 점(개수 배지)이 튀어올랐다 제자리로
+ *    내려앉는다 (`MESSENGER_DOT_POP_S` · `MESSENGER_DOT_POP_PX`). 무슨 메시지인지는 메신저를 열어야 안다. 움직임은
+ *    `update(dt)` 가 인라인 transform 으로 민다 — 이 PC 처럼 reduced motion 이면 base.css 가 CSS 애니메이션 · 전이를
+ *    0.01 ms 로 잘라 한 프레임에 끝나기 때문이다.
+ *  - 버튼 **아래에 `Keys.INVITE` 키캡**(P)이 붙는다 — 라벨은 쓸 때 읽는다 (`input:bindingsChanged` 에서 다시 칠한다).
+ *  - **Tab 창(인벤토리 · 캐릭터 · 기업 · 함선 탭)이나 ESC 일시정지 메뉴가 떠 있어도** 버튼이 보이고 마우스로 눌린다
+ *    (`overMenu`). 그 위에서 연 패널은 그 메뉴 **위에** 그려지고(`.over-inv` / `.over-pause` z-index — base.css),
+ *    Escape(`ctx.escape` 스택의 맨 위) · Tab · P 로 닫으면 밑의 메뉴로 돌아간다. 그 메뉴들은 `COMMUNITY_BLOCKER` 가
+ *    있는 동안 Tab 을 받지 않는다 (`InventorySystem.update` · `PauseMenu.handleKey`). 설정 오버레이 · 일시정지 경고 팝업이
+ *    떠 있으면 버튼은 숨는다 (`pauseProbe`). 이 때문에 루트는 소셜 레이어가 아니라 `#ui-root` 직계다 — `'menu'` blocker 가
+ *    소셜 레이어를 통째로 숨기기 때문이다.
  *
  * **Phase 12:** hidden for the length of a docking / warp cutscene (`CutsceneWatch`). The open panel closes when a
  * cutscene starts. **2026-09-09:** Tab (`Keys.INVENTORY`) closes the panel too (consumed), and the open panel emits
@@ -50,6 +62,13 @@ export class Community {
   private countEl: HTMLElement;
   private dot: HTMLElement;
   private inviteWrap: HTMLElement;
+  /** 2026-09-16: 버튼 아래 `Keys.INVITE` 키캡. */
+  private keyEl: HTMLElement;
+  /** 2026-09-16: 빨간 점 튀어오르기 — 경과 초 (`< 0` = 쉬는 중), 점이 보이면 시작할 대기 요청. */
+  private popT = -1;
+  private popPending = false;
+  /** 지금 Tab 창 / 일시정지 메뉴 위에 서 있는가 (클래스 토글을 바뀔 때만 하려고). */
+  private overKind: 'none' | 'inv' | 'pause' = 'none';
   private panel!: HTMLElement;
   private messengerView!: Messenger;
   private ctx!: GameContext;
@@ -79,7 +98,11 @@ export class Community {
     this.closeLeadMenu();
   };
 
-  constructor(parent: HTMLElement, private cutscene: CutsceneWatch | null = null) {
+  /**
+   * `pauseProbe` (2026-09-16): 일시정지 메뉴가 **그 자체로** 떠 있는가 (설정 오버레이 · 경고 팝업이 위에 없다) —
+   * HudSystem 이 준다. 없으면 `'menu'` blocker 위에서는 버튼을 띄우지 않는다.
+   */
+  constructor(parent: HTMLElement, private cutscene: CutsceneWatch | null = null, private pauseProbe: (() => boolean) | null = null) {
     this.root = el('div', { cls: 'community', parent });
     this.btn = el('button', { cls: 'cm-btn interactive', parent: this.root });
     this.btn.title = '메신저';
@@ -88,12 +111,16 @@ export class Community {
     this.countEl = el('span', { cls: 'cm-count ui-mono', text: '0', parent: this.btn });
     this.dot = el('i', { cls: 'cm-dot has-num ui-mono', parent: this.btn });
     this.dot.hidden = true;
+    this.keyEl = createKeycap(Keys.INVITE, { parent: this.root });
+    this.keyEl.classList.add('cm-key');
     this.inviteWrap = el('div', { cls: 'cm-invites', parent: this.root });
     this.btn.addEventListener('click', (e) => { e.stopPropagation(); this.toggle(); });
   }
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;
+    /* 2026-09-16: 버튼도 `#ui-root` 직계로 옮긴다 — Tab 창 · 일시정지 메뉴 위에 서야 하고, 소셜 레이어는 `'menu'` 에 숨는다. */
+    ctx.uiRoot.appendChild(this.root);
     /* The panel is a direct child of `#ui-root` so it is never hidden by the social layer's own gating. */
     this.panel = el('div', { cls: 'community-panel ms-panel interactive', parent: ctx.uiRoot });
     this.panel.hidden = true;
@@ -134,7 +161,7 @@ export class Community {
       ctx.bus.on('social:invited', () => { this.inviteKey = STALE_KEY; }),
       ctx.bus.on('social:inviteClosed', () => { this.inviteKey = STALE_KEY; this.held = 0; }),
       // The 닫기 label and the invite hint both name the live `Keys.INVITE` — never cache a key label.
-      ctx.bus.on('input:bindingsChanged', () => { this.inviteKey = STALE_KEY; this.messengerView.refreshKeyLabels(); if (this._open) this.emitGuide(); }),
+      ctx.bus.on('input:bindingsChanged', () => { this.inviteKey = STALE_KEY; paintKeycap(this.keyEl, Keys.INVITE); this.messengerView.refreshKeyLabels(); if (this._open) this.emitGuide(); }),
       ctx.bus.on('game:phaseChanged', () => { if (this._open && !ctx.isHubPhase()) this.close(); }),
       ctx.bus.on('game:newMission', () => { if (this._open) this.close(); }),
       /* 2026-09-14: 메신저 */
@@ -142,7 +169,8 @@ export class Community {
       ctx.bus.on('social:unreadChanged', () => { this.unreadAcc = 1; }),
       ctx.bus.on('room:unreadChanged', () => { this.unreadAcc = 1; }),
       ctx.bus.on('room:updated', () => { this.unreadAcc = 1; }),
-      ctx.bus.on('npc:message', ({ npc, entry }) => this.toastNpc(npc, entry.e, entry.q)),
+      // 2026-09-16: 토스트 없음 — 패널이 닫혀 있으면 빨간 점이 튀어오른다 (배지가 새 개수를 읽은 뒤에)
+      ctx.bus.on('npc:message', () => { if (!this._open && ctx.isHubPhase()) { this.popPending = true; this.unreadAcc = 1; } }),
       ctx.bus.on('ui:openMessenger', (t) => {
         const cutscene = this.cutscene?.active ?? (ctx.phase === 'docking' || (ctx.hub?.travelling ?? false));
         if (!ctx.isHubPhase() || cutscene || (ctx.tutorial?.hides('community') ?? false)) return;
@@ -168,20 +196,38 @@ export class Community {
   update(dt: number, ctx: GameContext): void {
     // Visible in the ship whenever nothing else owns the screen — our own panel does not count.
     const blockers = ctx.uiBlockers;
-    const free = blockers.size === 0 || (blockers.size === 1 && blockers.has(COMMUNITY_BLOCKER));
+    const own = blockers.has(COMMUNITY_BLOCKER) ? 1 : 0;
+    const free = blockers.size === own;
+    /*
+     * 2026-09-16: **Tab 창 / 일시정지 메뉴 위**에서도 선다. 그 화면 하나만(+ 우리 패널) 떠 있을 때뿐이다 — 그 위에 다른 것
+     * (분해 · 설정 · 경고 팝업 · 튜토리얼 팝업 …)이 쌓이면 숨는다. Tab 창의 blocker 토큰은 inventory/ 안의 것이라
+     * `InventoryRef.isOpen` 으로 읽는다 (열려 있으면 그 토큰이 있다 → 개수가 맞으면 그것뿐이다).
+     */
+    const overInv = !free && blockers.size === 1 + own && (ctx.inventory?.isOpen ?? false);
+    const overPause = !free && blockers.size === 1 + own && blockers.has(MENU_BLOCKER) && (this.pauseProbe?.() ?? false);
+    const overMenu = overInv || overPause;
     const cutscene = this.cutscene?.active ?? (ctx.phase === 'docking' || (ctx.hub?.travelling ?? false));
     // 2026-09-08: 튜토리얼이 도는 동안에는 우측 상단 버튼을 감춘다 (안내 밖으로 새지 않게)
     const tutorial = ctx.tutorial?.hides('community') ?? false;
-    const on = ctx.isHubPhase() && free && !cutscene && !tutorial;
+    const on = ctx.isHubPhase() && (free || overMenu) && !cutscene && !tutorial;
     if (tutorial && this._open) this.close();
     if (on !== this.shown) {
       this.shown = on;
       toggleClass(this.root, 'show', on);
       if (!on) this.held = 0;
     }
+    const kind = overInv ? 'inv' : overPause ? 'pause' : 'none';
+    if (kind !== this.overKind) {
+      this.overKind = kind;
+      for (const n of [this.root, this.panel]) {
+        toggleClass(n, 'over-inv', kind === 'inv');
+        toggleClass(n, 'over-pause', kind === 'pause');
+      }
+    }
     if (this._open && (!ctx.isHubPhase() || cutscene)) this.close();
     // 2026-09-09: Tab closes every screen (the 일시정지 메뉴 stacked on top keeps it, like P below).
-    if (this._open && free && ctx.input.wasPressed(Keys.INVENTORY)) {
+    // 2026-09-16: 메뉴 위에서 연 패널도 Tab 이 **패널만** 닫는다 — 밑의 Tab 창 · 일시정지 메뉴는 이 blocker 가 있는 동안 Tab 을 안 받는다.
+    if (this._open && (free || overMenu) && ctx.input.wasPressed(Keys.INVENTORY)) {
       ctx.input.consume(Keys.INVENTORY);
       this.close();
     }
@@ -199,7 +245,10 @@ export class Community {
         this.dot.hidden = n <= 0;
         setText(this.dot, n > 99 ? '99+' : String(n));
       }
+      // 새 NPC 메시지의 튀어오르기는 배지가 보일 때 시작한다 (개수는 곧바로, 무엇이 왔는지는 말하지 않는다)
+      if (this.popPending && !this.dot.hidden) { this.popPending = false; this.popT = 0; }
     }
+    this.stepPop(dt);
 
     const invites = (social?.available ? social.invites : []).slice(-SQUAD_INVITE_MAX);
     const key = invites.map((v) => `${v.from}|${v.name}|${v.id ?? ''}`).join(',');
@@ -234,22 +283,36 @@ export class Community {
       social?.acceptInvite(from);
       this.inviteKey = STALE_KEY;
     }
-    if (ctx.input.wasReleased(Keys.INVITE) && !this.pAccepted && free && (this.shown || this._open)
+    if (ctx.input.wasReleased(Keys.INVITE) && !this.pAccepted && (free || overMenu) && (this.shown || this._open)
       && (this.cards.length === 0 || this.pHeld <= COMMUNITY_TAP_MAX_S)) this.toggle();
     this.applyHold();
   }
 
-  /** 2026-09-14: a new NPC message while the panel is closed (ship only) — one toast, no click action. */
-  private toastNpc(npcId: string, e: string, questId?: string): void {
-    const ctx = this.ctx;
-    if (this._open || !ctx.isHubPhase()) return;
-    if (e !== 'intro' && e !== 'offer') return;
-    const def = NPC_DEF_MAP.get(npcId);
-    const name = def?.name ?? '알 수 없는 발신자';
-    const first = e === 'intro' ? def?.intro[0] : questId ? NPC_QUEST_MAP.get(questId)?.lines.offer[0] : undefined;
-    const tail = first ? ` — ${clip(first, 38)}` : '';
-    ctx.bus.emit('ui:notify', { text: `✉ ${name}${tail}`, kind: 'info', duration: 3.2 });
+  /**
+   * 2026-09-16 — 빨간 점 튀어오르기 한 프레임. 곡선: 첫 봉우리(`MESSENGER_DOT_POP_PX`)까지 솟았다 내려오고, 작게 한 번 더
+   * 튀고 제자리. 처음 잠깐은 살짝 커졌다 돌아온다. CSS 애니메이션이 아니라 인라인 transform 이다 (클래스 주석 — reduced motion).
+   * 쉬는 동안은 비교 하나.
+   */
+  private stepPop(dt: number): void {
+    if (this.popT < 0) return;
+    this.popT += Math.max(0, dt);
+    const u = this.popT / Math.max(1e-3, MESSENGER_DOT_POP_S);
+    if (u >= 1 || this.dot.hidden) {
+      this.popT = -1;
+      this.dot.style.transform = '';
+      return;
+    }
+    // 곡선 모양(비율)만 여기 있다: 첫 봉우리가 시간의 55 %, 두 번째 봉우리는 높이 22 %, 커짐은 처음 30 % 동안 최대 +25 %
+    const first = 0.55;
+    const y = u < first
+      ? MESSENGER_DOT_POP_PX * Math.sin(Math.PI * (u / first))
+      : MESSENGER_DOT_POP_PX * 0.22 * Math.sin(Math.PI * ((u - first) / (1 - first)));
+    const k = 1 + 0.25 * Math.sin(Math.PI * Math.min(1, u / 0.3));
+    this.dot.style.transform = `translateY(${(-y).toFixed(2)}px) scale(${k.toFixed(3)})`;
   }
+
+  /** 빨간 점이 지금 튀어오르는 중인가 (debug / smoke). */
+  get isDotPopping(): boolean { return this.popT >= 0; }
 
   /* ── 분대장 넘기기 (2026-09-09) ───────────────────────────────────────── */
   /** 우클릭한 분대원 행에 붙는 한 줄 메뉴. `leader:transferRequested` 가 net 으로 가는 유일한 입구다. */
@@ -333,6 +396,7 @@ export class Community {
     if (this._open) return;
     const ctx = this.ctx;
     this._open = true;
+    this.popPending = false;
     this.panel.hidden = false;
     ctx.uiBlockers.add(COMMUNITY_BLOCKER);
     // Phase 10 cursor rules: keep the pointer lock, hand UI input to the software cursor.

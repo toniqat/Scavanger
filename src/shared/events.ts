@@ -1692,3 +1692,24 @@ export interface GameEvents {
   'raid:resumeChanged': { offer: RaidResumeOffer | null; checking: boolean };
 }
 /* ── end [2026-09-15] 타이틀 이어하기 · 레이드 포기 ── */
+
+/* ══ appended: 2026-09-16 — 결과 화면 → 함선 귀환 암전 (owner: ui/menus/ShipReturn) ══ */
+export interface GameEvents {
+  /**
+   * Command (ui 결과 화면 버튼 · game 자동 귀환 → ui): 결과 화면(`complete` · `dead`)에서 함선으로 돌아간다 — 페이드아웃 →
+   * 암전 + 로딩 게이지 → (그 사이 `hub:enter`, 함선 씬 셰이더 컴파일이 끝나면) 페이드인. 이미 도는 중이면 무시한다.
+   * `hub:enter` 를 직접 내면 결과 화면에서 함선이 한 프레임에 튀어나온다 — 결과 화면에서는 이것을 낸다.
+   */
+  'ui:shipReturn': Record<string, never>;
+}
+/* ── end [2026-09-16] 결과 화면 → 함선 귀환 암전 ── */
+
+/* ══ appended: 2026-09-16 — 함선 트랙 튜토리얼 능력치 안내 (owner: progression/ui/SheetBody) ══ */
+export interface GameEvents {
+  /**
+   * Fact (progression ui): 캐릭터 시트의 **확정 전 ＋ 포인트** 합이 바뀌었다 (＋ · － · 되돌리기 · 확정 · 강제 폐기). 투자 자체는
+   * 여전히 `progress:statChanged` 다. tutorial 의 `stats` 단계가 「능력치 하나 상승」 목표와 포커스(＋ 열 ↔ 확정 버튼)를 이것으로 고른다.
+   */
+  'progress:statPending': { total: number };
+}
+/* ── end [2026-09-16] 함선 트랙 튜토리얼 능력치 안내 ── */

@@ -590,6 +590,12 @@ input { font: inherit; color: inherit; }
 .notif .k { font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-text-dim); }
 .notif .t { font-weight: 500; }
 .notif .t b { font-weight: 600; }
+/* 2026-09-16 (사용자 결정): 획득 토스트 — 왼쪽 썸네일 칩, 오른쪽 `이름 ×수량` 한 줄 (머리 라벨 없음) */
+.notif.nt-item { flex-direction: row; align-items: center; gap: 10px; padding: 6px 14px 6px 8px; }
+.notif.nt-item .item-chip { flex: 0 0 auto; pointer-events: none; }
+/* 2026-09-16: 튜토리얼 조작 가이드(`.tut-controls`)가 떠 있으면 `Notifications.update` 가 인라인 `top` = 패널 바닥 + 간격을
+   쓰고 이 클래스를 붙인다 — 세로 가운데 정렬을 풀어 스택이 그 줄에서 아래로 쌓인다. */
+.notifs.below-tut { transform: none; }
 
 /* Deploying overlay */
 .deploying {
@@ -1268,14 +1274,6 @@ input { font: inherit; color: inherit; }
 .cook .tag.show { display: inline-block; }
 @keyframes cookPulse { from { opacity: 1; stroke-width: 3; } to { opacity: 0.55; stroke-width: 4.5; } }
 
-/* Weapon panel: consumable mode (stim / grenade in hand) */
-.weapon .cons { display: none; flex-direction: column; align-items: flex-end; gap: 6px; }
-.weapon.consumable > .name-row, .weapon.consumable > .dura, .weapon.consumable > .swap, .weapon.consumable > .ammo-row { display: none; }
-.weapon.consumable .cons { display: flex; }
-.weapon .cons .slot { color: var(--c-accent); border-color: rgba(255, 179, 71, 0.6); }
-.weapon .cons .cnt-lbl { font-size: 12px; color: var(--c-text-dim); margin-bottom: 5px; }
-.weapon .cons .hint { font-size: 9px; letter-spacing: 0.14em; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 2px 6px; white-space: nowrap; }
-
 /* Vitals: downed (전투불능) state */
 .vitals .down-sub, .vitals .revive { display: none; }
 .vitals.downed .seg .fill { background: var(--c-danger); }
@@ -1884,19 +1882,23 @@ input { font: inherit; color: inherit; }
    the guide needs an open screen). */
 .key-guide {
   position: absolute; right: 28px; bottom: 28px; z-index: 84;
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px;
-  background: rgba(8, 9, 11, 0.6); border: 1px solid var(--c-border);
+  display: flex; align-items: stretch; gap: 6px;
   font-size: 11px; letter-spacing: 0.12em; color: var(--c-text-dim); white-space: nowrap;
   opacity: 0; visibility: hidden; transform: translateY(6px);
   transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), visibility var(--t-fast);
   pointer-events: none;
 }
 .key-guide.show { opacity: 1; visibility: visible; transform: none; }
+/* 2026-09-16 (사용자 결정): 상자는 둘 — 화면의 행동 키 `.kg-panel` 과 그 오른쪽 닫기 `.kg-panel-close` (`hud/KeyGuide.render`) */
+.key-guide .kg-panel {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px;
+  background: rgba(8, 9, 11, 0.6); border: 1px solid var(--c-border);
+}
 .key-guide .kg-item { display: inline-flex; align-items: center; gap: 6px; }
 .key-guide .keycap { min-width: 20px; height: 20px; font-size: 10px; color: var(--c-text); background: rgba(255, 255, 255, 0.1); }
 .key-guide .kg-label { color: var(--c-text-dim); }
-.key-guide .kg-sep { color: var(--c-text-faint); }
+.key-guide .kg-sep { flex: none; align-self: center; width: 1px; height: 14px; background: var(--c-border); }   /* 2026-09-16: `·` → 얇은 세로 막대 */
 
 /* Room entry label (social layer, top-centre; fades after the hold time) */
 .room-label {
@@ -1912,10 +1914,9 @@ input { font: inherit; color: inherit; }
 .room-label .sep { color: var(--c-text-faint); }
 .room-label .purpose { color: var(--c-text); }
 
-/* Weapon panel: unique fire-mode lines (only with `.has-modes`; hidden in consumable mode) */
+/* Weapon panel: unique fire-mode lines (only with `.has-modes`) */
 .weapon .modes { display: none; flex-direction: column; align-items: flex-end; gap: 2px; }
 .weapon.has-modes > .modes { display: flex; }
-.weapon.consumable > .modes { display: none; }
 .weapon .mode { display: flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 0.08em; }
 .weapon .mode .mk { font-family: var(--ui-mono); font-size: 9px; color: var(--c-text-faint); border: 1px solid var(--c-border); padding: 0 4px; }
 .weapon .mode .mv { color: var(--c-text-dim); }
@@ -2893,8 +2894,21 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
 }
 .community.show { opacity: 1; }
 .community.show .cm-btn, .community.show .cm-invites { pointer-events: auto; }
-/* the MOVE CHEAT tag shares this corner — push it under the thumbnail while in the ship */
-.hud.hub .cheat-tag { top: 108px; }
+/* 2026-09-16: 버튼 바로 아래 가운데의 `Keys.INVITE` 키캡 (작게). 루트가 오른쪽 정렬이라 버튼 폭(64)의 가운데로 민다. */
+.community .cm-key {
+  margin-top: -4px; height: 18px; min-width: 18px; font-size: 10px;
+  transform: translateX(calc(50% - 32px));
+}
+/* 2026-09-16: Tab 창 / 일시정지 메뉴 **위**의 메신저 (hud/Community `overMenu`). 버튼은 그 메뉴 위, 거기서 연 패널은 버튼 위.
+   Tab 창(50–80) 위 = 81 / 83 — 키 가이드(84) 아래라 패널의 키 안내가 보인다. 일시정지(85) 위 = 87 / 89 — 키 가이드는
+   `'menu'` 에 어차피 숨는다. 분대 초대 카드는 메뉴 위에서는 감춘다 (P 홀드도 그때는 받지 않는다). */
+.community.over-inv { z-index: 81; }
+.community.over-pause { z-index: 87; }
+.community.over-inv .cm-invites, .community.over-pause .cm-invites { display: none; }
+.community-panel.over-inv { z-index: 83; }
+.community-panel.over-pause { z-index: 89; }
+/* the MOVE CHEAT tag shares this corner — push it under the thumbnail (+ key cap) while in the ship */
+.hud.hub .cheat-tag { top: 128px; }
 .cm-btn {
   position: relative;
   width: 64px; height: 64px; padding: 0;

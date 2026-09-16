@@ -104,3 +104,5 @@ export * from './dropdown';
 export * from './craftRefund';
 /* appended (2026-09-16): 무기 카드 본문 한 벌 — 격자 카드(`inventory/ui/Tooltip`)와 칩 카드(`ui/hud/ItemTip`)가 같은 숫자 · 같은 문장을 읽는다 */
 export * from './weaponTip';
+/* appended (2026-09-16): 시체를 들여다보는 사람 — 빈 시체는 마지막 사람이 창을 닫은 뒤에 가라앉는다 (game · enemies · world/tutorial) */
+export * from './corpseViewers';

@@ -131,13 +131,17 @@ export function markTab(sys: InventoryUI): void {
   }
   }
 
-/** `크레딧 n` readout on the ship screen (`ctx.meta.credits`; refreshed on `meta:creditsChanged`). */
+/**
+ * 보유 크레딧 글자 (`ctx.meta.credits`; refreshed on `meta:creditsChanged` and every `refresh`). 2026-09-16: 우측 상단 알약이
+ * 아니라 가방 바닥 줄 오른쪽 끝의 `12,345 C` 다 — 단위까지 한 글자열(`formatCredits`).
+ */
 export function refreshCredits(sys: InventoryUI): void {
   if (!sys.root) return;
   const meta = sys.ctx.meta;
   const credits = meta && typeof meta.credits === 'number' ? meta.credits : null;
-  sys.creditsValue.textContent = credits === null ? TEXT.credits.none : TEXT.credits.value(credits);
-  sys.creditsEl.classList.toggle('is-unavailable', credits === null);
+  const text = credits === null ? TEXT.credits.none : TEXT.credits.value(credits);
+  if (sys.creditsValue.textContent !== text) sys.creditsValue.textContent = text;
+  sys.creditsValue.classList.toggle('is-unavailable', credits === null);
   }
 
 export function toggleCraft(sys: InventoryUI): void {

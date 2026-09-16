@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { HUB_POINT_LIGHTS, HUB_TRAVEL_WARP_STRETCH, NET_MAX_PLAYERS, NET_SLOT_COLORS, type HubAndroidBay, type HubShipKind } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
 import { BoxInteriorCollider } from './InteriorCollider';
-import { ShipDoors } from './Doors';
 import { Hangar, type HangarBayDef } from './Hangar';
 import { Parts } from './parts';
 import { LightPool, type LightFixture } from './LightPool';
@@ -21,7 +20,7 @@ const WALL = 0.35;
 /** Pod centres along the −Z wall. */
 const POD_X = [-6, -2, 2, 6];
 const POD_Z = ROOM.minZ + 1.15;
-/** 격납고 자동문 (2026-09-08): half-width of the aft opening in the +Z wall, and the leaves' height. */
+/** 격납고 출입구 (2026-09-08): half-width of the aft opening in the +Z wall, and its height (the 자동문 leaves are gone, 2026-09-16). */
 const HANGAR_DOOR_HALF = 2.0;
 const HANGAR_DOOR_HEIGHT = 3.2;
 
@@ -31,7 +30,7 @@ const HANGAR_DOOR_HEIGHT = 3.2;
  * where docking arrivals spawn. Six light fixtures on the deck + nine in the hangar, served by `HUB_POINT_LIGHTS`
  * pool lights nearest the player (2026-09-10, `LightPool` — the deck and the hangar used to hang 15 lights of their own).
  *
- * **격납고 (2026-09-08)**: the middle of the +Z (aft) wall is a 4 m 자동문 that opens on approach onto the
+ * **격납고 (2026-09-08)**: the middle of the +Z (aft) wall is a 4 m open doorway (a 자동문 until 2026-09-16) onto the
  * `Hangar` deck — 44 × 30 m, four marked bays with the squad's 개인 함선 parked in them. The hangar is part of *this*
  * interior (same `GeoBatch`, same collider, one walkable union), so the doorway is an open shared edge and remote
  * avatars simply walk through it. The armoury moved aside for the doorway: racks and the 정비 bench keep the port
@@ -51,8 +50,6 @@ export class SharedShip implements ShipInterior {
   readonly stations: ShipStations;
   /** 격납고 (2026-09-08): the aft deck and its four 개인 함선 bays. */
   readonly hangar: Hangar;
-  /** 자동문 on the aft doorway (own meshes, never merged, no collider — the doorway is always walkable). */
-  readonly doors = new ShipDoors(this.root);
   /** 조종실 안드로이드 슬롯 세 칸 (2026-09-15) — 좌현 조종실 한켠, `interiors/AndroidBays.ts`. */
   private androidRack!: AndroidBayRack;
 
@@ -80,8 +77,8 @@ export class SharedShip implements ShipInterior {
     P.walls(ROOM, WALL, {
       w: { lo: -5.2, hi: 5.2, y0: 1.0, y1: 3.4 },            // bridge viewport (−X)
       e: { lo: -1.3, hi: 1.3, y0: 0, y1: 3.0 },              // airlock opening (+X) — closed by the door below
-      // 격납고 자동문 (+Z): a real opening. The leaves below slide, they never block — the hangar deck is part of
-      // the same walkable union, so this doorway is an open shared edge exactly like a personal-ship room door.
+      // 격납고 출입구 (+Z): a real opening — the hangar deck is part of the same walkable union, so this doorway is an
+      // open shared edge exactly like a personal-ship room door (2026-09-16: no 자동문 leaves in it any more).
       s: { lo: -HANGAR_DOOR_HALF, hi: HANGAR_DOOR_HALF, y0: 0, y1: HANGAR_DOOR_HEIGHT },
     });
     P.glass(r, 10.4, 2.4, ROOM.minX - WALL / 2, 2.2, 0, Math.PI / 2, this.meshes);
@@ -231,22 +228,30 @@ export class SharedShip implements ShipInterior {
      * ── 격납고 (2026-09-08) ──
      * Built into the **same** `GeoBatch` and collider, so the whole aft deck costs no extra draw calls and its floor
      * joins the ship's walkable union at the +Z wall's outer face. `Hangar` owns its own lights, bay signs and the
-     * parked ship models; only the doorway trim and the sliding leaves belong here.
+     * parked ship models; only the doorway trim belongs here.
      */
     this.hangar = new Hangar(b, col, { wallZ: ROOM.maxZ + WALL, deckZ: ROOM.maxZ, halfWidth: ROOM.maxX + WALL, ceil: CEIL }, HANGAR_DOOR_HALF);
     r.add(this.hangar.root);
-    // doorway trim on the deck side + a threshold strip, so the opening reads as a door and not a hole
-    for (const sx of [-1, 1]) b.box(0.12, HANGAR_DOOR_HEIGHT, 0.36, sx * (HANGAR_DOOR_HALF + 0.06), HANGAR_DOOR_HEIGHT / 2, ROOM.maxZ + WALL / 2, M.trim);
-    b.box(HANGAR_DOOR_HALF * 2 + 0.24, 0.1, 0.36, 0, HANGAR_DOOR_HEIGHT + 0.05, ROOM.maxZ + WALL / 2, M.trim);
-    b.box(HANGAR_DOOR_HALF * 2, 0.03, 0.5, 0, 0.014, ROOM.maxZ + WALL / 2, M.stripAmber);
+    /*
+     * Doorway trim + a threshold strip, so the opening reads as a door and not a hole.
+     * 2026-09-16 (자동문 제거 — 사용자 결정 「문틀 주변에 흉한 것이 남지 않게」): with the leaves gone the reveal is in plain
+     * view, and the trim shared its planes — post inner faces on the reveals (x = ±`HANGAR_DOOR_HALF`), the header's
+     * underside on the soffit (y `HANGAR_DOOR_HEIGHT`) → z-fighting. Posts / header now stand 2 cm proud of them. Their
+     * deck side reaches in front of the wainscot band and its trim line (`jambFront`, the band's trim is 5.5 cm off the
+     * wall); their hangar side stops 2 cm past the wall (`jambBack`) — just short of the hangar's cyan reveal strip
+     * (z `wallZ + 0.03`), which it used to meet. The threshold strip ends at the posts instead of running into them.
+     */
+    const jambFront = ROOM.maxZ - 0.065, jambBack = ROOM.maxZ + WALL + 0.02;
+    const jambD = jambBack - jambFront, jambZ = (jambFront + jambBack) / 2;
+    for (const sx of [-1, 1]) b.box(0.14, HANGAR_DOOR_HEIGHT, jambD, sx * (HANGAR_DOOR_HALF + 0.05), HANGAR_DOOR_HEIGHT / 2, jambZ, M.trim);
+    b.box(HANGAR_DOOR_HALF * 2 + 0.24, 0.12, jambD, 0, HANGAR_DOOR_HEIGHT + 0.04, jambZ, M.trim);
+    b.box(HANGAR_DOOR_HALF * 2 - 0.04, 0.03, 0.5, 0, 0.014, ROOM.maxZ + WALL / 2, M.stripAmber);
     const hangarSign = new TextPlane(1.6, 0.44, 320);
     hangarSign.mesh.position.set(0, HANGAR_DOOR_HEIGHT + 0.42, ROOM.maxZ - 0.02);
     hangarSign.mesh.rotation.y = Math.PI;                                    // reads from inside the ship
     hangarSign.set(['격납고'], '#ffc98a', 'rgba(6,8,10,0.85)');
     r.add(hangarSign.mesh);
     this.screens.push(hangarSign);
-    // the sliding leaves sit inside the wall slab; like every other 자동문 they animate and never block
-    this.doors.add(0, ROOM.maxZ + WALL / 2, HANGAR_DOOR_HALF * 2, HANGAR_DOOR_HEIGHT - 0.05, 0.14, 'x');
 
     b.build(r, this.meshes);
 
@@ -309,9 +314,8 @@ export class SharedShip implements ShipInterior {
   /** 슬롯 표시등 · 이름표: 안드로이드가 잠들어 있다 / 분대원으로 나가 있다 / 요청을 기다린다. */
   setAndroidBayState(bay: number, state: AndroidBayState): void { this.androidRack.setState(bay, state); }
 
-  /** 자동문 + the light pool follow the player (called by the hub, same contract as `PersonalShip.updateNear`). */
+  /** The light pool follows the player (called by the hub, same contract as `PersonalShip.updateNear`). */
   updateNear(dt: number, px: number, pz: number): void {
-    this.doors.update(dt, px, pz);
     // past the aft wall = the 격납고: its nine gantry lamps outrank the deck lamps behind the bulkhead, and vice versa
     this.lightPool.update(dt, px, pz, pz > ROOM.maxZ ? 1 : 0);
   }
@@ -332,7 +336,6 @@ export class SharedShip implements ShipInterior {
   dispose(): void {
     this.androidRack.dispose();
     this.hangar.dispose();
-    this.doors.dispose();
     disposeMeshes(this.meshes);
     this.lightPool.dispose();
     for (const s of this.screens) s.dispose();

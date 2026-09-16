@@ -205,10 +205,22 @@ export class WeaponSystem implements GameSystem {
     // 2026-09-12: in the scene (hidden) from the start so the core shader warm-up compiles it with everything else
     this.aimMarker = new AimBlockMarker(ctx.scene);
     // Phase 3: live grenade positions for the HUD's off-screen indicators
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const sys = this;
     ctx.weapons = {
       getGrenades: () => this.grenades.getViews(),
       // Phase 7: per-frame pose / held item / attachment list for the player snapshot (`PlayerSnapshot.h / att`, THROWING… flags)
       remoteState: this.remoteState,
+      // 2026-09-16 (우하단 무기 패널): HUD 가 매 프레임 묻는다 — 소모품 · 근접 · 홀스터 중에도 「마지막으로 든 주무기」를
+      //   흐리게 보여 주려면 `weapon:equipped` 만으로는 모자란다 (소모품을 든 채 교체 · 장비 변경이 끝나면 그 이벤트가 안 온다).
+      get activeSlot() { return sys.slots[sys.active] ? sys.active : null; },
+      get primaryInHand() {
+        return !!sys.slots[sys.active] && !sys.quick && !sys.holstered && sys.ctx.player?.isMeleeing !== true;
+      },
+      ammoOf: (slot) => {
+        const w = this.slots[slot];
+        return w ? { weaponId: w.stats.weaponId, magSize: w.stats.magSize, ammoInMag: this.magOf(w), reserveRounds: this.reserveOf(w) } : null;
+      },
     };
     // 2026-09-14: every bullet flies through the pool, swept with the very query a hitscan shot used (`raycastAll`)
     this.projectiles = new ProjectilePool(ctx,

@@ -277,6 +277,24 @@ export const SPOT_CRAFT_CLOSE: readonly string[] = ['.inv-craft-close', '.inv-pa
 /** 밝힐 것이 없다 (화면이 아니라 손가락으로 하는 일). */
 export const SPOT_NONE: readonly string[] = [];
 
+/*
+ * 함선 트랙 `stats` 의 목표별 포커싱 (2026-09-16 2차, 사용자 결정) — 목표가 하나씩 열리는 대로 **포커스가 옮겨 간다**.
+ * 고르는 곳은 `TutorialSystem.stepView` 다. 메뉴가 닫혀 있는 첫 목표(`statsMenu`)는 밝힐 화면이 없어 `SPOT_NONE` 이고,
+ * 그 안내는 우측 조작 가이드의 한 줄(`TUTORIAL_CONTROL_HINTS.stats`)이 한다.
+ * ⚠ 탭 버튼에는 탭마다의 표식이 없다 — `SCREEN_TABS`(inventory/ui/model) 의 두 번째가 캐릭터 탭이라 `:nth-child(2)` 로 집고,
+ *   못 찾으면 탭 줄 전체로 넓힌다. (함선 트랙에서 보이는 탭은 인벤토리 · 캐릭터 둘뿐이다.)
+ */
+/** ② 캐릭터 탭으로 이동. */
+export const SPOT_STATS_TAB: readonly string[] = ['.inv-root .scr-tabs .scr-tab:nth-child(2)', '.inv-root .scr-tabs'];
+export const STATS_TAB_TEXT = '캐릭터 탭으로 이동';
+/** ③ 능력치 하나 ＋ — 능력치 열 전체 (＋ 줄이 전부 그 안에 있다). */
+export const SPOT_STATS_RAISE: readonly string[] = ['.cs-col', '.inv-root .scr-tabs'];
+/** `{+}` 는 스포트라이트 말풍선이 능력치 시트의 ＋ 버튼 모양으로 그린다 (`parts/Spotlight.renderSpotText`). */
+export const STATS_RAISE_TEXT = '원하는 능력치 하나 {+} 를 눌러 상승';
+/** ④ 투자 확정 — `되돌리기 · 포인트 투자 확정` 줄. */
+export const SPOT_STATS_CONFIRM: readonly string[] = ['.pg-alloc .pg-confirm', '.pg-alloc', '.cs-col'];
+export const STATS_CONFIRM_TEXT = '버튼을 길게 눌러 확정';
+
 /** 게이트가 막혔을 때 쓰는 기본 문구 — 단계 제목을 끼워 넣는다. */
 export const blockedBy = (title: string): string => `튜토리얼 진행 중 — 먼저 '${title}'`;
 
@@ -294,10 +312,13 @@ export const blockedBy = (title: string): string => `튜토리얼 진행 중 —
  * 조작 **구간** (2026-09-14 2차, 사용자 결정). 줄은 배운 순서가 아니라 이 구간 순서로 쌓이고, 구간과 구간
  * 사이에만 얇은 구분선이 들어간다. 비어 있는 구간은 아예 그려지지 않으므로 구분선도 생기지 않는다.
  */
-export type ControlSection = 'move' | 'screen' | 'combat' | 'gear';
+export type ControlSection = 'move' | 'stance' | 'screen' | 'combat' | 'gear';
 
-/** 구간이 그려지는 순서. */
-export const CONTROL_SECTIONS: readonly ControlSection[] = ['move', 'screen', 'combat', 'gear'];
+/**
+ * 구간이 그려지는 순서. 2026-09-16 (사용자 결정): `stance`(앉기 · 포복)가 `move` 에서 갈라졌다 — 포복 구간의 패널은
+ * `WASD 이동` ─ 구분선 ─ `C 앉기 · Z 포복` ─ 구분선 ─ `발사 · 정조준` 세 묶음이다.
+ */
+export const CONTROL_SECTIONS: readonly ControlSection[] = ['move', 'stance', 'screen', 'combat', 'gear'];
 
 /** 한 줄 안의 **쌍** — 키캡 묶음 하나 + 그 라벨 하나 (`LMB 사격 / RMB 정조준`). */
 export interface ControlHintPair {
@@ -343,9 +364,11 @@ export const hintPairs = (h: ControlHint): readonly ControlHintPair[] =>
  * (`ControlHint` 는 2026-09-15 에 `keys` · `label` 이 선택 필드가 됐다 — 토큰 문장 줄 `text` 가 대신할 수 있다.)
  * 줄 목록이 참조까지 같으면 `applyControls` 의 id 비교가 그대로 통과해 DOM 을 한 번도 안 건드린다.
  */
+const MOVE_HINT: ControlHint = { id: 'move', keys: ['FORWARD', 'LEFT', 'BACK', 'RIGHT'], label: '이동', section: 'move' };
+const SPRINT_HINT: ControlHint = { id: 'sprint', keys: ['SPRINT'], label: '달리기', hold: true, section: 'move' };
 const MOVE_HINTS: readonly ControlHint[] = [
-  { id: 'move', keys: ['FORWARD', 'LEFT', 'BACK', 'RIGHT'], label: '이동', section: 'move' },
-  { id: 'sprint', keys: ['SPRINT'], label: '달리기', hold: true, section: 'move' },
+  MOVE_HINT,
+  SPRINT_HINT,
   { id: 'jump', keys: ['JUMP'], label: '점프', section: 'move' },
 ];
 
@@ -382,8 +405,23 @@ const LOOT_HINTS: readonly ControlHint[] = [
  */
 const EQUIP_HINTS: readonly ControlHint[] = [BAG_HINT];
 
-/** 사격 + 정조준 한 줄 — `shoot` 과 `crouchAim`(2026-09-15)이 함께 쓴다. */
-const FIRE_HINT: ControlHint = { id: 'fire', keys: ['FIRE'], label: '사격', section: 'combat', more: [{ keys: ['AIM'], label: '정조준' }] };
+/*
+ * 발사 · 정조준 두 줄 (2026-09-16, 사용자 결정) — 예전의 `LMB 사격 / RMB 정조준` 한 줄을 갈랐고 정조준은 **꾹 누르기** 키캡이다.
+ * `shoot` · `advance2` · 포복 구간 뒤쪽(`crouch` · `crouchAim`)이 같은 두 객체를 쓴다. 이동 묶음과는 구간이 달라 구분선이 선다.
+ */
+const FIRE_HINT: ControlHint = { id: 'fire', keys: ['FIRE'], label: '발사', section: 'combat' };
+const AIM_HINT: ControlHint = { id: 'aim', keys: ['AIM'], label: '정조준', hold: true, section: 'combat' };
+/** 전투 구간의 이동 묶음 — `WASD 이동` · `Shift 달리기` (점프는 뺀다). */
+const COMBAT_MOVE_HINTS: readonly ControlHint[] = [MOVE_HINT, SPRINT_HINT];
+const SHOOT_HINTS: readonly ControlHint[] = [...COMBAT_MOVE_HINTS, FIRE_HINT, AIM_HINT];
+/**
+ * 벌레를 잡은 뒤 걸어가는 구간 (2026-09-16, 사용자 결정) — 발사 · 정조준을 그대로 두고 그 아래에 벌레 시체를 뒤져 보라는
+ * `E 시체 상호작용` 한 줄을 붙인다 (같은 구간이라 구분선 없이 이어진다).
+ */
+const ADVANCE_AFTER_BUGS_HINTS: readonly ControlHint[] = [
+  ...SHOOT_HINTS,
+  { id: 'bugCorpse', keys: ['INTERACT'], label: '시체 상호작용', section: 'combat' },
+];
 
 /*
  * 빠른 사용 두 줄 (2026-09-15, 사용자 결정) — 예전에는 `T 빠른 사용 꺼내기 · T 휠 열기` 가 **한 줄에 쌍 둘**이었는데
@@ -391,6 +429,8 @@ const FIRE_HINT: ControlHint = { id: 'fire', keys: ['FIRE'], label: '사격', se
  */
 const QUICK_HINT: ControlHint = { id: 'quick', keys: ['QUICK'], label: '빠른 사용 꺼내기', section: 'gear' };
 const QUICK_WHEEL_HINT: ControlHint = { id: 'quickWheel', keys: ['QUICK'], label: '휠 열기', hold: true, section: 'gear' };
+/** 손에 든 붕대를 쓰는 줄 — `heal` 에서 **붕대가 손에 있을 때만** 선다 (2026-09-16, `controlHintsFor`). */
+const QUICK_USE_HINT: ControlHint = { id: 'quickUse', keys: ['FIRE'], label: '길게 눌러 사용', hold: true, section: 'gear' };
 
 export const TUTORIAL_CONTROL_HINTS: Readonly<Partial<Record<TutorialStepId, readonly ControlHint[]>>> = {
   // 기상 직후 이동 · 달리기 · 점프를 **한꺼번에** (2026-09-14 3차, 사용자 결정)
@@ -398,29 +438,24 @@ export const TUTORIAL_CONTROL_HINTS: Readonly<Partial<Record<TutorialStepId, rea
   // 「앞으로 이동」 구간 셋 (2026-09-14 4차) — 배우는 키가 이동뿐이라 `move` 와 같은 세 줄로 되돌아온다.
   //   직전 단계(루팅 · 사격 · 정조준)의 줄을 그대로 두면 걸어가는 동안 쓰지도 않는 키가 우측을 채운다.
   advance1: MOVE_HINTS,
-  advance2: MOVE_HINTS,
+  // 2026-09-16 (사용자 결정): 벌레를 잡은 뒤에는 발사 · 정조준이 남고 그 아래에 `E 시체 상호작용`
+  advance2: ADVANCE_AFTER_BUGS_HINTS,
   advance3: MOVE_HINTS,
   // 2026-09-15 2차: 시체를 여는 단계와 뒤지는 단계가 **같은 배열**을 쓴다 (참조가 같으면 `applyControls` 의
   //   id 비교가 그대로 통과해 DOM 을 한 번도 안 건드린다 — 줄이 깜빡이지 않는다).
   corpseOpen: LOOT_HINTS,
   corpseLoot: LOOT_HINTS,
-  shoot: [
-    // 한 줄에 쌍 둘 — 사격과 정조준은 같은 손의 같은 동작이라 따로 읽을 이유가 없다 (2026-09-14 2차)
-    FIRE_HINT,
-    { id: 'reload', keys: ['RELOAD'], label: '재장전', section: 'combat' },
-  ],
-  // 아래 둘은 **선 자세의 모습**이다 — 실제로 그리는 줄은 `controlHintsFor` 가 지금 자세로 만든다. 표에 두는 이유는
-  //   저장에서 줄을 되살릴 때(`restoreControls`) id 를 찾는 것 하나다.
-  crouch: crouchHints('stand'),
-  crouchAim: [...crouchHints('stand'), FIRE_HINT],
+  // 2026-09-16 (사용자 결정): `WASD 이동 · Shift 달리기` ─ 구분선 ─ `좌클 발사 · 우클(꾹) 정조준` (재장전 줄은 뺐다)
+  shoot: SHOOT_HINTS,
+  // 아래 둘은 **선 자세 · 통로 뒤쪽의 모습**이다 — 실제로 그리는 줄은 `controlHintsFor` 가 지금 자세 · 통로 진행으로 만든다.
+  //   표에 두는 이유는 저장에서 줄을 되살릴 때(`restoreControls`) id 를 찾는 것 하나다.
+  crouch: [MOVE_HINT, ...crouchHints('stand'), FIRE_HINT, AIM_HINT],
+  crouchAim: [MOVE_HINT, ...crouchHints('stand'), FIRE_HINT, AIM_HINT],
   // 증축 트랙에서 유일하게 줄이 있는 단계 — 작업대 창이 통째로 닫힌 뒤 「가방을 다시 열어라」 (위 `EQUIP_HINTS`)
   equipGun: EQUIP_HINTS,
   supplyLoot: LOOT_HINTS,
-  heal: [
-    QUICK_HINT,
-    QUICK_WHEEL_HINT,
-    { id: 'quickUse', keys: ['FIRE'], label: '길게 눌러 사용', hold: true, section: 'gear' },
-  ],
+  // 2026-09-16 (사용자 결정): `T 꾹 누르기 (휠 열기)` 가 맨 위. `길게 눌러 사용` 은 붕대가 손에 있을 때만 (`controlHintsFor`)
+  heal: [QUICK_WHEEL_HINT, QUICK_HINT, QUICK_USE_HINT],
   grenade: [
     QUICK_HINT,
     QUICK_WHEEL_HINT,
@@ -430,6 +465,12 @@ export const TUTORIAL_CONTROL_HINTS: Readonly<Partial<Record<TutorialStepId, rea
     { id: 'grenadePin', text: '{FIRE:hold} 누른 상태에서 {RELOAD} : 핀 뽑기', section: 'combat' },
   ],
   extract: [{ id: 'map', keys: ['MAP'], label: '지도', section: 'screen' }],
+  /*
+   * 함선 트랙 (2026-09-16 2차, 사용자 결정) — 「메뉴를 열어 능력치를 투자하라」의 여는 키. 메뉴가 열리면 가이드가 스스로 접히므로
+   * (`TutorialSystem.setInventoryOpen`) 창을 닫은 동안에만 떠 있다.
+   * ⚠ ESC 는 적지 않는다: ESC 가 여는 것은 일시정지 메뉴이고 거기에는 캐릭터 탭으로 가는 길이 없다 (`ui/menus/PauseMenu`).
+   */
+  stats: [{ id: 'statsMenu', keys: ['INVENTORY'], label: '메뉴 열기', section: 'screen' }],
 };
 
 /**
@@ -440,9 +481,19 @@ export const TUTORIAL_CONTROL_HINTS: Readonly<Partial<Record<TutorialStepId, rea
  */
 export function crouchHints(stance: Stance): readonly ControlHint[] {
   return [
-    { id: 'crouch', keys: ['CROUCH'], label: stance === 'crouch' ? '일어서기' : '앉기', section: 'move' },
-    { id: 'prone', keys: ['PRONE'], label: stance === 'prone' ? '일어서기' : '포복', section: 'move' },
+    { id: 'crouch', keys: ['CROUCH'], label: stance === 'crouch' ? '일어서기' : '앉기', section: 'stance' },
+    { id: 'prone', keys: ['PRONE'], label: stance === 'prone' ? '일어서기' : '포복', section: 'stance' },
   ];
+}
+
+/** 표 하나로 못 정하는 조작 가이드 줄의 **관찰 상태** (2026-09-16) — `TutorialSystem` 이 채운다. */
+export interface ControlHintState {
+  /** 지금 자세 (앉기 · 포복 라벨). */
+  stance: Stance;
+  /** 무너진 통로를 `TUTORIAL_CRAWL_AIM_HINT_FRAC` 만큼 지났다 — 포복 구간에 발사 · 정조준 줄이 붙는다. */
+  crawlHalf: boolean;
+  /** 손에 든 빠른 사용 아이템이 회복 아이템(붕대)이다 — `heal` 의 `길게 눌러 사용` 줄. */
+  handStim: boolean;
 }
 
 /**
@@ -452,11 +503,22 @@ export function crouchHints(stance: Stance): readonly ControlHint[] {
  * `crouch` 단계는 **앉는 그 순간 끝나고**(`player:stanceChanged` → `crouchAim`), `crouchAim` 은 표에 줄이 없어
  * 직전 줄을 **선 자세 라벨 그대로 얼려 둔 채** 포복 구간 전체를 지났다. 이제 두 단계 모두 지금 자세로 만든다.
  */
-export function controlHintsFor(step: TutorialStepId, stance: Stance): readonly ControlHint[] | undefined {
-  if (step === 'crouch') return crouchHints(stance);
-  if (step === 'crouchAim') return [...crouchHints(stance), FIRE_HINT];
+/*
+ * 2026-09-16 (사용자 결정) — 포복 구간(`crouch` · `crouchAim`)은 `WASD 이동`(달리기 없음) ─ `C 앉기 · Z 포복` 이고, 통로를 절반쯤
+ * 지나면(`crawlHalf`) 그 아래에 `발사 · 정조준` 이 붙는다. `heal` 의 `길게 눌러 사용` 은 붕대를 손에 들었을 때만 선다 —
+ * 총 · 수류탄으로 바꾸면 빠지고 붕대로 돌아오면 다시 선다.
+ */
+export function controlHintsFor(step: TutorialStepId, state: ControlHintState): readonly ControlHint[] | undefined {
+  if (step === 'crouch' || step === 'crouchAim') {
+    const base = [MOVE_HINT, ...crouchHints(state.stance)];
+    return state.crawlHalf ? [...base, FIRE_HINT, AIM_HINT] : base;
+  }
+  if (step === 'heal') return state.handStim ? TUTORIAL_CONTROL_HINTS.heal : HEAL_NO_STIM_HINTS;
   return TUTORIAL_CONTROL_HINTS[step];
 }
+
+/** `heal` 인데 붕대가 손에 없다 — 휠 두 줄만 (참조가 같아야 `applyControls` 가 DOM 을 안 건드린다). */
+const HEAL_NO_STIM_HINTS: readonly ControlHint[] = [QUICK_WHEEL_HINT, QUICK_HINT];
 
 /** 자세를 따라가는 줄의 id — 지금 떠 있는 줄에 이것이 있으면 자세가 바뀔 때마다 다시 그린다. */
 export const STANCE_HINT_IDS: readonly string[] = ['crouch', 'prone'];

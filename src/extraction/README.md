@@ -84,9 +84,8 @@ sees the usual events. Host takeover promotes the mirror fields, rebuilds `board
 
 ## Recent changes
 Last 5 only — older: `git log -- src/extraction`.
+- 2026-09-16 — Liftoff switch prompt is `출발 시퀀스 작동` for every ship.
 - 2026-09-15 — `Ship.ts` drawn-deck ground clearance (`GROUND_DRAW_LIFT_MAX`, no landed bob); tutorial switch caption `출발 시퀀스 시작`.
 - 2026-09-15 — Android hooks: `getPads` / `requestActivate` / `boardingPoint` on `ctx.extraction`.
 - 2026-09-15 — `Ship.ts` coplanar budget fixes floor / side wall / ceiling z-fighting.
 - 2026-09-15 — Tutorial liftoff: riders hit but clamped at 1 hp, hull removed at once, `holdFire` false; `skipToComplete`.
-- 2026-09-15 — `ShipGreebles.ts` merged hull detail; landing lights moved outside the side slabs.
-- 2026-09-14 — Tutorial pre-landed ship: switch lifts off immediately.

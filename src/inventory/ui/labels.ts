@@ -1,5 +1,5 @@
 import type { AmmoType, EffectiveWeaponStats, ItemCategory, ItemDef, LoadoutSlot, RoomPurpose, SocketSlot, WeaponDef, WeightState } from '@/shared';
-import { Keys, SOCKET_LABEL_KO, UNIQUE_WEAPON_LABEL_KO, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, WORKBENCH_ICON, formatCreditAmount, formatCredits, keyLabel, keyTable } from '@/shared';
+import { Keys, SOCKET_LABEL_KO, UNIQUE_WEAPON_LABEL_KO, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, WORKBENCH_ICON, CREDIT_SUFFIX, formatCreditAmount, formatCredits, keyLabel, keyTable } from '@/shared';
 import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
 import { categoryPathKo } from '@/shared';
 
@@ -82,6 +82,8 @@ export const capacityLabel = (usedCells: number, totalCells: number): string => 
  * credits are the game's only currency and their unit is `CREDIT_SUFFIX`.
  */
 export const fmtValue = (n: number): string => formatCredits(n);
+/** 2026-09-16: the number part alone (`1,200`) — for a line that paints the unit in its own colour (가방 내 가치). */
+export const fmtCreditNumber = (n: number): string => formatCreditAmount(n);
 /**
  * 아이템의 **종류** 줄. 2026-09-16 (사용자 결정) 부터 대분류가 있는 카테고리는 두 단으로 읽는다 —
  * 「수집품 > 서적」. 두 툴팁(`inventory/ui/Tooltip` · `ui/hud/ItemTip`)과 제작 카드가 같은 문장을 말하도록
@@ -150,6 +152,9 @@ export const TEXT = {
   emptySlot: '비어 있음',
   takeAll: '모두 가져가기',
   value: '가치',
+  /** 2026-09-16: 가방 바닥 줄 왼쪽 끝의 작은 글자 — `가방 내 가치 1,000 C` (숫자만 흰색). */
+  bagValue: '가방 내 가치',
+  creditUnit: CREDIT_SUFFIX,
   quickSlots: '퀵슬롯',
   hintRotate: '회전',
   hintDrop: '버리기',
@@ -174,10 +179,8 @@ export const TEXT = {
     /** Host refused a take (someone else got it first). */
     denied: '다른 대원이 먼저 가져갔습니다',
   },
-  /* Phase 5: credits readout on the ship screen */
-  /* Phase 8: the pill already carries the `CREDITS` eyebrow — the value is the bare number (`CREDITS 500`). */
-  /* Phase 10: the grouped number comes from the shared formatter (`formatCreditAmount` = `formatCredits` without the unit). */
-  credits: { eyebrow: 'CREDITS', value: (n: number): string => formatCreditAmount(Math.max(0, n)), none: '—' },
+  /* 2026-09-16 (사용자 결정): 보유 크레딧은 가방 바닥 줄 오른쪽 끝의 **글자** `12,345 C` — `CREDITS` 알약 · 눈썹은 없어졌다. */
+  credits: { value: (n: number): string => formatCredits(Math.max(0, n)), none: '—' },
   quick: {
     title: '퀵슬롯',
     eyebrow: 'QUICK USE',

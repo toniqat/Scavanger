@@ -72,8 +72,8 @@ export type TutorialStepId =
   | 'grenade'      // 무너진 벽 너머의 안드로이드 둘 — **선택 단계** (쓰지 않고 돌아가도 된다)
   | 'extract'      // 버려진 함선 안의 스위치 → 10초 유예 → 이륙
   /* ── ② ship (2026-09-14): 함선 첫 진입 ── */
-  | 'levelUp'      // 레이드 보상으로 오른 레벨 확인
-  | 'stats'        // 능력치 포인트 투자 → `포인트 투자 확정` (1초 홀드)
+  | 'levelUp'      // (순서에서 제외, 2026-09-16) 레이드 보상으로 오른 레벨 확인 — `stats` 의 첫 목표(메뉴 열기)가 됐다
+  | 'stats'        // 메뉴 열기 → 캐릭터 탭 → 능력치 ＋ → `포인트 투자 확정` (1초 홀드) — 2026-09-16 부터 함선 트랙의 유일한 단계
   | 'messenger'    // (순서에서 제외, 2026-09-16) 메신저 열기 — 2026-09-15 ~ 09-16 사이 함선 트랙의 마지막 단계였다
   /*
    * appended (2026-09-15, 사용자 결정) — **순서에서 빠졌다** (`openCraft` 와 같은 처리: id 는 계약이라 남고
@@ -128,7 +128,9 @@ export const TUTORIAL_TRACK_STEPS: Readonly<Record<TutorialTrack, readonly Tutor
   ],
   // 2026-09-15 (사용자 결정): `ravenQuest` 가 순서에서 빠졌다 — 레이븐의 첫 연락은 이 트랙이 끝난 뒤다. 4 → 3 단계.
   // 2026-09-16 (사용자 결정): `messenger`(메신저 열기)도 빠졌다 — 포인트를 나눠 준 뒤 화면을 닫으면 트랙이 끝난다. 3 → 2 단계.
-  ship: ['levelUp', 'stats'],
+  // 2026-09-16 2차 (사용자 결정): `levelUp` 도 빠졌다 — `stats` 한 단계가 목표 넷(메뉴 → 캐릭터 탭 → ＋ → 확정)을 순차 공개한다. 2 → 1 단계.
+  //   옛 저장의 `levelUp` 은 `tutorial/Steps.normalizeStep` 이 `stats` 로 옮긴다.
+  ship: ['stats'],
   build: TUTORIAL_STEPS,
 };
 
@@ -160,7 +162,13 @@ export type TutorialGate =
    * 배우기 전의 HUD 조각을 아예 그리지 않는다. 체력 · 무기는 시체에서 장비를 얻은 뒤에, 스태미나는 처음
    * 소모된 뒤에 나타나고, 임플란트 · 함선 호출은 튜토리얼 레이드 내내 없다(가진 것이 없다).
    */
-  | 'hud';
+  | 'hud'
+  /**
+   * appended (2026-09-16, 사용자 결정): **시설 관리(함선 관리 모드) 진입**. id 를 쓰지 않는다. 함선 트랙이 도는 동안에만 막히고
+   * 감춰진다 — 우하단 `시설 관리` 키 힌트(`ui/hud/ShipManageHint`)가 `hides` 로, `housing/parts/Furniture.shipManageBlock` 이
+   * `blockReason` 으로 묻는다. 다른 트랙(증축 트랙의 `manage` 단계가 바로 이것을 연다)에서는 언제나 열려 있다.
+   */
+  | 'shipManage';
 
 /**
  * `hides('hud', id)` 의 id. 이 이름을 그리는 위젯이 제 이름으로 묻는다.

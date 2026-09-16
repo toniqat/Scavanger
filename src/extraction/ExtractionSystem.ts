@@ -804,8 +804,8 @@ export class ExtractionSystem implements GameSystem {
         if (!this.switchReady()) return null;
         // 2026-09-14 3차: 튜토리얼 함선은 유예 없이 곧장 뜬다. 2026-09-15: 캡션은 행동 이름뿐 — 「E 길게」는 왼쪽 키 안내가
         // 이미 그리고, 「즉시 이륙」 꼬리표는 보여 줄 이유가 없다 (사용자 결정).
-        if (this.tutorialLiftoffNow()) return '출발 시퀀스 시작';
-        return `출발 시퀀스 시작 (E 길게) · ${Math.round(EXTRACTION_DEPART_GRACE_S)}초 뒤 이륙`;
+        // 2026-09-16 (사용자 결정): 평소 함선도 캡션은 `출발 시퀀스 작동` 한 줄뿐 — 「E 길게 · n초 뒤 이륙」 꼬리를 뗀다.
+        return '출발 시퀀스 작동';
       },
       canInteract: () => this.switchReady(),
       interact: () => {

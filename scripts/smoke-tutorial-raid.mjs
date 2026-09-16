@@ -31,7 +31,7 @@
 //                     hold → `player:stimUsed` → `grenade`.
 //  10. extract      — `wall` / `ship` checkpoints → hold E on the ship switch → **instant** liftoff (no departure grace), scene
 //                     lock (damage ignored), `tutorial:finished {raid}` → result screen → `rewards.xpEarned === TUTORIAL_RAID_XP`
-//                     (csv), level 2 → `함선으로 귀환` → personal ship, ship track at `levelUp`, raid track done, solo save cleared.
+//                     (csv), level 2 → `함선으로 귀환` → personal ship, ship track at `stats`, raid track done, solo save cleared.
 //                     (2026-09-16) Every liftoff frame is recorded: the crosshair is never visible once the phase is `liftoff`, the
 //                     rest of the HUD (social layer included) fades by code (`cinematicHudOpacity` passes a middle value → 0).
 //   The recorded `tutorial:changed` trail must equal the raid track's 15 steps in order.
@@ -532,7 +532,8 @@ try {
   ok(await P(() => window.__game.getSystem('extraction').boarded === true), '스위치 앞에 서도 여전히 화물칸 안이다', JSON.stringify(spot));
   const prompt = await P(() => { const sw = window.__game.ctx.interactables.all().find((i) => i.id === 'ship_liftoff_switch'); return { text: sw?.getPrompt() ?? null, hp: window.__game.ctx.player.hp, lvl: window.__game.ctx.progression.level }; });
   // 2026-09-15: the caption is the action name only — the hold hint is drawn by the key guide, no 「즉시 이륙」 tag
-  ok(prompt.text === '출발 시퀀스 시작', `튜토리얼 함선 스위치 캡션은 행동 이름뿐이다 ("${prompt.text}")`, JSON.stringify(spot));
+  // 2026-09-16: one caption for every ship — `출발 시퀀스 작동`
+  ok(prompt.text === '출발 시퀀스 작동', `튜토리얼 함선 스위치 캡션은 행동 이름뿐이다 ("${prompt.text}")`, JSON.stringify(spot));
   /* 2026-09-16 (사용자 결정 · 신고 「함선이 뜨는데 크로스헤어가 보인다」): 스위치를 누르는 순간부터 결과 화면까지 **매 프레임** 기록한다 —
      크로스헤어 · 소셜 레이어의 실제로 칠해진 불투명도(조상 opacity × filter opacity, visibility/display 포함)와 HUD 페이드 값. */
   await P(() => {
@@ -635,8 +636,8 @@ try {
       pendingShip: saved?.pendingShip ?? null, solo, level: ctx.progression.level, mode: ctx.missionMode,
     };
   });
-  ok(hub.ship === 'personal' && hub.track === 'ship' && hub.step === 'levelUp' && hub.raidDone === true,
-    '개인 함선에 들어서면 함선 트랙이 levelUp 에서 시작한다 (레이드 트랙은 끝)', JSON.stringify(hub));
+  ok(hub.ship === 'personal' && hub.track === 'ship' && hub.step === 'stats' && hub.raidDone === true,
+    '개인 함선에 들어서면 함선 트랙이 stats 에서 시작한다 (레이드 트랙은 끝)', JSON.stringify(hub));
   ok(hub.pendingShip === false && hub.solo === null && hub.level === 2, '예약은 소비되고 솔로 레이드 세이브는 지워지고 레벨 2 가 남는다', JSON.stringify(hub));
 
   ok(errors.length === 0, `no console errors (${errors.length})`, errors.slice(0, 3).join(' | '));

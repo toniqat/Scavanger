@@ -81,6 +81,13 @@ function stashItemBlock(step: TutorialStepId, allow: true | readonly string[] | 
 }
 
 /**
+ * `shipManage` (2026-09-16 2차, 사용자 결정) — 시설 관리(함선 관리 모드) 진입. **함선 트랙이 도는 동안에만** 막는다: 능력치를 나눠 주는
+ * 안내 한가운데에서 M 으로 관리 카메라에 들어가면 메뉴 · 캐릭터 탭 안내가 통째로 가려진다. 단계 표의 `allow` 로 적지 않는 이유는
+ * 「적지 않은 게이트는 막힌다」는 기본 규칙이 증축 트랙(`manage` 가 바로 이것을 연다) · 레이드 트랙까지 막아 버리기 때문이다.
+ */
+const shipManageBlocked = (step: TutorialStepId): boolean => trackOf(step) === 'ship';
+
+/**
  * `step` 에서 `gate`(+ `id`)가 막히는지. 막히면 한국어 사유, 아니면 null.
  * `step` 이 null(비활성)이면 호출부가 부르기 전에 걸러 주지만, 방어적으로 여기서도 null 을 돌려준다.
  */
@@ -88,6 +95,7 @@ export function blockReason(step: TutorialStepId | null, gate: TutorialGate, id?
   if (!step) return null;
   // `hud` 는 **숨김 전용**이다 — 아무것도 "막지" 않는다 (막힌 것을 숨기는 규칙의 예외, 위 절 참고)
   if (gate === 'hud') return null;
+  if (gate === 'shipManage') return shipManageBlocked(step) ? '튜토리얼 중에는 시설 관리를 열 수 없습니다' : null;
   // 인벤토리 탭은 언제나 열려 있다 — 장착 · 제작 · 탄약 넣기가 전부 그 창에서 일어난다
   if (gate === 'screenTab' && (id === undefined || id === 'inventory')) return null;
   const def = stepDef(step);
@@ -116,6 +124,7 @@ export function blockReason(step: TutorialStepId | null, gate: TutorialGate, id?
 export function hides(step: TutorialStepId | null, gate: TutorialGate, id?: string, hud: HudRevealState = HUD_NONE): boolean {
   if (!step) return false;
   if (gate === 'hud') return hudHidden(step, id, hud);
+  if (gate === 'shipManage') return shipManageBlocked(step);
   if (ALWAYS_HIDDEN.includes(gate)) return true;
   if (id !== undefined) return blockReason(step, gate, id) !== null;
   return stepDef(step).allow?.[gate] !== true;

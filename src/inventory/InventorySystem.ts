@@ -26,7 +26,7 @@ import { LOADOUT_SAVE_VERSION, LoadoutStore, isEmptyLoadoutSave, loadLoadoutSave
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from './Serialize';
 /* appended (Phase 10): 분대원 장비 열람 */
 import type { CrewLoadoutViewOptions } from '@/shared';
-import { HUB_READY_BLOCKER, MENU_BLOCKER } from '@/shared';
+import { COMMUNITY_BLOCKER, HUB_READY_BLOCKER, MENU_BLOCKER } from '@/shared';
 import { CrewLoadoutView } from './ui/CrewLoadoutView';
 
 import {
@@ -178,6 +178,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
    */
   private escHandler = (e: KeyboardEvent): void => {
     if (e.code !== Keys.MENU || !this._open) return;
+    // 2026-09-16: 창 위에 메신저가 떠 있으면 Escape 는 그 패널 몫이다 (`ctx.escape` 맨 위) — 뒤의 팝업 · 드래그를 건드리지 않는다
+    if (this.ctx.uiBlockers.has(COMMUNITY_BLOCKER)) return;
     // 2026-09-12: a stack held on the cursor after a merge goes back where it came from first (it never left)
     if (this.ui?.drag?.held) { this.ui.cancelDrag(); this.sfx('ui_drop'); e.preventDefault(); e.stopPropagation(); return; }
     if (!this.ui?.closePopups()) return;
@@ -314,7 +316,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
     // 2026-09-14 (튜토리얼 오프닝, 사용자 결정): 기상 연출이 돌고 있는 동안(`PlayerRef.introWaking` — 카메라가 백뷰로
     // 완전히 돌아오기 전)에는 Tab 이 가방을 **불러오지 않는다**. 이미 열려 있는 창을 닫는 쪽은 막지 않는다.
     const waking = ctx.player?.introWaking ?? false;
-    if (ctx.input.wasPressed(Keys.INVENTORY) && !ctx.uiBlockers.has(MENU_BLOCKER)
+    // 2026-09-16: 창 위에 메신저(`COMMUNITY_BLOCKER`)가 떠 있으면 Tab 은 그 패널만 닫는다 (`ui/hud/Community`) — 창은 남는다.
+    if (ctx.input.wasPressed(Keys.INVENTORY) && !ctx.uiBlockers.has(MENU_BLOCKER) && !ctx.uiBlockers.has(COMMUNITY_BLOCKER)
       && (ctx.isGameplayPhase() || ctx.isHubPhase()) && (this._open || (onlyReadyBlocked && !waking))) {
       // 2026-09-09 (Tab 은 모든 화면을 닫는다): like Escape, Tab cancels the **innermost popup** first — 수량 지정 ·
       // 우클릭 메뉴 · 분해 · 수리 · 임플란트 피커 — and closes the window only when nothing is stacked over it. The
@@ -326,8 +329,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
     }
     this.updateCraft(dt);
     if (!this._open) return;
-    if (ctx.input.wasPressed(Keys.ROTATE_ITEM)) this.ui?.onRotateKey();
-    if (ctx.input.wasPressed(Keys.DROP_ITEM)) {
+    // 2026-09-16: 메신저가 창 위에 떠 있는 동안 회전 · 버리기 키는 뒤의 격자에 닿지 않는다
+    const messengerOver = ctx.uiBlockers.has(COMMUNITY_BLOCKER);
+    if (!messengerOver && ctx.input.wasPressed(Keys.ROTATE_ITEM)) this.ui?.onRotateKey();
+    if (!messengerOver && ctx.input.wasPressed(Keys.DROP_ITEM)) {
       const shift = MOD_SHIFT.some((c) => ctx.input.isDown(c));
       const ctrl = MOD_CTRL.some((c) => ctx.input.isDown(c));
       this.ui?.onDropKey(shift, ctrl);

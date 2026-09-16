@@ -139,8 +139,8 @@ Uniques reuse existing shot SFX ids (`shotSoundId`); there are no dedicated samp
 ## Recent changes
 
 Last 5 only — older: `git log -- src/weapons`.
+- 2026-09-16 — Grenades sub-step by their diameter, surface before walls (no tunnelling through thin walls/floors); `ctx.weapons` gains `activeSlot`, `primaryInHand`, `ammoOf(slot)`.
 - 2026-09-15 — Hammerhead throw distance ×0.5 (×0.25 grounded); grounded blasts no longer rocket-jump.
 - 2026-09-15 — Gadget hold time from `gadgetUseTime`; defibrillator aim-and-release (`parts/Defib.ts`); grenades detected by `ItemDef.grenade` (`quickKindOf`).
 - 2026-09-15 — Grenade radius / damage / player share moved to csv; explosion falloff via `shared/explosion`.
 - 2026-09-15 — Bow held horizontally and never reloads (`autoFeed`); flamethrower cone bloom and breathing.
-- 2026-09-15 — Uniques excluded from class mastery and class kills; rocket jump vertical impulse lowered; throw arc drawn as a tapering red ribbon.

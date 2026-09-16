@@ -8,7 +8,7 @@ import { buildPersonalExterior, type ExteriorModel } from './ExteriorShips';
 import { TextPlane } from '../Labels';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 공용 함선 격납고 (2026-09-08). The deck **behind** the shared ship's aft 자동문: a 44 × 30 m bay with four square
+ * 공용 함선 격납고 (2026-09-08). The deck **behind** the shared ship's aft doorway: a 44 × 30 m bay with four square
  * floor markings, one per lobby slot, and a member's 개인 함선 parked on each. Walking to a parked ship's rear ramp
  * and pressing E boards it (`hub/parts/Hangar.ts` owns that interactable — this file is geometry only).
  *
@@ -124,7 +124,7 @@ export class Hangar {
     b.plane(w, fd, 0, 0, fcz, M.floor);
     b.plane(w, d, 0, H, cz, M.hullDark, Math.PI / 2);
     /*
-     * The forward (−Z) wall is the **ship's own aft wall**, which already stands in this plane with the 자동문 hole
+     * The forward (−Z) wall is the **ship's own aft wall**, which already stands in this plane with the doorway hole
      * in it. Drawing a second slab there would z-fight it, so the opening below spans the ship's whole width: what
      * is left is the two outboard flanks plus the band above the ship's 4.2 m ceiling, which is exactly the wall the
      * hangar still needs. `doorHalfWidth` therefore only sizes the trim, not a hole.
@@ -133,7 +133,8 @@ export class Hangar {
       n: { lo: -(ship.halfWidth + 0.05), hi: ship.halfWidth + 0.05, y0: 0, y1: ship.ceil },
       s: { lo: -9.2, hi: 9.2, y0: 0, y1: 7.0 },                        // the exterior gate (a closed slab, below)
     });
-    // the 자동문 opening is `doorHalfWidth` wide in that shared wall; a lit reveal marks it from the hangar side
+    // the doorway is `doorHalfWidth` wide in that shared wall; a lit reveal marks it from the hangar side
+    // (the ship's jamb trim stops 1 cm short of this strip — `SharedShip`, 2026-09-16)
     b.box(doorHalfWidth * 2 + 0.5, 0.1, 0.14, 0, 3.3, minZ + 0.1, M.stripCyan);
 
     /*

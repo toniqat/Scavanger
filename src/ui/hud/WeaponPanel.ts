@@ -1,6 +1,5 @@
-import type { GameContext, ItemDef, ItemInstance, UniqueWeaponKind, WeaponDef } from '@/shared';
-import { DEFIB_USE_TIME_S, Keys, UNIQUE_WEAPON_LABEL_KO, WEAPON_DEFAULT_DURABILITY, keyLabel } from '@/shared';
-import { buildItemChip } from '@/shared';
+import type { GameContext, ItemDef, ItemInstance, UniqueWeaponKind, WeaponDef, WeaponSlot } from '@/shared';
+import { Keys, UNIQUE_WEAPON_LABEL_KO, WEAPON_DEFAULT_DURABILITY, buildItemChip, createKeycap, paintKeycap } from '@/shared';
 import { WEAPON_CLASS_LABEL_KO, weaponClassOf } from '@/items';
 
 /**
@@ -11,7 +10,7 @@ import { WEAPON_CLASS_LABEL_KO, weaponClassOf } from '@/items';
 export function weaponTypeLabel(def: WeaponDef): string {
   return def.unique ? UNIQUE_WEAPON_LABEL_KO[def.unique] : WEAPON_CLASS_LABEL_KO[weaponClassOf(def)];
 }
-import { el, rarityColor, setText, toggleClass } from '../dom';
+import { el, setText, toggleClass } from '../dom';
 import '../styles/raidHud.css';
 
 /** Durability ratio at/below which the bar turns amber (`.worn`). */
@@ -20,23 +19,11 @@ const DURABILITY_WORN = 0.3;
 /** Thumbnail edge of the weapon chip in the bottom-right box (2026-09-10: 34 → 58, the name line that shared the box is gone). */
 const WEAPON_THUMB_SIZE = 58;
 
-/** Usage hint per consumable category (`.weapon.consumable .hint`). */
-const CONSUMABLE_HINT: Record<string, string> = {
-  // 2026-09-07: each 회복 소모품 states its own hold (`ItemDef.heal.useTime`), so the line is built per item
-  // (`consumableHint`) and this is only the fallback per category. The ring itself is `hud/HealGauge`.
-  stim: '좌클릭 홀드',
-  grenade: '좌클릭 홀드 · R 코킹 · 우클릭 언더핸드',
-};
+/** 2026-09-16: thumbnail edge of the **other** primary left of the box (`.wp-side`) — `styles/raidHud.css` sizes nothing, the chip does. */
+const SIDE_THUMB_SIZE = 40;
 
-/** Usage hint for the item in hand: the real hold time / 스프레이 channel when the def declares one. */
-function consumableHint(def: ItemDef | undefined): string {
-  const heal = def?.heal;
-  if (heal?.spray) return '좌클릭 홀드 · 게이지 소모';
-  if (heal) return `좌클릭 ${heal.useTime}초 홀드 · 이동 50 %`;
-  // 2026-09-15 2차 (사용자 결정): 제세동기는 **떼는 순간** 발동한다 — 충전 중에만 감속이고 준비 완료 뒤에는 걸어갈 수 있다.
-  if (def?.gadgetId === 'defib') return `좌클릭 ${DEFIB_USE_TIME_S}초 충전 · 쓰러진 아군을 겨눠 떼기`;
-  return CONSUMABLE_HINT[def?.category ?? ''] ?? '좌클릭 사용';
-}
+/** 2026-09-16: tag text of the empty panel (no primary equipped at all). */
+const EMPTY_TYPE_TEXT = '주무기 없음';
 
 /** Fixed `좌: … / 우: …` fire-mode texts per unique weapon kind (`WeaponDef.altFire` — RMB is an alternative fire, not ADS). */
 const UNIQUE_MODES: Readonly<Record<UniqueWeaponKind, { l: string; r: string }>> = {
@@ -48,27 +35,32 @@ const UNIQUE_MODES: Readonly<Record<UniqueWeaponKind, { l: string; r: string }>>
   minigun: { l: '예열 후 사격', r: '—' },
 };
 
+/** The two primary slots, in key order (1 → 2). */
+type PrimarySlot = Extract<WeaponSlot, 'primary' | 'primary2'>;
+
 /**
  * Bottom-right weapon readout: durability bar, then one row of **썸네일 ← → 잔탄 / 예비탄**, then the class tag,
  * plus the low / empty / broken states. The reload readout moved to the crosshair in Phase 10 (`hud/ReloadGauge`) —
  * this panel no longer owns an arc or a `재장전` pill.
  *
- * 2026-09-10 (레이드 HUD 개편, 사용자 결정): 패널 **위**의 슬롯 칸(옛 `hud/SlotStrip` 의 `1 · 2 · T` — 파일은 2026-09-11 C-26 에서 지웠다)과 패널 **아래**의
- * 주무기 키 · 무기 이름이 전부 없어졌다. 그 높이는 남은 것들이 가져간다 — 썸네일 34 → 58 px, 잔탄 40 → 64 px
- * (`styles/raidHud.css`). 무기 이름은 썸네일이 대신하므로 `.wthumb` 는 이름 없는 정사각형이 되고, 테두리 · 안쪽
- * 글로우가 **무기 등급색**(`--wrc` = `rarityColor(def.rarity)`)을 쓴다 — 아이템 칩 자체의 `--rc` 와 같은 색이라
- * 가방에서 보던 등급이 그대로 읽힌다.
+ * 2026-09-10 (레이드 HUD 개편, 사용자 결정): 패널 위의 슬롯 칸과 패널 아래의 주무기 키 · 무기 이름이 없어졌다.
+ * 총기 표시는 **가로로 긴 한 상자**(`.wbox`) 안에 든다 — 좌측 썸네일 · `24 / 120` · 맨 오른쪽 분류 태그, 상자 바닥에
+ * 내구도 바. `예비` 라벨은 없다 (base.css 의 `/ ` 구분자).
  *
- * 2026-09-10 (2차, 사용자 결정): 그 총기 표시가 이제 **가로로 긴 한 상자**(`.wbox`, 어두운 반투명 + 얇은 테두리)
- * 안에 든다 — 아이콘만 떠 있는 것이 아니라 패널로 읽힌다. 좌측이 **등급색 정사각 배경**을 깐 썸네일이고
- * (`--wrc` 가 테두리 · 안쪽 글로우 · 바탕색 셋을 다 정한다), 그 오른쪽이 `24 / 120`, 맨 오른쪽이 분류 태그다.
- * `예비` 라벨은 없앴다 — base.css 의 `/ ` 구분자로 돌아간다. **내구도 바는 상자 바닥**으로 들어갔다:
- * 상자 밖 맨 위에 있을 때는 빠른 사용 칸과 무기 패널을 가르는 **흰 가로 구분선**으로 읽혔다.
+ * 2026-09-16 (사용자 결정):
+ * - 썸네일은 **등급색 정사각 틀 없이** 아이템 칩만 그린다 (칩 자신이 이미 등급색이다).
+ * - 상자 **왼쪽 바깥**에 **다른 주무기**의 썸네일(`.wp-side`)과 그 슬롯의 키캡(주무기 I 을 들면 II 의 키)을 둔다.
+ *   주무기가 하나뿐이면 없다. 키는 `Keys.PRIMARY` / `Keys.PRIMARY2` 를 그릴 때마다 읽는다 (리바인딩 규약).
+ * - 주무기가 하나도 없어도 패널은 남고 **빈 상태**(`.wp-empty` — `—` · `주무기 없음`)로 그린다.
+ * - 주무기가 아닌 것을 들면(빠른 사용 — 수류탄 · 붕대 · 자극제 · 가젯 · 기폭기, 근접 휘두르기, 임플란트 · 전투불능 홀스터)
+ *   큰 패널은 **마지막으로 든 주무기**를 그대로 보여 주되 흐리게(`.wp-dim`) 한다. 옛 「소모품 모드」(큰 패널이 손에 든
+ *   빠른 사용 아이템의 이름 · 개수 · 사용법으로 바뀌던 `.weapon.consumable`)는 없앴다 — 개수는 빠른 사용 썸네일
+ *   (`hud/QuickStrip`)이, 사용법은 조준점 아래 힌트가 말한다.
  *
- * **Consumable mode** (`.weapon.consumable`, `quick:equipped {item}`): the gun rows are hidden and a `.cons` block shows
- * the item name + stack count (`quick:used.remaining` / `inventory:itemUpdated`) with a usage hint; back to gun mode on
- * `quick:equipped {item:null}` or the next `weapon:equipped`. Gun state keeps updating underneath, so the switch back is
- * just a class toggle.
+ * Data: `weapon:equipped` / `ammoChanged` / `durabilityChanged` / `broken` for the gun in hand, `loadout:changed` for both
+ * primaries, and a per-frame poll of `ctx.weapons.activeSlot` / `primaryInHand` (`update`) — a swap or loadout change that
+ * finishes while a quick-use item is in hand emits no `weapon:equipped`, so the slot is re-read here and the numbers
+ * come from `ctx.weapons.ammoOf(slot)`.
  */
 export class WeaponPanel {
   readonly root: HTMLElement;
@@ -84,12 +76,20 @@ export class WeaponPanel {
   private modeL: HTMLElement;
   private modeR: HTMLElement;
 
-  private consName: HTMLElement;
-  private consKey: HTMLElement;
-  private consCnt: HTMLElement;
-  private consHint: HTMLElement;
-  private consUid = '';
-  private consumable = false;
+  /** 2026-09-16: the other primary (`.wp-side`): keycap over its thumbnail. */
+  private sideEl: HTMLElement;
+  private sideKeyEl: HTMLElement;
+  private sideThumb: HTMLElement;
+  /** `slot|defId` of the drawn side thumbnail ('' = hidden). */
+  private sideStamp = '';
+
+  private ctx: GameContext | null = null;
+  /** Both primaries as the inventory last announced them (`loadout:changed`, seeded from `getLoadout()`). */
+  private loadout: Record<PrimarySlot, ItemInstance | null> = { primary: null, primary2: null };
+  /** Slot / uid the big panel is drawing (null slot = empty state). */
+  private shownSlot: WeaponSlot | null = null;
+  private shownUid = '';
+  private dim = false;
 
   private weaponId = '';
   private weaponUid = '';
@@ -103,24 +103,25 @@ export class WeaponPanel {
   private unsubs: Array<() => void> = [];
 
   constructor(parent: HTMLElement) {
-    this.root = el('div', { cls: 'weapon', parent });
+    this.root = el('div', { cls: 'weapon wp-empty', parent });
 
-    // 2026-09-10 (2차, 사용자 결정): 총기 표시는 **가로로 긴 한 상자**(`.wbox`) 안에 든다 —
-    // 좌측 등급색 정사각 썸네일 · 잔탄 `24 / 120` · 맨 오른쪽 분류 태그, 그리고 상자 **바닥**에 내구도 바.
-    // 내구도 바가 상자 밖 맨 위에 있을 때는 빠른 사용 칸과 무기 패널 사이를 가르는 **흰 구분선**으로 읽혔다.
-    // `.cons` · `.modes` 는 상자 밖에 그대로 남는다 (base.css 의 `.weapon.consumable > …` 규칙을 지킨다).
+    // `.wbox` stays the second child of `.weapon` (QuickStrip is prepended by HudSystem) — smokes read that order.
     const box = el('div', { cls: 'wbox', parent: this.root });
-    // Phase 10: the reload arc that used to sit left of this row is gone — `hud/ReloadGauge` draws it at the crosshair.
-    // 2026-09-10: 썸네일이 **왼쪽**, 숫자가 오른쪽이다 (예전에는 반대였다).
+    // 2026-09-16: 다른 주무기는 상자 **안**의 절대 위치 요소로 둔다 — 상자의 왼쪽 바깥에 붙고, `.weapon` 의 자식 순서는 그대로다.
+    this.sideEl = el('div', { cls: 'wp-side', parent: box });
+    this.sideEl.hidden = true;
+    this.sideKeyEl = createKeycap(Keys.PRIMARY2, { cls: 'wp-side-key', parent: this.sideEl });
+    this.sideThumb = el('div', { cls: 'wp-side-thumb', parent: this.sideEl });
+
     const ammoRow = el('div', { cls: 'ammo-row', parent: box });
-    this.thumbEl = el('div', { cls: 'wthumb', parent: ammoRow });
+    this.thumbEl = el('div', { cls: 'wthumb is-empty', parent: ammoRow });
     this.thumbIcon = el('div', { cls: 'wt-icon', parent: this.thumbEl });
     const ammoNums = el('div', { cls: 'ammo-nums', parent: ammoRow });
-    this.magEl = el('span', { cls: 'mag', text: '0', parent: ammoNums });
-    this.reserveEl = el('span', { cls: 'reserve', text: '0', parent: ammoNums });
+    this.magEl = el('span', { cls: 'mag', text: '—', parent: ammoNums });
+    this.reserveEl = el('span', { cls: 'reserve', text: '', parent: ammoNums });
 
     const tagRow = el('div', { cls: 'name-row', parent: ammoRow });
-    this.typeEl = el('span', { cls: 'type', text: '—', parent: tagRow });
+    this.typeEl = el('span', { cls: 'type', text: EMPTY_TYPE_TEXT, parent: tagRow });
 
     this.duraEl = el('div', { cls: 'dura', parent: box });
     this.duraFill = el('div', { cls: 'fill', parent: this.duraEl });
@@ -133,147 +134,170 @@ export class WeaponPanel {
     const rowR = el('div', { cls: 'mode', parent: this.modesEl });
     el('span', { cls: 'mk', text: '우', parent: rowR });
     this.modeR = el('span', { cls: 'mv', text: '', parent: rowR });
-
-    // Consumable mode block (stim / grenade in hand) — shown instead of the gun rows via `.weapon.consumable`.
-    const cons = el('div', { cls: 'cons', parent: this.root });
-    const consRow = el('div', { cls: 'name-row', parent: cons });
-    this.consKey = el('span', { cls: 'slot', text: keyLabel(Keys.QUICK), parent: consRow });
-    el('span', { cls: 'slot-lbl', text: '빠른 사용', parent: consRow });
-    this.consName = el('span', { cls: 'name', text: '—', parent: consRow });
-    const consCntRow = el('div', { cls: 'ammo-row', parent: cons });
-    this.consCnt = el('span', { cls: 'mag', text: '0', parent: consCntRow });
-    el('span', { cls: 'cnt-lbl', text: '개', parent: consCntRow });
-    this.consHint = el('div', { cls: 'hint', text: '', parent: cons });
   }
 
   bind(ctx: GameContext): void {
+    this.ctx = ctx;
     const b = ctx.bus;
-    // 2026-09-14 (튜토리얼 HUD 점진 노출): 시체에서 장비를 얻기 전까지 무기 패널은 없다. 이 패널은 매 프레임
-    //   도는 `update` 가 없으므로(전부 이벤트 구동) 게이트가 바뀔 만한 세 순간에만 다시 묻는다.
+    // 2026-09-14 (튜토리얼 HUD 점진 노출): 시체에서 장비를 얻기 전까지 무기 패널은 없다. 게이트가 바뀔 만한 세 순간에만 다시 묻는다.
     //   튜토리얼이 꺼져 있으면 언제나 false 라 평소 화면이 한 글자도 바뀌지 않는다.
     const tutGate = (): void => {
       toggleClass(this.root, 'hud-tut-hidden', ctx.tutorial?.hides('hud', 'weapon') ?? false);
     };
     tutGate();
+    this.pullLoadout();
     this.unsubs.push(
       b.on('tutorial:changed', tutGate),
-      b.on('world:ready', tutGate),          // 새로고침으로 튜토리얼 레이드에 돌아온 경우 (단계가 안 바뀐다)
+      b.on('world:ready', () => { tutGate(); this.pullLoadout(); }),   // 새로고침으로 튜토리얼 레이드에 돌아온 경우 (단계가 안 바뀐다)
       b.on('game:phaseChanged', tutGate),
-      b.on('input:bindingsChanged', () => setText(this.consKey, keyLabel(Keys.QUICK))),
-      b.on('quick:equipped', ({ item }) => {
-        if (item) this.enterConsumable(item, ctx); else this.exitConsumable();
-      }),
-      b.on('quick:used', ({ item, remaining }) => {
-        if (this.consumable && item.uid === this.consUid) this.setConsCount(remaining);
-      }),
-      // 2026-09-11: 기폭기 손의 개수 = 월드에 남은 내 원격 지뢰 — 설치 · 제거(기폭 포함)마다 다시 센다
-      b.on('gadget:deployed', () => { if (this.isDetonator) this.setConsCount(ctx.gadgets?.liveRemoteMineCount?.() ?? 0); }),
-      b.on('gadget:removed', () => { if (this.isDetonator) this.setConsCount(ctx.gadgets?.liveRemoteMineCount?.() ?? 0); }),
-      b.on('inventory:itemUpdated', () => {
-        if (!this.consumable || !this.consUid) return;
-        const inst = ctx.inventory?.findItem(this.consUid);
-        if (inst) this.setConsCount(inst.qty);
-      }),
+      b.on('input:bindingsChanged', () => { this.sideStamp = ''; }),   // 다음 update 가 키캡을 다시 칠한다
       b.on('weapon:equipped', (p) => {
-        this.exitConsumable();
-        this.weaponId = p.weaponId;
-        this.magSize = Math.max(1, p.magSize);
-        const def = ctx.loot?.getWeaponDef(p.weaponId);
-        // Phase 9 UI pass: the slot word (주무기 …) and the calibre (준중량탄 …) are gone — the numbered chip and the class say enough.
-        // 2026-09-15: a unique shows its own kind (`컴포짓 보우` …), never the csv class it borrows for the skill.
-        setText(this.typeEl, def ? weaponTypeLabel(def) : '—');
-        this.setSingleAmmo(def?.unique === 'bow');
-        this.setModes(def);
-        this.setAmmo(p.ammoInMag, p.reserveRounds);
-        // Seed the durability bar from the equipped item instance (durabilityChanged only fires on change).
+        if (!p.weaponId) return;   // 빈 손 알림 — 빈 상태는 `update` 가 슬롯을 보고 정한다
         const inst = ctx.inventory?.getLoadout()[p.slot] ?? null;
-        this.weaponUid = inst?.uid ?? '';
-        // the item def behind the equipped weapon (`wpn_<id>` for graded guns) drives the thumbnail
-        const itemDefId = inst?.defId ?? `wpn_${p.weaponId}`;
-        this.setThumb(ctx.inventory?.getDef(itemDefId) ?? ctx.loot?.getItemDef(itemDefId));
-        const max = def?.maxDurability ?? WEAPON_DEFAULT_DURABILITY;
-        this.setDurability(inst?.durability ?? max, max, false);
+        this.showWeapon(p.slot, inst, p.weaponId, p);
       }),
       b.on('weapon:ammoChanged', (p) => {
-        if (p.weaponId !== this.weaponId && this.weaponId) return;
+        if (!this.shownSlot || (p.weaponId !== this.weaponId && this.weaponId)) return;
         this.magSize = Math.max(1, p.magSize);
         this.setAmmo(p.ammoInMag, p.reserveRounds);
       }),
       b.on('weapon:durabilityChanged', (p) => {
-        if (!this.isActive(p.uid, p.weaponId)) return;
+        if (!this.shownSlot || !this.isActive(p.uid, p.weaponId)) return;
         this.setDurability(p.durability, p.max, false);
       }),
       b.on('weapon:broken', (p) => {
-        if (!this.isActive(p.uid, p.weaponId)) return;
+        if (!this.shownSlot || !this.isActive(p.uid, p.weaponId)) return;
         this.setDurability(0, 1, true);
       }),
-      // 2026-09-10: 슬롯 칸이 없어져 교체는 이 패널에서 아무것도 하지 않는다 — 타이머는 크로스헤어 링
-      // (`hud/ReloadGauge`) 이고, 새 무기의 썸네일 · 잔탄은 곧 오는 `weapon:equipped` 가 갈아 끼운다.
+      // 2026-09-10: 교체 타이머는 크로스헤어 링(`hud/ReloadGauge`)이고, 새 무기의 썸네일 · 잔탄은 곧 오는 `weapon:equipped` 가 갈아 끼운다.
       b.on('weapon:dryFire', () => {
         this.magEl.classList.remove('flash');
         void this.magEl.offsetWidth;
         this.magEl.classList.add('flash');
       }),
-      b.on('loadout:changed', ({ primary, primary2, secondary }) => {
-        if (!primary && !primary2 && !secondary) {
-          this.weaponId = '';
-          this.weaponUid = '';
-          setText(this.typeEl, '—');
-          this.setThumb(undefined);
-          this.setModes(undefined);
-          this.setSingleAmmo(false);
-          this.setAmmo(0, 0);
-          this.setDurability(1, 1, false);
-          /* reload + swap state live in `hud/ReloadGauge` now (it hides itself on death / reset / cancel) */
-        }
+      b.on('loadout:changed', ({ primary, primary2 }) => {
+        this.loadout.primary = primary;
+        this.loadout.primary2 = primary2;
+        if (!primary && !primary2) this.showEmpty();
       }),
     );
   }
 
+  /** Seed both primaries straight from inventory (the event only arrives on a change). */
+  private pullLoadout(): void {
+    const inv = this.ctx?.inventory;
+    if (!inv) return;
+    try {
+      const l = inv.getLoadout();
+      this.loadout.primary = l.primary;
+      this.loadout.primary2 = l.primary2;
+    } catch { /* inventory not ready */ }
+  }
+
+  /**
+   * Per frame while the raid HUD is up: follow `ctx.weapons.activeSlot` (re-draws the big panel when the slot or its
+   * item changed without a `weapon:equipped`), dim it while the primary is not in hand, and keep the side thumbnail.
+   */
+  update(ctx: GameContext): void {
+    // a stub `ctx.weapons` without the 2026-09-16 fields (smoke injectors) falls back to the event-driven slot
+    const ref = ctx.weapons && typeof ctx.weapons.ammoOf === 'function' ? ctx.weapons : null;
+    const slot = ref ? ref.activeSlot : this.shownSlot;
+    if (ref) {
+      if (slot === null) {
+        if (this.shownSlot !== null) this.showEmpty();
+      } else {
+        const inst = this.itemIn(slot);
+        if (slot !== this.shownSlot || (inst?.uid ?? '') !== this.shownUid) this.showFromRef(ctx, slot, inst);
+      }
+    }
+    const dim = !!ref && slot !== null && !ref.primaryInHand;
+    if (dim !== this.dim) { this.dim = dim; toggleClass(this.root, 'wp-dim', dim); }
+    this.updateSide(slot);
+  }
+
+  private itemIn(slot: WeaponSlot): ItemInstance | null {
+    return slot === 'primary' || slot === 'primary2' ? this.loadout[slot] : null;
+  }
+
+  /** Re-draw the big panel for `slot` from `ctx.weapons.ammoOf` (no `weapon:equipped` came for it). */
+  private showFromRef(ctx: GameContext, slot: WeaponSlot, inst: ItemInstance | null): void {
+    const ammo = ctx.weapons?.ammoOf(slot) ?? null;
+    const itemDef = inst ? (ctx.inventory?.getDef(inst.defId) ?? ctx.loot?.getItemDef(inst.defId)) : undefined;
+    const weaponId = ammo?.weaponId ?? itemDef?.weaponId ?? '';
+    if (!weaponId) { this.showEmpty(); return; }
+    this.showWeapon(slot, inst, weaponId, ammo ?? { magSize: 1, ammoInMag: 0, reserveRounds: 0 });
+  }
+
+  /** Draw one primary in the big panel (thumbnail, type, modes, ammo, durability). */
+  private showWeapon(
+    slot: WeaponSlot, inst: ItemInstance | null, weaponId: string,
+    ammo: { magSize: number; ammoInMag: number; reserveRounds: number },
+  ): void {
+    const ctx = this.ctx;
+    this.shownSlot = slot;
+    this.shownUid = inst?.uid ?? '';
+    toggleClass(this.root, 'wp-empty', false);
+    this.weaponId = weaponId;
+    this.weaponUid = inst?.uid ?? '';
+    this.magSize = Math.max(1, ammo.magSize);
+    const def = ctx?.loot?.getWeaponDef(weaponId);
+    // 2026-09-15: a unique shows its own kind (`컴포짓 보우` …), never the csv class it borrows for the skill.
+    setText(this.typeEl, def ? weaponTypeLabel(def) : '—');
+    this.setSingleAmmo(def?.unique === 'bow');
+    this.setModes(def);
+    this.setAmmo(ammo.ammoInMag, ammo.reserveRounds);
+    // the item def behind the equipped weapon (`wpn_<id>` for graded guns) drives the thumbnail
+    const itemDefId = inst?.defId ?? `wpn_${weaponId}`;
+    this.setThumb(ctx?.inventory?.getDef(itemDefId) ?? ctx?.loot?.getItemDef(itemDefId));
+    // Seed the durability bar from the item instance (durabilityChanged only fires on change).
+    const max = def?.maxDurability ?? WEAPON_DEFAULT_DURABILITY;
+    this.setDurability(inst?.durability ?? max, max, false);
+  }
+
+  /** 2026-09-16: no primary equipped — the panel stays up as an empty frame (`.wp-empty`). */
+  private showEmpty(): void {
+    this.shownSlot = null;
+    this.shownUid = '';
+    this.weaponId = '';
+    this.weaponUid = '';
+    toggleClass(this.root, 'wp-empty', true);
+    setText(this.typeEl, EMPTY_TYPE_TEXT);
+    this.setThumb(undefined);
+    this.setModes(undefined);
+    this.setSingleAmmo(false);
+    setText(this.magEl, '—');
+    setText(this.reserveEl, '');
+    toggleClass(this.magEl, 'empty', false);
+    toggleClass(this.magEl, 'low', false);
+    this.setDurability(1, 1, false);
+    /* reload + swap state live in `hud/ReloadGauge` (it hides itself on death / reset / cancel) */
+  }
+
+  /** The other primary's thumbnail + its slot key, only when both primaries are equipped. */
+  private updateSide(slot: WeaponSlot | null): void {
+    const other: PrimarySlot | null = slot === 'primary' ? 'primary2' : slot === 'primary2' ? 'primary' : null;
+    const inst = other ? this.loadout[other] : null;
+    const stamp = other && inst ? `${other}|${inst.defId}` : '';
+    if (stamp === this.sideStamp) return;
+    this.sideStamp = stamp;
+    this.sideEl.hidden = !stamp;
+    this.sideThumb.replaceChildren();
+    if (!other || !inst) return;
+    // 키는 그릴 때마다 읽는다 — 리바인드는 `input:bindingsChanged` 가 stamp 를 지워 여기로 다시 들어온다
+    paintKeycap(this.sideKeyEl, other === 'primary' ? Keys.PRIMARY : Keys.PRIMARY2);
+    const def = this.ctx?.inventory?.getDef(inst.defId) ?? this.ctx?.loot?.getItemDef(inst.defId);
+    this.sideThumb.appendChild(buildItemChip(def, { size: SIDE_THUMB_SIZE }));
+  }
+
   /**
    * Rebuild the weapon thumbnail (the shared inventory chip, so icon + rarity colour match the bag).
-   * 2026-09-10: 상자 자신도 **무기 등급색**으로 칠한다 — `--wrc` 는 칩이 쓰는 `--rc` 와 같은 값
-   * (`rarityColor` → base.css 의 `--r-*`), 그래서 등급이 한눈에 읽힌다.
+   * 2026-09-16: 틀 없이 칩만 — 옛 등급색 정사각 배경(`--wrc`)은 없앴다.
    */
   private setThumb(def: ItemDef | undefined): void {
     this.thumbIcon.replaceChildren();
     if (def) this.thumbIcon.appendChild(buildItemChip(def, { size: WEAPON_THUMB_SIZE }));
-    const rc = def ? rarityColor(def.rarity) : '';
-    if (this.thumbEl.style.getPropertyValue('--wrc') !== rc) this.thumbEl.style.setProperty('--wrc', rc);
     toggleClass(this.thumbEl, 'is-empty', !def);
   }
-
-  private enterConsumable(item: ItemInstance, ctx: GameContext): void {
-    const def = ctx.inventory?.getDef(item.defId) ?? ctx.loot?.getItemDef(item.defId);
-    this.consUid = item.uid;
-    this.consumable = true;
-    // 2026-09-11: 기폭기 손 (weapons — 마지막 원격 지뢰를 놓은 뒤 슬롯 없이 남는 손, uid `detonator:<defId>`).
-    // 개수 칸은 가방이 아니라 **월드에 남은 내 원격 지뢰** 수다.
-    const det = this.isDetonator;
-    setText(this.consName, det ? '기폭기' : (def?.name ?? item.defId));
-    setText(this.consHint, det ? '우클릭 기폭' : consumableHint(def));
-    this.setConsCount(det ? (ctx.gadgets?.liveRemoteMineCount?.() ?? 0) : item.qty);
-    toggleClass(this.root, 'consumable', true);
-  }
-
-  /** 2026-09-11: 손에 든 것이 슬롯 없는 기폭기인가 (`quick:equipped.item.uid` 가 `detonator:` 로 시작). */
-  private get isDetonator(): boolean { return this.consumable && this.consUid.startsWith('detonator:'); }
-
-  private exitConsumable(): void {
-    if (!this.consumable) return;
-    this.consumable = false;
-    this.consUid = '';
-    toggleClass(this.root, 'consumable', false);
-  }
-
-  private setConsCount(n: number): void {
-    setText(this.consCnt, String(Math.max(0, n)));
-    toggleClass(this.consCnt, 'empty', n <= 0);
-    toggleClass(this.consCnt, 'low', n === 1);
-  }
-
-  /** Whether a consumable (stim / grenade) is in hand instead of a gun. */
-  get isConsumable(): boolean { return this.consumable; }
 
   private isActive(uid: string, weaponId: string): boolean {
     if (this.weaponUid) return uid === this.weaponUid;
@@ -290,6 +314,18 @@ export class WeaponPanel {
 
   /** Whether the unique fire-mode lines are showing (debug). */
   get hasModes(): boolean { return this.root.classList.contains('has-modes'); }
+
+  /** 2026-09-16 (debug / smoke): big panel dimmed · empty state · side thumbnail def id + its key stamp. */
+  get view(): { dim: boolean; empty: boolean; slot: WeaponSlot | null; side: string | null; sideKey: string | null } {
+    const side = this.sideEl.hidden ? null : (this.sideThumb.querySelector<HTMLElement>('.item-chip')?.dataset.defId ?? null);
+    return {
+      dim: this.dim,
+      empty: this.root.classList.contains('wp-empty'),
+      slot: this.shownSlot,
+      side,
+      sideKey: this.sideEl.hidden ? null : (this.sideKeyEl.dataset.kc ?? null),
+    };
+  }
 
   private setAmmo(mag: number, reserve: number): void {
     if (this.singleAmmo) {

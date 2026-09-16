@@ -700,3 +700,16 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
 
 - Each grade's recipe drops the previous-grade filament and takes **1 of each** material; output is 1 as well, so the
   value per craft is unchanged rather than halved in cost and doubled in yield.
+
+## 2026-09-16 — HUD · 메신저 · 튜토리얼 다듬기 · HUD, messenger, tutorial polish
+
+- **Empty corpses, all kinds** (player, android, tutorial, enemy) sink 1 s after the looting ends — empty *and* nobody
+  (local or squadmate) has the loot window open. Rejected: enemy-only / player-only.
+- **Weapon panel dims for anything non-primary in hand** (quick use, grenade, stim, melee swing, holstered). Rejected: T quick
+  use only. The old consumable mode of the big panel is gone.
+- **Pickup toast always shows the quantity** (`×1` included).
+- **Messenger stays ship-only**: button, `P` hint and red-dot pop exist only in the ship, including over Tab / ESC menus.
+- **Ship doors**: sliding leaves removed, frames kept, with overlapping trim at the openings cleaned up. Rejected: removing frames.
+- **Revive from downed**: tutorial revive only. A normal raid's rescue drop keeps the raid-start pod sequence (already the case).
+- **Inventory credits as text** (`n C`, compact above 10k), not the currency chip.
+- **Stat tutorial control guide shows Tab only** (agent's call, pending user review): the ESC pause menu has no route to the character tab.

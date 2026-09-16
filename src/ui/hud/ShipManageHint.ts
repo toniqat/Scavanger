@@ -14,6 +14,8 @@ import type { CutsceneWatch } from './CutsceneWatch';
  * **Phase 12:** it also stays hidden on the **shared ship** (there is no 시설 관리 there — the rooms are the personal
  * ship's) and for the length of a docking / warp **cutscene** (`CutsceneWatch`: `hub:docking` / `hub:travel` start →
  * end, phase `'docking'`, `ctx.hub.travelling`). Takes no blocker token and never intercepts pointer events.
+ * **2026-09-16:** hidden while the tutorial's ship track runs (`ctx.tutorial.hides('shipManage')` — housing refuses the
+ * mode then too, `housing/parts/Furniture.shipManageBlock`).
  */
 export class ShipManageHint {
   readonly root: HTMLElement;
@@ -38,7 +40,7 @@ export class ShipManageHint {
     const personal = (this.cutscene?.ship ?? ctx.hub?.ship ?? 'personal') === 'personal';
     const cutscene = this.cutscene?.active ?? (ctx.phase === 'docking' || (ctx.hub?.travelling ?? false));
     const on = ctx.isHubPhase() && ctx.uiBlockers.size === 0 && !(ctx.housing?.shipManageMode ?? false)
-      && personal && !cutscene;
+      && personal && !cutscene && !(ctx.tutorial?.hides('shipManage') ?? false);
     if (on === this.shown) return;
     this.shown = on;
     toggleClass(this.root, 'show', on);

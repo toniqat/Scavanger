@@ -169,22 +169,32 @@
   letter-spacing: 0.08em;
   color: var(--inv-muted);
 }
+/* 2026-09-16 (사용자 결정): 바닥 한 줄 = 왼쪽 끝 작은 `가방 내 가치 1,000 C`(숫자만 흰색) · 오른쪽 끝 보유 크레딧 글자 */
 .inv-foot {
   display: flex;
   align-items: baseline;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--inv-line);
 }
-.inv-value {
+.inv-bagval {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--inv-muted);
+  white-space: nowrap;
+}
+.inv-bagval-num { color: #fff; font-variant-numeric: tabular-nums; }
+.inv-credits-value {
   font-size: 17px;
   font-weight: 600;
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
   color: var(--inv-accent);
   text-shadow: 0 0 14px rgba(240, 196, 106, 0.35);
+  white-space: nowrap;
 }
+.inv-credits-value.is-unavailable { color: var(--inv-muted); text-shadow: none; }
 
 .inv-btn {
   appearance: none;
@@ -2030,21 +2040,8 @@ kbd {
 .inv-repair-msg.is-ok { color: var(--inv-ok); }
 .inv-repair-msg.is-bad { color: color-mix(in srgb, var(--inv-bad) 80%, white 20%); }
 
-/* ═══ Phase 5: 크레딧 readout on the ship screen (top-right, beside the screen tabs) ═══ */
-.inv-credits {
-  position: absolute; right: 28px; top: 22px;
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 16px;
-  border: 1px solid var(--inv-line); border-radius: 999px;
-  background: rgba(8, 9, 11, 0.7);
-  z-index: 3;
-}
-.inv-credits-value {
-  font-variant-numeric: tabular-nums;
-  font-size: 13px; font-weight: 600; letter-spacing: 0.06em;
-  color: var(--inv-accent);
-}
-.inv-credits.is-unavailable .inv-credits-value { color: var(--inv-muted); }
+/* 2026-09-16: 우측 상단의 `CREDITS` 알약(`.inv-credits`)은 없어졌다 — 그 모서리는 메신저 버튼 자리다.
+   보유 크레딧은 가방 바닥 줄의 `.inv-credits-value` 글자다 (위 `.inv-foot`). */
 
 /* ═══ Phase 8 (2026-09-06): Tab 화면 호스트 · 모달리스 팝업 · 분해 다이얼로그 · 요구 아이템 칩 ═══ */
 

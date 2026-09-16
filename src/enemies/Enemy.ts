@@ -357,8 +357,13 @@ export class Enemy implements EnemyRef {
   /** Authority: the `corpse:<id>` interactable is waiting for the body to land (or `CORPSE_LAND_TIMEOUT`). */
   corpsePending = false;
   /* appended (2026-09-16): 빈 시체 제거 (`parts/CorpseEmpty`) */
-  /** 열어서 다 비운 시체 — 권위가 정했다(`ee corpseEmptied`). `corpseLife` 가 「지금 + 지연 + 가라앉기」로 줄어 있다. */
+  /** 열어서 다 비운 시체 — 권위가 정했다(`ee corpseEmptied`). `corpseReleased` 가 참이면 `corpseLife` 가 「지금 + 지연 + 가라앉기」로 줄어 있다. */
   corpseEmptied = false;
+  /**
+   * appended (2026-09-16, 2차): 빈 시체의 수명을 줄였다 — **아무도 창을 열어 두지 않게 된 뒤**다. 권위에서 `corpseEmptied` 만 참이면
+   * 아직 누가 들여다보고 있다 (`parts/CorpseEmpty.updateEmptyCorpses`).
+   */
+  corpseReleased = false;
   /** 시체가 가라앉는 시간(초, `anim.fade` 0→1). 평소 = 수명 마지막 `CORPSE_FADE_S`, 비운 시체 = `CORPSE_EMPTY_SINK_S`. */
   corpseFadeS = CORPSE_FADE_S;
 
@@ -539,7 +544,7 @@ export class Enemy implements EnemyRef {
     // Phase 10
     this.deathDir = undefined; this.lootable = undefined;
     this.deathVy = 0; this.deathLanded = false; this.corpsePending = false;
-    this.corpseEmptied = false; this.corpseFadeS = CORPSE_FADE_S;   // 2026-09-16: 빈 시체 제거
+    this.corpseEmptied = false; this.corpseReleased = false; this.corpseFadeS = CORPSE_FADE_S;   // 2026-09-16: 빈 시체 제거
     // Phase 12
     this.investigating = false; this.shotTimer = 0; this.shotPhase = 0; this.shotHold = 0; this.shotCheckAt = -Infinity;
     this.barrierUntil = -Infinity; this.barrierOwner = null; this.barrierBumpAt = -Infinity;

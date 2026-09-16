@@ -8,7 +8,7 @@
 import type { EnemyType, EnvKind, HazardKind } from './types';
 import { ENV_KINDS, HAZARD_KINDS } from './types';
 import type { PlanetId } from './planets';
-import { PLANET_IDS, PLANET_NONE_LABEL } from './planets';
+import { PLANET_IDS, PLANET_NONE_LABEL, TUTORIAL_PLANET_LABEL } from './planets';
 import { csvRows } from './data/tables';
 
 export interface PlanetEcosystem {
@@ -112,6 +112,14 @@ export function planetIndex(id: PlanetId | null | undefined): number {
 /** Display name for a planet id — `PLANET_NONE_LABEL` when nothing is selected, so every readout agrees. */
 export function planetLabel(id: PlanetId | null | undefined): string {
   return getPlanet(id)?.name ?? PLANET_NONE_LABEL;
+}
+
+/**
+ * appended (2026-09-16): **이번 임무의** 행성 이름 — 튜토리얼(`ctx.missionMode === 'tutorial'`)이면 `TUTORIAL_PLANET_LABEL`, 아니면 `planetLabel`.
+ * 결과 화면(탈출 · 전사)이 읽는다. 인자가 모드 문자열인 이유: 이 파일은 서버도 읽어 `GameContext` 를 import 하지 않는다.
+ */
+export function missionPlanetLabel(mode: string | null | undefined, id: PlanetId | null | undefined): string {
+  return mode === 'tutorial' ? TUTORIAL_PLANET_LABEL : planetLabel(id);
 }
 
 /**

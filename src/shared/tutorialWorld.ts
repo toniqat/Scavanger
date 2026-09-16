@@ -69,4 +69,9 @@ export interface TutorialWorldRef {
    * 한 번 처치된 적은 체크포인트 부활로 되살아나지 않으므로 이 목록은 다시 읽지 않는다.
    */
   enemySpawns(): readonly TutorialEnemySpawn[];
+  /**
+   * appended (2026-09-16, owner: world/tutorial — 읽는 곳 `tutorial/TutorialSystem`): 무너진 통로(포복 구간)를 얼마나 지났나.
+   * 0 = 입구 · 1 = 출구, 입구 앞은 음수 · 출구 너머는 1 보다 크다 (자르지 않는다). 통로의 좌표는 월드만 갖는다.
+   */
+  crawlProgress?(position: THREE.Vector3): number;
 }

@@ -159,6 +159,14 @@
 .tut-ctl-text { font-size: 11px; line-height: 1.75; letter-spacing: 0.02em; color: var(--c-text-dim); }
 .tut-ctl-text .keycap { min-width: 18px; height: 18px; padding: 0 4px; margin: 0 2px; font-size: 9.5px; vertical-align: middle; }
 .tut-ctl.is-new .tut-ctl-text { color: var(--c-text); }
+/* 2026-09-16 (사용자 결정): 패널에 떠 있는 키를 **누르는 동안** 그 키캡이 주황으로 켜진다 (`ui/Controls.update` — 전이 없음).
+   마우스 그림은 윤곽이 `currentColor` 라 글자색을 바꾸면 따라온다. */
+.tut-controls .keycap.tut-kc-down {
+  color: var(--c-accent);
+  border-color: var(--c-accent);
+  background: color-mix(in srgb, var(--c-accent) 26%, transparent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--c-accent) 55%, transparent);
+}
 
 /* ── TIP 토스트 (2026-09-15, `ui/Tip.ts`) ─────────────────────────────────────
  * 우측 조작 가이드 **바로 아래**. 자리(top · right · width)와 불투명도는 `TutorialTip.update` 가 가이드의 사각형을 읽어
@@ -258,6 +266,15 @@
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
 }
 .tut-spot-tip[hidden] { display: none !important; }
+/* 2026-09-16: 말풍선 글 안의 키캡 (`{MOUSE_LEFT}` · `{DOUBLE_CLICK}` — `.kc-inline`) — 글줄 높이에 맞춘 작은 키캡 */
+.tut-spot-tip .keycap { min-width: 18px; height: 18px; padding: 0 4px; font-size: 9.5px; }
+/* 2026-09-16 2차: 말풍선 안의 `{+}` — 캐릭터 시트 능력치 줄의 ＋ 버튼(`progression/ui/character.css` `.cs-stat .ui-btn.plus`)을 닮은 작은 네모 */
+.tut-spot-plus {
+  display: inline-flex; align-items: center; justify-content: center; vertical-align: -3px;
+  width: 17px; height: 17px; margin: 0 2px;
+  font-size: 11px; line-height: 1; font-weight: 600;
+  border: 1px solid var(--c-accent); color: var(--c-accent); background: rgba(255, 179, 71, 0.08);
+}
 @media (prefers-reduced-motion: reduce) {
   .tut-spot-ring, .tut-spot-ring::after { animation: none; }
   .tut-spot-ring::after { opacity: 0; }

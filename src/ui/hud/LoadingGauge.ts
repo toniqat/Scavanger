@@ -39,6 +39,8 @@ export class LoadingGauge {
   private active = false;
   /** 사라지는 중인가 — `raid:loadReleased` 뒤. */
   private fading = false;
+  /** 2026-09-16: 함선 귀환 암전이 건 게이지인가 (`beginLocal`) — 그동안 레이드 로딩 이벤트 · 중단 · 도착은 걷지 않는다. */
+  private local = false;
   /** 실시간 기준점 (ms): 뜬 순간 · 사라지기 시작한 순간. */
   private shownAt = 0;
   private fadeAt = 0;
@@ -73,10 +75,35 @@ export class LoadingGauge {
         this.squad = Math.min(1, Math.max(0, Number.isFinite(squad) ? squad : 0));
         this.waiting = Math.max(0, Math.round(Number.isFinite(waiting) ? waiting : 0));
       }),
-      b.on('raid:loadReleased', () => this.release()),
-      b.on('game:abort', () => this.hide()),
-      b.on('hub:entered', () => this.hide()),
+      b.on('raid:loadReleased', () => { if (!this.local) this.release(); }),
+      // 2026-09-16: 함선 귀환 암전(`menus/ShipReturn`)이 건 게이지는 그 `hub:enter` 가 내는 중단 · 도착에 걷히지 않는다 —
+      // 건 쪽이 `endLocal` 로 직접 푼다 (그러지 않으면 셰이더 컴파일 전에 게이지가 사라진다).
+      b.on('game:abort', () => { if (!this.local) this.hide(); }),
+      b.on('hub:entered', () => { if (!this.local) this.hide(); }),
     );
+  }
+
+  /**
+   * 2026-09-16 (함선 귀환 암전, owner `menus/ShipReturn`): 버스를 거치지 않고 게이지를 띄운다. `raid:loadBegin` 을
+   * 내면 game/LoadGate 가 레이드 로딩으로 알아듣기 때문이다. 진행도는 `setLocalProgress`, 끝은 `endLocal`.
+   */
+  beginLocal(): void {
+    this.local = true;
+    this.squad = 0;
+    this.waiting = 0;
+    this.show();
+  }
+
+  setLocalProgress(p: number): void {
+    if (!this.local) return;
+    this.squad = Math.min(1, Math.max(0, Number.isFinite(p) ? p : 0));
+  }
+
+  /** `now` = 곧바로 걷는다 (중단), 아니면 평소 `release` 처럼 채운 뒤 사라진다. */
+  endLocal(now = false): void {
+    if (!this.local) return;
+    this.local = false;
+    if (now) this.hide(); else this.release();
   }
 
   /** 게이지가 보이는가 (debug / smoke — 사라지는 동안에도 true). */

@@ -168,13 +168,9 @@ try {
   ok(deck.bayGroups === 4, `4 bay groups (${deck.bayGroups})`);
   ok(deck.bounds[0] > 10 && deck.bounds[1] > 20, `the collider bounds grew to cover the hangar (centre z ${deck.bounds[0].toFixed(1)}, half ${deck.bounds[1].toFixed(1)})`);
 
-  /* ── 3. the 자동문 opens on approach, and the deck is reachable ON FOOT ── */
-  const doorShut = await A.evaluate(() => window.__game.getSystem('hub').interior.doors.openAmount(0));
-  ok(doorShut < 0.05, `aft 자동문 closed while nobody is near it (${doorShut.toFixed(2)})`);
-  await teleport(A, 0, 6.0);
-  await waitSim(A, 1.2);
-  const doorOpen = await A.evaluate(() => window.__game.getSystem('hub').interior.doors.openAmount(0));
-  ok(doorOpen > 0.9, `aft 자동문 opens when the player walks up to it (${doorOpen.toFixed(2)})`);
+  /* ── 3. the aft doorway is open (2026-09-16: the 자동문 were removed), and the deck is reachable ON FOOT ── */
+  const hasDoors = await A.evaluate(() => 'doors' in window.__game.getSystem('hub').interior);
+  ok(!hasDoors, 'no sliding 자동문 left on the shared ship (removed 2026-09-16)');
   // the whole point: walk from the deck into the hangar through `resolveCollision`, 0.1 m at a time
   await teleport(A, 0, 4.0);
   const walkedIn = await walkNorth(A, 120);

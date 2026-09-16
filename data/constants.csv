@@ -97,12 +97,12 @@ OFFSCREEN_PING_SECONDS,5,Off-screen indicators: squadmate pings show an edge arr
 # ── appended: Phase 4 — rogues / enemy gimmicks / corpses ──
 CORPSE_LIFETIME,45,Seconds a lootable corpse (and its interactable) stays in the world.
 CORPSE_INTERACT_RADIUS,2.4,Corpse interaction radius (m).
-CORPSE_EMPTY_REMOVE_DELAY_S,1,"A corpse with no items left starts sinking this many seconds after it became empty — player · android · tutorial corpses (also when spawned empty) and enemy corpses that were opened and emptied. 2026-09-16 user decision."
+CORPSE_EMPTY_REMOVE_DELAY_S,1,"A corpse with no items left starts sinking this many seconds after the looting ended — once it is empty and the last person looking into it closed the loot window (a spawned-empty corpse counts from the moment it stands). Player · android · tutorial corpses and enemy corpses that were opened and emptied. 2026-09-16 user decision."
 CORPSE_EMPTY_SINK_S,1.2,"Seconds an emptied corpse takes to sink into the ground; then it is removed (interactable · light pillar · mesh)."
 CORPSE_EMPTY_SINK_DEPTH_M,1,"How deep (m) an emptied player / android / tutorial corpse sinks. Enemy rigs keep their own corpse sink depth (`anim.fade`)."
-CORPSE_EMPTY_REQUEST_REACH_M,8,"Host guard: a client's `ecorpseq emptied` is accepted only while the sender's snapshot stands within this horizontal distance (m) of the enemy corpse (inventory auto-close is 6 m, plus snapshot lag)."
-CORPSE_EMPTY_REQUEST_RATE_MAX,2,Host guard: emptied enemy corpse requests one client may send per second (searching a corpse takes a 0.6 s hold).
-CORPSE_EMPTY_REQUEST_BURST,4,Host guard: size of the per-sender emptied-corpse request bucket.
+CORPSE_EMPTY_REQUEST_REACH_M,8,"Host guard: a client's `ecorpseq emptied` / `cviewq open` is accepted only while the sender's snapshot stands within this horizontal distance (m) of the corpse; the host also drops a viewer who walks beyond it (inventory auto-close is 6 m, plus snapshot lag)."
+CORPSE_EMPTY_REQUEST_RATE_MAX,2,"Host guard: emptied enemy corpse requests (`ecorpseq`) and corpse window opens (`cviewq open`, separate bucket) one client may send per second (searching a corpse takes a 0.6 s hold)."
+CORPSE_EMPTY_REQUEST_BURST,4,"Host guard: size of each per-sender corpse request bucket (`ecorpseq emptied`, `cviewq open`)."
 ROGUE_REACTION,0.9,"Rogue gunner: reaction delay before the first shot (s), aim error (radians) at hip / after settling, damage per hit, rounds per burst."
 ROGUE_AIM_ERROR,0.09,
 ROGUE_AIM_ERROR_SETTLED,0.045,
@@ -1146,6 +1146,7 @@ TUTORIAL_BUG_CHAIN_SPAWN_S,1,"튜토리얼 벌레 매복 — 첫 벌레가 솟�
 TUTORIAL_LIFTOFF_FIRE_S,3,"튜토리얼 함선 이륙 직후, 처치하지 못한 인간형 적이 탑승자를 계속 겨누는 시간 (s). 이 동안만 감지 반경이 `TUTORIAL_LIFTOFF_FIRE_RANGE_M` 로 넓어진다 — 몇 발 맞히고 끝난다. 탑승자는 각본 잠금(피해 허용 · 체력 1 클램프)이라 죽지 않는다."
 TUTORIAL_LIFTOFF_FIRE_RANGE_M,40,"위 창 동안 탑승자를 겨누는 인간형 적의 최대 거리 (m, 3D). 오르는 함선을 따라 시야가 끊기지 않을 만큼만."
 TUTORIAL_AGGRO_DROP_M,3,"절벽 낙하 어그로 해제 — 플레이어의 발보다 이 높이(m) 넘게 위에 자리를 둔 튜토리얼 인간형 적은 플레이어가 아래 데크로 떨어지면 추격 · 사격을 접는다."
+TUTORIAL_ENEMY_EDGE_MARGIN_M,3,"2026-09-16 (사용자 결정 — 「튜토리얼 안드로이드는 절벽 가장자리로 아예 걸어가지 않는다」): 튜토리얼 적의 몸 가운데가 낭떠러지(올라설 수 없는 낙차) 가장자리에 이 거리(m)보다 가까워지는 걸음은 막는다. 벽은 가장자리가 아니다."
 # ── end 2026-09-15 튜토리얼 부활 · 어그로 ──
 
 # ── appended (2026-09-15, 사용자 결정): 폭발 감쇠 2단 계단 — 모든 폭발물 공용 (shared/explosion.ts) ──
@@ -1222,3 +1223,10 @@ THUMPER_GROUND_R,3,"설치 판정 반경 (m): WorldRef.burrowGroundOk(x, z, 이 
 THUMPER_HP,150,"진동 장치 내구도 — 쏘거나 벌레가 씹으면 부서진다. 땅굴벌레 분출 반경 안의 것은 내구도와 무관하게 부서진다."
 THUMPER_SHAKE_RADIUS,30,"타격의 흔들림(camera:shake)이 느껴지는 반경 (m). 가까울수록 세다."
 THUMPER_SHAKE,0.14,"타격 흔들림의 세기 (한가운데). 전조 흔들림 SANDWORM_SHAKE_MAX(0.18) 보다 조금 약하다."
+
+# ── appended (2026-09-16, 사용자 결정): 튜토리얼 포복 구간 조작 가이드 (owner: tutorial) ──
+TUTORIAL_CRAWL_AIM_HINT_FRAC,0.5,"무너진 통로(포복 구간)를 이 비율만큼 지나면 우측 조작 가이드의 앉기 · 포복 아래에 발사 · 정조준 줄이 붙는다 (0 = 입구 · 1 = 출구). 통로의 입구 · 출구 z 는 월드가 갖는다 (`TutorialWorldRef.crawlProgress`)."
+
+# ── 메신저 버튼 빨간 점 튀어오르기 (2026-09-16, owner: ui) ──
+MESSENGER_DOT_POP_S,0.7,"새 NPC 메시지가 오면 메신저 버튼의 빨간 점이 튀어올랐다 제자리로 내려앉는 시간 (초). 토스트는 없다 — 무슨 메시지인지는 메신저를 열어야 안다. update(dt) 가 민다 (reduced motion 에 잘리지 않는다)."
+MESSENGER_DOT_POP_PX,9,"그 튀어오름의 첫 봉우리 높이 (px). 두 번째 작은 봉우리는 코드의 곡선 모양이 정한다."

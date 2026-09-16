@@ -201,13 +201,14 @@ try {
   await emit('heal:holdChanged', { holding: false, t: -1 });
   hg = await healRing();
   ok(!/\bshow\b/.test(hg.cls) && !hg.on && dashT(hg.dash) < 0.02, 'releasing (holding false / t -1) hides and resets it', JSON.stringify(hg));
-  // the weapon panel's hint follows the item's own use time (붕대 = 5 s)
-  const stimHint = await P(() => {
+  // 2026-09-16 (사용자 결정): 소모품을 들어도 큰 무기 패널은 소모품 블록으로 바뀌지 않는다 — 마지막 주무기를 흐리게 보여 줄 뿐이다
+  // (흐림 자체는 `ctx.weapons.primaryInHand` 를 매 프레임 읽으므로 가짜 이벤트로는 켜지지 않는다).
+  const stimHand = await P(() => {
     window.__game.ctx.bus.emit('quick:equipped', { item: { uid: 'smoke-stim', defId: 'heal_bandage', qty: 2, x: 0, y: 0, rot: 0 }, slot: 1 });
     const w = document.querySelector('.weapon');
-    return { hint: w.querySelector('.cons .hint').textContent, cons: w.className.includes('consumable') };
+    return { cons: !!w.querySelector('.cons'), consCls: w.className.includes('consumable'), box: getComputedStyle(w.querySelector('.wbox')).display !== 'none' };
   });
-  ok(stimHint.cons && stimHint.hint === '좌클릭 5초 홀드 · 이동 50 %', '붕대 in hand -> 좌클릭 5초 홀드 · 이동 50 % hint', JSON.stringify(stimHint));
+  ok(!stimHand.cons && !stimHand.consCls && stimHand.box, '붕대 in hand -> weapon panel keeps the gun box (no consumable block)', JSON.stringify(stimHand));
   await emit('quick:equipped', { item: null, slot: 1 });
   // 2026-09-07: the bottom-left 회복약 / 수류탄 pills were removed — the counts are the right-hand 빠른 사용 thumbnail
   // and the weapon panel's consumable block, so the health corner is health + stamina only.

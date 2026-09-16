@@ -664,6 +664,8 @@ export type EnemyEvent =
    * appended (2026-09-16, 빈 시체 제거): the corpse of enemy `id` was **opened and emptied** — every client shortens that body's
    * `corpseLife` to delay + sink (`CORPSE_EMPTY_REMOVE_DELAY_S` + `CORPSE_EMPTY_SINK_S`); the normal despawn (`despawn` ·
    * `corpseGone`) follows. Decided by the host (its own `crate:looted`, or a client's `ecorpseq emptied` that passed the guard).
+   * 2026-09-16 (2차): sent only once nobody has that corpse's loot window open (`cviewq`, `shared/corpseViewers`) — so the
+   * delay counts from the moment the last viewer closed. Same timing for `pcorpse emptied`.
    */
   | { t: 'ee'; ev: 'corpseEmptied'; id: number }
   /* appended (Phase 7): rogue AI v2 */
@@ -901,7 +903,9 @@ export type GameMessage =
   | PlateMessage
   | PlateRequest
   /* appended (2026-09-16): 빈 적 시체 요청 (owner: enemies/parts/CorpseEmpty) */
-  | EnemyCorpseRequest;
+  | EnemyCorpseRequest
+  /* appended (2026-09-16): 시체를 들여다보는 사람 — 빈 시체는 창을 닫은 뒤에 가라앉는다 (owner: shared/corpseViewers) */
+  | CorpseViewRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 /**
@@ -1037,6 +1041,14 @@ export type CorpseRequest = { t: 'pcorpseq'; ev: 'sync' };
  * 요율(`CORPSE_EMPTY_REQUEST_RATE_MAX` / `_BURST`)을 지나면 `ee corpseEmptied` 로 **사실**을 방송한다.
  */
 export interface EnemyCorpseRequest { t: 'ecorpseq'; ev: 'emptied'; id: number }
+/**
+ * appended (2026-09-16, 빈 시체는 **루팅이 끝난 뒤** 사라진다 — owner: `shared/corpseViewers.CorpseViewTracker`, 쓰는 곳: game ·
+ * enemies). 클라이언트 → 호스트: 내 창이 시체 컨테이너 `id`(`pcorpse:…` · `corpse:<enemyId>`)를 열었다 / 닫았다. 호스트는 시체마다
+ * 들여다보는 사람을 들고 있다가 아무도 없을 때만 `pcorpse emptied` · `ee corpseEmptied` 를 방송한다. 가드: `open` 은 모양 → 보낸
+ * 사람(살아 있는 스냅샷) → 거리(`CORPSE_EMPTY_REQUEST_REACH_M`) → 요율(보낸 사람별 버킷), `close` 는 보낸 사람 자기 항목만 지운다.
+ * 한 사람은 한 번에 시체 하나만 본다. 떠남 · 끊김 · 재합류 · 사망 · 거리 이탈이면 호스트가 스스로 지운다.
+ */
+export interface CorpseViewRequest { t: 'cviewq'; ev: 'open' | 'close'; id: string }
 
 /**
  * 구조선 투하. 분대 공용 카운터는 **호스트가 들고 있다** — 아무나 `req` 를 보내고 호스트가

@@ -131,7 +131,19 @@ export function createHoldButtonCap(parent?: HTMLElement | null): HTMLElement {
 }
 
 /**
- * 문장 안에 키캡을 끼워 넣는다 — 토큰 문법:
+ * **리바인드와 무관한 고정 토큰** (2026-09-16, 사용자 결정 — 튜토리얼 시체 포커싱 문구). 인벤토리의 드래그 · 더블클릭은
+ * `Keys` 의 액션이 아니라 실제 버튼이다 (`contextmenu` · `dblclick`). 그래서 `{FIRE}` 로 적으면 사격을 리바인드했을 때 거짓말이 된다.
+ *   `{MOUSE_LEFT}`   → 좌클릭 마우스 그림 (`Mouse0`)
+ *   `{DOUBLE_CLICK}` → 키 가이드의 `더블클릭` 키캡과 **같은 모양** (`ui/hud/KeyGuide` 가 `createKeycap('더블클릭')` 으로 그린다)
+ * `Keys` 의 필드 이름과 겹치지 않는다 (대문자 액션 이름 목록에 없다). 추가만 한다.
+ */
+export const KEYCAP_FIXED_TOKENS: Readonly<Record<string, string>> = {
+  MOUSE_LEFT: 'Mouse0',
+  DOUBLE_CLICK: '더블클릭',
+};
+
+/**
+ * 문장 안에 키캡을 끼워 넣는다 — 토큰 문법 (`KEYCAP_FIXED_TOKENS` 도 같은 문법이다):
  *   `{ACTION}`       → `Keys.ACTION` 의 키캡 (그릴 때 읽는다 — 리바인드하면 다시 부른다)
  *   `{ACTION:hold}`  → 꾹 누르는 키캡
  *   `{br}`           → 줄바꿈
@@ -148,7 +160,7 @@ export function renderKeyText(host: HTMLElement, text: string): void {
     last = m.index + m[0].length;
     const name = m[1];
     if (name === 'br') { host.appendChild(document.createElement('br')); continue; }
-    const code = (Keys as unknown as Record<string, string | undefined>)[name];
+    const code = KEYCAP_FIXED_TOKENS[name] ?? (Keys as unknown as Record<string, string | undefined>)[name];
     if (typeof code !== 'string') { host.appendChild(document.createTextNode(m[0])); continue; }
     createKeycap(code, { hold: m[2] === 'hold', cls: 'kc-inline', parent: host });
   }
@@ -159,7 +171,7 @@ export function renderKeyText(host: HTMLElement, text: string): void {
 export function plainKeyText(text: string): string {
   return text.replace(/\{([A-Za-z_]+)(?::hold)?\}/g, (all, name: string) => {
     if (name === 'br') return ' ';
-    const code = (Keys as unknown as Record<string, string | undefined>)[name];
+    const code = KEYCAP_FIXED_TOKENS[name] ?? (Keys as unknown as Record<string, string | undefined>)[name];
     return typeof code === 'string' ? keyLabel(code) : all;
   });
 }

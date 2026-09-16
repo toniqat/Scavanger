@@ -1450,6 +1450,28 @@ export interface WeaponsRef {
   /* ── appended: Phase 7 (owner: weapons) ── */
   readonly remoteState: WeaponRemoteState;
 }
+/** appended (2026-09-16, 우하단 무기 패널): one primary slot's magazine readout — the numbers `weapon:ammoChanged` carries. */
+export interface WeaponSlotAmmo {
+  weaponId: string;
+  magSize: number;
+  ammoInMag: number;
+  reserveRounds: number;
+}
+export interface WeaponsRef {
+  /* ── appended: 2026-09-16 (owner: weapons) — raid HUD weapon panel ── */
+  /**
+   * The primary slot the gun hand belongs to — held, or drawn down under a quick-use item / implant / melee swing.
+   * null when no primary is equipped. The HUD shows this weapon in the big panel even while it is not in hand.
+   */
+  readonly activeSlot: WeaponSlot | null;
+  /**
+   * true while that primary is what the player is actually holding: false with a quick-use item (grenade, heal, stim,
+   * gadget, detonator) in hand, a melee swing playing, or the gun holstered (wielded implant, downed, ship phases).
+   */
+  readonly primaryInHand: boolean;
+  /** Magazine / reserve of the weapon in `slot`, or null when the slot is empty. Reserve counts the bag (not per frame). */
+  ammoOf(slot: WeaponSlot): WeaponSlotAmmo | null;
+}
 
 export interface InventoryRef {
   /* ── appended: Phase 7 (owner: inventory) ── */

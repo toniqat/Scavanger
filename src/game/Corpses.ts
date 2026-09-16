@@ -19,6 +19,8 @@ import {
   isAndroidId,
   /* appended (2026-09-16): 빈 시체 제거 */
   CORPSE_EMPTY_REMOVE_DELAY_S, CORPSE_EMPTY_SINK_DEPTH_M, CORPSE_EMPTY_SINK_S,
+  /* appended (2026-09-16): 빈 시체는 루팅 창이 모두 닫힌 뒤에 가라앉는다 */
+  CorpseViewTracker,
   type CorpseItemWire, type CorpsesRef, type GameContext, type Interactable, type ItemInstance, type Obstacle,
   type PlayerCorpse, type PlayerCorpseWire, type TramDef, type WorldRef,
 } from '@/shared';
@@ -126,10 +128,12 @@ export class PlayerCorpseObject implements Interactable, PlayerCorpse {
   /* ── 2026-09-16: 빈 시체 제거 ─────────────────────────────────────────────────────────────────────────────
    * 아이템이 하나도 없는 시체는 `emptiedAt`(`ctx.missionTime`)부터 `CORPSE_EMPTY_REMOVE_DELAY_S` 기다렸다가
    * `CORPSE_EMPTY_SINK_S` 동안 `CORPSE_EMPTY_SINK_DEPTH_M` 만큼 땅으로 가라앉는다 (페이드가 아니다 — 사용자 결정).
-   * 미션 시계를 쓰므로 로딩 게이트 hold(sim dt 0) 동안은 멈춘다. 다 가라앉으면 관리자가 `removeCorpse` 로 치운다. */
+   * 미션 시계를 쓰므로 로딩 게이트 hold(sim dt 0) 동안은 멈춘다. 다 가라앉으면 관리자가 `removeCorpse` 로 치운다.
+   * 2026-09-16 (2차): `emptiedAt` 은 「비었고 **아무도 들여다보지 않게 된**」 시각이다 — 루팅 창이 열려 있는 동안은 세지 않는다
+   * (`PlayerCorpseManager.update`, `shared/corpseViewers`). `emptied` 만 참이고 `emptiedAt` 이 -1 이면 아직 누가 보고 있다. */
   /** 가라앉는 몸 (`group` 의 자식, `model.root` 의 부모). */
   private readonly sinkRoot = new THREE.Group();
-  /** 비었을 때의 `ctx.missionTime` (-1 = 아직). */
+  /** 비었고 아무도 보지 않게 된 `ctx.missionTime` (-1 = 아직 — 비지 않았거나, 누가 창을 열어 두고 있다). */
   emptiedAt = -1;
 
   /** 지금 가라앉은 깊이(m, 0 = 아직). 스모크 · 디버그용. */
@@ -342,8 +346,17 @@ export class PlayerCorpseManager implements CorpsesRef {
   private readonly removed = new Set<string>();
   /** 2026-09-16: 이번 레이드에 시체가 한 번이라도 선 주인 (`ownerHadCorpse` — 원격 아바타 숨김). */
   private readonly owners = new Set<string>();
+  /**
+   * 2026-09-16 (2차, 사용자 결정): 누가 시체 창을 열어 두고 있나 (`shared/corpseViewers`). 빈 시체는 마지막 사람이 창을 닫을 때까지
+   * 가라앉기 시계를 세지 않는다. 맡는 id 는 `pcorpse:` 뿐이다 (적 시체 `corpse:<id>` 는 enemies 의 추적기가 맡는다).
+   */
+  readonly viewers: CorpseViewTracker;
 
   constructor(private readonly ctx: GameContext) {
+    this.viewers = new CorpseViewTracker(ctx, {
+      matches: (id) => id.startsWith('pcorpse:'),
+      positionOf: (id) => this.corpses.get(id)?.position ?? null,
+    });
     this.hookNet();
   }
 
@@ -412,8 +425,9 @@ export class PlayerCorpseManager implements CorpsesRef {
     this.ctx.bus.emit('corpse:playerSpawned', {
       id, ownerId, ownerName, position: c.position.clone(), yaw,
     });
-    // 2026-09-16: 빈손으로 선 시체 (아무것도 없이 죽었다) — 선 순간 비었다
-    if (c.items.length === 0) this.markEmptied(id);
+    // 2026-09-16: 빈손으로 선 시체 (아무것도 없이 죽었다) — 선 순간 비었고 아무도 연 적이 없으니 곧바로 센다.
+    // 모든 클라이언트가 같은 `items` 를 보므로 방송하지 않는다.
+    if (c.items.length === 0) this.releaseEmptied(id);
     return c;
   }
 
@@ -443,16 +457,39 @@ export class PlayerCorpseManager implements CorpsesRef {
   }
 
   /**
-   * `crate:looted` / `pcorpse emptied` / 빈손으로 선 시체(`add`): 프롬프트가 `비어 있음` 이 되고, 2026-09-16 부터
-   * `CORPSE_EMPTY_REMOVE_DELAY_S` 뒤 가라앉기 시작해 다 가라앉으면 치워진다 (`update` → `removeCorpse`).
+   * `crate:looted` (모든 클라이언트): 프롬프트가 `비어 있음` 이 된다. 2026-09-16 (2차): 가라앉기 시계는 **아무도 창을 열어 두지
+   * 않게 된 뒤에** 시작한다 — 권위(싱글 · 호스트)는 지금 아무도 안 보면 곧바로, 아니면 `update` 가 마지막 사람이 닫는 순간
+   * 풀고 (세션이면) `pcorpse emptied` 를 방송한다. 비호스트는 호스트의 그 방송(`releaseEmptied`)을 기다린다.
    */
   markEmptied(id: string): boolean {
     const c = this.corpses.get(id);
     if (!c || c.emptied) return false;
     c.emptied = true;
-    c.emptiedAt = this.ctx.missionTime;
     this.ctx.bus.emit('corpse:playerEmptied', { id, ownerId: c.ownerId });
+    if (this.ctx.isAuthority && !this.viewers.isViewed(id)) this.releaseByAuthority(c);
     return true;
+  }
+
+  /**
+   * 2026-09-16 (2차): 빈 시체의 가라앉기 시계를 지금부터 센다 — 빈손으로 선 시체(`add`) · 호스트의 `pcorpse emptied`
+   * (`parts/CorpseNet`). 아직 비었다고 몰랐으면 함께 표시한다. 이미 세는 중이면 아무것도 안 한다. 모르는 id 면 false.
+   */
+  releaseEmptied(id: string): boolean {
+    const c = this.corpses.get(id);
+    if (!c) return false;
+    if (!c.emptied) {
+      c.emptied = true;
+      this.ctx.bus.emit('corpse:playerEmptied', { id, ownerId: c.ownerId });
+    }
+    if (c.emptiedAt < 0) c.emptiedAt = this.ctx.missionTime;
+    return true;
+  }
+
+  /** 권위: 아무도 보지 않는 빈 시체의 시계를 풀고, 세션이면 분대에 알린다 (호스트만 보낸다 — 받는 쪽은 호스트 것만 받는다). */
+  private releaseByAuthority(c: PlayerCorpseObject): void {
+    if (c.emptiedAt >= 0) return;
+    c.emptiedAt = this.ctx.missionTime;
+    if (this.ctx.isMultiplayer) this.ctx.net?.send({ t: 'pcorpse', ev: 'emptied', id: c.id }, 'others');
   }
 
   /** 2026-09-16 (`CorpsesRef.ownerHadCorpse`, caller: player/RemoteAvatar): 이번 레이드에 이 주인의 시체가 선 적이 있는가. */
@@ -484,14 +521,25 @@ export class PlayerCorpseManager implements CorpsesRef {
   /**
    * 매 프레임 (`GameFlowSystem.update`): 전차에 실린 시체를 차량의 지금 자리로. 타지 않은 시체는 비용이 없다.
    * 2026-09-16: 빈 시체를 가라앉히고, 다 가라앉은 것을 치운다 (시계 = `ctx.missionTime`).
+   * 2026-09-16 (2차): 누가 창을 열어 두고 있는 빈 시체는 세지 않는다 — 권위는 마지막 사람이 닫는 순간 풀어 방송하고, 이미 세는
+   * 시체라도 **내** 창이 그것을 보여 주는 동안은 시계를 붙잡는다 (방송과 내 닫기가 엇갈린 경우 — 닫은 뒤 1초가 지켜진다).
    */
   update(): void {
     if (!this.netUnsub) this.hookNet();
+    this.viewers.update();
     const now = this.ctx.missionTime;
+    const mine = this.viewers.localViewing;
+    const authority = this.ctx.isAuthority;
     let done: string[] | null = null;
     for (const c of this.corpses.values()) {
       c.followCarrier();
-      if (c.emptied && c.stepSink(now)) (done ??= []).push(c.id);
+      if (!c.emptied) continue;
+      if (c.emptiedAt < 0) {
+        if (authority && !this.viewers.isViewed(c.id)) this.releaseByAuthority(c);
+        continue;
+      }
+      if (mine === c.id) { c.emptiedAt = now; continue; }
+      if (c.stepSink(now)) (done ??= []).push(c.id);
     }
     if (done) for (const id of done) this.removeCorpse(id);
   }
@@ -517,5 +565,6 @@ export class PlayerCorpseManager implements CorpsesRef {
     this.pendingRide.clear();
     this.removed.clear();   // 2026-09-16
     this.owners.clear();
+    this.viewers.reset();   // 2026-09-16 (2차)
   }
 }

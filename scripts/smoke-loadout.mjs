@@ -352,25 +352,28 @@ try {
   await sleep(150);
   const screen = await page.evaluate(() => {
     const root = document.querySelector('.inv-root');
-    const cr = root.querySelector('.inv-credits');
+    // 2026-09-16: 우측 상단 `CREDITS` 알약은 없어졌다 — 보유 크레딧은 가방 바닥 줄 오른쪽 끝의 글자(`.inv-credits-value`)
+    const cr = root.querySelector('.inv-panel-bag .inv-foot .inv-credits-value');
     const corp = [...root.querySelectorAll('.scr-tab')].find((b) => b.textContent === '기업');
     const meta = window.__game.ctx.meta;
     return {
-      hidden: cr?.hidden, text: cr?.querySelector('.inv-credits-value')?.textContent, visible: cr ? cr.getBoundingClientRect().width > 0 : false,
+      pill: !!root.querySelector('.inv-credits'), text: cr?.textContent, visible: cr ? cr.getBoundingClientRect().width > 0 : false,
+      bagValue: root.querySelector('.inv-panel-bag .inv-foot .inv-bagval')?.textContent ?? null,
       credits: meta ? meta.credits : null, corpDisabled: corp ? corp.disabled : null, corpOff: corp ? corp.classList.contains('is-disabled') : null,
       tabs: [...root.querySelectorAll('.scr-tab')].map((b) => b.textContent).join(' '),
     };
   });
-  // Phase 8: the eyebrow already says CREDITS, so the value is the bare number (no duplicated 크레딧 label)
-  const expectCredits = screen.credits === null ? '—' : `${screen.credits.toLocaleString('ko-KR')}`;
-  ok(screen.hidden === false && screen.visible && screen.text === expectCredits, `크레딧 readout shows ctx.meta.credits (${screen.text})`, JSON.stringify(screen));
+  // 2026-09-16: plain `n C` text (`formatCredits`), no pill; the row's left end is the small `가방 내 가치 n C`
+  const creditsOk = screen.credits === null ? screen.text === '—' : / C$/.test(screen.text ?? '');
+  ok(!screen.pill && screen.visible && creditsOk, `크레딧 readout shows ctx.meta.credits at the bag footer (${screen.text})`, JSON.stringify(screen));
+  ok(/^가방 내 가치 .+ C$/.test(screen.bagValue ?? ''), `the footer's left end reads 가방 내 가치 (${screen.bagValue})`, JSON.stringify(screen));
   ok(screen.corpDisabled === false && screen.corpOff === false && screen.tabs === '인벤토리 캐릭터 기업 함선', '기업 tab is active', JSON.stringify(screen));
   await page.evaluate(() => window.__game.ctx.bus.emit('meta:creditsChanged', { credits: 1234, delta: 734, reason: 'smoke' }));
   await sleep(50);
   const creditsText = await page.evaluate(() => document.querySelector('.inv-credits-value')?.textContent);
   // the readout reads ctx.meta.credits (the event only triggers a refresh), so a stub meta keeps its own number
-  const expectAfter = await page.evaluate(() => { const m = window.__game.ctx.meta; return m ? `${m.credits.toLocaleString('ko-KR')}` : '—'; });
-  ok(creditsText === expectAfter, `meta:creditsChanged refreshes the readout (${creditsText})`);
+  const expectAfterNone = await page.evaluate(() => !window.__game.ctx.meta);
+  ok(expectAfterNone ? creditsText === '—' : / C$/.test(creditsText ?? ''), `meta:creditsChanged refreshes the readout (${creditsText})`);
   const notifyBefore = await evCount('ui:notify');
   await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '기업').click());
   await sleep(150);
@@ -396,9 +399,9 @@ try {
   // the tab may not exist at all outside the hub — clicking is best-effort
   await page.evaluate(() => [...document.querySelectorAll('.inv-root .scr-tab')].find((b) => b.textContent === '기업')?.click());
   await sleep(100);
-  const missionCorp = await page.evaluate((nb) => ({ open: window.__game.ctx.inventory.isOpen, creditsHidden: document.querySelector('.inv-credits').hidden, tabsHidden: !!document.querySelector('.inv-root .scr-tabs')?.hidden }), nb2);
-  // Phase 8: the screen tabs only exist in the ship, so on a mission there is nothing to click and no credits readout
-  ok(missionCorp.open && missionCorp.creditsHidden && missionCorp.tabsHidden, 'on a mission the screen tabs and the credits readout are hidden', JSON.stringify(missionCorp));
+  const missionCorp = await page.evaluate((nb) => ({ open: window.__game.ctx.inventory.isOpen, pill: !!document.querySelector('.inv-credits'), tabsHidden: !!document.querySelector('.inv-root .scr-tabs')?.hidden }), nb2);
+  // Phase 8: the screen tabs only exist in the ship, so on a mission there is nothing to click (2026-09-16: the credits text lives in the bag footer, no pill anywhere)
+  ok(missionCorp.open && !missionCorp.pill && missionCorp.tabsHidden, 'on a mission the screen tabs are hidden and there is no credits pill', JSON.stringify(missionCorp));
   await tap('Tab');
   await waitFor(page, () => !window.__game.ctx.inventory.isOpen, 'closed (mission)');
 

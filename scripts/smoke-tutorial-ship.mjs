@@ -1,26 +1,24 @@
-// Tutorial **ship track** smoke (② `ship`: levelUp → stats) — TODO E-12, 2026-09-15.
+// Tutorial **ship track** smoke (② `ship`: one step `stats`) — TODO E-12, 2026-09-15.
 // 2026-09-15 (사용자 결정): `ravenQuest` 가 순서에서 빠졌다. 레이븐의 첫 연락은 **함선 트랙이 끝난 뒤**, 어느 트랙도
 //   돌지 않을 때 온다 (`meta/parts/NpcQuests.tutorialBlocks`) — 5 는 「증축 트랙을 건너뛰면 온다」를 본다.
-// 2026-09-16 (사용자 결정): `messenger`(메신저 열기)도 빠졌다 (2 steps). `stats` 가 마지막이고, 확정해도 **인벤토리 화면을 닫을 때**
-//   트랙이 끝난다 — 그래야 증축 트랙의 시작 카드가 캐릭터 화면 위로 뜨지 않는다. 옛 저장의 `messenger` · `ravenQuest` 는 「함선 트랙 끝」.
+// 2026-09-16 (사용자 결정): `messenger`(메신저 열기)도 빠졌다. 옛 저장의 `messenger` · `ravenQuest` 는 「함선 트랙 끝」.
+// 2026-09-16 2차 (사용자 결정): `levelUp` 도 빠져 `stats` 한 단계에 목표 넷이 순차 공개된다 (메뉴 열기 → 캐릭터 탭 → ＋ → 확정).
+//   포커스가 목표를 따라 옮겨 가고, 확정하는 **그 자리에서** 트랙이 끝난다 — 증축 트랙은 메뉴를 닫을 때 시작한다.
+//   함선 트랙 동안 `시설 관리` 힌트는 숨고 시설 관리에 들어갈 수 없다 (`shipManage` 게이트).
 //
 // The raid track (①) is driven by its own smoke; this one sets up the moment that track ends for real and drives the rest with
 // **real input** wherever the player judges something:
 //   0. 레이드 완주 — the tutorial system's own completion path (`extract` → `advance()` → `finish(false)`) leaves `pendingShip`, and
-//      the tutorial raid XP (`TUTORIAL_RAID_XP`) lands a fresh Lv.1 character on exactly Lv.2 with one stat point
-//      (granted by settlement when that exists, else `ctx.progression.addXp` — the line says which).
-//   1. 트랙 순서 — entering the personal ship starts the ship track (raid done, build has no record and waits), 1/3, ship gates.
-//   2. levelUp — Tab (synthetic key on document.body) opens the inventory → stats. And the 2026-09-14 4차 bug: with the inventory
-//      **already open**, a real click on the 캐릭터 tab advances (no `inventory:opened` comes).
-//   3. stats — the spotlight hole is exactly the **visible** stat column (`.cs-col` — the closed overlay copy sits first in the DOM)
-//      and holds every ＋ and the confirm button (hit-tested); ＋ by mouse, a short press does nothing, a real 1 s pointer hold on
-//      `포인트 투자 확정` spends the point; the profile is saved. The objective is ticked but the track **stays at stats (2/2)**
-//      while the inventory is open: no build intro card, the character tab stays, the messenger stays hidden, no contact.
-//   4. close — Tab closes the inventory → `tutorial:finished {track:'ship'}` → the build track starts (intro card) in the same ship;
-//      the messenger was never opened and stays hidden.
-//   6. old saves + reload — `load()` reads a saved `messenger` / `ravenQuest` as "ship track done" (`stats` resumes); a save left at
-//      `stats` with the objective done (confirmed, reloaded before closing) ends the ship track on entering the ship → build intro;
-//      level and the spent point survive the reload.
+//      the tutorial raid XP (`TUTORIAL_RAID_XP`) lands a fresh Lv.1 character on exactly Lv.2 with one stat point.
+//   1. 트랙 순서 — entering the personal ship starts the ship track `stats` (1/1), only 「메뉴 열기」 visible, the control guide
+//      carries the menu key, ship gates; `시설 관리` hint hidden, M / `openShipManage` refused.
+//   2. 메뉴 · 캐릭터 탭 — Tab ticks 「메뉴 열기」; the spotlight hole is exactly the 캐릭터 tab button; a real click ticks the tab row.
+//   3. stats — hole = the **visible** stat column with a ＋ glyph in the callout; ＋ by mouse ticks 「능력치 하나 상승」 and the focus
+//      moves to `포인트 투자 확정`; a short press does nothing, a real 1 s hold spends the point → the track ends at once (no focus),
+//      the menu stays open, the build track waits (no intro card, `isTrackDone('ship')` false, no contact).
+//   4. close — Tab closes the menu → the build track starts (intro card) in the same ship; `shipManage` is open again.
+//   6. old saves + reload — `load()` reads `messenger` / `ravenQuest` as "ship track done", `levelUp` as `stats`; a save left at
+//      `stats` with the objective done ends the ship track on entering the ship → build intro; level and the spent point survive.
 //   5. 레이븐 — `skipTrack('build')` leaves no track running → within `NPC_OFFER_CHECK_S` Raven's first contact arrives (only Raven:
 //      greeting lines + two choices, no quest card), the button returns with an unread badge.
 //
@@ -126,7 +124,7 @@ try {
         return { x, y, ok: !!under && (under === el || el.contains(under)), under: under ? String(under.className) : null };
       };
       window.__objDone = (text) => {
-        const row = [...document.querySelectorAll('.tut-panel .tut-obj')].find((r) => r.querySelector('.tut-obj-txt')?.textContent === text);
+        const row = [...document.querySelectorAll('.tut-panel .tut-obj')].find((r) => (r.querySelector('.tut-obj-txt')?.textContent ?? '').includes(text));
         return row ? row.classList.contains('is-done') : null;
       };
       window.__ev = {};
@@ -190,7 +188,7 @@ try {
   /* ── 1. 함선에 들어서면 함선 트랙 — 순서 raid → ship → build ─────────── */
   console.log('1. 트랙 순서');
   await enterShip();
-  await waitStep('levelUp');
+  await waitStep('stats');
   await sleep(700);   // 목표 줄은 반 박자 늦게 그려진다 (TUTORIAL_STEP_DELAY_S)
   const s1 = await P(async () => {
     const S = await import('/src/shared/index.ts');
@@ -207,78 +205,82 @@ try {
       popup: !(document.querySelector('.tut-popup')?.hidden ?? true),
       panelTrack: document.querySelector('.tut-panel .tut-track')?.textContent ?? '',
       objs: [...document.querySelectorAll('.tut-panel .tut-obj-txt')].map((e) => e.textContent),
+      controls: document.querySelector('.tut-controls')?.textContent ?? '',
+      lit: window.__lit(),
     };
   });
-  ok(s1.order.join(' ') === 'raid ship build' && s1.ship.join(' ') === 'levelUp stats',
-    `트랙 순서 raid → ship → build, 함선 트랙 ${s1.ship.join(' → ')} (메신저 단계 없음)`, JSON.stringify(s1));
-  ok(s1.track === 'ship' && s1.step === 'levelUp' && s1.index === 1 && s1.count === 2
-    && s1.ev?.track === 'ship' && s1.ev?.step === 'levelUp' && s1.ev?.index === 1 && s1.ev?.count === 2,
-  '함선에 들어서면 함선 트랙 levelUp (1/2) 이 시작된다', JSON.stringify({ track: s1.track, step: s1.step, ev: s1.ev }));
+  ok(s1.order.join(' ') === 'raid ship build' && s1.ship.join(' ') === 'stats',
+    `트랙 순서 raid → ship → build, 함선 트랙 ${s1.ship.join(' → ')} (한 단계)`, JSON.stringify(s1));
+  ok(s1.track === 'ship' && s1.step === 'stats' && s1.index === 1 && s1.count === 1
+    && s1.ev?.track === 'ship' && s1.ev?.step === 'stats' && s1.ev?.index === 1 && s1.ev?.count === 1,
+  '함선에 들어서면 함선 트랙 stats (1/1) 이 시작된다', JSON.stringify({ track: s1.track, step: s1.step, ev: s1.ev }));
   ok(s1.raidDone === true && s1.shipDone === false, '레이드 트랙은 끝났고 함선 트랙은 도는 중', JSON.stringify(s1));
-  ok(s1.save?.tracks?.ship?.step === 'levelUp' && !s1.save?.tracks?.build && s1.save?.pendingShip === false && !s1.popup,
+  ok(s1.save?.tracks?.ship?.step === 'stats' && !s1.save?.tracks?.build && s1.save?.pendingShip === false && !s1.popup,
     '증축 트랙은 기록 없이 기다린다 (시작 카드 없음) · pendingShip 은 한 번 쓰고 지워진다', JSON.stringify(s1.save));
-  ok(s1.hidesCommunity === true && s1.communityShown === false, 'levelUp 에서는 메신저 버튼을 감춘다 (그 단계의 allow 밖)');
+  ok(s1.hidesCommunity === true && s1.communityShown === false, '함선 트랙에서는 메신저 버튼을 감춘다');
   ok(s1.charTab === null && !!s1.corpTab, '캐릭터 탭만 열리고 나머지 화면 탭은 막힌다', JSON.stringify({ c: s1.charTab, corp: s1.corpTab }));
   ok(s1.hud.every((h) => h === false), '함선 트랙은 HUD 를 하나도 감추지 않는다', JSON.stringify(s1.hud));
-  ok(s1.panelTrack.includes('함선 안내') && s1.objs.join('|') === '인벤토리 화면 열기',
-    `목표 패널: 함선 안내 · 「인벤토리 화면 열기」 (${s1.panelTrack} / ${s1.objs.join('|')})`);
+  ok(s1.panelTrack.includes('함선 안내') && s1.objs.length === 1 && s1.objs[0].includes('메뉴 열기'),
+    `목표 패널: 함선 안내 · 첫 목표 「메뉴 열기」 하나만 보인다 (${s1.panelTrack} / ${s1.objs.join('|')})`);
+  ok(s1.controls.includes('메뉴 열기') && !s1.lit, '우측 조작 가이드에 메뉴 여는 키 · 창이 닫혀 있어 포커싱은 없다', JSON.stringify(s1));
 
-  /* ── 2. levelUp — Tab 으로 인벤토리 · 이미 열린 창에서 캐릭터 탭 ─────── */
-  console.log('2. levelUp');
-  await tapKey('Tab');
-  await waitStep('stats');
-  const s2 = await P(() => ({
-    open: window.__game.ctx.inventory.isOpen, tab: window.__game.ctx.inventory.screenTab,
-    opened: window.__ev['inventory:opened'].length,
-    ev: window.__ev['tutorial:changed'].slice(-1)[0] ?? null,
-  }));
-  ok(s2.open === true && s2.tab === 'inventory' && s2.opened >= 1 && s2.ev?.step === 'stats' && s2.ev?.index === 2,
-    'Tab 으로 인벤토리 화면을 열면 stats (2/2) 로 넘어간다', JSON.stringify(s2));
-
-  // 2026-09-14 4차 bug fix: the inventory is **already open** — switching tabs sends no `inventory:opened`
-  await P(() => window.__game.ctx.tutorial.goto('levelUp'));
-  await sleep(500);
-  const s2b = await P(() => ({ step: window.__game.ctx.tutorial.step, open: window.__game.ctx.inventory.isOpen, tab: window.__game.ctx.inventory.screenTab }));
-  ok(s2b.step === 'levelUp' && s2b.open && s2b.tab === 'inventory', '창이 열린 채 levelUp 으로 되돌리면 인벤토리 탭에서는 그대로 머문다', JSON.stringify(s2b));
-  await waitSpot('캐릭터', 'spotlight (levelUp 탭 줄)');
-  const tabHit = await P(() => {
-    const tabs = window.__shown('.inv-root .scr-tabs');
-    const b = [...document.querySelectorAll('.inv-root .scr-tab')].find((x) => x.textContent?.includes('캐릭터') && x.getClientRects().length > 0);
-    return { exact: window.__holeIs(tabs), hit: window.__hit(b) };
+  // 2026-09-16 2차: 함선 트랙 동안 우하단 `시설 관리` 힌트는 숨고 시설 관리에 들어갈 수 없다 (M 키 포함)
+  await tapKey('KeyM');
+  await sleep(300);
+  const s1m = await P(() => {
+    const t = window.__game.ctx.tutorial, h = window.__game.ctx.housing;
+    return {
+      modeAfterM: h.shipManageMode,
+      hides: t.hides('shipManage'), reason: t.blockReason('shipManage'), block: h.shipManageBlock(),
+      hint: document.querySelector('.ship-hint')?.classList.contains('show') ?? null, open: h.openShipManage(), mode: h.shipManageMode,
+    };
   });
-  ok(tabHit.exact && tabHit.hit?.ok, 'levelUp 포커싱은 탭 줄을 뚫고 캐릭터 탭이 실제로 눌린다', JSON.stringify(tabHit));
-  if (tabHit.hit) await page.mouse.click(tabHit.hit.x, tabHit.hit.y);
-  await waitStep('stats', 10000).catch(() => null);
-  const s2c = await P(() => ({ step: window.__game.ctx.tutorial.step, tab: window.__game.ctx.inventory.screenTab, opened: window.__ev['inventory:opened'].length }));
-  ok(s2c.step === 'stats' && s2c.tab === 'character' && s2c.opened === s2.opened,
-    '이미 열린 인벤토리에서 캐릭터 탭을 누르면 (inventory:opened 없이) stats 로 넘어간다', JSON.stringify(s2c));
+  ok(s1m.modeAfterM === false && s1m.hides === true && !!s1m.reason && !!s1m.block && s1m.hint === false && s1m.open === false && s1m.mode === false,
+    '함선 트랙 동안 시설 관리 힌트가 숨고 M · openShipManage 가 거절된다', JSON.stringify(s1m));
 
-  /* ── 3. stats — 보이는 능력치 열 · ＋ · 1초 홀드 ──────────────────────── */
+  /* ── 2. 메뉴 열기 → 캐릭터 탭 (포커스가 탭으로 옮겨 간다) ─────────────── */
+  console.log('2. 메뉴 · 캐릭터 탭');
+  await tapKey('Tab');
+  await waitFor(page, () => window.__objDone('메뉴 열기') === true, 'statsMenu ticked', 10000).catch(() => null);
+  await sleep(700);
+  const s2 = await P(() => ({
+    open: window.__game.ctx.inventory.isOpen, tab: window.__game.ctx.inventory.screenTab, step: window.__game.ctx.tutorial.step,
+    menuDone: window.__objDone('메뉴 열기'), tabRow: window.__objDone('캐릭터 탭으로 이동'),
+  }));
+  ok(s2.open === true && s2.tab === 'inventory' && s2.step === 'stats' && s2.menuDone === true && s2.tabRow === false,
+    'Tab 으로 메뉴를 열면 첫 목표가 체크되고 「캐릭터 탭으로 이동」이 열린다 (단계는 그대로)', JSON.stringify(s2));
+  await waitSpot('캐릭터 탭으로 이동', 'spotlight (캐릭터 탭)');
+  const tabHit = await P(() => {
+    const b = window.__shown('.inv-root .scr-tabs .scr-tab:nth-child(2)');
+    return { label: b?.textContent ?? '', exact: window.__holeIs(b), hit: window.__hit(b) };
+  });
+  ok(tabHit.label.includes('캐릭터') && tabHit.exact && tabHit.hit?.ok, '포커싱 구멍 = 캐릭터 탭 버튼, 실제로 눌린다', JSON.stringify(tabHit));
+  if (tabHit.hit) await page.mouse.click(tabHit.hit.x, tabHit.hit.y);
+  await waitFor(page, () => window.__objDone('캐릭터 탭으로 이동') === true, 'statsTab ticked', 10000).catch(() => null);
+  const s2c = await P(() => ({ step: window.__game.ctx.tutorial.step, tab: window.__game.ctx.inventory.screenTab }));
+  ok(s2c.step === 'stats' && s2c.tab === 'character', '캐릭터 탭을 누르면 (inventory:opened 없이) 둘째 목표가 체크된다', JSON.stringify(s2c));
+
+  /* ── 3. 능력치 ＋ → 1초 홀드 확정 (포커스: ＋ 열 → 확정 버튼) ─────────── */
   console.log('3. stats');
-  await waitSpot('포인트 투자 확정', 'spotlight (능력치 열)');
+  await waitSpot('능력치 하나', 'spotlight (능력치 열)');
   const s3 = await P(() => {
     const col = window.__shown('.cs-col');
     const all = [...document.querySelectorAll('.cs-col')];
     const plus = col ? [...col.querySelectorAll('.cs-stat .plus')] : [];
-    const confirm = col?.querySelector('.pg-confirm') ?? null;
     return {
       copies: all.length, firstIsHidden: all[0] ? all[0] !== col : null, statCol: col?.querySelector('.ui-label')?.textContent ?? '',
-      exact: window.__holeIs(col), plusN: plus.length, plusIn: plus.every((b) => window.__inHole(b)),
-      confirmIn: window.__inHole(confirm), plusHit: window.__hit(plus[0]), confirmHit: window.__hit(confirm),
-      tip: document.querySelector('.tut-spot-tip')?.textContent ?? '',
+      exact: window.__holeIs(col), plusN: plus.length, plusIn: plus.every((b) => window.__inHole(b)), plusHit: window.__hit(plus[0]),
+      tip: document.querySelector('.tut-spot-tip')?.textContent ?? '', plusGlyph: !!document.querySelector('.tut-spot-tip .tut-spot-plus'),
     };
   });
   ok(s3.copies >= 4 && s3.firstIsHidden === true && s3.statCol === '능력치',
     '캐릭터 시트 사본이 둘이고 문서 순서상 첫 .cs-col 은 숨은 사본이다 (포커싱은 보이는 쪽을 골라야 한다)', JSON.stringify(s3));
-  ok(s3.exact, `포커싱 구멍 = 보이는 능력치 열 (.cs-col) 정확히 ("${s3.tip}")`, JSON.stringify(s3));
-  ok(s3.plusN >= 5 && s3.plusIn && s3.confirmIn, `＋ ${s3.plusN}개와 포인트 투자 확정이 전부 구멍 안이다`, JSON.stringify(s3));
-  // (the confirm button is `disabled` → `pointer-events: none` until something is pending, so it is hit-tested after ＋)
-  ok(s3.plusHit?.ok, '＋ 버튼이 어두운 판에 가리지 않는다 (hit-test)', JSON.stringify(s3.plusHit));
+  ok(s3.exact && s3.plusGlyph, `포커싱 구멍 = 보이는 능력치 열, 말풍선의 ＋ 는 버튼 모양 ("${s3.tip}")`, JSON.stringify(s3));
+  ok(s3.plusN >= 5 && s3.plusIn && s3.plusHit?.ok, `＋ ${s3.plusN}개가 구멍 안에서 눌린다 (hit-test)`, JSON.stringify(s3));
 
   const pre = await P(() => {
     const prog = window.__game.ctx.progression;
-    const col = window.__shown('.cs-col');
-    const row = col.querySelector('.cs-stat');
+    const row = window.__shown('.cs-col').querySelector('.cs-stat');
     return { id: row.dataset.stat, base: prog.getStat(row.dataset.stat), points: prog.statPoints };
   });
   for (let i = 0; i < pre.points; i++) {
@@ -286,16 +288,23 @@ try {
     await page.mouse.click(h.x, h.y);
     await sleep(120);
   }
+  await sleep(300);
   const pend = await P((id) => {
-    const col = window.__shown('.cs-col');
-    const pa = col.querySelector(`.cs-stat[data-stat="${id}"] .pa`);
-    return { pa: pa && !pa.hidden ? pa.textContent : null, points: window.__game.ctx.progression.statPoints, step: window.__game.ctx.tutorial.step };
+    const pa = window.__shown('.cs-col').querySelector(`.cs-stat[data-stat="${id}"] .pa`);
+    return {
+      pa: pa && !pa.hidden ? pa.textContent : null, points: window.__game.ctx.progression.statPoints, step: window.__game.ctx.tutorial.step,
+      raised: window.__objDone('능력치 하나 상승'),
+    };
   }, pre.id);
-  ok(pend.pa?.includes(String(pre.points)) && pend.points === pre.points && pend.step === 'stats',
-    `＋ 는 미확정으로만 쌓인다 (${pre.id} ${pend.pa}, 포인트 ${pend.points} 그대로, 단계 그대로)`, JSON.stringify(pend));
+  ok(pend.pa?.includes(String(pre.points)) && pend.points === pre.points && pend.step === 'stats' && pend.raised === true,
+    `＋ 는 미확정으로만 쌓이고 셋째 목표가 체크된다 (${pre.id} ${pend.pa}, 포인트 ${pend.points} 그대로)`, JSON.stringify(pend));
 
-  const confirmAt = await P(() => window.__hit(window.__shown('.cs-col').querySelector('.pg-confirm')));
-  ok(confirmAt?.ok, '미확정 포인트가 생기면 포인트 투자 확정이 구멍 안에서 눌린다 (hit-test)', JSON.stringify(confirmAt));
+  await waitSpot('길게 눌러 확정', 'spotlight (투자 확정)');
+  const confirmAt = await P(() => {
+    const b = window.__shown('.cs-col').querySelector('.pg-confirm');
+    return { ...window.__hit(b), exact: window.__holeIs(b) };
+  });
+  ok(confirmAt?.ok && confirmAt.exact, '포커스가 포인트 투자 확정 버튼으로 옮겨 가고 그 버튼이 눌린다 (hit-test)', JSON.stringify(confirmAt));
   await page.mouse.move(confirmAt.x, confirmAt.y);
   await page.mouse.down();
   await sleep(300);
@@ -315,72 +324,57 @@ try {
   await sleep(750);
   await page.mouse.up();
   ok(midHold.step === 'stats' && midHold.holding && midHold.points === pre.points, '누르고 있는 동안은 게이지만 찬다 (0.55 s)', JSON.stringify(midHold));
-  // 2026-09-16: `stats` 가 마지막 단계다 — 확정하면 목표에 체크만 들어가고, 화면을 닫을 때 트랙이 끝난다 (`TutorialSystem.onStatsConfirmed`)
-  await waitFor(page, () => window.__objDone('능력치 포인트 투자 확정') === true, 'statsSpent ticked', 10000).catch(() => null);
-  await sleep(300);
+  // 2026-09-16 2차: 확정하는 **그 자리에서** 포커싱이 걷히고 함선 트랙이 끝난다 — 증축 트랙은 메뉴를 닫을 때 시작한다
+  await waitFor(page, () => window.__ev['tutorial:finished'].some((f) => f.track === 'ship'), 'tutorial:finished ship', 10000).catch(() => null);
+  await sleep(1200);
   const s3b = await P((pre) => {
-    const prog = window.__game.ctx.progression, t = window.__game.ctx.tutorial;
+    const prog = window.__game.ctx.progression, t = window.__game.ctx.tutorial, inv = window.__game.ctx.inventory, npc = window.__game.ctx.meta.npc;
     const saved = JSON.parse(localStorage.getItem('scav.s1.profile') ?? 'null');
     return {
-      step: t.step, track: t.track, index: t.stepIndex, count: t.stepCount, points: prog.statPoints, value: prog.getStat(pre.id),
+      step: t.step, track: t.track, active: t.active, points: prog.statPoints, value: prog.getStat(pre.id),
       savedPoints: saved?.statPoints ?? null, savedValue: saved?.stats?.[pre.id] ?? null,
       statEv: window.__ev['progress:statChanged'].length,
       toast: window.__ev['ui:notify'].some((n) => /능력치 포인트 \d+점을 투자했습니다/.test(n.text)),
-      fin: window.__ev['tutorial:finished'].filter((f) => f.track === 'ship').length,
-      objDone: window.__objDone('능력치 포인트 투자 확정'),
+      fin: window.__ev['tutorial:finished'].filter((f) => f.track === 'ship'),
+      lit: window.__lit(), open: inv.isOpen, tab: inv.screenTab, shipDone: t.isTrackDone('ship'),
+      popup: !(document.querySelector('.tut-popup')?.hidden ?? true),
       tut: JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'),
+      contacts: npc.getContacts().length, msgs: window.__ev['npc:message'].length,
+      shipManage: t.hides('shipManage'),
     };
   }, pre);
-  ok(s3b.step === 'stats' && s3b.track === 'ship' && s3b.index === 2 && s3b.count === 2 && s3b.objDone === true && s3b.fin === 0,
-    '1초 홀드로 확정하면 목표에 체크가 들어가지만 화면이 열린 동안 함선 트랙은 stats (2/2) 에 머문다', JSON.stringify(s3b));
-  ok(s3b.tut?.tracks?.ship?.step === 'stats' && (s3b.tut?.objectives ?? []).includes('statsSpent'),
-    '달성한 목표가 저장에 남는다 (닫기 전에 새로고침해도 이어진다 — 6)', JSON.stringify(s3b.tut));
+  ok(s3b.fin.length === 1 && s3b.fin[0].skipped === false && !s3b.active && s3b.step === null && !s3b.lit,
+    '1초 홀드로 확정하면 그 자리에서 포커싱이 걷히고 함선 트랙이 끝난다 — tutorial:finished {ship, skipped:false}', JSON.stringify(s3b));
+  ok(s3b.open && s3b.tab === 'character' && !s3b.popup && !s3b.tut?.tracks?.build && s3b.tut?.tracks?.ship?.done === true && s3b.shipManage === false,
+    '메뉴가 열린 동안에는 증축 트랙이 시작되지 않는다 (시작 카드 없음 · 캐릭터 탭 그대로 · 시설 관리 잠금 해제)', JSON.stringify(s3b));
+  ok(s3b.shipDone === false && s3b.contacts === 0 && s3b.msgs === 0,
+    '증축 트랙을 기다리는 동안 isTrackDone(ship) 은 false — 레이븐이 먼저 끼어들지 않는다', JSON.stringify(s3b));
   ok(s3b.points === 0 && s3b.value === pre.base + pre.points && s3b.statEv > statEv0 && s3b.toast,
     `포인트가 실제로 들어갔다 (${pre.id} ${pre.base} → ${s3b.value}, 남은 포인트 ${s3b.points})`, JSON.stringify(s3b));
   ok(s3b.savedPoints === 0 && s3b.savedValue === pre.base + pre.points, '투자는 즉시 프로필에 저장된다 (scav.s1.profile)', JSON.stringify(s3b));
 
-  /* 인벤토리가 아직 열려 있다 — 증축 트랙이 그 위로 시작하면 안 된다 (시작 카드 · 캐릭터 탭 게이트 · 창고 숨김) */
-  await sleep(1200);
-  const held = await P(() => {
-    const t = window.__game.ctx.tutorial, inv = window.__game.ctx.inventory, npc = window.__game.ctx.meta.npc;
-    return {
-      step: t.step, open: inv.isOpen, tab: inv.screenTab, charTab: t.blockReason('screenTab', 'character'),
-      popup: !(document.querySelector('.tut-popup')?.hidden ?? true),
-      build: JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null')?.tracks?.build ?? null,
-      hidesCommunity: t.hides('community'), shown: document.querySelector('.community')?.classList.contains('show') ?? null,
-      contacts: npc.getContacts().length, msgs: window.__ev['npc:message'].length,
-    };
-  });
-  ok(held.step === 'stats' && held.open && held.tab === 'character' && held.charTab === null && !held.popup && held.build === null,
-    '화면이 열린 동안에는 증축 트랙의 시작 카드가 뜨지 않고 캐릭터 탭도 그대로다', JSON.stringify(held));
-  ok(held.hidesCommunity === true && held.shown === false && held.contacts === 0 && held.msgs === 0,
-    '메신저 단계가 없다 — 함선 트랙 내내 메신저 버튼은 감춰지고 아무 NPC 도 연락하지 않는다', JSON.stringify(held));
-
-  /* ── 4. 화면을 닫으면 함선 트랙이 끝나고 증축 트랙이 이어진다 ──────────────── */
-  console.log('4. 화면 닫기 → 함선 트랙 끝');
+  /* ── 4. 메뉴를 닫으면 증축 트랙이 이어진다 ──────────────────────────────── */
+  console.log('4. 메뉴 닫기 → 증축 트랙');
   const n0 = await P(() => window.__ev['tutorial:changed'].length);
   await tapKey('Tab');
-  await waitFor(page, () => window.__ev['tutorial:finished'].some((f) => f.track === 'ship'), 'tutorial:finished ship', 10000).catch(() => null);
+  await waitStep('intro', 10000).catch(() => null);
   await sleep(400);
   const s4b = await P((n0) => {
     const t = window.__game.ctx.tutorial;
     return {
       open: window.__game.ctx.inventory.isOpen,
       toggled: window.__ev['ui:messengerToggled'].filter((e) => e.open).length,
-      fin: window.__ev['tutorial:finished'].filter((f) => f.track === 'ship'),
       trail: window.__ev['tutorial:changed'].slice(n0).map((e) => `${e.track ?? '-'}:${e.step}:${e.index}/${e.count}`),
       track: t.track, step: t.step, shipDone: t.isTrackDone('ship'),
-      save: JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'),
       popup: !(document.querySelector('.tut-popup')?.hidden ?? true), popupTitle: document.querySelector('.tut-popup-card .title')?.textContent ?? '',
       messengerOpen: !(document.querySelector('.community-panel')?.hidden ?? true), hidesCommunity: t.hides('community'),
-      contacts: window.__game.ctx.meta.npc.getContacts().map((c) => c.npc.id),
+      contacts: window.__game.ctx.meta.npc.getContacts().map((c) => c.npc.id), shipManage: t.hides('shipManage'),
     };
   }, n0);
-  ok(!s4b.open && s4b.fin.length === 1 && s4b.fin[0].skipped === false && s4b.shipDone && s4b.save?.tracks?.ship?.done === true,
-    'Tab 으로 화면을 닫으면 함선 트랙이 끝난다 (2/2) — tutorial:finished {ship, skipped:false}', JSON.stringify(s4b));
-  ok(s4b.track === 'build' && s4b.step === 'intro' && s4b.popup && s4b.popupTitle === '튜토리얼'
-    && s4b.trail.join(' ') === '-:null:0/2 build:intro:1/17',
-  `닫힌 뒤에야 같은 함선에서 증축 트랙이 시작된다 (${s4b.trail.join(' → ')})`, JSON.stringify(s4b));
+  ok(!s4b.open && s4b.shipDone && s4b.track === 'build' && s4b.step === 'intro' && s4b.popup && s4b.popupTitle === '튜토리얼'
+    && s4b.trail.join(' ') === 'build:intro:1/17',
+  `메뉴를 닫은 뒤에야 같은 함선에서 증축 트랙이 시작된다 (${s4b.trail.join(' → ')})`, JSON.stringify(s4b));
+  ok(s4b.shipManage === false, '증축 트랙에서는 시설 관리가 막히지 않는다 (manage 단계가 연다)', JSON.stringify(s4b));
   ok(s4b.toggled === 0 && !s4b.messengerOpen && s4b.hidesCommunity === true,
     '메신저는 한 번도 열리지 않았고 증축 트랙에서도 감춰진다', JSON.stringify(s4b));
   ok(s4b.contacts.length === 0, '증축 트랙이 도는 동안에도 연락은 없다', JSON.stringify(s4b.contacts));
@@ -395,14 +389,15 @@ try {
       localStorage.setItem(key, JSON.stringify({ version: 2, tracks: { raid: { step: null, done: true }, ship: { step, done: false } } }));
       return sys.load().tracks.ship ?? null;
     };
-    const out = { messenger: read('messenger'), ravenQuest: read('ravenQuest'), stats: read('stats') };
+    const out = { messenger: read('messenger'), ravenQuest: read('ravenQuest'), stats: read('stats'), levelUp: read('levelUp') };
     if (keep !== null) localStorage.setItem(key, keep); else localStorage.removeItem(key);
     return out;
   });
   ok(remap.messenger?.step === null && remap.messenger?.done === true && remap.ravenQuest?.step === null && remap.ravenQuest?.done === true,
     '옛 저장의 messenger · ravenQuest 는 「함선 트랙 끝」으로 읽힌다 (되돌려 붙일 단계가 없다)', JSON.stringify(remap));
   ok(remap.stats?.step === 'stats' && remap.stats?.done === false, 'stats 저장은 그대로 이어진다', JSON.stringify(remap));
-  // 확정은 했는데(목표 달성) 화면을 닫기 전에 새로고침한 사람 — 증축 트랙은 아직 기록이 없다
+  ok(remap.levelUp?.step === 'stats' && remap.levelUp?.done === false, '옛 저장의 levelUp 은 stats 로 이어진다 (2026-09-16 2차)', JSON.stringify(remap));
+  // 확정은 적혀 있는데 트랙이 남은 옛 저장 (2026-09-16 1차 — 화면을 닫을 때 끝나던 때) — 증축 트랙은 아직 기록이 없다
   await P(() => localStorage.setItem('scav.s1.tutorial', JSON.stringify({
     version: 2, tracks: { raid: { step: null, done: true }, ship: { step: 'stats', done: false } }, pendingShip: false, objectives: ['statsSpent'],
   })));

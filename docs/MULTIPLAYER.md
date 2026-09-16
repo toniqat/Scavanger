@@ -42,7 +42,10 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
   (it primes a container for every `pcorpse` wire, `'all'` echoes to the sender) → `pcorpse emptied` to others, accepted only
   from the host; host `pcorpse sync` omits emptied corpses and removed ids never re-spawn. Enemy corpses (contents rolled per
   client): the emptier's `crate:looted` → `ecorpseq emptied` to the host (shape → sender → distance → rate) → `ee corpseEmptied`
-  → every client shortens that body's `corpseLife`; the usual `despawn` / `corpseGone` follows.
+  → every client shortens that body's `corpseLife`; the usual `despawn` / `corpseGone` follows. Both host decisions wait until
+  nobody has the corpse's loot window open: clients send `cviewq open|close {id}` (guard shape → sender → distance → rate), the
+  host keeps viewers per corpse, drops leavers / suspended / dead / out-of-range viewers, and clients re-send `open` to a new host
+  (`shared/corpseViewers.ts`).
 - **Chat**: `chat {text, kind}` relayed to others, also in the hub. **Pings**: `ping {p, kind, label?, enemyId?}` + `pingack`.
   **Comms wheel**: `comm`.
 
@@ -52,6 +55,7 @@ Split out of [CLAUDE.md](../CLAUDE.md). Every wire type lives in [`src/shared/ne
 |---|---|---|
 | `ps` · `fire` · `reload` · `grenade` (`fire` flag for G-10) · `melee` · `died` · `fall` | peer → others | player / weapons |
 | `es` · `ee` · `hit` · `hitc` · `explode` · `intq` · `dmg` · `shotq` · `ecorpseq` | host ↔ clients | enemies |
+| `cviewq` | clients → host | shared/corpseViewers (game · enemies) |
 | `ex` · `exq` | host ↔ clients | extraction |
 | `strat` · `stratq` (`call` via host, `deny` refunds cooldown) · `rescue` · `pod` | host ↔ clients | stratagems / player |
 | `gad` · `gadq` · `imp` · `buff` · `revive` · `harv` · `harvq` | mixed (see types) | gadgets / implants / player / world |

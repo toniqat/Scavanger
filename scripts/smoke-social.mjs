@@ -502,7 +502,7 @@ try {
   ok(cm.right === 32 && cm.top === 28, 'anchored top-right at 32 / 28 px', JSON.stringify([cm.right, cm.top]));
   ok(cm.count === '3', 'the online-friend count sits inside the thumbnail', cm.count);
   ok(!cm.dot, 'a pending friend request raises the red dot');
-  ok(cm.cheatTop === '108px', 'the MOVE CHEAT tag moves below the thumbnail in the ship', cm.cheatTop);
+  ok(cm.cheatTop === '128px', 'the MOVE CHEAT tag moves below the thumbnail + P keycap in the ship', cm.cheatTop);
   await P(() => { const s = window.__snap(); s.incoming = []; window.__setSocial(s); });
   await waitSim(0.4);   // the badge re-counts at 4 Hz
   ok(await P(() => document.querySelector('.cm-dot').hidden), 'no pending request → no badge (2026-09-14: the red dot is the messenger unread badge)');

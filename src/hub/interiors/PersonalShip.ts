@@ -6,7 +6,6 @@ import {
 } from '@/shared';
 import { GeoBatch, HUB_MATS as M, disposeMeshes, yawFromForward } from './GeoBatch';
 import { BoxInteriorCollider } from './InteriorCollider';
-import { ShipDoors } from './Doors';
 import { Parts } from './parts';
 import { LightPool, type LightFixture } from './LightPool';
 import { Starfield, Planet } from './Starfield';
@@ -48,8 +47,9 @@ function fadeMat(src: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
  * re-anchored and ramped, never toggled). Furniture is rendered by `Furniture.ts` into `RoomDef.furnitureGroup`.
  *
  * Phase 8 (2026-09-06): the built-in workbench and the hydroponics rack are gone (정비 벤치 / 재배층 are placeable
- * furniture now), every doorway carries a sliding `ShipDoors` door and each room owns its emissive strip materials
- * so an empty room reads dark (`ROOM_STRIP_DIM`) and an assigned one lit (`ROOM_STRIP_LIT`).
+ * furniture now) and each room owns its emissive strip materials so an empty room reads dark (`ROOM_STRIP_DIM`) and an
+ * assigned one lit (`ROOM_STRIP_LIT`). 2026-09-16 (사용자 결정): the sliding 자동문 (`ShipDoors`) are gone — every doorway
+ * and the cockpit arch is an open, framed opening (they never had colliders, so walking is unchanged).
  *
  * Phase 9 UI pass (2026-09-07) — cockpit clean-up:
  *   • the console pedestal terminal is **gone**; the dashboard's centre monitor *is* `terminal.screen` (the 항법 /
@@ -80,9 +80,6 @@ export class PersonalShip implements ShipInterior {
   readonly rooms: RoomDef[] = [];
   /** 2026-09-12: 조종석을 가구 공간으로 (`COCKPIT_ROOM_INDEX`). 격자는 `roomGridSize` · 막힌 칸은 `roomCellBlocked`. */
   readonly cockpit: EditAreaDef;
-  /** 자동문: room doorways + the cockpit arch (own meshes, never merged, no collider). */
-  readonly doors = new ShipDoors(this.root);
-
   private meshes: THREE.Mesh[] = [];
   /**
    * 2026-09-13 (사용자 결정): 조종석 천장 — 천장판 · 천장 조명 띠 · 천장 보 셋 · 계기판 위 천장 띠. 함선 전체 병합 배치에서 떼어 낸
@@ -164,11 +161,24 @@ export class PersonalShip implements ShipInterior {
     // stood inside it (it hid the 기업 네트워크 monitor).
     P.rib(3.3, C.maxZ - 0.16);
     P.rib(C.minX + 0.16, -3.95);
-    // corridor arch trim
-    b.box(0.12, 2.6, 0.36, CORRIDOR.minX - 0.06, 1.3, C.maxZ + WALL / 2, M.trim);
-    b.box(0.12, 2.6, 0.36, CORRIDOR.maxX + 0.06, 1.3, C.maxZ + WALL / 2, M.trim);
-    b.box(3.2, 0.1, 0.36, 0, 2.65, C.maxZ + WALL / 2, M.trim);
-    b.box(2.4, 0.06, 0.05, 0, 2.55, C.maxZ - 0.02, M.stripAmber);
+    /*
+     * Corridor arch trim. 2026-09-16 (자동문 제거 — 사용자 결정 「문틀 주변에 흉한 것이 남지 않게」): with the leaves gone the
+     * arch is looked *through*, and three things showed:
+     *  - the posts' inner faces sat exactly on the wall's reveal planes (x = ±1.5) and the header's underside exactly on
+     *    the soffit (y 2.6) → trim-vs-hull z-fighting inside the opening. Posts and header now stand 2 cm proud of the
+     *    reveal / soffit, so the trim covers them instead of sharing their planes;
+     *  - the cockpit wainscot band (front z −0.04) and its trim line (−0.055) ran 1–2.5 cm *in front of* the posts →
+     *    the posts reach to `archFront` so the band butts into them like a skirting board into a casing;
+     *  - the amber bar hung **inside** the opening just under the header (y 2.52 … 2.58, crossing the wall face) — it
+     *    now sits on the cockpit face of the header wall above the trim.
+     * The corridor's waist trim starts behind the posts (`archBack`, below) instead of running through them.
+     */
+    const archFront = C.maxZ - 0.065, archBack = C.maxZ + WALL + 0.03;
+    const archD = archBack - archFront, archZ = (archFront + archBack) / 2;
+    b.box(0.14, 2.6, archD, CORRIDOR.minX - 0.05, 1.3, archZ, M.trim);
+    b.box(0.14, 2.6, archD, CORRIDOR.maxX + 0.05, 1.3, archZ, M.trim);
+    b.box(3.24, 0.12, archD, 0, 2.64, archZ, M.trim);
+    b.box(2.4, 0.06, 0.05, 0, 2.8, C.maxZ - 0.03, M.stripAmber);
 
     // dashboard under the viewport + pilot seats + readouts
     b.boxB(6.6, 0.85, 0.7, 0, 0, C.minZ + 0.35, M.hullDark);
@@ -231,8 +241,6 @@ export class PersonalShip implements ShipInterior {
     ceil.b.build(this.cockpitCeiling, this.ceilMeshes);
     this.cockpitCeiling.name = 'cockpit-ceiling';
     r.add(this.cockpitCeiling);
-    // 자동문 on the cockpit arch (x −1.5 … 1.5, the wall slab at z 0 … 0.3)
-    this.doors.add(0, C.maxZ + WALL / 2, CORRIDOR.maxX - CORRIDOR.minX, 2.55, 0.12, 'x');
 
     /* ── corridor ── */
     P.deck(CORRIDOR, false);
@@ -260,7 +268,7 @@ export class PersonalShip implements ShipInterior {
       const gaps = ROOM_BOXES.filter((rb) => rb.side === side)
         .map((rb) => ({ lo: rb.doorZ - DOOR_WIDTH / 2 - 0.12, hi: rb.doorZ + DOOR_WIDTH / 2 + 0.12 }))
         .sort((a, c) => a.lo - c.lo);
-      let z = CORRIDOR.minZ;
+      let z = archBack;   // 2026-09-16: from behind the arch posts, not through them (z 0 … 0.33 is the arch)
       for (const g of [...gaps, { lo: CORRIDOR.maxZ, hi: CORRIDOR.maxZ }]) {
         const len = Math.min(g.lo, CORRIDOR.maxZ) - z;
         if (len > 0.02) b.box(0.05, 0.05, len, x, 1.05, z + len / 2, M.trim);
@@ -455,11 +463,14 @@ export class PersonalShip implements ShipInterior {
     const outerX = side < 0 ? rb.minX + 0.03 : rb.maxX - 0.03;
     b.box(0.04, 0.08, ROOM_DEPTH * 0.7, outerX, 2.4, cz, cyan);   // was the literal 3.0 (= 0.75 × the old 4 m wall)
     b.box(0.06, 0.02, DOOR_WIDTH - 0.2, face + (side < 0 ? -0.45 : 0.45), 0.012, rb.doorZ, amber);
-    // 자동문 in the doorway (inside the wall slab between the room and the corridor face)
-    this.doors.add(face + (side < 0 ? -WALL / 2 : WALL / 2), rb.doorZ, DOOR_WIDTH, DOOR_HEIGHT - 0.05, 0.1, 'z');
-    // sign above the door (corridor side) — second line = purpose, rewritten by the hub
-    const sign = new TextPlane(1.3, 0.5, 384);
-    sign.mesh.position.set(fx, DOOR_HEIGHT + 0.42, rb.doorZ);
+    // (2026-09-16: the sliding 자동문 that stood in this doorway, inside the wall slab, is gone — the opening is open)
+    // Sign above the door (corridor side) — second line = purpose, rewritten by the hub.
+    // 2026-09-16: it was 0.5 m tall centred at `DOOR_HEIGHT + 0.42` (2.57 … 3.07 m), and the half-segment ceiling beam
+    // (`CEIL − 0.22` = 2.98 m, 0.28 m deep, reaching the wall) stands right over the door — so the beam cut through
+    // the sign's top 9 cm. Now it fits between the frame header (top `DOOR_HEIGHT + 0.1`) and that beam.
+    const signH = 0.44;
+    const sign = new TextPlane(1.3, signH, 384);
+    sign.mesh.position.set(fx, DOOR_HEIGHT + 0.1 + 0.02 + signH / 2, rb.doorZ);
     sign.mesh.rotation.y = -side * Math.PI / 2;
     sign.set([`방 ${rb.index + 1}`, '빈 방'], '#e8e6e1', 'rgba(6,8,10,0.85)', '#9fb4c8');
     this.root.add(sign.mesh);
@@ -501,12 +512,11 @@ export class PersonalShip implements ShipInterior {
   get lights(): LightPool { return this.lightPool; }
 
   /**
-   * Player-proximity animation: sliding doors + the light pool. The light **count never changes** and no light is
+   * Player-proximity animation: the light pool (the sliding doors were removed 2026-09-16). The light **count never changes** and no light is
    * ever toggled — a light that must move to another fixture first ramps its intensity to 0, is repositioned, then
    * ramps back up (`LightPool`). A lit room is a candidate only while it is one of the nearest `ROOM_LIGHT_POOL`.
    */
   updateNear(dt: number, px: number, pz: number): void {
-    this.doors.update(dt, px, pz);
     this.pickRooms(px, pz);
     this.lightPool.update(dt, px, pz);
   }
@@ -558,7 +568,6 @@ export class PersonalShip implements ShipInterior {
   }
 
   dispose(): void {
-    this.doors.dispose();
     disposeMeshes(this.meshes);
     disposeMeshes(this.ceilMeshes);
     this.cockpitCeiling.removeFromParent();

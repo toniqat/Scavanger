@@ -475,7 +475,8 @@ export class GameFlowSystem implements GameSystem {
       this.autoReturnTimer -= dt;
       if (this.autoReturnTimer < 0) {
         this.autoReturnTimer = -1;
-        if (ctx.phase === 'dead') ctx.bus.emit('hub:enter', { ship: ctx.net?.lobby ? 'shared' : 'personal' });
+        // 2026-09-16: 결과 화면의 `함선으로 귀환` 과 같은 길 — 암전 → 로딩 → 페이드인 (ui/menus/ShipReturn 이 `hub:enter` 를 낸다)
+        if (ctx.phase === 'dead') ctx.bus.emit('ui:shipReturn', {});
       }
     }
     // 2026-09-14: 튜토리얼 — 사망 연출이 끝나면 체크포인트에서 다시 선다 (레이드 실패 없음)

@@ -1,7 +1,7 @@
 import type { TutorialStepId, TutorialTrack } from '@/shared';
 import { PLANET_IDS, TUTORIAL_STEPS, TUTORIAL_TRACK_STEPS, tutorialTrackOf } from '@/shared';
 import {
-  RAID_KILLS_PER_STEP, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE,
+  RAID_KILLS_PER_STEP, SPOT_STATS_RAISE, STATS_RAISE_TEXT, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE,
   type StepDef,
 } from './model';
 
@@ -338,7 +338,9 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     // 2026-09-14 2차 (사용자 결정): 이 단계만 **딤이 없다** — 시체 격자 · 장비 칸 말고도 볼 것이 많고,
     //   어두운 판이 화면 절반을 덮으면 처음 여는 인벤토리 화면을 읽을 수가 없다.
     spotNoDim: true,
-    spotText: '시체의 기관단총 → 주무기 칸',
+    // 2026-09-16 (사용자 결정): 옮기는 **방법**을 말한다 — 좌클릭 드래그 · 더블클릭 키캡 (`{MOUSE_LEFT}` · `{DOUBLE_CLICK}` 은
+    //   리바인드와 무관한 고정 토큰, `shared/keycap.KEYCAP_FIXED_TOKENS` — 더블클릭 키캡은 키 가이드의 것과 같은 모양이다)
+    spotText: '아이템을 {MOUSE_LEFT} 드래그 또는 {DOUBLE_CLICK}해서 장착 칸으로 이동',
   },
   /*
    * ── 「앞으로 이동」 구간 셋 (2026-09-14 4차, 사용자 결정) ────────────────────────────────────────
@@ -446,6 +448,10 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     },
   },
   /* ── ② ship — 함선 첫 진입 ── */
+  /*
+   * (순서에서 제외, 2026-09-16 2차 — 사용자 결정) `TUTORIAL_TRACK_STEPS.ship` 에 없다. 「인벤토리 화면 열기」는 `stats` 의 첫 목표
+   * (`statsMenu`)가 됐고, 옛 저장의 `levelUp` 은 `normalizeStep` 이 `stats` 로 옮긴다. 아래는 순서에 있던 때의 모습이다.
+   */
   levelUp: {
     id: 'levelUp', title: '레벨이 올랐습니다',
     // 넘어가는 신호는 `inventory:opened` 하나다 — 인벤토리 화면이 열리면 그 안의 캐릭터 탭은 다음 단계가 밝힌다.
@@ -456,21 +462,28 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     spot: ['.inv-root .scr-tabs', '.inv-root'],
     spotText: '캐릭터 탭',
   },
+  /*
+   * 2026-09-16 2차 (사용자 결정) — **함선 트랙의 유일한 단계.** 목표 넷이 하나씩 열린다 (순차 공개 `reveal`):
+   *   ① `statsMenu`  메뉴(Tab 창) 열기 — 우측 조작 가이드에 `{INVENTORY}` 한 줄 (`model.TUTORIAL_CONTROL_HINTS.stats`)
+   *   ② `statsTab`   캐릭터 탭으로 이동 — 스포트라이트는 탭 줄의 캐릭터 탭
+   *   ③ `statsRaise` 능력치 하나 ＋ — 스포트라이트는 능력치 열 (`progress:statPending` 으로 판정)
+   *   ④ `statsSpent` 투자 확정 (1초 홀드) — 스포트라이트는 `되돌리기 · 포인트 투자 확정` 줄
+   * ①② 는 화면 상태를 `poll` 이 보고, 어떤 목표에 무엇을 밝힐지는 `TutorialSystem.stepView` 가 고른다 (화면 상태에 따라 갈린다).
+   * 확정하는 순간 포커싱이 걷히고 트랙이 **그 자리에서** 끝난다 (`onStatsConfirmed`). `statsSpent` id 는 옛 저장 호환으로 그대로다.
+   * 아래 `spot` · `spotText` 는 ③ 의 모습 — 화면 상태를 모를 때(`stepView` 가 가르기 전)의 기본값이다.
+   */
   stats: {
     id: 'stats', title: '능력치에 포인트를 투자하세요',
-    hint: '＋ 로 나눠 담은 뒤 포인트 투자 확정을 1초간 누릅니다. 확정하기 전에는 되돌릴 수 있습니다.',
-    objectives: [{ id: 'statsSpent', text: '능력치 포인트 투자 확정' }],
+    hint: '임무 보상으로 능력치 포인트가 생겼습니다. 메뉴를 열고 캐릭터 탭에서 ＋ 로 나눠 담은 뒤 포인트 투자 확정을 1초간 누릅니다.',
+    objectives: [
+      { id: 'statsMenu', text: '{INVENTORY} 메뉴 열기' },
+      { id: 'statsTab', text: '캐릭터 탭으로 이동', reveal: true },
+      { id: 'statsRaise', text: '능력치 하나 상승', reveal: true },
+      { id: 'statsSpent', text: '능력치 투자 확정', reveal: true },
+    ],
     allow: { screenTab: ['character'] },
-    /*
-     * 2026-09-14 4차 — 밝히는 것은 **능력치 열 전체**(`.cs-col` 의 첫 열)다. 예전에는 `.pg-confirm` 이 맨 앞이라,
-     * 설령 그것을 찾았어도 구멍이 확정 버튼 하나뿐이라 **＋ 버튼이 어두운 판 밑**에 깔려 투자 자체를 못 했다.
-     * 능력치 열은 ＋ 줄과 `되돌리기 · 포인트 투자 확정`(`.pg-alloc`)을 함께 담고 있어 구멍 하나로 끝난다.
-     * 캐릭터 탭이 아직 안 열렸으면 탭 줄을 밝힌다 — 밝힐 것이 없어 안내가 끊기는 자리를 만들지 않는다.
-     * (`.cs-col` 이 **화면에 없는 사본**을 먼저 집던 문제는 `parts/Spotlight` 가 고쳤다 — 그 파일의 주석 참고.)
-     */
-    spot: ['.cs-col', '.inv-root .scr-tabs'],
-    // 2026-09-15 2차: `(1초 홀드)` 는 없앤다 — 그 말은 이제 버튼 안의 좌클릭 홀드 키캡이 그림으로 한다.
-    spotText: '＋ 로 투자 → 포인트 투자 확정',
+    spot: SPOT_STATS_RAISE,
+    spotText: STATS_RAISE_TEXT,
   },
   messenger: {
     id: 'messenger', title: '메신저를 여세요',
@@ -548,6 +561,8 @@ export const isOrderedStep = (id: string): id is TutorialStepId =>
 export function normalizeStep(id: string | null | undefined): TutorialStepId | null {
   if (typeof id !== 'string') return null;
   if (id === 'openCraft') return 'craftAmmo';
+  // 2026-09-16 2차: 「메뉴 열기」는 `stats` 의 첫 목표가 됐다 — 그 자리에 서 있던 저장은 `stats` 를 처음부터 한다
+  if (id === 'levelUp') return 'stats';
   return isOrderedStep(id) ? id : null;
 }
 

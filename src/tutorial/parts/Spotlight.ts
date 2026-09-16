@@ -1,4 +1,4 @@
-import { TUTORIAL_DIM_FADE_S, TUTORIAL_STEP_DELAY_S } from '@/shared';
+import { TUTORIAL_DIM_FADE_S, TUTORIAL_STEP_DELAY_S, renderKeyText } from '@/shared';
 import { RETARGET_INTERVAL } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -56,6 +56,31 @@ function firstShown(sel: string): HTMLElement | null {
   return null;
 }
 
+/** 말풍선 안의 ＋ 버튼 토큰 (2026-09-16 2차). */
+const PLUS_TOKEN = '{+}';
+
+/**
+ * 말풍선 글을 그린다 (2026-09-16 2차, 사용자 결정 — 「＋ 는 버튼 모양으로」). 키 토큰(`{ACTION}` · `{ACTION:hold}`)은
+ * `shared/keycap.renderKeyText` 가 키캡으로, `{+}` 는 능력치 시트의 ＋ 버튼을 닮은 작은 네모(`.tut-spot-plus`)로 그린다.
+ * 글자는 텍스트 노드로만 넣는다 (HTML 해석 없음).
+ */
+export function renderSpotText(host: HTMLElement, text: string): void {
+  host.textContent = '';
+  const parts = text.split(PLUS_TOKEN);
+  parts.forEach((part, i) => {
+    if (i > 0) {
+      const plus = document.createElement('span');
+      plus.className = 'tut-spot-plus';
+      plus.textContent = '＋';
+      host.appendChild(plus);
+    }
+    if (!part) return;
+    const seg = document.createElement('span');
+    renderKeyText(seg, part);
+    host.appendChild(seg);
+  });
+}
+
 /** 구멍 둘레 여백 (px). */
 const PAD = 6;
 
@@ -74,6 +99,8 @@ export class Spotlight {
   private readonly tip: HTMLElement;
   private selectors: readonly string[] = [];
   private text = '';
+  /** 말풍선에 마지막으로 그린 글 — 재조준마다 DOM 을 다시 짓지 않는다 (키캡 토큰이 들어간다). */
+  private tipText: string | null = null;
   /** 선택자를 "먼저 찾히는 하나"가 아니라 **전부의 합집합**으로 쓴다 (2026-09-08). */
   private union = false;
   /**
@@ -212,7 +239,7 @@ export class Spotlight {
     // 말풍선은 대상 아래, 화면을 벗어나면 위로
     const below = y1 + 10;
     const tipTop = below + 44 > vh ? y0 - 44 : below;
-    this.tip.textContent = this.text;
+    if (this.tipText !== this.text) { this.tipText = this.text; renderSpotText(this.tip, this.text); }
     this.tip.style.cssText = `left:${px(Math.min(Math.max(8, x0), vw - 300))};top:${px(Math.max(8, tipTop))}`;
     this.tip.hidden = !this.text;
     if (!this.shown) {
@@ -227,6 +254,7 @@ export class Spotlight {
 
   private hide(): void {
     this.wait = -1;
+    this.tipText = null;              // 다시 켜질 때 키캡을 지금 바인딩으로 다시 그린다
     if (!this.shown) return;
     this.shown = false;
     this.root.hidden = true;

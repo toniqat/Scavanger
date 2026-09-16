@@ -6,14 +6,15 @@ import type {
 } from '@/shared';
 import {
   COCKPIT_DECOR_FURNITURE, COCKPIT_DEFAULT_FURNITURE, COCKPIT_ROOM_INDEX, SHIP_ROOM_COUNT,
-  TUTORIAL_INTRO_WAKE_S, TUTORIAL_STEPS, TUTORIAL_TRACKS, TUTORIAL_TRACK_STEPS, slotKey,
+  TUTORIAL_CRAWL_AIM_HINT_FRAC, TUTORIAL_INTRO_WAKE_S, TUTORIAL_STEPS, TUTORIAL_TRACKS, TUTORIAL_TRACK_STEPS, slotKey,
 } from '@/shared';
 import {
   CHECKPOINT_STEP, CORPSE_MARKER_STEPS, CROUCH_AIM_TIP_KO, CROUCH_TIP_STEPS, GUIDE_ARRIVE, MARKER_RETARGET_FRAMES, RAID_KILLS_PER_STEP,
   SKIP_FADE_IN_S, SKIP_FADE_OUT_S, SKIP_HOLD_TIME, STANCE_HINT_IDS, TRACK_LABEL_KO,
   TUTORIAL_AMMO_DEF, TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_CONTROL_HINTS, TUTORIAL_CRAFT_GRANT,
   TUTORIAL_GUN_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
-  SPOT_CRAFT_CLOSE, SPOT_NONE, WAKE_REVEAL_DELAY_S, WAKE_REVEAL_MOVE_M,
+  SPOT_CRAFT_CLOSE, SPOT_NONE, SPOT_STATS_CONFIRM, SPOT_STATS_RAISE, SPOT_STATS_TAB,
+  STATS_CONFIRM_TEXT, STATS_RAISE_TEXT, STATS_TAB_TEXT, WAKE_REVEAL_DELAY_S, WAKE_REVEAL_MOVE_M,
   controlHintsFor, objectiveChain, objectivesOf, visibleObjectives,
   type ControlHint, type HudRevealState, type StepDef, type TutorialObjective,
 } from './model';
@@ -156,12 +157,29 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private benchArmed = false;
   /** 제작 열이 열려 있다 (`ui:craftToggled`) — `openBag` 단계가 "닫혔다"를 판단하는 유일한 상태. */
   private craftOpen = false;
+  /** 캐릭터 시트의 확정 전 ＋ 포인트 합 (`progress:statPending`, 2026-09-16 2차) — 함선 트랙 `stats` 의 포커스를 고른다. */
+  private statPending = 0;
+  /** `stats` 가 지금 보여 주는 포커스 (`statsFocus`) — 바뀔 때만 `poll` 이 화면을 다시 맞춘다. */
+  private statsFocusKey = -1;
+  /**
+   * 함선 트랙이 **메뉴가 열린 채** 끝났다 — 다음 트랙(증축)은 메뉴를 닫을 때 시작한다 (2026-09-16 2차, `finish` · `onInventoryClosed`).
+   * 그 사이에는 `isTrackDone('ship')` 이 false 라 레이븐의 첫 연락이 증축 트랙보다 먼저 끼어들지 않는다. 저장하지 않는다 —
+   * 새로고침하면 `hub:entered` 의 `autoStart` 가 같은 일을 한다.
+   */
+  private autoStartOnClose = false;
   /**
    * 이륙 연출이 화면을 가져갔다 (`ui:cinematic`, 2026-09-16 사용자 결정 — 「남은 HUD 가 전부 사라진다」). 그 동안 목표 패널 ·
    * 조작 가이드 · TIP · 스포트라이트 · 안내선 · 목표 마커를 그리지 않는다 (`refreshVisuals`). ui/ 의 HUD 페이드와 짝이다 —
    * 이 폴더의 DOM 은 ui/ 가 모르므로 스스로 접는다. 풀리는 곳: `ui:cinematic false` · `game:abort` · `game:newMission` · `hub:entered`.
    */
   private cinematic = false;
+  /**
+   * 무너진 통로를 `TUTORIAL_CRAWL_AIM_HINT_FRAC` 만큼 지났다 (2026-09-16, 사용자 결정) — 포복 구간의 조작 가이드에 발사 · 정조준이
+   * 붙는다. 한 번 서면 뒤로 물러나도 내리지 않는다 (줄이 깜빡이지 않게). 포복 구간 밖의 단계로 가면 풀린다 (`setStep`).
+   */
+  private crawlHalf = false;
+  /** 손에 든 빠른 사용 아이템이 회복 아이템이다 (`quick:equipped`) — `heal` 의 `길게 눌러 사용` 줄 (2026-09-16). */
+  private handStim = false;
 
   /* ── lifecycle ─────────────────────────────────────────────────────────── */
 
@@ -284,7 +302,10 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       /* ── heal 은 두 줄이다 (2026-09-14 4차) — 휠에서 골라 **손에 들고** · 길게 눌러 **쓴다**.
        *    「빠른 사용 칸에 올린다」는 자동 등록이 대신하므로 목표에서 빠졌고, 그것을 보던 구독도 함께 갔다.
        *    2026-09-15: 두 줄은 순차 공개다 (`healUse` 는 `reveal`) — 탭으로 곧장 꺼내 쓴 사람은 `objectiveChain` 이 앞줄도 적는다. */
-      b.on('quick:equipped', ({ item }) => { if (this.isStim(item)) this.markIf('heal', 'healHold'); }),
+      b.on('quick:equipped', ({ item }) => this.onQuickEquipped(item)),
+      // 새 레이드 · 중단은 빈손으로 시작한다 (손 상태 이벤트가 안 올 수도 있다)
+      b.on('game:newMission', () => { this.handStim = false; }),
+      b.on('game:abort', () => { this.handStim = false; }),
       // 수류탄 단계의 **선택** 목표는 「꺼내 던진다」다 — 터지기만 하면 달성이고 처치 여부를 보지 않는다
       b.on('grenade:exploded', () => this.markIf('grenade', 'grenadeThrow')),
       // 탈출은 스위치를 누른 그 순간에 끝난다 — 이륙 연출을 기다리면 결과 화면이 안내를 덮는다
@@ -292,8 +313,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       b.on('extraction:liftoff', () => { this.foldRaid('extract'); this.advanceIf('extract'); }),
 
       /* ── ② ship 트랙 (2026-09-14) ── */
-      b.on('inventory:opened', () => this.advanceIf('levelUp')),
-      // 2026-09-16: 투자를 확정해도 **화면을 닫을 때** 트랙이 끝난다 (`onStatsConfirmed`)
+      /* 2026-09-16 2차 (사용자 결정): `levelUp` 이 순서에서 빠져 `stats` 한 단계다 — 메뉴 열기 · 캐릭터 탭은 `poll` 이 보고,
+       * ＋ 는 `progress:statPending`, 확정은 `progress:statChanged` 가 알린다. 확정하는 **그 자리에서** 트랙이 끝난다 (`onStatsConfirmed`). */
+      b.on('progress:statPending', ({ total }) => this.onStatPending(total)),
       b.on('progress:statChanged', () => this.onStatsConfirmed()),
       /* 2026-09-16 (사용자 결정): `messenger`(메신저 열기)가 순서에서 빠졌다 — 함선 트랙은 `levelUp` → `stats` 두 단계이고, 그 단계를
        * 넘기던 `ui:messengerToggled` 구독도 함께 갔다. 메신저는 함선 트랙 · 증축 트랙 내내 감춰진다 (`parts/Gates` — `community` 를
@@ -311,6 +333,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     this.updateSkipFade(dt);
     if (!this.active) return;
     this.tip.update(dt, this.controls.visible ? this.controls.root : null);
+    // 2026-09-16: 패널에 떠 있는 키를 누르는 동안 그 키캡이 주황으로 켜진다
+    this.controls.update(this.ctx.input);
+    this.pollCrawlHint();
     this.consumePendingWake();
     this.updateWakeHold(dt);
     this.poll();
@@ -343,14 +368,10 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       this.retarget -= 1;
       if (this.retarget <= 0) { this.retarget = MARKER_RETARGET_FRAMES; this.marker.setTarget(this.nearestCorpse()); }
     }
-    if (step === 'levelUp' && (this.ctx.inventory?.screenTab ?? 'inventory') !== 'inventory') {
-      this.advance();
-      return;
-    }
-    // ③ `stats` — 확정은 했는데 화면이 이미 닫혀 있다 (새로고침 · 닫힘 이벤트를 놓침): 함선 트랙을 여기서 끝낸다 (`onStatsConfirmed`)
-    if (step === 'stats' && this.done.has('statsSpent') && !this.invOpen && this.ctx.isHubPhase()) {
-      this.advance();
-      return;
+    if (step === 'stats') {
+      // ③ 확정은 적혀 있는데 트랙이 남았다 (2026-09-16 1차 방식의 옛 저장 — 닫을 때 끝나던 때): 함선에서 곧장 끝낸다
+      if (this.done.has('statsSpent')) { if (this.ctx.isHubPhase()) this.advance(); return; }
+      this.pollStats();
     }
     const def = stepDef(step);
     const arrive = def.arriveObjective;
@@ -484,6 +505,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    * 이미 하던 사람에게는 전부 `true` 라 진입 흐름(`ui/menus/enterShip`)이 지금까지처럼 함선으로 간다.
    */
   isTrackDone(track: TutorialTrack): boolean {
+    // 2026-09-16 2차: 함선 트랙은 끝났지만 다음 트랙이 메뉴 닫기를 기다린다 (`autoStartOnClose`) — 그 사이 레이븐이 끼어들지 않게
+    if (track === 'ship' && this.autoStartOnClose) return false;
     const t = this.save.tracks[track];
     if (t) return t.done;
     /*
@@ -636,6 +659,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    *   ③ 증축 — 2026-09-08 부터의 규칙 그대로 **손대지 않은 함선**일 때만 (`shipUntouched`).
    */
   private autoStart(): void {
+    this.autoStartOnClose = false;
     if (this.active) return;
     if (!this.save.tracks.raid?.done) this.markDone('raid');
     if (!this.save.tracks.ship?.done) {
@@ -763,6 +787,31 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     if (this.track !== 'raid') return;
     if (this.step === 'advance1') { this.advance(); return; }
     if (this.step === 'corpseOpen' || this.step === 'corpseLoot') this.foldRaid('shoot');
+  }
+
+  /**
+   * 빠른 사용 아이템을 손에 들었다 / 총으로 돌아왔다 (2026-09-16). 회복 아이템이면 `heal` 의 첫 줄을 적고, 어느 쪽이든
+   * `heal` 의 조작 가이드를 다시 맞춘다 — `길게 눌러 사용` 은 붕대가 손에 있을 때만 선다 (총 · 수류탄이면 빠진다).
+   */
+  private onQuickEquipped(item: ItemInstance | null): void {
+    this.handStim = this.isStim(item);
+    if (this.handStim) this.markIf('heal', 'healHold');
+    if (this.step === 'heal') this.applyControls('heal');
+  }
+
+  /**
+   * 포복 구간에서 무너진 통로를 절반쯤 지났나 (2026-09-16, 사용자 결정) — 지나면 조작 가이드의 앉기 · 포복 아래에 발사 · 정조준이
+   * 붙는다. 통로의 좌표는 월드만 갖는다 (`TutorialWorldRef.crawlProgress`); 이 폴더는 비율(`TUTORIAL_CRAWL_AIM_HINT_FRAC`)만 안다.
+   */
+  private pollCrawlHint(): void {
+    if (this.crawlHalf) return;
+    const step = this.step;
+    if (step !== 'crouch' && step !== 'crouchAim') return;
+    const p = this.ctx.player;
+    const progress = p ? this.ctx.world?.tutorial?.crawlProgress?.(p.position) : undefined;
+    if (progress === undefined || progress < TUTORIAL_CRAWL_AIM_HINT_FRAC) return;
+    this.crawlHalf = true;
+    this.applyControls(step);
   }
 
   /**
@@ -924,8 +973,12 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     }
     // 2026-09-15: 보급품 시체 — 붕대를 얻은 뒤 창을 닫으면 회복 단계다
     if (step === 'supplyLoot' && this.done.has('supplyBandage')) this.advance();
-    // 2026-09-16: 능력치 투자를 확정한 뒤 화면을 닫으면 함선 트랙이 끝난다 (`onStatsConfirmed`)
-    if (step === 'stats' && this.done.has('statsSpent')) this.advance();
+    // 2026-09-16 2차: 함선 트랙은 확정한 자리에서 끝났다 — 미뤄 둔 다음 트랙(증축)을 메뉴가 닫힌 지금 연다 (`finish`)
+    if (this.autoStartOnClose) {
+      this.autoStartOnClose = false;
+      if (this.ctx.isHubPhase()) this.autoStart();
+      else this.persist();
+    }
   }
 
   /**
@@ -938,8 +991,45 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    */
   private onStatsConfirmed(): void {
     if (this.step !== 'stats') return;
+    /* 2026-09-16 2차: 스탯 XP 가 포인트를 올려도 `progress:statChanged` 가 온다 — 시트에 ＋ 가 담겨 있던 확정만 센다
+     * (시트는 확정 직전의 합을 `progress:statPending` 으로 알린 뒤, 투자 **다음에** 0 을 알린다 — `SheetBody.commitPending`). */
+    if (this.statPending <= 0) return;
     this.markObjective('statsSpent');
-    if (!this.invOpen) this.advance();
+    // 2026-09-16 2차 (사용자 결정): 확정하는 **그 자리에서** 포커싱이 걷히고 트랙이 끝난다. 증축 트랙은 메뉴를 닫을 때 (`finish`)
+    this.advance();
+  }
+
+  /** 시트의 확정 전 ＋ 합이 바뀌었다 (`progress:statPending`). 0 → n 이면 「능력치 하나 상승」이다. */
+  private onStatPending(total: number): void {
+    this.statPending = Math.max(0, total);
+    if (this.step !== 'stats') return;
+    if (this.statPending > 0) this.markObjective('statsRaise');
+    this.pollStats();
+  }
+
+  /**
+   * `stats` 의 화면 상태를 본다 (2026-09-16 2차). 이벤트가 없는 둘 — 메뉴가 열렸나 · 캐릭터 탭인가 — 은 여기서 목표를 적고,
+   * 포커스가 바뀌어야 하면(탭을 오갔다 · ＋ 를 되돌렸다) 화면을 다시 맞춘다. 인벤토리 창이 이미 열린 채 탭만 바꾸면
+   * `inventory:opened` 가 오지 않으므로 화면 탭까지 함께 본다.
+   */
+  private pollStats(): void {
+    const inv = this.ctx.inventory;
+    const tab = inv?.screenTab ?? 'inventory';
+    const open = !!inv?.isOpen || tab !== 'inventory';
+    if (open && !this.done.has('statsMenu')) this.markObjective('statsMenu');
+    if (tab === 'character' && !this.done.has('statsTab')) this.markObjective('statsTab');
+    const key = this.statsFocus();
+    if (key !== this.statsFocusKey) { this.statsFocusKey = key; this.refreshVisuals(); }
+  }
+
+  /** `stats` 의 포커스: 0 없음(메뉴 닫힘 · 확정됨) · 1 캐릭터 탭 · 2 능력치 ＋ · 3 투자 확정. */
+  private statsFocus(): number {
+    if (this.done.has('statsSpent')) return 0;
+    const inv = this.ctx.inventory;
+    const tab = inv?.screenTab ?? 'inventory';
+    if (!inv?.isOpen && tab === 'inventory') return 0;
+    if (tab !== 'character') return 1;
+    return this.statPending > 0 ? 3 : 2;
   }
 
   /** 이륙 연출이 시작 / 끝났다 (`cinematic` 주석). */
@@ -1132,6 +1222,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     // 처치 수 · 달성한 목표는 단계마다 따로 센다 (`shoot` → `crouchAim`)
     this.kills = 0;
     if (changed) { this.done.clear(); this.save.objectives = []; this.corpseFocusOff = false; }
+    // 포복 구간 밖으로 나갔다 — 다음에 그 구간에 들어서면 발사 · 정조준은 다시 절반 지점에서 붙는다
+    if (step !== 'crouch' && step !== 'crouchAim') this.crawlHalf = false;
     // 우측 조작 가이드를 **이 단계의 줄**로 갈아 끼운다 (2026-09-14 3차 — 표에 없는 단계는 직전 줄 유지)
     this.applyControls(step);
     // 재료: 바닥(한 번) + 그 단계 레시피의 부족분 top-up (멱등). 탄약 재료는 소총이 완성되어 `craftAmmo` 에 들어서는
@@ -1207,7 +1299,12 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       kind: skipped ? 'warning' : 'success', duration: 4,
     });
     // 함선 안에서 끝난 트랙은 곧바로 다음 트랙으로 이어진다 (함선 → 증축)
-    if (this.ctx.isHubPhase()) this.autoStart();
+    /* 2026-09-16 2차: 함선 트랙은 **메뉴(캐릭터 탭) 안에서** 확정하는 순간 끝난다. 그 자리에서 증축 트랙을 열면 시작 카드가 캐릭터
+     * 화면 위에 뜨고 증축 트랙의 `screenTab` · `stashItem` 게이트가 보던 탭 · 창고 물건을 감춘다 — 메뉴를 닫을 때 연다 (`onInventoryClosed`). */
+    if (this.ctx.isHubPhase()) {
+      if (!skipped && track === 'ship' && this.invOpen) this.autoStartOnClose = true;
+      else this.autoStart();
+    }
   }
 
   /* ── 우측 조작 가이드 ──────────────────────────────────────────────────── */
@@ -1222,7 +1319,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    */
   private applyControls(step: TutorialStepId, force = false): void {
     // 자세는 **지금 읽는다** (2026-09-15) — 부활 · 이어하기가 이벤트 없이 자세를 되돌릴 수 있다
-    const hints = controlHintsFor(step, this.ctx.player?.stance ?? this.stance);
+    const hints = controlHintsFor(step, {
+      stance: this.ctx.player?.stance ?? this.stance, crawlHalf: this.crawlHalf, handStim: this.handStim,
+    });
     if (!hints) return;
     const ids = hints.map((h) => h.id);
     if (!force && ids.length === this.controlIds.length && ids.every((x, i) => this.controlIds[i] === x)) return;
@@ -1250,6 +1349,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private resetControls(): void {
     // 트랙이 갈리면 기상 유예도 끝난 것이다 — 남겨 두면 다음 트랙의 첫 안내가 그만큼 늦게 뜬다
     this.wakeHoldT = 0;
+    this.crawlHalf = false;
     this.save.learned = [];
     this.controlIds = [];
     this.controls.clear();
@@ -1390,6 +1490,15 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     }
     if (step === 'corpseLoot' && (this.done.has('corpseGun') || this.corpseFocusOff)) {
       return { objectives, spot: SPOT_NONE, spotText: '', union: false, noDim: false };
+    }
+    // 2026-09-16 2차 (사용자 결정): 함선 트랙 `stats` — 목표가 열리는 대로 포커스가 캐릭터 탭 → ＋ 열 → 확정 버튼으로 옮겨 간다
+    if (step === 'stats') {
+      const focus = this.statsFocus();
+      const [spot, spotText] = focus === 1 ? [SPOT_STATS_TAB, STATS_TAB_TEXT]
+        : focus === 2 ? [SPOT_STATS_RAISE, STATS_RAISE_TEXT]
+          : focus === 3 ? [SPOT_STATS_CONFIRM, STATS_CONFIRM_TEXT]
+            : [SPOT_NONE, ''];
+      return { objectives, spot, spotText, union: false, noDim: false };
     }
     return {
       objectives, spot: def.spot, spotText: def.spotText ?? def.hint,

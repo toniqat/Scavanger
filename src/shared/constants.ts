@@ -816,9 +816,12 @@ export const AUDIO_DEFAULT_SFX = K.num('AUDIO_DEFAULT_SFX');
 export const AUDIO_DEFAULT_BGM = K.num('AUDIO_DEFAULT_BGM');
 
 /* ── ship doors + room lighting (owner: hub) ── */
-/** A room / cockpit door slides open when the player is within this many metres of its threshold. */
+/**
+ * A room / cockpit door slides open when the player is within this many metres of its threshold.
+ * **Unused since 2026-09-16** (the ships' sliding 자동문 were removed — user decision); kept because `src/shared` is add-only.
+ */
 export const DOOR_OPEN_DISTANCE = K.num('DOOR_OPEN_DISTANCE');
-/** Door slide speed (fraction of full travel per second). */
+/** Door slide speed (fraction of full travel per second). **Unused since 2026-09-16** (see `DOOR_OPEN_DISTANCE`). */
 export const DOOR_SLIDE_SPEED = K.num('DOOR_SLIDE_SPEED');
 /**
  * Real point lights reserved for the rooms. Kept **constant** (toggling `light.visible` recompiles every shader):
@@ -2105,6 +2108,8 @@ export const TUTORIAL_LIFTOFF_FIRE_S = K.num('TUTORIAL_LIFTOFF_FIRE_S');
 export const TUTORIAL_LIFTOFF_FIRE_RANGE_M = K.num('TUTORIAL_LIFTOFF_FIRE_RANGE_M');
 /** 절벽 낙하 어그로 해제 높이 (owner: enemies `Tutorial.ts`). */
 export const TUTORIAL_AGGRO_DROP_M = K.num('TUTORIAL_AGGRO_DROP_M');
+/** 2026-09-16: 튜토리얼 적이 낭떠러지 가장자리에서 떨어져 서는 거리 (owner: enemies `Tutorial.ts` `tutorialEdgeGuard`). */
+export const TUTORIAL_ENEMY_EDGE_MARGIN_M = K.num('TUTORIAL_ENEMY_EDGE_MARGIN_M');
 /* ── end 2026-09-15 튜토리얼 부활 · 어그로 ── */
 
 /* ── 2026-09-15 안드로이드 분대원 · 레이드 진입 로딩 (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」; 계약 `shared/allies.ts`) ── */
@@ -2230,3 +2235,13 @@ export const THUMPER_HP = K.num('THUMPER_HP');
 export const THUMPER_SHAKE_RADIUS = K.num('THUMPER_SHAKE_RADIUS');
 export const THUMPER_SHAKE = K.num('THUMPER_SHAKE');
 /* ── end 2026-09-15 진동 장치 ── */
+
+/* ── 2026-09-16 튜토리얼 포복 구간 조작 가이드 (owner: tutorial `TutorialSystem.pollCrawlHint`) ── */
+/** 무너진 통로를 이 비율만큼 지나면 조작 가이드에 발사 · 정조준 줄이 붙는다 (0 입구 · 1 출구). */
+export const TUTORIAL_CRAWL_AIM_HINT_FRAC = K.num('TUTORIAL_CRAWL_AIM_HINT_FRAC');
+
+/* ── 2026-09-16 메신저 버튼 빨간 점 튀어오르기 (owner: ui — `hud/Community`) ── */
+/** 새 NPC 메시지 → 메신저 버튼 빨간 점이 튀어올랐다 내려앉는 시간 (초). 토스트 대신이다. */
+export const MESSENGER_DOT_POP_S = K.num('MESSENGER_DOT_POP_S');
+/** 그 첫 봉우리 높이 (px). */
+export const MESSENGER_DOT_POP_PX = K.num('MESSENGER_DOT_POP_PX');

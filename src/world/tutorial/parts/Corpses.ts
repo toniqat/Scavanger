@@ -3,6 +3,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { GameContext, ItemInstance } from '@/shared';
 /* appended (2026-09-16): 빈 시체 제거 — 본편 시체와 같은 수치 */
 import { CORPSE_EMPTY_REMOVE_DELAY_S, CORPSE_EMPTY_SINK_DEPTH_M, CORPSE_EMPTY_SINK_S } from '@/shared';
+/* appended (2026-09-16, 2차): 빈 시체는 루팅 창을 닫은 뒤에 센다 (로컬만 — 튜토리얼은 혼자다) */
+import { CorpseViewTracker } from '@/shared';
 import { CORPSES, box, placed, type CorpseSpec } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -56,11 +58,19 @@ export class TutorialCorpses {
   private entries: Entry[] = [];
   private disposables: Array<{ dispose(): void }> = [];
   private unsub: (() => void) | null = null;
+  /** 2026-09-16 (2차): 내 창이 어느 손 시체를 보여 주나 — 보는 동안은 가라앉기 시계를 붙잡는다 (와이어 없음). */
+  private viewers: CorpseViewTracker | null = null;
 
   constructor() { this.group.name = 'TutorialCorpses'; }
 
   build(ctx: GameContext, root: THREE.Group): void {
     this.ctx = ctx;
+    this.viewers?.dispose();
+    this.viewers = new CorpseViewTracker(ctx, {
+      matches: (id) => this.entries.some((x) => x.spec.id === id),
+      positionOf: (id) => this.entries.find((x) => x.spec.id === id)?.position ?? null,
+      net: false,
+    });
     root.add(this.group);
     const cloth = new THREE.MeshStandardMaterial({ color: 0x4b5240, roughness: 0.92, metalness: 0.08, emissive: 0x0d0f0b, emissiveIntensity: 0.7 });
     this.disposables.push(cloth);
@@ -109,13 +119,16 @@ export class TutorialCorpses {
    * 2026-09-16 (빈 시체 제거, `TutorialWorld.update` 가 매 프레임): 빈 시체는 `CORPSE_EMPTY_REMOVE_DELAY_S` 뒤
    * `CORPSE_EMPTY_SINK_S` 동안 `CORPSE_EMPTY_SINK_DEPTH_M` 가라앉고, 끝나면 상호작용(= 빛기둥)을 풀고 메시와 지오메트리를 버린다.
    * 본편 플레이어 시체(`game/Corpses.PlayerCorpseObject.stepSink`)와 같은 곡선 · 같은 시계(`ctx.missionTime`)다.
+   * 2026-09-16 (2차, 사용자 결정): 창이 그 시체를 보여 주는 동안은 시계를 붙잡는다 — 가라앉기는 창을 닫고 지연 뒤다.
    */
   update(): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const now = ctx.missionTime;
+    const mine = this.viewers?.localViewing ?? null;
     for (const e of this.entries) {
       if (!e.emptied || e.removed || e.emptiedAt < 0) continue;
+      if (mine === e.spec.id) { e.emptiedAt = now; continue; }
       const elapsed = now - e.emptiedAt - CORPSE_EMPTY_REMOVE_DELAY_S;
       if (elapsed < 0) continue;
       const k = CORPSE_EMPTY_SINK_S > 0 ? Math.min(1, elapsed / CORPSE_EMPTY_SINK_S) : 1;
@@ -146,6 +159,8 @@ export class TutorialCorpses {
     const ctx = this.ctx;
     this.unsub?.();
     this.unsub = null;
+    this.viewers?.dispose();   // 2026-09-16 (2차)
+    this.viewers = null;
     for (const e of this.entries) {
       ctx?.interactables.unregister(e.spec.id);
       e.geo?.dispose();   // 2026-09-16: 시체마다 지오메트리를 들고 있다 (가라앉아 치운 것은 이미 null)

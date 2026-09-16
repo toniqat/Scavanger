@@ -574,7 +574,7 @@ try {
   await page.setViewport({ width: 1600, height: 900 });
   await waitSim(0.2);
 
-  console.log('close · ui:openMessenger · toast');
+  console.log('close · ui:openMessenger · dot pop');
   await P(() => window.__tap('Tab'));
   await waitSim(0.2);
   ok(await P(() => !window.__hud().isCommunityOpen && !window.__game.ctx.uiBlockers.has('community')), 'Tab closes the messenger');
@@ -586,14 +586,16 @@ try {
   ok(await P(() => !window.__hud().isCommunityOpen), 'Escape closes it');
   await P(() => window.__game.ctx.bus.emit('npc:message', { npc: 'npc_han_seojin', entry: { at: Date.now(), e: 'intro' } }));
   await waitSim(0.2);
-  const toasts = await P(() => window.__notifs());
-  ok(toasts.some((t) => t.startsWith('✉ 한서진')), 'a new NPC message toasts while the messenger is closed', JSON.stringify(toasts));
+  // 2026-09-16 (사용자 결정): 새 NPC 메시지는 토스트가 아니라 버튼의 빨간 점이 튀어오른다 (무슨 메시지인지는 열어야 안다)
+  const popped = await P(() => ({ toasts: window.__notifs(), dotHidden: document.querySelector('.cm-dot').hidden, transform: document.querySelector('.cm-dot').style.transform }));
+  ok(!popped.toasts.some((t) => t.startsWith('✉')), 'a new NPC message no longer toasts', JSON.stringify(popped.toasts));
+  ok(popped.dotHidden || popped.transform !== '', 'the red dot pops instead (when there is an unread badge)', JSON.stringify(popped));
   await P(() => window.__tap('KeyP'));
   await waitSim(0.2);
   const n0 = (await P(() => window.__notifs())).filter((t) => t.startsWith('✉')).length;
   await P(() => window.__game.ctx.bus.emit('npc:message', { npc: 'npc_raven', entry: { at: Date.now(), e: 'offer', q: 'q_none' } }));
   await waitSim(0.2);
-  ok((await P(() => window.__notifs())).filter((t) => t.startsWith('✉')).length === n0, 'and does not toast while it is open');
+  ok((await P(() => window.__notifs())).filter((t) => t.startsWith('✉')).length === n0, 'and nothing toasts while it is open either');
   await P(() => window.__tap('KeyP'));
   await waitSim(0.2);
 

@@ -276,8 +276,8 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
 ## Recent changes
 
 Last 5 only — older: `git log -- src/enemies`.
+- 2026-09-16 — Emptied enemy corpses held while anyone views them (`Enemy.corpseReleased`, `CorpseEmpty.hookCorpseViews` / `updateEmptyCorpses`, `ee corpseEmptied` at release); tutorial enemies never step within `TUTORIAL_ENEMY_EDGE_MARGIN_M` of a cliff (`tutorialEdgeGuard`).
 - 2026-09-16 — Emptied corpses sink away: `parts/CorpseEmpty.ts`, `Enemy.corpseEmptied` / `corpseFadeS`, `ee corpseEmptied`, `ecorpseq emptied` host guard (`hitGuardStats.corpseEmptyRefused`), `debugEmptyCorpse`.
 - 2026-09-16 — Bug audio: `burrow_emerge` per bug (batch 1/√k, `parts/Burrow.emergeSound`); bug `STEP_VOICES` rows use `bug_step_skitter` / `_heavy` / `_giant` with a short camera gate and 1/√n crowd gain (`model.bugStepCrowd`); shell whistle lives in audio/.
 - 2026-09-16 — `enemies.csv` `raidXp` (per-kill raid XP, first pass hp / 10) summed into `ctx.stats.killXp` at both kill sites; `stepSound` on for scavenger · hunter · spewer · toxic · tut_bug(_loot).
 - 2026-09-15 — Sandworm renamed `땅굴벌레`; cumulative per-check appearance chance (sprinting + weight, androids count, solo never, lure bonus), `sandworm:summon`, `WorldRef.burrowGroundOk` spot check, threat-1 `sandworm_weak` (750 hp · ×0.7 · scavengers only), `LureField` kinds, `ee wormErupt.ty`.
-- 2026-09-15 — Androids as targets (`TargetList.allies`, every damage path), `applyAllyHit`, `ally:fired` hearing; cover moved to `shared/cover.pickCoverSpot`.

@@ -337,6 +337,12 @@ export class SheetBody {
     if (next > 0) this.pending.set(id, next); else this.pending.delete(id);
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     this.refresh();
+    this.emitPending();
+  }
+
+  /** 2026-09-16: `progress:statPending` — the tutorial's ship track moves its focus from the ＋ rows to 확정 on this. */
+  private emitPending(): void {
+    this.ctx.bus.emit('progress:statPending', { total: this.pendingTotal });
   }
 
   private revertPending(): void {
@@ -345,6 +351,7 @@ export class SheetBody {
     this.pending.clear();
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     this.refresh();
+    this.emitPending();
   }
 
   /**
@@ -359,6 +366,7 @@ export class SheetBody {
     if (this.pending.size === 0) return;
     this.pending.clear();
     this.refresh();
+    this.emitPending();
   }
 
   /**
@@ -434,6 +442,7 @@ export class SheetBody {
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
     }
     this.refresh();
+    this.emitPending();
   }
 
   /* ── rendering ────────────────────────────────────────────────────────── */

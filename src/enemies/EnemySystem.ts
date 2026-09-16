@@ -358,6 +358,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       }),
       // 2026-09-16: 비운 적 시체는 가라앉아 사라진다 — 권위는 곧바로, 리플리카는 호스트에 요청 (`parts/CorpseEmpty`)
       bus.on('crate:looted', ({ crateId }) => CorpseEmpty.onCorpseContainerLooted(this, crateId)),
+      // 2026-09-16 (2차): 누가 적 시체 창을 열어 두고 있나 — 빈 시체는 마지막 사람이 닫은 뒤에 가라앉는다 (`shared/corpseViewers`)
+      CorpseEmpty.hookCorpseViews(this),
       // 2026-09-11 (적 ↔ 드론): 질주하는 지상 드론의 소음 — 권한 클라이언트에서만 나온다 (`parts/Alerts.onWorldNoise`)
       bus.on('world:noise', ({ position, radius }) => this.onWorldNoise(position, radius)),
       // 2026-09-11: 리플리카는 `ee spawn` 으로 네임드를 처음 볼 때 `enemy:namedSpawned` 를 낸다 (권한은 스폰 경로가 직접)
@@ -484,6 +486,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     }
 
     // visuals always tick (frozen AI still renders idle motion), then despawn finished corpses / fled bugs
+    // 2026-09-16 (2차): 빈 시체 — 아무도 보지 않게 되면 수명을 줄이고, 내 창이 보는 동안은 붙잡는다 (`parts/CorpseEmpty`)
+    CorpseEmpty.updateEmptyCorpses(this);
     const slack = this.authority ? 0 : 1;   // replicas: the host's despawn normally arrives first
     for (let i = this.active.length - 1; i >= 0; i--) {
       const e = this.active[i];

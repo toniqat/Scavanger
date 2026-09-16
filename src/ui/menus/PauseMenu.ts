@@ -1,5 +1,5 @@
 import type { GameContext, TutorialTrack } from '@/shared';
-import { UI_HOLD_CONFIRM_S, createHoldButtonCap, isDesktopShell } from '@/shared';
+import { COMMUNITY_BLOCKER, UI_HOLD_CONFIRM_S, createHoldButtonCap, isDesktopShell } from '@/shared';
 import { el, setText } from '../dom';
 import { MenuBase } from './MenuBase';
 
@@ -223,6 +223,8 @@ export class PauseMenu extends MenuBase {
    */
   private handleKey(e: KeyboardEvent): void {
     if (!this.visible) return;
+    // 2026-09-16: 메뉴 위에 메신저가 떠 있으면 Tab · Escape 는 그 패널 몫이다 (`hud/Community` · `ctx.escape`) — 메뉴는 남는다
+    if (this.ctx.uiBlockers.has(COMMUNITY_BLOCKER)) return;
     if (!this.ask.hidden) {
       if (e.code === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); this.closeAsk(); }
       else if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); e.stopImmediatePropagation(); }

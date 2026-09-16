@@ -14,7 +14,7 @@ import { isNamedAiType, updateNamed } from './named';
 import { attackBehemoth, attackToxic, chaseArtillery, chaseBehemoth, chaseToxic } from './GimmickAI';
 import { endInvestigation, updateInvestigate } from './Investigate';
 /* appended (2026-09-14): 튜토리얼 전용 적의 자기 자리 지키기 · 단단한 리시 (`homeLeash > 0` 인 적에게만) */
-import { tutorialHold } from '../Tutorial';
+import { tutorialEdgeGuard, tutorialHold } from '../Tutorial';
 /* appended (2026-09-13): 굴착 스폰 · 뱉어진 버그 */
 import { updateBurrowGate } from './Burrow';
 
@@ -595,6 +595,8 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
   // ramp opening is open for players, so it is closed to enemies only here (pushed back out through the doorway). A charge
   // that hits it stumbles below like any wall.
   host.ctx.extraction?.keepEnemyOut(pos, s.radius);
+  // 2026-09-16: 튜토리얼 적은 낭떠러지 가장자리 띠로 걸어 들어가지 않는다 (`homeLeash === 0` 인 본편 · 훈련장 적은 첫 줄에서 돌아간다)
+  tutorialEdgeGuard(e, world, pos, _prev.x, _prev.z, _prev.y);
   if (charging) {
     // hitting a rock / wall or leaving the map interrupts the charge
     const intendedX = _prev.x + e.velocity.x * dt, intendedZ = _prev.z + e.velocity.z * dt;
