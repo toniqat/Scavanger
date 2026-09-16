@@ -29,8 +29,9 @@ const GAME_SLOTS = 12;       // GAME_DISC_SLOTS_PER_STAND (2026-09-14: 6 → 12)
 /* shared/housing 의 `SHELF_TIERS` · `SHELF_TIER_COLS` (2026-09-14 층당 여러 줄) */
 const BOOK_TIERS = 3, BOOK_COLS = 6, GAME_TIERS = 3;
 const VOLUME_SHARE = 0.1;    // SHELF_SERIES_VOLUME_SHARE (사용자 결정: 권당 10 %)
-/* src/shared/constants.ts 의 SHIP_STATE_VERSION — 서재 시리즈는 버전을 올리지 않았다 (ShipState.ts 머리 주석). 13 = 전력 할당 폐지 (2026-09-13). */
-const SHIP_STATE_VERSION = 13;
+/* 저장된 함선 문서에 찍히는 번호는 계약의 `SHIP_STATE_VERSION` 이 아니라 **디스크 판** `ShipState.SHIP_STATE_VERSION_CURRENT`
+   다 (2026-09-16 에 표본 레벨 · 프로세서 칸이 들어오며 14 가 됐다). 숫자를 박으면 판이 오를 때마다 빨개지므로 부팅 뒤에 읽는다. */
+let SHIP_STATE_VERSION = 0;
 const near = (a, b) => Math.abs(a - b) < 1e-6;
 
 let pass = 0, fail = 0;
@@ -129,6 +130,7 @@ try {
   await page.evaluate(() => { localStorage.removeItem('scav.s1.ship'); localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); });
   await page.reload({ waitUntil: 'load' });
   await setup();
+  SHIP_STATE_VERSION = await H(async () => (await import('/src/housing/ShipState.ts')).SHIP_STATE_VERSION_CURRENT);
 
   /* ══ 0. data from the tables ═══════════════════════════════════════════════ */
   console.log('series data');

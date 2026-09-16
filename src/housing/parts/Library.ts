@@ -13,6 +13,7 @@ import { bookWeightOf } from '../Rules';
 import { isBookshelfDefId } from '../ShipState';
 import { BOOKS_BLOCK_REASON } from '../model';
 import type { HousingSystem } from '../HousingSystem';
+import { deliverItem, noRoomReason } from './Deliver';
 /* A-3e (2026-09-12): 서재 매체 */
 import type { FurnitureDef, ShelfBonusInfo, ShelfMedium } from '@/shared';
 import { SHELF_MEDIA, SHELF_MEDIUM_LABEL_KO, SHELF_SLOTS, isToggleInteraction, shelfItemOf, shelfMediumOfInteraction } from '@/shared';
@@ -205,11 +206,8 @@ export function takeBook(sys: HousingSystem, uid: string, slot: number): string 
   const loot = sys.ctx.loot;
   if (!loot || typeof loot.createItem !== 'function') return '책을 만들 수 없습니다';
   const item = loot.createItem(book.defId, 1);
-  const inv = sys.ctx.inventory;
-  const where = inv && typeof inv.tryAddItemAnywhere === 'function'
-    ? inv.tryAddItemAnywhere(item)
-    : inv && typeof inv.tryAddItem === 'function' && inv.tryAddItem(item) ? 'bag' : null;
-  if (!where) return '공간 없음 — 가방과 창고에 자리가 없습니다';
+  // 2026-09-16: 전달은 `parts/Deliver` 한 길이다 — 끌어서 놓았으면 **커서가 놓인 칸**으로 간다 (`withDropCell`).
+  if (!deliverItem(sys, item, 'bag-first')) return `공간 없음 — ${noRoomReason('bag-first')}`;
   sys.books().splice(sys.books().indexOf(book), 1);
   sys.booksChanged(uid, 'bookTake');
   return null;
@@ -404,11 +402,8 @@ export function takeShelfItem(sys: HousingSystem, uid: string, slot: number): st
   const loot = sys.ctx.loot;
   if (!loot || typeof loot.createItem !== 'function') return `${SHELF_OBJ_KO[m]} 만들 수 없습니다`;
   const item = loot.createItem(e.defId, 1);
-  const inv = sys.ctx.inventory;
-  const where = inv && typeof inv.tryAddItemAnywhere === 'function'
-    ? inv.tryAddItemAnywhere(item)
-    : inv && typeof inv.tryAddItem === 'function' && inv.tryAddItem(item) ? 'bag' : null;
-  if (!where) return '공간 없음 — 가방과 창고에 자리가 없습니다';
+  // 2026-09-16: 전달은 `parts/Deliver` 한 길이다 — 끌어서 놓았으면 **커서가 놓인 칸**으로 간다 (`withDropCell`).
+  if (!deliverItem(sys, item, 'bag-first')) return `공간 없음 — ${noRoomReason('bag-first')}`;
   const list = media(sys);
   list.splice(list.indexOf(e), 1);
   shelfChanged(sys, uid, m, 'shelfTake');

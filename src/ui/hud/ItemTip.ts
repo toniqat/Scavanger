@@ -7,15 +7,22 @@ import {
   SHELF_INTERACTION, SHELF_MEDIUM_LABEL_KO, SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO,
   currencyDef, formatCredits, growSocketSlotsFor, itemCreditValue, shelfItemOf,
 } from '@/shared';
+/* appended (2026-09-16, 수집품 대분류): 종류 줄은 「수집품 > 서적」처럼 두 단이 될 수 있다 */
+import { categoryPathKo } from '@/shared';
 import { el, setText } from '../dom';
 import { cookStepsText, mealBuffAmountText, mealEffects, mealQualityText, mealTierLabel } from './mealText';
 /* 2026-09-13 (요리 미니게임): 품질 줄 */
 import { getMealDef, normalizeMealQuality } from '@/shared';
-import { COMPUTE_CLUSTER_MAX_CORES, COMPUTE_CORE_DEF_ID, PROCESSOR_DEF_ID } from '@/shared';   // 2026-09-13 암호화폐 채굴
+import { COMPUTE_CLUSTER_MAX_CORES, PROCESSOR_DEF_ID } from '@/shared';   // 2026-09-13 암호화폐 채굴 (2026-09-16: 연산 코어 폐지)
 
 /* 2026-09-15 (가젯 개편): 설명 인라인 마크업 · 스펙 줄은 `@/items` 한 곳이 만든다 — 격자 카드(`inventory/ui/Tooltip`)와 **같은 함수**다. */
 import type { SpecSeg, SpecValue } from '@/items';
-import { itemSpecRows, parseItemText } from '@/items';
+import { AMMO_LABEL_KO, itemSpecRows, parseItemText } from '@/items';
+/*
+ * 2026-09-16 (사용자 버그 「기업 화면의 총 카드가 가방 카드와 다르다」): 무기 카드의 숫자 · 문장은
+ * `shared/weaponTip` 하나가 만든다 — 격자 카드(`inventory/ui/Tooltip`)는 게이지 막대로, 이 카드는 표 줄로 칠한다.
+ */
+import { weaponTipRows } from '@/shared';
 
 /**
  * `[라벨, 값, 값 글자색?]` — 세 번째 칸은 인라인 색이고 클래스를 만들지 않는다 (아래 주석).
@@ -364,6 +371,29 @@ export class ItemTip {
     try { return inv.countDefAll(defId); } catch { return -1; }
   }
 
+  /**
+   * 무기 상세 줄 (`shared/weaponTip.weaponTipRows`) — 대미지 · 연사 · 반동 · 사거리 · 탄종 · 장전 · 발사 모드 ·
+   * 배율 · 내구도 · 소켓. 호버한 요소가 `data-uid` 로 인스턴스를 가리키면 **그 총의 값**(소켓이 든 유효 수치 ·
+   * 남은 장전 · 남은 내구도)이고, 매대 타일처럼 인스턴스가 없으면 def 의 등급 수치다. 무기가 아니면 빈 배열.
+   */
+  private weaponRows(def: ItemDef, uid: string | null): ReturnType<typeof weaponTipRows> {
+    const loot = this.ctx?.loot;
+    if (!def.weaponId || !loot) return [];
+    try {
+      const weapon = loot.getWeaponDef(def.weaponId);
+      if (!weapon) return [];
+      const inst = this.instanceOf(uid, def.id);
+      const stats = loot.getEffectiveStats(inst ?? def.id);
+      if (!stats) return [];
+      return weaponTipRows(weapon, stats, {
+        item: inst,
+        ammoLabel: AMMO_LABEL_KO[stats.ammoType],
+        gauges: true, durability: true, sockets: true,
+        attachmentName: (id) => this.defOf(id)?.name,
+      });
+    } catch { return []; }
+  }
+
   /** The live instance behind a `data-uid` (bag or stash), only when it really is this def. */
   private instanceOf(uid: string | null, defId: string): ItemInstance | null {
     const inv = this.ctx?.inventory;
@@ -384,8 +414,10 @@ export class ItemTip {
     setText(this.nameEl, `${def.icon || CATEGORY_ICON[def.category] || '?'} ${def.name}`);
     // 2026-09-15: 전설 유니크 무기는 `무기` 대신 **자기 종류**(`컴포짓 보우 · 전설`) — 이름이 별명뿐이라 종류는 여기서 읽힌다.
     //   csv `class`(AR / DMR / SMG / SR)는 사격 숙련만 고르고 화면에 나오지 않는다.
+    // 2026-09-16: 유니크가 아닌 아이템은 **대분류까지** 읽는다 — 책은 `수집품 > 서적`, 소총은 `주무기` 한 단.
+    //   구분자와 라벨은 `shared/labels.categoryPathKo` 하나가 갖는다 (가방 격자 툴팁도 같은 함수를 부른다).
     const uniqueKind = this.uniqueKindOf(def);
-    const kindWord = uniqueKind ? UNIQUE_WEAPON_LABEL_KO[uniqueKind] : (CATEGORY_LABEL_KO[def.category] ?? def.category);
+    const kindWord = uniqueKind ? UNIQUE_WEAPON_LABEL_KO[uniqueKind] : (categoryPathKo(def.category) ?? def.category);
     setText(this.subEl, `${kindWord} · ${RARITY_LABEL_KO[def.rarity] ?? def.rarity}`);
     this.renderDesc(def.description);
 
@@ -394,6 +426,12 @@ export class ItemTip {
     if (def.retired) rows.push(['상태', '더 이상 쓰이지 않는 아이템', 'var(--c-text-dim)']);
     const have = this.owned(defId);
     if (have >= 0) rows.push(['보유', `${have} 개`]);
+    /*
+     * 2026-09-16 (사용자 버그): **총기 상세.** 기업 거래 화면(매대 · 구매칸 · 판매칸 · 그 안의 창고 · 가방 격자)은
+     * 전부 이 카드를 쓰는데 여기에는 피해량 · 사거리가 없어서, 같은 총이 가방 격자(`inventory/ui/Tooltip`)에서와
+     * 다르게 읽혔다. 줄과 문장은 그 카드와 **같은 함수**(`shared/weaponTip`)가 만든다 — 그림만 표 줄이다.
+     */
+    for (const r of this.weaponRows(def, uid)) rows.push([r.k, r.v]);
     /* 2026-09-15 (가젯 개편, 사용자 결정): 회복약 · 실드 충전기 · 전투 소모품 · 가젯 · 수류탄의 스펙 —
        **맨 위가 `사용 시간`** 이고 설명 글에서는 그 수치를 전부 걷어냈다 (`data/items.csv`). 표는 `items/ItemSpec` 하나다. */
     for (const r of itemSpecRows(def)) rows.push([r.k, r.v, r.tone ? TONE_COLOR[r.tone] : undefined]);
@@ -433,9 +471,10 @@ export class ItemTip {
         }
       }
     }
-    /* 암호화폐 채굴 (2026-09-13): 연산 코어 · 프로세서는 평범한 재료처럼 보이지만 **어디에 쓰는가**가 카드에서 끝나야 한다. */
-    if (def.id === COMPUTE_CORE_DEF_ID) rows.push(['사용', `연산 클러스터에 꽂는다 (최대 ${COMPUTE_CLUSTER_MAX_CORES}개)`]);
-    else if (def.id === PROCESSOR_DEF_ID) rows.push(['사용', '회로 기판과 조립해 연산 코어로 만든다']);
+    /* 암호화폐 채굴: 프로세서는 평범한 재료처럼 보이지만 **어디에 쓰는가**가 카드에서 끝나야 한다.
+       2026-09-16 (사용자 결정): 연산 코어가 없어지고 프로세서를 클러스터에 **그대로** 꽂는다 — 이제
+       내구도가 있고 주기마다 닳으므로, 그 둘을 한 줄에 담는다 (남은 내구도 자체는 툴팁의 내구 줄이 이미 보여 준다). */
+    if (def.id === PROCESSOR_DEF_ID) rows.push(['사용', `연산 클러스터에 꽂는다 (최대 ${COMPUTE_CLUSTER_MAX_CORES}개) · 주기마다 닳는다`]);
     const prep = def.prep;
     if (prep && ENV_LABEL_KO[prep.env]) {
       rows.push(['사용', '다음 레이드 1회분']);

@@ -16,17 +16,17 @@ and **before** `InventorySystem` / `WorldSystem` / `HubSystem`.
 | `HousingSystem.ts` | System + `HousingRef` implementation. Loads state in the constructor, owns housing-mode / ship-manage state and panel instances, server-profile replace (`onProfileLoaded`), retired-furniture refund (`flushRetiredRefund`), one-line delegations into `parts/*`. Re-exports `model.ts`. |
 | `model.ts` | Folder vocabulary (no state): `FACILITY_IDS`, `BOOKS_BLOCK_REASON` / `SHELF_BLOCK_REASON`, shelf labels / glyphs (`SHELF_GLYPH`, `LIBRARY_GLYPH`), `ACTIVE_FURNITURE_DEFS` (= defs minus `retired`), retired-rack answers. |
 | `Rules.ts` | Pure rules, no ctx / DOM — see **Rules** below. |
-| `MiningRules.ts` | Pure mining rules: `takeCompletedCycles`, `foldProgress`, `sanitizeClusters`, `sanitizeUnitsMap`, `CLUSTER_CORES_BLOCK_REASON`, `MINING_TICK_MS`. Cycle formulas live in `shared/cryptoMarket`. |
+| `MiningRules.ts` | Pure mining rules: per-cell processors (`processorCells`, `processorCount`, `clusterPerf`, `clusterCycleMs`, `wearProcessors`), `takeCompletedCycles`, `foldProgress`, `sanitizeClusters`, `sanitizeUnitsMap`, `CLUSTER_CORES_BLOCK_REASON`, `MINING_TICK_MS`. The base cycle formula lives in `shared/cryptoMarket`; `clusterCycleMs` is its fractional form (a perf sum is not an integer). |
 | `ShipState.ts` | `freshState`, `sanitize(raw, out?)` (all migrations + validation), `loadState`, `writeState`, `ShipStore` (debounced write + `pagehide` flush + profile upload), `ensureCockpitFurniture`, `placeCockpitDecor`, `is*DefId` helpers, `SHIP_STATE_VERSION_CURRENT`. |
 | `index.ts` | Barrel: `HousingSystem`, `Rules`, state helpers. |
 | `housing.css` | Shared panel styles (`.hs-*` shell / cards / modal / tip / context menu / rail / tabs, `.gs-*` grow, `.az-*` analyzer, `.cult-*` culture, `.dt-*` dining, `.lib-*` library, `.facility-chip` icon + `[data-fc-tip]` tooltip). Does **not** redeclare the `--inv-*` palette (owner: `inventory/inventory.css`). |
 | `parts/Rooms.ts` | Room purposes (build = consume `purposeCost`, remove = full refund), facility info / upgrade (generator, storage), `getBenchLevel`, `getSkillGainMul`, stash size, `consume` / `canAfford`. |
 | `parts/Furniture.ts` | Place / move / recover / craft / upgrade furniture, housing mode + ship-manage mode (`openShipManage` remembers the last room in `slotKey('scav.housing.manageRoom')`), `furnitureCraftBlock` / `furnitureUpgradeBlock` / `furnitureUpgradeCost`. |
 | `parts/Garden.ts` | Grow station: `fillSoil` → `plantSeedAt` → `harvestAt`, soil durability + sockets, `rescaleGrowsForUpgrade`, `insertGrowSocket`; retired grow-rack API answers "no rack". |
-| `parts/Lab.ts` | Analyzer: `startAnalysis` (rolls the result on insert), `cancelAnalysis`, `collectAnalysis` (analysis XP → level-ups, found-dex, research XP), `getAnalysisLevel/Results/Found`, `researchTimeMul`, `devAdvanceAnalysis`. |
+| `parts/Lab.ts` | Analyzer: `startAnalysis` (rolls the result on insert, sample rarity is the floor), `cancelAnalysis`, `collectAnalysis` (analysis XP → level-ups, found-dex, **sample level**, research XP), `getAnalysisLevel/Results/Found`, `getSampleAnalysis` / `getAnalysisDexByRarity` (speed-up readout), `researchTimeMul`, `devAdvanceAnalysis`. |
 | `parts/Culture.ts` | Culture tank: medium → scaffold → strain, medium durability + sockets, harvest, `insertScaffold` / `takeScaffold` / `insertCultureSocket`. |
 | `parts/Sockets.ts` | Soil / medium sockets shared by Garden and Culture: `socketSum`, `yieldBonus`, `insertSocket` (replace destroys the old socket), `getOwnedSockets`. |
-| `parts/Deliver.ts` | `deliverItem(sys, item, dest)` — the single path a station product takes to the player (`HarvestDestination`: `bag-first` · `stash-first` · `bag` · `stash`; named grids never overflow). |
+| `parts/Deliver.ts` | `deliverItem(sys, item, dest)` — the single path a station product takes to the player (`HarvestDestination`: `bag-first` · `stash-first` · `bag` · `stash`; named grids never overflow). `withDropCell(cell, fn)` marks "the player dropped it **here**" for the one delivery inside `fn` (the cell wins; a cell that cannot take it is refused, not auto-placed elsewhere — `noRoomReason` then says `그 칸에는 놓을 수 없습니다`). |
 | `parts/Dining.ts` | Dining table + plates (furniture uid, or `null` = shared-ship fixed table): `hasDiningTable`, `getPlate` / `setPlate` / `clearPlate`, `getTablePlates`, `plateEatBlock`, `eatPlate`, `devSetPlate`, squad plates (`SquadPlate`, `net:squadPlate`), `bindDining` (raid start clears the plate), `diningBlock`. |
 | `parts/Cooking.ts` | Cooking session: `cookRecipes` (all cook-bench recipes with steps, unfiltered), `cookBlock` (incl. the dining-table gate), `startCook` / `restartCook` / `cancelCook`, `recordCookStep` (+ skill / library score bonus), `completeCookRun` (quality → `inventory.consumeCookInputs` → plate on the table), `getCookAuto`, `bindCooking`, `cookDebug` (`replaceAsk` / `confirmReplace`). |
 | `parts/CookGames.ts` | DOM-free judges of the six cooking minigames (`ChopGame`, `MinceGame`, `GrillGame`, `StirfryGame`, `StirGame`, `PourGame`), `createCookGame`, `cookJudgeBands`. |
@@ -35,24 +35,25 @@ and **before** `InventorySystem` / `WorldSystem` / `HubSystem`.
 | `parts/VideoGame.ts` | TV consoles (`attachTvConsole` / `detachTvConsole`), seat check (`Rules.tvSeatFor`), `getPlayableGames`, game sessions (gym rules via `applyGymSession`), `bindVideoGame`, `videoGameDebug`. |
 | `parts/Library.ts` | Library shelves for every medium (`book` · `disc` · `record` · `game`): place / take / dex / recover-to-stash, on/off toggles, library-effects cache (`ensureLibrary`, `bindLibrary`, `tickLibrary`) and its queries. |
 | `parts/Music.ts` | Music player state (no audio): playlist from record racks, `tickMusic`, `musicNext/Prev`, `setMusicMode`, `musicStop`, `housing:musicChanged`. |
-| `parts/Mining.ts` | Compute clusters, wallet, trading: `setClusterCoin`, `insertClusterCores` / `removeClusterCores`, `tickMining` (1 Hz, not in raid), `tradeCrypto`, `coinLockReason`, dev cheats. |
+| `parts/Mining.ts` | Compute clusters, wallet, trading: `setClusterCoin`, `insertClusterProcessor` / `removeClusterProcessor` (one named cell) and their count-based wrappers `insertClusterCores` / `removeClusterCores`, `tickMining` (1 Hz, not in raid — settles cycles **and wears the mounted processors**), `tradeCrypto`, `coinLockReason`, dev cheats. |
 | `parts/Presets.ts` | Retired loadout presets (all answer "no slots"), `panels()` registry, `closeMenus`, legacy `openRoomMenu` / `openFacilityMenu` → `openShipManage`. |
 | `ui/Panel.ts` | `HousingPanel` base: `.menu.housing-menu`, blocker `'housing'` + cursor mode, `ctx.escape` entry, E / Tab close, `PanelOverlay` stack, `coalesceRefresh`, `ui:housingToggled`, key-guide owner `housing.<page>`. |
 | `ui/StationShell.ts` | Common station layout: station card (title, `Lv.`, meta, upgrade button, `rail`, optional `tabsRow`) + one inventory card; `mountStationGrids` mounts one `TradeGrids` (`stash` + `bag`); `stationGridCell`. |
 | `ui/UpgradeModal.ts` | Upgrade modal (`PanelOverlay`): cost chips + facility chips, 1 s hold confirm (Enter swallowed), escape token `housing.upgrade`. `UpgradeModalOptions.standalone` mounts it on `ctx.uiRoot` instead of a panel (`.hs-modal-top` z, own `.interactive`, swallows Tab, `onClose` hook) — used by the 창고 variant. |
-| `ui/StorageUpgrade.ts` | `openStorageUpgrade(sys)` = `HousingRef.openStorageUpgrade()`: the standalone 창고 시설 variant of `UpgradeModal` (level, cells before/after from `STASH_ROWS_BY_STORAGE_LEVEL × STASH_COLS`, `getFacility('storage').nextCost` / `.blocked`, 발전기 requirement chip; confirm = `upgrade('storage')`). Toggles on a second call, re-reads on housing / inventory events, closed by `closeMenus`. |
+| `ui/StorageUpgrade.ts` | The one standalone `UpgradeModal` the screens outside housing open, for **two subjects**: 창고 시설 (`openStorageUpgrade` — level, cells before/after from `STASH_ROWS_BY_STORAGE_LEVEL × STASH_COLS`, `getFacility('storage')`, confirm = `upgrade('storage')`) and **one placed workbench** (`openBenchUpgrade(kind)` = `HousingRef.openBenchUpgrade` — highest-level piece of that bench kind, `제작 n가지 개방` counted from `InventoryRef.getRecipes`, confirm = `upgradeFurniture(uid)`). `openStorageUpgrade()` routes to the bench while the craft column is in bench mode (`InventoryRef.getBench()`), so the workbench header's 업그레이드 no longer opens the 창고 modal. Toggles on a second call for the same subject, re-reads on housing / inventory events, closed by `closeMenus`. |
+| `ui/ItemTile.ts` | `buildStationItemTile(ctx, defId, {cell, durability?})` — the **inventory tile** (`InventoryRef.buildItemTile`) as one station cell: `.hs-tile`, no quantity badge, `--inv-cell` so the glyph follows the cell; `cellToFit(boxW, boxH, w, h)` (the cell edge a footprint fits a box at) and `stationTileBox`. The one place furniture screens draw an item. |
 | `ui/StationTip.ts` | Non-item hover card (`TipSpec`) with `.item-tip` looks. |
 | `ui/StationMenu.ts` | Right-click menu (`PanelOverlay`), swallows its own Escape. |
-| `ui/ProductDrag.ts` | Treat a finished product like an item: drag to a grid (`bag` / `stash`) or double-click (`stash-first`). The ghost keeps the item's grid footprint (`shared/itemChip` `buildItemGridChip` / `itemGridBox` at `stationGridCell()`, overridable with `cellPx`). |
+| `ui/ProductDrag.ts` | Treat a finished product like an item: drag to a grid (`bag` / `stash`) or double-click (`stash-first`). The ghost keeps the item's grid footprint (`shared/itemChip` `buildItemGridChip` / `itemGridBox` at `stationGridCell()`, overridable with `cellPx`). With `grids()` given, a release lands in the **cell under the cursor** (`parts/Deliver.withDropCell` → `StationGridsView.placeExternalAt`). |
 | `ui/SocketFlow.ts` | Socket effect text / tip rows / dots, `SocketAsk` (pick + 1 s hold replace confirm, destructive clear confirm). |
 | `ui/dom.ts` | `el`, `section`, `setText`, `renderCost` (→ shared `renderItemCost`), clock helpers (`renderClock`), `formatRemaining`, `facilityChipTip`. |
 | `ui/GrowStation.ts` | Grow station screen: rail of stations (9-dot status), tiers of soil pots, drop soil / seed / socket, harvest via `ProductDrag`, right-click clear. `ui:growToggled`. |
-| `ui/Analyzer.ts` | Analyzer screen: rail tabs `해석` / `분석 도감`, slots with family chip + result chip, collect / cancel. |
+| `ui/Analyzer.ts` | Analyzer screen: rail tabs `해석` / `분석 도감`, slots with family chip + **sample-level chip** (`Lv.n −x %`) + result chip, the 등급별 도감 단축 line above the slots, collect / cancel. |
 | `ui/SampleDex.ts` | Analysis dex per family (level, XP bar, result rows: found / silhouette / locked). |
 | `ui/CultureTank.ts` | Culture tank screen: tubes (fluid = medium durability), drop medium / scaffold / strain / socket, harvest. |
 | `ui/DiningTable.ts` | Dining screen (no grid card): plates on the table (`.dt-plate`, cook's name on the shared table, `먹기` / `먹음`) + the pending-meal card (`.dt-meal`); exports meal text helpers (`mealEffectText`, `mealBuffText`, `mealTierText`, `qualityName`). |
 | `ui/BookshelfMenu.ts` | Library screen for every shelf medium: rail = `서재` summary + placed shelf furniture, tabs `선반` / `도감`, drag to place / swap / take. `ui:bookshelfToggled` / `ui:shelfToggled`. |
-| `ui/ShelfDrawing.ts` | Drawn shelf (`.lib-case` › `.lib-tier` › `.lib-row` › `.lib-slot`), layout from `SHELF_TIERS` / `SHELF_TIER_COLS`; `.is-div` divider; `paintShelfSlot`. |
+| `ui/ShelfDrawing.ts` | Drawn shelf (`.lib-case` › `.lib-tier` › `.lib-row` › `.lib-slot` › `.lib-item`), layout from `SHELF_TIERS` / `SHELF_TIER_COLS`; `.is-div` divider; `SHELF_SLOT_BOX` / `shelfSlotBox(medium)` = the cell box (CSS reads it as `--lib-item-w/h`); `paintShelfSlot(view, paint, buildTile)` — a filled cell holds one **inventory tile**, an empty one a dashed box. |
 | `ui/BookDex.ts` | Library dex rows (series / game discs), exports `libraryEffectText`, `gameDiscText`, `volumeRoman`, `seriesTint`, `statName`. |
 | `ui/ShipView.ts` | `createShipView(host)` — the embedded ship tab of the inventory window (generator / storage rows, room list, build / remove popups, `시설 관리` button). No blocker, no pointer lock, no Escape listener. |
 | `ui/FacilityRows.ts` | Facility rows + effect summary used by `ShipView`. |
@@ -67,7 +68,7 @@ and **before** `InventorySystem` / `WorldSystem` / `HubSystem`.
 | `ui/tv/TvMenu.ts` | TV screen (page `tv`): power, console attach / swap, seat line, playable games. `ui:tvMenuToggled`. |
 | `ui/tv/tv.css` | `.tvm-*`. |
 | `ui/mining/MiningScreen.ts` | One mining window (page `cluster`) with top tabs `MINING_TABS` (`채굴` · `클러스터 현황` · `지갑` · `거래소`); rail + grids only on the mining tab. `ui:miningToggled` page = `cluster` for the mining tab, `computer` otherwise. |
-| `ui/mining/ClusterPage.ts` | Mining tab: core slots (one core per drop / take), cycle bar, coin picker, stats. |
+| `ui/mining/ClusterPage.ts` | Mining tab: **processor cells** (index = grid cell; the dropped instance goes into the cell it was dropped on, with its durability), cycle bar, coin picker, stats. |
 | `ui/mining/CoinPicker.ts` | Filterable coin dropdown (locked coins dimmed), `position: fixed`. |
 | `ui/mining/ComputerPages.ts` | Cluster overview, wallet, exchange (chart, hold-to-trade, stale-quote gate, price subscription). |
 | `ui/mining/CryptoChart.ts` | Canvas candle / line chart with axes and hover OHLC. |
@@ -83,7 +84,7 @@ too). Most mutations return `null` on success or a Korean refusal string. Groupe
 - **Rooms & facilities**: `getRoom`, `setRoomPurpose`, `purposeBlock`, `purposeCost`, `purposeRequirements`,
   `emptyRoomBlock`, `findRoom`, `getFacilities` / `getFacility`, `upgrade('generator' | 'storage')`,
   `facilityRefund`, `removeRoomFacility`, `getBenchLevel`, `getCraftCostMul` (always 1), `getSkillGainMul`,
-  `openStorageUpgrade()` (2026-09-16 — the standalone 창고 upgrade modal the inventory Tab / workbench headers call).
+  `openStorageUpgrade()` / `openBenchUpgrade(kind)` (2026-09-16 — the standalone upgrade modal the inventory Tab stash header and the workbench craft window call; the workbench one raises **that bench**).
 - **Furniture**: `getFurnitureDef`, `getAllFurnitureDefs`, `getFurnitureFor`, `getPlaced`, `getPlacedByUid`,
   `getStored`, `canPlace`, `placementBlock`, `findFreeSpot`, `place`, `move`, `recover`, `recoverBlock`,
   `canCraftFurniture`, `craftFurniture`, `furnitureCraftBlock`, `upgradeFurniture`, `furnitureUpgradeBlock`,
@@ -95,8 +96,9 @@ too). Most mutations return `null` on success or a Korean refusal string. Groupe
   `insertGrowSocket`, `getOwnedSoils` / `getOwnedSeeds`, `openGrowStation`. Retired: `getPlots`, `plantSeed`,
   `harvestPlot`, `harvestAll`, `openGrowMenu`.
 - **Analyzer**: `getAnalyses`, `startAnalysis`, `cancelAnalysis`, `collectAnalysis`, `collectAllAnalyses`,
-  `getOwnedSamples`, `getAnalysisLevel`, `getAnalysisResults`, `getAnalysisFound`, `openAnalyzer`,
-  `devAdvanceAnalysis`. Deprecated: `getSampleDex`, `getSampleDexRatio`.
+  `getOwnedSamples`, `getAnalysisLevel`, `getAnalysisResults`, `getAnalysisFound`, `getSampleAnalysis(defId)` /
+  `getAnalysisDexByRarity()` (2026-09-16 — sample level, dex entries by rarity and the resulting speed-up),
+  `openAnalyzer`, `devAdvanceAnalysis`. Deprecated: `getSampleDex`, `getSampleDexRatio`.
 - **Culture tank**: `getCultureSlots`, `fillMedium`, `clearMedium`, `insertStrain`, `insertScaffold`,
   `takeScaffold`, `insertCultureSocket`, `harvestCulture`, `harvestAllCultures`, `getOwnedMediums` /
   `getOwnedStrains` / `getOwnedSockets`, `openCultureTank`.
@@ -112,7 +114,9 @@ too). Most mutations return `null` on success or a Korean refusal string. Groupe
   `placeBook`, `takeBook`, `getOwnedBooks`, `getBookDex`, `openBookshelfMenu`).
 - **Music**: `getMusicState`, `musicNext`, `musicPrev`, `setMusicMode`, `musicStop`.
 - **Mining**: `getCryptoCoins`, `getCryptoWallet`, `getMiningComputerUid`, `getComputeClusters` /
-  `getComputeCluster`, `setClusterCoin`, `insertClusterCores`, `removeClusterCores`, `cryptoQuote`, `tradeCrypto`,
+  `getComputeCluster` (`processors` per cell · `processorMax` · `perf`), `setClusterCoin`,
+  `insertClusterProcessor(uid, cell, itemUid?)` / `removeClusterProcessor(uid, cell, dest?)`,
+  `insertClusterCores` / `removeClusterCores` (count wrappers), `cryptoQuote`, `tradeCrypto`,
   `openComputeCluster` (default tab `채굴`), `openMiningComputer(uid, tab?)` (default `클러스터 현황`); dev
   `devSetCryptoWallet`, `devSetClusterCores`, `devAdvanceMining`.
 - **Presets (retired)**: `getPresetCount` 0, `getPresets` [], `savePreset` / `deletePreset` false, `applyPreset` null,
@@ -197,8 +201,18 @@ reasoning. The list below is what a maintainer would otherwise break.
 - Analyzer / culture slots are opened by furniture level (`analyzerSlotsForLevel`, `cultureSlotsForLevel`); slot
   indices never shift. `getAnalyses` / `getCultureSlots` always return the max slot count with `locked` +
   `unlockLevel` derived from the contract.
-- Analysis result is rolled **on insert** from `data/analysis_results.csv` by family and analysis level; time =
-  `analysisDurationMs × derived.researchTimeMul`. Cancel never returns the sample. Collect is all-or-nothing through
+- Analysis result is rolled **on insert** from `data/analysis_results.csv` by family and analysis level. Since
+  2026-09-16 the **sample's rarity is the floor of the result's rarity** (`rarityRank(result) >= rarityRank(sample)`);
+  a row with `sampleRarity` set belongs only to that rarity and is exempt from the floor (the six 석영 rows — also the
+  guard that no rarity ever ends up with an empty pool). The floor callbacks are passed into the pure roll
+  (`Rules.AnalysisRollOpts`) because rarities live in the item table. — `Rules.ts` (`rollAnalysisResult`), `parts/Lab.ts`
+- Analysis time = `analyzeHours × analysisTimeMul(family level) × (1 − speedup) × derived.researchTimeMul`, fixed at
+  insert. `speedup = min(ANALYSIS_SPEEDUP_CAP, dex entries of that rarity × ANALYSIS_DEX_BONUS_PER_ENTRY + level bonus)`
+  and `level bonus = 0 | FIRST | FIRST + (n − 1) × STEP` — the gap between `FIRST` and `STEP` **is** "the first analysis
+  of a sample pays most". The dex bonus is counted in **entries, per rarity**, and applies to every sample of that
+  rarity. — `Rules.ts` (`analysisSpeedup`, `analysisDurationMs`)
+- Sample level (`ShipState.sampleLevels`) is **how often that sample was collected** — cancelling never counts, and it
+  is capped at `ANALYSIS_SAMPLE_LEVEL_MAX`. Cancel never returns the sample. Collect is all-or-nothing through
   `deliverItem`. — `parts/Lab.ts` (`startAnalysis`, `collectAnalysis`)
 - Culture output ignores `gatherYieldMul`; a scaffold switches output to `scaffoldOutputDefId` and is consumed on
   harvest. Retired strains are refused.
@@ -247,7 +261,15 @@ reasoning. The list below is what a maintainer would otherwise break.
 
 ### Mining
 - Each cluster is one clock; `tickMining` banks completed cycles into `cryptoWallet` (skipped during raids).
-  Changing cores folds progress; changing coin resets progress. A cluster needs a main computer.
+  Changing the mounted processors folds progress; changing coin resets progress. A cluster needs a main computer.
+- **Processors are mounted directly** (2026-09-16 — the 연산 코어 item is gone). A cluster holds a **list of cells**
+  (`ComputeClusterSlot.processors`, `null` = empty) whose **index is the UI grid cell**, so one worn processor can be
+  pulled out on its own and repaired at the ship workbench; it carries its durability both ways
+  (`loot.createItem(…, { durability })`). Speed is not the count but the **sum of `processorPerf`** — linear from
+  `PROCESSOR_PERF_MIN` at durability 0 to 1 at full, so **a fully worn processor is worth half a fresh one**. Every
+  completed cycle wears every mounted processor by `PROCESSOR_WEAR_PER_CYCLE`; a catch-up of several cycles is billed
+  at the segment's starting perf (the wear itself is exact). A cluster with processors cannot be recovered.
+  — `MiningRules.ts` (`clusterPerf`, `clusterCycleMs`, `wearProcessors`), `parts/Mining.ts` (`settle`)
 - Coin unlock = `ctx.meta.getQuestState(def.unlockQuest) === 'complete'`. Trading is a `credits:tx` reason
   validated by the relay against the quote window; the exchange screen keeps a price subscription open until each
   trade resolves. — `parts/Mining.ts`, `ui/mining/ComputerPages.ts`
@@ -278,17 +300,19 @@ reasoning. The list below is what a maintainer would otherwise break.
 - Station inventory is one `TradeGrids` card (stash left, bag right). — `ui/StationShell.ts` (`mountStationGrids`)
 
 ## Known limits
-- The analysis dex's time multiplier (`ui/SampleDex`) shows only the analysis-level `timeMul`; it does not include
-  `derived.researchTimeMul`.
 - The whole `ship` document is uploaded on every save (no delta).
 - A client with a wrong system clock (offline) can start timers "in the future"; progress bars clamp.
-- Mining cores are saved as a count, so filled core slots are always the first n.
+- A catch-up that completes several mining cycles at once uses the perf the cluster had when the segment opened, so a
+  long offline stretch is slightly faster than ticking it live (the wear is exact either way).
+- The 분석 도감 shows chances **for a common sample** (the widest pool); with the rarity floor the real chance depends
+  on the sample you insert. Its `timeMul` line still shows only the analysis-level multiplier, not
+  `derived.researchTimeMul` nor the dex / sample-level speed-up (those are on the 해석 tab).
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/housing`.
+- 2026-09-16 — 표본 개편 · 프로세서 직접 장착 (ship state v14): the sample's rarity is now the **floor** of the analysis result (`analysis_results.csv` `sampleRarity` rows are rarity-exclusive and exempt), analysis time is cut by `등급별 도감 칸수 × PER_ENTRY + 표본 레벨 보너스` capped at `ANALYSIS_SPEEDUP_CAP` (`ShipState.sampleLevels`, shown as `Lv.n −x %` on the slot and a 등급별 line on the 해석 tab), and 연산 코어 is gone — the 연산 클러스터 takes **프로세서** in a per-cell list with durability, wearing `PROCESSOR_WEAR_PER_CYCLE` per cycle and running at `PROCESSOR_PERF_MIN … 1` of speed.
+- 2026-09-16 — Station cells **are item grid cells** (`ui/ItemTile`): the 연산 클러스터 slots and every 보관함 shelf (책장 · 디스크 · 레코드 · 게임) draw the item's own inventory tile with no quantity badge instead of bespoke art, and a mounted item dragged out lands in the **cell it was dropped on** (`ProductDrag.grids` → `Deliver.withDropCell` → `TradeGridsView.placeExternalAt`; a blocked cell is refused, not auto-placed). The workbench header's 업그레이드 now opens that bench's own modal (`openBenchUpgrade`), not the 창고 one.
 - 2026-09-16 — The cook rail's skill lock is back (`cookRecipeSkillBlock`, `cookSkillLabel`, `.cook-rail-skill` badge, `is-skill`): every `recipes.csv` `skillRequired` is `0` so it never fires, but a raised csv number dims the row, badges `제작 20` and refuses `startCook`. The skill's standing job is the material refund.
 - 2026-09-16 — `openStorageUpgrade()`: `UpgradeModal` gained a `standalone` mode (mounts on `ctx.uiRoot`, `.hs-modal-top` z 100, swallows Tab, `onClose`) and `ui/StorageUpgrade.ts` opens the 창고 시설 variant from the inventory / workbench headers; product drag ghosts keep the item's grid footprint; the 시설 관리 furniture popup no longer draws over the inventory windows.
 - 2026-09-16 — Meals are not items: a finished cook is the ship's one dining plate (`ShipState.plate`, replaced on the next cook after a 1 s hold warning, eaten without being consumed, cleared at raid start); no dining table = no cook bench; shared-ship table lists squad plates; `serveMealToSquad` removed.
-- 2026-09-15 — Station inventory is a single card; cooking bench is a recipe thumbnail grid + detail pane.
-- 2026-09-15 — Library: no slot numbers, per-shelf effect cards, shelf divider; facility chips icon-only with tooltip;

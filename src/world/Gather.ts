@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import {
   CATEGORY_COLOR,
   GATHER_HERB_QTY2_CHANCE, GATHER_INTERACT_TIME, GATHER_NODES_PER_MISSION, GATHER_SALVAGE_CORE_CHANCE,
-  GATHER_SALVAGE_CORE_QTY, GATHER_SALVAGE_MINERAL_CHANCE, GATHER_SALVAGE_MINERAL_QTY, GATHER_SALVAGE_QTY2_CHANCE, Layers,
-  SALVAGE_INTERACT_TIME, SALVAGE_NODES_PER_MISSION, SOIL_TAG_COLOR,
+  GATHER_SALVAGE_CORE_QTY, GATHER_SALVAGE_MINERAL_CHANCE, GATHER_SALVAGE_MINERAL_QTY, GATHER_SALVAGE_QTY2_CHANCE,
+  IMPLANT_DASH_MAX_SLOPE_DEG, Layers,
+  MINING_HILL_MIN_SLOPE, MINING_NODE_HOLD_S, MINING_SKILL_XP, MINING_YIELD_MAX, MINING_YIELD_MIN,
+  RARITY_ORDER, SALVAGE_INTERACT_TIME, SALVAGE_NODES_PER_MISSION, SOIL_TAG_COLOR, getPlanet,
   type GameContext, type GatherNodeDef, type GatherNodeKind, type GatherWire, type HarvestMessage, type HarvestRequest,
   type Interactable, type ItemCategory, type ItemInstance, type PeerId, type PlanetEcosystem, type Random, type SoilTag,
 } from '@/shared';
@@ -14,7 +16,9 @@ import { SEED_INTERACT_TIME, SEED_NODE_RADIUS, planetSeeds } from './flora';
 import {
   GROVE_PICKS_MAX, GROVE_PICKS_MIN, GROVE_PICK_RING_MAX, GROVE_PICK_RING_MIN, GROVE_PICK_VARIANT,
 } from './hazard/model';
+import { mineralRarityWeights, planetMineralNodes, rollMineralRarity, type RarityWeights } from './mineral';
 import { planetSoil } from './soil';
+import type { ObstacleEntry, SpatialHash } from './SpatialHash';
 import { SAMPLE_INTERACT_TIME, SAMPLE_NODE_RADIUS, planetSamples } from './specimen';
 
 /** Seconds the shrink-away animation runs after a node is harvested. */
@@ -32,8 +36,10 @@ const MIN_SPACING = 7;
  */
 const FALLBACK_HERB_IDS: readonly string[] = ['herb_bloodroot', 'herb_ashleaf', 'herb_glowcap'];
 
-// 0–2 약초 · 3 고철 · 4 토양 · 5 씨앗 군락 · 6 미확인 표본 (2026-09-11)
-const GLOW_COLORS: readonly number[] = [0xff5a6a, 0x7affc8, 0xffc24a, 0xffb347, 0xd8b06a, 0xe6ff8a, 0x8fd8ff];
+// 0–2 약초 · 3 고철 · 4 토양 · 5 씨앗 군락 · 6 미확인 표본 (2026-09-11) · 7 광맥 (2026-09-16)
+// 광맥의 보라는 일부러 어느 바이옴 크리스탈(`biome.crystalEmissive`)과도 겹치지 않는 색이다 — 사면 저쪽에서
+// 보고 "저건 광맥이다" 가 되어야 하기 때문이다.
+const GLOW_COLORS: readonly number[] = [0xff5a6a, 0x7affc8, 0xffc24a, 0xffb347, 0xd8b06a, 0xe6ff8a, 0x8fd8ff, 0xc08cff];
 
 /* ── 고철 노드 (2026-09-08) ────────────────────────────────────────────────
  * 폐금속이 상자의 `material` 롤에서만 나오던 병목을 푸는 세 갈래 중 하나. 약초와 **같은 노드 시스템**을 쓴다 —
@@ -52,11 +58,16 @@ const SALVAGE_SPACING = 12;
  * `GATHER_SALVAGE_CORE_*`, 아이템 id 는 계약 주석(`shared/constants.ts`)이 정한 구동 코어다.
  */
 const SALVAGE_CORE_DEF_ID = 'mat_core';
-/**
+/*
  * 2026-09-13 (요리 재료 티어 — 사용자 결정 「광물 = 표본 채집지 · 고철 더미 부가 · 베헤모스」): 고철 더미가 확률로 더 주는
  * **미확인 광물**. 확률 · 개수는 `data/constants.csv` 의 `GATHER_SALVAGE_MINERAL_*`. 코어와 **따로** 굴리므로 한 더미가 둘 다 줄 수 있다.
+ *
+ * 2026-09-16 (표본 전면 개편): 여기 있던 고정 id 상수 `'spec_mineral'` 은 그 def 가 삭제된 뒤에도 남아 있었다.
+ * `makeItem` 이 모르는 id 에 조용히 null 을 돌려주므로 크래시는 없었지만, 더미가 확률을 굴리고도 아무것도 주지 않는
+ * **죽은 기능**이 됐다 — 그래서 상수를 지우고 아래 `mineralDefId(0)`, 즉 **가장 낮은 등급**의 미확인 광물을 준다.
+ * 등급을 굴리는 것은 광맥의 정체성이고(캐는 사람의 채광 숙련이 상위 등급을 밀어 준다), 고철 더미는 부가 산출이라
+ * 숙련과 무관하게 제일 거친 조각 하나다.
  */
-const SALVAGE_MINERAL_DEF_ID = 'spec_mineral';
 
 /** 채집물 하나가 수확 때 **아이템만** 하나 더 넣는 부가 결과. */
 interface NodeBonus { defId: string; qty: number }
@@ -126,6 +137,42 @@ const SAMPLE_NEST_RING_MAX = 34;
 const SAMPLE_POI_RING_MIN = 7;
 const SAMPLE_POI_RING_MAX = 17;
 
+/* ── 행성 광맥 (2026-09-16 사용자 결정, 채광) ────────────────────────────────
+ * 여섯 번째 채집 노드다. 배치 · 상호작용 · 호스트 권한 동기화(`harv` / `harvq`) · 수확 애니메이션이 앞의
+ * 다섯과 **한 줄도 다르지 않고**, 다른 것은 네 가지뿐이다:
+ *   ① 변종 메시(결정이 박힌 노두) + **콜라이더** — 광맥은 실제로 몸을 막는 바위다 (다른 채집물은 통과된다).
+ *   ② 서는 자리 — `MINING_HILL_MIN_SLOPE` 이상의 **사면**에만 선다 (사용자 결정 「주로 언덕쪽 위주」).
+ *   ③ 산출물 — **캘 때** 등급을 굴린다. 다른 노드는 생성 때 아이템이 정해지지만, 광맥의 등급은 **캐는 사람의
+ *      채광 숙련**(`derived.miningRarityBonus`)이 밀어 주므로 생성 시점에는 답이 없다.
+ *   ④ 숙련 — 원예 · 제작이 아니라 **채광**이다. 그래서 광맥은 `GatherNodeKind` 의 여섯 번째 값 `'mineral'` 을
+ *      쓴다 (2026-09-16). 예외 경로는 없다: 다른 채집물과 똑같이 `gather:collected` 를 쏘고, kind 를 보고
+ *      숙련을 고르는 것은 `ProgressionSystem` 의 그 핸들러 한 곳뿐이다. 값이 따로 있으니 NPC 신뢰도의
+ *      `gathered` 표식 · 지도 · 스모크도 다른 다섯과 같은 길로 광맥을 본다.
+ */
+/** `variants` index of the 광맥 mesh (0–2 = 약초, 3 = 고철, 4 = 토양, 5 = 씨앗, 6 = 표본). */
+const MINERAL_VARIANT = 7;
+/**
+ * 광맥이 서는 경사의 **상한**. 새 수치가 아니라 「걸어서 닿는 가장 가파른 땅」을 tan 으로 옮긴 것이다 —
+ * `IMPLANT_DASH_MAX_SLOPE_DEG`(50°)는 걷기 경사 한계와 같은 값이라고 csv 가 못박아 두었다. 이보다 가파른
+ * 벼랑에 광맥이 서면 보이기만 하고 캘 수가 없다.
+ */
+const MINERAL_MAX_SLOPE = Math.tan(THREE.MathUtils.degToRad(IMPLANT_DASH_MAX_SLOPE_DEG));
+/**
+ * 광맥의 상호작용 반경 · 간격 · 다른 채집물까지의 거리는 **표본 채집지 값을 일부러 공유한다** (`SOIL_INTERACT_TIME`
+ * 이 고철 값을 빌린 것과 같은 판단): 행성당 3~7 개로 개수가 비슷하고, 광맥만 다른 값이 필요해지면 그때 csv 에 한 줄.
+ */
+const MINERAL_RADIUS = SAMPLE_NODE_RADIUS;
+const MINERAL_SPACING = SAMPLE_SPACING;
+const MINERAL_NODE_CLEARANCE = SAMPLE_NODE_CLEARANCE;
+/**
+ * 그려진 노두의 지면 위 실루엣 (m) — **콜라이더가 이 값을 그대로 쓴다** (`§4.4`: 콜라이더는 보이는 것을 재고,
+ * 묻힌 부분은 세지 않는다). `makeMineralGeometry` 의 몸통 치수를 바꾸면 여기도 같이 바꾼다.
+ */
+const MINERAL_BODY_R = 0.95;
+const MINERAL_BODY_H = 1.6;
+/** 미확인 광물 아이템 id 의 이름 규약 (`data/samples.csv`: 로마 숫자 = 등급 순번). items/ 가 아직 모를 때의 대체. */
+const MINERAL_ID_PREFIX = 'spec_mineral_';
+
 interface Variant {
   meshes: THREE.InstancedMesh[];
   geometries: THREE.BufferGeometry[];
@@ -142,6 +189,11 @@ interface Spot {
    * 군락 버섯으로 잡힌다 (생태계 밀도 단언이 그 자리에서 깨진다). 심는 쪽이 표시한다.
    */
   grove?: boolean;
+  /**
+   * 2026-09-16: 광맥. `kind` 로는 가릴 수 없다 — `GatherNodeKind` 에 광맥 값이 없어 `'sample'`(캐면 표본이
+   * 나오니 가장 참에 가까운 값)을 쓰기 때문이다. 세우는 쪽이 표시한다.
+   */
+  vein?: boolean;
 }
 
 interface Node {
@@ -165,6 +217,13 @@ interface Node {
    * 순서는 코어 → 광물 고정이다.
    */
   bonus: readonly NodeBonus[];
+  /** 2026-09-16: 광맥인가 (`Spot.vein` 과 같은 뜻). */
+  vein?: boolean;
+  /**
+   * 2026-09-16: 광맥의 **콜라이더**. 광맥은 몸을 막는 바위라 hash 에 들어간다 — 캐서 사라지면 같이 빠진다
+   * (메시가 오그라들어 없어졌는데 보이지 않는 벽이 남으면 안 된다).
+   */
+  obstacle?: ObstacleEntry;
 }
 
 /**
@@ -198,6 +257,18 @@ export class Gather {
   private readonly unsubs: Array<() => void> = [];
   private matrixDirty = false;
   private built = false;
+  /* ── 광맥 (2026-09-16) ── */
+  /** 콜라이더를 빼려면 hash 가 필요하다 (수확은 빌드가 끝난 한참 뒤에 일어난다). */
+  private hash: SpatialHash | null = null;
+  /** 이 행성의 등급 가중치 (`tier = threat` 줄). 광맥이 없는 행성이면 null. */
+  private mineralWeights: RarityWeights | null = null;
+  /** 등급 순번(`RARITY_ORDER`) → 미확인 광물 아이템 id. items/ 가 모르는 등급은 null. */
+  private mineralIds: readonly (string | null)[] = [];
+  /**
+   * 수확 때 등급을 굴리는 난수. 결과가 **캐는 사람의 숙련**에 달렸으니 어차피 클라이언트마다 다르고,
+   * 산출물도 캔 사람에게만 간다 — 그래서 미션 시드에서 갈라 두되 동기화하지 않는다.
+   */
+  private mineralRoll: Random | null = null;
 
   constructor() { this.group.name = 'GatherNodes'; }
 
@@ -243,6 +314,17 @@ export class Gather {
     const sampleTarget = samples ? samples.nodes : 0;
     const sampleRng = ctx.rng.fork('gather_sample');
     const sampleWeights = samples ? this.resolveNodeWeights(game, samples.weights, 'sample', 'spec_') : null;
+    /* 2026-09-16 (행성 광맥): 광맥도 **자기 fork** 다 — 행성마다 다른 광맥 수가 앞의 어느 스트림도 밀지 않는다
+     * (`gather_soil` · `gather_seed` · `gather_sample` 과 같은 수법). 등급을 캘 때 굴리는 난수는 다시 그 옆의
+     * 갈래(`gather_vein_roll`)라, 광맥을 몇 개 캤는지가 배치 스트림을 흔들지 않는다. */
+    const mineralTarget = planetMineralNodes(planetId);
+    const veinQtyMin = Math.max(1, Math.round(MINING_YIELD_MIN));
+    const veinQtyMax = Math.max(veinQtyMin, Math.round(MINING_YIELD_MAX));
+    const veinRng = ctx.rng.fork('gather_vein');
+    this.mineralRoll = ctx.rng.fork('gather_vein_roll');
+    this.mineralWeights = mineralTarget > 0 ? mineralRarityWeights(getPlanet(planetId)?.threat ?? 1) : null;
+    this.mineralIds = mineralTarget > 0 ? this.resolveMineralIds(game) : [];
+    this.hash = ctx.hash;
 
     this.bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0.0, side: THREE.DoubleSide });
     // 흙은 젖은 듯 무광이고 뒷면을 쓰지 않는다 (돔 하나 + 덩어리들이라 전부 닫힌 면이다)
@@ -256,12 +338,14 @@ export class Gather {
     const capacityOf = (k: number): number => (
       k === SALVAGE_VARIANT ? salvageTarget : k === SOIL_VARIANT ? soilTarget
         : k === SEED_VARIANT ? seedTarget * SEED_PATCH_MAX : k === SAMPLE_VARIANT ? sampleTarget
-          : k === GROVE_PICK_VARIANT ? target + groveExtra : target
+          : k === MINERAL_VARIANT ? mineralTarget
+            : k === GROVE_PICK_VARIANT ? target + groveExtra : target
     );
     const variantRng = (k: number): Random => (
-      k === SOIL_VARIANT ? soilRng : k === SEED_VARIANT ? seedRng : k === SAMPLE_VARIANT ? sampleRng : rng
+      k === SOIL_VARIANT ? soilRng : k === SEED_VARIANT ? seedRng : k === SAMPLE_VARIANT ? sampleRng
+        : k === MINERAL_VARIANT ? veinRng : rng
     );
-    for (let k = 0; k <= SAMPLE_VARIANT; k++) {
+    for (let k = 0; k <= MINERAL_VARIANT; k++) {
       const glowMat = new THREE.MeshStandardMaterial({
         vertexColors: true, roughness: 0.35, metalness: 0.0,
         emissive: new THREE.Color(GLOW_COLORS[k]), emissiveIntensity: 1.1,
@@ -273,7 +357,8 @@ export class Gather {
       const glowIm = new THREE.InstancedMesh(geos[1], glowMat, Math.max(1, capacityOf(k)));
       for (const im of [bodyIm, glowIm]) {
         im.name = k === SALVAGE_VARIANT ? 'gather_salvage' : k === SOIL_VARIANT ? 'gather_soil'
-          : k === SEED_VARIANT ? 'gather_seed' : k === SAMPLE_VARIANT ? 'gather_sample' : `gather_plant_${k}`;
+          : k === SEED_VARIANT ? 'gather_seed' : k === SAMPLE_VARIANT ? 'gather_sample'
+            : k === MINERAL_VARIANT ? 'gather_vein' : `gather_plant_${k}`;
         im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         im.castShadow = false;
         im.receiveShadow = false;
@@ -491,6 +576,37 @@ export class Gather {
       spots.push(...sampleSpots);
     }
 
+    /* ── 행성 광맥 (2026-09-16 사용자 결정, 채광) ────────────────────────────────
+     * 개수는 `data/planets.csv` 의 `mineralNodes` 다 (`world/mineral.ts`). 사용자 결정 「주로 언덕 사면 위주」가
+     * 이 블록의 **유일한** 특별 규칙이다: 자리는 개활지 기각 표집으로 뽑되 `getSlopeAt >= MINING_HILL_MIN_SLOPE`
+     * 인 칸만 통과시킨다 (평지에는 광맥이 아예 서지 않는다). 위쪽 한계 `MINERAL_MAX_SLOPE` 는 걸어서 닿는
+     * 가장 가파른 땅이라 보이는 광맥은 전부 캘 수 있다.
+     *
+     * `isSpotFree` 가 패드 · **선로 회랑**(`railClearance`) · **탐사 차량 회랑**(`roverClearance`) · 이미 선
+     * 콜라이더를 전부 걸러 준다 (§4.4 의 배치 순서 규약 — 광맥은 맨 나중이라 구조물 · 선로 · 도로 · 숲이 이미
+     * hash 에 있다). 구조물 출입구 앞은 `Structures` 가 `clearFor` 로 비워 두고 그 자리를 콜라이더가 지키므로
+     * 같은 `isSpotFree` 한 줄이 문 앞도 막아 준다. */
+    if (mineralTarget > 0) {
+      const veinSpots: Spot[] = [];
+      const near2 = MINERAL_SPACING * MINERAL_SPACING;
+      const clear2 = MINERAL_NODE_CLEARANCE * MINERAL_NODE_CLEARANCE;
+      const push = (x: number, z: number): boolean => {
+        // 언덕 사면만 — 사용자 결정을 이 한 줄이 집행한다 (숫자는 csv 의 MINING_HILL_MIN_SLOPE)
+        if (ctx.terrain.getSlopeAt(x, z) < MINING_HILL_MIN_SLOPE) return false;
+        if (!isSpotFree(ctx, x, z, MINERAL_BODY_R, { maxSlope: MINERAL_MAX_SLOPE, padExtra: 4 })) return false;
+        for (const p of veinSpots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < near2) return false;
+        for (const p of spots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < clear2) return false;
+        /* `defId` 는 **계열의 닻**일 뿐이다 (일반 등급 미확인 광물). 실제로 나오는 등급은 캐는 순간
+           캐는 사람의 채광 숙련으로 굴린다 — 생성 시점에는 답이 없다. 프롬프트도 이 id 를 읽지 않는다. */
+        veinSpots.push({ x, z, variant: MINERAL_VARIANT, defId: this.mineralDefId(0), kind: 'mineral' });
+        return true;
+      };
+      for (let a = 0; a < 6000 && veinSpots.length < mineralTarget; a++) {
+        push(veinRng.range(-PLAY_LIMIT + 12, PLAY_LIMIT - 12), veinRng.range(-PLAY_LIMIT + 12, PLAY_LIMIT - 12));
+      }
+      spots.push(...veinSpots);
+    }
+
     /* 2026-09-11 (C-20): 부가 코어는 **자기 fork** 로 굴린다 — `rng`(gather) 에서 뽑으면 그 뒤의 yaw · scale ·
      * 수량 추첨이 한 칸씩 밀려 같은 시드의 채집물 모습이 달라진다. `Random.fork` 는 부모를 전진시키지 않는다. */
     const coreRng = ctx.rng.fork('gather_core');
@@ -507,26 +623,31 @@ export class Gather {
       const salvage = s.kind === 'salvage';
       const isSoil = s.kind === 'soil';
       const isSeed = s.kind === 'seed';
+      const isVein = s.kind === 'mineral';
       const isSample = s.kind === 'sample';
       /* 토양은 배치와 마찬가지로 **자기 fork** 에서 yaw · scale 을 뽑는다 — soil spots 가 맨 뒤라 앞을 밀지는
          않지만, 흙더미 개수(행성마다 다르다)가 `gather` 스트림의 길이를 바꾸지 않게 하려면 여기도 갈라야 한다.
          2026-09-11 의 씨앗 · 표본도 같은 이유로 자기 fork 다. */
-      const r = isSoil ? soilRng : isSeed ? seedRng : isSample ? sampleRng : rng;
+      const r = isSoil ? soilRng : isSeed ? seedRng : isVein ? veinRng : isSample ? sampleRng : rng;
       const yaw = r.range(0, Math.PI * 2);
       const scale = salvage ? r.range(0.9, 1.15)
         : isSoil ? r.range(0.85, 1.2)
           : isSeed ? r.range(0.9, 1.25)
-            : isSample ? r.range(0.85, 1.15) : r.range(0.85, 1.3);
+            // 광맥은 노두라 크기 폭이 넓다 — 사면 저쪽에서도 눈에 띄어야 한다
+            : isVein ? r.range(0.85, 1.25)
+              : isSample ? r.range(0.85, 1.15) : r.range(0.85, 1.3);
       const def: GatherNodeDef = {
         /* 2026-09-09: 군락 버섯은 `grove_` 로 구분한다 — 종류(kind)는 약초 그대로(원예 XP)지만 "생태계 밀도"
            를 세는 쪽(지도 · 스모크)은 이 둘을 갈라야 한다. 군락 자리는 spots 의 **맨 뒤**라 기존 약초 · 고철의
            id 는 한 글자도 바뀌지 않는다. 2026-09-11 의 토양 더미(`soil_`)는 그 뒤에, 씨앗(`seed_`) · 표본
            (`sample_`)은 다시 그 뒤에 붙는다. */
+        // 2026-09-16: 광맥은 `vein_` — spots 의 **맨 뒤**라 앞의 다섯 종류 id 는 한 글자도 바뀌지 않는다
         id: salvage ? `salvage_${id++}`
           : isSoil ? `soil_${id++}`
             : isSeed ? `seed_${id++}`
-              : isSample ? `sample_${id++}`
-                : s.grove ? `grove_${id++}` : `gather_${id++}`,
+              : isVein ? `vein_${id++}`
+                : isSample ? `sample_${id++}`
+                  : s.grove ? `grove_${id++}` : `gather_${id++}`,
         position: new THREE.Vector3(s.x, y, s.z),
         defId: s.defId,
         // 고철: 폐금속 1, `GATHER_SALVAGE_QTY2_CHANCE` 로 2. 약초: `GATHER_HERB_QTY2_CHANCE` 로 2.
@@ -534,8 +655,11 @@ export class Gather {
         // 토양: 한 더미에 한 포대 고정 (한 포대가 `ItemDef.soil.uses` 만큼 수확을 버틴다 — 깊이는 그쪽에 있다).
         // 씨앗: 한 포기에 한 알 (군락이 여러 포기라 한 덤불에서 2~3 알이 나온다 + 원예 수율이 곱해진다).
         // 표본: 하나짜리 덩어리라 1 고정이고 수율도 곱하지 않는다 (고철과 같은 판단 — `collect` 참조).
-        qty: isSoil || isSeed || isSample ? 1
-          : salvage ? (rng.chance(GATHER_SALVAGE_QTY2_CHANCE) ? 2 : 1) : (rng.chance(GATHER_HERB_QTY2_CHANCE) ? 2 : 1),
+        // 광맥 (2026-09-16): `MINING_YIELD_MIN`…`MAX` 정수 균등. 등급과 **따로** 굴린다 (개수는 자리에 박혀 있고
+        // 등급만 캐는 사람의 숙련을 탄다). 약초처럼 채집 수율(`gatherYieldMul`)이 곱해진다 — `collect` 참조.
+        qty: isVein ? veinRng.int(veinQtyMin, veinQtyMax)
+          : isSoil || isSeed || isSample ? 1
+            : salvage ? (rng.chance(GATHER_SALVAGE_QTY2_CHANCE) ? 2 : 1) : (rng.chance(GATHER_HERB_QTY2_CHANCE) ? 2 : 1),
         harvested: false,
         kind: s.kind,
       };
@@ -544,14 +668,23 @@ export class Gather {
       const bonus: NodeBonus[] = [];
       if (salvage) {
         if (coreRng.chance(GATHER_SALVAGE_CORE_CHANCE) && coreQty > 0) bonus.push({ defId: SALVAGE_CORE_DEF_ID, qty: coreQty });
-        if (mineralRng.chance(GATHER_SALVAGE_MINERAL_CHANCE) && mineralQty > 0) bonus.push({ defId: SALVAGE_MINERAL_DEF_ID, qty: mineralQty });
+        if (mineralRng.chance(GATHER_SALVAGE_MINERAL_CHANCE) && mineralQty > 0) bonus.push({ defId: this.mineralDefId(0), qty: mineralQty });
       }
       const node: Node = {
         def, variant: s.variant, kind: s.kind, slot: v.count,
         x: s.x, y, z: s.z, yaw, scale, anim: -1, pending: false, pendingAt: -Infinity,
         interactable: null as unknown as Interactable,
         bonus,
+        vein: isVein,
       };
+      /* 광맥만 콜라이더를 단다 (다른 채집물은 풀 · 더미라 통과된다). 원기둥 하나 — 그려진 노두가 대략
+         축대칭이라 실루엣과 어긋나지 않는다 (§4.4: 콜라이더는 **지면 위로 드러난 것만** 잰다. 노두 몸통은
+         y<0 까지 내려가지만 그 아래는 묻힌 부분이라 세지 않는다). `position.y` 는 밑면이다. */
+      if (isVein) {
+        node.obstacle = ctx.hash.add(
+          new THREE.Vector3(s.x, y, s.z), MINERAL_BODY_R * scale, MINERAL_BODY_H * scale, 'crystal',
+        );
+      }
       node.interactable = this.makeInteractable(node);
       this.writeMatrix(node, 1);
       // 흙더미의 색은 **속성**이다 (부엽토 · 화산재토 · 동토 이탄 · 광물토) — 같은 메시를 인스턴스 색으로 칠한다
@@ -602,7 +735,11 @@ export class Gather {
 
   dispose(): void {
     const game = this.game;
-    for (const n of this.nodes) game?.interactables.unregister(n.interactable.id);
+    for (const n of this.nodes) {
+      game?.interactables.unregister(n.interactable.id);
+      // 광맥 콜라이더의 참조를 끊는다 (hash 자체는 `WorldSystem.clear` 가 통째로 비운다)
+      n.obstacle = undefined;
+    }
     this.nodes.length = 0;
     this.byId.clear();
     this.defs.length = 0;
@@ -616,6 +753,10 @@ export class Gather {
     this.bodyMat = null;
     this.soilMat?.dispose();
     this.soilMat = null;
+    this.hash = null;
+    this.mineralWeights = null;
+    this.mineralIds = [];
+    this.mineralRoll = null;
     this.group.removeFromParent();
     this.built = false;
   }
@@ -636,11 +777,13 @@ export class Gather {
     // 2026-09-11: 토양 더미는 `채취` 다 — 셋이 한 단어로 갈라진다 (약초 채집 · 고철 해체 · 토양 채취)
     // 2026-09-11 (연구실): 씨앗 군락은 흙과 같은 `채취`, 미확인 표본은 `수습` 이다 (사용자 결정) —
     // 다섯 종류가 네 단어로 갈린다 (약초 채집 · 고철 해체 · 토양/씨앗 채취 · 표본 수습).
+    // 2026-09-16: 광맥은 `채굴` 이다 — 여섯 종류가 다섯 단어로 갈린다 (채집 · 해체 · 채취 · 수습 · 채굴).
     const salvage = node.kind === 'salvage';
     const soil = node.kind === 'soil';
     const seed = node.kind === 'seed';
+    const vein = node.kind === 'mineral';
     const sample = node.kind === 'sample';
-    const verb = salvage ? '해체' : sample ? '수습' : soil || seed ? '채취' : '채집';
+    const verb = salvage ? '해체' : vein ? '채굴' : sample ? '수습' : soil || seed ? '채취' : '채집';
     return {
       id: `gather:${node.def.id}`,
       position: node.def.position,
@@ -648,13 +791,18 @@ export class Gather {
       holdTime: salvage ? SALVAGE_INTERACT_TIME
         : soil ? SOIL_INTERACT_TIME
           : seed ? SEED_INTERACT_TIME
-            : sample ? SAMPLE_INTERACT_TIME : GATHER_INTERACT_TIME,
+            : vein ? MINING_NODE_HOLD_S
+              : sample ? SAMPLE_INTERACT_TIME : GATHER_INTERACT_TIME,
       radius: salvage ? SALVAGE_RADIUS
         : soil ? SOIL_RADIUS
           : seed ? SEED_NODE_RADIUS
-            : sample ? SAMPLE_NODE_RADIUS : NODE_RADIUS,
+            : vein ? MINERAL_RADIUS
+              : sample ? SAMPLE_NODE_RADIUS : NODE_RADIUS,
       getPrompt: () => {
         if (node.def.harvested) return null;
+        /* 광맥만 아이템 이름을 쓰지 않는다 — 어느 등급이 나올지는 **캐 봐야** 알기 때문이다
+           (`def.defId` 는 계열의 닻일 뿐이라 그것을 읽으면 「미확인 광물 I」 이라고 거짓말을 한다). */
+        if (vein) return node.pending ? `광맥 ${verb} 중…` : `광맥 ${verb} (E)`;
         const fallback = salvage ? '고철' : soil ? '토양' : seed ? '씨앗' : sample ? '표본' : '약초';
         const name = this.game?.loot?.getItemDef(node.def.defId)?.name ?? fallback;
         return node.pending ? `${name} ${verb} 중…` : `${name} ${verb} (E)`;
@@ -690,7 +838,31 @@ export class Gather {
     node.pending = false;
     node.anim = 0;
     ctx.interactables.unregister(node.interactable.id);
+    /* 광맥의 콜라이더는 **누가 캤든** 빠진다 (원격 수확도 여기를 지난다) — 오그라들어 사라진 노두 자리에
+       보이지 않는 바위가 남으면 안 된다. hash 는 미션 끝에 통째로 비워지므로 여기서만 빼면 된다. */
+    if (node.obstacle) { this.hash?.remove(node.obstacle); node.obstacle = undefined; }
     if (!award) return;
+
+    /* ── 광맥 (2026-09-16 사용자 결정, 채광) ─────────────────────────────────────
+     * 다른 채집물과 갈리는 유일한 수확 경로다.
+     *  · 등급을 **지금** 굴린다 — 가중치는 이 행성 난이도 줄(`mineral.ts`), 거기에 캐는 사람의
+     *    `derived.miningRarityBonus` 가 상위 등급 쪽에 **곱해진다**. 곱이라 난이도가 0 으로 막아 둔 등급은
+     *    채광이 아무리 높아도 영원히 안 나온다 (`rollMineralRarity` 주석의 증명).
+     *  · 개수는 생성 때 정해진 `def.qty` (`MINING_YIELD_MIN`…`MAX`) × 채집 수율 — 약초와 같은 규칙이다.
+     *  · 숙련은 **채광**이다. `gather:collected` 의 `kind` 가 `'mineral'` 이라 progression 이 알아서 채광에
+     *    올린다 — 여기서 `addSkillXp` 를 직접 부르지 않는다 (숙련 배분은 그 한 곳이 정한다).
+     *  · 다른 채집물과 다른 것은 **defId 가 정해지는 시점**뿐이라, 이벤트에는 방금 굴린 id 를 싣는다. */
+    if (node.kind === 'mineral') {
+      const mul = ctx.progression?.derived.gatherYieldMul ?? 1;
+      const qty = Math.max(1, Math.round(node.def.qty * (mul > 0 ? mul : 1)));
+      const defId = this.rollMineralDefId(ctx);
+      ctx.bus.emit('gather:collected', { nodeId: node.def.id, defId, qty, kind: node.kind });
+      ctx.bus.emit('audio:play', { id: 'gather', position: node.def.position, volume: 0.7 });
+      const ore = this.makeItem(defId, qty);
+      markRaidFound(ore, raidFoundSeed(ctx));
+      if (ore) ctx.inventory?.tryAddItem(ore);
+      return;
+    }
 
     /* 채집 수율(원예)은 **약초 · 토양 · 씨앗**에 붙는다 — 고철은 뜯어낸 만큼 그대로 나온다.
      * 토양 · 씨앗이 원예 쪽인 것은 XP 와 같은 이유다: 흙을 퍼는 것도 이삭을 훑는 것도 밭일이다.
@@ -724,6 +896,44 @@ export class Gather {
   /** 2026-09-13 스모크: 노드 id → 부가 결과 전부 (코어 → 광물 순, 없으면 빈 목록). */
   debugBonusesOf(id: string): Array<{ defId: string; qty: number }> {
     return (this.byId.get(id)?.bonus ?? []).map((b) => ({ ...b }));
+  }
+
+  /* ── 광맥의 산출물 (2026-09-16) ────────────────────────────────────────── */
+
+  /**
+   * 등급 순번(`RARITY_ORDER`) → 미확인 광물 아이템 id. `data/samples.csv` 의 **광물 계열**(`sample.family`
+   * `'mineral'`)을 등급으로 줄 세워 만든다 — 로마 숫자를 코드가 세지 않으므로 표가 늘거나 줄어도 따라온다.
+   * `items/` 가 아직 그 줄을 모르면(폴더가 나란히 지어진다) 이름 규약 `spec_mineral_<등급순번>` 으로 떨어진다.
+   */
+  private resolveMineralIds(game: GameContext): readonly (string | null)[] {
+    const out: (string | null)[] = RARITY_ORDER.map(() => null);
+    for (const d of game.loot?.getAllItemDefs?.() ?? []) {
+      if (d.category !== 'sample' || d.sample?.family !== 'mineral' || d.retired) continue;
+      const rank = RARITY_ORDER.indexOf(d.rarity);
+      if (rank >= 0 && !out[rank]) out[rank] = d.id;
+    }
+    return out;
+  }
+
+  /** 등급 순번 → 아이템 id (모르면 이름 규약으로). */
+  private mineralDefId(rank: number): string {
+    return this.mineralIds[rank] ?? `${MINERAL_ID_PREFIX}${rank + 1}`;
+  }
+
+  /**
+   * 광맥 한 번의 등급 굴림 → 아이템 id. 가중치는 **행성 난이도 줄**(총기 드롭과 같은 표)이고, 캐는 사람의
+   * 채광 숙련이 상위 등급 쪽 가중치에 곱해진다. 그 등급의 광물을 `items/` 가 모르면 한 칸씩 내려가
+   * 아는 등급을 준다 (빈손으로 돌려보내지 않는다).
+   */
+  private rollMineralDefId(ctx: GameContext): string {
+    const weights = this.mineralWeights;
+    if (!weights) return this.mineralDefId(0);
+    const bonus = ctx.progression?.derived.miningRarityBonus ?? 0;
+    const rarity = rollMineralRarity(weights, bonus, this.mineralRoll?.next() ?? 0);
+    let rank = RARITY_ORDER.indexOf(rarity);
+    if (rank < 0) rank = 0;
+    while (rank > 0 && !this.mineralIds[rank]) rank--;
+    return this.mineralDefId(rank);
   }
 
   private makeItem(defId: string, qty: number): ItemInstance | null {
@@ -908,6 +1118,7 @@ export class Gather {
     if (k === SOIL_VARIANT) return this.makeSoilGeometry(ctx, rng);
     if (k === SEED_VARIANT) return this.makeSeedGeometry(rng);
     if (k === SAMPLE_VARIANT) return this.makeSampleGeometry(ctx, rng);
+    if (k === MINERAL_VARIANT) return this.makeMineralGeometry(ctx, rng);
     if (k === SALVAGE_VARIANT) return this.makeSalvageGeometry(rng);
     const b = ctx.biome;
     const stemLow = b.trunk.clone().lerp(b.grass, 0.5).multiplyScalar(0.8);
@@ -1194,6 +1405,59 @@ export class Gather {
     xform(core, { x: 0, y: 0.2, z: 0 });
     paint(core, glowCol.clone().multiplyScalar(0.85));
     glow.push(core);
+
+    return [merge(body), merge(glow)];
+  }
+
+  /**
+   * 광맥 (2026-09-16 사용자 결정, 채광). **읽히는 실루엣**이 요구조건이다 — 언덕 사면 저쪽에서 보고
+   * "저기 캘 게 있다" 가 되어야 한다. 그래서 두 덩어리로 나눈다:
+   *
+   *  · 몸통 — 바이옴 바위색 노두. 밑동을 `y < 0` 까지 내려 두어 **사면 어느 각도에서도 땅에 박혀 보인다**
+   *    (채집 노드는 지형 법선으로 기울이지 않는다 — 기울이면 여섯 종류의 행렬 경로가 갈린다).
+   *    콜라이더는 지면 위 부분(`MINERAL_BODY_R` × `MINERAL_BODY_H`)만 잰다.
+   *  · 결정 — 노두를 뚫고 나온 팔면체 결정 다섯. 이쪽만 `glowMat`(자기발광)이라 멀리서도 보라색 점으로 읽힌다.
+   *    빛기둥 · 점광원은 쓰지 않는다 (빛기둥은 시체 전용이고, 레이드 점광원 예산은 여유가 0 이다).
+   */
+  private makeMineralGeometry(ctx: BuildCtx, rng: Random): THREE.BufferGeometry[] {
+    const rock = ctx.biome.boulder.clone();
+    const rockHi = ctx.biome.rock.clone().lerp(new THREE.Color(1, 1, 1), 0.12);
+    const glowCol = new THREE.Color(GLOW_COLORS[MINERAL_VARIANT]);
+    const body: THREE.BufferGeometry[] = [];
+    const glow: THREE.BufferGeometry[] = [];
+
+    // 노두 본체 — 세로로 늘인 바위 하나. 밑동이 땅속으로 들어가 사면에서도 떠 보이지 않는다.
+    const core = new THREE.DodecahedronGeometry(0.8, 0);
+    displace(core, ctx.noise, 0.16, 1.9, rng.range(0, 40));
+    xform(core, { x: 0, y: 0.62, z: 0 }, new THREE.Euler(rng.range(-0.25, 0.25), rng.range(0, 3), rng.range(-0.25, 0.25)),
+      { x: 1.05, y: 1.35, z: 1.05 });
+    paintGradient(core, rock, rockHi);
+    body.push(core);
+
+    // 밑동에 붙은 부서진 돌 셋 — 실루엣 아래쪽을 넓혀 "깨 놓은 광맥" 으로 읽힌다
+    for (let i = 0; i < 3; i++) {
+      const ang = (i / 3) * Math.PI * 2 + rng.range(-0.5, 0.5);
+      const d = rng.range(0.45, 0.72);
+      const chunk = new THREE.IcosahedronGeometry(rng.range(0.2, 0.34), 0);
+      displace(chunk, ctx.noise, 0.1, 3.4, rng.range(0, 40));
+      xform(chunk, { x: Math.cos(ang) * d, y: rng.range(0.05, 0.2), z: Math.sin(ang) * d },
+        new THREE.Euler(rng.range(0, 3), rng.range(0, 3), rng.range(0, 3)));
+      paintGradient(chunk, rock, rockHi);
+      body.push(chunk);
+    }
+
+    // 결정 다섯 — 노두 위쪽을 뚫고 비스듬히 나온다 (세로로 늘인 팔면체 = 결정의 가장 값싼 실루엣)
+    for (let i = 0; i < 5; i++) {
+      const ang = (i / 5) * Math.PI * 2 + rng.range(-0.4, 0.4);
+      const up = rng.range(0.55, 1.15);
+      const d = rng.range(0.2, 0.42);
+      const shard = new THREE.OctahedronGeometry(rng.range(0.11, 0.19), 0);
+      xform(shard, undefined, undefined, { x: 0.7, y: 1.9, z: 0.7 });
+      xform(shard, { x: Math.cos(ang) * d, y: up, z: Math.sin(ang) * d },
+        new THREE.Euler(rng.range(-0.5, 0.5), ang, rng.range(-0.5, 0.5)));
+      paint(shard, glowCol.clone().multiplyScalar(rng.range(0.7, 1)));
+      glow.push(shard);
+    }
 
     return [merge(body), merge(glow)];
   }

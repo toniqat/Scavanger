@@ -58,8 +58,36 @@ const SALVAGEABLE: readonly ItemCategory[] = ['primary', 'secondary', 'armor', '
  * 카테고리 목록에 `'gadget'` 을 통째로 넣지 않는 이유: 그러면 연막탄 · 수류탄 · 드론처럼 **내구도가 없는** 가젯까지
  * 분해 레시피가 자동 생성되고, 내구도 구간이 없는 아이템에 구간 검사가 걸린다. 그래서 「내구도가 있는가」로 가른다 —
  * 새 가젯에 `durabilityMax` 를 넣는 순간 수리 · 분해 · 경제 검산이 저절로 따라온다.
+ *
+ * **2026-09-16 (채광 개편, 사용자 결정) — 판정에서 카테고리를 뺐다.** 프로세서(`mat_processor`)가 `material` 인데
+ * `durabilityMax` 500 을 들고 연산 클러스터에 꽂혀 주기마다 닳는다 (함선 작업대에서 수리한다). 카테고리로 가르던
+ * 옛 식은 이 줄을 놓쳐 수리비가 `[]` 가 됐고 — 그것은 무료 수리라는 뜻이라 — `checkSalvageEconomy` 가 다섯 구간
+ * 전부에서 「제작 레시피가 있는데 수리비가 비어 있다」로 잡았다. 위 문단에 이미 적혀 있던 의도(「내구도가 있는가」로
+ * 가른다)를 가젯 밖으로 넓힌 것뿐이다 — 어떤 카테고리든 `durabilityMax` 를 적는 순간 수리 · 분해 · 검산이 따라온다.
+ *
+ * 예외는 **회복 스프레이** 하나다: 그 `durabilityMax` 는 내구도가 아니라 약액 게이지라, 충전은 `inventory` 의
+ * `sprayRepairCost` 가 따로 받는다 (`needsRepairCost` 도 같은 줄로 걸러 낸다).
  */
-const wearsDurability = (def: ItemDef): boolean => def.category === 'gadget' && (def.durabilityMax ?? 0) > 0;
+const wearsDurability = (def: ItemDef): boolean => !def.heal?.spray && (def.durabilityMax ?? 0) > 0;
+
+/**
+ * 2026-09-16 (사용자 결정) — **유니크 무기는 분해된다. 다만 신화 광물은 나오지 않는다.**
+ * 같은 날 유니크 6종에 제작 레시피(`make_wpn_u_*`, 전용 신화 광물 1개씩)가 생기면서 `SALVAGE_SOURCES` 가 그
+ * 레시피에서 분해를 자동 생성하게 됐다. 그대로 두면 「신화 광물 1 → 제작 → 분해」로 광물이 되돌아오는 길이
+ * 열린다 — 그 길만 막고 분해 자체는 허용하라는 것이 사용자 결정이다.
+ * 구현은 아래 `salvageYieldOf` 하나다: **신화 등급 재료는 분해 산출에서 통째로 빠진다.** 산출이 줄기만 하므로
+ * 「수리 + 분해 ≤ 제작」 불변식(`checkSalvageEconomy`)은 더 여유로워질 뿐 깨지지 않는다.
+ * 수리는 그대로 된다 — 이제는 빌려 온 등급 V 재료가 아니라 **자기 제작 재료**로 (그래서 신화 광물이 든다).
+ */
+/**
+ * 분해 산출의 100 % 기준선 — 제작 재료에서 **신화 등급을 뺀** 나머지. 위 규칙을 단 한 곳에서 진다.
+ * 유니크인지를 따로 묻지 않는 이유: 막아야 하는 것은 「유니크」가 아니라 「신화 재료가 분해로 돌아오는 것」이고,
+ * 등급으로 가르면 앞으로 어떤 아이템이 신화 재료를 먹더라도 규칙이 저절로 따라온다. 지금 신화 재료는
+ * 유니크 무기의 전용 광물 6종뿐이라, 실제로 이 줄이 걸러 내는 것도 그들뿐이다.
+ */
+const salvageYieldOf = (inputs: readonly CraftIngredient[]): readonly CraftIngredient[] =>
+  inputs.filter((i) => ITEM_DEF_MAP.get(i.defId)?.rarity !== 'mythic');
+
 /** 이 아이템이 작업대 수리 대상인가. */
 const isRepairable = (def: ItemDef): boolean => REPAIRABLE.includes(def.category) || wearsDurability(def);
 /** 제작 재료에서 분해 레시피를 자동 생성하는 아이템인가. */
@@ -138,12 +166,16 @@ export function durabilityBucketInfo(inst: ItemInstance): DurabilityBucketInfo {
   };
 }
 
-/* ── 유니크 대체 기준 ─────────────────────────────────────────────────────────
- * 유니크 무기 · 유니크 방탄복에는 제작 레시피가 없다 (되돌릴 수 없는 유일품이라 **분해도 금지**).
- * 그래도 수리는 되어야 하므로 기준을 하나 빌려 온다 — **같은 총기 종류의 등급 V** (유니크 방탄복은
- * 방탄복 V) 의 제작 재료에 `UNIQUE_REPAIR_MUL` 을 곱한다. 옛 공식(빠진 내구도 ÷ REPAIR_SCRAP_PER)을
- * 남기지 않은 이유: 유니크 내구도는 320~3000 이라 같은 전설끼리도 수리비가 10배 갈렸고, 등급 무기와
- * 완전히 다른 축으로 움직여 "이게 얼마나 비싼 수리인가" 를 읽을 수가 없었다. */
+/* ── 제작 레시피가 없는 장비의 대체 기준 ────────────────────────────────────────
+ * 제작 레시피가 없어도 수리는 되어야 하므로 기준을 하나 빌려 온다 — **같은 총기 종류의 등급 V**
+ * (특성 방탄복은 방탄복 V) 의 제작 재료에 `UNIQUE_REPAIR_MUL` 을 곱한다. 옛 공식(빠진 내구도 ÷
+ * REPAIR_SCRAP_PER)을 남기지 않은 이유: 유니크 내구도는 320~3000 이라 같은 등급끼리도 수리비가 10배
+ * 갈렸고, 등급 무기와 완전히 다른 축으로 움직여 "이게 얼마나 비싼 수리인가" 를 읽을 수가 없었다.
+ *
+ * **2026-09-16**: 유니크 무기 6종은 이제 자기 제작 레시피(`make_wpn_u_*`)가 있어서 이 길로 오지 않는다 —
+ * `repairCostFor` 가 `craftCostOf(def.id)` 를 먼저 보기 때문이다 (그래서 유니크 수리에는 신화 광물이 든다).
+ * 남은 손님은 **특성 방탄복 3벌**(재생 · 초경량 · 광학미채, `data/recipes.csv` 에 줄이 없다)뿐이다.
+ * 유니크는 분해되지만 신화 광물은 산출에서 빠진다 (위 `salvageYieldOf`). */
 const UNIQUE_REPAIR_MUL = T.num('UNIQUE_REPAIR_MUL');
 
 const GRADE_V_ITEM_BY_CLASS: ReadonlyMap<WeaponClass, string> = new Map(
@@ -261,7 +293,8 @@ const HAND_BY_INPUT: ReadonlyMap<string, HandSalvage> = new Map(HAND_SALVAGE.map
 /* ── 제작 레시피에서 생성한 분해 ───────────────────────────────────────────────
  * 무기 25종 · 방탄복 5벌 · 가방 8종. 산출이 **그 아이템의 제작 재료 구성을 그대로 따라가므로**
  * 총을 뜯으면 폐금속만이 아니라 그 등급이 요구한 합금 판 · 기계 부품 · 강화합금 잉곳도 나온다.
- * 유니크 무기 · 유니크 방탄복은 제작 레시피가 없어 **자동으로 빠진다** (분해 금지 규칙 그대로). */
+ * 2026-09-16: 유니크 무기도 레시피가 생겨 이 목록에 들어왔지만, 산출은 `salvageYieldOf` 가 신화 광물을 빼고 준다
+ * (위 주석). 특성 방탄복은 여전히 레시피가 없어 저절로 빠진다. 프로세서(`material` + 내구도)는 새로 들어온다. */
 
 interface SalvageSource {
   /** 100 % 기준 = 제작 재료. */
@@ -289,8 +322,10 @@ const SALVAGE_SOURCES: ReadonlyMap<string, SalvageSource> = (() => {
       description: `${def.name} 을(를) 뜯어 제작 재료 일부를 되찾는다. 남은 내구도가 높을수록 많이 나온다.`
         + (gun ? ' 부착물은 먼저 가방으로 돌아온다.' : ''),
     };
-    const listed = withOutputs(shell, scaleSalvage(r.inputs, TOP_SALVAGE_MUL));
-    if (listed) out.set(def.id, { craft: r.inputs, listed, factor: maxSkillCraftFactor(r) });
+    // 분해 산출은 제작 재료에서 신화 등급을 뺀 것이다 (위 `salvageYieldOf` 주석 — 유니크의 신화 광물은 돌아오지 않는다).
+    const yield_ = salvageYieldOf(r.inputs);
+    const listed = withOutputs(shell, scaleSalvage(yield_, TOP_SALVAGE_MUL));
+    if (listed) out.set(def.id, { craft: yield_, listed, factor: maxSkillCraftFactor(r) });
   }
   return out;
 })();

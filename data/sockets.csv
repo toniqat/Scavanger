@@ -24,3 +24,10 @@ sock_medium_yield_1,분열 인자 I,uncommon,medium,yield,0.3,200,세포를 한 
 sock_medium_yield_2,분열 인자 II,rare,medium,yield,0.6,460,효과가 짙어진 분열 인자. 배지에 끼우면 수확할 때 자주 하나를 더 거둔다.
 sock_medium_wear_1,배지 안정 인자 I,uncommon,medium,wear,0.2,160,배지의 영양이 새지 않게 붙잡는 유전 인자. 배지에 끼우면 수확할 때 덜 닳는다.
 sock_medium_wear_2,배지 안정 인자 II,rare,medium,wear,0.4,380,효과가 짙어진 배지 안정 인자. 배지에 끼우면 수확할 때 훨씬 덜 닳는다.
+# ── 2026-09-16 (사용자 결정, 표본 전면 개편): 전설 · 신화 소켓 ──
+# 표본의 등급이 곧 산출물 등급의 **하한**이 되면서, 유전자 계열도 전설 · 신화 표본이 뽑을 줄을 가져야 한다
+#   (미확인 유전자 V · VI 는 이 네 줄과 data/analysis_results.csv 의 dna 절이 받는다).
+sock_soil_yield_3,결실 인자 III,legendary,soil,yield,0.9,1800,결실을 거의 확실하게 만드는 순종 인자. 흙에 끼우면 수확할 때 대부분 하나를 더 거둔다.
+sock_medium_yield_3,분열 인자 III,legendary,medium,yield,0.9,1800,세포를 한 번 더 갈라 놓는 순종 인자. 배지에 끼우면 수확할 때 대부분 하나를 더 거둔다.
+sock_soil_prime,원종 인자,mythic,soil,speed,0.3,4200,모든 개량종의 조상이 지녔던 원형 유전자. 흙에 끼우면 작물이 놀랄 만큼 빨리 자란다.
+sock_medium_prime,원형질 인자,mythic,medium,speed,0.3,4200,세포가 처음 갈라지던 때의 원형 유전자. 배지에 끼우면 배양이 놀랄 만큼 빨리 끝난다.

@@ -68,15 +68,20 @@
 .mn-seg-btn.is-active { color: #05070a; background: var(--c-accent); }
 
 /* ── 채굴 탭 (`ClusterPage`) ─────────────────────────────────────────────────
- * 위에서 아래로 [코어 9칸(중앙)] → [이번 주기] → [채굴 코인 드롭다운 + 현황 수치] (2026-09-14 사용자 결정).
- * 코어 아이템이 **2×1** 이 되어 칸도 가로로 길다 — 3열 × 3줄의 가로 칸 아홉이 가운데 선다.
+ * 위에서 아래로 [프로세서 9칸(중앙)] → [이번 주기] → [채굴 코인 드롭다운 + 현황 수치] (2026-09-14 사용자 결정).
+ * 칸 모양은 꽂는 아이템의 **발자국**이 정한다 (`--mn-core-w/h`, JS 가 쓴다) — 프로세서 2×1 이라 가로로 긴 칸 아홉이다.
  * ────────────────────────────────────────────────────────────────────────── */
 .mn-cl { gap: 16px; }
 .mn-corebox { flex: none; display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .mn-corebox .mn-sec-head { align-self: stretch; }
+/* 2026-09-16 (사용자 결정): 칸은 **아이템 격자 칸**이다 — 빈 칸은 인벤토리의 빈 칸처럼 점선 상자이고, 꽂힌 칸에는
+   가방에서 보던 타일(`.inv-tile.hs-tile`, `ui/ItemTile`)이 그대로 선다. 칸 상자(`--mn-core-w/h`)는 그 아이템의
+   발자국에서 나오므로(JS 가 쓴다) 아이템이 2×1 이든 1×1 이든 격자가 따라간다. */
 .mn-cores {
-  --cc: #8fd0ff;
-  display: grid; grid-template-columns: repeat(3, 104px); grid-auto-rows: 52px; gap: 8px; padding: 12px;
+  --cc: #8fd0ff; --mn-core-w: 104px; --mn-core-h: 52px;
+  /* 칸은 1 px 점선 테두리를 **밖에** 두른다 (`box-sizing: border-box` — 안쪽이 타일 크기 그대로여야 겹치지 않는다) */
+  display: grid; grid-template-columns: repeat(3, calc(var(--mn-core-w) + 2px)); grid-auto-rows: calc(var(--mn-core-h) + 2px);
+  gap: 8px; padding: 12px;
   justify-content: center; margin-inline: auto;
   background: rgba(0, 0, 0, 0.35); border: 1px solid var(--c-border);
 }
@@ -86,20 +91,8 @@
   border: 1px dashed rgba(255, 255, 255, 0.16);
 }
 .mn-core.is-closed { opacity: 0.25; }
-.mn-core-chip {
-  width: 66px; height: 30px; opacity: 0; pointer-events: none;
-  background:
-    linear-gradient(var(--cc), var(--cc)) center / 26px 12px no-repeat,
-    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.55) 0 2px, transparent 2px 5px),
-    linear-gradient(160deg, #3a4452, #1b2129);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
-}
-.mn-core-led { position: absolute; right: 6px; top: 6px; width: 5px; height: 5px; border-radius: 50%; background: #05070a; pointer-events: none; }
-.mn-core.is-on { border-style: solid; border-color: color-mix(in srgb, var(--cc) 55%, transparent); cursor: grab; }
-.mn-core.is-on .mn-core-chip { opacity: 1; }
-.mn-core.is-on .mn-core-led { background: rgba(232, 230, 225, 0.4); }
-.mn-cores.is-mining .mn-core.is-on { box-shadow: 0 0 12px color-mix(in srgb, var(--cc) 35%, transparent), inset 0 0 10px color-mix(in srgb, var(--cc) 20%, transparent); }
-.mn-cores.is-mining .mn-core.is-on .mn-core-led { background: var(--c-success); box-shadow: 0 0 6px var(--c-success); }
+.mn-core.is-on { border-color: transparent; background: none; cursor: grab; }
+.mn-cores.is-mining .mn-core.is-on { box-shadow: 0 0 12px color-mix(in srgb, var(--cc) 35%, transparent); }
 .mn-core.hs-drop-over, .mn-core.tg-drop-over { background: rgba(255, 179, 71, 0.18); }
 
 .mn-cl-prog { display: flex; flex-direction: column; gap: 6px; }
@@ -313,5 +306,5 @@
   .mn-page-x { grid-template-columns: 1fr; }
   .mn-xlist { flex-direction: row; flex-wrap: wrap; }
   .mn-xrow { flex: 1 1 170px; }
-  .mn-cores { grid-template-columns: repeat(3, 92px); }
+  .mn-cores { gap: 6px; padding: 8px; }
 }

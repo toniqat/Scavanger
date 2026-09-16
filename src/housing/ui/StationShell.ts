@@ -170,7 +170,7 @@ export function mountStationGrids(
   host: HTMLElement,
   dropSelector: string,
   onTake: (item: ItemInstance, target: HTMLElement | null) => void,
-): EmbeddedView | null {
+): StationGridsView | null {
   const inv = ctx.inventory;
   if (!inv || typeof inv.createTradeGrids !== 'function') return null;
   // `shell.invHost`(= `right`) 안의 격자 카드. 카드가 없는 호스트를 넘긴 화면은 그 호스트에 그대로 그린다.
@@ -183,7 +183,17 @@ export function mountStationGrids(
  * `layout: 'split'` · `chips: 'block'` 은 2026-09-15 2차부터 인벤토리의 **유일한** 배치라 값은 그대로 두었다 —
  * 이름을 남겨 두는 편이 「이 화면이 무엇을 기대하는가」를 말해 준다.
  */
-class StationGrids implements EmbeddedView {
+/**
+ * 2026-09-16 (사용자 보고 「끌어서 뺀 것이 커서가 놓인 칸으로 가야 한다」): 가구 화면이 이 뷰에 묻는 한 가지가
+ * 더 생겼다 — **커서 밑의 칸**. 답은 인벤토리의 `TradeGridsView.placeExternalAt` 이고 여기는 그대로 넘긴다
+ * (그 판정은 격자를 그리는 쪽만 할 수 있다: 칸 크기 · 스크롤 위치 · 두 격자의 경계).
+ */
+export interface StationGridsView extends EmbeddedView {
+  /** 격자 밖에서 온 아이템을 `x, y` 밑의 칸에 놓는다 — `'blocked'` = 그 칸이 받지 못한다, null = 격자 밖이다. */
+  placeExternalAt(item: ItemInstance, x: number, y: number): 'bag' | 'stash' | 'blocked' | null;
+}
+
+class StationGrids implements StationGridsView {
   private view: EmbeddedView | null = null;
   private cell = 0;
   private disposed = false;
@@ -224,6 +234,12 @@ class StationGrids implements EmbeddedView {
   }
 
   refresh(): void { this.view?.refresh(); }
+
+  /** 인벤토리가 없거나(부팅 순서) 옛 뷰면 null — 부른 쪽은 자기 규칙(가방 먼저 · 창고 먼저)으로 넣는다. */
+  placeExternalAt(item: ItemInstance, x: number, y: number): 'bag' | 'stash' | 'blocked' | null {
+    const live = this.view as Partial<TradeGridsView> | null;
+    return live && typeof live.placeExternalAt === 'function' ? live.placeExternalAt(item, x, y) : null;
+  }
 
   dispose(): void {
     if (this.disposed) return;

@@ -132,12 +132,16 @@ try {
   ok(cat.weighted, 'every item def carries a weight');
 
   /* ── progression ──────────────────────────────────────────────────── */
-  const prog = await page.evaluate(() => {
+  // 2026-09-16 (사용자 결정 「채광 숙련」): 숙련 수를 박아 두면 숙련이 늘 때마다 여기가 빨개진다 —
+  // `shared/progression.STAT_IDS` · `SKILL_IDS` 가 원본이므로 프로필이 그 목록을 **그대로** 채웠는지를 본다.
+  const prog = await page.evaluate(async () => {
+    const { STAT_IDS, SKILL_IDS } = await import('/src/shared/progression.ts');
     const p = window.__game.ctx.progression, d = p.derived;
-    return { stats: Object.keys(p.profile.stats).length, skills: Object.keys(p.profile.skills).length, carry: d.carryCapacity, recoilAR: d.recoilMul?.AR };
+    return { stats: Object.keys(p.profile.stats).sort(), skills: Object.keys(p.profile.skills).sort(),
+      statIds: [...STAT_IDS].sort(), skillIds: [...SKILL_IDS].sort(), carry: d.carryCapacity, recoilAR: d.recoilMul?.AR };
   });
-  ok(prog.stats === 5, `5 stats`);
-  ok(prog.skills === 16, `16 skills (2026-09-13 요리 · 연구)`);
+  ok(JSON.stringify(prog.stats) === JSON.stringify(prog.statIds), `${prog.statIds.length} stats (STAT_IDS)`, JSON.stringify(prog.stats));
+  ok(JSON.stringify(prog.skills) === JSON.stringify(prog.skillIds), `${prog.skillIds.length} skills (SKILL_IDS — 2026-09-16 채광 포함)`, JSON.stringify(prog.skills));
   ok(prog.carry > 0 && prog.recoilAR > 0, `derived stats sane (carry ${prog.carry} kg)`);
 
   /* ── implants: equipping is a ship-only action ────────────────────── */

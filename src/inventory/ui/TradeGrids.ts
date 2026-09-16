@@ -550,17 +550,7 @@ export class TradeGrids implements TradeGridsView {
    */
   private cellUnderGhost(d: DragInfo): { bl: Block; x: number; y: number } | null {
     const { w, h } = this.footprint(d);
-    const left = this.moveX - d.halfW, top = this.moveY - d.halfH;
-    for (const bl of this.blocks) {
-      if (!bl.view.hitTest(this.moveX, this.moveY, 0)) continue;
-      const c = bl.view.cellForGhost(left, top, w, h, this.moveX, this.moveY, 0);
-      if (c) return { bl, x: c.x, y: c.y };
-    }
-    for (const bl of this.blocks) {
-      const c = bl.view.cellForGhost(left, top, w, h, this.moveX, this.moveY);
-      if (c) return { bl, x: c.x, y: c.y };
-    }
-    return null;
+    return this.cellAt(this.moveX - d.halfW, this.moveY - d.halfH, w, h, this.moveX, this.moveY);
   }
 
   private targetOf(d: DragInfo, hit: { bl: Block; x: number; y: number }): DropTarget {
@@ -722,19 +712,7 @@ export class TradeGrids implements TradeGridsView {
     const rotated = d.item.rotated;
     const w = rotated ? d.def.height : d.def.width, h = rotated ? d.def.width : d.def.height;
     const size = tileSizeAt(w, h, this.cellPx);
-    const left = px - size.width / 2, top = py - size.height / 2;
-    let hit: { bl: Block; x: number; y: number } | null = null;
-    for (const bl of this.blocks) {
-      if (!bl.view.hitTest(px, py, 0)) continue;
-      const c = bl.view.cellForGhost(left, top, w, h, px, py, 0);
-      if (c) { hit = { bl, x: c.x, y: c.y }; break; }
-    }
-    if (!hit) {
-      for (const bl of this.blocks) {
-        const c = bl.view.cellForGhost(left, top, w, h, px, py);
-        if (c) { hit = { bl, x: c.x, y: c.y }; break; }
-      }
-    }
+    const hit = this.cellAt(px - size.width / 2, py - size.height / 2, w, h, px, py);
     if (!hit) return null;
     const target: DetachTarget = { kind: 'grid', grid: hit.bl.id, x: hit.x, y: hit.y, rotated };
     const ok = this.inv.previewDetach(d.weaponUid, d.socket, target) === 'ok';
@@ -743,6 +721,55 @@ export class TradeGrids implements TradeGridsView {
   }
 
   private clearDetachAim(): void { this.hideHighlights(); }
+
+  /* ── 2026-09-16: 격자 **밖**에서 온 아이템을 커서가 놓인 칸에 (`TradeGridsView.placeExternalAt`) ─────────── */
+
+  /**
+   * 가구 화면이 자기 칸에서 **뽑아 낸** 것(선반의 책 · 클러스터의 코어 · 스테이션의 산물)을 커서 밑의 칸에 넣는다.
+   * 칸 찾기는 타일 드래그와 **같은 두 벌 판정**(`cellUnderGhost`)이라 강조된 칸과 놓이는 칸이 어긋나지 않는다.
+   *
+   * 판정은 「밀어내지 않는다」 하나다: 빈 자리면 그 칸, 같은 스택이면 합치기, 그 밖에는 `'blocked'` 로 거절한다
+   * (남의 아이템을 치우거나 다른 칸으로 슬쩍 보내지 않는다 — Tab 창의 드롭 규칙과 같은 정신이다). 격자 밖이면
+   * `null` 이라 부른 쪽이 자기 규칙(가방 먼저 · 창고 먼저)으로 넣는다.
+   */
+  placeExternalAt(item: ItemInstance, x: number, y: number): 'bag' | 'stash' | 'blocked' | null {
+    if (this.disposed) return null;
+    const def = this.inv.getDef(item.defId);
+    if (!def) return null;
+    const w = item.rotated ? def.height : def.width;
+    const h = item.rotated ? def.width : def.height;
+    const size = tileSizeAt(w, h, this.cellPx);
+    const hit = this.cellAt(x - size.width / 2, y - size.height / 2, w, h, x, y);
+    if (!hit) return null;
+    const grid = this.inv.getGrid(hit.bl.id);
+    if (!grid) return null;
+    const occupant = grid.at(hit.x, hit.y)?.item;
+    if (occupant) {
+      /* 같은 스택이면 합친다 (가방에서 끌 때와 같다). **전부 들어갈 때만** 손을 댄다 — 자리를 먼저 재고
+         `mergeInto` 를 부르므로 「반쪽만 옮기고 거절」이 나올 수 없다 (합칠 수 없는 짝이면 0 을 돌려준다). */
+      if (def.stackMax - occupant.qty < item.qty || grid.mergeInto(item, occupant.uid) <= 0) return 'blocked';
+    } else if (!grid.place(item, hit.x, hit.y, item.rotated)) {
+      return 'blocked';
+    }
+    this.inv.afterChange();
+    this.inv.sfx('ui_drop');
+    this.refresh();
+    return hit.bl.id;
+  }
+
+  /** Cell of one of this view's grids under a ghost box — the two-pass order every drop path here shares. */
+  private cellAt(left: number, top: number, w: number, h: number, px: number, py: number): { bl: Block; x: number; y: number } | null {
+    for (const bl of this.blocks) {
+      if (!bl.view.hitTest(px, py, 0)) continue;
+      const c = bl.view.cellForGhost(left, top, w, h, px, py, 0);
+      if (c) return { bl, x: c.x, y: c.y };
+    }
+    for (const bl of this.blocks) {
+      const c = bl.view.cellForGhost(left, top, w, h, px, py);
+      if (c) return { bl, x: c.x, y: c.y };
+    }
+    return null;
+  }
 
   private take(uid: string, gridId: TradeGridId, target: HTMLElement | null): void {
     const p = this.inv.getGrid(gridId)?.get(uid);

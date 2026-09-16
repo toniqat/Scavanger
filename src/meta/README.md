@@ -187,6 +187,11 @@ but no content gates on it yet.
   hidden (`.is-inv-hidden`). The stash + bag card holds both grids side by side, so its columns are summed (`gridColsIn(…, 'sum')`).
 - **기업 판매 물품 is a fixed `SHOP_COLS` (10) columns wide** — a content-sized card, not `.is-fluid` any more. `CorpView.SHOP_COLS`,
   its `data-cv-cols` and `.cv-col.shop`'s `min-width` in `meta.css` are the same number and change together.
+- **Every desk tile wears its price in the same corner — bottom-left** (`.cv-price`): 매대 · 구매칸 · 판매칸 · 임플란트 데스크. The
+  quantity badges (`.cv-count`, `.cv-staged`, the inventory qty) sit bottom-right, so the two never collide. — `meta.css`
+- **매대 · 구매칸 tiles hide the durability gauge** (`.cv-tile.shop .inv-tile-dur`, `.cv-tile.buy`): the corp's stock is new, so the bar was
+  always full on every gun. The tile builder is the bag grid's own (`InventoryRef.buildItemTile`), so it is hidden here, never removed
+  there; the hover card still prints 내구도. The 판매칸 keeps it — that is the real state of the item being sold. — `meta.css`
 - **Trade tiles say the screen's price, not 가치** — a tile stamped `data-tip-price` (credits) + `data-tip-price-label` (Korean) makes the
   shared hover card (`ui/hud/ItemTip`, `TIP_PRICE_ATTR`) replace its bottom-right bar: 구매가 on the shelf / 구매 tray, 판매가 on the
   판매 tray. The stash + bag grids stamp nothing, so they keep 가치 (`CorpView.tagTipPrice`).
@@ -199,8 +204,8 @@ but no content gates on it yet.
 
 Last 5 only — older: `git log -- src/meta`.
 
+- 2026-09-16 — Trade desk tile pass: the price badge is bottom-left everywhere (판매칸 no longer top-left), the 구매칸 got one at all, 매대 · 구매칸 hide the always-full durability gauge, and the 총 크레딧 변동 line lost its ▲ ▼ chevrons (sign + colour already say it).
 - 2026-09-16 — Ammo is sold as a full stack (`shopQtyOf`), trade tiles show 구매가 / 판매가 instead of 가치 (`data-tip-price`), shelf fixed at 10 columns, quest XP in `rewardSummary` uses the compact formatter.
 - 2026-09-15 — NPC evaluation waits for the tutorial `ship` track to finish and for no track to run (`tutorialBlocks`); Raven no longer writes during the tutorial.
 - 2026-09-15 — Corp screen: stash + bag is one card (`createTradeGrids` once, columns summed in `fitLayout`).
 - 2026-09-15 — Left-click hold keycap inside the `거래 성사` and `HoldAsk` confirm buttons; hint line removed.
-- 2026-09-15 — `NpcQuests.readAtOf(npcId)` for the messenger's sequential bubble reveal.

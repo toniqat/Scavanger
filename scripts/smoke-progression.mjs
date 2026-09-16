@@ -8,13 +8,15 @@
 // A-3a (2026-09-12): 헬스장 — applyGymSession formula / carry-over / cap / debuff gating (xp 0, no extension) / refusals (raid,
 // non-hub, non-gym stat), derived includes 단련 (carryCapacity · maxStamina), sheet `(+n 단련)` + progress line + live countdown,
 // reload keeps the three fields, migrate clamps junk, server document round-trip, reset clears.
-// 2026-09-13 (서재 시리즈 · 비디오게임 · 요리/연구 숙련): 16 skills (migrate fills 요리 · 연구), 4 new derived rows, the stat tooltip without
+// 2026-09-13 (서재 시리즈 · 비디오게임 · 요리/연구 숙련): migrate fills 요리 · 연구, 4 new derived rows, the stat tooltip without
 // its sub / section title, the preview as the resulting value only + value font fit (never wraps), the `시설 ×n` 서재 breakdown tooltip
 // (stubbed `ctx.housing.getLibrarySources`), the library `derived` fold on `housing:libraryChanged` (stubbed `getLibraryEffects`),
 // and 지능 · 인지력 as gym stats (video games: applyGymSession · 단련 derived · sheet line · migrate · 4 trainedChanged re-emits).
 // 2026-09-16 (제작 숙련 = 재료 환급만): the sheet's XP readouts go through `shared/numberFormat.formatCompactNumber` (expected
 // strings are built from that helper, not pasted), and the 파생 능력치 panel is checked against `progression/defs.DERIVED_PANEL_KEYS`
 // itself — the always-×1.0 `제작 속도` (`craftSpeedMul`) row is gone.
+// 2026-09-16 (사용자 결정 「채광 숙련」): 17번째 숙련 `mining` 이 붙었다. 숙련 수 · 숙련 줄 순서 · 재주가 키우는 숙련 목록은
+// 더 이상 숫자를 박지 않고 `shared/progression.SKILL_IDS` · `progression/defs.SKILL_DEFS` 에서 읽는다 (`SKILL_N` · `DEX_SKILLS`).
 // Usage: node scripts/smoke-progression.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -107,6 +109,14 @@ try {
 
   await page.goto(BASE, { waitUntil: 'load' });
   await boot();
+
+  /* 2026-09-16 (사용자 결정 「채광 숙련」): 숙련 수는 `shared/progression.SKILL_IDS` 가 원본이다. 숫자를 박아 두면
+     숙련이 하나 늘 때마다 이 스크립트가 여러 곳에서 빨개지므로, 계약에서 읽어 쓴다. */
+  const SKILL_IDS = await page.evaluate(async () => [...(await import('/src/shared/progression.ts')).SKILL_IDS]);
+  const SKILL_N = SKILL_IDS.length;
+  /* 재주가 키우는 숙련 = `data/skills.csv` 의 `stats` 칸 (2026-09-16 에 채광이 들어왔다) — 임플란트 호버가 밑줄 치는 목록이다. */
+  const DEX_SKILLS = await page.evaluate(async () => (await import('/src/progression/defs.ts')).SKILL_DEFS
+    .filter((d) => d.stats.includes('dexterity')).map((d) => d.id).sort());
 
   console.log('fresh profile / statXpToNext');
   await page.evaluate(() => window.__game.ctx.progression.resetProfile());
@@ -265,7 +275,7 @@ try {
       skills: Object.keys(p.profile.skills).length, cook: [p.getSkill('cooking'), p.getSkillProgress('cooking')], res: [p.getSkill('research'), p.getSkillProgress('research')],
       derived: { cook: p.derived.cookScoreBonus, time: p.derived.researchTimeMul, chance: p.derived.researchRefundChance, frac: p.derived.researchRefundFrac } };
   });
-  ok(mig.skills === 16 && mig.cook[0] === 0 && mig.cook[1] === 0 && mig.res[0] === 0 && mig.res[1] === 0, 'migrate: an old save without 요리 · 연구 gets both at level 0 / progress 0 (16 skills)', JSON.stringify(mig));
+  ok(mig.skills === SKILL_N && mig.cook[0] === 0 && mig.cook[1] === 0 && mig.res[0] === 0 && mig.res[1] === 0, `migrate: an old save without 요리 · 연구 gets both at level 0 / progress 0 (${SKILL_N} skills)`, JSON.stringify(mig));
   ok(mig.derived.cook === 0 && mig.derived.time === 1 && mig.derived.chance === 0 && near(mig.derived.frac, 0.2, 1e-9), 'derived at 요리 · 연구 0: cookScoreBonus 0, researchTimeMul 1, refund chance 0, refund share = RESEARCH_REFUND_FRAC_MIN', JSON.stringify(mig.derived));
   ok(mig.prog && Object.keys(mig.prog).length === 5 && Object.values(mig.prog).every((v) => v === 0), 'legacy save without statProgress migrates to zeros', JSON.stringify(mig));
   ok(mig.str === 1 && mig.dex === 7, 'migrate clamps stats to STAT_MIN..STAT_MAX (0 → 1, 7 kept)', JSON.stringify(mig));
@@ -340,7 +350,7 @@ try {
   });
   ok(srv.level === 7 && srv.xp === 50 && srv.points === 2 && srv.str === 9 && srv.gunAR === 12 && near(srv.gunProg, 0.25), 'net:profileLoaded → server document replaces level / xp / points / stats / skills', JSON.stringify(srv));
   ok(near(srv.carry, 28 + 2.2 * 9, 1e-6), 'derived recomputed from the server profile (carry 47.8 at 근력 9)', `${srv.carry}`);
-  ok(srv.loaded === counts0.loaded + 1 && srv.xpEv === counts0.xp + 1 && srv.stat === counts0.stat + 5 && srv.skill === counts0.skill + 16, 're-emitted progress:loaded + xpGained + 5 statChanged + 16 skillProgress', JSON.stringify({ before: counts0, after: { loaded: srv.loaded, xp: srv.xpEv, stat: srv.stat, skill: srv.skill } }));
+  ok(srv.loaded === counts0.loaded + 1 && srv.xpEv === counts0.xp + 1 && srv.stat === counts0.stat + 5 && srv.skill === counts0.skill + SKILL_N, `re-emitted progress:loaded + xpGained + 5 statChanged + ${SKILL_N} skillProgress`, JSON.stringify({ before: counts0, after: { loaded: srv.loaded, xp: srv.xpEv, stat: srv.stat, skill: srv.skill } }));
   ok(srv.local === 7, 'localStorage cache updated with the server profile', `${srv.local}`);
   // put the local profile back through the same path so the sheet checks below see the migrated values
   await page.evaluate((snap) => { window.__fakeProfile.docs = { progression: snap }; window.__game.ctx.bus.emit('net:profileLoaded', { profile: { credits: 0, docs: window.__fakeProfile.docs, updatedAt: 0 }, migrated: false }); }, localSnap);
@@ -526,7 +536,7 @@ try {
   ok(tips.gun.subHidden === false && JSON.stringify(tips.gun.heads) === '["현재 효과","관련 능력치 · 성장 속도"]', 'skill tooltip keeps its sub + section titles (empty 서재 section omitted)', JSON.stringify({ heads: tips.gun.heads, sub: tips.gun.subHidden }));
 
   /* ── 2026-09-13 서재 시리즈 · 요리/연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
-  console.log('캐릭터 시트 (2026-09-13): 숙련 16종 · 새 파생 줄 · 서재 시설 툴팁 · 서재 파생 접기 · 값 글자 맞춤');
+  console.log('캐릭터 시트 (2026-09-13): 숙련 줄 · 새 파생 줄 · 서재 시설 툴팁 · 서재 파생 접기 · 값 글자 맞춤');
   const hoverTip = (sel) => P((s) => {
     const n = document.querySelector(s); if (!n) return null;
     const r = n.getBoundingClientRect();
@@ -541,13 +551,13 @@ try {
     return out;
   }, sel);
   const sk16 = await P(async () => {
-    // 파생 줄 수는 `progression/defs.DERIVED_PANEL_KEYS` 가 원본이다 (2026-09-16 에 `craftSpeedMul` 이 빠지며 21 줄이 됐다).
+    // 파생 줄 수는 `progression/defs.DERIVED_PANEL_KEYS` 가 원본이다 (2026-09-16: `craftSpeedMul` 이 빠지고 `miningRarityBonus` 가 들어왔다).
     // 숫자를 박아 두면 줄이 늘고 줄 때마다 스모크가 빨개지므로, 패널이 그 목록을 **그대로** 그리는지를 본다.
     const { DERIVED_PANEL_KEYS } = await import('/src/progression/defs.ts');
     const root = document.querySelector('.char-sheet'), p = window.__game.ctx.progression;
     const v = (k) => root.querySelector(`.cs-derived .cell[data-key="${k}"] .v`)?.textContent ?? null;
     const rd = () => ({ cook: v('cookScoreBonus'), time: v('researchTimeMul'), chance: v('researchRefundChance'), frac: v('researchRefundFrac') });
-    const out = { rows: root.querySelectorAll('.cs-skill').length, last: [...root.querySelectorAll('.cs-skill')].slice(-2).map((r) => r.dataset.skill),
+    const out = { rows: root.querySelectorAll('.cs-skill').length, skills: [...root.querySelectorAll('.cs-skill')].map((r) => r.dataset.skill),
       cells: root.querySelectorAll('.cs-derived .cell').length, keys: [...DERIVED_PANEL_KEYS],
       drawn: [...root.querySelectorAll('.cs-derived .cell')].map((c) => c.dataset.key), zero: rd() };
     p.addSkillXpRaw('cooking', 100); p.addSkillXpRaw('research', 100);
@@ -555,8 +565,9 @@ try {
     out.d = { cook: p.derived.cookScoreBonus, time: p.derived.researchTimeMul, chance: p.derived.researchRefundChance, frac: p.derived.researchRefundFrac };
     return out;
   });
-  ok(sk16.rows === 16 && JSON.stringify(sk16.last) === '["cooking","research"]' && sk16.cells === sk16.keys.length && JSON.stringify(sk16.drawn) === JSON.stringify(sk16.keys),
-    'sheet: 16 skill rows (요리 · 연구 last), one derived row per DERIVED_PANEL_KEYS in order', JSON.stringify(sk16));
+  // 2026-09-16 (사용자 결정 「채광 숙련」): 줄 수를 박아 두지 않는다 — 시트가 `SKILL_IDS` 를 **순서 그대로** 그리는지를 본다 (채광이 꼬리에 붙었다).
+  ok(JSON.stringify(sk16.skills) === JSON.stringify(SKILL_IDS) && sk16.cells === sk16.keys.length && JSON.stringify(sk16.drawn) === JSON.stringify(sk16.keys),
+    `sheet: ${SKILL_N} skill rows in SKILL_IDS order, one derived row per DERIVED_PANEL_KEYS in order`, JSON.stringify(sk16));
   // 2026-09-16 (사용자 결정): 제작 숙련은 제작 속도를 바꾸지 않는다 → 언제나 ×1.0 이던 `제작 속도` 줄이 시트에서 사라졌다
   ok(!sk16.keys.includes('craftSpeedMul') && !sk16.drawn.includes('craftSpeedMul'), '제작 속도 (craftSpeedMul) row is gone from the sheet', JSON.stringify(sk16.drawn));
   ok(sk16.zero.cook === '+0 %' && sk16.zero.time === '×1.00' && sk16.zero.chance === '0 %' && sk16.zero.frac === '20 %', 'new derived rows at level 0: 요리 점수 +0 % · 분석 시간 ×1.00 · 재료 회수 확률 0 % · 재료 회수량 20 %', JSON.stringify(sk16.zero));
@@ -900,9 +911,9 @@ try {
   });
   ok(impThumbs.n === 1 && impThumbs.eq === 1 && impThumbs.chip === 'imp_perk_quick_heal' && impThumbs.emptyHidden && impThumbs.buttons === 0
     && impThumbs.slots === `${impThumbs.used} / ${impThumbs.total} 슬롯`, 'sheet: equipped implant as a read-only chip thumbnail + `n / m 슬롯`', JSON.stringify(impThumbs));
-  ok(JSON.stringify(impThumbs.stats) === '["dexterity"]' && JSON.stringify(impThumbs.skills) === '["cooking","crafting","equipment","gardening"]'
+  ok(JSON.stringify(impThumbs.stats) === '["dexterity"]' && JSON.stringify(impThumbs.skills) === JSON.stringify(DEX_SKILLS)
     && JSON.stringify(impThumbs.derived) === '["interactSpeedMul","useSpeedMul"]' && impThumbs.after === 0,
-    'hovering 가속 대사 (재주 +1) outlines 재주, its skills and 사용 · 상호작용 속도; pointerout clears', JSON.stringify(impThumbs));
+    `hovering 가속 대사 (재주 +1) outlines 재주, its ${DEX_SKILLS.length} skills (${DEX_SKILLS.join(' · ')}) and 사용 · 상호작용 속도; pointerout clears`, JSON.stringify(impThumbs));
   await tap('Escape');
   await sleep(150);
 

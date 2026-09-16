@@ -57,10 +57,12 @@ export function benchFacility(kind: WorkbenchKind | null): RoomPurpose {
 }
 
 /**
- * 작업대 창 머리의 **창고 업그레이드** 버튼 (2026-09-16, 사용자 결정) — 인벤토리 Tab 창고 머리줄의 것과 같은 모달을
- * 연다 (`HousingRef.openStorageUpgrade`). 시설 레벨 · 비용 · 홀드 확정은 전부 housing 것이라 여기서는 한 줄만 부른다.
+ * 창 머리의 **업그레이드** 버튼. 무엇을 올리는가는 **이 창이 무엇으로 열렸는가**가 정한다:
+ * 작업대 창이면 그 작업대, 인벤토리 Tab 이면 창고다. — 2026-09-16 (사용자 보고): 작업대에서 눌렀는데
+ * 「창고 업그레이드」 창이 뜨는 버그가 여기서 나왔다 (버튼이 `openStorageUpgrade` 를 박아 부르고 있었다).
+ * 시설 레벨 · 비용 · 홀드 확정은 전부 housing 것이라 여기서는 둘 중 하나를 고르기만 한다.
  */
-const UPGRADE_KO = { label: '업그레이드', title: '창고 업그레이드' } as const;
+const UPGRADE_KO = { label: '업그레이드', bench: '작업대 업그레이드', storage: '창고 업그레이드' } as const;
 
 /** 숙련 이름 대체 표 — progression 이 없을 때만. 원본은 `data/skills.csv` 의 `name` 이다. */
 const SKILL_LABEL_KO: Readonly<Record<CraftRecipe['skill'], string>> = { crafting: '제작', medicine: '의학', gardening: '원예' };
@@ -164,7 +166,8 @@ export interface CraftDetailHandle {
  *  - 머리 오른쪽 **닫기 왼쪽**에 `업그레이드` (`HousingRef.openStorageUpgrade` — 인벤토리 Tab 창고 머리줄과 같은 모달).
  *    `ctx.housing` 이 없거나 레이드면 버튼 자체가 없다.
  *  - 목록은 이제 그 작업대의 레시피를 **전부** 싣는다 (`getBenchRecipes`) — 레벨이 모자란 줄도 잠긴 채로 보이고,
- *    띠 · 버튼이 이유를 말한다 (`lockedReason`: `작업대 Lv.2 필요`. 2026-09-16 사용자 결정으로 숙련 갈래는 없어졌다).
+ *    **상세의 버튼**이 이유를 말한다 (`lockedReason`: `작업대 Lv.2 필요`). 2026-09-16 (사용자 보고 2차): 목록 칸의
+ *    썸네일에 찍던 `작업대 Lv.n 필요` 띠는 그림을 가려서 없앴다 — 칸이 말하는 것은 진한 딤드뿐이다.
  *  - 고를 것이 없는 작업대도 **폭 · 높이를 지킨다** (css `.inv-craft-empty` — 썸네일 5칸 폭).
  *
  * ## 그대로인 것
@@ -256,11 +259,14 @@ export class CraftPanel {
     this.upgradeBtn.type = 'button';
     this.upgradeBtn.className = 'inv-btn inv-craft-upgrade';
     this.upgradeBtn.textContent = UPGRADE_KO.label;
-    this.upgradeBtn.title = UPGRADE_KO.title;
     this.upgradeBtn.hidden = true;                 // `refresh()` 가 함선 · `ctx.housing` 을 보고 켠다
     this.upgradeBtn.addEventListener('click', () => {
       const h = this.sys.ctx.housing;
-      if (!h || typeof h.openStorageUpgrade !== 'function') return;
+      if (!h) return;
+      // 작업대 창이면 그 작업대를 명시적으로 넘긴다 — housing 쪽 라우터에 기대지 않는다.
+      const bench = this.sys.getBench?.();
+      if (bench && typeof h.openBenchUpgrade === 'function') { this.sys.sfx('ui_pickup'); h.openBenchUpgrade(bench.kind); return; }
+      if (typeof h.openStorageUpgrade !== 'function') return;
       this.sys.sfx('ui_pickup');
       h.openStorageUpgrade();
     });
@@ -350,10 +356,12 @@ export class CraftPanel {
       this.stationEl.textContent = station === 'ship' ? TEXT.craftStationShip : TEXT.craftStationField;
       this.titleEl.textContent = TEXT.craftPanel;
     }
-    /* 2026-09-16: 창고 업그레이드는 **함선에서만** — `ctx.housing` 이 없거나 레이드면 버튼 자체를 숨긴다
-       (`HousingRef.openStorageUpgrade` 의 규약: 「함선 밖에서는 부르는 쪽이 버튼을 숨긴다」). */
+    /* 2026-09-16: 업그레이드는 **함선에서만** — `ctx.housing` 이 없거나 레이드면 버튼 자체를 숨긴다
+       (`HousingRef.openStorageUpgrade` 의 규약: 「함선 밖에서는 부르는 쪽이 버튼을 숨긴다」).
+       제목은 **지금 이 창이 무엇인가**를 말한다 — 작업대 창에서 「창고 업그레이드」 라고 적혀 있던 것이 버그였다. */
     const housing = this.sys.ctx.housing;
     this.upgradeBtn.hidden = !housing || typeof housing.openStorageUpgrade !== 'function' || !this.sys.ctx.isHubPhase();
+    this.upgradeBtn.title = this.sys.getBench?.() ? UPGRADE_KO.bench : UPGRADE_KO.storage;
 
     const mul = this.sys.craftCostMul();
     this.discountEl.hidden = mul >= 1;
@@ -481,7 +489,6 @@ export class CraftPanel {
     this.dropHover();   // 칸이 통째로 새로 만들어진다 — 올려 두었던 칸은 떼어져 `pointerleave` 를 못 받는다
     this.listEl.innerHTML = '';
     this.cells = [];
-    const benchLevel = this.sys.getBench()?.level ?? 0;
     for (const { recipe, locked } of recipes) {
       const cell = document.createElement('button');
       cell.type = 'button';
@@ -519,13 +526,10 @@ export class CraftPanel {
           cell.appendChild(badge);
         }
       }
-      if (locked) {
-        const tag = document.createElement('span');
-        tag.className = 'inv-craft-locktag';
-        // 2026-09-16: 잠긴 줄은 작업대 레벨이 모자란 것뿐이다 — 띠가 그 이유를 말한다
-        tag.textContent = lockedReason(this.sys, recipe, benchLevel);
-        cell.appendChild(tag);
-      }
+      /* 2026-09-16 (사용자 보고): 잠긴 칸의 **썸네일 위에는 아무 글자도 찍지 않는다** — 8 px 짜리
+         `작업대 Lv.n 필요` 띠가 한 칸짜리 산출물 그림의 아래 1/3 을 덮어 "무엇이 나오는가"를 가렸다.
+         이유를 말할 자리는 이미 둘이다: 오른쪽 상세의 홀드 버튼 라벨(`CraftDetail.paint` → `lockedReason`)과
+         칸에 올렸을 때 뜨는 산출물 툴팁. 칸이 말하는 것은 **딤드 하나**다 (`.is-bench-locked`, css). */
       cell.addEventListener('click', () => this.select(recipe.id));
       this.listEl.appendChild(cell);
       this.cells.push({ recipe, locked, el: cell, out: out && sample ? { def: out, sample } : null });

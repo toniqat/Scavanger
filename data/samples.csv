@@ -1,27 +1,56 @@
-# 미확인 표본 — 연구실 분석기가 해석한다 (2026-09-11 A-12 · 2026-09-13 요리 재료 티어). id 는 코드가 찾는 값이므로 바꾸지 않는다.
+# 미확인 표본 — 연구실 분석기가 해석한다. id 는 코드가 찾는 값이므로 바꾸지 않는다.
+# ══ 2026-09-16 (사용자 결정, 표본 전면 개편) ═══════════════════════════════════════════════════════
+# 표본은 **3 계열 × 6 등급 = 18종**이다. 옛 3종(spec_cell · spec_mineral · spec_dna)과 은퇴한 11종은 줄째로 사라졌다
+#   (개발 단계라 세이브 마이그레이션이 필요 없다는 사용자 결정 — item_aliases.csv 에 옮기지 않았다. retired 열은 남는다).
+# 이름의 로마 숫자가 곧 등급이다: I 일반 · II 고급 · III 희귀 · IV 서사 · V 전설 · VI 신화.
+#
+# ⚠ **표본의 등급 = 그 표본이 해석되어 나올 수 있는 산출물의 최소 등급**이다 (사용자 결정).
+#   「미확인 유전자 III(희귀)」를 해석하면 **희귀 등급 이상**의 유전자 산출물만 나온다. 즉 등급이 곧 바닥이지 천장이 아니다 —
+#   낮은 등급 표본은 운이 좋으면 위쪽도 뽑고, 높은 등급 표본은 아래쪽이 아예 후보에서 빠진다.
+#   보장 자체는 src/housing 이 구현하고, 이 표와 data/analysis_results.csv 는 **모든 계열이 모든 등급에서 뽑을 것을 갖도록**
+#   짝이 맞춰져 있다 (analysis_results.csv 의 머리말 참고).
+#
+# 계열이 무엇을 여는가 (사용자 결정):
+#   dna     유전자 — **토양 · 배양조** (소켓 · 개량 씨앗 · 세포주 · 배지)
+#   cell    세포   — **배양조** (세포주 · 배양 재료)
+#   mineral 광물   — **무기** (총기 재료. 낮은 등급은 가구 · 요리에도 두루 쓰이는 광물)
+#   계열의 이름 · 색 · 글리프는 src/shared/labels.ts (family id `dna` 의 표시 이름만 2026-09-16 에 '유전자' 가 됐다).
+#
+# 수치 곡선 (2026-09-16, 두 줄로 요약된다):
+#   value        = 60 × 2^(등급−1)  → 60 · 120 · 240 · 480 · 960 · 1920 (등급 한 단계마다 판매가 2배)
+#   analyzeHours = 1 · 2 · 4 · 6 · 9 · 12 (차이가 +1 +2 +2 +3 +3 — 등급이 오를수록 오래 걸리되 배로 튀지는 않는다)
+#   세 계열이 같은 곡선을 쓴다 — 계열은 「무엇이 나오는가」만 가르고 「얼마나 걸리는가」는 등급만 정한다.
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
 # family = 이 표본이 해석되는 **계열** (cell | mineral | dna). 결과는 data/analysis_results.csv 의 그 계열 표에서 뽑힌다 —
-#   분석기에 **넣는 순간** 그 계열의 분석 레벨로 굴려 칸에 적는다 (housing/). 계열의 이름 · 색 · 글리프는 src/shared/labels.ts.
+#   분석기에 **넣는 순간** 그 계열의 분석 레벨로 굴려 칸에 적는다 (housing/).
 # analyzeHours = 분석 레벨 1 에서 한 번 해석하는 실제 시간(시간). 함선을 떠나 있어도 흐른다.
-#   분석 레벨이 오르면 data/tables.csv 의 ANALYSIS_TIME_MUL_BY_LEVEL 배수만큼 줄어든다 (값은 넣는 순간 확정된다).
+#   분석 레벨이 오르면 data/tables.csv 의 ANALYSIS_TIME_MUL_BY_LEVEL 배수만큼 줄어들고, 거기에 해석 도감 · 표본 레벨 단축이
+#   더 붙는다 (data/constants.csv 의 ANALYSIS_DEX_BONUS_PER_ENTRY · ANALYSIS_SAMPLE_LEVEL_* · ANALYSIS_SPEEDUP_CAP).
 # rewardDefId / rewardQty = **결과표가 비었을 때의 대체 산출물**. 은퇴한 아이템이면 안 된다 (npm run data:check 가 잡는다).
 # firstDefId / firstQty = 옛 「첫 해석 보너스」 칸. 2026-09-13 부터 **쓰지 않는다** — 채우면 로더가 잡는다.
-# retired = 1 이면 은퇴한 옛 표본 (2026-09-13 사용자 결정: 새 드롭은 미확인 세포 · 광물 · DNA 셋뿐이다).
-#   정의는 남아 이미 가진 것은 사라지지 않고 분석기에 넣으면 자기 family 로 해석되지만, 어떤 드롭 · 채집지에도 다시 나오지 않는다.
+# retired = 1 이면 은퇴한 표본. 2026-09-16 현재 한 줄도 없다 (열은 남겨 둔다).
 # 표본은 제작도 상점도 없다: 벌레 시체(data/loot_corpses.csv) · 표본 채집지(data/planets.csv 의 samples) ·
-#   구조물 컨테이너(data/loot_category_weights.csv 의 sample) · 고철 더미 부가 광물(data/constants.csv 의 GATHER_SALVAGE_MINERAL_*). 로그는 표본에 관심이 없다.
+#   구조물 컨테이너(data/loot_category_weights.csv 의 sample) · 고철 더미 부가 광물(data/constants.csv 의 GATHER_SALVAGE_MINERAL_*) ·
+#   **행성 광맥**(2026-09-16 — data/planets.csv 의 mineralNodes, 미확인 광물 전용). 로그는 표본에 관심이 없다.
 id,name,rarity,value,family,analyzeHours,rewardDefId,rewardQty,firstDefId,firstQty,retired,description
-spec_cell,미확인 세포,uncommon,120,cell,2,mat_bio_sample,3,,,,살아 있는 채로 굳은 세포 덩어리. 분석기에 넣으면 어떤 생물의 세포주인지 갈라 낸다.
-spec_mineral,미확인 광물,uncommon,110,mineral,1.5,mat_extract_min,1,,,,결정 구조를 알 수 없는 광물 조각. 분석기에 넣으면 요리와 연구에 쓸 광물 성분이 나온다.
-spec_dna,미확인 DNA,rare,260,dna,4,mat_extract_bio,1,,,,"봉인 용기에 든 유전 물질. 해석은 오래 걸리지만, 흙과 배지를 바꿔 놓는 인자나 귀한 세포가 나온다."
-# ── 은퇴한 옛 표본 11종 (2026-09-13): 정의만 남는다 ──
-spec_tissue,미확인 생체 조직,common,60,cell,1,mat_bio_sample,3,,,1,아직 계통을 모르는 살점. 더 이상 발견되지 않는 옛 표본이다 — 분석기는 세포 표본으로 해석한다.
-spec_spore,미확인 포자낭,uncommon,110,dna,2,mat_extract_bio,1,,,1,터지지 않은 채 굳은 포자낭. 더 이상 발견되지 않는 옛 표본이다 — 분석기는 DNA 표본으로 해석한다.
-spec_chitin,미확인 키틴 조각,uncommon,110,cell,2,mat_bio_sample,3,,,1,두꺼운 외골격 파편. 더 이상 발견되지 않는 옛 표본이다 — 분석기는 세포 표본으로 해석한다.
-spec_resin,미확인 수지 덩어리,rare,240,mineral,4,mat_extract_min,1,,,1,나무도 벌레도 아닌 것이 흘린 수지. 더 이상 발견되지 않는 옛 표본이다 — 분석기는 광물 표본으로 해석한다.
-spec_crystal,미확인 결정 표본,rare,240,mineral,4,mat_extract_min,1,,,1,금속이 결정으로 자란 조각. 더 이상 발견되지 않는 옛 표본이다 — 분석기는 광물 표본으로 해석한다.
-spec_genome,봉인된 유전자 시료,epic,480,dna,8,mat_extract_bio,1,,,1,누군가 봉인해 둔 유전자 시료. 더 이상 발견되지 않는 옛 표본이다 — 분석기는 DNA 표본으로 해석한다.
-spec_biofilm,미확인 생체막,uncommon,120,cell,2,mat_bio_sample,3,,,1,미끈한 막을 이룬 군체. 더 이상 발견되지 않는 옛 표본이다 — 분석기는 세포 표본으로 해석한다.
-spec_adipose,미확인 지방조직,rare,250,cell,4,mat_bio_sample,3,,,1,기름이 배어 나오는 조직 덩어리. 더 이상 발견되지 않는 옛 표본이다 — 분석기는 세포 표본으로 해석한다.
-spec_gland,미확인 분비선,rare,255,dna,4.5,mat_extract_bio,1,,,1,무엇을 내뿜던 기관인지 모를 분비선. 더 이상 발견되지 않는 옛 표본이다 — 분석기는 DNA 표본으로 해석한다.
-spec_ovule,미확인 난포,rare,255,dna,4.5,mat_extract_bio,1,,,1,터지지 않은 채 남은 난포. 더 이상 발견되지 않는 옛 표본이다 — 분석기는 DNA 표본으로 해석한다.
-spec_muscle,미확인 근조직,rare,260,cell,5,mat_bio_sample,3,,,1,결이 살아 있는 근조직. 더 이상 발견되지 않는 옛 표본이다 — 분석기는 세포 표본으로 해석한다.
+# ── 유전자 (dna) — 토양 · 배양조를 여는 계열 ──
+spec_gene_1,미확인 유전자 I,common,60,dna,1,mat_extract_bio,1,,,,갈라지다 만 유전자 가닥. 흔해서 누구나 한 번쯤 주워 보는 표본이다.
+spec_gene_2,미확인 유전자 II,uncommon,120,dna,2,mat_extract_bio,1,,,,봉인 용기에 남은 유전 물질. 흙과 배지를 바꿔 놓는 인자가 여기서 나온다.
+spec_gene_3,미확인 유전자 III,rare,240,dna,4,mat_extract_bio,1,,,,결이 또렷한 유전자 시료. 해석하면 희귀 이상만 나온다.
+spec_gene_4,미확인 유전자 IV,epic,480,dna,6,mat_extract_bio,1,,,,손대지 않은 채 굳은 유전자 덩어리. 서사 이상의 인자와 품종이 잠들어 있다.
+spec_gene_5,미확인 유전자 V,legendary,960,dna,9,mat_extract_bio,1,,,,"봉인이 세 겹인 유전자 시료. 해석은 하루가 꼬박 걸리지만, 나오는 것은 전설뿐이다."
+spec_gene_6,미확인 유전자 VI,mythic,1920,dna,12,mat_extract_bio,1,,,,아무도 계통을 대지 못한 유전자. 분석기가 끝까지 돌면 신화 등급만 남는다.
+# ── 세포 (cell) — 배양조를 여는 계열 ──
+spec_cell_1,미확인 세포 I,common,60,cell,1,mat_bio_sample,3,,,,살아 있는 채로 굳은 세포 덩어리. 분석기가 어떤 생물의 세포주인지 갈라 낸다.
+spec_cell_2,미확인 세포 II,uncommon,120,cell,2,mat_bio_sample,3,,,,막이 성한 세포 군체. 배양조에 걸 세포주가 여기서 나온다.
+spec_cell_3,미확인 세포 III,rare,240,cell,4,mat_bio_sample,3,,,,결이 살아 있는 조직 조각. 해석하면 희귀 이상만 나온다.
+spec_cell_4,미확인 세포 IV,epic,480,cell,6,mat_bio_sample,3,,,,분열을 멈추지 않는 세포 덩어리. 서사 이상의 배양 재료가 된다.
+spec_cell_5,미확인 세포 V,legendary,960,cell,9,mat_bio_sample,3,,,,냉동 보존된 순수 배양체. 해석에 오래 걸리는 만큼 전설만 내놓는다.
+spec_cell_6,미확인 세포 VI,mythic,1920,cell,12,mat_bio_sample,3,,,,어떤 계통에도 들어맞지 않는 세포. 분석기가 끝까지 돌면 신화 등급만 남는다.
+# ── 광물 (mineral) — 무기 재료를 여는 계열. 행성 광맥에서 캐는 것이 이 계열이다 ──
+spec_mineral_1,미확인 광물 I,common,60,mineral,1,mat_extract_min,1,,,,결정 구조를 알 수 없는 광물 조각. 빻으면 석영과 암염이 섞여 나온다.
+spec_mineral_2,미확인 광물 II,uncommon,120,mineral,2,mat_extract_min,1,,,,금속 광택이 도는 광석 덩이. 총기 재료로 거를 만한 성분이 있다.
+spec_mineral_3,미확인 광물 III,rare,240,mineral,4,mat_extract_min,1,,,,단면이 유리처럼 갈라지는 광석. 해석하면 희귀 이상만 나온다.
+spec_mineral_4,미확인 광물 IV,epic,480,mineral,6,mat_extract_min,1,,,,무게가 크기를 배신하는 광석. 서사 총기의 뼈대가 이 안에 있다.
+spec_mineral_5,미확인 광물 V,legendary,960,mineral,9,mat_extract_min,1,,,,"쪼개면 두 결정이 맞물려 있다. 전설 총기를 여는 쌍정석이 여기서 나온다."
+spec_mineral_6,미확인 광물 VI,mythic,1920,mineral,12,mat_extract_min,1,,,,난이도 3 행성의 깊은 광맥에서만 극히 드물게 나오는 광석. 유니크 무기를 짓는 신화 광물의 유일한 출처다.

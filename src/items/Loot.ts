@@ -668,7 +668,10 @@ export class LootService implements LootRef {
        그대로(같은 객체로) 돌려받으므로 그 행성의 결과는 예전과 비트 단위로 같다. */
     const rarityWeights = planetRarityWeights(table.rarityWeights, curve);
     /* 2026-09-13: 서재 매체는 권 가중치를 곱한다 (뒤 권일수록 드물다 — 서재 매체가 아니면 1). */
-    const weightOf = (d: ItemDef): number => rarityWeights[d.rarity] * this.weightMul(table, d) * this.curveMul(curve, d) * libraryVolumeWeight(d);
+    /* 2026-09-16: `?? 0` 은 **신화**를 위한 것이다 — 상자 표의 희귀도 칸은 다섯 개뿐이라(`RARITY_ORDER_LOOT`) 신화에는
+       가중치가 아예 없다. 예전처럼 `undefined` 를 곱하면 NaN 이 되어 조용히 빠졌는데, 0 이면 "상자는 신화를 안 뽑는다"
+       라는 규칙이 코드에 적힌다 (유니크 무기 · 특성 방탄복 · 신화 표본이 여기 걸린다). */
+    const weightOf = (d: ItemDef): number => (rarityWeights[d.rarity] ?? 0) * this.weightMul(table, d) * this.curveMul(curve, d) * libraryVolumeWeight(d);
     const weighted = candidates.filter((d) => weightOf(d) > 0);
     let picked: ItemDef;
     if (weighted.length > 0) picked = rng.weighted(weighted, weightOf);

@@ -1,6 +1,6 @@
-import type { GameEventName } from '@/shared';
-import { FACILITY_LABEL_KO, STASH_COLS, STASH_ROWS_BY_STORAGE_LEVEL } from '@/shared';
-import { generatorRequirement, stashSizeFor } from '../Rules';
+import type { GameEventName, PlacedFurniture, WorkbenchKind } from '@/shared';
+import { FACILITY_LABEL_KO, STASH_COLS, STASH_ROWS_BY_STORAGE_LEVEL, WORKBENCH_LABEL_KO, benchKindOf } from '@/shared';
+import { furnitureMaxLevel, generatorRequirement, nextFurnitureCost, stashSizeFor } from '../Rules';
 import { UpgradeModal } from './UpgradeModal';
 import type { UpgradeSpec } from './UpgradeModal';
 import type { HousingSystem } from '../HousingSystem';
@@ -22,15 +22,38 @@ const REFRESH_EVENTS: readonly GameEventName[] = [
   'housing:changed', 'housing:facilityUpgraded', 'inventory:changed', 'inventory:stashChanged',
 ];
 
+/**
+ * 이 모달이 지금 올리고 있는 **대상** (2026-09-16, 사용자 보고 「작업대의 업그레이드를 눌렀는데 창고 창이 떴다」).
+ *
+ * 예전에는 대상이 창고 시설 하나로 **박혀** 있었다 — 그래서 같은 한 줄(`openStorageUpgrade`)을 부르는 작업대 창의
+ * 머리 버튼도 창고 창을 열었다. 이제 대상은 「무엇을 열었는가」로 정해진다: 시설(창고) 또는 **배치된 가구 한 대**.
+ */
+type UpgradeSubject = { kind: 'storage' } | { kind: 'bench'; bench: WorkbenchKind };
+
 /** 이 레벨의 창고 칸 수 = `STASH_ROWS_BY_STORAGE_LEVEL[level] × STASH_COLS` (표에서만 읽는다 — 수를 적지 않는다). */
 function cellsAt(level: number): number {
   const { cols, rows } = stashSizeFor(level);
   return cols * rows;
 }
 
+/**
+ * 그 작업대 kind 의 **배치된 가구 한 대** — 여러 대면 `getBenchLevel` 과 같은 기준으로 **가장 높은 레벨**이다
+ * (레시피 게이트가 보는 것이 그 한 대이므로 올릴 것도 그 한 대다). 없으면 null.
+ */
+function benchFurnitureOf(sys: HousingSystem, bench: WorkbenchKind): PlacedFurniture | null {
+  let best: PlacedFurniture | null = null;
+  for (const f of sys.getPlaced()) {
+    const def = sys.getFurnitureDef(f.defId);
+    if (!def || benchKindOf(def.interaction) !== bench) continue;
+    if (!best || f.level > best.level) best = f;
+  }
+  return best;
+}
+
 export class StorageUpgrade {
   private readonly modal: UpgradeModal;
   private offs: Array<() => void> = [];
+  private subject: UpgradeSubject = { kind: 'storage' };
 
   constructor(private readonly sys: HousingSystem) {
     this.modal = new UpgradeModal(sys.ctx, sys.ctx.uiRoot, sys, {
@@ -41,9 +64,19 @@ export class StorageUpgrade {
 
   get isOpen(): boolean { return this.modal.isOpen; }
 
-  /** 같은 「업그레이드」 버튼을 또 누르면 닫힌다 (버튼이 토글이다). */
-  toggle(): void {
-    if (this.modal.isOpen) { this.modal.close(); return; }
+  /**
+   * 같은 「업그레이드」 버튼을 또 누르면 닫힌다 (버튼이 토글이다). **다른 대상**으로 다시 부르면 닫지 않고
+   * 그 대상으로 갈아 끼운다 — 작업대 창에서 눌렀는데 창고 창이 떠 있던 것과 반대의 사고를 막는다.
+   */
+  toggle(subject: UpgradeSubject = { kind: 'storage' }): void {
+    const same = this.subject.kind === subject.kind
+      && (subject.kind !== 'bench' || (this.subject as { bench?: WorkbenchKind }).bench === subject.bench);
+    this.subject = subject;
+    if (this.modal.isOpen) {
+      if (same) { this.modal.close(); return; }
+      this.modal.refresh();
+      return;
+    }
     const bus = this.sys.ctx.bus;
     for (const e of REFRESH_EVENTS) this.offs.push(bus.on(e, () => this.modal.refresh()));
     this.modal.open(() => this.spec(), () => this.run());
@@ -59,6 +92,51 @@ export class StorageUpgrade {
   }
 
   private spec(): UpgradeSpec | null {
+    return this.subject.kind === 'bench' ? this.benchSpec(this.subject.bench) : this.storageSpec();
+  }
+
+  private run(): void {
+    if (this.subject.kind === 'bench') { this.runBench(this.subject.bench); return; }
+    this.runStorage();
+  }
+
+  /* ── 작업대 한 대 ───────────────────────────────────────────────────────── */
+  private benchSpec(bench: WorkbenchKind): UpgradeSpec | null {
+    const f = benchFurnitureOf(this.sys, bench);
+    const def = f ? this.sys.getFurnitureDef(f.defId) : undefined;
+    // 가구가 사라졌으면(회수 · 이동) 모달이 스스로 닫힌다 (`UpgradeModal.refresh` 의 규약)
+    if (!f || !def) return null;
+    return {
+      name: def.name || WORKBENCH_LABEL_KO[bench],
+      level: f.level,
+      maxLevel: furnitureMaxLevel(def),
+      // 다음 레벨이 여는 것 = 늘어나는 레시피. 수는 인벤토리의 레시피 목록에서 **센다** (여기에 표를 적지 않는다).
+      gain: this.benchGain(bench, f.level),
+      cost: nextFurnitureCost(def, f.level),
+      reason: this.sys.furnitureUpgradeBlock(f.uid),
+      requirements: this.sys.furnitureUpgradeRequirements(f.uid),
+    };
+  }
+
+  /** `제작 n가지 개방` — 다음 레벨의 레시피 수에서 지금 레벨의 것을 뺀다. 인벤토리가 없으면 빈 줄이다. */
+  private benchGain(bench: WorkbenchKind, level: number): string {
+    const inv = this.sys.ctx.inventory;
+    if (!inv || typeof inv.getRecipes !== 'function') return '';
+    const now = inv.getRecipes('ship', bench, level).length;
+    const next = inv.getRecipes('ship', bench, level + 1).length;
+    return next > now ? `제작 ${next - now}가지 개방` : '';
+  }
+
+  private runBench(bench: WorkbenchKind): void {
+    const f = benchFurnitureOf(this.sys, bench);
+    const def = f ? this.sys.getFurnitureDef(f.defId) : undefined;
+    if (!f || !def) return;
+    const before = f.level;
+    if (this.sys.upgradeFurniture(f.uid)) this.sys.notify(`${def.name} Lv.${before + 1}`, 'success');
+  }
+
+  /* ── 창고 시설 ─────────────────────────────────────────────────────────── */
+  private storageSpec(): UpgradeSpec | null {
     const info = this.sys.getFacility('storage');
     const atMax = info.level >= info.maxLevel;
     return {
@@ -76,16 +154,40 @@ export class StorageUpgrade {
     };
   }
 
-  private run(): void {
+  private runStorage(): void {
     // 성공하면 `Rooms.upgrade` 가 `housing:stashSizeChanged` 를 쏘고 inventory 가 창고 격자를 그 크기로 맞춘다.
     if (this.sys.upgrade('storage')) this.sys.notify(`${FACILITY_LABEL_KO.storage}를 업그레이드했습니다`, 'success');
   }
 }
 
+/**
+ * **작업대 한 대의 업그레이드 모달** (2026-09-16, 사용자 보고의 근본 고침) — `HousingRef.openBenchUpgrade(kind)`.
+ *
+ * 작업대 제작 창의 머리 버튼이 부를 자리다. 모양 · 홀드 · Escape 는 창고 갈래와 **같은 모달**이고 내용만 그 가구다.
+ */
+export function openBenchUpgrade(sys: HousingSystem, bench: WorkbenchKind): void {
+  if (!sys.ctx) return;
+  if (!benchFurnitureOf(sys, bench)) { sys.notify('배치된 작업대가 없습니다', 'warning'); return; }
+  sys.storageUpgrade ??= new StorageUpgrade(sys);
+  sys.storageUpgrade.toggle({ kind: 'bench', bench });
+}
+
+/**
+ * `HousingRef.openStorageUpgrade()` — **누른 화면이 대상을 정한다** (2026-09-16, 사용자 보고
+ * 「작업대 UI 에서 업그레이드를 눌렀는데 창고 업그레이드 창이 뜬다」).
+ *
+ * 이 한 줄을 부르는 곳이 둘이다: 인벤토리 Tab 창고 머리줄 · **작업대 창 머리줄**. 두 번째는 창고가 아니라 **그
+ * 작업대**를 올리려는 것이므로, 제작 열이 작업대 모드일 때(`InventoryRef.getBench()`)는 그 작업대로 보낸다.
+ * 제작 열이 작업대 모드이면 Tab 창은 제작 배치(`.inv-layout.is-craft`)라 창고 카드 자체가 숨어 있다 — 즉 이
+ * 갈림길에 겹치는 경우가 없다. (작업대 창이 직접 `openBenchUpgrade(kind)` 를 부르게 되면 이 갈래는 그냥 지나간다.)
+ */
 export function openStorageUpgrade(sys: HousingSystem): void {
   if (!sys.ctx) return;
+  const inv = sys.ctx.inventory;
+  const bench = inv && typeof inv.getBench === 'function' ? inv.getBench() : null;
+  if (bench) { openBenchUpgrade(sys, bench.kind); return; }
   // 표가 한 줄뿐이면 올릴 레벨이 없다 — 창을 띄우는 대신 아무 일도 하지 않는다.
   if (STASH_ROWS_BY_STORAGE_LEVEL.length <= 1 || STASH_COLS <= 0) return;
   sys.storageUpgrade ??= new StorageUpgrade(sys);
-  sys.storageUpgrade.toggle();
+  sys.storageUpgrade.toggle({ kind: 'storage' });
 }

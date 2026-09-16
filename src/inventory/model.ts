@@ -7,7 +7,7 @@
  * `InventorySystem.ts` 가 `export * from './model'` 로 그대로 재수출하므로 기존 import 경로는 전부 그대로 동작한다.
  */
 import type { CraftIngredient, CraftRecipe, DurabilityBucketInfo, DurabilityInfo, ItemCategory, ItemDef, ItemInstance, LoadoutSlot, PouchDef, WeaponSlot, WorkbenchKind } from '@/shared';
-import { BAG_DEFAULT_ROWS, CATEGORY_ICON } from '@/shared';
+import { BAG_DEFAULT_ROWS, CATEGORY_ICON, CATEGORY_LABEL_KO } from '@/shared';
 import { ITEM_DEF_MAP, isWeaponItemDef } from '@/items';
 import type { LoadoutSave } from './Loadout';
 /* ── UI ↔ system vocabulary ─────────────────────────────────────────────── */
@@ -243,7 +243,7 @@ export const SORT_CATEGORY_ORDER: readonly ItemCategory[] = [
   'material', 'herb', 'seed', 'soil', 'crop', 'sample', 'book', 'disc', 'record', 'game_disc', 'console', 'furniture',
 ];
 
-export type FilterGroupId = 'all' | 'favorite' | 'weapon' | 'gear' | 'ammo' | 'consumable' | 'gadget' | 'material' | 'valuable' | 'bio' | 'other';
+export type FilterGroupId = 'all' | 'favorite' | 'weapon' | 'gear' | 'ammo' | 'consumable' | 'gadget' | 'material' | 'valuable' | 'bio' | 'sample' | 'other';
 
 /**
  * 가방 · 창고 필터 칩. `categories` null = 전체(`all`) · 즐겨찾기(`favorite` — 카테고리가 아니라 종류 표를 본다) ·
@@ -261,7 +261,12 @@ export const FILTER_GROUPS: readonly { id: FilterGroupId; label: string; icon: s
   { id: 'gadget', label: '가젯 · 수류탄', icon: CATEGORY_ICON.gadget, categories: ['gadget'] },
   { id: 'material', label: '재료', icon: CATEGORY_ICON.material, categories: ['material'] },
   { id: 'valuable', label: '귀중품 · 열쇠', icon: CATEGORY_ICON.valuable, categories: ['valuable', 'key'] },
-  { id: 'bio', label: '재배 · 연구', icon: CATEGORY_ICON.herb, categories: ['herb', 'seed', 'soil', 'crop', 'sample'] },
+  { id: 'bio', label: '재배', icon: CATEGORY_ICON.herb, categories: ['herb', 'seed', 'soil', 'crop'] },
+  /* 2026-09-16 (사용자 보고 「필터에 표본이 없다」): `sample` 은 `bio`(재배 · 연구) 안에 섞여 있었다. 표본이
+     한 줌이던 때는 그래도 됐지만 수집품 대분류가 들어오면서 종류가 크게 늘어, 씨앗 · 토양 · 작물과 함께 밝아지면
+     정작 찾던 표본이 묻힌다. 그래서 자기 칩으로 뗀다 — 두 칩이 같은 카테고리를 밝히면 고른 쪽이 무엇인지
+     말할 수 없으므로 `bio` 에서는 **빼고**(라벨도 `재배`), 순서는 기르는 것 바로 뒤다. */
+  { id: 'sample', label: CATEGORY_LABEL_KO.sample, icon: CATEGORY_ICON.sample, categories: ['sample'] },
   { id: 'other', label: '기타', icon: '…', categories: null },
 ];
 

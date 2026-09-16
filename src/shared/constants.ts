@@ -701,7 +701,7 @@ export const SHIP_STORAGE_KEY = 'scav.ship';
  * 방 시설 레벨 제거 (2026-09-12): **7** — 모양은 같다. `RoomState.level` 이 늘 1 이 되고, v6 이하 세이브의 작업실 ·
  * 사격장 레벨은 관물대 · 시뮬레이션 허브 레벨로 옮겨지거나 재료로 환불된다 (`housing/ShipState.sanitize`, 한 번만).
  */
-export const SHIP_STATE_VERSION = 11;  // 2026-09-12: 9 = 서재 매체 (`media` · `mediaDex` · `toggled`, A-3e) · 2026-09-13: 10 = 조종석 전용 시설 + 조종석 꾸밈 가구 (모양은 같다 — 한 번만 옮기려고 올렸다) · 11 = 요리 재료 티어 (흙 · 배지 내구도와 소켓 · 배양 스캐폴드 · 분석 결과 · 계열 경험치 · 분석 도감)
+export const SHIP_STATE_VERSION = 12;  // 2026-09-12: 9 = 서재 매체 (`media` · `mediaDex` · `toggled`, A-3e) · 2026-09-13: 10 = 조종석 전용 시설 + 조종석 꾸밈 가구 (모양은 같다 — 한 번만 옮기려고 올렸다) · 11 = 요리 재료 티어 (흙 · 배지 내구도와 소켓 · 배양 스캐폴드 · 분석 결과 · 계열 경험치 · 분석 도감) · 2026-09-16: 12 = 표본 개편 · 프로세서 직접 장착 (`sampleLevels` · `ComputeClusterSlot.processors` — 사용자 결정으로 이관 없음: 표본 레벨은 0 부터, 옛 `cores` 는 새것 내구도의 프로세서로 읽는다)
 export const SHIP_ROOM_COUNT = K.num('SHIP_ROOM_COUNT');
 /** Room floor grid (cells) and cell size (m): 8 × 8 × 0.5 = a 4 × 4 m room. */
 export const ROOM_GRID_COLS = K.num('ROOM_GRID_COLS');
@@ -1632,11 +1632,46 @@ export const WHISPER_HISTORY_PER_PEER = K.num('WHISPER_HISTORY_PER_PEER');
 export const WHISPER_HISTORY_PEERS = K.num('WHISPER_HISTORY_PEERS');
 export const WHISPER_STORAGE_KEY = 'scav.whispers';
 
-/* ── 2026-09-11: 연구실 — 분석기 · 행성 환경 (A-12 · A-13) ── */
-/** A-12 (owner: housing): 해석 도감이 가득 찼을 때 해석 시간이 줄어드는 비율 (0.5 = 절반). */
-export const ANALYZE_DEX_SPEEDUP = K.num('ANALYZE_DEX_SPEEDUP');
-/** A-12 (owner: housing): 이미 도감에 있는 표본을 다시 해석할 때 추가로 줄어드는 비율. 위 항과 곱해진다. */
-export const ANALYZE_KNOWN_SPEEDUP = K.num('ANALYZE_KNOWN_SPEEDUP');
+/* ── 2026-09-11: 연구실 — 분석기 · 행성 환경 (A-12 · A-13) ──
+ * 2026-09-16 (사용자 결정): 옛 `ANALYZE_DEX_SPEEDUP`(도감 진척률 × 0.5) · `ANALYZE_KNOWN_SPEEDUP`(아는 표본이면 ×0.6)
+ * 두 항은 **삭제**됐다 — 아래 `ANALYSIS_*` 다섯 항이 대신한다. csv 줄도 함께 지웠다: 읽는 코드가 없는 키는
+ * `npm run data:check` 가 「아무도 읽지 않는 키」로 잡으므로 코드와 csv 를 한 번에 치워야 한다. */
+
+/* ── 2026-09-16 (사용자 결정): 해석 시간 단축의 새 규칙 (owner: housing) ──
+ * 옛 `ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP` 두 항을 대체한다. 바뀐 점은 둘이다:
+ *   ① 도감 보너스는 「그 종류의 해석이 빨라진다」가 아니라 **도감을 한 칸 채울 때마다 같은 등급 표본 전체**가 빨라진다.
+ *   ② 같은 표본을 거듭 해석하면 그 표본의 **레벨**이 올라 보너스가 더 붙되, 곡선을 앞으로 몰아 놨다 —
+ *      처음 해석해 레벨 1 이 되는 순간 `FIRST`(+3 %)를 통째로 주고, 그 뒤 한 레벨마다 `STEP`(+0.5 %)만 얹는다.
+ *      「처음 등록했을 때 보너스를 많이 주는 식」이라는 사용자 요구가 이 두 값의 차이 그 자체다.
+ * 도감 + 레벨을 **더한** 단축은 `ANALYSIS_SPEEDUP_CAP` 에서 잘린다. 계열 분석 레벨의 시간 배수
+ * (`ANALYSIS_TIME_MUL_BY_LEVEL`) 는 이것과 별개로 곱해진다.
+ */
+/** 해석 도감 한 칸마다, **같은 등급** 표본의 해석 시간이 줄어드는 비율. */
+export const ANALYSIS_DEX_BONUS_PER_ENTRY = K.num('ANALYSIS_DEX_BONUS_PER_ENTRY');
+/** 그 표본을 처음 해석해 레벨 1 이 됐을 때의 단축 — 레벨당 증분보다 훨씬 크다 (앞으로 몰아 놓은 곡선). */
+export const ANALYSIS_SAMPLE_LEVEL_FIRST = K.num('ANALYSIS_SAMPLE_LEVEL_FIRST');
+/** 레벨 1 이후 한 레벨 오를 때마다 더 붙는 단축. */
+export const ANALYSIS_SAMPLE_LEVEL_STEP = K.num('ANALYSIS_SAMPLE_LEVEL_STEP');
+/** 한 표본의 레벨 상한. */
+export const ANALYSIS_SAMPLE_LEVEL_MAX = K.num('ANALYSIS_SAMPLE_LEVEL_MAX');
+/** 도감 + 표본 레벨을 더한 단축의 상한 (0.5 = 절반까지). */
+export const ANALYSIS_SPEEDUP_CAP = K.num('ANALYSIS_SPEEDUP_CAP');
+
+/* ── 2026-09-16 (사용자 결정): 행성 광맥 · 채광 (owner: world) ──
+ * 광맥은 약초 · 표본과 같은 채집 노드의 한 종류다. 캐면 **미확인 광물**만 나오고, 그 등급은
+ * 총기와 같은 확률 표(`data/loot_tiers.csv` 의 `tier = 행성 threat` 줄, `mythic` 열 포함)로 굴린다 —
+ * 두 번째 표를 만들지 않는다. 난이도 1 은 그 줄이 희귀까지만 가중치를 주므로 저절로 희귀에서 멈춘다.
+ * 채광 숙련은 `DerivedStats.miningRarityBonus` 로 그 굴림의 상위 등급 쪽만 밀어 준다 (상한은 못 넘는다).
+ */
+/** 광맥 하나를 캐는 E 홀드 시간(초). `interactSpeedMul` 이 나눈다. */
+export const MINING_NODE_HOLD_S = K.num('MINING_NODE_HOLD_S');
+/** 광맥 하나에서 나오는 미확인 광물 개수의 하한 · 상한 (정수 균등). */
+export const MINING_YIELD_MIN = K.num('MINING_YIELD_MIN');
+export const MINING_YIELD_MAX = K.num('MINING_YIELD_MAX');
+/** 이 기울기(tan θ) 이상인 사면에만 광맥이 선다 — 사용자 결정 「주로 언덕쪽 위주」. */
+export const MINING_HILL_MIN_SLOPE = K.num('MINING_HILL_MIN_SLOPE');
+/** 광맥 하나를 캘 때 오르는 `mining` 숙련 경험치. */
+export const MINING_SKILL_XP = K.num('MINING_SKILL_XP');
 /**
  * A-13 (owner: player): 맞는 준비물 없이 상시 환경 행성(`PlanetDef.env`)에 있을 때 초당 깎이는 **체력**.
  * 방탄복 실드는 대기를 막지 못하므로 실드를 건너뛴다 (사용자 결정: 준비물이 있으면 100 % 상쇄).

@@ -20,8 +20,10 @@ import { shelfMediumOfDefId } from './Rules';
 /* 2026-09-13 (서재 시리즈 · 비디오게임): 옛 아이템 id 치환 · TV 게임기 */
 import type { TvConsoleSlot } from '@/shared';
 import { resolveItemAlias } from '@/shared';
-/* 2026-09-13 (암호화폐 채굴) */
-import { COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES, COMPUTE_CORE_DEF_ID } from '@/shared';
+/* 2026-09-13 (암호화폐 채굴) · 2026-09-16 (프로세서 직접 장착 — 옛 연산 코어는 프로세서로 환불된다) */
+import { COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES, PROCESSOR_DEF_ID } from '@/shared';
+/* 2026-09-16 (표본 개편): 표본별 해석 레벨의 상한 */
+import { ANALYSIS_SAMPLE_LEVEL_MAX } from '@/shared';
 import { sanitizeClusters, sanitizeUnitsMap } from './MiningRules';
 import {
   NEEDS_GREENHOUSE,
@@ -109,8 +111,12 @@ const SAVE_DELAY_MS = 350;
  *    증축 재료 → 함선 창고(`out.refund`), 가구 → 가구 창고, 그 가구에 담긴 것(책 · 매체 · 재배 · 해석 · 배양 칸 · 코어 · 게임기) → 함선 창고.
  *    규칙이라 **모든 로드**가 지난다(발전기는 내려가지 않으므로 v13 세이브에서는 다시 걸릴 일이 없다). 몇 곳을 지웠는지는 `out.removedByGenerator`.
  */
-/** Current on-disk version (13 since 발전기 = 증축 조건; never below the contract's `SHIP_STATE_VERSION`). */
-export const SHIP_STATE_VERSION_CURRENT = Math.max(13, SHIP_STATE_VERSION);
+/**
+ * Current on-disk version (14 since 표본 레벨 + 프로세서 칸 목록, 2026-09-16; never below the contract's `SHIP_STATE_VERSION`).
+ * v13 → v14 에는 이관 코드가 없다 (사용자 결정): `sampleLevels` 는 없으면 전부 레벨 0 이고, 옛 `clusters[].cores` 는
+ * 같은 수의 **프로세서**로 함선 창고에 환불된다 (연산 코어가 아이템 표에서 사라졌다 — `MiningRules.sanitizeClusters`).
+ */
+export const SHIP_STATE_VERSION_CURRENT = Math.max(14, SHIP_STATE_VERSION);
 /** 옛 세이브에서 읽어 볼 방의 최대 개수 (방 수가 10 이던 세이브 + 손으로 고친 파일에 대한 여유). */
 const MAX_SAVED_ROOMS = 32;
 /**
@@ -162,6 +168,7 @@ export function freshState(): ShipState {
     toggled: [],
     analysisXp: {},                           // 요리 재료 티어 (v11, 2026-09-13)
     analysisFound: [],
+    sampleLevels: {},                         // 표본 개편 (v14, 2026-09-16 — 표본 def id → 해석 레벨)
     tvConsoles: [],                           // 비디오게임 (2026-09-13 — TV 마다 장착한 게임기)
     plate: null,                              // 식탁 접시 (2026-09-16 — 요리는 아이템이 아니다)
   };
@@ -931,6 +938,15 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   for (const id of Array.isArray(r.analysisFound) ? r.analysisFound : []) {
     if (isItemDefIdShape(id) && !analysisFound.includes(id)) analysisFound.push(id);
   }
+  /* 표본 개편 (v14, 2026-09-16): 표본별 해석 레벨 — `spec_*` 모양의 키에 1 … `ANALYSIS_SAMPLE_LEVEL_MAX` 정수만.
+     이관은 없다 (사용자 결정) — 없는 키는 레벨 0 이고 다시 쌓인다. */
+  const sampleLevels: Record<string, number> = {};
+  const rawLv = r.sampleLevels && typeof r.sampleLevels === 'object' && !Array.isArray(r.sampleLevels) ? (r.sampleLevels as Record<string, unknown>) : {};
+  for (const [id, v] of Object.entries(rawLv)) {
+    if (!isSampleDefIdShape(id)) continue;
+    const n = int(v, 0, 0, ANALYSIS_SAMPLE_LEVEL_MAX);
+    if (n >= 1) sampleLevels[id] = n;
+  }
 
   const state: ShipState = {
     version: SHIP_STATE_VERSION_CURRENT,
@@ -938,7 +954,7 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     nameLocked: r.nameLocked === true,
     books, bookDex, grows, analyses, sampleDex, cultures,
     media, mediaDex, toggled,
-    analysisXp, analysisFound,
+    analysisXp, analysisFound, sampleLevels,
     tvConsoles,
     plate: sanitizePlate(r.plate),            // 2026-09-16 (접시 모델): 버전은 그대로 — 없는 필드 = 접시 없음
   };
@@ -954,14 +970,15 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   // 2026-09-13: 조종석 전용 시설이다 — 다른 방 · 가구 창고에 있던 것도 조종석으로 돌아오고, 사본은 걷힌다 (모든 로드)
   const grantedCockpit = ensureCockpitFurniture(state);
   /* v13 (2026-09-13): v12 의 전력 필드(`powerAlloc` · `disabledFurniture` · `pausedAt`)는 옮기지 않는다 — 전력 할당이 폐지됐다 (위 `state` 에 없다). */
-  /* 암호화폐 채굴 (2026-09-13): 클러스터 칸은 **최종** 배치(접근 면 규칙으로 가구 창고에 간 것 · 드롭된 것을 뺀 뒤)의 연산 클러스터 것만 남는다 —
-     코어 정수 0 … 최대 · 진행도 [0, 1) · 구간 시작 유한 · 코인 id 모양 (`MiningRules.sanitizeClusters`). 배치되지 않은 클러스터에 꽂혀 있던
-     코어는 사라지지 않고 은퇴 가구와 같은 자루(`refund` → 함선 창고)로 돌려준다. 지갑 · 누적 채굴은 id 모양 키 · 정수 ≥ 1. */
+  /* 암호화폐 채굴 (2026-09-13 · 프로세서 직접 장착 2026-09-16): 클러스터 칸은 **최종** 배치(접근 면 규칙으로 가구 창고에 간 것 ·
+     드롭된 것을 뺀 뒤)의 연산 클러스터 것만 남는다 — 칸마다 빈 칸(null) 또는 남은 내구도 · 진행도 [0, 1) · 구간 시작 유한 ·
+     코인 id 모양 (`MiningRules.sanitizeClusters`). 배치되지 않은 클러스터에 꽂혀 있던 프로세서와 **옛 세이브의 연산 코어**는
+     사라지지 않고 은퇴 가구와 같은 자루(`refund` → 함선 창고)로 프로세서가 되어 돌아온다. 지갑 · 누적 채굴은 id 모양 키 · 정수 ≥ 1. */
   const placedClusters = new Set(state.furniture.filter((f) => f.defId === COMPUTE_CLUSTER_DEF_ID).map((f) => f.uid));
   const miningSlots = sanitizeClusters(r.clusters, placedClusters, COMPUTE_CLUSTER_MAX_CORES);
   if (miningSlots.orphanCores > 0) {
-    mergeCost(refund, [{ defId: COMPUTE_CORE_DEF_ID, qty: miningSlots.orphanCores }]);
-    console.warn(`[housing] ${miningSlots.orphanCores} compute cores of unplaced clusters refunded to the ship stash`);
+    mergeCost(refund, [{ defId: PROCESSOR_DEF_ID, qty: miningSlots.orphanCores }]);
+    console.warn(`[housing] ${miningSlots.orphanCores} cluster processors (or legacy compute cores) refunded to the ship stash`);
   }
   state.clusters = miningSlots.clusters;
   state.cryptoWallet = sanitizeUnitsMap(r.cryptoWallet);

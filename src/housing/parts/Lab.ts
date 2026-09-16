@@ -15,16 +15,29 @@
  * `housing:sampleDexAdded` 는 더 내지 않는다. 결과를 안 굴린 옛 세이브의 칸은 **회수할 때** 그때 레벨로 굴린다.
  * 은퇴한 표본도 자기 계열로 해석된다.
  *
- * 순수 판정(해석 시간 · 결과 추첨 · 확률 · 진행도 · 남은 초)은 전부 `../Rules.ts` 에 있고, 여기서는 상태를 바꾼다.
+ * **2026-09-16 (표본 전면 개편 — 사용자 결정)**: 두 가지가 더해졌고 둘 다 축이 **표본의 등급**이다.
+ *  ① **등급 하한** — 추첨에 남는 줄은 `rarityRank(산출물) ≥ rarityRank(표본)` 인 것뿐이다. `data/analysis_results.csv` 의
+ *     `sampleRarity` 열이 적힌 줄은 그 등급 표본 전용이면서 하한을 면제받는다 (미확인 광물 → 석영; 빈 후보 방지턱이기도 하다).
+ *  ② **해석 시간 단축** — `min(CAP, 같은 등급 도감 칸수 × PER_ENTRY + 표본 레벨 보너스)`. 표본 레벨(`ShipState.sampleLevels`)은
+ *     그 표본을 **회수한 횟수**이고, 레벨 1 의 `FIRST`(+3 %)가 그 뒤 레벨당 `STEP`(+0.5 %)보다 훨씬 크다 — 「처음 등록했을 때
+ *     보너스를 많이 준다」가 그 두 값의 차이다. 계열 분석 레벨의 시간 배수는 이것과 **별개로** 곱해진다.
+ *
+ * 순수 판정(해석 시간 · 단축 · 결과 추첨 · 확률 · 진행도 · 남은 초)은 전부 `../Rules.ts` 에 있고, 여기서는 상태를 바꾼다.
  */
 import type {
-  AnalysisLevelInfo, AnalysisResultInfo, AnalysisSlot, AnalysisSlotInfo, HarvestDestination, ItemDef, PlacedFurniture, SampleFamily,
+  AnalysisLevelInfo, AnalysisResultInfo, AnalysisSlot, AnalysisSlotInfo, HarvestDestination, ItemDef, PlacedFurniture, Rarity,
+  SampleAnalysisInfo, SampleFamily,
 } from '@/shared';
 import {
-  ANALYSIS_LEVEL_MAX, ANALYSIS_RESULTS, ANALYSIS_XP_BY_RARITY, ANALYZER_MAX_SLOTS, RESEARCH_XP_ANALYSIS, SAMPLE_FAMILIES,
+  ANALYSIS_LEVEL_MAX, ANALYSIS_RESULTS, ANALYSIS_SAMPLE_LEVEL_MAX, ANALYSIS_XP_BY_RARITY, ANALYZER_MAX_SLOTS, RARITY_ORDER,
+  RESEARCH_XP_ANALYSIS, SAMPLE_FAMILIES,
   analysisLevelForXp, analysisTimeMul, analysisXpForLevel, analyzerSlotUnlockLevel, analyzerSlotsForLevel,
 } from '@/shared';
-import { analysisChances, analysisDurationMs, growProgress, growRemainingS, rollAnalysisResult } from '../Rules';
+import type { AnalysisRollOpts } from '../Rules';
+import {
+  analysisChances, analysisDexBonus, analysisDurationMs, analysisLevelBonus, analysisSpeedup,
+  growProgress, growRemainingS, rollAnalysisResult,
+} from '../Rules';
 import { isAnalyzerDefId } from '../ShipState';
 import { formatRemaining } from '../ui/dom';
 import type { HousingSystem } from '../HousingSystem';
@@ -68,6 +81,13 @@ function analysisXp(sys: HousingSystem): Partial<Record<SampleFamily, number>> {
 function analysisFound(sys: HousingSystem): string[] {
   if (!Array.isArray(sys.state.analysisFound)) sys.state.analysisFound = [];
   return sys.state.analysisFound;
+}
+
+/** 2026-09-16: 표본 def id → 해석 레벨 (= 회수 횟수). 없는 키 = 레벨 0. */
+function sampleLevels(sys: HousingSystem): Record<string, number> {
+  const cur = sys.state.sampleLevels;
+  if (!cur || typeof cur !== 'object' || Array.isArray(cur)) sys.state.sampleLevels = {};
+  return sys.state.sampleLevels!;
 }
 
 /** The 분석기 behind `uid`, or null when it is not one (or gone). */
@@ -130,6 +150,63 @@ function levelOf(sys: HousingSystem, family: SampleFamily): number {
   return analysisLevelForXp(analysisXp(sys)[family] ?? 0);
 }
 
+/* ── 2026-09-16 (사용자 결정): 표본 등급 하한 · 표본 레벨 단축 ─────────────────
+ * 두 규칙 모두 **표본의 등급**을 축으로 삼는다:
+ *  ① 추첨 — 산출물 등급이 표본 등급 이상이어야 한다 (`Rules.rollAnalysisResult` 의 `AnalysisRollOpts`).
+ *  ② 도감 보너스 — 분석 도감의 칸을 **산출물 등급별로** 세고, 그 등급 표본의 해석 시간을 칸 수만큼 줄인다.
+ * 아이템 등급은 ctx 의 아이템 표에만 있으므로 순수 규칙에 **콜백으로** 넘긴다 (`Rules.ts` 는 ctx 를 모른다).
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** def 의 등급 (아이템 표에 없으면 null — 순수 규칙은 그때 하한 검사를 통과시킨다). */
+function rarityOf(sys: HousingSystem): (defId: string) => Rarity | null {
+  return (defId) => sys.defOf(defId)?.rarity ?? null;
+}
+
+/** 추첨에 넘길 옵션 — 표본 등급(하한) + 산출물 등급 조회. */
+function rollOpts(sys: HousingSystem, sampleRarity?: Rarity): AnalysisRollOpts {
+  return { sampleRarity, rarityOf: rarityOf(sys) };
+}
+
+/** 분석 도감(`analysisFound`)의 칸 수를 산출물 **등급별**로 센 표 — 도감 보너스가 묶이는 축 그대로. */
+export function getAnalysisDexByRarity(sys: HousingSystem): Record<Rarity, number> {
+  const out = Object.fromEntries(RARITY_ORDER.map((r) => [r, 0])) as Record<Rarity, number>;
+  const rar = rarityOf(sys);
+  for (const id of analysisFound(sys)) {
+    const r = rar(id);
+    if (r) out[r]++;
+  }
+  return out;
+}
+
+/**
+ * 표본 하나의 해석 단축 현황 (`HousingRef.getSampleAnalysis`). 표본이 아니면 null.
+ * 단축 = min(CAP, 같은 등급 도감 칸수 × PER_ENTRY + 표본 레벨 보너스) — 식은 `Rules.analysisSpeedup`.
+ */
+export function getSampleAnalysis(sys: HousingSystem, defId: string): SampleAnalysisInfo | null {
+  const def = sys.sampleDef(defId);
+  if (!def) return null;
+  const level = sampleLevelOf(sys, defId);
+  const dexEntries = getAnalysisDexByRarity(sys)[def.rarity] ?? 0;
+  return {
+    defId, rarity: def.rarity, level, maxLevel: ANALYSIS_SAMPLE_LEVEL_MAX, dexEntries,
+    dexBonus: analysisDexBonus(dexEntries),
+    levelBonus: analysisLevelBonus(level),
+    speedup: analysisSpeedup(dexEntries, level),
+  };
+}
+
+/** 이 표본의 지금 레벨 (0 … `ANALYSIS_SAMPLE_LEVEL_MAX`). */
+function sampleLevelOf(sys: HousingSystem, defId: string): number {
+  const v = sampleLevels(sys)[defId];
+  return Number.isFinite(v) ? Math.max(0, Math.min(ANALYSIS_SAMPLE_LEVEL_MAX, Math.floor(v))) : 0;
+}
+
+/** 지금 이 표본에 붙는 단축 (0 … `ANALYSIS_SPEEDUP_CAP`). 표본이 아니면 0. */
+function speedupOf(sys: HousingSystem, def: ItemDef | null): number {
+  if (!def) return 0;
+  return analysisSpeedup(getAnalysisDexByRarity(sys)[def.rarity] ?? 0, sampleLevelOf(sys, def.id));
+}
+
 /* ── 2026-09-13 (H3): 연구 숙련 — 분석 시간 단축 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
 /** 연구 숙련의 분석 시간 배수 (`derived.researchTimeMul`, 1 = 그대로). progression 이 없거나 값이 이상하면 1. */
 export function researchTimeMul(sys: HousingSystem): number {
@@ -138,23 +215,24 @@ export function researchTimeMul(sys: HousingSystem): number {
 }
 
 /**
- * 지금 넣으면 걸릴 해석 시간(ms) — `Rules.analysisDurationMs(시간, 분석 레벨) × 연구 숙련 배수`, 최소 1000 ms. **넣는 순간 확정**된다
- * (`startAnalysis` 가 이 값으로 `readyAt` 을 적는다 — 나중에 숙련이 올라도 돌아가던 해석은 그대로다).
+ * 지금 넣으면 걸릴 해석 시간(ms) — `Rules.analysisDurationMs(시간, 계열 분석 레벨, 표본 단축) × 연구 숙련 배수`, 최소 1000 ms.
+ * **넣는 순간 확정**된다 (`startAnalysis` 가 이 값으로 `readyAt` 을 적는다 — 나중에 도감이 차거나 숙련이 올라도 돌아가던 해석은 그대로다).
  */
-export function analysisMsFor(sys: HousingSystem, analyzeHours: number, level: number): number {
-  return Math.max(1000, Math.round(analysisDurationMs(analyzeHours, level) * researchTimeMul(sys)));
+export function analysisMsFor(sys: HousingSystem, analyzeHours: number, level: number, speedup = 0): number {
+  return Math.max(1000, Math.round(analysisDurationMs(analyzeHours, level, speedup) * researchTimeMul(sys)));
 }
 
 /** 표본 하나를 지금 넣으면 걸릴 해석 시간(ms), 표본이 아니면 null (분석 화면의 예상 시간). */
 export function analysisEstimateMs(sys: HousingSystem, sampleDefId: string): number | null {
   const def = sys.sampleDef(sampleDefId);
   if (!def?.sample) return null;
-  return analysisMsFor(sys, def.sample.analyzeHours, levelOf(sys, familyOfDef(def)));
+  return analysisMsFor(sys, def.sample.analyzeHours, levelOf(sys, familyOfDef(def)), speedupOf(sys, def));
 }
 
 /** 결과 한 번 굴리기 — 결과표가 비면 표본의 대체 산출물(`rewardDefId`), 그것도 못 받으면 null. */
 function rollResult(sys: HousingSystem, def: ItemDef, family: SampleFamily, level: number): { defId: string; qty: number } | null {
-  const rolled = rollAnalysisResult(family, level, Math.random, resultDefOk(sys));
+  // 2026-09-16: 표본의 등급이 산출물 등급의 하한이다 (`sampleRarity` 가 적힌 줄은 그 등급 전용 + 하한 면제)
+  const rolled = rollAnalysisResult(family, level, Math.random, resultDefOk(sys), rollOpts(sys, def.rarity));
   if (rolled) return rolled;
   const s = def.sample;
   if (!s || !s.rewardDefId || !sys.defOf(s.rewardDefId)) return null;
@@ -246,21 +324,29 @@ export function getAnalysisLevel(sys: HousingSystem, family: SampleFamily): Anal
 export function getAnalysisResults(sys: HousingSystem, family: SampleFamily): AnalysisResultInfo[] {
   const ok = resultDefOk(sys);
   const level = levelOf(sys, family);
-  const chances = analysisChances(family, level, ok);
+  /* 2026-09-16: 확률은 **일반 표본 기준**이다 — 등급 하한 때문에 실제 확률은 넣는 표본마다 달라지고, 일반 표본이
+     후보가 가장 넓다(= 도감이 보여 줄 수 있는 유일한 한 벌). 도감 머리줄이 그 기준을 한국어로 적는다. */
+  const chances = analysisChances(family, level, ok, rollOpts(sys, 'common'));
   const found = analysisFound(sys);
-  return ANALYSIS_RESULTS
-    .filter((r) => r.family === family && ok(r.defId))
-    .slice()
-    .sort((a, b) => (a.minLevel - b.minLevel) || (b.weight - a.weight))
-    .map((r) => {
-      const unlocked = r.minLevel <= level;
-      return {
+  /* 같은 산출물이 여러 줄인 표(등급별 석영 6줄 같은)는 한 줄로 합친다 — 도감은 「무엇이 나오는가」의 목록이지 csv 줄 목록이 아니다. */
+  const merged = new Map<string, AnalysisResultInfo>();
+  for (const r of ANALYSIS_RESULTS) {
+    if (r.family !== family || !ok(r.defId)) continue;
+    const cur = merged.get(r.defId);
+    if (!cur) {
+      merged.set(r.defId, {
         defId: r.defId, qtyMin: r.qtyMin, qtyMax: r.qtyMax, minLevel: r.minLevel,
-        unlocked,
-        chance: unlocked ? chances[r.defId] ?? 0 : 0,
-        found: found.includes(r.defId),
-      };
-    });
+        unlocked: r.minLevel <= level, chance: 0, found: found.includes(r.defId),
+      });
+      continue;
+    }
+    cur.qtyMin = Math.min(cur.qtyMin, r.qtyMin);
+    cur.qtyMax = Math.max(cur.qtyMax, r.qtyMax);
+    cur.minLevel = Math.min(cur.minLevel, r.minLevel);
+    cur.unlocked = cur.minLevel <= level;
+  }
+  for (const info of merged.values()) if (info.unlocked) info.chance = chances[info.defId] ?? 0;
+  return [...merged.values()].sort((a, b) => (a.minLevel - b.minLevel) || (b.chance - a.chance));
 }
 
 /** 2026-09-13: 분석 도감 (`HousingRef.getAnalysisFound`). */
@@ -297,7 +383,8 @@ export function startAnalysis(sys: HousingSystem, uid: string, slot: number, sam
   const startedAt = sys.stationNow(uid);
   sys.analyses().push({
     uid, slot, sampleDefId, startedAt,
-    readyAt: startedAt + analysisMsFor(sys, def.sample.analyzeHours, level),   // 2026-09-13 (H3): × 연구 숙련, 넣는 순간 확정
+    // 2026-09-13 (H3): × 연구 숙련 · 2026-09-16: × (1 − 표본 단축) — 전부 **넣는 순간** 확정된다
+    readyAt: startedAt + analysisMsFor(sys, def.sample.analyzeHours, level, speedupOf(sys, def)),
     family, resultDefId: result.defId, resultQty: result.qty,
   });
   sys.analysisChanged(uid, 'analysisStart');
@@ -365,6 +452,11 @@ export function collectAnalysis(sys: HousingSystem, uid: string, slot: number, d
   // 옛 표본 도감은 조용히 (`housing:sampleDexAdded` 는 더 내지 않는다)
   const dex = sys.sampleDex();
   if (!dex.includes(a.sampleDefId)) dex.push(a.sampleDefId);
+  /* 2026-09-16 (사용자 결정): 표본 레벨은 **회수한 횟수**다 — 중단(`cancelAnalysis`)은 세지 않는다. 레벨 1 이 되는
+     첫 회수에서 `ANALYSIS_SAMPLE_LEVEL_FIRST` 가 통째로 붙고, 그 뒤로는 레벨마다 `..._STEP` 만 얹힌다. */
+  const lvMap = sampleLevels(sys);
+  const lvNow = sampleLevelOf(sys, a.sampleDefId);
+  if (lvNow < ANALYSIS_SAMPLE_LEVEL_MAX) lvMap[a.sampleDefId] = lvNow + 1;
   // 2026-09-13 (H3): 연구 숙련 경험치 — 회수한 칸마다
   const prog = sys.ctx.progression;
   if (prog && typeof prog.addSkillXp === 'function' && RESEARCH_XP_ANALYSIS > 0) {

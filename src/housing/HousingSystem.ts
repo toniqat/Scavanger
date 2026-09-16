@@ -19,7 +19,7 @@ import { BookshelfMenu } from './ui/BookshelfMenu';
 import { createShipView } from './ui/ShipView';
 import type { HousingPanel } from './ui/Panel';
 // 2026-09-16: 창고 업그레이드 모달 — 인벤토리 Tab · 작업대 창이 `HousingRef.openStorageUpgrade()` 로 부른다
-import { StorageUpgrade, openStorageUpgrade } from './ui/StorageUpgrade';
+import { StorageUpgrade, openBenchUpgrade, openStorageUpgrade } from './ui/StorageUpgrade';
 import './housing.css';
 
 import { BOOKS_BLOCK_REASON, FACILITY_IDS, PRESET_NAME_MAX } from './model';
@@ -542,6 +542,9 @@ export class HousingSystem implements GameSystem, HousingRef {
   getAnalysisLevel(family: SampleFamily): AnalysisLevelInfo { return Lab.getAnalysisLevel(this, family); }
   getAnalysisResults(family: SampleFamily): AnalysisResultInfo[] { return Lab.getAnalysisResults(this, family); }
   getAnalysisFound(): readonly string[] { return Lab.getAnalysisFound(this); }
+  /* 2026-09-16 (표본 개편): 표본별 레벨 · 등급별 도감 칸 — 분석 화면이 `Lv.n · −x %` 로 읽는다. */
+  getSampleAnalysis(defId: string): import('@/shared').SampleAnalysisInfo | null { return Lab.getSampleAnalysis(this, defId); }
+  getAnalysisDexByRarity(): Readonly<Record<import('@/shared').Rarity, number>> { return Lab.getAnalysisDexByRarity(this); }
   insertGrowSocket(uid: string, tier: GrowTier, slot: number, socketDefId: string, replaceIndex?: number): string | null { return Garden.insertGrowSocket(this, uid, tier, slot, socketDefId, replaceIndex); }
   insertCultureSocket(uid: string, slot: number, socketDefId: string, replaceIndex?: number): string | null { return Culture.insertCultureSocket(this, uid, slot, socketDefId, replaceIndex); }
   insertScaffold(uid: string, slot: number, scaffoldDefId: string): string | null { return Culture.insertScaffold(this, uid, slot, scaffoldDefId); }
@@ -883,6 +886,8 @@ export class HousingSystem implements GameSystem, HousingRef {
   openPresetMenu(): void { return Preset.openPresetMenu(this); }
   /* appended (2026-09-16): 창고 업그레이드 모달 — 인벤토리 Tab · 작업대 창의 「업그레이드」가 `HousingRef` 로 부른다. */
   openStorageUpgrade(): void { return openStorageUpgrade(this); }
+  /* appended (2026-09-16): 작업대 한 대의 업그레이드 모달 — 같은 모달, 대상만 그 가구다. */
+  openBenchUpgrade(bench: WorkbenchKind): void { return openBenchUpgrade(this, bench); }
 
   /** Close every panel; `relock` false when another panel opens right away. */
   closeMenus(relock = true): void { return Preset.closeMenus(this, relock); }
@@ -896,6 +901,9 @@ export class HousingSystem implements GameSystem, HousingRef {
   setClusterCoin(uid: string, coinId: string | null): string | null { return Mining.setClusterCoin(this, uid, coinId); }
   insertClusterCores(uid: string, qty: number): string | null { return Mining.insertClusterCores(this, uid, qty); }
   removeClusterCores(uid: string, qty: number, dest?: HarvestDestination): string | null { return Mining.removeClusterCores(this, uid, qty, dest); }
+  /* 2026-09-16 (프로세서 직접 장착): 칸을 지정하는 짝 — 화면 격자가 이것을 쓴다 (인덱스 = 그 칸). */
+  insertClusterProcessor(uid: string, slot: number, itemUid?: string): string | null { return Mining.insertClusterProcessor(this, uid, slot, itemUid); }
+  removeClusterProcessor(uid: string, slot: number, dest?: HarvestDestination): string | null { return Mining.removeClusterProcessor(this, uid, slot, dest); }
   cryptoQuote(coinId: string, side: CryptoTradeSide, units: number): CryptoQuote | null { return Mining.cryptoQuote(this, coinId, side, units); }
   tradeCrypto(coinId: string, side: CryptoTradeSide, units: number): Promise<string | null> { return Mining.tradeCrypto(this, coinId, side, units); }
   devSetCryptoWallet(coinId: string, units: number): string | null { return Mining.devSetCryptoWallet(this, coinId, units); }

@@ -1,6 +1,8 @@
 import type { HarvestDestination, ItemDef } from '@/shared';
 import { buildItemGridChip, itemGridBox } from '@/shared';
+import { withDropCell } from '../parts/Deliver';
 import { stationGridCell } from './StationShell';
+import type { StationGridsView } from './StationShell';
 import { el } from './dom';
 
 /** A finished product sitting in a station 칸 (다 자란 작물 · 해석 산출물 · 배양 산물). */
@@ -17,6 +19,12 @@ export interface ProductDragOptions {
   /** Collect the 칸 — dropped on a grid (`'bag'` / `'stash'`) or double-clicked (`'stash-first'`). */
   collect(key: string, dest: HarvestDestination): void;
   defOf(defId: string): ItemDef | undefined;
+  /**
+   * 2026-09-16 (사용자 보고 「끌어서 뺀 것은 **커서가 놓인 칸**으로 가야 한다」) — 이 화면의 창고 · 가방 격자
+   * (`mountStationGrids` 가 준 뷰). 주면 놓은 좌표가 그 칸으로 간다 (`parts/Deliver.withDropCell`); 주지 않으면
+   * 예전처럼 첫 빈 칸이다. 격자는 화면이 열릴 때 늦게 만들어지므로 **값이 아니라 함수**로 받는다.
+   */
+  grids?(): StationGridsView | null;
   /** A drag really started (the panel hides its hover card). */
   onDragStart?(): void;
   /**
@@ -83,7 +91,12 @@ export class ProductDrag {
     const target = dragged ? this.gridAt(e.clientX, e.clientY) : null;
     this.end();
     if (!s || !target) return;
-    this.o.collect(s.p.key, target.dataset.tgGrid === 'bag' ? 'bag' : 'stash');
+    const dest: HarvestDestination = target.dataset.tgGrid === 'bag' ? 'bag' : 'stash';
+    /* 2026-09-16: 놓은 **칸**이 곧 결과다 — 좌표를 `Deliver` 에 한 번 적어 두고 규칙 함수를 부른다. 규칙이
+       아이템을 건네는 그 한 번만 그 칸으로 가고(막힌 칸이면 거절), 격자 밖이면 예전 규칙 그대로다. */
+    const view = this.o.grids?.() ?? null;
+    if (!view) { this.o.collect(s.p.key, dest); return; }
+    withDropCell({ view, x: e.clientX, y: e.clientY }, () => this.o.collect(s.p.key, dest));
   };
 
   private readonly onDbl = (e: MouseEvent): void => {

@@ -10,8 +10,8 @@
 type,site,kind,target,grades,qtyMin,qtyMax,chance
 # 레이더가 연구소를 뒤지던 중이었다 → 연구소 물품 (씨앗 · 미확인 세포 · 광물 · DNA). 넷 다 빈손일 확률 ≈ 23 %.
 raider,lab,seed,,,1,2,0.5
-raider,lab,item,spec_cell,,1,1,0.35
-raider,lab,item,spec_mineral,,1,1,0.2
-raider,lab,item,spec_dna,,1,1,0.1
+raider,lab,item,spec_cell_2,,1,1,0.35
+raider,lab,item,spec_mineral_2,,1,1,0.2
+raider,lab,item,spec_gene_2,,1,1,0.1
 # 전진기지 무기고를 턴 레이더 → 총 등급이 한 칸 위로 기운다 (기본 50 / 45 / 4.5 / 0.5).
 raider,outpost,grades,,1:30|2:55|3:13|4:2,,,

@@ -329,7 +329,10 @@ try {
     while (added < n) { const q = Math.min(def.stackMax ?? 1, n - added); if (!ctx.inventory.tryAddToStash(ctx.loot.createItem(id, q))) break; added += q; }
     return added;
   }, { id, n });
-  for (const [id, n] of [['mat_scrap', 60], ['mat_alloy', 20], ['mat_cable', 16], ['mat_circuit', 8], ['mat_cloth', 12]]) await giveStash(id, n);
+  /* 2026-09-16 (사용자 결정 「행성 광맥」): 조리대 제작 · 강화가 석회암(`min_limestone`)을 먹는다 — 광물도 같이 채워 둔다
+     (`data/furniture.csv` · `furniture_upgrades.csv`; 없으면 `craft: 재료 부족`). */
+  for (const [id, n] of [['mat_scrap', 60], ['mat_alloy', 20], ['mat_cable', 16], ['mat_circuit', 8], ['mat_cloth', 12],
+    ['min_limestone', 20], ['min_natron', 10]]) await giveStash(id, n);
   await H(() => {
     const h = window.__game.ctx.housing;
     h.state.generatorLevel = 5;
@@ -395,7 +398,8 @@ try {
     const out = {
       notBench: h.cookBlock(TABLE, 'cook_green_salad'), unknown: h.cookBlock('f-9999', 'cook_green_salad'),
       notRecipe: h.cookBlock(BENCH, 'make_boost_adrenaline'), ok: h.cookBlock(BENCH, 'cook_green_salad'),
-      level: h.cookBlock(BENCH, 'cook_sausage'), benchLv: h.getPlacedByUid(BENCH).level,
+      // 조리대가 안 놓였으면 위의 `craft + place` 가 이미 FAIL 이다 — 여기서 TypeError 로 스크립트를 죽이지 않는다 (2026-09-16)
+      level: h.cookBlock(BENCH, 'cook_sausage'), benchLv: h.getPlacedByUid(BENCH)?.level ?? null,
     };
     ctx.isRaidActive = () => true;
     out.raid = h.cookBlock(BENCH, 'cook_green_salad');

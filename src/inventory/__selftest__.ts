@@ -237,8 +237,12 @@ export function runInventorySelfTest(): boolean {
     g.restore(snap);
     check(g.cols === 4 && g.rows === 2 && g.has(ar.uid) && g.count === 1, 'restore: layout back after a failed resize');
     // priority placement: the displaced bag lands first, at its hint
+    /* 2026-09-16 (수집품 대분류, 사용자 결정): 석영 결정(`gem_quartz`)이 5개들이 **재료**가 되면서, 재배치 중에 낱개들이
+       서로 합쳐져 26칸이 60개를 전부 삼켰다 (흘러넘치는 것이 없다). 이 검사는 「칸이 모자라면 넘친다」는 산수를 보는
+       것이므로 **쌓이지 않는** 귀중품(호박석)으로 센다 — 합쳐짐은 `merge` 검사들이 따로 본다. */
     const g2 = new Grid(10, 6, getDef);
-    for (let i = 0; i < 60; i++) g2.place(loot.createItem('gem_quartz'), i % 10, Math.floor(i / 10));
+    check(getDef('gem_amber')!.stackMax === 1, 'resize: the gem the cell arithmetic counts with never stacks');
+    for (let i = 0; i < 60; i++) g2.place(loot.createItem('gem_amber'), i % 10, Math.floor(i / 10));
     const oldBag = loot.createItem('bag_legendary');      // 2×2
     const over4 = g2.resize(5, 6, [{ item: oldBag, x: 1, y: 1 }]);
     const bp = g2.get(oldBag.uid);

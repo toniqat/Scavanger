@@ -7,6 +7,9 @@ import {
   AMMO_STACK_ROUNDS, CATEGORY_COLOR, CATEGORY_ICON, CATEGORY_LABEL_KO, ENV_KINDS, MEAL_BUFFS,
   QUICK_SLOTS, QUICK_USABLE_CATEGORIES, RARITY_COLORS, RARITY_ORDER, SKILL_IDS, SOIL_TAGS, csvRows, keyTable, numberMap, rarityForGrade } from '@/shared';
 import { GROW_SOCKET_EFFECTS, GROW_SOCKET_TARGETS, SAMPLE_FAMILIES } from '@/shared';
+/* appended (2026-09-16, 표본 18종): 계열 글리프 — 표본 타일의 글자는 계열, 색은 등급이다 */
+import type { SampleFamily } from '@/shared';
+import { SAMPLE_FAMILY_ICON } from '@/shared';
 /* appended (2026-09-13, 서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
 import type { BookDef, GameStat, GymGameTuning, GymMinigame, LibraryMedium, PlanetId } from '@/shared';
 import { GAME_STATS, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_DEFS, PLANET_IDS, resolveItemAlias, stringMap } from '@/shared';
@@ -92,7 +95,11 @@ function weaponItemDef(w: WeaponDef): ItemDef {
   if (isUniqueWeapon(w)) {
     const meta = UNIQUE_WEAPON_ITEM_META.get(w.id) ?? FALLBACK_META;
     return def({
-      id: itemIdForWeapon(w.id), name: w.name, category: w.slot, rarity: 'legendary',
+      /* 2026-09-16 (사용자 결정): 유니크 6종은 **신화**다. 등급이 없는 무기라 `rarityForGrade` 를 안 타고 여기서 직접 적는다
+         (`WeaponGrade` 는 여전히 I..V — `shared/labels.rarityForGrade` 주석 참고). 툴팁 · 정렬 · 타일 테두리 · 등급 글자는
+         전부 `RARITY_*` 표를 읽으므로 이 한 줄만 바꾸면 따라온다. ⚠ 상자 굴림은 다섯 등급뿐이라(`RARITY_ORDER_LOOT`)
+         신화가 된 순간 **상자 무기 픽의 후보에서 빠진다** — 유니크는 이제 제작(신화 광물) · 보스 시체 · 네임드 드롭으로 나온다. */
+      id: itemIdForWeapon(w.id), name: w.name, category: w.slot, rarity: 'mythic',
       width: meta.width, height: meta.height, value: meta.value,
       icon: meta.icon, weaponId: w.id, description: meta.description, weight: meta.weight,
     });
@@ -214,9 +221,19 @@ export const SEED_ITEM_DEFS: readonly ItemDef[] = csvRows('seeds.csv').map((r) =
  * 결과표(`shared/housing` 의 `ANALYSIS_RESULTS`)를 굴린다. `rewardDefId` · `rewardQty` 는 그 표가 비었을 때의 대체 산출물이다.
  * 옛 11종은 `retired` 로 정의만 남는다 (분석기에 넣으면 자기 계열로 해석된다). **첫 해석 보너스(`first*`)는 없어졌다** —
  * 로더가 더 붙이지 않고, 칸이 채워져 있으면 조용히 무시하지 않고 신고한다. */
-/** 표본은 카테고리 글리프 · 색을 공유한다 — 격자에서 「아직 해석 안 한 것」이 한눈에 읽힌다. */
-const SAMPLE_ICON = CATEGORY_ICON.sample;
-const SAMPLE_COLOR = CATEGORY_COLOR.sample;
+/*
+ * 2026-09-16 (사용자 결정, 표본 18종 = 3 계열 × 6 등급): **타일 바탕색은 등급색, 글리프는 계열**이다.
+ * 그 전에는 18종이 전부 카테고리 색(`CATEGORY_COLOR.sample`) 하나에 카테고리 글리프 하나라, 격자에서
+ * 「미확인 유전자 I」과 「미확인 광물 VI」가 똑같이 보였다 — 표본의 등급은 곧 **해석 산출물의 최소 등급**이라
+ * 한눈에 읽혀야 하는 값이다 (`data/samples.csv` 머리말).
+ *
+ * `ItemDef` 에는 색이 `color` 하나뿐이고 그것이 타일의 `--rc`(테두리 · 바탕 그라디언트 · 글리프)를 통째로 정한다
+ * (`inventory/ui/GridView.buildTileContent`). 그래서 **바탕 = 등급색**을 택하고 (= `def()` 기본값 그대로 두면 된다),
+ * 계열의 정체성은 **글리프 모양**(`SAMPLE_FAMILY_ICON`)이 진다. 계열 색(`SAMPLE_FAMILY_COLOR`)은 분석 화면 ·
+ * 도감 · 툴팁이 계속 쓴다 — 타일 하나에 두 색을 칠하려면 `ItemDef` 에 글리프 전용 색을 더하고 `inventory` 가
+ * 그것을 읽어야 하므로, 그때 그 두 폴더를 같이 고친다.
+ */
+const SAMPLE_ICON: Readonly<Record<SampleFamily, string>> = SAMPLE_FAMILY_ICON;
 
 export const SAMPLE_ITEM_DEFS: readonly ItemDef[] = csvRows('samples.csv').map((r) => {
   if (r.has('firstDefId') || r.has('firstQty')) r.report('firstDefId', '첫 해석 보너스(first*)는 2026-09-13 부터 없다 — 칸을 비운다');
@@ -227,16 +244,14 @@ export const SAMPLE_ITEM_DEFS: readonly ItemDef[] = csvRows('samples.csv').map((
     family: r.enum('family', SAMPLE_FAMILIES),
   };
   const retired = r.has('retired') && r.bool('retired');
-  return {
-    ...def({
-      id: r.str('id'), name: r.str('name'), category: 'sample', rarity: r.enum('rarity', RARITY_ORDER),
-      width: 1, height: 1, stackMax: T.num('SAMPLE_STACK_MAX'),
-      value: r.int('value', { min: 0 }), icon: SAMPLE_ICON, description: r.str('description'),
-      sample, weight: T.num('SAMPLE_WEIGHT'),
-      ...(retired ? { retired: true } : {}),
-    }),
-    color: SAMPLE_COLOR,
-  };
+  /* 색을 덮어쓰지 않는다 — `def()` 가 `RARITY_COLORS[rarity]` 를 넣어 준다 (위 주석). */
+  return def({
+    id: r.str('id'), name: r.str('name'), category: 'sample', rarity: r.enum('rarity', RARITY_ORDER),
+    width: 1, height: 1, stackMax: T.num('SAMPLE_STACK_MAX'),
+    value: r.int('value', { min: 0 }), icon: SAMPLE_ICON[sample.family], description: r.str('description'),
+    sample, weight: T.num('SAMPLE_WEIGHT'),
+    ...(retired ? { retired: true } : {}),
+  });
 });
 
 /* ── 소켓 (요리 재료 티어, 2026-09-13) — data/sockets.csv ─────────────────────────

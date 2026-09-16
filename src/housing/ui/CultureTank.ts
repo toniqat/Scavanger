@@ -11,7 +11,7 @@ import type { StationMenuItem } from './StationMenu';
 import { StationTip } from './StationTip';
 import type { TipRow, TipSpec } from './StationTip';
 import { buildStationShell, mountStationGrids, paintStationLevel } from './StationShell';
-import type { StationShell } from './StationShell';
+import type { StationGridsView, StationShell } from './StationShell';
 import { UpgradeModal } from './UpgradeModal';
 import type { UpgradeSpec } from './UpgradeModal';
 import { clear, clockText, el, renderClock, renderClockText, setText, toggleClass } from './dom';
@@ -73,7 +73,7 @@ export class CultureTank extends HousingPanel {
   private readonly menu: StationMenu;
   private readonly sockAsk: SocketAsk;
   private readonly drag: ProductDrag;
-  private grids: EmbeddedView | null = null;
+  private grids: StationGridsView | null = null;
   private cards: TankCard[] = [];
   private builtKey = '';
   private hoverSlot: number | null = null;
@@ -106,6 +106,8 @@ export class CultureTank extends HousingPanel {
       productAt: (t) => this.productAt(t),
       collect: (key, dest) => this.collect(Number(key), dest),
       defOf: (id) => housing.defOf(id),
+      // 2026-09-16: 끌어서 놓은 **그 칸**으로 간다 (격자는 화면이 열릴 때 만들어지므로 함수로 준다)
+      grids: () => this.grids,
       onDragStart: () => this.hideTip(),
     });
 

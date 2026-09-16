@@ -1,5 +1,11 @@
 import type { AmmoType, ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, MealBuff, MealDef, MealEffect, SkillId, StatId, WeaponDef } from '@/shared';
 import { PERK_DEFS, SOCKET_LABEL_KO, SOCKET_SLOTS, itemCreditValue, renderItemCost } from '@/shared';
+/*
+ * 2026-09-16 (사용자 버그 「기업 화면의 총 카드가 가방 카드와 다르다」): 무기 카드가 읽는 **숫자와 문장**은
+ * `shared/weaponTip` 한 곳이 만든다 — 이 카드는 게이지 막대로, 칩 카드(`ui/hud/ItemTip`)는 표 줄로 칠할 뿐이다.
+ * 여기서 직접 계산하면 두 카드가 다시 갈라진다.
+ */
+import { weaponGaugeTexts, weaponGaugeValues, weaponTipRows, type WeaponGaugeValues } from '@/shared';
 /* 2026-09-13 (요리 품질 · 조리 단계): `ui/hud/ItemTip` 과 같은 요리 줄 — 그 폴더의 `hud/mealText` 는 import 할 수 없어 아래에 작게 한 벌 */
 import {
   COOK_GAME_LABEL_KO, MEAL_BUFF_LABEL_KO, MEAL_BUFF_UNIT, MEAL_TIER_LABEL_KO, cookStepsOf, mealQualityBonus, mealQualityStars, normalizeMealQuality,
@@ -30,9 +36,11 @@ import type { SpecSeg, SpecValue } from '@/items';
 import { WEAPON_CLASS_LABEL_KO, itemSpecRows, parseItemText } from '@/items';
 import { bagCapacityBonus } from '../Gear';
 import {
-  DURABILITY_LOW, TEXT, ammoTypeLabel, categoryLabel, effectiveRange, fmtDeg, fmtKg, fmtMul, fmtValue, rarityColor, rarityLabel,
+  DURABILITY_LOW, TEXT, ammoTypeLabel, fmtKg, fmtMul, fmtValue, rarityColor, rarityLabel,
   socketTip, weaponClassLabel,
 } from './labels';
+/* appended (2026-09-16, 수집품 대분류): 종류 줄은 「수집품 > 서적」처럼 두 단이 될 수 있다 — 칩 카드(`ui/hud/ItemTip`)와 같은 함수다 */
+import { categoryPathKo } from '@/shared';
 /* 2026-09-14: 받는 소켓만 · 내구도 게이지 색 — 타일과 같은 함수 */
 import { setDurabilityColorVars, shownSockets } from './GridView';
 
@@ -64,14 +72,7 @@ export interface TooltipLookups {
 interface GaugeMaxima { damage: number; fireRate: number; recoil: number; range: number }
 
 /** The four gauge stats of one weapon (`damage` already × pellets, `recoil` in radians, `range` in metres). */
-interface GaugeValues { damage: number; fireRate: number; recoil: number; range: number }
-
-const gaugeValues = (weapon: WeaponDef, s: EffectiveWeaponStats): GaugeValues => ({
-  damage: s.damage * (weapon.pellets ?? 1),
-  fireRate: s.fireRate,
-  recoil: s.recoilV,
-  range: effectiveRange(weapon),
-});
+type GaugeValues = WeaponGaugeValues;
 
 /**
  * Hover card: name, category · rarity, description, value, size and — for weapons — the effective stats
@@ -152,8 +153,9 @@ export class Tooltip {
     name.textContent = def.name;
     const sub = document.createElement('div');
     sub.className = 'inv-tt-sub';
-    // 2026-09-15: 전설 유니크는 `무기` 대신 **자기 종류**(`컴포짓 보우 · 전설`) — 이름이 별명 한 단어라 종류는 여기서만 읽힌다
-    sub.textContent = `${weapon?.unique ? weaponClassLabel(weapon) : categoryLabel(def)} · ${rarityLabel(def)}`;
+    // 2026-09-15: 유니크는 `무기` 대신 **자기 종류**(`컴포짓 보우 · 신화`) — 이름이 별명 한 단어라 종류는 여기서만 읽힌다
+    // 2026-09-16: 나머지는 대분류까지 읽는다 (`수집품 > 서적`) — `shared/labels.categoryPathKo`
+    sub.textContent = `${weapon?.unique ? weaponClassLabel(weapon) : categoryPathKo(def.category)} · ${rarityLabel(def)}`;
     headText.append(name, sub);
     head.appendChild(headText);
     if (stats) head.appendChild(this.buildAmmoThumb(stats.ammoType));
@@ -169,10 +171,9 @@ export class Tooltip {
     let durBar: HTMLElement | null = null;
     if (weapon && stats) {
       const s = TEXT.weaponStats;
-      // 2026-09-15: 「롱혼」은 장전이 없다(지닌 화살을 한 발씩 바로 건다) — `장전 1 / 1` 은 거짓말이라 줄을 뺀다
-      if (weapon.unique !== 'bow') rows.push([s.loaded, `${Math.max(0, item.ammoInMag ?? 0)} / ${stats.magSize}`]);
-      rows.push([s.mode, weapon.automatic ? TEXT.auto : TEXT.semi]);
-      if (stats.adsZoom > 1 || stats.scope) rows.push([s.zoom, `${stats.adsZoom}×${stats.scope ? ' · 스코프' : ''}`]);
+      /* 2026-09-16: 장전 · 발사 모드 · 배율은 `shared/weaponTip` 이 만든다 (칩 카드와 같은 문장). 탄종은 머리의
+         썸네일, 내구도는 아래 게이지, 소켓은 정사각 칸 줄이라 이 카드에서는 그 셋을 줄로 받지 않는다. */
+      for (const r of weaponTipRows(weapon, stats, { item })) rows.push([r.k, r.v]);
       const max = Math.max(1, stats.maxDurability);
       durBar = this.buildDurabilityBar(s.durability, item.durability ?? max, max, TEXT.broken);
     }
@@ -416,7 +417,7 @@ export class Tooltip {
       const w = this.lookups.getWeapon(d.weaponId);
       const s = w ? this.lookups.getBaseStats?.(d.id) : null;
       if (!w || !s) continue;
-      const v = gaugeValues(w, s);
+      const v = weaponGaugeValues(w, s);
       m.damage = Math.max(m.damage, v.damage);
       m.fireRate = Math.max(m.fireRate, v.fireRate);
       m.recoil = Math.max(m.recoil, v.recoil);
@@ -428,18 +429,18 @@ export class Tooltip {
 
   private buildGauges(def: ItemDef, weapon: WeaponDef, stats: EffectiveWeaponStats): HTMLElement {
     const max = this.gaugeMaxima();
-    const base = gaugeValues(weapon, this.lookups.getBaseStats?.(def.id) ?? stats);
-    const eff = gaugeValues(weapon, stats);
+    const base = weaponGaugeValues(weapon, this.lookups.getBaseStats?.(def.id) ?? stats);
+    const eff = weaponGaugeValues(weapon, stats);
+    // 2026-09-16: 게이지 옆의 작은 수치도 `shared/weaponTip` 의 문장이다 — 칩 카드의 같은 줄과 글자가 같아야 한다
+    const text = weaponGaugeTexts(weapon, stats);
     const s = TEXT.weaponStats;
     const grid = document.createElement('div');
     grid.className = 'inv-tt-gauges';
-    const pellets = weapon.pellets ?? 1;
-    const dmgText = pellets > 1 ? `${stats.damage}×${pellets}` : `${stats.damage}`;
     grid.append(
-      this.buildGauge(s.damage, base.damage, eff.damage, max.damage, dmgText),
-      this.buildGauge(s.fireRate, base.fireRate, eff.fireRate, max.fireRate, `${stats.fireRate} /s`),
-      this.buildGauge(s.recoil, base.recoil, eff.recoil, max.recoil, fmtDeg(stats.recoilV)),
-      this.buildGauge(s.range, base.range, eff.range, max.range, `${eff.range} m`),
+      this.buildGauge(s.damage, base.damage, eff.damage, max.damage, text.damage),
+      this.buildGauge(s.fireRate, base.fireRate, eff.fireRate, max.fireRate, text.fireRate),
+      this.buildGauge(s.recoil, base.recoil, eff.recoil, max.recoil, text.recoil),
+      this.buildGauge(s.range, base.range, eff.range, max.range, text.range),
     );
     return grid;
   }

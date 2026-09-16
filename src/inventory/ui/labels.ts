@@ -1,6 +1,7 @@
 import type { AmmoType, EffectiveWeaponStats, ItemCategory, ItemDef, LoadoutSlot, RoomPurpose, SocketSlot, WeaponDef, WeightState } from '@/shared';
 import { Keys, SOCKET_LABEL_KO, UNIQUE_WEAPON_LABEL_KO, WEAPON_GRADE_ROMAN, WEIGHT_STATE_LABEL_KO, WORKBENCH_ICON, formatCreditAmount, formatCredits, keyLabel, keyTable } from '@/shared';
 import { AMMO_LABEL_KO, CATEGORY_LABEL_KO, RARITY_COLORS, RARITY_LABEL_KO, WEAPON_CLASS_LABEL_KO, getTierLabel, weaponClassOf } from '@/items';
+import { categoryPathKo } from '@/shared';
 
 /** 2026-09-13: English eyebrow word of the facility a bench belongs to (`TEXT.bench.eyebrow`). Wording only — no numbers. */
 const FACILITY_EYEBROW: Partial<Record<RoomPurpose, string>> = { workshop: 'WORKSHOP', lab: 'LAB', kitchen: 'KITCHEN' };
@@ -81,7 +82,12 @@ export const capacityLabel = (usedCells: number, totalCells: number): string => 
  * credits are the game's only currency and their unit is `CREDIT_SUFFIX`.
  */
 export const fmtValue = (n: number): string => formatCredits(n);
-export const categoryLabel = (def: ItemDef): string => CATEGORY_LABEL_KO[def.category];
+/**
+ * 아이템의 **종류** 줄. 2026-09-16 (사용자 결정) 부터 대분류가 있는 카테고리는 두 단으로 읽는다 —
+ * 「수집품 > 서적」. 두 툴팁(`inventory/ui/Tooltip` · `ui/hud/ItemTip`)과 제작 카드가 같은 문장을 말하도록
+ * 여기도 `categoryPathKo` 를 지나간다 (구분자를 바꾸려면 `shared/labels.ts` 하나만 고친다).
+ */
+export const categoryLabel = (def: ItemDef): string => categoryPathKo(def.category);
 export const rarityLabel = (def: ItemDef): string => RARITY_LABEL_KO[def.rarity];
 export const rarityColor = (def: ItemDef): string => RARITY_COLORS[def.rarity];
 export const ammoLabel = (w: WeaponDef): string => AMMO_LABEL_KO[w.ammoType];
@@ -343,6 +349,8 @@ export const TEXT = {
       gadget: '가젯', consumable: '소모품', material: '재료', herb: '약초', seed: '씨앗', book: '서재', furniture: '가구',
       /** Phase 12: 임플란트 items (label from the shared category table, the one source of the word). */
       implant: CATEGORY_LABEL_KO.implant,
+      /** 2026-09-16 (사용자 보고): 표본 탭 — 가방 필터의 `표본` 칩과 같은 말을 쓴다 (원본은 공유 카테고리 표). */
+      sample: CATEGORY_LABEL_KO.sample,
     },
   },
   /* Phase 12: 임플란트 item tooltip (`ItemDef.implant`) */

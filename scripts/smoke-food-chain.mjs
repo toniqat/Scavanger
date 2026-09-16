@@ -1,9 +1,12 @@
 // Single-player smoke test for **요리 재료 티어 — housing 규칙** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, agent B).
 // 화면(housing/ui)은 smoke-stations 의 몫이고, 여기서는 `ctx.housing` API · `state` · 세이브만 본다:
 //   0. `Rules.ts` 순수 함수 — 뒤 두 인자의 기본값이 옛 식과 **같은 값**(`growDurationMs` · `cultureDurationMs`), 흙 궁합 보너스만 비율을 탄다
-//      (패널티는 그대로), 소켓 speed 바닥, `durabilityRatio` · `wearAfterHarvest`(wear 소켓 바닥), `analysisDurationMs`, 결과표 가중 추첨(rng 0 →
-//      첫 줄 최소 개수 · rng ≈1 → 마지막 해금 줄 최대 개수 · defOk 거절 → null), `analysisChances` 합 1 · 잠긴 줄 없음.
-//   1. 분석기 — 넣는 순간 결과를 굴려 칸에 적는다(계열 · 결과 · 개수 범위 · 시간 = analyzeHours × analysisTimeMul(Lv)), 해석 중에는 결과를 숨긴다,
+//      (패널티는 그대로), 소켓 speed 바닥, `durabilityRatio` · `wearAfterHarvest`(wear 소켓 바닥), `analysisDurationMs`(2026-09-16: 셋째 항
+//      `speedup` · 옛 `analyzeDurationMs` 는 사라졌다) · `analysisLevelBonus` / `analysisDexBonus` / `analysisSpeedup`, 결과표 가중 추첨(rng 0 →
+//      첫 줄 최소 개수 · rng ≈1 → 마지막 해금 줄 최대 개수 · defOk 거절 → null), `analysisChances` 합 1 · 잠긴 줄 없음,
+//      **표본 등급 = 산출물 등급의 하한**(2026-09-16 사용자 결정 — `sampleRarity` 줄만 그 등급 전용이면서 면제).
+//   1. 분석기 — 넣는 순간 결과를 굴려 칸에 적는다(계열 · 결과 · 개수 범위 · 시간 = analysisDurationMs(시간, Lv, 표본 단축) × 연구 숙련),
+//      해석 중에는 결과를 숨긴다, 결과표는 defId 마다 한 줄로 합친다(등급별 석영 6줄 → 한 줄),
 //      레벨이 바뀌어도 적힌 결과는 그대로, 회수 = 산출물 하나(첫 해석 보너스 없음) → 계열 경험치 → `housing:analysisFound` → 레벨업
 //      (`housing:analysisLevelUp`) · 시간 배수, `housing:sampleDexAdded` 는 더 안 난다, 결과 없는 옛 칸은 회수할 때 굴린다, 결과표 정렬 · 확률,
 //      은퇴 표본도 해석된다, 세이브 왕복(`sanitize` 가 새 필드를 버리지 않는다).
@@ -121,8 +124,17 @@ try {
     o.ratio = [R.durabilityRatio(50, 100), R.durabilityRatio(5, 0), R.durabilityRatio(150, 100), R.durabilityRatio(-3, 100)];
     o.wear = [R.wearAfterHarvest(100, 25, 0), R.wearAfterHarvest(100, 25, 0.4), R.wearAfterHarvest(100, 25, 5), R.wearAfterHarvest(10, 25, 0)];
     o.wearWant = [75, 85, Math.round((100 - 25 * S.GROW_WEAR_MUL_FLOOR) * 100) / 100, 0];
+    /* 2026-09-16 (사용자 결정): 옛 `analyzeDurationMs`(도감 진척률 · 기지식) 는 사라지고 시간 식은 `analysisDurationMs` 하나다 —
+       셋째 인자 `speedup`(도감 칸수 + 표본 레벨, 상한 `ANALYSIS_SPEEDUP_CAP`)이 곱해지고 기본값 0 은 옛 식과 같은 값이다. */
     o.analysis = [R.analysisDurationMs(2, 1) === Math.round(2 * 3600e3 * S.analysisTimeMul(1)),
-      R.analysisDurationMs(2, 2) === Math.round(2 * 3600e3 * S.analysisTimeMul(2)), R.analysisDurationMs(0, 1) === 1000];
+      R.analysisDurationMs(2, 2) === Math.round(2 * 3600e3 * S.analysisTimeMul(2)), R.analysisDurationMs(0, 1) === 1000,
+      R.analysisDurationMs(2, 1, 0.1) === Math.round(2 * 3600e3 * S.analysisTimeMul(1) * 0.9),
+      R.analysisDurationMs(2, 1, 9) === R.analysisDurationMs(2, 1, S.ANALYSIS_SPEEDUP_CAP),
+      typeof R.analyzeDurationMs !== 'function'];
+    o.speedup = [R.analysisLevelBonus(0) === 0, R.analysisLevelBonus(1) === S.ANALYSIS_SAMPLE_LEVEL_FIRST,
+      R.analysisLevelBonus(3) === S.ANALYSIS_SAMPLE_LEVEL_FIRST + 2 * S.ANALYSIS_SAMPLE_LEVEL_STEP,
+      R.analysisDexBonus(4) === 4 * S.ANALYSIS_DEX_BONUS_PER_ENTRY,
+      R.analysisSpeedup(9999, 9999) === S.ANALYSIS_SPEEDUP_CAP];
     const c1 = S.ANALYSIS_RESULTS.filter((r) => r.family === 'cell' && r.minLevel <= 1 && r.weight > 0);
     const lo = R.rollAnalysisResult('cell', 1, () => 0, () => true);
     const hi = R.rollAnalysisResult('cell', 1, () => 0.999999, () => true);
@@ -135,6 +147,22 @@ try {
     o.chances = Math.abs(Object.values(ch1).reduce((a, b) => a + b, 0) - 1) < 1e-9 && lockedAt1.every((id) => !(id in ch1));
     const chMax = R.analysisChances('cell', S.ANALYSIS_LEVEL_MAX, () => true);
     o.chancesMax = lockedAt1.length > 0 && lockedAt1.every((id) => chMax[id] > 0) && Math.abs(Object.values(chMax).reduce((a, b) => a + b, 0) - 1) < 1e-9;
+    /* 2026-09-16 (사용자 결정 — `data/analysis_results.csv` 머리글): **표본 등급이 산출물 등급의 하한**이다.
+       하한은 후보를 좁히기만 하고(합은 늘 1), `sampleRarity` 가 적힌 줄만 그 등급 전용이면서 하한을 면제받는다
+       (석영 6줄 — 어느 등급의 광물 표본이든 뽑을 것이 남게 하는 방지턱). 등급은 아이템 표에만 있으므로 콜백으로 넘긴다. */
+    const rarityOf = (id) => window.__game.ctx.loot.getItemDef(id)?.rarity ?? null;
+    const rank = (r) => S.RARITY_ORDER.indexOf(r);
+    const maxLv = S.ANALYSIS_LEVEL_MAX;
+    const chCom = R.analysisChances('mineral', maxLv, () => true, { sampleRarity: 'common', rarityOf });
+    const chLeg = R.analysisChances('mineral', maxLv, () => true, { sampleRarity: 'legendary', rarityOf });
+    o.floorNarrows = Object.keys(chLeg).length > 0 && Object.keys(chLeg).length < Object.keys(chCom).length;
+    o.floorHolds = Object.keys(chLeg).every((id) => S.ANALYSIS_RESULTS.some((r) => r.family === 'mineral' && r.defId === id && r.sampleRarity === 'legendary')
+      || rank(rarityOf(id)) >= rank('legendary'));
+    o.floorSum = [chCom, chLeg].every((c) => Math.abs(Object.values(c).reduce((a, b) => a + b, 0) - 1) < 1e-9);
+    const exempt = S.ANALYSIS_RESULTS.find((r) => r.family === 'mineral' && r.sampleRarity === 'mythic');
+    // 면제 줄은 **자기 등급에만** 붙는다: 신화 전용 석영 줄은 전설 표본의 후보에 없다 (defId 자체는 다른 줄로 남을 수 있어 개수로 본다)
+    o.exempt = !!exempt && (chLeg[exempt.defId] ?? 0) > 0
+      && S.ANALYSIS_RESULTS.filter((r) => r.family === 'mineral' && r.defId === exempt.defId && r.sampleRarity === 'legendary').length === 1;
     return o;
   });
   ok(pure.growDefault[0] === pure.growDefault[2] && pure.growDefault[1] === pure.growDefault[2],
@@ -146,9 +174,13 @@ try {
   ok(pure.cultRatio0 && pure.cultHalf, '배지 속도 보너스(1 − speedMul) · 소켓 speed 가 배지 내구도 비율을 탄다', JSON.stringify(pure));
   ok(JSON.stringify(pure.ratio) === JSON.stringify([0.5, 0, 1, 0]), `durabilityRatio (${JSON.stringify(pure.ratio)})`);
   ok(JSON.stringify(pure.wear) === JSON.stringify(pure.wearWant), `wearAfterHarvest — wear 소켓 합 · 바닥 GROW_WEAR_MUL_FLOOR · 0 아래로 안 간다 (${JSON.stringify(pure.wear)})`);
-  ok(pure.analysis.every(Boolean), 'analysisDurationMs = analyzeHours × analysisTimeMul(Lv), 최소 1000 ms');
+  ok(pure.analysis.every(Boolean), 'analysisDurationMs = analyzeHours × analysisTimeMul(Lv) × (1 − speedup), 최소 1000 ms · 단축은 CAP 에서 잘린다 · 옛 analyzeDurationMs 는 사라졌다', JSON.stringify(pure.analysis));
+  ok(pure.speedup.every(Boolean), 'analysisLevelBonus (레벨 1 에 FIRST 를 통째로, 그 뒤 STEP) · analysisDexBonus (칸 수 비례) · analysisSpeedup 은 CAP 에서 잘린다', JSON.stringify(pure.speedup));
   ok(pure.rows1 > 0 && pure.rollLo && pure.rollHi && pure.rollNone, 'rollAnalysisResult: rng 0 → 첫 줄 최소 개수 · rng ≈1 → 마지막 해금 줄 최대 개수 · 받을 수 있는 줄이 없으면 null');
   ok(pure.chances && pure.chancesMax, 'analysisChances: 합 1 · Lv.1 에는 잠긴 줄이 없고 최대 레벨에서는 들어온다');
+  ok(pure.floorNarrows && pure.floorHolds && pure.floorSum && pure.exempt,
+    '표본 등급 = 산출물 등급의 하한 — 등급이 높을수록 후보가 좁아지되 합은 1 · sampleRarity 줄만 면제받고 그 등급에만 붙는다',
+    JSON.stringify({ narrows: pure.floorNarrows, holds: pure.floorHolds, sum: pure.floorSum, exempt: pure.exempt }));
 
   /* ── 계약 API ── */
   const api = await H(() => ['getAnalysisLevel', 'getAnalysisResults', 'getAnalysisFound', 'insertGrowSocket', 'insertCultureSocket', 'insertScaffold', 'takeScaffold', 'getOwnedSockets']
@@ -158,8 +190,9 @@ try {
   ok(st0.v >= 11 && st0.xp && Object.keys(st0.xp).length === 0 && Array.isArray(st0.found) && st0.found.length === 0, `새 함선 = v11 · analysisXp {} · analysisFound [] (${JSON.stringify(st0)})`);
 
   /* ── 함선: 방 용도는 state 에 직접 (용도 규칙은 smoke-housing 의 몫) ── */
+  // 2026-09-16 (채광 개편): 분석기 제작비에 운모(`min_mica`)가 들어왔다 — 없으면 「재료 부족」으로 분석기 구획 전체가 무너진다
   for (const [id, n] of [['mat_scrap', 60], ['mat_cable', 24], ['mat_bio_sample', 30], ['mat_circuit', 16], ['mat_cloth', 10],
-    ['mat_alloy', 30], ['mat_power_cell', 4], ['mat_control_module', 2], ['mat_capacitor', 2]]) await giveStash(id, n);
+    ['mat_alloy', 30], ['mat_power_cell', 4], ['mat_control_module', 2], ['mat_capacitor', 2], ['min_mica', 6]]) await giveStash(id, n);
   await H(() => {
     const h = window.__game.ctx.housing;
     h.state.generatorLevel = 5;
@@ -181,18 +214,24 @@ try {
 
   /* ══ 1. 분석기 ══════════════════════════════════════════════════════════════ */
   console.log('분석기 — 결과표 · 분석 레벨 · 분석 도감');
-  const sMiss = await missing(['spec_cell', 'spec_mineral', 'spec_dna']);
-  const famOk = sMiss.length === 0 && await H(() => ['spec_cell', 'spec_mineral', 'spec_dna']
-    .every((id, i) => window.__game.ctx.loot.getItemDef(id)?.sample?.family === ['cell', 'mineral', 'dna'][i]));
-  ok(famOk, `표본 3종 + family 데이터 (agent A) (missing: ${sMiss.join(', ') || '없음'})`);
+  /* 2026-09-16 (사용자 결정, 표본 전면 개편): 옛 3종(spec_cell · spec_mineral · spec_dna)은 줄째로 사라지고
+     **3 계열 × 6 등급 = 18종**(spec_gene_1..6 · spec_cell_1..6 · spec_mineral_1..6)이 됐다 — 이름의 로마 숫자가 곧 등급이고
+     그 등급이 산출물 등급의 **하한**이다. 아래 구획은 후보가 가장 넓은 **일반(I)** 표본으로 돈다. */
+  const SPECS = ['spec_cell_1', 'spec_mineral_1', 'spec_gene_1'];
+  const sMiss = await missing([...SPECS, 'spec_cell_6', 'spec_gene_6', 'spec_mineral_6']);
+  const famOk = sMiss.length === 0 && await H((ids) => ids.every((id, i) => window.__game.ctx.loot.getItemDef(id)?.sample?.family === ['cell', 'mineral', 'dna'][i]), SPECS);
+  ok(famOk, `표본 18종 (3 계열 × 6 등급) + family 데이터 (missing: ${sMiss.join(', ') || '없음'})`);
+  const rarities = await H(() => [1, 2, 3, 4, 5, 6].map((n) => window.__game.ctx.loot.getItemDef(`spec_cell_${n}`)?.rarity ?? null));
+  ok(JSON.stringify(rarities) === JSON.stringify(['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic']),
+    `이름의 로마 숫자 = 등급 (spec_cell_1..6 → ${rarities.join(' ')})`);
   if (AZ && famOk) {
-    ok(await giveStash('spec_cell', 12) === 12 && await giveStash('spec_mineral', 2) === 2 && await giveStash('spec_dna', 1) === 1, '표본 준비 (세포 12 · 광물 2 · DNA 1)');
+    ok(await giveStash('spec_cell_1', 12) === 12 && await giveStash('spec_mineral_1', 2) === 2 && await giveStash('spec_gene_1', 1) === 1, '표본 준비 (세포 I 12 · 광물 I 2 · 유전자 I 1)');
     // 2026-09-13 (H3): 연구 숙련은 프로필에 남고 회수마다 오른다 — 0 에서 시작하고, 시간 기대값은 그때의 `derived.researchTimeMul` 을 곱한다
     await H(() => { const p = window.__game.ctx.progression; if (typeof p.addSkillXpRaw === 'function') p.addSkillXpRaw('research', -(p.getSkill('research') + 1)); });
     const rmulNow = () => H(() => { const v = window.__game.ctx.progression.derived.researchTimeMul; return typeof v === 'number' ? v : 1; });
     const K = await H(async () => {
       const S = await import('/src/shared/index.ts');
-      const d = window.__game.ctx.loot.getItemDef('spec_cell');
+      const d = window.__game.ctx.loot.getItemDef('spec_cell_1');
       return { xpBy: S.ANALYSIS_XP_BY_RARITY[d.rarity], hours: d.sample.analyzeHours,
         xp2: S.analysisXpForLevel(2), xp3: S.analysisXpForLevel(3), mul2: S.analysisTimeMul(2), lv1: S.analysisLevelForXp(S.ANALYSIS_XP_BY_RARITY[d.rarity]) };
     });
@@ -200,23 +239,30 @@ try {
       const h = window.__game.ctx.housing, inv = window.__game.ctx.inventory, loot = window.__game.ctx.loot;
       const S = await import('/src/shared/index.ts');
       const R = await import('/src/housing/Rules.ts');
-      const before = inv.countDefAll('spec_cell');
-      const err = h.startAnalysis(AZ, 0, 'spec_cell');
+      const before = inv.countDefAll('spec_cell_1');
+      const def = loot.getItemDef('spec_cell_1');
+      /* 2026-09-16: 시간 식의 셋째 항(`speedup` = 같은 등급 도감 칸수 + 표본 레벨)은 **넣기 직전의** 값이라 먼저 읽는다 —
+         `getSampleAnalysis` 가 housing 이 실제로 쓰는 그 값이다 (스모크가 수치를 따로 적지 않는다). */
+      const speedup = h.getSampleAnalysis('spec_cell_1')?.speedup ?? 0;
+      const err = h.startAnalysis(AZ, 0, 'spec_cell_1');
       const raw = JSON.parse(JSON.stringify(h.state.analyses.find((a) => a.uid === AZ && a.slot === 0) ?? null));
-      const def = loot.getItemDef('spec_cell');
       const okDef = (id) => { const d = loot.getItemDef(id); return !!d && !d.retired; };
-      const pool = S.ANALYSIS_RESULTS.filter((r) => r.family === 'cell' && r.minLevel <= 1 && r.weight > 0 && okDef(r.defId));
-      const row = raw && pool.find((r) => r.defId === raw.resultDefId);
-      return { err, spent: before - inv.countDefAll('spec_cell'), raw, info: JSON.parse(JSON.stringify(h.getAnalyses(AZ)[0])),
-        wantMs: Math.max(1000, Math.round(R.analysisDurationMs(def.sample.analyzeHours, 1)
+      // 후보도 게임과 같은 규칙으로 낸다: 표본 등급이 하한, `sampleRarity` 줄은 그 등급 전용 + 면제
+      const opts = { sampleRarity: def.rarity, rarityOf: (id) => loot.getItemDef(id)?.rarity ?? null };
+      const chances = R.analysisChances('cell', 1, okDef, opts);
+      const rows = S.ANALYSIS_RESULTS.filter((r) => r.family === 'cell' && r.minLevel <= 1 && r.weight > 0 && okDef(r.defId));
+      const mine = raw ? rows.filter((r) => r.defId === raw.resultDefId) : [];
+      return { err, spent: before - inv.countDefAll('spec_cell_1'), raw, info: JSON.parse(JSON.stringify(h.getAnalyses(AZ)[0])), speedup,
+        wantMs: Math.max(1000, Math.round(R.analysisDurationMs(def.sample.analyzeHours, 1, speedup)
           * (typeof window.__game.ctx.progression.derived.researchTimeMul === 'number' ? window.__game.ctx.progression.derived.researchTimeMul : 1))),
-        inPool: !!row && raw.resultQty >= row.qtyMin && raw.resultQty <= row.qtyMax,
-        isReward: pool.length === 0 && raw?.resultDefId === def.sample.rewardDefId };
+        inPool: !!raw && (chances[raw.resultDefId] ?? 0) > 0 && mine.some((r) => raw.resultQty >= r.qtyMin && raw.resultQty <= r.qtyMax),
+        isReward: Object.keys(chances).length === 0 && raw?.resultDefId === def.sample.rewardDefId };
     }, AZ);
-    ok(started.err === null && started.spent === 1, `startAnalysis(spec_cell) — 표본 1개 소모 (${started.err})`);
+    ok(started.err === null && started.spent === 1, `startAnalysis(spec_cell_1) — 표본 1개 소모 (${started.err})`);
     ok(started.raw?.family === 'cell' && (started.inPool || started.isReward),
       `넣는 순간 결과를 굴려 칸에 적는다 — 계열 cell · 해금된 줄 · 개수 범위 안 (${started.raw?.resultDefId} ×${started.raw?.resultQty})`, JSON.stringify(started.raw));
-    ok(started.raw && started.raw.readyAt - started.raw.startedAt === started.wantMs, `Lv.1 해석 시간 = analyzeHours × analysisTimeMul(1) (${started.raw && started.raw.readyAt - started.raw.startedAt} ms)`);
+    ok(started.raw && started.raw.readyAt - started.raw.startedAt === started.wantMs,
+      `Lv.1 해석 시간 = analysisDurationMs(analyzeHours, 1, 단축 ${started.speedup}) × 연구 숙련 (${started.raw && started.raw.readyAt - started.raw.startedAt} ms, 기대 ${started.wantMs})`);
     ok(started.info.family === 'cell' && !started.info.ready && started.info.resultDefId === null && started.info.rewardDefId === null && started.info.resultQty === 0,
       '해석 중에는 결과를 보여 주지 않는다 (family 만)', JSON.stringify(started.info));
 
@@ -253,14 +299,14 @@ try {
     ok(col.lv.xp === K.xpBy && col.lv.level === K.lv1, `경험치 +ANALYSIS_XP_BY_RARITY[표본 등급] (${col.lv.xp})`);
     ok(col.found.includes(col.id) && evFound.length === 1 && evFound[0].family === 'cell' && evFound[0].defId === col.id,
       `처음 받은 산출물 → analysisFound + housing:analysisFound (${JSON.stringify(evFound)})`);
-    ok((await ev('housing:sampleDexAdded')).length === 0 && col.dex.includes('spec_cell'), 'housing:sampleDexAdded 는 더 나지 않고 옛 표본 도감은 조용히 찬다');
+    ok((await ev('housing:sampleDexAdded')).length === 0 && col.dex.includes('spec_cell_1'), 'housing:sampleDexAdded 는 더 나지 않고 옛 표본 도감은 조용히 찬다');
 
     await clearEv();
     const lvl = await H((AZ) => {
       const h = window.__game.ctx.housing;
       const log = [];
       for (let i = 0; i < 12 && h.getAnalysisLevel('cell').level < 2; i++) {
-        const e1 = h.startAnalysis(AZ, 0, 'spec_cell');
+        const e1 = h.startAnalysis(AZ, 0, 'spec_cell_1');
         const a = h.state.analyses.find((x) => x.uid === AZ && x.slot === 0);
         if (a) a.readyAt = h.nowMs() - 1000;
         log.push([e1, h.collectAnalysis(AZ, 0, 'stash-first')]);
@@ -273,14 +319,19 @@ try {
     ok(lvl.info.levelXp === K.xp2 && lvl.info.nextLevelXp === K.xp3 && lvl.info.timeMul === K.mul2,
       `getAnalysisLevel — levelXp · nextLevelXp · timeMul (${JSON.stringify(lvl.info)})`);
     const rmul2 = await rmulNow();
-    const lv2 = await H((AZ) => {
+    /* 2026-09-16: 여기까지 여러 번 회수했으므로 표본 레벨과 분석 도감이 이미 차 있다 — 기대값도 그 단축을 함께 곱해야 한다
+       (`getSampleAnalysis().speedup` 은 housing 이 쓰는 바로 그 값이고, 계열 레벨 배수와는 **다른 축**이라 곱해진다). */
+    const lv2 = await H(async (AZ) => {
       const h = window.__game.ctx.housing;
-      const e = h.startAnalysis(AZ, 0, 'spec_cell');
+      const R = await import('/src/housing/Rules.ts');
+      const speedup = h.getSampleAnalysis('spec_cell_1')?.speedup ?? 0;
+      const base = R.analysisDurationMs(window.__game.ctx.loot.getItemDef('spec_cell_1').sample.analyzeHours, 2, speedup);
+      const e = h.startAnalysis(AZ, 0, 'spec_cell_1');
       const a = h.state.analyses.find((x) => x.uid === AZ && x.slot === 0);
-      return { e, ms: a ? a.readyAt - a.startedAt : 0 };
+      return { e, ms: a ? a.readyAt - a.startedAt : 0, speedup, base };
     }, AZ);
-    ok(lv2.e === null && lv2.ms === Math.max(1000, Math.round(Math.max(1000, Math.round(K.hours * 3600e3 * K.mul2)) * rmul2)),
-      `Lv.2 해석 시간 = analyzeHours × ${K.mul2} × 연구 숙련 ${rmul2.toFixed(3)} (${lv2.ms} ms)`);
+    ok(lv2.e === null && lv2.ms === Math.max(1000, Math.round(lv2.base * rmul2)) && lv2.speedup > 0,
+      `Lv.2 해석 시간 = analysisDurationMs(시간, 2, 단축 ${lv2.speedup}) × 연구 숙련 ${rmul2.toFixed(3)} (${lv2.ms} ms)`);
 
     const legacy = await H((AZ) => {
       const h = window.__game.ctx.housing, inv = window.__game.ctx.inventory;
@@ -298,7 +349,7 @@ try {
     ok(legacy.err === null && legacy.gain >= 1 && legacy.xpGain === K.xpBy, `옛 칸은 회수하는 순간 굴려서 준다 (+${legacy.gain}개 · xp +${legacy.xpGain})`);
 
     /* ── 2026-09-13 (H3): 연구 숙련 — 넣는 순간 해석 시간 × derived.researchTimeMul · 회수한 칸마다 연구 경험치 ── */
-    await giveStash('spec_cell', 1);
+    await giveStash('spec_cell_1', 1);
     const research = await H(async (AZ) => {
       const ctx = window.__game.ctx, h = ctx.housing, p = ctx.progression;
       const S = await import('/src/shared/index.ts');
@@ -312,11 +363,13 @@ try {
       out.mul = p.derived.researchTimeMul;
       out.wantMul = 1 - S.RESEARCH_TIME_AT_MAX * (out.skill / S.SKILL_LEVEL_MAX);
       const lv = h.getAnalysisLevel('cell').level;
-      const hours = ctx.loot.getItemDef('spec_cell').sample.analyzeHours;
-      out.e = h.startAnalysis(AZ, 0, 'spec_cell');
+      const hours = ctx.loot.getItemDef('spec_cell_1').sample.analyzeHours;
+      // 2026-09-16: 단축은 **넣기 직전의** 표본 레벨 · 도감으로 정해진다 — 시작한 뒤에 읽으면 한 단계 어긋난다
+      out.speedup = h.getSampleAnalysis('spec_cell_1')?.speedup ?? 0;
+      out.e = h.startAnalysis(AZ, 0, 'spec_cell_1');
       const a = h.state.analyses.find((x) => x.uid === AZ && x.slot === 0);
       out.ms = a ? a.readyAt - a.startedAt : 0;
-      out.baseMs = R.analysisDurationMs(hours, lv);
+      out.baseMs = R.analysisDurationMs(hours, lv, out.speedup);
       out.wantMs = Math.max(1000, Math.round(out.baseMs * (out.hasDerived ? out.mul : 1)));
       reset();
       out.msAfterReset = a ? a.readyAt - a.startedAt : 0;
@@ -336,7 +389,7 @@ try {
       if (research.hasDerived) {
         ok(Math.abs(research.mul - research.wantMul) < 1e-9 && research.mul < 1, `연구 숙련 ${research.skill} → derived.researchTimeMul ${research.mul?.toFixed(3)}`);
         ok(research.e === null && research.ms === research.wantMs && research.ms < research.baseMs,
-          `넣는 순간 해석 시간 = analysisDurationMs × researchTimeMul (${research.baseMs} → ${research.ms} ms)`, JSON.stringify(research));
+          `넣는 순간 해석 시간 = analysisDurationMs(시간, Lv, 단축 ${research.speedup}) × researchTimeMul (${research.baseMs} → ${research.ms} ms)`, JSON.stringify(research));
       } else {
         note('derived.researchTimeMul 없음 (progression 미완) — 해석 시간은 배수 1 로 본다');
         ok(research.e === null && research.ms === research.wantMs, `derived 가 없으면 해석 시간 그대로 (${research.ms} ms)`);
@@ -355,6 +408,24 @@ try {
       && Math.abs(unlocked.reduce((s, r) => s + r.chance, 0) - 1) < 1e-9 && res.list.every((r) => r.found === res.found.includes(r.defId)),
     `해금 = minLevel ≤ Lv.${res.lv} · 잠긴 줄 확률 0 · 해금 줄 합 1 · found = 분석 도감`);
 
+    /* 2026-09-16 (사용자 결정): 같은 산출물이 여러 줄인 표(등급별 석영 6줄)는 도감에서 **한 줄로 합쳐진다** —
+       도감은 「무엇이 나오는가」의 목록이지 csv 줄 목록이 아니다. 합친 줄의 개수 범위는 여섯 줄을 아우른다. */
+    const resMin = await H(() => ({ list: window.__game.ctx.housing.getAnalysisResults('mineral'),
+      rows: 0, lv: window.__game.ctx.housing.getAnalysisLevel('mineral').level }));
+    const quartzRows = await H(async () => (await import('/src/shared/index.ts')).ANALYSIS_RESULTS
+      .filter((r) => r.family === 'mineral' && r.defId === 'gem_quartz').map((r) => [r.qtyMin, r.qtyMax]));
+    const quartz = resMin.list.filter((r) => r.defId === 'gem_quartz');
+    ok(new Set(resMin.list.map((r) => r.defId)).size === resMin.list.length, 'getAnalysisResults — defId 마다 한 줄 (csv 줄이 여럿이어도 합친다)',
+      resMin.list.map((r) => r.defId).join(' '));
+    ok(quartzRows.length > 1 && quartz.length === 1
+      && quartz[0].qtyMin === Math.min(...quartzRows.map((q) => q[0])) && quartz[0].qtyMax === Math.max(...quartzRows.map((q) => q[1])),
+    `석영 결정 ${quartzRows.length} 줄 → 한 줄 · 개수 범위는 전부를 아우른다 (${JSON.stringify(quartz[0] ?? null)})`, JSON.stringify(quartzRows));
+    ok(resMin.list.filter((r) => r.unlocked).length > 0
+      && Math.abs(resMin.list.filter((r) => r.unlocked).reduce((a, r) => a + r.chance, 0) - 1) < 1e-9,
+    `광물 결과표도 해금 줄 확률 합 1 (Lv.${resMin.lv})`);
+
+    /* 2026-09-16 (표본 전면 개편): 은퇴 표본은 **한 줄도 없다** (`data/samples.csv` 의 retired 열은 남아 있다).
+       은퇴 표시가 붙은 표본이 다시 생기면 아래 길이 그것도 자기 계열로 해석되는지 본다. */
     const retired = await H(() => { const d = window.__game.ctx.loot.getItemDef('spec_tissue'); return { has: !!d, retired: !!d?.retired, family: d?.sample?.family ?? null }; });
     if (retired.has && retired.retired) {
       await giveStash('spec_tissue', 1);
@@ -368,7 +439,9 @@ try {
       }, AZ);
       ok(rt.e1 === null && rt.e2 === null && rt.fam === rt.want, `은퇴 표본(spec_tissue)도 자기 계열(${rt.want})로 해석된다`, JSON.stringify(rt));
     } else {
-      note(`spec_tissue 에 은퇴 표시가 아직 없다 (agent A) — ${JSON.stringify(retired)}`);
+      const anyRetired = await H(() => (window.__game.ctx.loot.getAllItemDefs?.() ?? []).filter((d) => d.sample && d.retired).map((d) => d.id));
+      ok(Array.isArray(anyRetired) && anyRetired.length === 0,
+        '은퇴 표본은 한 줄도 없다 (2026-09-16 표본 전면 개편 — 옛 표본은 은퇴가 아니라 삭제됐다)', JSON.stringify(anyRetired));
     }
 
     const owned = await H(() => window.__game.ctx.housing.getOwnedSamples().map((o) => window.__game.ctx.loot.getItemDef(o.defId).sample.family));
@@ -378,7 +451,7 @@ try {
 
     const persist = await H(async (AZ) => {
       const h = window.__game.ctx.housing;
-      const e = h.startAnalysis(AZ, 0, 'spec_mineral');
+      const e = h.startAnalysis(AZ, 0, 'spec_mineral_1');
       h.changed('smoke'); h.save();
       const raw = JSON.parse(localStorage.getItem('scav.s1.ship'));
       const SS = await import('/src/housing/ShipState.ts');

@@ -33,7 +33,7 @@ import type { HousingPanel } from '../ui/Panel';
 import { ACTIVE_FURNITURE_DEFS, BOOKS_BLOCK_REASON, FACILITY_IDS, PRESET_NAME_MAX } from '../model';
 import type { HousingSystem } from '../HousingSystem';
 import { SHELF_BLOCK_REASON } from '../model';   // A-3e (2026-09-12): 서재 매체 보관함의 회수 거절
-import { clusterRecoverBlock } from './Mining';   // 2026-09-13: 암호화폐 채굴 — 코어가 꽂힌 클러스터의 회수 거절
+import { clusterRecoverBlock } from './Mining';   // 2026-09-13: 암호화폐 채굴 — 프로세서가 꽂힌 클러스터의 회수 거절
 import { returnTvConsoleForRecover, tvConsoleRecoverBlock } from './VideoGame';   // 2026-09-13 (비디오게임, H2): TV 의 게임기는 함선 창고로
 
 export function storageEntry(sys: HousingSystem, defId: string): StoredFurniture | null {
@@ -265,7 +265,7 @@ export function recoverBlock(sys: HousingSystem, uid: string): string | null {
   // 2026-09-13 (사용자 결정): 조종석 전용 시설(시술대 · 컴퓨터)은 가구 창고로 돌아가지 않는다 — 조종석 안에서 옮기기만 한다
   if (isCockpitOnlyFurniture(FURNITURE_DEF_MAP.get(item.defId))) return COCKPIT_ONLY_RECOVER_REASON;
   // A-3e (2026-09-12): 디스크 전시대 · 레코드랙도 책장처럼 — 담긴 것이 창고에 안 들어가면 `…를 먼저 빼세요`
-  // 2026-09-13 (암호화폐 채굴): 코어가 꽂힌 연산 클러스터는 `코어를 먼저 빼세요`
+  // 2026-09-13 (암호화폐 채굴): 프로세서가 꽂힌 연산 클러스터는 `프로세서를 먼저 빼세요`
   // 2026-09-13 (비디오게임): 게임기가 장착된 TV 는 그 게임기가 함선 창고에 들어가야 회수된다
   return recoverBlockReason(sys.state, item) ?? sys.booksBlock(uid) ?? sys.shelfBlock(uid) ?? clusterRecoverBlock(sys, uid) ?? tvConsoleRecoverBlock(sys, uid);
   }
@@ -277,7 +277,7 @@ export function recover(sys: HousingSystem, uid: string): boolean {
   // 2026-09-13: 조종석 전용 시설은 회수할 수 없다 (시설 관리는 `recoverBlock` 을 먼저 보고 자기 토스트를 띄운다 — 여기는 그 밖의 호출자용)
   if (isCockpitOnlyFurniture(FURNITURE_DEF_MAP.get(item.defId))) { sys.notify(COCKPIT_ONLY_RECOVER_REASON, 'warning'); return false; }
   if (recoverBlockReason(sys.state, item)) return false;
-  // 2026-09-13: 코어가 꽂힌 연산 클러스터는 회수하지 않는다 (코어는 가구 창고로 사라지면 안 된다) — 빈 칸은 `parts/Mining` 이 회수 이벤트에서 지운다
+  // 2026-09-13: 프로세서가 꽂힌 연산 클러스터는 회수하지 않는다 (내구도를 가진 프로세서가 가구 창고로 사라지면 안 된다) — 빈 칸은 `parts/Mining` 이 회수 이벤트에서 지운다
   const clusterBlock = clusterRecoverBlock(sys, uid);
   if (clusterBlock) { sys.notify(clusterBlock, 'warning'); return false; }
   // a 책장 hands its books to the stash first; when they do not all fit nothing moves

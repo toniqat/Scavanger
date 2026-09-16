@@ -590,11 +590,11 @@ export class CorpView {
     this.sellGrid = sell.grid; this.sellTotalEl = sell.total;
     this.btnStageValuables = this.button(sell.tray, '귀중품 전부 담기', () => this.stageValuables(), 'cv-stage');
 
-    /* 거래 후 크레딧 변화 — 라벨 없이 가운데 한 줄. + 는 오른쪽 초록 ▲, − 는 왼쪽 빨강 ▼. */
+    /* 거래 후 크레딧 변화 — 라벨 없이 가운데 한 줄.
+       2026-09-16 (사용자 결정): 양옆의 셰브런(▲ ▼)을 뺐다 — 부호와 글자색(`.cv-total.plus` / `.minus`)이 이미
+       방향을 말한다. 트레이 머리의 흐름 셰브런은 「물건이 어느 쪽으로 가는가」라 그대로 남는다. */
     this.netEl = el('div', { cls: 'cv-total', parent: deal });
-    this.netEl.appendChild(chevrons('down', 1, 'net-down'));
     this.netValEl = el('span', { cls: 'v', text: '0', parent: this.netEl });
-    this.netEl.appendChild(chevrons('up', 1, 'net-up'));
 
     this.confirmBtn = el('button', { cls: 'ui-btn primary cv-confirm', parent: deal }) as HTMLButtonElement;
     this.confirmFill = el('i', { cls: 'cv-confirm-fill', parent: this.confirmBtn });
@@ -725,7 +725,11 @@ export class CorpView {
       const def = this.itemDef(line.defId);
       const spec = this.makeTile(line.defId, def ? shopQtyOf(def) : 1, 'buy');
       spec.tile.dataset.def = line.defId;
-      this.tagTipPrice(spec.tile, '구매가', shopPrices.get(line.defId) ?? 0);
+      const buyPrice = shopPrices.get(line.defId) ?? 0;
+      /* 2026-09-16 (사용자 버그 「구매칸에는 가격이 아예 안 뜬다」): 매대 · 판매칸 타일과 **같은 좌하단 배지**다 —
+         한 번의 구매 값(매대에 적힌 수)이고, 담은 개수(`.cv-count`, 우하단)와는 반대 모서리라 겹치지 않는다. */
+      el('div', { cls: 'cv-price', text: formatCreditAmount(buyPrice), parent: spec.tile });
+      this.tagTipPrice(spec.tile, '구매가', buyPrice);
       el('div', { cls: 'cv-count', text: `×${line.qty}`, parent: spec.tile });
       spec.tile.addEventListener('click', (e) => { e.stopPropagation(); this.unstageBuy(line.defId); });
       buySpecs.push(spec);

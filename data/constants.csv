@@ -808,8 +808,18 @@ STATUS_REQUEST_RATE_MAX,60,"E-8 호스트가 받는 상태이상 요청의 보�
 STATUS_REQUEST_BURST_S,2,"E-8 상태이상 요청 버킷의 크기 = STATUS_REQUEST_RATE_MAX × 이 초 (프레임 끊김으로 몰린 요청)."
 
 # ── 2026-09-11: 연구실 — 분석기 · 행성 환경 (A-12 · A-13) ──
-ANALYZE_DEX_SPEEDUP,0.5,"해석 도감이 가득 찼을 때 분석기 해석 시간이 줄어드는 비율 (0.5 = 절반). 진척에 비례해 선형으로 붙는다 — 도감 절반이면 −25 %. 「채울수록 빨라진다」가 이 한 줄이다."
-ANALYZE_KNOWN_SPEEDUP,0.4,"이미 도감에 있는 표본을 다시 해석할 때 **추가로** 줄어드는 비율. 위 항과 곱해지므로 도감이 가득 찬 상태에서 아는 표본이면 0.5 × 0.6 = 원래의 30 % 다. 처음 보는 표본은 이 항이 안 붙어 늘 제값을 낸다."
+# ── 2026-09-16 (사용자 결정): 해석 도감 · 표본 레벨 단축 (owner: housing — 아래 다섯 줄이 옛 ANALYZE_* 둘을 대신한다) ──
+# 사용자 결정으로 단축의 축이 바뀌었다: 도감을 채우면 **그 종류**가 아니라 「도감 전체 보너스」가 붙되 **같은 등급 표본에만** 듣고,
+#   같은 표본을 거듭 해석하면 그 표본의 **레벨**이 올라 추가로 줄어든다. 레벨 곡선은 일부러 앞이 무겁다
+#   (레벨 1 = +3 % · 레벨 1→2 = +0.5 % 라 레벨 2 는 합 3.5 %) — 처음 한 번이 제일 크게 체감된다.
+# 최종 단축 = min(ANALYSIS_SPEEDUP_CAP, 도감 칸수 × ANALYSIS_DEX_BONUS_PER_ENTRY + 레벨 보너스) 이고,
+#   레벨 보너스 = 레벨 0 이면 0 · 레벨 n≥1 이면 ANALYSIS_SAMPLE_LEVEL_FIRST + (n − 1) × ANALYSIS_SAMPLE_LEVEL_STEP 이다.
+# 옛 ANALYZE_DEX_SPEEDUP · ANALYZE_KNOWN_SPEEDUP 두 줄은 housing 이 이 다섯 줄로 갈아탄 뒤 리드가 지운다.
+ANALYSIS_DEX_BONUS_PER_ENTRY,0.01,"해석 도감을 한 칸 채울 때마다 붙는 해석 시간 단축 비율. **같은 등급 표본에만** 듣는다 (사용자 결정 — 도감은 종류가 아니라 등급으로 묶여 효과를 낸다)."
+ANALYSIS_SAMPLE_LEVEL_FIRST,0.03,"그 표본을 처음 해석해 **표본 레벨 1** 이 됐을 때의 단축 비율. 곡선을 앞으로 몰아 둔 값이다 — 한 번만 해석해 봐도 3 % 가 붙는다."
+ANALYSIS_SAMPLE_LEVEL_STEP,0.005,"표본 레벨 1 이후 한 레벨마다 **더** 붙는 단축 비율. 레벨 2 = 0.03 + 0.005 = 3.5 % (사용자 결정: 레벨 1 이 크고 그 뒤는 완만하다)."
+ANALYSIS_SAMPLE_LEVEL_MAX,10,"표본 레벨 상한 (사용자 결정). 상한에서 레벨 보너스는 0.03 + 9 × 0.005 = 7.5 % 다."
+ANALYSIS_SPEEDUP_CAP,0.5,"도감 보너스 + 표본 레벨 보너스를 합한 단축의 상한 (0.5 = 해석 시간 절반까지만). 분석 레벨 배수(tables.csv 의 ANALYSIS_TIME_MUL_BY_LEVEL)는 이 상한 밖에서 따로 곱해진다."
 PLANET_ENV_DPS,1.2,"맞는 준비물 없이 상시 환경 행성(PlanetDef.env)에 있을 때 초당 깎이는 체력. 방탄복 실드를 건너뛰고 체력만 깎는다 — 대기는 방탄복이 막지 못한다. 10분 레이드를 맨몸으로 버티면 720 이라 사실상 준비물이 필수지만, 급히 들어가 5분 안에 나오는 것은 회복약으로 가능한 수준이다."
 PLANET_ENV_TICK_S,1,"환경 피해를 적용하는 주기(초). 한 번에 PLANET_ENV_DPS × 이 값을 깎는다 — 매 프레임 소수점 피해를 주면 피격 연출이 쉬지 않는다."
 
@@ -867,8 +877,17 @@ DRONE_SCAN_SHARE_SLACK,4,"분대원이 보낸 스캔 결과를 믿는 여유(m).
 # ── [F] 헬스 미니게임 ──
 # ── end [F] ──
 # ── 2026-09-13: 요리 재료 티어 — 고철 더미 부가 미확인 광물 (owner: world/Gather) ──
-GATHER_SALVAGE_MINERAL_CHANCE,0.12,"고철 더미가 폐금속과 함께 미확인 광물(spec_mineral)을 더 주는 확률. 생성 때 자기 fork(gather_mineral)로 시드 결정 — gather · gather_core 스트림을 밀지 않는다."
+GATHER_SALVAGE_MINERAL_CHANCE,0.12,"고철 더미가 폐금속과 함께 미확인 광물 I(spec_mineral_1)을 더 주는 확률. 생성 때 자기 fork(gather_mineral)로 시드 결정 — gather · gather_core 스트림을 밀지 않는다."
 GATHER_SALVAGE_MINERAL_QTY,1,"고철 더미의 부가 미확인 광물 개수."
+# ── 2026-09-16 (사용자 결정): 행성 광맥 — 채광 (owner: world/Gather · progression 의 mining 숙련) ──
+# 광맥은 행성마다 data/planets.csv 의 mineralNodes 개가 놓이고, E 를 길게 눌러 캐면 **미확인 광물**만 나온다.
+#   등급은 두 번째 표를 만들지 않고 data/loot_tiers.csv 에서 `tier = 그 행성의 threat` 줄의 등급 가중치를 쓴다
+#   (threat 1 은 희귀까지 · threat 3 에서만 신화 0.05). 캘 때마다 채광 숙련(mining)이 오른다.
+MINING_NODE_HOLD_S,4,"광맥 하나를 캐는 E 홀드 시간(초). 고철 해체(SALVAGE_INTERACT_TIME 3)보다 길고 표본 수습(SAMPLE_INTERACT_TIME 3.5)보다도 길다 — 바위를 깨는 일이라 채집 중 제일 오래 걸린다."
+MINING_YIELD_MIN,1,"광맥 하나에서 나오는 미확인 광물의 최소 개수."
+MINING_YIELD_MAX,3,"광맥 하나에서 나오는 미확인 광물의 최대 개수 (MIN..MAX 정수 균등). 등급은 개수와 따로 굴린다."
+MINING_HILL_MIN_SLOPE,0.35,"광맥이 붙을 수 있는 지형 경사의 하한 (tan θ — 0.35 ≈ 19°). 사용자 결정 「주로 언덕쪽 위주」를 이 한 줄로 적는다: 이보다 완만한 평지에는 광맥이 생기지 않는다."
+MINING_SKILL_XP,1.2,"광맥 하나를 캘 때 오르는 채광(mining) 숙련 경험치. 채집(GATHER_XP 0.35)보다 크다 — 한 번이 오래 걸리고 행성마다 몇 개 없다."
 # ── 2026-09-13: 행성별 거점 점거 · 레이더 강하 (owner: enemies/SiteGroups · RogueDrop — 확률 · 인원 표는 tables.csv 의 SITE_* · RAIDER_DROP_*) ──
 SITE_BOSS_MAX_PER_RAID,1,"한 레이드에 거점 로그 그룹을 이끄는 로그 분대장(rogue_boss)의 최대 수. 확률은 SITE_BOSS_CHANCE (사용자 결정: 최대 1명 · threat 2 에서 40 %)."
 SITE_GROUP_MIN_GAP_M,2.2,"한 거점 그룹 안 인간형끼리의 최소 간격(m) — WorldRef.getSiteSpawnPoints 의 minGap. 실내에서도 서로 겹쳐 서지 않는 폭이다."

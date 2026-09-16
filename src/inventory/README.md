@@ -102,7 +102,11 @@ instead is a real move — same cell, the other grid, `R` to rotate mid-drag, me
 executed by `parts/DropResolver` (`previewDrop` / `drop`), exactly as in the Tab window, including the merge remainder
 left on the cursor (`DragInfo.held`). The view still owns no blocker, no pointer lock and no standing key listener (the
 rotate key is bound only while a drag is in flight); it has no equipment / wheel / container targets and no world drop,
-so a release over nothing leaves the item where it was. Options (`TradeGridsViewOptions`): `grids` (default `['stash', 'bag']`), `layout` (`'wrap'`
+so a release over nothing leaves the item where it was. 2026-09-16 (2nd): `placeExternalAt(item, x, y)` puts an item that is in **no grid yet** (a shelf's book, a cluster's core,
+a station's product — `housing/ui/ProductDrag`) into the cell under the cursor, resolved by the same two-pass hit test as a
+tile drag: free cell → placed, matching stack with room for all of it → merged, anything else → `'blocked'` (nothing is
+displaced; the caller refuses), not over a cell → `null` (the caller falls back to its own rule). Options
+(`TradeGridsViewOptions`): `grids` (default `['stash', 'bag']`), `layout` (`'wrap'`
 and `'split'` render the same side-by-side panel), `chips` (`'block'` own dropdown per block, `'shared'`, `'none'` +
 `mountFilterChips(host)`), `cell`, `isStaged`, `takeLabel`, `className`. `setCell(px)` rebuilds keeping filter and
 scroll (narrow with `typeof view.setCell === 'function'`). Call it **once** for stash + bag to get one card; blocks
@@ -380,8 +384,8 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 
 Older: `git log -- src/inventory`.
 
+- 2026-09-16 — Craft cells no longer paint the bench-level requirement over the thumbnail (only the detail's hold button says it — `CraftPanel.build`, `.inv-craft-locktag` gone), an uncraftable cell is dimmed much harder (`.inv-craft-cell.is-locked` / `.is-bench-locked`), and `표본` is its own filter chip (`FILTER_GROUPS`, split out of `bio` = `재배`) and its own 무한 상자 tab (`CATALOG_TABS`).
 - 2026-09-16 — Crafting has no skill **speed**, and no live skill gate (every `recipes.csv` `skillRequired` is `0`) — but the gate is still read, so raising a csv number makes that recipe a locked cell tagged `제작 20 필요` (`getRecipes` / `cookBlock` / `CraftPanel.lockedReason`). Instead every craft path refunds materials through one place (`parts/Crafting.refundAfterCraft` — craft skill per **unit**, research bench per run, merged into one delivery and one `재료 회수: …` toast; `researchAfterCraft` is gone).
 - 2026-09-16 — Bench craft window: `닫기` closes the window the bench opened (`closeCraftWindow`), `업그레이드` next to it (`HousingRef.openStorageUpgrade`, ship only), the bench lists **all** of its recipes with level / skill lock reasons (`getBenchRecipes`, `lockedReason`), an empty bench keeps the 5-thumbnail frame, and the detail card no longer scrolls sideways (`.inv-tt-value` bleed).
 - 2026-09-16 — Embedded `TradeGrids` grids move items again: a release on a cell goes through `previewDrop` / `drop` (same grid, 창고 ↔ 가방, `R` rotate, merge with the remainder held on the cursor); the caller's `dropSelector` tray is still tested first; the header's `N점` became the Tab-stash `사용칸 / 전체칸` readout (`labels.capacityLabel`) left of 정렬.
 - 2026-09-16 — Stash header: `함선 창고` title on the left, cells-only readout (the item-kind count is gone), `업그레이드` → `HousingRef.openStorageUpgrade()` (hidden without `ctx.housing`); the filter is the shared dropdown (`shared/dropdown.ts`) and `FilterControl` gained `close()` / `dispose()`.
-- 2026-09-16 — Meals are not items: `completeCook` / `roomForCook` / `useMealItem` and the `먹기` context entry removed; `consumeCookInputs` only consumes; launch check reports uneaten dining plates (`noMeal` text / `plateDiscard`).

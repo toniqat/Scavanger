@@ -64,7 +64,7 @@ export function liveChange(ctx: GameContext, coinId: string): number | null {
   return typeof c === 'number' && Number.isFinite(c) ? c : null;
 }
 
-/** 이 클러스터가 지금 설정으로 한 시간에 버는 단위 수 (코인 · 코어가 없으면 0). 표시용 추정. */
+/** 이 클러스터가 지금 설정으로 한 시간에 버는 단위 수 (코인 · 프로세서가 없으면 0). 표시용 추정. */
 export function unitsPerHour(c: Pick<ComputeClusterInfo, 'coinId' | 'cycleMs'>): number {
   const def = coinDef(c.coinId);
   if (!def || !(c.cycleMs > 0) || !Number.isFinite(c.cycleMs)) return 0;

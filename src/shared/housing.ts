@@ -584,6 +584,13 @@ export interface HousingRef {
    * 인벤토리 창 **위**에 뜬다. 함선 밖(`ctx.housing` 없음 · 레이드)에서는 부르는 쪽이 버튼 자체를 숨긴다.
    */
   openStorageUpgrade(): void;
+  /*
+   * appended (2026-09-16, 사용자 보고 「작업대 UI 에서 업그레이드를 눌렀는데 창고 업그레이드 창이 뜬다」):
+   * **그 작업대 한 대**의 업그레이드 모달. 같은 모달 · 같은 홀드이고 대상만 배치된 작업대 가구다 (여러 대면
+   * 레시피 게이트가 보는 것과 같은 **가장 높은 레벨** 한 대). 배치된 작업대가 없으면 한국어 안내만 띄운다.
+   * `openStorageUpgrade()` 는 제작 열이 작업대 모드일 때 이 함수로 넘긴다 — 작업대 창의 버튼은 이쪽을 직접 불러도 된다.
+   */
+  openBenchUpgrade?(bench: WorkbenchKind): void;
 
   /* ── furniture ── */
   getFurnitureDef(id: string): FurnitureDef | undefined;
@@ -828,12 +835,10 @@ export function furnitureFootprint(def: FurnitureDef, yaw: 0 | 1 | 2 | 3): { col
  * 레벨 n 이면 `ANALYZER_SLOTS_BASE + ANALYZER_SLOTS_PER_LEVEL × n` 칸이 열리고, 화면은 언제나 `ANALYZER_MAX_SLOTS` 칸을 그린다
  * (잠긴 칸은 `locked: true` + `unlockLevel`). 칸 번호는 강화해도 밀리지 않는다 — 돌아가던 해석이 옮겨 가면 안 된다.
  *
- * 해석 시간은 **시작하는 순간** `readyAt` 에 확정된다 (온실의 `plantedAt`/`readyAt` 와 같은 규약):
- *
- *     analyzeHours × (1 − ANALYZE_DEX_SPEEDUP × 도감진척) × (도감에 이미 있으면 1 − ANALYZE_KNOWN_SPEEDUP)
- *
- * 「도감을 채울수록 해석이 빨라진다」가 첫 항, 「아는 것을 다시 보는 건 빠르다」가 둘째 항이다.
- * 도감(`ShipState.sampleDex`)은 `bookDex` 와 같은 append-only 기록이고, 해석을 **회수**할 때 채워진다.
+ * 해석 시간은 **시작하는 순간** `readyAt` 에 확정된다 (온실의 `plantedAt`/`readyAt` 와 같은 규약). 2026-09-16 부터 식은
+ * 아래 「표본 개편」 블록에 있다 — `analyzeHours × analysisTimeMul(계열 분석 레벨) × (1 − 단축)` 이고, 단축은
+ * **같은 등급 도감 칸수**와 **그 표본의 레벨**이 만든다. 옛 두 항(`ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP`)은
+ * 아무도 읽지 않는다. 옛 도감(`ShipState.sampleDex`)은 `bookDex` 와 같은 append-only 기록이고 회수할 때 조용히 채워진다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -948,8 +953,7 @@ export interface HousingRef {
   /** 해석 도감: 한 번이라도 회수한 표본 def id. */
   getSampleDex(): readonly string[];
   /**
-   * 도감 진척 0 … 1 (아는 표본 수 ÷ 전체 표본 종류 수). 해석 시간이 `ANALYZE_DEX_SPEEDUP × 이 값`만큼 줄어든다 —
-   * 패널이 「해석 속도 +n %」 한 줄로 보여 준다.
+   * @deprecated 2026-09-13 · 2026-09-16 — 도감 진척 0 … 1. 해석 시간은 이 값을 보지 않는다 (등급별 도감 칸수 + 표본 레벨이 정한다).
    */
   getSampleDexRatio(): number;
   /** 분석 화면을 연다 (`analyzer` interaction): 좌 해석 칸 · 우 가방 + 함선 창고 + 도감. */
@@ -1422,6 +1426,7 @@ export interface HousingRef {
  *    `StrainDef.scaffoldOutputDefId`(종별 고기)를 만들고 수확할 때 스캐폴드가 소모된다. 세포주가 들어가기 전이면 뺄 수 있다.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 import { numberMap } from './data/tables';
+import { RARITY_ORDER } from './labels';   // 2026-09-16: 결과표의 `sampleRarity` 열 · 등급 하한 규칙
 import type { GrowSocketTarget, Rarity, SampleFamily } from './types';
 import { SAMPLE_FAMILIES } from './types';
 
@@ -1467,10 +1472,18 @@ export interface AnalysisResultDef {
   qtyMax: number;
   /** 같은 계열 · 해금된 줄끼리의 가중치. */
   weight: number;
+  /**
+   * appended (2026-09-16, 사용자 결정 「표본 등급이 산출물 등급의 하한이다」 — csv 머리글의 그 규칙):
+   * 비어 있으면 그 줄은 **등급 하한 검사**를 받는다 (`rarityRank(defId 의 등급) ≥ rarityRank(표본 등급)`).
+   * 채워져 있으면 그 줄은 **그 등급의 표본에만** 붙고 하한 검사를 **면제**받는다 — 「미확인 광물은 등급과 상관없이
+   * 석영이 나오되 등급이 높을수록 많이 나온다」를 적는 칸이고, 동시에 어떤 등급에서도 후보가 비지 않게 하는 방지턱이다.
+   */
+  sampleRarity?: Rarity;
 }
 
 export const ANALYSIS_RESULTS: readonly AnalysisResultDef[] = csvRows('analysis_results.csv').map((r) => {
   const qtyMin = r.int('qtyMin', { min: 1 });
+  const sampleRarity = r.optEnum('sampleRarity', RARITY_ORDER);
   return {
     family: r.enum('family', SAMPLE_FAMILIES),
     minLevel: r.int('minLevel', { min: 1 }),
@@ -1478,6 +1491,7 @@ export const ANALYSIS_RESULTS: readonly AnalysisResultDef[] = csvRows('analysis_
     qtyMin,
     qtyMax: Math.max(qtyMin, r.int('qtyMax', { min: 1 })),
     weight: r.num('weight', { min: 0 }),
+    ...(sampleRarity ? { sampleRarity } : {}),
   };
 });
 
@@ -1622,6 +1636,52 @@ export const GROW_SOCKET_SLOTS_MAX: number = Math.max(0, ...Object.values(GROW_S
 /* ══ end 2026-09-13 요리 재료 티어 ══ */
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * appended: 2026-09-16 — 표본 개편 (사용자 결정, 수치는 `data/constants.csv` 의 `ANALYSIS_*` 다섯 줄)
+ *
+ * 1. **표본 등급이 산출물 등급의 하한이다** (`AnalysisResultDef.sampleRarity` 위 주석 · `data/analysis_results.csv` 머리글).
+ * 2. **해석 시간 단축이 두 항으로 바뀌었다** — 옛 `ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP` 은 아무도 읽지 않는다:
+ *      단축 = min(ANALYSIS_SPEEDUP_CAP, 같은 등급 도감 칸수 × ANALYSIS_DEX_BONUS_PER_ENTRY + 표본 레벨 보너스)
+ *      표본 레벨 보너스 = 레벨 0 → 0 · 레벨 n≥1 → ANALYSIS_SAMPLE_LEVEL_FIRST + (n − 1) × ANALYSIS_SAMPLE_LEVEL_STEP
+ *    계열 분석 레벨의 시간 배수(`analysisTimeMul`)는 이 단축과 **별개로** 곱해진다.
+ * 3. **표본 레벨은 표본마다 따로 쌓인다** (`ShipState.sampleLevels`) — 그 표본을 회수한 횟수다.
+ * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+export interface ShipState {
+  /* ── appended (2026-09-16, version 14) ── */
+  /**
+   * 표본 def id → **해석 레벨** (= 그 표본을 회수한 횟수, 1 … `ANALYSIS_SAMPLE_LEVEL_MAX`). 없는 키 = 레벨 0.
+   * 마이그레이션은 없다 (사용자 결정) — 옛 세이브는 전부 레벨 0 에서 다시 쌓는다.
+   */
+  sampleLevels?: Record<string, number>;
+}
+
+/** 표본 하나의 해석 단축 현황 (분석 화면이 `Lv.n · −x %` 로 읽는다). */
+export interface SampleAnalysisInfo {
+  defId: string;
+  /** 표본 등급 — 도감 보너스가 묶이는 축이자 산출물 등급의 하한. */
+  rarity: Rarity;
+  /** 0 … `ANALYSIS_SAMPLE_LEVEL_MAX`. 0 = 아직 한 번도 회수하지 않았다. */
+  level: number;
+  maxLevel: number;
+  /** 이 등급의 분석 도감 칸 수 (`analysisFound` 중 그 등급의 산출물). */
+  dexEntries: number;
+  /** 도감 칸이 주는 단축 (상한 전). */
+  dexBonus: number;
+  /** 표본 레벨이 주는 단축 (상한 전). */
+  levelBonus: number;
+  /** 실제로 곱해지는 단축 0 … `ANALYSIS_SPEEDUP_CAP` — 해석 시간은 `× (1 − speedup)`. */
+  speedup: number;
+}
+
+export interface HousingRef {
+  /* ══ appended: 2026-09-16 — 표본 개편 ══ */
+  /** 이 표본의 레벨 · 도감 칸 · 지금 붙는 해석 단축. 표본이 아니면 null. */
+  getSampleAnalysis?(defId: string): SampleAnalysisInfo | null;
+  /** 분석 도감(`analysisFound`)의 칸 수를 산출물 **등급별**로 센 표 — 도감 보너스가 묶이는 축 그대로. */
+  getAnalysisDexByRarity?(): Readonly<Record<Rarity, number>>;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  * appended: 2026-09-13 — 요리 미니게임 (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」, 사용자 결정 — 규칙 · 표는 `shared/cooking.ts`)
  *
  * 조리대 E → **조리대 화면**(`openCookStation`) — 요리 목록 · 재료 · 미니게임 순서 · 자동 가구 · 함선 창고 / 가방 카드.
@@ -1666,10 +1726,13 @@ export interface HousingRef {
  *    (`purposeGeneratorLevel` — Lv.2 온실 · 주방 / Lv.3 연구실 / Lv.4 헬스장 · 서재 / Lv.5 채굴 시설), ② 예전 그대로 가구 · 창고 강화 게이트
  *    (Lv.n 으로 올리려면 발전기 Lv.n). 아래 전력 이름들은 계약이라 남기만 한다. `furnitureOperationalBlock` 은 「메인 컴퓨터 없는 연산 클러스터」만 답한다.
  * 3. **암호화폐 채굴.** 채굴 시설(`mining`)에 연산 클러스터(`compute_cluster` — 1×2칸, 여러 대)와 메인 컴퓨터(`mining_computer` — 함선당 1대)를 둔다.
- *    클러스터마다 코인을 정하고 연산 코어를 최대 `COMPUTE_CLUSTER_MAX_CORES` 개 꽂는다. **메인 컴퓨터가 배치돼 있어야** 클러스터가 채굴한다 (사용자 결정 — 전력 폐지 전에는 「가동 중」 이었다).
- *    시간은 클러스터 한 대에 하나(재배 칸처럼 코어마다 따로 흐르지 않는다) — 주기 = `coinCycleMs(coin, cores)`. 한 주기가 끝날 때마다
- *    `yieldUnits` 가 **지갑**(`cryptoWallet`)에 저절로 들어가고 다음 주기가 이어진다. 코어 수가 바뀌면 진행도를 접어 새 주기 길이로 이어 가고,
- *    코인을 바꾸면 진행도가 0 이 된다. 메인 컴퓨터 = 클러스터 현황 · 지갑 · 거래소(서버 시세 차트 · 매수 · 매도 — 잠긴 코인도 차트는 보인다).
+ *    클러스터마다 코인을 정하고 **프로세서**(2026-09-16 사용자 결정 — 옛 연산 코어)를 최대 `COMPUTE_CLUSTER_MAX_CORES` 개 꽂는다.
+ *    **메인 컴퓨터가 배치돼 있어야** 클러스터가 채굴한다 (사용자 결정 — 전력 폐지 전에는 「가동 중」 이었다).
+ *    시간은 클러스터 한 대에 하나(재배 칸처럼 프로세서마다 따로 흐르지 않는다) — 주기는 꽂힌 프로세서들의 **성능 합**(`processorPerf`)에서 난다.
+ *    한 주기가 끝날 때마다 `yieldUnits` 가 **지갑**(`cryptoWallet`)에 저절로 들어가고, 그 자리에서 꽂힌 프로세서가 전부
+ *    `PROCESSOR_WEAR_PER_CYCLE` 만큼 닳는다 (닳을수록 느려지다 내구도 0 에서 절반 — 수리는 함선 작업대). 프로세서가 바뀌면
+ *    진행도를 접어 새 주기 길이로 이어 가고, 코인을 바꾸면 진행도가 0 이 된다.
+ *    메인 컴퓨터 = 클러스터 현황 · 지갑 · 거래소(서버 시세 차트 · 매수 · 매도 — 잠긴 코인도 차트는 보인다).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 import type { CryptoCoinDef } from './crypto';
 import type { CryptoTradeSide } from './cryptoMarket';
@@ -1820,22 +1883,52 @@ export interface PowerOverview {
 
 export const COMPUTE_CLUSTER_DEF_ID = 'furn_compute_cluster';
 export const MINING_COMPUTER_DEF_ID = 'furn_mining_computer';
-/** 레이드에서 극히 드물게 나오는 프로세서 (items/ 가 정의한다). */
+/**
+ * 연산 클러스터에 꽂는 **프로세서** (items/ 가 정의한다 — 조합대에서 결정 코어 1 + 회로 기판 4 로 만든다).
+ * 2026-09-16 (사용자 결정): 중간 단계였던 연산 코어가 없어지고 이것이 곧바로 클러스터에 꽂힌다. `durabilityMax` 를 갖는
+ * 장비라 주기마다 닳고(`PROCESSOR_WEAR_PER_CYCLE`) 닳은 만큼 느려지며(`PROCESSOR_PERF_MIN`) 함선 작업대에서 수리한다.
+ */
 export const PROCESSOR_DEF_ID = 'mat_processor';
-/** 회로 기판 + 프로세서로 만드는 연산 코어 (items/ 가 정의한다). 클러스터에 꽂는 것은 이것뿐이다. */
+/**
+ * @deprecated 2026-09-16 — 연산 코어(`mat_compute_core`)는 아이템 표에서 **사라졌다** (프로세서가 직접 꽂힌다).
+ * 계약은 추가만이라 이름은 남는다; 이 id 로 아이템을 찾으면 `undefined` 다. 새 코드는 `PROCESSOR_DEF_ID` 를 쓴다.
+ */
 export const COMPUTE_CORE_DEF_ID = 'mat_compute_core';
 
-/** 연산 클러스터 한 대의 채굴 상태. 코어도 코인도 없는 클러스터는 `ShipState.clusters` 에 없어도 된다. */
+/** 내구도 0 인 프로세서의 성능 (1 = 새것). 완전히 닳아도 절반은 일한다 — `data/tuning.csv`. */
+export const PROCESSOR_PERF_MIN = T.num('PROCESSOR_PERF_MIN');
+/** 채굴 주기 한 번이 끝날 때 **꽂힌 프로세서마다** 닳는 내구도 — `data/tuning.csv`. */
+export const PROCESSOR_WEAR_PER_CYCLE = T.num('PROCESSOR_WEAR_PER_CYCLE');
+
+/**
+ * 프로세서 하나의 성능 (0.5 … 1) — **선형** (사용자 결정): `PROCESSOR_PERF_MIN + (1 − PROCESSOR_PERF_MIN) × (남은 ÷ 최대)`.
+ * 클러스터의 속도는 꽂힌 프로세서들의 이 값을 **더한 것**이라, **다 닳은 프로세서는 새것 반 개 몫**이다.
+ * `max` 가 0 이하(내구도 없는 아이템)면 새것으로 본다.
+ */
+export function processorPerf(durability: number, max: number): number {
+  if (!(max > 0)) return 1;
+  const ratio = Math.max(0, Math.min(1, (Number.isFinite(durability) ? durability : max) / max));
+  return PROCESSOR_PERF_MIN + (1 - PROCESSOR_PERF_MIN) * ratio;
+}
+
+/** 연산 클러스터 한 대의 채굴 상태. 프로세서도 코인도 없는 클러스터는 `ShipState.clusters` 에 없어도 된다. */
 export interface ComputeClusterSlot {
   /** 연산 클러스터 `PlacedFurniture.uid`. */
   uid: string;
   /** 채굴할 코인 id (`data/crypto.csv`). 없으면 채굴하지 않는다. */
   coinId?: string;
-  /** 꽂힌 연산 코어 수 (0 … `COMPUTE_CLUSTER_MAX_CORES`). 코어는 서로 같아 개수만 센다. */
-  cores: number;
+  /**
+   * 2026-09-16 (사용자 결정 「프로세서를 직접 꽂는다 · 프로세서에 내구도가 있다」):
+   * **칸마다 꽂힌 프로세서의 남은 내구도. 빈 칸은 null.** 길이 ≤ `COMPUTE_CLUSTER_MAX_CORES` 이고
+   * **인덱스가 곧 UI 격자의 칸**이다 — 그래서 3번 칸의 다 닳은 프로세서만 골라 뺄 수 있다.
+   * (옛 `cores` 는 개수 하나였다: 서로 같은 코어였으므로 셀 수만 있으면 됐다.)
+   */
+  processors: (number | null)[];
+  /** @deprecated 2026-09-16 — 옛 「꽂힌 연산 코어 수」. 읽는 곳은 세이브 정리(`sanitizeClusters`)뿐이고 새 세이브에는 없다. */
+  cores?: number;
   /** `segmentAt` 시점까지 쌓인 진행도 (주기 단위, 0 ≤ p < 1 — 넘친 주기는 지갑에 넣고 뺀다). */
   progress: number;
-  /** 지금 구간이 시작된 epoch ms (`stationNow` 기준). 코어 · 코인 · 가동 상태가 바뀌면 진행도를 접고 새로 연다. */
+  /** 지금 구간이 시작된 epoch ms (`stationNow` 기준). 프로세서 · 코인 · 가동 상태가 바뀌면 진행도를 접고 새로 연다. */
   segmentAt: number;
 }
 
@@ -1860,8 +1953,16 @@ export interface ComputeClusterInfo {
   uid: string;
   room: number;
   coinId: string | null;
+  /** 꽂힌 프로세서 **개수** (레일 점 · 「n/m」 표시용 — 속도는 개수가 아니라 `perf` 다). */
   cores: number;
   maxCores: number;
+  /* ── appended (2026-09-16, 프로세서 직접 장착) ── */
+  /** 칸마다의 남은 내구도, 빈 칸은 null. 길이 = `maxCores` — 인덱스가 곧 화면 격자의 칸이다. */
+  processors: readonly (number | null)[];
+  /** 프로세서 한 개의 최대 내구도 (`ItemDef.durabilityMax`) — 내구도 막대의 분모. 표를 못 읽으면 0. */
+  processorMax: number;
+  /** 꽂힌 프로세서들의 `processorPerf` 합 — 주기는 이 값으로 난다 (다 닳은 것은 새것 반 개 몫). */
+  perf: number;
   /** 지금 설정의 주기 (ms). 코어 0 · 코인 없음이면 0. */
   cycleMs: number;
   /** 이번 주기 진행도 0 … 1 (채굴하지 않으면 0 — 멈췄으면 멈춘 자리). */
@@ -1943,10 +2044,21 @@ export interface HousingRef {
   getComputeCluster?(uid: string): ComputeClusterInfo | null;
   /** 채굴할 코인을 정한다 (null = 해제). 잠긴 코인은 거절. 코인이 바뀌면 진행도 0. 한국어 사유 / null. `housing:clusterChanged`. */
   setClusterCoin?(uid: string, coinId: string | null): string | null;
-  /** 연산 코어를 (가방 → 창고에서) `qty` 개 꽂는다 — 빈 칸만큼만. 진행도는 접어서 새 주기로 잇는다. 한국어 사유 / null. */
+  /**
+   * 프로세서를 (가방 → 창고에서) `qty` 개 꽂는다 — 빈 칸만큼만, **내구도가 높은 것부터**. 진행도는 접어서 새 주기로 잇는다.
+   * 2026-09-16: 이름은 계약이라 남지만 꽂히는 것은 연산 코어가 아니라 `PROCESSOR_DEF_ID` 다. 한국어 사유 / null.
+   */
   insertClusterCores?(uid: string, qty: number): string | null;
-  /** 연산 코어를 `qty` 개 뺀다 (`dest` 기본 `'bag-first'`, 자리가 없으면 거절). 한국어 사유 / null. */
+  /** 프로세서를 `qty` 개 뺀다 — **뒤 칸부터**, 내구도를 그대로 들고 (`dest` 기본 `'bag-first'`, 자리가 없으면 거절). 한국어 사유 / null. */
   removeClusterCores?(uid: string, qty: number, dest?: HarvestDestination): string | null;
+  /* ── appended (2026-09-16, 프로세서 직접 장착): 칸을 지정하는 짝 — 화면 격자가 이것을 쓴다 ── */
+  /**
+   * 프로세서 하나를 **`slot` 칸**에 꽂는다. `itemUid` 를 주면 가방 · 창고의 **바로 그 인스턴스**(끌어다 놓은 것)를 꽂고,
+   * 없으면 내구도가 가장 높은 것을 꽂는다. 이미 찬 칸 · 없는 칸 · 프로세서 없음은 한국어 사유. 성공하면 null.
+   */
+  insertClusterProcessor?(uid: string, slot: number, itemUid?: string): string | null;
+  /** **`slot` 칸**의 프로세서를 내구도 그대로 빼서 `dest` 로 돌려준다 (기본 `'bag-first'`). 한국어 사유 / null. */
+  removeClusterProcessor?(uid: string, slot: number, dest?: HarvestDestination): string | null;
   /** 지금 서버 시세로 낸 견적. 코인을 모르면 null. */
   cryptoQuote?(coinId: string, side: CryptoTradeSide, units: number): CryptoQuote | null;
   /** 매매한다 — 크레딧은 서버 검증(`cbuy` · `csell`), 지갑은 성공했을 때만 바뀐다. 한국어 사유 / null. `housing:walletChanged`. */

@@ -13,7 +13,7 @@ export interface CatalogHandlers {
   onClose(): void;
 }
 
-export type CatalogTabId = 'all' | 'weapon' | 'ammo' | 'attachment' | 'bag' | 'armor' | 'implant' | 'gadget' | 'consumable' | 'material' | 'herb' | 'seed' | 'book' | 'furniture';
+export type CatalogTabId = 'all' | 'weapon' | 'ammo' | 'attachment' | 'bag' | 'armor' | 'implant' | 'gadget' | 'consumable' | 'material' | 'herb' | 'seed' | 'sample' | 'book' | 'furniture';
 
 interface CatalogTab {
   id: CatalogTabId;
@@ -36,6 +36,9 @@ export const CATALOG_TABS: readonly CatalogTab[] = [
   { id: 'material', label: TEXT.catalog.tabs.material, categories: ['material', 'valuable'] },
   { id: 'herb', label: TEXT.catalog.tabs.herb, categories: ['herb'] },
   { id: 'seed', label: TEXT.catalog.tabs.seed, categories: ['seed'] },
+  // 2026-09-16 (사용자 보고): 표본은 재배 탭에도 재료 탭에도 없어 이름을 알아야만 꺼낼 수 있었다 — 가방 필터의
+  //   `표본` 칩과 같은 축이다 (`model.FILTER_GROUPS`). 정의가 하나도 없으면 탭은 스스로 빠진다 (`ensureBuilt`).
+  { id: 'sample', label: TEXT.catalog.tabs.sample, categories: ['sample'] },
   { id: 'book', label: TEXT.catalog.tabs.book, categories: ['book', 'disc', 'record'] },   // Phase 9: 서적 · 2026-09-12 (A-3e): 디스크 · 레코드도 같은 서재 탭
   { id: 'furniture', label: TEXT.catalog.tabs.furniture, categories: ['furniture'] },
 ];

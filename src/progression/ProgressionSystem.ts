@@ -15,6 +15,8 @@ import {
   APPRAISE_XP_BY_RARITY, CARRY_XP_PER_METER, CRAFT_XP, CRATE_OPEN_XP, CRYPTO_XP, GATHER_XP, GRIT_SAVE_XP,
   GUN_HIT_XP, IMPLANT_XP, REPAIR_XP, SKILL_DEF_MAP, SKILL_DEFS, STAT_DEF_MAP, STAT_DEFS, WEAPON_CLASS_SKILL,
 } from './defs';
+/* 2026-09-16: 광맥 1회 채굴의 채광 XP. 값은 world 가 쓰는 것과 같은 상수라 `@/shared` 에서 바로 읽는다. */
+import { MINING_SKILL_XP } from '@/shared';
 import { applyLibraryDerived, applyMealBuff, computeDerived, DEFAULT_DERIVED, SKILL_STAT_FACTOR, SPECIAL_BACKPACK_CD_MUL, emptyPerks, trainedBonusOf, xpForLevel, type ImplantContribution } from './derive';
 import { DEFAULT_IMPLANT, clearStoredProfile, freshProfile, loadProfile, migrate, saveProfile, zeroStatProgress } from './Profile';
 import { CharacterSheet } from './ui/CharacterSheet';
@@ -729,8 +731,13 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       }),
       /* ── 인내 ── */
       b.on('player:gritSaved', () => this.addSkillXp('grit', GRIT_SAVE_XP)),
-      /* ── 원예 (고철 해체는 2026-09-08 부터 제작 숙련으로) ── */
-      b.on('gather:collected', ({ kind }) => this.addSkillXp(kind === 'salvage' ? 'crafting' : 'gardening', GATHER_XP)),
+      /* ── 원예 (고철 해체는 2026-09-08 부터 제작 숙련으로, 광맥은 2026-09-16 부터 채광으로) ──
+       * 채집물은 셋으로 갈린다: 고철 = 제작 · 광맥 = 채광 · 나머지(약초 · 흙 · 씨앗 · 표본) = 원예.
+       * 광맥만 경험치 값이 다르다 (`MINING_SKILL_XP`, data/constants.csv) — 홀드가 길고 한 번에 여럿이 나온다. */
+      b.on('gather:collected', ({ kind }) => {
+        if (kind === 'mineral') { this.addSkillXp('mining', MINING_SKILL_XP); return; }
+        this.addSkillXp(kind === 'salvage' ? 'crafting' : 'gardening', GATHER_XP);
+      }),
       /* ── 제작 / 의학 ── */
       // 2026-09-13 (사용자 결정): 연구실 작업대(추출기 · 조합대 · 3D 프린터) 제작은 연구 경험치만 — inventory 가 `RESEARCH_XP_CRAFT` 를 준다
       b.on('craft:completed', ({ recipeId }) => { const skill = this.recipeSkill(recipeId); if (skill) this.addSkillXp(skill, CRAFT_XP); }),

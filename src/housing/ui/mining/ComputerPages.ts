@@ -44,7 +44,7 @@ interface ListRow { id: string; row: HTMLElement; price: HTMLElement; change: HT
  * 올라갔고(창이 갖는다), 머리줄 · 배너를 `MiningHost` 로 칠하며, 「현황 줄 클릭 → 그 클러스터」가 창을 닫는 대신
  * **채굴 탭으로 바꾼다**.
  *
- *  - **클러스터 현황** — 클러스터마다 한 줄(방 · 코인 글리프 + 티커 · 코어 n/9 · 진행 막대 + `HH:MM:SS` · 채굴 중 / 막는 사유).
+ *  - **클러스터 현황** — 클러스터마다 한 줄(방 · 코인 글리프 + 티커 · 프로세서 n/9 · 진행 막대 + `HH:MM:SS` · 채굴 중 / 막는 사유).
  *  - **지갑** — 코인마다 보유 · 평가액 · 24시간 변동 · 누적 채굴, 총 평가액. 줄을 누르면 그 코인의 거래소.
  *  - **거래소** — 코인 목록 + 차트(`CryptoChart`) + 매매(수량 · 25/50/100 % · 견적 · **1초 홀드 확정**).
  *
@@ -477,7 +477,7 @@ export class ComputerPages {
       return;
     }
     const head = el('div', { cls: 'mn-crow mn-chead', parent: this.clList });
-    for (const t of ['클러스터', '코인', '코어', '이번 주기', '상태']) el('span', { text: t, parent: head });
+    for (const t of ['클러스터', '코인', '프로세서', '이번 주기', '상태']) el('span', { text: t, parent: head });
     list.forEach((c, i) => {
       const row = el('div', { cls: 'mn-crow', attrs: { 'data-uid': c.uid, role: 'button' }, parent: this.clList });
       const name = el('span', { cls: 'mn-cname', parent: row });

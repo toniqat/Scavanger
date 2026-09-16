@@ -629,3 +629,74 @@ User choices:
 Rejected: lowering `CRAFT_REFUND_CHANCE_AT_MAX` to make durable gear fit; deleting the `skillRequired` column, its loader
 and `CraftRecipe.skillRequired`; keeping the always-×1.0 `제작 속도` row on the character sheet; a separate
 `재료 회수` toast per refund source (craft skill and research skill now share one line).
+
+---
+
+## 2026-09-16 — 신화 등급 · 표본 개편 · 행성 광맥 · Mythic rarity · samples · mineral veins
+
+The user's batch: a rarity above legendary, a full rewrite of the lab's unknown specimens, mineral veins on every planet
+with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집품 super-category the quest system can ask about.
+
+### 신화 (mythic)
+
+- A **sixth `Rarity`**, pink `#ff6fd0`, label 「신화」 — not a flag on top of legendary. A flag would have forced every
+  rarity comparison (the new minimum-rarity guarantee, `epicPlusMul`, the shop cap) to branch twice.
+- **Drops never roll it.** `items/LootTables.RARITY_ORDER_LOOT` cuts crate and corpse rolls at legendary, so a `mythic`
+  column in a loot csv is read by nobody. Mythic exists only where something hands it over directly: the 6 unique weapons,
+  the 3 perk armors, mythic samples and mythic minerals. Consequence the user accepted: unique weapons have **left the
+  crate weapon pick** and now come from crafting, the boss-corpse unique chance and `loot_named.csv`.
+- 유니크 무기 6종 → mythic (written in code — `weapons_unique.csv` has no rarity column). 특성 방탄복 3벌 → mythic with
+  shield 100 (전설 방탄복 V 수준) **and** their perk, durability 700.
+- Rejected: a `mythic` weapon grade VI (the uniques have no grade at all, so `WeaponGrade` stays 1–5); letting the shop's
+  bag bonus reach mythic (`shopRarityCap` is now pinned to the legendary rank).
+
+### 표본 — 3 계열 × 6 등급
+
+- 18 samples: `spec_gene_*` (유전자, 토양·배양조) · `spec_cell_*` (세포, 배양조) · `spec_mineral_*` (광물, 무기). The old
+  3 + 11 retired rows were **deleted outright** — the user waived save migration for this development stage, so no
+  `item_aliases.csv` rows were added (a knowing exception to CLAUDE.md §4.1, marked at each deletion site).
+- **A sample's rarity is the floor of what it analyses into**, not the ceiling: 미확인 유전자 III(희귀) yields 희귀 이상
+  only. Low-grade samples keep every higher row as a candidate; high-grade samples lose the lower ones.
+- `analysis_results.csv` gained an optional `sampleRarity` column that binds a row to one sample rarity and exempts it
+  from the floor. Its only use today is the six 석영 결정 rows — 「미확인 광물은 등급과 상관없이 석영이 나오되 등급이
+  높을수록 많이」 — and they double as the guard that no rarity is ever left with an empty candidate list.
+- **도감 보너스가 종류별에서 등급별로 바뀌었다**: filling one codex cell speeds up every sample *of that rarity*, and a
+  sample gains its own level as you keep analysing it. The curve is deliberately front-loaded — reaching level 1 grants
+  `ANALYSIS_SAMPLE_LEVEL_FIRST` (+3 %) at once, each level after adds only `ANALYSIS_SAMPLE_LEVEL_STEP` (+0.5 %). Level
+  cap 10, combined speed-up capped at 50 %. Rejected: level 5 / cap 40 %, and an uncapped level with a flat step.
+
+### 광물 · 광맥 · 채광
+
+- Mineral veins spawn on hillsides (slope ≥ `MINING_HILL_MIN_SLOPE`) as a new **gather node**, not a destructible with HP
+  and not a tool-gated interaction — reusing the E-hold path kept world, net and UI untouched.
+- A vein's rarity uses the **gun drop table** (`loot_tiers.csv`, row `tier = 행성 threat`), so threat 1 tops out at 희귀
+  by itself. The new `mining` skill (`miningRarityBonus`) **multiplies** the weights above the lowest, so a rarity the
+  planet weights at 0 stays impossible at any skill level. No second probability table was created.
+- 일반~희귀 광물 have real uses (가구 재료 · 가구 업그레이드 · 요리); 서사 광물 1종 is a shared ingredient of every 서사
+  gun, 전설 = 쌍정석 of every 전설 gun; 신화 광물 6종 are one per unique weapon and **the uniques got craft recipes**.
+- Side effect the user ruled on: those recipes made uniques salvageable. **분해는 허용하되 신화 광물은 산출에서 빠진다** —
+  cut on rarity (`salvageYieldOf`), not on "is it unique", so any future item eating a mythic material inherits the rule.
+- 석영 결정 moved from 귀중품 to a 일반 등급 광물 like 암염 결정; both stack to 5.
+
+### 프로세서
+
+- 연산 코어 deleted; **프로세서 goes straight into the 연산 클러스터** and has durability. Every mounted processor loses
+  `PROCESSOR_WEAR_PER_CYCLE` when a mining cycle completes, and its contribution falls linearly to `PROCESSOR_PERF_MIN`
+  (0.5) at durability 0 — repair at the ship bench to get full speed back.
+- The user confirmed this is **per processor**, not per cluster: cluster speed is exponential in the mounted count, so a
+  fully worn 9-slot cluster is ~22.6× slower than a fresh one, not 2×. Rejected: multiplying the cycle rate instead of the
+  exponent, which would have made "절반" literal at the cluster level.
+- 쌍정석 1 + 연마재 1 → 결정 코어 (추출기); 결정 코어 1 + 회로 기판 4 → 프로세서 (조합대). The user asked for 회로 기판
+  without a count; **4** is the smallest value that keeps 「수리 + 분해 ≤ 제작」 true once the processor became durable gear.
+
+### 수집품 (super-category)
+
+- `SuperCategory` is a layer **on top of** `ItemCategory`, not a merge of book/disc/record/game_disc/console into one
+  category. The tooltip 종류 line reads 「수집품 > 서적」 and a quest can ask for 「가치 10,000 이상의 수집품」, while every
+  existing filter, sort, save and loot path keeps reading the unchanged `ItemCategory`.
+- The quest goal type itself is **deferred** (user's call) — this batch only lays the axis. → [TODO.md](TODO.md)
+
+### 필라멘트
+
+- Each grade's recipe drops the previous-grade filament and takes **1 of each** material; output is 1 as well, so the
+  value per craft is unchanged rather than halved in cost and doubled in yield.

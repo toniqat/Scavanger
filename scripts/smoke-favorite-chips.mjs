@@ -103,7 +103,7 @@ try {
   });
   console.log(stubbed ? 'favorites: stub (E1 API not on ctx.inventory yet)' : 'favorites: real InventoryRef API');
   // start from a clean slate for the defs this script flips
-  const FAV_IDS = ['mat_scrap', 'gem_quartz', 'gem_amber', 'sample_canister'];
+  const FAV_IDS = ['mat_scrap', 'gem_sapphire', 'gem_amber', 'sample_canister'];
   await P((ids) => { const inv = window.__game.ctx.inventory; for (const id of ids) inv.toggleFavorite(id, false); }, FAV_IDS);
 
   /* ── ① chip menu ──────────────────────────────────────────────────────── */
@@ -204,16 +204,19 @@ try {
     const where = c.inventory.tryAddItemAnywhere(it);
     return where ? it.uid : null;
   }, id);
-  const quartz = await put('gem_quartz');
+  /* 2026-09-16 (수집품 대분류, 사용자 결정): 석영 결정(`gem_quartz`)은 귀중품에서 **일반 등급 광물**(category material)로
+     옮겨 갔다 — 더 이상 `귀중품 전부 담기` 가 집지 않으므로 「즐겨찾기라서 빠졌다」를 증명하지 못한다. 아직 귀중품인
+     청옥(`gem_sapphire`)으로 바꾼다. */
+  const gemFav = await put('gem_sapphire');
   const amber = await put('gem_amber');
-  ok(!!quartz && !!amber, 'gem_quartz + gem_amber placed', `${quartz} ${amber}`);
-  await P(() => window.__game.ctx.inventory.toggleFavorite('gem_quartz', true));
+  ok(!!gemFav && !!amber, 'gem_sapphire + gem_amber placed', `${gemFav} ${amber}`);
+  await P(() => window.__game.ctx.inventory.toggleFavorite('gem_sapphire', true));
 
   // 귀중품 전부 담기 skips the favorite
   await P(() => document.querySelector('.cv-stage').click());
   await waitSim(0.1);
   let staged = await P((v) => eval(v).staged.sell.map((s) => s.uid), view);
-  ok(staged.includes(amber) && !staged.includes(quartz), '귀중품 전부 담기 stages amber, skips the favorite quartz', JSON.stringify(staged));
+  ok(staged.includes(amber) && !staged.includes(gemFav), '귀중품 전부 담기 stages amber, skips the favorite 청옥', JSON.stringify(staged));
   ok(await P(() => /즐겨찾기 \d+점 제외/.test(document.querySelector('.corp-view .form-msg')?.textContent ?? '')), 'the message says how many favorites were left out');
 
   // a non-favorite basket settles without asking (real 거래 성사 hold)
@@ -229,23 +232,23 @@ try {
   ok(await P((u) => !window.__game.ctx.inventory.findItemAnywhere(u), amber) && (await P(() => window.__game.ctx.meta.credits)) > creditsA, 'amber sold, credits up');
 
   // stage the favorite by hand → the hold opens the confirmation
-  await P((a) => { const v = eval(a.view); v.stageSell(window.__game.ctx.inventory.findItemAnywhere(a.uid)); }, { view, uid: quartz });
+  await P((a) => { const v = eval(a.view); v.stageSell(window.__game.ctx.inventory.findItemAnywhere(a.uid)); }, { view, uid: gemFav });
   const creditsB = await P(() => window.__game.ctx.meta.credits);
   await holdConfirm('.cv-confirm', 1350);
   await sleep(100);
   let ask = await P(() => { const a = document.querySelector('.cv-ask'); return { open: !!a && !a.hidden, title: a?.querySelector('.cv-ask-title')?.textContent, body: a?.querySelector('.cv-ask-body')?.textContent }; });
-  ok(ask.open && ask.title === '즐겨찾기 아이템 판매' && /석영/.test(ask.body ?? ''), 'favorite in the 판매칸 → 즐겨찾기 아이템 판매 confirmation naming it', JSON.stringify(ask));
+  ok(ask.open && ask.title === '즐겨찾기 아이템 판매' && /청옥/.test(ask.body ?? ''), 'favorite in the 판매칸 → 즐겨찾기 아이템 판매 confirmation naming it', JSON.stringify(ask));
   await P(() => document.querySelector('.cv-ask-ok').click());
   await tap('Enter');
   await sleep(150);
   ok(await P((v) => eval(v).isFavoriteAskOpen, view), 'click / Enter do not confirm');
   await holdConfirm('.cv-ask-ok', 200);
   await sleep(150);
-  ok(await P((v) => eval(v).isFavoriteAskOpen, view) && await P((u) => !!window.__game.ctx.inventory.findItemAnywhere(u), quartz), 'a short press does not confirm');
+  ok(await P((v) => eval(v).isFavoriteAskOpen, view) && await P((u) => !!window.__game.ctx.inventory.findItemAnywhere(u), gemFav), 'a short press does not confirm');
   await tap('Escape');
   await waitSim(0.25);
   ok(!(await P((v) => eval(v).isFavoriteAskOpen, view)), 'Escape cancels the confirmation');
-  ok(await P((u) => !!window.__game.ctx.inventory.findItemAnywhere(u), quartz) && (await P(() => window.__game.ctx.meta.credits)) === creditsB, '… nothing sold, credits unchanged');
+  ok(await P((u) => !!window.__game.ctx.inventory.findItemAnywhere(u), gemFav) && (await P(() => window.__game.ctx.meta.credits)) === creditsB, '… nothing sold, credits unchanged');
   ok(await P(() => window.__game.ctx.meta.isMenuOpen) && (await P((v) => eval(v).staged.sell.length, view)) === 1, '… the 기업 window and the staged basket survive');
   await holdConfirm('.cv-confirm', 1350);
   await sleep(100);
@@ -253,7 +256,7 @@ try {
   await holdConfirm('.cv-ask-ok', 1350);
   await sleep(150);
   ok(!(await P((v) => eval(v).isFavoriteAskOpen, view)), 'held 그래도 판매 closes the popup');
-  ok(await P((u) => !window.__game.ctx.inventory.findItemAnywhere(u), quartz) && (await P(() => window.__game.ctx.meta.credits)) > creditsB, 'favorite quartz sold after the 1 s hold');
+  ok(await P((u) => !window.__game.ctx.inventory.findItemAnywhere(u), gemFav) && (await P(() => window.__game.ctx.meta.credits)) > creditsB, 'favorite 청옥 sold after the 1 s hold');
 
   /* ── ④ item contracts ─────────────────────────────────────────────────── */
   console.log('item contracts');

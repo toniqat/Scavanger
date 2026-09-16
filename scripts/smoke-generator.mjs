@@ -1,8 +1,8 @@
 // Single-player smoke test for **발전기 = 증축 조건** (2026-09-13, 사용자 결정 「전력 할당 시스템 제거」 — housing `Rules.purposeBuildBlockReason` ·
-// `ShipState` v13 · ui `hud/ShipManage` 발전기 행). 옛 `smoke-power`(전력 할당 · 비활성화 · 멈춘 시계)를 대체한다.
+// `ShipState` sanitize · ui `hud/ShipManage` 발전기 행). 옛 `smoke-power`(전력 할당 · 비활성화 · 멈춘 시계)를 대체한다.
 //   0. 계약: 전력 API 7종(`getPowerOverview` · `getFacilityPower` · `setPowerAllocation` · `isFurnitureDisabled` · `setFurnitureDisabled` ·
 //      `getOperationalBenchLevel` · `benchOperationalBlock`)이 `ctx.housing` 에 없다 · 남은 질의(`furnitureOperationalBlock` · `stationNow`) ·
-//      새 함선 = v13 · 발전기 Lv.1 · 최대 Lv.5 (= constants.csv) · 전력 필드(`powerAlloc` · `pausedAt` · `disabledFurniture`) 없음.
+//      새 함선 = `SHIP_STATE_VERSION_CURRENT` · 발전기 Lv.1 · 최대 Lv.5 (= constants.csv) · 전력 필드(`powerAlloc` · `pausedAt` · `disabledFurniture`) 없음.
 //   1. 증축 게이트: 발전기 Lv.1–5 × 지을 수 있는 용도 — `purposeGeneratorLevel` = room_purposes.csv `generator` · `purposeBlock` 에
 //      `발전기 레벨 N 필요 (현재 M)` 가 레벨이 모자랄 때만 · `purposeRequirements` 는 **채워진 요구도** 돌려준다
 //      (2026-09-14 — 재료 칩처럼 `현재/필요`; 빈 배열은 요구가 시작 레벨 이하일 때뿐) · 온실 선행(`Rules.NEEDS_GREENHOUSE`,
@@ -113,6 +113,9 @@ try {
   await page.evaluate(() => { localStorage.removeItem('scav.s1.ship'); localStorage.removeItem('scav.s1.stash'); localStorage.removeItem('scav.s1.grant'); });
   await page.reload({ waitUntil: 'load' });
   await waitFor(page, () => !!window.__game && !!window.__game.ctx.inventory && !!window.__game.ctx.housing && !!window.__game.ctx.loot, 'boot');
+  /* 저장된 함선 문서에 찍히는 번호는 계약의 `SHIP_STATE_VERSION` 이 아니라 **디스크 판** `ShipState.SHIP_STATE_VERSION_CURRENT`
+     다 (2026-09-16 에 표본 레벨 · 프로세서 칸이 들어오며 14). 숫자를 박으면 판이 오를 때마다 빨개지므로 부팅 뒤에 읽는다. */
+  const SHIP_V = await H(async () => (await import('/src/housing/ShipState.ts')).SHIP_STATE_VERSION_CURRENT);
   await pumpFrames();
   await H(() => {
     window.__ev = {};
@@ -177,7 +180,7 @@ try {
   ok(CSV_CONST.GENERATOR_START_LEVEL === 1 && CSV_CONST.GENERATOR_MAX_LEVEL === 5, `constants.csv: 발전기 시작 Lv.${CSV_CONST.GENERATOR_START_LEVEL} · 최대 Lv.${CSV_CONST.GENERATOR_MAX_LEVEL}`);
   ok(c0.gen === CSV_CONST.GENERATOR_START_LEVEL && c0.facLevel === c0.gen && c0.max === CSV_CONST.GENERATOR_MAX_LEVEL,
     `새 함선: 발전기 Lv.${c0.gen} · getFacility maxLevel ${c0.max}`, JSON.stringify(c0));
-  ok(c0.version === 13 && c0.powerKeys.length === 0, `새 함선 state v${c0.version} · 전력 필드 없음`, JSON.stringify(c0.powerKeys));
+  ok(c0.version === SHIP_V && c0.powerKeys.length === 0, `새 함선 state v${c0.version} · 전력 필드 없음`, JSON.stringify(c0.powerKeys));
 
   /* ══ 1. 증축 게이트 ════════════════════════════════════════════════════════ */
   console.log('증축 게이트 — 발전기 Lv.1–5 × 용도');
@@ -344,9 +347,12 @@ try {
     `Lv.5: nextCost null · 「${g3.top.blocked}」 · 강화 거절`, JSON.stringify(g3.top));
 
   /* ══ 4. sanitize 이관 ═════════════════════════════════════════════════════ */
-  console.log('ShipState v13 — 발전기 레벨 · 모자란 시설 제거 + 환불');
+  console.log('ShipState sanitize — 발전기 레벨 · 모자란 시설 제거 + 환불');
   const bookId = await H(() => window.__game.ctx.loot.getAllItemDefs().find((d) => d.book && !d.retired && /^book_[A-Za-z0-9_]+$/.test(d.id))?.id ?? null);
-  const mig = await H(async ({ bookId, POWER_FIELDS }) => {
+  /* 2026-09-16 (사용자 결정, 표본 전면 개편): 옛 `spec_cell` 은 아이템 표에서 줄째로 사라졌다 (세이브 마이그레이션 없음).
+     해석 중이던 표본이 **정말 환불되는지**를 보는 검사이므로 살아 있는 표본 id 를 표에서 찾아 쓴다. */
+  const sampleId = await H(() => window.__game.ctx.loot.getAllItemDefs().find((d) => d.sample && !d.retired)?.id ?? null);
+  const mig = await H(async ({ bookId, sampleId, POWER_FIELDS }) => {
     const S = await import('/src/housing/ShipState.ts');
     const R = await import('/src/housing/Rules.ts');
     const SH = await import('/src/shared/index.ts');
@@ -389,7 +395,7 @@ try {
         ],
         books: bookId ? [{ uid: 'f-22', slot: 0, defId: bookId }] : [],
         bookDex: bookId ? [bookId] : [],
-        analyses: [{ uid: 'f-21', slot: 0, sampleDefId: 'spec_cell', startedAt: 1000, readyAt: 5000 }],
+        analyses: [{ uid: 'f-21', slot: 0, sampleDefId: sampleId, startedAt: 1000, readyAt: 5000 }],
         powerAlloc: { 1: 4, 2: 6, 3: 3 }, disabledFurniture: ['f-21'], pausedAt: { 'f-20': 123456 },
       };
       window.__v12Doc = doc;                         // 7번(진짜 로드 경로)이 같은 문서를 쓴다
@@ -398,7 +404,7 @@ try {
       R.mergeCost(want, SH.ROOM_PURPOSE_BUILD_COST.lab);
       R.mergeCost(want, SH.ROOM_PURPOSE_BUILD_COST.library);
       if (bookId) R.mergeCost(want, [{ defId: bookId, qty: 1 }]);
-      R.mergeCost(want, [{ defId: 'spec_cell', qty: 1 }]);
+      R.mergeCost(want, [{ defId: sampleId, qty: 1 }]);
       window.__v12Want = want;
       const again = run(JSON.parse(JSON.stringify(a.s)));
       const stored = Object.fromEntries(a.s.furnitureStorage.map((x) => [x.defId, x.qty]));
@@ -414,8 +420,23 @@ try {
       };
     }
     return r;
-  }, { bookId, POWER_FIELDS });
+  }, { bookId, sampleId, POWER_FIELDS });
   ok(!!bookId, `서적 def 하나 (${bookId})`);
+  ok(!!sampleId, `미확인 표본 def 하나 (${sampleId})`);
+  /* 2026-09-16: 옛 세이브의 환불 목록에는 **이제 없는 def** 가 들어 있을 수 있다 (표본 전면 개편처럼 줄째로 지운 변경 —
+     사용자 결정으로 마이그레이션이 없다). 이 환불은 `HousingSystem.update` 첫 프레임에서 불리므로, 던지면 housing 이
+     통째로 멈춘다 (`[Engine] update failed in housing`). 경고만 남기고 건너뛰어야 하고, 같은 자루의 나머지는 들어와야 한다. */
+  const ghostRefund = await H(async () => {
+    const ctx = window.__game.ctx, h = ctx.housing;
+    const live = ctx.loot.getAllItemDefs().find((d) => d.category === 'material' && !d.retired).id;
+    const n0 = ctx.inventory.countDefAll(live);
+    let threw = null;
+    let lost = -1;
+    try { lost = h.refundToStash([{ defId: 'spec_gone_from_the_table', qty: 2 }, { defId: live, qty: 1 }]); } catch (e) { threw = String(e); }
+    return { threw, lost, live, gained: ctx.inventory.countDefAll(live) - n0 };
+  });
+  ok(ghostRefund.threw === null && ghostRefund.lost === 0 && ghostRefund.gained === 1,
+    `사라진 def 가 섞인 환불: 던지지 않고 건너뛴다 · 살아 있는 재료(${ghostRefund.live})는 창고에 들어온다`, JSON.stringify(ghostRefund));
   ok(mig.gen0.gen === 1 && mig.gen0.room0 === 'workshop' && mig.gen0.removed === 0 && mig.gen0.refund === 0,
     `발전기 0 → 1 · 작업실(Lv.1) 유지 · 환불 없음`, JSON.stringify(mig.gen0));
   ok(mig.gen0.ghGen === 1 && mig.gen0.ghRoom === 'empty' && mig.gen0.ghRemoved === 1 && same(bagOf(mig.gen0.ghRefund), bagOf(CSV_PURPOSE.greenhouse.cost)),
@@ -424,11 +445,11 @@ try {
     && mig.gen8.refund8.length === 0 && same(mig.gen8.refund8, mig.gen8.refund5) && mig.gen8.stored8 === mig.gen8.stored5,
     `발전기 8 → 5 · 채굴 시설 유지 · 환불은 발전기 5 세이브와 같다 (옛 Lv.6–8 환불 없음)`, JSON.stringify(mig.gen8));
   const v = mig.v12;
-  ok(v.spot && v.version === 13 && v.gen === 2 && same(v.rooms, ['empty', 'greenhouse', 'empty', 'empty']) && same(v.station, ['f-20@1']),
+  ok(v.spot && v.version === SHIP_V && v.gen === 2 && same(v.rooms, ['empty', 'greenhouse', 'empty', 'empty']) && same(v.station, ['f-20@1']),
     `v12 세이브(발전기 2): 온실 · 재배 스테이션 유지 · 연구실(Lv.3) · 서재(Lv.4) → 빈 방 (${v.rooms.join(' ')})`, JSON.stringify(v));
   ok(v.placedGone === 0 && v.stored.furn_analyzer === 1 && v.stored.furn_bookshelf === 1 && v.books === 0 && v.analyses === 0 && (!bookId || v.bookDex.includes(bookId)),
     `제거된 방의 분석기 · 책장 → 가구 창고 · 칸은 비고 도감은 남는다`, JSON.stringify({ stored: v.stored, books: v.books, analyses: v.analyses, dex: v.bookDex }));
-  ok(same(bagOf(v.refund), bagOf(v.want)) && same(bagOf([...CSV_PURPOSE.lab.cost, ...CSV_PURPOSE.library.cost, { defId: 'spec_cell', qty: 1 }, ...(bookId ? [{ defId: bookId, qty: 1 }] : [])]), bagOf(v.want)),
+  ok(same(bagOf(v.refund), bagOf(v.want)) && same(bagOf([...CSV_PURPOSE.lab.cost, ...CSV_PURPOSE.library.cost, { defId: sampleId, qty: 1 }, ...(bookId ? [{ defId: bookId, qty: 1 }] : [])]), bagOf(v.want)),
     `환불 = 연구실 + 서재 증축 재료(csv) + 꽂힌 책 + 해석 중이던 표본`, JSON.stringify({ got: bagOf(v.refund), want: bagOf(v.want) }));
   ok(v.removed === 2 && v.migratedRooms === true && v.powerKeys.length === 0, `removedByGenerator ${v.removed} · migratedRooms · 전력 필드 없음 (${v.powerKeys.join(',') || '-'})`);
   ok(v.again.removed === 0 && v.again.refund === 0 && v.again.migratedRooms === false && same(v.again.rooms, v.rooms), '정리된 세이브를 다시 읽으면 아무것도 바뀌지 않는다', JSON.stringify(v.again));
@@ -584,14 +605,14 @@ try {
     };
   }, { POWER_FIELDS });
   ok(!!toastOk, `토스트 「발전기 레벨이 모자란 시설 2곳을 제거했습니다 — …」`, JSON.stringify(load.toasts));
-  ok(load.version === 13 && load.gen === 2 && same(load.rooms, ['empty', 'greenhouse', 'empty', 'empty']) && load.station === 1
+  ok(load.version === SHIP_V && load.gen === 2 && same(load.rooms, ['empty', 'greenhouse', 'empty', 'empty']) && load.station === 1
     && load.stored.furn_analyzer === 1 && load.stored.furn_bookshelf === 1 && load.powerKeys.length === 0,
-    `로드된 함선: v13 · 발전기 2 · 온실만 남음 · 분석기 · 책장은 가구 창고 · 전력 필드 없음`, JSON.stringify(load));
+    `로드된 함선: v${SHIP_V} · 발전기 2 · 온실만 남음 · 분석기 · 책장은 가구 창고 · 전력 필드 없음`, JSON.stringify(load));
   const got7 = bagOf(ids7.map((id) => ({ defId: id, qty: post[id] - pre[id] })));
   ok(same(got7, bagOf(want7)), `환불이 함선 창고에 들어왔다 (${JSON.stringify(got7)})`, JSON.stringify({ want: bagOf(want7), pre, post }));
   await sleep(700);                                      // markDirty debounce → 다시 쓴 세이브
   const saved = await H(({ POWER_FIELDS }) => { try { const j = JSON.parse(localStorage.getItem('scav.s1.ship')); return { v: j.version, keys: POWER_FIELDS.filter((k) => k in j), rooms: j.rooms.slice(0, 4).map((x) => x.purpose) }; } catch (e) { return { err: String(e) }; } }, { POWER_FIELDS });
-  ok(saved.v === 13 && saved.keys.length === 0 && same(saved.rooms, ['empty', 'greenhouse', 'empty', 'empty']), `정리된 상태가 localStorage 에 다시 저장됐다 (v${saved.v})`, JSON.stringify(saved));
+  ok(saved.v === SHIP_V && saved.keys.length === 0 && same(saved.rooms, ['empty', 'greenhouse', 'empty', 'empty']), `정리된 상태가 localStorage 에 다시 저장됐다 (v${saved.v})`, JSON.stringify(saved));
 
   await H(() => { for (const k of ['scav.s1.ship', 'scav.s1.stash', 'scav.s1.grant']) localStorage.removeItem(k); });
   ok(errors.length === 0, `no page errors (${errors.length})`, errors.slice(0, 3).join(' | '));

@@ -7,11 +7,13 @@ import type { HousingSystem } from '../HousingSystem';
 import { LIBRARY_GLYPH, SHELF_GLYPH, SHELF_OBJ_KO, SHELF_UNIT_KO, shelfHolderName } from '../model';
 import { libraryLineValue, librarySeriesOfItem, shelfHolderMediumOfItem } from '../Rules';
 import { HousingPanel } from './Panel';
-import { type BookDexView, createBookDex, gameDiscText, libraryEffectText, seriesTint, volumeRoman } from './BookDex';
+import { type BookDexView, createBookDex, gameDiscText, libraryEffectText, volumeRoman } from './BookDex';
 import { ProductDrag } from './ProductDrag';
 import type { Product } from './ProductDrag';
-import { type ShelfDrawing, buildShelfDrawing, paintShelfSlot } from './ShelfDrawing';
+import { buildStationItemTile, cellToFit } from './ItemTile';
+import { type ShelfDrawing, buildShelfDrawing, paintShelfSlot, shelfSlotBox } from './ShelfDrawing';
 import { buildStationShell, mountStationGrids } from './StationShell';
+import type { StationGridsView } from './StationShell';
 import type { StationShell } from './StationShell';
 import { clear, el, setText, toggleClass } from './dom';
 
@@ -70,7 +72,7 @@ export class BookshelfMenu extends HousingPanel {
   private readonly dex: BookDexView;
   private readonly drag: ProductDrag;
   private drawing: ShelfDrawing | null = null;
-  private grids: EmbeddedView | null = null;
+  private grids: StationGridsView | null = null;
   private hoverSlot: number | null = null;
   private railKey = '';
   private libKey = '';
@@ -119,6 +121,8 @@ export class BookshelfMenu extends HousingPanel {
       productAt: (t) => this.productAt(t),
       collect: (key) => this.take(Number(key)),
       defOf: (id) => housing.defOf(id),
+      // 2026-09-16: 빼서 놓은 **그 칸**으로 간다 (격자는 열릴 때 만들어지므로 함수로 준다)
+      grids: () => this.grids,
       onDragStart: () => this.setHover(null),
     });
     this.caseHost.addEventListener('pointerover', (e) => { if (!this.drag.dragging) this.setHover(this.slotAt(e.target as Element | null)); });
@@ -395,27 +399,33 @@ export class BookshelfMenu extends HousingPanel {
     setText(this.countEl, shelf ? `${filled} / ${slots}${SHELF_UNIT_KO[m]}` : `${holder}이(가) 사라졌습니다`);
 
     this.buildDrawing(m);
+    // 2026-09-16: 칸에 서는 것은 가방과 **같은 타일**이다 — 칸 상자에 맞는 칸 크기를 발자국에서 잰다 (`ui/ItemTile`)
+    const box = shelfSlotBox(m);
+    const tileOf = (defId: string): HTMLElement => {
+      const d = h.defOf(defId);
+      return buildStationItemTile(this.ctx, defId, { cell: cellToFit(box.width, box.height, d?.width ?? 1, d?.height ?? 1) });
+    };
     const states = h.librarySeriesStates();
     for (const view of this.drawing!.slots) {
       const info = infos[view.slot];
       const def = info?.defId ? h.defOf(info.defId) : undefined;
       if (!info || !info.defId) {
         // 2026-09-14 (사용자 결정): 빈 칸은 아무 말도 하지 않는다 — 호버해도 정보 줄이 비어 있다
-        paintShelfSlot(view, { defId: null, color: '', glyph: '', label: '', line: '' });
+        paintShelfSlot(view, { defId: null, line: '' }, tileOf);
         continue;
       }
       const name = def?.name ?? info.defId;
       if (game) {
         paintShelfSlot(view, {
-          defId: info.defId, color: def?.gameDisc?.color || '#9ff0c8', glyph: def?.icon || SHELF_GLYPH[m], label: name,
+          defId: info.defId,
           line: `${name}${def ? ` · ${gameDiscText(this.ctx, def)}` : ''}`,
-        });
+        }, tileOf);
         continue;
       }
       const s = librarySeriesOfItem(def);
       const series = s ? LIBRARY_SERIES_MAP.get(s.seriesId) : undefined;
       if (!s || !series) {
-        paintShelfSlot(view, { defId: info.defId, color: '#9aa3ad', glyph: def?.icon || SHELF_GLYPH[m], label: name, line: `${name} · 효과 없음` });
+        paintShelfSlot(view, { defId: info.defId, line: `${name} · 효과 없음` }, tileOf);
         continue;
       }
       const st = states.get(series.id);
@@ -424,13 +434,10 @@ export class BookshelfMenu extends HousingPanel {
       const progress = series.volumes > 1 ? ` ${volumeRoman(s.volume)} (${st?.have ?? 0} / ${series.volumes}${SHELF_UNIT_KO[m]} · 몫 ${pct(fraction)})` : ` (단편 · 몫 ${pct(fraction)})`;
       paintShelfSlot(view, {
         defId: info.defId,
-        color: seriesTint(series.id),
-        glyph: def?.icon || SHELF_GLYPH[m],
-        label: series.name,
         volume: series.volumes > 1 ? volumeRoman(s.volume) : '',
         full: fraction >= 1,
         line: `${name} · ${series.name}${progress}${st ? ` · ${effects}` : ''}`,
-      });
+      }, tileOf);
     }
     this.paintInfo();
   }

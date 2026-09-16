@@ -1,18 +1,25 @@
 // Single-player smoke test for **암호화폐 채굴 — housing 규칙 · 지갑 · 거래소 · 데이터** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, agent ③).
 // 화면(housing/ui/mining)은 이 스모크의 몫이 아니다 — 여기서는 `ctx.housing` API · `state` · 세이브 · `ctx.meta.creditsTx` · 데이터만 본다:
-//   0. 순수 규칙 — `coinCycleMs` 가 코어마다 절반, `MiningRules.takeCompletedCycles` / `foldProgress` / `sanitizeClusters`(코어 클램프 ·
-//      진행도 [0,1) · 구간 시작 · 코인 id 모양 · 중복 uid · 배치되지 않은 uid 의 코어 = orphanCores) / `sanitizeUnitsMap`.
-//   1. 데이터 — 프로세서 · 연산 코어 def(전설), 가공 작업대 레시피, 상자 티어 배수(프로세서 T4 · T5 만, 코어 0), 안드로이드 시체 줄.
+// **2026-09-16 (사용자 결정 — 연산 코어 폐지)**: 클러스터에 꽂히는 것은 **프로세서**(`mat_processor`, 내구도 500)다. 중간 재료였던
+// 연산 코어(`mat_compute_core`)는 아이템 표에서 사라졌고, 칸은 「개수 하나」가 아니라 **칸마다의 남은 내구도**(`processors`)다.
+// 속도는 개수가 아니라 **성능 합**(`clusterPerf`)에서 나고, 주기가 끝날 때마다 꽂힌 전부가 `PROCESSOR_WEAR_PER_CYCLE` 만큼 닳는다.
+//   0. 순수 규칙 — `coinCycleMs` 가 코어마다 절반, `processorCells` / `processorCount` / `clusterPerf` / `clusterCycleMs`(다 닳은 둘 =
+//      새것 하나) / `wearProcessors`, `takeCompletedCycles` / `foldProgress` / `sanitizeClusters`(칸 목록 정리 · 진행도 [0,1) ·
+//      구간 시작 · 코인 id 모양 · 중복 uid · 배치되지 않은 uid 의 프로세서와 **옛 세이브의 `cores`** = orphanCores) / `sanitizeUnitsMap`.
+//   1. 데이터 — 프로세서 def(전설 2×1 · 내구도 500), 조합대 레시피 `mix_processor`(결정 코어 + 회로 기판), 연산 코어 def 는 **없다**,
+//      상자 티어 배수 0(제작 사슬의 끝이라 상자에서 나오지 않는다), 안드로이드 시체에도 없다.
 //   2. 채굴 시설 — 방 용도 mining · 메인 컴퓨터 1 + 클러스터 2 제작 · 배치(클러스터는 `multi` 라 두 번째도 제작, 컴퓨터는 「이미 보유 중」),
 //      2026-09-13 전력 할당 폐지 — 전력 API 가 없고 메인 컴퓨터가 있으면 `furnitureOperationalBlock` 은 null.
-//   3. 클러스터 — 코인 미지정 사유, 잠긴 코인 거절(`<기업> 퀘스트 「…」 완료 필요`), 코어 없음 사유, 코어 넣기(가방 → 창고 소모) · 주기가 코어마다
-//      절반, 가짜 시간(구간 시작을 되돌림) → 틱이 끝난 주기를 한 번에 넣음(`housing:cryptoMined` 1건 · `walletChanged mined` · 진행도 소수 부분 유지),
-//      코어 수 변경 = 끝난 주기 넣고 진행도 접기, 멈춘 시계 없음(`stationNow` = `nowMs`) · 메인 컴퓨터 회수 = 사유 + 채굴 안 함(끝난 주기를
-//      넣지 않고 구간만 지금으로) → 다시 놓으면 그 자리에서 이어감, 코인 변경 = 진행도 0, 퀘스트 완료(가짜) 뒤 잠긴 코인 허용,
-//      코어 빼기(가방 · 창고로), 코어가 꽂힌 클러스터 회수 거절(`코어를 먼저 빼세요`) → 빼면 회수 · 칸 지움, `devAdvanceMining`.
+//   3. 클러스터 — 코인 미지정 사유, 잠긴 코인 거절(`<기업> 퀘스트 「…」 완료 필요`), 프로세서 없음 사유, 프로세서 넣기(가방 → 창고 소모) ·
+//      주기가 한 개마다 절반, 가짜 시간(구간 시작을 되돌림) → 틱이 끝난 주기를 한 번에 넣음(`housing:cryptoMined` 1건 ·
+//      `walletChanged mined` · 진행도 소수 부분 유지) **+ 꽂힌 전부가 주기 수만큼 닳는다**, 프로세서 수 변경 = 끝난 주기 넣고 진행도
+//      접기 · 주기는 늘 `clusterCycleMs(코인, 성능 합)`, 멈춘 시계 없음(`stationNow` = `nowMs`) · 메인 컴퓨터 회수 = 사유 + 채굴 안 함(끝난
+//      주기를 넣지 않고 구간만 지금으로) → 다시 놓으면 그 자리에서 이어감, 코인 변경 = 진행도 0, 퀘스트 완료(가짜) 뒤 잠긴 코인 허용,
+//      프로세서 빼기(가방 · 창고로 — 내구도 그대로), 꽂힌 클러스터 회수 거절(`프로세서를 먼저 빼세요`) → 빼면 회수 · 칸 지움, `devAdvanceMining`.
 //   4. 거래소 — 서버 없음 = `서버에 연결되어야 합니다`, 시세 스텁 → 매도(크레딧 +floor(가격 × 코인 × (1 − 수수료)) · 지갑 −) · 매수(올림 · 지갑 +) ·
 //      잔고 부족 · 크레딧 부족 · 최대 단위 · 잠긴 코인 · 서버 거절이면 지갑 복구 · `creditsTx` 로컬 거절, 콘솔 `crypto wallet`.
-//   5. 세이브 — `sanitize` 왕복(클러스터 · 지갑 · 누적 채굴 그대로), 배치되지 않은 클러스터의 코어 → `out.refund`, localStorage 에 적힌 것도 같다.
+//   5. 세이브 — `sanitize` 왕복(클러스터 칸 목록 · 지갑 · 누적 채굴 그대로), 배치되지 않은 클러스터의 프로세서 → `out.refund`
+//      (내구도를 실을 수 없는 자루라 **새것으로** 돌아간다), localStorage 에 적힌 것도 같다.
 // Usage: node scripts/smoke-mining.mjs [http://localhost:5273/]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -107,22 +114,40 @@ try {
     o.cycles = [1, 2, 3, 9].map((n) => S.coinCycleMs(scrap, n));
     o.cycle0 = S.coinCycleMs(scrap, 0) === Infinity;   // Infinity 는 page.evaluate 직렬화를 못 지난다 — 여기서 비교한다
     o.base = scrap.cycleHours * 3600e3;
-    const s1 = { uid: 'f-1', cores: 1, progress: 0.25, segmentAt: 1000 };
+    /* 2026-09-16 (사용자 결정 — 연산 코어 폐지): 칸은 개수가 아니라 **칸마다의 남은 내구도**다.
+       `MAX` 는 순수 함수에 넘기는 「프로세서 최대 내구도」라 아이템 표를 읽지 않는다 (여기서는 100 으로 잡는다). */
+    const MAX = 100;
+    o.perfMin = S.PROCESSOR_PERF_MIN;
+    o.wearPer = S.PROCESSOR_WEAR_PER_CYCLE;
+    // 길이를 맞추고 숫자가 아닌 값은 빈 칸, **음수는 다 닳은 것(0)** 으로 붙든다 — 칸을 지우면 플레이어의 프로세서가
+    // 조용히 사라진다. 2026-09-16: 세이브 정리 쪽 `readProcessors` 가 이 함수를 그대로 부르므로 두 경로가 같은 규칙이다.
+    o.cells = R.processorCells({ processors: [MAX, 'x', null, -3, 40] }, 4);
+    o.count = R.processorCount({ processors: [MAX, null, 0, 40] });            // 내구도 0 도 「꽂힌 것」이다
+    o.perfNew = R.clusterPerf({ processors: [MAX, MAX] }, MAX);                // 새것 둘 = 2
+    o.perfWorn = R.clusterPerf({ processors: [0, 0] }, MAX);                   // 다 닳은 둘 = 새것 하나 몫
+    o.cycleParity = [1, 2, 5].every((n) => R.clusterCycleMs(scrap, n) === S.coinCycleMs(scrap, n));
+    o.cycleWornPair = R.clusterCycleMs(scrap, o.perfWorn) === S.coinCycleMs(scrap, 1);
+    o.cycle0Perf = R.clusterCycleMs(scrap, 0) === Infinity;
+    const w = { uid: 'w', processors: [MAX, 0, null, 3], progress: 0, segmentAt: 0 };
+    o.wear = [R.wearProcessors(w, 2), w.processors.slice()];                   // 꽂힌 전부가 주기 수만큼, 0 에서 멈춘다
+    o.wear0 = R.wearProcessors({ uid: 'w', processors: [MAX], progress: 0, segmentAt: 0 }, 0) === false;
+    const s1 = { uid: 'f-1', processors: [MAX], progress: 0.25, segmentAt: 1000 };
     o.take = [R.takeCompletedCycles(s1, 1000, 3750), s1.progress, s1.segmentAt, R.takeCompletedCycles(s1, 1000, 4000), s1.progress];
-    const s2 = { uid: 'f-1', cores: 2, progress: 0.1, segmentAt: 0 };
+    const s2 = { uid: 'f-1', processors: [MAX, MAX], progress: 0.1, segmentAt: 0 };
     R.foldProgress(s2, 1000, 400);
     o.fold = [s2.progress, s2.segmentAt];
-    const s3 = { uid: 'f-1', cores: 0, progress: 0.3, segmentAt: 0 };
+    const s3 = { uid: 'f-1', processors: [], progress: 0.3, segmentAt: 0 };
     R.foldProgress(s3, Infinity, 999);
     o.foldInf = [s3.progress, s3.segmentAt];
     const san = R.sanitizeClusters([
-      { uid: 'f-1', cores: 12, progress: 5, segmentAt: 'x', coinId: 'BAD!' },
-      { uid: 'f-1', cores: 3, coinId: 'volt' },
-      { uid: 'f-9', cores: 4, coinId: 'scrap' },
-      { uid: 'f-2', cores: 0, progress: 0.5, segmentAt: 5 },
-      { uid: 'f-3', cores: 2.7, progress: -1, segmentAt: 42, coinId: 'volt' },
+      { uid: 'f-1', processors: [500, 'x', null, -3, 250, 500, 500, 500, 500, 500, 500], progress: 5, segmentAt: 'x', coinId: 'BAD!' },
+      { uid: 'f-1', processors: [500, 500, 500], coinId: 'volt' },                        // 같은 uid 의 두 번째 칸은 세지 않고 버린다
+      { uid: 'f-9', processors: [500, 500, 500, 500], coinId: 'scrap' },                  // 배치되지 않음 → 꽂혀 있던 4개가 orphanCores
+      { uid: 'f-2', processors: [], progress: 0.5, segmentAt: 5 },                        // 코인도 프로세서도 없다 → 칸을 남기지 않는다
+      { uid: 'f-3', processors: [null, 120], progress: -1, segmentAt: 42, coinId: 'volt' },
+      { uid: 'f-4', cores: 3, coinId: 'volt', progress: 0.2, segmentAt: 7 },              // 옛 세이브 — 꽂지 않고 프로세서로 환불한다
       null, 'junk',
-    ], new Set(['f-1', 'f-2', 'f-3']), 9, 777);
+    ], new Set(['f-1', 'f-2', 'f-3', 'f-4']), 9, 777);
     o.san = san;
     o.units = R.sanitizeUnitsMap({ scrap: 12.9, volt: -3, 'Bad-Key': 5, pulse: 'x', void: 0, helix: Infinity });
     return o;
@@ -130,15 +155,34 @@ try {
   ok(pure.cycles[0] === pure.base && pure.cycles[1] === pure.base / 2 && pure.cycles[2] === pure.base / 4 && pure.cycles[3] === pure.base / 256,
     'coinCycleMs — 코어 1 = 기준 · 2 = 50 % · 3 = 25 % · 9 = 1/256', JSON.stringify(pure.cycles));
   ok(pure.cycle0 === true, 'coinCycleMs — 코어 0 = Infinity');
+  ok(JSON.stringify(pure.cells) === JSON.stringify([100, null, null, 0]) && pure.count === 3,
+    'processorCells — 격자 길이로 맞추고 숫자 아닌 값은 빈 칸 · 음수는 0 · processorCount 는 내구도 0 도 센다', JSON.stringify([pure.cells, pure.count]));
+  ok(pure.perfNew === 2 && near(pure.perfWorn, 2 * pure.perfMin, 1e-9) && near(pure.perfWorn, 1, 1e-9),
+    `clusterPerf — 새것은 1씩 · 다 닳은 것은 ${pure.perfMin} 씩 (다 닳은 둘 = 새것 하나 몫)`, JSON.stringify([pure.perfNew, pure.perfWorn]));
+  ok(pure.cycleParity && pure.cycleWornPair && pure.cycle0Perf,
+    'clusterCycleMs — 성능 합이 정수면 coinCycleMs 와 같은 값 · 다 닳은 둘 = 새것 하나의 주기 · 성능 0 = Infinity');
+  ok(pure.wear[0] === true && JSON.stringify(pure.wear[1]) === JSON.stringify([100 - 2 * pure.wearPer, 0, null, 0]) && pure.wear0,
+    `wearProcessors — 꽂힌 전부가 주기 수 × ${pure.wearPer} 만큼 닳고 0 에서 멈춘다 · 빈 칸은 그대로 · 0 주기면 아무것도 안 한다`, JSON.stringify(pure.wear));
   ok(pure.take[0] === 3 && near(pure.take[1], 0, 1e-9) && pure.take[2] === 3750 && pure.take[3] === 0 && near(pure.take[4], 0, 1e-9),
     'takeCompletedCycles — 끝난 주기 3 · 소수 부분 · 새 구간, 다시 부르면 0 (구간은 그대로)', JSON.stringify(pure.take));
   ok(near(pure.fold[0], 0.5, 1e-9) && pure.fold[1] === 400 && pure.foldInf[0] === 0.3 && pure.foldInf[1] === 999,
     'foldProgress — 옛 주기로 접고 새 구간 · 주기 없으면 진행도 그대로', JSON.stringify([pure.fold, pure.foldInf]));
   const sc = pure.san.clusters;
-  ok(sc.length === 2 && sc[0].uid === 'f-1' && sc[0].cores === 9 && sc[0].progress < 1 && sc[0].segmentAt === 777 && !('coinId' in sc[0])
-    && sc[1].uid === 'f-3' && sc[1].cores === 2 && sc[1].progress === 0 && sc[1].segmentAt === 42 && sc[1].coinId === 'volt',
-  'sanitizeClusters — 코어 클램프 · 진행도 [0,1) · 구간 시작 · 코인 모양 · 중복 uid 버림 · 빈 칸 버림', JSON.stringify(sc));
-  ok(pure.san.orphanCores === 4, 'sanitizeClusters — 배치되지 않은 클러스터의 코어 = orphanCores 4', String(pure.san.orphanCores));
+  const mounted = (s) => (s?.processors ?? []).filter((v) => v !== null).length;
+  /* 2026-09-16: 세이브 정리(`readProcessors`)는 `processorCells` 를 그대로 부른다 — 두 경로가 갈리면 같은 세이브가
+     읽는 쪽에 따라 프로세서 하나를 꽂힌 것으로도 빈 칸으로도 보게 된다. 그래서 음수 내구도(손으로 고친 세이브)는
+     **여기서도 0 으로 조여 꽂아 둔다** (칸을 비우면 플레이어의 아이템이 조용히 사라진다). 아래 `processors[3] === 0`
+     이 그 합의를 붙든다 — null 로 되돌아가면 두 함수가 다시 갈라진 것이다. */
+  ok(sc.length === 3 && sc[0].uid === 'f-1' && sc[0].processors.length === 9 && mounted(sc[0]) === 7 && sc[0].processors[4] === 250
+    && sc[0].processors[1] === null && sc[0].processors[3] === 0 && sc[0].progress < 1 && sc[0].segmentAt === 777 && !('coinId' in sc[0])
+    && sc[1].uid === 'f-3' && mounted(sc[1]) === 1 && sc[1].processors[1] === 120 && sc[1].progress === 0 && sc[1].segmentAt === 42 && sc[1].coinId === 'volt',
+  'sanitizeClusters — 칸 목록을 격자 길이로 · 숫자 아닌 값은 빈 칸 · 음수는 0 · 진행도 [0,1) · 구간 시작 · 코인 모양 · 중복 uid 버림 · 빈 칸 버림', JSON.stringify(sc));
+  /* 2026-09-16 (사용자 결정 — 연산 코어 폐지): 옛 세이브의 `cores` 는 **꽂히지 않는다**. 세이브 정리는 순수 함수라 프로세서의
+     최대 내구도를 모르므로 내구도를 지어내지 않고, 같은 수만큼 새 프로세서로 함선 창고에 환불한다 (f-9 의 4 + f-4 의 3 = 7). */
+  ok(sc[2].uid === 'f-4' && sc[2].processors.every((v) => v === null) && sc[2].coinId === 'volt' && !('cores' in sc[2]),
+    'sanitizeClusters — 옛 세이브의 cores 는 칸에 꽂히지 않는다 (코인만 남는다)', JSON.stringify(sc[2]));
+  ok(pure.san.orphanCores === 7,
+    'sanitizeClusters — 배치되지 않은 클러스터의 프로세서 4 + 옛 cores 3 = orphanCores 7', String(pure.san.orphanCores));
   ok(JSON.stringify(pure.units) === JSON.stringify({ scrap: 12 }), 'sanitizeUnitsMap — id 모양 키 · 정수 ≥ 1 만', JSON.stringify(pure.units));
 
   /* ══ 1. 데이터 ═══════════════════════════════════════════════════════════ */
@@ -147,29 +191,33 @@ try {
     const ctx = window.__game.ctx;
     const LT = await import('/src/items/LootTables.ts');
     const p = ctx.loot.getItemDef('mat_processor'), c = ctx.loot.getItemDef('mat_compute_core');
-    const rec = ctx.loot.getAllRecipes().find((r) => r.outputDefId === 'mat_compute_core');
+    const rec = ctx.loot.getAllRecipes().find((r) => r.outputDefId === 'mat_processor');
     const mul = (t, id) => LT.getTierTable(t).itemWeightMul?.[id];
     const android = LT.CORPSE_TABLE_MAP?.get?.('android');
     return {
-      p: p && { rarity: p.rarity, cat: p.category, w: p.width, h: p.height, stack: p.stackMax, value: p.value },
-      c: c && { rarity: c.rarity, cat: c.category, stack: c.stackMax },
-      rec: rec && { station: rec.station, bench: rec.bench, inputs: rec.inputs },
+      p: p && { rarity: p.rarity, cat: p.category, w: p.width, h: p.height, stack: p.stackMax, value: p.value, dur: p.durabilityMax },
+      hasCore: !!c,
+      rec: rec && { id: rec.id, station: rec.station, bench: rec.bench, inputs: rec.inputs },
       procMul: [1, 2, 3, 4, 5].map((t) => mul(t, 'mat_processor')),
       coreMul: [1, 2, 3, 4, 5].map((t) => mul(t, 'mat_compute_core')),
       android: android ? JSON.stringify(android).includes('mat_processor') : null,
     };
   });
-  ok(data.p && data.p.rarity === 'legendary' && data.p.cat === 'material' && data.p.w === 1 && data.p.h === 1 && data.p.stack <= 3 && data.p.value > 0,
-    '프로세서 def — 전설 재료 1×1 · 작은 스택', JSON.stringify(data.p));
-  ok(data.c && data.c.cat === 'material' && data.c.stack >= 1, '연산 코어 def', JSON.stringify(data.c));
-  ok(data.rec && data.rec.bench === 'refine' && data.rec.station === 'ship'
-    && data.rec.inputs.some((i) => i.defId === 'mat_processor') && data.rec.inputs.some((i) => i.defId === 'mat_circuit'),
-  '연산 코어 레시피 — 가공 작업대 · 회로 기판 + 프로세서', JSON.stringify(data.rec));
-  ok(data.procMul[0] === 0 && data.procMul[1] === 0 && data.procMul[2] === 0 && data.procMul[3] > 0 && data.procMul[4] > 0,
-    '상자 배수 — 프로세서는 티어 4 · 5 에서만', JSON.stringify(data.procMul));
-  ok(data.coreMul.every((m) => m === 0), '상자 배수 — 연산 코어는 모든 티어 0', JSON.stringify(data.coreMul));
+  // 2026-09-16 (사용자 결정): 프로세서는 **내구도를 가진** 2×1 전설 재료다 — 스택이 아니라 한 개씩 다루는 물건이라 stackMax 1 이다
+  ok(data.p && data.p.rarity === 'legendary' && data.p.cat === 'material' && data.p.w === 2 && data.p.h === 1
+    && data.p.stack === 1 && data.p.value > 0 && data.p.dur > 0,
+  '프로세서 def — 전설 재료 2×1 · 스택 없음 · 내구도 있음', JSON.stringify(data.p));
+  ok(data.hasCore === false, '연산 코어 def 는 사라졌다 (mat_compute_core 로 찾으면 없다)');
+  // 프로세서는 이제 가공 작업대가 아니라 **연구실 조합대**에서 나온다: 결정 코어 1 + 회로 기판 4 (`mix_processor`)
+  ok(data.rec && data.rec.id === 'mix_processor' && data.rec.bench === 'mixer' && data.rec.station === 'ship'
+    && data.rec.inputs.some((i) => i.defId === 'mat_crystal_core') && data.rec.inputs.some((i) => i.defId === 'mat_circuit'),
+  '프로세서 레시피 — 조합대 · 결정 코어 + 회로 기판', JSON.stringify(data.rec));
+  /* 2026-09-16 (사용자 결정, 채광 개편): 프로세서는 「광맥 → 미확인 광물 → 해석 → 결정 코어 → 조합대」 사슬의 **끝**이라
+     상자에서 나오면 그 사슬을 돌릴 이유가 없어진다 — 모든 티어에서 0 이고, 안드로이드 시체에도 없다. */
+  ok(data.procMul.every((m) => m === 0), '상자 배수 — 프로세서는 모든 티어 0 (제작 사슬의 끝)', JSON.stringify(data.procMul));
+  ok(data.coreMul.every((m) => !m), '상자 배수 — 사라진 연산 코어의 줄도 없다', JSON.stringify(data.coreMul));
   if (data.android === null) note('안드로이드 시체 표를 찾지 못했다 (CORPSE_TABLE_MAP)');
-  else ok(data.android, '안드로이드 시체 표에 프로세서 줄');
+  else ok(data.android === false, '안드로이드 시체 표에도 프로세서 줄이 없다');
 
   /* ══ 2. 채굴 시설 ═════════════════════════════════════════════════════════ */
   console.log('채굴 시설');
@@ -222,27 +270,37 @@ try {
   const info1 = await H((u) => window.__game.ctx.housing.getComputeCluster(u), C1);
   const evSet = await ev('housing:clusterChanged');
   const chSet = await ev('housing:changed');
-  ok(setScrap === null && info1.coinId === 'scrap' && info1.block === '연산 코어를 꽂으세요' && evSet.some((e) => e.uid === C1) && chSet.length > 0,
-    '코인 지정 → 코어 없음 사유 · housing:clusterChanged · housing:changed', JSON.stringify({ setScrap, info1, evSet, ch: chSet.length }));
+  ok(setScrap === null && info1.coinId === 'scrap' && info1.block === '프로세서를 꽂으세요' && evSet.some((e) => e.uid === C1) && chSet.length > 0,
+    '코인 지정 → 프로세서 없음 사유 · housing:clusterChanged · housing:changed', JSON.stringify({ setScrap, info1, evSet, ch: chSet.length }));
   const noCore = await H((u) => window.__game.ctx.housing.insertClusterCores(u, 1), C1);
-  ok(typeof noCore === 'string' && noCore.includes('없습니다'), '코어가 없으면 넣기 거절', String(noCore));
-  ok(await giveStash('mat_compute_core', 6) === 6, '연산 코어 6 지급');
-  const count = () => H(() => window.__game.ctx.inventory.countDefAll('mat_compute_core'));
+  ok(typeof noCore === 'string' && noCore.includes('없습니다'), '프로세서가 없으면 넣기 거절', String(noCore));
+  ok(await giveStash('mat_processor', 6) === 6, '프로세서 6 지급');
+  const count = () => H(() => window.__game.ctx.inventory.countDefAll('mat_processor'));
+  const info = (u) => H((x) => window.__game.ctx.housing.getComputeCluster(x), u);
+  const mountedOf = (list) => (list ?? []).filter((v) => v !== null).length;
+  const DUR_MAX = await H(() => window.__game.ctx.loot.getItemDef('mat_processor').durabilityMax ?? 0);
+  const WEAR = await H(async () => (await import('/src/shared/index.ts')).PROCESSOR_WEAR_PER_CYCLE);
   const cyc = [];
   for (const n of [1, 1, 1]) {
     const r = await H(({ u, n }) => window.__game.ctx.housing.insertClusterCores(u, n), { u: C1, n });
-    const i = await H((u) => window.__game.ctx.housing.getComputeCluster(u), C1);
-    cyc.push({ r, cores: i.cores, cycle: i.cycleMs });
+    const i = await info(C1);
+    cyc.push({ r, cores: i.cores, perf: i.perf, cycle: i.cycleMs });
   }
-  ok(cyc.every((c) => c.r === null) && cyc.map((c) => c.cores).join() === '1,2,3' && cyc[1].cycle === cyc[0].cycle / 2 && cyc[2].cycle === cyc[0].cycle / 4
-    && cyc[0].cycle === pure.base, '코어 넣기 1 → 2 → 3 — 주기 100 % · 50 % · 25 %', JSON.stringify(cyc));
-  ok(await count() === 3, '넣은 코어만큼 가방 · 창고에서 빠짐 (6 → 3)');
+  /* 2026-09-16 (사용자 결정): 주기는 개수가 아니라 **성능 합**에서 난다 — 새 프로세서 하나가 성능 1 이므로
+     갓 꽂은 동안에는 성능 합 = 개수이고 주기도 옛 식(`coinCycleMs`) 그대로다. */
+  ok(cyc.every((c) => c.r === null) && cyc.map((c) => c.cores).join() === '1,2,3' && cyc.map((c) => c.perf).join() === '1,2,3'
+    && cyc[1].cycle === cyc[0].cycle / 2 && cyc[2].cycle === cyc[0].cycle / 4 && cyc[0].cycle === pure.base,
+  '프로세서 넣기 1 → 2 → 3 — 새것이라 성능 합 = 개수 · 주기 100 % · 50 % · 25 %', JSON.stringify(cyc));
+  ok(await count() === 3, '넣은 만큼 가방 · 창고에서 빠짐 (6 → 3)');
   const over = await H((u) => window.__game.ctx.housing.insertClusterCores(u, 99), C1);
-  const afterOver = await H((u) => window.__game.ctx.housing.getComputeCluster(u).cores, C1);
-  ok(over === null && afterOver === 6 && await count() === 0, '많이 넣으면 가진 만큼만 (3 + 3 = 6)', JSON.stringify({ over, afterOver }));
-  const miningNow = await H((u) => window.__game.ctx.housing.getComputeCluster(u), C1);
+  const afterOver = await info(C1);
+  ok(over === null && afterOver.cores === 6 && await count() === 0, '많이 넣으면 가진 만큼만 (3 + 3 = 6)', JSON.stringify({ over, cores: afterOver.cores }));
+  const miningNow = await info(C1);
   ok(miningNow.mining && miningNow.block === null && miningNow.remainingS > 0, '채굴 중 — 사유 없음 · 남은 초 (메인 컴퓨터만 있으면 돈다)', JSON.stringify(miningNow));
   ok(miningNow.power === 0, 'ComputeClusterInfo.power — 계약 필드만 남아 늘 0 (2026-09-13 전력 할당 폐지)', String(miningNow.power));
+  ok(DUR_MAX > 0 && miningNow.processorMax === DUR_MAX && miningNow.processors.length === miningNow.maxCores
+    && mountedOf(miningNow.processors) === 6 && miningNow.processors.every((v) => v === null || v === DUR_MAX),
+  `칸 목록 — 길이 = 격자 칸 수 · 갓 꽂은 것은 새것 내구도(${DUR_MAX}) · processorMax = 아이템 표의 최대`, JSON.stringify(miningNow.processors));
 
   // 가짜 시간: 구간 시작을 2.5 주기 되돌린다 → 틱이 두 주기를 한 번에 넣는다
   const cycle6 = miningNow.cycleMs;
@@ -266,21 +324,37 @@ try {
   ok(near(s1.progress, 0.5, 0.05), '진행도 소수 부분이 남는다 (≈ 0.5)', String(s1.progress));
   const minedMap = await H(() => window.__game.ctx.housing.state.cryptoMined?.scrap ?? 0);
   ok(minedMap >= 2 * yieldScrap, 'cryptoMined 누적', String(minedMap));
+  /* 2026-09-16 (사용자 결정 — 프로세서 마모): 주기가 끝나는 그 자리에서 꽂힌 **전부**가 `PROCESSOR_WEAR_PER_CYCLE × 끝난 주기 수`
+     만큼 닳는다 — 따라잡기로 두 주기가 한 번에 끝났으므로 여섯 개 모두 그만큼 줄고, 그만큼 다음 주기가 느려진다. */
+  const worn = await info(C1);
+  ok(mountedOf(worn.processors) === 6 && worn.processors.every((v) => v === null || v === DUR_MAX - 2 * WEAR)
+    && worn.perf < 6 && worn.cycleMs > cycle6,
+  `주기 2개 뒤 — 꽂힌 전부가 ${2 * WEAR} 만큼 닳고 성능 합 · 주기가 그만큼 나빠진다 (${JSON.stringify(worn.processors)} · perf ${worn.perf})`);
 
-  // 코어 수 변경: 1.3 주기 → 넣기 = 한 주기 넣고 0.3 을 새 주기로 접는다
+  /* 프로세서 수 변경: 1.3 주기 → 넣기 = 한 주기 넣고 0.3 을 새 주기로 접는다.
+     2026-09-16: 되돌릴 폭도 「지금의 성능 합으로 낸 주기」로 재야 한다 — 마모 뒤의 주기는 처음 주기보다 길다. */
+  const cycleWorn = worn.cycleMs;
   await H(({ u, cycle }) => {
     const h = window.__game.ctx.housing;
     const s = h.state.clusters.find((x) => x.uid === u);
     const now = h.nowMs();
     s.progress = 0; s.segmentAt = now - cycle * 1.3;
-  }, { u: C1, cycle: cycle6 });
+  }, { u: C1, cycle: cycleWorn });
   const w1 = await walletOf('scrap');
-  await giveStash('mat_compute_core', 1);
+  await giveStash('mat_processor', 1);
   const fold = await H((u) => window.__game.ctx.housing.insertClusterCores(u, 1), C1);
   const s2 = await slot(C1);
-  const info7 = await H((u) => window.__game.ctx.housing.getComputeCluster(u), C1);
-  ok(fold === null && s2.cores === 7 && near(s2.progress, 0.3, 0.05) && await walletOf('scrap') === w1 + yieldScrap && info7.cycleMs === cycle6 / 2,
-    '코어 변경 — 끝난 주기는 넣고 진행도는 접어 새 주기(절반)로 잇는다', JSON.stringify({ fold, s2, w: await walletOf('scrap') - w1, cycle: info7.cycleMs }));
+  const info7 = await info(C1);
+  // 스모크가 주기를 따로 계산하지 않고 **게임과 같은 식**을 부른다: `clusterCycleMs(코인, clusterPerf(칸, 최대 내구도))`
+  const want7 = await H(async (i) => {
+    const S = await import('/src/shared/index.ts');
+    const R = await import('/src/housing/MiningRules.ts');
+    return R.clusterCycleMs(S.CRYPTO_COIN_MAP.get('scrap'), R.clusterPerf({ processors: i.processors }, i.processorMax));
+  }, info7);
+  ok(fold === null && info7.cores === 7 && mountedOf(s2.processors) === 7 && near(s2.progress, 0.3, 0.05)
+    && await walletOf('scrap') === w1 + yieldScrap && info7.cycleMs === want7 && info7.cycleMs < cycleWorn,
+  '프로세서 변경 — 끝난 주기는 넣고 진행도는 접어 잇는다 · 새 주기 = clusterCycleMs(코인, 성능 합)',
+  JSON.stringify({ fold, cores: info7.cores, progress: s2.progress, w: await walletOf('scrap') - w1, cycle: info7.cycleMs, want: want7 }));
 
   /* 2026-09-13 (전력 할당 폐지): 멈추는 시계는 없다 — `stationNow` = `nowMs`, `housing:operationalChanged {pausedMs}` 를 내는 곳도 받는 곳도 없다.
      남은 「가동」 조건은 메인 컴퓨터 하나다: 없으면 클러스터는 끝난 주기를 넣지 않고 틱마다 구간만 지금으로 다시 연다(진행도는 그대로),
@@ -299,7 +373,7 @@ try {
     const now = h.nowMs();
     s.progress = 0.3; s.segmentAt = now - a.cycle * 2.5;
     return now;
-  }, { u: C1, cycle: cycle6 / 2 });
+  }, { u: C1, cycle: cycleWorn });
   await sleep(2300);                                            // MINING_TICK_MS 1 s — at least two ticks while blocked
   const sBlocked = await slot(C1);
   ok(await walletOf('scrap') === wBlocked && (await ev('housing:cryptoMined')).length === 0 && near(sBlocked.progress, 0.3, 1e-9) && sBlocked.segmentAt >= tBlocked,
@@ -323,7 +397,7 @@ try {
     const s = h.state.clusters.find((x) => x.uid === u);
     const now = h.nowMs();
     s.progress = 0; s.segmentAt = now - cycle * 0.6;
-  }, { u: C1, cycle: cycle6 / 2 });
+  }, { u: C1, cycle: cycleWorn });
   const toVolt = await H((u) => window.__game.ctx.housing.setClusterCoin(u, 'volt'), C1);
   const s3 = await slot(C1);
   ok(toVolt === null && s3.coinId === 'volt' && s3.progress === 0, '코인 변경 — 진행도 0', JSON.stringify(s3));
@@ -335,25 +409,38 @@ try {
     window.__game.ctx.housing.getCryptoCoins().find((c) => c.def.id === 'nomad').unlocked], C1);
   ok(unlocked[0] === 'complete' && unlocked[1] === null && unlocked[2] === true, '퀘스트 완료 → 잠긴 코인 지정 · unlocked', JSON.stringify(unlocked));
 
-  // 코어 빼기
+  // 프로세서 빼기 — **뒤 칸부터**, 내구도를 그대로 들고 (2026-09-16: 닳은 것만 골라 빼서 작업대로 가져가는 길)
   const c0 = await count();
+  const durOf = () => H(() => [...window.__game.ctx.inventory.getAllItems(), ...window.__game.ctx.inventory.getStashItems()]
+    .filter((i) => i.defId === 'mat_processor').map((i) => i.durability ?? null));
+  const durBefore = await durOf();
+  const cellsBefore = (await info(C1)).processors.filter((v) => v !== null);
   const rem = await H((u) => window.__game.ctx.housing.removeClusterCores(u, 2), C1);
-  ok(rem === null && (await slot(C1)).cores === 5 && await count() === c0 + 2, '코어 빼기 — 2개가 가방 · 창고로', JSON.stringify({ rem, c: await count() - c0 }));
+  const durAfter = await durOf();
+  ok(rem === null && mountedOf((await slot(C1)).processors) === 5 && await count() === c0 + 2,
+    '프로세서 빼기 — 2개가 가방 · 창고로 (뒤 칸부터)', JSON.stringify({ rem, c: await count() - c0 }));
+  /* 2026-09-16 (사용자 결정): 빠지는 것은 **그 칸의 내구도를 그대로** 든 인스턴스다 — 스모크가 주기 수를 셈하지 않고
+     빼기 직전의 칸 값(뒤 두 칸)과 견준다. 닳은 것이 닳은 채로 나와야 작업대에서 고칠 것이 남는다. */
+  const gained = (() => { const pool = [...durBefore]; return durAfter.filter((v) => { const i = pool.indexOf(v); if (i < 0) return true; pool.splice(i, 1); return false; }); })();
+  const wantBack = cellsBefore.slice(-2);
+  const sortNum = (a) => [...a].sort((x, y) => x - y).join();
+  ok(gained.length === 2 && sortNum(gained) === sortNum(wantBack) && wantBack.some((v) => v < DUR_MAX),
+    `빠진 프로세서는 칸의 내구도를 그대로 들고 나온다 (칸 ${JSON.stringify(wantBack)} → 아이템 ${JSON.stringify(gained)})`);
   const remBad = await H((u) => window.__game.ctx.housing.removeClusterCores(u, 1), C2);
-  ok(remBad === '꽂힌 코어가 없습니다', '빈 클러스터에서 빼기 거절', String(remBad));
+  ok(remBad === '꽂힌 프로세서가 없습니다', '빈 클러스터에서 빼기 거절', String(remBad));
 
-  // 회수: 코어가 있으면 거절
+  // 회수: 프로세서가 있으면 거절
   const rb = await H((u) => [window.__game.ctx.housing.recoverBlock(u), window.__game.ctx.housing.recover(u)], C1);
-  ok(rb[0] === '코어를 먼저 빼세요' && rb[1] === false && !!(await slot(C1)), '코어가 꽂힌 클러스터 — recoverBlock 사유 · recover 거절', JSON.stringify(rb));
+  ok(rb[0] === '프로세서를 먼저 빼세요' && rb[1] === false && !!(await slot(C1)), '프로세서가 꽂힌 클러스터 — recoverBlock 사유 · recover 거절', JSON.stringify(rb));
   await H((u) => window.__game.ctx.housing.removeClusterCores(u, 9), C1);
   const rc = await H((u) => { const h = window.__game.ctx.housing; return [h.recoverBlock(u), h.recover(u)]; }, C1);
-  ok(rc[1] === true && !(await slot(C1)) && await count() === c0 + 7, '코어를 다 빼면 회수 · 칸이 지워진다 · 코어 7 보존', JSON.stringify({ rc, c: await count() - c0 }));
+  ok(rc[1] === true && !(await slot(C1)) && await count() === c0 + 7, '다 빼면 회수 · 칸이 지워진다 · 프로세서 7 보존', JSON.stringify({ rc, c: await count() - c0 }));
 
-  // devAdvanceMining — 두 번째 클러스터: 스크랩 · 코어 1 · 24 시간 = 두 주기
+  // devAdvanceMining — 두 번째 클러스터: 스크랩 · 새 프로세서 1 · 24 시간 = 두 주기
   await H((u) => { const h = window.__game.ctx.housing; h.setClusterCoin(u, 'scrap'); h.devSetClusterCores(u, 1); }, C2);
   const wff = await walletOf('scrap');
   const ffUnits = await H(() => window.__game.ctx.housing.devAdvanceMining(24));
-  ok(ffUnits === 2 * yieldScrap && await walletOf('scrap') === wff + 2 * yieldScrap, 'devAdvanceMining(24) — 코어 1 스크랩 = 두 주기', String(ffUnits));
+  ok(ffUnits === 2 * yieldScrap && await walletOf('scrap') === wff + 2 * yieldScrap, 'devAdvanceMining(24) — 프로세서 1 스크랩 = 두 주기', String(ffUnits));
 
   /* ══ 4. 거래소 ═══════════════════════════════════════════════════════════ */
   console.log('거래소');
@@ -446,15 +533,19 @@ try {
       orphanClusters: orphan.clusters, refund: out.refund,
     };
   }, { c2: C2 });
-  const strip = (list) => JSON.stringify((list ?? []).map((s) => [s.uid, s.coinId ?? null, s.cores, Math.round(s.progress * 1e6), s.segmentAt]));
-  ok(strip(save.roundClusters) === strip(save.liveClusters) && save.liveClusters.length === 1,
-    'sanitize 왕복 — 클러스터 칸 그대로', `${strip(save.liveClusters)} → ${strip(save.roundClusters)}`);
+  // 2026-09-16: 칸의 알맹이는 개수가 아니라 **칸마다의 남은 내구도 목록**이다 — 왕복에서 그 목록이 그대로여야 한다
+  const strip = (list) => JSON.stringify((list ?? []).map((s) => [s.uid, s.coinId ?? null, s.processors, Math.round(s.progress * 1e6), s.segmentAt]));
+  ok(strip(save.roundClusters) === strip(save.liveClusters) && save.liveClusters.length === 1
+    && (save.liveClusters[0]?.processors ?? []).some((v) => typeof v === 'number' && v < DUR_MAX),
+    'sanitize 왕복 — 클러스터 칸 목록(닳은 내구도 포함) 그대로', `${strip(save.liveClusters)} → ${strip(save.roundClusters)}`);
   ok(JSON.stringify(save.roundWallet) === JSON.stringify(save.liveWallet) && JSON.stringify(save.roundMined) === JSON.stringify(save.liveMined),
     'sanitize 왕복 — 지갑 · 누적 채굴 그대로', JSON.stringify([save.liveWallet, save.roundWallet]));
   ok(save.storedClusters && strip(save.storedClusters) === strip(save.liveClusters) && JSON.stringify(save.storedWallet) === JSON.stringify(save.liveWallet),
     'localStorage 에 적힌 함선도 같다', JSON.stringify({ c: save.storedClusters, w: save.storedWallet }));
-  const coreRefund = save.refund.find((r) => r.defId === 'mat_compute_core');
-  ok(save.orphanClusters.length === 0 && coreRefund?.qty === 1, '배치되지 않은 클러스터 — 칸은 버리고 코어 1 은 refund 로', JSON.stringify({ c: save.orphanClusters, refund: save.refund }));
+  /* 2026-09-16: 환불 자루(`CraftIngredient`)는 내구도를 싣지 못하므로 꽂혀 있던 것은 **프로세서 개수**로만 돌아간다. */
+  const coreRefund = save.refund.find((r) => r.defId === 'mat_processor');
+  ok(save.orphanClusters.length === 0 && coreRefund?.qty === 1 && !save.refund.some((r) => r.defId === 'mat_compute_core'),
+    '배치되지 않은 클러스터 — 칸은 버리고 프로세서 1 은 refund 로', JSON.stringify({ c: save.orphanClusters, refund: save.refund }));
 
   ok(errors.length === 0, 'no page errors', errors.slice(0, 5).join(' | '));
 } catch (e) {

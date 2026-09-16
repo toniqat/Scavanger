@@ -157,8 +157,11 @@ try {
   const reachable = (p) => !!p && p.visibleH > 40 && p.onScreen && p.hit === p.id;
 
   /* ── ship set-up: rooms straight in the state (the purpose rules are smoke-housing's business) ── */
+  /* 2026-09-16 (사용자 결정 「행성 광맥」): 분석기 제작 · 강화는 백운모(`min_mica`)를, 작업대 계열은 흑요석 · 철사를 먹는다
+     (`data/furniture.csv` · `furniture_upgrades.csv`; 없으면 `craft: 재료 부족`으로 가구가 아예 안 놓인다). */
   for (const [id, n] of [['mat_scrap', 60], ['mat_cable', 24], ['mat_bio_sample', 30], ['mat_circuit', 16], ['mat_cloth', 10],
-    ['mat_alloy', 30], ['mat_power_cell', 4], ['mat_control_module', 2], ['mat_capacitor', 2]]) await giveStash(id, n);
+    ['mat_alloy', 30], ['mat_power_cell', 4], ['mat_control_module', 2], ['mat_capacitor', 2],
+    ['min_limestone', 20], ['min_ironsand', 20], ['min_mica', 20], ['min_obsidian', 10]]) await giveStash(id, n);
   await H(() => {
     const h = window.__game.ctx.housing;
     h.state.generatorLevel = 5;
@@ -542,8 +545,14 @@ try {
 
   /* ══ 2. 분석기 ════════════════════════════════════════════════════════════ */
   console.log('분석기');
-  // 2026-09-13: 새 드롭 표본은 계열 3종 — 표가 아직이면 옛 표본(은퇴해도 자기 계열로 해석된다)으로
-  const SAMPLE = await H(() => (window.__game.ctx.loot.getItemDef('spec_cell')?.sample ? 'spec_cell' : 'spec_tissue'));
+  /* 2026-09-16 (사용자 결정, 표본 전면 개편): 표본은 3 계열 × 6 등급이고 옛 `spec_cell` · `spec_mineral` · `spec_dna` 는
+     줄째로 사라졌다 (세이브 마이그레이션 없음 = `item_aliases.csv` 행도 없다). 한 계열의 **가장 낮은 등급** 표본을
+     아이템 표에서 찾아 쓴다 — id 를 박아 두면 표본표를 손볼 때마다 여기가 빨개진다. */
+  const SAMPLE = await H(() => {
+    const defs = window.__game.ctx.loot.getAllItemDefs().filter((d) => d.sample && !d.retired && d.sample.family === 'cell');
+    return defs.sort((a, b) => a.value - b.value)[0]?.id ?? null;
+  });
+  ok(!!SAMPLE, `세포 계열 표본 def (${SAMPLE})`);
   await giveStash(SAMPLE, 2);
   await H((u) => window.__game.ctx.housing.openAnalyzer(u), AZ);
   await waitFor(page, () => !document.querySelector('.menu.analyzer-panel')?.hidden, 'analyzer open');
@@ -582,7 +591,8 @@ try {
   ok(!/처음 해석|도감에 있는/.test(run.text), '「처음 해석」 부연 없음');
   ok(run.actsRight >= 0 && run.actsRight < 20 && run.actsBottom >= 0 && run.actsBottom < 20, `회수 · 중단 버튼은 칸 우하단 (${run.actsRight.toFixed(1)}, ${run.actsBottom.toFixed(1)})`);
   // 2026-09-13: 계열 칩 · 해석 중 결과 자리는 「?」 (결과는 넣는 순간 굴렸지만 끝나기 전에는 보이지 않는다)
-  ok(!!run.fam && /세포|광물|DNA/.test(run.fam), `표본 칸에 계열 칩 (${run.fam})`);
+  // 2026-09-16: 계열 표시 이름은 `shared/labels.SAMPLE_FAMILY_LABEL_KO` — `dna` 는 「DNA」 가 아니라 「유전자」가 됐다
+  ok(!!run.fam && /세포|광물|유전자/.test(run.fam), `표본 칸에 계열 칩 (${run.fam})`);
   ok(run.result.pending && run.result.text === '?' && !run.result.chip, `해석 중 결과 자리 = 「?」 (${JSON.stringify(run.result)})`);
   ok(await H((u) => window.__game.ctx.housing.getAnalyses(u)[0].resultDefId === null, AZ), '해석 중에는 계약도 결과를 숨긴다 (`resultDefId` null)');
   await H((u) => { const h = window.__game.ctx.housing; const a = h.state.analyses.find((x) => x.uid === u && x.slot === 0); a.readyAt = Date.now() - 1000; h.analyzerPanel.refresh(); }, AZ);

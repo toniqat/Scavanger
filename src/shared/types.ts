@@ -611,6 +611,12 @@ export interface InventoryRef {
    */
   openBenchCraft(bench: WorkbenchKind, level: number): void;
   /**
+   * appended 2026-09-16: the bench the craft column is showing right now (null = the plain 제작 panel / no craft
+   * column). It is how another folder tells "this screen is a **workbench** window" apart from the Tab inventory —
+   * `housing`'s 업그레이드 modal reads it to know whether the header button means the 창고 or that bench.
+   */
+  getBench?(): { kind: WorkbenchKind; level: number } | null;
+  /**
    * Recipes for a station; with `bench` given, only recipes whose `CraftRecipe.bench` is undefined or equals `bench`
    * with `benchLevel ≤ level`. Field station ignores the bench arguments.
    */
@@ -832,7 +838,10 @@ export interface GatherNodeDef {
 /* appended (A-11 · A-12, 2026-09-11): `'seed'` 야생 씨앗 군락 — 행성마다 다른 품종이 난다 (`data/planets.csv` 의
  * `seeds` · `seedNodes`); `'sample'` 미확인 표본 — 분석기가 해석할 것 (`samples` · `sampleNodes`). 둘 다 토양 더미와
  * **같은** 배치 · 네트워크 · 상호작용 코드를 타고, 각자 전용 rng fork 를 써서 서로의 배치를 흔들지 않는다. */
-export type GatherNodeKind = 'herb' | 'salvage' | 'soil' | 'seed' | 'sample';
+/* appended (2026-09-16, 사용자 결정 — 행성 광맥): `'mineral'` 광맥. 캐면 **미확인 광물**만 나오고
+ * 숬련은 원예가 아니라 **채광**이다 — 그것이 이 값이 따로 있는 이유다. 표본을 내놓지만 `'sample'` 로 두면
+ * `gather:collected` 가 원예 XP 를 준다. 배치 · 네트워크 · 상호작용 코드는 다른 네 종류와 완전히 같다. */
+export type GatherNodeKind = 'herb' | 'salvage' | 'soil' | 'seed' | 'sample' | 'mineral';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Weapons ref (Phase 3, owner: weapons/WeaponSystem publishes `ctx.weapons`)
@@ -1352,6 +1361,18 @@ export interface TradeGridsView extends EmbeddedView {
   setCell(px: number): void;
   /** Append one chip row that filters every block of the view into `host` (created on first call); returns it. */
   mountFilterChips(host: HTMLElement): HTMLElement;
+  /* ── appended 2026-09-16 (사용자 보고 「장착된 것을 끌어서 뺄 때 커서가 놓인 칸으로 가야 한다」) ── */
+  /**
+   * An item that is **not in any grid yet** (a shelf's book, a cluster's core, a station's product) released at
+   * viewport point `x, y`: put it in the cell under the cursor. The view resolves the cell exactly as a tile drag
+   * does (strict containment first, then the half-cell tolerance), so what the player saw highlighted is where it
+   * lands — auto-placing into "the first empty cell" was the old behaviour and the bug.
+   *
+   * Returns the grid it landed in, `'blocked'` when the cursor **was** over a cell that cannot take the item
+   * (occupied by something else, out of bounds — nothing is displaced, the caller refuses), or `null` when the
+   * cursor was not over a cell at all (the caller falls back to its own destination rule).
+   */
+  placeExternalAt?(item: ItemInstance, x: number, y: number): 'bag' | 'stash' | 'blocked' | null;
 }
 
 /* ══ appended: Phase 7 — known follow-ups (2026-09-06) ═══════════════════════════════════════════════════════ */

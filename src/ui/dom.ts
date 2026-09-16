@@ -57,6 +57,9 @@ export function rarityColor(rarity: string): string {
     case 'rare': return 'var(--r-rare)';
     case 'epic': return 'var(--r-epic)';
     case 'legendary': return 'var(--r-legendary)';
+    /* 2026-09-16: 신화. 빠져 있으면 `default` 로 떨어져 유니크 무기 · 특성 방탄복 · 신화 표본이 토스트와
+       네임플레이트에서 **일반 등급 회색**으로 나온다 — 등급색을 읽는 유일한 스위치라 여기가 곧 전부다. */
+    case 'mythic': return 'var(--r-mythic)';
     default: return 'var(--r-common)';
   }
 }

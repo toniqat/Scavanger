@@ -8,6 +8,9 @@
 // 2026-09-13 (전력 할당 폐지, 사용자 결정): the generator starts at Lv.1 and ends at Lv.5 — it is only a build gate per purpose
 // (`purposeGeneratorLevel`: 작업실 1 · 온실 · 주방 2 · 연구실 3 · 헬스장 · 서재 4 · 채굴 5) plus the furniture / storage upgrade gate.
 // ShipState v13 clamps old levels into [1, 5] and removes (+ refunds) facilities the ship's generator is too low for.
+// 2026-09-16 (사용자 결정, 표본 전면 개편 · 프로세서 직접 장착): v14 — `sampleLevels` (표본 def id → 회수 횟수) 와
+// `ComputeClusterSlot.processors` (칸마다의 남은 내구도). 이관 코드는 없다: 표본 레벨은 0 부터이고, 옛 `cores` 는
+// 같은 수의 프로세서로 함선 창고에 환불된다 (연산 코어가 아이템 표에서 사라졌다 — smoke-mining 이 그 환불을 본다).
 // Usage: node scripts/smoke-housing.mjs [http://localhost:5273]   (needs `npm run dev`)
 import puppeteer from 'puppeteer-core';
 import { quietViteHmr } from './quiet-hmr.mjs';
@@ -183,9 +186,11 @@ try {
   // 10 = 조종석 전용 시설 + 조종석 꾸밈 가구 (2026-09-13 — 모양은 같고 옛 소품 자리에 꾸밈 가구를 한 번만 놓으려고 올렸다)
   // 11 = 요리 재료 티어 (2026-09-13 — 흙 · 배지 내구도 / 소켓 · 배양 스캐폴드 · 분석 결과 · `analysisXp` / `analysisFound`, 없던 필드가 생기는 것뿐)
   // 12 = 발전기 전력 (2026-09-13) · 13 = 전력 할당 폐지 (2026-09-13 — 발전기 [1, 5] 클램프 · 발전기가 모자란 시설 제거 + 환불 · 전력 필드 버림)
-  ok(st0.version === 13 && Array.isArray(st0.books) && st0.books.length === 0 && Array.isArray(st0.bookDex) && st0.bookDex.length === 0
-    && Array.isArray(st0.analysisFound) && st0.analysisFound.length === 0 && !!st0.analysisXp && Object.keys(st0.analysisXp).length === 0,
-  `fresh state is v13 with empty books / bookDex / analysisXp / analysisFound (v${st0.version})`);
+  // 14 = 표본 전면 개편 + 프로세서 직접 장착 (2026-09-16 — `sampleLevels` 와 `clusters[].processors`, 없던 필드가 생기는 것뿐: 이관 코드 없음)
+  ok(st0.version === 14 && Array.isArray(st0.books) && st0.books.length === 0 && Array.isArray(st0.bookDex) && st0.bookDex.length === 0
+    && Array.isArray(st0.analysisFound) && st0.analysisFound.length === 0 && !!st0.analysisXp && Object.keys(st0.analysisXp).length === 0
+    && !!st0.sampleLevels && Object.keys(st0.sampleLevels).length === 0,
+  `fresh state is v14 with empty books / bookDex / analysisXp / analysisFound / sampleLevels (v${st0.version})`);
   ok(await H(() => window.__game.ctx.housing.getFurnitureFor('library').some((d) => d.id === 'furn_bookshelf' && d.interaction === 'bookshelf') && !window.__game.ctx.housing.getFurnitureFor('workshop').some((d) => d.id === 'furn_bookshelf')), 'furn_bookshelf in the 서재 catalogue only');
   ok(await H(() => { const h = window.__game.ctx.housing; const c = h.getFurnitureFor('cockpit'); return c.length > 0 && c.every((d) => d.room === 'any' || d.room === 'cockpit') && h.getFurnitureFor('range').every((d) => d.room === 'any'); }),
     "조종석 catalogue = 공용('any') 가구 + 조종석 전용 시설 · 시뮬레이션실 전용 가구는 전부 은퇴해 목록에 없다");
@@ -1213,7 +1218,7 @@ try {
     return n >= want.n;
   }, '은퇴 가구 환불', 15000, { id: refundIds[0], n: (stashBeforeMig[refundIds[0]] ?? 0) + rackCraft[0].qty * 2 }).catch(() => null);
   const stashAfterMig = await stashOf(refundIds);
-  ok(mig.version === 13, `로드하면 세이브가 v13 으로 올라온다 (v${mig.version})`);   // 2026-09-13: v10 = 조종석 전용 시설 · 꾸밈 가구, v11 = 요리 재료 티어, v13 = 전력 할당 폐지
+  ok(mig.version === 14, `로드하면 세이브가 v14 로 올라온다 (v${mig.version})`);   // 2026-09-13: v10 = 조종석 전용 시설 · 꾸밈 가구, v11 = 요리 재료 티어, v13 = 전력 할당 폐지 · 2026-09-16: v14 = 표본 개편 · 프로세서 칸
   ok(!mig.anyRack && !mig.placed.includes('furn_grow_rack') && mig.room6 === 'greenhouse',
     '배치된 · 창고의 옛 재배층이 모두 사라진다 (온실 방 자체는 남는다)', JSON.stringify(mig));
   ok(mig.plots === 0, `v3 의 plots 도 함께 사라진다 (${mig.plots})`);
@@ -1351,7 +1356,7 @@ try {
       h: { gen: sh.generatorLevel, removed: outH.removedByGenerator ?? 0, refund: outH.refund.length },
     };
   });
-  ok(migRooms.a.version === 13 && migRooms.a.rooms === ROOM_COUNT && migRooms.a.lv0 === 1 && migRooms.a.room5 === 'empty' && !migRooms.a.retired
+  ok(migRooms.a.version === 14 && migRooms.a.rooms === ROOM_COUNT && migRooms.a.lv0 === 1 && migRooms.a.room5 === 'empty' && !migRooms.a.retired
     && migRooms.a.levels === true && migRooms.a.removed === true,
   'v6 → v8: 방 레벨 1 · 시뮬레이션실은 빈 방 · 은퇴 가구는 하나도 남지 않는다', JSON.stringify(migRooms.a));
   ok(JSON.stringify(migRooms.a.refund) === JSON.stringify(migRooms.a.want),
@@ -1367,10 +1372,10 @@ try {
   ok(migRooms.c.levels === false && migRooms.c.removed === false && migRooms.c.lines === 0 && migRooms.c.lv === 1 && migRooms.c.granted === true && migRooms.c.decor === true && migRooms.c.cockpit === 6,
     'an already-v7 save is never migrated twice (level clamps to 1, no refund) — only the 조종석 전용 시설 + 꾸밈 가구 are put in', JSON.stringify(migRooms.c));
   ok(migRooms.d.granted === false && migRooms.d.removed === false && migRooms.d.decor === false && migRooms.d.same, 'a v10 save that has every piece is left alone', JSON.stringify(migRooms.d));
-  ok(migRooms.e.version === 13 && migRooms.e.decor === false && migRooms.e.granted === true && migRooms.e.drawerPlaced === 0 && migRooms.e.drawerStored === 1
+  ok(migRooms.e.version === 14 && migRooms.e.decor === false && migRooms.e.granted === true && migRooms.e.drawerPlaced === 0 && migRooms.e.drawerStored === 1
     && migRooms.e.bays.join() === String(COCKPIT) && migRooms.e.bayStored === 0,
   'v10: 회수한 꾸밈 가구는 다시 놓지 않고, 방 2 · 가구 창고의 시술대는 조종석 한 대로 모인다', JSON.stringify(migRooms.e));
-  ok(migRooms.f.version === 13 && migRooms.f.gen === 2 && migRooms.f.removed === 2 && migRooms.f.rooms === 'empty,empty,empty,greenhouse,empty'
+  ok(migRooms.f.version === 14 && migRooms.f.gen === 2 && migRooms.f.removed === 2 && migRooms.f.rooms === 'empty,empty,empty,greenhouse,empty'
     && migRooms.f.shelfStored === 1 && migRooms.f.shelfPlaced === 0,
   'v13: 발전기 Lv.2 세이브의 서재(Lv.4) · 연구실(Lv.3) 은 제거 (removedByGenerator 2) · 온실(Lv.2) 은 남고 책장은 가구 창고로', JSON.stringify(migRooms.f));
   ok(JSON.stringify(migRooms.f.refund) === JSON.stringify(migRooms.f.want) && migRooms.f.power.length === 0,

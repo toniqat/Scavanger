@@ -761,13 +761,14 @@ try {
     return {
       buy: document.querySelectorAll('.cv-tray.buy .cv-tile.buy').length, hasView: !!view,
       net: total?.querySelector('.v')?.textContent, minus: total?.classList.contains('minus'),
-      downShown: getComputedStyle(total.querySelector('.net-down')).display !== 'none', upShown: getComputedStyle(total.querySelector('.net-up')).display !== 'none',
-      downFirst: total.firstElementChild?.classList.contains('net-down'),
+      /* 2026-09-16 (사용자 결정): 총 크레딧 변동에 셰브런을 그리지 않는다 — 부호와 색(`.plus`/`.minus`)만 남는다.
+         0 이 아니면 셰브런이 되살아난 것이다 (트레이 머리의 `.cv-chev.flow` 는 다른 것이라 세지 않는다). */
+      chevs: total?.querySelectorAll('.cv-chev').length ?? -1,
     };
   });
   ok(staged.buy === 1, `clicking a stock tile stages it in the 구매 tray (${staged.buy})`);
-  ok(staged.minus && /^−[\d,]+ C$/.test(staged.net ?? '') && staged.downShown && !staged.upShown && staged.downFirst,
-    `거래 후 크레딧 −: 빨간 셰브런이 수치 왼쪽 (${staged.net})`, JSON.stringify(staged));
+  ok(staged.minus && /^−[\d,]+ C$/.test(staged.net ?? '') && staged.chevs === 0,
+    `거래 후 크레딧 −: 부호와 색만, 셰브런 없음 (${staged.net})`, JSON.stringify(staged));
   const clickOnly = await P(() => {
     const before = window.__game.ctx.meta.credits;
     document.querySelector('.cv-confirm').click();

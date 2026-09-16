@@ -25,6 +25,9 @@
   --r-rare: #5aa9ff;
   --r-epic: #c77dff;
   --r-legendary: #ffb347;
+  /* 2026-09-16 (사용자 결정): 신화는 분홍. `RARITY_COLORS.mythic` 와 같은 값이어야 한다 — 3D 쪽은 그 표를,
+     DOM 쪽은 이 토큰을 읽으므로 둘이 어긋나면 같은 아이템이 화면마다 다른 색이 된다. */
+  --r-mythic: #ff6fd0;
 
   --t-fast: 150ms;
   --t-med: 260ms;

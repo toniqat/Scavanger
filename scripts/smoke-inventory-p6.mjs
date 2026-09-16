@@ -556,6 +556,8 @@ try {
     const expectLocked = all.filter((r) => r.station === 'ship' && r.bench === 'gun' && (r.benchLevel ?? 1) > 2 && skill(r.skill) >= r.skillRequired).map((r) => r.id);
     return {
       open: i.isOpen, hidden: panel.hidden, blockers: [...ctx.uiBlockers], title: panel.querySelector('.inv-title').textContent,
+      /* 2026-09-16 (사용자 결정): 썸네일에 작업대 레벨 조건을 그리지 않는다 — 잠긴 칸은 `.is-bench-locked` 로만 알아본다.
+         사유는 상세 카드의 홀드 버튼 라벨(`lockedReason`)에 남아 있다. 0 이 아니면 딱지가 되살아난 것이다. */
       rows, expectOpen, expectLocked, lockTags: panel.querySelectorAll('.inv-craft-locktag').length,
       // 2026-09-08: 수리 목록은 패널 아래가 아니라 `모두 수리` 가 여는 모달 팝업이다.
       // 2026-09-14 (사용자 결정): 그 버튼이 **작업대 헤더 → 가방 필터 칩 줄 맨 왼쪽**(`.inv-repair-open-btn`,
@@ -572,7 +574,7 @@ try {
   ok((await lastEv('ui:craftToggled'))?.open === true, 'ui:craftToggled {open:true}');
   const openIds = bench.rows.filter((r) => !r.locked).map((r) => r.id), lockedIds = bench.rows.filter((r) => r.locked).map((r) => r.id);
   ok(openIds.length === bench.expectOpen.length && bench.expectOpen.every((id) => openIds.includes(id)), `${openIds.length} craftable rows = getRecipes('ship','gun',2)`);
-  ok(lockedIds.length === bench.expectLocked.length && bench.expectLocked.every((id) => lockedIds.includes(id)) && bench.lockTags === lockedIds.length, `${lockedIds.length} locked level-3 rows (${lockedIds.join(', ') || 'none defined yet'})`);
+  ok(lockedIds.length === bench.expectLocked.length && bench.expectLocked.every((id) => lockedIds.includes(id)) && bench.lockTags === 0, `${lockedIds.length} locked level-3 rows (${lockedIds.join(', ') || 'none defined yet'})`);
   ok(!openIds.some((id) => bench.expectLocked.includes(id)), 'no level-3 recipe is craftable at level 2');
   ok(bench.repairShown, '가방 필터 줄에 `모두 수리` 버튼이 있다 (2026-09-14 — 작업대 헤더에서 옮겨 왔다)');
   // 2026-09-08: 모든 레시피가 같은 1 초 홀드 — 시간 칩은 더 이상 그리지 않는다
@@ -812,8 +814,11 @@ try {
     };
   });
   ok(refine.title === '가공 작업대 Lv.3', `가공 작업대가 다섯 번째 작업대로 열린다 ('${refine.title}')`);
-  /* 2026-09-13 (암호화폐 채굴): 연산 코어(`refine_compute_core`)가 가공 작업대에 더해져 7 → 8 종 */
-  ok(refine.refineRecipes.length === 8, `가공 레시피 8종 (${refine.refineRecipes.join(', ')})`);
+  /* 2026-09-13 (암호화폐 채굴): 연산 코어(`refine_compute_core`)가 가공 작업대에 더해져 7 → 8 종.
+     2026-09-16 (사용자 결정 — 연산 코어 폐지 · 채광 개편): 그 줄이 사라지고 연마재 분쇄(`refine_abrasive`)가 들어와 **여전히 8종**이다.
+     프로세서는 이제 가공 작업대가 아니라 연구실 조합대(`mix_processor`)에서 나온다 — 그래서 여기 목록에 없다. */
+  ok(refine.refineRecipes.length === 8 && !refine.refineRecipes.includes('mat_compute_core') && refine.refineRecipes.includes('mat_abrasive'),
+    `가공 레시피 8종 · 연산 코어 줄 없음 · 연마재 분쇄 포함 (${refine.refineRecipes.join(', ')})`);
   ok(refine.benchOnEntry, '작업대를 열고 들어오면 리스트에서 그 작업대가 선택된 채다');
   /* 2026-09-11 (연구실): 추출기 · 조합대가 더해져 7 → 9 종.
      2026-09-12 (사용자 결정): `전체` 탭이 없어져 **10 개**다 (빠른제작 + 작업대 9종), 그리고 맨 위가 빠른제작이다.

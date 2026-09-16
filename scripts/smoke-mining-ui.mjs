@@ -2,10 +2,12 @@
 // housing/ui/mining + hub/interiors/FurnitureMining). 채굴 규칙 · 지갑 · 매매 자체는 smoke-mining 류(에이전트 ③)의 몫이고,
 // 여기서는 화면이 계약을 제대로 부르고 그리는지를 본다.
 //  1. 함선 · 채굴 시설에 메인 컴퓨터 1 · 연산 클러스터 2 를 제작 · 배치 → 두 모델이 씬에 서고 **점광원 개수가 그대로**,
-//     코어를 꽂으면 켜진 코어 재질(`mining-core-lit`) 메시가 생긴다 (광원 없이).
-//  2. 연산 클러스터 화면: 코어 칸 9 · 레일 2 · 코인 8(잠김 4) · `ui:miningToggled` · 스택 드롭 = 빈 칸만큼 · 가득 · 코어 아닌 것 거절 ·
-//     우클릭 = 가방 · 더블클릭 = 창고로 1개 · 코인 지정 · 진행도 있을 때 다른 코인 = 1초 홀드 경고(취소하면 그대로) · 잠긴 코인 거절 ·
+//     프로세서를 꽂으면 켜진 코어 재질(`mining-core-lit`) 메시가 생긴다 (광원 없이).
+//  2. 연산 클러스터 화면: 프로세서 칸 9 · 레일 2 · 코인 8(잠김 4) · `ui:miningToggled` · **놓은 그 칸에 끌어온 그 인스턴스**(내구도
+//     그대로 · 빼면 그대로 돌아온다) · 이미 찬 칸 · 가득 · 프로세서 아닌 것 거절 · 우클릭 = 가방 · 더블클릭 = 창고로 1개 ·
+//     코인 지정 · 진행도 있을 때 다른 코인 = 1초 홀드 경고(취소하면 그대로) · 잠긴 코인 거절 ·
 //     레일 전환 · Tab / Esc 닫기 · 가구 상호작용(`interact()`)이 이 화면을 연다.
+//     2026-09-16 (사용자 결정 — 연산 코어 폐지): 꽂히는 것은 `mat_processor` 이고 칸은 개수가 아니라 **칸마다의 남은 내구도**다.
 //  3. 메인 컴퓨터: 현황 줄 2(누르면 클러스터 화면) · 지갑 줄 8(지갑 단위 표기) · 거래소 — **스텁 `ctx.net.crypto`** 로 watch 참조 계수
 //     (지갑 · 거래소 탭에서만) · requestHistory · 차트 그리기(캔버스 픽셀) · 호버 OHLC · 기간 · 봉/선 · 매매 버튼이 견적 사유로 막힘 ·
 //     짧게 누르면 거래 없음 · 1초 홀드 = `tradeCrypto(coin, side, units)` 한 번 + 토스트 · 잠긴 코인 = 매매 잠김 · 오프라인 문구 · Tab 닫기 ·
@@ -190,8 +192,11 @@ try {
   ok(dom.title === '연산 클러스터 1', `제목 = 레일 번호 (${dom.title})`);
   ok(await H(() => window.__toggles.some((t) => t.open && t.page === 'cluster')), 'ui:miningToggled {open, page: cluster}');
 
-  const hasCoreApi = await H(() => typeof window.__game.ctx.housing.insertClusterCores === 'function' && !!window.__game.ctx.loot.getItemDef('mat_compute_core'));
-  /* `ClusterPage.dropOn` 은 `mountStationGrids` 의 `onTake` 와 같은 경로다 (격자 타일을 코어 칸에 떨어뜨린 것). */
+  /* 2026-09-16 (사용자 결정 — 연산 코어 폐지): 칸에 꽂는 것은 **프로세서**(2×1 · 내구도 500)다. 칸을 지정한 드롭은
+     `insertClusterProcessor(uid, cell, item.uid)` — **끌어온 그 인스턴스**가 **놓은 그 칸**에 들어간다. 프로세서는 저마다
+     내구도가 달라 「아무거나 다음 빈 칸」이 더 이상 같은 결과가 아니기 때문이다 (인덱스가 곧 화면 격자의 칸). */
+  const hasCoreApi = await H(() => typeof window.__game.ctx.housing.insertClusterProcessor === 'function' && !!window.__game.ctx.loot.getItemDef('mat_processor'));
+  /* `ClusterPage.dropOn` 은 `mountStationGrids` 의 `onTake` 와 같은 경로다 (격자 타일을 프로세서 칸에 떨어뜨린 것). */
   const dropVia = (defId, sel) => H(({ defId, sel }) => {
     const ctx = window.__game.ctx;
     const p = ctx.housing.miningScreen?.cluster;
@@ -201,41 +206,82 @@ try {
     p.dropOn(item, t);
     return { ok: true };
   }, { defId, sel });
+  /** 드롭할 인스턴스를 **uid 로** 고른다 — 「끌어온 그것이 그 칸에 들어간다」를 내구도로 확인하는 길. */
+  const dropUid = (uid, sel) => H(({ uid, sel }) => {
+    const ctx = window.__game.ctx;
+    const p = ctx.housing.miningScreen?.cluster;
+    const item = [...ctx.inventory.getStashItems(), ...ctx.inventory.getAllItems()].find((i) => i.uid === uid);
+    const t = document.querySelector(sel);
+    if (!p || !item || !t) return { ok: false, item: !!item, target: !!t };
+    p.dropOn(item, t);
+    return { ok: true };
+  }, { uid, sel });
   const coresOf = (u) => H((u) => window.__game.ctx.housing.getComputeCluster?.(u)?.cores ?? -1, u);
+  const cellsOf = (u) => H((u) => [...(window.__game.ctx.housing.getComputeCluster?.(u)?.processors ?? [])], u);
+  const giveWorn = (dur) => H((d) => {
+    const ctx = window.__game.ctx;
+    const it = ctx.loot.createItem('mat_processor', 1, { durability: d });
+    return ctx.inventory.tryAddToStash(it) ? it.uid : null;
+  }, dur);
   if (!hasCoreApi) {
-    ok(false, 'insertClusterCores / mat_compute_core 가 없다 — 코어 칸 검사를 건너뛴다');
+    ok(false, 'insertClusterProcessor / mat_processor 가 없다 — 프로세서 칸 검사를 건너뛴다');
   } else {
-    // 2026-09-14 (사용자 결정): 코어 아이템이 2×1 이 되고 드롭 · 더블클릭 · 우클릭은 **한 개씩** 옮긴다
-    await giveStash('mat_compute_core', 3);
-    const stackBefore = await countAll('mat_compute_core');
-    const d1 = await dropVia('mat_compute_core', '.mining-screen .mn-core[data-core="4"]');
+    const DUR_MAX = await H(() => window.__game.ctx.loot.getItemDef('mat_processor').durabilityMax ?? 0);
+    ok(DUR_MAX > 0, `프로세서는 내구도를 가진 아이템이다 (최대 ${DUR_MAX})`);
+    // 2026-09-14 (사용자 결정): 아이템이 2×1 이고 드롭 · 더블클릭 · 우클릭은 **한 개씩** 옮긴다
+    await giveStash('mat_processor', 3);
+    const stackBefore = await countAll('mat_processor');
+    const d1 = await dropVia('mat_processor', '.mining-screen .mn-core[data-core="4"]');
     await sleep(60);
-    ok(d1.ok && (await coresOf(C1)) === 1 && (await countAll('mat_compute_core')) === stackBefore - 1,
-      `스택 3 을 빈 칸에 드롭 → 한 개만 꽂힌다 (코어 1 · 남은 ${await countAll('mat_compute_core')}) ${JSON.stringify(d1)}`);
-    await giveStash('mat_compute_core', 12);
-    const stash1 = await countAll('mat_compute_core');
-    for (let i = 0; i < 8; i++) { await dropVia('mat_compute_core', '.mining-screen .mn-core[data-core="0"]'); await sleep(20); }
-    ok((await coresOf(C1)) === 9 && (await countAll('mat_compute_core')) === stash1 - 8, `여덟 번 더 꽂으면 가득 (코어 9 · 창고 ${stash1} → ${await countAll('mat_compute_core')})`);
+    const cells1 = await cellsOf(C1);
+    ok(d1.ok && (await coresOf(C1)) === 1 && (await countAll('mat_processor')) === stackBefore - 1
+      && cells1[4] === DUR_MAX && cells1.every((v, i) => i === 4 || v === null),
+    `빈 칸에 드롭 → 한 개만, **놓은 그 칸**(4번)에 꽂힌다 (${JSON.stringify(cells1)}) ${JSON.stringify(d1)}`);
+
+    /* 2026-09-16 (사용자 결정): 칸은 개수가 아니라 **그 칸의 남은 내구도**다 — 끌어온 인스턴스의 내구도가 칸에 그대로 적히고,
+       빼면 그대로 돌아온다 (닳은 것만 골라 빼서 작업대로 가져가는 길). */
+    const WORN = Math.max(1, Math.round(DUR_MAX * 0.24));
+    const wornUid = await giveWorn(WORN);
+    const d2 = await dropUid(wornUid, '.mining-screen .mn-core[data-core="7"]');
+    await sleep(60);
+    const cells2 = await cellsOf(C1);
+    ok(!!wornUid && d2.ok && cells2[7] === WORN && cells2[4] === DUR_MAX,
+      `닳은 프로세서(내구도 ${WORN})를 끌어다 놓으면 그 칸이 그 내구도를 든다 (${JSON.stringify(cells2)})`);
+    await dropVia('mat_processor', '.mining-screen .mn-core[data-core="7"]');
+    await sleep(40);
+    ok((await lastNotify()) === '이미 프로세서가 꽂힌 칸입니다' && (await coresOf(C1)) === 2,
+      `이미 찬 칸에 드롭 → 거절 (${await lastNotify()})`);
+    const bagWorn0 = await bagQty('mat_processor');
+    await H(() => document.querySelector('.mining-screen .mn-core[data-core="7"]')?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })));
+    await sleep(60);
+    const backDur = await H(() => window.__game.ctx.inventory.getAllItems().filter((i) => i.defId === 'mat_processor').map((i) => i.durability ?? null));
+    ok((await coresOf(C1)) === 1 && (await bagQty('mat_processor')) === bagWorn0 + 1 && backDur.includes(WORN),
+      `그 칸을 빼면 내구도 ${WORN} 을 그대로 들고 가방으로 (${JSON.stringify(backDur)})`);
+
+    await giveStash('mat_processor', 12);
+    const stash1 = await countAll('mat_processor');
+    for (const cell of [0, 1, 2, 3, 5, 6, 7, 8]) { await dropVia('mat_processor', `.mining-screen .mn-core[data-core="${cell}"]`); await sleep(20); }
+    ok((await coresOf(C1)) === 9 && (await countAll('mat_processor')) === stash1 - 8, `남은 여덟 칸을 채우면 가득 (프로세서 9 · 창고 ${stash1} → ${await countAll('mat_processor')})`);
     const lit = await H(() => ({ on: document.querySelectorAll('.mining-screen .mn-core.is-on').length, count: document.querySelector('.mining-screen .mn-corebox .mn-sec-count')?.textContent }));
     ok(lit.on === 9 && lit.count === '9 / 9', `켜진 칸 9 · 「9 / 9」 (${JSON.stringify(lit)})`);
-    await dropVia('mat_compute_core', '.mining-screen .mn-core[data-core="0"]');
+    await dropVia('mat_processor', '.mining-screen .mn-core[data-core="0"]');
     await sleep(30);
     ok((await lastNotify()).includes('가득'), `가득 찬 클러스터에 드롭 → 거절 토스트 (${await lastNotify()})`);
     await dropVia('mat_scrap', '.mining-screen .mn-core[data-core="0"]');
     await sleep(30);
-    ok((await lastNotify()) === '연산 코어만 꽂을 수 있습니다', '코어가 아닌 아이템 → 거절');
+    ok((await lastNotify()) === '프로세서만 꽂을 수 있습니다', '프로세서가 아닌 아이템 → 거절');
     await waitSim(0.3);
     const models1 = await H(() => window.__models('furn-furn_compute_cluster'));
-    ok(models1.some((m) => m.lit > 0) && models1.some((m) => m.lit === 0), `코어 9 클러스터만 켜진 코어 칸 메시 (${JSON.stringify(models1)})`);
-    ok((await H(() => window.__lights())) === lightsBefore, '코어를 꽂아 모델을 다시 지어도 점광원 그대로');
+    ok(models1.some((m) => m.lit > 0) && models1.some((m) => m.lit === 0), `프로세서 9 클러스터만 켜진 코어 칸 메시 (${JSON.stringify(models1)})`);
+    ok((await H(() => window.__lights())) === lightsBefore, '프로세서를 꽂아 모델을 다시 지어도 점광원 그대로');
 
-    const bag0 = await bagQty('mat_compute_core'), stash0 = await stashQty('mat_compute_core');
+    const bag0 = await bagQty('mat_processor'), stash0 = await stashQty('mat_processor');
     await H(() => document.querySelector('.mining-screen .mn-core.is-on')?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })));
     await sleep(60);
-    ok((await coresOf(C1)) === 8 && (await bagQty('mat_compute_core')) === bag0 + 1, '우클릭 → 코어 1개 빼기 (가방 먼저)');
+    ok((await coresOf(C1)) === 8 && (await bagQty('mat_processor')) === bag0 + 1, '우클릭 → 프로세서 1개 빼기 (가방 먼저)');
     await H(() => document.querySelector('.mining-screen .mn-core.is-on')?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })));
     await sleep(60);
-    ok((await coresOf(C1)) === 7 && (await stashQty('mat_compute_core')) === stash0 + 1, '더블클릭 → 코어 1개 빼기 (함선 창고 먼저)');
+    ok((await coresOf(C1)) === 7 && (await stashQty('mat_processor')) === stash0 + 1, '더블클릭 → 프로세서 1개 빼기 (함선 창고 먼저)');
   }
 
   /* 코인 지정 — 2026-09-14 부터 현황 칸의 드롭다운(`CoinPicker`)이다: 버튼을 누르면 목록이 펼쳐지고 줄을 누른다.
@@ -352,7 +398,8 @@ try {
   });
   ok(pc.tabs.join('|') === '채굴|클러스터 현황|지갑|거래소' && pc.active === 'clusters', `상단 탭 넷 · 메인 컴퓨터로 열면 「클러스터 현황」 (${pc.tabs.join('|')})`);
   ok(pc.rows === 2 && !pc.gridsShown && !pc.railShown && !pc.upgrade, `현황 줄 2 · 격자 · 레일 숨김 · 업그레이드 없음 (${JSON.stringify(pc)})`);
-  ok(pc.head === '클러스터|코인|코어|이번 주기|상태', `현황 머리줄에 전력 칸이 없다 (2026-09-13) (${pc.head})`);
+  // 2026-09-16 (사용자 결정 — 연산 코어 폐지): 셋째 칸 이름이 「코어」 → 「프로세서」다. 전력 칸은 2026-09-13 부터 그대로 없다.
+  ok(pc.head === '클러스터|코인|프로세서|이번 주기|상태', `현황 머리줄 = 프로세서 칸 · 전력 칸 없음 (${pc.head})`);
   ok(pc.watch === 0 && pc.toggled, `현황 탭은 시세를 구독하지 않는다 · ui:miningToggled computer (watch ${pc.watch})`);
   const rowText = await H(() => document.querySelector('.mining-screen .mn-crow[data-uid] .mn-ccores')?.textContent ?? '');
   ok(/\d\/9/.test(rowText), `현황 줄 코어 n/9 (${rowText})`);

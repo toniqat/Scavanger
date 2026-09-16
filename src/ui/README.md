@@ -47,7 +47,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/ImplantWidget.ts` | Tactical implant thumbnail, bottom centre: cooldown / charges / gauge display, ready flash + glow, refund text |
 | `hud/InteractionPrompt.ts` | Bottom-centre `E — action` caption; hold interactables get a hold keycap |
 | `hud/ItemFavoriteMenu.ts` | Right-click favorite menu on any `.item-chip[data-def-id]` or opted-in tile; registers the chip favorite source |
-| `hud/ItemTip.ts` | Hover card for item chips / `data-item-tip` tiles / currency chips (def data, series, meal quality, sockets…); exports `TIP_ANCHOR_ATTR` |
+| `hud/ItemTip.ts` | Hover card for item chips / `data-item-tip` tiles / currency chips (def data, series, meal quality, sockets…); weapons get the **same body as the grid card** through `shared/weaponTip` (대미지 · 연사 · 반동 · 사거리 · 탄종 · 장전 · 발사 모드 · 배율 · 내구도 · 소켓); exports `TIP_ANCHOR_ATTR`, `TIP_PRICE_ATTR` |
 | `hud/KeyGuide.ts` | Bottom-right key line for the topmost `ui:keyGuide` owner; appends the `Tab · Esc 닫기` entry itself |
 | `hud/LoadingGauge.ts` (+ `styles/loading.css`) | Raid-entry loading gauge: bottom-right radial ring over the black plate, `squad` fill, `n명 대기 중`; driven by `performance.now()` because the load gate hands every system `dt 0` |
 | `hud/mealText.ts` | Meal buff / quality / cook-step text helpers shared by ItemTip, BuffStrip, Notifications |
@@ -329,6 +329,10 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
   imports are `@/shared` plus the `@/items` barrel (`hud/ItemTip`, `hud/WeaponPanel`) and `@/player` barrel
   (`menus/SoldierPreview`).
 - Legendary uniques show their own kind (`UNIQUE_WEAPON_LABEL_KO`), never their csv class. — `hud/WeaponPanel.ts` (`weaponTypeLabel`)
+- A weapon's numbers and their Korean labels come from `shared/weaponTip` (`weaponTipRows`, `weaponGaugeValues` /
+  `weaponGaugeTexts`) — the same function the grid card (`inventory/ui/Tooltip`) draws its gauges from. Never compute
+  a weapon stat line here: the 기업 거래 screen shows this card, so a copy makes the same gun read differently in the
+  bag and at the trade desk. — `hud/ItemTip.ts` (`weaponRows`)
 - Item hover cards anchor bottom-right of the cursor; an element opts into top-left with `data-tip-anchor="left"`
   (`TIP_ANCHOR_ATTR`). ItemTip hides when its chip leaves the DOM or a tooltip is pinned. — `hud/ItemTip.ts`
 - `.item-tip` pins its own text flow (`text-align`, `direction`) and its head's flex axes (`align-items: stretch`,
@@ -343,8 +347,8 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
+- 2026-09-16 — Item hover card draws the **weapon body** (대미지 · 연사 · 반동 · 사거리 · 탄종 · 장전 · 발사 모드 · 배율 · 내구도 · 소켓) from the new `shared/weaponTip`, the same builder the grid card's gauges use — a gun at the 기업 거래 desk now reads exactly like the same gun in the bag.
 - 2026-09-16 — Item hover card: `.item-tip` now fixes its own text flow and `.it-head` its flex axes, so the colliding global `.it-head` of `hub/intel.css` (same `.it-` prefix) no longer right-aligns 이름 · 종류 (기업 거래 · 재료 칩 · 서재 전시대 · 연산 클러스터). XP readouts are compact (`formatCompactNumber` / `formatCompactSigned`): result screen `획득 경험치` + `x / y XP`, the `+n XP` toast chip, the quest-complete toast and the map quest panel reward line.
 - 2026-09-16 — Squad list drops the local row entirely (shared ship and raid; `.srow.me` / `(나)` / the "no buffs on my row" rule are gone) and hides itself when no row is filled (`Squad.finish`); the music window is personal-ship only (`ctx.hub?.ship === 'personal'`, state untouched).
 - 2026-09-16 — Dining plates: squadmate plate toast on `net:squadPlate` (`fresh`, shared ship only) replaces the `housing:mealServed` toast; cook result toast says `→ 식탁`; BuffStrip / ItemTip fall back to `getMealDef` for meal ids.
 - 2026-09-16 — Liftoff hides all remaining HUD (social layer, key guide, item card, music, net badge, 3D pillars) with a code-stepped fade; crosshair/rings hide instantly. Crosshair hidden during the intro wake, then fades in (`TUTORIAL_RETICLE_FADE_S`).
-- 2026-09-15 — Title resume / abandon: `이어하기` (highlighted) above a red `게임 시작` while `ctx.raidResume.offer` exists; `게임 시작` then opens the abandon popup (`menus/raidResumeCard`, `.trs-`, `[닫기] [레이드 포기]` 1 s hold); `enterShip` waits for the squad raid check; `AskSpec.cancel`; debug `HudSystem.titleResume`.

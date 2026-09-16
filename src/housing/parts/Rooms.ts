@@ -216,6 +216,12 @@ export function refundToStash(sys: HousingSystem, cost: readonly CraftIngredient
   let lost = 0;
   for (const c of cost) {
     const def = sys.defOf(c.defId);
+    /* 2026-09-16: 세이브에서 온 id 는 **지금 아이템 표에 없을 수 있다** (표본 전면 개편처럼 def 를 줄째로 지운
+       개발 단계 변경 — 사용자 결정으로 마이그레이션을 두지 않았다). 없는 def 로 `createItem` 을 부르면 던지는데,
+       이 함수는 `HousingSystem.update` 의 첫 프레임 환불에서도 불리므로 예외 하나가 housing 전체를 멈춘다.
+       서재의 `books()` · 분석기의 `analyses()` 와 같은 규약으로 **경고를 남기고 건너뛴다**. 창고가 꽉 차서 못 넣은
+       것이 아니므로 `lost` 에도 세지 않는다 (「창고가 가득 참」 토스트가 거짓말이 된다). */
+    if (!def) { console.warn(`[housing] refund: unknown item def '${c.defId}' ×${c.qty} dropped (아이템 표에서 사라진 def)`); continue; }
     const stack = Math.max(1, def?.stackMax ?? 1);
     let left = c.qty;
     while (left > 0) {

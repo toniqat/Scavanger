@@ -244,6 +244,12 @@
 .cv-empty[hidden] { display: none; }
 /* a stock / tray tile is one unit of a line: the inventory qty badge would read "1" — the desk draws its own */
 .cv-tile.shop .inv-tile-qty, .cv-tile.buy .inv-tile-qty, .cv-tile.broken .inv-tile-qty { display: none; }
+/* 2026-09-16 (사용자 버그 「판매 물품 목록에 내구도가 뜬다」): 매대 · 구매칸의 타일은 **기업이 파는 새 물건**이라
+   내구도 게이지가 언제나 가득 찬 채로 모든 총에 붙어 있었다 — 읽을 값이 아니라 잡음이다. 타일을 만드는 함수
+   (`InventoryRef.buildItemTile` → `inventory/ui/GridView.buildTileContent`)는 가방 · 창고 격자와 **같은 함수**이므로
+   거기서 지우면 가방의 내구도까지 사라진다. 그래서 이 화면의 그 두 종류 타일에서만 가린다 — 카드(`ui/hud/ItemTip`)는
+   그대로 내구도 줄을 적는다. 판매칸 타일은 내가 파는 **그 물건**의 실제 상태이므로 게이지가 남는다. */
+.cv-tile.shop .inv-tile-dur, .cv-tile.buy .inv-tile-dur { display: none; }
 .cv-tile { cursor: pointer; }
 
 /* ── 2026-09-13: 32–40 px 칸의 타일 — 글리프 · 이름 · 수량 · 소켓이 칸 크기를 따라 줄어든다 (`--inv-cell` = `--cv-cell`,
@@ -256,8 +262,11 @@
 .corp-view .cv-tile .inv-tile-qty { right: 2px; bottom: 2px; min-width: 13px; padding: 0 2px; font-size: 9px; line-height: 12px; }
 .corp-view .cv-tile .inv-tile-sockets { right: 3px; top: 3px; gap: 2px; }
 .corp-view .cv-tile .inv-pip { width: 5px; height: 5px; }
-/* a 1×1 stock / implant tile carries its price badge along the bottom — lift the glyph clear of it */
+/* a 1×1 stock / tray / implant tile carries its price badge along the bottom — lift the glyph clear of it
+   (2026-09-16: 구매칸 · 판매칸도 좌하단 가격 배지를 달게 되어 같은 규칙에 들어왔다) */
 .cv-tile.shop:not(.is-wide):not(.is-tall) .inv-tile-icon,
+.cv-tile.buy:not(.is-wide):not(.is-tall) .inv-tile-icon,
+.cv-tile.sell:not(.is-wide):not(.is-tall) .inv-tile-icon,
 .cv-tile.broken:not(.is-wide):not(.is-tall) .inv-tile-icon { translate: 0 -4px; }
 
 .cv-tile .cv-price {
@@ -265,8 +274,9 @@
   padding: 0 2px; font-family: var(--ui-mono); font-size: 9px; line-height: 12px; color: var(--c-accent);
   background: rgba(0, 0, 0, 0.62); border-radius: 2px; pointer-events: none;
 }
-/* a sale tile also shows the stack's qty bottom-right — its price goes top-left so the two never collide on a 1×1 */
-.cv-tile.sell .cv-price { bottom: auto; top: 2px; }
+/* 2026-09-16 (사용자 결정): **가격은 어느 칸에서든 좌하단이다.** 판매칸 타일만 좌상단으로 올려 두었었는데
+   (묶음 수량이 우하단이라 1×1 에서 붙는다는 이유), 매대 · 구매칸과 자리가 달라 같은 값을 눈이 두 군데서 찾게 됐다.
+   수량은 우하단 그대로라 서로 반대 모서리이므로 겹치지 않는다. */
 .cv-tile .cv-count {
   position: absolute; right: 2px; bottom: 2px; z-index: 2;
   min-width: 13px; padding: 0 2px; font-family: var(--ui-mono); font-size: 9px; font-weight: 700; line-height: 12px; text-align: center;
@@ -334,17 +344,16 @@
 .cv-chev.flow polyline { opacity: 0.65; }
 .cv-tray.buy .cv-chev.flow { margin-left: 2px; }
 
-/* 거래 후 크레딧 변화 — 라벨 없이 가운데. + 는 초록 ▲ 오른쪽, − 는 빨강 ▼ 왼쪽, 0 은 화살표 없음 */
+/* 거래 후 크레딧 변화 — 라벨 없이 가운데 숫자 한 줄.
+   2026-09-16 (사용자 결정): 양옆의 셰브런(초록 ▲ · 빨강 ▼)을 뺐다 — 부호(`+` / `−`)와 글자색이 이미 방향을
+   말하므로 화살표는 같은 말을 세 번째로 하는 장식이었다. 트레이 머리의 흐름 셰브런(`.cv-chev.flow`)은 그대로다. */
 .cv-total {
   display: flex; align-items: center; justify-content: center; gap: 6px; flex: none;
   padding-top: 8px; border-top: 1px solid var(--c-border);
 }
 .cv-total .v { font-family: var(--ui-mono); font-size: 18px; font-weight: 600; color: var(--c-text); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.cv-total .cv-chev { display: none; }
 .cv-total.plus .v { color: var(--c-success); }
 .cv-total.minus .v { color: var(--c-danger); }
-.cv-total.plus .net-up { display: inline-flex; color: var(--c-success); filter: drop-shadow(0 0 6px color-mix(in srgb, var(--c-success) 55%, transparent)); }
-.cv-total.minus .net-down { display: inline-flex; color: var(--c-danger); filter: drop-shadow(0 0 6px color-mix(in srgb, var(--c-danger) 55%, transparent)); }
 
 /* 거래 성사 — 1초 홀드 (UI_HOLD_CONFIRM_S). 게이지가 왼쪽에서 차오른다 */
 .cv-confirm {

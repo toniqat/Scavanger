@@ -6,7 +6,7 @@ import { SKILL_IDS, STAT_IDS, csvRows, keyTable, numberMap, stringMap } from '@/
 const T = /* data/tuning.csv */ keyTable('tuning.csv');
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Static definitions for the 5 stats and 16 skills (Korean names + descriptions)
+ * Static definitions for the 5 stats and 17 skills (Korean names + descriptions)
  * and the raw skill-XP amounts every trained action is worth.
  * Owner: progression/. Nothing else defines these.
  * ──────────────────────────────────────────────────────────────────────────── */

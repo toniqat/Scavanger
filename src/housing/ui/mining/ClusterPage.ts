@@ -1,9 +1,12 @@
 import type { ComputeClusterInfo, CryptoCoinInfo, EmbeddedView, GameContext, HarvestDestination, ItemInstance, PlacedFurniture } from '@/shared';
-import { COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES, COMPUTE_CORE_DEF_ID, coinCycleMs, formatCoinUnits } from '@/shared';
+import { COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES, PROCESSOR_DEF_ID, formatCoinUnits } from '@/shared';
+import { clusterCycleMs } from '../../MiningRules';
 import type { HousingSystem } from '../../HousingSystem';
+import { buildStationItemTile, stationTileBox } from '../ItemTile';
 import { ProductDrag } from '../ProductDrag';
 import type { Product } from '../ProductDrag';
 import { mountStationGrids } from '../StationShell';
+import type { StationGridsView } from '../StationShell';
 import { clear, el, renderClock, renderClockText, setText, toggleClass } from '../dom';
 import { CoinPicker } from './CoinPicker';
 import type { MiningHost } from './MiningScreen';
@@ -14,23 +17,35 @@ import {
 const MAX_CORES = Math.max(1, Math.floor(COMPUTE_CLUSTER_MAX_CORES));
 const NO_API = '채굴 기능을 사용할 수 없습니다';
 
+/**
+ * **클러스터 칸에 꽂는 아이템** — 한 곳에서만 읽는다. 2026-09-16 (사용자 결정 「연산 코어를 없애고 프로세서를 직접 꽂는다」)
+ * 부터 **프로세서**(`mat_processor`, 내구도를 갖는 2×1 아이템)다. 칸 크기는 그 아이템의 발자국에서 나오고,
+ * 꽂힌 칸의 타일은 `ComputeClusterInfo.processors[i]` 의 남은 내구도를 그대로 들고 선다 (인벤토리 타일의 내구도 막대).
+ */
+const SLOT_DEF_ID = PROCESSOR_DEF_ID;
+/** 칸 한 변(px) — 가구 화면의 격자(`stationGridCell`)와 같은 결의 배치 상수. 칸 상자는 아이템 발자국에서 나온다. */
+const SLOT_CELL_PX = 52;
+
 interface RailItem { uid: string; el: HTMLElement; dots: HTMLElement[]; red: HTMLElement }
 interface StatRow { row: HTMLElement; v: HTMLElement }
 
 /**
  * **채굴 탭** (`MiningTab 'cluster'` — 옛 연산 클러스터 화면, 2026-09-14 통합 창의 한 쪽).
  *
- * 위에서 아래로: **코어 9칸**(가로로 긴 칸 · 중앙 정렬) → **이번 주기** 진행 막대 → **채굴 코인 드롭다운 + 현황 수치**.
- * 왼쪽 레일은 함선의 연산 클러스터 목록(이름 + 코어 점 9개 · 멈췄으면 레드닷)이고, 오른쪽 [함선 창고] [가방]
- * 카드에서 연산 코어를 끌어 온다.
+ * 위에서 아래로: **프로세서 9칸**(아이템 격자 칸 · 중앙 정렬) → **이번 주기** 진행 막대 → **채굴 코인 드롭다운 + 현황 수치**.
+ * 왼쪽 레일은 함선의 연산 클러스터 목록(이름 + 칸 점 9개 · 멈췄으면 레드닷)이고, 오른쪽 [함선 창고] [가방]
+ * 카드에서 프로세서를 끌어 온다.
  *
  * 2026-09-14 (사용자 결정):
- *  - 코어 아이템이 **2×1** 이 되어 칸도 가로로 길다.
- *  - 드롭 · 더블클릭 · 우클릭은 **한 개씩** 옮긴다 (`insertClusterCores(uid, 1)` · `removeClusterCores(uid, 1, dest)`).
- *    세이브(`ComputerClusterSlot.cores`)는 **개수 하나**라 꽂힌 칸은 늘 앞에서부터 n칸이다 — 어느 빈 칸에 놓아도
- *    다음 빈 칸이 켜진다.
+ *  - 칸의 모양은 꽂는 아이템의 **발자국**이 정한다 (프로세서 2×1 이라 가로로 긴 칸).
+ *  - 드롭 · 더블클릭 · 우클릭은 **한 개씩** 옮긴다.
  *  - 코인 목록 버튼 줄 · 안내문(`.mn-hint` · 푸터 · 「코인을 바꾸면 진행도가 초기화됩니다」)은 없어졌다 — 코인은
  *    현황 칸의 **드롭다운**(`CoinPicker`)이 고르고, 진행도가 있으면 1초 홀드 경고(`MiningAsk`)가 그것을 말한다.
+ *
+ * 2026-09-16 (사용자 결정 — 프로세서 직접 장착): 프로세서에는 내구도가 있어 칸마다 다르다. 그래서 세이브도 화면도
+ * **칸 목록**(`ComputeClusterSlot.processors`, 인덱스 = 이 격자의 칸)이고, 놓은 칸 · 집은 칸이 그대로 쓰인다
+ * (`insertClusterProcessor` · `removeClusterProcessor`). 꽂힌 타일에는 그 칸의 내구도 막대가 선다 — 다 닳아도
+ * 빠지지 않고 절반 성능으로 돌므로, 「고쳐야 빨라진다」가 눈에 보여야 한다.
  *
  * 규칙은 하나도 여기 없다 — 사유는 전부 `ctx.housing`(parts/Mining)이 돌려준다.
  */
@@ -41,13 +56,15 @@ export class ClusterPage {
   private readonly coreCells: HTMLElement[] = [];
   private readonly coreCount: HTMLElement;
   private readonly stats: Record<'cycle' | 'next' | 'yield' | 'rate' | 'credits', StatRow>;
+  /** 칸마다 마지막으로 그린 상태 (`빈 칸` = '' · `내구도`) — 1초마다 도는 `paint` 가 DOM 을 다시 만들지 않게. */
+  private readonly cellKeys: string[] = [];
   private readonly progFill: HTMLElement;
   private readonly progClock: HTMLElement;
   private readonly progPct: HTMLElement;
   private readonly picker: CoinPicker;
   private readonly ask: MiningAsk;
   private readonly drag: ProductDrag;
-  private grids: EmbeddedView | null = null;
+  private grids: StationGridsView | null = null;
   private railItems: RailItem[] = [];
   private railKey = '';
   private active = false;
@@ -60,17 +77,19 @@ export class ClusterPage {
     const page = this.el = el('div', { cls: 'mn-page mn-cl', attrs: { 'data-page': 'cluster' }, parent: host.shell.left });
     host.shell.rail.addEventListener('click', (e) => this.onRailClick(e));
 
-    /* 연산 코어 — 가로로 긴 칸 9개, 중앙 정렬 */
+    /* 프로세서 — 가로로 긴 칸 9개, 중앙 정렬 */
     const coreBox = el('div', { cls: 'mn-corebox', parent: page });
     const coreHead = el('div', { cls: 'mn-sec-head', parent: coreBox });
-    el('span', { cls: 'mn-sec-title', text: '연산 코어', parent: coreHead });
+    el('span', { cls: 'mn-sec-title', text: '프로세서', parent: coreHead });
     this.coreCount = el('span', { cls: 'mn-sec-count', text: `0 / ${MAX_CORES}`, parent: coreHead });
     this.coresEl = el('div', { cls: 'mn-cores', parent: coreBox });
+    /* 2026-09-16 (사용자 결정): 칸은 **아이템 격자 칸**이다 — 전용 그림(`.mn-core-chip` · LED)을 걷어내고, 꽂힌
+       칸에는 가방에서 보던 타일이 그대로 선다 (`ui/ItemTile`). 칸 상자는 그 아이템의 발자국 크기다. */
+    const box = stationTileBox(ctx, SLOT_DEF_ID, SLOT_CELL_PX);
+    this.coresEl.style.setProperty('--mn-core-w', `${box.width}px`);
+    this.coresEl.style.setProperty('--mn-core-h', `${box.height}px`);
     for (let i = 0; i < MAX_CORES; i++) {
-      const c = el('div', { cls: 'mn-core', attrs: { 'data-core': String(i) }, parent: this.coresEl });
-      el('i', { cls: 'mn-core-chip', parent: c });
-      el('i', { cls: 'mn-core-led', parent: c });
-      this.coreCells.push(c);
+      this.coreCells.push(el('div', { cls: 'mn-core', attrs: { 'data-core': String(i) }, parent: this.coresEl }));
     }
 
     /* 이번 주기 */
@@ -100,7 +119,7 @@ export class ClusterPage {
     };
     this.stats = {
       cycle: stat('채굴 주기'),
-      next: stat('코어 +1'),
+      next: stat('프로세서 +1'),
       yield: stat('주기당 채굴'),
       rate: stat('시간당 예상'),
       credits: stat('시간당 크레딧'),
@@ -110,13 +129,16 @@ export class ClusterPage {
     host.addOverlay(this.ask);
     this.drag = new ProductDrag(this.coresEl, {
       productAt: (t) => this.productAt(t),
-      collect: (_key, dest) => this.removeCore(dest),
+      collect: (key, dest) => this.removeCore(Number(key), dest),
       defOf: (id) => housing.defOf(id),
+      // 2026-09-16: 빼서 놓은 **그 칸**으로 간다 (격자는 화면이 열릴 때 만들어지므로 함수로 준다)
+      grids: () => this.grids,
     });
     this.coresEl.addEventListener('contextmenu', (e) => {
       if (!(e.target as Element | null)?.closest('.mn-core')) return;
       e.preventDefault(); e.stopPropagation();
-      if (this.productAt(e.target as Element)) this.removeCore('bag-first');
+      const p = this.productAt(e.target as Element);
+      if (p) this.removeCore(Number(p.key), 'bag-first');
     });
   }
 
@@ -177,41 +199,42 @@ export class ClusterPage {
 
   /* ── actions ───────────────────────────────────────────────────────────── */
   /**
-   * 가방 / 창고의 타일을 코어 칸에 놓았다 (또는 더블클릭 — `target` null).
-   * **한 번에 하나**다 (2026-09-14 사용자 결정): 세이브가 개수 하나라 꽂힌 칸은 늘 앞에서부터이므로, 어느 빈 칸에
-   * 놓아도 다음 빈 칸이 켜진다.
+   * 가방 / 창고의 타일을 프로세서 칸에 놓았다 (또는 더블클릭 — `target` null).
+   * **놓은 그 칸**에, **끌어온 그 인스턴스**를 꽂는다 (2026-09-16): 프로세서는 내구도가 저마다 달라 「아무거나 다음 빈 칸」이
+   * 더 이상 같은 결과가 아니다. 더블클릭은 칸을 고르지 않았으므로 첫 빈 칸이다 (`insertClusterCores(uid, 1)`).
    */
   private dropOn(item: ItemInstance, target: HTMLElement | null): void {
-    if (!target) { this.host.showMsg('연산 코어를 코어 칸으로 끌어다 놓으세요', 'info'); return; }
-    if (item.defId !== COMPUTE_CORE_DEF_ID) { this.host.denyMsg('연산 코어만 꽂을 수 있습니다'); return; }
+    if (item.defId !== SLOT_DEF_ID) { this.host.denyMsg('프로세서만 꽂을 수 있습니다'); return; }
     const info = this.info();
     if (!info) { this.host.denyMsg('연산 클러스터가 없습니다'); return; }
-    if (info.cores >= (info.maxCores || MAX_CORES)) { this.host.denyMsg('코어 칸이 가득 찼습니다'); return; }
-    const insert = this.ref.insertClusterCores;
-    if (typeof insert !== 'function') { this.host.denyMsg(NO_API); return; }
-    const reason = insert.call(this.ref, this.uid, 1);
+    if (info.cores >= (info.maxCores || MAX_CORES)) { this.host.denyMsg('프로세서 칸이 가득 찼습니다'); return; }
+    const cell = target ? Number(target.dataset.core) : -1;
+    const reason = Number.isInteger(cell) && cell >= 0
+      ? this.ref.insertClusterProcessor?.call(this.ref, this.uid, cell, item.uid) ?? NO_API
+      : this.ref.insertClusterCores?.call(this.ref, this.uid, 1) ?? NO_API;
     if (reason) { this.host.denyMsg(reason); return; }
     this.host.debug.inserts++;
     this.ctx.bus.emit('audio:play', { id: 'ui_equip' });
     const after = this.info();
-    this.host.showMsg(`연산 코어를 꽂았습니다${after && after.cycleMs > 0 ? ` — 채굴 주기 ${fmtDuration(after.cycleMs)}` : ''}`, 'success');
+    this.host.showMsg(`프로세서를 꽂았습니다${after && after.cycleMs > 0 ? ` — 채굴 주기 ${fmtDuration(after.cycleMs)}` : ''}`, 'success');
   }
 
-  private removeCore(dest: HarvestDestination): void {
+  /** `cell` 칸의 프로세서를 뺀다 — 내구도는 그대로 따라간다 (닳은 것을 골라 빼서 작업대로 가져가는 길). */
+  private removeCore(cell: number, dest: HarvestDestination): void {
     const info = this.info();
-    if (!info || info.cores <= 0) return;
-    const remove = this.ref.removeClusterCores;
+    if (!info || !Number.isInteger(cell) || info.processors[cell] === null || info.processors[cell] === undefined) return;
+    const remove = this.ref.removeClusterProcessor;
     if (typeof remove !== 'function') { this.host.denyMsg(NO_API); return; }
-    const reason = remove.call(this.ref, this.uid, 1, dest);
+    const reason = remove.call(this.ref, this.uid, cell, dest);
     if (reason) { this.host.denyMsg(reason); return; }
     this.host.debug.removes++;
-    this.host.showMsg(`연산 코어 1개를 뺐습니다 (${dest === 'bag' || dest === 'bag-first' ? '가방' : '함선 창고'})`, 'info');
+    this.host.showMsg(`프로세서 1개를 뺐습니다 (${dest === 'bag' || dest === 'bag-first' ? '가방' : '함선 창고'})`, 'info');
   }
 
   private productAt(target: Element): Product | null {
     const cell = target.closest<HTMLElement>('.mn-core[data-core]');
     if (!cell || !cell.classList.contains('is-on')) return null;
-    return { key: 'core', defId: COMPUTE_CORE_DEF_ID, qty: 1 };
+    return { key: cell.dataset.core ?? '', defId: SLOT_DEF_ID, qty: 1 };
   }
 
   private selectCoin(id: string): void {
@@ -333,17 +356,24 @@ export class ClusterPage {
     this.host.setTitle(index >= 0 ? `연산 클러스터 ${index + 1}` : '연산 클러스터', status, !info?.mining);
     this.host.setBanner(!placed ? '연산 클러스터가 없습니다' : !info ? NO_API : info.mining ? null : info.block ?? null);
 
-    // 코어 칸 — 꽂힌 칸에는 아이템 호버 카드(`ui/hud/ItemTip` 이 `[data-item-tip][data-def-id]` 를 본다)
+    // 프로세서 칸 — 꽂힌 칸은 **가방과 같은 아이템 타일**이고 그 칸의 내구도 막대를 들고 선다 (2026-09-16 사용자 결정)
     const cores = info?.cores ?? 0;
     const max = info?.maxCores || MAX_CORES;
+    const cells = info?.processors ?? [];
     setText(this.coreCount, `${cores} / ${max}`);
     toggleClass(this.coresEl, 'is-mining', !!info?.mining);
     this.coreCells.forEach((c, i) => {
-      const on = i < cores;
+      const dur = cells[i] ?? null;
+      const on = dur !== null;
       toggleClass(c, 'is-on', on);
       toggleClass(c, 'is-closed', i >= max);
-      if (on) { c.dataset.itemTip = ''; c.dataset.defId = COMPUTE_CORE_DEF_ID; }
-      else { delete c.dataset.itemTip; delete c.dataset.defId; }
+      // 타일은 **칸의 내구도가 바뀔 때만** 짓는다 (1 초마다 도는 `paint` 가 DOM 을 다시 만들지 않게).
+      // 꽂힌 칸의 호버 카드(`ui/hud/ItemTip`)는 타일이 `data-item-tip` 을 달고 오므로 칸은 아무것도 달지 않는다.
+      const key = on ? String(dur) : '';
+      if (this.cellKeys[i] === key) return;
+      this.cellKeys[i] = key;
+      clear(c);
+      if (on) c.appendChild(buildStationItemTile(this.ctx, SLOT_DEF_ID, { cell: SLOT_CELL_PX, durability: dur }));
     });
     if (def) this.coresEl.style.setProperty('--cc', def.color); else this.coresEl.style.removeProperty('--cc');
 
@@ -363,10 +393,13 @@ export class ClusterPage {
       toggleClass(row.v, 'good', tone === 'good');
       toggleClass(row.v, 'bad', tone === 'bad');
     };
-    const cycle = info && info.cycleMs > 0 ? info.cycleMs : def && cores > 0 ? coinCycleMs(def, cores) : 0;
-    statText(s.cycle, !def ? '코인을 고르세요' : cores <= 0 ? '코어가 필요합니다' : fmtDuration(cycle), !def || cores <= 0 ? 'bad' : '');
+    /* 주기는 개수가 아니라 **성능 합**(`ComputeClusterInfo.perf`)에서 난다 — 「프로세서 +1」은 **새것 한 개**를 더 꽂았을 때다
+       (다 닳은 것을 더하면 그 절반이라, 새것 기준이 사람이 기대하는 수치다). */
+    const perf = info?.perf ?? 0;
+    const cycle = info && info.cycleMs > 0 ? info.cycleMs : def && perf > 0 ? clusterCycleMs(def, perf) : 0;
+    statText(s.cycle, !def ? '코인을 고르세요' : cores <= 0 ? '프로세서가 필요합니다' : fmtDuration(cycle), !def || cores <= 0 ? 'bad' : '');
     s.next.row.hidden = !def || cores >= max;
-    if (def && cores < max) statText(s.next, `${fmtDuration(coinCycleMs(def, cores + 1))}`, 'good');
+    if (def && cores < max) statText(s.next, `${fmtDuration(clusterCycleMs(def, perf + 1))}`, 'good');
     statText(s.yield, def ? `${formatCoinUnits(def.yieldUnits)} ${def.ticker}` : '—');
     const uph = def && cycle > 0 ? unitsPerHour({ coinId: def.id, cycleMs: cycle }) : 0;
     statText(s.rate, uph > 0 ? `${formatCoinUnits(Math.round(uph))} ${def!.ticker}` : '—');

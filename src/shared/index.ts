@@ -102,3 +102,5 @@ export * from './numberFormat';
 export * from './dropdown';
 /* appended (2026-09-16): 제작 재료 환급 — 제작 숙련이 하는 일은 이제 이것 하나다 (게이트 · 제작 속도 없음) */
 export * from './craftRefund';
+/* appended (2026-09-16): 무기 카드 본문 한 벌 — 격자 카드(`inventory/ui/Tooltip`)와 칩 카드(`ui/hud/ItemTip`)가 같은 숫자 · 같은 문장을 읽는다 */
+export * from './weaponTip';

@@ -67,7 +67,8 @@ Direct `@/items` imports: `inventory/` (grids, crafting, tooltips, sort, durabil
 - **Stats**: falloff fields are always filled (no falloff = start = end = range, min 1); use `damageFalloffStats(stats, d)` — it includes
   attachment effects — rather than `damageFalloff(def, d)`. `projectileSpeed`/`bulletGravity` come from the def (× attachment `bulletDrop`).
   Bloom comes from the family row; uniques use `WEAPON_BLOOM_*_DEFAULT` (`tuning.csv`).
-- **Uniques**: no grade scaling, no family, no sockets (`canAttach` false), dedicated `ammoType`, `altFire: true` (RMB is the alternate
+- **Uniques**: **mythic** rarity (2026-09-16 — written in `weaponItemDef`, since `weapons_unique.csv` has no `rarity` column and they
+  have no grade), no grade scaling, no family, no sockets (`canAttach` false), dedicated `ammoType`, `altFire: true` (RMB is the alternate
   fire; the bow uses RMB to cancel the draw). Name is the nickname alone (the kind label is drawn by the UI). The csv `class` is
   bookkeeping: uniques get no shooting-skill bonus/XP and their kills are not class kills — consumers check `def.unique`. Magazines and
   durability are `UNIQUE_WEAPON_MAG` / `UNIQUE_WEAPON_DURABILITY`; damage numbers are the shared `FLAME_*`, `SHOCK_*`, `SHURIKEN_*`,
@@ -87,6 +88,9 @@ Direct `@/items` imports: `inventory/` (grids, crafting, tooltips, sort, durabil
 - **Meals are not items** (2026-09-16): `data/meals.csv` is parsed by `src/shared/meals.ts` (`MEAL_DEFS`, `getMealDef`) and
   `ITEM_DEFS` has no meals — `getItemDef('meal_*')` is undefined. Cook-bench recipes still name a meal id as `outputDefId`
   (data:check resolves it in the meal table). Old saved meal items resolve to unknown defs (no alias rows, no refund).
+- **Samples**: 3 families × 6 rarities = 18 defs. The **tile background is the rarity colour** (the `def()` default — a sample's rarity
+  is the floor of what analysing it yields) and the **glyph is the family** (`SAMPLE_FAMILY_ICON`). `ItemDef` has one `color`, which
+  drives the whole tile (`--rc`), so the family colour (`SAMPLE_FAMILY_COLOR`) stays on the analysis screens only.
 - **Samples / sockets / strains / media / soils**: families `cell` | `mineral` | `dna`; `first*` columns must stay empty. Analysis results,
   wear, sockets and culture are `src/housing`; items only define them. `soilDurability` is required when `soilTag` is set,
   `mediumDurability` when `mediumUses` is set, the three `strainScaffold*` columns go together.
@@ -137,17 +141,20 @@ An enemy type with no table yields one `mat_bio_sample`. `CorpseLootOpts` (`site
 **Named drops** (`loot_named.csv`) are keyed by enemy type only, ignore every planet curve except the epic+ gate (`epicPlusMul`), and set
 durability from `NAMED_LOOT_DURABILITY_MIN/MAX`.
 
-## 프로세서 · 연산 코어
+## 프로세서 (연산 클러스터)
 
-Mining materials. `mat_processor` drops only in raids: crate tiers 4–5 (`loot_item_weights.csv`) and android corpses
-(`loot_corpses.csv`); no shop sells it. `mat_compute_core` is crafted only (`refine_compute_core` at the refine bench) and has
-multiplier 0 at every crate tier. Its stack size equals one full compute cluster (`COMPUTE_CLUSTER_MAX_CORES`).
+**2026-09-16 (채광 개편, 사용자 결정) — the processor is crafted, not found, and it wears out.** `mat_compute_core` (연산 코어) was
+deleted outright; the processor plugs straight into the compute cluster, so `COMPUTE_CORE_DEF_ID` in `shared/housing.ts` no longer
+resolves to an item def. `mat_processor` is a `material` with `durabilityMax` 500: the cluster wears it down each mining cycle
+(`src/housing`) and the ship workbench repairs it. It has weight 0 at **every** crate tier (`loot_item_weights.csv`), is on no corpse
+table and in no shop — the only source is the mining chain 광맥 → 미확인 광물 → 분석기 → 쌍정석 + 연마재 → 결정 코어 (추출기) →
+`mix_processor` (조합대 Lv.3: 결정 코어 1 + 회로 기판 4 → 프로세서 1). Cluster capacity is `COMPUTE_CLUSTER_MAX_CORES`; mining yield
+per plugged processor is `data/crypto.csv` (`shared/cryptoMarket.ts`).
 
-Target: an average player finds a processor every 15–25 raids. The tier-4 and tier-5 multipliers were back-solved to ≈ 2 % per tier-4
-container and ≈ 0.5 % per supply drop (procedure: `data/README.md` 「역산 절차」). Tier-4 containers include structure basements, lab
-locked rooms, wrecks and trams, so changing `structures.csv` tier weights, `loot_tiers.csv` legendary weights or other material
-multipliers moves this rate. Since 2026-09-16 the processor (legendary) also passes the epic+ gate (`planet_loot.csv` `epicPlusMul` 0.5),
-so outside lab locked rooms it drops about half as often as that back-solve assumed. Mining yield per core count is `data/crypto.csv` (`shared/cryptoMarket.ts`).
+Because it carries durability **and** has a craft recipe, it is repairable and salvageable like gear: `wearsDurability` in `Salvage.ts`
+keys on `durabilityMax`, not on the category, so `repairCostFor` derives the repair bill from `mix_processor`'s inputs and
+`checkSalvageEconomy` checks all five buckets. A future durable item in any category is covered automatically — except a healing spray,
+whose `durabilityMax` is a liquid gauge and is excluded by name in the same predicate.
 
 ## Crafting, repair and salvage
 
@@ -155,12 +162,17 @@ so outside lab locked rooms it drops about half as often as that back-solve assu
   that bench at `benchLevel` (filtering is `inventory`). Cook-bench recipes are excluded from generic crafting by `inventory`.
 - **Value index**: `CRAFT_COST_BY_OUTPUT` indexes recipes with `outputQty === 1` (first recipe per output). Alternative recipes with
   `outputQty ≥ 2` never change an item's repair/salvage basis.
-- **Repairable / salvageable**: `REPAIRABLE` / `SALVAGEABLE` categories (weapons, armor, bags) **or** a gadget with `durabilityMax > 0`
-  (`wearsDurability`). Buckets: 20 % steps, 0 = 0–20 % … 4 = 81–100 % (items without durability are bucket 4).
+- **Repairable / salvageable**: `REPAIRABLE` / `SALVAGEABLE` categories (weapons, armor, bags) **or** anything carrying
+  `durabilityMax > 0` (`wearsDurability` — durable gadgets, the processor; healing sprays are excluded, their gauge is `inventory`'s
+  `sprayRepairCost`). Buckets: 20 % steps, 0 = 0–20 % … 4 = 81–100 % (items without durability are bucket 4).
 - Repair = craft inputs × `REPAIR_COST_BY_DURABILITY[bucket]` rounded **up**; salvage = × `SALVAGE_YIELD_BY_DURABILITY[bucket]` rounded
   **down**, with only the largest input guaranteed `SALVAGE_MAIN_MIN_YIELD`.
-- Uniques (weapons and armor) have no recipe, so they cannot be salvaged; their repair borrows the same class's grade V (armor V) inputs
-  × `UNIQUE_REPAIR_MUL`.
+- **Mythic materials never come back out of salvage** (2026-09-16, user decision): `salvageYieldOf` drops every `rarity === 'mythic'`
+  input from the salvage baseline. Unique weapons *are* salvageable — they have craft recipes now (`make_wpn_u_*`, one mythic mineral
+  each) — but 「신화 광물 1 → 제작 → 분해」 must not return the mineral, so the rule is cut on **rarity**, not on "is it unique": any
+  future item that eats a mythic material inherits it. Yield only shrinks, so `checkSalvageEconomy` stays satisfied. Their repair uses
+  **their own** craft inputs (so it costs a mythic mineral); `fallbackCraftCost` × `UNIQUE_REPAIR_MUL` is left for the three perk armors,
+  which still have no recipe.
 - `needsRepairCost(def)`: a durable item with a craft recipe must never have an empty repair cost when worn; inventory refuses such a
   repair and `checkSalvageEconomy` reports it.
 - `getAllRecipes()` lists generated salvage at bucket 4. Consumers must use `getSalvageFor(inst)` for the actual quantities.
@@ -183,8 +195,8 @@ so outside lab locked rooms it drops about half as often as that back-solve assu
   axis keeps same-seed crates identical. — `LootTables.ts` (`lootCategoryOf`)
 - **Retired items are excluded in code**, not only in csv: `isLootableDef` in `pickDef` (including the `relaxRarity` fallback), faction
   pools and seed pools. — `LootTables.ts`
-- **Do not add `'gadget'` wholesale to `REPAIRABLE`/`SALVAGEABLE`**; durability decides (non-durable gadgets would get generated salvage
-  recipes and bucket checks). — `Salvage.ts` (`wearsDurability`)
+- **Do not decide repair/salvage by category**; `durabilityMax` decides (`wearsDurability`). Adding `'gadget'` or `'material'`
+  wholesale would give non-durable smokes / scrap generated salvage recipes and bucket checks they cannot satisfy. — `Salvage.ts`
 - **Alias resolution**: `ITEM_DEF_MAP` knows exact ids only; use `getItemDef` / `LootService.getItemDef` / `createItem` for ids that may come
   from old saves. Save migration itself is `housing` and `inventory`. — `ItemDefs.ts`
 - **`ItemSpec.ts` must not import `src/gadgets`**; it reads the same shared constants. `GadgetDef` owns behaviour, the spec table owns card
@@ -194,8 +206,8 @@ so outside lab locked rooms it drops about half as often as that back-solve assu
 ## Recent changes
 
 Last 5 only — older: `git log -- src/items`.
+- 2026-09-16 — The 6 unique weapons are **mythic** (`weaponItemDef`); `isSalvageable` now bans their salvage by name (they gained craft recipes), and sample tiles read rarity as the background with the family as the glyph.
+- 2026-09-16 — `Salvage.wearsDurability` keys on `durabilityMax` instead of the category (the processor is a durable `material`); healing sprays are the one exception.
 - 2026-09-16 — `Salvage.isCraftRefundable` / `maxSkillCraftFactor`: durable gear (weapons · armor · bags · durable gadgets) is excluded from the craft-skill material refund, and `checkSalvageEconomy` now measures every craft baseline at **max skill** (`craft × maxSkillCraftFactor`).
 - 2026-09-16 — Meals removed from `ITEM_DEFS` (`MEAL_ITEM_DEFS` gone); `data/meals.csv` is parsed by `shared/meals.ts`.
 - 2026-09-16 — Epic+ gate (`planet_loot.csv` `epicPlusMul`, `PlanetGradeCurve.epicPlusMul`) on every crate and corpse roll; lab locked rooms exempt via `rollCrateOn(…, opts: CrateLootOpts)`.
-- 2026-09-15 — Loot category axis split (`LootCategory`, `lootCategoryOf`); crates skip a category with no candidates instead of stopping.
-- 2026-09-15 — `ItemSpec.ts` (spec rows) and `ItemText.ts` (description markup); numbers removed from item descriptions.

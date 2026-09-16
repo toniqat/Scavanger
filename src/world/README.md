@@ -29,8 +29,9 @@ through `ctx.world` (only `main.ts` imports `WorldSystem`).
 | `Pads.ts` | Extraction platforms (`PLATFORM_HEIGHT` / `PLATFORM_RADIUS`, one point light each) and the spawn marker. |
 | `Outposts.ts` | POI ruins (walls, pillars, mast); `getSites()` → ruin sites for fog discovery, footstep material, `getRuinSites`. |
 | `Crates.ts` | Loot crates around landmarks only (POIs, structure rings, nest rings — none in open field, no tier 4); `Interactable`, lid tween, `crate:open`; open state via `setOpenListener` / `markOpened`. |
-| `Gather.ts` | Harvest nodes: herbs, salvage piles (bonus core / mineral), soil, wild seeds, specimens, grove mushrooms. Host-authoritative `harv` / `harvq`. `resolveNodeWeights` drops retired defs. Debug `debugBonusOf` / `debugBonusesOf`. |
+| `Gather.ts` | Harvest nodes: herbs, salvage piles (bonus core / mineral), soil, wild seeds, specimens, grove mushrooms, **mineral veins** (`vein_*`, the only node with a collider). Host-authoritative `harv` / `harvq`. `resolveNodeWeights` drops retired defs. Debug `debugBonusOf` / `debugBonusesOf`. |
 | `soil.ts`, `flora.ts`, `specimen.ts` | Per-planet soil / seed / specimen tables from `data/planets.csv` (`planetSoil`, `planetSeeds`, `planetSamples`). |
+| `mineral.ts` | 광맥 numbers: `planetMineralNodes` (`planets.csv` `mineralNodes`), `mineralRarityWeights` (`loot_tiers.csv` row `tier = planet threat`, **including the `mythic` column**), `rollMineralRarity` (채광 bonus applied as a multiplier). No THREE. |
 | `surface.ts` | Footstep material: `obstacleMaterial` (kind → material), `terrainMaterial` (biome band rules), `onOutpostSlab`. |
 | `SiteSpawns.ts` | `getSiteSpawnPoints` implementation: indoor spots by body-radius flood fill from the door (per-site cache), outdoor ring spots, grouped picks with a site-seeded RNG. |
 | `Ambience.ts` | Camera-following spore points and dust sprites. |
@@ -114,7 +115,8 @@ emitted at the end, inside the `game:newMission` emit.
   groves are built before props / crates so no rock stands inside a room.
 - Every subsystem draws from its own `rng.fork(label)`; `Random.fork` never advances the parent, so adding a fork does not
   shift other streams. Late-added features (salvage bonuses `gather_core` / `gather_mineral`, `gather_soil`, `gather_seed`,
-  `gather_sample`, `hazardGroves`, `structureLocks`, `roverVehicle`) use their own forks for that reason.
+  `gather_sample`, `gather_vein` / `gather_vein_roll`, `hazardGroves`, `structureLocks`, `roverVehicle`) use their own
+  forks for that reason.
 - Probabilistic features (`RAIL_CHANCE`, `ROVER_CHANCE`) always consume their roll; intel only overrides the result.
 - Intel (`ctx.missionIntel` → `LayoutOptions.intel`, set before `game:newMission` is emitted): extraction pads +N (added
   to `extractionPadCount`), nests +N (after `NEST_COUNT_MIN/MAX` roll), rail forced + platforms +N, basement facilities +N
@@ -164,7 +166,22 @@ Box math is used only when `o.box` is set; cylinder code paths are separate.
 - **Noise kernels are bit-exact (C-66).** `noise2`, `fbm` and `ridged` inline the same kernel; change all three together
   and bit-compare against the old implementation — layouts, colliders and multiplayer determinism depend on it. — `noise.ts`
 - `structures/model.ts`, `hazard/model.ts`, `flora.ts`, `specimen.ts` are `DATA_OWNERS` in `scripts/data-owners.mjs`,
-  loaded very early by `data:check`: no THREE value imports there.
+  loaded very early by `data:check`: no THREE value imports there. `soil.ts` and `mineral.ts` follow the same shape
+  (csv → types, no THREE) and should join that list.
+- **광맥 (mineral veins, 2026-09-16)** — the sixth gather kind, four things apart from the other five:
+  1. **Slope only.** A vein stands where `Terrain.getSlopeAt >= MINING_HILL_MIN_SLOPE` (user decision 「주로 언덕 사면 위주」),
+     capped at the steepest ground a player can walk (`tan(IMPLANT_DASH_MAX_SLOPE_DEG)`) so every visible vein is reachable.
+     The same `isSpotFree` call keeps it out of pads, the rail corridor, the rover corridor and every existing collider
+     (doorway approaches included — `Structures` cleared and occupied them first).
+  2. **It is the only gather node with a collider** (a cylinder matching the drawn outcrop above ground); harvesting removes it.
+  3. **The rarity is rolled at harvest, not at generation** — it depends on the harvester's `derived.miningRarityBonus`.
+     Weights come from `loot_tiers.csv` `tier = planet threat` (the weapon-drop table; no second table) read through
+     `mineral.ts`, **not** through `@/items` `getTierTable`, whose `RARITY_ORDER_LOOT` deliberately cuts at 5 rarities —
+     the vein is the one path allowed to roll `mythic`. The skill is a **multiplier** on the weights above the lowest
+     allowed rarity, so a rarity the threat row zeroes stays impossible at any 채광 level.
+  4. **It does not emit `gather:collected`** and raises `mining` through `ProgressionRef.addSkillXp` instead: `GatherNodeKind`
+     has no vein value (the node carries `'sample'`, what it yields), and that event can only point at 원예 / 제작.
+     When `GatherNodeKind` gains `'mineral'`, drop the exception and map it in `ProgressionSystem` like the others.
 - Point lights: structures use a `LightPool` of `STRUCTURE_POINT_LIGHTS` real lights moved between room spots, built even
   on maps without structures, so the raid light count is constant (`SCENE_POINT_LIGHT_BUDGET` has zero spare in raids).
   Everything else in world (beacons, consoles, arena, tutorial, rover, scan wave) is emissive only.
@@ -350,6 +367,8 @@ gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — �
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world`.
+- 2026-09-16 — 행성 광맥 (`mineral.ts` + `Gather.ts` `vein_*`): hillside-only spawns (`mineralNodes`), rarity rolled at harvest
+  from the threat's `loot_tiers.csv` row (mythic included) with 채광 as a multiplier, the only gather node with a collider.
   1 m fence stair cuts, side walls lower from the fence end (left fast, right gently), `lowerTilingErrors`, last androids' yaw fixed.
   cliff faces everywhere), last androids face the ship with `sg` / `dmr` + 22 m sense, `ship` band moved to z −150…−158, mast collider.
   from the lobby host is trusted without the distance check (the host opens for an android).
@@ -357,4 +376,3 @@ Last 5 only — older: `git log -- src/world`.
 - 2026-09-16 — Tutorial corpses: emptied ones sink and are removed (`TutorialCorpses.update`, called from `TutorialWorld.update`).
 - 2026-09-16 — `WorldRef.crateLootOpts`: lab locked-room containers (`ContainerSpec.lockedRoom`) roll exempt from the epic+ gate.
 - 2026-09-15 — Outpost basement bonus (`basementBonus*` columns): per-kind + per-planet extra roll on basement containers (the 진동 장치).
-- 2026-09-15 — `WorldRef.burrowGroundOk` (`BurrowGround.ts`): flat bare-ground test for the sandworm director and the thumper preview.

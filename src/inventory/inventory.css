@@ -508,6 +508,13 @@
   0%, 100% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35), 0 0 10px color-mix(in srgb, var(--rc) 25%, transparent); }
   50% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35), 0 0 22px color-mix(in srgb, var(--rc) 55%, transparent); }
 }
+/* 2026-09-16: 신화는 전설보다 한 단계 더 세게 맥동한다 — 없으면 신화 유니크가 등급 V 총보다 **덜** 화려해진다.
+   색은 타일이 이미 들고 있는 `--rc` 를 그대로 쓴다 (등급색의 단일 출처). */
+.inv-tile.rarity-mythic { animation: inv-mythic 1.8s ease-in-out infinite; }
+@keyframes inv-mythic {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35), 0 0 14px color-mix(in srgb, var(--rc) 40%, transparent); }
+  50% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.35), 0 0 30px color-mix(in srgb, var(--rc) 80%, transparent); }
+}
 
 /* ── highlight (drop preview) ───────────────────────────────────────────── */
 .inv-hl {
@@ -1336,16 +1343,15 @@ kbd {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--inv-accent) 45%, transparent);
 }
 .inv-craft-cell.is-crafting { border-color: var(--inv-accent); }
-/* Phase 8 UI pass: 어두워지는 칸은 **색으로** 어두워진다 — `opacity` 로 낮추면 흐려진 월드가 비쳐 읽히지 않는다. */
-.inv-craft-cell.is-locked { background: rgba(10, 12, 16, 0.92); border-color: rgba(255, 255, 255, 0.07); }
-.inv-craft-cell.is-locked .inv-tile { filter: saturate(0.5) brightness(0.8); }
-.inv-craft-cell.is-bench-locked .inv-tile { filter: saturate(0.4) brightness(0.65); }
-/* 작업대 레벨이 모자란 칸의 `Lv.n 필요` 는 칸 안 아래쪽 띠 */
-.inv-craft-cell .inv-craft-locktag {
-  position: absolute; left: 0; right: 0; bottom: 0; margin: 0;
-  padding: 1px 0; text-align: center; font-size: 8px; letter-spacing: 0;
-  background: rgba(6, 7, 9, 0.88);
-}
+/* Phase 8 UI pass: 어두워지는 칸은 **색으로** 어두워진다 — `opacity` 로 낮추면 흐려진 월드가 비쳐 읽히지 않는다.
+   2026-09-16 (사용자 보고 「제작 가능 · 불가가 한눈에 구분되지 않는다」): 딤드를 훨씬 진하게 내렸다. 예전 값
+   (`saturate(.5) brightness(.8)`)은 밝은 칸과 거의 같아 보였다. 색은 거의 다 빼고(≈흑백) 밝기를 절반 아래로
+   내리되 **실루엣은 남긴다** — 무엇이 나오는 레시피인지는 여전히 읽혀야 한다.
+   ⚠ 아래 `.is-bench-locked` 는 같은 명시도로 뒤에 오므로 잠긴 칸(= 항상 `.is-locked` 도 붙는다)에서 이긴다.
+      두 줄은 함께 움직여야 한다 — 레벨 잠금이 재료 부족보다 더 진하다. */
+.inv-craft-cell.is-locked { background: rgba(6, 7, 10, 0.96); border-color: rgba(255, 255, 255, 0.06); }
+.inv-craft-cell.is-locked .inv-tile { filter: saturate(0.12) brightness(0.42); }
+.inv-craft-cell.is-bench-locked .inv-tile { filter: saturate(0.06) brightness(0.34); }
 /* 고를 것이 하나도 없는 작업대 (사용자 결정): 목록 · 상세 대신 **가운데 한 줄**.
    2026-09-16 (사용자 보고 「빈 작업대는 창이 쪼그라든다」): 목록이 `hidden` 이 되어도 **틀은 그대로**다 — 폭은
    썸네일 5칸(`--inv-craft-list-w`, 목록 격자와 같은 식). 높이는 아래 `.inv-panel-craft .inv-craft-empty`. */
@@ -1943,17 +1949,9 @@ kbd {
    라벨이 `작업대 Lv.n 필요` 를 적는다 (`CraftDetail.paint`) — 하나뿐인 상세에서 버튼까지 사라지면
    왜 못 만드는지 말할 자리가 없다. */
 .inv-craft-row.is-bench-locked .inv-craft-count { visibility: hidden; }
-.inv-craft-locktag {
-  margin-left: 8px;
-  padding: 1px 6px;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  vertical-align: middle;
-  color: color-mix(in srgb, var(--inv-accent) 85%, white 15%);
-  border: 1px solid color-mix(in srgb, var(--inv-accent) 45%, transparent);
-  border-radius: 2px;
-}
+/* 2026-09-16 (사용자 보고): `.inv-craft-locktag` 규칙 두 벌은 지웠다 — 목록 칸의 썸네일 위에 찍던
+   `작업대 Lv.n 필요` 띠가 산출물 그림을 가려 없앴고(`ui/CraftPanel.build`), 그 클래스를 만드는 곳이
+   더는 없다. 이유는 상세의 홀드 버튼 라벨이 말한다. */
 
 /* ── 장비 수리 팝업 (2026-09-08) ───────────────────────────────────────────
    수리는 작업대 패널 아래의 목록이 아니라 헤더의 `모두 수리` 가 여는 **모달 팝업**이다. 한 줄이 가로로 긴 패널이고

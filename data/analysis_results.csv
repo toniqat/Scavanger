@@ -1,41 +1,125 @@
-# 분석기 결과표 (2026-09-13, 요리 재료 티어 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」). 읽는 곳은 src/shared/housing.ts 의 ANALYSIS_RESULTS 하나다.
+# 분석기 결과표. 읽는 곳은 src/shared/housing.ts 의 ANALYSIS_RESULTS 하나다.
 # 표본을 분석기에 **넣는 순간** 그 표본 계열(data/samples.csv 의 family)의 **지금 분석 레벨**로 이 표를 가중 추첨해 칸에 적는다
 #   (회수에 실패해도 다시 굴리지 않는다). 회수하면 그 계열 경험치가 오른다 — data/tables.csv 의 ANALYSIS_LEVEL_XP · ANALYSIS_XP_BY_RARITY.
-#   family   = cell | mineral | dna
-#   minLevel = 이 줄이 추첨에 들어가는 최소 분석 레벨 (사용자 결정: 레벨은 시간 단축 + 결과 해금)
+#
+# ══ 2026-09-16 (사용자 결정, 표본 전면 개편) — 추첨 규칙이 바뀌었다 ═════════════════════════════════
+# ⚠ **표본의 등급이 산출물 등급의 하한이다.** 미확인 유전자 III(희귀)를 해석하면 **희귀 이상**만 나온다.
+#   그래서 한 줄이 추첨에 들어가는 조건은 이제 둘이다:
+#     ① minLevel ≤ 그 계열의 지금 분석 레벨
+#     ② rarityRank(그 줄 defId 의 등급) ≥ rarityRank(표본의 등급)      ← 새 조건 (구현은 src/housing)
+#   ②의 결과로 낮은 등급 표본은 위쪽까지 전부 후보로 두고(운이 좋으면 신화도 뽑는다) 높은 등급 표본은 아래쪽이 아예 빠진다.
+#
+# ⚠ **새 열 `sampleRarity`** (2026-09-16 — 읽는 코드를 아직 아무도 안 썼다. src/housing 이 여기에 맞춰 붙인다):
+#   비어 있으면 위 ②를 그대로 따른다. 등급 이름(common … mythic)을 적으면 **그 등급의 표본에만** 이 줄이 들어가고
+#   ②의 하한 검사를 **면제**받는다. 「미확인 광물은 등급과 상관없이 석영이 나오되, 등급이 높을수록 많이 나온다」
+#   (사용자 결정)를 적기 위한 칸이다 — 아래 mineral 절의 석영 결정 6줄이 그 쓰임새 전부다.
+#   같은 칸이 **빈 후보 방지턱** 노릇도 한다: 어떤 등급의 광물 표본이든 분석 레벨 1 에서 적어도 석영 한 줄은 남는다.
+#
+# 이 표는 **모든 계열 × 모든 등급(일반 … 신화)에서 뽑을 것이 있도록** 짝이 맞춰져 있다 — 그것이 위 보장이 성립하는 조건이다.
+#   유전자 = 토양 · 배양조 (소켓 · 씨앗 · 세포주 · 배지) / 세포 = 배양조 (세포주 · 배양 재료) / 광물 = 무기 재료 (+ 낮은 등급은 가구 · 요리).
+#   등급이 주 관문이 된 만큼 minLevel 은 「같은 등급 안의 변주를 연다」는 뜻으로 옮겨 갔다. 다만 계열마다 **각 등급의 맨 윗줄은
+#   minLevel 1** 이라, 그 등급 표본을 쥔 사람은 분석 레벨이 낮아도 뽑을 것이 있다 (예외는 신화 광물 6종 — 사용자 결정으로 레벨 4 관문).
+# ══════════════════════════════════════════════════════════════════════════════════════════════════
+#   family        = cell | mineral | dna
+#   minLevel      = 이 줄이 추첨에 들어가는 최소 분석 레벨
 #   qtyMin~qtyMax = 산출 개수 (정수 균등)
-#   weight   = 같은 계열 · 해금된 줄끼리의 가중치 — 새 줄이 열리면 기존 줄의 확률이 그만큼 줄어든다
+#   weight        = 같은 계열 · 후보로 남은 줄끼리의 가중치
+#   sampleRarity  = (선택) 이 줄을 붙일 표본 등급. 위 설명 참고.
 # defId 는 아이템 id 다. 없는 id · 은퇴한 아이템(retired)은 npm run data:check 가 잡는다.
-family,minLevel,defId,qtyMin,qtyMax,weight
-# ── 세포: T2 세포주 4종(Lv.1) · T3 미세조류 · 배양지방 세포주(Lv.3) ──
-cell,1,cell_cow,1,2,22
-cell,1,cell_pig,1,2,22
-cell,1,cell_chicken,1,2,22
-cell,1,cell_sheep,1,2,22
-cell,1,mat_bio_sample,3,5,12
-cell,3,cell_algae,1,2,25
-cell,3,cell_fat,1,2,25
-# ── 광물: 암염 결정(→ 추출기 → 소금) · 광물 추출물 · 석영 · 개량종 씨앗 · 청옥 ──
-mineral,1,min_rocksalt,2,3,50
-mineral,1,mat_extract_min,1,1,30
-mineral,1,gem_quartz,1,1,20
-mineral,3,seed_deeproot,1,1,10
-mineral,4,gem_sapphire,1,1,5
-# ── DNA: 소켓 I(Lv.1) · 소켓 II(Lv.2) · T4 난백 · 유단백 세포(Lv.3) · 소켓 III · 광휘 꼬투리 씨앗(Lv.4) ──
-dna,1,sock_soil_speed_1,1,1,10
-dna,1,sock_soil_yield_1,1,1,10
-dna,1,sock_soil_wear_1,1,1,10
-dna,1,sock_medium_speed_1,1,1,10
-dna,1,sock_medium_yield_1,1,1,10
-dna,1,sock_medium_wear_1,1,1,10
-dna,2,sock_soil_speed_2,1,1,6
-dna,2,sock_soil_yield_2,1,1,6
-dna,2,sock_soil_wear_2,1,1,6
-dna,2,sock_medium_speed_2,1,1,6
-dna,2,sock_medium_yield_2,1,1,6
-dna,2,sock_medium_wear_2,1,1,6
-dna,3,cell_albumen,1,2,30
-dna,3,cell_casein,1,2,30
-dna,4,sock_soil_speed_3,1,1,5
-dna,4,sock_medium_speed_3,1,1,5
-dna,4,seed_lumenpod,1,1,6
+family,minLevel,defId,qtyMin,qtyMax,weight,sampleRarity
+# ══ 유전자 (dna) — 토양 · 배양조 ═══════════════════════════════════════════════
+# 일반: 야생 씨앗 3종 (흙에 심을 것부터 나온다)
+dna,1,seed_bloodroot,1,2,14,
+dna,1,seed_tuber,1,2,14,
+dna,1,seed_leafgreen,1,2,14,
+# 고급: 소켓 I 6종 · 기본 영양 배지
+dna,1,sock_soil_speed_1,1,1,10,
+dna,1,sock_soil_yield_1,1,1,10,
+dna,1,sock_soil_wear_1,1,1,10,
+dna,1,sock_medium_speed_1,1,1,10,
+dna,1,sock_medium_yield_1,1,1,10,
+dna,1,sock_medium_wear_1,1,1,10,
+dna,1,mat_medium_basic,2,3,10,
+# 희귀: 소켓 II 6종 · 개량 씨앗 · 강화 배지 · 난백 / 유단백 세포
+dna,1,sock_soil_speed_2,1,1,7,
+dna,2,sock_soil_yield_2,1,1,6,
+dna,2,sock_soil_wear_2,1,1,6,
+dna,1,sock_medium_speed_2,1,1,7,
+dna,2,sock_medium_yield_2,1,1,6,
+dna,2,sock_medium_wear_2,1,1,6,
+dna,2,seed_deeproot,1,1,8,
+dna,2,mat_medium_rich,1,2,10,
+dna,3,cell_albumen,1,2,12,
+dna,3,cell_casein,1,2,12,
+# 서사: 소켓 III 2종 · 광휘 꼬투리 씨앗 · 정제 배지
+dna,1,sock_soil_speed_3,1,1,5,
+dna,1,sock_medium_speed_3,1,1,5,
+dna,3,seed_lumenpod,1,1,6,
+dna,3,mat_medium_prime,1,1,5,
+# 전설: 결실 · 분열 인자 III
+dna,1,sock_soil_yield_3,1,1,2,
+dna,1,sock_medium_yield_3,1,1,2,
+# 신화: 원종 · 원형질 인자
+dna,1,sock_soil_prime,1,1,0.5,
+dna,1,sock_medium_prime,1,1,0.5,
+# ══ 세포 (cell) — 배양조 ═════════════════════════════════════════════════════
+# 일반: 생체 조직
+cell,1,mat_bio_sample,3,5,25,
+# 고급: 미세조류 세포주 · 기본 배지 · 셀룰로스
+cell,1,cell_algae,1,2,20,
+cell,1,mat_medium_basic,1,2,12,
+cell,2,food_cellulose,2,4,10,
+# 희귀: 종별 세포주 4 · 배양지방 · 난백 / 유단백 세포 · 스캐폴드
+cell,1,cell_cow,1,2,16,
+cell,1,cell_pig,1,2,16,
+cell,1,cell_chicken,1,2,16,
+cell,1,cell_sheep,1,2,16,
+cell,2,cell_fat,1,2,14,
+cell,2,cell_albumen,1,2,10,
+cell,2,cell_casein,1,2,10,
+cell,3,food_scaffold,1,2,8,
+# 서사: 정제 배지 · 배양 치즈
+cell,1,mat_medium_prime,1,1,6,
+cell,3,food_cheese,1,1,4,
+# 전설: 키메라 세포주
+cell,1,cell_chimera,1,1,1.2,
+# 신화: 시원 세포주
+cell,1,cell_progenitor,1,1,0.4,
+# ══ 광물 (mineral) — 무기 재료 ═══════════════════════════════════════════════
+# 석영 결정 — 표본 등급마다 한 줄 (sampleRarity). 등급이 오를수록 **개수**가 늘어난다 (사용자 결정).
+#   등급 하한 규칙을 면제받는 유일한 줄들이라, 어느 등급의 광물 표본이든 최소한 석영은 나온다.
+mineral,1,gem_quartz,1,2,45,common
+mineral,1,gem_quartz,2,4,45,uncommon
+mineral,1,gem_quartz,4,6,45,rare
+mineral,1,gem_quartz,6,9,45,epic
+mineral,1,gem_quartz,9,13,45,legendary
+mineral,1,gem_quartz,13,18,30,mythic
+# 일반: 암염 · 석회암 · 사철 · 폐금속
+mineral,1,min_rocksalt,2,4,40,
+mineral,1,min_limestone,2,4,30,
+mineral,1,min_ironsand,2,4,30,
+mineral,1,mat_scrap,4,8,20,
+# 고급: 천연 소다 · 운모 · 합금 판 · 기계 부품
+mineral,1,min_natron,1,3,24,
+mineral,1,min_mica,1,3,24,
+mineral,2,mat_alloy,2,4,18,
+mineral,2,mat_machine_parts,1,2,12,
+# 희귀: 흑요석 · 강화합금 잉곳 · 광물 추출물 · 청옥 · 파워 셀
+mineral,1,min_obsidian,1,2,18,
+mineral,2,mat_ingot,1,2,14,
+mineral,3,mat_extract_min,1,2,12,
+mineral,3,gem_sapphire,1,1,6,
+mineral,3,mat_power_cell,1,2,8,
+# 서사: 운철 (서사 총기 공통 재료) · 제어 모듈
+mineral,1,min_meteorite,1,1,10,
+mineral,4,mat_control_module,1,1,5,
+# 전설: 쌍정석 — 「미확인 광물에서 낮은 확률로」 (사용자 결정). 전설 총기 공통 재료이자 결정 코어의 원료다.
+mineral,3,min_twin,1,1,4,
+# 신화: 유니크 무기 6종의 전용 광물. **분석 레벨 4** 관문 + 아주 낮은 가중치이고,
+#   재료가 되는 미확인 광물 VI 자체가 난이도 3 행성 광맥에서만 극저확률로 나온다 (data/loot_tiers.csv 의 mythic 열).
+mineral,4,min_pyro,1,1,3,
+mineral,4,min_volt,1,1,3,
+mineral,4,min_shade,1,1,3,
+mineral,4,min_horn,1,1,3,
+mineral,4,min_hammer,1,1,3,
+mineral,4,min_cyclone,1,1,3,

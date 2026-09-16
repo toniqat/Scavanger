@@ -30,6 +30,11 @@
 #   상위    총기 = 강화합금 잉곳 + 기계 부품 · 실드(방탄복) = 축전 모듈 + 제어 모듈 · 가방 = 강화 직조포 + 복합 방탄섬유
 #   상위 재료는 전부 **정제 작업대**(bench refine)에서만 나온다 — 정제를 거치지 않으면 최고급 장비를 못 만든다.
 #
+# 광물 축 (2026-09-16 채광 개편, 사용자 결정) — 정제 축과 **직교**한다. 광맥에서 캔 미확인 광물을 해석해야만 나온다:
+#   서사(IV) 총기 5종 = 전부 **운철 1** · 전설(V) 총기 5종 = 전부 **쌍정석 1** · 유니크 무기 6종 = 각자의 **신화 광물 1**.
+#   즉 총기 사다리의 위 두 칸과 유니크는 정제 작업대만으로는 못 오르고 반드시 채굴 · 해석을 거친다.
+#   낮은 등급 광물(석회암 · 사철 · 천연 소다 · 운모 · 흑요석)은 가구 · 가구 강화 · 조리대로 간다.
+#
 # 연구실 (2026-09-11 A-13): 추출기(bench extract)가 작물 · 약재 · 광물에서 **성분**(mat_extract_*)을 뽑고,
 #   조합대(bench mixer)가 그 성분으로 **준비물**(prep_*)을 만든다. 둘 다 연구실 방(lab)의 작업대이고
 #   현장 빠른제작이 없다 — 행성 환경을 막을 준비는 함선에서만 한다.
@@ -50,32 +55,34 @@ refine_capacitor,축전 모듈 정제,ship,refine,2,mat_core:4,mat_capacitor,1,,
 refine_fiber,복합 방탄섬유 직조,ship,refine,2,mat_cloth:6|mat_bio_sample:3,mat_ballistic_fiber,1,,8,crafting,0,"천조각 6 + 생체 조직 3 → 복합 방탄섬유 1. 정제 작업대 Lv.2, 제작 20 필요."
 refine_ingot,강화합금 잉곳 주조,ship,refine,3,mat_alloy:1,mat_ingot,1,,10,crafting,0,"합금 판 1 → 강화합금 잉곳 1. 정제 작업대 Lv.3, 제작 35 필요."
 refine_control_module,제어 모듈 조립,ship,refine,3,mat_circuit:2|mat_power_cell:1,mat_control_module,1,,10,crafting,0,"회로 기판 2 + 파워 셀 1 → 제어 모듈 1. 정제 작업대 Lv.3, 제작 35 필요."
-refine_compute_core,연산 코어 조립,ship,refine,2,mat_circuit:2|mat_processor:1,mat_compute_core,1,,12,crafting,0,"회로 기판 2 + 프로세서 1 → 연산 코어 1 (2026-09-13 암호화폐 채굴). 가공 작업대 Lv.2, 제작 30 필요."
+# 2026-09-16 (사용자 결정, 채광 개편): `refine_compute_core`(연산 코어 조립) 줄을 지웠다 — 연산 코어라는 아이템 자체가 없어지고
+#   프로세서가 연산 클러스터에 곧바로 꽂힌다. 프로세서는 이제 연구실 조합대의 `mix_processor` 가 만든다 (아래 연구실 절).
+refine_abrasive,연마재 분쇄,ship,refine,1,gem_quartz:2,mat_abrasive,2,,5,crafting,0,"석영 결정 2 → 연마재 2. 해석해서 쌓인 석영을 빻아 연마 가루로 만든다. 가공 작업대."
 make_wpn_ar,돌격소총 I 제작,ship,gun,1,mat_scrap:8,wpn_ar,1,,8,crafting,0,폐금속 8 → 돌격소총 I. 총기 작업대.
 make_wpn_ar_g2,돌격소총 II 제작,ship,gun,1,mat_scrap:11,wpn_ar_g2,1,,9,crafting,0,"폐금속 11 → 돌격소총 II. 총기 작업대, 제작 15 필요."
 make_wpn_ar_g3,돌격소총 III 제작,ship,gun,2,mat_scrap:14|mat_alloy:2|mat_machine_parts:2,wpn_ar_g3,1,,10,crafting,0,"폐금속 14 + 합금 판 2 + 기계 부품 2 → 돌격소총 III. 총기 작업대 Lv.2, 제작 25 필요."
-make_wpn_ar_g4,돌격소총 IV 제작,ship,gun,3,mat_scrap:16|mat_alloy:2|mat_machine_parts:3|mat_ingot:2,wpn_ar_g4,1,,12,crafting,0,"폐금속 16 + 합금 판 2 + 기계 부품 3 + 강화합금 잉곳 2 → 돌격소총 IV. 총기 작업대 Lv.3, 제작 35 필요."
-make_wpn_ar_g5,돌격소총 V 제작,ship,gun,3,mat_scrap:18|mat_alloy:3|mat_machine_parts:4|mat_ingot:4,wpn_ar_g5,1,,14,crafting,0,"폐금속 18 + 합금 판 3 + 기계 부품 4 + 강화합금 잉곳 4 → 돌격소총 V. 총기 작업대 Lv.3, 제작 40 필요."
+make_wpn_ar_g4,돌격소총 IV 제작,ship,gun,3,mat_scrap:16|mat_alloy:2|mat_machine_parts:3|mat_ingot:2|min_meteorite:1,wpn_ar_g4,1,,12,crafting,0,"폐금속 16 + 합금 판 2 + 기계 부품 3 + 강화합금 잉곳 2 + 운철 1 → 돌격소총 IV. 총기 작업대 Lv.3, 제작 35 필요."
+make_wpn_ar_g5,돌격소총 V 제작,ship,gun,3,mat_scrap:18|mat_alloy:3|mat_machine_parts:4|mat_ingot:4|min_twin:1,wpn_ar_g5,1,,14,crafting,0,"폐금속 18 + 합금 판 3 + 기계 부품 4 + 강화합금 잉곳 4 + 쌍정석 1 → 돌격소총 V. 총기 작업대 Lv.3, 제작 40 필요."
 make_wpn_smg,기관단총 I 제작,ship,gun,1,mat_scrap:10,wpn_smg,1,,8,crafting,0,폐금속 10 → 기관단총 I. 총기 작업대.
 make_wpn_smg_g2,기관단총 II 제작,ship,gun,1,mat_scrap:14,wpn_smg_g2,1,,9,crafting,0,"폐금속 14 → 기관단총 II. 총기 작업대, 제작 15 필요."
 make_wpn_smg_g3,기관단총 III 제작,ship,gun,2,mat_scrap:17|mat_alloy:2|mat_machine_parts:2,wpn_smg_g3,1,,10,crafting,0,"폐금속 17 + 합금 판 2 + 기계 부품 2 → 기관단총 III. 총기 작업대 Lv.2, 제작 25 필요."
-make_wpn_smg_g4,기관단총 IV 제작,ship,gun,3,mat_scrap:20|mat_alloy:2|mat_machine_parts:3|mat_ingot:2,wpn_smg_g4,1,,12,crafting,0,"폐금속 20 + 합금 판 2 + 기계 부품 3 + 강화합금 잉곳 2 → 기관단총 IV. 총기 작업대 Lv.3, 제작 35 필요."
-make_wpn_smg_g5,기관단총 V 제작,ship,gun,3,mat_scrap:23|mat_alloy:3|mat_machine_parts:4|mat_ingot:4,wpn_smg_g5,1,,14,crafting,0,"폐금속 23 + 합금 판 3 + 기계 부품 4 + 강화합금 잉곳 4 → 기관단총 V. 총기 작업대 Lv.3, 제작 40 필요."
+make_wpn_smg_g4,기관단총 IV 제작,ship,gun,3,mat_scrap:20|mat_alloy:2|mat_machine_parts:3|mat_ingot:2|min_meteorite:1,wpn_smg_g4,1,,12,crafting,0,"폐금속 20 + 합금 판 2 + 기계 부품 3 + 강화합금 잉곳 2 + 운철 1 → 기관단총 IV. 총기 작업대 Lv.3, 제작 35 필요."
+make_wpn_smg_g5,기관단총 V 제작,ship,gun,3,mat_scrap:23|mat_alloy:3|mat_machine_parts:4|mat_ingot:4|min_twin:1,wpn_smg_g5,1,,14,crafting,0,"폐금속 23 + 합금 판 3 + 기계 부품 4 + 강화합금 잉곳 4 + 쌍정석 1 → 기관단총 V. 총기 작업대 Lv.3, 제작 40 필요."
 make_wpn_sg,산탄총 I 제작,ship,gun,1,mat_scrap:11,wpn_sg,1,,8,crafting,0,폐금속 11 → 산탄총 I. 총기 작업대.
 make_wpn_sg_g2,산탄총 II 제작,ship,gun,1,mat_scrap:15,wpn_sg_g2,1,,9,crafting,0,"폐금속 15 → 산탄총 II. 총기 작업대, 제작 15 필요."
 make_wpn_sg_g3,산탄총 III 제작,ship,gun,2,mat_scrap:19|mat_alloy:2|mat_machine_parts:2,wpn_sg_g3,1,,10,crafting,0,"폐금속 19 + 합금 판 2 + 기계 부품 2 → 산탄총 III. 총기 작업대 Lv.2, 제작 25 필요."
-make_wpn_sg_g4,산탄총 IV 제작,ship,gun,3,mat_scrap:22|mat_alloy:2|mat_machine_parts:3|mat_ingot:2,wpn_sg_g4,1,,12,crafting,0,"폐금속 22 + 합금 판 2 + 기계 부품 3 + 강화합금 잉곳 2 → 산탄총 IV. 총기 작업대 Lv.3, 제작 35 필요."
-make_wpn_sg_g5,산탄총 V 제작,ship,gun,3,mat_scrap:25|mat_alloy:3|mat_machine_parts:4|mat_ingot:4,wpn_sg_g5,1,,14,crafting,0,"폐금속 25 + 합금 판 3 + 기계 부품 4 + 강화합금 잉곳 4 → 산탄총 V. 총기 작업대 Lv.3, 제작 40 필요."
+make_wpn_sg_g4,산탄총 IV 제작,ship,gun,3,mat_scrap:22|mat_alloy:2|mat_machine_parts:3|mat_ingot:2|min_meteorite:1,wpn_sg_g4,1,,12,crafting,0,"폐금속 22 + 합금 판 2 + 기계 부품 3 + 강화합금 잉곳 2 + 운철 1 → 산탄총 IV. 총기 작업대 Lv.3, 제작 35 필요."
+make_wpn_sg_g5,산탄총 V 제작,ship,gun,3,mat_scrap:25|mat_alloy:3|mat_machine_parts:4|mat_ingot:4|min_twin:1,wpn_sg_g5,1,,14,crafting,0,"폐금속 25 + 합금 판 3 + 기계 부품 4 + 강화합금 잉곳 4 + 쌍정석 1 → 산탄총 V. 총기 작업대 Lv.3, 제작 40 필요."
 make_wpn_dmr,지정사수소총 I 제작,ship,gun,2,mat_scrap:14,wpn_dmr,1,,8,crafting,0,"폐금속 14 → 지정사수소총 I. 총기 작업대 Lv.2, 제작 15 필요."
 make_wpn_dmr_g2,지정사수소총 II 제작,ship,gun,2,mat_scrap:20,wpn_dmr_g2,1,,9,crafting,0,"폐금속 20 → 지정사수소총 II. 총기 작업대 Lv.2, 제작 20 필요."
 make_wpn_dmr_g3,지정사수소총 III 제작,ship,gun,2,mat_scrap:24|mat_alloy:2|mat_machine_parts:3,wpn_dmr_g3,1,,10,crafting,0,"폐금속 24 + 합금 판 2 + 기계 부품 3 → 지정사수소총 III. 총기 작업대 Lv.2, 제작 25 필요."
-make_wpn_dmr_g4,지정사수소총 IV 제작,ship,gun,3,mat_scrap:28|mat_alloy:3|mat_machine_parts:4|mat_ingot:3,wpn_dmr_g4,1,,12,crafting,0,"폐금속 28 + 합금 판 3 + 기계 부품 4 + 강화합금 잉곳 3 → 지정사수소총 IV. 총기 작업대 Lv.3, 제작 35 필요."
-make_wpn_dmr_g5,지정사수소총 V 제작,ship,gun,3,mat_scrap:32|mat_alloy:4|mat_machine_parts:5|mat_ingot:5,wpn_dmr_g5,1,,14,crafting,0,"폐금속 32 + 합금 판 4 + 기계 부품 5 + 강화합금 잉곳 5 → 지정사수소총 V. 총기 작업대 Lv.3, 제작 40 필요."
+make_wpn_dmr_g4,지정사수소총 IV 제작,ship,gun,3,mat_scrap:28|mat_alloy:3|mat_machine_parts:4|mat_ingot:3|min_meteorite:1,wpn_dmr_g4,1,,12,crafting,0,"폐금속 28 + 합금 판 3 + 기계 부품 4 + 강화합금 잉곳 3 + 운철 1 → 지정사수소총 IV. 총기 작업대 Lv.3, 제작 35 필요."
+make_wpn_dmr_g5,지정사수소총 V 제작,ship,gun,3,mat_scrap:32|mat_alloy:4|mat_machine_parts:5|mat_ingot:5|min_twin:1,wpn_dmr_g5,1,,14,crafting,0,"폐금속 32 + 합금 판 4 + 기계 부품 5 + 강화합금 잉곳 5 + 쌍정석 1 → 지정사수소총 V. 총기 작업대 Lv.3, 제작 40 필요."
 make_wpn_sr,저격소총 I 제작,ship,gun,2,mat_scrap:15,wpn_sr,1,,8,crafting,0,"폐금속 15 → 저격소총 I. 총기 작업대 Lv.2, 제작 15 필요."
 make_wpn_sr_g2,저격소총 II 제작,ship,gun,2,mat_scrap:21,wpn_sr_g2,1,,9,crafting,0,"폐금속 21 → 저격소총 II. 총기 작업대 Lv.2, 제작 20 필요."
 make_wpn_sr_g3,저격소총 III 제작,ship,gun,2,mat_scrap:26|mat_alloy:2|mat_machine_parts:3,wpn_sr_g3,1,,10,crafting,0,"폐금속 26 + 합금 판 2 + 기계 부품 3 → 저격소총 III. 총기 작업대 Lv.2, 제작 25 필요."
-make_wpn_sr_g4,저격소총 IV 제작,ship,gun,3,mat_scrap:30|mat_alloy:3|mat_machine_parts:4|mat_ingot:3,wpn_sr_g4,1,,12,crafting,0,"폐금속 30 + 합금 판 3 + 기계 부품 4 + 강화합금 잉곳 3 → 저격소총 IV. 총기 작업대 Lv.3, 제작 35 필요."
-make_wpn_sr_g5,저격소총 V 제작,ship,gun,3,mat_scrap:35|mat_alloy:4|mat_machine_parts:5|mat_ingot:5,wpn_sr_g5,1,,14,crafting,0,"폐금속 35 + 합금 판 4 + 기계 부품 5 + 강화합금 잉곳 5 → 저격소총 V. 총기 작업대 Lv.3, 제작 40 필요."
+make_wpn_sr_g4,저격소총 IV 제작,ship,gun,3,mat_scrap:30|mat_alloy:3|mat_machine_parts:4|mat_ingot:3|min_meteorite:1,wpn_sr_g4,1,,12,crafting,0,"폐금속 30 + 합금 판 3 + 기계 부품 4 + 강화합금 잉곳 3 + 운철 1 → 저격소총 IV. 총기 작업대 Lv.3, 제작 35 필요."
+make_wpn_sr_g5,저격소총 V 제작,ship,gun,3,mat_scrap:35|mat_alloy:4|mat_machine_parts:5|mat_ingot:5|min_twin:1,wpn_sr_g5,1,,14,crafting,0,"폐금속 35 + 합금 판 4 + 기계 부품 5 + 강화합금 잉곳 5 + 쌍정석 1 → 저격소총 V. 총기 작업대 Lv.3, 제작 40 필요."
 make_att_grip_angled,앵글 그립 제작,ship,gun,2,mat_scrap:5|mat_alloy:1,att_grip_angled,1,,6,crafting,0,"폐금속 5 + 합금 판 1 → 앵글 그립. 총기 작업대 Lv.2, 제작 15 필요."
 make_att_grip_vertical,수직 그립 제작,ship,gun,2,mat_scrap:5|mat_alloy:1,att_grip_vertical,1,,6,crafting,0,"폐금속 5 + 합금 판 1 → 수직 그립. 총기 작업대 Lv.2, 제작 15 필요."
 make_att_brake,총구 제동기 제작,ship,gun,2,mat_scrap:6|mat_alloy:1,att_brake,1,,8,crafting,0,"폐금속 6 + 합금 판 1 → 총구 제동기. 총기 작업대 Lv.2, 제작 20 필요."
@@ -150,14 +157,14 @@ cook_tuber_stew,덩이줄기 스튜 조리,ship,cook,1,crop_tuber:3|crop_leafgre
 cook_bean_porridge,콩죽 조리,ship,cook,1,crop_beanpod:3|crop_tuber:2,meal_bean_porridge,1,,6,crafting,0,단백 콩깍지 3 + 회색 덩이줄기 2 → 콩죽. 조리대.
 cook_green_salad,잎채소 샐러드 조리,ship,cook,1,crop_leafgreen:4|crop_frostberry:1,meal_green_salad,1,,6,crafting,0,온실 잎채소 4 + 서리열매 1 → 잎채소 샐러드. 조리대.
 cook_mushroom_soup,갓버섯 수프 조리,ship,cook,1,crop_capfungus:3|crop_sporecap:1,meal_mushroom_soup,1,,7,crafting,0,"식용 갓버섯 3 + 포자 갓 1 → 갓버섯 수프. 조리대, 제작 10 필요."
-cook_ash_bread,잿빛 빵 굽기,ship,cook,1,crop_ashgrain:4|crop_saltmelon:1,meal_ash_bread,1,,7,crafting,0,"잿빛 곡물 4 + 염수박 1 → 잿빛 빵. 조리대, 제작 10 필요."
+cook_ash_bread,잿빛 빵 굽기,ship,cook,1,crop_ashgrain:4|crop_saltmelon:1|min_natron:1,meal_ash_bread,1,,7,crafting,0,"잿빛 곡물 4 + 염수박 1 + 천연 소다 1 → 잿빛 빵. 소다가 반죽을 부풀린다 (2026-09-16 광물 요리 재료). 조리대."
 cook_berry_compote,서리열매 조림 조리,ship,cook,1,crop_frostberry:3|crop_ashgrain:2,meal_berry_compote,1,,7,crafting,0,"서리열매 3 + 잿빛 곡물 2 → 서리열매 조림. 조리대, 제작 10 필요."
 # ── 2026-09-13 (요리 재료 티어): 페이스트 요리 3 (Lv.2) · 고기 요리 5 (Lv.3) · 유제품 요리 3 (Lv.3) ──
 cook_sausage,소시지 조리,ship,cook,2,food_meat_paste:2|food_salt:1|crop_ashgrain:1,meal_sausage,1,,8,crafting,0,"고기 페이스트 2 + 소금 1 + 잿빛 곡물 1 → 소시지. 조리대 Lv.2, 제작 20 필요."
 cook_dumpling,만두 빚기,ship,cook,2,food_meat_paste:2|crop_leafgreen:2|crop_ashgrain:2,meal_dumpling,1,,8,crafting,0,"고기 페이스트 2 + 온실 잎채소 2 + 잿빛 곡물 2 → 만두. 조리대 Lv.2, 제작 20 필요."
 cook_meatball,미트볼 조리,ship,cook,2,food_meat_paste:3|crop_tuber:1|food_salt:1,meal_meatball,1,,8,crafting,0,"고기 페이스트 3 + 회색 덩이줄기 1 + 소금 1 → 미트볼. 조리대 Lv.2, 제작 20 필요."
 cook_beef_steak,소고기 스테이크 굽기,ship,cook,3,food_beef:2|food_animal_fat:1|food_salt:1,meal_beef_steak,1,,10,crafting,0,"배양 소고기 2 + 동물기름 1 + 소금 1 → 소고기 스테이크. 조리대 Lv.3, 제작 30 필요."
-cook_pork_roast,돼지고기 수육 조리,ship,cook,3,food_pork:2|crop_leafgreen:2|food_salt:1,meal_pork_roast,1,,10,crafting,0,"배양 돼지고기 2 + 온실 잎채소 2 + 소금 1 → 돼지고기 수육. 조리대 Lv.3, 제작 30 필요."
+cook_pork_roast,돼지고기 수육 조리,ship,cook,3,food_pork:2|crop_leafgreen:2|food_salt:1|min_natron:1,meal_pork_roast,1,,10,crafting,0,"배양 돼지고기 2 + 온실 잎채소 2 + 소금 1 + 천연 소다 1 → 돼지고기 수육. 소다에 재워야 고기가 부드러워진다. 조리대 Lv.3."
 cook_chicken_roast,닭고기 구이 조리,ship,cook,3,food_chicken:2|food_animal_fat:1|crop_frostberry:1,meal_chicken_roast,1,,10,crafting,0,"배양 닭고기 2 + 동물기름 1 + 서리열매 1 → 닭고기 구이. 조리대 Lv.3, 제작 30 필요."
 cook_lamb_skewer,양고기 꼬치 굽기,ship,cook,3,food_lamb:2|food_animal_fat:1|crop_saltmelon:1,meal_lamb_skewer,1,,10,crafting,0,"배양 양고기 2 + 동물기름 1 + 염수박 1 → 양고기 꼬치. 조리대 Lv.3, 제작 30 필요."
 cook_lard_rice,기름 볶음곡 조리,ship,cook,3,food_animal_fat:2|crop_ashgrain:3|food_salt:1,meal_lard_rice,1,,10,crafting,0,"동물기름 2 + 잿빛 곡물 3 + 소금 1 → 기름 볶음곡. 조리대 Lv.3, 제작 30 필요."
@@ -165,7 +172,7 @@ cook_cream_stew,크림 스튜 조리,ship,cook,3,food_milk:2|crop_tuber:2|food_s
 cook_omelet,치즈 오믈렛 조리,ship,cook,3,food_egg:2|food_cheese:1|crop_capfungus:1,meal_omelet,1,,12,crafting,0,"배양 달걀 2 + 배양 치즈 1 + 식용 갓버섯 1 → 치즈 오믈렛. 조리대 Lv.3, 제작 40 필요."
 cook_cheese_gratin,치즈 그라탕 굽기,ship,cook,3,food_cheese:1|food_milk:1|crop_tuber:2|food_animal_fat:1,meal_cheese_gratin,1,,12,crafting,0,"배양 치즈 1 + 배양 우유 1 + 회색 덩이줄기 2 + 동물기름 1 → 치즈 그라탕. 조리대 Lv.3, 제작 40 필요."
 # ── 2026-09-13 (서재 시리즈): 레시피 책 요리 4종 — 그 레시피 책이 책장에 꽂혀 있는 동안만 연다 (data/library_series.csv 의 recipe:<id>, items 가 unlockSeries 를 채운다) ──
-cook_meat_pie,고기 파이 굽기,ship,cook,2,food_meat_paste:2|crop_ashgrain:2|food_salt:1,meal_meat_pie,1,,9,crafting,0,"고기 페이스트 2 + 잿빛 곡물 2 + 소금 1 → 고기 파이. 조리대 Lv.2, 제작 20 필요. 레시피 책 『고기 파이 비법』."
+cook_meat_pie,고기 파이 굽기,ship,cook,2,food_meat_paste:2|crop_ashgrain:2|food_salt:1|min_natron:1,meal_meat_pie,1,,9,crafting,0,"고기 페이스트 2 + 잿빛 곡물 2 + 소금 1 + 천연 소다 1 → 고기 파이. 조리대 Lv.2. 레시피 책 『고기 파이 비법』."
 cook_bean_curry,콩 커리 조리,ship,cook,2,food_meat_paste:1|crop_beanpod:3|crop_saltmelon:1,meal_bean_curry,1,,9,crafting,0,"고기 페이스트 1 + 단백 콩깍지 3 + 염수박 1 → 콩 커리. 조리대 Lv.2, 제작 20 필요. 레시피 책 『콩 커리 요리첩』."
 cook_pork_cutlet,돼지고기 커틀릿 튀기기,ship,cook,3,food_pork:2|crop_ashgrain:2|food_animal_fat:1,meal_pork_cutlet,1,,11,crafting,0,"배양 돼지고기 2 + 잿빛 곡물 2 + 동물기름 1 → 돼지고기 커틀릿. 조리대 Lv.3, 제작 30 필요. 레시피 책 『돼지고기 커틀릿 요리첩』."
 cook_chicken_stirfry,닭고기 볶음 조리,ship,cook,3,food_chicken:2|crop_leafgreen:2|crop_capfungus:1,meal_chicken_stirfry,1,,11,crafting,0,"배양 닭고기 2 + 온실 잎채소 2 + 식용 갓버섯 1 → 닭고기 볶음. 조리대 Lv.3, 제작 30 필요. 레시피 책 『닭고기 볶음 요리첩』."
@@ -186,9 +193,9 @@ extract_medium_frostmoss,배지 추출 · 서리이끼,ship,extract,1,herb_frost
 extract_medium_emberpod,배지 추출 · 불씨꼬투리,ship,extract,1,herb_emberpod:3,mat_medium_basic,2,,6,crafting,0,"불씨꼬투리 3 → 기본 영양 배지 2. 약초는 작물보다 배지가 많이 나온다. 추출기, 제작 15 필요."
 extract_medium_ironleaf,배지 추출 · 철엽초,ship,extract,1,herb_ironleaf:3,mat_medium_basic,2,,6,crafting,0,"철엽초 3 → 기본 영양 배지 2. 약초는 작물보다 배지가 많이 나온다. 추출기, 제작 15 필요."
 extract_medium_algae,배지 추출 · 셀룰로스,ship,extract,2,food_cellulose:3,mat_medium_rich,1,,8,crafting,0,"셀룰로스 3 → 강화 영양 배지 1. 추출기 Lv.2, 제작 30 필요."
-extract_filament_1,기본 필라멘트 방사,ship,extract,1,food_cellulose:4|food_animal_fat:2,mat_filament_1,2,,8,crafting,0,"셀룰로스 4 + 동물기름 2 → 기본 필라멘트 2. 추출기, 제작 25 필요."
-extract_filament_2,고강도 필라멘트 방사,ship,extract,2,mat_filament_1:3|comp_casein:2|mat_weave:1,mat_filament_2,2,,10,crafting,0,"기본 필라멘트 3 + 카제인 2 + 강화 직조포 1 → 고강도 필라멘트 2. 추출기 Lv.2, 제작 35 필요."
-extract_filament_3,복합 필라멘트 방사,ship,extract,3,mat_filament_2:3|food_scaffold:2|comp_albumen:2,mat_filament_3,1,,12,crafting,0,"고강도 필라멘트 3 + 배양 스캐폴드 2 + 난백 단백질 2 → 복합 필라멘트 1. 추출기 Lv.3, 제작 45 필요."
+extract_filament_1,기본 필라멘트 방사,ship,extract,1,food_cellulose:1|food_animal_fat:1,mat_filament_1,1,,8,crafting,0,"셀룰로스 1 + 동물기름 1 → 기본 필라멘트 1. 추출기."
+extract_filament_2,고강도 필라멘트 방사,ship,extract,2,comp_casein:1|mat_weave:1,mat_filament_2,1,,10,crafting,0,"카제인 1 + 강화 직조포 1 → 고강도 필라멘트 1. 앞 등급 필라멘트는 재료가 아니다 (2026-09-16 사용자 결정). 추출기 Lv.2."
+extract_filament_3,복합 필라멘트 방사,ship,extract,3,food_scaffold:1|comp_albumen:1,mat_filament_3,1,,12,crafting,0,"배양 스캐폴드 1 + 난백 단백질 1 → 복합 필라멘트 1. 앞 등급 필라멘트는 재료가 아니다 (2026-09-16 사용자 결정). 추출기 Lv.3."
 
 # ── 2026-09-13 (요리 재료 티어): 추출기 — 소금 · 성분 2 / 조합대 — 배양 스캐폴드 · 달걀 · 우유 · 치즈 ──
 extract_salt,소금 추출,ship,extract,1,min_rocksalt:2,food_salt,3,,5,crafting,0,"암염 결정 2 → 소금 3. 추출기, 제작 5 필요."
@@ -209,3 +216,25 @@ print_pouch_valuable,귀중품 주머니 출력,ship,print,2,mat_filament_2:2|ma
 print_console_pulse,펄스 스테이션 출력,ship,print,2,mat_filament_1:3|mat_circuit:3|mat_cable:4,console_pulse,1,,14,crafting,0,"기본 필라멘트 3 + 회로 기판 3 + 전력 케이블 4 → 펄스 스테이션. 3D 프린터 Lv.2, 제작 30 필요."
 print_console_retro,레트로 큐브 출력,ship,print,2,mat_filament_2:2|mat_circuit:4|mat_capacitor:1,console_retro,1,,14,crafting,0,"고강도 필라멘트 2 + 회로 기판 4 + 축전 모듈 1 → 레트로 큐브. 3D 프린터 Lv.2, 제작 35 필요."
 print_console_holo,홀로 데크 출력,ship,print,3,mat_filament_3:2|mat_control_module:1|mat_circuit:4|mat_capacitor:2,console_holo,1,,16,crafting,0,"복합 필라멘트 2 + 제어 모듈 1 + 회로 기판 4 + 축전 모듈 2 → 홀로 데크. 3D 프린터 Lv.3, 제작 45 필요."
+
+# ── 2026-09-16 (사용자 결정, 채광 개편): 결정 코어 · 프로세서 ──────────────────────────────────
+# 채굴 사슬의 마지막 두 칸이다. 쌍정석(전설 광물)을 연마재로 갈아 결정 코어를 뽑고(추출기), 회로 기판에 얹어 프로세서를
+#   조립한다(조합대). 프로세서는 **내구도가 있는 장비**라 이 줄의 inputs 가 곧 수리비 · 분해 산출의 기준이다 —
+#   그래서 회로 기판이 4 다 (한 종류당 2 이상 규칙: 재료가 전부 1 이면 「제작 → 수리 → 분해」 불변식이 깨진다).
+extract_crystal_core,결정 코어 연마,ship,extract,3,min_twin:1|mat_abrasive:1,mat_crystal_core,1,,12,crafting,0,"쌍정석 1 + 연마재 1 → 결정 코어 1. 추출기 Lv.3."
+mix_processor,프로세서 조립,ship,mixer,3,mat_crystal_core:1|mat_circuit:4,mat_processor,1,,14,crafting,0,"결정 코어 1 + 회로 기판 4 → 프로세서 1. 연산 클러스터에 꽂는 연산 모듈이다. 조합대 Lv.3."
+
+# ── 2026-09-16 (사용자 결정): 유니크 무기 6종의 제작 레시피 ──────────────────────────────────
+# ⚠ 이 여섯 줄이 생기기 전까지 유니크 무기는 **제작 레시피가 없는 유일품**이었고, 그래서 분해가 금지되고 수리비는
+#   같은 계열 등급 V × UNIQUE_REPAIR_MUL 로 대신 계산됐다 (src/items/Salvage.ts 의 「유니크 대체 기준」 절).
+#   레시피가 생긴 지금은 그 두 가지가 모두 **이 줄의 inputs** 로 바뀐다 — 유니크도 뜯을 수 있게 된다.
+# 각 무기는 자기 **신화 광물** 1개를 요구한다 (한 광물 = 한 무기). 신화 광물은 난이도 3 행성 광맥 → 미확인 광물 VI →
+#   분석 레벨 4 해석으로만 나오므로, 레시피가 있어도 실제로는 극히 드물게만 만들어진다.
+#   광물 수량이 1 인 것은 사용자 결정이다. 「한 종류당 2 이상」 규칙은 **제일 많이 든 재료 한 줄**만 지키면 충족되고
+#   (여기서는 폐금속 16~30), 수량 1 인 재료는 수리 1 + 분해 0 = 제작 1 이라 불변식을 깨지 않는다 — checkSalvageEconomy 가 검산한다.
+make_wpn_u_flame,인페르노 제작,ship,gun,3,mat_scrap:22|mat_ingot:4|mat_machine_parts:4|mat_capacitor:2|min_pyro:1,wpn_u_flame,1,,20,crafting,0,"폐금속 22 + 강화합금 잉곳 4 + 기계 부품 4 + 축전 모듈 2 + 염화정 1 → 인페르노. 총기 작업대 Lv.3."
+make_wpn_u_shock,테슬라 코일 제작,ship,gun,3,mat_scrap:20|mat_ingot:4|mat_capacitor:4|mat_control_module:2|min_volt:1,wpn_u_shock,1,,20,crafting,0,"폐금속 20 + 강화합금 잉곳 4 + 축전 모듈 4 + 제어 모듈 2 + 뇌전정 1 → 테슬라 코일. 총기 작업대 Lv.3."
+make_wpn_u_shuriken,카게 제작,ship,gun,3,mat_scrap:18|mat_ingot:5|mat_alloy:4|mat_machine_parts:3|min_shade:1,wpn_u_shuriken,1,,20,crafting,0,"폐금속 18 + 강화합금 잉곳 5 + 합금 판 4 + 기계 부품 3 + 음영정 1 → 카게. 총기 작업대 Lv.3."
+make_wpn_u_bow,롱혼 제작,ship,gun,3,mat_scrap:16|mat_ingot:4|mat_ballistic_fiber:3|mat_machine_parts:3|min_horn:1,wpn_u_bow,1,,20,crafting,0,"폐금속 16 + 강화합금 잉곳 4 + 복합 방탄섬유 3 + 기계 부품 3 + 각궁정 1 → 롱혼. 총기 작업대 Lv.3."
+make_wpn_u_bazooka,해머헤드 제작,ship,gun,3,mat_scrap:26|mat_ingot:6|mat_machine_parts:5|mat_control_module:2|min_hammer:1,wpn_u_bazooka,1,,22,crafting,0,"폐금속 26 + 강화합금 잉곳 6 + 기계 부품 5 + 제어 모듈 2 + 철퇴정 1 → 해머헤드. 총기 작업대 Lv.3."
+make_wpn_u_minigun,사이클론 제작,ship,gun,3,mat_scrap:30|mat_ingot:6|mat_machine_parts:6|mat_control_module:2|min_cyclone:1,wpn_u_minigun,1,,22,crafting,0,"폐금속 30 + 강화합금 잉곳 6 + 기계 부품 6 + 제어 모듈 2 + 선풍정 1 → 사이클론. 총기 작업대 Lv.3."

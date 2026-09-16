@@ -1,5 +1,8 @@
 import type { AnalysisSlotInfo, EmbeddedView, GameContext, HarvestDestination, ItemInstance, SampleFamily } from '@/shared';
-import { SAMPLE_FAMILY_COLOR, SAMPLE_FAMILY_ICON, SAMPLE_FAMILY_LABEL_KO, analyzerSlotsForLevel, buildItemChip } from '@/shared';
+import {
+  RARITY_COLORS, RARITY_LABEL_KO, RARITY_ORDER, SAMPLE_FAMILY_COLOR, SAMPLE_FAMILY_ICON, SAMPLE_FAMILY_LABEL_KO,
+  analyzerSlotsForLevel, buildItemChip,
+} from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
 import { furnitureMaxLevel, nextFurnitureCost } from '../Rules';
 import { HousingPanel } from './Panel';
@@ -8,11 +11,20 @@ import type { Product } from './ProductDrag';
 import { createSampleDex } from './SampleDex';
 import type { SampleDexView } from './SampleDex';
 import { buildStationShell, mountStationGrids, paintStationLevel } from './StationShell';
-import type { StationShell } from './StationShell';
+import type { StationGridsView, StationShell } from './StationShell';
 import { UpgradeModal } from './UpgradeModal';
 import type { UpgradeSpec } from './UpgradeModal';
 import { clear, el, formatRemaining, renderClock, renderClockText, setText, toggleClass } from './dom';
 import { researchTimeMul } from '../parts/Lab';   // 2026-09-13 (H3): 연구 숙련 해석 시간 배수
+import { analysisDexBonus } from '../Rules';     // 2026-09-16: 등급별 도감 칸이 주는 단축
+
+/** 0.035 → `4 %` (0 보다 크고 1 % 미만이면 `<1 %`) — 단축 비율 표기 한 곳. */
+const pctText = (v: number): string => {
+  const p = Math.max(0, v) * 100;
+  if (p <= 0) return '0 %';
+  if (p < 1) return '<1 %';
+  return `${Math.round(p)} %`;
+};
 
 /** How often the countdowns / progress bars are refreshed while the panel is open (ms). */
 const TICK_MS = 1000;
@@ -29,6 +41,8 @@ interface SlotCard {
   name: HTMLElement;
   /** 계열 칩 (2026-09-13) — 표본이 들어 있을 때만 보인다. */
   fam: HTMLElement;
+  /** 표본 레벨 칩 (2026-09-16) — `Lv.n −x %`. 표본이 들어 있을 때만 보인다. */
+  lv: HTMLElement;
   time: HTMLElement;
   prog: HTMLElement;
   fill: HTMLElement;
@@ -51,6 +65,11 @@ interface SlotCard {
  * 「새 발견」 배지(`firstTime`). 옛 세이브의 칸(결과를 안 굴린 칸)은 끝나도 「?」 이고 회수하는 순간 굴린다.
  * 잠긴 칸은 썸네일도 글자도 없는 **빈 칸**이다. 끝난 칸은 **더블클릭 = 함선 창고 먼저**, 끌어서 격자에 놓으면 그 격자로
  * 회수된다 (`ProductDrag`). 분석 도감(`createSampleDex`)은 도감 탭일 때만 갱신한다.
+ *
+ * **2026-09-16 (표본 개편 — 사용자 결정)**: 해석 시간 단축이 화면에 드러난다. 칸의 이름 줄에 표본 레벨 칩
+ * `Lv.n −x %`(`paintSampleLevel`, 호버 = 도감 · 레벨 분해)가 서고, 해석 탭 머리에 등급별 도감 줄
+ * (`paintDexSpeed` — 「일반 12칸 −12 %」)이 붙는다. 둘 다 **다음에 넣는 표본**에 듣는 값이다: 돌아가는 해석의
+ * 시간은 넣는 순간 확정돼 있다 (그래서 칩의 제목이 그렇게 적는다).
  */
 export class Analyzer extends HousingPanel {
   private uid = '';
@@ -58,12 +77,14 @@ export class Analyzer extends HousingPanel {
   private readonly slotsEl: HTMLElement;
   /** 2026-09-13 (H3): 해석 탭 머리의 「연구 숙련 — 해석 시간 ×0.85」 줄 (배수가 1 이면 숨김). */
   private readonly researchEl: HTMLElement;
+  /** 2026-09-16: 해석 탭 머리의 「분석 도감 — 일반 12칸 −12 % · …」 줄 (칸이 하나도 없으면 숨김). */
+  private readonly dexSpeedEl: HTMLElement;
   private readonly dexHost: HTMLElement;
   private readonly tabBtns: Record<AnalyzerTab, HTMLButtonElement>;
   private readonly modal: UpgradeModal;
   private readonly drag: ProductDrag;
   private tab: AnalyzerTab = 'slots';
-  private grids: EmbeddedView | null = null;
+  private grids: StationGridsView | null = null;
   private dex: SampleDexView | null = null;
   private cards: SlotCard[] = [];
   private builtKey = '';
@@ -89,6 +110,9 @@ export class Analyzer extends HousingPanel {
     const pages = el('div', { cls: 'az-pages', parent: this.shell.left });
     this.researchEl = el('div', { cls: 'hint az-research', parent: pages });
     this.researchEl.hidden = true;
+    // 2026-09-16: 분석 도감이 **등급별로** 주는 단축 — 「도감을 한 칸 채우면 같은 등급 표본 전체가 빨라진다」가 이 한 줄이다
+    this.dexSpeedEl = el('div', { cls: 'hint az-dexspeed', parent: pages });
+    this.dexSpeedEl.hidden = true;
     this.slotsEl = el('div', { cls: 'az-slots', parent: pages });
     this.dexHost = el('div', { cls: 'az-dexhost', parent: pages });
     this.setTab('slots');
@@ -104,6 +128,8 @@ export class Analyzer extends HousingPanel {
       productAt: (t) => this.productAt(t),
       collect: (key, dest) => this.collect(Number(key), dest),
       defOf: (id) => housing.defOf(id),
+      // 2026-09-16: 끌어서 놓은 **그 칸**으로 간다 (격자는 화면이 열릴 때 만들어지므로 함수로 준다)
+      grids: () => this.grids,
     });
     // 2026-09-13: 회수가 도감 · 분석 레벨을 바꾼다 — 머리줄(Lv · 경험치)과 결과 행이 따라오게 (refresh 는 한 번으로 합쳐진다)
     this.unsubs.push(
@@ -186,7 +212,10 @@ export class Analyzer extends HousingPanel {
     // 2026-09-13 (H3): 넣는 순간 정해진 해석 시간(분석 레벨 × 연구 숙련)을 같이 알린다 — 칸의 시계와 같은 `readyAt` 에서 읽는다
     const info = reason ? null : this.infoOf(slot);
     const time = info && info.sampleDefId && !info.ready ? formatRemaining(Math.max(0, Math.ceil(info.remainingS))) : '';
-    const extra = [fam ? `${fam} 분석` : '', time].filter(Boolean).join(' · ');
+    // 2026-09-16: 이 표본에 붙은 단축을 같이 알린다 — 「왜 이만큼 걸리는가」가 토스트 한 줄에 다 있다
+    const sa = reason ? null : this.housing.getSampleAnalysis(item.defId);
+    const speed = sa && sa.speedup > 0 ? `Lv.${sa.level} −${pctText(sa.speedup)}` : '';
+    const extra = [fam ? `${fam} 분석` : '', time, speed].filter(Boolean).join(' · ');
     this.showMsg(reason ?? `${def.name} 해석을 시작했습니다${extra ? ` (${extra})` : ''}`, reason ? 'warning' : 'success');
   }
 
@@ -197,6 +226,21 @@ export class Analyzer extends HousingPanel {
     const show = this.tab === 'slots' && mul < 0.9995;
     this.researchEl.hidden = !show;
     if (show) setText(this.researchEl, `연구 숙련 — 해석 시간 ×${mul.toFixed(2)} (넣는 순간 정해집니다)`);
+    this.paintDexSpeed();
+  }
+
+  /**
+   * 2026-09-16: 등급마다 「도감 n칸 −x %」. 도감 보너스는 종류가 아니라 **등급**으로 묶여 그 등급 표본 전체에 듣는다 —
+   * 칸이 하나도 없는 등급은 적지 않는다 (없는 줄이 규칙을 가리지 않게).
+   */
+  private paintDexSpeed(): void {
+    if (!this.dexSpeedEl) return;
+    const counts = this.housing.getAnalysisDexByRarity();
+    const parts = RARITY_ORDER.filter((r) => (counts[r] ?? 0) > 0)
+      .map((r) => `${RARITY_LABEL_KO[r]} ${counts[r]}칸 −${pctText(analysisDexBonus(counts[r]))}`);
+    const show = this.tab === 'slots' && parts.length > 0;
+    this.dexSpeedEl.hidden = !show;
+    if (show) setText(this.dexSpeedEl, `분석 도감 — ${parts.join(' · ')} (같은 등급 표본의 해석 시간)`);
   }
 
   private infoOf(slot: number): AnalysisSlotInfo | null {
@@ -313,6 +357,8 @@ export class Analyzer extends HousingPanel {
     const name = el('span', { cls: 'az-name-text', text: '', parent: head });
     const fam = el('span', { cls: 'az-fam', text: '', parent: head });
     fam.hidden = true;
+    const lv = el('span', { cls: 'az-lv', text: '', parent: head });
+    lv.hidden = true;
     const time = el('div', { cls: 'az-time hs-clock', text: '', parent: body });
     const prog = el('div', { cls: 'az-prog', parent: body });
     const fill = el('i', { parent: prog });
@@ -320,7 +366,7 @@ export class Analyzer extends HousingPanel {
     const acts = el('div', { cls: 'az-acts', parent: wrap });
     const collect = this.button(acts, '회수', () => this.collect(info.slot, 'stash-first'), 'small primary');
     const cancel = this.button(acts, '중단', () => this.cancel(info.slot), 'small');
-    return { slot: info.slot, wrap, cell, glyph, name, fam, time, prog, fill, result, resultKey: '', collect, cancel };
+    return { slot: info.slot, wrap, cell, glyph, name, fam, lv, time, prog, fill, result, resultKey: '', collect, cancel };
   }
 
   /** 계열 칩: 글리프 + 이름, 계열 색 (`SAMPLE_FAMILY_*`). */
@@ -332,6 +378,25 @@ export class Analyzer extends HousingPanel {
     if (!family) { card.fam.textContent = ''; return; }
     card.fam.textContent = `${SAMPLE_FAMILY_ICON[family]} ${SAMPLE_FAMILY_LABEL_KO[family]}`;
     card.fam.style.setProperty('--fc', SAMPLE_FAMILY_COLOR[family]);
+  }
+
+  /**
+   * 2026-09-16 (사용자 결정 「표본 레벨 · 도감 단축이 보여야 한다」): 표본 레벨 칩 `Lv.n −x %`.
+   * 레벨은 **그 표본을 회수한 횟수**이고 단축은 도감(같은 등급 칸수) + 레벨을 합친 지금 값이다 — 돌아가는 해석의
+   * 시간은 넣는 순간 확정됐으므로, 이 칩은 「다음에 넣으면 이만큼」이라고 제목(title)에 적는다.
+   */
+  private paintSampleLevel(card: SlotCard, defId: string | null): void {
+    const info = defId ? this.housing.getSampleAnalysis(defId) : null;
+    const key = info ? `${info.level}:${info.speedup.toFixed(4)}` : '';
+    if (card.lv.dataset.k === key) return;
+    card.lv.dataset.k = key;
+    card.lv.hidden = !info;
+    if (!info) { card.lv.textContent = ''; return; }
+    card.lv.textContent = `Lv.${info.level}${info.speedup > 0 ? ` −${pctText(info.speedup)}` : ''}`;
+    card.lv.style.setProperty('--fc', RARITY_COLORS[info.rarity]);
+    card.lv.title = `${RARITY_LABEL_KO[info.rarity]} 표본 · 해석 ${info.level}회`
+      + `\n분석 도감 ${info.dexEntries}칸 −${pctText(info.dexBonus)} + 표본 레벨 −${pctText(info.levelBonus)}`
+      + `\n= 해석 시간 −${pctText(info.speedup)} (다음에 넣는 표본부터)`;
   }
 
   /** 결과 자리: 빈 칸 = 비움 · 해석 중(또는 결과를 아직 안 굴린 옛 칸) = 「?」 · 끝남 = 산출물 칩 (+ 「새 발견」). 바뀔 때만 짓는다. */
@@ -376,6 +441,7 @@ export class Analyzer extends HousingPanel {
 
       setText(card.name, running ? (sampleDef?.name ?? '표본') : '');
       this.paintFamily(card, family);
+      this.paintSampleLevel(card, running ? info.sampleDefId : null);
       if (!running) renderClockText(card.time, '');
       else if (info.ready) renderClockText(card.time, '해석 완료');
       else renderClock(card.time, info.remainingS);

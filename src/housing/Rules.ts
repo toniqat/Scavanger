@@ -4,7 +4,6 @@ import type {
 } from '@/shared';
 import {
   COCKPIT_ROOM_INDEX, ROOM_PURPOSES_ASSIGNABLE, roomGridSize, roomRectBlocked,
-  ANALYZE_DEX_SPEEDUP, ANALYZE_KNOWN_SPEEDUP,
   BENCH_MAX_LEVEL, BOOK_GAIN_MAX, BOOK_RARITY_MUL, BOOK_XP_PER_BOOK, FACILITY_LABEL_KO, FURNITURE_DEF_MAP, GENERATOR_MAX_LEVEL, GENERATOR_START_LEVEL, GENERATOR_UPGRADE_COST, PRESETS_BY_RANGE_LEVEL,
   GROW_SKILL_SPEEDUP, GROW_STATION_SPEED_PER_LEVEL, GROW_TIER_DRAW_ORDER, SKILL_LEVEL_MAX, SOIL_MATCH_SPEEDUP, SOIL_MISMATCH_PENALTY, growTiersForLevel,
   RANGE_SKILL_GAIN_PER_LEVEL, RANGE_UPGRADE_COST, ROOM_GRID_COLS, ROOM_GRID_ROWS, ROOM_PURPOSE_LABEL_KO,
@@ -16,6 +15,12 @@ import {
 /* 2026-09-13 (요리 재료 티어) */
 import type { AnalysisResultDef, SampleFamily } from '@/shared';
 import { ANALYSIS_RESULTS, GROW_SOCKET_TIME_FLOOR, GROW_WEAR_MUL_FLOOR, analysisTimeMul } from '@/shared';
+/* 2026-09-16 (표본 개편 — 등급 하한 추첨 · 도감/레벨 단축) */
+import type { Rarity } from '@/shared';
+import {
+  ANALYSIS_DEX_BONUS_PER_ENTRY, ANALYSIS_SAMPLE_LEVEL_FIRST, ANALYSIS_SAMPLE_LEVEL_MAX, ANALYSIS_SAMPLE_LEVEL_STEP,
+  ANALYSIS_SPEEDUP_CAP, rarityRank,
+} from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Pure housing rules: placement, costs, prerequisites. No ctx, no DOM — every function takes the state (or the piece
@@ -586,18 +591,8 @@ export function growRemainingS(now: number, readyAt: number | undefined): number
  * 계산이라 작물이냐 표본이냐를 모른다 — 같은 폴더 안이므로 한 번 더 베끼지 않는다).
  * ────────────────────────────────────────────────────────────────────────── */
 
-/**
- * 해석에 걸리는 시간(ms), **시작하는 순간** 확정된다:
- * `analyzeHours × (1 − ANALYZE_DEX_SPEEDUP × 도감진척) × (아는 표본이면 1 − ANALYZE_KNOWN_SPEEDUP)`.
- * 「도감을 채울수록 빨라진다」가 첫 항, 「아는 것을 다시 보는 건 빠르다」가 둘째 항이다. 1초 미만은 없다.
- */
-/** @deprecated 2026-09-13 (요리 재료 티어) — 도감 진척 · 기지식 단축은 분석 레벨로 대체됐다. `analysisDurationMs` 를 쓴다. */
-export function analyzeDurationMs(analyzeHours: number, dexRatio: number, known: boolean): number {
-  const ratio = Math.max(0, Math.min(1, Number.isFinite(dexRatio) ? dexRatio : 0));
-  const dex = 1 - ANALYZE_DEX_SPEEDUP * ratio;
-  const repeat = known ? 1 - ANALYZE_KNOWN_SPEEDUP : 1;
-  return Math.max(1000, Math.round(Math.max(0, analyzeHours) * 3600e3 * dex * repeat));
-}
+/* 옛 `analyzeDurationMs`(도감 진척률 · 기지식 두 항)는 2026-09-16 에 지웠다 — 부르는 곳이 없었고, 그 두 상수
+   (`ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP`)는 이제 아무도 읽지 않는다. 시간 식은 `analysisDurationMs` 하나다. */
 
 /* ── 온실 배양조 (A-14, 2026-09-11) ──────────────────────────────────────────
  * 분석기 · 재배 스테이션과 같은 자리 · 같은 철학이다 — 걸리는 시간은 **넣는 순간** 확정되고, 그 뒤로 배지를
@@ -679,20 +674,46 @@ export function durabilityFromUses(max: number, usesLeft: number, uses: number):
   return Math.round(m * clamp01(usesLeft / uses));
 }
 
-/** 결과표에서 `family` · `minLevel ≤ level` · `weight > 0` · `defOk(defId)` 인 줄 (추첨 대상). */
-function analysisPool(family: SampleFamily, level: number, defOk: (defId: string) => boolean): AnalysisResultDef[] {
-  const lv = Math.floor(Number.isFinite(level) ? level : 1);
-  return ANALYSIS_RESULTS.filter((r) => r.family === family && r.minLevel <= lv && r.weight > 0 && defOk(r.defId));
+/**
+ * 2026-09-16 (사용자 결정 — `data/analysis_results.csv` 머리글): **표본 등급이 산출물 등급의 하한이다**.
+ * 후보를 거르는 쪽이 아는 두 가지를 부르는 쪽이 넘긴다 — 표본의 등급과, 산출물 def 의 등급(아이템 표는 ctx 에 있다).
+ * 주지 않으면(도감 화면의 「기준」 목록) 하한 검사를 하지 않는다.
+ */
+export interface AnalysisRollOpts {
+  /** 넣은 표본의 등급. 없으면 하한 검사를 건너뛴다. */
+  sampleRarity?: Rarity;
+  /** 산출물 def 의 등급 (아이템 표에 없으면 null → 그 줄은 하한 검사를 통과한 것으로 본다). */
+  rarityOf?: (defId: string) => Rarity | null;
 }
 
 /**
- * 분석 결과 한 번 굴리기 — 해금된 줄끼리 가중 추첨하고 개수는 `qtyMin … qtyMax` 정수 균등. `rng01` 은 **두 번** 부른다
+ * 결과표에서 추첨 대상으로 남는 줄: `family` · `minLevel ≤ level` · `weight > 0` · `defOk(defId)` 에 더해,
+ *  - 줄에 `sampleRarity` 가 있으면 **그 등급의 표본에만** 붙고 등급 하한 검사는 **면제**된다 (석영 6줄 — 빈 후보 방지턱),
+ *  - 없으면 `rarityRank(산출물 등급) ≥ rarityRank(표본 등급)` 이어야 한다 (사용자 결정: 희귀 표본은 희귀 이상만 낸다).
+ */
+function analysisPool(
+  family: SampleFamily, level: number, defOk: (defId: string) => boolean, opts: AnalysisRollOpts = {},
+): AnalysisResultDef[] {
+  const lv = Math.floor(Number.isFinite(level) ? level : 1);
+  const want = opts.sampleRarity;
+  const floor = want ? rarityRank(want) : -1;
+  return ANALYSIS_RESULTS.filter((r) => {
+    if (r.family !== family || r.minLevel > lv || !(r.weight > 0) || !defOk(r.defId)) return false;
+    if (r.sampleRarity) return want === undefined || r.sampleRarity === want;
+    if (floor < 0) return true;
+    const got = opts.rarityOf?.(r.defId) ?? null;
+    return got === null || rarityRank(got) >= floor;
+  });
+}
+
+/**
+ * 분석 결과 한 번 굴리기 — 후보로 남은 줄끼리 가중 추첨하고 개수는 `qtyMin … qtyMax` 정수 균등. `rng01` 은 **두 번** 부른다
  * (줄 · 개수). 추첨할 줄이 없으면 null (부르는 쪽이 표본의 대체 산출물 `rewardDefId` 로 떨어진다).
  */
 export function rollAnalysisResult(
-  family: SampleFamily, level: number, rng01: () => number, defOk: (defId: string) => boolean,
+  family: SampleFamily, level: number, rng01: () => number, defOk: (defId: string) => boolean, opts: AnalysisRollOpts = {},
 ): { defId: string; qty: number } | null {
-  const pool = analysisPool(family, level, defOk);
+  const pool = analysisPool(family, level, defOk, opts);
   if (!pool.length) return null;
   const total = pool.reduce((a, r) => a + r.weight, 0);
   let pick = clamp01(rng01()) * total;
@@ -707,8 +728,10 @@ export function rollAnalysisResult(
 }
 
 /** 지금 레벨에서 해석 한 번이 각 산출물을 낼 확률 (`rollAnalysisResult` 와 같은 식 — 같은 defId 의 줄은 합친다). */
-export function analysisChances(family: SampleFamily, level: number, defOk: (defId: string) => boolean): Record<string, number> {
-  const pool = analysisPool(family, level, defOk);
+export function analysisChances(
+  family: SampleFamily, level: number, defOk: (defId: string) => boolean, opts: AnalysisRollOpts = {},
+): Record<string, number> {
+  const pool = analysisPool(family, level, defOk, opts);
   const total = pool.reduce((a, r) => a + r.weight, 0);
   const out: Record<string, number> = {};
   if (total <= 0) return out;
@@ -716,10 +739,40 @@ export function analysisChances(family: SampleFamily, level: number, defOk: (def
   return out;
 }
 
-/** 해석에 걸리는 시간(ms), 넣는 순간 확정: `analyzeHours × 3600e3 × analysisTimeMul(분석 레벨)`, 최소 1000 ms. */
-export function analysisDurationMs(analyzeHours: number, level: number): number {
+/* ── 2026-09-16 (사용자 결정): 해석 시간 단축 ─────────────────────────────────
+ * 옛 「도감 진척률 × ANALYZE_DEX_SPEEDUP」 · 「아는 표본이면 ANALYZE_KNOWN_SPEEDUP」 두 항을 걷어낸 자리다.
+ * 바뀐 점이 둘 있고, 둘 다 수치가 아니라 **무엇에 비례하는가**의 문제라 여기에 적어 둔다:
+ *  ① 도감 보너스는 비율이 아니라 **칸 수**에 비례하고, 「그 표본 종류」가 아니라 **같은 등급 표본 전체**에 듣는다.
+ *  ② 표본 레벨 보너스는 **처음 한 번이 크다** — 레벨 1 에서 `FIRST` 를 통째로 주고 그 뒤로는 레벨마다 `STEP` 만 얹는다.
+ *     「처음 등록했을 때 보너스를 많이 주는 식」이라는 사용자 요구가 `FIRST`(3 %)와 `STEP`(0.5 %)의 **차이 그 자체**다.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** 표본 레벨이 주는 단축 (상한 전). 레벨 0 = 0, 1 = `FIRST`, n = `FIRST + (n − 1) × STEP`. */
+export function analysisLevelBonus(sampleLevel: number): number {
+  const lv = Math.max(0, Math.min(ANALYSIS_SAMPLE_LEVEL_MAX, Math.floor(Number.isFinite(sampleLevel) ? sampleLevel : 0)));
+  return lv <= 0 ? 0 : ANALYSIS_SAMPLE_LEVEL_FIRST + (lv - 1) * ANALYSIS_SAMPLE_LEVEL_STEP;
+}
+
+/** 같은 등급 분석 도감 `dexEntries` 칸이 주는 단축 (상한 전). */
+export function analysisDexBonus(dexEntries: number): number {
+  const n = Math.max(0, Math.floor(Number.isFinite(dexEntries) ? dexEntries : 0));
+  return n * ANALYSIS_DEX_BONUS_PER_ENTRY;
+}
+
+/** 두 보너스를 **더한 뒤** `ANALYSIS_SPEEDUP_CAP` 에서 자른 최종 단축 (0 … CAP). 해석 시간은 `× (1 − 이 값)`. */
+export function analysisSpeedup(dexEntries: number, sampleLevel: number): number {
+  return Math.max(0, Math.min(ANALYSIS_SPEEDUP_CAP, analysisDexBonus(dexEntries) + analysisLevelBonus(sampleLevel)));
+}
+
+/**
+ * 해석에 걸리는 시간(ms), 넣는 순간 확정:
+ * `analyzeHours × 3600e3 × analysisTimeMul(계열 분석 레벨) × (1 − speedup)`, 최소 1000 ms.
+ * 계열 분석 레벨의 배수와 표본 단축은 **서로 다른 축**이라 곱해진다 (단축의 상한은 배수를 덮지 않는다).
+ */
+export function analysisDurationMs(analyzeHours: number, level: number, speedup = 0): number {
   const h = Number.isFinite(analyzeHours) ? Math.max(0, analyzeHours) : 0;
-  return Math.max(1000, Math.round(h * 3600e3 * analysisTimeMul(level)));
+  const cut = Math.max(0, Math.min(ANALYSIS_SPEEDUP_CAP, Number.isFinite(speedup) ? speedup : 0));
+  return Math.max(1000, Math.round(h * 3600e3 * analysisTimeMul(level) * (1 - cut)));
 }
 
 /* ── 은퇴 가구 환불 (온실 개편, 2026-09-11) ───────────────────────────────── */

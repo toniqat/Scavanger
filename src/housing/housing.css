@@ -261,6 +261,19 @@
 /* 끌고 가는 산물 (`ui/ProductDrag.ts`) — transform 만 움직인다 */
 .hs-ghost { position: fixed; left: 0; top: 0; z-index: 220; pointer-events: none; will-change: transform; opacity: 0.92; }
 
+/* ── 2026-09-16: 가구 화면의 아이템 칸 (`ui/ItemTile.ts`) ────────────────────
+ * 꽂힌 칸에 서는 것은 **인벤토리 타일 그대로**(`.inv-tile.is-standalone`)라 여기서 모양을 다시 그리지 않는다.
+ * 고치는 것은 둘뿐이다: ① 칸이 Tab 창(54 px)보다 작을 때 글리프 · 이름이 칸을 따라 줄어들게 (`.tg-compact` 와
+ * **같은 비율** — 저쪽은 격자 뷰의 규칙이고 이쪽은 격자 밖의 한 칸이다), ② 수량 배지는 아예 그리지 않는다
+ * (사용자 결정 — 한 칸에 하나뿐이라 숫자가 늘 `1` 이다. JS 도 `hidden` 을 달지만 CSS 가 최종이다).
+ * ────────────────────────────────────────────────────────────────────────── */
+.inv-tile.hs-tile { position: relative; left: auto; top: auto; flex: none; }
+.inv-tile.hs-tile .inv-tile-icon { font-size: calc(var(--inv-cell) * 0.41); }
+.inv-tile.hs-tile.is-wide .inv-tile-icon, .inv-tile.hs-tile.is-tall .inv-tile-icon { font-size: calc(var(--inv-cell) * 0.48); }
+.inv-tile.hs-tile .inv-tile-name { left: 4px; right: 4px; top: 3px; font-size: max(8px, calc(var(--inv-cell) * 0.19)); letter-spacing: 0; }
+.inv-tile.hs-tile .inv-tile-qty { display: none; }
+.inv-tile.hs-tile .inv-tile-sockets { right: 3px; top: 3px; gap: 2px; }
+
 /* ── 맨 왼쪽 세로 레일 (`ui/StationShell.ts` 의 `rail`, 2026-09-12) ──────────
  * 두 화면이 같은 자리 · 같은 결로 쓴다 — 재배 스테이션 **목록**(이름 + 3×3 현황 점 + 레드닷)과 분석기의
  * **탭**(해석 · 해석 도감). 쓰지 않는 화면에서는 `hidden` 이라 flex gap 까지 사라진다.
@@ -413,6 +426,15 @@
   background: color-mix(in srgb, var(--fc, #c79fff) 12%, transparent);
 }
 .az-fam[hidden] { display: none; }
+/* 표본 레벨 칩 (2026-09-16) — 색 `--fc` = 그 표본의 등급색(`RARITY_COLORS`). 계열 칩과 같은 모양이라 한 줄로 읽힌다 */
+.az-lv {
+  flex: none; padding: 1px 6px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap;
+  color: var(--fc, #9aa3ad); border: 1px solid color-mix(in srgb, var(--fc, #9aa3ad) 45%, transparent);
+  background: color-mix(in srgb, var(--fc, #9aa3ad) 10%, transparent);
+}
+.az-lv[hidden] { display: none; }
+/* 「분석 도감 — 일반 12칸 −12 % · …」 (2026-09-16): 연구 숙련 줄과 같은 `.hint` 결, 바로 아래에 붙는다 */
+.az-dexspeed[hidden] { display: none; }
 .az-slot.is-running:not(.is-ready) .az-cell { border-color: color-mix(in srgb, var(--fc, #c79fff) 70%, transparent); }
 /* 결과 자리 (2026-09-13): 해석 중 「?」(점선 칸) · 끝나면 산출물 칩 + 「새 발견」 배지. 비어 있어도 폭은 차지한다 (열이 흔들리지 않게) */
 .az-result { position: relative; width: 52px; height: 52px; flex: none; display: flex; align-items: center; justify-content: center; }
@@ -617,9 +639,9 @@
  * 가구를 닮은 2D 선반: 틀(좌우 기둥 · 윗판) + 층(`.lib-tier`, 아래 테두리 = 두꺼운 선반 판) + 받침.
  * **한 층은 `.lib-row` 를 여러 줄 품는다** (책장 = 4층 × 5칸 × 2줄 = 40권) — 줄 사이는 얇은 판이고, 한 줄의 열 수는
  * `.lib-case` 의 `--lib-cols`(= 계약의 `SHELF_TIER_COLS`)가 정한다. 칸 번호는 0 부터 이어지는 하나뿐이다.
- * 칸 순서는 위 → 아래 · 왼 → 오른쪽 (3D 책장 모델과 같다). 매체는 `.lib-case[data-medium]` 의 변수 몇 개와
- * `.lib-item` 모양만 바꾼다 — 책등 · 디스크 케이스 · 레코드 슬리브. 색 `--rc` = 시리즈 색 · 게임 테마 색.
- * 빈 칸 = 같은 모양의 흐린 점선 윤곽. 드롭 강조 `.is-over` 는 TradeGrids 가 붙인다. 접두사 `.lib-`. */
+ * 칸 순서는 위 → 아래 · 왼 → 오른쪽 (3D 책장 모델과 같다). 매체는 `.lib-case[data-medium]` 의 틀 색 · 층 높이 ·
+ * 칸 상자만 바꾼다 — **칸 안의 그림은 2026-09-16 부터 아이템 타일 하나**다 (사용자 결정, `ui/ItemTile`).
+ * 빈 칸 = 점선 상자. 드롭 강조 `.is-over` 는 TradeGrids 가 붙인다. 접두사 `.lib-`. */
 .lib-pages { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; padding-right: 2px; }
 .lib-page { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .lib-page[hidden] { display: none; }
@@ -660,7 +682,7 @@
 .lib-case {
   --lib-frame: #5b3d27; --lib-frame-hi: #7d5638; --lib-back: #22170f; --lib-grain: rgba(255, 220, 170, 0.04);
   --lib-board: #8a6240; --lib-board-edge: #b0875c;
-  --lib-cols: 2; --lib-row-h: 64px; --lib-item-w: 26px; --lib-item-h: 52px; --lib-div-gap: 5px;
+  --lib-cols: 2; --lib-row-h: 64px; --lib-item-w: 26px; --lib-item-h: 52px; --lib-div-gap: 5px;   /* w/h 는 `ui/ShelfDrawing` 이 매체별로 덮어쓴다 */
   position: relative; flex: none; width: min(100%, 380px);
   border: 12px solid var(--lib-frame); border-top-width: 16px; border-top-color: var(--lib-frame-hi); border-bottom-width: 0;
   background: repeating-linear-gradient(90deg, var(--lib-grain) 0 2px, transparent 2px 9px), var(--lib-back);
@@ -692,109 +714,50 @@
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
   pointer-events: none;
 }
+/* 2026-09-16 (사용자 결정): 칸은 **아이템 격자 칸**이다 — 빈 칸은 인벤토리의 빈 칸처럼 점선 상자, 꽂힌 칸에는
+   가방에서 보던 타일(`.inv-tile.hs-tile`)이 통째로 들어간다. 상자 크기(`--lib-item-w/h`)는 `ui/ShelfDrawing` 이
+   쓴다 (아이템 타일의 칸 크기를 같은 값에서 재야 해서 CSS 에 두 번째 표를 두지 않는다). */
 .lib-item {
-  --rc: #9aa3ad;
-  position: relative; flex: none; width: var(--lib-item-w); height: var(--lib-item-h);
+  position: relative; flex: none; display: grid; place-items: center;
+  /* 테두리는 상자 **밖**이다 (`box-sizing: border-box` — 안쪽이 타일 크기 그대로여야 타일이 눌리지 않는다) */
+  width: calc(var(--lib-item-w) + 2px); height: calc(var(--lib-item-h) + 2px);
   border: 1px dashed rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.015);
 }
-.lib-slot:not(.is-filled) .lib-item > * { display: none; }
+.lib-slot.is-filled .lib-item { border-color: transparent; background: none; }
 .lib-slot:not(.is-filled) .lib-item::after {
   content: '+'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   font-size: 18px; color: rgba(255, 255, 255, 0.14); pointer-events: none;
 }
 .lib-slot.is-over .lib-item { border: 1px solid var(--c-accent); background-color: rgba(255, 179, 71, 0.18); box-shadow: 0 0 14px rgba(255, 179, 71, 0.45); }
 .lib-slot.is-filled:hover .lib-item { filter: brightness(1.14); }
-.lib-deco { display: none; }
-.lib-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; min-width: 0; }
-.lib-glyph { line-height: 1; }
-.lib-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 책장 — 세운 책등: 희귀도 색 원통 그라데이션 + 금박 띠 두 줄, 글리프 위 · 숙련 이름 세로쓰기.
-   2026-09-15 (사용자 결정): 책은 **서로 붙여 꽂는다** — 책등이 칸을 가득 채워(`--lib-item-w: 100%`) 칸 사이 여백이 0 이고,
-   줄 안의 유일한 여백은 구분막 좌우다. 디스크 · 레코드 · 게임은 자기 `--lib-item-w`(고정 px)를 그대로 쓴다. */
-/* 2026-09-15 3차: 3층 × 6칸(왼쪽 3 · 구분막 · 오른쪽 3) = 18권. 칸이 6개뿐이라 책등이 넓어지므로 **층을 높여**
-   가로보다 세로가 긴 책 비율을 지키고, 틀도 좁혀 한 권이 정사각형이 되지 않게 한다 (글자도 그만큼 키웠다). */
-.lib-case[data-medium="book"] { --lib-item-w: 100%; --lib-row-h: 98px; --lib-item-h: 86px; width: min(100%, 304px); }
-.lib-case[data-medium="book"] .lib-slot.is-filled .lib-item {
-  border: 0; border-radius: 3px 3px 1px 1px;
-  background:
-    linear-gradient(180deg, transparent 14px, rgba(255, 214, 150, 0.8) 14px 16px, transparent 16px calc(100% - 20px), rgba(255, 214, 150, 0.8) calc(100% - 20px) calc(100% - 18px), transparent calc(100% - 18px)),
-    linear-gradient(90deg, color-mix(in srgb, var(--rc) 45%, #000) 0, var(--rc) 24%, color-mix(in srgb, var(--rc) 72%, #fff) 42%, var(--rc) 62%, color-mix(in srgb, var(--rc) 40%, #000) 100%);
-  box-shadow: 3px 0 6px rgba(0, 0, 0, 0.55);
-}
-.lib-case[data-medium="book"] .lib-face { padding: 11px 0 13px; gap: 4px; }
-.lib-case[data-medium="book"] .lib-glyph { font-size: 13px; color: rgba(8, 10, 14, 0.85); }
-.lib-case[data-medium="book"] .lib-label {
-  writing-mode: vertical-rl; max-height: 100%; font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
-  color: #0b0d11; text-shadow: 0 0 2px rgba(255, 255, 255, 0.35);
-}
+/* 책장 — 나무 틀. 2026-09-15 3차: 3층 × 6칸(왼쪽 3 · 구분막 · 오른쪽 3) = 18권이라 **층을 높여** 세로로 긴
+   책(1×2) 타일이 들어가고, 틀도 좁혔다. (칸 안의 그림은 2026-09-16 부터 아이템 타일이다.) */
+.lib-case[data-medium="book"] { --lib-row-h: 98px; width: min(100%, 304px); }
 
-/* 디스크 전시대 — 금속 틀 + 아크릴 턱, 케이스 = 시리즈 색 옆띠 + 투명 뚜껑 안의 디스크 */
+/* 디스크 전시대 — 금속 틀 + 아크릴 턱 (칸 안은 아이템 타일) */
 .lib-case[data-medium="disc"] {
   --lib-frame: #3a424c; --lib-frame-hi: #56616d; --lib-back: #10161d; --lib-grain: rgba(159, 208, 255, 0.03);
   --lib-board: rgba(159, 208, 255, 0.3); --lib-board-edge: rgba(200, 230, 255, 0.6);
-  --lib-row-h: 78px; --lib-item-w: 58px; --lib-item-h: 58px;
+  --lib-row-h: 78px;
   width: min(100%, 360px);
 }
 .lib-case[data-medium="disc"] .lib-tier { border-bottom-width: 6px; }
-.lib-case[data-medium="disc"] .lib-slot.is-filled .lib-item {
-  border: 1px solid rgba(220, 236, 255, 0.55); border-left: 5px solid var(--rc);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 46%), #0b1016;
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.5);
-}
-.lib-case[data-medium="disc"] .lib-deco {
-  display: block; position: absolute; left: 50%; top: 45%; width: 42px; height: 42px; margin: -21px 0 0 -21px; border-radius: 50%;
-  background: radial-gradient(circle, #0b0e12 0 4px, #d6dde6 4px 5px, color-mix(in srgb, var(--rc) 65%, #fff) 5px 9px, var(--rc) 9px 16px, color-mix(in srgb, var(--rc) 50%, #000) 16px 20px, #c9d3de 20px 21px);
-}
-
-/* 레코드랙 — 검은 랙, 슬리브 = 시리즈 색 인쇄면 + 위로 삐져나온 LP */
+/* 레코드랙 — 검은 랙 (칸 안은 아이템 타일) */
 .lib-case[data-medium="record"] {
   --lib-frame: #2f2a30; --lib-frame-hi: #4a424b; --lib-back: #161217; --lib-grain: rgba(232, 160, 208, 0.03);
   --lib-board: #3d353e; --lib-board-edge: #5d535f;
-  --lib-row-h: 96px; --lib-item-w: 70px; --lib-item-h: 70px;
+  --lib-row-h: 96px;
   width: min(100%, 380px);
 }
-.lib-case[data-medium="record"] .lib-slot.is-filled .lib-item { border: 0; background: transparent; }
-.lib-case[data-medium="record"] .lib-deco {
-  display: block; position: absolute; left: 7px; top: -17px; width: 58px; height: 58px; border-radius: 50%;
-  background:
-    radial-gradient(circle, color-mix(in srgb, var(--rc) 80%, #fff) 0 6px, #0a0a0c 6px 8px, transparent 8px),
-    repeating-radial-gradient(circle, #101013 0 2px, #1d1d22 2px 3px);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
-}
-.lib-case[data-medium="record"] .lib-slot.is-filled .lib-face {
-  background:
-    radial-gradient(circle at 72% 30%, rgba(255, 255, 255, 0.28) 0 13px, transparent 14px),
-    linear-gradient(135deg, var(--rc), color-mix(in srgb, var(--rc) 35%, #000));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 6px 12px rgba(0, 0, 0, 0.55);
-}
-
-/* 디스크 · 레코드: 글리프는 오른쪽 위, 이름은 아래 띠 */
-.lib-case:not([data-medium="book"]) .lib-face { justify-content: space-between; align-items: flex-end; }
-.lib-case:not([data-medium="book"]) .lib-glyph { margin: 3px 4px 0 0; font-size: 11px; color: #fff; text-shadow: 0 0 4px rgba(0, 0, 0, 0.95); }
-.lib-case:not([data-medium="book"]) .lib-label {
-  align-self: stretch; padding: 1px 2px; text-align: center; font-size: 9px; letter-spacing: 0.02em;
-  color: #f2f4f7; background: rgba(6, 8, 11, 0.74);
-}
-
-/* 게임 디스크 전시대 (2026-09-13) — 짙은 남색 틀 + 세운 게임 케이스: 윗단 = 디스크 테마 색(`--rc`), 속에 비치는 디스크 */
+/* 게임 디스크 전시대 (2026-09-13) — 짙은 남색 틀 (칸 안은 아이템 타일) */
 .lib-case[data-medium="game"] {
   --lib-frame: #242a3a; --lib-frame-hi: #36405a; --lib-back: #0d1018; --lib-grain: rgba(159, 240, 200, 0.03);
   --lib-board: #2f3850; --lib-board-edge: rgba(159, 240, 200, 0.45);
-  --lib-row-h: 82px; --lib-item-w: 46px; --lib-item-h: 64px;
+  --lib-row-h: 82px;
   width: min(100%, 340px);
 }
 .lib-case[data-medium="game"] .lib-tier { border-bottom-width: 7px; }
-.lib-case[data-medium="game"] .lib-slot.is-filled .lib-item {
-  border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 3px;
-  background: linear-gradient(180deg, var(--rc) 0 12px, rgba(0, 0, 0, 0.55) 12px 13px, #10131b 13px);
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
-}
-.lib-case[data-medium="game"] .lib-deco {
-  display: block; position: absolute; left: 50%; top: 54%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; opacity: 0.9;
-  background: radial-gradient(circle, #0b0e12 0 3px, #d6dde6 3px 4px, color-mix(in srgb, var(--rc) 60%, #fff) 4px 7px, var(--rc) 7px 13px, color-mix(in srgb, var(--rc) 45%, #000) 13px 15px);
-}
-
 /* 서재 시리즈 (2026-09-13): 권 번호 배지 · 전권 윤곽 */
 .lib-vol {
   position: absolute; left: 1px; top: 1px; z-index: 2; padding: 0 2px; border-radius: 2px; pointer-events: none;

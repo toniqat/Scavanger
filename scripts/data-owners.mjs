@@ -85,7 +85,9 @@ export const CSV_FOLDERS = {
   // 2026-09-13 (행성별 적 팩션): 안드로이드 · 로그 · 레이더 시체의 팩션 굴림 · 스폰 거점 보너스 — items/ 가 굴리고 enemies/ 가 넘긴다
   'loot_factions.csv':       ['items', 'enemies'],
   'loot_faction_sites.csv':  ['items', 'enemies'],
-  'loot_tiers.csv':          ['items'],
+  // 2026-09-16: world 도 읽는다 — 행성 광맥이 미확인 광물의 등급을 tier = 행성 threat 줄에서 굴린다
+  // (mythic 열 포함, src/world/mineral.ts). 상자 루팅의 5등급 축과는 다른 독자 경로다.
+  'loot_tiers.csv':          ['items', 'world'],
   'planet_loot.csv':         ['items', 'world'],
   // enemies/ · progression/ · world/ 로더
   'enemies.csv':             ['enemies', 'meta'],   // 2026-09-13: meta/Rules.killGoalOf 가 faction 열을 읽는다

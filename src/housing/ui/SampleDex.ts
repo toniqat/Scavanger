@@ -149,7 +149,11 @@ export function createSampleDex(ctx: GameContext, housing: HousingSystem, host: 
         toggleClass(row.root, 'is-locked', !r.unlocked);
       });
     }
-    setText(summary, `발견한 산출물 ${found} / ${total} · 분석 레벨이 오르면 해석이 빨라지고 새 결과가 열립니다`);
+    /* 2026-09-16 (사용자 결정): 두 규칙을 여기서 말한다 — ① 표본 등급이 산출물 등급의 **하한**이라 실제 확률은
+     넣는 표본마다 다르다 (여기 확률은 후보가 가장 넓은 **일반 표본** 기준이다), ② 도감 한 칸은 **같은 등급**
+     표본 전체의 해석 시간을 줄인다 (등급별 수치는 해석 탭 머리줄). */
+  setText(summary, `발견한 산출물 ${found} / ${total} · 확률은 일반 표본 기준 — 표본 등급이 산출물 등급의 하한이라`
+    + ` 높은 등급 표본일수록 아래쪽 결과가 빠집니다. 도감 한 칸은 같은 등급 표본의 해석을 빠르게 합니다.`);
   }
 
   refresh();                 // 첫 `refresh` 가 행도 함께 짓는다 (`builtKey` 가 아직 비어 있다)
