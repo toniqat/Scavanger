@@ -45,6 +45,7 @@ Read the log first when something fails — a check that fell out of a timing wi
 | `smoke-phase4` | bug↔rogue damage exchange | Faction-clash timing — the exchange does not always happen inside the watched window |
 | `smoke-humanoid-ai` | C-24 left/right · raider accuracy · rogue vs android shot count | AI timing — a different assertion fails on each serial re-run |
 | `smoke-inventory-p6` | Bag · stash · `primary2` edits silently roll back to the state at ship entry | It is **not** single-client: `hub:enter` connects to the relay and `net:profileLoaded` replaces stash and loadout ~260 ms later (`inventory/parts/ProfileDocs.ts`). A broken link (`ws proxy error: write ECONNABORTED` in `vite.log`) reverts the edits — check the relay before the code |
+| `smoke-aim-sway` | `shot lands on the rendered crosshair ray under sway` — a few cm over the allowance | The shot is fired **at a sway peak** (the smoke waits for `|swayYaw| > 1°`), where the angular rate is highest, and the allowance `0.08 m + drop × 1.3` is **metric**, not angular. When the search for a look line lands on distant ground instead of the intended ~25 m (seen at 97 m), the same sub-frame angular lag turns into a much larger miss in metres. Re-run — a different ground hit passes |
 | `smoke-library-consumers` and similar | A module-state value set by the smoke is not visible to the app | A long-lived vite's `?t=` stamp makes the module evaluate twice — see the `import('/src/…')` section in [scripts/README.md](../scripts/README.md) |
 
 ## Not automated
