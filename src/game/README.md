@@ -105,12 +105,17 @@ therefore uses `ctx.time`, never `dt`.
 - **Squad**: phase unchanged, `spawnLocalCorpse` (whole inventory into the corpse), then one forced `Session.saveRaid`,
   squad-leader device if host, toast with remaining rescues. The only way back is a squadmate's rescue drop
   (`rescue:landed` → `onRescueLanded`; `player/` rebuilds the body).
-- **All-dead check** (host only, never training): local player out (`isDead && !isDowned`) and no remote alive per
+- **All-dead check** (host only, never training): local player out (`isDead && !isDowned`), no remote alive per
   `isRemoteAlive` (ignores androids by `isAndroidId`, `!connected`, `!inMission`, `IN_HUB`; suspended ghosts count by
-  `ghostState !== 2`; downed counts alive). Runs on death / downed / peer events, every `ALL_DEAD_CHECK_INTERVAL` while
-  out, and on becoming host. True → `flow over` + `gameOver()`.
-- **Androids** (2026-09-15): bot members are never humans — a leader who dies with only androids left is still a squad
-  wipe. A dead android leaves its own corpse through `CorpsesRef.spawnAllyCorpse` (authority only): container
+  `ghostState !== 2`; downed counts alive), **and** no android left in the fight (2026-09-16 — `ctx.allies.getBodies()`,
+  `mode === 'raid' && !dead && !downed && !hidden`). Runs on death / downed / peer events, every
+  `ALL_DEAD_CHECK_INTERVAL` while out (which is also how a last android going down is noticed — no android event),
+  and on becoming host. True → `flow over` + `gameOver()`.
+- **Androids** (2026-09-15, wipe rule 2026-09-16): bot members are never humans in any head count, but the raid fails
+  only when every human **and every android** is down or dead — a standing android comes to revive the squad
+  (`allies/parts/Rescue`); a downed android does not count. The android rule lives only in `checkAllDead`, not in
+  `isRemoteAlive`. Solo (`!ctx.isMultiplayer`, only reachable with the `/android` cheat) still fails on death.
+  A dead android leaves its own corpse through `CorpsesRef.spawnAllyCorpse` (authority only): container
   `pcorpse:<allyId>:<n>` with the items `allies/` hands over (raid-found only — the base kit is bound), broadcast as a
   normal `pcorpse spawn`. The body's android look and the `잔해` prompt are decided by the owner id, so receivers build
   the same thing with no extra wire field.
@@ -232,8 +237,8 @@ A remaining raid never drops the boot straight into it: the title shows `이어�
 ## Recent changes
 
 Last 5 only — older: `git log -- src/game`.
+- 2026-09-16 — Wipe check counts androids: `checkAllDead` fails the raid only when every human and every android is down or dead (`ctx.allies.getBodies()`); `isRemoteAlive` keeps its bot filter.
 - 2026-09-16 — Empty corpses: a player / android corpse with no items (spawned empty or looted empty) sinks after `CORPSE_EMPTY_REMOVE_DELAY_S` and is removed; host-only `pcorpse emptied`; `CorpsesRef.ownerHadCorpse`.
 - 2026-09-16 — Raid-end XP = kill XP only (`stats.killXp` from `enemies.csv` `raidXp`, × `XP_DEATH_MUL` from csv when not extracted); loot / extraction / time XP and the `XP_*` constants in `model.ts` removed.
 - 2026-09-15 — `parts/Resume.ts` (`ctx.raidResume`): boot stops at the title for a remaining solo / tutorial / squad raid; `이어하기` / `레이드 포기` (death settlement · tutorial restart · squad drift + corpse); `consumeStoredSoloRaid` removed; squad blob carries `pose`.
 - 2026-09-15 — `parts/LoadGate.ts`: raid-entry loading gate (`load` wire, `raid:load*`); androids excluded from the wipe check; `CorpsesRef.spawnAllyCorpse`.
-- 2026-09-15 — Squads vs shared ship: training exit and `onAbort` regroup in the shared ship only for a **docked** lobby (`isDockedLobby`).

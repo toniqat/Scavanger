@@ -3,6 +3,8 @@
  *
  * 권위에서만 몸을 세운다 (솔로 · 로비 호스트). 훈련장 · 튜토리얼은 건너뛴다 — 안드로이드는 본편 레이드의 분대원이다.
  * 매 레이드 기본 킷(`ANDROID_KIT`)으로 다시 시작하고(사용자 결정), 착지 전까지는 `hidden` 이라 아무도 그리지 않는다.
+ * 2026-09-16 부터 함선에서도 킷을 입고 있으므로(`parts/Hub`), 여기서는 그것을 걷어내고(`Bag.clearKit`) **새 킷**을 세운다 —
+ * 킷은 묶인 물건이라 걷어낸 쪽은 그대로 사라지고, 어느 경로로도 창고 · 시체 · 바닥에 남지 않는다.
  */
 import { ALLY_LOCAL_PEER } from '@/shared';
 import type * as THREE from 'three';
@@ -44,7 +46,12 @@ export function onWorldReady(sys: AllySystem, playerSpawn: THREE.Vector3): void 
   sys.orderKind = null;
   sys.watchUntil = -Infinity;
   sys.preferredEnemyId = null;
-  for (const a of sys.bodies) { a.resetSim(); a.mode = 'dormant'; a.hidden = true; }
+  /*
+   * 2026-09-16 (함선 킷): 함선에서 입고 있던 킷을 **먼저 걷어낸다**. 권위는 바로 아래에서 새 킷을 세우고(겹쳐 짓지 않는다),
+   * 리플리카는 여기서부터 `ally bag` 와이어만 본다 — 함선에서 만든 빈 가방이 남으면 호스트 승계(`parts/Sync.onHostChanged`)가
+   * 그것을 이어받아 안드로이드의 전리품을 통째로 잃는다.
+   */
+  for (const a of sys.bodies) { a.resetSim(); Bag.clearKit(a); a.mode = 'dormant'; a.hidden = true; }
   if (ctx.missionMode !== 'raid') { sys.raidActive = false; return; }
   sys.raidActive = true;
   if (!sys.simulating) return;                      // 리플리카는 `ally state` 를 기다린다

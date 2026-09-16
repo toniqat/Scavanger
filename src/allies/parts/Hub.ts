@@ -9,12 +9,16 @@
  * 위치가 로비로부터 결정되므로 스냅샷을 주고받을 이유가 없고, 그래야 늦게 들어온 사람도 즉시 같은 그림을 본다.
  *
  * 개인 함선의 치트 안드로이드는 슬롯이 없다 (사용자 결정 「공용 함선 전용」) — PC 곁에 `ALLY_HUB_FOLLOW_M` 로 선다.
+ *
+ * **함선의 몸도 기본 킷 차림이다** (2026-09-16 사용자 결정): 들어설 때 `Bag.equipKit` 으로 새로 세우고, 서 있는 동안은
+ * 멱등한 `Bag.ensureKit` 이 지킨다. 함선에는 떨구기 · 건네기 · 시체 · 창고가 없으므로 묶인 킷이 밖으로 새는 길도 없다.
  */
 import { ALLY_HUB_FOLLOW_M, ALLY_WALK_SPEED } from '@/shared';
 import type { HubAndroidBay } from '@/shared';
 import type { AllySystem } from '../AllySystem';
 import type { Ally } from './Body';
 import { _v1, dist2D, yawToward } from '../model';
+import * as Bag from './Bag';
 import * as Nav from './Nav';
 import * as Roster from './Roster';
 
@@ -32,6 +36,14 @@ export function onHubEntered(sys: AllySystem): void {
     a.hp = a.maxHp = Math.max(1, a.maxHp);
     a.dead = false;
     a.downed = false;
+    /*
+     * 2026-09-16 (사용자 결정 「호출되는 순간 기본 킷을 장착한 채로 선다」): 함선에 들어서면 **기본 킷으로 다시 선다** —
+     * 레이드 진입(`parts/Spawn`)과 대칭이다. 멱등한 `ensureKit` 이 아니라 새로 짓는 이유: 방금 끝난 레이드에서 주운
+     * 장비로 갈아 끼웠거나 가방에 전리품이 남아 있을 수 있고(탈출 이관은 `raidFound` 만 옮긴다), 그러면 함선의 안드로이드가
+     * 저마다 다른 차림으로 서서 발사 슬롯 카드가 레이드 잔재를 보여 준다. 새 킷도 묶인 물건이라 밖으로 나가는 길은 없다.
+     */
+    Bag.equipKit(sys, a);
+    a.shield = a.maxShield;   // 방탄복을 막 입었다 — 실드는 가득이다 (`equipKit` → `refreshLook` 이 최대치만 정한다)
     place(sys, a, true);
   }
 }
@@ -50,6 +62,9 @@ export function update(sys: AllySystem, dt: number): void {
     }
   }
   for (const a of sys.bodies) {
+    // 함선에 서 있는 동안은 언제나 기본 킷 차림이다 (2026-09-16 사용자 결정). 멱등한 검사라 매 프레임 불러도 싸고,
+    // `hub:entered` 를 놓친 경로(슬롯이 늦게 생겨 여기서 만들어진 몸 등)까지 한 자리에서 메운다.
+    Bag.ensureKit(sys, a);
     const recruited = Roster.isRecruited(sys, a.id);
     if (ship === 'personal') { personal(sys, a, recruited, dt); continue; }
     shared(sys, a, recruited, dt);

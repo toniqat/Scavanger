@@ -4,6 +4,9 @@
  * 기본 킷(`ANDROID_KIT`)은 **묶인 물건**이다 (계약 `shared/allies.ts`): 떨구지도 · 건네지도 · 시체에 남기지도 ·
  * 창고로 보내지도 않는다. 그러지 않으면 매 레이드 공짜 장비가 생긴다. 그래서 `kitUids` 가 바깥으로 나가는 모든 길의 문이다.
  *
+ * 2026-09-16 (사용자 결정): 킷은 **레이드에서만 생기는 것이 아니다** — 명단에 들어오는 순간부터 입고 있다.
+ * 함선 = `ensureKit`(멱등), 레이드 진입 = `clearKit` → `equipKit`(새 킷). 킷의 uid 는 두 경로 모두 `kitUids` 에 들어간다.
+ *
  * 갈아끼우기: 주운 장비(`raidFound`)가 지금 낀 것보다 좋으면 바꾼다 — 벗겨진 킷 장비는 **그 자리에서 사라지고**
  * (묶인 물건이라 바닥에도 못 둔다), 벗겨진 주운 장비는 가방으로, 안 들어가면 바닥으로 간다.
  */
@@ -38,7 +41,43 @@ export function defOf(sys: AllySystem, defId: string | null | undefined): ItemDe
 
 /* ── 기본 킷 ──────────────────────────────────────────────────────────────── */
 
-/** 매 레이드의 기본 킷을 채운다 — 이미 있으면 갈아 끼우지 않는다. */
+/** 기본 킷이 갖춰져 있는가 — 세 칸이 다 차고 가방 격자까지 있다 (`ensureKit` 의 멱등 조건). */
+function hasKit(a: Ally): boolean {
+  return a.kitUids.size > 0 && !!a.equip.primary && !!a.equip.armor && !!a.equip.bag && !!a.bag;
+}
+
+/**
+ * 2026-09-16 (사용자 결정 「안드로이드는 호출되는 순간 기본 킷을 장착한 채로 선다」): **함선에서의 킷 보장**.
+ * 명단에 들어오는 순간(`parts/Roster.syncBodies`)과 함선에 서 있는 동안(`parts/Hub.update`) 반복해서 불린다 —
+ * 이미 갖췄으면 아무것도 하지 않는다. 함선에서 지은 킷도 똑같이 **묶인 물건**이라 `kitUids` 가 나가는 모든 길의
+ * 문을 그대로 지키고(떨구기 · 건네기 · 시체 · 창고), 애초에 함선에는 그 길 자체가 없다.
+ * 레이드에 들어가면 `parts/Spawn` 이 `clearKit` → `equipKit` 으로 **새 킷**을 세우므로 공짜 장비가 생기지 않는다.
+ */
+export function ensureKit(sys: AllySystem, a: Ally): void {
+  if (hasKit(a)) return;
+  equipKit(sys, a);
+}
+
+/**
+ * 몸에서 킷을 통째로 걷어낸다 — 레이드 진입 초기화(`parts/Spawn.onWorldReady`)가 모든 몸에 부른다.
+ * 권위는 바로 뒤에서 `equipKit` 으로 새 킷을 세우고, 리플리카는 여기서부터 `ally bag` 와이어만 본다.
+ * 함선에서 지은 **빈 가방이 남아 있으면 안 된다**: 호스트 승계가 `!a.bag` 갈래(`parts/Sync.onHostChanged`)를
+ * 건너뛰어 그 빈 가방을 이어받고, 와이어로만 알던 안드로이드의 전리품이 통째로 사라진다.
+ */
+export function clearKit(a: Ally): void {
+  a.kitUids.clear();
+  a.equip.primary = null;
+  a.equip.armor = null;
+  a.equip.bag = null;
+  a.bag = null;
+  a.wireItems = [];
+  a.bagDirty = false;
+  a.weaponDefId = null;
+  a.armorDefId = null;
+  a.bagDefId = null;
+}
+
+/** 기본 킷을 새로 채운다 (레이드 진입 · 함선 입장) — 있던 것은 버리고 갈아 세운다. */
 export function equipKit(sys: AllySystem, a: Ally): void {
   const loot = sys.ctx.loot;
   if (!loot) return;

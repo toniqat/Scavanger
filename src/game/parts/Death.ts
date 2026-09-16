@@ -5,6 +5,8 @@
  * 전부 거기로 넘어간다. 되살아나는 길은 분대원이 부르는 **구조선**(`rescue_drop`)뿐이고, 그 착륙이
  * `rescue:landed` 로 도착한다. **분대 전원이 나가떨어지면 레이드가 실패**한다 (솔로는 죽는 즉시).
  * 끊긴 대원의 고스트도 살아 있는 것으로 세므로 판정이 단순하지 않다.
+ * 2026-09-16 (사용자 결정): 「전원」에는 **안드로이드도 든다** — 사람이 다 쓰러져도 안드로이드가 한 기 서 있으면
+ * 일으키러 오므로 아직 실패가 아니다 (`checkAllDead`).
  */
 import * as THREE from 'three';
 import type {
@@ -56,6 +58,11 @@ export function onLocalDied(sys: GameFlowSystem): void {
   if (sys.isTutorial()) { onTutorialDied(sys); return; }
   if (!ctx.isMultiplayer) {
     // Solo: the raid is lost the moment the player dies (Phase 7) — the death screen (레이드 실패) follows the usual delay.
+    /*
+     * 2026-09-16 (안드로이드 전멸 판정): 솔로는 **죽는 즉시 실패**가 그대로다 — 빠뜨린 것이 아니다.
+     * 안드로이드는 릴레이의 봇 멤버라 로비가 있으면 그 레이드는 이미 `isMultiplayer` 다 (= 아래 `checkAllDead` 갈래).
+     * 여기까지 내려오는 안드로이드는 서버 없이 도는 개발 치트 `/android` 뿐이고, 치트가 실패 판정을 바꾸지는 않는다.
+     */
     if (sys.deathTimer >= 0) return;
     /*
      * 2026-09-11 (C-12 후속, 사용자 결정 "솔로도 완전히 잃는다"): 분대 사망은 장착 임플란트의 망가진 짝을 시체에 넣지만
@@ -304,9 +311,12 @@ export function isLocalOut(sys: GameFlowSystem): boolean {
  */
 export function isRemoteAlive(sys: GameFlowSystem, r: RemotePlayerRef): boolean {
   /*
-   * 2026-09-15 (안드로이드 분대원, 사용자 결정 「사람이 전부 죽으면 레이드 실패」): 봇 멤버는 **전멸 판정에 들어가지
-   * 않는다**. net/ 이 봇을 원격 플레이어로 만들지 않기로 했지만(A1), 판정이 한 폴더의 약속에 매달리면 안드로이드 하나가
-   * 서 있다는 이유로 전멸이 영영 성립하지 않는다 — 여기서 id 로 한 번 더 거른다.
+   * 2026-09-15 (안드로이드 분대원): 이 함수는 **원격 플레이어 목록**의 규칙이다 — 봇 멤버는 사람이 아니므로 여기서
+   * 걸러진다. net/ 이 봇을 `RemotePlayerRef` 로 만들지 않기로 했지만(A1), 판정이 한 폴더의 약속에 매달리지 않도록
+   * id 로 한 번 더 거른다.
+   * 2026-09-16 (사용자 결정 「사람과 안드로이드가 모두 쓰러지거나 죽어야 레이드 실패」): 그래도 **이 거르기는 그대로다**.
+   * 서 있는 안드로이드를 세는 일은 `ctx.allies.getBodies()` 를 읽는 `checkAllDead` 가 하고, 다른 호출자는 여전히
+   * 「사람 대원인가」로 이 함수를 읽는다.
    */
   if (isAndroidId(r.id)) return false;
   if (!r.connected || !r.inMission || (r.flags & PlayerFlags.IN_HUB) !== 0) return false;
@@ -319,7 +329,10 @@ export function isRemoteAlive(sys: GameFlowSystem, r: RemotePlayerRef): boolean 
   return !r.isDead || downed;
   }
 
-/** Host only: nobody left alive / downed / alive-as-a-ghost → `flow over` to the squad and 레이드 실패 locally. */
+/**
+ * Host only: nobody left alive / downed / alive-as-a-ghost → `flow over` to the squad and 레이드 실패 locally.
+ * 2026-09-16 (사용자 결정): 사람뿐 아니라 **안드로이드까지 모두** 쓰러지거나 죽어야 실패다 — 판정은 여기 한 곳이다.
+ */
 export function checkAllDead(sys: GameFlowSystem): void {
   const ctx = sys.ctx;
   const net = ctx.net;
@@ -329,6 +342,22 @@ export function checkAllDead(sys: GameFlowSystem): void {
   if (!sys.inLiveMission()) return;
   if (!sys.isLocalOut()) return;
   for (const r of net.getRemotePlayers()) if (sys.isRemoteAlive(r)) return;
+  /*
+   * 2026-09-16 (사용자 결정 「사람과 안드로이드가 모두 쓰러지거나 죽어야 레이드 실패」): 안드로이드가 한 기라도 싸움에
+   * 남아 있으면 전멸이 아니다 — 그 기가 쓰러진 PC 를 일으키러 온다 (`allies/parts/Rescue`). **쓰러진 안드로이드는
+   * 세지 않는다**: 아무도 일으켜 주지 않으므로 싸움에서 빠진 것이다.
+   *
+   * `isRemoteAlive` 의 봇 거르기(`isAndroidId`)는 그대로 둔다. 그쪽은 **원격 플레이어 목록**의 규칙이고
+   * (net/ 은 봇을 `RemotePlayerRef` 로 만들지 않으므로 애초에 여기 걸릴 일이 거의 없다), 다른 호출자도 그 뜻으로 읽는다.
+   * 전멸 여부는 이 함수가 정하므로 안드로이드 규칙도 여기에만 둔다.
+   *
+   * 다시 보는 시점은 늘리지 않았다 (`src/shared` 에 새 이벤트를 만들지 않는다): 로컬이 죽거나 쓰러져 있는 동안
+   * `allDeadCheckTimer` 가 `ALL_DEAD_CHECK_INTERVAL` 마다 스스로 재무장하며 이 함수를 다시 부르므로
+   * (`GameFlowSystem.update`), 마지막 안드로이드가 쓰러지는 순간도 그 간격 안에 잡힌다.
+   */
+  for (const b of ctx.allies?.getBodies() ?? []) {
+    if (b.mode === 'raid' && !b.dead && !b.downed && !b.hidden) return;
+  }
   sys.allDeadCheckTimer = -1;
   net.send({ t: 'flow', ev: 'over' }, 'others');
   sys.gameOver();

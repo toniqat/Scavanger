@@ -102,6 +102,14 @@ export function syncBodies(sys: AllySystem): void {
     a.bay = e.bay;
     a.slot = e.slot;
     a.local = e.local;
+    /*
+     * 2026-09-16 (사용자 결정 「호출되는 순간 기본 킷을 장착한 채로 선다」): 명단에 들어온 순간 = 몸이 생기는 순간이
+     * 곧 킷을 입는 순간이다. 여기가 **로비 모집 · `/android` 치트 · 늦게 들어온 클라이언트**가 모두 지나는 한 곳이고
+     * (`refresh` · `Hub.onHubEntered` · 슬롯이 늦게 생겼을 때의 `Hub.update`), `ensureKit` 은 멱등이라 반복 호출이 싸다.
+     * **레이드 중에는 부르지 않는다**: 레이드의 킷은 `parts/Spawn` 이 세우고 리플리카는 `ally bag` 와이어로만 알아야 한다
+     * (레이드 도중 `net:lobbyUpdated` 로 여기 들어오면 리플리카에 빈 가방이 생겨 호스트 승계가 전리품을 잃는다).
+     */
+    if (!sys.raidActive) Bag.ensureKit(sys, a);
   }
   sys.bodies.sort((x, y) => x.bay - y.bay);
 }
@@ -160,6 +168,11 @@ export function removeLocal(sys: AllySystem): AllyRosterEntry | null {
 
 /* ── 소지품 보기 ───────────────────────────────────────────────────────────── */
 
+/**
+ * `AlliesRef.getLoadout` — 몸이 지금 들고 있는 것. 2026-09-16 부터 **함선에서도** 기본 킷이 채워져 있으므로
+ * (`syncBodies` → `Bag.ensureKit`) 발사 슬롯 카드가 빈 장비를 그리지 않는다. 리플리카의 레이드 중 소지품은
+ * 가방 격자가 없어 마지막 `ally bag`(`wireItems`) 이다.
+ */
 export function loadoutOf(sys: AllySystem, id: AllyId): AllyLoadoutView | null {
   const a = sys.byId.get(id);
   if (!a) return null;
