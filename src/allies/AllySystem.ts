@@ -78,11 +78,31 @@ export class AllySystem implements GameSystem, AlliesRef {
   orderKind: 'moveTo' | 'lead' | null = null;
   readonly orderPos = new THREE.Vector3();
   orderUntil = -Infinity;
+  /**
+   * 「앞장서라」가 살아 있는 시각(`ctx.time`)까지 — 그동안 하네스 반경이 `ALLY_LEAD_HARNESS_MUL` 배다
+   * (`parts/Harness`). `orderKind` 와 따로 사는 이유: 앞서 나가는 걸음은 도착하면 끝나지만, **넓어진 수색 범위는**
+   * `ALLY_LEAD_DURATION_S` 동안 남아 자유 탐색(`roam`)이 일대를 훑는다 (2026-09-16 사용자 결정).
+   */
+  leadUntil = -Infinity;
   /** 주의 핑 (`caution`). */
   readonly watchPos = new THREE.Vector3();
   watchUntil = -Infinity;
-  /** 분대장이 적 핑을 찍었다 — 그 대상을 우선한다. */
+  /**
+   * 사람이 적 핑을 찍었다 — 분대가 그 적을 우선해 요격한다 (2026-09-16 사용자 결정, 분대장 전용이 아니다).
+   * 해제는 `parts/Commands.tickEnemyPing` 하나뿐이다: 죽음 · 아무도 `ALLY_WATCH_S` 동안 못 봄 · 새 핑.
+   */
   preferredEnemyId: number | null = null;
+  /** 지목된 적의 마지막으로 알려진 자리 — 아직 못 본 기는 하네스 안에서 여기로 다가간다. */
+  readonly preferredEnemyPos = new THREE.Vector3();
+  preferredEnemyUntil = -Infinity;
+  /**
+   * 사람이 찍은 마지막 탈출구 핑 (자리 · 누가 · 언제). 사람이 「탈출하고 싶다」를 말하면 분대가 동의하고
+   * **이 자리로** 간다 (2026-09-16 사용자 결정) — `parts/Commands.agreeToHumanExtract` · `parts/Extract.seek`.
+   */
+  readonly humanExtractPos = new THREE.Vector3();
+  humanExtractBy: PeerId | null = null;
+  humanExtractAt = -Infinity;
+  hasHumanExtractPing = false;
   /** 지금 받아들인 요청 하나 (선착순). */
   request: AllyRequest | null = null;
   /** 그 요청과 함께 온 한국어 문장 (원격 계약 요청의 유일한 단서). */
@@ -123,8 +143,8 @@ export class AllySystem implements GameSystem, AlliesRef {
       b.on('net:androidReturned', ({ bay, reason }) => Roster.onReturned(this, bay, reason)),
       b.on('hub:entered', () => { this.rosterDirty = true; Roster.refresh(this); Hub.onHubEntered(this); }),
       b.on('hub:left', () => Hub.onHubLeft(this)),
-      b.on('world:ready', (e) => { Spawn.onWorldReady(this, e.playerSpawn); Sync.askSync(this); }),
-      b.on('game:abort', () => Spawn.onAbort(this)),
+      b.on('world:ready', (e) => { this.clearPingOrders(); Spawn.onWorldReady(this, e.playerSpawn); Sync.askSync(this); }),
+      b.on('game:abort', () => { this.clearPingOrders(); Spawn.onAbort(this); }),
       b.on('ping:placedV3', (e) => Commands.onPing(this, e)),
       b.on('comms:sent', (e) => Commands.onComms(this, e)),
       b.on('inventory:itemRequested', (e) => Commands.onItemRequest(this, e)),
@@ -145,10 +165,23 @@ export class AllySystem implements GameSystem, AlliesRef {
       if (this.simulating) {
         Vitals.update(this, dt);
         Commands.tickRequest(this);
+        Commands.tickEnemyPing(this);     // 지목된 적의 자리 · 해제 (기마다 훑으면 배열이 계속 생긴다)
         Fsm.update(this, dt);
       } else Sync.updateReplicas(this, dt);
     }
     Sync.update(this, dt);
+  }
+
+  /**
+   * 레이드 밖으로 나가거나 새 맵이 열릴 때의 **핑 기반 명령** 청소 (2026-09-16 에 붙은 것들 — `parts/Spawn` 이 지우는
+   * 예전 필드와 같은 자리다). 남겨 두면 지난 맵의 탈출구 좌표로 달려가거나 하네스가 넓어진 채로 시작한다.
+   */
+  private clearPingOrders(): void {
+    this.leadUntil = -Infinity;
+    this.preferredEnemyUntil = -Infinity;
+    this.hasHumanExtractPing = false;
+    this.humanExtractBy = null;
+    this.humanExtractAt = -Infinity;
   }
 
   dispose(): void {

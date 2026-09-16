@@ -1,39 +1,54 @@
 /**
- * src/allies/parts/Loot.ts — **루팅**. 사용자 결정 「기본적으로 하네스 범위 내에서 탐색하며, 아이템 상자가 있으면 먹으려 함」 ·
- * 「먹고 있을 때 PC 가 그 상자를 열면 중단」 · 「PC 가 버린 아이템 / 상자 핑을 찍으면 그리로 간다」.
+ * src/allies/parts/Loot.ts — **루팅**. 사용자 결정 「PC 가 버린 아이템 / 상자 핑을 찍으면 그리로 간다」 ·
+ * 「먹고 있을 때 PC 가 그 상자를 열면 중단」.
+ *
+ * 2026-09-16 사용자 결정 「**핑이 먼저고, 혼자 주워 담는 것은 한가할 때뿐**」:
+ *  - **핑으로 찍힌** 상자 · 바닥 아이템(`taskKind` `'crate'` / `'item'`)은 우선순위 `PRIO.orderLoot` 그대로이고
+ *    **거리 제한이 없다** — 하네스 밖이라도 간다. 맡으면 한 줄 말한다 (`CHAT_KO.agreeCrate`).
+ *  - **자율 루팅**은 명령 · 요청 · 전투 · 구조가 하나도 없을 때(`isIdle`)만, 그것도 `ALLY_IDLE_LOOT_M` 안의
+ *    컨테이너만 본다 (시체 컨테이너도 같은 문을 지난다 — `getLootContainers()` 가 유일한 자율 후보 목록이다).
  *
  * 내용물은 **여는 것과 같은 굴림**으로 미리 본다 (`InventoryRef.peekContainerItems` — 2026-09-12 드론 스캔이 쓰던 길).
  * 실제로 가져가는 것은 호스트 권위의 `takeContainerItemFor` 뿐이다 — 사람의 가져가기와 같은 기록 · 방송을 탄다.
  */
 import type * as THREE from 'three';
 import {
-  ALLY_LOOT_ITEM_S, ALLY_LOOT_REACH_M, ALLY_RUN_SPEED, ALLY_WALK_SPEED,
+  ALLY_IDLE_LOOT_M, ALLY_LOOT_ITEM_S, ALLY_LOOT_REACH_M, ALLY_RUN_SPEED, ALLY_WALK_SPEED,
 } from '@/shared';
 import type { ItemInstance, LootContainerInfo } from '@/shared';
 import type { AllySystem } from '../AllySystem';
 import type { Ally } from './Body';
 import type { Proposal } from './Fsm';
-import { PRIO, _v1, dist2D } from '../model';
+import { CHAT_KO, PRIO, _v1, dist2D } from '../model';
 import * as Nav from './Nav';
 import * as Bag from './Bag';
+import * as Ping from './Ping';
 
 /** 상자 후보를 다시 훑는 주기 (s) — 배치값이다. */
 const LOOT_SCAN_S = 1;
+/** 핑 자리와 컨테이너를 맞추는 창 (m) — 안드로이드가 갈 수 있는 거리의 제한이 아니라 「그 핑이 이 상자인가」다. */
+const PING_CRATE_MATCH_M = ALLY_LOOT_REACH_M * 4;
 
 export function onEnter(sys: AllySystem, a: Ally): void { a.lootTakeT = 0; void sys; }
 export function onExit(sys: AllySystem, a: Ally): void { a.lootTakeT = 0; void sys; }
 
 /** 자율 루팅 · 명령받은 상자 · 바닥 아이템을 한 곳에서 제안한다. */
 export function autoProposal(sys: AllySystem, a: Ally): Proposal | null {
+  // ── 핑으로 찍힌 것 — 거리 제한 없음 ──
   if (a.taskKind === 'crate') {
     const id = a.taskTargetId ?? nearestContainerId(sys, a, a.taskAt);
-    if (id) { a.lootContainerId = id; return { state: 'loot', prio: PRIO.orderLoot }; }
+    if (id) {
+      if (a.lootContainerId !== id) Ping.say(sys, a, CHAT_KO.agreeCrate);   // 반복은 `Ping.say` 가 막는다
+      a.lootContainerId = id;
+      return { state: 'loot', prio: PRIO.orderLoot };
+    }
   }
   if (a.taskKind === 'item' && !a.taskDefId) {
     const p = sys.ctx.pickups?.findNear(a.taskAt, ALLY_LOOT_REACH_M * 3) ?? null;
     if (p) { a.pickupId = p.id; return { state: 'pickup', prio: PRIO.orderLoot }; }
   }
-  if (a.taskKind) return null;                    // 요청을 맡고 있으면 자율 루팅은 쉰다
+  // ── 자율 루팅 — 한가할 때만, `ALLY_IDLE_LOOT_M` 안에서만 ──
+  if (!isIdle(sys, a)) { a.lootContainerId = null; return null; }
   // 내용물 미리보기는 싸지 않다 — 이미 고른 상자가 살아 있으면 그대로 두고, 아니면 주기마다만 다시 훑는다.
   if (a.lootContainerId && stillWorth(sys, a, a.lootContainerId)) return { state: 'loot', prio: PRIO.autoLoot };
   if (a.lootScanT > 0) return null;          // 주기는 `parts/Fsm` 이 깎는다
@@ -42,6 +57,20 @@ export function autoProposal(sys: AllySystem, a: Ally): Proposal | null {
   if (!id) { a.lootContainerId = null; return null; }
   a.lootContainerId = id;
   return { state: 'loot', prio: PRIO.autoLoot };
+}
+
+/**
+ * 「한가한가」 — 명령(가자 · 주의 · 앞장) · 요청 · 전투(적 핑 포함) · 구조가 하나도 없을 때만 스스로 줍는다
+ * (2026-09-16 사용자 결정 「상자 · 컨테이너 · 시체로 달려가지 않는다」).
+ */
+function isIdle(sys: AllySystem, a: Ally): boolean {
+  if (a.taskKind) return false;                                       // 요청을 맡고 있다
+  if (a.targetEnemyId !== null || sys.preferredEnemyId !== null) return false;   // 교전 · 적 핑
+  if (a.rescueTarget || a.carrying) return false;                     // 구조 · 업기
+  const now = sys.ctx.time;
+  if (now < sys.watchUntil) return false;                             // 주의 핑
+  if (sys.orderKind && now < sys.orderUntil) return false;            // 가자 · 앞장
+  return true;
 }
 
 export function act(sys: AllySystem, a: Ally, dt: number): void {
@@ -85,7 +114,10 @@ function containerOf(sys: AllySystem, id: string | null): LootContainerInfo | nu
   return null;
 }
 
-/** 하네스 안에서 아직 가져갈 것이 남은 가장 가까운 상자. */
+/**
+ * 스스로 주울 상자 — **바로 곁(`ALLY_IDLE_LOOT_M`)** 이면서 하네스 안이고, 아직 가져갈 것이 남은 가장 가까운 것.
+ * 멀리 있는 것을 향해 달려가지 않는 것이 이 두 조건의 전부다 (핑으로 찍힌 상자는 이 길로 오지 않는다).
+ */
 function pickContainer(sys: AllySystem, a: Ally): string | null {
   if (!sys.leaderKnown) return null;
   let best: string | null = null;
@@ -93,16 +125,18 @@ function pickContainer(sys: AllySystem, a: Ally): string | null {
   for (const c of containers(sys)) {
     if (sys.viewedContainers.has(c.id)) continue;
     if (dist2D(c.position, sys.leaderPos) > sys.harness) continue;
+    const d = dist2D(a.position, c.position);
+    if (d > ALLY_IDLE_LOOT_M) continue;
+    if (d >= bestD) continue;
     const fog = sys.ctx.world?.fog;
     if (fog && !fog.isDiscovered(c.position)) continue;
-    const d = dist2D(a.position, c.position);
-    if (d >= bestD) continue;
     if (!peekBest(sys, c)) continue;
     best = c.id; bestD = d;
   }
   return best;
 }
 
+/** 핑 자리에 놓인 컨테이너 (`PING_CRATE_MATCH_M` 안에 아무것도 없으면 null — 그 핑은 상자가 아니었다). */
 function nearestContainerId(sys: AllySystem, a: Ally, near: THREE.Vector3): string | null {
   let best: string | null = null;
   let bestD = Infinity;
@@ -111,7 +145,7 @@ function nearestContainerId(sys: AllySystem, a: Ally, near: THREE.Vector3): stri
     if (d < bestD) { best = c.id; bestD = d; }
   }
   void a;
-  return bestD <= ALLY_LOOT_REACH_M * 4 ? best : null;
+  return bestD <= PING_CRATE_MATCH_M ? best : null;
 }
 
 function stillWorth(sys: AllySystem, a: Ally, id: string): boolean {

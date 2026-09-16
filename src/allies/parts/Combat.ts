@@ -6,12 +6,21 @@
  * 탄창은 있고 **예비 탄약은 무한**이다 (사용자 결정). 피해는 호스트가 `ctx.enemies.applyAllyHit` 로 넣는다 (킬 크레딧 없음).
  *
  * 사선에 사람 · 다른 안드로이드가 걸리면 **쏘지 않는다** — 아군 오사는 이 게임에서 진짜 피해다.
+ *
+ * 2026-09-16 사용자 결정 세 가지가 여기 붙었다.
+ *  ① **접근전에서는 자리를 옮기지 않는다.** 붙은 적(`ALLY_ENGAGE_MIN_M` 안)에도 `pickCoverSpot` 이 몇 m 떨어진 엄폐
+ *     자리를 돌려주면 `act` 가 매 프레임 그 자리로 걸어가다 `return` 해 **사격 분기까지 오지 못한다** — 게다가 달라붙은
+ *     적은 같이 움직이므로 「위협 반대편」이 프레임마다 뒤집혀 영원히 도착하지도 못한다. 그래서 붙은 적은 엄폐를 아예
+ *     묻지 않고(비싼 레이도 아낀다) 그 자리에서 쏜다. 아군이 사선에 걸리면 여전히 쏘지 않는다.
+ *  ② **교전 거리는 무기가 정한다** (`engageRangeOf`) — 산탄총은 붙고 장총은 물러선다.
+ *  ③ **PC 가 찍은 적 핑을 우선한다** (`AllySystem.preferredEnemyId`, 해제는 `parts/Commands.tickEnemyPing`).
+ *     아직 못 본 상대면 마지막으로 알려진 자리로 **하네스 안에서** 다가간다.
  */
 import * as THREE from 'three';
 import {
   ALLY_AIM_ERROR_DEG, ALLY_BURST_MAX, ALLY_BURST_MIN, ALLY_BURST_PAUSE_S, ALLY_DAMAGE_MUL,
-  ALLY_ENEMY_PING_COOLDOWN_S, ALLY_FIRE_RANGE_M, ALLY_FLAGS, ALLY_RUN_SPEED, ALLY_SENSE_RADIUS_M,
-  PLAYER_HEIGHT, PLAYER_RADIUS, pickCoverSpot,
+  ALLY_ENEMY_PING_COOLDOWN_S, ALLY_ENGAGE_DAMAGE_FRAC, ALLY_ENGAGE_MIN_M, ALLY_FIRE_RANGE_M, ALLY_FLAGS,
+  ALLY_RUN_SPEED, ALLY_SENSE_RADIUS_M, ALLY_WATCH_S, PLAYER_HEIGHT, PLAYER_RADIUS, pickCoverSpot,
 } from '@/shared';
 import type { EnemyRef } from '@/shared';
 import { damageFalloffStats } from '@/items';
@@ -30,26 +39,68 @@ const _eye = new THREE.Vector3();
 const _aim = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 
+/** 한 번의 감지 결과 — 재사용 객체다 (매 프레임 기마다 부르므로 새로 만들지 않는다). */
+const _sensed: { near: EnemyRef | null; pref: EnemyRef | null } = { near: null, pref: null };
+
 export function eyeOf(a: Ally, out: THREE.Vector3): THREE.Vector3 {
   return out.set(a.position.x, a.position.y + PLAYER_HEIGHT * EYE_FRAC, a.position.z);
 }
 
-/** 감지 반경 안에서 사선이 트인 가장 가까운 적. 없으면 null. */
-export function senseEnemy(sys: AllySystem, a: Ally): EnemyRef | null {
+/**
+ * 감지 반경 안을 **한 번만** 훑는다 (`queryNear` 는 배열을 만든다 — 한 프레임에 여러 번 부르지 않는다):
+ * 사선이 트인 가장 가까운 적 `near`, 그리고 PC 가 찍은 적 `prefId` 가 보이면 `pref`.
+ */
+function sense(sys: AllySystem, a: Ally, prefId: number | null): typeof _sensed {
+  _sensed.near = null;
+  _sensed.pref = null;
   const enemies = sys.ctx.enemies;
-  if (!enemies) return null;
+  if (!enemies) return _sensed;
   const list = enemies.queryNear(a.position, ALLY_SENSE_RADIUS_M);
-  let best: EnemyRef | null = null;
   let bestD = Infinity;
   eyeOf(a, _eye);
   for (const e of list) {
     if (e.isDead) continue;
+    const isPref = prefId !== null && e.id === prefId;
     const d = a.position.distanceTo(e.position);
-    if (d >= bestD) continue;
+    if (!isPref && d >= bestD) continue;
     if (!hasLineOfSight(sys, _eye, e)) continue;
-    best = e; bestD = d;
+    if (isPref) _sensed.pref = e;
+    if (d < bestD) { _sensed.near = e; bestD = d; }
   }
-  return best;
+  return _sensed;
+}
+
+/** 감지 반경 안에서 사선이 트인 가장 가까운 적. 없으면 null. */
+export function senseEnemy(sys: AllySystem, a: Ally): EnemyRef | null {
+  return sense(sys, a, null).near;
+}
+
+/**
+ * 지금 무기로 **붙는 거리** (m) — 사용자 결정 「falloffStart 로 하되 무기 100 % 위력이 아닌 약 50 % 위력부터 허용」.
+ * 선형 감쇠(`damageFalloffStats`)의 역함수로 피해가 `ALLY_ENGAGE_DAMAGE_FRAC` 까지 떨어지는 거리를 구하고
+ * `ALLY_ENGAGE_MIN_M` … `ALLY_FIRE_RANGE_M` 로 자른다. 감쇠가 없거나 끝까지 그 비율 아래로 안 떨어지는 무기는
+ * `ALLY_FIRE_RANGE_M` 그대로다. **무기 def 가 바뀔 때만** 다시 잰다 (`Ally.engageDefId` — 유효 스탯 계산은 싸지 않다).
+ */
+export function engageRangeOf(sys: AllySystem, a: Ally): number {
+  const prim = a.equip.primary;
+  const defId = prim?.defId ?? null;
+  if (a.engageRange > 0 && a.engageDefId === defId) return a.engageRange;
+  a.engageDefId = defId;
+  a.engageRange = computeEngageRange(sys, a);
+  return a.engageRange;
+}
+
+function computeEngageRange(sys: AllySystem, a: Ally): number {
+  const st = a.equip.primary ? sys.ctx.loot?.getEffectiveStats(a.equip.primary) : null;
+  let r = ALLY_FIRE_RANGE_M;
+  if (st) {
+    const { falloffStart: start, falloffEnd: end, falloffMin: min } = st;
+    // `min >= FRAC` 이면 아무리 멀어도 그 위력 아래로 떨어지지 않는다 → 거리를 줄일 이유가 없다.
+    if (end > start && min < ALLY_ENGAGE_DAMAGE_FRAC) {
+      r = start + (end - start) * ((1 - ALLY_ENGAGE_DAMAGE_FRAC) / (1 - min));
+    }
+  }
+  return Math.max(ALLY_ENGAGE_MIN_M, Math.min(ALLY_FIRE_RANGE_M, r));
 }
 
 function hasLineOfSight(sys: AllySystem, from: THREE.Vector3, e: EnemyRef): boolean {
@@ -65,23 +116,23 @@ function hasLineOfSight(sys: AllySystem, from: THREE.Vector3, e: EnemyRef): bool
 }
 
 export function proposal(sys: AllySystem, a: Ally): Proposal | null {
-  const e = senseEnemy(sys, a);
-  if (!e) {
+  const pref = sys.preferredEnemyId;
+  const { near, pref: seen } = sense(sys, a, pref);
+  // 아무것도 못 봤고 지목된 적도 없으면 교전할 이유가 없다.
+  if (!near && !seen && pref === null) {
     if (a.targetEnemyId !== null) a.targetEnemyId = null;
     return null;
   }
-  // 분대장이 적 핑을 찍었으면 그 대상을 우선한다 (`Commands.preferredEnemy`).
-  const pref = sys.preferredEnemyId;
-  if (pref !== null) {
-    const list = sys.ctx.enemies?.queryNear(a.position, ALLY_SENSE_RADIUS_M) ?? [];
-    const target = list.find((x) => x.id === pref && !x.isDead);
-    a.targetEnemyId = target ? target.id : e.id;
-  } else a.targetEnemyId = e.id;
+  // PC 가 찍은 적을 **보고 있으면** 더 가까운 표적보다 우선한다 (사용자 결정 「PC 가 적 핑을 찍으면 요격」).
+  // 아직 못 봤으면 가까운 표적을 치되, 그것도 없으면 지목된 적의 마지막 자리로 다가간다 (`act`).
+  a.targetEnemyId = seen ? seen.id : near ? near.id : pref;
+  // 지목의 수명은 **사선에 넣은 순간**에만 늘어난다 (`Commands.tickEnemyPing` 이 이 시각을 보고 푼다).
+  if (seen) sys.preferredEnemyUntil = sys.ctx.time + ALLY_WATCH_S;
 
   // 처음 알아챘으면 적 핑 (사용자 결정 「감지 범위 내에 적을 발견하면 적 핑을 찍기」).
-  if (sys.ctx.time - a.lastEnemyPingAt >= ALLY_ENEMY_PING_COOLDOWN_S) {
+  if (near && sys.ctx.time - a.lastEnemyPingAt >= ALLY_ENEMY_PING_COOLDOWN_S) {
     a.lastEnemyPingAt = sys.ctx.time;
-    Ping.place(sys, a, 'enemy', e.position, undefined, e.id);
+    Ping.place(sys, a, 'enemy', near.position, undefined, near.id);
   }
   return { state: 'combat', prio: PRIO.combat };
 }
@@ -100,40 +151,64 @@ export function onExit(sys: AllySystem, a: Ally): void {
   void sys;
 }
 
-export function act(sys: AllySystem, a: Ally, dt: number): void {
+/** 지금 표적 (`a.targetEnemyId`) 을 감지 반경 안에서 다시 잡는다. 없으면 null. */
+function findTarget(sys: AllySystem, a: Ally): EnemyRef | null {
   const enemies = sys.ctx.enemies;
-  const target = enemies && a.targetEnemyId !== null
-    ? enemies.queryNear(a.position, ALLY_SENSE_RADIUS_M).find((e) => e.id === a.targetEnemyId && !e.isDead) ?? null
-    : null;
-  if (!target) { a.targetEnemyId = null; Nav.halt(a); return; }
+  if (!enemies || a.targetEnemyId === null) return null;
+  const list = enemies.queryNear(a.position, ALLY_SENSE_RADIUS_M);
+  for (const e of list) if (e.id === a.targetEnemyId && !e.isDead) return e;
+  return null;
+}
+
+export function act(sys: AllySystem, a: Ally, dt: number): void {
+  const target = findTarget(sys, a);
+  if (!target) {
+    // PC 가 찍은 적을 아직 못 봤다 → 마지막으로 알려진 자리로 **하네스 안에서** 다가간다 (2026-09-16 사용자 결정).
+    // 지목 자체의 해제는 `Commands.tickEnemyPing` 이 한다 (죽음 · 오래 못 봄 · 새 핑).
+    if (a.targetEnemyId !== null && a.targetEnemyId === sys.preferredEnemyId) {
+      Nav.clampToHarness(sys.leaderKnown ? sys.leaderPos : a.position, sys.harness, sys.preferredEnemyPos, _v1);
+      a.running = true;
+      a.lookAt = null;
+      Nav.step(sys, a, _v1, ALLY_RUN_SPEED, dt);
+      return;
+    }
+    a.targetEnemyId = null;
+    a.running = false;
+    Nav.halt(a);
+    return;
+  }
 
   a.lookVec.set(target.position.x, target.position.y + target.height * CHEST_FRAC, target.position.z);
   a.lookAt = a.lookVec;
 
-  // 엄폐 자리 — 본문은 enemies 가 채운다 (계약 커밋에서는 늘 false → 그 자리에서 웅크리고 싸운다).
-  if (sys.ctx.world && sys.leaderKnown) {
+  const dist = a.position.distanceTo(target.position);
+  const range = engageRangeOf(sys, a);
+  // 붙은 적(`ALLY_ENGAGE_MIN_M` 안)에게는 엄폐를 묻지 않는다 — 자리를 옮기다 사격 분기에 영영 닿지 못한다 (머리말 ①).
+  const contact = dist <= ALLY_ENGAGE_MIN_M;
+
+  // 엄폐 자리 — 위협과의 거리대는 **이 무기의 교전 거리**다 (산탄총은 적 가까이, 장총은 멀찍이 자리를 잡는다).
+  if (!contact && sys.ctx.world && sys.leaderKnown) {
     a.hasCover = pickCoverSpot(sys.ctx.world, {
       from: a.position, threat: target.position, anchor: sys.leaderPos, anchorRadius: sys.harness,
-      minThreatDist: PLAYER_RADIUS * 2, maxThreatDist: ALLY_FIRE_RANGE_M,
+      minThreatDist: PLAYER_RADIUS * 2, maxThreatDist: range,
       bodyRadius: PLAYER_RADIUS, chestHeight: PLAYER_HEIGHT * CHEST_FRAC,
       threatEyeHeight: target.height * EYE_FRAC, searchRadius: sys.harness,
     }, a.cover);
   } else a.hasCover = false;
 
-  const dist = a.position.distanceTo(target.position);
   a.fireCd -= dt;
   a.reloadT -= dt;
   a.running = false;
 
-  // 사거리 밖이면 다가간다 (하네스 안쪽으로).
-  if (dist > ALLY_FIRE_RANGE_M) {
+  // 교전 거리 밖이면 다가간다 (하네스 안쪽으로).
+  if (dist > range) {
     Nav.clampToHarness(sys.leaderKnown ? sys.leaderPos : a.position, sys.harness, target.position, _v1);
     a.running = true;
     Nav.step(sys, a, _v1, ALLY_RUN_SPEED, dt);
     return;
   }
 
-  // 엄폐가 있으면 그 자리로, 쏠 때만 몸을 내민다.
+  // 엄폐가 있으면 그 자리로, 쏠 때만 몸을 내민다 (붙은 적에게는 `hasCover` 가 false 라 곧바로 쏜다).
   if (a.hasCover) {
     const spot = a.poppedOut && a.cover.hasPop ? a.cover.pop : a.cover.cover;
     if (dist2D(a.position, spot) > PLAYER_RADIUS) {

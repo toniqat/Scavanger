@@ -494,3 +494,39 @@ self-propelled odometer from the controller instead of filtering movement source
 so a client reports `ecorpseq emptied` and the host shortens the body's own `corpseLife` (survives host migration). The tutorial pit's
 fence side stays a deck-level rim (2.5 m walls east/south only) so the androids stay visible and a grenade thrown over the fence lands in
 the pit, as the 09-15 decision required. Raid XP: `raidXp` column appended last because smokes read `hp` by column position.
+
+## 2026-09-16 — 안드로이드 AI 2차 · 발사 슬롯 · BGM 창 · Android AI pass 2 · launch slots · music window
+
+User choices (UI):
+- **The music window shows in the personal ship only.** The record player / gramophone / turntable state is untouched — the shared
+  ship simply does not draw the window.
+- **The launch-slot panel opens only while I am sitting in a launch slot.** Recruiting an android used to pop the panel open because a
+  bot cell counts as seated.
+- **The squad list never draws my own row** — in the shared ship *and* in a raid (my HP is already under the crosshair).
+- **An android's launch-slot card draws the same full body as a human**, wearing the base kit's armor; the gear thumbnails keep coming
+  from `ctx.allies.getLoadout` (the face-only portrait is gone from this panel).
+- **Androids carry the base kit from the moment they are called**, not only from raid spawn — the body in the ship is armed and the
+  card shows the kit.
+- **A raid fails only when every human *and* every android is down or dead.** A standing android keeps the raid alive because it comes
+  to revive; a downed one does not count.
+
+User choices (android AI):
+- **Free search inside the leader's harness** instead of trailing the leader: prefer a structure / cover point of interest and wander
+  around it, but **switch to random patrol when another squadmate or android is already at that point** (a mix of the two options
+  offered, chosen by the user).
+- **No overlapping**: keep 2 m from other squad members and androids, soft — *"부득이 겹칠 경우, 갈 수 있음"*.
+- **Spread out when moving toward a person** instead of stacking into one line.
+- **「앞장서라」 doubles the harness** so each android searches its own area, and **expires by itself after a set time** (a newer order
+  still overrides it immediately).
+- **A PC's enemy ping is agreed to and engaged** — close to a range that suits the weapon in hand: the distance where the weapon still
+  does about **50 %** of its damage (from `falloffStart`, not the 100 % point), not one fixed 45 m for every gun.
+- **A PC's extraction ping + the 탈출 comms is agreed to**, and the androids move to *that* extraction, inside the harness.
+- **Crates, containers and corpses are no longer raced for**: a pinged one first (no distance limit), and an unpinged one only when
+  the android is idle and it is close by.
+- Bugs fixed as part of the same pass: androids could not shoot an enemy that closed to contact range, and a 「저쪽으로 가자」 ping made
+  them oscillate between the ping and the leader.
+
+Rejected: showing the launch-slot panel whenever any member is seated; keeping my row in the raid squad list; a face-only android
+portrait; androids outside the wipe decision (a squad of one human + androids ended the moment the human went down); purely random
+roaming; pure point-of-interest roaming (two androids would pile onto the same structure); 앞장서라 that never expires; a per-weapon
+engage-range table in csv (the falloff columns already say it); leaving autonomous looting on with a priority tweak.

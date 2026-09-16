@@ -10,15 +10,15 @@
  */
 import * as THREE from 'three';
 import {
-  ALLY_LEAD_AHEAD_M, ALLY_MOVE_ARRIVE_M, ALLY_MOVE_HOLD_S, ALLY_REQUEST_COOLDOWN_S, ALLY_RUN_SPEED,
-  ALLY_WALK_SPEED, ALLY_WATCH_S, isAndroidId,
+  ALLY_LEAD_AHEAD_M, ALLY_LEAD_DURATION_S, ALLY_MOVE_ARRIVE_M, ALLY_MOVE_HOLD_S, ALLY_REQUEST_COOLDOWN_S,
+  ALLY_RUN_SPEED, ALLY_SPREAD_M, ALLY_WALK_SPEED, ALLY_WATCH_S, isAndroidId,
 } from '@/shared';
-import type { CommsId, ItemRequestKind, PeerId, PingKind } from '@/shared';
+import type { CommsId, EnemyRef, ItemRequestKind, PeerId, PingKind } from '@/shared';
 import { shieldChargeOf, boostItemOf, AMMO_LABEL_KO } from '@/items';
 import type { AllySystem } from '../AllySystem';
 import type { Ally } from './Body';
 import type { Proposal } from './Fsm';
-import { CHAT_KO, PRIO, _v1, dist2D, forwardOf } from '../model';
+import { CHAT_KO, PRIO, _v1, _v2, dist2D, forwardOf } from '../model';
 import type { AllyRequestKind } from '../model';
 import * as Nav from './Nav';
 import * as Ping from './Ping';
@@ -27,6 +27,8 @@ import * as Harness from './Harness';
 
 /** 주의 핑 자리에 이보다 가까이 가지 않는다 (m) — 「해당 위치로 가려고 하지 않음」. */
 const WATCH_KEEP_OUT_M = 6;
+/** 사람의 탈출구 핑을 패드에 맞추는 창 (m) — 거리 제한이 아니라 「그 핑이 이 패드를 가리키는가」의 판정 창이다 (배치값). */
+const PING_PAD_MATCH_M = 20;
 
 /* ═══════════════════════════ 입력 ═══════════════════════════ */
 
@@ -39,13 +41,31 @@ export function onPing(
   const fromLeader = by === sys.leaderId;
   switch (e.kind) {
     case 'attack':
-      if (fromLeader) { sys.orderKind = 'moveTo'; sys.orderPos.copy(e.position); sys.orderUntil = Infinity; }
+      if (fromLeader) {
+        sys.orderKind = 'moveTo';
+        sys.orderPos.copy(e.position);
+        sys.orderUntil = Infinity;
+        // 이 명령을 **아직 끝내지 않았다**는 표시를 기마다 세운다 — 도착해서 머문 뒤에야 0 이 된다.
+        // (없으면 `moveTo` 첫 프레임이 곧바로 「머무름 끝」으로 읽혀 따라가기 ↔ 이동을 오간다 — `proposal` 참고.)
+        for (const a of sys.bodies) a.moveHoldT = ALLY_MOVE_HOLD_S;
+        cancelExtractEscort(sys);                   // 새 이동 명령이 이긴다 (탈출구 동행 해제)
+      }
       break;
     case 'caution':
       if (fromLeader) { sys.watchPos.copy(e.position); sys.watchUntil = sys.ctx.time + ALLY_WATCH_S; }
       break;
     case 'enemy':
-      if (fromLeader && typeof e.enemyId === 'number') sys.preferredEnemyId = e.enemyId;
+      // 2026-09-16 사용자 결정 「PC 가 적 핑을 찍으면」 — **사람이면 누구든** 따른다 (분대장 전용이 아니다).
+      if (typeof e.enemyId === 'number') onEnemyPing(sys, e.enemyId, e.position);
+      break;
+    case 'extraction':
+      // 2026-09-16 사용자 결정 — 사람이 찍은 탈출구를 기억해 둔다. 그 사람이 「탈출하고 싶다」면 거기로 간다.
+      if (sys.raidActive && sys.simulating) {
+        sys.humanExtractPos.copy(e.position);
+        sys.humanExtractBy = by;
+        sys.humanExtractAt = sys.ctx.time;
+        sys.hasHumanExtractPing = true;
+      }
       break;
     case 'crate':
       request(sys, 'crate', by, e.position, { targetId: e.label ?? null });
@@ -56,6 +76,53 @@ export function onPing(
     default:
       break;
   }
+}
+
+/* ── 적 핑: 동의하고 요격한다 (2026-09-16) ─────────────────────────────── */
+
+/**
+ * 사람이 찍은 적 핑을 받아들인다. 지목은 `parts/Combat` 이 읽고, 해제는 `tickEnemyPing` 이 한다:
+ * **죽었다 · 아무도 `ALLY_WATCH_S` 동안 못 봤다 · 더 새로운 핑이 왔다** 중 하나 (분대를 영원히 묶어 두지 않는다).
+ */
+function onEnemyPing(sys: AllySystem, enemyId: number, at: THREE.Vector3): void {
+  if (!sys.raidActive || !sys.simulating) return;   // 판단은 권위에서만 (리플리카가 대사를 내보내면 두 번 말한다)
+  sys.preferredEnemyId = enemyId;
+  sys.preferredEnemyPos.copy(at);
+  sys.preferredEnemyUntil = sys.ctx.time + ALLY_WATCH_S;
+  const who = nearestBody(sys, at);
+  if (who) Ping.say(sys, who, CHAT_KO.agreeEnemy);   // 같은 문장의 반복은 `Ping.say` 가 막는다
+}
+
+/** 지목을 푼다. */
+function clearEnemyPing(sys: AllySystem): void {
+  sys.preferredEnemyId = null;
+  sys.preferredEnemyUntil = -Infinity;
+}
+
+/** 지목된 적을 매 프레임 한 번만 확인한다 (`AllySystem.update` — 기마다 훑으면 배열이 계속 생긴다). */
+export function tickEnemyPing(sys: AllySystem): void {
+  if (sys.preferredEnemyId === null) return;
+  const now = sys.ctx.time;
+  let found: EnemyRef | null = null;
+  for (const e of sys.ctx.enemies?.getEnemies() ?? []) {
+    if (e.id === sys.preferredEnemyId) { found = e; break; }
+  }
+  if (!found || found.isDead) { clearEnemyPing(sys); return; }   // 죽었거나 사라졌다
+  sys.preferredEnemyPos.copy(found.position);
+  // 창을 미는 것은 **실제로 사선에 넣은** 기뿐이다 (`parts/Combat.proposal`) — 벽 너머에 두고 서성이면 풀린다.
+  if (now >= sys.preferredEnemyUntil) clearEnemyPing(sys);
+}
+
+/** `at` 에 가장 가까운, 지금 레이드에서 움직일 수 있는 한 기 (한 마디는 한 기만 한다). */
+function nearestBody(sys: AllySystem, at: THREE.Vector3): Ally | null {
+  let best: Ally | null = null;
+  let bestD = Infinity;
+  for (const a of sys.bodies) {
+    if (a.mode !== 'raid' || a.dead || a.downed || a.hidden) continue;
+    const d = dist2D(a.position, at);
+    if (d < bestD) { best = a; bestD = d; }
+  }
+  return best;
 }
 
 export function onComms(sys: AllySystem, e: { id: CommsId; by: string | null; position: THREE.Vector3 | null; text: string }): void {
@@ -73,12 +140,7 @@ export function onComms(sys: AllySystem, e: { id: CommsId; by: string | null; po
       request(sys, 'contract', by, at, { text: e.text });
       break;
     case 'lead':
-      if (by === sys.leaderId) {
-        forwardOf(leaderYaw(sys), _v1);
-        sys.orderKind = 'lead';
-        sys.orderPos.copy(sys.leaderPos).addScaledVector(_v1, ALLY_LEAD_AHEAD_M);
-        sys.orderUntil = Infinity;
-      }
+      if (by === sys.leaderId) onLead(sys);
       break;
     default:
       break;
@@ -108,7 +170,13 @@ export function onContainerViewed(sys: AllySystem, containerId: string): void {
   for (const a of sys.bodies) if (a.lootContainerId === containerId) a.lootContainerId = null;
 }
 
-/** 「탈출하고 싶다」 — 두 번째가 `ALLY_EXTRACT_CONFIRM_S` 안에 오면 호출 버튼을 누른다 (`parts/Extract`). */
+/**
+ * 「탈출하고 싶다」 — 순서가 곧 규칙이다.
+ *  ① 확인 창(`ALLY_EXTRACT_CONFIRM_S`)이 열려 있으면 **호출 버튼을 누른다** (`parts/Extract`). 안드로이드가 스스로
+ *     찍은 핑이든, 아래 ②로 PC 의 탈출구 핑에 동의한 것이든 같은 창을 쓴다.
+ *  ② 사람이 찍어 둔 탈출구 핑이 있으면 **분대 전체가 동의하고 그 자리로** 간다 (2026-09-16 사용자 결정).
+ *  ③ 아무것도 없으면 예전대로 「탈출」 요청 — 가장 가까운 한 기가 하네스 안에서 패드를 찾아 핑을 찍는다.
+ */
 function onExtractComms(sys: AllySystem, by: PeerId, at: THREE.Vector3): void {
   for (const a of sys.bodies) {
     if (a.extractRequester === by && a.extractPadId && sys.ctx.time - a.extractPingAt <= sys.extractConfirmWindow) {
@@ -118,7 +186,78 @@ function onExtractComms(sys: AllySystem, by: PeerId, at: THREE.Vector3): void {
       return;
     }
   }
+  if (agreeToHumanExtract(sys, by)) return;
   request(sys, 'extract', by, at, {});
+}
+
+/**
+ * PC 가 찍은 탈출구 핑에 동의한다 — 분대 전체가 「PC 하네스 범위 내에서 해당 탈출구를 향해」 움직인다
+ * (`parts/Extract.seek` 가 `hasExtractPing` 을 보고 하네스로 잘라 걸어간다). 동의했으면 true.
+ * 그 자리의 패드를 같이 걸어 두므로, 같은 사람이 확인 창 안에 한 번 더 말하면 위 ①이 콘솔을 누른다.
+ */
+function agreeToHumanExtract(sys: AllySystem, by: PeerId): boolean {
+  if (!sys.hasHumanExtractPing || !sys.raidActive || !sys.simulating) return false;
+  const padId = padNearPing(sys);
+  let any = false;
+  for (const a of sys.bodies) {
+    if (a.mode !== 'raid' || a.dead || a.hidden) continue;
+    a.extractPingPos.copy(sys.humanExtractPos);
+    a.hasExtractPing = true;
+    a.taskKind = 'extract';
+    a.taskBy = by;
+    a.taskAt.copy(sys.humanExtractPos);
+    a.extractRequester = by;
+    a.extractPingAt = sys.ctx.time;
+    if (padId) a.extractPadId = padId;
+    a.confirmExtract = false;
+    a.oneShot = false;
+    any = true;
+  }
+  if (!any) return false;
+  const who = nearestBody(sys, sys.humanExtractPos);
+  if (who) Ping.say(sys, who, CHAT_KO.agreeExtract);
+  return true;
+}
+
+/** 사람이 찍은 탈출구 핑에 가장 가까운 패드의 id (그 핑이 패드를 가리키지 않으면 null). */
+function padNearPing(sys: AllySystem): string | null {
+  let best: string | null = null;
+  let bestD = Infinity;
+  for (const p of sys.ctx.extraction?.getPads?.() ?? []) {
+    const d = dist2D(p.position, sys.humanExtractPos);
+    if (d < bestD) { best = p.id; bestD = d; }
+  }
+  return bestD <= PING_PAD_MATCH_M ? best : null;
+}
+
+/**
+ * 탈출구 **동행만** 푼다 (새 이동 명령이 이긴다). 사람이 찍어 둔 핑 자체(`sys.humanExtractPos`)는 남긴다 —
+ * 기억은 레이드가 끝날 때만 지워지고(`AllySystem.clearPingOrders`), 다시 「탈출하고 싶다」면 또 동의한다.
+ */
+function cancelExtractEscort(sys: AllySystem): void {
+  for (const a of sys.bodies) {
+    if (!a.hasExtractPing) continue;
+    a.hasExtractPing = false;
+    if (a.taskKind === 'extract' && !a.confirmExtract) finishTask(sys, a);
+  }
+}
+
+/**
+ * 「앞장서라」 (2026-09-16 사용자 결정 「일반 범위의 2배로 각자 일대를 수색, 일정 시간 뒤 자동 해제」).
+ *  - 하네스가 `ALLY_LEAD_HARNESS_MUL` 배로 넓어진다 (`parts/Harness.update` 가 `sys.leadUntil` 을 읽는다 — 따라가기 ·
+ *    자유 탐색 · 엄폐 · 탈출 모두 같은 반경을 본다).
+ *  - 기마다 **자기 구역**으로 앞서 나간다 (`leadSpot` — 한 점에 겹치지 않게 `ALLY_SPREAD_M` 씩 벌린다). 도착하면 명령이
+ *    끝나고 넓어진 하네스 안에서 `roam`(자유 탐색)이 일대를 훑는다.
+ *  - `ALLY_LEAD_DURATION_S` 가 지나면 저절로 풀린다. 그 전에 온 다른 명령(가자 · 주의 · 다른 한 마디)이 이긴다.
+ */
+function onLead(sys: AllySystem): void {
+  if (!sys.raidActive) return;      // 하네스를 넓히는 명령이다 — 레이드 밖에서는 의미가 없다
+  forwardOf(leaderYaw(sys), _v1);
+  sys.orderKind = 'lead';
+  sys.orderPos.copy(sys.leaderPos).addScaledVector(_v1, ALLY_LEAD_AHEAD_M);
+  sys.orderUntil = sys.ctx.time + ALLY_LEAD_DURATION_S;
+  sys.leadUntil = sys.ctx.time + ALLY_LEAD_DURATION_S;
+  cancelExtractEscort(sys);
 }
 
 /* ═══════════════════════════ 요청 ═══════════════════════════ */
@@ -197,9 +336,10 @@ function missingLine(kind: AllyRequestKind, ammoType: string | null): string {
   }
 }
 
-/** 요청을 끝낸다 (건네줬다 · 못 했다). */
+/** 요청을 끝낸다 (건네줬다 · 못 했다). 탈출구 핑 동행도 여기서 함께 끝난다 — 새 일이 잡히면 더 따라갈 이유가 없다. */
 export function finishTask(sys: AllySystem, a: Ally): void {
   if (sys.request?.claimedBy === a.id) sys.request = null;
+  a.hasExtractPing = false;
   a.taskKind = null;
   a.taskBy = null;
   a.taskDefId = null;
@@ -212,14 +352,40 @@ export function finishTask(sys: AllySystem, a: Ally): void {
 
 /* ═══════════════════════════ 명령 상태 ═══════════════════════════ */
 
+/**
+ * 명령 상태의 제안. **`moveHoldT` 는 「이 명령을 아직 끝내지 않았다」는 표시다** — 명령이 들어올 때
+ * `ALLY_MOVE_HOLD_S` 로 서고, 도착해서 그만큼 머문 뒤에야 0 이 된다.
+ *
+ * 예전에는 도착한 **뒤에야** `moveHoldT` 를 세웠다: `moveTo` 첫 프레임이 곧바로 「머무름이 끝났다」로 읽혀
+ * 제안이 null → `Fsm.decide` 가 따라가기로 떨어뜨림 → 다음 프레임에 명령이 다시 제안됨 → 핑과 분대장 사이를
+ * 왕복하는 오실레이션이 됐다 (2026-09-16 수정).
+ */
 export function proposal(sys: AllySystem, a: Ally): Proposal | null {
   const now = sys.ctx.time;
   if (now < sys.watchUntil) return { state: 'watch', prio: PRIO.order };
   if (sys.orderKind && now < sys.orderUntil) {
-    if (a.state === 'moveTo' && a.moveHoldT <= 0) return null;   // 머무름이 끝났다 → 하네스로
+    if (sys.orderKind === 'moveTo' && a.moveHoldT <= 0) return null;   // 도착해서 머물기까지 끝냈다 → 하네스로
     return { state: sys.orderKind, prio: PRIO.order };
   }
   return null;
+}
+
+/**
+ * 「앞장서라」의 **자기 구역** — 분대장 앞 `ALLY_LEAD_AHEAD_M` 지점에서 기마다 `ALLY_SPREAD_M` 씩 옆으로 벌린
+ * 자리를 `out` 에 쓴다 (한 점에 세 기가 겹쳐 서지 않게). 넓어진 하네스 안으로 자른다.
+ */
+function leadSpot(sys: AllySystem, a: Ally, out: THREE.Vector3): THREE.Vector3 {
+  out.copy(sys.orderPos);
+  const dx = sys.orderPos.x - sys.leaderPos.x;
+  const dz = sys.orderPos.z - sys.leaderPos.z;
+  const d = Math.hypot(dx, dz);
+  if (d > 1e-3) {
+    const n = Math.max(1, sys.bodies.length);
+    const k = (a.bay - (n - 1) / 2) * ALLY_SPREAD_M;
+    out.x += (dz / d) * k;
+    out.z += (-dx / d) * k;
+  }
+  return Nav.clampToHarness(sys.leaderPos, sys.harness, out, out);
 }
 
 export function act(sys: AllySystem, a: Ally, dt: number): void {
@@ -235,17 +401,23 @@ export function act(sys: AllySystem, a: Ally, dt: number): void {
     } else Nav.halt(a);
     return;
   }
-  const dest = sys.orderPos;
-  const left = Nav.step(sys, a, dest, a.state === 'lead' ? ALLY_RUN_SPEED : ALLY_WALK_SPEED, dt,
+  const lead = a.state === 'lead';
+  const dest = lead ? leadSpot(sys, a, _v2) : sys.orderPos;
+  a.running = lead;
+  const left = Nav.step(sys, a, dest, lead ? ALLY_RUN_SPEED : ALLY_WALK_SPEED, dt,
     sys.ctx.time < sys.watchUntil ? sys.watchPos : null, WATCH_KEEP_OUT_M);
-  if (left <= ALLY_MOVE_ARRIVE_M) {
-    Nav.halt(a);
-    if (a.state === 'moveTo') {
-      if (a.moveHoldT <= 0) a.moveHoldT = ALLY_MOVE_HOLD_S;
-      a.moveHoldT -= dt;
-      if (a.moveHoldT <= 0) { sys.orderKind = null; sys.orderUntil = -Infinity; }
-    } else { sys.orderKind = null; sys.orderUntil = -Infinity; }
+  if (left > ALLY_MOVE_ARRIVE_M) return;
+  Nav.halt(a);
+  a.running = false;
+  if (lead) {
+    // 자기 구역에 닿았다 → 명령은 여기서 끝나고, 넓어진 하네스(`sys.leadUntil`) 안에서 자유 탐색이 일대를 훑는다.
+    sys.orderKind = null;
+    sys.orderUntil = -Infinity;
+    return;
   }
+  // 「가자」 — 도착한 뒤부터 `ALLY_MOVE_HOLD_S` 를 깎는다. 0 이 되면 이 명령은 **한 번** 끝난 것이다.
+  a.moveHoldT -= dt;
+  if (a.moveHoldT <= 0) { a.moveHoldT = 0; sys.orderKind = null; sys.orderUntil = -Infinity; }
 }
 
 function leaderYaw(sys: AllySystem): number {

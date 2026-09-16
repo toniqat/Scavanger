@@ -254,8 +254,14 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Rover: one per raid, host-authoritative; riders take no damage and are not targets; only enemies and hazards damage it; one payer per trip (`rover:<from>:<to>`) — rules in `shared/types.ts` rover section. New combat input gates check both `droneControl` and `roverRide`.
 - Androids are relay **bot members** (`LobbyPlayer.bot`): never host, never relay targets, skipped by presence / prune / grace counts; a human
   joining a full squad evicts the latest recruited android. The authority simulates them (`src/allies`), enemies target them only through
-  `ctx.allies.getCombatBodies()` / `damage()`, all-dead checks count humans only. Their base kit is bound (never dropped, given, left in a
-  corpse or deposited) — only `raidFound` items move — `src/shared/allies.ts`.
+  `ctx.allies.getCombatBodies()` / `damage()`. **A raid fails only when every human *and* every android is down or dead** (a standing android
+  comes to revive; a downed one does not count) — `game/parts/Death.checkAllDead`; every other head count still ignores bots. Their base kit is
+  bound (never dropped, given, left in a corpse or deposited) and exists **in the ship too** (`Bag.ensureKit`, never while `raidActive`) — only
+  `raidFound` items move — `src/shared/allies.ts`.
+- Android orders vs. pings: 가자 · 주의 · 앞장 are **leader-only**; a PC's **enemy / extraction ping** is agreed to from any human. Inside the
+  harness an android **roams** (`roam`, structure/cover point of interest, dropped when another body holds it), outside it runs back
+  (`follow`); bodies keep `ALLY_SEPARATION_M` apart softly and spread when approaching a person. Engage range comes from the weapon
+  (`ALLY_ENGAGE_DAMAGE_FRAC` of its falloff), and crates are looted on a ping first, on their own only while idle within `ALLY_IDLE_LOOT_M`.
 - Raid entry loading is a hold (`ShaderWarmupRef.holdFor`, `game/parts/LoadGate`): sim dt 0 until every human reported loaded or
   `RAID_LOAD_TIMEOUT_S`; rejoin, training and tutorial never wait.
 

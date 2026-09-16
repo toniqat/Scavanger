@@ -7,6 +7,9 @@
  *     돌아왔다가 다시 무거워지면 다시 찍는다 (사용자 결정의 비대칭을 그대로 옮긴 것이다).
  *  ③ 함선이 내려앉고 분대장이 타러 가면 같이 탄다. 이륙하면 **레이드에서 주운 것**이 분대장 창고로 간다
  *     (`ally deposit` → `inventory:allyDeposit`); 기본 킷은 묶인 물건이라 따라가지 않는다.
+ *  ④ 2026-09-16 사용자 결정: **PC 가 탈출구 핑을 찍고** 「탈출하고 싶다」면 스스로 패드를 찾지 않고 **그 핑 자리로**
+ *     간다 — 「PC 하네스 범위 내에서 해당 탈출구를 향해 이동」. 동의와 표시는 `parts/Commands.agreeToHumanExtract`,
+ *     걸음은 여기 `seek` 의 `hasExtractPing` 갈래다. 확인 창(①)은 그대로라 한 번 더 말하면 콘솔을 누른다.
  */
 import type * as THREE from 'three';
 import {
@@ -65,6 +68,17 @@ function findPad(sys: AllySystem, out: THREE.Vector3): string | null {
 }
 
 function seek(sys: AllySystem, a: Ally, dt: number): void {
+  // ④ PC 가 찍어 둔 탈출구가 있으면 스스로 찾지 않는다 — 하네스 안에서 그 자리로 걸어간다.
+  if (a.hasExtractPing) {
+    Nav.clampToHarness(sys.leaderKnown ? sys.leaderPos : a.position, sys.harness, a.extractPingPos, _v1);
+    a.running = true;
+    if (Nav.step(sys, a, _v1, ALLY_RUN_SPEED, dt) <= ALLY_MOVE_ARRIVE_M) {
+      // 도착했다 — 하네스가 분대장에게 묶여 있으니 여기 서서 기다린다 (분대장이 오면 ③ 탑승이 이어받는다).
+      Nav.halt(a);
+      a.running = false;
+    }
+    return;
+  }
   Nav.halt(a);
   void dt;
   if (a.oneShot) return;      // 이번 진입에서 이미 찾아 봤다 (전이 지연 동안 반복 실행 금지 — `Ally.oneShot`)

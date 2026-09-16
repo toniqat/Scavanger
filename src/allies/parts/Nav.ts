@@ -6,9 +6,12 @@
  *  - 바닥은 `WorldRef.getSurfaceY(x, z, feetY)`, **`resolveCollision` 보다 먼저** 부른다 (뒤집으면 낮은 턱에 못 올라선다).
  *  - 함선 안에서는 `InteriorCollider.getFloorAt` · `resolveCollision` 을 쓴다.
  *  - 막히면 옆으로 비켜 간다 (`sideT`) — 길찾기가 없으니 이것이 유일한 탈출구다.
+ *
+ * 조향에 접히는 것은 셋이다: 장애물 회피(`avoidObstacles`) · 분대 몸 사이 간격(`separate`) · 주의 핑 우회(`avoid`).
+ * 셋 다 **원하는 방향에 더하는 성분**일 뿐이라 이동을 막지 않는다. 사람에게 다가가는 목적지는 `spreadToward` 로 벌린다.
  */
 import * as THREE from 'three';
-import { ALLY_TURN_RATE, PLAYER_RADIUS } from '@/shared';
+import { ALLY_LOCAL_PEER, ALLY_SEPARATION_M, ALLY_SPREAD_M, ALLY_TURN_RATE, PLAYER_RADIUS } from '@/shared';
 import type { AllySystem } from '../AllySystem';
 import type { Ally } from './Body';
 import { turnToward, yawToward } from '../model';
@@ -62,6 +65,7 @@ export function step(
   }
 
   avoidObstacles(sys, a, _n1, dt);
+  separate(sys, a, _n1, target);
 
   if (a.sideT > 0) {
     a.sideT -= dt;
@@ -152,6 +156,60 @@ function avoidObstacles(sys: AllySystem, a: Ally, dir: THREE.Vector3, dt: number
     dir.x = fx + fz * sgn * strength;
     dir.z = fz - fx * sgn * strength;
   }
+}
+
+/**
+ * 분대 몸끼리 **겹치지 않게** 비껴 간다 (2026-09-16 사용자 결정 「2 m 이내에 겹치지 않도록 피해서 가기,
+ * 부득이 겹칠 경우 갈 수 있음」). `avoidObstacles` 와 **같은 모양의 부드러운 밀어냄**이다 — 원하는 방향에 더할 뿐
+ * 멈추지도 막지도 않는다: 딱딱하게 막으면 문간에서 두 몸이 영영 엉킨다.
+ *
+ * 밀어냄에서 빼는 것: 자기 자신 · 죽거나 감춰진 몸 · **업고 있는 사람** · **지금 걸어가는 목적지에 서 있는 상대**.
+ * 마지막 것이 핵심이다 — 일으키러 가는 쓰러진 PC, 물건을 건넬 사람, 상자 앞의 사람에게는 밀어냄 없이 코앞까지 간다.
+ */
+function separate(sys: AllySystem, a: Ally, dir: THREE.Vector3, target: THREE.Vector3): void {
+  const ctx = sys.ctx;
+  for (const o of sys.bodies) {
+    if (o === a || o.dead || o.hidden || o.mode !== 'raid') continue;
+    pushApart(a.position, dir, target, o.position);
+  }
+  const me = ctx.player;
+  const net = ctx.net;
+  const localId = net?.localId ?? ALLY_LOCAL_PEER;
+  if (me && !me.isDead && a.carrying !== localId) pushApart(a.position, dir, target, me.position);
+  if (!net) return;
+  for (const rp of net.getRemotePlayers()) {
+    // 업힌 몸의 좌표는 뜻이 없다 (계약 `RemotePlayerRef.isCarried`).
+    if (rp.isDead || rp.isCarried || a.carrying === rp.id) continue;
+    pushApart(a.position, dir, target, rp.position);
+  }
+}
+
+/** 한 상대에게서 멀어지는 성분을 `dir` 에 더한다 (닿을수록 세게, 최대 1 — 원하는 방향을 뒤집지는 못한다). */
+function pushApart(pos: THREE.Vector3, dir: THREE.Vector3, target: THREE.Vector3, other: THREE.Vector3): void {
+  // 목적지에 서 있는 상대 = 일부러 다가가는 상대다. 밀어내면 영영 닿지 못한다.
+  if (Math.hypot(target.x - other.x, target.z - other.z) < ALLY_SEPARATION_M) return;
+  const dx = pos.x - other.x, dz = pos.z - other.z;
+  const d = Math.hypot(dx, dz);
+  if (d >= ALLY_SEPARATION_M || d < 1e-4) return;
+  const w = (ALLY_SEPARATION_M - d) / ALLY_SEPARATION_M;
+  dir.x += (dx / d) * w;
+  dir.z += (dz / d) * w;
+}
+
+/**
+ * 사람에게 다가갈 때의 **산개 목적지** — 사람 자리 그대로를 향하면 세 기가 한 줄로 겹쳐 온다 (2026-09-16 사용자 결정
+ * 「PC 를 향해 갈 때 산개」). 규약: 진행 방향의 수직 `(dz, −dx)` 으로 bay 0 = 한 칸 왼쪽 · bay 1 = 한 칸 오른쪽 ·
+ * bay 2 = 두 칸 왼쪽 … `ALLY_SPREAD_M` 간격으로 번갈아 벌린다 (bay 는 조종실 슬롯이라 레이드 내내 변하지 않는다).
+ * 남은 거리보다 크게 비껴 서지는 않는다 — 코앞에서 옆으로 크게 도는 것을 막는다.
+ */
+export function spreadToward(a: Ally, person: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+  const dx = person.x - a.position.x, dz = person.z - a.position.z;
+  const d = Math.hypot(dx, dz);
+  if (d < 1e-4) return out.copy(person);
+  const k = a.bay;
+  const lane = (Math.floor(k / 2) + 1) * (k % 2 === 0 ? -1 : 1);
+  const off = Math.min(Math.abs(lane) * ALLY_SPREAD_M, d) * Math.sign(lane);
+  return out.set(person.x + (dz / d) * off, person.y, person.z - (dx / d) * off);
 }
 
 /** 하네스 안의 한 점 — `center` 주변 `radius` 안에서 `want` 에 가장 가까운 지점을 `out` 에 쓴다. */

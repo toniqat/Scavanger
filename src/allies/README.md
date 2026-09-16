@@ -18,16 +18,17 @@ Design record: docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 
 | `parts/Roster.ts` | Who is on the squad: lobby bot members vs. the cheat roster, body creation, dormant bay bodies, `ally:rosterChanged`, `getLoadout` |
 | `parts/Hub.ts` | Ship poses — dormant inside a bay, `emerge` to the launch-pod stand, `retire` back; the cheat android following in the personal ship |
 | `parts/Spawn.ts` | Raid entry: reset, base kit, per-slot spawn offset, `ally:podDrop`, landing timer |
-| `parts/Fsm.ts` | One proposal per frame → reaction delay → transition; state dispatch; follow; junk dropping |
-| `parts/Harness.ts` | Squad leader lookup and the harness radius (halves while the leader keeps one heading) |
-| `parts/Nav.ts` | Steering, obstacle avoidance, surface-before-collision movement, stuck sidestep, harness clamp |
-| `parts/Combat.ts` | Sensing + line of sight, enemy ping, cover via `pickCoverSpot`, bursts, friendly-fire guard, `applyAllyHit` |
+| `parts/Fsm.ts` | One proposal per frame → reaction delay → transition; state dispatch; follow **or** roam (harness in/out); junk dropping |
+| `parts/Harness.ts` | Squad leader lookup and the harness radius (halves while the leader keeps one heading, ×`ALLY_LEAD_HARNESS_MUL` while 앞장서라 runs) |
+| `parts/Nav.ts` | Steering, obstacle avoidance, **2 m squad separation** (`separate`), **spread toward a person** (`spreadToward`), surface-before-collision movement, stuck sidestep, harness clamp |
+| `parts/Roam.ts` | Free search inside the harness (`roam`): pick a structure / cover point of interest, give it up when another body already holds it, random patrol otherwise; walkable destination sampling and the look-around pause |
+| `parts/Combat.ts` | Sensing + line of sight (one query per frame), **per-weapon engage range** (`engageRangeOf`), the PC's enemy ping, cover via `pickCoverSpot` (skipped at contact range), bursts, friendly-fire guard, `applyAllyHit` |
 | `parts/Vitals.ts` | Shield → hp → downed → dead, hazard and planet-atmosphere ticks, revive, corpse call |
-| `parts/Commands.ts` | Pings / comms wheel / item requests → leader orders and the first-one-wins request, requester queries |
-| `parts/Bag.ts` | Bound base kit, weight, gear scoring and swapping, junk dropping, taking items |
-| `parts/Loot.ts` | Autonomous container looting (peek == take), commanded crates, ground pickups |
+| `parts/Commands.ts` | Pings / comms wheel / item requests → leader orders and the first-one-wins request, agreeing to a PC's enemy / extraction ping, 앞장서라 (`leadUntil`), requester queries |
+| `parts/Bag.ts` | Bound base kit (`ensureKit` in the ship · `clearKit` + `equipKit` per raid), weight, gear scoring and swapping, junk dropping, taking items |
+| `parts/Loot.ts` | Pinged crates first (no distance limit), autonomous looting only while idle and within `ALLY_IDLE_LOOT_M` (peek == take), ground pickups |
 | `parts/Support.ts` | Handing an item over: ping, approach, wait for "stopped or looking", drop, ping again |
-| `parts/Extract.ts` | Pad search → ping → confirm → console press, boarding, the weight-driven extract ping, liftoff deposit |
+| `parts/Extract.ts` | Pad search → ping → confirm → console press (or run to the **PC's extraction ping** after the 탈출 comms), boarding, the weight-driven extract ping, liftoff deposit |
 | `parts/Contract.ts` | Contract / NPC objective search inside the harness |
 | `parts/Rescue.ts` | Reviving downed players (defibrillator shortcut) and carrying them out of a hazard |
 | `parts/Ping.ts` | Android pings and chat lines — local event + wire, with repeat suppression |
@@ -47,8 +48,11 @@ Debug hooks on `getSystem('allies')` (smokes only, never called by game code): `
 
 - **The authority simulates, replicas interpolate.** `ctx.isAuthority` decides; a replica accepts `ally` only from
   `lobby.hostId` and interpolates by `NET_INTERP_DELAY`. `damage()` is a no-op on a replica.
-- **The base kit is bound.** `Ally.kitUids` is the gate on every way out of the body (drop, hand over, corpse, stash);
-  only `raidFound` items move. Removing that gate mints free gear every raid.
+- **The base kit is bound, and it exists in the ship too** (2026-09-16). `Roster.syncBodies` → `Bag.ensureKit` gives a recruited
+  android its kit the moment it becomes a squad member, so the body in the ship is armed and `getLoadout` feeds the launch-slot
+  card; the raid still starts from a fresh kit (`Spawn` → `clearKit` → `equipKit`), and `ensureKit` is skipped while `raidActive`
+  so a mid-raid roster update never mints a bag on a replica (that would lose its loot on host migration). `Ally.kitUids` stays
+  the gate on every way out of the body (drop, hand over, corpse, stash); only `raidFound` items move.
 - **One proposal per frame.** `Fsm.decide` picks the highest-priority condition (`model.PRIO`) and `propose` waits out the
   reaction delay; a more urgent proposal replaces a pending one. Only `downed` / `dead` / `dormant` / `aboard` are instant.
 - **A state whose work is a single act sets `Ally.oneShot`** (extract search, contract search). Without it the act keeps
@@ -59,11 +63,22 @@ Debug hooks on `getSystem('allies')` (smokes only, never called by game code): `
 - Movement queries the surface **before** `resolveCollision` (CLAUDE.md §4.4) and reuses module-local scratch vectors —
   `parts/Nav` keeps its own so a caller may pass a `model` scratch as the destination.
 - Never fire when a player or another android is on the line (`Combat.blockedByFriend`).
+- **A standing android keeps the raid alive** (2026-09-16): the wipe decision (`game/parts/Death.checkAllDead`) fails the raid only
+  when every human **and** every android is down or dead. A downed android does not count — nobody revives it.
+- **Inside the harness an android roams, it does not stand still** (`roam`); outside it runs back (`follow`). The two share one rank
+  (`PRIO.follow` === `PRIO.roam`), so `Fsm.decide` proposes exactly one of them.
+- **Orders vs. pings**: 가자 · 주의 · 앞장 stay leader-only; a PC's **enemy / extraction ping** is agreed to from any human (they are
+  requests, not orders). 앞장서라 widens the harness for `ALLY_LEAD_DURATION_S` and then expires by itself.
+- **Crates are not raced for**: a pinged one first with no distance limit, an unpinged one only while idle and within
+  `ALLY_IDLE_LOOT_M`.
 - Other folders' contract members are called with `?.`; a missing one degrades that behaviour only.
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/allies`.
+- 2026-09-16 — AI pass 2: `roam` free search · 2 m separation · spread · per-weapon engage range · contact-range firing fix ·
+  move-ping oscillation fix · agreeing to a PC's enemy / extraction ping · 앞장서라 doubles the harness and expires ·
+  pinged crates first · the base kit now exists in the ship.
 - 2026-09-15 — Full implementation: roster · ship poses · raid spawn · FSM · harness · nav · combat · vitals · commands ·
   bag · loot · deliver · extract · contract · rescue · sync · `/android` cheat (replaces the contract stub).
 - 2026-09-15 — Folder created with a stub `ctx.allies` (contract commit).

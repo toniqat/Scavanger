@@ -5,11 +5,15 @@
  * 사용자 결정). 사용자 결정 「PC 가 한쪽 방향으로 계속 움직이면 하네스가 절반으로 줄어든다」를 방향 일관성의
  * 지수평균(`commit`)으로 구현한다: 빠르게 + 같은 방향으로 갈수록 1 에 가까워지고, 반경은
  * `ALLY_HARNESS_RADIUS_M × lerp(1, ALLY_HARNESS_MIN_FRAC, commit)` 이 된다.
+ *
+ * 2026-09-16 사용자 결정 「앞장서라 = 일반 범위의 2배로 각자 일대를 수색」 — `sys.leadUntil` 까지는 마지막에
+ * `ALLY_LEAD_HARNESS_MUL` 을 곱한다. **반경 하나만 넓히면** 따라가기 · 자유 탐색 · 엄폐 자리 · 탈출 클램프가
+ * 모두 같은 값을 읽으므로, 소비자마다 따로 손볼 것이 없다 (`sys.harness` 가 유일한 출구다).
  */
 import * as THREE from 'three';
 import {
   ALLY_HARNESS_COMMIT_SPEED, ALLY_HARNESS_COMMIT_TAU_S, ALLY_HARNESS_MIN_FRAC, ALLY_HARNESS_RADIUS_M,
-  ALLY_LOCAL_PEER, isAndroidId,
+  ALLY_LEAD_HARNESS_MUL, ALLY_LOCAL_PEER, isAndroidId,
 } from '@/shared';
 import type { PeerId } from '@/shared';
 import type { AllySystem } from '../AllySystem';
@@ -52,7 +56,7 @@ export function update(sys: AllySystem, dt: number): void {
   sys.leaderPrev.copy(sys.leaderPos);
   sys.leaderKnown = leaderPos(sys, sys.leaderPos);
   if (!sys.leaderKnown || dt <= 0) {
-    sys.harness = ALLY_HARNESS_RADIUS_M;
+    sys.harness = ALLY_HARNESS_RADIUS_M * leadMul(sys);
     return;
   }
   if (!had) {
@@ -75,5 +79,10 @@ export function update(sys: AllySystem, dt: number): void {
   const k = 1 - Math.exp(-dt / Math.max(1e-3, ALLY_HARNESS_COMMIT_TAU_S));
   sys.commit += (sample - sys.commit) * k;
   sys.commit = Math.min(1, Math.max(0, sys.commit));
-  sys.harness = ALLY_HARNESS_RADIUS_M * (1 + (ALLY_HARNESS_MIN_FRAC - 1) * sys.commit);
+  sys.harness = ALLY_HARNESS_RADIUS_M * (1 + (ALLY_HARNESS_MIN_FRAC - 1) * sys.commit) * leadMul(sys);
+}
+
+/** 「앞장서라」가 살아 있는 동안의 반경 배수 (`ALLY_LEAD_DURATION_S` 가 지나면 저절로 1 로 돌아온다). */
+function leadMul(sys: AllySystem): number {
+  return sys.ctx && sys.ctx.time < sys.leadUntil ? ALLY_LEAD_HARNESS_MUL : 1;
 }
