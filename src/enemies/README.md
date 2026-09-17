@@ -73,7 +73,7 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
 | `spewer` | bug | Acid globs, death burst |
 | `charger` | bug | Wind-up rush; weak rear |
 | `artillery` | bug | Stand-off mortar, interceptable shells, never melees. Digs in with 2–3 scavenger escorts; fires only when another bug is near the target |
-| `scavenger_summon` | bug | Scavenger an artillery summons once at a lone target in range: scavenger stats / rig / AI / sounds (`baseTypeOf`), `CORPSE_LOOT_CHANCE` 0 (no drops) |
+| `scavenger_summon` | bug | Scavenger an artillery summons once at a lone target in range: scavenger stats / rig / AI / sounds (`baseTypeOf`), `CORPSE_LOOT_CHANCE` 0 (no drops), `raidXp` 0 (no kill XP) |
 | `toxic` | bug | Suicide runner, swells then bursts (friendly fire) |
 | `behemoth` | bug | Scaled warrior (`BEHEMOTH_SCALE`), armored front plate, knockback charge |
 | `sandworm` | bug | `땅굴벌레` event boss (threat 2–3), rooted: spits bugs then acid (`sandworm/Director`) |

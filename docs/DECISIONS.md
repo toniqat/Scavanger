@@ -809,7 +809,7 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
 - **Toxic bug:** burst 60; added to threat 1–2 planets instead of raising its weight on 베르단트 III.
 - **Artillery:** spawns with a 2–3 scavenger escort (rejected: joining nearby packs); fires only when another bug is
   within 10 m of the target, braces 1 s, locked 5 s after firing; a lone target in range → summons 2–3
-  `scavenger_summon` **once per artillery**, a no-drop type. `maxArtillery` stays a live cap (the double spawn was a
+  `scavenger_summon` **once per artillery**, a no-drop, no-XP type (0 raidXp — rejected: scavenger XP 12). `maxArtillery` stays a live cap (the double spawn was a
   counting bug).
 - **Cell drops replace every sample row** of hunter · toxic · warrior · artillery · charger · behemoth · both sandworms
   (rejected: replacing cell rows only / adding on top). **Corpse sample rows are exempt from the epic+ downgrade** so

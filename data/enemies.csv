@@ -54,5 +54,5 @@ tut_android_loot,android,30,3.8,1.2,0.4,1.8,0.16,0,1,0,0,6,18,55,60,2,1,1,2,true
 tut_android,android,30,3.8,1.2,0.4,1.8,0.16,0,1,0,0,6,18,55,60,2,1,1,2,true,0.4,14
 # 2026-09-17 scavenger_summon — 포병이 사거리 안의 외톨이 표적에게 **평생 한 번** 불러내 보내는 스캐빈저 (`enemies/ai/ArtilleryPack.ts`).
 #   수치 · 리그 · AI · 소리는 scavenger 그대로다(`EnemyTypes.baseTypeOf` 가 scavenger 로 돌린다). 다른 것은 **드롭 0 %** 하나뿐이다 —
-#   `CORPSE_LOOT_CHANCE` 0 이라 시체가 수색되지 않는다 (loot_corpses.csv 에 줄이 없다). raidXp 는 scavenger 와 같은 12.
-scavenger_summon,bug,40,5.5,1.6,0.45,0.9,0.2,4,0.8,1.6,0.18,8,22,40,55,2,1,1,1,true,0.25,12
+#   `CORPSE_LOOT_CHANCE` 0 이라 시체가 수색되지 않는다 (loot_corpses.csv 에 줄이 없다). raidXp 는 **0** — 반복 처치로 경험치를 벌지 못하게 (2026-09-17 사용자 결정).
+scavenger_summon,bug,40,5.5,1.6,0.45,0.9,0.2,4,0.8,1.6,0.18,8,22,40,55,2,1,1,1,true,0.25,0
