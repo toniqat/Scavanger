@@ -376,14 +376,14 @@ export class Community {
     for (const inv of [...invites].reverse()) {
       const card = el('div', { cls: `cm-invite${this.cards.length === 0 ? ' is-active' : ''}`, parent: this.inviteWrap });
       card.dataset.from = inv.from;
-      const top = el('div', { cls: 'ci-top', parent: card });
-      el('span', { cls: 'ci-id ui-mono', text: formatPlayerCode(inv.from), parent: top });
-      const x = el('button', { cls: 'ci-x', text: '×', parent: top });
+      const top = el('div', { cls: 'cmi-top', parent: card });
+      el('span', { cls: 'cmi-id ui-mono', text: formatPlayerCode(inv.from), parent: top });
+      const x = el('button', { cls: 'cmi-x', text: '×', parent: top });
       x.title = '초대 거절';
       x.addEventListener('click', (e) => { e.stopPropagation(); socialOf(this.ctx)?.declineInvite(inv.from); this.inviteKey = STALE_KEY; });
-      el('div', { cls: 'ci-name', text: `${inv.name || '분대원'} 분대 초대`, parent: card });
-      el('div', { cls: 'ci-hint', text: `${keyLabel(Keys.INVITE)} 홀드로 참여`, parent: card });
-      const bar = el('div', { cls: 'ci-bar', parent: card });
+      el('div', { cls: 'cmi-name', text: `${inv.name || '분대원'} 분대 초대`, parent: card });
+      el('div', { cls: 'cmi-hint', text: `${keyLabel(Keys.INVITE)} 홀드로 참여`, parent: card });
+      const bar = el('div', { cls: 'cmi-bar', parent: card });
       const fill = el('i', { parent: bar });
       this.cards.push({ from: inv.from, root: card, fill });
     }

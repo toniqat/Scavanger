@@ -173,8 +173,8 @@
 .corp-row.st-locked { opacity: 0.55; }
 .corp-row .deliver { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 /* 2026-09-12 (E2): 특정 아이템 회수 계약 — 아이템 칩(보유/필요) + 이름 한 줄. 칩은 호버 카드 · 우클릭 메뉴를 받으므로 pointer-events 를 끄지 않는다 */
-.corp-row .cc-item { display: flex; align-items: center; gap: 10px; margin: 4px 0 2px; min-width: 0; }
-.corp-row .cc-item .nm { font-size: 12px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.corp-row .ctr-item { display: flex; align-items: center; gap: 10px; margin: 4px 0 2px; min-width: 0; }
+.corp-row .ctr-item .nm { font-size: 12px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ══ 한 번 더 확인 팝업 (2026-09-12, E2 — `ui/HoldAsk.ts`: 즐겨찾기 아이템 판매) ═══════════════════════════════════
  * `ctx.uiRoot` 바로 아래의 전체 화면 뒤판 + 가운데 카드. 확인은 1초 홀드(`.cv-ask-fill` scaleX 0 → 1), 취소 · Escape · 뒤판. */
@@ -373,17 +373,17 @@
 
 /* ── 계약: 한 카드 — 계약 목록 | 진행 중인 계약(그 계약 기업의 색) ── */
 .cc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 0.95fr); gap: 14px; min-height: 0; padding: 12px; }
-.cc-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
-.cc-list, .cc-active {
+.ctr-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; }
+.ctr-list, .ctr-active {
   flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
   display: flex; flex-direction: column; gap: 6px; padding-right: 4px;
 }
-.cc-col.active .cc-active { padding: 10px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.24); }
-.cc-col.active.has-contract .cc-active {
+.ctr-col.active .ctr-active { padding: 10px; border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.24); }
+.ctr-col.active.has-contract .ctr-active {
   border-color: color-mix(in srgb, var(--cc) 45%, transparent);
   background: linear-gradient(180deg, color-mix(in srgb, var(--cc) 7%, transparent), rgba(0, 0, 0, 0.24) 60%);
 }
-.cc-col.active.has-contract > .cv-title { color: var(--cc); }
+.ctr-col.active.has-contract > .cv-title { color: var(--cc); }
 .corp-row.contract.is-detail { grid-template-columns: minmax(0, 1fr); }
 .corp-row.contract.is-detail .reward { justify-content: flex-start; }
 

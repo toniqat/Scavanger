@@ -1069,12 +1069,12 @@ export class CorpView {
     if (this.contractsEl) return this.contractsEl;
     // one card, as before — only the corp list moved out into its own card (2026-09-13)
     const root = el('div', { cls: 'cc' });
-    const list = el('div', { cls: 'cc-col list', parent: root });
+    const list = el('div', { cls: 'ctr-col list', parent: root });
     el('div', { cls: 'cv-title', text: '계약 목록', parent: list });
-    this.contractListEl = el('div', { cls: 'cc-list', parent: list });
-    this.contractActiveCol = el('div', { cls: 'cc-col active', parent: root });
+    this.contractListEl = el('div', { cls: 'ctr-list', parent: list });
+    this.contractActiveCol = el('div', { cls: 'ctr-col active', parent: root });
     el('div', { cls: 'cv-title', text: '진행 중인 계약', parent: this.contractActiveCol });
-    this.contractActiveEl = el('div', { cls: 'cc-active', parent: this.contractActiveCol });
+    this.contractActiveEl = el('div', { cls: 'ctr-active', parent: this.contractActiveCol });
     this.contractsEl = root;
     this.nodes.push(root);
     return root;
@@ -1126,7 +1126,7 @@ export class CorpView {
     const itemDefId = d.goal === 'extract_with_items' ? d.itemDefId : undefined;
     const shown = itemDefId ? this.meta.carriedCount(itemDefId) : c.progress;
     if (itemDefId) {
-      const line = el('div', { cls: 'cc-item', parent: mid });
+      const line = el('div', { cls: 'ctr-item', parent: mid });
       const idef = this.itemDef(itemDefId);
       line.appendChild(buildItemChip(idef, { size: 30, have: shown, need: d.target }));
       el('span', { cls: 'nm', text: idef?.name ?? itemDefId, parent: line });

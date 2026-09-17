@@ -87,15 +87,15 @@
 .title-screen .ts-msg.danger { color: #ffb3b3; }
 
 /* ── 캐릭터 선택 ─────────────────────────────────────────────────────────── */
-.char-select .cs-cards {
+.char-select .csl-cards {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px;
   width: 100%; max-width: 1040px;
   /* `.ts-foot` 의 `margin-top: auto` 와 짝을 이뤄 카드 줄을 머리글과 바닥 사이 가운데로 민다. */
   margin-top: auto;
 }
-@media (max-width: 900px) { .char-select .cs-cards { grid-template-columns: 1fr; max-width: 420px; } }
+@media (max-width: 900px) { .char-select .csl-cards { grid-template-columns: 1fr; max-width: 420px; } }
 
-.cs-card {
+.csl-card {
   --ac: var(--c-accent);
   position: relative; display: flex; flex-direction: column; gap: 12px;
   min-height: 340px; padding: 20px 20px 16px;
@@ -104,30 +104,30 @@
   transition: border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
   animation: menuIn 320ms var(--ease) backwards;
 }
-.cs-card:nth-child(2) { animation-delay: 60ms; }
-.cs-card:nth-child(3) { animation-delay: 120ms; }
-.cs-card:hover { border-color: var(--ac); transform: translateY(-3px); background: rgba(16, 19, 24, 0.92); }
-.cs-card:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 3px; }
+.csl-card:nth-child(2) { animation-delay: 60ms; }
+.csl-card:nth-child(3) { animation-delay: 120ms; }
+.csl-card:hover { border-color: var(--ac); transform: translateY(-3px); background: rgba(16, 19, 24, 0.92); }
+.csl-card:focus-visible { outline: 1px solid var(--c-accent); outline-offset: 3px; }
 /* 카드 위쪽의 악센트 띠 — 그 캐릭터의 색이 카드의 색이다. */
-.cs-card .cs-bar { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--ac); }
-.cs-card .cs-slot {
+.csl-card .csl-bar { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--ac); }
+.csl-card .csl-slot {
   font-family: var(--ui-mono); font-size: 10px; letter-spacing: 0.24em; color: var(--c-text-faint);
 }
-.cs-card .cs-name {
+.csl-card .csl-name {
   font-size: 22px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-text);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cs-card .cs-lv {
+.csl-card .csl-lv {
   font-family: var(--ui-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.14em; color: var(--ac);
 }
-.cs-card .cs-meta { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
-.cs-card .cs-meta .cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.cs-card .cs-meta .k { font-size: 9.5px; letter-spacing: 0.14em; color: var(--c-text-faint); }
-.cs-card .cs-meta .v {
+.csl-card .csl-meta { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.csl-card .csl-meta .cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.csl-card .csl-meta .k { font-size: 9.5px; letter-spacing: 0.14em; color: var(--c-text-faint); }
+.csl-card .csl-meta .v {
   font-family: var(--ui-mono); font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 600;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cs-card .cs-divider { height: 1px; background: var(--c-border); }
+.csl-card .csl-divider { height: 1px; background: var(--c-border); }
 
 /* 능력치 다섯 — 캐릭터 시트(`progression/ui/character.css` 의 `.cs-stat`)와 같은 어휘의 축소판:
    이름은 왼쪽, 값은 오른쪽 mono, 그 아래 얇은 바. */
@@ -140,29 +140,29 @@
   position: absolute; inset: 0; transform-origin: left; transform: scaleX(0);
   background: var(--ac); transition: transform var(--t-fast) var(--ease);
 }
-.cs-card .cs-stats { display: flex; flex-direction: column; gap: 7px; }
+.csl-card .csl-stats { display: flex; flex-direction: column; gap: 7px; }
 
-.cs-card .cs-actions { display: flex; justify-content: flex-end; margin-top: auto; padding-top: 8px; }
-.cs-card .cs-actions .ui-btn { min-width: 0; height: 30px; padding: 0 16px; font-size: 11px; }
+.csl-card .csl-actions { display: flex; justify-content: flex-end; margin-top: auto; padding-top: 8px; }
+.csl-card .csl-actions .ui-btn { min-width: 0; height: 30px; padding: 0 16px; font-size: 11px; }
 
-.cs-card .cs-filled { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; }
-.cs-card .cs-filled[hidden], .cs-card .cs-empty-wrap[hidden], .cs-card .cs-bar[hidden] { display: none; }
-.cs-card.is-active { border-color: var(--ac); }
-.cs-card.is-active .cs-slot::after { content: " · 현재"; color: var(--ac); }
+.csl-card .csl-filled { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; }
+.csl-card .csl-filled[hidden], .csl-card .csl-empty-wrap[hidden], .csl-card .csl-bar[hidden] { display: none; }
+.csl-card.is-active { border-color: var(--ac); }
+.csl-card.is-active .csl-slot::after { content: " · 현재"; color: var(--ac); }
 
 /* 빈 칸 */
-.cs-card .cs-empty-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
-.cs-card.empty { border-style: dashed; }
-.cs-card.empty .cs-plus {
+.csl-card .csl-empty-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+.csl-card.empty { border-style: dashed; }
+.csl-card.empty .csl-plus {
   display: flex; align-items: center; justify-content: center;
   width: 62px; height: 62px; border: 1px solid var(--c-border-strong); border-radius: 50%;
   font-size: 30px; line-height: 1; color: var(--c-text-dim);
   transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
 }
-.cs-card.empty:hover .cs-plus { color: var(--c-accent); border-color: var(--c-accent); }
-.cs-card.empty .cs-empty-label { font-size: 13px; letter-spacing: 0.16em; color: var(--c-text-dim); }
-.cs-card.empty .cs-slot { position: absolute; top: 16px; left: 20px; }
-.cs-card.busy { pointer-events: none; opacity: 0.5; }
+.csl-card.empty:hover .csl-plus { color: var(--c-accent); border-color: var(--c-accent); }
+.csl-card.empty .csl-empty-label { font-size: 13px; letter-spacing: 0.16em; color: var(--c-text-dim); }
+.csl-card.empty .csl-slot { position: absolute; top: 16px; left: 20px; }
+.csl-card.busy { pointer-events: none; opacity: 0.5; }
 
 /* ── 캐릭터 생성 ─────────────────────────────────────────────────────────────
    **두 열** (2026-09-14 개편 — 시작 임플란트 선택지가 화면에서 빠지면서 옛 왼쪽 설정 열에 이름만 남았다.

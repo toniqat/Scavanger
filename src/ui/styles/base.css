@@ -2939,17 +2939,17 @@ button.currency-chip[data-currency-id] { cursor: pointer; }
   animation: objSwap 200ms var(--ease);
 }
 .cm-invite.is-active { border-color: var(--c-accent); }
-.ci-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.ci-id { font-size: 11px; letter-spacing: 0.08em; color: var(--c-accent); }
-.ci-x {
+.cmi-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.cmi-id { font-size: 11px; letter-spacing: 0.08em; color: var(--c-accent); }
+.cmi-x {
   width: 16px; height: 16px; padding: 0; border: none; background: none;
   font: inherit; font-size: 13px; line-height: 1; color: var(--c-text-faint); cursor: pointer;
 }
-.ci-x:hover { color: var(--c-danger); }
-.ci-name { font-size: 11px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ci-hint { font-size: 9px; letter-spacing: 0.1em; color: var(--c-text-dim); }
-.ci-bar { height: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
-.ci-bar i { display: block; height: 100%; background: var(--c-accent); transform-origin: left; transform: scaleX(0); transition: transform 90ms linear; }
+.cmi-x:hover { color: var(--c-danger); }
+.cmi-name { font-size: 11px; color: var(--c-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmi-hint { font-size: 9px; letter-spacing: 0.1em; color: var(--c-text-dim); }
+.cmi-bar { height: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.cmi-bar i { display: block; height: 100%; background: var(--c-accent); transform-origin: left; transform: scaleX(0); transition: transform 90ms linear; }
 
 /* 커뮤니티 panel (direct child of #ui-root so the social layer gating never hides it) */
 .community-panel {

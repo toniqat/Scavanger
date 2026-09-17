@@ -663,8 +663,8 @@ try {
   ok(tg && tg.open === true && tg.corp === 'helix', 'ui:corpToggled {open:true, helix}', JSON.stringify(tg));
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]').click());
   const contractsDom = await P(() => ({
-    rows: [...document.querySelectorAll('.cc-list .corp-row.contract')].map((r) => ({ id: r.dataset.id, btn: r.querySelector('.ui-btn')?.textContent, disabled: r.querySelector('.ui-btn')?.disabled })),
-    active: document.querySelectorAll('.cc-active .corp-row.contract, .cc-active .corp-empty').length,
+    rows: [...document.querySelectorAll('.ctr-list .corp-row.contract')].map((r) => ({ id: r.dataset.id, btn: r.querySelector('.ui-btn')?.textContent, disabled: r.querySelector('.ui-btn')?.disabled })),
+    active: document.querySelectorAll('.ctr-active .corp-row.contract, .ctr-active .corp-empty').length,
     on: document.querySelector('.corp-subtabs .scr-tab.is-on')?.dataset.page,
   }));
   // 2026-09-12 (E2): ceres 는 검체 채취 4 + 특정 아이템 회수 2 (`ceres_samples` · `ceres_pure`) = 6줄
@@ -676,8 +676,8 @@ try {
     const pick = m.getContracts('helix').find((c) => c.blocked === null);
     if (!pick || !m.acceptContract(pick.def.id)) return { skip: 'no acceptable helix contract' };
     window.__game.getSystem('meta').views.values().next().value.refresh();
-    const col = document.querySelector('.cc-col.active');
-    const row = document.querySelector('.cc-active .corp-row.contract');
+    const col = document.querySelector('.ctr-col.active');
+    const row = document.querySelector('.ctr-active .corp-row.contract');
     const out = {
       id: pick.def.id,
       helix: document.querySelector('.corp-tab[data-corp="helix"]').style.getPropertyValue('--cc').trim(),
@@ -979,7 +979,7 @@ try {
   await sleep(60);
   const chipClip = await P(() => {
     // 2026-09-12: 재화 칩의 우측 하단 수치가 도형에 잘리지 않는다 — 깎은 모서리는 썸네일이 아니라 뒤판(::before)에 있다
-    const th = document.querySelector('.cc-list .reward .currency-chip .currency-thumb');
+    const th = document.querySelector('.ctr-list .reward .currency-chip .currency-thumb');
     const cnt = th?.querySelector('.item-chip-count');
     if (!th || !cnt) return null;
     const a = th.getBoundingClientRect(), b = cnt.getBoundingClientRect();

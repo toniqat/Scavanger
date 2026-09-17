@@ -163,15 +163,15 @@ try {
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]').click());
   await waitSim(0.1);
   const questChip = await P(() => {
-    const chips = [...document.querySelectorAll('.cc-list .cc-item .item-chip[data-def-id]')];
+    const chips = [...document.querySelectorAll('.ctr-list .ctr-item .item-chip[data-def-id]')];
     return chips.map((c) => c.dataset.defId)[0] ?? null;
   });
   if (questChip) {
     await P((id) => window.__game.ctx.inventory.toggleFavorite(id, true), questChip);
     await P((v) => eval(v).refresh(), view);
-    ok(await P((id) => document.querySelector(`.cc-list .cc-item .item-chip[data-def-id="${id}"]`)?.classList.contains('is-favorite') === true, questChip),
+    ok(await P((id) => document.querySelector(`.ctr-list .ctr-item .item-chip[data-def-id="${id}"]`)?.classList.contains('is-favorite') === true, questChip),
       `rebuilt contract chip (${questChip}) comes out with .is-favorite`);
-    await rightClick(`.cc-list .cc-item .item-chip[data-def-id="${questChip}"]`);
+    await rightClick(`.ctr-list .ctr-item .item-chip[data-def-id="${questChip}"]`);
     m = await menu();
     ok(m.open && m.label === '즐겨찾기 끄기', 'contract chip takes the menu (끄기)', JSON.stringify(m));
     await P(() => document.querySelector('.icm .icm-item').click());
@@ -281,12 +281,12 @@ try {
   await P(() => document.querySelector('.corp-subtabs .scr-tab[data-page="contracts"]').click());
   await waitSim(0.15);
   let row = await P(() => {
-    const chip = document.querySelector('.cc-list .corp-row.contract[data-id="ceres_samples"] .cc-item .item-chip[data-def-id="sample_canister"]');
+    const chip = document.querySelector('.ctr-list .corp-row.contract[data-id="ceres_samples"] .ctr-item .item-chip[data-def-id="sample_canister"]');
     return chip ? { have: chip.querySelector('.item-chip-have')?.textContent, need: chip.querySelector('.item-chip-need')?.textContent, short: chip.classList.contains('is-short'),
-      name: chip.parentElement.querySelector('.nm')?.textContent, activeChip: !!document.querySelector('.cc-active .cc-item .item-chip[data-def-id="sample_canister"]') } : null;
+      name: chip.parentElement.querySelector('.nm')?.textContent, activeChip: !!document.querySelector('.ctr-active .ctr-item .item-chip[data-def-id="sample_canister"]') } : null;
   });
   ok(row && row.have === '0' && row.need === '2' && row.short && row.name === '샘플 캐니스터' && row.activeChip, 'contract row (list + 진행 중) shows the item chip 0/2 + name', JSON.stringify(row));
-  await rightClick('.cc-list .corp-row.contract[data-id="ceres_samples"] .cc-item .item-chip');
+  await rightClick('.ctr-list .corp-row.contract[data-id="ceres_samples"] .ctr-item .item-chip');
   m = await menu();
   ok(m.open && m.label === '즐겨찾기 켜기', 'contract item chip takes the favorite menu', JSON.stringify(m));
   await P(() => document.querySelector('.icm .icm-item').click());
@@ -318,7 +318,7 @@ try {
   ok(await P(() => window.__game.getSystem('meta').carriedCount('sample_canister', 7)) === 2, 'carriedCount = 2 (stash copy ignored)');
   await P((v) => eval(v).refresh(), view);
   row = await P(() => {
-    const chip = document.querySelector('.cc-list .corp-row.contract[data-id="ceres_samples"] .cc-item .item-chip');
+    const chip = document.querySelector('.ctr-list .corp-row.contract[data-id="ceres_samples"] .ctr-item .item-chip');
     return { have: chip?.querySelector('.item-chip-have')?.textContent, short: chip?.classList.contains('is-short'), text: chip?.closest('.mid')?.querySelector('.goal-text')?.textContent };
   });
   // 2026-09-12 (§5-2): the row shows `carriedCount` of the **running raid** — in the ship nothing counts (brought units never do),

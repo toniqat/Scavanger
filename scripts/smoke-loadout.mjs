@@ -563,8 +563,8 @@ try {
     const start = [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].find((b) => b.textContent === '게임 시작');
     if (!start) return { btn: false };
     start.click();
-    const card = document.querySelector('.char-select .cs-card:not(.empty)');
-    const del = card && [...card.querySelectorAll('.cs-actions .ui-btn.danger')].find((b) => b.textContent === '삭제');
+    const card = document.querySelector('.char-select .csl-card:not(.empty)');
+    const del = card && [...card.querySelectorAll('.csl-actions .ui-btn.danger')].find((b) => b.textContent === '삭제');
     if (!del) return { btn: true, del: false };
     del.click();
     // 2026-09-10: 설정(서버 설정)도 자기 `AskPopup` 을 갖는다 — 그쪽은 `.set-ask` 로 표시되어 있고

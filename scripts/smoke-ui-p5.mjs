@@ -91,9 +91,9 @@ try {
   await P(() => [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].find((b) => b.textContent === '게임 시작').click());
   // 빈 브라우저로 부팅했으므로 세 칸 모두 비어 있다 — 프로필은 캐릭터 생성창이 쓰고, 그전에는 아무 세이브도 없다.
   const empties = await P(() => ({
-    cards: document.querySelectorAll('.char-select .cs-card').length,
-    empty: document.querySelectorAll('.char-select .cs-card.empty').length,
-    plus: document.querySelector('.char-select .cs-card.empty .cs-empty-label')?.textContent,
+    cards: document.querySelectorAll('.char-select .csl-card').length,
+    empty: document.querySelectorAll('.char-select .csl-card.empty').length,
+    plus: document.querySelector('.char-select .csl-card.empty .csl-empty-label')?.textContent,
   }));
   ok(empties.cards === 3 && empties.empty === 3 && empties.plus === '캐릭터 생성',
     '빈 저장소 → 칸 셋 전부 비어 있고 각각 캐릭터 생성', JSON.stringify(empties));
@@ -104,8 +104,8 @@ try {
     const back = [...document.querySelectorAll('.char-select .ts-foot .ui-btn')].find((b) => b.textContent === '뒤로');
     back.click();
     [...document.querySelectorAll('.menu.title .title-actions .ui-btn')].find((b) => b.textContent === '게임 시작').click();
-    const c = [...document.querySelectorAll('.char-select .cs-card')].find((x) => x.querySelector('.cs-slot')?.textContent === '슬롯 2');
-    return c ? { lv: c.querySelector('.cs-lv')?.textContent, name: c.querySelector('.cs-name')?.textContent, empty: c.classList.contains('empty'), stats: c.querySelectorAll('.cs-stats .cc-mini').length } : null;
+    const c = [...document.querySelectorAll('.char-select .csl-card')].find((x) => x.querySelector('.csl-slot')?.textContent === '슬롯 2');
+    return c ? { lv: c.querySelector('.csl-lv')?.textContent, name: c.querySelector('.csl-name')?.textContent, empty: c.classList.contains('empty'), stats: c.querySelectorAll('.csl-stats .cc-mini').length } : null;
   }, lvReal);
   ok(card && !card.empty && card.name === '테스트대원' && card.lv === `Lv. ${lvReal}`, `슬롯 2 카드가 세이브를 읽는다 (Lv. ${lvReal})`, JSON.stringify(card));
   ok(card && card.stats === 5, '슬롯 카드에 능력치 다섯 줄', JSON.stringify(card));

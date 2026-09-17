@@ -68,7 +68,7 @@ export class CharacterSelect {
     el('div', { cls: 'ts-title', text: '캐릭터 선택', parent: head });
     this.sub = el('div', { cls: 'ts-sub', text: '', parent: head });
 
-    const wrap = el('div', { cls: 'cs-cards', parent: this.root });
+    const wrap = el('div', { cls: 'csl-cards', parent: this.root });
     for (const id of SLOT_IDS) this.cards.set(id, this.buildCard(wrap, id));
 
     /* 2026-09-15 2차 (사용자 결정): 결과 메시지는 카드 아래의 패널이 아니라 **우측 하단 글자**다 — 옛 안내 라벨
@@ -93,21 +93,21 @@ export class CharacterSelect {
   }
 
   private buildCard(parent: HTMLElement, id: SlotId): CardEls {
-    const root = el('div', { cls: 'cs-card', attrs: { role: 'button', tabindex: '0' }, parent });
-    const bar = el('div', { cls: 'cs-bar', parent: root });
-    const slotTag = el('div', { cls: 'cs-slot', text: `슬롯 ${id}`, parent: root });
+    const root = el('div', { cls: 'csl-card', attrs: { role: 'button', tabindex: '0' }, parent });
+    const bar = el('div', { cls: 'csl-bar', parent: root });
+    const slotTag = el('div', { cls: 'csl-slot', text: `슬롯 ${id}`, parent: root });
 
     /* 빈 칸 */
-    const empty = el('div', { cls: 'cs-empty-wrap', parent: root });
-    el('div', { cls: 'cs-plus', text: '＋', parent: empty });
-    el('div', { cls: 'cs-empty-label', text: '캐릭터 생성', parent: empty });
+    const empty = el('div', { cls: 'csl-empty-wrap', parent: root });
+    el('div', { cls: 'csl-plus', text: '＋', parent: empty });
+    el('div', { cls: 'csl-empty-label', text: '캐릭터 생성', parent: empty });
 
     /* 채워진 칸 */
-    const filled = el('div', { cls: 'cs-filled', parent: root });
-    const name = el('div', { cls: 'cs-name', text: '', parent: filled });
-    const level = el('div', { cls: 'cs-lv', text: '', parent: filled });
+    const filled = el('div', { cls: 'csl-filled', parent: root });
+    const name = el('div', { cls: 'csl-name', text: '', parent: filled });
+    const level = el('div', { cls: 'csl-lv', text: '', parent: filled });
 
-    const meta = el('div', { cls: 'cs-meta', parent: filled });
+    const meta = el('div', { cls: 'csl-meta', parent: filled });
     const cell = (k: string): HTMLElement => {
       const c = el('div', { cls: 'cell', parent: meta });
       el('div', { cls: 'k', text: k, parent: c });
@@ -115,14 +115,14 @@ export class CharacterSelect {
     };
     const credits = cell('크레딧');
 
-    el('div', { cls: 'cs-divider', parent: filled });
+    el('div', { cls: 'csl-divider', parent: filled });
 
-    const statsWrap = el('div', { cls: 'cs-stats', parent: filled });
+    const statsWrap = el('div', { cls: 'csl-stats', parent: filled });
     const stats = new Map<StatId, { value: HTMLElement; fill: HTMLElement }>();
     // 능력치 줄은 `bind` 뒤에 이름을 알 수 있으므로 첫 `refresh()` 에서 채운다.
     statsWrap.dataset.pending = '1';
 
-    const actions = el('div', { cls: 'cs-actions', parent: filled });
+    const actions = el('div', { cls: 'csl-actions', parent: filled });
     const del = el('button', { cls: 'ui-btn danger', text: '삭제', parent: actions });
     del.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); this.askDelete(id); });
 
@@ -140,7 +140,7 @@ export class CharacterSelect {
 
   /** 카드 하나의 능력치 다섯 줄 (시트와 같은 어휘의 축소판: 이름 · mono 값 · 얇은 바). */
   private fillStatRows(card: CardEls): void {
-    const wrap = card.filled.querySelector<HTMLElement>('.cs-stats');
+    const wrap = card.filled.querySelector<HTMLElement>('.csl-stats');
     if (!wrap || !wrap.dataset.pending) return;
     delete wrap.dataset.pending;
     for (const def of this.statDefs()) {

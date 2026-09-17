@@ -560,9 +560,9 @@ try {
       n: cards.length,
       order: cards.map((c) => c.dataset.from),
       active: cards[0]?.classList.contains('is-active'),
-      hint: cards[0]?.querySelector('.ci-hint').textContent,
-      id: cards[0]?.querySelector('.ci-id').textContent,
-      name: cards[0]?.querySelector('.ci-name').textContent,
+      hint: cards[0]?.querySelector('.cmi-hint').textContent,
+      id: cards[0]?.querySelector('.cmi-id').textContent,
+      name: cards[0]?.querySelector('.cmi-name').textContent,
       below: wrap.top >= btn.bottom - 1,
       hudCount: window.__game.getSystem('hud').communityInviteCount,
     };
@@ -579,8 +579,8 @@ try {
   await waitSim(1.2);
   let held = await P(() => ({
     t: window.__game.getSystem('hud').communityHoldProgress,
-    fill: document.querySelector('.cm-invite .ci-bar i').style.transform,
-    second: [...document.querySelectorAll('.cm-invite .ci-bar i')][1].style.transform,
+    fill: document.querySelector('.cm-invite .cmi-bar i').style.transform,
+    second: [...document.querySelectorAll('.cm-invite .cmi-bar i')][1].style.transform,
   }));
   ok(held.t > 0.2 && held.t < 0.95, 'holding P fills the gauge', String(held.t));
   ok(/scaleX\(0\.[1-9]/.test(held.fill), 'the active card bar is scaled', held.fill);
@@ -599,7 +599,7 @@ try {
   ok(acc.log.at(-1) === 'acceptInvite:JKLM4567', 'a full P hold accepts the newest invite', JSON.stringify(acc.log.slice(-2)));
   ok(!acc.order.includes('JKLM4567'), 'the accepted invite left the stack', JSON.stringify(acc.order));
   ok(acc.n === 3 && acc.order[0] === 'EFGH3456', 'the 4th invite that was capped out takes its place', JSON.stringify(acc.order));
-  await click('.cm-invite .ci-x');
+  await click('.cm-invite .cmi-x');
   await waitSim(0.2);
   let dis = await P(() => ({
     log: window.__log(), n: window.__game.getSystem('hud').communityInviteCount,
@@ -731,7 +731,7 @@ try {
   ok(ir.closed?.reason === 'accepted' && ir.closed?.id === 'inv-1' && ir.n === 0, 'the card closes as accepted (with its id)', JSON.stringify(ir));
   await P(() => window.__ss.onInvited({ from: 'YZ234567', name: '최근하나', lobby: 'BBB222', at: Date.now(), id: 'inv-2' }));
   await waitSim(0.3);
-  await click('.cm-invite .ci-x');
+  await click('.cm-invite .cmi-x');
   await waitSim(0.1);
   ir = await P(() => ({ last: window.__sent.at(-1), closed: window.__ev['social:inviteClosed'].at(-1), n: window.__game.getSystem('hud').communityInviteCount }));
   ok(same(ir.last, { t: 'social:inviteReply', id: 'inv-2', accept: false }), 'the card × → social:inviteReply {accept:false}', JSON.stringify(ir.last));
@@ -745,7 +745,7 @@ try {
   await P(() => window.__ss.onInvited({ from: 'NPQR5678', name: '최근다섯', lobby: 'EEE555', at: Date.now() }));
   await waitSim(0.3);
   const sentBeforeX = await P(() => window.__sent.length);
-  await click('.cm-invite .ci-x');
+  await click('.cm-invite .cmi-x');
   await waitSim(0.1);
   ir = await P(() => ({ n: window.__sent.length, closed: window.__ev['social:inviteClosed'].at(-1) }));
   ok(ir.n === sentBeforeX && ir.closed?.reason === 'dismissed', 'its × sends nothing (the old relay has no reply) and just dismisses', JSON.stringify(ir));
