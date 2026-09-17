@@ -14,7 +14,7 @@ each script's header comment — read it before editing a smoke.
 | `economy-table.mjs` | Builds, checks and staleness-tests `server/economy.gen.json` (item values, contract/quest rewards, price multipliers, repair, crypto, intel) |
 | `check-planet-loot.mjs` | Manual: per-planet weapon-grade and rarity drop tables from `data/planet_loot.csv`, rolled through the real loot code |
 | `quiet-hmr.mjs` | Smoke helper `quietViteHmr(page, { parkRelay?, logSockets? })` — parks the `vite-hmr` WebSocket (see Rules) |
-| `close-browser.mjs` | Smoke helper `closeBrowser(browser)` — kills a launched Chrome's process tree before `browser.close()` so the lane never waits on a stuck shutdown (see Rules) |
+| `close-browser.mjs` | Smoke helper `closeBrowser(browser)` — kills a launched Chrome's process tree, gives up on `browser.close()` after 5 s and removes the temp profile itself, so the lane never waits on a stuck shutdown (see Rules) |
 | `dev-all.mjs` | `npm run dev:all` — relay + vite with prefixed output; forwards the terminal's input lines to the relay (operator console) |
 | `lan-address.mjs` | Prints the LAN IPv4 for `start-server.bat` (`--all`, `--url`) |
 | `pack-release.mjs` | Last step of `npm run app:dist` — assembles `release/SCAVANGER/` with exactly three entries (`app/` · stub `SCAVANGER.exe` · `server.txt`); no server |
@@ -148,7 +148,10 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
   dedicated `npx vite --port 5299` and pass its URL.
 - **Close with `closeBrowser(browser)`** (`close-browser.mjs`), never a bare `browser.close()`: on Windows a D3D11 Chrome that exits while
   other Chromes still render keeps its process alive for up to ~2 min after CDP disconnects, and puppeteer waits for it with no limit —
-  the smoke is done but its lane is not (measured and explained in the helper's header). `smoke-desktop` keeps its own graceful close: it tests the app's quit.
+  the smoke is done but its lane is not (measured and explained in the helper's header). Killing the tree is not always enough either
+  (2026-09-17): a process stuck in a kernel wait is not reaped, so the helper waits **at most 5 s** for `close()` and then walks away,
+  deleting the temp profile itself; `verify.mjs` sweeps profiles older than 2 h at the start of a run.
+  `smoke-desktop` keeps its own graceful close: it tests the app's quit.
 - **Wait for `net:profileLoaded`** before seeding state directly — a server profile arriving later replaces it.
 - Two-client smokes join a **private lobby by code**, never quick match (stale public lobbies hijack it). Counters that are never reset
   (e.g. `EnemySystem.hitGuardStats`) are read as before/after deltas.
@@ -203,6 +206,13 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
   after CDP disconnects (0 CPU, threads in `LpcReply`), and `browser.close()` waits for it with no limit. Stuck closes are released
   together in ~120 s steps, which is why whole groups of smokes used to finish in the same second. `verify:all`: **26 min 46 s → 16 min 40 s**
   after `closeBrowser` (smoke process time 5476 s → 3287 s; time after the browser disconnected 2244 s → 17 s). Details in `close-browser.mjs`.
+- **The same stall came back as a hang, and it was the “middle group runs at 2×”** (2026-09-17, measured on the 28-thread i7-14700K).
+  `taskkill /T /F` does not reap a chrome process sitting in a kernel wait: two per browser (gpu-process + crashpad-handler) survived,
+  `browser.close()` waited for them with no limit, and **8 of 8 smokes in two 4-lane runs stopped right after their last check**
+  without printing `N passed` — still alive 30 min later, with the runner holding the lanes. While they lived, WMI `Win32_Process`
+  enumeration timed out too; killing them released every stuck smoke at once. With the 5 s give-up in `closeBrowser`, the same
+  16-script · 4-lane set that ran 89·99·83·89 s → **141–157 s** → 59–64 s now runs 89·82·88·101 s → **64–84 s** → 56–60 s
+  (5 min 6 s total, 16/16 green, no chrome process and no temp profile left behind).
 - The rest is **simulation time**. Smokes wait on `ctx.time`; pages run at ~55–60 fps on 4 lanes, so game time ≈ wall time.
   `Engine.MAX_DT = 0.05` puts a **20 fps floor** under it: below 20 fps the game clock runs slower than the wall clock.
 - **The lane numbers are per machine.** The reds below are from the 8-core/16-thread box. Measured 2026-09-17 on the 28-thread
@@ -222,10 +232,10 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
 ## Recent changes
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
+- 2026-09-17 — `closeBrowser` no longer waits on a stuck `browser.close()` (5 s, then it deletes the temp profile itself) and `verify.mjs` sweeps stale profiles: the middle group of a 4-lane run no longer runs at 2× (E-12).
 - 2026-09-17 — 「Known gaps in the net」 collects what nothing checks (moved out of `docs/TODO.md`); `smoke-tutorial-raid` is mapped to `ui` as well — its liftoff HUD frames are ui's.
 - 2026-09-17 — `verify.mjs` keeps a red run's logs in `<log-dir>/failed/`; `smoke-desktop` says **why** a boot timed out (listening
   pids, process alive, last fetch error, and whether the port comes up late at all) and notes any boot slower than 3 s (E-13).
 - 2026-09-16 — New `close-browser.mjs`; every smoke and `e2e-mp` closes Chrome through `closeBrowser` (kills the process tree first) — `verify:all` 26 min 46 s → 16 min 40 s on this machine.
 - 2026-09-16 — `verify.mjs`: a `src/shared` change no longer selects everything by itself — narrow ones pick the folders that use the changed exports (`sharedConsumers`); new `--dry-run`.
 - 2026-09-16 — `verify.mjs`: `net:selftest` now runs alongside the smokes (it used to hold the browsers back ~50 s), and the lane start times share one 24 s ramp budget instead of 8 s per lane; measured why `--jobs` must stay at 4.
-- 2026-09-16 — `smoke-cooking` covers dining plates (table gate, replace warning, eat without consuming, squad plates, launch warning, raid-start clear); `smoke-inventory-p6` cook section tests `consumeCookInputs` (meal quality stack checks removed); data-check resolves meal ids in the meal table.

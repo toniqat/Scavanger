@@ -34,7 +34,7 @@
  *   Servers started here are stopped on exit; servers found running are left alone.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync, existsSync, createWriteStream } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync, readFileSync, readdirSync, existsSync, createWriteStream } from 'node:fs';
 import { CSV_FOLDERS, CSV_WIDE } from './data-owners.mjs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -528,6 +528,22 @@ function killPort(port) {
     else { try { process.kill(Number(pid), 'SIGTERM'); } catch { /* gone */ } }
   }
 }
+/* 2026-09-17 (E-12): 커널 대기에 걸린 chrome 이 살아남으면 puppeteer 도 `close-browser.mjs` 도 그 브라우저의 임시 프로필을
+   못 지운다 — 그날 %TEMP% 에 45개가 쌓여 있었다. 지우는 건 러너의 몫이다. 2시간은 가장 긴 스모크(~4분)보다 한참 길어
+   **지금 돌고 있는** 브라우저의 프로필을 건드릴 수 없는 값이다. */
+function sweepStaleProfiles(maxAgeMs = 2 * 60 * 60 * 1000) {
+  const tmp = os.tmpdir();
+  let gone = 0;
+  for (const name of readdirSync(tmp).filter((n) => n.startsWith('puppeteer_dev_chrome_profile-'))) {
+    const dir = resolve(tmp, name);
+    try {
+      if (Date.now() - statSync(dir).mtimeMs < maxAgeMs) continue;
+      rmSync(dir, { recursive: true, force: true, maxRetries: 1 });
+      gone++;
+    } catch { /* 아직 누가 쥐고 있다 — 다음 실행에서 다시 본다 */ }
+  }
+  if (gone) console.log(`  swept ${gone} stale puppeteer profile folder(s) from %TEMP%`);
+}
 async function isUp(url) { try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); return r.ok; } catch { return false; } }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitUp(url, label, ms = 30_000) {
@@ -625,6 +641,7 @@ try {
   // 기다리느라 수십 초를 버린다. 하나라도 브라우저를 쓰면 예전처럼 둘 다 띄운다.
   const needServers = picked.some((n) => !SMOKES[n].standalone);
   if (picked.length) {
+    if (needServers) sweepStaleProfiles();
     // 2. Servers — 고른 것이 전부 standalone 이면 건너뛴다.
     if (!needServers) console.log('  servers skipped (standalone scripts only)');
     else {
