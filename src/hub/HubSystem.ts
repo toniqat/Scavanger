@@ -21,7 +21,7 @@ import { HubStatus } from './ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from './ui/ReadyPanel';
 import { randomSeed } from './ui/dom';
 import './hub.css';
-/* 2026-09-14 정보상: 매칭 팝업(`.hm-`) · 정보상 패널(`.hi-`) · 정보상 화면(`.it-`). `hub.css` 와 나란히 배선한다. */
+/* 2026-09-14 정보상: 매칭 팝업(`.hm-`) · 정보상 패널(`.hi-`) · 정보상 화면(`.his-`). `hub.css` 와 나란히 배선한다. */
 import './intel.css';
 
 import { type AndroidPending, type DockTransition, type RaidLaunchState, type SquadDockState, type WarpState, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from './model';

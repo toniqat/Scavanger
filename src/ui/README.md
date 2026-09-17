@@ -337,10 +337,13 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
   bag and at the trade desk. — `hud/ItemTip.ts` (`weaponRows`)
 - Item hover cards anchor bottom-right of the cursor; an element opts into top-left with `data-tip-anchor="left"`
   (`TIP_ANCHOR_ATTR`). ItemTip hides when its chip leaves the DOM or a tooltip is pinned. — `hud/ItemTip.ts`
-- `.item-tip` pins its own text flow (`text-align`, `direction`) and its head's flex axes (`align-items: stretch`,
-  `justify-content: flex-start`), because `hub/intel.css` owns the same `.it-` prefix: its global
-  `.it-head { align-items: flex-end }` right-aligned the card's 이름 / 종류 wherever the card was shown.
-  — `styles/base.css` (`.item-tip .it-head`)
+- The card owns the `.itip-` prefix (`.itip-head` / `-name` / `-sub` / `-desc` / `-stats` / `-value`). It used `.it-`
+  until 2026-09-17, when `hub/intel.css` turned out to own the same prefix and its global
+  `.it-head { align-items: flex-end }` right-aligned the card's 이름 / 종류 wherever the card was shown; both sides
+  were renamed (hub took `.his-`) and `scripts/check-css-prefixes.mjs` now fails the build on a repeat.
+- Independently of that, `.item-tip` pins its own text flow (`text-align`, `direction`) and its head's flex axes
+  (`align-items: stretch`, `justify-content: flex-start`): the card hangs off `#ui-root`, so it must look the same
+  from every screen and cannot rely on a foreign stylesheet to leave it alone. — `styles/base.css`
 - XP readouts go through `formatCompactNumber` / `formatCompactSigned` (`shared/numberFormat`), both sides of an
   `x / y` pair; counts, weights, durability, ammo, percentages and times stay exact. — `menus/RewardsBlock.ts`
 - UI timing constants (fade holds, typing reveal speed, poll intervals) live in the component; gameplay numbers come
@@ -354,8 +357,8 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
+- 2026-09-17 — The item hover card moved off the `.it-` prefix to `.itip-` (`hud/ItemTip.ts`, `housing/ui/StationTip.ts`, `styles/base.css`, 5 smokes); `hub/intel.css` took `.his-` at the same time, and `scripts/check-css-prefixes.mjs` now fails a build that gives one prefix two folders (B-18).
 - 2026-09-17 — The liftoff cinematic's HUD fade is reverted in the same emit that ends the raid (`game:complete` / `game:over` → `setCinematic(false)`), not a frame later by `applyVisibility`: the result screen used to appear over a HUD still faded to 0 for one frame (`smoke-tutorial-raid` 「HUD 페이드 값이 되돌아간다」, red the slower the lane). `smoke-tutorial-raid` is mapped to the `ui` folder in `verify.mjs` now.
 - 2026-09-17 — `CharacterSelect` cards drop the 레이드 / 탈출 cells (credits only in `.cs-meta`).
 - 2026-09-17 — `BuffStrip` registers itself in `shared/charBuffView` and takes `{interactive}`: `.bfs.is-interactive` receives the pointer and each cell carries `data-tip-name` / `-sub` (`디버프 · 남은 23h`) / `-desc` / `-color` for the `ItemTip` text card instead of a native `title` (used by the character sheet header).
 - 2026-09-17 — No toast on tactical implant equip / unequip / swap (`implant:equipped` subscription removed from `Notifications`); ship-call strings read `함선 지원` (wheel centre, call/ready toasts).
-- 2026-09-17 — Messenger: intro choices wait `MESSENGER_CHOICE_DELAY_S` (0.5 s) after the last NPC line; typing `...` dots scale/fade in a staggered slow loop via Web Animations (CSS keyframes were clipped by reduced motion); every thread ends in a half-height empty tail (`.ms-tail`, `50cqh`) with pinning measured to the last line; the NPC trust reward chip now gets the hover card through the new `ItemTip` text-chip hook (`TIP_NAME_ATTR`) instead of a native `title`.

@@ -28,7 +28,8 @@ import type { PlanetHologram } from './PlanetHologram';
  * 수치는 하나도 코드에 없다: 비용 `ctx.meta.intel.costOf`(없으면 `shared/intel.intelCost` + `INTEL_COST_TABLE`),
  * 줄 이름 · 효과 문장 · 잠김 기준은 `shared/intelDefs`(→ `data/intel_options.csv`).
  *
- * CSS 접두사 `.it-` (`hub/intel.css`) — `rg "\.it-" src` 가 비어 있음을 확인하고 골랐다.
+ * CSS 접두사 `.his-` (`hub/intel.css`) — 2026-09-17 에 `.it-` 에서 옮겼다: 그것은 `ui` 의 아이템 카드가
+ * 먼저 쓰던 접두사여서 여기 전역 규칙이 남의 카드를 망가뜨리고 있었다 (`hub/intel.css` 머리 주석).
  * Owner: hub/ui. 여는 곳 — `hub/ui/HubMenu.ts` 우측 정보상 패널.
  * ──────────────────────────────────────────────────────────────────────────── */
 
@@ -109,64 +110,64 @@ export class IntelMenu {
   private holdStart = 0;
 
   constructor(private readonly ctx: GameContext, private readonly host: IntelMenuHost) {
-    const root = this.root = el('div', { cls: 'menu it-menu fullscreen interactive', parent: ctx.uiRoot });
+    const root = this.root = el('div', { cls: 'menu his-menu fullscreen interactive', parent: ctx.uiRoot });
     root.hidden = true;
     el('div', { cls: 'scan', parent: root });
     const f = el('div', { cls: 'frame', parent: root });
 
     // ── 머리 ──
-    const head = el('div', { cls: 'it-head', parent: f });
+    const head = el('div', { cls: 'his-head', parent: f });
     const hl = el('div', { cls: 'hl', parent: head });
     this.titleEl = el('div', { cls: 'title', text: '정보상 — 레이븐', parent: hl });
     this.subEl = el('div', { cls: 'subtitle', text: '', parent: hl });
-    const hr = el('div', { cls: 'it-head-right', parent: head });
-    this.creditsEl = el('div', { cls: 'it-credits', text: '', parent: hr });
-    this.btnRelocate = this.button(hr, '지역 재배치', () => this.askRelocate(), 'it-relocate');
+    const hr = el('div', { cls: 'his-head-right', parent: head });
+    this.creditsEl = el('div', { cls: 'his-credits', text: '', parent: hr });
+    this.btnRelocate = this.button(hr, '지역 재배치', () => this.askRelocate(), 'his-relocate');
     this.btnRelocate.hidden = true;
-    this.button(hr, '닫기', () => this.close(), 'it-close');
+    this.button(hr, '닫기', () => this.close(), 'his-close');
 
     // ── 본문 2열 ──
-    const body = el('div', { cls: 'it-body', parent: f });
-    this.leftPane = el('div', { cls: 'it-pane left', parent: body });
-    this.rightPane = el('div', { cls: 'it-pane right', parent: body });
+    const body = el('div', { cls: 'his-body', parent: f });
+    this.leftPane = el('div', { cls: 'his-pane left', parent: body });
+    this.rightPane = el('div', { cls: 'his-pane right', parent: body });
 
     this.mapView = createIntelMapView();
 
     // 고르는 국면: 기믹 줄
-    this.rowsWrap = el('div', { cls: 'it-rows-wrap' });
-    el('div', { cls: 'it-rows-head', text: '고정할 기믹', parent: this.rowsWrap });
-    const rows = el('div', { cls: 'it-rows', parent: this.rowsWrap });
+    this.rowsWrap = el('div', { cls: 'his-rows-wrap' });
+    el('div', { cls: 'his-rows-head', text: '고정할 기믹', parent: this.rowsWrap });
+    const rows = el('div', { cls: 'his-rows', parent: this.rowsWrap });
     for (const def of INTEL_OPTIONS_IN_ORDER) this.rows.push(this.buildRow(rows, def.id));
 
-    const foot = el('div', { cls: 'it-foot', parent: this.rowsWrap });
-    const totalRow = el('div', { cls: 'it-total', parent: foot });
-    el('div', { cls: 'it-total-label', text: '총 비용', parent: totalRow });
-    this.totalEl = el('div', { cls: 'it-total-val', text: fmtCredits(0), parent: totalRow });
-    el('div', { cls: 'it-total-note', text: '여러 줄을 고정할수록 총액이 가파르게 오릅니다', parent: foot });
-    this.reasonEl = el('div', { cls: 'it-reason', text: '', parent: foot });
-    const actions = el('div', { cls: 'it-actions', parent: foot });
+    const foot = el('div', { cls: 'his-foot', parent: this.rowsWrap });
+    const totalRow = el('div', { cls: 'his-total', parent: foot });
+    el('div', { cls: 'his-total-label', text: '총 비용', parent: totalRow });
+    this.totalEl = el('div', { cls: 'his-total-val', text: fmtCredits(0), parent: totalRow });
+    el('div', { cls: 'his-total-note', text: '여러 줄을 고정할수록 총액이 가파르게 오릅니다', parent: foot });
+    this.reasonEl = el('div', { cls: 'his-reason', text: '', parent: foot });
+    const actions = el('div', { cls: 'his-actions', parent: foot });
     this.btnCancel = this.button(actions, '취소', () => this.close());
-    this.btnConfirm = el('button', { cls: 'ui-btn primary it-confirm', parent: actions });
-    this.holdFill = el('div', { cls: 'it-hold-fill', parent: this.btnConfirm });
+    this.btnConfirm = el('button', { cls: 'ui-btn primary his-confirm', parent: actions });
+    this.holdFill = el('div', { cls: 'his-hold-fill', parent: this.btnConfirm });
     // 2026-09-15 2차 (사용자 결정): `(1초 꾹)` 도 「누르고 있으면 결제합니다」 줄도 없앴다 — 그 말은 라벨 왼쪽의
     // 좌클릭 홀드 키캡이 한다.
     createHoldButtonCap(this.btnConfirm);
-    el('span', { cls: 'it-confirm-label', text: '확정', parent: this.btnConfirm });
+    el('span', { cls: 'his-confirm-label', text: '확정', parent: this.btnConfirm });
     // **홀드만** 확정한다 — click 핸들러를 달지 않으므로 Enter · Space 로는 아무 일도 일어나지 않는다
     this.btnConfirm.addEventListener('pointerdown', (e) => { e.preventDefault(); this.startHold(); });
     window.addEventListener('pointerup', this.onPointerUp, true);
     this.btnConfirm.addEventListener('pointerleave', () => this.stopHold());
 
     // 확정 국면: 좌 홀로그램 / 우 지도 + 요약
-    this.holoWrap = el('div', { cls: 'it-holo-wrap' });
-    el('div', { cls: 'it-eyebrow', text: '지역 락온', parent: this.holoWrap });
-    this.holoHost = el('div', { cls: 'it-holo', parent: this.holoWrap });
-    this.coordEl = el('div', { cls: 'it-coord', text: '', parent: this.holoWrap });
+    this.holoWrap = el('div', { cls: 'his-holo-wrap' });
+    el('div', { cls: 'his-eyebrow', text: '지역 락온', parent: this.holoWrap });
+    this.holoHost = el('div', { cls: 'his-holo', parent: this.holoWrap });
+    this.coordEl = el('div', { cls: 'his-coord', text: '', parent: this.holoWrap });
 
-    this.doneWrap = el('div', { cls: 'it-done' });
-    this.mapHost = el('div', { cls: 'it-map-host', parent: this.doneWrap });
-    this.summaryEl = el('div', { cls: 'it-summary', parent: this.doneWrap });
-    this.doneNote = el('div', { cls: 'it-done-note', text: '', parent: this.doneWrap });
+    this.doneWrap = el('div', { cls: 'his-done' });
+    this.mapHost = el('div', { cls: 'his-map-host', parent: this.doneWrap });
+    this.summaryEl = el('div', { cls: 'his-summary', parent: this.doneWrap });
+    this.doneNote = el('div', { cls: 'his-done-note', text: '', parent: this.doneWrap });
 
     root.addEventListener('mousedown', (e) => e.stopPropagation());
   }
@@ -356,7 +357,7 @@ export class IntelMenu {
     const spec = this.heldSpec();
     this.summaryEl.replaceChildren();
     if (!this.lockDone) {
-      el('div', { cls: 'it-sum-wait', text: '지역 좌표 확보 중…', parent: this.summaryEl });
+      el('div', { cls: 'his-sum-wait', text: '지역 좌표 확보 중…', parent: this.summaryEl });
       this.mapHost.hidden = true;
       setText(this.doneNote, '');
       return;
@@ -366,14 +367,14 @@ export class IntelMenu {
     for (const p of picks) {
       const def = INTEL_OPTIONS_IN_ORDER.find((d) => d.id === p.g);
       if (!def) continue;
-      const line = el('div', { cls: 'it-sum-row', parent: this.summaryEl });
-      el('div', { cls: 'it-sum-label', text: def.label, parent: line });
+      const line = el('div', { cls: 'his-sum-row', parent: this.summaryEl });
+      el('div', { cls: 'his-sum-label', text: def.label, parent: line });
       const txt = p.g === 'named' && p.id
         ? `${intelEffectText(p.g, p.tier)} — ${NAMED_ROGUE_NAME_KO[p.id as keyof typeof NAMED_ROGUE_NAME_KO] ?? p.id}`
         : intelEffectText(p.g, p.tier);
-      el('div', { cls: 'it-sum-effect', text: txt, parent: line });
+      el('div', { cls: 'his-sum-effect', text: txt, parent: line });
     }
-    if (!picks.length) el('div', { cls: 'it-sum-wait', text: '보유한 정보가 없습니다', parent: this.summaryEl });
+    if (!picks.length) el('div', { cls: 'his-sum-wait', text: '보유한 정보가 없습니다', parent: this.summaryEl });
     setText(this.doneNote, '이 정보는 해당 행성으로 출격해 레이드가 끝나면 소모됩니다.');
     setText(this.coordEl, this.coordText());
   }
@@ -556,27 +557,27 @@ export class IntelMenu {
 
   private buildRow(parent: HTMLElement, g: IntelGimmick): Row {
     const def = INTEL_OPTIONS_IN_ORDER.find((d) => d.id === g);
-    const root = el('div', { cls: 'it-row', parent });
+    const root = el('div', { cls: 'his-row', parent });
     root.dataset.g = g;
     if (def?.note) root.title = def.note;                     // `note` 는 호버 툴팁 (설계안 §4.2)
-    const main = el('div', { cls: 'it-row-main', parent: root });
-    el('div', { cls: 'it-row-label', text: def?.label ?? g, parent: main });
-    const effect = el('div', { cls: 'it-row-effect', text: '', parent: main });
-    const lock = el('div', { cls: 'it-row-lock', text: '', parent: main });
+    const main = el('div', { cls: 'his-row-main', parent: root });
+    el('div', { cls: 'his-row-label', text: def?.label ?? g, parent: main });
+    const effect = el('div', { cls: 'his-row-effect', text: '', parent: main });
+    const lock = el('div', { cls: 'his-row-lock', text: '', parent: main });
     lock.hidden = true;
 
-    const tier = el('div', { cls: 'it-row-tier', parent: root });
-    const prev = this.button(tier, '◀', () => this.step(g, -1), 'it-step');
-    const tierVal = el('div', { cls: 'it-tier-val', text: '0 / 1', parent: tier });
-    const next = this.button(tier, '▶', () => this.step(g, 1), 'it-step');
-    const cost = el('div', { cls: 'it-row-cost', text: '—', parent: root });
+    const tier = el('div', { cls: 'his-row-tier', parent: root });
+    const prev = this.button(tier, '◀', () => this.step(g, -1), 'his-step');
+    const tierVal = el('div', { cls: 'his-tier-val', text: '0 / 1', parent: tier });
+    const next = this.button(tier, '▶', () => this.step(g, 1), 'his-step');
+    const cost = el('div', { cls: 'his-row-cost', text: '—', parent: root });
 
     let namedRow: HTMLElement | null = null;
     const namedBtns: Array<{ id: string; btn: HTMLButtonElement }> = [];
     if (g === 'named') {
-      namedRow = el('div', { cls: 'it-named', parent: root });
+      namedRow = el('div', { cls: 'his-named', parent: root });
       for (const id of NAMED_ROGUE_TYPES) {
-        const btn = this.button(namedRow, NAMED_ROGUE_NAME_KO[id], () => { this.namedId = id; this.refreshRows(); }, 'it-named-btn');
+        const btn = this.button(namedRow, NAMED_ROGUE_NAME_KO[id], () => { this.namedId = id; this.refreshRows(); }, 'his-named-btn');
         namedBtns.push({ id, btn });
       }
       namedRow.hidden = true;

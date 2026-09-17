@@ -42,9 +42,9 @@ export class StationTip {
   constructor(parent: HTMLElement) {
     this.el = el('div', { cls: 'item-tip hs-tip', parent });
     this.el.hidden = true;
-    const head = el('div', { cls: 'it-head', parent: this.el });
-    this.nameEl = el('div', { cls: 'it-name', text: '', parent: head });
-    this.subEl = el('div', { cls: 'it-sub', text: '', parent: head });
+    const head = el('div', { cls: 'itip-head', parent: this.el });
+    this.nameEl = el('div', { cls: 'itip-name', text: '', parent: head });
+    this.subEl = el('div', { cls: 'itip-sub', text: '', parent: head });
     this.rowsEl = el('div', { cls: 'hs-tip-rows', parent: this.el });
     this.footEl = el('div', { cls: 'hs-tip-foot', text: '', parent: this.el });
   }

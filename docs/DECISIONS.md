@@ -575,8 +575,8 @@ Bugs whose cause was not what the symptom suggested:
 - **Right-aligned item tooltips** in the corp / craft-ingredient / bookshelf / compute-cluster screens were a CSS
   **prefix collision**: `hub/intel.css` took the `.it-` prefix the item card had used since Phase 8 and declared a global
   `.it-head { align-items: flex-end }`. In a column flex that is "right-align", which is why only 이름 and 종류 moved.
-  Fixed at the card (it now states every axis, so a future foreign `.it-*` rule loses on specificity); renaming
-  `intel.css`'s class is left as a to-do for hub/.
+  Fixed at the card (it now states every axis, so a future foreign rule loses on specificity); the prefix itself was
+  split on 2026-09-17 — see that day's entry.
 - **Items could not be moved inside the embedded 창고 | 가방 card.** Not a broken drop — `TradeGrids` had never had one:
   its `pointerup` only looked at the caller's drop tray. Cell moves, 창고 ↔ 가방, rotation and merge now all go through
   `DropResolver`, so every existing rule (no silent displacement of equipped gear, merge overflow stays on the cursor,
@@ -758,3 +758,19 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
 - **Chair / sofa seat rule: video games no longer require a seat** (sits if one is placed under the old rule).
 - **Character sheet header = character name**, buff/debuff thumbnails beside it; 레이드 / 탈출 counts removed from the sheet **and** the
   title character-select cards.
+
+## 2026-09-17 — CSS 접두사 충돌 정리 · CSS prefix collisions (B-18)
+
+- **Both sides of the `.it-` collision were renamed**, not just the newcomer: the intel screen took `.his-`
+  (hub/intel.css) and the item card took `.itip-` (ui). `.it-` is now unused, so neither side can be said to have
+  "won" it. Rejected: renaming only `hub/intel.css` (the original to-do), and folding the intel screen into the
+  existing `.hi-` panel prefix — five of its class names (`body`, `row`, `row-label`, `row-effect`, `actions`)
+  collide with the panel's own.
+- **The card keeps its defensive axis declarations** even though the collision is gone: the card hangs off
+  `#ui-root` and must look the same from every screen on its own account.
+- **A check now enforces "one prefix, one folder"** (`scripts/check-css-prefixes.mjs`, run by `verify`) instead of
+  the convention alone. Rejected: keeping the convention and noting the gap in `scripts/README.md`.
+- **The three collisions the check found were cleaned up the same way — the smaller set moves.** Community invite
+  rows `.ci-` → `.cmi-` (ui, they live inside `.cm-invite` anyway; meta keeps `.ci-` for the implant desk), contract
+  columns `.cc-` → `.ctr-` (meta; ui keeps `.cc-` for character creation), character-slot cards `.cs-` → `.csl-`
+  (ui; progression keeps `.cs-` for the character sheet).

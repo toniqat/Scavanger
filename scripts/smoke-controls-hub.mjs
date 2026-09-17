@@ -571,9 +571,9 @@ try {
     const r = chip.getBoundingClientRect();
     chip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: r.left + 4, clientY: r.top + 4 }));
     const tipEl = document.querySelector('#ui-root > .item-tip');
-    return { defId: chip.dataset.defId, hidden: tipEl?.hidden ?? true, name: tipEl?.querySelector('.it-name')?.textContent ?? '',
-      rows: tipEl?.querySelectorAll('.it-stats .k').length ?? 0, labels: [...(tipEl?.querySelectorAll('.it-stats .k') ?? [])].map((e) => e.textContent),
-      bar: tipEl?.querySelector('.it-value .wt .k')?.textContent ?? '', shown: window.__game.getSystem('hud').itemTipDefId };
+    return { defId: chip.dataset.defId, hidden: tipEl?.hidden ?? true, name: tipEl?.querySelector('.itip-name')?.textContent ?? '',
+      rows: tipEl?.querySelectorAll('.itip-stats .k').length ?? 0, labels: [...(tipEl?.querySelectorAll('.itip-stats .k') ?? [])].map((e) => e.textContent),
+      bar: tipEl?.querySelector('.itip-value .wt .k')?.textContent ?? '', shown: window.__game.getSystem('hud').itemTipDefId };
   });
   // 2026-09-09: the 크기 / 무게 rows left the stats table (무게 is the bottom bar's left half), so a material card has fewer rows
   ok(tip && !tip.hidden && tip.shown === tip.defId && tip.rows >= 1 && !tip.labels.includes('크기') && !tip.labels.includes('무게') && tip.bar === '무게',

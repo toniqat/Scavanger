@@ -772,8 +772,8 @@ try {
       chip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: 20, clientY: 20 }));
       // the HUD item card — housing's station tooltip (`ui/StationTip`, `.item-tip.hs-tip`) shares the base class
       const card = document.querySelector('.item-tip:not(.hs-tip)');
-      const ks = [...card.querySelectorAll('.it-stats .k')].map((e) => e.textContent);
-      const vs = [...card.querySelectorAll('.it-stats .v')].map((e) => ({ t: e.textContent, c: e.style.color }));
+      const ks = [...card.querySelectorAll('.itip-stats .k')].map((e) => e.textContent);
+      const vs = [...card.querySelectorAll('.itip-stats .v')].map((e) => ({ t: e.textContent, c: e.style.color }));
       const row = (k) => vs[ks.indexOf(k)] ?? null;
       return {
         hidden: card.hidden, ks,
@@ -781,8 +781,8 @@ try {
         tag: row('속성'), uses: row('수확')?.t ?? null, dur: row('내구도')?.t ?? null, sockets: row('소켓 칸')?.t ?? null,
         want: { dur: window.__game.ctx.loot.getItemDef(id)?.soil?.durability ?? null },
         seedSoil: row('맞는 토양'), grow: row('재배 시간')?.t ?? null,
-        weight: card.querySelector('.it-value .wt .v')?.textContent ?? '', value: card.querySelector('.it-value .val .v')?.textContent ?? '',
-        valueHidden: card.querySelector('.it-value').hidden,
+        weight: card.querySelector('.itip-value .wt .v')?.textContent ?? '', value: card.querySelector('.itip-value .val .v')?.textContent ?? '',
+        valueHidden: card.querySelector('.itip-value').hidden,
       };
     };
     const out = {};

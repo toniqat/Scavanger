@@ -369,7 +369,7 @@ try {
       chip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: 15, clientY: 15 }));
       // the HUD item card — housing's station tooltip (`ui/StationTip`, `.item-tip.hs-tip`) shares the base class
       const el = document.querySelector('.item-tip:not(.hs-tip)');
-      const rows = [...el.querySelectorAll('.it-stats .k')].map((k) => [k.textContent, k.nextElementSibling?.textContent ?? '']);
+      const rows = [...el.querySelectorAll('.itip-stats .k')].map((k) => [k.textContent, k.nextElementSibling?.textContent ?? '']);
       const shown = !el.hidden;
       chip.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }));
       chip.remove();

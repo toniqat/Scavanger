@@ -286,7 +286,7 @@ try {
     window.__game.ctx.uiRoot.appendChild(chip);
     chip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: 200, clientY: 200 }));
     const tip = document.querySelector('#ui-root > .item-tip');
-    const bar = tip.querySelector('.it-value');
+    const bar = tip.querySelector('.itip-value');
     const res = {
       value: def ? def.value : null,
       hidden: tip.hidden,
@@ -296,12 +296,12 @@ try {
       label: bar ? (bar.querySelector('.val .k') ?? bar.querySelector('.k')).textContent : '',
       amount: bar ? (bar.querySelector('.val .v') ?? bar.querySelector('.v')).textContent : '',
       align: bar ? getComputedStyle(bar).justifyContent : '',
-      rows: [...tip.querySelectorAll('.it-stats .k')].map((e) => e.textContent),
+      rows: [...tip.querySelectorAll('.itip-stats .k')].map((e) => e.textContent),
     };
     chip.remove();
     return res;
   });
-  ok(!tipBar.hidden && tipBar.bar && tipBar.last, 'the 가치 row became a bottom bar (.it-value, the card last child)', JSON.stringify(tipBar));
+  ok(!tipBar.hidden && tipBar.bar && tipBar.last, 'the 가치 row became a bottom bar (.itip-value, the card last child)', JSON.stringify(tipBar));
   ok(tipBar.label === '가치' && tipBar.amount === `${tipBar.value.toLocaleString('ko-KR')} C`, `bar reads 가치 / ${tipBar.value} C via formatCredits (${tipBar.amount})`, JSON.stringify(tipBar));
   ok(!tipBar.rows.includes('가치') && tipBar.align === 'space-between', '가치 is gone from the stats table and the amount is right-aligned', JSON.stringify(tipBar));
   await P(() => document.querySelector('#ui-root > .item-tip').dispatchEvent(new PointerEvent('pointerout', { bubbles: true })));
@@ -317,7 +317,7 @@ try {
       ctx.uiRoot.appendChild(chip);
       chip.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: 200, clientY: 200 }));
       const tip = document.querySelector('#ui-root > .item-tip');
-      const ks = [...tip.querySelectorAll('.it-stats .k')];
+      const ks = [...tip.querySelectorAll('.itip-stats .k')];
       const i = ks.findIndex((e) => e.textContent === '내구도');
       const v = i >= 0 ? ks[i].nextElementSibling?.textContent : null;
       chip.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }));

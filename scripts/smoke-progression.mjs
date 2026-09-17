@@ -1247,7 +1247,7 @@ try {
     c.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, clientX: rc.left + 4, clientY: rc.top + 4 }));
     c.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: rc.left + 4, clientY: rc.top + 4 }));
     const tip = [...document.querySelectorAll('.item-tip')].find((t) => !t.hidden);
-    const out = { shown: !!tip, name: tip?.querySelector('.it-name')?.textContent ?? null };
+    const out = { shown: !!tip, name: tip?.querySelector('.itip-name')?.textContent ?? null };
     c.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, clientX: 0, clientY: 0 }));
     return out;
   });

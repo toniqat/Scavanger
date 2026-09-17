@@ -244,7 +244,7 @@ export function drawIntelMap(canvas: HTMLCanvasElement, layout: IntelMapLayout |
 /* ── 캔버스 + 범례 한 줄 (화면이 쓰는 작은 뷰) ─────────────────────────────── */
 
 export interface IntelMapView {
-  /** `.it-map` — 부모에 붙였다 떼면서 고르는 화면 ↔ 확정 화면을 오간다. */
+  /** `.his-map` — 부모에 붙였다 떼면서 고르는 화면 ↔ 확정 화면을 오간다. */
   readonly root: HTMLElement;
   readonly canvas: HTMLCanvasElement;
   /** 붙일 곳을 바꾼다 (같은 캔버스를 두 패널이 나눠 쓴다). */
@@ -262,19 +262,19 @@ export interface IntelMapView {
  */
 export function createIntelMapView(): IntelMapView {
   const root = document.createElement('div');
-  root.className = 'it-map';
+  root.className = 'his-map';
   const stage = document.createElement('div');
-  stage.className = 'it-map-stage';
+  stage.className = 'his-map-stage';
   root.appendChild(stage);
   const canvas = document.createElement('canvas');
-  canvas.className = 'it-map-canvas';
+  canvas.className = 'his-map-canvas';
   stage.appendChild(canvas);
   const legend = document.createElement('div');
-  legend.className = 'it-map-legend';
+  legend.className = 'his-map-legend';
   root.appendChild(legend);
   for (const e of INTEL_MAP_LEGEND) {
     const item = document.createElement('span');
-    item.className = 'it-map-leg';
+    item.className = 'his-map-leg';
     const chip = document.createElement('i');
     chip.style.background = e.color;
     item.appendChild(chip);

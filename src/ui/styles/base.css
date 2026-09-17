@@ -2213,42 +2213,41 @@ button.item-chip[data-def-id] { cursor: pointer; }
      상속되는 속성이라 카드 스스로 못박아 둔다 — 남의 컨테이너가 `text-align`/`direction` 을 바꿔도 이 카드는 그대로다. */
   text-align: left; direction: ltr;
 }
-/* **오른쪽 정렬 버그의 진짜 원인은 상속이 아니라 클래스 접두사 충돌이었다** (2026-09-16).
-   정보상 화면(`hub/intel.css`, 2026-09-14)이 같은 `.it-` 접두사를 골라 전역 규칙
-   `.it-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px }` 를 선언했고,
-   스타일시트는 전역이라 그 규칙이 이 카드의 머리에도 걸렸다. 여기서는 `display`·`flex-direction`·`gap` 만 다시
-   적고 있었으므로 `align-items: flex-end` 가 살아남았는데 **세로 flex 에서 그것이 곧 「오른쪽 정렬」**이다 —
-   이름(`.it-name`)과 종류(`.it-sub`)만 오른쪽에 붙던 이유이고, `.is-currency .it-sub` 가 `align-self: flex-start`
-   로 자기 한 줄만 되돌리고 있던 것이 그 흔적이다. 가방·창고는 `inventory/ui/Tooltip`(`.inv-tooltip`)이라 멀쩡했다.
-   화면마다 덮어쓰지 않고 여기서 한 번 막는다: 머리의 **교차축·주축·글 정렬을 전부 명시**해 새 `.it-*` 규칙이
-   또 들어와도 이 카드가 이긴다(`.item-tip` 이 붙어 특정도가 더 높다). — `src/hub/intel.css` 의 `.it-head` */
-.item-tip .it-head {
+/* 머리는 **교차축·주축·글 정렬을 전부 명시**한다 — `display`·`flex-direction`·`gap` 만 적어 두면 남이 선언한
+   `align-items` 가 살아남고, 세로 flex 에서 그것은 곧 「오른쪽 정렬」이라 이름과 종류만 오른쪽에 붙는다.
+   실제로 2026-09-16 까지 그랬다: `hub/intel.css` 가 이 카드와 같은 `.it-` 접두사를 골라 전역
+   `.it-head { align-items: flex-end }` 를 선언했고, 기업 거래 · 제작 재료칩 · 서재 전시대 · 연산 클러스터에서
+   카드가 오른쪽으로 쏠렸다 (가방·창고는 `inventory/ui/Tooltip` 이라 멀쩡했다). 그 충돌 자체는 2026-09-17 에
+   양쪽 이름을 갈라(`.itip-` · `.his-`) 닫혔고 `scripts/check-css-prefixes.mjs` 가 재발을 막지만, **이 명시는
+   그것과 별개로 남긴다**: 카드는 `#ui-root` 바로 밑에 뜨므로(hud/ItemTip) 어느 화면에서 띄우든 똑같이 보여야
+   하고, 그 보장을 남의 스타일시트가 아니라 카드 자신이 져야 한다. */
+.item-tip .itip-head {
   display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 2px;
   text-align: left;
 }
-.item-tip .it-name { font-size: 14px; font-weight: 700; letter-spacing: 0.04em; color: var(--rc); }
-.item-tip .it-sub { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-faint); }
-.item-tip .it-desc { margin: 0; font-size: 11px; line-height: 1.5; color: var(--c-text-dim); }
-.item-tip .it-stats {
+.item-tip .itip-name { font-size: 14px; font-weight: 700; letter-spacing: 0.04em; color: var(--rc); }
+.item-tip .itip-sub { font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--c-text-faint); }
+.item-tip .itip-desc { margin: 0; font-size: 11px; line-height: 1.5; color: var(--c-text-dim); }
+.item-tip .itip-stats {
   display: grid; grid-template-columns: auto 1fr; gap: 3px 12px;
   padding-top: 8px; border-top: 1px solid var(--c-border);
   font-size: 11px;
 }
-.item-tip .it-stats .k { color: var(--c-text-faint); letter-spacing: 0.06em; }
-.item-tip .it-stats .v { text-align: right; color: var(--c-text); font-variant-numeric: tabular-nums; }
+.item-tip .itip-stats .k { color: var(--c-text-faint); letter-spacing: 0.06em; }
+.item-tip .itip-stats .v { text-align: right; color: var(--c-text); font-variant-numeric: tabular-nums; }
 /* Phase 10: 가치 as the card's bottom bar instead of a stats row.
    2026-09-09: 무게 left the stats table for the same bar — `.wt` (weight) on the left, `.val` (가치) on the right,
    each a small label + amount; only the 가치 amount is accent-coloured. */
-.item-tip .it-value {
+.item-tip .itip-value {
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
   margin: 2px -14px -12px; padding: 8px 14px 10px;
   border-top: 1px solid var(--c-border);
   background: rgba(255, 179, 71, 0.06);
 }
-.item-tip .it-value .wt, .item-tip .it-value .val { display: flex; align-items: baseline; gap: 6px; }
-.item-tip .it-value .k { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-text-faint); }
-.item-tip .it-value .v { font-size: 14px; font-weight: 700; color: var(--c-accent); font-variant-numeric: tabular-nums; }
-.item-tip .it-value .wt .v { font-size: 12px; font-weight: 600; color: var(--c-text); }
+.item-tip .itip-value .wt, .item-tip .itip-value .val { display: flex; align-items: baseline; gap: 6px; }
+.item-tip .itip-value .k { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--c-text-faint); }
+.item-tip .itip-value .v { font-size: 14px; font-weight: 700; color: var(--c-accent); font-variant-numeric: tabular-nums; }
+.item-tip .itip-value .wt .v { font-size: 12px; font-weight: 600; color: var(--c-text); }
 
 /* ── 재화 칩 (shared/currency, 2026-09-09) ──────────────────────────────────
    계약 · 퀘스트 보상의 크레딧 · 경험치 · 기업별 신뢰도. 아이템 칩과 **같은 상자 · 같은 간격**을 쓰므로 한
@@ -2294,7 +2293,7 @@ button.item-chip[data-def-id] { cursor: pointer; }
 button.currency-chip[data-currency-id] { cursor: pointer; }
 /* 재화 카드: 등급도 판매가도 없으므로 분류 줄이 배지가 되고 가치 바는 숨는다 (ItemTip 이 `hidden` 을 건다) */
 .item-tip.is-currency { border-color: color-mix(in srgb, var(--rc) 72%, transparent); }
-.item-tip.is-currency .it-sub {
+.item-tip.is-currency .itip-sub {
   align-self: flex-start;
   padding: 1px 7px;
   border: 1px solid color-mix(in srgb, var(--rc) 55%, transparent);

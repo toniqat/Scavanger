@@ -33,7 +33,7 @@ forwards interactions.
 | `DockingCutscene.ts` | Exterior dock / undock cutscene 900 m above the origin (undock half duration), chase camera via `setCameraOverride`, `elapsed`, `finishNow()`. |
 | `Labels.ts` | `TextPlane`: CanvasTexture text plane, redraws only on change. |
 | `hub.css` | Terminal frame / tabs / panes / planet grid / training row above the footer (`.hub-train-row`, `.hub-train`), launch-slot panel (`.hub-ready`, `.hr-*`), crew loadout popup (`.hub-crew-loadout`), launch warning, status line, planet card (`.hub-planet`, `.hp-*`). |
-| `intel.css` | Match tab (`.hmt-`), invite modal (`.hinv-`), training confirm (`.htc-`), intel panel in the terminal (`.hi-`), intel screen (`.it-`). |
+| `intel.css` | Match tab (`.hmt-`), invite modal (`.hinv-`), training confirm (`.htc-`), intel panel in the terminal (`.hi-`), intel screen (`.his-`). |
 | `ui/HubMenu.ts` | Full-screen terminal (`.menu.hub-menu.fullscreen`): top tabs `행성` / `매칭` (`nav.scr-tabs.hub-tabs`, always opens on `행성`); planet pane = 3-column grid (empty · centred planet card with hologram, stepping, travel, `.hp-env` · intel panel); the `시뮬레이션 훈련장` button (`.hub-train`, state label `.hub-train-state`) → `TrainingConfirm` sits on its own row above the footer line (`.hub-train-row`, right-aligned, planet tab only); footer right = `닫기 (E)` only; `closeTop()` closes training confirm → invite → intel → terminal. |
 | `ui/MatchTab.ts` | 매칭 tab: 4 square face tiles (me first, others by slot, empty = `초대`), `비공개 매칭` / `공개 매칭` → `ctx.net.requestDock`, `도킹 해제` when docked, `분대 떠나기` in an undocked squad; offline: the two matching buttons are replaced by a same-size `다시 연결` and `초대` is dimmed (`.is-offline`) and flashes the hint (`flashHint`) instead of opening the modal. |
 | `ui/InviteModal.ts` | Invite modal over the terminal: friends then recent players (name, 아이디, level, presence, `초대` → `social.playWith`, `초대 중 · n초`, `PLAY_BLOCK_LABELS`). Token `hub:invite`, key guide owner `hub.invite`. |
@@ -324,8 +324,8 @@ doorway is an open shared edge.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/hub`.
+- 2026-09-17 — The intel screen moved off the `.it-` prefix to `.his-` (`intel.css`, `ui/IntelMenu.ts`, `ui/IntelMap.ts`): `.it-` was the item card's (`ui`), and this folder's global `.it-head` was right-aligning that card everywhere it was shown (B-18).
 - 2026-09-17 — Culture tank model shows each slot: medium-coloured translucent fluid (`BuildExtra.cultureSlots`, `cultureFluid` cache) and opaque cell masses when a strain is inside; tubes are translucent glass (no lights). Visited ships get it from `ShipVisitWire.cultures` (`Hangar.shipStateWire` / `furnitureSource.getCultures`).
 - 2026-09-17 — `GameStaging` accepts a seatless video-game session (`seatUid` null): TV game screen on, no furniture pose or camera, not cancelled; a vanished seat still cancels only when one was used.
 - 2026-09-17 — Tutorial gates: the terminal's training row hides while `ctx.tutorial.hides('training')` (`HubMenu.setTab`); `Pods.toggleReady` skips launch warnings while `hides('launchWarn')` (build tutorial track).
 - 2026-09-16 — Sliding 자동문 removed (`interiors/Doors.ts` deleted); arch/doorway trims no longer share planes with wall openings, room door signs clear the ceiling beam.
-- 2026-09-16 — Ready panel is up only while the local player is in a launch slot (`sync(cells, boarded)`; a recruited android no longer puts it on screen), and a bot cell draws the same full-body portrait as a human (`PortraitRef.setAndroid`, kit armor via `armorIdOf`) — the `snapshotAndroidFace` path and `.hr-face` are gone from this panel.

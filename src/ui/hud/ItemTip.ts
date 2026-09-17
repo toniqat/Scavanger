@@ -116,16 +116,16 @@ const TIP_VALUE_LABEL = '가치';
  * 2026-09-08: an `implant` def also lists 장착칸 · 퍽 · 능력치 (· 상태 when broken) — the inventory's 임플란트 칸
  * is a row of square thumbnails now, so this card is where an equipped implant's numbers are read.
  *
- * Phase 10: 가치 left the stats table for a **bottom bar** (`.it-value`) rendered with the one credit formatter —
+ * Phase 10: 가치 left the stats table for a **bottom bar** (`.itip-value`) rendered with the one credit formatter —
  * `formatCredits(itemCreditValue(def))`, i.e. `1,200 C` (the old `cr` suffix is gone).
  *
- * 2026-09-09: the bottom bar is **무게 on the left · 가치 on the right** (`.it-value .wt` / `.val`, each `k` label +
+ * 2026-09-09: the bottom bar is **무게 on the left · 가치 on the right** (`.itip-value .wt` / `.val`, each `k` label +
  * `v` amount) and the `크기 (w × h)` row is gone from every card — the footprint is what the bag grid already shows.
  * The stats table hides itself when no row is left.
  *
  * **온실 개편 (2026-09-11)**: 토양(`def.soil`)은 `속성`(`SOIL_TAG_LABEL_KO`, 값 글자만 `SOIL_TAG_COLOR` 로 물든다) ·
  * `수확` 두 줄을, 씨앗(`def.seed`)은 `재배 시간` 아래에 **맞는 토양** 한 줄을 같은 색으로 얻는다 — 어떤 흙에 심어야
- * `SOIL_MATCH_SPEEDUP` 를 받는지가 씨앗 카드에서 끝나야 한다. 색은 인라인 `style.color` 로만 칠한다: `.it-stats .v`
+ * `SOIL_MATCH_SPEEDUP` 를 받는지가 씨앗 카드에서 끝나야 한다. 색은 인라인 `style.color` 로만 칠한다: `.itip-stats .v`
  * 에 modifier 클래스를 새로 달면 HUD 위젯 클래스와 이름이 겹칠 위험이 있다 (2026-09-10 `.hold` 사고).
  *
  * **주방 · 배양조 · 프린터 (2026-09-11)**: 요리(`def.meal`)는 `사용 — 다음 레이드 1회분` · 버프 이름을 행 이름으로 쓴
@@ -209,14 +209,14 @@ export class ItemTip {
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'item-tip', parent });
     this.root.hidden = true;
-    const head = el('div', { cls: 'it-head', parent: this.root });
-    this.nameEl = el('div', { cls: 'it-name', parent: head });
-    this.subEl = el('div', { cls: 'it-sub', parent: head });
-    this.descEl = el('p', { cls: 'it-desc', parent: this.root });
-    this.statsEl = el('div', { cls: 'it-stats', parent: this.root });
+    const head = el('div', { cls: 'itip-head', parent: this.root });
+    this.nameEl = el('div', { cls: 'itip-name', parent: head });
+    this.subEl = el('div', { cls: 'itip-sub', parent: head });
+    this.descEl = el('p', { cls: 'itip-desc', parent: this.root });
+    this.statsEl = el('div', { cls: 'itip-stats', parent: this.root });
     // Phase 10: 가치 left the stats table and became the card's bottom bar. 2026-09-09: 무게 joined it — weight on the
     // LEFT (`무게 1.2 kg`), 가치 on the RIGHT (amount right-aligned, `100 C`); the 크기 row is gone from the stats.
-    this.valueEl = el('div', { cls: 'it-value', parent: this.root });
+    this.valueEl = el('div', { cls: 'itip-value', parent: this.root });
     const wt = el('span', { cls: 'wt', parent: this.valueEl });
     el('span', { cls: 'k', text: '무게', parent: wt });
     this.weightAmount = el('span', { cls: 'v ui-mono', text: '', parent: wt });
@@ -467,7 +467,7 @@ export class ItemTip {
     }
     /* 연구실 (A-12 · A-13, 2026-09-11): 표본은 **분석기에 넣었을 때 무엇이 얼마나 걸려 나오는가**, 준비물은
        **어떤 환경을 몇 번 막아 주는가** 가 카드에서 끝나야 한다. 씨앗 · 토양 줄과 같은 자리 · 같은 인라인 색 규약이다
-       (`.it-stats .v` 에 modifier 클래스를 만들지 않는다 — 2026-09-10 `.hold` 사고). 해석 시간은 도감 진척으로
+       (`.itip-stats .v` 에 modifier 클래스를 만들지 않는다 — 2026-09-10 `.hold` 사고). 해석 시간은 도감 진척으로
        줄어들지만 그것은 분석 화면이 말한다: 여기 적는 것은 **표에 있는 기준 시간**이다. */
     const sample = def.sample;
     if (sample) {
@@ -522,7 +522,7 @@ export class ItemTip {
        「무엇을 얼마나 오래 / 얼마나 올려 주는가」가 카드에서 끝난다. 요리의 값은 `hud/mealText` 가 찍는다 — 레이드
        HUD 의 식사 배지와 **같은 문장**이어야 하고, 단위(`%` · `kg` · `m`)를 정하는 표는 `shared/labels` 의
        `MEAL_BUFF_UNIT` 하나다. `durabilityLossMul` 은 `amount` 가 음수라 「장비 손상 −20 %」로 이득으로 읽힌다.
-       색은 위 토양 · 환경 줄과 같은 이유로 **인라인**이다 (`.it-stats .v` 에 modifier 클래스를 만들지 않는다). */
+       색은 위 토양 · 환경 줄과 같은 이유로 **인라인**이다 (`.itip-stats .v` 에 modifier 클래스를 만들지 않는다). */
     const meal = def.meal;
     if (meal) {
       // 2026-09-13: 티어 이름 + 능력치 줄 전부. 은퇴한 옛 특선 요리(tier 2)는 「페이스트 요리」 가 아니므로 구분 줄을 뺀다.
@@ -610,7 +610,7 @@ export class ItemTip {
 
   /* ── 2026-09-15 (가젯 개편): 조각 색 · 설명 인라인 마크업 ──────────────────────────────────────────────── */
 
-  /** 값 조각 하나. 흐린 조각만 인라인 색을 받는다 (`.it-stats .v` 에 modifier 클래스를 만들지 않는다 — 2026-09-10 `.hold` 사고). */
+  /** 값 조각 하나. 흐린 조각만 인라인 색을 받는다 (`.itip-stats .v` 에 modifier 클래스를 만들지 않는다 — 2026-09-10 `.hold` 사고). */
   private appendSeg(host: HTMLElement, seg: SpecSeg): void {
     const sp = el('span', { text: seg.text, parent: host });
     if (seg.dim) sp.style.color = SEG_DIM_COLOR;

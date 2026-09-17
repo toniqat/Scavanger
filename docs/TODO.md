@@ -44,7 +44,6 @@
 | A-7 | **BGM**. 설정의 오디오 채널 자리만 비워 뒀다 | `src/ui/menus/SettingsMenu.ts:26` "Room is left for a future BGM row … there is no BGM" |
 | B-10 | **채널 티커의 음소거가 플래그 하나**. 스프레이 도중 끝난 붕대는 토스트가 없고, `active:false` 를 놓치면 라인이 남는다 | `src/ui/hud/Notifications.ts` |
 | B-17 | **공용 함선 도킹 직전 「모든 UI 닫기」가 튜토리얼 팝업은 못 닫는다** — `tutorial/ui/Popup` 이 `TUTORIAL_BLOCKER` 를 쥐고 escape 스택에 없으며 `TutorialRef` 에 닫기 API 가 없다. 튜토리얼 중엔 매칭 탭 · 커뮤니티가 숨겨져 도킹이 거의 없지만, 닫으려면 단계 상태를 깨지 않는 `hub:docking {start}` 처리가 필요하다 | `src/hub/parts/SquadDock.ts` `cancelEverything`, `src/tutorial/ui/Popup.ts` |
-| B-18 | **`hub/intel.css` 가 `ui` 의 아이템 카드와 같은 `.it-` 접두사를 쓴다** — 전역 `.it-head { align-items: flex-end }` 가 카드의 이름 · 종류를 오른쪽으로 밀었다 (2026-09-16 에 카드 쪽에서 축을 전부 명시해 막았다). 남은 일은 `intel.css` 의 `.it-head` 를 hub 고유 접두사로 **이름 바꾸기**와, `hub/ui/IntelMenu.ts:31` · `hub/intel.css:4` 의 「`rg "\.it-" src` 는 비어 있었다」는 이제 거짓인 주석 고치기다 (CLAUDE.md §4.1 「CSS 접두사는 폴더마다 고유」) | `rg "\.it-" src` → `ui/styles/base.css` 와 `hub/intel.css` 둘 다 |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝
 
