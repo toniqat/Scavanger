@@ -160,7 +160,7 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - The same formula in two folders moves to `src/shared` (e.g. `shared/ballistics.ts`, `shared/explosion.ts`, `shared/lootRolls.ts`, `shared/keycap.ts`).
 - Big system files split into `model.ts` (vocabulary, no state) + `parts/*.ts` (functions taking the system as `sys`); the class keeps one-line delegates so call sites never change; `parts/` imports only types from the system file.
 - Reuse `THREE.Vector3` scratch objects; no per-frame allocation on hot paths. Dispose own geometries/materials on `game:abort` / `game:newMission`.
-- CSS class prefixes are unique per folder — `rg "\.<prefix>-" src` before choosing. Never reuse a HUD widget class name as a modifier (`.kc-hold`, not `.hold`).
+- CSS class prefixes are unique per folder — `node scripts/check-css-prefixes.mjs` (inside `verify`) fails a build that gives one prefix two folders; a deliberate cross-folder override goes in that script's `SHARED` with its reason. Never reuse a HUD widget class name as a modifier (`.kc-hold`, not `.hold`).
 - Removing an item def → add a row to `data/item_aliases.csv` (saves resolve through `resolveItemAlias`). Retiring content → `ItemDef.retired` / `FurnitureDef.retired`, never delete the row (refunds and old saves need it).
 
 ### 4.2 Input · screens · UI

@@ -20,7 +20,7 @@
  *          --log-dir <dir> (default scripts/logs — give each concurrent runner its own, e.g. scripts/logs/agent-3)
  *
  * What it does:
- *   1. typecheck (client + server) and data:check (data/*.csv 스키마) in parallel — seconds. net:selftest (~50 s, its own
+ *   1. typecheck (client + server), data:check (data/*.csv 스키마) and check-css-prefixes (한 접두사는 한 폴더) in parallel — seconds. net:selftest (~50 s, its own
  *      random port) runs **alongside the smokes** and is awaited just before the summary.
  *   2. Starts vite (5273) and the relay (8787) if they are not up — **unless every selected script is `standalone`**
  *      (smoke-pitch, smoke-desktop, smoke-intel), which use neither. When e2e-mp is in the set the relay is always
@@ -628,6 +628,9 @@ try {
 
   // data/*.csv 는 수치의 단일 원본이다 — 오타는 게임을 죽이지 않고 조용히 기본값으로 굴러가므로 여기서 잡는다.
   fast.push(runCapture(process.execPath, ['scripts/data-check.mjs'], 'data-check').then((r) => summarize('data-check', r)));
+  /* CSS 클래스 접두사도 같은 종류의 구멍이다 — 두 폴더가 같은 접두사를 고르면 전역 규칙이 남의 화면에 걸리는데
+     타입체크도 스모크도 못 본다(클래스는 문자열이고, 결과는 오류가 아니라 어긋난 그림이다 — B-18). 0.1 초다. */
+  fast.push(runCapture(process.execPath, ['scripts/check-css-prefixes.mjs'], 'css-prefixes').then((r) => summarize('css-prefixes', r)));
   if (opts.build) fast.push(runCapture(npx, ['vite', 'build'], 'build', { shell: isWin }).then((r) => {
     const s = summarize('build', r);
     const js = r.out.match(/index-[\w-]+\.js\s+([\d.,]+ kB)/)?.[1]; const css = r.out.match(/index-[\w-]+\.css\s+([\d.,]+ kB)/)?.[1];
