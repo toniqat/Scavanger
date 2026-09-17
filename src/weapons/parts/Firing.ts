@@ -18,7 +18,7 @@ import type { Obstacle as WorldObstacle, InterceptableRef, PeerId } from '@/shar
 import { ARMOR_IMMUNE_AMMO } from '@/shared';
 import { FxManager } from '@/core/fx';
 import { randomInCone } from '@/core/util/MathUtil';
-import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, statsFromDef, STANCE_ACCURACY } from '../WeaponDefaults';
+import { WEAPON_SLOTS, defaultFor, kindOf, shotSoundId, shotPitchFor, weaponClassOf, damageFalloff, statsFromDef, STANCE_ACCURACY, adsTightensSpread } from '../WeaponDefaults';
 import { WeaponModel, type WeaponAttachmentVisuals } from '../WeaponModel';
 import { attachmentVisualsFor, attachmentIdsOf, sameIds } from '../Attachments';
 import { WeaponFx } from '../fx/WeaponFx';
@@ -169,7 +169,12 @@ export function fire(sys: WeaponSystem, host: Host, w: WeaponInstance): void {
   // 2026-09-14 총기 밸런스: sustained-fire bloom per weapon (`stats.bloomPerShot` / `bloomSpread`; old constants as the fallback)
   const bloomSpread = Number.isFinite(st.bloomSpread) ? st.bloomSpread : 1.6;
   const bloomPerShot = Number.isFinite(st.bloomPerShot) ? st.bloomPerShot : BLOOM_PER_SHOT;
-  const spread = THREE.MathUtils.lerp(st.spread, st.adsSpread, aim) * stanceMul * (1 + sys.bloom * bloomSpread) * moveMul;
+  // 2026-09-17 (사용자 결정): 산탄총은 정조준이 퍼짐을 조이지 않는다 — 정조준은 카메라 확대뿐이다.
+  //   지향 사격 퍼짐(weapons.csv spreadDeg)을 옛 정조준 값(adsSpreadDeg)과 같게 내렸고, 여기서는 정조준이어도 지향 쪽 퍼짐과
+  //   자세 배수의 지향 칸(STANCE_ACCURACY[..][0])을 쓴다. 그래서 레이저사이트(hipSpread) · 초크(spread) 도 정조준에서 그대로 먹고,
+  //   반동의 자세 배수(stanceMul)는 바꾸지 않는다. 판단은 계열로 한다 (`adsTightensSpread`).
+  const spreadAim = adsTightensSpread(cls) ? aim : 0;
+  const spread = THREE.MathUtils.lerp(st.spread, st.adsSpread, spreadAim) * stance[spreadAim] * (1 + sys.bloom * bloomSpread) * moveMul;
   sys.bloom = Math.min(1, Math.max(0, sys.bloom + bloomPerShot));
   // bolt-action: lock the trigger for the cycle and animate the bolt
   if (cls === 'SR') {

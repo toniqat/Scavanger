@@ -5,6 +5,10 @@
 #   성격별로: 세포 = 벌레 대부분 · 유전자 = 벌레에서 드물게(구조물 컨테이너가 본업) · 광물 = 돌격 벌레 · 포병 · 베헤모스.
 #   등급은 **적의 격**을 따라간다: 잡벌레 I · 포병 / 베헤모스 II · 땅굴벌레 III. 그 위(IV~VI)는 시체에서 나오지 않는다 —
 #   서사 이상은 구조물 컨테이너와 **행성 광맥**(광물 한정)의 몫이다.
+# ⚠ 2026-09-17 (사용자 결정): hunter · toxic · warrior · artillery · charger · behemoth · sandworm_weak · sandworm 의
+#   표본 줄(세포 · 유전자 · 광물)은 **전부 지웠다** — 이 여덟은 미확인 세포만, **개당 등급을 굴려** 떨군다.
+#   "여러 등급 중 하나를 개당" 은 이 표의 모양으로 적을 수 없어서 data/loot_corpse_samples.csv 로 옮겼다 (그 표 머리말 참고).
+#   scavenger · spewer 의 세포 I · 유전자 I 줄은 그대로다.
 # type 은 data/enemies.csv 의 적 종류와 같아야 한다. 줄을 지우면 그 드랍이 사라진다.
 type,defId,qtyMin,qtyMax,chance
 # scavenger
@@ -21,8 +25,6 @@ hunter,terminid_gland,1,1,0.25
 hunter,seed_bloodroot,1,1,0.04
 hunter,seed_ashleaf,1,1,0.02
 hunter,seed_glowcap,1,1,0.006
-hunter,spec_cell_1,1,1,0.10
-hunter,spec_gene_1,1,1,0.01
 
 # warrior
 warrior,mat_bio_sample,1,3,1
@@ -30,8 +32,6 @@ warrior,terminid_gland,1,1,0.25
 warrior,seed_bloodroot,1,1,0.04
 warrior,seed_ashleaf,1,1,0.02
 warrior,seed_glowcap,1,1,0.006
-warrior,spec_cell_1,1,1,0.12
-warrior,spec_gene_1,1,1,0.015
 
 # spewer
 spewer,mat_bio_sample,1,3,1
@@ -49,8 +49,6 @@ charger,seed_bloodroot,1,1,0.04
 charger,seed_ashleaf,1,1,0.02
 charger,seed_glowcap,1,1,0.006
 charger,mat_alloy,1,2,0.4
-charger,spec_cell_1,1,1,0.10
-charger,spec_mineral_1,1,1,0.04
 
 # toxic
 toxic,mat_bio_sample,1,2,1
@@ -58,8 +56,6 @@ toxic,terminid_gland,1,1,0.35
 toxic,seed_bloodroot,1,1,0.04
 toxic,seed_ashleaf,1,1,0.02
 toxic,seed_glowcap,1,1,0.006
-toxic,spec_cell_1,1,1,0.10
-toxic,spec_gene_1,1,1,0.03
 
 # artillery
 artillery,mat_bio_sample,2,3,1
@@ -67,8 +63,6 @@ artillery,mat_power_cell,1,1,0.5
 artillery,seed_bloodroot,1,1,0.04
 artillery,seed_ashleaf,1,1,0.02
 artillery,seed_glowcap,1,1,0.006
-artillery,spec_mineral_2,1,1,0.08
-artillery,spec_gene_2,1,1,0.03
 
 # behemoth
 behemoth,mat_alloy,2,4,1
@@ -77,9 +71,6 @@ behemoth,alien_artifact,1,1,0.3
 behemoth,seed_bloodroot,1,1,0.04
 behemoth,seed_ashleaf,1,1,0.02
 behemoth,seed_glowcap,1,1,0.006
-behemoth,spec_mineral_2,1,2,0.5
-behemoth,spec_cell_2,1,2,0.4
-behemoth,spec_gene_2,1,1,0.15
 
 # rogue — 실드 충전기는 로그가 붕대와 함께 들고 다니는 완제품이고, 구동 코어는 그 장비에서 뜯어낸 잡템이다 (2026-09-10)
 # 2026-09-13 (팩션 전리품): 붕대 · 실드 충전기 · 주사 줄은 loot_factions.csv 의 **회복 굴림 하나**로, 고폭 수류탄 20 % 줄은
@@ -170,23 +161,17 @@ rogue_heavy,keycard_lab,1,1,0.05
 # 표가 없으면 "모르는 적 = 생체 조직 1" 로 떨어지므로 확률 0 한 줄로 **빈 결과**를 못박아 둔다.
 rogue_scan_drone,mat_circuit,1,1,0
 
-# sandworm — 땅굴벌레 (2026-09-13, 보스급). CORPSE_LOOT_CHANCE 1 = 늘 수색된다. 벌레라서 미확인 표본 셋이 넉넉하게 나오는
-# 유일한 시체다 — 세포는 확정, 광물 · DNA 는 높은 확률. 은퇴 아이템은 쓰지 않는다 (npm run data:check 가 잡는다).
+# sandworm — 땅굴벌레 (2026-09-13, 보스급). CORPSE_LOOT_CHANCE 1 = 늘 수색된다. 은퇴 아이템은 쓰지 않는다 (npm run data:check 가 잡는다).
+# 2026-09-17: 표본은 data/loot_corpse_samples.csv (세포 3–4 개, 개당 III 40 % / IV 60 %).
 sandworm,mat_bio_sample,6,10,1
 sandworm,terminid_gland,2,4,1
-sandworm,spec_cell_3,2,4,1
-sandworm,spec_mineral_3,1,3,0.8
-sandworm,spec_gene_3,1,2,0.6
 sandworm,mat_extract_bio,1,2,0.4
 sandworm,alien_artifact,1,1,0.5
 sandworm,seed_glowcap,1,1,0.15
 
-# sandworm_weak — 어린 땅굴벌레 (2026-09-15, 위협 1). 성체보다 작은 표 — 세포는 확정, 나머지는 절반 정도. 늘 수색된다 (CORPSE_LOOT_CHANCE 1).
+# sandworm_weak — 어린 땅굴벌레 (2026-09-15, 위협 1). 성체보다 작은 표. 표본은 data/loot_corpse_samples.csv (세포 3–4 개, 개당 II 60 % / III 40 %). 늘 수색된다 (CORPSE_LOOT_CHANCE 1).
 sandworm_weak,mat_bio_sample,3,5,1
 sandworm_weak,terminid_gland,1,2,1
-sandworm_weak,spec_cell_2,1,2,1
-sandworm_weak,spec_mineral_2,1,1,0.5
-sandworm_weak,spec_gene_2,1,1,0.3
 sandworm_weak,mat_extract_bio,1,1,0.25
 
 # ── 2026-09-14 3차: 튜토리얼 전용 4종 (data/enemies.csv 의 tut_* 줄) ──────────────────────────────────

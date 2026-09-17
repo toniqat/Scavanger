@@ -96,6 +96,14 @@ try {
     for (const x of r.extraOutputs ?? []) ref(`data/recipes.csv [extraOutputs] — ${r.id}`, x.defId);
   }
   for (const t of lootTables.CORPSE_TABLES) for (const d of t.drops) ref(`data/loot_corpses.csv [defId] — ${t.type}`, d.defId);
+  // 2026-09-17: 표본 개당 등급 굴림이 풀어 낸 아이템 (계열 × 등급 → samples.csv) + 적 종류가 실제로 있는가
+  {
+    const enemyTypes = new Set(shared.csvRows('enemies.csv').map((r) => r.raw('type')));
+    for (const t of lootTables.CORPSE_TABLES) {
+      for (const s of t.samples ?? []) for (const id of s.defIds) ref(`data/loot_corpse_samples.csv [tiers] — ${t.type}`, id);
+      if (t.samples && !enemyTypes.has(t.type)) refProblems.push(`data/loot_corpse_samples.csv [type] — '${t.type}' 는 data/enemies.csv 에 없는 적이다`);
+    }
+  }
   // 2026-09-13 (행성별 적 팩션): 팩션 시체의 방탄복 · 가방 · 회복 후보, 거점 보너스 아이템, 그리고 연구소 레이더가 고르는 행성 씨앗 표
   for (const f of lootTables.FACTION_LOOT ?? []) {
     for (const [col, pick] of [['armorPool', f.armor], ['bagPool', f.bag], ['healPool', f.heal]]) {

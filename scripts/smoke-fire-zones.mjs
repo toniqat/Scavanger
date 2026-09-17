@@ -319,7 +319,7 @@ try {
   await waitSim(0.4);
   const repFrag = await page.evaluate(() => { const c = window.__game.ctx; return { before: window.__hpFragBefore, hp: c.player.hp + c.player.shield }; });
   const g10Dmg = rep.hp - repG10.hp, fragDmg = repFrag.before - repFrag.hp;
-  // 1.5 m: G-10 40 × 0.5 × 0.6 = 12 · frag 250 × 0.75 × 0.6 = 112 (clamped by the pool)
+  // 1.5 m: G-10 바깥 띠 30 × 0.5 × 0.6 = 9 · frag 중심 60 × 1 × 0.6 = 36 (2026-09-17 값 — 비율 4 > 3)
   ok(g10Dmg > 5 && g10Dmg < 20 && fragDmg > g10Dmg * 3, `replica blast at 1.5 m: G-10 ${g10Dmg.toFixed(1)} vs frag ${fragDmg.toFixed(1)}`);
   ok(repG10.zones === rep.zones, `a visual-only G-10 replica lights no zone (${rep.zones} → ${repG10.zones})`);
 

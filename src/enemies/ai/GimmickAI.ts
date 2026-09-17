@@ -7,6 +7,8 @@ import { ARTILLERY_AI, BEHEMOTH_AI, TOXIC_AI } from '../EnemyTypes';
 import type { CombatTarget } from '../Targets';
 import { lookAtTarget, startMelee, stumble, type AttackResult } from './Common';
 import { shellArcBlocked } from '../parts/Attacks';
+/* appended (2026-09-17): 포병 호위 · 사격 조건 · 1회 소환 */
+import { hasBugSupport, maybeSummon } from './ArtilleryPack';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Phase 4 bug gimmicks: artillery (stand-off mortar), toxic (suicide runner), behemoth (line charge).
@@ -22,6 +24,8 @@ const ARTILLERY_RELOCATE_M = 7;
 const ARTILLERY_PROBE_FORWARD_M = 10;
 /** 후보 자리가 이보다 장애물로 덮여 있으면(`obstacleCoverage`) 서지 않는다 — 바위 한가운데를 고르지 않게. */
 const ARTILLERY_PROBE_MAX_COVERAGE = 0.25;
+/** 2026-09-17: 발사 자세(`anim.brace`)가 풀리는 속도 — 1 → 0 을 1/이 값 초에. 그림 전용. */
+const ARTILLERY_BRACE_RELAX = 2;
 const _aimT = new THREE.Vector3();
 const _from = new THREE.Vector3();
 const _uphill = new THREE.Vector3();
@@ -39,6 +43,11 @@ export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatT
   const tp = t.position;
   e.facePoint.copy(tp); e.hasFacePoint = true;
   lookAtTarget(e, t, dt);
+  // 2026-09-17: 엎드려 기다리는 중(1) · 쏜 뒤 굳어 있는 중(2)에는 후퇴 · 접근 · 자리 옮기기 어느 가지도 타지 않는다
+  if (e.shellPhase !== 0) return artilleryFireSequence(e, dt, host, t);
+  a.brace = Math.max(0, a.brace - dt * ARTILLERY_BRACE_RELAX);
+  // 2026-09-17: 사거리 안의 외톨이 표적 → 평생 한 번 소환 스캐빈저를 파내 보낸다 (`ai/ArtilleryPack`)
+  maybeSummon(e, dt, host, t);
   if (d < ARTILLERY_AI.retreatDist) {
     const dx = e.position.x - tp.x, dz = e.position.z - tp.z;
     const inv = 1 / Math.max(1e-3, d);
@@ -79,16 +88,66 @@ export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatT
   a.mandible = 0.4;
   e.shellTimer -= dt;
   if (e.shellTimer <= 0) {
-    if (e.dug >= 0.95 && d <= ARTILLERY_AI.maxRange && !t.isDeadOrDowned) {
-      if (host.fireShell(e, t)) {
-        e.shellRefusals = 0;
-        a.recoil = 1;
-        a.flinch = Math.max(a.flinch, 0.6); a.flinchZ = -0.6; a.flinchX = 0;   // rear squat on fire
-        e.shellTimer = ARTILLERY_AI.fireMin + Math.random() * (ARTILLERY_AI.fireMax - ARTILLERY_AI.fireMin);
-      } else artilleryRelocate(e, host, t);
+    // 2026-09-17 (사용자 결정): 표적 곁(`supportRadius`)에 다른 벌레가 있어야 쏜다 — 외톨이 표적에게는 사거리 안이어도 쏘지 않는다.
+    // 쏠 수 있으면 곧장 쏘지 않고 먼저 납작 엎드린다 (`braceTime` 뒤 `artilleryFireSequence` 가 쏜다).
+    if (e.dug >= 0.95 && d <= ARTILLERY_AI.maxRange && !t.isDeadOrDowned && hasBugSupport(e, host, t)) {
+      e.shellPhase = 1;
+      e.shellPhaseT = ARTILLERY_AI.braceTime;
     } else e.shellTimer = 0.5;
   }
   return 0;
+}
+
+/**
+ * 2026-09-17 (사용자 결정 — 포병 발사 순서): ① 다리를 낮춰 땅에 납작 엎드린 채 `ARTILLERY_AI.braceTime` 기다린다 → ② 쏜다 →
+ * ③ `postFireLock` 동안 움직이지 못한다 (후퇴 · 접근 · 자리 옮기기 모두 없음). 엎드려 있는 동안 표적이 쓰러졌거나 사거리를 벗어났거나
+ * 곁의 벌레가 사라졌으면 쏘지 않고 일어난다(굳지 않는다). 궤적이 막혀 거절되면 예전처럼 자리를 옮긴다.
+ * 자세는 `anim.brace` 이고 리플리카는 힌트 25 으로 받는다 (`net/HostSync.animHint`).
+ */
+function artilleryFireSequence(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
+  const a = e.anim;
+  e.hasMoveTarget = false;
+  a.crouch = e.dug * 0.8;
+  a.mandible = 0.4;
+  e.shellPhaseT -= dt;
+  if (e.shellPhase === 1) {
+    a.brace = Math.min(1, a.brace + dt / Math.max(0.05, ARTILLERY_AI.braceTime));
+    if (e.shellPhaseT > 0) return 0;
+    if (t.isDeadOrDowned || e.distToTarget > ARTILLERY_AI.maxRange || !hasBugSupport(e, host, t)) {
+      e.shellPhase = 0; e.shellPhaseT = 0; e.shellTimer = 0.5;
+      return 0;
+    }
+    if (host.fireShell(e, t)) {
+      e.shellRefusals = 0;
+      a.recoil = 1;
+      a.flinch = Math.max(a.flinch, 0.6); a.flinchZ = -0.6; a.flinchX = 0;   // rear squat on fire
+      e.shellTimer = ARTILLERY_AI.fireMin + Math.random() * (ARTILLERY_AI.fireMax - ARTILLERY_AI.fireMin);
+      e.shellPhase = 2; e.shellPhaseT = ARTILLERY_AI.postFireLock;
+    } else {
+      e.shellPhase = 0; e.shellPhaseT = 0;
+      artilleryRelocate(e, host, t);
+    }
+    return 0;
+  }
+  a.brace = 1;
+  if (e.shellPhaseT <= 0) { e.shellPhase = 0; e.shellPhaseT = 0; }
+  return 0;
+}
+
+/**
+ * 2026-09-17: 추격 상태가 아닐 때(표적을 잃고 `idle` · 경직 `stagger` …)의 포병 발사 순서. 엎드려 기다리던 것은 취소하고, 쏜 뒤의 고정은
+ * **상태와 상관없이** 끝까지 지킨다 — 호출자(`ai/EnemyAI`)는 true 면 이번 틱 이동을 0 으로 둔다.
+ */
+export function artilleryOffChase(e: Enemy, dt: number): boolean {
+  const a = e.anim;
+  if (e.shellPhase === 1) { e.shellPhase = 0; e.shellPhaseT = 0; }
+  if (e.shellPhase === 2) {
+    e.shellPhaseT -= dt;
+    if (e.shellPhaseT > 0) { e.hasMoveTarget = false; a.brace = 1; return true; }
+    e.shellPhase = 0; e.shellPhaseT = 0;
+  }
+  a.brace = Math.max(0, a.brace - dt * ARTILLERY_BRACE_RELAX);
+  return false;
 }
 
 /** Relocation probes relative to the target line: [along n (toward the target), along p (perpendicular)] in m. */

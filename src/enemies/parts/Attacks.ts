@@ -15,7 +15,7 @@ import {
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart, type RogueShotOpts } from '../Enemy';
-import { ENEMY_INCENDIARY, ROGUE_AI, SPEWER_SPIT } from '../EnemyTypes';
+import { ENEMY_CLASH, ENEMY_INCENDIARY, ROGUE_AI, SPEWER_SPIT } from '../EnemyTypes';
 import { ENEMY_GRENADE_KINDS, type EnemyGrenadeKind } from '@/shared';
 /* appended (2026-09-15, B-16): 적 화염 지대가 드론을 태운다 */
 import { FIRE_ZONE_DRONE_HEIGHT } from '@/shared';
@@ -150,7 +150,7 @@ export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority:
     }
     // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (가슴에서 잰 거리 · 하한 0.1). 넉백은 없다.
     damageAlliesAt(sys, p, radius, damage, owner, type, 0.1, 'chest');
-    sys.explode(p, radius, damage, 'ai', null, null, thrower?.faction ?? 'rogue');
+    sys.explode(p, radius, damage * ENEMY_CLASH.damageMul, 'ai', null, null, thrower?.faction ?? 'rogue');   // 2026-09-17: 적 → 적 피해 배수
     // 드론 · 탐사 차량 몫은 `explode()` 안이 아니라 **적 폭발 자리마다** 따로 부른다 — `explode()` 는 플레이어 무기 · 가젯 ·
     // 함선 호출 · 리플리카 `explode` 요청도 지나가므로, 거기 넣으면 드론은 두 번 맞고 차량은 플레이어 공격에 깎인다.
     ctx.drones?.applyExplosion(p, radius, damage);   // 2026-09-11: 권한에서만 (소유자에게는 damageDrone 이 넘긴다)
@@ -235,7 +235,7 @@ export function onFireZoneTick(sys: EnemySystem, p: THREE.Vector3, radius: numbe
     const dx = e.position.x - p.x, dz = e.position.z - p.z;
     const reach = radius + e.stats.radius;
     if (dx * dx + dz * dz > reach * reach || Math.abs(e.position.y - p.y) > FIRE_ZONE_HEIGHT) continue;
-    e.burnDps = Math.max(e.burnDps, dps);
+    e.burnDps = Math.max(e.burnDps, dps * ENEMY_CLASH.damageMul);   // 2026-09-17: 적 → 적 피해 배수
     e.burnTimer = Math.max(e.burnTimer, ENEMY_INCENDIARY.afterburn);
     if (e.burnTick <= 0) e.burnTick = BURN_TICK;
     if (e.burnAttacker === null) e.burnAttacker = 'ai';
@@ -359,7 +359,7 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
     if (fx) { _v2.copy(_dir).negate(); ParticleBurst.sparks(fx.additive, _to, _v2, 6, 5); }
   }
   else if (foe && foe.faction !== e.faction) {
-    foe.takeDamage(dmg, _to, _dir, 'ai');
+    foe.takeDamage(dmg * ENEMY_CLASH.damageMul, _to, _dir, 'ai');   // 2026-09-17: 적 → 적 피해 배수 (사람 · 안드로이드 몫은 위 가지 그대로)
     sys.noteClash(_to);
   }
   // 2026-09-11: 로그의 총알도 창문 유리를 깬다 (몸 · 배리어에 막히지 않고 유리가 첫 표면일 때)
@@ -466,7 +466,7 @@ export function onShellLanded(sys: EnemySystem, sid: number, p: THREE.Vector3): 
     }
     // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (발에서 잰 거리 · 하한 0.25). 배리어는 사람만 든다.
     damageAlliesAt(sys, p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, shooter?.id ?? 0, shooter?.type ?? 'artillery', 0.25, 'feet');
-    sys.explode(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, 'ai', null, null);   // friendly fire on bugs and rogues alike
+    sys.explode(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE * ENEMY_CLASH.damageMul, 'ai', null, null);   // friendly fire on bugs and rogues alike (2026-09-17: × 적 → 적 배수)
     ctx.drones?.applyExplosion(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE);      // 2026-09-11: 드론도 (권한에서 한 번)
     sys.targets.damageVehicleAt(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, 0.25); // 2026-09-13: 탐사 차량 (플레이어와 같은 최소 감쇠)
   }
@@ -532,7 +532,7 @@ export function toxicBurst(sys: EnemySystem, e: Enemy): void {
   }
   // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (발 거리 · 하한 0.2). 둔화는 없다.
   damageAlliesAt(sys, _c, TOXIC_RADIUS, TOXIC_DAMAGE, e.id, e.type, 0.2, 'feet');
-  sys.explode(_c, TOXIC_RADIUS, TOXIC_DAMAGE, 'ai', null, e);
+  sys.explode(_c, TOXIC_RADIUS, TOXIC_DAMAGE * ENEMY_CLASH.damageMul, 'ai', null, e);   // 2026-09-17: 적 → 적 피해 배수 (플레이어 몫은 TOXIC_DAMAGE 그대로)
   ctx.drones?.applyExplosion(_c, TOXIC_RADIUS, TOXIC_DAMAGE);   // 2026-09-11: 자폭은 권한에서만 불린다
   sys.targets.damageVehicleAt(_c, TOXIC_RADIUS, TOXIC_DAMAGE, 0.2);   // 2026-09-13: 탐사 차량
   ctx.bus.emit('enemy:toxicBurst', { id: e.id, position: _c.clone(), radius: TOXIC_RADIUS });

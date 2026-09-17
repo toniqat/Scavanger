@@ -13,7 +13,7 @@ import {
   CHECKPOINT_STEP, CORPSE_MARKER_STEPS, CROUCH_AIM_TIP_KO, CROUCH_TIP_STEPS, GUIDE_ARRIVE, MARKER_RETARGET_FRAMES, RAID_KILLS_PER_STEP,
   SKIP_FADE_IN_S, SKIP_FADE_OUT_S, SKIP_HOLD_TIME, STANCE_HINT_IDS, TRACK_LABEL_KO,
   TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_CONTROL_HINTS, TUTORIAL_CRAFT_GRANT,
-  TUTORIAL_GUN_DEF, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
+  TUTORIAL_GUN_DEF, TUTORIAL_GUN_FAMILY, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
   SPOT_CRAFT_CLOSE, SPOT_NONE, SPOT_STATS_CONFIRM, SPOT_STATS_RAISE, SPOT_STATS_TAB,
   STATS_CONFIRM_TEXT, STATS_RAISE_TEXT, STATS_TAB_TEXT, WAKE_REVEAL_DELAY_S, WAKE_REVEAL_MOVE_M,
   controlHintsFor, currentObjective, mergedAllow, objectiveChain, objectivesOf, visibleObjectives,
@@ -1417,6 +1417,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
        **목표 줄**의 일이 됐다 — 발전기 줄은 목록에서 빠지고(`objectivesFor`), 나머지는 `onStepEntered` · `pollBuild` 가 본다. */
     // 2026-09-14 2차 (사용자 결정): 체력이 이미 가득이면 회복 단계에 할 일이 없다 — `generator` 와 같은 요령이다
     else if (step === 'heal' && this.healthFull()) this.advance(true);
+    // 2026-09-17 (사용자 결정): AR 을 이미 들었거나 주무기 I · II 가 다 찼다 — 장착 단계를 건너뛰고 곧장 조종석이다
+    else if (step === 'equipGun' && this.equipGunMoot()) this.advance(true);
     else this.onStepEntered(step);
   }
 
@@ -1441,7 +1443,41 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private syncBuildObjectives(step: TutorialStepId): void {
     if (step === 'manage' && this.housingOpen()) this.markObjective('manageOpen');
     else if (step === 'bench' && this.benchStored()) this.markObjective('benchCrafted');
-    else if (step === 'equipGun' && (this.ctx.inventory?.isOpen ?? false)) this.markObjective('equipOpen');
+    /*
+     * 2026-09-17 (버그 — 「작업대를 닫았는데 `인벤토리 열기` 가 이미 체크돼 있다」): `equipGun` 의 「인벤토리 열기」는 여기서 적지 않는다.
+     * `craftGun` 은 작업대 창의 닫기(`inventory/parts/Crafting.closeCraftWindow` → `closeAll`)가 **창을 닫는 도중에** 내는
+     * `ui:craftToggled {open:false}` 에서 끝나는데, 그 순간 `InventoryRef.isOpen` 은 아직 true 다 (`closeAll` 은 `closeBench` 뒤에
+     * `setOpen(false)`). 그래서 단계에 들어서는 그 자리에서 `isOpen` 을 읽으면 닫히고 있는 작업대 창을 「연 인벤토리」로 셌다.
+     * 그 줄은 `inventory:opened` (`onInventoryOpened`) 와 **다음 프레임의** `pollBuild` 만 적는다 — 그때는 닫기가 끝난 실제 상태다
+     * (Tab 창 안에서 고른 작업대라 제작 열만 접히고 창이 남은 경우는 정말로 열려 있으므로 그대로 적힌다).
+     */
+  }
+
+  /**
+   * `equipGun` 에 할 일이 없는가 (2026-09-17, 사용자 결정) — 단계에 **들어서는 순간** 한 번만 본다 (새로고침 복구는 다시 묻지 않는다).
+   *   ① 주무기 I · II 중 하나에 이미 돌격소총 계열(`TUTORIAL_GUN_FAMILY`, 등급 무관 · 유니크 제외)이 있다.
+   *   ② 주무기 I · II 가 둘 다 차 있다 — 만든 소총을 넣을 빈 칸이 없으니 바꿔 끼우라고 붙잡지 않는다.
+   * 로드아웃을 모르면(인벤토리가 아직 없다) false — 평소처럼 단계를 보여 준다.
+   */
+  private equipGunMoot(): boolean {
+    const inv = this.ctx.inventory;
+    if (!inv) return false;
+    let l;
+    try { l = inv.getLoadout(); } catch { return false; }
+    if (l.primary && l.primary2) return true;
+    return this.isAssaultRifle(l.primary) || this.isAssaultRifle(l.primary2);
+  }
+
+  /** 돌격소총(계열 `ar` 또는 계열 AR, 등급 무관)인가. def · 무기 def 를 모르면 만든 소총 id 하나만 본다. */
+  private isAssaultRifle(item: ItemInstance | null | undefined): boolean {
+    if (!item) return false;
+    if (item.defId === TUTORIAL_GUN_DEF) return true;
+    try {
+      const weaponId = this.ctx.inventory?.getDef(item.defId)?.weaponId;
+      const w = weaponId ? this.ctx.loot?.getWeaponDef(weaponId) : undefined;
+      if (!w || w.unique) return false;
+      return (w.family ?? w.id) === TUTORIAL_GUN_FAMILY || w.weaponClass === 'AR';
+    } catch { return false; }
   }
 
   /** 체력이 가득인가 — `heal` 단계를 조용히 지나칠지의 판단. 모르면(플레이어가 아직 없으면) false. */

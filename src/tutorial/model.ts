@@ -27,6 +27,11 @@ export const TUTORIAL_ROOM_PURPOSE = 'workshop' as const;
 export const TUTORIAL_BENCH_DEF = 'furn_bench_gun';
 export const TUTORIAL_GUN_RECIPE = 'make_wpn_ar';
 export const TUTORIAL_GUN_DEF = 'wpn_ar';
+/**
+ * 만든 소총의 **무기 계열** (`WeaponDef.family ?? id`, 등급 무관 — `ar` · `ar_g3` …). 2026-09-17 (사용자 결정): 장착 단계
+ * (`equipGun`)에 들어서는 순간 이 계열 · 계열 AR 무기가 이미 주무기 칸에 있으면 그 단계는 할 일이 없다 (`TutorialSystem.equipGunMoot`).
+ */
+export const TUTORIAL_GUN_FAMILY = 'ar';
 // (2026-09-15) `TUTORIAL_RAVEN_NPC` 는 없어졌다 — `ravenQuest` 단계가 순서에서 빠지면서 이 폴더는 NPC 를 하나도 모른다.
 /*
  * 2026-09-10 (제작 대개편) — `bulk_ammo_medium`(대량 제작, 화약 16 · 폐금속 5 → 90발)이 `data/recipes.csv` 에서

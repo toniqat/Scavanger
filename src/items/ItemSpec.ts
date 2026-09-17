@@ -12,6 +12,7 @@ import {
   GADGET_SMOKE_DURATION, GADGET_SMOKE_RADIUS, GADGET_TURRET_DPS, GADGET_TURRET_DURATION, GADGET_TURRET_RANGE,
   GRENADE_DAMAGE, GRENADE_FUSE, GRENADE_INCENDIARY_BLAST_DAMAGE, GRENADE_INCENDIARY_BLAST_RADIUS,
   GRENADE_INCENDIARY_DURATION, GRENADE_INCENDIARY_RADIUS, GRENADE_RADIUS,
+  explosionDamageRange,
 } from '@/shared';
 import { boostItemOf, shieldChargeOf } from './ItemDefs';
 /* 2026-09-15 (땅굴벌레 · 진동 장치) */
@@ -87,6 +88,14 @@ const sec = (v: number): string => `${n(v)} s`;
 /** `사용 시간` 값 — 0 은 `0 s` 가 아니라 **`즉시`** 다 (던지는 수류탄 · 채널형 스프레이). */
 const useTimeValue = (v: number): string => (v > 0 ? sec(v) : '즉시');
 const metre = (v: number): string => `${n(v)} m`;
+/**
+ * 2단 계단 폭발물의 피해 줄 — `바깥-중심` (예: 파편 수류탄 `30-60`). 2026-09-17 (사용자 결정): 한 숫자만 적으면
+ * 반경 안 어디서나 그만큼 아픈 것처럼 읽힌다. 범위 계산은 `shared/explosion.explosionDamageRange` 한 곳이다.
+ */
+function blastDamage(v: number): string {
+  const r = explosionDamageRange(v);
+  return `${n(r.min)}-${n(r.max)}`;
+}
 /** 배수 → `+30 %` / `−30 %` (1 보다 크면 늘어난 것) + 그것이 이득인지. */
 function mulPct(mul: number, betterWhenUp = true): { text: string; tone: SpecTone } {
   const pct = Math.round((mul - 1) * 100);
@@ -120,14 +129,14 @@ function gadgetRows(id: GadgetId): SpecRow[] {
       return [
         { k: L.arm, v: sec(GADGET_MINE_ARM_TIME) },
         { k: L.radius, v: metre(GADGET_MINE_RADIUS) },
-        { k: L.damage, v: n(GADGET_MINE_DAMAGE) },
+        { k: L.damage, v: blastDamage(GADGET_MINE_DAMAGE) },
         { k: L.defuse, v: sec(GADGET_DEFUSE_TIME) },
       ];
     case 'remoteMine':
       return [
         { k: L.arm, v: sec(GADGET_REMOTE_MINE_ARM_TIME) },
         { k: L.radius, v: metre(GADGET_REMOTE_MINE_RADIUS) },
-        { k: L.damage, v: n(GADGET_REMOTE_MINE_DAMAGE) },
+        { k: L.damage, v: blastDamage(GADGET_REMOTE_MINE_DAMAGE) },
         { k: L.maxLive, v: [num(GADGET_REMOTE_MINE_MAX_LIVE), dim(' 개')] },
         { k: L.recover, v: sec(GADGET_DEFUSE_TIME) },
       ];
@@ -173,12 +182,12 @@ function grenadeRows(def: ItemDef): SpecRow[] {
   const L = SPEC_LABEL_KO;
   const rows: SpecRow[] = [{ k: L.fuse, v: sec(GRENADE_FUSE) }];
   if (def.grenade === 'fire') {
-    rows.push({ k: L.blast, v: [num(GRENADE_INCENDIARY_BLAST_RADIUS), dim(' m · 피해 '), num(GRENADE_INCENDIARY_BLAST_DAMAGE)] });
+    rows.push({ k: L.blast, v: [num(GRENADE_INCENDIARY_BLAST_RADIUS), dim(' m · 피해 '), num(blastDamage(GRENADE_INCENDIARY_BLAST_DAMAGE))] });
     rows.push({ k: L.fireZone, v: [num(GRENADE_INCENDIARY_RADIUS), dim(' m · '), num(GRENADE_INCENDIARY_DURATION), dim('초')] });
     rows.push({ k: L.dps, v: n(GADGET_INCENDIARY_DPS) });
   } else {
     rows.push({ k: L.radius, v: metre(GRENADE_RADIUS) });
-    rows.push({ k: L.damage, v: n(GRENADE_DAMAGE) });
+    rows.push({ k: L.damage, v: blastDamage(GRENADE_DAMAGE) });
   }
   return rows;
 }

@@ -21,8 +21,10 @@ export function tuple(v: THREE.Vector3, dp = 2): Vec3Tuple {
 /**
  * Animation hint: 0 none, 1 charger windup, 2 charger rush, 3 spewer windup, 4 hunter airborne;
  * Phase 4: 5 rogue shooting, 6 rogue in cover, 7 rogue rushing, 8 artillery dug in, 9 toxic swelling, 10 behemoth windup, 11 behemoth rush;
+ * 2026-09-17: 25 artillery braced flat (before firing / locked after firing);
  * Phase 7: 12 rogue reloading, 13 rogue throwing a grenade.
  * 2026-09-11: 14..20 belong to the named rogues and are set directly by `ai/named/*` on `Enemy.namedHint`.
+ * 2026-09-17: 23 hunter flipped and falling, 24 hunter lying flipped (`ai/HunterFlip`).
  */
 export function animHint(e: Enemy): number {
   if (e.spatT > 0 && e.state !== 'dead') return 4;   // 2026-09-13: 땅굴벌레가 뱉은 몸은 날고 있다 (종류 분기보다 먼저 — 독성 · 포병도)
@@ -45,7 +47,11 @@ export function animHint(e: Enemy): number {
     return 0;
   }
   if (e.type === 'toxic') return e.toxicPhase === 1 ? 9 : 0;
-  if (e.type === 'artillery') return e.dug > 0.5 ? 8 : 0;
+  // 2026-09-17: 25 = 포병이 납작 엎드렸다 (쏘기 전 대기 · 쏜 뒤 고정 — `Enemy.shellPhase`, `ai/GimmickAI.artilleryFireSequence`)
+  if (e.type === 'artillery') return e.shellPhase !== 0 ? 25 : e.dug > 0.5 ? 8 : 0;
+  // 2026-09-17: 헌터 뒤집힘 — 23 떨어지는 중 · 24 누워 있음 (`ai/HunterFlip`). `airborne` 보다 먼저 (떨어지는 동안도 airborne 이다)
+  if (e.flipFalling) return 23;
+  if (e.flipTimer > 0) return 24;
   if (e.airborne) return 4;
   if (e.chargePhase === 1) return 1;
   if (e.chargePhase === 2) return 2;

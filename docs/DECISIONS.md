@@ -793,3 +793,26 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
 - **Restoring is unconditional**: the card returns exactly as it was, with no re-validation of the tutorial state and
   no sound. Rejected: dropping the card when the track ended mid-cutscene — one more judgement for a case the
   tutorial already handles by closing the card itself.
+
+## 2026-09-17 — 피해 1/3 · 헌터 · 포병 · 세포 드랍 · Damage ÷3, hunter, artillery, cell drops
+
+- **All damage dealt to enemies and all enemy HP drop to 1/3 (floor)** — guns, legendary uniques, melee, ship calls,
+  rover turret/ram, implants, and enemy-vs-enemy damage (`ENEMY_CLASH damageMul`). Rejected: guns only (other sources
+  would be 3× stronger). **Unchanged:** damage to players, planet environment / hazard damage to enemies.
+- **Explosives use explicit values, not 1/3:** frag 60, incendiary blast 30 + fire zone 10/s, mine 80, remote mine
+  100, turret 15/s. **Outer ring is 50 % for every explosive** (`EXPLOSION_OUTER_MUL`). Rejected: an incendiary-only
+  30/20 split. Every explosive tooltip shows `min-max`, not only the frag grenade.
+- **AR −15 % damage and −10 m range** before the 1/3 cut. **Shotgun hip-fire spread = old ADS spread; ADS only zooms.**
+- **Tutorial androids 30 HP** so one frag still kills both in the pit. Rejected: reshaping the pit.
+- **Hunter:** red stripes; leap 10–18 m, −20 % speed, 12 s cooldown; **20 cumulative damage during one leap** drops it,
+  flipped 3 s, rocking. Rejected: a single-hit threshold (an AR bullet is 17).
+- **Toxic bug:** burst 60; added to threat 1–2 planets instead of raising its weight on 베르단트 III.
+- **Artillery:** spawns with a 2–3 scavenger escort (rejected: joining nearby packs); fires only when another bug is
+  within 10 m of the target, braces 1 s, locked 5 s after firing; a lone target in range → summons 2–3
+  `scavenger_summon` **once per artillery**, a no-drop type. `maxArtillery` stays a live cap (the double spawn was a
+  counting bug).
+- **Cell drops replace every sample row** of hunter · toxic · warrior · artillery · charger · behemoth · both sandworms
+  (rejected: replacing cell rows only / adding on top). **Corpse sample rows are exempt from the epic+ downgrade** so
+  cell IV drops at the stated rates.
+- **Messenger preview shows only messages that have appeared.** Equip-gun tutorial step is skipped when an AR is
+  already in a primary slot or both primaries are filled.

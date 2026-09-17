@@ -97,9 +97,14 @@ export function aliveCount(sys: EnemySystem): number {
   return n;
   }
 
+/**
+ * 종류별 상한(포병 · 베헤모스)이 세는 **살아 있는 몸**. 2026-09-17 (포병 2마리 버그): 예전에는 `isCombatant` 로 셌는데, 그것은 전소로
+ * 몸부림치는 몸(`incapTimer > 0`)과 이륙에 놀라 달아나는 몸(`flee`, `FLEE_DURATION` 뒤에야 사라진다)을 **빼고** 센다 — 그 몇 초 사이에
+ * 순찰 틱이 돌면 상한 1 인 행성에 포병이 하나 더 파고 나왔다. 상한은 "지금 월드에 서 있는 몸" 이라 죽지 않은 몸은 모두 센다.
+ */
 export function countAlive(sys: EnemySystem, type: EnemyType): number {
   let n = 0;
-  for (let i = 0; i < sys.active.length; i++) { const e = sys.active[i]; if (e.type === type && e.isCombatant) n++; }
+  for (let i = 0; i < sys.active.length; i++) { const e = sys.active[i]; if (e.type === type && e.active && e.state !== 'dead') n++; }
   return n;
   }
 
@@ -110,6 +115,7 @@ export function ensureCapacity(sys: EnemySystem, n: number, cap: number): number
     for (let i = sys.active.length - 1; i >= 0 && alive + n > cap; i--) {
       const e = sys.active[i];
       if (!e.active || e.state === 'dead' || e.aware || e.relentless || e.isHumanoid) continue;
+      if (e.escortOf && e.escortOf.isCombatant) continue;   // 2026-09-17: 살아 있는 포병의 호위는 포병과 함께 남는다 (`ai/ArtilleryPack`)
       if (sys.targets.minDist(e.position) > RECYCLE_DISTANCE) { sys.despawn(e); alive--; }
     }
   }

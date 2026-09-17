@@ -176,7 +176,11 @@ try {
   console.log('artillery shell + interception');
   const art = await P(() => {
     const sys = window.__sys; const ctx = window.__game.ctx; const p = ctx.player.position;
+    // 2026-09-17: 앞 구간의 로그 · 안드로이드가 남아 있으면 포병이 그쪽(곁에 벌레 없음)을 표적으로 잡아 쏘지 않는다 — 판을 비우고 시작한다
+    sys.killAll();
     const a = sys.debugSpawn('artillery', { x: p.x + 95, z: p.z }, true);
+    // 2026-09-17: 포병은 표적 곁(ARTILLERY_AI.supportRadius)에 다른 벌레가 있어야 쏜다 — 곁에 스캐빈저 하나를 세우고, 1회 소환은 미리 써 버린 것으로 둔다
+    if (a) { a.summonDone = true; sys.debugSpawn('scavenger', { x: p.x + 2, z: p.z + 2 }, false); }
     return a ? { id: a.id, faction: a.faction } : null;
   });
   ok(!!art && art.faction === 'bug', 'artillery spawned 95 m out (aware)', JSON.stringify(art));
@@ -463,9 +467,11 @@ try {
   console.log('C batch: artillery refusal → clear spot, no ping-pong, refusal cap (C-24)');
   const ar0 = await P(() => {
     const ctx = window.__game.ctx; const sys = window.__sys; const p = ctx.player.position;
+    sys.killAll();   // 2026-09-17: 표적이 플레이어여야 곁의 스캐빈저가 사격 조건을 채운다
     const a = sys.debugSpawn('artillery', { x: p.x + 70, z: p.z + 20 }, true);
     if (!a) return null;
     sys.fireShell = () => false;                 // 궤적이 늘 막힌 척 — 재배치 규칙만 본다
+    a.summonDone = true; sys.debugSpawn('scavenger', { x: p.x + 2, z: p.z - 2 }, false);   // 2026-09-17: 사격 조건(표적 곁의 벌레) · 1회 소환 제외
     a.dug = 1; a.shellTimer = 0; a.shellRefusals = 0;
     window.__art = { id: a.id, legs: [] };
     return { id: a.id, p: [a.position.x, a.position.z] };

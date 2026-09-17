@@ -717,7 +717,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       e.guardPos.copy(e.position); e.escortOf = null; e.leash = ROGUE_AI.leash;
       e.target = null; e.targetTimer = 0; e.perceptionTimer = Math.random() * 0.3; e.hasLOS = false; e.lostTimer = 0;
       e.roguePhase = 0; e.chargePhase = 0; e.spitPhase = 0; e.toxicPhase = 0; e.swellTimer = 0; e.dug = 0;
+      e.shellPhase = 0; e.shellPhaseT = 0;   // 2026-09-17: 포병 발사 자세는 새 호스트에서 처음부터 (`summonDone` 은 이어받지 못한다 — 와이어에 없다)
       e.airborne = false; e.leaping = false; e.vy = 0;
+      // 2026-09-17: 뒤집힌 헌터를 이어받으면 (떨어지던 몸도) 땅에서 남은 뒤집힘을 마친다 — 힌트 유지값(0.35 s)이 아니라 최소 1 s
+      if (e.flipFalling || e.flipTimer > 0) { e.flipFalling = false; e.flipTimer = Math.max(e.flipTimer, 1); e.state = 'stagger'; e.staggerTimer = 0; }
+      e.leapDamage = 0;
       e.burstLeft = 0; e.throwTimer = 0; e.reloadTimer = 0; e.magRounds = ROGUE_MAG_ROUNDS;
       e.hasMoveTarget = false; e.hasFacePoint = false; e.hasCover = false;
       e.velocity.set(0, 0, 0);
@@ -757,6 +761,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       e.throwTimer = 0; e.reloadTimer = 0;
       e.target = null; e.hasMoveTarget = false; e.hasFacePoint = false;
       e.chargePhase = 0; e.spitPhase = 0; e.toxicPhase = 0; e.roguePhase = 0; e.airborne = false; e.leaping = false;
+      e.flipFalling = false; e.flipTimer = 0; e.leapDamage = 0;   // 2026-09-17: 뒤집힘은 새 호스트의 힌트가 다시 입힌다
       e.velocity.set(0, 0, 0);
       this.replicaMgr.adopt(e, now);
     }

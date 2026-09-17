@@ -40,12 +40,14 @@ No asset files — every rig is built from primitives.
 | `ai/HumanoidProfile.ts` | Faction profiles: aim-error curve, bursts, grenade loadout |
 | `ai/SquadFlank.ts` | Raider flanker role |
 | `ai/FireLine.ts` | Muzzle line-of-fire check with cache and strafe response |
-| `ai/GimmickAI.ts` | Artillery (dig in, relocate on blocked arc), toxic swell, behemoth wind-up/charge |
+| `ai/GimmickAI.ts` | Artillery (dig in, support-gated fire: brace → fire → post-fire lock, relocate on blocked arc), toxic swell, behemoth wind-up/charge |
+| `ai/ArtilleryPack.ts` | Artillery escort (`spawnArtilleryEscort`, `escortFollow`), fire condition (`hasBugSupport`), once-per-artillery summon (`maybeSummon`) |
 | `ai/Investigate.ts` | Investigation state after an unattributed shot or noise |
 | `ai/Structures.ts` | Biting / spitting at player deployables in the way |
 | `ai/Lures.ts` | `LureField` noise beacons |
 | `ai/Ride.ts` | Enemy / corpse tram riding via `shared/ride.ts`; replica prediction |
 | `ai/Burrow.ts` | Emerge / spat-flight gate (no attack or move) |
+| `ai/HunterFlip.ts` | Hunter flip gate: a leap that took ≥ `HUNTER_LEAP.flipDamage` (`Enemy.noteLeapDamage`) drops straight down and lies on its back for `flipDuration` s — no move / turn / attack (`updateHunterFlip`) |
 | `ai/Steering.ts` · `ai/Common.ts` | Seek / separate / avoid; `lookAtTarget`, `startMelee`, `stumble`, `holdingFire` |
 | `ai/named/` | Named AI: `Sniper.ts` (Roden), `ScanDrone.ts`, `Hammer.ts` (Tagilla), `Heavy.ts`; `model.ts` data types, `remote.ts` replica hooks, `index.ts` dispatch |
 | `named/Director.ts` · `named/SniperShot.ts` | Named roll + placement; sniper shot / glint FX |
@@ -66,11 +68,12 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
 | Type | Faction | Role |
 |---|---|---|
 | `scavenger` | bug | Swarm melee |
-| `hunter` | bug | Flanker with leap |
+| `hunter` | bug | Flanker with leap (red stripes, `BugParams.stripes`); flipped onto its back when shot hard mid-leap |
 | `warrior` | bug | Heavy melee |
 | `spewer` | bug | Acid globs, death burst |
 | `charger` | bug | Wind-up rush; weak rear |
-| `artillery` | bug | Stand-off mortar, interceptable shells, never melees |
+| `artillery` | bug | Stand-off mortar, interceptable shells, never melees. Digs in with 2–3 scavenger escorts; fires only when another bug is near the target |
+| `scavenger_summon` | bug | Scavenger an artillery summons once at a lone target in range: scavenger stats / rig / AI / sounds (`baseTypeOf`), `CORPSE_LOOT_CHANCE` 0 (no drops) |
 | `toxic` | bug | Suicide runner, swells then bursts (friendly fire) |
 | `behemoth` | bug | Scaled warrior (`BEHEMOTH_SCALE`), armored front plate, knockback charge |
 | `sandworm` | bug | `땅굴벌레` event boss (threat 2–3), rooted: spits bugs then acid (`sandworm/Director`) |
@@ -108,7 +111,7 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
   - Client → host: `hit` (`HitRequest`: damage, `st` status bits, `kb`), `explode`, `intq` (shell interception), `shotq` (shot report), `ecorpseq emptied` (an enemy corpse emptied on that client).
 - Snapshot `a` hints: 1 charger windup · 2 rush · 3 spewer windup · 4 airborne/spat · 5 humanoid shooting · 6 cover/stagger ·
   7 rush · 8 artillery dug in · 9 toxic swell · 10/11 behemoth windup/charge · 12 reload · 13 throw · 14/15 sniper prone/glint ·
-  16/17 hammer windup/charge · 18/19 heavy spin/fire · 20 scan pulse · 21/22 worm spit/acid (`net/HostSync.animHint`).
+  16/17 hammer windup/charge · 18/19 heavy spin/fire · 20 scan pulse · 21/22 worm spit/acid · 23/24 hunter flipped falling/lying · 25 artillery braced flat (`net/HostSync.animHint`).
 - Debug on `getSystem('enemies')`: `debugSpawn`, `debugSpawnNamed`, `debugNamedRoll`, `debugSites`, `debugEcology`,
   `debugBugTuning`, `debugAmbientGroup`, `debugWaveGroup`, `debugSandworm`, `debugSandwormState`, `debugSandwormChance`,
   `debugSandwormClearOnce`, `debugSpawnBurrow`,
@@ -207,8 +210,24 @@ Applied at `world:ready` on every client: bug max hp in `Pool.acquire` (not sand
   Exceptions: named sniper Roden shoots players only (`ignoresAllies`), and tutorial worlds have no androids.
   An android's shot is heard exactly like a player's (`ally:fired` → `onGunshot` + `alertShot`), and its bullets reach
   enemies through `applyAllyHit` (authority only; `'ai'` credit, wakes the body and turns it on the shooter).
+- Enemy → enemy damage (2026-09-17): every path where an enemy hurts another enemy multiplies by `ENEMY_CLASH.damageMul`
+  (`parts/Damage.applyDamage` enemy branch — melee · charge · leap · acid; `parts/Attacks` gun foe · grenade blast · fire-zone burn · shell ·
+  toxic burst; `sandworm/Director` eruption). The player / android / drone / vehicle share stays the csv number. Exceptions: the
+  behemoth charge uses its own vs-enemy value; hazard DoT is not scaled.
 - Perception: `detectionRange = sightRadius × target stealth × smoke clarity`; alert propagates within a faction.
 - Bugs: `idle → wander → alert → chase → attack → stagger`, `dead` / `flee`; artillery, toxic, behemoth in `GimmickAI`.
+- Artillery (2026-09-17, `ai/ArtilleryPack.ts` + `GimmickAI`): `maxArtillery` (+ `ARTILLERY_CAP_BONUS_BY_THREAT`) is a **live** cap —
+  every not-dead artillery counts (`Pool.countAlive`), a killed one frees its slot. Dig-in brings `escortMin`–`escortMax` scavengers
+  (`escortOf`) that wander around it and run back beyond `escortFollowDist` until they notice a target, then fight normally. It fires
+  only when a non-artillery bug stands within `supportRadius` of its target: brace flat `braceTime`, fire, then no movement for
+  `postFireLock` (also outside `chase`). A person target in `maxRange` with no bug near it triggers a **once-per-artillery** summon of
+  `summonMin`–`summonMax` `scavenger_summon` (relentless, locked on that target). **Intended**: escort links and `summonDone` are host
+  memory only — after a host change escorts become plain bugs and a surviving artillery may summon once more.
+- Hunter flip (2026-09-17): every hp loss on the authority while `leaping` (crouch → landing) adds to `Enemy.leapDamage` — a replica's `hit`
+  request lands in the same `takeDamage`, burn ticks count, the quiet hazard tick does not. At `HUNTER_LEAP.flipDamage` the leap ends:
+  horizontal velocity 0, real-gravity fall (`flipFalling`, hint 23), then `flipTimer = flipDuration` on its back (hint 24). The state
+  is `stagger` with `staggerTimer` 0, so the ordinary stagger exit resumes the AI. Still damageable and killable. Leap arc uses
+  `GRAVITY × arcGravityMul`; flight time is fixed (`flightTime`), so horizontal speed = distance / flightTime.
 - Humanoids: `RogueAI` cover cycle (pick cover → move → crouch hold → step out to `popPos` → burst → optional rush),
   magazine reload, carried grenades (`grenadeCount`), faction profile from `HumanoidProfile`; androids use `androidCycle`.
 - Fire line: shots and spit are held (never movement) when the muzzle line from `ENEMY_WALL_STANDOFF` behind the muzzle is
@@ -287,12 +306,14 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
 - Known limits of empty-corpse removal (2026-09-16): an `ecorpseq` request lost during host transfer leaves that corpse on
   the 45 s lifetime; corpses in the ship bay or on the tram sink through the deck; a client that cannot resolve an item id
   in the spawn wire (version mismatch) removes that corpse locally only. — `parts/CorpseEmpty.ts`
+- Known limit (2026-09-17): a hunter flipped while riding a tram skips `integrate`, so it does not ride — it stays at its world spot
+  until it rights itself. — `ai/HunterFlip.ts`
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/enemies`.
+- 2026-09-17 — Artillery: `maxArtillery` stays a live cap but `Pool.countAlive` now counts incapacitated / fleeing bodies (a burning or fleeing artillery let a second dig in); 2–3 scavenger escorts follow it until they notice a target (`ai/ArtilleryPack.ts`, `Enemy.escortOf`, not recycled while it lives); fires only with a non-artillery bug within `supportRadius` of the target; brace flat `braceTime` → fire → `postFireLock` (`Enemy.shellPhase`, `anim.brace`, hint 25); once-per-artillery summon of `scavenger_summon` (new type, 0 % drops) at a lone target in range.
+- 2026-09-17 — Global 1/3 rebalance: every `enemies.csv` hp ÷3 floor (raidXp unchanged; `sandworm_weak` raidXp literal 75), `SANDWORM_HP_MIN/MAX` 666/1000, `SANDWORM_WEAK_HP` 250, `TOXIC_DAMAGE` 60; enemy → enemy damage × `ENEMY_CLASH.damageMul` (1/3; hazards exempt), `BEHEMOTH_AI.enemyDamage` 53, `tut_android*` hp 30; toxic on threat 1–2 planets; hunter leap 10–18 m · 1.55 s · cooldown 12 · `arcGravityMul`, red stripes, mid-leap flip (`ai/HunterFlip.ts`, hints 23/24).
 - 2026-09-16 — Emptied enemy corpses held while anyone views them (`Enemy.corpseReleased`, `CorpseEmpty.hookCorpseViews` / `updateEmptyCorpses`, `ee corpseEmptied` at release); tutorial enemies never step within `TUTORIAL_ENEMY_EDGE_MARGIN_M` of a cliff (`tutorialEdgeGuard`).
 - 2026-09-16 — Emptied corpses sink away: `parts/CorpseEmpty.ts`, `Enemy.corpseEmptied` / `corpseFadeS`, `ee corpseEmptied`, `ecorpseq emptied` host guard (`hitGuardStats.corpseEmptyRefused`), `debugEmptyCorpse`.
 - 2026-09-16 — Bug audio: `burrow_emerge` per bug (batch 1/√k, `parts/Burrow.emergeSound`); bug `STEP_VOICES` rows use `bug_step_skitter` / `_heavy` / `_giant` with a short camera gate and 1/√n crowd gain (`model.bugStepCrowd`); shell whistle lives in audio/.
-- 2026-09-16 — `enemies.csv` `raidXp` (per-kill raid XP, first pass hp / 10) summed into `ctx.stats.killXp` at both kill sites; `stepSound` on for scavenger · hunter · spewer · toxic · tut_bug(_loot).
-- 2026-09-15 — Sandworm renamed `땅굴벌레`; cumulative per-check appearance chance (sprinting + weight, androids count, solo never, lure bonus), `sandworm:summon`, `WorldRef.burrowGroundOk` spot check, threat-1 `sandworm_weak` (750 hp · ×0.7 · scavengers only), `LureField` kinds, `ee wormErupt.ty`.

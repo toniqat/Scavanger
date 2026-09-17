@@ -79,6 +79,8 @@ export const CSV_FOLDERS = {
   'loot_category_weights.csv': ['items'],
   'loot_corpse_rolls.csv':   ['items', 'enemies'],
   'loot_corpses.csv':        ['items', 'enemies'],
+  // 2026-09-17: 시체 표본 개당 등급 굴림 — items/ 가 굴리고 enemies/ 가 시체로 넘긴다
+  'loot_corpse_samples.csv': ['items', 'enemies'],
   'loot_guaranteed.csv':     ['items'],
   'loot_item_weights.csv':   ['items'],
   'loot_named.csv':          ['items', 'enemies'],

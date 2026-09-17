@@ -11,12 +11,16 @@ import { fireLineStrafe, hasFireLine } from './FireLine';
 import { attackResult, lookAtTarget, startMelee, stumble, type AttackResult } from './Common';
 import { updateRogue } from './RogueAI';
 import { isNamedAiType, updateNamed } from './named';
-import { attackBehemoth, attackToxic, chaseArtillery, chaseBehemoth, chaseToxic } from './GimmickAI';
+import { artilleryOffChase, attackBehemoth, attackToxic, chaseArtillery, chaseBehemoth, chaseToxic } from './GimmickAI';
+/* appended (2026-09-17): 포병 호위 */
+import { escortFollow, escortWanderRadius } from './ArtilleryPack';
 import { endInvestigation, updateInvestigate } from './Investigate';
 /* appended (2026-09-14): 튜토리얼 전용 적의 자기 자리 지키기 · 단단한 리시 (`homeLeash > 0` 인 적에게만) */
 import { tutorialEdgeGuard, tutorialHold } from '../Tutorial';
 /* appended (2026-09-13): 굴착 스폰 · 뱉어진 버그 */
 import { updateBurrowGate } from './Burrow';
+/* appended (2026-09-17): 헌터 뒤집힘 */
+import { updateHunterFlip } from './HunterFlip';
 
 export { lookAtTarget } from './Common';
 import { biteStructure, refreshStructureTarget } from './Structures';
@@ -64,6 +68,8 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   // 2026-09-13: 땅굴벌레는 땅에 박혀 있고 `sandworm/Director` 가 돌린다. 파고 나오는 중 · 뱉어져 나는 중인 버그는 싸우지 않는다.
   if (isWormType(e.type)) return;
   if (updateBurrowGate(e, dt, host)) return;
+  // 2026-09-17: 도약 중 피해로 뒤집힌 헌터 — 떨어지고 누워 있는 동안 AI · 이동 · 회전이 없다 (`ai/HunterFlip`)
+  if (updateHunterFlip(e, dt, host)) return;
 
   if (e.state === 'flee') {
     e.fleeTimer += dt;
@@ -124,6 +130,8 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   let allowOverlap = false;
   e.hasMoveTarget = false;
   e.hasFacePoint = false;
+  // 2026-09-17: 포병 호위 — 표적을 모르는 동안 포병 곁을 지키고, 너무 멀어지면 뛰어 돌아온다 (`ai/ArtilleryPack`)
+  const escortRun = e.escortOf !== null && escortFollow(e);
 
   switch (e.state) {
     case 'idle': {
@@ -132,7 +140,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
       a.headPitch = THREE.MathUtils.lerp(a.headPitch, Math.sin(a.time * 1.1) * 0.1, dt * 3);
       if (e.wanderTimer <= 0) {
         const ang = Math.random() * TWO_PI;
-        const rad = 3 + Math.random() * 7;
+        const rad = escortWanderRadius(e, 3 + Math.random() * 7);
         e.moveTarget.set(e.spawnPos.x + Math.cos(ang) * rad, 0, e.spawnPos.z + Math.sin(ang) * rad);
         if (!world.isInsideBounds(e.moveTarget.x, e.moveTarget.z)) e.moveTarget.copy(e.spawnPos);
         e.state = 'wander'; e.stateTime = 0;
@@ -141,7 +149,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
     }
     case 'wander': {
       e.hasMoveTarget = true;
-      speed = s.wanderSpeed;
+      speed = escortRun ? s.speed : s.wanderSpeed;
       a.headYaw = THREE.MathUtils.lerp(a.headYaw, Math.sin(a.time * 0.9) * 0.3, dt * 3);
       a.headPitch = THREE.MathUtils.lerp(a.headPitch, 0.1, dt * 3);
       const dx = e.moveTarget.x - e.position.x, dz = e.moveTarget.z - e.position.z;
@@ -197,6 +205,8 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
     default: break;
   }
 
+  // 2026-09-17: 포병이 추격 상태가 아닐 때도 쏜 뒤의 고정(`postFireLock`)은 끝까지 지킨다 (`GimmickAI.artilleryOffChase`)
+  if (e.type === 'artillery' && e.state !== 'chase' && artilleryOffChase(e, dt)) speed = 0;
   // status effects: burning does not slow, 'slowed' (acid / cryo gadgets) scales every movement state
   if (e.slowFactor < 1) speed *= e.slowFactor;
 
@@ -222,6 +232,8 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
   e.moveTarget.copy(tp);
   e.hasMoveTarget = true;
   let speed = s.speed;
+  // 2026-09-17: 엎드려 기다리거나 쏜 뒤 굳어 있는 포병은 구조물 · 미끼 가지도 타지 않는다 (움직이지 않는다)
+  if (e.type === 'artillery' && e.shellPhase !== 0) return chaseArtillery(e, dt, host, t);
 
   // ── a wall / dome / turret in the way gets chewed on first (근접형) ──
   const st = e.structTarget;
@@ -342,6 +354,7 @@ function startLeap(e: Enemy, host: EnemyHost): void {
   e.attackTimer = 0; e.attackHitDone = false;
   e.airborne = false; // becomes true after the crouch
   e.leaping = true;
+  e.leapDamage = 0;   // 2026-09-17: 뒤집힘 판정은 이 도약에서 받은 피해만 센다 (`Enemy.noteLeapDamage`)
   e.spitPhase = 0; e.chargePhase = 0;
   host.playAudio('bug_screech', e.position, 0.6, 1.3);
 }
@@ -461,7 +474,8 @@ function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): 
         e.velocity.set((_tmp.x - e.position.x) / T, 0, (_tmp.z - e.position.z) / T);
         const vmax = 16;
         if (e.velocity.length() > vmax) e.velocity.setLength(vmax);
-        e.vy = (_tmp.y - e.position.y) / T + 0.5 * GRAVITY * T;
+        // 2026-09-17: 체공이 길어져(0.62 → 1.55 s) 실제 중력이면 정점이 몸 높이의 두 배를 넘는다 — 포물선만 `arcGravityMul` 배 중력
+        e.vy = (_tmp.y - e.position.y) / T + 0.5 * GRAVITY * HUNTER_LEAP.arcGravityMul * T;
         e.airborne = true;
         a.crouch = 0;
         e.yaw = Math.atan2(e.velocity.x, e.velocity.z);
@@ -470,7 +484,7 @@ function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): 
       return r;
     }
     // airborne
-    e.vy -= GRAVITY * dt;
+    e.vy -= GRAVITY * HUNTER_LEAP.arcGravityMul * dt;
     e.position.x += e.velocity.x * dt;
     e.position.z += e.velocity.z * dt;
     e.position.y += e.vy * dt;

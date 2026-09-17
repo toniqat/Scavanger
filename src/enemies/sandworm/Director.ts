@@ -71,7 +71,7 @@ import {
   type EnemyEvent, type EnemyType, type PlanetEcosystem, type PlanetId, type WeightState,
 } from '@/shared';
 import { Enemy } from '../Enemy';
-import { ENEMY_STATS, isWormType, type WormEnemyType } from '../EnemyTypes';
+import { ENEMY_CLASH, ENEMY_STATS, isWormType, type WormEnemyType } from '../EnemyTypes';
 import { ecoAllows, pickEcoType, spawnBlocked } from '../Spawner';
 import type { CombatTarget } from '../Targets';
 import { turnToward, yawTo } from '../ai/Steering';
@@ -604,7 +604,7 @@ export class SandwormDirector {
     // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (수평 거리 · 하한 0.3). 넉백은 없다 — 몸은 권위가 굴린다.
     damageAlliesAt(sys, p, R, SANDWORM_ERUPT_DAMAGE, worm?.id ?? 0, type, 0.3, 'feet2d');
     _c.set(p.x, p.y + 1, p.z);
-    sys.explode(_c, R, SANDWORM_ERUPT_DAMAGE, 'ai', null, worm, 'bug');   // 다른 팩션 적 (벌레는 제 편)
+    sys.explode(_c, R, SANDWORM_ERUPT_DAMAGE * ENEMY_CLASH.damageMul, 'ai', null, worm, 'bug');   // 2026-09-17: × 적 → 적 배수   // 다른 팩션 적 (벌레는 제 편)
     ctx.drones?.applyExplosion(p, R, SANDWORM_ERUPT_DAMAGE);
     sys.targets.damageVehicleAt(p, R, SANDWORM_ERUPT_DAMAGE, 0.3);   // 2026-09-13: 탐사 차량 (플레이어와 같은 최소 감쇠)
 

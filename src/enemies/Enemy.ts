@@ -4,7 +4,7 @@ import {
   type DeployableRef, type EnemyDeathDir, type EnemyFaction, type EnemyRef, type EnemyType, type GameContext, type Obstacle,
   type EnemyGrenadeKind, type EnemySpawnSite, type EnemySquadRole,
 } from '@/shared';
-import { ENEMY_STATS, HUMANOID_RAIDER, ROGUE_AI, baseTypeOf, isRogueType, type BugType, type EnemyStats } from './EnemyTypes';
+import { ENEMY_STATS, HUMANOID_RAIDER, HUNTER_LEAP, ROGUE_AI, baseTypeOf, isRogueType, type BugType, type EnemyStats } from './EnemyTypes';
 import { createBugRig, createBugAnim, disposeBugRig, animateBug, type BugRig, type BugAnim } from './models/BugModel';
 import { animateRogue, createRogueRig, disposeRogueRig, type RogueRig, type RogueType } from './models/RogueModel';
 import { animateNamedRig, namedBodyNearest } from './models/named';
@@ -113,6 +113,9 @@ export interface EnemyHost {
   /* ── appended: 2026-09-13 (굴착 스폰 · 땅굴벌레) ── */
   /** A body the sandworm spat out has landed (`ai/Burrow`) — dust puff + thud on this client. */
   burrowLanded?(e: Enemy): void;
+  /* ── appended: 2026-09-17 (포병 호위 · 소환) ── */
+  /** 권위에서 벌레 한 마리를 세운다 (`SpawnHost.spawn` 과 같은 함수 — 체력 배수 · `ee spawn` · 굴착 연출 포함). */
+  spawn(type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean, emerge?: number): Enemy | null;
 }
 
 const _v = new THREE.Vector3();
@@ -157,6 +160,12 @@ export class Enemy implements EnemyRef {
   leaping = false;
   vy = 0;
   leapCd = 0;
+  /** 2026-09-17: 이번 도약(웅크리기 시작 ~ 착지) 동안 받은 피해 합 — `HUNTER_LEAP.flipDamage` 이상이면 뒤집힌다. 권위만 센다. */
+  leapDamage = 0;
+  /** 2026-09-17: 도약이 끊겨 뒤집힌 채 수직으로 떨어지는 중 (권위 `ai/HunterFlip` · 리플리카는 힌트 25). */
+  flipFalling = false;
+  /** 2026-09-17: 뒤집혀 누운 남은 s — > 0 이면 이동 · 회전 · 공격이 없다 (권위 `ai/HunterFlip` · 리플리카는 힌트 24 동안 유지값). */
+  flipTimer = 0;
   /** charger / behemoth */
   chargePhase: 0 | 1 | 2 = 0; // 0 none, 1 windup, 2 rushing
   chargeTimer = 0;
@@ -257,6 +266,16 @@ export class Enemy implements EnemyRef {
    * walked **at the target**, never sideways.
    */
   readonly shellSpot = new THREE.Vector3();
+  /**
+   * artillery (2026-09-17): 발사 순서 — 0 = 평소, 1 = 다리를 낮춰 납작 엎드려 기다린다(`ARTILLERY_AI.braceTime`), 2 = 쏜 뒤 움직이지 못한다
+   * (`postFireLock`). 남은 초는 `shellPhaseT`. 리플리카는 애님 힌트 25 으로 자세만 받는다 (`net/HostSync.animHint`).
+   */
+  shellPhase: 0 | 1 | 2 = 0;
+  shellPhaseT = 0;
+  /** artillery (2026-09-17): 소환 스캐빈저를 이미 불렀다 — 포병 한 마리의 평생 한 번 (`ai/ArtilleryPack.maybeSummon`). */
+  summonDone = false;
+  /** artillery (2026-09-17): 다음 소환 조건 검사까지 남은 초 (`ARTILLERY_AI.supportCheckS`). */
+  supportCheckT = 0;
   /** toxic: 0 running, 1 swelling, 2 burst */
   toxicPhase = 0;
   swellTimer = 0;
@@ -505,6 +524,7 @@ export class Enemy implements EnemyRef {
     this.lostTimer = 0; this.staggerTimer = 0; this.deathTimer = 0; this.fleeTimer = 0;
     this.flankSign = Math.random() < 0.5 ? -1 : 1; this.flankTimer = 0;
     this.airborne = false; this.leaping = false; this.vy = 0; this.leapCd = 1;
+    this.leapDamage = 0; this.flipFalling = false; this.flipTimer = 0;   // 2026-09-17: 헌터 뒤집힘
     this.chargePhase = 0; this.chargeTimer = 0; this.chargeCd = 2;
     this.spitPhase = 0;
     this.nearObstacles.length = 0; this.obstacleTimer = Math.random() * 0.25;
@@ -530,6 +550,7 @@ export class Enemy implements EnemyRef {
     this.hasCover = false; this.hasPop = false; this.coverTimer = 0; this.burstLeft = 0; this.burstTimer = 0; this.standTime = 0;
     this.rushTimer = 0; this.hitCrouchTimer = 0; this.noLosTimer = 0; this.weaponId = '';
     this.shellTimer = 3 + Math.random() * 3; this.dug = 0; this.shellRefusals = 0;
+    this.shellPhase = 0; this.shellPhaseT = 0; this.summonDone = false; this.supportCheckT = 0;   // 2026-09-17: 발사 자세 · 1회 소환
     this.toxicPhase = 0; this.swellTimer = 0;
     this.chargeSeq = 0; this.hitByCharge = -1; this.chargeVictims.length = 0; this.chargeDrones.length = 0;
     this.corpseLife = CORPSE_LIFETIME;
@@ -559,7 +580,8 @@ export class Enemy implements EnemyRef {
     a.gait = Math.random() * Math.PI * 2; a.speed = 0; a.headYaw = 0; a.headPitch = 0; a.mandible = 0;
     a.flinch = 0; a.flinchX = 0; a.flinchZ = 0; a.hitFlash = 0; a.abdomen = 0; a.shake = 0; a.crouch = 0;
     a.death = -1; a.deathDir = 0; a.deathFall = 0; a.slopePitch = 0; a.slopeRoll = 0; a.time = Math.random() * 10;
-    a.fade = 0; a.aim = 0; a.recoil = 0; a.writhe = 0; a.spark = 0; a.reload = 0; a.throwing = 0;
+    a.fade = 0; a.aim = 0; a.recoil = 0; a.writhe = 0; a.spark = 0; a.reload = 0; a.throwing = 0; a.brace = 0;
+    a.flip = 0;   // 2026-09-17
     this.rig.root.visible = true;
     this.rig.root.scale.setScalar(this.rig.baseScale);
     this.rig.root.position.copy(position);
@@ -780,6 +802,8 @@ export class Enemy implements EnemyRef {
       this.kill(true);
       return;
     }
+    // 2026-09-17: 도약 중 누적 피해 → 뒤집힘. 리플리카의 hit 요청도 호스트의 이 줄을 지나므로 분대원 피해가 같이 쌓인다.
+    if (this.leaping) this.noteLeapDamage(dmg);
     // stagger on heavy hits
     const threshold = this.maxHp * this.stats.staggerFraction * (this.chargePhase === 2 ? 1.6 : 1);
     if (dmg >= threshold && this.state !== 'stagger' && !this.airborne && this.toxicPhase === 0) {
@@ -827,7 +851,31 @@ export class Enemy implements EnemyRef {
       this.aware = true;
       if (this.state === 'idle' || this.state === 'wander') { this.state = 'alert'; this.stateTime = 0; }
     }
-    if (this.hp <= 0) { this.hp = 0; this.kill(true); }
+    if (this.hp <= 0) { this.hp = 0; this.kill(true); return; }
+    if (this.leaping) this.noteLeapDamage(amount);   // 2026-09-17: 화상 틱도 도약 중 누적 피해에 든다 (재해의 조용한 틱은 빼고)
+  }
+
+  /**
+   * 2026-09-17 (사용자 결정): 한 번의 도약 동안 받은 피해 합이 `HUNTER_LEAP.flipDamage` 에 닿으면 도약을 끊는다 — 수평 속도를 버리고
+   * 그 자리에서 수직으로 떨어져(`flipFalling`, 착지는 `ai/HunterFlip.updateHunterFlip`) 뒤집힌 채 `flipDuration` s 누워 있는다.
+   * 아직 웅크리는 중(땅 위)이면 곧바로 뒤집힌다. 상태는 `stagger` 로 두어 경직 · 다른 AI 가지가 끼어들지 않게 한다
+   * (스태거 타이머는 0 — 뒤집힘이 끝나면 평소 경직 종료 가지가 추격 / 대기로 돌려보낸다). 권위만.
+   */
+  private noteLeapDamage(dmg: number): void {
+    if (this.host?.replica || this.flipFalling || this.flipTimer > 0) return;
+    this.leapDamage += dmg;
+    if (this.leapDamage < HUNTER_LEAP.flipDamage) return;
+    this.leaping = false;
+    this.leapDamage = 0;
+    this.velocity.set(0, 0, 0);
+    if (this.airborne) { this.flipFalling = true; this.vy = Math.min(this.vy, 0); }
+    else this.flipTimer = HUNTER_LEAP.flipDuration;
+    this.state = 'stagger'; this.stateTime = 0; this.staggerTimer = 0;
+    this.attackTimer = 0; this.attackHitDone = true;
+    this.hasMoveTarget = false; this.hasFacePoint = false;
+    this.leapCd = Math.max(this.leapCd, HUNTER_LEAP.cooldown);
+    this.anim.crouch = 0;
+    this.host?.playAudio('bug_screech', this.position, 0.7, 1.6);
   }
 
   enterStagger(duration: number): void {
@@ -889,6 +937,7 @@ export class Enemy implements EnemyRef {
     this.deathTimer = 0;
     this.airborne = false;
     this.leaping = false;
+    this.flipFalling = false; this.flipTimer = 0;   // 2026-09-17: 뒤집힌 채 죽은 몸은 `anim.flip` 이 그대로 남아 등으로 눕는다
     this.spatT = 0;   // 2026-09-13: 뱉어져 날던 몸은 여기서부터 사망 낙하가 맡는다 (`deathVy` 는 위에서 잡았다)
     this.deathDir = dir ?? this.rollDeathDir();
     this.anim.deathDir = Math.max(0, ENEMY_DEATH_DIRS.indexOf(this.deathDir));
@@ -945,6 +994,12 @@ export class Enemy implements EnemyRef {
     const writheT = this.state !== 'dead' && this.incapTimer > 0 ? 1 : 0;
     a.writhe += (writheT - a.writhe) * Math.min(1, dt * (writheT > 0 ? 9 : 4));
     if (a.writhe < 0.001 && writheT === 0) a.writhe = 0;
+    // 2026-09-17: 헌터 뒤집힘 — 떨어지는 동안 빠르게 뒤집히고, 일어날 때는 조금 천천히 돌아온다. 죽은 몸은 그 자세 그대로 둔다.
+    if (this.state !== 'dead') {
+      const flipT = this.flipFalling || this.flipTimer > 0 ? 1 : 0;
+      a.flip += (flipT - a.flip) * Math.min(1, dt * (flipT > 0 ? 7 : 4));
+      if (a.flip < 0.001 && flipT === 0) a.flip = 0;
+    }
     if (this.state !== 'dead' && this.shockTimer > 0) {
       const t = a.time;
       a.spark = 0.55 + 0.45 * Math.abs(Math.sin(t * 41) * Math.cos(t * 17 + 1.3));

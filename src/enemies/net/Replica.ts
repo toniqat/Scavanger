@@ -533,12 +533,15 @@ export class EnemyReplica {
     const hint = latest.a;
     const rogue = e.isHumanoid;
 
-    e.airborne = hint === 4;
-    e.leaping = e.airborne;
+    // 2026-09-17: 23 = 뒤집혀 떨어지는 헌터 (공중이라 지형 스냅을 끈다) · 24 = 뒤집혀 누운 헌터 — `Enemy.animate` 가 `anim.flip` 을 입힌다
+    e.airborne = hint === 4 || hint === 23;
+    e.leaping = hint === 4;
+    e.flipFalling = hint === 23;
+    e.flipTimer = hint === 24 ? STATUS_HOLD : 0;
     e.chargePhase = hint === 1 || hint === 10 ? 1 : hint === 2 || hint === 11 ? 2 : 0;
     e.spitPhase = hint === 3 ? 1 : 0;
     e.toxicPhase = hint === 9 ? 1 : 0;
-    e.dug = hint === 8 ? 1 : 0;
+    e.dug = hint === 8 || hint === 25 ? 1 : 0;
     e.roguePhase = hint === 5 ? 3 : hint === 6 ? 2 : hint === 7 ? 4 : 0;
     // Phase 7: hold the reload / throw timers so Enemy.animate blends the same poses the host shows
     if (rogue) {
@@ -582,6 +585,7 @@ export class EnemyReplica {
     // animation targets from state + hint (mirrors what the host AI would be setting)
     let shakeT = 0, abdT = 0, crouchT = 0, mandT = e.aware ? 0.25 : 0, pitchT: number | null = null;
     let aimT = rogue && e.aware ? 0.5 : 0;
+    let braceT = 0;   // 2026-09-17: 포병 발사 자세 (힌트 25)
     switch (latest.st) {
       case 'alert': crouchT = rogue ? 0 : 0.25; mandT = 0.7; if (rogue) aimT = 0.8; break;
       case 'attack': mandT = 1; break;
@@ -597,23 +601,26 @@ export class EnemyReplica {
       case 6: aimT = 0.35; crouchT = 1; break;
       case 7: aimT = 1; crouchT = 0; break;
       case 8: crouchT = 0.8; mandT = 0.4; break;
+      case 25: crouchT = 0.8; mandT = 0.4; braceT = 1; break;   // 2026-09-17: 포병 발사 자세 (납작 엎드림)
       case 9: abdT = 1; crouchT = 0.25; mandT = 1; break;
       case 10: shakeT = 1; crouchT = a.shake * 0.3; mandT = 1; break;
       case 11: mandT = 1; pitchT = -0.2; break;
       case 12: aimT = 0.25; crouchT = 1; break;          // Phase 7: reloading
       case 13: aimT = 0.2; crouchT = 0; break;           // Phase 7: grenade wind-up
+      case 23: case 24: crouchT = 0; mandT = Math.abs(Math.sin(a.time * 5)); pitchT = 0.3; break;   // 2026-09-17: 헌터 뒤집힘 (`ai/HunterFlip` 과 같은 입)
       default: break;
     }
     a.shake += (shakeT - a.shake) * Math.min(1, dt * (shakeT > 0 ? 2.5 : 4));
     a.abdomen += (abdT - a.abdomen) * Math.min(1, dt * (abdT > 0 ? 3 : 2));
     a.crouch += (crouchT - a.crouch) * Math.min(1, dt * 8);
+    a.brace += (braceT - a.brace) * Math.min(1, dt * 4);
     a.mandible += (mandT - a.mandible) * Math.min(1, dt * 10);
     a.aim += (aimT - a.aim) * Math.min(1, dt * (aimT > a.aim ? 7 : 3));
     if (isNamedAiType(e.type)) afterNamedReplica(e, hint, dt, this.host);
     if (isWormType(e.type)) applyWormHint(e, hint, dt);   // 2026-09-13: 입 벌림 · 꿀렁임 · 숙임 (호스트와 같은 함수)
 
     // head: track the nearest player while aware, idle sway otherwise
-    const look = e.aware && hint !== 2 && hint !== 11 ? this.host.targets.nearestAlive(e.position) : null;
+    const look = e.aware && hint !== 2 && hint !== 11 && hint !== 23 && hint !== 24 ?this.host.targets.nearestAlive(e.position) : null;
     if (look) lookAtTarget(e, look, dt);
     else {
       a.headYaw = THREE.MathUtils.lerp(a.headYaw, hint === 2 || hint === 11 ? 0 : Math.sin(a.time * 0.7) * 0.35, dt * 3);

@@ -20,6 +20,9 @@ interface TypeAssets {
   chitin: THREE.MeshStandardMaterial;
   eye: THREE.MeshStandardMaterial;
   acid: THREE.MeshStandardMaterial | null;
+  /** 2026-09-17: 붉은 줄무늬 (헌터) — 지오메트리와 재질 모두 종류당 하나, 개체마다 복제하지 않는다 (플래시 · 전소 발광을 받지 않는다). */
+  stripes: THREE.BufferGeometry | null;
+  stripeMat: THREE.MeshStandardMaterial | null;
 }
 
 const assets = new Map<BugType, TypeAssets>();
@@ -189,6 +192,30 @@ function buildMortarGeometry(p: BugParams): THREE.BufferGeometry | null {
   return merge(parts);
 }
 
+/**
+ * 2026-09-17 (피아 식별): 옆구리를 따라 도는 붉은 띠 하나 + 배 둘레 띠 `bands` 개. 몸통 · 배 표면보다 3–4 % 바깥으로 띄워
+ * z-fighting 없이 보이게 한다. 판정에는 쓰이지 않는다 (적 판정은 캡슐 — `RayTests`).
+ */
+function buildStripeGeometry(p: BugParams): THREE.BufferGeometry | null {
+  const st = p.stripes;
+  if (!st) return null;
+  const parts: THREE.BufferGeometry[] = [];
+  const [tx, ty, tz] = p.thorax;
+  // 옆구리 띠: 몸통보다 살짝 넓은 얇은 판 — 옆에서 보면 몸통을 가로지르는 붉은 선
+  parts.push(ellipsoid(tx * 1.04, ty * 0.13, tz * 0.86, 0, p.thoraxY + ty * 0.05, 0, st.color, 16));
+  // 목깃 띠
+  parts.push(ellipsoid(tx * 0.74, ty * 0.74, tz * 0.08, 0, p.thoraxY - ty * 0.05, tz * 0.62, st.color, 12));
+  if (!p.separateAbdomen) {
+    const [ax, ay, az] = p.abdomen;
+    for (let i = 0; i < st.bands; i++) {
+      const z = p.abdomenZ + az * (0.42 - i * (0.84 / Math.max(1, st.bands)));
+      const shrink = Math.sqrt(Math.max(0.05, 1 - ((z - p.abdomenZ) / az) ** 2));
+      parts.push(ellipsoid(ax * 1.04 * shrink, ay * 1.04 * shrink, az * 0.09, 0, p.abdomenY, z, st.color, 14));
+    }
+  }
+  return merge(parts);
+}
+
 function getAssets(type: BugType): TypeAssets {
   let a = assets.get(type);
   if (a) return a;
@@ -206,6 +233,8 @@ function getAssets(type: BugType): TypeAssets {
     chitin: new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.35, metalness: 0.1, emissive: 0x000000 }),
     eye: new THREE.MeshStandardMaterial({ color: 0x150500, emissive: p.eye, emissiveIntensity: 2.4, roughness: 0.3 }),
     acid: p.separateAbdomen ? new THREE.MeshStandardMaterial({ color: 0x86b545, emissive: 0x3c7a16, emissiveIntensity: 0.6, roughness: 0.45, metalness: 0.05 }) : null,
+    stripes: buildStripeGeometry(p),
+    stripeMat: p.stripes ? new THREE.MeshStandardMaterial({ color: p.stripes.color, emissive: p.stripes.emissive, emissiveIntensity: p.stripes.emissiveIntensity, roughness: 0.4, metalness: 0.05 }) : null,
   };
   assets.set(type, a);
   return a;
@@ -216,6 +245,7 @@ export function disposeBugAssets(): void {
   for (const a of assets.values()) {
     a.body.dispose(); a.head.dispose(); a.eyes.dispose(); a.mandible.dispose(); a.femur.dispose(); a.tibia.dispose();
     a.abdomen?.dispose(); a.mortar?.dispose(); a.chitin.dispose(); a.eye.dispose(); a.acid?.dispose();
+    a.stripes?.dispose(); a.stripeMat?.dispose();
   }
   assets.clear();
 }
@@ -308,13 +338,18 @@ export interface BugAnim {
   reload: number;
   /** rogue grenade wind-up 0..1 (rifle to the hip, throwing arm raised with the grenade sphere); wire hint 13 */
   throwing: number;
+  /* ── 2026-09-17 ── */
+  /** 헌터 뒤집힘 0..1: 등으로 누워 좌우로 천천히 흔들리고 다리를 허우적댄다 (`Enemy.animate` 가 `flipFalling` / `flipTimer` 로 몬다). */
+  flip: number;
+  /** 2026-09-17 포병 발사 자세 0..1: 다리를 옆으로 펴 몸통을 땅에 납작 붙인다 (쏘기 전 `braceTime` · 쏜 뒤 `postFireLock`). 리플리카 = 힌트 25. */
+  brace: number;
 }
 
 export function createBugAnim(): BugAnim {
   return {
     gait: 0, speed: 0, headYaw: 0, headPitch: 0, mandible: 0, flinch: 0, flinchX: 0, flinchZ: 0, hitFlash: 0,
     abdomen: 0, shake: 0, crouch: 0, death: -1, deathDir: 0, deathFall: 0, slopePitch: 0, slopeRoll: 0, time: 0,
-    fade: 0, aim: 0, recoil: 0, writhe: 0, spark: 0, reload: 0, throwing: 0,
+    fade: 0, aim: 0, recoil: 0, writhe: 0, spark: 0, reload: 0, throwing: 0, flip: 0, brace: 0,
   };
 }
 
@@ -383,6 +418,14 @@ export function createBugRig(type: BugType): BugRig {
     abdomen.position.set(0, p.abdomenY, p.abdomenZ);
     abdomen.layers.enable(Layers.ENEMY);
     body.add(abdomen);
+  }
+
+  // 2026-09-17: 붉은 줄무늬 — 공유 지오메트리 + 공유 재질 (disposeBugRig 가 건드리지 않는다, disposeBugAssets 가 푼다)
+  if (a.stripes && a.stripeMat) {
+    const stripeMesh = new THREE.Mesh(a.stripes, a.stripeMat);
+    stripeMesh.castShadow = false;
+    stripeMesh.layers.enable(Layers.ENEMY);
+    body.add(stripeMesh);
   }
 
   let mortar: THREE.Group | null = null;
@@ -457,6 +500,14 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
   let yaw = 0;
   let sink = 0;
   let curl = 0;
+  /*
+   * 2026-09-17: 포병 발사 자세 — 배가 땅에 닿을 만큼 몸통을 내린다 (몸통 중심이 몸통 반두께 높이에 온다 · 웅크림이 이미 내린 만큼은 뺀다).
+   * 다리는 아래 다리 루프에서 옆으로 펴진다. 그림 전용 비율이라 csv 대상이 아니다.
+   */
+  const br = dying ? 0 : a.brace;
+  if (br > 0.001) {
+    body.position.y -= br * Math.max(0, p.thoraxY - p.thorax[1] - a.crouch * p.thoraxY * 0.3);
+  }
   // 전소 writhe: the whole body twists and bucks, thorax dropped toward the ground
   const wr = a.writhe;
   if (wr > 0.001 && !dying) {
@@ -488,6 +539,16 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
     const sinkT = smooth(Math.min(1, Math.max(0, a.fade)));
     sink = sinkT * (p.thoraxY + p.thorax[1]) * 1.4;
     body.position.y -= sink - fall * p.thorax[1] * 0.2;
+  }
+  // 2026-09-17: 헌터 뒤집힘 — 몸통 전체를 앞뒤 축으로 반 바퀴 굴려 등으로 눕히고, 등이 땅에 닿게 들어 올린다.
+  // 누운 채 좌우로 느리게 흔들린다 (죽은 몸과 구분). 흔들림은 등의 접점이 제자리에 남도록 x 를 되돌린다.
+  const fl = a.flip > 0.001 ? smooth(Math.min(1, a.flip)) : 0;
+  if (fl > 0) {
+    const lift = p.thoraxY + p.thorax[1];
+    const rock = dying ? 0 : Math.sin(t * 2.3) * 0.26 * fl;
+    roll += Math.PI * fl + rock;
+    body.position.y += lift * fl;
+    body.position.x -= Math.sin(rock) * lift;
   }
   body.rotation.set(pitch, yaw, roll);
 
@@ -528,12 +589,19 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
     let hipPitch = L.femurUp + lift * 0.6 + idle;
     let knee = leg.restKnee - lift * 0.55 - idle * 0.5;
     if (a.crouch > 0) { hipPitch += a.crouch * 0.35; knee -= a.crouch * 0.4; }
+    if (br > 0.001) { hipPitch += br * 0.7; knee -= br * 0.6; }   // 2026-09-17: 포병 발사 자세 — 넓적다리를 들어 옆으로 펴고 무릎을 꺾는다
     if (a.flinch > 0) { hipPitch += a.flinch * 0.15; }
     if (wr > 0.001) {
       // 전소: legs kick and claw at the air out of phase with each other
       hipYaw += Math.sin(t * 9 + i * 1.7) * 0.35 * wr;
       hipPitch += (0.45 + Math.sin(t * 11.5 + i * 1.9) * 0.5) * wr;
       knee -= (0.35 + Math.cos(t * 13 + i * 1.3) * 0.45) * wr;
+    }
+    if (fl > 0 && !dying) {
+      // 뒤집힘: 하늘을 향한 다리가 느리게 허우적댄다
+      hipYaw += Math.sin(t * 3.1 + i * 1.4) * 0.25 * fl;
+      hipPitch += (0.2 + Math.sin(t * 4.2 + i * 1.9) * 0.35) * fl;
+      knee -= (0.3 + Math.cos(t * 3.7 + i * 1.1) * 0.35) * fl;
     }
     if (curl > 0) {
       hipYaw += leg.side * (leg.index - 1) * -0.4 * curl;

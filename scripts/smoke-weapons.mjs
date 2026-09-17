@@ -152,8 +152,8 @@ try {
     const l = window.__game.ctx.inventory.getLoadout();
     return { ar: loot.getEffectiveStats(l.primary), g3: loot.getEffectiveStats('ar_g3'), name3: loot.getWeaponDef('ar_g3')?.name };
   });
-  ok(stats.ar && stats.ar.damage === 60 && stats.ar.maxDurability === 500 && stats.ar.ammoType === 'medium', 'AR I stats (60 dmg, 500 dur, medium)', JSON.stringify(stats.ar));
-  ok(stats.g3 && stats.g3.damage === 74 && stats.g3.grade === 3 && stats.name3 === '돌격소총 III', 'AR III: +24 % damage, class name + roman numeral', `${stats.g3?.damage} ${stats.name3}`);
+  ok(stats.ar && stats.ar.damage === 17 && stats.ar.maxDurability === 500 && stats.ar.ammoType === 'medium', 'AR I stats (17 dmg — 2026-09-17 피해 1/3, 500 dur, medium)', JSON.stringify(stats.ar));
+  ok(stats.g3 && stats.g3.damage === 21 && stats.g3.grade === 3 && stats.name3 === '돌격소총 III', 'AR III: +24 % damage, class name + roman numeral', `${stats.g3?.damage} ${stats.name3}`);
   await key('Digit1');   // 주무기 I 를 손에 든다
   await waitSim(0.8);
   const eq = await lastEv('weapon:equipped');
@@ -272,13 +272,15 @@ try {
    * 2026-09-15 (폭발 2단 계단): 3.0 m 는 이제 **안쪽 띠**(< GRENADE_RADIUS 7.2 × EXPLOSION_FULL_FRACTION 0.5 = 3.6)라
    * 250 × 0.6 = 150 이 들어와 체력 100 인 몸이 **죽는다** — 그 뒤의 회복 · 스프레이 절이 통째로 시체 위에서 돌았다.
    * 그래서 5.0 m(바깥 띠, 250 × 0.6 × 0.6 = 90)로 던지고 잰 뒤 풀피로 돌려놓는다. 「복제 수류탄이 나를 때린다」는
-   * 그대로 검사되고, 아래 절들은 살아 있는 몸에서 시작한다. */
+   * 그대로 검사되고, 아래 절들은 살아 있는 몸에서 시작한다.
+   * 2026-09-17 (피해 1/3 — GRENADE_DAMAGE 60 · EXPLOSION_OUTER_MUL 0.5): 5 m 바깥 띠는 60 × 0.6 × 0.5 = 18 뿐이라 방탄복 실드가
+   * 다 먹고 체력은 그대로였다. 3.0 m 안쪽 띠(60 × 0.6 = 36 — 체력 100 이 죽지 않는다)로 던지고 **체력 + 실드** 감소를 잰다. */
   await page.evaluate(() => { window.__ev['grenade:exploded'] = []; window.__game.ctx.bus.on('grenade:exploded', (p) => window.__ev['grenade:exploded'].push(1)); });
-  const hpG = await page.evaluate(() => { const p = window.__game.ctx.player; p.heal(1000); return p.hp; });
-  await page.evaluate(() => { const ctx = window.__game.ctx; const g = window.__game.getSystem('weapons').grenades; const p = ctx.player.position; const o = new p.constructor(p.x + 5.0, p.y + 0.5, p.z); g.throw(o, new p.constructor(0, 0, 0), true, 0.05); });
+  const hpG = await page.evaluate(() => { const p = window.__game.ctx.player; p.heal(1000); return p.hp + (p.shield ?? 0); });
+  await page.evaluate(() => { const ctx = window.__game.ctx; const g = window.__game.getSystem('weapons').grenades; const p = ctx.player.position; const o = new p.constructor(p.x + 3.0, p.y + 0.5, p.z); g.throw(o, new p.constructor(0, 0, 0), true, 0.05); });
   await waitSim(0.4);
-  const rg = await page.evaluate(() => ({ hp: window.__game.ctx.player.hp, exploded: window.__ev['grenade:exploded'].length }));
-  ok(rg.hp < hpG - 30, `visual-only replica grenade damages the local player (${hpG} → ${rg.hp.toFixed(0)})`);
+  const rg = await page.evaluate(() => { const p = window.__game.ctx.player; return { hp: p.hp + (p.shield ?? 0), rawHp: p.hp, shield: p.shield ?? null, exploded: window.__ev['grenade:exploded'].length }; });
+  ok(rg.hp < hpG - 20, `visual-only replica grenade damages the local player — hp + shield (${hpG} → ${rg.hp.toFixed(0)})`, JSON.stringify(rg));
   ok(rg.exploded === 0, 'replica explosion emits no grenade:exploded (enemies do not hear it)');
   await page.evaluate(() => window.__game.ctx.player.heal(1000));   // 아래 절들은 풀피에서 시작한다
   await page.evaluate(() => { const p = window.__game.ctx.player; if (p.isDowned) p.revive(); p.heal(1000); });

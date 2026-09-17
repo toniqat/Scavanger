@@ -132,6 +132,7 @@ Uniques reuse existing shot SFX ids (`shotSoundId`); there are no dedicated samp
 - A shot that really stops on a barrier bills it exactly once (`damageBarrierAt`); speculative barrier raycasts are free. — `Blocking.ts`
 - Remote grenade explosions hurt the local player; the incendiary type comes from the `grenade` message's `fire` flag, never guessed from snapshots. — `RemoteWeapons.ts` (`onGrenade`)
 - Remote replays deal no damage and emit no `weapon:fired` / `weapon:hit`. — `RemoteWeapons.ts`
+- Shotgun ADS is camera zoom only: while aiming, spread uses the hip value and the hip stance column (recoil keeps the ADS stance column); decided by class (`WeaponDefaults.adsTightensSpread`). — `parts/Firing.ts`
 - Remote weapon models are keyed on the avatar's socket object; a changed socket means rebuild (pooled bodies get a fresh socket per avatar). — `RemoteWeapons.ts`
 - Grenades are not hold-to-use items: `useTimeOf` returns 0 for `ItemDef.grenade` (hold = cook). — `model.ts`
 - `parts/*` import only types from `WeaponSystem.ts`; shared values go in `model.ts`.
@@ -142,8 +143,8 @@ Uniques reuse existing shot SFX ids (`shotSoundId`); there are no dedicated samp
 ## Recent changes
 
 Last 5 only — older: `git log -- src/weapons`.
+- 2026-09-17 — Player damage cut to 1/3 (data only: `weapons.csv`, unique / melee constants; AR −15 % and range 210 first); shotguns: ADS no longer tightens spread (`adsTightensSpread`; hip spread = old ADS 3.5°).
 - 2026-09-17 — Grenades: the wall push is queried with the body lowered by `PROP_TOP_MARGIN − BODY_R` (the 7 cm top band of walls/fences no longer lets them through) and they bounce off walls (`BOUNCE_RESTITUTION` 0.4, same as the floor).
 - 2026-09-16 — Grenades sub-step by their diameter, surface before walls (no tunnelling through thin walls/floors); `ctx.weapons` gains `activeSlot`, `primaryInHand`, `ammoOf(slot)` (a melee swing still counts as the primary in hand).
 - 2026-09-15 — Hammerhead throw distance ×0.5 (×0.25 grounded); grounded blasts no longer rocket-jump.
 - 2026-09-15 — Gadget hold time from `gadgetUseTime`; defibrillator aim-and-release (`parts/Defib.ts`); grenades detected by `ItemDef.grenade` (`quickKindOf`).
-- 2026-09-15 — Grenade radius / damage / player share moved to csv; explosion falloff via `shared/explosion`.

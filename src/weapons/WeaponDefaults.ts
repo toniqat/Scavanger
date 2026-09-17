@@ -127,3 +127,11 @@ export const STANCE_ACCURACY: Readonly<Record<'stand' | 'crouch' | 'prone', read
   crouch: [0.55, 0.4],
   prone: [0.32, 0.22],
 };
+
+/**
+ * 정조준이 탄 퍼짐을 조이는 계열인가. 2026-09-17 (사용자 결정): 산탄총(SG)은 아니다 — 정조준은 카메라 확대뿐이고
+ * 퍼짐은 지향 사격 그대로다 (`parts/Firing.fire`). 산탄총 계열 유니크가 생기면 같은 규칙을 따른다 (계열로 판단).
+ */
+export function adsTightensSpread(cls: WeaponClass): boolean {
+  return cls !== 'SG';
+}

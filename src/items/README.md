@@ -18,9 +18,9 @@ Unlike other feature folders, `@/items` is imported directly by `inventory/`, `w
 | `ImplantDefs.ts` | Implant items (category `implant`): stat implants `imp_<stat>_<g>` (grades I–IV) + perk implants `imp_perk_<perk>` (`implants_perks.csv`), each with a broken twin `imp_broken_*` (`repairsTo`, `repairCost`). `IMPLANT_WORKING_DEFS`, `IMPLANT_BROKEN_DEFS`, `IMPLANT_ITEM_DEFS`, `PERK_IMPLANT_DEFS`, `IMPLANT_GRADES`, `IMPLANT_SLOTS_BY_GRADE`, `IMPLANT_VALUE_BY_RARITY`, `BROKEN_IMPLANT_VALUE_DIV`, `IMPLANT_REPAIR_COST`, `IMPLANT_STAT_NAME_KO`, `implantItemIdFor`, `perkImplantItemIdFor`, `isImplantItemDef`, `isBrokenImplantDef` |
 | `Recipes.ts` | Craft recipes only: `CRAFT_RECIPES` (from `recipes.csv`), `CRAFT_COST_BY_OUTPUT` / `craftCostOf(defId)` (value index used by repair and salvage); fills `CraftRecipe.unlockSeries` from library `recipe:<id>` effects |
 | `Salvage.ts` | Durability buckets (`durabilityBucketOf`, `durabilityBucketInfo`, `bucketOfRatio`, `DURABILITY_BUCKETS`, `DURABILITY_BUCKET_LABELS`, `maxDurabilityOf`), `repairCostFor`, `needsRepairCost`, `salvageFor`, `scaleSalvage`, `SALVAGE_RECIPES` (hand rows from `salvage.csv` + rows generated from craft inputs), `ALL_CRAFT_RECIPES`, `CRAFT_RECIPE_MAP`, `getRecipe`, `checkSalvageEconomy()` |
-| `LootTables.ts` | Loot table loaders and planet rules: tier tables (`LOOT_TABLES`, `getTierTable`, `getTierLabel`), `LootCategory`/`LOOT_CATEGORIES`/`lootCategoryOf`, planet curves (`PLANET_GRADE_CURVES`, `getPlanetGradeCurve`, `planetRarityWeights`), planet-bound drops (`PLANET_BOUND_CATEGORIES`, `lootPlanetsOf`, `isLootableOnPlanet`, `libraryVolumeWeight`, `planetCategoryAvailable`, `libraryBookPool`, `planetSeedPool`), retirement (`RETIRED_ITEM_IDS`, `isLootableDef`), corpse tables (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `DEFAULT_ROGUE_WEAPON_ID`), named drops (`NAMED_DROPS`, `NAMED_DROP_MAP`, `numberedArmorIdForTier`), faction corpses (`FACTION_LOOT`, `FACTION_LOOT_MAP`, `FACTION_SITE_BONUSES`, `getFactionSiteBonus`) |
+| `LootTables.ts` | Loot table loaders and planet rules: tier tables (`LOOT_TABLES`, `getTierTable`, `getTierLabel`), `LootCategory`/`LOOT_CATEGORIES`/`lootCategoryOf`, planet curves (`PLANET_GRADE_CURVES`, `getPlanetGradeCurve`, `planetRarityWeights`), planet-bound drops (`PLANET_BOUND_CATEGORIES`, `lootPlanetsOf`, `isLootableOnPlanet`, `libraryVolumeWeight`, `planetCategoryAvailable`, `libraryBookPool`, `planetSeedPool`), retirement (`RETIRED_ITEM_IDS`, `isLootableDef`), corpse tables (`CORPSE_TABLES`, `CORPSE_TABLE_MAP`, `CorpseSampleDrop`, `DEFAULT_ROGUE_WEAPON_ID`), named drops (`NAMED_DROPS`, `NAMED_DROP_MAP`, `numberedArmorIdForTier`), faction corpses (`FACTION_LOOT`, `FACTION_LOOT_MAP`, `FACTION_SITE_BONUSES`, `getFactionSiteBonus`) |
 | `Loot.ts` | `LootService implements LootRef` — def lookups, `createItem`, stats/repair/salvage wrappers, `rollCrate(On)`, `rollCorpse(On)`; `nextUid()` |
-| `ItemSpec.ts` | `itemSpecRows(def)` — tooltip spec rows for healing items, shield chargers, boosts, gadgets and grenades (first row is always `사용 시간`); values are strings or `SpecSeg[]` (numbers highlighted), `SpecRow.tone`, labels `SPEC_LABEL_KO` |
+| `ItemSpec.ts` | `itemSpecRows(def)` — tooltip spec rows for healing items, shield chargers, boosts, gadgets and grenades (first row is always `사용 시간`); values are strings or `SpecSeg[]` (numbers highlighted); two-step explosives (frag · incendiary blast · mine · remote mine) show damage as `outer-centre` via `shared/explosion.explosionDamageRange`, `SpecRow.tone`, labels `SPEC_LABEL_KO` |
 | `ItemText.ts` | `parseItemText(text)` → lines of styled spans for description markup `{em}…{/em}`, `{dim}…{/dim}`, `{br}` (unknown tokens stay literal); `plainItemText` |
 
 ## Public API
@@ -128,12 +128,13 @@ and the epic+ gate (below).
   guaranteed and fallback picks. Crates: `pickDef` (non-weapons; a pool with nothing below epic — keys, records — returns null, so the
   category is redrawn), `regrade` (curve grades IV–V and surviving uniques → the highest curve grade below epic). Corpses: epic+
   `loot_corpses.csv` rows and site-bonus items (chance × keep), carried weapon grade (after the planet cap), boss attachment, boss unique
-  chance, book, broken implant, faction armor/bag/heal, site seeds, named drops. **Exempt:** lab locked-room containers
+  chance, book, broken implant, faction armor/bag/heal, site seeds, named drops. **Exempt:** corpse sample rows (`loot_corpse_samples.csv`, user decision 2026-09-17 — cell IV at csv rates), lab locked-room containers
   (`CrateLootOpts.lockedRoom`, set by `world/Structures.ts`) and every planet-less roll. `keep >= 1` consumes no extra draw.
 - Planet-bound categories (`book`, `disc`, `record`, `game_disc`, `console`) only pick items of the raid planet, weighted by
   `LIBRARY_VOLUME_DROP_WEIGHT`; with `planet = null` every planet-bound item is a candidate.
 
-**Corpses** (`rollCorpseWithMax`), fixed draw order: `loot_corpses.csv` rows → carried weapon (grade from faction `weaponGrades`, or the
+**Corpses** (`rollCorpseWithMax`), fixed draw order: `loot_corpses.csv` rows → (sample rows, on `rng.fork('corpseSamples')` so no
+main-stream draw moves) → carried weapon (grade from faction `weaponGrades`, or the
 site's `grades` row, capped by planet) + ammo → boss attachment → boss unique (`chance × uniqueMul`) → book (raid planet's pool) →
 broken implant → faction armor → bag → heal (`rollFactionGear`) → site bonus items → carried grenades (no rng) → named guaranteed drop.
 An enemy type with no table yields one `mat_bio_sample`. `CorpseLootOpts` (`site`, `grenades`) is passed identically by host
@@ -218,8 +219,8 @@ whose `durabilityMax` is a liquid gauge and is excluded by name in the same pred
 ## Recent changes
 
 Last 5 only — older: `git log -- src/items`.
+- 2026-09-17 — `data/loot_corpse_samples.csv` (`CorpseTable.samples`, `Loot.rollCorpseSamples`): 8 bug types drop only 미확인 세포 with a tier rolled **per unit** on a forked corpse rng; stacks split at `SAMPLE_STACK_MAX`; exempt from the epic+ gate (cell IV at csv rates).
+- 2026-09-17 — `ItemSpec`: explosive damage rows read as a range `min-max` (frag `30-60`, incendiary blast `15-30`, mine `40-80`, remote mine `50-100`).
 - 2026-09-17 — `spec_gene_6` (미확인 유전자 VI) and the mythic sockets `sock_soil_prime` · `sock_medium_prime` deleted from csv (no aliases): mythic is reserved for the gun line, so the 유전자 family tops out at legendary.
 - 2026-09-16 — The 6 unique weapons are **mythic** (`weaponItemDef`); `isSalvageable` now bans their salvage by name (they gained craft recipes), and sample tiles read rarity as the background with the family as the glyph.
 - 2026-09-16 — `Salvage.wearsDurability` keys on `durabilityMax` instead of the category (the processor is a durable `material`); healing sprays are the one exception.
-- 2026-09-16 — `Salvage.isCraftRefundable` / `maxSkillCraftFactor`: durable gear (weapons · armor · bags · durable gadgets) is excluded from the craft-skill material refund, and `checkSalvageEconomy` now measures every craft baseline at **max skill** (`craft × maxSkillCraftFactor`).
-- 2026-09-16 — Meals removed from `ITEM_DEFS` (`MEAL_ITEM_DEFS` gone); `data/meals.csv` is parsed by `shared/meals.ts`.

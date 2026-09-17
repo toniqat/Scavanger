@@ -12,18 +12,18 @@ import { EXPLOSION_FULL_FRACTION, EXPLOSION_OUTER_MUL } from './constants';
  * **무엇이 바뀌었나.** 선형이 아니라 **2단 계단**이다:
  *
  *   ┌ 0 … 0.5 × radius ─ 피해 100 %
- *   ├ 0.5 × radius … radius ─ 피해 60 % (**거리와 무관한 고정값**)
+ *   ├ 0.5 × radius … radius ─ 피해 50 % (**거리와 무관한 고정값**, 2026-09-17 사용자 결정 60 → 50 %)
  *   └ radius 밖 ─ 0
  *
  * 두 수치는 `data/constants.csv` 의 `EXPLOSION_FULL_FRACTION` · `EXPLOSION_OUTER_MUL` 이다.
  * 선형이던 시절에는 반경을 넓혀도 한가운데 말고는 거의 안 아팠다 — 반경 7.2 m 수류탄의
- * 6 m 지점이 옛 식으로는 250 × 0.167 = 42 였다. 이제 계단이라 「맞았는가」가 먼저 서고
+ * 6 m 지점이 옛 식으로는 중심 피해의 16.7 % 였다. 이제 계단이라 「맞았는가」가 먼저 서고
  * 반경을 넓히는 것이 실제로 넓히는 일이 된다.
  *
- * 검산 (`GRENADE_RADIUS` 7.2 · `GRENADE_DAMAGE` 250):
- *   - d = 3.5 m → 3.5 ≤ 3.6 → ×1   → 250 (옛 식 129)
- *   - d = 3.7 m → 3.6 < 3.7 < 7.2 → ×0.6 → 150 (옛 식 122)
- *   - d = 7.0 m → 여전히 ×0.6 → 150 (옛 식 7)
+ * 검산 (`GRENADE_RADIUS` 7.2 · `GRENADE_DAMAGE` 60 · `EXPLOSION_OUTER_MUL` 0.5 — 2026-09-17 값):
+ *   - d = 3.5 m → 3.5 ≤ 3.6 → ×1   → 60
+ *   - d = 3.7 m → 3.6 < 3.7 < 7.2 → ×0.5 → 30
+ *   - d = 7.0 m → 여전히 ×0.5 → 30
  *   - d = 7.2 m → 반경 밖 → 0
  *
  * ⚠ 자리마다 다른 **하한 클램프**(엄폐물 0.3 · 적 0.15 · 탐사 차량 0.15 · 적 수류탄 0.1)는
@@ -48,4 +48,13 @@ export function explosionFalloff(dist: number, radius: number): number {
 /** 그 자리에서 실제로 받는 피해 (`damage × explosionFalloff`). 반경 밖은 0. */
 export function explosionDamage(damage: number, dist: number, radius: number): number {
   return damage * explosionFalloff(dist, radius);
+}
+
+/**
+ * 툴팁에 적는 피해 범위 — 바깥 띠(`min`) … 중심(`max`). 2026-09-17 (사용자 결정): 2단 계단 폭발물은
+ * 피해를 「30-60」 처럼 **범위**로 적는다. `min` 은 `floor(중심 × EXPLOSION_OUTER_MUL)` — 실제 피해는 내림하지
+ * 않지만 카드에 소수를 적지 않으려는 표시용 내림이다. 계단 배수를 이 파일 밖에서 다시 곱하지 않게 여기 둔다.
+ */
+export function explosionDamageRange(damage: number): { readonly min: number; readonly max: number } {
+  return { min: Math.floor(damage * EXPLOSION_OUTER_MUL), max: damage };
 }

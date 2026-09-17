@@ -278,12 +278,16 @@ export class ChatTab {
     if (npc) {
       for (const c of npc.getContacts()) {
         /* 2026-09-14 3차 (사용자 결정): 줄에 남는 것은 **마지막 대사**다 — 퀘스트 제안이 마지막 사건이면
-         * `[퀘스트] 이름` 대신 그 퀘스트의 `summary` 를 잘라 쓴다 (「레이븐이 새 거래 상대의 솜씨를…」). */
-        const last = npc.getMessages(c.npc.id).at(-1);
-        let preview = c.preview;
+         * `[퀘스트] 이름` 대신 그 퀘스트의 `summary` 를 잘라 쓴다 (「레이븐이 새 거래 상대의 솜씨를…」).
+         * 「마지막」은 기록 전체의 끝이 아니라 **대화창에 실제로 도착한 말풍선**의 끝이다 (`deliveredCount`) —
+         * 기록의 끝을 읽으면 `...` 로 아직 풀리는 중인 마지막 줄이 목록에 먼저 떠 버린다.
+         * 아직 도착한 것이 하나도 없으면(한 번도 안 연 첫 연락) 대사를 미리 보이지 않고 소개(`bio`)를 둔다. */
+        const all = npc.getMessages(c.npc.id);
+        const last = all[this.deliveredCount(npc, c.npc.id, all) - 1];
+        let preview = c.npc.bio;
         if (last?.from === 'quest') {
           const q = npc.getQuest(last.questId);
-          preview = q?.def.summary || q?.def.name || c.preview;
+          preview = q?.def.summary || q?.def.name || preview;
         } else if (last?.from === 'npc' || last?.from === 'system') preview = last.text;
         else if (last?.from === 'me') preview = `나: ${last.text}`;
         out.push({
@@ -514,7 +518,19 @@ export class ChatTab {
       if (this.typingConv !== id) return;
       this.typingShown++;
       this.renderThread(true);
+      this.refreshList();   // 목록의 미리보기도 방금 도착한 줄로 (`deliveredCount`)
     }, Math.round(Math.max(0, delay) * 1000));
+  }
+
+  /**
+   * 그 NPC 대화에서 **대화창에 도착한(= 그려진 · 그려질) 말풍선 수** — 목록 미리보기가 쓰는 「도착」의 정의.
+   * 지금 타이핑으로 풀고 있는 대화면 `typingShown`, 아니면 그 대화를 지금 열었을 때 즉시 그릴 수(`readShownCount`)다.
+   * 둘 다 `renderNpc` 처럼 앞에 붙은 내 대답 · 시스템 줄은 기다리지 않고 포함한다.
+   */
+  private deliveredCount(npc: NpcQuestRef, id: string, all: readonly NpcMessage[]): number {
+    let n = this.typingConv === id ? Math.min(this.typingShown, all.length) : this.readShownCount(npc, id, all);
+    while (n < all.length && all[n].from !== 'npc' && all[n].from !== 'quest') n++;
+    return n;
   }
 
   /**

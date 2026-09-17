@@ -296,7 +296,7 @@ try {
   await waitSim(0.8);
   const slash = await P((id) => ({ slashed: window.__ev['player:slashed'], e: window.__enemy(id), hits: window.__ev['melee:hit'].length, widen: window.__game.getSystem('player')?.rig?.viewWiden ?? null }), sl.id);
   ok(slash.slashed.length === 1 && slash.slashed[0].hits >= 1, `player:slashed with ${slash.slashed[0]?.hits} hit(s)`, JSON.stringify(slash.slashed));
-  ok(slash.e && (slash.e.dead || slash.e.hp <= sl.hp - 280 + 1), 'SLASH_DAMAGE 280 landed on the warrior', JSON.stringify(slash.e));
+  ok(slash.e && (slash.e.dead || slash.e.hp <= sl.hp - 93 + 1), 'SLASH_DAMAGE 93 landed on the warrior', JSON.stringify(slash.e));
   ok(slash.widen === false || slash.widen === null, 'setViewWiden(false) after SLASH_DURATION');
   // refused when short on stamina
   await clearEv();
@@ -370,7 +370,7 @@ try {
   ok(fullT === 1 && arrow.draw.slice(-1)[0].t === -1, `draw reached 1 and closed with t:-1 (last t ${fullT})`);
   ok(arrow.rs === false, 'remoteState.charging clears after the release');
   const fullDmg = arrow.e ? bw.hp - arrow.e.hp : 0;
-  ok(arrow.e && fullDmg >= 140, `full-draw arrow hits for BOW_DAMAGE (${bw.hp} → ${arrow.e?.hp?.toFixed(0)})`, JSON.stringify(arrow.e));
+  ok(arrow.e && fullDmg >= 45,   /* 2026-09-17 피해 1/3: BOW_DAMAGE 150 → 50 */ `full-draw arrow hits for BOW_DAMAGE (${bw.hp} → ${arrow.e?.hp?.toFixed(0)})`, JSON.stringify(arrow.e));
   // tap: weak arrow
   await P(() => window.__killAll());
   await waitSim(0.5);
@@ -446,7 +446,7 @@ try {
   await click(0);
   await waitSim(1.2);
   const rocket = await P(([a, b]) => ({ e: window.__enemy(a), e2: window.__enemy(b), lo: window.__loadout(), hits: window.__ev['weapon:hit'], reload: window.__ev['weapon:reloadStarted'].length, hp: window.__game.ctx.player.hp }), [bz.id, bz2.id]);
-  ok(rocket.hits.length >= 1 && rocket.hits.some((h) => h.damage >= 400), 'rocket explodes (weapon:hit with blast damage)', JSON.stringify(rocket.hits.slice(-1)));
+  ok(rocket.hits.length >= 1 && rocket.hits.some((h) => h.damage >= 130), 'rocket explodes (weapon:hit with blast damage)', JSON.stringify(rocket.hits.slice(-1)));
   ok(rocket.e && (rocket.e.dead || rocket.e.hp < bz.hp), `blast damages the warrior (${bz.hp} → ${rocket.e?.hp?.toFixed(0)})`, JSON.stringify(rocket.e));
   ok(rocket.e2 && (rocket.e2.dead || rocket.e2.hp < bz2.hp), 'area damage reaches the scavenger 2 m aside');
   ok(rocket.hp === hpBefore, 'no self damage from a far blast');

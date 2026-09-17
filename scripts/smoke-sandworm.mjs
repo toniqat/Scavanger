@@ -262,15 +262,16 @@ try {
     const rolled = ctx.loot.rollCorpse('sandworm');
     const loot = rolled.map((i) => i.defId);
     // 2026-09-16: 표본은 계열 × 등급으로 갈리므로 id 대신 **등급**을 본다 (`data/loot_corpses.csv` 가 적을 등급별로 나눴다)
-    const specs = rolled.filter((i) => !!ctx.loot.getItemDef(i.defId)?.sample).map((i) => ({ id: i.defId, rarity: ctx.loot.getItemDef(i.defId).rarity }));
+    const specs = rolled.filter((i) => !!ctx.loot.getItemDef(i.defId)?.sample).map((i) => ({ id: i.defId, qty: i.qty, rarity: ctx.loot.getItemDef(i.defId).rarity }));
     return { dead: e.state === 'dead', killed: window.__ev.killed.filter((k) => k.id === id), corpse: !!corpse, loot, specs, name: ctx.enemies.enemyDisplayName('sandworm') };
   });
   ok(s6.dead && s6.killed.length === 1 && s6.killed[0].by === 'local', 'enemy:killed (by local) — 킬 · 계약은 기존 경로');
   ok(s6.corpse, '늘 수색되는 시체가 남는다 (CORPSE_LOOT_CHANCE 1)');
-  /* 2026-09-16 (사용자 결정, 표본 전면 개편): 옛 `spec_cell` 은 사라지고 성체 땅굴벌레는 **희귀(III) 표본**을 떨군다 —
-     `spec_cell_3` 은 chance 1 로 확정이고 광물 · 유전자도 같은 등급이다. id 목록 대신 「등급이 맞는가」를 본다. */
-  ok(s6.loot.includes('mat_bio_sample') && s6.specs.some((s) => s.id === 'spec_cell_3') && s6.specs.length > 0 && s6.specs.every((s) => s.rarity === 'rare'),
-    `보스급 전리품: 생체 조직 + 희귀(III) 표본만 (${s6.loot.join(', ')})`);
+  /* 2026-09-17 (사용자 결정): 성체 땅굴벌레의 표본은 **미확인 세포만 3–4 개, 개당 III 40 % / IV 60 %**
+     (`data/loot_corpse_samples.csv`). 행성 없는 `rollCorpse` 라 서사 이상 게이트가 없다 — 등급 섞임은 시드마다 다르므로 계열 · 등급 범위 · 개수만 본다. */
+  const s6n = s6.specs.reduce((n, s) => n + s.qty, 0);
+  ok(s6.loot.includes('mat_bio_sample') && s6n >= 3 && s6n <= 4 && s6.specs.every((s) => /^spec_cell_[34]$/.test(s.id)),
+    `보스급 전리품: 생체 조직 + 미확인 세포 III/IV 3–4 개만 (${s6.specs.map((s) => `${s.id}×${s.qty}`).join(', ')})`);
   ok(s6.name === '땅굴벌레', `표시 이름 「땅굴벌레」 (${s6.name})`);
 
   /* ── 7. 먼저 죽이면 더 뱉지 않는다 ─────────────────────────────────────── */
@@ -329,14 +330,15 @@ try {
     const lt = window.__game.ctx.loot;
     const rolled = lt.rollCorpse('sandworm_weak');
     const loot = rolled.map((i) => i.defId);
-    const specs = rolled.filter((i) => !!lt.getItemDef(i.defId)?.sample).map((i) => ({ id: i.defId, rarity: lt.getItemDef(i.defId).rarity }));
+    const specs = rolled.filter((i) => !!lt.getItemDef(i.defId)?.sample).map((i) => ({ id: i.defId, qty: i.qty, rarity: lt.getItemDef(i.defId).rarity }));
     if (w) sys.byId.get(w.id).takeDamage(1e6, undefined, undefined, 'local');
     return { spawned: spawned.length, types: [...new Set(spawned.map((s) => s.type))], spit: st.spitVolleys, loot, specs, corpse: w ? !!sys.corpses.get(w.id) : false };
   });
   ok(w2.spawned >= 2 && w2.types.length === 1 && w2.types[0] === 'scavenger', `어린 개체는 분출 무리 · 뱉기 모두 스캐빈저만 (${w2.spawned} 마리: ${w2.types.join(', ')})`);
-  // 어린 개체는 한 등급 아래다 — 고급(II) 표본, `spec_cell_2` 는 chance 1 로 확정 (`data/loot_corpses.csv`)
-  ok(w2.corpse && w2.loot.includes('mat_bio_sample') && w2.specs.some((s) => s.id === 'spec_cell_2') && w2.specs.length > 0 && w2.specs.every((s) => s.rarity === 'uncommon'),
-    `시체 표 sandworm_weak: 생체 조직 + 고급(II) 표본만 (${w2.loot.join(', ')})`);
+  // 2026-09-17: 어린 개체 = 미확인 세포만 3–4 개, 개당 II 60 % / III 40 % (`data/loot_corpse_samples.csv`)
+  const w2n = w2.specs.reduce((n, s) => n + s.qty, 0);
+  ok(w2.corpse && w2.loot.includes('mat_bio_sample') && w2n >= 3 && w2n <= 4 && w2.specs.every((s) => /^spec_cell_[23]$/.test(s.id)),
+    `시체 표 sandworm_weak: 생체 조직 + 미확인 세포 II/III 3–4 개만 (${w2.specs.map((s) => `${s.id}×${s.qty}`).join(', ')})`);
   await P(() => { clearInterval(window.__cull); for (const e of window.__sys.active) if (e.active && e.state !== 'dead') e.kill(false); });
 
   /* ── 11. 진동 장치 sandworm:summon ─────────────────────────────────────── */

@@ -35,6 +35,7 @@ const ENEMY_TYPE_KO: Readonly<Record<string, string>> = {
   scavenger: '스캐빈저', hunter: '헌터', warrior: '워리어', spewer: '스퓨어', charger: '차저', artillery: '포격 버그',
   toxic: '독성 버그', behemoth: '베헤모스', sandworm: '땅굴벌레', sandworm_weak: '어린 땅굴벌레', rogue: '로그', rogue_boss: '로그 분대장',
   rogue_scan_drone: '스캔 드론', android: '안드로이드', raider: '레이더', ...NAMED_ROGUE_NAME_KO,
+  scavenger_summon: '스캐빈저',   // 2026-09-17: 포병의 소환 스캐빈저 (드롭 0 %) — 이름은 바탕 종류와 같다
 };
 const INTERACT_KO: Readonly<Record<NpcInteractKind, string>> = {
   scanner: '맵 스캐너 작동', basement_door: '지하실 문 열기', lab_door: '연구소 잠긴 방 열기', tram: '전차 호출', rover: '탐사 차량 탑승',

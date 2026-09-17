@@ -10,6 +10,8 @@ import { ARTILLERY_AI, ENEMY_STATS } from './EnemyTypes';
 import type { TargetList } from './Targets';
 /* appended (2026-09-14): 벌레 난이도 (행성 threat) */
 import { bugThreatTuning, type BugThreatTuning } from './factionTables';
+/* appended (2026-09-17): 포병 호위 */
+import { spawnArtilleryEscort } from './ai/ArtilleryPack';
 
 /** Spawn services provided by EnemySystem to the spawner / wave director. */
 export interface SpawnHost {
@@ -21,7 +23,7 @@ export interface SpawnHost {
   ensureCapacity(n: number, cap: number): number;
   /** `emerge` (2026-09-13) > 0 = 땅을 파고 올라온다 (그 초 동안 공격 · 이동 없음, `ee spawn.em`). 생략 = 그 자리에 바로 선다. */
   spawn(type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean, emerge?: number): Enemy | null;
-  /** Alive (not dead / fleeing) enemies of one type — per-type caps (artillery, behemoth). */
+  /** Living (not dead — 2026-09-17: incapacitated and fleeing bodies count too) enemies of one type — per-type caps (artillery, behemoth). */
   countAlive(type: EnemyType): number;
 }
 
@@ -495,7 +497,9 @@ export class AmbientSpawner {
       if (!findSpawnCenter(host, around, ARTILLERY_AI.spawnMin, ARTILLERY_AI.spawnMax, false, 60, this.center)) return;
       if (spawnBlocked(world, 'artillery', this.center.x, this.center.z)) continue;
       const yaw = Math.atan2(around.x - this.center.x, around.z - this.center.z);
-      host.spawn('artillery', this.center, yaw, true, false, BURROW_EMERGE_S);   // 2026-09-13: 파고 나와 자리를 잡는다
+      const arty = host.spawn('artillery', this.center, yaw, true, false, BURROW_EMERGE_S);   // 2026-09-13: 파고 나와 자리를 잡는다
+      // 2026-09-17 (사용자 결정): 스캐빈저 호위 `escortMin`–`escortMax` 마리가 함께 파고 나와 포병 곁을 지킨다 (`ai/ArtilleryPack`)
+      if (arty) spawnArtilleryEscort(host, arty);
       return;
     }
   }

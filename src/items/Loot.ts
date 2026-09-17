@@ -27,6 +27,8 @@ import { FACTION_LOOT_MAP, getFactionSiteBonus, planetSeedPool, type CorpseRarit
 /* appended (2026-09-16): 서사 이상 드롭률 게이트 — 잠긴 방 예외 (`CrateLootOpts`) · 등급 무기 목록 */
 import type { CrateLootOpts } from '@/shared';
 import { WEAPON_GRADES } from './WeaponDefs';
+/* appended (2026-09-17): 시체 표본 개당 등급 굴림 (`data/loot_corpse_samples.csv`) */
+import type { CorpseSampleDrop } from './LootTables';
 
 /**
  * 유니크 전용 탄종의 아이템 id (`ammo_fuel` … `ammo_belt`) 와 등급 무기가 쓰는 평범한 탄종의 id.
@@ -277,6 +279,11 @@ export class LootService implements LootRef {
       out.push(this.createItem(drop.defId, qty));
     }
 
+    /* 2026-09-17 (사용자 결정): 미확인 표본은 개당 등급 굴림 (`loot_corpse_samples.csv`). 본 rng 가 아니라 **갈래**로 굴려
+       뒤의 총 · 유니크 · 책 … 추첨이 이 표 때문에 한 톨도 안 움직인다. 갈래는 본 rng 의 draw 를 쓰지 않고, 시드가 같으면 같은
+       갈래라 미리보기 ≡ 열기 · 호스트 ≡ 리플리카. 표가 없는 적은 갈래도 안 만든다. 서사 이상 게이트(`keep`)는 일부러 안 넘긴다 (예외 — 아래 함수 주석). */
+    if (table.samples) this.rollCorpseSamples(table.samples, rng.fork('corpseSamples'), out);
+
     if (table.weapon) {
       const base = WEAPON_DEF_MAP.get(rogueWeaponId ?? DEFAULT_ROGUE_WEAPON_ID) ?? WEAPON_DEF_MAP.get(DEFAULT_ROGUE_WEAPON_ID);
       if (base) {
@@ -393,6 +400,37 @@ export class LootService implements LootRef {
 
     out.sort((a, b) => this.area(b) - this.area(a));
     return out;
+  }
+
+  /**
+   * 시체 표본 줄들 (`CorpseTable.samples`). 줄마다 chance → 개수 → **개당** 등급 가중 추첨 → 같은 아이템끼리 한 스택.
+   * ⚠ 2026-09-17 (사용자 결정): 서사 이상 게이트(`epicPlusMul`)에서 **빠진다** — 연구실 잠긴 방과 같은 예외다. 세포 IV(서사)는
+   * csv 에 적힌 비율 그대로 나와야 한다 (돌진 벌레 10 % · 베헤모스 · 땅굴벌레 60 %). 그래서 `keep` 을 받지 않고 게이트 draw 도 없다.
+   * 다른 시체 줄(`loot_corpses.csv` 등)은 게이트를 그대로 탄다.
+   */
+  private rollCorpseSamples(rows: readonly CorpseSampleDrop[], rng: Random, out: ItemInstance[]): void {
+    for (const row of rows) {
+      if (row.chance < 1 && !rng.chance(row.chance)) continue;
+      const defs = row.defIds.map((id) => ITEM_DEF_MAP.get(id)).filter((d): d is ItemDef => !!d);
+      if (!defs.length) continue;
+      const weightOf = (d: ItemDef): number => row.weights[row.defIds.indexOf(d.id)] ?? 0;
+      const n = row.qty[0] >= row.qty[1] ? row.qty[0] : rng.int(row.qty[0], row.qty[1]);
+      const counts = new Map<string, number>();
+      for (let i = 0; i < n; i++) {
+        const pick = rng.weighted(defs, weightOf);
+        counts.set(pick.id, (counts.get(pick.id) ?? 0) + 1);
+      }
+      // 등급 오름차순(= defIds 순서)으로 넣는다 — Map 삽입 순서가 추첨 순서에 따라 흔들리지 않게.
+      // `createItem` 은 수량을 stackMax(`SAMPLE_STACK_MAX`)로 자르므로 넘치는 만큼은 스택을 나눈다 (땅굴벌레 4 개가 3 개로 줄지 않게).
+      for (const d of defs) {
+        let left = counts.get(d.id) ?? 0;
+        while (left > 0) {
+          const qty = Math.min(left, Math.max(1, d.stackMax));
+          out.push(this.createItem(d.id, qty));
+          left -= qty;
+        }
+      }
+    }
   }
 
   /**

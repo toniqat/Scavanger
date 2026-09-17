@@ -45,6 +45,12 @@ export interface BugParams {
   frontPlate?: { color: number };
   /** separateAbdomen sac swell factor at `anim.abdomen = 1` (spewer 0.18, toxic much more). */
   sacSwell?: number;
+  /**
+   * 2026-09-17: 피아 식별용 **붉은 줄무늬** (헌터). 옆구리 띠 + 배 둘레 띠를 별도 메시 하나로 굽고, 종류당 하나의 공유 재질
+   * (약한 자체 발광 — 포그 · 어두운 행성에서도 붉게 읽힌다)을 모든 개체가 같이 쓴다 (`BugModel.getAssets`).
+   * `bands` = 배 둘레 띠 수.
+   */
+  stripes?: { color: number; emissive: number; emissiveIntensity: number; bands: number };
 }
 
 /** Scale every length of a param set (colours / counts / flags untouched). */
@@ -85,11 +91,13 @@ export const BUG_PARAMS: Record<BugType, BugParams> = {
   hunter: {
     type: 'hunter',
     thorax: [0.38, 0.3, 0.62], thoraxY: 0.64,
-    abdomen: [0.36, 0.32, 0.5], abdomenZ: -0.86, abdomenY: 0.68, separateAbdomen: false, rings: 3, plates: 2,
+    // 2026-09-17: 배의 주황 고리 3개(rings) → 붉은 띠 (`stripes`, 사용자 요청 「피아 식별」)
+    abdomen: [0.36, 0.32, 0.5], abdomenZ: -0.86, abdomenY: 0.68, separateAbdomen: false, rings: 0, plates: 2,
     head: { r: 0.24, z: 0.74, y: 0.62 }, mandibleLen: 0.32, mandibleR: 0.045, eyeR: 0.055, antennaLen: 0.5,
     legs: { l1: 0.64, l2: 0.86, r: 0.04, hipY: 0.62, spreadX: 0.3, zs: [0.42, 0.02, -0.4], femurUp: 0.78 },
     strideLength: 1.9, bobAmp: 0.03,
     base: 0x23201f, accent: 0xe0a030, armor: null, eye: 0xff5a2a, horns: false, spikes: true,
+    stripes: { color: 0xc01414, emissive: 0xff1e0e, emissiveIntensity: 0.45, bands: 3 },
   },
   warrior: WARRIOR,
   spewer: {

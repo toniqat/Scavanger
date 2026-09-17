@@ -619,7 +619,8 @@ export interface EnemyWire {
    * Phase 4: 5 rogue shooting, 6 rogue in cover, 7 rogue rushing, 8 artillery aiming, 9 toxic swelling, 10 behemoth windup, 11 behemoth rush.
    * Phase 7: 12 rogue reloading, 13 rogue throwing a grenade.
    * 2026-09-11 (네임드 로그 — `ai/named/*` sets `Enemy.namedHint`): 14 sniper prone idle, 15 sniper glint / aiming,
-   * 16 hammer windup, 17 hammer charge, 18 heavy spin-up, 19 heavy firing, 20 scan drone pulsing.
+   * 16 hammer windup, 17 hammer charge, 18 heavy spin-up, 19 heavy firing, 20 scan drone pulsing. Appended 2026-09-17: 25 artillery braced flat (before / after firing).
+   * 2026-09-17 (appended): 23 hunter flipped and falling, 24 hunter lying flipped (`enemies/ai/HunterFlip`).
    */
   a?: number;
   /** Phase 4: rogue's weapon def id (model + corpse loot). */

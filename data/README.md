@@ -92,6 +92,7 @@ One line per csv. "Loader" is the parsing module under `src/`; values usually ta
 | `loot_guaranteed.csv` | Guaranteed picks per tier | `items/LootTables.ts` |
 | `loot_item_weights.csv` | Per-item multipliers per tier (`0` = never from crates) | `items/LootTables.ts` |
 | `loot_corpses.csv` | Enemy corpse drops (independent chance per row) | `items/LootTables.ts` |
+| `loot_corpse_samples.csv` | Corpse 미확인 표본 rolls: chance → count → a tier per unit (`tiers` = `tier:weight` \| …, family × tier → `samples.csv`) | `items/LootTables.ts` |
 | `loot_corpse_rolls.csv` | Corpse weapon/unique/book/broken-implant rolls per type | `items/LootTables.ts` |
 | `loot_factions.csv` | Humanoid faction corpses: gun grades, armor/bag/heal chance, pool and rarity, gear durability | `items/LootTables.ts` |
 | `loot_faction_sites.csv` | Spawn-site bonuses for faction corpses (`grades` \| `item` \| `seed`) | `items/LootTables.ts` |

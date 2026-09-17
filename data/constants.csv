@@ -64,8 +64,8 @@ GRENADE_UNDERHAND_SPEED_MUL,0.45,Underhand toss speed multiplier.
 GRENADE_THROW_SPEED,34,"Overhand release speed (m/s) before the 근력 multiplier (2026-09-09: moved here from weapons/model.ts). 2026-09-12 (사용자 결정): 17 → 34 로 기본 투척 거리를 2배(9.1 → 18.1 m). 거리 ∝ 속도 이므로 여기만 2배면 된다."
 GRENADE_THROW_LIFT,3.5,Extra upward velocity (m/s) added to an overhand throw.
 GRENADE_UNDERHAND_LIFT,1.2,Upward velocity (m/s) of an underhand toss.
-GRENADE_RADIUS,7.2,"파편 수류탄 폭발 반경 (m) — 2026-09-15 (사용자 결정): 6 → 7.2 (×1.2). 예전에는 weapons/Grenade.ts 에 박혀 있었다. 감쇠는 EXPLOSION_FULL_FRACTION · EXPLOSION_OUTER_MUL 의 2단 계단이므로 중심 3.6 m 까지 100 % · 거기서 7.2 m 까지 60 % 다."
-GRENADE_DAMAGE,250,"파편 수류탄의 중심 피해. 적 · 플레이어 · 드론 · 설치물이 같은 값을 EXPLOSION_* 감쇠로 나눠 받는다 (플레이어 몫은 GRENADE_PLAYER_DAMAGE_MUL 이 더 깎는다)."
+GRENADE_RADIUS,7.2,"파편 수류탄 폭발 반경 (m) — 2026-09-15 (사용자 결정): 6 → 7.2 (×1.2). 예전에는 weapons/Grenade.ts 에 박혀 있었다. 감쇠는 EXPLOSION_FULL_FRACTION · EXPLOSION_OUTER_MUL 의 2단 계단이므로 중심 3.6 m 까지 100 % · 거기서 7.2 m 까지 50 % 다."
+GRENADE_DAMAGE,60,"파편 수류탄의 중심 피해. 적 · 플레이어 · 드론 · 설치물이 같은 값을 EXPLOSION_* 감쇠로 나눠 받는다 (플레이어 몫은 GRENADE_PLAYER_DAMAGE_MUL 이 더 깎는다). 2026-09-17 (사용자 결정, 전역 피해 1/3 개편): 250 → 60 — 중심 60 · 바깥 30."
 GRENADE_PLAYER_DAMAGE_MUL,0.6,"수류탄 폭발이 플레이어에게 주는 몫 — 내 수류탄이든 분대원 수류탄의 복제든 같다 (Phase 7). 적 · 드론에는 안 곱해진다."
 THROW_RANGE_MUL_MIN,1.0,"투척 거리 배율 at STAT_MIN 근력 (2026-09-09): 근력 1 → 1.0 (= 예전 근력 5 값). 사이는 선형, STAT_MAX 에서 THROW_RANGE_MUL_MAX."
 THROW_RANGE_MUL_MAX,2.25,"투척 거리 배율 at STAT_MAX 근력. 2026-09-12 (사용자 결정): 1.74 → 2.25. 거리는 √배율 이므로 √2.25 = 1.5 배 — 기본 18.1 m 에서 최대 27.2 m 다 (근력 · 임플란트를 아무리 올려도 기본의 1.5 배가 천장)."
@@ -79,18 +79,18 @@ TOPVIEW_CURSOR_SPEED,0.12,Pointer-locked mouse pixels → metres of cursor trave
 GROUND_TARGET_RANGE,60,Ground targeting (drops): max distance of the aim-ray hit from the player (m).
 LASER_DURATION,10,"Orbital laser: beam duration (s), damage radius (m), damage per second."
 LASER_RADIUS,4,
-LASER_DPS,240,
+LASER_DPS,80,"2026-09-17 (사용자 결정, 적 체력 · 플레이어 쪽 피해 1/3 개편): 240 → 80. 함선 지원 낙하물 피해는 피아 무구분이라 플레이어가 맞는 몫도 같이 줄었다."
 AIRSTRIKE_RADIUS,14,"Airstrike: explosion radius (m) and damage at the centre. 감쇠는 EXPLOSION_FULL_FRACTION · EXPLOSION_OUTER_MUL 의 2단 계단이다."
-AIRSTRIKE_DAMAGE,480,
+AIRSTRIKE_DAMAGE,160,"2026-09-17 (1/3 개편): 480 → 160."
 SUPPLY_FALL_TIME,2.2,"Supply crate: fall time (s), impact damage radius (m) / damage, loot tier (see items LOOT_TABLES), lifetime after landing (s)."
 SUPPLY_IMPACT_RADIUS,2.5,
-SUPPLY_IMPACT_DAMAGE,400,
+SUPPLY_IMPACT_DAMAGE,133,"2026-09-17 (1/3 개편, 내림): 400 → 133."
 SUPPLY_CRATE_TIER,5,
 STRUCTURE_COUNT,5,"Structures: count, hp, scatter radius around the target (m), impact damage radius / damage, fall time (s)."
 STRUCTURE_HP,2000,
 STRUCTURE_SCATTER,7,
 STRUCTURE_IMPACT_RADIUS,2.2,
-STRUCTURE_IMPACT_DAMAGE,800,
+STRUCTURE_IMPACT_DAMAGE,266,"2026-09-17 (1/3 개편, 내림): 800 → 266."
 STRUCTURE_FALL_TIME,2.0,
 OFFSCREEN_PING_SECONDS,5,Off-screen indicators: squadmate pings show an edge arrow for this many seconds after placement.
 
@@ -121,7 +121,7 @@ SHELL_RADIUS,0.6,
 SHELL_ARC_GRAVITY,2,"2026-09-10 확정(2.6 임시값 → 2): 포탄 궤적에만 쓰는 유효 중력(m/s^2). 정점 높이 = 0.5 x this x (SHELL_FLIGHT_TIME/2)^2 = 9.9 m (실제 중력 9.81 이면 48.7 m 라 화면 밖에서 떨어졌다 = 날아온 줄도 모른다). 여전히 곡사포다: 표준 교전거리 ARTILLERY_RANGE 63 m 에서 발사각 32도 (최대사거리 98 m 22도 · 최소 42 m 43도). 표적에서 올려다본 앙각은 착탄 3초 전 18도 · 1초 전 28도 · 0.5초 전 30도 라 카메라 수직 화각 70도(= 위로 35도) 안에 내려오는 내내 들어온다 — 2.6 이면 마지막 1초가 화면 위로 빠지고(29~35도) 1.5 아래로 내리면 직사포로 보인다."
 SHELL_LEAD_MAX,8,"2026-09-09: 포탄이 표적의 이동을 앞질러 조준하는 최대 거리(m). 조준점 = 위치 + 속도 × (SHELL_FLIGHT_TIME × 0.5) 인데 비행 6.3 s 로는 리드가 19 m 까지 자라 피할 수 없는 자리에 떨어지므로 여기서 자른다."
 TOXIC_RADIUS,5,"Toxic bug: burst radius (m), damage (players and enemies alike), trigger distance (m)."
-TOXIC_DAMAGE,70,
+TOXIC_DAMAGE,60,"독성 벌레 자폭 피해 (플레이어 · 적 공통). 2026-09-17 사용자 결정 70 → 60."
 TOXIC_TRIGGER_DIST,2.2,
 BEHEMOTH_SCALE,3,Phase 7: 4 → 3 (the 6.4 m body stumbled on most obstacles while charging)
 BEHEMOTH_CHARGE_SPEED,16,
@@ -130,7 +130,8 @@ BEHEMOTH_KNOCKBACK,12,
 BEHEMOTH_WINDUP,1.4,
 
 # ── melee ──
-MELEE_DAMAGE,45,
+# 2026-09-17 (사용자 결정): 플레이어가 적에게 주는 모든 피해 · 적 체력 1/3 (내림). 근접 45 → 15.
+MELEE_DAMAGE,15,
 MELEE_RANGE,2.4,
 MELEE_STAMINA_COST,12,
 MELEE_COOLDOWN,0.75,
@@ -209,12 +210,12 @@ GADGET_SMOKE_DURATION,16,
 GADGET_SMOKE_RADIUS,7,
 GADGET_MINE_ARM_TIME,3,
 GADGET_MINE_RADIUS,6.5,
-GADGET_MINE_DAMAGE,220,
+GADGET_MINE_DAMAGE,80,"지뢰 중심 피해 — 2026-09-17 (사용자 결정, 전역 피해 개편): 220 → 80 (중심 80 · 바깥 40)."
 GADGET_TURRET_HP,600,
 GADGET_TURRET_RANGE,32,
-GADGET_TURRET_DPS,60,
+GADGET_TURRET_DPS,15,"2026-09-17 (사용자 결정, 전역 피해 개편): 60 → 15."
 GADGET_TURRET_DURATION,90,
-GADGET_INCENDIARY_DPS,45,
+GADGET_INCENDIARY_DPS,10,"화염 지대 초당 피해 (화염 수류탄 · 피아 무구분). 2026-09-17 (사용자 결정, 전역 피해 개편): 45 → 10."
 GADGET_JUMPPAD_IMPULSE,13,
 GADGET_JUMPPAD_FORWARD,9,
 GADGET_DEFUSE_TIME,3,"Hold time (s) to defuse a mine / recover a turret, jump pad or barricade."
@@ -255,25 +256,29 @@ CONSOLE_SUGGESTIONS_MAX,8,Suggestions shown above the input while typing.
 MOVE_CHEAT_SPEED,45,`/movecheat 1` + Home: metres per second along the camera forward.
 
 # ── unique weapons (owner: items data, weapons behaviour) ──
+# 2026-09-17 (사용자 결정): 플레이어가 적에게 주는 모든 피해 · 적 체력 1/3 (내림). 유니크 피해 · 초당 피해 전부 ÷3 내림:
+#   FLAME_DPS 95→31 · FLAME_ALT_DPS 75→25 · FLAME_AFTERBURN_DPS 12→4 · SHOCK_DPS 72→24 · SHOCK_CHARGE_DAMAGE 150→50 · SHURIKEN_DAMAGE 58→19
+#   SLASH_DAMAGE 280→93 · BOW_DAMAGE 150→50 · BAZOOKA_DAMAGE 420→140 · BAZOOKA_ALT_DAMAGE 260→86 · MINIGUN_DAMAGE 24→8.
+#   전소 열(BURNOUT_THRESHOLD 240→80 · BURNOUT_DECAY_PER_SEC 60→20)은 화염 피해를 쌓는 값이라 같이 ÷3 — 전소까지 걸리는 시간은 그대로다.
 FLAME_RANGE,12,
 FLAME_CONE_DEG,32,
-FLAME_DPS,95,
+FLAME_DPS,31,
 FLAME_ALT_RANGE,26,
 FLAME_ALT_CONE_DEG,7,
-FLAME_ALT_DPS,75,
+FLAME_ALT_DPS,25,
 FLAME_FUEL_PER_SEC,12,Fuel units (ammo `qty`) burnt per second while spraying.
-BURNOUT_THRESHOLD,240,Heat an enemy accumulates from flame damage before it is set 전소 (`applyStatus 'incinerated'`).
-BURNOUT_DECAY_PER_SEC,60,Heat lost per second when not being burnt.
+BURNOUT_THRESHOLD,80,Heat an enemy accumulates from flame damage before it is set 전소 (`applyStatus 'incinerated'`).
+BURNOUT_DECAY_PER_SEC,20,Heat lost per second when not being burnt.
 BURNOUT_DURATION,4,
-FLAME_AFTERBURN_DPS,12,"Residual burning applied on every flame tick (dps, seconds)."
+FLAME_AFTERBURN_DPS,4,"Residual burning applied on every flame tick (dps, seconds)."
 FLAME_AFTERBURN_DURATION,3,
 SHOCK_RANGE,14,
 SHOCK_CONE_DEG,50,
 SHOCK_MAX_TARGETS,4,
-SHOCK_DPS,72,
+SHOCK_DPS,24,
 SHOCK_CELL_PER_SEC,8,Cell units per second while the arc is on.
 SHOCK_CHARGE_TIME,1.1,
-SHOCK_CHARGE_DAMAGE,150,Damage of a fully charged bolt; a partial charge scales linearly from SHOCK_CHARGE_MIN_RATIO.
+SHOCK_CHARGE_DAMAGE,50,Damage of a fully charged bolt; a partial charge scales linearly from SHOCK_CHARGE_MIN_RATIO.
 SHOCK_CHARGE_MIN_RATIO,0.35,
 SHOCK_CHARGE_RANGE,200,
 SHOCK_CHARGE_CELLS,6,Cells per charged bolt.
@@ -282,19 +287,19 @@ SHOCK_SLOW_DURATION,1.2,
 SHOCK_FIZZLE_FORKS,3,"2026-09-14 테슬라 코일 LMB: 원뿔 안에 전격을 받을 대상이 없을 때 조준점 쪽으로 튀는 전격 가지 수 (시각 전용, SHOCK_MAX_TARGETS 이하). 첫 가지는 늘 조준점(벽 · 사거리 끝)으로 간다 — 그 전에는 대상이 없으면 아무것도 그리지 않아 「전격이 아예 안 나간다」로 보였다."
 SHOCK_FIZZLE_SPREAD_DEG,9,"그 가지들이 총구 → 조준점 선에서 벌어지는 최대 반각(도)."
 SHOCK_CRACKLE_INTERVAL,0.2,"전격이 켜져 있는 동안 지지직 소리(shot_energy 작게)를 다시 내는 간격(초). 켜는 순간에는 한 번 더 크게 난다. 원격 분대원의 전격도 같은 간격."
-SHURIKEN_DAMAGE,58,
+SHURIKEN_DAMAGE,19,
 SHURIKEN_SPEED,65,
 SHURIKEN_FIRE_RATE,3.2,
 SHURIKEN_TRIPLE_SPREAD_DEG,7,
 SHURIKEN_TRIPLE_COOLDOWN,0.9,
 SLASH_HOLD_TIME,0.45,
 SLASH_STAMINA_RATIO,0.5,Fraction of max stamina the big slash costs (refused below it).
-SLASH_DAMAGE,280,
+SLASH_DAMAGE,93,
 SLASH_RANGE,3.8,
 SLASH_ARC_DEG,160,
 SLASH_FOV_MUL,1.28,Camera FOV multiplier while `PlayerRef.setViewWiden(true)` (the slash wind-up / swing).
 SLASH_DURATION,0.6,
-BOW_DAMAGE,150,Full-draw arrow damage — a tap (no draw) deals BOW_DAMAGE × BOW_TAP_POWER; linear in between.
+BOW_DAMAGE,50,Full-draw arrow damage — a tap (no draw) deals BOW_DAMAGE × BOW_TAP_POWER; linear in between.
 BOW_RANGE,150,
 BOW_FIRE_RATE,4,Cooldown after an arrow leaves = 1 / BOW_FIRE_RATE s (taps can follow each other quickly).
 BOW_PROJECTILE_SPEED,140,Full-draw arrow speed (m/s).
@@ -303,11 +308,11 @@ BOW_TAP_POWER,0.3,Damage fraction of a tap (draw 0).
 BOW_TAP_SPEED,45,Arrow speed (m/s) of a tap; lerps to BOW_PROJECTILE_SPEED with the draw.
 BOW_TAP_GRAVITY,12,Arrow drop (m/s²) of a tap — fine at 10–15 m and clearly low past ~25 m; lerps to BOW_FULL_GRAVITY.
 BOW_FULL_GRAVITY,0.5,Arrow drop (m/s²) at full draw (flies nearly straight to the crosshair).
-BAZOOKA_DAMAGE,420,
+BAZOOKA_DAMAGE,140,
 BAZOOKA_RADIUS,5.5,
 BAZOOKA_SPEED,48,
 BAZOOKA_ALT_FUSE,0.4,Seconds after launch when the RMB rocket detonates on its own.
-BAZOOKA_ALT_DAMAGE,260,
+BAZOOKA_ALT_DAMAGE,86,
 BAZOOKA_ALT_RADIUS,4.5,
 BAZOOKA_SELF_DAMAGE,22,"2026-09-14 은퇴 — 바주카는 자해 피해가 없다 (사용하는 곳 없음). 계약 상수라 줄만 남는다. (옛 뜻: 폭발 반경 안에서 받는 고정 자해 피해.)"
 BAZOOKA_KNOCKBACK,15,Knockback speed away from the blast when the player is inside the radius.
@@ -318,7 +323,7 @@ BAZOOKA_GROUNDED_DIST_MUL,0.5,"2026-09-15 (사용자 결정): extra knockback di
 BAZOOKA_FIRE_RATE,2.85,"2026-09-14: 연달아 세 발 — 발 간격 1/2.85 ≈ 0.35 초 (탄창 크기는 weapons_unique.csv 의 magSize)."
 MINIGUN_SPINUP_TIME,1.2,
 MINIGUN_SPINDOWN_TIME,0.8,
-MINIGUN_DAMAGE,24,
+MINIGUN_DAMAGE,8,
 MINIGUN_FIRE_RATE,24,
 MINIGUN_SPREAD_DEG,2.6,
 MINIGUN_MOVE_MUL,0.55,"Move speed multiplier while spinning (`setSpeedModifier('minigun', …)`)."
@@ -347,7 +352,8 @@ RAID_FAILED_AUTO_RETURN_S,12,Result screen after a raid failure returns everyone
 SEARCH_MAX_DISTANCE,4,Searching only runs while the container window is open and the player is within this many metres of it.
 TRAINING_ARENA_SIZE,64,"Arena side (m), flat, walled; the player spawns at the south end facing the lanes."
 TRAINING_TARGET_COUNT,12,"Pop-up targets: count, hp, seconds to pop back up after a knock-down."
-TRAINING_TARGET_HP,60,
+# 2026-09-17 (사용자 결정): 플레이어가 적에게 주는 모든 피해 · 적 체력 1/3 (내림). 사격장 표적은 쏘기만 하는 것이라 체력도 ÷3 (60 → 20) — 표적을 쓰러뜨리는 발 수가 그대로다.
+TRAINING_TARGET_HP,20,
 TRAINING_TARGET_RESPAWN_S,3,
 TRAINING_SKILL_GAIN_MUL,1,"Skill XP in a training: only `gun_*` skills rise, scaled by this on top of the 시뮬레이션 허브 bonus."
 ROGUE_MAG_ROUNDS,12,"Rounds per magazine (3 bursts of ROGUE_BURST) and the reload pause (no shots, anim hint 12)."
@@ -526,7 +532,7 @@ IMPLANT_SLOTS_MAX,10,
 
 # ── 실드 배쉬 (owner: implants) ──
 IMPLANT_SHIELD_BASH_STAMINA,25,Stamina spent per bash (same units as `PlayerRef.consumeStamina`).
-IMPLANT_SHIELD_BASH_DAMAGE,55,Base damage per enemy in the arc (× `derived.meleeDamageMul` only — no weapon / 개머리판 bonus).
+IMPLANT_SHIELD_BASH_DAMAGE,18,"Base damage per enemy in the arc (× `derived.meleeDamageMul` only — no weapon / 개머리판 bonus). 2026-09-17 (1/3 개편, 내림): 55 → 18."
 IMPLANT_SHIELD_BASH_RANGE,1.6,"Reach in front of the shield plane, metres. Width = the shield's own carry width."
 IMPLANT_SHIELD_BASH_COOLDOWN,0.8,
 IMPLANT_SHIELD_BASH_KNOCKBACK,6,Knockback impulse applied to each struck enemy (m/s along the shield forward).
@@ -556,7 +562,7 @@ SHIP_VISIT_MAX_FURNITURE,400,receiver truncates so a hostile document cannot mak
 # ── 가젯 배치물의 나머지 수치 (2026-09-09: TS 리터럴에서 옮겨 왔다) ──
 GADGET_BARRICADE_RADIUS,2.4,바리케이드가 차지하는 반경(m)
 GADGET_LURE_HP,140,유인 수류탄 비콘 내구도
-GADGET_MINE_HP,60,지뢰 내구도 (쏘면 터진다)
+GADGET_MINE_HP,20,"지뢰 내구도 (쏘면 터진다). 2026-09-17: 총 피해 1/3 에 맞춰 60 → 20 — 쏴서 터뜨리는 발 수가 그대로다."
 GADGET_DEFIB_RANGE,5,제세동기가 닿는 거리(m)
 GADGET_JUMPPAD_HP,150,점프대 내구도
 GADGET_JUMPPAD_RADIUS,1.7,점프대 발동 반경(m)
@@ -737,10 +743,10 @@ GADGET_PLACE_RANGE,6,"손에 든 설치형 가젯을 조준점에 놓을 수 있
 GADGET_PLACE_LARGE_MIN_NORMAL_Y,0.9,"대형 설치물(바리케이드 · 점프대 · 포탑)이 서는 바닥의 최소 법선 y. 1 = 완전 평지."
 GADGET_PLACE_SMALL_MIN_NORMAL_Y,0.6,"소형 설치물(지뢰 · 원격 지뢰)이 서는 바닥의 최소 법선 y."
 GADGET_PLACE_LARGE_MAX_STEP,0.35,"대형 설치물 발자국 안의 바닥 높이 차가 이보다 크면(m) 설치할 수 없다."
-GADGET_REMOTE_MINE_DAMAGE,260,"원격 지뢰 한 발의 중심 피해. 2026-09-15 (사용자 결정): 감쇠가 선형에서 EXPLOSION_* 2단 계단으로 바뀌었다 — 중첩 규칙(GADGET_REMOTE_MINE_STACK_MUL)은 그대로다."
+GADGET_REMOTE_MINE_DAMAGE,100,"원격 지뢰 한 발의 중심 피해 (2026-09-17 사용자 결정: 260 → 100, 중심 100 · 바깥 50). 2026-09-15 (사용자 결정): 감쇠가 선형에서 EXPLOSION_* 2단 계단으로 바뀌었다 — 중첩 규칙(GADGET_REMOTE_MINE_STACK_MUL)은 그대로다."
 GADGET_REMOTE_MINE_RADIUS,6,"원격 지뢰 폭발 반경(m)."
 GADGET_REMOTE_MINE_ARM_TIME,1,"원격 지뢰가 설치 뒤 기폭 가능해지기까지(초)."
-GADGET_REMOTE_MINE_HP,60,"원격 지뢰 내구도 — 부서지면 기폭되지 않고 사라진다."
+GADGET_REMOTE_MINE_HP,20,"원격 지뢰 내구도 — 부서지면 기폭되지 않고 사라진다. 2026-09-17: 총 피해 1/3 에 맞춰 60 → 20."
 GADGET_REMOTE_MINE_STACK_MUL,0.5,"같은 기폭에서 한 대상이 두 번째 이후로 맞는 원격 지뢰의 피해 배수 (가장 센 한 발만 온전히, 나머지는 각각 이 배수). 2026-09-11 사용자 결정."
 GADGET_REMOTE_MINE_MAX_LIVE,8,"한 플레이어가 동시에 월드에 둘 수 있는 원격 지뢰 수. 넘으면 가장 오래된 것부터 사라진다."
 GADGET_MOUNTED_MINE_TRIGGER_RADIUS,2.5,"드론 위에 올린 지뢰가 적을 감지하는 반경(m). 움직이는 드론에 달려 있어 바닥 지뢰보다 넓고, 적만 감지한다."
@@ -931,8 +937,8 @@ SANDWORM_SHAKE_MAX,0.18,"전조 흔들림: 0.2 초마다 더하는 camera:shake 
 SANDWORM_ERUPT_RADIUS,12,"분출 판정 반경(m) — 이 안의 플레이어는 피해 + 넉백, 다른 팩션 적도 맞는다. 전조 링이 이 반경을 그린다."
 SANDWORM_ERUPT_DAMAGE,55,"분출 피해 (한가운데). 2026-09-15 (사용자 결정 — 모든 폭발물이 같은 공식): 감쇠는 공용 2단 계단(EXPLOSION_FULL_FRACTION · EXPLOSION_OUTER_MUL)이고 하한 30 % 는 그대로다. 넉백(SANDWORM_ERUPT_KNOCKBACK)만 옛 선형 감쇠를 쓴다. 실드부터 깎인다."
 SANDWORM_ERUPT_KNOCKBACK,15,"분출 넉백 속도(m/s, 한가운데). 베헤모스 돌진(BEHEMOTH_KNOCKBACK 12)보다 세다."
-SANDWORM_HP_MIN,2000,"땅굴벌레 최대 체력의 하한 — 호스트가 분출 순간 MIN..MAX 에서 굴려 분대 전원에 보낸다 (사용자 결정 2000–3000)."
-SANDWORM_HP_MAX,3000,"땅굴벌레 최대 체력의 상한."
+SANDWORM_HP_MIN,666,"땅굴벌레 최대 체력의 하한 — 호스트가 분출 순간 MIN..MAX 에서 굴려 분대 전원에 보낸다 (사용자 결정 2000–3000, 2026-09-17 적 체력 1/3 내림 → 666–1000)."
+SANDWORM_HP_MAX,1000,"땅굴벌레 최대 체력의 상한."
 SANDWORM_RISE_S,1.4,"분출한 땅굴벌레의 몸통이 땅에서 다 솟아오르는 시간(초). 버그 뱉기는 그 뒤부터 센다."
 SANDWORM_BURST_RING_MIN,6,"분출과 함께 파고 나오는 버그 무리가 서는 링의 안쪽 반경(m)."
 SANDWORM_BURST_RING_MAX,14,"그 링의 바깥 반경(m)."
@@ -956,7 +962,7 @@ SANDWORM_P_FAR_MUL,0.25,"거리 계수: 평균 거리가 SANDWORM_GROUP_RADIUS �
 SANDWORM_P_LURE,0.15,"활성 유인 수류탄(가젯 lure 배치물 · 유인 종류의 distraction)이 무리 중심 SANDWORM_LURE_RANGE_M 안에 있으면 검사 확률에 더하는 값. 자격 무리가 없으면 유인만으로는 나오지 않는다."
 SANDWORM_LURE_RANGE_M,60,"유인 수류탄이 땅굴벌레 확률에 얹히고 분출 자리 후보가 되는 거리(m, 무리 중심 기준)."
 SANDWORM_LURE_SPOT_CHANCE,0.6,"굴림이 성공했을 때 분출 자리를 무리 중심 대신 유인 수류탄 자리로 고를 확률 (땅 검사에 실패하면 다른 쪽을 쓴다)."
-SANDWORM_WEAK_HP,750,"위협 1 행성의 어린 땅굴벌레(sandworm_weak) 최대 체력 — 고정값, 굴리지 않는다 (사용자 결정 750)."
+SANDWORM_WEAK_HP,250,"위협 1 행성의 어린 땅굴벌레(sandworm_weak) 최대 체력 — 고정값, 굴리지 않는다 (사용자 결정 750, 2026-09-17 적 체력 1/3 → 250). enemies.csv 의 raidXp 는 옛 값 75 를 따로 적는다."
 SANDWORM_WEAK_SCALE,0.7,"어린 땅굴벌레의 몸 크기 배수 — enemies.csv 의 반지름 · 높이 · 머리 구가 이 식을 쓰고(리그가 그 값으로 지어진다) 분출 판정 반경 · 넉백 반경도 이만큼 줄어든다 (피해량은 그대로, 사용자 결정 70 %)."
 BURROW_GROUND_CHECK_R,6,"호스트가 분출 자리에 요구하는 맨땅 원의 반지름(m) — WorldRef.burrowGroundOk(x, z, r). 몸통 반지름 2.2 + 흙 무덤(반지름 × 1.9)이 들어가는 크기다. 진동 장치 미리보기는 자기 반지름을 따로 쓴다."
 BURROW_GROUND_RING_SAMPLES,8,"burrowGroundOk 가 원 둘레(반지름 r 과 r/2 두 고리)에서 지형을 재는 표본 수 (+ 중심 1)."
@@ -1058,13 +1064,13 @@ ROVER_HALF_WIDTH,1.5,"차체 반폭(m)."
 ROVER_HEIGHT,2.8,"포탑 포함 전체 높이(m) — 적 타격 판정 상자의 높이 (RoverRef.height)."
 ROVER_HULL_H,2.2,"차체 콜라이더 상자 높이(m). 포탑은 그림뿐이다."
 ROVER_TURRET_RANGE,28,"포탑 사거리(m, 좁은 범위 — 사용자 명세 「근처(좁은 범위)의 적」). 달리는 중에만 쏜다."
-ROVER_TURRET_DAMAGE,30,"포탑 한 발 피해."
-ROVER_TURRET_INTERVAL_S,0.2,"포탑 사격 간격(초) — 초당 150 피해."
+ROVER_TURRET_DAMAGE,10,"포탑 한 발 피해. 2026-09-17 (1/3 개편): 30 → 10."
+ROVER_TURRET_INTERVAL_S,0.2,"포탑 사격 간격(초) — 초당 50 피해."
 ROVER_TURRET_RETARGET_S,0.5,"포탑이 표적을 다시 고르는 간격(초)."
 ROVER_TURRET_TURN_RATE,3,"포탑 회전 속도(rad/s)."
 ROVER_TURRET_AIM_CONE,0.15,"표적이 포탑 정면에서 이 각(rad) 안이어야 쏜다."
 ROVER_HIT_SPEED_MIN,4,"이 속도(m/s) 밑으로 달리는 차량은 부딪혀도 아무 일 없다."
-ROVER_HIT_DAMAGE,120,"결제 이동 최고 속도로 적을 쳤을 때의 피해 (속도에 비례). 플레이어는 넉백만 받는다."
+ROVER_HIT_DAMAGE,40,"결제 이동 최고 속도로 적을 쳤을 때의 피해 (속도에 비례). 플레이어는 넉백만 받는다. 2026-09-17 (1/3 개편): 120 → 40."
 ROVER_HIT_KNOCKBACK,9,"부딪혔을 때 튕겨 나가는 속도(m/s, 최고 속도 기준)."
 ROVER_HIT_COOLDOWN_S,1.2,"같은 대상이 다시 부딪힐 수 있게 되기까지의 시간(초)."
 ROVER_NET_INTERVAL,0.25,"호스트가 차량 상태를 방송하는 주기(초). 상태 · 탑승자 · 체력이 바뀌면 곧바로도 보낸다."
@@ -1133,8 +1139,8 @@ FALL_VIGNETTE_FULL_DAMAGE,80,"이 피해에서 비네트가 가장 진하다 (�
 FALL_REMOTE_SOUND_RANGE,45,"분대원의 낙하 착지음이 들리는 거리 (m). 적 발소리 곡선(ENEMY_STEP_RANGE 45)과 같은 크기."
 GRENADE_INCENDIARY_RADIUS,3.5,"화염 수류탄 화염 지대 반경 (m) — 화염수류탄(GADGET_INCENDIARY_RADIUS 5)보다 작다. 초당 피해는 GADGET_INCENDIARY_DPS 를 같이 쓴다."
 GRENADE_INCENDIARY_DURATION,6,"화염 수류탄 화염 지대 지속 (s) — 화염수류탄(GADGET_INCENDIARY_DURATION 10)보다 짧다."
-GRENADE_INCENDIARY_BLAST_DAMAGE,40,"화염 수류탄 폭발의 중심 피해 — 고폭(250)이 아니라 불을 붙이는 작은 폭발이다. 적도 플레이어도 고폭과 **같은** EXPLOSION_* 2단 계단 감쇠를 타고, 플레이어 몫은 GRENADE_PLAYER_DAMAGE_MUL 이 더 깎는다. 진짜 피해는 화염 지대(GADGET_INCENDIARY_DPS)가 낸다."
-GRENADE_INCENDIARY_BLAST_RADIUS,3,"화염 수류탄 폭발 반경 (m) — 화염 지대(GRENADE_INCENDIARY_RADIUS 3.5)보다 조금 작다. 고폭은 6."
+GRENADE_INCENDIARY_BLAST_DAMAGE,30,"화염 수류탄 폭발의 중심 피해 (2026-09-17 사용자 결정: 40 → 30, 중심 30 · 바깥 15) — 파편 수류탄(GRENADE_DAMAGE 60)의 반이라 불을 붙이는 작은 폭발이다. 적도 플레이어도 고폭과 **같은** EXPLOSION_* 2단 계단 감쇠를 타고, 플레이어 몫은 GRENADE_PLAYER_DAMAGE_MUL 이 더 깎는다. 진짜 피해는 화염 지대(GADGET_INCENDIARY_DPS)가 낸다."
+GRENADE_INCENDIARY_BLAST_RADIUS,3,"화염 수류탄 폭발 반경 (m) — 화염 지대(GRENADE_INCENDIARY_RADIUS 3.5)보다 조금 작다. 고폭은 GRENADE_RADIUS."
 FIRE_ZONE_CRACKLE_S,0.7,"화염 지대가 살아 있는 동안 지지직 소리를 내는 간격 (s). 적 · 플레이어 지대 공용."
 FIRE_ZONE_DRONE_HEIGHT,2.5,"화염 지대 바닥에서 이 높이(m) 아래의 드론만 탄다 — 지상 드론은 늘, 공중 드론은 낮게 떴을 때만."
 FIRE_ZONE_DANGER_RANGE,35,"HUD 위험 표시가 화염 지대를 보여 주는 거리 (m, 지대 가장자리 기준)."
@@ -1152,7 +1158,7 @@ TUTORIAL_ENEMY_EDGE_MARGIN_M,3,"2026-09-16 (사용자 결정 — 「튜토리얼
 
 # ── appended (2026-09-15, 사용자 결정): 폭발 감쇠 2단 계단 — 모든 폭발물 공용 (shared/explosion.ts) ──
 EXPLOSION_FULL_FRACTION,0.5,"폭심에서 이 비율(× 반경) 안쪽은 피해 100 %. 예전에는 어디서나 `1 − d / radius` 선형이었다 — 반경을 넓혀도 한가운데 말고는 거의 안 아프던 것이 뿌리다. 수류탄 · 바주카 · 지뢰 · C4 · 포탑 · 함선 호출 · 적 수류탄이 전부 이 한 줄을 읽는다."
-EXPLOSION_OUTER_MUL,0.6,"위 비율 바깥 ~ 반경 사이의 피해 배수 — **거리와 무관한 고정값**이다 (선형이 아니다). 반경 밖은 0. 하한 클램프(엄폐물 0.3 · 적 0.15 · 차량 0.15 처럼 자리마다 다른 값)는 이 배수 위에 그대로 얹힌다."
+EXPLOSION_OUTER_MUL,0.5,"위 비율 바깥 ~ 반경 사이의 피해 배수 — **거리와 무관한 고정값**이다 (선형이 아니다). 2026-09-17 (사용자 결정): 0.6 → 0.5 — 화염 수류탄까지 모든 폭발물에 똑같이 50 %. 툴팁은 「바깥-중심」 범위로 적는다 (shared/explosion.explosionDamageRange). 반경 밖은 0. 하한 클램프(엄폐물 0.3 · 적 0.15 · 차량 0.15 처럼 자리마다 다른 값)는 이 배수 위에 그대로 얹힌다."
 # ── 2026-09-15 (가젯 개편 · 제세동기 조준 · 독성 포자, 사용자 결정) ──
 DEFIB_AIM_CONE_DEG,14,"준비된 제세동기가 쓰러진 아군을 「겨눴다」고 보는 크로스헤어 반각(°). DEFIB_USE_TIME_S 로 준비한 뒤 이 원뿔 안에 대상이 들어오면 크로스헤어가 강조색으로 바뀌고, 그때 좌클릭을 떼면 일으킨다."
 GADGET_DOME_RECOVER_TIME,3,"돔 실드 중앙 개체를 꾹 눌러 회수하는 시간(초). 2026-09-15: 돔 실드가 바리케이드처럼 회수되는 배치물이 됐다 (내구도는 ItemDef.durabilityMax 로 아이템이 들고 다닌다)."

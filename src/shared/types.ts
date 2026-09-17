@@ -1062,7 +1062,9 @@ export type EnemyType = 'scavenger' | 'hunter' | 'warrior' | 'spewer' | 'charger
      `tut_bug*` = scavenger · `tut_android*` = android 체력 절반) 그대로이고, 다른 것은 **고정 드롭** 하나뿐이다
      (`data/loot_corpses.csv` · `loot_corpse_rolls.csv`). 본편 레이드 · 훈련장에는 서지 않는다
      (`world/tutorial` 의 목록만이 이 id 를 쓴다). */
-  | 'tut_bug_loot' | 'tut_bug' | 'tut_android_loot' | 'tut_android';
+  | 'tut_bug_loot' | 'tut_bug' | 'tut_android_loot' | 'tut_android'
+  /* appended (2026-09-17): 포병이 평생 한 번 불러내는 소환 스캐빈저 — 수치 · 리그 · AI · 소리는 scavenger (`enemies/EnemyTypes.baseTypeOf`), 드롭 0 %. */
+  | 'scavenger_summon';
 /**
  * Factions fight each other on sight (Phase 4). **Every pair of different factions is hostile** (2026-09-13) —
  * `android` · `raider` appended; the named rogues and the scan drone moved to `raider` (type ids unchanged).
@@ -1637,6 +1639,8 @@ export const CORPSE_LOOT_CHANCE: Readonly<Record<EnemyType, number>> = {
   /* appended (2026-09-14 3차): 튜토리얼 — `_loot` 둘만 늘 수색되고(고정 드롭 100 %), 나머지 둘은 **빈 시체**라
      아예 열리지 않는다 (0 = 상호작용이 서지 않는다 — 빈 격자를 여는 것보다 조용하다). */
   tut_bug_loot: 1, tut_android_loot: 1, tut_bug: 0, tut_android: 0,
+  /* appended (2026-09-17): 포병의 소환 스캐빈저 — 드롭 0 % (수색 자체가 서지 않는다, `tut_bug` 와 같은 빈 시체) */
+  scavenger_summon: 0,
 };
 
 export interface EnemyRef {

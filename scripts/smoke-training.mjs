@@ -247,8 +247,8 @@ try {
   ok(q.ceil === null, `raycast up finds no ceiling (${q.ceil})`);
   ok(q.apron && Math.abs(q.apron[0]) < 0.01 && q.apron[1] === 1, `raycast down outside the wall lands on the apron (${q.apron})`);
   ok(q.void_ === null, `raycast down past the apron finds nothing (${q.void_})`);
-  ok(q.tgt && q.tgt.id === 'training_target_0' && q.tgt.hp === 60, `raycast at target 0 returns its destructible (${JSON.stringify(q.tgt)})`);
-  ok(!q.t0.down && q.t0.hp === 60, 'target 0 standing at 60 hp');
+  ok(q.tgt && q.tgt.id === 'training_target_0' && q.tgt.hp === 20, `raycast at target 0 returns its destructible (${JSON.stringify(q.tgt)})`);
+  ok(!q.t0.down && q.t0.hp === 20, 'target 0 standing at 20 hp (TRAINING_TARGET_HP)');
 
   const shell = await P(() => {
     const scene = window.__game.ctx.scene;
@@ -382,7 +382,7 @@ try {
     const h = ctx.world.raycast(from, dir, 60);
     return { down: t0.down, hp: t0.hp, boardX: board?.rotation.x ?? 0, through: h ? (h.obstacle?.destructible?.id ?? 'env') : 'none', obstacles: ctx.world.getObstacles().length };
   });
-  ok(!raised.down && raised.hp === 60, `target 0 popped back up after TRAINING_TARGET_RESPAWN_S (hp ${raised.hp})`);
+  ok(!raised.down && raised.hp === 20, `target 0 popped back up after TRAINING_TARGET_RESPAWN_S (hp ${raised.hp})`);
   ok(Math.abs(raised.boardX) < 0.05, `board upright again (rotation.x ${raised.boardX.toFixed(2)})`);
   ok(raised.through === 'training_target_0' && raised.obstacles === 15, 'target back in the hash');
 

@@ -16,6 +16,10 @@ import { GAME_ITEM_PLANETS, ITEM_CATEGORIES, ITEM_DEFS, libraryShelfOf } from '.
 import { IMPLANT_BROKEN_DEFS, IMPLANT_WORKING_DEFS } from './ImplantDefs';
 /* appended (2026-09-11): 네임드 확정 드롭의 방탄복 등급 → armor_n */
 import { ARMOR_DEFS } from './ArmorDefs';
+/* appended (2026-09-17): 시체 표본 개당 등급 굴림 (`loot_corpse_samples.csv`) */
+import type { SampleFamily } from '@/shared';
+import { RARITY_ORDER, SAMPLE_FAMILIES } from '@/shared';
+import { SAMPLE_ITEM_DEFS } from './ItemDefs';
 
 /* ── 묶음 토큰 ─────────────────────────────────────────────────────────────
  * `loot_item_weights.csv` 의 `target` 은 아이템 id 하나이거나 `@` 로 시작하는 묶음이다.
@@ -441,6 +445,8 @@ const CORPSE_ROLLS = new Map(csvRows('loot_corpse_rolls.csv').map((r) => [r.str(
 export interface CorpseTable {
   type: EnemyType;
   drops: readonly CorpseDrop[];
+  /** 2026-09-17: 미확인 표본 개당 등급 굴림 (`loot_corpse_samples.csv`) — 시체 rng 의 갈래로 굴린다. */
+  samples?: readonly CorpseSampleDrop[];
   /** Phase 9: 서적 roll (rogues only; bugs never carry books). */
   book?: CorpseBook;
   /** Phase 12: 망가진 임플란트 roll (rogues only; legendaries from the boss). */
@@ -458,9 +464,51 @@ export interface CorpseTable {
  */
 const CORPSE_DROPS_BY_TYPE = csvGroups('loot_corpses.csv', 'type');
 
+/**
+ * 2026-09-17 (사용자 결정): 시체의 미확인 표본 — `data/loot_corpse_samples.csv`. 한 줄 = chance → 개수 → **개당** 등급 가중 추첨.
+ * `tiers` 는 등급(1..6 = 희귀도 순번) → 그 계열 × 등급의 표본 아이템으로 풀어 둔다 (`defIds[i]` 의 가중치 = `weights[i]`, 등급 오름차순).
+ */
+export interface CorpseSampleDrop {
+  family: SampleFamily;
+  qty: readonly [number, number];
+  chance: number;
+  /** 등급 오름차순 표본 아이템 id — 가중치가 양수이고 samples.csv 에 있는 등급만. */
+  defIds: readonly string[];
+  weights: readonly number[];
+}
+
+const CORPSE_SAMPLES_BY_TYPE: ReadonlyMap<string, readonly CorpseSampleDrop[]> = (() => {
+  const map = new Map<string, CorpseSampleDrop[]>();
+  for (const r of csvRows('loot_corpse_samples.csv')) {
+    const family = r.enum('family', SAMPLE_FAMILIES);
+    const qty = [r.int('qtyMin', { min: 1 }), r.int('qtyMax', { min: 1 })] as const;
+    if (qty[0] > qty[1]) r.report('qtyMax', `qtyMin ${qty[0]} 이 qtyMax ${qty[1]} 보다 크다`);
+    const byTier = new Map<number, number>();
+    for (const c of r.costList('tiers')) {
+      const tier = Number(c.defId);
+      if (!Number.isInteger(tier) || tier < 1 || tier > RARITY_ORDER.length) { r.report('tiers', `'${c.defId}' 는 등급(1..${RARITY_ORDER.length})이 아니다`); continue; }
+      if (c.qty < 0) { r.report('tiers', `등급 ${tier} 의 가중치 ${c.qty} 가 음수다`); continue; }
+      if (c.qty > 0) byTier.set(tier, c.qty);
+    }
+    const defIds: string[] = [], weights: number[] = [];
+    for (const tier of [...byTier.keys()].sort((a, b) => a - b)) {
+      const def = SAMPLE_ITEM_DEFS.find((d) => d.sample?.family === family && !d.retired && d.rarity === RARITY_ORDER[tier - 1]);
+      if (!def) { r.report('tiers', `${family} 계열의 등급 ${tier} 표본이 samples.csv 에 없다`); continue; }
+      defIds.push(def.id);
+      weights.push(byTier.get(tier)!);
+    }
+    if (!defIds.length) r.report('tiers', '뽑을 수 있는 등급이 없다');
+    const type = r.str('type');
+    const list = map.get(type) ?? [];
+    list.push({ family, qty, chance: r.num('chance', { min: 0, max: 1 }), defIds, weights });
+    map.set(type, list);
+  }
+  return map;
+})();
+
 /* 2026-09-13: 표의 종류 = 아이템 드롭 줄 ∪ 따로 굴리는 줄 — 들고 있던 총만 있는 적도 시체 표를 갖는다.
    먼저 나온 순서 그대로라 기존 적의 표 · 굴림은 한 톨도 안 바뀐다. */
-export const CORPSE_TABLES: readonly CorpseTable[] = [...new Set([...CORPSE_DROPS_BY_TYPE.keys(), ...CORPSE_ROLLS.keys()])]
+export const CORPSE_TABLES: readonly CorpseTable[] = [...new Set([...CORPSE_DROPS_BY_TYPE.keys(), ...CORPSE_ROLLS.keys(), ...CORPSE_SAMPLES_BY_TYPE.keys()])]
   .filter((type) => !!type)
   .map((type) => {
     const drops: CorpseDrop[] = (CORPSE_DROPS_BY_TYPE.get(type) ?? []).map((d) => ({
@@ -469,9 +517,11 @@ export const CORPSE_TABLES: readonly CorpseTable[] = [...new Set([...CORPSE_DROP
       chance: d.num('chance', { min: 0, max: 1 }),
     }));
     const roll = CORPSE_ROLLS.get(type);
+    const samples = CORPSE_SAMPLES_BY_TYPE.get(type);
     return {
       type: type as EnemyType,
       drops,
+      ...(samples ? { samples } : {}),
       ...(roll?.has('ammoFracMin') ? {
         ammoFraction: [roll.num('ammoFracMin', { min: 0 }), roll.num('ammoFracMax', { min: 0 })] as const,
       } : {}),

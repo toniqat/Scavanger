@@ -17,7 +17,7 @@ import {
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from '../Enemy';
-import { ROGUE_AI, SPEWER_SPIT, baseTypeOf, isWormType, raidXpOf } from '../EnemyTypes';
+import { ENEMY_CLASH, ROGUE_AI, SPEWER_SPIT, baseTypeOf, isWormType, raidXpOf } from '../EnemyTypes';
 import { SpatialGrid } from '../SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from '../Targets';
 import { SUSPICION_TIME, updateEnemyAI } from '../ai/EnemyAI';
@@ -458,7 +458,8 @@ export function applyDamage(sys: EnemySystem, target: CombatTarget, amount: numb
     if (!victim.isCombatant) return;
     _hd.subVectors(victim.position, from); _hd.y = 0;
     const dir = _hd.lengthSq() > 1e-4 ? _hd.normalize() : undefined;
-    victim.takeDamage(amount, undefined, dir, 'ai');
+    // 2026-09-17 (사용자 결정): 적 → 적 피해는 1/3 (`ENEMY_CLASH.damageMul`) — 근접 · 돌진 · 도약 · 산성. 사람 · 안드로이드 · 드론 · 차량 가지는 그대로.
+    victim.takeDamage(amount * ENEMY_CLASH.damageMul, undefined, dir, 'ai');
     sys.noteClash(victim.position);
     return;
   }
