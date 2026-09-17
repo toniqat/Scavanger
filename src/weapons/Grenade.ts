@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   GRAVITY, GRENADE_FUSE as SHARED_GRENADE_FUSE, GRENADE_INCENDIARY_BLAST_DAMAGE, GRENADE_INCENDIARY_BLAST_RADIUS, PROP_STEP_UP_MAX, PROP_TOP_MARGIN,
   GRENADE_DAMAGE as SHARED_GRENADE_DAMAGE, GRENADE_PLAYER_DAMAGE_MUL, GRENADE_RADIUS as SHARED_GRENADE_RADIUS,
-  breakFragileAlong, explosionDamage, type GameContext, type GrenadeView,
+  PLAYER_HEIGHT, blastReachesBody, breakFragileAlong, explosionDamage, type GameContext, type GrenadeView,
 } from '@/shared';
 import type { WeaponFx } from './fx/WeaponFx';
 import type { PlayerDamageSource } from '@/shared';
@@ -238,7 +238,8 @@ export class GrenadeManager {
       _tmp.copy(ctx.player.position); _tmp.y += 0.9;
       const d = _tmp.distanceTo(pos);
       // 2026-09-15 (사용자 결정): 자해 · 아군 피해도 공용 2단 계단 (`shared/explosion`) — 안쪽 절반 100 % · 바깥 띠 60 %
-      if (d < radius) {
+      // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 너머에서 터진 수류탄은 맞지 않는다 (몸 3점)
+      if (d < radius && blastReachesBody(ctx.world, pos, ctx.player.position.x, ctx.player.position.y, ctx.player.position.z, PLAYER_HEIGHT)) {
         const dmg = explosionDamage(damage, d, radius) * PLAYER_DAMAGE_MUL;
         // 2026-09-15 (결과 창 개편): 내 수류탄(손에서 터진 것 포함) = `self`, 분대원 수류탄의 복제 = `ally`
         if (dmg > 1) ctx.player.takeDamage(dmg, pos.clone(), visualOnly ? ALLY_GRENADE_SOURCE : SELF_GRENADE_SOURCE);

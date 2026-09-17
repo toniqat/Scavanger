@@ -15,7 +15,7 @@ import {
   type GameContext, type GameSystem, type StratagemsRef, type StratagemId, type StratagemCall, type StratagemStage, type StratagemDef,
   type PlayerRef, type PlayerWeaponHost, type Interactable, type Obstacle, type DestructibleRef, type WorldRef, type Vec3Tuple, type PeerId,
   type StratagemCallWire,
-  explosionDamage,
+  PLAYER_HEIGHT, blastReachesBody, explosionDamage,
 } from '@/shared';
 import {
   SharedGeo, TargetRing, CallMarker, Burst, dustBurst, sparkBurst, LaserBeam, Fireball, SupplyCrateMesh, BarricadeMesh, makeRubble, KIND_COLOR,
@@ -77,7 +77,8 @@ export function impactDamage(sys: StratagemSystem, call: Call, center: THREE.Vec
   if (p && !p.isDead) {
     _a.copy(p.position); _a.y += 0.9;
     const d = _a.distanceTo(center);
-    if (d < radius) {
+    // 2026-09-18 (사용자 결정): 지붕 · 벽 너머의 낙하 충격은 맞지 않는다 (몸 3점)
+    if (d < radius && blastReachesBody(ctx.world, center, p.position.x, p.position.y, p.position.z, PLAYER_HEIGHT)) {
       const dmg = explosionDamage(damage, d, radius);
       if (dmg > 1) p.takeDamage(dmg, center.clone(), STRATAGEM_DAMAGE_SOURCE);
     }

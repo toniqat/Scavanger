@@ -419,7 +419,8 @@ try {
     if (!victim) return null;
     const ids = [];
     const off = ctx.bus.on('audio:play', (a) => ids.push(a.id));
-    const fake = (type) => ({ id: 77000 + ids.length, type, position: victim.position.clone(), target: null });
+    // 2026-09-18: `stats.height` — `hitTarget` 이 공격자 머리에서 벽 차폐를 본다 (`parts/Damage.meleeClear`)
+    const fake = (type) => ({ id: 77000 + ids.length, type, faction: type.startsWith('rogue') ? 'rogue' : 'bug', stats: { height: 1.2 }, position: victim.position.clone(), target: null });
     const run = (type) => { ids.length = 0; sys.lastAudio.clear(); sys.hitTarget(fake(type), 1, 0, victim.asTarget); return ids.slice(); };
     const r = { hammer: run('rogue_hammer'), warrior: run('warrior'), behemoth: run('behemoth') };
     off();

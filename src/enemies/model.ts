@@ -200,16 +200,18 @@ export interface EnemyStepVoice {
    */
   readonly id?: string; readonly range?: number;
 }
-/* 2026-09-16: 벌레는 몸집별 전용 발소리 — 작은 벌레 = 갑각 톡톡, 큰 벌레 = 쿵, 베헤모스 = 땅울림 (조금 더 멀리). 튜토리얼 벌레는 `baseTypeOf` 로 스캐빈저. */
+/* 2026-09-16: 벌레는 몸집별 전용 발소리 — 작은 벌레 = 갑각 톡톡, 큰 벌레 = 쿵, 베헤모스 = 땅울림 (조금 더 멀리). 튜토리얼 벌레는 `baseTypeOf` 로 스캐빈저.
+ * 2026-09-18 (사용자 결정 「뒤에 있을 때 소리로 알아차리게」): 밑값 상향 — 작은 벌레 ×1.7 · 큰 벌레 ×1.4 · 베헤모스 1.1 → 1.5.
+ * 사거리(`BUG_STEP_RANGE_M` 22 → 32)와 거리 곡선(`AudioSystem.RANGED_SOUNDS` 지수 1.4 → 1.0)도 함께 올렸다. `audio:play` 볼륨 상한은 2. */
 const STEP_VOICES: Readonly<Partial<Record<EnemyType, EnemyStepVoice>>> = {
-  scavenger: { id: 'bug_step_skitter', pitch: 1.15, gain: 0.45, range: BUG_STEP_RANGE_M },
-  hunter: { id: 'bug_step_skitter', pitch: 1.0, gain: 0.55, range: BUG_STEP_RANGE_M },
-  toxic: { id: 'bug_step_skitter', pitch: 1.08, gain: 0.5, range: BUG_STEP_RANGE_M },
-  spewer: { id: 'bug_step_skitter', pitch: 0.82, gain: 0.6, range: BUG_STEP_RANGE_M },
-  warrior: { id: 'bug_step_heavy', pitch: 1.05, gain: 0.7, range: BUG_STEP_RANGE_M },
-  artillery: { id: 'bug_step_heavy', pitch: 0.92, gain: 0.7, range: BUG_STEP_RANGE_M },
-  charger: { id: 'bug_step_heavy', pitch: 0.75, gain: 0.9, range: BUG_STEP_RANGE_M },
-  behemoth: { id: 'bug_step_giant', pitch: 1.0, gain: 1.1, range: BUG_STEP_GIANT_RANGE_M },
+  scavenger: { id: 'bug_step_skitter', pitch: 1.15, gain: 0.77, range: BUG_STEP_RANGE_M },
+  hunter: { id: 'bug_step_skitter', pitch: 1.0, gain: 0.94, range: BUG_STEP_RANGE_M },
+  toxic: { id: 'bug_step_skitter', pitch: 1.08, gain: 0.85, range: BUG_STEP_RANGE_M },
+  spewer: { id: 'bug_step_skitter', pitch: 0.82, gain: 1.02, range: BUG_STEP_RANGE_M },
+  warrior: { id: 'bug_step_heavy', pitch: 1.05, gain: 0.98, range: BUG_STEP_RANGE_M },
+  artillery: { id: 'bug_step_heavy', pitch: 0.92, gain: 0.98, range: BUG_STEP_RANGE_M },
+  charger: { id: 'bug_step_heavy', pitch: 0.75, gain: 1.26, range: BUG_STEP_RANGE_M },
+  behemoth: { id: 'bug_step_giant', pitch: 1.0, gain: 1.5, range: BUG_STEP_GIANT_RANGE_M },
   // 로그 계열: 사람 발소리를 낮은 피치로 (무겁고 장비를 멨다)
   // 2026-09-15 (B-16, 사용자 「로그 · 레이더 모두 켬다」): 일반 로그 = 레이더보다 가벼운 발
   rogue: { pitch: 0.86, gain: 0.6 },

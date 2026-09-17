@@ -325,7 +325,7 @@ try {
   ok(!cRep.biteHammer.includes('bug_attack') && cRep.biteWarrior.includes('bug_attack'),
     `C-51: 리플리카 ee attack — 타길라는 bug_attack 을 내지 않는다 (${cRep.biteHammer} / ${cRep.biteWarrior})`);
   // 리플리카 전사를 4 m/s 로 걷게 한다 — 호스트처럼 0.1 s 마다 keyframe
-  // 2026-09-16: 벌레 발소리는 가까이서만(`BUG_STEP_RANGE_M` 22 m) — 카메라 옆 (10, 10) 에서 걷게 한다 (첫 keyframe 은 순간이동이라 걸음 없음)
+  // 2026-09-16: 벌레 발소리는 가까이서만(`BUG_STEP_RANGE_M` 32 m) — 카메라 옆 (10, 10) 에서 걷게 한다 (첫 keyframe 은 순간이동이라 걸음 없음)
   for (let i = 1; i <= 20; i++) {
     await P((k) => {
       const ctx = window.__game.ctx; const pp = ctx.player.position;
@@ -343,8 +343,8 @@ try {
   });
   ok(steps.length >= 2 && steps.every((s) => s.id === 'bug_step_heavy'),
     `C-23 · X-3 · C-22: 걷는 리플리카 전사가 벌레 발소리(bug_step_heavy)를 내고 재질 발소리는 내지 않는다 (${steps.length}걸음, ${[...new Set(steps.map((s) => s.id))].join(',')})`, JSON.stringify(steps.slice(0, 4)));
-  ok(steps.length >= 1 && steps.every((s) => Math.abs(s.v - 0.7) < 1e-6),
-    `C-23: 방출부 볼륨 = 타입 밑값(전사 0.7, 혼자라 1/√n = 1) — 거리 선형 감쇠를 곱하지 않는다 (${[...new Set(steps.map((s) => s.v))].join(',')})`);
+  ok(steps.length >= 1 && steps.every((s) => Math.abs(s.v - 0.98) < 1e-6),
+    `C-23: 방출부 볼륨 = 타입 밑값(전사 0.98 — 2026-09-18 상향, 혼자라 1/√n = 1) — 거리 선형 감쇠를 곱하지 않는다 (${[...new Set(steps.map((s) => s.v))].join(',')})`);
 
   /* ── promotion: the new host's first snapshot is a keyframe past the replica seq ── */
   console.log('promotion → keyframe');
@@ -439,8 +439,8 @@ try {
   await waitSim(2.5);
   // 몸까지 치운다 (예전엔 25 m 밖이라 시체가 남아도 뒤 검사와 무관했다)
   const hostSteps = await P((id) => { window.__hostStepOff(); const sys = window.__sys; const e = sys.active.find((x) => x.id === id); if (e && !e.isDead) e.kill(false); if (e && typeof sys.despawn === 'function') sys.despawn(e); return window.__hostSteps; }, stepHost?.id);
-  // 볼륨 = 타입 밑값 0.7 × 1/√n (n = 들리는 거리에서 방금 걸은 벌레 수 — 다른 벌레가 곁에서 걸으면 n ≥ 2). 거리 선형 감쇠는 없다.
-  const crowdOk = (v) => { const n = Math.round((0.7 / v) ** 2); return n >= 1 && Math.abs(v - 0.7 / Math.sqrt(n)) < 1e-6; };
+  // 볼륨 = 타입 밑값 0.98 × 1/√n (n = 들리는 거리에서 방금 걸은 벌레 수 — 다른 벌레가 곁에서 걸으면 n ≥ 2). 거리 선형 감쇠는 없다.
+  const crowdOk = (v) => { const n = Math.round((0.98 / v) ** 2); return n >= 1 && Math.abs(v - 0.98 / Math.sqrt(n)) < 1e-6; };
   ok(hostSteps.length >= 1 && hostSteps.every((s) => s.id === 'bug_step_heavy' && crowdOk(s.v)),
     `C-23: 권위 벌레 발소리 = bug_step_heavy · 볼륨은 타입 밑값 × 1/√n (${hostSteps.length}걸음, ${[...new Set(hostSteps.map((s) => `${s.id}@${s.v}`))].join(',')})`);
 

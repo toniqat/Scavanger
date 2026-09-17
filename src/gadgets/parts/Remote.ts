@@ -15,7 +15,7 @@
 import * as THREE from 'three';
 import {
   GADGET_REMOTE_MINE_DAMAGE, GADGET_REMOTE_MINE_MAX_LIVE, GADGET_REMOTE_MINE_RADIUS, GADGET_REMOTE_MINE_STACK_MUL,
-  PLAYER_RADIUS, explosionDamage,
+  PLAYER_HEIGHT, PLAYER_RADIUS, blastReachesBody, explosionDamage,
   type DroneRef, type EnemyRef, type PeerId,
 } from '@/shared';
 import type { DamageSourceWire, PlayerDamageSource } from '@/shared';
@@ -195,16 +195,19 @@ function detonateWhere(sys: GadgetSystem, peer: PeerId | null): number {
 
     for (const e of sys.enemiesNear(c, R + ENEMY_QUERY_PAD)) {
       if (e.isDead) continue;
+      // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 너머의 대상은 이 C4 몫을 받지 않는다 (몸 3점, 설치물은 제외 — 그 몸이 곧 콜라이더)
+      if (!blastReachesBody(ctx.world, c, e.position.x, e.position.y, e.position.z, e.height)) continue;
       _v.set(e.position.x, e.position.y + e.height * 0.5, e.position.z);
       addHit(TargetKind.Enemy, e, falloff(_v.distanceTo(c) - e.radius), mine);
     }
 
-    if (p && !p.isDead) {
+    if (p && !p.isDead && blastReachesBody(ctx.world, c, p.position.x, p.position.y, p.position.z, PLAYER_HEIGHT)) {
       _v.copy(p.position); _v.y += PLAYER_HALF_H;
       addHit(TargetKind.LocalPlayer, 'local', falloff(_v.distanceTo(c) - PLAYER_RADIUS), mine);
     }
     for (const r of remotes) {
       if (r.isDead || r.stale) continue;
+      if (!blastReachesBody(ctx.world, c, r.position.x, r.position.y, r.position.z, PLAYER_HEIGHT)) continue;
       _v.copy(r.position); _v.y += PLAYER_HALF_H;
       addHit(TargetKind.RemotePlayer, r.id, falloff(_v.distanceTo(c) - PLAYER_RADIUS), mine);
     }
@@ -212,6 +215,7 @@ function detonateWhere(sys: GadgetSystem, peer: PeerId | null): number {
     for (const dr of drones) {
       _v.copy(dr.position);
       if (dr.kind === 'ground') _v.y += dr.height * 0.5;
+      if (!blastReachesBody(ctx.world, c, dr.position.x, dr.position.y, dr.position.z, dr.kind === 'ground' ? dr.height : 0)) continue;
       addHit(TargetKind.Drone, dr, falloff(_v.distanceTo(c) - dr.radius), mine);
     }
 

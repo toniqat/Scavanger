@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CLOAK_DETECT_MUL, PLAYER_HEIGHT, PlayerFlags, explosionFalloff, type AllyBodyView, type DroneRef, type GameContext, type PeerId, type PlayerRef, type RoverRef } from '@/shared';
+import { CLOAK_DETECT_MUL, PLAYER_HEIGHT, PlayerFlags, blastReachesBody, explosionFalloff, type AllyBodyView, type DroneRef, type GameContext, type PeerId, type PlayerRef, type RoverRef, type WorldRef } from '@/shared';
 import type { Enemy } from './Enemy';
 
 /** `'local'` is the player on this machine; `'ai'` is another enemy (faction warfare, Phase 4); anything else is a remote peer id. */
@@ -291,8 +291,11 @@ export class TargetList {
    * `scripts/smoke-enemy-allies.mjs` 가 allies/ 없이 적 쪽만 검사할 수 있게 하는 유일한 통로다.
    */
   allyOverride: readonly AllyBodyView[] | null = null;
+  /** 2026-09-18: 폭발 차폐 판정(`damageVehicleAt`)이 읽는 월드 — `refresh` 가 매 프레임 담는다. */
+  private world: WorldRef | null = null;
 
   refresh(ctx: GameContext): void {
+    this.world = ctx.world ?? null;
     this.refreshDrones(ctx);
     this.refreshVehicle(ctx);
     this.refreshAllies(ctx);
@@ -535,6 +538,8 @@ export class TargetList {
     if (!t || !t.vehicle || !(radius > 0) || !(damage > 0)) return false;
     const d = t.vehicleGap3D(center);
     if (d >= radius) return false;
+    // 2026-09-18 (사용자 결정): 벽 · 지붕 너머의 차체는 맞지 않는다 (몸 3점 — 차체 안에서 시작한 레이는 제 콜라이더를 보지 않는다)
+    if (!blastReachesBody(this.world, center, t.position.x, t.position.y, t.position.z, t.bodyHeight)) return false;
     t.vehicle.damage(damage * Math.max(minFalloff, explosionFalloff(d, radius)), center);
     return true;
   }

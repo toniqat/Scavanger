@@ -917,8 +917,8 @@ BURROW_SHAKE_GAP_S,0.9,"굴착 흔들림 사이 최소 간격(초). 여러 마�
 # ── 2026-09-16: 벌레 소리 — 굴착음 · 발소리 · 포탄 낙하음 (owner: audio · enemies — AudioSystem.RANGED_SOUNDS / VOICE_CAP · model.emitEnemyStep · parts/Burrow) ──
 BURROW_EMERGE_VOICE_CAP,4,"burrow_emerge(한 마리마다 나는 굴착음)의 동시 보이스 상한. 무리가 한꺼번에 올라와도 가장 큰(가까운) 이만큼만 울린다."
 BURROW_EMERGE_BATCH_S,0.35,"첫 굴착음 뒤 이 시간(초) 안에 올라온 버그는 같은 무리로 센다 — k 번째 소리의 크기 × 1/√k (무리가 커도 한 마리 소리보다 조금만 커진다)."
-BUG_STEP_RANGE_M,22,"벌레 발소리(bug_step_skitter · bug_step_heavy)가 들리는 최대 거리(m). 밖이면 소리를 만들지 않는다. 곡선 (1 − d/range)^1.4."
-BUG_STEP_GIANT_RANGE_M,34,"베헤모스 발소리(bug_step_giant)가 들리는 최대 거리(m) — 무거워서 조금 더 멀리 들린다."
+BUG_STEP_RANGE_M,32,"벌레 발소리(bug_step_skitter · bug_step_heavy)가 들리는 최대 거리(m). 밖이면 소리를 만들지 않는다. 곡선 (1 − d/range)^1.0. 2026-09-18 (사용자 결정 「뒤에 있을 때 소리로 알아차리게」): 22 → 32, 곡선 지수 1.4 → 1.0."
+BUG_STEP_GIANT_RANGE_M,48,"베헤모스 발소리(bug_step_giant)가 들리는 최대 거리(m) — 무거워서 조금 더 멀리 들린다. 2026-09-18: 34 → 48."
 BUG_STEP_VOICE_CAP,6,"벌레 발소리 세 id 를 합친 동시 보이스 상한 — 가장 큰(가까운) 것만 남는다. 사람 · 분대원 · 인간형 적 발소리(footstep_*)는 따로다."
 BUG_STEP_CROWD_WINDOW_S,0.6,"이 시간(초) 안에 들리는 거리에서 걸음을 뗀 벌레 수 n 을 센다 — 벌레 발소리 크기 × 1/√n (열 마리가 걸어도 한 마리의 약 3배 에너지)."
 SHELL_INCOMING_LEAD_S,2.6,"포병 포탄이 떨어지기 몇 초 전에 낙하음(shell_incoming)이 시작되는가. shell_incoming 의 길이(2.6 s)와 맞춰 두면 휘파람이 절정일 때 착탄한다."
@@ -1159,6 +1159,13 @@ TUTORIAL_ENEMY_EDGE_MARGIN_M,3,"2026-09-16 (사용자 결정 — 「튜토리얼
 # ── appended (2026-09-15, 사용자 결정): 폭발 감쇠 2단 계단 — 모든 폭발물 공용 (shared/explosion.ts) ──
 EXPLOSION_FULL_FRACTION,0.5,"폭심에서 이 비율(× 반경) 안쪽은 피해 100 %. 예전에는 어디서나 `1 − d / radius` 선형이었다 — 반경을 넓혀도 한가운데 말고는 거의 안 아프던 것이 뿌리다. 수류탄 · 바주카 · 지뢰 · C4 · 포탑 · 함선 호출 · 적 수류탄이 전부 이 한 줄을 읽는다."
 EXPLOSION_OUTER_MUL,0.5,"위 비율 바깥 ~ 반경 사이의 피해 배수 — **거리와 무관한 고정값**이다 (선형이 아니다). 2026-09-17 (사용자 결정): 0.6 → 0.5 — 화염 수류탄까지 모든 폭발물에 똑같이 50 %. 툴팁은 「바깥-중심」 범위로 적는다 (shared/explosion.explosionDamageRange). 반경 밖은 0. 하한 클램프(엄폐물 0.3 · 적 0.15 · 차량 0.15 처럼 자리마다 다른 값)는 이 배수 위에 그대로 얹힌다."
+# ── appended (2026-09-18, 사용자 결정): 폭발 · 근접 공격은 벽 · 지붕 · 바닥을 뚫지 않는다 (shared/explosion.ts blastReachesBody · lineClear) ──
+BLAST_LOS_FEET_M,0.25,"폭발 차폐 판정의 몸 3점 중 발목 점 — 발에서 이 높이(m). 폭심 → 발목 · 가슴 · 머리 레이 중 하나라도 뚫려 있으면 피해, 셋 다 막히면 0 (사용자 결정 「몸 3점 샘플」)."
+BLAST_LOS_CHEST_FRAC,0.6,"몸 3점 중 가슴 점 — 발에서 키 × 이 비율."
+BLAST_LOS_HEAD_FRAC,0.92,"몸 3점 중 머리 점 — 발에서 키 × 이 비율. 낮은 창턱 너머로 머리만 내놓아도 맞는다."
+BLAST_LOS_LIFT_M,0.15,"차폐 레이가 닿는 폭심을 이만큼(m) 올려 잰다 — 바닥 · 지붕 윗면에 붙어 터진 폭발이 제 발밑 면에 막히지 않게."
+BLAST_LOS_SLACK_M,0.2,"차폐 레이는 몸 점에서 폭심 쪽으로 쏘고, 폭심 앞 이 거리(m) 안에서 맞은 면은 막힘으로 치지 않는다 — 벽면에 박혀 터진 폭발이 그 벽 앞쪽 사람까지 가리지 않게."
+MELEE_LOS_SLACK_M,0.05,"근접 공격(플레이어 · 적) 차폐 — 공격자 머리/입 → 타격점 레이가 끝점 앞 이 거리(m)보다 먼저 벽 · 지붕 · 바닥에 맞으면 빗나간다."
 # ── 2026-09-15 (가젯 개편 · 제세동기 조준 · 독성 포자, 사용자 결정) ──
 DEFIB_AIM_CONE_DEG,14,"준비된 제세동기가 쓰러진 아군을 「겨눴다」고 보는 크로스헤어 반각(°). DEFIB_USE_TIME_S 로 준비한 뒤 이 원뿔 안에 대상이 들어오면 크로스헤어가 강조색으로 바뀌고, 그때 좌클릭을 떼면 일으킨다."
 GADGET_DOME_RECOVER_TIME,3,"돔 실드 중앙 개체를 꾹 눌러 회수하는 시간(초). 2026-09-15: 돔 실드가 바리케이드처럼 회수되는 배치물이 됐다 (내구도는 ItemDef.durabilityMax 로 아이템이 들고 다닌다)."

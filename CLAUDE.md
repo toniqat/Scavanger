@@ -245,6 +245,7 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Weapons must look and sound fired even with no target; training targets are obstacles, not enemies.
 - Damage to the local player carries a source (`PlayerDamageSource`, wire `dmg.src`); new gun damage paths wrap `shared/damageSource.ts` so NPC kill objectives count.
 - Enemy line of fire is measured from the muzzle pulled back by `ENEMY_WALL_STANDOFF`; blocked = hold fire only — `enemies/ai/FireLine.ts`.
+- Explosions and melee do not pass walls, roofs or floors: blast damage to a body goes through `shared/explosion.blastReachesBody` (rays from feet · chest · head toward the lifted centre; any clear = hit), melee through `meleeReachesBody` from the attacker's head. New blast/melee damage paths call them; damage to the collider itself (destructible cover, structures, deployables) does not.
 - Humanoid faction = planet threat (1 android · 2 rogue/raider · 3 raider). Use `Enemy.isHumanoid`, not `isRogue`. Corpse loot depends on enemy state (`CorpseLootOpts`) and that state must be on the wire (`ee corpse.si/gc/gk`).
 - Bug difficulty multipliers come from `world:ready`, applied in `enemies/parts/Pool.acquire`; no wire.
 - Named rogue: at most one per raid (`NAMED_ROGUE_CHANCE_BY_THREAT`, `enemies/named/Director.ts`); per-type AI/model files, shared files hold hooks only. Enemy drone targets are a separate list (`TargetList.drones`).

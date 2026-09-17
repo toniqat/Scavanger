@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import {
   DRONE_GADGET_OF, DRONE_NOISE_EMIT_HZ, DRONE_NOISE_MEMORY_S, DRONE_NOISE_RADIUS, DRONE_RECOVER_HOLD_S,
-  DroneFlags, explosionDamage, type DroneKind, type DroneRayHit, type Interactable, type PeerId,
+  DroneFlags, blastReachesBody, explosionDamage, type DroneKind, type DroneRayHit, type Interactable, type PeerId,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { RECOVER_RADIUS } from '../../model';
@@ -223,6 +223,9 @@ export function applyExplosion(sys: DroneSystem, center: THREE.Vector3, radius: 
     if (d.kind === 'ground') _l2.y += d.height * 0.5;
     const dist = _l2.distanceTo(center);
     if (dist >= radius) continue;
+    // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 차폐 — 지상 드론은 몸 3점, 공중 드론은 몸체 중심 한 점
+    if (d.kind === 'ground' ? !blastReachesBody(sys.ctx.world, center, d.position.x, d.position.y, d.position.z, d.height)
+      : !blastReachesBody(sys.ctx.world, center, _l2.x, _l2.y, _l2.z, 0)) continue;
     damageDrone(sys, d.id, explosionDamage(damage, dist, radius), center);
   }
 }

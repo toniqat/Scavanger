@@ -44,6 +44,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-android-lobby.mjs` | net, server · X (own relay on 8896) | Two clients: `setAndroidBay` recruits bot lobby members (bot · bay · ready · own slot), androids are no peers (no `net:peerJoined`, no remote ref), a human joining evicts the latest one (`net:androidReturned human_joined` — the newcomer too), member `not_host`, a full squad `full` + the notice to the requester only, dismissal, human leave |
 | `smoke-ballistics.mjs` | weapons, items | Swept projectiles with drop, no tunnelling, distance falloff, laser sight, extended barrel |
 | `smoke-buffs.mjs` | ui, player, net | Buff strip under PC vitals (ship + raid) and squad rows, dimmed pending buffs, `cbuf` sync |
+| `smoke-blast-occlusion.mjs` | enemies, weapons, gadgets, stratagems | Explosions and melee stop at walls, roofs and floors: 3-point body sample on floating boxes, then real paths (enemy `explode`, shell → player, enemy `hitTarget`, player melee) with and without a wall |
 | `smoke-burrow.mjs` | enemies, audio | Bug burrow spawns: emerge time, hittable but inert while rising, shake dedupe, replica `ee spawn.em` |
 | `smoke-consumables.mjs` | weapons, player, items | Adrenaline / stimulant / stabilizer: 3 s hold, effects, mutual cancel, recipes and drops |
 | `smoke-console.mjs` | console, progression, inventory, player, hub | Dev-host gating, toggle, suggestions, history, commands, Home move cheat, Esc capture |

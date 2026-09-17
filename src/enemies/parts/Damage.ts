@@ -11,7 +11,7 @@ import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
-  ENEMY_GRENADE_KINDS, explosionFalloff, type CorpseLootOpts,
+  ENEMY_GRENADE_KINDS, blastReachesBody, explosionFalloff, meleeReachesBody, type CorpseLootOpts,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
 } from '@/shared';
@@ -85,7 +85,8 @@ export function applyExplosion(sys: EnemySystem, center: THREE.Vector3, radius: 
       const e = sys.active[i];
       if (!e.active || e.state === 'dead') continue;
       _v.set(e.position.x, e.position.y + namedBodyCenterY(e), e.position.z);   // C-55: 엎드린 로든은 ≈ 0.25 m
-      if (_v.distanceToSquared(center) < radius * radius) {
+      if (_v.distanceToSquared(center) < radius * radius
+        && blastReachesBody(sys.ctx.world, center, e.position.x, e.position.y, e.position.z, namedBodyCenterY(e) * 2)) {   // 2026-09-18: 벽 너머엔 피 튀김도 없다 (호스트 `explode` 와 같은 판정)
         _v2.subVectors(_v, center);
         if (_v2.lengthSq() < 1e-4) _v2.set(0, 1, 0); else _v2.normalize();
         sys.fx?.burst(_v, 6, 'blood', 5, _v2, 0.6);
@@ -110,6 +111,8 @@ export function explode(sys: EnemySystem, center: THREE.Vector3, radius: number,
     const d2 = _v.distanceToSquared(center);
     const reach = radius + e.stats.radius;
     if (d2 > reach * reach) continue;
+    // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 너머의 적은 맞지 않는다 — 몸 3점 중 하나라도 폭심이 보여야 한다
+    if (!blastReachesBody(sys.ctx.world, center, e.position.x, e.position.y, e.position.z, namedBodyCenterY(e) * 2)) continue;
     const d = Math.sqrt(d2);
     // 2026-09-15 (사용자 결정): 거리는 예전 그대로 **몸 표면까지**, 감쇠만 공용 2단 계단 (`shared/explosion`).
     // 하한 0.15 는 없애지 않고 그 위에 얹는다 — 큰 적이 반경 가장자리에서도 완전히 안 아프지는 않게 한 값이다.
@@ -373,15 +376,28 @@ export function onExplodeRequest(sys: EnemySystem, p: readonly number[], r: numb
 
 export function hitTarget(sys: EnemySystem, e: Enemy, damage: number, shake = 0, target: CombatTarget | null = e.target): void {
   if (!target || target.isDeadOrDowned) return;
+  if (!meleeClear(sys, e, target)) { if (e.faction === 'bug') sys.playAudio('bug_attack', e.position, 0.5, 1.1); return; }   // 헛물기 소리는 벌레만 (C-51)
   sys.applyDamage(target, damage, e.position, e.id, e.type, null, shake, true, null, 0, true);
   // 2026-09-11 (C-51): 타입별 타격음 — 타길라는 null (자기 `hammer_impact` 만 난다)
   const bite = meleeHitSound(e.type);
   if (bite) sys.playAudio(bite.id, e.position, 1, bite.pitch);
   }
 
+/**
+ * 2026-09-18 (사용자 결정): 적의 근접 공격(물기 · 도약 착지 · 돌진 · 망치 · 베헤모스 돌진)은 벽 · 지붕 · 바닥을 뚫지 않는다.
+ * 거리 판정이 대부분 **수평**(`distToTarget` · `nearestAliveWithin`)이라 위층 바닥 너머 · 얇은 벽 너머 사람도 물렸다.
+ * 공격자 머리(키 × 0.8, `CombatTarget.getEyePosition` 의 적 높이와 같다)에서 대상 몸 3점을 본다 (`shared/explosion.meleeReachesBody`).
+ * 막히면 헛물기 — 피해 · 흔들림 · 타격음 없음 (호출부의 쿨다운 · 경직은 그대로 흐른다).
+ */
+function meleeClear(sys: EnemySystem, e: Enemy, target: CombatTarget): boolean {
+  _v.set(e.position.x, e.position.y + e.stats.height * 0.8, e.position.z);
+  return meleeReachesBody(sys.ctx.world, _v, target.position.x, target.position.y, target.position.z, target.bodyHeight);
+  }
+
 /* ── behemoth ──────────────────────────────────────────────────────────── */
 export function chargeHit(sys: EnemySystem, e: Enemy, target: CombatTarget, damage: number, knockDir: THREE.Vector3): void {
   if (target.isDeadOrDowned) return;
+  if (!meleeClear(sys, e, target)) return;
   // local: applyKnockback; remote: `dmg.kb` (Phase 7); suspended: `ghost:damage.kb`
   sys.applyDamage(target, damage, e.position, e.id, e.type, null, 1.0, true, knockDir, BEHEMOTH_KNOCKBACK, true);
   const bite = meleeHitSound(e.type);
@@ -726,6 +742,8 @@ export function damageAlliesAt(sys: EnemySystem, center: THREE.Vector3, radius: 
     else if (measure === 'feet2d') d = Math.hypot(t.position.x - center.x, t.position.z - center.z);
     else d = t.position.distanceTo(center);
     if (d >= reach) continue;
+    // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 차폐 — 사람 루프와 같은 몸 3점. 땅굴벌레 분출(`feet2d`)은 땅 밑에서 솟는 몸이라 폭발이 아니다.
+    if (measure !== 'feet2d' && !blastReachesBody(sys.ctx.world, center, t.position.x, t.position.y, t.position.z, PLAYER_HEIGHT)) continue;
     const falloff = Math.max(min, explosionFalloff(Math.max(0, d - PLAYER_RADIUS), radius));
     allyDamage(sys, t.allyId, damage * falloff, enemyDamageSource(id, type), center);
   }

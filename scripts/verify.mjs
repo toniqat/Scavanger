@@ -262,6 +262,9 @@ const SMOKES = {
      땅굴벌레 이벤트(threat 굴림 · 전조 흔들림 증가 · 분출 피해/넉백 · 뱉기 · 독극물 · 처치 시체 · 리플리카 → 승격 · 탈출 웨이브 제거).
      둘 다 릴레이 없이 돈다. */
   'smoke-burrow':       { file: 'scripts/smoke-burrow.mjs',       folders: ['enemies', 'audio'] },
+  /* 2026-09-18 (사용자 결정): 폭발 · 근접이 벽 · 지붕 · 바닥을 뚫지 않는다 — 판정 함수(하늘의 상자: 벽 · 낮은 벽 · 벽면 · 지붕 · 위층 바닥)와
+     실제 경로(적 explode · 포탄 → 플레이어 · 적 hitTarget · 플레이어 근접). 부르는 자리가 네 폴더에 흩어져 있다. */
+  'smoke-blast-occlusion': { file: 'scripts/smoke-blast-occlusion.mjs', folders: ['enemies', 'weapons', 'gadgets', 'stratagems'] },
   'smoke-sandworm':     { file: 'scripts/smoke-sandworm.mjs',     folders: ['enemies', 'audio', 'console'] },
   'smoke-tram-ride':    { file: 'scripts/smoke-tram-ride.mjs',    folders: ['enemies', 'world'] },
   /* 2026-09-13 (탐사 차량 R2): 정류장 4–5 · 정차 · 탑승(프롬프트 · 홀드 · riders · 정류장 공개 · 목적지 선택 열기) · 요금(10 단위 · 범위) ·

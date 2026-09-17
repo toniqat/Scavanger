@@ -96,8 +96,8 @@ instead of `buff revive`). The crosshair gate lives in `weapons/parts/Defib.hasA
 ## Recent changes
 
 Last 5 only — older: `git log -- src/gadgets`.
+- 2026-09-18 — Mine / remote mine / drone blast damage skips bodies behind walls, roofs and floors (`shared/explosion.blastReachesBody`); deployables are exempt (their body is the collider).
 - 2026-09-15 — Thumper (`thumper` / `gad_thumper`, `parts/Thumper.ts`): burrow-ground placement, 1 s strikes, 5th strike → `sandworm:summon`, destroyed by `sandworm:erupted`, wire `age`.
 - 2026-09-15 — Defib works on downed androids (`DefibTarget.ally` → `AlliesRef.requestRevive({defib:true})`).
 - 2026-09-15 — Dome shield recover; dome / barricade carry item durability; fire gadget merged into internal `incendiary`; defib picks the ally nearest the aim ray.
 - 2026-09-15 — Explosion damage uses the shared two-step falloff (`shared/explosion`).
-- 2026-09-15 — Player damage from deployables carries a `self` / `ally` source.

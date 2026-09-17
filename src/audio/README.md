@@ -84,8 +84,8 @@ warp hum on `hub:warpProgress`), `net:*`, `extraction:*` (ambience targets), `im
 ## Recent changes
 
 Last 5 only — older: `git log -- src/audio`.
+- 2026-09-18 — Bug steps easier to hear: `bug_step_*` distance curve exponent 1.0 (was 1.4 / 1.3); ranges `BUG_STEP_RANGE_M` 32 · `BUG_STEP_GIANT_RANGE_M` 48; louder per-bug gains live in `enemies/model.STEP_VOICES`.
 - 2026-09-16 — Bug audio: `bug_step_skitter` / `_heavy` / `_giant` (own ids, `VOICE_GROUP` `bug_steps` cap), per-bug `burrow_emerge` re-voiced + capped, artillery `shell_launch` + tracked `shell_incoming` whistle (`enemy:shellFired|shellLanded|shellIntercepted`); `play` returns the voice; `debugVoices` / `debugIncomingShells`.
 - 2026-09-15 — Anti-tank launcher retired: `rocket_fire` / `rocket_explode` auto-hooks removed.
 - 2026-09-15 — `fall_impact` (local `player:fell`, remote `player:remoteFell`), `fire_crackle`, re-voiced `fire_ignite`; `VOICE_CAP` added.
 - 2026-09-14 — `bgm` channel in settings (saved/restored only, no sound).
-- 2026-09-13 — `crypto_mined` on `housing:cryptoMined` (hub phase only).

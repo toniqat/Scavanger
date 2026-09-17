@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import {
-  MELEE_DAMAGE, MELEE_RANGE, MELEE_STOCK_MUL_DEFAULT,
+  MELEE_DAMAGE, MELEE_LOS_SLACK_M, MELEE_RANGE, MELEE_STOCK_MUL_DEFAULT, lineClear, meleeReachesBody,
   type DeployableRef, type EnemyRef, type GameContext, type PlayerRef, type PlayerWeaponHost,
   type Vec3Tuple, type WeaponDef,
 } from '@/shared';
@@ -129,6 +129,8 @@ export class MeleeController {
         const e = list[i];
         if (!e || e.isDead) continue;
         if (!this.inConeEnemy(e, _origin, _dir, _point)) continue;
+        // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 너머는 치지 못한다 — 눈에서 적의 몸 3점 중 하나라도 보여야 한다 (적의 근접과 같은 판정)
+        if (!meleeReachesBody(ctx.world, _origin, e.position.x, e.position.y, e.position.z, e.height)) continue;
         const wasDead = e.isDead;
         try { e.takeDamage(dmg, _point, _dir); } catch { continue; }
         const killed = !wasDead && e.isDead;
@@ -149,6 +151,8 @@ export class MeleeController {
         const d = list[i];
         if (!d || d.maxHp <= 0 || d.hp <= 0) continue;
         if (!this.inCone(d.position, d.radius, d.radius * 2, _origin, _dir, _point)) continue;
+        // 2026-09-18: 벽 차폐 — 설치물 자신이 콜라이더라 끝점 앞 제 반지름만큼은 막힘으로 치지 않는다
+        if (!lineClear(ctx.world, _origin, _point, d.radius + MELEE_LOS_SLACK_M)) continue;
         try { d.takeDamage(dmg, _origin); } catch { continue; }
         hits++; anyHit = true;
         this.fx.meleeImpact(_point, _dir, false);

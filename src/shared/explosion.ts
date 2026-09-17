@@ -1,4 +1,9 @@
-import { EXPLOSION_FULL_FRACTION, EXPLOSION_OUTER_MUL } from './constants';
+import * as THREE from 'three';
+import {
+  BLAST_LOS_CHEST_FRAC, BLAST_LOS_FEET_M, BLAST_LOS_HEAD_FRAC, BLAST_LOS_LIFT_M, BLAST_LOS_SLACK_M,
+  EXPLOSION_FULL_FRACTION, EXPLOSION_OUTER_MUL, MELEE_LOS_SLACK_M,
+} from './constants';
+import type { WorldRef } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 폭발 감쇠 (2026-09-15, 사용자 결정)
@@ -57,4 +62,73 @@ export function explosionDamage(damage: number, dist: number, radius: number): n
  */
 export function explosionDamageRange(damage: number): { readonly min: number; readonly max: number } {
   return { min: Math.floor(damage * EXPLOSION_OUTER_MUL), max: damage };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 폭발 · 근접 차폐 (2026-09-18, 사용자 결정 「폭발 · 근접 공격이 벽 · 지붕 · 바닥을 뚫지 않는다」)
+ *
+ * 예전에는 거리만 쟀다 — 벽 너머 방, 지붕 위 포탄 아래 사람, 위층 바닥 너머 벌레가 똑같이 맞았다.
+ * 판정은 `WorldRef.raycast` 하나다 (지형 · 구조물 바닥판 · 지붕 · 벽 · 계단 · 소품. 깨진 창 `passRays` 는 지나간다).
+ *
+ * **몸 3점** (사용자 결정): 발목(`BLAST_LOS_FEET_M`) · 가슴(`× BLAST_LOS_CHEST_FRAC`) · 머리(`× BLAST_LOS_HEAD_FRAC`).
+ * 하나라도 폭심이 보이면 원래 피해 그대로, 셋 다 막히면 0 — 낮은 창턱 너머로 머리만 내민 사람은 맞는다.
+ *
+ * **레이 방향은 몸 → 폭심이다.** 포탄은 맞은 면 위(`hit.point`)에서 터지므로 폭심이 벽 안쪽으로 부동소수만큼 들어가
+ * 있을 수 있고, 안에서 시작한 레이는 그 벽을 못 본다(`rayBox` · `rayCylinder` 는 원점이 안이면 빗나감). 몸에서 쏘면
+ * 벽 반대편 사람은 벽 입구 면에서 멈춘다. 끝점 앞 `BLAST_LOS_SLACK_M` 안의 면은 폭심이 붙은 면이라 막힘이 아니다.
+ * 폭심은 `BLAST_LOS_LIFT_M` 올려 잰다 — 바닥 · 지붕 윗면에 놓인 폭발이 제 발밑 면에 막히지 않게.
+ *
+ * `world` 가 없으면(허브 · 테스트) 막지 않는다. 엄폐물 자신이 맞는 피해(파괴 가능한 엄폐물 · 구조물)는 부르지 않는다 —
+ * 그 몸이 곧 레이가 맞는 콜라이더다.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+const _losFrom = new THREE.Vector3();
+const _losTo = new THREE.Vector3();
+const _losDir = new THREE.Vector3();
+
+/**
+ * `from` → `to` 선분이 월드에 막히지 않았는가. `slack` = 끝점 앞 이 거리 안에서 맞은 면은 무시.
+ * 근접 공격(공격자 머리 → 타격점)과 폭발 3점 판정이 같이 쓴다.
+ */
+export function lineClear(world: WorldRef | null | undefined, from: THREE.Vector3, to: THREE.Vector3, slack: number): boolean {
+  if (!world || !world.ready) return true;
+  _losDir.subVectors(to, from);
+  const len = _losDir.length();
+  const reach = len - Math.max(0, slack);
+  if (!(reach > 1e-3)) return true;
+  _losDir.multiplyScalar(1 / len);
+  return world.raycast(from, _losDir, reach) === null;
+}
+
+/**
+ * 폭심 `center` 가 발 `(x, feetY, z)` · 키 `height` 인 몸의 3점 중 하나라도 보이는가. `height <= 0` = 한 점(드론 몸체 중심 등).
+ * 피해 계산 **뒤**, 반경 안으로 판정된 대상에만 부른다 (레이 최대 셋 — 첫 번째로 보이는 점에서 끝난다).
+ */
+export function blastReachesBody(
+  world: WorldRef | null | undefined, center: THREE.Vector3, x: number, feetY: number, z: number, height: number,
+): boolean {
+  if (!world || !world.ready) return true;
+  _losTo.set(center.x, center.y + BLAST_LOS_LIFT_M, center.z);
+  return bodyPointsVisible(world, _losTo, x, feetY, z, height, BLAST_LOS_SLACK_M);
+}
+
+/**
+ * 근접 공격(적의 물기 · 도약 · 돌진 · 망치, 2026-09-18)이 몸에 닿는가 — 공격자의 입/머리 `from` 에서 같은 몸 3점을 본다.
+ * 폭심을 들어올리지 않고 여유도 `MELEE_LOS_SLACK_M` 로 짧다 (몸끼리 붙어 있으니 끝점 앞 면은 곧 벽이다).
+ * 낮은 엄폐물 너머 머리를 문 것은 맞고, 위층 바닥 · 벽 너머는 빗나간다.
+ */
+export function meleeReachesBody(
+  world: WorldRef | null | undefined, from: THREE.Vector3, x: number, feetY: number, z: number, height: number,
+): boolean {
+  if (!world || !world.ready) return true;
+  _losTo.copy(from);
+  return bodyPointsVisible(world, _losTo, x, feetY, z, height, MELEE_LOS_SLACK_M);
+}
+
+/** 가슴 → 머리 → 발목 순으로 `target` 이 보이는 점이 하나라도 있는가 (`height <= 0` = 발 한 점). `target` 은 모듈 스크래치가 아니어야 한다. */
+function bodyPointsVisible(world: WorldRef, target: THREE.Vector3, x: number, feetY: number, z: number, height: number, slack: number): boolean {
+  if (!(height > 0)) return lineClear(world, _losFrom.set(x, feetY, z), target, slack);
+  if (lineClear(world, _losFrom.set(x, feetY + height * BLAST_LOS_CHEST_FRAC, z), target, slack)) return true;
+  if (lineClear(world, _losFrom.set(x, feetY + height * BLAST_LOS_HEAD_FRAC, z), target, slack)) return true;
+  return lineClear(world, _losFrom.set(x, feetY + Math.min(BLAST_LOS_FEET_M, height * 0.5), z), target, slack);
 }

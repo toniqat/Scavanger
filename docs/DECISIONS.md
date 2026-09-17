@@ -794,6 +794,16 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
   no sound. Rejected: dropping the card when the track ended mid-cutscene — one more judgement for a case the
   tutorial already handles by closing the card itself.
 
+## 2026-09-18 — 폭발 · 근접 차폐 · 벌레 발소리 · Blast/melee occlusion, bug footsteps
+
+- **Explosions (player and enemy, artillery shells included) and melee (player and enemy) no longer pass walls,
+  roofs or floors.** Judged by a **3-point body sample** — feet, chest, head; any clear line = full damage, all blocked
+  = none. Rejected: a single chest ray (low cover and window sills read wrong); scaling damage by the visible fraction.
+- Any solid collider blocks (terrain ridges, rocks and props too), broken windows let it through. The sandworm
+  eruption is not an explosion and stays unoccluded.
+- **Bug footsteps louder everywhere:** longer range and higher gain with a flatter distance curve. Rejected: boosting
+  only bugs behind the camera; boosting only nearby bugs.
+
 ## 2026-09-17 — 피해 1/3 · 헌터 · 포병 · 세포 드랍 · Damage ÷3, hunter, artillery, cell drops
 
 - **All damage dealt to enemies and all enemy HP drop to 1/3 (floor)** — guns, legendary uniques, melee, ship calls,

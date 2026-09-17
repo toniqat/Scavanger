@@ -251,6 +251,13 @@ export const GRENADE_PLAYER_DAMAGE_MUL = K.num('GRENADE_PLAYER_DAMAGE_MUL');
  */
 export const EXPLOSION_FULL_FRACTION = K.num('EXPLOSION_FULL_FRACTION');
 export const EXPLOSION_OUTER_MUL = K.num('EXPLOSION_OUTER_MUL');
+/** 2026-09-18 (사용자 결정): 폭발 · 근접 차폐 — 몸 3점 높이 · 폭심 들어올림 · 끝점 여유. 판정은 `shared/explosion.ts`. */
+export const BLAST_LOS_FEET_M = K.num('BLAST_LOS_FEET_M');
+export const BLAST_LOS_CHEST_FRAC = K.num('BLAST_LOS_CHEST_FRAC');
+export const BLAST_LOS_HEAD_FRAC = K.num('BLAST_LOS_HEAD_FRAC');
+export const BLAST_LOS_LIFT_M = K.num('BLAST_LOS_LIFT_M');
+export const BLAST_LOS_SLACK_M = K.num('BLAST_LOS_SLACK_M');
+export const MELEE_LOS_SLACK_M = K.num('MELEE_LOS_SLACK_M');
 /** 투척 거리 배율 (2026-09-09): linear from THROW_RANGE_MUL_MIN at STAT_MIN 근력 to THROW_RANGE_MUL_MAX at STAT_MAX. */
 export const THROW_RANGE_MUL_MIN = K.num('THROW_RANGE_MUL_MIN');
 export const THROW_RANGE_MUL_MAX = K.num('THROW_RANGE_MUL_MAX');

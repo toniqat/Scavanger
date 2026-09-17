@@ -143,8 +143,8 @@ Uniques reuse existing shot SFX ids (`shotSoundId`); there are no dedicated samp
 ## Recent changes
 
 Last 5 only — older: `git log -- src/weapons`.
+- 2026-09-18 — Melee does not hit through walls/roofs/floors (`meleeReachesBody` from the eye to the enemy's 3 body points; deployables `lineClear`); a grenade behind geometry does not hurt the local player (`blastReachesBody`).
 - 2026-09-17 — Player damage cut to 1/3 (data only: `weapons.csv`, unique / melee constants; AR −15 % and range 210 first); shotguns: ADS no longer tightens spread (`adsTightensSpread`; hip spread = old ADS 3.5°).
 - 2026-09-17 — Grenades: the wall push is queried with the body lowered by `PROP_TOP_MARGIN − BODY_R` (the 7 cm top band of walls/fences no longer lets them through) and they bounce off walls (`BOUNCE_RESTITUTION` 0.4, same as the floor).
 - 2026-09-16 — Grenades sub-step by their diameter, surface before walls (no tunnelling through thin walls/floors); `ctx.weapons` gains `activeSlot`, `primaryInHand`, `ammoOf(slot)` (a melee swing still counts as the primary in hand).
 - 2026-09-15 — Hammerhead throw distance ×0.5 (×0.25 grounded); grounded blasts no longer rocket-jump.
-- 2026-09-15 — Gadget hold time from `gadgetUseTime`; defibrillator aim-and-release (`parts/Defib.ts`); grenades detected by `ItemDef.grenade` (`quickKindOf`).

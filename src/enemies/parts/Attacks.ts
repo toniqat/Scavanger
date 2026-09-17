@@ -9,7 +9,7 @@ import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHELL_LEAD_MAX, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet,
-  shellLaunchVelocity, shellPositionAt, explosionFalloff,
+  shellLaunchVelocity, shellPositionAt, explosionFalloff, blastReachesBody,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
 } from '@/shared';
@@ -141,6 +141,8 @@ export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority:
       _c.set(t.position.x, t.position.y + PLAYER_HEIGHT * 0.5, t.position.z);
       const d = _c.distanceTo(p);
       if (d >= reach) continue;
+      // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 너머는 맞지 않는다 (몸 3점, `shared/explosion.blastReachesBody`)
+      if (!blastReachesBody(ctx.world, p, t.position.x, t.position.y, t.position.z, PLAYER_HEIGHT)) continue;
       // 2026-09-15 (사용자 결정): 적 수류탄도 공용 2단 계단 (`shared/explosion`) — 하한 0.1 은 그 위에 그대로 얹는다
       const falloff = Math.max(0.1, explosionFalloff(Math.max(0, d - PLAYER_RADIUS), radius));
       if (fire) { sys.applyDamage(t, damage * falloff, p, owner, type, null, 0.5 * falloff, false); continue; }
@@ -456,6 +458,8 @@ export function onShellLanded(sys: EnemySystem, sid: number, p: THREE.Vector3): 
       const t = players[i];
       const d = t.position.distanceTo(p);
       if (d < SHELL_BLAST_RADIUS + PLAYER_RADIUS) {
+        // 2026-09-18 (사용자 결정): 지붕에 떨어진 포탄은 그 아래 사람을, 벽에 맞은 포탄은 벽 너머를 다치게 하지 않는다
+        if (!blastReachesBody(ctx.world, p, t.position.x, t.position.y, t.position.z, PLAYER_HEIGHT)) continue;
         _v.set(p.x, p.y + 0.6, p.z);
         if (sys.barrierBlocks(_v, t)) continue;   // Phase 9: the blast stops at a 배리어 between the crater and the player
         // 2026-09-15 (사용자 결정 — 모든 폭발물이 같은 공식): 옛 `× 0.75` 선형 대신 공용 2단 계단.
@@ -497,7 +501,7 @@ export function acidBurst(sys: EnemySystem, e: Enemy): void {
     for (let i = 0; i < players.length; i++) {
       const t = players[i];
       const d = t.position.distanceTo(e.position);
-      if (d < SPEWER_SPIT.deathBurstRadius) {
+      if (d < SPEWER_SPIT.deathBurstRadius && blastReachesBody(ctx.world, e.position, t.position.x, t.position.y, t.position.z, PLAYER_HEIGHT)) {   // 2026-09-18: 벽 차폐
         // 2026-09-15 (사용자 결정): 공용 2단 계단 — 옛 `× 0.6` 선형은 하한이 없어 가장자리에서 40 % 였다.
         const dmg = SPEWER_SPIT.deathBurstDamage * explosionFalloff(d, SPEWER_SPIT.deathBurstRadius);
         sys.applyDamage(t, dmg, e.position, e.id, e.type, { duration: 1.2, factor: 0.7 }, 0, false);
@@ -524,7 +528,7 @@ export function toxicBurst(sys: EnemySystem, e: Enemy): void {
   for (let i = 0; i < players.length; i++) {
     const t = players[i];
     const d = t.position.distanceTo(_c);
-    if (d < TOXIC_RADIUS + PLAYER_RADIUS) {
+    if (d < TOXIC_RADIUS + PLAYER_RADIUS && blastReachesBody(ctx.world, _c, t.position.x, t.position.y, t.position.z, PLAYER_HEIGHT)) {   // 2026-09-18: 벽 차폐
       // 2026-09-15 (사용자 결정): 공용 2단 계단. 하한 0.2 는 남긴다 (적 · 드론 · 차량 몫과 같은 폭발이다).
       const dmg = TOXIC_DAMAGE * Math.max(0.2, explosionFalloff(Math.max(0, d - PLAYER_RADIUS), TOXIC_RADIUS));
       sys.applyDamage(t, dmg, _c, e.id, e.type, { duration: 1.5, factor: 0.65 }, 0.5, false);

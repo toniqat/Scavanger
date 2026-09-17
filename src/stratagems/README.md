@@ -75,8 +75,8 @@ point with `world.scatterPoints(…, RESCUE_SCATTER_RADIUS, 1, RESCUE_POD_MIN_GA
 
 ## Recent changes
 Last 5 only — older: `git log -- src/stratagems`.
+- 2026-09-18 — Impact damage to the local player stops at walls and roofs (`blastReachesBody`); structure splash unchanged.
 - 2026-09-17 — UI name `함선 호출` → `함선 지원` (cooldown toast, deny reason `cooldown`); ids and code names unchanged.
 - 2026-09-15 — `drifted` members (raid abandoned from the title) are never rescue-drop candidates.
 - 2026-09-15 — Androids are never rescue-drop candidates or targets (`isBotPlayer` filter + `isAndroidId` guard in `grant`).
 - 2026-09-15 — Player impact and grenade→structure damage use `shared/explosion` two-step falloff.
-- 2026-09-15 — Local player impact damage carries `{kind:'explosion'}`.

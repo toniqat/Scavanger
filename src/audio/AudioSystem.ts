@@ -178,11 +178,13 @@ const RANGED_SOUNDS: Readonly<Record<string, RangeProfile>> = {
   fire_crackle: { range: 32, exp: 1.5 },
   // 2026-09-15 (gadgets, 진동 장치): 땅을 치는 쿵 — 흔들림 반경(THUMPER_SHAKE_RADIUS 30 m)보다 조금 멀리까지 들린다
   thumper_thump: { range: 55, exp: 1.3 },
-  // 2026-09-16: 벌레 발소리 — 곁에서만 (사람 발소리의 `ENEMY_STEP_RANGE` 45 m 보다 훨씬 짧다), 베헤모스만 조금 멀리.
+  // 2026-09-16: 벌레 발소리 — 사람 발소리의 `ENEMY_STEP_RANGE` 45 m 보다 짧다, 베헤모스만 조금 멀리.
   // 세 id 가 `VOICE_GROUP` 으로 한 상한을 나눈다; 무리 크기 1/√n 은 방출부(`enemies/model.emitEnemyStep`)가 곱해 온다.
-  bug_step_skitter: { range: BUG_STEP_RANGE_M, exp: 1.4 },
-  bug_step_heavy: { range: BUG_STEP_RANGE_M, exp: 1.4 },
-  bug_step_giant: { range: BUG_STEP_GIANT_RANGE_M, exp: 1.3 },
+  // 2026-09-18 (사용자 결정 「벌레 발소리가 너무 안 난다 — 뒤에 있으면 소리로 알아차리게」): 지수 1.4 / 1.3 → 1.0 (선형) —
+  // 10 m 뒤 벌레가 예전 곡선(22 m, ^1.4)으로는 0.43 이었고 지금(32 m, ^1) 0.69 다. 밑값 상향은 `STEP_VOICES`.
+  bug_step_skitter: { range: BUG_STEP_RANGE_M, exp: 1.0 },
+  bug_step_heavy: { range: BUG_STEP_RANGE_M, exp: 1.0 },
+  bug_step_giant: { range: BUG_STEP_GIANT_RANGE_M, exp: 1.0 },
   // 2026-09-16: 포병 — 발사 쿵은 교전 거리 밖에서도, 낙하 휘파람은 **착탄점** 거리로 잰다 (floor = 공정한 경고; `updateShells`).
   shell_launch: { range: SHELL_LAUNCH_RANGE_M, exp: 1.1 },
   shell_incoming: { range: SHELL_INCOMING_RANGE_M, exp: 1.2, floor: SHELL_INCOMING_FLOOR },

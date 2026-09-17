@@ -60,7 +60,7 @@ never each other. This folder owns no system and no gameplay state; it must not 
 | `raidFound.ts` | "Found in this raid" item mark: `raidFoundSeed`, `markRaidFound`, `mergeRaidFoundMark`, `raidFoundScopeOf`, `countsForRecovery`, `raidFoundStackKey` |
 | `lootRolls.ts` | Loot seed formulas `crateLootRandom` · `corpseLootRandom` (open path and preview path share them) |
 | `ballistics.ts` | Artillery shell closed form (`shellLaunchVelocity` · `shellPositionAt` · `shellApexHeight`, uses `SHELL_ARC_GRAVITY`) — enemies + HUD |
-| `explosion.ts` | Explosion falloff (`explosionFalloff` · `explosionDamage` · `explosionDamageRange` for tooltips): two-step curve from `EXPLOSION_FULL_FRACTION` / `EXPLOSION_OUTER_MUL` — all explosives |
+| `explosion.ts` | Explosion falloff (`explosionFalloff` · `explosionDamage` · `explosionDamageRange` for tooltips): two-step curve from `EXPLOSION_FULL_FRACTION` / `EXPLOSION_OUTER_MUL` — all explosives. Occlusion: `blastReachesBody` (blast centre ↔ body feet · chest · head, any clear ray = hit), `meleeReachesBody` (attacker head ↔ the same 3 points), `lineClear` — all over `WorldRef.raycast`, numbers `BLAST_LOS_*` / `MELEE_LOS_SLACK_M` |
 | `fragile.ts` | `breakFragileAlong(world, from, to)` — thrown objects break window glass on their step segment |
 | `ride.ts` | Vehicle ride math (`recordRideLocal` · `restoreRideLocal` · `rideContains`) — player, enemies, corpses |
 | `lightPool.ts` | Point-light pool: many `LightFixture` spots, `size` real lights moved to the nearest (intensity only) — hub + structures |
@@ -123,8 +123,8 @@ constructor before any `init`). Nested: `ctx.net.profile` / `social` / `rooms` /
 ## Recent changes
 
 Last 5 only — older: `git log -- src/shared`.
+- 2026-09-18 — `explosion.ts` (add-only): `lineClear` · `blastReachesBody` · `meleeReachesBody` — explosions and melee stop at walls, roofs and floors (rays cast from the body toward the blast centre); constants `BLAST_LOS_FEET_M` · `_CHEST_FRAC` · `_HEAD_FRAC` · `_LIFT_M` · `_SLACK_M` · `MELEE_LOS_SLACK_M`.
 - 2026-09-17 — `explosion.ts` (add-only): `explosionDamageRange(damage)` → `{min: floor(damage × EXPLOSION_OUTER_MUL), max}` for tooltip ranges; `EXPLOSION_OUTER_MUL` 0.6 → 0.5.
 - 2026-09-17 — `cutsceneHide.ts` (add-only, B-17): `CutsceneKind` / `CUTSCENE_KINDS` / `watchCutsceneHide` — docking · warp · liftoff as one subscription; first subscriber is `tutorial/ui/Popup`.
 - 2026-09-17 — `charBuffView.ts` (add-only): `provideCharBuffStrip` / `createCharBuffStrip` (ui registers `BuffStrip`; progression's sheet borrows it, `interactive` = hover card); `StatXpSource` + optional `source` on `ProgressionRef.addStatXp`; `PlayerProfile.trainedProgress` retired (dropped by migrate); `GYM_TRAIN_XP_BASE` / `_EXPONENT` unread.
 - 2026-09-17 — Video game seat optional: `GameSessionInfo.seatUid` / `housing:gameSession.seatUid` widened to `string | null` (null = standing); `isUtilityFurniture` treats `seat` (의자 · 쇼파) as decor.
-- 2026-09-17 — Tutorial (add-only): build order `TUTORIAL_STEPS` = 7 grouped steps (retired ids stay in `TutorialStepId`); gates `training` · `launchWarn` (hide-only, build track); key action `GUIDE_TOGGLE` (default `BracketRight`, scope `game`); constant `TUTORIAL_RAID_EXTRACT_VALUE_C`.

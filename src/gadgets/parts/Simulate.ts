@@ -23,7 +23,7 @@ import { GADGET_MOUNTED_MINE_TRIGGER_RADIUS, GADGET_REMOTE_MINE_ARM_TIME } from 
 /* 2026-09-15 (B-16): 화염 지대 — 지지직 소리 · 드론 */
 import { FIRE_ZONE_CRACKLE_S, FIRE_ZONE_DRONE_HEIGHT } from '@/shared';
 /* 2026-09-15 (사용자 결정): 폭발 감쇠 2단 계단 — 모든 폭발물 공용 */
-import { explosionDamage } from '@/shared';
+import { PLAYER_HEIGHT, blastReachesBody, explosionDamage } from '@/shared';
 import * as Remote from './Remote';
 import * as Thumper from './Thumper';
 import type { DamageSourceWire, PlayerDamageSource } from '@/shared';
@@ -92,12 +92,13 @@ export function explodeMine(sys: GadgetSystem, d: Deployable, ctx: GameContext):
   const p = ctx.player;
   if (p && !p.isDead) {
     const dist = p.position.distanceTo(d.position);
-    if (dist < radius) p.takeDamage(explosionDamage(dmg, dist, radius) * 0.85, d.position.clone(), Remote.localVictimSource(sys, d.owner));
+    // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 너머는 맞지 않는다 (몸 3점)
+    if (dist < radius && blastReachesBody(ctx.world, d.position, p.position.x, p.position.y, p.position.z, PLAYER_HEIGHT)) p.takeDamage(explosionDamage(dmg, dist, radius) * 0.85, d.position.clone(), Remote.localVictimSource(sys, d.owner));
   }
   for (const r of ctx.net?.getRemotePlayers() ?? []) {
     if (r.isDead || r.stale) continue;
     const dist = r.position.distanceTo(d.position);
-    if (dist < radius) sys.hurtRemote(r.id, explosionDamage(dmg, dist, radius) * 0.85, d.position, Remote.remoteVictimWire(d.owner, r.id));
+    if (dist < radius && blastReachesBody(ctx.world, d.position, r.position.x, r.position.y, r.position.z, PLAYER_HEIGHT)) sys.hurtRemote(r.id, explosionDamage(dmg, dist, radius) * 0.85, d.position, Remote.remoteVictimWire(d.owner, r.id));
   }
   sys.blastFx(d.position, radius);
   sys.remove(d, 'destroyed');
