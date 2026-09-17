@@ -7,7 +7,7 @@ import type {
 import {
   COCKPIT_DECOR_FURNITURE, COCKPIT_DEFAULT_FURNITURE, COCKPIT_ROOM_INDEX, Keys, SHIP_ROOM_COUNT,
   TUTORIAL_CRAWL_AIM_HINT_FRAC, TUTORIAL_INTRO_WAKE_S, TUTORIAL_RAID_EXTRACT_VALUE_C, TUTORIAL_STEPS, TUTORIAL_TRACKS, TUTORIAL_TRACK_STEPS,
-  isRaidFound, raidFoundSeed, sellPriceOf, slotKey,
+  isRaidFound, raidFoundSeed, sellPriceOf, slotKey, watchCutsceneHide,
 } from '@/shared';
 import {
   CHECKPOINT_STEP, CORPSE_MARKER_STEPS, CROUCH_AIM_TIP_KO, CROUCH_TIP_STEPS, GUIDE_ARRIVE, MARKER_RETARGET_FRAMES, RAID_KILLS_PER_STEP,
@@ -229,6 +229,14 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       b.on('game:abort', () => this.onCinematic(false)),
       b.on('game:newMission', () => this.onCinematic(false)),
       b.on('hub:entered', () => this.onCinematic(false)),
+      /*
+       * 2026-09-17 (B-17, 사용자 결정 — 「닫을 수 없는 팝업은 컷씬 동안 숨긴다」): 시작 안내 · 건너뛰기 확인 카드는
+       * 도킹 직전의 「모든 UI 닫기」가 못 닫는다 (escape 스택 밖 · 닫으면 단계가 진행된다). 그래서 닫지 않고
+       * **숨긴다** — 도킹 · 창문 워프 · 이륙 연출 동안 사라졌다가 끝나면 그대로 돌아온다 (`shared/cutsceneHide`).
+       * 위의 `cinematic` 과 나누어 둔 이유: 그쪽은 「지금 그릴 것이 무엇인가」(`refreshVisuals`)를 정하고,
+       * 이쪽은 카드의 상태를 **건드리지 않은 채** 보이기만 끈다.
+       */
+      watchCutsceneHide(ctx, (hidden) => this.popup.setHidden(hidden)),
       b.on('hub:entered', ({ ship }) => this.onHubEntered(ship)),
       b.on('hub:left', () => this.refreshVisuals()),
       b.on('game:phaseChanged', () => this.refreshVisuals()),

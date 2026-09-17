@@ -774,3 +774,22 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
   rows `.ci-` → `.cmi-` (ui, they live inside `.cm-invite` anyway; meta keeps `.ci-` for the implant desk), contract
   columns `.cc-` → `.ctr-` (meta; ui keeps `.cc-` for character creation), character-slot cards `.cs-` → `.csl-`
   (ui; progression keeps `.cs-` for the character sheet).
+
+## 2026-09-17 — 컷씬 중 숨김 · Popups hide for a cutscene (B-17)
+
+- **A popup that cannot be closed hides for the length of a cutscene and comes back unchanged.** The ship's
+  「모든 UI 닫기」 before a dock (`hub/parts/SquadDock.cancelEverything`) cannot reach the tutorial cards: they are
+  outside the escape stack and closing one is what advances the step. Rejected: the original to-do's plan of giving
+  `TutorialRef` a close API plus step-state restoration — hiding needs no restoration at all, because nothing was
+  changed.
+- **Hiding is DOM + blocker + cursor + hold gauge**, not visibility alone. A held `uiBlockers` token over a cutscene
+  floats a soft cursor and blocks the hub's pointer re-lock (`Transitions.relock`).
+- **The contract lives in `src/shared`** (`cutsceneHide.ts`), not in the tutorial folder: "a cutscene owns the screen"
+  is one line — docking, window warp and the liftoff cinematic — and the next unclosable popup subscribes to the same
+  one. Rejected: a tutorial-only handler.
+- **All three cutscenes count**, including the window warp, which keeps the camera inside the ship — the ship's corner
+  widgets already disappear for it (`ui/hud/CutsceneWatch`), so a card floating through the flight would be the odd
+  one out.
+- **Restoring is unconditional**: the card returns exactly as it was, with no re-validation of the tutorial state and
+  no sound. Rejected: dropping the card when the track ended mid-cutscene — one more judgement for a case the
+  tutorial already handles by closing the card itself.

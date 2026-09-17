@@ -24,7 +24,7 @@ folders, and other folders do not know its steps. When inactive, both always ret
 | `ui/Panel.ts` | Top-left objective panel: glyph + track name, checkbox objective rows, track progress bar. Holds the next step's rows for `TUTORIAL_STEP_DELAY_S` so the check / strike-through animation shows. Renders key tokens (`renderKeyText`) in both text and strike layers; `setCounts` patches only the `(n/m)` node. |
 | `ui/Controls.ts` | Right-side control guide: only the current step's controls, grouped by section. `set(hints)` removes missing rows, adds new ones, relabels survivors (no flicker). Keycaps via `shared/keycap` (`paintKeycap`, token rows via `renderKeyText`). |
 | `ui/Tip.ts` | `TIP` toast under the control guide; opacity animated in `update(dt)`. Used once per raid track for crouch-aim. |
-| `ui/Popup.ts` | Intro card and skip-confirm card (1 s hold). Modeless. |
+| `ui/Popup.ts` | Intro card and skip-confirm card (1 s hold). Modeless. Hides (not closes) for the length of a cutscene — `setHidden`. |
 | `tutorial.css` | Styles for panel, controls, tip, popup, spotlight. Reuses `.ui-btn` / `.ui-label` from `ui/styles/base.css`. |
 | `index.ts` | Barrel. |
 
@@ -218,6 +218,9 @@ csv recipe changes never break the tutorial.
 - Other smokes must seed `scav.s1.tutorial` as v2 with **all three** tracks done, or the tutorial auto-starts and locks
   the actions they drive:
   `{version:2, tracks:{raid:{step:null,done:true}, ship:{step:null,done:true}, build:{step:null,done:true}}}`.
+- The popup **hides, never closes, while a cutscene owns the screen** (docking · warp · liftoff — `shared/cutsceneHide`):
+  closing it is what advances the step, so the ship's 「모든 UI 닫기」 would let a dock skip the guide. Hiding drops the
+  blocker · cursor · hold gauge too and puts them back afterwards. — `ui/Popup.ts` (`suspended`), `TutorialSystem.init`
 - `stashItem` hiding applies to the build track only — the ship track must not hide loot brought back from the raid. —
   `parts/Gates.ts` (`stashItemBlock`)
 
@@ -227,8 +230,8 @@ Smokes: `scripts/smoke-tutorial.mjs` (build track — grouped objectives, gates,
 ## Recent changes
 
 Last 5 only — older: `git log -- src/tutorial`.
+- 2026-09-17 — (B-17) The intro / skip cards hide for a docking · warp · liftoff cutscene and come back unchanged (`setHidden`, `shared/cutsceneHide`) — they are outside the escape stack and closing them advances the step.
 - 2026-09-17 — Build track 17 → 7 steps (objectives grouped with sequential reveal; per-objective spot / guide / arrive / allow; old ids → grouped step + pre-filled rows); `stowAmmo` gone; equip focus without dim and waits for the inventory to close; final `raid` step = extract with ≥ `TUTORIAL_RAID_EXTRACT_VALUE_C` raid-found sell value, one attempt, `(n / 1,000 C)`; raid control guide (M/Q/G/V/X + `]` fold, `Keys.GUIDE_TOGGLE`); gates `training` · `launchWarn`; reload row after the bugs; no track-complete toast.
 - 2026-09-17 — Raid control guide: `시체 상호작용` row (after the bugs) draws the hold chevron — enemy corpses open on a hold (`enemies/Corpses` `holdTime`).
 - 2026-09-16 — Raid control guide: pressed keycaps light orange; `stance` section; shoot = move/sprint | fire/aim(hold) (+ `E 시체 상호작용` after the kill), crawl = WASD | C/Z (+ fire/aim past `TUTORIAL_CRAWL_AIM_HINT_FRAC`), heal = wheel on top, `길게 눌러 사용` only with a stim in hand; ship track = one `stats` step with 4 staged objectives (menu → character tab → ＋ → confirm), ends on confirm, build track starts on close (`autoStartOnClose`), old `levelUp` → `stats`; gate `shipManage`.
 - 2026-09-16 — A bench's `닫기` now closes the whole window (`inventory` `closeCraftWindow`), so `equipGun` starts with no UI to light: its hint leads with Tab and the control guide carries the `가방 · 장비` line (`EQUIP_HINTS`); the spotlight still folds itself while the targets are gone.
-- 2026-09-16 — Ship track is 2 steps (`messenger` out; `stats` ends on inventory close, old `messenger`/`ravenQuest` saves = done); checkpoints never fold past `supplyLoot`/`heal` while hurt (`healSafeFold`); tutorial DOM + 3D guide/marker hide during the liftoff cinematic (`ui:cinematic`).

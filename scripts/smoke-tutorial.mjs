@@ -213,6 +213,33 @@ try {
   const order = await P(() => window.__game.getSystem('tutorial').constructor && null);
   void order;
 
+  /* 2026-09-17 (B-17): 컷씬이 화면을 가져가면 이 카드는 **닫히지 않고 숨는다** (`shared/cutsceneHide`). 도킹 직전의
+     「모든 UI 닫기」는 이 카드를 못 닫으므로(escape 스택 밖) 컷씬 위에 떠 있었다. 숨는 동안 블로커 · 커서도 함께
+     내려놓아야 한다 — 안 그러면 컷씬 위에 커서가 뜨고 함선의 재락이 막힌다. 끝나면 그대로 돌아온다. */
+  const cine = await P(() => {
+    const ctx = window.__game.ctx;
+    ctx.bus.emit('hub:docking', { stage: 'start', direction: 'dock' });
+    const hidden = {
+      popup: document.querySelector('.tut-popup').hidden,
+      blocker: ctx.uiBlockers.has('tutorial'),
+      cursorOn: document.body.classList.contains('cursor-on'),
+    };
+    ctx.bus.emit('hub:docking', { stage: 'end', direction: 'dock' });
+    return {
+      hidden,
+      back: {
+        popup: !document.querySelector('.tut-popup').hidden,
+        blocker: ctx.uiBlockers.has('tutorial'),
+        title: document.querySelector('.tut-popup-card .title')?.textContent,
+        step: ctx.tutorial.step,
+      },
+    };
+  });
+  ok(cine.hidden.popup, '도킹 컷씬이 시작되면 시작 카드가 숨는다', JSON.stringify(cine.hidden));
+  ok(!cine.hidden.blocker && !cine.hidden.cursorOn, '숨는 동안 tutorial 블로커 · 소프트 커서도 내려놓는다', JSON.stringify(cine.hidden));
+  ok(cine.back.popup && cine.back.blocker && cine.back.title === '튜토리얼' && cine.back.step === 'intro',
+    '컷씬이 끝나면 같은 카드가 단계를 그대로 두고 돌아온다', JSON.stringify(cine.back));
+
   /* 2026-09-14 (3트랙): 새 프로필은 **증축 트랙**부터 돈다 — 레이드 · 함선 트랙은 함선에 들어선 순간 끝난 것으로
      적히고(`autoStart`), HUD 게이트(`hides('hud', …)`)는 레이드 트랙 밖이라 아무것도 감추지 않는다.
      우측 조작 가이드도 증축 트랙에는 배울 조작이 없어 뜨지 않는다. */

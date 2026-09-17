@@ -119,7 +119,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-training.mjs` | world, hub, housing, game | Training range from the ship terminal, solo and crew, snapshot restore |
 | `smoke-tram-ride.mjs` | enemies, world | Enemies and corpses ride trams in vehicle-local space; replica prediction |
 | `smoke-trust.mjs` | stratagems, weapons, implants, gadgets, meta, enemies | Two clients in a private lobby forge wire messages; host guards (ship calls, buffs, contracts, `explode`, `st`, denies) hold |
-| `smoke-tutorial.mjs` | tutorial, hub, housing, inventory, ui, items | Build track: gates, spotlight, hides, skip hold |
+| `smoke-tutorial.mjs` | tutorial, hub, housing, inventory, ui, items | Build track: gates, spotlight, hides, skip hold, the intro card hiding for a cutscene (`hub:docking`) and returning |
 | `smoke-tutorial-raid.mjs` | tutorial, world, game, extraction, player, enemies, ui | Raid track end to end through the real entry path (teleports between sections, real input for judged actions) |
 | `smoke-tutorial-ship.mjs` | tutorial, meta, ui, progression, inventory | Ship track (2 steps): level-up → stats with real input; the track ends only when the inventory closes (no build intro over the character screen); old `messenger` / `ravenQuest` saves read as done; reload after confirming; Raven writes after the tutorial |
 | `smoke-tv-games.mjs` | hub | TV / console models, seat interaction, game staging (housing stubbed) |

@@ -20,6 +20,7 @@ never each other. This folder owns no system and no gameplay state; it must not 
 | `Input.ts` | Keyboard / mouse state with per-frame pressed / released sets (mouse buttons mirrored as `Mouse0..4` key codes), pointer lock (deferred re-lock, bounce filter, fullscreen keyboard lock, click-to-relock), `setCursorMode`, `onUserUnlock`; `endFrame()` called by Engine |
 | `cursor.ts` | `CursorMode` — ref-counted "real OS cursor" flag behind `Input.setCursorMode`; `isDesktopShell()` |
 | `escape.ts` | `EscapeStack` (`ctx.escape`) — LIFO of open screens' Escape handlers (`push` / `remove` / `closeTop`); a close returning `false` keeps its entry |
+| `cutsceneHide.ts` | `watchCutsceneHide(ctx, onChange, {kinds})` — "a cutscene owns the screen" as one line (`hub:docking` · `hub:travel` · `ui:cinematic`, six reset events); a popup that cannot be closed hides instead of closing. Returns its unsubscribe (restores on teardown) |
 | `Keybinds.ts` | `KEY_ACTION_DEFS` (label / group / scope / `mouseOnly` / `menuOnly`), `KEY_ALIASES`, `loadKeybinds` / `setKeybind` / `resetKeybinds` / `saveKeybinds` (`scav.keybinds`, non-defaults only), `canBind`, `conflictsOf` / `allConflicts`, `keyLabel`, `takeKeybindLoadReport` |
 | `keycap.ts` | The one keycap renderer: `createKeycap` · `paintKeycap` · `renderKeyText` (tokens `{ACTION}` · `{ACTION:hold}` · `{br}`) · `createHoldButtonCap` (LMB-hold cap inside hold buttons) · mouse L/wheel/R glyphs. Styles in `ui/styles/base.css` (`.keycap`, `.kc-hold`, `.kc-mouse`, `.kc-btn`) |
 | `holdAsk.ts` | `openHoldAsk(ctx, spec)` — reusable warning popup: `hold` buttons need `UI_HOLD_CONFIRM_S`, Escape = cancel, Enter swallowed, owns its blocker / cursor / escape entry, injects `.sh-ask*` styles |
@@ -115,12 +116,15 @@ constructor before any `init`). Nested: `ctx.net.profile` / `social` / `rooms` /
 - `holdAsk.ts`, `itemChip.ts`, `currency.ts`, `keycap.ts` build DOM; keep new DOM helpers equally self-contained (no
   feature-folder CSS dependency beyond `ui/styles/base.css` tokens).
 - Explosion floors (`Math.max(floor, explosionFalloff(...))`) stay at the call sites; the shared curve is the multiplier.
+- **A popup that cannot be closed hides for the length of a cutscene** and comes back unchanged — `cutsceneHide.ts`.
+  Hiding means DOM **and** blocker **and** cursor (a held blocker over a cutscene floats a cursor and blocks the hub's
+  re-lock); the popup's own state is never touched, so nothing has to be restored afterwards.
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/shared`.
+- 2026-09-17 — `cutsceneHide.ts` (add-only, B-17): `CutsceneKind` / `CUTSCENE_KINDS` / `watchCutsceneHide` — docking · warp · liftoff as one subscription; first subscriber is `tutorial/ui/Popup`.
 - 2026-09-17 — `charBuffView.ts` (add-only): `provideCharBuffStrip` / `createCharBuffStrip` (ui registers `BuffStrip`; progression's sheet borrows it, `interactive` = hover card); `StatXpSource` + optional `source` on `ProgressionRef.addStatXp`; `PlayerProfile.trainedProgress` retired (dropped by migrate); `GYM_TRAIN_XP_BASE` / `_EXPONENT` unread.
 - 2026-09-17 — Video game seat optional: `GameSessionInfo.seatUid` / `housing:gameSession.seatUid` widened to `string | null` (null = standing); `isUtilityFurniture` treats `seat` (의자 · 쇼파) as decor.
 - 2026-09-17 — Tutorial (add-only): build order `TUTORIAL_STEPS` = 7 grouped steps (retired ids stay in `TutorialStepId`); gates `training` · `launchWarn` (hide-only, build track); key action `GUIDE_TOGGLE` (default `BracketRight`, scope `game`); constant `TUTORIAL_RAID_EXTRACT_VALUE_C`.
 - 2026-09-17 — Labels only: keybind `SHIP_CALL` = `함선 지원`, contract kind `use_stratagems` = `함선 지원 사용`.
-- 2026-09-16 — `corpseViewers.ts` `CorpseViewTracker` + `CorpseViewRequest` (`cviewq`); `WeaponsRef.activeSlot` / `primaryInHand` / `ammoOf` + `WeaponSlotAmmo`; keycap fixed tokens `{MOUSE_LEFT}` / `{DOUBLE_CLICK}`; `TutorialWorldRef.crawlProgress?`; `TUTORIAL_PLANET_LABEL` + `missionPlanetLabel`; events `ui:shipReturn`, `progress:statPending`; gate `shipManage`, ship track `['stats']`; `DOOR_*` constants marked unused (add-only).

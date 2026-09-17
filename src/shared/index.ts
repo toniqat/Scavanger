@@ -108,3 +108,5 @@ export * from './weaponTip';
 export * from './corpseViewers';
 /* appended (2026-09-17): 버프 썸네일 줄을 ui 밖(캐릭터 시트)에서 빌려 쓰는 공장 등록 자리 — ui/hud/BuffStrip 이 등록한다 */
 export * from './charBuffView';
+/* appended (2026-09-17, B-17): 컷씬 중 숨김 — 닫으면 상태가 깨지는 팝업은 연출 동안 숨었다가 끝나면 그대로 돌아온다 */
+export * from './cutsceneHide';

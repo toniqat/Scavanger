@@ -168,6 +168,9 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Read keys at use time (`Keys.X`), never cache in module constants — `docs/CONTROLS.md`.
 - **Pointer lock:** a lock lost right after acquiring is a bounce, not Escape (`LOCK_BOUNCE_GRACE_MS`); a relock requested during/just after Escape or a user exit is deferred and sent once (`LOCK_ESCAPE_DEFER_MS`, `LOCK_USER_EXIT_COOLDOWN_MS`, `deferredRelock`) — `src/shared/Input.ts`. `src/main.ts` is the only relock site.
 - **Escape closes the topmost screen**, else opens pause. Screens `ctx.escape.push(token, close)` next to `uiBlockers.add` — `src/shared/escape.ts`; policy only in `src/game/parts/Phases.ts` (`escapeKey`). Innermost popups swallow Escape in capture. The pause menu itself closes on ESC only in the desktop shell (`isDesktopShell()`).
+- A **cutscene owns the screen**: what can be closed is closed before it (`hub/parts/SquadDock.cancelEverything`), and a popup that
+  cannot be closed (closing it would move its own state) **hides** instead — DOM · blocker · cursor · hold gauge — and comes back
+  unchanged when the cutscene ends. Subscribe with `shared/cutsceneHide.ts` `watchCutsceneHide` (docking · window warp · liftoff).
 - **Tab is the universal close key** (consume `Keys.INVENTORY`); open screens publish `ui:keyGuide {owner, keys}` and the guide appends `닫기` itself in its own panel right of the screen's keys (`.kg-panel-close`) — `src/ui/hud/KeyGuide.ts`.
 - Irreversible confirms need a 1 s hold (`UI_HOLD_CONFIRM_S`); Enter never confirms; Escape cancels; initial focus `취소`. With nothing to lose (in the ship) title/quit use a tap (`tap` in `src/ui/menus/PauseMenu.ts`).
 - Pause menu position is fixed (left half, `.menu.pause`); settings are centred. Hidden `.menu` has `pointer-events: none` so fading screens never eat clicks (`src/ui/styles/base.css`).
