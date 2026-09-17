@@ -643,8 +643,10 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
   rarity comparison (the new minimum-rarity guarantee, `epicPlusMul`, the shop cap) to branch twice.
 - **Drops never roll it.** `items/LootTables.RARITY_ORDER_LOOT` cuts crate and corpse rolls at legendary, so a `mythic`
   column in a loot csv is read by nobody. Mythic exists only where something hands it over directly: the 6 unique weapons,
-  the 3 perk armors, mythic samples and mythic minerals. Consequence the user accepted: unique weapons have **left the
-  crate weapon pick** and now come from crafting, the boss-corpse unique chance and `loot_named.csv`.
+  the 3 perk armors, 시원 세포주, mythic samples (미확인 세포 VI · 미확인 광물 VI) and the 6 mythic minerals. Consequence
+  the user accepted: unique weapons have **left the crate weapon pick** and now come from crafting, the boss-corpse
+  unique chance and `loot_named.csv`.
+- 2026-09-17: the 유전자 line lost its mythic tier entirely — see 「표본 — 3 계열 × 6 등급」.
 - 유니크 무기 6종 → mythic (written in code — `weapons_unique.csv` has no rarity column). 특성 방탄복 3벌 → mythic with
   shield 100 (전설 방탄복 V 수준) **and** their perk, durability 700.
 - Rejected: a `mythic` weapon grade VI (the uniques have no grade at all, so `WeaponGrade` stays 1–5); letting the shop's
@@ -652,9 +654,15 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
 
 ### 표본 — 3 계열 × 6 등급
 
-- 18 samples: `spec_gene_*` (유전자, 토양·배양조) · `spec_cell_*` (세포, 배양조) · `spec_mineral_*` (광물, 무기). The old
+- Samples: `spec_gene_*` (유전자, 토양·배양조) · `spec_cell_*` (세포, 배양조) · `spec_mineral_*` (광물, 무기). The old
   3 + 11 retired rows were **deleted outright** — the user waived save migration for this development stage, so no
   `item_aliases.csv` rows were added (a knowing exception to CLAUDE.md §4.1, marked at each deletion site).
+- **Overturned 2026-09-17 — 유전자 계열은 전설(V)까지다.** 신화 is now reserved for the gun line, so `spec_gene_6`
+  (미확인 유전자 VI) and the only two mythic rows it fed — `sock_soil_prime` 원종 인자 · `sock_medium_prime` 원형질 인자 —
+  were deleted the same way (rows gone, no aliases). 17 samples remain: 세포 · 광물 I…VI, 유전자 I…V. 미확인 세포 VI
+  stays because 시원 세포주 (mythic 세포주) is its top row, and the mineral line keeps VI as the sole source of the
+  6 mythic minerals. Rejected: demoting the two sockets to legendary (결실 · 분열 인자 III already hold that rank), and
+  keeping VI as a legendary sample (the roman numeral **is** the rarity).
 - **A sample's rarity is the floor of what it analyses into**, not the ceiling: 미확인 유전자 III(희귀) yields 희귀 이상
   only. Low-grade samples keep every higher row as a candidate; high-grade samples lose the lower ones.
 - `analysis_results.csv` gained an optional `sampleRarity` column that binds a row to one sample rarity and exempts it

@@ -279,7 +279,8 @@ tier,target,mul
 5,boost_stimulant,0.5
 5,boost_stabilizer,0.3
 
-# ── 2026-09-16 (표본 전면 개편): 미확인 표본 18종 (3계열 × 6등급) ──
+# ── 2026-09-16 (표본 전면 개편): 미확인 표본 17종 (세포 · 광물 6등급 · 유전자 5등급) ──
+#   2026-09-17 (사용자 결정): 미확인 유전자 VI(신화)가 사라져 유전자는 V 까지다 — 신화는 총기 계열에만 남는다.
 #   「유전자(옛 DNA)는 구조물 컨테이너 위주」 (사용자 결정) — 컨테이너의 sample 픽 안에서 유전자가 가장 흔하다.
 #   세포 · 광물의 본업은 벌레 시체 · 채집지 · 행성 광맥이다. 배수는 2026-09-13 에 역산한 계열 비율을 그대로 쓰고,
 #   **등급은 건드리지 않는다** — 어느 등급이 나오는가는 loot_tiers.csv 의 등급 가중치가 정한다 (신화는 상자 굴림에 아예 없다).
@@ -288,7 +289,6 @@ tier,target,mul
 3,spec_gene_3,1
 3,spec_gene_4,1
 3,spec_gene_5,1
-3,spec_gene_6,1
 3,spec_mineral_1,0.3
 3,spec_mineral_2,0.3
 3,spec_mineral_3,0.3
@@ -306,7 +306,6 @@ tier,target,mul
 4,spec_gene_3,1
 4,spec_gene_4,1
 4,spec_gene_5,1
-4,spec_gene_6,1
 4,spec_mineral_1,0.3
 4,spec_mineral_2,0.3
 4,spec_mineral_3,0.3
@@ -325,7 +324,6 @@ tier,target,mul
 5,spec_gene_3,1
 5,spec_gene_4,1
 5,spec_gene_5,1
-5,spec_gene_6,1
 5,spec_mineral_1,0.1
 5,spec_mineral_2,0.1
 5,spec_mineral_3,0.1

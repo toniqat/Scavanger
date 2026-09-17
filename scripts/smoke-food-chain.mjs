@@ -216,12 +216,16 @@ try {
   /* ══ 1. 분석기 ══════════════════════════════════════════════════════════════ */
   console.log('분석기 — 결과표 · 분석 레벨 · 분석 도감');
   /* 2026-09-16 (사용자 결정, 표본 전면 개편): 옛 3종(spec_cell · spec_mineral · spec_dna)은 줄째로 사라지고
-     **3 계열 × 6 등급 = 18종**(spec_gene_1..6 · spec_cell_1..6 · spec_mineral_1..6)이 됐다 — 이름의 로마 숫자가 곧 등급이고
-     그 등급이 산출물 등급의 **하한**이다. 아래 구획은 후보가 가장 넓은 **일반(I)** 표본으로 돈다. */
+     계열마다 등급별 표본이 생겼다 — 이름의 로마 숫자가 곧 등급이고 그 등급이 산출물 등급의 **하한**이다.
+     2026-09-17 (사용자 결정): 신화는 총기 계열에만 남는다 — 미확인 유전자 VI 가 사라져 **17종**(세포 · 광물 I…VI ·
+     유전자 I…V)이다. 아래 구획은 후보가 가장 넓은 **일반(I)** 표본으로 돈다. */
   const SPECS = ['spec_cell_1', 'spec_mineral_1', 'spec_gene_1'];
-  const sMiss = await missing([...SPECS, 'spec_cell_6', 'spec_gene_6', 'spec_mineral_6']);
+  const sMiss = await missing([...SPECS, 'spec_cell_6', 'spec_mineral_6', 'spec_gene_5']);
   const famOk = sMiss.length === 0 && await H((ids) => ids.every((id, i) => window.__game.ctx.loot.getItemDef(id)?.sample?.family === ['cell', 'mineral', 'dna'][i]), SPECS);
-  ok(famOk, `표본 18종 (3 계열 × 6 등급) + family 데이터 (missing: ${sMiss.join(', ') || '없음'})`);
+  ok(famOk, `표본 17종 (세포 · 광물 6등급 · 유전자 5등급) + family 데이터 (missing: ${sMiss.join(', ') || '없음'})`);
+  /* 2026-09-17: 유전자 계열의 천장은 전설이다 — 미확인 유전자 VI 와 그 신화 산출물(원종 · 원형질 인자)은 정의째 사라졌다. */
+  const gone = await H((ids) => ids.filter((id) => !!window.__game.ctx.loot.getItemDef(id)), ['spec_gene_6', 'sock_soil_prime', 'sock_medium_prime']);
+  ok(gone.length === 0, `신화 유전자 계열 제거 (남아 있음: ${gone.join(', ') || '없음'})`);
   const rarities = await H(() => [1, 2, 3, 4, 5, 6].map((n) => window.__game.ctx.loot.getItemDef(`spec_cell_${n}`)?.rarity ?? null));
   ok(JSON.stringify(rarities) === JSON.stringify(['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic']),
     `이름의 로마 숫자 = 등급 (spec_cell_1..6 → ${rarities.join(' ')})`);

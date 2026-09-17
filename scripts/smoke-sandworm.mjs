@@ -261,7 +261,7 @@ try {
     const corpse = sys.corpses.get(id);
     const rolled = ctx.loot.rollCorpse('sandworm');
     const loot = rolled.map((i) => i.defId);
-    // 2026-09-16: 표본은 3 계열 × 6 등급이므로 id 대신 **등급**을 본다 (`data/loot_corpses.csv` 가 적을 등급별로 나눴다)
+    // 2026-09-16: 표본은 계열 × 등급으로 갈리므로 id 대신 **등급**을 본다 (`data/loot_corpses.csv` 가 적을 등급별로 나눴다)
     const specs = rolled.filter((i) => !!ctx.loot.getItemDef(i.defId)?.sample).map((i) => ({ id: i.defId, rarity: ctx.loot.getItemDef(i.defId).rarity }));
     return { dead: e.state === 'dead', killed: window.__ev.killed.filter((k) => k.id === id), corpse: !!corpse, loot, specs, name: ctx.enemies.enemyDisplayName('sandworm') };
   });

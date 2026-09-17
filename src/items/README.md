@@ -88,7 +88,8 @@ Direct `@/items` imports: `inventory/` (grids, crafting, tooltips, sort, durabil
 - **Meals are not items** (2026-09-16): `data/meals.csv` is parsed by `src/shared/meals.ts` (`MEAL_DEFS`, `getMealDef`) and
   `ITEM_DEFS` has no meals — `getItemDef('meal_*')` is undefined. Cook-bench recipes still name a meal id as `outputDefId`
   (data:check resolves it in the meal table). Old saved meal items resolve to unknown defs (no alias rows, no refund).
-- **Samples**: 3 families × 6 rarities = 18 defs. The **tile background is the rarity colour** (the `def()` default — a sample's rarity
+- **Samples**: 17 defs — `cell` · `mineral` run I…VI, `dna` runs I…V (2026-09-17: mythic is the gun line only, so
+  `spec_gene_6` was deleted with the two mythic sockets it fed). The **tile background is the rarity colour** (the `def()` default — a sample's rarity
   is the floor of what analysing it yields) and the **glyph is the family** (`SAMPLE_FAMILY_ICON`). `ItemDef` has one `color`, which
   drives the whole tile (`--rc`), so the family colour (`SAMPLE_FAMILY_COLOR`) stays on the analysis screens only.
 - **Samples / sockets / strains / media / soils**: families `cell` | `mineral` | `dna`; `first*` columns must stay empty. Analysis results,
@@ -206,8 +207,8 @@ whose `durabilityMax` is a liquid gauge and is excluded by name in the same pred
 ## Recent changes
 
 Last 5 only — older: `git log -- src/items`.
+- 2026-09-17 — `spec_gene_6` (미확인 유전자 VI) and the mythic sockets `sock_soil_prime` · `sock_medium_prime` deleted from csv (no aliases): mythic is reserved for the gun line, so the 유전자 family tops out at legendary.
 - 2026-09-16 — The 6 unique weapons are **mythic** (`weaponItemDef`); `isSalvageable` now bans their salvage by name (they gained craft recipes), and sample tiles read rarity as the background with the family as the glyph.
 - 2026-09-16 — `Salvage.wearsDurability` keys on `durabilityMax` instead of the category (the processor is a durable `material`); healing sprays are the one exception.
 - 2026-09-16 — `Salvage.isCraftRefundable` / `maxSkillCraftFactor`: durable gear (weapons · armor · bags · durable gadgets) is excluded from the craft-skill material refund, and `checkSalvageEconomy` now measures every craft baseline at **max skill** (`craft × maxSkillCraftFactor`).
 - 2026-09-16 — Meals removed from `ITEM_DEFS` (`MEAL_ITEM_DEFS` gone); `data/meals.csv` is parsed by `shared/meals.ts`.
-- 2026-09-16 — Epic+ gate (`planet_loot.csv` `epicPlusMul`, `PlanetGradeCurve.epicPlusMul`) on every crate and corpse roll; lab locked rooms exempt via `rollCrateOn(…, opts: CrateLootOpts)`.
