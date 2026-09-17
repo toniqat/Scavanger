@@ -72,6 +72,12 @@ Debug hooks on `getSystem('allies')` (smokes only, never called by game code): `
 - **Crates are not raced for**: a pinged one first with no distance limit, an unpinged one only while idle and within
   `ALLY_IDLE_LOOT_M`.
 - Other folders' contract members are called with `?.`; a missing one degrades that behaviour only.
+- **Intended limits** (2026-09-16): solo (`/android` cheat, no relay) death still fails the raid at once even with an
+  android standing (a real android is a relay bot member, so the wipe check takes the `isMultiplayer` branch); an
+  extraction ping is agreed to without checking that the pinger and the human who said H are the same person;
+  `Nav.spreadToward` applies to following only, because rescue and hand-over approaches need contact range; `roam`
+  points of interest are `WorldRef.getStructures` / `getRuinSites` / large obstacles only, so a structureless map is
+  always a random patrol, and at the harness edge `follow` ↔ `roam` can alternate within the reaction delay.
 
 ## Recent changes
 

@@ -85,6 +85,13 @@ instead of `buff revive`). The crosshair gate lives in `weapons/parts/Defib.hasA
 - Air drones skip `resolveCollision` (person headroom pops them out from under ceilings). — `drones/AirDrone.ts`
 - Drone `applyExplosion` is called once, by whoever owns the damage (non-owned drones forward `droneq damage`).
 - Scan preview rolls exactly what opening rolls (`shared/lootRolls`). — `drones/parts/Scan.ts`
+- **Intended** (2026-09-15): the thumper's knocking attracts nobody — it emits no `world:noise`, and enemies never
+  target the device (outside `ENEMY_TARGET_KINDS`). Changing either needs a decision first. — `parts/Thumper.ts`
+- The placement preview's `burrowGroundOk` radius is ours; the worm director uses `BURROW_GROUND_CHECK_R` (6 m). A summon
+  skips the ground test, so a mismatch never gives "it placed but nothing came" — only a preview stricter or looser than
+  the eruption check. — `parts/Preview.ts`
+- **Intended**: a drone scan label never reaches a late joiner — `drone scan` goes out once to `others` at scan time and
+  has no sync request. — `drones/parts/Scan.ts`
 
 ## Recent changes
 

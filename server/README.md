@@ -227,6 +227,14 @@ explicitly.
 - `LOBBY_ERROR_MESSAGE_KO` is a `Record` over `LobbyErrorCode` — a new shared error code needs its Korean string here.
 - `drifted` belongs to one raid: only `Lobby.setDrifted` sets it and only `start()` / `reset()` clear it; every path that lets a
   member back into a raid (`lobby:mission true`) checks it first. — `Lobby.ts`, `RelayServer.ts` (`lobby:mission`)
+- **Credit validation does not check item ownership** (2026-09-11 user acceptance, old E-9): stash and bag documents are
+  client writes, so selling from a doctored stash is not caught. Preventing it means the server owning inventory and
+  looting, which is a phase-sized change (`Economy.ts`, `Store.ts` hold an opaque blob). The piecemeal-sale exploit (a
+  value-1 ammo sold one at a time was worth twice the stack) is closed by making `sellPriceOf` `floor` everywhere —
+  splitting is now always a loss, and a single value-1 item sells for 0 C (the trade desk shows the `0`).
+- **`Store.close()` has a 1-syscall window** (old C-64) between the synchronous write and an async rename already in
+  flight. The generation number (`gen`) makes it back off and `.bak` recovery exists, so it remains theoretical **at
+  shutdown only** (2026-09-11 user decision: not fixed).
 
 ## Recent changes
 

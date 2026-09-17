@@ -81,6 +81,10 @@ sees the usual events. Host takeover promotes the mirror fields, rebuilds `board
     `setSceneLock(true, {allowDamage: true, minHp: 1})`, released in `resetMission`.
   - `skipToComplete` emits one `extraction:liftoff {aboard: true, squadDone: true}` without flying; succeeds only if
     `game/` moves to `complete`.
+- `GROUND_DRAW_LIFT_MAX` is a hand-matched constant: it only says the ship wins by 2 cm over the tutorial deck's top plate
+  (`TOP_LIFT` 0.02 in `world/tutorial/parts/Ground.ts`), and **nothing compares the two values mechanically**
+  (`smoke-extraction` checks the ship-side inequality alone). Any world drawing its floor more than 2 cm above walking
+  height opens the ship floor again — raise `GROUND_DRAW_LIFT_MAX` then. — `Ship.ts` (clearance note)
 
 ## Recent changes
 Last 5 only — older: `git log -- src/extraction`.

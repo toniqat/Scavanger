@@ -135,6 +135,9 @@ Uniques reuse existing shot SFX ids (`shotSoundId`); there are no dedicated samp
 - Remote weapon models are keyed on the avatar's socket object; a changed socket means rebuild (pooled bodies get a fresh socket per avatar). — `RemoteWeapons.ts`
 - Grenades are not hold-to-use items: `useTimeOf` returns 0 for `ItemDef.grenade` (hold = cook). — `model.ts`
 - `parts/*` import only types from `WeaponSystem.ts`; shared values go in `model.ts`.
+- **Intended**: shot tracking reports the aim line, not the pellets — a shotgun sends one `reportShot` per trigger pull
+  (the rule above), so the host sees one shot. A projectile still in flight when the mission ends never reports its
+  impact. — `Projectile.ts`
 
 ## Recent changes
 

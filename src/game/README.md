@@ -233,6 +233,17 @@ A remaining raid never drops the boot straight into it: the title shows `이어�
 - `kills`, `killXp`, `cratesOpened`, `damageTaken` are incremented by other systems; GameFlow only resets and finalizes stats.
 - Threat ramp: `ctx.enemies.setThreatLevel()` goes `THREAT_MIN` → `THREAT_MAX` over `THREAT_RAMP_SECONDS` (not in training).
 - Preparation items: armed at `onNewMission`, cleared at `complete` / `gameOver` / `onAbort`; death alone keeps them.
+- **Intended**: a raid save holds the player's state only — enemies, already-opened containers, dropped pickups, placed
+  gadgets and ship calls in flight all start over. — `parts/Session.ts`
+- Known limits of 타이틀 레이드 포기 (2026-09-15): only a character with the marker (`scav.sN.squadraid`) asks the relay from
+  the title, so a raid entered by a pre-marker build, or one whose storage was cleared, is re-entered from the ship as
+  before; with no connection (up to `NET_CONNECT_TIMEOUT_MS`) a squad raid does not appear on the title at all. An abandon
+  corpse needs `RaidSessionBlob.pose` to stand — an old client's blob, or a raid cut before its first save, loses the
+  belongings with no corpse. Drifting is not shown in the squad HUD list (it only drops the member from rescue candidates
+  and re-entry). — `parts/Resume.ts`
+- Kill XP limits (2026-09-16): `enemies.csv` `raidXp` is a first pass (csv hp/10) — threat multipliers and per-planet feel
+  are unverified. No assist XP (last hit only), and an android squadmate's kill credits nobody. A session blob written
+  before this change has no `killXp` and settles at 0. — `parts/Death.awardMissionXp`
 
 ## Recent changes
 

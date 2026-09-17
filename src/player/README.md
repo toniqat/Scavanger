@@ -218,6 +218,12 @@ frame plus a `BUFF_TICK_S` tick, and a new array + revision go out only when `sa
 - Ally bodies and remote avatars share one `SoldierPool`; `resetForReuse` turns the android look off, so a parked body can come back as either. — `AllyAvatars.ts`
 - `ally:fired` FX borrows the fixed-size `core/fx` flash pool — never a new light. — `AllyAvatars.ts`
 - `AllyBodyView` objects and their vectors are reused by allies/: read them in the same frame, never store them. — `AllyAvatars.ts`
+- **Intended**: stance height collision is the local player's only — enemies, remote avatars and corpses use a fixed
+  `BOX_HEADROOM`, so they **cannot follow into a prone-height passage**. That is right for the tutorial, but a low passage
+  in the main game must not be built expecting 「the enemy crawls in after you」.
+- **Intended** (2026-09-16): distance carried counts neither bag hover, tram jump air movement nor the frame W is released
+  mid-jump, and it does count crawling while downed. An enemy's perception eye height during a low roll is the crouch one
+  (`enemies/Targets.ts`).
 
 ## Recent changes
 

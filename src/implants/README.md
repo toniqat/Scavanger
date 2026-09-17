@@ -75,6 +75,10 @@ Numbers live in `data/constants.csv` under the named keys. Every cooldown is mul
 - Input is ignored while `piloting` (drone control or rover ride); taking a drone's controls stows. — `ImplantSystem.ts` (`piloting`)
 - Silent releases (stow on death / phase change / reset / drone control) never refund grapple cooldown. — `parts/Devices.ts` (`releaseGrapple`)
 - `parts/*` import only types from `ImplantSystem.ts`; shared values go in `model.ts` (avoids import cycles).
+- **Intended**: a barrier never stops its owner — the player walks through their own shield and cannot shoot it either
+  (`fromEnemy=false` passes), and a carried shield blocks only inside `IMPLANT_BARRIER_CARRY_ARC`. — `parts/Barrier.ts`
+- **Intended**: implant bonuses are not clamped by `STAT_MAX` (the cap is on spent points, not on gear). `resetProfile`
+  loses an equipped implant when the grid has no room for it.
 
 ## Recent changes
 

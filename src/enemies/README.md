@@ -272,6 +272,21 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
 - No lights on enemies or FX; glows are emissive (`smoke-lights` enforces a constant light count).
 - `game:newMission` resets only if the world has not already generated for that seed (world emits `world:ready` first) — `EnemySystem.ts`.
 - Sniper fires only after the glint; blocked muzzle before a glint relocates instead — `ai/named/Sniper.ts`.
+- **Intended**: the `investigate` state is host-only, so it disappears on host transfer; the promoted host also does not
+  inherit corpse registrations that were still pending.
+- **Intended**: humanoid squad roles stop at the flanker (`squadRole 'flanker'`) — no low-hp retreat, no boss health HUD,
+  no faction-clash HUD.
+- **Intended**: corpse lootability is rolled per corpse at the moment of death (seeded), so several unlootable corpses can
+  come in a row. — `Corpses.ts`
+- **Intended**: tutorial enemies do not know about the cliff holes — their walk only samples `getSurfaceY` and has no fall,
+  so crossing an edge teleports them to terrain (−100). `tutorialHold` returns an enemy that dropped 20 m below its spot;
+  there is no edge-avoiding steering. — `Tutorial.ts`
+- **Intended** (2026-09-15): the sandworm appearance check is the host's cumulative random roll — not seed-reproducible,
+  and replicas only receive the result. An android squadmate counts toward the qualifying head count only after it picks
+  something up in the raid (its base kit is `normal`, the same threshold as a human). — `named/Director.ts`
+- Known limits of empty-corpse removal (2026-09-16): an `ecorpseq` request lost during host transfer leaves that corpse on
+  the 45 s lifetime; corpses in the ship bay or on the tram sink through the deck; a client that cannot resolve an item id
+  in the spawn wire (version mismatch) removes that corpse locally only. — `parts/CorpseEmpty.ts`
 
 ## Recent changes
 

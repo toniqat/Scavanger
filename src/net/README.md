@@ -194,6 +194,14 @@ connected and prices received on this connection. `requestHistory(coin, range)` 
   `net:androidReturned` and touches no local state; a malformed frame is dropped (one missing toast, never a wrong roster).
 - `parts/` import rule: parts take the instance as first argument `sys`, import `NetSystem.ts` **types only**, and put
   shared values in `model.ts`. Members made non-private for `parts/` are still folder-internal.
+- **Intended multiplayer limits**: no lag compensation on client shots (the host checks the enemy id and a damage ceiling
+  only); remote hellpods are not rendered; the ship's launch countdown is a client-local mirror (no wire message); a
+  joining client is not told about a cloak already in progress.
+- **Accounts are per-token profiles.** Login and sharing one character across devices are out of scope (Phase 5).
+- **Crew cards carry no bag**: `CrewCardWire` is level · implant · armor · primary · primary2 · secondary, so a squadmate's
+  bag thumbnail on the launch-slot card is `?` and the value sum leaves out bag and tactical implant. Someone else's
+  weapon sockets are drawn as empty outlines rather than claiming 「부착물 없음」. Fixing it is a wire extension first.
+- A visited personal ship shows no dining plate — `ShipVisitWire` carries no plate. — `parts/Plates.ts`
 
 ## Recent changes
 

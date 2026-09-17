@@ -412,7 +412,7 @@ Design: the lower deck is seven axis-aligned pieces and the holes are the gaps (
 the old rect); the abyss edge follows the diagonal fence with a 2 m staircase so no hole opens on the player's side; the `ship`
 checkpoint band moved 2 m back (z −150…−158) and is narrowed to the ship strip so a body falling into the cut cannot trigger it;
 the `ship` respawn is inside the 22 m sense radius — the only exception to the "checkpoints outside enemy sense" rule (see
-`docs/TODO.md`). The weapon override travels as a world-side extension of `TutorialEnemySpawn` until `src/shared` is free.
+`src/world/README.md`). The weapon override travels as a world-side extension of `TutorialEnemySpawn` until `src/shared` is free.
 
 ## 2026-09-15 — 땅굴벌레 · Sandworm renamed, cumulative appearance chance, thumper summon, threat-1 weak worm
 
@@ -489,7 +489,7 @@ Design: the plate is the cook's own state (`ShipState.plate`) and travels as `pl
 changes the eater's profile; the replace warning sits before the cook, but the swap happens only when the cook completes (a cancelled
 cook keeps the old plate). The epic+ cut is applied to roll **outcomes** (keep with `epicPlusMul`, else the best rarity below epic in
 the same pool) — lowering `epicMul`/`legMul` weights could not work because they cancel inside guaranteed picks and the fallback ignores
-weights; it therefore also halves keys, named drops, processors and records (listed in `docs/TODO.md` for review). Carry XP reads a
+weights; it therefore also halves keys, named drops, processors and records (listed in `src/items/README.md` for review). Carry XP reads a
 self-propelled odometer from the controller instead of filtering movement sources one by one. Emptied enemy corpses are client-rolled,
 so a client reports `ecorpseq emptied` and the host shortens the body's own `corpseLife` (survives host migration). The tutorial pit's
 fence side stays a deck-level rim (2.5 m walls east/south only) so the androids stay visible and a grenade thrown over the fence lands in
@@ -702,7 +702,7 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
 - `SuperCategory` is a layer **on top of** `ItemCategory`, not a merge of book/disc/record/game_disc/console into one
   category. The tooltip 종류 line reads 「수집품 > 서적」 and a quest can ask for 「가치 10,000 이상의 수집품」, while every
   existing filter, sort, save and loot path keeps reading the unchanged `ItemCategory`.
-- The quest goal type itself is **deferred** (user's call) — this batch only lays the axis. → [TODO.md](TODO.md)
+- The quest goal type itself is **deferred** (user's call) — this batch only lays the axis. → `src/meta/README.md`
 
 ### 필라멘트
 

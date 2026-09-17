@@ -385,6 +385,20 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 - Gameplay paths never silently discard items: wheel swaps, pouch changes, sorting and socket rules refuse or fall
   back. Overflow is thrown into the world (ship: stash first); only save restore may discard (with `console.warn`)
   when bag and stash are full.
+- **Intended**: the craft detail card (`.inv-panel-craft-detail`) is `align-self: stretch`, so it follows the height of the
+  tallest panel in its row — opening the `/items` infinite box next to the craft window stretches it (a dev-cheat
+  combination). A hover tooltip in the recipe list does not pin; only grid tiles do (2026-09-15 user decision).
+- **Intended** (2026-09-11, C-60): the corpse grid scrolls vertically only, so a 10-wide corpse window pushes the bag panel
+  sideways at 1280 px; the ship stash panel has no clipping or auto-scroll (a stash row scrolled off screen is still a drop
+  target).
+- `applyProfileDocs` can overwrite a local edit that has not been uploaded yet: it replaces stash, loadout and bag whole
+  when the server document differs. The 「a pending local edit is uploaded, not replaced」 rule (`src/net/ProfileSync.ts`)
+  protects the **write queue**, not an edit made in the ~260 ms between `hub:enter` and `net:profileLoaded`. Two aimed
+  experiments (2026-09-15: late welcome, socket cut then re-welcome) did not reproduce it, but it is the only path where
+  stash, loadout and bag roll back **together**. A fix must be its own change. — `parts/ProfileDocs.ts`
+- Meal items are gone, so `parts/MealQuality.ts`, the stack key `quality`, the tile ★ badge, the pickup meal shape, the
+  corpse `quality` copy and `ProgressionRef.serveMeal` are **dead paths** (clean-up candidates); a cooked item in an old
+  save disappears without migration (2026-09-16 user decision).
 
 ## Recent changes
 

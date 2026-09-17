@@ -189,6 +189,17 @@ Box math is used only when `o.box` is set; cylinder code paths are separate.
   `CrateLootOpts` (`ContainerSpec.lockedRoom` → `ContainerSet.lootOpts` → `crateLootOpts`).
 - Rover and rail corridors must stay empty: any new placement code checks both `railClearance` and `roverClearance`
   (`isSpotFree` enforces them even with `ignorePads`).
+- **Intended**: the five planets are recombinations of the five biomes — no new enemies or items, and a kind missing from
+  `eco.bugs` never appears however high its cap. Ambience and wave composition use `Math.random()`, so they are **not**
+  seed-reproducible (the seed guarantees terrain, gather nodes and log-guard placement).
+- **Intended**: generation is synchronous, ~197 ms (2026-09-11: 230 → 197, heightmap 97 → 78). The kernel is ~14 ns per
+  call — close to the scalar-JS floor — so what is left is the **number of calls**; sparse sampling, async/worker
+  generation or SIMD/WASM are all decisions first. Same seed must stay byte-identical (`noise.ts` head comment holds the
+  identity-check procedure).
+- **Intended**: a mineral vein is the only gather node with a collider, so standing on a slope it can block a path; its
+  rarity is rolled at harvest, so two players see different grades from the same vein (each has their own 채광 skill).
+  Mythic ore has to pass difficulty 3 → 미확인 광물 VI → analysis level 4, so its felt frequency is unmeasured.
+- **Intended**: training target modes are client-local. — `TrainingArena.ts`
 
 ## Structures
 
@@ -363,6 +374,17 @@ gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — �
 - Corpses use fixed lists (`corpse:tut_gear`, `corpse:tut_supply`, `corpse:tut_relic`) through `openContainerItems`, not loot rolls.
   An emptied one (`crate:looted`) sinks like a raid corpse (`CORPSE_EMPTY_REMOVE_DELAY_S` · `_SINK_S` · `_SINK_DEPTH_M`, mission
   clock) and is then unregistered and disposed.
+- **Intended tutorial limits**: the `ship` checkpoint sits inside the last two androids' sense radius (22 m) — the only
+  exception to 「a checkpoint is outside the sense radius」, because no spot next to the ship is outside it
+  (2026-09-15 user decision; the distance table is in the `CHECKPOINTS` comment). The pit is ×1.55, not ×2 — 「one grenade
+  anywhere in the pit kills both」 (`GRENADE_RADIUS` 7.2) and 「about twice the area」 cannot both hold; growing it means
+  re-deciding the grenade radius, the android hp or 「both」 (`PIT` comment). Between the fence and the pit is a cliff, so a
+  short grenade throw falls off it (two are handed out); the pit's fence side is a deck-height rim (`PIT_NORTH_RIM_H`), not
+  a wall, because the androids must be visible and the grenade must fly over. The four front enemies' `yaw: Math.PI` faces
+  −Z, not the +Z the comment claims (kept — they turn around when they notice).
+- `TutorialEnemySpawn.weapon` is **not in the shared contract yet** (2026-09-15): the last androids' shotgun / marksman rifle
+  travel in the local extension type `TutorialSpawnSpec` (`tutorial/model.ts`) and `enemies/Tutorial.spawnWeapon` reads it as
+  an optional field. Adding `weapon?: string` to `shared/tutorialWorld.ts` removes both structural reads.
 
 ## Recent changes
 

@@ -171,8 +171,9 @@ hides the crosshair and crosshair rings at once; `.hud-cine` on `#ui-root` fades
 ItemTip, MusicPlayer and NetBadge through `filter: opacity(var(--cine-o))`, stepped by `HudSystem.stepCinematic` over
 `EXTRACTION_HUD_FADE_S` (then `.hud-cine-out` = `visibility: hidden`); Detection / ScanReveal / Deployables scale their 3D
 materials by the same value. Screen fade, loading gauge, menus (pause, settings, result) and screens stay. tutorial/ hides
-its own DOM on the same event. Cleared at once on `ui:cinematic false`, `game:abort`, `game:newMission`, or when the phase
-leaves gameplay. Tutorial gates: widgets ask `ctx.tutorial?.hides('hud', <part>)` (`vitals`, `weapon`,
+its own DOM on the same event. Cleared at once on `ui:cinematic false`, `game:abort`, `game:newMission`, the raid's end
+(`game:complete` / `game:over`) or, one frame later as a second defence, when `applyVisibility` sees the phase leave
+gameplay. Tutorial gates: widgets ask `ctx.tutorial?.hides('hud', <part>)` (`vitals`, `weapon`,
 `stamina`, `implant`, `stratagem`, `extractionTimer`, `shipMarker`, `shipScreenMarker`) and `hides('community')`.
 
 Stacking (CSS `z-index`; `.hud` layers and plain `.menu` have none and follow DOM order):
@@ -344,12 +345,17 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
   `x / y` pair; counts, weights, durability, ammo, percentages and times stay exact. — `menus/RewardsBlock.ts`
 - UI timing constants (fade holds, typing reveal speed, poll intervals) live in the component; gameplay numbers come
   from `@/shared` constants backed by `data/*.csv`.
+- **Intended**: in windowed mode on several monitors the cursor can leave the game window while a screen is open (the price
+  of using the real OS cursor). There is no sensitivity setting.
+- **Intended widths**: the corp desk hides its right-hand grid below 1240 px, and the ship Tab screen wants 1600 px or more.
+- **No voice chat** (2026-09-14 user decision, old A-6). The squadmate volume slider and mute in the friends column
+  (`menus/social/SocialColumn.ts`) are UI only (`SQUAD_VOICE_DEFAULT`) and nobody reads them.
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
+- 2026-09-17 — The liftoff cinematic's HUD fade is reverted in the same emit that ends the raid (`game:complete` / `game:over` → `setCinematic(false)`), not a frame later by `applyVisibility`: the result screen used to appear over a HUD still faded to 0 for one frame (`smoke-tutorial-raid` 「HUD 페이드 값이 되돌아간다」, red the slower the lane). `smoke-tutorial-raid` is mapped to the `ui` folder in `verify.mjs` now.
 - 2026-09-17 — `CharacterSelect` cards drop the 레이드 / 탈출 cells (credits only in `.cs-meta`).
 - 2026-09-17 — `BuffStrip` registers itself in `shared/charBuffView` and takes `{interactive}`: `.bfs.is-interactive` receives the pointer and each cell carries `data-tip-name` / `-sub` (`디버프 · 남은 23h`) / `-desc` / `-color` for the `ItemTip` text card instead of a native `title` (used by the character sheet header).
 - 2026-09-17 — No toast on tactical implant equip / unequip / swap (`implant:equipped` subscription removed from `Notifications`); ship-call strings read `함선 지원` (wheel centre, call/ready toasts).
 - 2026-09-17 — Messenger: intro choices wait `MESSENGER_CHOICE_DELAY_S` (0.5 s) after the last NPC line; typing `...` dots scale/fade in a staggered slow loop via Web Animations (CSS keyframes were clipped by reduced motion); every thread ends in a half-height empty tail (`.ms-tail`, `50cqh`) with pinning measured to the last line; the NPC trust reward chip now gets the hover card through the new `ItemTip` text-chip hook (`TIP_NAME_ATTR`) instead of a native `title`.
-- 2026-09-17 — 시설 관리: furniture `제작` opens a centred craft modal (`.sm-craft`: list thumbnail, `{이름} 제작`, all material chips, `제작` = 1 s hold on `.sm-craft-ok`; blocker/escape token `shipManage:craft`); session-only red dots (`.sm-dot`) on the `가구 창고` tab for crafted / recovered pieces, moved onto their store cards when the list shows, cleared on close or placement.

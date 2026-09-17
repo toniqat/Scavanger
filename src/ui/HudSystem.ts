@@ -471,6 +471,13 @@ export class HudSystem implements GameSystem {
       b.on('ui:cinematic', ({ active }) => this.setCinematic(active)),
       b.on('game:abort', () => this.setCinematic(false)),
       b.on('game:newMission', () => this.setCinematic(false)),
+      /* 2026-09-17: 레이드가 끝나는 **그 emit 안에서** 연출을 끈다. `applyVisibility` 의 페이즈 가드도 같은 일을 하지만
+       * 그것은 다음 프레임이고, 이륙 연출을 끝내는 `extraction:liftoff` → `complete()` 는 hud 뒤에 등록된 시스템의
+       * update 에서 나므로 결과 화면이 뜬 프레임에는 아직 `--cine-o` 가 0(다 숨김)이다 — 그 한 프레임 동안 결과 화면
+       * 뒤의 HUD · 키 가이드 · 아이템 카드가 사라진 채로 남는다 (`smoke-tutorial-raid` 의 「HUD 페이드 값이
+       * 되돌아간다」가 레인이 느릴수록 자주 빨강이던 이유). 가드는 그대로 두 번째 방어로 남는다. */
+      b.on('game:complete', () => this.setCinematic(false)),
+      b.on('game:over', () => this.setCinematic(false)),
       /* 2026-09-14: 화면 전체 검은 페이드. `game:newMission` 은 **일부러 듣지 않는다** — `world:ready` 가 그
        * 이벤트 안에서 동기로 발행되므로(`hud/Compass` 주석), 월드가 뜨자마자 켜는 오프닝 페이드를 우리가 도로
        * 지워 버린다. 방어는 `game:abort` 와 아래 `applyVisibility` 의 페이즈 가드 둘이면 충분하다. */
@@ -500,8 +507,8 @@ export class HudSystem implements GameSystem {
   /**
    * 2026-09-13: `cinematic` on the overlay, gameplay and social layers. The CSS fades the first two out whole and, in the
    * social layer, only the combat pieces (PC vitals · interaction caption · hold ring · centre dot) — chat, notifications
-   * and the squad list stay. The class comes off again on `ui:cinematic false`, an abort / new mission, or (`applyVisibility`)
-   * as soon as the phase leaves gameplay (the result screen).
+   * and the squad list stay. The class comes off again on `ui:cinematic false`, an abort / new mission, the raid's end
+   * (`game:complete` / `game:over`, same emit) or (`applyVisibility`) as soon as the phase leaves gameplay.
    */
   /*
    * 2026-09-16 (사용자 결정 — 「이륙이 시작되면 남은 HUD 가 전부 사라진다」, 튜토리얼 · 분대 포함): 위의 「채팅 · 알림 · 분대

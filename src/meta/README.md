@@ -203,6 +203,11 @@ but no content gates on it yet.
 - `.inv-screen.corp-view`'s `height: calc(100vh - 130px)` mirrors inventory's `.inv-screen` `max-height`; change both together.
 - Folder split: `model.ts` holds shared vocabulary, `parts/*.ts` take `sys: MetaSystem` as first argument and import only types from
   `MetaSystem.ts`; members reached by `parts/` are public but not an external contract.
+- **Nothing is locked by per-NPC trust** (2026-09-14 user decision — accrue and display only). `NpcRequirement.npcRep` and
+  csv `reqNpcRep` have a loader and a check but zero readers; what to unlock is a decision first.
+- **The collectible super-category is an axis, not an objective type** (2026-09-16 user decision). `SuperCategory` /
+  `categoryPathKo` exist, but no objective counts them: a quest like 「가치 10,000 이상의 수집품 납품」 needs a value-sum
+  objective in `npc_objectives.csv` counted here with `superCategoryOf`. Only the five library media carry one today.
 
 ## Recent changes
 

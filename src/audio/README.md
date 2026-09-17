@@ -76,6 +76,10 @@ warp hum on `hub:warpProgress`), `net:*`, `extraction:*` (ambience targets), `im
   procedural music yet); playback state belongs to `housing/parts/Music`, the volume is shown by `ui/hud/MusicPlayer`.
   Missing `bgm` in an old save means "unknown" → `AUDIO_DEFAULT_BGM`, not 0.
 - Ambience bypasses the sfx slider (master only); master ducks while `game:paused`.
+- **Intended** (2026-09-16): a shell whistle that was more than 55 m from the impact point when it started
+  (`SHELL_INCOMING_LEAD_S` before impact) stays silent even if the listener runs in afterwards — a synth sound cannot be
+  started from the middle. Bug footsteps do not follow the ground material, and a hunter's leap landing still plays the old
+  `bug_step`.
 
 ## Recent changes
 

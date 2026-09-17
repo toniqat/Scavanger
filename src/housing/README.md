@@ -314,6 +314,18 @@ reasoning. The list below is what a maintainer would otherwise break.
 - The 분석 도감 shows chances **for a common sample** (the widest pool); with the rarity floor the real chance depends
   on the sample you insert. Its `timeMul` line still shows only the analysis-level multiplier, not
   `derived.researchTimeMul` nor the dex / sample-level speed-up (those are on the 해석 tab).
+- **Library books belong to the ship, not the character**; the dex records only what is shelved, and there is no bookshelf
+  upgrade path.
+- A ripe crop is shown by the station's glow and the screen's badge only (`housing:growChanged`) — no toast, no messenger
+  notice.
+- **Furniture comes from crafting only** — shop-bought and looted furniture were left out (2026-09-11 user decision, old
+  A-4).
+- **Removing a facility refunds 100 % of the current price list**, so a rebalance changes what an already-built facility
+  gives back and moving a facility is effectively free (intended — there is no other way to move one).
+- **Processor wear is per processor** (down to half), but cluster speed is exponential in the count, so letting all nine
+  slots wear out is ≈22.6× slower than new (user-confirmed figure). The 3D furniture's LED cells
+  (`hub/interiors/FurnitureMining.ts`) show the **count** only, so a worn slot looks like a new one. A neighbouring save's
+  `clusters[].cores` are not mounted — they are refunded to the stash as **full-durability** processors.
 
 ## Recent changes
 

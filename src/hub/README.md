@@ -317,8 +317,9 @@ doorway is an open shared edge.
 - `hub:workbenchToggled` and `.menu.hub-menu.workbench` CSS are leftovers of the removed repair bench; nothing emits or
   uses them. `Parts.workbench`, `stations.repairBench`, `ShipStations.bench?` are kept but never called.
 - Join / leave toasts are owned by `ui/hud/Notifications`; this folder shows none.
-- Known limits: a visited ship does not show TV consoles or remote video-game staging; a peer's ready cell shows no
-  level until their crew card arrives; the exterior docking cutscene carries its own bay `PointLight`.
+- Known limits: a visited ship does not show TV consoles, remote video-game staging or a dining plate (`ShipVisitWire`
+  carries no plate); a peer's ready cell shows no level until their crew card arrives; the exterior docking cutscene
+  carries its own bay `PointLight`.
 
 ## Recent changes
 

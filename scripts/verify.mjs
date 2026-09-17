@@ -197,8 +197,9 @@ const SMOKES = {
   'smoke-tutorial':     { file: 'scripts/smoke-tutorial.mjs',     folders: ['tutorial', 'hub', 'housing', 'inventory', 'ui', 'items'] },
   /* 2026-09-15 (E-12): 튜토리얼 레이드 트랙을 끝까지 — 체크포인트 부활 · 낙사 부활 자리 · kill/clamp · 즉시 이륙 → 정산(TUTORIAL_RAID_XP) → 함선 획득.
      smoke-tutorial 은 증축 트랙만 몬다. 구간 사이는 순간이동, 판정이 걸린 행동(낙하 · 스위치)만 실제 입력.
-     2026-09-16: 방탄복 실드 + 자연 낙하 → 체력 피해 · 다친 채 wall 을 지나도 supplyLoot 유지 · 붕대 실사용 → grenade · 이륙 프레임마다 크로스헤어 0 · HUD 코드 페이드. */
-  'smoke-tutorial-raid': { file: 'scripts/smoke-tutorial-raid.mjs', folders: ['tutorial', 'world', 'game', 'extraction', 'player', 'enemies'] },
+     2026-09-16: 방탄복 실드 + 자연 낙하 → 체력 피해 · 다친 채 wall 을 지나도 supplyLoot 유지 · 붕대 실사용 → grenade · 이륙 프레임마다 크로스헤어 0 · HUD 코드 페이드.
+     2026-09-17: `ui` 추가 — 이륙 프레임의 크로스헤어 · HUD 페이드 검사는 ui/ 의 것이라 ui 만 바꾼 변경에서도 돌아야 한다. */
+  'smoke-tutorial-raid': { file: 'scripts/smoke-tutorial-raid.mjs', folders: ['tutorial', 'world', 'game', 'extraction', 'player', 'enemies', 'ui'] },
   /* 2026-09-15 (E-12): 튜토리얼 함선 트랙 — levelUp → stats(＋ · 1초 홀드 확정) · 새로고침 복원.
      2026-09-16: 메신저 단계 제외 — 확정 뒤 화면을 닫아야 트랙이 끝난다 · 옛 저장 messenger / ravenQuest = 끝 · 레이븐은 튜토리얼 뒤. */
   'smoke-tutorial-ship': { file: 'scripts/smoke-tutorial-ship.mjs', folders: ['tutorial', 'meta', 'ui', 'progression', 'inventory'] },

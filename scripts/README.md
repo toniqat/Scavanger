@@ -119,7 +119,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-tram-ride.mjs` | enemies, world | Enemies and corpses ride trams in vehicle-local space; replica prediction |
 | `smoke-trust.mjs` | stratagems, weapons, implants, gadgets, meta, enemies | Two clients in a private lobby forge wire messages; host guards (ship calls, buffs, contracts, `explode`, `st`, denies) hold |
 | `smoke-tutorial.mjs` | tutorial, hub, housing, inventory, ui, items | Build track: gates, spotlight, hides, skip hold |
-| `smoke-tutorial-raid.mjs` | tutorial, world, game, extraction, player, enemies | Raid track end to end through the real entry path (teleports between sections, real input for judged actions) |
+| `smoke-tutorial-raid.mjs` | tutorial, world, game, extraction, player, enemies, ui | Raid track end to end through the real entry path (teleports between sections, real input for judged actions) |
 | `smoke-tutorial-ship.mjs` | tutorial, meta, ui, progression, inventory | Ship track (2 steps): level-up → stats with real input; the track ends only when the inventory closes (no build intro over the character screen); old `messenger` / `ravenQuest` saves read as done; reload after confirming; Raven writes after the tutorial |
 | `smoke-tv-games.mjs` | hub | TV / console models, seat interaction, game staging (housing stubbed) |
 | `smoke-ui-p5.mjs` | ui, meta, game | Title level chip, contract panel, meta toasts, result-screen XP block |
@@ -161,6 +161,20 @@ constants or pure functions is harmless, but **mutating that copy's state** (ins
 app — typically red only on a long-lived dev server. Smokes that mutate module state import **the URL the document actually fetched**:
 `smoke-library-consumers.mjs`'s `window.__imp` looks the path up in resource timing (raise the buffer with
 `performance.setResourceTimingBufferSize` in `evaluateOnNewDocument`) and falls back to the bare path.
+### Known gaps in the net
+
+- `smoke-inventory-p6.mjs` does not call `quietViteHmr(page, { parkRelay: true })`, although it is the same kind of
+  single-player smoke (`meta` · `housing` · `ladder`) that `quiet-hmr.mjs` names as 「a server profile must not arrive
+  mid-run」. Parking the relay socket makes it a real standalone client and removes that family of flakes (one setting
+  line, not an assertion).
+- **No smoke covers**: the dining-plate wire with two clients (`plate` / `plateq` — the current smoke only watches the
+  `net:squadPlate` event), mineral veins, the removal of a hand-placed tutorial corpse, the squad-abandon flow in a browser
+  (relay selftest only), or the 2026-09-16 android behaviours (free roam · ping agreement · 앞장서라 doubling · engage
+  range — `smoke-ally-*` checks the older items).
+- `check-planet-loot`'s book-volume check (I > … > V) fails by construction: `LIBRARY_VOLUME_DROP_WEIGHT` only has
+  volumes 1–3.
+- Nothing compares `extraction`'s `GROUND_DRAW_LIFT_MAX` with a world's drawn ground lift (`world/tutorial` `TOP_LIFT`) —
+  `smoke-extraction` checks the ship-side inequality only.
 
 ### Runner options (`node scripts/verify.mjs --help`)
 
@@ -195,7 +209,8 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
   i7-14700K: a 9-script pool at `--jobs 8` (`smoke-tutorial-raid` and `smoke-lights` included) passed with two `smoke-desktop`
   runs alongside it. Re-measure `--jobs` on the machine you run on instead of quoting a number from here.
 - **Lanes: 4 is the default, 6 is faster but less reliable.** `--jobs 6` = 12 min 56 s, with more time under 20 fps (292 s vs 210 s
-  over all pages) and three timing reds that 4 lanes do not show (`smoke-ladder` climb speed, `smoke-tutorial-raid` HUD fade value,
+  over all pages) and three timing reds that 4 lanes do not show (`smoke-ladder` climb speed, `smoke-tutorial-raid` HUD fade value
+  — that one was not a timing limit but a one-frame race in `ui`, fixed 2026-09-17 —,
   `smoke-rover` turret hit). The older "8 lanes is slower" result (18 min 30 s → 20 min 00 s) most likely included the close stall (its "groups finish in the same second" is that symptom),
   which grows with lane count — do not quote it as the frame-rate limit.
 - The exclusive scripts run one at a time after the pool (~3.5 min: `smoke-hangar` · `smoke-squad-dock` · `smoke-android-lobby` ·
@@ -207,6 +222,7 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
 ## Recent changes
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
+- 2026-09-17 — 「Known gaps in the net」 collects what nothing checks (moved out of `docs/TODO.md`); `smoke-tutorial-raid` is mapped to `ui` as well — its liftoff HUD frames are ui's.
 - 2026-09-17 — `verify.mjs` keeps a red run's logs in `<log-dir>/failed/`; `smoke-desktop` says **why** a boot timed out (listening
   pids, process alive, last fetch error, and whether the port comes up late at all) and notes any boot slower than 3 s (E-13).
 - 2026-09-16 — New `close-browser.mjs`; every smoke and `e2e-mp` closes Chrome through `closeBrowser` (kills the process tree first) — `verify:all` 26 min 46 s → 16 min 40 s on this machine.

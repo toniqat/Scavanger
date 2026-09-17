@@ -203,6 +203,17 @@ whose `durabilityMax` is a liquid gauge and is excluded by name in the same pred
 - **`ItemSpec.ts` must not import `src/gadgets`**; it reads the same shared constants. `GadgetDef` owns behaviour, the spec table owns card
   rows. Descriptions must not repeat numbers the spec rows show.
 - Description markup uses the same `{token}` syntax as `shared/keycap.renderKeyText`; an unknown token renders literally. — `ItemText.ts`
+- The epic+ gate (`planet_loot.csv` `epicPlusMul`) also catches **keys (epic), the named rogue's guaranteed drop**
+  (minigun 80 → 40 %), **processors** (legendary, ≈2 → 1 % back-calculated from tier 4), **records** and the bug corpse's
+  `alien_artifact`; only the lab's locked room is exempt (`CrateLootOpts.lockedRoom`). Intended (2026-09-16), felt rates
+  unverified. — `Loot.ts`
+- **Mythic is out of crate and corpse rolls entirely** (`RARITY_ORDER_LOOT` cuts at legendary), which also took unique
+  weapons out of crate weapon draws: they come from crafting, the boss corpse unique chance and `loot_named.csv` only —
+  felt rates unverified. `loot_tiers.csv`'s `mythic` column is read by **planet veins only** (`world/mineral.ts`). The three
+  mythic armors still have no craft recipe, so they cannot be salvaged either.
+- `gad_thumper` has no zero row in `loot_item_weights.csv`, so it mixes into every planet's tier 2–4 gadget roll — which
+  contradicts `structures.csv`'s 「아켈론 II 지하실 전용」. A basement bonus roll is keyed by **structure kind + planet**, so
+  it cannot be bound to one specific building; changing that needs a decision first.
 
 ## Recent changes
 

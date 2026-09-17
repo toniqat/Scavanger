@@ -25,7 +25,7 @@ The relay server keeps a per-token **profile store** (credits · meta · stash �
 | Verification procedure · known flaky smokes | [docs/VERIFICATION.md](docs/VERIFICATION.md) |
 | What each script checks | [scripts/README.md](scripts/README.md) |
 | **When / what / why something changed** | `git log` — **commit messages are the source** (`git log -- src/<folder>`, `git log --grep '<keyword>'`) |
-| **Work to do · known limits** | [docs/TODO.md](docs/TODO.md) (Korean) |
+| **Work to do** | [docs/TODO.md](docs/TODO.md) (Korean) — to-do only; an intended limit lives in the owning folder's `README.md` |
 | Completed phases | [docs/HISTORY.md](docs/HISTORY.md) |
 | What the user chose and what was rejected | [docs/DECISIONS.md](docs/DECISIONS.md) |
 | **Investor / publisher wiki** (HTML, no build, public at **https://toniqat.github.io/Scavanger/**) | [docs/pitch/README.md](docs/pitch/README.md) → `docs/pitch/index.html`; page order · file numbers · section numbers come from `TREE` in `docs/pitch/app.js`; `node scripts/smoke-pitch.mjs` catches breakage |
@@ -325,6 +325,8 @@ AAA feel in the browser: readable silhouettes, strong lighting (sun + hemisphere
   - Invariant or reason for a value → **comment right above that code**; cross-folder rules also get a short bullet in §4.
   - Folder structure / public API changed → that folder's `README.md` body; its `Recent changes` keeps the **last 5 one-liners** (add at top, drop the bottom).
   - User's choice and rejected alternatives → [docs/DECISIONS.md](docs/DECISIONS.md) (no implementation narration).
-  - New limit or to-do → [docs/TODO.md](docs/TODO.md). Edit the folder map row only if the folder's responsibility changed.
+  - New to-do → [docs/TODO.md](docs/TODO.md); a new **intended limit** ("decided to be this way") → the owning folder's `README.md`
+    (`## Rules` · `## Notes` · `## Known limits`), never TODO.md; a gap in the verification net → [scripts/README.md](scripts/README.md).
+    Edit the folder map row only if the folder's responsibility changed.
   - **Never** write work logs into [docs/HISTORY.md](docs/HISTORY.md) or [docs/VERIFICATION.md](docs/VERIFICATION.md).
   - Write docs in **English** (except `docs/TODO.md`).

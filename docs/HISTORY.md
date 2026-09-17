@@ -11,7 +11,8 @@
 | What breaks if violated (conventions · invariants) | The comment right above that code, and the conventions section of [CLAUDE.md](../CLAUDE.md) |
 | Why an alternative was chosen (user decisions) | [DECISIONS.md](DECISIONS.md) |
 | When something changed | `git log` |
-| Upcoming work · known limits | [TODO.md](TODO.md) |
+| Upcoming work | [TODO.md](TODO.md) |
+| Known limits of a feature (intended, decision first to change) | that folder's `README.md` |
 
 ---
 
