@@ -161,7 +161,41 @@ async function waitPortsFree(ports, ms = 15000) {
   }
 }
 async function getJson(url, ms = 1500) {
-  try { const r = await fetch(url, { signal: AbortSignal.timeout(ms) }); return r.ok ? await r.json() : { httpStatus: r.status }; } catch { return null; }
+  return (await probeJson(url, ms)).v;
+}
+/**
+ * `getJson` 과 같지만 **실패 이유**를 남긴다 (E-13, 2026-09-17). 「앱이 아직 포트를 안 열었다」와 「우리 쪽 fetch 가
+ * 실패했다(소켓 고갈 · 타임아웃 · 연결 거부)」는 `null` 하나로는 구분이 안 된다 — 전체 실행 안에서만 나는 부팅
+ * 실패를 로그만 보고 가리려면 이유가 필요하다.
+ */
+async function probeJson(url, ms = 1500) {
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(ms) });
+    return { v: r.ok ? await r.json() : { httpStatus: r.status }, err: r.ok ? null : `HTTP ${r.status}` };
+  } catch (e) {
+    const cause = e?.cause ? ` (${e.cause.code ?? e.cause.message ?? e.cause})` : '';
+    return { v: null, err: `${e?.name ?? 'Error'}: ${e?.message ?? e}${cause}` };
+  }
+}
+/**
+ * 부팅이 제한 시간 안에 안 끝났을 때 **무엇이 막았는지** 남긴다 (E-13, 2026-09-17). 예전 메시지는 「45 초 안에
+ * 응답하지 않았다」 한 줄이라 느린 것인지 · 죽은 것인지 · 포트를 남이 쥔 것인지 알 수 없었다. 실패할 때만 도는
+ * 경로라 통과 시간에는 영향이 없다 — 대신 제한 시간을 넘겨서도 `graceMs` 를 더 기다려 **결국 뜨는지**를 본다.
+ */
+async function bootDiag(h, debugPort, lastErr, waitedMs, graceMs = 120_000) {
+  const pid = h?.child.pid ?? null;
+  const list = processList();
+  const alive = pid ? list.some((p) => p.pid === pid) : null;
+  const tree = pid && alive ? descendants(pid, list).length : 0;
+  const onDebug = pidsOnPort(debugPort);
+  const onInspect = pidsOnPort(INSPECT_PORT);
+  const t1 = Date.now();
+  let late = null;
+  while (!late && Date.now() - t1 < graceMs) { late = await getJson(`http://127.0.0.1:${debugPort}/json/version`, 1000); if (!late) await sleep(500); }
+  const lateS = late ? ((Date.now() - t1 + waitedMs) / 1000).toFixed(0) : null;
+  return `[진단] exit=${JSON.stringify(h?.exit ?? null)} 프로세스생존=${alive} 트리=${tree} `
+    + `듣는중 ${debugPort}=[${onDebug.join(',')}] ${INSPECT_PORT}=[${onInspect.join(',')}] 마지막fetch=${lastErr ?? 'none'} `
+    + (late ? `— 결국 ${lateS} s 에 떴다 (죽은 게 아니라 느린 것이다)` : `— ${Math.round((waitedMs + graceMs) / 1000)} s 를 기다려도 안 떴다`);
 }
 
 /**
@@ -222,6 +256,7 @@ async function waitFor(page, fn, label, timeout = 60000, arg) {
 async function attach(h, { debugPort = DEBUG_PORT, early = true } = {}) {
   const t0 = Date.now();
   let version = null;
+  let lastErr = null;
   while (!version && Date.now() - t0 < 45000) {
     if (early && h?.exit) throw new Error(`${h.label} 이 부팅 중에 끝났다 (exit ${h.exit.code})\n${tail(h)}`);
     // 메인 번들이 로드에서 죽으면 Electron 은 오류 대화상자를 띄운 채 살아 있다 — 기다리지 않고 곧바로 끝낸다.
@@ -229,10 +264,14 @@ async function attach(h, { debugPort = DEBUG_PORT, early = true } = {}) {
       killTree(h.child.pid);
       throw new Error(`${h.label}: 메인 프로세스 번들이 로드 중에 죽었다 (dist-electron/main.js — 다른 작업이 반쯤 된 코드일 수 있다)\n${tail(h)}`);
     }
-    version = await getJson(`http://127.0.0.1:${debugPort}/json/version`, 1000);
+    const probe = await probeJson(`http://127.0.0.1:${debugPort}/json/version`, 1000);
+    version = probe.v; lastErr = probe.err;
     if (!version) await sleep(200);
   }
-  if (!version) throw new Error(`${debugPort}/json/version 이 45 초 안에 응답하지 않았다${h ? `\n${tail(h)}` : ''}`);
+  const bootMs = Date.now() - t0;
+  if (!version) throw new Error(`${debugPort}/json/version 이 45 초 안에 응답하지 않았다 ${await bootDiag(h, debugPort, lastErr, bootMs)}${h ? `\n${tail(h)}` : ''}`);
+  // 전체 실행 안에서 부팅이 느려지는지(E-13) 는 통과한 실행의 시간을 봐야 안다 — 3 초를 넘으면 남긴다.
+  if (bootMs > 3000) console.log(`  note: ${h?.label ?? '앱'} 의 ${debugPort}/json/version 이 ${(bootMs / 1000).toFixed(1)} s 만에 떴다 (제한 45 s)`);
   const browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${debugPort}`, defaultViewport: null, protocolTimeout: 60000 });
   let page = null;
   while (!page && Date.now() - t0 < 60000) {

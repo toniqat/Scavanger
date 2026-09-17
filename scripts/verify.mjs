@@ -34,7 +34,7 @@
  *   Servers started here are stopped on exit; servers found running are left alone.
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync, existsSync, createWriteStream } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync, existsSync, createWriteStream } from 'node:fs';
 import { CSV_FOLDERS, CSV_WIDE } from './data-owners.mjs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -678,5 +678,19 @@ const line = results.map((r) => `${r.name} ${r.score}${r.consoleErrs ? ` (${r.co
 console.log(`\n${failed.length ? `\x1b[31m${failed.length} failed\x1b[0m` : '\x1b[32mall passed\x1b[0m'} in ${Math.floor(total / 60)} min ${total % 60} s`);
 console.log(`docs line: ${new Date().toISOString().slice(0, 10)}: ${line}`);
 if (failed.length) console.log('re-run only the failures: node scripts/verify.mjs --rerun-failed');
-writeFileSync(LAST_RUN, JSON.stringify({ time: new Date().toISOString(), totalSeconds: total, results }, null, 2));
+const record = { time: new Date().toISOString(), totalSeconds: total, results };
+writeFileSync(LAST_RUN, JSON.stringify(record, null, 2));
+/* 2026-09-17 (E-13): 빨간 잡의 로그를 `failed/` 에 복사해 둔다. 실패한 실행의 로그는 늘 「단독으로 다시 돌려 보는」
+   다음 실행이 같은 파일 이름으로 덮었고, 그 재실행이 초록이면 증거가 통째로 사라졌다 (E-13 의 2026-09-16 실패 3번이
+   그렇게 없어졌다). 여기 사본은 **다음 빨간 실행**에만 덮인다. */
+if (failed.length) {
+  const dir = resolve(LOG_DIR, 'failed');
+  try {
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    for (const r of failed) { try { copyFileSync(resolve(ROOT, r.log), resolve(dir, `${r.name}.log`)); } catch { /* 로그 파일이 없는 잡(runner) */ } }
+    writeFileSync(resolve(dir, 'last-run.json'), JSON.stringify(record, null, 2));
+    console.log(`failed logs kept in ${LOG_REL}/failed/ (only the next red run overwrites them)`);
+  } catch { /* 사본을 못 남겨도 실행 결과는 그대로다 */ }
+}
 process.exit(failed.length ? 1 : 0);

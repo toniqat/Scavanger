@@ -167,6 +167,9 @@ app — typically red only on a long-lived dev server. Smokes that mutate module
 - `--only a,b` · `--folders weapons,ui` · `--rerun-failed` (from `last-run.json`) · `--all` · `--list` · `--dry-run` (print the selection and why, run nothing).
 - `--jobs N` (default 4; 6 is faster but adds timing reds — see “Why the run takes as long as it does” below) · `--serial` · `--base <ref>` · `--build` · `--no-typecheck` · `--no-e2e` · `--url` · `--timeout <min>`.
 - `--log-dir scripts/logs/<name>` gives each concurrent runner its own logs and `last-run.json`; `--keep-relay` keeps a relay already on 8787.
+- A **red run copies the failing jobs' logs to `<log-dir>/failed/`** (with that run's `last-run.json`). `scripts/logs/<name>.log` is
+  overwritten by the next run of that script, so re-running a failure by hand used to destroy the only evidence of it (E-13);
+  the copy is replaced only by the next **red** run.
 - Unknown options and `--help` print help and **run nothing**.
 - The runner starts its own relay with `SCAV_DEV_ECONOMY=1` so dev credit reasons (`smoke:*` · `e2e:*` · console · `shot`) are accepted.
   **A shared relay started by hand for parallel smokes needs `SCAV_DEV_ECONOMY=1`** — otherwise top-ups are reverted (the runner prints a note
@@ -188,6 +191,9 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
   after `closeBrowser` (smoke process time 5476 s → 3287 s; time after the browser disconnected 2244 s → 17 s). Details in `close-browser.mjs`.
 - The rest is **simulation time**. Smokes wait on `ctx.time`; pages run at ~55–60 fps on 4 lanes, so game time ≈ wall time.
   `Engine.MAX_DT = 0.05` puts a **20 fps floor** under it: below 20 fps the game clock runs slower than the wall clock.
+- **The lane numbers are per machine.** The reds below are from the 8-core/16-thread box. Measured 2026-09-17 on the 28-thread
+  i7-14700K: a 9-script pool at `--jobs 8` (`smoke-tutorial-raid` and `smoke-lights` included) passed with two `smoke-desktop`
+  runs alongside it. Re-measure `--jobs` on the machine you run on instead of quoting a number from here.
 - **Lanes: 4 is the default, 6 is faster but less reliable.** `--jobs 6` = 12 min 56 s, with more time under 20 fps (292 s vs 210 s
   over all pages) and three timing reds that 4 lanes do not show (`smoke-ladder` climb speed, `smoke-tutorial-raid` HUD fade value,
   `smoke-rover` turret hit). The older "8 lanes is slower" result (18 min 30 s → 20 min 00 s) most likely included the close stall (its "groups finish in the same second" is that symptom),
@@ -201,8 +207,9 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
 ## Recent changes
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
+- 2026-09-17 — `verify.mjs` keeps a red run's logs in `<log-dir>/failed/`; `smoke-desktop` says **why** a boot timed out (listening
+  pids, process alive, last fetch error, and whether the port comes up late at all) and notes any boot slower than 3 s (E-13).
 - 2026-09-16 — New `close-browser.mjs`; every smoke and `e2e-mp` closes Chrome through `closeBrowser` (kills the process tree first) — `verify:all` 26 min 46 s → 16 min 40 s on this machine.
 - 2026-09-16 — `verify.mjs`: a `src/shared` change no longer selects everything by itself — narrow ones pick the folders that use the changed exports (`sharedConsumers`); new `--dry-run`.
 - 2026-09-16 — `verify.mjs`: `net:selftest` now runs alongside the smokes (it used to hold the browsers back ~50 s), and the lane start times share one 24 s ramp budget instead of 8 s per lane; measured why `--jobs` must stay at 4.
 - 2026-09-16 — `smoke-cooking` covers dining plates (table gate, replace warning, eat without consuming, squad plates, launch warning, raid-start clear); `smoke-inventory-p6` cook section tests `consumeCookInputs` (meal quality stack checks removed); data-check resolves meal ids in the meal table.
-- 2026-09-15 — New `smoke-thumper` (진동 장치 in gadgets/; stubs `burrowGroundOk` until world publishes it).
