@@ -1,9 +1,10 @@
 /**
  * src/enemies/ai/named/Hammer.ts — **Tagilla** (`rogue_hammer`, 2026-09-11).
  *
- * The hammer melee boss. In contact it does 50 per second (`attackDamage` 50 / `attackCooldown` 1 in
- * `data/enemies.csv`), with 10 × an ordinary rogue's hp. No cover cycle — it charges straight at a target the moment
- * one appears, and with a clear lane inside `chargeDist` it rushes a short way to close the gap.
+ * The hammer melee boss. In contact it does `attackDamage` every `attackCooldown`, off an `hp` several times an
+ * ordinary humanoid's — all three are the `rogue_hammer` row of `data/enemies.csv`. No cover cycle — it charges
+ * straight at a target the moment one appears, and with a clear lane inside `chargeDist` it rushes a short way to
+ * close the gap.
  *
  * States (`Enemy.state` + `namedPhase`):
  *  - idle / wander   : patrols `patrolRadius` around its spawn structure (`guardPos`). wander + phase 3 = on its way back to the structure.

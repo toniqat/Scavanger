@@ -305,7 +305,7 @@ function spawnGroup(host: RogueSpawnHost, ref: SiteRef, faction: SiteFaction, g:
   }
 }
 
-/** The yaw that looks outward with its back to `center` (the old `RogueGuards.placeAround` convention). */
+/** The yaw that turns its back on `center` and looks outward: `atan2(Δx, Δz)` at the centre turned by π (humanoid yaw convention, nose along +Z). */
 function outwardYaw(p: THREE.Vector3, center: THREE.Vector3): number {
   if (Math.abs(p.x - center.x) + Math.abs(p.z - center.z) < 1e-3) return 0;
   return Math.atan2(center.x - p.x, center.z - p.z) + Math.PI;

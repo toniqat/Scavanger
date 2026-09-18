@@ -44,7 +44,6 @@
 | A-7 | **BGM**. 설정의 오디오 채널 자리만 비워 뒀다 | `src/ui/menus/SettingsMenu.ts:26` "Room is left for a future BGM row … there is no BGM" |
 | B-10 | **채널 티커의 음소거가 플래그 하나**. 스프레이 도중 끝난 붕대는 토스트가 없고, `active:false` 를 놓치면 라인이 남는다 | `src/ui/hud/Notifications.ts` |
 | B-22 | **`smoke-rover` 5번 단언이 알 수 없는 것을 단언한다** (2026-09-18 발견 — `9e6c01d` 와 그 부모 양쪽에서 같이 red 라 그 커밋 탓이 아니다). 로버 옆 13 m 에 `warrior` 하나를 세우고 5초 뒤 「`rover:fired` 가 늘었고 **그 적의** hp 가 줄었다」를 함께 요구하는데, 포탑은 `ROVER_TURRET_RANGE` 안 **가장 가까운** 적을 골라 직접 피해를 준다(`rover/parts/Turret.ts`). 다른 벌레가 더 가깝거나, 순환 중인 로버가 세운 적을 `ROVER_TURRET_AIM_CONE` 밖 · 차폐 뒤에 두면 16~20발을 쏘고도 `hp 213 → 213` 이 되어 29/30 이 된다. 두 조건을 **같은 적**으로 재거나(`rover:fired` 의 대상 · `ts.targetId` 고정) 주변을 먼저 비워야 한다 | `scripts/smoke-rover.mjs:235` · `src/world/rover/parts/Turret.ts:82-116` |
-| B-25 | **주석 안에 csv 수치를 베껴 놓은 자리 3곳** (CLAUDE.md §4.1 「코드에 숫자 없기」의 서류판 위험). `named/Director.ts` 머리의 「threat 1 = 0 · 2 = 25 % · 3 = 50 %」(살아 있는 값은 `data/tables.csv` 의 `NAMED_ROGUE_CHANCE_BY_THREAT`), `ai/named/Sniper.ts` 머리의 「150 피해」(`NAMED_SNIPER.damage`), `ai/named/Hammer.ts` 머리의 「초당 50」과 「일반 로그의 10배 체력」 — 마지막 것은 2026-09-17 전체 체력 ÷3 개편 이전 숫자라 지금도 맞는지 확인이 필요하다 | `src/enemies/named/Director.ts` · `ai/named/Sniper.ts` · `ai/named/Hammer.ts` |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝
 

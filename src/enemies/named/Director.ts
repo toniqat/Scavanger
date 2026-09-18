@@ -7,9 +7,9 @@
  * The `world:ready` authority branch of `EnemySystem` calls `roll()` once, **after** site group placement (`SiteGroups`).
  * No-op in the training range. The seed stream is the single `hash('named@<worldSeed>')` (before 2026-09-13 it was
  * `worldSeed ^ hash('named')` — nearby seeds had similar first rolls), and that stream draws, in order,
- *   (1) whether one appears, `NAMED_ROGUE_CHANCE_BY_THREAT[planetThreat(planet) − 1]` (2026-09-13 — threat 1 = 0 ·
- *      2 = 25 % · 3 = 50 %, no planet = threat 1). All three named rogues and the scan drone are faction `raider`
- *      (`data/enemies.csv`),
+ *   (1) whether one appears, `NAMED_ROGUE_CHANCE_BY_THREAT[planetThreat(planet) − 1]` (2026-09-13 — one row per
+ *      planet threat in `data/tables.csv`; no planet = threat 1, and a row of 0 is a threat that never gets one).
+ *      All three named rogues and the scan drone are faction `raider` (`data/enemies.csv`),
  *   (2) which of the three (uniform),
  *   (3) the spot · the Heavy escorts' spots
  * — the same seed + the same planet = the same answer. The roll only happens at `world:ready`, so someone promoted by
@@ -537,7 +537,7 @@ function settle(world: WorldRef, p: THREE.Vector3, radius: number): void {
   p.y = world.getSurfaceY(p.x, p.z, world.getHeightAt(p.x, p.z));
 }
 
-/** The yaw that turns its back on `center` and looks outward (the same convention as `RogueGuards.placeAround`). */
+/** The yaw that turns its back on `center` and looks outward: `atan2(Δx, Δz)` at the centre turned by π (humanoid yaw convention, nose along +Z). */
 function outwardYaw(p: THREE.Vector3, center: THREE.Vector3): number {
   if (Math.abs(p.x - center.x) + Math.abs(p.z - center.z) < 1e-3) return 0;
   return Math.atan2(center.x - p.x, center.z - p.z) + Math.PI;

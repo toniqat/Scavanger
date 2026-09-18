@@ -26,7 +26,7 @@
  *
  * **It shoots players only** (the lead's decision): `t` (= `pickTarget`'s answer, which may be a bug or a drone) is
  * unused; it picks from `host.targets.alive` itself. Drone proxies (`isDrone`) and enemy proxies (`enemy`) get neither
- * a glint nor the 150 damage.
+ * a glint nor the rifle's `NAMED_SNIPER.damage`.
  *
  * The FX (tracer · flash · the distant report) are one `named/SniperShot` that the host and replicas both call. The
  * glint sprite and the prone pose are drawn by `models/named/SniperLook` from `e.namedHint`.
@@ -60,9 +60,10 @@ const PRONE_SETTLE_S = 0.7;
 const FACE_TOL = 0.12;
 /**
  * Origin of the line-of-fire check: height above the feet · distance forward toward the target (m). C-56 (2026-09-11):
- * the forward distance is **at or below the body radius (0.4)** — the old 0.9 m sat outside the prone body, so the ray
- * started **inside** the mound or rock right in front and never saw the block (a world ray whose origin is inside an
- * obstacle reports no hit). Starting inside the body catches everything between the body and the target.
+ * the forward distance is **at or below the body radius** (`enemies.csv` `radius`, row `rogue_sniper`) — the 0.9 m
+ * it started out at sat outside the prone body, so the ray started **inside** the mound or rock right in front and
+ * never saw the block (a world ray whose origin is inside an obstacle reports no hit). Starting inside the body
+ * catches everything between the body and the target.
  */
 const EYE_UP = 0.32;
 const EYE_FWD = 0.3;
