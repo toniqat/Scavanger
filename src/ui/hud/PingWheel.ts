@@ -2,14 +2,14 @@ import { PING_HOLD_KINDS, PING_HOLD_LABEL_KO } from '@/shared';
 import '../styles/wheels.css';
 import { el, setText, toggleClass } from '../dom';
 
-/** SVG geometry (viewBox units = px) — a flatter, wider ring than the 4칸 휠: only 좌/우 가 있다. */
+/** SVG geometry (viewBox units = px) — a flatter, wider ring than the 4-slot wheel: there is only left / right. */
 const SIZE = 240;
 const R_IN = 54;
 const R_OUT = 108;
 const SECTOR_GAP_DEG = 6;
 const LABEL_RADIUS = (R_IN + R_OUT) / 2;
 
-/** Which side is showing / hovered. 2026-09-10: 아래 드래그(탄약) 다리가 없어져 좌/우가 전부다. */
+/** Which side is showing / hovered. 2026-09-10: the downward (ammo) drag leg is gone, so left / right is all of it. */
 export type PingSide = 'left' | 'right';
 /** The four `PingKind`s the hold gesture can place — derived from the contract table, never re-typed by hand. */
 export type PingHoldKind = (typeof PING_HOLD_KINDS)[keyof typeof PING_HOLD_KINDS][PingSide];
@@ -32,20 +32,24 @@ function sectorPath(a0: number, a1: number): string {
 interface Sector { arc: SVGPathElement; root: HTMLElement; nm: HTMLElement }
 
 /**
- * **지역 핑 홀드 휠 (`.pwheel`, 2026-09-09).** 순수 표현 위젯이다 — 제스처는 그대로 `hud/Pings` 가 본다
- * (`PING_HOLD_MAX` · `PING_DRAG_THRESHOLD_PX` · 누른 시점의 조준 광선까지 v2 그대로), 이 클래스는 `setOpen` /
- * `setHover` 로 그 상태를 그린다. 2026-09-09 이전의 한 줄짜리 `.ping-hint` (`◄ 주의 · 돌격 ► · ▼ 탄약`)를 대신한다.
+ * **The area ping hold wheel (`.pwheel`, 2026-09-09).** A pure presentation widget — the gesture is still read by
+ * `hud/Pings` (`PING_HOLD_MAX` · `PING_DRAG_THRESHOLD_PX` · the aim ray taken at the press, all as in v2), and this
+ * class draws that state through `setOpen` / `setHover`. It replaces the one-line `.ping-hint` of before 2026-09-09
+ * (`◄ 주의 · 돌격 ► · ▼ 탄약`).
  *
- * **좌/우 두 칸의 뜻은 로컬 플레이어의 상태가 정한다** (`shared/comms.ts` 의 `PING_HOLD_KINDS`):
- * 서 있을 때 좌 = 여기 조심해(`caution`) · 우 = 저쪽으로 가자(`attack`), **전투불능이면** 좌 = 살려줘(`help`) ·
- * 우 = 나를 버려(`abandon`). 라벨은 `PING_HOLD_LABEL_KO`, 색은 `hud/Pings` 의 `PING_COLOR` 와 같은 값이다.
+ * **What the two left / right slots mean is decided by the local player's state** (`PING_HOLD_KINDS` in
+ * `shared/comms.ts`): standing, left = `여기 조심해` (`caution`) · right = `저쪽으로 가자` (`attack`); **downed**,
+ * left = `살려줘` (`help`) · right = `나를 버려` (`abandon`). The labels are `PING_HOLD_LABEL_KO` and the colours the
+ * same values as `PING_COLOR` in `hud/Pings`.
  *
- * **2026-09-10 (사용자 결정): 아래쪽 `▼ 탄약` 다리를 없앴다.** 같은 부탁이 `H` 의사소통 휠에 있고 인벤토리에서
- * 장착 무기를 휠클릭해도 같은 문구(`탄약 필요: <탄종>`)가 나가므로 제스처가 겹쳤다 — 이제 아래로 드래그하면
- * 그냥 평범한 핑이 찍힌다. 휠은 좌/우 두 칸뿐이다 (`.ammo-leg` 의 CSS 도 `styles/wheels.css` 에서 지웠다).
+ * **2026-09-10 (user's decision): the downward `▼ 탄약` leg was removed.** The same request sits on the `H`
+ * communication wheel and a middle-click on the equipped weapon in the inventory sends the same line
+ * (`탄약 필요: <탄종>`), so the gestures overlapped — dragging down now just places a plain ping. The wheel has only
+ * the two left / right slots (`.ammo-leg`'s CSS was deleted from `styles/wheels.css` too).
  *
- * 휠은 `pointer-events:none` 오버레이이고 blocker · ESC 스택 · 포인터 락 어디에도 손대지 않는다. 홀드 중
- * 카메라를 묶는 것(2026-09-15, `setLookLocked`)도 이 위젯이 아니라 제스처를 가진 `hud/Pings` 의 일이다.
+ * The wheel is a `pointer-events:none` overlay and touches neither the blocker, the ESC stack nor the pointer lock.
+ * Locking the camera while held (2026-09-15, `setLookLocked`) is likewise not this widget's job but that of
+ * `hud/Pings`, which owns the gesture.
  */
 export class PingWheel {
   readonly root: HTMLElement;

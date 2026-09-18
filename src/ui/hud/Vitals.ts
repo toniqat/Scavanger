@@ -5,14 +5,14 @@ import '../styles/raidHud.css';
 import { BuffStrip } from './BuffStrip';
 
 const STAMINA_PULSE = 0.9; // seconds the bar stays amber after depletion
-/** 피격 잔상이 깎인 자리에 멈춰 있는 시간 (초) — 체력 · 실드 공용. */
+/** How long the damage ghost stands still at the spot it was cut to (seconds) — shared by hp and shield. */
 const GHOST_HOLD = 0.55;
 /** Fallback name when neither the lobby nor the profile has one yet. */
 const FALLBACK_NAME = '스캐빈저';
 
-/** 게이지 한 칸이 나타내는 양 (체력 · 실드 공용, `data/constants.csv`). */
+/** How much one gauge cell stands for (shared by hp and shield, `data/constants.csv`). */
 const PER_SEG = Math.max(1, ARMOR_SHIELD_PER_SEGMENT);
-/** Cells for a pool of `max` (체력 100 → 5칸, 방탄복 III 실드 60 → 3칸). */
+/** Cells for a pool of `max` (hp 100 → 5 cells, a tier III armor's shield 60 → 3 cells). */
 const cellsFor = (max: number): number => Math.max(0, Math.round(max / PER_SEG));
 
 interface Bar {
@@ -23,38 +23,38 @@ interface Bar {
 }
 
 /**
- * 좌측 하단 생존 정보. 2026-09-10 (레이드 HUD 개편, 사용자 결정)으로 다시 짜였다:
+ * The bottom-left survival block. Rebuilt on 2026-09-10 (the raid HUD rework, user's decision):
  *
- *   이름                    ← `.vt-name`, 실드 게이지 좌측 상단
- *   ▮▮▯▯▯  실드            ← `.sh-bar`, 한 칸 = `ARMOR_SHIELD_PER_SEGMENT`(20), 칸 색 = 방탄복 등급색
- *   ▮▮▮▮▮  체력            ← `.hp-bar`, 같은 눈금이라 5등분 (100 / 20)
+ *   name                    ← `.vt-name`, top left of the shield gauge
+ *   ▮▮▯▯▯  shield         ← `.sh-bar`, one cell = `ARMOR_SHIELD_PER_SEGMENT` (20), cell colour = the armor's rarity colour
+ *   ▮▮▮▮▮  hp             ← `.hp-bar`, the same scale, so five cells (100 / 20)
  *
- * **체력 수치와 `생명력` 라벨은 없다.** 두 게이지는 폭 · 정렬 · 칸 눈금이 같아서 실드가 체력 위에 얹힌 한 줄로 읽힌다
- * (칸 수만 다르다 — 방탄복 등급이 낮으면 왼쪽 몇 칸만 있다). 실드 데이터는 `ctx.player.shield / maxShield /
- * shieldRarity` 이고 `player:shieldChanged` 로도 들어온다 (둘 다 본다 — 체력이 그렇듯 폴링이 원본이고 이벤트는 즉시성).
- * **방탄복이 없으면(`maxShield` 0) 실드 줄은 통째로 접힌다** (`hidden`) — 이름과 체력만 남는다.
- * **2026-09-14 (사용자 결정):** 두 게이지 모두 맞은 자리에 **연한 빨강 잔상**(`.ghost`)이 `GHOST_HOLD` 만큼 남았다가 따라온다
- * (전에는 체력만이었고 그 색도 흰 `.fill` 과 구분이 안 되는 연한 하양이었다). 색은 `ui/styles/base.css` 한 곳 —
- * 전투불능(`.vitals.downed .seg .ghost`)이 더 진한 빨강이다.
- * 이름은 `ctx.net.playerName`(= 캐릭터 이름, `progression` 이 `progress:loaded` 에 넣어 준다) → 없으면
- * `ctx.progression.profile.name` → 그래도 없으면 `스캐빈저`. 싱글 플레이에서도 릴레이 없이 나온다.
+ * **There is no hp number and no `생명력` label.** The two gauges share width · alignment · cell scale, so the shield reads as one row
+ * laid over the hp (only the cell count differs — a lower armor tier leaves a few cells on the left). Shield data is `ctx.player.shield /
+ * maxShield / shieldRarity` and also arrives on `player:shieldChanged` (both are read — as with hp, polling is the source, the event is immediacy).
+ * **With no armor (`maxShield` 0) the whole shield row folds away** (`hidden`) — only the name and hp are left.
+ * **2026-09-14 (user's decision):** on both gauges a **pale red ghost** (`.ghost`) stays at the spot that was hit for `GHOST_HOLD`, then follows
+ * (it used to be hp only, in a pale white that could not be told apart from the white `.fill`). The colour lives in one place, `ui/styles/base.css` —
+ * downed (`.vitals.downed .seg .ghost`) is a deeper red.
+ * The name is `ctx.net.playerName` (= the character name, put there by `progression` on `progress:loaded`) → with none
+ * `ctx.progression.profile.name` → with none still `스캐빈저`. It appears in single player too, with no relay.
  *
  * **Downed mode** (`.vitals.downed`, `player:downed` → `player:revived` / `player:spawned` / `player:died`): the health
  * bar shows `downHp / PLAYER_DOWN_HP` in red (`player:downHpChanged`, also polled from `ctx.player.downHp`), the label
  * reads `전투불능 — 아군의 구조 대기 중` with `Space 길게: 포기` under it, and `player:reviveProgress` shows
- * `부활 중 <byName> … n%` + a progress bar (hidden on `t = -1`). 실드 줄은 그동안 접힌다. **Phase 9:** the Space
+ * `부활 중 <byName> … n%` + a progress bar (hidden on `t = -1`). The shield row folds away meanwhile. **Phase 9:** the Space
  * give-up hold shows a red `포기` caption (`.giveup`, `player:giveUpProgress {t}`); 2026-09-08 the progress itself is
  * drawn by `hud/HoldGauge` at the crosshair — this is only the label.
  *
- * **2026-09-12 (캐릭터 버프, 사용자 결정):** 이 블록은 **함선에서도** 보인다 — 그래서 루트는 `HudSystem` 이 **소셜 레이어**에 붙이고
- * (`new Vitals(gameplayRoot, null)` → `socialRoot.appendChild(vitals.root)`, 2026-09-09 의 `HoldGauge` 와 같은 이동), 스태미나 바만
- * 게임플레이 레이어에 남아 **레이드 전용**이다. 함선(`hub` · `docking`)에서는 체력 · 실드를 **늘 가득**으로 그린다 (분대 목록의
- * `hub ? 1` 과 같은 규칙). 체력바 **바로 아래**에 내 버프 썸네일 줄(`hud/BuffStrip`)이 선다 — `ctx.player.buffs` 를 매 프레임
- * 참조 비교로 폴링하고 `player:buffsChanged` 로도 받는다. `setDebugBuffs(list)` 는 스모크용 덮어쓰기(null = 원래 원본).
+ * **2026-09-12 (character buffs, user's decision):** this block shows **in the ship too** — so `HudSystem` mounts the root in the **social layer**
+ * (`new Vitals(gameplayRoot, null)` → `socialRoot.appendChild(vitals.root)`, the same move as `HoldGauge` on 2026-09-09), and only the stamina bar
+ * stays in the gameplay layer as **raid-only**. In the ship (`hub` · `docking`) hp and shield are drawn **always full** (the same rule as the squad
+ * list's `hub ? 1`). **Directly under** the hp bar stands my buff thumbnail strip (`hud/BuffStrip`) — `ctx.player.buffs` is polled every frame by
+ * reference comparison and also arrives on `player:buffsChanged`. `setDebugBuffs(list)` is the smoke override (null = back to the real source).
  */
 export class Vitals {
   readonly root: HTMLElement;
-  /** 2026-09-12: 내 버프 · 디버프 썸네일 줄 (체력바 바로 아래). */
+  /** 2026-09-12: my buff · debuff thumbnail strip (directly under the hp bar). */
   readonly buffs: BuffStrip;
   private nameEl: HTMLElement;
   private hpBar: Bar;
@@ -78,7 +78,7 @@ export class Vitals {
   private maxShield = 0;
   private shieldRarity: Rarity | null = null;
   private shieldShown = 0;           // damped, like `shown`
-  /** 2026-09-14: 실드도 체력과 같은 잔상 — 깎인 자리가 연한 빨강으로 잠깐 남았다가 따라온다. */
+  /** 2026-09-14: the shield has the same ghost as hp — the cut spot stays pale red for a moment, then follows. */
   private shieldGhost = 0;
   private shieldGhostDelay = 0;
   private lastShieldTarget = 0;
@@ -106,11 +106,11 @@ export class Vitals {
     this.shBar = this.makeBar('sh-bar', 'sh-seg', 0);
     this.hpBar = this.makeBar('hp-bar', 'seg', cellsFor(PLAYER_MAX_HP));
     this.shBar.root.hidden = true;
-    // 2026-09-12: right under the hp bar (before the downed caption rows, which stay hidden outside 전투불능).
+    // 2026-09-12: right under the hp bar (before the downed caption rows, which stay hidden outside the downed state).
     this.buffs = new BuffStrip(this.root);
 
-    // 2026-09-10: `.hp-num` / `.hp-max` 숫자와 `생명력` 라벨은 사라졌다. 라벨 요소는 전투불능 문구 전용으로 남는다
-    // (`styles/raidHud.css` 가 평상시에는 `display:none`).
+    // 2026-09-10: the `.hp-num` / `.hp-max` numbers and the `생명력` label are gone. The label element stays, for the downed caption only
+    // (`styles/raidHud.css` keeps it `display:none` the rest of the time).
     this.labelEl = el('div', { cls: 'ui-label', text: '', parent: this.root });
     this.downSub = el('div', { cls: 'down-sub', text: 'Space 길게: 포기', parent: this.root });
     this.reviveEl = el('div', { cls: 'revive', parent: this.root });
@@ -145,7 +145,7 @@ export class Vitals {
       bar.ghosts.push(el('div', { cls: 'ghost', parent: seg }));
       bar.fills.push(el('div', { cls: 'fill', parent: seg }));
     }
-    // 실드는 방탄복 등급마다 칸 수가 달라도 **체력과 같은 눈금**이어야 하므로, 칸 폭의 기준은 최소 5칸이다.
+    // The shield must keep **the same scale as hp** even though the cell count differs per armor tier, so the cell width is based on at least 5 cells.
     bar.root.style.setProperty('--sh-cells', String(Math.max(cellsFor(PLAYER_MAX_HP), cells)));
   }
 
@@ -158,7 +158,7 @@ export class Vitals {
         if (delta < 0) this.ghostDelay = GHOST_HOLD;
         else this.ghost = Math.max(this.ghost, hp);
       }),
-      // 실드 (2026-09-10): player/ 가 소유하고 이 이벤트로 알린다. `update` 의 폴링과 같은 값이지만 즉시 반영된다.
+      // Shield (2026-09-10): player/ owns it and announces it with this event. The same value as the polling in `update`, but it lands at once.
       ctx.bus.on('player:shieldChanged', ({ shield, maxShield, rarity }) => {
         this.shield = shield; this.maxShield = maxShield; this.shieldRarity = rarity;
       }),
@@ -196,8 +196,8 @@ export class Vitals {
   }
 
   update(dt: number, ctx: GameContext): void {
-    // 2026-09-14 (튜토리얼 HUD 점진 노출): 체력 · 실드는 시체에서 장비를 얻기 전까지, 스태미나는 처음 소모되기
-    //   전까지 없다. 튜토리얼이 꺼져 있으면 언제나 false 라 평소 화면이 한 글자도 바뀌지 않는다.
+    // 2026-09-14 (the tutorial's sequential HUD reveal): hp · shield are absent until gear is taken from a corpse, stamina
+    //   until it is first spent. With the tutorial off this is always false, so the normal screen does not change by one glyph.
     toggleClass(this.root, 'hud-tut-hidden', ctx.tutorial?.hides('hud', 'vitals') ?? false);
     toggleClass(this.stamRoot, 'hud-tut-hidden', ctx.tutorial?.hides('hud', 'stamina') ?? false);
     // 2026-09-12: the block shows in the ship too, where the body is always full (the squad list's `hub ? 1` rule).
@@ -205,7 +205,7 @@ export class Vitals {
     if (ctx.player) {
       this.maxHp = ctx.player.maxHp;
       this.hp = hub ? ctx.player.maxHp : ctx.player.hp;
-      // 실드 계약은 player/ 소유다 — 아직 게시하지 않은 빌드에서도 죽지 않도록 `?? 0` 로 읽는다.
+      // The shield contract belongs to player/ — read with `?? 0` so a build that has not published it yet does not break.
       this.maxShield = ctx.player.maxShield ?? 0;
       this.shield = hub ? this.maxShield : (ctx.player.shield ?? 0);
       this.shieldRarity = ctx.player.shieldRarity ?? null;
@@ -241,13 +241,13 @@ export class Vitals {
   }
 
   /**
-   * 실드 칸: 방탄복이 없거나 전투불능이면 줄 자체가 접힌다.
+   * Shield cells: with no armor, or while downed, the row itself folds away.
    *
-   * **2026-09-14 (사용자 결정) — 실드에도 체력과 똑같은 잔상(`.ghost`)이 있다.** 예전에는 `setCells` 가 칸마다
-   * `.ghost` div 를 만들어 두고도 아무도 그것을 움직이지 않아, 방탄복이 깎인 양이 한눈에 안 보였다. 체력과 같은 식이다 —
-   * 줄어든 프레임에 `GHOST_HOLD` 만큼 멈췄다가 천천히 따라온다. 색은 `ui/styles/base.css` 한 곳(연한 빨강).
-   * 체력은 `player:healthChanged.delta` 로 「깎였다」를 아는데 `player:shieldChanged` 에는 delta 가 없으므로
-   * **직전 목표값과 비교**해서 판정한다 (`update` 의 폴링이 원본이라 이벤트만 봐서는 놓친다).
+   * **2026-09-14 (user's decision) — the shield has exactly the same ghost (`.ghost`) as hp.** `setCells` used to build a
+   * `.ghost` div per cell that nobody ever moved, so how much armor had been cut was not visible at a glance. It works like hp —
+   * it stops for `GHOST_HOLD` on the frame it dropped, then follows slowly. The colour lives in one place, `ui/styles/base.css` (pale red).
+   * hp knows 「깎였다」 from `player:healthChanged.delta`, but `player:shieldChanged` carries no delta, so the judgement
+   * **compares against the previous target** (the polling in `update` is the source, so watching only the event misses it).
    */
   private updateShield(dt: number): void {
     const on = !this.downed && this.maxShield > 0;
@@ -257,14 +257,14 @@ export class Vitals {
     this.shieldShown = Math.abs(target - this.shieldShown) < 0.05 ? target : damp(this.shieldShown, target, 16, dt);
     if (this.shieldGhostDelay > 0) this.shieldGhostDelay -= dt;
     else if (this.shieldGhost > this.shieldShown) {
-      // 체력과 같은 damp 지만 마지막 0.05 는 스냅한다 (`shieldShown` 과 같은 규약). 스냅하는 프레임에는 `lastShieldKey` 를
-      // 비워 **반드시 한 번 더 쓴다** — 아래 key 는 `toFixed(1)` 이라 0.04 → 0 은 같은 글자라서, 안 비우면 마지막
-      // transform 이 `scaleX(0.002)` 로 굳는다 (눈에는 0.1 px 이지만 값이 목표와 다른 채로 멈춘다).
+      // The same damp as hp, but the last 0.05 snaps (the same contract as `shieldShown`). On the snapping frame `lastShieldKey`
+      // is cleared so the DOM is **written once more for certain** — the key below is `toFixed(1)`, so 0.04 → 0 is the same text and
+      // without clearing it the last transform freezes at `scaleX(0.002)` (0.1 px to the eye, but stopped at a value that is not the target).
       if (this.shieldGhost - this.shieldShown < 0.05) { this.shieldGhost = this.shieldShown; this.lastShieldKey = ''; }
       else this.shieldGhost = damp(this.shieldGhost, this.shieldShown, 4, dt);
     } else this.shieldGhost = this.shieldShown;
     if (this.shieldGhost < this.shieldShown) this.shieldGhost = this.shieldShown;
-    if (this.shieldGhost > this.maxShield) this.shieldGhost = this.maxShield;   // 방탄복이 바뀌어 칸이 줄면 잔상도 잘린다
+    if (this.shieldGhost > this.maxShield) this.shieldGhost = this.maxShield;   // a change of armor that shrinks the cells clips the ghost too
     const cells = on ? cellsFor(this.maxShield) : 0;
     const key = `${on ? 1 : 0}|${cells}|${this.shieldShown.toFixed(1)}|${this.shieldGhost.toFixed(1)}|${this.shieldRarity ?? '-'}`;
     if (key === this.lastShieldKey) return;
@@ -283,7 +283,7 @@ export class Vitals {
     }
   }
 
-  /** 이름: 로비 이름 = 캐릭터 이름. 릴레이가 없는 싱글 플레이에서는 프로필에서 직접 읽는다. */
+  /** Name: the lobby name = the character name. In single player with no relay it is read straight from the profile. */
   private updateName(ctx: GameContext): void {
     const name = ctx.net?.playerName || ctx.progression?.profile?.name || FALLBACK_NAME;
     if (name === this.lastName) return;
@@ -348,9 +348,9 @@ export class Vitals {
 
   /** Whether the give-up bar is up (debug). */
   get isGiveUpShowing(): boolean { return this.giveUpEl.classList.contains('show'); }
-  /** 실드 칸 수 (0 = 방탄복 없음, debug). */
+  /** Shield cell count (0 = no armor, debug). */
   get shieldSegments(): number { return this.shBar.root.hidden ? 0 : this.shBar.cells; }
-  /** 표시 중인 플레이어 이름 (debug). */
+  /** The player name on display (debug). */
   get displayName(): string { return this.lastName; }
   /** Smoke hook: draw this list instead of `ctx.player.buffs` (`null` hands the strip back to the player). */
   setDebugBuffs(list: readonly CharBuff[] | null): void { this.debugBuffs = list ?? undefined; }

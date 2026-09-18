@@ -6,11 +6,11 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **4, `src/ui`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary) before
+> **Next session starts here:** queue item **5, `src/housing`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary) before
 > picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this file
-> originally described**; the old one let a deleted `*/` through. `src/ui` is a normal feature folder, so its `verify`
-> is a folder-sized run, not the full net — but it is the heaviest mix of Korean on-screen strings and comments in the
-> queue, so expect many backtick-kept labels and read §3 rule 2 twice before starting.
+> originally described**; the old one let a deleted `*/` through. `src/housing` is a normal feature folder, so its
+> `verify` is a folder-sized run, not the full net. `src/ui` (just finished) already fixed the vocabulary for every
+> screen, card, panel and toast this folder draws — read its finished comments before coining a UI word.
 
 ---
 
@@ -18,15 +18,17 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`) | 9,784 | 207 |
-| **Remaining** ([§2](#2-queue)) | **16,832** | **540** |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`) | 12,063 | 294 |
+| **Remaining** ([§2](#2-queue)) | **14,553** | **453** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-**Intended permanent exceptions.** A finished folder still prints 9 lines, because a comment whose entire substance is
+**Intended permanent exceptions.** A finished folder still prints 33 lines, because a comment whose entire substance is
 a quoted label or a quoted document heading keeps its Korean (§3 rule 2 — the reader has to be able to grep it against
-the real string). So a raw run over everything prints 16,841 / 549, nine more than the queue:
+the real string). So a raw run over everything prints 14,586 / 479, thirty-three more than the queue. `src/ui` alone
+contributes 24 — which is what "the heaviest mix of Korean on-screen strings" meant in practice — so its rows are
+grouped into one line instead of listed file by file:
 
 | Line | What it quotes |
 |---|---|
@@ -39,6 +41,7 @@ the real string). So a raw run over everything prints 16,841 / 549, nine more th
 | `world/Gather.ts:779` | the four harvest prompt verbs (`약초 채집` · `고철 해체` · `토양/씨앗 채취` · `표본 수습`) |
 | `enemies/EnemySystem.ts:159` | the bug-nest decision heading (`둥지 반경 60 m 리시 · 초기 수 절반 · 재스폰 50/35/15 %`) |
 | `enemies/NestDirector.ts:2` | the same heading, plus `둥지의 장식 알을 부술 수 있는 적으로` |
+| `ui/` — **24 lines in 18 files** | on-screen strings the prose exists to name: chat / ping / toast / badge texts (`hud/Pings.ts`, `hud/Notifications.ts`, `hud/NetBadge.ts` ×2, `hud/MetaToasts.ts`, `hud/ChatLog.ts`, `hud/RoverHud.ts`, `hud/GadgetHandHint.ts`, `hud/StratagemWheel.ts`, `hud/PingWheel.ts`), tab / row / button labels (`hud/ShipManage.ts`, `hud/ItemTip.ts`, `menus/PauseMenu.ts`, `menus/keybindNotice.ts`, `menus/RewardsBlock.ts`, `menus/messenger/QuestCard.ts` ×3, `menus/social/SocialMenu.ts`, `menus/social/socialSource.ts`) and the four `menus/social/SocialColumn.ts` section dividers, each verbatim the `ui-label` drawn two lines below |
 
 ---
 
@@ -51,8 +54,8 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~1~~ | ~~`src/shared`~~ | 4,187 | 65 | **Done 2026-09-18** (with `src/main.ts`, one commit, full 96-script `verify`). Its vocabulary is now the queue's vocabulary — read that folder's comments before picking words for a new folder. |
 | ~~2~~ | ~~`src/world`~~ | 2,988 | 58 | **Done 2026-09-18** (lead + 6 parallel agents, one commit). Dense collision / layout invariants; its wording is now the reference for every world-shaped folder after it. |
 | ~~3~~ | ~~`src/enemies`~~ | 2,300 | 71 | **Done 2026-09-18** (lead + 6 parallel agents, one commit). Its anatomy and AI-phase vocabulary is now the reference for every rig- and AI-shaped folder after it. |
-| 4 | `src/ui` | 2,279 | 87 | Heaviest mix of Korean UI strings and comments — expect many backtick-kept labels. |
-| 5 | `src/housing` | 2,215 | 55 | Minigame judge bands, furniture access faces, library effects. |
+| ~~4~~ | ~~`src/ui`~~ | 2,279 | 87 | **Done 2026-09-18** (lead + 6 parallel agents, one commit). Its screen · card · panel · toast vocabulary is now the reference for every UI-shaped folder after it. 24 quoted-label lines stay Korean (§1). |
+| 5 | `src/housing` | 2,215 | 55 | Minigame judge bands, furniture access faces, library effects. `src/ui/hud/ShipManage.ts` is the screen that drives it — read that finished file before coining a word. |
 | 6 | `src/inventory` | 1,703 | 53 | |
 | 7 | `src/hub` | 1,569 | 40 | Squad dock / cutscene ordering rules. |
 | 8 | `src/tutorial` | 1,278 | 11 | Only 11 files — very long per-file headers. |
@@ -172,8 +175,9 @@ here on will hit the same kind, so leave them and do not re-litigate it per fold
 
 ### Splitting a folder across parallel agents
 
-Three folders were done this way on 2026-09-18 — `src/shared` (4,194 lines, 7 agents), `src/world` (2,988, lead + 6)
-and `src/enemies` (2,300, lead + 6) — and it works, with three conditions:
+Four folders were done this way on 2026-09-18 — `src/shared` (4,194 lines, 7 agents), `src/world` (2,988, lead + 6),
+`src/enemies` (2,300, lead + 6) and `src/ui` (2,279, lead + 6, **no agent died and no bundle needed recovery**) — and it
+works, with three conditions:
 
 1. **The lead fixes the glossary first** ([§7](#7-glossary)) and hands it to every agent. Without it each agent coins
    its own words and the folder reads in six voices — the reason this section exists at all.
@@ -182,9 +186,10 @@ and `src/enemies` (2,300, lead + 6) — and it works, with three conditions:
 3. **Agents do not run `git add` / `commit` / `typecheck` / `verify`.** The lead runs each once, at the end, over
    everything. An agent that commits its own bundle makes the comment-only proof impossible to run as one check.
 
-**How to cut the bundles**, as the `src/world` and `src/enemies` passes settled it: six agent bundles of roughly
-300–500 lines each, **and a seventh for the lead** — the contract-ish files the rest of the folder points at
-(`WorldSystem` · `layout` · `obb` · `hull`; `EnemySystem` · `Enemy` · `model` · `EnemyTypes`). The lead owns the
+**How to cut the bundles**, as the `src/world`, `src/enemies` and `src/ui` passes settled it: six agent bundles of
+roughly 300–500 lines each, **and a seventh for the lead** — the contract-ish files the rest of the folder points at
+(`WorldSystem` · `layout` · `obb` · `hull`; `EnemySystem` · `Enemy` · `model` · `EnemyTypes`; `HudSystem` · `dom` ·
+`KeyGuide` · `allySource`). The lead owns the
 glossary anyway, and translating the folder's centre is what makes the glossary it hands out measured rather than
 guessed. Cut along **subject lines, not file size** (tutorial · rails + rover · hazard + fog · models + FX · AI core):
 an agent that owns one subject never has to read another agent's file to know what a word means. A file far larger
@@ -196,7 +201,8 @@ Ask each agent to report: its final count per file, any quoted-label-only line i
 
 **Two things the lead has to check afterwards, because an agent cannot see them** (the first bit both passes, the
 second `src/world`):
-1. **Line endings — and what the `src/enemies` pass corrected about this.** `git show HEAD:<file>` is the *normalised*
+1. **Line endings — and what the `src/enemies` pass corrected about this.** (`src/ui` confirmed it: 14 of its 86 changed
+   files are LF in the working tree, every agent preserved what it found, and nothing was converted.) `git show HEAD:<file>` is the *normalised*
    blob (always LF with `core.autocrlf=true`, which this repo uses and has no `.gitattributes` to override), so
    comparing against it proves nothing. Read the working-tree bytes:
    `[f for f in changed if b'\r\n' not in open(f,'rb').read()]` lists the LF ones.
@@ -206,7 +212,10 @@ second `src/world`):
    endings — so the rule is **preserve whatever each file already had**, and fix only a file an agent actually
    flipped. The `src/world` pass converted eleven files to CRLF before this was understood; it changed nothing in
    the commit, but it was noise.
-2. **One thing, two names.** Two agents independently coined *ghost block* for `tut_fence_ghost`, which
+2. **One thing, two names.** In `src/ui` it was the **lead's own** bundle that broke it: `HudSystem` said *waking
+   cutscene* where `Compass` · `Reticle` · `player/README.md` · CLAUDE.md §3.2 all say **intro wake** — three lines,
+   found by grepping the finished folder for each coined noun. Do this even when every agent reported cleanly.
+   Earlier: two agents independently coined *ghost block* for `tut_fence_ghost`, which
    `world/README.md` and CLAUDE.md §4.6 already call the **ghost band**; another wrote *an old peer* where the folder's
    existing English says *an older peer*. Grep the finished folder for each newly coined noun and make it agree with
    the English already in the READMEs — that, not the glossary hand-out, is what makes the folder read in one voice.
@@ -369,8 +378,9 @@ them, do not translate them.
 - **A defect the translation uncovered but did not cause** (a doc that contradicts its code, a stale reference, dead
   code, a csv number copied into prose) goes in [`docs/TODO.md`](TODO.md), **not** fixed in the translation commit —
   the commit has to stay provably comment-only. Filed so far: `B-19` (`src/shared`, 3), `B-20` · `B-21` (`src/world`,
-  7 + 4), `B-23` · `B-24` · `B-25` (`src/enemies`, 6 + 4 + 3). Reading a folder this closely is the most productive
-  defect hunt in the project — expect five to ten per folder, and keep filing rather than fixing.
+  7 + 4), `B-23` · `B-24` · `B-25` (`src/enemies`, 6 + 4 + 3), `B-27` · `B-28` · `B-29` · `B-30` (`src/ui`, 12 + 6 + 1 + 4).
+  Reading a folder this closely is the most productive defect hunt in the project — expect five to ten per folder (`src/ui`
+  gave 23, one of them a live bug: a member row that is built and never appended), and keep filing rather than fixing.
 - **A gap the pass found in the verification net** goes in [`scripts/README.md`](../scripts/README.md).
 - Nothing goes in `docs/HISTORY.md` or `docs/DECISIONS.md` — the rule change is already recorded in `CLAUDE.md` §4.1,
   and per-folder progress is this file plus `git log`.
@@ -517,3 +527,20 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 마디 · 턱 · 목구멍 · 꿀렁임 · 숙임 | segment · jaw · throat · the throat surge · lean | `enemies/models/WormModel.ts`, `sandworm/Pose.ts` |
 | 견갑 · 흉갑 / 가슴판 · 탄부판 · 정강이판 | pauldron · breastplate / chest plate (**the Korean itself uses two words — keep both**) · groin plate · shin plate | `enemies/models` |
 | 소염기 · 경통 · 기관부 · 급탄 상자 · 길리 망토 | flash hider · scope tube · receiver · feed box · ghillie cloak | `enemies/models/named` |
+| 라벨 · 배지 · 카드 · 패널 · 버튼 · 줄 | label · badge · card · panel · button · **row** (a list entry) / **line** (a line of text) — decide from the code | `ui` (folder-wide) |
+| 좌측 · 우측 · 상단 · 하단 · 가운데 | left · right · top · bottom · **centre** (British, matching `top-centre` in the READMEs) | `ui` (folder-wide) |
+| 층 (HUD 레이어) · 뒤판 · 가림막 | layer · the backdrop · blocker (`uiBlockers`) | `ui/HudSystem.ts` |
+| 기상 연출 | **the intro wake** (+ cutscene) — one name only, the one `player/README.md` and CLAUDE.md §3.2 use | `ui/Compass.ts`, `Reticle.ts`, `HudSystem.ts` |
+| 로그 강하 · 레이더 강하 | **rogue drop** (the pre-2026-09-10 name, only in historical prose) · **raider drop** (current) — never merged | `ui/OffscreenIndicators.ts`, `HudSystem.ts` |
+| 연출 (판 · 게이지) | **presentation** when the point is 「not a screen: no blocker, no escape, eats no pointer」, **cutscene** when it is a timed sequence | `ui/HudSystem.ts`, `ShipReturn.ts` |
+| 판 (검은 판) · 판을 쥔다 | the plate (the black full-screen plate) · holds the plate (`ownsPlate`) | `ui/HudSystem.ts`, `ShipReturn.ts` |
+| 규약 · 스모크 · 개편 | the contract · the smoke test · the rework | `ui` (folder-wide) |
+| 경고 팝업 · 확정 홀드 · 탭 확정 | the warning popup · the hold confirm (the glossary form) · a tap confirm (`Ask.tap`) | `ui/menus` |
+| 초상 · 말풍선 (채팅) · 꼬리 · 서랍 · 지문 | avatar (`.ms-av`) · bubble · tail · drawer · fingerprint (a cheap repaint key) | `ui/menus/messenger` |
+| 타이핑 연출 · 창구 | the typing reveal · source (`sources.ts` · `allySource.ts`) | `ui/menus/messenger`, `ui/hud` |
+| 눈금 · 띠 (나침반) · 범례 · 빗금 · 잔상 | tick · strip · legend · hatching · ghost (`.ghost`) | `ui/hud`, `ui/map` |
+| 정찰 · 인지력 | recon (the implant) · perception (`derived.enemyDetectRadius`) | `ui/hud/Detection.ts`, `DangerIndicators.ts` |
+| 준비 연출 · 총구 막힘 · 기폭기 손 | the ready presentation · blocked muzzle · the detonator hand | `ui/hud/StratagemPanel.ts`, `Reticle.ts`, `GadgetHandHint.ts` |
+| 조리대 · 배지 (배양) · 세포주 · 스캐폴드 | cook bench · medium · strain · scaffold | `ui/hud/ShipManage.ts`, `mealText.ts` |
+| 딤드 · 모달리스 · 하위 탭 · 손잡이 (DOM) | dimmed · modeless · sub-tab · handle | `ui/hud/ShipManage.ts`, `ItemTip.ts` |
+| 기 (안드로이드 수사) · 빈 자리 | unit · an empty slot | `ui/hud/Squad.ts`, `Nameplates.ts` |

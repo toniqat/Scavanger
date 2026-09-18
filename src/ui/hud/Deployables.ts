@@ -13,7 +13,7 @@ export const DEPLOYABLE_LABEL_KO: Record<DeployableKind, string> = {
   domeShield: '돔 실드', barricade: '바리케이드', mine: '지뢰', turret: '포탑',
   jumpPad: '점프대', smoke: '연막', fire: '화염 지대', lure: '유인 장치',
   remoteMine: '원격 지뢰',
-  /* 2026-09-15 (땅굴벌레 · 진동 장치, gadgets) */
+  /* 2026-09-15 (the sandworm · the thumper, gadgets) */
   thumper: '진동 장치',
 };
 const DEPLOYABLE_ICON: Record<DeployableKind, string> = {
@@ -75,7 +75,7 @@ export class Deployables {
         this.fallback.set(id, {
           id, kind, position: position.clone(),
           radius: kind === 'mine' ? GADGET_MINE_RADIUS : 2,
-          armed: kind !== 'mine' && kind !== 'remoteMine',   // 2026-09-11: 원격 지뢰도 설치 직후엔 무장 대기
+          armed: kind !== 'mine' && kind !== 'remoteMine',   // 2026-09-11: a remote mine also waits to arm right after placement
         });
       }),
       b.on('gadget:removed', ({ id }) => { this.fallback.delete(id); }),
@@ -137,7 +137,7 @@ export class Deployables {
     }
   }
 
-  /** 2026-09-16: 이륙 연출이 남긴 HUD 의 몫 1 … 0 (`HudSystem.setCinematic`) — 반경 링 불투명도에 곱하고 0 이면 숨는다. */
+  /** 2026-09-16: the HUD's share left by the liftoff cinematic, 1 … 0 (`HudSystem.setCinematic`) — multiplied into the radius ring's opacity; 0 hides it. */
   private cineK = 1;
   setCinematicFade(k: number): void { this.cineK = k; }
 

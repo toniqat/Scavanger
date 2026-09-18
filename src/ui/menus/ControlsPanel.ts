@@ -114,7 +114,8 @@ export class ControlsPanel {
     const shapes: Record<string, SVGElement> = { lmb, rmb, mmb, m4, m5 };
     for (const b of MOUSE_BUTTONS) {
       const cap = el('div', { cls: `mcap ${b.cls}`, parent: caps });
-      // 2026-09-15: 버튼 이름 칸도 공용 키캡 — 좌 · 휠 · 우는 마우스 그림, M4 · M5 는 글자 (`b.label` 은 스크린리더 · 제목용으로 남는다)
+      // 2026-09-15: the button name cell is a shared keycap too — left · wheel · right are mouse glyphs, M4 · M5 are
+      // text (`b.label` stays for screen readers · the title attribute)
       createKeycap(b.code, { cls: 'k', parent: cap });
       el('span', { cls: 'v', text: '', parent: cap });
       this.mouseEls.set(b.code, { shape: shapes[b.cls], cap });
@@ -162,7 +163,7 @@ export class ControlsPanel {
     }
   }
 
-  /** 기능 한 줄 — `codes` 는 키 **코드**다 (2026-09-15: 공용 키캡이 칠한다 — 마우스 좌 · 휠 · 우는 그림). */
+  /** One function row — `codes` are key **codes** (2026-09-15: the shared keycap paints them — mouse left · wheel · right are glyphs). */
   private row(parent: HTMLElement, codes: string[], label: string): void {
     const r = el('div', { cls: 'ctl-fn', parent });
     const ks = el('div', { cls: 'keys', parent: r });

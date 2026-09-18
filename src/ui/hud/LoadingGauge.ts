@@ -3,28 +3,28 @@ import { RAID_LOAD_MIN_BLACK_S } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import '../styles/loading.css';
 
-/** 사라지는 데 걸리는 시간 (s) — 연출 길이라 csv 가 아니라 여기 있다 (README 규칙: UI 타이밍 상수는 컴포넌트에). */
+/** How long it takes to disappear (s) — a cinematic length, so it lives here and not in csv (README rule: UI timing constants live in the component). */
 const FADE_OUT_S = 0.25;
-/** 나타나는 데 걸리는 시간 (s). */
+/** How long it takes to appear (s). */
 const FADE_IN_S = 0.18;
-/** 도는 호의 회전 속도 (deg/s). */
+/** Spin speed of the turning arc (deg/s). */
 const SPIN_DEG_PER_S = 220;
 
 /**
- * **레이드 진입 로딩 게이지** (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」).
+ * **The raid-entry loading gauge** (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」).
  *
- * 사용자 결정: 발사 카운트다운이 끝나면 화면이 암전되고 (`raid:loadBegin` → hub 가 `ui:screenFade` 를 건다),
- * **암전된 채로 우측 하단에서 원형 게이지가 돈다**. 멀티플레이면 게이지의 채움은 분대 전원(사람)의 진행도를
- * 합친 값이다 — `raid:loadProgress.squad` 를 그대로 그린다 (게임 쪽 `game/LoadGate` 가 계산한다). 전원이 끝나면
- * `raid:loadReleased` 가 오고, 게이지는 빠르게 사라진 뒤 강하 시퀀스가 페이드인된다.
+ * User's decision: when the launch countdown ends the screen fades to black (`raid:loadBegin` → hub raises `ui:screenFade`),
+ * and **a radial gauge turns at the bottom right over that black**. In multiplayer the gauge's fill is the summed progress
+ * of the whole (human) squad — `raid:loadProgress.squad` is drawn as-is (the game side's `game/LoadGate` computes it). Once everyone is
+ * done `raid:loadReleased` arrives, the gauge disappears quickly and the drop sequence fades in.
  *
- * **dt 가 0 이다.** 게이트가 도는 동안 엔진은 `ctx.shaders.holdFor` 로 멈춰 있어 모든 시스템이 `dt: 0` 을 받는다.
- * 그래서 이 위젯의 시계는 시뮬레이션 dt 도, CSS 전이/애니메이션도 아닌 **`performance.now()`** 다 — 채움 · 회전 ·
- * 나타남/사라짐 전부. (CSS 로 돌리면 reduced-motion 규칙이 0.01 ms 로 잘라 버리는 문제도 같이 피한다.)
- * `prefers-reduced-motion` 이면 도는 호만 숨기고 채움은 그대로 둔다 (`styles/loading.css`).
+ * **dt is 0.** While the gate runs the engine is stopped by `ctx.shaders.holdFor`, so every system receives `dt: 0`.
+ * This widget's clock is therefore neither the simulation dt nor a CSS transition/animation but **`performance.now()`** — the fill ·
+ * the spin · appearing/disappearing, all of it. (Driving it from CSS would also run into the reduced-motion rule cutting it to 0.01 ms.)
+ * Under `prefers-reduced-motion` only the turning arc is hidden; the fill is left alone (`styles/loading.css`).
  *
- * 최소 표시 시간 `RAID_LOAD_MIN_BLACK_S` — 로딩이 아무리 빨라도 그만큼은 떠 있다 (csv 주석: 「깜빡이며 사라지지
- * 않게」). `game:abort` · `hub:entered` 는 조건 없이 걷는다 (검은 화면에 게이지만 남는 길이 없게).
+ * Minimum show time `RAID_LOAD_MIN_BLACK_S` — however fast the load is, it stays up that long (csv comment: 「깜빡이며 사라지지
+ * 않게」). `game:abort` · `hub:entered` clear it unconditionally (so no path leaves only the gauge on a black screen).
  */
 export class LoadingGauge {
   readonly root: HTMLElement;
@@ -35,19 +35,19 @@ export class LoadingGauge {
   private pctEl: HTMLElement;
   private unsubs: Array<() => void> = [];
 
-  /** 게이지가 살아 있나 (사라지는 동안에도 true). */
+  /** Whether the gauge is alive (true while disappearing too). */
   private active = false;
-  /** 사라지는 중인가 — `raid:loadReleased` 뒤. */
+  /** Whether it is disappearing — after `raid:loadReleased`. */
   private fading = false;
-  /** 2026-09-16: 함선 귀환 암전이 건 게이지인가 (`beginLocal`) — 그동안 레이드 로딩 이벤트 · 중단 · 도착은 걷지 않는다. */
+  /** 2026-09-16: whether the ship-return fade raised this gauge (`beginLocal`) — meanwhile raid load events · abort · arrival do not clear it. */
   private local = false;
-  /** 실시간 기준점 (ms): 뜬 순간 · 사라지기 시작한 순간. */
+  /** Real-time reference points (ms): the moment it appeared · the moment it began to disappear. */
   private shownAt = 0;
   private fadeAt = 0;
-  /** 마지막으로 받은 진행도. */
+  /** The progress last received. */
   private squad = 0;
   private waiting = 0;
-  /** 마지막으로 쓴 값들 (DOM 쓰기를 아낀다). */
+  /** The values last written (DOM writes are saved). */
   private lastP = -1;
   private lastSpin = -1;
   private lastOpacity = -1;
@@ -69,23 +69,23 @@ export class LoadingGauge {
     const b = ctx.bus;
     this.unsubs.push(
       b.on('raid:loadBegin', () => this.show()),
-      // 첫 `raid:loadProgress` 만 보고도 뜬다 — `raid:loadBegin` 을 놓친 경로(재접속 · 솔로)에서도 게이지가 보인다.
+      // The first `raid:loadProgress` alone brings it up — the gauge also shows on a path that missed `raid:loadBegin` (rejoin · solo).
       b.on('raid:loadProgress', ({ squad, waiting }) => {
         if (!this.active) this.show();
         this.squad = Math.min(1, Math.max(0, Number.isFinite(squad) ? squad : 0));
         this.waiting = Math.max(0, Math.round(Number.isFinite(waiting) ? waiting : 0));
       }),
       b.on('raid:loadReleased', () => { if (!this.local) this.release(); }),
-      // 2026-09-16: 함선 귀환 암전(`menus/ShipReturn`)이 건 게이지는 그 `hub:enter` 가 내는 중단 · 도착에 걷히지 않는다 —
-      // 건 쪽이 `endLocal` 로 직접 푼다 (그러지 않으면 셰이더 컴파일 전에 게이지가 사라진다).
+      // 2026-09-16: a gauge raised by the ship-return fade (`menus/ShipReturn`) is not cleared by the abort · arrival that its own `hub:enter` emits —
+      // the side that raised it releases it itself with `endLocal` (otherwise the gauge disappears before the shaders compile).
       b.on('game:abort', () => { if (!this.local) this.hide(); }),
       b.on('hub:entered', () => { if (!this.local) this.hide(); }),
     );
   }
 
   /**
-   * 2026-09-16 (함선 귀환 암전, owner `menus/ShipReturn`): 버스를 거치지 않고 게이지를 띄운다. `raid:loadBegin` 을
-   * 내면 game/LoadGate 가 레이드 로딩으로 알아듣기 때문이다. 진행도는 `setLocalProgress`, 끝은 `endLocal`.
+   * 2026-09-16 (the ship-return fade, owner `menus/ShipReturn`): shows the gauge without going through the bus, because emitting `raid:loadBegin`
+   * would make game/LoadGate read it as a raid load. Progress is `setLocalProgress`, the end is `endLocal`.
    */
   beginLocal(): void {
     this.local = true;
@@ -99,20 +99,20 @@ export class LoadingGauge {
     this.squad = Math.min(1, Math.max(0, Number.isFinite(p) ? p : 0));
   }
 
-  /** `now` = 곧바로 걷는다 (중단), 아니면 평소 `release` 처럼 채운 뒤 사라진다. */
+  /** `now` = clear it at once (an abort), otherwise it fills and disappears like the usual `release`. */
   endLocal(now = false): void {
     if (!this.local) return;
     this.local = false;
     if (now) this.hide(); else this.release();
   }
 
-  /** 게이지가 보이는가 (debug / smoke — 사라지는 동안에도 true). */
+  /** Whether the gauge shows (debug / smoke — true while disappearing too). */
   get isShowing(): boolean { return this.active; }
-  /** 채움 0…1 · 기다리는 사람 수 · 지금 칠해진 불투명도 (debug / smoke). */
+  /** Fill 0…1 · the number of people waited on · the opacity painted right now (debug / smoke). */
   get fill(): number { return this.squad; }
   get waitingCount(): number { return this.waiting; }
   get opacity(): number { return this.lastOpacity < 0 ? 0 : this.lastOpacity; }
-  /** 도는 호의 각도 (deg) — dt 0 에서도 움직이는지 보는 스모크 훅. */
+  /** The turning arc's angle (deg) — the smoke hook that checks it still moves at dt 0. */
   get spinDeg(): number { return this.lastSpin < 0 ? 0 : this.lastSpin; }
 
   private show(): void {
@@ -125,15 +125,15 @@ export class LoadingGauge {
   }
 
   /**
-   * 풀렸다 — 최소 표시 시간을 채운 뒤 빠르게 사라진다. 페이드인(`RAID_LOAD_FADE_IN_S`)이 도는 동안 게이지가
-   * 남아 있으면 밝아지는 화면 위에 떠 있게 되므로, 사라짐은 페이드인보다 짧다 (`FADE_OUT_S`).
+   * Released — it fills the minimum show time, then disappears quickly. A gauge still up while the fade-in (`RAID_LOAD_FADE_IN_S`)
+   * runs would sit over a brightening screen, so the disappearing is shorter than the fade-in (`FADE_OUT_S`).
    */
   private release(): void {
     if (!this.active || this.fading) return;
     this.fading = true;
     const minEnd = this.shownAt + RAID_LOAD_MIN_BLACK_S * 1000;
     this.fadeAt = Math.max(performance.now(), minEnd);
-    // 채움은 끝난 것으로 보여 준다 — 시간 초과로 풀렸어도 게이지가 덜 찬 채 사라지면 「멈춘 것」처럼 보인다.
+    // The fill is shown as finished — even when a timeout released it, a gauge that disappears part-filled reads as 「stuck」.
     this.squad = 1;
     this.waiting = 0;
   }
@@ -148,13 +148,13 @@ export class LoadingGauge {
   }
 
   /**
-   * `dt` 는 **일부러 받지 않는다** — 로딩 게이트 동안 0 이기 때문이다. 모든 시간은 `performance.now()` 에서 온다.
+   * `dt` is **deliberately not taken** — it is 0 while the load gate holds. Every time comes from `performance.now()`.
    */
   update(): void {
     if (!this.active) return;
     const now = performance.now();
 
-    // 사라짐 / 나타남
+    // disappearing / appearing
     let alpha: number;
     if (this.fading) {
       const t = (now - this.fadeAt) / (FADE_OUT_S * 1000);

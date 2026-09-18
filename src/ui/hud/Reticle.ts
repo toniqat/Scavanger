@@ -1,6 +1,6 @@
 import type { GameContext, ImplantId, ItemInstance, Stance } from '@/shared';
 import { Keys, createKeycap, onKeybindsChanged, paintKeycap } from '@/shared';
-/* 2026-09-16: 기상 연출 뒤 크로스헤어가 서서히 나타나는 시간 */
+/* 2026-09-16: how long the crosshair takes to appear after the intro wake cutscene */
 import { TUTORIAL_RETICLE_FADE_S } from '@/shared';
 import { el, setText, toggleClass, damp } from '../dom';
 import '../styles/implant.css';
@@ -12,12 +12,12 @@ const STANCE_GAP: Record<Stance, [number, number]> = {
   prone: [8, 4],
 };
 const SPRINT_GAP = 18;
-/** Fallback glyph for the 갈고리 chip when `ctx.implants` is not up yet (`IMPLANT_DEFS.grapple.icon`). */
+/** Fallback glyph for the grapple chip when `ctx.implants` is not up yet (`IMPLANT_DEFS.grapple.icon`). */
 const GRAPPLE_GLYPH = '⚓';
 const MOVE_BONUS = 2;
 const MOVE_SPEED_EPS = 0.5; // m/s of horizontal velocity that counts as "moving"
 /**
- * 활 모드 (2026-09-14): the two static guide bars' offsets below the centre (px, [upper, lower]). The moving draw bar
+ * Bow mode (2026-09-14): the two static guide bars' offsets below the centre (px, [upper, lower]). The moving draw bar
  * parks on the **lower** one and rises to 0 (= the centre) at full draw — this array is the one source of those
  * positions (the CSS only gives widths).
  */
@@ -29,11 +29,11 @@ const BOW_RETURN_LAMBDA = 12;
 /** Smoothed draw above this (with the live `t` at 1) lights the full-draw glow. */
 const BOW_FULL_EPS = 0.985;
 /**
- * 제세동기 모드 (2026-09-15): 작은 원이 충전 0 에서 갖는 배율 — 1 이면 큰 원과 정확히 겹친다 (CSS 가 둘의
- * 실제 지름을 같게 그린다). transform 배율이라 테두리도 함께 두꺼워진다 = 「원의 두께가 굵어진다」.
+ * Defib mode (2026-09-15): the small circle's scale at charge 0 — at 1 it overlaps the big circle exactly (CSS draws
+ * both at the same real diameter). Being a transform scale, the border thickens with it = 「the circle gets thicker」.
  */
 const DEFIB_MIN_SCALE = 0.25;
-/** 충전 게이지를 따라가는 감쇠율 (활 시위와 같은 방식, 30 Hz 로 오는 값을 매끄럽게 잇는다). */
+/** Damp rate following the charge gauge (the same way as the bow draw — it smooths values arriving at 30 Hz). */
 const DEFIB_LAMBDA = 26;
 
 /**
@@ -45,45 +45,48 @@ const DEFIB_LAMBDA = 26;
  * the reticle grows a bracket ring with the anchor distance whenever `implant:grappleTargetChanged {valid}` says the
  * point under the crosshair can be hooked, and keeps it (green) while the wire is attached.
  *
- * **소모품 모드 (2026-09-09):** while a quick-use consumable is in the hands (`quick:equipped {item}` — 수류탄 · 가젯 ·
- * 회복 소모품) the four ticks hide (`.reticle.consumable`, CSS) and only the dot stays, with a small mono readout to
- * its **right** (`.qinfo`): the stack count `×n` and, for an item with its own gauge (회복 스프레이 —
+ * **Consumable mode (2026-09-09):** while a quick-use consumable is in the hands (`quick:equipped {item}` — grenades ·
+ * gadgets · healing consumables) the four ticks hide (`.reticle.consumable`, CSS) and only the dot stays, with a small
+ * mono readout to its **right** (`.qinfo`): the stack count `×n` and, for an item with its own gauge (`회복 스프레이` —
  * `ItemDef.durabilityMax` on the def, `ItemInstance.durability` on the instance), the remaining gauge as `n%`
  * (`×2 · 62%` when both apply). The live instance is re-read from `ctx.inventory.findItem(uid)` only when something
  * that can change it fires (`quick:used` · `inventory:itemUpdated` · `inventory:quickSlotsChanged` · `durability:changed`),
  * never per frame. `quick:equipped {item: null}` (the gun is back) restores the normal crosshair; so does a mission reset.
  *
- * **갈고리 칩 (2026-09-10):** 크로스헤어 **좌측**에 갈고리 아이콘 + 사용 키(`Keys.IMPLANT`)를 붙인다 —
- * 지금 조준한 방향에 갈고리를 걸 수 있으면 아이콘이 밝고 키캡이 보이고, 걸 수 없으면 **키는 숨고 아이콘만
- * 딤드**로 남으며, 갈고리를 장착하지 않았으면 아예 없다. 판정은 UI 가 흉내내지 않는다: implants/ 의
- * `updateGrapple` 이 매 프레임 자기 조준 광선으로 계산해 보내는 **`implant:grappleTargetChanged {valid}`**
- * 하나가 유일한 근거이고 (= `castGrapple` 이 보는 `grappleTargetValid` 와 같은 값), 여기서는 레이캐스트를
- * 한 번도 쏘지 않는다. 임플란트 쿨타임 · 충전 수는 이 칩에 없다 — 그것은 전부 화면 중앙 하단의
- * `hud/ImplantWidget` 썸네일로 내려갔다.
+ * **Grapple chip (2026-09-10):** a grapple icon + the use key (`Keys.IMPLANT`) sit **left** of the crosshair — with a
+ * hookable point in the aimed direction the icon is bright and the keycap shows, without one **the key hides and only
+ * the dimmed icon** stays, and with no grapple equipped there is nothing at all. The UI never imitates the judgement:
+ * the one and only ground is **`implant:grappleTargetChanged {valid}`**, which implants/'s `updateGrapple` computes
+ * every frame from its own aim ray (= the same value `castGrapple` reads as `grappleTargetValid`), and not one raycast
+ * is fired here. Implant cooldown · charges are not on this chip — all of that went down to the
+ * `hud/ImplantWidget` thumbnail at the bottom centre of the screen.
  *
- * **총구 막힘 (2026-09-12):** 총구가 앞 몇 m 안의 벽 · 창틀 · 엄폐물에 걸려 크로스헤어대로 나가지 않을 때 점과 틱이
- * 빨갛게 바뀐다 (`.reticle.blocked`). 근거는 weapons/ 의 **`weapon:aimBlocked {blocked}`** 하나 — 벽의 빨간 원과 실제
- * 사격이 쓰는 같은 판정(`weapons/parts/AimLine`)이다.
+ * **Blocked muzzle (2026-09-12):** when the muzzle catches a wall · window frame · cover a few m ahead so the shot will
+ * not follow the crosshair, the dot and ticks turn red (`.reticle.blocked`). The ground is weapons/'s single
+ * **`weapon:aimBlocked {blocked}`** — the same judgement (`weapons/parts/AimLine`) the wall's red circle and real fire use.
  *
- * **활 모드 (2026-09-14):** 손에 든 무기가 활(`WeaponDef.unique === 'bow'`, 「롱혼」)이면 네 틱이 숨고 점은 남으며
- * (`.reticle.bowmode`) 점 **아래**에 짧은 가로 안내선 두 단(`.rbow-tier`)과 움직이는 가로 바(`.rbow-draw`)가 선다.
- * 바는 평소 아래 단에 흐리게 머물고, 시위를 당기면 weapons/ 의 `weapon:chargeChanged {kind:'draw', t}` 를 따라 올라가
- * `t = 1`(완전히 당김 = 화살이 크로스헤어대로 날아간다)에서 정확히 **점 위**에 닿아 밝게 빛난다(`.full`). `t = −1`
- * (놓기 · 취소)이면 아래 단으로 부드럽게 돌아간다. 활인지는 `weapon:equipped` 의 `ctx.loot.getWeaponDef(id).unique` 와,
- * 놓친 장착 이벤트에 대비해 `draw` 이벤트 자체로 판단한다. 소모품 모드가 이긴다(`quick:equipped {item}` 동안 꺼진다).
+ * **Bow mode (2026-09-14):** with the bow in hand (`WeaponDef.unique === 'bow'`, 「롱혼」) the four ticks hide, the dot stays
+ * (`.reticle.bowmode`) and **below** it stand two short horizontal guide bars (`.rbow-tier`) and a moving bar (`.rbow-draw`).
+ * The bar rests dim on the lower tier and, as the string is drawn, rises with weapons/'s `weapon:chargeChanged {kind:'draw', t}`
+ * until at `t = 1` (full draw = the arrow flies along the crosshair) it lands exactly **on the dot** and glows (`.full`).
+ * At `t = −1` (release · cancel) it eases back to the lower tier. The bow is recognised by `weapon:equipped`'s
+ * `ctx.loot.getWeaponDef(id).unique` and, against a missed equip event, by the `draw` event itself. Consumable mode wins
+ * (it turns off while `quick:equipped {item}`).
  *
- * **제세동기 모드 (2026-09-15, 사용자 결정):** 손에 든 소모품이 제세동기(`ItemDef.gadgetId === 'defib'`)면 네 틱 대신
- * 두 개의 원이 선다(`.reticle.defibmode`) — 가운데 **작은 하얀 원**(`.rdf-inner`)과 **큰 반투명 원**(`.rdf-outer`).
- * 좌클릭을 꾹 누르면 작은 원이 서서히 커지면서 큰 원에 겹치고 테두리가 굵어진다(= 준비 완료), 그 상태에서 쓰러진
- * 아군을 크로스헤어에 올리면 두 원이 **강조색(주황)** 으로 바뀐다 — 그때 떼면 일으킨다. 판정은 UI 가 흉내내지
- * 않는다: weapons/ 의 `parts/Defib` 이 보내는 **`gadget:defibAim {armed, charge, target}`** 하나가 유일한 근거다.
- * 모드 자체는 손에 든 것(`quick:equipped`)이 정하므로 이벤트가 한 번도 안 와도 원은 서 있다.
+ * **Defib mode (2026-09-15, user's decision):** when the consumable in hand is the defibrillator
+ * (`ItemDef.gadgetId === 'defib'`) two circles stand in place of the four ticks (`.reticle.defibmode`) — a **small white
+ * circle** in the middle (`.rdf-inner`) and a **big translucent one** (`.rdf-outer`). Holding LMB grows the small circle
+ * until it overlaps the big one and its border thickens (= armed); putting a downed ally on the crosshair in that state
+ * turns both circles to the **accent colour (orange)** — releasing then revives them. The UI never imitates the
+ * judgement: the one ground is **`gadget:defibAim {armed, charge, target}`** sent by weapons/'s `parts/Defib`. The mode
+ * itself is decided by what is in hand (`quick:equipped`), so the circles stand even if no event ever arrives.
  *
- * **기상 연출 (2026-09-16, 사용자 결정):** 튜토리얼 오프닝의 기상 연출이 도는 동안(`PlayerRef.introWaking` — 카메라가 평소
- * 백뷰로 완전히 돌아오기 전) 크로스헤어는 **보이지 않고**, 끝나면 `TUTORIAL_RETICLE_FADE_S` 에 걸쳐 서서히 나타난다
- * (`hud/Compass` 와 같은 요령 — CSS 전이가 아니라 여기서 `dt` 로 올린다. reduced motion 이면 CSS 전이는 0.01 ms 로 잘린다).
- * 위의 blocker · 휠 규칙이 정한 불투명도에 **곱한다**. 부활 연출(`respawn`)은 `introWaking` 을 켜지 않으므로 해당 없다.
- * 이륙 연출(`ui:cinematic`) 동안의 숨김은 CSS 다 — `.hud.cinematic .reticle` (`styles/raidHud.css`, 전이 없이 즉시).
+ * **Intro wake (2026-09-16, user's decision):** while the tutorial opening's wake cutscene runs (`PlayerRef.introWaking` —
+ * before the camera is fully back to the usual back view) the crosshair is **invisible**, and once it ends it appears
+ * over `TUTORIAL_RETICLE_FADE_S` (the same trick as `hud/Compass` — raised here with `dt`, not a CSS transition; under
+ * reduced motion CSS transitions are clipped to 0.01 ms). It **multiplies** the opacity the blocker · wheel rules above
+ * decided. The respawn cutscene (`respawn`) never sets `introWaking`, so it does not apply. Hiding during the liftoff
+ * cutscene (`ui:cinematic`) is CSS — `.hud.cinematic .reticle` (`styles/raidHud.css`, instant, no transition).
  */
 export class Reticle {
   readonly root: HTMLElement;
@@ -91,7 +94,7 @@ export class Reticle {
   private hitmarker: HTMLElement;
   private hook: HTMLElement;
   private hookDist: HTMLElement;
-  /** 갈고리 칩 (2026-09-10): 아이콘 + 사용 키, 크로스헤어 좌측. */
+  /** Grapple chip (2026-09-10): icon + use key, left of the crosshair. */
   private grap: HTMLElement;
   private grapIco: HTMLElement;
   private grapKey: HTMLElement;
@@ -113,11 +116,11 @@ export class Reticle {
   private scope = false;
   private wheelOpen = false;
   private stratOpen = false;
-  /** 2026-09-09: 의사소통 휠(H 홀드)이 열려 있다 — 형제 휠들과 같은 25 % 로 흐린다. */
+  /** 2026-09-09: the communication wheel (H hold) is open — dimmed to the same 25 % as its sibling wheels. */
   private commsOpen = false;
   private hitTimer = 0;
   private lastGap = -1;
-  /** 활 모드 (2026-09-14): static guide bars + the moving draw bar. */
+  /** Bow mode (2026-09-14): static guide bars + the moving draw bar. */
   private bowDrawEl: HTMLElement;
   /** The weapon in hand is the bow (`WeaponDef.unique === 'bow'`); the mode itself also needs no consumable in hand. */
   private bowWeapon = false;
@@ -129,20 +132,20 @@ export class Reticle {
   /** Smoothed draw actually drawn (0 = lower tier, 1 = centre). */
   private bowShown = 0;
   private lastBowY = -1;
-  /** 제세동기 모드 (2026-09-15): 손에 든 것이 제세동기다 (`quick:equipped` 의 def 로 판단). */
+  /** Defib mode (2026-09-15): the thing in hand is the defibrillator (decided from `quick:equipped`'s def). */
   private defibHand = false;
   private defibOn = false;
-  /** weapons/ 가 보낸 마지막 상태 (`gadget:defibAim`). */
+  /** The last state weapons/ sent (`gadget:defibAim`). */
   private defibCharge = 0;
   private defibArmed = false;
   private defibTarget = false;
-  /** 실제로 그려지는(감쇠된) 충전 0..1. */
+  /** The charge actually drawn (damped), 0..1. */
   private defibShown = 0;
   private lastDefibScale = -1;
   private innerEl: HTMLElement;
-  /** 2026-09-16: 기상 연출 뒤 나타나는 정도 0..1 (연출이 없으면 늘 1). */
+  /** 2026-09-16: how far the reveal after the intro wake has come, 0..1 (always 1 without the cutscene). */
   private reveal = 1;
-  /** 지금 `reveal` 을 코드가 밟고 있는가 (`.reticle` 의 CSS 전이를 끈 상태인가). */
+  /** Whether code is stepping `reveal` right now (i.e. `.reticle`'s CSS transition is off). */
   private revealStepping = false;
   private ctx: GameContext | null = null;
   private unsubs: Array<() => void> = [];
@@ -161,21 +164,21 @@ export class Reticle {
     this.hook.hidden = true;
     for (let i = 0; i < 4; i++) el('i', { parent: this.hook });
     this.hookDist = el('span', { cls: 'gdist ui-mono', text: '', parent: this.hook });
-    // 갈고리 칩 left of the crosshair: icon (+ the implant key while the aim point can actually be hooked).
+    // Grapple chip left of the crosshair: icon (+ the implant key while the aim point can actually be hooked).
     this.grap = el('div', { cls: 'rgrap', parent: this.root });
     this.grap.hidden = true;
     this.grapIco = el('span', { cls: 'rg-ico', text: GRAPPLE_GLYPH, parent: this.grap });
-    this.grapKey = createKeycap(Keys.IMPLANT, { tag: 'kbd', parent: this.grap });   // 2026-09-15: 공용 키캡
-    // 소모품 readout right of the dot (only rendered in `.consumable` mode).
+    this.grapKey = createKeycap(Keys.IMPLANT, { tag: 'kbd', parent: this.grap });   // 2026-09-15: the shared keycap
+    // Consumable readout right of the dot (only rendered in `.consumable` mode).
     this.qinfo = el('span', { cls: 'qinfo ui-mono', text: '', parent: this.root });
-    // 활 모드 guide bars below the dot (only rendered in `.bowmode`); positions come from BOW_TIER_Y, set once.
+    // Bow-mode guide bars below the dot (only rendered in `.bowmode`); positions come from BOW_TIER_Y, set once.
     for (let i = 0; i < BOW_TIER_Y.length; i++) {
       const y = BOW_TIER_Y[i];
       const tier = el('div', { cls: i === 0 ? 'rbow-tier' : 'rbow-tier rbow-low', parent: this.root });
       tier.style.transform = `translate(0, ${y}px)`;
     }
     this.bowDrawEl = el('div', { cls: 'rbow-draw', parent: this.root });
-    // 제세동기 모드: 큰 반투명 원 + 그 안에서 자라는 작은 하얀 원 (CSS `.reticle.defibmode` 에서만 보인다).
+    // Defib mode: the big translucent circle + the small white one growing inside it (visible only in CSS `.reticle.defibmode`).
     el('div', { cls: 'rdf-outer', parent: this.root });
     this.innerEl = el('div', { cls: 'rdf-inner', parent: this.root });
     this.apply(14);
@@ -193,7 +196,7 @@ export class Reticle {
       b.on('weapon:scopeChanged', ({ scope }) => { this.scope = scope; }),
       b.on('quick:wheelChanged', ({ open }) => { this.wheelOpen = open; }),
       b.on('stratagem:wheelChanged', ({ open }) => { this.stratOpen = open; }),
-      // 2026-09-09: 의사소통 휠(H)도 형제 휠들과 같이 조준점을 흐린다 — 지금은 조준이 아니라 말하는 중이다.
+      // 2026-09-09: the communication wheel (H) dims the aim point like its sibling wheels — this is talking, not aiming.
       b.on('comms:wheelChanged', ({ open }) => { this.commsOpen = open; }),
       b.on('ui:hitmarker', ({ kill, headshot }) => {
         this.hitmarker.classList.remove('show', 'kill', 'head');
@@ -201,11 +204,11 @@ export class Reticle {
         void this.hitmarker.offsetWidth;
         this.hitmarker.classList.add('show');
         if (kill) this.hitmarker.classList.add('kill');
-        // 2026-09-09: 헤드샷은 같은 X 를 1.6배로 그린다 (색은 그대로 — 처치의 빨강만 따로다).
+        // 2026-09-09: a headshot draws the same X at 1.6× (the colour is unchanged — only a kill has its own red).
         if (headshot) this.hitmarker.classList.add('head');
         this.hitTimer = kill ? 0.22 : 0.12;
       }),
-      // ── 소모품 모드 (2026-09-09) ──
+      // ── Consumable mode (2026-09-09) ──
       b.on('quick:equipped', ({ item }) => { this.setQuick(item); }),
       b.on('quick:used', ({ item, remaining }) => {
         // the emitter already knows the stack left; a 0 keeps the mode until weapons/ un-equips (`quick:equipped null`)
@@ -215,7 +218,7 @@ export class Reticle {
       b.on('inventory:itemUpdated', touch),
       b.on('inventory:quickSlotsChanged', touch),
       b.on('durability:changed', touch),
-      // 2026-09-11: 기폭기 손의 `기폭 n` 은 월드의 원격 지뢰 수라 설치 · 제거마다 다시 쓴다
+      // 2026-09-11: the detonator hand's `기폭 n` is the remote-mine count in the world, so it is rewritten on every place · remove
       b.on('gadget:deployed', touch),
       b.on('gadget:removed', touch),
       // ── grapple crosshair state ──
@@ -225,14 +228,14 @@ export class Reticle {
         this.grappleValid = valid; this.grappleDist = distance;
         this.syncHook();
       }),
-      // 키는 사용 시점에 읽는다 (모듈 상수로 캐시하지 않는다) — 리바인딩되면 칩의 키캡도 따라간다.
+      // The key is read at use time (never cached in a module constant) — a rebinding follows through to the chip's keycap.
       b.on('input:bindingsChanged', () => paintKeycap(this.grapKey, Keys.IMPLANT)),
       onKeybindsChanged(() => paintKeycap(this.grapKey, Keys.IMPLANT)),
       b.on('implant:grappleAttached', () => { toggleClass(this.hook, 'attached', true); this.lastHookKey = ''; this.syncHook(); }),
       b.on('implant:grappleReleased', () => { toggleClass(this.hook, 'attached', false); this.lastHookKey = ''; this.syncHook(); }),
-      // 2026-09-12 총구 막힘: weapons/ 가 빨간 원을 띄우는 바로 그 판정 — 여기서는 레이캐스트를 쏘지 않고 색만 바꾼다
+      // 2026-09-12 blocked muzzle: exactly the judgement weapons/ raises its red circle on — no raycast here, only a colour change
       b.on('weapon:aimBlocked', ({ blocked }) => toggleClass(this.root, 'blocked', blocked)),
-      // ── 활 모드 (2026-09-14) ──
+      // ── Bow mode (2026-09-14) ──
       b.on('weapon:equipped', ({ weaponId }) => {
         this.bowWeapon = ctx.loot?.getWeaponDef(weaponId)?.unique === 'bow';
         this.resetBowDraw();
@@ -240,13 +243,13 @@ export class Reticle {
       }),
       b.on('weapon:chargeChanged', ({ kind, t }) => {
         // a live draw (t ≥ 0) is itself proof the bow is in hand (robust to a missed `weapon:equipped`); a release
-        // `t = −1` is not (it may trail a swap away). The other kinds (충전 · 예열 · 용검) belong to other unique weapons.
+        // `t = −1` is not (it may trail a swap away). The other kinds (`charge` · `spinup` · `slash`) belong to other uniques.
         if (kind !== 'draw') { this.bowWeapon = false; this.resetBowDraw(); }
         else if (t >= 0) { this.bowWeapon = true; this.bowDrawing = true; this.bowTarget = Math.min(1, t); }
         else this.resetBowDraw();
         this.syncBow();
       }),
-      // ── 제세동기 모드 (2026-09-15) ──
+      // ── Defib mode (2026-09-15) ──
       b.on('gadget:defibAim', ({ armed, charge, target }) => {
         this.defibArmed = armed;
         this.defibCharge = armed ? 1 : Math.max(0, Math.min(1, charge));
@@ -270,7 +273,7 @@ export class Reticle {
     this.bowShown = 0;
   }
 
-  /** Enter / leave 활 모드 — the bow in hand and no consumable (소모품 모드 wins). */
+  /** Enter / leave bow mode — the bow in hand and no consumable (consumable mode wins). */
   private syncBow(): void {
     const on = this.bowWeapon && !this.quickItem;
     if (on === this.bowOn) return;
@@ -308,8 +311,8 @@ export class Reticle {
   }
 
   /**
-   * 갈고리 칩: equipped → 아이콘, 걸 수 있으면 + 사용 키. Not a second judgement — `this.grappleValid` is the
-   * `implant:grappleTargetChanged {valid}` that implants/ computes with the ray it would actually fire.
+   * Grapple chip: equipped → the icon, plus the use key when it can be hooked. Not a second judgement —
+   * `this.grappleValid` is the `implant:grappleTargetChanged {valid}` implants/ computes with the ray it would fire.
    */
   private syncGrapple(): void {
     const equipped = this.implant === 'grapple';
@@ -324,23 +327,23 @@ export class Reticle {
     if (def?.color) this.grap.style.setProperty('--gc', def.color);
     paintKeycap(this.grapKey, Keys.IMPLANT);
     toggleClass(this.grap, 'can', can);
-    // 걸 수 없으면 키는 숨긴다 — 누를 수 없는 키를 보여 주지 않는다 (아이콘만 딤드로 남는다).
+    // Not hookable → the key hides — a key that cannot be pressed is never shown (only the dimmed icon stays).
     if (this.grapKey.hidden !== !can) this.grapKey.hidden = !can;
   }
 
-  /** 갈고리 칩 상태 (debug / smoke): 'off' = 미장착, 'dim' = 걸 수 없음, 'ready' = 걸 수 있음. */
+  /** Grapple chip state (debug / smoke): 'off' = not equipped, 'dim' = not hookable, 'ready' = hookable. */
   get grappleChip(): 'off' | 'dim' | 'ready' {
     if (this.grap.hidden) return 'off';
     return this.grap.classList.contains('can') ? 'ready' : 'dim';
   }
 
-  /** Enter / leave 소모품 모드: ticks hide, the dot stays, the count readout appears to its right. */
+  /** Enter / leave consumable mode: ticks hide, the dot stays, the count readout appears to its right. */
   private setQuick(item: ItemInstance | null): void {
     this.quickItem = item;
     toggleClass(this.root, 'consumable', !!item);
     if (item) { this.quickDirty = true; this.syncQuick(); }
     else if (this.lastQuickText !== '') { this.lastQuickText = ''; setText(this.qinfo, ''); }
-    // 제세동기를 들면 크로스헤어가 통째로 바뀐다 — 손에 든 것이 모드를 정하고, `gadget:defibAim` 은 그 안의 상태만 움직인다.
+    // Taking the defibrillator changes the whole crosshair — what is in hand decides the mode, `gadget:defibAim` only moves the state inside it.
     const inv = this.ctx?.inventory;
     const def = item ? (inv?.getDef(item.defId) ?? this.ctx?.loot?.getItemDef(item.defId)) : null;
     const hand = def?.gadgetId === 'defib';
@@ -349,13 +352,13 @@ export class Reticle {
     this.syncBow();
   }
 
-  /** 홀드가 끝났다 / 손을 바꿨다 / 죽었다: 게이지를 0 으로 (모드 자체는 손에 든 것이 정한다). */
+  /** Hold ended / hands changed / died: the gauge goes to 0 (the mode itself is decided by what is in hand). */
   private resetDefib(): void {
     this.defibCharge = 0; this.defibArmed = false; this.defibTarget = false; this.defibShown = 0;
     this.applyDefib();
   }
 
-  /** Enter / leave 제세동기 모드 — 손에 제세동기가 있을 때만. */
+  /** Enter / leave defib mode — only with the defibrillator in hand. */
   private syncDefib(): void {
     if (this.defibHand === this.defibOn) return;
     this.defibOn = this.defibHand;
@@ -364,7 +367,7 @@ export class Reticle {
     this.applyDefib();
   }
 
-  /** 작은 원의 배율 · 상태 클래스 — 바뀔 때만 쓴다. */
+  /** The small circle's scale · state classes — written only when they change. */
   private applyDefib(): void {
     const scale = DEFIB_MIN_SCALE + (1 - DEFIB_MIN_SCALE) * this.defibShown;
     if (Math.abs(scale - this.lastDefibScale) >= 0.004) {
@@ -375,11 +378,11 @@ export class Reticle {
     toggleClass(this.root, 'defib-target', this.defibArmed && this.defibTarget);
   }
 
-  /** 2026-09-15: 제세동기 크로스헤어가 떠 있다 (debug / smoke). */
+  /** 2026-09-15: the defib crosshair is up (debug / smoke). */
   get defibMode(): boolean { return this.defibOn; }
-  /** 그려지고 있는 충전 0..1 (debug / smoke). */
+  /** The charge being drawn, 0..1 (debug / smoke). */
   get defibGauge(): number { return this.defibShown; }
-  /** 지금 떼면 일으킬 대상이 걸려 강조색이 들어와 있다 (debug / smoke). */
+  /** A target that releasing now would revive is on the crosshair, so the accent colour is on (debug / smoke). */
   get defibOnTarget(): boolean { return this.root.classList.contains('defib-target'); }
 
   /** Re-read the live instance and rewrite the readout (only when an event marked it dirty). */
@@ -392,7 +395,7 @@ export class Reticle {
     const live = inv?.findItem(this.quickItem.uid) ?? this.quickItem;
     const def = inv?.getDef(live.defId) ?? ctx?.loot?.getItemDef(live.defId);
     const parts: string[] = [];
-    // 2026-09-11: 기폭기 손 (슬롯 없음, uid `detonator:`) — 가방 수량 대신 월드에 남은 내 원격 지뢰 수
+    // 2026-09-11: the detonator hand (no slot, uid `detonator:`) — one's own remote mines left in the world, not a bag count
     if (this.quickItem.uid.startsWith('detonator:')) parts.push(`기폭 ${ctx?.gadgets?.liveRemoteMineCount?.() ?? 0}`);
     else parts.push(`×${Math.max(0, live.qty)}`);
     const max = def?.durabilityMax ?? 0;
@@ -405,15 +408,15 @@ export class Reticle {
     setText(this.qinfo, text);
   }
 
-  /** 2026-09-12: the crosshair is in its 총구 막힘 warning colour (`weapon:aimBlocked`) (debug / smoke). */
+  /** 2026-09-12: the crosshair is in its blocked-muzzle warning colour (`weapon:aimBlocked`) (debug / smoke). */
   get isBlocked(): boolean { return this.root.classList.contains('blocked'); }
 
-  /** Whether the reticle is in 소모품 모드 (dot only + count) (debug / smoke). */
+  /** Whether the reticle is in consumable mode (dot only + count) (debug / smoke). */
   get isConsumable(): boolean { return this.quickItem !== null; }
-  /** The readout right of the dot while in 소모품 모드, '' otherwise (debug / smoke). */
+  /** The readout right of the dot while in consumable mode, '' otherwise (debug / smoke). */
   get consumableText(): string { return this.lastQuickText; }
 
-  /** 2026-09-14: 활 모드 is showing (guide bars + draw bar instead of the ticks) (debug / smoke). */
+  /** 2026-09-14: bow mode is showing (guide bars + draw bar instead of the ticks) (debug / smoke). */
   get bowMode(): boolean { return this.bowOn; }
   /** Smoothed draw bar position, 0 = lower tier … 1 = on the centre (debug / smoke). */
   get bowDraw(): number { return this.bowShown; }
@@ -449,9 +452,9 @@ export class Reticle {
       this.implant = imp.equipped; this.wielded = imp.wielded;
       this.syncHook();
     }
-    // 소모품 readout: rewritten only after an event marked it dirty (one boolean per frame otherwise).
+    // Consumable readout: rewritten only after an event marked it dirty (one boolean per frame otherwise).
     if (this.quickDirty) this.syncQuick();
-    // 활 모드: the draw bar follows the live draw `t` (fast) or settles back to the lower tier (slower).
+    // Bow mode: the draw bar follows the live draw `t` (fast) or settles back to the lower tier (slower).
     if (this.bowOn) {
       const target = this.bowDrawing ? this.bowTarget : 0;
       if (this.bowShown !== target) {
@@ -460,7 +463,7 @@ export class Reticle {
       }
       this.applyBow();
     }
-    // 제세동기: 30 Hz 로 오는 충전값을 프레임마다 이어 그린다 (활 시위와 같은 방식).
+    // Defib: the charge arriving at 30 Hz is carried across frames (the same way as the bow draw).
     if (this.defibOn && this.defibShown !== this.defibCharge) {
       this.defibShown = damp(this.defibShown, this.defibCharge, DEFIB_LAMBDA, dt);
       if (Math.abs(this.defibShown - this.defibCharge) < 0.002) this.defibShown = this.defibCharge;
@@ -470,18 +473,18 @@ export class Reticle {
     const scoped = this.scope && this.aiming;
     // Hidden behind blockers / the scope; dimmed while the quick-use wheel is open.
     const shown = ctx.uiBlockers.size > 0 || scoped ? 0 : (this.wheelOpen || this.stratOpen || this.commsOpen) ? 0.25 : 1;
-    // 2026-09-16: × 기상 연출 뒤 나타나는 정도 (연출 중 0 → `TUTORIAL_RETICLE_FADE_S` 에 걸쳐 1)
+    // 2026-09-16: × the reveal after the intro wake (0 during the cutscene → 1 over `TUTORIAL_RETICLE_FADE_S`)
     const o = shown * this.updateReveal(ctx, dt);
     const opacity = o >= 1 ? '1' : o <= 0 ? '0' : o.toFixed(3);
     if (this.root.style.opacity !== opacity) this.root.style.opacity = opacity;
   }
 
   /**
-   * 기상 연출 동안 0, 끝나면 `TUTORIAL_RETICLE_FADE_S` 에 걸쳐 1 로 (시뮬레이션 dt — 일시정지 · 셰이더 hold 에 멈춘다).
+   * 0 during the intro wake, then to 1 over `TUTORIAL_RETICLE_FADE_S` (simulation dt — it stops on a pause · shader hold).
    *
-   * 밟는 동안에는 `.reticle` 의 CSS 전이(`--t-fast`)를 끈다 (`.reveal-step`) — 서사를 나르는 페이드는 코드가 밟는다
-   * (CLAUDE.md §4.2). 끄지 않으면 연출이 시작되는 프레임에 크로스헤어가 **1 에서 `--t-fast` 동안 사라지며 깜빡이고**
-   * (튜토리얼 부팅에서 실제로 보인다), 나타날 때도 코드 계단 위에 전이가 한 번 더 겹친다.
+   * While it steps, `.reticle`'s CSS transition (`--t-fast`) is turned off (`.reveal-step`) — fades that carry the story
+   * are stepped in code (CLAUDE.md §4.2). Without that, on the frame the cutscene starts the crosshair **blinks away
+   * from 1 over `--t-fast`** (visible for real on a tutorial boot), and on the way back a transition lies over the steps.
    */
   private updateReveal(ctx: GameContext, dt: number): number {
     if (ctx.player?.introWaking ?? false) this.reveal = 0;
@@ -494,7 +497,7 @@ export class Reticle {
     return this.reveal;
   }
 
-  /** 기상 연출 뒤 나타나는 정도 0..1 (debug / smoke). */
+  /** How far the reveal after the intro wake has come, 0..1 (debug / smoke). */
   get revealAmount(): number { return this.reveal; }
 
   private apply(gap: number): void {

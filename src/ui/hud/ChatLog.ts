@@ -27,7 +27,7 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  * the relock on close is `main.ts`'s single relock point). A capture-phase keydown listener with
  * `stopImmediatePropagation` keeps Esc from pausing and letters from moving the player.
  *
- * **2026-09-09 (채팅 UI 정리).**
+ * **2026-09-09 (the chat UI cleanup).**
  *   • **Enter sends and keeps the input open** (cleared, still focused, no hide/show so the row's entrance animation
  *     never re-runs); an empty Enter is a no-op. Closing is **Tab (`Keys.INVENTORY`) or Esc** only — Tab is consumed
  *     (`ctx.input.consume`) so the inventory does not open on the same press. Esc on an empty whisper input drops
@@ -56,7 +56,7 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  * (`시뮬레이션 훈련장 입장` on `game:newMission {mode:'training'}`, `퇴장` on `training:exitRequested`). Every line emits
  * `chat:message`. Works as a local log in single-player too.
  *
- * **개인 대화 (Phase 11 귓속말 — 2026-09-14 공식 명칭 변경).** `chat:whisperTo {code, name}` opens the input in **whisper mode**
+ * **개인 대화 (Phase 11's 귓속말, officially renamed 2026-09-14).** `chat:whisperTo {code, name}` opens the input in **whisper mode**
  * (the lines land in the same `SocialRef.whisperHistory` the messenger's 대화 tab draws): a `.chat-target` chip reads `→ 이름` and every Enter goes out through
  * `ctx.net.social.whisper(code, text)` instead of `chat:post`. The sender's echo is **not** written locally — the
  * whisper mirror answers with `social:whisper {line}` for both directions (`line.out` distinguishes them) and that is
@@ -64,7 +64,7 @@ interface Line { el: HTMLElement; time: number; faded: boolean }
  * failure line instead. Clearing the target (the chip's ×, or Escape on an empty input) drops back to squad chat.
  * While a target is set the bottom-left column is raised to mid-screen (`.hud-bl.whispering`).
  *
- * **전송 확인 · 차단 · /r (2026-09-11, B-4).**
+ * **Delivery state · blocking · /r (2026-09-11, B-4).**
  *   • An outgoing line arrives `state:'pending'` and is drawn dimmed (`.pending`); `social:whisperUpdated` finds the row
  *     by `line.nonce` and turns it `sent` / `stored` (`오프라인 보관 — 접속하면 전달`) / `failed` (`전송 실패 — 오프라인`)
  *     **in place** — there is no separate error toast any more. The `.wst` tag carries that text (`menus/social/whisperText`).
@@ -86,7 +86,7 @@ export class ChatLog {
   private _open = false;
   private acc = 0;
   private lastCountdown = -1;
-  /** Active 귓속말 target, or null for ordinary squad chat (Phase 11). */
+  /** The active whisper target, or null for ordinary squad chat (Phase 11). */
   private target: { code: PlayerCode; name: string } | null = null;
   /** 2026-09-11 (B-4): my whisper rows still able to change state, by `line.nonce`. */
   private whisperRows = new Map<number, HTMLElement>();
@@ -200,9 +200,9 @@ export class ChatLog {
         if (k === 'text' && this.isBlockedPeer(id)) return;
         this.add(id, name, text, k, false);
       }),
-      /* 2026-09-15 (안드로이드 분대원): allies/ 와 `hud/Pings` 가 내는 한 줄. **절대 relay 하지 않는다** —
-       * `ally:chat` 은 이미 모든 클라이언트에서 발행되고(호스트는 `ally chat` 와이어로 보낸다), 여기서 다시
-       * `chat:post` 로 돌리면 같은 줄이 두 번 보인다. 이름 앞의 색은 그 기의 로비 슬롯 색이다. */
+      /* 2026-09-15 (android squadmates): the one line allies/ and `hud/Pings` emit. **Never relayed** — `ally:chat` is
+       * already emitted on every client (the host sends it over the `ally chat` wire), and turning it back into `chat:post`
+       * here would show the same line twice. The colour before the name is that unit’s lobby slot colour. */
       b.on('ally:chat', ({ name, slot, text }) => this.addAlly(name, slot, text)),
       b.on('net:peerJoined', ({ name }) => this.system(`${name} 합류`)),
       b.on('net:peerLeft', ({ name }) => this.system(`${name} 이탈`)),
@@ -228,7 +228,7 @@ export class ChatLog {
       b.on('net:hostChanged', ({ hostId, isLocalHost }) => this.system(`호스트 변경: ${this.peerName(hostId, isLocalHost)}`)),
       b.on('net:peerSuspended', ({ name, suspended }) => this.system(`${name} ${suspended ? '연결 끊김' : '재연결'}`)),
       b.on('training:exitRequested', () => this.system('시뮬레이션 훈련장 퇴장')),
-      /* ── Phase 11: 귓속말 ── */
+      /* ── Phase 11: whispers ── */
       b.on('chat:whisperTo', ({ code, name }) => { this.setTarget({ code, name }); this.open(); this.input.focus(); }),
       b.on('social:whisper', ({ line }) => this.addWhisper(line)),
       b.on('social:whisperUpdated', ({ line }) => this.updateWhisper(line)),
@@ -269,7 +269,7 @@ export class ChatLog {
 
   private system(text: string): void { this.add(null, '시스템', text, 'system', false); }
 
-  /** 2026-09-15: 안드로이드 한 줄 — `<이름>: 텍스트`, 이름은 그 기의 슬롯 색 (`.chat-line.ally`, `--sc`). */
+  /** 2026-09-15: an android’s line — `<이름>: 텍스트`, the name in that unit’s slot colour (`.chat-line.ally`, `--sc`). */
   private addAlly(name: string, slot: number, text: string): void {
     const t = String(text ?? '').trim().slice(0, MAX_TEXT);
     if (!t) return;
@@ -325,10 +325,10 @@ export class ChatLog {
     if (col && col.classList.contains('hud-bl')) toggleClass(col, 'whispering', !!t);
   }
 
-  /** Whether the input is aimed at a 귓속말 target (debug). */
+  /** Whether the input is aimed at a whisper target (debug). */
   get whisperTarget(): PlayerCode | null { return this.target?.code ?? null; }
 
-  /** 2026-09-15 (debug / smoke): 그려진 줄 — 클래스 · 이름 · 본문 (오래된 것부터). */
+  /** 2026-09-15 (debug / smoke): the drawn lines — class · name · body (oldest first). */
   get lineStates(): Array<{ cls: string; who: string; text: string }> {
     return this.lines.map((l) => ({
       cls: l.el.className,
@@ -440,7 +440,7 @@ export class ChatLog {
   private send(): void {
     const raw = this.input.value.trim();
     if (!raw) return;
-    // B-4: `/r <텍스트>` → the last 귓속말 partner; `/r` alone aims the input at them (either mode).
+    // B-4: `/r <텍스트>` → the last whisper partner; `/r` alone aims the input at them (either mode).
     const reply = REPLY_RE.exec(raw);
     if (reply) {
       this.reply((reply[1] ?? '').trim().slice(0, MAX_TEXT));

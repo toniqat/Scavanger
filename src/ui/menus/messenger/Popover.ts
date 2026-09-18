@@ -4,8 +4,8 @@ import { el, setText } from '../../dom';
 const ESCAPE_TOKEN = 'messenger:pop';
 
 /**
- * 메신저 안의 작은 팝오버 하나 (2026-09-14) — 방 만들기 · 친구 초대 · 이름 변경. 패널 틀(`.cp-frame`) 안에 절대 위치로 뜨고
- * 한 번에 하나만 열린다. Escape 는 `ctx.escape` 의 `messenger:pop` 으로 이것만 닫고(패널보다 위), 틀의 빈 곳을 누르면 닫힌다.
+ * The messenger's one small popover (2026-09-14) — create a room · invite a friend · rename. It floats absolutely inside the panel frame
+ * (`.cp-frame`), one at a time. Escape closes only this one through `messenger:pop` on `ctx.escape` (above the panel), and so does a press on empty space in the frame.
  */
 export class Popover {
   readonly root: HTMLElement;
@@ -36,10 +36,10 @@ export class Popover {
   bind(ctx: GameContext): void { this.ctx = ctx; }
 
   get isOpen(): boolean { return this._open; }
-  /** 지금 열린 팝오버의 종류 (`data-kind`, 디버그 · 스모크). */
+  /** The kind of the popover open right now (`data-kind`, debug · smoke). */
   get kind(): string | null { return this._open ? this.root.dataset.kind ?? null : null; }
 
-  /** `kind` 는 스모크 · CSS 표식. `build` 가 본문을 채운다. */
+  /** `kind` is the smoke · CSS marker. `build` fills the body. */
   open(kind: string, title: string, build: (body: HTMLElement) => void): void {
     this.close();
     this.root.dataset.kind = kind;

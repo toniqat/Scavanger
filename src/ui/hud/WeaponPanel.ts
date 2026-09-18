@@ -3,7 +3,7 @@ import { Keys, UNIQUE_WEAPON_LABEL_KO, WEAPON_DEFAULT_DURABILITY, buildItemChip,
 import { WEAPON_CLASS_LABEL_KO, weaponClassOf } from '@/items';
 
 /**
- * 2026-09-15 (사용자 결정): the type tag of a weapon. A legendary unique names **its own kind** (`화염방사기` · `전격총` ·
+ * 2026-09-15 (user's decision): the type tag of a weapon. A legendary unique names **its own kind** (`화염방사기` · `전격총` ·
  * `표창` · `컴포짓 보우` · `바주카` · `미니건`, `UNIQUE_WEAPON_LABEL_KO`) — its csv `class` (AR / DMR / SMG / SR) only picks
  * the shooting skill and must never reach the screen. Graded guns keep the class label.
  */
@@ -39,23 +39,26 @@ const UNIQUE_MODES: Readonly<Record<UniqueWeaponKind, { l: string; r: string }>>
 type PrimarySlot = Extract<WeaponSlot, 'primary' | 'primary2'>;
 
 /**
- * Bottom-right weapon readout: durability bar, then one row of **썸네일 ← → 잔탄 / 예비탄**, then the class tag,
+ * Bottom-right weapon readout: durability bar, then one row of **thumbnail ← → mag / reserve**, then the class tag,
  * plus the low / empty / broken states. The reload readout moved to the crosshair in Phase 10 (`hud/ReloadGauge`) —
  * this panel no longer owns an arc or a `재장전` pill.
  *
- * 2026-09-10 (레이드 HUD 개편, 사용자 결정): 패널 위의 슬롯 칸과 패널 아래의 주무기 키 · 무기 이름이 없어졌다.
- * 총기 표시는 **가로로 긴 한 상자**(`.wbox`) 안에 든다 — 좌측 썸네일 · `24 / 120` · 맨 오른쪽 분류 태그, 상자 바닥에
- * 내구도 바. `예비` 라벨은 없다 (base.css 의 `/ ` 구분자).
+ * 2026-09-10 (raid HUD rework, user's decision): the slot cells above the panel and the primary key · weapon name
+ * below it are gone. The gun readout lives inside **one wide box** (`.wbox`) — thumbnail on the left · `24 / 120` · the
+ * class tag at the far right, with the durability bar at the bottom of the box. There is no `예비` label (the `/ `
+ * separator in base.css).
  *
- * 2026-09-16 (사용자 결정):
- * - 썸네일은 **등급색 정사각 틀 없이** 아이템 칩만 그린다 (칩 자신이 이미 등급색이다).
- * - 상자 **왼쪽 바깥**에 **다른 주무기**의 썸네일(`.wp-side`)과 그 슬롯의 키캡(주무기 I 을 들면 II 의 키)을 둔다.
- *   주무기가 하나뿐이면 없다. 키는 `Keys.PRIMARY` / `Keys.PRIMARY2` 를 그릴 때마다 읽는다 (리바인딩 규약).
- * - 주무기가 하나도 없어도 패널은 남고 **빈 상태**(`.wp-empty` — `—` · `주무기 없음`)로 그린다.
- * - 주무기가 아닌 것을 들면(빠른 사용 — 수류탄 · 붕대 · 자극제 · 가젯 · 기폭기, 근접 휘두르기, 임플란트 · 전투불능 홀스터)
- *   큰 패널은 **마지막으로 든 주무기**를 그대로 보여 주되 흐리게(`.wp-dim`) 한다. 옛 「소모품 모드」(큰 패널이 손에 든
- *   빠른 사용 아이템의 이름 · 개수 · 사용법으로 바뀌던 `.weapon.consumable`)는 없앴다 — 개수는 빠른 사용 썸네일
- *   (`hud/QuickStrip`)이, 사용법은 조준점 아래 힌트가 말한다.
+ * 2026-09-16 (user's decision):
+ * - The thumbnail draws the item chip alone, **with no rarity-coloured square frame** (the chip is already rarity-coloured).
+ * - **Outside the box, on its left**, sit the **other primary**'s thumbnail (`.wp-side`) and that slot's keycap (holding
+ *   primary I shows II's key). With only one primary there is none. The key reads `Keys.PRIMARY` / `Keys.PRIMARY2` on
+ *   every draw (the rebinding contract).
+ * - With no primary equipped at all the panel stays and is drawn in its **empty state** (`.wp-empty` — `—` · `주무기 없음`).
+ * - Holding something that is not a primary (quick use — grenades · bandages · stims · gadgets · the detonator, a melee
+ *   swing, an implant · the downed holster) leaves the big panel showing **the primary held last**, only dimmed
+ *   (`.wp-dim`). The old 「consumable mode」 (`.weapon.consumable`, where the big panel turned into the name · count ·
+ *   usage of the quick-use item in hand) was removed — the count is told by the quick-use thumbnail
+ *   (`hud/QuickStrip`), the usage by the hint under the aim point.
  *
  * Data: `weapon:equipped` / `ammoChanged` / `durabilityChanged` / `broken` for the gun in hand, `loadout:changed` for both
  * primaries, and a per-frame poll of `ctx.weapons.activeSlot` / `primaryInHand` (`update`) — a swap or loadout change that
@@ -107,7 +110,7 @@ export class WeaponPanel {
 
     // `.wbox` stays the second child of `.weapon` (QuickStrip is prepended by HudSystem) — smokes read that order.
     const box = el('div', { cls: 'wbox', parent: this.root });
-    // 2026-09-16: 다른 주무기는 상자 **안**의 절대 위치 요소로 둔다 — 상자의 왼쪽 바깥에 붙고, `.weapon` 의 자식 순서는 그대로다.
+    // 2026-09-16: the other primary is an absolutely positioned element **inside** the box — it sits outside its left edge and `.weapon`'s child order is unchanged.
     this.sideEl = el('div', { cls: 'wp-side', parent: box });
     this.sideEl.hidden = true;
     this.sideKeyEl = createKeycap(Keys.PRIMARY2, { cls: 'wp-side-key', parent: this.sideEl });
@@ -139,8 +142,8 @@ export class WeaponPanel {
   bind(ctx: GameContext): void {
     this.ctx = ctx;
     const b = ctx.bus;
-    // 2026-09-14 (튜토리얼 HUD 점진 노출): 시체에서 장비를 얻기 전까지 무기 패널은 없다. 게이트가 바뀔 만한 세 순간에만 다시 묻는다.
-    //   튜토리얼이 꺼져 있으면 언제나 false 라 평소 화면이 한 글자도 바뀌지 않는다.
+    // 2026-09-14 (gradual tutorial HUD reveal): there is no weapon panel until gear is taken from a corpse. It is asked again only at the three moments the gate could change.
+    //   With the tutorial off it is always false, so not one glyph of the usual screen changes.
     const tutGate = (): void => {
       toggleClass(this.root, 'hud-tut-hidden', ctx.tutorial?.hides('hud', 'weapon') ?? false);
     };
@@ -148,11 +151,11 @@ export class WeaponPanel {
     this.pullLoadout();
     this.unsubs.push(
       b.on('tutorial:changed', tutGate),
-      b.on('world:ready', () => { tutGate(); this.pullLoadout(); }),   // 새로고침으로 튜토리얼 레이드에 돌아온 경우 (단계가 안 바뀐다)
+      b.on('world:ready', () => { tutGate(); this.pullLoadout(); }),   // returning to the tutorial raid through a reload (the step does not change)
       b.on('game:phaseChanged', tutGate),
-      b.on('input:bindingsChanged', () => { this.sideStamp = ''; }),   // 다음 update 가 키캡을 다시 칠한다
+      b.on('input:bindingsChanged', () => { this.sideStamp = ''; }),   // the next update repaints the keycap
       b.on('weapon:equipped', (p) => {
-        if (!p.weaponId) return;   // 빈 손 알림 — 빈 상태는 `update` 가 슬롯을 보고 정한다
+        if (!p.weaponId) return;   // an empty-hands notice — the empty state is decided by `update` from the slot
         const inst = ctx.inventory?.getLoadout()[p.slot] ?? null;
         this.showWeapon(p.slot, inst, p.weaponId, p);
       }),
@@ -169,7 +172,7 @@ export class WeaponPanel {
         if (!this.shownSlot || !this.isActive(p.uid, p.weaponId)) return;
         this.setDurability(0, 1, true);
       }),
-      // 2026-09-10: 교체 타이머는 크로스헤어 링(`hud/ReloadGauge`)이고, 새 무기의 썸네일 · 잔탄은 곧 오는 `weapon:equipped` 가 갈아 끼운다.
+      // 2026-09-10: the swap timer is the crosshair ring (`hud/ReloadGauge`), and the new weapon's thumbnail · ammo are swapped in by the `weapon:equipped` that follows.
       b.on('weapon:dryFire', () => {
         this.magEl.classList.remove('flash');
         void this.magEl.offsetWidth;
@@ -283,7 +286,7 @@ export class WeaponPanel {
     this.sideEl.hidden = !stamp;
     this.sideThumb.replaceChildren();
     if (!other || !inst) return;
-    // 키는 그릴 때마다 읽는다 — 리바인드는 `input:bindingsChanged` 가 stamp 를 지워 여기로 다시 들어온다
+    // The key is read on every draw — a rebind clears the stamp in `input:bindingsChanged`, which comes back through here
     paintKeycap(this.sideKeyEl, other === 'primary' ? Keys.PRIMARY : Keys.PRIMARY2);
     const def = this.ctx?.inventory?.getDef(inst.defId) ?? this.ctx?.loot?.getItemDef(inst.defId);
     this.sideThumb.appendChild(buildItemChip(def, { size: SIDE_THUMB_SIZE }));
@@ -291,7 +294,7 @@ export class WeaponPanel {
 
   /**
    * Rebuild the weapon thumbnail (the shared inventory chip, so icon + rarity colour match the bag).
-   * 2026-09-16: 틀 없이 칩만 — 옛 등급색 정사각 배경(`--wrc`)은 없앴다.
+   * 2026-09-16: the chip alone, no frame — the old rarity-coloured square background (`--wrc`) was removed.
    */
   private setThumb(def: ItemDef | undefined): void {
     this.thumbIcon.replaceChildren();
@@ -329,7 +332,7 @@ export class WeaponPanel {
 
   private setAmmo(mag: number, reserve: number): void {
     if (this.singleAmmo) {
-      // 2026-09-15 활: 탄창이 없다 — 가진 화살 전부 한 숫자. 「적다」는 마지막 한 탄창분(`magSize`) 이하.
+      // 2026-09-15 the bow: no magazine — every arrow carried in one number. 「low」 is at or below one last magazine's worth (`magSize`).
       const total = Math.max(0, mag) + Math.max(0, reserve);
       setText(this.magEl, String(total));
       setText(this.reserveEl, '');

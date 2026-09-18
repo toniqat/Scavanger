@@ -4,7 +4,7 @@ import { el, setText, toggleClass } from '../dom';
 const SIZE = 120;
 const RADIUS = 48;
 
-/** Ring caption per state (2026-09-08: 무기 교체 joined 재장전 on the same crosshair ring). */
+/** Ring caption per state (2026-09-08: `무기 교체` joined `재장전` on the same crosshair ring). */
 const LABEL: Readonly<Record<'reload' | 'swap', string>> = { reload: '재장전', swap: '무기 교체' };
 
 /**
@@ -19,7 +19,7 @@ const LABEL: Readonly<Record<'reload' | 'swap', string>> = { reload: '재장전'
  * melee swing / weapon swap that aborts the reload would leave the ring filling to 100 % and then sitting there.
  * `weapon:equipped` (the old panel's behaviour), death, downed and a mission reset hide it too.
  *
- * 2026-09-08 — **무기 교체도 같은 링**. The swap used to be a 160 px hairline under the bottom-right weapon box, which
+ * 2026-09-08 — **the swap uses the same ring**. The swap used to be a 160 px hairline under the bottom-right weapon box, which
  * nobody looks at mid-fight; `weapon:swapStarted {duration}` now drives this ring with the `무기 교체` label. The two
  * states cannot overlap (a swap cancels a running reload), so one ring serves both — `mode` only decides which
  * events may hide it: `weapon:equipped` fires **halfway through** a swap (that is when the new gun is attached), so
@@ -60,7 +60,7 @@ export class ReloadGauge {
   bind(ctx: GameContext): void {
     const b = ctx.bus;
     this.unsubs.push(
-      // 2026-09-15: 활 「롱혼」 은 재장전이 없다 (탄창 개념 없음) — 혹시 이벤트가 와도 링을 그리지 않는다.
+      // 2026-09-15: the bow 「롱혼」 has no reload (no magazine concept) — even if the event arrives the ring is not drawn.
       b.on('weapon:reloadStarted', ({ weaponId, duration }) => {
         if (ctx.loot?.getWeaponDef(weaponId)?.unique === 'bow') return;
         this.start(duration, 'reload');
@@ -68,7 +68,7 @@ export class ReloadGauge {
       b.on('weapon:reloadFinished', () => this.hide()),
       // Phase 10: a cancel (melee, swap, death) used to be silent — the ring would keep filling without it.
       b.on('weapon:reloadCancelled', () => this.hide()),
-      // 2026-09-08: 무기 교체 shares the ring; the swap owns it until the timer runs out.
+      // 2026-09-08: the weapon swap shares the ring; the swap owns it until the timer runs out.
       b.on('weapon:swapStarted', ({ duration }) => this.start(duration, 'swap')),
       // `weapon:equipped` lands mid-swap (the new gun is attached at 50 %) — it may only clear a reload.
       b.on('weapon:equipped', () => { if (this.mode === 'reload') this.hide(); }),

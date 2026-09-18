@@ -7,20 +7,20 @@ import { npcOf } from './sources';
 import { buildNpcAvatar, buildNpcTrust, npcTrustOf } from './Trust';
 
 export interface QuestsTabHost {
-  /** 그 NPC 의 대화로 옮긴다 (대화 탭). */
+  /** Moves to that NPC’s conversation (the 대화 tab). */
   openNpc(npcId: string): void;
-  /** 퀘스트 탭이 지금 보이나. */
+  /** Whether the quest tab is visible right now. */
   isVisible(): boolean;
 }
 
 /**
- * 메신저 `퀘스트` 탭 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * The messenger's `퀘스트` tab (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *
- * 좌 목록 = 진행 중(보고 가능이 위) · 완료(접힘). 우 상세 = NPC 머리(신뢰도 고리를 두른 초상 · 이름 · 직함 · **개인 신뢰도 게이지**) +
- * 퀘스트 카드(`detail`): 목표마다 진척 · [납품], [완료 보고](목표가 다 차야 켜진다 — 이유는 카드 아래 한 줄). 포기 버튼은 없다 (사용자 결정).
+ * Left list = active (reportable on top) · complete (collapsed). Right detail = the NPC head (the avatar wearing the trust ring · name · job title · the **personal trust gauge**) +
+ * the quest card (`detail`): progress · [납품] per objective, [완료 보고] (lit only once every objective is full — the reason is one line under the card). There is no abandon button (user's decision).
  *
- * 2026-09-14 3차 (사용자 결정): 목록을 거르는 곳은 **엔진**이다 (`NpcQuestRef.getQuests` 가 `offered` · `deferred` 를 빼고 답한다) —
- * 여기서 다시 거르지 않는다. `새 제안` · `보류` 묶음을 그리는 분기는 옛 세이브를 위해 남겨 두었고 평소에는 한 줄도 나오지 않는다.
+ * 2026-09-14 3rd pass (user's decision): the **engine** is where the list is filtered (`NpcQuestRef.getQuests` answers without `offered` · `deferred`) —
+ * nothing is filtered again here. The branches that draw the `새 제안` · `보류` groups are kept for old saves and normally never draw a row.
  */
 export class QuestsTab {
   readonly root: HTMLElement;
@@ -125,13 +125,13 @@ export class QuestsTab {
     this.detail.hidden = !q;
     if (!q) { this.detail.replaceChildren(); return; }
     const head = el('div', { cls: 'ms-qdetail-head' });
-    /* 2026-09-14 3차: 대화창 머리와 **같은 초상** — 신뢰도 radial 고리 + 우하단 레벨 배지. */
+    /* 2026-09-14 3rd pass: the **same avatar** as the conversation head — the trust radial ring + the level badge at the bottom right. */
     head.appendChild(buildNpcAvatar(ctx, q.npc.id, q.npc.name, { glyph: q.npc.glyph || initialOf(q.npc.name), color: q.npc.color }));
     const main = el('div', { cls: 'ms-thead-main', parent: head });
     el('div', { cls: 'ms-thead-title', text: q.npc.name, parent: main });
     const corp = q.npc.corp ? CORP_DEFS[q.npc.corp]?.name ?? '' : '';
     el('div', { cls: 'ms-thead-sub', text: [q.npc.title, corp || NPC_ROLE_LABEL_KO[q.npc.role]].filter(Boolean).join(' · '), parent: main });
-    /* 2026-09-14: 퀘스트를 낸 NPC 의 개인 신뢰도 게이지 (대화창 머리와 같은 조각). */
+    /* 2026-09-14: the personal trust gauge of the NPC who gave the quest (the same piece as the conversation head). */
     const trustEl = buildNpcTrust(ctx, q.npc.id, q.npc.name, { color: q.npc.color });
     if (trustEl) { trustEl.classList.add('in-head'); main.appendChild(trustEl); }
     const card = buildQuestCard(ctx, q, 'detail', {
@@ -178,7 +178,7 @@ export class QuestsTab {
     this.ctx?.bus.emit('audio:play', { id: 'ui_deny' });
   }
 
-  /** 진행 중 ∧ 보고 가능 + 새 제안 (탭 배지). */
+  /** Active ∧ reportable + newly offered (the tab badge). */
   static badgeCount(ctx: GameContext): number {
     const qs = npcOf(ctx)?.getQuests() ?? [];
     let n = 0;

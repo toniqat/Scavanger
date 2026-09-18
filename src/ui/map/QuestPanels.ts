@@ -1,31 +1,38 @@
 /**
- * src/ui/map/QuestPanels.ts — 전술 지도 좌측 열의 **퀘스트 패널 목록** + 호버 상세 툴팁
- * (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 — 사용자 결정 「범례 윗부분에 퀘스트 목록 패널, 범례는 좌측 하단」).
+ * src/ui/map/QuestPanels.ts — the **quest panel list** of the tactical map's left column + a hover detail tooltip
+ * (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 — user's decision 「the quest list
+ * panel above the legend, the legend at the bottom left」).
  *
- * 무엇을 그리나: `ctx.meta.npc.getRaidTracks()` — 진행 중이고 지금 레이드에서 셀 수 있는 목표가 하나라도 있는 NPC 퀘스트.
- * 패널마다 퀘스트 이름 · NPC(초상 글자 + 이름, NPC 색) · **이 레이드에서 셀 수 있는** 목표 줄(`라벨  p / t`, 확정은 ✓ 흐리게) ·
- * 패널 안 하단의 진행 게이지(`info.progress`). 호버하면 설명 · 목표 전부(함선 목표는 「함선에서」, 행성 조건) · 보상을 적은 툴팁.
+ * What is drawn: `ctx.meta.npc.getRaidTracks()` — NPC quests that are running and have at least one objective that
+ * can be counted in this raid. Each panel holds the quest name · the NPC (portrait glyph + name, NPC colour) · the
+ * objective rows **that count in this raid** (`라벨  p / t`, a committed one dimmed with ✓) · a progress gauge at
+ * the bottom of the panel (`info.progress`). Hovering shows a tooltip with the summary · every objective (a ship
+ * objective is tagged 「함선에서」, plus the planet condition) · the rewards.
  *
- * 목록은 **서명**(퀘스트 · 상태 · 목표 진행)이 바뀔 때만 다시 짓는다 — 지도가 열려 있는 동안 `tick` 이 `POLL_S` 마다 묻고
- * (회수 목표는 몸에 지닌 수라 인벤토리가 바뀌면 같이 움직인다), `npc:objectiveProgress` · `npc:questChanged` 는 `refresh(true)`.
- * `ctx.meta.npc` 가 없으면(옛 meta · 테스트) 목록은 숨고 범례만 남는다. 툴팁은 ui 안에서 만든다 (progression 의 SheetTip 은 import 하지 않는다).
+ * The list is rebuilt only when its **signature** (quest · state · objective progress) changes — while the map is
+ * open `tick` asks every `POLL_S` (a recovery objective counts what is carried, so it moves with the inventory),
+ * and `npc:objectiveProgress` · `npc:questChanged` call `refresh(true)`. With no `ctx.meta.npc` (an old meta · a
+ * test) the list hides and only the legend remains. The tooltip is built inside ui (progression's SheetTip is not
+ * imported).
  *
- * **2026-09-18 (사용자 결정)** — 그 목록 **위**에 튜토리얼 목표 패널 한 장이 더 선다 (`MapTutorialPanel`, 좌측 열 맨 위).
- * 원본은 `ctx.tutorial.panelInfo()` 하나이고(안내 패널이 그리는 것과 같은 스냅샷), 튜토리얼이 안 돌면 퀘스트 목록과
- * 똑같이 아무것도 그리지 않는다. 같은 열 · 같은 갱신 박자라 이 클래스가 함께 세우고 함께 `refresh` · `hide` 한다.
+ * **2026-09-18 (user's decision)** — one more panel, the tutorial objective panel, stands **above** that list
+ * (`MapTutorialPanel`, at the very top of the left column). Its one source is `ctx.tutorial.panelInfo()` (the same
+ * snapshot the guide panel draws), and with no tutorial running it draws nothing at all, exactly like the quest
+ * list. Same column · same update beat, so this class builds both and `refresh`es · `hide`s both together.
  */
 import type { GameContext, NpcObjectiveInfo, NpcQuestInfo, TutorialPanelInfo } from '@/shared';
 import {
   CORP_DEFS, PLANET_DEFS, formatCompactSigned, formatCredits, renderKeyText, tutorialCountLabel,
 } from '@/shared';
-/* 2026-09-16 (사용자 결정 「큰 수 축약」): 보상 줄의 경험치는 크레딧과 같은 표기(`shared/numberFormat`).
-   목표 진척 `p / t` · 신뢰도 · 아이템 개수는 정확한 값이 곧 뜻이라 `count` 그대로다. */
+/* 2026-09-16 (user's decision 「큰 수 축약」): XP on the reward row uses the same notation as credits
+   (`shared/numberFormat`). Objective progress `p / t` · trust · item counts stay `count` — there the exact value
+   is the meaning. */
 import { el, escapeHtml, rarityColor } from '../dom';
 import '../styles/mapquests.css';
 
-/** 지도가 열려 있는 동안 트랙을 다시 묻는 간격 (시뮬레이션 초). */
+/** Interval at which the tracks are asked for again while the map is open (simulation seconds). */
 const POLL_S = 0.5;
-/** 툴팁과 좌측 열 사이 간격 (px). */
+/** Gap between the tooltip and the left column (px). */
 const TIP_GAP = 12;
 
 function planetName(id: string | undefined): string {
@@ -36,7 +43,7 @@ function planetName(id: string | undefined): string {
 const clamp01 = (v: number): number => (Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0);
 const count = (n: number): string => String(Math.max(0, Math.floor(Number.isFinite(n) ? n : 0)));
 
-/** 패널에 그리는 목표 — 레이드 목표 중 지금 셀 수 있거나 이미 확정된 것. */
+/** Objectives drawn on a panel — the raid objectives that count right now or are already committed. */
 function panelObjectives(t: NpcQuestInfo): NpcObjectiveInfo[] {
   return t.objectives.filter((o) => o.raid && (o.countsHere || o.done));
 }
@@ -52,18 +59,21 @@ function signatureOf(tracks: readonly NpcQuestInfo[]): string {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 튜토리얼 목표 패널 (2026-09-18, 사용자 결정 — 「튜토리얼 레이드에서는 지도에도 안내 목표를 띄운다」).
+ * The tutorial objective panel (2026-09-18, user's decision — 「in the tutorial raid the guide objectives show on
+ * the map too」).
  *
- * 좌측 열 **맨 위**, NPC 퀘스트 목록보다 위다. 그리는 것은 `ctx.tutorial.panelInfo()` 가 준 스냅샷 하나 —
- * 순차 공개 · 달성 · 세는 수를 여기서 다시 계산하지 않는다 (그러면 좌상단 안내 패널과 어긋난다). 튜토리얼이
- * 돌고 있지 않으면(`panelInfo()` 가 null · `ctx.tutorial` 이 없다) 퀘스트 목록과 똑같이 **아무것도 그리지 않는다**.
- * 생김새는 퀘스트 패널 그대로이고 색은 강조색이다 (`--mq-npc` 를 안 정하면 `.mq-panel` 이 강조색으로 떨어진다).
+ * At the **very top** of the left column, above the NPC quest list. What it draws is the one snapshot
+ * `ctx.tutorial.panelInfo()` hands over — sequential reveal · completion · the counted numbers are not recomputed
+ * here (that is how it would go out of step with the guide panel at the top left). With no tutorial running
+ * (`panelInfo()` is null · there is no `ctx.tutorial`) it **draws nothing at all**, exactly like the quest list.
+ * The look is the quest panel's and the colour is the accent (leaving `--mq-npc` unset drops `.mq-panel` to the
+ * accent colour).
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 패널 부제 — 이 패널이 퀘스트가 아니라 안내라는 것을 한 줄로. */
+/** Panel subtitle — one line saying this panel is the guide, not a quest. */
 const TUTORIAL_SUB_KO = '튜토리얼';
 
-/** 다시 지을지 판단하는 서명 — 단계 · 진행 · 줄의 달성과 수까지 담는다. */
+/** The signature that decides a rebuild — step · progress · each row's done state and count. */
 function tutorialSignature(info: TutorialPanelInfo | null): string {
   if (!info) return '';
   let s = `${info.track}:${info.step}:${info.index}/${info.count}|${info.gauge?.label ?? ''}[`;
@@ -90,7 +100,7 @@ class MapTutorialPanel {
 
   bind(ctx: GameContext): void { this.ctx = ctx; }
 
-  /** 지금 그려져 있는 단계 (debug · smoke, 없으면 null). */
+  /** The step currently drawn (debug · smoke, null with none). */
   get stepId(): string | null { return this.root.hidden ? null : this.body.firstElementChild?.getAttribute('data-step') ?? null; }
 
   setSuppressed(on: boolean): void {
@@ -111,7 +121,7 @@ class MapTutorialPanel {
     this.render(info);
   }
 
-  /** 지도를 닫을 때 — 다음에 열면 새로 짓는다. */
+  /** On closing the map — the next open rebuilds from scratch. */
   hide(): void { this.sig = ' '; }
 
   dispose(): void { this.root.remove(); }
@@ -133,16 +143,20 @@ class MapTutorialPanel {
       const row = el('div', { cls: `mq-obj${o.done ? ' is-done' : ''}`, parent: objs });
       row.dataset.obj = o.id;
       el('span', { cls: 'mq-tut-box', parent: row });
-      // 키캡 토큰(`{INTERACT}` · `{JUMP:hold}`)은 **그릴 때** 살아 있는 `Keys` 로 푼다 — 안내 패널과 같은 함수다
+      // Keycap tokens (`{INTERACT}` · `{JUMP:hold}`) resolve against the live `Keys` **at draw time** — the same
+      // function the guide panel uses
       renderKeyText(el('span', { cls: 'mq-obj-l', parent: row }), o.text);
-      /* 2026-09-18: 숫자 문구는 **안내 패널과 같은 함수**가 만든다 (`shared/tutorial.tutorialCountLabel`) — 여기서 자리 구분을 따로 적었더니 같은 줄이
-         한쪽은 `1,000 / 1,000 C`, 한쪽은 `1000 / 1000 C` 였다. 아래 NPC 퀘스트 줄은 그대로 `count()` 다 — 단위가 없고
-         「정확한 값이 곧 뜻」인 진척이라 규칙이 다르다 (`CLAUDE.md` §4.2 「큰 수 축약」). */
+      /* 2026-09-18: the number text is built by **the same function as the guide panel**
+         (`shared/tutorial.tutorialCountLabel`) — writing the grouping commas separately here made the same row read
+         `1,000 / 1,000 C` on one screen and `1000 / 1000 C` on the other. The NPC quest rows below stay on
+         `count()` — they carry no unit and their progress is one where 「정확한 값이 곧 뜻」, so the rule differs
+         (`CLAUDE.md` §4.2 「큰 수 축약」). */
       const n = o.count ? tutorialCountLabel(o.count.at, o.count.total, o.count.unit) : o.done ? '✓' : '';
       if (n) el('span', { cls: 'mq-obj-n ui-mono', text: n, parent: row });
     }
-    /* 진행 게이지 — 출격 안내의 레이드만 **전리품 가치**를 재고(`gauge`) 그 위에 실제 값이 적힌다
-       (`1,400 C / 1,000 C` — 안내 패널의 바와 같은 값, `tutorial/model.creditGaugeLabel`). 나머지는 단계 수다. */
+    /* Progress gauge — only the raid step of 「출격 안내」 measures **loot value** (`gauge`) and prints the real
+       value over it (`1,400 C / 1,000 C` — the same value as the guide panel's bar,
+       `tutorial/model.creditGaugeLabel`). Everything else is the step count. */
     const g = info.gauge;
     if (g) el('div', { cls: 'mq-tut-n ui-mono', text: g.label, parent: p });
     const frac = g ? (g.total > 0 ? g.at / g.total : 0) : (info.count > 0 ? info.index / info.count : 0);
@@ -155,7 +169,7 @@ class MapTutorialPanel {
 
 export class MapQuestPanels {
   readonly root: HTMLElement;
-  /** 2026-09-18: 퀘스트 목록 **위**의 튜토리얼 목표 패널 — 같은 열을 쓰므로 이 클래스가 함께 세우고 함께 갱신한다. */
+  /** 2026-09-18: the tutorial objective panel **above** the quest list — same column, so this class builds and refreshes both. */
   private readonly tutorial: MapTutorialPanel;
   private readonly countEl: HTMLElement;
   private readonly scroll: HTMLElement;
@@ -181,9 +195,10 @@ export class MapQuestPanels {
   };
   private readonly onScroll = (): void => { this.placeTip(); };
 
-  /** `parent` = 지도 좌측 열 (머리 바로 뒤에 붙는다), `tipHost` = 지도 화면 루트. */
+  /** `parent` = the map's left column (appended right after the head), `tipHost` = the map screen root. */
   constructor(parent: HTMLElement, tipHost: HTMLElement) {
-    // 2026-09-18: 튜토리얼 패널이 **먼저** 붙는다 — 좌측 열은 붙은 순서로 쌓이고 안내는 퀘스트보다 위다 (사용자 결정)
+    // 2026-09-18: the tutorial panel is appended **first** — the left column stacks in append order and the guide
+    //             sits above the quests (user's decision)
     this.tutorial = new MapTutorialPanel(parent);
     this.root = el('div', { cls: 'mq-list', parent });
     const head = el('div', { cls: 'mq-head', parent: this.root });
@@ -200,14 +215,14 @@ export class MapQuestPanels {
 
   bind(ctx: GameContext): void { this.ctx = ctx; this.tutorial.bind(ctx); }
 
-  /** 보이는 패널의 퀘스트 id (debug · smoke). */
+  /** Quest ids of the visible panels (debug · smoke). */
   get questIds(): string[] { return this.tracks.map((t) => t.def.id); }
-  /** 튜토리얼 패널이 그리고 있는 단계 (debug · smoke, 없으면 null). */
+  /** The step the tutorial panel is drawing (debug · smoke, null with none). */
   get tutorialStep(): string | null { return this.tutorial.stepId; }
-  /** 툴팁이 떠 있는 퀘스트 id (debug · smoke). */
+  /** Quest id whose tooltip is up (debug · smoke). */
   get tipQuest(): string | null { return this.tip.hidden ? null : this.hoverId; }
 
-  /** 목적지 선택 모드 동안 목록을 숨긴다 (탐사 차량 패널이 열의 자리를 쓴다). */
+  /** Hides the list during destination selection mode (the rover panel takes the column's room). */
   setSuppressed(on: boolean): void {
     if (this.suppressed === on) return;
     this.suppressed = on;
@@ -215,16 +230,17 @@ export class MapQuestPanels {
     this.refresh(true);
   }
 
-  /** 지도가 열려 있는 동안 매 프레임. */
+  /** Every frame while the map is open. */
   tick(time: number): void {
     if (time < this.nextPoll) return;
     this.nextPoll = time + POLL_S;
     this.refresh();
   }
 
-  /** 트랙을 다시 묻고, 서명이 바뀌었거나 `force` 면 다시 짓는다. */
+  /** Asks for the tracks again and rebuilds when the signature changed or `force` is set. */
   refresh(force = false): void {
-    // 2026-09-18: 튜토리얼 목표도 같은 박자로 (전리품 가치는 루팅할 때마다 움직인다 — 서명이 같으면 DOM 은 안 건드린다)
+    // 2026-09-18: the tutorial objectives follow the same beat (loot value moves with every pickup — an unchanged
+    //             signature leaves the DOM alone)
     this.tutorial.refresh(force);
     let tracks: readonly NpcQuestInfo[] = [];
     const npc = this.ctx?.meta?.npc;
@@ -238,7 +254,7 @@ export class MapQuestPanels {
     this.render();
   }
 
-  /** 지도를 닫을 때 — 툴팁을 내리고 다음에 열면 새로 짓게 한다. */
+  /** On closing the map — the tooltip goes down and the next open rebuilds from scratch. */
   hide(): void {
     this.tutorial.hide();
     this.hoverId = null;
@@ -255,7 +271,7 @@ export class MapQuestPanels {
     this.root.remove();
   }
 
-  /* ── 그리기 ─────────────────────────────────────────────────────────────── */
+  /* ── drawing ────────────────────────────────────────────────────────────── */
 
   private render(): void {
     const list = this.tracks;
@@ -301,7 +317,7 @@ export class MapQuestPanels {
     this.placeTip();
   }
 
-  /** 좌측 열 오른쪽, 호버한 패널의 윗줄에 맞춘다 (화면 아래로 넘치면 올린다). */
+  /** To the right of the left column, aligned with the hovered panel's top line (lifted when it overflows the bottom). */
   private placeTip(): void {
     if (this.tip.hidden || !this.hoverId) return;
     let panel: HTMLElement | null = null;

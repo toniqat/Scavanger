@@ -31,28 +31,28 @@ interface ConvRow {
   presence?: PresenceState;
 }
 
-/** 초상 색 — NPC 는 `NpcDef.color`, 플레이어 · 단체방은 고정색. */
+/** Avatar colour — `NpcDef.color` for an NPC, a fixed colour for players · group rooms. */
 const PC_COLOR = '#9fb4cc';
 const ROOM_COLOR = '#b69cff';
-/** 이 간격보다 멀리 떨어진 말풍선 사이에는 시각 구분선을 넣는다. */
+/** Bubbles further apart than this get a time divider between them. */
 const TIME_GAP_MS = 10 * 60_000;
 /**
- * 타이핑 연출 (2026-09-14 3차, 사용자 결정) — **새로 도착하는** NPC 말풍선 하나마다 `...` 를 이만큼 띄웠다 지운다.
- * 게임 밸런스가 아니라 **UI 타이밍**이라 `data/` 가 아니라 메신저 폴더 안에 산다.
+ * The typing reveal (2026-09-14 3rd pass, user's decision) — every **newly arriving** NPC bubble shows `...` for this long.
+ * These are **UI timing**, not game balance, so they live in the messenger folder instead of `data/`.
  */
 const TYPE_S_PER_CHAR = 0.028;
 const TYPE_MIN_S = 0.5;
 const TYPE_MAX_S = 2.0;
 /**
- * 2026-09-15 (사용자 결정 — 「확인해야 다음 메시지가 온다」): 대화를 **처음 열 때** 밀려 있던 안 읽은 말풍선도
- * 하나씩 도착한다. 다만 오래 안 본 대화까지 전부 풀면 `TYPE_MAX_S × 줄 수` 만큼 기다리게 되므로 뒤에서 이만큼만
- * 타이핑으로 풀고 그보다 앞의 것은 즉시 그린다 (최악 `6 × 2 s`).
+ * 2026-09-15 (user's decision — 「확인해야 다음 메시지가 온다」): the unread bubbles piled up arrive one by one too when a
+ * conversation is **opened for the first time**. Unrolling a long-unread conversation whole would mean waiting
+ * `TYPE_MAX_S × line count`, so only this many from the end are typed out and everything before them is drawn at once (worst case `6 × 2 s`).
  */
 const TYPE_BACKLOG_MAX = 6;
 /**
- * 타이핑 `...` 의 점 셋 (2026-09-17, 사용자 결정 — 「점 3개가 서로 천천히 부드럽게 작아졌다가 커졌다가」). 한 점이 작아졌다
- * 커졌다 돌아오는 한 주기(ms)와 점 사이의 어긋남(ms), 가장 작을 때의 배율 · 불투명도. 위의 `TYPE_*` 와 같은 UI 타이밍이다.
- * CSS `@keyframes` 가 아니라 Web Animations 로 거는 이유는 `typingBubble` 주석.
+ * The three dots of the typing `...` (2026-09-17, user's decision — 「점 3개가 서로 천천히 부드럽게 작아졌다가 커졌다가」). One
+ * dot's whole shrink-and-grow period (ms), the offset between the dots (ms), and the scale · opacity at its smallest. The
+ * same UI timing as the `TYPE_*` above. Why Web Animations instead of CSS `@keyframes`: the `typingBubble` comment.
  */
 const TYPE_DOT_PERIOD_MS = 1400;
 const TYPE_DOT_STAGGER_MS = 220;
@@ -65,11 +65,11 @@ const FILTERS: readonly { id: ConvFilter; label: string }[] = [
 ];
 
 export interface ChatTabHost {
-  /** 입력칸의 Tab — 메신저 전체를 닫는다 (공용 닫기). */
+  /** Tab in the text field — closes the whole messenger (the universal close). */
   requestClose(): void;
-  /** 말풍선 퀘스트 카드의 「퀘스트 탭에서 보기」. */
+  /** The bubble quest card's 「퀘스트 탭에서 보기」. */
   openQuest(id: string): void;
-  /** 대화 탭이 지금 화면에 보이나 (패널 열림 ∧ 탭 = 대화) — 읽음 표시 전에 본다. */
+  /** Whether the `대화` tab is on screen right now (panel open ∧ tab = `대화`) — asked before marking as read. */
   isVisible(): boolean;
 }
 
@@ -83,16 +83,18 @@ function splitKey(key: string | null): { kind: ConvKind; id: string } | null {
 }
 
 /**
- * 메신저 `대화` 탭 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * The messenger's `대화` tab (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *
- * 좌 목록 = NPC 연락(`ctx.meta.npc`) · 개인 대화 상대(친구 + `whisperPeers`) · 단체방(`ctx.net.rooms`)을 **마지막 메시지가 최근인 순**으로
- * 한 줄에 섞는다 (필터 칩으로 좁힌다). 위에는 받은 방 초대(수락 · 거절)와 「방 만들기」.
- * **줄에는 초상 · 이름 · 마지막 대사만 있다** (2026-09-14 3차, 사용자 결정 — 소속 라벨 · `n분` · 신뢰도 게이지는 없앴다).
- * 가운데 = 고른 대화의 말풍선. NPC 는 입력칸 없이 퀘스트 카드로만 답하고, 개인 대화는 `SocialRef.whisper`(채팅창과 같은 기록),
- * 단체방은 `RoomsRef.say` — 단체방은 **메신저 안에서만** 오간다 (채팅창 연동 없음, 사용자 결정).
+ * Left list = NPC contacts (`ctx.meta.npc`) · private chat partners (friends + `whisperPeers`) · group rooms (`ctx.net.rooms`) mixed
+ * into one row list **ordered by the most recent last message** (the filter chips narrow it). Above them the received room
+ * invites (accept · decline) and 「방 만들기」.
+ * **A row holds the avatar · the name · the last line and nothing else** (2026-09-14 3rd pass, user's decision — the affiliation label · `n분` · the trust gauge were dropped).
+ * Centre = the chosen conversation's bubbles. An NPC is answered by quest cards alone with no text field, a private chat goes
+ * through `SocialRef.whisper` (the same history as the chat window), a group room through `RoomsRef.say` — group rooms travel **inside the messenger only** (no chat-window link, user's decision).
  *
- * 다시 그리기: 목록은 데이터에서 만든 키가 바뀔 때만(버스 이벤트 + 4 Hz 폴링), 대화는 고른 대화에 닿는 이벤트가 오거나 데이터 키가
- * 바뀔 때만. 보이는 동안 그린 대화는 읽음으로 표시한다. 단체방은 처음 열 때 최근 쪽을 요청하고, 위로 스크롤하면 한 쪽씩 더 받는다.
+ * Repainting: the list only when the key built from the data changed (bus events + 4 Hz polling), the conversation only when an
+ * event touching the chosen conversation arrives or the data key changed. A conversation drawn while visible is marked read. A
+ * group room asks for its most recent page when first opened and one page more per scroll to the top.
  */
 export class ChatTab {
   readonly root: HTMLElement;
@@ -128,21 +130,21 @@ export class ChatTab {
   private autoLoadLen = -1;
   private ask: HoldAskHandle | null = null;
   private acc = 0;
-  /* ── 타이핑 연출 (2026-09-14 3차) ── `typingConv` 의 말풍선 중 앞에서 `typingShown` 개까지만 그린다. */
+  /* ── The typing reveal (2026-09-14 3rd pass) ── only the first `typingShown` of `typingConv`’s bubbles are drawn. */
   private typingConv: string | null = null;
   private typingShown = 0;
-  /** `window.setTimeout` 손잡이 (0 = 없음). */
+  /** The `window.setTimeout` handle (0 = none). */
   private typingTimer = 0;
-  /* ── 선택지 지연 (2026-09-17) ── 선택지를 그려도 되는 대화(`MESSENGER_CHOICE_DELAY_S` 가 지났다)와 그 타이머. */
+  /* ── The choice delay (2026-09-17) ── the conversation whose choices may be drawn (`MESSENGER_CHOICE_DELAY_S` has passed) and its timer. */
   private choiceReadyConv: string | null = null;
   private choiceTimer = 0;
-  /** 말풍선 뒤의 빈 꼬리 (대화창 높이 절반 — `paintBody`). 늘 body 의 마지막 자식이다. */
+  /** The empty tail behind the bubbles (half the conversation window's height — `paintBody`). Always the body's last child. */
   private readonly tail: HTMLElement;
 
   constructor(parent: HTMLElement, frame: HTMLElement, private readonly host: ChatTabHost) {
     this.root = el('div', { cls: 'ms-chat', parent });
 
-    /* ── 좌 목록 ── */
+    /* ── Left list ── */
     const side = el('div', { cls: 'ms-side', parent: this.root });
     const sh = el('div', { cls: 'ms-side-head', parent: side });
     el('span', { cls: 'ui-label', text: '대화', parent: sh });
@@ -163,7 +165,7 @@ export class ChatTab {
     this.rowsEl.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
     this.listEmpty = el('div', { cls: 'ms-empty', text: '', parent: side });
 
-    /* ── 가운데 대화 ── */
+    /* ── Centre conversation ── */
     this.thread = el('div', { cls: 'ms-thread is-empty', parent: this.root });
     this.head = el('div', { cls: 'ms-thead', parent: this.thread });
     const wrap = el('div', { cls: 'ms-tbody-wrap', parent: this.thread });
@@ -218,14 +220,14 @@ export class ChatTab {
     );
   }
 
-  /* ── 공개 (메신저 · 스모크) ────────────────────────────────────────────── */
+  /* ── Public (messenger · smoke) ────────────────────────────────────────── */
 
   get selectedKey(): string | null { return this.selected; }
   get filterId(): ConvFilter { return this.filter; }
   get popover(): Popover { return this.pop; }
   get isMembersOpen(): boolean { return this.membersOpen; }
 
-  /** 대화 하나를 고른다 (`npc:<id>` · `pc:<code>` · `room:<id>`, null = 선택 없음). */
+  /** Selects one conversation (`npc:<id>` · `pc:<code>` · `room:<id>`, null = nothing selected). */
   select(key: string | null): void {
     const parsed = splitKey(key);
     this.selected = parsed ? key : null;
@@ -246,7 +248,7 @@ export class ChatTab {
     if (repaint) this.refreshList(true);
   }
 
-  /** 탭이 보이게 됐다 — 목록 · 대화를 새로 그리고(읽음 표시 포함) 입력칸에 초점. */
+  /** The tab became visible — repaints the list · the conversation (marking read included) and focuses the text field. */
   onShow(): void {
     this.refreshList(true);
     this.renderThread(true);
@@ -260,7 +262,7 @@ export class ChatTab {
     this.flushTyping();
   }
 
-  /** 보이는 동안 메신저가 매 프레임 부른다 — 4 Hz 로 데이터 키를 비교한다 (이벤트를 안 내는 디버그 ref 도 따라온다). */
+  /** Called by the messenger every frame while visible — compares the data key at 4 Hz (a debug ref that emits no events follows along too). */
   tick(dt: number): void {
     this.acc += dt;
     if (this.acc < 0.25) return;
@@ -269,7 +271,7 @@ export class ChatTab {
     this.renderThread();
   }
 
-  /* ── 목록 ──────────────────────────────────────────────────────────────── */
+  /* ── The list ──────────────────────────────────────────────────────────── */
 
   private rows(): ConvRow[] {
     const ctx = this.ctx!;
@@ -277,11 +279,11 @@ export class ChatTab {
     const npc = npcOf(ctx);
     if (npc) {
       for (const c of npc.getContacts()) {
-        /* 2026-09-14 3차 (사용자 결정): 줄에 남는 것은 **마지막 대사**다 — 퀘스트 제안이 마지막 사건이면
-         * `[퀘스트] 이름` 대신 그 퀘스트의 `summary` 를 잘라 쓴다 (「레이븐이 새 거래 상대의 솜씨를…」).
-         * 「마지막」은 기록 전체의 끝이 아니라 **대화창에 실제로 도착한 말풍선**의 끝이다 (`deliveredCount`) —
-         * 기록의 끝을 읽으면 `...` 로 아직 풀리는 중인 마지막 줄이 목록에 먼저 떠 버린다.
-         * 아직 도착한 것이 하나도 없으면(한 번도 안 연 첫 연락) 대사를 미리 보이지 않고 소개(`bio`)를 둔다. */
+        /* 2026-09-14 3rd pass (user's decision): what stays in the row is the **last line** — when a quest offer was the
+         * last event, the quest's `summary` is clipped in instead of `[퀘스트] 이름` (「레이븐이 새 거래 상대의 솜씨를…」).
+         * 「Last」 is not the end of the whole history but the end of the **bubbles that actually arrived in the conversation**
+         * (`deliveredCount`) — reading the end of the history would put the line still unrolling through `...` in the list first.
+         * With nothing arrived yet (a first contact never opened) no line is previewed and the bio (`bio`) stands there. */
         const all = npc.getMessages(c.npc.id);
         const last = all[this.deliveredCount(npc, c.npc.id, all) - 1];
         let preview = c.npc.bio;
@@ -343,7 +345,7 @@ export class ChatTab {
     const rooms = roomsOf(ctx);
     const roomsOk = !!rooms?.available;
     const invites = roomsOk ? rooms!.invites : [];
-    /* 2026-09-14 3차: 줄에 시각(`n분`)이 없어져 분 단위 재도색도 없앴다 — 키는 그린 것만 본다. */
+    /* 2026-09-14 3rd pass: with no time (`n분`) in the row the per-minute repaint went too — the key looks only at what is drawn. */
     const key = [
       this.filter, this.selected ?? '', roomsOk ? 1 : 0,
       rows.map((r) => `${r.key}|${r.title}|${r.at}|${r.unread}|${r.preview}|${r.presence ?? ''}`).join(','),
@@ -360,7 +362,7 @@ export class ChatTab {
       if (f === 'room') b.hidden = !roomsOk;
     }
 
-    /* 받은 방 초대 */
+    /* Received room invites */
     this.invitesEl.hidden = invites.length === 0;
     if (invites.length > 0) {
       const head = el('div', { cls: 'ms-invites-head ui-label', text: `받은 초대 ${invites.length}` });
@@ -396,8 +398,8 @@ export class ChatTab {
   }
 
   /**
-   * 대화 목록의 한 줄 — **초상 + 이름 + 마지막 대사**뿐이다 (2026-09-14 3차, 사용자 결정).
-   * 소속 라벨 · `n분` 시각 · 신뢰도 레벨 · 신뢰도 게이지는 여기서 전부 빠졌다 (신뢰도는 대화창 머리 초상의 고리가 말한다).
+   * One row of the conversation list — **avatar + name + last line** and nothing else (2026-09-14 3rd pass, user's decision).
+   * The affiliation label · the `n분` time · the trust level · the trust gauge all left here (trust is told by the ring around the avatar in the conversation head).
    */
   private rowEl(r: ConvRow): HTMLElement {
     const row = el('button', { cls: `ms-row kind-${r.kind}${r.key === this.selected ? ' is-sel' : ''}${r.unread > 0 ? ' has-unread' : ''}${r.presence === 'offline' ? ' is-offline' : ''}` });
@@ -415,7 +417,7 @@ export class ChatTab {
     return row;
   }
 
-  /* ── 대화 ──────────────────────────────────────────────────────────────── */
+  /* ── The conversation ──────────────────────────────────────────────────── */
 
   /** A cheap fingerprint of what the selected conversation would draw — equal → skip the repaint. */
   private threadDataKey(): string {
@@ -432,7 +434,7 @@ export class ChatTab {
         return q ? `${q.state}${q.ready ? 1 : 0}${q.blocked ?? ''}${q.objectives.map((o) => `${o.progress}${o.have ?? ''}`).join('.')}` : 'x';
       }).join(',');
       const c = npc.getContacts().find((x) => x.npc.id === sel.id);
-      // 2026-09-14: 머리의 개인 신뢰도 게이지 · 대사 선택지 줄도 다시 그려야 하므로 지문에 넣는다
+      // 2026-09-14: the head's personal trust gauge · the line-choice row must repaint too, so they go into the fingerprint
       return `npc|${msgs.length}|${msgs.at(-1)?.at ?? 0}|${qs}|${c?.unread ?? 0}|${npcTrustOf(ctx, sel.id)?.trust ?? ''}|${npc.getPendingChoices(sel.id).length}`;
     }
     if (sel.kind === 'pc') {
@@ -477,12 +479,12 @@ export class ChatTab {
     else this.renderRoom(sel.id);
   }
 
-  /* ── 타이핑 연출 (2026-09-14 3차, 사용자 결정) ─────────────────────────────
-   * 새로 도착하는 NPC 말풍선만 한 줄씩 `...` 를 거쳐 붙는다 — 대화를 열 때 이미 있던 기록은 즉시 전부.
-   * **갇히는 길을 만들지 않는다**: 대화를 바꾸거나 · 탭을 떠나거나 · 패널이 닫히면 큐를 버리고
-   * 다음 그리기가 남은 말풍선을 전부 보여 준다 (`typingConv = null` → 「이 대화는 처음 그린다」). */
+  /* ── The typing reveal (2026-09-14 3rd pass, user's decision) ──────────────
+   * Only newly arriving NPC bubbles land one line at a time through `...` — history already there when the conversation opens
+   * appears at once. **No path may trap it**: changing conversation · leaving the tab · closing the panel drops the
+   * queue and the next paint shows every remaining bubble (`typingConv = null` → 「this conversation is drawn for the first time」). */
 
-  /** 대기 중인 큐를 버리고 타이머를 정리한다. */
+  /** Drops the waiting queue and clears the timer. */
   private flushTyping(): void {
     if (this.typingTimer) { window.clearTimeout(this.typingTimer); this.typingTimer = 0; }
     this.typingConv = null;
@@ -490,15 +492,15 @@ export class ChatTab {
     this.clearChoiceGate();
   }
 
-  /** 선택지 지연을 처음으로 (타이머 해제 + 「아직 안 됐다」). */
+  /** Puts the choice delay back to the start (the timer released + 「not yet」). */
   private clearChoiceGate(): void {
     if (this.choiceTimer) { window.clearTimeout(this.choiceTimer); this.choiceTimer = 0; }
     this.choiceReadyConv = null;
   }
 
   /**
-   * 2026-09-17 (사용자 결정): 선택지는 NPC 의 마지막 말풍선이 붙고 `MESSENGER_CHOICE_DELAY_S` 뒤에 선다. 타이머가 이미 돌고 있으면
-   * 다시 걸지 않는다 (4 Hz 다시 그리기가 지연을 계속 미루지 않게). 대화가 바뀌었으면(`flushTyping`) 타이머째 버려진다.
+   * 2026-09-17 (user's decision): the choices stand `MESSENGER_CHOICE_DELAY_S` after the NPC's last bubble landed. A timer
+   * already running is never raised again (so the 4 Hz repaint cannot keep pushing the delay back). A changed conversation (`flushTyping`) is thrown away timer and all.
    */
   private scheduleChoices(id: string): void {
     if (this.choiceTimer) return;
@@ -510,7 +512,7 @@ export class ChatTab {
     }, Math.round(Math.max(0, MESSENGER_CHOICE_DELAY_S) * 1000));
   }
 
-  /** 다음 말풍선을 `delay` 초 뒤에 연다 (0 = 다음 프레임 — 내 대답 · 시스템 줄은 기다리지 않는다). */
+  /** Opens the next bubble `delay` seconds later (0 = the next frame — my own answers · system lines never wait). */
   private scheduleTyping(id: string, delay: number): void {
     if (this.typingTimer) return;
     this.typingTimer = window.setTimeout(() => {
@@ -518,14 +520,14 @@ export class ChatTab {
       if (this.typingConv !== id) return;
       this.typingShown++;
       this.renderThread(true);
-      this.refreshList();   // 목록의 미리보기도 방금 도착한 줄로 (`deliveredCount`)
+      this.refreshList();   // the list preview follows the line that just arrived too (`deliveredCount`)
     }, Math.round(Math.max(0, delay) * 1000));
   }
 
   /**
-   * 그 NPC 대화에서 **대화창에 도착한(= 그려진 · 그려질) 말풍선 수** — 목록 미리보기가 쓰는 「도착」의 정의.
-   * 지금 타이핑으로 풀고 있는 대화면 `typingShown`, 아니면 그 대화를 지금 열었을 때 즉시 그릴 수(`readShownCount`)다.
-   * 둘 다 `renderNpc` 처럼 앞에 붙은 내 대답 · 시스템 줄은 기다리지 않고 포함한다.
+   * The **number of bubbles that arrived in (= are · will be drawn in) the conversation** of that NPC — the definition of
+   * 「arrived」 the list preview uses. `typingShown` for the conversation being typed out right now, otherwise the number
+   * opening it now would draw at once (`readShownCount`). Both include, like `renderNpc`, the my-answer · system lines that follow, without waiting for them.
    */
   private deliveredCount(npc: NpcQuestRef, id: string, all: readonly NpcMessage[]): number {
     let n = this.typingConv === id ? Math.min(this.typingShown, all.length) : this.readShownCount(npc, id, all);
@@ -534,13 +536,13 @@ export class ChatTab {
   }
 
   /**
-   * 대화를 **처음 그릴 때** 즉시 보여 줄 말풍선 수 = 「이미 읽은 것」 (2026-09-15, 사용자 결정).
+   * The number of bubbles shown at once when a conversation is **drawn for the first time** = 「what was already read」 (2026-09-15, user's decision).
    *
-   * 경계는 `NpcQuestRef.readAtOf(id)` 하나다 — 사건 하나가 말풍선 여러 개로 풀리므로(`intro` 한 줄 → `NpcDef.intro` 전부)
-   * `NpcContactInfo.unread`(사건 수)로는 셀 수 없지만, 같은 사건에서 나온 말풍선은 `at` 이 같아 이 시각 하나로 정확히 갈린다.
-   * **`markRead` 보다 먼저 물어야 한다** — `renderNpc` 는 다 그린 뒤에야 읽음 표시를 한다.
+   * The boundary is `NpcQuestRef.readAtOf(id)` alone — one event unrolls into several bubbles (one `intro` line → all of `NpcDef.intro`),
+   * so `NpcContactInfo.unread` (a count of events) cannot count them, but bubbles out of the same event share an `at`, so this one time splits them exactly.
+   * **It must be asked before `markRead`** — `renderNpc` marks read only after it has drawn everything.
    *
-   * 그 질의가 없는 창구(스모크의 디버그 ref · 옛 구현)에서는 **전부 읽은 것**으로 보고 예전처럼 즉시 전부 그린다.
+   * A source without that query (the smoke's debug ref · the old implementation) counts **everything as read** and draws it all at once, as before.
    */
   private readShownCount(npc: NpcQuestRef | null, id: string, all: readonly NpcMessage[]): number {
     if (!npc || typeof npc.readAtOf !== 'function') return all.length;
@@ -553,12 +555,12 @@ export class ChatTab {
   }
 
   /**
-   * `...` 말풍선 — 점 셋이 **어긋난 박자로 천천히 작아졌다 커진다** (2026-09-17, 사용자 결정).
+   * The `...` bubble — three dots that **shrink and grow slowly, off the beat from one another** (2026-09-17, user's decision).
    *
-   * 애니메이션은 CSS `@keyframes` 가 아니라 **Web Animations(`element.animate`)** 다: `base.css` 의 `prefers-reduced-motion` 규칙이
-   * CSS 의 `animation-duration` 을 0.01 ms 로 잘라 이 개발 PC 에서는 점이 멈춰 있었다 (그 규칙은 WAAPI 에는 닿지 않는다).
-   * 또 말풍선은 다시 그릴 때마다 새로 지어지므로(`replaceChildren`), 각 애니메이션의 `startTime` 을 문서 타임라인의 고정점
-   * (점 i 는 `i × TYPE_DOT_STAGGER_MS`)에 맞춰 **다시 지어도 위상이 이어지게** 한다 — 처음부터 다시 튀지 않는다.
+   * The animation is **Web Animations (`element.animate`)**, not CSS `@keyframes`: the `prefers-reduced-motion` rule in `base.css`
+   * clips CSS `animation-duration` to 0.01 ms, which left the dots frozen on this development PC (that rule does not reach WAAPI).
+   * And because the bubble is rebuilt on every repaint (`replaceChildren`), each animation's `startTime` is pinned to a fixed point
+   * of the document timeline (dot i to `i × TYPE_DOT_STAGGER_MS`) so **the phase carries across a rebuild** — it never jumps back to the start.
    */
   private typingBubble(def: NpcDef | undefined, withAvatar: boolean): HTMLElement {
     const row = el('div', { cls: `ms-msg in typing${withAvatar ? '' : ' cont'}` });
@@ -567,21 +569,21 @@ export class ChatTab {
       av.style.setProperty('--av', def?.color ?? PC_COLOR);
     }
     const bubble = el('div', { cls: 'ms-bubble ms-typing', parent: row });
-    // 구간마다 ease-in-out — 작아지는 쪽 · 커지는 쪽 둘 다 끝에서 부드럽게 멈췄다 돈다
+    // ease-in-out on each band — both the shrinking and the growing half ease to a stop at the end and turn back
     const small = { transform: `scale(${TYPE_DOT_MIN_SCALE})`, opacity: TYPE_DOT_MIN_OPACITY, easing: 'ease-in-out' };
     const big = { transform: 'scale(1)', opacity: 1, easing: 'ease-in-out' };
     for (let i = 0; i < 3; i++) {
       const dot = el('i', { parent: bubble });
-      if (typeof dot.animate !== 'function') continue;   // 정지한 작은 점으로 남는다 (CSS 기본값)
+      if (typeof dot.animate !== 'function') continue;   // it stays a small motionless dot (the CSS default)
       try {
         const anim = dot.animate([small, big, small], { duration: TYPE_DOT_PERIOD_MS, iterations: Infinity });
         anim.startTime = i * TYPE_DOT_STAGGER_MS;
-      } catch { /* WAAPI 없음 — 정지한 점 */ }
+      } catch { /* no WAAPI — motionless dots */ }
     }
     return row;
   }
 
-  /** 마지막 말풍선의 아래 끝 (body 안 좌표, 꼬리 여백 제외). 꼬리가 붙어 있지 않으면 스크롤 높이. */
+  /** The last bubble's bottom edge (in body coordinates, the tail margin excluded). The scroll height when no tail is attached. */
   private contentEnd(): number {
     return this.tail.parentElement === this.body ? this.tail.offsetTop : this.body.scrollHeight;
   }
@@ -589,10 +591,11 @@ export class ChatTab {
   /**
    * Swap the body's children, keeping the reader where they were (pinned to the latest line, or anchored after an older page).
    *
-   * 2026-09-17 (사용자 결정): 말풍선 뒤에는 늘 **대화창 높이 절반의 빈 꼬리**(`.ms-tail`, CSS `50cqh`)가 붙어, 끝까지 내리면
-   * 마지막 말풍선이 창 가운데쯤에 온다. 그래서 「맨 아래인가」는 스크롤 끝이 아니라 **마지막 말풍선의 아래 끝**(`contentEnd`)이
-   * 보이는가로 판단하고, 따라 내릴 때는 그 끝이 창 아래에 닿는 데(`latest`)까지만 내린다 — 이미 꼬리 쪽으로 더 내려 둔 독자는
-   * 그 자리에 둔다 (최대 스크롤이 `contentEnd − 창 절반` 이므로 새 말풍선은 거기서도 늘 보인다).
+   * 2026-09-17 (user's decision): an **empty tail half the conversation window's height** (`.ms-tail`, CSS `50cqh`) always follows
+   * the bubbles, so scrolling to the end puts the last bubble around the middle of the window. 「Is it at the bottom」 is therefore
+   * judged by whether the **last bubble's bottom edge** (`contentEnd`) is visible, not by the scroll end, and following down goes
+   * only as far as that edge reaching the window's bottom (`latest`) — a reader who already scrolled further into the tail is left
+   * where they are (maximum scroll is `contentEnd − half a window`, so a new bubble is always visible from there too).
    */
   private paintBody(nodes: HTMLElement[], oldest: number): void {
     const b = this.body;
@@ -616,7 +619,7 @@ export class ChatTab {
     return this.threadHeadWith(av, title, sub);
   }
 
-  /** 머리줄을 이미 지은 초상으로 (NPC 는 신뢰도 고리를 두른 초상이다 — `Trust.buildNpcAvatar`). */
+  /** The head row with an already-built avatar (an NPC's wears the trust ring — `Trust.buildNpcAvatar`). */
   private threadHeadWith(av: HTMLElement, title: string, sub: string): HTMLElement {
     const main = el('div', { cls: 'ms-thead-main' });
     el('div', { cls: 'ms-thead-title', text: title, parent: main });
@@ -648,27 +651,27 @@ export class ChatTab {
     const corp = def?.corp ? CORP_DEFS[def.corp]?.name ?? '' : '';
     const name = def?.name ?? id;
     const color = def?.color ?? PC_COLOR;
-    /* 2026-09-14 3차 (사용자 결정): 초상이 신뢰도 고리 + 레벨 배지를 두르고, `bio` 한 줄은 빠졌다 (소개는 첫 연락 대사가 한다). */
+    /* 2026-09-14 3rd pass (user's decision): the avatar wears the trust ring + the level badge, and the one `bio` line is gone (the first contact's own lines do the introducing). */
     this.threadHeadWith(buildNpcAvatar(ctx, id, name, { glyph: def?.glyph || initialOf(name), color }), name,
       def ? [def.title, corp || NPC_ROLE_LABEL_KO[def.role]].filter(Boolean).join(' · ') : '');
-    /* 레벨 · 신뢰도 현황은 머리줄의 **중앙 우측**에 선다 (초상 아래가 아니라). */
+    /* The level · trust readout stands at the **centre-right** of the head row (not under the avatar). */
     const trustEl = buildNpcTrust(ctx, id, name, { color });
     if (trustEl) { trustEl.classList.add('in-right'); this.head.appendChild(trustEl); }
 
-    /* 새로 도착한 말풍선은 `...` 를 거쳐 한 줄씩 붙는다. 대화를 **처음 그릴 때**(= `typingConv` 가 다르다)는
-     * 2026-09-15(사용자 결정)부터 **이미 읽은 데까지만** 즉시 보여 주고, 안 읽은 줄은 그대로 큐를 타 하나씩 도착한다 —
-     * 레이븐의 첫 연락을 열면 세 마디가 통째로 떠 있던 것이 이것이다. 읽음 표시는 이 아래 `markRead` 가 하므로
-     * 한 번 연 대화를 다시 열면 `readAt` 이 이미 끝까지 가 있어 저절로 즉시 전부 그린다. */
+    /* A newly arrived bubble lands one line at a time through `...`. When a conversation is **drawn for the first time**
+     * (= `typingConv` differs), 2026-09-15 (user's decision) shows **only as far as what was read** at once and the unread
+     * lines still ride the queue and arrive one by one — this is why opening Raven's first contact put all three lines up at
+     * once. `markRead` below does the marking, so reopening a conversation finds `readAt` already at the end and draws everything at once by itself. */
     const all: readonly NpcMessage[] = npc?.getMessages(id) ?? [];
     if (this.typingConv !== id) {
       if (this.typingTimer) { window.clearTimeout(this.typingTimer); this.typingTimer = 0; }
       this.typingConv = id;
       this.typingShown = this.readShownCount(npc, id, all);
-      /* 선택지 지연: 이미 읽은 대화(= 풀 말풍선이 없다)를 여는 것이면 기다리지 않는다. 풀 것이 남아 있으면 마지막 말풍선 뒤에 건다. */
+      /* Choice delay: opening an already-read conversation (= no bubble left to unroll) never waits. With something left to unroll it is raised behind the last bubble. */
       this.clearChoiceGate();
       if (this.typingShown >= all.length) this.choiceReadyConv = id;
-    } else if (all.length < this.typingShown) this.typingShown = all.length;   // 기록이 줄었다 (초기화 · 다른 캐릭터)
-    /* 내 대답 · 시스템 줄은 기다리지 않는다 — 같은 그리기에서 바로 붙인다 (기다리는 것은 NPC 말풍선 · 퀘스트 카드뿐). */
+    } else if (all.length < this.typingShown) this.typingShown = all.length;   // the history shrank (a reset · another character)
+    /* My answers · system lines never wait — they land in the same paint (only NPC bubbles · quest cards wait). */
     while (this.typingShown < all.length) {
       const m = all[this.typingShown];
       if (m.from === 'npc' || m.from === 'quest') break;
@@ -714,7 +717,7 @@ export class ChatTab {
       prevFrom = m.from;
     }
     if (all.length === 0) nodes.push(el('div', { cls: 'ms-msg sys', text: npc ? '아직 받은 메시지가 없습니다' : '퀘스트 정보를 불러올 수 없습니다' }));
-    /* 아직 안 푼 말풍선이 있으면(= NPC 말풍선 · 퀘스트 카드) 그 자리에 `...` 를 세우고 다음 줄을 예약한다. */
+    /* With a bubble still unrolled (= an NPC bubble · a quest card), `...` stands in its place and the next line is scheduled. */
     const pending = all[this.typingShown];
     if (pending) {
       nodes.push(this.typingBubble(def, prevFrom !== 'npc' && prevFrom !== 'quest'));
@@ -722,13 +725,13 @@ export class ChatTab {
         : pending.from === 'npc' ? pending.text : '';
       this.scheduleTyping(id, Math.min(TYPE_MAX_S, Math.max(TYPE_MIN_S, text.length * TYPE_S_PER_CHAR)));
     }
-    /* 2026-09-14 (튜토리얼 개편 — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): 첫 연락의 **대사 선택지**.
-     * 아직 대답하지 않았으면 말풍선 아래에 내 대답 버튼 줄이 선다 — 퀘스트 카드의 [수락] 과 같은
-     * 문법(`ms-btn`)이다. 고르면 `choice` 사건이 하나 붙어 내 대답 + NPC 의 답 두 줄이 대화에 들어오고
-     * `getPendingChoices` 가 빈 배열이 되어 줄이 사라진다. 고르기 전에 닫고 나가도 다시 열면 그대로 있다.
-     * 아직 타이핑 중인 말풍선이 남아 있으면 그것부터 다 붙은 뒤에 보인다.
-     * 2026-09-17 (사용자 결정): 마지막 말풍선이 붙은 뒤에도 `MESSENGER_CHOICE_DELAY_S` 만큼 더 기다렸다 선다 (`scheduleChoices`).
-     * 새 말풍선이 도착해 타이핑이 다시 시작되면 지연도 처음부터다. */
+    /* 2026-09-14 (the tutorial rework — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): the first contact's **line choices**.
+     * While the answer is still open a row of my-answer buttons stands under the bubbles — the same grammar (`ms-btn`)
+     * as the quest card's [수락]. Choosing appends one `choice` event, two lines (my answer + the NPC's reply) enter the
+     * conversation and `getPendingChoices` becomes an empty array, so the row disappears. Closing and leaving before
+     * choosing keeps it there for the next open. Bubbles still being typed all land first.
+     * 2026-09-17 (user's decision): even after the last bubble has landed it waits `MESSENGER_CHOICE_DELAY_S` more before standing (`scheduleChoices`).
+     * A new bubble that restarts the typing restarts the delay too. */
     if (pending) this.clearChoiceGate();
     let choices = pending ? [] : npc?.getPendingChoices(id) ?? [];
     if (choices.length > 0 && this.choiceReadyConv !== id) {
@@ -751,7 +754,7 @@ export class ChatTab {
       nodes.push(row);
     }
     this.paintBody(nodes, msgs[0]?.at ?? 0);
-    /* 2026-09-14 3차: 하단 안내(`NPC 에게는 퀘스트 카드로 답합니다`) 제거 — 카드와 선택지가 스스로 말한다. */
+    /* 2026-09-14 3rd pass: the bottom notice (`NPC 에게는 퀘스트 카드로 답합니다`) is gone — the card and the choices speak for themselves. */
     this.setInput('none', '', '');
     if (npc && contact && contact.unread > 0 && this.host.isVisible()) npc.markRead(id);
   }
@@ -868,7 +871,7 @@ export class ChatTab {
       window.setTimeout(() => this.loadOlder(), 0);
     }
 
-    /* 멤버 서랍 */
+    /* The member drawer */
     this.members.hidden = !this.membersOpen;
     if (this.membersOpen) {
       const list: HTMLElement[] = [el('div', { cls: 'ms-members-head ui-label', text: `멤버 ${info.members.length}/${ROOM_MEMBER_MAX}` })];
@@ -949,7 +952,7 @@ export class ChatTab {
     this.ctx?.bus.emit('audio:play', { id: 'ui_deny' });
   }
 
-  /* ── 팝오버 · 확인 ─────────────────────────────────────────────────────── */
+  /* ── Popovers · confirms ───────────────────────────────────────────────── */
 
   private friendPicker(parent: HTMLElement, exclude: ReadonlySet<string>, onPick: (code: PlayerCode, row: HTMLElement) => void): number {
     const ctx = this.ctx!;
@@ -1050,7 +1053,7 @@ export class ChatTab {
     });
   }
 
-  /** 나가기 = 되돌릴 수 없는 확정 → 1초 홀드 (루트 CLAUDE.md 「되돌릴 수 없는 확정은 1초 홀드다」). */
+  /** Leaving = an irreversible confirm → a 1 s hold (root CLAUDE.md 「Irreversible confirms need a 1 s hold」). */
   private askLeave(roomId: string): void {
     const ctx = this.ctx;
     const info = ctx ? roomsOf(ctx)?.find(roomId) : undefined;
@@ -1075,7 +1078,7 @@ export class ChatTab {
     });
   }
 
-  /** 내보내기는 다시 초대하면 되돌릴 수 있다 — 한 번의 확인 (홀드 없음). */
+  /** A kick can be undone by inviting again — one plain confirm (no hold). */
   private askKick(roomId: string, code: PlayerCode, name: string): void {
     const ctx = this.ctx;
     if (!ctx) return;

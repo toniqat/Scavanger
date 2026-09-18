@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { EnemyRef, GameContext } from '@/shared';
 import { COMPASS_ENEMY_COLOR, DETECT_ENEMY_BASE_RADIUS, TUTORIAL_COMPASS_FADE_S } from '@/shared';
-/* 2026-09-15 (안드로이드 분대원): 안드로이드 눈금 — 적 눈금과 같은 방식, 슬롯 색 */
+/* 2026-09-15 (android squadmates): android ticks — the same way as the enemy ticks, in the slot colour */
 import { ANDROID_BAY_COUNT, NET_SLOT_COLORS_CSS } from '@/shared';
 import { allyBodies } from './allySource';
 import { el, setText, toggleClass } from '../dom';
@@ -14,7 +14,7 @@ const CARDINALS: Array<[number, string, boolean]> = [
   [180, 'S', true], [225, 'SW', false], [270, 'W', true], [315, 'NW', false],
 ];
 
-/** Pooled red enemy ticks (Phase 12 감지): plenty for the ambient cap inside one detect radius. */
+/** Pooled red enemy ticks (Phase 12 detection): plenty for the ambient cap inside one detect radius. */
 const MAX_ENEMY_TICKS = 24;
 /** Seconds between `queryNear` polls for the detect-radius ticks (≤ 10 Hz). */
 const ENEMY_POLL_INTERVAL = 0.1;
@@ -32,29 +32,32 @@ interface EnemyTick { el: HTMLElement; lastKey: string }
 /**
  * Top-center heading strip with extraction / ship markers.
  *
- * **2026-09-09 (레이드 플레이 개선):** 구조물 · 선로 · 거대 버섯 군락 마커가 `fog:discovered` 로 하나씩 붙는다
- * (`.marker.structure` / `.rail` / `.grove`). 발견 전에는 존재하지 않고, 발견 뒤에는 아래의 `isDiscovered`
- * 게이트를 자동으로 통과한다. 환경 재해는 여기 오지 않는다 — 랜드마크가 아니라 함선이 관측하는 현상이라
- * 안개 규칙이 다르고, 안전 방향 화살표는 `hud/HazardHud` 가 자기 블록 안에서 그린다.
+ * **2026-09-09 (raid play improvements):** structure · rail · giant mushroom grove markers are attached one at a
+ * time by `fog:discovered` (`.marker.structure` / `.rail` / `.grove`). They do not exist before discovery, and
+ * after it they pass the `isDiscovered` gate below automatically. Environmental hazards do not come here — they
+ * are not landmarks but a phenomenon the ship observes, so their fog rule differs, and the safe-direction arrow is
+ * drawn by `hud/HazardHud` inside its own block.
  *
- * **Phase 12 — 감지 스탯:** every living enemy inside `ctx.progression.derived.enemyDetectRadius` (grows with 인지력;
+ * **Phase 12 — detection stat:** every living enemy inside `ctx.progression.derived.enemyDetectRadius` (grows with `인지력`;
  * `DETECT_ENEMY_BASE_RADIUS` without progression) appears as a red tick (`COMPASS_ENEMY_COLOR`) at its bearing,
  * fading with distance. `ctx.enemies.queryNear` is polled at most every `ENEMY_POLL_INTERVAL` (10 Hz); the bearings
- * themselves are recomputed per frame from the cached refs, so the ticks slide smoothly. Enemies revealed by a 정찰
+ * themselves are recomputed per frame from the cached refs, so the ticks slide smoothly. Enemies revealed by a recon
  * pulse (`scan:cast`, via the shared `ScanTracker`) get a tick for the reveal's duration **regardless of distance**
  * (their position follows the enemy object live). Ticks are pooled (`MAX_ENEMY_TICKS` DOM nodes, created once) and
  * only those whose bearing falls inside the visible ±80° arc are shown — the off-screen edge arrows of `hud/Detection`
  * cover the rest.
  *
- * **2026-09-14 (튜토리얼)**: 이 띠가 계약이 말하는 「화면 마커」다 (`hides('hud','shipScreenMarker')`) — 나침반
- * 눈금이면서, 시야 밖이면 가장자리에 붙는(`clamped`) 방향 표시이기도 하다. 튜토리얼 레이드 내내 탈출 함선
- * 눈금을 그리지 않는다. (화면 밖 화살표 위젯 `hud/OffscreenIndicators` 에는 **함선 갈래가 애초에 없다** — 핑뿐이다.)
+ * **2026-09-14 (tutorial)**: this strip is the 「screen marker」 the contract names (`hides('hud','shipScreenMarker')`)
+ * — a compass tick, and also the direction readout that pins to the edge (`clamped`) once the target is out of
+ * view. The extraction ship tick is not drawn for the whole tutorial raid. (The off-screen arrow widget
+ * `hud/OffscreenIndicators` **has no ship branch at all** — only pings.)
  *
- * **2026-09-14 (튜토리얼 오프닝, 사용자 결정)**: 기상 연출이 돌고 있는 동안(`PlayerRef.introWaking` — 카메라가 백뷰로
- * 완전히 돌아오기 전) 띠 전체가 **보이지 않고**, 끝나면 `TUTORIAL_COMPASS_FADE_S` 에 걸쳐 서서히 나타난다. 불투명도는
- * CSS 전이가 아니라 이 파일이 프레임마다 올린다 — OS 가 애니메이션 효과를 끄면 `base.css` 의 reduced-motion 규칙이
- * 모든 전이를 0.01 ms 로 자르기 때문이다 (`HudSystem` 의 검은 페이드와 같은 이유). 연출이 없는 레이드에서는
- * 처음부터 1 이라 한 글자도 안 바뀐다.
+ * **2026-09-14 (tutorial opening, user's decision)**: while the intro wake cutscene runs (`PlayerRef.introWaking`
+ * — before the camera has come fully back to the back view) the whole strip is **invisible**, and once it ends the
+ * strip appears gradually over `TUTORIAL_COMPASS_FADE_S`. The opacity is raised by this file every frame, not by a
+ * CSS transition — when the OS turns animation effects off, the reduced-motion rule in `base.css` cuts every
+ * transition to 0.01 ms (the same reason as `HudSystem`'s black fade). In a raid with no cutscene it is 1 from the
+ * start, so not one glyph changes.
  */
 export class Compass {
   readonly root: HTMLElement;
@@ -66,7 +69,7 @@ export class Compass {
   private tmp = new THREE.Vector3();
   private unsubs: Array<() => void> = [];
   private ticks: EnemyTick[] = [];
-  /** 2026-09-15: 안드로이드 분대원 눈금 (bay 수만큼 미리 만든다). */
+  /** 2026-09-15: android squadmate ticks (created up front, one per bay). */
   private allyTicks: EnemyTick[] = [];
   private shownAllyTicks = 0;
   private tickLayer: HTMLElement;
@@ -74,7 +77,7 @@ export class Compass {
   private nearIds = new Set<number>();
   private nextPoll = 0;
   private shownTicks = 0;
-  /** 2026-09-14: 기상 연출 뒤 나타나는 정도 0..1 (연출이 없으면 늘 1) · 마지막으로 쓴 인라인 opacity. */
+  /** 2026-09-14: reveal amount after the intro wake, 0..1 (always 1 with no cutscene) · the last inline opacity written. */
   private reveal = 1;
   private lastRevealStr = '';
 
@@ -88,8 +91,9 @@ export class Compass {
       t.hidden = true;
       this.ticks.push({ el: t, lastKey: '' });
     }
-    /* 2026-09-15 (안드로이드 분대원): 같은 층의 눈금이지만 **모양이 다르다** (`.atick` — 슬롯 색의 작은 마름모).
-     * 적 눈금과 한눈에 구별되어야 하고, 안개 · 감지 반경 게이트는 걸지 않는다 (내 분대원이다). */
+    /* 2026-09-15 (android squadmates): a tick on the same layer but **a different shape** (`.atick` — a small
+     * diamond in the slot colour). It must be told apart from an enemy tick at a glance, and no fog · detect-radius
+     * gate is raised on it (it is my own squadmate). */
     for (let i = 0; i < ANDROID_BAY_COUNT; i++) {
       const t = el('div', { cls: 'atick', parent: this.tickLayer });
       t.hidden = true;
@@ -126,10 +130,11 @@ export class Compass {
       b.on('game:abort', () => this.clear()),
       b.on('hub:entered', () => this.clearEnemies()),
       /*
-       * 2026-09-09 (레이드 플레이 개선): 구조물 · 선로 · 거대 버섯 군락도 나침반에 뜬다. 탈출 신호소와 달리
-       * `world:ready` 에 미리 만들지 않고 **발견하는 순간** (`fog:discovered`) 하나씩 붙인다 — 개수가 맵마다
-       * 다르고, 안개 게이트를 통과한 뒤에만 존재해야 하기 때문이다. 아래 `update` 의 `isDiscovered` 게이트는
-       * 그대로 걸리므로 (이미 참) 이중으로 안전하다.
+       * 2026-09-09 (raid play improvements): structures · rails · giant mushroom groves appear on the compass too.
+       * Unlike the extraction pads they are not built up front at `world:ready` but attached one at a time **the
+       * moment they are discovered** (`fog:discovered`) — their count differs per map, and they must exist only
+       * after they have passed the fog gate. The `isDiscovered` gate in `update` below still applies (already
+       * true), so it is safe twice over.
        */
       b.on('fog:discovered', ({ kind, id, position }) => {
         if (kind !== 'structure' && kind !== 'rail' && kind !== 'grove') return;
@@ -187,7 +192,7 @@ export class Compass {
     this.nextPoll = 0;
     this.hideTicksFrom(0);
     this.shownTicks = 0;
-    // 2026-09-15: 안드로이드 눈금도 같이 걷는다 (함선 입장 · 레이드 중단)
+    // 2026-09-15: the android ticks are cleared with them (entering the ship · aborting a raid)
     for (const t of this.allyTicks) if (!t.el.hidden) { t.el.hidden = true; t.lastKey = ''; }
     this.shownAllyTicks = 0;
   }
@@ -260,7 +265,7 @@ export class Compass {
       if (next < 0) break;
       used = next;
     }
-    // (2) 정찰 reveals still running, wherever they are (an enemy already drawn from (1) is not drawn twice)
+    // (2) recon reveals still running, wherever they are (an enemy already drawn from (1) is not drawn twice)
     const scanned = this.scans?.update(ctx);
     if (scanned && used >= 0) {
       for (const s of scanned) {
@@ -274,12 +279,12 @@ export class Compass {
     this.shownTicks = used;
   }
 
-  /** 기상 연출 뒤 나타나는 정도 0..1 (스모크). */
+  /** Reveal amount after the intro wake, 0..1 (smoke). */
   get revealAmount(): number { return this.reveal; }
 
   /**
-   * 2026-09-14: 기상 연출 동안 0, 끝나면 `TUTORIAL_COMPASS_FADE_S` 에 걸쳐 1 로. true = 지금 보이지 않는다
-   * (나머지 갱신을 건너뛴다). `dt` 는 시뮬레이션 dt 라 일시정지 · 셰이더 hold 동안에는 멈춘다.
+   * 2026-09-14: 0 while the intro wake runs, then up to 1 over `TUTORIAL_COMPASS_FADE_S`. true = invisible right
+   * now (the rest of the update is skipped). `dt` is the simulation dt, so it stops during a pause · a shader hold.
    */
   private updateReveal(ctx: GameContext, dt: number): boolean {
     const waking = ctx.player?.introWaking ?? false;
@@ -302,12 +307,14 @@ export class Compass {
       this.strip.style.transform = `translateX(${(-heading * PX_PER_RAD).toFixed(1)}px)`;
     }
     const half = STRIP_WIDTH / 2 - 14;
-    // 발견 게이트 (2026-09-09): 안개가 아직 안 걷힌 신호소는 나침반에도 뜨지 않는다. 활성 신호소(`activeId`)와
-    // 함선은 분대 전원이 이미 아는 사실이라 예외. 안개가 없는 세계(훈련장)에서는 전부 예전처럼 보인다.
+    // The discovery gate (2026-09-09): a pad whose fog has not lifted yet does not appear on the compass either.
+    // The active pad (`activeId`) and the ship are exempt — the whole squad already knows them. In a world with no
+    // fog (the training range) everything shows as it did before.
     const fog = ctx.world?.fog ?? null;
-    /* 2026-09-14 (튜토리얼, 사용자 결정): **화면에서 탈출 함선을 가리키는 표시는 레이드 내내 없다** —
-     * 나침반 눈금도, 가장자리에 붙는 `clamped` 화살표도. 지도 · 월드 마커는 별개 이름(`shipMarker`)이라
-     * 마지막 단계에 풀리지만 이것은 끝까지 닫혀 있다. 튜토리얼이 아니면 언제나 false 다. */
+    /* 2026-09-14 (tutorial, user's decision): **no readout points at the extraction ship on screen for the whole
+     * raid** — neither the compass tick nor the `clamped` arrow that pins to the edge. The map · world markers are
+     * a separate name (`shipMarker`) and are released at the last step, but this one stays closed to the end.
+     * Outside the tutorial it is always false. */
     const hideShip = ctx.tutorial?.hides('hud', 'shipScreenMarker') ?? false;
     for (const [id, m] of this.markers) {
       const gated = (id === '__ship' && hideShip)
@@ -336,8 +343,9 @@ export class Compass {
   }
 
   /**
-   * 2026-09-15 (안드로이드 분대원): 레이드에서 보이는 안드로이드의 방위 눈금. 거리로 흐려지지 않고(내 분대원이다)
-   * 안개 게이트도 없다 — 죽었거나 숨은 기(강하 포드 · 이륙선)만 빠진다. 색은 그 기의 로비 슬롯 색이다.
+   * 2026-09-15 (android squadmates): bearing ticks for the androids visible in a raid. They do not dim with
+   * distance (they are my own squadmates) and there is no fog gate — only a dead or hidden unit (drop pod · liftoff
+   * ship) drops out. The colour is that unit's lobby slot colour.
    */
   private updateAllies(ctx: GameContext, from: THREE.Vector3, heading: number, half: number): void {
     const bodies = ctx.isGameplayPhase() ? allyBodies(ctx) : null;
@@ -354,7 +362,7 @@ export class Compass {
       let rel = bearing - heading;
       rel = Math.atan2(Math.sin(rel), Math.cos(rel));
       const x = rel * PX_PER_RAD;
-      if (Math.abs(x) > half) continue;  // 뒤쪽 · 시야 밖
+      if (Math.abs(x) > half) continue;  // behind · out of view
       const t = this.allyTicks[used++];
       const col = NET_SLOT_COLORS_CSS[b.slot] ?? '#fff';
       const key = `${x.toFixed(0)}|${col}|${b.downed ? 1 : 0}`;
@@ -373,7 +381,7 @@ export class Compass {
     this.shownAllyTicks = used;
   }
 
-  /** 2026-09-15 (debug / smoke): 지금 보이는 안드로이드 눈금 수. */
+  /** 2026-09-15 (debug / smoke): number of android ticks currently visible. */
   get allyTickCount(): number { return this.shownAllyTicks; }
 
   /** Heading in radians where 0 = north (−Z), increasing clockwise (toward +X). */

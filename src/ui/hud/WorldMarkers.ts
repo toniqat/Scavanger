@@ -12,27 +12,29 @@ interface Marker {
 /**
  * Projects extraction pads to screen-space diamond markers.
  *
- * **2026-09-09 — 발견 게이트.** A pad you have not walked near yet does not exist for the HUD: the marker is built
+ * **2026-09-09 — the discovery gate.** A pad nobody has walked near yet does not exist for the HUD: the marker is built
  * at `world:ready` as before but stays hidden until `ctx.world.fog.isDiscovered(position)` is true (the fog reveals
  * on the whole squad's positions, so a squadmate finding it counts). The **active** pad is exempt — once the
- * countdown runs everybody knows where to go. No fog (훈련장 / an older world) → everything shows as before.
+ * countdown runs everybody knows where to go. No fog (the training range / an older world) → everything shows as before.
  *
- * **2026-09-14 (튜토리얼)** — 이것이 계약이 말하는 「월드(3D) 마커」다 (`hides('hud','shipMarker')`). 튜토리얼
- * 레이드에서는 마지막 `extract` 단계 전까지 탈출 함선 마름모를 **아예 그리지 않는다**; 그 단계에 들어서면
- * 게이트가 풀려 평소처럼 나타난다. 화면 고정 표시(나침반)는 별개 이름(`shipScreenMarker`)이라 레이드 내내 없다.
- * 튜토리얼이 아니면 질의가 언제나 false 라 평소 화면은 한 글자도 바뀌지 않는다.
+ * **2026-09-14 (tutorial)** — this is the 「world (3D) marker」 the contract names (`hides('hud','shipMarker')`). The
+ * tutorial raid **does not draw** the extraction ship diamond at all until the last `extract` step; entering that
+ * step releases the gate and it appears as usual. The screen-fixed readout (the compass) is a separate name
+ * (`shipScreenMarker`), so it is gone for the whole raid. Outside the tutorial the query is always false, so the
+ * normal screen does not change by one glyph.
  *
- * **2026-09-17 (사용자 결정 — 「함선 입구 위 허공의 초록 반투명 구 제거」)** — 착륙한 함선의 월드 마커(`탈출 함선`,
- * `.wmarker.ship` 초록 원)를 **모든 레이드에서** 그리지 않는다. 함선 위치 + 2.2 m 에 투영되어 램프 입구 바로 위에
- * 떠 있었고, 가까이 가면 알파가 0.15 까지만 줄어 반투명 구슬 + 흐린 「탈출 함선」 글씨로 보였다. 함선은 그 자체로
- * 거대한 표지이고, 지도(`ui/map/MapScreen`) · 나침반(`Compass`) 의 함선 마커는 그대로다. 함선이 내려앉으면 활성 패드
- * 마름모도 계속 숨긴다 — 패드 중심이 곧 램프 입구라 같은 자리에 다시 떠오르기 때문이다.
+ * **2026-09-17 (user's decision — 「remove the green translucent sphere floating over the ship entrance」)** — the
+ * world marker of the landed ship (`탈출 함선`, the green `.wmarker.ship` circle) is **not drawn in any raid**. It
+ * was projected at the ship position + 2.2 m, so it hovered right above the ramp entrance, and up close its alpha
+ * only fell to 0.15 — a translucent bead plus faint 「탈출 함선」 text. The ship is a huge landmark by itself, and
+ * the ship markers on the map (`ui/map/MapScreen`) · compass (`Compass`) are unchanged. Once the ship sets down the
+ * active pad diamond also stays hidden — the pad centre is the ramp entrance, so it would rise in the same spot again.
  */
 export class WorldMarkers {
   readonly root: HTMLElement;
   private markers = new Map<string, Marker>();
   private activeId: string | null = null;
-  /** 함선이 착륙해 있다 — 활성 패드 마름모를 숨기는 데만 쓴다 (함선 마커 자체는 그리지 않는다). */
+  /** The ship has landed — used only to hide the active pad diamond (the ship marker itself is not drawn). */
   private shipLanded = false;
   private v = new THREE.Vector3();
   private unsubs: Array<() => void> = [];
@@ -90,7 +92,7 @@ export class WorldMarkers {
     for (const [id, m] of this.markers) {
       // The ship stands on the active pad: its diamond would float right over the ramp — hide it once landed.
       if (this.shipLanded && id === this.activeId) { this.hide(m); continue; }
-      // 발견 게이트 (2026-09-09): 아직 못 본 신호소는 아예 뜨지 않는다 (활성 신호소는 예외)
+      // The discovery gate (2026-09-09): a pad nobody has seen yet does not appear at all (the active pad is exempt)
       if (fog && id !== this.activeId && !fog.isDiscovered(m.pos)) { this.hide(m); continue; }
       this.v.copy(m.pos); this.v.y += 2.2;
       this.v.project(cam);

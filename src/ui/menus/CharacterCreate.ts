@@ -17,44 +17,51 @@ interface StatRow {
 }
 
 /**
- * 캐릭터 생성 (2026-09-09) — 캐릭터 선택창의 빈 칸에서 열린다.
+ * Character creation (2026-09-09) — opened from an empty slot on the character select screen.
  *
- * 화면은 **두 열**(`.cc-body`)이다 (2026-09-14 개편 — 1280×720 에 스크롤 없이 들어가야 한다):
- *  - **왼쪽 열 `.cc-main`**: 이름 카드(`.cc-panel` — 이름 + 🎲) 위, 캐릭터 스탯 카드(`.cc-stats-wrap`) 아래.
- *    능력치 다섯을 **세로 한 줄씩**(`.cc-stat-list`) `◀ ▶` 로 배분한다. 표현은 캐릭터 시트
- *    (`progression/ui/SheetBody` 의 `.cs-stat`)를 그대로 옮겼다 — 이름 · 설명 · 얇은 바 · mono 숫자.
- *    `◀` 와 `▶` 는 둘 다 악센트(주황) 윤곽이고 못 누르는 쪽만 흐려진다. 남은 점수를 크게 띄운다.
- *  - **오른쪽 · 3D 미리보기**: `menus/SoldierPreview` (자기 WebGL 컨텍스트, `hub/ui/PlanetHologram` 의 규칙).
- *    그 **바로 아래 악센트 스와치**(`.cc-accent`) — 고르면 그 자리에서 다시 칠해진다.
+ * The screen is **two columns** (`.cc-body`) (2026-09-14 rework — it must fit 1280×720 with no scrolling):
+ *  - **Left column `.cc-main`**: the name card (`.cc-panel` — name + 🎲) on top, the character stat card
+ *    (`.cc-stats-wrap`) below. The five stats are allotted **one vertical row each** (`.cc-stat-list`) via `◀ ▶`.
+ *    The look is copied from the character sheet (`.cs-stat` in `progression/ui/SheetBody`) — name · description ·
+ *    thin bar · mono number. `◀` and `▶` are both accent (orange) outlines, only the unusable one dims, and the
+ *    points left are shown large.
+ *  - **Right · the 3D preview**: `menus/SoldierPreview` (its own WebGL context, the rules of `hub/ui/PlanetHologram`).
+ *    **Right below it the accent swatches** (`.cc-accent`) — picking one repaints on the spot.
  *
- * **2026-09-14 (사용자 결정) — 시작 임플란트 선택지는 화면에서 없어졌다.** 모든 새 캐릭터가 `CREATE_IMPLANT_IDS[0]`
- * (갈고리)로 **고정**이다. 큰 타일(`.cc-imp-tile`) · 컨텍스트 메뉴(`.cc-imp-menu`) · `시작 임플란트` 라벨 ·
- * 그 CSS 가 전부 빠졌고, 왼쪽 설정 열은 이름 카드만 남아 가운데 능력치 열과 한 열로 합쳐졌다(세 열 → 두 열).
- * `createCharacterInSlot` 에 넘기는 `implant` 필드와 `shared/character.ts` 의 `sanitize` 는 **계약이라 그대로**다 —
- * 값만 언제나 같을 뿐이다. 실제로 갈고리를 아이템으로 지급 · 장착하는 것은 함선 첫 진입 쪽의 일이다.
+ * **2026-09-14 (user's decision) — the starting implant choice is gone from the screen.** Every new character is
+ * **fixed** to `CREATE_IMPLANT_IDS[0]` (the grapple). The big tile (`.cc-imp-tile`) · the context menu
+ * (`.cc-imp-menu`) · the `시작 임플란트` label · their CSS all went, and the left settings column, left with only the
+ * name card, merged with the middle stat column into one (three columns → two). The `implant` field handed to
+ * `createCharacterInSlot` and `sanitize` in `shared/character.ts` **stay as they are — they are the contract**; only
+ * the value is always the same. Granting and equipping the grapple as an item is the first ship entry's job.
  *
- * **규칙은 전부 `shared/character.ts`** 에 있다 (`CREATE_STAT_MIN/MAX/POINTS`, `canAdjustStat`,
+ * **Every rule lives in `shared/character.ts`** (`CREATE_STAT_MIN/MAX/POINTS`, `canAdjustStat`,
  * `rollCreateStats`, `rollCallsign`, `sanitizeCharacterName`, `ACCENT_COLORS`, `CREATE_IMPLANT_IDS`).
- * 이 파일은 그것을 그리기만 한다 — 숫자가 하나도 없다.
+ * This file only draws them — it holds no number at all.
  *
- * **주사위는 사람이 손으로 넣은 것을 말없이 지우지 않는다**: 이름을 직접 쳤거나 능력치를 한 번이라도
- * 조정했다면 먼저 경고 팝업(`menus/askPopup`)을 띄우고 확인해야 덮어쓴다. `확정` 도 요약 팝업을 지난다.
+ * **The dice never silently erases what a person put in by hand**: if the name was typed directly or a stat was
+ * adjusted even once, a warning popup (`menus/askPopup`) comes first and only a confirm overwrites. `확정` passes a
+ * summary popup too.
  *
- * **2026-09-14 (사용자 결정) — 확정 팝업은 요약 카드다** (`buildSummary`): 왼쪽에 이름과 능력치 다섯 개의 가로 게이지
- * (값 / 5), 오른쪽에 미리보기 병사의 얼굴 정지 이미지. 「정말로 만들겠습니까?」 줄은 없어졌고 `만들기` 는
- * `UI_HOLD_CONFIRM_S` 홀드다 (`AskSpec.hold` — 붉지 않은 홀드, 채움은 악센트 색).
- * **2026-09-15 2차 (사용자 결정)**: 그 능력치 다섯이 **가로 5열 → 세로 5행**이 됐다 — 한 행 = `[이름] [게이지] [값]`.
- * 게이지 비율 · `maxed` 강조 · 얼굴 썸네일은 그대로다. 홀드 안내 줄은 `askPopup` 에서 통째로 사라졌고
- * (`만들기` 버튼 안의 좌클릭 홀드 키캡이 그 말을 한다).
+ * **2026-09-14 (user's decision) — the confirm popup is a summary card** (`buildSummary`): on the left the name and
+ * five horizontal stat gauges (value / 5), on the right a still image of the preview soldier's face. The
+ * 「정말로 만들겠습니까?」 line is gone and `만들기` is a `UI_HOLD_CONFIRM_S` hold (`AskSpec.hold` — a hold that is not
+ * red, its fill in the accent colour).
+ * **2026-09-15 2nd pass (user's decision)**: those five stats went **from five columns across to five rows down** —
+ * one row = `[name] [gauge] [value]`. The gauge ratio · the `maxed` emphasis · the face thumbnail are unchanged. The
+ * hold notice line disappeared from `askPopup` entirely (the left-click hold keycap inside `만들기` says it instead).
  *
- * **점수가 남아 있으면 확정할 수 없다** (2026-09-09): `확정` 버튼은 `statPointsLeft > 0` 인 동안 `disabled`
- * (툴팁 `남은 점수를 모두 배분하세요`)이고, 그래도 눌리면(키보드 등) `능력치 배분 미완료` 안내 팝업만 뜬다.
- * 그래서 옛 "남은 점수 N점은 버려집니다" 줄은 요약에서 사라졌다 — 그런 일이 이제 없다.
+ * **It cannot be confirmed while points remain** (2026-09-09): the `확정` button is `disabled` while
+ * `statPointsLeft > 0` (tooltip `남은 점수를 모두 배분하세요`), and if it is pressed anyway (by keyboard, say) only the
+ * `능력치 배분 미완료` notice popup appears. So the old "남은 점수 N점은 버려집니다" line is gone from the summary —
+ * that can no longer happen.
  *
- * 확정 뒤에는 `createCharacterInSlot` → `setActiveSlot` → `markAutoStart` → `location.reload()` 다.
- * 실행 중인 시스템에 새 프로필을 밀어 넣는 길은 없다 (창고 · 메타 · 함선까지 다시 읽어야 하고, 그게 부팅이다).
+ * After the confirm comes `createCharacterInSlot` → `setActiveSlot` → `markAutoStart` → `location.reload()`.
+ * There is no way to push a new profile into running systems (stash · meta · the ship all have to be read again, and
+ * that is a boot).
  *
- * blocker 토큰도 커서 소유권도 갖지 않는다 — 타이틀(`MenuBase`)이 계속 쥐고 있고 이 화면은 그 위에 얹힌다.
+ * It holds no blocker token and no cursor ownership — the title (`MenuBase`) keeps holding both and this screen is
+ * laid on top of it.
  */
 export class CharacterCreate {
   readonly root: HTMLElement;
@@ -72,20 +79,20 @@ export class CharacterCreate {
   private readonly stage: HTMLElement;
   private readonly noGl: HTMLElement;
   private preview: SoldierPreview | null = null;
-  /** 미리보기는 화면이 처음 열릴 때 만든다 — 타이틀에 서 있는 내내 두 번째 GL 컨텍스트를 쥐고 있지 않게. */
+  /** The preview is built the first time the screen opens — the title does not hold a second GL context all along. */
   private previewTried = false;
-  /** 능력치 목록은 `ctx` 가 있어야 이름을 얻으므로 첫 `open()` 에서 채운다. */
+  /** The stat list needs `ctx` to get its names, so it is filled on the first `open()`. */
   private statHost: HTMLElement | null = null;
 
   private slot: SlotId = 1;
   private stats: Record<StatId, number> = baseCreateStats();
   private accent: string = DEFAULT_ACCENT;
   /**
-   * 2026-09-14 (사용자 결정): 시작 임플란트는 **고르지 않는다** — 모든 새 캐릭터가 같은 값이다.
-   * 필드를 남기는 이유는 `createCharacterInSlot` 의 계약(`implant`)을 그대로 채우기 위해서다.
+   * 2026-09-14 (user's decision): the starting implant is **not chosen** — every new character has the same value.
+   * The field is kept so that the contract of `createCharacterInSlot` (`implant`) is still filled as before.
    */
   private readonly implant: ImplantId = CREATE_IMPLANT_IDS[0];
-  /** 사람이 이름을 직접 쳤는가 / 능력치를 손으로 옮겼는가 — 주사위가 경고를 띄울지 정한다. */
+  /** Did the person type the name / move a stat by hand — decides whether the dice raises a warning. */
   private nameTouched = false;
   private statsTouched = false;
   private _open = false;
@@ -100,7 +107,7 @@ export class CharacterCreate {
 
     const body = el('div', { cls: 'cc-body', parent: this.root });
 
-    /* ── 왼쪽 열: 이름 카드 + 능력치 카드 (2026-09-14: 임플란트가 빠지면서 옛 설정 열과 능력치 열이 합쳐졌다) ── */
+    /* ── Left column: name + stat cards (2026-09-14: the implant went, so the old settings and stat columns merged) ── */
     const main = el('div', { cls: 'cc-main', parent: body });
     const form = el('div', { cls: 'cc-panel', parent: main });
 
@@ -115,7 +122,7 @@ export class CharacterCreate {
       },
       parent: nameRow,
     });
-    // 게임 키(WASD · Tab · Escape)가 `Input` 까지 가지 않게 필드에서 끊는다 (기존 메뉴 입력칸과 같은 규약).
+    // Game keys (WASD · Tab · Escape) stop at the field and never reach `Input` (the contract every menu input follows).
     this.nameInput.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.code === 'Escape') { e.preventDefault(); this.nameInput.blur(); }
@@ -126,7 +133,7 @@ export class CharacterCreate {
     const dice = el('button', { cls: 'ui-btn cc-dice', text: '🎲', attrs: { title: '무작위 호출명' }, parent: nameRow });
     dice.addEventListener('click', (e) => { e.stopPropagation(); this.rollName(); });
 
-    /* ── 캐릭터 스탯 (같은 열, 세로 한 줄씩) ── */
+    /* ── Character stats (same column, one row each) ── */
     const statsWrap = el('div', { cls: 'cc-stats-wrap', parent: main });
     const statsHead = el('div', { cls: 'cc-stats-head', parent: statsWrap });
     el('span', { cls: 'ui-label', text: '캐릭터 스탯', parent: statsHead });
@@ -139,7 +146,7 @@ export class CharacterCreate {
 
     this.statHost = el('div', { cls: 'cc-stat-list', parent: statsWrap });
 
-    /* ── 오른쪽: 3D 미리보기 + 그 아래 악센트 스와치 ── */
+    /* ── Right: the 3D preview + the accent swatches below it ── */
     const side = el('div', { cls: 'cc-side', parent: body });
     const preview = el('div', { cls: 'cc-preview', parent: side });
     this.stage = el('div', { cls: 'cc-stage', parent: preview });
@@ -174,13 +181,13 @@ export class CharacterCreate {
 
   /* ── build ────────────────────────────────────────────────────────────── */
 
-  /** `bind` 전에도 안전한 ctx 접근. */
+  /** ctx access that is safe even before `bind`. */
   private ctxSafe(): GameContext | null { return (this.ctx as GameContext | undefined) ?? null; }
 
   private statDefs(): readonly StatDef[] {
     const defs = this.ctxSafe()?.progression?.getAllStatDefs?.();
     if (defs && defs.length > 0) return defs;
-    // progression 시스템이 없는 스켈레톤 부팅 — id 만으로라도 다섯 줄을 그린다.
+    // A skeleton boot with no progression system — the five rows are drawn from the ids alone.
     return STAT_IDS.map((id) => ({ id, name: id, description: '' }));
   }
 
@@ -212,16 +219,16 @@ export class CharacterCreate {
   }
 
   get isOpen(): boolean { return this._open; }
-  /** 지금 그리고 있는 슬롯 (디버그 / 스모크). */
+  /** The slot being drawn right now (debug / smoke). */
   get targetSlot(): SlotId { return this.slot; }
-  /** 지금 배분 상태 (디버그 / 스모크). */
+  /** The allotment as it stands (debug / smoke). */
   get draftStats(): Readonly<Record<StatId, number>> { return this.stats; }
-  /** 미리보기 캔버스가 살아 있는가 (디버그). */
+  /** Is the preview canvas alive (debug). */
   get hasPreview(): boolean { return this.preview !== null; }
-  /** 저장될 시작 임플란트 (디버그 / 스모크). 2026-09-14 부터 **고정값**이다 — 고르는 곳이 없다. */
+  /** The starting implant that will be saved (debug / smoke). **Fixed** since 2026-09-14 — there is nowhere to pick it. */
   get draftImplant(): ImplantId { return this.implant; }
 
-  /** `slot` 칸에 새 캐릭터를 만드는 화면을 연다 (상태는 매번 처음부터). */
+  /** Opens the screen that makes a new character in slot `slot` (the state starts from scratch every time). */
   open(slot: SlotId): void {
     this.slot = slot;
     this.stats = baseCreateStats();
@@ -254,7 +261,7 @@ export class CharacterCreate {
     this.root.hidden = true;
   }
 
-  /** 프레임마다 (HudSystem → TitleMenu). 닫혀 있으면 미리보기가 스스로 즉시 돌아온다. */
+  /** Every frame (HudSystem → TitleMenu). While closed the preview returns immediately by itself. */
   update(dt: number): void { this.preview?.render(dt); }
 
   private cancel(): void {
@@ -263,7 +270,7 @@ export class CharacterCreate {
     this.onCancel();
   }
 
-  /* ── 선택 ─────────────────────────────────────────────────────────────── */
+  /* ── picking ──────────────────────────────────────────────────────────── */
 
   private setAccent(hex: string): void {
     this.accent = hex;
@@ -281,12 +288,12 @@ export class CharacterCreate {
     this.refresh();
   }
 
-  /* ── 주사위 (손으로 넣은 값을 말없이 지우지 않는다) ────────────────────── */
+  /* ── the dice (never silently erases a value put in by hand) ───────────── */
 
   private rollName(): void {
     const run = (): void => {
       this.nameInput.value = rollCallsign();
-      this.nameTouched = false;      // 주사위가 넣은 이름은 "직접 입력" 이 아니다
+      this.nameTouched = false;      // a name the dice put in is not "typed directly"
       this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     };
     if (this.nameTouched && this.nameInput.value.trim()) {
@@ -320,12 +327,12 @@ export class CharacterCreate {
     run();
   }
 
-  /* ── 확정 ─────────────────────────────────────────────────────────────── */
+  /* ── confirm ──────────────────────────────────────────────────────────── */
 
   private askConfirm(): void {
     const left = statPointsLeft(this.stats);
     if (left > 0) {
-      // 버튼은 이미 disabled 지만 키보드 · 스모크가 우회할 수 있다 — 안내만 하고 아무것도 만들지 않는다.
+      // The button is already disabled, but a keyboard · a smoke test can get around it — only notify, create nothing.
       this.ask.open({
         title: '능력치 배분 미완료',
         body: `남은 점수 ${left}점을 모두 배분해야 캐릭터를 만들 수 있습니다.`,
@@ -335,7 +342,7 @@ export class CharacterCreate {
       return;
     }
     const name = sanitizeCharacterName(this.nameInput.value);
-    // 2026-09-14 (사용자 결정): 요약은 글이 아니라 카드다 — 「정말로 만들겠습니까?」 줄은 없어졌고 `만들기` 는 1초 홀드다.
+    // 2026-09-14 (user's decision): the summary is a card, not prose — 「정말로 만들겠습니까?」 went, `만들기` is a 1 s hold.
     this.ask.open({
       title: '캐릭터 확정',
       body: '',
@@ -348,13 +355,15 @@ export class CharacterCreate {
   }
 
   /**
-   * 확정 팝업의 요약 카드 (2026-09-14, 사용자 결정 · 2026-09-15 2차 세로 5행으로 개편).
-   *  - 왼쪽: 이름 한 줄 + 능력치 다섯을 **세로 한 행씩** — 한 행 = `[이름] [가로 게이지] [값]`. 이름은 왼쪽 고정폭
-   *    (`--cf-name`, 이름 줄의 `이름` 라벨과 같은 폭이라 첫 칸이 세로로 맞는다), 게이지는 남는 폭을 다 쓰고,
-   *    값은 오른쪽 `tabular-nums` 라 자릿수가 흔들리지 않는다. 게이지는 **값 / 최대값**(`CREATE_STAT_MAX` = 5 가
-   *    가득, 최소값 1 은 1/5 만큼 찬다 — 생성 화면의 바는 (값 − 최소) / (최대 − 최소) 라 다르다).
-   *  - 오른쪽: 미리보기 병사의 **얼굴 정지 이미지** (`SoldierPreview.snapshotFace`). GL 이 없으면 그 칸 없이 왼쪽만.
-   * 숫자는 여기 없다 — 범위는 `shared/character.ts` 의 상수다.
+   * The confirm popup's summary card (2026-09-14, user's decision · reworked into five rows down, 2026-09-15 2nd pass).
+   *  - Left: one name line + the five stats **one row each, downward** — one row = `[name] [horizontal gauge] [value]`.
+   *    The name is a fixed width on the left (`--cf-name`, the same width as the `이름` label of the name line, so the
+   *    first column lines up vertically), the gauge takes all the width that is left, and the value sits right in
+   *    `tabular-nums` so the digits never shift. The gauge is **value / max** (`CREATE_STAT_MAX` = 5 is full, the
+   *    minimum 1 fills 1/5 — the bar on the creation screen differs: it is (value − min) / (max − min)).
+   *  - Right: a **still image of the preview soldier's face** (`SoldierPreview.snapshotFace`). With no GL that column
+   *    is dropped and only the left side is drawn.
+   * No number lives here — the ranges are constants in `shared/character.ts`.
    */
   private buildSummary(name: string): HTMLElement {
     const root = el('div', { cls: 'cc-confirm' });
@@ -387,7 +396,7 @@ export class CharacterCreate {
 
   private create(name: string): void {
     const slot = this.slot;
-    // 빈 칸에서만 열리므로 보통 비어 있지만, 계약대로 부르는 쪽이 먼저 치운다.
+    // It only opens on an empty slot so this is normally empty, but per the contract the caller clears it first.
     deleteSlot(slot);
     const profile = createCharacterInSlot(slot, {
       name, stats: this.stats, accent: this.accent, implant: this.implant,
@@ -399,7 +408,7 @@ export class CharacterCreate {
       return;
     }
     this.confirmBtn.disabled = true;
-    // 시스템은 부팅 때 한 번 저장소를 읽는다 — 새 캐릭터로 들어가는 길은 새로고침뿐이다.
+    // The systems read storage once at boot — a reload is the only way into a new character.
     setActiveSlot(slot);
     markAutoStart();
     window.location.reload();
@@ -414,7 +423,7 @@ export class CharacterCreate {
     const left = statPointsLeft(this.stats);
     setText(this.pointsValue, String(left));
     toggleClass(this.pointsBox, 'spent', left <= 0);
-    // 점수가 남아 있으면 만들 수 없다 — 버튼이 스스로 말한다.
+    // With points left it cannot be created — the button says so itself.
     this.confirmBtn.disabled = left > 0;
     this.confirmBtn.title = left > 0 ? '남은 점수를 모두 배분하세요' : '';
     for (const [id, row] of this.statRows) {

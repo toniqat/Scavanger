@@ -3,29 +3,29 @@ import { Keys, QUICK_SLOTS, QUICK_SLOT_DIRS, buildItemChip, createKeycap, isQuic
 import { el, toggleClass } from '../dom';
 import '../styles/raidHud.css';
 
-/** Thumbnail edge in px (2026-09-10: 60 → 90 (1.5배) → 54 (그 0.6배, 2차 조정)). */
+/** Thumbnail edge in px (2026-09-10: 60 → 90 (×1.5) → 54 (×0.6 of that, the 2nd adjustment)). */
 const THUMB = 54;
 
 interface Cell {
   root: HTMLElement;
   body: HTMLElement;
-  /** Keycap over the thumbnail — the live 빠른 사용 binding, not the wheel index (2026-09-10). */
+  /** Keycap over the thumbnail — the live quick-use binding, not the wheel index (2026-09-10). */
   keyEl: HTMLElement;
   key: string;
 }
 
 /**
- * 빠른 사용 thumbnail (`.qstrip`, gameplay layer) — sits on the right **above the weapon slot strip**.
+ * Quick-use thumbnail (`.qstrip`, gameplay layer) — sits on the right **above the weapon slot strip**.
  *
  * 2026-09-07: it used to draw one tile per **unlocked** wheel slot, which grew to a ~300 px row on an 8-slot bag.
  * It now shows a **single** cell — the wheel slot the player last selected (`quick:equipped`, else `quick:used`,
  * else the first filled slot). The cell is lit (`.is-hand`) while that item is actually in the hands; the whole
  * widget hides when the wheel is empty.
  *
- * 2026-09-10 (레이드 HUD 개편, 사용자 결정): 칸 번호 대신 **빠른 사용 키**를 단다 (`.qs-key.keycap`).
- * 키 문자열은 하드코딩하지 않는다 — `keyLabel(Keys.QUICK)` 을 쓰고 `input:bindingsChanged` 에 다시
- * 읽는다 (리바인딩 규약). 썸네일은 1.5배(60 → 90 px)로 키웠다가 **그 0.6배(54 px)** 로 되돌렸다 —
- * `THUMB` 와 `styles/raidHud.css` 의 `.qs-body` 를 **같이** 고친다 (칩 크기와 칸 크기가 따로 논다).
+ * 2026-09-10 (the raid HUD rework, user's decision): it carries the **quick-use key** instead of the slot number (`.qs-key.keycap`).
+ * The key string is never hard-coded — `keyLabel(Keys.QUICK)` is used and re-read on `input:bindingsChanged`
+ * (the rebinding contract). The thumbnail was grown ×1.5 (60 → 90 px) and then taken back to **×0.6 of that (54 px)** —
+ * `THUMB` and `.qs-body` in `styles/raidHud.css` are fixed **together** (chip size and cell size otherwise drift apart).
  *
  * Data: `inventory:quickSlotsChanged` (seeded from `ctx.inventory.getQuickSlots()`), counts from `quick:used` /
  * `inventory:itemUpdated`, unlock count from `ctx.inventory.getBagSize().quickSlots` (`inventory:bagChanged`).
@@ -48,7 +48,7 @@ export class QuickStrip {
     for (let i = 0; i < QUICK_SLOTS; i++) {
       const root = el('div', { cls: 'qs-cell empty', parent: this.root, attrs: { 'data-dir': QUICK_SLOT_DIRS[i] } });
       root.hidden = true;
-      // 2026-09-15: 공용 키캡 (`shared/keycap`) — 빠른 사용을 마우스 버튼에 두면 그림으로 그린다
+      // 2026-09-15: the shared keycap (`shared/keycap`) — quick use bound to a mouse button is drawn as a glyph
       const keyEl = createKeycap(Keys.QUICK, { cls: 'qs-key', parent: root });
       const body = el('div', { cls: 'qs-body', parent: root });
       this.cells.push({ root, body, keyEl, key: '' });

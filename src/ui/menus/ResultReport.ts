@@ -4,17 +4,19 @@ import { formatCredits } from '@/shared';
 import { el, fmtInt, setText, toggleClass } from '../dom';
 
 /**
- * 결과 창 공용 몸통 (2026-09-15, 결과 창 개편 — 사용자 결정). `menus/MissionComplete` · `menus/DeathScreen` 이 함께 쓴다.
+ * The result windows' shared body (2026-09-15, the result window rework — user's decision). `menus/MissionComplete` ·
+ * `menus/DeathScreen` use it together.
  *
- * - `buildResultHeader` — 제목 줄: 왼쪽 제목(`탈출 성공` / `전사` / `레이드 실패`), 오른쪽 **임무 시간** 하나.
- * - `buildPlanetLine` — 행성 줄: 왼쪽 회색 라벨 `행성`(없앤 부제와 같은 크기), 오른쪽 조금 큰 흰 이름. 가운뎃점 없음.
- * - `ResultReport` — `.stats.rs-stats` 한 덩어리:
- *   - 전리품 줄: 왼쪽 라벨 · 오른쪽 값(`1,234 C`, 카운트업). 탈출 = `전리품 가치`(`stats.lootValue`, 호박색),
- *     사망 = `잃은 전리품 가치`(`stats.peakLootValue` — 그 레이드의 최고 소지품 가치, 빨강).
- *   - 사망 원인 줄(사망 모드에서 `stats.death` 가 있을 때만): 왼쪽 정사각 썸네일 — 적이면 `ctx.enemies.renderPortrait`
- *     얼굴(다음 프레임에 그려 화면이 먼저 뜬다 · 못 그리면 대체 아이콘), 아니면 원인 아이콘(SVG, 절차) — 오른쪽 위 작은 이름,
- *     아래 큰 숫자 = 그 원인(적이면 **그 개체**)에게서 받은 피해. 원인을 모르면 줄이 숨는다.
- * 처치 · 개봉한 상자 · 받은 피해 칸은 없어졌다. 스타일은 `styles/results.css` (접두사 `.rs-`).
+ * - `buildResultHeader` — the title row: the title on the left (`탈출 성공` / `전사` / `레이드 실패`), one **mission time** on the right.
+ * - `buildPlanetLine` — the planet row: a grey `행성` label on the left (the size of the dropped subtitle), a slightly larger white name on the right. No middle dot.
+ * - `ResultReport` — one `.stats.rs-stats` block:
+ *   - The loot row: label left · value right (`1,234 C`, counting up). Extraction = `전리품 가치` (`stats.lootValue`, amber),
+ *     death = `잃은 전리품 가치` (`stats.peakLootValue` — the highest value carried in that raid, red).
+ *   - The death cause row (death mode only, and only with `stats.death`): a square thumbnail on the left — for an enemy
+ *     the `ctx.enemies.renderPortrait` face (drawn on the next frame so the screen comes up first · a fallback icon when
+ *     it cannot be drawn), otherwise the cause icon (SVG, procedural) — the small name at the top right, the big number
+ *     below it = the damage taken from that cause (for an enemy, **that one body**). With an unknown cause the row hides.
+ * The kill · crates opened · damage taken cells are gone. Styles live in `styles/results.css` (prefix `.rs-`).
  */
 
 export type ResultMode = 'extract' | 'death';
@@ -25,7 +27,7 @@ export interface ResultHeader {
   time: HTMLElement;
 }
 
-/** 제목 줄 — 왼쪽 제목, 오른쪽 임무 시간. `.title` 이 줄의 첫 `.title` 이다 (스모크가 그렇게 찾는다). */
+/** The title row — title left, mission time right. `.title` is the row's first `.title` (that is how the smokes find it). */
 export function buildResultHeader(parent: HTMLElement, titleText: string, titleCls: string): ResultHeader {
   const row = el('div', { cls: 'rs-titlerow', parent });
   const title = el('div', { cls: `title ${titleCls}`, text: titleText, parent: row });
@@ -41,10 +43,11 @@ export interface PlanetLine {
 }
 
 /**
- * 행성 줄 (2026-09-15, 사용자 결정) — 두 결과 창이 같은 모습을 쓴다. 가운뎃점 대신 gap 으로 벌린 두 조각:
- * 회색 라벨 `행성`(`.rs-planet-k`, 없앤 부제와 같은 12px) + 조금 큰 흰 이름(`.rs-planet-v`).
- * `.planet-line` 은 계약대로 남는다 (스모크가 그 이름으로 줄을 찾는다). 이름은 `planetLabel` 이 채우는데
- * 그것은 행성이 없어도 `PLANET_NONE_LABEL`(`목표 미지정`) 을 돌려주므로 **빈 줄이 될 수 없다** — 숨김 갈래가 없다.
+ * The planet row (2026-09-15, user's decision) — both result windows use the same look. Two pieces spread by a gap
+ * instead of a middle dot: a grey `행성` label (`.rs-planet-k`, the dropped subtitle's 12px) + a slightly larger white
+ * name (`.rs-planet-v`). `.planet-line` stays, as the contract says (the smokes find the row by that name). The name is
+ * filled by `planetLabel`, which returns `PLANET_NONE_LABEL` (`목표 미지정`) even with no planet, so the row **cannot be
+ * empty** — there is no hiding branch.
  */
 export function buildPlanetLine(parent: HTMLElement): PlanetLine {
   const row = el('div', { cls: 'planet-line rs-planet', parent });
@@ -53,30 +56,30 @@ export function buildPlanetLine(parent: HTMLElement): PlanetLine {
   return { row, value };
 }
 
-const LOOT_DELAY = 0.4;   // 카운트업 시작 전 (프레임 등장 애니메이션 뒤)
-const LOOT_DUR = 1.6;     // 카운트업 길이
-/** 썸네일의 CSS 크기 (px) — `results.css` `.rs-cause-thumb` 와 같은 값. 그리는 해상도는 × devicePixelRatio (최대 2). */
+const LOOT_DELAY = 0.4;   // before the count-up starts (after the frame's entry animation)
+const LOOT_DUR = 1.6;     // length of the count-up
+/** The thumbnail's CSS size (px) — the same value as `results.css` `.rs-cause-thumb`. It is drawn at × devicePixelRatio (2 at most). */
 const THUMB_CSS_PX = 72;
 
-/* ── 원인 아이콘 (24×24 선 그림, currentColor) ─────────────────────────────────────────── */
+/* ── Cause icons (24×24 line drawings, currentColor) ───────────────────────────────────── */
 const ICON_PATHS: Readonly<Record<string, string>> = {
-  // 적 (얼굴을 못 그렸을 때) — 투구 쓴 머리
+  // An enemy (when the face could not be drawn) — a helmeted head
   enemy: '<path d="M5 12a7 7 0 0 1 14 0v3.5l-2 1.2V20h-3v-2h-4v2H7v-3.3l-2-1.2z"/><path d="M8.5 11.5h2.5M13 11.5h2.5"/>',
-  // 낙하 — 아래 화살표와 땅
+  // A fall — a down arrow and the ground
   fall: '<path d="M12 3v11"/><path d="M7.5 10l4.5 4.5 4.5-4.5"/><path d="M3.5 20.5h17"/><path d="M6 20.5l1.5-2.5M18 20.5l-1.5-2.5"/>',
-  // 폭풍 — 구름과 번개
+  // A storm — cloud and lightning
   storm: '<path d="M7 16.5a4.2 4.2 0 0 1-.4-8.4A5.6 5.6 0 0 1 17.3 8a3.8 3.8 0 0 1 .4 7.6"/><path d="M12.8 12.5l-2.6 4h3.2l-2.2 4"/>',
-  // 독성 포자 — 흩어진 알갱이
+  // Toxic spores — scattered grains
   spores: '<circle cx="12" cy="12.5" r="2.4"/><circle cx="6" cy="8" r="1.5"/><circle cx="17.5" cy="6.5" r="1.7"/><circle cx="6.5" cy="17.5" r="1.7"/><circle cx="17.5" cy="17" r="1.3"/><circle cx="12" cy="4.5" r="1"/>',
-  // 행성 환경 — 행성과 열기
+  // The planet environment — a planet and heat
   env: '<circle cx="12" cy="14.5" r="5.5"/><path d="M6.5 14.5c3 1.4 8 1.4 11 0"/><path d="M8 2.5c1 1-1 2 0 3.2M12 2c1 1-1 2 0 3.2M16 2.5c1 1-1 2 0 3.2"/>',
-  // 폭발 — 별 모양 파열
+  // An explosion — a star-shaped burst
   explosion: '<path d="M12 2.5l1.8 5.3 5-2.6-2.6 5 5.3 1.8-5.3 1.8 2.6 5-5-2.6-1.8 5.3-1.8-5.3-5 2.6 2.6-5-5.3-1.8 5.3-1.8-2.6-5 5 2.6z"/>',
-  // 자기 폭발물 — 수류탄
+  // Your own explosive — a grenade
   self: '<circle cx="11" cy="14.5" r="6"/><path d="M9 8.8V6h4v2.8"/><path d="M13 6l3.5-2"/><path d="M18 7.5l2.2-.6M18.2 10.2l2 .6"/>',
-  // 아군 폭발물 — 사람과 파열
+  // An ally's explosive — a person and a burst
   ally: '<circle cx="8" cy="8" r="3"/><path d="M2.8 20.5a5.2 5.2 0 0 1 10.4 0"/><path d="M17.5 4.5l.9 2.6 2.5-1.2-1.2 2.5 2.6.9-2.6.9 1.2 2.5-2.5-1.2-.9 2.6-.9-2.6-2.5 1.2 1.2-2.5-2.6-.9 2.6-.9-1.2-2.5 2.5 1.2z"/>',
-  // 그 밖 — 물음표
+  // Anything else — a question mark
   other: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.4 2.3c-.7.3-1 .8-1 1.5v.8"/><path d="M12 16.9v.3"/>',
 };
 
@@ -105,7 +108,7 @@ export class ResultReport {
   private timer = 0;
   private counting = false;
   private lastText = '';
-  /** 썸네일 요청 번호 — 다음 프레임에 그리는 사이 다른 결과로 바뀌면 버린다. */
+  /** The thumbnail request number — dropped if the result changes while the next frame's draw is pending. */
   private job = 0;
 
   constructor(parent: HTMLElement) {
@@ -168,7 +171,7 @@ export class ResultReport {
       img.src = url;
       this.causeThumb.replaceChildren(img);
     };
-    // 한 프레임 미룬다 — 처음 그리는 종류는 셰이더를 굽느라 수십 ms 걸릴 수 있어 결과 창이 먼저 떠야 한다.
+    // Deferred by one frame — the first draw of a type can take tens of ms baking shaders, and the result window has to come up first.
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(draw);
     else draw();
   }

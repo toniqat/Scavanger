@@ -7,95 +7,101 @@ import {
   SHELF_INTERACTION, SHELF_MEDIUM_LABEL_KO, SOIL_TAG_COLOR, SOIL_TAG_LABEL_KO,
   currencyDef, formatCredits, growSocketSlotsFor, itemCreditValue, shelfItemOf,
 } from '@/shared';
-/* appended (2026-09-16, 수집품 대분류): 종류 줄은 「수집품 > 서적」처럼 두 단이 될 수 있다 */
+/* appended (2026-09-16, the collectible super category): the 종류 row can be two levels, like 「수집품 > 서적」 */
 import { categoryPathKo } from '@/shared';
 import { el, setText } from '../dom';
 import { cookStepsText, mealBuffAmountText, mealEffects, mealQualityText, mealTierLabel } from './mealText';
-/* 2026-09-13 (요리 미니게임): 품질 줄 */
+/* 2026-09-13 (cooking minigame): the quality row */
 import { getMealDef, normalizeMealQuality } from '@/shared';
-import { COMPUTE_CLUSTER_MAX_CORES, PROCESSOR_DEF_ID } from '@/shared';   // 2026-09-13 암호화폐 채굴 (2026-09-16: 연산 코어 폐지)
+import { COMPUTE_CLUSTER_MAX_CORES, PROCESSOR_DEF_ID } from '@/shared';   // 2026-09-13 crypto mining (2026-09-16: compute cores dropped)
 
-/* 2026-09-15 (가젯 개편): 설명 인라인 마크업 · 스펙 줄은 `@/items` 한 곳이 만든다 — 격자 카드(`inventory/ui/Tooltip`)와 **같은 함수**다. */
+/* 2026-09-15 (gadget rework): the description's inline markup · the spec rows are made by `@/items` alone — the **same function** as the grid card (`inventory/ui/Tooltip`). */
 import type { SpecSeg, SpecValue } from '@/items';
 import { AMMO_LABEL_KO, itemSpecRows, parseItemText } from '@/items';
 /*
- * 2026-09-16 (사용자 버그 「기업 화면의 총 카드가 가방 카드와 다르다」): 무기 카드의 숫자 · 문장은
- * `shared/weaponTip` 하나가 만든다 — 격자 카드(`inventory/ui/Tooltip`)는 게이지 막대로, 이 카드는 표 줄로 칠한다.
+ * 2026-09-16 (user bug 「the gun card on the corp screen differs from the bag card」): a weapon card's numbers and
+ * sentences are made by `shared/weaponTip` alone — the grid card (`inventory/ui/Tooltip`) paints them as gauge bars,
+ * this card as table rows.
  */
 import { weaponTipRows } from '@/shared';
 
 /**
- * `[라벨, 값, 값 글자색?]` — 세 번째 칸은 인라인 색이고 클래스를 만들지 않는다 (아래 주석).
- * 2026-09-15: 값은 통짜 문자열이거나 **조각 목록**(`SpecSeg[]`)이다 — 「5초간 매 초 HP 4 회복, 총 20 회복」처럼
- * 숫자만 본문 색이고 나머지 글자는 흐린 줄이 생겼다. 조각의 색도 modifier 클래스가 아니라 인라인이다.
+ * `[label, value, value text colour?]` — the third slot is an inline colour and makes no class (the comment below).
+ * 2026-09-15: the value is a whole string or a **segment list** (`SpecSeg[]`) — 「5초간 매 초 HP 4 회복, 총 20 회복」 and
+ * its like gave rows where only the numbers take the body colour and the rest is dim. A segment's colour is inline too,
+ * not a modifier class.
  */
 type TipRow = [string, SpecValue, string?];
 
-/** 흐린 조각 · 강조 조각의 색 (카드 팔레트). 격자 카드는 자기 `--inv-*` 로 같은 뜻을 칠한다. */
+/** Colour of a dim segment · an emphasised segment (the card palette). The grid card paints the same meaning with its own `--inv-*`. */
 const SEG_DIM_COLOR = 'var(--c-text-dim)';
 const SEG_EM_COLOR = 'var(--c-accent)';
-/** 스펙 줄의 이득 · 손해 색. */
+/** The gain · loss colours of a spec row. */
 const TONE_COLOR = { good: 'var(--c-success)', bad: 'var(--c-danger)' } as const;
 
-/** 2026-09-13 (요리 품질): 품질 줄의 별 색 — 버프 썸네일의 별 배지(`styles/buffs.css` `.bfs-cell[data-q]`)와 같은 금색. */
+/** 2026-09-13 (meal quality): the star colour of the quality row — the same gold as the buff thumbnail's star badge (`styles/buffs.css` `.bfs-cell[data-q]`). */
 const MEAL_QUALITY_STAR_COLOR = '#ffd24a';
 
-/* 2026-09-13 (서재 시리즈 · 비디오게임): 시리즈 이름 · 효과 줄 · 등장 행성 · 기구 · 기업 · 조리 단계 이름 */
+/* 2026-09-13 (library series · video games): series names · effect rows · the planets it appears on · equipment · corporations · cook step names */
 import type { LibraryEffect } from '@/shared';
 import { COOK_GAME_LABEL_KO, CORP_DEFS, FURNITURE_DEFS, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_MAP, PLANET_DEFS } from '@/shared';
 
-/** 2026-09-13: `보관 — 아직 꽂지 않음` 의 글자색 = 타일 띠의 파랑 (`--c-favorite`, 없으면 같은 파랑). */
+/** 2026-09-13: the text colour of `보관 — 아직 꽂지 않음` = the tile band's blue (`--c-favorite`, the same blue when it is missing). */
 const FAVORITE_BAND_COLOR = 'var(--c-favorite, #4a90ff)';
-/** 가구 def id → def (보관함 보유 판정). */
+/** Furniture def id → def (deciding whether the shelf is owned). */
 const FURNITURE_DEF_BY_ID = new Map(FURNITURE_DEFS.map((d) => [d.id, d] as const));
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
-/** 권 번호 1 … 10 → 로마 숫자 (범위 밖은 아라비아 숫자). */
+/** Volume number 1 … 10 → a Roman numeral (Arabic numbers outside the range). */
 function romanVolume(n: number): string {
   const v = Math.floor(n);
   return ROMAN[v] ?? String(v);
 }
-/** 배율 가산 → `+12.5 %` (소수 한 자리까지). */
+/** A multiplier addend → `+12.5 %` (to one decimal place). */
 function pctText(v: number): string {
   const n = Math.round((Number.isFinite(v) ? v : 0) * 1000) / 10;
   const mag = Math.abs(n);
   return `${n < 0 ? '−' : '+'}${Number.isInteger(mag) ? String(mag) : mag.toFixed(1)} %`;
 }
 
-/** 유한한 양수인가 (옛 csv 로 비어 온 내구도 · 시간 칸을 거른다). */
+/** Whether it is a finite positive number (filters out durability · time cells that came empty from an old csv). */
 const positive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
 
 /**
- * 2026-09-14 (사용자 결정): 카드가 설 자리를 칩 쪽에서 정하는 옵트인 속성 (`data-tip-anchor="left"` = 커서 **좌상단**).
- * 칩 자신에 찍어도 되고 칩을 담은 줄(`.fcard-cost` · `.inv-craft-costs` …)에 한 번 찍어도 된다 — `move()` 가
- * `closest` 로 읽는다. 다른 폴더는 이 상수를 import 하지 않고 `dataset.tipAnchor = 'left'` 만 쓴다 (폴더 간 import 금지).
+ * 2026-09-14 (user's decision): the opt-in attribute with which the chip side decides where the card stands
+ * (`data-tip-anchor="left"` = the **top-left** of the cursor). It can be stamped on the chip itself or once on the row
+ * that holds the chips (`.fcard-cost` · `.inv-craft-costs` …) — `move()` reads it with `closest`. Other folders do not
+ * import this constant and only write `dataset.tipAnchor = 'left'` (no cross-folder imports).
  */
 export const TIP_ANCHOR_ATTR = 'data-tip-anchor';
 
 /**
- * 2026-09-16 (사용자 결정): **아래 바의 「가치」를 그 화면의 값으로 갈아끼우는 옵트인 속성.** 기업 거래 화면의
- * 매대 타일은 「구매가」, 판매칸 타일은 「판매가」를 보여야 한다 — 가치는 아이템이 어디에 있든 같은 수라 거래
- * 화면에서 읽을 값이 아니다. 칩(또는 칩을 담은 상자)에 `data-tip-price`(크레딧 정수) + `data-tip-price-label`
- * (한국어 라벨)을 찍으면 아래 바 오른쪽의 이름과 금액이 그 둘로 바뀐다. `data-tip-anchor` 와 같은 규약이라
- * `move()` 처럼 `closest` 로 읽고, 다른 폴더는 이 상수를 import 하지 않고 `dataset.tipPrice` 만 쓴다.
- * 속성이 없는 칩(가방 · 창고 · 월드 · 제작 재료)은 예전 그대로 「가치」다.
+ * 2026-09-16 (user's decision): **the opt-in attribute that swaps the bottom bar's 「가치」 for that screen's own value.**
+ * A shelf tile of the 기업 거래 screen must show 「구매가」 and a sell-slot tile 「판매가」 — the value is the same number
+ * wherever the item is, so it is not what is read on a trade screen. Stamping `data-tip-price` (an integer of credits) +
+ * `data-tip-price-label` (a Korean label) on the chip (or on the box that holds it) turns the name and the amount at the
+ * right of the bottom bar into those two. It is the same contract as `data-tip-anchor`, so it is read with `closest`
+ * like `move()` does, and other folders do not import this constant and only write `dataset.tipPrice`.
+ * A chip without the attribute (bag · stash · world · craft materials) keeps 「가치」 as before.
  */
 export const TIP_PRICE_ATTR = 'data-tip-price';
 
 /**
- * 2026-09-17 (사용자 버그 「퀘스트 보상의 신뢰도 썸네일에 호버해도 툴팁이 안 뜬다」): **글 카드** 옵트인. 아이템도 재화도 아닌 칩 —
- * 퀘스트 카드의 NPC 개인 신뢰도 칩(`menus/messenger/Trust.buildTrustChip`)이 그것이다. 그 칩은 기업 신뢰도 칩과 같은 육각 틀 · 같은
- * `◈` 인데, NPC 신뢰도는 `data/currencies.csv` 의 재화가 아니라서(가짜 재화 정의를 만들지 않는다) `data-currency-id` 를 달 수 없고
- * 네이티브 `title` 에만 기대고 있었다 — 게임 카드는 뜨지 않았다. 이제 칩이 `data-tip-name` (+ `data-tip-sub` · `data-tip-desc` ·
- * `data-tip-color`)을 찍으면 재화 카드와 같은 모양(가치 바 없음)으로 그 글을 그린다. 다른 폴더는 `dataset.tipName` 만 쓴다.
+ * 2026-09-17 (user bug 「hovering the trust thumbnail of a quest reward shows no tooltip」): the **text card** opt-in. A chip
+ * that is neither an item nor a currency — the NPC personal trust chip of a quest card
+ * (`menus/messenger/Trust.buildTrustChip`) is that one. That chip has the same hexagonal frame and the same `◈` as the
+ * corporation trust chip, but NPC trust is not a currency in `data/currencies.csv` (no fake currency def is made), so it
+ * cannot carry `data-currency-id` and was leaning on the native `title` alone — the game's card never appeared. Now a
+ * chip that stamps `data-tip-name` (+ `data-tip-sub` · `data-tip-desc` · `data-tip-color`) has that text drawn in the
+ * same shape as a currency card (no value bar). Other folders only write `dataset.tipName`.
  */
 export const TIP_NAME_ATTR = 'data-tip-name';
-/** 라벨을 주지 않은 `data-tip-price` 의 기본 이름. */
+/** The default name for a `data-tip-price` given no label. */
 const TIP_PRICE_LABEL_DEFAULT = '가격';
-/** 아래 바 오른쪽의 기본 이름 (아이템의 `가치`). */
+/** The default name at the right of the bottom bar (an item's `가치`). */
 const TIP_VALUE_LABEL = '가치';
 
 /**
- * 재료 요구 칩 hover card (`.item-tip`, Phase 8 UI pass). Every cost chip anywhere in the game — 시설 업그레이드,
+ * Material cost chip hover card (`.item-tip`, Phase 8 UI pass). Every cost chip anywhere in the game — 시설 업그레이드,
  * 가구 제작, 필드 · 작업대 제작, 수리, 퀘스트 납품, 씨앗 — is rendered by `src/shared/itemChip.ts`, which stamps the
  * item def on the element as `data-def-id`. This component is the single reader of that hook: one delegated
  * `pointerover` on `ctx.uiRoot` shows an inventory-style card for the item under the cursor. Anything that is not a
@@ -108,10 +114,10 @@ const TIP_VALUE_LABEL = '가치';
  * Only `ItemDef` data is shown (name · 분류 · 등급 · 설명 + the def's own numbers + 보유 from bag + stash): a chip has
  * no `ItemInstance`, so there is no durability / socket / loaded-ammo section like `inventory/ui/Tooltip` has.
  *
- * 2026-09-11 (C-36 후속): **가방 내구도 한 줄** — 가방이 `durabilityMax` 를 갖게 되면서 `내구도` 줄이 `가방` 줄 아래에
- * 붙는다. 호버한 요소가 `data-uid` 도 달고 있고(`inventory/ui/TradeGrids` 의 타일) 그 인스턴스를 찾을 수 있으면
- * `inventory/ui/Tooltip` 과 같은 `cur / max` (0 이어도 `파손` 이라 적지 않는다 — 가방은 0 이어도 격자가 그대로다),
- * 인스턴스가 없는 칩(제작 · 수리 재료 칩)이면 새 가방의 값 `최대 max` 다.
+ * 2026-09-11 (C-36 follow-up): **one bag durability row** — now that a bag has `durabilityMax`, the `내구도` row sits
+ * under the `가방` row. When the hovered element also carries `data-uid` (a tile of `inventory/ui/TradeGrids`) and its
+ * instance can be found it is the same `cur / max` as `inventory/ui/Tooltip` (never written as `파손` even at 0 — a bag's
+ * grid is unchanged at 0); on a chip with no instance (craft · repair material chips) it is a new bag's `최대 max`.
  *
  * 2026-09-08: an `implant` def also lists 장착칸 · 퍽 · 능력치 (· 상태 when broken) — the inventory's 임플란트 칸
  * is a row of square thumbnails now, so this card is where an equipped implant's numbers are read.
@@ -123,39 +129,47 @@ const TIP_VALUE_LABEL = '가치';
  * `v` amount) and the `크기 (w × h)` row is gone from every card — the footprint is what the bag grid already shows.
  * The stats table hides itself when no row is left.
  *
- * **온실 개편 (2026-09-11)**: 토양(`def.soil`)은 `속성`(`SOIL_TAG_LABEL_KO`, 값 글자만 `SOIL_TAG_COLOR` 로 물든다) ·
- * `수확` 두 줄을, 씨앗(`def.seed`)은 `재배 시간` 아래에 **맞는 토양** 한 줄을 같은 색으로 얻는다 — 어떤 흙에 심어야
- * `SOIL_MATCH_SPEEDUP` 를 받는지가 씨앗 카드에서 끝나야 한다. 색은 인라인 `style.color` 로만 칠한다: `.itip-stats .v`
- * 에 modifier 클래스를 새로 달면 HUD 위젯 클래스와 이름이 겹칠 위험이 있다 (2026-09-10 `.hold` 사고).
+ * **Greenhouse rework (2026-09-11)**: soil (`def.soil`) gets the two rows `속성` (`SOIL_TAG_LABEL_KO`, only the value
+ * text is tinted with `SOIL_TAG_COLOR`) and `수확`, and a seed (`def.seed`) gets one **맞는 토양** row in the same colour
+ * under `재배 시간` — which soil it must be planted in for `SOIL_MATCH_SPEEDUP` has to end on the seed's card. The colour
+ * is painted only as an inline `style.color`: a new modifier class on `.itip-stats .v` risks colliding by name with a
+ * HUD widget class (the 2026-09-10 `.hold` accident).
  *
- * **주방 · 배양조 · 프린터 (2026-09-11)**: 요리(`def.meal`)는 `사용 — 다음 레이드 1회분` · 버프 이름을 행 이름으로 쓴
- * `<버프> +n` (· tier 2 면 `구분 — 특선 요리`), 주머니(`def.pouch`)는 `주머니 c × r` · `수납`(받는 카테고리 이름),
- * 세포주(`def.strain`)는 `배양조 n 시간` · `산출물`, 배지(`def.medium`)는 `배양 n 회` · `배양 속도 +n %`
- * (`speedMul` 0.7 = +30 %). 요리 값의 부호 · 단위는 `hud/mealText` 가 찍는다 — 레이드 HUD 의 식사 배지와 **같은
- * 문장**이어야 하고, `%` 인지 `kg` 인지를 정하는 표는 `shared/labels` 의 `MEAL_BUFF_UNIT` 하나다.
+ * **Kitchen · culture tank · printer (2026-09-11)**: a meal (`def.meal`) gets `사용 — 다음 레이드 1회분` · `<버프> +n`
+ * with the buff name as the row name (· `구분 — 특선 요리` at tier 2), a pouch (`def.pouch`) `주머니 c × r` · `수납`
+ * (the names of the categories it takes), a strain (`def.strain`) `배양조 n 시간` · `산출물`, a medium (`def.medium`)
+ * `배양 n 회` · `배양 속도 +n %` (`speedMul` 0.7 = +30 %). The sign · unit of a meal value are printed by `hud/mealText` —
+ * it must be the **same sentence** as the raid HUD's meal badge, and the table that decides whether it is `%` or `kg` is
+ * `MEAL_BUFF_UNIT` in `shared/labels`, that one alone.
  *
- * **연구실 (2026-09-11)**: 표본(`def.sample`)은 `분석기 해석 n 시간` · `산출물` (· 처음이면 `최초 해석` 보너스),
- * 준비물(`def.prep`)은 `사용 — 다음 레이드 1회분` · `차단 — <환경> 환경` 을 얻는다. 환경 이름 · 색은 `ENV_LABEL_KO` ·
- * `ENV_COLOR` 하나에서 오고 (HUD 배지 · 행성 브리핑과 같은 원본), 색은 위와 같은 이유로 인라인이다.
+ * **Lab (2026-09-11)**: a sample (`def.sample`) gets `분석기 해석 n 시간` · `산출물` (· the `최초 해석` bonus when it is
+ * the first), and a preparation (`def.prep`) gets `사용 — 다음 레이드 1회분` · `차단 — <환경> 환경`. The environment name ·
+ * colour come from `ENV_LABEL_KO` · `ENV_COLOR` alone (the same source as the HUD badge · the planet briefing), and the
+ * colour is inline for the same reason as above.
  *
- * **재화 (2026-09-09)**: 계약 · 퀘스트 보상의 크레딧 · 경험치 · 기업별 신뢰도는 아이템이 아니지만 같은 자리에
- * 같은 크기의 칩(`shared/currency.buildCurrencyChip`)으로 선다. 그 칩은 `data-def-id` 대신
- * **`data-currency-id`** 를 달고, 이 카드는 그것도 받아 `.is-currency` 로 그린다 — 헤더에 `재화` 배지가 붙고
- * 아이템의 분류 · 등급 · 무게 · 가치 줄은 나오지 않는다. 아이템과 구분되는 틀이 필요하다는 요구가 여기서 끝난다.
+ * **Currencies (2026-09-09)**: the credits · XP · per-corporation trust of a contract · quest reward are not items, but
+ * they stand in the same place as a chip of the same size (`shared/currency.buildCurrencyChip`). That chip carries
+ * **`data-currency-id`** instead of `data-def-id`, and this card takes that too and draws it as `.is-currency` — a `재화`
+ * badge joins the header and an item's 분류 · 등급 · 무게 · 가치 rows do not appear. The demand for a frame that is told
+ * apart from an item ends here.
  *
- * **요리 재료 티어 (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 재료 티어」)**: 요리는 `구분 — <티어 이름>`(`MEAL_TIER_LABEL_KO`, 은퇴 요리는 생략) ·
- * `사용` 아래에 **능력치 줄 전부**(`hud/mealText.mealEffects` — `effects` 가 없는 옛 def 는 한 줄)를 얻는다 (옛 `구분 — 특선 요리` 는 없다).
- * 토양은 `수확 n 회` 대신 **`내구도 최대 n`** · **`소켓 칸 n 칸`**(`growSocketSlotsFor(등급)`), 배지는 `배양 n 회` 대신 같은 두 줄 + `배양 속도`,
- * 세포주는 스캐폴드 산출이 있으면 **`스캐폴드 배양 n 시간`** · **`스캐폴드 산출`** 두 줄을 더 얻고, 배양 스캐폴드(`def.scaffold`)는 `사용` 한 줄
- * 설명, 소켓(`def.growSocket`)은 `종류`(`GROW_SOCKET_TARGET_LABEL_KO` · 끼우는 곳) · `<효과 이름>`(`GROW_SOCKET_EFFECT_LABEL_KO`: speed = `시간 −n %`,
- * wear = `마모 −n %`, yield = `n % 확률로 +1 개`, 값은 인라인 `CATEGORY_COLOR.socket`) · `장착` 을 얻는다. 표본은 **`계열`**(글리프 + 이름, 인라인
- * `SAMPLE_FAMILY_COLOR`) · `분석기 해석 n 시간`(표의 기준 시간) · `결과 — <계열> 결과표` 이고 옛 `산출물` · `최초 해석` 줄은 계열이 없는 옛 def 에만 남는다.
- * 은퇴 아이템(`def.retired`)은 맨 위에 **`상태 — 더 이상 쓰이지 않는 아이템`**(흐린 글자) 한 줄.
+ * **Cooking ingredient tiers (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 재료 티어」)**: a meal gets `구분 — <tier name>`
+ * (`MEAL_TIER_LABEL_KO`, omitted for a retired meal) · **every stat row** under `사용` (`hud/mealText.mealEffects` — one row for
+ * an old def with no `effects`); the old `구분 — 특선 요리` is gone. Soil gets **`내구도 최대 n`** · **`소켓 칸 n 칸`**
+ * (`growSocketSlotsFor(rarity)`) instead of `수확 n 회`, a medium the same two rows + `배양 속도` instead of `배양 n 회`, a strain
+ * two more rows **`스캐폴드 배양 n 시간`** · **`스캐폴드 산출`** when it has a scaffold output, a culture scaffold (`def.scaffold`)
+ * one `사용` line of description, and a socket (`def.growSocket`) gets `종류` (`GROW_SOCKET_TARGET_LABEL_KO` · where it goes) ·
+ * `<effect name>` (`GROW_SOCKET_EFFECT_LABEL_KO`: speed = `시간 −n %`, wear = `마모 −n %`, yield = `n % 확률로 +1 개`, the value
+ * inline `CATEGORY_COLOR.socket`) · `장착`. A sample is **`계열`** (glyph + name, inline `SAMPLE_FAMILY_COLOR`) · `분석기 해석 n 시간`
+ * (the table's base time) · `결과 — <계열> 결과표`, and the old `산출물` · `최초 해석` rows are left only on an old def with no family.
+ * A retired item (`def.retired`) gets one **`상태 — 더 이상 쓰이지 않는 아이템`** line (dim text) at the top.
  *
- * **요리 미니게임 (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」)**: 요리는 호버한 요소가 `data-uid` 를 달고 그 인스턴스의 품질이
- * 0 보다 크면 `구분` 아래에 **`품질 — ★★★☆☆ +15 %`**(`hud/mealText.mealQualityText`) 한 줄을 얻고, 능력치 줄이 **보너스 반영 수치**가 된다
- * (`mealEffects(meal, quality)` — 먹었을 때 `derive.applyMealBuff` 가 더하는 값과 같은 식). 인스턴스가 없는 칩(재료 · 보상 칩)은 품질 0 기준값이다.
- * 조리대 요리(`cookStepsOf` 가 비지 않은 것)는 능력치 줄 아래에 **`조리 — ① 썰기 → ② 젓기`**(`cookStepsText`) 한 줄 — 단계가 없으면 줄도 없다.
+ * **Cooking minigame (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」)**: when the hovered element carries `data-uid`
+ * and that instance's quality is above 0, a meal gets one **`품질 — ★★★☆☆ +15 %`** row (`hud/mealText.mealQualityText`) under
+ * `구분`, and its stat rows become **the numbers with the bonus folded in** (`mealEffects(meal, quality)` — the same formula
+ * `derive.applyMealBuff` adds when it is eaten). A chip with no instance (material · reward chips) is the quality-0 baseline.
+ * A cook-bench meal (one whose `cookStepsOf` is not empty) gets one **`조리 — ① 썰기 → ② 젓기`** row (`cookStepsText`) under
+ * the stat rows — no step, no row.
  */
 export class ItemTip {
   readonly root: HTMLElement;
@@ -170,9 +184,9 @@ export class ItemTip {
   private defId: string | null = null;
   /** `data-uid` of the hovered element (instance-backed rows such as 가방 내구도), null for a plain def chip. */
   private uid: string | null = null;
-  /** 지금 카드가 재화를 그리고 있다면 그 재화 id (아이템일 때 null). */
+  /** The 재화 id when the card is drawing a currency right now (null for an item). */
   private currencyId: string | null = null;
-  /** 지금 카드가 글 카드(`TIP_NAME_ATTR`)라면 그 내용 키 (아니면 null). */
+  /** The content key when the card is a text card (`TIP_NAME_ATTR`) right now (null otherwise). */
   private textKey: string | null = null;
   private visible = false;
   private unsubs: Array<() => void> = [];
@@ -253,13 +267,16 @@ export class ItemTip {
   /* ── 2026-09-15: a chip that leaves from under a still cursor ──────────────────────────────────────────────────────── */
 
   /**
-   * **사용자 버그 「빠른 이동한 아이템의 툴팁이 마우스를 움직일 때까지 남는다」의 이 카드 쪽.** 카드는 `pointerout` 으로 내려가는데,
-   * 더블클릭 · 우클릭 메뉴로 아이템을 옮기면 격자(`inventory/ui/TradeGrids` → `GridView`)가 **커서 아래의 타일을 DOM 에서 떼어 낸다** —
-   * 떼어 낸 요소에는 `pointerout` 이 오지 않으므로 카드는 이미 없는 칩을 설명한 채 떠 있었다. 그래서 카드가 떠 있는 동안 매 프레임
-   * 칩이 아직 연결돼 있는지만 싸게 보고(`isConnected` · `.is-vanishing`), 떨어졌거나 인벤토리가 방금 바뀌었으면(`recheckFrames` —
-   * 같은 요소가 다른 칸으로 옮겨 갔을 수 있다) **마지막 포인터 위치를 다시 짚는다**(`rehit`): 거기 칩이 있으면 그 칩을, 없으면 내린다.
-   * 인벤토리 이벤트 뒤 두 프레임인 이유: 격자는 이벤트를 받은 **다음** rAF 에 다시 그리는데(`TradeGrids.scheduleRefresh`) 그 콜백과
-   * 이 루프의 순서는 등록 순서라 한 프레임으로는 다시 그리기 전을 짚을 수 있다.
+   * **This card's half of the user bug 「the tooltip of a quick-moved item stays until the mouse moves」.** The card goes
+   * down on `pointerout`, but moving an item with a double click · the right-click menu makes the grid
+   * (`inventory/ui/TradeGrids` → `GridView`) **detach the tile under the cursor from the DOM** — a detached element gets
+   * no `pointerout`, so the card stayed up describing a chip that was already gone. So while the card is up, every frame
+   * it only cheaply looks at whether the chip is still connected (`isConnected` · `.is-vanishing`), and when it has come
+   * off or the inventory has just changed (`recheckFrames` — the same element may have moved to another cell) it
+   * **points again at the last pointer position** (`rehit`): the chip there when there is one, else the card goes down.
+   * Why two frames after an inventory event: the grid redraws on the rAF **after** the event it received
+   * (`TradeGrids.scheduleRefresh`), and the order of that callback and this loop is registration order, so one frame can
+   * land before the redraw.
    */
   private requestRecheck = (): void => {
     if (this.visible) this.recheckFrames = 2;
@@ -324,15 +341,15 @@ export class ItemTip {
     if (!id) return false;
     const uid = chip.dataset.uid ?? null;
     if (!this.visible || id !== this.defId || uid !== this.uid) this.render(id, uid);
-    // 2026-09-16: `render` 를 건너뛴 경우에도 **칩이 바뀌었을 수 있다** (같은 def 가 매대에도 판매칸에도 있다) —
-    //   아래 바는 매번 이 칩 기준으로 다시 쓴다. `render` 는 늘 「가치」로 되돌려 놓으므로 여기서만 덮으면 된다.
+    // 2026-09-16: **the chip may have changed** even when `render` was skipped (the same def is on the shelf and in the
+    //   sell slot) — the bottom bar is rewritten from this chip every time. `render` always puts 「가치」 back, so overwriting it only here is enough.
     this.applyPriceTag(chip);
     return this.watching(chip);
   }
 
   /**
-   * 아래 바 오른쪽을 이 칩이 요구하는 값으로 쓴다 (`TIP_PRICE_ATTR` — 없으면 아이템의 「가치」). 재화 카드는 바 자체가
-   * 숨겨져 있으므로(`renderCurrency`) 아이템일 때만 손댄다.
+   * Writes the right of the bottom bar with the value this chip asks for (`TIP_PRICE_ATTR` — the item's 「가치」 when there
+   * is none). A currency card has the bar itself hidden (`renderCurrency`), so this is touched only for an item.
    */
   private applyPriceTag(chip: HTMLElement): void {
     if (!this.visible || !this.defId) return;
@@ -371,7 +388,7 @@ export class ItemTip {
   private defOf(defId: string): ItemDef | undefined {
     const ctx = this.ctx;
     if (!ctx) return undefined;
-    // 2026-09-16 (접시 모델): 요리 칩(식탁 · 조리대)은 아이템이 아니다 — 요리 표(`shared/meals`)에서 찾는다
+    // 2026-09-16 (the plate model): a meal chip (dining table · cook bench) is not an item — it is found in the meal table (`shared/meals`)
     try { return ctx.loot?.getItemDef(defId) ?? ctx.inventory?.getDef(defId) ?? getMealDef(defId); } catch { return undefined; }
   }
 
@@ -389,9 +406,10 @@ export class ItemTip {
   }
 
   /**
-   * 무기 상세 줄 (`shared/weaponTip.weaponTipRows`) — 대미지 · 연사 · 반동 · 사거리 · 탄종 · 장전 · 발사 모드 ·
-   * 배율 · 내구도 · 소켓. 호버한 요소가 `data-uid` 로 인스턴스를 가리키면 **그 총의 값**(소켓이 든 유효 수치 ·
-   * 남은 장전 · 남은 내구도)이고, 매대 타일처럼 인스턴스가 없으면 def 의 등급 수치다. 무기가 아니면 빈 배열.
+   * The weapon detail rows (`shared/weaponTip.weaponTipRows`) — 대미지 · 연사 · 반동 · 사거리 · 탄종 · 장전 · 발사 모드 ·
+   * 배율 · 내구도 · 소켓. When the hovered element points at an instance with `data-uid` these are **that gun's numbers**
+   * (effective values with sockets folded in · rounds left · durability left); with no instance, as on a shelf tile,
+   * they are the def's grade numbers. An empty array when it is not a weapon.
    */
   private weaponRows(def: ItemDef, uid: string | null): ReturnType<typeof weaponTipRows> {
     const loot = this.ctx?.loot;
@@ -430,50 +448,54 @@ export class ItemTip {
     this.root.style.setProperty('--rc', RARITY_COLORS[def.rarity] ?? RARITY_COLORS.common);
     this.root.style.setProperty('--ic', def.color);
     setText(this.nameEl, `${def.icon || CATEGORY_ICON[def.category] || '?'} ${def.name}`);
-    // 2026-09-15: 전설 유니크 무기는 `무기` 대신 **자기 종류**(`컴포짓 보우 · 전설`) — 이름이 별명뿐이라 종류는 여기서 읽힌다.
-    //   csv `class`(AR / DMR / SMG / SR)는 사격 숙련만 고르고 화면에 나오지 않는다.
-    // 2026-09-16: 유니크가 아닌 아이템은 **대분류까지** 읽는다 — 책은 `수집품 > 서적`, 소총은 `주무기` 한 단.
-    //   구분자와 라벨은 `shared/labels.categoryPathKo` 하나가 갖는다 (가방 격자 툴팁도 같은 함수를 부른다).
+    // 2026-09-15: a legendary unique weapon shows **its own kind** (`컴포짓 보우 · 전설`) instead of `무기` — its name is
+    //   only a nickname, so the kind is read here. The csv `class` (AR / DMR / SMG / SR) only picks the shooting skill and never appears on screen.
+    // 2026-09-16: a non-unique item is read **down to its super category** — a book is `수집품 > 서적`, a rifle the one level `주무기`.
+    //   The separator and the labels belong to `shared/labels.categoryPathKo` alone (the bag grid tooltip calls the same function).
     const uniqueKind = this.uniqueKindOf(def);
     const kindWord = uniqueKind ? UNIQUE_WEAPON_LABEL_KO[uniqueKind] : (categoryPathKo(def.category) ?? def.category);
     setText(this.subEl, `${kindWord} · ${RARITY_LABEL_KO[def.rarity] ?? def.rarity}`);
     this.renderDesc(def.description);
 
     const rows: TipRow[] = [];
-    // 2026-09-13: 은퇴 아이템은 맨 위에 한 줄 — 정의는 남았지만 어느 출처 · 소비처에서도 빠졌다
+    // 2026-09-13: a retired item gets one row at the top — its def remains but it left every source · consumer
     if (def.retired) rows.push(['상태', '더 이상 쓰이지 않는 아이템', 'var(--c-text-dim)']);
     const have = this.owned(defId);
     if (have >= 0) rows.push(['보유', `${have} 개`]);
     /*
-     * 2026-09-16 (사용자 버그): **총기 상세.** 기업 거래 화면(매대 · 구매칸 · 판매칸 · 그 안의 창고 · 가방 격자)은
-     * 전부 이 카드를 쓰는데 여기에는 피해량 · 사거리가 없어서, 같은 총이 가방 격자(`inventory/ui/Tooltip`)에서와
-     * 다르게 읽혔다. 줄과 문장은 그 카드와 **같은 함수**(`shared/weaponTip`)가 만든다 — 그림만 표 줄이다.
+     * 2026-09-16 (user bug): **weapon details.** The 기업 거래 screen (the shelf · the buy slot · the sell slot · the stash
+     * and bag grids inside it) all use this card, and it had no damage · range here, so the same gun read differently
+     * from the bag grid (`inventory/ui/Tooltip`). The rows and the sentences are made by the **same function** as that
+     * card (`shared/weaponTip`) — only the drawing is table rows.
      */
     for (const r of this.weaponRows(def, uid)) rows.push([r.k, r.v]);
-    /* 2026-09-15 (가젯 개편, 사용자 결정): 회복약 · 실드 충전기 · 전투 소모품 · 가젯 · 수류탄의 스펙 —
-       **맨 위가 `사용 시간`** 이고 설명 글에서는 그 수치를 전부 걷어냈다 (`data/items.csv`). 표는 `items/ItemSpec` 하나다. */
+    /* 2026-09-15 (gadget rework, user's decision): the specs of healing consumables · shield chargers · combat
+       consumables · gadgets · grenades — **`사용 시간` comes first**, and every one of those numbers was taken out of the
+       description text (`data/items.csv`). The table is `items/ItemSpec` alone. */
     for (const r of itemSpecRows(def)) rows.push([r.k, r.v, r.tone ? TONE_COLOR[r.tone] : undefined]);
     if (def.seed) rows.push(['재배 시간', `${def.seed.growHours} 시간`]);
-    // 온실 개편 (2026-09-11): 씨앗은 자기가 원하는 흙을, 토양은 자기 속성과 남은 수확 횟수를 적는다.
-    // `soilTag` 는 계약상 필수지만 옛 세이브 · 옛 csv 로 비어 올 수 있어 표에 있을 때만 그린다.
+    // Greenhouse rework (2026-09-11): a seed writes the soil it wants, soil writes its own tag and the harvests left.
+    // `soilTag` is required by the contract but can come empty from an old save · an old csv, so it is drawn only when the table has it.
     const seedTag = def.seed?.soilTag;
     if (seedTag && SOIL_TAG_LABEL_KO[seedTag]) rows.push(['맞는 토양', SOIL_TAG_LABEL_KO[seedTag], SOIL_TAG_COLOR[seedTag]]);
     const soil = def.soil;
     if (soil) {
       if (SOIL_TAG_LABEL_KO[soil.tag]) rows.push(['속성', SOIL_TAG_LABEL_KO[soil.tag], SOIL_TAG_COLOR[soil.tag]]);
-      // 2026-09-13: 「수확 n 회」 → 최대 내구도 + 소켓 칸 (가방의 토양은 늘 새것이라 `최대` 다 — 닳은 흙은 재배 화면이 말한다)
+      // 2026-09-13: 「수확 n 회」 → max durability + socket slots (soil in the bag is always new, so it is `최대` — worn soil is told by the growing screen)
       if (positive(soil.durability)) rows.push(['내구도', `최대 ${Math.round(soil.durability)}`]);
       rows.push(['소켓 칸', `${growSocketSlotsFor(def.rarity)} 칸`]);
     }
-    /* 연구실 (A-12 · A-13, 2026-09-11): 표본은 **분석기에 넣었을 때 무엇이 얼마나 걸려 나오는가**, 준비물은
-       **어떤 환경을 몇 번 막아 주는가** 가 카드에서 끝나야 한다. 씨앗 · 토양 줄과 같은 자리 · 같은 인라인 색 규약이다
-       (`.itip-stats .v` 에 modifier 클래스를 만들지 않는다 — 2026-09-10 `.hold` 사고). 해석 시간은 도감 진척으로
-       줄어들지만 그것은 분석 화면이 말한다: 여기 적는 것은 **표에 있는 기준 시간**이다. */
+    /* Lab (A-12 · A-13, 2026-09-11): **what comes out of the analyzer and how long it takes** for a sample, and **which
+       environment is blocked how many times** for a preparation, have to end on the card. The same place and the same
+       inline colour contract as the seed · soil rows (no modifier class on `.itip-stats .v` — the 2026-09-10 `.hold`
+       accident). The analysis time falls with catalogue progress, but that is told by the analysis screen: what is
+       written here is **the base time in the table**. */
     const sample = def.sample;
     if (sample) {
-      /* 2026-09-13 (요리 재료 티어): 결과는 계열 결과표(`ANALYSIS_RESULTS`)에서 분석 레벨로 해금 · 추첨된다 — 카드는 **계열**을
-         말하고, 무엇이 얼마의 확률로 나오는지는 분석 도감이 말한다. `rewardDefId` 는 결과표가 비었을 때의 대체일 뿐이라 적지 않는다.
-         계열이 없는 def(새 열을 모르는 옛 로더)만 옛 두 줄을 그대로 쓴다. */
+      /* 2026-09-13 (cooking ingredient tiers): the result is unlocked by analysis level and rolled from the family result
+         table (`ANALYSIS_RESULTS`) — the card says the **family**, and what comes out at what chance is told by the
+         analysis catalogue. `rewardDefId` is only the fallback for an empty result table, so it is not written. Only a
+         def with no family (an old loader that does not know the new column) keeps the old two rows as they were. */
       const fam = (sample as Partial<typeof sample>).family;
       if (fam && SAMPLE_FAMILY_LABEL_KO[fam]) {
         rows.push(['계열', `${SAMPLE_FAMILY_ICON[fam] ?? ''} ${SAMPLE_FAMILY_LABEL_KO[fam]}`.trim(), SAMPLE_FAMILY_COLOR[fam]]);
@@ -489,27 +511,30 @@ export class ItemTip {
         }
       }
     }
-    /* 암호화폐 채굴: 프로세서는 평범한 재료처럼 보이지만 **어디에 쓰는가**가 카드에서 끝나야 한다.
-       2026-09-16 (사용자 결정): 연산 코어가 없어지고 프로세서를 클러스터에 **그대로** 꽂는다 — 이제
-       내구도가 있고 주기마다 닳으므로, 그 둘을 한 줄에 담는다 (남은 내구도 자체는 툴팁의 내구 줄이 이미 보여 준다). */
+    /* Crypto mining: a processor looks like an ordinary material, but **what it is used for** has to end on the card.
+       2026-09-16 (user's decision): compute cores are gone and a processor goes into the cluster **as it is** — it now
+       has durability and wears down each cycle, so both are put in one row (the durability left is already shown by the
+       tooltip's own durability row). */
     if (def.id === PROCESSOR_DEF_ID) rows.push(['사용', `연산 클러스터에 꽂는다 (최대 ${COMPUTE_CLUSTER_MAX_CORES}개) · 주기마다 닳는다`]);
     const prep = def.prep;
     if (prep && ENV_LABEL_KO[prep.env]) {
       rows.push(['사용', '다음 레이드 1회분']);
       rows.push(['차단', `${ENV_LABEL_KO[prep.env]} 환경`, ENV_COLOR[prep.env]]);
     }
-    /* 서재 매체 (A-3e, 2026-09-12): 책 · 디스크 · 레코드는 같은 역할이라 같은 두 줄이다 — **어떤 숙련을 올리는가**와
-       **서재의 어느 보관함에 꽂는가**. 매체 판정은 계약의 `shelfItemOf` 하나이고, 보관함 이름은 가구 표(`furniture.csv`)에서
-       그 매체의 interaction 을 가진 서재 가구를 찾아 쓴다 — 이름을 여기 베껴 적지 않는다(표가 바뀌면 카드가 따라온다). */
-    /* 2026-09-13 (서재 시리즈, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): 옛 `숙련` 한 줄(숙련별 · 등급 가중치)은 없어졌다 — 효과는
-       이제 **시리즈**의 효과 줄이 정한다. 시리즈 매체는 `시리즈` · `권` · 효과 줄(전권 값) · `진행` · `보관` · `꽂는 곳` · `등장 행성`. */
+    /* Library media (A-3e, 2026-09-12): a book · disc · record have the same role, so they get the same two rows —
+       **which skill it raises** and **which shelf of the library it goes on**. The medium is decided by the contract's
+       `shelfItemOf` alone, and the shelf name is found in the furniture table (`furniture.csv`) as the library furniture
+       whose interaction is that medium's — the name is never copied here (the card follows when the table changes). */
+    /* 2026-09-13 (library series, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): the old single `숙련` row (per skill ·
+       rarity weighted) is gone — the effect is now decided by the **series**' effect rows. A series medium gets `시리즈` ·
+       `권` · the effect rows (the all-volumes value) · `진행` · `보관` · `꽂는 곳` · `등장 행성`. */
     const shelf = shelfItemOf(def);
     if (shelf) {
       const media = def.book ?? def.disc ?? def.record;
       if (media?.series) this.seriesRows(rows, def, media.series, media.volume ?? 1, shelf.medium);
       rows.push(['꽂는 곳', `서재 · ${this.shelfName(shelf.medium)}`]);
     }
-    /* 2026-09-13 (비디오게임): 게임 디스크 = 게임기 · 능력치 · 방식 · 사용, 게임기 = TV 에 장착 */
+    /* 2026-09-13 (video games): a game disc = 게임기 · 능력치 · 방식 · 사용, a console = TV 에 장착 */
     const game = def.gameDisc;
     if (game) {
       rows.push(['게임기', this.consoleName(game.console)]);
@@ -518,25 +543,26 @@ export class ItemTip {
       rows.push(['사용', '게임 디스크 전시대에 꽂고 TV 로 플레이']);
     }
     if (def.gameConsole) rows.push(['사용', 'TV 에 장착']);
-    /* 주방 · 배양조 · 프린터 (A-3c · A-14 · A-15, 2026-09-11): 요리 · 주머니 · 세포주 · 배지 넷도 준비물과 같은 결로
-       「무엇을 얼마나 오래 / 얼마나 올려 주는가」가 카드에서 끝난다. 요리의 값은 `hud/mealText` 가 찍는다 — 레이드
-       HUD 의 식사 배지와 **같은 문장**이어야 하고, 단위(`%` · `kg` · `m`)를 정하는 표는 `shared/labels` 의
-       `MEAL_BUFF_UNIT` 하나다. `durabilityLossMul` 은 `amount` 가 음수라 「장비 손상 −20 %」로 이득으로 읽힌다.
-       색은 위 토양 · 환경 줄과 같은 이유로 **인라인**이다 (`.itip-stats .v` 에 modifier 클래스를 만들지 않는다). */
+    /* Kitchen · culture tank · printer (A-3c · A-14 · A-15, 2026-09-11): the four — meal · pouch · strain · medium — end
+       on the card in the same grain as a preparation: 「what it raises, by how much / for how long」. A meal's value is
+       printed by `hud/mealText` — it must be the **same sentence** as the raid HUD's meal badge, and the table that
+       decides the unit (`%` · `kg` · `m`) is `MEAL_BUFF_UNIT` in `shared/labels` alone. `durabilityLossMul` has a
+       negative `amount`, so it reads as the gain in 「장비 손상 −20 %」. The colour is **inline** for the same reason as
+       the soil · environment rows above (no modifier class on `.itip-stats .v`). */
     const meal = def.meal;
     if (meal) {
-      // 2026-09-13: 티어 이름 + 능력치 줄 전부. 은퇴한 옛 특선 요리(tier 2)는 「페이스트 요리」 가 아니므로 구분 줄을 뺀다.
+      // 2026-09-13: the tier name + every stat row. A retired old 특선 요리 (tier 2) is not 「페이스트 요리」, so its 구분 row is left out.
       const tier = def.retired ? '' : mealTierLabel(meal);
       if (tier) rows.push(['구분', tier]);
-      // 2026-09-13 (요리 품질): 인스턴스가 있을 때만 — 칩(재료 · 보상)은 품질이 없다
+      // 2026-09-13 (meal quality): only when there is an instance — a chip (material · reward) has no quality
       const quality = normalizeMealQuality(this.instanceOf(uid, defId)?.quality);
       const qText = mealQualityText(quality);
       if (qText) rows.push(['품질', qText, MEAL_QUALITY_STAR_COLOR]);
-      rows.push(['사용', '식탁에서 먹기 — 다음 레이드 1회분']);   // 2026-09-16 접시 모델: 요리는 식탁의 접시다
+      rows.push(['사용', '식탁에서 먹기 — 다음 레이드 1회분']);   // 2026-09-16 the plate model: a meal is the dining table's plate
       for (const e of mealEffects(meal, quality)) {
         rows.push([MEAL_BUFF_LABEL_KO[e.buff] ?? '효과', mealBuffAmountText(e.buff, e.amount), CATEGORY_COLOR.meal]);
       }
-      // 2026-09-13 (요리 미니게임): 조리대에서 하는 미니게임 순서
+      // 2026-09-13 (cooking minigame): the order of the minigames done at the cook bench
       const steps = cookStepsText(defId);
       if (steps) rows.push(['조리', steps]);
     }
@@ -551,7 +577,7 @@ export class ItemTip {
       const out = this.defOf(strain.outputDefId);
       rows.push(['배양조', `${strain.cultureHours} 시간`]);
       rows.push(['산출물', `${out?.name ?? strain.outputDefId} ×${strain.outputQty}`]);
-      // 2026-09-13 (T3): 스캐폴드가 든 칸에서는 종별 고기를 만든다 — 그 산출이 있는 세포주만 두 줄 더
+      // 2026-09-13 (T3): a cell with a scaffold in it makes species meat — two more rows only on a strain that has that output
       if (strain.scaffoldOutputDefId) {
         const sc = this.defOf(strain.scaffoldOutputDefId);
         if (positive(strain.scaffoldHours)) rows.push(['스캐폴드 배양', `${strain.scaffoldHours} 시간`]);
@@ -561,25 +587,25 @@ export class ItemTip {
     if (def.scaffold) rows.push(['사용', '배양조 — 배지 다음 · 세포주 전에 넣으면 종별 고기 (수확 때 소모)']);
     const medium = def.medium;
     if (medium) {
-      // 2026-09-13: 「배양 n 회」 → 최대 내구도 (토양과 같은 규칙 — 0 이어도 쓰고 속도 · 소켓 효과가 비율로 준다) + 소켓 칸
+      // 2026-09-13: 「배양 n 회」 → max durability (the same rule as soil — used even at 0, and the speed · socket effects apply by ratio) + socket slots
       if (positive(medium.durability)) rows.push(['내구도', `최대 ${Math.round(medium.durability)}`]);
-      // speedMul 0.7 = 「30 % 빠름」. 1 보다 큰 배지(느린 배지)가 생겨도 부호가 그대로 뒤집힌다.
+      // speedMul 0.7 = 「30 % faster」. Should a medium above 1 (a slow medium) appear, the sign flips by itself.
       const faster = Math.round((1 - medium.speedMul) * 100);
       if (faster !== 0) rows.push(['배양 속도', `${faster > 0 ? '+' : '−'}${Math.abs(faster)} %`]);
       rows.push(['소켓 칸', `${growSocketSlotsFor(def.rarity)} 칸`]);
     }
     if (def.growSocket) this.socketRows(rows, def.growSocket);
     if (def.bag) rows.push(['가방', `${def.bag.cols} × ${def.bag.rows} · 퀵 ${def.bag.quickSlots}`]);
-    /* 2026-09-11 (C-36 후속): 가방 내구도 — 인스턴스가 있으면 `cur / max`, 칩뿐이면 새 가방의 `최대 max`.
-       2026-09-15 (가젯 개편): **내구도를 들고 다니는 가젯**(돔 실드 · 바리케이드)도 같은 줄이다 — 배치물이 받은
-       피해가 아이템 내구도로 남으므로(`GadgetDef.wearsItemDurability`) 카드가 그것을 말해야 한다. */
+    /* 2026-09-11 (C-36 follow-up): bag durability — `cur / max` with an instance, a new bag's `최대 max` on a bare chip.
+       2026-09-15 (gadget rework): **a gadget that carries durability** (dome shield · barricade) gets the same row — the
+       damage a deployable took stays as item durability (`GadgetDef.wearsItemDurability`), so the card must say it. */
     if ((def.bag || def.category === 'gadget') && def.durabilityMax !== undefined && def.durabilityMax > 0) {
       const max = def.durabilityMax;
       const inst = this.instanceOf(uid, defId);
       rows.push(['내구도', inst ? `${Math.round(Math.max(0, Math.min(max, inst.durability ?? max)))} / ${max}` : `최대 ${max}`]);
     }
-    // 2026-09-08: 임플란트 — 인벤토리의 임플란트 칸이 세로 목록에서 정사각 썸네일 줄로 바뀌면서 (이름 · 퍽 ·
-    //   능력치가 카드에서 빠졌다) 그 정보가 사는 곳이 이 카드가 됐다.
+    // 2026-09-08: implants — when the inventory's implant slots turned from a vertical list into a row of square
+    //   thumbnails (name · perk · stats left that card), this card became where that information lives.
     const imp = def.implant;
     if (imp) {
       rows.push(['장착칸', `${imp.slots}`]);
@@ -601,25 +627,25 @@ export class ItemTip {
       else for (const seg of v) this.appendSeg(vEl, seg);
     }
     this.statsEl.hidden = rows.length === 0;
-    // 2026-09-15: 한 발 무게가 0.1 kg 아래인 탄약(표창 0.02 · 탄띠 0.0075 …)이 `0.0 kg` 로 찍히던 것 — 1 kg 아래는 유효 자리까지
+    // 2026-09-15: ammo whose per-round weight is under 0.1 kg (표창 0.02 · 탄띠 0.0075 …) used to print as `0.0 kg` — under 1 kg goes to the significant digits
     setText(this.weightAmount, def.weight !== undefined ? `${def.weight >= 1 ? def.weight.toFixed(1) : String(Number(def.weight.toFixed(4)))} kg` : '—');
     setText(this.valueAmount, formatCredits(itemCreditValue(def)));
     this.root.hidden = false;
     this.visible = true;
   }
 
-  /* ── 2026-09-15 (가젯 개편): 조각 색 · 설명 인라인 마크업 ──────────────────────────────────────────────── */
+  /* ── 2026-09-15 (gadget rework): segment colours · the description's inline markup ──────── */
 
-  /** 값 조각 하나. 흐린 조각만 인라인 색을 받는다 (`.itip-stats .v` 에 modifier 클래스를 만들지 않는다 — 2026-09-10 `.hold` 사고). */
+  /** One value segment. Only a dim segment takes an inline colour (no modifier class on `.itip-stats .v` — the 2026-09-10 `.hold` accident). */
   private appendSeg(host: HTMLElement, seg: SpecSeg): void {
     const sp = el('span', { text: seg.text, parent: host });
     if (seg.dim) sp.style.color = SEG_DIM_COLOR;
   }
 
   /**
-   * 설명 문단. `data/items.csv` 의 `description` 은 이제 `{em}…{/em}` · `{dim}…{/dim}` · `{br}` 토큰을 쓸 수 있고
-   * 푸는 곳은 `items/ItemText.parseItemText` **하나**다 (격자 카드도 같은 함수를 부른다). 토큰이 없으면 한 줄짜리
-   * 조각 하나라 예전과 똑같이 그려진다.
+   * The description paragraph. `description` in `data/items.csv` can now use the `{em}…{/em}` · `{dim}…{/dim}` · `{br}`
+   * tokens, and the **one** place that resolves them is `items/ItemText.parseItemText` (the grid card calls the same
+   * function). With no token it is one segment on one line, so it is drawn exactly as before.
    */
   private renderDesc(text: string): void {
     const lines = parseItemText(text);
@@ -635,8 +661,9 @@ export class ItemTip {
   }
 
   /**
-   * 재화 카드. 아이템 카드와 같은 상자 · 같은 자리에 뜨지만 분류/등급 줄이 `재화` 배지로 바뀌고 가치 바가
-   * 사라진다 — 재화에는 등급도 판매가도 없다. 신뢰도는 기업 색을 그대로 쓰므로 카드도 기업 색으로 물든다.
+   * The 재화 card. It appears in the same box · the same place as the item card, but the 분류/등급 row becomes a `재화`
+   * badge and the value bar disappears — a currency has neither a rarity nor a sell price. Trust keeps the corporation
+   * colour as it is, so the card is tinted in the corporation colour too.
    */
   private renderCurrency(id: string): void {
     const def: CurrencyDef | undefined = currencyDef(id);
@@ -658,7 +685,7 @@ export class ItemTip {
     this.visible = true;
   }
 
-  /** 글 카드 (`TIP_NAME_ATTR`) — 재화 카드와 같은 틀에 칩이 찍어 둔 이름 · 분류 줄 · 설명을 그린다. */
+  /** The text card (`TIP_NAME_ATTR`) — draws the name · the 분류 row · the description the chip stamped, in the same frame as the 재화 card. */
   private renderText(chip: HTMLElement, key: string): void {
     const color = chip.dataset.tipColor || 'var(--c-text-dim)';
     this.textKey = key;
@@ -679,9 +706,10 @@ export class ItemTip {
   }
 
   /**
-   * 2026-09-13: 흙 · 배지 소켓 세 줄 — `종류`(토양 소켓 · 끼우는 곳), `<효과 이름> <값>`, `장착`. 값은 `amount` 를 %로
-   * (speed = 시간이 줄어드는 비율, wear = 마모가 줄어드는 비율, yield = 수확마다 +1 개가 붙을 확률). speed · yield 는 흙 · 배지
-   * 내구도 비율만큼만 듣는다는 계약(`GrowSocketEffect`)을 `장착` 줄이 말한다.
+   * 2026-09-13: the three soil · medium socket rows — `종류` (a soil socket · where it goes), `<effect name> <value>`,
+   * `장착`. The value is `amount` as a % (speed = the fraction the time falls by, wear = the fraction the wear falls by,
+   * yield = the chance of +1 per harvest). The `장착` row states the contract (`GrowSocketEffect`) that speed · yield
+   * apply only in proportion to the soil · medium durability.
    */
   private socketRows(rows: TipRow[], s: GrowSocketDef): void {
     const kind = GROW_SOCKET_TARGET_LABEL_KO[s.target];
@@ -694,24 +722,26 @@ export class ItemTip {
     rows.push(['장착', s.effect === 'wear' ? '영구 — 교체하면 파괴' : '영구 — 내구도 비율만큼 적용 · 교체하면 파괴']);
   }
 
-  /** 숙련의 한국어 이름 (`getSkillDef`), progression 이 없으면 id. */
+  /** The Korean name of a skill (`getSkillDef`), the id when there is no progression. */
   private skillName(skill: SkillId): string {
     try { return this.ctx?.progression?.getSkillDef(skill)?.name ?? skill; } catch { return skill; }
   }
 
-  /** 능력치의 한국어 이름 (`getStatDef`), progression 이 없으면 id. */
+  /** The Korean name of a stat (`getStatDef`), the id when there is no progression. */
   private statName(stat: StatId): string {
     try { return this.ctx?.progression?.getStatDef(stat)?.name ?? stat; } catch { return stat; }
   }
 
-  /* ── 2026-09-13 서재 시리즈 · 비디오게임 ─────────────────────────────────────────────────────────────────────────── */
+  /* ── 2026-09-13 library series · video games ───────────────────────────────────────────────────────────── */
 
   /**
-   * 시리즈 매체의 줄들. 수치는 전부 시리즈 표(`LIBRARY_SERIES_MAP`) · housing 질의에서 오고 여기서는 문장만 만든다.
-   *  - `시리즈` 이름 · `권` (`II / V권`, 1권짜리는 `단편`)
-   *  - 효과 줄마다 한 행 — 값은 **전권 기준**(여러 권이면 값 뒤에 `(전권)`), 글자색은 매체 카테고리 색
-   *  - `진행 n/N권 · 적용 n %` (`getSeriesProgress` — 보조 가구 배율은 빼고 시리즈 몫만)
-   *  - `보관` — 그 매체의 보관함이 없으면 `보관함 없음`, 있으면 `isShelfItemWanted` 로 `아직 꽂지 않음` / `서재에 꽂혀 있음`
+   * The rows of a series medium. Every number comes from the series table (`LIBRARY_SERIES_MAP`) · a housing query, and
+   * only the sentences are made here.
+   *  - the `시리즈` name · `권` (`II / V권`, `단편` for a one-volume series)
+   *  - one row per effect row — the value is **for all volumes** (`(전권)` after the value when there are several), the
+   *    text colour is the medium's category colour
+   *  - `진행 n/N권 · 적용 n %` (`getSeriesProgress` — the series' share only, without the helper furniture multiplier)
+   *  - `보관` — `보관함 없음` with no shelf for that medium, else `아직 꽂지 않음` / `서재에 꽂혀 있음` from `isShelfItemWanted`
    *  - `등장 행성`
    */
   private seriesRows(rows: TipRow[], def: ItemDef, seriesId: string, volume: number, medium: ShelfMedium): void {
@@ -740,7 +770,7 @@ export class ItemTip {
     if (planets.length) rows.push(['등장 행성', planets.join(' · ')]);
   }
 
-  /** 효과 줄 하나 → `[행 이름, 값]`. 모르는 대상이면 null. */
+  /** One effect row → `[row name, value]`. Null for an unknown target. */
   private effectRow(e: LibraryEffect): [string, string] | null {
     switch (e.kind) {
       case 'skillGain': return [`${this.skillName(e.target)} 상승량`, pctText(e.value)];
@@ -755,8 +785,8 @@ export class ItemTip {
   }
 
   /**
-   * `'none'` = 이 매체의 보관함을 배치 · 가구 창고 어디에도 갖고 있지 않다, `'wanted'` = 보관함은 있는데 같은 종류가 안 꽂혀 있다,
-   * `'shelved'` = 꽂혀 있다, `null` = housing 이 답하지 못한다 (줄을 그리지 않는다).
+   * `'none'` = no shelf for this medium is owned, neither placed nor in 가구 창고, `'wanted'` = the shelf is there but
+   * nothing of the same kind is on it, `'shelved'` = it is shelved, `null` = housing cannot answer (the row is not drawn).
    */
   private shelvedState(defId: string, medium: ShelfMedium): 'none' | 'wanted' | 'shelved' | null {
     const h = this.ctx?.housing;
@@ -771,12 +801,12 @@ export class ItemTip {
     } catch { return null; }
   }
 
-  /** 운동 기구 interaction → 그 가구 이름 (가구 표에서 찾는다). */
+  /** A gym equipment interaction → that furniture's name (found in the furniture table). */
   private furnitureName(interaction: string): string {
     return FURNITURE_DEFS.find((d) => d.interaction === interaction)?.name ?? interaction;
   }
 
-  /** 조리 레시피 id → 산출 요리 이름. */
+  /** A cook recipe id → the name of the meal it outputs. */
   private recipeName(recipeId: string): string {
     try {
       const r = this.ctx?.loot?.getAllRecipes().find((x) => x.id === recipeId);
@@ -785,7 +815,7 @@ export class ItemTip {
     return recipeId;
   }
 
-  /** 게임기 종류 → 그 게임기 아이템 이름 (`ItemDef.gameConsole.console`). */
+  /** A console kind → that console item's name (`ItemDef.gameConsole.console`). */
   private consoleName(consoleId: string): string {
     try {
       const d = this.ctx?.loot?.getAllItemDefs().find((x) => x.gameConsole?.console === consoleId);
@@ -795,8 +825,8 @@ export class ItemTip {
   }
 
   /**
-   * 매체를 받는 서재 보관함의 이름 — 서재 가구 중 `SHELF_INTERACTION[medium]` 을 가진 def (책장 · 디스크 전시대 · 레코드랙).
-   * housing 이 답하지 못하면 `디스크 보관함` 처럼 매체 이름으로 만든다.
+   * The name of the library shelf that takes a medium — the library furniture def with `SHELF_INTERACTION[medium]`
+   * (책장 · 디스크 전시대 · 레코드랙). When housing cannot answer, it is built from the medium name, like `디스크 보관함`.
    */
   private shelfName(medium: ShelfMedium): string {
     try {
@@ -820,13 +850,16 @@ export class ItemTip {
   }
 
   /**
-   * 커서 옆에 카드를 세운다. 기본은 **커서 우하단**(가방 · 창고 격자 타일이 처음부터 쓰던 자리)이다.
+   * Stands the card next to the cursor. The default is the **bottom-right of the cursor** (the place the bag · stash
+   * grid tiles used from the start).
    *
-   * **2026-09-14 (사용자 결정) — 재료 칩은 커서 좌상단이다.** 시설 관리 · 작업대 제작의 「필요 아이템」 줄은
-   * 화면 아래쪽에 있어서, 우하단 기본 자리에서 카드가 세로로 넘쳐 **위로만** 뒤집혔다 — 결과가 「커서 우상단」
-   * 이라 눌러야 할 칩을 카드가 덮었다. 그 줄들은 자기(또는 자기를 담은 상자의) `data-tip-anchor="left"` 로
-   * 좌상단을 요청하고, 여기서는 그 한 속성만 본다 (`chipAt` 이 집은 칩에서 `closest` 로 읽으므로 칩마다
-   * 찍어도 되고 줄 전체에 한 번 찍어도 된다). 어느 쪽이든 **화면 밖으로 나가면 예전처럼 반대편으로 뒤집는다.**
+   * **2026-09-14 (user's decision) — a material chip goes to the top-left of the cursor.** The 「필요 아이템」 rows of
+   * 시설 관리 · workbench crafting sit low on the screen, so at the default bottom-right place the card overflowed
+   * vertically and flipped **upwards only** — the result was 「the top-right of the cursor」 and the card covered the chip
+   * that had to be clicked. Those rows ask for the top-left with `data-tip-anchor="left"` on themselves (or on the box
+   * that holds them), and only that one attribute is looked at here (`closest` reads it from the chip `chipAt` picked,
+   * so it can be stamped per chip or once on the whole row). Either way, **going off screen still flips it to the other
+   * side as before.**
    */
   private move(x: number, y: number, chip?: HTMLElement | null): void {
     const pad = 16;

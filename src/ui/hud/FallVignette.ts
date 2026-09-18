@@ -9,15 +9,15 @@ const OFF = 0.002;
 const WRITE_EPS = 0.004;
 
 /**
- * 낙하 붉은 비네트 (`.fall-vignette`, `#ui-root` 직계, 2026-09-15, TODO B-14).
+ * The red fall vignette (`.fall-vignette`, a direct child of `#ui-root`, 2026-09-15, TODO B-14).
  *
- * `player:fell {damage}` — 로컬 플레이어가 떨어져 **실제로 깎였을 때만** 오는 사실 — 에 세기
- * `min(1, damage / FALL_VIGNETTE_FULL_DAMAGE)` 로 켜지고 `FALL_VIGNETTE_S` 동안 사라진다(곡선 `k²` — 번쩍 뜨고 빨리 빠진다).
- * 이미 더 진하게 떠 있으면 새 낙하는 무시하고, 더 세면 그 세기로 다시 시작한다 (최댓값). 분대원 낙하(`player:remoteFell`)는
- * 소리 전용이라 여기서는 듣지 않는다. 착지 흔들림은 player 의 `camera:shake`, 소리는 audio 의 몫이다.
+ * `player:fell {damage}` — a fact that arrives **only when the local player fell and really lost hp** — turns it on at strength
+ * `min(1, damage / FALL_VIGNETTE_FULL_DAMAGE)`, and it fades over `FALL_VIGNETTE_S` (curve `k²` — a flash that drains fast).
+ * A new fall is ignored while a stronger one is still up, and a stronger one restarts at its own strength (the maximum). A squadmate's fall (`player:remoteFell`)
+ * is sound only and is not listened to here. The landing shake belongs to player's `camera:shake`, the sound to audio.
  *
- * 사라짐은 CSS 전이가 아니라 `update(dt)` 다 — 시뮬레이션 시간을 따르고, `prefers-reduced-motion` 이 전이를 0 으로 자르는
- * PC 에서도 똑같이 보여야 한다. `game:abort` · `game:newMission` · `hub:entered` 에서 즉시 꺼진다.
+ * The fading is `update(dt)`, not a CSS transition — it follows simulation time and must look the same on a PC where `prefers-reduced-motion`
+ * cuts transitions to 0. It turns off at once on `game:abort` · `game:newMission` · `hub:entered`.
  */
 export class FallVignette {
   readonly root: HTMLElement;
@@ -45,7 +45,7 @@ export class FallVignette {
     if (!(damage > 0)) return;
     const full = FALL_VIGNETTE_FULL_DAMAGE > 0 ? FALL_VIGNETTE_FULL_DAMAGE : 1;
     const strength = Math.min(1, damage / full);
-    if (strength <= this.shown) return;          // 이미 더 진하다 — 최댓값
+    if (strength <= this.shown) return;          // already stronger — the maximum wins
     this.peak = strength;
     this.left = Math.max(0.001, FALL_VIGNETTE_S);
     this.write(strength, true);

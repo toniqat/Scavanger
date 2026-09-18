@@ -4,17 +4,17 @@ import { clamp01, el, fmtInt, setText, toggleClass } from '../dom';
 import '../styles/rover.css';
 
 /**
- * 탐사 차량 탑승 HUD (2026-09-13). `ctx.world.rover.localAboard` 동안만 뜬다 — 게임플레이 레이어의 하단 중앙.
+ * Rover passenger HUD (2026-09-13). Up only while `ctx.world.rover.localAboard` — bottom centre of the gameplay layer.
  *
- *  - **탑승 모드**: 게임플레이 HUD 루트(`parent`)에 `rover-view` 를 켠다 — CSS 가 무기 패널 · 임플란트 · 함선 호출 ·
- *    스태미나 · 크로스헤어 · 게이지 · 휠을 숨긴다 (`drone-view` 와 같은 목록 — 탑승 중에는 쓸 수 없다).
- *  - **패널**: `탐사 차량` 태그 · 체력 `1,420 / 2,000` · 체력 바(25 % 아래 붉게) · 상태 한 줄
+ *  - **Riding mode**: turns `rover-view` on at the gameplay HUD root (`parent`) — CSS hides the weapon panel · implant ·
+ *    ship call · stamina · crosshair · gauges · wheels (the same list as `drone-view` — none of it is usable aboard).
+ *  - **Panel**: the `탐사 차량` tag · hp `1,420 / 2,000` · the hp bar (red below 25 %) · one state line
  *    (`정차 중 · M 목적지 선택` / `출발까지 N초 → 정류장 X` / `이동 중 → 정류장 X`).
- *  - **키 가이드**: 정차 중에만 `ui:keyGuide {owner:'rover'}` 로 `M 목적지 선택` (가이드는 이 owner 에 닫기를 붙이지 않는다 —
- *    `hud/KeyGuide` 의 `NO_CLOSE_OWNERS`). 하차 E 홀드 프롬프트는 player 의 상호작용 프롬프트가 맡는다 (여기서 중복하지 않는다).
+ *  - **Key guide**: only while stopped, `M 목적지 선택` through `ui:keyGuide {owner:'rover'}` (the guide appends no close
+ *    entry for this owner — `NO_CLOSE_OWNERS` in `hud/KeyGuide`). The E-hold prompt to get off is the player's interaction prompt (not duplicated here).
  *
- * 토스트(정류장 공개 · 결제 출발 · 도착 · 파괴 · 체력 경고)는 `hud/RaidAlerts`, 지도 목적지 선택은 `map/MapScreen`.
- * DOM 쓰기는 값이 바뀔 때만 한다 (키 문자열 비교).
+ * The toasts (stations revealed · paid departure · arrival · destruction · hp warnings) are `hud/RaidAlerts`, and picking
+ * a destination on the map is `map/MapScreen`. The DOM is written only when a value changed (key string comparison).
  */
 export class RoverHud {
   readonly root: HTMLElement;
@@ -44,13 +44,13 @@ export class RoverHud {
     const b = ctx.bus;
     this.unsubs.push(
       b.on('input:bindingsChanged', () => { this.lastKey = ''; if (this.guideOn) this.emitGuide(true); }),
-      // KeyGuide 는 이 두 이벤트에 스스로 스택을 비운다 — 여기 상태도 맞춰 둔다
+      // KeyGuide empties its own stack on these two events — the state here is kept in step
       b.on('game:newMission', () => this.hide()),
       b.on('game:abort', () => this.hide()),
     );
   }
 
-  /** Per frame (HudSystem, 레이어 가시성과 무관 — 가이드 · 클래스를 제때 걷어야 한다). */
+  /** Per frame (HudSystem, independent of layer visibility — the guide · classes must be cleared in time). */
   update(_dt: number, ctx: GameContext): void {
     const rv: RoverRef | null = ctx.world?.rover ?? null;
     const aboard = !!rv?.localAboard && ctx.isGameplayPhase();
@@ -106,7 +106,7 @@ export class RoverHud {
     this.lastKey = '';
   }
 
-  /** 스모크 훅: 탑승 HUD 가 떠 있는가. */
+  /** Smoke hook: whether the passenger HUD is up. */
   get isShowing(): boolean { return this.shown; }
 
   dispose(): void {

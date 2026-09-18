@@ -1,5 +1,5 @@
 import type { GameContext, SkillId } from '@/shared';
-/* 2026-09-16 (사용자 결정 「큰 수 축약」): 경험치 칩도 크레딧과 같은 표기 (`shared/numberFormat`). */
+/* 2026-09-16 (user's decision 「큰 수 축약」): the XP chip uses the same notation as credits (`shared/numberFormat`). */
 import { formatCompactSigned } from '@/shared';
 import { el, setText } from '../dom';
 

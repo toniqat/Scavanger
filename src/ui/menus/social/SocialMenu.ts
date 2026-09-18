@@ -31,7 +31,7 @@ export interface SocialMenuActions {
  * `stopImmediatePropagation`), so the first Escape never also closes the screen underneath.
  *
  * **2026-09-08**: the confirm card is no longer 친구 삭제's alone — `askConfirm(title, body, ok, run)` is the column's
- * general 경고 팝업, and 분대 → **파티 떠나기** (`SocialColumn`) raises the same card.
+ * general warning popup, and 분대 → **파티 떠나기** (`SocialColumn`) raises the same card.
  */
 export class SocialMenu {
   readonly root: HTMLElement;
@@ -101,7 +101,7 @@ export class SocialMenu {
     if (blocked) {
       this.entry('unblock', '차단 해제', true, '');
     } else {
-      // 2026-09-15 (분대 · 도킹 매칭): 같이 하기 → **분대 초대** — 초대 전용이다 (상대의 분대로 옮겨 가는 길은 없다)
+      // 2026-09-15 (squad · docking match): 같이 하기 → **분대 초대** — invite only (there is no path into somebody else’s squad)
       this.entry('play', '분대 초대', block === null, block ? PLAY_BLOCK_LABELS[block] : '');
       this.entry('whisper', '개인 대화', true, '');
       if (isFriend) this.entry('remove', '친구 삭제', true, '');
@@ -156,7 +156,7 @@ export class SocialMenu {
   }
 
   /**
-   * The column's shared 경고 팝업 (2026-09-08). 친구 삭제 raises it, and so does 분대 → 파티 떠나기; it floats over
+   * The column's shared warning popup (2026-09-08). 친구 삭제 raises it, and so does 분대 → 파티 떠나기; it floats over
    * whatever surface hosts the column and owns Escape while it is up (see `onKey`).
    */
   askConfirm(title: string, body: string, ok: string, run: () => void): void {
@@ -180,7 +180,7 @@ export class SocialMenu {
   }
 
   /**
-   * 2026-09-11 (B-4): 차단 can be undone, so it is a plain confirm card — no 1초 홀드 — but it is asked first because the
+   * 2026-09-11 (B-4): 차단 can be undone, so it is a plain confirm card — no 1 s hold — but it is asked first because the
    * relay also ends the friendship / requests on **both** sides, and 차단 해제 does not bring those back.
    */
   private openBlockConfirm(p: SocialPlayer): void {

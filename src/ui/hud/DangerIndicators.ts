@@ -22,7 +22,7 @@ interface Shell {
   sid: number;
   from: THREE.Vector3;
   vel0: THREE.Vector3;
-  /** Where the arc ends — the 인지력 override is judged on this, not on where the shell is right now. */
+  /** Where the arc ends — the perception override is judged on this, not on where the shell is right now. */
   impact: THREE.Vector3;
   flight: number;
   life: number;
@@ -45,79 +45,82 @@ interface Slot { el: HTMLElement; ico: HTMLElement; lbl: HTMLElement; lastKey: s
 const CAT_NAME: Record<Cat, string> = { shell: '포탄', grenade: '수류탄', call: '낙하물', drop: '레이더 강하', worm: '지상이변', fire: '화염 지대' };
 const CAT_ICON: Record<Cat, string> = { shell: '◆', grenade: '●', call: '▣', drop: '⬇', worm: '◎', fire: '▲' };
 /**
- * 화염 지대 (2026-09-15, B-16). 가장자리에서 이 거리 안(안에 서 있으면 음수)이면 `hot` — 한 발짝이면 불에 든다.
- * 수치가 아니라 표시 규칙이라 csv 로 옮기지 않았다 (`HOT_S` 와 같은 처리).
+ * Fire zones (2026-09-15, B-16). Within this distance of the edge (negative while standing inside) it is `hot` — one
+ * step and the fire has them. A presentation rule rather than a game number, so it did not move to csv (like `HOT_S`).
  */
 const FIRE_HOT_EDGE_M = 1.5;
 /**
- * 화염 지대의 정렬 키에 더하는 값. 지대는 **머무는** 위험이고 나머지 갈래는 **날아오는** 위험이라, 칸이 모자라면
- * 지대가 늘 뒤로 밀린다 — 발밑의 불이 3 m 옆 수류탄 마커를 밀어내면 안 된다. 지대끼리는 가장자리 거리로 줄 선다.
- * 후보 칸(`MAX_CANDIDATES`)도 지대를 **맨 마지막에** 모아 먼저 채우지 못하게 한다.
+ * Added to a fire zone's sort key. A zone **stays** where every other category **flies in**, so zones are pushed back
+ * whenever slots run short — the fire at one's feet must not displace a grenade marker 3 m away. Zones queue among
+ * themselves by edge distance; the candidate slots (`MAX_CANDIDATES`) collect zones **last** so they cannot fill first.
  */
 const FIRE_RANK_BIAS = 1e12;
 /**
- * 땅굴벌레 분출 전조 (2026-09-13) — `sandworm:warning {position, radius, eta}` 한 번을 받아 분출 시각까지 붙들고,
- * `sandworm:erupted` 에 지운다(놓치면 분출 시각 + `WORM_TIMEOUT_S`). 레이드당 최대 1회라 칸 하나로 충분하다.
- * 게이트 없음 — 전조는 무리 한가운데서 일어나므로 늘 가깝다.
+ * Sandworm eruption telegraph (2026-09-13) — one `sandworm:warning {position, radius, eta}` is held until the eruption
+ * time and cleared on `sandworm:erupted` (missed: eruption time + `WORM_TIMEOUT_S`). At most once per raid, so one slot.
+ * No gate — the telegraph happens in the middle of the pack, so it is always close.
  */
 const WORM_COLOR = '#ff4d4d';
 const WORM_TIMEOUT_S = 1.5;
 /** Hoisted so sorting the candidates allocates nothing (it runs only when more than `MAX` are live). */
 const byNear = (a: Item, b: Item): number => a.d2 - b.d2;
 /*
- * 색이 **누구 것인가**를, `hot` 클래스(빠른 맥동 + 라벨)가 **얼마나 임박했는가**를 말한다 (2026-09-10).
- * 그래서 아군 수류탄은 임박해도 붉어지지 않고 짙은 호박으로만 간다 — 발치에 떨어진 게 내 것인지 로그 것인지가
- * 피할지 주울지를 가르는데, 둘 다 빨개지면 그 구분이 사라진다. 적 위험은 포탄과 같은 빨강이다.
+ * Colour says **whose it is**, the `hot` class (fast pulse + label) says **how imminent it is** (2026-09-10).
+ * So an ally grenade never turns red however imminent, only a deeper amber — whether the thing at one's feet is one's
+ * own or a rogue's decides dodging from picking it up, and two reds erase that. Enemy dangers are shell red.
  */
 const SHELL_COLOR = '#ff4d4d';
 const GRENADE_COLOR = '#ffb347';
 const GRENADE_HOT_COLOR = '#ff8c1a';
 const GRENADE_HOSTILE_COLOR = '#ff4d4d';
 const GRENADE_HOSTILE_HOT_COLOR = '#ff2020';
-/** 레이더 강하 포드 — 적의 것이므로 포탄과 같은 빨강. (2026-09-13: 강하에 분대장이 섞이지 않아 진한 빨강 갈래를 걷어냈다.) */
+/** Raider drop pods — the enemy's, so shell red. (2026-09-13: a drop no longer mixes in a leader, so the deeper red variant was removed.) */
 const DROP_COLOR = '#ff4d4d';
 
 /**
- * 위험 인디케이터 (`.dgr`, 게임플레이 레이어, 2026-09-10).
+ * Danger indicators (`.dgr`, gameplay layer, 2026-09-10).
  *
- * "지금 날아오고 있는 것" 하나마다 **화면 안이면 머리 인디케이터, 화면 밖이면 방향 호**를 그린다 — 둘은
- * 절대 같이 뜨지 않는다(한 목표는 정확히 한 요소를 쓴다). 방향 호는 피격 방향 호(`hud/DamageOverlay` 의
- * `.dmg-arc`)와 같은 언어다: 크로스헤어를 감싸는 굵은 링의 한 쐐기, 각도는 **카메라 기준 상대 방위**
- * (0° = 정면, 시계방향) 로 그쪽에서 온다는 것만 말한다.
+ * For every "thing flying in right now" it draws **a head indicator on screen, a direction arc off screen** — the two
+ * never appear together (one target uses exactly one element). The direction arc speaks the same language as the damage
+ * arc (`hud/DamageOverlay`'s `.dmg-arc`): one wedge of the thick ring around the crosshair, its angle a
+ * **screen-relative bearing** (0° = ahead, clockwise) saying only that it comes from over there.
  *
- * 대상 셋 (사용자 확정):
- *   - **적 곡사포탄** — `enemy:shellFired {sid, from, target, flightTime}` 를 받아 `@/shared/ballistics` 의
- *     `shellLaunchVelocity` / `shellPositionAt` 로 **실제 포탄과 같은 포물선**을 적분한다 (수식을 베끼지 않는다 —
- *     `enemies/fx/ShellProjectile` 도 같은 함수를 부르고, 중력 `SHELL_ARC_GRAVITY` 는 csv 값이다).
- *     `enemy:shellLanded` / `enemy:shellIntercepted` 에 지운다.
- *   - **수류탄** — `ctx.weapons.getGrenades()` (아군 — 내 것 + 원격 분대원의 복제본) 과
- *     `ctx.enemies.getEnemyGrenades()` (적 — 로그가 던진 것) 둘 다. 라벨은 남은 신관이고, **색이 누구 것인지를
- *     말한다** (아군 호박 · 적 빨강; `hot` 은 임박만 나타낸다).
- *   - **함선 호출 낙하물** — `stratagem:called` → `landed` / `ended`. 궤도 폭격 · 보급품 · 트라이포드 · 구조선.
- *   - **레이더 강하 포드** (2026-09-10 추가, 2026-09-13 로그 → 레이더) — `ctx.enemies.getRogueDrops()`. 하늘에서 적이 내려오는 것도
- *     "지금 떨어지고 있는 것" 이라 함선 호출 낙하물과 같은 언어로 그린다. 색은 **적의 것**이므로 빨강
- *     라벨은 착지까지 남은 초 → 착지 직후 `레이더 n` (2026-09-13 부터 강하에 분대장이 없다 — `boss` 는 계약 필드라 남았을 뿐).
- *     2026-09-09 에 `hud/OffscreenIndicators` 가 그리던 `.oarrow.drop` 화살표는 **여기로 옮겨 왔다** —
- *     한 목표가 두 언어로 그려지면 안 되고, 화면 안에서는 아무 표시도 없었다(강하가 조용했던 이유 중 하나).
- *   - **화염 지대** (2026-09-15, B-16) — `ctx.enemies.getFireZones()`(적 소이, 빨강) + `ctx.gadgets.getFireZones()`(플레이어의
- *     화염 · 소이 수류탄, 호박). 가장자리 `FIRE_ZONE_DANGER_RANGE` 안만, 머리 마커는 지대 중심 + 남은 초, 안에 있거나 가장자리
- *     `FIRE_HOT_EDGE_M` 안이면 `hot`. **머무는** 위험이라 칸이 모자라면 늘 날아오는 위험 뒤로 밀린다 (`FIRE_RANK_BIAS`).
- *   슬롯 요소는 `data-cat` 에 갈래 이름을 단다 (스모크가 `.dgr-head[data-cat="fire"]` 로 고른다).
+ * Three targets (confirmed by the user):
+ *   - **Enemy artillery shells** — `enemy:shellFired {sid, from, target, flightTime}` is integrated into **the same
+ *     parabola as the real shell** with `shellLaunchVelocity` / `shellPositionAt` from `@/shared/ballistics` (the formula
+ *     is never copied — `enemies/fx/ShellProjectile` calls the same functions and the gravity `SHELL_ARC_GRAVITY` is csv).
+ *     Cleared on `enemy:shellLanded` / `enemy:shellIntercepted`.
+ *   - **Grenades** — both `ctx.weapons.getGrenades()` (allies — one's own + remote squadmates' replicas) and
+ *     `ctx.enemies.getEnemyGrenades()` (enemies — thrown by rogues). The label is the fuse left, and **colour says whose
+ *     it is** (ally amber · enemy red; `hot` marks imminence alone).
+ *   - **Ship-call drops** — `stratagem:called` → `landed` / `ended`. Orbital barrage · supplies · tripod · rescue ship.
+ *   - **Raider drop pods** (added 2026-09-10, 2026-09-13 rogue → raider) — `ctx.enemies.getRogueDrops()`. An enemy coming
+ *     down out of the sky is "a thing falling right now" too, so it is drawn in the language of a ship-call drop. The
+ *     colour is **the enemy's**, so red; the label is seconds to touchdown → `레이더 n` right after it lands (since
+ *     2026-09-13 a drop carries no leader — `boss` only stayed because it is a contract field).
+ *     The `.oarrow.drop` arrow `hud/OffscreenIndicators` drew on 2026-09-09 **moved here** — one target must not be drawn
+ *     in two languages, and on screen there was no mark at all (one of the reasons drops were so quiet).
+ *   - **Fire zones** (2026-09-15, B-16) — `ctx.enemies.getFireZones()` (enemy incendiaries, red) + `ctx.gadgets.getFireZones()`
+ *     (the player's flame · incendiary grenades, amber). Only within `FIRE_ZONE_DANGER_RANGE` of the edge; the head marker is
+ *     the zone centre + the seconds left, and being inside or within `FIRE_HOT_EDGE_M` of the edge is `hot`. A danger that
+ *     **stays**, so when slots run short it always falls behind the ones flying in (`FIRE_RANK_BIAS`).
+ *   Slot elements tag the category on `data-cat` (smokes pick with `.dgr-head[data-cat="fire"]`).
  *
 
- * **인지력 반경 게이트 (결정, 2026-09-10).** 포탄에 걸려 있던 `derived.enemyDetectRadius` 게이트는 유지하되
- * **착탄 지점이 `DANGER_NEAR_RADIUS` 안이면 무조건** 보여 준다 — 인디케이터의 목적이 "날아오는 줄도 모르는
- * 것" 을 알리는 것이라, 내 머리 위로 떨어지는 포탄이 인지력 부족으로 안 보이면 그 목적이 무너진다. 수류탄과
- * 낙하물에는 게이트가 없다: 둘 다 분대가 방금 만든 사건이고 이미 눈앞에 있다. **레이더 강하만은 인지력을
- * 아예 보지 않고 전용 반경 `ROGUE_DROP_ALERT_RADIUS`(인지력의 10배) 하나를 본다** — 대기를 찢고 떨어지는
- * 굉음이라 인지력이 좁아도 알아야 하고, `audio/AudioSystem` 의 강하음이 쓰는 반경과 정확히 같다.
+ * **Perception radius gate (decision, 2026-09-10).** The `derived.enemyDetectRadius` gate on shells stays, but an impact
+ * point inside `DANGER_NEAR_RADIUS` is shown **unconditionally** — the indicator exists to announce "the thing you do
+ * not even know is coming", and if a shell dropping on one's head is hidden by too little perception that purpose
+ * collapses. Grenades and drops have no gate: both are events the squad just made and are already in sight. **Only
+ * raider drops ignore perception entirely and look at one dedicated radius, `ROGUE_DROP_ALERT_RADIUS`** (10× perception)
+ * — a roar tearing through the air must be known however narrow the perception, and it is exactly the radius
+ * `audio/AudioSystem`'s drop sound uses.
  *
- * **전장의 안개 게이트는 걸지 않는다** — `hud/OffscreenIndicators` 상단의 2026-09-09 근거 그대로다. 여기서
- * 그리는 것은 발견된 오브젝트가 아니라 지금 벌어지는 사건이다.
+ * **No fog-of-war gate** — the same 2026-09-09 reasoning as the head of `hud/OffscreenIndicators`. What is drawn here is
+ * not a discovered object but an event happening right now.
  *
- * DOM 은 전부 풀링(`MAX` 머리 + `MAX` 호)이고, 반올림한 key 가 바뀔 때만 쓴다. 프레임당 할당 없음
- * (`THREE.Vector3` 스크래치 재사용, 후보 `Item` 도 풀). 메뉴 / 지도가 열려 있거나 죽어 있으면 전부 숨고,
- * `game:abort` / `game:newMission` / `hub:entered` 에서 비운다. 직접 만든 지오메트리 · 머티리얼은 없다.
+ * The DOM is fully pooled (`MAX` heads + `MAX` arcs) and written only when the rounded key changes. No per-frame
+ * allocation (`THREE.Vector3` scratch reuse, the candidate `Item`s pooled too). Everything hides while a menu / the map
+ * is open or while dead, and `game:abort` / `game:newMission` / `hub:entered` empty it. It owns no geometry or material.
  */
 export class DangerIndicators {
   readonly root: HTMLElement;
@@ -225,7 +228,7 @@ export class DangerIndicators {
     this.shown = 0;
   }
 
-  /** 인지력 반경 (진행도가 없으면 기본값) — `hud/Detection` 의 적 화살표와 같은 반경이다. */
+  /** Perception radius (the default without progression) — the same radius as `hud/Detection`'s enemy arrows. */
   private detectRadius(ctx: GameContext): number {
     const r = ctx.progression?.derived?.enemyDetectRadius;
     return typeof r === 'number' && r > 0 ? r : DETECT_ENEMY_BASE_RADIUS;
@@ -238,9 +241,9 @@ export class DangerIndicators {
   }
 
   /**
-   * 수류탄 한 무리를 목록에 올린다. 아군 것과 적 것이 **같은 `GrenadeView` 모양**이라 한 함수로 받는다.
-   * `hostile` 이면 색을 적 위험 색으로 바꾸고 라벨에 표시를 붙인다 — 발치에 떨어진 게 내 것인지 로그 것인지는
-   * 피할지 주울지를 가르므로 한눈에 갈라져야 한다.
+   * Puts one batch of grenades on the list. Ally and enemy ones have the **same `GrenadeView` shape**, so one function
+   * takes both. With `hostile` the colour becomes the enemy danger colour and the label is marked — whether the thing at
+   * one's feet is one's own or a rogue's decides dodging from picking it up, so it must split at a glance.
    */
   private pushGrenades(list: readonly GrenadeView[] | undefined, from: THREE.Vector3, hostile: boolean): void {
     if (!list || list.length === 0) return;
@@ -256,9 +259,9 @@ export class DangerIndicators {
   }
 
   /**
-   * 화염 지대 한 무리 (2026-09-15, B-16). 적 것과 플레이어 것이 **같은 `FireZoneInfo` 모양**이고 색은 수류탄과 같은 규칙 —
-   * `hostile` 이면 적 빨강, 아니면 아군 호박, `hot` 이면 짙게. 게이트는 **가장자리 거리** `FIRE_ZONE_DANGER_RANGE` 하나다
-   * (인지력 · 전장의 안개는 보지 않는다 — 지금 타고 있는 사건이다). 라벨은 꺼질 때까지 남은 초, 마커는 지대 중심.
+   * One batch of fire zones (2026-09-15, B-16). Enemy and player ones share the **same `FireZoneInfo` shape** and the colour
+   * follows the grenade rule — `hostile` = enemy red, else ally amber, deeper when `hot`. The only gate is the **edge distance**
+   * `FIRE_ZONE_DANGER_RANGE` (perception · fog of war are not read — it is burning now). Label = seconds left, marker = centre.
    */
   private pushFires(list: readonly FireZoneInfo[] | undefined, from: THREE.Vector3): void {
     if (!list || list.length === 0) return;
@@ -286,7 +289,7 @@ export class DangerIndicators {
   private collect(ctx: GameContext, from: THREE.Vector3): void {
     this.items.length = 0;
     const t = ctx.time;
-    // (a) 곡사포탄 — the 인지력 gate with the "it is landing on me" override
+    // (a) artillery shells — the perception gate with the "it is landing on me" override
     const detect = this.detectRadius(ctx);
     const detect2 = detect * detect;
     const near2 = DANGER_NEAR_RADIUS * DANGER_NEAR_RADIUS;
@@ -300,13 +303,13 @@ export class DangerIndicators {
       const eta = s.flight - s.life;
       this.push('shell', this.p, SHELL_COLOR, CAT_ICON.shell, this.etaLabel(eta, 'shell', ''), eta < HOT_S, d2);
     }
-    // (b) 수류탄 — 아군(내 것 + 원격 분대원의 복제본)과 **적(로그)** 것 모두. 게이트 없음: 이미 발치에 있다.
+    // (b) grenades — allies' (own + remote squadmates' replicas) and **enemies' (rogues')** alike. No gate: already at one's feet.
     this.pushGrenades(ctx.weapons?.getGrenades?.(), from, false);
     this.pushGrenades(ctx.enemies?.getEnemyGrenades?.(), from, true);
-    // (c) 레이더 강하 포드 (2026-09-10) — 예고에서 착지까지 살아 있는 목표라 이벤트 목록이 아니라 매니저에게
-    //     직접 묻는다 (`getRogueDrops()` 는 `EnemyManagerRef` 계약이고, 없으면 빈 배열이다).
-    //     게이트는 **인지력이 아니라** 강하 전용 반경 `ROGUE_DROP_ALERT_RADIUS` 다 — 대기를 찢고 떨어지는
-    //     굉음이라 인지력이 좁아도 보여야 하고, 그렇다고 맵 반대편까지 뜨면 안 된다 (같은 반경으로 소리도 난다).
+    // (c) raider drop pods (2026-09-10) — a live target from telegraph to touchdown, so the manager is asked
+    //     directly instead of an event list (`getRogueDrops()` is an `EnemyManagerRef` contract, empty array without one).
+    //     The gate is **not perception** but the drop's own radius `ROGUE_DROP_ALERT_RADIUS` — a roar tearing through
+    //     the air must show however narrow the perception, yet not across the map (the sound uses the same radius).
     const drops = ctx.enemies?.getRogueDrops?.();
     if (drops && drops.length) {
       const alert2 = ROGUE_DROP_ALERT_RADIUS * ROGUE_DROP_ALERT_RADIUS;
@@ -319,7 +322,7 @@ export class DangerIndicators {
         this.push('drop', d.position, DROP_COLOR, CAT_ICON.drop, label, eta > 0 && eta < HOT_S, dd2);
       }
     }
-    // (c2) 땅굴벌레 분출 전조 (2026-09-13) — 무리 발밑이라 게이트 없음. 분출 이벤트를 놓쳐도 시간이 지나면 걷힌다.
+    // (c2) sandworm eruption telegraph (2026-09-13) — under the pack's feet, so no gate. A missed eruption event still times out.
     const w = this.worm;
     if (w.active) {
       const eta = w.eruptAt - t;
@@ -329,7 +332,7 @@ export class DangerIndicators {
         this.push('worm', w.pos, WORM_COLOR, CAT_ICON.worm, this.etaLabel(Math.max(0, eta), 'worm', ''), eta < HOT_S, dx * dx + dz * dz);
       }
     }
-    // (d) 함선 호출 낙하물 — somebody in the squad called it, so no gate either
+    // (d) ship-call drops — somebody in the squad called it, so no gate either
     for (const c of this.calls) {
       const eta = c.landed ? 0 : c.landsAt - t;
       const def = stratagemDef(c.kind);
@@ -337,12 +340,13 @@ export class DangerIndicators {
       this.push('call', c.pos, STRATAGEM_COLOR[c.kind] ?? '#ffb347', STRATAGEM_GLYPH[c.kind] ?? CAT_ICON.call,
         this.etaLabel(eta, 'call', def?.name ?? ''), !c.landed && eta > 0 && eta < HOT_S, dx * dx + dz * dz);
     }
-    // (e) 화염 지대 (2026-09-15, B-16) — 적 소이 수류탄(빨강) + 플레이어의 화염 · 소이 수류탄(호박). **맨 마지막**에 모은다:
-    //     머무는 위험이 날아오는 위험의 후보 칸을 먹지 않게 (`FIRE_RANK_BIAS`). 두 질의 모두 옵셔널 — 없으면 갈래가 비어 있을 뿐.
+    // (e) fire zones (2026-09-15, B-16) — enemy incendiary grenades (red) + the player's flame · incendiary grenades (amber).
+    //     Collected **last** so a staying danger never eats a flying one's candidate slot (`FIRE_RANK_BIAS`). Both queries are
+    //     optional — without them the category is simply empty.
     this.pushFires(ctx.enemies?.getFireZones?.(), from);
     this.pushFires(ctx.gadgets?.getFireZones?.(), from);
     if (this.items.length > MAX) {
-      this.items.sort(byNear);   // 가까운 것부터
+      this.items.sort(byNear);   // nearest first
       this.items.length = MAX;
     }
   }
@@ -395,7 +399,7 @@ export class DangerIndicators {
     if (s.el.hidden) s.el.hidden = false;
     if (key === s.lastKey) return;
     s.lastKey = key;
-    if (s.el.dataset.cat !== it.cat) s.el.dataset.cat = it.cat;   // 2026-09-15: 스모크 · 스타일이 갈래를 고르는 열쇠
+    if (s.el.dataset.cat !== it.cat) s.el.dataset.cat = it.cat;   // 2026-09-15: the key smokes · styles pick a category by
     s.el.style.transform = `translate(${x.toFixed(0)}px, ${y.toFixed(0)}px)`;
     s.el.style.setProperty('--dc', it.color);
     s.el.classList.toggle('hot', it.hot);

@@ -7,7 +7,7 @@ import {
 import { makePillarGeometry, makePillarMaterial, pillarAllowed } from './pillar';
 
 /**
- * Pool size. Phase 12's 정찰 is one wide `IMPLANT_SCAN_RADIUS` (70 m) pulse that reveals every interactable **and**
+ * Pool size. Phase 12's recon is one wide `IMPLANT_SCAN_RADIUS` (70 m) pulse that reveals every interactable **and**
  * enemy in range for 15 s — a busy map can hand over ~34 gather nodes + crates + pickups + the ambient enemy cap in
  * one event, so 64 starved (the oldest reveals were evicted while still valid). 160 meshes of one shared geometry.
  */
@@ -33,7 +33,7 @@ interface Reveal {
  * Through-wall outlines for scan results (`implant:scanned`) and any other `detect:reveal` command.
  *
  * Each revealed object gets a pooled **light pillar** drawn with `depthTest: false` (so it reads through geometry) for
- * the requested duration — 15 s for the Phase 12 정찰 pulse (`scan:cast`, `IMPLANT_SCAN_REVEAL_TIME_V2`). Phase 10 replaced the light-blue fresnel shell with the pillar
+ * the requested duration — 15 s for the Phase 12 recon pulse (`scan:cast`, `IMPLANT_SCAN_REVEAL_TIME_V2`). Phase 10 replaced the light-blue fresnel shell with the pillar
  * from `hud/pillar.ts` (open cylinder from the ground up, baked vertex colours fading to black, additive), and
  * `KIND_SCALE` became a **height** multiplier of `SCAN_PILLAR_HEIGHT` instead of a radius. Targets that came with an
  * `object` follow it, so revealed enemies keep their marker while they move. Pool: `MAX_REVEALS` meshes, one shared
@@ -60,7 +60,7 @@ export class ScanReveal {
     this.unsubs.push(
       b.on('detect:reveal', ({ targets, duration }) => this.add(targets, duration)),
       b.on('implant:scanned', ({ targets, duration }) => this.add(targets, duration)),
-      // Phase 12: the wide 정찰 pulse (mine or a squadmate's). `add` merges by `kind:id`, so an implants build that
+      // Phase 12: the wide recon pulse (mine or a squadmate's). `add` merges by `kind:id`, so an implants build that
       // still emits `implant:scanned` / `detect:reveal` alongside it never doubles a pillar.
       b.on('scan:cast', ({ targets, duration }) => this.add(targets, duration)),
       b.on('detect:clear', () => this.clear()),
@@ -97,7 +97,8 @@ export class ScanReveal {
     this.kindById.clear();
     for (const it of this.ctx.interactables.all()) this.kindById.set(it.id, it.kind);
     for (const t of targets) {
-      // 2026-09-11: 빛기둥은 시체에만 — 적은 붉은 투시 실루엣(`enemies.setXray`)과 화살표가, 나머지는 나침반이 알린다.
+      // 2026-09-11: pillars only on corpses — an enemy is announced by the red through-wall silhouette
+      // (`enemies.setXray`) and the arrows, everything else by the compass.
       if (t.kind === 'enemy' || !pillarAllowed({ id: t.id, kind: this.kindById.get(t.id) })) continue;
       const key = `${t.kind}:${t.id}`;
       const existing = this.reveals.find((r) => r.key === key);
@@ -132,7 +133,7 @@ export class ScanReveal {
     this.matEnemy?.dispose(); this.matEnemy = null;
   }
 
-  /** 2026-09-16: 이륙 연출이 남긴 HUD 의 몫 1 … 0 (`HudSystem.setCinematic`) — 0 이면 기둥을 숨긴다 (정찰 기록은 그대로). */
+  /** 2026-09-16: the liftoff cinematic's HUD share 1 … 0 (`HudSystem.setCinematic`) — 0 hides the pillars (reveals stay). */
   private cineK = 1;
   setCinematicFade(k: number): void { this.cineK = k; }
 

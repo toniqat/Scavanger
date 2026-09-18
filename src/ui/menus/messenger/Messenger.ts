@@ -13,7 +13,7 @@ export interface MessengerHost {
   readonly isOpen: boolean;
 }
 
-/** `ui:openMessenger` 의 대상. */
+/** The target of `ui:openMessenger`. */
 export interface MessengerTarget {
   tab?: MessengerTab;
   npc?: string;
@@ -25,7 +25,7 @@ const TABS: readonly { id: MessengerTab; label: string }[] = [
   { id: 'chat', label: '대화' }, { id: 'friends', label: '친구' }, { id: 'quests', label: '퀘스트' },
 ];
 
-/** 대화 탭 배지: NPC · 개인 대화 · 단체방 읽지 않음 + 받은 방 초대. */
+/** The 대화 tab badge: NPC · private chat · group room unread + received room invites. */
 function chatBadge(ctx: GameContext): number {
   const social = socialOf(ctx);
   const rooms = roomsOf(ctx);
@@ -34,29 +34,29 @@ function chatBadge(ctx: GameContext): number {
     + (rooms?.available ? rooms.unreadTotal + rooms.invites.length : 0);
 }
 
-/** 친구 탭 배지: 받은 친구 요청. */
+/** The 친구 tab badge: received friend requests. */
 function friendsBadge(ctx: GameContext): number {
   const social = socialOf(ctx);
   return social?.available ? social.incoming.length : 0;
 }
 
-/** 우상단 썸네일의 합계 — 대화(NPC · 개인 대화 · 단체방 읽지 않음 + 방 초대) + 받은 친구 요청. */
+/** The top-right thumbnail’s total — 대화 (NPC · private chat · group room unread + room invites) + received friend requests. */
 export function messengerUnreadTotal(ctx: GameContext): number {
   return chatBadge(ctx) + friendsBadge(ctx);
 }
 
 /**
- * **메신저** 패널 본체 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — 옛 커뮤니티 패널을 대체한다.
- * 창 틀 · blocker · 커서 · Escape · P 토글 · 초대 스택은 여전히 `hud/Community` 가 쥐고, 이 클래스는 틀 안(`.cp-frame`)만 짓는다:
+ * The **messenger** panel body (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — it replaces the old community panel.
+ * The window frame · blocker · cursor · Escape · P toggle · invite stack are still held by `hud/Community`; this class builds only the inside of the frame (`.cp-frame`):
  *
- *   머리  `.cp-head.ms-head` — 제목 `메신저` · 탭 3개(대화 · 친구 · 퀘스트, 배지) · 내 아이디 · `차단 목록 n` · `닫기 (P)`
- *   본문  `.ms-pages` — 탭마다 `.ms-page` 하나:
- *           대화   `ChatTab`    NPC · 개인 대화 · 단체방 목록 + 말풍선
- *           친구   `SocialColumn` (옛 커뮤니티 열 그대로 — 분대원 · 받은 요청 · 친구 · 최근 · 차단 목록 페이지)
- *           퀘스트 `QuestsTab`  진행 중 · 새 제안 · 보류 · 완료
+ *   head  `.cp-head.ms-head` — the title `메신저` · 3 tabs (대화 · 친구 · 퀘스트, with badges) · my 아이디 · `차단 목록 n` · `닫기 (P)`
+ *   body  `.ms-pages` — one `.ms-page` per tab:
+ *           대화   `ChatTab`    the NPC · private chat · group room list + the bubbles
+ *           친구   `SocialColumn` (the old community column unchanged — 분대원 · received requests · friends · recent · the 차단 목록 page)
+ *           퀘스트 `QuestsTab`  active · newly offered · deferred · complete
  *
- * 탭은 닫았다 열어도 유지된다 (처음은 대화). `openTarget` 이 `ui:openMessenger` · 친구 탭의 「개인 대화」 · 퀘스트 탭의
- * 「대화 보기」 를 한 길로 받는다.
+ * The tab survives a close and reopen (대화 at first). `openTarget` takes `ui:openMessenger` · the 친구 tab’s 「개인 대화」 ·
+ * the 퀘스트 tab’s 「대화 보기」 down one path.
  */
 export class Messenger {
   readonly head: HTMLElement;
@@ -124,9 +124,9 @@ export class Messenger {
     this.column.bind(ctx);
     this.quests.bind(ctx);
     /*
-     * NPC 개인 신뢰도 레벨업 토스트 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」) — 기업 신뢰도의
-     * `meta:repChanged → <기업> 신뢰도 Lv.n`(`hud/MetaToasts`)과 같은 결이다. 패널이 닫혀 있어도 떠야 하므로
-     * `bind` 에서 한 번 걸고(메신저는 HUD 초기화 때 지어진다) `dispose` 에서 푼다.
+     * The NPC personal trust level-up toast (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」) — the same grain as
+     * corporation reputation’s `meta:repChanged → <기업> 신뢰도 Lv.n` (`hud/MetaToasts`). It must appear with the panel
+     * closed too, so it is raised once in `bind` (the messenger is built at HUD init) and released in `dispose`.
      */
     this.unsubs.push(ctx.bus.on('meta:npcTrustChanged', ({ npc, level, levelUp }) => {
       if (!levelUp) return;
@@ -153,7 +153,7 @@ export class Messenger {
     if (prev !== tab) this.ctx?.bus.emit('audio:play', { id: 'ui_click' });
   }
 
-  /** 대상으로 옮긴다 — NPC · 개인 대화 · 단체방이면 대화 탭의 그 대화, 아니면 `tab`. */
+  /** Moves to a target — an NPC · a private chat · a group room means that conversation in the 대화 tab, otherwise `tab`. */
   openTarget(t: MessengerTarget): void {
     if (t.npc) { this.setTab('chat'); this.chat.select(`npc:${t.npc}`); return; }
     if (t.code) { this.setTab('chat'); this.chat.select(`pc:${t.code}`); return; }
@@ -161,7 +161,7 @@ export class Messenger {
     if (t.tab) this.setTab(t.tab);
   }
 
-  /** 패널이 열렸다. */
+  /** The panel opened. */
   onOpen(): void {
     const ctx = this.ctx;
     if (!ctx) return;
@@ -172,7 +172,7 @@ export class Messenger {
     this.setTab(this._tab);
   }
 
-  /** 패널이 닫혔다. */
+  /** The panel closed. */
   onClose(): void {
     this.column.contextMenu?.closeAll();   // 2026-09-15: the 친구 삭제 / 차단 / 파티 떠나기 confirm card too
     this.column.closePage();
@@ -183,7 +183,7 @@ export class Messenger {
     setText(this.closeBtn, `닫기 (${keyLabel(Keys.INVITE)})`);
   }
 
-  /** 열려 있는 동안 매 프레임 (`hud/Community.update`). */
+  /** Every frame while open (`hud/Community.update`). */
   update(dt: number): void {
     const ctx = this.ctx;
     if (!ctx) return;

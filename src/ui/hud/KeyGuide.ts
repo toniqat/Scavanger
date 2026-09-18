@@ -6,37 +6,37 @@ interface Owner { owner: string; keys: ReadonlyArray<KeyGuideEntry> }
 
 /**
  * 2026-09-13: owners that are **not screens** — nothing closes them with Tab / Esc, so the guide does not append the
- * 닫기 entry. `'rover'` = 탐사 차량 탑승 중 (`hud/RoverHud` — `M 목적지 선택`).
+ * `닫기` entry. `'rover'` = while riding the rover (`hud/RoverHud` — `M 목적지 선택`).
  */
-const NO_CLOSE_OWNERS: ReadonlySet<string> = new Set(['rover', 'pod']);   // `'pod'` (2026-09-14) = 발사 슬롯 탑승 중 (`hub/ui/ReadyPanel` — `E 내리기` · `Space 준비`)
+const NO_CLOSE_OWNERS: ReadonlySet<string> = new Set(['rover', 'pod']);   // `'pod'` (2026-09-14) = while in a launch slot (`hub/ui/ReadyPanel` — `E 내리기` · `Space 준비`)
 
 /**
- * 키 가이드 (2026-09-09) — one line in the bottom-right corner, `R 회전 · X 버리기 · Tab 닫기`, for whichever screen or
+ * The key guide (2026-09-09) — one line in the bottom-right corner, `R 회전 · X 버리기 · Tab 닫기`, for whichever screen or
  * mode is on top. Consumes `ui:keyGuide {owner, keys}`: an owner with keys is pushed onto a stack in open order (or
  * updated in place when it re-emits, e.g. on `input:bindingsChanged`), `keys: null` pops it; the **topmost** owner is
  * rendered, so a popup opened over a screen wins and the screen's keys return when it closes.
  *
  * **The guide appends the close entry itself** — always the last item, because Tab closes every screen (decision
- * 2026-09-09) and owners never list it. Since 2026-09-09 그 항목은 keycap 이 **둘**이다: `keyLabel(Keys.INVENTORY)`
- * 다음에 `keyLabel(Keys.MENU)` — ESC 도 맨 위 화면 하나를 닫으므로(`game/escapeKey`) 가이드가 두 키를 함께
- * 보여 준다. 첫 keycap 은 Tab 으로 남는다 (튜토리얼 · 스모크가 그 첫 `.keycap` 을 읽는다). Re-rendered on `input:bindingsChanged`.
+ * 2026-09-09) and owners never list it. Since 2026-09-09 that item carries **two** keycaps: `keyLabel(Keys.INVENTORY)`
+ * followed by `keyLabel(Keys.MENU)` — ESC closes the topmost screen too (`game/escapeKey`), so the guide shows the two
+ * keys together. The first keycap stays Tab (the tutorial and the smokes read that first `.keycap`). Re-rendered on `input:bindingsChanged`.
  * That last item also carries the class `kg-close` (2026-09-09) so it can be pointed at on its own — the tutorial's
- * 함선 관리 닫기 step spotlights `.key-guide .kg-close`.
+ * `함선 관리 닫기` step spotlights `.key-guide .kg-close`.
  *
- * **꾹 누르기 (2026-09-09):** an entry with `hold: true` renders its keycap as `.keycap.kc-hold` — the shared
+ * **Hold (2026-09-09):** an entry with `hold: true` renders its keycap as `.keycap.kc-hold` — the shared
  * stylesheet rule draws an accent **⌄ chevron** (`.keycap.kc-hold::before`, the same one
- * `hud/InteractionPrompt` uses for a hold interactable), so 탑승 · 1초 홀드 keys read as "hold" at HUD size without a
- * word of text. (2026-09-10: the modifier was renamed from `.hold`, which collided with the 홀드 링 widget class.)
+ * `hud/InteractionPrompt` uses for a hold interactable), so boarding · 1 s hold keys read as "hold" at HUD size without
+ * a word of text. (2026-09-10: the modifier was renamed from `.hold`, which collided with the hold ring widget class.)
  * **2026-09-15:** every cap goes through `shared/keycap.createKeycap` — a `LMB` / `MMB` / `RMB` label becomes the mouse
  * glyph (pressed button white, accent + chevron when held), and the chevron now sits **inside** the cap's top edge, so
  * the guide no longer grows `padding-top` for a hold key.
  *
  * DOM: `.key-guide(.show)` > `.kg-panel` > `.kg-item` (`.keycap` + `.kg-label`) separated by `.kg-sep` (a thin vertical
- * line, 2026-09-16 — was a `·`). **2026-09-16 (사용자 결정):** the appended 닫기 sits in its **own** panel to the right
+ * line, 2026-09-16 — was a `·`). **2026-09-16 (user's decision):** the appended `닫기` sits in its **own** panel to the right
  * (`.kg-panel.kg-panel-close` > `.kg-item.kg-close`) — every screen, not just the inventory, so the close keys always
  * read apart from the screen's action keys; an owner with no keys shows the close panel alone. A direct child of
- * `ctx.uiRoot` (z 84) so it floats over the inventory window, the hub terminal, the 시설 관리 panel and the map in
- * both hub and gameplay phases. Hidden while the stack is empty, while the ESC 일시정지 메뉴 is up (`'menu'` blocker,
+ * `ctx.uiRoot` (z 84) so it floats over the inventory window, the hub terminal, the ship management panel and the map
+ * in both hub and gameplay phases. Hidden while the stack is empty, while the ESC pause menu is up (`'menu'` blocker,
  * polled in `update`) and while the chat input is open (`ui:chatToggled` — the chat carries its own close hint).
  * The stack is cleared on `game:newMission` / `game:abort`.
  */
@@ -93,10 +93,10 @@ export class KeyGuide {
 
   private render(): void {
     const top = this.stack.length ? this.stack[this.stack.length - 1] : null;
-    // 2026-09-09: **ESC 도 화면을 닫는다** (`game/escapeKey`), so the 닫기 item names two keys. 2026-09-12: they are the
-    // same action on different keys, so the second one rides `alt` and reads `Tab 또는 Esc`. Tab stays the first
+    // 2026-09-09: **ESC closes a screen too** (`game/escapeKey`), so the `닫기` item names two keys. 2026-09-12: they are
+    // the same action on different keys, so the second one rides `alt` and reads `Tab 또는 Esc`. Tab stays the first
     // keycap — the tutorial and the smokes read that first `.keycap`.
-    // 2026-09-13 (사용자 결정): the map also closes on the key that opened it, so its 닫기 reads `Tab 또는 Esc 또는 M`.
+    // 2026-09-13 (user's decision): the map also closes on the key that opened it, so its `닫기` reads `Tab 또는 Esc 또는 M`.
     const noClose = top !== null && NO_CLOSE_OWNERS.has(top.owner);
     const closeAlt = top?.owner === 'map' ? [{ key: keyLabel(Keys.MENU) }, { key: keyLabel(Keys.MAP) }] : [{ key: keyLabel(Keys.MENU) }];
     const entries: KeyGuideEntry[] = top
@@ -108,20 +108,20 @@ export class KeyGuide {
       this.renderKey = key;
       this.rendered = entries;
       this.root.replaceChildren();
-      // 2026-09-16 (사용자 결정): 화면의 행동 키 패널 | 닫기 패널 — 두 상자로 나눈다. 행동 키가 없으면 닫기 패널만.
+      // 2026-09-16 (user's decision): the screen's action-key panel | the close panel — two boxes. With no action keys, only the close panel.
       let panel: HTMLElement | null = null;
       entries.forEach((e, i) => {
-        // 2026-09-09: the appended 닫기 (always last) carries `kg-close` so something can point at just the close
-        // key — the tutorial's 함선 관리 닫기 step spotlights `.key-guide .kg-close`.
+        // 2026-09-09: the appended `닫기` (always last) carries `kg-close` so something can point at just the close
+        // key — the tutorial's `함선 관리 닫기` step spotlights `.key-guide .kg-close`.
         const close = !noClose && i === entries.length - 1;
         if (close) panel = el('div', { cls: 'kg-panel kg-panel-close', parent: this.root });
         else if (!panel) panel = el('div', { cls: 'kg-panel', parent: this.root });
-        // 2026-09-16 (사용자 결정): 항목 사이 구분은 가운뎃점이 아니라 얇은 세로 막대 (`.kg-sep` 는 빈 span, CSS 가 선을 그린다)
+        // 2026-09-16 (user's decision): items are separated by a thin vertical bar, not a middle dot (`.kg-sep` is an empty span, CSS draws the line)
         else el('span', { cls: 'kg-sep', parent: panel });
         const item = el('span', { cls: close ? 'kg-item kg-close' : 'kg-item', parent: panel });
         // 2026-09-09: `hold: true` → `.keycap.kc-hold` (the ⌄ chevron above the cap lives in the stylesheet, once).
         this.cap(item, e.key, e.hold);
-        // 2026-09-12 (사용자 결정): keys pressed **together** are joined by a small `+`, keys that do the **same**
+        // 2026-09-12 (user's decision): keys pressed **together** are joined by a small `+`, keys that do the **same**
         // action by a small `또는`. Combo first (it belongs to the primary key), then the alternatives.
         for (const c of e.combo ?? []) { el('span', { cls: 'kg-plus', text: '+', parent: item }); this.cap(item, c, false); }
         for (const a of e.alt ?? []) { el('span', { cls: 'kg-or', text: '또는', parent: item }); this.cap(item, a.key, a.hold); }
@@ -131,7 +131,7 @@ export class KeyGuide {
     this.apply();
   }
 
-  /** 2026-09-15: 공용 `createKeycap` — 라벨이 `LMB` · `MMB` · `RMB` 면 마우스 그림, `hold` 면 chevron (한 경로). */
+  /** 2026-09-15: the shared `createKeycap` — a `LMB` · `MMB` · `RMB` label becomes the mouse glyph, `hold` adds the chevron (one path). */
   private cap(parent: HTMLElement, text: string, hold: boolean | undefined): void {
     createKeycap(text, { hold: hold === true, parent });
   }

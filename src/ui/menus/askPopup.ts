@@ -2,78 +2,81 @@ import type { GameContext } from '@/shared';
 import { UI_HOLD_CONFIRM_S, createHoldButtonCap } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 
-/** 팝업 하나가 묻는 것: 제목 · 본문(줄바꿈 허용) · 확인 버튼 라벨 · 확인했을 때 할 일. */
+/** What one popup asks: title · body (line breaks allowed) · the confirm button's label · what to do on confirm. */
 export interface AskSpec {
   title: string;
-  /** `\n` 을 그대로 살린다 (`white-space: pre-line`) — 생성 요약처럼 여러 줄을 그릴 수 있게. 빈 문자열이면 본문 줄을 그리지 않는다. */
+  /** Keeps `\n` alive (`white-space: pre-line`) — several lines can be drawn, as the creation summary does. Empty = no body line. */
   body: string;
-  /** 확인 버튼 라벨. */
+  /** The confirm button's label. */
   ok: string;
-  /** 붉은 제목 + 붉은 확인 버튼 (되돌릴 수 없는 동작). 늘 홀드로만 실행된다. */
+  /** Red title + red confirm button (an action that cannot be undone). It always runs by hold only. */
   danger?: boolean;
   /**
-   * appended (2026-09-14): 붉지 않은 확인도 `UI_HOLD_CONFIRM_S` 동안 **누르고 있어야** 실행한다 — 채움 바가 악센트
-   * 색이다. 첫 사용자는 캐릭터 생성의 `만들기` (사용자 결정 — 「1초 꾹 눌러서 시작」).
+   * appended (2026-09-14): a confirm that is not red also runs only when **held** for `UI_HOLD_CONFIRM_S` — its fill
+   * bar is the accent colour. The first user is `만들기` in character creation (user's decision — 「1초 꾹 눌러서 시작」).
    */
   hold?: boolean;
   /**
-   * appended (2026-09-14): 본문 아래에 그대로 붙일 노드 — 글로 쓸 수 없는 요약(능력치 게이지 · 얼굴 썸네일)을 위한 자리.
-   * 팝업이 닫힐 때 떼어 낸다 (다음 `open` 이 남은 노드를 보지 않는다).
+   * appended (2026-09-14): a node attached under the body as it is — the place for a summary prose cannot carry (stat
+   * gauges · the face thumbnail). It is detached when the popup closes (the next `open` never sees a left-over node).
    */
   content?: HTMLElement;
-  /** appended (2026-09-14): 이번 한 번 카드에 붙일 modifier 클래스 (폭 등). 닫을 때 뗀다. */
+  /** appended (2026-09-14): a modifier class put on the card this one time (width and so on). Removed on close. */
   cardCls?: string;
-  /** appended (2026-09-15): 취소 버튼 라벨 (생략 = `취소`). 타이틀의 레이드 포기 팝업은 `닫기` 다. */
+  /** appended (2026-09-15): the cancel button's label (omitted = `취소`). The title's abandon-raid popup uses `닫기`. */
   cancel?: string;
   run(): void;
 }
 
-/** 홀드로만 실행되는 확인인가 — 붉은 확인은 언제나, 붉지 않은 것은 `hold` 를 준 것만. */
+/** Is this a confirm that runs by hold only — a red confirm always, a non-red one only when `hold` was given. */
 function needsHold(spec: AskSpec | null): boolean {
   return !!spec && (!!spec.danger || !!spec.hold);
 }
 
 /**
- * 타이틀 흐름의 **경고 팝업** (2026-09-09).
+ * The **warning popup** of the title flow (2026-09-09).
  *
- * `menus/PauseMenu` 의 `.pause-ask` 와 같은 물건이고 **같은 2026-09-09 규약**을 따른다:
- *  - **Escape = 취소**, **Enter 는 삼키고 아무것도 하지 않는다** (Enter 는 채팅 키이자 브라우저가 포커스된
- *    버튼을 누르는 키다 — 실수 한 번에 캐릭터가 지워져서는 안 된다). 최초 포커스도 **취소** 쪽이다.
- *  - `danger: true` 인 팝업(되돌릴 수 없는 것 = 캐릭터 삭제)의 확인 버튼은 **`UI_HOLD_CONFIRM_S` 만큼 누르고
- *    있어야** 실행된다 — 제작 / 분해 / 파티 떠나기와 같은 어휘의 채움 바(`.tm-ask-fill`)가 버튼을 쓸고 간다.
- *    도중에 놓거나 버튼을 벗어나면 취소하고 0 으로 되돌아간다. 되돌릴 수 있는 것(주사위 덮어쓰기)은
- *    그냥 한 번의 클릭이다.
- *  - **2026-09-14**: `hold: true` 면 붉지 않은 확인도 같은 홀드를 탄다 (채움만 악센트 색). 캐릭터 `만들기` 가 그렇다 —
- *    되돌릴 수는 있지만(삭제) 새로고침으로 곧장 게임에 들어가는, 무게 있는 한 걸음이다.
- *  - **2026-09-15 2차 (사용자 결정)**: 「〈라벨〉 버튼을 1초 동안 누르고 있어야 실행됩니다」 안내 줄(`.tm-ask-hint`)은
- *    없어졌다. 「어떻게 누르는가」는 글이 아니라 **확인 버튼 안 라벨 왼쪽의 좌클릭 홀드 키캡**
- *    (`shared/keycap.createHoldButtonCap`)이 말한다 — 홀드로만 실행되는 확인에만 붙는다. 이 팝업의 그 줄은
- *    오로지 홀드 문구만 나르고 있었으므로 요소째 사라졌다 (남길 정보가 없다).
+ * The same thing as `.pause-ask` in `menus/PauseMenu`, and it follows the **same 2026-09-09 contract**:
+ *  - **Escape = cancel**, **Enter is swallowed and does nothing** (Enter is the chat key and the key a browser uses
+ *    to press the focused button — one mistake must never delete a character). The initial focus is on **취소** too.
+ *  - The confirm button of a `danger: true` popup (what cannot be undone = deleting a character) runs **only while
+ *    held for `UI_HOLD_CONFIRM_S`** — a fill bar (`.tm-ask-fill`) of the same vocabulary as 제작 / 분해 / 파티 떠나기
+ *    sweeps across the button. Releasing early or leaving the button cancels and returns to 0. What can be undone
+ *    (overwriting with the dice) is just one click.
+ *  - **2026-09-14**: with `hold: true` a confirm that is not red takes the same hold (only the fill is the accent
+ *    colour). The character `만들기` is one — it can be undone (by deleting), but it steps straight into the game
+ *    through a reload, so it is a weighty step.
+ *  - **2026-09-15 2nd pass (user's decision)**: the notice line 「〈라벨〉 버튼을 1초 동안 누르고 있어야 실행됩니다」
+ *    (`.tm-ask-hint`) is gone. 「how it is pressed」 is said not by prose but by the **left-click hold keycap
+ *    inside the confirm button, left of the label** (`shared/keycap.createHoldButtonCap`) — attached only to a confirm that runs
+ *    by hold. That line in this popup carried nothing but the hold wording, so the element went with it (no
+ *    information was left to keep).
  *
- * PauseMenu 에서 떼어내 공유하지 않고 따로 둔 이유는 그쪽이 `MenuBase` · 일시정지 이벤트에 묶여 있어서다.
- * 이 클래스는 아무 DOM 노드 아래에나 붙고 blocker 토큰도 커서 소유권도 갖지 않는다 — 그건 자기를 띄운
- * 화면(타이틀 = `MenuBase`)이 이미 쥐고 있다. 메뉴에는 프레임 훅이 없으므로 홀드는 rAF 로 돈다.
+ * It was kept apart rather than pulled out of PauseMenu and shared because that one is tied to `MenuBase` · the pause
+ * events. This class attaches under any DOM node and holds no blocker token and no cursor ownership — the screen that
+ * raised it (the title = `MenuBase`) already holds those. A menu has no frame hook, so the hold runs on rAF.
  */
 export class AskPopup {
   readonly root: HTMLElement;
   private readonly card: HTMLElement;
   private readonly titleEl: HTMLElement;
   private readonly bodyEl: HTMLElement;
-  /** 2026-09-14: `AskSpec.content` 가 들어가는 자리. */
+  /** 2026-09-14: the place `AskSpec.content` goes. */
   private readonly contentHost: HTMLElement;
   private readonly okBtn: HTMLButtonElement;
   private readonly cancelBtn: HTMLButtonElement;
   private readonly fill: HTMLElement;
   /**
-   * 2026-09-15 2차: 홀드 확인의 좌클릭 키캡. 버튼 안 라벨 **왼쪽**에 서고, 홀드가 아닌 확인에서는 떼어 둔다.
-   * `setText` 가 `textContent` 를 갈아 끼우므로 `open()` 마다 채움 바와 함께 다시 넣는다.
+   * 2026-09-15 2nd pass: the left-click keycap of a hold confirm. It stands **left** of the label inside the button
+   * and is detached on a confirm that is not a hold. `setText` swaps `textContent` out, so every `open()` puts it
+   * back together with the fill bar.
    */
   private readonly okCap: HTMLElement;
   private pending: AskSpec | null = null;
-  /** 지금 카드에 붙어 있는 `AskSpec.cardCls` (닫을 때 뗀다). */
+  /** The `AskSpec.cardCls` on the card right now (removed on close). */
   private cardCls = '';
   private ctx: GameContext | null = null;
-  /** 홀드 진행 0..1, rAF 핸들, 마지막 프레임 시각. */
+  /** Hold progress 0..1, the rAF handle, the last frame's time. */
   private hold = 0;
   private raf = 0;
   private lastT = 0;
@@ -84,7 +87,7 @@ export class AskPopup {
     else if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); e.stopImmediatePropagation(); }
   };
 
-  /** 포인터를 어디서 놓든 홀드가 남지 않게 `window` 에서 듣는다 (이 프로젝트의 드래그 코드와 같은 규약). */
+  /** Listens on `window` so no hold is left behind wherever the pointer is released (the contract of every drag here). */
   private readonly onUp = (): void => this.stopHold();
 
   constructor(parent: HTMLElement) {
@@ -104,12 +107,12 @@ export class AskPopup {
     no.addEventListener('click', (e) => { e.stopPropagation(); this.close(); });
     this.okBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (needsHold(this.pending)) return;          // 홀드 확인은 홀드로만 실행된다
+      if (needsHold(this.pending)) return;          // a hold confirm runs by hold only
       this.run();
     });
     this.okBtn.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.startHold(); });
     this.okBtn.addEventListener('pointerleave', () => this.stopHold());
-    // 팝업 뒤의 카드가 클릭을 받지 않게 (선택창의 카드는 통째로 눌리는 면이다).
+    // So the card behind the popup takes no click (a card on the select screen is one pressable surface).
     this.root.addEventListener('click', (e) => e.stopPropagation());
     this.root.addEventListener('mousedown', (e) => e.stopPropagation());
     this.cancelBtn = no;
@@ -118,7 +121,7 @@ export class AskPopup {
   bind(ctx: GameContext): void { this.ctx = ctx; }
 
   get isOpen(): boolean { return !this.root.hidden; }
-  /** 홀드 진행도 0..1 (디버그 / 스모크). */
+  /** Hold progress 0..1 (debug / smoke). */
   get holdProgress(): number { return this.hold; }
 
   open(spec: AskSpec): void {
@@ -132,7 +135,7 @@ export class AskPopup {
     setText(this.cancelBtn, spec.cancel ?? '취소');
     const hold = needsHold(spec);
     setText(this.okBtn, spec.ok);
-    // `setText` 는 `textContent` 를 갈아 끼우므로 홀드 키캡(라벨 왼쪽)과 채움 바를 다시 넣어 준다.
+    // `setText` swaps `textContent` out, so the hold keycap (left of the label) and the fill bar go back in.
     if (hold) this.okBtn.prepend(this.okCap);
     this.okBtn.appendChild(this.fill);
     toggleClass(this.root, 'danger', !!spec.danger);
@@ -142,7 +145,7 @@ export class AskPopup {
     this.root.hidden = false;
     window.addEventListener('keydown', this.onKey, true);
     window.addEventListener('pointerup', this.onUp);
-    // 스페이스는 안전한 쪽을 누른다.
+    // Space presses the safe side.
     this.cancelBtn.focus({ preventScroll: true });
     this.ctx?.bus.emit('audio:play', { id: 'ui_click' });
   }
@@ -166,7 +169,7 @@ export class AskPopup {
     if (cls) this.card.classList.add(cls);
   }
 
-  /* ── 홀드 확인 ────────────────────────────────────────────────────────── */
+  /* ── hold confirm ─────────────────────────────────────────────────────── */
 
   private startHold(): void {
     if (!needsHold(this.pending) || this.raf) return;

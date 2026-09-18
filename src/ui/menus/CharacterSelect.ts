@@ -8,11 +8,11 @@ import { AskPopup } from './askPopup';
 import { enterShip, hasPendingInvite } from './enterShip';
 
 interface CardEls {
-  /** 카드 전체가 누를 수 있는 면이지만 `<button>` 이 아니다 — 안에 `삭제` 버튼이 들어가므로(버튼 중첩은 금지). */
+  /** The whole card is a pressable surface but not a `<button>` — a `삭제` button goes inside it (nesting buttons is forbidden). */
   root: HTMLElement;
   bar: HTMLElement;
   slotTag: HTMLElement;
-  /** 채워진 칸의 내용 전부 (빈 칸일 때 통째로 숨긴다). */
+  /** Everything a filled slot holds (hidden as a whole when the slot is empty). */
   filled: HTMLElement;
   empty: HTMLElement;
   name: HTMLElement;
@@ -23,28 +23,29 @@ interface CardEls {
 }
 
 /**
- * 캐릭터 선택 (2026-09-09) — 타이틀의 `게임 시작` 이 여는 화면.
+ * Character select (2026-09-09) — the screen the title's `게임 시작` opens.
  *
- * `SLOT_IDS` 만큼(기본 3칸)의 큰 카드를 가운데 나란히 놓고 `readSlotCards()` 로 채운다. 색인 파일은 없다 —
- * 요약은 그 슬롯의 세이브에서 바로 읽는다(`shared/saveSlot`).
+ * As many big cards as `SLOT_IDS` (3 slots by default) stand side by side in the centre, filled by `readSlotCards()`.
+ * There is no index file — the summary is read straight from that slot's save (`shared/saveSlot`).
  *
- *  - **채워진 칸**: 이름 · `Lv. n` · 크레딧 · 능력치 다섯, 그리고 그 캐릭터의 악센트 색이
- *    카드의 색(`--ac`)이다. 카드를 누르면 그 캐릭터로 시작하고, `삭제` 는 되돌릴 수 없는 것이므로
- *    무엇이 사라지는지 적은 경고 팝업(`menus/askPopup`)을 지난다.
- *  - **빈 칸**: `＋ 캐릭터 생성` — 그 슬롯의 생성창을 연다.
+ *  - **A filled slot**: name · `Lv. n` · credits · the five stats, and that character's accent colour is the card's
+ *    colour (`--ac`). Pressing the card starts with that character, and `삭제`, which cannot be undone, passes a
+ *    warning popup (`menus/askPopup`) that writes out what disappears.
+ *  - **An empty slot**: `＋ 캐릭터 생성` — opens the creation screen for that slot.
  *
- * **2026-09-15 2차 (사용자 결정)**: 결과 메시지(`삭제했습니다` · `서버 연결 중…`)는 카드 아래의 패널(`.form-msg`)이
- * 아니라 **바닥 줄 오른쪽 끝의 글자**(`.ts-msg`)다 — 테두리 · 배경 · 패딩 없이 `kind` 에 따른 글자 색만 남는다.
- * 그 자리에 있던 안내 라벨(`캐릭터마다 창고 · 장비 · 함선 · 진행도가 …`)은 없어졌다.
+ * **2026-09-15 2nd pass (user's decision)**: the result message (`삭제했습니다` · `서버 연결 중…`) is not a panel under
+ * the cards (`.form-msg`) but **text at the right end of the bottom row** (`.ts-msg`) — no border · background ·
+ * padding, only the text colour by `kind`. The notice label (`캐릭터마다 창고 · 장비 · 함선 · 진행도가 …`) that stood
+ * there is gone.
  *
- * **시작**: 고른 칸이 이미 `activeSlot()` 이면 새로고침 없이 곧장 함선으로 들어가고(`menus/enterShip`),
- * 다른 칸이면 `setActiveSlot` + `markAutoStart` + `location.reload()` 다 — 시스템은 부팅 때 한 번 저장소를
- * 읽으므로 슬롯 전환은 언제나 새로고침을 낀다.
+ * **Starting**: if the chosen slot is already `activeSlot()` it goes straight into the ship with no reload
+ * (`menus/enterShip`); another slot means `setActiveSlot` + `markAutoStart` + `location.reload()` — the systems read
+ * storage once at boot, so a slot switch always comes with a reload.
  *
- * **초대 링크**(`?lobby=CODE`)는 예전 타이틀의 `함선 탑승` 이 갖고 있던 흐름 그대로 `menus/enterShip` 에 있고,
- * 슬롯을 바꿔 들어가도 새로고침 뒤의 자동 시작이 같은 길을 지나므로 초대받은 사람은 여전히 공유 함선에 닿는다.
+ * **The invite link** (`?lobby=CODE`) sits in `menus/enterShip` as the flow the old title's `함선 탑승` held, and the
+ * auto start after a reload takes that same path, so an invited player still reaches the shared ship after switching slot.
  *
- * blocker 토큰도 커서 소유권도 갖지 않는다 — 타이틀(`MenuBase`)이 쥐고 있고 이 화면은 그 위에 얹힌다.
+ * It holds no blocker token and no cursor ownership — the title (`MenuBase`) holds them and this screen is laid on top.
  */
 export class CharacterSelect {
   readonly root: HTMLElement;
@@ -71,9 +72,10 @@ export class CharacterSelect {
     const wrap = el('div', { cls: 'csl-cards', parent: this.root });
     for (const id of SLOT_IDS) this.cards.set(id, this.buildCard(wrap, id));
 
-    /* 2026-09-15 2차 (사용자 결정): 결과 메시지는 카드 아래의 패널이 아니라 **우측 하단 글자**다 — 옛 안내 라벨
-       (`캐릭터마다 창고 · 장비 …`)이 서 있던 그 자리이고, 그 라벨은 없어졌다. `.ts-foot` 이 `space-between` 이라
-       메시지가 없을 때도 `뒤로` 는 왼쪽 그대로다 (숨은 메시지는 `display: none`). */
+    /* 2026-09-15 2nd pass (user's decision): the result message is not a panel under the cards but **text at the
+       bottom right** — the very spot the old notice label (`캐릭터마다 창고 · 장비 …`) stood in, and that label is
+       gone. `.ts-foot` is `space-between`, so `뒤로` stays left even with no message (a hidden message is
+       `display: none`). */
     const foot = el('div', { cls: 'ts-foot', parent: this.root });
     const back = el('button', { cls: 'ui-btn', text: '뒤로', parent: foot });
     back.addEventListener('click', (e) => { e.stopPropagation(); this.back(); });
@@ -97,12 +99,12 @@ export class CharacterSelect {
     const bar = el('div', { cls: 'csl-bar', parent: root });
     const slotTag = el('div', { cls: 'csl-slot', text: `슬롯 ${id}`, parent: root });
 
-    /* 빈 칸 */
+    /* empty slot */
     const empty = el('div', { cls: 'csl-empty-wrap', parent: root });
     el('div', { cls: 'csl-plus', text: '＋', parent: empty });
     el('div', { cls: 'csl-empty-label', text: '캐릭터 생성', parent: empty });
 
-    /* 채워진 칸 */
+    /* filled slot */
     const filled = el('div', { cls: 'csl-filled', parent: root });
     const name = el('div', { cls: 'csl-name', text: '', parent: filled });
     const level = el('div', { cls: 'csl-lv', text: '', parent: filled });
@@ -119,7 +121,7 @@ export class CharacterSelect {
 
     const statsWrap = el('div', { cls: 'csl-stats', parent: filled });
     const stats = new Map<StatId, { value: HTMLElement; fill: HTMLElement }>();
-    // 능력치 줄은 `bind` 뒤에 이름을 알 수 있으므로 첫 `refresh()` 에서 채운다.
+    // The stat rows only know their names after `bind`, so they are filled on the first `refresh()`.
     statsWrap.dataset.pending = '1';
 
     const actions = el('div', { cls: 'csl-actions', parent: filled });
@@ -127,7 +129,7 @@ export class CharacterSelect {
     del.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); this.askDelete(id); });
 
     root.addEventListener('click', (e) => { e.stopPropagation(); this.pick(id); });
-    // 카드가 `<button>` 이 아니므로 Enter / Space 를 손으로 받는다 (탭 이동으로도 고를 수 있게).
+    // The card is not a `<button>`, so Enter / Space are taken by hand (so it can be picked by tabbing too).
     root.addEventListener('keydown', (e) => {
       if (e.code !== 'Enter' && e.code !== 'NumpadEnter' && e.code !== 'Space') return;
       e.preventDefault();
@@ -138,7 +140,7 @@ export class CharacterSelect {
     return { root, bar, slotTag, filled, empty, name, level, credits, stats, del };
   }
 
-  /** 카드 하나의 능력치 다섯 줄 (시트와 같은 어휘의 축소판: 이름 · mono 값 · 얇은 바). */
+  /** One card's five stat rows (a shrunken form of the sheet's vocabulary: name · mono value · thin bar). */
   private fillStatRows(card: CardEls): void {
     const wrap = card.filled.querySelector<HTMLElement>('.csl-stats');
     if (!wrap || !wrap.dataset.pending) return;
@@ -162,7 +164,7 @@ export class CharacterSelect {
   }
 
   get isOpen(): boolean { return this._open; }
-  /** 칸이 몇 개 차 있나 (디버그 / 스모크). */
+  /** How many slots are filled (debug / smoke). */
   get occupiedCount(): number { return readSlotCards().filter((c) => c.name !== null).length; }
 
   open(): void {
@@ -219,8 +221,8 @@ export class CharacterSelect {
     setText(card.name, data.name ?? '');
     setText(card.level, `Lv. ${data.level}`);
     setText(card.credits, formatCredits(data.credits, { suffix: true }));
-    // 바의 기준은 생성 상한(5)이되, 게임 안에서 그 위로 자란 능력치가 있으면 **그 카드의 최댓값**으로 늘린다 —
-    // 상한을 `STAT_MAX`(20) 로 고정하면 갓 만든 캐릭터의 다섯 줄이 전부 바닥에 붙어 읽히지 않는다.
+    // The bar's reference is the creation cap (5), stretched to **that card's own maximum** when a stat has grown
+    // above it in game — pinning the cap to `STAT_MAX` (20) flattens a fresh character's five rows to the floor.
     let top = CREATE_STAT_MAX;
     for (const id of card.stats.keys()) top = Math.max(top, data.stats[id] ?? 0);
     const span = Math.max(1, top - CREATE_STAT_MIN);
@@ -232,14 +234,14 @@ export class CharacterSelect {
     }
   }
 
-  /** 우측 하단 한 줄. 틀(테두리 · 배경 · 패딩)은 없고 `kind` 는 **글자 색**으로만 남는다 (`title.css` 의 `.ts-msg`). */
+  /** One line at the bottom right. No frame (border · background · padding); `kind` survives only as the **text colour** (`.ts-msg`, `title.css`). */
   private showMsg(text: string, kind: 'info' | 'warning' | 'danger' | 'success'): void {
     this.msg.className = `ts-msg ${kind}`;
     setText(this.msg, text);
     this.msg.hidden = false;
   }
 
-  /* ── 고르기 ───────────────────────────────────────────────────────────── */
+  /* ── picking ──────────────────────────────────────────────────────────── */
 
   private pick(id: SlotId): void {
     if (this.busy || this.ask.isOpen) return;
@@ -254,8 +256,8 @@ export class CharacterSelect {
   }
 
   /**
-   * 그 캐릭터로 게임에 들어간다. 활성 슬롯이면 새로고침 없이 그대로, 아니면 다음 부팅 슬롯을 적고 새로고침한다
-   * (`markAutoStart` 덕분에 새로고침 뒤 타이틀을 건너뛰고 바로 함선이다).
+   * Enters the game with that character. The active slot goes straight in with no reload; any other writes the next
+   * boot's slot and reloads (thanks to `markAutoStart` the reload skips the title and lands in the ship).
    */
   private async start(id: SlotId): Promise<void> {
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
@@ -274,14 +276,15 @@ export class CharacterSelect {
         this.refresh();
       },
       showMessage: (text, kind) => this.showMsg(text, kind),
-      // 2026-09-15: 서버에 물어보니 분대 레이드가 남아 있었다 — 선택창을 접고 타이틀의 `이어하기` 로 (타이틀도 스스로 접는다)
+      // 2026-09-15: asking the server turned up a squad raid still running — fold the select screen and go to the
+      // title's `이어하기` (the title folds itself too)
       onResumeOffer: () => this.back(),
     });
     this.busy = false;
     this.refresh();
   }
 
-  /* ── 삭제 ─────────────────────────────────────────────────────────────── */
+  /* ── deleting ─────────────────────────────────────────────────────────── */
 
   private askDelete(id: SlotId): void {
     if (this.busy) return;
@@ -301,8 +304,8 @@ export class CharacterSelect {
     deleteSlot(id);
     this.showMsg('캐릭터를 삭제했습니다.', 'warning');
     this.refresh();
-    // 지운 것이 지금 부팅한 슬롯이면 메모리에 올라온 시스템들이 아직 그 캐릭터를 들고 있다 — 새 캐릭터를
-    // 만들거나 다른 칸을 고르면 그때 새로고침이 걸리므로, 여기서는 굳이 강제하지 않고 안내만 남긴다.
+    // If what was deleted is the slot this boot loaded, the systems in memory still hold that character — making a
+    // new character or picking another slot brings a reload then, so nothing is forced here, only a notice is left.
     if (id === activeSlot()) {
       this.showMsg('캐릭터를 삭제했습니다 — 다른 캐릭터를 고르거나 새로 만들면 새 세이브로 시작합니다.', 'warning');
     }

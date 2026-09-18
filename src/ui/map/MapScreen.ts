@@ -12,10 +12,10 @@ import {
   drawPad, drawPlatform, drawPlayerArrow, drawPlayerCone, drawRover, drawShip, drawSquadArrow, drawSquadDead, drawStation, drawTram,
   strokeRail, strokeRoute,
 } from './mapIcons';
-/* 2026-09-15 (안드로이드 분대원): 안드로이드 마커 · 범례 줄 */
+/* 2026-09-15 (android squadmates): the android marker · legend row */
 import { allyBodies } from '../hud/allySource';
 import '../styles/rover.css';
-/* 2026-09-14 (메신저 · NPC 퀘스트): 좌측 열의 퀘스트 패널 목록 + 호버 툴팁 */
+/* 2026-09-14 (messenger · NPC quests): the left column's quest panel list + hover tooltip */
 import { MapQuestPanels } from './QuestPanels';
 
 const BLOCKER = 'map';
@@ -28,45 +28,48 @@ const NEST_RADIUS_M = 22;     // soft hazard radius drawn around nests
 // Canvas fonts cannot reference CSS variables; mirror the stacks from base.css.
 const FONT_GRID = "9px 'Cascadia Mono', Consolas, monospace";
 
-/** 2026-09-13: 색 · 마커 그림은 `mapIcons` 로 옮겼다 (범례 견본이 같은 함수를 부른다). */
+/** 2026-09-13: colours · marker painters moved to `mapIcons` (the legend samples call the same functions). */
 const COL = MAP_COL;
 
 /**
- * 지도 라벨의 **짧은 원래 이름** (2026-09-13 사용자 결정). 예전에는 구조물이 전부 `구조물`, 폐허 전초가 `폐허` 였다.
- * 토스트(`hud/RaidAlerts`)는 여전히 `STRUCTURE_LABEL_KO` 의 정식 이름을 쓴다 — 지도 라벨만 짧게.
+ * The **short proper names** for map labels (2026-09-13 user's decision). Structures all used to read `구조물`, a
+ * ruined outpost `폐허`. The toast (`hud/RaidAlerts`) still uses the formal names of `STRUCTURE_LABEL_KO` — only
+ * the map label is short.
  */
 const STRUCTURE_SHORT_KO: Readonly<Record<StructureKind, string>> = { outpost: '전진기지', lab: '연구소', wreck: '불시착 함선' };
-/** 라벨 겹침 우선순위 (작을수록 먼저 자리를 차지한다). */
+/** Label overlap priority (the smaller one takes its place first). */
 const PRIO = { ship: 0, pad: 1, station: 2, structure: 3, outpost: 4, platform: 5, nest: 6, grove: 7 } as const;
-/** 지형지물 라벨 색 — 마커보다 조금 밝게 (어두운 윤곽이 둘린다). */
+/** Landmark label colour — a little brighter than the marker (a dark outline is drawn around it). */
 const LABEL_COL = 'rgba(232,230,225,0.85)';
-/** 목적지 선택: 정류장을 집는 반경(px) · 클릭으로 치는 최대 이동(px). */
+/** Destination selection: the radius that picks a station (px) · the largest movement still counted as a click (px). */
 const STATION_HIT_PX = 18;
 const CLICK_SLOP_PX = 5;
-/** 범례 견본 캔버스 크기(CSS px) — 1.6배 플레이어 화살표가 들어가는 크기. */
+/** Legend sample canvas size (CSS px) — big enough to hold the ×1.6 player arrow. */
 const SW_W = 28, SW_H = 20;
 
 type LegendId = 'player' | 'squad' | 'ally' | 'pad' | 'ship' | 'gather' | 'rail' | 'tram' | 'rover' | 'route' | 'hazard';
 interface LegendRow { id: LegendId; row: HTMLElement; cv: HTMLCanvasElement }
 /**
- * 재해 구역 채움 · 경계선. 안개 위에 얹는 붉은 층이라 지형이 비쳐야 하지만, 2026-09-09 의 값
- * (채움 0.16 · 선 2 px)은 컬러 지형 위에서 **모래 폭풍 · 눈보라가 있는지조차 안 보였다**.
- * 2026-09-10: 채움을 올리고 그 위에 **빗금**(`hazardHatch`)을 한 겹 더 깐다 — 지형은 여전히 비치는데
- * "이쪽은 위험" 은 한눈에 읽힌다. 경계선도 굵어지고 어두운 밑선을 깔아 밝은 지형 위에서도 버틴다.
+ * Hazard zone fill · border. It is a red layer laid over the fog, so the terrain has to show through, but the
+ * 2026-09-09 values (fill 0.16 · line 2 px) made it **impossible to see even whether a sandstorm · blizzard was
+ * there at all** over coloured terrain. 2026-09-10: the fill is raised and one more layer of **hatching**
+ * (`hazardHatch`) goes on top — the terrain still shows through, but "this side is dangerous" reads at a glance.
+ * The border is thicker too and sits on a dark underline, so it survives over bright terrain.
  */
 const HAZARD_FILL = 'rgba(255, 77, 77, 0.26)';
 const HAZARD_LINE = 'rgba(255, 122, 70, 0.95)';
 const HAZARD_LINE_UNDER = 'rgba(20, 6, 4, 0.75)';
-/** 빗금 무늬의 타일 한 변(px)과 선 색. */
+/** Side of one hatch pattern tile (px) and the line colour. */
 const HATCH_TILE = 9;
 const HATCH_LINE = 'rgba(255, 90, 60, 0.34)';
-/** 이 반경(m) 이하의 재해 원은 **닫힌 것**으로 그린다 (C-15) — `world/hazard/parts/Visuals` 가 벽을 숨기는 문턱과 같다. */
+/** A hazard circle of this radius (m) or less is drawn as **closed** (C-15) — the threshold at which `world/hazard/parts/Visuals` hides the wall. */
 const CLOSED_RADIUS_M = 0.5;
 
 /**
- * 안개 경계선 (2026-09-10) — 밝혀진 칸과 아직 아닌 칸이 맞닿는 변. 컬러 레이어의 가장자리는 업스케일
- * 스무딩으로 부드럽게 번져 "여기까지 봤다" 가 읽히지 않았다. 격자 변을 그대로 이어 **또렷한 선**을 긋는다:
- * 밝은 선 밑에 어두운 선을 깔아 어떤 지형색 위에서도 보인다.
+ * The fog border (2026-09-10) — the edges where a revealed cell meets one that is not revealed yet. The colour
+ * layer's edge blurred softly from upscale smoothing, so "we have seen this far" did not read. Joining the grid
+ * edges as they are draws a **crisp line**: a dark line under the bright one keeps it visible over any terrain
+ * colour.
  */
 const FOG_EDGE_LINE = 'rgba(232, 230, 225, 0.72)';
 const FOG_EDGE_UNDER = 'rgba(6, 8, 10, 0.85)';
@@ -74,7 +77,7 @@ const FOG_EDGE_UNDER = 'rgba(6, 8, 10, 0.85)';
 const COL_SUSPENDED = '#8a8f99';
 const PING_CSS: Record<PingKind, string> = {
   ground: COL.info, enemy: COL.danger, crate: COL.success, extraction: COL.accent, item: COL.pickup, attack: COL.attack, caution: COL.caution,
-  /* appended (2026-09-09): 전투불능 좌/우 핑 + 구조물 · 선로 */
+  /* appended (2026-09-09): the downed left / right pings + structure · rail */
   help: COL.danger, abandon: '#8a929c', structure: '#d8c48a', rail: '#9fb4c7',
 };
 
@@ -89,8 +92,9 @@ interface MapPing { id: number; kind: PingKind; position: THREE.Vector3; expires
  *
  * 2026-09-09: **Tab (`Keys.INVENTORY`) closes it too** (consumed, so the inventory does not open on the same press —
  * `InventorySystem` polls earlier in the frame but its own guard already refuses while the `'map'` blocker is up),
- * and while open it emits `ui:keyGuide {owner:'map'}` (핑 · 확대 · 이동; re-emitted on `input:bindingsChanged`, `null`
- * on close) for the bottom-right 키 가이드, which appends the `Tab 닫기` entry itself.
+ * and while open it emits `ui:keyGuide {owner:'map'}` (`핑` · `확대` · `이동`; re-emitted on
+ * `input:bindingsChanged`, `null` on close) for the bottom-right key guide, which appends the `Tab 닫기` entry
+ * itself.
  */
 export class MapScreen {
   readonly root: HTMLElement;
@@ -101,24 +105,25 @@ export class MapScreen {
   private zoomEl: HTMLElement;
   private staticCanvas: HTMLCanvasElement | null = null;
   /**
-   * 2026-09-09 — 전장의 안개. `staticCanvas` 는 **밝혀진 곳에만** 보이는 컬러 지형이고, `outlineCanvas` 는
-   * 미탐색 구역에 깔리는 회색 윤곽(등고선 + 약한 음영, 색도 디테일도 없다)이다. `fogLayer` 는 컬러 레이어를
-   * 안개 마스크로 자른 결과 캔버스로, **`fog:revealed` 가 왔을 때만** 다시 만든다 — 매 프레임 마스크를
-   * 훑지 않는다. 안개가 없는 세계(훈련장)에서는 셋 다 예전처럼 컬러 한 장으로 동작한다.
+   * 2026-09-09 — the fog of war. `staticCanvas` is the coloured terrain, visible **only where it is revealed**,
+   * and `outlineCanvas` is the grey outline laid under unexplored ground (contours + faint shading, no colour and
+   * no detail). `fogLayer` is the canvas that results from cutting the colour layer with the fog mask, and it is
+   * rebuilt **only when `fog:revealed` arrives** — the mask is not walked every frame. In a world with no fog
+   * (the training range) all three behave as one colour sheet, as before.
    */
   private outlineCanvas: HTMLCanvasElement | null = null;
   private fogLayer: HTMLCanvasElement | null = null;
   private fogDirty = true;
   private fogRevision = -1;
   /**
-   * 안개 경계선의 선분들 (2026-09-10). 월드 좌표 m 로 `[x0, z0, x1, z1, …]`. `fog.revision` 이 바뀔 때만
-   * 다시 만들고 (마스크 격자 하나를 훑는다), 매 프레임에는 이 배열을 그대로 긋기만 한다.
+   * The segments of the fog border (2026-09-10), in world metres as `[x0, z0, x1, z1, …]`. Rebuilt only when
+   * `fog.revision` changes (one walk of the mask grid); each frame the array is simply stroked as it is.
    */
   private fogEdges: Float32Array | null = null;
   private fogEdgeRevision = -1;
-  /** 재해 위험 구역에 까는 빗금 무늬. 캔버스 컨텍스트가 생긴 뒤 한 번만 만든다. */
+  /** The hatch pattern laid over a hazard danger zone. Built once, after the canvas context exists. */
   private hazardHatch: CanvasPattern | null = null;
-  /** 2026-09-13: 독성 포자 원 합집합 — 이번 프레임의 원 `[cx, cy, r, …]` (px) 과 호 구간 스크래치. 재사용한다. */
+  /** 2026-09-13: the toxic-spore circle union — this frame's circles `[cx, cy, r, …]` (px) and the arc-interval scratch. Reused. */
   private readonly sporeCircles: number[] = [];
   private readonly arcScratch: number[] = [];
   private exploredEl: HTMLElement;
@@ -139,9 +144,9 @@ export class MapScreen {
   private shipPos: THREE.Vector3 | null = null;
   private pings = new Map<number, MapPing>();
   /**
-   * 2026-09-11 (C-11): 발견한 **폐허 전초** (id → 위치). `WorldRef` 에 목록이 없으므로(구조물 목록과 섞지 않는다)
-   * `fog:discovered {kind:'outpost'}` 를 쌓는다. 늦게 합류한 사람은 `fog sync` 뒤 다음 발견 판정에서 다시 받는다.
-   * `world:ready` · `game:abort` 에서 비운다.
+   * 2026-09-11 (C-11): the discovered **ruined outposts** (id → position). `WorldRef` holds no list of them (they
+   * are not mixed into the structure list), so `fog:discovered {kind:'outpost'}` is accumulated instead. A late
+   * joiner gets them again on the next discovery check after `fog sync`. Cleared on `world:ready` · `game:abort`.
    */
   private outposts = new Map<string, THREE.Vector3>();
   /** When set (HudSystem → Pings.getPings) pings are drawn from here (carries owner name/colour); else from events. */
@@ -151,17 +156,18 @@ export class MapScreen {
   private pingVec = new THREE.Vector3();
   private unsubs: Array<() => void> = [];
 
-  /* 2026-09-13: 라벨 겹침 층 · 범례 견본 */
+  /* 2026-09-13: the label overlap layer · legend samples */
   private readonly labels = new MapLabels();
   private legendEl: HTMLElement;
   private legendRows: LegendRow[] = [];
-  /* 2026-09-14: 좌측 열 = 머리 → 퀘스트 패널(`quests`) → 범례(좌측 하단) → 발밑 줄. 열 높이는 `fit` 이 캔버스 높이로 못 박는다. */
+  /* 2026-09-14: the left column = head → quest panels (`quests`) → legend (bottom left) → foot rows. The column
+   * height is pinned by `fit` to the canvas height. */
   private readonly sideEl: HTMLElement;
   private readonly quests: MapQuestPanels;
 
-  /* 2026-09-13: 탐사 차량 목적지 선택 모드 */
+  /* 2026-09-13: the rover destination selection mode */
   private roverMode = false;
-  /** 목적지 선택 모드가 지도를 **열었다** — 모드가 끝나면 지도도 닫는다 (이미 열린 지도에 들어왔으면 지도는 남긴다). */
+  /** Destination selection mode **opened** the map — ending the mode closes it too (entering on an already open map leaves it). */
   private roverOpenedMap = false;
   private roverEnteredAt = 0;
   private selectedStation: string | null = null;
@@ -179,7 +185,7 @@ export class MapScreen {
   private rvReason: HTMLElement;
   private rvBtn: HTMLButtonElement;
   private rvBtnFill: HTMLElement;
-  /** 라벨 왼쪽의 좌클릭 홀드 키캡 (2026-09-15 2차) — 막힌 상태에서는 숨는다. */
+  /** The left-click hold keycap left of the label (2026-09-15, 2nd pass) — hidden while blocked. */
   private rvBtnCap: HTMLElement;
   private rvBtnLbl: HTMLElement;
   private holdStart = 0;
@@ -187,8 +193,8 @@ export class MapScreen {
 
   /*
    * 2026-09-13: Escape **does** close the map (the stale 2026-09-08 note said otherwise) — `open()` pushes it onto
-   * `ctx.escape` like every screen (2026-09-09 규칙: Escape 는 맨 위 화면 하나를 닫는다). M (`Keys.MAP`) and Tab close it
-   * too (polled in `update`); the 키 가이드 shows all three.
+   * `ctx.escape` like every screen (the 2026-09-09 rule: Escape closes exactly one screen, the topmost). M
+   * (`Keys.MAP`) and Tab close it too (polled in `update`); the key guide shows all three.
    */
   private onWheel = (e: WheelEvent): void => {
     if (!this._open) return;
@@ -201,7 +207,7 @@ export class MapScreen {
   private onMouseDown = (e: MouseEvent): void => {
     if (!this._open) return;
     // Phase 10: the ping button (middle-click by default) drops a ping at that map point instead of starting a pan.
-    // 2026-09-13: it follows `Keys.PING` (the 키 가이드 shows `keyLabel(Keys.PING)`) — unless it was rebound onto the
+    // 2026-09-13: it follows `Keys.PING` (the key guide shows `keyLabel(Keys.PING)`) — unless it was rebound onto the
     // left button, which pans / picks here.
     const pingBtn = mouseButtonOf(Keys.PING, 1);
     if (pingBtn !== 0 && e.button === pingBtn) { e.preventDefault(); this.pingAt(e.clientX, e.clientY); return; }
@@ -225,10 +231,10 @@ export class MapScreen {
     if (!this.dragging) return;
     this.dragging = false;
     this.canvas.classList.remove('grabbing');
-    // 2026-09-13: 목적지 선택 모드에서 끌지 않은 좌클릭 = 정류장 고르기 (끌면 예전처럼 이동만)
+    // 2026-09-13: in destination selection mode a left click that did not drag = pick a station (a drag still only pans)
     if (this.roverMode && !this.dragMoved) this.pickStation(e.clientX, e.clientY);
   };
-  /** 목적지 선택 모드의 정류장 호버 (커서 모양 · 강조 링). */
+  /** Station hover in destination selection mode (cursor shape · highlight ring). */
   private onHover = (e: MouseEvent): void => {
     if (!this.roverMode) {
       if (this.hoverStation !== null) { this.hoverStation = null; this.canvas.classList.remove('pick'); }
@@ -251,19 +257,22 @@ export class MapScreen {
     this.seedEl = el('div', { cls: 'map-seed ui-mono', text: 'SEED —', parent: head });
     this.sideEl = side;
 
-    /* 2026-09-14 (사용자 결정): 범례 윗부분에 진행 중인 NPC 퀘스트 패널 목록 — 남는 높이를 차지하고 길면 스크롤한다.
-     * 범례는 그 아래, 좌측 하단에 붙는다 (`.map-legend { margin-top: auto }`). */
+    /* 2026-09-14 (user's decision): the list of running NPC quest panels above the legend — it takes the spare
+     * height and scrolls when it is long. The legend sits below it, at the bottom left
+     * (`.map-legend { margin-top: auto }`). */
     this.quests = new MapQuestPanels(side, this.root);
 
-    /* 범례 (2026-09-13 개편, 사용자 결정): 라벨이 이름을 말하는 지형지물(구조물 · 폐허 전초 · 버섯 군락 · 벌레 둥지)과 핑 · 상자 ·
-     * 지도에서 뺀 것(떨어진 아이템 · 설치물 · 지뢰)은 범례에 없다. 탈출 지점은 한 줄 (지도는 활성 지점의 호박색 펄스를 그대로 그린다).
-     * 견본은 CSS 모양이 아니라 **지도와 같은 그리기 함수**를 부르는 작은 캔버스다 (`mapIcons`). */
+    /* The legend (2026-09-13 rework, user's decision): landmarks whose label says their name (structures · ruined
+     * outposts · mushroom groves · bug nests), pings · crates, and what was taken off the map (dropped items ·
+     * deployables · mines) are not in the legend. Extraction points are one row (the map still draws the amber
+     * pulse of the active point). A sample is not a CSS shape but a small canvas calling **the same painter the
+     * map uses** (`mapIcons`). */
     this.legendEl = el('div', { cls: 'map-legend', parent: side });
     el('div', { cls: 'ui-label', text: '범례', parent: this.legendEl });
     const entries: Array<[LegendId, string]> = [
       ['player', '플레이어'],
       ['squad', '분대원'],
-      /* 2026-09-15: 안드로이드 분대원 — 명단에 한 기라도 있을 때만 줄이 뜬다 (`refreshLegend`) */
+      /* 2026-09-15: android squadmates — the row appears only while at least one unit is on the roster (`refreshLegend`) */
       ['ally', '안드로이드'],
       ['pad', '탈출 지점'],
       ['ship', '탈출 함선'],
@@ -282,7 +291,7 @@ export class MapScreen {
       this.legendRows.push({ id, row, cv });
     }
 
-    /* 2026-09-13: 탐사 차량 목적지 선택 패널 — 선택 모드 동안 범례 자리를 차지한다 */
+    /* 2026-09-13: the rover destination selection panel — it takes the legend's place while the mode runs */
     this.roverPanel = el('div', { cls: 'map-rover', parent: side });
     this.roverPanel.hidden = true;
     el('div', { cls: 'ui-label', text: '탐사 차량 · 목적지 선택', parent: this.roverPanel });
@@ -301,16 +310,17 @@ export class MapScreen {
     this.rvBtn = el('button', { cls: 'map-rover-go', parent: this.roverPanel });
     this.rvBtn.type = 'button';
     this.rvBtnFill = el('span', { cls: 'fill', parent: this.rvBtn });
-    // 2026-09-15 2차 (사용자 결정): 「N초 동안 누르고 있어야 출발합니다」는 버튼 **안**의 좌클릭 홀드 키캡이 대신한다.
-    // 아래 줄에는 그 줄이 진짜로 나르던 **경고**만 남는다.
+    // 2026-09-15, 2nd pass (user's decision): 「hold for N seconds to depart」 is replaced by the left-click hold
+    // keycap **inside** the button. The line below keeps only the **warning** that line really carried.
     this.rvBtnCap = createHoldButtonCap(this.rvBtn);
     this.rvBtnLbl = el('span', { cls: 'lbl', text: '목적지를 선택하세요', parent: this.rvBtn });
     el('div', { cls: 'map-rover-note', text: '출발하면 도착까지 내릴 수 없습니다.', parent: this.roverPanel });
-    // 되돌릴 수 없는 확정 = 1초 홀드 (CLAUDE.md). 클릭 · Enter · Space 로는 아무것도 하지 않는다.
+    // An irreversible confirm = a 1 s hold (CLAUDE.md). A click · Enter · Space does nothing.
     this.rvBtn.addEventListener('pointerdown', (e) => this.startHold(e));
     this.rvBtn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') e.preventDefault(); });
 
-    // 2026-09-13 (사용자 결정): 좌하단 `초기화` 버튼과 조작 안내 줄은 없앴다 — 조작은 우하단 키 가이드가 말한다.
+    // 2026-09-13 (user's decision): the bottom-left `초기화` button and the controls notice row were removed — the
+    //             controls are said by the bottom-right key guide.
     const foot = el('div', { cls: 'map-foot', parent: side });
     const exploredRow = el('div', { cls: 'map-zoom-row', parent: foot });
     el('span', { cls: 'ui-label', text: '탐색률', parent: exploredRow });
@@ -335,15 +345,15 @@ export class MapScreen {
   }
 
   get isOpen(): boolean { return this._open; }
-  /** 2026-09-13 (debug · smoke): 탐사 차량 목적지 선택 모드인가 · 고른 정류장 id. */
+  /** 2026-09-13 (debug · smoke): whether the rover destination selection mode is on · the picked station id. */
   get isRoverMode(): boolean { return this.roverMode; }
   get roverSelection(): string | null { return this.selectedStation; }
-  /** 보이는 범례 줄 id 목록 (debug · smoke). */
+  /** Ids of the visible legend rows (debug · smoke). */
   get legendIds(): string[] { return this.legendRows.filter((r) => !r.row.hidden).map((r) => r.id); }
-  /** 2026-09-14 (debug · smoke): 퀘스트 패널로 그려진 퀘스트 id · 툴팁이 떠 있는 퀘스트. */
+  /** 2026-09-14 (debug · smoke): quest ids drawn as quest panels · the quest whose tooltip is up. */
   get questIds(): string[] { return this.quests.questIds; }
   get questTip(): string | null { return this.quests.tipQuest; }
-  /** Smoke hook: 목적지 선택 모드에서 정류장을 코드로 고른다 (클릭과 같은 경로). 모드가 아니거나 모르는 id 면 false. */
+  /** Smoke hook: picks a station from code in destination selection mode (the same path as a click). false when the mode is off or the id is unknown. */
   selectStation(id: string): boolean {
     if (!this.roverMode) return false;
     const rv = this.ctx?.world?.rover;
@@ -389,7 +399,7 @@ export class MapScreen {
         if (this.roverMode) this.exitRoverMode(true);
         if (this._open) this.refreshLegend();
       }),
-      // 2026-09-13: 탐사 차량 — 막 탔으면 목적지 선택 모드로 연다, 출발 · 하차 · 파괴면 닫는다
+      // 2026-09-13: the rover — just boarded opens destination selection mode; departure · getting off · destruction closes it
       b.on('rover:destinationSelect', ({ open }) => {
         if (open) this.enterRoverMode();
         else if (this.roverMode) this.exitRoverMode(true);
@@ -405,7 +415,7 @@ export class MapScreen {
       b.on('extraction:activated', ({ pointId }) => { this.activePadId = pointId; }),
       b.on('extraction:shipLanded', ({ position }) => { this.shipPos = position.clone(); }),
       b.on('extraction:liftoff', () => { this.shipPos = null; }),
-      // 2026-09-13: 남겨진 사람의 흐름이 리셋되면 떠난 패드 강조를 지운다 (다른 콘솔로 다시 부를 수 있다)
+      // 2026-09-13: when the flow of those left behind resets, the highlight on the departed pad is cleared (another console can call again)
       b.on('extraction:reset', () => { this.activePadId = null; this.shipPos = null; }),
       b.on('ping:placed', ({ id, position, kind, expires }) => { this.pings.set(id, { id, kind, position, expires }); }),
       b.on('ping:removed', ({ id }) => { this.pings.delete(id); }),
@@ -418,10 +428,10 @@ export class MapScreen {
         this.pings.clear(); this.shipPos = null; this.activePadId = null; this.outposts.clear();
       }),
       b.on('input:bindingsChanged', () => { if (this._open) this.emitGuide(); }),
-      // 2026-09-14 (튜토리얼): 단계가 넘어가면 함선 범례 줄이 붙거나 떨어진다 (지도 캔버스는 프레임마다 스스로 본다)
-      // 2026-09-18: 좌측 열 맨 위의 튜토리얼 목표 패널도 그 자리에서 다시 짓는다 (폴링을 기다리면 반 박자 늦는다)
+      // 2026-09-14 (tutorial): a step change adds or drops the ship legend row (the map canvas checks for itself every frame)
+      // 2026-09-18: the tutorial objective panel at the top of the left column is rebuilt on the spot too (the poll would be half a beat late)
       b.on('tutorial:changed', () => { if (this._open) { this.refreshLegend(); this.quests.refresh(true); } }),
-      // 2026-09-14: 퀘스트 패널 — 목표 진행 · 상태가 바뀌면 곧바로 (나머지는 `quests.tick` 의 폴링)
+      // 2026-09-14: the quest panels — at once when objective progress · state changes (the rest is `quests.tick`'s polling)
       b.on('npc:objectiveProgress', () => { if (this._open) this.quests.refresh(true); }),
       b.on('npc:questChanged', () => { if (this._open) this.quests.refresh(true); }),
     );
@@ -435,7 +445,7 @@ export class MapScreen {
       && !ctx.uiBlockers.has(MENU_BLOCKER) && (this._open || ctx.uiBlockers.size === 0)) {
       if (this._open) this.close();
       else {
-        // 2026-09-13: 탐사 차량에 타 정차해 있으면 M 은 목적지 선택 모드로 연다
+        // 2026-09-13: while aboard a stopped rover, M opens destination selection mode
         const rv = ctx.world?.rover;
         if (rv?.localAboard && rv.vehicle.state === 'stopped') this.enterRoverMode(); else this.open();
       }
@@ -443,9 +453,10 @@ export class MapScreen {
       && ctx.escape.topKey === BLOCKER) {
       /*
        * 2026-09-09: Tab closes every screen; swallow it so nothing later in the frame opens the inventory on it.
-       * 2026-09-15: **맨 위 하나만** — Escape 와 같은 순서다 (`shared/escape`). Tab 폴링은 닫히는 순서가
-       * `main.ts` 의 시스템 등록 순서로 정해지므로, 지도 위에 나중에 연 화면(무한 상자 · 인벤토리 창)이 있으면
-       * 그쪽이 먼저 닫혀야 한다. 열린 순서를 아는 곳은 `ctx.escape` 뿐이라 여기서 맨 위가 나인지만 본다.
+       * 2026-09-15: **only the topmost one** — the same order as Escape (`shared/escape`). Tab polling has its
+       * close order decided by the system registration order in `main.ts`, so when a screen opened later sits
+       * above the map (a container · the inventory window) that one has to close first. Only `ctx.escape` knows
+       * the open order, so all that is checked here is whether the top is this screen.
        */
       ctx.input.consume(Keys.INVENTORY);
       this.close();
@@ -458,15 +469,17 @@ export class MapScreen {
   }
 
   /**
-   * 키 가이드 entries for the map (the guide appends `Tab 또는 Esc 또는 M 닫기` itself — owner `'map'`).
-   * 2026-09-13: 핑 키는 지도에서 실제로 핑을 찍는 버튼(`Keys.PING`)을, 이동은 실제로 끄는 좌클릭(`Mouse0`)을 말한다
-   * (예전에는 `Keys.FIRE` 를 읽어 사격 키를 바꾸면 거짓말을 했다). 목적지 선택 모드면 맨 앞에 `좌클릭 목적지 선택`.
+   * Key guide entries for the map (the guide appends `Tab 또는 Esc 또는 M 닫기` itself — owner `'map'`).
+   * 2026-09-13: the ping key names the button that actually places a ping on the map (`Keys.PING`), and panning
+   * names the left click that actually drags (`Mouse0`) (it used to read `Keys.FIRE` and lied once the fire key
+   * was rebound). In destination selection mode `좌클릭 목적지 선택` comes first.
    */
   private emitGuide(): void {
     const keys: KeyGuideEntry[] = [];
     if (this.roverMode) keys.push({ key: keyLabel('Mouse0'), label: '목적지 선택' });
     if (mouseButtonOf(Keys.PING, 1) !== 0) keys.push({ key: keyLabel(Keys.PING), label: '핑' });
-    // 2026-09-15: 키캡 안에는 키 하나만 (`LMB` → 마우스 그림), 「드래그」 는 동작 쪽으로. `휠`(굴리기)은 누르는 버튼이 아니라 글자로 둔다.
+    // 2026-09-15: only one key inside a keycap (`LMB` → the mouse glyph), 「드래그」 goes on the action side. `휠`
+    //             (scrolling) is not a button that gets pressed, so it stays as text.
     keys.push({ key: '휠', label: '확대' }, { key: keyLabel('Mouse0'), label: '드래그 이동' });
     this.ctx.bus.emit('ui:keyGuide', { owner: 'map', keys });
   }
@@ -522,9 +535,10 @@ export class MapScreen {
 
   private fit(): void {
     const vw = window.innerWidth, vh = window.innerHeight;
-    // 2026-09-14: 좌측 열 240 → 280 px (퀘스트 패널 + 2열 범례) — 가로 여유도 그만큼 (열 280 + 간격 22 + 안여백 44 + 테두리 · 여유)
+    // 2026-09-14: left column 240 → 280 px (quest panels + a 2-column legend) — the horizontal margin grows with
+    //             it (column 280 + gap 22 + padding 44 + border · slack)
     const side = Math.max(240, Math.floor(Math.min(vh * 0.85, vw - 380)));
-    // 열 높이 = 캔버스 테두리 상자 높이. 못 박지 않으면 퀘스트 패널이 늘어난 만큼 프레임이 자라 화면 밖으로 나간다.
+    // Column height = the canvas border box height. Unpinned, the frame grows with the quest panels and runs off screen.
     this.sideEl.style.height = `${side + 2}px`;
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     if (side !== this.side || this.canvas.width !== Math.round(side * this.dpr)) {
@@ -709,9 +723,9 @@ export class MapScreen {
   }
 
   /**
-   * 안개 **경계선**의 선분 목록을 다시 만든다 (2026-09-10). 밝혀진 칸이 밝혀지지 않은 이웃과 맞닿는
-   * 변마다 선분 하나다. 맵 밖 이웃은 세지 않는다 — 지도 테두리가 이미 그 자리를 긋고 있다.
-   * `cells²`(80² = 6400) 를 한 번 훑을 뿐이고, `fog.revision` 이 바뀔 때만 돈다.
+   * Rebuilds the segment list of the fog **border** (2026-09-10). One segment per edge where a revealed cell
+   * meets a neighbour that is not revealed. A neighbour outside the map does not count — the map border already
+   * draws that line. It is one walk of `cells²` (80² = 6400) and runs only when `fog.revision` changes.
    */
   private buildFogEdges(fog: FogRef | null): void {
     if (!fog) { this.fogEdges = null; this.fogEdgeRevision = -1; return; }
@@ -735,7 +749,7 @@ export class MapScreen {
     this.fogEdges = out.length ? Float32Array.from(out) : null;
   }
 
-  /** 안개 경계선을 긋는다 (어두운 밑선 + 밝은 선). 컬러 레이어 바로 위, 격자 밑이다. */
+  /** Strokes the fog border (a dark underline + a bright line). Right above the colour layer, below the grid. */
   private drawFogEdges(): void {
     const e = this.fogEdges;
     if (!e || e.length === 0) return;
@@ -754,7 +768,7 @@ export class MapScreen {
     c.restore();
   }
 
-  /** 빗금 무늬 타일 (한 번만 만든다). 컨텍스트가 없으면 null 이고 그때는 채움만 쓴다. */
+  /** The hatch pattern tile (built once). Without a context it is null, and then only the fill is used. */
   private hatch(): CanvasPattern | null {
     if (this.hazardHatch) return this.hazardHatch;
     const t = document.createElement('canvas');
@@ -771,7 +785,7 @@ export class MapScreen {
     return this.hazardHatch;
   }
 
-  /** 안개 게이트: 아직 밝혀지지 않은 자리의 오브젝트는 지도에 그리지 않는다. 안개가 없으면 전부 보인다. */
+  /** The fog gate: an object standing where nothing is revealed yet is not drawn on the map. With no fog everything shows. */
   private discovered(pos: THREE.Vector3): boolean {
     const fog = this.ctx?.world?.fog;
     return !fog || fog.isDiscovered(pos);
@@ -787,14 +801,15 @@ export class MapScreen {
     c.fillRect(0, 0, C, C);
     const s = this.scale();
     const extent = this.size * s;
-    // 2026-09-09: 미탐색은 회색 윤곽, 밝혀진 곳만 컬러. 안개가 없는 세계(훈련장)는 예전처럼 컬러 한 장.
+    // 2026-09-09: unexplored ground is a grey outline, only revealed ground is coloured. A world with no fog (the
+    //             training range) is one colour sheet as before.
     const fog = ctx.world?.fog ?? null;
     if (fog) {
       if (this.fogDirty || this.fogRevision !== fog.revision) this.buildFogLayer(fog);
       else if (this.fogEdgeRevision !== fog.revision) this.buildFogEdges(fog);
       if (this.outlineCanvas) c.drawImage(this.outlineCanvas, this.ox, this.oy, extent, extent);
       if (this.fogLayer) c.drawImage(this.fogLayer, this.ox, this.oy, extent, extent);
-      // 2026-09-09 의 컬러 레이어는 가장자리가 스무딩으로 번져 "여기까지 봤다" 가 안 읽혔다 (2026-09-10)
+      // 2026-09-09's colour layer had its edge blurred by smoothing, so "we have seen this far" did not read (2026-09-10)
       this.drawFogEdges();
     } else if (this.staticCanvas) {
       c.drawImage(this.staticCanvas, this.ox, this.oy, extent, extent);
@@ -803,8 +818,9 @@ export class MapScreen {
     this.drawGrid(c);
 
     /*
-     * 2026-09-09 — 환경 재해는 **안개 레이어 위**에 그린다. 함선이 궤도에서 관측해 알려 주는 현상이라
-     * 걸어서 밝힌 구역과 상관이 없다 (사용자 명시 요구). 그래서 `discovered()` 게이트도 걸지 않는다.
+     * 2026-09-09 — environmental hazards are drawn **on top of the fog layer**. They are a phenomenon the ship
+     * observes from orbit and reports, so they have nothing to do with the ground revealed on foot (an explicit
+     * request from the user). The `discovered()` gate is therefore not raised on them either.
      */
     this.drawHazard(ctx);
 
@@ -812,12 +828,12 @@ export class MapScreen {
     const t = ctx.time;
     const labels = this.labels;
     if (world?.ready) {
-      // 선로 · 플랫폼 · 전차 (2026-09-09): 지형지물이므로 발견한 것만. 전차는 매 프레임 움직인다.
+      // rails · platforms · trams (2026-09-09): landmarks, so only the discovered ones. A tram moves every frame.
       this.drawRails(ctx);
-      // 탐사 차량 흙길 · 정류장 (2026-09-13) — 차체는 아래에서 함선 뒤에 그린다
+      // the rover dirt road · stations (2026-09-13) — the vehicle body is drawn below, after the ship
       const rover = world.rover ?? null;
       if (rover) this.drawRoverRoute(rover);
-      // 버려진 구조물 (2026-09-09)
+      // abandoned structures (2026-09-09)
       for (const st of world.getStructures()) {
         if (!this.discovered(st.position)) continue;
         const x = this.toX(st.position.x), y = this.toY(st.position.z);
@@ -828,17 +844,19 @@ export class MapScreen {
         c.beginPath(); c.arc(x, y, rr, 0, Math.PI * 2); c.fill(); c.stroke();
         c.fillStyle = COL.structure;
         c.fillRect(x - 3.5, y - 3.5, 7, 7);
-        // 잠긴 문(전진기지 지하실 · 연구소 2층 잠긴 방)이 아직 잠겨 있으면 호박색 자물쇠 점을 하나 더 찍는다
-        // (2026-09-12: 열쇠는 이제 그 건물 안에 있다는 보장이 없다 — 「열쇠 · 키카드를 챙겨 올 곳」이라는 표시다)
+        // while a locked door (the outpost basement · the lab's locked room on floor 2) is still locked, one more
+        // amber lock dot is drawn (2026-09-12: the key is no longer guaranteed to be inside that building — the
+        // dot means 「somewhere to bring a key · keycard to」)
         if ((st.hasBasement || st.hasLockedRoom) && !st.unlocked) {
           c.fillStyle = COL.accent;
           c.beginPath(); c.arc(x + 6, y - 6, 2, 0, Math.PI * 2); c.fill();
         }
-        // 2026-09-13: `구조물` 대신 짧은 원래 이름 (연구소 · 전진기지 · 불시착 함선)
+        // 2026-09-13: the short proper name instead of `구조물` (`연구소` · `전진기지` · `불시착 함선`)
         labels.add(STRUCTURE_SHORT_KO[st.kind] ?? '구조물', x, y + rr + 2, LABEL_COL, PRIO.structure);
       }
-      /* 폐허 전초 (2026-09-11, C-11) — 발견 이벤트로 쌓인 것만. 무너진 벽을 닮은 **ㄷ자** (한 변이 뚫린 사각)이고
-       * 구조물의 채운 사각형과 겹치지 않게 테두리만 긋는다. */
+      /* Ruined outposts (2026-09-11, C-11) — only those accumulated from discovery events. A **ㄷ shape** like a
+       * collapsed wall (a square with one side open), stroked as an outline only so it never reads as the
+       * structure's filled square. */
       for (const [, pos] of this.outposts) {
         const x = this.toX(pos.x), y = this.toY(pos.z);
         if (!this.inView(x, y, 16)) continue;
@@ -847,10 +865,10 @@ export class MapScreen {
         c.moveTo(x + 4.5, y - 4.5); c.lineTo(x - 4.5, y - 4.5); c.lineTo(x - 4.5, y + 4.5); c.lineTo(x + 1.5, y + 4.5);
         c.stroke();
         c.fillStyle = COL.outpost;
-        c.fillRect(x + 3, y - 1, 1.6, 1.6);                 // 안테나 비콘 점
+        c.fillRect(x + 3, y - 1, 1.6, 1.6);                 // antenna beacon dot
         labels.add('폐허 전초', x, y + 7, LABEL_COL, PRIO.outpost);
       }
-      // 거대 버섯 군락 (독성 포자 발생지) — 발견한 것만
+      // giant mushroom groves (where the toxic spores come from) — only the discovered ones
       for (const src of ctx.world?.hazard?.getSources() ?? []) {
         if (!src.discovered) continue;
         const x = this.toX(src.position.x), y = this.toY(src.position.z);
@@ -887,7 +905,7 @@ export class MapScreen {
           c.strokeRect(x - sz / 2 - 2, y - sz / 2 - 2, sz + 4, sz + 4);
         }
       }
-      // gather nodes: 약초는 작은 십자, 고철 더미(2026-09-08)는 호박색 사각 — 둘 다 채집되면 흐려진다
+      // gather nodes: herbs are a small cross, a scrap pile (2026-09-08) an amber square — both dim once harvested
       const nodes = world.getGatherNodes?.();
       if (nodes) {
         for (const g of nodes) {
@@ -919,7 +937,7 @@ export class MapScreen {
         drawPad(c, x, y, active);
         labels.add('탈출', x, y + 10, active ? COL.accent : LABEL_COL, PRIO.pad);
       }
-      // landed ship (2026-09-14: 튜토리얼은 마지막 `extract` 단계 전까지 함선을 지도에서 감춘다 — 범례 줄도 같이)
+      // landed ship (2026-09-14: the tutorial hides the ship from the map until the last `extract` step — the legend row with it)
       if (this.shipPos && !this.hidesShip()) {
         const x = this.toX(this.shipPos.x), y = this.toY(this.shipPos.z);
         if (this.inView(x, y, 20)) {
@@ -927,13 +945,13 @@ export class MapScreen {
           labels.add('함선', x, y + 10, COL.success, PRIO.ship);
         }
       }
-      // 탐사 차량 차체 (2026-09-13)
+      // the rover body (2026-09-13)
       if (rover) this.drawRoverVehicle(rover);
-      // 지형지물 라벨은 여기서 한 번에 — 겹치면 우선순위가 낮은 것을 버린다
+      // the landmark labels go out here in one pass — where two overlap the lower-priority one is dropped
       labels.flush(c);
       if (rover && this.roverMode) this.drawRoverReason(rover);
     }
-    /* 2026-09-13 (사용자 결정): 떨어진 아이템 · 설치물 · 지뢰는 지도에 그리지 않는다. */
+    /* 2026-09-13 (user's decision): dropped items · deployables · mines are not drawn on the map. */
     // pings (local: kind colour; squad: owner slot colour + name)
     const pingList: Iterable<MapPing> = this.pingSource ? this.pingSource() : this.pings.values();
     for (const p of pingList) {
@@ -956,7 +974,7 @@ export class MapScreen {
           this.triangle(c, x, y, 6, col, 'rgba(255,194,58,0.35)');
           c.fillStyle = col; c.fillRect(x - 0.75, y - 2, 1.5, 3.5); c.fillRect(x - 0.75, y + 2.5, 1.5, 1.5);
           break;
-        /* 2026-09-09: 전투불능 좌/우 핑 — 오프스크린 화살표의 ✚ / ✖ 과 같은 모양으로 맞춘다. */
+        /* 2026-09-09: the downed left / right pings — matched to the ✚ / ✖ of the off-screen arrows. */
         case 'help':
           c.strokeStyle = col; c.lineWidth = 2;
           c.beginPath(); c.moveTo(x - 5, y); c.lineTo(x + 5, y); c.moveTo(x, y - 5); c.lineTo(x, y + 5); c.stroke();
@@ -984,16 +1002,17 @@ export class MapScreen {
         if (!this.inView(x, y, 30)) continue;
         const col = suspended ? COL_SUSPENDED : (NET_SLOT_COLORS_CSS[r.slot] ?? '#fff');
         c.globalAlpha = suspended ? 0.6 : r.stale ? 0.45 : 1;
-        // 2026-09-13: 1.6배 화살표 — 범례 견본과 같은 함수 (`mapIcons`)
+        // 2026-09-13: the ×1.6 arrow — the same function as the legend sample (`mapIcons`)
         if (r.isDead) drawSquadDead(c, x, y, col);
         else drawSquadArrow(c, x, y, Math.atan2(-Math.cos(r.yaw), -Math.sin(r.yaw)), col);
         drawLabel(c, suspended ? `${r.name} · ${SUSPENDED_LABEL_KO}` : r.isDead ? `${r.name} · 전사` : r.name, x, y + 9 * MARKER_SCALE, col);
         c.globalAlpha = 1;
       }
     }
-    /* 2026-09-15 (안드로이드 분대원): 분대원 마커와 같은 자리 · 같은 슬롯 색, **다른 모양** (`drawAllyArrow` —
-     * 속 빈 삼각형 + 가운데 점). 멀티 게이트가 없는 것은 일부러다: 치트 한 기는 솔로 레이드에도 따라온다.
-     * 숨은 몸(강하 포드 · 이륙선)은 빼고, 쓰러졌거나 죽었으면 사각형 + X 로 그린다. */
+    /* 2026-09-15 (android squadmates): the same place · the same slot colour as a squadmate marker, in **a
+     * different shape** (`drawAllyArrow` — a hollow triangle + a centre dot). There is deliberately no
+     * multiplayer gate: a unit from the cheat follows into a solo raid too. Hidden bodies (drop pod · liftoff
+     * ship) are left out, and a downed or dead one is drawn as a square + X. */
     for (const b of allyBodies(ctx)) {
       if (b.hidden || b.mode !== 'raid') continue;
       const x = this.toX(b.position.x), y = this.toY(b.position.z);
@@ -1016,19 +1035,20 @@ export class MapScreen {
     c.globalAlpha = 1;
   }
 
-  /* ── 2026-09-09: 환경 재해 · 선로 ───────────────────────────────────────── */
+  /* ── 2026-09-09: environmental hazards · rails ─────────────────────────── */
 
   /**
-   * `HazardRef.getZones()` 의 도형을 안개 위에 얹는다. `world/` 가 재해를 아직 만들지 않으면 `hazard` 가 null
-   * 이라 통째로 건너뛴다.
+   * Lays the shapes of `HazardRef.getZones()` over the fog. While `world/` has not built a hazard yet, `hazard`
+   * is null and the whole thing is skipped.
    *
-   *   - `front` = **반평면**. 전선은 `center` 를 지나고 법선이 `(dirX, dirZ)` — 진행 방향이다. 그래서 **법선의
-   *     반대편**(이미 지나온 쪽)이 위험이고, 그쪽을 붉게 채운 뒤 전선 자체를 굵게 긋는다.
-   *   - `circle` = 원. `safeInside` 면 원 **바깥**이 위험이라 캔버스 전체에서 원을 도려내 채우고(even-odd),
-   *     아니면 원 **안**을 채운다.
+   *   - `front` = a **half-plane**. The front line passes through `center` and its normal is `(dirX, dirZ)` — the
+   *     travel direction. So the **far side of the normal** (the side already passed) is the danger: it is filled
+   *     red and then the front line itself is stroked thick.
+   *   - `circle` = a circle. With `safeInside` the **outside** of the circle is the danger, so the circle is cut
+   *     out of the whole canvas and filled (even-odd); otherwise the **inside** is filled.
    *
-   * 도형이 하나도 없어도 재해가 진행 중이면 이름표를 좌상단에 하나 남긴다 — 지도를 연 사람이 "지금 뭐가
-   * 오고 있나" 를 여기서 읽는다.
+   * Even with no shape at all, a running hazard leaves one name tag at the top left — whoever opened the map
+   * reads "what is coming right now" here.
    */
   private drawHazard(ctx: GameContext): void {
     const hz: HazardRef | null = ctx.world?.hazard ?? null;
@@ -1036,16 +1056,16 @@ export class MapScreen {
     const c = this.c2d;
     const C = this.side;
     const s = this.scale();
-    const L = this.size * 2;   // 반평면을 캔버스 밖까지 확실히 덮는 길이(m)
+    const L = this.size * 2;   // length (m) that certainly covers the half-plane past the canvas edge
 
-    // 2026-09-10: 채움 한 겹 + **빗금** 한 겹. 같은 길을 두 번 채우므로 `fill` 뒤에도 경로를 그대로 쓴다.
+    // 2026-09-10: one fill layer + one **hatch** layer. The same path is filled twice, so it is reused after `fill`.
     const hatch = this.hatch();
     const paint = (rule?: CanvasFillRule): void => {
       c.fillStyle = HAZARD_FILL;
       if (rule) c.fill(rule); else c.fill();
       if (hatch) { c.fillStyle = hatch; if (rule) c.fill(rule); else c.fill(); }
     };
-    /** 경계선: 어두운 밑선 위에 밝은 선 — 밝은 지형 위에서도 살아남는다. */
+    /** Border: a bright line over a dark underline — it survives over bright terrain. */
     const edge = (draw: () => void): void => {
       c.strokeStyle = HAZARD_LINE_UNDER; c.lineWidth = 4.5; c.beginPath(); draw(); c.stroke();
       c.strokeStyle = HAZARD_LINE; c.lineWidth = 2.2; c.beginPath(); draw(); c.stroke();
@@ -1053,15 +1073,16 @@ export class MapScreen {
 
     c.save();
     c.beginPath(); c.rect(0, 0, C, C); c.clip();
-    /* 2026-09-13: **맵 사각형 밖은 그리지 않는다** (사용자 요구). 폭풍의 눈이 이제 맵 네 꼭짓점을 품는 원으로 시작해
-     * 원의 대부분이 맵 밖에 있고, 확대 · 이동한 지도에서는 캔버스가 맵보다 넓을 수 있다. 캔버스 클립과 겹쳐 건다. */
+    /* 2026-09-13: **nothing is drawn outside the map square** (the user's request). The eye of the storm now
+     * starts as a circle containing all four map corners, so most of it lies outside the map, and on a zoomed ·
+     * panned map the canvas can be wider than the map. This clip is stacked on the canvas clip. */
     const mapX = this.toX(-this.size / 2), mapY = this.toY(-this.size / 2), mapW = this.size * s;
     c.beginPath(); c.rect(mapX, mapY, mapW, mapW); c.clip();
     const union = this.sporeCircles;
     union.length = 0;
     for (const z of hz.getZones()) {
       if (z.shape === 'front') {
-        const px = -z.dirZ, pz = z.dirX;                       // 전선 방향 (법선에 수직)
+        const px = -z.dirZ, pz = z.dirX;                       // front-line direction (perpendicular to the normal)
         const pts: Array<[number, number]> = [
           [z.center.x + px * L, z.center.z + pz * L],
           [z.center.x - px * L, z.center.z - pz * L],
@@ -1079,10 +1100,11 @@ export class MapScreen {
         continue;
       }
       const cx = this.toX(z.center.x), cy = this.toY(z.center.z);
-      /* 2026-09-11 (C-15): 폭풍의 눈이 반경 0 까지 닫힌다. `Math.max(1, …)` 만 두면 다 닫힌 뒤에도 **1 px 짜리
-       * 안전 구멍과 테두리**가 남아 "아직 안전지대가 있다" 로 읽혔다. 월드의 벽 비주얼(`hazard/parts/Visuals`)과
-       * 같은 문턱 `CLOSED_RADIUS_M` 아래는 닫힌 원이다: 안이 안전한 원이면 캔버스 전체가 위험, 안이 위험한 원이면
-       * 아무것도 없다. */
+      /* 2026-09-11 (C-15): the eye of the storm closes all the way to radius 0. With only `Math.max(1, …)`, a
+       * **1 px safe hole and its border** were left even after it had closed, and that read as "there is still a
+       * safe zone". Below `CLOSED_RADIUS_M`, the same threshold as the world's wall visuals
+       * (`hazard/parts/Visuals`), the circle is closed: a safe-inside circle makes the whole canvas dangerous, a
+       * danger-inside circle draws nothing. */
       if (z.radius <= CLOSED_RADIUS_M) {
         if (z.safeInside) { c.beginPath(); c.rect(0, 0, C, C); paint(); }
         continue;
@@ -1090,16 +1112,17 @@ export class MapScreen {
       const rr = Math.max(1, z.radius * s);
       c.beginPath();
       if (z.safeInside) {
-        // 원 밖이 위험: 캔버스 사각형에서 원을 도려낸다 (even-odd).
-        // `rect` 뒤에는 현재 점이 사각형 시작점이라, `moveTo` 없이 `arc` 를 부르면 그 점에서 선이 하나 그어진다.
+        // outside the circle is the danger: the circle is cut out of the canvas rectangle (even-odd).
+        // after `rect` the current point is the rectangle's start, so calling `arc` with no `moveTo` draws a line from it.
         c.rect(0, 0, C, C);
         c.moveTo(cx + rr, cy);
         c.arc(cx, cy, rr, 0, Math.PI * 2);
         paint('evenodd');
         edge(() => c.arc(cx, cy, rr, 0, Math.PI * 2));
       } else {
-        /* 2026-09-13: 안이 위험한 원(독성 포자)은 여기서 그리지 않고 모아 뒀다가 **합집합 한 도형**으로 그린다 —
-         * 원마다 채우면 겹친 곳이 두 번 칠해지고 테두리가 서로의 안쪽을 가로질러 벤다이어그램이 됐다. */
+        /* 2026-09-13: a danger-inside circle (toxic spores) is not drawn here but collected and drawn as **one
+         * union shape** — filling per circle painted the overlaps twice and the borders cut across each other's
+         * insides into a Venn diagram. */
         union.push(cx, cy, rr);
       }
     }
@@ -1112,10 +1135,12 @@ export class MapScreen {
   }
 
   /**
-   * 2026-09-13 — 원 여럿의 **합집합**을 한 도형으로 그린다. `circles` = 캔버스 px 의 `[cx, cy, r, …]`.
-   *   - 채움: 원을 한 경로에 모두 넣고 nonzero 로 한 번 채운다 (같은 방향으로 도는 원이라 겹친 곳도 한 번만 칠해진다).
-   *   - 테두리: 원마다 **다른 원에 덮이지 않은 호**만 긋는다 — 겹친 원의 안쪽 호가 사라져 바깥 윤곽 하나만 남는다.
-   *     다른 원에 통째로 들어간 원(같은 원이 둘이면 뒤의 것)은 테두리가 없다.
+   * 2026-09-13 — draws the **union** of several circles as one shape. `circles` = `[cx, cy, r, …]` in canvas px.
+   *   - Fill: every circle goes into one path and is filled once with nonzero (they wind the same way, so an
+   *     overlap is painted only once).
+   *   - Border: per circle only the **arcs no other circle covers** are stroked — the inner arcs of overlapping
+   *     circles disappear and one outer outline is left. A circle entirely inside another (of two identical
+   *     circles, the later one) gets no border.
    */
   private drawCircleUnion(
     circles: readonly number[], paint: () => void, edge: (draw: () => void) => void,
@@ -1140,23 +1165,23 @@ export class MapScreen {
           if (j === i) continue;
           const dx = circles[j * 3] - xi, dy = circles[j * 3 + 1] - yi, rj = circles[j * 3 + 2];
           const d = Math.hypot(dx, dy);
-          if (d >= ri + rj) continue;                                   // 떨어져 있다
-          if (d + ri <= rj) {                                           // i 가 j 안에 통째로
+          if (d >= ri + rj) continue;                                   // apart
+          if (d + ri <= rj) {                                           // i lies entirely inside j
             const same = d < 1e-6 && Math.abs(ri - rj) < 1e-6;
             if (!same || j < i) hidden = true;
             continue;
           }
-          if (d + rj <= ri) continue;                                   // j 가 i 안 — i 의 둘레를 덮지 않는다
+          if (d + rj <= ri) continue;                                   // j is inside i — it covers none of i's rim
           const cosA = (ri * ri + d * d - rj * rj) / (2 * ri * d);
           const a = Math.acos(cosA < -1 ? -1 : cosA > 1 ? 1 : cosA);
           const phi = Math.atan2(dy, dx);
-          // [phi − a, phi + a] 를 [0, TAU) 로 접어 넣는다 (넘치면 둘로 쪼갠다)
+          // fold [phi − a, phi + a] into [0, TAU) (split in two when it overflows)
           const s0 = ((phi - a) % TAU + TAU) % TAU;
           const e0 = s0 + 2 * a;
           if (e0 > TAU) { iv.push(s0, TAU, 0, e0 - TAU); } else iv.push(s0, e0);
         }
         if (hidden) continue;
-        // 시작각으로 정렬 (쌍 단위 삽입 정렬 — 원이 몇 개뿐이다)
+        // sort by start angle (insertion sort over pairs — there are only a few circles)
         for (let k = 2; k < iv.length; k += 2) {
           const s = iv[k], e = iv[k + 1];
           let m = k - 2;
@@ -1173,7 +1198,7 @@ export class MapScreen {
     });
   }
 
-  /** 선로 중심선 + 플랫폼 + 전차. 발견한 것만 (전차는 자기 현재 위치로 판정하므로 지도에서 움직인다). */
+  /** Rail centre lines + platforms + trams. Only the discovered ones (a tram is judged by its current position, so it moves on the map). */
   private drawRails(ctx: GameContext): void {
     const world = ctx.world;
     if (!world) return;
@@ -1205,14 +1230,14 @@ export class MapScreen {
     }
   }
 
-  /* ── 2026-09-13: 탐사 차량 ─────────────────────────────────────────────── */
+  /* ── 2026-09-13: the rover ─────────────────────────────────────────────── */
 
-  /** 정류장이 지도에 보이는가 — 모든 정류장이 공개됐거나(누군가 탔다) 안개로 그 표지 기둥을 발견했다. */
+  /** Whether a station is visible on the map — either every station is revealed (somebody boarded) or its sign post was discovered. */
   private stationVisible(rover: RoverRef, st: RoverStationDef): boolean {
     return rover.stationsRevealed || this.discovered(st.polePosition);
   }
 
-  /** 흙길(공개된 뒤에만) + 정류장 마커 · 라벨. 목적지 선택 모드면 요금 · 현재 위치 · 막힌 정류장을 함께 그린다. */
+  /** The dirt road (only once revealed) + station markers · labels. In destination selection mode the fare · current position · blocked stations are drawn too. */
   private drawRoverRoute(rover: RoverRef): void {
     const c = this.c2d;
     const pts = rover.route.points;
@@ -1247,7 +1272,7 @@ export class MapScreen {
     }
   }
 
-  /** 차체 마커 — 지금 자리를 발견했거나 · 정류장이 공개됐거나 · 내가 타 있으면. */
+  /** The vehicle marker — when its current spot has been discovered · the stations are revealed · or the local player is aboard. */
   private drawRoverVehicle(rover: RoverRef): void {
     const v = rover.vehicle;
     if (!rover.stationsRevealed && !rover.localAboard && !this.discovered(v.position)) return;
@@ -1256,7 +1281,7 @@ export class MapScreen {
     drawRover(this.c2d, X, Y, v.yaw, v.state === 'destroyed');
   }
 
-  /** 목적지 선택 모드: 호버 · 선택한 정류장이 막혀 있으면 그 사유를 마커 옆에 붉게 쓴다. */
+  /** Destination selection mode: when the hovered · selected station is blocked, its reason is written in red beside the marker. */
   private drawRoverReason(rover: RoverRef): void {
     const id = this.hoverStation ?? this.selectedStation;
     if (!id || rover.vehicle.stationId === id) return;
@@ -1272,7 +1297,7 @@ export class MapScreen {
     return null;
   }
 
-  /** 캔버스 좌표 → 가장 가까운 보이는 정류장 (`STATION_HIT_PX` 안), 없으면 null. */
+  /** Canvas coordinates → the nearest visible station (within `STATION_HIT_PX`), null with none. */
   private stationAt(clientX: number, clientY: number): RoverStationDef | null {
     const rover = this.ctx?.world?.rover;
     if (!rover) return null;
@@ -1295,8 +1320,9 @@ export class MapScreen {
   }
 
   /**
-   * 목적지 선택 모드로 들어간다 (`rover:destinationSelect {open:true}` · 타 있는 채 정차 중 M). 지도가 닫혀 있으면 연다 —
-   * 다른 화면이 떠 있으면(인벤토리 등) 가로채지 않고 무시한다 (나중에 M 으로 열 수 있다).
+   * Enters destination selection mode (`rover:destinationSelect {open:true}` · M while aboard and stopped). It
+   * opens the map when the map is closed — while another screen is up (the inventory and so on) it does not take
+   * over but is ignored (M can open it later).
    */
   private enterRoverMode(): void {
     const ctx = this.ctx;
@@ -1313,13 +1339,13 @@ export class MapScreen {
     this.tripError = null;
     this.legendEl.hidden = true;
     this.roverPanel.hidden = false;
-    // 2026-09-14: 목적지 선택 패널이 열의 자리를 쓴다 — 퀘스트 목록도 숨기고 발밑 줄은 바닥에 (`.is-rover`)
+    // 2026-09-14: the destination panel takes the column's room — the quest list hides too and the foot rows go to the bottom (`.is-rover`)
     this.quests.setSuppressed(true);
     this.sideEl.classList.add('is-rover');
     this.emitGuide();
   }
 
-  /** 모드 상태만 지운다 (지도는 건드리지 않는다) — `close()` 가 부른다. */
+  /** Clears only the mode state (the map is left alone) — called by `close()`. */
   private resetRoverMode(): void {
     this.stopHold();
     this.roverMode = false;
@@ -1334,7 +1360,7 @@ export class MapScreen {
     this.canvas.classList.remove('pick');
   }
 
-  /** 모드를 끝낸다. `closeMap` 이고 모드가 지도를 열었으면 지도도 닫는다, 아니면 지도의 가이드를 되돌린다. */
+  /** Ends the mode. With `closeMap` and a map the mode opened, the map closes too; otherwise the map's guide is restored. */
   private exitRoverMode(closeMap: boolean): void {
     const opened = this.roverOpenedMap;
     this.resetRoverMode();
@@ -1343,8 +1369,9 @@ export class MapScreen {
   }
 
   /**
-   * 매 프레임: 차가 정차 상태를 벗어났거나(누가 결제했다 · 파괴) 내가 더 이상 타 있지 않으면 모드를 끝낸다. 들어온 직후
-   * 0.5 초는 `localAboard` 를 보지 않는다 (`rover:destinationSelect` 가 탑승 표시보다 먼저 올 수 있다). 패널 값도 여기서 쓴다.
+   * Every frame: the mode ends once the vehicle leaves the stopped state (somebody paid · it was destroyed) or the
+   * local player is no longer aboard. For the first 0.5 s after entering, `localAboard` is not read
+   * (`rover:destinationSelect` can arrive before the aboard flag). The panel values are written here too.
    */
   private tickRoverMode(ctx: GameContext): void {
     const rover = ctx.world?.rover ?? null;
@@ -1378,13 +1405,14 @@ export class MapScreen {
 
   private setBtnBlocked(blocked: boolean): void {
     toggleClass(this.rvBtn, 'is-blocked', blocked);
-    // 눌러도 소용없는 상태에서 「꾹 누르세요」 그림을 보여 주면 거짓말이다 (2026-09-15 2차).
+    // Showing the 「hold it down」 glyph while pressing achieves nothing would be a lie (2026-09-15, 2nd pass).
     this.rvBtnCap.style.display = blocked ? 'none' : '';
     this.rvBtn.setAttribute('aria-disabled', blocked ? 'true' : 'false');
     if (blocked && this.holdStart) this.stopHold();
   }
 
-  /* 출발 확정 = `UI_HOLD_CONFIRM_S` 홀드 (일시정지 메뉴 · 제작과 같은 게이지 — 게이지는 rAF, 일찍 떼면 0) */
+  /* Confirming departure = a `UI_HOLD_CONFIRM_S` hold (the same gauge as the pause menu · crafting — the gauge
+   * runs on rAF and an early release drops it to 0) */
   private startHold(e: PointerEvent): void {
     if (e.button !== 0 || !this.roverMode || this.holdStart) return;
     e.preventDefault();
@@ -1418,7 +1446,7 @@ export class MapScreen {
     this.rvBtn.classList.remove('is-holding');
   }
 
-  /** 홀드가 끝났다 — 결제 + 출발 요청. 막히면 사유를 패널에, 나가면 모드와 지도를 닫는다. */
+  /** The hold finished — payment + the departure request. Blocked, the reason goes on the panel; departing closes the mode and the map. */
   private confirmTrip(): void {
     const rover = this.ctx.world?.rover;
     const id = this.selectedStation;
@@ -1435,20 +1463,21 @@ export class MapScreen {
   }
 
   /**
-   * 2026-09-14 (튜토리얼): 착륙해 있는 탈출 함선을 지금 지도에 그리면 안 되는가.
-   * 튜토리얼 레이드는 마지막 `extract` 단계에 들어서야 함선을 알려 준다 — 그때는 「함선을 찾아가라」가 곧
-   * 목표라 표시가 안내 역할을 한다. 규칙은 `tutorial/parts/Gates` 하나가 갖고 여기서는 묻기만 한다;
-   * 튜토리얼이 아니면 언제나 false 라 평소 지도는 한 글자도 바뀌지 않는다.
+   * 2026-09-14 (tutorial): whether the landed extraction ship must not be drawn on the map right now.
+   * The tutorial raid only tells about the ship once the last `extract` step begins — there 「go to the ship」 is
+   * the objective itself, so the marker acts as the guide. The rule is owned by `tutorial/parts/Gates` alone and
+   * is only asked here; outside the tutorial it is always false, so the normal map does not change by one glyph.
    */
   private hidesShip(): boolean {
     return this.ctx?.tutorial?.hides('hud', 'shipMarker') ?? false;
   }
 
-  /* ── 범례 ──────────────────────────────────────────────────────────────── */
+  /* ── legend ────────────────────────────────────────────────────────────── */
 
   /**
-   * 범례 줄 보이기 · 견본 다시 그리기 (지도를 열 때 · 새 월드). 분대원은 멀티에서만, 선로 · 전차는 선로가 있을 때만,
-   * 탐사 차량 두 줄은 차량이 있을 때만. 분대원 견본은 실제 분대원의 슬롯 색을 쓴다.
+   * Shows the legend rows · redraws the samples (on opening the map · a new world). The squadmate row only in
+   * multiplayer, rail · tram only while there are rails, the two rover rows only while there is a vehicle. The
+   * squadmate sample uses the slot colour of an actual squadmate.
    */
   private refreshLegend(): void {
     const ctx = this.ctx;
@@ -1459,7 +1488,7 @@ export class MapScreen {
     let squadCol = NET_SLOT_COLORS_CSS[1];
     if (multi && ctx.net) for (const r of ctx.net.getRemotePlayers()) { if (NET_SLOT_COLORS_CSS[r.slot]) { squadCol = NET_SLOT_COLORS_CSS[r.slot]; break; } }
     const hideShip = this.hidesShip();
-    // 2026-09-15: 안드로이드 줄은 몸이 하나라도 있을 때만 (치트 한 기든, 분대의 세 기든)
+    // 2026-09-15: the android row only while at least one body exists (one unit from the cheat, or the squad's three)
     const allies = ctx ? allyBodies(ctx) : null;
     const hasAlly = !!allies && allies.length > 0;
     const allyCol = hasAlly ? (NET_SLOT_COLORS_CSS[allies[0].slot] ?? '#fff') : NET_SLOT_COLORS_CSS[3];
@@ -1471,7 +1500,7 @@ export class MapScreen {
     }
   }
 
-  /** 범례 견본 한 칸 — 지도와 **같은 그리기 함수**를 같은 크기로 부른다. */
+  /** One legend sample cell — it calls **the same painter as the map** at the same size. */
   private drawSwatch(lr: LegendRow, squadCol: string): void {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const cv = lr.cv;
@@ -1484,7 +1513,7 @@ export class MapScreen {
     const cx = SW_W / 2, cy = SW_H / 2;
     const k = MARKER_SCALE;
     switch (lr.id) {
-      // 화살표는 앞 끝과 뒤 끝의 가운데가 견본 가운데에 오게 민다
+      // the arrow is nudged so the midpoint of its front and rear ends sits at the sample's centre
       case 'player': drawPlayerArrow(c, cx - 1.5 * k, cy, 0); break;
       case 'squad': drawSquadArrow(c, cx - 1 * k, cy, 0, squadCol); break;
       case 'ally': drawAllyArrow(c, cx - 1 * k, cy, 0, squadCol); break;

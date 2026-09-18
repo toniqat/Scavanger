@@ -38,13 +38,13 @@ export function socialReady(ctx: GameContext): boolean {
 export const SOCIAL_UNAVAILABLE_KO = '소셜 기능을 사용할 수 없습니다';
 
 /**
- * Whether squad-mate `id`'s 아이디 is on my 차단 목록 (B-4 chat, B-11 말풍선 — 2026-09-11).
+ * Whether squad-mate `id`'s 아이디 is on my 차단 목록 (B-4 chat, B-11 speech bubbles — 2026-09-11).
  *
  * The 아이디 lives on the **lobby** row, not on `RemotePlayerRef`, so the two steps always go together: `getLobbyPlayer`
  * for the `PlayerCode`, then `SocialRef.isBlocked`. `hud/ChatLog` (typed squad lines) and `hud/TypingBubbles`
  * (the `…` bubble) both ask this — the same three lines lived in both files, so they live here instead, next to the
- * single read point of the mirror. Blocking hides what a peer **says**, never where they are: 이름표 · 핑 · 월드 마커 ·
- * 분대 패널 are gameplay information and stay (same line as the `ping` / `request` chat lines `ChatLog` keeps).
+ * single read point of the mirror. Blocking hides what a peer **says**, never where they are: nameplates · pings · world
+ * markers · the squad panel are gameplay information and stay (same line as the `ping` / `request` chat lines `ChatLog` keeps).
  */
 export function isPeerBlocked(ctx: GameContext, id: PeerId): boolean {
   const code = ctx.net?.getLobbyPlayer(id)?.code;
@@ -103,7 +103,7 @@ export function setDebugSocial(
     if (i >= 0) live.splice(i, 1);
   };
   const lines = new Map<string, WhisperLine[]>(Object.entries(history).map(([k, v]) => [k, [...v]]));
-  /* 2026-09-14 (메신저): 읽지 않음 = 받은 줄 중 상대별 readAt 보다 새 것 (seed 의 받은 줄은 전부 읽지 않음으로 시작한다). */
+  /* 2026-09-14 (the messenger): unread = incoming lines newer than that peer's readAt (every incoming line from the seed starts unread). */
   const readAt = new Map<string, number>();
   const unreadOf = (code: string): number => (lines.get(code) ?? []).filter((l) => !l.out && l.at > (readAt.get(code) ?? 0)).length;
   debugRef = {

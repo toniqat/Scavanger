@@ -7,7 +7,7 @@ export const STRATAGEM_GLYPH: Readonly<Record<StratagemId, string>> = {
   airstrike: '▼',
   supply_drop: '▣',
   structure_drop: '▦',
-  /** 2026-09-09: 구조선 투하 — 의료 십자 (알아볼 수 있는 유니코드 하나, 에셋 없음). */
+  /** 2026-09-09: the rescue drop — a medical cross (one recognisable Unicode glyph, no asset). */
   rescue_drop: '✚',
 };
 

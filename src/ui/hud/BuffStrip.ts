@@ -5,15 +5,15 @@ import {
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { cookStepsText, mealEffectLines } from './mealText';
-/* 2026-09-13 (요리 미니게임): 식사 품질 별 배지 */
+/* 2026-09-13 (the cooking minigame): the meal quality star badge */
 import { getMealDef, normalizeMealQuality } from '@/shared';
-/* 2026-09-13 (비디오게임): 게임 중 버프의 방식 줄 */
+/* 2026-09-13 (video games): the mode line of the gaming buff */
 import { GYM_MINIGAME_LABEL_KO } from '@/shared';
-/* 2026-09-17 (캐릭터 탭 버프 썸네일): 이 줄을 progression 의 캐릭터 시트가 빌려 쓴다 — 공장은 shared 에 등록한다 */
+/* 2026-09-17 (the character tab's buff thumbnails): progression's character sheet borrows this strip — the factory is registered in shared */
 import { provideCharBuffStrip } from '@/shared';
 import '../styles/buffs.css';
 
-/** 시간 글자 · 게이지를 다시 쓰는 주기 (UI 타이밍, 밸런스 아님). 타이머가 있는 썸네일이 보일 때만 돈다. */
+/** How often the time text · gauge is rewritten (UI timing, not balance). It only runs while a thumbnail with a timer shows. */
 const TICK_MS = 1000;
 
 /** One thumbnail as the smoke / debug getters read it back. */
@@ -31,7 +31,7 @@ export interface BuffCellState {
   /** `23h` / `42m` / `35s`, empty without a timer. */
   time: string;
   title: string;
-  /** appended (2026-09-13, 요리 품질): `meal` 의 품질 별 수 (배지), 없으면 0. */
+  /** appended (2026-09-13, meal quality): the star count of a `meal`'s quality (the badge), 0 when there is none. */
   quality: number;
 }
 
@@ -48,33 +48,33 @@ interface Cell {
   /** `--r` as last written (rounded). */
   rs: string;
   time: string;
-  /** `charBuffTitle` 그대로 (state · 스모크가 읽는다). DOM `title` 은 요리면 여기에 능력치 줄이 붙는다. */
+  /** `charBuffTitle` as-is (read by `state` · the smoke test). For a meal, the DOM `title` gets the stat lines appended to this. */
   title: string;
 }
 
 /**
- * **캐릭터 버프 썸네일 줄 (2026-09-12, 사용자 결정 — `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」).** 한 캐릭터의 `CharBuff[]` 를 작은 정사각
- * 썸네일로 늘어놓는다. PC 체력바 아래(`hud/Vitals`)와 좌하단 분대 목록의 분대원 행(`hud/Squad`)이 **같은 컴포넌트**를 쓴다 —
- * 크기만 `mini` 로 갈린다. 목록을 모으는 것은 player(내 것) · net(분대원 것)이고, 이 파일은 받은 목록을 **그대로 그린다**
- * (정렬은 소유자가 `CHAR_BUFF_ORDER` 로 이미 했다).
+ * **The character buff thumbnail strip (2026-09-12, user's decision — `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」).** It lays one character's
+ * `CharBuff[]` out as small square thumbnails. Under the PC hp bar (`hud/Vitals`) and the squadmate rows of the bottom-left squad list
+ * (`hud/Squad`) use **the same component** — only the size differs, through `mini`. The list is collected by player (mine) · net (a squadmate's),
+ * and this file draws the list it is handed **as-is** (the owner already sorted it by `CHAR_BUFF_ORDER`).
  *
- *   - 글리프 · 색: `meal` · `prep` · `adrenaline` · `stimulant` = 아이템 def 의 `icon` · `color` (`ctx.loot.getItemDef`), `env_exposed` = `ENV_ICON` · `ENV_COLOR`,
- *     못 찾으면 `CHAR_BUFF_GLYPH` · `CHAR_BUFF_COLOR`.
- *   - `pending`(함선에서 다음 레이드에 실어 둔 것) = 흐리게 (`.is-pending`), 디버프 = 빨간 테두리 (`.is-debuff`).
- *   - 타이머(`startedAt` · `endsAt`)가 있으면 **시간 게이지** — 임플란트 썸네일(`styles/implant.css`)과 같은 두 얼굴 기법이다:
- *     흐린 바탕 얼굴 위에 밝은 사본을 밑에서부터 `charBuffRemainingRatio` 만큼만 드러내므로 남은 시간이 줄수록 빛이
- *     **위에서 아래로 빠진다**. 우하단에 아주 작은 남은 시간(`23h` · `42m` · `35s`).
- *   - `title` = `charBuffTitle` (요리 · 준비물 이름은 아이템 def 에서). 2026-09-13 (요리 재료 티어): **요리**면 DOM `title` 아래에
- *     능력치 줄 전부가 한 줄씩 붙는다 (`hud/mealText.mealEffectLines` — 상위 요리는 2–4 줄). `state[].title` 은 `charBuffTitle` 그대로다.
- *   - 2026-09-13 (요리 미니게임): **요리 품질** — `meal` 의 `quality` 가 있으면 좌상단 작은 금색 별 배지(`data-q` = `★3`, 미니는 별 하나 —
- *     `styles/buffs.css` 의 `::after`)이고 DOM `title` 의 능력치 줄이 **보너스 반영 수치**다 (이름 뒤 별은 `charBuffTitle` 이 붙인다).
- *     **`cooking`**(조리 중) 은 계약의 `CHAR_BUFF_GLYPH` · `CHAR_BUFF_COLOR` 그대로이고(만드는 요리의 글리프를 쓰면 식사 버프와 헷갈린다),
- *     `title` 이 `조리 중 · <요리>` 아래에 그 요리의 단계 줄 `① 썰기 → ② 젓기`(`cookStepsText`)를 붙인다.
+ *   - glyph · colour: `meal` · `prep` · `adrenaline` · `stimulant` = the item def's `icon` · `color` (`ctx.loot.getItemDef`), `env_exposed` = `ENV_ICON` · `ENV_COLOR`,
+ *     with none found, `CHAR_BUFF_GLYPH` · `CHAR_BUFF_COLOR`.
+ *   - `pending` (loaded in the ship for the next raid) = dimmed (`.is-pending`), a debuff = a red border (`.is-debuff`).
+ *   - with a timer (`startedAt` · `endsAt`), a **time gauge** — the same two-face technique as the implant thumbnail (`styles/implant.css`):
+ *     a bright copy is revealed from the bottom over the dim base face, only as far as `charBuffRemainingRatio`, so as the remaining time falls the
+ *     light **drains from the top down**. The remaining time sits very small at the bottom right (`23h` · `42m` · `35s`).
+ *   - `title` = `charBuffTitle` (meal · preparation names from the item def). 2026-09-13 (cooking material tiers): for a **meal**, every stat line is
+ *     appended one per line under the DOM `title` (`hud/mealText.mealEffectLines` — a higher meal has 2–4). `state[].title` stays `charBuffTitle` as-is.
+ *   - 2026-09-13 (the cooking minigame): **meal quality** — with a `quality` on the `meal`, a small gold star badge at the top left (`data-q` = `★3`; mini shows one star —
+ *     the `::after` in `styles/buffs.css`), and the stat lines in the DOM `title` are **the numbers with the bonus folded in** (the star after the name is added by `charBuffTitle`).
+ *     **`cooking`** (a cook in progress) keeps the contract's `CHAR_BUFF_GLYPH` · `CHAR_BUFF_COLOR` (using the glyph of the meal being made would be confused with the meal buff),
+ *     and its `title` appends that meal's step line `① 썰기 → ② 젓기` (`cookStepsText`) under `조리 중 · <요리>`.
  *
- * `set(list)` 은 **참조로** 비교한다 (`PlayerRef.buffs` · `RemotePlayerRef.buffs` 는 바뀔 때만 새 배열이다) — 같은 배열이면 아무것도
- * 안 한다. 썸네일 DOM 은 `key` 로 재사용하고, 사라진 키만 떼어 낸다. `update()` 는 매 프레임(또는 분대 목록의 10 Hz) 불려도 되고,
- * 타이머가 있는 썸네일이 있을 때만 1초에 한 번 게이지 · 글자를 다시 쓴다. 시각은 `ctx.net.serverNow() ?? Date.now()` —
- * 목록의 시각을 찍은 player 와 같은 시계다.
+ * `set(list)` compares **by reference** (`PlayerRef.buffs` · `RemotePlayerRef.buffs` are a new array only on change) — the same array does
+ * nothing. Thumbnail DOM is reused by `key`, and only vanished keys are taken off. `update()` may be called every frame (or at the squad list's
+ * 10 Hz) and rewrites the gauge · text once a second only while a timed thumbnail exists. The clock is `ctx.net.serverNow() ?? Date.now()` —
+ * the same clock as the player that stamped the list's times.
  */
 export class BuffStrip implements CharBuffStripView {
   readonly root: HTMLElement;
@@ -83,9 +83,9 @@ export class BuffStrip implements CharBuffStripView {
   private timed = false;
   private nextTickAt = 0;
   /**
-   * 2026-09-17 (사용자 결정 「캐릭터 탭 이름 옆 썸네일, 호버하면 툴팁」): 썸네일이 마우스를 받고(`.is-interactive`) 칸마다 공용 글 카드
-   * 속성(`data-tip-name` 이름 · `-sub` 버프/디버프 · 남은 시간 · `-desc` 능력치 · 단계 줄 · `-color`)을 찍는다 — `hud/ItemTip` 이 그린다.
-   * 네이티브 `title` 은 인게임 커서 위에서 뜨지 않으므로 이 모드에서는 달지 않는다. HUD 의 줄은 false (`pointer-events: none`).
+   * 2026-09-17 (user's decision 「캐릭터 탭 이름 옆 썸네일, 호버하면 툴팁」): the thumbnails take the mouse (`.is-interactive`) and each cell
+   * stamps the shared text-card attributes (`data-tip-name` the name · `-sub` buff/debuff · remaining time · `-desc` stats · step line · `-color`) — `hud/ItemTip` draws it.
+   * A native `title` does not appear over the in-game cursor, so it is not attached in this mode. The HUD's strip is false (`pointer-events: none`).
    */
   private readonly interactive: boolean;
 
@@ -169,7 +169,7 @@ export class BuffStrip implements CharBuffStripView {
 
   private paintCell(cell: Cell, b: CharBuff, ctx: GameContext | null): void {
     cell.buff = b;
-    // 2026-09-12: 전투 소모품(아드레날린 · 각성제)도 그 아이템의 글리프 · 색을 쓴다
+    // 2026-09-12: combat consumables (adrenaline · stimulant) use their item's glyph · colour too
     const itemKind = b.kind === 'meal' || b.kind === 'prep' || b.kind === 'adrenaline' || b.kind === 'stimulant';
     const def = itemKind && b.defId ? defOf(ctx, b.defId) : undefined;
     let glyph: string = CHAR_BUFF_GLYPH[b.kind] ?? '•';
@@ -185,13 +185,13 @@ export class BuffStrip implements CharBuffStripView {
     let title = '';
     try { title = charBuffTitle(b, (id) => defOf(ctx, id)); } catch { title = b.key; }
     cell.title = title;
-    // 2026-09-13: 요리는 버프 하나에 능력치 줄이 여러 개다 — 마우스를 올리면 전부 보이게 한 줄씩 붙인다 (요리 품질이 있으면 보너스 반영)
+    // 2026-09-13: one meal buff carries several stat lines — they are appended one per line so hovering shows them all (with a meal quality, the bonus is folded in)
     const quality = b.kind === 'meal' ? normalizeMealQuality(b.quality) : 0;
     let lines: string[] = [];
     if (b.kind === 'meal' && def?.meal) lines = mealEffectLines(def.meal, quality);
     else if (b.kind === 'cooking' && b.defId) { const steps = cookStepsText(b.defId); if (steps) lines = [steps]; }
     else if (b.kind === 'gaming' && (b.stat || b.minigame)) {
-      // 2026-09-13 (비디오게임): 무엇을 단련하는 게임인가 — `지능 단련 · 호흡 달리기`
+      // 2026-09-13 (video games): which stat the game trains — `지능 단련 · 호흡 달리기`
       let statName = '';
       if (b.stat) { try { statName = ctx?.progression?.getStatDef(b.stat)?.name ?? ''; } catch { statName = ''; } }
       const parts = [statName ? `${statName} 단련` : '', b.minigame ? GYM_MINIGAME_LABEL_KO[b.minigame] : ''].filter(Boolean);
@@ -208,7 +208,7 @@ export class BuffStrip implements CharBuffStripView {
       const domTitle = lines.length > 0 ? `${title}\n${lines.join('\n')}` : title;
       if (cell.root.title !== domTitle) cell.root.title = domTitle;
     }
-    // 2026-09-13 (요리 품질): 좌상단 별 배지 — 글자는 CSS `::after { content: attr(data-q) }`
+    // 2026-09-13 (meal quality): the top-left star badge — the text comes from CSS `::after { content: attr(data-q) }`
     const q = quality > 0 ? `★${quality}` : '';
     if ((cell.root.dataset.q ?? '') !== q) { if (q) cell.root.dataset.q = q; else delete cell.root.dataset.q; }
     cell.root.dataset.kind = b.kind;
@@ -235,7 +235,7 @@ export class BuffStrip implements CharBuffStripView {
     if (this.interactive && ratio !== null) this.writeTipSub(cell, time);
   }
 
-  /** 글 카드 둘째 줄: `디버프` / `버프` (· `남은 23h`). 실어 둔 것은 이름이 이미 `· 다음 레이드` 를 말한다. */
+  /** The text card's second line: `디버프` / `버프` (· `남은 23h`). For a loaded one the name already says `· 다음 레이드`. */
   private writeTipSub(cell: Cell, time: string): void {
     const sub = `${cell.buff.debuff ? '디버프' : '버프'}${time ? ` · 남은 ${time}` : ''}`;
     if (cell.root.dataset.tipSub !== sub) cell.root.dataset.tipSub = sub;
@@ -244,7 +244,7 @@ export class BuffStrip implements CharBuffStripView {
 
 function defOf(ctx: GameContext | null, defId: string): ItemDef | undefined {
   if (!ctx) return undefined;
-  // 2026-09-16 (접시 모델): 요리는 아이템이 아니다 — `ctx.loot` 이 모르는 요리 id 는 요리 표(`shared/meals`)에서 찾는다
+  // 2026-09-16 (the plate model): a meal is not an item — a meal id `ctx.loot` does not know is looked up in the meal table (`shared/meals`)
   try { return ctx.loot?.getItemDef(defId) ?? ctx.inventory?.getDef(defId) ?? getMealDef(defId); } catch { return undefined; }
 }
 
@@ -265,5 +265,5 @@ export function formatRemaining(sec: number): string {
   return `${Math.ceil(s)}s`;
 }
 
-/* 2026-09-17: 캐릭터 시트(progression)가 `createCharBuffStrip` 으로 같은 줄을 받는다 — 폴더 간 import 없이 shared 에 등록 */
+/* 2026-09-17: the character sheet (progression) gets the same strip through `createCharBuffStrip` — registered in shared, with no cross-folder import */
 provideCharBuffStrip((parent, opts) => new BuffStrip(parent, opts));

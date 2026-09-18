@@ -1,14 +1,14 @@
 import type { AllyBodyView, AllyRosterEntry, CharBuff, GameContext, LobbyPlayer, LobbyState, RemotePlayerRef } from '@/shared';
 import { NET_MAX_PLAYERS, NET_SLOT_COLORS_CSS, PLAYER_DOWN_HP, PlayerFlags, SUSPENDED_LABEL_KO } from '@/shared';
-/* 2026-09-15 (분대 · 도킹 매칭): 미도킹 분대 — 모두 제 개인 함선에 있다 */
+/* 2026-09-15 (squads · dock matching): an undocked squad — everyone is in their own personal ship */
 import { isDockedLobby } from '@/shared';
-/* 2026-09-15 (안드로이드 분대원): 봇 멤버는 사람 행이 아니다 · 명단은 `ctx.allies` 가 준다 */
+/* 2026-09-15 (android squadmates): a bot member is not a human row · the roster comes from `ctx.allies` */
 import { ANDROID_BAY_COUNT, ALLY_DOWN_HP, isBotPlayer } from '@/shared';
 import { allyBody, allyRoster } from './allySource';
 
 /** Hub state of every member of an **undocked** squad (2026-09-15): nobody is in the shared ship yet. */
 const SQUAD_PERSONAL_SHIP_KO = '개인 함선';
-/** 2026-09-15: 안드로이드 행의 배지 · 상태 문구 (사람 행의 `훈련장` / `임무 중` / `함선` 과 같은 자리). */
+/** 2026-09-15: the android row's badge · state text (the same spot as a human row's `훈련장` / `임무 중` / `함선`). */
 const ANDROID_BADGE_KO = '안드로이드';
 const ANDROID_DOWNED_KO = '쓰러짐';
 const ANDROID_DEAD_KO = '사망';
@@ -18,12 +18,12 @@ import { el, setText, setVisible, toggleClass } from '../dom';
 
 const REFRESH = 0.1; // seconds between DOM refreshes (≤ 10 Hz)
 
-/** Per-member mission badge (Phase 7): where the member is relative to the running mission; 2026-09-15 + 안드로이드. */
+/** Per-member mission badge (Phase 7): where the member is relative to the running mission; 2026-09-15 + android. */
 export type SquadBadge = '' | '훈련장' | '임무 중' | '함선' | typeof ANDROID_BADGE_KO;
 
 interface Row {
   root: HTMLElement; name: HTMLElement; badge: HTMLElement; fill: HTMLElement; bleed: HTMLElement; state: HTMLElement; lastKey: string;
-  /** 2026-09-15 (안드로이드): 체력 바 위의 얇은 실드 바 — 사람 행에서는 숨는다 (`.has-shield` 가 붙지 않는다). */
+  /** 2026-09-15 (android): a thin shield bar above the hp bar — hidden on a human row (`.has-shield` is not added). */
   sh: HTMLElement; shFill: HTMLElement;
   /** 2026-09-12: member id the row shows (`''` = hidden) and its buff thumbnails under the hp bar. */
   id: string;
@@ -33,7 +33,7 @@ interface Row {
 /** Per-row extras (2026-09-12): who the row is and that member's buff list + revision. */
 interface RowExtra {
   id?: string; buffs?: readonly CharBuff[] | null; rev?: number;
-  /** 2026-09-15: 안드로이드 행 — 실드 비율 (0 = 실드 바 없음). */
+  /** 2026-09-15: the android row — the shield ratio (0 = no shield bar). */
   shield?: number;
   android?: boolean;
 }
@@ -46,11 +46,11 @@ const NO_GHOST: Ghost = { bleed: -1, dead: false };
  * Compact squad list (bottom-left `.hud-bl` column, above the local vitals): slot colour bar, name, mission badge, hp bar, state text.
  * Lobby members by slot (`ctx.net.getRemotePlayer`), then androids.
  *
- * **2026-09-16 (사용자 결정) — 내 행은 그리지 않는다.** 공용 함선에서도 레이드에서도 마찬가지다: 내 체력 · 실드 ·
- * 버프는 크로스헤어 아래 `Vitals` 가 이미 말하고 있어 한 줄을 더 쓰는 것은 같은 말을 두 번 하는 것이다. 그래서
- * 이 목록은 **남만** 담고(분대원 + 안드로이드), `.srow.me` · `(나)` 꼬리표 · 「내 행에는 버프 썸네일을 안 붙인다」
- * 규칙이 전부 사라졌다. 분대원만 남아도 목록은 그대로 뜨고, **한 줄도 없으면 목록 전체가 숨는다**(`finish`) —
- * 제목만 있는 빈 상자를 남기지 않는다.
+ * **2026-09-16 (user's decision) — the local row is not drawn.** In the shared ship and in a raid alike: my hp · shield ·
+ * buffs are already said by `Vitals` under the crosshair, so one more row would say the same thing twice. So this list
+ * holds **others only** (squadmates + androids), and `.srow.me` · the `(나)` tag · the rule 「내 행에는 버프 썸네일을 안 붙인다」
+ * are all gone. The list still appears with squadmates alone, and **with not one row it hides entirely** (`finish`) —
+ * it leaves no empty box with only a heading.
  *
  * Visible while `ctx.isMultiplayer` (mission) or in the shared ship (hub phase with a lobby); refreshed at ≤ 10 Hz
  * and only writes the DOM when a row changed. Hub states: `함선 내` / `탑승 준비` (`LobbyPlayer.ready`);
@@ -88,7 +88,7 @@ export class Squad {
   constructor(parent: HTMLElement) {
     this.root = el('div', { cls: 'squad hidden', parent });
     el('div', { cls: 'ui-label', text: '분대', parent: this.root });
-    // 2026-09-15: 사람 4 + 안드로이드 `ANDROID_BAY_COUNT` 기가 동시에 설 수 있다 (사람이 이겨 봇이 빠지기 전 한 프레임 포함).
+    // 2026-09-15: 4 humans + `ANDROID_BAY_COUNT` androids can stand at once (including the one frame before a human wins and a bot drops out).
     for (let i = 0; i < NET_MAX_PLAYERS + ANDROID_BAY_COUNT; i++) {
       const root = el('div', { cls: 'srow', parent: this.root });
       root.hidden = true;
@@ -134,16 +134,16 @@ export class Squad {
     const net = ctx.net;
     const hub = ctx.phase === 'hub' || ctx.phase === 'docking';
     const lobby = this.debugLobby ?? net?.lobby ?? null;
-    /* 2026-09-15 (안드로이드 분대원): 치트 명단(`/android 1`)은 **서버도 로비도 없이** 개인 함선 · 솔로 레이드에
-     * 존재한다 — 그래서 목록이 뜨는 조건에 「안드로이드가 한 기라도 있다」가 들어가고, `net` 이 null 이어도
-     * 안드로이드 행만으로 그린다 (아래 사람 행 구간은 통째로 `net` 을 요구한다). */
+    /* 2026-09-15 (android squadmates): the cheat roster (`/android 1`) exists in the personal ship · a solo raid **with neither a
+     * server nor a lobby** — so 「안드로이드가 한 기라도 있다」 is part of the condition for the list to appear, and it draws
+     * android rows alone even when `net` is null (the human-row section below needs `net` throughout). */
     const roster = allyRoster(ctx);
     const mp = (!!net && (ctx.isMultiplayer || !!this.debugLobby || (hub && !!lobby))) || roster.length > 0;
-    /* 2026-09-16: 여기는 「목록을 그릴 자리인가」까지만 본다. 실제로 **보이고 숨는 것은 채운 행 수**가 정한다
-     * (`finish`) — 분대에 나밖에 없으면 행이 0 줄이고, 그때 빈 상자가 남으면 안 된다. */
+    /* 2026-09-16: this only asks 「목록을 그릴 자리인가」. What actually **shows or hides it is the filled row
+     * count** (`finish`) — with nobody but me in the squad there are 0 rows, and no empty box may be left then. */
     if (!mp) {
       if (this.shown) { this.shown = false; setVisible(this.root, false); }
-      this.reset();          // 이미 비어 있으면 `hideRow` 가 줄마다 즉시 돌아온다 (할당 없음)
+      this.reset();          // already empty: `hideRow` returns at once per row (no allocation)
       return;
     }
     this.acc += dt;
@@ -160,8 +160,8 @@ export class Squad {
     if (players) {
       for (let slot = 0; slot < NET_MAX_PLAYERS && i < this.rows.length; slot++) {
         const lp = this.bySlot(players, slot);
-        // 2026-09-15: 봇 멤버(안드로이드)는 소켓이 없어 `RemotePlayerRef` 가 영영 오지 않는다 — 사람 행으로 그리면
-        // `연결 중` 으로 굳은 빈 줄이 된다. 봇은 아래 `fillAndroidRows` 가 `ctx.allies` 의 몸으로 그린다.
+        // 2026-09-15: a bot member (an android) has no socket, so a `RemotePlayerRef` never arrives — drawn as a human row
+        // it becomes an empty row frozen on `연결 중`. Bots are drawn by `fillAndroidRows` below, from `ctx.allies`' bodies.
         if (!lp || lp.id === net.localId || isBotPlayer(lp)) continue;
         const isDebug = this.debugRefs.has(lp.id);
         const ref = isDebug ? this.debugRefs.get(lp.id) : net.getRemotePlayer(lp.id);
@@ -190,8 +190,8 @@ export class Squad {
   }
 
   /**
-   * 2026-09-16 (사용자 결정): 채운 행이 `n` 줄이다 — 나머지를 감추고, **한 줄도 없으면 목록 자체를 감춘다**.
-   * 내 행이 사라진 뒤로 「분대원이 아무도 없는 공용 함선」이 흔해졌는데, 그때 제목(`분대`)만 뜬 빈 상자가 남으면 안 된다.
+   * 2026-09-16 (user's decision): `n` rows were filled — the rest are hidden, and **with not one row the list itself hides**.
+   * Since the local row went away 「분대원이 아무도 없는 공용 함선」 is common, and no empty box with only the heading (`분대`) may be left.
    */
   private finish(n: number): void {
     for (let i = n; i < this.rows.length; i++) this.hideRow(this.rows[i]);
@@ -200,9 +200,9 @@ export class Squad {
   }
 
   /**
-   * 2026-09-15 (안드로이드 분대원): 명단(`ctx.allies.roster`, bay 순) 한 기에 한 줄. 사람 행 **아래**에 붙는다.
-   * 체력 · 실드는 그 기의 몸(`getBody`)에서 읽고, 몸이 아직 없으면(리플리카가 첫 `ally state` 를 못 받았다)
-   * 체력 만땅 · 상태 빈칸으로 자리만 잡는다 — 사람 행의 `연결 중` 과 같은 뜻이다.
+   * 2026-09-15 (android squadmates): one row per roster entry (`ctx.allies.roster`, in bay order). They attach **below** the human rows.
+   * hp · shield are read from that unit's body (`getBody`), and with no body yet (the replica has not received a first `ally state`)
+   * the row just holds its place at full hp with an empty state — the same meaning as `연결 중` on a human row.
    */
   private fillAndroidRows(ctx: GameContext, roster: readonly AllyRosterEntry[], from: number): number {
     let i = from;
@@ -212,7 +212,7 @@ export class Squad {
       const hp = body ? body.hp / Math.max(1, body.maxHp) : 1;
       const shield = body && body.maxShield > 0 && !body.dead && !body.downed ? body.shield / body.maxShield : 0;
       const state = body?.dead ? ANDROID_DEAD_KO : body?.downed ? ANDROID_DOWNED_KO : '';
-      // 쓰러졌으면 사람 행의 호스트 유령과 같은 붉은 출혈 바를 쓴다 (출혈 풀 = `ALLY_DOWN_HP`).
+      // Downed, it uses the same red bleed bar as a human row's host ghost (the bleed pool = `ALLY_DOWN_HP`).
       const ghost: Ghost = body?.downed ? { bleed: Math.min(1, Math.max(0, body.downHp / Math.max(1, ALLY_DOWN_HP))), dead: false } : NO_GHOST;
       this.fillRow(this.rows[i++], entry.slot, entry.name, hp, state, ANDROID_BADGE_KO, ghost,
         { id: entry.id, shield, android: true });
@@ -250,7 +250,7 @@ export class Squad {
     return '';
   }
 
-  /** 2026-09-16: `me` 인자는 사라졌다 — 이 목록에 내 행은 없다 (`update` 의 머리 주석). 모든 행이 남(분대원 · 안드로이드)이다. */
+  /** 2026-09-16: the `me` argument is gone — this list has no local row (the head comment on `update`). Every row is somebody else (squadmate · android). */
   private fillRow(row: Row, slot: number, name: string, hp01: number, state: string, badge: SquadBadge, ghost: Ghost = NO_GHOST, extra: RowExtra = {}): void {
     const hp = Math.min(1, Math.max(0, hp01));
     const bleeding = ghost.bleed >= 0;
@@ -273,7 +273,7 @@ export class Squad {
     toggleClass(row.badge, 'training', badge === '훈련장');
     toggleClass(row.badge, 'android', android);
     row.fill.style.transform = `scaleX(${hp.toFixed(3)})`;
-    // 실드 바는 안드로이드 행에만 붙는다 (사람 행의 실드는 PC 체력 블록 · 이름표가 맡는다).
+    // The shield bar attaches to android rows only (a human's shield is the job of the PC vitals block and the nameplate).
     toggleClass(row.root, 'android', android);
     toggleClass(row.root, 'has-shield', android && shield > 0);
     row.shFill.style.transform = `scaleX(${shield.toFixed(3)})`;
@@ -287,7 +287,7 @@ export class Squad {
     toggleClass(row.root, 'low', hp < 0.4 && state !== '전사' && state !== ANDROID_DEAD_KO && !ghost.dead);
   }
 
-  /** 2026-09-15 (debug / smoke): 지금 보이는 행들 — id · 이름 · 배지 · 상태 · 체력 · 실드 (DOM 순서). */
+  /** 2026-09-15 (debug / smoke): the rows showing right now — id · name · badge · state · hp · shield (in DOM order). */
   get rowStates(): Array<{ id: string; name: string; badge: string; state: string; hp: string; shield: string; android: boolean }> {
     const out: Array<{ id: string; name: string; badge: string; state: string; hp: string; shield: string; android: boolean }> = [];
     for (const r of this.rows) {

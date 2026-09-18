@@ -3,35 +3,37 @@ import { Keys, droneKindOfGadget, keyLabel, paintKeycap } from '@/shared';
 import { el, setText } from '../dom';
 import '../styles/gadgetHint.css';
 
-/** 한 번에 보이는 안내 줄 수 — 설치 + 기폭, 또는 드론 한 줄. */
+/** How many notice rows show at once — place + detonate, or one drone row. */
 const MAX_ROWS = 2;
 
 type Tone = 'ok' | 'bad' | 'det' | 'info';
 
-/** `code` = 그 줄 키캡의 키 코드 (`KeyboardEvent.code` / `MouseN`, 2026-09-15 — 라벨이 아니라 코드를 들고 공용 키캡이 칠한다). */
+/** `code` = the key code of that row's keycap (`KeyboardEvent.code` / `MouseN`, 2026-09-15 — the code is held, not the label, and the shared keycap paints it). */
 interface Row { el: HTMLElement; pre: HTMLElement; key: HTMLElement; txt: HTMLElement; sig: string; code: string }
 
 /**
- * **손에 든 가젯 안내** (`.gadget-hand-hint`, 게임플레이 레이어, 크로스헤어 아래, 2026-09-11).
+ * **Held gadget notice** (`.gadget-hand-hint`, gameplay layer, under the crosshair, 2026-09-11).
  *
- * 한 줄 = 키캡 + 문구. 최대 두 줄이고 셋 중 해당하는 것만 쌓는다:
- *   - **설치 미리보기** — `gadget:placementChanged {gadget, valid, reason, mount}` (gadgets 가 바뀔 때만 낸다).
- *     `ctx.gadgets.placement` 가 있으면 그 살아 있는 값을 우선 읽는다(늦게 등록돼 이벤트를 놓쳐도 맞다).
- *     valid → `[좌클릭] 설치` (mount 가 있으면 `드론에 탑재`), invalid → 빨간 `reason` (없으면 `설치 불가`).
- *     판정은 흉내내지 않는다 — gadgets 가 좌클릭에 쓰는 **같은** 판정의 결과를 옮겨 적을 뿐이다.
- *   - **원격 지뢰 기폭** — 손에 든 아이템(`ctx.weapons.remoteState.heldItemId` → `ItemDef.gadgetId`)이나
- *     미리보기 가젯이 `remoteMine` 이고(C4 · 마지막 것을 놓은 뒤의 기폭기 손) `liveRemoteMineCount() > 0` 이면
- *     `[우클릭] 기폭 (n)`. **기폭기 손**(마지막 C4 를 놓은 뒤 슬롯 없는 손 — `heldItemId` 는 C4 def 그대로,
- *     `remoteState.detonator === true`, `quick:equipped` 의 uid 가 `detonator:` 로 시작)에서는 설치 줄을 그리지 않고
- *     `기폭기 · [우클릭] 기폭 (n)` 한 줄만 (0 개면 `기폭기 · 설치된 원격 지뢰 없음`).
- *   - **드론** — 손에 든 가젯이 `droneKindOfGadget` 이면: 내 드론이 없으면 `[좌클릭] 드론 배치`, 있고 사거리 안이면
- *     `[R ˅] 꾹 조종` (`.keycap.kc-hold` — 공용 chevron), `linkLost` 면 빨간 `신호 범위 밖`.
+ * One row = keycap + text. At most two rows, stacking only whichever of the three apply:
+ *   - **Placement preview** — `gadget:placementChanged {gadget, valid, reason, mount}` (gadgets emits it only on a change).
+ *     With a `ctx.gadgets.placement` that live value is read first (right even when a late registration missed the event).
+ *     valid → `[좌클릭] 설치` (`드론에 탑재` when there is a mount), invalid → the `reason` in red (`설치 불가` with none).
+ *     The judgement is never imitated — only the result of the **same** judgement gadgets uses on LMB is copied here.
+ *   - **Remote mine detonation** — when the item in hand (`ctx.weapons.remoteState.heldItemId` → `ItemDef.gadgetId`) or
+ *     the preview gadget is `remoteMine` (C4 · the detonator hand after placing the last one) and
+ *     `liveRemoteMineCount() > 0`: `[우클릭] 기폭 (n)`. In the **detonator hand** (the slotless hand after the last C4 —
+ *     `heldItemId` is still the C4 def, `remoteState.detonator === true`, `quick:equipped`'s uid starts with `detonator:`)
+ *     no placement row is drawn, only `기폭기 · [우클릭] 기폭 (n)` (`기폭기 · 설치된 원격 지뢰 없음` at 0).
+ *   - **Drone** — when the gadget in hand is a `droneKindOfGadget`: with no own drone `[좌클릭] 드론 배치`, with one in
+ *     range `[R ˅] 꾹 조종` (`.keycap.kc-hold` — the shared chevron), on `linkLost` a red `신호 범위 밖`.
  *
- * 마우스 키는 `좌클릭` · `우클릭` 으로 적는다 (`FIRE` · `AIM` 은 마우스 전용 동작이지만 버튼은 바꿀 수 있으므로
- * `Keys.X` 를 매 프레임 읽는다). **2026-09-15 (사용자 결정):** 글자 대신 공용 키캡(`shared/keycap.paintKeycap`)의
- * **마우스 그림**으로 그린다 — 누를 칸이 흰색, `R 꾹 조종` 같은 꾹 누르기는 chevron 이 키캡 **안** 윗변에 앉으므로 줄이
- * 그 자리만큼 위를 띄우지 않는다(`gadgetHint.css` 의 `:has(.kc-hold)` 여백 삭제). `lines` 는 키 라벨(`LMB` …)로 적는다. **드론 조종 중(`ctx.player.droneControl`) · 화면이 열려 있을 때 · 사망 · 페이즈
- * 밖이면 숨는다.** 값은 매 프레임 폴링하되 DOM 은 줄의 서명(키 · 문구 · 색 · 홀드)이 바뀔 때만 쓴다.
+ * Mouse keys are written as `좌클릭` · `우클릭` (`FIRE` · `AIM` are mouse-only actions but the button can change, so
+ * `Keys.X` is read every frame). **2026-09-15 (user's decision):** they are drawn with the **mouse glyph** of the shared
+ * keycap (`shared/keycap.paintKeycap`) instead of text — the button to press in white; for a hold like `R 꾹 조종` the
+ * chevron sits on the **inside** top edge of the cap, so the row does not lift by that much (the `:has(.kc-hold)` margin
+ * in `gadgetHint.css` was deleted). `lines` writes the key label (`LMB` …). **It hides while a drone is controlled
+ * (`ctx.player.droneControl`) · a screen is open · on death · outside the phase.** Values are polled every frame, but the
+ * DOM is written only when a row's signature (key · text · colour · hold) changes.
  */
 export class GadgetHandHint {
   readonly root: HTMLElement;
@@ -74,10 +76,10 @@ export class GadgetHandHint {
     const on = ctx.isGameplayActive() && !!p && !p.isDead && !(p.droneControl ?? false) && !(p.roverRide ?? false) && ctx.uiBlockers.size === 0;
     if (on) {
       const held = this.heldGadget(ctx);
-      // 기폭기 손: 마지막 C4 를 놓은 뒤 슬롯 없는 손. `heldItemId` 는 C4 def 그대로이고 weapons 가 `detonator` 를 켠다.
+      // The detonator hand: the slotless hand after the last C4 was placed. `heldItemId` is still the C4 def and weapons turns `detonator` on.
       const detonator = (ctx.weapons?.remoteState as { detonator?: boolean } | undefined)?.detonator === true;
 
-      // (1) 설치 미리보기 — 살아 있는 값이 있으면 그것, 없으면 마지막 이벤트. 기폭기 손에는 없다.
+      // (1) placement preview — the live value when there is one, else the last event. The detonator hand has none.
       const live = ctx.gadgets?.placement;
       const pGadget = detonator ? null : live !== undefined ? (live?.gadget ?? null) : this.evGadget;
       if (pGadget) {
@@ -88,7 +90,7 @@ export class GadgetHandHint {
         else n = this.setRow(n, null, null, reason || '설치 불가', 'bad', false);
       }
 
-      // (2) 원격 지뢰 기폭 — C4 를 들었거나 기폭기 손
+      // (2) remote mine detonation — C4 in hand or the detonator hand
       if (detonator || held === 'remoteMine' || pGadget === 'remoteMine') {
         const count = ctx.gadgets?.liveRemoteMineCount?.() ?? 0;
         const pre = detonator ? '기폭기 ·' : null;
@@ -96,7 +98,7 @@ export class GadgetHandHint {
         else if (detonator) n = this.setRow(n, '기폭기 ·', null, '설치된 원격 지뢰 없음', 'info', false);
       }
 
-      // (3) 드론 아이템 = 조종기
+      // (3) a drone item = the controller
       const kind = droneKindOfGadget(held);
       if (kind) {
         const own = ctx.drones?.getOwnDrone(kind) ?? null;
@@ -112,7 +114,7 @@ export class GadgetHandHint {
     this.shown = n;
   }
 
-  /** 손에 든 소모품이 가젯이면 그 id. 총을 들었거나 가젯이 아니면 null. */
+  /** The id when the consumable in hand is a gadget. null with a gun in hand or a non-gadget. */
   private heldGadget(ctx: GameContext): GadgetId | null {
     const id = ctx.weapons?.remoteState?.heldItemId;
     if (!id) return null;
@@ -120,8 +122,8 @@ export class GadgetHandHint {
   }
 
   /**
-   * `i` 번 줄을 채우고 다음 줄 번호를 돌려준다. 서명이 같으면 DOM 을 건드리지 않는다.
-   * `key` 는 키 **코드**다 (2026-09-15) — 코드가 서명에 들어 있으므로 리바인딩되면 다음 프레임에 다시 칠해진다.
+   * Fills row `i` and returns the next row number. An unchanged signature leaves the DOM alone.
+   * `key` is the key **code** (2026-09-15) — the code is part of the signature, so a rebinding repaints on the next frame.
    */
   private setRow(i: number, pre: string | null, key: string | null, text: string, tone: Tone, hold: boolean): number {
     if (i >= this.rows.length) return i;
@@ -141,7 +143,7 @@ export class GadgetHandHint {
     return i + 1;
   }
 
-  /** 지금 보이는 안내 줄 수 · 그 문구들 (debug / smoke). */
+  /** How many notice rows are visible and their texts (debug / smoke). */
   get rowCount(): number { return this.shown; }
   get lines(): string[] {
     const out: string[] = [];

@@ -5,16 +5,16 @@ const SIZE = 56;
 const RADIUS = 22;
 
 /**
- * 커서 홀드 링 (`.cursor-hold`, 2026-09-12, 사용자 결정) — 시설 관리에서 놓인 가구를 **LMB 로 꾹 누르는 동안** 커서를
- * 중심으로 차오르는 원형 게이지. 꽉 차면 hub/ 의 `HousingMode` 가 그 가구를 위치 이동 상태로 든다.
+ * The cursor hold ring (`.cursor-hold`, 2026-09-12, user's decision) — a radial gauge that fills around the cursor **while LMB is held**
+ * on a placed piece of furniture in ship management. When it is full, hub/'s `HousingMode` picks that furniture up to move it.
  *
- * `housing:moveHold {progress}` 의 유일한 소비자다 (owner: hub). `progress` 0 … 1 이 누르는 동안 매 프레임 오고,
- * `null` 이면 끝났다 (놓았다 · 커서가 가구를 벗어났다 · 1 에 닿아 이동 상태가 됐다). 좌표는 이벤트에 없고
- * `ctx.input.uiX / uiY`(클라이언트 좌표 — 시설 관리의 레이캐스트가 쓰는 바로 그 값)를 받을 때마다 읽는다.
+ * It is the one consumer of `housing:moveHold {progress}` (owner: hub). `progress` 0 … 1 arrives every frame while held, and
+ * `null` means it ended (released · the cursor left the furniture · it reached 1 and went into the move state). The position is not
+ * on the event: `ctx.input.uiX / uiY` (client coordinates — exactly what ship management's raycast uses) is read on each arrival.
  *
- * 크로스헤어 홀드 링(`hud/HoldGauge`)과 같은 결이다 — 전체 원 SVG 하나를 `stroke-dasharray` 로 채우고 `svg` 를 −90°
- * 돌려 12시에서 시작한다. 크기만 커서에 맞게 작다. 시설 관리 화면과 같은 `.hud.housing` 층에 산다 (그 층은 함선에서
- * 늘 붙어 있다). 게임 시작 · 중단이면 내린다.
+ * It is the same grain as the crosshair hold ring (`hud/HoldGauge`) — one full-circle SVG filled with `stroke-dasharray`, with the `svg` turned −90°
+ * so it starts at 12 o'clock. Only the size is small, to match the cursor. It lives in the same `.hud.housing` layer as the ship
+ * management screen (that layer is always mounted in the ship). It comes down on a game start · abort.
  */
 export class CursorHoldGauge {
   readonly root: HTMLElement;
@@ -49,7 +49,7 @@ export class CursorHoldGauge {
     const b = ctx.bus;
     this.unsubs.push(
       b.on('housing:moveHold', ({ progress }) => this.set(progress)),
-      // 2026-09-14: 공용 커서 홀드 (지금은 인벤토리 툴팁 고정) — 좌표를 실어 오면 그 자리, 없으면 `uiX/uiY`
+      // 2026-09-14: the shared cursor hold (right now, inventory tooltip pinning) — the carried position when there is one, otherwise `uiX/uiY`
       b.on('ui:cursorHold', ({ progress, x, y }) => this.set(progress, x, y)),
       b.on('housing:shipManageChanged', ({ active }) => { if (!active) this.set(null); }),
       b.on('game:newMission', () => this.set(null)),

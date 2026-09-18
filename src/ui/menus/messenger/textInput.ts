@@ -1,19 +1,19 @@
 import { Keys } from '@/shared';
 
 export interface TextInputHandlers {
-  /** Enter (한국어 IME 가 조합 중이던 Enter 는 조합이 끝난 뒤 한 번). */
+  /** Enter (an Enter the Korean IME was still composing arrives once, after the composition ends). */
   onEnter(): void;
   /** Escape. */
   onEscape?(): void;
-  /** Tab (`Keys.INVENTORY`) — 공용 닫기. */
+  /** Tab (`Keys.INVENTORY`) — the universal close. */
   onTab?(): void;
 }
 
 /**
- * 메신저 입력칸 배선 (2026-09-14). 옛 `menus/social/SocialPages` 의 규약을 그대로 옮겼다:
- *   - 키는 게임에 닿지 않는다 (`Input` 은 window bubble 에서 듣는다 — 여기서 `stopPropagation`). 그래서 P 를 쳐도 패널이 안 닫힌다.
- *   - 한국어 IME 의 조합 확정 Enter 는 `isComposing`(또는 keyCode 229)로 오므로 그 자리에서 보내지 않고 `compositionend` 뒤에 보낸다.
- *   - Escape · Tab 은 호스트가 정한다 (Tab 은 공용 닫기).
+ * Messenger text input wiring (2026-09-14). The old `menus/social/SocialPages` contract moved here unchanged:
+ *   - the keys never reach the game (`Input` listens on the window bubble — `stopPropagation` here). So typing a p never closes the panel.
+ *   - the Korean IME’s committing Enter arrives with `isComposing` (or keyCode 229), so it is not sent there but after `compositionend`.
+ *   - Escape · Tab are the host’s decision (Tab is the universal close).
  */
 export function wireTextInput(input: HTMLInputElement, h: TextInputHandlers): void {
   let composing = false;

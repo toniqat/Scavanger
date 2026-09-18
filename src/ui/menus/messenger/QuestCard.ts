@@ -4,25 +4,25 @@ import { clamp01, el } from '../../dom';
 import { buildTrustChip } from './Trust';
 
 /**
- * NPC 퀘스트 카드 (2026-09-14) — 대화 말풍선(`bubble`)과 퀘스트 탭의 상세(`detail`)가 **같은 카드**를 그린다.
- * 이름 · 설명 · 목표(문구 · 진척 · [납품]) · 보상(재화 칩 + **NPC 개인 신뢰도 칩** + 아이템 칩) · 버튼. 상태는 매번 `NpcQuestRef.getQuest` 로 새로 읽어
- * 다시 짓는다 (카드는 상태를 들고 있지 않다).
+ * The NPC quest card (2026-09-14) — the conversation bubble (`bubble`) and the quest tab's detail (`detail`) draw the **same card**.
+ * Name · description · objectives (wording · progress · [납품]) · rewards (currency chips + the **NPC personal trust chip** + item chips) · buttons. The state is read afresh
+ * through `NpcQuestRef.getQuest` and rebuilt every time (the card holds no state).
  *
- *   - bubble · offered  → [수락] **하나뿐**이다 (2026-09-14 3차, 사용자 결정 — 「생각해보지」 는 없앴다)
- *   - bubble · 그 밖    → 상태 배지 + 「퀘스트 탭에서 보기」
+ *   - bubble · offered  → [수락] and **nothing else** (2026-09-14 3rd pass, user's decision — 「생각해보지」 was dropped)
+ *   - bubble · the rest → the state badge + 「퀘스트 탭에서 보기」
  *   - detail · offered  → 「대화에서 답하기」
- *   - detail · deferred → [수락]. `deferred` 는 **은퇴한 상태**라(`shared/npc`) 엔진이 더 이상 돌려주지 않는다 —
- *                         옛 세이브가 들고 있을 수 있어 그리는 분기만 조용히 남겨 둔다.
- *   - detail · active   → 목표마다 [납품] (deliver) + [완료 보고] (목표가 다 차야 켜진다). **포기 버튼은 없다** (사용자 결정).
+ *   - detail · deferred → [수락]. `deferred` is a **retired state** (`shared/npc`) the engine no longer answers with —
+ *                         an old save may still hold one, so only the branch that draws it is quietly left in.
+ *   - detail · active   → [납품] (deliver) per objective + [완료 보고] (lit only once every objective is full). **There is no abandon button** (user's decision).
  */
 
 export interface QuestCardActions {
   accept?(id: string): void;
   deliver?(id: string, index: number): void;
   report?(id: string): void;
-  /** 말풍선 카드의 「퀘스트 탭에서 보기」. */
+  /** The bubble card’s 「퀘스트 탭에서 보기」. */
   openTab?(id: string): void;
-  /** 상세 카드의 「대화에서 답하기」 · 「대화 보기」. */
+  /** The detail card’s 「대화에서 답하기」 · 「대화 보기」. */
   openNpc?(npcId: string): void;
 }
 
@@ -101,7 +101,7 @@ export function buildQuestCard(ctx: GameContext, q: NpcQuestInfo, mode: QuestCar
   if (r.credits > 0) chips.appendChild(buildCurrencyChip('credits', { amount: r.credits, signed: true, size: 30 }));
   if (r.xp > 0) chips.appendChild(buildCurrencyChip('xp', { amount: r.xp, signed: true, size: 30 }));
   for (const p of r.rep) if (p.amount > 0) chips.appendChild(buildCurrencyChip(`rep:${p.corp}` as CurrencyId, { amount: p.amount, signed: true, size: 30 }));
-  /* 2026-09-14: 기업 신뢰도 칩 바로 뒤에 **그 NPC 개인** 신뢰도 칩 (같은 육각 틀 · NPC 색). */
+  /* 2026-09-14: right after the corporation reputation chips comes **that NPC's personal** trust chip (the same hexagonal frame · the NPC colour). */
   const trustChip = buildTrustChip(q.npc.name, r.npcTrust, q.npc.color);
   if (trustChip) chips.appendChild(trustChip);
   for (const it of r.items) chips.appendChild(buildItemChip(ctx.loot?.getItemDef(it.defId), { need: it.qty, size: 30 }));

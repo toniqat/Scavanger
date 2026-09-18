@@ -4,30 +4,35 @@ import { AUDIO_DEFAULT_BGM, MUSIC_MODE_LABEL_KO, MUSIC_PLAYER_OFF } from '@/shar
 import { el, setText, toggleClass } from '../dom';
 
 /**
- * 음악 재생 창 (2026-09-14 사용자 결정) — 축음기 · 주크박스 · 턴테이블을 켜면 **화면에 늘 떠 있는 작은 창**으로
- * 지금 곡의 제목 · 아티스트 · 볼륨 · 진행을 보여 준다. **소리는 나지 않는다** (`housing/parts/Music` 이 상태의 주인이고
- * 여기서는 그 사실을 그린다 — 상태는 `housing:musicChanged` 로 받고, 버튼만 옵셔널 조작 계약 `musicPrev` · `musicNext` · `setMusicMode` · `musicStop` 을 부른다).
+ * The music player window (2026-09-14 user's decision) — turning on the gramophone · jukebox · turntable shows the
+ * current track's title · artist · volume · progress in a **small window that is always on screen**. **No sound comes
+ * out** (`housing/parts/Music` owns the state and this draws that fact — the state arrives as `housing:musicChanged`,
+ * and the buttons only call the optional control contract `musicPrev` · `musicNext` · `setMusicMode` · `musicStop`).
  *
- *  - **개인 함선에서만** 보인다 (`ctx.phase === 'hub'` **+** `ctx.hub?.ship === 'personal'`, 2026-09-16 사용자 결정).
- *    축음기 · 주크박스 · 턴테이블은 내 함선의 가구이므로 공용 함선(분대 갑판) · 격납고에서는 창이 뜨지 않는다.
- *    레이드 · 훈련장 · 타이틀에서는 housing 이 이미 상태를 끄지만 페이즈 게이트를 한 번 더 둬서 「상태가 남았는데
- *    창이 뜬다」가 원천적으로 없다. **상태는 지우지 않는다** — 창만 숨고, 개인 함선으로 돌아오면 그대로 다시 뜬다
- *    (도킹 · 언도킹에 이벤트를 구독하지 않는 이유: `update` 가 매 프레임 `ctx.hub` 를 다시 읽으므로 함선이 바뀌면
- *    그 프레임에 저절로 따라온다).
- *  - **`housing:musicChanged` 를 한 번도 못 받으면 `MUSIC_PLAYER_OFF` 이고 창은 안 뜬다** (기본값 = 꺼짐).
- *  - 메뉴 blocker(`'menu'`)가 서면 숨는다 — `hud/KeyGuide.apply()` 와 **같은 규칙**이다(인벤토리 · 지도 같은 다른
- *    화면 위에는 그대로 떠 있다). 그래서 z 는 그 창들(≤ 80)보다 위, `.screen-fade`(82) · `.key-guide`(84)보다 아래인 **81**.
- *  - 재생 목록이 비어 있으면(레코드를 한 장도 안 꽂았다) 창은 **뜨고** `꽂힌 레코드가 없습니다` 한 줄만 그린다
- *    (`.is-empty` — 「켰는데 아무 반응이 없다」를 만들지 않기 위한 선택이고, 이 규칙 하나로 일관한다).
- *  - **조작 넷**(`◀` 이전 · `▶` 다음 · 재생 목록 ↔ 한 곡 반복 · `■` 정지)은 `HousingRef` 의 2026-09-14 추가 계약
- *    (`musicPrev` · `musicNext` · `setMusicMode` · `musicStop`)으로 간다. 전부 **옵셔널**이라 `?.()` 로 부르고,
- *    메서드가 없는 빌드에서는 그 버튼을 숨긴다. 창 전체는 `pointer-events: none` 이고 **버튼에만 `auto`** 다
- *    (`.nb-actions` 와 같은 규칙) — 지도 · 인벤토리 위에 떠 있어도 그 아래의 입력을 가리지 않는다.
+ *  - It is visible **only in the personal ship** (`ctx.phase === 'hub'` **+** `ctx.hub?.ship === 'personal'`, 2026-09-16
+ *    user's decision). The gramophone · jukebox · turntable are furniture of my own ship, so the window does not appear
+ *    in the shared ship (the squad deck) · the hangar. In a raid · the training range · the title housing already turns
+ *    the state off, but the phase gate is held once more so that 「the state remained and the window appears」 cannot
+ *    happen at all. **The state is not cleared** — only the window hides, and it comes back unchanged on returning to
+ *    the personal ship (why docking · undocking are not subscribed to: `update` re-reads `ctx.hub` every frame, so a
+ *    changed ship is followed in that frame by itself).
+ *  - **With no `housing:musicChanged` ever received it is `MUSIC_PLAYER_OFF` and the window does not appear** (default = off).
+ *  - It hides when the menu blocker (`'menu'`) is raised — **the same rule** as `hud/KeyGuide.apply()` (over other
+ *    screens such as the inventory · the map it stays up). So its z is above those windows (≤ 80) and below
+ *    `.screen-fade` (82) · `.key-guide` (84): **81**.
+ *  - When the playlist is empty (not one record was inserted) the window **does** appear and draws the single line
+ *    `꽂힌 레코드가 없습니다` (`.is-empty` — a choice made so that 「it was turned on and nothing happened」 never
+ *    arises, and this one rule is kept consistent).
+ *  - **The four controls** (`◀` previous · `▶` next · playlist ↔ repeat one track · `■` stop) go through `HousingRef`'s
+ *    2026-09-14 added contract (`musicPrev` · `musicNext` · `setMusicMode` · `musicStop`). All of them are **optional**,
+ *    so they are called with `?.()` and the button is hidden in a build where the method is missing. The whole window is
+ *    `pointer-events: none` and **only the buttons are `auto`** (the same rule as `.nb-actions`) — floating over the map ·
+ *    the inventory it never blocks the input beneath it.
  *
- * DOM: `#ui-root` 직계 `.mus-player(.show)(.is-empty)` > `.mus-body`
+ * DOM: `#ui-root` direct child `.mus-player(.show)(.is-empty)` > `.mus-body`
  *      (`.mus-head`(`.mus-icon` + `.mus-mode` + `.mus-vol`) + `.mus-title` + `.mus-artist` + `.mus-bar > .mus-fill` +
- *       `.mus-time` + `.mus-actions`(`.mus-btn` 넷)).
- * 클래스는 전부 `mus-` 접두사다 (폴더마다 접두사가 달라야 한다 — `.ct-cell` 충돌 사례).
+ *       `.mus-time` + `.mus-actions`(four `.mus-btn`)).
+ * Every class carries the `mus-` prefix (a prefix must differ per folder — the `.ct-cell` collision).
  */
 export class MusicPlayer {
   readonly root: HTMLElement;
@@ -77,7 +82,7 @@ export class MusicPlayer {
     this.stopBtn = this.button('■', '정지', () => this.housing()?.musicStop?.() ?? false);
   }
 
-  /** `ctx.housing` — 조작 계약 넷이 전부 옵셔널이므로 호출부는 늘 `?.()` 다. */
+  /** `ctx.housing` — all four control contract methods are optional, so every call site is always `?.()`. */
   private housing(): GameContext['housing'] { return this.ctx?.housing ?? null; }
 
   private button(label: string, title: string, run: () => boolean): HTMLButtonElement {
@@ -88,7 +93,7 @@ export class MusicPlayer {
       if (!run()) return;
       this.ctx?.bus.emit('audio:play', { id: 'ui_click' });
     });
-    // 창은 HUD 위에 떠 있을 뿐이다 — 버튼을 누른 뒤 포커스 링이 남아 키 입력을 먹지 않게 한다.
+    // The window only floats over the HUD — keeps a focus ring from staying after a button press and eating key input.
     btn.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); });
     return btn;
   }
@@ -98,20 +103,20 @@ export class MusicPlayer {
     const b = ctx.bus;
     this.unsubs.push(
       b.on('housing:musicChanged', ({ state }) => { this.state = state; this.lastText = ''; }),
-      // 볼륨은 **설정의 `오디오 › 음악`** 값을 그대로 비춘다 (이 창은 소리를 내지도, 볼륨을 바꾸지도 않는다).
+      // The volume mirrors the **`오디오 › 음악`** value in settings as it is (this window neither makes sound nor changes the volume).
       b.on('audio:volumeChanged', ({ channel, value }) => {
         if (channel !== 'bgm') return;
         this.volume = value;
         this.lastText = '';
       }),
-      // 미션 리셋 — housing 이 같은 사건으로 상태를 끄지만, 이벤트 순서에 기대지 않고 여기서도 비운다.
+      // Mission reset — housing turns the state off on the same event, but this clears it too rather than leaning on event order.
       b.on('game:newMission', () => this.reset()),
       b.on('game:abort', () => this.reset()),
     );
     if (ctx.audio) this.volume = ctx.audio.settings.bgm ?? AUDIO_DEFAULT_BGM;
-    // 늦게 붙어도 첫 `housing:musicChanged` 를 기다리지 않는다 (`HousingRef.getMusicState?`, 2026-09-14 계약).
+    // Binding late never waits for the first `housing:musicChanged` (`HousingRef.getMusicState?`, the 2026-09-14 contract).
     this.state = ctx.housing?.getMusicState?.() ?? MUSIC_PLAYER_OFF;
-    // 조작 계약이 없는 빌드에서는 그 버튼을 아예 숨긴다 (눌러도 아무 일도 없는 버튼을 두지 않는다).
+    // In a build without the control contract that button is hidden outright (no button that does nothing when pressed).
     const h = ctx.housing;
     this.prevBtn.hidden = typeof h?.musicPrev !== 'function';
     this.nextBtn.hidden = typeof h?.musicNext !== 'function';
@@ -128,7 +133,7 @@ export class MusicPlayer {
   update(ctx: GameContext): void {
     const playing = this.state.furnitureUid !== null;
     const menu = ctx.uiBlockers.has('menu');
-    // 2026-09-16: 개인 함선 전용. `ctx.hub` 는 임무 중 null 이고 `ship` 도 null 일 수 있어 옵셔널로 읽는다.
+    // 2026-09-16: personal ship only. `ctx.hub` is null during a mission and `ship` can be null too, so both are read optionally.
     const personalShip = ctx.hub?.ship === 'personal';
     const on = playing && ctx.phase === 'hub' && personalShip && !menu;
     if (on !== this.shown) { this.shown = on; toggleClass(this.root, 'show', on); }
@@ -148,7 +153,7 @@ export class MusicPlayer {
       this.artistEl.hidden = empty;
       this.barEl.hidden = empty;
       this.timeEl.hidden = empty;
-      // 버튼: 곡 넘김은 목록이 있어야 하고, 방식 전환 버튼은 **누르면 될 값**을 적는다 (지금 값은 머리줄에 있다).
+      // Buttons: skipping a track needs a playlist, and the mode button prints **the value it would become** (the current one is in the head row).
       const nextMode: MusicMode = this.state.mode === 'repeat' ? 'playlist' : 'repeat';
       setText(this.modeBtn, MUSIC_MODE_LABEL_KO[nextMode]);
       this.modeBtn.title = `${MUSIC_MODE_LABEL_KO[nextMode]}(으)로 전환`;
@@ -182,8 +187,8 @@ export class MusicPlayer {
 }
 
 /**
- * 진행 막대의 「지금」. `startedAt` 은 housing 이 `ctx.net.serverNow() ?? Date.now()` 로 찍은 epoch ms 이므로
- * 여기서도 **같은 규약**으로 읽는다 (재배 · 배양 · 해석 화면과 같다).
+ * The 「now」 of the progress bar. `startedAt` is epoch ms stamped by housing with `ctx.net.serverNow() ?? Date.now()`,
+ * so it is read by the **same contract** here (the same as the growing · culture · analysis screens).
  */
 function nowMs(ctx: GameContext): number {
   const net = ctx.net;

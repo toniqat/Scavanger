@@ -3,38 +3,40 @@ import type { GameContext } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import '../styles/named.css';
 
-/** 동시에 추적하는 조준경 반짝임 수 — 네임드는 레이드당 한 명이라 여유분이다. */
+/** How many scope glints are tracked at once — at most one named per raid, so this is slack. */
 const MAX_GLINTS = 3;
-/** |NDC| 가 이보다 크면 화면 밖으로 본다 (`DangerIndicators` 와 같은 값). */
+/** |NDC| beyond this counts as off screen (the same value as `DangerIndicators`). */
 const EDGE_NDC = 0.94;
-/** 남은 조준 시간이 전체의 이 비율 아래면 빠르게 깜빡인다. */
+/** Below this share of the total aim time left it blinks fast. */
 const GLINT_HOT_SHARE = 0.45;
-/** 노출 칸 수 방어선 (계약 밖 값이 와도 DOM 이 폭주하지 않게). */
+/** Guard on the exposure pip count (so an out-of-contract value cannot explode the DOM). */
 const MAX_PIPS = 12;
 
 interface Glint { enemyId: number; pos: THREE.Vector3; mine: boolean; left: number; dur: number; active: boolean }
 interface GlintView { head: HTMLElement; arc: HTMLElement; headKey: string; arcKey: string }
 
 /**
- * **로든 스캔 · 저격 경고** (`.named-scan`, 게임플레이 레이어, 2026-09-11).
+ * **Roden scan · sniper warning** (`.named-scan`, gameplay layer, 2026-09-11).
  *
- * 세 부분이다:
- *   - **노출 배너** (`.ns-banner`, 상단 중앙 — 재해 배너 블록 아래): `named:scanExposure {count, total}` 에서
- *     count > 0 이면 `스캔에 노출되고 있음` + 칸 `count / total`. 칸이 절반을 넘으면 `.warm`, `total − 1` 이상이면
- *     `.crit`(더 짙은 빨강 · 빠른 맥동 + 부제 `엄폐하라`). count 0 이면 사라진다. 수치(음파 횟수)는 이벤트가 싣고
- *     오므로 여기에는 없다.
- *   - **음파 훑기** (`.ns-sweep`): `named:scanPulse` 가 `exposedLocal` 일 때만, 화면 가장자리 붉은 비네트 +
- *     바깥으로 퍼지는 링이 한 번(짧게) 지나간다. 노출되지 않은 음파는 조용하다 — 경고의 뜻이 "지금 네가 찍혔다" 다.
- *   - **조준경 반짝임** (`named:sniperGlint`): `DangerIndicators` 와 같은 시각 문법 — 화면 안이면 적 자리에
- *     반짝임 마커(`.ns-head`), 밖이면 크로스헤어를 감싸는 붉은 방향 호(`.ns-arc`, 카메라 기준 상대 방위,
- *     0° = 정면 · 시계방향). 둘은 같이 뜨지 않는다. **표적이 나(`targetLocal`)면** 호 + 큰 마커 + 문구 `저격 조준!`,
- *     **표적이 내가 아니면 화면 안의 작은 반짝임만** 그린다(호 · 문구 없음) — 분대원이 노려지는 것도 보여야
- *     "저기 저격수" 를 부를 수 있지만, 내 화면 가장자리에 붉은 호가 뜨면 내가 노려지는 것으로 읽힌다.
- *     방위는 플레이어가 아니라 **카메라 위치**에서 잰다 — 드론 조종 중에도 호가 화면과 맞는다.
+ * Three parts:
+ *   - **Exposure banner** (`.ns-banner`, top centre — below the hazard banner block): on `named:scanExposure
+ *     {count, total}` with count > 0 it reads `스캔에 노출되고 있음` + the pips `count / total`. Past half the pips it is
+ *     `.warm`, at `total − 1` or more `.crit` (a deeper red · fast pulse + the subtitle `엄폐하라`). At count 0 it
+ *     disappears. The numbers (how many pulses) ride on the event, so none live here.
+ *   - **Pulse sweep** (`.ns-sweep`): only while `named:scanPulse` is `exposedLocal`, a red vignette at the screen edge +
+ *     an outward ring pass once (briefly). A pulse that did not expose is silent — the warning means "you were just tagged".
+ *   - **Scope glint** (`named:sniperGlint`): the same visual grammar as `DangerIndicators` — on screen a glint marker at
+ *     the enemy's spot (`.ns-head`), off screen a red direction arc around the crosshair (`.ns-arc`, a screen-relative
+ *     bearing, 0° = ahead · clockwise). The two never appear together. **When the target is oneself (`targetLocal`)**:
+ *     the arc + a big marker + the text `저격 조준!`; **when it is not, only the small on-screen glint** is drawn (no arc,
+ *     no text) — a squadmate being aimed at must show too, so "sniper over there" can be called, but a red arc at one's
+ *     own screen edge reads as being aimed at oneself.
+ *     The bearing is measured from the **camera position**, not the player — so the arc matches the screen even while a
+ *     drone is being controlled.
  *
- * 드론 조종 중에도 숨지 않는다 (PC 는 그대로 노출 · 저격된다). 메뉴 / 지도 / 사망 / 페이즈 밖이면 통째로 숨고,
- * `game:abort` · `game:newMission` · `hub:entered` · `player:died` 에서 비운다. DOM 은 풀링이고 key 가 바뀔 때만
- * 쓴다. 프레임당 할당 없음 (스크래치 벡터 재사용).
+ * It does not hide while a drone is controlled (the PC is still exposed · sniped). It hides whole behind a menu / the
+ * map / death / outside the phase, and `game:abort` · `game:newMission` · `hub:entered` · `player:died` empty it. The
+ * DOM is pooled and written only when the key changes. No per-frame allocation (scratch vectors are reused).
  */
 export class NamedScanWarning {
   readonly root: HTMLElement;
@@ -107,7 +109,7 @@ export class NamedScanWarning {
     );
   }
 
-  /* ── 노출 배너 ──────────────────────────────────────────────────────────── */
+  /* ── Exposure banner ────────────────────────────────────────────────────── */
 
   private setExposure(count: number, total: number): void {
     const t = Math.max(1, Math.min(MAX_PIPS, Math.round(total) || 1));
@@ -118,7 +120,7 @@ export class NamedScanWarning {
     this.drawBanner();
     if (rose && c > 0) {
       toggleClass(this.pipsEl, 'bump', false);
-      void this.pipsEl.offsetWidth;   // 애니메이션 재시작
+      void this.pipsEl.offsetWidth;   // restart the animation
       toggleClass(this.pipsEl, 'bump', true);
     }
   }
@@ -145,11 +147,11 @@ export class NamedScanWarning {
 
   private sweepOnce(): void {
     toggleClass(this.sweep, 'go', false);
-    void this.sweep.offsetWidth;   // 같은 애니메이션을 처음부터 다시
+    void this.sweep.offsetWidth;   // the same animation again from the start
     toggleClass(this.sweep, 'go', true);
   }
 
-  /* ── 조준경 반짝임 ──────────────────────────────────────────────────────── */
+  /* ── Scope glint ────────────────────────────────────────────────────────── */
 
   private addGlint(enemyId: number, position: THREE.Vector3, mine: boolean, duration: number): void {
     let slot: Glint | null = null;
@@ -182,7 +184,7 @@ export class NamedScanWarning {
   }
 
   /**
-   * Called from `HudSystem.lateUpdate` (2026-09-11, C-53 · X-9 — `DangerIndicators` 와 같은 자리) so the glint projection
+   * Called from `HudSystem.lateUpdate` (2026-09-11, C-53 · X-9 — the same spot as `DangerIndicators`) so the glint projection
    * uses the camera of the frame being drawn. It ran in `update` before, i.e. **before** `CameraRig` moved the camera,
    * so on-screen glints trailed a turning view by a frame. Timers tick here too — one entry point, like `DangerIndicators`.
    */
@@ -248,7 +250,7 @@ export class NamedScanWarning {
     if (aim !== this.aimShown) { this.aimShown = aim; toggleClass(this.aimEl, 'show', aim); }
   }
 
-  /** 노출 칸 수 (0 = 배너 없음) · 배너가 떠 있나 · 살아 있는 반짝임 수 · `저격 조준!` 문구 (debug / smoke). */
+  /** Exposure pip count (0 = no banner) · whether the banner is up · live glint count · the `저격 조준!` text (debug / smoke). */
   get exposureCount(): number { return this.count; }
   get isBannerOn(): boolean { return this.banner.classList.contains('show'); }
   get glintCount(): number { let n = 0; for (const g of this.glints) if (g.active) n++; return n; }

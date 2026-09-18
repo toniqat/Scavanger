@@ -1,22 +1,22 @@
 import type { GameContext } from '@/shared';
 import { CONTRACT_DEFS, Keys, SUSPENDED_LABEL_KO, WEIGHT_STATE_LABEL_KO, formatCredits, keyLabel } from '@/shared';
-/* 2026-09-14 (메신저 · NPC 퀘스트): 목표 달성 · 보고 가능 · 완료 보상 토스트 — 옛 기업 퀘스트(`QUEST_DEFS`) 토스트는 없어졌다 */
+/* 2026-09-14 (the messenger · NPC quests): objective done · ready to report · completion reward toasts — the old corporation quest (`QUEST_DEFS`) toast is gone */
 import type { NpcQuestDef } from '@/shared';
 import { CORP_DEFS, NPC_DEF_MAP, NPC_QUEST_MAP } from '@/shared';
-/* 2026-09-13 (요리 재료 티어): 분석 도감 · 분석 레벨업 토스트 */
+/* 2026-09-13 (cooking material tiers): analysis catalogue · analysis level-up toasts */
 import { ANALYSIS_RESULTS, SAMPLE_FAMILY_LABEL_KO, analysisTimeMul } from '@/shared';
-/* 2026-09-13 (요리 미니게임): 조리 결과 · 식탁 품질 토스트 */
+/* 2026-09-13 (the cooking minigame): cook result · dining table quality toasts */
 import { cookStepsOf, getMealDef, mealQualityStars, normalizeMealQuality } from '@/shared';
-/* 2026-09-13 (탈출 개편): 자동 출발 문구 (출발 유예 `EXTRACTION_DEPART_GRACE_S` 는 2026-09-15 에 탑승 토스트와 함께 빠졌다) */
+/* 2026-09-13 (the extraction rework): the auto-departure line (the departure grace `EXTRACTION_DEPART_GRACE_S` went out with the boarding toast on 2026-09-15) */
 import { EXTRACTION_AUTO_DEPART_IDLE_S } from '@/shared';
-/* 2026-09-16 (사용자 결정 「큰 수 축약」): 퀘스트 보상 줄의 경험치도 크레딧과 같은 표기 (`shared/numberFormat`).
-   신뢰도 · 아이템 개수는 정확한 값이 뜻이라 그대로다. */
+/* 2026-09-16 (user's decision 「큰 수 축약」): XP on the quest reward line uses the same notation as credits (`shared/numberFormat`).
+   Trust · item counts are left alone — the exact value is the meaning. */
 import { formatCompactSigned } from '@/shared';
 import { el, escapeHtml, rarityColor } from '../dom';
-/* 2026-09-16: 획득 토스트 썸네일 — 인벤토리 · 비용 줄과 같은 공용 칩 */
+/* 2026-09-16: the item-gained toast thumbnail — the same shared chip as the inventory · cost lines */
 import type { ItemDef } from '@/shared';
 import { buildItemChip } from '@/shared';
-/* 2026-09-11 (B-3): 초대 결과 토스트 */
+/* 2026-09-11 (B-3): invite outcome toasts */
 import type { SocialErrorCode } from '@/shared';
 import { SOCIAL_ERROR_MESSAGE_KO, SOCIAL_INVITE_OUTCOME_KO } from '@/shared';
 
@@ -30,7 +30,7 @@ const INVITE_FAIL_KO: Partial<Record<SocialErrorCode, string>> = {
   in_mission: '분대가 임무를 시작했습니다',
   limit: '받은 초대가 너무 많습니다',
   busy: '이미 다른 분대에 있습니다',
-  /* 2026-09-15 (분대 · 도킹 매칭): 초대 전용 — 2인 이상 분대에 있는 사람은 초대할 수 없고, 초대는 분대장만 보낸다 */
+  /* 2026-09-15 (squads · dock matching): invite-only — somebody in a squad of two or more cannot be invited, and only the squad leader sends invites */
   in_other_squad: '이미 다른 분대에 있습니다',
   not_leader: '분대장만 초대할 수 있습니다',
 };
@@ -40,14 +40,14 @@ function inviteFailWhy(code: SocialErrorCode | undefined): string {
   return text ? ` <span style="color:var(--c-text-dim)">(${escapeHtml(text)})</span>` : '';
 }
 import { stratagemDef } from './stratagemGlyphs';
-/* 2026-09-15 (안드로이드 분대원): 명단 변화 · 슬롯 복귀 · 쓰러짐 · 사망 · 창고 입고 토스트 */
+/* 2026-09-15 (android squadmates): roster change · slot return · downed · death · stash deposit toasts */
 import type { AllyId } from '@/shared';
 import { androidNameOf } from '@/shared';
 
 /**
- * 2026-09-15 — 주격 조사 `이` / `가`. 한글 음절의 종성이 있으면 `이`, 없으면 `가` (그 밖의 글자는 `가`).
- * 안드로이드 이름(`안드로이드 알파` · `베타` · `감마`)은 모두 종성이 없어 `가` 지만, 이름이 늘어나도 문장이 어색해지지
- * 않게 규칙으로 고른다 — `이(가)` 를 늘어놓지 않는다는 2026-09-15 결정.
+ * 2026-09-15 — the subject particle `이` / `가`. A Hangul syllable with a final consonant takes `이`, one without takes `가`
+ * (any other character takes `가`). Android names (`안드로이드 알파` · `베타` · `감마`) have no final consonant, so they all take
+ * that one, but the rule picks it so the sentence stays natural as names grow — the 2026-09-15 decision not to spell `이(가)` out.
  */
 function josaGa(name: string): string {
   const ch = name.charCodeAt(name.length - 1);
@@ -55,9 +55,9 @@ function josaGa(name: string): string {
   return (ch - 0xac00) % 28 === 0 ? '가' : '이';
 }
 
-/** 2026-09-13 (요리 품질): 별 글자 색 — 툴팁 품질 줄 · 버프 썸네일 별 배지와 같은 금색. */
+/** 2026-09-13 (meal quality): the star glyph colour — the same gold as the tooltip quality row · the buff thumbnail star badge. */
 const STAR_COLOR = '#ffd24a';
-/** ` ★★★☆☆` (앞 공백 포함, 금색 span). 품질 0 이면 빈 문자열. */
+/** ` ★★★☆☆` (leading space included, gold span). An empty string when the quality is 0. */
 function starsHtml(quality: unknown): string {
   const q = normalizeMealQuality(quality);
   return q > 0 ? ` <span style="color:${STAR_COLOR}">${mealQualityStars(q)}</span>` : '';
@@ -65,9 +65,9 @@ function starsHtml(quality: unknown): string {
 
 type Kind = 'info' | 'warning' | 'danger' | 'success';
 const MAX_VISIBLE = 6;
-/** 2026-09-16: 획득 토스트 썸네일 한 변 (px). */
+/** 2026-09-16: the side of the item-gained toast thumbnail (px). */
 const ITEM_TOAST_THUMB_PX = 30;
-/** 2026-09-16: 튜토리얼 조작 가이드 패널 바닥과 토스트 스택 사이 (px). */
+/** 2026-09-16: between the bottom of the tutorial control guide panel and the toast stack (px). */
 const TUT_PANEL_GAP_PX = 10;
 /** Durability warning tiers (fraction of max). */
 const DUR_WARN = 0.25;
@@ -88,9 +88,9 @@ export class Notifications {
   private durWarned = new Map<string, number>();
   /** The one live channel line (Phase 12 회복 스프레이), null while no continuous-use item is held. */
   private channel: { el: HTMLElement; text: HTMLElement; defId: string; pct: number } | null = null;
-  /** 2026-09-15: 안드로이드 id → 표시 이름. 슬롯으로 돌아간 기는 명단에 없으므로 이름을 여기서 꺼낸다. */
+  /** 2026-09-15: android id → display name. A unit that went back to its slot is off the roster, so its name comes from here. */
   private allyNames = new Map<AllyId, string>();
-  /** 2026-09-16: 튜토리얼 조작 가이드 패널 (DOM 으로 찾은 것) · 지금 적용한 스택 top (px, -1 = 기본 우측 중앙). */
+  /** 2026-09-16: the tutorial control guide panel (found through the DOM) · the stack top applied now (px, -1 = the default right-centre). */
   private tutPanel: HTMLElement | null = null;
   private belowTop = -1;
 
@@ -103,9 +103,9 @@ export class Notifications {
     this.unsubs.push(
       b.on('ui:notify', ({ text, kind, duration }) => this.push(escapeHtml(text), kind ?? 'info', undefined, duration)),
       b.on('inventory:itemAdded', ({ name, rarity, item, fromStash }) => {
-        // 2026-09-12 (사용자 결정): 함선 창고 → 가방은 옮긴 것이지 얻은 것이 아니다 — 획득 티커를 띄우지 않는다
+        // 2026-09-12 (user's decision): ship stash → bag is a move, not a gain — no item-gained ticker appears
         if (fromStash) return;
-        // 2026-09-16 (사용자 결정): 획득 토스트 = 왼쪽 썸네일 칩 + 오른쪽 `이름 ×수량` (×1 도 쓴다) — `아이템` 머리 · `획득:` 접두어 없음
+        // 2026-09-16 (user's decision): the item-gained toast = a thumbnail chip left + `이름 ×수량` right (×1 is written too) — no `아이템` head label, no `획득:` prefix
         this.pushItem(ctx.loot?.getItemDef(item.defId), name, rarity, item.qty);
       }),
       b.on('inventory:full', ({ name }) => this.push(`가방이 가득 찼습니다 — <b>${escapeHtml(name)}</b>`, 'warning', '인벤토리', 3)),
@@ -113,27 +113,27 @@ export class Notifications {
         if (dropped.length > 0) this.push(`가방이 작아져 아이템 <b>${dropped.length}</b>개를 떨어뜨렸습니다`, 'warning', '인벤토리', 4);
       }),
       b.on('enemy:waveStarted', ({ index, count }) => this.push(`적 증원 감지! <span style="color:var(--c-text-dim)">${index + 1}차 · ${count}마리</span>`, 'danger', '경고', 4)),
-      /* 2026-09-14 (튜토리얼): 이미 착륙해 있는 함선(`beginPreLanded`)은 이 둘을 `duration: 0` 으로 **재생**해
-         페이즈만 맞춘다 — 「도착까지 0초」는 일어나지 않은 일이므로 띄우지 않는다. 본편은 언제나 duration > 0. */
+      /* 2026-09-14 (tutorial): a ship that is already landed (`beginPreLanded`) **replays** these two with `duration: 0`
+         to line the phase up only — 「도착까지 0초」 never happened, so it is not shown. The main game always has duration > 0. */
       b.on('extraction:activated', ({ duration }) => {
         if (duration <= 0) return;
         this.push(`탈출 신호 전송 완료. 함선 도착까지 ${Math.round(duration)}초.`, 'success', '탈출', 4);
       }),
       b.on('extraction:shipIncoming', ({ eta }) => this.push(`함선 접근 중 — ${Math.round(eta)}초`, 'warning', '탈출', 4)),
-      // 2026-09-13 (탈출 개편): 착륙 → 자동 출발 대기 → 출발 유예 → 이륙 / 남겨짐 → 다시 호출 가능
+      // 2026-09-13 (the extraction rework): landing → auto-departure wait → departure grace → liftoff / left behind → callable again
       b.on('extraction:shipLanded', () => {
-        /* 2026-09-14 3차 (사용자 결정): 튜토리얼의 버려진 함선은 처음부터 그 자리에 서 있다 — 「착륙」도
-           「도착」도 일어난 일이 아니라 토스트를 아예 쓰지 않는다. 이벤트 자체는 그대로 흐른다
-           (함선 마커 · 음악이 같은 이벤트에 매달려 있어, 안 내면 마커가 사라진다). */
+        /* 2026-09-14 3rd pass (user's decision): the tutorial's abandoned ship stands there from the start — neither 「착륙」
+           nor 「도착」 happened, so no toast is written at all. The event itself still flows
+           (the ship marker · music hang off the same event, and the marker disappears without it). */
         if (ctx.missionMode === 'tutorial') return;
-        // 자동 출발을 걸지 않은 함선은 그 문장이 거짓이다 — `idleRemaining < 0` 이 그 사실이다.
+        // For a ship with no auto-departure armed that sentence is false — `idleRemaining < 0` is that fact.
         const auto = (ctx.extraction?.idleRemaining ?? 0) >= 0;
         this.push(auto ? `함선 착륙. 탑승하세요 — ${Math.round(EXTRACTION_AUTO_DEPART_IDLE_S)}초 뒤 자동 출발` : '함선 착륙. 탑승하세요',
           'success', '탈출', 4);
       }),
-      /* 2026-09-15 (사용자 결정): `extraction:boarded` 토스트(「탑승 확인. 내부 스위치를 …초 뒤 출발합니다.」)를 **모든 레이드에서** 없앴다 —
-         같은 사실을 좌상단 목표 줄(`ui/hud/Objective` 의 `liftoffSwitch`)이 이미 말하고 있고, 화물칸을 드나들 때마다 다시 떴다.
-         이벤트 자체는 계약이라 그대로 흐른다 (`extraction/ExtractionSystem` · 분대 탑승 표시가 쓴다) — 여기 구독만 없다. */
+      /* 2026-09-15 (user's decision): the `extraction:boarded` toast (「탑승 확인. 내부 스위치를 …초 뒤 출발합니다.」) was removed **in every raid** —
+         the top-left objective line (`liftoffSwitch` in `ui/hud/Objective`) already says the same thing, and it came back on every trip in and out of the hold.
+         The event itself is a contract and still flows (`extraction/ExtractionSystem` · the squad boarding display use it) — only the subscription here is gone. */
       b.on('extraction:departureStarted', ({ duration, auto }) => this.push(
         auto ? `대기 시간 초과 — <b>${Math.round(duration)}초</b> 뒤 함선이 출발합니다` : `출발 시퀀스 개시 — <b>${Math.round(duration)}초</b> 뒤 함선이 출발합니다`,
         'warning', '탈출', 5)),
@@ -143,28 +143,28 @@ export class Notifications {
         else this.push('함선이 출발했습니다 — 탑승하지 못했습니다', 'danger', '탈출', 5);
       }),
       b.on('extraction:reset', () => this.push('함선이 떠났습니다 — 탈출 신호소를 다시 작동할 수 있습니다', 'info', '탈출', 5)),
-      /* 2026-09-16 (사용자 결정): `crate:looted`(상자 · 시체를 모두 비움) 토스트 「상자를 모두 비웠습니다.」를 없앴다 —
-         마지막 아이템의 획득 토스트가 이미 같은 순간을 말한다. 이벤트는 계약이라 그대로 흐른다 (enemies/ 시체 가라앉기가 쓴다). */
+      /* 2026-09-16 (user's decision): the `crate:looted` (a crate · corpse emptied) toast 「상자를 모두 비웠습니다.」 was removed —
+         the last item's item-gained toast already says the same moment. The event is a contract and still flows (enemies/ corpse sinking uses it). */
       // Phase 12: the 회복 스프레이 calls `applyHeal` (→ `player:stimUsed`) ten times a second while it is held; the
       // channel line below stands in for all of them, so this toast is muted while a channel is active.
       b.on('player:stimUsed', () => { if (!this.channel) this.push('회복제 사용', 'success', '생명력', 2); }),
       // down / revive / respawn (Phase 2)
       b.on('player:revived', ({ hp }) => this.push(`부활 — 체력 <b>${Math.ceil(hp)}</b>`, 'success', '생명력', 3)),
-      // 2026-09-09: 자동 부활이 사라져 `game:respawnAvailable` 은 아무도 발행하지 않는다 — 그 자리에 구조선 알림이 온다
+      // 2026-09-09: auto-revive is gone, so nobody emits `game:respawnAvailable` — the rescue ship notification takes its place
       b.on('rescue:called', ({ targetName }) => this.push(`${escapeHtml(targetName)} 구조선 호출됨`, 'success', '구조', 3)),
       b.on('leader:deviceDropped', () => this.push('분대장 기기가 떨어졌습니다', 'warning', '분대장', 4)),
       b.on('net:remoteDowned', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 전투불능 — 구조 필요`, 'danger', '분대', 4)),
       b.on('net:remoteRevived', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 부활`, 'success', '분대', 3)),
       // multiplayer feed
       b.on('net:remoteDied', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 전사`, 'danger', '분대', 4)),
-      // 2026-09-11 (B-12): 합류 · 이탈 토스트의 **유일한** 주인 (`hub/HubSystem` 의 `함선 합류 · 이탈` 두 줄을 지웠다).
-      // 게이트가 없는 것은 일부러다 — 레이드 · 훈련 중에도 분대원이 들어오고 나가는 것은 알아야 한다.
+      // 2026-09-11 (B-12): the **sole** owner of the join · leave toasts (the two `함선 합류 · 이탈` lines in `hub/HubSystem` were deleted).
+      // Having no gate is deliberate — squadmates coming and going must be known during a raid · training too.
       b.on('net:peerJoined', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 합류`, 'info', '분대', 3)),
       b.on('net:peerLeft', ({ name }) => this.push(`<b>${escapeHtml(name)}</b> 이탈`, 'warning', '분대', 3.5)),
       b.on('net:lobbyLeft', ({ reason }) => { if (reason === 'hostLeft') this.push('호스트가 나갔습니다', 'warning', '분대', 4); }),
-      /* ── 2026-09-15 (안드로이드 분대원, docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ──
-       * 토스트의 유일한 주인은 여기다 (2026-09-11 B-12 규약) — allies · net 은 이벤트만 낸다. `evicted` 는
-       * 「사람이 합류해 밀려났다」라서 `removed`(분대장이 직접 돌려보냈다)와 문장이 다르다. */
+      /* ── 2026-09-15 (android squadmates, docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ──
+       * The sole owner of the toasts is here (the 2026-09-11 B-12 contract) — allies · net only emit events. `evicted` is
+       * 「사람이 합류해 밀려났다」, so its sentence differs from `removed` (the squad leader sent it back itself). */
       b.on('ally:rosterChanged', ({ roster, added, removed, evicted }) => {
         const gone = new Set(evicted);
         for (const id of removed) {
@@ -172,7 +172,7 @@ export class Notifications {
           if (gone.has(id)) this.push(`분대원이 합류해 <b>${escapeHtml(name)}</b>${josaGa(name)} 슬롯으로 돌아갔다`, 'warning', '분대', 4);
           else this.push(`<b>${escapeHtml(name)}</b>${josaGa(name)} 슬롯으로 돌아갔다`, 'info', '분대', 3);
         }
-        // 이름표는 명단이 알려 준다 — 나중에 빠진 기의 이름을 부르려면 여기서 미리 적어 둬야 한다.
+        // The roster is what tells the name — to name a unit that drops out later, it has to be written down here first.
         this.allyNames.clear();
         for (const e of roster) this.allyNames.set(e.id, e.name);
         for (const id of added) {
@@ -180,7 +180,7 @@ export class Notifications {
           this.push(`<b>${escapeHtml(name)}</b>${josaGa(name)} 분대에 합류했다`, 'success', '분대', 3);
         }
       }),
-      // 릴레이가 「가득 찼다」로 거절했다 (요청자에게만). `human_joined` 는 위 `evicted` 줄이 이미 말한다.
+      // The relay refused it as 「full」 (to the requester only). `human_joined` is already said by the `evicted` line above.
       b.on('net:androidReturned', ({ reason }) => {
         if (reason !== 'full') return;
         this.push('분대가 가득 차 안드로이드를 들일 수 없다', 'warning', '분대', 4);
@@ -199,9 +199,9 @@ export class Notifications {
         this.push(`<b>${escapeHtml(n)}</b>${josaGa(n)} 전리품 <b>${count}</b>개를 창고에 넣었다${miss}`, count > 0 ? 'success' : 'info', '분대', 4);
       }),
       /*
-       * 2026-09-16 (접시 모델, 사용자 결정 — 옛 `housing:mealServed` 「분대에 차리기」 알림 대체): 분대원이 **방금 요리해서** 공유 함선 식탁에
-       * 접시가 올라왔다. net/ 이 `plate state` 를 받아 `net:squadPlate` 를 내고 **토스트는 여기 하나**다 (「토스트의 유일한 주인은 ui/」).
-       * `fresh` 만 띄운다 — 합류할 때 받는 분대원 접시 목록은 조용하다. 공유 함선에 서 있을 때만 (그 식탁이 보이는 곳).
+       * 2026-09-16 (the plate model, user's decision — replacing the old `housing:mealServed` 「분대에 차리기」 notice): a squadmate **just
+       * cooked** and a plate landed on the shared ship's dining table. net/ takes the `plate state`, emits `net:squadPlate` and **the toast is only here** (「the sole owner of toasts is ui/」).
+       * Only `fresh` shows — the squadmate plate list received on joining is silent. Only while standing in the shared ship (where that table is visible).
        */
       b.on('net:squadPlate', ({ name, plate, fresh }) => {
         if (!fresh || !plate || ctx.hub?.ship !== 'shared') return;
@@ -212,13 +212,13 @@ export class Notifications {
         );
       }),
       /*
-       * 2026-09-13 (요리 미니게임, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」): 조리 한 번의 결과. housing 은 이벤트만 내고 토스트는 여기 하나다
-       * (위 식탁 줄과 같은 규약). 성공 = `<요리> ★★★★☆ → 함선 창고|가방`, 실패 = `result.reason` 경고. 같은 순간의 `craft:completed` 는
-       * 아래에서 조리대 요리면 토스트를 내지 않는다 — 이 줄이 대신한다 (`inventory:itemAdded` 획득 티커는 일반 제작과 같이 그대로 뜬다).
+       * 2026-09-13 (the cooking minigame, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」): the result of one cook. housing only emits events and the toast is only here
+       * (the same contract as the dining table line above). Success = `<요리> ★★★★☆ → 함선 창고|가방`, failure = a `result.reason` warning. The `craft:completed` of the same moment
+       * draws no toast below when it is a cook-bench recipe — this line stands in for it (the `inventory:itemAdded` item-gained ticker still appears as for a normal craft).
        */
       b.on('housing:cookResult', ({ result }) => {
         if (!result) return;
-        // 2026-09-16 (접시 모델): 요리는 아이템이 아니다 — 이름은 요리 표에서, 성공은 `reason` 이 없는 것 (`itemUid` 는 늘 null)
+        // 2026-09-16 (the plate model): a meal is not an item — the name comes from the meal table, success is the absence of a `reason` (`itemUid` is always null)
         const def = getMealDef(result.mealDefId) ?? ctx.loot?.getItemDef(result.mealDefId);
         const name = `<b style="color:${rarityColor(def?.rarity ?? 'common')}">${escapeHtml(def?.name ?? result.mealDefId)}</b>`;
         if (result.landed && !result.reason) {
@@ -230,11 +230,11 @@ export class Notifications {
         }
       }),
       /*
-       * 2026-09-13 (요리 재료 티어, `docs/DECISIONS.md` 「2026-09-13 — 요리 재료 티어」): 분석기의 두 알림. housing 은 이벤트만 내고 토스트는 여기 하나다
-       * (위 식탁 줄과 같은 규약). 옛 `housing:sampleDexAdded`(표본 도감) 는 더 나지 않고 ui 에 소비자도 없었다.
-       *  - `analysisFound` — 분석 도감에 **처음** 적힌 산출물.
-       *  - `analysisLevelUp` — 계열 레벨이 오른 순간: 그 레벨의 해석 시간 배수(`analysisTimeMul`) + 이번 레벨에서 **새로 풀린** 결과
-       *    (`ANALYSIS_RESULTS` 중 같은 계열 · `minLevel === level` · 가중치 > 0 · 은퇴 아닌 것, 이름은 `ctx.loot.getItemDef`).
+       * 2026-09-13 (cooking material tiers, `docs/DECISIONS.md` 「2026-09-13 — 요리 재료 티어」): the analyzer's two notices. housing only emits events and the toast is only here
+       * (the same contract as the dining table line above). The old `housing:sampleDexAdded` (the sample catalogue) is no longer emitted and had no consumer in ui.
+       *  - `analysisFound` — an output written into the analysis catalogue for the **first** time.
+       *  - `analysisLevelUp` — the moment a family level rises: that level's resolve-time multiplier (`analysisTimeMul`) + the results **newly unlocked** at this level
+       *    (those of `ANALYSIS_RESULTS` in the same family · `minLevel === level` · weight > 0 · not retired; names from `ctx.loot.getItemDef`).
        */
       b.on('housing:analysisFound', ({ defId }) => {
         const def = ctx.loot?.getItemDef(defId);
@@ -265,10 +265,10 @@ export class Notifications {
       }),
       // matchmaking / hub
       /*
-       * 2026-09-11 (B-1): `net:reconnecting` / `net:resumed` 토스트를 여기서 걷어냈다 — 같은 순간에 두 줄씩 떴다.
-       * 레이드 · 훈련 중에는 `game/GameFlowSystem` 이 (`서버 재연결 중… (n)` · `재연결됨` · 복귀 사유), 함선에서는
-       * `hud/NetBadge`(끊김 → 연결 전이 토스트 + 배지의 `서버 재연결 중… (n)`)와 `hub/parts/Transitions.onResumed`
-       * (`함선에 재접속했습니다` · `진행 중인 임무로 복귀합니다`)가 각자 한 줄씩만 낸다.
+       * 2026-09-11 (B-1): the `net:reconnecting` / `net:resumed` toasts were taken out of here — two lines appeared at the same moment.
+       * During a raid · training `game/GameFlowSystem` covers it (`서버 재연결 중… (n)` · `재연결됨` · the return reason); in the ship
+       * `hud/NetBadge` (disconnected → connected transition toast + the badge's `서버 재연결 중… (n)`) and `hub/parts/Transitions.onResumed`
+       * (`함선에 재접속했습니다` · `진행 중인 임무로 복귀합니다`) each emit exactly one line.
        */
       b.on('net:matched', ({ created }) => this.push(created ? '신호 송출 시작 — 대원 대기 중' : '공유 함선 신호 포착', created ? 'info' : 'success', '매치', 4)),
       b.on('hub:launchCountdown', ({ seconds }) => {
@@ -297,8 +297,8 @@ export class Notifications {
         if (remaining > 0) { this.cooldownWasRunning = true; return; }
         if (!this.cooldownWasRunning) return;
         this.cooldownWasRunning = false;
-        // 2026-09-11 (E-8): 이 0 이 호스트의 거절을 되돌려 준 것이면(`refundCooldown`) 준비 완료를 띄우지 않는다 —
-        // `stratagems` 가 이미 거절 사유 토스트를 띄웠고, 두 줄이 나란히 뜨면 무엇이 일어났는지 오히려 흐려진다.
+        // 2026-09-11 (E-8): when this 0 is the refund of a host denial (`refundCooldown`), no ready toast appears —
+        // `stratagems` already showed the denial reason toast, and two lines side by side only blur what happened.
         if (refunded) return;
         this.push('함선 지원 준비 완료', 'success', '호출', 3);
       }),
@@ -318,7 +318,7 @@ export class Notifications {
         else this.push(`<b>${escapeHtml(name)}</b> 재연결`, 'success', '분대', 3);
       }),
       b.on('training:exitRequested', () => this.push('시뮬레이션 훈련장 퇴장 — 장비 복원', 'info', '훈련장', 3)),
-      /* ── Phase 11 소셜: the folder's one toast owner reports every social outcome (the panels never toast) ── */
+      /* ── Phase 11 social: the folder's one toast owner reports every social outcome (the panels never toast) ── */
       b.on('social:error', ({ message }) => this.push(escapeHtml(message), 'warning', '소셜', 3.5)),
       b.on('social:play', ({ name, outcome }) => {
         const who = escapeHtml(name || '분대원');
@@ -327,14 +327,14 @@ export class Notifications {
       }),
       b.on('social:invited', ({ invite }) => this.push(`<b>${escapeHtml(invite.name || '분대원')}</b> 분대 초대 — ${keyLabel(Keys.INVITE)} 홀드로 참여`, 'info', '소셜', 5)),
       /*
-       * 2026-09-11 (B-3): how an invite **I sent** ended. 거절 and 만료 read differently on purpose (user decision) —
+       * 2026-09-11 (B-3): how an invite **I sent** ended. A decline and an expiry read differently on purpose (user decision) —
        * `superseded` says nothing (the newer invite's own `…에게 분대 초대를 보냈습니다` already did). A failed whisper is
        * never toasted here: its own chat line turns `전송 실패` (B-4).
        */
       b.on('social:inviteResult', ({ name, outcome, reason }) => {
-        // `accepted`: 받은 사람이 들어오는 순간 바로 아래 `net:peerJoined` 의 `<이름> 합류` 가 이미 뜬다 — 두 번째 줄은 뺀다.
-        // ⚠ 그래서 `:83` 의 합류 줄이 초대 수락의 **유일한** 알림이다 — 지우려면 여기부터 되살려야 한다
-        //   (2026-09-11 B-12 는 반대편, 즉 `hub/HubSystem` 의 `<이름> 함선 합류` 를 지웠다).
+        // `accepted`: the moment the invitee comes in, the `<이름> 합류` of `net:peerJoined` just below already appears — the second line is dropped.
+        // ⚠ So that join line is the **only** notification of an accepted invite — removing it means reviving this one first
+        //   (2026-09-11 B-12 removed the other side, the `<이름> 함선 합류` in `hub/HubSystem`).
         if (outcome === 'superseded' || outcome === 'accepted') return;
         const why = outcome === 'failed' ? inviteFailWhy(reason) : '';
         const kind = outcome === 'declined' || outcome === 'failed' ? 'warning' : 'info';
@@ -376,12 +376,12 @@ export class Notifications {
         else if (state === 'light') this.push(`${escapeHtml(label)} — 스태미나 회복 감소`, 'info', '무게', 2.5);
       }),
       // Phase 12: no `gather:collected` toast any more — the herb lands in the bag through `tryAddItem`, whose
-      // `inventory:itemAdded` line above is the one ticker a gather shows (the 채집 line doubled it).
+      // `inventory:itemAdded` line above is the one ticker a gather shows (the gather line doubled it).
       /* ── Phase 12: continuous-use item (회복 스프레이) — ONE line for the whole channel, updated in place ── */
       b.on('item:channelChanged', ({ defId, active, gauge }) => this.setChannel(ctx, defId, active, gauge)),
       b.on('craft:completed', ({ item }) => {
-        // 2026-09-13 (요리 미니게임): 조리대 요리는 `housing:cookResult` 토스트가 대신한다 — 조리대 레시피는 일반 제작 경로에서 빠졌으므로
-        // 산출물에 조리 단계가 있으면 곧 `completeCook` 이 낸 이벤트다
+        // 2026-09-13 (the cooking minigame): a cook-bench meal is covered by the `housing:cookResult` toast instead — cook recipes are out of the
+        // normal craft path, so an output with cook steps means the event came from `completeCook`
         if (cookStepsOf(item.defId).length > 0) return;
         const def = ctx.loot?.getItemDef(item.defId);
         const qty = item.qty > 1 ? ` <span style="color:var(--c-text-dim)">×${item.qty}</span>` : '';
@@ -399,11 +399,11 @@ export class Notifications {
         if (kind === 'mine') this.push('지뢰 설치됨 — 피아 구분 없음, 접근 주의', 'danger', '경고', 3.5);
       }),
       b.on('player:gritSaved', () => this.push('인내 — 치명상을 버텨냈습니다', 'warning', '생명력', 3)),
-      // 2026-09-17 (사용자 결정): 전술 임플란트 장착 · 해제 · 교체는 토스트를 띄우지 않는다 — 슬롯 그림(임플란트 위젯)과
-      // 장착 소리(`audio` 의 `ui_equip`)로 충분하다. `implant:equipped` 구독이 여기서 없어진 것뿐이다.
+      // 2026-09-17 (user's decision): equipping · unequipping · swapping a tactical implant draws no toast — the slot art (the implant
+      // widget) and the equip sound (`ui_equip` in `audio`) are enough. Only the `implant:equipped` subscription is gone from here.
       /* ── Phase 5: corporations (short lines; the credits chip / rep / contract toasts live in MetaToasts) ── */
-      /* ── 2026-09-14: NPC 퀘스트 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — 옛 기업 퀘스트 완료 토스트(`meta:questChanged`)는 기업 퀘스트와 함께
-       * 없어졌다. 새 NPC 메시지(`npc:message`)는 메신저(ui/menus/messenger)가 띄운다. 훈련장에서는 아무것도 띄우지 않는다. ── */
+      /* ── 2026-09-14: NPC quests (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」) — the old corporation quest completion toast (`meta:questChanged`) went
+       * away with the corporation quests. New NPC messages (`npc:message`) are shown by the messenger (ui/menus/messenger). Nothing is shown in the training range. ── */
       b.on('npc:objectiveProgress', ({ questId, index, done, raid }) => {
         if (!done || !raid || ctx.isTraining()) return;
         const info = ctx.meta?.npc?.getQuest(questId) ?? null;
@@ -425,7 +425,7 @@ export class Notifications {
           if (r.credits > 0) parts.push(`크레딧 ${formatCredits(r.credits, { sign: true })}`);
           if (r.xp > 0) parts.push(`XP ${formatCompactSigned(r.xp, true)}`);
           for (const rep of r.rep) parts.push(`${escapeHtml(CORP_DEFS[rep.corp]?.name ?? rep.corp)} 신뢰도 +${rep.amount}`);
-          /* 2026-09-14: NPC 개인 신뢰도 — 기업 신뢰도 바로 뒤 (메신저 대화의 `보상 — …` 줄 · 퀘스트 카드 칩과 같은 순서) */
+          /* 2026-09-14: the NPC's personal trust — right after corporation reputation (the same order as the messenger conversation's `보상 — …` line · the quest card chips) */
           if (r.npcTrust > 0 && def) parts.push(`${escapeHtml(NPC_DEF_MAP.get(def.npc)?.name ?? def.npc)} 신뢰도 +${r.npcTrust}`);
           for (const it of r.items) {
             const d = ctx.loot?.getItemDef(it.defId);
@@ -459,8 +459,8 @@ export class Notifications {
   }
 
   /**
-   * 2026-09-15: 안드로이드 표시 이름. 마지막 명단에 있으면 그 이름, 없으면 id 꼬리의 bay 번호로 `androidNameOf`
-   * (id 는 `androidIdOf(scope, bay)` = `android:<scope>:<bay>` 라 마지막 칸이 bay 다).
+   * 2026-09-15: the android's display name. Its name when it is on the last roster, otherwise `androidNameOf` from the bay
+   * number at the tail of the id (the id is `androidIdOf(scope, bay)` = `android:<scope>:<bay>`, so the last field is the bay).
    */
   private allyName(id: AllyId): string {
     const known = this.allyNames.get(id);
@@ -477,8 +477,8 @@ export class Notifications {
   }
 
   /**
-   * 2026-09-16 (사용자 결정): 아이템 획득 한 줄 — `.notif.info.nt-item` > 공용 칩 썸네일(`buildItemChip`, 개수 배지 없음) +
-   * `.t`(`이름 ×수량`). 수량은 1 이어도 쓴다. 칩의 `data-def-id` 는 떼어 호버 카드 · 우클릭 메뉴가 토스트에 걸리지 않게 한다.
+   * 2026-09-16 (user's decision): one item-gained line — `.notif.info.nt-item` > the shared chip thumbnail (`buildItemChip`, no count badge) +
+   * `.t` (`이름 ×수량`). The quantity is written even at 1. The chip's `data-def-id` is stripped so the hover card · right-click menu never catch on a toast.
    */
   private pushItem(def: ItemDef | undefined, name: string, rarity: string, qty: number): void {
     const n = el('div', { cls: 'notif info nt-item' });
@@ -547,10 +547,10 @@ export class Notifications {
   }
 
   /**
-   * 2026-09-16 (사용자 결정): 튜토리얼 우측 조작 가이드(`tutorial/ui/Controls`, `.tut-controls`)가 떠 있으면 토스트 스택을
-   * **그 패널 바로 아래**에서 시작시킨다 — 우측 중앙 스택이 패널 뒤에 가려지지 않게. 폴더 import 없이 DOM 클래스로만 찾는다
-   * (튜토리얼 스포트라이트가 `.key-guide .kg-close` 를 찾는 것과 같은 결합). 패널은 띠 안에서 세로 가운데에 서고 줄 수에 따라
-   * 키가 바뀌므로 매 프레임 잰다 — 패널이 없거나 숨었으면 비교 하나로 끝난다. HudSystem.update 가 레이어 가시성과 무관하게 부른다.
+   * 2026-09-16 (user's decision): while the tutorial's right-hand control guide (`tutorial/ui/Controls`, `.tut-controls`) is up, the toast stack
+   * starts **directly below that panel** — so the right-centre stack is not hidden behind it. It is found by DOM class alone, with no folder
+   * import (the same coupling as the tutorial spotlight looking for `.key-guide .kg-close`). The panel is vertically centred in its band and its height
+   * changes with the line count, so it is measured every frame — none or hidden ends it in one comparison. HudSystem.update calls it regardless of layer visibility.
    */
   update(): void {
     let panel = this.tutPanel;
@@ -570,7 +570,7 @@ export class Notifications {
   get channelText(): string | null { return this.channel ? this.channel.el.textContent : null; }
   /** Live toast nodes, the channel line excluded (debug). */
   get liveCount(): number { return this.live.length; }
-  /** 2026-09-15 (debug / smoke): 지금 떠 있는 토스트의 글자 (오래된 것부터). */
+  /** 2026-09-15 (debug / smoke): the text of the toasts up right now (oldest first). */
   get toastTexts(): string[] { return this.live.map((n) => n.textContent ?? ''); }
 
   private clear(): void {

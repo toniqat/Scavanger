@@ -8,21 +8,24 @@ const ESCAPE_KEY = 'ui:itemFavoriteMenu';
 const SELECTOR = `.item-chip[data-def-id], [${ITEM_FAVORITE_MENU_ATTR}][data-def-id]`;
 
 /**
- * 아이템 칩 즐겨찾기 우클릭 메뉴 (2026-09-12, E2).
+ * Right-click favorite menu on an item chip (2026-09-12, E2).
  *
- * 즐겨찾기의 원본은 inventory 다 (`InventoryRef.isFavorite` · `toggleFavorite` · `inventory:favoritesChanged`, E1). 인벤토리
- * 격자의 타일은 inventory 자신의 우클릭 메뉴가 맡고, 이 파일은 **가지고 있지 않은 아이템도** 켤 수 있는 나머지 자리를 맡는다 —
- * 퀘스트 납품 · 보상 칩, 제작 · 가구 · 업그레이드 재료 칩(`renderItemCost` 가 그리는 모든 칩), 계약 아이템 칩, 그리고
- * 옵트인한 기업 상점 타일. `ItemTip` 이 호버 카드를 위임하는 방식 그대로 **`ctx.uiRoot` 의 위임 리스너 하나**다.
+ * The source of favorites is inventory (`InventoryRef.isFavorite` · `toggleFavorite` · `inventory:favoritesChanged`, E1).
+ * Tiles of the inventory grid are taken by inventory's own right-click menu, and this file takes every remaining place
+ * where **an item that is not owned** can be turned on too — quest delivery · reward chips, craft · furniture · upgrade
+ * material chips (every chip `renderItemCost` draws), contract item chips, and opted-in 기업 상점 tiles. Exactly the way
+ * `ItemTip` delegates its hover card, it is **one delegated listener on `ctx.uiRoot`**.
  *
- *   - 버블 단계에서 듣는다: 안쪽 요소가 자기 `contextmenu` 에서 `stopPropagation` 하면(재배 스테이션 슬롯 · 인벤토리 타일)
- *     그쪽 메뉴가 이기고 이 메뉴는 뜨지 않는다. 브라우저 메뉴를 막으려고 `preventDefault` 만 하는 창(제작 열 · 인벤토리 창)
- *     안의 칩에는 그대로 뜬다.
- *   - `toggleFavorite` 가 없는 inventory(구현 전 · 스켈레톤)에서는 메뉴 자체를 띄우지 않는다.
- *   - 닫기: 항목 선택 · 바깥 pointerdown · 휠 · Escape(`ctx.escape` 맨 위) · 창이 닫힘 · 페이즈 변경.
+ *   - It listens in the bubble phase: when an inner element `stopPropagation`s in its own `contextmenu` (a grow station
+ *     slot · an inventory tile) that menu wins and this one does not appear. It still appears on a chip inside a window
+ *     that only `preventDefault`s to block the browser menu (the craft column · the inventory window).
+ *   - With an inventory that has no `toggleFavorite` (before implementation · a skeleton) the menu is not opened at all.
+ *   - Closing: picking the entry · a pointerdown outside · the wheel · Escape (top of `ctx.escape`) · the window
+ *     closing · a phase change.
  *
- * 부팅 때 `setItemChipFavoriteSource` 도 등록한다 — 칩이 만들어질 때 파란 띠(`.is-favorite`)를 붙이는 질의다. 켜고 끈 뒤에는
- * `inventory:favoritesChanged` 를 받아 **DOM 에 이미 있는 같은 def 의 칩 전부**의 클래스를 고친다.
+ * At boot it also registers `setItemChipFavoriteSource` — the query that puts the blue band (`.is-favorite`) on a chip as
+ * it is built. After a toggle it takes `inventory:favoritesChanged` and fixes the class of **every chip of that same def
+ * already in the DOM**.
  */
 export class ItemFavoriteMenu {
   readonly root: HTMLElement;
@@ -64,7 +67,7 @@ export class ItemFavoriteMenu {
 
   bind(ctx: GameContext): void {
     this.ctx = ctx;
-    // 2026-09-13 (서재 시리즈): 칩의 파란 띠는 「즐겨찾기 **또는** 아직 서재에 꽂지 않은 매체」 다 — 둘 다면 띠는 하나 (`.is-favorite` 한 클래스)
+    // 2026-09-13 (library series): a chip's blue band is 「a favorite **or** a medium not yet shelved in the library」 — one band for both (the one class `.is-favorite`)
     setItemChipFavoriteSource((defId) => this.api()?.isFavorite?.(defId) === true || this.shelfWanted(defId));
     ctx.uiRoot.addEventListener('contextmenu', this.onContext);
     window.addEventListener('pointerdown', this.onOutside, true);
@@ -128,11 +131,11 @@ export class ItemFavoriteMenu {
   private paint(defId: string, favorite: boolean): void {
     if (typeof defId !== 'string' || !defId) return;
     const sel = `.item-chip[data-def-id="${CSS.escape(defId)}"]`;
-    const on = favorite === true || this.shelfWanted(defId);   // 2026-09-13: 서재 띠와 한 클래스
+    const on = favorite === true || this.shelfWanted(defId);   // 2026-09-13: one class with the library band
     for (const chip of document.querySelectorAll<HTMLElement>(sel)) chip.classList.toggle(ITEM_CHIP_FAVORITE_CLASS, on);
   }
 
-  /** 2026-09-13 (서재 시리즈): 서재가 바뀌면 이미 그려진 칩 전부의 띠를 다시 정한다 (def 당 한 번씩만 묻는다). */
+  /** 2026-09-13 (library series): when the library changes, re-decide the band of every chip already drawn (asked once per def). */
   private paintAll(): void {
     const answers = new Map<string, boolean>();
     for (const chip of document.querySelectorAll<HTMLElement>('.item-chip[data-def-id]')) {
@@ -144,7 +147,7 @@ export class ItemFavoriteMenu {
     }
   }
 
-  /** `HousingRef.isShelfItemWanted` — 그 매체의 보관함은 있는데 같은 종류가 어디에도 꽂혀 있지 않다. 질의가 없으면 false. */
+  /** `HousingRef.isShelfItemWanted` — the shelf for that medium exists but nothing of the same kind is shelved anywhere. False when the query is missing. */
   private shelfWanted(defId: string): boolean {
     const h = this.ctx?.housing;
     if (!h || typeof h.isShelfItemWanted !== 'function') return false;

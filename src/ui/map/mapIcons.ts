@@ -1,15 +1,17 @@
 /**
- * src/ui/map/mapIcons.ts — 전술 지도 마커를 **그리는 함수**와 라벨 층 (2026-09-13).
+ * src/ui/map/mapIcons.ts — the **painter functions** for tactical map markers, plus the label layer (2026-09-13).
  *
- * 지도(`MapScreen.draw`)와 좌측 범례의 견본 캔버스가 **같은 함수**를 부른다 — 범례에 그려진 아이콘이 곧 지도에 그려지는
- * 아이콘이다 (사용자 결정: 「플레이어 · 분대원이 월드맵에 표시되는 것과 범례 아이콘이 정확히 같아야」). 예전에는 범례가 CSS 삼각형
- * (`.sw.player`)이라 지도의 노치 화살표 · 윤곽선 · 크기와 달랐다. 크기를 바꿀 때는 `MARKER_SCALE` 한 곳만 고친다.
+ * The map (`MapScreen.draw`) and the sample canvases of the left legend call the **same functions** — the icon
+ * drawn in the legend is the icon drawn on the map (user's decision: 「the legend icon must be exactly what the
+ * player · squadmates look like on the world map」). The legend used to be a CSS triangle (`.sw.player`), so it
+ * differed from the map's notched arrow · outline · size. To change a size, edit `MARKER_SCALE` in that one place.
  *
- * 함수는 전부 캔버스 좌표 (CSS px) 기준이고 상태가 없다. `MapLabels` 는 프레임마다 라벨을 모아 **겹치면 우선순위가 낮은 것을
- * 버리고** 어두운 윤곽을 둘러 그린다 — 줌을 뺀 지도에서 구조물 · 둥지 · 정류장 이름이 겹쳐 읽히지 않던 것을 막는다.
+ * Every function works in canvas coordinates (CSS px) and holds no state. `MapLabels` collects the labels each
+ * frame and, **dropping the lower-priority one where two overlap**, draws them with a dark outline — it keeps the
+ * structure · nest · station names from overlapping into something unreadable on a zoomed-out map.
  */
 
-/** 지도 색 (Canvas 는 CSS 변수를 못 읽어 `base.css` 의 값을 옮겨 적는다). */
+/** Map colours (a canvas cannot read CSS variables, so the values of `base.css` are copied here). */
 export const MAP_COL = {
   bg: '#06080a',
   grid: 'rgba(232,230,225,0.10)',
@@ -28,30 +30,31 @@ export const MAP_COL = {
   caution: '#ffc23a',
   /* appended: tactical kit */
   gather: '#7fe6a1',
-  /* appended (2026-09-09): 레이드 플레이 개선 — 구조물 · 선로 · 전차 · 환경 재해 */
+  /* appended (2026-09-09): raid play improvements — structure · rail · tram · environmental hazard */
   structure: '#d8c48a',
   rail: '#9fb4c7',
   tram: '#ffd27f',
   grove: '#b98cff',
-  /* appended (2026-09-11, C-11): 폐허 전초 (POI) — 구조물(모래색)보다 낮은 채도의 콘크리트 색 */
+  /* appended (2026-09-11, C-11): ruined outpost (POI) — a concrete colour less saturated than the structure sand */
   outpost: '#a9a59a',
-  /* appended (2026-09-13): 탐사 차량 — 흙길(황갈색 점선) · 정류장 · 차체(올리브) */
+  /* appended (2026-09-13): the rover — dirt road (tan dashes) · station · body (olive) */
   route: '#c9a06a',
   station: '#e6c48a',
   rover: '#a9c96c',
 };
 
-/** 캔버스 라벨 글꼴 (base.css 의 스택을 옮겨 적는다). */
+/** Canvas label font (the stack of base.css copied here). */
 export const FONT_LABEL = "600 10px 'Segoe UI', 'Malgun Gothic', 'Noto Sans KR', sans-serif";
 
 /**
- * 플레이어 · 분대원 화살표의 배율 (2026-09-13 사용자 결정: 더 크게 — 1.6배). 화살표 좌표는 예전 값 × 이 배율이다.
+ * Scale of the player · squadmate arrows (2026-09-13 user's decision: bigger — ×1.6). The arrow coordinates are
+ * the old values × this scale.
  */
 export const MARKER_SCALE = 1.6;
 
 const OUTLINE = 'rgba(0,0,0,0.7)';
 
-/** 노치 화살표 한 개 (`tip` 앞 끝, `back` 뒤 끝 x, `half` 날개 반폭, `notch` 홈 x). `ang` = 캔버스 회전 (0 = 오른쪽). */
+/** One notched arrow (`tip` front end, `back` rear x, `half` wing half-width, `notch` notch x). `ang` = canvas rotation (0 = right). */
 function notchedArrow(c: CanvasRenderingContext2D, x: number, y: number, ang: number, color: string,
   tip: number, back: number, half: number, notch: number): void {
   c.save();
@@ -62,13 +65,13 @@ function notchedArrow(c: CanvasRenderingContext2D, x: number, y: number, ang: nu
   c.restore();
 }
 
-/** 로컬 플레이어 화살표 (호박색). 시야 원추는 `drawPlayerCone` 이 따로 — 범례 견본에는 원추가 들어갈 자리가 없다. */
+/** The local player's arrow (amber). The view cone is separate in `drawPlayerCone` — a legend sample has no room for one. */
 export function drawPlayerArrow(c: CanvasRenderingContext2D, x: number, y: number, ang: number, color = MAP_COL.accent): void {
   const k = MARKER_SCALE;
   notchedArrow(c, x, y, ang, color, 9 * k, -6 * k, 5.5 * k, -3 * k);
 }
 
-/** 로컬 플레이어의 시야 원추 (화살표 밑에 먼저 그린다). */
+/** The local player's view cone (drawn first, under the arrow). */
 export function drawPlayerCone(c: CanvasRenderingContext2D, x: number, y: number, ang: number): void {
   const r = 40 * MARKER_SCALE;
   c.save();
@@ -81,15 +84,16 @@ export function drawPlayerCone(c: CanvasRenderingContext2D, x: number, y: number
   c.restore();
 }
 
-/** 분대원 화살표 (슬롯 색). 플레이어보다 한 치수 작다. */
+/** Squadmate arrow (slot colour). One size smaller than the player's. */
 export function drawSquadArrow(c: CanvasRenderingContext2D, x: number, y: number, ang: number, color: string): void {
   const k = MARKER_SCALE;
   notchedArrow(c, x, y, ang, color, 7 * k, -5 * k, 4.5 * k, -2.5 * k);
 }
 
 /**
- * 2026-09-15 (안드로이드 분대원): 안드로이드 화살표 — 분대원 화살표와 **같은 크기, 다른 실루엣**이다. 속이 빈
- * 삼각형에 가운데 점 하나: 한눈에 「사람이 아닌 분대원」으로 읽히면서 슬롯 색은 그대로 쓴다.
+ * 2026-09-15 (android squadmates): the android arrow — **the same size as the squadmate arrow, a different
+ * silhouette**. A hollow triangle with one dot in the middle: it reads at a glance as 「a squadmate who is not a
+ * person」 while keeping the slot colour.
  */
 export function drawAllyArrow(c: CanvasRenderingContext2D, x: number, y: number, ang: number, color: string): void {
   const k = MARKER_SCALE;
@@ -105,7 +109,7 @@ export function drawAllyArrow(c: CanvasRenderingContext2D, x: number, y: number,
   c.restore();
 }
 
-/** 2026-09-15: 쓰러진 · 파괴된 안드로이드 — 빈 사각형 + X. */
+/** 2026-09-15: a downed · destroyed android — an empty square + X. */
 export function drawAllyDown(c: CanvasRenderingContext2D, x: number, y: number, color: string): void {
   const k = MARKER_SCALE;
   c.strokeStyle = color; c.lineWidth = 1.6;
@@ -116,7 +120,7 @@ export function drawAllyDown(c: CanvasRenderingContext2D, x: number, y: number, 
   c.stroke();
 }
 
-/** 전사한 분대원: 빈 원 + X (배율 적용). */
+/** A squadmate killed in action: an empty circle + X (scaled). */
 export function drawSquadDead(c: CanvasRenderingContext2D, x: number, y: number, color: string): void {
   const k = MARKER_SCALE;
   c.strokeStyle = color; c.lineWidth = 1.6;
@@ -127,19 +131,19 @@ export function drawSquadDead(c: CanvasRenderingContext2D, x: number, y: number,
   c.stroke();
 }
 
-/** 마름모 (탈출 지점 · 핑). */
+/** Diamond (extraction point · ping). */
 export function drawDiamond(c: CanvasRenderingContext2D, x: number, y: number, r: number, stroke: string, fill = 'rgba(0,0,0,0.5)'): void {
   c.beginPath(); c.moveTo(x, y - r); c.lineTo(x + r, y); c.lineTo(x, y + r); c.lineTo(x - r, y); c.closePath();
   c.fillStyle = fill; c.fill();
   c.strokeStyle = stroke; c.lineWidth = 1.5; c.stroke();
 }
 
-/** 탈출 지점 마름모. `active` 는 호박색 · 조금 크게 (펄스 링은 지도가 따로 그린다 — 범례는 한 줄뿐이다). */
+/** Extraction point diamond. `active` is amber · a little bigger (the pulse ring is drawn by the map — the legend is one row). */
 export function drawPad(c: CanvasRenderingContext2D, x: number, y: number, active = false): void {
   drawDiamond(c, x, y, active ? 8 : 6, active ? MAP_COL.accent : MAP_COL.pad, active ? 'rgba(255,179,71,0.45)' : 'rgba(0,0,0,0.5)');
 }
 
-/** 착륙한 탈출 함선: 초록 원 + 어두운 삼각. */
+/** The landed extraction ship: a green circle + a dark triangle. */
 export function drawShip(c: CanvasRenderingContext2D, x: number, y: number): void {
   c.fillStyle = MAP_COL.success;
   c.beginPath(); c.arc(x, y, 7, 0, Math.PI * 2); c.fill();
@@ -147,7 +151,7 @@ export function drawShip(c: CanvasRenderingContext2D, x: number, y: number): voi
   c.beginPath(); c.moveTo(x, y - 4); c.lineTo(x + 3.5, y + 3); c.lineTo(x - 3.5, y + 3); c.closePath(); c.fill();
 }
 
-/** 약초 채집물: 작은 십자. */
+/** Herb gather node: a small cross. */
 export function drawGatherCross(c: CanvasRenderingContext2D, x: number, y: number, color = MAP_COL.gather): void {
   c.strokeStyle = color; c.lineWidth = 1.2;
   c.beginPath();
@@ -156,7 +160,7 @@ export function drawGatherCross(c: CanvasRenderingContext2D, x: number, y: numbe
   c.stroke();
 }
 
-/** 선로 중심선 스타일 (점선 · 파랑회색). 경로를 만든 뒤 부른다 — `stroke` 까지 한다. */
+/** Rail centre-line style (dashed · blue-grey). Called after the path is built — it does the `stroke` too. */
 export function strokeRail(c: CanvasRenderingContext2D): void {
   c.strokeStyle = MAP_COL.rail; c.lineWidth = 1.4;
   c.setLineDash([5, 3]);
@@ -164,21 +168,22 @@ export function strokeRail(c: CanvasRenderingContext2D): void {
   c.setLineDash([]);
 }
 
-/** 선로 플랫폼: 작은 사각 테두리. */
+/** Rail platform: a small square outline. */
 export function drawPlatform(c: CanvasRenderingContext2D, x: number, y: number): void {
   c.strokeStyle = MAP_COL.rail; c.lineWidth = 1.4;
   c.strokeRect(x - 4, y - 2.5, 8, 5);
 }
 
 /**
- * 전차: `yaw` 로 돈 12×6 사각. 서 있으면 흐리다.
+ * The tram: a 12×6 rectangle rotated by `yaw`. Dimmed while it stands still.
  *
- * 2026-09-18 — **부호는 `+yaw` 다** (`-yaw` 였다). 지도는 `toX(x)` · `toY(z)` 라 **캔버스 y = 월드 +Z** 이고
- * (`MapScreen.toX/toY`, 뒤집지 않는다), 전차 · 탐사 차량의 `yaw` 는 수학 규약(로컬 +X → 월드 `(cos, sin)`,
- * `rails/model` 의 축 규약)이다. 그래서 화면 각도가 곧 `yaw` 다 — `c.rotate(-yaw)` 는 진행 방향을 z 축으로
- * 뒤집어 비춘다. 전차 사각은 대칭이라 눈에 안 띄었고 `drawRover` 에서 드러났다 (사용자 보고).
- * 3인칭 몸(플레이어 · 분대원)은 전방이 `(-sin, -cos)` 인 **다른 규약**이라 호출 쪽에서 각도로 바꿔 넘긴다
- * (`MapScreen` 의 `Math.atan2(-Math.cos(yaw), -Math.sin(yaw))`) — 이 함수들과 섞지 않는다.
+ * 2026-09-18 — **the sign is `+yaw`** (it was `-yaw`). The map is `toX(x)` · `toY(z)`, so **canvas y = world +Z**
+ * (`MapScreen.toX/toY`, never flipped), and the `yaw` of the tram · rover is the math convention (local +X → world
+ * `(cos, sin)`, the axis convention of `rails/model`). The screen angle is therefore `yaw` itself — `c.rotate(-yaw)`
+ * mirrors the travel direction across the z axis. The tram rectangle is symmetric, so it went unnoticed; it came
+ * out in `drawRover` (user's report). A third-person body (the player · squadmates), whose forward is
+ * `(-sin, -cos)`, is a **different convention** and is converted to an angle at the call site
+ * (`Math.atan2(-Math.cos(yaw), -Math.sin(yaw))` in `MapScreen`) — never mixed with these functions.
  */
 export function drawTram(c: CanvasRenderingContext2D, x: number, y: number, yaw: number, moving: boolean): void {
   c.save();
@@ -190,7 +195,8 @@ export function drawTram(c: CanvasRenderingContext2D, x: number, y: number, yaw:
 }
 
 /**
- * 탐사 차량 흙길 스타일 (황갈색 **둥근 점선** + 어두운 밑선) — 선로의 긴 점선과 한눈에 갈린다. 경로를 만든 뒤 부른다.
+ * Rover dirt-road style (tan **round dots** + a dark underline) — at a glance it differs from the rail's long
+ * dashes. Called after the path is built.
  */
 export function strokeRoute(c: CanvasRenderingContext2D): void {
   c.save();
@@ -204,15 +210,15 @@ export function strokeRoute(c: CanvasRenderingContext2D): void {
 }
 
 export interface StationDrawOpts {
-  /** 재해에 잡아먹혔다 — 붉은 빛깔. */
+  /** Swallowed by a hazard — a red tint. */
   swallowed?: boolean;
-  /** 목적지로 고를 수 없다 (선택 모드) — 흐리게. */
+  /** Cannot be picked as a destination (selection mode) — dimmed. */
   disabled?: boolean;
-  /** 선택 모드의 강조 링: `hover` 흰색 · `selected` 호박색 · `current` 초록. */
+  /** Highlight ring in selection mode: `hover` white · `selected` amber · `current` green. */
   ring?: 'hover' | 'selected' | 'current' | null;
 }
 
-/** 탐사 차량 정류장: 표지 기둥을 닮은 원판 + 가운데 기둥 점. */
+/** Rover station: a disc shaped like a sign post + a post dot in the middle. */
 export function drawStation(c: CanvasRenderingContext2D, x: number, y: number, o: StationDrawOpts = {}): void {
   const col = o.swallowed ? MAP_COL.danger : MAP_COL.station;
   c.save();
@@ -231,22 +237,23 @@ export function drawStation(c: CanvasRenderingContext2D, x: number, y: number, o
 }
 
 /**
- * 탐사 차량: `yaw` 로 돈 장갑차 윤곽 (각진 차체 + 포탑 원 + 앞으로 뻗은 포신). 전차의 납작한 사각과 다르게 읽힌다.
- * `destroyed` 면 흐리고 붉은 X.
+ * The rover: an armoured-car outline rotated by `yaw` (an angular body + a turret circle + a gun barrel reaching
+ * forward). It reads differently from the tram's flat rectangle. `destroyed` dims it and adds a red X.
  *
- * 2026-09-18 — 부호가 `+yaw` 인 이유는 `drawTram` 머리 주석에 있다 (캔버스 y = 월드 +Z, `yaw` 는 수학 규약).
- * 이 아이콘은 앞이 깎인 비대칭 윤곽이라 뒤집힌 부호가 「지도에서 이동 방향으로 안 돈다」로 보였다 (사용자 보고).
+ * 2026-09-18 — why the sign is `+yaw` is in the head comment of `drawTram` (canvas y = world +Z, `yaw` is the math
+ * convention). This icon is an asymmetric outline with a cut-off front, so the flipped sign read as 「it does not
+ * turn toward the travel direction on the map」 (user's report).
  */
 export function drawRover(c: CanvasRenderingContext2D, x: number, y: number, yaw: number, destroyed = false): void {
   c.save();
   c.translate(x, y); c.rotate(yaw);
   if (destroyed) c.globalAlpha *= 0.5;
   c.fillStyle = MAP_COL.rover; c.strokeStyle = OUTLINE; c.lineWidth = 1.2;
-  // 앞(+x)이 깎인 차체
+  // body with a cut-off front (+x)
   c.beginPath();
   c.moveTo(8, -3); c.lineTo(9.5, 0); c.lineTo(8, 3); c.lineTo(8, 4.5); c.lineTo(-8, 4.5); c.lineTo(-8, -4.5); c.lineTo(8, -4.5); c.closePath();
   c.fill(); c.stroke();
-  // 포신 + 포탑
+  // gun barrel + turret
   c.strokeStyle = 'rgba(20,24,12,0.95)'; c.lineWidth = 1.6;
   c.beginPath(); c.moveTo(0, 0); c.lineTo(12, 0); c.stroke();
   c.fillStyle = 'rgba(40,48,24,0.95)';
@@ -258,7 +265,7 @@ export function drawRover(c: CanvasRenderingContext2D, x: number, y: number, yaw
   }
 }
 
-/** 위험 구역 견본 (지도의 채움 + 경계선과 같은 색). */
+/** Hazard zone sample (the same colours as the map's fill + border). */
 export function drawHazardSwatch(c: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
   c.fillStyle = 'rgba(255, 77, 77, 0.26)';
   c.fillRect(x, y, w, h);
@@ -266,7 +273,7 @@ export function drawHazardSwatch(c: CanvasRenderingContext2D, x: number, y: numb
   c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 }
 
-/** 라벨 한 줄을 어두운 윤곽과 함께 그린다 (밝은 지형 위에서도 읽힌다). */
+/** Draws one label line with a dark outline (readable on bright terrain too). */
 export function drawLabel(c: CanvasRenderingContext2D, text: string, x: number, y: number, color: string,
   baseline: CanvasTextBaseline = 'top', align: CanvasTextAlign = 'center'): void {
   c.font = FONT_LABEL;
@@ -282,8 +289,9 @@ interface LabelEntry { text: string; x: number; y: number; color: string; prio: 
 const byPrio = (a: LabelEntry, b: LabelEntry): number => a.prio - b.prio;
 
 /**
- * 지형지물 라벨 층. 프레임마다 `add` 로 모으고 `flush` 가 우선순위(작을수록 먼저) 순으로 그리되 **이미 그린 라벨과 겹치는 것은
- * 버린다** — 줌을 뺀 지도의 라벨 겹침 방지. 항목 객체는 풀에서 재사용한다.
+ * Landmark label layer. Labels are collected each frame with `add`, and `flush` draws them in priority order
+ * (smaller first) but **drops any that overlaps a label already drawn** — it prevents label overlap on a
+ * zoomed-out map. The entry objects are reused from a pool.
  */
 export class MapLabels {
   private pool: LabelEntry[] = [];
@@ -296,7 +304,7 @@ export class MapLabels {
     this.live.push(e);
   }
 
-  /** `y` 는 라벨 **윗변**(baseline top) 기준이다. */
+  /** `y` is measured from the label's **top edge** (baseline top). */
   flush(c: CanvasRenderingContext2D): void {
     const live = this.live;
     live.sort(byPrio);

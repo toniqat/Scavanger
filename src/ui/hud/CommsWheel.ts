@@ -13,10 +13,10 @@ const R_OUT = 126;
 const SECTOR_GAP_DEG = 3;
 const LABEL_RADIUS = (R_IN + R_OUT) / 2;
 
-/** 방향 → 각도(도, 0 = 위, 시계방향). `CommsDir` 의 여섯 값을 전부 덮는다. */
+/** Direction → angle (degrees, 0 = up, clockwise). Covers all six values of `CommsDir`. */
 const DIR_DEG: Readonly<Record<string, number>> = { N: 0, E: 90, S: 180, W: 270, L: 270, R: 90 };
 
-/** 한 칸이 차지하는 각(도): 4칸이면 90°, 2칸이면 180°. */
+/** The angle one slot takes (degrees): 90° with 4 slots, 180° with 2. */
 function spreadOf(count: number): number { return count >= 4 ? 90 : 180; }
 
 interface Sector { arc: SVGPathElement; root: HTMLElement; label: HTMLElement; dir: HTMLElement }
@@ -36,40 +36,40 @@ function sectorPath(a0: number, a1: number): string {
 }
 
 /**
- * **의사소통 휠 (`H` 홀드, 2026-09-09).** `.cwheel`, 게임플레이 레이어, `pointer-events:none`.
+ * **The communication wheel (`H` hold, 2026-09-09).** `.cwheel`, the gameplay layer, `pointer-events:none`.
  *
- * 다른 두 휠(`QuickWheel` · `StratagemWheel`)과 성격이 같지만 **입력까지 여기서 본다** — 의사소통에는 소유
- * 시스템 폴더가 따로 없고 계약(`shared/comms.ts`)과 채팅 · 네트워크만으로 완결되기 때문이다. 그래서 이 파일
- * 하나가 (1) `Keys.COMMS` 홀드 제스처, (2) 휠 그리기, (3) 한 마디 보내기 · 받기, (4) 채팅 한 줄 · 토스트를
- * 전부 맡는다.
+ * It shares its nature with the other two wheels (`QuickWheel` · `StratagemWheel`) but **reads its input here as well** —
+ * communication has no owning system folder of its own and is complete with its contract (`shared/comms.ts`) plus chat and
+ * the network. So this one file carries (1) the `Keys.COMMS` hold gesture, (2) drawing the wheel, (3) sending · receiving
+ * one line, (4) the chat line · the toast.
  *
- * **제스처.** `Keys.COMMS`(기본 H)를 누르면 홀드 타이머가 시작되고 `COMMS_WHEEL_HOLD_S` 를 넘기면 휠이 열린다.
- * 열려 있는 동안 포인터 락 델타(`input.mouseDX/DY`)를 누적해 중심에서 `COMMS_WHEEL_DEAD_PX` 를 넘으면 그 방향의
- * 칸이 hover 가 되고, 키를 놓으면 그 한 마디가 나간다. **짧게 톡 누르면 아무 일도 없다** (이 키는 오직 휠이다).
- * 열려 있는 동안 `ctx.player.setLookLocked(true)` 로 카메라를 묶는다 — 다른 두 휠과 같은 방식이고, 우리가 건
- * 락만 우리가 푼다(`lookLocked` 플래그). `PlayerWeaponHost` 를 import 하지 않고 `ctx.player` 를 duck-type 한다.
+ * **The gesture.** Pressing `Keys.COMMS` (H by default) starts the hold timer, and past `COMMS_WHEEL_HOLD_S` the wheel opens.
+ * While it is open the pointer-lock deltas (`input.mouseDX/DY`) accumulate, and past `COMMS_WHEEL_DEAD_PX` from the centre
+ * the slot in that direction becomes hovered; releasing the key sends that one line. **A short tap does nothing** (this key
+ * is the wheel and nothing else). While open it ties the camera down with `ctx.player.setLookLocked(true)` — the same way as
+ * the other two wheels, and only the lock we raised is released by us (the `lookLocked` flag). It duck-types `ctx.player` instead of importing `PlayerWeaponHost`.
  *
- * **배치는 상태가 정한다** (`shared/comms.ts` 의 `commsLayout`): 서 있으면 4칸(N/E/S/W), 전투불능이면 2칸(좌/우).
- * 전투불능 여부는 매 프레임 다시 보므로 휠이 열린 채 쓰러져도 그 자리에서 배치가 바뀐다. **문구는 이 파일이
- * 쓰지 않는다** — `CommsDef.label` / `.line` 그대로이고, `{n}` · `{name}` 이 든 `contract` 만 `ctx.meta`
- * (`activeContract`, `CONTRACT_MAX_ACTIVE` 가 1이라 "가장 가까운 하나" = 그 하나)에서 이름과 남은 건수를 읽어
- * `fillCommsLine` 으로 채운다. 계약이 없으면 `CommsDef.fallback` 이 나간다.
+ * **The state decides the layout** (`commsLayout` in `shared/comms.ts`): 4 slots (N/E/S/W) standing, 2 slots (left/right)
+ * while downed. Being downed is re-read every frame, so going down with the wheel open changes the layout on the spot.
+ * **This file does not write the wording** — `CommsDef.label` / `.line` verbatim, and only a `contract` holding `{n}` ·
+ * `{name}` reads the name and the count left from `ctx.meta` (`activeContract`; `CONTRACT_MAX_ACTIVE` is 1, so "the nearest
+ * one" = that one) and fills it in with `fillCommsLine`. With no contract, `CommsDef.fallback` goes out.
  *
- * **보내기 · 받기.** 로컬에서 `comms:sent {id, text, by:null, byName, slot, position}` 를 발행하고, 로비가 있으면
- * `CommsMessage {t:'comm', id, text}` 를 `'others'` 로 보낸다. 원격 `comm` 은 `id` 를 `COMMS_DEF_MAP` 으로 검증하고
- * `text` 를 잘라 같은 `comms:sent` 를 (`by`/`byName`/`slot`/`position` 채워서) 발행한다.
+ * **Sending · receiving.** Locally it emits `comms:sent {id, text, by:null, byName, slot, position}`, and with a lobby it
+ * sends `CommsMessage {t:'comm', id, text}` to `'others'`. A remote `comm` validates `id` against `COMMS_DEF_MAP`, clips
+ * `text` and emits the same `comms:sent` (with `by`/`byName`/`slot`/`position` filled in).
  *
- * **채팅 · 토스트.** `comms:sent` 하나만 듣는다. **로컬**(`by === null`)이면 `chat:post {kind:'request'}` 를
- * 발행한다 — `ChatLog` 가 내 이름을 앞에 붙여 한 줄을 쓰고 그 줄을 분대에 중계하므로 원격에서도 `<이름>: 문장`
- * 이 그대로 보인다 (핑 v3 의 콜아웃과 **같은 경로**다). **원격**이면 채팅을 다시 쏘지 않고(중계본이 이미 온다)
- * `ui:notify` 토스트만 띄운다. 효과음은 `chat:message {kind:'request'}` 를 듣는 `audio/` 가 낸다.
+ * **Chat · toast.** It listens to `comms:sent` alone. **Local** (`by === null`) emits `chat:post {kind:'request'}` —
+ * `ChatLog` prefixes my name, writes the line and relays it to the squad, so the remote side sees `<이름>: 문장` just the
+ * same (the **same path** as ping v3's callouts). **Remote** never fires chat again (the relayed copy is already coming) and
+ * only raises a `ui:notify` toast. The sound comes from `audio/`, which listens to `chat:message {kind:'request'}`.
  *
- * **쿨다운.** `COMMS_COOLDOWN_S`. 재충전 중에도 휠은 열리지만 중앙이 `재충전 n초` 가 되고 칸이 흐려지며
- * (`.cooling`), 놓아도 `ui_deny` 만 난다.
+ * **Cooldown.** `COMMS_COOLDOWN_S`. The wheel still opens while recharging, but the centre reads `재충전 n초`, the slots dim
+ * (`.cooling`) and releasing only gives `ui_deny`.
  *
- * **blocker 를 잡지 않는다.** 포인터 락도 풀지 않고 ESC 스택에도 올라가지 않는다 — 두 형제 휠과 같다. 그래서
- * 우측 하단 키 가이드에도 올리지 않는다(가이드는 `Tab · Esc 닫기` 를 스스로 붙이는데, 이 휠은 키를 **놓아서**
- * 닫히지 Tab 으로 닫히지 않는다). 안내는 형제들처럼 휠 중앙 한 줄(`마우스로 선택 · H 놓기`)이 맡는다.
+ * **It holds no blocker.** It does not release the pointer lock either and never goes on the ESC stack — the same as its two
+ * siblings. So it is not put on the bottom-right key guide either (the guide appends `Tab · Esc 닫기` itself, while this
+ * wheel closes by **releasing** a key, not with Tab). Its notice is one line in the wheel's centre, like its siblings' (`마우스로 선택 · H 놓기`).
  */
 export class CommsWheel {
   readonly root: HTMLElement;
@@ -127,19 +127,19 @@ export class CommsWheel {
   get isOpen(): boolean { return this.open; }
   /** Hovered sector index, null when the drag has not left the dead zone (debug / smoke). */
   get hoverIndex(): number | null { return this.hover; }
-  /** Which layout is drawn right now: 4 (서 있을 때) or 2 (전투불능) (debug / smoke). */
+  /** Which layout is drawn right now: 4 (standing) or 2 (downed) (debug / smoke). */
   get slotCount(): number { return this.layout.length; }
 
-  /* ── 제스처 ─────────────────────────────────────────────────────────────── */
+  /* ── The gesture ────────────────────────────────────────────────────────── */
 
   update(dt: number, ctx: GameContext): void {
     const input = ctx.input;
-    // 전투불능이어도 말은 할 수 있어야 한다 — 그래서 `isDowned` 는 배치만 바꾸고 게이트가 아니다.
-    // 2026-09-11: 드론 조종 중에는 열리지 않는다 (열려 있으면 아래 `!usable` 이 아무것도 보내지 않고 접는다) —
-    // 마우스가 드론 시점이다. 핑(`hud/Pings`)은 막지 않는다.
+    // Being downed must not take speech away — so `isDowned` only changes the layout and is not a gate.
+    // 2026-09-11: it does not open while a drone is being controlled (an open one is folded by `!usable` below, sending
+    // nothing) — the mouse belongs to the drone view. Pings (`hud/Pings`) are not blocked.
     const usable = ctx.isGameplayActive() && input.isPointerLocked && !(ctx.player?.isDead ?? false)
       && !(ctx.player?.droneControl ?? false)
-      && !(ctx.player?.roverRide ?? false);   // 2026-09-13: 탐사 차량 안에서도 열리지 않는다
+      && !(ctx.player?.roverRide ?? false);   // 2026-09-13: it does not open inside the rover either
 
     if (!this.held) {
       if (usable && input.wasPressed(Keys.COMMS)) { this.held = true; this.holdT = 0; }
@@ -149,7 +149,7 @@ export class CommsWheel {
 
     if (!input.isDown(Keys.COMMS)) {
       this.held = false;
-      if (!this.open) return;                       // 톡 누름 = 아무 일도 없다
+      if (!this.open) return;                       // a tap = nothing happens
       const pick = this.hover;
       this.setOpen(false);
       if (pick !== null) this.send(ctx, this.layout[pick]);
@@ -164,7 +164,7 @@ export class CommsWheel {
       return;
     }
 
-    // 휠이 열린 채 쓰러졌다 / 일어났다 → 배치를 그 자리에서 갈아 끼운다
+    // went down / got up with the wheel open → the layout is swapped on the spot
     const downed = ctx.player?.isDowned ?? false;
     if (downed !== this.downed) { this.build(downed); this.dx = 0; this.dy = 0; this.setHover(null, ctx); }
 
@@ -173,16 +173,16 @@ export class CommsWheel {
     this.applyCooldown(ctx);
   }
 
-  /** 누적 델타 → 칸 index (dead zone 안이면 null). 4칸은 가장 가까운 사분면, 2칸은 좌/우 우세 방향. */
+  /** Accumulated delta → slot index (null inside the dead zone). 4 slots take the nearest quadrant, 2 slots the dominant left/right direction. */
   private pick(): number | null {
     if (this.dx * this.dx + this.dy * this.dy < COMMS_WHEEL_DEAD_PX * COMMS_WHEEL_DEAD_PX) return null;
     if (this.layout.length >= 4) {
-      // 0 = N (위), 시계방향 — `COMMS_ALIVE` 의 배열 순서가 정확히 N/E/S/W 다
+      // 0 = N (up), clockwise — the array order of `COMMS_ALIVE` is exactly N/E/S/W
       const ang = Math.atan2(this.dx, -this.dy);
       const n = this.layout.length;
       return ((Math.round(ang / (Math.PI / 2)) % n) + n) % n;
     }
-    // 2칸: 좌/우 가로 드래그만 고른다 (세로가 우세하면 아무것도 안 고른다 — 실수로 나가는 것보다 낫다)
+    // 2 slots: only a horizontal left/right drag picks one (a dominant vertical picks nothing — better than sending by mistake)
     if (Math.abs(this.dx) < Math.abs(this.dy)) return null;
     const want = this.dx > 0 ? 'R' : 'L';
     const i = this.layout.findIndex((d) => d.dir === want);
@@ -217,15 +217,15 @@ export class CommsWheel {
     if (hover !== null) ctx.bus.emit('audio:play', { id: 'ui_click', volume: 0.3 });
   }
 
-  /** 키를 놓지 않았는데 쓸 수 없게 됐다 (사망 · 화면 열림 · 미션 리셋): 아무것도 보내지 않고 접는다. */
+  /** It became unusable without the key being released (death · a screen opening · a mission reset): folds without sending anything. */
   private cancel(): void {
     this.held = false;
     this.setOpen(false);
   }
 
   /**
-   * 카메라를 묶는다. `setLookLocked` 는 `PlayerWeaponHost` 의 메서드라 `ctx.player` 에 duck-type 으로 붙는다
-   * (그 인터페이스를 import 하면 player/ 를 들여다보는 셈이다). **우리가 건 락만 우리가 푼다.**
+   * Ties the camera down. `setLookLocked` is a `PlayerWeaponHost` method, so it is duck-typed onto `ctx.player`
+   * (importing that interface would mean looking inside player/). **Only the lock we raised is released by us.**
    */
   private setLookLocked(locked: boolean): void {
     if (locked === this.lookLocked) return;
@@ -235,7 +235,7 @@ export class CommsWheel {
     p.setLookLocked(locked);
   }
 
-  /* ── 보내기 · 받기 ──────────────────────────────────────────────────────── */
+  /* ── Sending · receiving ────────────────────────────────────────────────── */
 
   private send(ctx: GameContext, def: CommsDef | undefined): void {
     if (!def) return;
@@ -257,9 +257,9 @@ export class CommsWheel {
   }
 
   /**
-   * `{n}` · `{name}` 채우기. 지금 그런 항목은 `contract` 하나뿐 — `ctx.meta.activeContract` 에서 계약 이름과
-   * 남은 건수를 읽는다 (`CONTRACT_MAX_ACTIVE` 가 1이라 진행 중인 계약은 최대 하나다). 없으면 undefined 를
-   * 돌려주고 `fillCommsLine` 이 `fallback` 을 고른다. meta/ 폴더 내부는 보지 않는다 — `ctx.meta` 계약만이다.
+   * Filling `{n}` · `{name}`. Today `contract` is the only such entry — the contract's name and the count left are read
+   * from `ctx.meta.activeContract` (`CONTRACT_MAX_ACTIVE` is 1, so at most one contract runs). With none it returns
+   * undefined and `fillCommsLine` picks the `fallback`. It never looks inside the meta/ folder — only the `ctx.meta` contract.
    */
   private varsFor(ctx: GameContext, id: CommsId): { n?: number; name?: string } | undefined {
     if (id !== 'contract') return undefined;
@@ -286,17 +286,17 @@ export class CommsWheel {
   }
 
   /**
-   * `comms:sent` 하나에서 채팅 한 줄과 토스트를 만든다. 로컬만 `chat:post` 를 쏜다 — `ChatLog` 가 내 이름을
-   * 붙이고 그 줄을 분대에 중계하므로, 원격에서 또 쏘면 같은 문장이 두 줄이 된다 (핑 v3 와 같은 규약).
+   * Makes one chat line and a toast out of one `comms:sent`. Only the local side fires `chat:post` — `ChatLog` prefixes my
+   * name and relays that line to the squad, so firing it again on the remote side would make the same sentence two lines (the same contract as ping v3).
    */
   private announce(ctx: GameContext, e: { text: string; by: PeerId | null; byName: string }): void {
     if (e.by === null) { ctx.bus.emit('chat:post', { text: e.text, kind: 'request' }); return; }
     ctx.bus.emit('ui:notify', { text: `${e.byName}: ${e.text}`, kind: 'warning', duration: 2.4 });
   }
 
-  /* ── 그리기 ─────────────────────────────────────────────────────────────── */
+  /* ── Drawing ────────────────────────────────────────────────────────────── */
 
-  /** 배치가 바뀔 때만 부른다 (열 때 · 전투불능 전환). 칸 수가 2 ↔ 4 로 갈리므로 DOM 을 다시 만든다. */
+  /** Called only when the layout changes (on open · on the downed transition). The slot count splits 2 ↔ 4, so the DOM is rebuilt. */
   private build(downed: boolean): void {
     const next = commsLayout(downed);
     if (this.layout === next && this.sectors.length) { this.downed = downed; return; }

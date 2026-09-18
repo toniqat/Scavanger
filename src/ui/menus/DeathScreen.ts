@@ -16,17 +16,18 @@ import { ResultReport, buildPlanetLine, buildResultHeader, type PlanetLine, type
  * from `RAID_FAILED_AUTO_RETURN_S` (display only: game/ performs the return).
  * The mode resets on `game:newMission` / `game:abort`.
  *
- * **2026-09-09 — 자동 부활이 사라졌다.** `부활 (n초)` 버튼도 Space 도 없다. 이 화면은 phase `dead` 에서만 뜨는데
- * 그 페이즈는 이제 레이드가 정말 끝났을 때(솔로 사망 · 분대 전멸)만 온다 — 분대에서 혼자 죽으면 페이즈는 그대로고
- * `ui/hud/SpectateOverlay` 가 구조선 대기를 보여 준다.
+ * **2026-09-09 — the auto-revive is gone.** There is no `부활 (n초)` button and no Space. This screen only shows in
+ * phase `dead`, and that phase now only comes when the raid has really ended (a solo death · a squad wipe) — dying
+ * alone in a squad leaves the phase as it is and `ui/hud/SpectateOverlay` shows the wait for a rescue drop.
  *
- * **2026-09-15 (결과 창 개편, 사용자 결정):** 제목 줄 오른쪽에 임무 시간 하나, 그 아래 `잃은 전리품 가치`
- * (`stats.peakLootValue` — 그 레이드에서 가장 높았던 소지품 가치, 빨강) → 사망 원인 줄(`stats.death` — 막타의 얼굴 /
- * 원인 아이콘 · 이름 · 그 원인에게서 받은 피해) → 획득 경험치. 처치 · 생존 시간 칸 · 개봉한 상자 · 받은 피해 칸은 없다.
- * 몸통은 `ResultReport` 를 `MissionComplete` 와 함께 쓴다.
+ * **2026-09-15 (result window rework, user's decision):** one mission time at the right of the title row, under it
+ * `잃은 전리품 가치` (`stats.peakLootValue` — the highest value carried in that raid, red) → the death cause row
+ * (`stats.death` — the killing blow's face / a cause icon · its name · the damage taken from it) → the XP gained. There
+ * are no kill · survival time · crates opened · damage taken cells. The body is `ResultReport`, shared with `MissionComplete`.
  *
- * **2026-09-15 (머리줄, 사용자 결정):** 행성 줄이 `buildPlanetLine` 의 두 조각이다 — 회색 라벨 `행성` + 조금 큰 흰 이름,
- * 가운뎃점 없음. 부제는 이 화면의 뜻(`신호 소실` · `분대 전멸`)을 나르므로 **그대로 남는다** (없앤 것은 탈출 성공의 부제뿐).
+ * **2026-09-15 (the header, user's decision):** the planet row is `buildPlanetLine`'s two pieces — a grey `행성` label +
+ * a slightly larger white name, no middle dot. The subtitle carries this screen's meaning (`신호 소실` · `분대 전멸`),
+ * so it **stays** (only the extraction-success subtitle was dropped).
  */
 export class DeathScreen extends MenuBase {
   private head: ResultHeader;
@@ -45,14 +46,14 @@ export class DeathScreen extends MenuBase {
     this.head = buildResultHeader(head, '전사', 'danger');
     this.subtitleEl = el('div', { cls: 'subtitle', text: '스캐빈저 신호 소실 — 장비는 유해에 남았습니다', parent: head });
     // Phase 11: which planet this went wrong on (`PLANET_NONE_LABEL` when the raid carried no planet).
-    // 2026-09-15: 두 조각(회색 `행성` + 흰 이름)이고 `MissionComplete` 와 같은 모습이다.
+    // 2026-09-15: two pieces (a grey `행성` + a white name), looking the same as in `MissionComplete`.
     this.planet = buildPlanetLine(head);
 
     this.report = new ResultReport(this.frame);
     this.rewards = new RewardsBlock(this.frame);
 
     const actions = el('div', { cls: 'actions', parent: this.frame });
-    this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('ui:shipReturn', {}), 'primary');   // 2026-09-16: 암전 → 로딩 → 페이드인 (`ShipReturn`)
+    this.button(actions, '함선으로 귀환', () => this.ctx.bus.emit('ui:shipReturn', {}), 'primary');   // 2026-09-16: black → loading → fade in (`ShipReturn`)
     this.autoEl = el('div', { cls: 'auto-return', text: '', parent: this.frame });
     this.autoEl.hidden = true;
   }
@@ -116,7 +117,7 @@ export class DeathScreen extends MenuBase {
   }
 
   private fill(s: MissionStats): void {
-    setText(this.planet.value, missionPlanetLabel(this.ctx.missionMode, this.ctx.missionPlanet));   // 2026-09-16: 튜토리얼 = `표류 행성`
+    setText(this.planet.value, missionPlanetLabel(this.ctx.missionMode, this.ctx.missionPlanet));   // 2026-09-16: the tutorial = `표류 행성`
     setText(this.head.time, fmtTime(s.timeSeconds));
     this.report.fill(s, 'death');
     this.rewards.fill(s.rewards, 'dead');

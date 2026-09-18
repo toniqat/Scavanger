@@ -10,7 +10,7 @@ const MARGIN = 0.06;
 const EDGE_PAD = 44;
 const PING_FADE = 1.5;
 
-/** 2026-09-10: 수류탄 · 함선 호출에 이어 로그 강하까지 `hud/DangerIndicators` 로 가서, 남은 것은 핑뿐이다. */
+/** 2026-09-10: grenades · ship calls and now rogue drops all went to `hud/DangerIndicators`, so only pings are left. */
 type Cat = 'ping';
 
 interface Target {
@@ -32,7 +32,7 @@ interface Arrow { root: HTMLElement; ico: HTMLElement; lbl: HTMLElement; lastKey
 
 const PING_ICON: Record<PingKind, string> = {
   ground: '◆', enemy: '▲', crate: '■', extraction: '◇', item: '◈', attack: '➤', caution: '⚠',
-  /* appended (2026-09-09): 전투불능 좌/우 핑 + 구조물 · 선로 */
+  /* appended (2026-09-09): the downed left / right pings + structure · rail */
   help: '✚', abandon: '✖', structure: '⬢', rail: '═',
 };
 
@@ -41,26 +41,27 @@ function cssColor(n: number): string { return `#${n.toString(16).padStart(6, '0'
 /**
  * Off-screen indicators (`.offscr`, gameplay layer): pooled edge arrows (`.oarrow.ping/.drop`, max 12) for
  * things the player should know about but cannot see:
- *   (a) **2026-09-10 — 여기 없다.** 수류탄 · 함선 호출 낙하물은 위험 인디케이터(`hud/DangerIndicators`)로 옮겼다:
- *       날아오는 위험물은 화면 안이면 머리 인디케이터 · 밖이면 크로스헤어 둘레의 방향 호라는 **하나의 언어**로
- *       그린다. 같은 목표를 두 위젯이 그리지 않도록 이 파일에서 두 갈래를 통째로 걷어냈다,
+ *   (a) **2026-09-10 — not here any more.** Grenades · ship-call drops moved to the danger indicators
+ *       (`hud/DangerIndicators`): an incoming threat is drawn in **one language** — a head indicator while it is on
+ *       screen, a direction arc around the crosshair while it is off screen. Both branches were pulled out of this
+ *       file whole so that two widgets never draw the same target,
  *   (b) pings — own **and** squadmates' (`ping:placedV2`, any `owner`; 2026-09-09 pings v3) — kept for the ping's
  *       **whole lifetime** (`until = expires` from the event; the shared `OFFSCREEN_PING_SECONDS` stays exported as a
- *       contract constant but is no longer read here), dropped on `ping:removed`; icon/colour by kind, `이름`-less kind
- *       label; fades over the last 1.5 s. The arrow only shows while the ping is off-screen — on screen the marker does,
- *   (c) **로그 강하도 2026-09-10 부터 여기 없다.** 2026-09-09 의 `.oarrow.drop` 화살표는
- *       `hud/DangerIndicators` 로 옮겼다 — 하늘에서 떨어지는 것은 (a) 와 같은 이유로 화면 안이면 머리 마커 ·
- *       밖이면 방향 호라는 하나의 언어를 쓰고, 그래야 화면 안에 들어왔을 때도 표시가 남는다. 토스트는 여전히
- *       `hud/RaidAlerts`, 경보음은 `audio/AudioSystem` 이다.
+ *       contract constant but is no longer read here), dropped on `ping:removed`; icon/colour by kind, a name-less
+ *       kind label; fades over the last 1.5 s. The arrow only shows while the ping is off-screen — on screen the marker does,
+ *   (c) **Rogue drops are not here either, since 2026-09-10.** The 2026-09-09 `.oarrow.drop` arrow moved to
+ *       `hud/DangerIndicators` — for the same reason as (a), something falling out of the sky speaks one language,
+ *       head marker on screen · direction arc off screen, which is what keeps a readout once it does come on screen.
+ *       The toast is still `hud/RaidAlerts` and the alarm sound `audio/AudioSystem`.
  * Each `lateUpdate` projects the target through `ctx.camera`: on-screen (inside the viewport minus a 6 % margin, in
  * front of the camera) → arrow hidden; otherwise the projected direction from the screen centre is clamped to a rect
  * `EDGE_PAD` px inside the viewport and the arrow rotates to point at it. Behind the camera → the direction is mirrored
  * so the arrow pins to the bottom / sides. Nearest 12 targets win. Cleared on mission reset.
  *
- * **2026-09-09 — no 안개 gate here, deliberately.** Every arrow is a *live squad event* (our own grenade, a
+ * **2026-09-09 — no fog gate here, deliberately.** Every arrow is a *live squad event* (a grenade of ours, a
  * squadmate's ping, a ship call somebody just made), not a world landmark, so `FogRef.isDiscovered` has nothing to
  * hide: whoever placed it saw the spot. The discovery gate lives in `WorldMarkers` / `Compass` / `ui/map`, which are
- * the three that draw 탈출 신호소 · 둥지 · 상자 · 채집물.
+ * the three that draw extraction pads · nests · crates · gather nodes.
  */
 export class OffscreenIndicators {
   readonly root: HTMLElement;
@@ -106,7 +107,7 @@ export class OffscreenIndicators {
     const t = ctx.time;
     const out = this.targets;
     out.length = 0;
-    // (a) 수류탄 · 함선 호출은 2026-09-10 부터 `hud/DangerIndicators` 가 그린다 (중복 금지).
+    // (a) grenades · ship calls have been drawn by `hud/DangerIndicators` since 2026-09-10 (no duplicates).
     // (b) squad pings
     if (this.pings.length) {
       this.pings = this.pings.filter((p) => p.until > t);
@@ -116,8 +117,8 @@ export class OffscreenIndicators {
         out.push({ cat: 'ping', pos: p.pos, icon: PING_ICON[p.kind] ?? '◆', color: cssColor(PING_COLOR[p.kind] ?? 0x7fb7e6), label: PING_LABEL[p.kind] ?? '핑', alpha, sub: p.kind });
       }
     }
-    // (c) 로그 강하도 2026-09-10 부터 `hud/DangerIndicators` 가 그린다 — 하늘에서 떨어지는 것은 화면 안이면
-    //     머리 마커 · 밖이면 방향 호라는 한 언어로 간다 (수류탄 · 함선 호출과 같은 이유).
+    // (c) rogue drops too have been drawn by `hud/DangerIndicators` since 2026-09-10 — something falling out of
+    //     the sky goes in one language, head marker on screen · direction arc off screen (as grenades · ship calls do).
     if (out.length > MAX_ARROWS) {
       const p = ctx.player?.position;
       if (p) out.sort((a, b) => a.pos.distanceToSquared(p) - b.pos.distanceToSquared(p));

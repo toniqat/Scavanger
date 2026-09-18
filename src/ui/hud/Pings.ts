@@ -14,7 +14,7 @@ export type PingKind = SharedPingKind;
 
 export const PING_LABEL: Record<PingKind, string> = {
   ground: '핑', enemy: '적', crate: '보급', extraction: '탈출', item: '아이템', attack: '저쪽으로 가자', caution: '여기 조심해',
-  /* appended (2026-09-09): 전투불능일 때 좌/우 홀드 제스처가 되는 두 종류 + 구조물 · 선로 */
+  /* appended (2026-09-09): the two kinds the left / right hold gesture becomes while downed + structure · rail */
   help: '살려줘', abandon: '나를 버려', structure: '구조물', rail: '선로',
 };
 export const PING_COLOR: Record<PingKind, number> = {
@@ -46,11 +46,11 @@ const ACK_RING_STEP = 0.22;
 /** Owner info for pings placed by squad members (null/undefined for local pings). */
 export interface PingOwner {
   id: PeerId; name: string; slot: number; color: string;
-  /** 2026-09-15: true = 안드로이드 분대원이 찍었다 (`ally:ping`) — 마커에 `.android` 가 붙고 확인(ack) 대상이 아니다. */
+  /** 2026-09-15: true = an android squadmate placed it (`ally:ping`) — the marker gets `.android` and cannot be acked. */
   android?: boolean;
 }
 
-/** One 알겠다 on a ping: who, and the slot colour their ring is drawn in. */
+/** One ack on a ping: who, and the slot colour their ring is drawn in. */
 export interface PingAck { id: PeerId; slot: number }
 
 /** Read-only view of a live ping (map / other HUD parts). */
@@ -108,12 +108,13 @@ interface AimCandidate { pri: number; px: number; kind: PingKind; pos: THREE.Vec
  * **Gesture** (unchanged): press = start hold; drag while held (pointer-locked deltas accumulate). Release:
  *   dx ≥ +PING_DRAG_THRESHOLD_PX → `attack` (돌격), dx ≤ −threshold → `caution` (주의), otherwise a plain ping.
  *   Holding longer than PING_HOLD_MAX locks the gesture to a plain ping. A radial hint appears after 150 ms.
- *   **2026-09-15 (사용자 결정): 누르고 있는 동안 카메라가 돌지 않는다** (`H` · `T` 휠과 같다) — 누르는 순간
- *   `ctx.player.setLookLocked(true)`, 놓기 · `PING_HOLD_MAX` 초과 · 모든 취소 경로 · `dispose` 에서 풀린다. 락은
- *   `mouseDX` 를 소비하지 않으므로 드래그 분류는 그대로다.
- *   **2026-09-10 (사용자 결정): 아래로 드래그하던 탄약 보충 핑은 없어졌다** — `H` 의사소통 휠과 인벤토리
- *   휠클릭(`InventoryRef.requestItem`)이 같은 부탁을 이미 하고 있어 제스처가 겹쳤다. 이제 세로 드래그는
- *   평범한 핑이고, 이 컴포넌트는 장착 무기를 더 이상 추적하지 않는다.
+ *   **2026-09-15 (user's decision): the camera does not turn while the button is held** (as on the `H` · `T`
+ *   wheels) — `ctx.player.setLookLocked(true)` at the press, released on release · past `PING_HOLD_MAX` · every
+ *   cancel path · `dispose`. The lock does not consume `mouseDX`, so the drag classification is unchanged.
+ *   **2026-09-10 (user's decision): the ammo-resupply ping that used to be a downward drag is gone** — the `H`
+ *   communication wheel and the inventory middle-click (`InventoryRef.requestItem`) already make the same request,
+ *   so the gestures overlapped. A vertical drag is now a plain ping, and this component no longer tracks the
+ *   equipped weapon.
  *
  * **Aim assist** (plain gesture pings only — not 돌격 / 주의, not the map's `placeAtWorld`). Before the exact raycast,
  * candidates are projected to the screen and the one nearest the crosshair inside `PING_AIM_ASSIST_PX` wins, provided it
@@ -147,11 +148,12 @@ interface AimCandidate { pri: number; px: number; kind: PingKind; pos: THREE.Vec
  * module). `placeAtWorld(position, kind?)` (and `ping:requestAt`) ping a world point directly for surfaces with no aim
  * ray — the tactical map's middle-click; it skips the pointer-lock gate but keeps the cap, cooldown and snapping.
  *
- * **2026-09-15 (안드로이드 분대원).** `ally:ping` (allies/, every client) 은 `placeAlly` 로 들어와 안드로이드 이름 · 슬롯
- * 색의 원격 핑(`.pmarker.remote.android`)이 되고, 콜아웃 한 줄은 `ally:chat` 으로 나간다 (ChatLog 가 그리고 **relay 하지
- * 않는다**). 확인(ack) 대상이 아니다 (`seq === null` → 조준 보정 후보에서 빠진다). 이 클라이언트가 세우는 모든 핑은
- * 이제 `ping:placedV3 {owner, label?, enemyId?}` 도 낸다 — `owner` 는 로컬 null · 분대원 PeerId · 안드로이드 id 이고,
- * allies/ 가 **명령**을 이 하나로 읽는다 (자기가 찍은 핑을 무시할 수 있어야 한다).
+ * **2026-09-15 (android squadmates).** `ally:ping` (allies/, on every client) comes in through `placeAlly` and
+ * becomes a remote ping in the android's name · slot colour (`.pmarker.remote.android`), and the one-line callout
+ * goes out as `ally:chat` (ChatLog draws it and **does not relay it**). It cannot be acked (`seq === null` → it
+ * drops out of the aim-assist candidates). Every ping this client places now also emits
+ * `ping:placedV3 {owner, label?, enemyId?}` — `owner` is null for local · the squadmate's PeerId · the android's
+ * id, and allies/ reads its **orders** from this one event (it has to be able to ignore the pings it placed itself).
  */
 export class Pings {
   readonly root: HTMLElement;
@@ -178,7 +180,7 @@ export class Pings {
   private holdDowned = false;
   private pressOrigin = new THREE.Vector3();
   private pressDir = new THREE.Vector3();
-  /** 2026-09-15: 이 홀드가 `ctx.player.setLookLocked(true)` 를 걸었나 — **우리가 건 락만 우리가 푼다** (CommsWheel 과 같다). */
+  /** 2026-09-15: whether this hold raised `ctx.player.setLookLocked(true)` — **only its own lock is released** (as in CommsWheel). */
   private lookLocked = false;
 
   // scratch
@@ -207,8 +209,9 @@ export class Pings {
       ctx.bus.on('net:remotePlayerRemoved', ({ id }) => this.removeOwnedBy(id)),
       // Phase 10: a surface with no aim ray (the tactical map's middle-click) asks for a ping at a world point.
       ctx.bus.on('ping:requestAt', ({ position, kind }) => this.placeAtWorld(position, kind)),
-      /* 2026-09-15 (안드로이드 분대원): allies/ 가 **모든 클라이언트에서** 낸다 (호스트는 로컬 + `ally ping` 와이어).
-       * 우리는 그리기만 한다 — 다시 relay 하지 않고, 콜아웃 한 줄은 `ally:chat` 로 내보내 ChatLog 가 그린다. */
+      /* 2026-09-15 (android squadmates): allies/ emits it on **every client** (the host locally + the `ally ping`
+       * wire). This file only draws — it never relays again, and the one-line callout goes out as `ally:chat` for
+       * ChatLog to draw. */
       ctx.bus.on('ally:ping', ({ id, name, slot, kind, position, label, enemyId }) => this.placeAlly(id, name, slot, kind, position, label, enemyId)),
     );
     // Full PingMessage (label / enemyId / seq) through the net module; the bus event only carries position + kind.
@@ -225,7 +228,7 @@ export class Pings {
   /** Live pings (read-only view) for other HUD parts (map). */
   getPings(): readonly PingView[] { return this.pings; }
 
-  /** 2026-09-09: whether the 좌/우 hold wheel is showing, and which layout it draws (debug / smoke). */
+  /** 2026-09-09: whether the left / right hold wheel is showing, and which layout it draws (debug / smoke). */
   get isHoldWheelOpen(): boolean { return this.wheel.isOpen; }
   get isHoldWheelDowned(): boolean { return this.wheel.isDowned; }
 
@@ -285,7 +288,8 @@ export class Pings {
   private updateGesture(ctx: GameContext): void {
     const input = ctx.input;
     // v3: pings work in the ship too — control active (gameplay OR hub, no blockers) + pointer locked + alive.
-    // 2026-09-13: 탐사 차량 안에서는 핑을 찍지 않는다 (궤도 카메라 시점 — 사용자 결정 「무기 · 아이템 · 호출 불가」 와 같은 줄)
+    // 2026-09-13: no ping is placed from inside the rover (orbit camera view — the same line as the user's decision
+    //             「no weapons · items · calls」)
     const canPing = ctx.isControlActive() && input.isPointerLocked && !(ctx.player?.isDead ?? false) && !(ctx.player?.roverRide ?? false);
 
     if (!this.holding) {
@@ -299,9 +303,11 @@ export class Pings {
       ctx.camera.getWorldPosition(this.pressOrigin);
       ctx.camera.getWorldDirection(this.pressDir);
       /*
-       * 2026-09-15 (사용자 결정): 누르는 순간부터 카메라를 묶는다 — `H` 의사소통 휠 · `T` 빠른 사용 휠과 같다.
-       * 좌/우 드래그가 휠 칸을 고르는 입력이라 그 동안 시점이 따라 돌면 안 된다. `mouseDX` 는 소비하지 않으므로
-       * 아래의 `dragX` 누적(분류)은 그대로이고, 짧은 탭은 같은 프레임에 풀려 크로스헤어가 가리키는 곳에 찍힌다.
+       * 2026-09-15 (user's decision): the camera is locked from the moment of the press — as on the `H`
+       * communication wheel · the `T` quick-use wheel. The left / right drag is the input that picks a wheel slot,
+       * so the view must not turn along with it. `mouseDX` is not consumed, so the `dragX` accumulation (the
+       * classification) below is unchanged, and a short tap releases in the same frame and lands where the
+       * crosshair points.
        */
       this.setLookLocked(ctx, true);
       // fall through: a press and release inside the same frame (quick click at low fps) must still ping
@@ -312,7 +318,7 @@ export class Pings {
     const held = ctx.time - this.holdStart;
     const locked = held > PING_HOLD_MAX; // gesture timed out → plain ping on release
     if (!locked) this.dragX += input.mouseDX;
-    // 시간이 지나 평범한 핑으로 굳었다: 휠이 닫히므로 카메라를 돌려준다 (놓는 순간의 조준으로 찍는다)
+    // Time ran out into a plain ping: the wheel closes, so the camera is released (the ping uses the aim at release)
     else this.setLookLocked(ctx, false);
 
     const gesture = locked ? 'plain' : this.classify();
@@ -354,9 +360,9 @@ export class Pings {
   }
 
   /**
-   * 2026-09-10 (사용자 결정): **아래로 드래그하던 탄약 보충 핑을 없앴다** — 같은 부탁이 `H` 의사소통 휠에
-   * 있고, 인벤토리에서 장착 무기를 휠클릭해도 같은 문구가 나간다. 이제 아래 드래그는 그냥 평범한 핑이라
-   * 세로 성분은 보지 않는다 (좌/우만 남는다).
+   * 2026-09-10 (user's decision): **the ammo-resupply ping on a downward drag was removed** — the same request
+   * sits on the `H` communication wheel, and a middle-click on the equipped weapon in the inventory sends the same
+   * line. A downward drag is now just a plain ping, so the vertical component is not read (only left / right stay).
    */
   private classify(): Gesture {
     const ax = Math.abs(this.dragX);
@@ -366,7 +372,7 @@ export class Pings {
 
   private endHold(ctx?: GameContext): void {
     this.holding = false;
-    // 놓기 · 취소(사망 · 리셋 · 함선 출입 · 조작 불가) 전부 여기를 지난다 — 카메라 락을 먼저 푼다
+    // Release · cancel (death · reset · ship entry/exit · no control) all pass here — the camera lock is released first
     this.setLookLocked(ctx ?? this.ctx, false);
     if (!this.wheelShown) return;
     this.wheelShown = false;
@@ -377,9 +383,9 @@ export class Pings {
   private cancelHold(): void { if (this.holding) this.endHold(); }
 
   /**
-   * 카메라를 묶는다 / 푼다. `setLookLocked` 는 `PlayerWeaponHost` 의 메서드라 `ctx.player` 에 duck-type 으로 붙는다
-   * (`hud/CommsWheel` 과 같은 방식 — player/ 를 import 하지 않는다). **우리가 건 락만 우리가 푼다**: 다른 휠 ·
-   * 조준 모드가 건 락을 핑이 풀어 버리면 안 된다.
+   * Locks / releases the camera. `setLookLocked` is a method of `PlayerWeaponHost`, so it is reached on
+   * `ctx.player` by duck typing (the same way as `hud/CommsWheel` — player/ is not imported). **Only its own lock
+   * is released**: a ping must not release a lock another wheel · an aim mode raised.
    */
   private setLookLocked(ctx: GameContext | undefined, locked: boolean): void {
     if (locked === this.lookLocked) return;
@@ -540,8 +546,9 @@ export class Pings {
     if (interior || !world?.ready) return null;
 
     // (2) living enemies, chest height
-    // 2026-09-18 (벌레 알): 적 핑은 **알에 붙지 않는다** — 둥지 앞에서 가리키면 알이 아니라 그 뒤의 땅 · 상자가 잡힌다.
-    //   「적 핑」은 분대에게 「저것을 쏴라」 는 뜻이고(안드로이드는 그 말을 따른다), 알은 싸우지 않는다.
+    // 2026-09-18 (bug eggs): an enemy ping **never attaches to an egg** — aiming in front of a nest picks the
+    //   ground · a crate behind it, not an egg. An 「enemy ping」 means 「shoot that」 to the squad (androids obey
+    //   it), and an egg does not fight.
     if (ctx.enemies) {
       for (const e of ctx.enemies.getEnemies()) {
         if (e.isDead || e.isEgg) continue;
@@ -679,7 +686,7 @@ export class Pings {
     }
   }
 
-  /* ── 알겠다 (acks) ─────────────────────────────────────────────────────── */
+  /* ── acks ──────────────────────────────────────────────────────────────── */
 
   /** Local player confirmed a squadmate's ping: chat line + `pingack` to the squad + own ring on the ping. */
   private ack(ctx: GameContext, ping: Ping): void {
@@ -772,7 +779,8 @@ export class Pings {
     let enemy: EnemyRef | null = null;
     if (kind === 'enemy' && gameplay && ctx.enemies) {
       const list = ctx.enemies.getEnemies();
-      // 2026-09-18: 분대원 · 안드로이드가 보낸 적 핑도 알에는 붙지 않는다 (id 로 와도, 가까운 몸으로 끌어당길 때도)
+      // 2026-09-18: an enemy ping sent by a squadmate · android does not attach to an egg either (not by id, and
+      //             not when snapping to the nearest body)
       if (enemyId !== undefined) {
         for (const e of list) if (e.id === enemyId && !e.isDead && !e.isEgg) { enemy = e; break; }
       }
@@ -798,10 +806,11 @@ export class Pings {
   }
 
   /**
-   * 2026-09-15 (안드로이드 분대원): 안드로이드가 찍은 핑. 사람의 원격 핑과 같은 그림(슬롯 색 마커 · 화면 밖 화살표 ·
-   * 주인별 상한)이지만 주인이 안드로이드 id 라 `evictFor` 도 기마다 따로 센다. 콜아웃은 `ally:chat` 한 줄로 나가고
-   * (ChatLog 가 안드로이드 색으로 그리며 절대 relay 하지 않는다), `ping:placedV3` 의 `owner` 는 그 기의 id 다 —
-   * allies/ 가 자기 핑을 명령으로 잘못 읽지 않게 하는 유일한 표식이다.
+   * 2026-09-15 (android squadmates): a ping placed by an android. The same picture as a human remote ping
+   * (slot-colour marker · off-screen arrow · per-owner cap), but the owner is an android id, so `evictFor` counts
+   * per unit as well. The callout goes out as one `ally:chat` line (ChatLog draws it in the android colour and
+   * never relays it), and the `owner` of `ping:placedV3` is that unit's id — the only mark that keeps allies/ from
+   * misreading its own ping as an order.
    */
   placeAlly(id: PeerId, name: string, slot: number, kind: PingKind, position: THREE.Vector3, label?: string, enemyId?: number): void {
     const ctx = this.ctx;
@@ -815,14 +824,14 @@ export class Pings {
     const pos = position.clone();
     let enemy: EnemyRef | null = null;
     if (k === 'enemy' && ctx.isGameplayPhase() && ctx.enemies && enemyId !== undefined) {
-      for (const e of ctx.enemies.getEnemies()) if (e.id === enemyId && !e.isDead && !e.isEgg) { enemy = e; break; }   // 2026-09-18: 알은 적 핑의 대상이 아니다
+      for (const e of ctx.enemies.getEnemies()) if (e.id === enemyId && !e.isDead && !e.isEgg) { enemy = e; break; }   // 2026-09-18: an egg is not a target for an enemy ping
       if (enemy) pos.copy(enemy.position);
     }
 
     const pid = this.nextId++;
     const expires = ctx.time + PING_LIFETIME;
     const text = label && label.length ? label : PING_LABEL[k];
-    // 안드로이드 핑은 확인(ack) 대상이 아니다 — `seq` 가 null 이면 조준 보정 후보에서 빠진다.
+    // An android ping cannot be acked — a null `seq` drops it out of the aim-assist candidates.
     const ping = this.build(pid, k, pos, expires, enemy, owner, text, null);
     this.pings.push(ping);
     ctx.bus.emit('ping:placed', { id: pid, position: ping.position, kind: k, expires });
@@ -835,8 +844,9 @@ export class Pings {
   }
 
   /**
-   * 2026-09-15: `ping:placedV3` — 이 클라이언트가 세운 **모든** 핑 (로컬 `owner: null` · 원격 PeerId · 안드로이드 id)에
-   * 대상 정보(`label` · `enemyId`)까지 실어 보낸다. allies/ 가 명령(가자 · 조심 · 아이템 · 상자 …)을 이것 하나로 읽는다.
+   * 2026-09-15: `ping:placedV3` — **every** ping this client places (local `owner: null` · a remote PeerId · an
+   * android id) carries its target info (`label` · `enemyId`) too. allies/ reads its orders (`가자` · `조심` · item
+   * · crate …) from this one event.
    */
   private emitV3(ctx: GameContext, ping: Ping, owner: PeerId | null, label: string | undefined, enemyId: number | undefined): void {
     const payload: { id: number; position: THREE.Vector3; kind: PingKind; expires: number; owner: PeerId | null; label?: string; enemyId?: number } = {
@@ -931,7 +941,7 @@ export class Pings {
   }
 
   dispose(): void {
-    this.cancelHold();   // 2026-09-15: 홀드 중에 해체돼도 카메라 락을 남기지 않는다
+    this.cancelHold();   // 2026-09-15: being disposed mid-hold must not leave the camera lock behind
     for (const u of this.unsubs) u();
     this.clear(true);
     this.root.remove();

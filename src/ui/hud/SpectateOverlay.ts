@@ -1,7 +1,7 @@
 import type { GameContext } from '@/shared';
 import { isAndroidId } from '@/shared';
 import { el, setText, setVisible, toggleClass } from '../dom';
-/* 2026-09-15 (안드로이드 분대원): 남은 「분대원」은 사람만 센다 — 안드로이드는 별도 줄 */
+/* 2026-09-15 (android squadmates): the remaining 「분대원」 counts humans only — androids get their own line */
 import { allyBodies } from './allySource';
 
 const REFRESH = 0.25;
@@ -12,9 +12,9 @@ const REFRESH = 0.25;
  * phase leaves gameplay, on respawn (`player:spawned`), abort or a new mission. Lives in the HUD layer, which stays up
  * for a dead local player in multiplayer (`HudSystem` adds `.spectating` to the HUD root).
  *
- * **2026-09-09 — 자동 부활이 사라졌다.** `부활 (n초)` 줄도 Space 도 없다. 그 자리에는
- * `분대원의 구조선을 기다립니다` 와 분대 공용 **남은 구조선 횟수**(`ctx.stratagems.rescueLeft`)가 뜬다.
- * 횟수가 0 이면 `.none` 이 붙어 붉게 읽힌다. 솔로 레이드는 죽는 즉시 레이드 실패라 이 화면이 뜨지 않는다.
+ * **2026-09-09 — auto-revive is gone.** There is no `부활 (n초)` row and no Space. In its place stand
+ * `분대원의 구조선을 기다립니다` and the squad-shared **remaining rescue drop count** (`ctx.stratagems.rescueLeft`).
+ * At a count of 0 it takes `.none` and reads red. A solo raid fails the moment you die, so this screen never appears there.
  */
 export class SpectateOverlay {
   readonly root: HTMLElement;
@@ -37,7 +37,7 @@ export class SpectateOverlay {
     const b = ctx.bus;
     this.unsubs.push(
       b.on('player:died', () => { if (ctx.isMultiplayer) this.set(true, ctx); }),
-      // 구조선 횟수가 바뀌면 (누가 불렀다) 즉시 반영한다 — 0.25 s 주기를 기다리지 않는다
+      // A change in the rescue drop count (somebody called one) lands at once — it does not wait for the 0.25 s cycle
       b.on('rescue:countChanged', () => this.applyRescue(ctx)),
       b.on('rescue:called', () => this.applyRescue(ctx)),
       b.on('player:spawned', () => this.set(false, ctx)),
@@ -63,7 +63,7 @@ export class SpectateOverlay {
     if (on) { this.acc = 0; this.refreshCount(ctx); this.applyRescue(ctx); }
   }
 
-  /** 분대 공용 구조선 잔여 횟수 (`stratagems` 가 없으면 0 으로 읽힌다). */
+  /** The squad-shared remaining rescue drop count (reads 0 with no `stratagems`). */
   private applyRescue(ctx: GameContext): void {
     const left = ctx.stratagems?.rescueLeft ?? 0;
     setText(this.rescue, left > 0 ? `남은 구조선 ${left}` : '남은 구조선 없음');
@@ -71,9 +71,9 @@ export class SpectateOverlay {
   }
 
   /**
-   * 2026-09-15 (안드로이드 분대원, 사용자 결정 「사람이 전원 사망하면 레이드 실패」): 「남은 분대원」은 **사람만**
-   * 센다 — 안드로이드가 살아 있어도 레이드는 끝나기 때문이다. 살아 있는 안드로이드는 뒤에 따로 적는다
-   * (일으켜 줄 수 있는 것은 사람뿐이지만, 적을 막고 있는 기가 몇인지는 알아야 한다).
+   * 2026-09-15 (android squadmates, user's decision 「사람이 전원 사망하면 레이드 실패」): 「남은 분대원」 counts **humans only**
+   * — the raid ends even with androids still alive. Living androids are written separately after it
+   * (only a human can pick someone up, but how many units are holding the enemies off must still be known).
    */
   private refreshCount(ctx: GameContext): void {
     let n = 0;

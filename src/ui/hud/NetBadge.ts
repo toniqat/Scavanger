@@ -11,21 +11,21 @@ const ADDRESS_HINT_AFTER_PROBES = 3;
 type Tone = 'info' | 'ok' | 'warn' | 'bad';
 
 /**
- * 서버 연결 배지 (2026-09-11, B-1) — `ctx.net.link` 를 **함선 · 타이틀 우측 상단**의 작은 배지로 그린다.
+ * The server link badge (2026-09-11, B-1) — draws `ctx.net.link` as a small badge at the **top right of the ship · the title**.
  *
- *  - 레이드 · 훈련 HUD 에서는 **숨긴다** (사용자 결정 — 분대원 HUD 의 `연결 끊김` 과 GameFlow 의 재접속 토스트가 이미 있다).
- *    함선에서는 도킹 · 워프 컷씬과 화면(blocker)이 떠 있는 동안 숨는다 — 터미널 머리줄이 연결 상태를 이미 보여 준다.
- *  - 문구: `서버 연결 중…` / `연결됨`(3 초 뒤 사라짐) / `서버 재연결 중… (n)` / `오프라인 · 서버 찾는 중 (12초 뒤)`
- *    (+ 몇 번 못 찾으면 `서버 주소를 확인하세요 — <주소>`) / `서버 발견 — 함선에서 연결` / `추방됨` · `서버 인원 초과` ·
- *    `다른 곳에서 접속됨`. `idle`(아직 아무도 접속을 시도하지 않았다)이면 아무것도 그리지 않는다.
- *  - **타이틀**(커서가 있다)에서는 배지 옆에 `다시 시도`(`ensureConnected`) · `서버 설정`(설정 › 서버 설정) 버튼.
- *  - **전이 토스트도 여기서만** 낸다 (함선 안에서만): 연결 → 끊김 `서버 연결이 끊겼습니다 — 다시 찾는 중`,
- *    끊김 → 연결 `서버에 다시 연결되었습니다` (한 번도 붙은 적 없던 페이지면 `서버에 연결되었습니다`). 같은 welcome 이
- *    `net:resumed` 를 냈으면 그 줄(`hub/parts/Transitions` 의 `함선에 재접속했습니다`)이 대신하므로 이 토스트는 삼킨다.
+ *  - It is **hidden** in the raid · training HUD (user's decision — the squad HUD's `연결 끊김` and GameFlow's reconnect toast are already there).
+ *    In the ship it hides while a docking · warp cutscene or a screen (blocker) is up — the terminal's header already shows the link state.
+ *  - Text: `서버 연결 중…` / `연결됨` (gone after 3 s) / `서버 재연결 중… (n)` / `오프라인 · 서버 찾는 중 (12초 뒤)`
+ *    (+ `서버 주소를 확인하세요 — <주소>` after a few failed looks) / `서버 발견 — 함선에서 연결` / `추방됨` · `서버 인원 초과` ·
+ *    `다른 곳에서 접속됨`. On `idle` (nobody has tried to connect yet) nothing is drawn.
+ *  - On the **title** (where there is a cursor) the badge is flanked by `다시 시도` (`ensureConnected`) · `서버 설정` (설정 › 서버 설정) buttons.
+ *  - **The transition toasts come only from here** too (and only inside the ship): connected → down `서버 연결이 끊겼습니다 — 다시 찾는 중`,
+ *    down → connected `서버에 다시 연결되었습니다` (on a page that never connected once, `서버에 연결되었습니다`). When the same welcome
+ *    emitted `net:resumed`, that line (`함선에 재접속했습니다` in `hub/parts/Transitions`) stands in for it, so this toast is swallowed.
  *
- * DOM: `#ui-root` 의 직계 자식 `.net-badge(.show)(.nb-ship)(.nb-info|ok|warn|bad)` > `.nb-body`(`.nb-dot` + `.nb-main` + `.nb-sub`) +
- * `.nb-actions`(`.ui-btn` 둘). z 83 — 타이틀(`.menu`, z 없음) 위, 캐릭터 선택(84) · 일시정지(85) · 설정(86) 아래.
- * 클래스 이름은 전부 `nb-` 접두사다 (HUD 위젯 클래스와 modifier 가 겹치지 않게 — `kc-hold` 사례).
+ * DOM: a direct child of `#ui-root`, `.net-badge(.show)(.nb-ship)(.nb-info|ok|warn|bad)` > `.nb-body` (`.nb-dot` + `.nb-main` + `.nb-sub`) +
+ * `.nb-actions` (two `.ui-btn`). z 83 — above the title (`.menu`, no z), below character select (84) · pause (85) · settings (86).
+ * Every class name carries the `nb-` prefix (so no modifier collides with a HUD widget class — the `kc-hold` case).
  */
 export class NetBadge {
   readonly root: HTMLElement;
@@ -142,7 +142,7 @@ export class NetBadge {
       }
       case 'unreachable': {
         if (l.found) return { tone: 'ok', main: '서버 발견 — 함선에서 연결', sub: '', actions: false };
-        // 2026-09-15: `l.embedded` 는 더 이상 켜지지 않는다 (빌드에 서버가 없다) — 데스크톱 앱도 아래의 평범한 줄이다.
+        // 2026-09-15: `l.embedded` is never set any more (builds contain no server) — the desktop app gets the ordinary line below too.
         const left = typeof l.nextProbeInMs === 'number' ? l.nextProbeInMs - (now - this.linkAt) : null;
         const main = left !== null && left > 0 ? `오프라인 · 서버 찾는 중 (${Math.ceil(left / 1000)}초 뒤)` : '오프라인 · 서버 찾는 중…';
         const sub = this.probeSchedules >= ADDRESS_HINT_AFTER_PROBES ? `서버 주소를 확인하세요 — ${l.url}` : '';

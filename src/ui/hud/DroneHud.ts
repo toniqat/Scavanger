@@ -5,37 +5,37 @@ import {
   Keys, createKeycap, onKeybindsChanged, paintKeycap,
 } from '@/shared';
 import { el, setText, toggleClass, clamp01 } from '../dom';
-/* appended (2026-09-12): 드론 스캔 결과 월드 라벨 — 이 위젯이 들고 `lateUpdate` 로 투영한다 */
+/* appended (2026-09-12): world labels for drone scan results — this widget holds them and projects in `lateUpdate` */
 import { DroneScanLabels } from './DroneScanLabels';
 import '../styles/drone.css';
 
-/** 스캔 홀드 링 — 조준점 둘레(반지름 36), 조종 전환 링(60)보다 안쪽이라 둘이 겹치지 않는다. */
+/** Scan hold ring — around the aim point (radius 36), inside the control-switch ring (60) so the two never overlap. */
 const SCAN_RING_SIZE = 96;
 const SCAN_RING_R = 36;
 
-/** 드론 종류 표시 이름 (프레임 좌측 상단 태그). */
+/** Display name per drone kind (the frame's top-left tag). */
 const KIND_NAME: Record<DroneKind, string> = { ground: '지상 드론', air: '공중 드론' };
 
-/** 조종 전환 홀드 링 — `hud/HoldGauge` 와 같은 모양, 반지름만 바깥(60 vs 48)이라 두 링이 겹치지 않는다. */
+/** Control-switch hold ring — `hud/HoldGauge`'s shape, radius further out (60 vs 48) so the two rings never overlap. */
 const RING_SIZE = 144;
 const RING_R = 60;
 
-/** 외곽 노이즈 캔버스 해상도 (CSS 가 `pixelated` 로 화면 전체에 늘린다) 와 갱신 주기. */
+/** Edge noise canvas resolution (CSS stretches it over the whole screen with `pixelated`) and its update interval. */
 const NOISE_W = 160;
 const NOISE_H = 90;
 const NOISE_INTERVAL_S = 1 / 18;
 
-/** 연결 해제 알림이 떠 있는 시간 — `styles/drone.css` 의 `drAlert` 1.5s 와 같다. */
+/** How long the disconnect notice stays up — the same as `drAlert` 1.5s in `styles/drone.css`. */
 const ALERT_S = 1.5;
-/** 전체 화면 노이즈 번쩍: 사거리 이탈로 끊겼을 때 / 드론 시점으로 막 들어갔을 때. */
+/** Full-screen noise flash: when the link broke by leaving range / just after entering the drone view. */
 const BURST_RANGE_S = 0.7;
 const BURST_BOOT_S = 0.35;
 const BURST_BOOT_PEAK = 0.7;
-/** 피격 번쩍 (프레임 브래킷 붉게). */
+/** Hit flash (the frame brackets go red). */
 const HIT_FLASH_S = 0.22;
-/** 체력 바가 붉어지는 비율. */
+/** Ratio below which the hp bar turns red. */
 const HP_LOW_RATIO = 0.35;
-/** 고도 게이지가 "최고 고도" 로 읽히는 여유(m). */
+/** Slack (m) within which the altitude gauge reads as "at max altitude". */
 const ALT_TOP_EPS = 0.25;
 
 const ALERT_TEXT: Partial<Record<DroneReleaseReason, string>> = {
@@ -48,35 +48,35 @@ type KeyId = 'JUMP' | 'CROUCH' | 'SPRINT' | 'RELOAD';
 interface KeyRow { cap: HTMLElement; key: KeyId; hold: boolean }
 
 /**
- * **드론 조종 HUD** (2026-09-11). 데이터는 `ctx.drones`(`controlled` · `controlHold` · `DroneRef`)와 `drone:*` 이벤트뿐이다.
+ * **Drone-control HUD** (2026-09-11). Its only data is `ctx.drones` (`controlled` · `controlHold` · `DroneRef`) and `drone:*` events.
  *
- *  - **드론 시점 모드**: `ctx.drones.controlled` 가 있으면 게임플레이 HUD 루트(`this.root.parentElement`)에
- *    `drone-view` 를 켠다 — CSS 가 무기 패널(+ 퀵 스트립) · 임플란트 · 함선 호출 · 스태미나 · 총 크로스헤어 ·
- *    크로스헤어 게이지들을 숨기고 체력은 작게 남긴다. 이 위젯은 가운데 뷰파인더 브래킷 · `● DRONE 공중 드론` 태그 ·
- *    드론 체력 바 · 작은 조준점을 그린다.
- *  - **하단 사거리 게이지**: 스태미나 자리 · 같은 문법. 채움 = `linkRatio`(멀어질수록 꽉 찬다). `DRONE_LINK_WARN_RATIO`
- *    이상이면 붉게 깜빡이며 `신호 약함`, 1 이상(`linkLost`)이면 `신호 끊김`. 아래 줄에 `현재 / 최대 m`.
- *  - **화면 외곽 지지직**: 경고 비율 → 1 에서 강도 0 → 1. 절차 캔버스 노이즈(160×90, 18 Hz, 켜져 있을 때만 그린다)를
- *    외곽 마스크로 깎고 스캔라인 · 색수차 · 찢어지는 띠를 CSS 로 얹는다. 게임플레이 레이어 **맨 아래**에 prepend 해
- *    HUD 글자를 덮지 않는다.
- *  - **공중 드론**: 크로스헤어 좌측 `고도 12 m` (= 드론 y − `world.getSurfaceY(x, z, y)`) + 최대 고도 대비 세로 게이지,
- *    우측 `Space 상승` / `C 하강`. **지상 드론**: 우측 `Space 점프` / `Shift 질주` + 질주 중 `소음` 배지
- *    (멈춘 뒤에도 `aggroable` 이면 흐리게 남는다).
- *  - **공통**: 우측 맨 아래 `R`(꾹) `복귀`, 드론 피격(`drone:damaged` own) 시 체력 바 · 브래킷 번쩍.
- *  - **조종 전환 홀드 링**: `controlHold > 0` 이면 조종 전이든 조종 중이든 크로스헤어 둘레에 뜬다(라벨 `드론 조종` / `복귀`).
- *  - **끊김 알림**: `drone:controlChanged {id: null}` 의 `reason` — `range` = 전체 노이즈 번쩍 + `신호 끊김`,
- *    `destroyed` = `드론 파괴됨`, `damage` = `피격 — 연결 해제`, `manual` · `reset` = 조용히. 1.5 초.
+ *  - **Drone view mode**: with a `ctx.drones.controlled` it turns `drone-view` on at the gameplay HUD root
+ *    (`this.root.parentElement`) — CSS hides the weapon panel (+ quick strip) · implant · ship call · stamina · the gun
+ *    crosshair · the crosshair gauges and leaves hp small. This widget draws the centre viewfinder brackets, the
+ *    `● DRONE 공중 드론` tag, the drone hp bar and a small aim point.
+ *  - **Bottom range gauge**: the stamina spot · the same grammar. Fill = `linkRatio` (fuller the further away). At
+ *    `DRONE_LINK_WARN_RATIO` or more it blinks red with `신호 약함`, at 1 or more (`linkLost`) `신호 끊김`. Below: `현재 / 최대 m`.
+ *  - **Screen-edge static**: intensity 0 → 1 over warn ratio → 1. Procedural canvas noise (160×90, 18 Hz, drawn only while
+ *    it is on) is cut by an edge mask and CSS lays scanlines · chromatic fringing · tearing bands on top. Prepended to the
+ *    **bottom** of the gameplay layer so it never covers HUD text.
+ *  - **Air drone**: left of the crosshair `고도 12 m` (= drone y − `world.getSurfaceY(x, z, y)`) + a vertical gauge against
+ *    max altitude, on the right `Space 상승` / `C 하강`. **Ground drone**: on the right `Space 점프` / `Shift 질주` + a
+ *    `소음` badge while sprinting (it stays dim after stopping while `aggroable`).
+ *  - **Both**: bottom right `R` (hold) `복귀`; on a drone hit (`drone:damaged` own) the hp bar · brackets flash.
+ *  - **Control-switch hold ring**: with `controlHold > 0` it appears around the crosshair, before or during control (label `드론 조종` / `복귀`).
+ *  - **Disconnect notice**: the `reason` of `drone:controlChanged {id: null}` — `range` = a full noise flash + `신호 끊김`,
+ *    `destroyed` = `드론 파괴됨`, `damage` = `피격 — 연결 해제`, `manual` · `reset` = silently. 1.5 s.
  *
- * 키 가이드(`ui:keyGuide`)에는 올리지 않는다: 가이드는 `Tab · Esc 닫기` 를 스스로 붙이는데 드론 시점은 그 키로
- * 닫히지 않는다(`hud/CommsWheel` 과 같은 이유). 조작 안내는 크로스헤어 우측 열이 맡는다.
- * 키 라벨은 사용 시점에 `keyLabel(Keys.X)` 로 읽고 `input:bindingsChanged` · `onKeybindsChanged` 에 다시 쓴다.
- * DOM 쓰기는 값이 바뀔 때만 한다(키 문자열 비교).
+ * It is never put on the key guide (`ui:keyGuide`): the guide appends `Tab · Esc 닫기` itself and the drone view does not
+ * close with those keys (the same reason as `hud/CommsWheel`). The control notice is the crosshair's right column.
+ * Key labels are read at use time with `keyLabel(Keys.X)` and rewritten on `input:bindingsChanged` · `onKeybindsChanged`.
+ * The DOM is written only when a value changed (key string comparison).
  */
 export class DroneHud {
   readonly root: HTMLElement;
   private parent: HTMLElement;
 
-  /* 조종 중 층 */
+  /* Controlling layer */
   private view: HTMLElement;
   private kindEl: HTMLElement;
   private hpRoot: HTMLElement;
@@ -91,7 +91,7 @@ export class DroneHud {
   private linkState: HTMLElement;
   private linkDist: HTMLElement;
 
-  /* 홀드 링 */
+  /* Hold ring */
   private ring: HTMLElement;
   private ringFill: SVGCircleElement;
   private ringLbl: HTMLElement;
@@ -99,7 +99,7 @@ export class DroneHud {
   private lastRingT = -1;
   private lastRingLbl = '';
 
-  /* 2026-09-12: 지상 드론 스캔 — 조준점 둘레 홀드 링 · 아래 안내 · 월드 라벨 */
+  /* 2026-09-12: ground drone scan — hold ring around the aim point · the notice below · world labels */
   private scanRing: HTMLElement;
   private scanFill: SVGCircleElement;
   private scanCirc: number;
@@ -111,11 +111,11 @@ export class DroneHud {
   private lastScanKey = '';
   private readonly scanLabels: DroneScanLabels;
 
-  /* 알림 */
+  /* Notice */
   private alertEl: HTMLElement;
   private alertT = 0;
 
-  /* 외곽 노이즈 */
+  /* Edge noise */
   private staticRoot: HTMLElement;
   private g2d: CanvasRenderingContext2D | null = null;
   private img: ImageData | null = null;
@@ -127,7 +127,7 @@ export class DroneHud {
   private lastSi = -1;
   private lastBurst = false;
 
-  /* 상태 */
+  /* State */
   private controlledId = '';
   private controlledKind: DroneKind | null = null;
   private hitT = 0;
@@ -142,7 +142,7 @@ export class DroneHud {
     this.parent = parent;
     this.root = el('div', { cls: 'drone-hud', parent });
 
-    // ── 외곽 노이즈: 게임플레이 레이어 맨 아래 (다른 위젯의 글자 밑) ──
+    // ── Edge noise: the bottom of the gameplay layer (under the other widgets' text) ──
     this.staticRoot = el('div', { cls: 'dr-static' });
     parent.prepend(this.staticRoot);
     const canvas = el('canvas', { parent: this.staticRoot });
@@ -156,7 +156,7 @@ export class DroneHud {
     el('div', { cls: 'dr-fringe', parent: this.staticRoot });
     el('div', { cls: 'dr-tear', parent: this.staticRoot });
 
-    // ── 조종 중 층 ──
+    // ── Controlling layer ──
     this.view = el('div', { cls: 'dr-view', parent: this.root });
     const frame = el('div', { cls: 'dr-frame', parent: this.view });
     for (let i = 0; i < 4; i++) el('i', { parent: frame });
@@ -175,7 +175,7 @@ export class DroneHud {
     el('i', { parent: aim });
     el('i', { parent: aim });
 
-    // 크로스헤어 좌측: 고도 (공중 드론)
+    // Left of the crosshair: altitude (air drone)
     this.altRoot = el('div', { cls: 'dr-alt', parent: this.view });
     const altTxt = el('div', { cls: 'txt', parent: this.altRoot });
     el('span', { cls: 'ui-label', text: '고도', parent: altTxt });
@@ -186,7 +186,7 @@ export class DroneHud {
     this.altFill = el('i', { parent: ladder });
     this.altFill.style.transform = 'scaleY(0)';
 
-    // 크로스헤어 우측: 조작 안내
+    // Right of the crosshair: the control notice
     const keys = el('div', { cls: 'dr-keys', parent: this.view });
     this.keyRow(keys, 'air', 'JUMP', '상승');
     this.keyRow(keys, 'air', 'CROUCH', '하강');
@@ -195,7 +195,7 @@ export class DroneHud {
     this.noiseBadge = el('span', { cls: 'dr-noise', text: '소음', parent: sprintRow });
     this.keyRow(keys, 'back', 'RELOAD', '복귀', true);
 
-    // 하단 사거리 게이지 (스태미나 자리)
+    // Bottom range gauge (the stamina spot)
     this.linkRoot = el('div', { cls: 'dr-link', parent: this.view });
     this.linkState = el('div', { cls: 'state', text: '', parent: this.linkRoot });
     const linkBar = el('div', { cls: 'bar', parent: this.linkRoot });
@@ -207,7 +207,7 @@ export class DroneHud {
     el('span', { cls: 'ui-label', text: '신호 거리', parent: linkRow });
     this.linkDist = el('span', { cls: 'dist ui-mono', text: '', parent: linkRow });
 
-    // ── 조종 전환 홀드 링 (조종 전에도 뜬다) ──
+    // ── Control-switch hold ring (it appears before control too) ──
     this.ring = el('div', { cls: 'dr-ring', parent: this.root });
     const svgNS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(svgNS, 'svg');
@@ -226,10 +226,10 @@ export class DroneHud {
     this.ring.appendChild(svg);
     this.ringLbl = el('div', { cls: 'lbl', text: '', parent: this.ring });
 
-    // ── 연결 해제 알림 ──
+    // ── Disconnect notice ──
     this.alertEl = el('div', { cls: 'dr-alert', text: '', parent: this.root });
 
-    // ── 2026-09-12: 지상 드론 스캔 (조종 중 층 안) ──
+    // ── 2026-09-12: ground drone scan (inside the controlling layer) ──
     this.scanRing = el('div', { cls: 'dsc-ring', parent: this.view });
     const scanSvg = document.createElementNS(svgNS, 'svg');
     scanSvg.setAttribute('viewBox', `0 0 ${SCAN_RING_SIZE} ${SCAN_RING_SIZE}`);
@@ -253,10 +253,10 @@ export class DroneHud {
     this.scanLabels = new DroneScanLabels(parent);
   }
 
-  /** 조작 안내 한 줄: 키캡(실제 바인딩) + 한국어 동작. `group` 은 종류별 표시(`air` / `ground`) 또는 `back`. */
+  /** One control-notice row: keycap (the real binding) + the Korean action. `group` is per kind (`air` / `ground`) or `back`. */
   private keyRow(parent: HTMLElement, group: 'air' | 'ground' | 'back', key: KeyId, label: string, hold = false): HTMLElement {
     const row = el('div', { cls: `dr-key ${group}`, parent });
-    // 2026-09-15: 공용 키캡 (`shared/keycap`) — 꾹 누르기 chevron 은 키캡 안, 마우스로 리바인딩하면 그림
+    // 2026-09-15: the shared keycap (`shared/keycap`) — the hold chevron sits inside the cap, a mouse rebinding draws the glyph
     const cap = createKeycap(Keys[key], { tag: 'kbd', hold, parent: row });
     el('span', { text: label, parent: row });
     this.keyRows.push({ cap, key, hold });
@@ -287,7 +287,7 @@ export class DroneHud {
     this.refreshKeys();
   }
 
-  /** `HudSystem.lateUpdate` (카메라 행렬 갱신 뒤) — 스캔 결과 월드 라벨 투영. */
+  /** `HudSystem.lateUpdate` (after the camera matrix update) — projects the scan-result world labels. */
   lateUpdate(ctx: GameContext): void {
     this.scanLabels.lateUpdate(ctx);
   }
@@ -319,7 +319,7 @@ export class DroneHud {
     this.updateStatic(dt);
   }
 
-  /** 조종 대상이 바뀌었을 때만 레이어 클래스 · 종류 이름을 다시 쓴다 (폴링과 이벤트가 같은 길로 온다). */
+  /** Rewrites the layer class · kind name only when the controlled drone changed (polling and events take the same path). */
   private setControlled(d: DroneRef | null): void {
     const id = d?.id ?? '';
     const kind = d?.kind ?? null;
@@ -334,11 +334,11 @@ export class DroneHud {
     setText(this.kindEl, kind ? KIND_NAME[kind] : '');
     this.lastLinkKey = this.lastHpKey = this.lastAltKey = this.lastNoiseKey = '';
     if (!d) { this.edgeT = 0; toggleClass(this.view, 'hit', false); this.hitT = 0; }
-    // 시점 전환의 한 박자: 드론 카메라로 들어가는 순간 짧은 전체 노이즈
+    // A beat for the view switch: a short full-screen noise the moment the drone camera takes over
     if (entering) this.burst(BURST_BOOT_S, BURST_BOOT_PEAK);
   }
 
-  /* ── 사거리 게이지 ─────────────────────────────────────────────────────── */
+  /* ── Range gauge ───────────────────────────────────────────────────────── */
 
   private updateLink(d: DroneRef): void {
     const ratio = Math.max(0, Number.isFinite(d.linkRatio) ? d.linkRatio : 0);
@@ -349,7 +349,7 @@ export class DroneHud {
     const distText = range > 0
       ? `${Math.round(ratio * range)} / ${Math.round(range)} m`
       : `${Math.round(ratio * 100)}%`;
-    // 외곽 지지직 강도: 경고 비율 → 1 에서 0 → 1
+    // Edge static intensity: 0 → 1 over warn ratio → 1
     const span = Math.max(1e-3, 1 - DRONE_LINK_WARN_RATIO);
     this.edgeT = clamp01((ratio - DRONE_LINK_WARN_RATIO) / span);
 
@@ -363,7 +363,7 @@ export class DroneHud {
     setText(this.linkDist, distText);
   }
 
-  /* ── 드론 체력 ─────────────────────────────────────────────────────────── */
+  /* ── Drone hp ──────────────────────────────────────────────────────────── */
 
   private updateHp(d: DroneRef): void {
     const r = d.maxHp > 0 ? clamp01(d.hp / d.maxHp) : 0;
@@ -376,13 +376,13 @@ export class DroneHud {
 
   private flashHit(): void {
     this.hpRoot.classList.remove('hit');
-    void this.hpRoot.offsetWidth; // 애니메이션 재시작
+    void this.hpRoot.offsetWidth; // restart the animation
     this.hpRoot.classList.add('hit');
     toggleClass(this.view, 'hit', true);
     this.hitT = HIT_FLASH_S;
   }
 
-  /* ── 공중 드론: 고도 ───────────────────────────────────────────────────── */
+  /* ── Air drone: altitude ───────────────────────────────────────────────── */
 
   private updateAltitude(d: DroneRef, ctx: GameContext): void {
     const p = d.position;
@@ -407,7 +407,7 @@ export class DroneHud {
     toggleClass(this.altRoot, 'at-max', atMax);
   }
 
-  /* ── 지상 드론: 소음 배지 ──────────────────────────────────────────────── */
+  /* ── Ground drone: noise badge ─────────────────────────────────────────── */
 
   private updateNoise(d: DroneRef): void {
     const on = d.sprinting;
@@ -419,7 +419,7 @@ export class DroneHud {
     toggleClass(this.noiseBadge, 'linger', linger);
   }
 
-  /* ── 조종 전환 홀드 링 ─────────────────────────────────────────────────── */
+  /* ── Control-switch hold ring ──────────────────────────────────────────── */
 
   private updateRing(hold: number, controlled: boolean): void {
     const t = clamp01(Number.isFinite(hold) ? hold : 0);
@@ -433,9 +433,9 @@ export class DroneHud {
     this.ringFill.style.strokeDasharray = `${(v * this.circumference).toFixed(2)} ${this.circumference.toFixed(2)}`;
   }
 
-  /* ── 지상 드론 스캔: 홀드 링 · 안내 (2026-09-12) ──────────────────────── */
+  /* ── Ground drone scan: hold ring · notice (2026-09-12) ───────────────── */
 
-  /** `drones` null = 지상 드론을 조종하고 있지 않다 → 둘 다 숨긴다. */
+  /** `drones` null = no ground drone is being controlled → both hide. */
   private updateScan(drones: DronesRef | null): void {
     const hold = drones ? clamp01(Number.isFinite(drones.scanHold) ? (drones.scanHold ?? 0) : 0) : 0;
     const show = hold > 0.001;
@@ -457,26 +457,26 @@ export class DroneHud {
     setText(this.scanAct, aim.inRange ? '좌클릭 꾹 — 내용물 스캔' : `더 가까이 — ${Math.round(DRONE_SCAN_RANGE)} m 안`);
   }
 
-  /* ── 연결 해제 알림 ────────────────────────────────────────────────────── */
+  /* ── Disconnect notice ─────────────────────────────────────────────────── */
 
   private showAlert(reason: DroneReleaseReason | null): void {
     const text = reason ? ALERT_TEXT[reason] : undefined;
-    if (!text) return; // manual · reset = 조용히
+    if (!text) return; // manual · reset = silently
     setText(this.alertEl, text);
     this.alertEl.classList.remove('show');
-    void this.alertEl.offsetWidth; // 애니메이션 재시작
+    void this.alertEl.offsetWidth; // restart the animation
     this.alertEl.classList.add('show');
     this.alertT = ALERT_S;
     if (reason === 'range') this.burst(BURST_RANGE_S, 1);
   }
 
-  /* ── 외곽 노이즈 ───────────────────────────────────────────────────────── */
+  /* ── Edge noise ────────────────────────────────────────────────────────── */
 
   private burst(duration: number, peak: number): void {
     this.burstDur = duration;
     this.burstT = duration;
     this.burstPeak = peak;
-    this.noiseClock = 0; // 첫 프레임에 바로 그린다
+    this.noiseClock = 0; // draw on the very next frame
   }
 
   private updateStatic(dt: number): void {
@@ -487,7 +487,7 @@ export class DroneHud {
     }
     const bursting = burstI > this.edgeT;
     const si = Math.max(this.edgeT, burstI);
-    const q = Math.round(si * 50) / 50; // 0.02 단위로만 다시 쓴다
+    const q = Math.round(si * 50) / 50; // rewritten only in steps of 0.02
     if (q !== this.lastSi) {
       this.lastSi = q;
       this.staticRoot.style.setProperty('--si', q.toFixed(2));
@@ -504,7 +504,7 @@ export class DroneHud {
     this.drawNoise();
   }
 
-  /** 흑백 눈 노이즈 + 가끔 밝은 가로 줄. xorshift32 — `Math.random` 보다 싸고 할당이 없다. */
+  /** Monochrome snow + the occasional bright horizontal streak. xorshift32 — cheaper than `Math.random`, no allocation. */
   private drawNoise(): void {
     const g = this.g2d;
     const img = this.img;
@@ -541,21 +541,21 @@ export class DroneHud {
 
   /* ── debug / smoke ─────────────────────────────────────────────────────── */
 
-  /** 드론 시점 모드인가. */
+  /** Whether the drone view mode is on. */
   get isDroneView(): boolean { return this.controlledId !== ''; }
-  /** 사거리 게이지 상태: 'off' | 'ok' | 'warn' | 'lost'. */
+  /** Range gauge state: 'off' | 'ok' | 'warn' | 'lost'. */
   get linkStatus(): 'off' | 'ok' | 'warn' | 'lost' {
     if (!this.isDroneView) return 'off';
     if (this.linkRoot.classList.contains('lost')) return 'lost';
     return this.linkRoot.classList.contains('warn') ? 'warn' : 'ok';
   }
-  /** 외곽 노이즈 강도 0..1 (마지막으로 쓴 값). */
+  /** Edge noise intensity 0..1 (the last value written). */
   get staticIntensity(): number { return Math.max(0, this.lastSi); }
-  /** 떠 있는 알림 문구, 없으면 ''. */
+  /** The notice text on screen, '' when there is none. */
   get alertText(): string { return this.alertEl.classList.contains('show') ? (this.alertEl.textContent ?? '') : ''; }
-  /** 홀드 링이 보이는가. */
+  /** Whether the hold ring is visible. */
   get isHoldShowing(): boolean { return this.ring.classList.contains('show'); }
-  /** 2026-09-12: 스캔 홀드 링이 보이는가 · 스캔 안내 문구(없으면 '') · 떠 있는 스캔 라벨 수. */
+  /** 2026-09-12: whether the scan hold ring is visible · the scan notice text ('' with none) · how many scan labels are up. */
   get isScanRingShowing(): boolean { return this.scanRing.classList.contains('show'); }
   get scanHintText(): string { return this.scanHint.classList.contains('show') ? (this.scanHint.textContent ?? '') : ''; }
   get scanLabelCount(): number { return this.scanLabels.count; }

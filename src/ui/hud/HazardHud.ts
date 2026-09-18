@@ -4,10 +4,10 @@ import { HAZARD_LABEL_KO } from '@/shared';
 import '../styles/hazard.css';
 import { el, setText, toggleClass } from '../dom';
 
-/** 예고 배너가 초 단위로만 바뀌므로 DOM 은 초가 바뀔 때만 건드린다. */
+/** The warning banner only changes per second, so the DOM is touched only when the second changes. */
 const NONE = -1;
 
-/** 받침이 있는 한글 음절로 끝나면 '이', 아니면 '가' (한글이 아니면 '이'). */
+/** '이' when the word ends in a Hangul syllable with a final consonant, else '가' (non-Hangul → '이'). */
 function subjectParticle(word: string): string {
   const ch = word.charCodeAt(word.length - 1);
   if (ch < 0xac00 || ch > 0xd7a3) return '이';
@@ -15,8 +15,8 @@ function subjectParticle(word: string): string {
 }
 
 /**
- * 2026-09-13 (사용자 결정) — 예고 문구. 모래 폭풍 · 눈보라 · 폭풍의 눈은 전부 「폭풍」 이라 `폭풍이 다가온다 — n초`,
- * 독성 포자는 `독성 포자가 다가온다 — n초` (이름은 `HAZARD_LABEL_KO` 하나에서 온다).
+ * 2026-09-13 (user's decision) — the warning text. Sandstorm · blizzard · eye of the storm are all 「폭풍」, hence
+ * `폭풍이 다가온다 — n초`; toxic spores read `독성 포자가 다가온다 — n초` (the names come from `HAZARD_LABEL_KO` alone).
  */
 function approachText(kind: HazardKind, seconds: number): string {
   const name = HAZARD_LABEL_KO[kind];
@@ -24,24 +24,26 @@ function approachText(kind: HazardKind, seconds: number): string {
 }
 
 /**
- * **환경 재해 HUD (2026-09-09).** `ctx.world.hazard` (`HazardRef`) 와 `hazard:*` 이벤트만 본다 — world/ 가 아직
- * 재해를 만들지 않는 동안 `hazard` 는 null 이고 이벤트도 오지 않으므로 이 위젯은 통째로 잠들어 있는다.
+ * **Environmental hazard HUD (2026-09-09).** It looks only at `ctx.world.hazard` (`HazardRef`) and `hazard:*` events —
+ * while world/ makes no hazard, `hazard` is null and no event arrives, so this widget sleeps whole.
  *
- * 세 부분이다:
- *   - **예고 배너** (`.hz-banner`, 게임플레이 레이어, 나침반 · 탈출 카운트다운 아래 화면 상단 중앙).
- *     `hazard:announced {kind, secondsLeft}` 에 `<재해 이름> 접근 — n초` 로 뜨고 로컬에서 초를 센다
- *     (`update` — 예고는 이벤트 한 번이지 매 초 오는 것이 아니다). `hazard:started` 에 `<재해 이름> 시작` 으로
- *     3초 남았다가 사라지고, 그 뒤로는 안전지대 게이지가 그 자리를 물려받는다. `ui:notify` 토스트 + `wave_alarm`
- *     도 예고 · 시작 때 한 번씩 나간다.
- *   - **안전지대 게이지** (`.hz-prog`): `hazard:progress {progress}` 0..1 을 **남은 안전지대**(`1 − progress`)로
- *     뒤집어 그린다 — 1 이면 맵이 다 덮인 것이고 그때는 `안전지대 없음` 이 된다. 목표 패널(`ui:objective`)은
- *     건드리지 않는다: 그쪽은 미션 플로우가 쓰는 한 줄이라 재해가 끼어들면 탈출 카운트다운을 덮어쓴다.
- *   - **위험 구역 경고** (`.hz-edge` 화면 가장자리 붉은 맥동 + `.hz-inside` 상시 한 줄): `hazard:insideChanged`.
- *     들어갈 때 `wave_alarm`, 나올 때는 소리 없이 꺼진다.
+ * Three parts:
+ *   - **Warning banner** (`.hz-banner`, gameplay layer, top centre of the screen below the compass · extraction
+ *     countdown). On `hazard:announced {kind, secondsLeft}` it appears as `<hazard name> 접근 — n초` and counts the
+ *     seconds locally (`update` — the warning is one event, not one per second). On `hazard:started` it reads
+ *     `<hazard name> 시작`, stays 3 s and disappears, after which the safe-zone gauge takes that spot over. A
+ *     `ui:notify` toast + `wave_alarm` also go out once each on the warning · the start.
+ *   - **Safe-zone gauge** (`.hz-prog`): `hazard:progress {progress}` 0..1 is drawn inverted, as the **safe zone left**
+ *     (`1 − progress`) — at 1 the map is fully covered and it becomes `안전지대 없음`. The objective panel
+ *     (`ui:objective`) is never touched: that is one line the mission flow uses, and a hazard cutting in would
+ *     overwrite the extraction countdown.
+ *   - **Danger zone warning** (`.hz-edge`, a red pulse at the screen edge + `.hz-inside`, one standing line):
+ *     `hazard:insideChanged`. `wave_alarm` on entering; leaving turns it off silently.
  *
- * **안전 방향 화살표** (`.hz-arrow`): 재해가 진행 중이고 `HazardRef.getZones()` 가 있으면 각 구역에서 벗어나는
- * 방향을 합쳐 (원이면 중심 쪽/바깥쪽, `front` 면 법선 방향) 카메라 기준 각도로 돌린다. 나침반을 건드리지 않고
- * 이 블록 안에서 끝난다 — 나침반은 발견 게이트가 걸린 랜드마크용이고 재해는 함선이 관측하는 현상이라 규칙이 다르다.
+ * **Safe-direction arrow** (`.hz-arrow`): while a hazard runs and `HazardRef.getZones()` exists, the directions out of
+ * each zone are summed (a circle gives inwards / outwards, a `front` its normal) and rotated to a camera-relative angle.
+ * The compass is never touched and it all ends inside this block — the compass is for landmarks behind the discovery
+ * gate while a hazard is a phenomenon the ship observes, so the rules differ.
  */
 export class HazardHud {
   readonly root: HTMLElement;
@@ -152,7 +154,7 @@ export class HazardHud {
   update(ctx: GameContext): void {
     const hazard = ctx.world?.hazard ?? null;
 
-    // 예고 배너: 남은 초를 로컬에서 센다 (`hazard:announced` 는 한 번만 온다)
+    // Warning banner: the seconds left are counted locally (`hazard:announced` arrives only once)
     let banner = false;
     if (this.startsAt !== NONE && this.kind) {
       const left = this.startsAt - ctx.time;
@@ -166,7 +168,7 @@ export class HazardHud {
     }
     if (banner !== this.bannerEl.classList.contains('show')) toggleClass(this.bannerEl, 'show', banner);
 
-    // 안전지대 게이지: 재해가 굴러가는 동안만
+    // Safe-zone gauge: only while the hazard runs
     const active = hazard?.active === true;
     if (active !== this.progEl.classList.contains('show')) toggleClass(this.progEl, 'show', active);
     if (!active) return;
@@ -183,8 +185,9 @@ export class HazardHud {
   }
 
   /**
-   * 안전 방향: 각 구역에서 **벗어나는** 방향의 합. `front` 는 법선(`dirX,dirZ`)이 안전한 쪽이고, `circle` 은
-   * `safeInside` 면 중심 쪽 · 아니면 바깥쪽이다. 합이 0에 가까우면 (사방이 안전 / 판단 불가) 화살표를 숨긴다.
+   * Safe direction: the sum of the directions **out of** each zone. For a `front` the normal (`dirX,dirZ`) is the safe
+   * side; for a `circle` it is inwards with `safeInside`, outwards otherwise. A sum near 0 (safe all round / undecidable)
+   * hides the arrow.
    */
   private updateArrow(ctx: GameContext, zones: readonly HazardZone[] | null): void {
     const p = ctx.player;
@@ -194,11 +197,11 @@ export class HazardHud {
       if (z.shape === 'front') { sx += z.dirX; sz += z.dirZ; continue; }
       const dx = p.position.x - z.center.x, dz = p.position.z - z.center.z;
       const d = Math.hypot(dx, dz) || 1;
-      if (z.safeInside) { sx -= dx / d; sz -= dz / d; }   // 원 안이 안전 → 중심으로
-      else { sx += dx / d; sz += dz / d; }                 // 원 안이 위험 → 바깥으로
+      if (z.safeInside) { sx -= dx / d; sz -= dz / d; }   // safe inside the circle → towards the centre
+      else { sx += dx / d; sz += dz / d; }                 // danger inside the circle → outwards
     }
     if (Math.hypot(sx, sz) < 1e-3) { this.hideArrow(); return; }
-    // 카메라 기준 상대 각 (0 = 정면, 시계방향) — 나침반의 heading 계산과 같은 규약
+    // Screen-relative angle (0 = ahead, clockwise) — the same convention as the compass's heading maths
     const f = ctx.camera.getWorldDirection(this.v);
     const heading = Math.atan2(f.x, -f.z);
     const bearing = Math.atan2(sx, -sz);

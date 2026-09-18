@@ -18,11 +18,11 @@ const MARK_LIFT = 0.55;         // metres above the enemy's `height` the chevron
 
 interface Shell { mesh: THREE.Mesh; active: boolean }
 interface Arrow { el: HTMLElement; lastKey: string }
-/** One candidate for the arrows / chevrons: a live ref inside the radius, or a 정찰-revealed position. */
+/** One candidate for the arrows / chevrons: a live ref inside the radius, or a recon-revealed position. */
 interface Candidate { pos: THREE.Vector3; height: number; scanned: boolean }
 
 /**
- * 감지 시스템 (perception).
+ * The detection system (perception).
  *
  * 1. **Corpses only** (2026-09-11 — `pillarAllowed`; crates / gather nodes / pickups / deployables no longer get one) inside
  *    `ctx.progression.derived.detectRadius` get a pooled **light pillar** in the scene (Phase 10 — it replaced the
@@ -32,7 +32,7 @@ interface Candidate { pos: THREE.Vector3; height: number; scanned: boolean }
  * 2. Enemies inside `derived.enemyDetectRadius` that are off-screen get a pooled red edge arrow; those **on screen**
  *    get a small pooled red chevron floating above the body (Phase 12 — the same projection decides which of the two
  *    a candidate takes, so the chevron costs nothing extra per enemy).
- * 3. Enemies revealed by a 정찰 pulse (`scan:cast`, through the shared `ScanTracker`) join (2) for the reveal's
+ * 3. Enemies revealed by a recon pulse (`scan:cast`, through the shared `ScanTracker`) join (2) for the reveal's
  *    duration regardless of distance — their red through-wall silhouette is enemies/' `setXray`, their pillar is
  *    `ScanReveal`; this adds the screen-space arrow / chevron only.
  *
@@ -136,7 +136,7 @@ export class Detection {
     return typeof r === 'number' && r > 0 ? r : DETECT_ENEMY_BASE_RADIUS;
   }
 
-  /** 2026-09-16: 이륙 연출이 남긴 HUD 의 몫 1 … 0 (`HudSystem.setCinematic`) — 빛기둥 불투명도에 곱하고 0 이면 숨는다. */
+  /** 2026-09-16: the liftoff cinematic's HUD share 1 … 0 (`HudSystem.setCinematic`) — scales pillar opacity, 0 hides. */
   private cineK = 1;
   setCinematicFade(k: number): void { this.cineK = k; }
 
@@ -167,8 +167,8 @@ export class Detection {
     for (const it of ctx.interactables.all()) {
       const dx = it.position.x - from.x, dy = it.position.y - from.y, dz = it.position.z - from.z;
       if (dx * dx + dy * dy + dz * dz > r2) continue;
-      // 2026-09-11: 빛기둥은 시체에만 (`pillarAllowed`) — 상자 · 컨테이너는 열린 모습으로 조사 여부를 보여 준다.
-      // C-4: 등록물 자체를 넘긴다 — `Interactable.kind`(corpse · playerCorpse)가 먼저, 없으면 id 접두어.
+      // 2026-09-11: pillars only on corpses (`pillarAllowed`) — crates · containers show their searched state by opening.
+      // C-4: the registration itself is passed — `Interactable.kind` (corpse · playerCorpse) first, else the id prefix.
       if (!pillarAllowed(it)) continue;
       if (!it.canInteract()) continue;
       // 2026-09-08: an interactable this client has already dealt with (a searched corpse) hides its own pillar.
@@ -183,7 +183,7 @@ export class Detection {
     const em = ctx.enemies;
     if (em) {
       /* `queryNear` is part of the appended contract but the enemies folder may not have it yet.
-         2026-09-18 (벌레 알): `queryNear` already leaves props out by default, and the fallback below matches it —
+         2026-09-18 (bug eggs): `queryNear` already leaves props out by default, and the fallback below matches it —
          a nest holds dozens of `bug_egg` bodies and they are **not a threat**, so they never become an arrow, a
          chevron or a radar blip (§4.2: the danger HUD is one indicator per hazard, and an egg is not a hazard).
          The player still sees the eggs themselves: they are ordinary world geometry with a body. */
@@ -202,7 +202,7 @@ export class Detection {
     }
   }
 
-  /** Detected refs + 정찰 reveals into one pooled candidate list (no allocation once the pool is warm). */
+  /** Detected refs + recon reveals into one pooled candidate list (no allocation once the pool is warm). */
   private gatherCandidates(ctx: GameContext): void {
     this.candidates.length = 0;
     let n = 0;

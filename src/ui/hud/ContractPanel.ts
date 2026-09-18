@@ -16,11 +16,11 @@ interface MateRow {
 /**
  * Top-left contract block (gameplay layer). Two parts:
  *
- *   - **내 계약** — the accepted corp contract: `계약 · <name>`, its goal label and a `p / t` bar. Shown at
+ *   - **my contract** — the accepted corp contract: `계약 · <name>`, its goal label and a `p / t` bar. Shown at
  *     `world:ready` when `ctx.meta?.activeContract` exists, updated + briefly pulsed (`.pulse`, `PULSE_SECONDS` of
  *     `ctx.time`) on `meta:contractProgress` — which also brings the panel up on its own, resolving the def from
  *     `CONTRACT_DEFS`, so a skeleton `ctx.meta` still gets a panel. `달성` badge (`.done`) at progress ≥ target.
- *   - **분대 계약** (Phase 9 UI pass) — one compact row per squad member that has a contract running, from
+ *   - **squad contracts** (Phase 9 UI pass) — one compact row per squad member that has a contract running, from
  *     `ctx.meta.getSquadContracts()` (fed by the relayed `meta contract` broadcast). Slot-coloured name, contract
  *     name and `p / t` with its own thin bar. The block hides itself when nobody else has one, so a solo raid looks
  *     exactly as it did before.
@@ -99,7 +99,7 @@ export class ContractPanel {
     this.set(info.def.name, info.def.goal, info.progress, info.def.target, info.def.itemDefId);
   }
 
-  /** `itemDefId` (2026-09-12, 「특정 아이템 회수」 계약): 목표 글자 뒤에 그 아이템 이름을 붙인다 — `아이템 회수 · 데이터 코어`. */
+  /** `itemDefId` (2026-09-12, the 「특정 아이템 회수」 contract): the item's name is appended after the goal text — `아이템 회수 · 데이터 코어`. */
   private set(name: string, goal: ContractGoalKind, progress: number, target: number, itemDefId?: string): void {
     setText(this.nameEl, name);
     const label = CONTRACT_GOAL_LABEL_KO[goal] ?? goal;
@@ -137,8 +137,8 @@ export class ContractPanel {
   }
 
   private applyShow(): void {
-    // 2026-09-08: 시뮬레이션 훈련장에는 계약이 없다 — 함선 안에서 받아 둔 계약이 사격 연습 화면에 따라 붙던
-    //   것을 여기서 끊는다 (진행도 자체는 meta/ 가 훈련장에서 올리지 않는다; 이건 표시만).
+    // 2026-09-08: there are no contracts in the training range — a contract accepted in the ship used to follow onto the
+    //   shooting practice screen, and that is cut here (meta/ does not raise progress in the range anyway; this is display only).
     const training = this.ctx?.missionMode === 'training';
     const show = !training && (this.mine || this.mateCount > 0);
     if (show === this.showing) return;
@@ -169,7 +169,7 @@ export class ContractPanel {
     return r;
   }
 
-  /** Rebuild the 분대 계약 rows from `ctx.meta.getSquadContracts()` (names / slot colours from `ctx.net`). */
+  /** Rebuild the squad contract rows from `ctx.meta.getSquadContracts()` (names / slot colours from `ctx.net`). */
   private refreshMates(ctx: GameContext): void {
     const meta = ctx.meta;
     const list = meta && typeof meta.getSquadContracts === 'function' ? meta.getSquadContracts() : [];

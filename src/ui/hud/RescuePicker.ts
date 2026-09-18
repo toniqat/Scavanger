@@ -9,18 +9,18 @@ const RESCUE_BLOCKER = 'rescuePick';
 const DIGITS = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
 
 /**
- * 구조선 대상 선택 화면 (`.rescue-pick`, 2026-09-09).
+ * The rescue drop target picker (`.rescue-pick`, 2026-09-09).
  *
- * 구조선 투하만 흐름이 다르다 — 지면을 찍기 **전에** 누구를 되살릴지 먼저 고른다. 그래서 이 화면은
- * `ctx.stratagems` 를 폴링해서 스스로 뜬다: `armed === 'rescue_drop' && rescueTarget === null` 이면 열고,
- * 대상이 정해지거나 호출을 내려놓으면 닫는다. stratagems 는 `rescue:selectTarget` 하나로만 이 화면을 안다.
+ * The rescue drop alone has a different flow — who to revive is picked **before** the ground is marked. So this screen
+ * brings itself up by polling `ctx.stratagems`: it opens while `armed === 'rescue_drop' && rescueTarget === null` and
+ * closes once a target is set or the call is put down. stratagems knows this screen through `rescue:selectTarget` alone.
  *
- * 4칸은 분대 슬롯 그대로다 (`getRescueCandidates()` + 빈 슬롯). **죽은 대원만** 고를 수 있고, 살아 있거나
- * 전투불능인 칸은 회색으로 남는다. 마우스 클릭 또는 `1`~`4`, 우클릭 · Escape · Tab 으로 취소.
+ * The 4 cells are the squad slots as they are (`getRescueCandidates()` + empty slots). **Only a dead member** can be picked; a cell
+ * that is alive or downed stays grey. Cancel with a mouse click or `1`~`4`, right click · Escape · Tab.
  *
- * 규약: 열려 있는 동안 `RESCUE_BLOCKER` 를 들고 커서를 가져가며(포인터 락은 유지), 우측 하단 키 가이드에
- * `ui:keyGuide {owner:'rescue'}` 를 올린다 (`Tab 닫기` 는 가이드가 스스로 붙이므로 넣지 않는다).
- * Escape 는 이 화면이 **먼저 먹는다** — 가장 안쪽 화면만 Escape 를 가로챈다는 2026-09-08 규약의 예외 항목이다.
+ * Contract: while open it holds `RESCUE_BLOCKER` and takes the cursor (the pointer lock is kept), and raises
+ * `ui:keyGuide {owner:'rescue'}` in the bottom-right key guide (`Tab 닫기` is added by the guide itself, so it is not listed).
+ * Escape is **eaten by this screen first** — an exception to the 2026-09-08 contract that only the innermost screen intercepts Escape.
  */
 export class RescuePicker {
   readonly root: HTMLElement;
@@ -96,7 +96,7 @@ export class RescuePicker {
       owner: 'rescue',
       keys: [
         { key: '1~4', label: '대원 선택' },
-        { key: keyLabel(Keys.AIM), label: '취소' },   // 2026-09-15: 실제 취소 버튼(`MouseButtons.AIM`) — 키 가이드가 마우스 그림으로 그린다
+        { key: keyLabel(Keys.AIM), label: '취소' },   // 2026-09-15: the real cancel button (`MouseButtons.AIM`) — the key guide draws it as a mouse glyph
         { key: keyLabel(Keys.SHIP_CALL), label: '내려놓기' },
       ],
     });
@@ -114,7 +114,7 @@ export class RescuePicker {
     ctx.bus.emit('ui:keyGuide', { owner: 'rescue', keys: null });
   }
 
-  /** 취소 — stratagems 가 `rescue:selectTarget {peerId:null}` 로 호출 자체를 내려놓는다. */
+  /** Cancel — stratagems puts the call itself down through `rescue:selectTarget {peerId:null}`. */
   private cancel(): void {
     if (!this._open) return;
     this.ctx.bus.emit('rescue:selectTarget', { peerId: null });
@@ -129,8 +129,8 @@ export class RescuePicker {
   private render(): void {
     const s = this.ctx.stratagems;
     if (!s) return;
-    /* 2026-09-15 (사용자 결정): 안드로이드는 **구조 드롭 대상이 아니다** (플레이어가 일으키거나 제세동기를 쓴다).
-     * stratagems 가 이미 봇을 빼지만, 이 화면이 4칸의 뜻을 말하는 곳이라 여기서도 한 번 더 거른다. */
+    /* 2026-09-15 (user's decision): an android is **not a rescue drop target** (a player picks it up, or uses a defibrillator).
+     * stratagems already drops bots, but this screen is where the meaning of the 4 cells is stated, so it filters once more here. */
     const cands: readonly RescueCandidate[] = s.getRescueCandidates().filter((c) => !isAndroidId(c.peerId));
     const left = s.rescueLeft;
     const key = `${left}|${cands.map((c) => `${c.peerId}:${c.slot}:${c.name}:${c.selectable ? 1 : 0}`).join(',')}`;

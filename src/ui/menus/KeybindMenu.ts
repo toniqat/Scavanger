@@ -9,10 +9,12 @@ import { el, setText, toggleClass } from '../dom';
 interface Row { def: KeyAction; root: HTMLElement; btn: HTMLButtonElement; warn: HTMLElement }
 
 /**
- * 키 버튼 안을 칠한다 (2026-09-15, 사용자 결정 — 키캡이 뜨는 모든 곳에 마우스 그림). 마우스 좌 · 휠 · 우는 공용 마우스 그림
- * (`shared/keycap.mouseGlyphSvg` — 버튼 자체가 이미 테두리를 가진 칸이라 `.keycap` 을 겹쳐 씌우지 않고 그림만 넣는다),
- * 그 밖의 키 · `M4` · `M5` 는 글자 그대로. 그림의 `<title>` 이 라벨을 들고 있어 버튼의 `textContent` 는 예전과 같다.
- * `키 입력…` 이 내용을 갈아 끼우므로 서명으로 건너뛰지 않고 부를 때마다 다시 짓는다 (40 줄 남짓, 드물게 부른다).
+ * Paints the inside of a key button (2026-09-15, user's decision — the mouse glyph everywhere a keycap appears).
+ * Mouse left · wheel · right take the shared mouse glyph (`shared/keycap.mouseGlyphSvg` — the button is already a
+ * bordered cell, so no `.keycap` is laid over it and only the glyph goes in); every other key · `M4` · `M5` stays as
+ * text. The glyph's `<title>` carries the label, so the button's `textContent` is what it always was. `키 입력…`
+ * swaps the contents out, so it is rebuilt on every call rather than skipped by a signature (about 40 rows, called
+ * rarely).
  */
 function paintBindingButton(btn: HTMLButtonElement, code: string): void {
   const label = keyLabel(code);

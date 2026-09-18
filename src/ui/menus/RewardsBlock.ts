@@ -1,7 +1,7 @@
 import type { ContractSettlement, GameContext, MissionRewards } from '@/shared';
-/* 2026-09-16 (사용자 결정 「큰 수 축약」): 경험치도 크레딧 · 가치와 같은 표기를 쓴다 (`shared/numberFormat`) —
-   자릿수가 얼마든 커지는 값이라 `1,204,800` 보다 `1.20m` 이 한눈에 읽힌다. 계약 진척 `p / t` 처럼 **정확한 값이
-   곧 뜻인 수**는 그대로 `fmtInt` 다. */
+/* 2026-09-16 (user's decision 「큰 수 축약」): XP uses the same notation as credits · values (`shared/numberFormat`) —
+   it is a value that grows to any number of digits, so `1.20m` reads at a glance where `1,204,800` does not. A number
+   **whose exact value is its meaning**, like contract progress `p / t`, stays on `fmtInt`. */
 import { formatCompactNumber, formatCompactSigned, formatCredits } from '@/shared';
 import { el, fmtInt, setText } from '../dom';
 
@@ -66,7 +66,7 @@ export class RewardsBlock {
     this.root = el('div', { cls: 'rewards', parent });
     this.root.hidden = true;
     const row = el('div', { cls: 'xp-row', parent: this.root });
-    // 2026-09-15 (결과 창 개편): `획득 XP` → `획득 경험치` — 사망 결과 창에서도 무엇을 받았는지 또렷하게
+    // 2026-09-15 (result window rework): `획득 XP` → `획득 경험치` — so the death result window states plainly what was gained
     el('span', { cls: 'ui-label', text: '획득 경험치', parent: row });
     this.gainEl = el('span', { cls: 'xp-gain', text: '+0', parent: row });
     this.lvEl = el('span', { cls: 'lv', text: '', parent: row });
@@ -81,8 +81,8 @@ export class RewardsBlock {
   bind(ctx: GameContext): void { this.ctx = ctx; }
 
   /**
-   * `mode` is only the fallback for settlements without `outcome` (pre-Phase 7 producers): `complete` = 미완 · 계속,
-   * `dead` = 실패 · 진척 유지 안 됨. With `outcome` present the wording comes from it alone.
+   * `mode` is only the fallback for settlements without `outcome` (pre-Phase 7 producers): `complete` = `미완 · 계속`,
+   * `dead` = `실패 · 진척 유지 안 됨`. With `outcome` present the wording comes from it alone.
    */
   fill(rewards: MissionRewards | undefined, mode: 'complete' | 'dead'): void {
     this.rewards = rewards ?? null;
@@ -100,7 +100,7 @@ export class RewardsBlock {
     this.root.classList.remove('up');
     this.upEl.hidden = true;
     setText(this.lvEl, this.levelUp ? `Lv. ${rewards.levelBefore} → ${rewards.levelAfter}` : `Lv. ${rewards.levelAfter}`);
-    // `x / y` 쌍은 **양쪽 다** 같은 표기여야 비교가 된다 (한쪽만 축약하면 `1.2k / 240000` 처럼 읽힌다).
+    // An `x / y` pair only compares when **both** sides use the same notation (abbreviate one side only and it reads `1.2k / 240000`).
     setText(this.numEl, `${formatCompactNumber(rewards.xp)} / ${formatCompactNumber(rewards.xpToNext)} XP`);
     this.lastGain = '+0';
     setText(this.gainEl, '+0');

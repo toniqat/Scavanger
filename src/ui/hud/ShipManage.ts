@@ -5,13 +5,14 @@ import {
   WORKBENCH_ICON, buildFacilityChip, buildItemChip, createHoldButtonCap, isCockpitOnlyFurniture, isUtilityFurniture, slotKey,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
-/* 2026-09-14 (사용자 결정): 필요 아이템 줄의 호버 카드는 커서 좌상단 — 그 옵트인 속성의 원본은 `ItemTip` 하나다. */
+/* 2026-09-14 (user's decision): the hover card of a 필요 아이템 row goes to the top-left of the cursor — the source of that opt-in attribute is `ItemTip` alone. */
 import { TIP_ANCHOR_ATTR } from './ItemTip';
 
 /**
- * 우측 탭(가구 제작 / 가구 창고)을 **마지막으로 보던 대로** 다시 여는 슬롯별 localStorage 키 (2026-09-15, 사용자 결정).
- * 방 쪽 기억은 housing 의 몫이다 (`housing/parts/Furniture` 의 `MANAGE_ROOM_KEY` — 그쪽이 어느 방을 여느냐를 정한다).
- * 못 읽거나 이상한 값이면 예전 기본값 `'craft'` 로 조용히 돌아간다.
+ * Per-slot localStorage key that reopens the right-hand tab (가구 제작 / 가구 창고) **the way it was last seen**
+ * (2026-09-15, user's decision). Remembering the room is housing's part (`MANAGE_ROOM_KEY` in
+ * `housing/parts/Furniture` — that side decides which room opens). An unreadable or odd value silently falls back to
+ * the old default `'craft'`.
  */
 const MANAGE_TAB_KEY = 'scav.shipManage.tab';
 
@@ -53,60 +54,67 @@ interface FreeSpot { x: number; y: number; yaw: 0 | 1 | 2 | 3 }
 
 /** Glyph per procedural furniture model (no asset files — the card thumbnail is a tinted frame + a character). */
 const MODEL_GLYPH: Readonly<Record<FurnitureModelKind, string>> = {
-  /* 작업대 다섯의 글리프는 `shared` 의 `WORKBENCH_ICON` 이 원본이다 — 제작 탭(`inventory/ui/labels`)과 같은 글자여야 한다. */
+  /* The glyphs of the five workbenches come from `WORKBENCH_ICON` in `shared` — they must be the same characters as the craft tab (`inventory/ui/labels`). */
   bench_gun: WORKBENCH_ICON.gun, bench_gear: WORKBENCH_ICON.gear, bench_gadget: WORKBENCH_ICON.gadget,
   bench_medical: WORKBENCH_ICON.medical, bench_refine: WORKBENCH_ICON.refine,
   range_console: '▣', target_lane: '◎', sim_hub: '◈',
-  /* 온실 개편 (2026-09-11): 옛 재배층 `grow_rack` 은 은퇴했지만 글리프는 남겨 둔다 (`Record` 는 전부를 요구하고,
-     은퇴 가구를 그리는 옛 세이브 경로가 `?? '▨'` 로 떨어지면 카드가 통째로 다르게 보인다). 새 재배 스테이션은
-     한 층이 아니라 층이 쌓인 물건이라 **겹꽃** `✿` 로 구분한다 — 외부 에셋 금지 규약대로 유니코드 한 글자이고,
-     `❀`(옛 재배층) · `❦`(화분) · `❁`(작물 분류)와 모두 다른 글자다. */
+  /* Greenhouse rework (2026-09-11): the old grow rack `grow_rack` is retired but its glyph is left in place (`Record`
+     demands all of them, and an old save path that draws retired furniture falling through to `?? '▨'` makes the card
+     look entirely different). The new grow station is not one rack but stacked racks, so it is told apart by the
+     **double flower** `✿` — one Unicode character as the no-external-assets rule requires, and a different character
+     from `❀` (the old grow rack) · `❦` (a potted plant) · `❁` (the crop category). */
   grow_rack: '❀', grow_station: '✿', repair_bench: '⛏', bookshelf: '▤',
   locker: '▤', table: '▭', shelf: '☰', crate: '▨', lamp: '☀', plant: '❦', chair: '⌂', bunk: '▬',
-  /* 연구실 (A-11 · A-12 · A-13, 2026-09-11): 추출기 · 조합대는 작업대이므로 글리프의 원본이 `WORKBENCH_ICON` 이고
-     (제작 탭 `inventory/ui/labels` 와 같은 글자여야 한다), 분석기는 작업대가 아니라 스테이션이라 자기 글자를 갖는다 —
-     벤젠 고리 `⌬` 는 위의 어떤 글자와도 겹치지 않으면서 「해석하는 물건」으로 읽힌다. */
+  /* Lab (A-11 · A-12 · A-13, 2026-09-11): the extractor · the mixer are workbenches, so the source of their glyphs is
+     `WORKBENCH_ICON` (they must be the same characters as the craft tab `inventory/ui/labels`); the analyzer is not a
+     workbench but a station, so it has its own character — the benzene ring `⌬` collides with none of the characters
+     above and still reads as 「the thing that analyses」. */
   analyzer: '⌬', bench_extract: WORKBENCH_ICON.extract, bench_mixer: WORKBENCH_ICON.mixer,
-  /* 주방 · 배양조 · 프린터 (A-3c · A-14 · A-15, 2026-09-11): 조리대 · 프린터는 작업대이므로 글리프의 원본이
-     `WORKBENCH_ICON` 이고(제작 탭 `inventory/ui/labels` 와 같은 글자여야 한다 — 2026-09-10 규약), 식탁 · 배양조는
-     작업대가 아니라 스테이션이라 자기 글자를 갖는다: 식탁 `⊞`(자리가 놓인 상판 — `▭` 평범한 탁자와 구분된다),
-     배양조 `⚗`(증류기 — 「무언가가 안에서 자란다」). 둘 다 위의 어떤 글자와도 겹치지 않는 유니코드 한 글자다. */
+  /* Kitchen · culture tank · printer (A-3c · A-14 · A-15, 2026-09-11): the cook bench · the printer are workbenches, so
+     the source of their glyphs is `WORKBENCH_ICON` (the same characters as the craft tab `inventory/ui/labels` — the
+     2026-09-10 contract); the dining table · the culture tank are not workbenches but stations, so they have their own
+     characters: the dining table `⊞` (a top with places laid — told apart from the plain table `▭`), the culture tank
+     `⚗` (a still — 「something grows inside」). Both are one Unicode character colliding with none of the above. */
   bench_cook: WORKBENCH_ICON.cook, bench_print: WORKBENCH_ICON.print,
   dining_table: '⊞', culture_tank: '⚗',
-  /* 2026-09-13 (암호화폐 채굴): 연산 클러스터 `▥`(칸이 줄지어 선 서버 랙) · 메인 컴퓨터 `⌨` — 위 · 아래 어떤 가구 글자와도 겹치지 않는다 */
+  /* 2026-09-13 (crypto mining): the compute cluster `▥` (a server rack of cells in a row) · the main computer `⌨` — colliding with no furniture character above or below */
   compute_cluster: '▥', mining_computer: '⌨',
-  /* 2026-09-13 (요리 미니게임): 자동 조리 가구 4종. 리드 임시 글자는 넷 다 바꿨다 — `⊚` 는 레코드랙과 겹쳤고, `▦` · `⩡` 는 조리대 화면의
-     단계 칩 글리프(`COOK_GAME_ICON` 굽기 · 붓기)와 같아 「가구」 와 「단계」 가 한 글자로 읽혔다(자동 그릴은 볶기도 한다). `⊗` 는 「닫힘」 으로 읽혔다.
-     푸드 프로세서 `⌽`(칼날 축이 선 둥근 볼) · 자동 그릴 `≋`(달아오른 열선) · 자동 교반기 `⚲`(아래로 내린 교반 날개) · 계량 디스펜서 `⛛`(깔때기).
-     넷 다 위 · 아래의 어떤 글자와도 겹치지 않는 유니코드 한 글자다 (외부 에셋 금지). */
+  /* 2026-09-13 (cooking minigame): the four automatic cooking pieces. All four of the lead's placeholder characters were
+     changed — `⊚` collided with the record rack, and `▦` · `⩡` were the same as the cook screen's step chip glyphs
+     (`COOK_GAME_ICON` 굽기 · 붓기), so 「furniture」 and 「step」 read as one character (the auto grill also fries); `⊗` read
+     as 「closed」. The food processor `⌽` (a round bowl on a blade shaft) · the auto grill `≋` (a glowing heating coil) ·
+     the auto stirrer `⚲` (a stirring blade lowered down) · the measuring dispenser `⛛` (a funnel). All four are one
+     Unicode character colliding with none above or below (no external assets). */
   food_processor: '⌽', auto_grill: '≋', auto_stirrer: '⚲', pour_dispenser: '⛛',
-  /* 2026-09-12 (사용자 결정): 조종석의 고정 설비였던 둘이 공용 시설 가구가 됐다 — 시술대 `⚕`(의료) · 컴퓨터 `⌨`(키보드),
-     둘 다 위의 어떤 글자와도 겹치지 않는다. */
+  /* 2026-09-12 (user's decision): the two that were fixed installations of the cockpit became shared facility furniture —
+     the implant bay `⚕` (medical) · the computer `⌨` (a keyboard), both colliding with none of the characters above. */
   implant_bay: '⚕', corp_computer: '⌨',
-  /* 2026-09-12 (A-3e): 서재 매체 — 보관함은 아이템 분류 글자(`CATEGORY_ICON.disc/record`)와 같은 글자, 보조 가구는 제 모양.
-     축음기 · 주크박스 · 턴테이블은 한 역할이지만 외형이 달라 글자도 다르다. */
+  /* 2026-09-12 (A-3e): library media — a shelf takes the same character as the item category
+     (`CATEGORY_ICON.disc/record`), a helper piece its own shape. The gramophone · jukebox · turntable are one role but
+     look different, so their characters differ too. */
   disc_stand: '◉', record_rack: '⊚', rocking_chair: '⌓', tv: '⊡', gramophone: '♫', jukebox: '♪', turntable: '◐',
-  /* 2026-09-12 (A-3a): 헬스장 운동 기구. 리드의 임시 글자 중 셋을 바꿨다 — `╤`/`╦` 는 카드 크기에서 거의 같은 모양이었고
-     `═` 은 아무것으로도 안 읽혔고 `⊘` 는 「금지」로 읽혔다. 벤치 랙 `╤`(기둥 위 바벨) · 스미스 머신 `╫`(두 레일을 가로지르는
-     바) · 트레드밀 `▱`(기울어진 벨트 판) · 사이클 `⚯`(프레임으로 이어진 두 바퀴). 넷 다 위의 어떤 글자와도 겹치지 않는다. */
+  /* 2026-09-12 (A-3a): gym equipment. Three of the lead's placeholder characters were changed — `╤`/`╦` were almost the
+     same shape at card size, `═` read as nothing at all and `⊘` read as 「forbidden」. The bench rack `╤` (a barbell on
+     posts) · the smith machine `╫` (a bar across two rails) · the treadmill `▱` (a tilted belt plate) · the exercise
+     bike `⚯` (two wheels joined by a frame). All four collide with none of the characters above. */
   bench_rack: '╤', smith_machine: '╫', treadmill: '▱', exercise_bike: '⚯',
-  /* 2026-09-13: 조종석의 고정 소품이던 서랍장 — `☷`(서랍 세 칸). 위의 어떤 글자와도 겹치지 않는다. */
+  /* 2026-09-13: the drawer unit that was a fixed prop of the cockpit — `☷` (three drawers). It collides with none of the characters above. */
   drawer: '☷',
-  /* 2026-09-13 (서재 시리즈 · 비디오게임): 리드 임시 글자 — hub/ui 담당이 겹침을 확인해 바꿔도 된다.
-     게임 디스크 전시대 `⊟` · 쇼파 `⊔` · 좌식 테이블 `⊓` · 러그 `⬚`. */
+  /* 2026-09-13 (library series · video games): the lead's placeholder characters — whoever owns hub/ui may check for
+     collisions and change them. The game disc stand `⊟` · the sofa `⊔` · the low table `⊓` · the rug `⬚`. */
   game_stand: '⊟', sofa: '⊔', low_table: '⊓', rug: '⬚',
 };
 
 /**
  * Purposes offered to an empty room. 2026-09-12: the contract's `ROOM_PURPOSES_ASSIGNABLE` — 시뮬레이션실 · 휴식 공간
- * are gone from it (옛 세이브를 읽으려고 `ROOM_PURPOSES` 에만 남았다), and so are 빈 방 / 조종석.
+ * are gone from it (they are left in `ROOM_PURPOSES` alone so that old saves can be read), and so are 빈 방 / 조종석.
  */
 const ASSIGNABLE: readonly RoomPurpose[] = ROOM_PURPOSES_ASSIGNABLE;
 /** 2026-09-12: the most material chips a furniture card shows in its one-line cost row (no wrapping). */
 const CARD_COST_MAX = 4;
 /** Cost chip edge in the furniture cards / inspector: wide enough that `99+/99` fits inside the thumbnail strip. */
 const CARD_CHIP = 36;
-/** The 재료 부족 toast of the inspector's dimmed 업그레이드 button (사용자 결정 문장 그대로). */
+/** The 재료 부족 toast of the inspector's dimmed 업그레이드 button (the user's decided sentence verbatim). */
 const SHORT_UPGRADE_TEXT = '재료가 부족하여 업그레이드할 수 없습니다.';
 /** 2026-09-17: blocker / cursor / escape token of the 가구 제작 modal (`openCraft`). */
 const CRAFT_MODAL_TOKEN = 'shipManage:craft';
@@ -124,7 +132,7 @@ const CRAFT_MODAL_CHIP = 44;
  *       · an **empty** room → the 용도 지정 picker: every assignable `RoomPurpose` led by the shared facility
  *         thumbnail and followed by the **materials the 시설 증축 costs** (`ctx.housing.purposeCost` rendered with
  *         `renderItemCost` — the Phase 9 UI pass dropped the prose description in favour of the cost chips), disabled
- *         with the 한국어 reason from `ctx.housing.purposeBlock` when the rules or the materials refuse it.
+ *         with the Korean reason from `ctx.housing.purposeBlock` when the rules or the materials refuse it.
  *       · a room **with a purpose** → the 가구 목록 behind two tabs (Phase 9 UI pass):
  *           **가구 제작** — every furniture def the room accepts (`getFurnitureFor`), its craft materials as
  *           `.item-chip`s and a 제작 button that calls `ctx.housing.craftFurniture` (this is the only place furniture
@@ -135,7 +143,8 @@ const CRAFT_MODAL_CHIP = 44;
  *           not called from this tab). Each accepted card carries a **`배치` button** (`.fcard-place`, right side,
  *           the craft tab's `.fcard-craft` twin) that drops the piece **straight into the current room** on the
  *           first free cell: `findFreeSpot` asks **`HousingRef.findFreeSpot`** (2026-09-10 — the scan order and the
- *           rotation are housing/'s rule: 화면 좌측 상단부터 가로줄 먼저, 가구는 화면 아래를 향한다); a hit goes to
+ *           rotation are housing/'s rule: from the screen's top left, rows first, with the furniture facing the
+ *           screen's bottom); a hit goes to
  *           `HousingRef.place` (storage qty decrements there, `housing:furniturePlaced` fires — the tutorial's
  *           `benchPlace` step completes on it). The button is **disabled when nothing fits** and the `.fcard-note`
  *           says why: `배치 가능` / `자리 없음` / `<용도> 전용`. The fit result is part of the store list's memo key
@@ -153,61 +162,72 @@ const CRAFT_MODAL_CHIP = 44;
  * reason only lived in a `title` tooltip on a `disabled` button, and the generator itself could only be raised from
  * the Tab 함선 tab. Now: the picker is headed by a **발전기 row** (`.sm-gen`: level, next-level cost chips,
  * 업그레이드 → the confirm popup → `ctx.housing.upgrade('generator')`) that is highlighted while it is what blocks
- * the purposes; a purpose row stays **clickable** when blocked and prints its 한국어 reason inline (`.sm-block`) —
+ * the purposes; a purpose row stays **clickable** when blocked and prints its Korean reason inline (`.sm-block`) —
  * clicking it repeats the reason as a toast; and an allowed purpose opens a centred **modeless confirm popup**
  * (`.sm-confirm`: `정말로 N번 방을 <용도> 시설로 만들겠습니까?` + `renderItemCost` chips of `purposeCost`, 확인 →
  * `setRoomPurpose`, 취소 / Esc → close). Escape is caught in the capture phase and `Input.consume`d, so it closes
  * the popup only — the hub's own Esc (leave 시설 관리) and game/'s pause never see it.
  *
- * **B-13 (2026-09-11, 사용자 결정 — 클릭 인스펙터):** 시설 관리 모드에서 **놓인 가구를 클릭**하면 hub/ 의 레이캐스트가
- * `housing:furnitureSelected {uid}` 를 내고 이 화면이 `.sm-inspect` 카드를 띄운다 — 이름 · 글리프 · `Lv.n / max` ·
- * **다음 강화 비용 칩**(`HousingRef.furnitureUpgradeCost`) · 거절 사유(`furnitureUpgradeBlock`) · `강화`
- * (`upgradeFurniture`). `{uid: null}`(빈 곳 클릭) · ✕ · 방 바꾸기 · 화면 닫기가 카드를 내린다. `upgradeFurniture` 는
- * Phase 8 부터 있었지만 부르는 곳이 없어 작업대 Lv.2–3 이 플레이로 도달 불가였다 — 여기가 그 입구다.
- * 카드는 `.sm-confirm` 과 같은 결이지만 **모달리스**라 화면을 덮지 않는다 (계속 다른 가구를 클릭한다). 홀드 확정도
- * 없다: 강화는 되돌릴 수 없는 확정이 아니다 (`housing/ui/GrowStation` 의 강화 줄과 같은 판단).
+ * **B-13 (2026-09-11, user's decision — the click inspector):** **clicking a placed piece** in 시설 관리 mode makes
+ * hub/'s raycast emit `housing:furnitureSelected {uid}` and this screen show the `.sm-inspect` card — name · glyph ·
+ * `Lv.n / max` · **the next upgrade's cost chips** (`HousingRef.furnitureUpgradeCost`) · the refusal reason
+ * (`furnitureUpgradeBlock`) · `강화` (`upgradeFurniture`). `{uid: null}` (a click on empty floor) · ✕ · changing the
+ * room · closing the screen take the card down. `upgradeFurniture` had been there since Phase 8 but nothing called it,
+ * so a workbench's Lv.2–3 was unreachable by playing — this is that entrance. The card is in the same grain as
+ * `.sm-confirm` but is **modeless**, so it does not cover the screen (another piece can be clicked while it is up).
+ * There is no hold confirm either: an upgrade is not an irreversible confirm (the same judgement as the 강화 row of
+ * `housing/ui/GrowStation`).
  *
- * **B-13 (2026-09-11, 사용자 결정 — 이미 가진 실용 가구는 못 만든다):** 가구 제작 카드는 `HousingRef.furnitureCraftBlock`
- * 을 묻는다. 사유가 있으면 (재료 부족 · `이미 보유 중입니다`) 카드가 **딤드 + `title` 에 사유 + 제작 버튼 비활성**
- * 이고 목록의 **맨 아래**로 내려간다 — 만들 수 있는 것이 위다 (용도 지정 picker 의 `purposeRank` 와 같은 결).
- * 그 사유는 `cardsKey` 의 일부다: 재료가 들어와 사유가 사라지면 목록이 다시 그려져야 한다.
+ * **B-13 (2026-09-11, user's decision — a utility piece the ship already owns cannot be made):** a 가구 제작 card asks
+ * `HousingRef.furnitureCraftBlock`. With a reason (재료 부족 · `이미 보유 중입니다`) the card is **dimmed + the reason in
+ * its `title` + the 제작 button disabled** and sinks to the **bottom** of the list — what can be made is on top (the same
+ * grain as `purposeRank` of the 용도 지정 picker). That reason is part of `cardsKey`: when materials arrive and the
+ * reason disappears, the list must be redrawn.
  *
- * **2026-09-12 (사용자 결정 — 하우징 모드 UI 개선):**
- *   - 용도 지정 목록은 **이미 지은 용도를 그리지 않는다** (모든 용도가 함선당 하나 — `Rules.purposeChangeReason`).
- *     `다음 업데이트` 용도는 잠긴 채 그대로 보인다. **발전기 행은 용도 목록에서 빠져 좌측 방 목록 아래**로 옮겼다
- *     (`.sm-rooms .sm-gen` — 클래스는 그대로라 튜토리얼의 `.sm-gen .sm-gen-btn` 포커싱이 산다).
- *   - 가구 제작 탭 안에 **시설 가구 / 꾸밈용 가구** 하위 탭(`.sm-subtabs`). 이미 가진 실용 가구는 제작 버튼이
- *     `이미 보유 중`(비활성)이 되고 카드 밑의 「이미 보유 중입니다」 줄은 없다. 시설 가구 카드에는 보유 수가 없다.
- *   - 인스펙터 좌측 하단 **`위치 이동`** → `housing:moveRequested {uid}` → hub/ 의 위치 이동 상태 (E 와 같은 길).
- *     놓을 수 없는 곳을 누르면 hub/ 가 `housing:placeRefused` 를 내고 이 화면이 인스펙터 **위쪽** 토스트(`.sm-toast`)로
- *     띄운다 — 인스펙터와 토스트는 하단 중앙의 한 `.sm-dock` 에 쌓인다.
+ * **2026-09-12 (user's decision — housing mode UI improvements):**
+ *   - The 용도 지정 list **does not draw a purpose already built** (every purpose is one per ship —
+ *     `Rules.purposeChangeReason`). A `다음 업데이트` purpose stays visible, locked. **The 발전기 row left the purpose
+ *     list and moved under the room list on the left** (`.sm-rooms .sm-gen` — the class is unchanged, so the tutorial's
+ *     `.sm-gen .sm-gen-btn` focusing survives).
+ *   - **시설 가구 / 꾸밈용 가구** sub-tabs inside the 가구 제작 tab (`.sm-subtabs`). For a utility piece already owned the
+ *     craft button becomes `이미 보유 중` (disabled) and the 「이미 보유 중입니다」 line under the card is gone. A
+ *     시설 가구 card carries no owned count.
+ *   - **`위치 이동`** at the inspector's bottom left → `housing:moveRequested {uid}` → hub/'s move state (the same path
+ *     as E). Pressing a place where it cannot go makes hub/ emit `housing:placeRefused` and this screen show it as a
+ *     toast **above** the inspector (`.sm-toast`) — the inspector and the toast stack in one `.sm-dock` at the bottom centre.
  *
- * **2026-09-12 2차 (사용자 결정 — 조종석 · 업그레이드 구역 · 시설 제거 홀드):**
- *   - 방 목록 **맨 위에 조종석**(`COCKPIT_ROOM_INDEX`, 방 번호 없음) — 가구 제작 / 가구 창고만 있고 시설 제거가 없다.
- *     우측 머리 라벨은 시설 이름만이다. 용도 지정은 `ROOM_PURPOSES_ASSIGNABLE`(시뮬레이션실 · 휴식 공간 없음)만 돈다.
- *   - 가구 카드의 재료는 이름 아래 **한 줄 · 최대 4개**(`CARD_COST_MAX`, `CARD_CHIP` px — 보유/필요가 썸네일 안에 든다).
- *     시설 가구 / 꾸밈용 가구 하위 탭은 **가구 창고에도** 선다.
- *   - 인스펙터의 `위치 이동` 버튼은 없어졌다(E · LMB 꾹 누르기 — hub/ 가 `housing:moveHold` 로 커서 게이지를 알린다).
- *     카드 하단은 **업그레이드 구역**: `업그레이드 비용` · 재료 칩 + 시설 레벨 칩(`buildFacilityChip`) · `업그레이드`.
- *     딤드여도 눌리고, 재료가 모자라면 `재료가 부족하여 업그레이드할 수 없습니다.` 토스트, 아니면 그 사유.
- *   - `시설 제거`(빨강) 확인 팝업의 확정은 빨간 `시설 제거` 를 `UI_HOLD_CONFIRM_S` 동안 누른다 — 제목 `{시설 이름} 제거`,
- *     돌려받는 칩은 수량만.
+ * **2026-09-12 2nd pass (user's decision — the cockpit · the upgrade section · the 시설 제거 hold):**
+ *   - **The cockpit at the very top** of the room list (`COCKPIT_ROOM_INDEX`, no room number) — it has 가구 제작 /
+ *     가구 창고 only and no 시설 제거. The head label on the right is the facility name alone. 용도 지정 walks
+ *     `ROOM_PURPOSES_ASSIGNABLE` only (no 시뮬레이션실 · 휴식 공간).
+ *   - A furniture card's materials sit under the name on **one line · at most four** (`CARD_COST_MAX`, `CARD_CHIP` px —
+ *     보유/필요 fits inside the thumbnail). The 시설 가구 / 꾸밈용 가구 sub-tabs stand **in 가구 창고 too**.
+ *   - The inspector's `위치 이동` button is gone (E · holding LMB does it — hub/ announces the cursor gauge with
+ *     `housing:moveHold`). The bottom of the card is the **upgrade section**: `업그레이드 비용` · material chips + the
+ *     facility level chip (`buildFacilityChip`) · `업그레이드`. It is clickable even when dimmed, and with too few
+ *     materials it toasts `재료가 부족하여 업그레이드할 수 없습니다.`, otherwise that reason.
+ *   - The confirm of the `시설 제거` (red) popup is a press of the red `시설 제거` for `UI_HOLD_CONFIRM_S` — the title is
+ *     `{시설 이름} 제거`, and the chips handed back show the quantity only.
  *
- * **2026-09-08 (튜토리얼은 잠그지 않고 감춘다):** `ctx.tutorial.hides('roomPurpose' | 'furniture', id)` 가 참인
- * 항목은 목록에서 **빠진다** — "튜토리얼에서는 ~" 사유를 단 줄을 남겨 두는 대신, 지금 지을 수 있는 것만
- * 보여 준다 (안내 단계에서는 발전기 행 + 작업실 한 줄). 단계가 넘어가거나 튜토리얼을 건너뛰면
- * `tutorial:changed` 로 목록을 다시 그려 감춰 둔 것이 전부 돌아온다.
+ * **2026-09-08 (the tutorial hides instead of locking):** an entry for which
+ * `ctx.tutorial.hides('roomPurpose' | 'furniture', id)` is true **leaves** the list — instead of keeping a row tagged
+ * with a "튜토리얼에서는 ~" reason, only what can be built right now is shown (during the guide step, the 발전기 row +
+ * the one 작업실 row). When the step moves on or the tutorial is skipped, `tutorial:changed` redraws the list and
+ * everything that was hidden comes back.
  *
- * **2026-09-17 (사용자 결정 — 제작 모달 · 가구 창고 레드닷):**
- *   - 가구 카드의 `제작`(또는 창고에 없는 카드 클릭)은 곧바로 만들지 않고 화면 중앙의 **제작 모달**(`.sm-craft`)을 연다 —
- *     목록과 같은 썸네일(`.fcard-thumb`) · `{가구 이름} 제작` · 그 아래 재료 칩 전부(`renderItemCost`, 보유/필요 · `.is-short`) ·
- *     우측 하단 `제작`(`.sm-craft-ok`)을 `UI_HOLD_CONFIRM_S` 동안 누르면 `craftFurniture` → `housing:changed {reason:'craft'}`
- *     (튜토리얼 `bench` 단계가 여기서 넘어간다). 모달은 `CRAFT_MODAL_TOKEN` 으로 blocker · 커서 · `ctx.escape` 를 쥔다 —
- *     Escape · Tab · `취소` · 뒤판 클릭이 닫는다. Enter 는 삼킨다. 막힌 카드(재료 부족 · 이미 보유)는 예전처럼 사유 토스트만.
- *   - **레드닷 (세션 한정, 저장하지 않는다):** 새로 만들었거나(`craftFurniture` 성공) 회수된(`housing:furnitureRecovered`) 가구는
- *     `dotPending` 에 들어가 `가구 창고` 탭에 점(`.sm-dot`)을 띄운다. 창고 목록이 보이는 순간(탭을 누르거나 이미 그 탭이면)
- *     탭의 점은 사라지고 그 가구 카드들의 썸네일에 점이 선다(`dotCards`). 화면을 닫거나 그 가구를 배치하면 카드의 점이 사라진다.
- *     다른 하위 탭에 가려진 점이 있으면 그 하위 탭에도 점이 선다.
+ * **2026-09-17 (user's decision — the craft modal · 가구 창고 red dots):**
+ *   - A furniture card's `제작` (or a click on a card with nothing in storage) no longer crafts at once but opens the
+ *     **craft modal** (`.sm-craft`) in the centre of the screen — the same thumbnail as the list (`.fcard-thumb`) ·
+ *     `{furniture name} 제작` · every material chip under it (`renderItemCost`, 보유/필요 · `.is-short`) · pressing
+ *     `제작` (`.sm-craft-ok`) at the bottom right for `UI_HOLD_CONFIRM_S` runs `craftFurniture` → `housing:changed
+ *     {reason:'craft'}` (the tutorial's `bench` step moves on here). The modal holds the blocker · the cursor ·
+ *     `ctx.escape` with `CRAFT_MODAL_TOKEN` — Escape · Tab · `취소` · a click on the backdrop close it. Enter is
+ *     swallowed. A blocked card (재료 부족 · 이미 보유) still answers with its reason toast alone, as before.
+ *   - **Red dots (session only, never saved):** a piece just made (`craftFurniture` succeeded) or recovered
+ *     (`housing:furnitureRecovered`) goes into `dotPending` and puts a dot (`.sm-dot`) on the `가구 창고` tab. The moment
+ *     the store list is visible (the tab is pressed, or it already was that tab) the tab's dot goes and a dot stands on
+ *     the thumbnails of those furniture cards (`dotCards`). Closing the screen or placing that piece clears the card's
+ *     dot. When a dot is hidden behind another sub-tab, a dot stands on that sub-tab too.
  */
 export class ShipManage {
   readonly root: HTMLElement;
@@ -216,7 +236,7 @@ export class ShipManage {
   private clearBtn: HTMLButtonElement;
   private tabsEl: HTMLElement;
   private tabBtns = new Map<FurnTab, HTMLButtonElement>();
-  /* 2026-09-12: 시설 가구 / 꾸밈용 가구 (가구 제작 탭 안), 방 목록 아래 발전기 행, 하단 dock 의 토스트 */
+  /* 2026-09-12: 시설 가구 / 꾸밈용 가구 (inside the 가구 제작 tab), the 발전기 row under the room list, the toast of the bottom dock */
   private subtabsEl: HTMLElement;
   private kindBtns = new Map<FurnKind, HTMLButtonElement>();
   private kind: FurnKind = 'utility';
@@ -233,7 +253,7 @@ export class ShipManage {
   private cardsKey = '';
   private storeKey = '';
   private purposeKey = '';
-  private tab: FurnTab = readManageTab() ?? 'craft';   // 2026-09-15: 마지막으로 보던 탭 (사용자 결정)
+  private tab: FurnTab = readManageTab() ?? 'craft';   // 2026-09-15: the tab last seen (user's decision)
   private active = false;
   private room: number | null = null;
   private selected: string | null = null;
@@ -245,7 +265,7 @@ export class ShipManage {
   private confirmBody: HTMLElement;
   private confirmCost: HTMLElement;
   private confirmCard: HTMLElement;
-  /** 2026-09-15 2차: 시설 제거 확정 버튼 안 라벨 왼쪽의 좌클릭 홀드 키캡 — 홀드가 아닌 확인에서는 떼어 둔다. */
+  /** 2026-09-15 2nd pass: the left-click hold keycap left of the label inside the 시설 제거 confirm button — detached on a confirm that is not a hold. */
   private confirmCap: HTMLElement;
   private confirmOk: HTMLButtonElement;
   private confirmOkText: HTMLElement;
@@ -253,13 +273,13 @@ export class ShipManage {
   private confirmCancel: HTMLButtonElement;
   private confirmAction: (() => void) | null = null;
   private pendingPurpose: RoomPurpose | null = null;
-  /* 2026-09-12: 시설 제거 확인은 되돌릴 수 없는 확정이다 — 빨간 `시설 제거` 버튼을 `UI_HOLD_CONFIRM_S` 동안 눌러야 한다 */
+  /* 2026-09-12: the 시설 제거 confirm is an irreversible one — the red `시설 제거` button must be held for `UI_HOLD_CONFIRM_S` */
   private confirmDanger = false;
   private holdStart = 0;
   private holdTimer = 0;
   private holdT = 0;
   private readonly onHoldUp = (): void => this.stopHold();
-  /* B-13: 클릭 인스펙터 (모달리스 — blocker 도 escape 토큰도 잡지 않는다) */
+  /* B-13: the click inspector (modeless — it takes neither a blocker nor an escape token) */
   private inspectEl: HTMLElement;
   private inspectThumb: HTMLElement;
   private inspectGlyph: HTMLElement;
@@ -268,11 +288,11 @@ export class ShipManage {
   private inspectDesc: HTMLElement;
   /** 2026-09-13: the 조종석 전용 시설 line (shown only for `isCockpitOnlyFurniture` pieces). */
   private inspectLock: HTMLElement;
-  /* 2026-09-12: 하단 업그레이드 구역 — `업그레이드 비용` · 재료 + 시설 레벨 칩 · `업그레이드` */
+  /* 2026-09-12: the bottom upgrade section — `업그레이드 비용` · material + facility level chips · `업그레이드` */
   private inspectCost: HTMLElement;
   private inspectBtn: HTMLButtonElement;
   private inspectUid: string | null = null;
-  /* 2026-09-17: 가구 제작 모달 (blocker · escape 토큰 `CRAFT_MODAL_TOKEN`) */
+  /* 2026-09-17: the 가구 제작 modal (blocker · escape token `CRAFT_MODAL_TOKEN`) */
   private craftEl: HTMLElement;
   private craftThumb: HTMLElement;
   private craftGlyph: HTMLElement;
@@ -288,7 +308,7 @@ export class ShipManage {
   private craftHoldTimer = 0;
   private craftHoldT = 0;
   private readonly onCraftHoldUp = (): void => this.stopCraftHold();
-  /* 2026-09-17: 가구 창고 레드닷 (세션 한정) — 탭에 뜬 것 / 카드에 뜬 것 */
+  /* 2026-09-17: 가구 창고 red dots (session only) — those up on the tab / those up on the cards */
   private dotPending = new Set<string>();
   private dotCards = new Set<string>();
   private storeTabDot: HTMLElement | null = null;
@@ -296,8 +316,8 @@ export class ShipManage {
 
   private onKey = (e: KeyboardEvent): void => {
     if (this.isCraftOpen) {
-      // 2026-09-17: 제작 모달 — Enter 로는 확정되지 않는다(삼킨다), Tab 은 모달만 닫는다 (뒤의 시설 관리 · 인벤토리가 보지 않는다).
-      // Escape 는 여기서 먹지 않는다: `ctx.escape` 의 맨 위가 이 모달이라 game/ 의 정책이 이것부터 닫는다.
+      // 2026-09-17: the craft modal — Enter never confirms (it is swallowed), Tab closes the modal only (시설 관리 · the inventory behind it never see it).
+      // Escape is not eaten here: this modal is the top of `ctx.escape`, so game/'s policy closes it first.
       if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); e.stopImmediatePropagation(); return; }
       if (e.code === Keys.INVENTORY) {
         e.preventDefault();
@@ -308,7 +328,7 @@ export class ShipManage {
       return;
     }
     if (!this.isConfirmOpen) return;
-    // 2026-09-12: Enter 로는 되돌릴 수 없는 확정(시설 제거)이 되지 않는다 — 먹기만 한다 (포커스된 취소도 누르지 않는다)
+    // 2026-09-12: Enter never makes an irreversible confirm (시설 제거) — it is only eaten (it does not press the focused 취소 either)
     if (this.confirmDanger && (e.code === 'Enter' || e.code === 'NumpadEnter')) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -329,8 +349,9 @@ export class ShipManage {
     const rooms = el('div', { cls: 'sm-rooms interactive', parent: this.root });
     el('div', { cls: 'sm-title', text: '방 목록', parent: rooms });
     this.roomsEl = el('div', { cls: 'sm-room-list', parent: rooms });
-    // 2026-09-12 (사용자 결정): 조종석이 **늘 맨 위**에 서고, 그 아래로 방 1 … SHIP_ROOM_COUNT. 조종석은 방이 아니라
-    // 번호 칸이 비어 있고(`.is-cockpit`) 이름 자리에 `조종석` 이 선다. `data-room` 은 스모크 · 튜토리얼이 행을 집는 손잡이다.
+    // 2026-09-12 (user's decision): the cockpit stands **always at the top**, rooms 1 … SHIP_ROOM_COUNT below it. The
+    // cockpit is not a room — its number cell is empty (`.is-cockpit`) and `조종석` stands in the name's place.
+    // `data-room` is the handle the smoke tests · the tutorial pick a row by.
     for (const i of [COCKPIT_ROOM_INDEX, ...Array.from({ length: SHIP_ROOM_COUNT }, (_, k) => k)]) {
       const cockpit = i === COCKPIT_ROOM_INDEX;
       const b = el('button', { cls: cockpit ? 'sm-room is-cockpit' : 'sm-room', parent: this.roomsEl });
@@ -343,7 +364,7 @@ export class ShipManage {
       b.addEventListener('click', (e) => { e.stopPropagation(); this.pickRoom(i); });
       this.rows.push({ index: i, root: b, thumbEl, glyphEl, purposeEl, countEl, key: '' });
     }
-    // 2026-09-12: 발전기 행은 함선 전체 시설이라 방 목록 아래에 산다 (용도 지정 목록에서 빠졌다)
+    // 2026-09-12: the 발전기 row is a whole-ship facility, so it lives under the room list (it left the 용도 지정 list)
     this.genEl = el('div', { cls: 'sm-gen-host', parent: rooms });
 
     const side = el('div', { cls: 'sm-side interactive', parent: this.root });
@@ -355,12 +376,12 @@ export class ShipManage {
     this.tabsEl = el('div', { cls: 'sm-tabs', parent: side });
     for (const [id, label] of [['craft', '가구 제작'], ['store', '가구 창고']] as ReadonlyArray<readonly [FurnTab, string]>) {
       const b = el('button', { cls: 'sm-tab', text: label, parent: this.tabsEl });
-      b.dataset.tab = id;               // 2026-09-08: 튜토리얼 스포트라이트가 '가구 창고' 탭을 집는 손잡이
+      b.dataset.tab = id;               // 2026-09-08: the handle the tutorial spotlight picks the '가구 창고' tab by
       b.addEventListener('click', (e) => { e.stopPropagation(); this.pickTab(id); });
       this.tabBtns.set(id, b);
       if (id === 'store') { this.storeTabDot = el('i', { cls: 'sm-dot', parent: b }); this.storeTabDot.hidden = true; }
     }
-    // 2026-09-12: 가구 제작 안의 하위 탭 — 시설 가구(E 로 뭔가를 하는 가구) / 꾸밈용 가구
+    // 2026-09-12: the sub-tabs inside 가구 제작 — 시설 가구 (furniture that does something on E) / 꾸밈용 가구
     this.subtabsEl = el('div', { cls: 'sm-subtabs', parent: side });
     for (const [id, label] of [['utility', '시설 가구'], ['decor', '꾸밈용 가구']] as ReadonlyArray<readonly [FurnKind, string]>) {
       const b = el('button', { cls: 'sm-subtab', text: label, parent: this.subtabsEl });
@@ -395,14 +416,15 @@ export class ShipManage {
     this.confirmTitle = el('div', { cls: 'title', text: '시설 증축', parent: card });
     this.confirmBody = el('div', { cls: 'body', parent: card });
     this.confirmCost = el('div', { cls: 'cost', parent: card });
-    // 2026-09-15 (사용자 결정): 재료 · 시설 썸네일의 호버 카드는 커서 **좌상단**이다 (`renderCostRow` 와 같은 규약).
-    // 여기는 `renderItemCost` 를 직접 부르므로 속성을 한 번 박아 둔다 — 비용이 비어 있는 프레임에도 남는다.
+    // 2026-09-15 (user's decision): the hover card of a material · facility thumbnail goes to the **top-left** of the
+    // cursor (the same contract as `renderCostRow`). This calls `renderItemCost` directly, so the attribute is stamped
+    // once — it stays even on a frame where the cost is empty.
     this.confirmCost.setAttribute(TIP_ANCHOR_ATTR, 'left');
     const acts = el('div', { cls: 'acts', parent: card });
     const cancel = this.confirmCancel = el('button', { cls: 'ui-btn', text: '취소', parent: acts });
     this.confirmOk = el('button', { cls: 'ui-btn primary sm-confirm-ok', parent: acts });
-    // 2026-09-15 2차 (사용자 결정): 옛 안내 줄(`.sm-confirm-hint`) 대신 버튼 안 라벨 왼쪽의 좌클릭 홀드 키캡이
-    // 「어떻게 누르는가」를 말한다 — 홀드하는 확인(= `danger`)에만 붙는다 (`openConfirm`).
+    // 2026-09-15 2nd pass (user's decision): instead of the old notice line (`.sm-confirm-hint`), the left-click hold
+    // keycap left of the label inside the button says 「how to press it」 — attached only to a held confirm (= `danger`) (`openConfirm`).
     this.confirmCap = createHoldButtonCap();
     this.confirmFill = el('i', { cls: 'sm-hold-fill', parent: this.confirmOk });
     this.confirmOkText = el('span', { cls: 'sm-confirm-ok-t', text: '확인', parent: this.confirmOk });
@@ -414,8 +436,9 @@ export class ShipManage {
     // a click on the dimmed backdrop cancels, like the 함선 tab's popups
     this.confirmEl.addEventListener('mousedown', (e) => { if (e.target === this.confirmEl) this.closeConfirm(true); });
 
-    /* 2026-09-17 (사용자 결정): 가구 제작 모달 — 가운데 썸네일(목록과 같은 `.fcard-thumb`) · `{이름} 제작` · 재료 칩 ·
-       우측 하단 `제작` 1초 홀드. `.sm-confirm` 의 판(z 79, 튜토리얼 스포트라이트 위)을 그대로 쓴다. */
+    /* 2026-09-17 (user's decision): the 가구 제작 modal — a centred thumbnail (the list's own `.fcard-thumb`) ·
+       `{name} 제작` · material chips · a 1 s hold on `제작` at the bottom right. It reuses `.sm-confirm`'s plate as it is
+       (z 79, above the tutorial spotlight). */
     this.craftEl = el('div', { cls: 'sm-confirm sm-craft interactive', parent: this.root });
     this.craftEl.hidden = true;
     const ccard = el('div', { cls: 'sm-confirm-card sm-craft-card', parent: this.craftEl });
@@ -442,9 +465,10 @@ export class ShipManage {
     this.craftOk.addEventListener('pointerleave', () => this.stopCraftHold());
     this.craftEl.addEventListener('mousedown', (e) => { if (e.target === this.craftEl) this.closeCraft(true); });
 
-    /* B-13 (2026-09-11): 클릭 인스펙터. `.sm-confirm` 과 같은 상자 언어를 쓰지만 배경을 덮지 않는 **모달리스**
-       카드다 — 방 목록(좌) · 가구 목록(우) 사이 하단 중앙에 서서, 카드를 띄운 채로 다음 가구를 클릭할 수 있다. */
-    /* 2026-09-12: 인스펙터와 그 위의 토스트가 하단 중앙 한 줄기(`.sm-dock`)에 쌓인다 — 토스트는 늘 카드 바로 위다 */
+    /* B-13 (2026-09-11): the click inspector. It speaks the same box language as `.sm-confirm` but is a **modeless**
+       card that does not cover the background — it stands at the bottom centre between the room list (left) · the
+       furniture list (right), and the next piece can be clicked while the card is up. */
+    /* 2026-09-12: the inspector and the toast above it stack in one column at the bottom centre (`.sm-dock`) — the toast is always right above the card */
     const dock = el('div', { cls: 'sm-dock', parent: this.root });
     this.toastEl = el('div', { cls: 'sm-toast', parent: dock });
     this.toastEl.hidden = true;
@@ -460,15 +484,15 @@ export class ShipManage {
     ix.title = '닫기';
     ix.addEventListener('click', (e) => { e.stopPropagation(); this.setInspect(null, true); });
     this.inspectDesc = el('div', { cls: 'sm-ins-desc', text: '', parent: this.inspectEl });
-    /* 2026-09-13 (사용자 결정): 조종석 전용 시설(시술대 · 컴퓨터)에는 회수 · 제거가 없다 — 카드가 그렇다고 한 줄로 말한다 */
+    /* 2026-09-13 (user's decision): a cockpit-only facility (the implant bay · the computer) has no recovery · removal — the card says so in one line */
     this.inspectLock = el('div', { cls: 'sm-ins-desc sm-ins-lock', text: '조종석 전용 시설 — 조종석 안에서만 옮길 수 있고, 회수 · 제거할 수 없습니다.', parent: this.inspectEl });
     this.inspectLock.hidden = true;
-    /* 2026-09-12 (사용자 결정): `위치 이동` 버튼은 없어졌고(E · LMB 꾹 누르기가 한다) 카드 하단이 **업그레이드 구역**이다 —
-       맨 좌측 `업그레이드 비용` · 재료 칩 + 시설 레벨 칩 · 맨 우측 `업그레이드`. */
+    /* 2026-09-12 (user's decision): the `위치 이동` button is gone (E · holding LMB does it) and the bottom of the card
+       is the **upgrade section** — `업그레이드 비용` at the far left · material chips + the facility level chip · `업그레이드` at the far right. */
     const upsec = el('div', { cls: 'sm-ins-upsec', parent: this.inspectEl });
     el('span', { cls: 'sm-ins-up-label', text: '업그레이드 비용', parent: upsec });
     this.inspectCost = el('div', { cls: 'sm-ins-cost', parent: upsec });
-    this.inspectCost.setAttribute(TIP_ANCHOR_ATTR, 'left');   // 2026-09-15: 재료가 없는 프레임(시설 칩만)에도 좌상단 카드
+    this.inspectCost.setAttribute(TIP_ANCHOR_ATTR, 'left');   // 2026-09-15: the top-left card even on a frame with no materials (facility chips only)
     this.inspectBtn = el('button', { cls: 'sm-gen-btn sm-ins-up', text: '업그레이드', parent: upsec });
     this.inspectBtn.addEventListener('click', (e) => { e.stopPropagation(); this.upgradeInspected(); });
 
@@ -485,22 +509,22 @@ export class ShipManage {
       b.on('housing:changed', () => { if (this.active) this.refresh(); }),
       // 2026-09-09: the 배치 button's fit check depends on what is on the floor and how big the room is — every
       // change to the room re-scans (the list memo carries the result, so an unchanged answer redraws nothing)
-      // 2026-09-17: 배치된 가구의 레드닷은 사라진다 · 회수된 가구는 가구 창고 레드닷 (화면이 닫혀 있어도 센다 — 세션 한정)
+      // 2026-09-17: a placed piece's red dot goes · a recovered piece gets a 가구 창고 red dot (counted even while the screen is closed — session only)
       b.on('housing:furniturePlaced', ({ item }) => { this.clearDot(item.defId); if (this.active) this.refresh(); }),
       b.on('housing:furnitureMoved', () => { if (this.active) this.refresh(); }),
       b.on('housing:furnitureRecovered', ({ defId }) => { this.markNew(defId); if (this.active) this.refresh(); }),
       b.on('housing:facilityUpgraded', () => { if (this.active) this.refresh(); }),
       b.on('housing:roomPurposeChanged', () => { if (this.active) this.refresh(); }),
       b.on('housing:selectionChanged', ({ defId }) => this.markSelection(defId)),
-      // B-13 (2026-09-11): hub/ 의 시설 관리 레이캐스트가 놓인 가구를 집었다 (`uid: null` = 빈 곳 → 선택 해제).
+      // B-13 (2026-09-11): hub/'s 시설 관리 raycast picked a placed piece (`uid: null` = empty floor → deselect).
       b.on('housing:furnitureSelected', ({ uid }) => this.setInspect(uid)),
-      // 2026-09-12: 놓을 수 없는 곳 (인스펙터 위 토스트). 위치 이동 버튼이 없어져 `moveStateChanged` 는 더 듣지 않는다
+      // 2026-09-12: a place where it cannot go (the toast above the inspector). The 위치 이동 button is gone, so `moveStateChanged` is no longer listened to
       b.on('housing:placeRefused', ({ reason }) => this.showToast(reason)),
       b.on('inventory:changed', () => { if (this.active) this.refresh(); }),
       b.on('inventory:stashChanged', () => { if (this.active) this.refresh(); }),
       b.on('game:newMission', () => this.setActive(false, null)),
       b.on('game:abort', () => this.setActive(false, null)),
-      // 2026-09-08: 튜토리얼이 단계를 넘기거나 건너뛰어지면 숨겨 뒀던 용도 · 가구가 다시 나타난다
+      // 2026-09-08: when the tutorial moves its step on or is skipped, the purposes · furniture that were hidden appear again
       b.on('tutorial:changed', () => { if (this.active) this.refresh(); }),
     );
   }
@@ -543,14 +567,14 @@ export class ShipManage {
   get storeDotCards(): readonly string[] { return [...this.dotCards]; }
 
   /**
-   * 2026-09-08 — 튜토리얼이 막는 항목은 사유를 달아 두지 않고 **아예 그리지 않는다**. 목록에 지금 할 수
-   * 있는 것만 남으므로 "왜 안 되지"가 생기지 않는다 (튜토리얼이 꺼져 있으면 언제나 false).
+   * 2026-09-08 — an entry the tutorial blocks is **not drawn at all** rather than tagged with a reason. Only what can
+   * be done right now is left in the list, so "why can't I" never arises (always false while the tutorial is off).
    */
   private tutHides(gate: 'roomPurpose' | 'furniture', id: string): boolean {
     return this.ctx?.tutorial?.hides(gate, id) ?? false;
   }
 
-  /** 목록 캐시 키에 섞는 튜토리얼 단계 — 단계가 바뀌면 숨김 집합도 바뀐다. */
+  /** The tutorial step mixed into the list cache key — a changed step changes the hidden set too. */
   private get tutKey(): string { return this.ctx?.tutorial?.step ?? '-'; }
 
   private setActive(active: boolean, room: number | null): void {
@@ -563,7 +587,7 @@ export class ShipManage {
     // B-13: the inspector describes one placed piece — a different room (or a closed screen) is a different subject
     if (changed) this.setInspect(null);
     if (!active) {
-      // 2026-09-17 (사용자 결정): 창을 닫으면 카드의 레드닷이 사라진다 (탭에 아직 뜬 것은 남는다)
+      // 2026-09-17 (user's decision): closing the window clears the cards' red dots (those still up on the tab stay)
       this.dotCards.clear();
       this.paintDots();
       this.selected = null;
@@ -596,7 +620,7 @@ export class ShipManage {
     this.refreshSide();
   }
 
-  /** 2026-09-12: 가구 제작의 시설 가구 / 꾸밈용 가구 하위 탭. */
+  /** 2026-09-12: the 시설 가구 / 꾸밈용 가구 sub-tabs of 가구 제작. */
   private pickKind(kind: FurnKind): void {
     if (kind === this.kind) return;
     this.kind = kind;
@@ -607,13 +631,13 @@ export class ShipManage {
   }
 
   /**
-   * A 가구 제작 row: open the 제작 modal for it. 2026-09-17 (사용자 결정): nothing is crafted from the row any more —
+   * A 가구 제작 row: open the 제작 modal for it. 2026-09-17 (user's decision): nothing is crafted from the row any more —
    * the modal's `제작` hold (`craftNow`) is the only path. A blocked row still answers with its reason toast.
    */
   private craftCard(defId: string): void {
     const housing = this.ctx.housing;
     if (!housing) return;
-    // B-13 (2026-09-11): 재료 부족뿐 아니라 「이미 보유 중입니다」도 여기서 걸린다 — 사유의 원본은 housing/ 이다
+    // B-13 (2026-09-11): not only 재료 부족 but 「이미 보유 중입니다」 is caught here too — the source of the reason is housing/
     const block = this.craftBlock(defId);
     if (block) {
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
@@ -644,7 +668,7 @@ export class ShipManage {
     this.refresh();
   }
 
-  /* ── 2026-09-17: 가구 제작 모달 ─────────────────────────────────────── */
+  /* ── 2026-09-17: the 가구 제작 modal ──────────────────────────────── */
   private openCraft(defId: string): void {
     const ctx = this.ctx;
     const def = ctx.housing?.getFurnitureDef(defId);
@@ -659,7 +683,7 @@ export class ShipManage {
       ctx.escape.push(CRAFT_MODAL_TOKEN, () => { this.closeCraft(true); });
     }
     ctx.bus.emit('audio:play', { id: 'ui_click' });
-    this.craftCancel.focus({ preventScroll: true });   // 되돌릴 수 없는 확정의 첫 포커스는 취소
+    this.craftCancel.focus({ preventScroll: true });   // the first focus of an irreversible confirm is 취소
   }
 
   /** Redraw the modal's thumbnail, title, material chips and blocked state for `craftDefId` (materials can change while open). */
@@ -676,7 +700,7 @@ export class ShipManage {
     if (def.craft && def.craft.length) this.renderCostRow(this.craftCost, def.craft, CRAFT_MODAL_CHIP);
     else el('span', { cls: 'item-chip-free', text: '재료 없음', parent: this.craftCost });
     const block = this.craftBlock(defId);
-    // 재료 부족은 칩이 `.is-short` 로 말하므로 글로 적지 않는다 (2026-09-15 규약) — 그 밖의 사유만 한 줄
+    // A material shortage is said by the chips with `.is-short`, so it is not written as text (the 2026-09-15 contract) — only another reason gets a line
     const short = (def.craft ?? []).some((c) => this.owned(c.defId) < c.qty);
     this.craftNote.hidden = !block || short;
     setText(this.craftNote, block ?? '');
@@ -735,7 +759,7 @@ export class ShipManage {
     this.craftOk.classList.remove('is-holding');
   }
 
-  /* ── 2026-09-17: 가구 창고 레드닷 (세션 한정) ─────────────────────────── */
+  /* ── 2026-09-17: 가구 창고 red dots (session only) ─────────────── */
   /** Whether the 가구 창고 list is on screen right now (tab `store`, a room with a purpose, screen open). */
   private get storeShowing(): boolean {
     return this.active && this.tab === 'store' && !this.storeEl.hidden;
@@ -812,8 +836,9 @@ export class ShipManage {
 
   /**
    * First free cell for `defId` in `room`. **2026-09-10: the rule moved to housing/** (`HousingRef.findFreeSpot` →
-   * `housing/Rules.autoPlaceSpot`) — 화면 좌측 상단부터 가로줄을 먼저 채우고 가구는 화면 아래를 향한다. This
-   * screen only asks for the answer; the coordinate derivation and its 근거 live next to the placement rules.
+   * `housing/Rules.autoPlaceSpot`) — rows are filled first from the screen's top left and the furniture faces the
+   * screen's bottom. This screen only asks for the answer; the coordinate derivation and its reasoning live next to
+   * the placement rules.
    * Null when nothing fits (or the def is refused in that room).
    */
   private findFreeSpot(room: number, defId: string): FreeSpot | null {
@@ -1004,9 +1029,10 @@ export class ShipManage {
   /**
    * One 시설 레벨 요구 chip (`shared/itemChip.buildFacilityChip`).
    *
-   * 2026-09-15 (사용자 결정): 칩은 **아이템 칩처럼 아이콘만** 그린다 — 썸네일 안에 같이 적던 시설 이름이 빠지고
-   * (모양은 `housing/housing.css` 의 `.facility-chip` 규칙), 이름 · 필요 레벨은 썸네일에 호버할 때 뜨는 툴팁
-   * (`data-fc-tip`)이 말한다. 글은 housing 의 `facilityChipTip` 과 같은 문장이다 (폴더 간 import 금지라 한 줄을 옮겨 적는다).
+   * 2026-09-15 (user's decision): the chip draws **only an icon, like an item chip** — the facility name that used to
+   * be written inside the thumbnail is gone (the shape is the `.facility-chip` rule of `housing/housing.css`), and the
+   * name · the required level are said by the tooltip that appears on hovering the thumbnail (`data-fc-tip`). The text
+   * is the same sentence as housing's `facilityChipTip` (no cross-folder imports, so the one line is copied over).
    */
   private facilityChip(r: FacilityRequirement, size: number): HTMLElement {
     const chip = buildFacilityChip(FACILITY_LABEL_KO[r.facility], FACILITY_GLYPH[r.facility], FACILITY_COLOR[r.facility], r.have, r.need, { size });
@@ -1016,11 +1042,11 @@ export class ShipManage {
     return chip;
   }
 
-  /* ── B-13 (2026-09-11): 클릭 인스펙터 ─────────────────────────────────── */
+  /* ── B-13 (2026-09-11): the click inspector ─────────────────────── */
 
   /**
-   * `housing:furnitureSelected` 의 유일한 소비자. `uid` 가 배치된 조각이 아니면(치웠다 · 다른 방이다) 카드를
-   * 내린다 — 없는 조각을 「Lv.0」으로 그리느니 사라지는 편이 정직하다.
+   * The only consumer of `housing:furnitureSelected`. When `uid` is not a placed piece (it was taken away · it is in
+   * another room) the card goes down — disappearing is more honest than drawing a missing piece as 「Lv.0」.
    */
   private setInspect(uid: string | null, sound = false): void {
     const was = this.inspectUid;
@@ -1037,8 +1063,9 @@ export class ShipManage {
   }
 
   /**
-   * 카드 한 장을 다시 그린다. `refresh()` 가 매번 부르므로 재료가 들어오거나 강화가 끝나면 비용 칩 · 사유 ·
-   * 버튼이 저절로 따라온다 (카드가 작아 memo 키를 두지 않는다 — 목록과 달리 요소가 열 개도 안 된다).
+   * Redraws the one card. `refresh()` calls it every time, so when materials arrive or an upgrade finishes the cost
+   * chips · the reason · the button follow by themselves (the card is small enough to have no memo key — unlike the
+   * list it holds fewer than ten elements).
    */
   private refreshInspect(): void {
     const housing = this.ctx.housing;
@@ -1056,8 +1083,9 @@ export class ShipManage {
     setText(this.inspectDesc, def.description);
     this.inspectLock.hidden = !isCockpitOnlyFurniture(def);
 
-    // 2026-09-12 (사용자 결정): 하단 업그레이드 구역 — 재료 칩 + 채워지지 않은 시설 레벨 칩, 우측 `업그레이드`.
-    // 막혀 있어도 버튼은 눌린다(딤드 + `aria-disabled`) — 누르면 인스펙터 위 토스트가 이유를 말한다.
+    // 2026-09-12 (user's decision): the bottom upgrade section — material chips + the unmet facility level chip, and
+    // `업그레이드` on the right. The button is clickable even when blocked (dimmed + `aria-disabled`) — pressing it
+    // makes the toast above the inspector say why.
     const cost = this.upgradeCost(uid);
     const reason = this.upgradeBlock(uid);
     this.inspectCost.replaceChildren();
@@ -1077,8 +1105,9 @@ export class ShipManage {
   }
 
   /**
-   * 2026-09-12: 채워지지 않은 시설 레벨 요구 (발전기). 계약 질의 `furnitureUpgradeRequirements` 가 원본이고, 구현이 아직
-   * 없으면 housing/ 의 규칙 「가구 Lv.n 으로 올리려면 발전기 Lv.n 이상」으로 같은 답을 만든다.
+   * 2026-09-12: the unmet facility level requirement (the generator). The contract query
+   * `furnitureUpgradeRequirements` is the source; with no implementation yet, the same answer is built from housing/'s
+   * rule 「raising a piece to Lv.n needs the generator at Lv.n or above」.
    */
   private upgradeRequirements(uid: string): readonly FacilityRequirement[] {
     const housing = this.ctx.housing;
@@ -1093,8 +1122,8 @@ export class ShipManage {
   }
 
   /**
-   * 2026-09-12: 시설 증축의 채워지지 않은 시설 레벨 요구 — 계약 질의가 없으면 그 용도의 발전기 게이트.
-   * 2026-09-13 (전력 할당 폐지): 게이트는 용도마다 다르다 (`purposeGeneratorLevel` — Lv.2 온실 · 주방 … Lv.5 채굴 시설).
+   * 2026-09-12: the unmet facility level requirement of a 시설 증축 — with no contract query, that purpose's generator gate.
+   * 2026-09-13 (power allocation dropped): the gate differs per purpose (`purposeGeneratorLevel` — Lv.2 온실 · 주방 … Lv.5 채굴 시설).
    */
   private purposeRequirements(purpose: RoomPurpose): readonly FacilityRequirement[] {
     const housing = this.ctx.housing;
@@ -1112,15 +1141,16 @@ export class ShipManage {
    */
   private renderCostRow(host: HTMLElement, cost: readonly CraftIngredient[], size: number): void {
     renderItemCost(host, cost, (id) => this.itemDef(id), (id) => this.owned(id), { size });
-    // 2026-09-14 (사용자 결정): 필요 아이템 줄의 호버 카드는 커서 **좌상단**이다 (`ui/hud/ItemTip.TIP_ANCHOR_ATTR`) —
-    // 이 줄들은 화면 아래쪽이라 기본 자리(우하단)에서 카드가 넘쳐 위로만 뒤집혀 칩을 덮었다.
+    // 2026-09-14 (user's decision): the hover card of a 필요 아이템 row goes to the **top-left** of the cursor
+    // (`ui/hud/ItemTip.TIP_ANCHOR_ATTR`) — these rows sit low on the screen, so at the default place (bottom-right) the
+    // card overflowed, flipped upwards only and covered the chip.
     host.setAttribute(TIP_ANCHOR_ATTR, 'left');
     for (const h of host.querySelectorAll<HTMLElement>('.item-chip-have')) {
       if (Number(h.textContent) > 99) h.textContent = '99+';
     }
   }
 
-  /** 2026-09-12: 인스펙터 위쪽 토스트 (`housing:placeRefused`). 같은 문장이 다시 오면 다시 번쩍인다. */
+  /** 2026-09-12: the toast above the inspector (`housing:placeRefused`). The same sentence arriving again flashes again. */
   private showToast(text: string): void {
     if (!this.active) return;
     setText(this.toastEl, text);
@@ -1137,16 +1167,17 @@ export class ShipManage {
   }
 
   /**
-   * 업그레이드 버튼. 되돌릴 수 없는 확정이 아니므로 1초 홀드도 확인 팝업도 없다 (GrowStation 의 강화 줄과 같다).
-   * 2026-09-12 (사용자 결정): 딤드된 버튼도 눌린다 — 재료가 모자라면 인스펙터 위 토스트 `재료가 부족하여 업그레이드할 수
-   * 없습니다.`, 그 밖의 사유(발전기 레벨 …)면 그 문장을 같은 자리에 띄운다.
+   * The 업그레이드 button. It is not an irreversible confirm, so there is neither a 1 s hold nor a confirm popup (the
+   * same as GrowStation's 강화 row). 2026-09-12 (user's decision): a dimmed button is clickable too — with too few
+   * materials the toast above the inspector reads `재료가 부족하여 업그레이드할 수 없습니다.`, and any other reason
+   * (the generator level …) is shown in the same place.
    */
   private upgradeInspected(): void {
     const housing = this.ctx.housing;
     const uid = this.inspectUid;
     if (!housing || !uid) return;
     const cost = this.upgradeCost(uid);
-    if (!cost) return;                               // 최대 레벨 — the button is really disabled then
+    if (!cost) return;                               // max level — the button is really disabled then
     const reason = this.upgradeBlock(uid);
     if (reason) {
       const short = cost.some((c) => this.owned(c.defId) < c.qty);
@@ -1162,13 +1193,14 @@ export class ShipManage {
     this.ctx.bus.emit('ui:notify', ok
       ? { text: `${name} Lv.${piece?.level ?? '?'}`, kind: 'success' }
       : { text: this.upgradeBlock(uid) ?? '강화에 실패했습니다', kind: 'warning' });
-    // 방 목록 · 가구 목록 · 카드를 함께 다시 그린다 (재료가 빠져 제작 카드의 사유가 달라질 수 있다)
+    // Redraw the room list · the furniture list · the card together (materials left, so a craft card's reason can differ)
     this.refresh();
   }
 
   /**
-   * 계약(2026-09-11)의 세 질의는 housing/ 에 구현이 **늦게 붙을 수 있다** (폴더별로 나눠 짓는다). 그때
-   * 화면이 통째로 죽는 대신, 예전부터 있던 질의로 같은 답을 만든다 — 구현이 붙으면 저절로 그쪽을 쓴다.
+   * The contract's three queries (2026-09-11) **may be implemented late** in housing/ (the folders are built
+   * separately). Rather than the whole screen dying then, the same answer is built from the queries that were always
+   * there — once the implementation lands it is used by itself.
    */
   private upgradeCost(uid: string): readonly CraftIngredient[] | null {
     const housing = this.ctx.housing;
@@ -1192,8 +1224,9 @@ export class ShipManage {
   }
 
   /**
-   * 제작 카드의 거절 사유. 재료 부족에 더해 **이미 가진 실용 가구**(`isUtilityFurniture`)를 잠근다 — 판정은
-   * 전부 housing/ 의 `furnitureCraftBlock` 안에 있고 이 화면은 답만 그린다.
+   * A craft card's refusal reason. On top of a material shortage it locks **a utility piece already owned**
+   * (`isUtilityFurniture`) — every judgement lives inside housing/'s `furnitureCraftBlock` and this screen only draws
+   * the answer.
    */
   private craftBlock(defId: string): string | null {
     const housing = this.ctx.housing;
@@ -1202,7 +1235,7 @@ export class ShipManage {
       try { return housing.furnitureCraftBlock(defId); } catch { /* fall through */ }
     }
     const info = housing.canCraftFurniture(defId);
-    // 2026-09-15 (사용자 결정): 모자란 재료를 **글로 적지 않는다** — 재료 칩이 스스로 `.is-short` 로 말한다
+    // 2026-09-15 (user's decision): the missing materials are **not written out as text** — the material chips say it themselves with `.is-short`
     return info.ok ? null : '재료 부족';
   }
 
@@ -1233,7 +1266,7 @@ export class ShipManage {
     const label = ROOM_PURPOSE_LABEL_KO[this.purposeOf(room)];
     const placed = housing.getPlaced(room).length;
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
-    // 2026-09-12 (사용자 결정): 제목은 `{시설 이름} 제거`, 돌려받는 칩은 수량만, 확정은 빨간 `시설 제거` 1초 홀드
+    // 2026-09-12 (user's decision): the title is `{시설 이름} 제거`, the chips handed back show the quantity only, and the confirm is a 1 s hold on the red `시설 제거`
     this.openConfirm(
       `${label} 제거`,
       `정말로 ${label} 시설을 제거하겠습니까?${placed > 0 ? ` 놓인 가구 ${placed}개는 가구 창고로 돌아갑니다.` : ''} 들어간 재료는 전부 함선 창고로 돌려받습니다.`,
@@ -1244,7 +1277,7 @@ export class ShipManage {
     );
   }
 
-  /** 시설 제거 확정: `removeRoomFacility` refunds 100 % into the 함선 창고 (or refuses with a 한국어 reason). */
+  /** The 시설 제거 confirm: `removeRoomFacility` refunds 100 % into the 함선 창고 (or refuses with a Korean reason). */
   private emptyRoom(room: number, label: string): void {
     const housing = this.ctx.housing;
     if (!housing) return;
@@ -1288,9 +1321,9 @@ export class ShipManage {
     }
     this.refreshGenerator();
     this.refreshSide();
-    // B-13: 인스펙터도 같은 한 바퀴에 올라탄다 — 재료 · 레벨 · 조각의 존재가 바뀌면 카드가 따라간다
+    // B-13: the inspector rides the same single pass — the card follows when the materials · the level · the piece's existence change
     this.refreshInspect();
-    // 2026-09-17: 열린 제작 모달의 재료 칩 · 막힘도 같은 한 바퀴 (재료가 들어오거나 빠지면 따라간다)
+    // 2026-09-17: an open craft modal's material chips · blocked state ride the same pass too (they follow as materials arrive or leave)
     if (this.isCraftOpen) this.paintCraft();
   }
 
@@ -1302,7 +1335,7 @@ export class ShipManage {
     const assigning = room !== null && purpose === 'empty';
     const cockpit = room === COCKPIT_ROOM_INDEX;
 
-    // 2026-09-12 (사용자 결정): 머리 라벨은 시설 이름만 — `가구 · 방 N — 작업실` → `작업실`
+    // 2026-09-12 (user's decision): the head label is the facility name alone — `가구 · 방 N — 작업실` → `작업실`
     setText(this.sideHead, room === null ? '가구' : assigning ? '용도 지정' : ROOM_PURPOSE_LABEL_KO[purpose]);
     // 시설 제거 is only offered on an assigned room the rules allow to go back to 빈 방 — never on the cockpit
     this.clearBtn.hidden = room === null || assigning || cockpit || !!housing.purposeBlock(room, 'empty');
@@ -1310,7 +1343,7 @@ export class ShipManage {
     this.purposesEl.hidden = !assigning;
     this.tabsEl.hidden = assigning || room === null;
     for (const [id, b] of this.tabBtns) toggleClass(b, 'is-on', id === this.tab);
-    // 2026-09-12: 시설 가구 / 꾸밈용 가구 하위 탭은 가구 창고에도 선다
+    // 2026-09-12: the 시설 가구 / 꾸밈용 가구 sub-tabs stand in 가구 창고 too
     this.subtabsEl.hidden = assigning || room === null;
     for (const [id, b] of this.kindBtns) toggleClass(b, 'is-on', id === this.kind);
     if (assigning) {
@@ -1324,7 +1357,7 @@ export class ShipManage {
     this.storeEl.hidden = this.tab !== 'store';
     if (this.tab === 'craft') { this.refreshCards(room, purpose); this.paintDots(); }
     else {
-      // 2026-09-17: 창고 목록이 보이는 순간 탭의 레드닷은 사라지고 그 가구 카드에 옮겨 붙는다
+      // 2026-09-17: the moment the store list is visible the tab's red dot goes and moves onto those furniture cards
       if (this.active && room !== null) this.revealDots();
       this.refreshStore(room, purpose);
       this.paintDots();
@@ -1342,10 +1375,11 @@ export class ShipManage {
   /**
    * The 발전기 row under the 방 목록 (2026-09-12 — it used to lead the 용도 지정 picker). Level, next cost chips and
    * 업그레이드 → the confirm popup → `ctx.housing.upgrade('generator')`.
-   * 2026-09-13 (사용자 결정 — 전력 할당 폐지): the generator starts at Lv.1, so the 「가동」 hint (`is-hint`) and the power panel under
+   * 2026-09-13 (user's decision — power allocation dropped): the generator starts at Lv.1, so the 「가동」 hint (`is-hint`) and the power panel under
    * this row are gone.
-   * 2026-09-14 (사용자 결정): 그때 붙였던 **레벨별 해금 목록**(`.sm-gen-unlocks`)도 없앴다 — 행이 다섯 줄짜리 표가 되어
-   * 방 목록을 밀어냈다. 「이 용도는 발전기 Lv.n 이 필요하다」는 용도 지정 카드의 발전기 칩이 그 자리에서 말한다.
+   * 2026-09-14 (user's decision): the **per-level unlock list** (`.sm-gen-unlocks`) attached then was removed too — the
+   * row became a five-line table and pushed the room list out. 「this purpose needs the generator at Lv.n」 is said right
+   * there by the 발전기 chip of the 용도 지정 card.
    */
   private refreshGenerator(): void {
     const housing = this.ctx.housing;
@@ -1371,9 +1405,9 @@ export class ShipManage {
       const gcost = el('div', { cls: 'sm-cost', parent: g });
       this.renderCostRow(gcost, gen.nextCost, 24);
     }
-    // 2026-09-14 (사용자 결정): 레벨별 **해금 목록**(`.sm-gen-unlocks`)은 없앴다 — 발전기 행이 다섯 줄짜리 표가 되어
-    // 방 목록을 밀어냈고, 같은 정보는 용도 지정 카드의 **발전기 레벨 칩**(`buildFacilityChip`, `refreshPurposes`)이
-    // 그 용도를 고르는 자리에서 바로 말한다. CSS 도 같이 지웠다.
+    // 2026-09-14 (user's decision): the per-level **unlock list** (`.sm-gen-unlocks`) was removed — the 발전기 row became
+    // a five-line table and pushed the room list out, and the same information is said by the **generator level chip**
+    // of the 용도 지정 card (`buildFacilityChip`, `refreshPurposes`) right where that purpose is chosen. The CSS went with it.
     const genNote = gen.blocked && gen.nextCost ? gen.blocked : gen.nextCost ? '' : '최대 레벨';
     if (genNote) el('div', { cls: 'sm-block', text: genNote, parent: g });
   }
@@ -1382,7 +1416,7 @@ export class ShipManage {
    * 용도 지정 buttons for an empty room — **purposes the ship already has are not drawn at all** (2026-09-12), the rest
    * are sorted 제작 가능 → 제작 불가, each led by the shared facility thumbnail (`ROOM_PURPOSE_GLYPH` /
    * `ROOM_PURPOSE_COLOR`) and followed by the **materials the 시설 증축 costs** as `.item-chip`s. A blocked purpose
-   * keeps the 한국어 reason as its title and as a short line under the name.
+   * keeps the Korean reason as its title and as a short line under the name.
    */
   private refreshPurposes(room: number): void {
     const housing = this.ctx.housing;
@@ -1412,7 +1446,7 @@ export class ShipManage {
       if (!ROOM_PURPOSES_ACTIVE.includes(p)) el('span', { cls: 'badge', text: '다음 업데이트', parent: line });
       const costEl = el('div', { cls: 'sm-cost', parent: body });
       this.renderCostRow(costEl, cost, 24);
-      // 2026-09-12 (사용자 결정): 발전기 레벨 요구는 문장이 아니라 재료 칩과 같은 줄의 가로 긴 이중 테두리 칩이다
+      // 2026-09-12 (user's decision): the generator level requirement is not a sentence but a wide double-bordered chip on the same row as the material chips
       for (const r of reqs) costEl.appendChild(this.facilityChip(r, 24));
       // Phase 12: the reason is printed, not tucked into a tooltip, and the row stays clickable (→ toast + flash)
       if (blocked) el('div', { cls: 'sm-block', text: blocked, parent: body });
@@ -1420,9 +1454,10 @@ export class ShipManage {
       b.setAttribute('aria-disabled', blocked ? 'true' : 'false');
       b.title = blocked ?? `${ROOM_PURPOSE_LABEL_KO[p]} 증축`;
       b.addEventListener('click', (e) => { e.stopPropagation(); this.pickPurpose(p); });
-      // 2026-09-15 (사용자 결정): 줄 오른쪽에 **`시설 증축` 버튼** — 가구 카드의 `제작` · `배치` 와 같은 자리 · 같은 결이다.
-      // 새 경로를 만들지 않는다: 줄을 누르는 것과 **똑같이** `pickPurpose` → 확인 팝업 → `setRoomPurpose` 로 간다
-      // (막혀 있어도 눌린다 — 사유 토스트 + 줄 깜빡임이 그대로 답한다).
+      // 2026-09-15 (user's decision): a **`시설 증축` button** at the right of the row — the same place · the same grain
+      // as a furniture card's `제작` · `배치`. No new path is made: it goes **exactly** where pressing the row goes,
+      // `pickPurpose` → the confirm popup → `setRoomPurpose` (clickable even when blocked — the reason toast + the row
+      // flash answer just the same).
       const build = el('button', { cls: 'sm-purpose-build', text: '시설 증축', parent: b });
       build.title = blocked ?? `${ROOM_PURPOSE_LABEL_KO[p]} 증축`;
       build.setAttribute('aria-disabled', blocked ? 'true' : 'false');
@@ -1443,22 +1478,24 @@ export class ShipManage {
     const stored = this.storedCounts();
     const placedIds = new Set(housing.getPlaced().map((f) => f.defId));
     const kind = this.kind;
-    // B-13 (2026-09-11): 만들 수 있는 것이 위, 거절 사유가 붙은 것은 맨 아래 (용도 지정 picker 와 같은 결).
-    // `sort` 는 안정적이므로 같은 등급 안에서는 카탈로그 순서가 그대로 남는다.
+    // B-13 (2026-09-11): what can be made on top, what carries a refusal reason at the bottom (the same grain as the
+    // 용도 지정 picker). `sort` is stable, so within one rank the catalogue order is left as it is.
     const defs = housing.getFurnitureFor(purpose)
       .filter((d) => !this.tutHides('furniture', d.id) && (kind === 'utility') === isUtilityFurniture(d))
       .map((d) => {
         const utility = isUtilityFurniture(d);
-        // 2026-09-14: **여러 대 만드는 가구(`multi`)는 「이미 보유 중」이 아니다** — 책장 · 의자 · 쇼파 · 디스크 전시대 ·
-        // 레코드랙 · 게임 디스크 전시대 · 연산 클러스터. 규칙 쪽(`housing/parts/Furniture.furnitureCraftBlock`)은
-        // 2026-09-13 부터 `!def.multi` 를 보고 있었는데 이 화면만 안 봐서, 만들 수 있는 가구의 버튼이 잠겨 있었다.
+        // 2026-09-14: **a piece built several times over (`multi`) is never 「이미 보유 중」** — the bookshelf · chair ·
+        // sofa · disc stand · record rack · game disc stand · compute cluster. The rules side
+        // (`housing/parts/Furniture.furnitureCraftBlock`) had been looking at `!def.multi` since 2026-09-13, but only
+        // this screen did not, so the button of a piece that could be made was locked.
         const have = utility && !d.multi && (placedIds.has(d.id) || (stored.get(d.id) ?? 0) > 0);
         return { def: d, block: this.craftBlock(d.id), utility, have };
       });
     defs.sort((a, b) => Number(!!a.block) - Number(!!b.block));
 
     // Rebuild only when the visible content actually changed (sub-tab / room / def list / storage / 보유 / material
-    // counts / 튜토리얼 단계 / **거절 사유** — 재료가 들어와 사유가 사라지면 카드가 딤드를 벗고 목록 위로 올라와야 한다).
+    // counts / tutorial step / **the refusal reason** — when materials arrive and the reason goes, the card must lose
+    // its dim and rise up the list).
     const key = `craft|${kind}|${room}|${purpose}|t${this.tutKey}|`
       + defs.map(({ def: d, block, have }) => `${d.id}:${stored.get(d.id) ?? 0}:${have ? 1 : 0}:${this.costKey(d)}:${block ?? ''}`).join(',');
     if (key === this.cardsKey) { this.markSelection(this.selected); return; }
@@ -1471,7 +1508,7 @@ export class ShipManage {
     for (const { def, block, utility, have } of defs) {
       const owned = stored.get(def.id) ?? 0;
       const card = el('button', { cls: `fcard${block ? ' is-locked' : ''}${have ? ' is-owned' : ''}`, parent: this.cardsEl });
-      card.dataset.defId = def.id;      // 2026-09-08: 튜토리얼 스포트라이트 · 스모크가 카드를 집는 손잡이
+      card.dataset.defId = def.id;      // 2026-09-08: the handle the tutorial spotlight · the smokes pick a card by
       card.style.setProperty('--fc', def.color);
       card.title = block ? `${def.name} — ${block}` : `${def.name}\n${def.description}`;
       const thumb = el('div', { cls: 'fcard-thumb', parent: card });
@@ -1479,23 +1516,23 @@ export class ShipManage {
       el('span', { cls: 'fcard-size', text: `${def.cols}×${def.rows}`, parent: thumb });
       const body = el('div', { cls: 'fcard-body', parent: card });
       el('div', { cls: 'fcard-name', text: def.name, parent: body });
-      // 2026-09-12 (사용자 결정): the material row is its own grid row under the name — ≤ `CARD_COST_MAX` chips on one
+      // 2026-09-12 (user's decision): the material row is its own grid row under the name — ≤ `CARD_COST_MAX` chips on one
       // line, `CARD_CHIP` px each so the 보유/필요 strip fits inside the thumbnail. A piece that cannot be crafted
       // (공용 시설 가구 — 시술대 · 컴퓨터, `craft` null) says so instead of the 무료 a null cost would render.
       const cost = el('div', { cls: 'fcard-cost', parent: card });
       if (def.craft) this.renderCostRow(cost, def.craft.slice(0, CARD_COST_MAX), CARD_CHIP);
       else el('span', { cls: 'fcard-nocraft', text: '제작 불가', parent: cost });
-      // 2026-09-12: 보유 수는 꾸밈용 가구만 (시설 가구는 하나뿐이라 수를 셀 이유가 없다)
+      // 2026-09-12: the owned count is for 꾸밈용 가구 only (there is only ever one 시설 가구, so there is no reason to count)
       if (!utility) {
         const own = el('div', { cls: 'fcard-own', text: `보유 ${owned}`, parent: body });
         toggleClass(own, 'none', owned <= 0);
       }
       toggleClass(card, 'is-empty', owned <= 0 && !have);
-      // Phase 12 의 교훈 그대로 사유는 **인쇄한다** — 단 「이미 보유 중」은 버튼 글자가 대신 말한다 (2026-09-12)
+      // As Phase 12 taught, the reason is **printed** — except that 「이미 보유 중」 is said by the button's text instead (2026-09-12)
       if (block && !have) el('div', { cls: 'fcard-note is-locked', text: block, parent: body });
       // the row selects a stored piece for placement; the 제작 button spends materials for a new one
       card.addEventListener('click', (e) => { e.stopPropagation(); if (owned > 0) this.pickCard(def.id); else this.craftCard(def.id); });
-      // 2026-09-17: 이 버튼은 제작 모달을 연다 — 실제 제작은 모달의 `제작`(.sm-craft-ok) 1초 홀드
+      // 2026-09-17: this button opens the craft modal — the actual craft is the modal's 1 s hold on `제작` (.sm-craft-ok)
       const make = el('button', { cls: 'fcard-craft', text: have ? '이미 보유 중' : def.craft ? '제작' : '제작 불가', parent: card });
       make.disabled = !!block || !def.craft;
       make.title = block ?? (def.craft ? `${def.name} 제작` : `${def.name} — 제작할 수 없는 가구입니다`);
@@ -1540,7 +1577,7 @@ export class ShipManage {
     }
     for (const { defId, qty, def, fits, spot } of entries) {
       const card = el('button', { cls: `fcard store${fits ? '' : ' is-blocked'}`, parent: this.storeEl });
-      card.dataset.defId = defId;       // 가구 제작 카드와 같은 손잡이 — 튜토리얼 스포트라이트 · 스모크가 집는다
+      card.dataset.defId = defId;       // the same handle as the 가구 제작 card — the tutorial spotlight · the smokes pick it
       card.style.setProperty('--fc', def.color);
       card.title = fits ? `${def.name}\n${def.description}` : `${def.name} — 이 방에 설치할 수 없습니다`;
       const thumb = el('div', { cls: 'fcard-thumb', parent: card });

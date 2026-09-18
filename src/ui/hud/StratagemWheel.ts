@@ -15,16 +15,16 @@ interface Sector {
   arc: SVGPathElement;
   root: HTMLElement;
   cd: HTMLElement;
-  /** 2026-09-09: 자물쇠 표시 — 호스트 전용 호출을 못 쓰거나 구조 대상이 없을 때 뜬다. */
+  /** 2026-09-09: the lock mark — up when a host-only call is unusable or there is no rescue target. */
   lock: HTMLElement;
 }
 
 /**
- * 2026-09-09 — 이 호출을 지금 무장할 수 없는 이유 (없으면 null).
+ * 2026-09-09 — why this call cannot be armed right now (null when it can).
  *
- * `stratagems/parts/Rescue.armBlockReason` 과 **같은 규칙**을 UI 쪽에서 다시 세운 것이다. 두 판단이 서로
- * 다른 것을 보면 안 되므로 재료도 똑같다 — `STRATAGEM_HOST_ONLY` (계약 상수) 와 `ctx.stratagems` 의
- * 구조선 필드뿐이고, stratagems 폴더 안을 들여다보지 않는다.
+ * It restates **the same rule** as `stratagems/parts/Rescue.armBlockReason` on the UI side. The two judgements must
+ * never look at different things, so the ingredients are identical too — only `STRATAGEM_HOST_ONLY` (a contract
+ * constant) and the rescue-ship fields of `ctx.stratagems`; it never looks inside the stratagems folder.
  */
 export function stratagemLockReason(ctx: GameContext, id: StratagemId): string | null {
   const net = ctx.net;
@@ -52,10 +52,10 @@ function sectorPath(a0: number, a1: number): string {
 
 /**
  * Ship-call wheel (`.swheel`, gameplay layer, `pointer-events:none`): 4 annular sectors in `STRATAGEM_ORDER`
- * (2026-09-09: N 궤도 폭격 ◎, E 보급품 투하 ▣, S 트라이포드 투하 ▦, W 구조선 투하 ✚ — 이름은 전부
- * `STRATAGEM_DEFS` 에서 읽는다), each with glyph, name and the shared-cooldown text (구조선 칸만 남은 횟수).
- * 2026-09-09: 지금 무장할 수 없는 칸은 `.locked` 로 흐려지고 사유 한 줄(🔒 분대장 전용 / 대상 없음 / 소진)이
- * 붙는다 — 판단은 `stratagemLockReason(ctx, id)` 하나이고 stratagems 의 거부 규칙과 같은 재료를 본다.
+ * (2026-09-09: N 궤도 폭격 ◎, E 보급품 투하 ▣, S 트라이포드 투하 ▦, W 구조선 투하 ✚ — every name is read from
+ * `STRATAGEM_DEFS`), each with glyph, name and the shared-cooldown text (the count left on the rescue-ship sector only).
+ * 2026-09-09: a sector that cannot be armed right now dims with `.locked` and gets one reason line (🔒 `분대장 전용` /
+ * `대상 없음` / `소진`) — the judgement is `stratagemLockReason(ctx, id)` alone, on the same ingredients as the stratagems refusal rule.
  * Shown while `stratagem:wheelChanged.open`, `.hover` from `.hover`; while `stratagem:cooldown.remaining > 0` the whole
  * wheel is `.cooling` (dimmed sectors, `재충전 n초` in the centre), otherwise the centre shows the hovered call name +
  * hint. Seeds the cooldown from `ctx.stratagems` when it opens. Closed on death / down / mission reset.
@@ -97,7 +97,7 @@ export class StratagemWheel {
       el('span', { cls: 'ico', text: STRATAGEM_GLYPH[id], parent: root });
       el('span', { cls: 'nm', text: def?.name ?? id, parent: root });
       const cd = el('span', { cls: 'cd ui-mono', text: '', parent: root });
-      // 2026-09-09: 잠긴 호출의 사유 한 줄. 비어 있으면 `hidden` 이라 자리도 차지하지 않는다.
+      // 2026-09-09: one reason line for a locked call. Empty means `hidden`, so it takes no space either.
       const lock = el('span', { cls: 'lk ui-mono', text: '', parent: root });
       lock.hidden = true;
       lock.style.cssText = 'display:block;font-size:10px;letter-spacing:.06em;color:#ff8a8a;';
@@ -127,7 +127,7 @@ export class StratagemWheel {
       b.on('game:abort', () => this.setOpen(false)),
       b.on('player:died', () => this.setOpen(false)),
       b.on('player:downed', () => this.setOpen(false)),
-      /* 2026-09-09: 잠금과 남은 구조선 횟수는 열려 있는 동안에도 바뀔 수 있다 */
+      /* 2026-09-09: the lock and the rescue count left can change while the wheel is open */
       b.on('net:hostChanged', () => { if (this.open) this.repaint(); }),
       b.on('rescue:countChanged', () => { if (this.open) this.repaint(); }),
     );
@@ -162,7 +162,7 @@ export class StratagemWheel {
       const on = this.hover === s.id;
       toggleClass(s.root, 'hover', on);
       tc(s.arc, 'hover', on);
-      /* 2026-09-09: 잠긴 호출은 회색 + 자물쇠 한 줄. 구조선 칸은 쿨다운 대신 남은 횟수를 보여 준다. */
+      /* 2026-09-09: a locked call is grey + one lock line. The rescue-ship sector shows the count left instead of the cooldown. */
       const lock = ctx ? stratagemLockReason(ctx, s.id) : null;
       if (on) hoverLock = lock;
       toggleClass(s.root, 'locked', lock !== null);

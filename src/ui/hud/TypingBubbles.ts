@@ -23,9 +23,9 @@ interface Bubble { root: HTMLElement; lastKey: string }
  * One pooled element per peer; removed on `net:remotePlayerRemoved`, cleared on `net:lobbyLeft` / `game:abort` /
  * `game:newMission`. Styles: `.typing-bubbles`, `.tbubble`, `.tbubble i` in `styles/base.css`.
  *
- * **차단 (2026-09-11, B-11).** A squad-mate whose 아이디 is on my 차단 목록 never gets a bubble — the same gate that drops
+ * **Blocking (2026-09-11, B-11).** A squad-mate whose 아이디 is on my 차단 목록 never gets a bubble — the same gate that drops
  * their typed chat line (`socialSource.isPeerBlocked`, shared with `hud/ChatLog`). It is read **before** an element is
- * created, so a blocked peer costs no DOM at all. 이름표 · 핑 · 월드 마커 are untouched: where a squad-mate stands is
+ * created, so a blocked peer costs no DOM at all. Nameplates · pings · world markers are untouched: where a squad-mate stands is
  * gameplay information (the same line as the `ping` / `request` chat lines `ChatLog` keeps drawing).
  *
  * `setDebugRefs(refs)` = smoke hook, the `Nameplates` one: extra refs (`remotePlayers.debugSpawn`) drawn next to
@@ -76,10 +76,10 @@ export class TypingBubbles {
     const typing = (ref.flags & PlayerFlags.TYPING) !== 0;
     const existing = this.bubbles.get(ref.id);
     // no element until the peer actually types — most peers never need one, and a blocked peer never gets one at all
-    // (2026-09-11 B-11: the same 차단 gate `hud/ChatLog` uses on their typed lines; only asked for someone who IS typing)
+    // (2026-09-11 B-11: the same blocking gate `hud/ChatLog` uses on their typed lines; only asked for someone who IS typing)
     if (!typing || isPeerBlocked(ctx, ref.id)) { if (existing) this.hide(existing); return; }
     const b = existing ?? this.create(ref.id);
-    const gone = !ref.avatar || !ref.connected || ref.stale || (ref.flags & (PlayerFlags.DROPPING | PlayerFlags.IN_POD | PlayerFlags.IN_ROVER)) !== 0;   // 2026-09-13: + 탐사 차량 안
+    const gone = !ref.avatar || !ref.connected || ref.stale || (ref.flags & (PlayerFlags.DROPPING | PlayerFlags.IN_POD | PlayerFlags.IN_ROVER)) !== 0;   // 2026-09-13: + inside the rover
     if (gone) { this.hide(b); return; }
 
     ref.avatar!.getHeadPosition(this.v);

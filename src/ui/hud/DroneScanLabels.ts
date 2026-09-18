@@ -14,23 +14,27 @@ interface Label {
 }
 
 const EMPTY: readonly DroneScanResult[] = [];
-/** 새 결과 · 갱신된 결과가 한 번 튀는 연출 길이 — `styles/drone.css` 의 `dslPop` 과 같다. */
+/** How long the one pop of a new · updated result lasts — the same as `dslPop` in `styles/drone.css`. */
 const POP_MS = 600;
-/** 최대 거리의 이 비율부터 흐려진다. */
+/** It starts dimming from this share of the max distance. */
 const FADE_FROM = 0.75;
 
 const _cam = new THREE.Vector3();
 
 /**
- * **드론 스캔 결과 월드 라벨** (2026-09-12). 데이터는 `ctx.drones.getScanResults()` 하나다 — 내 스캔과 분대원 스캔이
- * 같은 목록에 있고, 레이드 리셋(`game:newMission/abort` · `hub:entered` · `world:ready`)에 `gadgets/drones` 가 비운다.
+ * **World labels for drone scan results** (2026-09-12). The only data is `ctx.drones.getScanResults()` — one's own scans
+ * and squadmates' sit in the same list, and `gadgets/drones` empties it on a raid reset (`game:newMission/abort` ·
+ * `hub:entered` · `world:ready`).
  *
- *  - 대상 자리(살아 있는 벡터 — 전차 위 컨테이너 · 시체도 따라간다) + `DRONE_SCAN_LABEL_HEIGHT` 를 **`lateUpdate`** 에서
- *    투영한다 (CLAUDE.md: 화면 투영은 `HudSystem.lateUpdate`). 카메라 뒤 · 화면 밖 · `DRONE_SCAN_LABEL_MAX_DIST` 밖은 숨긴다.
- *  - 라벨 = 등급색 마름모 + `서사` (비었으면 회색 `비어 있음`) + 아래 작은 대상 이름. 가림 검사는 없다 (탈출 신호소 마커와 같다).
- *  - 목록 배열이 바뀔 때만 DOM 을 맞추고(`DroneSystem.scanList` 는 바뀔 때만 새 배열), 위치 · 투명도는 반올림 키가 바뀔 때만 쓴다.
+ *  - The target's spot (a live vector — it follows a container on the tram · a corpse too) + `DRONE_SCAN_LABEL_HEIGHT` is
+ *    projected in **`lateUpdate`** (CLAUDE.md: screen projection happens in `HudSystem.lateUpdate`). Behind the camera ·
+ *    off screen · beyond `DRONE_SCAN_LABEL_MAX_DIST` hides.
+ *  - A label = a rarity-coloured diamond + `서사` (a grey `비어 있음` when empty) + the target's small name below. There
+ *    is no occlusion test (the same as the extraction `신호소` marker).
+ *  - The DOM is reconciled only when the list array changes (`DroneSystem.scanList` is a new array only on a change), and
+ *    position · opacity are written only when the rounded key changes.
  *
- * 루트는 게임플레이 레이어 **맨 아래**에 prepend 한다 — HUD 글자를 덮지 않는다. CSS 접두사 `.dsl-`.
+ * The root is prepended at the **bottom** of the gameplay layer — it never covers HUD text. CSS prefix `.dsl-`.
  */
 export class DroneScanLabels {
   readonly root: HTMLElement;
@@ -53,7 +57,7 @@ export class DroneScanLabels {
     );
   }
 
-  /** `HudSystem.lateUpdate` (카메라 행렬 갱신 뒤). */
+  /** `HudSystem.lateUpdate` (after the camera matrix update). */
   lateUpdate(ctx: GameContext): void {
     const list = ctx.drones?.getScanResults?.() ?? EMPTY;
     if (list !== this.lastList) this.sync(list);
@@ -119,7 +123,7 @@ export class DroneScanLabels {
     l.lastKey = '';
     if (!pop) return;
     l.root.classList.remove('pop');
-    void l.root.offsetWidth; // 애니메이션 재시작
+    void l.root.offsetWidth; // restart the animation
     l.root.classList.add('pop');
     window.setTimeout(() => l.root.classList.remove('pop'), POP_MS);
   }
@@ -135,7 +139,7 @@ export class DroneScanLabels {
   }
 
   /* ── debug / smoke ── */
-  /** 떠 있는 라벨 수 (보이든 숨었든). */
+  /** How many labels exist (visible or hidden). */
   get count(): number { return this.labels.size; }
 
   dispose(): void {

@@ -3,36 +3,36 @@ import { REP_LEVEL_MAX, REP_TABLE, repLevelOf } from '@/shared';
 import { clamp01, el } from '../../dom';
 
 /**
- * **NPC 개인 신뢰도**의 읽기 · 그리기 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」).
+ * Reading · drawing an **NPC's personal trust** (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」).
  *
- * 기업 신뢰도(`ctx.meta.getRep`)와 **별개**이고 같은 `REP_TABLE`(0–5)을 쓴다 — 값은 `ctx.meta.npcTrust(npcId)` 하나에서만
- * 오고 여기서는 레벨 · 구간 비율만 푼다 (meta/ 를 import 하지 않는다 — 폴더끼리는 `ctx` 의 ref 로만 말한다).
+ * **Separate** from corporation reputation (`ctx.meta.getRep`) while using the same `REP_TABLE` (0–5) — the value comes from
+ * `ctx.meta.npcTrust(npcId)` alone and only the level · the band fraction are worked out here (meta/ is not imported — folders speak to each other through `ctx` refs only).
  *
- *   `npcTrustOf`      → `{ trust, level, next, frac }` · `ctx.meta` 가 없으면 null (스모크의 debug NPC ref 도 여기로 온다)
- *   `buildNpcTrust`   → 대화창 머리 · 퀘스트 상세 머리가 같이 쓰는 `Lv.n + 게이지`
- *   `buildNpcAvatar`  → 초상 테두리를 도는 **radial 게이지** + 우하단 레벨 배지 (2026-09-14 3차)
- *   `buildTrustChip`  → 퀘스트 카드 보상 줄의 칩. 기업 신뢰도 재화 칩(`buildCurrencyChip`)과 **같은 틀**(`.item-chip.currency-chip`)
- *                       이되 `data-currency-id` 는 붙이지 않는다 — NPC 신뢰도는 `data/currencies.csv` 의 재화가 아니고
- *                       가짜 재화 · 가짜 아이템 정의를 만들지 않는다는 규약 때문이다. 호버 카드는 `ItemTip` 의 **글 카드**
- *                       (`data-tip-name` · `-sub` · `-desc` · `-color`)로 뜬다 — 2026-09-17 전에는 네이티브 title 뿐이라 게임 카드가 뜨지 않았다.
+ *   `npcTrustOf`      → `{ trust, level, next, frac }` · null with no `ctx.meta` (the smoke's debug NPC ref arrives here too)
+ *   `buildNpcTrust`   → the `Lv.n + gauge` the conversation head · the quest detail head share
+ *   `buildNpcAvatar`  → the **radial gauge** running around the avatar's border + the level badge at the bottom right (2026-09-14 3rd pass)
+ *   `buildTrustChip`  → the chip on a quest card's reward row. The **same frame** (`.item-chip.currency-chip`) as the
+ *                       corporation reputation currency chip (`buildCurrencyChip`), but without `data-currency-id` — NPC
+ *                       trust is not a currency in `data/currencies.csv` and the contract says no fake currencies · fake item
+ *                       defs are made. The hover card is `ItemTip`'s **text card** (`data-tip-name` · `-sub` · `-desc` · `-color`) — before 2026-09-17 it was a native title only and no game card appeared.
  *
- * CSS 는 `ui/styles/messenger.css` 의 `.ms-trust*` (접두사 `ms-`).
+ * The CSS is `.ms-trust*` in `ui/styles/messenger.css` (prefix `ms-`).
  */
 
 export interface NpcTrustInfo {
-  /** 누적 점수. */
+  /** The accumulated score. */
   trust: number;
   /** 0 … `REP_LEVEL_MAX`. */
   level: number;
-  /** 다음 레벨의 누적 점수. 최고 레벨이면 null. */
+  /** The next level’s accumulated score. null at the top level. */
   next: number | null;
-  /** 지금 레벨 구간의 0 … 1 (최고 레벨이면 1). */
+  /** 0 … 1 inside the current level’s band (1 at the top level). */
   frac: number;
 }
 
 const fmt = (n: number): string => Math.round(n).toLocaleString('ko-KR');
 
-/** 지금 신뢰도. `ctx.meta` 가 아직 없으면(부팅 · 스모크) null — 부르는 쪽은 아무것도 그리지 않는다. */
+/** Trust right now. null while there is no `ctx.meta` yet (boot · smoke) — the caller then draws nothing. */
 export function npcTrustOf(ctx: GameContext, npcId: string): NpcTrustInfo | null {
   const meta = ctx.meta;
   if (!npcId || !meta || typeof meta.npcTrust !== 'function') return null;
@@ -46,22 +46,22 @@ export function npcTrustOf(ctx: GameContext, npcId: string): NpcTrustInfo | null
   return { trust, level, next, frac };
 }
 
-/** 호버에 뜨는 한 줄 — `레이븐 신뢰도 Lv.4 · 1,650 / 3,000`. */
+/** The one line that appears on hover — `레이븐 신뢰도 Lv.4 · 1,650 / 3,000`. */
 export function npcTrustTitle(name: string, t: NpcTrustInfo): string {
   const span = t.next === null ? `${fmt(t.trust)} · 최고 등급` : `${fmt(t.trust)} / ${fmt(t.next)}`;
   return `${name} 신뢰도 Lv.${t.level} · ${span}`;
 }
 
 export interface NpcTrustOptions {
-  /** 좁은 자리용 — 게이지만 짧게, 숫자 없음. (2026-09-14 3차: 대화 목록 한 줄에서는 신뢰도를 아예 빼서 지금은 부르는 곳이 없다.) */
+  /** For a narrow spot — a short gauge only, no numbers. (2026-09-14 3rd pass: trust left the conversation row entirely, so nothing calls it now.) */
   compact?: boolean;
-  /** 초상 · 이름 강조색 (`NpcDef.color`). 게이지가 이 색으로 찬다. */
+  /** The avatar · name accent colour (`NpcDef.color`). The gauge fills in it. */
   color?: string;
 }
 
 /**
- * `Lv.n [게이지] 1,650 / 3,000`. `ctx.meta` 가 없거나 값을 못 읽으면 **null** 이라 호출부는 그 자리를 비운다.
- * `name` 은 호버 한 줄에만 쓴다 (칸이 이미 그 NPC 옆이라 이름을 다시 적지 않는다).
+ * `Lv.n [gauge] 1,650 / 3,000`. With no `ctx.meta`, or a value that cannot be read, it is **null** and the caller leaves the spot empty.
+ * `name` is used in the hover line only (the slot already sits beside that NPC, so the name is not written again).
  */
 export function buildNpcTrust(ctx: GameContext, npcId: string, name: string, opts: NpcTrustOptions = {}): HTMLElement | null {
   const t = npcTrustOf(ctx, npcId);
@@ -81,18 +81,18 @@ export function buildNpcTrust(ctx: GameContext, npcId: string, name: string, opt
 }
 
 export interface NpcAvatarOptions {
-  /** 초상 글자 (`NpcDef.glyph` 또는 이름 첫 글자). */
+  /** The avatar glyph (`NpcDef.glyph`, or the name’s first character). */
   glyph: string;
-  /** NPC 색 — 초상 바탕 · radial 게이지 · 레벨 배지가 같이 쓴다. */
+  /** The NPC colour — the avatar background · the radial gauge · the level badge share it. */
   color: string;
 }
 
 /**
- * **신뢰도 radial 게이지를 두른 NPC 초상** (2026-09-14 3차, 사용자 결정) — 대화창 머리 · 퀘스트 탭 상세 머리가 같이 쓴다.
+ * **An NPC avatar wearing the trust radial gauge** (2026-09-14 3rd pass, user's decision) — the conversation head · the quest tab's detail head share it.
  *
- * 테두리는 conic-gradient 한 줄이다 (외부 에셋 금지 · SVG 도 필요 없다): `--frac` = **지금 레벨 구간 안의** 진행률이라
- * 레벨이 오르면 고리가 한 바퀴 돌고 처음부터 다시 찬다. 우하단 배지가 그 레벨 숫자다.
- * `ctx.meta` 가 없어(부팅 · 스모크) 신뢰도를 못 읽으면 고리는 빈 테두리로만 남고 배지는 없다 — 초상 자체는 늘 그린다.
+ * The border is one conic-gradient (no external assets · no SVG needed): `--frac` = the progress **inside the current level's
+ * band**, so a level-up turns the ring once and it fills again from the start. The badge at the bottom right is that level.
+ * With no `ctx.meta` (boot · smoke) trust cannot be read, the ring stays an empty border and there is no badge — the avatar itself is always drawn.
  */
 export function buildNpcAvatar(ctx: GameContext, npcId: string, name: string, opts: NpcAvatarOptions): HTMLElement {
   const t = npcTrustOf(ctx, npcId);
@@ -111,8 +111,8 @@ export function buildNpcAvatar(ctx: GameContext, npcId: string, name: string, op
 }
 
 /**
- * 퀘스트 카드 보상 줄의 NPC 신뢰도 칩. 재화 칩과 같은 육각 틀 · 같은 글리프(`◈`)를 쓰되 색은 그 NPC 색이다.
- * `amount` 가 0 이하면 null.
+ * The NPC trust chip on a quest card's reward row. The same hexagonal frame · the same glyph (`◈`) as a currency chip, in that NPC's colour.
+ * null when `amount` is 0 or less.
  */
 export function buildTrustChip(name: string, amount: number, color: string, size = 30): HTMLElement | null {
   if (!(amount > 0)) return null;
@@ -121,7 +121,7 @@ export function buildTrustChip(name: string, amount: number, color: string, size
   chip.style.setProperty('--cy', color);
   chip.style.setProperty('--rc', color);
   chip.style.setProperty('--ic', color);
-  /* 2026-09-17 (사용자 버그 「신뢰도 보상 썸네일에 툴팁이 없다」): 네이티브 title 대신 게임 호버 카드 (`ui/hud/ItemTip` 의 글 카드). */
+  /* 2026-09-17 (user's bug report 「신뢰도 보상 썸네일에 툴팁이 없다」): the game hover card instead of a native title (`ui/hud/ItemTip`'s text card). */
   chip.dataset.tipName = `◈ ${name} 신뢰도`;
   chip.dataset.tipSub = 'NPC 신뢰도';
   chip.dataset.tipDesc = `${name} 개인이 대원을 얼마나 믿는가. 퀘스트를 완료하면 +${fmt(amount)} 오른다. 기업 신뢰도와는 따로 쌓인다.`;

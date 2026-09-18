@@ -3,13 +3,15 @@ import { NET_MAX_PLAYERS, NET_SLOT_COLORS_CSS, planetLabel } from '@/shared';
 import { el, fmtTime } from '../dom';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 타이틀 레이드 포기 팝업의 본문 (2026-09-15, 사용자 결정 — docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」).
+ * The body of the title's abandon-raid popup (2026-09-15, user's decision — docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」).
  *
- * 「매칭 시 화면 구조」 그대로다: 한 줄 요약 → **정사각 초상 4칸**(나 → 분대원 슬롯 순 → 빈 칸, 터미널 매칭 탭 `hub/ui/MatchTab`
- * 과 같은 순서 · 같은 얼굴 원본 `PlayerRef.snapshotFace`) → 무엇을 잃는지. 확인 줄(`닫기` · 1초 홀드 `레이드 포기`)은
- * 이 노드를 `content` 로 받는 `menus/askPopup` 의 것이다. 팝업을 열 때 한 번 지어 버리는 정적인 카드다.
+ * 「매칭 시 화면 구조」 as it is: a one-line summary → **four square portrait tiles** (me → squadmates by slot → empty
+ * tiles; the same order · the same face source `PlayerRef.snapshotFace` as the terminal match tab `hub/ui/MatchTab`) →
+ * what is lost. The confirm row (`닫기` · the 1 s hold `레이드 포기`) belongs to `menus/askPopup`, which takes this node
+ * as `content`. It is a static card, built once when the popup opens.
  *
- * CSS 접두사 `.trs-` (`ui/styles/title.css`). 매칭 탭의 `.hmt-` 는 hub 폴더의 것이라 모양만 옮겨 적었다.
+ * CSS prefix `.trs-` (`ui/styles/title.css`). The match tab's `.hmt-` belongs to the hub folder, so only the look was
+ * copied over.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const KIND_LABEL: Record<RaidResumeOffer['kind'], string> = { solo: '솔로 레이드', squad: '분대 레이드', tutorial: '튜토리얼' };
@@ -49,7 +51,8 @@ function tile(ctx: GameContext, parent: HTMLElement, m: RaidResumeMember | null)
   const face = el('div', { cls: 'trs-face', parent: root });
   let url: string | null = null;
   const p = ctx.player;
-  // 안드로이드는 안드로이드 얼굴 — GL 컨텍스트가 없어 스냅숏이 null 이면 이름 첫 글자만 남는다 (매칭 탭과 같다)
+  // An android gets the android face — with no GL context the snapshot is null and only the name's first character
+  // is left (the same as the match tab)
   try { url = (m.bot ? p?.snapshotAndroidFace?.({ accent }) : p?.snapshotFace?.({ accent })) ?? null; } catch { url = null; }
   if (url) {
     const img = el('img', { parent: face });

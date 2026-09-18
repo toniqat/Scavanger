@@ -59,7 +59,7 @@ export class WeaponChargeGauge {
     const b = ctx.bus;
     this.unsubs.push(
       b.on('weapon:chargeChanged', ({ kind, t }) => {
-        // 2026-09-14: 활 시위(`draw`)는 호가 아니라 크로스헤어의 가로 바가 그린다 (`hud/Reticle`)
+        // 2026-09-14: the bow draw (`draw`) is drawn by the crosshair's horizontal bar, not by the arc (`hud/Reticle`)
         if (kind === 'draw') { this.hide(); return; }
         if (t < 0) { this.hide(); return; }
         this.setKind(kind);

@@ -28,7 +28,7 @@ const CHANNEL_DESC: Readonly<Record<AudioChannel, string>> = {
   sfx: '총성 · 타격 · UI 등 효과음 볼륨입니다.',
   bgm: '축음기 · 주크박스 · 턴테이블의 음악 볼륨입니다.',
 };
-/** Channels the 오디오 section exposes. 2026-09-14: 음악 재생 창이 이 값을 보여 주므로 `bgm` 줄이 생겼다. */
+/** Channels the 오디오 section exposes. 2026-09-14: the music player window shows this value, so a `bgm` row appeared. */
 const CHANNELS: readonly AudioChannel[] = ['master', 'sfx', 'bgm'];
 
 /** C-58: the 화면 효과 pill while the perf guard holds bloom off (the stored choice is still 켬). */
@@ -51,9 +51,10 @@ const BLOOM_AUTO_OFF_TOAST = '프레임이 낮아 화면 효과(블룸)를 자�
  *   - **키 설정**: a real `menus/ControlsPanel` (the title screen's keyboard + mouse diagram and function list) with
  *     the `KEYBIND_BUTTON_LABEL` button under it, which opens the shared `KeybindMenu` overlay on top of this one.
  *     There is exactly one rebinding code path in the game (that class); this panel never duplicates its rows.
- *   - **서버 설정** (2026-09-10): 접속할 릴레이 주소. 배포본에서 이 게임의 유일한 서버 선택 창구다 — 나머지
- *     경로(`--relay` · `SCAV_RELAY` · `server.txt` · 임베디드)는 데스크톱 셸이 고르고 렌더러에는 같은 오리진
- *     `/ws` 로만 보인다. 자세한 우선순위는 `shared/net` 의 `RELAY_STORAGE_KEY` 주석.
+ *   - **서버 설정** (2026-09-10): the relay address to connect to. In a build this is the game's only window for
+ *     choosing a server — the other routes (`--relay` · `SCAV_RELAY` · `server.txt` · embedded) are picked by the
+ *     desktop shell and show to the renderer as the same-origin `/ws` only. The full order of precedence is in the
+ *     `RELAY_STORAGE_KEY` comment of `shared/net`.
  *
  * Like `KeybindMenu` it takes **no** `ctx.uiBlockers` token: it only ever opens on top of a menu that already holds
  * `'menu'` (the pause menu), so closing it must not release the host's blocker. Escape is captured and closes the
@@ -83,10 +84,10 @@ export class SettingsMenu {
   private netApplyBtn!: HTMLButtonElement;
   private netResetBtn!: HTMLButtonElement;
   private ask!: AskPopup;
-  /** 연결 테스트가 도는 동안 버튼을 잠근다. */
+  /** Locks the buttons while the connection test runs. */
   private netBusy = false;
   private netProbe: RelayProbe | null = null;
-  /** 셸이 고른 기본 주소 (`NET_SHELL_RELAY_ROUTE`); 브라우저에서는 null 로 남는다. */
+  /** The default address the shell picked (`NET_SHELL_RELAY_ROUTE`); it stays null in a browser. */
   private shellDefault: string | null = null;
   private _open = false;
   private ctx!: GameContext;
@@ -246,12 +247,13 @@ export class SettingsMenu {
   }
 
   /**
-   * **서버 설정** (2026-09-10). 주소 한 칸 · 연결 테스트 · 적용 · 기본값으로.
+   * **서버 설정** (2026-09-10). One address field · connection test · apply · back to the default.
    *
-   * 여기 적은 주소는 `NetRef.setRelayOverride` 를 통해 슬롯 공용 localStorage 에 남고 `defaultUrl()` 이 그것을
-   * 제일 먼저 본다 (우선순위는 `shared/net` 의 `RELAY_STORAGE_KEY` 주석). **적용은 재접속을 부른다** — 분대에
-   * 들어가 있었다면 그 분대를 떠나므로 `AskPopup {danger}` 의 1초 홀드를 지난다 (파티 떠나기와 같은 규약).
-   * 레이드 중에는 아예 잠근다: 돌아올 수 없는 세션을 설정 화면에서 끊을 이유가 없다.
+   * The address written here goes through `NetRef.setRelayOverride` into the slot-shared localStorage, and
+   * `defaultUrl()` looks at it first (the order is in the `RELAY_STORAGE_KEY` comment of `shared/net`). **Applying
+   * calls a reconnect** — being in a squad means leaving that squad, so it passes the 1 s hold of
+   * `AskPopup {danger}` (the same contract as 파티 떠나기). During a raid it is locked outright: there is no reason to
+   * cut a session that cannot be returned to from the settings screen.
    */
   private buildNetwork(host: HTMLElement): void {
     const row = el('div', { cls: 'set-row net', parent: host });
@@ -266,7 +268,8 @@ export class SettingsMenu {
     input.autocomplete = 'off';
     input.placeholder = '192.168.0.12';
     input.maxLength = 120;
-    // 채팅 입력과 같은 규약: 주소를 타이핑하는 동안 게임이 그 키를 읽지 않는다 (`shared/Input` 은 버블에서 듣는다).
+    // The same contract as the chat input: the game does not read those keys while an address is typed
+    // (`shared/Input` listens on the bubble).
     input.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); void this.testRelay(); }
@@ -293,13 +296,14 @@ export class SettingsMenu {
     el('div', { cls: 'set-hint', parent: host,
       text: '서버는 SCAVANGER 프로젝트 폴더의 start-server.bat 로 켭니다 — 켠 사람의 창에 적히는 주소를 그대로 적으세요.' });
     this.ask = new AskPopup(this.root);
-    // 2026-09-10: `.tm-ask` 가 이제 문서에 **둘**이다 — 타이틀의 것(`ctx.uiRoot` 직속)과 이것(설정 안).
-    // 셋 중 어느 것을 집었는지 헷갈리지 않게 표식을 준다. 전역 `.tm-ask` 셀렉터로 타이틀 팝업을 찾는
-    // 코드는 `:not(.set-ask)` 로 걸러야 한다 — 이 팝업이 문서 순서상 먼저 온다.
+    // 2026-09-10: there are now **two** `.tm-ask` in the document — the title's (a direct child of `ctx.uiRoot`) and
+    // this one (inside the settings). A mark is given so it is never unclear which of the three was picked. Code that
+    // finds the title popup with a global `.tm-ask` selector has to filter with `:not(.set-ask)` — this popup comes
+    // first in document order.
     this.ask.root.classList.add('set-ask');
   }
 
-  /** 입력칸의 주소를 두드려 본다. 살아 있는 접속은 건드리지 않는다 (`probeRelay` 는 익명 소켓이다). */
+  /** Knocks on the address in the field. It never touches the live connection (`probeRelay` is an anonymous socket). */
   private async testRelay(): Promise<void> {
     const net = this.ctx.net;
     if (!net || this.netBusy) return;
@@ -318,11 +322,11 @@ export class SettingsMenu {
   }
 
   /**
-   * 주소를 저장하고 다시 붙는다. 분대에 있으면 1초 홀드 팝업을 지난다.
+   * Saves the address and connects again. In a squad it passes the 1 s hold popup.
    *
-   * **저장은 홀드 확정 뒤에 한다.** 형식 검사만 먼저(`relayUrlFrom` — `setRelayOverride` 가 쓰는 그 함수)
-   * 하고 저장은 `go()` 안에서 한다 — 먼저 저장해 버리면 팝업을 **취소해도** 주소가 남아, 다음 자동 재접속이
-   * 조용히 새 서버로 간다.
+   * **The save happens after the hold confirm.** Only the format check runs first (`relayUrlFrom` — the very function
+   * `setRelayOverride` uses) and the save happens inside `go()` — saving first would leave the address behind **even
+   * when the popup is cancelled**, and the next automatic reconnect would silently go to the new server.
    */
   private applyRelay(): void {
     const net = this.ctx.net;
@@ -343,9 +347,9 @@ export class SettingsMenu {
     };
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
     if (net.lobby) {
-      // 경고는 **보수적으로** 맞다: 새 주소가 우연히 같은 릴레이를 가리키면(vite 프록시 ↔ 직접 주소)
-      // 서버의 재접속 유예가 로비를 되살려 주므로 실제로는 떠나지 않는다. 진짜 다른 서버면 그 로비가
-      // 없으니 떠난다 — 중요한 쪽에서 틀리지 않으므로 문구는 이대로 둔다.
+      // The warning is right **conservatively**: if the new address happens to point at the same relay (the vite
+      // proxy ↔ a direct address), the server's reconnect grace revives the lobby and nothing is actually left. A
+      // truly different server has no such lobby, so it is left — it is not wrong where it matters, so the wording stays.
       this.ask.bind(this.ctx);
       this.ask.open({
         title: '서버를 옮깁니다',
@@ -359,14 +363,14 @@ export class SettingsMenu {
     go();
   }
 
-  /** 상태 한 줄. `ok` 가 null 이면 중립(진행 중)이다. */
+  /** One status line. `ok` null means neutral (in progress). */
   private setNetStatus(text: string, ok: boolean | null): void {
     setText(this.netStatus, text);
     toggleClass(this.netStatus, 'ok', ok === true);
     toggleClass(this.netStatus, 'bad', ok === false);
   }
 
-  /** 버튼 잠금 · 기본값 줄을 지금 상태에 맞춘다 (입력할 때마다 · 열 때마다). */
+  /** Brings the button locks · the default line in line with the current state (on every keystroke · every open). */
   private syncNetRows(): void {
     const net = this.ctx?.net;
     const typed = this.netInput.value.trim();
@@ -401,9 +405,11 @@ export class SettingsMenu {
       if (bloom && this.bloomAutoOff) { this.bloomAutoOff = false; this.syncDisplayRows(); }
     }));
     /*
-     * 2026-09-15 (분대 · 도킹 매칭, 사용자 결정 「도킹 컷씬 직전에 모든 UI 메뉴가 닫힌다」): 설정은 일시정지 메뉴 **안의** 하위 화면인데
-     * blocker 도 `ctx.escape` 항목도 없어서, 일시정지 메뉴가 닫혀도(`game:paused {paused:false}`) · 페이즈가 바뀌어도 혼자 떠 있었다.
-     * 이제 그 둘에 함께 닫힌다 — 뒤의 메뉴가 없어진 하위 화면은 남을 이유가 없다 (Tab 으로 일시정지를 풀 때도 같다).
+     * 2026-09-15 (squad · docking matchmaking, user's decision 「도킹 컷씬 직전에 모든 UI 메뉴가 닫힌다」): the settings
+     * are a child screen **inside** the pause menu, yet they hold neither a blocker nor a `ctx.escape` entry, so they
+     * stayed up alone when the pause menu closed (`game:paused {paused:false}`) and when the phase changed. Now they
+     * close with both — a child screen whose menu behind it is gone has no reason to stay (the same when Tab lifts
+     * the pause).
      */
     this.unsubs.push(ctx.bus.on('game:paused', ({ paused }) => { if (!paused) this.close(); }));
     this.unsubs.push(ctx.bus.on('game:phaseChanged', () => this.close()));
@@ -447,7 +453,7 @@ export class SettingsMenu {
   get isBloomAutoOff(): boolean { return this.bloomAutoOff; }
   /** C-58 (debug / smoke): the auto-off toast has been shown · is still waiting for the HUD layer. */
   get bloomAutoOffToast(): 'shown' | 'waiting' | 'none' { return this.autoOffToasted ? 'shown' : this.toastPoll ? 'waiting' : 'none'; }
-  /** 서버 설정 상태 (debug / 스모크): 입력값 · 마지막 테스트 결과 · 버튼 잠금 · 기본값 줄. */
+  /** The 서버 설정 state (debug / smoke): what is typed · the last test result · the button locks · the default line. */
   get networkState(): { typed: string; probe: RelayProbe | null; canApply: boolean; canTest: boolean; note: string } {
     return {
       typed: this.netInput.value.trim(), probe: this.netProbe,
@@ -512,10 +518,10 @@ export class SettingsMenu {
   }
 
   /**
-   * 셸이 고른 기본 주소를 한 번만 물어본다. 라우트의 원본은 `shared/net` 의 `NET_SHELL_RELAY_ROUTE` 하나이고
-   * (2026-09-11 C-67 — 여기 따로 적혀 있던 문자열을 지웠다) `electron/main.ts` · `net/parts/Socket` 이 같은 것을 쓴다.
-   * 브라우저 · vite 에는 그 라우트가 없으므로 404 / 실패는 "같은 주소의 서버" 로 읽는다 — 그게 사실이다
-   * (vite 프록시가 `/ws` 를 릴레이로 넘긴다).
+   * Asks once for the default address the shell picked. The route has a single source, `NET_SHELL_RELAY_ROUTE` in
+   * `shared/net` (2026-09-11 C-67 — the string written out separately here was deleted), and `electron/main.ts` ·
+   * `net/parts/Socket` use the same one. A browser · vite has no such route, so a 404 / a failure reads as
+   * "같은 주소의 서버" — which is the truth (the vite proxy hands `/ws` to the relay).
    */
   private async loadShellDefault(): Promise<void> {
     if (this.shellDefault !== null) return;
@@ -526,7 +532,7 @@ export class SettingsMenu {
       if (typeof j.target !== 'string' || !j.target) return;
       this.shellDefault = typeof j.source === 'string' && j.source ? `${j.target}  (${j.source})` : j.target;
       this.syncNetRows();
-    } catch { /* 라우트가 없다 = 같은 오리진의 릴레이다. "같은 주소의 서버" 가 맞는 답이다 */ }
+    } catch { /* no route = the relay is on the same origin. "같은 주소의 서버" is the right answer */ }
   }
 
   private async toggleFullscreen(): Promise<void> {

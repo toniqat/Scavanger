@@ -6,7 +6,7 @@ import {
 } from '@/shared';
 
 /**
- * 루팅 표시 = 빛기둥 (Phase 10). Shared builder for the light pillar that replaced the light-blue fresnel sphere in
+ * Loot marker = light pillar (Phase 10). Shared builder for the pillar that replaced the light-blue fresnel sphere in
  * `hud/Detection` (in range, depth-tested) and `hud/ScanReveal` (scan result, through-wall).
  *
  * The trick that makes it shader-free: the geometry carries **baked vertex colours** that go to black toward the top,
@@ -43,13 +43,14 @@ export function makePillarGeometry(
 }
 
 /**
- * **빛기둥은 시체에만 선다** (2026-09-11, 사용자 결정). 적 시체 `corpse:<id>` 와 분대원 시체 `pcorpse:<owner>:<n>`
- * 만 true — 상자 · 컨테이너 · 채집물 · 떨어진 아이템 · 설치물 · 보급품은 더 이상 기둥을 세우지 않는다.
- * 상자 · 컨테이너는 대신 **열린 모습**(뚜껑 · 문)으로 조사 여부를 보여 준다 (`world/Crates` · `ContainerSet`).
- * `hud/Detection`(범위 안) 과 `hud/ScanReveal`(정찰 결과) 이 같은 규칙을 쓴다.
+ * **Light pillars stand only on corpses** (2026-09-11, user's decision). Only enemy corpses `corpse:<id>` and
+ * squadmate corpses `pcorpse:<owner>:<n>` are true — crates · containers · gather nodes · dropped items ·
+ * deployables · supply drops no longer raise one. Crates · containers show whether they were searched with an
+ * **opened model** (lid · door) instead (`world/Crates` · `ContainerSet`). `hud/Detection` (in range) and
+ * `hud/ScanReveal` (recon result) use the same rule.
  *
- * 2026-09-11 (C-4): `Interactable.kind` 가 있으면 **그것이 먼저**다 (`'corpse'` · `'playerCorpse'`). kind 가 없는
- * 등록물(또는 id 문자열만 가진 호출자)만 옛 접두어 규칙으로 판정한다.
+ * 2026-09-11 (C-4): when `Interactable.kind` is present **it comes first** (`'corpse'` · `'playerCorpse'`). Only a
+ * registration with no kind (or a caller that has only the id string) falls back to the old prefix rule.
  */
 export function pillarAllowed(it: string | Pick<Interactable, 'id' | 'kind'>): boolean {
   if (typeof it !== 'string' && it.kind !== undefined) return it.kind === 'corpse' || it.kind === 'playerCorpse';

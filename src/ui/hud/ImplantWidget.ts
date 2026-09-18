@@ -7,33 +7,38 @@ import '../styles/implant.css';
 export type ImplantHudKind = 'cooldown' | 'charges' | 'gauge';
 
 /**
- * 전술 임플란트 썸네일 — **화면 중앙 하단, 스태미나 바 아래** (`.imp-hud`, 2026-09-10).
+ * Tactical implant thumbnail — **bottom centre of the screen, under the stamina bar** (`.imp-hud`, 2026-09-10).
  *
- * 2026-09-06 의 크로스헤어 좌측 세로 게이지(`.implant-gauge`)를 대신한다. 조준점 주위에서 쿨타임 · 충전 수를
- * 읽게 하지 않는다는 사용자 결정이라 **숫자 · 게이지가 전부 이리로 내려왔고** 크로스헤어에는 갈고리 표시만
- * 남는다 (`hud/Reticle`). **이름은 적지 않는다** — 가로로 긴 썸네일 + 그 아래 사용 키(`Keys.IMPLANT`)뿐이다.
+ * It replaces the vertical gauge left of the crosshair from 2026-09-06 (`.implant-gauge`). The user decided the cooldown
+ * · charge count must not be read around the aim point, so **every number · gauge came down here** and only the grapple
+ * mark stays on the crosshair (`hud/Reticle`). **The name is never written** — a wide thumbnail and the use key
+ * (`Keys.IMPLANT`) under it, nothing else.
  *
- * 표시 유형은 셋이고, 어느 임플란트가 어디에 속하는지는 **`ctx.implants` 가 주는 값**으로 정한다
- * (`maxCharges` · `barrierMaxHp` · `energyMax` — 코드에 수치를 적지 않는다):
+ * There are three presentations, and which implant belongs to which is decided from **the values `ctx.implants` gives**
+ * (`maxCharges` · `barrierMaxHp` · `energyMax` — no number is written in code):
  *
- *   - **쿨타임형** (갈고리 · 정찰): 쿨타임 중에는 썸네일이 딤드되고 `--fill` 이 아래에서 위로
- *     차오르며 밝아진다. 중앙에 남은 초.
- *   - **충전형** (대시): 우측 하단에 충전 수. 0 이면 쿨타임형과 같은 딤드 + 밝아짐(중앙에 남은 초),
- *     1 개 이상이면 딤드 없이 **강조색이 아래에서 위로** 차오르며 다음 충전을 보여 주고, 최대면 정상 표기.
- *   - **게이지형** (배리어 내구도 · 오버차지 에너지): 썸네일 안 중앙 하단의 가로 게이지. 배리어가 붕괴해
- *     잠긴 동안은(`barrierLockout`) 쿨타임형과 같은 딤드 + 밝아짐 + 남은 초로 그린다 — 잠금 시간에 맞춰
- *     내구도가 0 → 만충으로 차오르므로 게이지가 그대로 진행도다.
+ *   - **Cooldown kind** (grapple · recon): while the cooldown runs the thumbnail is dimmed and `--fill` rises from the
+ *     bottom brightening it. The seconds left in the middle.
+ *   - **Charge kind** (dash): the charge count bottom right. At 0 it is the cooldown kind's dim + brighten (seconds in
+ *     the middle); from 1 up there is no dim and **the accent colour rises from the bottom** showing the next charge;
+ *     at max it reads plainly.
+ *   - **Gauge kind** (barrier durability · overcharge energy): a horizontal gauge at the bottom centre inside the
+ *     thumbnail. While a collapsed barrier is locked out (`barrierLockout`) it is drawn like the cooldown kind — dim +
+ *     brighten + seconds left — because the durability refills 0 → full over the lockout, so the gauge is the progress.
  *
- * **준비 연출 (2026-09-12, 사용자 결정).** 준비되는 **순간** 강한 플래시 1회(`.rdy-major` — 썸네일 밖으로 퍼지는
- * 테두리 `.imp-ring` + 안쪽 섬광 `.ib-flash`), **준비된 동안** 윤곽 글로우(`.is-ready` — 딤드가 아닌 동안 = 쓸 수
- * 있는 동안). 순간은 이 위젯이 추측하지 않고 **`implant:ready`** 하나만 믿는다 (implants 가 게임플레이 페이즈에서만
- * 낸다 — 미션 시작 · 리셋 · 장착 · 함선은 처음부터 가득이라 순간이 아니다). 충전형의 중간 충전(`full` false)은
- * 약한 플래시(`.rdy-minor`)다. 갈고리 쿨타임 환급(`implant:cooldownRefunded`)은 썸네일 오른쪽에 초록 `−N초` 가
- * 떠오르고(`.imp-refund`) 차오른 부분이 번쩍인다(`.rf-flash`). 플래시 요소를 따로 둔 이유: `.pulse` · `.hit` 이
- * 이미 `.imp-thumb` 의 `animation` 을 쓰고 클래스가 남아 있으므로, 같은 요소에 얹으면 서로의 재생을 막는다.
+ * **Ready presentation (2026-09-12, user's decision).** At the **moment** it becomes ready, one strong flash
+ * (`.rdy-major` — the border `.imp-ring` spreading out of the thumbnail + the inner glare `.ib-flash`); **while it stays
+ * ready**, an outline glow (`.is-ready` — while not dimmed = while usable). The widget never guesses the moment: it
+ * trusts **`implant:ready`** alone (implants emits it only in gameplay phases — mission start · reset · equip · the ship
+ * are full from the start and are not a moment). An intermediate charge of the charge kind (`full` false) is a weak
+ * flash (`.rdy-minor`). A grapple cooldown refund (`implant:cooldownRefunded`) floats a green `−N초` right of the
+ * thumbnail (`.imp-refund`) and flares the filled part (`.rf-flash`). Why the flash elements are separate: `.pulse` ·
+ * `.hit` already use `.imp-thumb`'s `animation` and their classes linger, so stacking on the same element would block
+ * each other's playback.
  *
- * 값은 매 프레임 `ctx.implants` 에서 읽고 이벤트(`implant:*`)는 늦은 등록 · 연출(플래시 · 피격)에만 쓴다.
- * 아무것도 장착하지 않았거나 전투불능이면 숨는다 (전투불능 화면은 출혈 / 포기 링의 것이다, 2026-09-08).
+ * Values are read from `ctx.implants` every frame; events (`implant:*`) are used only for late registration and the
+ * presentation (flash · hit). It hides with nothing equipped or while downed (the downed screen belongs to the
+ * bleed-out / give-up ring, 2026-09-08).
  */
 export class ImplantWidget {
   readonly root: HTMLElement;
@@ -87,7 +92,7 @@ export class ImplantWidget {
     this.gauge = el('div', { cls: 'ib-gauge', parent: this.thumb });
     this.gauge.hidden = true;
     this.gaugeFill = el('i', { parent: this.gauge });
-    this.keyEl = createKeycap(Keys.IMPLANT, { tag: 'kbd', cls: 'imp-key', parent: this.root });   // 2026-09-15: 공용 키캡
+    this.keyEl = createKeycap(Keys.IMPLANT, { tag: 'kbd', cls: 'imp-key', parent: this.root });   // 2026-09-15: the shared keycap
     // 2026-09-12: the ring that bursts out of the thumb on a ready moment, and the green `−N초` of a refund —
     // both absolutely placed over / beside the thumb, outside its clip
     this.ringEl = el('div', { cls: 'imp-ring', parent: this.root });
@@ -110,7 +115,7 @@ export class ImplantWidget {
       b.on('implant:barrierChanged', ({ hp, maxHp }) => { this.barrierHp = hp; this.barrierMax = maxHp; }),
       b.on('implant:barrierHit', () => this.flash('hit')),
       b.on('implant:energyChanged', ({ energy, max }) => { this.energy = energy; this.energyMax = max; }),
-      // 2026-09-12: 준비 순간 · 갈고리 환급
+      // 2026-09-12: the ready moment · the grapple refund
       b.on('implant:ready', ({ full }) => this.flashReady(full)),
       b.on('implant:cooldownRefunded', ({ seconds }) => this.showRefund(seconds)),
       b.on('game:newMission', () => this.resetTransient()),
@@ -183,14 +188,14 @@ export class ImplantWidget {
   }
 
   update(_dt: number, ctx: GameContext): void {
-    // 2026-09-14 (튜토리얼 HUD 점진 노출): 튜토리얼 레이드 내내 전술 임플란트는 없다 — 장착한 것이 없다.
+    // 2026-09-14 (gradual tutorial HUD reveal): there is no tactical implant for the whole tutorial raid — nothing is equipped.
     toggleClass(this.root, 'hud-tut-hidden', ctx.tutorial?.hides('hud', 'implant') ?? false);
     const imp = ctx.implants;
     // Late registration: pick the equipped implant up as soon as the system exists.
     if (imp && imp.equipped !== this.equipped) this.setEquipped(imp.equipped);
     if (this.equipped === null) { if (!this.root.hidden) this.root.hidden = true; return; }
-    // 2026-09-08: nothing while 전투불능 — the implant is unusable there and that screen belongs to the
-    //   bleed-out / 포기 ring. (The widget moved to the bottom centre in 2026-09-10; the rule did not change.)
+    // 2026-09-08: nothing while downed — the implant is unusable there and that screen belongs to the
+    //   bleed-out / give-up ring. (The widget moved to the bottom centre in 2026-09-10; the rule did not change.)
     if (ctx.player?.isDowned) { if (!this.root.hidden) this.root.hidden = true; return; }
     if (this.root.hidden) this.root.hidden = false;
     if (!this.def && imp) this.def = imp.getDef(this.equipped) ?? null;
@@ -248,14 +253,14 @@ export class ImplantWidget {
     }
   }
 
-  /** 갈고리 / 정찰: dim + brighten from the bottom while the cooldown runs, seconds in the middle. */
+  /** Grapple / recon: dim + brighten from the bottom while the cooldown runs, seconds in the middle. */
   private renderCooldown(): void {
     const ready = this.charges > 0 && this.remaining <= 0.001;
     const f = ready ? 1 : this.total > 0 ? 1 - Math.min(1, this.remaining / this.total) : 1;
     this.paint(ready ? 0 : f, !ready, false, ready ? '' : this.secs(this.remaining), '', -1, false, ready);
   }
 
-  /** 대시: charge count bottom-right; 0 = the cooldown look, 1…max−1 = accent rising, max = plain. Ready = a charge in hand. */
+  /** Dash: charge count bottom-right; 0 = the cooldown look, 1…max−1 = accent rising, max = plain. Ready = a charge in hand. */
   private renderCharges(): void {
     const n = Math.max(1, this.maxCharges);
     const refill = this.total > 0 && this.remaining > 0 ? 1 - Math.min(1, this.remaining / this.total) : 0;
@@ -265,13 +270,13 @@ export class ImplantWidget {
     this.paint(refill, false, true, '', ch, -1, false, true);
   }
 
-  /** 배리어 내구도 / 오버차지 에너지: a gauge at the bottom centre of the thumbnail. Ready = not locked / not empty. */
+  /** Barrier durability / overcharge energy: a gauge at the bottom centre of the thumbnail. Ready = not locked / not empty. */
   private renderGauge(): void {
     if (this.equipped === 'barrier') {
       const max = this.barrierMax > 0 ? this.barrierMax : 1;
       const r = Math.min(1, Math.max(0, this.barrierHp / max));
       const locked = this.barrierLockout > 0.001;
-      // 붕괴 잠금 중에는 내구도가 잠금 시간에 맞춰 0 → 만충으로 차오른다 = 그대로 쿨타임 진행도.
+      // During the collapse lockout the durability refills 0 → full over the lockout time = the cooldown progress itself.
       this.paint(locked ? r : 0, locked, false, locked ? this.secs(this.barrierLockout) : '', '', r, !locked && r < 0.25, !locked);
       return;
     }

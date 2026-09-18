@@ -11,51 +11,53 @@ import { AskPopup } from './askPopup';
 import { buildRaidResumeCard } from './raidResumeCard';
 
 /**
- * 타이틀 (2026-09-09 개편).
+ * The title (2026-09-09 rework).
  *
- * 화면에는 **워드마크(위쪽 가운데)와 버튼 셋**뿐이다 — `게임 시작` / `설정` / `종료`.
+ * The screen holds **the wordmark (top centre) and three buttons** only — `게임 시작` / `설정` / `종료`.
  *
- *  - **콜사인 입력칸이 없다.** 이름은 이제 캐릭터가 갖는다 (생성창에서 정하고, 부팅 때 프로필에서
- *    `ctx.net.setPlayerName` 으로 흘러간다 — `progression/ProgressionSystem` 이 그 한 곳이다).
- *  - **조작 다이어그램(`menus/ControlsPanel`)과 `키 설정 변경` 이 설정 메뉴로 옮겨 갔다.** 설정의 `키 설정`
- *    구획이 이미 둘을 다 갖고 있으므로 (`menus/SettingsMenu.buildKeys`), 타이틀은 `설정` 버튼 하나만 준다.
- *  - **`새 캐릭터로 시작` 이 없다.** 그 일은 캐릭터 선택창에서 채워진 칸의 `삭제` 가 한다.
- *  - `게임 시작` → 캐릭터 선택(`menus/CharacterSelect`) → (빈 칸이면) 생성(`menus/CharacterCreate`).
+ *  - **There is no callsign field.** The name belongs to the character now (decided in the creation screen, and at
+ *    boot it flows from the profile into `ctx.net.setPlayerName` — `progression/ProgressionSystem` is that one place).
+ *  - **The controls diagram (`menus/ControlsPanel`) and `키 설정 변경` moved into the settings menu.** The `키 설정`
+ *    section of the settings already holds both (`menus/SettingsMenu.buildKeys`), so the title gives one `설정` button.
+ *  - **There is no `새 캐릭터로 시작`.** That job belongs to `삭제` on a filled slot of the character select screen.
+ *  - `게임 시작` → character select (`menus/CharacterSelect`) → (if the slot is empty) creation (`menus/CharacterCreate`).
  *
- * 두 하위 화면은 **자기 blocker 토큰을 갖지 않는다.** 이 메뉴(`MenuBase`)가 phase `menu` 동안 `'menu'` 토큰과
- * 커서 소유권을 계속 쥐고 있고, 둘은 그 위에 얹히는 화면이다 (`SettingsMenu` 와 같은 규칙).
+ * The two child screens **hold no blocker token of their own.** This menu (`MenuBase`) keeps holding the `'menu'`
+ * token and the cursor ownership through phase `menu`, and both are screens laid on top of it (the `SettingsMenu` rule).
  *
- * **이어하기 · 레이드 포기** (2026-09-15, 사용자 결정 — docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」):
- * 레이드가 남아 있으면(`ctx.raidResume.offer` — 솔로 세이브 · 튜토리얼 · 분대 로비) `게임 시작` **위에** 채워진 악센트의
- * `이어하기` 가 서고, `게임 시작` 은 붉은 경고색이 된다. 그때의 `게임 시작` 은 캐릭터 선택이 아니라 **포기 팝업**만 연다 —
- * 다른 캐릭터로 바꾸는 것도 이 레이드를 더 하지 않겠다는 뜻이기 때문이다. 팝업(`menus/askPopup` + `menus/raidResumeCard`)은
- * 참여 인원 초상 4칸 · 잃는 것 · 오른쪽 아래 `[닫기] [레이드 포기 (1초 홀드)]` 이고, 포기하면 `이어하기` 가 사라지고 `게임 시작`
- * 이 원래 색으로 돌아온다 (`raid:resumeChanged`). 분대 레이드는 서버에 물어야 보이므로 늦게 뜰 수 있다 — 그때 캐릭터 선택 · 생성이
- * 열려 있으면 접고 타이틀로 돌아온다, 레이드가 먼저다.
+ * **이어하기 · 레이드 포기** (2026-09-15, user's decision — docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」):
+ * with a raid remaining (`ctx.raidResume.offer` — a solo save · tutorial · squad lobby) a filled-accent `이어하기` stands
+ * **above** `게임 시작`, and `게임 시작` turns the red warning colour. That `게임 시작` opens only the **abandon popup**,
+ * not character select — switching to another character also means not playing this raid any more. The popup
+ * (`menus/askPopup` + `menus/raidResumeCard`) holds four participant portrait tiles · what is lost · the bottom-right
+ * `[닫기] [레이드 포기 (1초 홀드)]`, and abandoning makes `이어하기` disappear and `게임 시작` return to its own colour
+ * (`raid:resumeChanged`). A squad raid has to be asked of the server, so it can appear late — if character select or
+ * creation is open then, they fold and the title comes back: the raid comes first.
  *
- * **부팅 자동 시작**: 슬롯을 바꾸면 언제나 `setActiveSlot` + `markAutoStart` + `location.reload()` 다 (시스템은
- * 부팅 때 한 번 저장소를 읽는다). 새로고침 뒤 타이틀과 캐릭터 선택을 건너뛰고 곧장 함선으로 들어가야 하므로
- * **`bind()` 에서 `takeAutoStart()` 를 한 번 읽는다** — 여기가 자리인 이유는 (a) 건너뛸 대상이 바로 이 화면이고,
- * (b) `bind` 는 부팅에 정확히 한 번 불리며, (c) phase `menu` 의 show/hide 를 이미 이 클래스가 쥐고 있어서 다른
- * 곳에서 읽으면 타이틀이 한 프레임 번쩍인다. `takeAutoStart()` 는 표시를 읽고 지우므로 나중에 일시정지 메뉴의
- * `타이틀로` 로 돌아오면 타이틀이 정상으로 뜬다. 2026-09-15: 자동 시작도 **남은 레이드가 있으면 타이틀에서 멈춘다**.
+ * **Auto start on boot**: switching slot is always `setActiveSlot` + `markAutoStart` + `location.reload()` (the systems
+ * read storage once at boot). After the reload the title and character select must be skipped and the ship entered
+ * straight away, so **`bind()` reads `takeAutoStart()` once** — this is the place because (a) what is skipped is this
+ * very screen, (b) `bind` is called exactly once per boot, and (c) this class already holds the show/hide of phase
+ * `menu`, so reading it elsewhere makes the title flash for one frame. `takeAutoStart()` reads the mark and clears it,
+ * so coming back later through the pause menu's `타이틀로` brings the title up normally. 2026-09-15: auto start
+ * **stops at the title too when a raid remains**.
  *
- * **옛 키 설정 알림** (2026-09-11, C-9 · X-8): 같은 자리에서 `takeKeybindLoadReport()` 도 한 번 읽는다 — 부팅에
- * 한 번뿐인 리포트이고 첫 화면이 여기라서다. 타이틀이 뜨면 `menus/keybindNotice` 카드가 워드마크 · 버튼 아래에,
- * 자동 시작이면 첫 `hub:entered` 에 토스트로 알린다.
+ * **The old keybind notice** (2026-09-11, C-9 · X-8): `takeKeybindLoadReport()` is read once in the same place — it is
+ * a report that exists once per boot and the first screen is here. If the title comes up, the `menus/keybindNotice`
+ * card sits under the wordmark · buttons; on an auto start it is told by toast at the first `hub:entered`.
  */
 export class TitleMenu extends MenuBase {
   private readonly select: CharacterSelect;
   private readonly create: CharacterCreate;
   private readonly kbNotice: KeybindNotice;
-  /** 2026-09-15: 이어할 레이드가 있을 때만 보이는 `이어하기` · 그때 붉어지는 `게임 시작` · 레이드 포기 팝업. */
+  /** 2026-09-15: `이어하기`, shown only with a raid to resume · `게임 시작`, red then · the abandon-raid popup. */
   private readonly resumeBtn: HTMLButtonElement;
   private readonly startBtn: HTMLButtonElement;
   private readonly ask: AskPopup;
-  /** 이번 부팅이 타이틀을 건너뛰는가 (`takeAutoStart`); 한 번 쓰고 꺼진다. */
+  /** Does this boot skip the title (`takeAutoStart`); used once, then off. */
   private autoStart = false;
 
-  /** `onKeySettings` = 설정을 `키 설정` 구획으로 연다 (알림 카드의 `키 설정 열기`); 없으면 `onSettings`. */
+  /** `onKeySettings` = opens settings at the `키 설정` section (the notice card's `키 설정 열기`); with none, `onSettings`. */
   constructor(parent: HTMLElement, private readonly onSettings: () => void, onKeySettings?: () => void) {
     super(parent, 'title home');
     const head = el('div', { parent: this.frame });
@@ -70,13 +72,13 @@ export class TitleMenu extends MenuBase {
     this.button(actions, '종료', () => this.quit(), 'quit');
 
     el('div', { cls: 'version', text: 'SCAVANGER · PROTOTYPE', parent: this.root });
-    // 타이틀 root 안에 두어 타이틀과 함께 보이고 숨는다 (`.stacked` 에서도 같이 흐려진다 — title.css).
+    // Kept inside the title root so it shows and hides with the title (it dims along under `.stacked` — title.css).
     this.kbNotice = new KeybindNotice(this.root, onKeySettings ?? (() => this.onSettings()));
 
-    // 하위 화면은 타이틀 **다음에** DOM 에 붙으므로 자연히 그 위에 그려진다 (z-index 는 title.css 가 못 박는다).
+    // The child screens attach to the DOM **after** the title, so they draw over it naturally (title.css pins the z-index).
     this.select = new CharacterSelect(parent, () => this.syncStacked(), (slot: SlotId) => this.openCreate(slot));
     this.create = new CharacterCreate(parent, () => { this.select.open(); this.syncStacked(); });
-    // 포기 팝업은 타이틀 root 안이다 — 타이틀과 함께 숨고, Escape · Enter 규칙은 `AskPopup` 의 것이다
+    // The abandon popup is inside the title root — it hides with the title, and the Escape · Enter rules are `AskPopup`'s
     this.ask = new AskPopup(this.root);
   }
 
@@ -85,30 +87,31 @@ export class TitleMenu extends MenuBase {
     this.select.bind(ctx);
     this.create.bind(ctx);
     this.ask.bind(ctx);
-    // 슬롯 전환 직후의 부팅인가 — 표시는 여기서 정확히 한 번 소비된다.
+    // Is this the boot right after a slot switch — the mark is consumed here exactly once.
     this.autoStart = takeAutoStart();
-    // 옛 키 설정 리포트도 부팅에 한 번 — 알린 순간 `saveKeybinds()` 로 은퇴 줄을 지운다 (`menus/keybindNotice`).
+    // The old keybind report is read once per boot too — the moment it is told, `saveKeybinds()` erases the retired
+    // rows (`menus/keybindNotice`).
     this.kbNotice.take(ctx, takeKeybindLoadReport(), this.autoStart);
     this.unsubs.push(
       ctx.bus.on('game:phaseChanged', () => this.refresh()),
       ctx.bus.on('raid:resumeChanged', ({ offer }) => this.onResumeChanged(offer)),
     );
     if (this.autoStart) {
-      // Engine 은 모든 시스템의 init() 을 한 번의 동기 패스로 돌린다 — 허브가 아직 `hub:enter` 를 구독하지
-      // 않았을 수 있으므로 한 마이크로태스크 뒤로 미룬다 (`ProgressionSystem` 의 초기 방송과 같은 이유).
-      // `ctx.raidResume` 도 그때에야 있다 (game/ 은 마지막에 등록된다).
+      // The Engine runs every system's init() in one synchronous pass — the hub may not have subscribed to
+      // `hub:enter` yet, so this is deferred by one microtask (the same reason as `ProgressionSystem`'s initial
+      // broadcast). `ctx.raidResume` only exists by then too (game/ is registered last).
       queueMicrotask(() => { void this.runAutoStart(ctx); });
     }
     this.refresh();
   }
 
   /**
-   * 2026-09-15: 자동 시작도 남은 레이드부터 본다 — 분대 레이드를 서버에 묻는 중이면 그 답을 기다리고(표식이 있을 때만),
-   * 레이드가 있으면 함선 대신 타이틀을 띄운다.
+   * 2026-09-15: auto start looks at a remaining raid first too — while a squad raid is being asked of the server it
+   * waits for that answer (only when the marker exists), and with a raid it shows the title instead of the ship.
    */
   private async runAutoStart(ctx: GameContext): Promise<void> {
     if (!this.autoStart || this.ctx !== ctx) return;
-    try { await ctx.raidResume?.settled(); } catch { /* 모르면 예전처럼 들어간다 */ }
+    try { await ctx.raidResume?.settled(); } catch { /* not knowing, go in as before */ }
     if (!this.autoStart || this.ctx !== ctx) return;
     this.autoStart = false;
     if (ctx.phase !== 'menu') return;
@@ -116,7 +119,7 @@ export class TitleMenu extends MenuBase {
     void enterShip(ctx);
   }
 
-  /** 타이틀 본체 · 캐릭터 선택 · 생성 중 무엇을 보일지. */
+  /** Which of the title body · character select · creation to show. */
   private refresh(): void {
     if (this.ctx.phase !== 'menu' || this.autoStart) {
       this.hide();
@@ -125,13 +128,13 @@ export class TitleMenu extends MenuBase {
       this.ask.close();
       return;
     }
-    // 하위 화면이 떠 있으면 타이틀은 그 뒤에 그대로 남는다 (blocker 를 쥐고 있어야 한다).
+    // While a child screen is up the title stays behind it (it has to keep holding the blocker).
     this.show();
     this.paintResume();
     this.syncStacked();
   }
 
-  /** `이어하기` 는 레이드가 있을 때만, 그때 `게임 시작` 은 붉은 경고색 (`title.css` 의 `.title-resume` · `.title-warn`). */
+  /** `이어하기` only with a raid, and `게임 시작` is the red warning colour then (`.title-resume` · `.title-warn`, `title.css`). */
   private paintResume(): void {
     const offer = this.ctx.raidResume?.offer ?? null;
     this.resumeBtn.hidden = !offer;
@@ -140,32 +143,33 @@ export class TitleMenu extends MenuBase {
   }
 
   private onResumeChanged(offer: RaidResumeOffer | null): void {
-    // 늦게 확인된 레이드 (분대 레이드는 서버에 물어야 보인다) — 캐릭터 선택 · 생성은 접고 타이틀로. 레이드가 먼저다.
+    // A raid confirmed late (a squad raid has to be asked of the server) — character select · creation fold and the
+    // title comes back. The raid comes first.
     if (offer && (this.select.isOpen || this.create.isOpen)) { this.select.close(); this.create.close(); }
-    // 팝업이 가리키던 레이드가 사라졌다 (유예 초과 · 분대가 끝냈다) — 포기할 것이 없으니 닫는다
+    // The raid the popup pointed at is gone (grace exceeded · the squad finished it) — nothing to abandon, so close
     if (!offer) this.ask.close();
     this.refresh();
   }
 
-  /** 하위 화면이 떠 있는 동안 타이틀 본체는 눈에서만 지운다 (`hide()` 는 blocker 까지 놓아 버린다). */
+  /** While a child screen is up the title body is removed from sight only (`hide()` would release the blocker too). */
   private syncStacked(): void {
     toggleClass(this.root, 'stacked', this.select.isOpen || this.create.isOpen);
   }
 
-  /** 프레임마다 (HudSystem) — 생성창의 3D 미리보기만 돈다. 닫혀 있으면 즉시 돌아온다. */
+  /** Every frame (HudSystem) — only the creation screen's 3D preview runs. While closed it returns immediately. */
   update(dt: number): void {
     this.create.update(dt);
     this.kbNotice.update(dt, this.visible && !this.select.isOpen && !this.create.isOpen);
   }
 
-  /** 옛 키 설정 알림 (디버그 / 스모크): 부팅 리포트 · 사람이 읽는 줄 · 카드가 떠 있나. */
+  /** The old keybind notice (debug / smoke): the boot report · the human-readable lines · is the card up. */
   get keybindNotice(): KeybindNotice { return this.kbNotice; }
 
-  /** 캐릭터 선택창이 떠 있는가 (디버그 / 스모크). */
+  /** Is the character select screen up (debug / smoke). */
   get isSelectOpen(): boolean { return this.select.isOpen; }
-  /** 캐릭터 생성창이 떠 있는가 (디버그 / 스모크). */
+  /** Is the character creation screen up (debug / smoke). */
   get isCreateOpen(): boolean { return this.create.isOpen; }
-  /** 2026-09-15 (디버그 / 스모크): `이어하기` 가 보이나 · `게임 시작` 이 경고색인가 · 포기 팝업이 떠 있나 · 그 홀드 진행도. */
+  /** 2026-09-15 (debug / smoke): is `이어하기` visible · is `게임 시작` the warning colour · is the abandon popup up · its hold progress. */
   get resumeView(): { resume: boolean; warn: boolean; ask: boolean; hold: number } {
     return {
       resume: this.visible && !this.resumeBtn.hidden, warn: this.startBtn.classList.contains('title-warn'),
@@ -187,13 +191,13 @@ export class TitleMenu extends MenuBase {
     this.syncStacked();
   }
 
-  /** `이어하기`. 유예가 방금 지난 솔로 레이드면 game/ 이 실패로 정산하고 `raid:resumeChanged` 가 버튼을 치운다. */
+  /** `이어하기`. If a solo raid's grace just ran out, game/ settles it as failed and `raid:resumeChanged` drops the button. */
   private resumeRaid(): void {
     const rr = this.ctx.raidResume;
     if (!rr || !rr.resume()) this.refresh();
   }
 
-  /** 레이드가 남은 채로 누른 `게임 시작` — 참여 인원 · 잃는 것 · `[닫기] [레이드 포기]` (포기는 1초 홀드). */
+  /** `게임 시작` pressed with a raid remaining — the participants · what is lost · `[닫기] [레이드 포기]` (abandon is a 1 s hold). */
   private askAbandon(offer: RaidResumeOffer): void {
     this.ask.open({
       title: offer.kind === 'tutorial' ? '진행 중인 튜토리얼' : '진행 중인 레이드',
@@ -213,10 +217,11 @@ export class TitleMenu extends MenuBase {
   }
 
   /**
-   * 게임 종료. `menus/PauseMenu.quit()` 과 **같은 다섯 줄을 일부러 복제한다** — 타이틀이 일시정지 메뉴를
-   * import 하면 두 화면이 서로 묶이고, 공유할 만큼 큰 코드도 아니다. `window.close()` 는 Electron 셸을 끝내고
-   * (`electron/main.ts` 가 유일한 BrowserWindow 를 갖는다), 브라우저는 스스로 열지 않은 탭을 닫아 주지 않으므로
-   * 한 틱 뒤에도 살아 있으면 그렇게 알린다. 여기는 이미 타이틀이라 돌아갈 화면은 없다.
+   * 게임 종료. **The same five lines as `menus/PauseMenu.quit()` are duplicated on purpose** — importing the pause
+   * menu into the title would tie the two screens together, and this is not enough code to be worth sharing.
+   * `window.close()` ends the Electron shell (`electron/main.ts` owns the only BrowserWindow), and a browser will not
+   * close a tab it did not open itself, so if it is still alive a tick later the player is told so. This is already
+   * the title, so there is no screen to go back to.
    */
   private quit(): void {
     const ctx = this.ctx;

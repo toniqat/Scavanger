@@ -2,7 +2,7 @@ import type { GameContext, PlayerCode, SocialPlayer, SocialRef } from '@/shared'
 import {
   NET_MAX_PLAYERS, NET_SLOT_COLORS_CSS, SOCIAL_CARDS_PER_ROW, SOCIAL_FRIEND_ROWS, SOCIAL_RECENT_ROWS,
   SOCIAL_RECENT_MAX, SQUAD_VOICE_DEFAULT, formatPlayerCode,
-  /* 2026-09-15 (안드로이드 분대원): 봇 멤버는 사람 계정 열에 서지 않는다 */
+  /* 2026-09-15 (android squadmates): bot members do not stand in the human-account column */
   isBotPlayer,
 } from '@/shared';
 import { el, setText, toggleClass } from '../../dom';
@@ -30,7 +30,7 @@ interface VoiceState { vol: number; muted: boolean }
 const VOICE_HINT = '보이스 채팅 준비 중';
 
 /**
- * The 소셜 열 (`.social-col`): 분대원 on top, 친구 (with the incoming friend requests above them) in the middle and
+ * The social column (`.social-col`): 분대원 on top, 친구 (with the incoming friend requests above them) in the middle and
  * 최근 플레이어 at the bottom. **One component, two hosts** — the ESC screen's right-hand column in the ship
  * (`menus/PauseMenu`) and the ship's 커뮤니티 panel (`hud/Community`) both instantiate it, so the two can never drift.
  *
@@ -243,8 +243,8 @@ export class SocialColumn {
 
     /* 분대원 — the lobby is the truth for who is aboard; the snapshot supplies 아이디 / 레벨 where it knows them. */
     if (this.opts.squad) {
-      /* 2026-09-15 (안드로이드 분대원): 봇 멤버는 이 열에 서지 않는다 — 아이디 · 레벨 · 친구 · 개인 대화 ·
-       * 분대장 넘기기가 전부 사람 계정을 전제로 한다. 안드로이드는 HUD 분대 목록이 보여 준다. */
+      /* 2026-09-15 (android squadmates): bot members do not stand in this column — 아이디 · level · friends · 개인 대화 ·
+       * squad leader transfer all presuppose a human account. Androids are shown by the HUD squad list instead. */
       const players = (ctx.net?.lobby?.players ?? []).filter((p) => !isBotPlayer(p));
       this.squadSection.hidden = players.length === 0;
       if (players.length > 0) {
@@ -300,7 +300,7 @@ export class SocialColumn {
     return undefined;
   }
 
-  /** 파티 떠나기 — `net.leaveLobby()`, the same call as the 함선 메뉴's 도킹 해제, behind the shared confirm card. */
+  /** 파티 떠나기 — `net.leaveLobby()`, the same call as the ship menu's 도킹 해제, behind the shared confirm card. */
   private askLeaveParty(): void {
     const ctx = this.ctx;
     if (!ctx?.net?.lobby) return;
@@ -329,7 +329,7 @@ export class SocialColumn {
     peerId: string, slot: number, name: string, local: boolean, code: PlayerCode | null, level: number,
   ): HTMLElement {
     const row = el('div', { cls: `sc-srow${local ? ' me' : ''}` });
-    // 2026-09-09: 분대장 넘기기 우클릭 메뉴가 이 행을 PeerId 로 되짚는다 (`hud/Community` 가 델리게이트한다).
+    // 2026-09-09: the squad leader transfer right-click menu traces this row back by PeerId (`hud/Community` delegates it).
     row.dataset.peerId = peerId;
     row.style.setProperty('--sc', NET_SLOT_COLORS_CSS[slot] ?? '#fff');
     const left = el('div', { cls: 'sc-sleft', parent: row });
