@@ -1301,6 +1301,13 @@ kbd {
 .inv-weight.is-over .inv-weight-state { color: var(--inv-bad); animation: inv-weight-pulse 1.1s ease-in-out infinite; }
 @keyframes inv-weight-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
+/* ── 2026-09-18 (사용자 결정): 격자 오른쪽 열 (퀵슬롯 · 주머니 · 무게 · 가치 · 크레딧) ─────────────────────
+   무게 두 줄과 가치 한 줄은 예전에 카드 너비를 통째로 먹으며 격자 **아래**에 있었다 — 퀵슬롯 옆이 비는 만큼 카드만
+   길어졌다. 이제 셋은 이 열의 **맨 아래**(`margin-top: auto`)에 붙고, 카드 높이는 격자 · 장비 열이 정한다.
+   좁은 배치에서는 이 열이 격자 아래로 내려가므로(`.inv-bag-body` 가 세로) 예전 적층과 같은 모습이다. */
+.inv-bag-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; flex: 1 1 auto; }
+.inv-bag-readouts { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+
 /* ── equipment slots (armor / backpack join the two weapons) ────────────── */
 .inv-equip { max-height: calc(100vh - 140px); overflow-y: auto; padding-right: 4px; }
 .inv-slot-armor .inv-slot-body, .inv-slot-backpack .inv-slot-body { align-items: center; justify-content: center; }
@@ -1656,7 +1663,7 @@ kbd {
 .inv-layout.is-craft .inv-quick { display: none; }
 /* 가방 헤더는 남기되(용량은 만든 것이 들어갈 자리가 있는지 알려 준다) `제작` 버튼과 하단 가치만 뺀다 */
 .inv-layout.is-craft .inv-bag-craft { display: none; }
-.inv-layout.is-craft .inv-panel-bag > .inv-foot { display: none; }
+.inv-layout.is-craft .inv-panel-bag .inv-foot { display: none; }
 /* 2026-09-15 2차: 제작 열이 [작업대 목록][조합 목록 4칸][상세] 셋이 되면서 폭이 늘었다.
    2026-09-15 4차: 상세가 옆 카드로 나가고 목록이 5칸이 되면서 폭은 **내용이 정한다** (`width: auto`, `flex: none`) —
    작업대 목록 128 + 간격 + 격자 5칸(+ 스크롤바 자리). 칸 크기(`--inv-cell`)가 창 높이를 타므로 px 를 적지 않는다. */
@@ -1774,6 +1781,8 @@ kbd {
 /* bag body + equipment column: the wide arrangement (rose right of the grid, two-column gear) needs room. The ship
    also carries the 창고 panel, so it asks for 1600 px; a mission has one panel fewer and gets it from 1280 px. */
 .inv-bag-body { display: flex; flex-direction: column; gap: 14px; }
+/* 2026-09-18: 카드가 장비 열 높이로 늘어나면 본문이 그 높이를 받는다 — 바닥의 무게 · 가치 줄이 카드 바닥에 선다 */
+.inv-panel-bag > .inv-bag-body { flex: 1 1 auto; min-height: 0; }
 .inv-equip-grid { display: flex; flex-direction: column; gap: 14px; }
 
 /* nothing can be thrown away in the ship (a raid keeps the drop zone and the key hints) */
@@ -1801,15 +1810,15 @@ kbd {
   .inv-root:not(.is-hub) .inv-slot-pouch { grid-area: pouch; }
   .inv-root:not(.is-hub) .inv-implants { grid-area: implant; }
   .inv-root:not(.is-hub) .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }
+  /* 2026-09-18: 세로 구분선은 퀵슬롯이 아니라 **열 전체**가 긋는다 (무게 · 가치까지 한 열이다) */
+  .inv-root:not(.is-hub) .inv-bag-side { flex: none; align-self: stretch; padding-left: 18px; border-left: 1px solid var(--inv-line); }
   .inv-root:not(.is-hub) .inv-layout:not(.is-craft) .inv-bag-scroll { max-height: calc(100vh - 300px); }
   .inv-root:not(.is-hub) .inv-quick {
     flex-direction: column; align-items: stretch; gap: 12px;
-    padding-top: 0; padding-left: 18px; border-top: none; border-left: 1px solid var(--inv-line);
+    padding-top: 0; border-top: none;
   }
   /* 넓은 배치에서는 로제트와 같은 열에 세로로 이어 붙는다 (가방 격자 옆) */
-  .inv-root:not(.is-hub) .inv-pouch {
-    padding-top: 12px; padding-left: 18px; border-left: 1px solid var(--inv-line);
-  }
+  .inv-root:not(.is-hub) .inv-pouch { padding-top: 12px; }
 }
 
 /* ship (창고 + 장비 + 가방 side by side): the same arrangement, but it needs more room */
@@ -1829,14 +1838,14 @@ kbd {
   .inv-root.is-hub .inv-slot-pouch { grid-area: pouch; }
   .inv-root.is-hub .inv-implants { grid-area: implant; }
   .inv-root.is-hub .inv-bag-body { flex-direction: row; align-items: flex-start; gap: 18px; }
+  /* 2026-09-18: 세로 구분선은 퀵슬롯이 아니라 **열 전체**가 긋는다 (무게 · 가치까지 한 열이다) */
+  .inv-root.is-hub .inv-bag-side { flex: none; align-self: stretch; padding-left: 18px; border-left: 1px solid var(--inv-line); }
   .inv-root.is-hub .inv-layout:not(.is-craft) .inv-bag-scroll { max-height: calc(100vh - 300px); }
   .inv-root.is-hub .inv-quick {
     flex-direction: column; align-items: stretch; gap: 12px;
-    padding-top: 0; padding-left: 18px; border-top: none; border-left: 1px solid var(--inv-line);
+    padding-top: 0; border-top: none;
   }
-  .inv-root.is-hub .inv-pouch {
-    padding-top: 12px; padding-left: 18px; border-left: 1px solid var(--inv-line);
-  }
+  .inv-root.is-hub .inv-pouch { padding-top: 12px; }
 }
 
 /* ═══ Phase 6 (2026-09-06): 무한 상자 catalog · 작업실 bench crafting · repair list ═══ */
@@ -1912,7 +1921,26 @@ kbd {
 .inv-root.is-hub .inv-layout:not(.is-craft) .inv-panel-stash,
 .inv-root.is-hub .inv-layout:not(.is-craft) .inv-panel-grids,
 .inv-root.is-hub .inv-layout:not(.is-craft) .inv-equip { align-self: stretch; }
-.inv-root.is-hub .inv-layout:not(.is-craft) .inv-stash-scroll { flex: 1 1 0px; min-height: 0; max-height: none; }
+/* 2026-09-18 (사용자 결정): **창고가 함께 설 때(= 함선 Tab)는 예전 높이 그대로.** 그 전에는 가장 긴 가방 틀이
+   줄 높이를 밀어 올려 창고가 덤으로 길었다 — 틀이 없어지면 줄 높이가 장비 열로 내려앉아 창고가 보여 주는 줄 수까지
+   줄어든다. 그래서 **옛 줄 높이를 창고 격자의 바닥**으로 옮겨 적는다: 가방 틀 `N`줄(`--inv-bag-frame-rows`,
+   `InventoryUI.mount` 가 `BAG_FRAME_ROWS` 에서 적어 준다) + 그때 그 아래에 있던 무게 · 가치 띠와 카드 머리 몫(86 px).
+   실측(2026-09-18, HEAD 워크트리): 1920×1080 창고 격자 758 px = 12×56 + 86, 1920×900 은 662 px = 12×48 + 86.
+   `is-hub` 는 곧 창고가 보인다는 뜻이다 (`InventoryUI.setPanels` 가 같은 플래그로 둘을 켠다) — 레이드 · 상자 창은
+   이 규칙에 닿지 않는다. 바닥 높이는 **넓은 배치(1600 px 이상 = 창고 | 장비 | 가방이 나란히 서는 함선 Tab)에서만**
+   건다: 그보다 좁으면 퀵슬롯 로제트가 가방 아래로 내려가 옛 줄 높이도 틀이 아니라 그 적층이 정했다. */
+.inv-root.is-hub .inv-layout:not(.is-craft) .inv-stash-scroll { flex: 1 1 0px; max-height: none; }
+@media (min-width: 1600px) {
+  .inv-root.is-hub .inv-layout:not(.is-craft) .inv-stash-scroll {
+    min-height: calc(var(--inv-bag-frame-rows, 12) * (var(--inv-cell) + 2px) + 86px);
+  }
+}
+
+/* ── 2026-09-18 (사용자 결정): 레이드 Tab 도 가방 카드 = 장비 열 높이 ──────────────────────────────────────
+   줄 높이는 그 줄에서 가장 긴 칸이 정한다 — 평소에는 장비 열, 긴 가방(전설 12줄)이나 시체 격자가 더 길면 그쪽이다.
+   가방 격자는 자기 칸 수 그대로 그리므로(`InventoryUI.mount` — 12줄 고정 틀 폐지) 남는 자리는 빈 격자 줄이 아니라
+   카드 여백이고, 바닥의 무게 · 가치 줄이 그 여백 아래 카드 바닥에 선다. */
+.inv-root:not(.is-hub) .inv-layout:not(.is-craft) .inv-panel-grids { align-self: stretch; }
 
 /* ── 2026-09-13 (사용자 결정): 무한 상자 배치 — 무한 상자 · 함선 창고(함선) · 가방만 ─────────────────────────
    장착 장비 열(주무기 · 방탄복 · 가방 칸 · 전술 임플란트 · 주머니 칸) · 퀵슬롯 로즈 · 주머니 격자를 감춘다

@@ -158,6 +158,12 @@ export class InventoryUI {
     const root = document.createElement('div');
     root.className = 'inv-root';
     applyGridCellVar(root);
+    /*
+     * 2026-09-18 (사용자 결정): 함선 Tab 에서 **창고 칸은 예전 높이 그대로**다. 예전에는 가장 긴 가방의 틀
+     * (`BAG_FRAME_ROWS`)이 줄 높이를 밀어 올려 창고가 그만큼 길었는데, 틀이 없어지면서 그 근거가 사라졌다.
+     * 그 높이를 창고 격자의 바닥으로 옮겨 적으려면 css 가 줄 수를 알아야 한다 — 숫자는 `data/bags.csv` 에서 온다.
+     */
+    root.style.setProperty('--inv-bag-frame-rows', String(BAG_FRAME_ROWS));
     root.hidden = true;
     window.addEventListener('resize', this.onViewportResize);
     root.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -330,8 +336,11 @@ export class InventoryUI {
     bActions.append(this.bagCapacity, bTools, craftBtn);
     bHead.append(bActions);
     this.bagView = new GridView('bag', getDef, getStats, this.tileHandlers());
-    // 2026-09-12 (사용자 결정): the box is always as tall as the longest bag; a smaller bag leaves blank rows below
-    this.bagView.setFrameRows(BAG_FRAME_ROWS);
+    /*
+     * 2026-09-18 (사용자 결정): **격자는 장착한 가방 크기 그대로** 그린다 — 2026-09-12 의 12줄 고정 틀
+     * (`BAG_FRAME_ROWS`)은 없앴다. 카드 높이를 장비 열에 맞추는 일은 css(`.inv-panel-grids { align-self: stretch }`)가
+     * 하고, 남는 자리는 빈 격자 줄이 아니라 카드 여백이다. 틀은 창고와 나란히 서는 `TradeGrids` 에만 남아 있다.
+     */
     const bScroll = document.createElement('div');
     bScroll.className = 'inv-bag-scroll';
     bScroll.appendChild(this.bagView.el);
@@ -353,7 +362,6 @@ export class InventoryUI {
     this.pouchView = new GridView('pouch', getDef, getStats, this.tileHandlers());
     pPanel.append(this.pouchTitle, this.pouchView.el);
     this.pouchPanel = pPanel;
-    bBody.append(bScroll, this.buildQuickPanel(), pPanel);
     const bFoot = document.createElement('footer');
     bFoot.className = 'inv-foot';
     /*
@@ -390,8 +398,21 @@ export class InventoryUI {
     this.weightFill = document.createElement('i');
     wTrack.appendChild(this.weightFill);
     this.weightEl.append(wRow, wTrack);
+    /*
+     * 2026-09-18 (사용자 결정) — **무게 · 가방 내 가치 · 보유 크레딧은 격자 오른쪽 열의 맨 아래**다. 예전에는 카드
+     * 너비를 통째로 먹는 두 줄이 격자 **아래**에 있어, 퀵슬롯 옆이 비는 만큼 카드만 90 px 쯤 길어졌다. 이제 퀵슬롯 ·
+     * 주머니와 한 열(`.inv-bag-side`)에 들어가고 그 열 바닥에 붙는다(css `.inv-bag-readouts`) — 좁은 배치(레이드
+     * 1280 px 미만 · 함선 1600 px 미만)에서는 그 열이 격자 아래로 내려가므로 예전 세로 적층 그대로다.
+     */
+    const bReadouts = document.createElement('div');
+    bReadouts.className = 'inv-bag-readouts';
+    bReadouts.append(this.weightEl, bFoot);
+    const bSide = document.createElement('div');
+    bSide.className = 'inv-bag-side';
+    bSide.append(this.buildQuickPanel(), pPanel, bReadouts);
+    bBody.append(bScroll, bSide);
     // 2026-09-15 2차: 도구(`모두 수리` · 정렬 · 필터)는 가방 **머리 한 줄** 안이다 — 격자 위 칩 줄은 없어졌다
-    bPanel.append(bHead, bBody, this.weightEl, bFoot);
+    bPanel.append(bHead, bBody);
     // 2026-09-15 4차: 조합 목록 칸의 호버 카드는 격자 타일과 **같은 떠다니는 카드**(`this.tooltip`)다 — 무한 상자 타일과 같은 배선
     this.craftPanel = new CraftPanel(this.sys, getDef, () => this.closeCraft(), (anchor) => this.repair.open(anchor), {
       onEnter: (def, sample, e) => { if (!this.drag?.started && !this.pin.isSocketDragging) this.tooltip.show(sample, def, e.clientX, e.clientY); },

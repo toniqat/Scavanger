@@ -28,6 +28,7 @@ The relay server keeps a per-token **profile store** (credits · meta · stash �
 | **When / what / why something changed** | `git log` — **commit messages are the source** (`git log -- src/<folder>`, `git log --grep '<keyword>'`) |
 | **Work to do** | [docs/TODO.md](docs/TODO.md) (Korean) — to-do only; an intended limit lives in the owning folder's `README.md` |
 | Completed phases | [docs/HISTORY.md](docs/HISTORY.md) |
+| **Frame hitches with many bodies** (measure-first plan, next session) | [docs/PERF_PLAN.md](docs/PERF_PLAN.md) — Phase 0 measurement table · ranked findings with file:line · phases per folder · questions for the user |
 | What the user chose and what was rejected | [docs/DECISIONS.md](docs/DECISIONS.md) |
 | **Investor / publisher wiki** (HTML, no build, public at **https://toniqat.github.io/Scavanger/**) | [docs/pitch/README.md](docs/pitch/README.md) → `docs/pitch/index.html`; page order · file numbers · section numbers come from `TREE` in `docs/pitch/app.js`; `node scripts/smoke-pitch.mjs` catches breakage |
 
@@ -186,7 +187,7 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Story-carrying fades are stepped in code, not CSS transitions (reduced-motion clips transitions to 0.01 ms) — `HudSystem.stepScreenFade`.
 - Descriptions never repeat numbers the tooltip already shows (armor shield, bag cells).
 - Scrollbar colours: `--sb-*` in `src/ui/styles/base.css` (inventory.css references them with fallbacks).
-- Ship Tab is stash | equipment | bag joined into one panel (`--inv-panel-gap` seams; the stash is its own `.inv-layout` card) — `src/inventory/ui/InventoryUI.ts`, `inventory.css`; other folders' screens use `TradeGrids` (stash left, bag right, one card). Every grid pane scrolls/sorts/filters on its own. Bags are 5 wide; the frame is the tallest bag (`BAG_FRAME_ROWS`); padding rows are not drop targets. `모두 창고로 이동` moves bag-grid items only (`StashOps.moveBagToStash`).
+- Ship Tab is stash | equipment | bag joined into one panel (`--inv-panel-gap` seams; the stash is its own `.inv-layout` card) — `src/inventory/ui/InventoryUI.ts`, `inventory.css`; other folders' screens use `TradeGrids` (stash left, bag right, one card). Every grid pane scrolls/sorts/filters on its own. Bags are 5 wide and the Tab grid is exactly the equipped bag — the **card** stretches to the equipment column (`.inv-panel-grids { align-self: stretch }`) and 무게 · 가치 · 크레딧 sit at the bottom of the grid's right-hand column (`.inv-bag-side`); the tallest-bag frame (`BAG_FRAME_ROWS`, padding rows are not drop targets) is `TradeGrids` only. `모두 창고로 이동` moves bag-grid items only (`StashOps.moveBagToStash`).
 - The liftoff cinematic hides **all** remaining HUD: crosshair instantly (`.hud.cinematic`), everything else by a code-stepped `--cine-o` + `filter: opacity()` under `#ui-root.hud-cine` (layers, key guide, item tip, music player, net badge, 3D pillars); tutorial DOM hides itself on `ui:cinematic`; menus, screen fade and loading gauge stay — `ui/HudSystem.setCinematic`, `ui/styles/raidHud.css`.
 - Right-click = item menu, double-click = quick move (never silently displaces equipped items — `inventory/parts/DropResolver.tryAutoPlace`). Merge overflow stays on the cursor (`DragState.held`).
 - Hold-to-pin screens use the `ui:cursorHold` ring (`src/ui/hud/CursorHoldGauge.ts`) and the escape stack.

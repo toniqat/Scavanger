@@ -174,8 +174,18 @@ windows never show the stash (`showContainer` clears `hubMode`), so container do
 ## Bag grid
 
 - `getBagSize()` = equipped `def.bag`, else `BAG_DEFAULT_COLS × BAG_DEFAULT_ROWS`. All bags are 5 columns
-  (`data/bags.csv`). The frame is `BAG_FRAME_ROWS` (tallest bag); padding rows are not drop targets
-  (`GridView.setFrameRows`, off in the craft layout).
+  (`data/bags.csv`). The Tab window draws **exactly those rows** (2026-09-18 user decision): the card, not the grid,
+  is what matches the equipment column (`.inv-panel-grids { align-self: stretch }`), and a bag longer than that column
+  grows the card by its extra rows. `BAG_FRAME_ROWS` (tallest bag; padding rows are not drop targets —
+  `GridView.setFrameRows`) is left to `TradeGrids` alone, where the bag stands next to the 24-row 창고.
+- 무게 · `가방 내 가치` · 보유 크레딧 sit at the **bottom of the grid's right-hand column** (`.inv-bag-side` —
+  quick rose · pouch · `.inv-bag-readouts`), not in a full-width band under the grid. In the stacked layout
+  (raid < 1280 px, ship < 1600 px) that column drops below the grid, so it reads as before.
+- **창고가 함께 설 때만 옛 높이**: the ship Tab (`.inv-root.is-hub`, ≥ 1600 px) keeps the row height the 12-row frame
+  used to force, by putting it on the stash grid instead — `min-height: calc(var(--inv-bag-frame-rows) * (var(--inv-cell)
+  + 2px) + 86px)`, the 86 px being the 머리 · 무게 · 가치 띠 that used to sit under that frame. Measured against a HEAD
+  worktree (2026-09-18): stash pane 758 / 662 / 546 px at 1920×1080 · 1920×900 · 1280×760 — the same as before, and the
+  raid / container windows keep the new compact height.
 - `changeBag()`: resize; displaced bag placed first; in-bounds items keep cells, the rest auto-place; overflow goes
   to `throwToWorld` (ship: stash first). Refused (via `snapshot` / `restore`) only when the displaced bag itself
   cannot be placed.
@@ -404,8 +414,8 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 
 Older: `git log -- src/inventory`.
 
+- 2026-09-18 — Tab 가방: the fixed 12-row frame is gone (grid = equipped bag), the card stretches to the equipment column, and 무게 · 가치 · 크레딧 moved into the grid's right-hand column bottom (`.inv-bag-side` / `.inv-bag-readouts`). Where the 창고 stands beside it (ship Tab ≥ 1600 px) the row keeps its old height to the pixel — the frame's height moved onto the stash grid as a `min-height` (`--inv-bag-frame-rows`).
 - 2026-09-17 — `TradeGridsView.previewExternalAt` / `clearExternalPreview` (shared contract, add-only): the cell-footprint highlight for an item dragged in from a furniture screen, same hit test and rule as `placeExternalAt`.
 - 2026-09-17 — 무한 상자 double-click puts the item into the stash first while the stash shows (ship), then the bag (`takeFromCatalog`; failure toast `창고와 가방에 공간이 없습니다`).
 - 2026-09-17 — The Tab window's `기업` screen tab is hidden (and `setTab('corp')` / `openScreen('corp')` fall back to 인벤토리) until any corp reaches 신뢰도 Lv.1 (`CORP_ACCESS_REP_LEVEL`); re-evaluated live on `meta:repChanged` / `meta:loaded` (`Screens.corpTabLocked`, `onCorpAccessChanged`).
 - 2026-09-16 — `CREDITS` pill removed; bag footer = small `가방 내 가치 n C` (left) + current credits `n C` (right); Tab / Escape popups / R / X ignored while the messenger is open over the window.
-- 2026-09-16 — Craft cells no longer paint the bench-level requirement over the thumbnail (only the detail's hold button says it — `CraftPanel.build`, `.inv-craft-locktag` gone), an uncraftable cell is dimmed much harder (`.inv-craft-cell.is-locked` / `.is-bench-locked`), and `표본` is its own filter chip (`FILTER_GROUPS`, split out of `bio` = `재배`) and its own 무한 상자 tab (`CATALOG_TABS`).

@@ -223,9 +223,13 @@ export function sameProfileDoc(a: unknown, b: unknown): boolean {
 /* ── 2026-09-12: 가방 틀 · 자동 정렬 · 필터 (사용자 결정) ─────────────────────────────────────────────── */
 
 /**
- * Rows the 가방 **box** is always drawn at: the longest bag in `data/bags.csv` (or the no-bag default). The bag panel
- * keeps this size whatever is equipped and a bigger bag fills more of it with cells — read from the data, so adding
- * a longer bag grows the frame with it.
+ * Rows a 가방 **box** is drawn at when it has to stand next to a taller grid: the longest bag in `data/bags.csv`
+ * (or the no-bag default) — read from the data, so adding a longer bag grows the frame with it.
+ *
+ * **2026-09-18 (사용자 결정)**: the Tab window (raid · ship · container looting) no longer uses it — its bag grid is
+ * exactly the equipped bag and the **card** is what stretches to the equipment column (`inventory.css`
+ * `.inv-panel-grids { align-self: stretch }`). Only `ui/TradeGrids.ts` still frames the bag, where the 창고 pane
+ * beside it is 24 rows tall and an unframed bag would look like a stub.
  */
 export const BAG_FRAME_ROWS: number = (() => {
   let rows = BAG_DEFAULT_ROWS;

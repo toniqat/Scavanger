@@ -586,7 +586,8 @@ try {
     return {
       isCraft: document.querySelector('.inv-root').classList.contains('is-craft'),
       equip: css('.inv-equip'), quick: css('.inv-quick'), tabs: css('.inv-root .scr-tabs'),
-      foot: css('.inv-panel-bag > .inv-foot'), craftBtn: css('.inv-bag-craft'),
+      // 2026-09-18: 가치 줄은 격자 오른쪽 열(`.inv-bag-side > .inv-bag-readouts`) 안이라 가방 패널의 직속 자식이 아니다
+      foot: css('.inv-panel-bag .inv-foot'), craftBtn: css('.inv-bag-craft'),
       // 2026-09-14 (사용자 결정): `모두 수리` 는 작업대 헤더가 아니라 **가방 필터 줄 맨 왼쪽**(`.inv-repair-open-btn`)이다
       repairBtn: document.querySelector('.inv-repair-open-btn') ? !document.querySelector('.inv-repair-open-btn').hidden : null,
     };

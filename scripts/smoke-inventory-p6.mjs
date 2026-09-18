@@ -329,8 +329,8 @@ try {
   ok(grid.cells === 300, `stash grid re-rendered at 10×30 (${grid.cells} cells)`);
   ok(grid.scrolls && /\/ 300/.test(grid.count), `stash panel scrolls and shows / 300 (${grid.count})`);
 
-  /* ── 2026-09-12: 가방 틀 · 자동 정렬 · 필터 ───────────────────────────── */
-  console.log('bag frame · auto sort · filter');
+  /* ── 2026-09-12: 가방 틀 · 자동 정렬 · 필터 (2026-09-18: 틀 폐지 — 격자 = 장착한 가방, 카드가 장비 열 높이) ── */
+  console.log('bag box · auto sort · filter');
   const frame = await page.evaluate(() => {
     const sys = window.__game.getSystem('inventory'), g = sys.getGrid('bag');
     const bagDefs = window.__game.ctx.loot.getAllItemDefs().filter((d) => d.bag);
@@ -338,13 +338,19 @@ try {
     const maxRows = Math.max(...bagDefs.map((d) => d.bag.rows));
     // 2026-09-14: 칸 한 변은 창 높이를 탄다 (`inventory/ui/labels.gridCellForHeight`) — 54 를 적어 두지 않는다
     const cell = parseFloat(getComputedStyle(el).getPropertyValue('--inv-cell'));
+    const rect = (sel) => Math.round(document.querySelector(sel).getBoundingClientRect().height);
     return { allFive: bagDefs.every((d) => d.bag.cols === 5), cols: g.cols, rows: g.rows, cells: el.querySelectorAll('.inv-cell').length, cell,
       // offsetHeight, not the bounding rect: the window's open transition (`.inv-layout` scale 0.985) shrank 670 → 660 mid-tween
-      h: el.offsetHeight, want: maxRows * (cell + 2) - 2, maxRows };
+      h: el.offsetHeight, want: g.rows * (cell + 2) - 2, maxRows,
+      // 2026-09-18 (사용자 결정): 높이를 장비 열에 맞추는 것은 **카드**다 (격자가 아니라) — 둘 다 줄 높이를 받는다
+      cardH: rect('.inv-panel-grids'), equipH: rect('.inv-equip'),
+      readoutsInSide: !!document.querySelector('.inv-bag-side > .inv-bag-readouts > .inv-weight') };
   });
   ok(frame.allFive, 'every bag def is 5 columns wide (data/bags.csv)', JSON.stringify(frame));
   ok(frame.cells === frame.cols * frame.rows && frame.h === frame.want,
-    `the bag box is always ${frame.maxRows} rows tall; only the ${frame.cols}×${frame.rows} real cells are drawn`, JSON.stringify(frame));
+    `the bag box is exactly the equipped bag (${frame.cols}×${frame.rows}); the ${frame.maxRows}-row frame is TradeGrids only`, JSON.stringify(frame));
+  ok(Math.abs(frame.cardH - frame.equipH) <= 1, '가방 카드 높이 = 장비 열 높이 (줄 높이를 함께 받는다)', JSON.stringify(frame));
+  ok(frame.readoutsInSide, '무게 · 가치 · 크레딧은 격자 오른쪽 열 안에 있다 (`.inv-bag-side > .inv-bag-readouts`)');
   const sortRun = await page.evaluate(() => {
     const ctx = window.__game.ctx, sys = window.__game.getSystem('inventory'), g = sys.getStash();
     const units = () => { const m = {}; for (const p of g.items()) m[p.item.defId] = (m[p.item.defId] ?? 0) + p.item.qty; return m; };

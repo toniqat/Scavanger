@@ -466,9 +466,9 @@ try {
   }, HERB);
   const dragState = () => page.evaluate(() => { const d = window.__game.getSystem('inventory').ui?.drag; return d ? { held: !!d.held, qty: d.qty, uid: d.uid, from: d.from.kind, ghost: !!document.querySelector('.inv-ghost') } : null; });
   /*
-   * 2026-09-12 — **가방 격자는 스크롤 영역이다.** 격자는 늘 가장 긴 가방(`BAG_FRAME_ROWS` 12줄 = 670 px)의 틀로
-   * 그려지고 창이 짧으면 `.inv-bag-scroll` 안에서 스크롤한다 (1280×760 함선 창의 보이는 높이는 264 px = 4.7줄,
-   * 기본 가방은 6줄 336 px). 그래서 좌표를 격자 원점에서 **계산**하면 바닥 줄이 스크롤 밖 — 퀵슬롯 로제트 위를
+   * 2026-09-12 — **가방 격자는 스크롤 영역이다.** 창이 짧으면 격자가 `.inv-bag-scroll` 안에서 스크롤한다
+   * (1280×760 함선 창의 보이는 높이는 264 px = 4.7줄, 기본 가방은 6줄 336 px; 2026-09-18 부터 격자는 장착한
+   * 가방 크기 그대로다). 그래서 좌표를 격자 원점에서 **계산**하면 바닥 줄이 스크롤 밖 — 퀵슬롯 로제트 위를
    * 찍게 된다. 고른 칸(`.inv-cell`, `.inv-cells` 는 row-major CSS 격자다)을 **먼저 보이게 스크롤한 뒤 실제로
    * 재서**, 사람이 하는 것과 같게 만들고 바닥 줄에 정말 놓을 수 있는지까지 함께 본다.
    */
