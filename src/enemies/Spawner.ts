@@ -450,7 +450,7 @@ export class AmbientSpawner {
   eco: PlanetEcosystem | null = null;
   /**
    * 2026-09-14: bug difficulty (planet threat; `EnemySystem` puts it in at `world:ready` together with `eco` — by then `eco` is already the effective ecosystem).
-   * Only the two things weights cannot express are read here: the heavy-slot chance · patrol behemoths (`ambientOptsOf`) · the artillery dig-in chance (`bigMul`).
+   * Only the three things weights cannot express are read here: the heavy-slot chance · patrol behemoths (`ambientOptsOf`) · the artillery dig-in chance (`bigMul`).
    */
   tuning: BugThreatTuning = bugThreatTuning(1);
   private timer = 6;

@@ -24,7 +24,6 @@ import { becomeAlert, canPerceive, hasLineOfSight, hearRadiusOf, senseRadiusOf }
 import { beginInvestigation, endInvestigation } from '../ai/Investigate';
 import { ROVER_NOTICE_STOPPED_M } from '@/shared';
 import { BloodFX } from '../fx/BloodFX';
-import { EnemyXray } from '../fx/Xray';
 import { AcidProjectiles, type AcidHost, type AcidSlow } from '../fx/AcidProjectile';
 import { ShellProjectiles, type ShellHost } from '../fx/ShellProjectile';
 import { RogueGrenades, type GrenadeHost } from '../fx/RogueGrenade';
@@ -40,7 +39,7 @@ import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
 import type { EnemySystem } from '../EnemySystem';
 
-/* ── Phase 12: shot tracking · the recon x-ray (EnemyManagerRef) ────────── */
+/* ── Phase 12: shot tracking · distractions (EnemyManagerRef) ───────────── */
 /**
  * A local shot was fired (weapons calls this for every one). Authority: run the alert routine; a joined client
  * forwards it to the host as `shotq` instead (replicas have no AI). No-op on the training range.

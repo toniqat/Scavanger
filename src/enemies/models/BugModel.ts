@@ -356,7 +356,7 @@ export function createBugAnim(): BugAnim {
 const statusColor = new THREE.Color();
 /**
  * Emissive for hit flash + incinerate glow + shock spark on a per-rig chitin material (shared by bugs and rogues).
- * Returns false when nothing glows so the caller can reset the material once.
+ * With nothing glowing it clears the emissive itself, and only while it is not already black — callers never reset it.
  */
 export function statusEmissive(mat: THREE.MeshStandardMaterial, a: BugAnim, flashR: number, flashG: number, flashB: number, flashMul: number): void {
   const glow = a.writhe * (0.32 + 0.18 * Math.abs(Math.sin(a.time * 17)));

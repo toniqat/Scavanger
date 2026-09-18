@@ -401,7 +401,8 @@ export class RogueDropDirector {
     const world = ctx.world!;
     const seed = dropSeed(world.seed, id);
     const points = world.scatterPoints(position, ROGUE_DROP_RADIUS, count, POD_MIN_GAP, seed);
-    if (points.length === 0) return false;       // with too few spots, only that many come down
+    if (points.length === 0) return false;       // not one clear spot → the wave is dropped entirely
+    // fewer spots than asked for is fine: the drop is sized to `points.length`, so only that many come down
     const drop = this.begin(id, position, points.length, ROGUE_DROP_ETA_S, points, seed);
     this.waves++;
     ctx.bus.emit('rogueDrop:incoming', { dropId: id, position: drop.position.clone(), count: drop.count, boss: false, eta: ROGUE_DROP_ETA_S });

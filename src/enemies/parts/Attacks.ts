@@ -1,7 +1,8 @@
 /**
  * src/enemies/parts/Attacks.ts — **the attacks enemies make**.
  *
- * The acid spit · the rogue's gun · artillery shells (interceptable) · rogue grenades · the toxic suicide burst. All of it
+ * The acid spit · the rogue's gun · artillery shells (interceptable) · rogue grenades and the incendiary fire zone they leave
+ * (`onFireZoneTick`) · the spewer's death burst (`acidBurst`) · the toxic suicide burst. All of it
  * is decided **on the host alone**, the result goes out as an `ee` event, and each client only replays the FX in `parts/RemoteFx.ts`.
  */
 import * as THREE from 'three';
