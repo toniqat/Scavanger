@@ -58,7 +58,7 @@ Read the log first when something fails — a check that fell out of a timing wi
 
 | Smoke | Symptom | Reason |
 |---|---|---|
-| `smoke-phase3` | `timeout waiting for laser ended` | While the orbital-laser window runs at `timeScale 4`, a newly spawned bug can kill the player; the raid ends and the call list is cleared |
+| `smoke-phase3` | `timeout waiting for laser ended` | While the orbital-laser window runs at `timeScale 4`, a newly spawned bug can kill the player; the raid ends and the call list is cleared. **Not always a flake:** measured 2026-09-18 at `f23f444` it was red **3 / 3** (two serial runs plus one against the parent's `src/ui`), and the logged state is `phase: "hub"` with an empty `calls` — the raid was already over. See `docs/TODO.md` B-31 |
 | `smoke-rogue-v2` | grenade explosion timing · `no clear+flat spot found` | On rolls with no open, flat spot the rogue never sees the player — re-run alone (`--only`) |
 | `smoke-phase4` | bug↔rogue damage exchange | Faction-clash timing — the exchange does not always happen inside the watched window |
 | `smoke-hazard` | 「50초마다 하나씩 더 피어오른다」 (erupted 1) · 「피어오른 발생지 수 = 도형 수」 (2) | The spore sources bloom on a wall-clock schedule (`GROVE_ERUPT_GAP_S`), so under the full 4-lane load of `verify:all` the second bloom can fall outside the watched window. Red only in `verify:all` (2026-09-18, `117abe5`), **57/57 alone** — re-run it on its own |
