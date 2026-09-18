@@ -6,7 +6,7 @@
  * the loader that carries those tables over, the types and the `ctx.meta.npc` (`NpcQuestRef`) contract. The rules (offering · progress ·
  * committing · rewards) are implemented by meta/.
  *
- * Owner: shared/ (the loader and its checks were agent B's — owned by meta). Consumers: meta (the engine) · ui (the messenger · the map panel · toasts) · housing (the mining unlock gate — `MetaRef.getQuestState`).
+ * Owner: shared/ (the loader and its checks); the rules that read them are owned by meta. Consumers: meta (the engine) · ui (the messenger · the map panel · toasts) · housing (the mining unlock gate — `MetaRef.getQuestState`).
  */
 import type { CorpId } from './meta';
 import type { StructureKind, WeaponClass } from './types';

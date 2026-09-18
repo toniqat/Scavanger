@@ -23,7 +23,8 @@ import { keyLabel } from './Keybinds';
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export interface KeycapOptions {
-  /** A held key — `.kc-hold` on a keyboard key, the accent colour + a chevron over the button on the mouse glyph. */
+  /** A held key — `.kc-hold`, which draws the chevron over the top edge. On the mouse glyph the pressed button is
+   *  additionally painted in the accent colour instead of white (the glyph itself draws no chevron). */
   hold?: boolean;
 }
 
@@ -50,8 +51,8 @@ export function mouseGlyphButtonOf(codeOrLabel: string): MouseGlyphButton | -1 {
  *  - the inside of the wheel is always **filled dark** (`WHEEL_HOLE`). A lit left / right slot is painted up to the middle
  *    line, so leaving the wheel empty lets the white slot bleed into the wheel and the wheel disappears. When the wheel
  *    itself is the lit slot it is filled white / accent.
- *  - the hold chevron moved to the **centre** of the lit slot (for the left · right slots, the middle of the body below the
- *    wheel) and its stroke was thickened.
+ *  - (superseded the same day by the 2nd pass, see the header) the hold chevron moved to the **centre** of the lit slot and
+ *    its stroke was thickened. The glyph draws no chevron any more — only the fill colour changes.
  *  - the key label (`LMB` …) goes into `<title>` — the glyph keycap's `textContent` stays the same as the old letter keycap,
  *    so every place a smoke · a debug read as `.keycap` text still matches (the assistive name is given separately by the
  *    keycap's `aria-label`). */
@@ -64,7 +65,8 @@ const WHEEL_HOLE = 'rgba(8, 10, 12, 0.88)';
 const GLYPH_LABEL: readonly string[] = ['LMB', 'MMB', 'RMB'];
 const SVG_CACHE = new Map<string, string>();
 
-/** The mouse glyph as an SVG string (cached). With `hold` the lit slot is the accent colour and takes the chevron below. */
+/** The mouse glyph as an SVG string (cached). With `hold` the lit slot is painted in the accent colour instead of white —
+ *  the chevron is not drawn here but by `.keycap.kc-hold::before` (2026-09-15 2nd pass, see the header). */
 export function mouseGlyphSvg(button: MouseGlyphButton, hold = false): string {
   const key = `${button}|${hold ? 1 : 0}`;
   const hit = SVG_CACHE.get(key);

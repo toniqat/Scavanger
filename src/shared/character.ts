@@ -195,7 +195,7 @@ export function makeCharacterProfile(c: NewCharacter): PlayerProfile {
 
 /**
  * Plants a new character into a slot. Any save left in that slot is cleared by the caller beforehand with
- * `deleteSlot` (the creation window only opens on an empty slot, so it is usually empty already). false when the
+ * `deleteSlot` (the creation window only opens on an empty slot, so it is usually empty already). `null` when the
  * write fails — a browser whose storage is blocked.
  */
 export function createCharacterInSlot(slot: SlotId, c: NewCharacter): PlayerProfile | null {

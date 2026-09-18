@@ -127,8 +127,8 @@ constructor before any `init`). Nested: `ctx.net.profile` / `social` / `rooms` /
 ## Recent changes
 
 Last 5 only — older: `git log -- src/shared`.
+- 2026-09-19 — Doc-comment fixes found by the English translation (B-19): `keycap.mouseGlyphSvg` / `KeycapOptions.hold` no longer claim the glyph draws the chevron (`.keycap.kc-hold::before` does) · `createCharacterInSlot` documents its `null` return, not `false` · `npc.ts` header dropped a stale parallel-session agent assignment.
 - 2026-09-18 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, csv names and quoted `docs/DECISIONS.md` headings kept verbatim in backticks, no string literal touched.
 - 2026-09-18 — `types.ts` (add-only): `NestEggSpot` + `WorldRef.getNestEggSpots` (nest egg positions; `nest` is the **pad** index, not a `getNestPositions()` hole index) · `WorldRef.raycastBlast` (glass-blocking ray) · `EnemyType 'bug_egg'` + `EnemyRef.isEgg` · optional `includeProps` on `EnemyManagerRef.queryNear`.
 - 2026-09-18 — `explosion.ts` (body only, no export change): `lineClear` now casts `WorldRef.raycastBlast` instead of `raycast`, so **glass blocks a blast / melee even after it is broken** (a room with one window no longer leaks artillery damage). Low cover is untouched — it was never `passRays`.
 - 2026-09-18 — `explosion.ts` (add-only): `lineClear` · `blastReachesBody` · `meleeReachesBody` — explosions and melee stop at walls, roofs and floors (rays cast from the body toward the blast centre); constants `BLAST_LOS_FEET_M` · `_CHEST_FRAC` · `_HEAD_FRAC` · `_LIFT_M` · `_SLACK_M` · `MELEE_LOS_SLACK_M`.
-- 2026-09-17 — `explosion.ts` (add-only): `explosionDamageRange(damage)` → `{min: floor(damage × EXPLOSION_OUTER_MUL), max}` for tooltip ranges; `EXPLOSION_OUTER_MUL` 0.6 → 0.5.
