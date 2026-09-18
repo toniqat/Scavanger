@@ -236,8 +236,8 @@ export function placeTram(inst: TramInst, path: RailPath, speed: number, hash: S
  * order is this folder's `update` (world) → player · enemies, so a body is at its position one frame ago, but the
  * deck-height line filters first, so a lagging rider is never hit.
  */
-export function updateTramHit(game: GameContext | null, inst: TramInst, speed: number, dt: number): void {
-  void dt;
+export function updateTramHit(game: GameContext | null, inst: TramInst, speed: number): void {
+  // No dt — every cooldown here is an absolute deadline read off `game.time` (`TramInst.hitUntil`).
   if (!game || speed < TRAM_HIT_SPEED_MIN) return;
   const now = game.time;
   const hitUntil = inst.hitUntil;

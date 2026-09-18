@@ -544,7 +544,7 @@ export class Hazard implements HazardRef {
   get debugPlan(): Readonly<HazardPlan> | null { return this.plan; }
   /** The value a smoke uses to check that the plan reproduces from the same seed. */
   static debugPlanFor(seed: number, candidates: readonly HazardKind[], spots: ReadonlyArray<{ x: number; z: number }>): HazardPlan | null {
-    return planHazard(new Random(seed >>> 0).fork('hazard'), candidates, spots);
+    return planHazard(new Random(seed >>> 0).fork(HAZARD_FORK), candidates, spots);
   }
 }
 

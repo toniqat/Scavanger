@@ -157,9 +157,6 @@ function buildStairs(
     if (need === n && b === baseY) break;
     n = need; baseY = b;
   }
-  const total = Math.max(0.4, deckTop - baseY);
-  void total;
-
   /* 2026-09-11 — **a ramp collider** (`structures/parts/Stairs`). The steps are still drawn as lumps rising out of the
    * terrain, but what is walked on is one ramp from the deck edge (`halfD`) to the far end (`halfD + n × depth`) — no
    * jumping up a step at a time (user's request, "stairs that glide"). The count `n` only decides **how far they reach**. */

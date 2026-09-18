@@ -378,7 +378,7 @@ export class Rails {
     }
 
     placeTram(inst, path, speed, this.hash);
-    updateTramHit(ctx, inst, speed, dt);
+    updateTramHit(ctx, inst, speed);
 
     if (host && ctx?.isMultiplayer && ctx.net) {
       this.netTimer -= dt;

@@ -7,7 +7,7 @@ export { generateLayout, padClearance, nearestPad, type WorldLayout, type Pad, t
 export { PLATFORM_HEIGHT, PLATFORM_RADIUS } from './Pads';
 export { Gather } from './Gather';
 export { planetSoil, type PlanetSoil } from './soil';
-export { Structures, BASEMENT_KEY_DEF } from './Structures';
+export { Structures } from './Structures';
 export { Rails } from './Rails';
 export { boxContainsXZ, boxPushOut, boxRadius, rayBox, BOX_HEADROOM } from './obb';
 export { Fog } from './Fog';

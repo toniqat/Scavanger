@@ -433,6 +433,7 @@ gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — �
 
 Last 5 only — older: `git log -- src/world`.
 - 2026-09-19 — Comment corrections found while translating (B-20): 광맥 `kind` is `'mineral'` (`Gather.ts` + rule 4 here — no `addSkillXp` exception), `Fog.ts` toast list, the `BARRIER` / `PIT_WALL_H` / `PIT_NORTH_RIM_H` / slat checks re-derived from `fenceHeight` 2.025, retired `BACKSTOP` wording, `pollSafeGround` count, `Containers.markOpened` doc retargeted, tram `consolePos`. The unread `vein` flags on `Gather`'s `Spot` / `Node` went with it — nothing read them.
+- 2026-09-19 — Dead code removed (B-21): `Hazard.debugPlanFor` uses `HAZARD_FORK` instead of the literal, `Platform.buildStairs`'s unused `total`, `updateTramHit`'s unused `dt` parameter, `BASEMENT_KEY_DEF` (constant + `index.ts` re-export — nothing imported it; the id lives in `structures.csv`).
 - 2026-09-18 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels kept verbatim in backticks, no string literal touched.
 - 2026-09-18 — Tram: constant body orientation (no 180° flip on `dir`, which teleported riders across the car), a driver console at **each** end (`TRAM_CONSOLE_IDS`, same `applyStart`), double-ended body, cabin containers removed.
 - 2026-09-18 — Specimen gather sites retired: `planets.csv` `sampleNodes` 0 · `samples` empty on all five planets (`specimen.ts` and the columns stay — data-driven, `nodes = 0` means none).

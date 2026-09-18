@@ -41,12 +41,10 @@ import { GlassSet, type WindowSpec } from './structures/parts/Glass';
 import { ScanWave } from './structures/parts/ScanWave';
 import { pickTier, structureRow } from './structures/model';
 
-/**
- * The item def id of the basement key. Since 2026-09-12 **the source is the `key` column of `data/structures.csv`**
- * and this module does not read the constant — it is kept because `world/index.ts` has been exporting the name (the
- * id itself is unchanged for old-save compatibility).
- */
-export const BASEMENT_KEY_DEF = 'key_basement';
+/* 2026-09-19: the `BASEMENT_KEY_DEF` constant is gone. Since 2026-09-12 the key id's source is the `key` column of
+   `data/structures.csv`, nothing in this module read the constant, and the only thing left holding it up was
+   `world/index.ts` re-exporting a name no folder imported (outside code goes through `ctx.world`). The id
+   `key_basement` itself is unchanged — it lives in the csv. */
 
 /** The kind of locked door — it only splits the prompt · toast wording (the rules are the same). */
 type DoorKind = 'basement' | 'locked';
