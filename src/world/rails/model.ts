@@ -173,7 +173,13 @@ export interface MovingPart {
   oy: number;
 }
 
-/** One tram's live state. `Rails` holds exactly one and `rails/parts/Tram` runs it. */
+/**
+ * One tram's live state. `Rails` holds exactly one and `rails/parts/Tram` runs it.
+ *
+ * 2026-09-18 (user's decision) — **there are no cabin containers.** The tram is transport and the farming spot is the
+ * platform (`parts/Platform`'s containers are unchanged). A moving container means reviving the whole
+ * `ContainerSpec.dynamic` branch, so start here when putting them back (`ContainerSet` already knows dynamic).
+ */
 export interface TramInst {
   def: TramDef;
   root: THREE.Group;
@@ -181,10 +187,6 @@ export interface TramInst {
   /** Every deck collider references **the same object** — fixing it in place changes all of them at once. */
   vel: THREE.Vector3;
   /**
-   * 2026-09-18 (user's decision) — **there are no cabin containers.** The tram is transport and the farming spot
-   * is the platform (`parts/Platform`'s containers are unchanged). A moving container means reviving the whole
-   * `ContainerSpec.dynamic` branch, so start here when putting them back (`ContainerSet` already knows dynamic).
-   *
    * The two **live** cab console positions (`Interactable.position` is exactly these objects).
    * Index 0 = the local +X end, 1 = the local −X end — the body never turns, so **either end starts it**.
    */

@@ -182,9 +182,10 @@ Box math is used only when `o.box` is set; cylinder code paths are separate.
      `mineral.ts`, **not** through `@/items` `getTierTable`, whose `RARITY_ORDER_LOOT` deliberately cuts at 5 rarities —
      the vein is the one path allowed to roll `mythic`. The skill is a **multiplier** on the weights above the lowest
      allowed rarity, so a rarity the threat row zeroes stays impossible at any 채광 level.
-  4. **It does not emit `gather:collected`** and raises `mining` through `ProgressionRef.addSkillXp` instead: `GatherNodeKind`
-     has no vein value (the node carries `'sample'`, what it yields), and that event can only point at 원예 / 제작.
-     When `GatherNodeKind` gains `'mineral'`, drop the exception and map it in `ProgressionSystem` like the others.
+  4. **The skill is 채광, and it is reached the ordinary way.** The vein has its own `GatherNodeKind` value `'mineral'`,
+     so it emits `gather:collected {kind:'mineral'}` exactly like the other five and `ProgressionSystem`'s one handler
+     picks 채광 from the kind — `Gather` never calls `ProgressionRef.addSkillXp` itself. The only difference from the
+     others is **when `defId` is decided** (at harvest, so the event carries the id just rolled).
 - **Glass blocks blasts, broken or not (2026-09-18, user decision 「창은 깨졌어도 폭발을 막고, 낮은 엄폐물은 기존대로」).**
   A broken pane keeps its collider but turns `passRays`, so `raycast` walks straight through a window frame — which let
   artillery hurt a player standing in the **middle of a room** that happened to have one window. `raycastBlast` is the same
@@ -431,8 +432,7 @@ gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — �
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world`.
+- 2026-09-19 — Comment corrections found while translating (B-20): 광맥 `kind` is `'mineral'` (`Gather.ts` + rule 4 here — no `addSkillXp` exception), `Fog.ts` toast list, the `BARRIER` / `PIT_WALL_H` / `PIT_NORTH_RIM_H` / slat checks re-derived from `fenceHeight` 2.025, retired `BACKSTOP` wording, `pollSafeGround` count, `Containers.markOpened` doc retargeted, tram `consolePos`. The unread `vein` flags on `Gather`'s `Spot` / `Node` went with it — nothing read them.
 - 2026-09-18 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels kept verbatim in backticks, no string literal touched.
 - 2026-09-18 — Tram: constant body orientation (no 180° flip on `dir`, which teleported riders across the car), a driver console at **each** end (`TRAM_CONSOLE_IDS`, same `applyStart`), double-ended body, cabin containers removed.
 - 2026-09-18 — Specimen gather sites retired: `planets.csv` `sampleNodes` 0 · `samples` empty on all five planets (`specimen.ts` and the columns stay — data-driven, `nodes = 0` means none).
-- 2026-09-18 — Explosions and melee no longer pass a window: `WorldSystem.raycastBlast` (glass blocks whether broken or not, `GLASS_OBSTACLE_KIND`; tutorial ghost fence unaffected) and `shared/explosion.lineClear` switched to it.
-- 2026-09-18 — Bug nest eggs became enemies: `Nests` stops drawing the `nest_eggs` mesh and publishes `getEggSpots()` → `WorldRef.getNestEggSpots()` (`nest` = pad index); no crates within `NEST_CRATE_CLEAR_M` of a nest and the nest crate ring is gone.

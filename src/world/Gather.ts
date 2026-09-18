@@ -189,11 +189,8 @@ interface Spot {
    * as a grove mushroom (the ecosystem density assertion breaks right there). The planting side marks it.
    */
   grove?: boolean;
-  /**
-   * 2026-09-16: the vein. `kind` cannot tell it apart — `GatherNodeKind` has no vein value, so it uses `'sample'`
-   * (the closest thing to true, since mining it yields a specimen). The placing side marks it.
-   */
-  vein?: boolean;
+  /* 2026-09-16: **the vein needs no marker of its own** — unlike the grove mushroom above it has its own
+     `GatherNodeKind` value, so `kind === 'mineral'` is the whole test (`build` reads exactly that). */
 }
 
 interface Node {
@@ -217,8 +214,6 @@ interface Node {
    * The order is fixed: core → mineral.
    */
   bonus: readonly NodeBonus[];
-  /** 2026-09-16: is it a vein (the same meaning as `Spot.vein`). */
-  vein?: boolean;
   /**
    * 2026-09-16: the vein's **collider**. A vein is a rock that blocks a body, so it goes into the hash — and leaves it
    * when the vein is mined away (the mesh must not shrink to nothing and leave an invisible wall behind).
@@ -675,7 +670,6 @@ export class Gather {
         x: s.x, y, z: s.z, yaw, scale, anim: -1, pending: false, pendingAt: -Infinity,
         interactable: null as unknown as Interactable,
         bonus,
-        vein: isVein,
       };
       /* Only the vein carries a collider (the other nodes are grass · piles and are walked through). One cylinder — the
          drawn outcrop is roughly axisymmetric, so it does not disagree with the silhouette (§4.4: a collider measures

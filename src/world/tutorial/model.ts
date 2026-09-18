@@ -340,9 +340,10 @@ export const PIT_WALL_T = 0.6;
 /**
  * The pit walls' height (m, **measured from the deck top** — from inside the pit it is 3.4 m, 0.9 more). User's decision 「about 2.5 m」.
  *   - **Cannot be climbed**: jump 1.20 + the step-up ledge 0.9 = 2.10 < 2.5 (the same arithmetic as the `BARRIER` check).
- *   - **A grenade cannot get out**: the top of a trajectory thrown horizontally over the fence is 1.805 m above the deck (the
- *     `BARRIER` check), so it hits the 2.5 m wall and slides to its foot. It is lower than the liftoff camera (y −5.9 = deck
- *     +4.1 in the `SHIP_POS` check — 2026-09-16 ship hill), and 11 m away in x to begin with.
+ *   - **A grenade cannot get out**: a grenade only reaches the pit by coming **over the fence** (`BARRIER.fenceHeight` 2.025 — since
+ *     2026-09-17 that takes a slightly raised throw, the `BARRIER` check), and by the pit the arc is already falling. These walls
+ *     stand `PIT_WALL_H` − `BARRIER.fenceHeight` = **0.475 m higher** than the line it came in on, so it hits the wall and slides
+ *     to its foot. It is lower than the liftoff camera (y −5.9 = deck +4.1 in the `SHIP_POS` check — 2026-09-16 ship hill), and 11 m away in x to begin with.
  */
 export const PIT_WALL_H = 2.5;
 /**
@@ -351,9 +352,11 @@ export const PIT_WALL_H = 2.5;
  * pit floor runs straight into the cliff edge, grenades roll out and the androids walk out. Why **a lip and not a wall (2.5 m)**:
  * this face is the one from the 2026-09-15 decision 「the face a grenade thrown over the fence comes in through · the face the
  * androids are seen through the fence on」. A 2.5 m wall would hide a chest inside the pit (deck +0.27) from eyes standing
- * against the fence (deck +1.55), and would catch the top of a horizontal throw's trajectory (deck +1.805) too. A deck-height
- * lip is below that line of sight (about deck +0.9 at the pit's north end), and 0.9 m = `PROP_STEP_UP_MAX`, so **a grenade (a
- * small body) cannot pass** while people and enemies step up (the `PIT_DEPTH` comment). To make it a wall, raise only this value.
+ * against the fence (deck +1.55) — the sight line runs down through the slats at 7.3° at most (the `BARRIER` check) — and it
+ * would catch the incoming grenade too: the arc has to top `BARRIER.fenceHeight` (deck +2.025) to get over the fence at all and
+ * is falling from there, well under 2.5. A deck-height lip is below both (about deck +0.9 at the pit's north end), and
+ * 0.9 m = `PROP_STEP_UP_MAX`, so **a grenade (a small body) cannot pass** while people and enemies step up (the `PIT_DEPTH`
+ * comment). To make it a wall, raise only this value.
  */
 export const PIT_NORTH_RIM_H = 0;
 /** The x of the right-hand cliff edge = the outer face of the pit's east wall. To its right (beyond the fence) there is no floor. */
@@ -739,8 +742,9 @@ export const FALL_RULES: readonly FallRuleVolume[] = [
  *   `solidFarM` … length − `solidNearM`    **a horizontal-slat blind fence** (height `fenceHeight`) — the far side shows between the slats
  *   length − `solidNearM` … length         concrete
  *
- * **The fence looks half-height but cannot be climbed** (2026-09-15 2nd pass, user's decision — 「low enough to throw over easily, but
- * not climbable」). The drawn fence is `fenceHeight` (1.35 = half the old 2.7) and the collider is **two layers** (`parts/Dressing.buildBarrier`):
+ * **The fence looks low but cannot be climbed** (2026-09-15 2nd pass, user's decision — 「low enough to throw over easily, but
+ * not climbable」; raised again on 2026-09-17 — the `fenceHeight` comment). The drawn fence is `fenceHeight` (2.025) and the
+ * collider is **two layers** (`parts/Dressing.buildBarrier`):
  *   lower  y 0 … `fenceHeight`             an ordinary rotated OBB — it blocks people · enemies · bullets · grenades alike.
  *   upper  y `fenceHeight` … `blockHeight` the same rotated OBB with `passRays` + `passSmall` on, a **ghost band**
  *         (world-internal flags on `SpatialHash.ObstacleEntry` — the ones a broken window frame uses):
@@ -749,16 +753,21 @@ export const FALL_RULES: readonly FallRuleVolume[] = [
  * The seam between the two blocks **overlaps** by `BARRIER_GHOST_OVERLAP` (0.05) — on exactly the same line, floating-point error
  * can drop a point on that line out of both (the same reason `TILE_OVERLAP` exists).
  *
- * **Is the far side of the diagonal visible** (drawing and judgement measured separately — the judgement is blocked only by the 1.35 block below):
- *   - Player → android: eyes `EYE_STAND` 1.55, and the android's chest is the pit floor + 1.17 = deck **+0.27**, so the line of
- *     sight goes down. Standing **within 1.85 m** of the fence the line is above the fence top (1.35) and **clears it**; further
- *     back the line eases to under 6.2° and shows **between the slats** (vertical angle 7.0° — `SLAT_*` in `parts/Dressing`). The
- *     two ranges meet, so from anywhere he can see and **can shoot** (the line of sight is the ballistic line — `weapons/parts/AimLine`).
+ * **Is the far side of the diagonal visible** (drawing and judgement measured separately — the judgement is blocked only by the
+ * `fenceHeight` block below; the ghost band above it is `passRays`):
+ *   - Player → android: eyes `EYE_STAND` 1.55, **below the fence top** (2.025) since 2026-09-17 — so no stretch sees **over** it
+ *     any more and the far side shows only **between the slats** (vertical angle 10.4° — `SLAT_*` in `parts/Dressing`). The
+ *     android's chest is the pit floor + 1.17 = deck **+0.27** and the nearest one (A1) is **9.95 m** beyond the fence's far face,
+ *     so the line of sight runs down at atan(1.28 / 9.95) = **7.3°** standing against the fence and flattens further back — inside
+ *     the slat angle at every distance, so from anywhere he can see and **can shoot** (the line of sight is the ballistic line —
+ *     `weapons/parts/AimLine`).
  *   - Android → player: `Perception.hasLineOfSight` is eye → **chest**. The android's eye is the pit floor + 1.44 = deck **+0.54**,
- *     so the fence top (+1.35) is **0.81 m above** the eye while the player's chest (deck +1.17) is only **0.63 m** above it —
- *     the line never rises to 0.81, so it is **blocked at any distance** → it **cannot see or shoot** a player beyond the fence.
- *     ⚠ Not because of the pit (`PIT`) — without the pit either (eye = deck +1.44, the top 0.09 below it) the chest is 0.27 below
- *     the eye, so within 20 m of the fence it is always blocked. That is, **halving the height still does not open the enemy's line** (checked with the model, not measured in game).
+ *     so the fence top (+2.025) is **1.485 m above** the eye while the player's chest (deck +1.17) is only **0.63 m** above it —
+ *     the line never rises that far, so it is **blocked at any distance** → it **cannot see or shoot** a player beyond the fence.
+ *     ⚠ Not because of the pit (`PIT`) — without the pit either (eye = deck +1.44) the top stands 0.585 m **above** the eye while
+ *     the chest is 0.27 below it, so the line goes down and is blocked all the same. 2026-09-17 only widened that margin: at the
+ *     old 1.35 the top was 0.09 **below** the eye and it was the downward line onto the chest that still blocked it
+ *     (checked with the model, not measured in game).
  *     So this stretch is still **the player striking first**, and once the barrier's left gap is rounded it is the usual firefight.
  *
  * **Arithmetic check** (`near` (17, −116) · `far` (−8.5, −140)):
@@ -767,9 +776,11 @@ export const FALL_RULES: readonly FallRuleVolume[] = [
  *   - `near`'s x 17 is inside the right cliff wall's body (inner face 13.2 … outer face 18.4), so there is no gap between barrier and wall.
  *   - Its nearest end is z −116, so it starts 4 m behind the `wall` checkpoint band (−104 … −112).
  *   - **Cannot be climbed**: jump height `JUMP_SPEED² / 2g` = 7.6² / 48 = 1.20 m plus the step-up ledge `PROP_STEP_UP_MAX` 0.9 is still
- *     **2.10 m** < the ghost band top `blockHeight` 2.7 · concrete 3.0. (Had only the drawn 1.35 blocked, it would have been cleared exactly.)
- *   - **Thrown over**: even thrown **horizontally** from hand height 1.55 the trajectory tops out at 1.55 + 3.5²/(2×24) = **1.805 m** > 1.35,
- *     so no upward throw is needed (the old 2.7 needed 7.5° or more and landed that much further away). A grenade that gets over is stopped by the pit's south wall (`PIT_WALLS`).
+ *     **2.10 m** < the ghost band top `blockHeight` 2.7 · concrete 3.0. (The drawn fence alone would not do it — 2.10 clears `fenceHeight` 2.025.)
+ *   - **Thrown over**: thrown **horizontally** from hand height 1.55 the trajectory tops out at
+ *     1.55 + `GRENADE_THROW_LIFT`² / (2 × `GRAVITY`) = 1.55 + 3.5² / 48 = **1.805 m**, which the 2026-09-17 fence (2.025) now
+ *     **catches** — the apex has to come up 0.22 m, so it takes a **slightly raised** throw (that is the point of the raise; the
+ *     old 2.7 needed a far steeper one and landed that much further away). A grenade that gets over is stopped by the pit's south wall (`PIT_WALLS`).
  *   - **The thickness** 1.2 m (`halfT` 0.6) is because of grenades. A throwable moves its position each step and `resolveCollision`
  *     then pushes it out through the **nearer face**, so advancing more than half the barrier (0.6) + the body (0.08) = 0.68 m in one
  *     step pushes it out the far side. At 34 m/s, 0.68 m = **50 fps** or more blocks even a grenade thrown straight at it (the old
@@ -782,11 +793,11 @@ export const BARRIER = {
   halfT: BARRIER_HALF_T,
   /**
    * The **drawn** height of the fence. 2026-09-15 2nd pass, user's decision: 2.7 → **1.35** (half) — throwing over is the point of
-   * this stretch, and 2.7 could not be cleared by a horizontal throw (top 1.855). Blocking is `blockHeight`'s job instead.
+   * this stretch, and 2.7 could not be cleared by a horizontal throw (top 1.805). Blocking is `blockHeight`'s job instead.
    * 2026-09-17, user's decision: ×1.5 → **2.025**. A horizontal throw (top 1.805) now catches, and it takes **a slightly raised throw** to get over.
    * It is above standing eye height (1.55), so nowhere sees over the top; the far side shows only between the slats (vertical angle 10.4° — `SLAT_*` in `parts/Dressing`)
-   * (the angle onto an android's chest in the pit is 6.2° or less even standing against the fence). It is still below `blockHeight` 2.7 · `solidHeight` 3.0.
-   * The collider (the lower block's top) reads this value directly, so it rises with the drawing. The 1.35-based checks in the table below are the 2026-09-15 values.
+   * (the angle onto an android's chest in the pit is 7.3° at most, standing against the fence). It is still below `blockHeight` 2.7 · `solidHeight` 3.0.
+   * The collider (the lower block's top) reads this value directly, so it rises with the drawing. The arithmetic check above is written against this value.
    */
   fenceHeight: 2.025,
   /**

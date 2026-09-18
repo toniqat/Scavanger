@@ -8,7 +8,8 @@
  * client takes the host's mask through `fogq sync` (`fog sync {mask}` = base64 of `serialize()`).
  *
  * Landmark discovery is decided here too — the first time an extraction console · nest · crate · gather node
- * enters a lit cell it emits `fog:discovered`, and only landmarks (console · nest) raise a `ui:notify` toast.
+ * enters a lit cell it emits `fog:discovered`, and only the landmarks in `TOAST` below (extraction console · bug nest ·
+ * POI ruin) raise a `ui:notify` toast.
  * The map · world markers · the compass are all gated on `isDiscovered` alone.
  *
  * It is not built in the training range (`WorldSystem.fog === null`).

@@ -129,17 +129,17 @@ export class ContainerSet {
   /** 2026-09-11: opened-look sync — called when a door first opens on this client. */
   setOpenListener(cb: ((id: string) => void) | null): void { this.onOpened = cb; }
 
-  /**
-   * 2026-09-11: puts a container a squadmate opened into its **opened look** (the door animation only, no event and
-   * no contents). false when it is not in this set. The light pillar is gone, so this look is what says "somebody has
-   * already searched this".
-   */
   /** 2026-09-11 (C-57): a container's position (inside a tram, the `Vector3` that follows it every frame). null with none. */
   positionOf(id: string): THREE.Vector3 | null { return this.byId.get(id)?.spec.position ?? null; }
 
   /** 2026-09-16: the roll rules of container `id` (`WorldRef.crateLootOpts`) — `{ lockedRoom: true }` for a locked room, else undefined. */
   lootOpts(id: string): CrateLootOpts | undefined { return this.byId.get(id)?.spec.lockedRoom ? LOCKED_ROOM_LOOT : undefined; }
 
+  /**
+   * 2026-09-11: puts a container a squadmate opened into its **opened look** (the door animation only, no event and
+   * no contents). false when it is not in this set. The light pillar is gone, so this look is what says "somebody has
+   * already searched this".
+   */
   markOpened(id: string): boolean {
     const inst = this.byId.get(id);
     if (!inst) return false;

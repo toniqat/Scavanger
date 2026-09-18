@@ -174,7 +174,7 @@ export class TutorialWorld implements TutorialWorldRef {
   }
 
   /**
-   * 「may the player start again from the spot they are standing on now」 — three things are checked every frame.
+   * 「may the player start again from the spot they are standing on now」 — four things are checked every frame.
    *   ① **Outside a `kill` volume** — chasm 1's floor is 「where they fell」, not a respawn spot. **`clamp` (chasm 2's landing area) is
    *      not blocked**: it is the landing spot of a fall that is always survived and safe ground standing on the lower deck with both
    *      feet, so blocking the record there would make someone who died in that stretch climb the cliff and jump off again for no reason.

@@ -23,9 +23,9 @@ import {
  * hung below the ceiling was removed for the same reason (the head went through it).
  *
  * 2026-09-15 — the old 「collapsed wall」 (crossing the corridor, open only for 5 m in the middle) became the **diagonal barrier**
- * (`buildBarrier`). Every dimension and arithmetic check is in `model.ts`'s `BARRIER` · `BACKSTOP` comments.
+ * (`buildBarrier`). Every dimension and arithmetic check is in `model.ts`'s `BARRIER` · `PIT_WALLS` comments.
  *
- * 2026-09-15 2nd pass (user's decision) — the fence is drawn at **half height** (1.35) but the collider lays a `passRays` + `passSmall`
+ * 2026-09-15 2nd pass (user's decision) — the fence is drawn at **half height** (2.7 → 1.35, ×1.5 again on 2026-09-17) but the collider lays a `passRays` + `passSmall`
  * **ghost band** on top so only people are blocked (`BARRIER.blockHeight`). Every slat dimension is now derived from `BARRIER.fenceHeight`.
  * And since the last two androids stand in the **pit** (`model.ts`'s `PIT`, the ground is `parts/Ground.buildPit`), rubble inside the pit
  * went down to the height `pitSurfaceY` answers.
@@ -41,18 +41,18 @@ const FLAT_DEBRIS_H = 0.35;
 
 /*
  * The blind wire fence's drawing dimensions. **All of them derived from the height (`BARRIER.fenceHeight`)** — when the 2026-09-15 2nd pass
- * halved it 2.7 → 1.35, the old fixed sizes (slat 0.12 + gap 0.18, base 0.25) fitted only three slats.
- *   One pitch `SLAT_PITCH` = height / (`SLAT_COUNT` + 1) = 1.35 / 6 = **0.225** (the topmost pitch is where the rail and the wire go)
- *   Slat `SLAT_H` = 40 % of the pitch = 0.09, gap 0.135 → **the gap is 60 %**, so the far side is visible (the old ratio kept).
- *   Base `SLAT_BASE` = 80 % of the pitch = 0.18 → the top slat's top face 0.18 + 4 × 0.225 + 0.09 = **1.17 m**, the top rail 1.28 … 1.33 —
- *   all **below** the fence height 1.35, so the drawing does not disagree with the arc of a grenade thrown over it.
+ * halved it 2.7 → 1.35, the old fixed sizes (slat 0.12 + gap 0.18, base 0.25) fitted only three slats. 2026-09-17 raised it again
+ * (×1.5 → 2.025) and every number below followed on its own:
+ *   One pitch `SLAT_PITCH` = height / (`SLAT_COUNT` + 1) = 2.025 / 6 = **0.3375** (the topmost pitch is where the rail and the wire go)
+ *   Slat `SLAT_H` = 40 % of the pitch = 0.135, gap 0.2025 → **the gap is 60 %**, so the far side is visible (the 2026-09-15 ratio kept).
+ *   Base `SLAT_BASE` = 80 % of the pitch = 0.27 → the top slat's top face 0.27 + 4 × 0.3375 + 0.135 = **1.755 m**, the top rail 1.905 … 2.005 —
+ *   all **below** the fence height 2.025, so nothing drawn stands above the collider that judges a grenade thrown over it.
  * The slats are two layers at ±`SLAT_FACE` (0.55) from the barrier centreline — 5 cm inside the collider faces (±0.6), so a bullet mark stands just in front of a slat.
- * Both layers' slats sit at the same height so their gaps line up, and the vertical angle that sees through a gap goes up to atan(0.135 / 1.1) = **7.0°**.
- *   ⚠ That angle decides 「is the far side visible from a distance」: the angle onto an android in the pit (chest = deck +0.27) is 6.2°
- *   from 2.31 m behind the fence and gets smaller further back, so it is **seen between the slats**; closer than 2.31 m the sight line rises
- *   above the fence's top face and it is **seen over** it — the two stretches meet, so it is visible wherever one stands (`model.ts`'s `BARRIER` arithmetic check).
- *   2026-09-17: height ×1.5 (2.025) — pitch 0.3375 · slat 0.135 · gap 0.2025 → gap angle **10.4°**. The top face is above eye height (1.55), so nowhere is it
- *   seen over any more, but even standing against it the sight line is ≤ 6.2°, so it is **seen between the slats from anywhere**.
+ * Both layers' slats sit at the same height so their gaps line up, and the vertical angle that sees through a gap goes up to atan(0.2025 / 1.1) = **10.4°**.
+ *   ⚠ That angle decides 「is the far side visible from a distance」: since 2026-09-17 the top face is above standing eye height (1.55), so the far
+ *   side is never **seen over** it any more. The sight line onto an android in the pit (chest = deck +0.27, the nearest 9.95 m beyond the fence)
+ *   runs down at **7.3°** at most — standing right against the fence — and flattens further back, so it stays inside the gap angle at every
+ *   distance and the far side is **seen between the slats from anywhere** (`model.ts`'s `BARRIER` arithmetic check).
  */
 const SLAT_COUNT = 5, SLAT_T = 0.04;
 const SLAT_PITCH = BARRIER.fenceHeight / (SLAT_COUNT + 1);
@@ -184,14 +184,16 @@ export class Dressing {
   }
 
   /**
-   * The diagonal barrier (2026-09-15) — a **horizontal blind wire fence** between two concrete blocks, and the **concrete barrier** behind the androids on the far side.
+   * The diagonal barrier (2026-09-15) — a **horizontal blind wire fence** between two concrete blocks, plus the rubble at the foot
+   * of the pit walls. (The concrete `BACKSTOP` that used to stand behind the androids was retired in the 2026-09-15 3rd pass —
+   * what stops a grenade now is the rock wall around the pit, `model.ts`'s `PIT_WALLS` built by `parts/Ground.buildPit`.)
    *
    * Every piece is placed in barrier coordinates (`barrierPoint(along, depth)`): turning `box()`'s local +X by `BARRIER_MESH_YAW` gives the
    * barrier direction, and local +Z becomes the near-side normal (rotateY(θ) sends +Z to (sin θ, cos θ) = (−0.685, 0.728)).
    * The collider passes the **mesh yaw** into `addBox`, which flips the sign there (comment at the end of the file).
    *
-   * The fence's collider is not the slats but **the whole block**, and from the 2026-09-15 2nd pass it is **two layers** — the lower one (the drawn
-   * 1.35 m) blocks bullets and enemy sight as well, and the upper one (up to `blockHeight`) is a `passRays` + `passSmall` ghost that blocks only people and enemies (the table in the `BARRIER` comment).
+   * The fence's collider is not the slats but **the whole block**, and from the 2026-09-15 2nd pass it is **two layers** — the lower one (up to
+   * the drawn `BARRIER.fenceHeight`) blocks bullets and enemy sight as well, and the upper one (up to `blockHeight`) is a `passRays` + `passSmall` ghost that blocks only people and enemies (the table in the `BARRIER` comment).
    */
   private buildBarrier(
     hash: SpatialHash, solid: THREE.BufferGeometry[], metal: THREE.BufferGeometry[], flat: THREE.BufferGeometry[], rng: Random,
