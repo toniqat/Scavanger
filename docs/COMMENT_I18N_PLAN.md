@@ -95,10 +95,10 @@ Per folder:
    - **Validate every pair before writing anything** (count them all in memory, then write). A script that writes as
      it goes leaves the file half-translated when pair 40 misses, and it is then no longer re-runnable: a later pair
      may match text an earlier pair produced.
-   - **Keep the file's line endings.** Most files here are CRLF in the working tree. Read bytes, remember whether
-     `\r\n` was present, normalise to `\n` for matching, and put it back on write. (Writing LF into a CRLF file also
-     works — `core.autocrlf=true` normalises on `git add` — but it prints a warning per file and makes the working
-     tree inconsistent for the next tool that reads it.)
+   - **Keep each file's own line endings.** The tree is legitimately mixed, so there is no folder-wide convention to
+     apply: read the bytes, remember whether CRLF was present, normalise for matching, and write the same convention
+     back. Never judge this from `git show HEAD:<file>` — that blob is always LF — and never normalise a file you were
+     not asked to touch. The reasoning is under **Splitting a folder**, lead check 1.
    - **The commonest way to break code with a "comment-only" edit is to eat the closing `*/`.** It happens when the
      last Korean line of a block and its `*/` are replaced together by English prose that forgot the `*/`. The block
      then swallows the next declaration. `tsc` does **not** catch it (a missing interface field is not a type error),
@@ -172,7 +172,8 @@ here on will hit the same kind, so leave them and do not re-litigate it per fold
 
 ### Splitting a folder across parallel agents
 
-`src/shared` (4,194 lines) was done this way on 2026-09-18 and it works, with three conditions:
+Three folders were done this way on 2026-09-18 — `src/shared` (4,194 lines, 7 agents), `src/world` (2,988, lead + 6)
+and `src/enemies` (2,300, lead + 6) — and it works, with three conditions:
 
 1. **The lead fixes the glossary first** ([§7](#7-glossary)) and hands it to every agent. Without it each agent coins
    its own words and the folder reads in six voices — the reason this section exists at all.
@@ -181,11 +182,20 @@ here on will hit the same kind, so leave them and do not re-litigate it per fold
 3. **Agents do not run `git add` / `commit` / `typecheck` / `verify`.** The lead runs each once, at the end, over
    everything. An agent that commits its own bundle makes the comment-only proof impossible to run as one check.
 
+**How to cut the bundles**, as the `src/world` and `src/enemies` passes settled it: six agent bundles of roughly
+300–500 lines each, **and a seventh for the lead** — the contract-ish files the rest of the folder points at
+(`WorldSystem` · `layout` · `obb` · `hull`; `EnemySystem` · `Enemy` · `model` · `EnemyTypes`). The lead owns the
+glossary anyway, and translating the folder's centre is what makes the glossary it hands out measured rather than
+guessed. Cut along **subject lines, not file size** (tutorial · rails + rover · hazard + fog · models + FX · AI core):
+an agent that owns one subject never has to read another agent's file to know what a word means. A file far larger
+than the rest (`world/tutorial/model.ts`, 500 lines) gets a bundle to itself. Both folders finished in one pass with
+no agent deaths at this size.
+
 Ask each agent to report: its final count per file, any quoted-label-only line it left, **any term it had to coin**
 (fold those into §7), and any comment it could not resolve from the code.
 
-**Two things the lead has to check afterwards, because an agent cannot see them** (both happened in the `src/world`
-pass, 6 agents):
+**Two things the lead has to check afterwards, because an agent cannot see them** (the first bit both passes, the
+second `src/world`):
 1. **Line endings — and what the `src/enemies` pass corrected about this.** `git show HEAD:<file>` is the *normalised*
    blob (always LF with `core.autocrlf=true`, which this repo uses and has no `.gitattributes` to override), so
    comparing against it proves nothing. Read the working-tree bytes:
@@ -214,8 +224,9 @@ and the reports are not.
 `npm run verify` picks smokes from the touched folders. Run `node scripts/verify.mjs --dry-run` first to see the
 selection.
 
-- **A normal feature folder** costs roughly what the pilot did (16 scripts, ~6 min). Every remaining queue item
-  except `src/core` is one of these.
+- **A normal feature folder** costs 16–25 scripts and ~6 min: 16 for the pilot, 25 for `src/world`, 25 for
+  `src/enemies` — whose folder map pulls in **`e2e-mp`**, so a red there is a real two-client run, not a unit check.
+  Every remaining queue item except `src/core` is one of these.
 - **`src/core`** still selects **everything** (~17 min, 96 scripts), as `src/shared` and `src/main.ts` did — those two
   were done together in one commit on 2026-09-18 so that run happened once.
 - **`server/`** is covered by `npm run typecheck:server` and `npm run net:selftest`.
@@ -235,6 +246,22 @@ something else. The `src/shared` run went red twice and neither was the change:
 
 Both cost about half an hour to diagnose. Neither is a reason to change game code — and a comment pass reaches files
 that smokes import by hand, so expect the second one again whenever a folder holds a module a smoke mutates.
+
+**A red that survives a re-run is still not automatically yours.** The `src/world` pass went red three times and none
+of the three was the change: `smoke-phase3` was the flake already documented, `smoke-phase4` reproduced twice and then
+went green on a third serial run (a *new* flake symptom, now a row in [`docs/VERIFICATION.md`](VERIFICATION.md)), and
+`smoke-rover` reproduced every single time. Settle that last kind without reverting anything by **committing first,
+then running the one smoke against the parent's copy of the folder**:
+
+```
+git checkout HEAD~1 -- src/<folder>
+node scripts/verify.mjs --only smoke-<name> --no-typecheck
+git checkout HEAD -- src/<folder>
+```
+
+`smoke-rover` failed identically at the parent, which turned "my commit broke the rover" into `docs/TODO.md` B-22 (the
+assertion asks for two things it cannot tie to one enemy). Committing first is what makes that checkout safe — this
+repo does not use `git stash`.
 
 ---
 
@@ -334,13 +361,16 @@ them, do not translate them.
 
 - **Commit** per folder, paths given explicitly (`git add src/<folder>`), with the runner's `docs line:` as the
   `검증:` line. Commit messages stay Korean, like every other commit here.
-- **That folder's `README.md`**: one line at the top of `Recent changes`, drop the bottom one. Wording used so far:
-  > `- 2026-09-18 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels kept verbatim in backticks, no string literal touched.`
+- **That folder's `README.md`**: one line at the top of `Recent changes`, drop the bottom one — and the same line in
+  any sub-folder that has its own README (`world/structures`). Wording used so far:
+  > `- 2026-09-18 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.`
 - **Tick the row off** in §2, update §1's totals, and add any new intended exception to §1's table.
 - **A new term** you had to coin goes in [§7](#7-glossary) — that is what keeps the folders reading as one voice.
-- **A defect the translation uncovered but did not cause** (a doc that contradicts its code, a stale reference) goes
-  in [`docs/TODO.md`](TODO.md), not fixed in the translation commit — the commit has to stay provably comment-only.
-  The `src/shared` pass filed three as `B-19`.
+- **A defect the translation uncovered but did not cause** (a doc that contradicts its code, a stale reference, dead
+  code, a csv number copied into prose) goes in [`docs/TODO.md`](TODO.md), **not** fixed in the translation commit —
+  the commit has to stay provably comment-only. Filed so far: `B-19` (`src/shared`, 3), `B-20` · `B-21` (`src/world`,
+  7 + 4), `B-23` · `B-24` · `B-25` (`src/enemies`, 6 + 4 + 3). Reading a folder this closely is the most productive
+  defect hunt in the project — expect five to ten per folder, and keep filing rather than fixing.
 - **A gap the pass found in the verification net** goes in [`scripts/README.md`](../scripts/README.md).
 - Nothing goes in `docs/HISTORY.md` or `docs/DECISIONS.md` — the rule change is already recorded in `CLAUDE.md` §4.1,
   and per-folder progress is this file plus `git log`.
