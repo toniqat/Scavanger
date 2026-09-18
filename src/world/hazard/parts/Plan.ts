@@ -1,13 +1,13 @@
 /**
- * src/world/hazard/parts/Plan.ts — 이번 레이드의 재해 **추첨**.
+ * src/world/hazard/parts/Plan.ts — the hazard **draw** for this raid.
  *
- * 전부 미션 시드의 함수다: 종류 · 시작 시각 · 전선 방향 · 폭풍의 눈 중심 · 포자 발생지 자리까지.
- * 그래서 평상시 와이어가 없다 — 모든 클라이언트가 같은 월드를 같은 시드로 만들면 같은 계획이 나온다
- * (`Fog` 와 같은 철학). 늦게 합류한 사람만 `hzq sync` 로 이 계획을 받는다.
+ * Everything is a function of the mission seed: kind · start time · front direction · storm eye centre · spore
+ * source spots. That is why there is no wire in normal play — every client that builds the same world from the
+ * same seed gets the same plan (the same philosophy as `Fog`). Only a late joiner takes this plan by `hzq sync`.
  *
- * 2026-09-13 — **종류는 레이아웃보다 먼저** 정해진다 (`drawHazardKind`). 독성 포자 레이드는 강하 지점 · 탈출 패드 ·
- * 발생지 자리가 다른 재해와 반대라서다 (중앙 강하 · 중앙 발생지 · 외곽 패드). 종류 추첨은 여전히 루트 rng 의
- * `'hazard'` fork 의 첫 draw 이고 fork 는 부모를 전진시키지 않으므로, **같은 시드는 이 변경 전과 같은 종류**를 뽑는다.
+ * 2026-09-13 — **the kind is decided before the layout** (`drawHazardKind`): a spore raid puts the drop point · pads ·
+ * source spots the other way round (central drop · central sources · outer pads). The kind draw is still the root rng's
+ * `'hazard'` fork first draw and a fork never advances its parent, so **the same seed draws the same kind as before**.
  */
 import {
   HAZARD_FRONT_SPAWN_JITTER_RAD, HAZARD_FULL_S, MAP_SIZE, SPORE_CENTER_GROVE_GAP_M, SPORE_CENTER_RADIUS_M,
@@ -20,47 +20,47 @@ import { GROVE_RADIUS, type HazardPlan, type SporeSource, isFrontKind, pickStart
 
 const HALF = MAP_SIZE / 2;
 
-/** 재해 추첨이 쓰는 루트 rng 의 fork 이름. `drawHazardKind` 와 `Hazard.build` 가 **같은 이름**을 써야 같은 종류가 나온다. */
+/** The root-rng fork name the hazard draw uses — `drawHazardKind` and `Hazard.build` must pass **the same name**. */
 export const HAZARD_FORK = 'hazard';
 
-/** 군락은 강하 지점 · 탈출 패드에서 이만큼 떨어진 곳에만 선다 (드롭하자마자 독 안에 있으면 안 된다). */
+/** A grove stands only this far from the drop point · extraction pads (nobody may land straight into the poison). */
 const GROVE_PAD_CLEAR = 34;
-/** 군락끼리의 최소 간격(m). 한쪽에 몰리면 반대쪽이 끝까지 안전지대로 남는다. */
+/** Minimum gap (m) between groves. Bunched on one side, the other side stays a safe area to the end. */
 const GROVE_MIN_GAP = 130;
 
 /**
- * 2026-09-10 — **눈 덮인 지형에는 모래 폭풍이 오지 않는다** (사용자 결정). 같은 `front` 재해인 눈보라로
- * 갈아 끼운다: 도형 · 시작 시각 · 진행 방향은 그대로이고 그림(`data/hazards.csv`)만 바뀐다.
- * 추첨을 다시 하지 않으므로 **같은 시드는 여전히 같은 계획**이다.
- * (오늘의 `data/planets.csv` 는 툰드라 행성에 눈보라만 적어 두므로 이 규칙은 아직 발동하지 않는다 —
- *  csv 를 고치거나 새 눈 지형이 생겨도 규칙이 지켜지도록 코드에 못을 박아 둔 것이다.)
+ * 2026-09-10 — **a sandstorm never comes to snow-covered terrain** (user's decision). It is swapped for the
+ * blizzard, the other `front` hazard: zone · start time · travel direction stay, only the look
+ * (`data/hazards.csv`) changes. No second draw happens, so **the same seed still gives the same plan**.
+ * (Today's `data/planets.csv` lists only the blizzard on the tundra planet, so this rule never fires yet —
+ *  it is nailed into the code so the rule holds if the csv changes or a new snow biome appears.)
  */
 const SNOWY_BIOMES: ReadonlySet<string> = new Set(['tundra']);
 
-/** 후보에서 종류 하나 (`rng` 의 첫 draw — 후보가 하나면 draw 없음). 후보가 비었으면 null. */
+/** One kind out of the candidates (the first draw of `rng` — no draw with a single candidate). null when empty. */
 function pickKind(rng: Random, candidates: readonly HazardKind[], biomeId: string | null): HazardKind | null {
   if (candidates.length === 0) return null;
   const drawn = candidates.length === 1 ? candidates[0] : rng.pick(candidates);
-  // 눈 지형의 모래 폭풍 → 눈보라 (위 `SNOWY_BIOMES`). 추첨 뒤의 치환이라 시드 재현성은 그대로다.
+  // Sandstorm on snow terrain → blizzard (`SNOWY_BIOMES` above). A swap after the draw, so seed reproducibility stays.
   return drawn === 'sandstorm' && biomeId !== null && SNOWY_BIOMES.has(biomeId) ? 'blizzard' : drawn;
 }
 
 /**
- * 2026-09-13 — **레이아웃보다 먼저** 이번 레이드의 재해 종류만 뽑는다. `root` 는 월드의 루트 rng 이고 여기서 `'hazard'`
- * fork 를 새로 만든다 — `Hazard.build` 의 `planHazard` 가 같은 fork 로 같은 첫 draw 를 하므로 둘의 답이 늘 같다.
- * (종류가 독성 포자면 `generateLayout` 이 중앙 강하 · 외곽 패드로, `planGroveSpots` 가 중앙 군락으로 간다.)
+ * 2026-09-13 — draws only this raid's hazard kind, **before the layout**. `root` is the world's root rng and a fresh
+ * `'hazard'` fork is made here — `planHazard` in `Hazard.build` makes the same first draw on the same fork, so the two
+ * always answer the same. (On spores, `generateLayout` goes central drop · outer pads and `planGroveSpots` central.)
  */
 export function drawHazardKind(root: Random, candidates: readonly HazardKind[], biomeId: string | null = null): HazardKind | null {
   return pickKind(root.fork(HAZARD_FORK), candidates, biomeId);
 }
 
 /**
- * **거대 버섯 군락 자리**. `spores` 가 후보에 있는 행성이면 이번 레이드에 어떤 재해가 걸렸든 지형에 선다 —
- * 군락은 그 행성의 생태이지 재해의 부속이 아니다. 그래서 **전용 fork** 를 쓴다: 종류 추첨이 이 자리를
- * 밀지 않는다.
+ * **Giant mushroom grove spots**. On a planet whose candidates include `spores` they stand on the terrain whatever
+ * hazard this raid drew — a grove is that planet's ecology, not a part of the hazard. So they use a **dedicated
+ * fork**: the kind draw does not shift these spots.
  *
- * 2026-09-13: `central` = 이번 레이드가 독성 포자다 → 군락이 **맵 중앙**(`SPORE_CENTER_RADIUS_M` 안, 강하 지점에서
- * `SPORE_GROVE_SPAWN_GAP_M` 밖)에 선다. 포자가 중앙에서 외곽으로 퍼져 마지막 안전지대가 외곽의 탈출 패드 쪽이 된다.
+ * 2026-09-13: `central` = this raid is spores → the groves stand in the **map centre** (inside `SPORE_CENTER_RADIUS_M`,
+ * outside `SPORE_GROVE_SPAWN_GAP_M` of the drop point). Spores spread outward, so the last safe area is by the outer pads.
  */
 export function planGroveSpots(bctx: BuildCtx, rng: Random, central = false): Array<{ x: number; z: number }> {
   const want = Math.max(1, rng.int(SPORE_SOURCES_MIN, SPORE_SOURCES_MAX));
@@ -68,17 +68,17 @@ export function planGroveSpots(bctx: BuildCtx, rng: Random, central = false): Ar
 }
 
 /**
- * 후보 중 하나를 뽑아 이번 레이드의 계획을 만든다. 후보가 비었으면(재해 없는 행성) null.
+ * Draws one of the candidates and builds this raid's plan. null when the candidates are empty (a hazard-free planet).
  *
- * `groveSpots` 는 `planGroveSpots` 가 이미 잡아 둔 군락 자리다 — `spores` 가 걸리면 그 자리가 그대로
- * 발생지가 된다 (사용자 요구: 포자는 거대 버섯 군락에서 피어오른다).
+ * `groveSpots` are the grove spots `planGroveSpots` already took — when `spores` is drawn those spots become the
+ * sources as they are (user's request: spores bloom from the giant mushroom groves).
  *
- * `spawn` (2026-09-13) = 강하 지점. 주면 모래 폭풍 · 눈보라 전선이 **강하 지점이 붙은 맵 가장자리 쪽에서** 들어온다
- * (± `HAZARD_FRONT_SPAWN_JITTER_RAD`). 없으면(스모크의 `debugPlanFor`) 옛날처럼 완전 무작위 방향이다. 어느 쪽이든
- * draw 수는 같다.
+ * `spawn` (2026-09-13) = the drop point. Given, the sandstorm · blizzard front enters **from the map edge the drop
+ * point sits against** (± `HAZARD_FRONT_SPAWN_JITTER_RAD`). Without it (a smoke's `debugPlanFor`) the direction is
+ * fully random as it used to be. The draw count is the same either way.
  *
- * `delayS` (2026-09-14, 정보상 「기상 예보」) = 시작 시각에 그대로 더하는 초. **굴림 뒤에** 더하므로 draw 수는 같고,
- * 시작 시각이 고정인 독성 포자(`SPORE_START_S`)에도 똑같이 걸린다 (사용자 결정: 재해 전부).
+ * `delayS` (2026-09-14, intel 「기상 예보」) = seconds added straight to the start time. Added **after the roll**, so the
+ * draw count stays, and it applies to spores too, whose start time is fixed (`SPORE_START_S`) (user's decision: every hazard).
  */
 export function planHazard(
   rng: Random, candidates: readonly HazardKind[], groveSpots: ReadonlyArray<{ x: number; z: number }>,
@@ -87,7 +87,7 @@ export function planHazard(
   const kind = pickKind(rng, candidates, biomeId);
   if (kind === null) return null;
 
-  // 독성 포자만 시작 시각이 고정이다 (사용자 요구: 6분). 나머지는 30초 단위로 6~8분 사이.
+  // Spores alone have a fixed start time (user's request: 6 minutes). The rest fall between 6 and 8 minutes in 30 s steps.
   const rolled = kind === 'spores' ? SPORE_START_S : pickStartSeconds(rng.next());
   const startsAt = rolled + Math.max(0, Math.round(delayS));
 
@@ -100,14 +100,14 @@ export function planHazard(
   };
 
   if (isFrontKind(kind)) {
-    /* 2026-09-13 — 전선은 **강하 지점 쪽 가장자리**에서 들어온다. 예전에는 방향이 완전 무작위라, 재해 시작 1분 뒤에도 강하
-     * 지점이 전선 뒤에 있을 확률이 2.7 %, 2분 뒤 25 % 뿐이었다 (실측 2000 시드 — 폭풍의 눈은 시작 순간 47 %). 전선은 맵
-     * 반대편 밖에서 시작해 초당 2 m 남짓으로 오므로 대개 분대를 만나기 전에 레이드가 끝났고, 그것이 "모래 폭풍 · 눈보라를
-     * 본 적이 없다" 의 정체였다. 강하 지점은 시드의 함수(`layout.spawn`)이므로 와이어가 필요 없다. */
+    /* 2026-09-13 — the front enters from **the edge the drop point sits against**. The direction used to be fully random: a
+     * minute after the start the drop point was behind the front only 2.7 % of the time, 25 % after two (measured over 2000
+     * seeds — the storm eye is 47 % at the first instant). The front started outside the far side at about 2 m/s, so the raid
+     * usually ended before it met the squad — that was "never having seen a sandstorm". Drop point = seed (`layout.spawn`), no wire. */
     const jitter = rng.range(-1, 1);
     let ang: number;
     if (spawn && Math.hypot(spawn.x, spawn.z) > HALF * 0.3) {
-      // 강하 지점이 붙은 가장자리에서 맵 안쪽을 향하는 방향 (전선의 진행 방향 = 그 가장자리의 안쪽 법선)
+      // Direction from the edge the drop point sits against into the map (the front's travel direction = that edge's inward normal)
       const base = Math.abs(spawn.x) >= Math.abs(spawn.z)
         ? (spawn.x > 0 ? Math.PI : 0)
         : (spawn.z > 0 ? -Math.PI / 2 : Math.PI / 2);
@@ -121,7 +121,7 @@ export function planHazard(
   }
 
   if (kind === 'storm_eye') {
-    // 눈의 중심은 맵 안쪽 60 % 안 — 가장자리에 붙으면 마지막 안전지대가 절벽 위가 된다.
+    // The eye centre stays inside the map's inner 60 % — against an edge the last safe area would be on a cliff.
     const r = HALF * 0.6 * Math.sqrt(rng.next());
     const ang = rng.range(0, Math.PI * 2);
     plan.eyeX = Math.cos(ang) * r;
@@ -129,8 +129,8 @@ export function planHazard(
     return plan;
   }
 
-  // ── 독성 포자: 발생지 = 이미 잡아 둔 거대 버섯 군락 ─────────────────────────────────────────
-  // 군락을 한 곳도 못 세운 시드라면 포자가 피어오를 자리가 없다 — 이번 레이드는 재해 없이 간다.
+  // ── Spores: the sources are the giant mushroom groves already taken ─────────────────────────
+  // A seed that stood up no grove has nowhere for spores to bloom — this raid runs with no hazard.
   if (groveSpots.length === 0) return null;
   const spots = groveSpots;
   const radius = coverRadius(spots);
@@ -138,7 +138,7 @@ export function planHazard(
   const full = plan.startsAt + HAZARD_FULL_S;
   plan.sources = spots.map((s, i) => {
     const eruptAt = plan.startsAt + i * SPORE_SOURCE_INTERVAL_S;
-    // 늦게 피어오르는 발생지도 `HAZARD_FULL_S` 안에 다 자라야 안전지대가 남지 않는다
+    // A source that blooms late must still grow fully within `HAZARD_FULL_S` or a safe area is left
     const growthMps = Math.max(SPORE_GROWTH_MPS, plan.sourceRadius / Math.max(1, full - eruptAt));
     const src: SporeSource = { x: s.x, z: s.z, eruptAt, growthMps };
     return src;
@@ -147,9 +147,9 @@ export function planHazard(
 }
 
 /**
- * 발생지 자리 `want` 개. 후보를 여럿 뽑아 **이미 놓인 것들에서 가장 멀리 떨어지는** 것을 고르는
- * best-of-k 라 한쪽에 몰리지 않는다. 자리는 완만하고 비어 있어야 하며 (군락 줄기가 콜라이더로 들어간다)
- * 강하 지점 · 탈출 패드에서도 떨어져 있어야 한다.
+ * `want` source spots. It draws several candidates and keeps the one **furthest from those already placed**, a
+ * best-of-k, so they never bunch up. A spot must be gentle and free (a grove stem becomes a collider) and must
+ * keep its distance from the drop point · extraction pads as well.
  */
 function placeSources(bctx: BuildCtx, rng: Random, want: number): Array<{ x: number; z: number }> {
   const out: Array<{ x: number; z: number }> = [];
@@ -162,20 +162,20 @@ function placeSources(bctx: BuildCtx, rng: Random, want: number): Array<{ x: num
       if (!isSpotFree(bctx, x, z, GROVE_RADIUS, { maxSlope: 0.28, padExtra: GROVE_PAD_CLEAR, limit })) continue;
       let near = Infinity;
       for (const p of out) near = Math.min(near, Math.hypot(p.x - x, p.z - z));
-      if (near < GROVE_MIN_GAP && out.length > 0) near -= 1e6;   // 간격을 못 지키는 후보는 사실상 탈락
+      if (near < GROVE_MIN_GAP && out.length > 0) near -= 1e6;   // a candidate that breaks the gap is effectively rejected
       if (near > bestScore) { bestScore = near; bestX = x; bestZ = z; }
     }
-    if (bestScore === -Infinity) break;      // 이 시드에서는 더 놓을 자리가 없다
+    if (bestScore === -Infinity) break;      // no spot left to place on this seed
     out.push({ x: bestX, z: bestZ });
   }
   return out;
 }
 
 /**
- * 2026-09-13 — 독성 포자 레이드의 **중앙 군락**. `placeSources` 와 같은 best-of-k 이되 후보를 맵 중심에서
- * `SPORE_CENTER_RADIUS_M` 원반 안에서만 뽑고, 강하 지점(`layout.spawn`, 중앙에 있다)에서 `SPORE_GROVE_SPAWN_GAP_M`
- * 밖이어야 하며, 군락끼리 간격은 `SPORE_CENTER_GROVE_GAP_M` 이다. 원반 안에 자리가 없으면(구조물 · 선로 · 둥지가 가운데를
- * 차지한 시드) 반경을 1.4배 · 1.8배로 넓혀 다시 본다.
+ * 2026-09-13 — the **central groves** of a spore raid. The same best-of-k as `placeSources`, but candidates are drawn
+ * only inside a `SPORE_CENTER_RADIUS_M` disc around the map centre, must be outside `SPORE_GROVE_SPAWN_GAP_M` of the
+ * drop point (`layout.spawn`, which is central), and the gap between groves is `SPORE_CENTER_GROVE_GAP_M`. With no spot
+ * in the disc (a seed whose centre is taken by a structure · rail · nest) it retries at ×1.4 and ×1.8 the radius.
  */
 function placeCentralSources(bctx: BuildCtx, rng: Random, want: number): Array<{ x: number; z: number }> {
   const out: Array<{ x: number; z: number }> = [];
@@ -206,8 +206,8 @@ function placeCentralSources(bctx: BuildCtx, rng: Random, want: number): Array<{
 }
 
 /**
- * 이 배치에서 **맵의 어느 점이든 가장 가까운 발생지까지의 거리**. 발생지가 전부 이만큼 자라면 안전지대가
- * 하나도 남지 않는다. 33×33 격자 표본이면 8 m 단위 오차라 여유(+8 m)를 얹어 돌려준다.
+ * For this arrangement, **the distance from any point of the map to its nearest source**. Once every source has
+ * grown this far no safe area is left. A 33×33 grid sample errs by about 8 m, so a clearance (+8 m) is added.
  */
 function coverRadius(spots: ReadonlyArray<{ x: number; z: number }>): number {
   if (spots.length === 0) return 0;

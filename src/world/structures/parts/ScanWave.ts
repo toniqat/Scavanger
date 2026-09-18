@@ -1,14 +1,15 @@
 /**
- * src/world/structures/parts/ScanWave.ts — **옥상 맵 스캐너의 파동** (2026-09-11).
+ * src/world/structures/parts/ScanWave.ts — **the roof map scanner's wave** (2026-09-11).
  *
- * 사용자 요청: "옥상에서 맵 스캐너 상호작용 시, 정찰 임플란트처럼 넓은 범위로 퍼지는 파동을 발사하는 이펙트
- * (맵 범위만큼 퍼져야함)". 정찰 임플란트의 펄스(`implants/fx/ImplantFx.pulse` — 넓어지는 구 껍질)와 같은 말투로,
- * 스캐너 자리에서 **맵의 가장 먼 모서리까지** `STRUCTURE_SCAN_WAVE_S` 동안 퍼지는 구 껍질이다. 지형과 교차하는
- * 둥근 벽이 맵을 훑고 지나가며, 가장자리(프레넬)와 스캐너 높이 부근의 띠가 밝다.
+ * User's request: "interacting with the map scanner on the roof fires an effect that spreads out over a wide area
+ * like the recon implant (it has to reach as far as the map)". In the same voice as the recon implant's pulse
+ * (`implants/fx/ImplantFx.pulse` — a widening sphere shell): a sphere shell that spreads from the scanner's spot
+ * **to the map's farthest corner** over `STRUCTURE_SCAN_WAVE_S`. A round wall intersecting the terrain sweeps across
+ * the map, bright at the edge (fresnel) and in a band near the scanner's height.
  *
- * 광원은 만들지 않는다 (씬 광원 개수 규칙). 메시는 `build` 때 미리 만들어 둔다 — 셰이더 선컴파일(`world:ready` 의
- * `holdForScene`)이 숨은 메시까지 컴파일하므로 첫 스캔에서 멎지 않는다. 멀티에서는 모두의 화면에 퍼진다
- * (`Structures.applyScan` 이 누가 눌렀든 부른다).
+ * It creates no light (the scene point-light count rule). The mesh is built ahead of time in `build` — shader
+ * pre-compile (`holdForScene` on `world:ready`) compiles hidden meshes too, so the first scan does not stall. In
+ * multiplayer it spreads on everyone's screen (`Structures.applyScan` calls it whoever pressed).
  */
 import * as THREE from 'three';
 import { Layers, MAP_SIZE, STRUCTURE_SCAN_WAVE_S } from '@/shared';
@@ -71,10 +72,10 @@ export class ScanWave {
     }
   }
 
-  /** 지금 퍼지고 있는 파동 수 (디버그 · 스모크). */
+  /** How many waves are spreading right now (debug · smoke). */
   get activeCount(): number { let n = 0; for (const w of this.waves) if (w.active) n++; return n; }
 
-  /** `center` 에서 맵의 가장 먼 모서리까지 퍼지는 파동 하나. 풀이 차 있으면 가장 오래된 것을 다시 쓴다. */
+  /** One wave spreading from `center` to the map's farthest corner. With the pool full the oldest one is reused. */
   fire(center: THREE.Vector3): void {
     let w = this.waves.find((x) => !x.active);
     if (!w) w = this.waves.reduce((a, b) => (a.t >= b.t ? a : b));
@@ -97,7 +98,7 @@ export class ScanWave {
       if (!w.active) continue;
       w.t += dt;
       const p = Math.min(1, w.t / dur);
-      // 처음에 빠르게 튀어나가고 맵 끝으로 갈수록 느려진다 — 그래도 끝까지 간다
+      // Shoots out fast at first and slows toward the map edge — it still reaches the end
       const e = 1 - Math.pow(1 - p, 2.2);
       w.mesh.scale.setScalar(Math.max(0.5, w.rMax * e));
       w.mat.uniforms.uAlpha.value = Math.pow(1 - p, 0.8);

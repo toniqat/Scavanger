@@ -4,18 +4,20 @@ import { Random } from '@/shared';
  * Seeded 2D simplex noise + 3D gradient noise with fBm / ridged / domain-warp helpers.
  * Pure functions on typed arrays — no allocations in the hot path.
  *
- * 2026-09-11 (C-66): **같은 입력이면 예전과 비트 단위로 같은 값**을 내면서 빨라졌다. 월드 생성의 대부분이 `noise2`
- * (정점마다 20번 안팎)인데, 예전 `noise2` 는 바이트코드가 약 540 바이트라 V8 의 인라인 한도(460)를 넘어 **옥타브마다
- * 진짜 함수 호출**을 했다 (`--trace-turbo-inlining`: "reason 5 = too big"). 그래서
- *   ① 모서리 하나의 기여를 작은 `corner()` 로 떼어 `noise2` 를 약 350 바이트로 줄였고 (이제 호출부에 인라인된다),
- *   ② `fbm` · `ridged` 는 `noise2` 를 부르지 않고 **같은 커널을 루프 안에 풀어 쓴다** — `fbm` 을 품은 큰 함수
- *      (`Terrain` 의 높이 함수)에서 인라인 예산이 바닥나 옥타브마다 다시 호출로 떨어지는 일을 막는다.
- *   ③ 기울기는 `GRAD2[permMod12[k] * 2]` 두 번 건너뛰던 것을 생성자에서 `gx` · `gy`(Float64Array)로 펴 뒀다 —
- *      Float32 값을 double 로 옮겨 적은 것이라 읽히는 값이 같다. `2 * G2` 는 모듈 상수(2 곱은 정확하다).
- * **부동소수 연산의 순서와 피연산자는 한 줄도 바꾸지 않았다.** 커널 세 벌(`noise2` · `fbm` · `ridged`)은 글자까지
- * 같아야 하고, 고칠 때는 셋을 함께 고친 뒤 옛 구현과 비트 비교를 돌린다 (src/world/README.md `Rules` 의 C-66). 예:
- * `x0 - 1 + G2` 를 `x0 + G2 - 1` 로 바꾸면 600만 표본 중 1.6만 개가 1 ulp 씩 달라진다 — 콜라이더 · 레이아웃 · 멀티
- * 결정성이 전부 여기 기댄다.
+ * 2026-09-11 (C-66): faster while **giving bit-identical values for the same input**. Most of world generation is
+ * `noise2` (around 20 calls per vertex), and the old one compiled to ~540 bytes of bytecode — past V8's inlining limit
+ * (460), so it made a **real function call per octave** (`--trace-turbo-inlining`: "reason 5 = too big"). So
+ *   ① one corner's contribution moved into a small `corner()`, cutting `noise2` to ~350 bytes (it now inlines),
+ *   ② `fbm` · `ridged` do not call `noise2` but **unroll the same kernel inside the loop** — a big function holding an
+ *      `fbm` (`Terrain`'s height function) would otherwise run out of inlining budget and fall back to a call
+ *      per octave,
+ *   ③ the gradients, two hops through `GRAD2[permMod12[k] * 2]`, are flattened in the constructor into `gx` · `gy`
+ *      (`Float64Array`) — Float32 values copied into doubles, so the value read is the same. `2 * G2` is a module
+ *      constant (multiplying by 2 is exact).
+ * **Neither the order nor the operands of a floating-point operation changed by one line.** The three kernel copies
+ * (`noise2` · `fbm` · `ridged`) must match to the letter: fix all three together, then bit-compare against the old
+ * implementation (src/world/README.md `Rules`, C-66). Writing `x0 - 1 + G2` as `x0 + G2 - 1` moves 16,000 of 6,000,000
+ * samples by 1 ulp — colliders · layout · multiplayer determinism all rest on this.
  */
 
 const F2 = 0.5 * (Math.sqrt(3) - 1);
@@ -37,7 +39,7 @@ const GRAD3 = new Float32Array([
 export class Noise {
   private readonly perm = new Uint8Array(512);
   private readonly permMod12 = new Uint8Array(512);
-  /** (C-66) `GRAD2[permMod12[k] * 2]` / `[… + 1]` 를 k 로 바로 — 같은 값 (Float32 → double). */
+  /** (C-66) `GRAD2[permMod12[k] * 2]` / `[… + 1]` reached straight by k — the same value (Float32 → double). */
   private readonly gx = new Float64Array(512);
   private readonly gy = new Float64Array(512);
 
@@ -67,7 +69,7 @@ export class Noise {
     const ii = i & 255, jj = j & 255;
     let n = 0;
     n += corner(gx, gy, ii + perm[jj], x0, y0);
-    // (C-66) 예전 `x0 - i1 + G2` — i1 = 0 이면 `x0 - 0` 은 x0 그 자체라 `x0 + G2` 와 같은 비트다
+    // (C-66) The old `x0 - i1 + G2` — with i1 = 0, `x0 - 0` is x0 itself, so it is bit-identical to `x0 + G2`
     if (x0 > y0) n += corner(gx, gy, ii + 1 + perm[jj], x0 - 1 + G2, y0 + G2);
     else n += corner(gx, gy, ii + perm[jj + 1], x0 + G2, y0 - 1 + G2);
     n += corner(gx, gy, ii + 1 + perm[jj + 1], x0 - 1 + G2x2, y0 - 1 + G2x2);
@@ -83,14 +85,14 @@ export class Noise {
     const u = fade(x), v = fade(y), w = fade(z);
     const A = perm[xi] + yi, AA = perm[A] + zi, AB = perm[A + 1] + zi;
     const B = perm[xi + 1] + yi, BA = perm[B] + zi, BB = perm[B + 1] + zi;
-    /* 2026-09-09 — `lerp` 는 `(a, b, t)` 다. 여기서만 `(t, a, b)` 로 넣고 있어서 세 겹을 거치는 동안
-     * `w + (a − w) · b` 가 쌓였고, 결과가 **[-1, 1] 이 아니라 [-31, +52]** 였다 (측정값). 이 값을 쓰는 곳은
-     * `build.displace` 하나뿐이라 지형(`noise2` · `fbm` · `ridged`)은 멀쩡했지만, 소품 정점 몇 개가 원점에서
-     * 10 units 씩 튕겨 나갔다. 눈에는 가는 가시 하나로 보여서 오래 지나쳤는데, 2026-09-09 에 `Props.hullOf`
-     * 가 **바운딩 박스로 콜라이더를 만들기** 시작하면서 그 정점 하나가 소품 전체를 감싸는 반지름 10 m ·
-     * 높이 20 m 짜리 보이지 않는 원기둥이 됐다 — 걸어서 못 지나가고 총알이 허공에서 멈추던 그것이다.
-     * (C-66) 여기는 손대지 않았다 — 호출 수가 `noise2` 의 1/100 이고, 클로저 `g` 를 모듈 함수로 빼 재 보니
-     * 소품 단계가 빨라지지 않았다 (V8 이 이미 이 클로저를 인라인 · escape 분석으로 없앤다). */
+    /* 2026-09-09 — `lerp` takes `(a, b, t)`. Only here it was fed `(t, a, b)`, so across three levels
+     * `w + (a − w) · b` piled up and the result ran **[-31, +52] instead of [-1, 1]** (measured). The one place that
+     * reads this value is `build.displace`, so the terrain (`noise2` · `fbm` · `ridged`) was fine, but a few prop
+     * vertices were flung 10 units off the origin. It looked like one thin spike and went unnoticed for a long time,
+     * until `Props.hullOf` started **building colliders from the bounding box** on 2026-09-09 and that one vertex
+     * became an invisible cylinder of radius 10 m · height 20 m around the whole prop — the one nobody could walk
+     * past and bullets stopped in mid-air at. (C-66) This was left alone — it is called 1/100 as often as `noise2`,
+     * and pulling the closure `g` out into a module function measured no faster (V8 already inlines it away). */
     const g = (h: number, dx: number, dy: number, dz: number) => {
       const k = pm12[h] * 3;
       return GRAD3[k] * dx + GRAD3[k + 1] * dy + GRAD3[k + 2] * dz;
@@ -108,7 +110,7 @@ export class Noise {
     let sum = 0, amp = 1, norm = 0, fx = 1;
     for (let o = 0; o < octaves; o++) {
       const px = x * fx, py = y * fx;
-      // ── noise2(px, py) — 커널 사본 (C-66, 위 머리 주석) ──
+      // ── noise2(px, py) — kernel copy (C-66, the header comment above) ──
       const s = (px + py) * F2;
       const i = Math.floor(px + s), j = Math.floor(py + s);
       const t = (i + j) * G2;
@@ -133,7 +135,7 @@ export class Noise {
     let sum = 0, amp = 0.5, norm = 0, fx = 1, weight = 1;
     for (let o = 0; o < octaves; o++) {
       const px = x * fx, py = y * fx;
-      // ── noise2(px, py) — 커널 사본 (C-66, 위 머리 주석) ──
+      // ── noise2(px, py) — kernel copy (C-66, the header comment above) ──
       const s = (px + py) * F2;
       const i = Math.floor(px + s), j = Math.floor(py + s);
       const t = (i + j) * G2;
@@ -168,9 +170,9 @@ export class Noise {
 }
 
 /**
- * (C-66) simplex 모서리 하나의 기여. 예전 `if (tt > 0) { tt *= tt; n += tt * tt * (…) }` 를 그대로 옮겼고, 기여가
- * 없으면 +0 을 돌려준다 — 받는 쪽 `n` 은 `0 + …` 로 시작해 −0 이 될 수 없으므로 `n += 0` 은 n 을 바꾸지 않는다.
- * `tt > 0` 비교를 그대로 둔 것은 NaN 도 예전처럼 "기여 없음" 으로 가게 하려는 것이다.
+ * (C-66) One simplex corner's contribution. The old `if (tt > 0) { tt *= tt; n += tt * tt * (…) }` moved here as it
+ * was, returning +0 for no contribution — the receiving `n` starts at `0 + …` and can never be −0, so `n += 0` leaves
+ * n alone. The `tt > 0` comparison is kept so that NaN still goes to "no contribution" exactly as before.
  */
 function corner(gx: Float64Array, gy: Float64Array, k: number, x: number, y: number): number {
   let tt = 0.5 - x * x - y * y;

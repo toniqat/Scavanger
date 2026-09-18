@@ -1,24 +1,24 @@
 /**
- * src/world/preview.ts — **레이아웃만** 계산하는 순수 경로 (정보상 지도 미리보기, 2026-09-14).
+ * src/world/preview.ts — the pure path that computes **the layout only** (the intel broker's map preview, 2026-09-14).
  *
- * 정보상 화면은 「살 지역」을 실제 레이아웃으로 흐릿하게 보여 준다 (사용자 결정). 그러려면 메시도 지형도 없이
- * `generateLayout` 만 돌려야 하는데, **그 앞단**(재해 종류 · 바이옴 · 탈출 패드 수)이 `WorldSystem.generate` 안에
- * 흩어져 있었다. 여기 `planLayoutFor` 하나로 모으고 `generate` 도 그것을 부른다 — 미리보기와 진짜 맵이
- * 두 벌의 코드로 갈라지면 화면이 조용히 거짓말을 한다 (CLAUDE.md 「열지 않고 미리 보는 것은 여는 것과 같은
- * 함수여야 한다」).
+ * The intel broker's screen shows 「the area to buy」 blurred, over the real layout (user's decision). That means
+ * running `generateLayout` alone with no mesh and no terrain, but **the stage in front of it** (hazard kind · biome ·
+ * extraction pad count) was scattered through `WorldSystem.generate`. It is gathered here into one `planLayoutFor`,
+ * which `generate` calls too — a preview and the real map split into two copies of the code make the screen lie
+ * silently (CLAUDE.md 「previewing contents must equal opening」).
  *
- * ⚠ 스트림 규약: 루트 rng 는 이 단계에서 **한 칸도 전진하지 않는다** — 재해 종류는 `'hazard'` fork 의 첫 draw 이고
- * 레이아웃 · 패드 수도 각자 fork 다 (`Random.fork` 는 부모를 건드리지 않는다). 그래서 `generate` 는 자기 루트 rng 를
- * 그대로 들고 다음 단계(지형 · 소품)로 간다.
+ * ⚠ Stream convention: the root rng **does not advance one step** in this stage — the hazard kind is the first draw of
+ * the `'hazard'` fork, and the layout · pad count each have their own fork (`Random.fork` never touches the parent).
+ * So `generate` carries its own root rng untouched into the next stage (terrain · props).
  *
- * THREE 를 쓰지 않는다.
+ * Does not use THREE.
  */
 import { MAP_SIZE, Random, getPlanet, isPlanetId, planetThreat, type HazardKind, type IntelEffects, type MapPreviewLayout, type MapPreviewSpot, type PlanetId } from '@/shared';
 import { type Biome, biomeById, pickBiome } from './biomes';
 import { drawHazardKind } from './hazard/parts/Plan';
 import { extractionPadCount, generateLayout, type Pad, type WorldLayout } from './layout';
 
-/** `generate` 의 레이아웃 단계 결과 — 미리보기는 이것만 쓰고, 진짜 생성은 여기서 이어 간다. */
+/** The result of `generate`'s layout stage — the preview uses only this, and real generation continues from it. */
 export interface LayoutPlan {
   seed: number;
   planet: PlanetId | null;
@@ -28,20 +28,20 @@ export interface LayoutPlan {
 }
 
 /**
- * 이 시드 · 행성 · 산 정보로 매크로 레이아웃을 계획한다. **순수** — 씬도 지형도 만들지 않는다.
- * `root` 를 주면 그 rng 를 쓴다 (fork 만 하므로 전진하지 않는다); 없으면 시드로 새로 만든다.
+ * Plans the macro layout for this seed · planet · purchased intel. **Pure** — it builds no scene and no terrain.
+ * Given a `root` it uses that rng (it only forks, so it does not advance); with none it makes a new one from the seed.
  */
 export function planLayoutFor(seed: number, planet: PlanetId | null, intel: IntelEffects | null = null, root?: Random): LayoutPlan {
   const s = seed >>> 0;
   const id = isPlanetId(planet) ? planet : null;
   const def = getPlanet(id);
   const rng = root ?? new Random(s);
-  // 행성이 있으면 팔레트는 데이터로 정해진다; 없으면 시드 추첨 (core 의 하늘 추첨과 짝이 맞는 기존 동작)
+  // With a planet the palette is decided by data; with none it is a seed draw (existing behaviour, paired with core's sky draw)
   const biome = biomeById(def?.biome) ?? pickBiome(s);
   const hazardKind = drawHazardKind(rng, def?.hazards ?? [], biome.id);
   const sporeLayout = hazardKind === 'spores';
   const extractionCount = extractionPadCount(rng.fork('extractionPads'), planetThreat(id), sporeLayout)
-    + Math.max(0, Math.round(intel?.extractionBonus ?? 0));   // 정보상 「탈출 지점」 — 굴림 결과에 더한다
+    + Math.max(0, Math.round(intel?.extractionBonus ?? 0));   // the intel broker's 「탈출 지점」 — added on top of the roll
   const layout = generateLayout(rng.fork('layout'), { extractionCount, sporeLayout, intel });
   return { seed: s, planet: id, biome, hazardKind, layout };
 }
@@ -49,7 +49,7 @@ export function planLayoutFor(seed: number, planet: PlanetId | null, intel: Inte
 const spot = (p: { x: number; z: number; radius?: number }, r = 0): MapPreviewSpot => ({ x: p.x, z: p.z, r: p.radius ?? r });
 const spots = (list: readonly Pad[]): MapPreviewSpot[] => list.map((p) => spot(p));
 
-/** `WorldRef.previewLayout` 의 몸통 — 계획을 화면이 읽을 수 있는 평면 데이터로 옮긴다 (`world/` 타입은 새지 않는다). */
+/** The body of `WorldRef.previewLayout` — moves the plan into flat data the screen reads (no `world/` type leaks). */
 export function previewLayoutFor(seed: number, planet: PlanetId | null, intel: IntelEffects | null = null): MapPreviewLayout {
   const plan = planLayoutFor(seed, planet, intel);
   const l = plan.layout;

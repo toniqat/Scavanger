@@ -7,9 +7,9 @@ export interface ObstacleEntry extends Obstacle {
   stamp: number;
   /** what created it — 'rock' | 'tree' | 'nest' | 'crate' | 'wall' | 'pole' | 'crystal' | 'debris' */
   kind: string;
-  /** 2026-09-11 (world 내부): 레이가 무시한다 — 깨진 창틀 (`structures/parts/Glass`). */
+  /** 2026-09-11 (world-internal): rays ignore it — a broken window frame (`structures/parts/Glass`). */
   passRays?: boolean;
-  /** 2026-09-11 (world 내부): 반지름 `SMALL_BODY_R` 미만의 몸(투척물)은 밀어내지 않는다 — 깨진 창틀. */
+  /** 2026-09-11 (world-internal): a body under `SMALL_BODY_R` (a throwable) is not pushed out — a broken frame. */
   passSmall?: boolean;
 }
 
@@ -66,7 +66,7 @@ export class SpatialHash {
 
   /**
    * @param shot optional `{ radius, height }` of the cylinder **bullets** stop at (`Obstacle.shotRadius/shotHeight`).
-   *   Pass it whenever the collider is deliberately smaller or taller than what the prop looks like, so 엄폐 lines up
+   *   Pass it whenever the collider is deliberately smaller or taller than what the prop looks like, so cover lines up
    *   with the silhouette; omit it and the ray uses the collider, as before.
    */
   add(position: THREE.Vector3, radius: number, height: number, kind: string, shot?: { radius: number; height: number }): ObstacleEntry {
@@ -77,10 +77,10 @@ export class SpatialHash {
   }
 
   /**
-   * 2026-09-09 — **사각(OBB) 콜라이더** (`Obstacle.box`): 건물 벽 · 전차 차체처럼 원기둥이 거짓말이 되는 것들.
-   * `radius` 는 계약대로 외접원(`boxRadius`)으로 채워 두므로 버킷팅 · `overlaps` · `query` 는 예전 그대로
-   * 돌아가고, 정확한 판정은 `WorldSystem` 의 밀어내기 · 레이 · 윗면 세 곳에서만 갈린다.
-   * `position.y` 는 상자 **밑면**이고 `height` 만큼 위로 선다 (뜬 슬래브도 그대로 표현된다).
+   * 2026-09-09 — **box (OBB) collider** (`Obstacle.box`): things a cylinder lies about, like a building wall or a
+   * tram body. `radius` is filled with the circumscribed circle (`boxRadius`) as the contract demands, so bucketing ·
+   * `overlaps` · `query` run exactly as before and only three places differ — push-out · ray · top face in
+   * `WorldSystem`. `position.y` is the box's **bottom face** and it stands `height` up (a floating slab too).
    */
   addBox(position: THREE.Vector3, halfX: number, halfZ: number, yaw: number, height: number, kind: string): ObstacleEntry {
     const e: ObstacleEntry = {
@@ -92,8 +92,8 @@ export class SpatialHash {
   }
 
   /**
-   * 2026-09-11 — **경사 발판** (`Obstacle.ramp`): 계단. 상자와 같은 OBB 이고 윗면이 로컬 +X 로 `rise` 만큼 올라간다
-   * (`obb.rampTopAt`). `position.y` 는 밑면, `height` 는 **높은 쪽 끝**의 윗면까지다.
+   * 2026-09-11 — **ramp floor plate** (`Obstacle.ramp`): a staircase. The same OBB as a box, its top face rising by
+   * `rise` along local +X (`obb.rampTopAt`). `position.y` is the bottom face, `height` reaches the **high end**'s top.
    */
   addRamp(position: THREE.Vector3, halfX: number, halfZ: number, yaw: number, height: number, rise: number, kind: string): ObstacleEntry {
     const e = this.addBox(position, halfX, halfZ, yaw, height, kind);
@@ -102,9 +102,9 @@ export class SpatialHash {
   }
 
   /**
-   * 2026-09-11 — **볼록 다각형 기둥** (`Obstacle.hull`): 바위 · 첨탑 · 크리스탈 · 잔해. `radius` 는 계약대로
-   * `position` 에서 가장 먼 꼭짓점(층 포함)까지의 외접원이라 버킷팅 · `overlaps` · `query` 는 그대로다.
-   * `position.y` 는 밑면, `height` 는 그려진 윗면까지다.
+   * 2026-09-11 — **convex prism** (`Obstacle.hull`): rocks · spires · crystals · debris. `radius` is, as the contract
+   * demands, the circle out to the farthest vertex from `position` (bands included), so bucketing · `overlaps` ·
+   * `query` are unchanged. `position.y` is the bottom face, `height` reaches the drawn top face.
    */
   addHull(position: THREE.Vector3, hull: ObstacleHull, height: number, kind: string): ObstacleEntry {
     const e: ObstacleEntry = { position, radius: Math.max(0.05, hullRadiusFrom(hull, position.x, position.z)), height, stamp: 0, kind, hull };
@@ -113,9 +113,9 @@ export class SpatialHash {
   }
 
   /**
-   * 움직이는 장애물(전차)을 옮긴다. 덮는 셀 범위가 바뀔 때만 다시 버킷팅한다 — `TrainingArena.setTargetX`
-   * 와 같은 수법이다. `position` 객체는 그대로 재사용하므로 이 항목을 참조하는 쪽(플레이어의 발판 질의 ·
-   * 메시)은 아무것도 다시 잡을 필요가 없다.
+   * Moves a moving obstacle (the tram). It is re-bucketed only when the range of cells it covers changes — the same
+   * trick as `TrainingArena.setTargetX`. The `position` object is reused as it is, so whatever references this entry
+   * (the player's standing query · the mesh) has to re-acquire nothing.
    */
   move(o: ObstacleEntry, x: number, y: number, z: number, yaw?: number): void {
     const s = this.cellSize;

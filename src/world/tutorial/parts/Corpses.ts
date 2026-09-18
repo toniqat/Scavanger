@@ -1,22 +1,22 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { GameContext, ItemInstance } from '@/shared';
-/* appended (2026-09-16): 빈 시체 제거 — 본편 시체와 같은 수치 */
+/* appended (2026-09-16): empty corpse removal — the same numbers as a main-game corpse */
 import { CORPSE_EMPTY_REMOVE_DELAY_S, CORPSE_EMPTY_SINK_DEPTH_M, CORPSE_EMPTY_SINK_S } from '@/shared';
-/* appended (2026-09-16, 2차): 빈 시체는 루팅 창을 닫은 뒤에 센다 (로컬만 — 튜토리얼은 혼자다) */
+/* appended (2026-09-16, 2nd pass): an empty corpse is counted after the loot window closes (local only — the tutorial is solo) */
 import { CorpseViewTracker } from '@/shared';
 import { CORPSES, box, placed, type CorpseSpec } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 손으로 놓은 시체 세 구 (2026-09-14, 튜토리얼).
+ * Three hand-placed corpses (2026-09-14, tutorial).
  *
- * **컨테이너 굴림을 쓰지 않는다** — 튜토리얼이 주는 것은 정해져 있어야 한다. 그래서 내용물을
- * `ctx.loot.createItem` 으로 직접 만들어 `ctx.inventory.openContainerItems(id, items, position, title)` 에
- * 넘긴다 (적 시체 · 분대원 시체가 이미 쓰는 「내용물을 호출자가 대는 컨테이너」 경로 그대로다 — 인벤토리가
- * `containerId` 별로 남은 것을 캐시하므로 다시 열면 가져간 것이 빠져 있고, 비면 `crate:looted` 가 온다).
+ * **No container rolls** — what the tutorial hands out has to be fixed. So the contents are made directly with
+ * `ctx.loot.createItem` and passed to `ctx.inventory.openContainerItems(id, items, position, title)`
+ * (the same 「container whose contents the caller supplies」 path enemy corpses and squadmate corpses already use — inventory caches
+ * what is left per `containerId`, so reopening it is missing what was taken, and when it empties `crate:looted` arrives).
  *
- * id 접두사가 `corpse:` 라 `ui/hud/pillar.pillarAllowed` 가 빛기둥을 세운다 — 본편에서 시체만 기둥을 갖는
- * 규칙 그대로이고, 무기를 잃은 사람이 자기 시체를 찾아가는 것과 같은 길이다.
+ * The id prefix is `corpse:`, so `ui/hud/pillar.pillarAllowed` raises a light pillar — exactly the main game's rule that only
+ * corpses get a pillar, and the same path as someone who lost their weapon walking back to their own corpse.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 interface Entry {
@@ -24,25 +24,25 @@ interface Entry {
   items: ItemInstance[];
   position: THREE.Vector3;
   emptied: boolean;
-  /* appended (2026-09-16): 빈 시체 제거 */
-  /** 비었을 때의 `ctx.missionTime` (-1 = 아직). */
+  /* appended (2026-09-16): empty corpse removal */
+  /** The `ctx.missionTime` when it emptied (-1 = not yet). */
   emptiedAt: number;
-  /** 다 가라앉아 치웠다 (상호작용 해제 · 메시 제거). */
+  /** Fully sunk and cleared away (interaction unregistered · mesh removed). */
   removed: boolean;
   mesh: THREE.Mesh | null;
   geo: THREE.BufferGeometry | null;
 }
 
-/** 엎드린 병사 하나의 지오메트리 (머리는 +Z 쪽, `yaw` 로 돌린다). */
+/** The geometry of one prone soldier (head toward +Z, turned by `yaw`). */
 function corpseGeometry(yaw: number): THREE.BufferGeometry | null {
   const parts: THREE.BufferGeometry[] = [
-    box(0.62, 0.34, 1.0, 0, 0.17, 0.15),                       // 몸통
-    box(0.5, 0.3, 0.66, 0, 0.15, -0.62),                       // 골반 · 허벅지
-    box(0.2, 0.24, 0.7, -0.14, 0.12, -1.2, 0.12),              // 왼다리
-    box(0.2, 0.24, 0.78, 0.16, 0.12, -1.24, -0.18),            // 오른다리
-    box(0.18, 0.18, 0.62, -0.38, 0.1, 0.24, 0.5),              // 왼팔 (벌어져 있다)
-    box(0.18, 0.18, 0.6, 0.38, 0.1, 0.1, -0.35),               // 오른팔
-    box(0.66, 0.3, 0.42, 0, 0.2, 0.5),                         // 배낭 · 어깨
+    box(0.62, 0.34, 1.0, 0, 0.17, 0.15),                       // torso
+    box(0.5, 0.3, 0.66, 0, 0.15, -0.62),                       // pelvis · thighs
+    box(0.2, 0.24, 0.7, -0.14, 0.12, -1.2, 0.12),              // left leg
+    box(0.2, 0.24, 0.78, 0.16, 0.12, -1.24, -0.18),            // right leg
+    box(0.18, 0.18, 0.62, -0.38, 0.1, 0.24, 0.5),              // left arm (splayed)
+    box(0.18, 0.18, 0.6, 0.38, 0.1, 0.1, -0.35),               // right arm
+    box(0.66, 0.3, 0.42, 0, 0.2, 0.5),                         // backpack · shoulders
   ];
   const head = new THREE.SphereGeometry(0.17, 10, 8);
   parts.push(placed(head, 0, 0.17, 0.82));
@@ -58,7 +58,7 @@ export class TutorialCorpses {
   private entries: Entry[] = [];
   private disposables: Array<{ dispose(): void }> = [];
   private unsub: (() => void) | null = null;
-  /** 2026-09-16 (2차): 내 창이 어느 손 시체를 보여 주나 — 보는 동안은 가라앉기 시계를 붙잡는다 (와이어 없음). */
+  /** 2026-09-16 (2nd pass): which hand-placed corpse my own window is showing — while it is open the sinking clock is held (no wire). */
   private viewers: CorpseViewTracker | null = null;
 
   constructor() { this.group.name = 'TutorialCorpses'; }
@@ -108,7 +108,7 @@ export class TutorialCorpses {
       });
     }
 
-    // 다 비운 시체는 프롬프트가 `비어 있음` 으로 바뀌고, 2026-09-16 부터 본편 시체처럼 가라앉아 사라진다 (`update`)
+    // An emptied corpse's prompt becomes `비어 있음`, and from 2026-09-16 it sinks and disappears like a main-game corpse (`update`)
     this.unsub = ctx.bus.on('crate:looted', ({ crateId }) => {
       const e = this.entries.find((x) => x.spec.id === crateId);
       if (e && !e.emptied) { e.emptied = true; e.emptiedAt = ctx.missionTime; }
@@ -116,10 +116,10 @@ export class TutorialCorpses {
   }
 
   /**
-   * 2026-09-16 (빈 시체 제거, `TutorialWorld.update` 가 매 프레임): 빈 시체는 `CORPSE_EMPTY_REMOVE_DELAY_S` 뒤
-   * `CORPSE_EMPTY_SINK_S` 동안 `CORPSE_EMPTY_SINK_DEPTH_M` 가라앉고, 끝나면 상호작용(= 빛기둥)을 풀고 메시와 지오메트리를 버린다.
-   * 본편 플레이어 시체(`game/Corpses.PlayerCorpseObject.stepSink`)와 같은 곡선 · 같은 시계(`ctx.missionTime`)다.
-   * 2026-09-16 (2차, 사용자 결정): 창이 그 시체를 보여 주는 동안은 시계를 붙잡는다 — 가라앉기는 창을 닫고 지연 뒤다.
+   * 2026-09-16 (empty corpse removal, `TutorialWorld.update` every frame): an empty corpse sinks `CORPSE_EMPTY_SINK_DEPTH_M` over
+   * `CORPSE_EMPTY_SINK_S` after `CORPSE_EMPTY_REMOVE_DELAY_S`; when it ends the interaction (= the light pillar) is released and the mesh and geometry disposed.
+   * The same curve and the same clock (`ctx.missionTime`) as the main game's player corpse (`game/Corpses.PlayerCorpseObject.stepSink`).
+   * 2026-09-16 (2nd pass, user's decision): while a window is showing that corpse the clock is held — sinking starts after the window closes plus the delay.
    */
   update(): void {
     const ctx = this.ctx;
@@ -141,7 +141,7 @@ export class TutorialCorpses {
     }
   }
 
-  /** 고정 목록 → 실제 아이템. `'stack'` 은 그 def 의 `stackMax` 한 칸 가득 (탄약). */
+  /** The fixed list → real items. `'stack'` means one cell full of that def's `stackMax` (ammo). */
   private makeItems(ctx: GameContext, spec: CorpseSpec): ItemInstance[] {
     const loot = ctx.loot;
     const out: ItemInstance[] = [];
@@ -159,11 +159,11 @@ export class TutorialCorpses {
     const ctx = this.ctx;
     this.unsub?.();
     this.unsub = null;
-    this.viewers?.dispose();   // 2026-09-16 (2차)
+    this.viewers?.dispose();   // 2026-09-16 (2nd pass)
     this.viewers = null;
     for (const e of this.entries) {
       ctx?.interactables.unregister(e.spec.id);
-      e.geo?.dispose();   // 2026-09-16: 시체마다 지오메트리를 들고 있다 (가라앉아 치운 것은 이미 null)
+      e.geo?.dispose();   // 2026-09-16: each corpse holds its own geometry (one already cleared by sinking is null)
       e.geo = null; e.mesh = null;
     }
     this.entries.length = 0;

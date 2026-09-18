@@ -1,18 +1,18 @@
 /**
- * src/world/rover/RoadPlan.ts — 탐사 차량 흙길의 **매크로 계획** (R1, 2026-09-13).
+ * src/world/rover/RoadPlan.ts — the **macro plan** of the rover's dirt road (R1, 2026-09-13).
  *
- * `generateLayout` 이 **선로 · 강하 지점 바로 뒤, 다른 모든 배치 앞**에서 부르고(`rng.fork('rover')` — 부모 스트림을 밀지 않아
- * 선로 · 강하 지점 추첨은 이 변경 전과 같다), 그 뒤의 탈출 패드 · 둥지 · 폐허 · 크레이터 · 구조물이 회랑을 피한다
- * (선로와 같은 규칙: 먼저 선 것이 이긴다).
+ * `generateLayout` calls it **right after the rail and the drop point, before every other placement** (`rng.fork('rover')`
+ * — it does not advance the parent stream, so the rail and drop point draws are what they were before this change), and the
+ * extraction pads · nests · ruins · craters · structures after it avoid the corridor (the same rule as the rail: first placed wins).
  *
- * 모양 — 정류장 n(4–5)개를 **맵 중심 둘레의 고른 각도 칸**에 하나씩(± `ROVER_STATION_ANGLE_JITTER`) 세워 서로 최대한 멀리
- * 떨어뜨리고, 이웃 정류장 사이를 **극좌표 보간**(각도는 선형, 반지름은 smoothstep + 구간마다 휨)으로 잇는다. 각도가 늘 한 방향으로
- * 늘기 때문에 고리는 **스스로 교차하지 않는다**(중심에 대해 별 모양 다각형). 반지름이 `ROVER_RING_MIN_M` 아래로 내려가지 않으므로
- * - 순환 선로(원점 중심 원)가 있으면 그 한계를 선로 고리 + 두 회랑 + `ROVER_RAIL_GAP_M` 까지 올린다 → **선로를 가로지르지 않는다**.
- * - 왕복 선로(원점을 지나는 선분)는 `railFree` 에 걸린 점만 반지름을 밀어 고친다(수리) → 역시 가로지르지 않는다.
- * 그래서 선로 건널목 · 경사로는 만들 일이 없다 (계획이 그 경우를 버린다).
+ * The shape — n (4–5) stations go one per **even angular slot around the map centre** (± `ROVER_STATION_ANGLE_JITTER`), as far
+ * apart as possible, and neighbours are joined by **polar interpolation** (angle linear, radius by smoothstep + a bend per stretch).
+ * The angle always grows one way, so the loop **never crosses itself** (star-shaped about the centre). The radius stays ≥ `ROVER_RING_MIN_M`, so
+ * - with a loop rail (a circle about the origin) that floor is raised to the rail ring + both corridors + `ROVER_RAIL_GAP_M` → **it does not cross the rail**.
+ * - with a line rail (a segment through the origin) only points caught by `railFree` have their radius pushed (a repair) → again it does not cross.
+ * So there is never a level crossing or a ramp to build (the plan discards those cases).
  *
- * 순수 함수 — THREE 를 쓰지 않는다.
+ * A pure function — it does not use THREE.
  */
 import {
   MAP_SIZE, RAIL_CLEARANCE_M, ROVER_MIN_TURN_RADIUS_M, ROVER_PLAN_ATTEMPTS, ROVER_PLAN_STEP_M, ROVER_POLE_OFFSET_M,
@@ -23,40 +23,40 @@ import {
 import type { RoverPlan, RoverRoadIndex } from './model';
 
 const TAU = Math.PI * 2;
-/** 격자 칸 크기(m) · 한 칸이 담는 거리(m). 호출자의 `clearance + extra` 는 이보다 작아야 정확하다 (최대 ~45 m). */
+/** The grid cell size (m) and the distance one cell holds (m). A caller's `clearance + extra` must be smaller than this to be exact (up to ~45 m). */
 const INDEX_CELL = 24;
 const INDEX_REACH = 64;
-/** 회랑에 걸린 점의 반지름을 밀어 보는 순서(m) — 가까운 것부터. */
+/** The order in which a caught point's radius is pushed (m) — nearest first. */
 const REPAIR_OFFSETS = [4, -4, 8, -8, 12, -12, 18, -18, 26, -26, 36, -36, 48, -48, 62, -62];
-/** 정류장 하나를 세우려는 시도 수 (각도 칸 안에서). */
+/** How many attempts are made to place one station (within its angular slot). */
 const STATION_TRIES = 16;
 /**
- * 표본점 검사의 여유(m). 검사는 `ROVER_PLAN_STEP_M` 간격 **점**에서 하지만 회랑 거리(`roverRouteDistance`)는 점 사이 **선분**을 본다 —
- * 반지름 20 m 원(플랫폼 패드 + 회랑)을 10 m 현이 스치면 0.6 m 까지 안으로 파고든다 (3000 시드에서 실제로 0.55 m). 그 몫이다.
+ * The sample check's margin (m). The check runs at **points** `ROVER_PLAN_STEP_M` apart, but the corridor distance
+ * (`roverRouteDistance`) looks at the **segments** between them — a 10 m chord grazing a 20 m circle (a platform pad + its corridor) cuts up to 0.6 m inside (0.55 m measured over 3000 seeds). This is that share.
  */
 const CHORD_MARGIN = 1.5;
 
 export interface RoadPlanInput {
-  /** 반지름 `extra` 짜리 자리가 선로 회랑 · 플랫폼 패드를 건드리지 않는가 (`generateLayout` 의 `railFree`). */
+  /** Does a spot of radius `extra` keep clear of the rail corridor and the platform pads (`generateLayout`'s `railFree`). */
   railFree: (x: number, z: number, extra: number) => boolean;
-  /** 순환 선로의 반지름. 선로가 없거나 왕복이면 null. */
+  /** The loop rail's radius. Null with no rail, or with a line rail. */
   railLoopExtent: number | null;
-  /** 강하 지점 부지. */
+  /** The drop point's site. */
   spawn: { x: number; z: number; radius: number };
   /**
-   * 2026-09-14 (정보상 「탐사 차량 확정」): 시도 횟수를 `ROVER_PLAN_ATTEMPTS_INTEL` 로 크게 늘린다. 굴림은 자기 fork 안에서만
-   * 도므로 바깥 스트림은 그대로이고, 평소 성공하는 시드는 **첫 성공에서 빠져나오므로 결과도 그대로**다. 그래도 실패할 수
-   * 있고(선로 · 강하 지점이 고리를 막는 시드), 그때는 그냥 null 이다 — 호출자가 경고를 찍는다.
+   * 2026-09-14 (the intel broker's 「탐사 차량 확정」): the attempt count is raised sharply to `ROVER_PLAN_ATTEMPTS_INTEL`. The
+   * rolls turn inside their own fork, so outer streams are untouched, and a seed that normally succeeds **leaves on its first
+   * success, so its result is unchanged too**. It can still fail (seeds where rail and drop point block the loop) — then it is simply null and the caller prints a warning.
    */
   forcePlan?: boolean;
 }
 
-/** 정보상 「탐사 차량 확정」의 재시도 횟수 (`data/tables.csv`). */
+/** The retry count for the intel broker's 「탐사 차량 확정」 (`data/tables.csv`). */
 const PLAN_ATTEMPTS_INTEL = numberList('tables.csv', 'ROVER_PLAN_ATTEMPTS_INTEL')[0] ?? 1024;
 
 interface Sample { th: number; r: number; fixed: boolean }
 
-/** 계획을 세운다. 시도를 다 써도 못 세우면 null (그 레이드에는 탐사 차량이 없다). */
+/** Builds the plan. Null when every attempt is spent without one (that raid has no rover). */
 export function planRoverRoute(rng: Random, input: RoadPlanInput): RoverPlan | null {
   const C = ROVER_ROUTE_CLEARANCE_M;
   const padR = ROVER_STATION_PAD_R;
@@ -81,11 +81,11 @@ export function planRoverRoute(rng: Random, input: RoadPlanInput): RoverPlan | n
   const slot = TAU / n;
   const jitter = Math.max(0, Math.min(0.45, ROVER_STATION_ANGLE_JITTER));
   for (let attempt = 0; attempt < attempts; attempt++) {
-    /* 강하 지점 여유(`ROVER_SPAWN_GAP_M`)는 **시도의 앞 절반에만** 건다. 가장자리 강하 지점이 왕복 선로 끝 플랫폼과 같은 쪽에 서면
-     * 그 사이 틈(약 66 m)에 「플랫폼 + 회랑」 과 「강하 지점 + 회랑 + 여유」 가 동시에 들어가지 못한다 (3000 시드 중 19개가 그랬다).
-     * 뒤 절반은 여유를 0 으로 — 회랑 자체는 여전히 강하 지점 부지를 비운다. */
-    /* 2026-09-14: 문턱은 **평소 시도 수**의 절반이다 — 정보상으로 시도를 늘려도 앞 `ROVER_PLAN_ATTEMPTS` 번은
-     * 굴림도 판정도 평소와 한 글자도 같다 (평소 성공하던 시드가 다른 경로를 내지 않는다). */
+    /* The drop point clearance (`ROVER_SPAWN_GAP_M`) applies **only over the first half of the attempts**: when an edge drop
+     * point shares a side with a line rail's end platform, the ~66 m between them cannot hold 「platform + corridor」 and 「drop
+     * point + corridor + clearance」 at once (19 of 3000 seeds). Over the second half the clearance is 0 — the corridor itself still clears the drop site. */
+    /* 2026-09-14: the threshold is half the **normal** attempt count — even when the intel broker raises the count, the
+     * first `ROVER_PLAN_ATTEMPTS` rolls and judgements are identical to the letter (a seed that normally succeeded yields no other route). */
     const spawnGap = attempt < ROVER_PLAN_ATTEMPTS / 2 ? ROVER_SPAWN_GAP_M : 0;
     spawnGapRoute = spawn.radius + C + spawnGap;
     spawnGapStation = spawn.radius + padR + spawnGap;
@@ -118,7 +118,7 @@ export function planRoverRoute(rng: Random, input: RoadPlanInput): RoverPlan | n
     }
     if (!gapOk) continue;
 
-    /* 구간 표본 — 정류장 표본(`fixed`)은 움직이지 않는다 */
+    /* Stretch samples — a station's sample (`fixed`) never moves */
     const samples: Sample[] = [];
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
@@ -135,7 +135,7 @@ export function planRoverRoute(rng: Random, input: RoadPlanInput): RoverPlan | n
       }
     }
 
-    /* 수리 + 평활화: 회랑에 걸린 점의 반지름을 밀고, 그 턱을 [1,2,1]/4 로 편다 */
+    /* Repair + smoothing: push the radius of a point caught in a corridor, then flatten the step with [1,2,1]/4 */
     const m = samples.length;
     const src = new Float64Array(m);
     for (let round = 0; round < 6; round++) {
@@ -168,7 +168,7 @@ export function planRoverRoute(rng: Random, input: RoadPlanInput): RoverPlan | n
       const a = points[(i - 1 + m) % m], b = points[(i + 1) % m];
       const tl = Math.hypot(b.x - a.x, b.z - a.z) || 1;
       let nx = -(b.z - a.z) / tl, nz = (b.x - a.x) / tl;
-      if (nx * p.x + nz * p.z < 0) { nx = -nx; nz = -nz; }        // 맵 바깥쪽
+      if (nx * p.x + nz * p.z < 0) { nx = -nx; nz = -nz; }        // outwards from the map
       stations.push({ x: p.x, z: p.z, poleX: p.x + nx * ROVER_POLE_OFFSET_M, poleZ: p.z + nz * ROVER_POLE_OFFSET_M });
     }
     return { points, stations, padRadius: padR, index: buildIndex(points) };
@@ -176,7 +176,7 @@ export function planRoverRoute(rng: Random, input: RoadPlanInput): RoverPlan | n
   return null;
 }
 
-/** 닫힌 점열의 최소 회전 반경(m) — 연속한 세 점의 외접원 반지름. */
+/** The smallest turn radius of a closed point list (m) — the circumradius of three consecutive points. */
 export function minTurnRadius(pts: readonly { x: number; z: number }[]): number {
   const m = pts.length;
   let best = Infinity;
@@ -208,8 +208,8 @@ function buildIndex(pts: readonly { x: number; z: number }[]): RoverRoadIndex {
 }
 
 /**
- * `(x, z)` 에서 흙길 **중심선**까지의 XZ 거리(m). `index.reach` 이상 떨어져 있으면 `reach` 를 돌려준다 (그보다 먼 값은
- * 필요 없다 — 호출자는 `clearance + 반지름` 과만 비교한다).
+ * The XZ distance (m) from `(x, z)` to the dirt road's **centreline**. At `index.reach` or beyond it returns
+ * `reach` (nothing further is needed — callers only compare it against `clearance + radius`).
  */
 export function roverRouteDistance(plan: RoverPlan, x: number, z: number): number {
   const ix = plan.index;

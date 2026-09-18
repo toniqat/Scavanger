@@ -6,9 +6,9 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **2, `src/world`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary) before
+> **Next session starts here:** queue item **3, `src/enemies`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary) before
 > picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this file
-> originally described**; the old one let a deleted `*/` through. `src/world` is a normal feature folder, so its
+> originally described**; the old one let a deleted `*/` through. `src/enemies` is a normal feature folder, so its
 > `verify` is a folder-sized run, not the full net.
 
 ---
@@ -17,15 +17,15 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`) | 4,496 | 78 |
-| **Remaining** ([§2](#2-queue)) | **22,120** | **669** |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`) | 7,484 | 136 |
+| **Remaining** ([§2](#2-queue)) | **19,132** | **611** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-**Intended permanent exceptions.** A finished folder still prints 6 lines, because a comment whose entire substance is
+**Intended permanent exceptions.** A finished folder still prints 7 lines, because a comment whose entire substance is
 a quoted label or a quoted document heading keeps its Korean (§3 rule 2 — the reader has to be able to grep it against
-the real string). So a raw run over everything prints 22,126 / 674, six more than the queue:
+the real string). So a raw run over everything prints 19,139 / 618, seven more than the queue:
 
 | Line | What it quotes |
 |---|---|
@@ -35,6 +35,7 @@ the real string). So a raw run over everything prints 22,126 / 674, six more tha
 | `shared/allies.ts:3` | a `docs/DECISIONS.md` section heading |
 | `shared/npc.ts:111` | a job title (`헬릭스 조달실장`) |
 | `shared/tutorial.ts:381` | the four track names (`조작 안내` · `함선 안내` · `증축 안내` · `출격 안내`) |
+| `world/Gather.ts:779` | the four harvest prompt verbs (`약초 채집` · `고철 해체` · `토양/씨앗 채취` · `표본 수습`) |
 
 ---
 
@@ -45,7 +46,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | # | Folder | Lines | Files | Notes |
 |---|---|---:|---:|---|
 | ~~1~~ | ~~`src/shared`~~ | 4,187 | 65 | **Done 2026-09-18** (with `src/main.ts`, one commit, full 96-script `verify`). Its vocabulary is now the queue's vocabulary — read that folder's comments before picking words for a new folder. |
-| **2** | **`src/world`** | 2,988 | 58 | Dense collision / layout invariants (`getSurfaceY` before `resolveCollision`, hull vs box vs ramp). Precision matters more than style here. |
+| ~~2~~ | ~~`src/world`~~ | 2,988 | 58 | **Done 2026-09-18** (lead + 6 parallel agents, one commit). Dense collision / layout invariants; its wording is now the reference for every world-shaped folder after it. |
 | 3 | `src/enemies` | 2,300 | 71 | `getEnemies()` vs `queryNear` prop rule, nest leash / refill, host-replica sync guards. |
 | 4 | `src/ui` | 2,279 | 87 | Heaviest mix of Korean UI strings and comments — expect many backtick-kept labels. |
 | 5 | `src/housing` | 2,215 | 55 | Minigame judge bands, furniture access faces, library effects. |
@@ -162,7 +163,9 @@ Per folder:
 String literals, csv keys, event names, wire keys, class names, CSS class names. This includes developer-facing Korean
 strings that are not comments — e.g. the `data:check` diagnostic in `src/progression/defs.ts`
 (`r.report('derived', '값이 비었다 — …')`). Those are program output, not comments; converting them is a separate
-decision nobody has made.
+decision nobody has made. `src/world` alone holds a dozen more of them (`Structures.ts` `console.warn`, `Rover.ts` ·
+`RoverRoad.ts` `console.info`/`warn`, `Hazard.ts:504`, `structures/model.ts` `data:check` reports) — every folder from
+here on will hit the same kind, so leave them and do not re-litigate it per folder.
 
 ### Splitting a folder across parallel agents
 
@@ -177,6 +180,16 @@ decision nobody has made.
 
 Ask each agent to report: its final count per file, any quoted-label-only line it left, **any term it had to coin**
 (fold those into §7), and any comment it could not resolve from the code.
+
+**Two things the lead has to check afterwards, because an agent cannot see them** (both happened in the `src/world`
+pass, 6 agents):
+1. **Line endings.** Eleven files came back LF although the brief demanded CRLF. `git show HEAD:<file>` is the
+   *normalised* blob (always LF), so comparing against it proves nothing — read the working-tree bytes:
+   `[f for f in changed if b'\r\n' not in open(f,'rb').read()]` is the list to convert back.
+2. **One thing, two names.** Two agents independently coined *ghost block* for `tut_fence_ghost`, which
+   `world/README.md` and CLAUDE.md §4.6 already call the **ghost band**; another wrote *an old peer* where the folder's
+   existing English says *an older peer*. Grep the finished folder for each newly coined noun and make it agree with
+   the English already in the READMEs — that, not the glossary hand-out, is what makes the folder read in one voice.
 
 **When an agent dies mid-bundle** — a rate limit will do it — the tree is left half-translated and its applier script
 is **not re-runnable** (a later pair may match text an earlier pair already produced). Do not reason from the agent's
@@ -416,4 +429,30 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 
 | Korean | English | Found in |
 |---|---|---|
-| (add here as you go) | | |
+| 절벽 · 협곡 · 끝없는 절벽 · 절벽 구멍 | cliff · chasm · the abyss · abyss cut (`ABYSS_CUTS`) | `world/tutorial` |
+| 데크 · 바닥판 · 발판 | deck · floor plate · floor plate (deck/platform only in ride context) | `world` |
+| 통로 · 회랑 · 구간 | corridor · the (clearance) corridor · stretch | `world` |
+| 사선 | **two words**: *diagonal* (the tutorial barrier) and *line of sight* (the visibility checks). Decide from the code, never the word | `world/tutorial/model.ts` |
+| 파고듦 · 파고든다 · 흔든다 | bite · bites inward · jitter (both match the code's own locals) | `world/tutorial/parts/Ground.ts` |
+| 쐐기 · 돌결 · 얼룩 · 부스러기 · 잔해 | wedge · rock grain · mottling · rubble · wreckage | `world/tutorial`, `world/surface.ts` |
+| 유령 토막 (`tut_fence_ghost`) | the **ghost band** — one name only, the one `world/README.md` and CLAUDE.md §4.6 use | `world/tutorial/parts/Dressing.ts` |
+| 살 · 칸 · 콘크리트 턱 · 기둥 | slat · pitch (`SLAT_PITCH`) / bay (`POST_STEP_M`) · sill · post | `world/tutorial` |
+| 도움닫기 · 체공 · 볏 · 깨우기 | run-up · airtime · crest · waking | `world/tutorial` |
+| 상인방 · 문설주 · 윗대 · 개구멍 · 살창 덮개 | lintel · jamb · head piece · vent · louvred cover | `world/structures` |
+| 앞마당 (`OPENING_APPROACH`) · 무너진 틈 · 층계참 | approach · collapsed breach · landing | `world/structures` |
+| 격벽 | **partition** for an interior dividing wall, **bulkhead** only in a vehicle | `world/structures`, `world/rails` |
+| 옆판 · 나셀 · 기수 | side plate · nacelle · nose | `world/structures`, `world/tutorial` |
+| 침목 · 대차 · 승강구 · 무개차 · 받침 | ties · bogies · the doorway · an open car · plinth | `world/rails`, `world/Outposts.ts` |
+| 정차 | **docking** (tram) · **dwell** (rover) — the two are not the same event | `world/rails`, `world/rover` |
+| 제자리 회전 · 추측 항법 · 부딪힘 | turning on the spot · dead reckoning · ramming | `world/rover` |
+| 포탑 받침 · 포구 화염 · 예광탄 · 장갑 치마 · 적재함 | the turret ring · the muzzle flash · tracer · armour skirt · stowage bin | `world/rover` |
+| 바퀴자국 · 다져진 흙 · 자갈 원판 · 표지 기둥 | the ruts · packed dirt · the gravel disc · the sign pole | `world/rover` |
+| 커튼 · 합집합 · 겹 · 조각 셰이더 | curtain (the hazard wall) · union · layer · fragment shader | `world/hazard` |
+| 갓 · 줄기 · 주름 · 피어오른다 | cap · stem · gills · blooms | `world/hazard` |
+| 예고 → 시작 · 침투 깊이 · 경계 페더 · 부호거리 | announced → started · penetration depth · the edge feather · signed distance | `world/hazard` |
+| 지형지물 · 기각 표집 · 명암 램프 · 반변 | terrain feature · rejection sampling · shading ramp · half-side | `world` |
+| 노두 · 등급 순번 · 속성 (토양) | outcrop · rarity index · tag (`SoilTag`) | `world/Gather.ts`, `world/mineral.ts` |
+| 부가 결과 · 부가 코어 · 계열의 닻 | bonus result · bonus core (`NodeBonus`) · the family's anchor | `world/Gather.ts` |
+| 이삭 · 낟알 · 곁가지 · 포기 · 흙덩이 · 허물 | ear · grain · offshoot · stalk · clod · moult | `world/Gather.ts` |
+| 안전핀 · 수법 · 사건 · 굴림 스트림 | pin (a guard outside `data:check`) · trick · incident · draw stream | `world` |
+| 옛 피어 | **an older peer** (a client on an older build; the pre-existing English in `biomes.ts` · `WorldSystem.ts` set it) | `world/soil.ts`, `flora.ts`, `Hazard.ts` |

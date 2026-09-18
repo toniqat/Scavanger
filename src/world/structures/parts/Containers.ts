@@ -1,38 +1,44 @@
 /**
- * src/world/structures/parts/Containers.ts — 구조물 · 선로 플랫폼 · 전차 안의 **상호작용 컨테이너**.
+ * src/world/structures/parts/Containers.ts — the **interactable containers** in structures · rail platforms · trams.
  *
- * 새 루팅 경로를 만들지 않는다. 열면 그냥 `crate:open {crateId, tier, position}` 을 쏘고, 나머지는
- * `inventory/` 의 상자 코드가 그대로 한다 (티어별 롤 · 컨테이너 캐시 · 멀티 동기화 · 감정 XP · 계약 카운터 ·
- * `stats.cratesOpened`). 이 파일이 더하는 것은 **실루엣**(캐비닛 · 궤짝 · 시약장)과 두 가지 규칙뿐이다:
- *   1. 그 **구역에서 처음** 컨테이너를 열면 `structure:investigated` 가 나간다 (enemies/ 의 로그 강하 계기).
- *   2. 한 컨테이너에는 `bonusDefId`(열쇠 · 키카드)가 `bonusChance` 확률로 **부가로** 들어 있을 수 있다 — 그 굴림이
- *      맞았을 때만 `inventory.openContainerItems` 로 내용물을 직접 채우고 **그 다음** `crate:open` 을 쏜다.
- *      캐시가 먼저 만들어지므로 상자 코드는 이미 있는 컨테이너를 그대로 보여 주고, 통계 · XP · 계약은
- *      다른 상자와 똑같이 오른다.
+ * It creates no new loot path. Opening one just emits `crate:open {crateId, tier, position}` and `inventory/`'s crate
+ * code does the rest exactly as before (the per-tier roll · the container cache · multiplayer sync · appraisal XP ·
+ * contract counters · `stats.cratesOpened`). What this file adds is the **silhouette** (cabinet · chest · reagent
+ * cabinet) and two rules only:
+ *   1. Opening a container **for the first time in that zone** emits `structure:investigated` (the trigger for
+ *      enemies/'s rogue drop).
+ *   2. A container may hold `bonusDefId` (a key · keycard) as a **bonus** at chance `bonusChance` — only when that
+ *      roll hits are the contents filled in directly with `inventory.openContainerItems` and `crate:open` emitted
+ *      **afterwards**. The cache is built first, so the crate code shows the container that already exists, and
+ *      stats · XP · contracts rise exactly as for any other crate.
  *
- * 2026-09-12 — **미리보기** (`preview`, `WorldRef.previewContainerItems` 의 몸통): 여는 코드와 같은 `contents()` 가
- * 내용물을 만든다. 부가 굴림이 빗나간 컨테이너는 상자 코드(`inventory/Container.ContainerStore.getOrCreate`)가
- * 굴리는데 두 쪽 모두 **`shared/lootRolls.crateLootRandom`** 한 식(`<맵 시드> ^ hash(id)` → `rollCrateOn(tier, rng, 목표 행성)`)을
- * 부른다 (2026-09-12 리드 — 복사본을 없앴다). 부가 굴림은 `<맵 시드> ^ hash(id + '#bonus')` 의 **따로 된 rng** 라 상자 내용물을 밀지 않는다.
+ * 2026-09-12 — the **preview** (`preview`, the body of `WorldRef.previewContainerItems`): the same `contents()` the
+ * opening code uses builds the items. A container whose bonus roll missed is rolled by the crate code
+ * (`inventory/Container.ContainerStore.getOrCreate`), and both sides call the one **`shared/lootRolls.crateLootRandom`**
+ * formula (`<map seed> ^ hash(id)` → `rollCrateOn(tier, rng, target planet)`) (2026-09-12 lead — the copy is gone).
+ * The bonus roll uses a **separate rng** of `<map seed> ^ hash(id + '#bonus')`, so it does not shift the crate contents.
  */
 import * as THREE from 'three';
 import {
   Layers, Random, crateLootRandom,
   type GameContext, type Interactable, type ItemInstance, type StructureKind,
 } from '@/shared';
-/* appended (2026-09-12): 아이템 회수 계약 — 레이드 루팅 표식 */
+/* appended (2026-09-12): recovery contracts — the raid-found mark */
 import { markRaidFound, raidFoundSeed } from '@/shared';
-/* appended (2026-09-16): 서사 이상 드롭률 게이트 — 잠긴 방 예외 */
+/* appended (2026-09-16): the epic+ drop rate gate — the locked room exemption */
 import type { CrateLootOpts } from '@/shared';
 
-/** 2026-09-16: 연구실 잠긴 방 컨테이너의 굴림 규칙 (`LootRef.rollCrateOn` 의 `opts` — 서사 이상 게이트 면제). 공유 · 불변. */
+/** 2026-09-16: the roll rules of a lab locked-room container (`opts` for `LootRef.rollCrateOn` — exempt from
+ * the epic+ gate). Shared · frozen. */
 const LOCKED_ROOM_LOOT: CrateLootOpts = Object.freeze({ lockedRoom: true });
 
 /**
- * 2026-09-12 — 컨테이너 `id`(티어 `tier`)를 이 클라이언트가 처음 열 때 **상자 코드가 굴리는 내용물**. 순수 · 결정적.
- * 시드 식은 `inventory/Container.ContainerStore.getOrCreate` 와 같은 `crateLootRandom` 이다 (구조물 · 플랫폼 · 전차 컨테이너와
- * 맵 상자가 전부 그 길로 열린다). `ctx.loot` 가 없으면 null.
- * 2026-09-16: `opts` = 그 컨테이너의 굴림 규칙 (`ContainerSet.lootOpts` — 잠긴 방). inventory 도 `WorldRef.crateLootOpts` 로 같은 값을 넘긴다.
+ * 2026-09-12 — **the contents the crate code rolls** when this client first opens container `id` (tier `tier`).
+ * Pure · deterministic. The seed formula is the same `crateLootRandom` as in
+ * `inventory/Container.ContainerStore.getOrCreate` (structure · platform · tram containers and map crates all open
+ * through it). null with no `ctx.loot`.
+ * 2026-09-16: `opts` = that container's roll rules (`ContainerSet.lootOpts` — the locked room). inventory passes the
+ * same value through `WorldRef.crateLootOpts`.
  */
 export function rollCrateContents(game: GameContext, id: string, tier: number, opts?: CrateLootOpts): ItemInstance[] | null {
   const loot = game.loot;
@@ -44,30 +50,31 @@ import type { BuildCtx } from '../../build';
 import { merge, paint, paintGradient, xform } from '../../build';
 import { CONTAINER_RADIUS } from '../model';
 
-/** 컨테이너 하나의 명세 (배치하는 쪽이 만든다). */
+/** One container's spec (built by whoever places it). */
 export interface ContainerSpec {
   id: string;
   position: THREE.Vector3;
   yaw: number;
   tier: number;
-  /** 0 = 벽 캐비닛, 1 = 바닥 궤짝, 2 = 시약장/선반. */
+  /** 0 = wall cabinet, 1 = floor chest, 2 = reagent cabinet / shelf. */
   style: 0 | 1 | 2;
-  /** "구역당 1회" 를 세는 열쇠 — 구조물 id 또는 플랫폼 id. */
+  /** The key that counts "once per zone" — a structure id or a platform id. */
   zoneId: string;
   zoneKind: StructureKind | 'platform';
-  /** 이 컨테이너에 부가로 들어 있을 수 있는 아이템 def id (열쇠 · 키카드). */
+  /** The item def id this container may hold as a bonus (a key · keycard). */
   bonusDefId?: string;
-  /** 2026-09-12: `bonusDefId` 가 들어 있을 확률 (0~1, 시드 결정적). 생략하면 1 = 반드시. */
+  /** 2026-09-12: the chance `bonusDefId` is inside (0–1, seed-deterministic). Omitted = 1, always. */
   bonusChance?: number;
   /**
-   * 2026-09-16: true = 연구실 2층 **잠긴 방** 컨테이너 — 서사 이상 드롭률 게이트(`planet_loot.csv` 의 `epicPlusMul`)를 안 탄다
-   * (사용자 결정 「잠긴 방은 지금 그대로」). 여는 경로 · 미리보기 · inventory 가 전부 `lootOpts(id)` 로 같은 값을 읽는다.
+   * 2026-09-16: true = a container in the lab's floor-2 **locked room** — it does not go through the epic+ drop rate
+   * gate (`epicPlusMul` in `planet_loot.csv`) (user's decision 「the locked room stays as it is」). The opening path,
+   * the preview and inventory all read the same value through `lootOpts(id)`.
    */
   lockedRoom?: boolean;
   /**
-   * true = **움직이는** 컨테이너 (전차 안). 콜라이더를 걸지 않고, 매 프레임 `position` / `yaw` 를 메시에
-   * 다시 옮긴다 — 배치한 쪽이 같은 `Vector3` 객체를 제자리에서 고치면 상호작용 판정(`Interactable.position`
-   * 이 바로 그 객체다)도 함께 따라간다.
+   * true = a **moving** container (inside a tram). It gets no collider, and `position` / `yaw` are re-applied to the
+   * mesh every frame — when whoever placed it edits the same `Vector3` object in place, the interaction check follows
+   * along too (`Interactable.position` is that very object).
    */
   dynamic?: boolean;
 }
@@ -78,11 +85,12 @@ interface Inst {
   door: THREE.Object3D;
   lamp: THREE.Mesh;
   anim: number;                 // −1 idle, else seconds since opening
-  /** 문이 열린 **모습** — 누가 열었든 (2026-09-11: 분대원이 연 것도 `markOpened` 로 열린다). */
+  /** The **look** of an opened door — whoever opened it (2026-09-11: one a squadmate opened is opened through `markOpened` too). */
   opened: boolean;
   /**
-   * 이 클라이언트가 이미 한 번 열었나 (2026-09-11 분리). 키카드 내용물 채우기 · `structure:investigated` 는
-   * **내 첫 개봉**에 걸린다 — 남이 먼저 열어 문이 열려 있어도 내 캐시에는 키카드가 없으므로 여기서 채워야 한다.
+   * Has this client already opened it once (split out 2026-09-11). Filling in the keycard contents and
+   * `structure:investigated` hang on **my own first opening** — even when someone else opened it first and the door
+   * stands open, my cache holds no keycard, so it has to be filled in here.
    */
   rolled: boolean;
   interactable: Interactable;
@@ -93,13 +101,14 @@ const STYLE_R = [0.5, 0.6, 0.55];
 const OPEN_S = 0.45;
 
 /**
- * 2026-09-14 — 몸통 콜라이더의 **중심 → 모서리** 거리(m, 세 모양 중 가장 큰 것). 자리를 고르는 쪽
- * (`parts/Build` 의 컨테이너 자리)이 「비울 자리」에서 이만큼 + 몸 지름만큼 물러나는 데 쓴다.
- * 상자 크기(`STYLE_R` · 아래 `addBox` 의 `0.95r × 0.675r`)를 바꾸면 물러나는 폭이 저절로 따라온다.
+ * 2026-09-14 — the **centre → corner** distance of the body collider (m, the largest of the three shapes). Whoever
+ * picks the spots (the container spots in `parts/Build`) uses it to back off from a 「spot to keep clear」 by this much
+ * plus a body's diameter. Changing the box size (`STYLE_R` · the `0.95r × 0.675r` in `addBox` below) carries the
+ * back-off width along by itself.
  */
 export const CONTAINER_REACH = Math.max(...STYLE_R.map((r) => Math.hypot(r * 0.95, r * 0.675)));
 
-/** 컨테이너 묶음 — 구조물 하나 · 플랫폼 하나 · 전차 한 대가 각각 하나씩 들고 있어도 되고 공유해도 된다. */
+/** A container set — one structure · one platform · one tram may each hold their own, or share one. */
 export class ContainerSet {
   readonly group = new THREE.Group();
   private readonly insts: Inst[] = [];
@@ -107,27 +116,28 @@ export class ContainerSet {
   private mats: THREE.Material[] = [];
   private lampMat: THREE.MeshStandardMaterial | null = null;
   private game: GameContext | null = null;
-  /** 이미 조사한 구역 (구역당 `structure:investigated` 한 번). */
+  /** Zones already investigated (`structure:investigated` exactly once per zone). */
   private readonly investigated = new Set<string>();
   private readonly byId = new Map<string, Inst>();
-  /** 이 클라이언트에서 컨테이너 문이 처음 열렸을 때 (월드가 `crate opened` 로 분대에 알린다). */
+  /** Fired when a container door first opens on this client (world tells the squad with `crate opened`). */
   private onOpened: ((id: string) => void) | null = null;
 
   constructor(name = 'StructureContainers') { this.group.name = name; }
 
   get count(): number { return this.insts.length; }
 
-  /** 2026-09-11: 열린 모습 동기화 — 이 클라이언트에서 문이 처음 열리면 불린다. */
+  /** 2026-09-11: opened-look sync — called when a door first opens on this client. */
   setOpenListener(cb: ((id: string) => void) | null): void { this.onOpened = cb; }
 
   /**
-   * 2026-09-11: 분대원이 연 컨테이너를 **열린 모습**으로 (문이 열리는 애니메이션만, 이벤트 · 내용물 없음).
-   * 이 묶음의 것이 아니면 false. 빛기둥이 사라진 대신 "누가 이미 조사했나" 를 이 모습이 말한다.
+   * 2026-09-11: puts a container a squadmate opened into its **opened look** (the door animation only, no event and
+   * no contents). false when it is not in this set. The light pillar is gone, so this look is what says "somebody has
+   * already searched this".
    */
-  /** 2026-09-11 (C-57): 컨테이너 위치 (전차 안이면 매 프레임 따라가는 그 `Vector3`), 없으면 null. */
+  /** 2026-09-11 (C-57): a container's position (inside a tram, the `Vector3` that follows it every frame). null with none. */
   positionOf(id: string): THREE.Vector3 | null { return this.byId.get(id)?.spec.position ?? null; }
 
-  /** 2026-09-16: 컨테이너 `id` 의 굴림 규칙 (`WorldRef.crateLootOpts`) — 잠긴 방이면 `{ lockedRoom: true }`, 아니면 undefined. */
+  /** 2026-09-16: the roll rules of container `id` (`WorldRef.crateLootOpts`) — `{ lockedRoom: true }` for a locked room, else undefined. */
   lootOpts(id: string): CrateLootOpts | undefined { return this.byId.get(id)?.spec.lockedRoom ? LOCKED_ROOM_LOOT : undefined; }
 
   markOpened(id: string): boolean {
@@ -137,12 +147,13 @@ export class ContainerSet {
     return true;
   }
 
-  /** 열린 모습인가 (디버그 · 스모크). */
+  /** Is it in its opened look (debug · smoke). */
   isOpened(id: string): boolean { return this.byId.get(id)?.opened ?? false; }
 
   /**
-   * 2026-09-15 (안드로이드 분대원) — 이 묶음의 컨테이너를 하나씩 넘긴다 (`WorldRef.getLootContainers`).
-   * 콜백이라 배열을 새로 만들지 않는다. `position` 은 **살아 있는** 벡터다 (전차 안의 것은 매 프레임 움직인다).
+   * 2026-09-15 (android squadmates) — hands over this set's containers one by one (`WorldRef.getLootContainers`).
+   * It is a callback, so no new array is built. `position` is the **live** vector (the ones inside a tram move every
+   * frame).
    */
   collect(push: (id: string, position: THREE.Vector3, tier: number, opened: boolean) => void): void {
     for (let i = 0; i < this.insts.length; i++) {
@@ -200,8 +211,9 @@ export class ContainerSet {
       this.group.add(root);
       game.interactables.register(inst.interactable);
       if (!spec.dynamic) {
-        /* 2026-09-12: 콜라이더는 그린 몸통(뚜껑 폭 `1.9r × 1.35r`) 상자다. 예전 반지름 `r` 원기둥은 문 쪽 · 등 쪽으로
-         * 20 cm 넘게 보이지 않는 벽이었다 (실내 "보이지 않는 벽" 보고). 낮은 궤짝(0.85 m)은 상자 규칙대로 올라선다. */
+        /* 2026-09-12: the collider is the box of the drawn body (cap width `1.9r × 1.35r`). The old radius-`r`
+         * cylinder was an invisible wall over 20 cm out on the door side and the back (the indoor "invisible wall"
+         * report). A low chest (0.85 m) is stepped on by the box rule. */
         const r = STYLE_R[spec.style];
         ctx.hash.addBox(new THREE.Vector3(spec.position.x, spec.position.y, spec.position.z),
           r * 0.95, r * 0.675, spec.yaw, STYLE_H[spec.style], 'container');
@@ -223,7 +235,8 @@ export class ContainerSet {
     }
     if (first) {
       inst.rolled = true;
-      // 열쇠 부가 굴림이 맞은 컨테이너만 내용물을 직접 채운다 — 나머지는 상자 코드가 같은 식으로 티어대로 굴린다.
+      // Only a container whose key bonus roll hit gets its contents filled in directly — the rest the crate
+      // code rolls by tier with the same formula.
       const c = spec.bonusDefId ? this.contents(spec) : null;
       if (c?.bonus) {
         // 2026-09-12: raid loot carries the raid-found mark (the preview path stays unmarked — it never reaches a player)
@@ -231,7 +244,7 @@ export class ContainerSet {
         game.inventory?.openContainerItems(spec.id, c.items, spec.position, '컨테이너');
       }
     }
-    // 2026-09-14: 구역 id · 종류를 싣는다 — NPC 퀘스트의 「구조물 안 컨테이너 조사」 가 센다
+    // 2026-09-14: carries the zone id · kind — the NPC quest 「search containers inside a structure」 counts it
     game.bus.emit('crate:open', { crateId: spec.id, tier: spec.tier, position: spec.position, zoneId: spec.zoneId, zoneKind: spec.zoneKind });
     if (!first) return;
     if (this.investigated.has(spec.zoneId)) return;
@@ -240,14 +253,16 @@ export class ContainerSet {
   }
 
   /**
-   * 상자 코드와 **같은 방식**으로 굴린 내용물 + 키카드. rng 시드도 `inventory/Container` 와 같은
-   * `<맵 시드> ^ hash(id)` 라 어느 클라이언트에서 열어도 같은 물건이 나온다 (`ctx.world.seed` = 이 맵의 시드).
-   * `items/` 가 아직 키카드 def 를 등록하지 않았으면 **조용히 빼고** 나머지만 채운다.
+   * The contents rolled **the same way** as the crate code, plus the keycard. The rng seed is the same
+   * `<map seed> ^ hash(id)` as in `inventory/Container`, so the same items come out whichever client opens it
+   * (`ctx.world.seed` = this map's seed). When `items/` has not registered the keycard def yet it is **dropped
+   * silently** and only the rest is filled in.
    *
-   * 2026-09-10 — `rollCrate` 가 아니라 **`rollCrateOn(tier, rng, missionPlanet)`** 이다. `inventory/Container`
-   * 는 2026-09-09 부터 행성을 넘기고 있었는데 여기만 안 넘겨서, 구조물 · 지하실 · 플랫폼 · 전차 안의 상자만
-   * 행성의 무기 등급 곡선(`data/planet_loot.csv`)도 희귀도 배수도 타지 않았다 — 등급 IV · V 가 봉인된
-   * 앞쪽 행성에서 구조물이 그 봉인의 우회로였다. "상자 코드와 같은 방식" 이라는 이 주석의 약속이 곧 계약이다.
+   * 2026-09-10 — it is **`rollCrateOn(tier, rng, missionPlanet)`**, not `rollCrate`. `inventory/Container` had been
+   * passing the planet since 2026-09-09 and only this site did not, so crates in structures · basements · platforms ·
+   * trams alone rode neither the planet's weapon grade curve (`data/planet_loot.csv`) nor its rarity multiplier — on
+   * an early planet where grades IV · V are sealed, structures were the way around that seal. This comment's promise
+   * of "the same way as the crate code" is the contract itself.
    */
   private contents(spec: ContainerSpec): { items: ItemInstance[]; bonus: boolean } | null {
     const game = this.game;
@@ -261,15 +276,16 @@ export class ContainerSet {
       const hit = chance >= 1
         || (chance > 0 && new Random((((game.world?.seed ?? 0) >>> 0) ^ Random.hash(`${spec.id}#bonus`)) >>> 0).chance(chance));
       if (hit) {
-        try { items.unshift(loot.createItem(spec.bonusDefId, 1)); bonus = true; } catch { /* def 가 있어도 만들 수 없으면 그냥 넘어간다 */ }
+        try { items.unshift(loot.createItem(spec.bonusDefId, 1)); bonus = true; } catch { /* a def that exists but cannot be created is simply skipped */ }
       }
     }
     return { items, bonus };
   }
 
   /**
-   * 2026-09-12 — 이 묶음의 컨테이너 `id` 를 **처음 열면 나올** 내용물 (열쇠 부가 굴림 포함). 순수 — 열린 표시 ·
-   * 이벤트 · 캐시를 건드리지 않는다. 이 묶음의 것이 아니거나 `ctx.loot` 가 없으면 null.
+   * 2026-09-12 — the contents that **come out of the first opening** of this set's container `id` (the key bonus roll
+   * included). Pure — it touches no opened mark, no event and no cache. null when it is not in this set or there is
+   * no `ctx.loot`.
    */
   preview(id: string): ItemInstance[] | null {
     const inst = this.byId.get(id);
@@ -307,7 +323,7 @@ export class ContainerSet {
     this.game = null;
   }
 
-  /* ── 지오메트리 ─────────────────────────────────────────────────────── */
+  /* ── Geometry ───────────────────────────────────────────────────────── */
 
   private makeBody(style: 0 | 1 | 2, rng: Random): THREE.BufferGeometry {
     const shell = new THREE.Color(style === 2 ? 0x3d4a54 : 0x4b4f52);
@@ -321,7 +337,7 @@ export class ContainerSet {
     paintGradient(box, dark, shell, 0, h);
     parts.push(box);
 
-    // 발 · 상단 테두리
+    // Feet · top rim
     for (const sx of [-1, 1]) {
       const foot = new THREE.BoxGeometry(0.16, 0.1, r * 1.1);
       xform(foot, { x: sx * (r * 0.75), y: 0.05, z: 0 });
@@ -334,7 +350,7 @@ export class ContainerSet {
     parts.push(cap);
 
     if (style === 0) {
-      // 벽 캐비닛: 세로 홈 세 줄
+      // Wall cabinet: three vertical grooves
       for (let i = 0; i < 3; i++) {
         const rib = new THREE.BoxGeometry(0.05, h - 0.3, 0.04);
         xform(rib, { x: (i - 1) * r * 0.5, y: h / 2, z: r * 0.64 });
@@ -342,7 +358,7 @@ export class ContainerSet {
         parts.push(rib);
       }
     } else if (style === 1) {
-      // 궤짝: 띠 두 줄
+      // Chest: two bands
       for (const y of [h * 0.35, h * 0.72]) {
         const band = new THREE.BoxGeometry(r * 1.85, 0.07, r * 1.3);
         xform(band, { x: 0, y, z: 0 });
@@ -350,7 +366,7 @@ export class ContainerSet {
         parts.push(band);
       }
     } else {
-      // 시약장: 유리 선반 두 칸
+      // Reagent cabinet: two glass shelves
       for (const y of [h * 0.4, h * 0.72]) {
         const shelf = new THREE.BoxGeometry(r * 1.6, 0.05, r * 1.0);
         xform(shelf, { x: 0, y, z: 0 });

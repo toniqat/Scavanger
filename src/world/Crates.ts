@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Layers, keyTable, type CrateDef, type GameContext, type Interactable, type Random } from '@/shared';
 import { type BuildCtx, isSpotFree, makeSoftParticleTexture, merge, paint, paintGradient, xform } from './build';
 
-/** 둥지 pad 중심에서 이 거리(m) 안에는 상자를 놓지 않는다 (`data/tuning.csv`, 2026-09-18 사용자 결정). */
+/** No crate is placed within this distance (m) of a nest pad centre (`data/tuning.csv`, 2026-09-18 user's decision). */
 const NEST_CRATE_CLEAR_M = /* data/tuning.csv */ keyTable('tuning.csv').num('NEST_CRATE_CLEAR_M');
 
 const CRATE_W = 1.25, CRATE_H = 0.85, CRATE_D = 0.8;
@@ -19,7 +19,7 @@ interface CrateInst {
   lid: THREE.Group;
   light: THREE.Mesh;
   animT: number;      // -1 idle, else seconds since open started
-  /** 이 클라이언트가 이미 한 번 열었나 (2026-09-11) — `def.opened` 는 누가 열었든 열린 모습이다. */
+  /** Has this client already opened it once (2026-09-11) — `def.opened` is the open look, whoever opened it. */
   rolled: boolean;
   interactable: Interactable;
 }
@@ -34,7 +34,7 @@ export class Crates {
   private lightMats = new Map<number, THREE.MeshStandardMaterial>();
   private gameCtx: GameContext | null = null;
   private readonly byId = new Map<string, CrateInst>();
-  /** 이 클라이언트에서 뚜껑이 처음 열렸을 때 (월드가 `crate opened` 로 분대에 알린다). */
+  /** When the lid first opens on this client (world tells the squad with `crate opened`). */
   private onOpened: ((id: string) => void) | null = null;
   private puffs: Puffs | null = null;
 
@@ -42,14 +42,14 @@ export class Crates {
 
   getDefs(): readonly CrateDef[] { return this.defs; }
 
-  /** 2026-09-11: 열린 모습 동기화 — 이 클라이언트에서 뚜껑이 처음 열리면 불린다. */
+  /** 2026-09-11: open-look sync — called when the lid first opens on this client. */
   setOpenListener(cb: ((id: string) => void) | null): void { this.onOpened = cb; }
 
   /**
-   * 2026-09-11: 분대원이 연 상자를 **열린 모습**으로 (뚜껑 · 불빛만, 이벤트 · 통계 · 소리 없음).
-   * 빛기둥이 사라진 대신 "누가 이미 조사했나" 를 이 모습이 말한다. 이 묶음의 상자가 아니면 false.
+   * 2026-09-11: put a crate a squadmate opened into the **open look** (lid · light only; no event, stats or sound).
+   * With the light pillar gone, this look is what says "someone has already searched it". False when the crate is not in this set.
    */
-  /** 2026-09-11 (C-57): 이 묶음의 상자 위치 (없으면 null) — 받는 쪽이 `crate opened` 의 거리를 잰다. */
+  /** 2026-09-11 (C-57): the position of a crate in this set (null with none) — the receiver measures `crate opened`'s distance. */
   positionOf(id: string): THREE.Vector3 | null { return this.byId.get(id)?.def.position ?? null; }
 
   markOpened(id: string): boolean {
@@ -82,10 +82,10 @@ export class Crates {
     this.geometries.push(lightGeo);
 
     // ── placement ─────────────────────────────────────────────────────
-    /* 2026-09-18 (사용자 결정) — **둥지 옆에는 상자를 두지 않는다.** 둥지의 보상은 이제 부술 수 있는
-     * 알(`bug_egg`)이라 「지키는 벌레가 값을 한다」는 상자 고리가 필요 없어졌다. 고리를 없애는 것만으로는
-     * 부족한 것이, POI · 구조물 고리가 우연히 둥지 쪽으로 굴러 들어올 수 있어서 pad 중심에서
-     * `NEST_CRATE_CLEAR_M` 안은 전부 막는다 (`data/tuning.csv`). */
+    /* 2026-09-18 (user's decision) — **no crate stands beside a nest.** The nest's reward is now destructible
+     * eggs (`bug_egg`), so the crate ring that made 「the bugs guarding it earn their keep」 is not needed. Dropping
+     * the ring alone is not enough — a POI or structure ring can roll toward a nest by chance, so everything within
+     * `NEST_CRATE_CLEAR_M` of a pad centre is refused (`data/tuning.csv`). */
     const nestClearSq = NEST_CRATE_CLEAR_M * NEST_CRATE_CLEAR_M;
     const nestClear = (x: number, z: number): boolean => {
       for (const n of ctx.layout.nests) if ((n.x - x) ** 2 + (n.z - z) ** 2 < nestClearSq) return false;
@@ -110,28 +110,28 @@ export class Crates {
       return placed;
     };
 
-    /* 2026-09-10 — **허허벌판에는 상자를 두지 않는다** (사용자 결정).
+    /* 2026-09-10 — **no crates in the open field** (user's decision).
      *
-     * 예전 배치는 1티어 상자 30~40개를 맵 전체에 흩뿌리고 3~4티어까지 아무 자리에나 놓았다. 그래서
-     * 걷다 우연히 밟는 상자가 대부분이었고 "3~4등급이 필드에 널려 있다" 가 됐다. 이제 상자는 **사람이
-     * 있던 자리**에만 선다 — 폐허 전초(POI) · 버려진 구조물 둘레 (2026-09-18: 둥지 고리는 빠졌다). 구조물 **안**의 컨테이너는
-     * 여전히 `world/structures` 가, 플랫폼 위의 것은 `world/Rails` 가 따로 놓는다.
-     * **4티어는 이 파일이 더 이상 놓지 않는다** — 지하실 · 불시착 함선 안에만 있다 (`data/structures.csv`).
-     * 총량은 예전(30~40)과 비슷한 20~40개이고 전부 랜드마크 둘레에 모여 있다. */
+     * The old placement scattered 30–40 tier-1 crates over the whole map and put even tier 3–4 anywhere. So most
+     * crates were ones a player walked into by accident, and it became "tier 3–4 is lying all over the field". Now a
+     * crate stands **only where people were** — POI ruins · around abandoned structures (2026-09-18: the nest ring is gone).
+     * Containers **inside** a structure are still placed by `world/structures`, those on a platform by `world/Rails`.
+     * **This file no longer places tier 4** — it stands only in basements and the crash-landed ship (`data/structures.csv`).
+     * The total is 20–40, close to the old 30–40, and all of it gathered around landmarks. */
 
-    // 폐허 전초(POI) 5~8곳 — 이 맵의 주된 야외 루팅 지점. 2티어 하나 + 1티어 둘.
+    // 5–8 POI ruins — this map's main outdoor looting spots. One tier 2 + two tier 1.
     for (const poi of ctx.layout.pois) {
       ring(poi.x, poi.z, 2.5, 9, 2, 1, 40, true);
       ring(poi.x, poi.z, 3, 13, 1, 2, 70, true);
     }
-    // 버려진 구조물(전진기지 · 연구실 · 불시착 함선) 둘레 — 벽 **바깥**에 3티어 하나 + 2티어 한둘.
+    // Around abandoned structures (outpost · lab · crash-landed ship) — **outside** the walls, one tier 3 + one or two tier 2.
     for (const st of ctx.layout.structures) {
-      const reach = Math.hypot(st.halfW, st.halfD) + 4;      // = 그 구조물 pad 의 반지름
+      const reach = Math.hypot(st.halfW, st.halfD) + 4;      // = that structure pad's radius
       ring(st.pad.x, st.pad.z, reach + 2, reach + 10, 3, 1, 60, true);
       ring(st.pad.x, st.pad.z, reach + 2, reach + 15, 2, 1 + rng.int(0, 1), 80, true);
     }
-    /* 둥지 고리(3티어 하나 × 둥지 4~6)는 2026-09-18 에 사라졌다 — 위 `nestClear` 주석 참조.
-     * 레이드 한 판의 상자가 그만큼(보통 4~6개, 전부 3티어) 줄어든다. 다른 고리를 늘려 메우지 않았다 (사용자 판단 몫). */
+    /* The nest ring (one tier 3 × 4–6 nests) is gone as of 2026-09-18 — see the `nestClear` comment above.
+     * A raid has that many fewer crates (usually 4–6, all tier 3). No other ring was raised to make up for it (the user's call). */
 
     // ── build instances ───────────────────────────────────────────────
     let id = 0;
@@ -165,7 +165,7 @@ export class Crates {
       light.position.set(0.4, CRATE_H - 0.12, CRATE_D / 2 + 0.02);
       root.add(light);
 
-      /* 2026-09-11: 4티어 상자의 빛기둥(빔)을 걷어냈다 — 빛기둥은 시체에만 선다 (사용자 결정). */
+      /* 2026-09-11: the tier-4 crate's light pillar (beam) was removed — light pillars stand only on corpses (user's decision). */
       const inst: CrateInst = {
         def, root, lid, light, animT: -1, rolled: false,
         interactable: {

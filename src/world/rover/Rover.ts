@@ -1,25 +1,25 @@
 /**
- * src/world/rover/Rover.ts — 탐사 차량 **본체 · 상태 기계 · 포탑 · 탑승 · 동기화** (owner: R2, 2026-09-13).
+ * src/world/rover/Rover.ts — the rover **vehicle · state machine · turret · boarding · sync** (owner: R2, 2026-09-13).
  *
- * 규칙의 원본은 `shared/types.ts` 의 탐사 차량 절이다. 이 파일에 남은 것은 **수명 · 상태 기계 · 탑승/결제 흐름 · 멀티**이고
- * 지오메트리(`parts/Body`) · 연출(`parts/Fx`) · 포탑(`parts/Turret`) · 부딪힘(`parts/Impact`) · 하차 자리(`parts/Exits`)는 파트로 내렸다.
+ * The rules' source is the rover section of `shared/types.ts`. What is left here is **lifecycle · state machine · the boarding / fare flow · multiplayer**;
+ * geometry (`parts/Body`) · FX (`parts/Fx`) · turret (`parts/Turret`) · ramming (`parts/Impact`) · exit spots (`parts/Exits`) all moved down into parts.
  *
- * ## 상태 기계 (호스트 권위 — 싱글은 자기가 호스트다)
- *   stopped ──(정차 `ROVER_DWELL_S`, 탑승자가 있으면 멈춤)──▶ patrol ──(다음 정류장 도착)──▶ stopped
- *   stopped ──(탑승자 결제)──▶ departing ──(`ROVER_DEPART_GRACE_S`)──▶ trip ──(목적지 도착 → 전원 강제 하차)──▶ stopped
- *   아무 상태 ──(체력 0)──▶ destroyed (레이드 내내 — 잔해가 남고 탑승자는 그 자리에서 내린다)
- * 진행 방향이 바뀌면 서 있는 동안 제자리에서 돈다 (`ROVER_TURN_RATE`) — 결제 이동이 반대 방향이면 출발 유예 안에 돈다.
- * 이동 곡선(가속 · 제동 · 회전)은 호스트 · 클라이언트가 **같은 함수**(`motion`)로 굴리고, 클라이언트는 호스트의 `s` 로 보정한다.
+ * ## State machine (host-authoritative — in single player one is one's own host)
+ *   stopped ──(dwell `ROVER_DWELL_S`, paused while riders are aboard)──▶ patrol ──(next station reached)──▶ stopped
+ *   stopped ──(a rider pays)──▶ departing ──(`ROVER_DEPART_GRACE_S`)──▶ trip ──(destination reached → all ejected)──▶ stopped
+ *   any state ──(hp 0)──▶ destroyed (for the rest of the raid — the wreck stays and riders get out where it fell)
+ * A change of travel direction is turned on the spot while standing (`ROVER_TURN_RATE`) — a paid trip the other way turns within the departure grace.
+ * The motion curve (acceleration · braking · turning) runs through **the same function** (`motion`) on host and client, and a client is corrected by the host's `s`.
  *
- * ## 와이어 (`RoverMessage` / `RoverRequest`, 받는 쪽은 로비 호스트가 보낸 것만)
- * - 호스트 → 전원 `state` (`ROVER_NET_INTERVAL` + 바뀔 때마다) · `trip`(결제 확정 — `by` 만 크레딧을 낸다) · `eject`(도착 · 파괴) · `fire`.
- * - 클라이언트 → 호스트 `board` · `exit` · `trip` · `sync`. 호스트는 로비 멤버 · 살아 있음 · 거리 · 상태를 보고 `reply` 한다.
- * - 늦게 합류(`flow rejoined`) · `net:hostChanged` 는 전차와 같다. 새 호스트는 받아 둔 마지막 상태에서 이어 굴린다.
+ * ## Wire (`RoverMessage` / `RoverRequest`; the receiving side accepts only what the lobby host sent)
+ * - Host → everyone: `state` (every `ROVER_NET_INTERVAL` and on every change) · `trip` (the fare is committed — only `by` pays credits) · `eject` (arrival · destruction) · `fire`.
+ * - Client → host: `board` · `exit` · `trip` · `sync`. The host checks lobby membership · alive · distance · state and sends a `reply`.
+ * - Late joins (`flow rejoined`) and `net:hostChanged` work like the tram's. A new host carries on from the last state it received.
  *
- * ## 탑승자
- * 목록은 PeerId(싱글은 `'local'`)로 들고, 밖으로는 이 클라이언트 기준으로 자기 자신을 `'local'` 로 바꿔 보인다
- * (`RoverVehicleDef.riders`). 몸 · 카메라 · 피해 면제는 player 의 `setRoverRide` 가 하고 여기는 끈(`RoverRideBinding`)만 준다.
- * 호스트는 로비를 떠났거나 끊겼거나 죽은 탑승자를 매 프레임 목록에서 뺀다.
+ * ## Riders
+ * The list is held by PeerId (`'local'` in single player) and shown outside with this client's own id swapped to
+ * `'local'` (`RoverVehicleDef.riders`). The body · camera · damage exemption are player's `setRoverRide`; this file
+ * only hands over the binding (`RoverRideBinding`). The host drops riders who left the lobby, disconnected or died, every frame.
  */
 import * as THREE from 'three';
 import {
@@ -47,25 +47,25 @@ import { RoverFx } from './parts/Fx';
 import { updateRoverImpacts } from './parts/Impact';
 import { applyRemoteShot, makeTurretState, updateTurretLogic, updateTurretVisual } from './parts/Turret';
 
-/** 탑승 상호작용 id — 차량이 레이드당 하나라 상수다. */
+/** The boarding interaction id — a constant, because there is one vehicle per raid. */
 const BOARD_ID = 'rover:board';
-/** 좌석(탑승자의 발) · 궤도 카메라 초점 · 탑승 상호작용 자리의 노면 위 높이(m). 그림 자리라 밸런스 수치가 아니다. */
+/** Heights above the road surface (m) of the seat (a rider's feet) · the orbit camera focus · the boarding interaction spot. Framing, not balance numbers. */
 const SEAT_UP = 0.6;
 const FOCUS_UP = 0.6;
 const HATCH_UP = 1.2;
-/** 도착 직전 최저 속도(m/s) — 제동 곡선이 0 에 수렴해 영영 안 닿는 일이 없게. */
+/** The minimum speed just before arrival (m/s) — so the braking curve does not converge on 0 and never quite arrive. */
 const ARRIVE_CREEP = 1;
-/** 지형 기울기 따라가기 속도(1/s) · 최대 기울기(rad). */
+/** How fast the body follows the terrain tilt (1/s) · the maximum tilt (rad). */
 const TILT_SMOOTH = 5;
 const TILT_MAX = 0.35;
-/** 기울기를 재는 앞뒤 · 좌우 표본 거리(m). */
+/** The fore-aft and side-to-side sample distances the tilt is measured over (m). */
 const TILT_SAMPLE_L = 2.6;
 const TILT_SAMPLE_W = 1.3;
-/** 상태가 바뀐 뒤 방송을 이만큼(초)은 모아서 한 번 보낸다. */
+/** After a state change, broadcasts are gathered for this long (seconds) and sent once. */
 const LATE_SEND_S = 0.1;
-/** 클라이언트: 호스트 목록에서 이만큼(초) 빠져 있으면 내 탑승을 스스로 푼다 (메시지 유실 · 호스트 이관 대비). */
+/** Client: after this long (seconds) missing from the host's list, it releases its own ride (against a lost message or a host transfer). */
 const RECONCILE_S = 1.5;
-/** 결제 요청이 이만큼(초) 답이 없으면 다시 누를 수 있다. */
+/** After this long (seconds) with no answer to a fare request, it can be pressed again. */
 const TRIP_PENDING_S = 3;
 
 export class Rover {
@@ -87,9 +87,9 @@ export class Rover {
     position: new THREE.Vector3(), yaw: 0, state: 'stopped', s: 0, dir: 1,
     hp: ROVER_HP, maxHp: ROVER_HP, stationId: null, targetId: null, timer: 0, riders: [],
   };
-  /** 서 있는(stopped · departing) 정류장 index, 아니면 −1. */
+  /** The index of the station it stands at (stopped · departing), else −1. */
   private stationIdx = -1;
-  /** departing · trip = 목적지, patrol = 다음 정류장, 그 밖 −1. */
+  /** departing · trip = the destination, patrol = the next station, otherwise −1. */
   private targetIdx = -1;
   private speed = 0;
   private speedMul = 1;
@@ -101,9 +101,9 @@ export class Rover {
   private lastSend = -Infinity;
   private dirty = false;
   private hazardTimer = 0;
-  /** 클라이언트: 호스트가 준 진행거리 (추측 항법으로 앞당긴다). */
+  /** Client: the arc position the host gave (advanced by dead reckoning). */
   private targetS = 0;
-  /** 클라이언트: 첫 `state` 를 받았는가 (첫 적용은 사건을 내지 않는다). */
+  /** Client: has the first `state` arrived (the first apply raises no events). */
   private synced = false;
   private rid = 0;
   private pendingTrip = -1;
@@ -252,7 +252,7 @@ export class Rover {
     this.built = false;
   }
 
-  /** 차량이 있으면 그 `RoverRef`, 없으면 null. */
+  /** The `RoverRef` when there is a vehicle, else null. */
   get ref(): RoverRef | null { return this.built && this.route ? this.refImpl : null; }
 
   /* ── per-frame ─────────────────────────────────────────────────────── */
@@ -264,7 +264,7 @@ export class Rover {
     if (this.def.state === 'destroyed') return;
     const host = this.isHost;
     if (host) this.hostTick(dt, game); else this.clientTick(dt);
-    if (this.destroyed) return;   // hostTick 이 부쉈을 수 있다 (좁혀진 타입을 다시 읽는다)
+    if (this.destroyed) return;   // hostTick may have destroyed it (re-read the narrowed type)
 
     this.motion(dt, host);
     this.place(dt, false);
@@ -284,7 +284,7 @@ export class Rover {
     }
   }
 
-  /** 호스트: 정차 · 출발 유예 타이머. */
+  /** Host: the dwell and departure-grace timers. */
   private hostTick(dt: number, game: GameContext): void {
     const d = this.def;
     if (d.state === 'stopped') {
@@ -298,7 +298,7 @@ export class Rover {
     }
   }
 
-  /** 클라이언트: 표시용 타이머 + 호스트 진행거리로 보정 (추측 항법으로 앞당긴 뒤 끌어당긴다). */
+  /** Client: the display timer, plus correction by the host's arc position (advanced by dead reckoning, then pulled in). */
   private clientTick(dt: number): void {
     const d = this.def, path = this.path;
     if (!path) return;
@@ -310,7 +310,7 @@ export class Rover {
     else d.s = wrapRouteS(path, d.s + delta * Math.min(1, dt * 4));
   }
 
-  /** 가속 · 제동 · 제자리 회전 · 진행 (호스트 · 클라이언트가 같은 곡선). 도착 판정은 호스트만. */
+  /** Acceleration · braking · turning on the spot · travel (the same curve on host and client). Only the host judges arrival. */
   private motion(dt: number, host: boolean): void {
     const d = this.def, path = this.path, route = this.route;
     if (!path || !route) return;
@@ -339,7 +339,7 @@ export class Rover {
     if (host && remaining - step <= 0.02) this.arrive();
   }
 
-  /** 차체 · 콜라이더 · 기울기 · 좌석/초점/탑승 자리를 지금 `s` 에 놓는다. */
+  /** Places the body · collider · tilt · seat / focus / boarding spot at the current `s`. */
   private place(dt: number, snap: boolean): void {
     const body = this.body, path = this.path, d = this.def;
     if (!body || !path) return;
@@ -367,7 +367,7 @@ export class Rover {
     body.root.updateMatrixWorld(true);
   }
 
-  /* ── 상태 전이 (모든 클라이언트가 같은 사건을 낸다) ─────────────────────── */
+  /* ── State transitions (every client raises the same events) ───────────── */
 
   private setState(next: RoverState): void {
     const prev = this.def.state;
@@ -411,7 +411,7 @@ export class Rover {
     this.setState('patrol');
   }
 
-  /** 호스트: 목적지(`targetIdx`)에 닿았다. 결제 이동이면 전원 강제 하차. */
+  /** Host: the destination (`targetIdx`) is reached. On a paid trip everyone is ejected. */
   private arrive(): void {
     const route = this.route, d = this.def;
     const idx = this.targetIdx;
@@ -427,7 +427,7 @@ export class Rover {
     this.sendState();
   }
 
-  /** 모든 클라이언트: 파괴 연출 · 잔해 모습. `explode` false = 늦게 합류해 이미 부서진 차를 받았다. */
+  /** Every client: the destruction FX and the wreck look. `explode` false = a late joiner received an already broken vehicle. */
   private onDestroyed(explode: boolean): void {
     const game = this.game, body = this.body, fx = this.fx, d = this.def;
     this.speed = 0;
@@ -444,14 +444,14 @@ export class Rover {
     }
     if (game) {
       if (explode) game.bus.emit('rover:destroyed', { position: d.position.clone() });
-      // 강제 하차 메시지를 놓친 탑승자도 차 안에 남지 않는다
+      // A rider who missed the eject message does not stay inside the car either
       if (game.player?.roverRide && this.boardedAt > -Infinity) {
         this.releaseLocal(pickExitSpots(game.world, d, 1)[0] ?? null);
       }
     }
   }
 
-  /* ── 탑승자 ─────────────────────────────────────────────────────────── */
+  /* ── Riders ─────────────────────────────────────────────────────────── */
 
   private get isHost(): boolean {
     const c = this.game;
@@ -463,7 +463,7 @@ export class Rover {
     return !!c?.isMultiplayer && !!c.net && !c.net.isHost;
   }
 
-  /** 탑승자 목록에서 이 클라이언트를 가리키는 id (멀티 = 내 PeerId, 싱글 = `'local'`). */
+  /** The id that points at this client in the rider list (multiplayer = its own PeerId, single player = `'local'`). */
   private get selfId(): string {
     const c = this.game;
     return c?.isMultiplayer && c.net?.localId ? c.net.localId : 'local';
@@ -485,7 +485,7 @@ export class Rover {
       if (old.includes(id)) continue;
       const local = id === self;
       game.bus.emit('rover:boarded', { by: local ? 'local' : id, name: this.nameOf(id), local, aboard: true });
-      // 2026-09-14 (NPC 퀘스트 interact): 내가 탔다 — 호스트가 탑승자 목록으로 확정한 뒤라 클라이언트도 정확하다
+      // 2026-09-14 (NPC quest interact): the local player boarded — the host has confirmed it in the rider list, so a client is exact too
       if (local) game.bus.emit('world:interacted', { kind: 'rover', id: BOARD_ID });
     }
     for (const id of old) {
@@ -518,7 +518,7 @@ export class Rover {
       radius: ROVER_BOARD_RANGE,
       kind: 'console',
       hidePillar: true,
-      // 막혀 있으면 홀드 0 = 누르는 순간 거절 (전차 호출 콘솔과 같은 규약 — 게이지를 다 채운 뒤 거절당하지 않는다)
+      // When blocked the hold is 0 = refused the moment it is pressed (the same rule as the tram call console — nobody is refused after filling the gauge)
       get holdTime(): number { return self.boardBlock() === null ? ROVER_BOARD_HOLD_S : 0; },
       getPrompt: () => self.boardBlock() ?? '탐사 차량 탑승',
       canInteract: () => !!self.game?.isGameplayActive() && self.built && !self.localAboard && !self.game?.player?.roverRide,
@@ -526,7 +526,7 @@ export class Rover {
     });
   }
 
-  /** 로컬 플레이어가 지금 탈 수 없는 사유 (프롬프트 · 거절). */
+  /** Why the local player cannot board right now (the prompt · the refusal). */
   private boardBlock(): string | null {
     const d = this.def;
     if (!this.built) return '탐사 차량이 없습니다';
@@ -551,7 +551,7 @@ export class Rover {
     if (reason) this.refuse(reason);
   }
 
-  /** 호스트: `id` 를 태운다. 거절 사유 또는 null. */
+  /** Host: boards `id`. The refusal reason, or null. */
   private hostBoard(id: string): string | null {
     const d = this.def;
     if (d.state === 'destroyed') return '파괴된 차량';
@@ -568,7 +568,7 @@ export class Rover {
     return null;
   }
 
-  /** 로컬 몸을 차에 태운다 (player 가 받아들였는가). */
+  /** Puts the local body in the car (did player accept it). */
   private engageLocal(): boolean {
     const game = this.game;
     const p = game?.player;
@@ -580,7 +580,7 @@ export class Rover {
     return true;
   }
 
-  /** 로컬 몸을 내린다. `at` 없으면 지금 자리. */
+  /** Puts the local body out. With no `at`, at the current spot. */
   private releaseLocal(at: THREE.Vector3 | null): void {
     const game = this.game;
     const p = game?.player;
@@ -605,7 +605,7 @@ export class Rover {
     if (res.reason) this.refuse(res.reason);
   }
 
-  /** 호스트: `id` 를 내린다. 로컬이면 곧바로 몸을 내리고, 원격이면 자리를 돌려준다. */
+  /** Host: puts `id` out. For the local one the body gets out at once; for a remote one the spot is handed back. */
   private hostExit(id: string): { reason: string | null; spot: THREE.Vector3 | null } {
     const aboard = this.riderNet.includes(id);
     if (aboard && !this.exitAllowed()) return { reason: '이동 중 — 하차 불가', spot: null };
@@ -616,7 +616,7 @@ export class Rover {
     return { reason: null, spot };
   }
 
-  /** 호스트: 전원 강제 하차 (도착 · 파괴). */
+  /** Host: ejects everyone (arrival · destruction). */
   private ejectAll(reason: 'arrived' | 'destroyed'): void {
     const game = this.game;
     const ids = this.riderNet.slice();
@@ -631,7 +631,7 @@ export class Rover {
     if (mine) this.releaseLocal(this.tmp.set(mine[0], mine[1], mine[2]));
   }
 
-  /** 호스트: 로비를 떠났거나 끊겼거나 죽은 탑승자 · player 가 스스로 푼 로컬 탑승을 뺀다. */
+  /** Host: drops riders who left the lobby, disconnected or died, and a local ride player released on its own. */
   private pruneRiders(game: GameContext): void {
     if (this.riderNet.length === 0) return;
     const self = this.selfId;
@@ -647,7 +647,7 @@ export class Rover {
     this.sendState();
   }
 
-  /** 클라이언트: 호스트 목록에서 내가 계속 빠져 있으면 스스로 내린다. */
+  /** Client: gets out on its own when it stays missing from the host's list. */
   private reconcileLocal(game: GameContext): void {
     if (!game.player?.roverRide || this.boardedAt === -Infinity) return;
     const now = game.time;
@@ -661,7 +661,7 @@ export class Rover {
     this.game?.bus.emit('rover:refused', { reason });
   }
 
-  /* ── 결제 이동 ─────────────────────────────────────────────────────── */
+  /* ── The paid trip ──────────────────────────────────────────────────── */
 
   private indexOf(id: string): number {
     return this.route ? this.route.stations.findIndex((s) => s.id === id) : -1;
@@ -718,7 +718,7 @@ export class Rover {
     return null;
   }
 
-  /** 호스트: `by` 가 `idx` 로 `fare` 를 내고 출발한다. 거절 사유 또는 null. */
+  /** Host: `by` pays `fare` and departs for `idx`. The refusal reason, or null. */
   private hostTrip(by: string, idx: number, fare: number): string | null {
     const route = this.route, path = this.path, d = this.def;
     if (!route || !path) return '탐사 차량이 없습니다';
@@ -742,7 +742,7 @@ export class Rover {
     return null;
   }
 
-  /** 모든 클라이언트: 결제 출발 확정. **결제자만** 크레딧을 낸다. */
+  /** Every client: the paid departure is committed. **Only the payer** spends credits. */
   private applyTripFact(by: string, from: number, to: number, fare: number): void {
     const game = this.game, route = this.route;
     if (!game || !route) return;
@@ -761,7 +761,7 @@ export class Rover {
     if (this.localAboard) game.bus.emit('rover:destinationSelect', { open: false });
   }
 
-  /* ── 피해 ──────────────────────────────────────────────────────────── */
+  /* ── Damage ─────────────────────────────────────────────────────────── */
 
   private damage(amount: number, _from?: THREE.Vector3): void {
     if (!this.built || this.def.state === 'destroyed' || !(amount > 0) || !this.isHost) return;
@@ -785,7 +785,7 @@ export class Rover {
     this.sendState();
   }
 
-  /** 호스트: 재해 구역 안이면 `HAZARD_TICK_S` 마다 재해 피해 × `ROVER_HAZARD_DAMAGE_MUL` (탑승자가 없어도). */
+  /** Host: inside a hazard zone, hazard damage × `ROVER_HAZARD_DAMAGE_MUL` every `HAZARD_TICK_S` (even with no riders). */
   private hazardTick(dt: number, game: GameContext): void {
     if (!game.isGameplayPhase()) return;
     const hz = game.world?.hazard;
@@ -798,7 +798,7 @@ export class Rover {
     }
   }
 
-  /** 호스트: 포탑 한 발 — 연출 · 사건 · 방송. */
+  /** Host: one turret shot — FX, event, broadcast. */
   private readonly onFire = (from: THREE.Vector3, to: THREE.Vector3): void => {
     const game = this.game;
     this.fx?.tracer(from, to);
@@ -807,7 +807,7 @@ export class Rover {
     if (game.isMultiplayer && game.net?.isHost) game.net.send({ t: 'rover', ev: 'fire', p: [to.x, to.y, to.z] }, 'others');
   };
 
-  /* ── 치트 (콘솔 `rover`) ────────────────────────────────────────────── */
+  /* ── Cheats (the console's `rover`) ─────────────────────────────────── */
 
   private cheat(action: 'hp' | 'speed' | 'depart' | 'arrive', value: number | undefined): void {
     if (!this.built || !this.isHost || !this.route || !this.path) return;
@@ -837,7 +837,7 @@ export class Rover {
     }
   }
 
-  /* ── 멀티 ─────────────────────────────────────────────────────────── */
+  /* ── Multiplayer ──────────────────────────────────────────────────── */
 
   private wire(): RoverWire {
     const d = this.def;
@@ -914,7 +914,7 @@ export class Rover {
     switch (m.req) {
       case 'board':
         if (!this.engageLocal()) {
-          // player 가 받아들이지 않았다 — 호스트 목록에서 나를 빼 달라고 한다
+          // player did not accept it — ask the host to drop this client from the list
           game.net?.send({ t: 'roverq', ev: 'exit', rid: ++this.rid }, 'host');
           this.refuse(game.player?.roverBoardBlock?.() ?? '지금은 탈 수 없습니다');
         } else if (this.def.state === 'stopped') {

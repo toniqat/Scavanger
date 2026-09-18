@@ -431,8 +431,8 @@ gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — �
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world`.
+- 2026-09-18 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels kept verbatim in backticks, no string literal touched.
 - 2026-09-18 — Tram: constant body orientation (no 180° flip on `dir`, which teleported riders across the car), a driver console at **each** end (`TRAM_CONSOLE_IDS`, same `applyStart`), double-ended body, cabin containers removed.
 - 2026-09-18 — Specimen gather sites retired: `planets.csv` `sampleNodes` 0 · `samples` empty on all five planets (`specimen.ts` and the columns stay — data-driven, `nodes = 0` means none).
 - 2026-09-18 — Explosions and melee no longer pass a window: `WorldSystem.raycastBlast` (glass blocks whether broken or not, `GLASS_OBSTACLE_KIND`; tutorial ghost fence unaffected) and `shared/explosion.lineClear` switched to it.
 - 2026-09-18 — Bug nest eggs became enemies: `Nests` stops drawing the `nest_eggs` mesh and publishes `getEggSpots()` → `WorldRef.getNestEggSpots()` (`nest` = pad index); no crates within `NEST_CRATE_CLEAR_M` of a nest and the nest crate ring is gone.
-- 2026-09-17 — Tutorial fence drawn height ×1.5 (`BARRIER.fenceHeight` 1.35 → 2.025; lower collider follows, slats rescale).

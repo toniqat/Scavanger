@@ -1,20 +1,22 @@
 /**
- * src/world/structures/parts/Glass.ts — **구조물 창문 유리** (2026-09-11).
+ * src/world/structures/parts/Glass.ts — **structure window glass** (2026-09-11).
  *
- * 사용자 요청: "1층과 2층 벽에 무작위 위치에 창문이 존재하도록. 창문은 총알, 투척물에 의해 뚫림" + 결정:
- * **깨진 뒤에도 사람은 못 드나든다 — 총알 · 투척물만 통과**.
+ * User's request: "windows at random positions on the floor-1 and floor-2 walls. Windows are pierced by bullets and
+ * throwables" + the decision: **people still cannot pass through a broken one — only bullets · throwables do**.
  *
- * - 맵의 유리 전부가 `InstancedMesh` **하나**다 (드로우콜 +1). 깨지면 그 인스턴스만 크기 0 으로 접는다.
- * - 유리 한 장 = 얇은 상자 콜라이더 하나 (`Obstacle.fragile` + `destructible`). 총알은 `weapons/` 의 기존
- *   `obstacle.destructible.onDamage` 경로로, 투척물은 자기 비행 선분을 `world.raycast` 로 훑어 같은 함수를 부른다.
- * - **깨져도 콜라이더는 hash 에 남는다.** 대신 `passRays`(레이가 무시) + `passSmall`(반지름 `SMALL_BODY_R` 미만의
- *   몸 — 수류탄 · 투척 가젯 — 은 밀어내지 않는다)로 바뀐다. 사람 · 적의 몸은 여전히 막힌다. 두 플래그는 world
- *   내부(`ObstacleEntry`)라 계약이 늘지 않는다.
- * - **폭발 · 근접 가시성은 예외** (2026-09-18 사용자 결정 「창은 깨졌어도 폭발을 막는다」): `WorldSystem.raycastBlast`
- *   는 `kind === GLASS_OBSTACLE_KIND` 인 콜라이더를 `passRays` 와 무관하게 막는다. 총알 · 적 시야 · 투척물은
- *   그대로 지나간다 — 바뀐 것은 `shared/explosion.lineClear` 하나다.
- * - 누가 깼는지는 중요하지 않다 (결과가 같다) — 깬 클라이언트가 `struct glass` 를 보내고, 받은 쪽은 같은 함수를
- *   조용히(`byLocal: false`) 부른다. 이미 깨졌으면 아무 일도 없다.
+ * - Every pane on the map is **one** `InstancedMesh` (+1 draw call). Breaking one folds that instance to size 0.
+ * - One pane = one thin box collider (`Obstacle.fragile` + `destructible`). Bullets go through `weapons/`'s existing
+ *   `obstacle.destructible.onDamage` path; a throwable sweeps its own flight segment with `world.raycast` and calls
+ *   the same function.
+ * - **The collider stays in the hash even when broken.** It turns `passRays` (rays ignore it) + `passSmall` (a body
+ *   under radius `SMALL_BODY_R` — grenades · thrown gadgets — is not pushed out) instead. People's and enemies'
+ *   bodies are still blocked. Both flags are world-internal (`ObstacleEntry`), so the contract does not grow.
+ * - **Blast · melee occlusion is the exception** (2026-09-18, user's decision 「a window blocks blasts even when
+ *   broken」): `WorldSystem.raycastBlast` blocks a collider whose `kind === GLASS_OBSTACLE_KIND` regardless of
+ *   `passRays`. Bullets · enemy sight · throwables pass as before — the one thing that changed is
+ *   `shared/explosion.lineClear`.
+ * - Who broke it does not matter (the result is the same) — the breaking client sends `struct glass` and the
+ *   receiving side calls the same function silently (`byLocal: false`). Already broken = nothing happens.
  */
 import * as THREE from 'three';
 import { Layers } from '@/shared';
@@ -22,21 +24,21 @@ import type { BuildCtx } from '../../build';
 import type { ObstacleEntry } from '../../SpatialHash';
 import { GLASS_T } from '../model';
 
-/** 이 반지름(m) 미만의 몸은 깨진 창틀을 지나간다 (`resolveCollision`). 수류탄 0.08 · 투척 가젯 0.08 · 사람 0.45. */
+/** A body under this radius (m) passes a broken window frame (`resolveCollision`). Grenade 0.08 · thrown gadget 0.08 · person 0.45. */
 export const SMALL_BODY_R = 0.25;
 
 /**
- * 2026-09-18: 유리 한 장의 콜라이더 `ObstacleEntry.kind`. **유리를 세우는 곳은 이 파일 하나**라
- * 이 이름표가 곧 「이건 창이다」의 신원이다 — `WorldSystem.raycastBlast` 가 이것으로 창을
- * 튜토리얼 철조망의 유령 토막(`tut_fence_ghost`, 똑같이 `passRays` 다)과 갈라낸다. 새 플래그를
- * `SpatialHash.ObstacleEntry` 에 더하지 않으려고 이미 있는 `kind` 를 쓴다.
+ * 2026-09-18: the `ObstacleEntry.kind` of one pane's collider. **This file is the only place that stands glass up**,
+ * so this label is the identity of 「this is a window」 — `WorldSystem.raycastBlast` uses it to tell a window from
+ * the tutorial wire fence's ghost band (`tut_fence_ghost`, which is `passRays` just the same). It uses the existing
+ * `kind` so as not to add a new flag to `SpatialHash.ObstacleEntry`.
  */
 export const GLASS_OBSTACLE_KIND = 'glass';
 
-/** 창문 한 장의 자리 (월드). `yaw` 는 창 면이 뻗는 방향(수학 규약, 로컬 +X = 가로). */
+/** One window's spot (world). `yaw` is the direction the pane extends along (math convention, local +X = its width). */
 export interface WindowSpec {
   x: number;
-  /** 유리 **밑변** 높이. */
+  /** Height of the pane's **bottom edge**. */
   y: number;
   z: number;
   halfW: number;
@@ -65,12 +67,12 @@ export class GlassSet {
 
   get count(): number { return this.panes.length; }
   get brokenCount(): number { let n = 0; for (const p of this.panes) if (p.broken) n++; return n; }
-  /** 깨진 창 `<structureId>:<index>` 전부 (`struct sync.glass`). */
+  /** Every broken window as `<structureId>:<index>` (`struct sync.glass`). */
   brokenKeys(): string[] { return this.panes.filter((p) => p.broken).map((p) => GlassSet.key(p.structureId, p.index)); }
 
   /**
-   * 유리를 전부 세운다. `onHit(structureId, index, point)` 는 총알 · 투척물이 **이 클라이언트에서** 유리를 맞혔을 때
-   * 불린다 — 실제로 깨는 것은 호출한 쪽이 `breakPane` 으로 한다 (소리 · 와이어 · 이벤트를 한 곳에서 내려고).
+   * Stands every pane up. `onHit(structureId, index, point)` is called when a bullet · throwable hit glass **on this
+   * client** — the caller does the actual breaking with `breakPane` (so sound · wire · event leave from one place).
    */
   build(ctx: BuildCtx, specs: readonly { structureId: string; index: number; spec: WindowSpec }[],
     onHit: (structureId: string, index: number, point: THREE.Vector3 | undefined) => void): void {
@@ -105,21 +107,21 @@ export class GlassSet {
     this.group.add(this.mesh);
   }
 
-  /** 창 한 장의 가운데 (소리 · 파편 자리). 없으면 null. */
+  /** The middle of one pane (sound · shard spot). null with none. */
   centerOf(structureId: string, index: number, out: THREE.Vector3): THREE.Vector3 | null {
     const p = this.byKey.get(GlassSet.key(structureId, index));
     if (!p) return null;
     return out.set(p.spec.x, p.spec.y + p.spec.height / 2, p.spec.z);
   }
 
-  /** 창 면의 법선 (창 면에 수직인 수평 단위 벡터). */
+  /** The pane's normal (the horizontal unit vector perpendicular to the pane). */
   normalOf(structureId: string, index: number, out: THREE.Vector3): THREE.Vector3 | null {
     const p = this.byKey.get(GlassSet.key(structureId, index));
     if (!p) return null;
     return out.set(-Math.sin(p.spec.yaw), 0, Math.cos(p.spec.yaw));
   }
 
-  /** 깨뜨린다. 이미 깨졌거나 없는 창이면 false. */
+  /** Breaks it. false when the pane is already broken or does not exist. */
   breakPane(structureId: string, index: number): boolean {
     const pane = this.byKey.get(GlassSet.key(structureId, index));
     if (!pane || pane.broken) return false;

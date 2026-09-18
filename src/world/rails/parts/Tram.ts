@@ -1,21 +1,21 @@
 /**
- * src/world/rails/parts/Tram.ts — **전차 차체 · 운전실 콘솔 · 배치 · 충돌 피해**.
+ * src/world/rails/parts/Tram.ts — **the tram body · cab console · placement · collision damage**.
  *
- * `Rails` 에서 떼어낸 메서드 묶음이다 (2026-09-10 분할). 상태는 `TramInst` 하나에 들어 있고
- * (`rails/model`), 이 파일은 그것을 만들고 · 매 프레임 놓고 · 치인 사람을 판정한다.
+ * A bundle of methods taken out of `Rails` (the 2026-09-10 split). The state lives in the single `TramInst`
+ * (`rails/model`); this file builds it, places it every frame and judges who is run over.
  *
- * **축 규약**: 로컬 +X = 진행 방향(길이 `halfLen`), 로컬 +Z = 좌우(폭 `halfWid`).
- * `data/structures.csv` 의 `tram.halfD`(6) 가 반**길이**, `tram.halfW`(1.9) 가 반**폭**이다 —
- * 2026-09-10 이전에는 이 둘이 뒤바뀐 채로 지오메트리에 들어가 **선로와 수직으로 길쭉한 판때기**가 달렸다.
+ * **Axis convention**: local +X = the travel direction (length `halfLen`), local +Z = sideways (width `halfWid`).
+ * `data/structures.csv`'s `tram.halfD` (6) is the half **length** and `tram.halfW` (1.9) the half **width** —
+ * before 2026-09-10 the two went into the geometry swapped, hanging **a long plank across the rail**.
  *
- * **지붕은 없다** (무개차) — 3인칭 카메라가 갇히지 않게 하는 규약이고 구조물의 무너진 지붕과 같은 판단이다.
- * 대신 격벽 뒤가 **운전실**이고 그 안에 시동 콘솔이 선다: 차체 안이 실제로 걸어 다니는 공간이다.
+ * **There is no roof** (an open car) — the rule that keeps the third-person camera from being trapped, the same judgement
+ * as a structure's collapsed roof. Instead the cab is behind the bulkhead with the ignition console in it: the body's inside really is walkable space.
  *
- * ## 2026-09-18 배치 (사용자 결정)
- * - **차체 방향은 고정이다** — `placeTram` 의 yaw 는 선로 접선뿐이고 `dir` 을 보지 않는다. 뒤집히던 차체가
- *   탑승자를 차 반대편으로 순간이동시키던 버그(`shared/ride` 는 매 프레임 차량 로컬 좌표로 자리를 다시 푼다).
- * - 그래서 **운전실 · 시동 콘솔이 양 끝에 하나씩**이다 (양운전대 셔틀). 절차는 한 벌(`Rails.applyStart`).
- * - **객실 컨테이너는 없앴다** — 파밍 장소는 플랫폼이다.
+ * ## 2026-09-18 batch (user's decision)
+ * - **The body orientation is fixed** — `placeTram`'s yaw is the rail tangent only and does not look at `dir`. The
+ *   flipping body teleported riders to the other side of the car (`shared/ride` re-solves the spot in vehicle-local coordinates every frame).
+ * - So there is **a cab and an ignition console at each end** (a double-ended shuttle). One procedure (`Rails.applyStart`).
+ * - **Cabin containers are gone** — the farming spot is the platform.
  */
 import * as THREE from 'three';
 import {
@@ -26,7 +26,7 @@ import {
 import { type BuildCtx, merge, paint, paintGradient, xform } from '../../build';
 import type { PlayerDamageSource } from '@/shared';
 
-/** 2026-09-15 (결과 창 개편): 달리는 전차에 치인 피해의 출처 — 계약의 「전차 충돌 등 적이 아닌 물리 피해」 = `explosion`. */
+/** 2026-09-15 (results screen rework): the source of damage from a running tram — the contract's 「physical damage that is not an enemy's, such as a tram collision」 = `explosion`. */
 const TRAM_DAMAGE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'explosion' });
 import { structureRow } from '../../structures/model';
 import type { SpatialHash } from '../../SpatialHash';
@@ -36,22 +36,22 @@ import {
   type RailBuild, type RailPath, type TramInst, sampleAt,
 } from '../model';
 
-/* 핫 패스 스크래치 — 프레임당 할당 금지 (월드는 단일 스레드다). */
+/* Hot-path scratch — no per-frame allocation (world is single threaded). */
 const _pos = new THREE.Vector3();
 const _tan = new THREE.Vector3();
 const _kb = new THREE.Vector3();
 const _from = new THREE.Vector3();
 
-/** 차체 · 콜라이더 · **양 끝** 운전실 콘솔 자리를 만든다. 등록(`Interactable`)은 `Rails` 가 한다. */
+/** Builds the body, the colliders and the cab console spots at **both ends**. `Rails` does the `Interactable` registration. */
 export function buildTram(
   ctx: BuildCtx, rng: Random, startS: number, startDock: string | null, out: RailBuild,
 ): TramInst {
   const row = structureRow('tram');
-  /** 반**길이**(진행 방향) · 반**폭** · 객실 높이 — csv 가 원본이다. */
+  /** The half **length** (along travel) · half **width** · cabin height — the csv is the source. */
   const halfLen = row ? row.halfD : 6, halfWid = row ? row.halfW : 1.9, wallH = row ? row.wallH : 2.2;
   const parts: THREE.BufferGeometry[] = [];
 
-  // ── 바닥 · 대차 ────────────────────────────────────────────────────
+  // ── Floor · bogies ─────────────────────────────────────────────────
   const floor = new THREE.BoxGeometry(halfLen * 2, TRAM_FLOOR_T, halfWid * 2);
   xform(floor, { x: 0, y: -TRAM_FLOOR_T / 2, z: 0 });
   paintGradient(floor, STEEL_DARK, STEEL);
@@ -63,10 +63,10 @@ export function buildTram(
     parts.push(bogie);
   }
 
-  /* ── 옆판 (허리 높이 — 위가 열려 있어 카메라가 갇히지 않는다) ─────────────────
-   * 가운데는 **승강구**로 비운다 (차 길이 방향으로 뚫린다). 양쪽을 다 비우는 것은 그대로 둔다:
-   * 2026-09-18 부터 차체가 뒤집히지 않아 플랫폼은 **늘 로컬 +Z 쪽**이지만(`Rails.build` 의 데크 중심이
-   * 접선의 왼쪽이고 전차 yaw 도 접선이다), 반대쪽 승강구는 선로 발판 쪽으로 내리는 문이라 그대로 쓴다. */
+  /* ── Side panels (waist high — the open top keeps the camera from being trapped) ──
+   * The middle is left open as the **doorway** (it opens along the car's length). Opening both sides is left alone:
+   * since 2026-09-18 the body does not flip, so the platform is **always on the local +Z side** (`Rails.build`'s deck
+   * centre is left of the tangent and the tram yaw is the tangent), but the opposite doorway is the door onto the rail deck, so it stays. */
   const seg = (k: number): [number, number] => (k < 0 ? [-halfLen, -TRAM_DOOR_HALF] : [TRAM_DOOR_HALF, halfLen]);
   for (const sz of [-1, 1]) {
     for (const k of [-1, 1]) {
@@ -83,14 +83,14 @@ export function buildTram(
     }
   }
 
-  /* ── 양 끝의 격벽 + 전면 유리 + 운전 콘솔 (2026-09-18 — 양쪽 운전실) ──────────────
-   * **차체가 레이드 내내 방향을 안 바꾸므로**(`placeTram`) 한쪽 끝은 절반의 주행에서 꽁무니가 된다.
-   * 그래서 기수 · 운전실 · 콘솔을 **양 끝에 똑같이** 만든다 (실제 왕복 셔틀과 같은 양운전대 구조) —
-   * 예전의 「앞 격벽 + 후미 난간」은 도는 차의 모양이었다. 두 콘솔은 **같은 시동 절차**를 부른다
-   * (`Rails.applyStart` — 새 와이어도 새 권위 경로도 없다).
+  /* ── Bulkhead + windscreen + driving console at both ends (2026-09-18 — two cabs) ──
+   * **Because the body never turns around for the whole raid** (`placeTram`), one end is the tail for half of every
+   * run. So the nose · cab · console are built **identically at both ends** (the double-ended layout of a real
+   * shuttle) — the old 「front bulkhead + rear railing」 was the shape of a car that turns. Both consoles call
+   * **the same ignition procedure** (`Rails.applyStart` — no new wire and no new authority path).
    *
-   * `end = +1` 은 로컬 +X 끝, `-1` 은 −X 끝. 180° 돌린 같은 물건이라 x · z 를 함께 뒤집는다.
-   * 격벽 뒤 `TRAM_CAB_LEN` 이 운전실이고 그 자리는 **비어 있다** — 걸어 들어가 콘솔 앞에 설 수 있어야 한다. */
+   * `end = +1` is the local +X end, `-1` the −X end. It is the same object turned 180°, so x and z flip together.
+   * `TRAM_CAB_LEN` behind the bulkhead is the cab and that space is **empty** — one has to walk in and stand at the console. */
   const deskX = halfLen - TRAM_NOSE_T - TRAM_DESK_HALF_L;
   for (const end of [1, -1] as const) {
     const bulk = new THREE.BoxGeometry(TRAM_NOSE_T, wallH, halfWid * 2);
@@ -122,8 +122,8 @@ export function buildTram(
   const mesh = new THREE.Mesh(geo, out.mat);
   mesh.castShadow = true; mesh.receiveShadow = true;
   mesh.layers.enable(Layers.PROP);
-  // 2026-09-10: 이름을 준다 — `scripts/smoke-structures.mjs` 가 `rail_*` 메시의 바운딩 박스와 상자
-  // 콜라이더를 견주는데, 예전에는 차체 메시가 무명이라 전차만 그 검사에서 통째로 빠져 있었다.
+  // 2026-09-10: give it a name — `scripts/smoke-structures.mjs` compares the bounding boxes of `rail_*` meshes
+  // against the box colliders, and the body mesh used to be nameless, so the tram fell out of that check entirely.
   mesh.name = 'rail_tram_body';
   const root = new THREE.Group();
   root.name = 'tram';
@@ -141,43 +141,43 @@ export function buildTram(
     dockTimer: 0, runT: 0, lastDock: startDock, targetS: startS, hitUntil: new Map(),
   };
 
-  /* 콜라이더: 바닥(= 발판) 하나 + 옆판 넷 + 양 끝 격벽 둘 + 콘솔 데스크 둘. 전부 `Obstacle.box` 이고
-   * `velocity` 는 **같은 벡터 객체**를 공유한다 — 매 프레임 그 하나만 고치면 발판 질의가 곧바로 새 속도를 본다. */
+  /* Colliders: one floor (= the deck) + four side panels + two end bulkheads + two console desks. All are
+   * `Obstacle.box` and their `velocity` shares **one vector object** — fix that one per frame and the deck query sees the new speed at once. */
   const addPart = (ox: number, oz: number, oy: number, hx: number, hz: number, h: number): void => {
     const entry = ctx.hash.addBox(new THREE.Vector3(0, -9999, 0), hx, hz, 0, h, 'tram');
     entry.velocity = vel;
     inst.parts.push({ entry, ox, oz, oy });
   };
-  addPart(0, 0, -TRAM_FLOOR_T, halfLen, halfWid, TRAM_FLOOR_T);                       // 바닥 (윗면 = 전차 바닥)
+  addPart(0, 0, -TRAM_FLOOR_T, halfLen, halfWid, TRAM_FLOOR_T);                       // floor (top face = the tram floor)
   for (const sz of [-1, 1]) for (const k of [-1, 1]) {
     const [x0, x1] = seg(k);
     addPart((x0 + x1) / 2, sz * halfWid, 0, (x1 - x0) / 2, TRAM_WALL_T / 2, TRAM_WALL_H);
   }
   for (const end of [1, -1] as const) {
-    addPart(end * (halfLen - TRAM_NOSE_T / 2), 0, 0, TRAM_NOSE_T / 2, halfWid, wallH);   // 양 끝 격벽
-    addPart(end * deskX, 0, 0, TRAM_DESK_HALF_L, TRAM_DESK_HALF_W, TRAM_DESK_H);         // 그 앞의 콘솔 데스크
+    addPart(end * (halfLen - TRAM_NOSE_T / 2), 0, 0, TRAM_NOSE_T / 2, halfWid, wallH);   // the end bulkheads
+    addPart(end * deskX, 0, 0, TRAM_DESK_HALF_L, TRAM_DESK_HALF_W, TRAM_DESK_H);         // the console desk in front of it
   }
 
-  /* 2026-09-18 (사용자 결정): **객실 컨테이너는 없앴다.** `structures.csv` 의 `tram.containers` 는 이제
-   * 아무도 안 읽는다 (은퇴 규약대로 열 · 값은 남긴다 — `rail_platform` 이 같은 열을 계속 읽는다).
-   * 플랫폼 데크의 컨테이너(`parts/Platform`)는 그대로다: 전차는 이동 수단, 파밍 장소는 승강장이다. */
+  /* 2026-09-18 (user's decision): **cabin containers are gone.** Nobody reads `structures.csv`'s `tram.containers`
+   * any more (the column and its value stay, by the retirement rule — `rail_platform` still reads the same column).
+   * The platform deck's containers (`parts/Platform`) are unchanged: the tram is transport, the platform is the farming spot. */
 
   return inst;
 }
 
 /**
- * `s` 에서 전차 · 콜라이더 · 콘솔을 다시 놓는다. `speed` 는 발판 속도(m/s, 0 이면 정지).
+ * Re-places the tram, its colliders and its consoles at `s`. `speed` is the deck speed (m/s, 0 = standing).
  *
- * **스냅샷을 찍지 않는다** — 타고 있는 쪽(`player/PlayerController`)은 여기서 고쳐 둔 `entry.position` ·
- * `box.yaw` 를 매 프레임 다시 읽어 자기 자리를 푼다 (함선 실내가 스냅샷 때문에 깨졌던 전례와 같은 이유).
+ * **It takes no snapshot** — the riding side (`player/PlayerController`) re-reads the `entry.position` and
+ * `box.yaw` fixed here every frame to solve its own spot (the same reason the ship interior broke on a snapshot).
  */
 export function placeTram(inst: TramInst, path: RailPath, speed: number, hash: SpatialHash | null): void {
   sampleAt(path, inst.def.s, _pos, _tan);
-  /* 2026-09-18 (사용자 결정) — **`dir` 을 보지 않는다.** 차체 방향은 선로 접선뿐이고 레이드 내내 고정이다:
-   * 한쪽으로는 앞으로, 돌아올 때는 뒤로 달리며 어느 승강장에서든 늘 같은 쪽을 보고 선다.
-   * 예전에는 `+ (dir < 0 ? Math.PI : 0)` 로 차체가 **그 자리에서 180° 뒤집혔고**, 탑승자는 매 프레임
-   * 차량 로컬 좌표로 자기 자리를 다시 푸므로(`shared/ride`) 출발하는 순간 차 반대편으로 순간이동했다.
-   * `dir` 자체는 그대로 뒤집힌다 — `s` · `vel` · 넉백 방향 · `TramWire` 가 그것을 읽는다. */
+  /* 2026-09-18 (user's decision) — **it does not look at `dir`.** The body orientation is the rail tangent alone
+   * and is fixed for the whole raid: forwards one way, backwards on the way back, always standing facing the same
+   * way at every platform. It used to be `+ (dir < 0 ? Math.PI : 0)`, which **flipped the body 180° in place**, and
+   * since a rider re-solves its spot in vehicle-local coordinates every frame (`shared/ride`) it teleported to the
+   * other side of the car on departure. `dir` itself still flips — `s` · `vel` · the knockback direction · `TramWire` read it. */
   const yaw = Math.atan2(_tan.z, _tan.x);
   const fy = _pos.y + TRAM_FLOOR_UP;
   inst.def.position.set(_pos.x, fy, _pos.z);
@@ -187,15 +187,15 @@ export function placeTram(inst: TramInst, path: RailPath, speed: number, hash: S
   inst.vel.set(_tan.x * speed * inst.def.dir, 0, _tan.z * speed * inst.def.dir);
 
   const c = Math.cos(yaw), s = Math.sin(yaw);
-  // 로컬 +X = 길이(진행 방향), 로컬 +Z = 폭. 메시는 Euler(0, −yaw, 0) 이라 +X → (cos, sin), +Z → (−sin, cos).
+  // Local +X = length (travel), local +Z = width. The mesh is Euler(0, −yaw, 0), so +X → (cos, sin), +Z → (−sin, cos).
   for (const p of inst.parts) {
     const wx = _pos.x + p.ox * c - p.oz * s;
     const wz = _pos.z + p.ox * s + p.oz * c;
     hash?.move(p.entry, wx, fy + p.oy, wz, yaw);
   }
   {
-    // 콘솔 앞에 서는 자리 = 데스크에서 차 안쪽으로 한 걸음. `Interactable.position` 이 이 객체들이다.
-    // 2026-09-18: 양 끝에 하나씩 (인덱스 0 = 로컬 +X 끝, 1 = −X 끝).
+    // Where one stands at the console = one step inwards from the desk. `Interactable.position` is these objects.
+    // 2026-09-18: one at each end (index 0 = the local +X end, 1 = the −X end).
     const ox = inst.halfLen - TRAM_NOSE_T - TRAM_DESK_HALF_L * 2 - 0.35;
     inst.consolePos[0].set(_pos.x + ox * c, fy + 1.0, _pos.z + ox * s);
     inst.consolePos[1].set(_pos.x - ox * c, fy + 1.0, _pos.z - ox * s);
@@ -203,38 +203,38 @@ export function placeTram(inst: TramInst, path: RailPath, speed: number, hash: S
 }
 
 /**
- * **달리는 전차에 치이면 피해 + 넉백** (2026-09-10).
+ * **Being hit by a running tram costs damage + knockback** (2026-09-10).
  *
- * 위험한 것은 **빠를 때뿐**이다: `TRAM_HIT_SPEED_MIN` 밑에서는 아무 일도 없고, 그 위에서는 피해도 넉백도
- * `speed / TRAM_SPEED` 에 비례한다 (정차 · 출발 직후의 저속 구간은 안전하다).
+ * It is dangerous **only while fast**: below `TRAM_HIT_SPEED_MIN` nothing happens, and above it both the damage and
+ * the knockback scale with `speed / TRAM_SPEED` (docking and the slow stretch right after departure are safe).
  *
- * **탑승자는 맞지 않는다.** 전차 바닥(`def.position.y`)보다 발이 `TRAM_HIT_FLOOR_CLEAR` 넘게 아래일 때만
- * 판정한다 — 데크 위에 선 사람과 (같은 높이인) 플랫폼 위의 사람은 그 한 줄로 빠지고, 선로 발판(바닥보다
- * `TRAM_FLOOR_UP` 0.35 m 아래)이나 맨땅에 선 사람만 남는다.
+ * **Riders are not hit.** The judgement runs only while the feet are more than `TRAM_HIT_FLOOR_CLEAR` below the tram
+ * floor (`def.position.y`) — someone standing on the deck, and someone on the platform (at the same height), drop out
+ * on that one line, leaving only bodies on the rail deck (`TRAM_FLOOR_UP` 0.35 m below the floor) or on bare ground.
  *
- * **호스트/리플리카**: 전차의 상태(`s` · `dir` · state)는 호스트 권위이고 이미 동기화돼 있으므로, 판정은
- * 각 클라이언트가 **자기 플레이어만** 본다 (재해 `Hazard` 와 같은 철학 — 새 와이어를 만들지 않는다).
- * 그래서 남의 화면에서 내가 치이는 일도, 내 화면에서만 안 치이는 일도 없다.
+ * **Host / replica**: the tram's state (`s` · `dir` · state) is host-authoritative and already synchronised, so each
+ * client judges **its own player only** (the same philosophy as the `Hazard` — no new wire is created).
+ * So nobody is hit on someone else's screen, and nobody escapes on their own screen alone.
  *
- * ## 2026-09-11 (C-18) — 적 · 끊긴 분대원도 치인다
- * - **권위(싱글 · 호스트)** 만 `ctx.enemies.queryNear` 로 차체 둘레의 적을 훑어 같은 OBB · 높이대 판정을 한다 →
- *   `EnemyRef.takeDamage(…, 'ai')`(킬 크레딧 없음) + `EnemyManagerRef.pushBack`(그 적 하나에 `dir` 로). 전차는
- *   시드 결정적이고 `s` 가 동기화돼 있으므로 호스트가 판정하면 리플리카에는 적 스냅샷 · `ee damaged` 로 간다.
- * - **끊긴 분대원(고스트, `suspended`)** 은 권위가 몸을 시뮬레이션하므로 같은 판정 → `ghost:damage {kb}`.
- *   고스트는 플레이어 몸이라 발 높이 규칙이 플레이어와 같다.
- * - ~~타고 있는 적은 치지 않는다: 차체 OBB 안에서 발이 데크 윗면 − `RIDE_FOOT_DROP` 이상이면 탑승자다~~ →
- *   C-63 에서 좁혔다 (아래). 그 창이 선로 발판(바닥 −`TRAM_FLOOR_UP` 0.35)까지 덮어 **선로 위에 선 적이 안 치였다.**
- * - 쿨다운은 **대상별**(`TramInst.hitUntil`)이다. 소리는 전용 `tram_hit`(정의는 `audio/`).
+ * ## 2026-09-11 (C-18) — enemies and disconnected squadmates are hit too
+ * - **The authority (single player · host)** alone sweeps the enemies around the body with `ctx.enemies.queryNear` and
+ *   runs the same OBB · height-band judgement → `EnemyRef.takeDamage(…, 'ai')` (no kill credit) + `EnemyManagerRef.pushBack`
+ *   (on that one enemy, along `dir`). The tram is seed deterministic and `s` synchronised, so a host judgement reaches the replicas through enemy snapshots and `ee damaged`.
+ * - **A disconnected squadmate (a ghost, `suspended`)** has its body simulated by the authority, so the same
+ *   judgement → `ghost:damage {kb}`. A ghost is a player body, so its foot-height rule is the player's.
+ * - ~~A riding enemy is not hit: inside the body OBB, feet at or above the deck top − `RIDE_FOOT_DROP` mean a rider~~
+ *   → narrowed in C-63 (below). That window reached the rail deck (floor − `TRAM_FLOOR_UP` 0.35) and **an enemy standing on the rail went unhit.**
+ * - The cooldown is **per target** (`TramInst.hitUntil`). The sound is a dedicated `tram_hit` (defined in `audio/`).
  *
- * ## 2026-09-11 (C-63) — 면제는 실제로 타고 있는 몸만
- * 로컬 플레이어 · 적 · 끊긴 분대원이 **한 규칙**(`riderExempt`)을 쓴다:
- * - 발이 바닥 − `TRAM_HIT_FLOOR_CLEAR` 위 = 데크 · 플레이어 높이의 플랫폼 → 치지 않는다 (2026-09-10 한 줄 그대로).
- * - 그 밑 `RIDE_FOOT_DROP` 띠(바닥 −0.18 … −0.7 — 선로 발판이 여기다)는 차체 단면 + `RIDE_EDGE_MARGIN` 안이고
- *   **발밑이 고정 발판이 아닐 때만** 뺀다 — 발밑이 이 전차의 부품(`velocity === inst.vel`, 부품이 같은 속도 벡터를
- *   공유한다)이거나 비어 있으면(경사 · 프레임 요동으로 조금 처진 탑승자) 탑승자, 선로 발판을 밟은 몸은 치인다.
- * 적의 탑승 상태는 여전히 `EnemyRef` 로 묻지 않는다 — 발밑 질의는 월드가 스스로 답한다. 판정 순서는 이 폴더의
- * `update`(월드) → 플레이어 · 적 순이라 몸은 한 프레임 전 자리지만, 데크 높이 한 줄이 먼저 거르므로 뒤처진 탑승자가
- * 치이는 일은 없다.
+ * ## 2026-09-11 (C-63) — the exemption is for bodies actually riding, and no others
+ * The local player, enemies and disconnected squadmates all use **one rule** (`riderExempt`):
+ * - Feet above floor − `TRAM_HIT_FLOOR_CLEAR` = the deck, or a platform at player height → not hit (the 2026-09-10 line unchanged).
+ * - The `RIDE_FOOT_DROP` band below it (floor −0.18 … −0.7 — the rail deck is in here) is exempted only inside the body
+ *   cross-section + `RIDE_EDGE_MARGIN` **and when what is underfoot is not a static deck** — underfoot being a part of this
+ *   tram (`velocity === inst.vel`, its parts share one velocity vector) or nothing (a rider sagging on a slope or a frame wobble) is a rider; a body on the rail deck is hit.
+ * An enemy's riding state is still never asked of `EnemyRef` — the underfoot query is answered by world itself. The
+ * order is this folder's `update` (world) → player · enemies, so a body is at its position one frame ago, but the
+ * deck-height line filters first, so a lagging rider is never hit.
  */
 export function updateTramHit(game: GameContext | null, inst: TramInst, speed: number, dt: number): void {
   void dt;
@@ -247,7 +247,7 @@ export function updateTramHit(game: GameContext | null, inst: TramInst, speed: n
   const floorY = inst.def.position.y;
   const c = Math.cos(inst.def.yaw), s = Math.sin(inst.def.yaw);
 
-  // ── 로컬 플레이어 — 각 클라이언트가 자기 몸만 (2026-09-10 그대로) ─────────────────
+  // ── The local player — each client judges its own body only (2026-09-10, unchanged) ──
   const player = game.player;
   if (player && !player.isDead && !player.isInShip && !player.isDropping && game.isGameplayActive()
     && (hitUntil.get('local') ?? -Infinity) <= now) {
@@ -259,11 +259,11 @@ export function updateTramHit(game: GameContext | null, inst: TramInst, speed: n
       knockDir(c, s, side, inst.def.dir);
       game.bus.emit('audio:play', { id: 'tram_hit', position: p, volume: 0.9 });
       player.applyKnockback(_kb, TRAM_HIT_KNOCKBACK * t);
-      player.takeDamage(TRAM_HIT_DAMAGE * t, inst.def.position, TRAM_DAMAGE_SOURCE);   // 2026-09-15: 적이 아닌 물리 피해
+      player.takeDamage(TRAM_HIT_DAMAGE * t, inst.def.position, TRAM_DAMAGE_SOURCE);   // 2026-09-15: physical damage, not from an enemy
     }
   }
 
-  // ── 권위: 적 · 끊긴 분대원 ─────────────────────────────────────────────────
+  // ── The authority: enemies · disconnected squadmates ──────────────────────
   const net = game.net;
   if (game.isMultiplayer && net && !net.isHost) return;
   if (!game.isGameplayPhase()) return;
@@ -276,8 +276,8 @@ export function updateTramHit(game: GameContext | null, inst: TramInst, speed: n
       if (e.isDead) continue;
       const key = `e:${e.id}`;
       if ((hitUntil.get(key) ?? -Infinity) > now) continue;
-      /* 발 높이 창: 위 = 바닥 − `TRAM_HIT_FLOOR_CLEAR`(플레이어와 같다 — 그 밑 탑승 띠는 `riderExempt`, C-63), 아래 = 몸
-       * **꼭대기**가 플레이어 규칙의 머리 자리(바닥 − (TRAM_HIT_REACH − PLAYER_HEIGHT))에 닿는가 — 벌레는 작고 베헤모스는 크다. */
+      /* Foot-height window: top = floor − `TRAM_HIT_FLOOR_CLEAR` (the same as the player — the riding band below it is
+       * `riderExempt`, C-63); bottom = does the body **top** reach the head spot of the player rule (floor − (TRAM_HIT_REACH − PLAYER_HEIGHT))? Bugs are small, a behemoth is large. */
       const lowFoot = floorY - (TRAM_HIT_REACH - PLAYER_HEIGHT) - e.height;
       const ep = e.position;
       if (riderExempt(game, inst, ep.x, ep.y, ep.z)) continue;
@@ -286,14 +286,14 @@ export function updateTramHit(game: GameContext | null, inst: TramInst, speed: n
       hitUntil.set(key, now + TRAM_HIT_COOLDOWN_S);
       knockDir(c, s, side, inst.def.dir);
       game.bus.emit('audio:play', { id: 'tram_hit', position: e.position, volume: 0.9 });
-      // 그 적 하나만 민다 — 반경을 몸 안으로 좁히고 방향을 준다 (pushBack 은 반경 + 몸 반지름까지 본다)
+      // Pushes that one enemy only — the radius is narrowed inside the body and a direction given (pushBack reaches radius + body radius)
       enemies.pushBack(_from.copy(e.position), 0.05, TRAM_HIT_KNOCKBACK * t, _kb);
       e.takeDamage(TRAM_HIT_DAMAGE * t, undefined, _kb, 'ai');
     }
   }
 
   if (!net) return;
-  const refs = net.getRemotePlayers();   // 싱글에서는 빈 목록이다
+  const refs = net.getRemotePlayers();   // an empty list in single player
   for (let i = 0; i < refs.length; i++) {
     const r = refs[i];
     if (!r.suspended || !r.inMission || r.isDead || r.ghostState === 2) continue;
@@ -314,8 +314,8 @@ export function updateTramHit(game: GameContext | null, inst: TramInst, speed: n
 }
 
 /**
- * 차체 OBB(+`radius`) 안이고 발 높이가 `[footMin, footMax]` 안이면 **선로의 어느 쪽인지**(+1 / −1), 아니면 0.
- * `footMax` 위는 탑승자 · 플랫폼 위, `footMin` 밑은 전차 밑이다.
+ * Inside the body OBB (+`radius`) with the feet within `[footMin, footMax]`: **which side of the rail** (+1 / −1),
+ * else 0. Above `footMax` are riders and people on a platform; below `footMin` is under the tram.
  */
 function hitSide(
   inst: TramInst, c: number, s: number, x: number, y: number, z: number, radius: number, footMax: number, footMin: number,
@@ -328,12 +328,12 @@ function hitSide(
 }
 
 /**
- * C-63: 데크 높이 밑 `RIDE_FOOT_DROP` 띠의 몸이 **이 전차를 타고 있는가**. 띠 밖은 false (데크 높이 위는 `hitSide` 의
- * `footMax` 가 이미 거르고, 띠 밑은 선로 옆 · 맨땅이다). 띠 안에서는 `shared/ride.rideContains` 와 같은 부피
- * (차체 단면 + `RIDE_EDGE_MARGIN`) 안이고 **발밑이 고정 발판이 아닐 때만** 탑승자다:
- * - 발밑 발판(`getStandingObstacle`, 윗면 ±`PROP_TOP_MARGIN`)이 이 전차의 부품(`velocity === inst.vel`) → 탑승자.
- * - 발밑에 아무것도 없다 → 경사 · 프레임 요동으로 데크보다 조금 처진 탑승자 (그 높이의 고정 표면은 선로 발판뿐이다).
- * - 발밑이 선로 발판 같은 **고정 발판** → 전차 옆 · 앞의 선로에 선 몸 — 치인다 (C-63 이 닫은 틈).
+ * C-63: is a body in the `RIDE_FOOT_DROP` band below deck height **riding this tram**? Outside the band false (above
+ * deck height `hitSide`'s `footMax` already filters; below it is beside the rail, on bare ground). Inside it, a rider is
+ * a body within `shared/ride.rideContains`'s volume (cross-section + `RIDE_EDGE_MARGIN`) **whose underfoot is not a static deck**:
+ * - The deck underfoot (`getStandingObstacle`, top face ±`PROP_TOP_MARGIN`) is a part of this tram (`velocity === inst.vel`) → a rider.
+ * - Nothing underfoot → a rider sagging a little below the deck on a slope or a frame wobble (the only static surface at that height is the rail deck).
+ * - A **static deck** underfoot, such as the rail deck → a body standing on the rail beside or ahead of the tram — it is hit (the gap C-63 closed).
  */
 function riderExempt(game: GameContext, inst: TramInst, x: number, y: number, z: number): boolean {
   const floorY = inst.def.position.y;
@@ -348,15 +348,15 @@ function riderExempt(game: GameContext, inst: TramInst, x: number, y: number, z:
 }
 
 /**
- * 앞으로 밀면서 **선로 밖으로** 던지는 방향을 `_kb` 에 쓴다 — 그대로 앞으로만 밀면 계속 치인다.
+ * Writes into `_kb` the direction that pushes forwards while throwing the body **off the rail** — pushing straight forwards alone keeps hitting it.
  *
- * 2026-09-18: 「앞」 = **진행 방향**이라 `dir` 을 곱한다. 차체 yaw 가 `dir` 을 따라 뒤집히던 때는
- * 로컬 +X 가 곧 진행 방향이었지만, 이제 방향이 고정이라 뒤로 달릴 때는 로컬 +X 가 뒤쪽이다
- * (`placeTram`). 옆으로 던지는 `side` 는 이미 몸이 있는 쪽이라 그대로다.
+ * 2026-09-18: "forwards" = **the travel direction**, so `dir` is multiplied in. While the body yaw flipped with `dir`,
+ * local +X was the travel direction; now the orientation is fixed, so running backwards local +X points at the tail
+ * (`placeTram`). The sideways `side` is the side the body is already on, so it is unchanged.
  */
 function knockDir(c: number, s: number, side: number, dir: number): void {
   _kb.set(c * 0.7 * dir - s * side, 0, s * 0.7 * dir + c * side).normalize();
 }
 
-/** 운전실 콘솔의 상호작용 반경 · 홀드 시간은 계약(csv)에서 온다 — `Rails` 가 등록할 때 쓴다. */
+/** The cab console's interaction radius and hold time come from the contract (csv) — `Rails` uses them when registering. */
 export const TRAM_CONSOLE = { radius: TRAM_CONSOLE_RANGE, holdTime: TRAM_START_HOLD_S } as const;

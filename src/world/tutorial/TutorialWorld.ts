@@ -15,42 +15,42 @@ import {
 } from './model';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 손으로 지은 튜토리얼 행성 (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
+ * The hand-built tutorial planet (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
  *
- * `game:newMission {mode:'tutorial'}` 이 오면 `WorldSystem` 이 절차 생성기 대신 이것을 세운다 —
- * `TrainingArena` 와 **똑같은 배선**이고, 안개 · 재해 · 상자 · 채집 · 둥지 · 선로 · 전차 · 탐사 차량은
- * 하나도 없다 (`ctx.world.fog === null` 도 훈련장과 같다).
+ * On `game:newMission {mode:'tutorial'}` `WorldSystem` builds this instead of the procedural generator —
+ * **exactly the same wiring** as `TrainingArena`, and there is no fog · hazard · crate · gather · nest · rail · tram ·
+ * rover at all (`ctx.world.fog === null` as in the training range too).
  *
- * 이 클래스가 갖는 것은 셋이다:
- *   1. **월드** — 협곡 바닥 · 데크 · 절벽 벽 · 함선 앞 끝없는 절벽(`parts/Ground`), 폐허 · 무너진 통로 · 사선 방벽과
- *      블라인드 철조망(`parts/Dressing`),
- *      시체 세 구(`parts/Corpses`). 전부 절차 지오메트리이고 **광원을 하나도 만들지 않는다**.
- *   2. **`TutorialWorldRef`** — 체크포인트 · 낙하 규칙 · 적 자리 (`ctx.world.tutorial`).
- *   3. **버려진 함선** — 메시를 새로 만들지 않고 `ctx.extraction.beginPreLanded` 로 진짜 탈출선을 착륙 상태로
- *      세운다. 그 뒤의 스위치 → 10초 유예 → 이륙 → 정산은 평소 경로 그대로다.
+ * This class holds three things:
+ *   1. **The world** — chasm floor · decks · cliff walls · the abyss in front of the ship (`parts/Ground`), the ruins · the collapsed
+ *      corridor · the diagonal barrier with its blind wire fence (`parts/Dressing`),
+ *      three corpses (`parts/Corpses`). All procedural geometry, and it **creates no lights at all**.
+ *   2. **`TutorialWorldRef`** — checkpoints · fall rules · enemy spots (`ctx.world.tutorial`).
+ *   3. **The abandoned ship** — no new mesh: `ctx.extraction.beginPreLanded` stands the real extraction ship there already
+ *      landed. The switch → 10 s grace → liftoff → settlement after it all follow the usual path.
  *
- * ⚠ 함선은 **첫 `update()` 에서** 세운다. `generate()` 는 `game:newMission` emit **안에서** 도는데
- * `ExtractionSystem` 도 같은 이벤트에 `resetMission()` 을 걸어 두었고 시스템 등록 순서가 world(90) →
- * extraction(106) 이라, 생성 중에 세우면 같은 emit 안에서 곧바로 리셋된다. 한 프레임 미루면 그 순서가 끝나 있다.
+ * ⚠ The ship is placed **on the first `update()`**. `generate()` runs **inside** the `game:newMission` emit, while
+ * `ExtractionSystem` has `resetMission()` on the same event and the system registration order is world(90) →
+ * extraction(106), so placing it during generation is reset right away inside that same emit. One frame later that order is done.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const OBJECTIVE_TEXT = '버려진 함선을 찾아 이 행성을 벗어난다';
-/** 함선을 세우려고 다시 시도하는 시간 (s). 그 안에 `ctx.extraction` 이 준비되지 않으면 포기하고 경고만 남긴다. */
+/** How long placing the ship is retried (s). If `ctx.extraction` is not ready within it, it gives up and leaves only a warning. */
 const SHIP_PLACE_TIMEOUT_S = 5;
 /**
- * 「걸어 다니는 면에 서 있다」로 볼 발 높이의 오차. 좁게 잡는다 — 넓히면 폐허 벽 · 잔해 더미 **위**에 올라선
- * 자리까지 안전한 자리로 적힌다.
+ * The feet-height tolerance for counting as 「standing on a walkable surface」. Kept narrow — widened, a spot **on top of** a ruin wall
+ * or a wreckage pile would be recorded as a safe spot too.
  */
 const SAFE_DECK_EPS = 0.4;
 /**
- * 걸어 다니는 면의 높이 — 네 개다 (2026-09-15 2차에 안드로이드 웅덩이 바닥, 2026-09-16 에 함선 언덕 `SHIP_HILL_Y` 가 늘었다).
- * 오르막(`PIT_RAMP_*` · `SHIP_SLOPE`) 위는 따로 적지 않는다: 0.9 m 를 잇는 경사라 늘 지나가는 자리이고, 경사 대부분이 위 · 아래
- * 높이의 `SAFE_DECK_EPS` 안이라 한가운데 10 cm 만 빠진다 — 그 앞뒤의 평지가 적힌다.
+ * The walkable surface heights — four of them (the 2026-09-15 2nd pass added the android pit floor, 2026-09-16 the ship hill `SHIP_HILL_Y`).
+ * A ramp (`PIT_RAMP_*` · `SHIP_SLOPE`) is not listed on its own: it bridges 0.9 m and is always somewhere a player passes through, and most of
+ * it lies within `SAFE_DECK_EPS` of the level above or below, so only 10 cm in the middle falls out — the flat ground before and after it is recorded.
  */
 const SAFE_LEVELS: readonly number[] = [DECK_UPPER_Y, DECK_LOWER_Y, PIT_FLOOR_Y, SHIP_HILL_Y];
 /**
- * 절벽 1 을 **넘은 뒤**(먼 쪽 가장자리보다 −Z) 안전한 자리로 적기까지의 여유. 좁게 잡는다 —
- * 넘은 사람이 한참을 더 걸어야 기록이 살아나면 그 사이에 죽었을 때 이유 없이 절벽 앞으로 되돌아간다.
+ * The clearance **after** clearing chasm 1 (past the far edge in −Z) before a spot is recorded as safe. Kept narrow —
+ * if whoever cleared it had to walk much further for the record to revive, a death in between would send them back in front of the cliff for no reason.
  */
 const SAFE_CHASM_MARGIN = 1.5;
 
@@ -60,9 +60,9 @@ function volumeContains(v: Volume, p: THREE.Vector3): boolean {
 
 export class TutorialWorld implements TutorialWorldRef {
   readonly group = new THREE.Group();
-  /** 기상 지점 (`wake` 체크포인트) — `WorldRef.getPlayerSpawn`. */
+  /** The waking-up spot (the `wake` checkpoint) — `WorldRef.getPlayerSpawn`. */
   readonly spawn = CHECKPOINTS[0].at.clone();
-  /** 지도 · 핑이 쓰는 한 변. */
+  /** The side length the map and pings use. */
   readonly size = TUTORIAL_MAP_SIZE;
 
   private ctx: GameContext | null = null;
@@ -74,20 +74,20 @@ export class TutorialWorld implements TutorialWorldRef {
   private index = 0;
   private readonly spawns: TutorialEnemySpawn[] = [];
   /**
-   * **마지막으로 땅에 서 있던 자리** (2026-09-14 4차, 사용자 결정 — 튜토리얼 전체). 떨어져 죽었을 때 체크포인트가
-   * 아니라 여기로 되돌린다: 절벽 하나를 못 넘었다고 구간의 처음으로 돌려보내면 벌레 · 안드로이드를 다시
-   * 지나야 한다. 체크포인트는 **이 기록이 없을 때의 보험**으로 남는다(레이드 시작 · 이어하기 직후 ·
-   * 절벽 1 의 도움닫기 구역 — `pollSafeGround` 의 ②가 그 구역을 통째로 비워 두므로 `cliff` 가 받는다).
+   * **The last spot the player stood on the ground** (2026-09-14 4th pass, user's decision — for the whole tutorial). A death by falling
+   * returns here, not to a checkpoint: sending someone back to the start of the stretch for failing one cliff makes them walk past the
+   * bugs and androids again. The checkpoint stays as **the insurance for when there is no such record** (raid start · right after a
+   * resume · chasm 1's run-up area — `pollSafeGround`'s ② keeps that whole area clear, so `cliff` catches it).
    */
   private readonly lastSafe = new THREE.Vector3();
   private hasLastSafe = false;
-  /** 버려진 함선을 세웠는가 (첫 `update()` 에서 한 번). */
+  /** Whether the abandoned ship has been placed (once, on the first `update()`). */
   private shipPlaced = false;
   private shipTry = 0;
 
   constructor() { this.group.name = 'TutorialWorld'; }
 
-  /* ── 생성 ───────────────────────────────────────────────────────────── */
+  /* ── Build ──────────────────────────────────────────────────────────── */
 
   build(ctx: GameContext, root: THREE.Group, hash: SpatialHash): void {
     this.ctx = ctx;
@@ -103,8 +103,8 @@ export class TutorialWorld implements TutorialWorldRef {
 
     this.spawns.length = 0;
     for (const e of ENEMIES) {
-      // 2026-09-15 3차: 자리마다 감지 반경(`sense`) · 총 계열(`weapon`)을 덮어쓸 수 있다 — 마지막 안드로이드 둘 (`model.ts` 의 `ENEMIES` 주석).
-      // `weapon` 은 공용 계약 밖의 필드라 확장 타입 `TutorialSpawnSpec` 으로 만들어 넣는다 (`enemies/Tutorial` 이 선택 필드로 읽는다).
+      // 2026-09-15 3rd pass: a spot can override the sense radius (`sense`) and the weapon class (`weapon`) — the last two androids (`model.ts`'s `ENEMIES` comment).
+      // `weapon` is a field outside the shared contract, so it goes in through the extension type `TutorialSpawnSpec` (`enemies/Tutorial` reads it as an optional field).
       const spawn: TutorialSpawnSpec = {
         type: e.type,
         position: new THREE.Vector3(e.x, e.y, e.z),
@@ -116,34 +116,34 @@ export class TutorialWorld implements TutorialWorldRef {
       this.spawns.push(spawn);
     }
 
-    // 계약(`shared/tutorialWorld`)의 순서와 맵의 순서가 갈라지면 부활 자리가 엉킨다 — 생성할 때 한 번 본다.
+    // If the contract's order (`shared/tutorialWorld`) and the map's order differ, respawn spots get tangled — checked once at build.
     for (let i = 0; i < TUTORIAL_CHECKPOINTS.length; i++) {
       if (CHECKPOINTS[i]?.id !== TUTORIAL_CHECKPOINTS[i]) {
         console.warn(`[TutorialWorld] 체크포인트 순서가 계약과 다르다: ${i} — ${CHECKPOINTS[i]?.id} ≠ ${TUTORIAL_CHECKPOINTS[i]}`);
       }
     }
-    // 2026-09-16: 아래 데크 조각 · 언덕 오르막 · 웅덩이 · 벽 · 절벽 구멍이 옛 아래 데크 사각형을 **정확히 한 번씩** 덮는가 (`model.ts` 의 `DECKS` 주석).
-    // 틈이면 발밑이 사라지고(구멍인데 kill 볼륨도 없다) 겹치면 바닥이 있는데 kill 볼륨이 선다 — 철조망 계단이 코드로 생기므로 생성할 때 본다.
+    // 2026-09-16: do the lower deck pieces · hill ramp · pit · walls · abyss cuts cover the old lower deck rect **exactly once** (`model.ts`'s `DECKS` comment).
+    // A gap makes the ground under the feet vanish (a hole with no kill volume either); an overlap stands a kill volume where there is floor — the fence steps are built in code, so it is checked at build.
     for (const err of lowerTilingErrors()) console.warn(`[TutorialWorld] 아래 데크 타일링: ${err}`);
 
     this.built = true;
     ctx.bus.emit('ui:objective', { text: OBJECTIVE_TEXT });
   }
 
-  /* ── 프레임 ─────────────────────────────────────────────────────────── */
+  /* ── Frame ──────────────────────────────────────────────────────────── */
 
   update(dt: number): void {
     if (!this.built) return;
     this.placeShip(dt);
     this.pollCheckpoints();
     this.pollSafeGround();
-    this.corpses.update();   // 2026-09-16: 비운 시체가 가라앉아 사라진다
+    this.corpses.update();   // 2026-09-16: an emptied corpse sinks and is removed
   }
 
   /**
-   * 버려진 함선 = **이미 착륙해 있는 탈출선**. 콘솔도 호출도 없이 그 자리에 서 있고, 안의 스위치를 누르면
-   * 평소의 10초 유예 → 이륙 → 결과 · 정산이 그대로 흐른다. `autoDepart: false` 라 무응답 60초 자동 출발은
-   * 걸리지 않는다 — 튜토리얼은 둘러볼 시간이 필요하다.
+   * The abandoned ship = **an extraction ship that has already landed**. It stands there with no console and no call, and pressing the
+   * switch inside runs the usual 10 s grace → liftoff → result and settlement unchanged. With `autoDepart: false` the 60 s no-response
+   * automatic departure never arms — the tutorial needs time to look around.
    */
   private placeShip(dt: number): void {
     if (this.shipPlaced) return;
@@ -160,7 +160,7 @@ export class TutorialWorld implements TutorialWorldRef {
     }
   }
 
-  /** 체크포인트 볼륨 — **번호는 되돌아가도 내려가지 않는다**. */
+  /** Checkpoint volumes — **the index never goes down, even walking back**. */
   private pollCheckpoints(): void {
     const ctx = this.ctx;
     const player = ctx?.player;
@@ -174,25 +174,25 @@ export class TutorialWorld implements TutorialWorldRef {
   }
 
   /**
-   * 「지금 서 있는 이 자리에서 다시 시작해도 되는가」 — 매 프레임 세 가지를 본다.
-   *   ① **`kill` 볼륨 밖** — 절벽 1 바닥은 「떨어진 자리」라 부활 자리가 아니다. **`clamp`(절벽 2 착지 구역)는
-   *      막지 않는다**: 반드시 살아남는 낙하의 착지 자리이고 아래 데크에 두 발로 선 안전한 땅이라, 거기서
-   *      기록을 막으면 그 구간에서 죽은 사람이 이유 없이 절벽 위로 올라가 뛰어내리기를 다시 한다.
-   *   ② **절벽 1 의 띠 밖 — 이 판정만 비대칭이다.** 접근 쪽(가까운 가장자리보다 +Z)은 `CHASM_RUNUP_M`(12 m)
-   *      만큼 넓게 막고, 건너편(먼 가장자리보다 −Z)은 `SAFE_CHASM_MARGIN`(1.5 m)만 막는다. 대칭 마진
-   *      (`inChasm`)으로는 안 되는 이유가 이 절벽의 규칙 자체다 — **달려야만 넘는다.** 가장자리 코앞에
-   *      되살리면 도움닫기가 없어 「떨어지기 전 자리로 돌려보낸다」가 「다시 떨어지라」가 된다. 반대로 건너편을
-   *      똑같이 12 m 막으면, 넘은 사람이 그만큼 더 걸어야 기록이 살아나 그 사이의 죽음이 절벽 앞으로 되돌아간다.
-   *   ③ **걸어 다니는 면 근처** — 폐허 벽 · 잔해 더미 위에 올라선 자리를 걸러 낸다 (`SAFE_LEVELS` · `SAFE_DECK_EPS`).
-   *      2026-09-15 2차에 **안드로이드 웅덩이 바닥**(`PIT_FLOOR_Y`)이 세 번째 높이로 늘었다 — 안 넣으면 웅덩이 안에서
-   *      죽은 사람이 그 앞의 마지막 평지로 되돌아간다 (틀리지는 않지만 「서 있던 자리」가 아니다).
-   *   ④ **끝없는 절벽 가장자리 띠 밖** (2026-09-15) — 가장자리(`ABYSS_EDGE_Z`)에서 `ABYSS_SAFE_MARGIN_M`(3 m) 안은 적지 않는다.
-   *      가장자리에 발끝을 걸친 자리(몸 가운데는 아직 데크 위)에 되살리면 한 걸음에 다시 떨어진다. 그 띠에서 떨어진 사람은
-   *      띠 바로 뒤, 즉 가장자리에서 3 m 이상 떨어진 마지막 자리로 돌아온다.
-   *      2026-09-15 3차 — 철조망 너머의 **절벽 구멍**(`ABYSS_CUTS`) 가장자리도 같은 띠다 (`inAbyssCut(x, z, 3)`): 구멍이 오른쪽 ·
-   *      남쪽으로도 뚫려 있어 z 하나로는 잴 수 없다.
-   * 접지(`isGrounded`) 자체가 다섯째 조건이라 뛰는 · 떨어지는 동안의 좌표는 애초에 적히지 않는다
-   * (그래서 ① 은 ③ 과 겹치는 이중 안전장치다 — `kill` 볼륨 안에서 접지할 수 있는 곳은 협곡 바닥 · 절벽 아래 지형뿐이다).
+   * 「may the player start again from the spot they are standing on now」 — three things are checked every frame.
+   *   ① **Outside a `kill` volume** — chasm 1's floor is 「where they fell」, not a respawn spot. **`clamp` (chasm 2's landing area) is
+   *      not blocked**: it is the landing spot of a fall that is always survived and safe ground standing on the lower deck with both
+   *      feet, so blocking the record there would make someone who died in that stretch climb the cliff and jump off again for no reason.
+   *   ② **Outside chasm 1's band — this test alone is asymmetric.** The approach side (+Z of the near edge) is blocked as wide as
+   *      `CHASM_RUNUP_M` (12 m), the far side (−Z of the far edge) only by `SAFE_CHASM_MARGIN` (1.5 m). Why a symmetric margin
+   *      (`inChasm`) will not do is this cliff's own rule — **it is cleared only by running.** Respawning right at the edge leaves no
+   *      run-up and turns 「returned to the spot before the fall」 into 「fall again」. The other way round, blocking 12 m on the far side
+   *      too means whoever cleared it must walk that much further for the record to revive, and a death in between returns to the cliff.
+   *   ③ **Near a walkable surface** — filters out spots on top of a ruin wall or a wreckage pile (`SAFE_LEVELS` · `SAFE_DECK_EPS`).
+   *      The 2026-09-15 2nd pass added the **android pit floor** (`PIT_FLOOR_Y`) as a third height — without it someone who died in the
+   *      pit returns to the last flat ground before it (not wrong, but it is not 「the spot they were standing on」).
+   *   ④ **Outside the abyss edge band** (2026-09-15) — nothing within `ABYSS_SAFE_MARGIN_M` (3 m) of the edge (`ABYSS_EDGE_Z`) is recorded.
+   *      Respawning on a spot with the toes over the edge (the body's centre still on the deck) falls again in one step. Whoever fell from
+   *      that band comes back just behind it, to the last spot 3 m or more from the edge.
+   *      2026-09-15 3rd pass — the edges of the **abyss cuts** beyond the fence (`ABYSS_CUTS`) are the same band (`inAbyssCut(x, z, 3)`): the cuts
+   *      open to the right and to the south as well, so a single z cannot measure them.
+   * Being grounded (`isGrounded`) is itself the fifth condition, so coordinates while jumping or falling are never recorded in the first place
+   * (which makes ① a double safety overlapping ③ — the only ground one can stand on inside a `kill` volume is the chasm floor and the terrain below the cliffs).
    */
   private pollSafeGround(): void {
     const player = this.ctx?.player;
@@ -219,9 +219,9 @@ export class TutorialWorld implements TutorialWorldRef {
   get checkpoint(): TutorialCheckpointId { return CHECKPOINTS[this.index].id; }
 
   /**
-   * 2026-09-14 4차 — **마지막으로 땅에 서 있던 자리**가 있으면 그리로, 없으면 예전처럼 마지막 체크포인트로.
-   * 밀려난 몸이 벽에 낀 채로 기록됐을 수도 있으므로 돌려주기 전에 `resolveCollision` 을 한 번 통과시킨다.
-   * yaw 는 0(앞) — 죽은 방향을 그대로 물려주면 절벽을 등지고 살아난다.
+   * 2026-09-14 4th pass — to **the last spot the player stood on the ground** when there is one, otherwise to the last checkpoint as before.
+   * A pushed-out body may have been recorded stuck in a wall, so it is passed through `resolveCollision` once before being handed back.
+   * yaw is 0 (forward) — inheriting the direction of death respawns the player with their back to the cliff.
    */
   respawnPose(): { position: THREE.Vector3; yaw: number } {
     if (this.hasLastSafe) {
@@ -233,7 +233,7 @@ export class TutorialWorld implements TutorialWorldRef {
     return { position: spec.at.clone(), yaw: spec.yaw };
   }
 
-  /** 2026-09-16: 포복 구간 진행 비율 — 입구 `CRAWL.z0` 0 · 출구 `CRAWL.z1` 1 (튜토리얼 조작 가이드가 읽는다). */
+  /** 2026-09-16: progress through the crawl stretch — entrance `CRAWL.z0` 0 · exit `CRAWL.z1` 1 (read by the tutorial control guide). */
   crawlProgress(position: THREE.Vector3): number {
     return (CRAWL.z0 - position.z) / (CRAWL.z0 - CRAWL.z1);
   }
@@ -246,8 +246,8 @@ export class TutorialWorld implements TutorialWorldRef {
   gotoCheckpoint(id: TutorialCheckpointId): boolean {
     const i = CHECKPOINTS.findIndex((c) => c.id === id);
     if (i < 0 || !this.built) return false;
-    // 순간이동이므로 「마지막으로 서 있던 자리」는 무효다 — 안 지우면 이어하기 직후에 죽었을 때
-    // 새로고침 전에 서 있던 자리로 되돌아간다 (이어하기는 **체크포인트**로 간다는 규약이 깨진다).
+    // It is a teleport, so 「the last spot stood on」 is void — left in place, a death right after a resume returns the player
+    // to where they stood before the reload (breaking the rule that a resume goes to a **checkpoint**).
     this.hasLastSafe = false;
     this.setIndex(i, true);
     const spec = CHECKPOINTS[i];
@@ -257,15 +257,15 @@ export class TutorialWorld implements TutorialWorldRef {
 
   enemySpawns(): readonly TutorialEnemySpawn[] { return this.spawns; }
 
-  /* ── 월드 질의 (`WorldSystem` 이 `mode === 'tutorial'` 가지에서 부른다) ── */
+  /* ── World queries (called by `WorldSystem` in its `mode === 'tutorial'` branch) ── */
 
   /**
-   * 지형 높이 = `VOID_Y` 하나. 걸어 다니는 데크 · 절벽 1 의 협곡 바닥(`CHASM_FLOOR_Y`)은 전부 사각 콜라이더라 `getSurfaceY` 가
-   * 답한다. 2026-09-15 −34 → −100: 인자가 없는 상수라 끝없는 절벽 밑만 깊게 할 수 없어 통째로 내렸다 (`model.ts` 의 `VOID_Y`).
+   * Terrain height = the single value `VOID_Y`. The walkable decks and chasm 1's chasm floor (`CHASM_FLOOR_Y`) are all box colliders, so
+   * `getSurfaceY` answers them. 2026-09-15 −34 → −100: it is a constant with no arguments, so the abyss alone could not be deepened and the whole thing went down (`model.ts`'s `VOID_Y`).
    */
   heightAt(): number { return VOID_Y; }
 
-  /** 레이 vs 협곡 바닥 평면. `t` (없으면 −1) 를 돌려주고 법선을 `n` 에 쓴다 — 훈련장의 `raycastShell` 과 같은 자리다. */
+  /** Ray vs. the chasm floor plane. Returns `t` (−1 with no hit) and writes the normal into `n` — the same place as the training range's `raycastShell`. */
   raycastGround(oy: number, dy: number, maxDist: number, n: THREE.Vector3): number {
     if (dy >= -1e-6) return -1;
     const t = (VOID_Y - oy) / dy;
@@ -279,9 +279,9 @@ export class TutorialWorld implements TutorialWorldRef {
   }
 
   /**
-   * 마지막 방어선 — 벽 콜라이더가 이미 막지만 밀려난 몸이 맵 밖으로 나가지 않게 한다.
-   * 기준은 **가장 넓은 구간**(`CORRIDOR_OUTER_X`)이다: 구간별 폭으로 좁히면 좁은 구간의 벽 속으로 밀려난 몸을
-   * 통로가 아니라 벽 안쪽 어딘가로 되돌려 놓는다 — 실제 되돌리기는 `resolveCollision` 의 몫이다.
+   * The last line of defence — the wall colliders already block, but a body pushed out must not leave the map.
+   * It measures against the **widest stretch** (`CORRIDOR_OUTER_X`): narrowing it per stretch would put a body pushed into a narrow
+   * stretch's wall back somewhere inside the wall rather than in the corridor — the real pushing back is `resolveCollision`'s job.
    */
   clampInside(position: THREE.Vector3, radius: number): void {
     const lim = CORRIDOR_OUTER_X - radius;
@@ -290,13 +290,13 @@ export class TutorialWorld implements TutorialWorldRef {
     if (position.z > z0) position.z = z0; else if (position.z < z1) position.z = z1;
   }
 
-  /** 발밑 재질 — 시작 폐허 둘레만 콘크리트이고 나머지는 바위다. */
+  /** The surface material underfoot — concrete only around the start ruins, rock everywhere else. */
   surfaceMaterial(x: number, z: number): SurfaceMaterial {
     if (z <= RUINS.z0 && z >= RUINS.z1) return 'concrete';
     return 'rock';
   }
 
-  /** 디버그 · 스모크: 데크 높이 두 개와 함선 자리 (스크립트가 좌표를 베끼지 않게). */
+  /** Debug · smokes: the two deck heights and the ship's spot (so a script does not copy the coordinates). */
   get debugLevels(): { upper: number; lower: number; ship: THREE.Vector3 } {
     return { upper: DECK_UPPER_Y, lower: DECK_LOWER_Y, ship: SHIP_POS.clone() };
   }

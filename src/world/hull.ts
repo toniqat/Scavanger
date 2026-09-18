@@ -1,33 +1,35 @@
 /**
- * src/world/hull.ts — **볼록 다각형 기둥** 콜라이더 수학 (2026-09-11, `Obstacle.hull`).
+ * src/world/hull.ts — **convex prism** collider math (2026-09-11, `Obstacle.hull`).
  *
- * 왜 있나: 2026-09-10 까지 바위 · 첨탑 · 크리스탈은 원 하나였다 (`Props.footprintOf` — 방위별 거리의 **평균**
- * 반지름). 길쭉한 바위를 원 하나로 덮으면 긴 쪽으로는 몸이 메시에 파고들고 짧은 쪽으로는 보이는 바위보다 앞에서
- * 막힌다. 그래서 **땅 위로 보이는 메시의 볼록 윤곽**을 그대로 콜라이더로 쓴다. 이동 · 발판은 한 장의 윤곽
- * (`hull.points`)을, 총알 · 시야는 높이별 층(`hull.bands`)을 본다 — 위로 좁아지는 첨탑 옆 허공에서 총알이 멈추지 않게.
+ * Why it exists: until 2026-09-10 a rock · spire · crystal was one circle (`Props.footprintOf` — the **average** of the
+ * distances per compass direction). One circle over a long rock lets the body sink into the mesh along the long side
+ * and blocks it in front of the visible rock along the short side. So the **convex outline of the mesh above ground**
+ * is the collider. Movement · standing read one outline (`hull.points`), bullets · sight read per-height bands
+ * (`hull.bands`) — so a bullet does not stop in mid-air beside a spire that narrows upwards.
  *
- * 규약:
- *  - 꼭짓점은 `[x0, z0, x1, z1, …]` 월드 좌표이고 **반시계**다 (위에서 내려다본 +X → +Z 회전, 부호 있는 넓이 > 0).
- *    그러면 변 a→b 의 바깥 법선은 `(dz, -dx)` 다.
- *  - **`o.hull` 이 있을 때만** 불린다. 원기둥 · 상자의 경로는 `WorldSystem` 안에 그대로 남아 있다.
- *  - 프레임당 할당이 없다 — 법선은 그 자리에서 푼다 (꼭짓점이 `HULL_MAX_VERTS` 이하라 싸다).
+ * Conventions:
+ *  - Vertices are world coordinates `[x0, z0, x1, z1, …]` and **counter-clockwise** (+X → +Z seen from above, signed
+ *    area > 0). The outward normal of edge a→b is then `(dz, -dx)`.
+ *  - Called **only when `o.hull` is set**. The cylinder · box paths are left inside `WorldSystem` as they were.
+ *  - No per-frame allocation — the normal is solved on the spot (cheap, at most `HULL_MAX_VERTS` vertices).
  */
 import type * as THREE from 'three';
 import type { ObstacleHull } from '@/shared';
 
-/** 윤곽 하나가 가질 수 있는 최대 꼭짓점 수. 넘으면 넓이를 가장 적게 잃는 꼭짓점부터 뺀다. */
+/** The most vertices one outline may hold. Past it, the vertex that loses the least area is dropped first. */
 export const HULL_MAX_VERTS = 14;
 
-/* ── 만들기 ─────────────────────────────────────────────────────────────────────────────────────────── */
+/* ── Building ───────────────────────────────────────────────────────────────────────────────────────── */
 
 let _idx = new Int32Array(256);
 const _stack: number[] = [];
 
 /**
- * 2026-09-11 (C-40): 인덱스를 (x, z) 사전순으로 정렬한다 — 예전의 `Array.prototype.sort(비교 함수)` 가 월드 생성의
- * 한 덩어리였다(소품마다 윤곽 최대 5번). 결과가 같은 이유: monotone chain 의 출력은 **좌표**만 쓰고, 좌표가 같은
- * 점끼리의 순서는 외적 0 으로 곧바로 빠지므로 어느 정렬이든 (x, z) 순서만 맞으면 껍질이 한 비트도 다르지 않다.
- * 작은 구간은 삽입 정렬, 큰 구간은 가운데 값 기준 퀵정렬 (재귀 대신 명시적 스택).
+ * 2026-09-11 (C-40): sorts the indices in (x, z) lexicographic order — the old `Array.prototype.sort(comparator)` was
+ * a chunk of world generation on its own (up to 5 outlines per prop). The result is the same because monotone chain
+ * reads **coordinates** only and points sharing one drop out at once on a zero cross product: any sort with the right
+ * (x, z) order gives a hull that is not one bit different. Insertion sort on short runs, quicksort around the middle
+ * value on long ones (an explicit stack instead of recursion).
  */
 const _qs = new Int32Array(128);
 function sortIdx(pts: Float32Array, idx: Int32Array, n: number): void {
@@ -55,16 +57,16 @@ function sortIdx(pts: Float32Array, idx: Int32Array, n: number): void {
       while (less(pivot, idx[j])) j--;
       if (i <= j) { const t = idx[i]; idx[i] = idx[j]; idx[j] = t; i++; j--; }
     }
-    // 큰 쪽을 먼저 쌓아 스택 깊이를 log n 으로 묶는다
+    // Push the larger side first to keep the stack depth at log n
     if (j - lo > hi - i) { if (lo < j) { _qs[sp++] = lo; _qs[sp++] = j; } if (i < hi) { _qs[sp++] = i; _qs[sp++] = hi; } }
     else { if (i < hi) { _qs[sp++] = i; _qs[sp++] = hi; } if (lo < j) { _qs[sp++] = lo; _qs[sp++] = j; } }
   }
 }
 
 /**
- * `pts[0 .. n*2)` 의 xz 쌍으로 2D 볼록 껍질을 만든다 (monotone chain). 반시계 `Float32Array`, 점이 3개 미만이거나
- * 넓이가 0 이면 null. `maxVerts` 를 넘으면 모서리를 깎아 줄인다 (깎인 만큼 콜라이더가 메시 안쪽으로 조금 들어간다 —
- * 밖으로 부풀리지 않는다).
+ * Builds a 2D convex hull from the xz pairs in `pts[0 .. n*2)` (monotone chain). A counter-clockwise `Float32Array`;
+ * null with fewer than 3 points or zero area. Past `maxVerts` corners are shaved off (the collider moves that much
+ * inside the mesh — it is never inflated outwards).
  */
 export function convexHull2D(pts: Float32Array, n: number, maxVerts = HULL_MAX_VERTS): Float32Array | null {
   if (n < 3) return null;
@@ -85,11 +87,11 @@ export function convexHull2D(pts: Float32Array, n: number, maxVerts = HULL_MAX_V
     while (_stack.length >= lowerLen && cross(_stack[_stack.length - 2], _stack[_stack.length - 1], i) <= 1e-9) _stack.pop();
     _stack.push(i);
   }
-  _stack.pop();                                   // 마지막 점 = 첫 점
+  _stack.pop();                                   // last point = first point
   if (_stack.length < 3) return null;
   const xs: number[] = [], zs: number[] = [];
   for (const i of _stack) { xs.push(pts[i * 2]); zs.push(pts[i * 2 + 1]); }
-  // 꼭짓점이 너무 많으면 넓이를 가장 적게 잃는 꼭짓점부터 뺀다
+  // Too many vertices — drop them starting with the one that loses the least area
   while (xs.length > Math.max(3, maxVerts)) {
     let bestI = 0, bestA = Infinity;
     const m = xs.length;
@@ -107,11 +109,11 @@ export function convexHull2D(pts: Float32Array, n: number, maxVerts = HULL_MAX_V
     const j = (i + 1) % xs.length;
     area += xs[i] * zs[j] - xs[j] * zs[i];
   }
-  if (area <= 1e-6) return null;                  // monotone chain 은 반시계를 준다 — 0 이면 퇴화
+  if (area <= 1e-6) return null;                  // monotone chain gives counter-clockwise — 0 means degenerate
   return out;
 }
 
-/** `(cx, cz)` 에서 윤곽(과 층) 꼭짓점까지의 최대 거리 — `Obstacle.radius` 에 넣는 외접원. */
+/** The longest distance from `(cx, cz)` to an outline (or band) vertex — the circle `Obstacle.radius` holds. */
 export function hullRadiusFrom(hull: ObstacleHull, cx: number, cz: number): number {
   let r = 0;
   const scan = (p: Float32Array): void => {
@@ -125,7 +127,7 @@ export function hullRadiusFrom(hull: ObstacleHull, cx: number, cz: number): numb
   return r;
 }
 
-/** 윤곽의 넓이와 무게중심 (`obstacleCoverage` 용). */
+/** An outline's area and centroid (for `obstacleCoverage`). */
 export function hullAreaCentroid(p: Float32Array, out: { area: number; x: number; z: number }): void {
   let a2 = 0, cx = 0, cz = 0;
   const m = p.length / 2;
@@ -141,9 +143,9 @@ export function hullAreaCentroid(p: Float32Array, out: { area: number; x: number
   out.z = cz / (3 * a2);
 }
 
-/* ── 질의 ───────────────────────────────────────────────────────────────────────────────────────────── */
+/* ── Queries ────────────────────────────────────────────────────────────────────────────────────────── */
 
-/** `(x, z)` 가 윤곽 안인가 (`margin` 만큼 넉넉히). */
+/** Is `(x, z)` inside the outline (with `margin` to spare)? */
 export function hullContainsXZ(p: Float32Array, x: number, z: number, margin = 0): boolean {
   const m = p.length / 2;
   for (let i = 0; i < m; i++) {
@@ -158,8 +160,8 @@ export function hullContainsXZ(p: Float32Array, x: number, z: number, margin = 0
 }
 
 /**
- * 반지름 `radius` 원을 윤곽 밖으로 밀어낸다 (`position` 을 제자리에서 고친다). 겹치지 않으면 false.
- * 중심이 안이면 **가장 얕은 변**으로 빼낸다 (`obb.boxPushOut` 과 같은 규약 — 모서리를 스치며 옆으로 튕기지 않게).
+ * Pushes a circle of `radius` out of the outline (`position` is fixed in place). false when they do not overlap.
+ * A centre inside leaves by the **shallowest edge** (as in `obb.boxPushOut` — brushing a corner must not bounce it).
  */
 export function hullPushOut(p: Float32Array, position: THREE.Vector3, radius: number): boolean {
   const m = p.length / 2;
@@ -175,13 +177,13 @@ export function hullPushOut(p: Float32Array, position: THREE.Vector3, radius: nu
     const s = (px - ax) * nx + (pz - az) * nz;
     if (s > sMax) { sMax = s; nxMax = nx; nzMax = nz; }
   }
-  if (sMax >= radius) return false;               // 가장 먼 변의 반평면 밖으로 반지름 이상 — 겹칠 수 없다
+  if (sMax >= radius) return false;               // Farther than radius outside an edge half-plane — cannot overlap
   if (sMax <= 0) {
     position.x += nxMax * (radius - sMax);
     position.z += nzMax * (radius - sMax);
     return true;
   }
-  // 바깥이지만 가깝다: 윤곽에서 가장 가까운 점을 정확히 찾는다 (꼭짓점 근처는 반평면 거리보다 멀다)
+  // Outside but close: find the exact nearest point on the outline (near a vertex it is farther than the half-plane)
   let best = Infinity, cx = px, cz = pz;
   for (let i = 0; i < m; i++) {
     const j = (i + 1) % m;
@@ -202,12 +204,13 @@ export function hullPushOut(p: Float32Array, position: THREE.Vector3, radius: nu
   return true;
 }
 
-/** `rayHull` 이 채우는 법선 (호출자가 바로 읽는다 — 보관 금지). */
+/** The normal `rayHull` fills in (the caller reads it at once — never store it). */
 export const hullHitNormal = { x: 0, y: 1, z: 0 };
 
 /**
- * 레이 vs 볼록 기둥 한 층 (`[y0, y1]`). 맞으면 `t`, 아니면 −1. 원기둥 · 상자와 같은 규약으로 **원점이 이미 안이면
- * 맞지 않은 것**으로 친다. Cyrus–Beck: 변마다 반평면으로 잘라 들어가는 `t` 의 최댓값과 나가는 `t` 의 최솟값을 잡는다.
+ * Ray vs one band of a convex prism (`[y0, y1]`). `t` on a hit, −1 otherwise. As with the cylinder · box, **an origin
+ * already inside counts as a miss**. Cyrus–Beck: clip by every edge half-plane, keeping the largest entering `t` and
+ * the smallest leaving `t`.
  */
 export function rayHull(
   ox: number, oy: number, oz: number, dx: number, dy: number, dz: number,

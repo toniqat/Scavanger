@@ -9,7 +9,7 @@ import {
   type GameContext, type GatherNodeDef, type GatherNodeKind, type GatherWire, type HarvestMessage, type HarvestRequest,
   type Interactable, type ItemCategory, type ItemInstance, type PeerId, type PlanetEcosystem, type Random, type SoilTag,
 } from '@/shared';
-/* appended (2026-09-12): 아이템 회수 계약 — 채집물도 레이드 루팅이다 */
+/* appended (2026-09-12): the item recovery contract — a gathered thing is raid loot too */
 import { markRaidFound, raidFoundSeed } from '@/shared';
 import { type BuildCtx, PLAY_LIMIT, composeMatrix, displace, isSpotFree, merge, paint, paintGradient, scratch, xform } from './build';
 import { SEED_INTERACT_TIME, SEED_NODE_RADIUS, planetSeeds } from './flora';
@@ -36,141 +36,141 @@ const MIN_SPACING = 7;
  */
 const FALLBACK_HERB_IDS: readonly string[] = ['herb_bloodroot', 'herb_ashleaf', 'herb_glowcap'];
 
-// 0–2 약초 · 3 고철 · 4 토양 · 5 씨앗 군락 · 6 미확인 표본 (2026-09-11) · 7 광맥 (2026-09-16)
-// 광맥의 보라는 일부러 어느 바이옴 크리스탈(`biome.crystalEmissive`)과도 겹치지 않는 색이다 — 사면 저쪽에서
-// 보고 "저건 광맥이다" 가 되어야 하기 때문이다.
+// 0–2 herb · 3 salvage · 4 soil · 5 seed grove · 6 미확인 표본 (2026-09-11) · 7 광맥 (2026-09-16)
+// The vein's purple is deliberately a colour no biome crystal (`biome.crystalEmissive`) shares — it has to read as
+// "that is a vein" from the far side of a slope.
 const GLOW_COLORS: readonly number[] = [0xff5a6a, 0x7affc8, 0xffc24a, 0xffb347, 0xd8b06a, 0xe6ff8a, 0x8fd8ff, 0xc08cff];
 
-/* ── 고철 노드 (2026-09-08) ────────────────────────────────────────────────
- * 폐금속이 상자의 `material` 롤에서만 나오던 병목을 푸는 세 갈래 중 하나. 약초와 **같은 노드 시스템**을 쓴다 —
- * 배치 · 상호작용 · 호스트 권한 동기화(`harv` / `harvq`)가 전부 그대로 돌고, 다른 것은 변종 메시(난파 고철 더미),
- * 프롬프트 동사(`해체`), 집는 시간, 그리고 채집 수율 대신 고정 수량이라는 점뿐이다. */
-/** `variants` index of the 고철 더미 mesh (0–2 are the plant shapes). */
+/* ── The salvage node (2026-09-08) ─────────────────────────────────────────
+ * One of three ways out of the bottleneck where scrap came only from a crate's `material` roll. It uses **the same
+ * node system** as herbs — placement · interaction · host-authoritative sync (`harv` / `harvq`) all run unchanged; what
+ * differs is the variant mesh (a wrecked salvage pile), the prompt verb (`해체`), the pick time, and a fixed quantity instead of the gather yield. */
+/** `variants` index of the salvage pile mesh (0–2 are the plant shapes). */
 const SALVAGE_VARIANT = 3;
-/** What a 고철 더미 hands over. */
+/** What a salvage pile hands over. */
 const SALVAGE_DEF_ID = 'mat_scrap';
-/** Interaction radius of a 고철 더미 (a bit wider than a plant — it is a pile). */
+/** Interaction radius of a salvage pile (a bit wider than a plant — it is a pile). */
 const SALVAGE_RADIUS = 2.6;
-/** Minimum distance from a 고철 더미 to any other node. */
+/** Minimum distance from a salvage pile to any other node. */
 const SALVAGE_SPACING = 12;
 /**
- * 2026-09-11 (C-20): 고철 더미가 확률로 더 주는 **부가 코어**. 확률 · 개수는 `data/constants.csv` 의
- * `GATHER_SALVAGE_CORE_*`, 아이템 id 는 계약 주석(`shared/constants.ts`)이 정한 구동 코어다.
+ * 2026-09-11 (C-20): the **bonus core** a salvage pile gives by chance on top. Chance · count are
+ * `GATHER_SALVAGE_CORE_*` in `data/constants.csv`; the item id is the drive core the contract comment (`shared/constants.ts`) fixed.
  */
 const SALVAGE_CORE_DEF_ID = 'mat_core';
 /*
- * 2026-09-13 (요리 재료 티어 — 사용자 결정 「광물 = 표본 채집지 · 고철 더미 부가 · 베헤모스」): 고철 더미가 확률로 더 주는
- * **미확인 광물**. 확률 · 개수는 `data/constants.csv` 의 `GATHER_SALVAGE_MINERAL_*`. 코어와 **따로** 굴리므로 한 더미가 둘 다 줄 수 있다.
+ * 2026-09-13 (cooking material tiers — user's decision 「minerals = the specimen site · the salvage pile bonus · the behemoth」): the **미확인 광물**
+ * a salvage pile gives by chance on top. Chance · count are `GATHER_SALVAGE_MINERAL_*` in `data/constants.csv`. It rolls **separately** from the core, so one pile can give both.
  *
- * 2026-09-16 (표본 전면 개편): 여기 있던 고정 id 상수 `'spec_mineral'` 은 그 def 가 삭제된 뒤에도 남아 있었다.
- * `makeItem` 이 모르는 id 에 조용히 null 을 돌려주므로 크래시는 없었지만, 더미가 확률을 굴리고도 아무것도 주지 않는
- * **죽은 기능**이 됐다 — 그래서 상수를 지우고 아래 `mineralDefId(0)`, 즉 **가장 낮은 등급**의 미확인 광물을 준다.
- * 등급을 굴리는 것은 광맥의 정체성이고(캐는 사람의 채광 숙련이 상위 등급을 밀어 준다), 고철 더미는 부가 산출이라
- * 숙련과 무관하게 제일 거친 조각 하나다.
+ * 2026-09-16 (the specimen overhaul): the fixed id constant `'spec_mineral'` here outlived its def's deletion.
+ * `makeItem` silently returns null for an unknown id, so there was no crash — but the pile rolled its chance and handed
+ * over nothing, a **dead feature**. So the constant is gone and it gives `mineralDefId(0)` below, the **lowest rarity**
+ * 미확인 광물. Rolling the rarity is the vein's identity (the harvester's 채광 skill pushes the higher rarities), and the
+ * salvage pile is a bonus yield — one roughest piece whatever the skill.
  */
 
-/** 채집물 하나가 수확 때 **아이템만** 하나 더 넣는 부가 결과. */
+/** A bonus result: at harvest one gather node puts in **just one more item**. */
 interface NodeBonus { defId: string; qty: number }
 
-/* ── 토양 더미 (온실 개편, 2026-09-11) ──────────────────────────────────────────
- * 온실의 재배 스테이션은 흙을 먼저 붓고 그 위에 씨앗을 심는다. 그 흙은 **레이드 채집으로만** 나오고 속성은
- * 바이오별로 다르다 (`data/planets.csv` 의 `soils` · `soilNodes`, 읽는 자리는 `world/soil.ts`) — "부엽토가
- * 필요하면 베르단트 III 로 간다" 가 이 파일에서 성립한다.
+/* ── The soil pile (greenhouse overhaul, 2026-09-11) ────────────────────────────
+ * The greenhouse's grow station pours soil first and plants the seed on top. That soil comes **only from raid
+ * gathering** and its tag differs per biome (`soils` · `soilNodes` in `data/planets.csv`, read in `world/soil.ts`) —
+ * "go to Verdant III if you need 부엽토" holds from this file.
  *
- * 고철 더미가 그랬듯 **약초 노드 시스템을 그대로 쓴다**: 배치 · 상호작용 · 호스트 권한 동기화(`harv`/`harvq`) ·
- * 수확 애니메이션이 전부 같은 코드이고, 다른 것은 변종 메시(파 놓은 흙더미) · 프롬프트 동사(`채취`) · 집는
- * 시간 · 행성 가중치로 뽑는 아이템뿐이다. 숙련도는 **원예**다 (`gather:collected` 의 kind 가 'salvage' 가
- * 아니면 원예 — `progression/` 의 규칙 그대로라 저쪽은 한 줄도 바뀌지 않는다). */
-/** `variants` index of the 토양 더미 mesh (0–2 = 약초, 3 = 고철). */
+ * As the salvage pile did, it **uses the herb node system unchanged**: placement · interaction · host-authoritative
+ * sync (`harv`/`harvq`) · the harvest animation are all the same code; what differs is the variant mesh (a dug soil
+ * mound) · the prompt verb (`채취`) · the pick time · the item drawn from the planet weights. The skill is **원예**
+ * (a `gather:collected` whose kind is not 'salvage' means 원예 — `progression/`'s rule unchanged, not one line there). */
+/** `variants` index of the soil pile mesh (0–2 = herb, 3 = salvage). */
 const SOIL_VARIANT = 4;
-/** Interaction radius of a 토양 더미 (파 놓은 무더기라 고철과 같다). */
+/** Interaction radius of a soil pile (a dug mound, so the same as salvage). */
 const SOIL_RADIUS = 2.6;
 /**
- * 흙 한 포대를 퍼내는 시간. **고철 해체와 같은 값을 의도적으로 공유한다** — 새 수치를 코드에 적지 않기 위해서다
- * (`data/constants.csv` 는 이 배치의 소유가 아니다). 토양만 다른 시간이 필요해지면 constants.csv 에 한 줄.
+ * Time to shovel one sack of soil. **It deliberately shares the salvage strip value** — so that no new number is
+ * written in code (`data/constants.csv` is not this placement's to own). If soil ever needs its own, one constants.csv row.
  */
 const SOIL_INTERACT_TIME = SALVAGE_INTERACT_TIME;
-/** Minimum distance from a 토양 더미 to another 토양 더미. */
+/** Minimum distance from a soil pile to another soil pile. */
 const SOIL_SPACING = 14;
-/** Minimum distance from a 토양 더미 to any 약초 · 고철 노드. */
+/** Minimum distance from a soil pile to any herb · salvage node. */
 const SOIL_NODE_CLEARANCE = 5;
-/** 흙더미가 앉을 수 있는 최대 경사 — 흙은 평평한 곳에 쌓인다 (약초 0.3 · 고철 0.32 보다 엄하다). */
+/** The steepest slope a soil mound can sit on — soil piles up on flat ground (stricter than herb 0.3 · salvage 0.32). */
 const SOIL_MAX_SLOPE = 0.24;
-/** 토양 태그를 모를 때 인스턴스에 칠하는 색 (items/ 가 아직 그 줄을 모를 때). */
+/** The colour painted on an instance when the soil tag is unknown (items/ does not know that row yet). */
 const SOIL_FALLBACK_COLOR = '#6b5a49';
 
-/* ── 야생 씨앗 군락 · 미확인 표본 채집지 (연구실 배치, 2026-09-11) ──────────────
- * 온실의 씨앗과 분석기의 표본도 **레이드에서 주워 온다**. 어떤 품종 · 어떤 표본이 나오는지는 행성마다 다르고
- * (`data/planets.csv` 의 `seeds`/`seedNodes` · `samples`/`sampleNodes`, 읽는 자리는 `world/flora.ts` ·
- * `world/specimen.ts`), 토양 더미가 그랬듯 **약초 노드 시스템을 그대로 쓴다** — 배치 · 상호작용 · 호스트 권한
- * 동기화(`harv`/`harvq`) · 수확 애니메이션이 전부 같은 코드이고 다른 것은 변종 메시 · 동사 · 시간 · 추첨뿐이다.
+/* ── The wild seed grove · the specimen gather site (lab placement, 2026-09-11) ─
+ * The greenhouse's seeds and the analyzer's specimens are also **picked up in a raid**. Which varieties · which
+ * specimens appear differs per planet (`seeds`/`seedNodes` · `samples`/`sampleNodes` in `data/planets.csv`, read in
+ * `world/flora.ts` · `world/specimen.ts`), and as the soil pile did they **use the herb node system unchanged** —
+ * placement · interaction · sync (`harv`/`harvq`) · harvest animation are the same code; only mesh · verb · time · draw differ.
  *
- * ⚠ 둘 다 **자기 rng fork** 로만 굴린다 (`gather_seed` · `gather_sample`). 행성마다 다른 개수가 `gather`
- * 스트림을 한 칸이라도 밀면 같은 시드의 약초 · 고철 배치가 통째로 달라진다 (`gather_core` · `gather_soil` 과
- * 같은 수법 — `Random.fork` 는 부모를 전진시키지 않는다). */
-/** `variants` index of the 씨앗 군락 mesh (0–2 = 약초, 3 = 고철, 4 = 토양). */
+ * ⚠ Both roll **only from their own rng fork** (`gather_seed` · `gather_sample`). If a per-planet count shifted the
+ * `gather` stream by even one step, the herb · salvage placement of the same seed would change wholesale (the same
+ * trick as `gather_core` · `gather_soil` — `Random.fork` never advances the parent). */
+/** `variants` index of the seed grove mesh (0–2 = herb, 3 = salvage, 4 = soil). */
 const SEED_VARIANT = 5;
 /** `variants` index of the 미확인 표본 mesh. */
 const SAMPLE_VARIANT = 6;
-/** 한 군락이 품는 포기 수 (앵커 1 + 곁가지). `seedNodes` 는 **군락 수**라 실제 노드는 이만큼 늘어난다. */
+/** Stalks one grove holds (1 anchor + offshoots). `seedNodes` is **the grove count**, so the real node count grows by this. */
 const SEED_PATCH_MIN = 2;
 const SEED_PATCH_MAX = 3;
-/** 군락끼리의 최소 간격(m) — 한 행성에 4~5 군락뿐이라 넉넉히 흩는다. */
+/** Minimum spacing (m) between groves — only 4–5 groves per planet, so they are scattered generously. */
 const SEED_SPACING = 18;
-/** 한 군락 안에서 곁가지가 앉는 고리(m). */
+/** The ring (m) an offshoot sits on inside one grove. */
 const SEED_PATCH_RING_MIN = 2.2;
 const SEED_PATCH_RING_MAX = 4.2;
-/** 씨앗 군락에서 다른 채집물까지의 최소 거리(m). */
+/** Minimum distance (m) from a seed grove to any other gather node. */
 const SEED_NODE_CLEARANCE = 5;
-/** 씨앗이 여무는 곳은 완만한 초지다 (약초 0.3 보다 엄하고 흙 0.24 보다는 무르다). */
+/** Seed ripens on gentle grassland (stricter than herb 0.3, softer than soil 0.24). */
 const SEED_MAX_SLOPE = 0.28;
-/** 표본 채집지끼리의 최소 간격(m). */
+/** Minimum spacing (m) between specimen gather sites. */
 const SAMPLE_SPACING = 26;
-/** 표본 채집지에서 다른 채집물까지의 최소 거리(m). */
+/** Minimum distance (m) from a specimen gather site to any other gather node. */
 const SAMPLE_NODE_CLEARANCE = 6;
-/** 표본이 굳어 있을 만한 경사 (고철과 같다 — 잔해에 얹혀 있어도 된다). */
+/** The slope a specimen could have hardened on (the same as salvage — it may rest on wreckage). */
 const SAMPLE_MAX_SLOPE = 0.32;
-/** 둥지(패드 반지름 20 m) 바깥 고리 — 안에 놓으면 둥지 지오메트리에 파묻힌다. */
+/** The ring outside a nest (pad radius 20 m) — placed inside, it is buried in the nest geometry. */
 const SAMPLE_NEST_RING_MIN = 22;
 const SAMPLE_NEST_RING_MAX = 34;
-/** 폐허 전초(잔해) 둘레 고리 — 고철 더미(5–14 m)보다 조금 넓게 잡아 겹치지 않는다. */
+/** The ring around a POI ruin (wreckage) — a little wider than the salvage pile's (5–14 m) so they do not overlap. */
 const SAMPLE_POI_RING_MIN = 7;
 const SAMPLE_POI_RING_MAX = 17;
 
-/* ── 행성 광맥 (2026-09-16 사용자 결정, 채광) ────────────────────────────────
- * 여섯 번째 채집 노드다. 배치 · 상호작용 · 호스트 권한 동기화(`harv` / `harvq`) · 수확 애니메이션이 앞의
- * 다섯과 **한 줄도 다르지 않고**, 다른 것은 네 가지뿐이다:
- *   ① 변종 메시(결정이 박힌 노두) + **콜라이더** — 광맥은 실제로 몸을 막는 바위다 (다른 채집물은 통과된다).
- *   ② 서는 자리 — `MINING_HILL_MIN_SLOPE` 이상의 **사면**에만 선다 (사용자 결정 「주로 언덕쪽 위주」).
- *   ③ 산출물 — **캘 때** 등급을 굴린다. 다른 노드는 생성 때 아이템이 정해지지만, 광맥의 등급은 **캐는 사람의
- *      채광 숙련**(`derived.miningRarityBonus`)이 밀어 주므로 생성 시점에는 답이 없다.
- *   ④ 숙련 — 원예 · 제작이 아니라 **채광**이다. 그래서 광맥은 `GatherNodeKind` 의 여섯 번째 값 `'mineral'` 을
- *      쓴다 (2026-09-16). 예외 경로는 없다: 다른 채집물과 똑같이 `gather:collected` 를 쏘고, kind 를 보고
- *      숙련을 고르는 것은 `ProgressionSystem` 의 그 핸들러 한 곳뿐이다. 값이 따로 있으니 NPC 신뢰도의
- *      `gathered` 표식 · 지도 · 스모크도 다른 다섯과 같은 길로 광맥을 본다.
+/* ── The planet 광맥 (2026-09-16 user's decision, 채광) ──────────────────────
+ * The sixth gather node. Placement · interaction · host-authoritative sync (`harv` / `harvq`) · the harvest animation
+ * are **not one line different** from the first five; only four things are:
+ *   ① the variant mesh (an outcrop with crystals in it) + a **collider** — a vein really is a rock that blocks a body (the others are walked through).
+ *   ② where it stands — only on a **slope** of `MINING_HILL_MIN_SLOPE` or steeper (user's decision 「mostly on hillsides」).
+ *   ③ the yield — the rarity is rolled **at harvest**. The other nodes fix their item at generation, but a vein's rarity
+ *      is pushed by **the harvester's 채광 skill** (`derived.miningRarityBonus`), so at generation there is no answer.
+ *   ④ the skill — **채광**, not 원예 or 제작. So the vein uses `GatherNodeKind`'s sixth value `'mineral'`
+ *      (2026-09-16). There is no exception path: it emits `gather:collected` exactly like the others, and the one
+ *      place that reads kind to pick a skill is that handler in `ProgressionSystem`. With its own value, the NPC
+ *      trust `gathered` mark · the map · the smokes all see the vein by the same path as the other five.
  */
-/** `variants` index of the 광맥 mesh (0–2 = 약초, 3 = 고철, 4 = 토양, 5 = 씨앗, 6 = 표본). */
+/** `variants` index of the 광맥 mesh (0–2 = herb, 3 = salvage, 4 = soil, 5 = seed, 6 = specimen). */
 const MINERAL_VARIANT = 7;
 /**
- * 광맥이 서는 경사의 **상한**. 새 수치가 아니라 「걸어서 닿는 가장 가파른 땅」을 tan 으로 옮긴 것이다 —
- * `IMPLANT_DASH_MAX_SLOPE_DEG`(50°)는 걷기 경사 한계와 같은 값이라고 csv 가 못박아 두었다. 이보다 가파른
- * 벼랑에 광맥이 서면 보이기만 하고 캘 수가 없다.
+ * The **cap** on the slope a vein stands on. Not a new number but 「the steepest ground reachable on foot」 as a tan —
+ * the csv nails `IMPLANT_DASH_MAX_SLOPE_DEG` (50°) to the same value as the walking slope limit. A vein standing on a
+ * cliff steeper than this would only be visible, never mineable.
  */
 const MINERAL_MAX_SLOPE = Math.tan(THREE.MathUtils.degToRad(IMPLANT_DASH_MAX_SLOPE_DEG));
 /**
- * 광맥의 상호작용 반경 · 간격 · 다른 채집물까지의 거리는 **표본 채집지 값을 일부러 공유한다** (`SOIL_INTERACT_TIME`
- * 이 고철 값을 빌린 것과 같은 판단): 행성당 3~7 개로 개수가 비슷하고, 광맥만 다른 값이 필요해지면 그때 csv 에 한 줄.
+ * A vein's interaction radius · spacing · distance to other gather nodes **deliberately share the specimen site's values**
+ * (the same call as `SOIL_INTERACT_TIME` borrowing the salvage value): 3–7 per planet is a like count, and if the vein ever needs its own, one csv row then.
  */
 const MINERAL_RADIUS = SAMPLE_NODE_RADIUS;
 const MINERAL_SPACING = SAMPLE_SPACING;
 const MINERAL_NODE_CLEARANCE = SAMPLE_NODE_CLEARANCE;
 /**
- * 그려진 노두의 지면 위 실루엣 (m) — **콜라이더가 이 값을 그대로 쓴다** (`§4.4`: 콜라이더는 보이는 것을 재고,
- * 묻힌 부분은 세지 않는다). `makeMineralGeometry` 의 몸통 치수를 바꾸면 여기도 같이 바꾼다.
+ * The drawn outcrop's silhouette above ground (m) — **the collider uses this value as is** (`§4.4`: a collider measures
+ * what is visible and does not count the buried part). Change `makeMineralGeometry`'s body size and change this too.
  */
 const MINERAL_BODY_R = 0.95;
 const MINERAL_BODY_H = 1.6;
-/** 미확인 광물 아이템 id 의 이름 규약 (`data/samples.csv`: 로마 숫자 = 등급 순번). items/ 가 아직 모를 때의 대체. */
+/** The naming convention of 미확인 광물 item ids (`data/samples.csv`: Roman numeral = rarity index). The fallback while items/ does not know them. */
 const MINERAL_ID_PREFIX = 'spec_mineral_';
 
 interface Variant {
@@ -184,14 +184,14 @@ interface Variant {
 interface Spot {
   x: number; z: number; variant: number; defId: string; kind: GatherNodeKind;
   /**
-   * 2026-09-09: 거대 버섯 군락에 딸려 심긴 채집 버섯. **`variant` 로는 가릴 수 없다** —
-   * `GROVE_PICK_VARIANT` 는 평범한 약초도 쓰는 모양 번호라, 그걸로 판정하면 그 모양의 약초가 전부
-   * 군락 버섯으로 잡힌다 (생태계 밀도 단언이 그 자리에서 깨진다). 심는 쪽이 표시한다.
+   * 2026-09-09: a harvest mushroom planted along with a giant mushroom grove. **`variant` cannot tell it apart** —
+   * `GROVE_PICK_VARIANT` is a shape number ordinary herbs use too, so judging by it catches every herb of that shape
+   * as a grove mushroom (the ecosystem density assertion breaks right there). The planting side marks it.
    */
   grove?: boolean;
   /**
-   * 2026-09-16: 광맥. `kind` 로는 가릴 수 없다 — `GatherNodeKind` 에 광맥 값이 없어 `'sample'`(캐면 표본이
-   * 나오니 가장 참에 가까운 값)을 쓰기 때문이다. 세우는 쪽이 표시한다.
+   * 2026-09-16: the vein. `kind` cannot tell it apart — `GatherNodeKind` has no vein value, so it uses `'sample'`
+   * (the closest thing to true, since mining it yields a specimen). The placing side marks it.
    */
   vein?: boolean;
 }
@@ -211,28 +211,28 @@ interface Node {
   pendingAt: number;
   interactable: Interactable;
   /**
-   * 2026-09-11 (C-20): 고철 더미의 **부가 결과** — 생성 때 미션 시드로 정해진다(와이어 없음, 모두가 같은 답).
-   * world 내부 값이라 `GatherNodeDef` 에는 없다. 빈 목록 = 부가 결과 없음 (약초는 늘 비어 있다).
-   * 2026-09-13: 하나(코어)에서 **목록**으로 — 코어(`gather_core`)와 미확인 광물(`gather_mineral`)이 각자 굴려 둘 다 붙을 수 있다.
-   * 순서는 코어 → 광물 고정이다.
+   * 2026-09-11 (C-20): the salvage pile's **bonus result** — fixed at generation from the mission seed (no wire, the same answer for everyone).
+   * A world-internal value, so it is not on `GatherNodeDef`. An empty list = no bonus (herbs are always empty).
+   * 2026-09-13: from one (the core) to a **list** — the core (`gather_core`) and 미확인 광물 (`gather_mineral`) roll separately and both can attach.
+   * The order is fixed: core → mineral.
    */
   bonus: readonly NodeBonus[];
-  /** 2026-09-16: 광맥인가 (`Spot.vein` 과 같은 뜻). */
+  /** 2026-09-16: is it a vein (the same meaning as `Spot.vein`). */
   vein?: boolean;
   /**
-   * 2026-09-16: 광맥의 **콜라이더**. 광맥은 몸을 막는 바위라 hash 에 들어간다 — 캐서 사라지면 같이 빠진다
-   * (메시가 오그라들어 없어졌는데 보이지 않는 벽이 남으면 안 된다).
+   * 2026-09-16: the vein's **collider**. A vein is a rock that blocks a body, so it goes into the hash — and leaves it
+   * when the vein is mined away (the mesh must not shrink to nothing and leave an invisible wall behind).
    */
   obstacle?: ObstacleEntry;
 }
 
 /**
- * Harvestable nodes (채집물) scattered over the map — 약초 plants and, since 2026-09-08, 고철 더미.
+ * Harvestable gather nodes scattered over the map — herb plants and, since 2026-09-08, salvage piles.
  *
- * - `GATHER_NODES_PER_MISSION` procedural plants in 3 variants plus `SALVAGE_NODES_PER_MISSION` 고철 더미
+ * - `GATHER_NODES_PER_MISSION` procedural plants in 3 variants plus `SALVAGE_NODES_PER_MISSION` salvage piles
  *   (variant `SALVAGE_VARIANT`), drawn with one `InstancedMesh` per part (2 parts per variant → 8 draw calls
- *   total) so the whole set costs nothing. `GatherNodeDef.kind` says which a node is; 고철 더미 hand over
- *   `mat_scrap`, take `SALVAGE_INTERACT_TIME` to strip, ignore the 채집 수율 multiplier and grant 제작 XP.
+ *   total) so the whole set costs nothing. `GatherNodeDef.kind` says which a node is; salvage piles hand over
+ *   `mat_scrap`, take `SALVAGE_INTERACT_TIME` to strip, ignore the gather yield multiplier and grant 제작 XP.
  * - Each node registers an `Interactable` with `holdTime = GATHER_INTERACT_TIME` (the player scales holds by `derived.interactSpeedMul`).
  * - Harvesting emits `gather:collected` and then hands the herb to `ctx.inventory.tryAddItem`
  *   (quantity scaled by `derived.gatherYieldMul`).
@@ -244,9 +244,9 @@ export class Gather {
   private variants: Variant[] = [];
   private bodyMat: THREE.MeshStandardMaterial | null = null;
   /**
-   * 토양 더미 전용 본체 재질. `bodyMat` 과 갈라 둔 이유는 **인스턴스 색**(`setColorAt`) 때문이다 —
-   * 흙더미는 속성마다 색이 달라야 하는데 `instanceColor` 가 붙은 메시는 셰이더 프로그램이 달라진다.
-   * 같은 재질을 약초 · 고철과 공유하면 그 둘까지 프로그램이 갈려 선컴파일(`ctx.shaders`)이 헛돈다.
+   * The body material for soil piles only. It is split from `bodyMat` because of **instance colour** (`setColorAt`) —
+   * a soil mound must differ in colour per tag, and a mesh carrying `instanceColor` gets a different shader program.
+   * Sharing one material with herbs · salvage would split their program too and waste the pre-compile (`ctx.shaders`).
    */
   private soilMat: THREE.MeshStandardMaterial | null = null;
   private readonly nodes: Node[] = [];
@@ -257,16 +257,16 @@ export class Gather {
   private readonly unsubs: Array<() => void> = [];
   private matrixDirty = false;
   private built = false;
-  /* ── 광맥 (2026-09-16) ── */
-  /** 콜라이더를 빼려면 hash 가 필요하다 (수확은 빌드가 끝난 한참 뒤에 일어난다). */
+  /* ── The vein (2026-09-16) ── */
+  /** Removing the collider needs the hash (a harvest happens long after the build finished). */
   private hash: SpatialHash | null = null;
-  /** 이 행성의 등급 가중치 (`tier = threat` 줄). 광맥이 없는 행성이면 null. */
+  /** This planet's rarity weights (the `tier = threat` row). null on a planet with no veins. */
   private mineralWeights: RarityWeights | null = null;
-  /** 등급 순번(`RARITY_ORDER`) → 미확인 광물 아이템 id. items/ 가 모르는 등급은 null. */
+  /** Rarity index (`RARITY_ORDER`) → 미확인 광물 item id. A rarity items/ does not know is null. */
   private mineralIds: readonly (string | null)[] = [];
   /**
-   * 수확 때 등급을 굴리는 난수. 결과가 **캐는 사람의 숙련**에 달렸으니 어차피 클라이언트마다 다르고,
-   * 산출물도 캔 사람에게만 간다 — 그래서 미션 시드에서 갈라 두되 동기화하지 않는다.
+   * The random stream that rolls the rarity at harvest. The result depends on **the harvester's skill**, so it differs
+   * per client anyway and the yield goes only to whoever mined it — forked from the mission seed but never synced.
    */
   private mineralRoll: Random | null = null;
 
@@ -283,7 +283,7 @@ export class Gather {
   getNodes(): readonly GatherNodeDef[] { return this.defs; }
 
   /**
-   * `eco` (Phase 11): the 목표 행성's ecosystem — `eco.herbs` are relative weights **by herb def id** (replacing the
+   * `eco` (Phase 11): the target planet's ecosystem — `eco.herbs` are relative weights **by herb def id** (replacing the
    * old uniform "one herb per plant shape") and `eco.gatherDensity` scales `GATHER_NODES_PER_MISSION`.
    * null (no planet / an unknown id) reproduces the pre-Phase-11 placement draw exactly for the same seed.
    */
@@ -298,14 +298,14 @@ export class Gather {
     const herbIds = this.resolveHerbIds(game);
     const weights = this.resolveHerbWeights(herbIds, eco);
     const target = this.nodeTarget(eco);
-    /* 2026-09-11 (온실 개편): 토양은 **자기 fork** 로만 굴린다 — 흙더미 지오메트리 · 배치 · 색이 `gather`
-     * 스트림을 한 칸이라도 밀면 같은 시드의 약초 · 고철 레이아웃이 통째로 달라진다 (`gather_core` 와 같은 수법). */
+    /* 2026-09-11 (greenhouse overhaul): soil rolls **only from its own fork** — if the soil mound's geometry · placement ·
+     * colour shifted the `gather` stream by one step, the same seed's herb · salvage layout would change wholesale (the `gather_core` trick). */
     const soil = planetSoil(planetId);
     const soilTarget = soil ? soil.nodes : 0;
     const soilRng = ctx.rng.fork('gather_soil');
     const soilWeights = soil ? this.resolveNodeWeights(game, soil.weights, 'soil', 'soil_') : null;
-    /* 2026-09-11 (연구실 A-11 · A-12): 씨앗 · 표본도 각자 자기 fork 다 — 토양과 같은 이유이고, 셋이 서로의
-     * 스트림도 밀지 않는다 (행성마다 셋 중 둘만 있는 경우가 흔하다). */
+    /* 2026-09-11 (lab A-11 · A-12): seed · specimen each have their own fork too — the same reason as soil, and the
+     * three do not shift one another's streams either (a planet commonly has only two of the three). */
     const seeds = planetSeeds(planetId);
     const seedTarget = seeds ? seeds.nodes : 0;
     const seedRng = ctx.rng.fork('gather_seed');
@@ -314,9 +314,9 @@ export class Gather {
     const sampleTarget = samples ? samples.nodes : 0;
     const sampleRng = ctx.rng.fork('gather_sample');
     const sampleWeights = samples ? this.resolveNodeWeights(game, samples.weights, 'sample', 'spec_') : null;
-    /* 2026-09-16 (행성 광맥): 광맥도 **자기 fork** 다 — 행성마다 다른 광맥 수가 앞의 어느 스트림도 밀지 않는다
-     * (`gather_soil` · `gather_seed` · `gather_sample` 과 같은 수법). 등급을 캘 때 굴리는 난수는 다시 그 옆의
-     * 갈래(`gather_vein_roll`)라, 광맥을 몇 개 캤는지가 배치 스트림을 흔들지 않는다. */
+    /* 2026-09-16 (the planet vein): the vein has **its own fork** too — a per-planet vein count shifts none of the
+     * streams before it (the `gather_soil` · `gather_seed` · `gather_sample` trick). The random stream that rolls the
+     * rarity at harvest is a further branch beside it (`gather_vein_roll`), so how many veins were mined never shakes the placement stream. */
     const mineralTarget = planetMineralNodes(planetId);
     const veinQtyMin = Math.max(1, Math.round(MINING_YIELD_MIN));
     const veinQtyMax = Math.max(veinQtyMin, Math.round(MINING_YIELD_MAX));
@@ -327,13 +327,13 @@ export class Gather {
     this.hash = ctx.hash;
 
     this.bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.86, metalness: 0.0, side: THREE.DoubleSide });
-    // 흙은 젖은 듯 무광이고 뒷면을 쓰지 않는다 (돔 하나 + 덩어리들이라 전부 닫힌 면이다)
+    // soil is matte, as if damp, and uses no back faces (one dome + clods, so every surface is closed)
     this.soilMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.0 });
 
-    // variants 0–2 are the plant shapes, 3 the 고철 더미, 4 the 토양 더미, 5 the 씨앗 군락, 6 the 미확인 표본
+    // variants 0–2 are the plant shapes, 3 the salvage pile, 4 the soil pile, 5 the seed grove, 6 the 미확인 표본
     // — each mesh is sized for its own node budget
     const salvageTarget = SALVAGE_NODES_PER_MISSION;
-    // 2026-09-09: 거대 버섯 군락 둘레의 채집 버섯은 전부 포자균 갓(변종 1)이라 그 변종만 자리를 더 잡는다
+    // 2026-09-09: the harvest mushrooms around a giant grove are all spore caps (variant 1), so only that variant takes extra slots
     const groveExtra = groves.length * GROVE_PICKS_MAX;
     const capacityOf = (k: number): number => (
       k === SALVAGE_VARIANT ? salvageTarget : k === SOIL_VARIANT ? soilTarget
@@ -400,8 +400,8 @@ export class Gather {
       }
     }
 
-    // ── 고철 더미 (2026-09-08): 구조물(POI) 주변에 먼저, 남는 만큼 개활지에 ──────
-    // 플랜트 배치가 끝난 **뒤에** 뽑으므로 같은 시드의 약초 레이아웃은 이전과 바이트 단위로 같다.
+    // ── Salvage piles (2026-09-08): around POIs first, the rest in the open ──────
+    // Drawn **after** the plant placement finished, so the herb layout of the same seed is byte-identical to before.
     {
       const salvageSpots: Spot[] = [];
       const freeSalvage = (x: number, z: number): boolean => {
@@ -429,10 +429,10 @@ export class Gather {
       spots.push(...salvageSpots);
     }
 
-    /* ── 거대 버섯 군락의 채집 버섯 (2026-09-09) ──────────────────────────────
-     * 군락 자체는 `world/Hazard` 가 세운다 (줄기가 이미 hash 에 들어가 있다). 여기서 하는 것은 그 둘레
-     * 고리에 **채집 가능한 버섯**을 심는 것뿐이고, 노드 · 상호작용 · 호스트 권한 동기화는 약초 코드 그대로다.
-     * 고철 더미와 같은 수법으로 **약초 · 고철 배치가 끝난 뒤에** 뽑으므로 앞의 rng 스트림을 밀지 않는다. */
+    /* ── The harvest mushrooms of a giant grove (2026-09-09) ──────────────────
+     * The grove itself is built by `world/Hazard` (its stems are already in the hash). All that happens here is
+     * planting **harvestable mushrooms** on the ring around it; node · interaction · host-authoritative sync are the
+     * herb code unchanged. By the salvage pile's trick it is drawn **after the herb · salvage placement**, so it shifts no earlier rng stream. */
     if (groves.length > 0) {
       const groveSpots: Spot[] = [];
       const clear = (x: number, z: number): boolean => {
@@ -443,7 +443,7 @@ export class Gather {
       };
       for (const g of groves) {
         const want = rng.int(GROVE_PICKS_MIN, GROVE_PICKS_MAX);
-        // 한 군락은 한 종류로 — 약초 무리와 같은 규칙 (행성 가중치가 있으면 그것으로 뽑는다)
+        // one grove, one kind — the same rule as an herb cluster (drawn from the planet weights when there are any)
         const defId = weights ? this.pickHerb(weights, rng) : herbIds[GROVE_PICK_VARIANT % herbIds.length];
         let placed = 0;
         for (let a = 0; a < 80 && placed < want; a++) {
@@ -458,11 +458,11 @@ export class Gather {
       spots.push(...groveSpots);
     }
 
-    /* ── 토양 더미 (온실 개편, 2026-09-11) ─────────────────────────────────────
-     * 개수 · 종류가 전부 `data/planets.csv` 에서 온다 (`world/soil.ts`). 흙은 물이 고이던 **저지대**에 쌓이므로
-     * 분지(`layout.basins`) 안을 먼저 노리고, 못 잡으면 개활지로 흩는다. 배치 · 추첨은 전부 `soilRng` 이라
-     * 약초 · 고철 · 군락의 `gather` 스트림은 한 칸도 밀리지 않는다 — 같은 시드의 옛 채집물 배치가 그대로다.
-     * 자리 · 종류가 미션 시드의 함수라 **와이어가 없다** (수확 동기화만 기존 `harv`/`harvq` 를 탄다). */
+    /* ── Soil piles (greenhouse overhaul, 2026-09-11) ──────────────────────────
+     * Count · kind all come from `data/planets.csv` (`world/soil.ts`). Soil piles up in the **lowlands** where water
+     * used to gather, so basins (`layout.basins`) are aimed at first and the open field takes the rest. Placement and
+     * draw are all `soilRng`, so the `gather` stream of herbs · salvage · groves never shifts a step — the same seed's old gather placement is unchanged.
+     * Spot · kind are functions of the mission seed, so there is **no wire** (only harvest sync rides the existing `harv`/`harvq`). */
     if (soilTarget > 0 && soilWeights) {
       const soilSpots: Spot[] = [];
       const near2 = SOIL_SPACING * SOIL_SPACING;
@@ -491,12 +491,12 @@ export class Gather {
       spots.push(...soilSpots);
     }
 
-    /* ── 야생 씨앗 군락 (연구실 A-11, 2026-09-11) ──────────────────────────────
-     * 개수(군락 수) · 품종이 전부 `data/planets.csv` 에서 온다 (`world/flora.ts`). 씨앗은 물과 볕이 있는
-     * **초지 · 저지대**에서 여무니까 분지(`layout.basins`) 안을 먼저 노리고, 못 잡으면 완만한 개활지로 흩는다
-     * (흙더미와 같은 결이지만 경사 기준이 조금 무르고 서로 더 멀리 선다). 한 군락은 앵커 한 포기 + 곁가지
-     * 1~2 포기이고 **전부 같은 품종**이다 — 약초 무리와 같은 규칙이라 "한 덤불을 훑었다" 로 읽힌다.
-     * 추첨 · 배치가 전부 `seedRng` 이라 앞의 어느 스트림도 밀지 않는다. */
+    /* ── Wild seed groves (lab A-11, 2026-09-11) ───────────────────────────────
+     * Count (of groves) · variety all come from `data/planets.csv` (`world/flora.ts`). Seed ripens on **grassland ·
+     * lowland** with water and sun, so basins (`layout.basins`) are aimed at first and gentle open ground takes the
+     * rest (the same grain as the soil mound, but a slightly softer slope bar and standing further apart). One grove is
+     * an anchor stalk + 1–2 offshoots, **all the same variety** — the herb cluster rule, so it reads as "one bush stripped".
+     * Draw · placement are all `seedRng`, so no earlier stream shifts. */
     if (seedTarget > 0 && seedWeights) {
       const seedSpots: Spot[] = [];
       const near2 = SEED_SPACING * SEED_SPACING;
@@ -531,17 +531,17 @@ export class Gather {
           const ang = seedRng.range(0, Math.PI * 2);
           const d = seedRng.range(SEED_PATCH_RING_MIN, SEED_PATCH_RING_MAX);
           const x = anchor.x + Math.cos(ang) * d, z = anchor.z + Math.sin(ang) * d;
-          // 곁가지끼리는 붙어 있어도 된다 (한 덤불이다) — 군락 간격만 지킨다
+          // offshoots may stand close together (they are one bush) — only the grove spacing is kept
           if (free(x, z, 1.8 * 1.8)) seedSpots.push({ x, z, variant: SEED_VARIANT, defId, kind: 'seed' });
         }
       }
       spots.push(...seedSpots);
     }
 
-    /* ── 미확인 표본 채집지 (연구실 A-12, 2026-09-11) ───────────────────────────
-     * 표본은 **무언가 살거나 죽은 자리**에 남는다 — 둥지 바깥 고리(허물 · 알 껍질)와 폐허 전초 둘레(잔해에
-     * 굳은 수지 · 결정)를 먼저 노리고, 남는 만큼만 개활지로 흩는다. 개수 · 종류는 `data/planets.csv`
-     * (`world/specimen.ts`) 이고 추첨 · 배치는 전부 `sampleRng` 이다. */
+    /* ── Specimen gather sites (lab A-12, 2026-09-11) ───────────────────────────
+     * A specimen is left **where something lived or died** — the ring outside a nest (moults · eggshells) and around a
+     * POI ruin (resin or crystal hardened on the wreckage) are aimed at first, and only the rest is scattered in the
+     * open. Count · kind come from `data/planets.csv` (`world/specimen.ts`); draw · placement are all `sampleRng`. */
     if (sampleTarget > 0 && sampleWeights) {
       const sampleSpots: Spot[] = [];
       const near2 = SAMPLE_SPACING * SAMPLE_SPACING;
@@ -576,28 +576,28 @@ export class Gather {
       spots.push(...sampleSpots);
     }
 
-    /* ── 행성 광맥 (2026-09-16 사용자 결정, 채광) ────────────────────────────────
-     * 개수는 `data/planets.csv` 의 `mineralNodes` 다 (`world/mineral.ts`). 사용자 결정 「주로 언덕 사면 위주」가
-     * 이 블록의 **유일한** 특별 규칙이다: 자리는 개활지 기각 표집으로 뽑되 `getSlopeAt >= MINING_HILL_MIN_SLOPE`
-     * 인 칸만 통과시킨다 (평지에는 광맥이 아예 서지 않는다). 위쪽 한계 `MINERAL_MAX_SLOPE` 는 걸어서 닿는
-     * 가장 가파른 땅이라 보이는 광맥은 전부 캘 수 있다.
+    /* ── Planet 광맥 (2026-09-16 user's decision, 채광) ────────────────────────
+     * The count is `mineralNodes` in `data/planets.csv` (`world/mineral.ts`). The user's decision 「mostly on hillsides」
+     * is this block's **only** special rule: spots are drawn by rejection sampling over open ground, but only cells
+     * with `getSlopeAt >= MINING_HILL_MIN_SLOPE` pass (no vein stands on flat ground at all). The upper limit
+     * `MINERAL_MAX_SLOPE` is the steepest ground reachable on foot, so every visible vein can be mined.
      *
-     * `isSpotFree` 가 패드 · **선로 회랑**(`railClearance`) · **탐사 차량 회랑**(`roverClearance`) · 이미 선
-     * 콜라이더를 전부 걸러 준다 (§4.4 의 배치 순서 규약 — 광맥은 맨 나중이라 구조물 · 선로 · 도로 · 숲이 이미
-     * hash 에 있다). 구조물 출입구 앞은 `Structures` 가 `clearFor` 로 비워 두고 그 자리를 콜라이더가 지키므로
-     * 같은 `isSpotFree` 한 줄이 문 앞도 막아 준다. */
+     * `isSpotFree` filters out pads · the **rail corridor** (`railClearance`) · the **rover corridor**
+     * (`roverClearance`) · every collider already standing (§4.4's placement order convention — the vein comes last, so
+     * structures · rails · roads · forest are already in the hash). A structure's doorway approach was cleared by
+     * `Structures` with `clearFor` and a collider holds that spot, so the same one `isSpotFree` line blocks the door too. */
     if (mineralTarget > 0) {
       const veinSpots: Spot[] = [];
       const near2 = MINERAL_SPACING * MINERAL_SPACING;
       const clear2 = MINERAL_NODE_CLEARANCE * MINERAL_NODE_CLEARANCE;
       const push = (x: number, z: number): boolean => {
-        // 언덕 사면만 — 사용자 결정을 이 한 줄이 집행한다 (숫자는 csv 의 MINING_HILL_MIN_SLOPE)
+        // hillsides only — this one line enforces the user's decision (the number is csv's MINING_HILL_MIN_SLOPE)
         if (ctx.terrain.getSlopeAt(x, z) < MINING_HILL_MIN_SLOPE) return false;
         if (!isSpotFree(ctx, x, z, MINERAL_BODY_R, { maxSlope: MINERAL_MAX_SLOPE, padExtra: 4 })) return false;
         for (const p of veinSpots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < near2) return false;
         for (const p of spots) if ((p.x - x) ** 2 + (p.z - z) ** 2 < clear2) return false;
-        /* `defId` 는 **계열의 닻**일 뿐이다 (일반 등급 미확인 광물). 실제로 나오는 등급은 캐는 순간
-           캐는 사람의 채광 숙련으로 굴린다 — 생성 시점에는 답이 없다. 프롬프트도 이 id 를 읽지 않는다. */
+        /* `defId` is only **the family's anchor** (common-rarity 미확인 광물). The rarity that actually comes out is
+           rolled at the moment of mining, from the harvester's 채광 skill — at generation there is no answer. The prompt does not read this id either. */
         veinSpots.push({ x, z, variant: MINERAL_VARIANT, defId: this.mineralDefId(0), kind: 'mineral' });
         return true;
       };
@@ -607,11 +607,11 @@ export class Gather {
       spots.push(...veinSpots);
     }
 
-    /* 2026-09-11 (C-20): 부가 코어는 **자기 fork** 로 굴린다 — `rng`(gather) 에서 뽑으면 그 뒤의 yaw · scale ·
-     * 수량 추첨이 한 칸씩 밀려 같은 시드의 채집물 모습이 달라진다. `Random.fork` 는 부모를 전진시키지 않는다. */
+    /* 2026-09-11 (C-20): the bonus core rolls from **its own fork** — drawn from `rng` (gather) it would shift the yaw ·
+     * scale · quantity draws after it by one step and change the look of the same seed's nodes. `Random.fork` never advances the parent. */
     const coreRng = ctx.rng.fork('gather_core');
-    /* 2026-09-13: 부가 미확인 광물도 **자기 fork** 다 — `gather_core` 에서 뽑으면 두 번째 더미부터 코어 굴림이 한 칸씩 밀려
-     * 같은 시드의 코어 더미가 달라진다. fork 는 부모(`ctx.rng`)를 전진시키지 않으므로 이 줄이 다른 스트림을 건드리지 않는다. */
+    /* 2026-09-13: the bonus 미확인 광물 has **its own fork** too — drawn from `gather_core`, the core roll would shift by one step
+     * from the second pile on and change which piles carry a core for the same seed. A fork does not advance the parent (`ctx.rng`), so this line touches no other stream. */
     const mineralRng = ctx.rng.fork('gather_mineral');
     const coreQty = Math.max(0, Math.round(GATHER_SALVAGE_CORE_QTY));
     const mineralQty = Math.max(0, Math.round(GATHER_SALVAGE_MINERAL_QTY));
@@ -625,23 +625,23 @@ export class Gather {
       const isSeed = s.kind === 'seed';
       const isVein = s.kind === 'mineral';
       const isSample = s.kind === 'sample';
-      /* 토양은 배치와 마찬가지로 **자기 fork** 에서 yaw · scale 을 뽑는다 — soil spots 가 맨 뒤라 앞을 밀지는
-         않지만, 흙더미 개수(행성마다 다르다)가 `gather` 스트림의 길이를 바꾸지 않게 하려면 여기도 갈라야 한다.
-         2026-09-11 의 씨앗 · 표본도 같은 이유로 자기 fork 다. */
+      /* As with placement, soil draws yaw · scale from **its own fork** — soil spots come last so they shift nothing
+         before them, but the fork is needed here too so the soil mound count (which differs per planet) cannot change
+         the length of the `gather` stream. The 2026-09-11 seed · specimen have their own forks for the same reason. */
       const r = isSoil ? soilRng : isSeed ? seedRng : isVein ? veinRng : isSample ? sampleRng : rng;
       const yaw = r.range(0, Math.PI * 2);
       const scale = salvage ? r.range(0.9, 1.15)
         : isSoil ? r.range(0.85, 1.2)
           : isSeed ? r.range(0.9, 1.25)
-            // 광맥은 노두라 크기 폭이 넓다 — 사면 저쪽에서도 눈에 띄어야 한다
+            // a vein is an outcrop, so its size range is wide — it has to stand out from across a slope
             : isVein ? r.range(0.85, 1.25)
               : isSample ? r.range(0.85, 1.15) : r.range(0.85, 1.3);
       const def: GatherNodeDef = {
-        /* 2026-09-09: 군락 버섯은 `grove_` 로 구분한다 — 종류(kind)는 약초 그대로(원예 XP)지만 "생태계 밀도"
-           를 세는 쪽(지도 · 스모크)은 이 둘을 갈라야 한다. 군락 자리는 spots 의 **맨 뒤**라 기존 약초 · 고철의
-           id 는 한 글자도 바뀌지 않는다. 2026-09-11 의 토양 더미(`soil_`)는 그 뒤에, 씨앗(`seed_`) · 표본
-           (`sample_`)은 다시 그 뒤에 붙는다. */
-        // 2026-09-16: 광맥은 `vein_` — spots 의 **맨 뒤**라 앞의 다섯 종류 id 는 한 글자도 바뀌지 않는다
+        /* 2026-09-09: a grove mushroom is told apart by `grove_` — its kind stays herb (원예 XP), but whoever counts
+           "ecosystem density" (the map · the smokes) has to split the two. Grove spots are at the **very end** of
+           spots, so not one character of the existing herb · salvage ids changes. The 2026-09-11 soil pile (`soil_`)
+           follows them, and seed (`seed_`) · specimen (`sample_`) follow that again. */
+        // 2026-09-16: the vein is `vein_` — at the **very end** of spots, so not one character of the five ids before it changes
         id: salvage ? `salvage_${id++}`
           : isSoil ? `soil_${id++}`
             : isSeed ? `seed_${id++}`
@@ -650,21 +650,21 @@ export class Gather {
                   : s.grove ? `grove_${id++}` : `gather_${id++}`,
         position: new THREE.Vector3(s.x, y, s.z),
         defId: s.defId,
-        // 고철: 폐금속 1, `GATHER_SALVAGE_QTY2_CHANCE` 로 2. 약초: `GATHER_HERB_QTY2_CHANCE` 로 2.
-        // 2026-09-11 (C-20): 옛 하드코딩 0.3 / 0.25 를 csv 로 옮겼다 — 같은 값이라 rng 소비도 결과도 그대로다.
-        // 토양: 한 더미에 한 포대 고정 (한 포대가 `ItemDef.soil.uses` 만큼 수확을 버틴다 — 깊이는 그쪽에 있다).
-        // 씨앗: 한 포기에 한 알 (군락이 여러 포기라 한 덤불에서 2~3 알이 나온다 + 원예 수율이 곱해진다).
-        // 표본: 하나짜리 덩어리라 1 고정이고 수율도 곱하지 않는다 (고철과 같은 판단 — `collect` 참조).
-        // 광맥 (2026-09-16): `MINING_YIELD_MIN`…`MAX` 정수 균등. 등급과 **따로** 굴린다 (개수는 자리에 박혀 있고
-        // 등급만 캐는 사람의 숙련을 탄다). 약초처럼 채집 수율(`gatherYieldMul`)이 곱해진다 — `collect` 참조.
+        // Salvage: 1 scrap, 2 on `GATHER_SALVAGE_QTY2_CHANCE`. Herb: 2 on `GATHER_HERB_QTY2_CHANCE`.
+        // 2026-09-11 (C-20): the old hard-coded 0.3 / 0.25 moved into csv — the same values, so rng use and result are unchanged.
+        // Soil: exactly one sack per pile (one sack survives `ItemDef.soil.uses` harvests — the depth lives over there).
+        // Seed: one grain per stalk (a grove is several stalks, so one bush gives 2–3 grains + the 원예 yield multiplies).
+        // Specimen: a single lump, so a fixed 1 and the yield does not multiply it (the same call as salvage — see `collect`).
+        // Vein (2026-09-16): `MINING_YIELD_MIN`…`MAX`, uniform integer. Rolled **separately** from the rarity (the count is
+        // fixed to the spot; only the rarity rides the harvester's skill). The gather yield (`gatherYieldMul`) multiplies it as for herbs — see `collect`.
         qty: isVein ? veinRng.int(veinQtyMin, veinQtyMax)
           : isSoil || isSeed || isSample ? 1
             : salvage ? (rng.chance(GATHER_SALVAGE_QTY2_CHANCE) ? 2 : 1) : (rng.chance(GATHER_HERB_QTY2_CHANCE) ? 2 : 1),
         harvested: false,
         kind: s.kind,
       };
-      /* 고철 더미마다 코어 한 번 · 광물 한 번, 각자의 fork 에서 **늘** 굴린다 (개수가 0 이어도 굴림은 소비한다 — 옛 코어 식
-         `chance(...) && qty > 0` 과 같은 소비라 `gather_core` 스트림이 바이트 단위로 그대로다). */
+      /* Per salvage pile: one core roll · one mineral roll, **always** taken from their own forks (the roll is consumed
+         even when the count is 0 — the same consumption as the old core form `chance(...) && qty > 0`, so the `gather_core` stream stays byte-identical). */
       const bonus: NodeBonus[] = [];
       if (salvage) {
         if (coreRng.chance(GATHER_SALVAGE_CORE_CHANCE) && coreQty > 0) bonus.push({ defId: SALVAGE_CORE_DEF_ID, qty: coreQty });
@@ -677,9 +677,9 @@ export class Gather {
         bonus,
         vein: isVein,
       };
-      /* 광맥만 콜라이더를 단다 (다른 채집물은 풀 · 더미라 통과된다). 원기둥 하나 — 그려진 노두가 대략
-         축대칭이라 실루엣과 어긋나지 않는다 (§4.4: 콜라이더는 **지면 위로 드러난 것만** 잰다. 노두 몸통은
-         y<0 까지 내려가지만 그 아래는 묻힌 부분이라 세지 않는다). `position.y` 는 밑면이다. */
+      /* Only the vein carries a collider (the other nodes are grass · piles and are walked through). One cylinder — the
+         drawn outcrop is roughly axisymmetric, so it does not disagree with the silhouette (§4.4: a collider measures
+         **only what shows above ground**. The outcrop body reaches below y<0, but that part is buried and is not counted). `position.y` is its bottom face. */
       if (isVein) {
         node.obstacle = ctx.hash.add(
           new THREE.Vector3(s.x, y, s.z), MINERAL_BODY_R * scale, MINERAL_BODY_H * scale, 'crystal',
@@ -687,7 +687,7 @@ export class Gather {
       }
       node.interactable = this.makeInteractable(node);
       this.writeMatrix(node, 1);
-      // 흙더미의 색은 **속성**이다 (부엽토 · 화산재토 · 동토 이탄 · 광물토) — 같은 메시를 인스턴스 색으로 칠한다
+      // a soil mound's colour is its **tag** (부엽토 · 화산재토 · 동토 이탄 · 광물토) — the same mesh is painted by instance colour
       if (isSoil) this.paintSoilInstance(game, v, node.slot, s.defId);
       v.count++;
       this.nodes.push(node);
@@ -737,7 +737,7 @@ export class Gather {
     const game = this.game;
     for (const n of this.nodes) {
       game?.interactables.unregister(n.interactable.id);
-      // 광맥 콜라이더의 참조를 끊는다 (hash 자체는 `WorldSystem.clear` 가 통째로 비운다)
+      // drop the reference to the vein collider (the hash itself is emptied wholesale by `WorldSystem.clear`)
       n.obstacle = undefined;
     }
     this.nodes.length = 0;
@@ -773,11 +773,11 @@ export class Gather {
 
   private makeInteractable(node: Node): Interactable {
     const game = () => this.game;
-    // 2026-09-08: 고철 더미는 더 오래 걸리고 `해체` 라고 뜬다 — 나머지 규칙은 약초와 같다
-    // 2026-09-11: 토양 더미는 `채취` 다 — 셋이 한 단어로 갈라진다 (약초 채집 · 고철 해체 · 토양 채취)
-    // 2026-09-11 (연구실): 씨앗 군락은 흙과 같은 `채취`, 미확인 표본은 `수습` 이다 (사용자 결정) —
-    // 다섯 종류가 네 단어로 갈린다 (약초 채집 · 고철 해체 · 토양/씨앗 채취 · 표본 수습).
-    // 2026-09-16: 광맥은 `채굴` 이다 — 여섯 종류가 다섯 단어로 갈린다 (채집 · 해체 · 채취 · 수습 · 채굴).
+    // 2026-09-08: a salvage pile takes longer and reads `해체` — every other rule is the herb's
+    // 2026-09-11: a soil pile is `채취` — the three split by one word each (약초 채집 · 고철 해체 · 토양 채취)
+    // 2026-09-11 (lab): a seed grove is `채취` like soil, a 미확인 표본 is `수습` (user's decision) —
+    // five kinds split across four words (약초 채집 · 고철 해체 · 토양/씨앗 채취 · 표본 수습).
+    // 2026-09-16: the vein is `채굴` — six kinds across five words (채집 · 해체 · 채취 · 수습 · 채굴).
     const salvage = node.kind === 'salvage';
     const soil = node.kind === 'soil';
     const seed = node.kind === 'seed';
@@ -800,8 +800,8 @@ export class Gather {
               : sample ? SAMPLE_NODE_RADIUS : NODE_RADIUS,
       getPrompt: () => {
         if (node.def.harvested) return null;
-        /* 광맥만 아이템 이름을 쓰지 않는다 — 어느 등급이 나올지는 **캐 봐야** 알기 때문이다
-           (`def.defId` 는 계열의 닻일 뿐이라 그것을 읽으면 「미확인 광물 I」 이라고 거짓말을 한다). */
+        /* The vein alone does not use the item's name — which rarity comes out is known **only by mining it**
+           (`def.defId` is just the family's anchor, so reading it would lie 「미확인 광물 I」). */
         if (vein) return node.pending ? `광맥 ${verb} 중…` : `광맥 ${verb} (E)`;
         const fallback = salvage ? '고철' : soil ? '토양' : seed ? '씨앗' : sample ? '표본' : '약초';
         const name = this.game?.loot?.getItemDef(node.def.defId)?.name ?? fallback;
@@ -838,20 +838,20 @@ export class Gather {
     node.pending = false;
     node.anim = 0;
     ctx.interactables.unregister(node.interactable.id);
-    /* 광맥의 콜라이더는 **누가 캤든** 빠진다 (원격 수확도 여기를 지난다) — 오그라들어 사라진 노두 자리에
-       보이지 않는 바위가 남으면 안 된다. hash 는 미션 끝에 통째로 비워지므로 여기서만 빼면 된다. */
+    /* The vein's collider is removed **whoever mined it** (a remote harvest passes through here too) — no invisible
+       rock may be left where the outcrop shrank away. The hash is emptied wholesale at mission end, so this removal is the only one needed. */
     if (node.obstacle) { this.hash?.remove(node.obstacle); node.obstacle = undefined; }
     if (!award) return;
 
-    /* ── 광맥 (2026-09-16 사용자 결정, 채광) ─────────────────────────────────────
-     * 다른 채집물과 갈리는 유일한 수확 경로다.
-     *  · 등급을 **지금** 굴린다 — 가중치는 이 행성 난이도 줄(`mineral.ts`), 거기에 캐는 사람의
-     *    `derived.miningRarityBonus` 가 상위 등급 쪽에 **곱해진다**. 곱이라 난이도가 0 으로 막아 둔 등급은
-     *    채광이 아무리 높아도 영원히 안 나온다 (`rollMineralRarity` 주석의 증명).
-     *  · 개수는 생성 때 정해진 `def.qty` (`MINING_YIELD_MIN`…`MAX`) × 채집 수율 — 약초와 같은 규칙이다.
-     *  · 숙련은 **채광**이다. `gather:collected` 의 `kind` 가 `'mineral'` 이라 progression 이 알아서 채광에
-     *    올린다 — 여기서 `addSkillXp` 를 직접 부르지 않는다 (숙련 배분은 그 한 곳이 정한다).
-     *  · 다른 채집물과 다른 것은 **defId 가 정해지는 시점**뿐이라, 이벤트에는 방금 굴린 id 를 싣는다. */
+    /* ── The vein (2026-09-16 user's decision, 채광) ─────────────────────────
+     * The only harvest path that splits from the other gather nodes.
+     *  · The rarity is rolled **now** — the weights are this planet's difficulty row (`mineral.ts`), and the
+     *    harvester's `derived.miningRarityBonus` **multiplies** the higher-rarity side of them. Being a multiplier, a
+     *    rarity the difficulty shut to 0 never appears however high 채광 goes (the proof is in `rollMineralRarity`).
+     *  · The count is `def.qty` fixed at generation (`MINING_YIELD_MIN`…`MAX`) × the gather yield — the herb rule.
+     *  · The skill is **채광**. `gather:collected`'s `kind` is `'mineral'`, so progression raises 채광 by itself —
+     *    `addSkillXp` is never called directly here (that one place decides how skills are handed out).
+     *  · The only difference from the others is **when defId is decided**, so the event carries the id just rolled. */
     if (node.kind === 'mineral') {
       const mul = ctx.progression?.derived.gatherYieldMul ?? 1;
       const qty = Math.max(1, Math.round(node.def.qty * (mul > 0 ? mul : 1)));
@@ -864,20 +864,20 @@ export class Gather {
       return;
     }
 
-    /* 채집 수율(원예)은 **약초 · 토양 · 씨앗**에 붙는다 — 고철은 뜯어낸 만큼 그대로 나온다.
-     * 토양 · 씨앗이 원예 쪽인 것은 XP 와 같은 이유다: 흙을 퍼는 것도 이삭을 훑는 것도 밭일이다.
-     * 2026-09-11: **미확인 표본은 곱하지 않는다** — 하나짜리 덩어리라 원예가 늘릴 수 있는 것이 아니다(고철과 같다). */
+    /* The gather yield (원예) applies to **herb · soil · seed** — salvage gives exactly what was torn off.
+     * Soil · seed sit on the 원예 side for the same reason as their XP: shovelling soil and stripping ears are both farm work.
+     * 2026-09-11: **the 미확인 표본 is not multiplied** — a single lump is not something 원예 can grow (the same as salvage). */
     const mul = node.kind === 'salvage' || node.kind === 'sample' ? 1 : (ctx.progression?.derived.gatherYieldMul ?? 1);
     const qty = Math.max(1, Math.round(node.def.qty * (mul > 0 ? mul : 1)));
     ctx.bus.emit('gather:collected', { nodeId: node.def.id, defId: node.def.defId, qty, kind: node.kind });
     ctx.bus.emit('audio:play', { id: 'gather', position: node.def.position, volume: 0.7 });
     const item = this.makeItem(node.def.defId, qty);
-    const seed = raidFoundSeed(ctx);   // 2026-09-12: 아이템 회수 계약 표식 (훈련장 · 함선이면 null)
+    const seed = raidFoundSeed(ctx);   // 2026-09-12: the item recovery contract mark (null in the training range · the ship)
     markRaidFound(item, seed);
     if (item) ctx.inventory?.tryAddItem(item);
-    /* 2026-09-11 (C-20): 부가 결과는 **아이템만 하나씩 더** 넣는다 — `gather:collected` · 소리 · 제작 XP 는 위의 1회뿐.
-     * 채집 수율(원예)을 곱하지 않는 것은 폐금속과 같다. 2026-09-13: 코어 · 미확인 광물 둘 다일 수 있다 (items/ 가 모르는 def 는
-     * `makeItem` 이 null 을 돌려 조용히 빠진다). 표식(`raidFound`)은 본 산출물과 같다. */
+    /* 2026-09-11 (C-20): a bonus result puts in **just one more item** each — `gather:collected` · the sound · 제작 XP happen once, above.
+     * It is not multiplied by the gather yield (원예), as with scrap. 2026-09-13: it can be both core and 미확인 광물 (a def items/
+     * does not know drops out silently, `makeItem` returning null). The mark (`raidFound`) is the main yield's. */
     for (const b of node.bonus) {
       const extra = this.makeItem(b.defId, b.qty);
       markRaidFound(extra, seed);
@@ -886,24 +886,24 @@ export class Gather {
   }
 
   /**
-   * 2026-09-11 (C-20) 스모크: 노드 id → 부가 **코어** (없으면 null). 2026-09-13 에 부가 결과가 목록이 된 뒤에도 뜻을 바꾸지 않았다 —
-   * `smoke-ecology` 의 코어 서명이 이것을 읽는다. 광물까지 보려면 `debugBonusesOf`.
+   * 2026-09-11 (C-20), for the smokes: node id → the bonus **core** (null with none). Its meaning did not change when the
+   * bonus became a list in 2026-09-13 — `smoke-ecology`'s core signature reads this. For the mineral too, `debugBonusesOf`.
    */
   debugBonusOf(id: string): { defId: string; qty: number } | null {
     return this.byId.get(id)?.bonus.find((b) => b.defId === SALVAGE_CORE_DEF_ID) ?? null;
   }
 
-  /** 2026-09-13 스모크: 노드 id → 부가 결과 전부 (코어 → 광물 순, 없으면 빈 목록). */
+  /** 2026-09-13, for the smokes: node id → every bonus result (core → mineral order; an empty list with none). */
   debugBonusesOf(id: string): Array<{ defId: string; qty: number }> {
     return (this.byId.get(id)?.bonus ?? []).map((b) => ({ ...b }));
   }
 
-  /* ── 광맥의 산출물 (2026-09-16) ────────────────────────────────────────── */
+  /* ── What a vein yields (2026-09-16) ───────────────────────────────────── */
 
   /**
-   * 등급 순번(`RARITY_ORDER`) → 미확인 광물 아이템 id. `data/samples.csv` 의 **광물 계열**(`sample.family`
-   * `'mineral'`)을 등급으로 줄 세워 만든다 — 로마 숫자를 코드가 세지 않으므로 표가 늘거나 줄어도 따라온다.
-   * `items/` 가 아직 그 줄을 모르면(폴더가 나란히 지어진다) 이름 규약 `spec_mineral_<등급순번>` 으로 떨어진다.
+   * Rarity index (`RARITY_ORDER`) → 미확인 광물 item id. Built by lining the **mineral family** (`sample.family`
+   * `'mineral'`) of `data/samples.csv` up by rarity — the code never counts Roman numerals, so it follows the table growing or shrinking.
+   * While `items/` does not know that row (the folders are built in parallel) it falls back to the naming convention `spec_mineral_<rarity index>`.
    */
   private resolveMineralIds(game: GameContext): readonly (string | null)[] {
     const out: (string | null)[] = RARITY_ORDER.map(() => null);
@@ -915,15 +915,15 @@ export class Gather {
     return out;
   }
 
-  /** 등급 순번 → 아이템 id (모르면 이름 규약으로). */
+  /** Rarity index → item id (the naming convention when unknown). */
   private mineralDefId(rank: number): string {
     return this.mineralIds[rank] ?? `${MINERAL_ID_PREFIX}${rank + 1}`;
   }
 
   /**
-   * 광맥 한 번의 등급 굴림 → 아이템 id. 가중치는 **행성 난이도 줄**(총기 드롭과 같은 표)이고, 캐는 사람의
-   * 채광 숙련이 상위 등급 쪽 가중치에 곱해진다. 그 등급의 광물을 `items/` 가 모르면 한 칸씩 내려가
-   * 아는 등급을 준다 (빈손으로 돌려보내지 않는다).
+   * One vein rarity roll → an item id. The weights are the **planet difficulty row** (the same table as weapon drops),
+   * and the harvester's 채광 skill multiplies the higher-rarity weights. If `items/` does not know that rarity's
+   * mineral it steps down one at a time and gives a rarity it does know (nobody is sent away empty-handed).
    */
   private rollMineralDefId(ctx: GameContext): string {
     const weights = this.mineralWeights;
@@ -1045,14 +1045,14 @@ export class Gather {
   }
 
   /**
-   * 2026-09-11 (온실 개편 · 연구실 배치): 행성의 가중치 표(`planets.csv` 의 `soils` · `seeds` · `samples`)를
-   * **이 빌드가 실제로 아는 아이템**으로 접는다. `items/` 가 모르는 id 는 조용히 버린다 (약초와 같은 계약) —
-   * 표가 통째로 비면 null 이고 그 종류의 노드가 한 개도 서지 않는다.
+   * 2026-09-11 (greenhouse overhaul · lab placement): folds the planet's weight table (`soils` · `seeds` · `samples`
+   * in `planets.csv`) onto **the items this build actually knows**. An id `items/` does not know is dropped silently
+   * (the herb contract) — a table that empties out entirely is null and not one node of that kind stands.
    *
-   * 카테고리로 거르는 이유는 오타 한 줄이 "흙인 줄 알았더니 수류탄" 이 되지 않게 하기 위해서다. `items/` 가
-   * 아직 그 줄을 모를 수 있으므로(폴더가 나란히 지어진다) **이름 규약**(`soil_` · `seed_` · `spec_`)을
-   * 두 번째 관문으로 둔다 — 표본만 접두사가 `spec_` 인 것은 귀중품 `sample_canister_pure` 와 섞이지 않게
-   * `data/samples.csv` 가 그렇게 정했기 때문이다.
+   * The category filter is there so that one typo cannot turn "I thought it was soil" into a grenade. `items/` may not
+   * know that row yet (the folders are built in parallel), so the **naming convention** (`soil_` · `seed_` · `spec_`)
+   * is the second gate — the specimen prefix alone is `spec_` because `data/samples.csv` fixed it that way, to keep
+   * it from mixing with the valuable `sample_canister_pure`.
    */
   private resolveNodeWeights(
     game: GameContext, weights: Readonly<Record<string, number>>, category: ItemCategory, prefix: string,
@@ -1064,10 +1064,10 @@ export class Gather {
     for (const [id, w] of Object.entries(weights)) {
       if (!(w > 0)) continue;
       const def = loot?.getItemDef(id);
-      if (def && def.category !== category) continue;   // 이름이 겹친 다른 아이템이다
-      // 2026-09-13 (요리 재료 티어): 은퇴 아이템(옛 표본 11종 등)은 csv 에 남아 있어도 채집지에 서지 않는다 — data:check 와 별개의 안전핀
+      if (def && def.category !== category) continue;   // a different item whose name collided
+      // 2026-09-13 (cooking material tiers): a retired item (the 11 old specimens etc.) stands no gather site even when left in the csv — a pin separate from data:check
       if (def?.retired) continue;
-      if (!def && !id.startsWith(prefix)) continue;     // items/ 가 모르고 이름 규약도 아니면 버린다
+      if (!def && !id.startsWith(prefix)) continue;     // items/ does not know it and it is not the naming convention either — dropped
       total += w;
       ids.push(id);
       cum.push(total);
@@ -1076,12 +1076,12 @@ export class Gather {
   }
 
   /**
-   * 토양 더미 인스턴스 하나를 그 **속성 색**으로 칠한다 (`shared/labels` 의 `SOIL_TAG_COLOR` — 재배 화면의 흙과
-   * 같은 표다). 본체 지오메트리의 정점 색은 명암 램프뿐이라 이 색이 곧 흙색이 된다.
+   * Paints one soil pile instance in its **tag colour** (`SOIL_TAG_COLOR` in `shared/labels` — the same table as the
+   * soil on the grow screen). The body geometry's vertex colours are only a shading ramp, so this colour is the soil colour.
    */
   private paintSoilInstance(game: GameContext, v: Variant, slot: number, defId: string): void {
     const def = game.loot?.getItemDef(defId);
-    // items/ 가 아직 그 줄을 모를 수 있다 — id 규약(`soil_<tag>`)으로 한 번 더 맞춰 본다
+    // items/ may not know that row yet — try the id convention (`soil_<tag>`) once more
     const tag = def?.soil?.tag ?? (defId.startsWith('soil_') ? defId.slice(5) as SoilTag : undefined);
     const hex = (tag && SOIL_TAG_COLOR[tag]) ?? SOIL_FALLBACK_COLOR;
     scratch.c.set(hex);
@@ -1111,8 +1111,8 @@ export class Gather {
   }
 
   /**
-   * [body, glow] geometry for variant `k` — 0–2 are plants tinted from the biome, 3 the 고철 더미,
-   * 4 the 토양 더미, 5 the 씨앗 군락, 6 the 미확인 표본.
+   * [body, glow] geometry for variant `k` — 0–2 are plants tinted from the biome, 3 the salvage pile,
+   * 4 the soil pile, 5 the seed grove, 6 the 미확인 표본.
    */
   private makeVariantGeometry(k: number, ctx: BuildCtx, rng: Random): THREE.BufferGeometry[] {
     if (k === SOIL_VARIANT) return this.makeSoilGeometry(ctx, rng);
@@ -1200,8 +1200,8 @@ export class Gather {
   }
 
   /**
-   * 고철 더미 (2026-09-08): 찌그러진 화물통 하나에 휜 강판 몇 장과 파이프를 기대 놓고, 잘라낼 자리마다 호박색
-   * 표식이 빛난다. 바이옴 색을 쓰지 않는다 — 금속은 어느 행성에서나 금속이라 멀리서도 식물과 구분된다.
+   * The salvage pile (2026-09-08): one crushed cargo drum with a few bent hull plates and pipes leaning on it, an
+   * amber marker glowing at every cut point. No biome colour — metal is metal on any planet, so it reads apart from plants at a distance.
    */
   private makeSalvageGeometry(rng: Random): THREE.BufferGeometry[] {
     const steel = new THREE.Color(0x6b7078);
@@ -1258,29 +1258,29 @@ export class Gather {
   }
 
   /**
-   * 토양 더미 (온실 개편, 2026-09-11): 누가 퍼내다 만 것처럼 **파 놓은 흙 무더기** — 울퉁불퉁한 돔 하나에 흙덩이
-   * 몇 개가 굴러 있고, 가장자리를 두른 얇은 띠 하나만 은은히 빛나 멀리서도 채집물로 읽힌다.
+   * The soil pile (greenhouse overhaul, 2026-09-11): a **dug mound of soil**, as if someone stopped halfway through
+   * shovelling — one lumpy dome with a few clods around it, and one thin rim band glowing faintly so it reads as a gather node from far off.
    *
-   * 정점 색은 **명암 램프뿐**이다 (아래가 어둡고 위가 밝다). 진짜 흙색은 인스턴스마다의 속성 색
-   * (`paintSoilInstance` → `instanceColor`)이 곱해져 나온다 — 한 행성이 두 속성을 줄 수 있으므로 메시 하나가
-   * 여러 색이어야 한다. 바이옴 색을 쓰지 않는 것은 고철과 같은 이유다: 흙은 어디서나 흙으로 보여야 한다.
+   * The vertex colours are **only a shading ramp** (dark below, light above). The real soil colour comes from the
+   * per-instance tag colour (`paintSoilInstance` → `instanceColor`) multiplied in — one planet can give two tags, so
+   * one mesh has to be several colours. No biome colour, for the salvage pile's reason: soil must look like soil anywhere.
    */
   private makeSoilGeometry(ctx: BuildCtx, rng: Random): THREE.BufferGeometry[] {
-    // 명암 램프 (곱해질 것이므로 1.0 을 넘지 않는다)
+    // the shading ramp (it will be multiplied, so it never exceeds 1.0)
     const shadeLow = new THREE.Color(0.45, 0.45, 0.45);
     const shadeHigh = new THREE.Color(1, 1, 1);
     const glowCol = new THREE.Color(GLOW_COLORS[SOIL_VARIANT]);
     const body: THREE.BufferGeometry[] = [];
     const glow: THREE.BufferGeometry[] = [];
 
-    // 퍼내다 만 무더기 — 눌린 돔 하나를 노이즈로 울퉁불퉁하게
+    // the half-shovelled mound — one squashed dome made lumpy by noise
     const mound = new THREE.SphereGeometry(0.62, 12, 7, 0, Math.PI * 2, 0, Math.PI * 0.5);
     displace(mound, ctx.noise, 0.09, 2.6, rng.range(0, 40));
     xform(mound, { x: 0, y: 0.02, z: 0 }, undefined, { x: 1, y: 0.52, z: 1 });
     paintGradient(mound, shadeLow, shadeHigh);
     body.push(mound);
 
-    // 옆으로 흘러내린 흙덩이 몇 개
+    // a few clods that rolled off to the side
     for (let i = 0; i < 4; i++) {
       const ang = (i / 4) * Math.PI * 2 + rng.range(-0.5, 0.5);
       const r = rng.range(0.45, 0.7);
@@ -1291,12 +1291,12 @@ export class Gather {
       body.push(clod);
     }
 
-    // 파 낸 자리를 두른 얇은 띠 — 빛기둥이 아니라 "여기 팠다" 는 표식이다 (빛기둥은 시체에만, 2026-09-11)
+    // the thin band around the dug spot — not a light pillar but a "something was dug here" marker (pillars are corpse-only, 2026-09-11)
     const rim = new THREE.TorusGeometry(0.66, 0.022, 4, 16);
     xform(rim, { x: 0, y: 0.03, z: 0 }, new THREE.Euler(Math.PI / 2, 0, 0));
     paint(rim, glowCol);
     glow.push(rim);
-    // 꽂아 둔 표식 막대 하나 (실루엣이 바위와 갈린다)
+    // one marker stake driven in (it splits the silhouette from a rock's)
     const stake = new THREE.CylinderGeometry(0.018, 0.018, 0.44, 5);
     const sang = rng.range(0, Math.PI * 2);
     xform(stake, { x: 0, y: 0.22, z: 0 });
@@ -1309,14 +1309,14 @@ export class Gather {
   }
 
   /**
-   * 야생 씨앗 군락 (연구실 A-11, 2026-09-11): 허리 높이의 **마른 이삭 덤불** — 부챗살로 벌어진 줄기 일곱에
-   * 고개 숙인 이삭이 달리고, 여문 이삭만 은은히 빛나 멀리서도 "딸 것이 있다" 로 읽힌다. 밑동에는 떨어진
-   * 낟알 몇 개가 굴러 있다.
+   * The wild seed grove (lab A-11, 2026-09-11): a waist-high **bush of dry ears** — seven stalks fanned out, each
+   * carrying a drooping ear, and only the ripe ears glow faintly so it reads as "there is something to pick" from far
+   * off. A few fallen grains lie around the base.
    *
-   * 바이옴 색을 쓰지 않고 **`CATEGORY_COLOR.seed` 를 정점에 구워 넣는다** — 흙더미처럼 인스턴스 색
-   * (`instanceColor`)을 쓰지 않는 이유는 씨앗 군락은 한 종류당 색이 하나라 인스턴스마다 달라질 일이 없기
-   * 때문이다 (인스턴스 색이 붙은 메시는 셰이더 프로그램이 갈려 선컴파일이 헛돈다 — `soilMat` 주석 참조).
-   * 어느 행성에서나 같은 색이라 약초와 섞이지 않는다.
+   * No biome colour: **`CATEGORY_COLOR.seed` is baked into the vertices** — instance colour (`instanceColor`) is not
+   * used as it is for the soil mound, because a seed grove has one colour per kind and nothing varies per instance
+   * (a mesh carrying instance colour gets its own shader program and wastes the pre-compile — see the `soilMat` comment).
+   * The same colour on every planet, so it never mixes with herbs.
    */
   private makeSeedGeometry(rng: Random): THREE.BufferGeometry[] {
     const husk = new THREE.Color(CATEGORY_COLOR.seed);
@@ -1330,16 +1330,16 @@ export class Gather {
       const ang = (i / stalks) * Math.PI * 2 + rng.range(-0.25, 0.25);
       const len = rng.range(0.62, 0.95);
       const lean = rng.range(0.12, 0.4);
-      // 줄기: 밑동에서 벌어져 바깥으로 기운다
+      // stalk: fans out from the base and leans outward
       const stalk = new THREE.CylinderGeometry(0.012, 0.03, len, 4);
       xform(stalk, { x: 0, y: len * 0.5, z: 0 });
       xform(stalk, undefined, new THREE.Euler(0, 0, lean));
       xform(stalk, { x: Math.cos(ang) * 0.07, y: 0, z: Math.sin(ang) * 0.07 }, new THREE.Euler(0, ang, 0));
       paintGradient(stalk, huskLow, husk);
       body.push(stalk);
-      /* 이삭: 줄기 **끝**에서 고개를 숙인 길쭉한 알갱이 뭉치 (발광 = 여문 것).
-         줄기와 **같은 변환 사슬**(제자리 기울기 → 줄기 끝으로 → `lean` → 부챗살 `ang`)을 타야 끝에 정확히
-         붙는다 — 끝 좌표를 따로 계산해 넣으면 기울기마다 몇십 cm 씩 떠 있다. */
+      /* Ear: a long cluster of grains drooping from the stalk's **tip** (glowing = ripe).
+         It has to ride the **same transform chain** as the stalk (tilt in place → to the stalk tip → `lean` → the fan
+         `ang`) to sit exactly on the tip — computing the tip coordinate separately leaves it floating tens of cm per tilt. */
       const earLen = rng.range(0.16, 0.26);
       const ear = new THREE.IcosahedronGeometry(0.055, 0);
       xform(ear, undefined, new THREE.Euler(0, 0, rng.range(0.25, 0.6)), { x: 1, y: earLen / 0.11, z: 1 });
@@ -1350,7 +1350,7 @@ export class Gather {
       glow.push(ear);
     }
 
-    // 밑동에 떨어진 낟알 몇 개 — 발밑을 보면 "여기서 뭔가 떨어졌다" 가 보인다
+    // a few grains fallen at the base — looking down, "something dropped here" is visible
     for (let i = 0; i < 3; i++) {
       const ang = rng.range(0, Math.PI * 2), d = rng.range(0.16, 0.34);
       const grain = new THREE.IcosahedronGeometry(rng.range(0.028, 0.045), 0);
@@ -1363,11 +1363,11 @@ export class Gather {
   }
 
   /**
-   * 미확인 표본 (연구실 A-12, 2026-09-11): 땅에 반쯤 묻힌 **정체 모를 덩어리** — 울퉁불퉁한 몸체에 조각 몇
-   * 개가 삐져나와 있고, 그 위에 떠 있는 얇은 고리 하나와 속의 구슬만 차갑게 빛난다. 벌레 껍질일 수도,
-   * 굳은 수지일 수도, 결정일 수도 있다는 뜻으로 **한 가지 실루엣**이다 (종류는 아이템 이름이 말한다).
+   * The 미확인 표본 (lab A-12, 2026-09-11): an **unidentifiable lump** half buried in the ground — a lumpy body with a
+   * few shards poking out of it, and only a thin ring floating above it and the bead inside glow coldly. It is **one
+   * silhouette** to mean it could be a bug shell, hardened resin or a crystal (the item name says which).
    *
-   * 색은 `CATEGORY_COLOR.sample` 을 정점에 구워 넣는다 (씨앗 군락과 같은 판단 — 인스턴스 색을 쓰지 않는다).
+   * The colour bakes `CATEGORY_COLOR.sample` into the vertices (the seed grove's call — no instance colour).
    */
   private makeSampleGeometry(ctx: BuildCtx, rng: Random): THREE.BufferGeometry[] {
     const shell = new THREE.Color(CATEGORY_COLOR.sample);
@@ -1376,7 +1376,7 @@ export class Gather {
     const body: THREE.BufferGeometry[] = [];
     const glow: THREE.BufferGeometry[] = [];
 
-    // 반쯤 묻힌 덩어리 — 노이즈로 일그러뜨려 어느 소품과도 닮지 않게
+    // the half-buried lump — distorted by noise so it resembles no prop
     const lump = new THREE.IcosahedronGeometry(0.34, 1);
     displace(lump, ctx.noise, 0.07, 3.1, rng.range(0, 40));
     xform(lump, { x: 0, y: 0.17, z: 0 }, new THREE.Euler(rng.range(0, 3), rng.range(0, 3), rng.range(0, 3)),
@@ -1384,7 +1384,7 @@ export class Gather {
     paintGradient(lump, shellLow, shell);
     body.push(lump);
 
-    // 삐져나온 조각 셋
+    // three shards poking out
     for (let i = 0; i < 3; i++) {
       const ang = (i / 3) * Math.PI * 2 + rng.range(-0.4, 0.4);
       const len = rng.range(0.16, 0.3);
@@ -1396,7 +1396,7 @@ export class Gather {
       body.push(shard);
     }
 
-    // 채집 표식: 덩어리 위에 뜬 얇은 고리 + 속에서 비치는 구슬 (빛기둥은 시체에만, 2026-09-11)
+    // the gather marker: a thin ring floating over the lump + the bead showing through inside (pillars are corpse-only, 2026-09-11)
     const ring = new THREE.TorusGeometry(0.3, 0.02, 4, 14);
     xform(ring, { x: 0, y: 0.42, z: 0 }, new THREE.Euler(Math.PI / 2, 0, rng.range(-0.3, 0.3)));
     paint(ring, glowCol);
@@ -1410,14 +1410,14 @@ export class Gather {
   }
 
   /**
-   * 광맥 (2026-09-16 사용자 결정, 채광). **읽히는 실루엣**이 요구조건이다 — 언덕 사면 저쪽에서 보고
-   * "저기 캘 게 있다" 가 되어야 한다. 그래서 두 덩어리로 나눈다:
+   * The 광맥 (2026-09-16 user's decision, 채광). **A readable silhouette** is the requirement — seen from across a
+   * hillside it has to say "there is something to mine there". So it is split into two masses:
    *
-   *  · 몸통 — 바이옴 바위색 노두. 밑동을 `y < 0` 까지 내려 두어 **사면 어느 각도에서도 땅에 박혀 보인다**
-   *    (채집 노드는 지형 법선으로 기울이지 않는다 — 기울이면 여섯 종류의 행렬 경로가 갈린다).
-   *    콜라이더는 지면 위 부분(`MINERAL_BODY_R` × `MINERAL_BODY_H`)만 잰다.
-   *  · 결정 — 노두를 뚫고 나온 팔면체 결정 다섯. 이쪽만 `glowMat`(자기발광)이라 멀리서도 보라색 점으로 읽힌다.
-   *    빛기둥 · 점광원은 쓰지 않는다 (빛기둥은 시체 전용이고, 레이드 점광원 예산은 여유가 0 이다).
+   *  · The body — an outcrop in the biome's rock colour. Its base is sunk to `y < 0` so it **looks planted in the
+   *    ground from any angle on a slope** (gather nodes are not tilted to the terrain normal — tilting would split the
+   *    matrix path of all six kinds). The collider measures only the part above ground (`MINERAL_BODY_R` × `MINERAL_BODY_H`).
+   *  · The crystals — five octahedra breaking out of the outcrop. Only these use `glowMat` (self-lit), so they read as
+   *    purple dots from far off. No light pillar and no point light (pillars are corpse-only, and the raid point-light budget has zero spare).
    */
   private makeMineralGeometry(ctx: BuildCtx, rng: Random): THREE.BufferGeometry[] {
     const rock = ctx.biome.boulder.clone();
@@ -1426,7 +1426,7 @@ export class Gather {
     const body: THREE.BufferGeometry[] = [];
     const glow: THREE.BufferGeometry[] = [];
 
-    // 노두 본체 — 세로로 늘인 바위 하나. 밑동이 땅속으로 들어가 사면에서도 떠 보이지 않는다.
+    // the outcrop body — one vertically stretched rock. Its base goes underground, so it never floats even on a slope.
     const core = new THREE.DodecahedronGeometry(0.8, 0);
     displace(core, ctx.noise, 0.16, 1.9, rng.range(0, 40));
     xform(core, { x: 0, y: 0.62, z: 0 }, new THREE.Euler(rng.range(-0.25, 0.25), rng.range(0, 3), rng.range(-0.25, 0.25)),
@@ -1434,7 +1434,7 @@ export class Gather {
     paintGradient(core, rock, rockHi);
     body.push(core);
 
-    // 밑동에 붙은 부서진 돌 셋 — 실루엣 아래쪽을 넓혀 "깨 놓은 광맥" 으로 읽힌다
+    // three broken stones at the base — they widen the lower silhouette so it reads as "a vein someone broke open"
     for (let i = 0; i < 3; i++) {
       const ang = (i / 3) * Math.PI * 2 + rng.range(-0.5, 0.5);
       const d = rng.range(0.45, 0.72);
@@ -1446,7 +1446,7 @@ export class Gather {
       body.push(chunk);
     }
 
-    // 결정 다섯 — 노두 위쪽을 뚫고 비스듬히 나온다 (세로로 늘인 팔면체 = 결정의 가장 값싼 실루엣)
+    // five crystals — breaking out of the outcrop's upper part at an angle (a stretched octahedron = the cheapest crystal silhouette)
     for (let i = 0; i < 5; i++) {
       const ang = (i / 5) * Math.PI * 2 + rng.range(-0.4, 0.4);
       const up = rng.range(0.55, 1.15);

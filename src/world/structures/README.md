@@ -35,6 +35,7 @@ public API are in [`../README.md`](../README.md) (sections `Structures` and `Rai
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world/structures`.
+- 2026-09-18 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels kept verbatim in backticks, no string literal touched.
 - 2026-09-16 — `ContainerSpec.lockedRoom` + `ContainerSet.lootOpts`; `rollCrateContents(…, opts)` (locked rooms skip the epic+ gate).
 - 2026-09-14 — Exclusion zones guarded by object bulk: `clearFor` in `parts/Build`, `CONTAINER_REACH` in `parts/Containers`.
 - 2026-09-12 — README created.

@@ -28,8 +28,8 @@ export const PLAY_LIMIT = HALF - 10;
  * Checks bounds, slope, pad clearance (negative `padExtra` allows entering pads), **the rail corridor**
  * and obstacle overlap.
  *
- * 2026-09-10 — 선로 회랑(`railClearance`)은 `ignorePads` 로도 못 끈다. 상자는 폐허 · 구조물 둘레 고리를
- * `ignorePads: true` 로 뿌리는데, 그 고리가 선로를 가로지르면 궤도 위에 상자가 선다.
+ * 2026-09-10 — The rail corridor (`railClearance`) cannot be turned off, not even with `ignorePads`. Crates scatter
+ * their ring around ruins · structures with `ignorePads: true`, and a ring crossing the rail stands on the track.
  */
 export function isSpotFree(
   ctx: BuildCtx, x: number, z: number, radius: number,
@@ -41,7 +41,7 @@ export function isSpotFree(
   if (ctx.terrain.getSlopeAt(x, z) > maxSlope) return false;
   if (!opts.ignorePads && padClearance(ctx.layout, x, z, opts.padExtra ?? 4) < radius) return false;
   if (railClearance(ctx.layout, x, z) < radius) return false;
-  // 2026-09-13: 탐사 차량 흙길 회랑 · 정류장 부지도 선로 회랑처럼 `ignorePads` 로 못 끈다
+  // 2026-09-13: the rover dirt-road corridor · station sites cannot be turned off with `ignorePads` either
   if (roverClearance(ctx.layout, x, z) < radius) return false;
   if (ctx.hash.overlaps(x, z, radius)) return false;
   return true;

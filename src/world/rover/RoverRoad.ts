@@ -1,15 +1,15 @@
 /**
- * src/world/rover/RoverRoad.ts — 탐사 차량의 **경로 · 흙길 · 정류장 표지 기둥** (owner: R1, 2026-09-13).
+ * src/world/rover/RoverRoad.ts — the rover's **route · dirt road · station sign poles** (owner: R1, 2026-09-13).
  *
- * `WorldSystem.generate` 가 선로(`rails.build`) 바로 뒤 · 재해/소품/상자 앞에서 `build` 를 부르고, 결과 `route` 를 차량
- * (`Rover.build`)에 넘긴다. 매크로 계획(`layout.rover` — 정류장 자리 · 2D 고리)은 `generateLayout` 이 이미 세웠고
- * (`rover/RoadPlan.ts`), 여기서는 지형이 생긴 뒤에야 할 수 있는 일만 한다:
- *   1. 2D 고리를 Catmull-Rom 으로 `ROVER_ROUTE_STEP_M` 간격으로 다시 뽑는다 (정류장 제어점은 곡선 위에 정확히 남는다).
- *   2. 노면 높이 = 지형을 `[1,2,1]/4` 로 `ROVER_ROUTE_SMOOTH_PASSES` 번 편 값, 매번 **지형 아래로는 안 내린다**
- *      (차량이 요철에 떨지 않되 땅에 파묻히지도 않는다). 정류장 부지는 `station` 패드라 지형이 이미 평평하다.
- *   3. 정류장 = 계획의 정류장 점에 가장 가까운 `s`, 순서대로 `rst0…` · `정류장 A…`, 표지 기둥은 맵 바깥쪽 옆.
- *   4. 흙길 그림(`RoadMesh`) · 표지 기둥(`StationMesh`) · 기둥 콜라이더.
- * 계획이 없으면(`layout.rover === null`) `route` 는 null 이고 그 레이드에는 차량이 없다.
+ * `WorldSystem.generate` calls `build` right after the rail (`rails.build`) and before hazards / props / crates, and
+ * hands the resulting `route` to the vehicle (`Rover.build`). The macro plan (`layout.rover` — the station spots and
+ * the 2D loop) was already made by `generateLayout` (`rover/RoadPlan.ts`); only what needs terrain happens here:
+ *   1. The 2D loop is resampled by Catmull-Rom at `ROVER_ROUTE_STEP_M` spacing (the station control points stay exactly on the curve).
+ *   2. The road surface height = the terrain smoothed `ROVER_ROUTE_SMOOTH_PASSES` times with `[1,2,1]/4`, **never lowered
+ *      below the terrain** on any pass (no shaking over bumps, no sinking into the ground). A station site is a `station` pad, so its terrain is already flat.
+ *   3. A station = the `s` nearest the plan's station point, in order `rst0…` · `정류장 A…`, the sign pole to the outward side.
+ *   4. The dirt road drawing (`RoadMesh`) · the sign poles (`StationMesh`) · the pole colliders.
+ * With no plan (`layout.rover === null`) `route` is null and that raid has no vehicle.
  */
 import * as THREE from 'three';
 import {
@@ -22,9 +22,9 @@ import { buildRoadGeometry } from './RoadMesh';
 import { buildStationGeometry, stationLetter } from './StationMesh';
 
 export class RoverRoad {
-  /** 세운 경로. `build` 전 · 경로 없음 · `dispose` 뒤에는 null. */
+  /** The route that was built. Null before `build`, with no route, and after `dispose`. */
   route: RoverRouteDef | null = null;
-  /** 같은 경로의 진행거리 수학 형태 (`makeRoverPath(route.points)` 와 같다). */
+  /** The same route in its arc-position math form (identical to `makeRoverPath(route.points)`). */
   path: RoverPath | null = null;
   private group: THREE.Group | null = null;
   private readonly geos: THREE.BufferGeometry[] = [];
@@ -42,7 +42,7 @@ export class RoverRoad {
     }
     const terrain = bctx.terrain;
 
-    /* ── 1 · 2: 다시 뽑기 + 노면 높이 ── */
+    /* ── 1 · 2: resample + road surface height ── */
     const xz = resampleLoop(plan.points, Math.max(1, ROVER_ROUTE_STEP_M));
     const M = xz.length;
     const ground = new Float32Array(M);
@@ -56,7 +56,7 @@ export class RoverRoad {
     const pts = xz.map((p, i) => new THREE.Vector3(p.x, ys[i], p.z));
     const path = makeRoverPath(pts);
 
-    /* ── 3: 정류장 ── */
+    /* ── 3: stations ── */
     const sList = plan.stations
       .map((p) => {
         const s = wrapRouteS(path, nearestRouteS(path, p.x, p.z));
@@ -66,7 +66,7 @@ export class RoverRoad {
     const stations: RoverStationDef[] = sList.map((s, index) => {
       sampleRoute(path, s, this.pos, this.tan);
       let nx = -this.tan.z, nz = this.tan.x;
-      if (nx * this.pos.x + nz * this.pos.z < 0) { nx = -nx; nz = -nz; }     // 맵 바깥쪽
+      if (nx * this.pos.x + nz * this.pos.z < 0) { nx = -nx; nz = -nz; }     // outwards from the map
       const px = this.pos.x + nx * ROVER_POLE_OFFSET_M, pz = this.pos.z + nz * ROVER_POLE_OFFSET_M;
       return {
         id: `rst${index}`, index, label: `정류장 ${stationLetter(index)}`,
@@ -76,7 +76,7 @@ export class RoverRoad {
     this.path = path;
     this.route = { points: pts, length: path.total, stations };
 
-    /* ── 4: 그림 · 콜라이더 ── */
+    /* ── 4: drawing · colliders ── */
     const group = new THREE.Group();
     group.name = 'rover_road';
     this.group = group;
@@ -131,7 +131,7 @@ export class RoverRoad {
   }
 }
 
-/** 닫힌 2D 점열을 균일 Catmull-Rom 으로 약 `step` 간격 다시 뽑는다. 제어점(정류장 포함)은 곡선 위에 그대로 남는다. */
+/** Resamples a closed 2D point list by uniform Catmull-Rom at roughly `step` spacing. The control points (stations included) stay on the curve. */
 function resampleLoop(src: readonly { x: number; z: number }[], step: number): { x: number; z: number }[] {
   const n = src.length;
   const out: { x: number; z: number }[] = [];

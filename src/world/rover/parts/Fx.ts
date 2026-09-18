@@ -1,9 +1,9 @@
 /**
- * src/world/rover/parts/Fx.ts — 탐사 차량 **예광탄 · 폭발 파편 · 잔해 연기** (R2, 2026-09-13).
+ * src/world/rover/parts/Fx.ts — the rover's **tracers · explosion debris · wreck smoke** (R2, 2026-09-13).
  *
- * 전부 조명을 받지 않는 `MeshBasicMaterial` 이고 **점광원이 없다**. 풀은 `build` 때 한 번 만들어 씬에 늘 둔다 —
- * 숨김은 `visible` 이 아니라 크기 0 이다 (보이지 않는 가지는 셰이더 선컴파일에서 빠지고, 첫 사격 프레임이 컴파일을 떠안는다).
- * 프레임당 할당이 없다 (스크래치 행렬 · 벡터).
+ * All of it is unlit `MeshBasicMaterial` and **there are no point lights**. The pools are made once at `build` and
+ * stay in the scene — hiding is scale 0, not `visible` (an invisible branch drops out of the shader pre-compile and
+ * the first shot's frame ends up carrying the compile). There is no per-frame allocation (scratch matrices and vectors).
  */
 import * as THREE from 'three';
 
@@ -87,7 +87,7 @@ export class RoverFx {
     this.group.add(this.smoke);
   }
 
-  /** 포구 → 탄착점 예광탄 한 줄. */
+  /** One tracer from the muzzle to the impact point. */
   tracer(from: THREE.Vector3, to: THREE.Vector3): void {
     let slot = this.tracers[0];
     for (const tr of this.tracers) if (tr.until < slot.until) slot = tr;
@@ -99,7 +99,7 @@ export class RoverFx {
     slot.until = this.t + TRACER_LIFE_S;
   }
 
-  /** 파괴 폭발 — 파편 + 화구. */
+  /** The destruction explosion — debris + a fireball. */
   explode(at: THREE.Vector3): void {
     this.debrisAge = 0;
     for (let i = 0; i < DEBRIS_COUNT; i++) {
@@ -113,7 +113,7 @@ export class RoverFx {
     this.flash.position.set(at.x, at.y + 1.4, at.z);
   }
 
-  /** 잔해 연기를 켠다 (레이드 내내). */
+  /** Turns on the wreck smoke (for the rest of the raid). */
   setWreckSmoke(at: THREE.Vector3): void {
     this.smokeOn = true;
     this.smokeAt.set(at.x, at.y + 1.8, at.z);

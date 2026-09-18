@@ -6,28 +6,28 @@ import {
   FOG_REVEAL_RADIUS, MAP_SIZE, PROP_STEP_UP_MAX, PROP_TOP_MARGIN, Random, TRAINING_ARENA_SIZE, getPlanet, isPlanetId,
   type CrateDef, type ExtractionPointDef, type FogRef, type GameContext, type GameSystem, type GatherNodeDef,
   type Obstacle, type PlanetDef, type TerrainHit, type WorldRef,
-  /* appended (2026-09-09): 레이드 플레이 개선 계약 */
+  /* appended (2026-09-09): the raid play improvement contract */
   type StructureDef, type RailLineDef, type TramDef, type HazardRef,
   /* appended (2026-09-11) */
   type LadderDef, type PeerId,
-  /* appended (2026-09-14): 정보상 지도 미리보기 */
+  /* appended (2026-09-14): the intel broker's map preview */
   type IntelEffects, type MapPreviewLayout,
   /* appended (2026-09-11, C-22) */
   type SurfaceMaterial,
-  /* appended (2026-09-11, A-13): 행성 상시 환경 */
+  /* appended (2026-09-11, A-13): the planet's permanent environment */
   type EnvKind,
-  /* appended (2026-09-13): 거점 스폰 자리 */
+  /* appended (2026-09-13): site spawn spots */
   type RuinSiteDef, type SiteSpawnPlace,
-  /* appended (2026-09-13): 탐사 차량 */
+  /* appended (2026-09-13): the rover */
   type RoverRef,
-  /* appended (2026-09-15): 안드로이드 분대원 — 루팅 컨테이너 목록 */
+  /* appended (2026-09-15): android squadmates — the loot container list */
   type LootContainerInfo,
-  /* appended (2026-09-18): 벌레 둥지 알 자리 */
+  /* appended (2026-09-18): bug nest egg spots */
   type NestEggSpot,
 } from '@/shared';
 import { Rover } from './rover/Rover';
 import { RoverRoad } from './rover/RoverRoad';
-/* 2026-09-15 (땅굴벌레 등장 판정): `WorldRef.burrowGroundOk` 의 규칙은 이 파일 하나다 */
+/* 2026-09-15 (the sandworm eruption judgement): `WorldRef.burrowGroundOk`'s rules live in this one file */
 import { burrowGroundOk, type BurrowGroundQuery } from './BurrowGround';
 import { SiteSpawns } from './SiteSpawns';
 import { obstacleMaterial, onOutpostSlab, terrainMaterial } from './surface';
@@ -44,7 +44,7 @@ import { Crates } from './Crates';
 import { Gather } from './Gather';
 import { Hazard } from './Hazard';
 import { padClearance, type WorldLayout } from './layout';
-/* 2026-09-14 (정보상): 레이아웃 계획 · 미리보기는 한 함수다 (`WorldRef.previewLayout`). */
+/* 2026-09-14 (the intel broker): planning the layout · previewing it are one function (`WorldRef.previewLayout`). */
 import { planLayoutFor, previewLayoutFor } from './preview';
 import { Nests } from './Nests';
 import { Noise } from './noise';
@@ -56,12 +56,12 @@ import { Structures } from './Structures';
 import { type ObstacleEntry, SpatialHash } from './SpatialHash';
 import { HALF, Terrain } from './Terrain';
 import { TrainingArena } from './TrainingArena';
-/* 2026-09-14 (튜토리얼 개편): 손으로 지은 튜토리얼 행성 — 훈련장과 같은 자리 · 같은 배선. */
+/* 2026-09-14 (the tutorial rework): the hand-built tutorial planet — the same slot · the same wiring as the training range. */
 import { TutorialWorld } from './tutorial/TutorialWorld';
 
 const SOFT_WALL = HALF - 4;
 
-/** 2026-09-15: `getLootContainers()` 가 돌려 쓰는 항목 (계약의 `LootContainerInfo` 는 읽기 전용이라 안쪽 형만 쓰기 가능하다). */
+/** 2026-09-15: the entry `getLootContainers()` reuses (the contract's `LootContainerInfo` is read-only, so only the inner type is writable). */
 type LootContainerEntry = { -readonly [K in keyof LootContainerInfo]: LootContainerInfo[K] };
 
 /** Exact area shared by two circles (`obstacleCoverage`). 0 when they miss, the smaller disc when nested. */
@@ -78,20 +78,20 @@ function circleOverlap(d: number, r1: number, r2: number): number {
 const NONE_CRATES: readonly CrateDef[] = [];
 const NONE_VEC: readonly THREE.Vector3[] = [];
 const NONE_GATHER: readonly GatherNodeDef[] = [];
-/* appended (2026-09-09): 훈련장의 빈 답 */
+/* appended (2026-09-09): the training range's empty answers */
 const NONE_STRUCTURES: readonly StructureDef[] = [];
 const NONE_RAILS: readonly RailLineDef[] = [];
 const NONE_TRAMS: readonly TramDef[] = [];
 const NONE_LADDERS: readonly LadderDef[] = [];
 /* appended (2026-09-13) */
 const NONE_RUINS: readonly RuinSiteDef[] = [];
-/* appended (2026-09-18): 벌레 알 자리 — 훈련장 · 튜토리얼의 빈 답 */
+/* appended (2026-09-18): bug egg spots — the training range's · tutorial's empty answer */
 const NONE_EGGS: readonly NestEggSpot[] = [];
 
 /**
  * Owns the procedural planet surface: terrain, props/obstacles, nests, pads, outposts, crates, ambience.
  * Generates synchronously on `game:newMission`, tears down on `game:abort`.
- * Phase 7: `game:newMission {mode:'training'}` builds the 시뮬레이션 훈련장 (`TrainingArena`) instead — a flat open-top
+ * Phase 7: `game:newMission {mode:'training'}` builds the simulation training range (`TrainingArena`) instead — a flat open-top
  * arena (invisible walls, no ceiling since 2026-09-15) with pop-up targets, no crates / nests / gather / extraction; every query below branches on `mode`.
  */
 export class WorldSystem implements GameSystem, WorldRef {
@@ -102,10 +102,10 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
   /** Mode of the last generated world (`'raid'` until a training / tutorial was built; kept through `clear()`). */
   mode: MissionMode = 'raid';
-  /** 2026-09-14: 지금 월드가 행성(절차 생성)인가. 훈련장 · 튜토리얼은 상자 · 둥지 · 채집 · 선로 · 재해가 전부 없다. */
+  /** 2026-09-14: is the current world a planet (procedural)? The training range · tutorial have no crates · nests · gather · rails · hazard at all. */
   private get isPlanet(): boolean { return this.mode === 'raid'; }
   /**
-   * Phase 11: 목표 행성 the current world was generated for, or null when it came from the seeded biome draw
+   * Phase 11: the target planet the current world was generated for, or null when it came from the seeded biome draw
    * (an older peer, a `game:newMission` without one, a training). Echoed in `world:ready.planet` and
    * **kept through `clear()`** exactly like `mode`, so a late abort handler can still read it.
    */
@@ -123,19 +123,19 @@ export class WorldSystem implements GameSystem, WorldRef {
   private readonly crates = new Crates();
   private readonly structures = new Structures();
   private readonly rails = new Rails();
-  /** 2026-09-13: 탐사 차량 — 경로 · 흙길 · 정류장 (R1) 과 차량 본체 (R2). */
+  /** 2026-09-13: the rover — the route · dirt road · stations (R1) and the vehicle itself (R2). */
   private readonly roverRoad = new RoverRoad();
   private readonly roverSys = new Rover();
   private readonly gather = new Gather();
   private readonly hazardSys = new Hazard();
   private readonly ambience = new Ambience();
   private readonly arena = new TrainingArena();
-  /** 2026-09-14: 튜토리얼 행성 (`world/tutorial/`) — `mode === 'tutorial'` 일 때만 세워진다. */
+  /** 2026-09-14: the tutorial planet (`world/tutorial/`) — built only while `mode === 'tutorial'`. */
   private readonly tutorialWorld = new TutorialWorld();
   private readonly hash = new SpatialHash(16);
   private layout: WorldLayout | null = null;
   private biome: Biome | null = null;
-  /** 2026-09-11 (C-22): 지형 색 패스와 같은 잡음 — 발밑 재질이 눈에 보이는 얼룩과 같은 자리에서 바뀌게. */
+  /** 2026-09-11 (C-22): the same noise as the terrain colour pass — so the material underfoot changes where the visible patches do. */
   private noise: Noise | null = null;
   private extractionPoints: ExtractionPointDef[] = [];
   private spawnPos = new THREE.Vector3();
@@ -144,14 +144,14 @@ export class WorldSystem implements GameSystem, WorldRef {
   private unsubs: (() => void)[] = [];
 
   /**
-   * 전장의 안개 (2026-09-09). 레이드에서만 만들어지고 훈련장에서는 null — 지도 · 월드 마커 · 나침반이
-   * `isDiscovered` 로 게이트되므로 null 이면 예전처럼 전부 보인다.
+   * Fog of war (2026-09-09). Built in a raid only and null in the training range — the map · world markers · compass
+   * are gated on `isDiscovered`, so with null everything is visible exactly as it used to be.
    */
   private fogMask: Fog | null = null;
 
   /**
-   * 2026-09-13: 거점 스폰 자리 (`getSiteSpawnPoints`) — 구조물 실내 후보를 거점마다 처음 물을 때 한 번 계산해 레이드 내내
-   * 들고 있다 (`clear()` 가 비운다). 월드 생성 rng 를 쓰지 않는다.
+   * 2026-09-13: site spawn spots (`getSiteSpawnPoints`) — a structure's indoor candidates are computed once, the first
+   * time that site is asked, and held for the whole raid (`clear()` empties it). No world generation rng is spent.
    */
   private readonly siteSpawns = new SiteSpawns({
     getHeightAt: (x, z) => this.getHeightAt(x, z),
@@ -169,8 +169,9 @@ export class WorldSystem implements GameSystem, WorldRef {
   });
 
   /**
-   * 2026-09-11 (C-40): 마지막 행성 생성의 단계별 소요(ms) — `layout` · `terrain`(+ `terrain.*` 세부) · `structures` ·
-   * `rails` · `hazard` · `props`(+ `props.*`) · `crates` · `gather` · `total`. 디버그 · 계측용이고 계약이 아니다.
+   * 2026-09-11 (C-40): the last planet generation's cost per step (ms) — `layout` · `terrain` (+ `terrain.*` detail) ·
+   * `structures` · `rails` · `hazard` · `props` (+ `props.*`) · `crates` · `gather` · `total`. For debugging and
+   * measurement, not a contract.
    */
   readonly genTimings: Record<string, number> = {};
 
@@ -184,7 +185,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   private readonly shellN = new THREE.Vector3(0, 1, 0);
   private readonly hullN = { x: 0, y: 1, z: 0 };
   private readonly hullAC = { area: 0, x: 0, z: 0 };
-  /* 2026-09-11: 상자 · 컨테이너의 **열린 모습** 동기화 (`crate opened / sync / syncq`) */
+  /* 2026-09-11: syncing the **opened look** of crates · containers (`crate opened / sync / syncq`) */
   private readonly openedIds = new Set<string>();
   private openNetHooked = false;
   /** 2026-09-11 (C-57): `crate opened` refused (unknown id / sender too far) — debug · smoke-trust. */
@@ -209,7 +210,7 @@ export class WorldSystem implements GameSystem, WorldRef {
       // (the emitter sets both before emitting, per the contract, because generation runs inside this emit)
       ctx.bus.on('game:newMission', ({ seed, mode, planet }) => this.generate(
         seed,
-        // 2026-09-14: 모드가 셋이 됐다 — 이벤트에 실려 오지 않으면 `ctx.missionMode` 를 그대로 쓴다 (계약대로 emit 전에 세팅돼 있다)
+        // 2026-09-14: there are three modes now — with none on the event, `ctx.missionMode` is used as it is (set before the emit, per the contract)
         mode ?? ctx.missionMode,
         planet ?? ctx.missionPlanet,
       )),
@@ -254,7 +255,7 @@ export class WorldSystem implements GameSystem, WorldRef {
   /* ── generation ────────────────────────────────────────────────────── */
 
   /**
-   * `planet` (Phase 11): the 목표 행성 whose biome / ecosystem this world uses. null (or an unknown id) keeps the
+   * `planet` (Phase 11): the target planet whose biome / ecosystem this world uses. null (or an unknown id) keeps the
    * pre-Phase-11 behaviour — the biome is drawn from the seed and paired with the sky core draws for the same seed.
    */
   generate(seed: number, mode: MissionMode = 'raid', planet: PlanetId | null = null): void {
@@ -264,7 +265,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     if (mode === 'training') { this.generateTraining(seed); return; }
     if (mode === 'tutorial') { this.generateTutorial(seed); return; }
     const t0 = performance.now();
-    /* 2026-09-11 (C-40): 단계별 ms — 콘솔 한 줄 끝과 `genTimings` (스모크 · 계측 스크립트가 읽는다). */
+    /* 2026-09-11 (C-40): ms per step — the end of the one console line and `genTimings` (read by smokes · measuring scripts). */
     const T = this.genTimings;
     for (const k of Object.keys(T)) delete T[k];
     let tl = t0;
@@ -278,11 +279,13 @@ export class WorldSystem implements GameSystem, WorldRef {
     const rng = new Random(this.seed);
     const noise = new Noise(rng.fork('terrain'));
     this.noise = noise;
-    /* 2026-09-13 — **재해 종류를 레이아웃보다 먼저** 뽑는다 (`Plan.drawHazardKind` — 루트의 `'hazard'` fork 첫 draw, `Hazard.build`
-     * 가 같은 값을 다시 뽑는다). 독성 포자 레이드는 중앙 강하 · 외곽 탈출 패드라서다. 탈출 패드 수(행성 threat · 포자)도 자기 fork
-     * 에서 한 번 뽑는다. fork 는 부모를 전진시키지 않으므로 둘 다 다른 스트림을 밀지 않고, 모든 클라이언트가 같은 답을 낸다.
-     * 2026-09-14 (정보상) — 그 세 줄을 `preview.planLayoutFor` 하나로 모았다. 정보상 화면의 미리보기 지도가 **같은 함수**를
-     * 부르므로 두 벌로 갈라질 수 없다. `ctx.missionIntel` 은 `game:newMission` emit 전에 세팅돼 있다 (계약). */
+    /* 2026-09-13 — **the hazard kind is drawn before the layout** (`Plan.drawHazardKind` — the first draw of the root's
+     * `'hazard'` fork, which `Hazard.build` draws again to the same value), because a toxic-spore raid means a central
+     * drop · outer extraction pads. The extraction pad count (planet threat · spores) is drawn once in its own fork
+     * too. A fork does not advance its parent, so neither shifts another stream and every client answers the same.
+     * 2026-09-14 (the intel broker) — those three lines were gathered into one `preview.planLayoutFor`. The preview map
+     * on the intel broker's screen calls **the same function**, so the two cannot split. `ctx.missionIntel` is set
+     * before `game:newMission` is emitted (the contract). */
     const plan = planLayoutFor(this.seed, this.planet, ctx.missionIntel ?? null, rng);
     this.biome = plan.biome;
     this.layout = plan.layout;
@@ -300,33 +303,35 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.pads.build(bctx);
     this.outposts.build(bctx);
     lap('nests+pads+outposts');
-    /* 2026-09-09 — 구조물 · 선로는 **소품 · 상자 앞**에 세운다: 벽 · 데크 · 컨테이너가 먼저 hash 에 들어가야
-     * `isSpotFree` 가 그 자리를 피해 바위와 상자를 놓는다 (방 안에 바위가 서지 않는다). 부지 자체는 이미
-     * `layout` 이 잡아 뒀고 `Terrain` 이 평탄화 · 지하실 굴착까지 끝냈다. */
+    /* 2026-09-09 — Structures · rails are built **before props · crates**: the walls · decks · containers have to be in
+     * the hash first for `isSpotFree` to dodge those spots when it places rocks and crates (no rock stands in a room).
+     * The sites themselves were fixed by `layout` already, and `Terrain` has finished flattening · digging basements. */
     this.structures.build(bctx, ctx);
     lap('structures');
     this.rails.build(bctx, ctx);
     lap('rails');
-    /* 2026-09-13 — 탐사 차량도 **소품 · 상자 앞**이다: 흙길 회랑 · 정류장 기둥 · 차체가 먼저 hash 에 들어가야 `isSpotFree` 가 피한다.
-     * 경로 자체(`layout.rover`)는 선로처럼 `generateLayout` 이 먼저 잡아 두었다. 경로를 못 놓았으면 차량이 없다. */
+    /* 2026-09-13 — The rover comes **before props · crates** too: the road corridor · station poles · the body have to
+     * be in the hash first for `isSpotFree` to dodge them. The route itself (`layout.rover`) was fixed earlier by
+     * `generateLayout`, like the rail. No route placed = no vehicle. */
     this.roverRoad.build(bctx, ctx);
     if (this.roverRoad.route) this.roverSys.build(this.roverRoad.route, bctx);
     lap('rover');
-    /* 2026-09-09 — 환경 재해도 **소품 · 상자 앞**이다: 거대 버섯 군락의 줄기가 먼저 hash 에 들어가야
-     * `isSpotFree` 가 군락 한가운데를 피한다. 재해 종류 · 시작 시각은 미션 시드에서만 나오므로
-     * 여기서 만들어도 클라이언트끼리 어긋나지 않는다. */
+    /* 2026-09-09 — The hazard comes **before props · crates** too: the giant mushroom grove's stems have to be in the
+     * hash first for `isSpotFree` to dodge the middle of a grove. The hazard kind · start time come from the mission
+     * seed alone, so building them here cannot put clients out of step. */
     this.hazardSys.build(bctx, ctx, def?.hazards ?? []);
     lap('hazard');
     this.props.build(bctx);
     lap('props');
     this.crates.build(bctx, ctx);
     lap('crates');
-    // 2026-09-11 (온실 개편): 토양 더미는 **행성**이 정한다 (`data/planets.csv` 의 `soils` · `soilNodes`) —
-    // `PlanetEcosystem` 에 아직 그 두 칸이 없어서 id 를 그대로 넘기고 `world/soil.ts` 가 표를 읽는다.
+    // 2026-09-11 (the greenhouse rework): the **planet** decides the soil piles (`soils` · `soilNodes` in `data/planets.csv`) —
+    // `PlanetEcosystem` has no columns for those two yet, so the id is passed through and `world/soil.ts` reads the table.
     this.gather.build(bctx, ctx, def?.eco ?? null, this.hazardSys.getGroveSpots(), this.planet);
     lap('gather');
-    /* 2026-09-11 — 빛기둥이 사라진 대신 **열린 모습**이 "이미 조사했다" 를 말한다. 이 클라이언트에서 처음 열린
-     * 상자 · 컨테이너는 분대 전원의 화면에서도 열리게 알린다 (내용물은 `inventory/` 의 `cont` 가 따로 맞춘다). */
+    /* 2026-09-11 — The light pillars are gone; the **opened look** says "already searched" instead. A crate · container
+     * opened first on this client is announced so it opens on every squadmate's screen too (the contents are matched
+     * separately by `cont` in `inventory/`). */
     this.crates.setOpenListener(this.onLocalOpened);
     this.structures.setOpenListener(this.onLocalOpened);
     this.rails.setOpenListener(this.onLocalOpened);
@@ -340,11 +345,11 @@ export class WorldSystem implements GameSystem, WorldRef {
     const sp = this.layout.spawn;
     this.spawnPos.set(sp.x, this.getHeightAt(sp.x, sp.z), sp.z);
 
-    // 전장의 안개는 레이드에서만 — 스폰 주변은 미리 밝혀 둔다 (강하 지점은 분대가 이미 아는 자리다)
+    // Fog of war in a raid only — around the spawn it is revealed up front (the squad already knows the drop point)
     this.fogMask = new Fog();
     this.fogMask.attach(ctx);
     this.fogMask.setOutposts(this.outposts.getSites());
-    this.fogMask.setRoverStations(this.roverRoad.route?.stations ?? []);   // 2026-09-13: 탐사 차량 정류장 발견 → 지도   // 2026-09-11 (C-11): 폐허 전초 발견 → 지도 아이콘
+    this.fogMask.setRoverStations(this.roverRoad.route?.stations ?? []);   // 2026-09-13: rover station discovered → map   // 2026-09-11 (C-11): ruin discovered → map icon
     this.fogMask.reveal(sp.x, sp.z, FOG_REVEAL_RADIUS);
 
     lap('ambience+fog');
@@ -362,16 +367,17 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
-   * `WorldRef.previewLayout` (2026-09-14, 정보상) — **레이아웃만** 계산한다. 지형도 메시도 만들지 않고 이 인스턴스의
-   * 상태를 한 줄도 건드리지 않으므로 **함선에서도** 부를 수 있다 (`ctx.world` 는 부팅부터 붙어 있다). 실제 생성이
-   * 쓰는 같은 `preview.planLayoutFor` 를 지나므로 미리보기와 진짜 맵이 어긋날 수 없다.
+   * `WorldRef.previewLayout` (2026-09-14, the intel broker) — computes **the layout only**. It builds no terrain and no
+   * mesh and touches not one line of this instance's state, so it can be called **from the ship too** (`ctx.world` is
+   * attached from boot). It goes through the same `preview.planLayoutFor` real generation uses, so the preview and the
+   * real map cannot drift apart.
    */
   previewLayout(seed: number, planet: PlanetId | null, intel?: IntelEffects | null): MapPreviewLayout {
     return previewLayoutFor(seed, planet, intel ?? null);
   }
 
   /**
-   * 시뮬레이션 훈련장: flat arena, three lanes of pop-up targets, exit console. No terrain / props / crates / nests /
+   * The simulation training range: flat arena, three lanes of pop-up targets, exit console. No terrain / props / crates / nests /
    * gather / ambience; `world:ready` fires like the planet's. The atmosphere is switched to its space mode right after
    * `world:ready` (Engine's handler re-applied the planet palette inside the emit) so the arena reads as an interior lit
    * by its own emissive strips; `clear()` switches it back.
@@ -399,24 +405,26 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
-   * 튜토리얼 행성 (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): 손으로 지은 선형 맵. 절차 생성기를 아예 안 타고
-   * 훈련장과 **같은 배선**이다 — 지형 · 소품 · 상자 · 둥지 · 채집 · 선로 · 재해 · 안개가 하나도 없고,
-   * 걸어 다니는 땅은 전부 사각 콜라이더(데크)라 절벽이 진짜 수직면이다. 자세한 것은 `tutorial/model.ts`.
-   * 하늘은 훈련장과 달리 **space mode 로 바꾸지 않는다** — 행성 위라서 평소 대기 · 태양 그대로다.
+   * The tutorial planet (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): a hand-built linear map. It does
+   * not go through the procedural generator at all and is wired **exactly like the training range** — no terrain ·
+   * props · crates · nests · gather · rails · hazard · fog whatsoever, and every walkable surface is a box collider
+   * (a deck), so a cliff is atrue vertical face. The detail is in `tutorial/model.ts`.
+   * Unlike the training range the sky is **not switched to space mode** — this is on a planet, so the usual atmosphere
+   * · sun stay.
    */
   private generateTutorial(seed: number): void {
     const ctx = this.ctx!;
     const t0 = performance.now();
     this.mode = 'tutorial';
     this.seed = seed >>> 0;
-    this.planet = null;              // 튜토리얼 행성은 `data/planets.csv` 의 행성이 아니다 (생태 · 재해 · 상시 환경 없음)
+    this.planet = null;              // the tutorial planet is not a planet in `data/planets.csv` (no ecosystem · hazard · permanent environment)
     const rng = new Random(this.seed);
     this.layout = null;
     this.biome = null;
     this.noise = null;
     this.spawnRng = rng.fork('spawns');
     this.tutorialWorld.build(ctx, this.root, this.hash);
-    this.extractionPoints = [];      // 탈출 콘솔이 없다 — 버려진 함선이 처음부터 착륙해 있다
+    this.extractionPoints = [];      // no extraction console — the abandoned ship has been landed from the start
     this.spawnPos.copy(this.tutorialWorld.spawn);
     this.generated = true;
     this.ready = true;
@@ -430,9 +438,9 @@ export class WorldSystem implements GameSystem, WorldRef {
   /** `ctx.world.training` (Phase 9): the arena implements `TrainingRef` (modes / score / timed course); null outside a training world. */
   get training(): TrainingRef | null { return this.trainingArena; }
   /**
-   * `ctx.world.tutorial` (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): 튜토리얼 월드의 체크포인트 · 낙하 규칙 ·
-   * 적 자리. 튜토리얼 월드가 아니면 null 이고, 호출부(`player/` · `game/` · `enemies/`)는 `?.` · `?? 'normal'`
-   * 로 이어 쓰므로 본편 동작은 한 글자도 바뀌지 않는다.
+   * `ctx.world.tutorial` (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): the tutorial world's checkpoints ·
+   * fall rules · enemy spots. null when this is not a tutorial world, and the callers (`player/` · `game/` ·
+   * `enemies/`) chain it with `?.` · `?? 'normal'`, so the main game's behaviour does not change by one letter.
    */
   get tutorial(): TutorialWorldRef | null { return this.mode === 'tutorial' && this.ready ? this.tutorialWorld : null; }
 
@@ -485,16 +493,17 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.generated = false;
   }
 
-  /** 조명 풀이 가까운 방을 고르는 기준 — 살아 있는 플레이어의 눈, 없으면 카메라. */
+  /** What the light pool picks the nearest rooms by — a living player's eyes, or the camera with none. */
   private eyeFor(ctx: GameContext): THREE.Vector3 {
     const p = ctx.player;
     if (p && !p.isDead) return p.getEyePosition(this.eyeTmp);
     return this.eyeTmp.copy(ctx.camera.position);
   }
 
-  /* ── 2026-09-11: 열린 상자 · 컨테이너 동기화 ─────────────────────────────
-   * 누구나 → 전원 `crate opened {id}` (연 사람이 알린다 — 결과가 같아서 확정이 필요 없다). 호스트는 목록을
-   * 들고 있다가 늦게 합류한 사람(`flow rejoined` · `crate syncq`)에게 `crate sync {ids}` 로 준다. */
+  /* ── 2026-09-11: syncing opened crates · containers ──────────────────
+   * Anyone → everyone, `crate opened {id}` (whoever opened it announces it — the result is the same, so no authority
+   * is needed). The host keeps the list and hands it to a late joiner (`flow rejoined` · `crate syncq`) as
+   * `crate sync {ids}`. */
   private readonly onLocalOpened = (id: string): void => {
     this.openedIds.add(id);
     const ctx = this.ctx;
@@ -530,9 +539,9 @@ export class WorldSystem implements GameSystem, WorldRef {
     const net = this.ctx?.net;
     const at = typeof id === 'string' ? this.openablePositionOf(id) : null;
     if (!net || !at || from === net.localId) return false;
-    /* 2026-09-15 (안드로이드 분대원): **로비 호스트가 보낸 것은 거리를 재지 않는다.** 호스트는 안드로이드를 대신해
-     * 상자를 열므로(`InventoryRef.takeContainerItemFor` → `markContainerOpened`) 호스트 자신의 몸은 맵 반대편에 있을
-     * 수 있다. 호스트를 권위로 믿는 것은 `crate sync` · `cont taken` 과 같은 규칙이다 (CLAUDE.md §4.3). */
+    /* 2026-09-15 (android squadmates): **what the lobby host sent is not distance-checked.** The host opens crates on an
+     * android's behalf (`InventoryRef.takeContainerItemFor` → `markContainerOpened`), so the host's own body may be on
+     * the far side of the map. Trusting the host as the authority is the `crate sync` · `cont taken` rule (CLAUDE.md §4.3). */
     if (from === net.lobby?.hostId) return true;
     const ref = net.getRemotePlayer(from);
     if (!ref || ref.connected === false) return false;
@@ -609,17 +618,17 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
-   * 2026-09-09 — **걸어 다닐 수 있는 표면**: 지형 높이와 그 자리 장애물 윗면 중 높은 쪽.
-   * `feetY` 를 주면 그 발 높이에서 올라설 수 있는 윗면(`feetY + PROP_STEP_UP_MAX` 이하)만 본다 — 그보다
-   * 높은 장애물은 벽으로 남아야 하므로 표면으로 세지 않는다. 안 주면 그 자리에서 제일 높은 윗면
-   * (총알 · 낙하 판정).
+   * 2026-09-09 — **The walkable surface**: the higher of the terrain height and the top of an obstacle at that spot.
+   * Given `feetY` it reads only the tops a body at that foot height can step onto (at most
+   * `feetY + PROP_STEP_UP_MAX`) — anything higher has to stay a wall and is not counted as a surface. With none, the
+   * highest top at that spot (bullets · fall judgement).
    */
   getSurfaceY(x: number, z: number, feetY?: number): number {
     const ground = this.getHeightAt(x, z);
     if (!this.ready) return ground;
     const out = this.surfaceOut;
     out.length = 0;
-    // radius 0: 그 점을 실제로 덮는 원기둥만 (`query` 는 `radius + o.radius` 로 판정한다)
+    // radius 0: only the cylinders that really cover that point (`query` judges by `radius + o.radius`)
     this.hash.query(x, z, 0, out);
     const ceiling = feetY === undefined ? Infinity : feetY + PROP_STEP_UP_MAX;
     let best = ground;
@@ -627,12 +636,12 @@ export class WorldSystem implements GameSystem, WorldRef {
       const o = out[i];
       let top = o.position.y + o.height;
       if (top <= best) continue;
-      // 2026-09-09: 사각 콜라이더는 외접원이 아니라 **상자 단면**이 발판이다 (벽 모서리 바깥 허공에 서지 않게)
+      // 2026-09-09: for a box collider the floor is the **box cross-section**, not its circle (no standing on thin air past a wall corner)
       if (o.box) {
         if (!boxContainsXZ(o, x, z)) continue;
-        // 2026-09-11: 경사 발판(계단)은 그 자리의 경사면 높이다
+        // 2026-09-11: for a ramp floor plate (a staircase) it is the slope height at that spot
         if (o.ramp) { top = rampTopAt(o, x, z); if (top <= best) continue; }
-      } else if (o.hull && !hullContainsXZ(o.hull.points, x, z)) continue;   // 2026-09-11: 볼록 윤곽 단면
+      } else if (o.hull && !hullContainsXZ(o.hull.points, x, z)) continue;   // 2026-09-11: the convex outline's cross-section
       if (top > ceiling) continue;
       best = top;
     }
@@ -641,8 +650,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
-   * 지금 밟고 있는 장애물 (`PROP_TOP_MARGIN` 여유). 그 위에 서 있는 동안 `resolveCollision` 은 이 장애물을
-   * 밀어내지 않는다 — 같은 여유를 쓰므로 두 판정이 어긋나 가장자리에서 튕겨 나가는 일이 없다.
+   * The obstacle currently underfoot (with `PROP_TOP_MARGIN` to spare). While a body stands on it `resolveCollision`
+   * does not push it out — both use the same margin, so they cannot disagree and fling the body off an edge.
    */
   getStandingObstacle(x: number, z: number, feetY: number): Obstacle | null {
     if (!this.ready) return null;
@@ -658,9 +667,10 @@ export class WorldSystem implements GameSystem, WorldRef {
       const top = o.ramp ? rampTopAt(o, x, z) : o.position.y + o.height;
       if (feetY < top - PROP_TOP_MARGIN || feetY > top + PROP_TOP_MARGIN) continue;
       /*
-       * 2026-09-11 (C-38): 창 안에서는 **움직이는 발판(`velocity` 보유 — 정지한 전차도)이 높이보다 먼저**다. 반경 0
-       * 질의는 칸 하나를 삽입 순서로 훑고 선로 발판이 전차보다 먼저 들어가므로, 윗면이 같은 높이면 고정 발판이
-       * 거의 늘 이겨 탑승이 시작조차 안 됐다 (예전엔 발판 윗면 오차 < `TRAM_FLOOR_UP` 부등식 하나에 기댔다).
+       * 2026-09-11 (C-38): inside the window a **moving floor (one carrying `velocity` — a stopped tram too) beats
+       * height**. A radius-0 query walks one cell in insertion order and the rail deck goes in before the tram, so with
+       * tops at the same height the static deck almost always won and riding never even started (it used to rest on the
+       * single inequality: deck top error < `TRAM_FLOOR_UP`).
        */
       if (best) {
         const moving = !!o.velocity, bestMoving = !!best.velocity;
@@ -675,9 +685,10 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
-   * 2026-09-11 (C-22) — **발밑 재질** (발소리). `feetY` 를 주면 그 발 높이로 밟고 있는 장애물(`getStandingObstacle`
-   * 규칙 그대로 — 해시 질의는 이 한 번뿐)이 이기고, 없으면 탈출 패드 · 폐허 전초 바닥판(콜라이더 없는 콘크리트) →
-   * 지형 띠 순서다. 훈련장은 전부 콘크리트. 표와 지형 규칙은 `surface.ts`.
+   * 2026-09-11 (C-22) — **the material underfoot** (footsteps). Given `feetY`, the obstacle being stood on at that foot
+   * height wins (`getStandingObstacle`'s rules exactly — this is the only hash query); with none, the order is the
+   * extraction pad · ruin floor plate (colliderless concrete) → the terrain band. The training range is all concrete.
+   * The table and the terrain rules are in `surface.ts`.
    */
   getSurfaceMaterial(x: number, z: number, feetY?: number): SurfaceMaterial {
     if (this.mode === 'training') return 'concrete';
@@ -689,7 +700,7 @@ export class WorldSystem implements GameSystem, WorldRef {
     }
     const layout = this.layout;
     if (layout) {
-      // 탈출 착륙장: 콘크리트 원판 (`getHeightAt` 이 윗면을 이미 지형처럼 준다 — 콜라이더가 없다)
+      // The extraction pad: a concrete disc (`getHeightAt` already gives its top like terrain — it has no collider)
       const R = PLATFORM_RADIUS + 0.9;
       for (let i = 0; i < layout.extraction.length; i++) {
         const p = layout.extraction[i];
@@ -704,8 +715,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   private readonly wreckAt = (x: number, z: number): boolean => this.structures.structureAt(x, z)?.kind === 'wreck';
 
   /**
-   * 반경 `radius` 원 안을 장애물 단면이 차지하는 면적 비율. 원-원 교차 면적의 합이고 겹침은 보정하지
-   * 않으므로 1 을 넘을 수 있다 — 대형 적 스폰 자리를 거르는 용도다 (`enemies/Spawner`).
+   * The share of the `radius` circle taken by obstacle cross-sections. It is a sum of circle-circle intersections with
+   * no correction for overlap, so it can pass 1 — its job is filtering spots for large enemy spawns (`enemies/Spawner`).
    */
   obstacleCoverage(x: number, z: number, radius: number): number {
     if (!this.ready || radius <= 0) return 0;
@@ -716,14 +727,14 @@ export class WorldSystem implements GameSystem, WorldRef {
     for (let i = 0; i < out.length; i++) {
       const o = out[i];
       if (o.hull) {
-        // 2026-09-11: 볼록 윤곽은 외접원이 아니라 **같은 넓이의 원**(무게중심)으로 센다 — 경사지 바위는 인스턴스
-        // 원점이 보이는 부분에서 몇 m 떨어져 외접원이 실제보다 훨씬 크다.
+        // 2026-09-11: a convex outline counts as an **equal-area circle** (at its centroid), not its circumscribed one —
+        // on a slope a rock's instance origin sits metres from the visible part and the circle is far too large.
         hullAreaCentroid(o.hull.points, this.hullAC);
         const req = Math.sqrt(Math.max(0, this.hullAC.area) / Math.PI);
         area += circleOverlap(Math.hypot(this.hullAC.x - x, this.hullAC.z - z), radius, req);
         continue;
       }
-      // 사각 콜라이더는 외접원(`radius`)으로 센다 — 실제보다 크게 잡히지만 대형 적 스폰 거르기에서는 넉넉히 막는 쪽이 안전하다.
+      // A box collider counts by its circumscribed circle (`radius`) — an over-estimate, but erring towards blocking is safe when filtering large enemy spawns.
       area += circleOverlap(Math.hypot(o.position.x - x, o.position.z - z), radius, o.radius);
     }
     out.length = 0;
@@ -731,9 +742,9 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
-   * 서로 `minGap` 이상 떨어진 지점 `count` 개를 `center` 주위 `radius` 안에서 뽑는다 (구조 포드가 겹쳐
-   * 떨어지지 않게). 1차 통과에서는 장애물 위를 피하고, 그래도 모자라면 간격만 지키는 2차 통과로 채운다 —
-   * 두 통과 모두 같은 `Random` 을 쓰므로 `seed` 를 주면 결정적이다.
+   * Draws `count` points at least `minGap` apart within `radius` of `center` (so rescue pods do not land on top of one
+   * another). The first pass avoids standing on obstacles; short of that, a second pass fills the rest keeping the gap
+   * alone — both passes use the same `Random`, so it is deterministic when given a `seed`.
    */
   scatterPoints(center: THREE.Vector3, radius: number, count: number, minGap: number, seed?: number): THREE.Vector3[] {
     const out: THREE.Vector3[] = [];
@@ -760,11 +771,11 @@ export class WorldSystem implements GameSystem, WorldRef {
     return out;
   }
 
-  /** 전장의 안개 (`FogRef`); 훈련장에서는 null. */
+  /** Fog of war (`FogRef`); null in the training range. */
   get fog(): FogRef | null { return this.fogMask; }
 
   getNormalAt(x: number, z: number, out: THREE.Vector3 = new THREE.Vector3()): THREE.Vector3 {
-    if (!this.isPlanet) return out.set(0, 1, 0);   // 훈련장 · 튜토리얼의 바닥은 평평하다
+    if (!this.isPlanet) return out.set(0, 1, 0);   // the training range's · tutorial's ground is flat
     const e = 0.6;
     const hl = this.getHeightAt(x - e, z), hr = this.getHeightAt(x + e, z);
     const hd = this.getHeightAt(x, z - e), hu = this.getHeightAt(x, z + e);
@@ -781,8 +792,9 @@ export class WorldSystem implements GameSystem, WorldRef {
   /* ── WorldRef: collision ───────────────────────────────────────────── */
 
   /**
-   * 2026-09-12 (C): `height` = 그 몸의 키. 주면 떠 있는 상자 · 윤곽 밑을 사람 헤드룸(`BOX_HEADROOM`)이 아니라 이 키로 잰다 —
-   * 지상드론이 잠긴 문 옆 개구멍(인방 밑면 = 바닥 + `VENT_H`)을 지나가는 길이다. 안 주면 예전과 같다.
+   * 2026-09-12 (C): `height` = that body's height. Given it, the space under a floating box · outline is measured by
+   * this height instead of the human headroom (`BOX_HEADROOM`) — that is how a ground drone passes the vent beside a
+   * locked door (the lintel's underside = the floor + `VENT_H`). With none, it is as it was.
    */
   resolveCollision(position: THREE.Vector3, radius: number, height?: number): THREE.Vector3 {
     const out = this.queryOut;
@@ -791,36 +803,38 @@ export class WorldSystem implements GameSystem, WorldRef {
     this.hash.query(position.x, position.z, radius, out);
     for (let i = 0; i < out.length; i++) {
       const o = out[i];
-      // 2026-09-11: 깨진 창틀은 사람 · 적은 막고 수류탄 · 투척 가젯은 지나간다 (`structures/parts/Glass`)
+      // 2026-09-11: a broken window frame blocks people · enemies but lets grenades · thrown gadgets through (`structures/parts/Glass`)
       if (o.passSmall && radius < SMALL_BODY_R) continue;
-      // 2026-09-11: 경사 발판은 몸이 선 자리(단면으로 자른 자리)의 경사면 높이가 윗면이다
+      // 2026-09-11: a ramp floor plate's top is the slope height where the body stands (clamped to the cross-section)
       const top = o.ramp ? rampTopAt(o, position.x, position.z) : o.position.y + o.height;
-      // 2026-09-09: 윗면에 서 있으면 밀어내지 않는다. 여유는 `getStandingObstacle` 과 같은 `PROP_TOP_MARGIN`
-      // 이라 두 판정이 어긋나 가장자리에서 튕겨 나가지 않는다 (예전엔 0.05 로 훨씬 빡빡했다).
+      // 2026-09-09: standing on the top face is not pushed out. The margin is the same `PROP_TOP_MARGIN` as
+      // `getStandingObstacle`'s, so the two cannot disagree and fling a body off an edge (it used to be a far tighter 0.05).
       if (position.y >= top - PROP_TOP_MARGIN) continue;   // above the obstacle
       if (o.hull) {
-        // 2026-09-11 — 볼록 다각형 기둥. 원기둥 소품과 **같은 규칙**(올라설 수 있는 단 예외 없음)이고 판정만
-        // 원 대신 윤곽이다. 밑면은 땅에 묻혀 있으므로 머리 위 판정은 사실상 켜지지 않는다.
+        // 2026-09-11 — A convex prism. **The same rules** as a cylinder prop (no step-up exception), only judged by the
+        // outline instead of a circle. Its bottom is buried in the ground, so the headroom test practically never fires.
         if (position.y + (bodyH > 0 ? bodyH : BOX_HEADROOM) <= o.position.y) continue;
         hullPushOut(o.hull.points, position, radius);
         continue;
       }
       if (o.box) {
-        // 2026-09-09 — 사각 콜라이더. 상자는 **떠 있을 수 있어서**(지하실 천장 슬래브 · 전차 데크) 머리 위로
-        // 지나가는 판은 밀어내지 않는다. 원기둥은 전부 땅에서 올라오므로 이 가지에 오지 않는다.
-        // 2026-09-11: **작은 몸(투척물)의 머리 위 여유는 제 크기뿐**이고 아래의 "올라설 수 있는 단" 예외도 없다.
-        // 사람 기준(2.1 m)을 그대로 쓰면 실내에서 던진 수류탄이 1.5 m 만 떠도 천장판에 걸려 건물 밖으로
-        // 밀려 나가고, 창 윗벽에 밀려 창문을 못 지나가며, 난간 · 창턱을 그냥 뚫고 지나갔다.
+        // 2026-09-09 — A box collider. A box **may float** (a basement ceiling slab · a tram deck), so a plate passing
+        // overhead is not pushed out. Cylinders all rise from the ground and never reach this branch.
+        // 2026-09-11: **a small body (a throwable) gets only its own size as headroom**, and no "step-up" exception below.
+        // With the human figure (2.1 m) a grenade thrown indoors caught on the ceiling slab only 1.5 m up and was
+        // pushed out of the building, was pushed back by the wall over a window and could not pass it, and went straight
+        // through railings · window sills.
         const small = radius < SMALL_BODY_R;
-        // 2026-09-12 (C): 키를 밝힌 몸은 그 키가 머리 위 여유다 (지상드론 — 개구멍 인방 밑)
+        // 2026-09-12 (C): a body that states its height gets that height as headroom (a ground drone — under a vent lintel)
         if (position.y + (bodyH > 0 ? bodyH : small ? radius * 2 : BOX_HEADROOM) <= o.position.y) continue;
-        /* 2026-09-10 — **올라설 수 있는 단은 벽이 아니다.** 윗면이 발 높이에서 `PROP_STEP_UP_MAX` 안이면
-         * `getSurfaceY(x, z, feetY)` 가 어차피 그 위로 발을 올려 준다 (움직이는 쪽의 규약: 표면 먼저,
-         * 밀어내기 나중). 그런데도 여기서 밀어내면 **몸이 그 단 위로 올라갈 자리에 닿기 전에 밀려나** 영영
-         * 못 올라간다 — 지하실 계단이 그 자리에서 걸렸다. 한 단의 디딤폭이 몸통 반지름보다 좁으면 서 있는
-         * 단 바로 위의 단이 늘 몸에 겹치므로, 매 프레임 아래로 밀려 계단을 그대로 미끄러져 내려갔다.
-         * 조건은 `getSurfaceY` 의 천장과 **같은 식**이라 두 판정이 어긋나지 않는다.
-         * 상자에만 건다 — 원기둥 소품의 코드 경로는 2026-09-09 규약대로 한 줄도 바뀌지 않는다. */
+        /* 2026-09-10 — **a step one can climb is not a wall.** When a top is within `PROP_STEP_UP_MAX` of the foot
+         * height, `getSurfaceY(x, z, feetY)` lifts the feet onto it anyway (the mover's convention: surface first,
+         * push-out second). Pushing out here regardless means **the body is pushed away before it can reach the spot
+         * it would climb from** and never gets up — the basement stairs stuck exactly there. When one step's tread is
+         * narrower than the body radius, the step right above the one being stood on always overlaps the body, so it
+         * was pushed down every frame and slid straight back down the staircase.
+         * The condition is **the same expression** as `getSurfaceY`'s ceiling, so the two cannot disagree.
+         * Boxes only — the cylinder prop code path does not change by one line, per the 2026-09-09 convention. */
         if (!small && top <= position.y + PROP_STEP_UP_MAX) continue;
         boxPushOut(o, position, radius);
         continue;
@@ -853,27 +867,28 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
-   * 2026-09-18 (사용자 결정 「창은 깨졌어도 폭발을 막고, 낮은 엄폐물은 기존대로」) — `raycast` 와 같은 레이인데
-   * **창유리만** 깨졌든 말든 막는다 (`shared/explosion.lineClear` 전용).
+   * 2026-09-18 (user's decision 「창은 깨졌어도 폭발을 막고, 낮은 엄폐물은 기존대로」) — the same ray as `raycast`, except
+   * that **window glass alone** blocks it whether broken or not (only for `shared/explosion.lineClear`).
    *
-   * 왜 필요했나: 깨진 창틀은 콜라이더를 남기고 `passRays` 로 바뀌므로(`structures/parts/Glass.breakPane`)
-   * `raycast` 가 그냥 통과한다. 그래서 **건물 안 방 한가운데** 서 있어도 그 방에 창이 하나 있으면 밖의
-   * 곡사포 폭발이 그 창을 지나 몸을 「보고」 피해를 줬다.
+   * Why it was needed: a broken window frame keeps its collider and turns `passRays`
+   * (`structures/parts/Glass.breakPane`), so `raycast` walks straight through. That let an artillery blast outside see
+   * a body standing **in the middle of a room** through that room's one window and hurt it.
    *
-   * 왜 `passRays` 전체가 아니라 **유리**만인가: 튜토리얼 철조망의 유령 토막(`tut_fence_ghost`)도 `passRays` 다.
-   * 그것은 창이 아니라 「낮은 장애물인데 넘어갈 수는 없다」를 그리는 장치이므로 폭발은 예전처럼 지나가야 한다
-   * (막으면 튜토리얼의 낮은 철조망이 갑자기 방패가 된다). 그래서 판정은 콜라이더의 `kind` 가
-   * `GLASS_OBSTACLE_KIND` 인가 하나다 — 유리를 만드는 곳이 `Glass.ts` 하나뿐이라 이름표가 곧 신원이다.
+   * Why **glass** and not all of `passRays`: the tutorial fence's ghost band (`tut_fence_ghost`) is `passRays` too.
+   * That one is not a window but the device that draws 「a low obstacle you still cannot step over」, so a blast has to
+   * pass it exactly as before (blocking it would turn the tutorial's low fence into a shield). So the test is one
+   * thing — whether the collider's `kind` is `GLASS_OBSTACLE_KIND`. Glass is made in `Glass.ts` alone, so the label is
+   * the identity.
    *
-   * 낮은 엄폐물(`destructible` 상자 · 잔해)은 애초에 `passRays` 가 아니라 두 레이 모두에서 똑같이 막는다 —
-   * 즉 이 함수는 엄폐물 판정을 **전혀 건드리지 않는다**. 엄폐물 위로 머리만 내민 사람이 맞는 것은
-   * `blastReachesBody` 의 몸 3점(발목 · 가슴 · 머리) 규칙 그대로다.
+   * Low cover (`destructible` crates · wreckage) was never `passRays` and blocks both rays identically — that is, this
+   * function **does not touch the cover judgement at all**. A person hit while peeking their head over cover is still
+   * `blastReachesBody`'s 3-point rule (ankle · chest · head).
    */
   raycastBlast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): TerrainHit | null {
     return this.rayQuery(origin, dir, maxDist, true);
   }
 
-  /** `raycast` / `raycastBlast` 의 공통 몸통. `blockGlass` = 깨진 창유리도 막는다. */
+  /** The shared body of `raycast` / `raycastBlast`. `blockGlass` = broken window glass blocks too. */
   private rayQuery(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, blockGlass: boolean): TerrainHit | null {
     const ox = origin.x, oy = origin.y, oz = origin.z;
     let dx = dir.x, dy = dir.y, dz = dir.z;
@@ -895,11 +910,11 @@ export class WorldSystem implements GameSystem, WorldRef {
     const ex = ox + dx * limitT, ez = oz + dz * limitT;
     this.hash.walkSegment(ox, oz, ex, ez, this.hash.maxRadius, (o) => {
       const limit = bestT > 0 ? bestT : maxDist;
-      // 2026-09-11: 깨진 창틀 — 총알 · 시야가 지나간다.
-      // 2026-09-18: 단 `raycastBlast`(폭발 · 근접 가시성)에서는 **유리만** 깨졌어도 막는다 (`raycastBlast` 주석).
+      // 2026-09-11: a broken window frame — bullets · sight pass through.
+      // 2026-09-18: except that in `raycastBlast` (blast · melee visibility) **glass alone** blocks even broken (see `raycastBlast`).
       if (o.passRays && !(blockGlass && o.kind === GLASS_OBSTACLE_KIND)) return false;
-      // 2026-09-09: 사각 콜라이더는 슬래브 셋으로 맞힌다 (`obb.rayBox`), 원기둥은 예전 그대로.
-      // 2026-09-11: 경사 발판은 쐐기(`obb.rayRamp`), 볼록 기둥은 층별 윤곽(`rayHullObstacle`).
+      // 2026-09-09: a box collider is hit by three slabs (`obb.rayBox`); cylinders are as they were.
+      // 2026-09-11: a ramp floor plate is a wedge (`obb.rayRamp`), a convex prism is per-band outlines (`rayHullObstacle`).
       const t = o.hull ? this.rayHullObstacle(ox, oy, oz, dx, dy, dz, o, limit)
         : o.box ? (o.ramp ? rayRamp(ox, oy, oz, dx, dy, dz, o, limit) : rayBox(ox, oy, oz, dx, dy, dz, o, limit))
           : this.rayCylinder(ox, oy, oz, dx, dy, dz, o, limit);
@@ -922,8 +937,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
-   * 2026-09-11 — 레이 vs 볼록 다각형 기둥. 층(`hull.bands`)이 있으면 가장 가까운 층, 없으면 이동 윤곽을 밑면부터
-   * 윗면까지 쓴다. 맞은 층의 법선을 `hullN` 에 남긴다. −1 = 빗나감.
+   * 2026-09-11 — Ray vs convex prism. With bands (`hull.bands`) the nearest band, without them the movement outline
+   * from the bottom face to the top. The hit band's normal is left in `hullN`. −1 = a miss.
    */
   private rayHullObstacle(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, o: Obstacle, maxT: number): number {
     const hull = o.hull!;
@@ -948,7 +963,7 @@ export class WorldSystem implements GameSystem, WorldRef {
    * Ray vs the finite vertical cylinder an obstacle blocks shots with. Returns `t` or −1; writes the hit normal to
    * `hitN*`.
    *
-   * 2026-09-08: two changes, both about 엄폐 that did not work.
+   * 2026-09-08: two changes, both about cover that did not work.
    *  - It shoots at `shotRadius` / `shotHeight` when the prop declares them. The movement cylinder is deliberately
    *    narrower than a lumpy rock so nobody walks into an invisible wall — which also let bullets through the
    *    visible sides of a boulder — and, for a boulder, ~0.4 s **taller** than the rock, which stopped bullets in
@@ -1008,8 +1023,8 @@ export class WorldSystem implements GameSystem, WorldRef {
   /** Phase 3: runtime obstacle (dropped cover / supply crate). Lives in the same hash as the props; `clear()` drops it with the world. */
   addObstacle(obstacle: Obstacle): () => void {
     const entry = { position: obstacle.position, radius: obstacle.radius, height: obstacle.height, stamp: 0, kind: 'dynamic', destructible: obstacle.destructible } as Obstacle & { stamp: number; kind: string };
-    // 2026-09-13 (extraction 탈출 개편): 사각 콜라이더도 싣는다 — 착륙한 탈출 함선의 외피가 `Obstacle.box` 로 들어온다.
-    // `radius` 는 호출부가 외접원(`hypot(halfX, halfZ)`)으로 채운다 (SpatialHash.addBox 와 같은 규약). 원기둥 호출부는 그대로다.
+    // 2026-09-13 (the extraction rework): box colliders ride along too — a landed extraction ship's hull arrives as `Obstacle.box`.
+    // The caller fills `radius` with the circumscribed circle (`hypot(halfX, halfZ)`) (the `SpatialHash.addBox` convention). Cylinder callers are unchanged.
     if (obstacle.box) entry.box = obstacle.box;
     this.hash.insert(entry);
     let removed = false;
@@ -1029,51 +1044,52 @@ export class WorldSystem implements GameSystem, WorldRef {
   getNestPositions(): readonly THREE.Vector3[] { return this.isPlanet ? this.nests.getHolePositions() : NONE_VEC; }
 
   /**
-   * 2026-09-18: 벌레 알 자리. 행성 레이드만 — 훈련장 · 튜토리얼에는 둥지가 없으니 빈 배열이다
-   * (`getNestPositions` 와 같은 `isPlanet` 게이트).
+   * 2026-09-18: bug egg spots. Planet raids only — the training range · tutorial have no nests, so an empty array
+   * (the same `isPlanet` gate as `getNestPositions`).
    *
-   * ⚠ `NestEggSpot.nest` 는 **둥지 pad 의 순번**이고 `getNestPositions()` 의 인덱스가 아니다 —
-   * pad 하나에 구멍(둔덕)이 4~6 개라 두 순번은 다르다. 이유는 `Nests.getEggSpots` 주석.
+   * ⚠ `NestEggSpot.nest` is **the nest pad's index** and not an index into `getNestPositions()` — one pad holds 4~6
+   * holes (mounds), so the two run differently. The reason is in `Nests.getEggSpots`'s comment.
    */
   getNestEggSpots(): readonly NestEggSpot[] { return this.isPlanet ? this.nests.getEggSpots() : NONE_EGGS; }
 
   /** Harvestable plants (consumed nodes stay in the list with `harvested: true`). */
   getGatherNodes(): readonly GatherNodeDef[] { return this.isPlanet ? this.gather.getNodes() : NONE_GATHER; }
 
-  /* ── appended (2026-09-09): 레이드 플레이 개선 ── */
-  /** 버려진 구조물 (전진기지 · 연구실 · 불시착 함선). 훈련장은 빈 배열. */
+  /* ── appended (2026-09-09): raid play improvements ── */
+  /** Abandoned structures (outpost · lab · crash-landed ship). An empty array in the training range. */
   getStructures(): readonly StructureDef[] { return this.isPlanet ? this.structures.getDefs() : NONE_STRUCTURES; }
-  /** `(x, z)` 를 품는 구조물, 없으면 null. */
+  /** The structure holding `(x, z)`, or null with none. */
   structureAt(x: number, z: number): StructureDef | null {
     return this.isPlanet ? this.structures.structureAt(x, z) : null;
   }
-  /** 선로 (구역마다 있을 수도, 없을 수도 있다). */
+  /** The rail (a map may or may not have one). */
   getRailLines(): readonly RailLineDef[] { return this.isPlanet ? this.rails.getLines() : NONE_RAILS; }
-  /** 선로 위의 전차. */
+  /** The trams on the rail. */
   getTrams(): readonly TramDef[] { return this.isPlanet ? this.rails.getTrams() : NONE_TRAMS; }
-  /** 이번 레이드의 환경 재해. 후보가 없는 행성 · 훈련장이면 null. */
+  /** This raid's environmental hazard. null on a planet with no candidate, and in the training range. */
   get hazard(): HazardRef | null { return this.isPlanet ? this.hazardSys.ref : null; }
-  /** 2026-09-13: 이번 레이드의 탐사 차량. 훈련장 · 경로 없음 · 준비 전이면 null. */
+  /** 2026-09-13: this raid's rover. null in the training range · with no route · before the world is ready. */
   get rover(): RoverRef | null { return this.isPlanet && this.ready ? this.roverSys.ref : null; }
   /**
-   * 2026-09-11 (A-13): 이번 레이드 행성의 **상시 환경** (`data/planets.csv` 의 `env`), 없으면 null.
-   * `getPlanet(id)?.env` 를 그대로 돌려주는 얇은 질의다 — 행성 id 를 들고 다니지 않아도 되도록 world 가
-   * 대신 답한다 (`hazard` 와 같은 자리에 두는 이유다: 「지금 이 맵이 어떤 곳인가」를 묻는 질의 둘이다).
-   * 훈련장은 행성이 아니므로 늘 null 이다 (`generate` 는 `this.planet` 을 비운다 — 그래도 `mode` 로 한 번 더 막는다).
+   * 2026-09-11 (A-13): the **permanent environment** of this raid's planet (`env` in `data/planets.csv`), null with none.
+   * A thin query that returns `getPlanet(id)?.env` as it is — world answers on the caller's behalf so nobody has to
+   * carry the planet id around (which is why it sits beside `hazard`: the two queries that ask 「what kind of place is
+   * this map」). The training range is not a planet, so it is always null (`generate` clears `this.planet` — and `mode`
+   * blocks it once more anyway).
    */
   get env(): EnvKind | null {
     if (!this.isPlanet) return null;
     return getPlanet(this.planet)?.env ?? null;
   }
-  /** 2026-09-11: 구조물 사다리 (훈련장은 빈 배열). */
+  /** 2026-09-11: structure ladders (an empty array in the training range). */
   getLadders(): readonly LadderDef[] { return this.isPlanet ? this.structures.getLadders() : NONE_LADDERS; }
 
-  /* ── appended (2026-09-15): 땅굴벌레 등장 판정 개편 — `WorldRef.burrowGroundOk` ── */
-  /** `burrowGroundOk` 가 읽는 창 (한 번 만들어 재사용 — 호스트가 2 초마다, 진동 장치 미리보기가 매 프레임 묻는다). */
+  /* ── appended (2026-09-15): the sandworm eruption rework — `WorldRef.burrowGroundOk` ── */
+  /** The window `burrowGroundOk` reads (built once and reused — the host asks every 2 s, the thumper preview every frame). */
   private burrowQuery: BurrowGroundQuery | null = null;
   /**
-   * `(x, z)` 둘레 `radius` m 가 땅굴벌레가 파고 나올 수 있는 평평한 맨땅인가 — 규칙은 `BurrowGround.ts` 머리 주석.
-   * 행성 모드가 아니거나(훈련장 · 튜토리얼) 준비 전이면 false.
+   * Is the `radius` m around `(x, z)` flat bare ground a sandworm can erupt through — the rules are in
+   * `BurrowGround.ts`'s header comment. false outside planet mode (training range · tutorial) and before it is ready.
    */
   burrowGroundOk(x: number, z: number, radius: number): boolean {
     if (!this.isPlanet || !this.ready || !this.layout) return false;
@@ -1096,14 +1112,15 @@ export class WorldSystem implements GameSystem, WorldRef {
     return burrowGroundOk(this.burrowQuery, x, z, radius);
   }
 
-  /* ── appended (2026-09-13): 행성별 적 팩션 — 거점 스폰 자리 (`SiteSpawns.ts`) ── */
-  /** 이번 맵의 폐허 전초 (`Outposts.getSites()` 그대로 — 들어가는 전진기지 `struct_outpost_*` 와 다르다). 훈련장 · 준비 전 = 빈 배열. */
+  /* ── appended (2026-09-13): the per-planet enemy faction — site spawn spots (`SiteSpawns.ts`) ── */
+  /** This map's POI ruins (`Outposts.getSites()` as it is — not the enterable outpost `struct_outpost_*`). Training range · not ready = an empty array. */
   getRuinSites(): readonly RuinSiteDef[] {
     return this.isPlanet && this.ready ? this.outposts.getSites() : NONE_RUINS;
   }
   /**
-   * 거점 `siteId`(`struct_*` · 플랫폼 id · `outpost_<i>`)에 인간형 그룹이 설 자리 `count` 개 — 서로 `minGap` 이상, 시드 결정적.
-   * 규칙은 `SiteSpawns.ts` 머리 주석. 모르는 id · 훈련장 · 준비 전 = 빈 배열.
+   * `count` spots where a humanoid group can stand at the site `siteId` (`struct_*` · a platform id · `outpost_<i>`) —
+   * at least `minGap` apart, seed-deterministic. The rules are in `SiteSpawns.ts`'s header comment. An unknown id · the
+   * training range · not ready = an empty array.
    */
   getSiteSpawnPoints(siteId: string, place: SiteSpawnPlace, count: number, minGap: number, seed: number): THREE.Vector3[] {
     if (!this.isPlanet || !this.ready) return [];
@@ -1111,9 +1128,10 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
-   * 2026-09-12 (C) — `WorldRef.previewContainerItems`: world 가 가진 컨테이너를 **처음 열면 나올** 내용물. 구조물 ·
-   * 선로 컨테이너는 여는 코드와 같은 `ContainerSet.preview`(열쇠 부가 굴림 포함), 맵 상자는 상자 코드와 같은 식
-   * (`rollCrateContents`). 순수 — 열린 표시 · 이벤트 · 캐시를 건드리지 않는다. 모르는 id · 훈련장 · 준비 전이면 null.
+   * 2026-09-12 (C) — `WorldRef.previewContainerItems`: what a container world owns **would hold when first opened**. A
+   * structure · rail container goes through the same `ContainerSet.preview` the opening code uses (the key bonus roll
+   * included); a map crate through the same expression as the crate code (`rollCrateContents`). Pure — it touches no
+   * opened mark, event or cache. null for an unknown id · the training range · before it is ready.
    */
   previewContainerItems(containerId: string): ItemInstance[] | null {
     const ctx = this.ctx;
@@ -1125,25 +1143,27 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
-   * 2026-09-16 — `WorldRef.crateLootOpts`: 컨테이너 id 의 굴림 규칙. 잠긴 방은 구조물에만 있으므로 구조물 묶음만 묻는다
-   * (맵 상자 · 선로 · 전차 컨테이너 · 모르는 id · 준비 전 = undefined). inventory 의 여는 경로 · peek 이 이 값을 그대로 넘긴다.
+   * 2026-09-16 — `WorldRef.crateLootOpts`: the roll rules for a container id. A locked room exists only in structures,
+   * so only the structure set is asked (a map crate · rail · tram container · an unknown id · not ready = undefined).
+   * Inventory's opening path · peek pass this value straight through.
    */
   crateLootOpts(containerId: string) {
     if (!this.ready || !this.isPlanet || typeof containerId !== 'string') return undefined;
     return this.structures.crateLootOpts(containerId);
   }
 
-  /* ── 2026-09-15 (안드로이드 분대원, `docs/DECISIONS.md` 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ──────── */
+  /* ── 2026-09-15 (android squadmates, `docs/DECISIONS.md` 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ─────── */
 
-  /** `getLootContainers()` 가 돌려주는 배열과 그 항목 풀 (호출당 할당 0 — 안드로이드가 자주 묻는다). */
+  /** The array `getLootContainers()` returns and its entry pool (0 allocations per call — androids ask often). */
   private readonly lootList: LootContainerEntry[] = [];
   private readonly lootPool: LootContainerEntry[] = [];
 
   /**
-   * 이번 맵의 루팅 컨테이너 전부 — 맵 상자 + 구조물 · 플랫폼 · 전차 컨테이너. `id` 는 **인벤토리 컨테이너 id** 다
-   * (상자는 `CrateDef.id`, 컨테이너는 상호작용 id 의 `container:` 를 뗀 명세 id) — `crate:open` · `peekContainerItems` ·
-   * `InventoryRef.takeContainerItemFor` 가 쓰는 그 id 다. 배열도 항목도 **재사용**한다: 읽고 바로 쓰고 보관하지 않는다.
-   * `position` 은 살아 있는 벡터라 전차 안의 컨테이너는 저절로 따라간다. 훈련장 · 준비 전은 빈 배열.
+   * Every loot container on this map — map crates + structure · platform · tram containers. `id` is the **inventory
+   * container id** (a crate's `CrateDef.id`; a container's spec id, its interaction id with `container:` stripped) —
+   * the id `crate:open` · `peekContainerItems` · `InventoryRef.takeContainerItemFor` use. Both the array and the
+   * entries are **reused**: read them, use them at once, never store them. `position` is a live vector, so a container
+   * inside a tram follows it by itself. The training range · not ready = an empty array.
    */
   getLootContainers(): readonly LootContainerInfo[] {
     this.lootList.length = 0;
@@ -1162,12 +1182,12 @@ export class WorldSystem implements GameSystem, WorldRef {
   }
 
   /**
-   * 안드로이드가 연 상자 · 컨테이너를 **열린 모습**으로 만들고 분대에 알린다 (`crate opened`). 사람의 상호작용과 달리
-   * 이벤트 · 통계 · 감정 XP 는 내지 않는다 — 그것들은 사람이 E 를 눌렀을 때만 오른다. 부르는 곳은 권위의
-   * `InventoryRef.takeContainerItemFor` 하나다. 이 맵에 없는 id 면 false.
+   * Gives a crate · container an android opened its **opened look** and tells the squad (`crate opened`). Unlike a
+   * person's interaction it raises no event, no stats and no `감정` appraisal XP — those rise only when a person pressed
+   * E. The one caller is the authority's `InventoryRef.takeContainerItemFor`. false for an id not on this map.
    */
   markContainerOpened(id: string): boolean {
-    if (this.openedIds.has(id)) return true;   // 이미 열린 모습이다 — `crate opened` 를 또 보내지 않는다
+    if (this.openedIds.has(id)) return true;   // already in the opened look — `crate opened` is not sent again
     if (!this.applyOpened(id)) return false;
     this.onLocalOpened(id);
     return true;

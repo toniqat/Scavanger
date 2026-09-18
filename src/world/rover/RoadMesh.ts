@@ -1,16 +1,16 @@
 /**
- * src/world/rover/RoadMesh.ts — 탐사 차량 **흙길 그림** (R1, 2026-09-13). 콜라이더 없음.
+ * src/world/rover/RoadMesh.ts — the rover's **dirt road drawing** (R1, 2026-09-13). No colliders.
  *
- * 중심선 점마다 가로 10개 정점 한 줄: 가장자리(지형 색) → 다져진 흙 → 바퀴자국(어두운 V) → 흙 → … → 가장자리.
- * 정점 높이는 경로의 평활화한 노면이 아니라 **그 자리 지형**(`getHeightAt`) + `ROVER_ROAD_LIFT_M` 이다 — 그림은 땅에 붙어야 하고,
- * 차량(R2)은 경로 `y` 를 탄다. 법선도 지형 법선이라 조명이 지형과 이어진다. 정류장 표지 기둥 밑의 자갈 원판도 같은 메시에 넣는다.
+ * One row of 10 vertices across at every centreline point: edge (terrain colour) → packed dirt → the ruts (a dark V) → dirt → … → edge.
+ * A vertex's height is not the route's smoothed surface but **the terrain at that spot** (`getHeightAt`) + `ROVER_ROAD_LIFT_M` — the drawing
+ * hugs the ground while the vehicle (R2) rides the route's `y`. The normals are terrain normals, so the lighting joins up. The gravel disc under each sign pole goes in the same mesh.
  */
 import * as THREE from 'three';
 import { ROVER_POLE_OFFSET_M, ROVER_ROAD_HALF_WIDTH_M, ROVER_ROAD_LIFT_M, type RoverStationDef } from '@/shared';
 import type { Biome } from '../biomes';
 import type { Terrain } from '../Terrain';
 
-/** 자갈 원판의 둘레 분할 수. */
+/** How many segments the gravel disc's perimeter is split into. */
 const PAD_SEGS = 14;
 
 export function buildRoadGeometry(
@@ -47,7 +47,7 @@ export function buildRoadGeometry(
     const a = pts[(i - 1 + M) % M], b = pts[(i + 1) % M], p = pts[i];
     const tl = Math.hypot(b.x - a.x, b.z - a.z) || 1;
     const nx = -(b.z - a.z) / tl, nz = (b.x - a.x) / tl;
-    // 결정적 얼룩 — 표본마다 흙 밝기가 조금씩 다르다 (rng 를 소비하지 않는다)
+    // Deterministic mottling — the dirt brightness differs a little per sample (it consumes no rng)
     const shade = 0.94 + 0.12 * fract(Math.sin(i * 12.9898 + 4.1) * 43758.5453);
     for (let j = 0; j < L; j++) put(p.x + nx * OFF[j], p.z + nz * OFF[j], COL[j], j === 0 || j === L - 1 ? 1 : shade, lift);
   }
@@ -59,7 +59,7 @@ export function buildRoadGeometry(
       idx[t++] = r0 + j + 1; idx[t++] = r1 + j; idx[t++] = r1 + j + 1;
     }
   }
-  /* 표지 기둥 밑 자갈 원판 — 흙길 가장자리에 닿는 크기 */
+  /* The gravel disc under a sign pole — sized to reach the dirt road's edge */
   const padR = Math.max(0.8, ROVER_POLE_OFFSET_M - W + 0.25);
   for (const st of stations) {
     const c0 = v;

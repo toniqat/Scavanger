@@ -3,21 +3,21 @@ import { Layers } from '@/shared';
 import { type BuildCtx, displace, merge, paint, paintGradient, xform } from './build';
 
 /**
- * 폐허 전초 한 곳 (2026-09-11, C-11). **`WorldRef.getStructures()` 의 `StructureKind 'outpost'`(들어가는 전진기지)와
- * 다른 것**이다 — 벽 몇 장과 안테나만 남은 POI 패드이고, 목록은 world 내부에서 `Fog` 의 발견 판정에만 쓴다
- * (구조물 목록에 섞으면 로그 강하 구역 · 네임드 배치 · 구조물 라벨이 오작동한다).
+ * One POI ruin (2026-09-11, C-11). **Not the same thing** as `StructureKind 'outpost'` in `WorldRef.getStructures()`
+ * (the abandoned outpost that can be entered) — this is a POI pad with a few walls and an antenna left, and the list is
+ * used inside world only for `Fog`'s discovery judgement (mixed into the structure list it breaks rogue drop zones · named placement · structure labels).
  */
 export interface OutpostSite {
-  /** `outpost_<i>` — `fog:discovered {kind:'outpost'}` 의 id. */
+  /** `outpost_<i>` — the id of `fog:discovered {kind:'outpost'}`. */
   id: string;
-  /** 패드 중심 (y = 패드 높이). */
+  /** The pad centre (y = the pad height). */
   position: THREE.Vector3;
   yaw: number;
-  /** 패드 반경(m). */
+  /** The pad radius (m). */
   radius: number;
   /**
-   * 콘크리트 바닥판의 반폭 · 반깊이(m, 로컬 X/Z — 메시는 Euler −yaw). 콜라이더가 없는 판이라 그 위는 지형을 밟는다;
-   * 발소리 재질(C-22)이 이 사각형 안을 `concrete` 로 읽는다.
+   * The concrete floor slab's half-width · half-depth (m, local X/Z — the mesh is Euler −yaw). The slab has no collider,
+   * so what is walked on above it is the terrain; the footstep material (C-22) reads inside this rectangle as `concrete`.
    */
   slabHalfX: number;
   slabHalfZ: number;
@@ -33,7 +33,7 @@ export class Outposts {
 
   constructor() { this.group.name = 'Outposts'; }
 
-  /** 2026-09-11 (C-11): 이번 맵의 폐허 전초 (패드 순서 = id 순서, 시드 결정적). */
+  /** 2026-09-11 (C-11): this map's POI ruins (pad order = id order, seed-deterministic). */
   getSites(): readonly OutpostSite[] { return this.sites; }
 
   build(ctx: BuildCtx): void {
@@ -57,7 +57,7 @@ export class Outposts {
 
       // floor slab
       const slabW = rng.range(11, 15), slabD = rng.range(10, 14);
-      // 2026-09-11 (C-11 · C-22): 목록은 **이미 뽑은 값만** 적는다 — rng 를 더 쓰지 않으므로 배치가 그대로다
+      // 2026-09-11 (C-11 · C-22): the list records **only values already drawn** — no further rng, so the placement is unchanged
       this.sites.push({
         id: `outpost_${this.sites.length}`, position: new THREE.Vector3(cx, y0, cz), yaw, radius: pad.radius,
         slabHalfX: slabW / 2, slabHalfZ: slabD / 2,
@@ -147,9 +147,9 @@ export class Outposts {
         const beacon = new THREE.SphereGeometry(0.18, 8, 6);
         xform(beacon, { x: ax, y: y0 + mastH + 0.25, z: az });
         beacons.push(beacon);
-        /* 2026-09-09 — 콜라이더는 보이는 실루엣이다. 예전 `0.8` 은 **그려진 기둥(반지름 0.1~0.22)의 네 배**
-         * 짜리 원기둥을 8~11 m 높이로 세워, 마스트 옆을 지나갈 수 없고 그 앞의 약탈자에게 쏜 총알이 허공에서
-         * 멈췄다. 밑동 받침(1.4 m 각)이 제일 굵으므로 발치만 그만큼 두고 기둥은 실제 굵기로 세운다. */
+        /* 2026-09-09 — a collider is the visible silhouette. The old `0.8` stood an 8–11 m cylinder **four times the
+         * drawn mast (radius 0.1–0.22)**, so the mast could not be walked past and shots at a raider in front of it
+         * stopped in the air. The base plinth (1.4 m square) is thickest, so only the foot keeps that width. */
         ctx.hash.add(new THREE.Vector3(ax, y0, az), 0.7, 0.8, 'wall');
         ctx.hash.add(new THREE.Vector3(ax, y0 + 0.8, az), 0.24, mastH - 0.8, 'wall');
       }

@@ -1,12 +1,12 @@
 /**
- * src/world/rover/parts/Impact.ts — **달리는 탐사 차량에 부딪힘** (R2, 2026-09-13). 전차의 `rails/parts/Tram.updateTramHit` 과 같은 틀.
+ * src/world/rover/parts/Impact.ts — **being rammed by a running rover** (R2, 2026-09-13). The same frame as the tram's `rails/parts/Tram.updateTramHit`.
  *
- * - `ROVER_HIT_SPEED_MIN` 밑에서는 아무 일도 없고, 그 위에서는 넉백 · 피해가 `speed / ROVER_TRIP_SPEED` 에 비례한다.
- * - **플레이어(로컬 · 끊긴 분대원 고스트)는 넉백만 받고 피해는 없다** — 사람이 운전하지 않는 자동 차량이 분대원을
- *   죽이면 억울하다 (리드 결정). 로컬은 각 클라이언트가 자기 몸만 판정한다.
- * - 적은 **권위(싱글 · 호스트)만** 판정해 피해 + 넉백, `attacker = ROVER_DAMAGE_SOURCE` (킬 크레딧 없음 · 차량 어그로).
- * - 탑승자는 판정하지 않는다 (몸이 차 안 좌석에 있다 — `PlayerRef.roverRide` · 탑승자 목록).
- * - 쿨다운은 대상별(`local` · `e:<id>` · `g:<PeerId>`).
+ * - Below `ROVER_HIT_SPEED_MIN` nothing happens; above it the knockback and damage scale with `speed / ROVER_TRIP_SPEED`.
+ * - **Players (the local one and disconnected squadmate ghosts) take knockback only, no damage** — being killed by a
+ *   driverless automatic vehicle would feel unfair (lead's decision). Each client judges its own local body only.
+ * - Enemies are judged by **the authority (single player · host) only**, for damage + knockback, `attacker = ROVER_DAMAGE_SOURCE` (no kill credit · aggro on the vehicle).
+ * - Riders are not judged (their bodies are in the car's seats — `PlayerRef.roverRide` · the rider list).
+ * - The cooldown is per target (`local` · `e:<id>` · `g:<PeerId>`).
  */
 import * as THREE from 'three';
 import {
@@ -17,13 +17,13 @@ import {
 
 const _kb = new THREE.Vector3();
 const _from = new THREE.Vector3();
-/** 발 높이 창 (차체 바닥 기준, m) — 위로 이만큼, 아래로 이만큼 안의 몸만 부딪힌다. */
+/** The foot-height window (relative to the body's floor, m) — only bodies this far above and this far below are hit. */
 const FOOT_ABOVE = 1.4;
 const FOOT_BELOW = 1.6;
 
 /**
- * @param dir 주행 방향 (+1 / −1). 차체 yaw 는 이미 방향을 담고 있어 넉백 방향에만 쓴다.
- * @param riders 이 클라이언트 기준 탑승자 id (`'local'` · PeerId).
+ * @param dir the travel direction (+1 / −1). The body yaw already carries the direction, so this is used for the knockback direction only.
+ * @param riders the rider ids as this client sees them (`'local'` · PeerId).
  */
 export function updateRoverImpacts(
   game: GameContext, def: RoverVehicleDef, speed: number, hitUntil: Map<string, number>, riders: readonly string[],
@@ -90,7 +90,7 @@ export function updateRoverImpacts(
   }
 }
 
-/** 차체 OBB(+`radius`) 안이고 발 높이가 창 안이면 어느 옆구리인지(+1 / −1), 아니면 0. */
+/** Inside the body OBB (+`radius`) with the feet within the window: which flank (+1 / −1), else 0. */
 function hitSide(def: RoverVehicleDef, c: number, s: number, x: number, y: number, z: number, radius: number, baseY: number): number {
   if (y > baseY + FOOT_ABOVE || y < baseY - FOOT_BELOW) return 0;
   const dx = x - def.position.x, dz = z - def.position.z;
@@ -99,7 +99,7 @@ function hitSide(def: RoverVehicleDef, c: number, s: number, x: number, y: numbe
   return lz >= 0 ? 1 : -1;
 }
 
-/** 앞으로 밀면서 옆으로 던진다 — 그대로 앞으로만 밀면 계속 부딪힌다. */
+/** Pushes forwards while throwing the body sideways — pushing straight forwards alone keeps ramming it. */
 function knockDir(c: number, s: number, side: number): void {
   _kb.set(c * 0.6 - s * side, 0, s * 0.6 + c * side).normalize();
 }

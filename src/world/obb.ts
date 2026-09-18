@@ -1,30 +1,32 @@
 /**
- * src/world/obb.ts — **사각(OBB) 콜라이더** 수학 (2026-09-09).
+ * src/world/obb.ts — **box (OBB) collider** math (2026-09-09).
  *
- * 왜 있나: 건물 벽 · 전차 차체는 원기둥으로 흉내낼 수 없다. 벽 하나를 원기둥 열 개로 쪼개면(예전 `Outposts`)
- * 그려진 판보다 두툼한 톱니가 되고, 하나로 감싸면 방 전체가 막힌다. 그래서 `Obstacle.box`(계약, 2026-09-09)를
- * 두고 **밀어내기 · 레이 · 윗면 판정** 세 곳에서만 다르게 푼다. `SpatialHash` 버킷팅과 광역 질의는 그대로
- * `radius`(외접원)를 쓰므로 상자는 절대 버킷에서 새지 않는다 — `boxRadius()` 가 그 외접원이다.
+ * Why it exists: building walls · a tram body cannot be faked with cylinders. Ten cylinders for one wall (the old
+ * `Outposts`) make a saw edge thicker than the drawn plate, and one cylinder around it blocks the whole room. So
+ * `Obstacle.box` (the contract, 2026-09-09) is solved differently in exactly three places — **push-out · ray · top-face
+ * judgement**. `SpatialHash` bucketing and broad queries still use `radius` (`boxRadius()`, the circumscribed circle),
+ * so a box never leaks out of its bucket.
  *
- * ⚠ 여기의 함수는 **`o.box` 가 있을 때만** 불린다. 원기둥 소품의 경로는 `WorldSystem` 안에 그대로 남아 있어
- * 2026-09-09 이전과 한 줄도 다르지 않다.
+ * ⚠ The functions here are called **only when `o.box` is set**. The cylinder prop path is left inside `WorldSystem`
+ * exactly as it was and is not one line different from before 2026-09-09.
  */
 import type * as THREE from 'three';
 import { BOX_HEADROOM as SHARED_BOX_HEADROOM, type Obstacle } from '@/shared';
 
 /**
- * 상자 콜라이더는 **떠 있을 수 있다** (지하실 천장 슬래브 · 전차 데크 · 플랫폼 데크). 머리 위로 이만큼(m)
- * 넘게 떠 있는 판은 밀어내지 않는다 — 지하실 안에서 천장에 밀려 벽으로 빨려 나가지 않게 하는 판정이다.
- * 원기둥에는 이 판정이 없다 (전부 땅에서 올라오므로 켜질 일이 없고, 켜면 기존 동작이 바뀐다).
+ * A box collider **may float** (basement ceiling slab · tram deck · platform deck). A plate floating more than this (m)
+ * over the head is not pushed out — the judgement that keeps a body in a basement from being shoved into a wall by the
+ * ceiling. Cylinders have no such judgement (they all rise from the ground, so it would never fire, and turning it on
+ * would change existing behaviour).
  */
-export const BOX_HEADROOM = SHARED_BOX_HEADROOM;   // 2026-09-11: 값은 `data/constants.csv` — player 의 천장 클램프와 같은 값
+export const BOX_HEADROOM = SHARED_BOX_HEADROOM;   // 2026-09-11: the value is in `data/constants.csv` — the same one as player's ceiling clamp
 
-/** 상자를 감싸는 외접원 반경 — `Obstacle.radius` 에 넣어야 하는 값이다. */
+/** The circumscribed circle radius around a box — the value `Obstacle.radius` has to hold. */
 export function boxRadius(halfX: number, halfZ: number): number {
   return Math.hypot(halfX, halfZ);
 }
 
-/** 월드 XZ → 상자 로컬 XZ (yaw 만큼 역회전). 결과는 `outLocal` 에 쓴다. */
+/** World XZ → box-local XZ (rotated back by `yaw`). The result is written into `outLocal`. */
 function toLocal(o: Obstacle, x: number, z: number, outLocal: { x: number; z: number }): void {
   const b = o.box!;
   const dx = x - o.position.x, dz = z - o.position.z;
@@ -33,12 +35,12 @@ function toLocal(o: Obstacle, x: number, z: number, outLocal: { x: number; z: nu
   outLocal.z = -dx * s + dz * c;
 }
 
-/* 핫 패스에서 프레임당 할당을 하지 않으려는 스크래치 (월드 생성/질의는 단일 스레드다). */
+/* Scratch so the hot path allocates nothing per frame (world generation / queries are single-threaded). */
 const L = { x: 0, z: 0 };
 
 /**
- * `(x, z)` 가 상자 단면 안인가 (`margin` 만큼 넉넉히). `getSurfaceY` · `getStandingObstacle` 이
- * 외접원 대신 이걸 봐야 벽 모서리 바깥의 허공에 올라서지 않는다.
+ * Is `(x, z)` inside the box cross-section (with `margin` to spare)? `getSurfaceY` · `getStandingObstacle` have to
+ * read this instead of the circumscribed circle, or a body stands on thin air just past a wall corner.
  */
 export function boxContainsXZ(o: Obstacle, x: number, z: number, margin = 0): boolean {
   const b = o.box!;
@@ -47,8 +49,8 @@ export function boxContainsXZ(o: Obstacle, x: number, z: number, margin = 0): bo
 }
 
 /**
- * 반지름 `radius` 원을 상자 밖으로 밀어낸다 (`position` 을 제자리에서 고친다). 겹치지 않으면 false.
- * 원 중심이 상자 **안**이면 가장 얕은 면으로 빼낸다 — 문틀을 스치며 지나갈 때 옆으로 튕기지 않게.
+ * Pushes a circle of `radius` out of the box (`position` is fixed in place). false when they do not overlap.
+ * A centre **inside** the box leaves by the shallowest face — brushing past a door frame must not bounce it sideways.
  */
 export function boxPushOut(o: Obstacle, position: THREE.Vector3, radius: number): boolean {
   const b = o.box!;
@@ -65,7 +67,7 @@ export function boxPushOut(o: Obstacle, position: THREE.Vector3, radius: number)
     ux = (ux / d) * push;
     uz = (uz / d) * push;
   } else {
-    // 중심이 상자 안 — 가장 가까운 면으로
+    // Centre inside the box — out through the nearest face
     const penX = b.halfX - Math.abs(lx);
     const penZ = b.halfZ - Math.abs(lz);
     if (penX <= penZ) { ux = (lx >= 0 ? 1 : -1) * (penX + radius); uz = 0; }
@@ -77,13 +79,13 @@ export function boxPushOut(o: Obstacle, position: THREE.Vector3, radius: number)
   return true;
 }
 
-/** `rayBox` 가 채우는 법선 (호출자가 바로 읽고 쓴다 — 보관 금지). */
+/** The normal `rayBox` fills in (the caller reads and uses it at once — never store it). */
 export const boxHitNormal = { x: 0, y: 1, z: 0 };
 
 /**
- * 레이 vs 상자 (y 는 `[position.y, position.y + height]` 슬래브). 맞으면 `t`, 아니면 −1.
- * 법선은 `boxHitNormal` 에 쓴다. 원기둥과 같은 규약: **원점이 이미 안이면 맞지 않은 것**으로 친다
- * (벽에 파묻힌 총구가 자기 벽을 때리지 않게).
+ * Ray vs box (y is the `[position.y, position.y + height]` slab). `t` on a hit, −1 otherwise.
+ * The normal goes into `boxHitNormal`. Same convention as the cylinder: **an origin already inside counts as a miss**
+ * (so a muzzle buried in a wall does not hit its own wall).
  */
 export function rayBox(
   ox: number, oy: number, oz: number, dx: number, dy: number, dz: number,
@@ -98,9 +100,9 @@ export function rayBox(
   if (top <= base) return -1;
 
   let tmin = -Infinity, tmax = Infinity;
-  let axis = 0, sign = 1;                       // 0 = X, 1 = Y, 2 = Z (로컬 축)
+  let axis = 0, sign = 1;                       // 0 = X, 1 = Y, 2 = Z (local axes)
 
-  // X 슬래브
+  // X slab
   if (Math.abs(ldx) < 1e-8) { if (lox < -b.halfX || lox > b.halfX) return -1; }
   else {
     let t0 = (-b.halfX - lox) / ldx, t1 = (b.halfX - lox) / ldx;
@@ -109,7 +111,7 @@ export function rayBox(
     if (t0 > tmin) { tmin = t0; axis = 0; sign = sg; }
     if (t1 < tmax) tmax = t1;
   }
-  // Z 슬래브
+  // Z slab
   if (Math.abs(ldz) < 1e-8) { if (loz < -b.halfZ || loz > b.halfZ) return -1; }
   else {
     let t0 = (-b.halfZ - loz) / ldz, t1 = (b.halfZ - loz) / ldz;
@@ -118,7 +120,7 @@ export function rayBox(
     if (t0 > tmin) { tmin = t0; axis = 2; sign = sg; }
     if (t1 < tmax) tmax = t1;
   }
-  // Y 슬래브 (회전하지 않는다)
+  // Y slab (does not rotate)
   if (Math.abs(dy) < 1e-8) { if (oy < base || oy > top) return -1; }
   else {
     let t0 = (base - oy) / dy, t1 = (top - oy) / dy;
@@ -139,13 +141,13 @@ export function rayBox(
   return tmin;
 }
 
-/* ── 경사 발판 (2026-09-11, `Obstacle.ramp`) ─────────────────────────────────────────────────────────────
- * 계단의 콜라이더. **보이는 것은 계단, 밟는 것은 경사면**이라 한 단마다 발이 튀어 오르지 않는다 (사용자 요청
- * "계단을 뚝뚝 끊기지 않고 스르륵"). 상자(`o.box`)와 같은 OBB 이고 윗면만 로컬 +X 로 기울어 있다:
- * `x = -halfX` 에서 `position.y + height - rise`, `x = +halfX` 에서 `position.y + height`.
- * ⚠ `o.ramp` 가 있을 때만 불린다 — 평평한 상자의 경로(`rayBox` · `boxPushOut`)는 한 줄도 바뀌지 않았다. */
+/* ── Ramp floor plate (2026-09-11, `Obstacle.ramp`) ──────────────────────────────────────────────────────
+ * A staircase's collider. **What is drawn is steps, what is walked on is a slope**, so a foot does not pop up at every
+ * step (user's request "계단을 뚝뚝 끊기지 않고 스르륵"). The same OBB as a box (`o.box`), with only the top face
+ * tilted along local +X: `position.y + height - rise` at `x = -halfX`, `position.y + height` at `x = +halfX`.
+ * ⚠ Called only when `o.ramp` is set — the flat-box paths (`rayBox` · `boxPushOut`) did not change by one line. */
 
-/** `(x, z)` 에서의 경사면 높이. 상자 단면 밖이면 가장 가까운 가장자리(로컬 X 로 자른 자리)의 높이다. */
+/** The slope height at `(x, z)`. Outside the box cross-section it is the nearest edge (clamped on local X). */
 export function rampTopAt(o: Obstacle, x: number, z: number): number {
   const b = o.box!, r = o.ramp!;
   toLocal(o, x, z, L);
@@ -154,13 +156,13 @@ export function rampTopAt(o: Obstacle, x: number, z: number): number {
   return o.position.y + o.height - r.rise + r.rise * t;
 }
 
-/* 로컬 반공간 6 장: ±X · ±Z · 밑면 · 기운 윗면. `n·p <= d` 가 안쪽이다. */
+/* Six local half-spaces: ±X · ±Z · bottom face · tilted top face. `n·p <= d` is inside. */
 const RP_N = new Float32Array(18);
 const RP_D = new Float32Array(6);
 
 /**
- * 레이 vs 경사 발판 (쐐기). 맞으면 `t`, 아니면 −1. 법선은 `boxHitNormal` 에 쓴다 (`rayBox` 와 같은 자리).
- * 원점이 이미 안이면 −1 — 다른 콜라이더와 같은 규약.
+ * Ray vs ramp floor plate (a wedge). `t` on a hit, −1 otherwise. The normal goes into `boxHitNormal` (where `rayBox`
+ * puts it). An origin already inside gives −1 — the same convention as every other collider.
  */
 export function rayRamp(
   ox: number, oy: number, oz: number, dx: number, dy: number, dz: number,

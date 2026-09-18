@@ -1,12 +1,12 @@
 /**
- * src/world/rails/parts/Track.ts — **선로 지오메트리 · 발판 콜라이더**.
+ * src/world/rails/parts/Track.ts — **the rail geometry · the deck colliders**.
  *
- * `Rails` 에서 떼어낸 메서드 묶음이고 상태는 없다 (2026-09-10 분할). 만드는 것은
- * ① 침목 · 레일 · 교각의 병합용 지오메트리, ② 교각 콜라이더, ③ **걸어 다니는 선로 발판** 상자다.
+ * A bundle of methods taken out of `Rails`, with no state (the 2026-09-10 split). It builds
+ * ① the merge geometry of ties · rails · piers, ② the pier colliders, ③ the **walkable rail deck** boxes.
  *
- * 규약 두 가지:
- *  - **로컬 +X = 진행 방향, 로컬 +Z = 좌우** (`rails/model` 의 축 규약).
- *  - `Obstacle.box.yaw` 는 수학 규약, 같은 상자를 그리는 메시의 Euler 는 `-yaw` 다.
+ * Two conventions:
+ *  - **Local +X = the travel direction, local +Z = sideways** (`rails/model`'s axis convention).
+ *  - `Obstacle.box.yaw` is the math convention; the mesh drawing the same box has Euler `-yaw`.
  */
 import * as THREE from 'three';
 import { Layers, type Random } from '@/shared';
@@ -17,17 +17,17 @@ import {
 } from '../model';
 
 /**
- * 침목 · 레일 토막 · 교각을 세우고, `RAIL_DECK_STEP` 마다 **얇은 발판 상자**를 이어 붙인다.
+ * Builds the ties, the rail segments and the piers, and chains a **thin deck box** every `RAIL_DECK_STEP`.
  *
- * 발판이 있어야 선로 위를 걸어 다닌다 (예전에는 교각만 콜라이더라 침목 사이로 그대로 빠졌다).
- * 윗면이 레일 상면과 같으므로 `getSurfaceY` 가 그것을 잡고, 땅에서 `RAIL_DECK_Y`(0.75 m,
- * `PROP_STEP_UP_MAX` 안) 만큼 올라선다. 침목마다 걸지 않는 이유는 `rails/model` 의 주석에 있다.
+ * Without the deck the rail is not walkable (only the piers used to be colliders, so people fell straight through
+ * between the ties). Its top face is level with the rail top face, so `getSurfaceY` catches it and one steps up
+ * `RAIL_DECK_Y` (0.75 m, within `PROP_STEP_UP_MAX`) from the ground. Why not one per tie is in `rails/model`'s comment.
  */
 export function buildTrack(ctx: BuildCtx, rng: Random, path: RailPath, out: RailBuild): void {
   const parts: THREE.BufferGeometry[] = [];
   const pos = new THREE.Vector3(), tan = new THREE.Vector3();
 
-  // 침목 + 레일 토막: 구간마다 한 덩어리로 놓아 곡선을 따라간다
+  // Ties + rail segments: one lump per stretch, so they follow the curve
   for (let s = 0; s < path.total; s += TIE_STEP) {
     sampleAt(path, s, pos, tan);
     const yaw = Math.atan2(tan.z, tan.x);
@@ -44,7 +44,7 @@ export function buildTrack(ctx: BuildCtx, rng: Random, path: RailPath, out: Rail
     }
   }
 
-  // 교각 (지형까지 내려가는 기둥)
+  // Piers (columns running down to the terrain)
   for (let s = 0; s < path.total; s += PIER_STEP) {
     sampleAt(path, s, pos, tan);
     const ground = ctx.terrain.getHeightAt(pos.x, pos.z);
@@ -61,7 +61,7 @@ export function buildTrack(ctx: BuildCtx, rng: Random, path: RailPath, out: Rail
     ctx.hash.addBox(new THREE.Vector3(pos.x, ground, pos.z), 0.3, 0.3, yaw, h, 'pier');
   }
 
-  // 걸어 다니는 발판
+  // The walkable deck
   for (let s = 0; s < path.total; s += RAIL_DECK_STEP) {
     sampleAt(path, s + RAIL_DECK_STEP / 2, pos, tan);
     const yaw = Math.atan2(tan.z, tan.x);

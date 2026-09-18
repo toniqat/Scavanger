@@ -27,7 +27,7 @@ export class Terrain {
   private material: THREE.MeshStandardMaterial | null = null;
   private textures: THREE.Texture[] = [];
   private nestPositions: { x: number; z: number }[] = [];
-  /** 2026-09-11 (C-40): 마지막 `build` 의 세부 소요(ms) — `height` · `normals` · `colors` · `textures` · `chunks`. */
+  /** 2026-09-11 (C-40): the last `build`'s per-step cost (ms) — `height` · `normals` · `colors` · `textures` · `chunks`. */
   readonly timings: Record<string, number> = {};
 
   private readonly heightFn = (x: number, z: number) => this.getHeightAt(x, z);
@@ -48,18 +48,19 @@ export class Terrain {
 
     const pads = layout.pads;
     const H = this.heights;
-    /* 2026-09-09 — 지하실 구덩이. 패드 평탄화 **다음에** 판다 (같은 자리를 패드가 되메우면 안 된다).
-     * 회전한 사각 구덩이라 미리 sin/cos 을 떠 둔다; 벽은 `PIT_BLEND` 한 칸 만에 서므로 사실상 수직이고,
-     * 그 흙벽은 `Structures` 가 콘크리트 벽으로 덮는다. */
+    /* 2026-09-09 — Basement pits. Dug **after** the pads are flattened (a pad must not fill the same spot back in).
+     * The pit is a rotated rectangle, so sin/cos are taken up front; its wall stands within one `PIT_BLEND` cell and
+     * is effectively vertical, and `Structures` covers that earth wall with a concrete one. */
     const pits = layout.structures
       .filter((s) => s.pit !== null)
       .map((s) => ({
         x: s.pad.x, z: s.pad.z, c: Math.cos(s.pad.yaw), s: Math.sin(s.pad.yaw),
         hx: s.pit!.halfX, hz: s.pit!.halfZ, floor: s.pad.height - s.pit!.depth,
       }));
-    /* 2026-09-11 (C-40): 줄마다 **그 줄에 닿을 수 있는 패드 · 구덩이만** 추려 둔다 — 예전에는 17만 정점마다 패드
-     * 20여 개를 전부 훑었고 그것이 높이장 시간의 한 덩어리였다. 추린 목록도 원래 순서(k 오름차순)를 지키고, 거른
-     * 패드는 원래 루프에서도 `continue` 로 빠지던 것이라(줄과의 z 거리만으로 이미 반경 밖) 높이가 한 비트도 다르지 않다. */
+    /* 2026-09-11 (C-40): per row, only **the pads · pits that row can reach** are collected — the old code walked all
+     * 20-odd pads at each of 170,000 vertices, one chunk of the heightfield time. The collected list keeps the original
+     * order (k ascending), and every pad filtered out was one the old loop `continue`d past anyway (already out of
+     * radius by its z distance to the row alone), so no height differs by a bit. */
     const rowPads: number[] = [];
     const rowPits: number[] = [];
     for (let j = 0; j < VERTS; j++) {
@@ -74,8 +75,8 @@ export class Terrain {
       rowPits.length = 0;
       for (let k = 0; k < pits.length; k++) {
         const p = pits[k];
-        // 페더만큼 넓힌 사각형의 외접원 — 이 줄이 그 원에 닿지 않으면 그 줄의 모든 정점에서 `outside >= PIT_BLEND` 다
-        // (두 축 모두 `< PIT_BLEND` 인 점은 반드시 `hypot(hx + B, hz + B)` 안에 있다)
+        // The circle around the rectangle grown by the feather — a row that misses it has `outside >= PIT_BLEND` at
+        // every one of its vertices (a point under `PIT_BLEND` on both axes is always inside `hypot(hx + B, hz + B)`)
         const reach = Math.hypot(p.hx + PIT_BLEND, p.hz + PIT_BLEND) + CELL;
         if (Math.abs(z - p.z) <= reach) rowPits.push(k);
       }
@@ -123,8 +124,8 @@ export class Terrain {
       const hills = noise.fbm(x * 0.013 + 31, z * 0.013 - 17, 3) * 2.4;
       const detail = noise.noise2(x * 0.06, z * 0.06) * 0.35;
       const ridgeMask = smoothstep(0.12, 0.62, noise.fbm(x * 0.0026 + 11.3, z * 0.0026 + 5.7, 2) + 0.15);
-      /* 2026-09-11 (C-40): 가림막이 0 인 곳(맵의 절반 가까이)에서는 능선 잡음(noise2 4번)을 굴리지 않는다 — `0 × ridge`
-       * 는 0 이고 `x + 0` 은 x 라 높이가 한 비트도 다르지 않다. 난수도 쓰지 않는 순수 함수라 순서 문제도 없다. */
+      /* 2026-09-11 (C-40): where the mask is 0 (nearly half the map) the ridge noise (4 × noise2) is not rolled —
+       * `0 × ridge` is 0 and `x + 0` is x, so no height differs by a bit, and a pure function draws no random number. */
       const ridge = ridgeMask > 0 ? noise.ridged(wx * 0.0075, wz * 0.0075, 4) : 0;
       let h = 7 + base + hills + detail + ridgeMask * ridge * 27;
 
@@ -133,7 +134,7 @@ export class Terrain {
         const c = craters[k];
         const dx = x - c.x, dz = z - c.z;
         const outer = c.radius * 1.5;
-        // (C-40) 제곱으로 먼저 거른다 — 경계에서는 bowl · rim 이 둘 다 정확히 0 이라 판정이 한 ulp 갈려도 결과가 같다
+        // (C-40) Filtered by the square first — at the boundary bowl · rim are both exactly 0, so a 1 ulp split is moot
         const d2 = dx * dx + dz * dz;
         if (d2 >= outer * outer) continue;
         const d = Math.sqrt(d2);
@@ -148,7 +149,7 @@ export class Terrain {
       for (let k = 0; k < basins.length; k++) {
         const b = basins[k];
         const dx = x - b.x, dz = z - b.z;
-        // (C-40) 제곱으로 먼저 거른다 — 경계에서는 `1 − smoothstep(0, r, d)` 가 정확히 0 이라 결과가 같다
+        // (C-40) Filtered by the square first — at the boundary `1 − smoothstep(0, r, d)` is exactly 0, so nothing moves
         const d2 = dx * dx + dz * dz;
         if (d2 >= b.radius * b.radius) continue;
         const d = Math.sqrt(d2);
@@ -504,8 +505,9 @@ function makeDetailNormalTexture(rng: Random): THREE.Texture {
 }
 
 /**
- * 2026-09-11 (C-40): 토러스 좌표의 cos / sin 표. 예전 `tileableNoise(u, v)` 는 픽셀마다 · 주파수마다 삼각함수를 네 번
- * 새로 불렀다(텍스처 두 장 × 65536 픽셀 × 3 주파수). 인자(`(i / size) · 2π`)가 같은 식이라 값이 한 비트도 다르지 않다.
+ * 2026-09-11 (C-40): a cos / sin table for the torus coordinates. The old `tileableNoise(u, v)` called four trig
+ * functions afresh per pixel and per frequency (2 textures × 65536 pixels × 3 frequencies); the argument
+ * (`(i / size) · 2π`) is the same expression, so no value differs by a bit.
  */
 function torusTrig(size: number): { cos: Float64Array; sin: Float64Array } {
   const cos = new Float64Array(size), sin = new Float64Array(size);

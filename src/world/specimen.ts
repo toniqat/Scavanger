@@ -1,41 +1,41 @@
 /**
- * src/world/specimen.ts — **행성별 미확인 표본 채집지** (연구실 배치 A-12, 2026-09-11).
+ * src/world/specimen.ts — **per-planet 미확인 표본 gather sites** (lab placement A-12, 2026-09-11).
  *
- * ## 2026-09-18 (사용자 결정) — 표본 채집지는 **지금 한 곳도 서지 않는다**
- * `data/planets.csv` 의 다섯 줄 전부 `sampleNodes = 0` · `samples` 빈 칸이다. 표본의 출처를 채집지 없이
- * 셋으로 가른 결정이다: **미확인 광물 = 광맥 · 고철 더미**, **미확인 세포 = 벌레 처치(와 벌레 알 파괴)**,
- * **미확인 유전자 = 연구소 컨테이너**. 「행성 바닥에 표본이 굴러다닌다」를 뺀 것이지 표본을 뺀 것이 아니다.
+ * ## 2026-09-18 (user's decision) — **not one specimen site stands any more**
+ * All five rows of `data/planets.csv` have `sampleNodes = 0` · an empty `samples`. The decision split where specimens
+ * come from three ways instead, with no gather site at all: **미확인 광물 = the mineral vein · the salvage pile**,
+ * **미확인 세포 = killing bugs (and bug eggs)**, **미확인 유전자 = lab containers**. 「specimens lying about on the planet floor」 is what was dropped, not specimens.
  *
- * **이 파일도 두 열도 그대로 둔다** (은퇴 규약 — `ItemDef.retired` 와 같은 자리). 여기는 데이터로만 굴러가고
- * `nodes = 0` 이 곧 「이 행성엔 채집지가 없다」라서, csv 숫자 하나만 되돌리면 채집지가 다시 선다 —
- * 지울 로직이 없다. 빈 칸을 「빠뜨린 값」으로 보고 채워 넣지 않는다.
+ * **This file and both columns are left alone** (the retirement convention — the same place as `ItemDef.retired`). It runs
+ * on data alone and `nodes = 0` already means 「this planet has no gather site」, so putting one csv number back
+ * stands them up again — there is no logic to delete. An empty column is not a 「missing value」 to fill in.
  *
- * 분석기가 해석할 표본은 세 군데서 나온다 — 벌레 시체(`data/loot_corpses.csv`) · 구조물 · 지하실 컨테이너
- * (`data/loot_category_weights.csv`), 그리고 **이 파일이 놓는 채집지**다. 어떤 표본이 나오는지는 행성마다
- * 다르다 (게놈 · 결정은 위험한 행성에만). 그 표가 `data/planets.csv` 의 두 열이다:
+ * The specimens the analyzer resolves come from three places — bug corpses (`data/loot_corpses.csv`) · structure and
+ * basement containers (`data/loot_category_weights.csv`), and **the gather sites this file places**. Which specimens
+ * appear differs per planet (genome · crystal only on dangerous ones). That table is two columns of `data/planets.csv`:
  *
- *  - `samples`     — `"표본아이템id:가중치"` 를 `|` 로 이어 쓴 목록 (`herbs` · `soils` · `seeds` 와 같은 형식).
- *  - `sampleNodes` — 미션당 표본 채집지(`GatherNodeKind === 'sample'`) 개수. 0 이거나 비면 그 행성엔 없다.
+ *  - `samples`     — `"표본아이템id:가중치"` joined with `|` (the same format as `herbs` · `soils` · `seeds`).
+ *  - `sampleNodes` — specimen gather sites (`GatherNodeKind === 'sample'`) per mission. 0 or empty = none on that planet.
  *
- * ⚠ 두 열의 정식 주인은 `shared/planetDefs.ts` 의 `PlanetEcosystem` 이다 — `world/soil.ts` 가 `soils` /
- * `soilNodes` 를 직접 읽는 것과 **같은 임시 조치**이고, `eco.samples` / `eco.sampleNodes` 두 줄로 옮기면
- * 이 파일은 그것을 읽기만 하면 된다. 홀드 시간 · 반경은 계약(`shared/constants.ts`)에 있고 여기서 재수출만 한다.
+ * ⚠ The proper owner of both columns is `PlanetEcosystem` in `shared/planetDefs.ts` — **the same stopgap** as
+ * `world/soil.ts` reading `soils` / `soilNodes` directly, and moving them to `eco.samples` / `eco.sampleNodes` leaves
+ * this file only reading those. Hold time · radius live in the contract (`shared/constants.ts`) and are re-exported here.
  *
- * THREE 를 쓰지 않는다 — 수치를 타입으로 옮기기만 하는 자리다.
+ * No THREE — this is only a place that carries numbers over into types.
  *
- * 2026-09-13 (요리 재료 티어 — 표본 3종 통합): 새 표 값은 `spec_cell` · `spec_mineral` 위주다. 이 파일은 csv 를 **그대로** 옮기고
- * (아이템 def 를 모르는 자리다), 은퇴한 옛 표본(`ItemDef.retired`)을 거르는 안전핀은 def 를 아는 `Gather.resolveNodeWeights` 가
- * 건다 — 표에 옛 id 가 남아 있어도 채집지가 서지 않는다. 미확인 광물은 여기 말고 고철 더미 부가 결과(`gather_mineral`)로도 나온다.
+ * 2026-09-13 (cooking material tiers — three specimens merged): the new table values centre on `spec_cell` · `spec_mineral`.
+ * This file carries the csv over **verbatim** (it does not know item defs); the pin that drops a retired old specimen
+ * (`ItemDef.retired`) is `Gather.resolveNodeWeights`, which does know defs — an old id in the table stands no site. 미확인 광물 also comes from the salvage pile bonus (`gather_mineral`).
  */
 import { csvRows } from '@/shared';
-/* 홀드 시간 · 반경의 정식 자리는 계약(`shared/constants.ts`)이다 — 여기서는 이름만 다시 내보낸다. */
+/* The proper home of hold time · radius is the contract (`shared/constants.ts`) — only the names are re-exported here. */
 export { SAMPLE_INTERACT_TIME, SAMPLE_NODE_RADIUS } from '@/shared';
 
-/** 한 행성이 주는 미확인 표본. */
+/** The 미확인 표본 one planet gives. */
 export interface PlanetSamples {
-  /** 표본 아이템 def id → 상대 가중치 (양수만). 비어 있으면 이 행성에는 표본 채집지가 없다. */
+  /** Specimen item def id → relative weight (positive only). Empty = this planet has no specimen gather site. */
   weights: Readonly<Record<string, number>>;
-  /** 미션당 표본 채집지 개수. */
+  /** Specimen gather sites per mission. */
   nodes: number;
 }
 
@@ -54,8 +54,8 @@ for (const r of csvRows('planets.csv')) {
 }
 
 /**
- * 이 행성이 주는 미확인 표본. 행성을 고르지 않았거나 모르는 id 면 null — **채집지를 놓지 않는다**
- * (`planetSoil` · `planetSeeds` 와 같은 규약).
+ * The 미확인 표본 this planet gives. No planet chosen or an unknown id → null — **no gather site is placed**
+ * (the same convention as `planetSoil` · `planetSeeds`).
  */
 export function planetSamples(planetId: string | null | undefined): PlanetSamples | null {
   if (!planetId) return null;

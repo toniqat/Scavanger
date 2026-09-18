@@ -1,24 +1,27 @@
 /**
- * src/world/Structures.ts — **버려진 구조물** (전진기지 · 연구실 · 불시착 함선).
+ * src/world/Structures.ts — **the abandoned structures** (outpost · lab · crash-landed ship).
  *
- * 들어갈 수 있는 폐건물이다. 안에는 상호작용 컨테이너가 밀집해 있고, 전진기지에는 **지하실**이, 2층이 올라간
- * 연구소에는 2층 **잠긴 방**이 딸릴 수 있다 — 둘 다 **언제나 잠겨 있고** 소모형 만능 열쇠로 연다 (2026-09-12:
- * 지하실 = `key_basement` 지하실 열쇠, 잠긴 방 = `keycard_lab` 연구소 키카드 — `data/structures.csv` 의 `key` 열).
- * 같은 종류면 어느 건물이든 열리고, 열면 연 사람의 것이 1 개 소모된다. 열쇠는 더 이상 그 건물 안에 보장되지 않는다 —
- * 지상층 컨테이너마다 `keyChance` 로 가끔 들어 있고, 상자 · 로그 시체 · 노마드 상점에서도 나온다.
- * 잠긴 문 바로 옆 벽 하단에는 지상드론만 지나가는 **개구멍**이 있다 (`parts/Build`). 전진기지 · 연구실의 **옥상**에는
- * 주변 안개를 걷는 **맵 스캐너**가 있다 (구조물당 1회).
+ * Derelict buildings that can be entered. Interactable containers crowd inside; an outpost may come with a
+ * **basement** and a lab that got a second floor with a floor-2 **locked room** — both are **always locked** and are
+ * opened with a consumable master key (2026-09-12: the basement = `key_basement`, the basement key; the locked room =
+ * `keycard_lab`, the lab keycard — the `key` column of `data/structures.csv`). The right kind opens any building, and
+ * opening one consumes one of the opener's. A key is no longer guaranteed inside that building — each ground-floor
+ * container holds one now and then at `keyChance`, and they also come out of crates · rogue corpses · the nomad shop.
+ * At the bottom of the wall right beside a locked door is a **vent** only a ground drone passes (`parts/Build`). On
+ * the **roof** of an outpost · lab stands a **map scanner** that clears the fog around it (once per structure).
  *
- * 2026-09-11 — 천장 · 2층 · 창문 · 사다리 · 옥상 스캐너 · 실내 조명 · 지하 계단 복도와 서 있는 문
- * (지오메트리는 `structures/parts/Build`, 유리는 `parts/Glass`, 파동은 `parts/ScanWave`). 여기에는 수명 ·
- * 상호작용 · 멀티만 남는다.
+ * 2026-09-11 — ceilings · a second floor · windows · ladders · the roof scanner · indoor lighting · the basement
+ * stair corridor and its standing door (geometry in `structures/parts/Build`, glass in `parts/Glass`, the wave in
+ * `parts/ScanWave`). What stays here is lifetime · interaction · multiplayer only.
  *
- * 소유 계약: `StructureDef` · `LadderDef` · `WorldRef.getStructures / structureAt / getLadders` ·
- * `structure:unlocked / scanned / investigated / glassBroken` · `ladder:grab` · `StructureMessage`(`struct`) /
- * `StructureRequest`(`structq`) · `STRUCTURE_*` 상수. 수치는 `data/structures.csv` (`structures/model.ts` 가 읽는다).
+ * Owned contract: `StructureDef` · `LadderDef` · `WorldRef.getStructures / structureAt / getLadders` ·
+ * `structure:unlocked / scanned / investigated / glassBroken` · `ladder:grab` · `StructureMessage` (`struct`) /
+ * `StructureRequest` (`structq`) · the `STRUCTURE_*` constants. The numbers are `data/structures.csv`
+ * (`structures/model.ts` reads it).
  *
- * 멀티: 지하실 개방 · 맵 스캔은 **호스트 권위**다 (`Gather` 의 `harv` / `harvq` 와 같은 모양). 창문은 **깬 사람이
- * 알린다** — 누가 깨든 결과가 같아서 확정이 필요 없다.
+ * Multiplayer: opening the basement · the map scan are **host-authoritative** (the same shape as `harv` / `harvq` in
+ * `Gather`). A window is **announced by whoever broke it** — the result is the same whoever breaks it, so nothing
+ * needs to be decided.
  */
 import * as THREE from 'three';
 import {
@@ -39,12 +42,13 @@ import { ScanWave } from './structures/parts/ScanWave';
 import { pickTier, structureRow } from './structures/model';
 
 /**
- * 지하실 열쇠의 아이템 def id. 2026-09-12 부터 **원본은 `data/structures.csv` 의 `key` 열**이고 이 모듈은 이 상수를
- * 읽지 않는다 — `world/index.ts` 가 내보내 온 이름이라 남겨 둔다 (옛 세이브 호환으로 id 자체는 그대로다).
+ * The item def id of the basement key. Since 2026-09-12 **the source is the `key` column of `data/structures.csv`**
+ * and this module does not read the constant — it is kept because `world/index.ts` has been exporting the name (the
+ * id itself is unchanged for old-save compatibility).
  */
 export const BASEMENT_KEY_DEF = 'key_basement';
 
-/** 잠긴 문의 종류 — 프롬프트 · 토스트 문구만 가른다 (규칙은 같다). */
+/** The kind of locked door — it only splits the prompt · toast wording (the rules are the same). */
 type DoorKind = 'basement' | 'locked';
 const DOOR_TEXT: Readonly<Record<DoorKind, { open: string; locked: string; need: string; done: string }>> = {
   basement: {
@@ -57,31 +61,31 @@ const DOOR_TEXT: Readonly<Record<DoorKind, { open: string; locked: string; need:
   },
 };
 
-/** 지하실 문짝이 옆으로 밀려나는 데 걸리는 시간(초). */
+/** How long (s) the basement door takes to slide aside. */
 const DOOR_SLIDE_S = 1.1;
 
 interface Inst {
   def: StructureDef;
-  /** 잠긴 동안 복도를 막는 문짝 콜라이더. 열리면 hash 에서 빠진다. */
+  /** The door collider blocking the corridor while locked. It leaves the hash once opened. */
   doorEntry: ObstacleEntry | null;
   doorMesh: THREE.Object3D | null;
   readonly doorBase: THREE.Vector3;
   readonly doorSlide: THREE.Vector3;
   doorAnim: number;      // −1 idle
   scanMat: THREE.MeshStandardMaterial | null;
-  /** 옥상 스캐너 자리 (불시착 함선은 null). */
+  /** The roof scanner's spot (null for a crash-landed ship). */
   scanPos: THREE.Vector3 | null;
-  /** 2026-09-12: 잠긴 문의 종류 (없으면 null) · 그 문을 여는 아이템 def id. */
+  /** 2026-09-12: the kind of locked door (null with none) · the item def id that opens it. */
   doorKind: DoorKind | null;
   keyDefId: string | null;
 }
 
-/** 디버그 · 스모크용 건물 안내 한 줄. */
+/** One building nav row for debug · smokes. */
 interface NavRow {
   id: string; kind: StructureKind; nav: StructureNav;
-  /** 지하실 문 상호작용 자리 (없으면 null). */
+  /** The basement door's interaction spot (null with none). */
   basementDoor: { x: number; y: number; z: number } | null;
-  /** 2026-09-12: 잠긴 방 문 상호작용 자리 (없으면 null). */
+  /** 2026-09-12: the locked room door's interaction spot (null with none). */
   lockedDoor: { x: number; y: number; z: number } | null;
 }
 
@@ -94,13 +98,13 @@ export class Structures {
   private readonly byId = new Map<string, Inst>();
   private readonly defs: StructureDef[] = [];
   private readonly ladders: LadderDef[] = [];
-  /** 2026-09-12: 건물 안내 (도달성 스모크 · 디버그 전용 — 판정에 쓰지 않는다). */
+  /** 2026-09-12: the building navs (reach smokes · debug only — never used in a decision). */
   private readonly navs: NavRow[] = [];
   /**
-   * 로그 강하를 이미 굴린 구역 (`structure:investigated` 의 `zoneId`). 구조물 id 뿐 아니라 **선로 플랫폼 ·
-   * 전차**의 zoneId 도 들어간다 — 그쪽은 `StructureDef` 가 아니라 여기 문자열로만 남는다.
-   * `struct sync.rogued` 가 통째로 실어 나른다: 굴려서 **실패한** 구역은 다른 와이어가 없으므로,
-   * 호스트가 바뀌면 새 호스트는 이 목록으로만 "그 구역은 이미 소진됐다" 를 안다.
+   * Zones whose rogue drop has already been rolled (the `zoneId` of `structure:investigated`). It holds not only
+   * structure ids but the zoneIds of **rail platforms · trams** too — those have no `StructureDef` and survive only
+   * as a string here. `struct sync.rogued` carries the whole set: a zone whose roll **failed** has no other wire, so
+   * after a host change the new host learns "that zone is already spent" from this list alone.
    */
   private readonly roguedZones = new Set<string>();
   private readonly containers = new ContainerSet('StructureContainers');
@@ -122,14 +126,14 @@ export class Structures {
 
   /* ── lifecycle ─────────────────────────────────────────────────────── */
 
-  /** `WorldSystem.init` 에서 한 번. 네트워크 훅은 `ctx.net` 이 게시된 뒤 게으르게 붙는다. */
+  /** Once from `WorldSystem.init`. The network hooks attach lazily, after `ctx.net` is published. */
   attach(game: GameContext): void {
     this.game = game;
     this.hookBus();
     this.ensureNet();
   }
 
-  /** 시스템 dispose 전용 (미션 사이의 `clear()` 는 구독을 유지한다). */
+  /** For system dispose only (`clear()` between missions keeps the subscriptions). */
   detach(): void {
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
@@ -142,36 +146,39 @@ export class Structures {
 
   getLadders(): readonly LadderDef[] { return this.ladders; }
 
-  /** 창문 (디버그 · 스모크). */
+  /** The windows (debug · smoke). */
   get glassSet(): GlassSet { return this.glass; }
-  /** 맵 스캐너 파동 (디버그 · 스모크). */
+  /** The map scanner waves (debug · smoke). */
   get scanWaves(): ScanWave { return this.scanWave; }
-  /** 광원 풀 (디버그 · 스모크). */
+  /** The light pool (debug · smoke). */
   get lights(): LightPool | null { return this.lightPool; }
-  /** 컨테이너가 열린 모습인가 (디버그 · 스모크). */
+  /** Is a container in its opened look (debug · smoke). */
   isContainerOpened(id: string): boolean { return this.containers.isOpened(id); }
   /**
-   * 2026-09-12: 건물마다의 안내 — 정문 안팎 · 방 사각형 · 계단 층계참/도착 자리 · 지하실 문 상호작용 자리
-   * (`scripts/smoke-structure-reach.mjs` 가 이것으로 flood fill 을 시작하고 목표를 잡는다). 디버그 · 스모크 전용.
+   * 2026-09-12: the nav of each building — outside / inside the front door · the room rectangles · the stair landing
+   * and arrival spots · the basement door's interaction spot (`scripts/smoke-structure-reach.mjs` starts its flood
+   * fill and picks its goals from this). Debug · smoke only.
    */
   debugNav(): readonly NavRow[] {
     return this.navs;
   }
 
   /**
-   * 2026-09-13: 구조물 `id` 의 건물 안내, 없으면 null. **거점 스폰 자리**(`SiteSpawns` — `WorldRef.getSiteSpawnPoints`)가
-   * 정문 안쪽 · 층 높이 · 잠긴 방 사각형을 읽는다. 월드의 충돌 · 표면 판정은 여전히 이것을 보지 않는다.
+   * 2026-09-13: the building nav of structure `id`, null with none. The **site spawn points** (`SiteSpawns` —
+   * `WorldRef.getSiteSpawnPoints`) read the inside of the front door · the level heights · the locked room rectangle
+   * from it. World collision · surface checks still never look at it.
    */
   navOf(id: string): StructureNav | null {
     return this.navs.find((n) => n.id === id)?.nav ?? null;
   }
 
-  /** 2026-09-12 (C): 이 묶음의 컨테이너를 처음 열면 나올 내용물 (`WorldRef.previewContainerItems`), 없으면 null. */
+  /** 2026-09-12 (C): the contents from the first opening of this set's container
+   * (`WorldRef.previewContainerItems`), null with none. */
   previewContainerItems(id: string): ItemInstance[] | null { return this.containers.preview(id); }
-  /** 2026-09-16: 이 묶음의 컨테이너 굴림 규칙 (`WorldRef.crateLootOpts` — 잠긴 방), 없으면 undefined. */
+  /** 2026-09-16: the roll rules of this set's container (`WorldRef.crateLootOpts` — the locked room), undefined with none. */
   crateLootOpts(id: string) { return this.containers.lootOpts(id); }
 
-  /** `(x, z)` 를 품는 구조물 (자기 `radius` 안), 없으면 null. */
+  /** The structure holding `(x, z)` (inside its own `radius`), null with none. */
   structureAt(x: number, z: number): StructureDef | null {
     for (let i = 0; i < this.defs.length; i++) {
       const d = this.defs[i];
@@ -181,13 +188,13 @@ export class Structures {
     return null;
   }
 
-  /** 컨테이너가 이 클라이언트에서 처음 열렸을 때 (월드가 `crate opened` 를 보낸다). */
+  /** Fired when a container first opens on this client (world sends `crate opened`). */
   setOpenListener(cb: ((id: string) => void) | null): void { this.containers.setOpenListener(cb); }
-  /** 남이 연 컨테이너를 열린 모습으로. 이 묶음의 것이 아니면 false. */
+  /** Puts a container somebody else opened into its opened look. false when it is not in this set. */
   markContainerOpened(id: string): boolean { return this.containers.markOpened(id); }
-  /** 2026-09-11 (C-57): 컨테이너 위치 (없으면 null). */
+  /** 2026-09-11 (C-57): a container's position (null with none). */
   containerPositionOf(id: string): THREE.Vector3 | null { return this.containers.positionOf(id); }
-  /** 2026-09-15 (안드로이드): 이 묶음의 컨테이너를 하나씩 넘긴다 (`WorldRef.getLootContainers`). */
+  /** 2026-09-15 (androids): hands over this set's containers one by one (`WorldRef.getLootContainers`). */
   collectContainers(push: (id: string, position: THREE.Vector3, tier: number, opened: boolean) => void): void { this.containers.collect(push); }
 
   build(ctx: BuildCtx, game: GameContext): void {
@@ -196,14 +203,16 @@ export class Structures {
     this.hookBus();
     this.ensureNet();
     this.built = true;
-    /* 광원 풀은 **구조물이 하나도 없어도** 만든다 — 레이드의 점광원 개수를 맵마다 같게 둔다 (`core/LightBudget`). */
+    /* The light pool is built **even with no structures at all** — it keeps the raid's point-light count
+     * the same on every map (`core/LightBudget`). */
     this.lightPool = new LightPool(this.group, STRUCTURE_POINT_LIGHTS, [], 'StructureLight');
     this.group.add(this.scanWave.group);
     ctx.root.add(this.group);
     const sites = ctx.layout.structures;
     if (sites.length === 0) return;
     const rng = ctx.rng.fork('structures');
-    /* 2026-09-12: 잠긴 방(자리 · 컨테이너 수 · 티어) 전용 — 구조물마다 `fork(id)` 라 본래 스트림도, 다른 건물도 밀지 않는다. */
+    /* 2026-09-12: for the locked room only (spot · container count · tiers) — one `fork(id)` per structure,
+     * so it shifts neither the original stream nor another building. */
     const lockBase = ctx.rng.fork('structureLocks');
 
     this.structMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84, metalness: 0.2 });
@@ -247,7 +256,7 @@ export class Structures {
         this.group.add(gm);
       }
 
-      /* 2026-09-12: 잠긴 문은 건물마다 많아야 하나 — 지하실 문(전진기지) 또는 2층 잠긴 방 문(연구소). */
+      /* 2026-09-12: at most one locked door per building — the basement door (outpost) or the floor-2 locked room door (lab). */
       const lockDoor = out.door ?? out.lockedDoor;
       const doorKind: DoorKind | null = out.door ? 'basement' : out.lockedDoor ? 'locked' : null;
       if (lockDoor && !row.key) console.warn(`[Structures] ${id}: 잠긴 문이 있는데 structures.csv 의 key 가 비었다 — 영영 열리지 않는다`);
@@ -268,9 +277,11 @@ export class Structures {
         scanMat: null, scanPos: null, doorKind, keyDefId: def.unlockDefId ?? null,
       };
 
-      /* 컨테이너: 지상층(1 · 2층) + (있으면) 지하실 + (있으면) 2층 잠긴 방. 자리 고르기는 `buildBuilding` 이 이미 끝냈다
-       * (조명이 그 방에 달린다). 2026-09-12: 열쇠는 더 이상 "지상 컨테이너 하나에 확정" 이 아니다 — 지상 컨테이너마다
-       * `keyChance` 로 그 종류의 열쇠가 **부가로** 들어 있을 수 있고(보장 없음), 굴림은 `ContainerSet` 이 시드로 한다. */
+      /* Containers: the ground levels (floors 1 · 2) + the basement (when there is one) + the floor-2 locked room
+       * (when there is one). `buildBuilding` has already finished picking the spots (the lighting hangs in those
+       * rooms). 2026-09-12: the key is no longer "guaranteed in one ground-floor container" — each ground-floor
+       * container may hold that kind's key as a **bonus** at `keyChance` (never guaranteed), and `ContainerSet` rolls
+       * it from the seed. */
       const ground = out.containers;
       const bonusKey = row.key && row.keyChance > 0 ? row.key : undefined;
       ground.forEach((s, i) => specs.push({
@@ -280,9 +291,10 @@ export class Structures {
         bonusDefId: bonusKey, bonusChance: bonusKey ? row.keyChance : undefined,
       }));
       const deepTiers = row.basementTiers.length > 0 ? row.basementTiers : row.tiers;
-      /* 2026-09-15 (진동 장치, 사용자 결정 「아켈론 II 전진기지 지하실에서만」): 지하실 컨테이너도 지상층의 열쇠와 **같은 부가 굴림**
-       * (`bonusDefId` · `bonusChance`, `ContainerSet` 이 따로 된 rng 로 굴린다)을 갖는다 — `structures.csv` 의 `basementBonus*` 열이
-       * 아이템 · 확률 · 행성을 정하고, 목표 행성이 목록에 없으면 굴림 자체가 없다. 상자 티어 굴림은 건드리지 않는다. */
+      /* 2026-09-15 (thumper, user's decision 「only in the 아켈론 II outpost basement」): a basement container gets the
+       * **same bonus roll** as the ground floor's key (`bonusDefId` · `bonusChance`, rolled by `ContainerSet` on its
+       * own rng) — the `basementBonus*` columns of `structures.csv` decide the item · chance · planets, and with the
+       * target planet not on the list there is no roll at all. The crate tier roll is untouched. */
       const deepBonus = row.basementBonus && (row.basementBonusPlanets.length === 0 || (game.missionPlanet != null && row.basementBonusPlanets.includes(game.missionPlanet)))
         ? row.basementBonus : undefined;
       out.basementContainers.forEach((s, i) => specs.push({
@@ -292,7 +304,8 @@ export class Structures {
         bonusDefId: deepBonus, bonusChance: deepBonus ? row.basementBonusChance : undefined,
       }));
       const lockTiers = row.lockedTiers.length > 0 ? row.lockedTiers : deepTiers;
-      /* 2026-09-16: 잠긴 방 컨테이너는 서사 이상 드롭률 게이트 면제 (`lockedRoom` → `CrateLootOpts`, 사용자 결정 「잠긴 방은 지금 그대로」). */
+      /* 2026-09-16: locked room containers are exempt from the epic+ drop rate gate (`lockedRoom` →
+       * `CrateLootOpts`, user's decision 「the locked room stays as it is」). */
       out.lockedContainers.forEach((s, i) => specs.push({
         id: `${id}_l${i}`, position: new THREE.Vector3(s.x, s.y, s.z), yaw: s.yaw,
         tier: pickTier(lockTiers, lockRng.next()), style: ((i + 2) % 3) as 0 | 1 | 2,
@@ -332,7 +345,7 @@ export class Structures {
     this.requestSync();
   }
 
-  /** `eye` = 조명 풀이 가까운 방을 고르는 기준 (플레이어 눈 · 없으면 카메라). */
+  /** `eye` = what the light pool picks the nearest rooms by (the player's eye, or the camera with none). */
   update(dt: number, time: number, eye: THREE.Vector3 | null): void {
     if (!this.built) return;
     this.containers.update(dt, time);
@@ -385,7 +398,7 @@ export class Structures {
     this.built = false;
   }
 
-  /* ── 옥상 맵 스캐너 ────────────────────────────────────────────────── */
+  /* ── The roof map scanner ──────────────────────────────────────────── */
 
   private buildConsole(ctx: BuildCtx, game: GameContext, rng: Random, inst: Inst, spot: Spot): void {
     const parts: THREE.BufferGeometry[] = [];
@@ -397,7 +410,7 @@ export class Structures {
     xform(hood, { x: spot.x, y: spot.y + 1.4, z: spot.z }, new THREE.Euler(-0.32, -spot.yaw, 0));
     paint(hood, PALETTE.METAL_DARK, 0.06, rng);
     parts.push(hood);
-    // 옥상 스캐너다운 안테나 접시 (그림만)
+    // An antenna dish to look like a roof scanner (drawing only)
     const px = spot.x - Math.cos(spot.yaw) * 0.72, pz = spot.z - Math.sin(spot.yaw) * 0.72;
     const dishPole = new THREE.BoxGeometry(0.1, 1.1, 0.1);
     xform(dishPole, { x: px, y: spot.y + 1.6, z: pz });
@@ -425,7 +438,7 @@ export class Structures {
     screen.rotation.set(-0.32, -spot.yaw, 0);
     this.group.add(screen);
 
-    /* 2026-09-12: 받침대 상자 그대로 (예전 반지름 0.55 원기둥은 앞뒤로 24 cm 씩 보이지 않는 벽이었다) + 접시 기둥 */
+    /* 2026-09-12: the pedestal box as drawn (the old radius-0.55 cylinder was an invisible wall 24 cm out front and back) + the dish pole */
     ctx.hash.addBox(new THREE.Vector3(spot.x, spot.y, spot.z), 0.475, 0.31, spot.yaw, 1.1, 'console');
     ctx.hash.addBox(new THREE.Vector3(px, spot.y, pz), 0.05, 0.05, spot.yaw, 2.2, 'console');
 
@@ -443,7 +456,7 @@ export class Structures {
     });
   }
 
-  /* ── 잠긴 문 (지하실 문 · 2층 잠긴 방 문 — 서 있는 문짝) ─────────────────── */
+  /* ── The locked door (basement door · floor-2 locked room door — a standing door panel) ─────────────── */
 
   private buildDoor(ctx: BuildCtx, game: GameContext, rng: Random, inst: Inst, door: DoorSpot): void {
     const parts: THREE.BufferGeometry[] = [];
@@ -475,10 +488,10 @@ export class Structures {
     inst.doorMesh = holder;
     inst.doorBase.set(door.x, door.y, door.z);
     inst.doorSlide.set(door.slideX, 0, door.slideZ);
-    /* 잠긴 동안은 문짝이 곧 콜라이더다 — 열리면 hash 에서 빠지고 옆으로 밀려난다. */
+    /* While locked the door panel is the collider — once open it leaves the hash and slides aside. */
     inst.doorEntry = ctx.hash.addBox(new THREE.Vector3(door.x, door.y, door.z), door.halfW, door.thick / 2 + 0.02, door.yaw, door.height, 'door');
 
-    // 카드 리더기 (복도 벽의 가슴 높이 상자 + LED)
+    // The card reader (a chest-height box on the corridor wall + an LED)
     {
       const box = new THREE.BoxGeometry(0.3, 0.42, 0.16);
       xform(box, { x: door.reader.x, y: door.y + 1.35, z: door.reader.z }, new THREE.Euler(0, -door.reader.yaw, 0));
@@ -502,7 +515,7 @@ export class Structures {
       id: `struct:${inst.def.id}:door`,
       position: pos,
       radius: STRUCTURE_INTERACT_RANGE,
-      /* 맞는 열쇠가 없으면 홀드 0 — 눌러 보면 바로 거부음이 난다. 게이지를 다 채우고 나서 거절당하는 것보다 낫다. */
+      /* Hold 0 without the right key — pressing gives the deny sound at once. Better than being refused after filling the whole gauge. */
       get holdTime(): number { return self.hasKey(inst) ? STRUCTURE_UNLOCK_HOLD_S : 0; },
       getPrompt: () => (inst.def.unlocked ? null : self.hasKey(inst) ? text.open : text.locked),
       canInteract: () => !inst.def.unlocked && !!this.game?.isGameplayActive(),
@@ -510,23 +523,23 @@ export class Structures {
     });
   }
 
-  /** 이 클라이언트가 그 문을 여는 열쇠(`inst.keyDefId`)를 하나라도 들고 있나 (가방 · 퀵슬롯 · 주머니 — `countWhere`). */
+  /** Does this client carry even one of the key that opens that door (`inst.keyDefId`) — bag · quick slots · pouches (`countWhere`). */
   private hasKey(inst: Inst): boolean {
     const inv = this.game?.inventory;
     const key = inst.keyDefId;
     return !!inv && !!key && inv.countWhere((def) => def.id === key) > 0;
   }
 
-  /** 잠긴 문의 월드 위치 (소리 · 이벤트). */
+  /** The locked door's world position (sound · events). */
   private doorPosOf(inst: Inst): THREE.Vector3 {
     return inst.def.basementDoor ?? inst.def.lockedRoomDoor ?? inst.def.position;
   }
 
-  /* ── 사다리 ───────────────────────────────────────────────────────── */
+  /* ── Ladders ──────────────────────────────────────────────────────── */
 
   /**
-   * 사다리마다 **발치 · 꼭대기** 두 `Interactable`. 누르면 `ladder:grab` 을 낼 뿐이고 오르내리기는 전부
-   * `player/` 가 한다. 매달려 있는 동안에는 두 프롬프트가 모두 숨는다 (E 가 사다리 놓기이기 때문이다).
+   * Two `Interactable`s per ladder, at the **foot · top**. Pressing only emits `ladder:grab`; all the climbing is done
+   * by `player/`. While hanging both prompts hide (E is letting go of the ladder then).
    */
   private registerLadder(game: GameContext, ladder: LadderDef): void {
     const self = this;
@@ -554,9 +567,9 @@ export class Structures {
     });
   }
 
-  /* ── 창문 ─────────────────────────────────────────────────────────── */
+  /* ── Windows ──────────────────────────────────────────────────────── */
 
-  /** 창 한 장을 깬다. `byLocal` = 이 클라이언트의 총알 · 투척물이 깼다 (와이어로 알린다). */
+  /** Breaks one pane. `byLocal` = this client's bullet · throwable broke it (announce it on the wire). */
   private breakGlass(structureId: string, index: number, byLocal: boolean, point?: THREE.Vector3): void {
     if (!this.glass.breakPane(structureId, index)) return;
     const ctx = this.game;
@@ -575,14 +588,15 @@ export class Structures {
     if (byLocal && ctx.isMultiplayer && net) net.send({ t: 'struct', ev: 'glass', id: structureId, w: index }, 'others');
   }
 
-  /* ── 상호작용 → 호스트 권위 ───────────────────────────────────────── */
+  /* ── Interaction → host authority ─────────────────────────────────── */
 
   private requestScan(inst: Inst): void {
     const ctx = this.game;
     if (!ctx || inst.def.scanned) return;
     const net = ctx.net;
-    /* 2026-09-14 (NPC 퀘스트 interact): 「내가 스캐너를 작동했다」. 호스트의 `struct scanned` 에는 누가 돌렸는지가 없어서
-       클라이언트는 **요청하는 순간** 낸다 — 이미 스캔된 스캐너는 위 가드가 막으므로 거절되는 경우는 같은 틱의 경합뿐이다. */
+    /* 2026-09-14 (NPC quest interact): 「I ran the scanner」. The host's `struct scanned` does not say who ran it, so
+       the client emits it **the moment it requests** — an already scanned scanner is stopped by the guard above, so
+       the only case that gets refused is a race in the same tick. */
     ctx.bus.emit('world:interacted', { kind: 'scanner', id: inst.def.id, structureKind: inst.def.kind });
     if (ctx.isMultiplayer && net && !net.isHost) { net.send({ t: 'structq', ev: 'scan', id: inst.def.id }, 'host'); return; }
     this.applyScan(inst, true);
@@ -605,8 +619,8 @@ export class Structures {
   }
 
   /**
-   * `announce` = 이 클라이언트의 조작으로 일어난 일인가 (토스트). **파동과 소리는 누구 화면에서든** 난다
-   * (옥상에서 누가 스캔하면 분대 전원이 맵을 훑는 파동을 본다).
+   * `announce` = did this client's own action cause it (the toast). **The wave and the sound happen on everyone's
+   * screen** (when somebody scans from a roof the whole squad sees the wave sweep the map).
    */
   private applyScan(inst: Inst, announce: boolean): void {
     const ctx = this.game;
@@ -623,7 +637,7 @@ export class Structures {
     ctx.bus.emit('ui:notify', { text: `${STRUCTURE_LABEL_KO[inst.def.kind]} — 맵 스캔 완료`, kind: 'success', duration: 2.6 });
   }
 
-  /** `consume` = 이 클라이언트가 열쇠를 낸 사람인가 (그 문의 열쇠 `inst.keyDefId` 가 1 개 소모된다). */
+  /** `consume` = is this client the one who spent the key (one of that door's key `inst.keyDefId` is consumed). */
   private applyUnlock(inst: Inst, by: PeerId | null, consume: boolean): void {
     const ctx = this.game;
     if (!ctx || inst.def.unlocked) return;
@@ -636,13 +650,13 @@ export class Structures {
       if (key) ctx.inventory?.consumeWhere((def) => def.id === key, 1);
       ctx.bus.emit('audio:play', { id: 'keycard_use', position: at });
       ctx.bus.emit('ui:notify', { text: DOOR_TEXT[inst.doorKind ?? 'basement'].done, kind: 'success', duration: 2.2 });
-      // 2026-09-14 (NPC 퀘스트 interact): 열쇠를 낸 사람 = 이 클라이언트 (호스트가 `by` 로 확정해 준 뒤)
+      // 2026-09-14 (NPC quest interact): the one who spent the key = this client (after the host decided it with `by`)
       ctx.bus.emit('world:interacted', { kind: inst.doorKind === 'locked' ? 'lab_door' : 'basement_door', id: inst.def.id, structureKind: inst.def.kind });
     }
     ctx.bus.emit('structure:unlocked', { id: inst.def.id, kind: inst.def.kind, by, position: at });
   }
 
-  /* ── 멀티 ─────────────────────────────────────────────────────────── */
+  /* ── Multiplayer ──────────────────────────────────────────────────── */
 
   private ensureNet(): void {
     const ctx = this.game;
@@ -658,8 +672,9 @@ export class Structures {
   }
 
   /**
-   * 네트워크가 없어도 붙어야 하는 구독. `ensureNet` 은 `ctx.net` 이 게시된 뒤에야 붙는데, 로그 강하의
-   * "구역당 1회" 기록은 **싱글 플레이에서도** 남아야 한다 (다음에 그 구역을 다시 굴리지 않게).
+   * The subscriptions that must attach even with no network. `ensureNet` attaches only after `ctx.net` is published,
+   * but the rogue drop's "once per zone" record has to be kept **in single player too** (so that zone is not rolled
+   * again next time).
    */
   private hookBus(): void {
     const ctx = this.game;
@@ -668,7 +683,7 @@ export class Structures {
     this.unsubs.push(ctx.bus.on('structure:investigated', ({ zoneId }) => this.markRogued(zoneId)));
   }
 
-  /** 그 구역의 로그 강하 추첨이 끝났다고 적어 둔다 (구조물이면 `StructureDef` 에도). */
+  /** Notes that the zone's rogue drop draw is done (on the `StructureDef` too when it is a structure). */
   private markRogued(zoneId: string): void {
     this.roguedZones.add(zoneId);
     const inst = this.byId.get(zoneId);
@@ -682,7 +697,7 @@ export class Structures {
     net.send({ t: 'structq', ev: 'sync' }, 'host');
   }
 
-  /** 호스트 → 클라이언트. 창문만은 **누구 → 전원**이라 호스트도 받는다. */
+  /** Host → client. Windows alone are **anyone → everyone**, so the host receives them too. */
   private onMessage(m: StructureMessage): void {
     const ctx = this.game;
     const net = ctx?.net;
@@ -691,7 +706,7 @@ export class Structures {
     if (net.isHost) return;
     if (m.ev === 'unlocked') {
       const inst = this.byId.get(m.id);
-      // 열쇠 · 키카드는 **연 사람의 것만** 사라진다
+      // The key · keycard disappears **only from the one who opened it**
       if (inst) this.applyUnlock(inst, m.by, m.by !== null && m.by === net.localId);
       return;
     }
@@ -709,7 +724,7 @@ export class Structures {
     }
   }
 
-  /** 늦게 합류한 사람의 동기화: 이미 끝난 스캔은 파동 · 소리 없이 상태만. */
+  /** A late joiner's sync: a scan that already finished restores state only, with no wave and no sound. */
   private applyScanQuiet(inst: Inst): void {
     if (inst.def.scanned) return;
     inst.def.scanned = true;
@@ -717,7 +732,7 @@ export class Structures {
     this.game?.world?.fog?.reveal(at.x, at.z, STRUCTURE_SCAN_RADIUS);
   }
 
-  /** 늦게 합류한 사람의 동기화: 이미 깨진 창은 파편 · 소리 없이. */
+  /** A late joiner's sync: an already broken pane gets no shards and no sound. */
   private breakGlassQuiet(structureId: string, index: number): void {
     if (!Number.isFinite(index)) return;
     if (!this.glass.breakPane(structureId, index)) return;
@@ -725,7 +740,7 @@ export class Structures {
     if (center) this.game?.bus.emit('structure:glassBroken', { structureId, index, position: center, byLocal: false });
   }
 
-  /** 클라이언트 → 호스트. */
+  /** Client → host. */
   private onRequest(m: StructureRequest, from: PeerId): void {
     const ctx = this.game;
     const net = ctx?.net;
@@ -734,8 +749,8 @@ export class Structures {
     const inst = this.byId.get(m.id);
     if (!inst) return;
     if (m.ev === 'unlock') {
-      if (inst.def.unlocked) return;              // 먼저 연 사람이 있다 — 요청자의 열쇠는 살아남는다
-      if (!inst.keyDefId) return;                 // 열쇠가 정해지지 않은 문 (csv 설정 오류) — 누구도 열 수 없다
+      if (inst.def.unlocked) return;              // somebody opened it first — the requester's key survives
+      if (!inst.keyDefId) return;                 // a door with no key decided (a csv setup error) — nobody can open it
       this.applyUnlock(inst, from, false);
       net.send({ t: 'struct', ev: 'unlocked', id: inst.def.id, by: from }, 'others');
       return;

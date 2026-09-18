@@ -1,17 +1,17 @@
 /**
- * src/world/rover/parts/Exits.ts — **하차 자리 고르기** (R2, 2026-09-13).
+ * src/world/rover/parts/Exits.ts — **picking the exit spots** (R2, 2026-09-13).
  *
- * 차체 옆 · 뒤 · 앞의 후보 자리를 순서대로 보고, 발밑 높이(`getSurfaceY`)에 세웠을 때 `resolveCollision` 이 거의 밀지 않고
- * (다른 콜라이더 안이 아니다) 이미 고른 자리와 겹치지 않는 것을 `count` 개 고른다. 모자라면 차 옆으로 조금씩 멀리
- * 물러난 자리로 채운다 (충돌 검사 없이 — 누구도 차 안에 남지 않는 것이 먼저다).
- * 호스트가 고르고 `rover reply.exit` · `rover eject.exits` 로 보낸다.
+ * It walks the candidate spots beside · behind · in front of the body in order and takes `count` of them: those where, standing at
+ * the underfoot height (`getSurfaceY`), `resolveCollision` barely pushes (not inside another collider) and which do not overlap one
+ * already picked. Too few, and it fills up with spots stepped further out beside the car (no collision check — nobody being left inside the car comes first).
+ * The host picks them and sends them in `rover reply.exit` · `rover eject.exits`.
  */
 import * as THREE from 'three';
 import { PLAYER_RADIUS, ROVER_EXIT_GAP_M, ROVER_HALF_LENGTH, ROVER_HALF_WIDTH, type RoverVehicleDef, type WorldRef } from '@/shared';
 
-/** `resolveCollision` 이 이만큼(m) 넘게 밀면 그 후보는 다른 물체 안이다. */
+/** When `resolveCollision` pushes further than this (m), that candidate is inside another object. */
 const MAX_PUSH_M = 0.15;
-/** 두 하차 자리 사이 최소 거리(m). */
+/** The minimum distance between two exit spots (m). */
 const MIN_APART_M = 0.95;
 
 const _p = new THREE.Vector3();

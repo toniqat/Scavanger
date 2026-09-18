@@ -2,9 +2,9 @@ import * as THREE from 'three';
 import {
   EXTRACTION_OUTER_MIN_M, EXTRACTION_PADS_MAX_BY_THREAT, EXTRACTION_PADS_MIN_BY_THREAT, EXTRACTION_PADS_SPORES_MAX,
   EXTRACTION_PADS_SPORES_MIN, MAP_SIZE, RAIL_CHANCE, Random, SPORE_SPAWN_CENTER_M, type RailKind, type StructureKind,
-  /* 2026-09-13: 탐사 차량 */
+  /* 2026-09-13: the rover */
   ROVER_CHANCE, ROVER_ROUTE_CLEARANCE_M, ROVER_STATION_PAD_BLEND,
-  /* 2026-09-14: 정보상 — 산 기믹의 해석본 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+  /* 2026-09-14: the intel broker — the resolved form of the bought gimmicks (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
   type IntelEffects, numberList,
 } from '@/shared';
 import { RAIL_CLEARANCE_M, STRUCTURE_ROWS, structureRow } from './structures/model';
@@ -12,11 +12,11 @@ import type { RoverPlan } from './rover/model';
 import { planRoverRoute, roverRouteDistance } from './rover/RoadPlan';
 
 /**
- * 2026-09-09 — `structure` (버려진 구조물 부지) 와 `platform` (선로 플랫폼) 이 붙었다.
- * 둘 다 지형이 **평탄화해야** 하는 자리라 매크로 레이아웃 단계에서 먼저 잡는다.
+ * 2026-09-09 — `structure` (an abandoned structure's site) and `platform` (a rail platform) were added.
+ * Both are spots the terrain **has to flatten**, so they are fixed first, in the macro layout stage.
  */
 export type PadKind = 'spawn' | 'extraction' | 'nest' | 'poi' | 'structure' | 'platform'
-  /* 2026-09-13: 탐사 차량 정류장 부지 */
+  /* 2026-09-13: the rover station site */
   | 'station';
 
 /** A flattened circular area blended into the heightfield. */
@@ -35,33 +35,33 @@ export interface Crater { x: number; z: number; radius: number; depth: number }
 export interface Basin { x: number; z: number; radius: number; depth: number }
 
 /**
- * 2026-09-09 — 버려진 구조물 한 채의 **부지**. 지형이 이 자리를 평탄화하고, 지하실이 있으면 그 밑을 파낸다
- * (`Terrain.build` 의 pad 평탄화 **다음** 단계). 건물 자체는 `world/Structures.ts` 가 세운다.
+ * 2026-09-09 — One abandoned structure's **site**. The terrain flattens this spot and digs out underneath it when
+ * there is a basement (the step **after** pad flattening in `Terrain.build`). `world/Structures.ts` builds the house.
  */
 export interface StructureSite {
   kind: StructureKind;
   pad: Pad;
-  /** 건물 바닥 반길이(m, 패드 로컬 축). */
+  /** The building floor's half-length (m, on the pad's local axes). */
   halfW: number;
   halfD: number;
   wallH: number;
-  /** 지하실 구덩이. null = 지하실 없음. 로컬 축 반길이 + 바닥 깊이(m)다. */
+  /** The basement pit. null = no basement. Half-lengths on the local axes + the floor depth (m). */
   pit: { halfX: number; halfZ: number; depth: number } | null;
-  /** 지상 층수 (2026-09-11) — 1 또는 2. 어느 쪽이든 옥상이 있다. */
+  /** Above-ground floors (2026-09-11) — 1 or 2. Either way it has a roof. */
   floors: number;
 }
 
 /**
- * 2026-09-09 — 이번 맵의 선로 계획. 실제 선로 · 전차는 `world/Rails.ts` 가 지형 높이를 읽어 세운다
- * (선로는 지형을 평탄화하지 않는다 — 교각으로 높이를 맞춘다). 여기서 정하는 것은 **모양과 플랫폼 자리**뿐이다.
+ * 2026-09-09 — This map's rail plan. The real rail · tram are built by `world/Rails.ts`, reading the terrain height
+ * (the rail does not flatten terrain — piers make up the height). Only **the shape and the platform spots** are here.
  */
 export interface RailPlan {
   kind: RailKind;
-  /** `loop` = 순환 반지름(m), `line` = 중심에서 끝까지의 반길이(m). */
+  /** `loop` = the loop radius (m), `line` = the half-length from the centre to an end (m). */
   extent: number;
-  /** `loop` = 링의 위상, `line` = 선로 방향(rad). */
+  /** `loop` = the ring's phase, `line` = the rail direction (rad). */
   angle: number;
-  /** 선로 위 진행거리 `s` 의 비율(0..1) 로 적어 둔 플랫폼 자리. `Rails` 가 이걸로 정확한 지점을 잡는다. */
+  /** Platform spots written as a fraction (0..1) of the travel distance `s` along the rail. `Rails` resolves the point. */
   stops: number[];
   platforms: Pad[];
 }
@@ -74,10 +74,10 @@ export interface WorldLayout {
   pads: Pad[];          // all of the above
   craters: Crater[];
   basins: Basin[];
-  /* appended (2026-09-09): 레이드 플레이 개선 */
+  /* appended (2026-09-09): raid play improvements */
   structures: StructureSite[];
   rail: RailPlan | null;
-  /* appended (2026-09-13): 탐사 차량 흙길 계획 (`rover/RoadPlan.ts`). null = 이번 맵에는 차량이 없다 */
+  /* appended (2026-09-13): the rover dirt-road plan (`rover/RoadPlan.ts`). null = no rover on this map */
   rover: RoverPlan | null;
 }
 
@@ -92,7 +92,7 @@ function farFromAll(x: number, z: number, others: readonly { x: number; z: numbe
   return true;
 }
 
-/** `RailPlan` 의 중심선 위 한 점 (`t` = 0..1). `Rails.build` 가 점열을 만드는 식과 **같은 식**이다. */
+/** A point on `RailPlan`'s centreline (`t` = 0..1). **The same expression** `Rails.build` builds its point list with. */
 function railPointAt(loop: boolean, extent: number, angle: number, t: number): { x: number; z: number } {
   return loop
     ? { x: Math.cos(angle + t * Math.PI * 2) * extent, z: Math.sin(angle + t * Math.PI * 2) * extent }
@@ -100,8 +100,8 @@ function railPointAt(loop: boolean, extent: number, angle: number, t: number): {
 }
 
 /**
- * `(x, z)` 에서 선로 **중심선**까지의 XZ 거리. 선로가 없으면 Infinity.
- * `loop` 은 닫힌 원이라 점-원 거리, `line` 은 원점을 지나는 선분이라 점-선분 거리다.
+ * The XZ distance from `(x, z)` to the rail **centreline**. Infinity when there is no rail.
+ * `loop` is a closed circle, so point-to-circle; `line` is a segment through the origin, so point-to-segment.
  */
 export function railDistance(rail: RailPlan | null, x: number, z: number): number {
   if (!rail) return Infinity;
@@ -112,17 +112,17 @@ export function railDistance(rail: RailPlan | null, x: number, z: number): numbe
 }
 
 /**
- * 선로 회랑까지의 여유(m) — 음수면 **회랑 안**이라 아무것도 놓지 않는다 (`isSpotFree` 가 본다).
- * 플랫폼은 선로 시설이므로 여기서 세지 않는다 (그 자리는 `layout.pads` 의 `platform` 패드가 막는다).
+ * The clearance (m) to the rail corridor — negative means **inside the corridor**, where nothing is placed (read by
+ * `isSpotFree`). A platform is a rail facility and is not counted here (its spot is held by a `platform` pad in `layout.pads`).
  */
 export function railClearance(layout: WorldLayout, x: number, z: number): number {
   return railDistance(layout.rail, x, z) - RAIL_CLEARANCE_M;
 }
 
 /**
- * 2026-09-13 — 탐사 차량 흙길 회랑 · 정류장 부지까지의 여유(m). 음수면 **회랑 · 부지 안**이라 아무것도 놓지 않는다
- * (`isSpotFree` · `SiteSpawns` 가 본다 — `railClearance` 와 같은 쓰임). 흙길이 없으면 Infinity.
- * 흙길 쪽 값은 `RoverRoadIndex.reach − clearance` 에서 포화한다 (그보다 먼 여유는 누구도 묻지 않는다).
+ * 2026-09-13 — The clearance (m) to the rover dirt-road corridor · station sites. Negative means **inside a corridor ·
+ * site**, where nothing is placed (read by `isSpotFree` · `SiteSpawns` — the same use as `railClearance`). Infinity
+ * with no dirt road. The road-side value saturates at `RoverRoadIndex.reach − clearance` (nobody asks past that).
  */
 export function roverClearance(layout: WorldLayout, x: number, z: number): number {
   const plan = layout.rover;
@@ -136,37 +136,40 @@ export function roverClearance(layout: WorldLayout, x: number, z: number): numbe
 }
 
 /**
- * 2026-09-13 — 매크로 레이아웃이 **재해 종류 · 행성 threat** 를 안다. 둘 다 레이아웃보다 먼저 시드에서 정해진다
- * (`WorldSystem.generate` — 재해 종류는 `hazard/parts/Plan.drawHazardKind` 의 자기 fork, 패드 수는 `extractionPadCount`
- * 의 자기 fork) 그래서 멀티 결정성은 그대로다.
+ * 2026-09-13 — The macro layout knows the **hazard kind · planet threat**. Both are decided from the seed before the
+ * layout (`WorldSystem.generate` — the hazard kind in `hazard/parts/Plan.drawHazardKind`'s own fork, the pad count in
+ * `extractionPadCount`'s own fork), so multiplayer determinism is unchanged.
  */
 export interface LayoutOptions {
-  /** 탈출 패드 수 (`extractionPadCount`). 없으면 옛 3. */
+  /** The extraction pad count (`extractionPadCount`). With none, the old 3. */
   extractionCount?: number;
   /**
-   * 이번 레이드의 재해가 **독성 포자**인가. 포자는 맵 중앙에서 외곽으로 퍼지므로 강하 지점은 맵 중앙
-   * (`SPORE_SPAWN_CENTER_M`), 탈출 패드는 외곽(`EXTRACTION_OUTER_MIN_M`) 에 선다 — 다른 재해의 반대다.
+   * Is this raid's hazard **toxic spores**? Spores spread from the map centre outwards, so the drop point stands in
+   * the centre (`SPORE_SPAWN_CENTER_M`) and the extraction pads outside (`EXTRACTION_OUTER_MIN_M`) — the reverse of
+   * every other hazard.
    */
   sporeLayout?: boolean;
   /**
-   * 2026-09-14 (정보상) — 이 레이드에 산 **기믹 고정**의 해석본 (`ctx.missionIntel`). null = 아무것도 안 샀다.
+   * 2026-09-14 (the intel broker) — the resolved form of the **fixed gimmicks** bought for this raid
+   * (`ctx.missionIntel`). null = nothing was bought.
    *
-   * ⚠ 규칙 하나가 결정적이다: **rng 의 draw 는 그대로 소비하고 결과만 덮어쓴다** (`rng.chance(...)` 를
-   * `if (force) … else rng.chance(...)` 로 쓰면 스트림이 어긋나 「지하실만 다른 맵」 이 아니라 전혀 다른 맵이 된다).
-   * 개수를 늘리는 기믹(탈출 패드 · 둥지 · 플랫폼 · 구조물)은 그 뒤 배치를 필연적으로 밀지만, 미리보기
-   * (`world/preview.planLayoutFor`)가 **같은 값을 넣어 같은 함수**를 돌리므로 화면이 거짓말을 하지는 않는다.
+   * ⚠ One rule decides everything: **the rng draw is consumed as it was and only the result is overwritten** (writing
+   * `rng.chance(...)` as `if (force) … else rng.chance(...)` puts the stream out of step and gives not 「a map whose
+   * basements alone differ」 but an entirely different map). A gimmick that raises a count (extraction pads · nests ·
+   * platforms · structures) inevitably shifts the placement after it, but the preview
+   * (`world/preview.planLayoutFor`) runs **the same function with the same values**, so the screen does not lie.
    */
   intel?: IntelEffects | null;
 }
 
-/** 벌레 둥지 수 범위 — 2026-09-14 에 코드 상수(4–6)에서 `data/tables.csv` 로 옮겼다. */
+/** The bug nest count range — moved from a code constant (4–6) to `data/tables.csv` on 2026-09-14. */
 const NEST_COUNT_MIN = numberList('tables.csv', 'NEST_COUNT_MIN')[0] ?? 4;
 const NEST_COUNT_MAX = numberList('tables.csv', 'NEST_COUNT_MAX')[0] ?? 6;
 
 /**
- * 2026-09-13 (사용자 결정) — 탈출 패드 수. 행성 threat 1 = 2–3 · 2 = 2 · 3 = 1–2 (`tables.csv` 의
- * `EXTRACTION_PADS_MIN/MAX_BY_THREAT`), 독성 포자 레이드는 threat 와 무관하게 2–3 (`EXTRACTION_PADS_SPORES_*`).
- * `rng` 는 호출자가 넘기는 **전용 fork** 다 — 한 번만 뽑으므로 레이아웃 스트림을 밀지 않는다.
+ * 2026-09-13 (user's decision) — the extraction pad count. Planet threat 1 = 2–3 · 2 = 2 · 3 = 1–2
+ * (`EXTRACTION_PADS_MIN/MAX_BY_THREAT` in `tables.csv`); a toxic-spore raid is 2–3 whatever the threat
+ * (`EXTRACTION_PADS_SPORES_*`). `rng` is a **dedicated fork** from the caller — one draw, so the layout stream stays.
  */
 export function extractionPadCount(rng: Random, threat: number, spores: boolean): number {
   const i = Math.max(0, Math.min(2, Math.round(threat) - 1));
@@ -182,16 +185,16 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
   const margin = 56; // keep pads away from the cliff wall
   const inner = HALF - margin;
 
-  /* ── 2026-09-10: 선로를 **제일 먼저** 잡는다 ─────────────────────────────────
-   * 요구는 "선로 회랑 안에 아무것도 놓이지 않는다" 인데, 선로의 자유도는 `line` = 방향 하나,
-   * `loop` = 반지름 하나뿐이다 (둘 다 원점을 지나는 도형이고 `Rails` 가 `extent` · `angle` 을 그대로 쓴다).
-   * 패드 스무 개를 다 뽑아 놓고 그 사이를 지나는 각도 · 반지름을 찾는 것은 실제로 불가능하다 — 반지름
-   * 20 m 짜리 원반 하나가 막는 각도 폭이 0.4 rad 쯤이라 스무 개면 π 를 넘는다. 그래서 순서를 뒤집었다:
-   * **선로가 먼저 서고 나머지가 전부 피한다** (`railFree`). 2026-09-09 의 "크레이터 다음에 굴린다" 는
-   * rng 순서 배려는 여기서 끝난다 — 같은 시드의 매크로 레이아웃이 이 변경 전과 달라진다
-   * (멀티 결정성은 그대로: 모두가 같은 코드를 같은 시드로 돌린다). */
+  /* ── 2026-09-10: the rail is fixed **first of all** ──────────────────────────
+   * The requirement is "nothing is placed inside the rail corridor", but the rail has one degree of freedom: `line` =
+   * one direction, `loop` = one radius (both pass through the origin, and `Rails` uses `extent` · `angle` as given).
+   * Drawing all twenty pads first and then finding an angle · radius that threads between them is in practice
+   * impossible — one disc of radius 20 m blocks about 0.4 rad, so twenty of them pass π. So the order was reversed:
+   * **the rail stands first and everything else avoids it** (`railFree`). The 2026-09-09 courtesy of "rolled after the
+   * craters" for the sake of rng order ends here — the macro layout of the same seed differs from before this change
+   * (multiplayer determinism is unchanged: everyone runs the same code on the same seed). */
   const intel = opts.intel ?? null;
-  /* 2026-09-14 (정보상 「궤도 운행」): 굴림은 **언제나** 소비하고, 산 사람만 결과를 true 로 덮는다. */
+  /* 2026-09-14 (the intel broker's 「궤도 운행」): the roll is **always** consumed; only a buyer overwrites it true. */
   const railRoll = rng.chance(RAIL_CHANCE);
   const railBonus = Math.max(0, Math.round(intel?.railPlatformBonus ?? 0));
   let rail: RailPlan | null = null;
@@ -210,7 +213,7 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
     rail = { kind: (loop ? 'loop' : 'line') as RailKind, extent, angle, stops, platforms };
   }
 
-  /** 반지름 `extra` 짜리 자리가 선로 회랑 · 플랫폼 패드를 건드리지 않는가. */
+  /** Does a spot of radius `extra` keep clear of the rail corridor · platform pads? */
   const railFree = (x: number, z: number, extra: number): boolean => {
     if (!rail) return true;
     if (railDistance(rail, x, z) < RAIL_CLEARANCE_M + extra) return false;
@@ -220,8 +223,9 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
 
   let spawn: Pad;
   if (opts.sporeLayout) {
-    /* 2026-09-13 — 독성 포자 레이드는 맵 **중앙**에 강하한다 (포자가 중앙에서 외곽으로 퍼진다). `line` 선로는 원점을 지나고
-     * 가운데 플랫폼이 원점에 설 수도 있어서, 회랑에 걸리면 반경을 조금씩 넓혀 다시 뽑는다. */
+    /* 2026-09-13 — A toxic-spore raid drops in the map's **centre** (spores spread from the centre outwards). A `line`
+     * rail passes through the origin and its middle platform may stand there, so a hit on the corridor re-draws with a
+     * slightly wider radius each time. */
     let sx = 0, sz = 0;
     for (let a = 0; a < 240; a++) {
       const reach = SPORE_SPAWN_CENTER_M + a * 0.75;
@@ -232,7 +236,7 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
     }
     spawn = { kind: 'spawn', x: sx, z: sz, radius: 18, blend: 22, yaw: rng.range(-Math.PI, Math.PI), height: 0 };
   } else {
-    // Spawn near one edge (선로 회랑에 걸리면 가장자리를 따라 다시 뽑는다)
+    // Spawn near one edge (a hit on the rail corridor re-draws along that edge)
     const side = rng.int(0, 3);
     let along = rng.range(-inner * 0.6, inner * 0.6);
     const edgeDist = HALF - 64;
@@ -250,24 +254,26 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
     spawn = { kind: 'spawn', x: sx, z: sz, radius: 18, blend: 22, yaw: Math.atan2(-sx, -sz), height: 0 };
   }
 
-  /* ── 2026-09-13: 탐사 차량 흙길 — 선로 · 강하 지점 **바로 다음**, 다른 모든 배치 앞 ────────────────────
-   * 선로와 같은 이유로 먼저 선다: 흙길은 맵을 한 바퀴 도는 고리라 나중에 뽑으면 비켜 갈 곳이 없다. 자기 fork 라 부모 스트림을
-   * 밀지 않는다 — 선로 · 강하 지점은 이 변경 전과 같고, 그 뒤 배치는 회랑 검사(`roverFree`) 때문에 달라진다 (사용자 수락).
+  /* ── 2026-09-13: the rover dirt road — **right after** the rail · drop point, before other placement ───
+   * It stands early for the rail's reason: the road is a ring all the way round the map, so drawn later it has nowhere
+   * to dodge to. Its own fork does not shift the parent stream — the rail · drop point are as before this change, and
+   * the placement after them differs because of the corridor check (`roverFree`) (accepted by the user).
    *
-   * 2026-09-14 (사용자 결정): 선로와 같은 **확률 배치**(`ROVER_CHANCE`)다 — 전에는 늘 계획해 실측 100 % 였고
-   * 그러면 정보상의 「탐사 차량 확정」 이 아무것도 사지 못했다. ⚠ 굴림은 **fork 안의 첫 draw** 로 언제나
-   * 소비하고 결과만 덮는다 (`if (force) … else roverRng.chance(…)` 로 쓰면 차량이 서는 레이드와 확정으로
-   * 산 레이드의 정류장 위치가 달라져 미리보기 지도가 거짓말을 한다). */
+   * 2026-09-14 (user's decision): a **chance placement** like the rail (`ROVER_CHANCE`) — it used to be planned always,
+   * measured at 100 %, which left the intel broker's 「탐사 차량 확정」 nothing to sell. ⚠ The roll is always consumed
+   * as the **first draw inside the fork** and only the result is overwritten (written as
+   * `if (force) … else roverRng.chance(…)`, a raid that has a rover and a raid that bought one get different station
+   * positions, and the preview map lies). */
   const roverRng = rng.fork('rover');
   const roverRoll = roverRng.chance(ROVER_CHANCE);
   const roverForce = intel?.roverForce === true;
   const rover = (roverRoll || roverForce) ? planRoverRoute(roverRng, {
     railFree, railLoopExtent: rail && rail.kind === 'loop' ? rail.extent : null, spawn,
-    // 2026-09-14 (정보상 「탐사 차량」): 시도 횟수만 크게 늘린다 — 자기 fork 라 바깥 스트림은 그대로다
+    // 2026-09-14 (the intel broker's 「탐사 차량」): only the attempt count rises — its own fork leaves the outer stream alone
     forcePlan: roverForce,
   }) : null;
   if (intel?.roverForce && !rover) console.warn('[world] 정보상 「탐사 차량 확정」 — 시도를 다 써도 흙길을 놓지 못했다 (이 레이드에는 차량이 없다)');
-  /** 반지름 `extra` 짜리 자리가 흙길 회랑 · 정류장 부지를 건드리지 않는가. */
+  /** Does a spot of radius `extra` keep clear of the dirt-road corridor · station sites? */
   const roverFree = (x: number, z: number, extra: number): boolean => {
     if (!rover) return true;
     if (roverRouteDistance(rover, x, z) < ROVER_ROUTE_CLEARANCE_M + extra) return false;
@@ -280,8 +286,9 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
     }))
     : [];
 
-  /* Extraction pads: `opts.extractionCount` (2026-09-13 — 옛 3 고정), pairwise >= 180 m, >= 150 m from spawn.
-   * 독성 포자 레이드는 맵 **외곽**(x · z 중 큰 쪽이 `EXTRACTION_OUTER_MIN_M` 이상)에만 — 포자가 마지막에 닿는 곳이다. */
+  /* Extraction pads: `opts.extractionCount` (2026-09-13 — the old fixed 3), pairwise >= 180 m, >= 150 m from spawn.
+   * A toxic-spore raid puts them on the map's **outside** only (larger of x · z ≥ `EXTRACTION_OUTER_MIN_M`) — where the
+   * spores arrive last. */
   const extraction: Pad[] = [];
   {
     const want = Math.max(1, Math.round(opts.extractionCount ?? 3));
@@ -301,13 +308,13 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
     }
   }
 
-  // Nest clusters: `NEST_COUNT_MIN`–`NEST_COUNT_MAX` (+ 정보상 「벌레 둥지」 — 굴림 결과에 더한다)
+  // Nest clusters: `NEST_COUNT_MIN`–`NEST_COUNT_MAX` (+ the intel broker's 「벌레 둥지」 — added on top of the roll)
   const nests: Pad[] = [];
   {
     const bonus = Math.max(0, Math.round(intel?.nestBonus ?? 0));
     const n = rng.int(NEST_COUNT_MIN, NEST_COUNT_MAX) + bonus;
     let attempts = 0;
-    // 더 놓아야 하면 시도도 같이 늘린다 — 안 그러면 산 둥지가 자리 부족으로 조용히 사라진다 (0 이면 옛 값 그대로)
+    // More to place raises the attempts with it — otherwise a bought nest silently vanishes for want of a spot (0 keeps the old value)
     const maxAttempts = 4000 + bonus * 3000;
     while (nests.length < n && attempts < maxAttempts) {
       attempts++;
@@ -339,8 +346,8 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
     }
   }
 
-  /* 플랫폼 패드는 **구조물보다 먼저** 넣는다: 겹칠 일은 없지만(`railFree`), `Terrain` 이 배열 순서대로
-   * 평탄화하므로 만에 하나 겹치면 뒤에 오는 구조물 바닥이 이긴다 — 실내 바닥이 기우는 쪽보다 낫다. */
+  /* Platform pads go in **before the structures**: they cannot overlap (`railFree`), but `Terrain` flattens in array
+   * order, so on the off chance they do the structure floor behind wins — better than a tilted indoor floor. */
   const pads = [spawn, ...extraction, ...nests, ...pois, ...(rail ? rail.platforms : []), ...stationPads];
 
   // Craters: 3–5, away from pads
@@ -354,7 +361,7 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
       const x = rng.range(-inner, inner), z = rng.range(-inner, inner);
       if (!farFromAll(x, z, pads, radius + 34)) continue;
       if (!farFromAll(x, z, craters, radius + 40)) continue;
-      // 선로는 지형을 평탄화하지 않는다 — 크레이터를 가로지르면 교각만 길어지고 궤도가 허공에 뜬다
+      // The rail does not flatten terrain — crossing a crater only makes the piers longer and floats the track
       if (!railFree(x, z, radius)) continue;
       if (!roverFree(x, z, radius + 6)) continue;
       craters.push({ x, z, radius, depth: rng.range(4, 8) });
@@ -374,21 +381,24 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
     }
   }
 
-  /* ── 2026-09-09: 버려진 구조물 부지 ────────────────────────────────────────
-   * **크레이터 · 분지를 다 뽑은 뒤에** 굴린다. 그래야 구조물이 소비하는 rng 가 그 앞의 추첨을 밀지 않는다
-   * (같은 시드의 지형 매크로 형태는 이 변경 전과 그대로다). 다만 새 패드가 `pads` 에 들어가므로
-   * `padClearance` 를 보는 소품 · 상자 · 적 스폰의 자리는 달라진다 — 건물 안에 바위가 서지 않게 하려면
-   * 이게 맞다. */
+  /* ── 2026-09-09: abandoned structure sites ─────────────────────────────────
+   * Rolled **after every crater · basin has been drawn**, so the rng the structures consume does not shift the draws
+   * before them (the macro terrain shape of the same seed is as it was before this change). The new pads do go into
+   * `pads`, though, so the spots of props · crates · enemy spawns that read `padClearance` change — which is right,
+   * if a rock is not to stand inside a building. */
   const structures: StructureSite[] = [];
   {
-    /* 2026-09-14 (정보상 「지하 시설」 +N): **전진기지 = 지하실**, **연구실 = 2층 잠긴 방**이다 (연구실은
-     * `basementChance` 도 `basementDepth` 도 0 — 구덩이를 억지로 파면 깊이 0 · 컨테이너 0 의 빈 구멍이 된다.
-     * `structures.csv` 주석대로 연구실의 「지하 시설」은 2층 잠긴 방으로 대체돼 있으므로 그쪽을 확정한다).
+    /* 2026-09-14 (the intel broker's 「지하 시설」 +N): **an outpost = a basement**, **a lab = a locked room on the
+     * upper floor** (a lab has `basementChance` and `basementDepth` both 0 — forcing a pit gives an empty hole of
+     * depth 0 with 0 containers. As `structures.csv`'s comment says, a lab's 「지하 시설」 is replaced by the locked
+     * room upstairs, so that is what is fixed).
      *
-     * 「+N 개」는 **정말로 채를 N 개 더 세우는 것**이다 — 이미 놓인 것의 굴림을 덮는 방식이면, 자연 확률이
-     * 이미 높아서(전진기지 지하실 0.65 · 연구실 2층 0.5) 돈을 내고도 개수가 그대로인 시드가 나온다(실측). 그래서
-     * **csv 의 `maxCount` 를 넘어선다**: 그 상한은 자연 배치의 한계이고, 정보상은 그것을 사서 여는 명시적 예외다.
-     * 몫은 두 종류에 나눈다 (N=1 → 전진기지, N=2 → 전진기지 · 연구실 하나씩). 굴림은 그대로 소비하고 결과만 덮는다. */
+     * 「+N」 really means **N more buildings stand** — overwriting the roll of one already placed leaves seeds where
+     * the count does not move although money was paid, because the natural chance is high already (an outpost basement
+     * 0.65 · a lab's upper floor 0.5) (measured). So it **goes past `maxCount` in the csv**: that cap is the limit of
+     * natural placement, and the intel broker is the explicit exception one buys to open it. The share is split
+     * between the two kinds (N=1 → outpost, N=2 → one outpost · one lab). The roll is consumed as it was and only the
+     * result is overwritten. */
     const basementBonus = Math.max(0, Math.round(intel?.basementBonus ?? 0));
     const basementExtra: Partial<Record<StructureKind, number>> = {
       outpost: Math.ceil(basementBonus / 2),
@@ -396,7 +406,7 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
     };
     for (const row of STRUCTURE_ROWS) {
       if (row.kind !== 'outpost' && row.kind !== 'lab' && row.kind !== 'wreck') continue;
-      /** 이 줄에서 「정보상이 사서 늘어난」 채 수 — 마지막 `forced` 개는 반드시 지하 시설을 갖는다. */
+      /** How many buildings on this row 「the intel broker bought」 — the last `forced` ones always have the facility. */
       const forced = basementExtra[row.kind] ?? 0;
       const want = (row.maxCount <= 0 ? 0 : rng.int(row.minCount, row.maxCount)) + forced;
       const reach = Math.hypot(row.halfW, row.halfD);
@@ -414,13 +424,13 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
           kind: 'structure', x, z, radius: reach + 4, blend: 11,
           yaw: rng.range(-Math.PI, Math.PI), height: 0,
         };
-        // 지하실은 전진기지 · 연구실만 (불시착 함선은 밑이 없다). 벽에서 2.2 m 안쪽으로 파낸다.
-        // 2026-09-12: 연구실은 `basementChance` 0 이 됐지만 **들어가는 건물 두 종은 이 추첨을 늘 소비한다** — 조건을
-        // `basementChance > 0` 로 두면 연구실에서 draw 가 하나 빠져 그 뒤의 부지 · 층수 · 다른 구조물 추첨이 전부 밀린다.
+        // Basements only under an outpost · lab (a crash-landed ship has nothing below). Dug 2.2 m inside the walls.
+        // 2026-09-12: a lab's `basementChance` became 0, but **both enterable kinds always consume this draw** — with
+        // the condition as `basementChance > 0` a lab skips one draw and every site · floor · structure draw after it shifts.
         const pitRoll = (row.kind === 'outpost' || row.kind === 'lab') && rng.chance(row.basementChance);
-        // 2026-09-11: 2층 여부. **맨 마지막에** 굴린다 — 앞의 추첨(자리 · 지하실)을 밀지 않는다.
+        // 2026-09-11: whether it has an upper floor. Rolled **last of all** — it must not shift the draws before it.
         const upperRoll = row.upperChance > 0 && rng.chance(row.upperChance);
-        // 2026-09-14: 늘어난 채(마지막 `forced` 개)는 그 종류의 지하 시설을 확정으로 갖는다 (굴림은 이미 소비했다)
+        // 2026-09-14: the added buildings (the last `forced` ones) have that kind's facility for certain (the roll is spent already)
         const isForced = placed >= want - forced;
         const wantPit = row.basementDepth > 0 && (pitRoll || (isForced && row.kind === 'outpost'));
         const pit = wantPit && row.halfW > 3.4 && row.halfD > 3.4
@@ -434,8 +444,8 @@ export function generateLayout(rng: Random, opts: LayoutOptions = {}): WorldLayo
     for (const s of structures) pads.push(s.pad);
   }
 
-  /* 선로 계획은 이 함수 **맨 앞**에서 이미 잡혔다 (위의 2026-09-10 주석) — 여기서는 아무것도 하지 않는다.
-   * 플랫폼 패드도 `pads` 에 이미 들어가 있다. */
+  /* The rail plan was already fixed at the **very start** of this function (the 2026-09-10 comment above) — nothing
+   * happens here. The platform pads are already in `pads` too. */
 
   return { spawn, extraction, nests, pois, pads, craters, basins, structures, rail, rover };
 }

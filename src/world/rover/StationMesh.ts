@@ -1,10 +1,10 @@
 /**
- * src/world/rover/StationMesh.ts — 탐사 차량 **정류장 표지 기둥** (R1, 2026-09-13).
+ * src/world/rover/StationMesh.ts — the rover's **station sign poles** (R1, 2026-09-13).
  *
- * 정류장마다: 강철 기둥(`ROVER_POLE_HEIGHT_M`) · 받침 · 경고 띠 · 꼭대기 캡 + **발광 비콘**(광원 아님 — 레이드 점광원 예산 여분 0) +
- * 흙길을 향한 표지판(앞뒤 두 장, 글자는 정류장 문자 하나 — 전 정류장이 CanvasTexture **아틀라스 한 장**을 나눠 쓴다).
- * 세 덩어리(몸통 · 비콘 · 표지판)로 합쳐 드로우콜이 정류장 수와 무관하게 3이다. 콜라이더는 `Pads` 의 기둥과 같은 모양
- * (낮은 받침 원기둥 — 올라설 수 있다 + 가는 기둥).
+ * Per station: a steel pole (`ROVER_POLE_HEIGHT_M`) · plinth · warning band · top cap + a **glowing beacon** (not a light — the raid point-light budget has zero spare) +
+ * a sign facing the dirt road (two panels, front and back; the text is the one station letter — every station shares **one CanvasTexture atlas**).
+ * They merge into three lumps (bodies · beacons · signs), so the draw calls stay at 3 whatever the station count. The collider is the
+ * same shape as `Pads`' pole (a low plinth cylinder — it can be stepped onto — plus a thin pole).
  */
 import * as THREE from 'three';
 import { ROVER_POLE_HEIGHT_M, type RoverStationDef } from '@/shared';
@@ -16,10 +16,10 @@ const DARK = new THREE.Color(0x2c3036);
 const FRAME = new THREE.Color(0x3a3f46);
 const STRIPE = new THREE.Color(0xc28a2a);
 const LETTERS = 'ABCDEFGH';
-/** 표지판 크기(m) — 아틀라스 칸의 가로세로비와 같다. */
+/** The sign size (m) — the same aspect ratio as an atlas cell. */
 const SIGN_W = 1.3;
 const SIGN_H = 1.0;
-/** 표지판이 기둥에서 흙길 쪽으로 나온 거리(m). */
+/** How far the sign stands out from the pole toward the dirt road (m). */
 const SIGN_OUT = 0.16;
 
 export interface StationBuild {
@@ -29,7 +29,7 @@ export interface StationBuild {
   tex: THREE.CanvasTexture;
 }
 
-/** 정류장 index → 표시 문자 (`정류장 A`). */
+/** Station index → the letter shown (`정류장 A`). */
 export function stationLetter(index: number): string {
   return LETTERS[index] ?? String(index + 1);
 }
@@ -45,7 +45,7 @@ export function buildStationGeometry(bctx: BuildCtx, stations: readonly RoverSta
     let dx = st.position.x - px, dz = st.position.z - pz;
     const dl = Math.hypot(dx, dz) || 1;
     dx /= dl; dz /= dl;
-    const yaw = Math.atan2(dx, dz);              // PlaneGeometry 의 +Z 법선이 흙길을 본다
+    const yaw = Math.atan2(dx, dz);              // the PlaneGeometry's +Z normal faces the dirt road
     const rot = new THREE.Euler(0, yaw, 0);
     body.push(paint(xform(new THREE.CylinderGeometry(0.1, 0.13, H, 10), { x: px, y: py + H / 2, z: pz }), STEEL));
     body.push(paint(xform(new THREE.BoxGeometry(0.6, 0.35, 0.6), { x: px, y: py + 0.175, z: pz }, rot), DARK));
@@ -66,14 +66,14 @@ export function buildStationGeometry(bctx: BuildCtx, stations: readonly RoverSta
       xform(g, { x: px + dx * off, y: signY, z: pz + dz * off }, new THREE.Euler(0, side > 0 ? yaw : yaw + Math.PI, 0));
       signs.push(g);
     }
-    // `Pads` 의 신호 기둥과 같은 짝: 올라설 수 있는 낮은 받침 + 가는 기둥
+    // The same pair as `Pads`' beacon pole: a low plinth one can step onto + a thin pole
     bctx.hash.add(new THREE.Vector3(px, py, pz), 0.4, 0.35, 'pole');
     bctx.hash.add(new THREE.Vector3(px, py + 0.35, pz), 0.18, H - 0.05, 'pole');
   }
   return { body: merge(body), glow: merge(glow), signs: merge(signs), tex: makeAtlas(stations.length) };
 }
 
-/** 정류장 문자 아틀라스 — 칸 하나 = 표지판 하나 (노란 바탕 · 검은 테두리 · 위 띠 「정류장」 · 큰 문자). */
+/** The station letter atlas — one cell = one sign (yellow ground · black border · the 「정류장」 band on top · a large letter). */
 function makeAtlas(count: number): THREE.CanvasTexture {
   const n = Math.max(1, count);
   const cw = 130, ch = 100;

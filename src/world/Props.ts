@@ -32,8 +32,8 @@ interface ScatterOpts {
  * cylinder ~1.2 m taller than the drawn shell, i.e. bullets stopped in the air above it. The callers all add this to
  * the instance origin, so the top is what they want.
  *
- * ⚠ 이 값은 **콜라이더가 된다.** 소품 지오메트리를 손보면 튀어나간 정점 하나가 그대로 보이지 않는 벽이 된다
- * (2026-09-09 `noise.ts` 사건). `scripts/smoke-props-collision.mjs` 가 그걸 숫자로 잡는다.
+ * ⚠ This value **becomes a collider.** Touch a prop's geometry and one stray vertex turns straight into an invisible wall
+ * (the 2026-09-09 `noise.ts` incident). `scripts/smoke-props-collision.mjs` catches that as a number.
  */
 function hullOf(geo: THREE.BufferGeometry): { xz: number; y: number } {
   geo.computeBoundingBox();
@@ -55,7 +55,7 @@ export class Props {
   private crystalMat: THREE.MeshStandardMaterial | null = null;
   private canopyMat: THREE.MeshStandardMaterial | null = null;
   private readonly timeUniform = { value: 0 };
-  /** 2026-09-11 (C-40): 마지막 `build` 의 종류별 소요(ms) — 산포 콜백 · 윤곽 실측 포함. */
+  /** 2026-09-11 (C-40): the last `build`'s time per kind (ms) — scatter callbacks and hull measuring included. */
   readonly timings: Record<string, number> = {};
 
   constructor() { this.group.name = 'Props'; }
@@ -98,15 +98,15 @@ export class Props {
       const vi = rng.int(0, boulderVar.length - 1);
       const v = boulderVar[vi];
       const sy = s * rng.range(0.8, 1.15);
-      // `composeMatrix` 는 공유 스크래치를 돌려준다 — `place` 는 복사만 하므로 바로 아래 실측에 그대로 쓴다
+      // `composeMatrix` returns a shared scratch — `place` only copies, so the measuring right below reuses it as is
       const m = composeMatrix(x, y, z, rng.range(0, Math.PI * 2), rng.range(-0.25, 0.25), rng.range(-0.25, 0.25), s, sy, s);
       this.place(v, m, rng.range(0.85, 1.1));
       if (!outside || Math.abs(x) < HALF + 6 && Math.abs(z) < HALF + 6) {
-        // 2026-09-09 (지형지물 위 걷기): 총알과 발이 같은 원기둥을 본다 — 낮은 바위는 `PROP_STEP_UP_MAX` 안이라
-        // 걸어 올라가진다. 2026-09-10: 그 원기둥을 메시 전체(`hullOf`)가 아니라 **땅 위로 보이는 부분**에서 잰다
-        // (`footprintOf` — 묻힌 적도 · 경사지 옆구리 · 튀어나온 정점 하나가 보이지 않는 벽을 세우던 것).
-        // 2026-09-11: 원 하나(방위 평균 반지름)가 아니라 **볼록 윤곽**이다 (`propHull.ts`) — 길쭉한 바위의 긴 쪽으로
-        // 파고들지도, 짧은 쪽에서 앞서 막지도 않는다. 총알은 높이별 층 윤곽을 본다.
+        // 2026-09-09 (walking on terrain features): bullets and feet see the same cylinder — a low rock is inside
+        // `PROP_STEP_UP_MAX`, so it is walked up. 2026-09-10: that cylinder is measured from **the part above ground**,
+        // not the whole mesh (`hullOf`) — `footprintOf`, after buried equators, slope-side flanks and stray vertices
+        // kept standing invisible walls. 2026-09-11: a **convex hull** (`propHull.ts`), not one circle (the azimuth-mean
+        // radius) — it neither cuts into a long rock's long side nor blocks early on its short side. Bullets see height bands.
         const pc = propHullOf(ctx, boulders[vi], m);
         if (pc) ctx.hash.addHull(new THREE.Vector3(pc.x, y, pc.z), pc.hull, Math.max(0.05, pc.top - y), 'rock');
       }
@@ -138,7 +138,7 @@ export class Props {
       // shots slipped past the visible rock; the old `s * 4.2` collider also ignored the instance's own `sy`.
       // A spire is always ≥ 5 m tall, so it stays a wall — `getSurfaceY` never offers its top as a step.
       // 2026-09-10: measured above the ground (`footprintOf`), not over the whole cone (`hullOf`).
-      // 2026-09-11: 볼록 윤곽 + 층 — 위로 좁아지는 원뿔 옆 허공에서 총알이 멈추지 않는다.
+      // 2026-09-11: convex hull + bands — bullets no longer stop in the air beside a cone that narrows upward.
       const pc = propHullOf(ctx, spires[vi], m);
       if (pc) ctx.hash.addHull(new THREE.Vector3(pc.x, y, pc.z), pc.hull, Math.max(0.05, pc.top - y), 'rock');
     });
@@ -245,8 +245,8 @@ export class Props {
       const m = composeMatrix(x, y, z, rng.range(0, Math.PI * 2), 0, 0, s, s, s);
       this.place(v, m, rng.range(0.9, 1.1));
       // 2026-09-09: measured cluster hull instead of the guessed `0.8 / 2.5`.
-      // 2026-09-11: 볼록 윤곽 — 조각 사이로 뻗은 결정 끝을 원 하나로 덮지 않는다. 머리 위로 기운 조각은
-      // 이동 윤곽(지면 ~2.2 m)에서 빠지고 총알 층에만 남는다.
+      // 2026-09-11: convex hull — one circle no longer covers the crystal tips reaching out between the shards. A
+      // shard leaning overhead drops out of the movement hull (ground ~2.2 m) and stays only in the bullet bands.
       const pc = propHullOf(ctx, crystalGeos[vi], m);
       if (pc) ctx.hash.addHull(new THREE.Vector3(pc.x, y, pc.z), pc.hull, Math.max(0.05, pc.top - y), 'crystal');
     });
@@ -261,7 +261,7 @@ export class Props {
       const h = ctx.terrain.getHeightAt(x, z);
       if (h < b.lowLevel - 1 || h > b.highLevel) return;
       if (ctx.hash.overlaps(x, z, 0.3)) return;
-      // keep the pads mostly clean (2026-09-11 C-40: `some` 콜백 대신 루프 — 판정은 같다)
+      // keep the pads mostly clean (2026-09-11 C-40: a loop instead of a `some` callback — the judgement is the same)
       const pads = ctx.layout.pads;
       for (let k = 0; k < pads.length; k++) {
         const p = pads[k];
@@ -302,7 +302,7 @@ export class Props {
       const m = composeMatrix(x, y, z, rng.range(0, Math.PI * 2), kind === 0 ? rng.range(-0.15, 0.15) : rng.range(-0.3, 0.3), kind === 0 ? rng.range(-0.15, 0.15) : rng.range(-0.3, 0.3), s, s, s);
       this.place(debrisVars[kind], m, rng.range(0.85, 1.1));
       if (kind !== 2) {
-        // 2026-09-11: 기울어진 상자 · 포드 껍질도 볼록 윤곽 (모서리 스윕 원이 아니다)
+        // 2026-09-11: the tilted crate and the pod shell are convex hulls too (not a corner-sweep circle)
         const base = kind === 0 ? y - lift : y;
         const pc = propHullOf(ctx, kind === 0 ? crateGeo : podGeo, m);
         if (pc) ctx.hash.addHull(new THREE.Vector3(pc.x, base, pc.z), pc.hull, Math.max(0.2, pc.top - base), 'debris');

@@ -6,20 +6,20 @@ import { type BuildCtx, displace, merge, paintGradient, xform } from './build';
  * Terminid-style bug nests: organic mounds with glowing holes, spikes and egg sacs at each nest pad.
  * Mounds are obstacles; hole positions are exposed for enemy spawning.
  *
- * 2026-09-18 (사용자 결정 「둥지의 보상은 부술 수 있는 알」) — **알은 더 이상 이 파일이 그리지 않는다.**
- * 알 자루는 장식(병합된 `nest_eggs` 메시)이 아니라 움직이지 못하는 파괴 가능한 적 `bug_egg` 가 됐다.
- * 자리를 정하는 주인은 그대로 여기다 (「어디에 알이 서는가」는 월드의 몫) — 그 자리에 몸을 세우고
- * 부수는 것은 권위(`src/enemies`)다. 그래서 `getEggSpots()` 만 남고 메시 · 재질은 사라졌다.
+ * 2026-09-18 (user's decision 「the nest's reward is destructible eggs」) — **this file no longer draws the eggs.**
+ * The egg sacs are not decoration (a merged `nest_eggs` mesh) any more but immobile destructible `bug_egg` enemies.
+ * The owner of where they stand is still here (「where an egg stands」 is the world's job) — standing a body there
+ * and destroying it is the authority's (`src/enemies`). So only `getEggSpots()` is left; mesh and material are gone.
  *
- * 옛 모습의 수치(새 주인 `enemies/` 의 `bug_egg` 몸이 이것을 그대로 재현한다):
- *   - 세로 그러데이션 `0xb8a070`(밑) → `0xe0d0a0`(위), emissive `0x6a5020` × 0.25
- *   - `SphereGeometry(er, 8, 6)` 를 y 로 ×1.2 늘린 모양, 중심이 지면 + `er × 0.6`
+ * The old look's numbers (the new owner's `bug_egg` body in `enemies/` reproduces them verbatim):
+ *   - vertical gradient `0xb8a070` (bottom) → `0xe0d0a0` (top), emissive `0x6a5020` × 0.25
+ *   - a `SphereGeometry(er, 8, 6)` stretched ×1.2 along y, centred at ground + `er × 0.6`
  *   - roughness 0.35 · metalness 0 · `castShadow`
  */
 export class Nests {
   readonly group = new THREE.Group();
   private holes: THREE.Vector3[] = [];
-  /** 2026-09-18: 알 자리 (둥지 pad 순번 포함) — `WorldRef.getNestEggSpots` 가 그대로 넘긴다. */
+  /** 2026-09-18: egg spots (with the nest pad index) — `WorldRef.getNestEggSpots` hands them straight on. */
   private eggs: NestEggSpot[] = [];
   private meshes: THREE.Mesh[] = [];
   private bodyMat: THREE.MeshStandardMaterial | null = null;
@@ -30,10 +30,10 @@ export class Nests {
   getHolePositions(): readonly THREE.Vector3[] { return this.holes; }
 
   /**
-   * 2026-09-18: 알 자리. `nest` 는 **둥지 pad 의 순번**(`ctx.layout.nests` 의 인덱스)이다 —
-   * `getHolePositions()` 는 pad 하나마다 둔덕(구멍)이 4~6 개라 순번이 다르다. 「둥지별 재스폰」을
-   * 묶는 번호라 사람이 「둥지」라 부르는 단위(pad)에 맞췄다. 구멍 자리를 찾으려면 이 번호로
-   * `getNestPositions()` 를 색인하면 **안 된다** (섞인다).
+   * 2026-09-18: egg spots. `nest` is **the nest pad's index** (into `ctx.layout.nests`) —
+   * `getHolePositions()` is ordered differently, because one pad holds 4–6 mounds (holes). It is the number that
+   * groups 「a refill per nest」, so it matches the unit a player calls 「a nest」 (the pad). To find a hole's
+   * position this number **must not** index `getNestPositions()` (the two orderings cross).
    */
   getEggSpots(): readonly NestEggSpot[] { return this.eggs; }
 
@@ -102,10 +102,10 @@ export class Nests {
           body.push(spike);
         }
 
-        /* 알 자루 — 둔덕 밑동 둘레. 2026-09-18 부터 **자리만 적는다** (메시는 `enemies/` 의 `bug_egg` 가 그린다).
-         * rng 를 뽑는 **순서와 횟수는 옛날 그대로**여야 한다 — 같은 시드가 같은 맵이어야 하므로 (`build.ts` 의 fork 규칙).
-         * `position` 은 옛 메시의 **중심**이다 (지면 + `er × 0.6`) — 새 주인이 그 점에 구를 놓으면 눈에 보이는 변화가 없다.
-         * 알에는 콜라이더가 없었고 지금도 월드는 만들지 않는다 (적의 몸이 곧 히트박스다). */
+        /* Egg sacs — around the mound's base. Since 2026-09-18 **only the spot is recorded** (`bug_egg` in `enemies/` draws the mesh).
+         * The **order and number of rng draws must stay exactly as before** — the same seed has to give the same map (`build.ts`'s fork rule).
+         * `position` is the **centre** of the old mesh (ground + `er × 0.6`) — a sphere put at that point by the new owner looks unchanged.
+         * The eggs never had a collider and world still builds none (the enemy's body is the hitbox). */
         const nEggs = rng.int(2, 5);
         for (let e = 0; e < nEggs; e++) {
           const ang = rng.range(0, Math.PI * 2);

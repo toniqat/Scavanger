@@ -1,17 +1,17 @@
 /**
- * src/world/Fog.ts — **전장의 안개** (`FogRef`, 게시: `ctx.world.fog`).
+ * src/world/Fog.ts — **fog of war** (`FogRef`, published as `ctx.world.fog`).
  *
- * `MAP_SIZE / FOG_CELL_M` 변의 정사각 마스크 하나가 원본이고, **한 번 밝힌 칸은 레이드가 끝날 때까지
- * 다시 어두워지지 않는다**. 밝히는 주체는 분대원 전원 — 매 `FOG_UPDATE_HZ` 마다 로컬 플레이어와
- * `ctx.net.getRemotePlayers()` 의 살아 있는 분대원 주위 `FOG_REVEAL_RADIUS` 를 칠한다. 모두가 이미 흐르는
- * `ps` 스냅샷의 좌표를 보므로 **평상시에는 새 와이어가 없다**; 늦게 합류한 클라이언트만 `fogq sync` 로
- * 호스트의 마스크를 받는다 (`fog sync {mask}` = `serialize()` 의 base64).
+ * One square mask of `MAP_SIZE / FOG_CELL_M` a side is the source, and **a cell once lit never goes dark again
+ * before the raid ends**. Every squadmate lights it — every `FOG_UPDATE_HZ` it paints `FOG_REVEAL_RADIUS` around
+ * the local player and around every live squadmate in `ctx.net.getRemotePlayers()`. Everyone reads coordinates
+ * from the `ps` snapshots that already flow, so **there is no new wire in normal play**; only a late-joining
+ * client takes the host's mask through `fogq sync` (`fog sync {mask}` = base64 of `serialize()`).
  *
- * 랜드마크 발견도 여기서 판정한다 — 탈출 신호소 · 둥지 · 상자 · 채집물이 밝혀진 칸에 처음 들어오면
- * `fog:discovered` 를 내보내고, 랜드마크(신호소 · 둥지)만 `ui:notify` 토스트를 띄운다. 지도 · 월드 마커 ·
- * 나침반은 전부 `isDiscovered` 하나로 게이트된다.
+ * Landmark discovery is decided here too — the first time an extraction console · nest · crate · gather node
+ * enters a lit cell it emits `fog:discovered`, and only landmarks (console · nest) raise a `ui:notify` toast.
+ * The map · world markers · the compass are all gated on `isDiscovered` alone.
  *
- * 훈련장에서는 만들어지지 않는다 (`WorldSystem.fog === null`).
+ * It is not built in the training range (`WorldSystem.fog === null`).
  */
 import type * as THREE from 'three';
 import {
@@ -19,27 +19,27 @@ import {
   type FogRef, type GameContext, type PeerId,
 } from '@/shared';
 
-/** `fog:discovered.kind` — 지도 마커 종류와 같은 이름. 2026-09-09 에 `structure` · `rail` 이 붙었다. */
+/** `fog:discovered.kind` — the same names as the map marker kinds. `structure` · `rail` were added on 2026-09-09. */
 type DiscoverKind = 'extraction' | 'nest' | 'crate' | 'outpost' | 'gather' | 'structure' | 'rail'
-  /* 2026-09-13: 탐사 차량 정류장 (표지 기둥 자리). 토스트는 ui/ 가 소유한다 — 여기 `TOAST` 에 올리지 않는다 */
+  /* 2026-09-13: rover stations (the sign pole spot). The toast is owned by ui/ — it is not listed in `TOAST` here */
   | 'rover';
 
 /**
- * 발견 토스트를 띄우는 종류와 문구 (상자 · 채집물은 너무 잦아 토스트 없이 이벤트만 나간다).
- * ⚠ **`structure` · `rail` 은 일부러 여기 없다** — 그 둘의 토스트는 `ui/hud/RaidAlerts` 가 소유한다
- * (2026-09-09). 여기에도 올리면 같은 발견이 두 번 뜬다. world/ 는 이벤트만 발행한다.
+ * The kinds that raise a discovery toast and their wording (crates · gather nodes are far too frequent — event only).
+ * ⚠ **`structure` · `rail` are deliberately absent** — their toasts are owned by `ui/hud/RaidAlerts`
+ * (2026-09-09). Listing them here too would show the same discovery twice. world/ only emits the event.
  */
 const TOAST: Partial<Record<DiscoverKind, string>> = {
   extraction: '탈출 신호소 발견',
   nest: '벌레 둥지 발견',
-  // 2026-09-11 (C-11): '전초기지' 는 들어가는 구조물(`StructureKind 'outpost'` = 버려진 전진기지)과 헷갈린다
+  // 2026-09-11 (C-11): '전초기지' would be confused with the enterable structure (`StructureKind 'outpost'` = 버려진 전진기지)
   outpost: '폐허 전초 발견',
 };
 
-/** 2026-09-11 (C-11): 발견 판정에 필요한 폐허 전초의 최소 모양 (`Outposts.OutpostSite`). */
+/** 2026-09-11 (C-11): the minimum shape of a POI ruin the discovery check needs (`Outposts.OutpostSite`). */
 interface OutpostSpot { readonly id: string; readonly position: THREE.Vector3 }
 
-/** base64 인코딩 (비트 팩된 마스크 — 6400칸이 800바이트 → base64 약 1.1 KB). */
+/** base64 encode (the bit-packed mask — 6400 cells is 800 bytes → about 1.1 KB of base64). */
 function toBase64(bytes: Uint8Array): string {
   let s = '';
   for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
@@ -66,20 +66,20 @@ export class Fog implements FogRef {
   private ctx: GameContext | null = null;
   private timer = 0;
   private grew = false;
-  /** 이미 발견을 알린 오브젝트 id. */
+  /** Object ids whose discovery was already announced. */
   private readonly seen = new Set<string>();
-  /** 이번 틱에 토스트를 띄운 종류 (둥지 하나가 구멍 3~4개라 그만큼 토스트가 뜨는 것을 막는다). */
+  /** Kinds that raised a toast this tick (one nest is 3~4 holes, which would otherwise raise that many toasts). */
   private readonly toasted = new Set<DiscoverKind>();
   private readonly unsubs: Array<() => void> = [];
   private netHooked = false;
   /**
-   * 2026-09-11 (C-11): 폐허 전초. `WorldRef` 에 목록이 없어(구조물 목록에 섞지 않는다) `WorldSystem` 이 직접 넘긴다.
-   * 발견되면 `fog:discovered {kind:'outpost'}` + 토스트 — 지도가 그 이벤트를 쌓아 아이콘을 그린다.
+   * 2026-09-11 (C-11): POI ruins. `WorldRef` has no list (they are not mixed into the structures), so `WorldSystem`
+   * hands them over. On discovery: `fog:discovered {kind:'outpost'}` + a toast — the map stacks that event into an icon.
    */
   private outposts: readonly OutpostSpot[] = [];
   /**
-   * 2026-09-13: 탐사 차량 정류장. 차량(`ctx.world.rover`)이 없어도 · 파괴돼도 정류장은 발견된다 — 그래서 `RoverRef` 가 아니라
-   * `WorldSystem` 이 흙길(`RoverRoad.route`)에서 직접 넘긴다.
+   * 2026-09-13: rover stations. A station is discovered even with no vehicle (`ctx.world.rover`) · even when it is
+   * destroyed — so `WorldSystem` hands them over from the dirt road (`RoverRoad.route`), not `RoverRef`.
    */
   private roverStations: readonly { readonly id: string; readonly polePosition: THREE.Vector3 }[] = [];
 
@@ -95,14 +95,14 @@ export class Fog implements FogRef {
 
   /* ── lifecycle ─────────────────────────────────────────────────────── */
 
-  /** 미션 시작 시 `WorldSystem.generate` 가 부른다. 클라이언트면 호스트에게 지금까지의 마스크를 요청한다. */
+  /** Called by `WorldSystem.generate` at mission start. A client asks the host for the mask so far. */
   attach(ctx: GameContext): void {
     this.ctx = ctx;
     this.ensureNet();
     this.requestSync();
   }
 
-  /** 미션 종료 (`game:abort` / 다음 미션). 마스크 · 발견 기록 · 네트워크 구독을 전부 버린다. */
+  /** Mission end (`game:abort` / the next mission). Drops the mask · the discovery record · the net subscriptions. */
   dispose(): void {
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
@@ -116,14 +116,14 @@ export class Fog implements FogRef {
     this.ctx = null;
   }
 
-  /** 2026-09-11 (C-11): 이번 맵의 폐허 전초 목록 (`WorldSystem.generate`). */
+  /** 2026-09-11 (C-11): this map's POI ruins (`WorldSystem.generate`). */
   setOutposts(sites: readonly OutpostSpot[]): void { this.outposts = sites; }
-  /** 2026-09-13: 이번 맵의 탐사 차량 정류장 (`WorldSystem.generate`, 흙길이 없으면 빈 배열). */
+  /** 2026-09-13: this map's rover stations (`WorldSystem.generate`, an empty array with no dirt road). */
   setRoverStations(stations: readonly { readonly id: string; readonly polePosition: THREE.Vector3 }[]): void {
     this.roverStations = stations;
   }
 
-  /* ── 질의 ──────────────────────────────────────────────────────────── */
+  /* ── queries ───────────────────────────────────────────────────────── */
 
   private index(x: number, z: number): number {
     const cx = Math.floor((x + this.half) / this.cellSize);
@@ -134,14 +134,14 @@ export class Fog implements FogRef {
 
   isRevealed(x: number, z: number): boolean {
     const i = this.index(x, z);
-    return i < 0 ? true : this.mask[i] !== 0;      // 맵 밖은 가릴 것이 없다
+    return i < 0 ? true : this.mask[i] !== 0;      // there is nothing to hide outside the map
   }
 
   isDiscovered(position: THREE.Vector3): boolean {
     return this.isRevealed(position.x, position.z);
   }
 
-  /* ── 칠하기 ────────────────────────────────────────────────────────── */
+  /* ── painting ──────────────────────────────────────────────────────── */
 
   reveal(x: number, z: number, radius: number): void {
     if (radius <= 0) return;
@@ -169,8 +169,8 @@ export class Fog implements FogRef {
   }
 
   /**
-   * 매 프레임 호출되지만 실제 칠하기는 `FOG_UPDATE_HZ` 마다 한 번이다.
-   * 로컬 플레이어 + 살아 있는 원격 분대원 전원의 시야가 합쳐진다.
+   * Called every frame, but the actual painting happens once per `FOG_UPDATE_HZ`.
+   * The sight of the local player + every live remote squadmate is unioned.
    */
   update(dt: number): void {
     const ctx = this.ctx;
@@ -185,7 +185,7 @@ export class Fog implements FogRef {
     const net = ctx.net;
     if (net && ctx.isMultiplayer) {
       for (const r of net.getRemotePlayers()) {
-        // 같은 미션 안의, 살아 있는 분대원만 (허브에 있는 사람 · 완전 사망자는 아무것도 밝히지 않는다)
+        // Only live squadmates inside the same mission (someone in the hub · a fully dead player lights nothing)
         if (!r.inMission || r.isDead) continue;
         if (!r.connected && !r.suspended) continue;
         this.reveal(r.position.x, r.position.z, FOG_REVEAL_RADIUS);
@@ -199,7 +199,7 @@ export class Fog implements FogRef {
     }
   }
 
-  /* ── 발견 게이트 ───────────────────────────────────────────────────── */
+  /* ── discovery gate ────────────────────────────────────────────────── */
 
   private scanDiscoveries(ctx: GameContext): void {
     const world = ctx.world;
@@ -207,20 +207,20 @@ export class Fog implements FogRef {
     this.toasted.clear();
     for (const e of world.getExtractionPoints()) this.discover('extraction', e.id, e.position);
     // `getNestPositions()` is one entry per **hole**, and a nest's holes are metres apart — they all cross the
-    // reveal boundary in the same tick, so the per-tick `toasted` filter turns 3–4 of them into one 발견 toast.
+    // reveal boundary in the same tick, so the per-tick `toasted` filter turns 3–4 of them into one discovery toast.
     const nests = world.getNestPositions();
     for (let i = 0; i < nests.length; i++) this.discover('nest', `nest_${i}`, nests[i]);
     for (const c of world.getCrates()) this.discover('crate', c.id, c.position);
     const nodes = world.getGatherNodes?.();
     if (nodes) for (const g of nodes) this.discover('gather', g.id, g.position);
-    // 2026-09-09: 버려진 구조물과 선로 · 플랫폼. 토스트는 ui/ 가 띄운다 (위 `TOAST` 주석 참고).
+    // 2026-09-09: abandoned structures and rails · platforms. The toast is raised by ui/ (see the `TOAST` comment above).
     for (const st of world.getStructures()) this.discover('structure', st.id, st.position);
-    // 2026-09-11 (C-11): 폐허 전초 — 계약에 `'outpost'` 가 있었지만 아무도 발행하지 않았다
+    // 2026-09-11 (C-11): POI ruins — `'outpost'` was in the contract but nobody emitted it
     for (const o of this.outposts) this.discover('outpost', o.id, o.position);
     for (const line of world.getRailLines()) {
       for (const p of line.platforms) this.discover('rail', p.id, p.position);
     }
-    // 2026-09-13: 탐사 차량 정류장 — 표지 기둥 자리가 밝혀지면
+    // 2026-09-13: rover stations — once the sign pole spot is lit
     for (const st of this.roverStations) this.discover('rover', st.id, st.polePosition);
   }
 
@@ -236,7 +236,7 @@ export class Fog implements FogRef {
     ctx.bus.emit('ui:notify', { text, kind: 'info', duration: 2.2 });
   }
 
-  /* ── 직렬화 (늦게 합류한 클라이언트) ───────────────────────────────── */
+  /* ── serialization (late-joining clients) ──────────────────────────── */
 
   serialize(): string {
     const bytes = new Uint8Array(Math.ceil(this.mask.length / 8));
@@ -261,7 +261,7 @@ export class Fog implements FogRef {
     this.ctx?.bus.emit('fog:revealed', { revision: this.revision, explored: this.explored });
   }
 
-  /* ── 멀티플레이 (호스트 권한, 늦은 합류만) ─────────────────────────── */
+  /* ── multiplayer (host authority, late joins only) ─────────────────── */
 
   private ensureNet(): void {
     const ctx = this.ctx;
@@ -278,7 +278,7 @@ export class Fog implements FogRef {
       net.onMessage('flow', (m, from) => {
         if (m.ev === 'rejoined' && ctx.net?.isHost) this.sendSync(from);
       }),
-      // 승격된 호스트는 우리 마스크를 본 적이 없다 — 반대로 우리가 새 호스트에게 다시 받는다
+      // The promoted host has never seen this mask — instead this client receives it again from the new host
       ctx.bus.on('net:hostChanged', ({ isLocalHost }) => { if (!isLocalHost) this.requestSync(); }),
     );
   }
