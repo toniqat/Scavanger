@@ -33,8 +33,9 @@
  * leaves it alone — ids survive the transfer, so a named rogue already announced is not announced twice.
  *
  * Values like the placement search's candidate count and sampling radius are **parameters of the search algorithm**, not
- * balance numbers, so they live in this file (the same nature as `RogueGuards`' try count and ring radius). The
- * appearance chance, the distances and the escort count all come from csv.
+ * balance numbers, so they live in this file — the same nature as `SiteGroups.ts`'s own `CANDIDATE_EXTRA` and fallback
+ * ring constants, and each placement search keeps its own. The appearance chance, the distances and the escort count
+ * all come from csv.
  */
 import * as THREE from 'three';
 import {

@@ -15,9 +15,13 @@ export interface PlanetEcosystem {
   bugs: Partial<Record<EnemyType, number>>;
   /** Multiplier on the ambient population cap (`AmbientSpawner.cap`, today `12 + 24 * threat`). */
   pressure: number;
-  /** Multiplier on rogue-guard density (`enemies/RogueGuards.placeRogueGuards`). 0 = a planet with no raiders. */
+  /**
+   * Was the multiplier on crate-guard density. 2026-09-13 retired crate guards — humanoid placement is the **site
+   * groups** by planet threat (`enemies/SiteGroups.ts`) and reads neither this nor `boss`; both columns are only carried
+   * through to `EnemySystem.debugEcology` (2026-09-19: said `RogueGuards.placeRogueGuards`, which no longer exists).
+   */
   rogues: number;
-  /** true = the boss squad is always placed while `rogues > 0`; false = only when the seed happens to roll one. */
+  /** Was 「the boss squad is always placed while `rogues > 0`」 — unread since 2026-09-13, see `rogues` above. */
   boss: boolean;
   /** Per-planet ceilings that used to be the module constants `MAX_ARTILLERY` / `MAX_BEHEMOTH` in `Spawner.ts`. */
   maxArtillery: number;

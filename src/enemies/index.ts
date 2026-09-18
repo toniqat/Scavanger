@@ -10,7 +10,7 @@ export {
   AmbientSpawner, findSpawnCenter, spawnGroup, ambientGroup, waveGroup, isVisibleToAnyPlayer,
   MAX_ARTILLERY, MAX_BEHEMOTH, ambientCap, ecoAllows, maxArtilleryOf, maxBehemothOf, type SpawnHost,
 } from './Spawner';
-export { placeRogueGuards, guardCap, ECO_BOSS_CHANCE, MAX_GUARDS, type RogueSpawnHost, type GuardPlacement } from './RogueGuards';
+export { type RogueSpawnHost } from './RogueGuards';
 export { placeTutorialEnemies, tutorialHold, updateTutorialAmbush, type TutorialAmbush, type TutorialPlacement } from './Tutorial';
 /* appended (2026-09-15): chain spawn · per-stretch aggro release · the liftoff fire window */
 export { onTutorialCheckpoint, onTutorialFell, onTutorialLiftoff, updateTutorialScript, type TutorialScriptHost } from './Tutorial';

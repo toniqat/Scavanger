@@ -7,7 +7,7 @@ import { ARTILLERY_AI, BEHEMOTH_AI, TOXIC_AI } from '../EnemyTypes';
 import type { CombatTarget } from '../Targets';
 import { lookAtTarget, startMelee, stumble, type AttackResult } from './Common';
 import { shellArcBlocked } from '../parts/Attacks';
-/* appended (2026-09-17): the artillery escort · the fire condition · the one-time summon */
+/* appended (2026-09-17, re-summon since 2026-09-18): the artillery escort · the fire condition · the own-squad summon */
 import { hasBugSupport, maybeSummon } from './ArtilleryPack';
 
 /* ────────────────────────────────────────────────────────────────────────────

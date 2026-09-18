@@ -37,7 +37,6 @@ import { disposeRogueAssets } from './models/RogueModel';
 import { EnemyReplica, type ReplicaHost } from './net/Replica';
 import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from './net/HostSync';
 import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from './Corpses';
-import { placeRogueGuards, type RogueSpawnHost } from './RogueGuards';
 import { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
 
 /** Wire index of a fall direction (`ee kill.dd` / `ee corpse.dd`); 0 (`'left'`) is the omitted default. */

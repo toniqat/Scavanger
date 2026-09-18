@@ -69,6 +69,14 @@ const PHASE_SCAN = 0;
 const PHASE_LOITER = 1;
 const PHASE_RETURN = 2;
 const PHASE_ESCAPE = 3;
+/**
+ * 「this drone is on its way out」 — flying home (`PHASE_RETURN`) or escaping (`PHASE_ESCAPE`). `Sniper.ts` asks before
+ * adopting an ownerless drone, and asking through this keeps the phase numbers **only** in this file: a hand-copied
+ * `2` there would go quietly wrong the day the phases are renumbered.
+ */
+export function scanDroneLeaving(e: Enemy): boolean {
+  return e.namedPhase >= PHASE_RETURN;
+}
 
 const _spawn = new THREE.Vector3();
 const _origin = new THREE.Vector3();

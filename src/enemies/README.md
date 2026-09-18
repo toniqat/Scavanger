@@ -20,7 +20,7 @@ No asset files — every rig is built from primitives.
 | `NestDirector.ts` | Bug nests (2026-09-18): one `bug_egg` per `WorldRef.getNestEggSpots()` spot, per-nest anchors (centroid of that pad's egg spots), garrison binding (`Enemy.nestOf`), seeded refill budget (`Random.hash('nest@<seed>')`) and the refill trigger; `applyEggSize` (per-spot radius on both authority and replica) |
 | `SiteGroups.ts` | `placeSiteGroups`: humanoid groups at labs / outposts / rail platforms / ruins by planet threat |
 | `RogueDrop.ts` | `RogueDropDirector`: raider drops after structure investigation (two waves, pods, landing spawns) |
-| `RogueGuards.ts` | `RogueSpawnHost` contract only; `placeRogueGuards` / `guardCap` / `MAX_GUARDS` are retired no-op names |
+| `RogueGuards.ts` | `RogueSpawnHost` contract only (`spawnRogue` + `allocSquadId`); the retired crate-guard no-ops were deleted on 2026-09-19 — placement is `SiteGroups.ts` |
 | `WaveDirector.ts` | Extraction wave director — kept but never started (extraction defense removed) |
 | `Tutorial.ts` | Tutorial enemies: `placeTutorialEnemies`, `tutorialHold`, burrow ambush + chain spawn (`updateTutorialScript`), aggro release (`onTutorialCheckpoint`, `onTutorialFell`), liftoff fire window (`onTutorialLiftoff`), per-spot weapon override (`TutorialSpawnSpec.weapon` — the last pair's `sg` / `dmr`), fall reset (`FALL_RESET_M`: an enemy that dropped off a cliff snaps back to its post) |
 | `Corpses.ts` | `Corpse` interactable (`corpse:<id>`, `시체 수색`), `CorpseManager` (lifetime, looted), `rollCorpseLootable` |

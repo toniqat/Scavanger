@@ -44,7 +44,7 @@ import { lookAtTarget } from '../Common';
 import { integrate } from '../EnemyAI';
 import { visionClarity } from '../Perception';
 import { turnToward, yawTo } from '../Steering';
-import { launchScanDrone } from './ScanDrone';
+import { launchScanDrone, scanDroneLeaving } from './ScanDrone';
 import { scanDroneDataOf, sniperDataOf, type ScanDroneData, type SniperData } from './model';
 
 /* ── Wire hints (`EnemyWire.a`) ── */
@@ -85,8 +85,6 @@ const RELOCATE_TRIES = 6;
 const CANCEL_COOLDOWN_S = 1.2;
 /** Retry this long after a drone could not be launched (s). */
 const LAUNCH_RETRY_S = 3;
-/** The phase numbers in `ScanDrone.ts` — a drone at or past this one (flying home · escaping) is not adopted. */
-const DRONE_PHASE_RETURN = 2;
 /** The safety net for a drone that never answers: s added to `loiterMax`. */
 const DRONE_TIMEOUT_PAD_S = 20;
 /** Width (rad) · speed (rad/s) of the scope sweep with nothing to do. */
@@ -220,7 +218,7 @@ function adoptDrone(e: Enemy, d: SniperData, host: EnemyHost): void {
     const o = list[i];
     if (o.type !== 'rogue_scan_drone' || !o.active || o.state === 'dead' || o.state === 'flee' || o.id === d.resolvedDroneId) continue;
     const sd = scanDroneDataOf(o);
-    if (!sd || sd.sniperId !== e.id || sd.claimed || o.namedPhase >= DRONE_PHASE_RETURN) continue;
+    if (!sd || sd.sniperId !== e.id || sd.claimed || scanDroneLeaving(o)) continue;
     d.droneId = o.id;
     d.droneAge = 0;
     d.scanWait = -1;
