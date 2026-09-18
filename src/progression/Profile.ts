@@ -13,7 +13,7 @@ import {
 
 export type LoadOutcome = 'loaded' | 'migrated' | 'fresh' | 'corrupt';
 
-/** 전술 임플란트 a brand-new profile starts with (all five are owned from level 1; 갈고리 is the mobility staple). */
+/** The tactical implant a brand-new profile starts with (all five are owned from level 1; `갈고리` — the grapple — is the mobility staple). */
 export const DEFAULT_IMPLANT: ImplantId = 'grapple';
 
 export interface LoadResult {
@@ -67,38 +67,40 @@ export function freshProfile(name = '스캐빈저'): PlayerProfile {
     skills: zeroSkills(),
     skillProgress: zeroSkills(),
     /*
-     * 2026-09-14 2차 (사용자 결정) — **빈 칸으로 시작한다.** 2026-09-07 의 "빈 칸은 빠뜨린 기본값" 을 뒤집는다:
-     * 튜토리얼 레이드는 임플란트를 아직 갖지 않은 구간이고(위젯을 숨기는 것만으로는 Q 가 여전히 나간다),
-     * 갈고리는 **첫 함선 진입**에서 `ProgressionSystem.grantStarterImplant` 가 지급 · 장착한다.
-     * `shared/character.makeCharacterProfile` 도 같은 자리에서 null 을 쓴다 — 두 생성 경로가 같아야 한다.
+     * 2026-09-14 2nd pass (user's decision) — **it starts empty.** This reverses 2026-09-07's "an empty slot is a
+     * default someone forgot": the tutorial raid is the stretch where you do not have an implant yet (merely hiding
+     * the widget still leaves Q firing), and the grapple is granted and equipped by
+     * `ProgressionSystem.grantStarterImplant` on the **first entry into the ship**.
+     * `shared/character.makeCharacterProfile` writes null in the same place — the two creation paths must agree.
      */
     implant: null,
     raids: 0,
     extractions: 0,
     statProgress: zeroStatProgress(),
-    // Phase 12 (2026-09-08): equipped 임플란트 items live here while out of the grids
+    // Phase 12 (2026-09-08): equipped implant items live here while out of the grids
     implants: [],
-    // A-13 (2026-09-11): 준비물 — 대기분 / 이번 레이드분. 새 캐릭터는 둘 다 비어 있다.
+    // A-13 (2026-09-11): preparations — the waiting set / this raid's set. Both empty for a new character.
     prep: [],
     prepActive: [],
-    // A-3c (2026-09-11): 식사 — 고정 1칸이라 배열이 아니다. 안 먹었으면 null.
+    // A-3c (2026-09-11): the meal — a fixed single slot, so not an array. null when nothing was eaten.
     meal: null,
     mealActive: null,
-    // 2026-09-13 (요리 품질): 식사 id 옆에 붙어 다니는 별 수 0 … MEAL_QUALITY_MAX. 안 먹었으면 0.
+    // 2026-09-13 (cook quality): the star count that travels beside the meal id, 0 … MEAL_QUALITY_MAX. 0 when nothing was eaten.
     mealQuality: 0,
     mealActiveQuality: 0,
-    // A-3a (2026-09-12): 헬스장 — 단련 보너스 · 운동 디버프. 새 캐릭터는 둘 다 비어 있다 (= 0 · 없음).
-    // 2026-09-17: 단련 진행도(`trainedProgress`)는 없다 — 미니게임 경험치는 능력치 경험치 바(`statProgress`)를 같이 쓴다.
+    // A-3a (2026-09-12): the gym — training bonus · workout debuff. Both empty for a new character (= 0 · none).
+    // 2026-09-17: there is no separate training progress (`trainedProgress`) — minigame XP shares the stat-XP bar (`statProgress`).
     trained: {},
     gymFatigueUntil: {},
   };
 }
 
 /**
- * Sanitise the 헬스장 maps of a stored profile (A-3a). Only `GYM_STATS` keys survive; `trained` is an integer
- * 0 … `GYM_TRAINED_MAX`, `gymFatigueUntil` a finite epoch ms > 0. Zero entries are left out so a fresh / untouched character
- * keeps empty maps. 2026-09-17: the old `trainedProgress` map (a separate 단련 bar) is **dropped** — 단련 now fills the
- * stat-XP bar (`ProgressionSystem.addStatXp` minigame source); `trained` values are kept as they were. An expired fatigue stamp is kept (it reads as 「없음」 through `getGymFatigueUntil`) — the clock that
+ * Sanitise the gym maps of a stored profile (A-3a). Only `GYM_STATS` keys survive; `trained` is an integer
+ * 0 … `GYM_TRAINED_MAX`, `gymFatigueUntil` a finite epoch ms > 0. Zero entries are left out so a fresh / untouched
+ * character keeps empty maps. 2026-09-17: the old `trainedProgress` map (a separate training bar) is **dropped** — the
+ * training bonus now fills the stat-XP bar (`ProgressionSystem.addStatXp` minigame source); `trained` values are kept
+ * as they were. An expired fatigue stamp is kept (it reads as "none" through `getGymFatigueUntil`) — the clock that
  * decides expiry is the relay's, which `Profile.ts` does not have.
  */
 export function sanitizeGym(raw: { trained?: unknown; gymFatigueUntil?: unknown }): Pick<PlayerProfile, 'trained' | 'gymFatigueUntil'> {
@@ -119,7 +121,7 @@ export function sanitizeGym(raw: { trained?: unknown; gymFatigueUntil?: unknown 
 const PREP_STORE_MAX = 8;
 
 /**
- * Sanitise a stored 준비물 list (A-13): non-empty strings only, duplicates dropped, capped. Whether the def still
+ * Sanitise a stored preparation list (A-13): non-empty strings only, duplicates dropped, capped. Whether the def still
  * exists — and whether two entries share an `env` — is **not** checked here (`Profile.ts` imports nothing from
  * items/); `ProgressionSystem.prunePreps` does that once `ctx.loot` is up, exactly like `sanitizeImplants`.
  */
@@ -139,8 +141,8 @@ export function sanitizePreps(raw: unknown): string[] {
 }
 
 /**
- * Sanitise a stored 식사 id (A-3c): one non-empty string or null. Whether the def still exists — and whether it is
- * really a 요리 — is **not** checked here (`Profile.ts` imports nothing from items/); `ProgressionSystem.pruneMeal`
+ * Sanitise a stored meal id (A-3c): one non-empty string or null. Whether the def still exists — and whether it is
+ * really a meal — is **not** checked here (`Profile.ts` imports nothing from items/); `ProgressionSystem.pruneMeal`
  * does that once `ctx.loot` is up, exactly like `prunePreps` / `pruneImplants`.
  */
 export function sanitizeMeal(raw: unknown): string | null {
@@ -216,9 +218,10 @@ export function migrate(raw: unknown): PlayerProfile | null {
     p.skillProgress[id] = p.skills[id] >= SKILL_LEVEL_MAX ? 0 : num(prog[id], 0, 0, 0.999999);
   }
 
-  /* 2026-09-15: 은퇴한 `atlauncher`(대전차포)는 `IMPLANT_IDS` 에 없으므로 여기서 null 이 된다 — migrate 의 결과가 곧
-   * 다음 `saveProfile` 이라 한 번 로드되면 세이브에서도 지워진다. 빈 칸은 다음 `hub:entered` 에서
-   * `ProgressionSystem.grantStarterImplant` 가 갈고리로 채운다 (그 뒤는 인벤토리 피커에서 다시 고른다). */
+  /* 2026-09-15: the retired `atlauncher` (대전차포, the anti-tank launcher) is not in `IMPLANT_IDS`, so it becomes
+   * null here — migrate's result *is* the next `saveProfile`, so one load erases it from the save too. The empty slot
+   * is filled with the grapple by `ProgressionSystem.grantStarterImplant` on the next `hub:entered` (after that it is
+   * chosen again from the inventory picker). */
   const implant = r.implant;
   p.implant = typeof implant === 'string' && (IMPLANT_IDS as readonly string[]).includes(implant)
     ? (implant as ImplantId)
@@ -227,31 +230,35 @@ export function migrate(raw: unknown): PlayerProfile | null {
   // Phase 12: equipped implant items — missing on older saves → []
   p.implants = sanitizeImplants(r.implants);
 
-  /* A-13 (2026-09-11): 준비물. 옛 세이브에는 두 필드가 없다 → 빈 배열. `prepActive` 는 레이드 도중에 끊긴 사람이
-   * 돌아왔을 때 그대로 살아 있어야 하는 값이므로 (「재접속으로 돌아온 사람이 조용히 무언가를 잃으면 안 된다」)
-   * 여기서 반드시 옮겨 담는다 — migrate 의 결과가 곧 다음 `saveProfile` 의 내용이다. */
+  /* A-13 (2026-09-11): preparations. An old save has neither field → empty arrays. `prepActive` has to still be there
+   * when someone who dropped mid-raid comes back (「nobody who returns through a reconnect may lose something
+   * silently」), so it must be carried over here — migrate's result *is* the content of the next `saveProfile`. */
   p.prep = sanitizePreps(r.prep);
   p.prepActive = sanitizePreps(r.prepActive);
 
-  /* A-3c (2026-09-11): 식사. 준비물과 **완전히 같은 이유**로 여기서 옮겨 담는다 — migrate 의 결과가 곧 다음
-   * `saveProfile` 의 내용이라, 빠뜨리면 식탁에서 먹은 요리가 새로고침 한 번에 사라진다 (2026-09-09 `accent`
-   * 사고와 같은 자리). `mealActive` 는 레이드 도중 끊긴 사람이 돌아와도 살아 있어야 하는 값이다. */
+  /* A-3c (2026-09-11): the meal. Carried over here for **exactly the same reason** as preparations — migrate's result
+   * *is* the content of the next `saveProfile`, so leaving it out makes a meal eaten at the dining table vanish on one
+   * reload (the same spot as the 2026-09-09 `accent` incident). `mealActive` has to survive for someone who dropped
+   * mid-raid and came back. */
   p.meal = sanitizeMeal(r.meal);
   p.mealActive = sanitizeMeal(r.mealActive);
-  /* 2026-09-13 (요리 품질): 품질은 요리 id 옆에 붙어 다닌다 — 같은 자리의 같은 교훈이라 여기서 옮기지 않으면 ★★★★★ 요리가
-   * 새로고침 한 번에 ☆ 가 된다. 0 … MEAL_QUALITY_MAX 정수로 자르고, 짝이 되는 id 가 없으면 0 이다. */
+  /* 2026-09-13 (cook quality): the quality travels beside the meal id — the same lesson in the same place, so not
+   * carrying it over turns a ★★★★★ meal into a ☆ on one reload. Clamped to an integer 0 … MEAL_QUALITY_MAX, and 0 when
+   * there is no id to pair it with. */
   p.mealQuality = p.meal ? normalizeMealQuality(r.mealQuality) : 0;
   p.mealActiveQuality = p.mealActive ? normalizeMealQuality(r.mealActiveQuality) : 0;
 
-  /* A-3a (2026-09-12): 헬스장 — 단련 보너스 · 운동 디버프 (2026-09-17: 옛 `trainedProgress` 는 옮기지 않는다 = 버린다). 같은 자리의 같은 교훈이다: migrate 의 결과가 곧 다음
-   * `saveProfile` (그리고 서버 `progression` 문서) 의 내용이라, 여기서 옮기지 않으면 운동으로 얻은 보너스와 24시간 디버프가
-   * 새로고침 한 번에 사라진다 — 디버프가 사라지면 곧바로 다시 운동할 수 있다. */
+  /* A-3a (2026-09-12): the gym — training bonus · workout debuff (2026-09-17: the old `trainedProgress` is not carried
+   * over = discarded). The same lesson in the same place: migrate's result *is* the content of the next `saveProfile`
+   * (and of the server `progression` document), so not carrying it over makes the bonus earned by working out and the
+   * 24-hour debuff vanish on one reload — and once the debuff is gone you can work out again immediately. */
   Object.assign(p, sanitizeGym(r));
 
-  /* 2026-09-09 (캐릭터 생성창): `accent` / `createdAt` / `playedAt` 은 `shared/character.makeCharacterProfile`
-   * 이 심는 필드다. 여기서 옮겨 담지 않으면 **첫 저장에서 사라진다** — `migrate` 의 결과가 곧 다음
-   * `saveProfile` 의 내용이므로, 새로고침 한 번에 캐릭터의 색과 만든 시각이 지워졌다 (`readSlotCard` 가
-   * 읽는 자리도 여기다: 카드의 악센트가 기본색으로 되돌아갔다). 모르는 필드는 계속 버린다. */
+  /* 2026-09-09 (the character creation window): `accent` / `createdAt` / `playedAt` are fields planted by
+   * `shared/character.makeCharacterProfile`. Not carrying them over here makes them **disappear on the first save** —
+   * `migrate`'s result *is* the content of the next `saveProfile`, so one reload erased the character's colour and
+   * creation time (this is also what `readSlotCard` reads: the card's accent fell back to the default colour).
+   * Unknown fields are still dropped. */
   const accent = r.accent;
   if (typeof accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(accent)) p.accent = accent;
   const createdAt = num(r.createdAt, 0, 0, 8.64e15);

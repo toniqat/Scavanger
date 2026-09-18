@@ -3,20 +3,24 @@ import type { Obstacle, WorldRef } from '@/shared';
 import { BAY_HALF_W, BAY_HEIGHT, BAY_Z_MAX, BAY_Z_MIN, type Dropship } from './Ship';
 
 /**
- * src/extraction/Hull.ts — **착륙한 탈출 함선의 몸통 콜라이더와 적 출입 금지 영역** (2026-09-13 탈출 개편).
+ * src/extraction/Hull.ts — **hull colliders of the landed extraction ship, and the enemy exclusion zone**
+ * (2026-09-13 extraction rework).
  *
- * 이 파일이 답하는 질문: *벌레 · 로그가 왜 함선 외피를 뚫고 화물칸에 들어왔고, 이제 무엇이 막는가.*
+ * The question this file answers: *why did bugs and rogues walk through the ship's shell into the bay, and what
+ * stops them now.*
  *
- * 함선은 메시만 있고 **월드 콜라이더가 하나도 없었다** — 적(과 총알 · 수류탄)에게 함선은 허공이었다. 이제 착륙하는 순간
- * 외피를 사각 콜라이더(`Obstacle.box`) 여덟 개로 `WorldRef.addObstacle` 에 등록하고, 함선이 **올라가기 시작할 때**
- * 걷는다. 움직이는 콜라이더로 만들지 않은 이유: 이륙 중 탑승자는 `setShipInterior` 상자 모드라 월드 충돌을 안 보지만,
- * 떠오르는 지붕 판은 발 + `BOX_HEADROOM` 창에 걸려 **옆으로 밀어내는** 쪽이라 두면 오히려 해롭다. 착륙해 있는 동안 함선은
- * 1 cm 흔들릴 뿐이므로 정지 콜라이더로 충분하다.
+ * The ship was mesh only and had **no world collider at all** — to enemies (and bullets, and grenades) it was thin
+ * air. Now the shell is registered with `WorldRef.addObstacle` as eight box colliders (`Obstacle.box`) the moment it
+ * touches down, and they are removed when the ship **starts to rise**. Why they are not moving colliders: during
+ * liftoff a passenger is in `setShipInterior` box mode and never sees world collision, while the rising roof plate
+ * catches the feet + `BOX_HEADROOM` window and **pushes bodies sideways** — keeping it would do harm, not good. While
+ * the ship sits on the pad it only sways by a centimetre, so static colliders are enough.
  *
- * 뒤쪽 램프 자리는 사람이 드나드는 구멍이라 콜라이더가 없다. 그 구멍을 **적에게만** 막는 것이 `keepEnemyOut` 이다 —
- * `resolveCollision` 은 누가 부르는지 모르므로 "적만" 은 월드 콜라이더로 표현할 수 없다. 화물칸 사각형(몸 반지름만큼
- * 부풀린)에 들어온 적은 **입구 쪽(로컬 +Z)으로만** 밀려 나간다: 옆 · 앞은 외피 콜라이더가 이미 막으므로, 옆으로 밀면
- * 벽 판 안으로 밀어 넣어 두 판정이 서로 싸운다.
+ * The rear ramp has no collider — it is the hole people walk through. Closing that hole **to enemies only** is
+ * `keepEnemyOut`: `resolveCollision` does not know who calls it, so "enemies only" cannot be expressed as a world
+ * collider. An enemy inside the bay rectangle (grown by the body radius) is pushed out **through the doorway (local
+ * +Z) only** — sideways and forward are already blocked by the shell colliders, so a sideways push would shove the
+ * body into a wall plate and set the two resolutions fighting each other.
  */
 
 /** One hull box in ship-local space: centre (x, z), half extents, base above the deck origin (`y0`) and height. */

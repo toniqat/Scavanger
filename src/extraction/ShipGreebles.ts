@@ -2,24 +2,29 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
- * src/extraction/ShipGreebles.ts — **드랍쉽 외피 잔디테일(그리블)** (2026-09-15, TODO D-8, 사용자 결정 「병합 지오메트리 그리블」).
+ * src/extraction/ShipGreebles.ts — **surface greebles on the dropship hull** (2026-09-15, TODO D-8, user's decision
+ * 「merged-geometry greebles」).
  *
- * 이 파일이 답하는 질문: *가까이서 각져 보이던 선체에 무엇을 붙였고, 왜 그것이 렌더 비용 · 콜라이더 · 탑승을 건드리지 않는가.*
+ * The question this file answers: *what was added to a hull that read as flat and angular up close, and why none of
+ * it touches render cost, colliders or riding.*
  *
- * - **패널 이음매 · 리벳 띠 · 파이프/도관 · 루버 통풍구 · 흡기구 · 점검 해치 · 안테나 · 나셀 리브 · 조종석 창틀**을 얇은
- *   상자 · 원기둥으로 만들어 **재질마다 하나로 병합**한다 (`mergeGeometries`) — 그림 호출은 재질 수(최대 4)만큼만 늘어난다.
- * - 재질은 `Ship.ts` 가 이미 가진 인스턴스(`hull` · `hullDark` · `accent` · `glass`)를 그대로 쓴다: **새 셰이더 프로그램 없음,
- *   텍스처 없음, 광원 없음** (씬의 점광원 개수 규칙 — `smoke-lights`).
- * - 전부 **바깥 껍질 위**에만 선다. 두께는 표면에서 수 cm(파이프 · 안테나를 빼면 ≤ 0.1 m)라 실루엣이 바뀌지 않고,
- *   `Hull.ts` 의 외피 상자 여덟 개 · 데크 평면(`floorYAt`) · 화물칸(x ±1.72, y 0..2.72, z −5.3..0.6) · 램프가 도는
- *   부채꼴(힌지 (y 0, z 0.25) 에서 반지름 3.05, |x| ≤ 1.66) · 뒤쪽 입구에는 아무것도 들어가지 않는다.
- *   그래서 뒷면(z 0.6)에는 붙이지 않았다 — 옆 판의 뒷면 띠(|x| 1.6..2.1)는 램프 가장자리와 너무 가깝다.
+ * - **Panel seams · rivet strips · pipes/conduits · louvred vents · intakes · access hatches · antennas · nacelle ribs
+ *   · cockpit window frames** are built from thin boxes and cylinders and **merged into one geometry per material**
+ *   (`mergeGeometries`) — draw calls grow only by the number of materials (at most 4).
+ * - Materials are the instances `Ship.ts` already holds (`hull` · `hullDark` · `accent` · `glass`): **no new shader
+ *   program, no texture, no light** (the scene point-light count rule — `smoke-lights`).
+ * - Everything sits **on the outer shell only**. Thickness is a few cm above the surface (≤ 0.1 m apart from pipes and
+ *   antennas), so the silhouette does not change, and nothing intrudes into `Hull.ts`'s eight shell boxes, the deck
+ *   plane (`floorYAt`), the bay (x ±1.72, y 0..2.72, z −5.3..0.6), the arc the ramp swings through (radius 3.05 about
+ *   the hinge at (y 0, z 0.25), |x| ≤ 1.66) or the rear opening. That is why nothing is attached to the rear face
+ *   (z 0.6) — the rear band of the side plates (|x| 1.6..2.1) is too close to the ramp edge.
  *
- * 좌표는 `Ship.ts` 의 선체 로컬이다 (−Z = 기수, +Z = 램프, 데크 원점 y 0). 외곽: 옆 판 바깥면 x ±2.1 · 지붕 윗면 y 3.0 ·
- * 상부 데크(x ±1.5, y 2.95..3.55) · 척추(x ±0.4, y 3.35..3.85, z −8.3..1.1) · 배 밑면 y −0.3 · 날개(x 1.7..4.3, y 2.19..2.41,
- * z −4.5..−1.9) · 나셀(x ±4.2, z −3.2, 반지름 1.05→0.95, y 0.1..3.7) · 기수(4각 절두체, 반폭 1.06 @ z −6.5 → 1.45 @ z −9.7,
- * 중심 y 1.45) · 턱(x ±1.3, y 0..0.7) · 꼬리날개(x ±1.4, y 4.1, z 0.2, rz ∓0.45) · 수평꼬리(y 3.84..3.96, z −0.4..1.0).
- * 순수한 모델 치수라 `data/*.csv` 로 옮기지 않는다 (`Ship.ts` 의 나머지 치수와 같은 처리).
+ * Coordinates are `Ship.ts`'s hull-local frame (−Z = nose, +Z = ramp, deck origin y 0). Outline: side plate outer face
+ * x ±2.1 · roof top y 3.0 · upper deck (x ±1.5, y 2.95..3.55) · spine (x ±0.4, y 3.35..3.85, z −8.3..1.1) · belly
+ * underside y −0.3 · wings (x 1.7..4.3, y 2.19..2.41, z −4.5..−1.9) · nacelles (x ±4.2, z −3.2, radius 1.05→0.95,
+ * y 0.1..3.7) · nose (square frustum, half width 1.06 @ z −6.5 → 1.45 @ z −9.7, centre y 1.45) · chin (x ±1.3,
+ * y 0..0.7) · tail fins (x ±1.4, y 4.1, z 0.2, rz ∓0.45) · horizontal tail (y 3.84..3.96, z −0.4..1.0).
+ * These are pure model dimensions, so they are not moved into `data/*.csv` (same treatment as the rest of `Ship.ts`).
  */
 
 export interface GreebleMaterials {

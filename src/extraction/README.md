@@ -88,8 +88,8 @@ sees the usual events. Host takeover promotes the mirror fields, rebuilds `board
 
 ## Recent changes
 Last 5 only — older: `git log -- src/extraction`.
+- 2026-09-18 — Code comments translated to English (project-wide rule change, `CLAUDE.md` §4.1); Korean on-screen labels kept verbatim in backticks, no string literal touched.
 - 2026-09-17 — Console caption `탈출 신호 전송` (no `(E 길게)`); `FlareColumn` emits group-local (smoke/embers were drawn at twice the pad's world position).
 - 2026-09-16 — Liftoff switch prompt is `출발 시퀀스 작동` for every ship.
 - 2026-09-15 — `Ship.ts` drawn-deck ground clearance (`GROUND_DRAW_LIFT_MAX`, no landed bob); tutorial switch caption `출발 시퀀스 시작`.
 - 2026-09-15 — Android hooks: `getPads` / `requestActivate` / `boardingPoint` on `ctx.extraction`.
-- 2026-09-15 — `Ship.ts` coplanar budget fixes floor / side wall / ceiling z-fighting.

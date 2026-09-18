@@ -1,13 +1,15 @@
 /**
- * 캐릭터 시트의 **능력치 · 숙련도 툴팁** (2026-09-13). 아이템이 아니라서 `ui/hud/ItemTip` 이 그리지 못하고 폴더끼리
- * import 하지 않으므로 여기서 그린다 (`housing/ui/StationTip` 과 같은 방식). 겉모습은 `.item-tip` 카드와 같지만 **자기 클래스(`.pg-tip*`,
- * `ui/character.css`)** 를 쓴다 — `.item-tip` 을 달면 HUD 아이템 카드를 찾는 쿼리가 먼저 붙은 이 카드를 집는다.
- * 네이티브 `title` 은 쓰지 않는다 — 인게임 커서 위에서는 뜨지 않거나 늦게 뜬다.
+ * The character sheet's **stat / skill tooltip** (2026-09-13). These are not items, so `ui/hud/ItemTip` cannot draw
+ * them, and feature folders do not import each other — hence it is drawn here (the same way as
+ * `housing/ui/StationTip`). It looks like an `.item-tip` card but uses **its own classes** (`.pg-tip*`,
+ * `ui/character.css`): tagging it `.item-tip` would make the queries that look for HUD item cards pick up this card
+ * first. The native `title` attribute is not used — over the in-game cursor it either never appears or appears late.
  *
- * 성능: `pointermove` 에서는 좌표만 적고 rAF 에 한 번 `transform` 을 쓴다. 크기는 내용을 바꿀 때만 잰다.
+ * Performance: `pointermove` only records the coordinates, and one `transform` is written per rAF. The size is
+ * measured only when the content changes.
  */
 
-/** `note` (2026-09-13): a small second line under the row spanning both columns (서재 시리즈: `책 · 4 / 5권 · 40 %`). */
+/** `note` (2026-09-13): a small second line under the row spanning both columns (library series: `책 · 4 / 5권 · 40 %`). */
 export interface SheetTipRow { k: string; v: string; tone?: 'good'; note?: string }
 /** `title` omitted / empty (2026-09-13) = the rows follow the divider with no header line. */
 export interface SheetTipSection { title?: string; rows: readonly SheetTipRow[] }
@@ -15,7 +17,7 @@ export interface SheetTipSpec {
   name: string;
   sub?: string;
   desc?: string;
-  /** Accent lines under the description (지능: `모든 숙련 성장 +6%/pt`). */
+  /** Accent lines under the description (intelligence: `모든 숙련 성장 +6%/pt`). */
   notes?: readonly string[];
   sections: readonly SheetTipSection[];
 }

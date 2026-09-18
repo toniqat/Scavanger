@@ -37,18 +37,18 @@ interface PadEntry {
   def: ExtractionPointDef;
   console: ExtractionConsole;
   interactableId: string;
-  /** 2026-09-15 (안드로이드): 콘솔 앞 **발** 자리 — 안드로이드가 걸어가 누르는 곳 (`ExtractionRef.getPads`). */
+  /** 2026-09-15 (androids): the **standing** spot in front of the console — where an android walks to press it (`ExtractionRef.getPads`). */
   stand: THREE.Vector3;
 }
 
-/** 2026-09-15: 콘솔 중심에서 패드 쪽으로 물러선 거리(m) — 콘솔 몸통 안에 서지 않을 만큼만. */
+/** 2026-09-15: how far back from the console centre, toward the pad (m) — just enough not to stand inside the console body. */
 const PAD_STAND_BACK = 1.4;
 
 /**
  * Extraction flow: pad consoles → countdown + flare → ship flight-in / landing → boarding → **departure grace** → liftoff.
  * Emits the `extraction:*` events; GameFlowSystem owns the phase transitions.
  *
- * 2026-09-13 (탈출 개편, 사용자 결정):
+ * 2026-09-13 (extraction rework, user's decision):
  *   - No defense. `EXTRACTION_COUNTDOWN` (20 s) is just the wait for the ship.
  *   - Touchdown → `EXTRACTION_AUTO_DEPART_IDLE_S` (60 s). Any living boarded player holding the interior switch — or that
  *     timer running out — starts an uncancellable `EXTRACTION_DEPART_GRACE_S` (10 s) grace. People may still board.
@@ -188,18 +188,19 @@ export class ExtractionSystem implements GameSystem {
       skipToLiftoff: () => sys.skipToLiftoff(),
       holdFire: () => sys.holdFire(),
       skipToComplete: () => sys.skipToComplete(),
-      /* 2026-09-15 (안드로이드 분대원) — 아래 세 질의의 전문은 `shared/extraction.ts` 의 2026-09-15 절. */
+      /* 2026-09-15 (android squadmates) — the full text of the three queries below is the 2026-09-15 section of `shared/extraction.ts`. */
       getPads: () => sys.getPads(),
       requestActivate: (padId) => sys.requestActivate(padId),
       boardingPoint: (out) => sys.boardingPoint(out),
     };
   }
 
-  /* ── 2026-09-15: 안드로이드 분대원 (탈출 패드 · 콘솔 누르기 · 탑승 지점) ───────────────────────────────
-   * 안드로이드는 사람과 **같은 흐름**을 탄다 — 새 탈출 경로를 만들지 않는다. 다른 점은 입력이 상호작용이 아니라
-   * 질의라는 것뿐이고, 판정(`playing` 이고 아직 아무 패드도 안 눌렸을 때만)은 `onRequest('activate')` 와 같다. */
+  /* ── 2026-09-15: android squadmates (extraction pads · pressing the console · boarding point) ──────────
+   * Androids ride the **same flow** as people — no second extraction path is created. The only difference is that
+   * their input is a query instead of an interaction; the judgement (only while `playing` and no pad pressed yet) is
+   * the same as `onRequest('activate')`. */
 
-  /** 재사용 배열 — `getPads` 는 매 프레임 불릴 수 있다 (탈출구 탐색). */
+  /** Reused array — `getPads` may be called every frame (searching for a way out). */
   private readonly padViews: Array<{ id: string; position: THREE.Vector3 }> = [];
 
   private getPads(): readonly { readonly id: string; readonly position: THREE.Vector3 }[] {
@@ -208,7 +209,7 @@ export class ExtractionSystem implements GameSystem {
     return this.padViews;
   }
 
-  /** 권위: 안드로이드가 패드 `padId` 의 콘솔을 눌렀다 — 사람이 누른 것과 같은 `activate`. */
+  /** Authority: an android pressed the console of pad `padId` — the same `activate` as a person pressing it. */
   private requestActivate(padId: string): boolean {
     const ctx = this.ctx;
     if (!ctx || (ctx.isMultiplayer && !ctx.isAuthority)) return false;
@@ -220,8 +221,8 @@ export class ExtractionSystem implements GameSystem {
   }
 
   /**
-   * 착륙해 있는 함선 화물칸 안의 탑승 지점 (화물칸 가운데, 발은 갑판 위). 함선이 착륙해 있지 않으면 null —
-   * 이륙 중(`liftoff`)에는 이미 늦었으므로 자리를 알려 주지 않는다.
+   * The boarding point inside the bay of a landed ship (bay centre, feet on the deck). Null when the ship is not on
+   * the ground — during the climb (`liftoff`) it is already too late, so no spot is handed out.
    */
   private boardingPoint(out: THREE.Vector3): THREE.Vector3 | null {
     const ship = this.ship;
@@ -232,18 +233,22 @@ export class ExtractionSystem implements GameSystem {
     return out;
   }
 
-  /* ── 2026-09-15 (사용자 결정 — 튜토리얼 건너뛰기 = 암전 → 보상 창 → 함선) ──────────────────────────────
-   * `ExtractionRef.skipToComplete`. 걸어가 타기 · 이륙 · 외부 카메라 연출을 **통째로** 건너뛴다 — 함선은 그 자리에 선 채로
-   * `extraction:liftoff {aboard: true, squadDone: true}` 를 한 번 내고, `game/` 이 그것을 건너뛰기로 알아봐(`stage !== 'liftoff'`
-   * 인데 이륙이 왔다 · 또는 이미 `liftoff` 페이즈인데 한 번 더 왔다) 대기 없이 평소 `complete()` 로 간다. 결과 화면 · 정산 ·
-   * 함선 획득(튜토리얼 트랙이 같은 이벤트로 `extract` 를 접는다)은 진짜 탈출과 같은 길이다. 암전은 부르는 쪽(tutorial)이 먼저 건다.
+  /* ── 2026-09-15 (user's decision — skipping the tutorial = fade to black → reward window → the ship) ──────
+   * `ExtractionRef.skipToComplete`. Skips walking aboard, the liftoff and the external camera shot **wholesale** — the
+   * ship stays where it is, emits `extraction:liftoff {aboard: true, squadDone: true}` once, and `game/` recognises
+   * that as a skip (a liftoff arrived while `stage !== 'liftoff'`, or a second one arrived while already in the
+   * `liftoff` phase) and goes straight to the usual `complete()` with no wait. The result screen, the settlement and
+   * being granted the ship (the tutorial track folds `extract` on the same event) take the same road as a real
+   * extraction. The fade to black is raised first by the caller (tutorial).
    *
-   * 남는 것을 걷는 범위: 이륙 연출(`ui:cinematic` 끄기) · 스위치 · 유예 시계 · 탑승자의 각본 잠금. **몸의 부착 · 화물칸 상자는
-   * 그대로 둔다** — 오르던 함선에서 떼면 결과 화면 밑에서 몸이 떨어진다. 결과 화면 뒤 `hub:enter` → `game:abort` → `resetMission(true)`
-   * 가 평소처럼 전부 푼다.
+   * What is torn down: the liftoff cinematic (`ui:cinematic` off), the switch, the grace clock and the rider's scene
+   * lock. **The body attachment and the bay box are left alone** — detaching from a climbing ship drops the body under
+   * the result screen. After the result screen `hub:enter` → `game:abort` → `resetMission(true)` releases everything as
+   * usual.
    *
-   * false: 튜토리얼이 아니다 · 이미 넘겼다 · 페이즈가 탈출 흐름(`extracting` · `shipLanded` · `liftoff`)이 아니다(아직 `playing` 이거나
-   * 이미 결과 화면) · `game/` 이 받지 않았다. 몸이 사망 · 전투불능이어도 받는다 — 건너뛰기는 탈출을 대신 해 주는 것이다.
+   * false: not the tutorial · already skipped · the phase is not part of the extraction flow (`extracting` ·
+   * `shipLanded` · `liftoff`) — still `playing`, or already on the result screen · `game/` did not take it. It is
+   * accepted even when the body is dead or downed — skipping is doing the extraction *for* the player.
    */
   private skipCompleted = false;
 
@@ -261,45 +266,49 @@ export class ExtractionSystem implements GameSystem {
     if (this.riding) ctx.player?.setSceneLock?.(false);
     const position = (this.ship ? this.ship.position : this.shipLandPos).clone();
     ctx.bus.emit('extraction:liftoff', { position, aboard: true, squadDone: true });
-    // emit 안에서 game/ 이 페이즈를 바꾼다 — 좁혀진 타입을 넓혀 다시 읽는다
+    // game/ changes the phase inside the emit — widen the narrowed type and read it again
     const phaseAfter: string = ctx.phase;
     if (phaseAfter === 'complete') return true;
-    // game/ 이 받지 않았다 (페이즈가 어긋났다) — 다음 시도를 막지 않는다
+    // game/ did not take it (the phase was out of step) — do not block the next attempt
     this.skipCompleted = false;
     return false;
   }
 
   /**
-   * `ExtractionRef.holdFire` (2026-09-14 3차, 사용자 결정 — 「함선 내부에 PC 가 들어가면 안드로이드는 PC 를
-   * **바라보되 사격은 하지 않는다**」). 튜토리얼 함선이 뜨기 시작한 순간부터 참이다: 그때 램프가 닫히고
-   * 곧 외피 콜라이더가 걷히므로, 미처 처치하지 못한 안드로이드가 오르는 화물칸을 그대로 쏠 수 있다.
-   * `keepEnemyOut` 과 같은 이유로 월드 콜라이더가 아니라 **질의**다 (`enemies/ai` 가 사격 직전에 부른다).
-   * 본편에는 문이 없다 — `ctx.missionMode !== 'tutorial'` 이면 늘 false.
+   * `ExtractionRef.holdFire` (2026-09-14 3rd pass, user's decision — 「once the PC is inside the ship the androids
+   * **look at the PC but do not fire**」). True from the moment the tutorial ship starts to rise: that is when the ramp
+   * closes and the hull colliders are about to be removed, so an android that was never killed could shoot straight
+   * into the climbing bay. For the same reason as `keepEnemyOut` it is a **query**, not a world collider
+   * (`enemies/ai` calls it right before firing). The main game has no door into it — always false when
+   * `ctx.missionMode !== 'tutorial'`.
    */
   /*
-   * 2026-09-15 (사용자 결정 — 「처치하지 않은 안드로이드가 함선 안의 PC 를 **실제로** 쏜다 · 죽지는 않는다」): 사격 보류를 **걷었다.**
-   * 계약(추가만)이라 질의는 남고 늘 false 다. 대신 탑승자는 피해를 받는 각본 잠금(`setSceneLock(true, {allowDamage, minHp: 1})`,
-   * `liftoff()`)이고, 튜토리얼 이륙은 외피 콜라이더를 곧장 걷어(`update`) 총알이 화물칸에 닿으며, enemies 의 이륙 사격 창
-   * (`Tutorial.onTutorialLiftoff`, `TUTORIAL_LIFTOFF_FIRE_S`)이 표적을 잡아 준다.
+   * 2026-09-15 (user's decision — 「an android that was not killed **really does** shoot the PC inside the ship, but
+   * the PC does not die」): the fire hold was **removed.** The contract is add-only, so the query stays and is always
+   * false. Instead the rider gets a damage-taking scene lock (`setSceneLock(true, {allowDamage, minHp: 1})`,
+   * `liftoff()`), the tutorial liftoff removes the hull colliders immediately (`update`) so bullets reach the bay, and
+   * enemies' liftoff firing window (`Tutorial.onTutorialLiftoff`, `TUTORIAL_LIFTOFF_FIRE_S`) holds the target.
    */
   private holdFire(): boolean {
     return false;
   }
 
-  /** 튜토리얼의 미리 세워 둔 함선인가 — 스위치가 유예 없이 곧장 이륙으로 가는 유일한 조건 (본편은 늘 false). */
+  /** Is this the tutorial's pre-placed ship — the only condition under which the switch goes straight to liftoff with no grace (always false in the main game). */
   private tutorialLiftoffNow(): boolean {
     return this.preLanded && this.ctx?.missionMode === 'tutorial';
   }
 
-  /* ── 2026-09-14 (튜토리얼 개편, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): 이미 착륙해 있는 탈출선 ──────────────────
-   * 튜토리얼의 「버려진 함선」은 새 메시가 아니라 **진짜 탈출선**이다. 콘솔 · 20초 호출 · 비행 · 착륙 연출만
-   * 건너뛰고 곧장 `landed` 로 들어가므로, 안의 스위치 → 취소 불가 10초 유예 → 이륙 → 결과 · 정산이 **평소
-   * 경로 그대로** 흐른다 (이 파일에 새 갈래가 생기지 않는다는 것이 이 설계의 요점이다).
-   * 본편 탈출에는 문이 없다: `ctx.missionMode !== 'tutorial'` 이거나 이미 흐름이 시작됐으면 false. */
+  /* ── 2026-09-14 (tutorial rework, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): an already-landed ship ──────
+   * The tutorial's 「abandoned ship」 is not a new mesh but the **real extraction ship**. Only the console, the 20 s
+   * call, the flight in and the landing shot are skipped; it enters `landed` directly, so the interior switch → the
+   * uncancellable 10 s grace → liftoff → result and settlement all run **down the usual road** (that this file grows
+   * no new branch is the whole point of the design).
+   * The main-game extraction has no door into it: false when `ctx.missionMode !== 'tutorial'` or the flow already
+   * started. */
 
-  /** 착륙 연출을 건너뛰고 세운 함선인가 (`resetMission` 이 지운다). */
+  /** Is this a ship placed with the landing shot skipped (`resetMission` clears it). */
   private preLanded = false;
-  /** `playing` 이 될 때까지 미뤄 둔 단계 전환 (아래 `syncPreLandedPhase`). */
+  /** A stage transition deferred until the phase becomes `playing` (`syncPreLandedPhase` below). */
   private preLandedPhasePending = false;
 
   private beginPreLanded(position: THREE.Vector3, yaw: number, opts?: { autoDepart?: boolean }): boolean {
@@ -315,7 +324,7 @@ export class ExtractionSystem implements GameSystem {
     if (!ship.forceLand(this.shipLandPos, this.shipYaw)) { this.shipCalled = false; return false; }
     this.preLanded = true;
     this.onShipLanded(true);
-    // 둘러볼 시간이 필요하다 — 무응답 자동 출발(60초)을 걸지 않는다. 스위치만이 유예를 시작한다.
+    // the player needs time to look around — no idle auto-departure (60 s). Only the switch starts the grace.
     if (opts?.autoDepart === false) { this.idleRemaining = -1; this.waitSendAccum = 0; }
     this.preLandedPhasePending = true;
     this.syncPreLandedPhase();
@@ -323,17 +332,18 @@ export class ExtractionSystem implements GameSystem {
   }
 
   /**
-   * `GameFlowSystem` 은 `extraction:liftoff` 를 **`extracting` · `shipLanded` 단계에서만** 받는다 (평소에는
-   * 콘솔의 `activated` → 착륙의 `shipLanded` 가 차례로 그 단계를 만든다). 튜토리얼 함선은 강하보다도 먼저
-   * 서 있으므로 `extraction:activated` 를 **`playing` 이 되는 첫 프레임에** 흘려 `extracting` 을 만든다.
-   * `duration: 0` = 기다릴 시간이 없다는 뜻이다 (호출이 아니라 이미 와 있는 함선).
+   * `GameFlowSystem` accepts `extraction:liftoff` **only in the `extracting` and `shipLanded` stages** (normally the
+   * console's `activated` and then the landing's `shipLanded` build those stages in turn). The tutorial ship stands
+   * there even before the drop, so `extraction:activated` is emitted **on the first frame the phase is `playing`** to
+   * build `extracting`. `duration: 0` means there is nothing to wait for (a ship already here, not one being called).
    *
-   * **2026-09-14 3차 (사용자 결정 — 도착 토스트 없음)**: 그래도 `extraction:shipLanded` 는 **낸다.**
-   * 그 이벤트는 토스트만의 것이 아니다 — `ui/hud/WorldMarkers` · `ui/map/MapScreen` 의 함선 마커(`__ship`)와
-   * 음악 전환이 같은 이벤트에서 생기므로, 내지 않으면 `extract` 단계에서 게이트가 풀려도 **그릴 마커가 없다**
-   * (`shared/tutorial.ts` 의 `shipMarker` = 「`extract` 단계에 들어서면 풀린다」와 어긋난다).
-   * 그래서 **토스트만 거른다**: 튜토리얼에서는 `ui/hud/Notifications` 가 「함선 착륙」 줄을 쓰지 않는다
-   * (「그 문장이 사실인가」는 문장을 쓰는 쪽이 판단한다 — `idleRemaining < 0` 갈래가 이미 그 자리에 있다).
+   * **2026-09-14 3rd pass (user's decision — no arrival toast)**: `extraction:shipLanded` is **still emitted.**
+   * That event is not the toast's alone — the ship marker (`__ship`) in `ui/hud/WorldMarkers` and `ui/map/MapScreen`
+   * and the music change are born from the same event, so without it there is **no marker to draw** even once the gate
+   * opens at the `extract` step (which would contradict `shipMarker` in `shared/tutorial.ts` = 「unlocked on entering
+   * the `extract` step」).
+   * So **only the toast is filtered**: in the tutorial `ui/hud/Notifications` does not write the 「함선 착륙」 line
+   * (whether a sentence is true is judged by whoever writes it — the `idleRemaining < 0` branch is already there).
    */
   private syncPreLandedPhase(): void {
     const ctx = this.ctx;
@@ -343,16 +353,18 @@ export class ExtractionSystem implements GameSystem {
     ctx.bus.emit('extraction:shipLanded', { position: this.shipLandPos.clone() });
   }
 
-  /* ── 2026-09-14 2차 (튜토리얼 건너뛰기 = 즉시 탈출, 사용자 결정) ──────────────────────────────────
-   * `ExtractionRef.skipToLiftoff`. 걸어가서 타는 것만 건너뛴다 — 몸을 화물칸에 세우고 유예 없이
-   * **평소의 `liftoff()`** 를 부르므로 이륙 연출 · 결과 화면 · 정산 · 함선 획득이 전부 그대로 흐른다.
-   * 새 갈래를 만들지 않는 것이 `beginPreLanded` 와 같은 요점이고, 「함선 출발은 레이드 종료가 아니다」
-   * (2026-09-13)도 그대로다: 솔로라 `squadDone` 이 참이 되어 평소처럼 레이드가 끝날 뿐이다.
+  /* ── 2026-09-14 2nd pass (skipping the tutorial = extract immediately, user's decision) ────────────────
+   * `ExtractionRef.skipToLiftoff`. Skips only walking aboard — it stands the body in the bay and calls the **usual
+   * `liftoff()`** with no grace, so the liftoff cinematic, the result screen, the settlement and being granted the
+   * ship all run unchanged. Growing no new branch is the same point as `beginPreLanded`, and 「the ship departing is
+   * not the end of the raid」 (2026-09-13) still holds: solo means `squadDone` becomes true and the raid simply ends
+   * as usual.
    *
-   * **false 인 경우** — 본편 탈출 흐름에는 문이 없다:
-   *   ① `ctx.missionMode !== 'tutorial'`   ② 함선이 없거나 아직 착륙하지 않았다 · 이미 떠났다
-   *   ③ 태울 몸이 없다 (아직 스폰 전 · 사망 · 전투불능) — 시체를 태워 보낼 수는 없다.
-   * 유예(`departing`) 중에는 받는다 — 이미 착륙해 있는 함선이고, 건너뛰기는 그 10초를 지우는 것이 맞다.
+   * **When it returns false** — the main-game extraction flow has no door into it:
+   *   ① `ctx.missionMode !== 'tutorial'`   ② no ship, or it has not landed yet / already left
+   *   ③ there is no body to carry (not spawned yet · dead · downed) — a corpse cannot be flown out.
+   * It is accepted during the grace (`departing`) — the ship is already on the ground, and erasing those 10 s is
+   * exactly what a skip should do.
    */
   private skipToLiftoff(): boolean {
     const ctx = this.ctx;
@@ -361,12 +373,12 @@ export class ExtractionSystem implements GameSystem {
     if (!this.landed || this.lifting) return false;
     const player = ctx.player;
     if (!player || player.isDead || (player.isDowned ?? false)) return false;
-    // `extraction:liftoff` 는 `extracting` · `shipLanded` 단계에서만 받아들여진다 — 미뤄 둔 단계 전환이
-    // 남아 있으면(강하 직후 같은 프레임) 먼저 흘린다.
+    // `extraction:liftoff` is only accepted in the `extracting` and `shipLanded` stages — if a deferred stage
+    // transition is still pending (same frame as the drop), emit it first.
     this.syncPreLandedPhase();
     if (ctx.phase !== 'shipLanded' && ctx.phase !== 'extracting') return false;
 
-    // 화물칸 한가운데 데크 위에 세우고 기수 쪽(램프 반대)을 보게 한다.
+    // stand the body on the deck at the centre of the bay, facing the nose (away from the ramp).
     const lz = (BAY_Z_MIN + BAY_Z_MAX) / 2;
     ship.bayToWorld(0, lz, ship.position.y, _v);
     _v.y = ship.floorYAt(_v.x, _v.z);
@@ -639,7 +651,7 @@ export class ExtractionSystem implements GameSystem {
   private collectRequired(out: PeerId[]): PeerId[] {
     out.length = 0;
     const ctx = this.ctx;
-    // Downed (전투불능) players cannot board either: they neither block nor count toward the liftoff (Phase 2).
+    // Downed players cannot board either: they neither block nor count toward the liftoff (Phase 2).
     if (!(ctx.player?.isDead ?? false) && !(ctx.player?.isDowned ?? false)) out.push(this.localId());
     const net = ctx.net;
     if (net && ctx.isMultiplayer) {
@@ -676,7 +688,7 @@ export class ExtractionSystem implements GameSystem {
     const world = this.ctx.world;
     if (!world) return;
     this.padsSeed = world.seed;
-    // 훈련장 (Phase 7): the arena has no pads → no consoles, no countdown, no ship. Nothing else to do.
+    // Training range (Phase 7): the arena has no pads → no consoles, no countdown, no ship. Nothing else to do.
     const points = world.getExtractionPoints();
     if (!points || points.length === 0) return;
     for (const def of points) {
@@ -691,9 +703,9 @@ export class ExtractionSystem implements GameSystem {
         position: console.interactPoint,
         radius: 2.6,
         holdTime: 1.2,
-        // 2026-09-10: 콘솔은 그 자체로 눈에 띄는 장치다 — 감지 빛기둥(`ui/hud/Detection`)을 세우지 않는다.
+        // 2026-09-10: the console is a conspicuous device in its own right — no detection pillar (`ui/hud/Detection`).
         hidePillar: true,
-        // 2026-09-17 (사용자 결정): 캡션은 행동 이름뿐 — 「(E 길게)」는 홀드 키캡(`InteractionPrompt`)이 이미 말한다
+        // 2026-09-17 (user's decision): the caption is the action name only — 「(E 길게)」 is already said by the hold keycap (`InteractionPrompt`)
         getPrompt: () => (this.ctx.phase === 'playing' ? '탈출 신호 전송' : null),
         canInteract: () => this.ctx.phase === 'playing' && !this.activePad,
         interact: () => {
@@ -768,9 +780,10 @@ export class ExtractionSystem implements GameSystem {
   }
 
   /**
-   * `silent` (2026-09-14, `beginPreLanded`): 착륙한 **순간**의 연출 · 알림을 건너뛴다 — 튜토리얼의 버려진 함선은
-   * 방금 내려앉은 것이 아니라 처음부터 그 자리에 있었다. 외피 콜라이더 · 실내 스위치 · 대기 타이머는 그대로다.
-   * `extraction:shipLanded` 는 `syncPreLandedPhase` 가 `playing` 이 되는 프레임에 한 번만 낸다.
+   * `silent` (2026-09-14, `beginPreLanded`): skips the FX and the notification of the **moment** of touchdown — the
+   * tutorial's abandoned ship did not just set down, it was standing there from the start. The hull colliders, the
+   * interior switch and the idle timer are unaffected. `extraction:shipLanded` is emitted exactly once, by
+   * `syncPreLandedPhase`, on the frame the phase becomes `playing`.
    */
   private onShipLanded(silent = false): void {
     this.landed = true;
@@ -800,21 +813,24 @@ export class ExtractionSystem implements GameSystem {
       position: ship.interiorSwitchWorld,
       radius: 2.4,
       holdTime: 1.0,
-      hidePillar: true,   // 2026-09-10: 함선 안 출발 버튼에도 감지 빛기둥을 세우지 않는다
+      hidePillar: true,   // 2026-09-10: no detection pillar on the departure switch inside the ship either
       getPrompt: () => {
         if (!this.switchReady()) return null;
-        // 2026-09-14 3차: 튜토리얼 함선은 유예 없이 곧장 뜬다. 2026-09-15: 캡션은 행동 이름뿐 — 「E 길게」는 왼쪽 키 안내가
-        // 이미 그리고, 「즉시 이륙」 꼬리표는 보여 줄 이유가 없다 (사용자 결정).
-        // 2026-09-16 (사용자 결정): 평소 함선도 캡션은 `출발 시퀀스 작동` 한 줄뿐 — 「E 길게 · n초 뒤 이륙」 꼬리를 뗀다.
+        // 2026-09-14 3rd pass: the tutorial ship lifts off at once, with no grace. 2026-09-15: the caption is the
+        // action name only — 「E 길게」 is already drawn by the key guide on the left, and an 「즉시 이륙」 tag has no
+        // reason to show (user's decision).
+        // 2026-09-16 (user's decision): the ordinary ship's caption is the single line `출발 시퀀스 작동` too — the
+        // 「E 길게 · n초 뒤 이륙」 tail is dropped.
         return '출발 시퀀스 작동';
       },
       canInteract: () => this.switchReady(),
       interact: () => {
         /*
-         * 2026-09-14 3차 (사용자 결정 — 튜토리얼 함선은 스위치를 누르면 즉시 뜬다): 취소 불가 10초 유예를
-         * 건너뛰고 곧장 이륙한다. 새 갈래를 만들지 않고 **`skipToLiftoff()` 를 그대로 재사용**한다 —
-         * 그것이 이미 「몸을 화물칸에 세우고 유예 없이 평소 `liftoff()`」 이기 때문이다 (이륙 연출 · 결과
-         * 화면 · 정산 · 함선 획득이 평소 경로 그대로). 실패하면(= 문이 닫혀 있으면) 평소 유예로 떨어진다.
+         * 2026-09-14 3rd pass (user's decision — the tutorial ship lifts off the instant the switch is pressed):
+         * the uncancellable 10 s grace is skipped and it climbs straight away. No new branch is added — it
+         * **reuses `skipToLiftoff()` as it is**, because that already means 「stand the body in the bay and call the
+         * usual `liftoff()` with no grace」 (cinematic, result screen, settlement and ship grant all down the usual
+         * road). If it fails (= the door is shut) it falls back to the usual grace.
          */
         if (this.tutorialLiftoffNow() && this.skipToLiftoff()) return;
         if (this.isClient()) this.sendReq({ t: 'exq', ev: 'liftoff' });
@@ -890,13 +906,15 @@ export class ExtractionSystem implements GameSystem {
       player.attachTo(ship.root);
       this.cinematic.start(ctx, ship);
       /*
-       * 2026-09-14 3차 (사용자 결정 — 튜토리얼 이륙 동안 함선에서 나갈 수도 죽을 수도 없다): 각본 잠금.
-       * `setControlsEnabled(false)` 는 **입력만** 끊는다 — 남은 안드로이드의 총알 · 수류탄 · 재해는 그대로
-       * 들어오므로, 이륙 연출 중에 죽어 결과 화면이 「미탈출」이 되는 길이 있었다. 카메라는 건드리지 않는다
-       * (바로 위 `cinematic` 이 들고 있다). 푸는 곳은 player/ 의 리셋 경로와 아래 `resetMission` 이다.
-       * 튜토리얼에만 건다 — 본편 이륙에서 무적이 되는 것은 이 결정의 범위가 아니다.
+       * 2026-09-14 3rd pass (user's decision — during the tutorial liftoff you can neither leave the ship nor die):
+       * the scene lock. `setControlsEnabled(false)` cuts **input only** — bullets, grenades and hazards from the
+       * remaining androids still land, so there was a path where you died during the cinematic and the result screen
+       * read 「미탈출」. The camera is left alone (`cinematic` just above holds it). It is released by player/'s reset
+       * path and by `resetMission` below. Tutorial only — being invulnerable during a main-game liftoff is outside
+       * the scope of this decision.
        */
-      /* 2026-09-15 (사용자 결정 — 「실제 피해 · 죽지 않음」): 입력은 잠그되 **피해는 받는다** — 체력 1 에서 멈추고 전투불능 · 사망이 없다. */
+      /* 2026-09-15 (user's decision — 「real damage · but no death」): input is locked but **damage still lands** — it
+       * stops at 1 hp, with no downed state and no death. */
       if (ctx.missionMode === 'tutorial') player.setSceneLock?.(true, { allowDamage: true, minHp: 1 });
     }
     // A body standing in the bay but not riding (dead / downed) was never on the box — it stays on the pad.
@@ -1023,14 +1041,15 @@ export class ExtractionSystem implements GameSystem {
       this.liftoffElapsed += dt;
       // The hull colliders stay while the ship sits on the pad closing its ramp, and go the moment it starts to climb
       // (a rising roof slab would shove riders sideways — see `Hull.ts`).
-      // 2026-09-15: 튜토리얼 함선은 뜨는 순간 걷는다 — 남은 안드로이드의 총알이 화물칸의 탑승자에게 닿아야 한다 (사용자 결정 「실제 피해」).
-      // 탑승자는 이미 화물칸 상자(`setShipInterior`) 위라 벽이 필요 없고, 적의 입구 차단은 콜라이더가 아니라 `keepEnemyOut` 질의다.
+      // 2026-09-15: the tutorial ship drops them the instant it rises — bullets from the remaining androids have to
+      // reach the rider in the bay (user's decision 「real damage」). The rider is already on the bay box
+      // (`setShipInterior`) and needs no walls, and the enemy doorway block is the `keepEnemyOut` query, not a collider.
       if (this.hull.registered && (ship.liftoffTime >= LIFTOFF_SPOOL_S || this.tutorialLiftoffNow())) this.hull.unregister();
       if (this.riding) {
-        // 2026-09-15: 건너뛰기(`skipToComplete`)가 연출을 걷었으면 다시 잡지 않는다
+        // 2026-09-15: once a skip (`skipToComplete`) has torn the cinematic down, do not take the camera again
         if (!this.skipCompleted) this.cinematic.update(dt, ctx, ship);
       } else if (!this.squadDone && !this.preLanded && ctx.isGameplayPhase()) {
-        // 2026-09-14: 미리 세워 둔 함선(튜토리얼)에는 다시 부를 콘솔이 없다 — 리셋하면 남은 사람이 영영 못 나간다.
+        // 2026-09-14: a pre-placed ship (tutorial) has no console to call another one — resetting would strand whoever stayed behind.
         const due = LEFT_BEHIND_RESET_S + (ctx.isAuthority ? 0 : CLIENT_RESET_SLACK_S);
         if (this.liftoffElapsed >= due) this.departedReset();
       }
@@ -1123,7 +1142,7 @@ export class ExtractionSystem implements GameSystem {
     this.landFallbackTimer = -1;
     // only a rider was ever put on the bay box (2026-09-13)
     if (wasRiding) this.ctx.player?.setShipInterior(null);
-    // 2026-09-14 3차: 각본 잠금도 탑승자에게만 걸렸다 — 흐름이 리셋되면 함께 푼다 (끄기는 언제나 안전하다)
+    // 2026-09-14 3rd pass: the scene lock was only ever put on a rider — release it with the flow reset (turning it off is always safe)
     if (wasRiding) this.ctx.player?.setSceneLock?.(false);
     this.boarded = false;
     if (keepPlayer) return;

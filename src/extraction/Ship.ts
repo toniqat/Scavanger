@@ -16,14 +16,14 @@ export const LIFTOFF_SPOOL_S = 1.6;
  * The ship's origin sits **on the ground** (`floorYAt` = deck = local y 0, and `landPos.y` is the pad / deck top),
  * so anything drawn at exactly local y 0 is coplanar with the terrain the ship stands on — and any two hull parts
  * that share a face plane fight each other. Three of those existed and all three were reported as bugs:
- *   1. bay floor top = belly slab top = ground (y 0)      → "화물칸 바닥이 뚫려 땅이 비친다"
- *   2. bay lining inner face = side slab inner face (x ±1.6) → "좌우 벽 색이 매 프레임 뒤바뀐다"
+ *   1. bay floor top = belly slab top = ground (y 0)      → "the bay floor is see-through, the ground shows"
+ *   2. bay lining inner face = side slab inner face (x ±1.6) → "the left/right wall colours swap every frame"
  *   3. bay ceiling bottom = hull roof bottom (y 2.6)      → the same flicker overhead
  * The constants below are the fix: the **drawn** deck is lifted a hair, the lining is given its own thickness and
  * the outer shell starts outboard of it. `floorYAt` / `BAY_HEIGHT` / `Hull.ts` are untouched — the walking deck is
  * still local y 0, feet just sink `BAY_FLOOR_LIFT` into the plate.
  *
- * ── Ground clearance of the drawn deck (2026-09-15, 「함선 바닥이 어쩔 때는 함선 바닥, 가끔은 바닥이 뚫고 나온다」) ──
+ * ── Ground clearance of the drawn deck (2026-09-15, 「sometimes the ship floor is the ship floor, sometimes the ground pokes through it」) ──
  * A world may **draw** its walkable ground above the height it reports for walking: the tutorial deck's textured top
  * plane sits `TOP_LIFT` = 0.02 above `DECK_LOWER_Y` (`world/tutorial/parts/Ground.ts`), a raid pad's chevrons 0.01
  * above the pad top (`world/Pads.ts`). The old 2.5 cm lift was sized against ground drawn exactly at walk height, and
@@ -506,7 +506,7 @@ export class Dropship {
    * world position the deck height is solved for (the rider — see `floorYAt`), defaulting to the bay centre.
    * **The caller keeps one object and refreshes it every frame** — `PlayerRef.setShipInterior` stores the
    * reference, and the box has to travel with the ship or a boarded player is left walking on a floor that is no
-   * longer there (2026-09-10: that was the "함선은 올라가는데 플레이어만 떨어진다" bug during liftoff).
+   * longer there (2026-09-10: that was the "the ship rises but the player alone falls" bug during liftoff).
    */
   writeInteriorBounds(out: { center: THREE.Vector3; halfExtents: THREE.Vector3 }, at?: THREE.Vector3): void {
     out.center.set(0, BAY_HEIGHT / 2, (BAY_Z_MIN + BAY_Z_MAX) / 2).applyMatrix4(this.root.matrixWorld);

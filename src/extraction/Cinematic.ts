@@ -4,17 +4,18 @@ import { EXTRACTION_CINEMATIC_BLEND_S } from '@/shared';
 import type { Dropship } from './Ship';
 
 /**
- * src/extraction/Cinematic.ts — **이륙 연출 카메라** (2026-09-13 탈출 개편, 사용자 결정).
+ * src/extraction/Cinematic.ts — **the liftoff cinematic camera** (2026-09-13 extraction rework, user's decision).
  *
- * 이 파일이 답하는 질문: *출발 유예가 끝나 함선에 실려 떠나는 사람의 화면에 무엇이 보이는가.*
+ * The question this file answers: *what does someone see once the departure grace ends and the ship carries them away.*
  *
- * 캐릭터 카메라 → 함선 뒤쪽 외부 카메라로 `EXTRACTION_CINEMATIC_BLEND_S` 에 걸쳐 부드럽게 넘어가고, 그 뒤로는 날아가는
- * 함선을 **늦게 따라간다**(감쇠 추적) — 함선이 가속하면 카메라가 뒤처져 하늘로 멀어지는 모습이 된다. HUD 는
- * `ui:cinematic` 으로 ui/ 가 스르륵 숨긴다.
+ * The character camera blends into an external camera behind the ship over `EXTRACTION_CINEMATIC_BLEND_S`, and from
+ * there **trails the flying ship late** (damped chase) — as the ship accelerates the camera falls behind and it
+ * recedes into the sky. The HUD is faded out by ui/ on `ui:cinematic`.
  *
- * 블렌드는 `PlayerRef.setCameraOverride` 의 감쇠(12)에 맡기지 않고 여기서 직접 한다: 매 프레임 `snap = true` 로 **이미
- * 섞은** 자리를 넘기므로, 시작 프레임의 오버라이드 자리가 곧 지금 카메라 자리라 튀지 않는다. 호출은 `update` 에서 —
- * extraction 은 player 뒤에 등록돼 있고 오버라이드는 player 의 `lateUpdate` 가 소비한다.
+ * The blend is done here instead of leaning on `PlayerRef.setCameraOverride`'s damping (12): every frame hands over an
+ * **already blended** position with `snap = true`, so the override position on the first frame *is* the current camera
+ * position and nothing jumps. It is driven from `update` — extraction is registered after player, and the override is
+ * consumed by player's `lateUpdate`.
  */
 
 /** Settled shot: behind-right of the ship and a little above its deck, in the ship's yaw frame (local +Z = rear). */

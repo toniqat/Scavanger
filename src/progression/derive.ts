@@ -7,7 +7,7 @@ import {
   XP_BASE, XP_EXPONENT,
   GRAVITY, GRENADE_THROW_LIFT, GRENADE_THROW_SPEED, PLAYER_HEIGHT, THROW_RANGE_MUL_MAX, THROW_RANGE_MUL_MIN,
   mealQualityBonus,
-  /* 2026-09-13 요리 · 연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
+  /* 2026-09-13 cooking / research skills (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
   COOK_SKILL_SCORE_AT_MAX, RESEARCH_REFUND_CHANCE_AT_MAX, RESEARCH_REFUND_FRAC_MAX, RESEARCH_REFUND_FRAC_MIN, RESEARCH_TIME_AT_MAX,
 } from '@/shared';
 import { WEAPON_CLASS_SKILL } from './defs';
@@ -22,11 +22,12 @@ import { WEAPON_CLASS_SKILL } from './defs';
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /* per stat point above STAT_BASE */
-const MELEE_PER_STR = 0.05;         // ×1.75 at 근력 20
+const MELEE_PER_STR = 0.05;         // ×1.75 at strength 20
 const JUMP_PER_STR = 0.02;
 /**
- * 투척 거리 (2026-09-09): no longer "per point over STAT_BASE" — linear from THROW_RANGE_MUL_MIN at STAT_MIN 근력 (1 → 1.0,
- * the value a 근력-5 character used to have) to THROW_RANGE_MUL_MAX at STAT_MAX (20 → 1.74 = old max 1.45 × 1.2).
+ * Throw range (2026-09-09): no longer "per point over STAT_BASE" — linear from THROW_RANGE_MUL_MIN at STAT_MIN
+ * strength (1 → 1.0, the value a strength-5 character used to have) to THROW_RANGE_MUL_MAX at STAT_MAX
+ * (20 → 1.74 = old max 1.45 × 1.2).
  */
 function throwRangeMulOf(strength: number): number {
   const span = Math.max(1, STAT_MAX - STAT_MIN);
@@ -44,8 +45,8 @@ export function throwRangeMetres(throwRangeMul: number): number {
 }
 const STAMINA_PER_END = 5;          // flat max stamina
 const STAMINA_REGEN_PER_END = 0.04;
-/** 지능 1 pt 당 모든 숙련 상승 배율 (exported 2026-09-13 — 캐릭터 시트 툴팁이 `모든 숙련 성장 +N%/pt` 로 그대로 읽는다). */
-export const SKILL_GAIN_PER_INT = 0.06;    // ×1.9 at 지능 20
+/** Skill-gain multiplier per point of intelligence (exported 2026-09-13 — the character sheet tooltip reads it straight as `모든 숙련 성장 +N%/pt`). */
+export const SKILL_GAIN_PER_INT = 0.06;    // ×1.9 at intelligence 20
 /**
  * How strongly a skill's own stats speed up its training (per point above STAT_BASE, base stats only). Moved here from
  * `ProgressionSystem` on 2026-09-13 so the sheet tooltip (`관련 숙련 · 성장 +N%/pt`) reads the same number `statFactor` uses.
@@ -55,7 +56,7 @@ const USE_SPEED_PER_DEX = 0.035;
 const INTERACT_SPEED_PER_DEX = 0.035;
 
 /* full-skill (level 100) effect sizes */
-const CARRY_RELIEF_AT_MAX = 1;      // fully cancels the 조금 무거움 stamina penalty
+const CARRY_RELIEF_AT_MAX = 1;      // fully cancels the 「조금 무거움」 (slightly heavy) stamina penalty
 const SEARCH_SPEED_AT_MAX = 1;      // ×2 search speed
 const GRIT_CHANCE_AT_MAX = 0.35;
 const HEAL_POWER_AT_MAX = 0.6;
@@ -65,14 +66,14 @@ const RECOIL_AT_MAX = 0.4;          // −40 % recoil
 const RELOAD_AT_MAX = 0.45;         // ×1.45 reload speed
 const DURABILITY_AT_MAX = 0.5;      // −50 % wear
 const GATHER_YIELD_AT_MAX = 1;      // ×2 herbs
-/** 채광 100 에서 광맥 굴림의 상위 등급 가중치에 얹히는 보정 (2026-09-16 사용자 결정 — 행성 광맥). */
+/** Bonus added to the higher-rarity weights of an ore-vein roll at mining 100 (2026-09-16 user's decision — planet ore veins). */
 const MINING_RARITY_AT_MAX = 1;
 
-/** 특수 가방 (legendary) perk: implant cooldowns halved, stacked multiplicatively on the skill. */
+/** `특수 가방` (special backpack, legendary) perk: implant cooldowns halved, stacked multiplicatively on the skill. */
 export const SPECIAL_BACKPACK_CD_MUL = 0.5;
 
 /**
- * Phase 12 (2026-09-08): what the equipped 임플란트 items contribute — flat stat bonuses (added to the base stats before
+ * Phase 12 (2026-09-08): what the equipped implant items contribute — flat stat bonuses (added to the base stats before
  * any formula runs) and the legendary perks. `ProgressionSystem` sums these from `profile.implants` × `ItemDef.implant`;
  * derive.ts never looks the items up itself.
  */
@@ -97,7 +98,7 @@ function frac(profile: PlayerProfile, id: SkillId): number {
 }
 
 /**
- * A-3a (2026-09-12): 헬스장 단련 보너스 of `id` — an integer 0 … `GYM_TRAINED_MAX`, 0 for a stat that is not a `GYM_STATS`
+ * A-3a (2026-09-12): the gym training bonus of `id` — an integer 0 … `GYM_TRAINED_MAX`, 0 for a stat that is not a `GYM_STATS`
  * entry or a missing / junk value. The one reader of `profile.trained` (derive + `ProgressionSystem.getTrainedBonus`).
  */
 export function trainedBonusOf(profile: PlayerProfile, id: StatId): number {
@@ -108,8 +109,8 @@ export function trainedBonusOf(profile: PlayerProfile, id: StatId): number {
 }
 
 /**
- * Effective stat: base + equipped implant bonus + 헬스장 단련 보너스 (the base alone is `ProgressionRef.getStat`).
- * Neither bonus is clamped to `STAT_MAX` (contract: 「임플란트와 같은 의도」).
+ * Effective stat: base + equipped implant bonus + gym training bonus (the base alone is `ProgressionRef.getStat`).
+ * Neither bonus is clamped to `STAT_MAX` (contract: 「the same intent as implants」).
  */
 function stat(profile: PlayerProfile, id: StatId, imp: ImplantContribution): number {
   const bonus = imp.bonus[id];
@@ -117,7 +118,7 @@ function stat(profile: PlayerProfile, id: StatId, imp: ImplantContribution): num
     + trainedBonusOf(profile, id);
 }
 
-/** Points above the starting value (implants and 헬스장 단련 included); drives every stat-derived multiplier. */
+/** Points above the starting value (implant and gym training bonuses included); drives every stat-derived multiplier. */
 function over(profile: PlayerProfile, id: StatId, imp: ImplantContribution): number {
   return stat(profile, id, imp) - STAT_BASE;
 }
@@ -129,8 +130,8 @@ export function xpForLevel(level: number): number {
 
 /**
  * Recompute every derived number.
- * @param specialBackpack true when the equipped backpack has the 특수 가방 perk (implant cooldown −50 %).
- * @param implants Phase 12: stat bonuses + perks of the equipped 임플란트 items (omit = none).
+ * @param specialBackpack true when the equipped backpack has the `특수 가방` perk (implant cooldown −50 %).
+ * @param implants Phase 12: stat bonuses + perks of the equipped implant items (omit = none).
  */
 export function computeDerived(profile: PlayerProfile, specialBackpack: boolean, implants: ImplantContribution = NO_IMPLANTS): DerivedStats {
   const imp = implants;
@@ -148,21 +149,21 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean,
   const implantMul = (1 - IMPLANT_CD_AT_MAX * frac(profile, 'implant')) * (specialBackpack ? SPECIAL_BACKPACK_CD_MUL : 1);
 
   return {
-    /* 근력 */
+    /* strength */
     carryCapacity: WEIGHT_BASE_CAPACITY + WEIGHT_PER_STRENGTH * str,
     meleeDamageMul: 1 + MELEE_PER_STR * over(profile, 'strength', imp),
     jumpHeightMul: 1 + JUMP_PER_STR * over(profile, 'strength', imp),
     throwRangeMul: throwRangeMulOf(str),
     throwRangeM: throwRangeMetres(throwRangeMulOf(str)),
-    /* 지구력 */
+    /* endurance */
     maxStamina: PLAYER_MAX_STAMINA + STAMINA_PER_END * over(profile, 'endurance', imp),
     staminaRegenMul: 1 + STAMINA_REGEN_PER_END * over(profile, 'endurance', imp),
-    /* 인지력 */
+    /* perception */
     detectRadius: DETECT_BASE_RADIUS + DETECT_PER_PERCEPTION * perc,
     enemyDetectRadius: DETECT_ENEMY_BASE_RADIUS + DETECT_ENEMY_PER_PERCEPTION * perc,
-    /* 지능 */
+    /* intelligence */
     skillGainMul: 1 + SKILL_GAIN_PER_INT * over(profile, 'intelligence', imp),
-    /* 재주 */
+    /* dexterity */
     useSpeedMul: 1 + USE_SPEED_PER_DEX * over(profile, 'dexterity', imp),
     interactSpeedMul: 1 + INTERACT_SPEED_PER_DEX * over(profile, 'dexterity', imp),
     /* skills */
@@ -177,50 +178,55 @@ export function computeDerived(profile: PlayerProfile, specialBackpack: boolean,
     durabilityLossMul: 1 - DURABILITY_AT_MAX * frac(profile, 'equipment'),
     gatherYieldMul: 1 + GATHER_YIELD_AT_MAX * frac(profile, 'gardening'),
     /**
-     * **2026-09-16 (사용자 결정) — 제작 숙련은 제작 속도를 바꾸지 않는다.** 「숙련도가 관여하는 것은 제작 시 재료
-     * 아이템을 일부 돌려받을 확률, 돌려받는 양 등에만」. 그래서 이 값은 **1 에 못 박혀 있다**. 필드 자체는 계약
-     * (`shared/progression.DerivedStats`)이 add-only 라 지우지 않는다 — `inventory/Gear.gearMultipliers` ·
-     * `Crafting.craftDuration` 이 계속 읽어도 곱이 1 이라 아무 일도 하지 않는다. 캐릭터 시트의 `제작 속도` 줄은
-     * 언제나 ×1.0 이 되므로 `DERIVED_PANEL_KEYS` 에서 뺐다. 숙련이 실제로 하는 일은 `shared/craftRefund.ts` 다.
-     * (식사 · 서재 버프가 이 필드를 올릴 수는 있다 — `MealBuff` 는 `DerivedStats` 의 필드 이름이므로. 지금
-     * `data/meals.csv` · `library_series.csv` 에 그런 줄은 없다.)
+     * **2026-09-16 (user's decision) — the crafting skill does not change crafting speed.** 「All the skill is
+     * involved in is the chance of getting some material items back when crafting, and how much comes back」. So this
+     * value is **pinned at 1**. The field itself is not deleted because the contract
+     * (`shared/progression.DerivedStats`) is add-only — `inventory/Gear.gearMultipliers` and
+     * `Crafting.craftDuration` may keep reading it and do nothing, since the factor is 1. The character sheet's
+     * `제작 속도` row would always read ×1.0, so it was taken out of `DERIVED_PANEL_KEYS`. What the skill actually
+     * does is `shared/craftRefund.ts`.
+     * (A meal or library buff *can* raise this field — `MealBuff` is a `DerivedStats` field name. No such row exists
+     * in `data/meals.csv` or `library_series.csv` today.)
      */
     craftSpeedMul: 1,
-    /* 2026-09-13: 요리 · 연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
+    /* 2026-09-13: cooking / research skills (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
     cookScoreBonus: COOK_SKILL_SCORE_AT_MAX * frac(profile, 'cooking'),
     researchTimeMul: 1 - RESEARCH_TIME_AT_MAX * frac(profile, 'research'),
     researchRefundChance: RESEARCH_REFUND_CHANCE_AT_MAX * frac(profile, 'research'),
     researchRefundFrac: RESEARCH_REFUND_FRAC_MIN + (RESEARCH_REFUND_FRAC_MAX - RESEARCH_REFUND_FRAC_MIN) * frac(profile, 'research'),
-    /* 2026-09-16: 채광 — 광맥이 굴리는 미확인 광물의 등급만 올린다 (world/ 의 광맥 채집이 읽는다). */
+    /* 2026-09-16: mining — raises only the rarity of the unidentified ore a vein rolls (read by world/'s vein gathering). */
     miningRarityBonus: MINING_RARITY_AT_MAX * frac(profile, 'mining'),
-    /* Phase 12: legendary perks of the equipped 임플란트 items (every PerkId present) */
+    /* Phase 12: legendary perks of the equipped implant items (every PerkId present) */
     perks: { ...emptyPerks(), ...imp.perks },
   };
 }
 
-/* ══ 식사 버프 (A-3c, 2026-09-11) ═══════════════════════════════════════════════════════════════════════
- * `MealDef.buff` 는 **`DerivedStats` 의 필드 이름 그대로**다 (계약 `shared/types.MealBuff`). 그래서 요리는
- * 새 개념이 아니라 이미 계산된 파생 수치에 한 번 더해지는 값이고, player · weapons · world · inventory 는
- * 한 줄도 안 바뀐다 — 이미 `derived` 를 읽고 있기 때문이다.
+/* ══ Meal buffs (A-3c, 2026-09-11) ══════════════════════════════════════════════════════════════════════
+ * `MealDef.buff` is **literally a `DerivedStats` field name** (contract `shared/types.MealBuff`). So cooking is not a
+ * new concept but a value added once to derived stats that were already computed, and player · weapons · world ·
+ * inventory change by not one line — they are reading `derived` already.
  *
- * 배수(`*Mul` · `gritChance`)든 단위 그대로(`carryCapacity` · `maxStamina` · `detectRadius`)든 연산은 **가산**
- * 하나다 (`isMealBuffMultiplier` 는 「+15 %」로 찍을지 「+6 kg」로 찍을지를 정하는 **표시**용 — 그 표는
- * `shared/labels.MEAL_BUFF_UNIT` 이다). `durabilityLossMul` 만 `amount` 가 음수이므로 **0 이 하한**이다:
- * 어떤 배수도 음수가 되면 안 된다 (손상이 −20 % 면 내구도가 도로 차오른다).
+ * Whether the field is a multiplier (`*Mul` · `gritChance`) or a raw unit (`carryCapacity` · `maxStamina` ·
+ * `detectRadius`), the operation is a single **addition** (`isMealBuffMultiplier` is for **display** only — whether to
+ * print 「+15 %」 or 「+6 kg」; that table is `shared/labels.MEAL_BUFF_UNIT`). Only `durabilityLossMul` has a negative
+ * `amount`, which is why **0 is the floor**: no multiplier may ever go negative (a −20 % wear would refill durability).
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════ */
 /**
- * `d` 를 제자리에서 고친다 — `computeDerived` 의 결과(매번 새 객체)에 `ProgressionSystem.recompute` 가 얹는다.
+ * Edits `d` in place — `ProgressionSystem.recompute` lays it over the result of `computeDerived` (a fresh object each
+ * time).
  *
- * 2026-09-13 (요리 재료 티어, 사용자 결정 「버프는 하나, 거기 붙는 능력치 줄이 늘어난다」): **`meal.effects` 전부**를 접는다.
- * `effects` 가 없거나 비어 있는 옛 def(아직 로더가 새 열을 모르는 빌드)는 `[{buff, amount}]` 로 읽는다 — 결과가 예전과 같다.
- * 줄마다 규칙은 그대로다: 가산 하나 + **0 이 하한** (같은 버프가 두 줄에 나오면 차례로 더해진다).
+ * 2026-09-13 (cook ingredient tiers, user's decision 「one buff, with more stat rows hanging off it」): folds in **all
+ * of `meal.effects`**. An old def with no or empty `effects` (a build whose loader does not know the new column yet)
+ * is read as `[{buff, amount}]` — same result as before. The per-row rule is unchanged: one addition + **0 as the
+ * floor** (the same buff on two rows is added twice in turn).
  *
- * 2026-09-13 (요리 품질, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」): `quality`(별 0 … 5)가 줄마다 `amount × (1 + mealQualityBonus(quality))` 로
- * 수치를 키운 **뒤에** 위 규칙(가산 + 0 하한)을 적용한다 — 음수 줄(`durabilityLossMul`)은 더 크게 깎이고 하한은 그대로다.
- * 생략 = 0 = 원래 수치 100 %.
+ * 2026-09-13 (cook quality, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」): `quality` (0 … 5 stars) scales each row by
+ * `amount × (1 + mealQualityBonus(quality))` **before** the rule above (addition + 0 floor) is applied — a negative row
+ * (`durabilityLossMul`) is cut further and the floor is unchanged. Omitted = 0 = 100 % of the original number.
  *
- * ⚠ 크레딧 · 판매가 배수는 버프로 만들지 않는다 — 릴레이가 크레딧을 사유별 표로 검산하므로(`shared/credits.ts`)
- * 클라이언트가 얹은 배수는 그대로 `credits:tx` 거절이 된다. 보상계 버프는 클라이언트가 권위를 갖는 수치로 낸다.
+ * ⚠ Never make a credit or sell-price multiplier a buff — the relay re-checks credits against a per-reason table
+ * (`shared/credits.ts`), so a multiplier applied by the client becomes a `credits:tx` rejection. Reward-side buffs are
+ * expressed in numbers the client is authoritative over.
  */
 export function applyMealBuff(d: DerivedStats, meal: MealDef, quality = 0): void {
   const mul = 1 + mealQualityBonus(quality);
@@ -229,16 +235,17 @@ export function applyMealBuff(d: DerivedStats, meal: MealDef, quality = 0): void
     if (amount === 0) continue;
     const buff = e.buff;
     const cur = d[buff];
-    if (typeof cur !== 'number') continue;             // 계약 밖의 이름이 csv 에서 새어 들어온 경우
+    if (typeof cur !== 'number') continue;             // a name outside the contract leaked in from csv
     d[buff] = Math.max(0, cur + amount);
   }
 }
 
-/* ══ 서재 파생 효과 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ══════════════════════════════════════════════
- * 서재 시리즈의 `derived` 효과 줄은 새 필드가 아니라 **요리 버프와 같은 `MealBuff` 키**다 — housing 이 합산한
- * `LibraryEffectsSummary.derived` 를 `ProgressionSystem.deriveFor` 가 요리 버프 **뒤에** 이 함수로 접는다. 규칙은
- * `applyMealBuff` 한 줄과 똑같다: 가산 하나 + **0 이 하한**. 키는 `MEAL_BUFFS` 로만 돌아서 문서에서 새어 들어온 다른
- * 이름(`perks` · `recoilMul` …)이나 숫자가 아닌 값은 조용히 버린다. 즉시 적용이라 수치는 csv 에서 아주 작다.
+/* ══ Library derived effects (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ═════════════
+ * A library series' `derived` effect rows are not new fields but **the same `MealBuff` keys as meal buffs** — housing
+ * sums them into `LibraryEffectsSummary.derived`, and `ProgressionSystem.deriveFor` folds that in through this
+ * function **after** the meal buff. The rule is exactly one `applyMealBuff` row: one addition + **0 as the floor**.
+ * The loop runs over `MEAL_BUFFS` only, so any other name that leaked in from the docs (`perks` · `recoilMul` …) or a
+ * non-numeric value is dropped silently. It applies immediately, so the csv numbers are very small.
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 export function applyLibraryDerived(d: DerivedStats, lib: Readonly<Partial<Record<MealBuff, number>>> | null | undefined): void {
   if (!lib || typeof lib !== 'object') return;
@@ -251,7 +258,7 @@ export function applyLibraryDerived(d: DerivedStats, lib: Readonly<Partial<Recor
   }
 }
 
-/** 요리의 능력치 줄 전부 — `effects` 가 있으면 그것, 없으면 옛 `buff` · `amount` 한 줄 (없으면 빈 목록). */
+/** All stat rows of a meal — `effects` when present, otherwise the single old `buff` · `amount` row (empty list when neither). */
 export function mealEffectsOf(meal: MealDef | null | undefined): readonly MealEffect[] {
   if (!meal) return [];
   const list = (meal as Partial<MealDef>).effects;

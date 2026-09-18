@@ -9,13 +9,13 @@ import {
   SKILL_IDS, SKILL_LEVEL_MAX, STAT_BASE, STAT_IDS, STAT_MAX, STAT_MIN, STAT_POINTS_PER_LEVEL,
   STAT_XP_BASE, STAT_XP_EXPONENT, TRAINING_SKILL_GAIN_MUL,
   normalizeMealQuality,
-  getMealDef,                                       // 2026-09-16 (접시 모델): 요리는 아이템이 아니다 — 표는 shared/meals
+  getMealDef,                                       // 2026-09-16 (the plate model): a meal is not an item — the table is shared/meals
 } from '@/shared';
 import {
   APPRAISE_XP_BY_RARITY, CARRY_XP_PER_METER, CRAFT_XP, CRATE_OPEN_XP, CRYPTO_XP, GATHER_XP, GRIT_SAVE_XP,
   GUN_HIT_XP, IMPLANT_XP, REPAIR_XP, SKILL_DEF_MAP, SKILL_DEFS, STAT_DEF_MAP, STAT_DEFS, WEAPON_CLASS_SKILL,
 } from './defs';
-/* 2026-09-16: 광맥 1회 채굴의 채광 XP. 값은 world 가 쓰는 것과 같은 상수라 `@/shared` 에서 바로 읽는다. */
+/* 2026-09-16: mining XP per ore-vein harvest. The value is the same constant world uses, so it is read straight from `@/shared`. */
 import { MINING_SKILL_XP } from '@/shared';
 import { applyLibraryDerived, applyMealBuff, computeDerived, DEFAULT_DERIVED, SKILL_STAT_FACTOR, SPECIAL_BACKPACK_CD_MUL, emptyPerks, trainedBonusOf, xpForLevel, type ImplantContribution } from './derive';
 import { DEFAULT_IMPLANT, clearStoredProfile, freshProfile, loadProfile, migrate, saveProfile, zeroStatProgress } from './Profile';
@@ -30,15 +30,17 @@ const PROGRESS_EMIT_STEP = 0.01;
 const SKILL_COST_SLOPE = 0.06;
 /* `SKILL_STAT_FACTOR` (how strongly a skill's own stats speed up training) lives in derive.ts since 2026-09-13 — the sheet tooltip reads it too. */
 /*
- * Phase 11 (2026-09-07): the undocumented `P` convenience toggle is **retired**. 캐릭터 is a Tab-screen tab since
- * Phase 8 (`ui:statsToggled` still opens the overlay for anyone who emits it), and P now belongs to `Keys.INVITE`
- * (분대 초대 수락 홀드). Both listened with `uiBlockers.size === 0`, so they would have fought each other.
+ * Phase 11 (2026-09-07): the undocumented `P` convenience toggle is **retired**. The `캐릭터` (character) screen has
+ * been a Tab-screen tab since Phase 8 (`ui:statsToggled` still opens the overlay for anyone who emits it), and P now
+ * belongs to `Keys.INVITE` (hold to accept a squad invite). Both listened with `uiBlockers.size === 0`, so they would
+ * have fought each other.
  */
 
 const isGymStat = (id: unknown): id is GymStat => (GYM_STATS as readonly unknown[]).includes(id);
 /**
- * 2026-09-13 (사용자 결정): 제작 경험치를 주지 않는 작업대 — 연구실 작업대(추출기 · 조합대 · 3D 프린터)는 연구 경험치만
- * (`inventory/parts/Crafting` 의 `RESEARCH_BENCHES`), 조리대(`cook`)는 요리 경험치만 (`housing/parts/Cooking` 이 `COOK_SKILL_XP` 를 준다) 오른다.
+ * 2026-09-13 (user's decision): benches that give no crafting XP — the lab benches (extractor · mixer · 3D printer)
+ * train research only (`RESEARCH_BENCHES` in `inventory/parts/Crafting`), and the cooking station (`cook`) trains
+ * cooking only (`housing/parts/Cooking` awards `COOK_SKILL_XP`).
  */
 const LAB_BENCHES: ReadonlySet<string> = new Set(['extract', 'mixer', 'print', 'cook']);
 
@@ -58,12 +60,12 @@ export function statXpFor(value: number): number {
  * - `derived` is recomputed whenever stats, skills or the equipped backpack change; nobody else re-derives.
  * - Phase 7: the profile also lives in the server profile store (`ctx.net.profile`, document `progression`) — every
  *   flush mirrors it there, `net:profileLoaded` replaces the local one with the server copy (server wins) and
- *   re-emits the `progress:*` events the sheet / HUD read. In a 시뮬레이션 훈련장 only `gun_*` skills train.
+ *   re-emits the `progress:*` events the sheet / HUD read. In the simulation training range only `gun_*` skills train.
  */
 export class ProgressionSystem implements GameSystem, ProgressionRef {
   readonly name = 'progression';
 
-  /* ── 임플란트 아이템 (Phase 12, 2026-09-08) ─────────────────────────────────
+  /* ── Implant items (Phase 12, 2026-09-08) ──────────────────────────────────
    * Hollow-Knight-charm style: the character has `implantSlots` (4 + 1 per 5 levels, ≤ 10), each equipped item
    * (`ItemDef.implant`) costs `slots` and adds `stats`; a legendary one flips a `derived.perks` flag. The item
    * **instance** leaves the grids while equipped and lives in `profile.implants` (uid / defId / durability), so it
@@ -84,8 +86,9 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   getEquippedImplants(): readonly EquippedImplant[] { return this.equippedList(); }
 
   /**
-   * Base stat + equipped implant bonuses + 헬스장 단련 보너스 (A-3a) — what `derived` is computed from. The name predates
-   * the gym; the contract keeps its meaning (「`derived` 가 계산되는 값」), so it includes `trained` too.
+   * Base stat + equipped implant bonuses + the gym training bonus (A-3a) — what `derived` is computed from. The name
+   * predates the gym; the contract keeps its meaning (「the value `derived` is computed from」), so it includes
+   * `trained` too.
    */
   getStatWithImplants(id: StatId): number { return this.getStat(id) + this.getImplantBonus(id) + this.getTrainedBonus(id); }
 
@@ -126,7 +129,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * Ship only. Rebuilds the item instance (same uid / durability) and puts it in the 함선 창고, else the bag. false —
+   * Ship only. Rebuilds the item instance (same uid / durability) and puts it in the ship stash, else the bag. false —
    * still equipped — when neither has room, outside the hub, or for an unknown uid.
    */
   unequipImplant(uid: string): boolean {
@@ -142,7 +145,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * **Death only** (2026-09-11 C-12, 사용자 결정): every equipped implant leaves the body — the ship gate of
+   * **Death only** (2026-09-11 C-12, user's decision): every equipped implant leaves the body — the ship gate of
    * `unequipImplant` does not apply. Each one becomes a **broken twin** item (`brokenImplantIdOf`, fresh uid from
    * `createItem`, no durability) handed to `InventoryRef.stripForCorpse` for the corpse; the working instance is gone.
    * An entry whose twin def is unknown is dropped without an item. `derived` is recomputed, `progress:implantsChanged`
@@ -238,20 +241,22 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     }
   }
 
-  /* ══ 준비물 (A-13, 2026-09-11 — 사용자 결정: 함선에서 쓰면 다음 레이드 1회분) ════════════════════════════
-   * `profile.prep` = 다음 레이드에 실릴 것, `profile.prepActive` = 이번 레이드에 실려 있는 것. 환경(`EnvKind`)당
-   * 하나이고 출격 순간 `armPreps()` 가 대기분을 통째로 옮긴다. 사망해도 비우지 않는다 (「이미 마신 약」) —
-   * 비우는 곳은 레이드 종료(`clearActivePreps`) 하나뿐이다. 프로필에 살기 때문에 재접속 · 이어하기로 돌아온
-   * 사람이 조용히 잃지 않는다 (2026-09-10 규약).
+  /* ══ Preparations (A-13, 2026-09-11 — user's decision: used in the ship, good for the next raid) ═══════
+   * `profile.prep` = what will be carried into the next raid, `profile.prepActive` = what is carried in this one. One
+   * per environment (`EnvKind`); at launch `armPreps()` moves the whole waiting set across. Death does not clear them
+   * (「the drug is already drunk」) — the one place that clears them is the end of the raid (`clearActivePreps`).
+   * They live in the profile so someone who comes back through a reconnect or a resume does not lose them silently
+   * (2026-09-10 convention).
    * ──────────────────────────────────────────────────────────────────────────────────────────────────── */
 
   getPreps(): readonly string[] { return this.prepList(); }
   getActivePreps(): readonly string[] { return this.activePrepList(); }
 
   /**
-   * 함선 전용. 준비물 def id 하나를 다음 레이드 대기분에 싣는다. 아이템을 빼는 것은 **부르는 쪽**(inventory)의
-   * 몫이고, 여기는 거절이면 **아무것도 바꾸지 않는다** — 그래서 inventory 가 먼저 묻고 성공할 때만 뺀다.
-   * null = 실렸다, 문자열 = 한국어 거절 사유.
+   * Ship only. Loads one preparation def id into the waiting set for the next raid. Consuming the item is the
+   * **caller's** job (inventory), and on a refusal this **changes nothing** — which is why inventory asks first and
+   * only consumes on success.
+   * null = loaded, a string = the (Korean) refusal reason.
    */
   usePrep(defId: string): string | null {
     const ctx = this.ctx;
@@ -278,18 +283,18 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * 출격: 대기분을 이번 레이드분으로 옮긴다 (game/ 이 레이드 시작 때 한 번). 대기분이 비어 있으면 **아무것도
-   * 하지 않는다** — 재접속 · 솔로 이어하기도 `game:newMission` 을 지나가므로, 여기서 `prepActive` 를 덮으면
-   * 돌아온 사람이 이번 레이드분을 잃는다.
+   * Launch: moves the waiting set into this raid's set (game/ calls it once at raid start). With an empty waiting set
+   * it does **nothing** — a reconnect or a solo resume passes through `game:newMission` too, so overwriting
+   * `prepActive` here would make whoever came back lose what they are carrying.
    */
   armPreps(): void {
-    this.armMeal();                                     // A-3c: 식사 칸도 같은 자리에서 옮긴다 (game/ 무변경)
+    this.armMeal();                                     // A-3c: the meal slot moves in the same place (game/ unchanged)
     const waiting = this.prepList();
     if (waiting.length === 0) return;
     const active = this.activePrepList();
     for (const id of waiting) {
       const env = this.prepEnvOf(id);
-      // 이번 레이드에 같은 환경이 이미 실려 있으면(재접속 뒤 남은 대기분) 중복해서 싣지 않는다.
+      // if this raid already carries the same environment (a waiting entry left over after a reconnect), do not load it twice.
       if (active.includes(id)) continue;
       if (env && active.some((a) => this.prepEnvOf(a) === env)) continue;
       active.push(id);
@@ -298,34 +303,34 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.afterPrepsChanged();
   }
 
-  /** 레이드 종료(탈출 · 전멸 · 포기 · `game:abort`). 사망만으로는 부르지 않는다. */
+  /** End of a raid (extraction · wipe · abandon · `game:abort`). Death alone does not call it. */
   clearActivePreps(): void {
-    this.clearActiveMeal();                             // A-3c: 식사 칸도 같은 자리에서 비운다
+    this.clearActiveMeal();                             // A-3c: the meal slot is cleared in the same place
     if (this.activePrepList().length === 0) return;
     this._profile.prepActive = [];
     this.afterPrepsChanged();
   }
 
   /**
-   * 출격: 대기 식사를 이번 레이드분으로 옮긴다. **대기가 비어 있으면 아무것도 하지 않는다** — 준비물과
-   * 같은 이유다: 재접속 · 솔로 이어하기도 `game:newMission` 을 지나가므로, 여기서 `mealActive` 를 덮으면
-   * 돌아온 사람이 이번 레이드의 밥을 잃는다.
+   * Launch: moves the waiting meal into this raid's slot. With nothing waiting it does **nothing** — the same reason
+   * as preparations: a reconnect or a solo resume passes through `game:newMission` too, so overwriting `mealActive`
+   * here would make whoever came back lose the meal they are carrying.
    */
   private armMeal(): void {
     const waiting = this.mealId();
     if (!waiting) return;
     this._profile.mealActive = waiting;
-    this._profile.mealActiveQuality = this.getMealQuality();   // 2026-09-13: 품질은 id 와 함께 옮긴다
+    this._profile.mealActiveQuality = this.getMealQuality();   // 2026-09-13: the quality travels with the id
     this._profile.meal = null;
     this._profile.mealQuality = 0;
-    this.recompute();                                   // 버프가 `derived` 에 실리는 자리
+    this.recompute();                                   // where the buff is folded into `derived`
     this.afterMealChanged();
   }
 
   private clearActiveMeal(): void {
     if (!this.activeMealId()) return;
     this._profile.mealActive = null;
-    this._profile.mealActiveQuality = 0;                // 2026-09-13: 품질도 함께 비운다
+    this._profile.mealActiveQuality = 0;                // 2026-09-13: the quality is cleared with it
     this.recompute();
     this.afterMealChanged();
   }
@@ -347,7 +352,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * Drop stored ids whose def no longer resolves as a 준비물 (a removed item, a corrupt file). Runs inside
+   * Drop stored ids whose def no longer resolves as a preparation (a removed item, a corrupt file). Runs inside
    * `recompute` once `ctx.loot` exists — the same shape as `pruneImplants`. Returns true when something went.
    */
   private prunePreps(): boolean {
@@ -373,20 +378,23 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     });
   }
 
-  /* ══ 식사 (A-3c, 2026-09-11 — 사용자 결정: 별도 「식사」 칸 1개) ═══════════════════════════════════════════
-   * 준비물의 **형제**다: `profile.meal` = 다음 레이드에 실릴 요리, `profile.mealActive` = 이번 레이드에 실린 것.
-   * 옮기고(`armPreps`) 비우는(`clearActivePreps`) 자리가 준비물과 **같아서** `game/` 은 한 줄도 안 바뀐다.
-   * 다른 점은 둘이다 — ① 칸이 하나뿐이라 배열이 아니고, ② 두 번째 요리는 거절이 아니라 **교체**다
-   * (「바꿔 먹는다」). 버프는 `mealActive` 의 `MealDef` 를 `recompute` 가 `derived` 에 접는다.
+  /* ══ Meals (A-3c, 2026-09-11 — user's decision: one separate 「식사」 slot) ═════════════════════════════
+   * The **sibling** of preparations: `profile.meal` = the meal that will be carried into the next raid,
+   * `profile.mealActive` = the one carried in this raid. It is moved (`armPreps`) and cleared (`clearActivePreps`) in
+   * the **same places** as preparations, so `game/` changes by not one line.
+   * Two things differ — ① there is only one slot, so it is not an array, and ② a second meal is not a refusal but a
+   * **replacement** (「eat something else instead」). The buff is the `MealDef` of `mealActive`, folded into `derived`
+   * by `recompute`.
    * ──────────────────────────────────────────────────────────────────────────────────────────────────── */
 
   getMeal(): string | null { return this.mealId(); }
   getActiveMeal(): string | null { return this.activeMealId(); }
 
   /**
-   * 함선 전용. 요리 def id 하나를 다음 레이드 대기분에 싣는다. 아이템을 빼는 것은 **부르는 쪽**(inventory ·
-   * housing 의 식탁)의 몫이고, 여기는 거절이면 아무것도 바꾸지 않는다 — 그래서 부르는 쪽이 **먼저 묻고**
-   * 성공할 때만 뺀다 (`usePrep` 과 같은 규약). null = 실렸다, 문자열 = 한국어 거절 사유.
+   * Ship only. Loads one meal def id into the waiting slot for the next raid. Consuming the item is the **caller's**
+   * job (inventory, or housing's dining table), and on a refusal this changes nothing — which is why the caller
+   * **asks first** and only consumes on success (the same convention as `usePrep`).
+   * null = loaded, a string = the (Korean) refusal reason.
    */
   useMeal(defId: string, quality = 0): string | null {
     const ctx = this.ctx;
@@ -395,46 +403,48 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     if (ctx && ctx.phase !== 'hub') return '함선에서만 먹을 수 있습니다';
     if (!this.mealDefOf(defId)) return '알 수 없는 요리입니다';
     const q = normalizeMealQuality(quality);
-    /* 같은 요리를 한 번 더 먹는 것만은 거절한다 — 바뀌는 것이 하나도 없는데 null 을 돌려주면 부르는 쪽이
-     * 아이템을 **그냥 버린다**. 「교체」 결정은 *다른* 요리에 대한 것이다.
-     * 2026-09-13 (요리 품질): 「같은 요리」 는 **같은 id · 같은 품질**이다 — 품질이 다르면 버프 수치가 바뀌므로 교체다. */
+    /* Eating the very same meal again is the one case that is refused — nothing would change, and returning null
+     * would make the caller **throw the item away** for nothing. The 「replace」 decision is about a *different* meal.
+     * 2026-09-13 (cook quality): 「the same meal」 means **same id and same quality** — a different quality changes the
+     * buff numbers, so that is a replacement. */
     if (this._profile.meal === defId && this.getMealQuality() === q) return '이미 같은 요리를 먹었습니다';
-    this._profile.meal = defId;                          // 다른 요리를 이미 차려 뒀으면 **조용히 교체**한다
+    this._profile.meal = defId;                          // a different meal already set is **replaced silently**
     this._profile.mealQuality = q;
     this.afterMealChanged();
     return null;
   }
 
   /**
-   * ⚠ 2026-09-16 (접시 모델): **부르는 곳이 없다** — 공유 함선 식탁은 이제 분대원의 접시를 각자 `useMeal` 로 먹는다
-   * (`housing/parts/Dining.eatPlate`). 계약(`ProgressionRef.serveMeal`)이라 구현만 남긴다.
-   * 공유 함선 식탁: 남이 차려 준 요리를 **아이템 소모 없이** 받는다. 이미 먹었어도 교체된다.
-   * 받는 쪽 가드(로비 멤버 · 같은 공유 함선 · `MEAL_SERVE_RANGE` · 요율 · **호스트가 보낸 것만**)는 net 이
-   * 이미 통과시켰다 — 여기서는 레이드 중이 아니고 실제 요리일 때만 싣는다.
+   * ⚠ 2026-09-16 (the plate model): **nothing calls this** — at the shared ship's dining table each squadmate now eats
+   * their own plate through `useMeal` (`housing/parts/Dining.eatPlate`). It is part of the contract
+   * (`ProgressionRef.serveMeal`), so only the implementation is kept.
+   * Shared ship dining table: receive a meal someone else served **without consuming an item**. It replaces whatever
+   * was already eaten. The receiving-side guards (lobby member · same shared ship · `MEAL_SERVE_RANGE` · rate ·
+   * **host-sent only**) were already passed by net — here it is loaded only when not in a raid and it is a real meal.
    */
   serveMeal(defId: string, quality = 0): void {
     const ctx = this.ctx;
     if (typeof defId !== 'string' || !defId) return;
-    if (ctx?.isRaidActive()) return;                     // 레이드 중인 사람에게는 차릴 수 없다 (net 이 이미 막지만 이중으로)
+    if (ctx?.isRaidActive()) return;                     // cannot serve someone who is in a raid (net blocks it already; belt and braces)
     if (!this.mealDefOf(defId)) return;
-    const q = normalizeMealQuality(quality);             // 2026-09-13: 차린 요리의 품질 그대로 (리드 기본값)
+    const q = normalizeMealQuality(quality);             // 2026-09-13: the quality of the meal as served (default from the lead)
     if (this._profile.meal === defId && this.getMealQuality() === q) return;
     this._profile.meal = defId;
     this._profile.mealQuality = q;
     this.afterMealChanged();
   }
 
-  /** 2026-09-13 (요리 품질): 대기 중인 식사의 품질 0 … `MEAL_QUALITY_MAX` (식사가 없으면 0). */
+  /** 2026-09-13 (cook quality): quality of the waiting meal, 0 … `MEAL_QUALITY_MAX` (0 when there is none). */
   getMealQuality(): number {
     return this.mealId() ? normalizeMealQuality(this._profile.mealQuality) : 0;
   }
 
-  /** 2026-09-13 (요리 품질): 이번 레이드에 실린 식사의 품질 (없으면 0). */
+  /** 2026-09-13 (cook quality): quality of the meal carried into this raid (0 when there is none). */
   getActiveMealQuality(): number {
     return this.activeMealId() ? normalizeMealQuality(this._profile.mealActiveQuality) : 0;
   }
 
-  /** 프로필의 대기 식사 id (없으면 null). */
+  /** The profile's waiting meal id (null when there is none). */
   private mealId(): string | null {
     const v = this._profile.meal;
     return typeof v === 'string' && v ? v : null;
@@ -446,32 +456,33 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * 요리 id 의 `MealDef`, 요리가 아니면 null. 2026-09-16 (접시 모델): 요리는 아이템이 아니라 `ctx.loot` 이 모른다 —
-   * 표는 `shared/meals` (`getMealDef`) 이고 부팅 순서와 무관하게 늘 있다.
+   * The `MealDef` of a meal id, null when it is not a meal. 2026-09-16 (the plate model): a meal is not an item, so
+   * `ctx.loot` does not know it — the table is `shared/meals` (`getMealDef`) and is always there, whatever the boot
+   * order.
    */
   private mealDefOf(defId: string | null): MealDef | null {
     return getMealDef(defId)?.meal ?? null;
   }
 
   /**
-   * Drop a stored meal id whose def no longer resolves as a 요리 (a removed item, a corrupt file). Runs inside
+   * Drop a stored meal id whose def no longer resolves as a meal (a removed item, a corrupt file). Runs inside
    * `recompute` once `ctx.loot` exists — the same shape as `prunePreps`. Returns true when something went.
    */
   private pruneMeal(): boolean {
-    // 2026-09-16: 요리 표는 shared 에 늘 있다 — `ctx.loot` 을 기다리지 않는다
+    // 2026-09-16: the meal table always exists in shared — no need to wait for `ctx.loot`
     let changed = false;
     for (const key of ['meal', 'mealActive'] as const) {
       const id = key === 'meal' ? this.mealId() : this.activeMealId();
       if (id && !this.mealDefOf(id)) {
         this._profile[key] = null;
-        this._profile[key === 'meal' ? 'mealQuality' : 'mealActiveQuality'] = 0;   // 2026-09-13: 품질도 함께
+        this._profile[key === 'meal' ? 'mealQuality' : 'mealActiveQuality'] = 0;   // 2026-09-13: the quality goes with it
         changed = true;
       }
     }
     return changed;
   }
 
-  /** 대기분이 바뀌었다 — 저장 + 이벤트. `mealActive` 를 건드린 곳은 `recompute` 도 함께 부른다. */
+  /** The waiting slot changed — save + event. Whoever touched `mealActive` calls `recompute` as well. */
   private afterMealChanged(): void {
     this.markDirty(true);
     this.emitMealChanged();
@@ -480,23 +491,25 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   private emitMealChanged(): void {
     this.ctx?.bus.emit('progress:mealChanged', {
       meal: this.mealId(), active: this.activeMealId(),
-      mealQuality: this.getMealQuality(), activeQuality: this.getActiveMealQuality(),   // 2026-09-13 요리 품질
+      mealQuality: this.getMealQuality(), activeQuality: this.getActiveMealQuality(),   // 2026-09-13 cook quality
     });
   }
 
-  /* ══ 헬스장 — 단련 보너스 · 운동 디버프 (A-3a, 2026-09-12 — 사용자 결정: 스탯 포인트와 따로 센다) ══════════════════════
-   * housing 의 미니게임이 끝나면 `applyGymSession(stat, 점수)` 를 부른다. 점수 → 경험치 → **능력치 경험치 바**
-   * (2026-09-17, `addStatXp(stat, xp, 'minigame')` — 규칙은 그 함수 위) → 바를 넘기면 `profile.trained[stat]` +1
-   * (상한 `GYM_TRAINED_MAX`). 단련 보너스는 `stats` 와 섞이지 않고 `derive.stat()` 가 임플란트 보너스와
-   * **같은 자리**에서 더한다. 끝낸 세션은 디버프가 없던 능력치에 `GYM_FATIGUE_HOURS` 의 디버프를 건다 (디버프 중이면
-   * 경험치 × `GYM_FATIGUE_GAIN_MUL` 이고 디버프는 늘지 않는다). 시각은 `ctx.net.serverNow() ?? Date.now()` (온실과 같은
-   * 현실 시간). `trained` · `gymFatigueUntil` 은 프로필에 살고 `Profile.sanitizeGym` 이 migrate 에서 옮겨 담는다
-   * (옛 `trainedProgress` 는 2026-09-17 부터 버린다).
+  /* ══ The gym — training bonus · workout debuff (A-3a, 2026-09-12 — user's decision: counted separately from stat
+   * points) ════════════════════════════════════════════════════════════════════════════════════════════
+   * When housing's minigame ends it calls `applyGymSession(stat, score)`. Score → XP → the **stat-XP bar**
+   * (2026-09-17, `addStatXp(stat, xp, 'minigame')` — the rules are above that function) → filling the bar is
+   * `profile.trained[stat]` +1 (capped at `GYM_TRAINED_MAX`). The training bonus never mixes into `stats`;
+   * `derive.stat()` adds it in the **same place** as the implant bonus. A finished session puts a
+   * `GYM_FATIGUE_HOURS` debuff on a stat that had none (while debuffed, XP is × `GYM_FATIGUE_GAIN_MUL` and the debuff
+   * is not extended). The clock is `ctx.net.serverNow() ?? Date.now()` (real time, as in the greenhouse). `trained`
+   * and `gymFatigueUntil` live in the profile and `Profile.sanitizeGym` carries them over in migrate (the old
+   * `trainedProgress` has been discarded since 2026-09-17).
    * ──────────────────────────────────────────────────────────────────────────────────────────────────── */
 
   getTrainedBonus(id: StatId): number { return trainedBonusOf(this._profile, id); }
 
-  /** 2026-09-17: the shared stat-XP bar (`getStatProgress`) — there is no separate 단련 bar any more. 0 for a non-gym stat. */
+  /** 2026-09-17: the shared stat-XP bar (`getStatProgress`) — there is no separate training bar any more. 0 for a non-gym stat. */
   getTrainedProgress(id: StatId): number { return isGymStat(id) ? this.getStatProgress(id) : 0; }
 
   /** 2026-09-17: the shared stat-XP bar's need (`statXpToNext`). */
@@ -522,10 +535,12 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * 함선 전용. 끝낸 운동 세션 하나를 반영한다 (§4 공식). null — 아무것도 바꾸지 않는다 — 레이드 중 · 함선 phase 가 아님 ·
-   * 운동 능력치가 아님. 점수는 0 … 1 로 자르고(NaN = 0), 점수 0 이어도 끝낸 세션이면 디버프가 걸린다.
-   * `xp` 는 **실제로 더해진** 경험치다 — 디버프 중이면 0. 2026-09-17: 단련이 상한이어도 바에는 들어간다 (넘기지 못할 뿐 —
-   * `addStatXp` 의 minigame 규칙). `progress` = 세션 뒤 능력치 경험치 바, `capped` = 단련 보너스가 상한.
+   * Ship only. Applies one finished workout session (formula in §4). Returns null — and changes nothing — during a
+   * raid, outside the hub phase, or for a stat the gym does not train. The score is clamped to 0 … 1 (NaN = 0), and
+   * even a score of 0 puts the debuff on, because the session was finished.
+   * `xp` is the XP **actually added** — 0 while debuffed. 2026-09-17: XP still goes into the bar when the training
+   * bonus is capped (it simply cannot roll over — the minigame rule of `addStatXp`). `progress` = the stat-XP bar
+   * after the session, `capped` = the training bonus is at its cap.
    */
   applyGymSession(id: GymStat, score: number): GymSessionResult | null {
     const ctx = this.ctx;
@@ -559,10 +574,11 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * 개발자 콘솔 `gym` 전용 (계약 appended 2026-09-12): 디버프 · 함선 게이트 · 세션 상한 없이.
-   * 2026-09-17: 양수 = 미니게임 경험치 그대로 (`addStatXp(id, xp, 'minigame')`). 음수 = 바는 건드리지 않고 단련 보너스를
-   * ⌈|xp| / 지금 바의 필요량⌉ 단계 내린다 (0 이 바닥) — 바를 깎으면 기본 능력치가 내려가므로 콘솔 · 스모크의 「단련 초기화」가 되지 않는다.
-   * 운동 능력치가 아니거나 유한한 수가 아니면 아무것도 하지 않는다.
+   * Dev console `gym` only (appended to the contract 2026-09-12): no debuff, no ship gate, no session cap.
+   * 2026-09-17: a positive value is minigame XP as-is (`addStatXp(id, xp, 'minigame')`). A negative value leaves the
+   * bar alone and drops the training bonus by ⌈|xp| / the bar's current need⌉ steps (0 is the floor) — cutting the bar
+   * would lower the base stat, which is not what the console's / a smoke's 「reset the training」 means.
+   * Does nothing for a non-gym stat or a non-finite number.
    */
   addTrainedXp(id: GymStat, xp: number): void {
     if (!isGymStat(id) || typeof xp !== 'number' || !Number.isFinite(xp)) return;
@@ -580,8 +596,9 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * 개발자 콘솔 `gym clear` 전용: 운동 디버프를 지운다 (`id` 생략 = 둘 다). 지운 능력치마다 `progress:gymFatigue {id, until: 0}` 를
-   * 내서 시트 · 배지가 곧바로 다시 그리게 하고, 무언가 지웠으면 즉시 저장한다. 지난 스탬프도 함께 치운다.
+   * Dev console `gym clear` only: clears the workout debuff (`id` omitted = both). For each stat cleared it emits
+   * `progress:gymFatigue {id, until: 0}` so the sheet and the badge redraw at once, and saves immediately if anything
+   * was cleared. Expired stamps are swept along with it.
    */
   clearGymFatigue(id?: GymStat): void {
     const ids: readonly GymStat[] = id === undefined ? GYM_STATS : isGymStat(id) ? [id] : [];
@@ -595,14 +612,14 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     for (const k of cleared) this.ctx?.bus.emit('progress:gymFatigue', { id: k, until: 0 });
   }
 
-  /** Store 단련 bonus `n` for `id` (0 = key removed, so an untouched character keeps an empty map). */
+  /** Store training bonus `n` for `id` (0 = key removed, so an untouched character keeps an empty map). */
   private writeTrained(id: GymStat, n: number): void {
     const p = this._profile;
     const trained = p.trained ?? (p.trained = {});
     if (n > 0) trained[id] = n; else delete trained[id];
   }
 
-  /** Re-announce the 헬스장 state (boot · server document · reset): `trainedChanged` with delta 0, `gymFatigue` while active. */
+  /** Re-announce the gym state (boot · server document · reset): `trainedChanged` with delta 0, `gymFatigue` while active. */
   private emitGymState(): void {
     const bus = this.ctx?.bus;
     if (!bus) return;
@@ -631,7 +648,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   private _derived: DerivedStats = DEFAULT_DERIVED;
   private offs: Array<() => void> = [];
   private sheet: CharacterSheet | null = null;
-  /** Embedded 캐릭터 tabs handed out by `createSheetView` (Phase 8) — refreshed alongside the overlay. */
+  /** Embedded character tabs handed out by `createSheetView` (Phase 8) — refreshed alongside the overlay. */
   private views = new Set<SheetView>();
 
   private dirty = false;
@@ -642,12 +659,12 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   private equippedWeapon: string | null = null;
   /** true once the current shot already trained the shooting skill (shotguns emit one `weapon:hit` per pellet). */
   private shotCredited = false;
-  /** Latest `inventory:weightChanged` state (drives the 운반 skill). */
+  /** Latest `inventory:weightChanged` state (drives the hauling skill). */
   private weightState: string = 'normal';
-  /** 2026-09-16: last `ctx.player.selfMovedMeters` reading (운반 counts only the odometer's growth). */
+  /** 2026-09-16: last `ctx.player.selfMovedMeters` reading (hauling counts only the odometer's growth). */
   private lastSelfMoved = 0;
   private hasLastPos = false;
-  /** Container ids whose `crate:open` already paid 감정 XP this raid (C-16 · X-1; cleared on `game:newMission` / `world:ready`). */
+  /** Container ids whose `crate:open` already paid appraisal XP this raid (C-16 · X-1; cleared on `game:newMission` / `world:ready`). */
   private readonly cratesAppraised = new Set<string>();
   /** Last emitted fractional progress per skill, so the bus is not spammed every frame. */
   private lastEmitted: Partial<Record<SkillId, number>> = {};
@@ -701,43 +718,47 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
         this.shotCredited = true;
         this.addSkillXp(this.skillForWeaponClass(cls), GUN_HIT_XP[cls] ?? GUN_HIT_XP.AR);
       }),
-      /* ── 인내 ── */
+      /* ── grit ── */
       b.on('player:gritSaved', () => this.addSkillXp('grit', GRIT_SAVE_XP)),
-      /* ── 원예 (고철 해체는 2026-09-08 부터 제작 숙련으로, 광맥은 2026-09-16 부터 채광으로) ──
-       * 채집물은 셋으로 갈린다: 고철 = 제작 · 광맥 = 채광 · 나머지(약초 · 흙 · 씨앗 · 표본) = 원예.
-       * 광맥만 경험치 값이 다르다 (`MINING_SKILL_XP`, data/constants.csv) — 홀드가 길고 한 번에 여럿이 나온다. */
+      /* ── gardening (scrap salvage trains crafting since 2026-09-08, ore veins train mining since 2026-09-16) ──
+       * Gathered things split three ways: scrap = crafting · ore veins = mining · everything else (herbs · soil ·
+       * seeds · samples) = gardening.
+       * Only ore veins use a different XP value (`MINING_SKILL_XP`, data/constants.csv) — the hold is long and several
+       * come out at once. */
       b.on('gather:collected', ({ kind }) => {
         if (kind === 'mineral') { this.addSkillXp('mining', MINING_SKILL_XP); return; }
         this.addSkillXp(kind === 'salvage' ? 'crafting' : 'gardening', GATHER_XP);
       }),
-      /* ── 제작 / 의학 ── */
-      // 2026-09-13 (사용자 결정): 연구실 작업대(추출기 · 조합대 · 3D 프린터) 제작은 연구 경험치만 — inventory 가 `RESEARCH_XP_CRAFT` 를 준다
+      /* ── crafting / medicine ── */
+      // 2026-09-13 (user's decision): crafting at a lab bench (extractor · mixer · 3D printer) gives research XP only — inventory awards `RESEARCH_XP_CRAFT`
       b.on('craft:completed', ({ recipeId }) => { const skill = this.recipeSkill(recipeId); if (skill) this.addSkillXp(skill, CRAFT_XP); }),
-      /* ── 장비 관리 ── */
+      /* ── gear maintenance ── */
       b.on('repair:completed', () => this.addSkillXp('equipment', REPAIR_XP)),
-      /* ── 전술 임플란트 ── */
+      /* ── tactical implants ── */
       b.on('implant:activated', () => this.addSkillXp('implant', IMPLANT_XP)),
       b.on('implant:equipped', ({ id }) => {
         if (this._profile.implant === id) return;
         this._profile.implant = id;
         this.markDirty(true);
       }),
-      /* ── 암호학 ── */
+      /* ── cryptography ── */
       /*
-       * 2026-09-15 (사용자 결정 — 「튜토리얼 시작과 함께 암호학이 오른다」 수정): 튜토리얼 레이드의 **미리 착륙한** 함선은
-       * `playing` 첫 프레임에 이 이벤트를 `duration: 0` 으로 **재생**만 한다 (`extraction/ExtractionSystem.syncPreLandedPhase` —
-       * 페이즈를 `extracting` 으로 맞추려는 것이지 누가 콘솔을 해킹한 것이 아니다). 그 한 번에 XP 를 주면 튜토리얼이 시작되자마자
-       * 암호학이 Lv.1 이 됐다. 가르는 값은 이벤트 자체의 `duration` 이다 — 계약(`shared/events.ts` · `ExtractionSystem`)이
-       * 「0 = 호출이 아니라 이미 와 있는 함선」이라 밝히고, `ui/hud/Notifications` 도 같은 값으로 「도착까지 0초」 토스트를 거른다.
-       * 본편 콘솔의 해킹은 `data/extraction.csv` 의 대기 시간이라 늘 0 보다 크다. 미션 모드까지 함께 본다 — 튜토리얼 안에서는
-       * 어느 길로도 해킹이 없다 (`missionMode` 가 튜토리얼을 가르는 유일한 축이다: `ui/hud/Objective.tutorialRaid` 와 같다).
+       * 2026-09-15 (user's decision — fixing 「cryptography rises the moment the tutorial starts」): the tutorial
+       * raid's **pre-landed** ship merely **replays** this event with `duration: 0` on the first `playing` frame
+       * (`extraction/ExtractionSystem.syncPreLandedPhase` — it is aligning the phase to `extracting`, not somebody
+       * hacking a console). Paying XP for that one event made cryptography Lv.1 the instant the tutorial began. What
+       * tells them apart is the event's own `duration` — the contract (`shared/events.ts` · `ExtractionSystem`) states
+       * 「0 = a ship already here, not one being called」, and `ui/hud/Notifications` filters its 「arrives in 0 s」 toast
+       * on the same value. A real console hack in the main game is the wait time from `data/extraction.csv`, always
+       * greater than 0. The mission mode is checked too — inside the tutorial there is no hacking down any path
+       * (`missionMode` is the single axis that marks the tutorial off: the same as `ui/hud/Objective.tutorialRaid`).
        */
       b.on('extraction:activated', ({ duration }) => {
         if (duration <= 0 || ctx.missionMode === 'tutorial') return;
         this.addSkillXp('cryptography', CRYPTO_XP);
       }),
-      /* ── 감정: opening a container + every item revealed by the Tarkov-style search (Phase 7; was `inventory:itemAdded`) ── */
-      /* 2026-09-11 (C-16 · X-1): once per container id per raid — every re-open used to pay again (E 연타 무한 파밍) */
+      /* ── appraisal: opening a container + every item revealed by the Tarkov-style search (Phase 7; was `inventory:itemAdded`) ── */
+      /* 2026-09-11 (C-16 · X-1): once per container id per raid — every re-open used to pay again (infinite farming by mashing E) */
       b.on('crate:open', ({ crateId }) => {
         if (this.cratesAppraised.has(crateId)) return;
         this.cratesAppraised.add(crateId);
@@ -746,34 +767,35 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       b.on('container:itemRevealed', ({ rarity }) => {
         this.addSkillXp('appraisal', APPRAISE_XP_BY_RARITY[rarity] ?? APPRAISE_XP_BY_RARITY.common);
       }),
-      /* ── 이름 (2026-09-09): 캐릭터의 이름이 곧 대원 이름이다 ────────────────────────────────────────────
-       * 예전에는 타이틀의 콜사인 입력칸이 `ctx.net.setPlayerName` 을 불렀다. 그 칸이 사라지고 이름은
-       * 캐릭터(생성창 → `PlayerProfile.name`)의 것이 됐으므로, **프로필이 실릴 때마다** 그 이름을 net 으로
-       * 밀어 넣는다 — 명찰 · 로비 · 크루 카드가 전부 `ctx.net.playerName` 을 읽는다.
-       * 여기가 유일한 자리인 이유: 프로필의 주인이 이 시스템이고, `progress:loaded` 는 부팅(마이크로태스크
-       * 방송) · 서버 프로필 수신 · 캐릭터 초기화 **세 경우 모두** 지나가는 한 지점이다. */
-      b.on('progress:loaded', ({ profile }) => { try { ctx.net?.setPlayerName(profile.name); } catch { /* net 미준비 */ } }),
-      /* ── 헬스장 (A-3a): the sheet's `(+n 단련)` · progress line · debuff countdown ── */
+      /* ── the name (2026-09-09): the character's name *is* the operative's name ───────────────────────────
+       * The title screen's callsign field used to call `ctx.net.setPlayerName`. That field is gone and the name now
+       * belongs to the character (creation window → `PlayerProfile.name`), so the name is pushed into net **every
+       * time a profile is loaded** — name tags, the lobby and crew cards all read `ctx.net.playerName`.
+       * Why this is the only place: this system owns the profile, and `progress:loaded` is the one point that
+       * **all three** cases pass through — boot (microtask broadcast), receiving the server profile, and a character
+       * reset. */
+      b.on('progress:loaded', ({ profile }) => { try { ctx.net?.setPlayerName(profile.name); } catch { /* net not ready */ } }),
+      /* ── the gym (A-3a): the sheet's `(+n)` training bonus · progress line · debuff countdown ── */
       b.on('progress:trainedChanged', ({ id }) => this.refreshSheetStat(id)),
       b.on('progress:gymFatigue', ({ id }) => this.refreshSheetStat(id)),
       /* ── server profile (Phase 7) ── */
       b.on('net:profileLoaded', () => this.onProfileLoaded()),
-      /* ── 운반 (distance accumulated in update) ── */
+      /* ── hauling (distance accumulated in update) ── */
       b.on('inventory:weightChanged', ({ state }) => { this.weightState = state; }),
-      /* ── gear affects derived (특수 가방 halves implant cooldowns) ── */
+      /* ── gear affects derived (the `특수 가방` perk halves implant cooldowns) ── */
       b.on('equip:changed', () => this.recompute()),
       b.on('loadout:changed', () => this.recompute()),
       /* ── stat points may not be spent mid-raid; refresh the sheet on every phase change ── */
       /* 2026-09-13: a phase change / raid launch / death is a forced exit — unconfirmed ＋ points are dropped silently */
-      /* 2026-09-13: recompute (not just repaint) — the 서재 `derived` fold reads the ship state, which housing may have (re)loaded meanwhile */
+      /* 2026-09-13: recompute (not just repaint) — the library `derived` fold reads the ship state, which housing may have (re)loaded meanwhile */
       b.on('game:phaseChanged', () => { this.discardSheetPending(); this.recompute(); }),
-      /* ── 서재 시리즈 (2026-09-13): the library summary moved → `derived` (+ the sheet's `시설 ×n` badges) again ── */
+      /* ── library series (2026-09-13): the library summary moved → `derived` (+ the sheet's `시설 ×n` badges) again ── */
       b.on('housing:libraryChanged', () => this.recompute()),
       b.on('player:died', () => this.discardSheetPending()),
       b.on('game:newMission', () => { this.hasLastPos = false; this.weightState = 'normal'; this.cratesAppraised.clear(); this.discardSheetPending(); }),
       b.on('world:ready', () => this.cratesAppraised.clear()),
       b.on('game:abort', () => { this.hasLastPos = false; this.flush(); }),
-      /* ── 시작 전술 임플란트 (2026-09-14 2차) — 아래 `grantStarterImplant` ── */
+      /* ── the starter tactical implant (2026-09-14 2nd pass) — `grantStarterImplant` below ── */
       b.on('hub:entered', () => this.grantStarterImplant()),
       /* ── character sheet ── */
       b.on('ui:statsToggled', ({ open }) => {
@@ -789,11 +811,11 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     // registered after us (registration order is owned by main.ts) still receive the initial profile.
     queueMicrotask(() => {
       if (this.ctx !== ctx) return;
-      this.recompute();                                        // gear refs exist by now (특수 가방 perk)
+      this.recompute();                                        // gear refs exist by now (the `특수 가방` perk)
       ctx.bus.emit('progress:loaded', { profile: this._profile });
-      this.emitPrepChanged();                                   // A-13: 부팅 시점의 준비물 (HUD 배지 · 출격 준비 화면)
-      this.emitMealChanged();                                   // A-3c: 부팅 시점의 식사 (HUD 식사 배지 · 식탁 화면)
-      this.emitGymState();                                      // A-3a: 부팅 시점의 단련 · 운동 디버프 (함선 디버프 배지)
+      this.emitPrepChanged();                                   // A-13: preparations as of boot (HUD badge · launch prep screen)
+      this.emitMealChanged();                                   // A-3c: the meal as of boot (HUD meal badge · dining table screen)
+      this.emitGymState();                                      // A-3a: training bonus / workout debuff as of boot (ship debuff badge)
     });
   }
 
@@ -807,26 +829,28 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     }
   }
 
-  /* ── 시작 전술 임플란트 (2026-09-14 2차, 사용자 결정) ─────────────────────────────────────────────
-   * 모든 새 캐릭터는 **함선에 처음 들어올 때** 갈고리를 장착한 채 시작한다. 캐릭터 생성창의 「시작
-   * 임플란트」 선택지가 없어졌으므로 고르는 것이 아니라 주어지는 것이고, 주는 자리는 **함선 진입**이다 —
-   * 튜토리얼 레이드 동안에는 임플란트가 없는 것이 전제라 레이드 도중에 손에 쥐어지면 안 된다.
-   * 튜토리얼을 완주했든 건너뛰었든 그 뒤에는 반드시 함선에 들어오므로 `hub:entered` 가 유일한 관문이다.
+  /* ── The starter tactical implant (2026-09-14 2nd pass, user's decision) ───────────────────────────
+   * Every new character starts with the grapple equipped, **the first time they enter the ship**. The character
+   * creation window's 「starter implant」 choice is gone, so it is granted rather than chosen, and the place it is
+   * granted is **entering the ship** — the tutorial raid assumes you have no implant, so it must never be put in your
+   * hands mid-raid. Whether the tutorial was finished or skipped, the ship follows, which makes `hub:entered` the one
+   * gate.
    *
-   * **멱등**하다: 이미 무언가 장착돼 있으면(`profile.implant !== null`) 한 글자도 바꾸지 않는다.
-   * 실제로 장착하는 곳은 `ctx.implants.setEquipped` 하나이고(레이드 중 거절 · 런타임 리셋이 거기 있다),
-   * 저장은 그것이 내는 `implant:equipped` 를 위 구독이 받아 `profile.implant` 에 적는 것으로 끝난다 —
-   * `Profile.migrate` 가 그 필드를 옮겨 담으므로 새로고침에도 살아남고 서버 프로필 왕복도 같은 길이다.
+   * It is **idempotent**: if something is equipped already (`profile.implant !== null`) it changes not one character.
+   * The single place that actually equips is `ctx.implants.setEquipped` (the mid-raid refusal and the runtime reset
+   * live there), and persisting is finished by the subscription above catching the `implant:equipped` it emits and
+   * writing `profile.implant` — `Profile.migrate` carries that field over, so it survives a reload and takes the same
+   * road through the server profile round trip.
    */
   private grantStarterImplant(): void {
     const ctx = this.ctx;
     if (!ctx || ctx.phase !== 'hub' || ctx.isRaidActive()) return;
-    if (this._profile.implant !== null) return;   // 이미 갖고 있다 — 다시 주지 않는다
+    if (this._profile.implant !== null) return;   // already has one — never granted twice
     const implants = ctx.implants;
-    if (!implants) return;                        // implants/ 가 아직 등록되기 전 — 다음 `hub:entered` 가 준다
+    if (!implants) return;                        // implants/ is not registered yet — the next `hub:entered` grants it
     if (!implants.setEquipped(DEFAULT_IMPLANT)) return;
-    // `setEquipped` 가 `implant:equipped` 를 내고 위 구독이 프로필에 적는다. 그래도 안전하게 한 번 더 못 박는다
-    // (이미 같은 값이면 그 구독이 조용히 빠져나가므로 여기서 dirty 를 놓칠 수 있다).
+    // `setEquipped` emits `implant:equipped` and the subscription above writes it into the profile. Pin it once more
+    // to be safe (if the value was already the same that subscription returns silently, so dirty could be missed here).
     if (this._profile.implant !== DEFAULT_IMPLANT) { this._profile.implant = DEFAULT_IMPLANT; this.markDirty(true); }
     ctx.bus.emit('ui:notify', { text: '전술 임플란트 「갈고리」를 장착했다', kind: 'info', duration: 4 });
   }
@@ -862,7 +886,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * 2026-09-13 (계약 `spendStatPoints`, 사용자 결정 — 시트는 ＋/－ 로 배분해 두고 1초 홀드로 확정한다): all-or-nothing batch.
+   * 2026-09-13 (contract `spendStatPoints`, user's decision — the sheet allocates with ＋/－ and confirms with a 1 s hold): all-or-nothing batch.
    * Refused (false, nothing changes) during a raid, for an unknown key, a non-integer / negative amount, a total of 0 or above
    * `statPoints`, or a stat that would pass `STAT_MAX`. On success: one `recompute`, one immediate save, and one
    * `progress:statChanged` per stat whose value moved.
@@ -893,8 +917,9 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * 캐릭터 시트의 확정 전 미리보기 (2026-09-13): `derived` as it would be with `alloc` invested — the **same** path as `recompute`
-   * (implants · 단련 · 특수 가방 · meal buff) on a shallow copy of the profile. Nothing is written; amounts are clamped to `STAT_MAX`.
+   * The character sheet's pre-confirm preview (2026-09-13): `derived` as it would be with `alloc` invested — the
+   * **same** path as `recompute` (implants · training bonus · the `특수 가방` perk · meal buff) on a shallow copy of the
+   * profile. Nothing is written; amounts are clamped to `STAT_MAX`.
    */
   previewDerived(alloc: Partial<Record<StatId, number>>): DerivedStats {
     const p = this._profile;
@@ -910,7 +935,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   addSkillXp(id: SkillId, amount: number): void {
     if (!(SKILL_IDS as readonly string[]).includes(id)) return;
     if (!(amount > 0)) return;
-    // 시뮬레이션 훈련장: only marksmanship trains, scaled by TRAINING_SKILL_GAIN_MUL (everything else 0)
+    // simulation training range: only marksmanship trains, scaled by TRAINING_SKILL_GAIN_MUL (everything else 0)
     if (this.inTraining()) {
       if (!id.startsWith('gun_')) return;
       amount *= TRAINING_SKILL_GAIN_MUL;
@@ -921,7 +946,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     if (level >= SKILL_LEVEL_MAX) return;
 
     const def = SKILL_DEF_MAP.get(id);
-    // 사격장 (ship facility) bonus multiplies in here, on top of 지능 (`skillGainMul`) and the skill's own stats.
+    // The shooting-range (ship facility) bonus multiplies in here, on top of intelligence (`skillGainMul`) and the skill's own stats.
     const gain = amount * this._derived.skillGainMul * this.getSkillGainMul(id) * this.statFactor(def)
       / (1 + level * SKILL_COST_SLOPE);
     if (!(gain > 0)) return;
@@ -1048,18 +1073,18 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * 2026-09-17 (사용자 결정 「헬스 · 비디오게임은 능력치 경험치 바를 같이 쓴다」) — the `'minigame'` branch of `addStatXp`.
+   * 2026-09-17 (user's decision 「the gym and video games share the stat-XP bar」) — the `'minigame'` branch of `addStatXp`.
    *
    * Invariant (one bar, two payouts): a stat has **one** XP bar (`statProgress[id]` × `statXpFor(base)`). Whoever's addition
    * crosses the need decides what the crossing pays —
    *   - action XP (`addStatXp` default) crossing → base stat +1 (`profile.stats`), as before;
-   *   - minigame XP (this branch) crossing → 단련 bonus +1 (`profile.trained`), the base stat and the level-up
+   *   - minigame XP (this branch) crossing → training bonus +1 (`profile.trained`); the base stat and the level-up
    *     `statPoints` are never touched. The need is the base stat's, so it stays the same across the whole addition and
-   *     every full need in it is one 단련 step (carry-over like action XP).
+   *     every full need in it is one training step (carry-over like action XP).
    * At `GYM_TRAINED_MAX` a minigame addition can no longer cross: the bar is held just below full (0.999999) and the rest
    * is dropped, so the *next action XP* that tips it over pays a base point — minigame XP never pays a base point by itself.
    * A base stat at `STAT_MAX` pins the bar at 1 for action XP; that pinned-full bar counts as empty here (it was not
-   * filled by a minigame), so 단련 can still grow on a maxed stat.
+   * filled by a minigame), so the training bonus can still grow on a maxed stat.
    * Callers pass only finite `amount >= 0` for a `GYM_STATS` id (`addStatXp` routes anything else to the action path).
    * Always saves immediately (a gym session also writes its debuff) and emits `progress:statXp` + `progress:trainedChanged`
    * (+ `progress:statChanged` and a `derived` recompute when the bonus moved).
@@ -1091,7 +1116,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * Signed raw skill XP straight onto the 0..1 progress fraction — no 지능 / facility / stat / level scaling
+   * Signed raw skill XP straight onto the 0..1 progress fraction — no intelligence / facility / stat / level scaling
    * (`1` = one level at any level). Crossing 1 → level +1 (max SKILL_LEVEL_MAX, progress then 0); dropping below 0
    * → level −1 (never below 0, progress then 0). `progress:skillUp` fires on every level change (also downward,
    * payload carries the new level), `progress:skillProgress` always.
@@ -1128,8 +1153,9 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * Ship skill-gain multiplier: 사격장 (`gun_*` × `1 + 0.1 × level`) × 서재 (every book of that skill shelved on a
-   * 책장, Phase 9) — housing/ folds both into one `getSkillGainMul`, so progression/ never re-derives either. Read from
+   * Ship skill-gain multiplier: the shooting range (`gun_*` × `1 + 0.1 × level`) × the library (every book of that
+   * skill shelved on a bookcase, Phase 9) — housing/ folds both into one `getSkillGainMul`, so progression/ never
+   * re-derives either. Read from
    * `ctx.housing`, which may be absent — every hop is guarded so this never throws and never returns a bad number.
    */
   getSkillGainMul(id: SkillId): number {
@@ -1143,9 +1169,9 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     }
   }
 
-  /* ── embedded 캐릭터 tab (Phase 8) ─────────────────────────────────────── */
+  /* ── embedded character tab (Phase 8) ──────────────────────────────────── */
   /**
-   * Render the sheet body inside `host` (the inventory Tab screen's 캐릭터 tab). Same renderer as the standalone
+   * Render the sheet body inside `host` (the `캐릭터` tab of the inventory Tab screen). Same renderer as the standalone
    * overlay (`ui/SheetBody`), but **no** `'stats'` blocker, no pointer-lock handling, no Escape listener and no
    * `.scr-tabs` pill — the inventory window owns all of those. The handle is refreshed together with the overlay
    * whenever stats / skills / derived change, and drops out of the set on `dispose()`.
@@ -1156,12 +1182,12 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     return {
       refresh: () => view.refresh(),
       dispose: () => { this.views.delete(view); view.dispose(); },
-      // 2026-09-13: unconfirmed ＋ points → the view raises the 버리고 이동 / 돌아가기 warning instead of letting the window leave
+      // 2026-09-13: unconfirmed ＋ points → the view raises the `버리고 이동` / `돌아가기` warning instead of letting the window leave
       requestLeave: (proceed) => view.requestLeave(proceed),
     };
   }
 
-  /** Full repaint of the overlay and every embedded 캐릭터 tab. */
+  /** Full repaint of the overlay and every embedded character tab. */
   private refreshSheets(): void {
     this.sheet?.refresh();
     for (const v of this.views) v.refresh();
@@ -1223,10 +1249,10 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
       this.lastEmitted[id] = progress;
       bus.emit('progress:skillProgress', { id, level: this.getSkill(id), progress });
     }
-    this.emitImplantsChanged();                 // Phase 12: the equipped 임플란트 items came with the document
-    this.emitPrepChanged();                     // A-13: 준비물도 문서와 함께 왔다 (재접속 복귀가 여기를 지난다)
-    this.emitMealChanged();                     // A-3c: 식사도 마찬가지 (`mealActive` 가 살아서 돌아온다)
-    this.emitGymState();                        // A-3a: 단련 보너스 · 운동 디버프도 문서와 함께 왔다
+    this.emitImplantsChanged();                 // Phase 12: the equipped implant items came with the document
+    this.emitPrepChanged();                     // A-13: preparations came with the document too (a reconnect return passes here)
+    this.emitMealChanged();                     // A-3c: so did the meal (`mealActive` comes back alive)
+    this.emitGymState();                        // A-3a: the training bonus and workout debuff came with the document too
     this.discardSheetPending();                 // 2026-09-13: the pending ＋ points were planned against the replaced profile
     this.refreshSheets();
   }
@@ -1243,7 +1269,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
 
   resetProfile(): void {
     const name = this._profile.name;
-    // Phase 12: the equipped 임플란트 items are inventory, not character — hand them back to the stash / bag first
+    // Phase 12: the equipped implant items are inventory, not character — hand them back to the stash / bag first
     // (best effort; whatever does not fit is lost with the character).
     for (const e of this.equippedList()) this.returnImplant(e);
     clearStoredProfile();
@@ -1256,17 +1282,17 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     this.emitImplantsChanged();
     this.emitPrepChanged();
     this.emitMealChanged();
-    this.emitGymState();                        // A-3a: freshProfile 이 단련 · 디버프를 비웠다
+    this.emitGymState();                        // A-3a: freshProfile cleared the training bonus and the debuff
     this.discardSheetPending();                 // 2026-09-13: nothing left to invest into
     this.refreshSheets();
   }
 
   /* ── internals ─────────────────────────────────────────────────────────── */
-  /** Recompute `derived`; folds in the 특수 가방 perk (implant cooldown −50 %) and the equipped 임플란트 items (Phase 12). */
+  /** Recompute `derived`; folds in the `특수 가방` perk (implant cooldown −50 %) and the equipped implant items (Phase 12). */
   private recompute(): void {
     if (this.pruneImplants()) this.markDirty(false);     // a removed def id in an old save — drop it silently
-    if (this.prunePreps()) this.markDirty(false);        // A-13: same treatment for a 준비물 def that no longer exists
-    if (this.pruneMeal()) this.markDirty(false);         // A-3c: ditto for a 요리 def that no longer exists
+    if (this.prunePreps()) this.markDirty(false);        // A-13: same treatment for a preparation def that no longer exists
+    if (this.pruneMeal()) this.markDirty(false);         // A-3c: ditto for a meal def that no longer exists
     this._derived = this.deriveFor(this._profile);
     this.refreshSheets();
   }
@@ -1274,20 +1300,22 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   /** The one derive path — `recompute` and the sheet's pending preview (`previewDerived`) both go through it. */
   private deriveFor(profile: PlayerProfile): DerivedStats {
     const d = computeDerived(profile, this.hasSpecialBackpack(), this.implantContribution());
-    /* A-3c: 이번 레이드에 실린 요리를 **맨 끝에** 파생 수치로 접는다 (`MealBuff` = `DerivedStats` 의 필드 이름).
-     * 소비하는 폴더는 한 줄도 안 바뀐다 — 이미 `derived` 를 읽고 있다. */
-    /* 2026-09-13 (요리 품질): 넘겨받은 프로필의 식사 · 품질을 읽는다 — `recompute` 는 진짜 프로필, 시트 미리보기는 그 얕은 사본이라
-     * 둘이 같은 값을 보고, 줄마다 `× (1 + mealQualityBonus(품질))` 가 `applyMealBuff` 안에서 곱해진다. */
+    /* A-3c: the meal carried into this raid is folded into the derived stats **last** (`MealBuff` = a `DerivedStats`
+     * field name). Consuming folders change by not one line — they read `derived` already. */
+    /* 2026-09-13 (cook quality): the meal and quality are read off the profile that was passed in — `recompute` passes
+     * the real profile and the sheet preview a shallow copy of it, so both see the same values, and each row is
+     * multiplied by `× (1 + mealQualityBonus(quality))` inside `applyMealBuff`. */
     const activeId = typeof profile.mealActive === 'string' && profile.mealActive ? profile.mealActive : null;
     const meal = this.mealDefOf(activeId);
     if (meal) applyMealBuff(d, meal, normalizeMealQuality(profile.mealActiveQuality));
-    /* 2026-09-13 (서재 시리즈): housing 이 합산한 서재 `derived` 효과를 요리 버프 **뒤에** 같은 규칙(가산 + 0 하한)으로 접는다.
-     * 함선 상태라 레이드 중에도 그대로이고, 시트 미리보기도 이 한 경로를 지나므로 같은 값을 본다. */
+    /* 2026-09-13 (library series): the library `derived` effects housing summed are folded in **after** the meal buff,
+     * under the same rule (one addition + 0 floor). They are ship state, so they hold during a raid too, and the sheet
+     * preview goes down this one path and therefore sees the same values. */
     applyLibraryDerived(d, this.libraryDerived());
     return d;
   }
 
-  /** `ctx.housing.getLibraryEffects().derived` — housing 이 없거나 아직 구현 전이거나 던지면 null (접을 것 없음). */
+  /** `ctx.housing.getLibraryEffects().derived` — null when housing is absent, not implemented yet, or throws (nothing to fold). */
   private libraryDerived(): Readonly<Partial<Record<MealBuff, number>>> | null {
     try {
       const h = this.ctx?.housing;
@@ -1304,7 +1332,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
    * every hop is optional and any throw falls back to "no perk".
    */
   private hasSpecialBackpack(): boolean {
-    // Merged design keeps the weapon-package bags (`BagDef`); the 특수 가방 implant perk is carried by tactical bags.
+    // Merged design keeps the weapon-package bags (`BagDef`); the `특수 가방` implant perk is carried by tactical bags.
     try {
       const inv = this.ctx?.inventory;
       const loot = this.ctx?.loot;
@@ -1317,7 +1345,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
     }
   }
 
-  /** Relevant-stat speed-up for a skill (지능 is applied separately through `skillGainMul`). */
+  /** Relevant-stat speed-up for a skill (intelligence is applied separately through `skillGainMul`). */
   private statFactor(def: SkillDef | undefined): number {
     if (!def || def.stats.length === 0) return 1;
     let sum = 0;
@@ -1328,7 +1356,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
 
   /**
    * The shooting-skill class a weapon trains, or null.
-   * 2026-09-15 (사용자 결정): legendary uniques (`def.unique`) are outside the shooting-skill system — they keep a csv
+   * 2026-09-15 (user's decision): legendary uniques (`def.unique`) are outside the shooting-skill system — they keep a csv
    * `class` but train nothing (and get no `recoilMul` / `reloadSpeedMul` in weapons/).
    */
   private weaponClassOf(weaponId: string | null): WeaponClass | null {
@@ -1343,8 +1371,9 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * 제작 vs 의학 vs 원예 — read off the recipe when items/ exposes them, else default to 제작.
-   * 2026-09-13 (사용자 결정): 연구실 작업대(`LAB_BENCHES` — 추출기 · 조합대 · 3D 프린터)의 레시피는 null — 제작 경험치를 주지 않는다 (연구 경험치는 inventory 몫).
+   * crafting vs medicine vs gardening — read off the recipe when items/ exposes them, else default to crafting.
+   * 2026-09-13 (user's decision): a recipe of a lab bench (`LAB_BENCHES` — extractor · mixer · 3D printer) returns null
+   * — it gives no crafting XP (research XP is inventory's job).
    */
   private recipeSkill(recipeId: string): SkillId | null {
     try {
@@ -1361,12 +1390,14 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
   }
 
   /**
-   * 운반: accumulate distance covered while the bag is at 조금 무거움 or worse.
+   * Hauling: accumulate distance covered while the bag is at 「조금 무거움」 (slightly heavy) or worse.
    *
-   * 2026-09-16 (버그 수정, 사용자 결정 「제 힘으로 움직인 것만」): 예전에는 `ctx.player.position` 의 프레임 차이를 셌다 —
-   * 무거운 가방으로 탈출선 이륙에 실려 가면 운반이 올랐고, 갈고리 · 대시 · 전차 · 탐사 차량 · 업혀 가기도 전부 거리였다
-   * (20 m 넘는 한 프레임만 버렸다). 이제 player 가 **제 힘으로 움직인 거리**만 모으는 주행계(`PlayerRef.selfMovedMeters`)의
-   * 증가분만 센다 — 무엇이 제외되는지는 그 계약 주석이 유일한 자리다. 주행계가 없으면(구버전 player) 아무것도 주지 않는다.
+   * 2026-09-16 (bug fix, user's decision 「only what you moved under your own power」): this used to count the
+   * per-frame delta of `ctx.player.position` — riding an extraction ship's liftoff with a heavy bag trained hauling,
+   * and the grapple, dash, tram, rover and being carried were all distance too (only a single frame over 20 m was
+   * dropped). It now counts only the growth of the odometer that collects **distance moved under the player's own
+   * power** (`PlayerRef.selfMovedMeters`) — what that excludes is documented in that contract's comment and nowhere
+   * else. With no odometer (an older player/) nothing is awarded.
    */
   private trackCarry(ctx: GameContext): void {
     const p = ctx.player;

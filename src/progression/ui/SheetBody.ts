@@ -2,8 +2,9 @@ import type { CharBuffStripView, DerivedStats, EquippedImplant, GameContext, Hol
 import {
   createCharBuffStrip, SHELF_MEDIUM_LABEL_KO, SKILL_LEVEL_MAX, STAT_IDS, STAT_MAX, UI_HOLD_CONFIRM_S, buildItemChip, createHoldButtonCap, openHoldAsk,
 } from '@/shared';
-/* 2026-09-16 (사용자 결정 「큰 수 축약」): 레벨 경험치 · 능력치 경험치도 크레딧 · 가치와 같은 표기를 쓴다
-   (`shared/numberFormat`). 능력치 값 · 단련 보너스 · 퍼센트 · 잔여 포인트처럼 **정확한 값이 곧 뜻인 수**는 그대로다. */
+/* 2026-09-16 (user's decision 「abbreviate large numbers」): level XP and stat XP use the same notation as credits and
+   value (`shared/numberFormat`). Numbers **whose exact value is the meaning** — stat values, the training bonus,
+   percentages, points left — are printed in full. */
 import { formatCompactNumber } from '@/shared';
 import { DERIVED_PANEL_KEYS, derivedKeysOfSkill, derivedKeysOfStat, type DerivedPanelKey } from '../defs';
 import { SKILL_GAIN_PER_INT, SKILL_STAT_FACTOR } from '../derive';
@@ -18,7 +19,7 @@ export interface CharacterSheetHost {
   readonly xpToNext: number;
   readonly statPoints: number;
   /**
-   * Sum of the equipped 임플란트 아이템 bonuses for a stat. The implants themselves moved to the inventory window
+   * Sum of the equipped implant items' bonuses for a stat. The implants themselves moved to the inventory window
    * (`inventory/ui/ImplantPanel`, 2026-09-08) — the sheet only still **shows** their effect as the `(+2)` on a stat.
    */
   getImplantBonus(id: StatId): number;
@@ -29,17 +30,17 @@ export interface CharacterSheetHost {
   getStatProgress(id: StatId): number;
   statXpToNext(id: StatId): number;
   /**
-   * 헬스장 (A-3a): 단련 보너스. 2026-09-17: the sheet no longer draws a 단련 progress line or the debuff countdown under the stats
+   * The gym (A-3a): the training bonus. 2026-09-17: the sheet no longer draws a training progress line or the debuff countdown under the stats
    * (the bar is the stat-XP bar; debuffs are thumbnails next to the name), so it reads only the bonus.
    */
   getTrainedBonus?(id: StatId): number;
-  /** Ship-facility skill-gain multiplier (사격장); 1 when nothing applies. */
+  /** Ship-facility skill-gain multiplier (the shooting range); 1 when nothing applies. */
   getSkillGainMul(id: SkillId): number;
   getAllStatDefs(): readonly StatDef[];
   getAllSkillDefs(): readonly SkillDef[];
   spendStatPoint(id: StatId): boolean;
   resetProfile(): void;
-  /* ── 2026-09-13: 배분 확정 · 미리보기 · 임플란트 썸네일 ── */
+  /* ── 2026-09-13: confirming an allocation · the preview · implant thumbnails ── */
   /** All-or-nothing batch invest (`ProgressionRef.spendStatPoints`). */
   spendStatPoints(alloc: Partial<Record<StatId, number>>): boolean;
   /** `derived` as it would be with `alloc` invested — same derive path, nothing written. */
@@ -69,10 +70,10 @@ const mul = (v: number): string => `×${v.toFixed(2)}`;
 const dist = (v: number): string => `${v.toFixed(1)} m`;
 /** `0.04` → `4%`, `0.02` → `2%`, `0.015` → `1.5%` (tooltip per-point figures). */
 const perPt = (v: number): string => `+${Number((v * 100).toFixed(1))}%/pt`;
-/** `0.04` → `+4.0 %`, `-0.01` → `−1.0 %` (서재 시리즈 tooltip rows). */
+/** `0.04` → `+4.0 %`, `-0.01` → `−1.0 %` (library series tooltip rows). */
 const signedPct = (v: number): string => `${v < 0 ? '−' : '+'}${Math.abs(v * 100).toFixed(1)} %`;
 
-/** 2026-09-13: floor (px) of the 파생 능력치 value font — a value never wraps, it shrinks down to this, then the label ellipsizes. */
+/** 2026-09-13: floor (px) of the derived-stat value font — a value never wraps, it shrinks down to this, then the label ellipsizes. */
 const DERIVED_FONT_MIN_PX = 8;
 
 interface StatRow {
@@ -80,7 +81,7 @@ interface StatRow {
   plus: HTMLButtonElement; fill: HTMLElement; xp: HTMLElement;
   /** 2026-09-13: `－` (removes pending points only) and the `+n` pending span after the base value. */
   minus: HTMLButtonElement; pend: HTMLElement;
-  /** A-3a: ` (+n)` 단련 bonus after the implant bonus (empty + hidden at 0; 2026-09-17: no `단련` word). */
+  /** A-3a: the ` (+n)` training bonus after the implant bonus (empty + hidden at 0; 2026-09-17: no `단련` word). */
   trained: HTMLElement;
 }
 
@@ -90,7 +91,7 @@ interface SkillRow { root: HTMLElement; name: HTMLElement; level: HTMLElement; f
 interface DerivedRow { cell: HTMLElement; label: HTMLElement; value: HTMLElement; shown: string; w: number }
 
 export interface SheetBodyOptions {
-  /** Standalone overlay only: the 닫기 button in the footer. */
+  /** Standalone overlay only: the `닫기` (close) button in the footer. */
   onClose?: () => void;
   /** Footer hint (standalone: `Tab 으로 닫기`); omitted in the embedded tab. */
   hint?: string;
@@ -101,20 +102,21 @@ export interface SheetBodyOptions {
   variant?: 'overlay' | 'embed';
 }
 
-/** 캐릭터 시트 강조 class (2026-09-13) — 툴팁 · 임플란트 썸네일이 가리키는 능력치 · 숙련 · 파생 줄. */
+/** Character sheet highlight class (2026-09-13) — the stat / skill / derived row a tooltip or implant thumbnail points at. */
 const LINKED = 'pg-linked';
 
 /**
- * The character-sheet **body** — header, XP bar, 능력치 / 숙련도 columns (+ the read-only implant thumbnails under 숙련도),
- * 파생 능력치 grid and the footer with 캐릭터 초기화. Built into whatever element the owner passes in, so the standalone
- * overlay (`CharacterSheet`) and the embedded 캐릭터 tab (`SheetView`, `ProgressionRef.createSheetView`) share one renderer.
+ * The character-sheet **body** — header, XP bar, the stat and skill columns (+ the read-only implant thumbnails under
+ * the skills), the derived-stat grid and the footer with `캐릭터 초기화`. Built into whatever element the owner passes
+ * in, so the standalone overlay (`CharacterSheet`) and the embedded character tab (`SheetView`,
+ * `ProgressionRef.createSheetView`) share one renderer.
  *
- * 2026-09-13 (사용자 결정):
+ * 2026-09-13 (user's decision):
  *  - ＋ / － only move **pending** points (`pending`); `되돌리기` clears them, `포인트 투자 확정` invests them with a
- *    `UI_HOLD_CONFIRM_S` hold (`host.spendStatPoints`). While points are pending the 파생 능력치 rows that would change show
+ *    `UI_HOLD_CONFIRM_S` hold (`host.spendStatPoints`). While points are pending the derived-stat rows that would change show
  *    only the resulting value in green (`host.previewDerived`; was `현재 → 확정 후` until the same day's follow-up). Values never wrap —
  *    `fitDerived` shrinks the font. Pending survives every `refresh()`; forced exits call `discardPending()`.
- *  - The `시설 ×n` skill badge has its own tooltip: the 서재 series behind it (`ctx.housing.getLibrarySources`).
+ *  - The `시설 ×n` skill badge has its own tooltip: the library series behind it (`ctx.housing.getLibrarySources`).
  *  - Hovering a stat / skill **name** shows an in-game tooltip (`SheetTip`) and outlines the linked rows (`.pg-linked`);
  *    hovering an implant thumbnail outlines its stats, their skills and their derived rows.
  *  - Leaving with pending points asks first (`requestLeave`) through the shared hold popup (`openHoldAsk`); 초기화 too.
@@ -127,10 +129,10 @@ export class SheetBody {
   private derivedRows = new Map<DerivedPanelKey, DerivedRow>();
   private created: HTMLElement[] = [];
 
-  /** 2026-09-17: the character's name, large, where the `캐릭터` title was. */
+  /** 2026-09-17: the character's name, large, where the `캐릭터` title used to be. */
   private nameEl: HTMLElement;
   /**
-   * 2026-09-17 (사용자 결정): the character's buffs / debuffs as thumbnails next to the name — the HUD's `ui/hud/BuffStrip`, borrowed
+   * 2026-09-17 (user's decision): the character's buffs / debuffs as thumbnails next to the name — the HUD's `ui/hud/BuffStrip`, borrowed
    * through `shared/charBuffView` (null when ui registered no factory). Interactive: hovering a thumbnail shows its card.
    */
   private buffStrip: CharBuffStripView | null;
@@ -146,7 +148,7 @@ export class SheetBody {
   private confirmBtn: HTMLButtonElement;
   private confirmFill: HTMLElement;
   private confirmHold: { t0: number; raf: number; timer: number } | null = null;
-  /** Read-only implant thumbnails under 숙련도 (rebuilt only when the equipped list changes). */
+  /** Read-only implant thumbnails under the skill column (rebuilt only when the equipped list changes). */
   private impSlots: HTMLElement;
   private impRow: HTMLElement;
   private impEmpty: HTMLElement;
@@ -163,7 +165,7 @@ export class SheetBody {
    */
   private ticker: number | null = null;
   /**
-   * 2026-09-13: refits a 파생 능력치 value when its **cell width** changes (window resize, a different column count, the overlay / tab
+   * 2026-09-13: refits a derived-stat value when its **cell width** changes (window resize, a different column count, the overlay / tab
    * becoming visible from `display: none`). Each cell is observed — the grid box itself keeps its width when only the columns change.
    * The fit runs on the next animation frame so it never mutates inside the observer callback.
    */
@@ -183,7 +185,7 @@ export class SheetBody {
     /* ── header ── */
     const head = this.own(el('div', { cls: 'cs-head', parent }));
     const hl = el('div', { cls: 'hl', parent: head });
-    // 2026-09-17 (사용자 결정): the name replaces the `캐릭터` title, and the 레이드 / 탈출 counts are gone
+    // 2026-09-17 (user's decision): the name replaces the `캐릭터` title, and the raid / extraction counts are gone
     const nameRow = el('div', { cls: 'pg-namerow', parent: hl });
     this.nameEl = el('div', { cls: 'title pg-name', text: host.profile.name, parent: nameRow });
     this.buffStrip = createCharBuffStrip(nameRow, { interactive: true });
@@ -202,7 +204,7 @@ export class SheetBody {
     this.xpFill = el('i', { parent: xpBar });
     this.xpText = el('div', { cls: 'txt ui-mono', text: '', parent: xp });
 
-    /* ── body: 능력치 | 숙련도 (2026-09-08: 임플란트 장착은 인벤토리 장착 장비 칸이 한다) ── */
+    /* ── body: stats | skills (2026-09-08: equipping an implant is done by the inventory's equipment slots) ── */
     const body = this.own(el('div', { cls: 'cs-body', parent }));
 
     const statCol = el('div', { cls: 'cs-col', parent: body });
@@ -216,7 +218,7 @@ export class SheetBody {
     this.confirmBtn = el('button', { cls: 'ui-btn primary pg-confirm', parent: alloc });
     this.confirmBtn.type = 'button';
     this.confirmFill = el('i', { cls: 'pg-fill', parent: this.confirmBtn });
-    // 2026-09-15 2차 (사용자 결정): 「1초 꾹」은 글자가 아니라 라벨 왼쪽의 좌클릭 홀드 키캡이 말한다.
+    // 2026-09-15 2nd pass (user's decision): 「hold for 1 s」 is said by the left-click hold keycap to the left of the label, not by words.
     createHoldButtonCap(this.confirmBtn);
     el('span', { cls: 'pg-label', text: '포인트 투자 확정', parent: this.confirmBtn });
     // a click / Enter never confirms — only the hold timer does
@@ -292,7 +294,7 @@ export class SheetBody {
 
   get hasPending(): boolean { return this.pendingTotal > 0; }
 
-  /** 0..1 while `포인트 투자 확정` is held (smoke / debug). */
+  /** 0..1 while `포인트 투자 확정` (confirm allocation) is held (smoke / debug). */
   get confirmHoldProgress(): number {
     const h = this.confirmHold;
     return h ? Math.min(1, (performance.now() - h.t0) / Math.max(1, UI_HOLD_CONFIRM_S * 1000)) : 0;
@@ -340,7 +342,7 @@ export class SheetBody {
     this.emitPending();
   }
 
-  /** 2026-09-16: `progress:statPending` — the tutorial's ship track moves its focus from the ＋ rows to 확정 on this. */
+  /** 2026-09-16: `progress:statPending` — the tutorial's ship track moves its focus from the ＋ rows to the confirm button on this. */
   private emitPending(): void {
     this.ctx.bus.emit('progress:statPending', { total: this.pendingTotal });
   }
@@ -371,8 +373,8 @@ export class SheetBody {
 
   /**
    * The shell / the inventory window is about to leave this body because the player asked (`EmbeddedView.requestLeave`).
-   * A popup of ours already up → Tab / a second request is its 돌아가기 (true). Pending points → the warning (true);
-   * `버리고 이동` discards and calls `proceed`. Nothing pending → false, leave now.
+   * A popup of ours already up → Tab / a second request acts as its `돌아가기` (go back) (true). Pending points → the
+   * warning (true); `버리고 이동` (discard and leave) discards and calls `proceed`. Nothing pending → false, leave now.
    */
   requestLeave(proceed: () => void): boolean {
     if (this.ask?.isOpen) { this.ask.cancel(); return true; }
@@ -464,7 +466,7 @@ export class SheetBody {
     const need = Math.max(1, host.xpToNext);
     const ratio = Math.min(1, Math.max(0, host.xp / need));
     this.xpFill.style.transform = `scaleX(${ratio.toFixed(4)})`;
-    // `x / y` 쌍은 양쪽 다 같은 표기다 (한쪽만 축약하면 비교가 안 된다).
+    // both halves of an `x / y` pair use the same notation (abbreviating only one side makes them incomparable).
     setText(this.xpText, `${formatCompactNumber(Math.floor(host.xp))} / ${formatCompactNumber(need)} XP`);
 
     for (const id of this.statRows.keys()) this.refreshStat(id);
@@ -475,7 +477,7 @@ export class SheetBody {
     this.confirmBtn.classList.toggle('is-ready', total > 0 && !inRaid);
     if (this.confirmBtn.disabled) this.cancelConfirmHold();
 
-    // 파생 능력치 — 2026-09-13 (사용자 결정): while points are pending, the rows they would change show **only the resulting
+    // derived stats — 2026-09-13 (user's decision): while points are pending, the rows they would change show **only the resulting
     // value** in green (`.pg-preview`, same derive path) — the player compares by toggling ＋ / －. Changed rows are refitted.
     const d = host.derived;
     const preview = total > 0 ? host.previewDerived(this.allocObj()) : null;
@@ -498,7 +500,7 @@ export class SheetBody {
   }
 
   /**
-   * 2026-09-13 (사용자 결정 — 파생 능력치 값은 줄바꿈하지 않는다): shrink a value's font when `label + gap + value` would overflow its
+   * 2026-09-13 (user's decision — a derived-stat value never wraps): shrink a value's font when `label + gap + value` would overflow its
    * cell, down to `DERIVED_FONT_MIN_PX` (past that the label ellipsizes — CSS). Batched write → read → write so a whole refresh
    * costs one layout. A hidden cell (width 0) is skipped; the grid's ResizeObserver refits once it has a width.
    */
@@ -531,7 +533,7 @@ export class SheetBody {
     const p = lv >= SKILL_LEVEL_MAX ? 1 : Math.min(1, Math.max(0, this.host.getSkillProgress(id)));
     row.fill.style.transform = `scaleX(${p.toFixed(4)})`;
     row.root.classList.toggle('maxed', lv >= SKILL_LEVEL_MAX);
-    // 사격장 etc. — only shown when a facility actually boosts this skill.
+    // the shooting range etc. — only shown when a facility actually boosts this skill.
     const bonus = this.host.getSkillGainMul(id);
     const hasBonus = Number.isFinite(bonus) && Math.abs(bonus - 1) > 1e-6;
     row.bonus.hidden = !hasBonus;
@@ -546,7 +548,7 @@ export class SheetBody {
     // a stat that just reached STAT_MAX through stat XP (or a raid) can invalidate the plan — repaint everything once
     if (this.reconcilePending(inRaid)) { this.refresh(); return; }
     const v = this.host.getStat(id);
-    // Phase 12: `base (+bonus)` while an 임플란트 adds to this stat; the bonus span stays empty otherwise so `.v` reads the base
+    // Phase 12: `base (+bonus)` while an implant adds to this stat; the bonus span stays empty otherwise so `.v` reads the base
     setText(row.base, String(v));
     const pend = this.pending.get(id) ?? 0;
     row.pend.hidden = pend <= 0;
@@ -561,9 +563,9 @@ export class SheetBody {
     const hasBonus = Number.isFinite(bonus) && bonus !== 0;
     row.bonus.hidden = !hasBonus;
     setText(row.bonus, hasBonus ? ` (${bonus > 0 ? '+' : ''}${bonus})` : '');
-    // A-3a: 헬스장 단련 보너스 — its own span and colour after the implant one: `10 (+2) (+1)`
-    // 2026-09-17 (사용자 결정): plain `+N` (no `단련` word); the 단련 progress line and the debuff countdown under the stat are gone —
-    // 단련 fills the stat-XP bar below (`ProgressionSystem.addStatXp` minigame source), debuffs are the name row's thumbnails.
+    // A-3a: the gym training bonus — its own span and colour after the implant one: `10 (+2) (+1)`
+    // 2026-09-17 (user's decision): plain `+N` (no `단련` word); the training progress line and the debuff countdown under the stat are gone —
+    // training fills the stat-XP bar below (`ProgressionSystem.addStatXp` minigame source), debuffs are the name row's thumbnails.
     const tb = typeof this.host.getTrainedBonus === 'function' ? this.host.getTrainedBonus(id) : 0;
     const hasTrained = Number.isFinite(tb) && tb > 0;
     row.trained.hidden = !hasTrained;
@@ -600,7 +602,7 @@ export class SheetBody {
     }
   }
 
-  /* ── buff thumbnail gauges (2026-09-17; was the 헬스장 debuff countdown, A-3a) ─────────────── */
+  /* ── buff thumbnail gauges (2026-09-17; was the gym debuff countdown, A-3a) ─────────────── */
   /** Start the 1 Hz gauge repaint while thumbnails are showing, stop it when the strip is empty. */
   private syncTicker(): void {
     const need = (this.buffStrip?.count ?? 0) > 0;
@@ -677,7 +679,7 @@ export class SheetBody {
   private statTip(def: StatDef): SheetTipSpec {
     const skills = this.host.getAllSkillDefs().filter((s) => s.stats.includes(def.id));
     const notes = def.id === 'intelligence' ? [`모든 숙련 성장 ${perPt(SKILL_GAIN_PER_INT)}`] : [];
-    // 2026-09-13 (사용자 결정): no `능력치` sub under the name and no `관련 숙련 · 성장 속도` section title — the rows stay
+    // 2026-09-13 (user's decision): no `능력치` sub under the name and no `관련 숙련 · 성장 속도` section title — the rows stay
     return {
       name: def.name,
       desc: def.description,
@@ -689,7 +691,7 @@ export class SheetBody {
     };
   }
 
-  /* ── 서재 시리즈 → 시설 보너스 breakdown (2026-09-13) ────────────────── */
+  /* ── library series → `시설 보너스` breakdown (2026-09-13) ────────────────── */
   /** `ctx.housing.getLibrarySources('skillGain', id)` — non-zero rows, largest first; [] when housing has no library API (yet). */
   private skillSources(id: SkillId): LibrarySourceInfo[] {
     try {
@@ -718,7 +720,7 @@ export class SheetBody {
     return { k: `『${s.name}』`, v: signedPct(s.value), tone: s.value > 0 ? 'good' : undefined, note: parts.join(' · ') };
   }
 
-  /** Hovering a skill's `시설 ×n` badge: which 서재 series give the bonus (+ whatever of the multiplier they do not explain). */
+  /** Hovering a skill's `시설 ×n` badge: which library series give the bonus (+ whatever of the multiplier they do not explain). */
   private facilityTip(def: SkillDef): SheetTipSpec {
     const m = this.host.getSkillGainMul(def.id);
     const mult = Number.isFinite(m) && m > 0 ? m : 1;
@@ -741,7 +743,7 @@ export class SheetBody {
     const d = host.derived;
     const effect: SheetTipRow[] = [];
     if (def.weaponClass) {
-      // 사격 숙련: per weapon class recoil / reload — not rows of the 파생 능력치 panel (사용자 결정: numbers only)
+      // shooting skills: per weapon class recoil / reload — not rows of the derived-stat panel (user's decision: numbers only)
       const recoil = Math.round((1 - (d.recoilMul?.[def.weaponClass] ?? 1)) * 100);
       const reload = Math.round(((d.reloadSpeedMul?.[def.weaponClass] ?? 1) - 1) * 100);
       effect.push({ k: '반동 · 장전', v: `반동 −${recoil}% · 장전 +${reload}%`, tone: recoil > 0 || reload > 0 ? 'good' : undefined });
@@ -754,7 +756,7 @@ export class SheetBody {
     }));
     const facility = host.getSkillGainMul(def.id);
     if (Number.isFinite(facility) && Math.abs(facility - 1) > 1e-6) growth.push({ k: '시설 보너스', v: `×${facility.toFixed(2)}`, tone: 'good' });
-    // 2026-09-13: the same 서재 breakdown as the `시설 ×n` badge tooltip, under the growth rows (omitted when nothing is shelved)
+    // 2026-09-13: the same library breakdown as the `시설 ×n` badge tooltip, under the growth rows (omitted when nothing is shelved)
     const library = this.skillSources(def.id).map((s) => this.sourceRow(s));
     return {
       name: def.name,
@@ -785,9 +787,9 @@ export class SheetBody {
     const base = el('span', { cls: 'base', text: '0', parent: value });
     const pend = el('span', { cls: 'pa', text: '', parent: value });     // 2026-09-13: `+n` pending (accent)
     pend.hidden = true;
-    const bonus = el('span', { cls: 'ib', text: '', parent: value });   // Phase 12: ` (+n)` from 임플란트 items
+    const bonus = el('span', { cls: 'ib', text: '', parent: value });   // Phase 12: ` (+n)` from implant items
     bonus.hidden = true;
-    const trained = el('span', { cls: 'tb', text: '', parent: value });  // A-3a: ` (+n)` 단련 from the 헬스장 · video games
+    const trained = el('span', { cls: 'tb', text: '', parent: value });  // A-3a: the ` (+n)` training bonus from the gym / video games
     trained.hidden = true;
     const plus = el('button', { cls: 'ui-btn plus', text: '＋', parent: row });
     plus.type = 'button';
@@ -812,7 +814,7 @@ export class SheetBody {
     const fill = el('i', { parent: bar });
     this.skillRows.set(def.id, { root: row, name, level, fill, bonus });
     this.hover(name, () => this.skillTip(def), () => this.derivedCells(derivedKeysOfSkill(def.id)));
-    // 2026-09-13 (사용자 요청): the `시설 ×n` badge explains itself — which 서재 series give the bonus
+    // 2026-09-13 (user's request): the `시설 ×n` badge explains itself — which library series give the bonus
     this.hover(bonus, () => this.facilityTip(def), () => []);
   }
 
@@ -896,12 +898,12 @@ const DERIVED_LABEL: Readonly<Record<DerivedPanelKey, string>> = {
   durabilityLossMul: '내구도 소모',
   gatherYieldMul: '채집 수확',
   carryReliefFactor: '운반 부담 경감',
-  /* 2026-09-13 요리 · 연구 숙련 */
+  /* 2026-09-13 cooking / research skills */
   cookScoreBonus: '요리 점수',
   researchTimeMul: '분석 시간',
   researchRefundChance: '재료 회수 확률',
   researchRefundFrac: '재료 회수량',
-  /* 2026-09-16 행성 광맥 · 채광 숙련 */
+  /* 2026-09-16 planet ore veins / the mining skill */
   miningRarityBonus: '광맥 등급 보정',
 };
 
@@ -912,7 +914,7 @@ function derivedText(key: DerivedPanelKey, d: DerivedStats): string {
     case 'detectRadius': return dist(d.detectRadius);
     case 'enemyDetectRadius': return dist(d.enemyDetectRadius);
     case 'meleeDamageMul': return mul(d.meleeDamageMul);
-    // 2026-09-09: 사용자 결정 — 배율이 아니라 m 로 보여 준다 (평지 오버핸드 기준, derive.throwRangeMetres).
+    // 2026-09-09 user's decision — shown in metres, not as a multiplier (flat-ground overhand throw, derive.throwRangeMetres).
     case 'throwRangeMul': return dist(d.throwRangeM);
     case 'skillGainMul': return mul(d.skillGainMul);
     case 'useSpeedMul': return mul(d.useSpeedMul);
@@ -925,7 +927,7 @@ function derivedText(key: DerivedPanelKey, d: DerivedStats): string {
     case 'durabilityLossMul': return mul(d.durabilityLossMul);
     case 'gatherYieldMul': return mul(d.gatherYieldMul);
     case 'carryReliefFactor': return pct(d.carryReliefFactor);
-    // 2026-09-13: 요리 — added to every cook step score (shown like the cook screen's `단계 점수 72 %`); 연구 — analysis time ×, refund chance / share
+    // 2026-09-13: cooking — added to every cook step score (shown like the cook screen's `단계 점수 72 %`); research — analysis time ×, refund chance / share
     case 'cookScoreBonus': return `+${Math.round((d.cookScoreBonus ?? 0) * 100)} %`;
     case 'researchTimeMul': return mul(d.researchTimeMul ?? 1);
     case 'researchRefundChance': return pct(d.researchRefundChance ?? 0);
