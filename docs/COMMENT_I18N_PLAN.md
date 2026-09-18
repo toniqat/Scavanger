@@ -12,15 +12,24 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`) | 302 | 12 |
-| **Remaining** ([§2](#2-queue)) | **26,314** | **735** |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`) | 4,496 | 78 |
+| **Remaining** ([§2](#2-queue)) | **22,120** | **669** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-The script still reports one Korean line in a finished folder, `src/progression/ui/SheetBody.ts:709`. That is
-intentional — the comment is nothing but quoted UI output (`` `『운반 노하우』 +4.0 %` over `책 · 4 / 5권 · 40 %` ``)
-and every token in it is a label. So a raw run over everything prints 26,315 / 736, one more than the queue.
+**Intended permanent exceptions.** A finished folder still prints 6 lines, because a comment whose entire substance is
+a quoted label or a quoted document heading keeps its Korean (§3 rule 2 — the reader has to be able to grep it against
+the real string). So a raw run over everything prints 22,126 / 674, six more than the queue:
+
+| Line | What it quotes |
+|---|---|
+| `progression/ui/SheetBody.ts:709` | UI output (`` `『운반 노하우』 +4.0 %` over `책 · 4 / 5권 · 40 %` ``) |
+| `shared/types.ts:142` | the equip-slot labels (`주무기 I` · `가방` · `방탄복`) |
+| `shared/types.ts:1935` | a headline string (`주무기가 없습니다`) |
+| `shared/allies.ts:3` | a `docs/DECISIONS.md` section heading |
+| `shared/npc.ts:111` | a job title (`헬릭스 조달실장`) |
+| `shared/tutorial.ts:381` | the four track names (`조작 안내` · `함선 안내` · `증축 안내` · `출격 안내`) |
 
 ---
 
@@ -30,8 +39,8 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 
 | # | Folder | Lines | Files | Notes |
 |---|---|---:|---:|---|
-| 1 | `src/shared` | 4,187 | 65 | **Read §4 first** — this one selects every smoke. Contract folder; a comment here is the definition other folders point at, so its wording decides the rest of the queue's vocabulary. |
-| 2 | `src/world` | 2,988 | 58 | Dense collision / layout invariants (`getSurfaceY` before `resolveCollision`, hull vs box vs ramp). Precision matters more than style here. |
+| ~~1~~ | ~~`src/shared`~~ | 4,187 | 65 | **Done 2026-09-18** (with `src/main.ts`, one commit, full 96-script `verify`). Its vocabulary is now the queue's vocabulary — read that folder's comments before picking words for a new folder. |
+| **2** | **`src/world`** | 2,988 | 58 | Dense collision / layout invariants (`getSurfaceY` before `resolveCollision`, hull vs box vs ramp). Precision matters more than style here. |
 | 3 | `src/enemies` | 2,300 | 71 | `getEnemies()` vs `queryNear` prop rule, nest leash / refill, host-replica sync guards. |
 | 4 | `src/ui` | 2,279 | 87 | Heaviest mix of Korean UI strings and comments — expect many backtick-kept labels. |
 | 5 | `src/housing` | 2,215 | 55 | Minigame judge bands, furniture access faces, library effects. |
@@ -52,7 +61,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | 20 | `src/console` | 61 | 11 | |
 | 21 | `src/implants` | 43 | 8 | Already mostly English. |
 | 22 | `src/pickups` | 31 | 2 | |
-| 23 | `src/main.ts` | 7 | 1 | Selects every smoke (see §4) — fold into the `src/shared` commit rather than running the full net twice. |
+| ~~23~~ | ~~`src/main.ts`~~ | 7 | 1 | **Done 2026-09-18**, folded into the `src/shared` commit as planned. |
 | 24 | `server/` | 267 | 9 | `RelayServer.ts` 66 · `Lobby.ts` 55 · `selftest.ts` 53 · `Store.ts` 22 · `CryptoMarket.ts` 19 · `Economy.ts` 15 · `Rooms.ts` 14 · `Console.ts` 13 · `index.ts` 10. Verified by `npm run typecheck:server` + `net:selftest`, not by folder smokes. |
 | 25 | `electron/` | 52 | 2 | `main.ts` 50 · `wsProxy.ts` 2. Touching `electron/` makes `verify` run `smoke-desktop`. |
 | 26 | `scripts/` | 2,962 | 102 | Last on purpose — these are the verification harness. Changing a runner's comments cannot break the game, but a bad edit hides a real failure, so do this only once the game code is done and green. Biggest: `verify.mjs` 199 · `smoke-tutorial.mjs` 185 · `smoke-housing.mjs` 123 · `smoke-inventory-p6.mjs` 121 · `smoke-cooking.mjs` 95. |
@@ -183,6 +192,23 @@ console.log('TOTAL'.padEnd(24), String(tl).padStart(6), String(tf).padStart(5));
 ```
 
 A folder is done when its count reaches 0, or when every remaining line is quoted-label-only (as in §1).
+
+### The ratio gate hides mixed lines — finish with a second sweep
+
+`kc.mjs` under-counts a **line that mixes Korean prose with English**: its Hangul ratio can fall under the 35 % gate.
+The `src/shared` pass found four such lines that the counter never flagged (`cursor.ts:2` at 33 %, `events.ts:806`
+「브라우저 전용 …」, two `housing.ts` field docs). So never close a folder on `kc.mjs` alone — run this second script
+over it and read every hit. It strips what rule 2 lets stay Korean (backticks, `「」`, `『』`) and then asks for a
+Korean sentence ending or particle, which leaves only real prose:
+
+```js
+const stripped = comment.replace(/`[^`]*`/g, '').replace(/「[^」]*」/g, '').replace(/『[^』]*』/g, '');
+const PROSE = /(한다|된다|않는다|없다|있다|이다|간다|온다|낸다|한 번|그대로|때문|해야|하면|이고|이며|라서|이라|에서|으로|에게|만큼|처럼|뿐|지만)/;
+if ((stripped.match(/[가-힣]/g) || []).length >= 4 && PROSE.test(stripped)) report(file, line);
+```
+
+Its remaining false positives are English sentences that quote a Korean label in `'…'` rather than backticks — read
+them, do not translate them.
 
 ---
 

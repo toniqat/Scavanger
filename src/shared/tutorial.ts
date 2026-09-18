@@ -1,360 +1,391 @@
-// 2026-09-18: 목표 줄의 `(n/m)` 자리 구분은 공용 표기 하나다 (`tutorialCountLabel` — 패널과 지도가 같이 쓴다).
+// 2026-09-18: the digit grouping of an objective line's `(n/m)` is one shared notation (`tutorialCountLabel` — the panel and the map both use it).
 import { groupDigits } from './numberFormat';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 튜토리얼 (2026-09-08). Owner: `tutorial/TutorialSystem` publishes `ctx.tutorial`.
+ * The tutorial (2026-09-08). Owner: `tutorial/TutorialSystem` publishes `ctx.tutorial`.
  *
- * 새 프로필이 처음 개인 함선에 들어오면 자동으로 시작해, 함선 안에서 **하우징 → 제작 → 출격**까지 한 바퀴
- * 돌린 뒤 레이드가 시작되면 끝난다. 진행 단계는 localStorage 에 남아 새로고침을 견딘다.
+ * It starts on its own the first time a new profile enters the personal ship, walks one lap through
+ * **housing → crafting → launch** inside the ship, and ends once the raid starts. The step reached stays in
+ * localStorage and survives a reload.
  *
- * 이 계약이 하는 일은 두 가지뿐이다.
- *   1. **게이트** — 튜토리얼은 순서를 엄격하게 강제한다. 각 폴더는 자기 거절 사유 함수 안에서
- *      `ctx.tutorial?.blockReason(gate, id)` 를 한 번 부르고, null 이 아니면 그 한국어 사유를 그대로 쓴다.
- *      튜토리얼이 꺼져 있으면 언제나 null 이므로 평소 동작은 한 글자도 바뀌지 않는다.
- *   2. **숨김** — 튜토리얼 동안 보이면 안 되는 것은 `hides(gate, id?)` 로 묻고 **아예 그리지 않는다**.
- *      (2026-09-08) 잠긴 항목을 "튜토리얼에서는 ~" 사유와 함께 남겨 두는 것보다, 지금 할 수 있는 것만
- *      보여 주는 편이 훨씬 덜 헷갈린다 — 방 용도 · 가구 카드 · 레시피 · 화면 탭 · 행성 넘김이 이 규칙을 쓴다.
+ * This contract does only two things.
+ *   1. **Gating** — the tutorial enforces the order strictly. Each folder calls
+ *      `ctx.tutorial?.blockReason(gate, id)` once inside its own refusal-reason function and, when it is not null,
+ *      uses that Korean reason as it is. With the tutorial off it is always null, so normal behaviour does not
+ *      change by one character.
+ *   2. **Hiding** — anything that must not be visible during the tutorial is asked about with `hides(gate, id?)`
+ *      and **not drawn at all**. (2026-09-08) Showing only what can be done right now is far less confusing than
+ *      leaving a locked entry in place with a "not during the tutorial" reason — room purposes · furniture cards ·
+ *      recipes · screen tabs · the planet pager all use this rule.
  *
- * 목표 패널 · 스포트라이트 · 바닥 안내선은 전부 `tutorial/` 이 스스로 그린다 — 다른 폴더는 모른다.
+ * The objective panel · the spotlight · the floor guide line are all drawn by `tutorial/` itself — no other folder knows them.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/* ── appended (2026-09-14, 튜토리얼 개편 — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ──────────────────────────────────
+/* ── appended (2026-09-14, the tutorial rework — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ────────────────────────────
  *
- * 안내가 **세 트랙**으로 갈라졌고 각각 따로 건너뛴다 (사용자 결정).
+ * The guide split into **three tracks**, each skipped on its own (user's decision).
  *
- *   ① `raid`  — 튜토리얼 레이드. 캐릭터를 만들면 **함선을 거치지 않고** 손으로 지은 튜토리얼 행성에서 깨어나
- *               이동 · 달리기 · 점프 · 루팅 · 사격 · 앉기 · 회복 · 수류탄을 배우고 버려진 함선으로 탈출한다.
- *   ② `ship`  — 함선 첫 진입. 레벨업 · 능력치 포인트 투자 확정 (2026-09-15: 레이븐의 퀘스트 단계 · 2026-09-16: 메신저 열기 단계가 빠졌다).
- *   ③ `build` — 시설 증축 · 작업대 · 제작 · 출격. **기존 17단계가 그대로 이 트랙이다** (id 도 순서도 불변).
+ *   ① `raid`  — the tutorial raid. Once a character is made they wake up on a hand-built tutorial planet
+ *               **without passing through the ship**, learn moving · sprinting · jumping · looting · shooting ·
+ *               crouching · healing · grenades, and extract to an abandoned ship.
+ *   ② `ship`  — the first ship entry. Level-up · committing the stat point investment (2026-09-15: Raven's quest
+ *               step · 2026-09-16: the open-the-messenger step were dropped).
+ *   ③ `build` — facility extension · workbenches · crafting · launch. **The existing 17 steps are exactly this
+ *               track** (ids and order unchanged).
  *
- * 트랙이 갈린 것 말고 설계는 그대로다 — 진행은 버스 이벤트 관찰, 순서 강제는 각 폴더의 `blockReason` 한 줄.
+ * Other than the tracks splitting, the design is unchanged — progress is watched through bus events, and the order
+ * is enforced by one `blockReason` line in each folder.
  * ──────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
-/* ── appended (2026-09-18, 사용자 결정 — 증축 안내가 둘로 갈렸다) ─────────────────────────────────────────────
+/* ── appended (2026-09-18, user's decision — the extension guide split in two) ────────────────────────────────
  *
- * ④ `raid2` 「출격 안내」 — 옛 `build` 트랙의 뒤 두 단계(`terminal` · `raid`)가 **자기 트랙**이 됐다.
- *   「증축 안내」는 만든 소총을 장착하는 데서(`equipGun`) 끝나고, 조종석 · 출격 · 첫 레이드는 이어서 시작되는
- *   별개의 안내다 — 함선을 짓는 일과 행성에 나가는 일은 배우는 것도 실패하는 방식도 다르고, 트랙마다 따로
- *   건너뛸 수 있어야 「증축은 알지만 출격은 처음」인 사람이 생긴다 (3트랙을 가른 것과 같은 근거).
- *   단계 id 는 하나도 바뀌지 않았다 (`terminal` · `raid` 가 트랙만 옮겼다) — 옛 저장은
- *   `tutorial/TutorialSystem.load` 가 그 트랙으로 옮겨 붙인다.
+ * ④ `raid2` 「출격 안내」 — the last two steps of the old `build` track (`terminal` · `raid`) became **a track of
+ *   their own**. 「증축 안내」 ends where the crafted rifle is equipped (`equipGun`), and the cockpit · the launch ·
+ *   the first raid are a separate guide that starts right after it — building the ship and going out to a planet
+ *   are different things to learn and different things to fail at, and each track has to be skippable on its own
+ *   so that someone who knows the extension but has never launched exists (the same reasoning that split the 3
+ *   tracks). Not one step id changed (`terminal` · `raid` only moved track) — an old save is grafted onto that
+ *   track by `tutorial/TutorialSystem.load`.
  * ───────────────────────────────────────────────────────────────────────────────────────────── */
 
-/** 안내 트랙. 각각 자기 목표 패널 · 자기 건너뛰기 · 자기 저장을 갖는다. */
+/** A guide track. Each has its own objective panel · its own skip · its own save. */
 export type TutorialTrack = 'raid' | 'ship' | 'build' | 'raid2';
 
 export const TUTORIAL_TRACKS: readonly TutorialTrack[] = ['raid', 'ship', 'build', 'raid2'];
 
-/** 순서대로 진행하는 단계. `intro` 는 시작 팝업, `done` 은 끝난 상태(= 비활성). */
+/** The steps, walked in order. `intro` is the opening popup and `done` is the finished state (= inactive). */
 export type TutorialStepId =
-  /* ── ① raid (2026-09-14): 튜토리얼 레이드 ── */
-  | 'wake'         // 쓰러진 채로 깨어난다 (`PlayerRef.playIntroWake`) — 일어서면 다음으로
-  | 'move'         // WASD 이동
-  | 'sprintJump'   // 달리기 + 점프로 절벽을 넘는다 (떨어지면 즉사 · 체크포인트)
+  /* ── ① raid (2026-09-14): the tutorial raid ── */
+  | 'wake'         // wakes up lying on the ground (`PlayerRef.playIntroWake`) — standing up moves on
+  | 'move'         // WASD movement
+  | 'sprintJump'   // clears the cliff with a sprint + jump (falling is instant death · a checkpoint)
   /*
-   * appended (2026-09-15 2차, 사용자 결정) — **시체와 상호작용.** 전에는 절벽을 넘자마자 「기관단총을 주무기 칸에
-   * 장착」이 떴다 — 아직 시체를 열지도 않았는데 그 안의 물건을 옮기라고 하는 셔이다 (`supplyLoot` 을 넣은 것과 같은 눈).
-   * 그래서 시체 앞에 서면 먼저 「{INTERACT} 시체 상호작용」 한 줄이고, 가방이 열리면 `corpseLoot` 이다.
+   * appended (2026-09-15 2nd pass, user's decision) — **interacting with a corpse.** Before, 「기관단총을 주무기 칸에
+   * 장착」 came up the moment the cliff was cleared — telling someone to move what is inside a corpse they have not
+   * even opened yet (the same eye that added `supplyLoot`). So standing in front of the corpse is one line first,
+   * 「{INTERACT} 시체 상호작용」, and once the bag opens it is `corpseLoot`.
    */
   | 'corpseOpen'
-  | 'corpseLoot'   // 시체에서 무기 · 가방 · 탄약을 꺼내 장착 (여기서 체력 · 무기 HUD 가 나타난다)
+  | 'corpseLoot'   // takes the weapon · bag · ammo out of the corpse and equips them (the hp · weapon HUD appears here)
   /*
-   * appended (2026-09-14 4차, 사용자 결정) — **「앞으로 이동」 세 구간.** 전에는 앞 단계가 끝나는 순간
-   * 다음 단계의 안내가 떴다: 벌레를 잡자마자 「앉아서 낮은 틈을 지나세요」, 안드로이드를 잡자마자
-   * 「아래로 뛰어내리세요」 — 그 물건이 30 m 앞에 있는데 안내만 먼저 도착한다. 그래서 **구간과 구간
-   * 사이는 언제나 「앞으로 이동」**이고, 다음 안내는 그 물건 앞에 섰을 때(= 체크포인트) 뜬다.
-   *   advance1 = 시체 루팅 → 벌레 (`bugs` 체크포인트에서 벌레가 솟는다)
-   *   advance2 = 벌레 → 포복 구간 앞 (`crawl`)
-   *   advance3 = 안드로이드 → 절벽 2 앞 (`drop`)
-   * 셋 다 `CHECKPOINT_STEP`(tutorial/model) 이 이미 아는 체크포인트로 끝나므로 월드에 새 트리거는 없다.
+   * appended (2026-09-14 4th pass, user's decision) — **three 「앞으로 이동」 stretches.** Before, the next step's
+   * guide came up the instant the previous one ended: 「앉아서 낮은 픹을 지나세요」 the moment the bug died,
+   * 「아래로 뛰어내리세요」 the moment the android died — with that thing 30 m away and only the guide arriving
+   * first. So **between one stretch and the next it is always 「앞으로 이동」**, and the next guide comes up on
+   * standing in front of that thing (= the checkpoint).
+   *   advance1 = corpse looting → the bugs (the bugs erupt at the `bugs` checkpoint)
+   *   advance2 = the bugs → in front of the crawl stretch (`crawl`)
+   *   advance3 = the android → in front of cliff 2 (`drop`)
+   * All three end at a checkpoint `CHECKPOINT_STEP` (tutorial/model) already knows, so there is no new world trigger.
    */
   | 'advance1'
-  | 'shoot'        // 벌레 둘 처치 — 사격 · 정조준
+  | 'shoot'        // kill two bugs — shooting · aiming down sights
   | 'advance2'
-  | 'crouch'       // 기둥 밑을 앉아서 지난다
-  | 'crouchAim'    // 앉은 채 정조준 — 흔들림이 잦아든다. 안드로이드 둘
+  | 'crouch'       // crouches under the pillar to get past
+  | 'crouchAim'    // aiming down sights while crouched — the sway settles. Two androids
   | 'advance3'
-  | 'drop'         // 높은 곳에서 뛰어내린다 (낙하 피해, 체력 1 클램프)
+  | 'drop'         // jumps down from a height (fall damage, hp clamped to 1)
   /*
-   * appended (2026-09-15, 사용자 결정) — **보급품 시체 루팅.** 전에는 `supply` 체크포인트가 곧장 `heal` 을 열어, 붕대를 줍기도
-   * 전에 「붕대를 사용」 이 떴다. 이제 `supply` → `supplyLoot`(필수: 시체에서 붕대 획득 · 선택: 수류탄 획득) → 붕대를 얻은 뒤
-   * 시체 가방을 **닫으면** `heal`. 줍지 않고 무너진 벽(`wall`)까지 가면 `heal` 도 건너뛰고 `grenade` 다.
+   * appended (2026-09-15, user's decision) — **looting the supply corpse.** Before, the `supply` checkpoint opened
+   * `heal` straight away, so 「붕대를 사용」 came up before a bandage had even been picked up. Now it is `supply`
+   * → `supplyLoot` (required: get the bandage from the corpse · optional: get the grenade) → `heal` once the
+   * bandage is held and the corpse's bag is **closed**. Walking on to the collapsed wall (`wall`) without picking
+   * anything up skips `heal` too and goes to `grenade`.
    */
   | 'supplyLoot'
-  | 'heal'        // 시체에서 회복 아이템 · 수류탄 (퀵슬롯 자동 장착) → 회복 사용
-  | 'grenade'      // 무너진 벽 너머의 안드로이드 둘 — **선택 단계** (쓰지 않고 돌아가도 된다)
-  | 'extract'      // 버려진 함선 안의 스위치 → 10초 유예 → 이륙
-  /* ── ② ship (2026-09-14): 함선 첫 진입 ── */
-  | 'levelUp'      // (순서에서 제외, 2026-09-16) 레이드 보상으로 오른 레벨 확인 — `stats` 의 첫 목표(메뉴 열기)가 됐다
-  | 'stats'        // 메뉴 열기 → 캐릭터 탭 → 능력치 ＋ → `포인트 투자 확정` (1초 홀드) — 2026-09-16 부터 함선 트랙의 유일한 단계
-  | 'messenger'    // (순서에서 제외, 2026-09-16) 메신저 열기 — 2026-09-15 ~ 09-16 사이 함선 트랙의 마지막 단계였다
+  | 'heal'        // a healing item · a grenade from the corpse (auto-equipped into the quick slots) → use the heal
+  | 'grenade'      // the two androids past the collapsed wall — an **optional step** (going back unused is allowed)
+  | 'extract'      // the switch inside the abandoned ship → a 10 s grace → liftoff
+  /* ── ② ship (2026-09-14): the first ship entry ── */
+  | 'levelUp'      // (out of the order, 2026-09-16) check the level gained as a raid reward — became `stats`'s first objective (open the menu)
+  | 'stats'        // open the menu → the character tab → stat ＋ → `포인트 투자 확정` (a 1 s hold) — since 2026-09-16 the ship track's only step
+  | 'messenger'    // (out of the order, 2026-09-16) open the messenger — it was the ship track's last step between 2026-09-15 and 09-16
   /*
-   * appended (2026-09-15, 사용자 결정) — **순서에서 빠졌다** (`openCraft` 와 같은 처리: id 는 계약이라 남고
-   * `TUTORIAL_TRACK_STEPS.ship` 에만 없다). 레이븐의 첫 연락은 이제 함선 트랙이 **끝난 뒤**에 온다
-   * (`meta/parts/NpcQuests.tutorialBlocks`) — 안내가 퀘스트 수락까지 끌고 가지 않는다.
-   * 2026-09-16 (사용자 결정) — 그 뒤를 잇던 `messenger` 도 같은 처리로 빠졌다. 함선 트랙은 `levelUp` → `stats` 이고, 옛 저장의
-   * `messenger` · `ravenQuest` 는 `tutorial/Steps.retiredTrackEnd` 가 「함선 트랙 끝」으로 읽는다 (이어 붙일 단계가 없다).
+   * appended (2026-09-15, user's decision) — **dropped out of the order** (the same treatment as `openCraft`: the
+   * id stays because it is a contract, it is only missing from `TUTORIAL_TRACK_STEPS.ship`). Raven's first contact
+   * now comes **after** the ship track ends (`meta/parts/NpcQuests.tutorialBlocks`) — the guide does not drag the
+   * player as far as accepting a quest.
+   * 2026-09-16 (user's decision) — `messenger`, which used to follow it, was dropped the same way. The ship track is
+   * `levelUp` → `stats`, and an old save's `messenger` · `ravenQuest` are read by `tutorial/Steps.retiredTrackEnd`
+   * as the end of the ship track (there is no step left to join on).
    */
-  | 'ravenQuest'   // (순서에서 제외, 2026-09-15) 레이븐의 첫 연락 · 대답 고르기 · 퀘스트 수락
-  /* ── ③ build: 기존 17단계 (id 불변) ── */
-  | 'intro'        // 시작 팝업 — 확인을 누르면 다음으로
-  | 'manage'       // M 으로 함선 관리 열기
-  | 'generator'    // 발전기 가동 (Lv.1) — 시설 증축의 전제 조건
-  | 'workshop'     // 빈 방 하나를 작업실로 증축
-  | 'bench'        // 총기 작업대 제작 (가구 창고로 들어간다)
-  | 'benchPlace'   // 가구 창고 → 작업대를 골라 작업실 바닥에 배치
-  | 'manageDone'   // 하우징 모드(함선 관리) 닫기 — 2026-09-14 3차에 빠졌다가 2026-09-15 에 순서로 돌아왔다
-  | 'craftGun'     // 작업실로 걸어가 총기 작업대에서 무기 제작
-  | 'openBag'      // 제작 창을 닫고 가방 + 장착 장비를 연다 (제작 중에는 장비 칸이 숨어 있다)
-  | 'equipGun'     // 만든 무기를 주무기 칸에 장착
-  | 'openCraft'    // (순서에서 제외, 2026-09-09) 가방 우측 상단의 제작 버튼으로 제작 창 열기 — 소총 · 탄약을 작업대에서 한 번에 만들면서 빠졌다
-  | 'craftAmmo'    // 그 무기의 탄약 제작
-  | 'stowAmmo'     // 탄약을 가방에 넣기
-  | 'terminal'     // 조종석 터미널 상호작용
-  | 'planet'       // 목표 행성 지정 (1번 행성만)
-  | 'travel'       // 행성 이동(창문 워프) 종료 대기
-  | 'board'        // 발사 슬롯 탑승
-  | 'raid';        // 레이드 시작 — 탈출구 인디케이터를 강조하고 끝난다
+  | 'ravenQuest'   // (out of the order, 2026-09-15) Raven's first contact · picking an answer · accepting the quest
+  /* ── ③ build: the existing 17 steps (ids unchanged) ── */
+  | 'intro'        // the opening popup — pressing confirm moves on
+  | 'manage'       // open ship management with M
+  | 'generator'    // start the generator (Lv.1) — the precondition for extending a facility
+  | 'workshop'     // extend one empty room into a workshop
+  | 'bench'        // craft the gun workbench (it goes into the furniture storage)
+  | 'benchPlace'   // furniture storage → pick the workbench and place it on the workshop floor
+  | 'manageDone'   // close housing mode (ship management) — dropped in the 2026-09-14 3rd pass, back in the order on 2026-09-15
+  | 'craftGun'     // walk to the workshop and craft a weapon at the gun workbench
+  | 'openBag'      // close the craft window and open the bag + the equipped gear (the equipment slots are hidden while crafting)
+  | 'equipGun'     // equip the crafted weapon in the primary slot
+  | 'openCraft'    // (out of the order, 2026-09-09) open the craft window with the craft button at the top right of the bag — dropped when the rifle · ammo became one workbench craft
+  | 'craftAmmo'    // craft that weapon's ammo
+  | 'stowAmmo'     // put the ammo in the bag
+  | 'terminal'     // interact with the cockpit terminal
+  | 'planet'       // pick the target planet (planet 1 only)
+  | 'travel'       // wait out the planet travel (the window warp)
+  | 'board'        // board the launch pod
+  | 'raid';        // the raid starts — it highlights the extraction indicator and ends
 
 export const TUTORIAL_STEPS: readonly TutorialStepId[] = [
-  // (2026-09-17 전의 17단계: intro manage generator workshop bench benchPlace manageDone craftGun craftAmmo openBag equipGun
+  // (the 17 steps before 2026-09-17: intro manage generator workshop bench benchPlace manageDone craftGun craftAmmo openBag equipGun
   //   stowAmmo terminal planet travel board raid)
-  // 2026-09-09: 총기 작업대에서 소총 → 탄약을 **한 번에** 만든다 — `openCraft` 는 순서에서 빠졌다 (id 는 계약이라 남긴다).
-  // 2026-09-14 3차 (사용자 결정 — 「닫기 누르기는 튜토리얼 스텝에서 뺀다」): `manageDone` 도 같은 처리였다.
-  // 2026-09-15 (사용자 결정 — 뒤집음): **`manageDone` 이 순서로 돌아왔다** — 「작업실로 이동」 바로 앞에 「하우징 모드 닫기」
-  //   한 줄이 선다. 관리 모드가 열린 채로는 작업실로 걸어갈 수 없는데 안내는 걸어가라고 하고 있었고, 바닥 안내선도
-  //   관리 카메라 아래에 깔려 있었다. 16 → 17 단계. (`openCraft` 는 그대로 순서 밖이다.)
-  // 2026-09-17 (사용자 결정 — 「여러 스텝을 하나의 스텝 내 여러 목표로 묶기」): **17 → 7 단계.** 한 단계가 순차 공개 목표 여럿을 갖는다.
-  //   manage  = 시설 관리 열기 → (발전기 Lv.0 일 때만: 발전기 가동) → 빈 방을 작업실로 증축           (`generator` · `workshop` 흡수)
-  //   bench   = 총기 작업대 제작 → 가구 창고 탭 → 가구 배치 → 하우징 모드 닫기                      (`benchPlace` · `manageDone` 흡수)
-  //   craftGun= 작업실로 이동 → 작업대 작동 → 돌격소총 → 준중량탄 → 제작창 닫기                       (`craftAmmo` · `openBag` 흡수)
-  //   equipGun= Tab 인벤토리 열기 → 돌격소총 장착 (인벤토리를 닫을 때까지 조용히 기다린다)            (`stowAmmo` 는 없어졌다)
-  //   terminal= 조종석 이동 → 터미널 작동 → 목표 행성 → (워프 대기) → 발사 슬롯 → 탑승 → 준비 홀드   (`planet` · `travel` · `board` 흡수)
-  //   raid    = 가치 `TUTORIAL_RAID_EXTRACT_VALUE_C` 이상을 들고 탈출 — **한 번의 레이드**, 끝나면 결과와 무관하게 트랙 종료
-  //   빠진 id 는 계약이라 `TutorialStepId` 에 남고, 옛 저장은 `tutorial/Steps.normalizeStep` 이 묶인 단계로 옮긴다.
-  // 2026-09-18 (사용자 결정 — 증축 안내 · 출격 안내 분리): 뒤 두 단계(`terminal` · `raid`)가 새 트랙 `raid2` 로 나갔다. 7 → 5 단계.
-  //   id 는 그대로다 — 옮긴 것은 **트랙**뿐이라 `TutorialStepId` 도 `STEP_DEFS` 도 한 글자 안 바뀐다.
+  // 2026-09-09: the rifle → the ammo are made **in one go** at the gun workbench — `openCraft` dropped out of the order (the id stays because it is a contract).
+  // 2026-09-14 3rd pass (user's decision — 「pressing close is taken out of the tutorial steps」): `manageDone` got the same treatment.
+  // 2026-09-15 (user's decision — reversed): **`manageDone` came back into the order** — one line, 「하우징 모드 닫기」,
+  //   stands right before 「작업실로 이동」. The workshop cannot be walked to while management mode is open, yet the guide was
+  //   telling the player to walk there, and the floor guide line was laid under the management camera too. 16 → 17 steps.
+  //   (`openCraft` stays out of the order.)
+  // 2026-09-17 (user's decision — 「bundle several steps into several objectives inside one step」): **17 → 7 steps.** One step holds several objectives revealed in turn.
+  //   manage  = open ship management → (only at generator Lv.0: start the generator) → extend an empty room into a workshop   (absorbs `generator` · `workshop`)
+  //   bench   = craft the gun workbench → the furniture storage tab → place the furniture → close housing mode        (absorbs `benchPlace` · `manageDone`)
+  //   craftGun= move to the workshop → operate the workbench → assault rifle → medium-heavy ammo → close the craft window (absorbs `craftAmmo` · `openBag`)
+  //   equipGun= open the Tab inventory → equip the assault rifle (it waits quietly until the inventory is closed)      (`stowAmmo` is gone)
+  //   terminal= move to the cockpit → operate the terminal → the target planet → (wait out the warp) → the launch pod → board → the ready hold (absorbs `planet` · `travel` · `board`)
+  //   raid    = extract carrying at least `TUTORIAL_RAID_EXTRACT_VALUE_C` of value — **one raid**; when it ends the track ends whatever the result
+  //   A dropped id stays in `TutorialStepId` because it is a contract, and an old save is moved onto the step it was bundled into by `tutorial/Steps.normalizeStep`.
+  // 2026-09-18 (user's decision — the extension guide · the launch guide split): the last two steps (`terminal` · `raid`) left for the new track `raid2`. 7 → 5 steps.
+  //   The ids are unchanged — only the **track** moved, so neither `TutorialStepId` nor `STEP_DEFS` changes by one character.
   'intro', 'manage', 'bench', 'craftGun', 'equipGun',
 ];
 
 /**
- * 트랙별 순서 (2026-09-14). `TUTORIAL_STEPS` 는 **`build` 트랙과 같은 배열**이라 기존 호출부가 그대로 돈다.
- * 진행률(`stepIndex` / `stepCount`)은 지금 도는 트랙 안에서만 센다.
+ * The order per track (2026-09-14). `TUTORIAL_STEPS` is **the same array as the `build` track**, so existing call
+ * sites keep working unchanged. Progress (`stepIndex` / `stepCount`) is counted inside the running track alone.
  */
 export const TUTORIAL_TRACK_STEPS: Readonly<Record<TutorialTrack, readonly TutorialStepId[]>> = {
-  // 2026-09-14 4차: 구간과 구간 사이의 「앞으로 이동」 셋(`advance1`·`2`·`3`)이 들어와 11 → 14 단계다.
+  // 2026-09-14 4th pass: the three 「앞으로 이동」 between stretches (`advance1`·`2`·`3`) came in, so 11 → 14 steps.
   raid: [
-    // 2026-09-15 2차: `corpseOpen`(시체 상호작용)이 `corpseLoot` 앞에 들어와 16 단계다.
+    // 2026-09-15 2nd pass: `corpseOpen` (interacting with the corpse) came in before `corpseLoot`, so 16 steps.
     'wake', 'move', 'sprintJump', 'corpseOpen', 'corpseLoot', 'advance1', 'shoot', 'advance2', 'crouch', 'crouchAim',
-    // 2026-09-15: `supplyLoot`(보급품 시체 루팅)이 `drop` 과 `heal` 사이에 들어왔다.
+    // 2026-09-15: `supplyLoot` (looting the supply corpse) came in between `drop` and `heal`.
     'advance3', 'drop', 'supplyLoot', 'heal', 'grenade', 'extract',
   ],
-  // 2026-09-15 (사용자 결정): `ravenQuest` 가 순서에서 빠졌다 — 레이븐의 첫 연락은 이 트랙이 끝난 뒤다. 4 → 3 단계.
-  // 2026-09-16 (사용자 결정): `messenger`(메신저 열기)도 빠졌다 — 포인트를 나눠 준 뒤 화면을 닫으면 트랙이 끝난다. 3 → 2 단계.
-  // 2026-09-16 2차 (사용자 결정): `levelUp` 도 빠졌다 — `stats` 한 단계가 목표 넷(메뉴 → 캐릭터 탭 → ＋ → 확정)을 순차 공개한다. 2 → 1 단계.
-  //   옛 저장의 `levelUp` 은 `tutorial/Steps.normalizeStep` 이 `stats` 로 옮긴다.
+  // 2026-09-15 (user's decision): `ravenQuest` dropped out of the order — Raven's first contact comes after this track ends. 4 → 3 steps.
+  // 2026-09-16 (user's decision): `messenger` (open the messenger) dropped out too — the track ends when the screen is closed after the points have been handed out. 3 → 2 steps.
+  // 2026-09-16 2nd pass (user's decision): `levelUp` dropped out too — the one step `stats` reveals four objectives in turn (menu → character tab → ＋ → confirm). 2 → 1 step.
+  //   An old save's `levelUp` is moved to `stats` by `tutorial/Steps.normalizeStep`.
   ship: ['stats'],
   build: TUTORIAL_STEPS,
   /*
-   * 2026-09-18 (사용자 결정): 「출격 안내」 — 조종석에서 행성을 정해 출격하고(`terminal`), 전리품을 챙겨 돌아온다(`raid`).
-   * 「증축 안내」의 마지막 단계(`equipGun`)가 끝나는 그 자리에서 **바로** 시작된다 (`TutorialSystem.autoStart` —
-   * 완주한 사람에게만 이어진다, `pendingRaid2`). 두 단계 다 id 가 예전 것이라 `Steps.ts` 표도 `normalizeStep` 도 그대로 쓴다.
+   * 2026-09-18 (user's decision): 「출격 안내」 — pick a planet at the cockpit and launch (`terminal`), then come back
+   * with the loot (`raid`). It starts **right** where the last step of 「증축 안내」 (`equipGun`) ends
+   * (`TutorialSystem.autoStart` — it only follows on for someone who ran that track to the end, `pendingRaid2`).
+   * Both steps keep their old ids, so the `Steps.ts` table and `normalizeStep` are used as they are.
    */
   raid2: ['terminal', 'raid'],
 };
 
-/** 그 단계가 속한 트랙 (모르는 id 면 null). */
+/** The track that step belongs to (null for an unknown id). */
 export function tutorialTrackOf(step: TutorialStepId): TutorialTrack | null {
   for (const t of TUTORIAL_TRACKS) if (TUTORIAL_TRACK_STEPS[t].includes(step)) return t;
   return null;
 }
 
 /**
- * 게이트 종류. `id` 의 의미는 종류마다 다르다:
- *   `roomPurpose` → `RoomPurpose` · `furniture` → 가구 def id · `craft` → 레시피 id ·
- *   `planet` → `PlanetId` · 나머지는 id 를 쓰지 않는다.
+ * Gate kinds. What `id` means differs per kind:
+ *   `roomPurpose` → `RoomPurpose` · `furniture` → a furniture def id · `craft` → a recipe id ·
+ *   `planet` → `PlanetId` · the rest do not use `id`.
  */
 export type TutorialGate =
-  | 'roomPurpose'   // 방 용도 증축
-  | 'furniture'     // 가구 제작 / 배치
-  | 'manageExit'    // 함선 관리 종료
-  | 'craft'         // 아이템 제작
-  | 'terminal'      // 터미널 열기
-  | 'matchmaking'   // 터미널의 매칭 탭 (2026-09-15 — 초대 · 비공개/공개 매칭; 숨김 전용)
-  | 'planet'        // 행성 지정
-  | 'board'         // 발사 슬롯 탑승
-  | 'screenTab'     // Tab 화면의 화면 탭 (id = 'character' | 'corp' | 'ship'; 인벤토리는 언제나 열려 있다)
-  | 'community'     // 우측 상단 커뮤니티 버튼 (숨김 전용)
-  | 'stashItem'     // 함선 창고 격자의 아이템 (id = 아이템 def id; 숨김 전용, 2026-09-09 — 튜토리얼 재료 · 산출물만 남긴다)
+  | 'roomPurpose'   // extending a room purpose
+  | 'furniture'     // crafting / placing furniture
+  | 'manageExit'    // leaving ship management
+  | 'craft'         // crafting an item
+  | 'terminal'      // opening the terminal
+  | 'matchmaking'   // the terminal's matchmaking tab (2026-09-15 — invites · private/public matching; hiding only)
+  | 'planet'        // picking a planet
+  | 'board'         // boarding the launch pod
+  | 'screenTab'     // a screen tab of the Tab window (id = 'character' | 'corp' | 'ship'; the inventory is always open)
+  | 'community'     // the community button at the top right (hiding only)
+  | 'stashItem'     // an item in the ship stash grid (id = an item def id; hiding only, 2026-09-09 — only the tutorial's materials · outputs are left)
   /**
-   * appended (2026-09-14): **HUD 점진 노출** (숨김 전용). id = `TutorialHudPart` —
-   * 배우기 전의 HUD 조각을 아예 그리지 않는다. 체력 · 무기는 시체에서 장비를 얻은 뒤에, 스태미나는 처음
-   * 소모된 뒤에 나타나고, 임플란트 · 함선 호출은 튜토리얼 레이드 내내 없다(가진 것이 없다).
+   * appended (2026-09-14): **gradual HUD reveal** (hiding only). id = `TutorialHudPart` — a HUD piece is not drawn
+   * at all before it has been learnt. Hp · the weapon appear after the gear is taken from the corpse, stamina after
+   * it is first spent, and implants · ship calls are absent for the whole tutorial raid (there are none to use).
    */
   | 'hud'
   /**
-   * appended (2026-09-16, 사용자 결정): **시설 관리(함선 관리 모드) 진입**. id 를 쓰지 않는다. 함선 트랙이 도는 동안에만 막히고
-   * 감춰진다 — 우하단 `시설 관리` 키 힌트(`ui/hud/ShipManageHint`)가 `hides` 로, `housing/parts/Furniture.shipManageBlock` 이
-   * `blockReason` 으로 묻는다. 다른 트랙(증축 트랙의 `manage` 단계가 바로 이것을 연다)에서는 언제나 열려 있다.
+   * appended (2026-09-16, user's decision): **entering facility management (ship management mode)**. It does not use
+   * `id`. It is blocked and hidden only while the ship track is running — the bottom-right `시설 관리` key hint
+   * (`ui/hud/ShipManageHint`) asks through `hides` and `housing/parts/Furniture.shipManageBlock` through
+   * `blockReason`. On any other track (the extension track's `manage` step opens exactly this) it is always open.
    */
   | 'shipManage'
   /**
-   * appended (2026-09-17, 사용자 결정): **숨김 전용** 둘 — 증축 트랙이 도는 동안만 참이다 (id 를 쓰지 않는다).
-   *   • `training`   함선 터미널 행성 탭 우하단의 `시뮬레이션 훈련장` 버튼 (`hub/ui/HubMenu`) — 출격 안내 도중 딴 길로 새지 않게.
-   *   • `launchWarn` 발사 슬롯에서 준비할 때의 출격 준비 경고 팝업 (`hub/parts/Pods.toggleReady` — 기업 계약 없음 · 방탄복 없음 …).
-   *     튜토리얼 캐릭터는 둘 다 없는 것이 정상이라 경고가 안내를 끊었다.
+   * appended (2026-09-17, user's decision): two **hiding-only** gates — true only while the extension track runs
+   * (they do not use `id`).
+   *   • `training`   the `시뮬레이션 훈련장` button at the bottom right of the ship terminal's planet tab
+   *     (`hub/ui/HubMenu`) — so nobody wanders off mid launch-guide.
+   *   • `launchWarn` the launch-readiness warning popup raised when readying at the launch pod
+   *     (`hub/parts/Pods.toggleReady` — no corp contract · no armor …). A tutorial character is supposed to have
+   *     neither, so the warning was cutting the guide off.
    */
   | 'training'
   | 'launchWarn';
 
 /**
- * `hides('hud', id)` 의 id. 이 이름을 그리는 위젯이 제 이름으로 묻는다.
+ * The id of `hides('hud', id)`. The widget that draws this name asks under its own name.
  *
- * appended (2026-09-14 2차, 사용자 결정) — 튜토리얼 레이드의 **탈출 함선 표시**와 **상단 탈출 타이머**:
- *   • `shipMarker`       지도 마커 · 월드 마커. **튜토리얼 레이드 내내** 뜨지 않는다.
- *                        2026-09-14 4차 (사용자 결정 — 「함선 스위치 단계의 초록색 구체 제거」)에 2차의
- *                        「`extract` 단계에 들어서면 풀린다」를 뒤집었다: 그 월드 마커는 `--c-success` 초록 원
- *                        (`ui/styles/base.css` 의 `.wmarker.ship`)이라 마지막 단계에서 화면에 초록 구슬이
- *                        떠 있었고, 일직선 통로 끝의 함선을 못 찾을 길이 없어 안내 역할도 없었다.
- *   • `shipScreenMarker` 화면(나침반 · 화면 밖 화살표) 함선 마커. **튜토리얼 레이드 내내** 뜨지 않는다.
- *   • `extractionTimer`  상단 중앙의 「자동 출발까지」 · 「도착」 라벨 (튜토리얼 함선은 자동 출발을 걸지 않는다).
+ * appended (2026-09-14 2nd pass, user's decision) — the tutorial raid's **extraction ship markers** and the **top
+ * extraction timer**:
+ *   • `shipMarker`       the map marker · the world marker. It does not appear **for the whole tutorial raid**.
+ *                        The 2026-09-14 4th pass (user's decision — 「remove the green sphere on the ship switch
+ *                        step」) reversed the 2nd pass's 「it is released on entering the `extract` step」: that world
+ *                        marker is a `--c-success` green circle (`.wmarker.ship` in `ui/styles/base.css`), so a
+ *                        green bead hung on screen during the last step, and with the ship at the end of a
+ *                        straight corridor there was no way to miss it and no guiding role either.
+ *   • `shipScreenMarker` the screen (compass · off-screen arrow) ship marker. It does not appear **for the whole
+ *                        tutorial raid**.
+ *   • `extractionTimer`  the top-centre 「자동 출발까지」 · 「도착」 labels (the tutorial ship never arms an
+ *                        automatic departure).
  */
 export type TutorialHudPart =
   | 'vitals' | 'weapon' | 'stamina' | 'implant' | 'stratagem'
   | 'shipMarker' | 'shipScreenMarker' | 'extractionTimer';
 
-/** 한 트랙의 상태. */
+/** The state of one track. */
 export interface TutorialTrackSave {
-  /** 현재 단계. 끝났으면 null. */
+  /** The current step. null once it is over. */
   step: TutorialStepId | null;
-  /** 끝났다(완주 또는 건너뛰기) — 다시 자동 시작하지 않는다. */
+  /** It is over (run to the end or skipped) — it does not start again on its own. */
   done: boolean;
 }
 
 /**
- * 튜토리얼이 저장하는 것.
+ * What the tutorial saves.
  *
- * **v2 (2026-09-14)**: 트랙별로 갈렸다. `tracks` 에 없는 트랙은 아직 시작 전이다.
- * v1 세이브(`step` · `done` 이 최상위)는 읽을 때 `tracks.build` 로 옮겨 붙인다 — v1 의 단계는 전부 build 트랙의
- * 것이었고, 그 프로필은 레이드 · 함선 트랙을 **이미 지난 것으로** 본다(안 그러면 하던 사람에게 튜토리얼이 다시 뜬다).
+ * **v2 (2026-09-14)**: split per track. A track that is not in `tracks` has not started yet.
+ * A v1 save (`step` · `done` at the top level) is grafted onto `tracks.build` when read — every v1 step belonged to
+ * the build track, and such a profile is taken to have **already passed** the raid and ship tracks (otherwise the
+ * tutorial would come up again for someone who was playing).
  *
- * ⚠ 스모크가 심는 모양도 v2 다 — `{version:2, tracks:{raid:{step:null,done:true}, ship:…, build:…}}`.
+ * ⚠ The shape a smoke plants is v2 too — `{version:2, tracks:{raid:{step:null,done:true}, ship:…, build:…}}`.
  */
 export interface TutorialSave {
   version: number;
   /** appended (2026-09-14). */
   tracks?: Partial<Record<TutorialTrack, TutorialTrackSave>>;
-  /** v1 — 읽기 전용 하위 호환 (새로 쓰지 않는다). */
+  /** v1 — read-only backward compatibility (never written again). */
   step?: TutorialStepId | null;
-  /** v1 — 읽기 전용 하위 호환 (새로 쓰지 않는다). */
+  /** v1 — read-only backward compatibility (never written again). */
   done?: boolean;
-  /** 튜토리얼이 만들어 준 방 번호(있으면). 안내선이 그 방을 가리킨다. */
+  /** The room number the tutorial made for the player (when there is one). The guide line points at that room. */
   room?: number;
 }
 
 export interface TutorialRef {
-  /** 튜토리얼이 돌고 있다. */
+  /** The tutorial is running. */
   readonly active: boolean;
-  /** 현재 단계 (비활성이면 null). */
+  /** The current step (null when inactive). */
   readonly step: TutorialStepId | null;
-  /** 진행률 표시용 — 1-based 순번과 전체 개수. 비활성이면 둘 다 0. */
+  /** For the progress readout — a 1-based index and the total count. Both 0 when inactive. */
   readonly stepIndex: number;
   readonly stepCount: number;
 
   /**
-   * 지금 이 행동이 튜토리얼 때문에 막히는지. 막히면 **한국어 사유**, 아니면 null.
-   * 튜토리얼이 꺼져 있으면 항상 null 이므로 호출부는 `?? 평소 규칙` 으로 이어 쓰면 된다.
+   * Whether this action is blocked by the tutorial right now. Blocked = a **Korean reason**, else null.
+   * With the tutorial off it is always null, so a call site can carry on with `?? the normal rule`.
    */
   blockReason(gate: TutorialGate, id?: string): string | null;
   /**
-   * 그 요소를 지금 **그리지 말아야** 하는가.
-   *   • `id` 를 주면 그 항목 하나를 묻는다 — `blockReason` 이 막는 것은 전부 숨긴다
-   *     (방 용도 · 가구 def · 레시피 · 화면 탭 …).
-   *   • `id` 없이 부르면 "이 게이트가 **완전히** 열려 있나"를 묻는다. 열려 있지 않으면 그 UI 를 좁힌다
-   *     (커뮤니티 버튼 · 매치메이킹 섹션 · 행성 넘김 화살표).
+   * Whether that element must **not be drawn** right now.
+   *   • With an `id` it asks about that one entry — everything `blockReason` blocks is hidden
+   *     (room purposes · furniture defs · recipes · screen tabs …).
+   *   • Called without an `id` it asks "is this gate **fully** open". When it is not, that UI is narrowed
+   *     (the community button · the matchmaking section · the planet pager arrows).
    */
   hides(gate: TutorialGate, id?: string): boolean;
 
-  /** 처음부터 시작 (이미 돌고 있으면 아무 일도 없다). */
+  /** Start from the beginning (nothing happens when it is already running). */
   start(): boolean;
-  /** 건너뛰기 — 즉시 끝내고 모든 게이트를 푼다. */
+  /** Skip — ends at once and releases every gate. */
   skip(): void;
-  /** dev 콘솔 전용: 특정 단계로 건너뛴다. */
+  /** dev console only: skips to a particular step. */
   goto(step: TutorialStepId): boolean;
 
-  /* ── appended (2026-09-14): 3트랙 ── */
-  /** 지금 도는 트랙 (비활성이면 null). */
+  /* ── appended (2026-09-14): 3 tracks ── */
+  /** The track running right now (null when inactive). */
   readonly track: TutorialTrack | null;
-  /** 그 트랙이 끝났는가 — 완주 · 건너뛰기 둘 다 true. 아직 시작 전이면 false. */
+  /** Whether that track is over — true for both running it to the end and skipping it. false when it has not started yet. */
   isTrackDone(track: TutorialTrack): boolean;
-  /** 그 트랙을 처음부터 시작한다. 이미 끝났거나 다른 트랙이 돌고 있으면 false. */
+  /** Starts that track from the beginning. false when it is already over or another track is running. */
   startTrack(track: TutorialTrack): boolean;
   /**
-   * **그 트랙만** 건너뛴다 (목표 패널의 건너뛰기 버튼 · 1초 홀드). 다른 트랙은 그대로 남아 제 때 시작한다 —
-   * 조작은 아는데 함선 증축은 처음인 사람이 있기 때문이다 (사용자 결정).
+   * Skips **that track alone** (the skip button on the objective panel · a 1 s hold). The other tracks stay and
+   * start in their own time — because someone knows the controls but has never extended a ship (user's decision).
    */
   skipTrack(track: TutorialTrack): void;
   /**
-   * appended (2026-09-15, 타이틀 레이드 포기): 그 트랙의 진행을 **지워 처음 상태로** 되돌린다 (끝났다고 적지 않는다) — 튜토리얼
-   * 레이드를 포기한 캐릭터는 다음 시작에서 튜토리얼을 처음부터 다시 한다. 다른 트랙은 건드리지 않는다.
+   * appended (2026-09-15, abandoning a raid from the title): **wipes** that track's progress back to the starting
+   * state (it is not written down as over) — a character who abandoned the tutorial raid does the tutorial again
+   * from the beginning on the next start. Other tracks are not touched.
    */
   restartTrack?(track: TutorialTrack): void;
 
-  /* ── appended (2026-09-18): 목표를 **다른 화면**에서도 그린다 ── */
+  /* ── appended (2026-09-18): the objectives are drawn on **another screen** too ── */
   /**
-   * 지금 도는 트랙의 목표 패널 내용 (비활성이면 null). 튜토리얼이 자기 좌상단 패널에 그리는 것과 **같은 데이터**다 —
-   * 전술 지도가 좌측 열 맨 위에 같은 줄을 그린다 (`ui/map/QuestPanels`, 사용자 결정 2026-09-18). 읽기 전용 스냅샷이라
-   * 부르는 쪽은 아무것도 바꾸지 못하고, 없는 구현(옛 호출부 · 테스트)에서는 그냥 그리지 않는다.
+   * The contents of the running track's objective panel (null when inactive). It is **the same data** the tutorial
+   * draws in its own top-left panel — the tactical map draws the same lines at the top of its left column
+   * (`ui/map/QuestPanels`, user's decision 2026-09-18). It is a read-only snapshot, so the caller can change
+   * nothing, and where it is not implemented (an old call site · a test) it simply is not drawn.
    */
   panelInfo?(): TutorialPanelInfo | null;
 }
 
 /**
- * **세는 목표의 진행 꼬리표** (2026-09-18) — `벌레 처치 (1/2)` 의 `1/2`, 전리품 목표의 `1,000 / 1,000 C`.
+ * **The progress tag of a counted objective** (2026-09-18) — the `1/2` of `벌레 처치 (1/2)`, the `1,000 / 1,000 C` of a
+ * loot objective.
  *
- * 두 화면이 같은 줄을 그린다: 좌상단 안내 패널(`tutorial/ui/Panel`)과 전술 지도 좌측 열(`ui/map/QuestPanels`).
- * 같은 사실을 두 곳에서 각자 적으면 어긋난다 — 실제로 지도 쪽이 `1000 / 1000 C` 로 적어 어긋났고, 스모크가 그것을
- * 잡았다. 그래서 문구를 만드는 자리는 여기 하나다 (`CLAUDE.md` §4.1 「두 폴더에 같은 식이 생기면 shared 로」).
- * 자리 구분은 공용 표기(`numberFormat.groupDigits`)를 쓰고, 단위가 있는 줄만 쉼표 · 간격을 넣는다 — 단위 없는
- * 수(처치 수)는 한 자리 · 두 자리라 `1/2` 가 읽기 좋다. 괄호는 부르는 쪽이 붙인다 (패널만 쓴다).
+ * Two screens draw the same line: the top-left guide panel (`tutorial/ui/Panel`) and the tactical map's left column
+ * (`ui/map/QuestPanels`). Writing the same fact in two places on its own makes them drift — and the map side did
+ * drift, writing `1000 / 1000 C`, and a smoke caught it. So the wording is made in this one place (`CLAUDE.md` §4.1
+ * 「the same formula in two folders moves to shared」). The digit grouping uses the shared notation
+ * (`numberFormat.groupDigits`), and only a line with a unit gets the commas and the spacing — a number with no unit
+ * (a kill count) is one or two digits, so `1/2` reads better. The parentheses are added by the caller (only the
+ * panel uses them).
  */
 export function tutorialCountLabel(at: number, total: number, unit?: string): string {
   return unit ? `${groupDigits(at)} / ${groupDigits(total)} ${unit}` : `${at}/${total}`;
 }
 
-/** `TutorialPanelInfo` 의 목표 한 줄 (2026-09-18). */
+/** One objective line of `TutorialPanelInfo` (2026-09-18). */
 export interface TutorialObjectiveInfo {
   id: string;
   /**
-   * 그릴 문구. **키캡 토큰이 살아 있다** (`{INTERACT}` · `{JUMP:hold}` — `shared/keycap.renderKeyText` 로 푼다)
-   * 그리고 선택 목표의 `(선택) ` 접두사는 **이미 붙어 있다** (문구를 만드는 규칙이 튜토리얼 폴더 안에 있어야 한다).
+   * The text to draw. **The keycap tokens are still live** (`{INTERACT}` · `{JUMP:hold}` — resolved with
+   * `shared/keycap.renderKeyText`) and an optional objective's `(선택) ` prefix is **already attached** (the rule
+   * that makes the wording has to live inside the tutorial folder).
    */
   text: string;
   optional: boolean;
   done: boolean;
-  /** 세는 목표면 지금 수 · 목표 수 · 단위(`C`), 아니면 null. */
+  /** For a counted objective the current count · the target count · the unit (`C`), else null. */
   count: { at: number; total: number; unit?: string } | null;
 }
 
-/** 진행 바가 **단계 수가 아니라 목표 자체**를 잴 때 (2026-09-18) — 「출격 안내」 레이드의 전리품 가치. */
+/** For when the progress bar measures **the objective itself rather than the step count** (2026-09-18) — the loot value of the 「출격 안내」 raid. */
 export interface TutorialGaugeInfo {
   at: number;
   total: number;
-  /** 이미 다 적힌 숫자 라벨 — `at` 이 `total` 을 넘겨도 **실제 값**을 적는다 (`1,400 C / 1,000 C`). */
+  /** The already-written number label — it writes the **real value** even when `at` goes past `total` (`1,400 C / 1,000 C`). */
   label: string;
 }
 
-/** 목표 패널 한 장의 내용 (2026-09-18) — 트랙 이름 · 진행률 · 보이는 목표 줄. */
+/** The contents of one objective panel (2026-09-18) — the track name · the progress · the visible objective lines. */
 export interface TutorialPanelInfo {
   track: TutorialTrack;
-  /** 트랙 이름 (`조작 안내` · `함선 안내` · `증축 안내` · `출격 안내`). */
+  /** The track name (`조작 안내` · `함선 안내` · `증축 안내` · `출격 안내`). */
   label: string;
   step: TutorialStepId;
-  /** 트랙 안에서의 1-based 순번 · 단계 수. */
+  /** The 1-based index within the track · the step count. */
   index: number;
   count: number;
-  /** **지금 보이는** 줄만 (순차 공개를 이미 푼 결과). */
+  /** Only the lines **visible right now** (the result of the sequential reveal already resolved). */
   objectives: readonly TutorialObjectiveInfo[];
-  /** 진행 바가 목표 자체를 잴 때만 (아니면 null → `index / count` 를 쓴다). */
+  /** Only when the progress bar measures the objective itself (else null → `index / count` is used). */
   gauge: TutorialGaugeInfo | null;
 }

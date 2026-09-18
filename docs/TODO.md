@@ -43,6 +43,7 @@
 | A-8 | **게임패드**. 리바인딩은 키보드 + 마우스 버튼만 | `grep -rni "gamepad" src/` → 0 hit |
 | A-7 | **BGM**. 설정의 오디오 채널 자리만 비워 뒀다 | `src/ui/menus/SettingsMenu.ts:26` "Room is left for a future BGM row … there is no BGM" |
 | B-10 | **채널 티커의 음소거가 플래그 하나**. 스프레이 도중 끝난 붕대는 토스트가 없고, `active:false` 를 놓치면 라인이 남는다 | `src/ui/hud/Notifications.ts` |
+| B-19 | **`src/shared` 주석 영문화(2026-09-18) 중 드러난 서류 결함 3건** — 번역은 원문을 그대로 옮겼으니 내용 자체를 고쳐야 한다. ① `keycap.ts:70` 의 `mouseGlyphSvg` doc 은 「`hold` 면 그 칸에 chevron 이 들어간다」고 하지만 같은 파일 헤더(2026-09-15 2차)와 코드는 chevron 을 안 그린다 — doc 이 틀렸다. ② `character.ts:194` `createCharacterInSlot` doc 은 「쓰기에 실패하면 false」라고 하지만 시그니처도 본문도 `PlayerProfile | null` 이다. ③ `npc.ts:8` 은 예전 병렬 세션의 「B 에이전트」 배정을 가리킨다 — 지금은 의미 없는 참조다 | `src/shared/keycap.ts:70` · `character.ts:194` · `npc.ts:8` |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝
 

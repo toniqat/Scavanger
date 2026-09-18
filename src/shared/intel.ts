@@ -1,48 +1,51 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * 정보상 (2026-09-14, 사용자 결정 — docs/DECISIONS.md 「2026-09-14 — 정보상」).
+ * The intel broker (2026-09-14, user's decision — docs/DECISIONS.md 「2026-09-14 — 정보상」).
  *
- * 「행성의 정보를 산다」는 컨셉이지만 실제로 하는 일은 **그 레이드의 기믹 수를 고정하는 것**이다 (페이데이 2 의
- * 하이스트 전 에셋 구매). 지금까지 맵은 `seed + planet` 두 값의 순수 함수였고 와이어에도 그 둘만 실렸다 —
- * 정보상은 거기에 **세 번째 값**을 더한다. 그래서 이 파일이 계약이다:
+ * The concept is 「buying a planet's intel」, but what it actually does is **pin down how many gimmicks that raid
+ * has** (Payday 2's pre-heist asset purchase). Until now a map was a pure function of the two values
+ * `seed + planet` and only those two went on the wire — the intel broker adds a **third value** to them. So this
+ * file is the contract:
  *
- *   IntelPick[]  = 사람이 화면에서 고른 것 (기믹 · 단계)          — 저장 · 와이어 · 크레딧 사유에 실린다
- *   IntelEffects = 월드가 읽는 해석본                              — 소비자는 **이것만** 읽는다
+ *   IntelPick[]  = what a person picked on screen (gimmick · tier)  — goes into the save · wire · credit reason
+ *   IntelEffects = the resolved form the world reads                — consumers read **only this**
  *
- * 소비자(`world/` · `enemies/`)가 `IntelPick[]` 를 직접 해석하지 않는 이유는 하나다: 단계 → 실제 보너스의
- * 대응표가 두 곳에 복사되면 미리보기 지도와 진짜 맵이 조용히 달라진다 (CLAUDE.md 「열지 않고 미리 보는 것은
- * 여는 것과 같은 함수여야 한다」). `resolveIntelEffects` 하나가 그 표다.
+ * There is exactly one reason consumers (`world/` · `enemies/`) never resolve `IntelPick[]` themselves: copy the
+ * tier → real bonus table into two places and the preview map and the real map silently differ (CLAUDE.md
+ * 「previewing contents must equal opening」). `resolveIntelEffects` alone is that table.
  *
- * 이 파일은 브라우저 **와 Node 릴레이**가 함께 import 한다 — **런타임 import 금지** (csv 로더도 three 도 안 된다).
- * 수치는 전부 호출자가 표로 넘긴다 (`IntelCostTable`): 클라는 `data/intel_options.csv` 에서 읽은 것을,
- * 릴레이는 `server/economy.gen.json` 의 `intel` 절을 넘긴다 — `shared/credits.ts` 의 가격 식과 같은 패턴이다.
+ * This file is imported by the browser **and the Node relay** — **no runtime import** (neither the csv loader nor
+ * three). Every number is handed in by the caller as a table (`IntelCostTable`): the client passes what it read
+ * from `data/intel_options.csv`, the relay the `intel` section of `server/economy.gen.json` — the same pattern as
+ * the price formulas of `shared/credits.ts`.
  *
- * Owner: shared/. 구현은 `meta/parts/Intel.ts`(보유 · 구매), 화면은 `hub/ui/IntelMenu.ts`,
- * 월드 적용은 `world/` · `enemies/named/Director.ts`, 검증은 `server/Economy.ts`.
+ * Owner: shared/. The implementation is `meta/parts/Intel.ts` (holding · buying), the screen is `hub/ui/IntelMenu.ts`,
+ * the world application is `world/` · `enemies/named/Director.ts`, and the check is `server/Economy.ts`.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 import type { PlanetId } from './planets';
 
 /**
- * 살 수 있는 기믹 7종. 값은 세이브 · 와이어 · 크레딧 사유에 실리므로 **바꾸지 않는다** (추가만).
+ * The 7 buyable gimmicks. The values go into the save · the wire · the credit reason, so they are **never
+ * changed** (append only).
  *
- *   extraction   탈출 패드 수            +1 / +2
- *   basement     지하실이 있는 구조물     +1 / +2   (연구실 · 전진기지)
- *   hazardDelay  재해 시작까지의 시간     +2 / +3 / +4 분
- *   rail         선로 확정 + 플랫폼       +1
- *   rover        탐사 차량 확정           +1
- *   named        네임드 보스 지정         한 번에 하나 (행성 threat 2 이상에서만)
- *   nest         벌레 둥지 수            +1 / +2
+ *   extraction   number of extraction pads     +1 / +2
+ *   basement     structures with a basement    +1 / +2   (lab · outpost)
+ *   hazardDelay  time until the hazard starts  +2 / +3 / +4 minutes
+ *   rail         rails guaranteed + platforms  +1
+ *   rover        rover guaranteed              +1
+ *   named        a named boss chosen           one at a time (only on a planet of threat 2 or higher)
+ *   nest         number of bug nests           +1 / +2
  */
 export type IntelGimmick = 'extraction' | 'basement' | 'hazardDelay' | 'rail' | 'rover' | 'named' | 'nest';
 
-/** 화면 순서이자 저장 순서. 정렬 · 코드 생성이 이 순서를 쓴다. */
+/** Both the display order and the save order. Sorting and code generation use this order. */
 export const INTEL_GIMMICKS: readonly IntelGimmick[] = [
   'extraction', 'basement', 'hazardDelay', 'rail', 'rover', 'named', 'nest',
 ];
 
 /**
- * 크레딧 사유(`intel:<planet>:<code>`)에 실리는 한 글자. 사유는 64자 상한이라 기믹 이름을 그대로 쓸 수 없다.
- * 값은 서버가 파싱하므로 **바꾸지 않는다**.
+ * The one letter that goes into the credit reason (`intel:<planet>:<code>`). A reason is capped at 64 characters,
+ * so a gimmick name cannot be used as it is. The server parses these values, so they are **never changed**.
  */
 export const INTEL_GIMMICK_CODE: Record<IntelGimmick, string> = {
   extraction: 'x', basement: 'b', hazardDelay: 'h', rail: 'r', rover: 'v', named: 'n', nest: 'g',
@@ -54,48 +57,49 @@ const CODE_TO_GIMMICK: Record<string, IntelGimmick> = (() => {
   return m;
 })();
 
-/** 고를 수 있는 단계의 절대 상한 (csv 의 `maxTier` 가 이보다 클 수 없다). */
+/** Absolute ceiling on a selectable tier (the csv's `maxTier` can never be larger than this). */
 export const INTEL_TIER_MAX = 3;
 
-/** 한 줄의 선택. `tier` 는 1부터 — 0 은 「안 샀다」라서 `picks` 에 아예 들어가지 않는다. */
+/** One row's pick. `tier` starts at 1 — 0 means 「안 새다」 (not bought) and never enters `picks` at all. */
 export interface IntelPick {
   g: IntelGimmick;
   /** 1 … `maxTier`. */
   tier: number;
-  /** `named` 전용: 지정한 적 타입 id (`rogue_roden` 류). 가격에는 영향이 없다. */
+  /** `named` only: the chosen enemy type id (`rogue_roden` and the like). It has no effect on the price. */
   id?: string;
 }
 
-/** 프로필에 저장되고 와이어로 가는 「보유 정보」. 한 번에 하나만 갖는다. */
+/** The 「보유 정보」 (intel held) that is saved in the profile and goes on the wire. Only one at a time. */
 export interface IntelSpec {
   planet: PlanetId;
-  /** 이 정보가 가리키는 「지역」 = 미션 시드. 출격이 이 시드를 쓴다. */
+  /** The 「지역」 (area) this intel points at = the mission seed. The launch uses this seed. */
   seed: number;
   picks: IntelPick[];
 }
 
 /**
- * 월드가 읽는 해석본. **소비자는 이것만 읽는다** — `ctx.missionIntel` 로 게시되고, `ctx.missionPlanet` 과
- * 똑같이 `game:newMission` 을 **emit 하기 전에** emitter 가 세팅한다 (동기 핸들러 안에서 읽히므로).
+ * The resolved form the world reads. **Consumers read only this** — it is published as `ctx.missionIntel` and,
+ * exactly like `ctx.missionPlanet`, the emitter sets it **before emitting** `game:newMission` (it is read inside
+ * synchronous handlers).
  */
 export interface IntelEffects {
-  /** 탈출 패드 +N. */
+  /** Extraction pads +N. */
   extractionBonus: number;
-  /** 지하실이 있는 구조물 +N. */
+  /** Structures with a basement +N. */
   basementBonus: number;
-  /** 재해 시작 +N 초. */
+  /** Hazard start +N seconds. */
   hazardDelayS: number;
-  /** > 0 이면 선로가 확정으로 서고 플랫폼이 +N. */
+  /** > 0 = the rails are guaranteed to stand and platforms are +N. */
   railPlatformBonus: number;
-  /** 탐사 차량이 반드시 선다. */
+  /** The rover is guaranteed to stand. */
   roverForce: boolean;
-  /** 지정한 네임드 적 타입 id (없으면 null = 평소대로 굴린다). */
+  /** The chosen named enemy type id (null when there is none = rolled as usual). */
   namedId: string | null;
-  /** 벌레 둥지 +N. */
+  /** Bug nests +N. */
   nestBonus: number;
 }
 
-/** 아무것도 사지 않은 상태. 소비자가 `?? NO_INTEL` 로 쓸 수 있게 얼려 둔다. */
+/** The state where nothing was bought. Frozen so a consumer can use it as `?? NO_INTEL`. */
 export const NO_INTEL: Readonly<IntelEffects> = Object.freeze({
   extractionBonus: 0,
   basementBonus: 0,
@@ -107,11 +111,12 @@ export const NO_INTEL: Readonly<IntelEffects> = Object.freeze({
 });
 
 /**
- * 단계 → 실제 보너스의 **유일한** 대응표.
+ * The **one and only** table from a tier to the real bonus.
  *
- * 지금은 전부 「단계 = 보너스 개수」인데 재해 지연만 분 단위라 곱한다. 표를 csv 로 빼지 않은 이유는
- * 이것이 밸런스 수치가 아니라 **그 줄이 무엇을 뜻하는지의 정의**이기 때문이다 — 「탈출구 +2」 라고 써 놓고
- * 다른 수를 주면 화면이 거짓말을 한다. 값(가격 · 상한)만 `data/intel_options.csv` 에 있다.
+ * Today every row is 「tier = number of bonuses」; only the hazard delay is in minutes, so it is multiplied. The
+ * table was not moved out to csv because it is not a balance number but **the definition of what that row
+ * means** — write 「탈출구 +2」 and then hand out a different number and the screen is lying. Only the values
+ * (price · ceiling) live in `data/intel_options.csv`.
  */
 export function resolveIntelEffects(picks: readonly IntelPick[] | null | undefined): IntelEffects {
   const e: IntelEffects = { ...NO_INTEL };
@@ -122,37 +127,37 @@ export function resolveIntelEffects(picks: readonly IntelPick[] | null | undefin
     switch (p.g) {
       case 'extraction': e.extractionBonus += t; break;
       case 'basement': e.basementBonus += t; break;
-      case 'hazardDelay': e.hazardDelayS += (t + 1) * 60; break;   // 1단계 = +2분, 2 = +3분, 3 = +4분
+      case 'hazardDelay': e.hazardDelayS += (t + 1) * 60; break;   // tier 1 = +2 min, 2 = +3 min, 3 = +4 min
       case 'rail': e.railPlatformBonus += t; break;
       case 'rover': e.roverForce = true; break;
       case 'named': e.namedId = typeof p.id === 'string' && p.id ? p.id : e.namedId; break;
       case 'nest': e.nestBonus += t; break;
-      default: break;                                              // 모르는 기믹(옛 세이브 · 새 클라)은 버린다
+      default: break;                                              // an unknown gimmick (an old save · a newer client) is dropped
     }
   }
   return e;
 }
 
-/* ── 가격 ────────────────────────────────────────────────────────────────── */
+/* ── Prices ──────────────────────────────────────────────────────────────── */
 
 /**
- * 가격에 필요한 전부. 클라는 `data/intel_options.csv` + `data/tables.csv` 에서, 릴레이는
- * `server/economy.gen.json` 의 `intel` 절에서 같은 모양으로 만들어 넘긴다 — 그래서 **식이 한 곳**이다.
+ * Everything the price needs. The client builds it from `data/intel_options.csv` + `data/tables.csv` and the relay
+ * from the `intel` section of `server/economy.gen.json`, in the same shape — so the **formula lives in one place**.
  */
 export interface IntelCostTable {
-  /** 기믹 → 1단계 기본 비용. 없는 기믹은 살 수 없다. */
+  /** Gimmick → its tier-1 base cost. A gimmick missing from here cannot be bought. */
   options: Record<string, { baseCost: number; maxTier: number }>;
-  /** 단계별 배수 (index 0 = 1단계). 비선형 — 같은 줄을 더 올릴수록 비싸다. */
+  /** Multiplier per tier (index 0 = tier 1). Non-linear — raising the same row further costs more. */
   tierMul: number[];
-  /** 고정한 줄 수가 늘 때마다 총합에 곱해지는 누진 배수 (`bundleMul^(N-1)`). */
+  /** Progressive multiplier applied to the total as the number of pinned rows grows (`bundleMul^(N-1)`). */
   bundleMul: number;
-  /** 행성 threat 별 배수 (index 0 = threat 1). */
+  /** Multiplier per planet threat (index 0 = threat 1). */
   threatMul: number[];
 }
 
 /**
- * 총 크레딧 비용. **비선형**은 두 군데다 — 같은 줄의 단계(`tierMul`)와 고정한 줄 수(`bundleMul^(N-1)`).
- * 사용자 결정 「많이 활성화할수록 선형이 아니게 더 많이 소모」.
+ * The total credit cost. It is **non-linear** in two places — the tier of one row (`tierMul`) and the number of
+ * pinned rows (`bundleMul^(N-1)`). User's decision 「the more rows you turn on, the more it costs, and not linearly」.
  */
 export function intelCost(planetThreat: number, picks: readonly IntelPick[], t: IntelCostTable): number {
   let sum = 0;
@@ -173,9 +178,9 @@ export function intelCost(planetThreat: number, picks: readonly IntelPick[], t: 
 }
 
 /**
- * 크레딧 사유에 실리는 압축 코드 — `intelCode([{g:'extraction',tier:2},{g:'nest',tier:1}]) === 'x2g1'`.
- * `INTEL_GIMMICKS` 순서로 정렬하므로 같은 선택이면 **언제나 같은 문자열**이다 (서버가 재계산해 맞춰 본다).
- * `named` 의 적 id 는 **싣지 않는다** — 가격에 영향이 없고 64자 예산을 먹는다.
+ * The compact code that goes into the credit reason — `intelCode([{g:'extraction',tier:2},{g:'nest',tier:1}]) === 'x2g1'`.
+ * It sorts by `INTEL_GIMMICKS` order, so the same picks are **always the same string** (the server recomputes it
+ * and compares). The enemy id of `named` is **not carried** — it has no effect on the price and eats the 64-character budget.
  */
 export function intelCode(picks: readonly IntelPick[]): string {
   const byG = new Map<IntelGimmick, number>();
@@ -191,7 +196,7 @@ export function intelCode(picks: readonly IntelPick[]): string {
   return out;
 }
 
-/** `intelCode` 의 역. 모양이 틀리면 null (서버가 받는 값이라 관대하게 굴지 않는다). */
+/** The inverse of `intelCode`. null when the shape is wrong (the server receives this value, so it is not lenient). */
 export function parseIntelCode(code: string): IntelPick[] | null {
   if (typeof code !== 'string' || code.length === 0 || code.length > 2 * INTEL_GIMMICKS.length) return null;
   if (code.length % 2 !== 0) return null;
@@ -208,9 +213,12 @@ export function parseIntelCode(code: string): IntelPick[] | null {
   return picks;
 }
 
-/* ── 저장 · 와이어 위생 ──────────────────────────────────────────────────── */
+/* ── Save · wire hygiene ─────────────────────────────────────────────────── */
 
-/** 프로필 문서 · 로비 상태 · `game:start` 에서 온 값을 믿기 전에 지난다. 모양이 아니면 null. */
+/**
+ * Passed through before a value from a profile document · lobby state · `game:start` is trusted. null when it is
+ * not the right shape.
+ */
 export function sanitizeIntelSpec(raw: unknown): IntelSpec | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Partial<IntelSpec>;
@@ -221,7 +229,10 @@ export function sanitizeIntelSpec(raw: unknown): IntelSpec | null {
   return { planet: r.planet as PlanetId, seed: Math.floor(r.seed), picks };
 }
 
-/** 줄 목록만 씻는다 (같은 기믹 중복 제거 · 단계 클램프 · 모르는 기믹 폐기 · `INTEL_GIMMICKS` 순서로 정렬). */
+/**
+ * Washes the row list alone (duplicate gimmicks dropped · tiers clamped · unknown gimmicks discarded · sorted into
+ * `INTEL_GIMMICKS` order).
+ */
 export function sanitizeIntelPicks(raw: unknown): IntelPick[] {
   if (!Array.isArray(raw)) return [];
   const byG = new Map<IntelGimmick, IntelPick>();
@@ -240,7 +251,7 @@ export function sanitizeIntelPicks(raw: unknown): IntelPick[] {
   return out;
 }
 
-/** 두 보유 정보가 같은가 (문서 비교 · 저장 debounce 용). */
+/** Are the two held intels equal (document comparison · save debounce). */
 export function intelSpecEqual(a: IntelSpec | null, b: IntelSpec | null): boolean {
   if (!a || !b) return a === b;
   if (a.planet !== b.planet || a.seed !== b.seed) return false;

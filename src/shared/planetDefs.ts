@@ -1,9 +1,9 @@
 /**
- * 행성 정의표 — 수치의 원본은 `data/planets.csv` 다.
+ * Planet definition table — the source of the numbers is `data/planets.csv`.
  *
- * `planets.ts` 와 갈라져 있는 이유: 릴레이 서버(`server/`)가 `planets.ts` 를 **Node 에서 직접** 실행한다
- * (`isPlanetId` 하나 때문에). 이 파일은 csv 를 읽으므로 Vite 번들 안에서만 살 수 있고, 서버는 여기를
- * 건드리지 않는다. 두 파일 모두 `@/shared` 배럴로 나가므로 게임 코드에서는 차이가 보이지 않는다.
+ * Why it is split from `planets.ts`: the relay server (`server/`) runs `planets.ts` **directly in Node** (for
+ * `isPlanetId` alone). This file reads csv, so it can only live inside the Vite bundle, and the server never
+ * touches it. Both files go out through the `@/shared` barrel, so game code sees no difference.
  */
 import type { EnemyType, EnvKind, HazardKind } from './types';
 import { ENV_KINDS, HAZARD_KINDS } from './types';
@@ -36,13 +36,13 @@ export interface PlanetDef {
   terrain: string;
   /** One-line Korean brief at the terminal. */
   brief: string;
-  /** 위협 등급 1..3. A terminal badge only: the real ramp is still mission time (`setThreatLevel`). */
+  /** Threat rating 1..3. A terminal badge only: the real ramp is still mission time (`setThreatLevel`). */
   threat: 1 | 2 | 3;
   /** `world/biomes.ts` `Biome.id` this planet's ground uses. */
   biome: string;
   /** `core/Sky.ts` `SkyPalette.name` this planet's sky uses. */
   sky: string;
-  /** false = 포그 없는 맑은 하늘: core forces `fog.density = 0` and backs the sky with its horizon colour. */
+  /** false = a clear sky with no fog: core forces `fog.density = 0` and backs the sky with its horizon colour. */
   fog: boolean;
   /** Multiplier on the sky palette's own `fogDensity` while `fog` (1 = exactly as the palette ships it). */
   fogMul: number;
@@ -51,16 +51,18 @@ export interface PlanetDef {
   hologramAtmo: number;
   eco: PlanetEcosystem;
   /**
-   * appended (2026-09-09): 이 행성에서 일어날 수 있는 **환경 재해 후보**. 레이드마다 미션 시드로 그중 하나를 뽑는다
-   * (`data/planets.csv` 의 `hazards` 열, `|` 로 이어 쓴다). 빈 칸 = 재해 없는 행성 (`WorldRef.hazard` 가 null).
-   * 모르는 이름은 조용히 버린다 — 한 줄의 오타가 레이드를 깨지 않게.
+   * appended (2026-09-09): the **environmental hazard candidates** of this planet. A raid draws one of them from
+   * the mission seed (the `hazards` column of `data/planets.csv`, joined with `|`). Empty = a planet with no
+   * hazard (`WorldRef.hazard` is null). An unknown name is dropped silently — one typo in a row must not break
+   * a raid.
    */
   hazards: readonly HazardKind[];
   /**
-   * appended (연구실 A-13, 2026-09-11, 사용자 결정): 이 행성의 **상시 환경**. `data/planets.csv` 의 `env` 열이고
-   * 빈 칸(= 대부분의 행성)이면 null 이다. 맞는 준비물(`ItemDef.prep`) 없이 레이드에 있으면 `PLANET_ENV_DPS` 로
-   * 체력이 계속 깎인다 — 들어가는 것 자체는 막지 않는 **소프트 게이트**이고, 준비물이 있으면 100 % 상쇄된다.
-   * 지금은 threat 3 두 곳뿐이다 (피로스 VII 고온 · 카민 I 유독).
+   * appended (lab A-13, 2026-09-11, user's decision): this planet's **permanent environment** — the `env` column
+   * of `data/planets.csv`, null when the cell is empty (= most planets). Being in a raid without the matching
+   * preparation (`ItemDef.prep`) keeps draining hp at `PLANET_ENV_DPS` — a **soft gate** that never blocks entry
+   * itself, and a preparation cancels it 100 %. Today only two threat-3 planets have one (`피로스 VII` heat ·
+   * `카민 I` toxic).
    */
   env: EnvKind | null;
 }
@@ -115,17 +117,18 @@ export function planetLabel(id: PlanetId | null | undefined): string {
 }
 
 /**
- * appended (2026-09-16): **이번 임무의** 행성 이름 — 튜토리얼(`ctx.missionMode === 'tutorial'`)이면 `TUTORIAL_PLANET_LABEL`, 아니면 `planetLabel`.
- * 결과 화면(탈출 · 전사)이 읽는다. 인자가 모드 문자열인 이유: 이 파일은 서버도 읽어 `GameContext` 를 import 하지 않는다.
+ * appended (2026-09-16): **this mission's** planet name — `TUTORIAL_PLANET_LABEL` for the tutorial
+ * (`ctx.missionMode === 'tutorial'`), else `planetLabel`. Read by the result screens (extraction · death). Why the
+ * argument is a mode string: the server reads this file too, so it does not import `GameContext`.
  */
 export function missionPlanetLabel(mode: string | null | undefined, id: PlanetId | null | undefined): string {
   return mode === 'tutorial' ? TUTORIAL_PLANET_LABEL : planetLabel(id);
 }
 
 /**
- * appended (2026-09-09): **행성 난이도 순번 1..5** — `data/planets.csv` 의 줄 순서가 곧 난이도 순서다
- * (1 = 아켈론 II … 5 = 카민 I). 무기 등급 드롭 곡선(`data/planet_loot.csv`)이 이 번호로 줄을 찾는다.
- * 행성을 고르지 않았으면 1 (가장 앞 행성과 같은 취급 — 가장 짠 곡선).
+ * appended (2026-09-09): **planet difficulty rank 1..5** — the row order of `data/planets.csv` *is* the difficulty
+ * order (1 = `아켈론 II` … 5 = `카민 I`). The weapon-grade drop curve (`data/planet_loot.csv`) finds its row by
+ * this number. With no planet selected it is 1 (treated like the first planet — the stingiest curve).
  */
 export function planetTier(id: PlanetId | null | undefined): number {
   const i = id == null ? -1 : PLANET_IDS.indexOf(id);
@@ -133,13 +136,13 @@ export function planetTier(id: PlanetId | null | undefined): number {
 }
 
 /**
- * appended (2026-09-13): **적 난이도 = 행성 threat 1..3** (사용자 결정). 어떤 인간형 팩션이 나오는지를 정한다 —
- * 1 = 안드로이드 · 2 = 로그 / 레이더 · 3 = 레이더만 (`enemies/` 의 거점 배치 · 레이더 강하 · 네임드).
- * 행성을 고르지 않았거나 모르는 id 면 1.
+ * appended (2026-09-13): **enemy difficulty = the planet's threat 1..3** (user's decision). It decides which
+ * humanoid faction appears — 1 = android · 2 = rogue / raider · 3 = raider only (`enemies/` site occupation ·
+ * raider drops · named). 1 with no planet selected or for an unknown id.
  */
 export function planetThreat(id: PlanetId | null | undefined): 1 | 2 | 3 {
   return getPlanet(id)?.threat ?? 1;
 }
 
-/** 위협 등급 badge text, indexed by `PlanetDef.threat`. */
+/** Threat rating badge text, indexed by `PlanetDef.threat`. */
 export const PLANET_THREAT_LABELS: readonly string[] = ['', '위협 낮음', '위협 보통', '위협 높음'];

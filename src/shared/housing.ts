@@ -1,37 +1,37 @@
 import type { CraftIngredient } from './gear';
 import { costLevels, csvRows, keyTable, numberList } from './data/tables';
 
-/* 함선 꾸미기 수치의 원본: 가구는 `data/furniture.csv` + `data/furniture_upgrades.csv`,
- * 방 용도 증축 비용은 `data/room_purposes.csv`, 발전기 요구 레벨은 `data/tuning.csv` 다. */
+/* Source of the ship decoration numbers: furniture is `data/furniture.csv` + `data/furniture_upgrades.csv`,
+ * the room purpose build cost is `data/room_purposes.csv`, and the required generator level is `data/tuning.csv`. */
 const T = /* data/tuning.csv */ keyTable('tuning.csv');
 import type { ImplantId } from './implants';
 import type { SkillId } from './progression';
 import type { EmbeddedView, SoilTag } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Ship housing (함선 꾸미기, 2026-09-06). Owner: housing/HousingSystem publishes `ctx.housing` and persists the
+ * Ship housing (ship decoration, 2026-09-06). Owner: housing/HousingSystem publishes `ctx.housing` and persists the
  * ShipState in localStorage (SHIP_STORAGE_KEY). The personal ship is cockpit → corridor → 10 rooms (5 per side) →
  * airlock (shared-ship entrance when docked). hub/ builds the geometry, converts room cells ↔ world positions,
  * renders placed furniture and runs the housing-mode camera / cursor; housing/ owns every rule and number.
  *
  * Framework scope (this session): room purposes, generator / storage facilities, housing mode (grid placement, 90°
- * yaw, recover → furniture storage), the 작업실 (4 upgradeable benches + repair) and the 시뮬레이션실 (옛 사격장 — loadout presets,
+ * yaw, recover → furniture storage), the 작업실 (4 upgradeable benches + repair) and the 시뮬레이션실 (formerly 사격장 — loadout presets,
  * gun-skill gain bonus). The other 7 purposes can be assigned and decorated but have no mechanics yet.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export type RoomPurpose =
   | 'empty'       // 빈 방
   | 'workshop'    // 작업실
-  | 'range'       // 시뮬레이션실 (2026-09-12: 사격장에서 이름만 바뀌었다 — id 는 그대로)
+  | 'range'       // 시뮬레이션실 (2026-09-12: only the name changed from 사격장 — the id stays)
   | 'gym'         // 헬스장
   | 'library'     // 서재
   | 'greenhouse'  // 온실
   | 'lab'         // 연구실 (requires greenhouse)
   | 'kitchen'     // 주방
-  | 'mining'      // 암호화폐 채굴 시설 (2026-09-12: 채굴 시설에서 이름만 바뀌었다)
-  | 'lounge'      // 휴식 공간 (2026-09-12: 더 이상 지을 수 없다 — 서재에 합쳐졌다)
-  /* appended (2026-09-12): 조종석. `ShipState.rooms` 에 들어가지 않는 **고정 공간**이고 방 번호는
-     `COCKPIT_ROOM_INDEX` 다. 용도를 바꾸거나 제거할 수 없으며 `'any'`(공용) 가구만 놓인다. */
+  | 'mining'      // 암호화폐 채굴 시설 (2026-09-12: only the name changed from 채굴 시설)
+  | 'lounge'      // 휴식 공간 (2026-09-12: can no longer be built — merged into 서재)
+  /* appended (2026-09-12): the cockpit. A **fixed space** that never enters `ShipState.rooms`, and its room number is
+     `COCKPIT_ROOM_INDEX`. Its purpose cannot be changed and it cannot be removed; only `'any'` (shared) furniture is placed in it. */
   | 'cockpit';
 
 export const ROOM_PURPOSES: readonly RoomPurpose[] = [
@@ -49,12 +49,12 @@ export const ROOM_PURPOSE_DESC_KO: Readonly<Record<RoomPurpose, string>> = {
   workshop: '총기 · 장비 · 가젯 · 의학 작업대를 설치해 제작과 수리를 합니다.',
   range: '관물대로 로드아웃 프리셋을 관리하고, 시뮬레이션 허브로 훈련장에 들어가 사격 숙련 상승량을 높입니다.',
   gym: '벤치 랙 · 스미스 머신으로 근력을, 트레드밀 · 사이클로 지구력을 단련합니다. 운동한 능력치는 한동안 근육통 · 심폐 피로로 더 오르지 않습니다.',
-  /* 2026-09-12 (사용자 결정): 휴식 공간이 서재에 합쳐졌다 — 휴식 공간에 들어갈 것(TV · 스피커 …)은 이제 서재에 놓인다. */
+  /* 2026-09-12 (user's decision): 휴식 공간 was merged into 서재 — what belonged in 휴식 공간 (TV · speakers …) is now placed in 서재. */
   library: '책장 · 디스크 전시대 · 레코드랙에 책 · 디스크 · 레코드를 꽂으면 그 숙련의 상승량이 늘어납니다. 흔들의자 · TV · 턴테이블 같은 가구를 곁에 두면 더 늘어납니다. 꽂아 본 것은 도감에 남습니다.',
   greenhouse: '재배층을 설치하고 씨앗을 심어 현실 시간에 맞춰 약초를 재배합니다.',
   lab: '분석기로 미확인 표본을 해석하고, 추출기 · 조합대로 성분을 뽑아 준비물을 만듭니다. 온실이 먼저 필요합니다.',
   kitchen: '조리대로 작물과 배양 산물을 요리하고, 식탁에서 먹어 다음 레이드 버프를 얻습니다. 온실이 먼저 필요합니다.',
-  /* 2026-09-13: 채굴이 들어왔다 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) */
+  /* 2026-09-13: mining arrived (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) */
   mining: '연산 클러스터에 연산 코어를 꽂아 암호화폐를 채굴합니다. 메인 컴퓨터에서 클러스터 현황 · 지갑 · 거래소를 확인합니다.',
   lounge: 'TV · 스피커로 비디오와 Vinyl 을 재생합니다. (서재에 합쳐졌습니다)',
   cockpit: '함선의 조종석입니다. 공용 가구를 놓을 수 있고, 용도를 바꾸거나 제거할 수 없습니다.',
@@ -86,33 +86,33 @@ export const ROOM_PURPOSE_BUILD_COST: Readonly<Record<RoomPurpose, readonly { de
   Object.fromEntries(csvRows('room_purposes.csv').map((r) => [r.str('purpose'), r.costList('cost')])) as Record<RoomPurpose, { defId: string; qty: number }[]>;
 
 /**
- * Generator level a 시설 증축 needs **by default**. 2026-09-13 (사용자 결정 — 전력 할당 폐지): each purpose names its own level in
+ * Generator level a 시설 증축 needs **by default**. 2026-09-13 (user's decision — power allocation dropped): each purpose names its own level in
  * `data/room_purposes.csv` (`generator`); this value is only the fallback for an empty cell. Read `purposeGeneratorLevel`.
  */
 export const ROOM_PURPOSE_BUILD_GENERATOR_LEVEL = T.num('ROOM_PURPOSE_BUILD_GENERATOR_LEVEL');
 
 /**
- * appended (2026-09-13, 사용자 결정 — 발전기 = 상위 시설의 증축 조건): 용도별 증축에 필요한 발전기 레벨 (`data/room_purposes.csv` 의 `generator`,
- * 빈 칸 = `ROOM_PURPOSE_BUILD_GENERATOR_LEVEL`). Lv.1 작업실 · Lv.2 온실 · 주방 · Lv.3 연구실 · Lv.4 헬스장 · 서재 · Lv.5 채굴 시설.
- * 발전기가 이 레벨보다 낮은 함선에 이미 있던 시설은 `housing/ShipState` 가 로드할 때 제거하고 전액 돌려준다.
+ * appended (2026-09-13, user's decision — the generator = the build condition of the higher facilities): the generator level a purpose needs to be built (`generator` in `data/room_purposes.csv`,
+ * an empty cell = `ROOM_PURPOSE_BUILD_GENERATOR_LEVEL`). Lv.1 작업실 · Lv.2 온실 · 주방 · Lv.3 연구실 · Lv.4 헬스장 · 서재 · Lv.5 채굴 시설.
+ * A facility already standing on a ship whose generator is below that level is removed on load by `housing/ShipState` and refunded in full.
  */
 export const ROOM_PURPOSE_GENERATOR_LEVEL: Readonly<Partial<Record<RoomPurpose, number>>> = Object.fromEntries(
   csvRows('room_purposes.csv').map((r) => [r.str('purpose'), r.int('generator', { min: 1, fallback: ROOM_PURPOSE_BUILD_GENERATOR_LEVEL })]),
 ) as Partial<Record<RoomPurpose, number>>;
 
-/** appended (2026-09-13): `purpose` 를 증축하는 데 필요한 발전기 레벨 (빈 방 = 0). */
+/** appended (2026-09-13): the generator level needed to build `purpose` (빈 방 = 0). */
 export function purposeGeneratorLevel(purpose: RoomPurpose): number {
   if (purpose === 'empty') return 0;
   return ROOM_PURPOSE_GENERATOR_LEVEL[purpose] ?? ROOM_PURPOSE_BUILD_GENERATOR_LEVEL;
 }
 
 /** Purposes with mechanics in this build; the rest are decoration-only. (Phase 8 appended `greenhouse`.) */
-export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'greenhouse', 'library', 'lab', 'kitchen', 'gym', 'mining'];   // 2026-09-13 appended `mining` (암호화폐 채굴)   // 2026-09-12 appended `gym` (A-3a);   // Phase 9 appended `library`; 2026-09-11 appended `lab` (A-12 · A-13) then `kitchen` (A-3c); 2026-09-12 dropped `range` (시뮬레이션실 제거)
+export const ROOM_PURPOSES_ACTIVE: readonly RoomPurpose[] = ['empty', 'workshop', 'greenhouse', 'library', 'lab', 'kitchen', 'gym', 'mining'];   // 2026-09-13 appended `mining` (암호화폐 채굴)   // 2026-09-12 appended `gym` (A-3a);   // Phase 9 appended `library`; 2026-09-11 appended `lab` (A-12 · A-13) then `kitchen` (A-3c); 2026-09-12 dropped `range` (시뮬레이션실 removed)
 
 /**
- * appended (2026-09-12, 사용자 결정): **빈 방이 될 수 있는 용도** — 시설 증축 목록이 그리는 것은 이것뿐이다.
- * `ROOM_PURPOSES` 는 옛 세이브를 읽으려고 `range`(시뮬레이션실) · `lounge`(휴식 공간, 서재에 합쳐졌다)를 그대로 갖지만
- * 둘 다 여기에는 없다. `empty` 와 `cockpit` 도 없다 (빈 방은 「시설 제거」의 결과이고 조종석은 방이 아니다).
+ * appended (2026-09-12, user's decision): **the purposes an empty room may become** — this is all the 시설 증축 list draws.
+ * `ROOM_PURPOSES` still holds `range` (시뮬레이션실) · `lounge` (휴식 공간, merged into 서재) so that old saves can be read,
+ * but neither is here. `empty` and `cockpit` are not either (a 빈 방 is what 「시설 제거」 leaves behind, and the cockpit is not a room).
  */
 export const ROOM_PURPOSES_ASSIGNABLE: readonly RoomPurpose[] = ['workshop', 'gym', 'library', 'greenhouse', 'lab', 'kitchen', 'mining'];
 
@@ -126,10 +126,10 @@ export const WORKSHOP_ROOM_INDEX = 0;
 
 /**
  * Upgradeable facilities that are not furniture.
- * **2026-09-12 (사용자 결정 — 방 시설 레벨 제거):** only `generator` / `storage` still have levels. `workshop` /
+ * **2026-09-12 (user's decision — room facility levels removed):** only `generator` / `storage` still have levels. `workshop` /
  * `range` stay in the union (contract is append-only; `getFacility('range')` still answers "is there such a room")
  * but their `maxLevel` is 1 and `upgrade()` refuses them — upgrades live on the furniture inside the room now
- * (작업대 · 관물대 = 프리셋 슬롯 · 시뮬레이션 허브 = 사격 숙련 상승).
+ * (workbench · locker cabinet = preset slots · simulation hub = gun skill gain).
  */
 export type FacilityId = 'generator' | 'storage' | 'workshop' | 'range';
 
@@ -146,30 +146,30 @@ export const FACILITY_COLOR: Readonly<Record<FacilityId, string>> = {
 };
 
 /**
- * The 작업실 benches. **appended (2026-09-10): `'refine'` — 정제 작업대.**
+ * The workshop benches. **appended (2026-09-10): `'refine'` — the refining workbench.**
  *
- * 상위 재료(합금 판 · 강화합금 잉곳 · 기계 부품 · 축전 모듈 · 제어 모듈 · 강화 직조포 · 복합 방탄섬유)는
- * 여기서만 만든다 — 현장 빠른제작이 없는 유일한 계열이고, 고등급 장비 레시피가 그 재료를 요구하므로
- * 정제 작업대가 후반 제작의 관문이다. 나머지 넷의 동작은 한 줄도 바뀌지 않는다.
+ * The higher materials (alloy plate · reinforced alloy ingot · machine part · capacitor module · control module · reinforced weave · composite ballistic fibre)
+ * are made only here — the one family with no field quick-craft, and since high-grade gear recipes ask for those materials
+ * the refining workbench is the gateway to late-game crafting. Not one line of the other four's behaviour changes.
  */
 export type WorkbenchKind = 'gun' | 'gear' | 'gadget' | 'medical' | 'refine' | 'extract' | 'mixer' | 'cook' | 'print';
 export const WORKBENCH_KINDS: readonly WorkbenchKind[] = ['gun', 'gear', 'gadget', 'medical', 'refine', 'extract', 'mixer', 'cook', 'print'];
 export const WORKBENCH_LABEL_KO: Readonly<Record<WorkbenchKind, string>> = {
-  /* 2026-09-12 (사용자 결정): `refine` 의 이름만 '정제 작업대' → '가공 작업대'. kind 는 계약이라 그대로다. */
+  /* 2026-09-12 (user's decision): only `refine`'s name changed, '정제 작업대' → '가공 작업대'. The kind is a contract, so it stays. */
   gun: '총기 작업대', gear: '장비 작업대', gadget: '가젯 작업대', medical: '의학 작업대', refine: '가공 작업대',
   extract: '추출기', mixer: '조합대',
-  /* appended (A-3c · A-15, 2026-09-11): 조리대는 주방, 프린터는 연구실 */
+  /* appended (A-3c · A-15, 2026-09-11): the 조리대 belongs to the 주방, the printer to the 연구실 */
   cook: '조리대', print: '3D 프린터',
 };
 /**
- * appended (2026-09-10): 작업대 글리프. 같은 글자가 `inventory/ui/labels`(제작 탭)와
- * `ui/hud/ShipManage`(가구 카드) **두 폴더에 복사돼** 있었다 — 한쪽만 고치면 같은 작업대가 두 화면에서
- * 다른 그림이 된다. CLAUDE.md 의 「같은 것을 두 폴더가 쓰면 `shared` 로 뽑는다」 그대로 여기가 원본이다.
- * 외부 에셋 금지 규약대로 아이콘은 유니코드 한 글자다.
+ * appended (2026-09-10): workbench glyphs. The same characters were **copied into two folders** —
+ * `inventory/ui/labels` (the craft tab) and `ui/hud/ShipManage` (the furniture card) — so fixing one side left the same
+ * workbench drawn differently on the two screens. Exactly as CLAUDE.md's 「what two folders use moves to `shared`」 says, this is the original.
+ * Following the no-external-assets rule the icon is one Unicode character.
  */
 export const WORKBENCH_ICON: Readonly<Record<WorkbenchKind, string>> = {
   gun: '⚒', gear: '⛭', gadget: '⚙', medical: '✚', refine: '⌘',
-  /* appended (연구실 A-13, 2026-09-11): 추출기 · 조합대는 연구실 방(`lab`)에 놓이는 작업대다 */
+  /* appended (lab A-13, 2026-09-11): the extractor · mixer are benches that stand in the lab room (`lab`) */
   extract: '⧗', mixer: '⚛',
   /* appended (A-3c · A-15, 2026-09-11): 조리대는 주방(`kitchen`), 프린터는 연구실(`lab`) */
   cook: '♨', print: '⎔',
@@ -178,75 +178,75 @@ export const WORKBENCH_ICON: Readonly<Record<WorkbenchKind, string>> = {
 /** Procedural furniture models hub/ knows how to build (no asset files). */
 export type FurnitureModelKind =
   | 'bench_gun' | 'bench_gear' | 'bench_gadget' | 'bench_medical'
-  | 'bench_refine'   // appended (2026-09-10): 정제 작업대 — 상위 재료 전용
+  | 'bench_refine'   // appended (2026-09-10): 정제 작업대 — higher materials only
   | 'range_console' | 'target_lane'
   | 'sim_hub'   // appended (Phase 7): 시뮬레이션 허브 — holo pedestal in the 시뮬레이션실
   /* appended (Phase 8): 온실 재배층 (stackable grow rack) and the 정비 벤치 moved out of the cockpit */
   | 'grow_rack' | 'repair_bench'
   | 'bookshelf'   // appended (Phase 9): 서재 책장 — the builder reads the shelved count and fills the shelves
   | 'grow_station' // appended (온실 개편, 2026-09-11): 재배 스테이션 — the builder reads `level` and shows 1 / 2 / 3 재배층
-  /* appended (연구실, 2026-09-11): 분석기는 `level` 만큼 해석 칸의 불이 켜진다; 추출기 · 조합대는 평범한 작업대 몸체 */
+  /* appended (연구실, 2026-09-11): the 분석기 lights up as many analysis slots as its `level`; 추출기 · 조합대 are ordinary bench bodies */
   | 'analyzer' | 'bench_extract' | 'bench_mixer'
-  /* appended (주방 · 배양조 · 프린터, 2026-09-11): 배양조는 `level` 만큼 배양관이 켜진다 (분석기와 같은 방식) */
+  /* appended (주방 · 배양조 · 프린터, 2026-09-11): the 배양조 lights up as many culture tubes as its `level` (the same way as the 분석기) */
   | 'bench_cook' | 'dining_table' | 'culture_tank' | 'bench_print'
   | 'locker' | 'table' | 'shelf' | 'crate' | 'lamp' | 'plant' | 'chair' | 'bunk'
-  /* appended (2026-09-12): 조종석의 고정 설비였던 전술 임플란트 시술대 · 함선 컴퓨터가 공용 시설 가구가 됐다 */
+  /* appended (2026-09-12): the 전술 임플란트 시술대 · 함선 컴퓨터, once fixed cockpit fittings, became shared facility furniture */
   | 'implant_bay' | 'corp_computer'
-  /* appended (2026-09-12, A-3e): 서재 매체 보관함 2종 + 보조 가구 5종 (축음기 · 주크박스 · 턴테이블은 외형만 다른 한 역할) */
+  /* appended (2026-09-12, A-3e): 2 library media holders + 5 aux pieces (축음기 · 주크박스 · 턴테이블 are one role with different looks) */
   | 'disc_stand' | 'record_rack' | 'rocking_chair' | 'tv' | 'gramophone' | 'jukebox' | 'turntable'
-  /* appended (2026-09-12, A-3a): 헬스장 운동 기구 4종 */
+  /* appended (2026-09-12, A-3a): the 4 pieces of 헬스장 equipment */
   | 'bench_rack' | 'smith_machine' | 'treadmill' | 'exercise_bike'
-  /* appended (2026-09-13): 조종석의 고정 소품이던 서랍장(창고 캐비닛)이 꾸밈 가구 `furn_drawer` 가 됐다 */
+  /* appended (2026-09-13): the 서랍장 (창고 캐비닛), once a fixed cockpit prop, became the decoration piece `furn_drawer` */
   | 'drawer'
-  /* appended (2026-09-13, 요리 미니게임): 주방의 자동 조리 가구 4종 — 푸드 프로세서 · 자동 그릴 · 자동 교반기 · 계량 디스펜서 (`level` 만큼 표시등) */
+  /* appended (2026-09-13, cooking minigames): the 주방's 4 auto-cook appliances — 푸드 프로세서 · 자동 그릴 · 자동 교반기 · 계량 디스펜서 (as many indicator lights as its `level`) */
   | 'food_processor' | 'auto_grill' | 'auto_stirrer' | 'pour_dispenser'
-  /* appended (2026-09-13, 암호화폐 채굴 — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」): 연산 클러스터(코어 칸 9개, 꽂힌 수만큼 점등) · 메인 컴퓨터 */
+  /* appended (2026-09-13, crypto mining — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」): 연산 클러스터 (9 core slots, one lit per core inserted) · 메인 컴퓨터 */
   | 'compute_cluster' | 'mining_computer'
-  /* appended (2026-09-13, 서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): 게임 디스크 전시대 · 쇼파 · 좌식 테이블 · 러그 */
+  /* appended (2026-09-13, library series · video games — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): 게임 디스크 전시대 · 쇼파 · 좌식 테이블 · 러그 */
   | 'game_stand' | 'sofa' | 'low_table' | 'rug';
 
 /** What E does on a placed piece. */
 export type FurnitureInteraction =
   | 'none'
   | 'workbench_gun' | 'workbench_gear' | 'workbench_gadget' | 'workbench_medical'  // → ctx.inventory.openBenchCraft(kind)
-  | 'workbench_refine'                                                            // appended (2026-09-10) → 같은 길, kind 'refine'
-  | 'range_console'                                                               // 은퇴 (2026-09-12 — 관물대 · 프리셋 기능 제거). E 상호작용 없음
-  | 'sim_hub'                                                                     // appended (Phase 7) → hub starts / joins the 시뮬레이션 훈련장
+  | 'workbench_refine'                                                            // appended (2026-09-10) → the same road, kind 'refine'
+  | 'range_console'                                                               // retired (2026-09-12 — the locker cabinet · presets removed). No E interaction
+  | 'sim_hub'                                                                     // appended (Phase 7) → hub starts / joins the simulation training range
   /* appended (Phase 8) */
-  | 'grow_rack'                                                                   // → ctx.housing.openGrowMenu(uid): 씨앗 심기 / 수확
-  | 'repair_bench'                                                                // → the 정비 벤치 repair menu (hub/WorkbenchMenu), no longer built into the cockpit
+  | 'grow_rack'                                                                   // → ctx.housing.openGrowMenu(uid): plant a seed / harvest
+  | 'repair_bench'                                                                // → the repair bench menu (hub/WorkbenchMenu), no longer built into the cockpit
   /* appended (Phase 9) */
-  | 'bookshelf'                                                                   // → ctx.housing.openBookshelfMenu(uid): 책 꽂기 / 빼기 / 도감
-  /* appended (온실 개편, 2026-09-11) */
-  | 'grow_station'                                                                // → ctx.housing.openGrowStation(uid): 토양 채우기 / 씨앗 심기 / 수확
-  /* appended (연구실, 2026-09-11) */
-  | 'workbench_extract' | 'workbench_mixer'                                       // → 같은 길, kind 'extract' / 'mixer' (benchKindOf 가 접두사로 푼다)
-  | 'analyzer'                                                                    // → ctx.housing.openAnalyzer(uid): 표본 넣기 / 해석 회수 / 해석 도감
-  /* appended (주방 · 배양조 · 프린터, 2026-09-11) */
-  | 'workbench_cook' | 'workbench_print'                                          // → 같은 길, kind 'cook' / 'print'
-  | 'dining_table'                                                                // → ctx.housing.openDiningTable(uid): 먹기 / (공유 함선이면) 분대에 차리기
-  | 'culture_tank'                                                                // → ctx.housing.openCultureTank(uid): 배지 붓기 / 세포주 넣기 / 수확
-  /* appended (2026-09-12) — 공용 시설 가구 */
-  | 'implant_bay'                                                                 // → Tab 화면 (임플란트 칸) — 옛 `hub_implant_bay` 와 같은 길
-  | 'corp_computer'                                                               // → 기업 네트워크 (`ctx.meta.openCorpMenu()`) — 옛 `hub_computer` 와 같은 길
-  /* appended (2026-09-12, A-3e) — 서재 매체 */
-  | 'disc_stand' | 'record_rack'                                                  // → ctx.housing.openShelf(uid): 디스크 · 레코드 꽂기 / 빼기 / 도감 (책장과 같은 결의 화면)
-  | 'rocking_chair'                                                               // → ctx.player.setFurniturePose({kind:'sit', releaseOnInteract:true}) — 앉기 토글. 배치만으로 책 몫 보너스
-  | 'tv' | 'record_player'                                                        // → ctx.housing.toggleFurniture(uid): 화면 · 조명 켜기/끄기 (광원 없음). 배치만으로 디스크 · 레코드 몫 보너스
-  /* appended (2026-09-12, A-3a) — 헬스장 (`GYM_EQUIPMENT`) */
-  | 'gym_bench_press' | 'gym_smith' | 'gym_treadmill' | 'gym_cycle'             // → ctx.housing.startGymSession(uid): 미니게임
+  | 'bookshelf'                                                                   // → ctx.housing.openBookshelfMenu(uid): shelve / take out a book / the catalogue
+  /* appended (greenhouse rework, 2026-09-11) */
+  | 'grow_station'                                                                // → ctx.housing.openGrowStation(uid): fill soil / plant a seed / harvest
+  /* appended (lab, 2026-09-11) */
+  | 'workbench_extract' | 'workbench_mixer'                                       // → the same road, kind 'extract' / 'mixer' (benchKindOf resolves it from the prefix)
+  | 'analyzer'                                                                    // → ctx.housing.openAnalyzer(uid): insert a sample / collect an analysis / the analysis catalogue
+  /* appended (kitchen · culture tank · printer, 2026-09-11) */
+  | 'workbench_cook' | 'workbench_print'                                          // → the same road, kind 'cook' / 'print'
+  | 'dining_table'                                                                // → ctx.housing.openDiningTable(uid): eat / (in the shared ship) serve the squad
+  | 'culture_tank'                                                                // → ctx.housing.openCultureTank(uid): pour a medium / insert a strain / harvest
+  /* appended (2026-09-12) — shared facility furniture */
+  | 'implant_bay'                                                                 // → the Tab screen (implant slots) — the same road as the old `hub_implant_bay`
+  | 'corp_computer'                                                               // → the corporate network (`ctx.meta.openCorpMenu()`) — the same road as the old `hub_computer`
+  /* appended (2026-09-12, A-3e) — library media */
+  | 'disc_stand' | 'record_rack'                                                  // → ctx.housing.openShelf(uid): shelve / take out a disc · record / the catalogue (a screen of the same grain as the bookshelf)
+  | 'rocking_chair'                                                               // → ctx.player.setFurniturePose({kind:'sit', releaseOnInteract:true}) — a sit toggle. Placing it alone gives the book share bonus
+  | 'tv' | 'record_player'                                                        // → ctx.housing.toggleFurniture(uid): screen · light on/off (no light source). Placing it alone gives the disc · record share bonus
+  /* appended (2026-09-12, A-3a) — the gym (`GYM_EQUIPMENT`) */
+  | 'gym_bench_press' | 'gym_smith' | 'gym_treadmill' | 'gym_cycle'             // → ctx.housing.startGymSession(uid): the minigame
   /*
-   * appended (2026-09-13, 요리 미니게임 — `shared/cooking`): 자동 조리 가구 4종 (`COOK_APPLIANCE_GAMES`). 배치만으로 조리 단계의 「자동」 을 연다.
-   * E → `ctx.housing.openCookStation(<함선의 조리대 uid>)` (조리대가 없으면 토스트). ⚠ 같은 날부터 **`workbench_cook` 의 E 도 인벤토리 제작 창이 아니라
-   * `ctx.housing.openCookStation(uid)`** 다 (`benchKindOf` 는 그대로 'cook' 을 돌려준다 — 레벨 · 레시피 게이트가 그 이름을 쓴다).
+   * appended (2026-09-13, cooking minigames — `shared/cooking`): the 4 auto-cook appliances (`COOK_APPLIANCE_GAMES`). Placing one alone opens 「자동」 for that cooking step.
+   * E → `ctx.housing.openCookStation(<uid of the ship's cook bench>)` (a toast when there is no cook bench). ⚠ From the same day **`workbench_cook`'s E is also
+   * `ctx.housing.openCookStation(uid)`**, not the inventory craft window (`benchKindOf` still answers 'cook' — the level · recipe gates use that name).
    */
   | 'cook_processor' | 'cook_grill' | 'cook_stirrer' | 'cook_dispenser'
-  /* appended (2026-09-13, 암호화폐 채굴): → ctx.housing.openComputeCluster(uid) (코인 지정 · 코어 꽂기) / ctx.housing.openMiningComputer(uid) (현황 · 지갑 · 거래소) */
+  /* appended (2026-09-13, crypto mining): → ctx.housing.openComputeCluster(uid) (pick the coin · insert cores) / ctx.housing.openMiningComputer(uid) (status · wallet · exchange) */
   | 'compute_cluster' | 'mining_computer'
   /*
-   * appended (2026-09-13, 서재 시리즈 · 비디오게임): 게임 디스크 전시대 → `ctx.housing.openShelf(uid)` (보관 매체 'game') ·
-   * 좌석(의자 · 쇼파) → 앉기 토글 (흔들의자와 같은 길). ⚠ 같은 날부터 **`tv` 의 E 는 켜기/끄기 토글이 아니라 `ctx.housing.openTvMenu(uid)`**
-   * (켜기/끄기 버튼 · 게임기 장착 · 게임 목록) 다.
+   * appended (2026-09-13, library series · video games): the game disc stand → `ctx.housing.openShelf(uid)` (holder medium 'game') ·
+   * a seat (chair · sofa) → a sit toggle (the same road as the rocking chair). ⚠ From the same day **`tv`'s E is `ctx.housing.openTvMenu(uid)`**, not an
+   * on/off toggle (on/off button · attach a console · the game list).
    */
   | 'game_stand' | 'seat';
 
@@ -357,7 +357,7 @@ export interface GrowPlotInfo {
 /** 재배층 id. Stable across upgrades: 0 = 중앙 (Lv.1), 1 = 아래 (Lv.2), 2 = 위 (Lv.3). */
 export type GrowTier = 0 | 1 | 2;
 
-/** 칸 수 per 재배층. */
+/** Slot count per grow tier. */
 export const GROW_SLOTS_PER_TIER = T.num('GROW_SLOTS_PER_TIER');
 
 /**
@@ -370,9 +370,9 @@ export function growTiersForLevel(_level: number): readonly GrowTier[] {
 }
 
 /**
- * appended (2026-09-13): 재배 스테이션 레벨 1단계마다 오르는 성장 속도. 성장 시간 = 기본 ÷ (1 + 이 값 × (레벨 − 1)),
- * 토양 궁합 · 원예 항과 곱해진다. 강화하는 순간 자라던 작물의 **남은 시간**도 그 속도 비율로 줄어든다
- * (`housing/parts/Garden.rescaleGrowsForUpgrade` — 「readyAt 은 심는 순간 확정」의 유일한 예외).
+ * appended (2026-09-13): the growth speed one 재배 스테이션 level adds. Growth time = the base ÷ (1 + this value × (level − 1)),
+ * multiplied with the soil-match and 원예 terms. The moment it is upgraded, the **remaining time** of a crop already growing
+ * shrinks by that same speed ratio (`housing/parts/Garden.rescaleGrowsForUpgrade` — the one exception to 「readyAt is fixed at planting time」).
  */
 export const GROW_STATION_SPEED_PER_LEVEL = T.num('GROW_STATION_SPEED_PER_LEVEL');
 
@@ -396,7 +396,7 @@ export interface GrowSlot {
   soilDefId: string;
   /** Harvests this soil still survives; the 칸 empties when it reaches 0. */
   soilUsesLeft: number;
-  /** Seed item def id (`ItemDef.seed` must be set); absent = 흙만 채워져 있다. */
+  /** Seed item def id (`ItemDef.seed` must be set); absent = only soil has been poured in. */
   seedDefId?: string;
   /** Epoch ms when it was planted. */
   plantedAt?: number;
@@ -412,7 +412,7 @@ export interface GrowSlotInfo {
   locked: boolean;
   /** Station level that opens this tier (2 for 아래, 3 for 위). */
   unlockLevel: number;
-  /** null = 흙이 없다 (drop soil here first). */
+  /** null = there is no soil (drop soil here first). */
   soilDefId: string | null;
   soilTag: SoilTag | null;
   soilUsesLeft: number;
@@ -461,8 +461,8 @@ export interface LoadoutPreset {
   bag: string | null;
   armor: string | null;
   /**
-   * appended (2026-09-11, A-15): 주머니 def id. optional 인 이유는 `implantItems` 와 같다 — 저장된 v3 프리셋에는
-   * 이 칸이 없고, `undefined` 는 「주머니는 건드리지 않는다」, `null` 은 「비운다」 이다.
+   * appended (2026-09-11, A-15): pouch def id. It is optional for the same reason as `implantItems` — a saved v3 preset
+   * has no such field, and `undefined` means 「the pouch is left alone」 while `null` means 「empty it」.
    */
   pouch?: string | null;
   implant: ImplantId | null;
@@ -577,18 +577,18 @@ export interface HousingRef {
   /** Stash grid from the storage level. inventory/ resizes its stash on `housing:stashSizeChanged`. */
   getStashSize(): { cols: number; rows: number };
   /*
-   * appended (2026-09-16, 사용자 결정): **창고 업그레이드 모달**. 인벤토리 Tab 창고 머리줄과 작업대 창 머리줄의
-   * 「업그레이드」 버튼이 부른다 — 두 화면 다 `storage` 시설을 직접 만지지 않고 이 한 줄만 부른다
-   * (「다른 폴더 내부를 import 하지 않는다」 — 시설 레벨 · 비용 · 홀드 확정은 housing 것이다).
-   * 모달은 `housing/ui/UpgradeModal` 과 같은 모양 · 같은 규칙(재료 칩 + `UI_HOLD_CONFIRM_S` 홀드 + `ctx.escape`)이고,
-   * 인벤토리 창 **위**에 뜬다. 함선 밖(`ctx.housing` 없음 · 레이드)에서는 부르는 쪽이 버튼 자체를 숨긴다.
+   * appended (2026-09-16, user's decision): the **stash upgrade modal**. The 「업그레이드」 button in the inventory Tab
+   * stash header and in the workbench window header calls it — neither screen touches the `storage` facility itself,
+   * they call only this one line (「never import another folder's internals」 — facility level · cost · hold confirm belong to housing).
+   * The modal has the same look and the same rules as `housing/ui/UpgradeModal` (material chips + a `UI_HOLD_CONFIRM_S` hold + `ctx.escape`),
+   * and it draws **above** the inventory window. Outside the ship (no `ctx.housing` · in a raid) the caller hides the button itself.
    */
   openStorageUpgrade(): void;
   /*
-   * appended (2026-09-16, 사용자 보고 「작업대 UI 에서 업그레이드를 눌렀는데 창고 업그레이드 창이 뜬다」):
-   * **그 작업대 한 대**의 업그레이드 모달. 같은 모달 · 같은 홀드이고 대상만 배치된 작업대 가구다 (여러 대면
-   * 레시피 게이트가 보는 것과 같은 **가장 높은 레벨** 한 대). 배치된 작업대가 없으면 한국어 안내만 띄운다.
-   * `openStorageUpgrade()` 는 제작 열이 작업대 모드일 때 이 함수로 넘긴다 — 작업대 창의 버튼은 이쪽을 직접 불러도 된다.
+   * appended (2026-09-16, user's report 「I pressed upgrade in the workbench UI and the stash upgrade window came up」):
+   * the upgrade modal of **that one workbench**. The same modal and the same hold; only the target is the placed workbench
+   * furniture (with several of them the **highest-level** one, the same one the recipe gate looks at). With no workbench placed it only shows a Korean notice.
+   * `openStorageUpgrade()` hands over to this function while the craft column is in workbench mode — the workbench window's button may call it directly.
    */
   openBenchUpgrade?(bench: WorkbenchKind): void;
 
@@ -602,9 +602,9 @@ export interface HousingRef {
   getStored(): readonly StoredFurniture[];
   canPlace(room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): boolean;
   /**
-   * 2026-09-10 (추가만): **자동 배치**가 고를 자리 — 화면 좌측 상단부터 가로줄을 먼저 채우고, 가구는 화면
-   * 아래(월드 +X = yaw 1)를 향한다. 규칙과 좌표 유도는 `housing/Rules.autoPlaceSpot` 한 곳에 있다.
-   * `null` = 이 방에 그 가구가 들어갈 자리가 없다. 손으로 놓는 경로는 이 질의를 쓰지 않는다.
+   * 2026-09-10 (add-only): the spot **auto placement** picks — rows are filled first, from the top left of the screen, and the
+   * piece faces the bottom of the screen (world +X = yaw 1). The rule and the coordinate derivation live in one place, `housing/Rules.autoPlaceSpot`.
+   * `null` = this room has no spot that piece fits in. The manual placement path does not use this query.
    */
   findFreeSpot(room: number, defId: string): { x: number; y: number; yaw: 0 | 1 | 2 | 3 } | null;
   /** Place one stored piece (consumes a storage entry). Emits `housing:furniturePlaced`. */
@@ -658,9 +658,9 @@ export interface HousingRef {
   /** Leave 함선 관리 (also leaves housing mode). */
   closeShipManage(): void;
 
-  /* ── 온실 재배 ──
-   * @deprecated 2026-09-11 (온실 개편) — the 재배층 furniture these belong to is retired. They stay in the contract
-   * (추가만 하는 규약) and now always report "없는 재배층": `getPlots` → `[]`, the mutators → a 한국어 사유,
+  /* ── greenhouse growing ──
+   * @deprecated 2026-09-11 (the greenhouse rework) — the 재배층 furniture these belong to is retired. They stay in the contract
+   * (the add-only rule) and now always report "없는 재배층": `getPlots` → `[]`, the mutators → a Korean reason,
    * `harvestAll` → 0, `openGrowMenu` → nothing. New code calls the 재배 스테이션 API further down.
    */
   /** Plot states of one 재배층, always `GROW_PLOTS_PER_RACK` long. Empty array when `uid` is not a 재배층. */
@@ -676,7 +676,7 @@ export interface HousingRef {
   /** Open the 재배층 panel (`furn_grow_rack` interaction). */
   openGrowMenu(uid: string): void;
 
-  /* ── 승무원 호출명 ── */
+  /* ── crew callsign ── */
   /**
    * Mark the crew name as chosen for good (`ShipState.nameLocked`). hub/ calls it the first time the player sets a
    * name in the terminal; afterwards the terminal shows a read-only line instead of the input. Idempotent.
@@ -705,7 +705,7 @@ export interface HousingRef {
    */
   purposeCost(purpose: RoomPurpose): readonly { defId: string; qty: number }[];
 
-  /* ══ appended: Phase 9 — 서재 책장 (2026-09-06) ══════════════════════════ */
+  /* ══ appended: Phase 9 — the bookshelf (2026-09-06) ══════════════════════ */
   /** Slots of one 책장, always BOOKS_PER_SHELF long; empty array when `uid` is not a placed 책장. */
   getBooks(uid: string): BookSlotInfo[];
   /** Shelve one book from the bag (then the stash) into `slot` (consumes 1). 한국어 reason on failure, null on success. Ship only. */
@@ -721,7 +721,7 @@ export interface HousingRef {
   /** Open the 책장 panel (blocker `housing`, `ui:bookshelfToggled`). */
   openBookshelfMenu(uid: string): void;
 
-  /* ══ appended: Phase 9 UI pass — 시설 제거 (2026-09-07) ═══════════════════ */
+  /* ══ appended: Phase 9 UI pass — facility removal (2026-09-07) ════════════ */
   /**
    * Materials that would be refunded by `removeRoomFacility(index)`: everything spent upgrading that room's facility
    * (level 1 comes free with the purpose, so a Lv.1 room refunds nothing). Empty for a room with no facility.
@@ -735,7 +735,7 @@ export interface HousingRef {
    */
   removeRoomFacility(index: number): string | null;
 
-  /* ══ appended: 온실 개편 — 재배 스테이션 (2026-09-11) ═══════════════════════ */
+  /* ══ appended: greenhouse rework — grow station (2026-09-11) ════════════════ */
 
   /**
    * Every 칸 of one 재배 스테이션, **always `3 × GROW_SLOTS_PER_TIER` entries** in `GROW_TIER_DRAW_ORDER`, locked
@@ -745,13 +745,13 @@ export interface HousingRef {
   getGrowSlots(uid: string): GrowSlotInfo[];
   /**
    * Pour one soil item (bag → stash, `consumeDefAll`) into an empty 칸. `soilUsesLeft` starts at `ItemDef.soil.uses`.
-   * 한국어 reason on failure (잠긴 층 · 이미 흙이 있다 · 토양이 아니다 · 갖고 있지 않다), null on success.
+   * Korean reason on failure (the tier is locked · there is already soil · it is not soil · the player does not own it), null on success.
    */
   fillSoil(uid: string, tier: GrowTier, slot: number, soilDefId: string): string | null;
   /**
-   * Scrape a 칸 back to 흙 없음. **The soil is not returned** — 남은 횟수가 있어도 버려진다 (한 번 부은 흙은 다시
-   * 담지 않는다). Refused with a 한국어 사유 while something is planted in it; null on success.
-   * 2026-09-12 (appended optional): `discardCrop` true throws the planted crop away too (흙구멍 우클릭 「작물 버리고 흙 비우기」).
+   * Scrape a 칸 back to 흙 없음. **The soil is not returned** — it is thrown away even with uses left (soil once poured is
+   * never scooped back). Refused with a Korean reason while something is planted in it; null on success.
+   * 2026-09-12 (appended optional): `discardCrop` true throws the planted crop away too (right-click the soil hole, 「작물 버리고 흙 비우기」).
    */
   clearSoil(uid: string, tier: GrowTier, slot: number, discardCrop?: boolean): string | null;
   /**
@@ -800,17 +800,17 @@ export const FURNITURE_DEFS: readonly FurnitureDef[] = csvRows('furniture.csv').
     color: r.str('color'),
     ...(r.has('stackLimit') ? { stackLimit: r.int('stackLimit', { min: 1 }) } : {}),
     ...(r.bool('retired') ? { retired: true } : {}),
-    /* appended (2026-09-13): 배치 접근 면 · 요구 전력 · 여러 대 제작 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) */
+    /* appended (2026-09-13): placement access faces · required power · building several (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) */
     ...(r.has('access') ? { access: accessCell(r.str('access'), (m) => r.report('access', m)) } : {}),
     ...(r.has('power') ? { power: r.num('power', { min: 0 }) } : {}),
     ...(r.bool('multi') ? { multi: true } : {}),
-    /* appended (2026-09-13): 시야를 막지 않는 낮은 가구 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
+    /* appended (2026-09-13): low furniture that does not block the view (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
     ...(r.has('low') && r.bool('low') ? { low: true } : {}),
   };
 });
 
 function accessCell(v: string, report: (message: string) => void): FurnitureAccess {
-  // 목록을 여기 적는 이유: `FURNITURE_DEFS` 는 모듈 로드 중에 계산되는데 `FURNITURE_ACCESS_VALUES` 는 파일 끝(추가 절)에 있어 아직 초기화 전이다
+  // Why the list is spelled out here: `FURNITURE_DEFS` is computed while the module loads, but `FURNITURE_ACCESS_VALUES` sits at the end of the file (an appended section) and is not initialised yet
   if (v === 'none' || v === 'front' || v === 'sides' || v === 'all') return v;
   report(`'${v}' — none · front · sides · all 중 하나`);
   return 'none';
@@ -829,214 +829,214 @@ export function furnitureFootprint(def: FurnitureDef, yaw: 0 | 1 | 2 | 3): { col
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 연구실 — 분석기 (A-12, 2026-09-11, 사용자 결정: 현실 시간 대기)
+ * The lab — the analyzer (A-12, 2026-09-11, user's decision: waiting in real time)
  *
- * 분석기(`furn_analyzer`)는 재배 스테이션과 **같은 모양의 스테이션**이다: 레벨이 자리를 연다.
- * 레벨 n 이면 `ANALYZER_SLOTS_BASE + ANALYZER_SLOTS_PER_LEVEL × n` 칸이 열리고, 화면은 언제나 `ANALYZER_MAX_SLOTS` 칸을 그린다
- * (잠긴 칸은 `locked: true` + `unlockLevel`). 칸 번호는 강화해도 밀리지 않는다 — 돌아가던 해석이 옮겨 가면 안 된다.
+ * The analyzer (`furn_analyzer`) is **a station of the same shape** as the grow station: its level opens slots.
+ * At level n, `ANALYZER_SLOTS_BASE + ANALYZER_SLOTS_PER_LEVEL × n` slots are open and the screen always draws `ANALYZER_MAX_SLOTS` slots
+ * (a locked slot is `locked: true` + `unlockLevel`). Slot numbers never shift on an upgrade — a running analysis must not move.
  *
- * 해석 시간은 **시작하는 순간** `readyAt` 에 확정된다 (온실의 `plantedAt`/`readyAt` 와 같은 규약). 2026-09-16 부터 식은
- * 아래 「표본 개편」 블록에 있다 — `analyzeHours × analysisTimeMul(계열 분석 레벨) × (1 − 단축)` 이고, 단축은
- * **같은 등급 도감 칸수**와 **그 표본의 레벨**이 만든다. 옛 두 항(`ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP`)은
- * 아무도 읽지 않는다. 옛 도감(`ShipState.sampleDex`)은 `bookDex` 와 같은 append-only 기록이고 회수할 때 조용히 채워진다.
+ * The analysis time is fixed into `readyAt` **the moment it starts** (the same rule as the greenhouse's `plantedAt` / `readyAt`). Since 2026-09-16 the formula
+ * lives in the 「표본 개편」 block below — `analyzeHours × analysisTimeMul(the family's analysis level) × (1 − the speedup)`, and the speedup is made of
+ * **the catalogue entries of the same rarity** and **that sample's level**. The old two terms (`ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP`)
+ * are read by nobody. The old catalogue (`ShipState.sampleDex`) is an append-only record like `bookDex`, filled quietly on collection.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
- * 2026-09-15 2차 (사용자 결정 「연구실 내에 분석기 처음부터 2칸으로 변경 (업그레이드따라 최대 4칸까지 확장)」):
- * 분석기가 레벨과 무관하게 갖는 칸 수. 칸 수 = `BASE + 레벨 × PER_LEVEL` 이라 Lv.1 = 2 · Lv.2 = 3 · Lv.3 = 4 다 —
- * 옛 식(`레벨 × PER_LEVEL`)으로는 2/3/4 를 만들 수 없었다 (최대 레벨은 3 그대로).
+ * 2026-09-15 2nd pass (user's decision 「the analyzer in the lab starts with 2 slots (expanding to at most 4 with upgrades)」):
+ * the slots an analyzer has regardless of its level. Slots = `BASE + level × PER_LEVEL`, so Lv.1 = 2 · Lv.2 = 3 · Lv.3 = 4 —
+ * the old formula (`level × PER_LEVEL`) could not produce 2/3/4 (the max level is still 3).
  */
 export const ANALYZER_SLOTS_BASE = T.num('ANALYZER_SLOTS_BASE');
-/** 분석기 레벨 한 단계가 **더** 여는 해석 칸 수 (`data/tuning.csv`). */
+/** How many **more** analysis slots one analyzer level opens (`data/tuning.csv`). */
 export const ANALYZER_SLOTS_PER_LEVEL = T.num('ANALYZER_SLOTS_PER_LEVEL');
-/** 최대 레벨(3)에서의 칸 수 — 패널은 잠긴 칸을 포함해 언제나 이만큼 그린다. */
+/** Slots at the max level (3) — the panel always draws this many, locked slots included. */
 export const ANALYZER_MAX_SLOTS = ANALYZER_SLOTS_BASE + 3 * ANALYZER_SLOTS_PER_LEVEL;
 
 /**
- * `level` 의 분석기가 연 칸 수. 레벨은 부르는 쪽이 def 의 `maxLevel` 로 이미 잘라 둔다.
- * 레벨 0(아직 안 지음)은 0 칸이다 — 기본 칸은 **세워져 있을 때만** 생긴다.
+ * How many slots an analyzer of `level` has open. The caller has already clamped the level with the def's `maxLevel`.
+ * Level 0 (not built yet) is 0 slots — the base slots exist **only while one stands**.
  */
 export function analyzerSlotsForLevel(level: number): number {
   const lv = Math.max(0, Math.min(3, Math.floor(level)));
   return lv <= 0 ? 0 : ANALYZER_SLOTS_BASE + lv * ANALYZER_SLOTS_PER_LEVEL;
 }
 
-/** `slot` 을 여는 분석기 레벨 (1 … 3). `analyzerSlotsForLevel` 에서 유도한다 — 2 · 3 을 코드에 적지 않는다. */
+/** The analyzer level that opens `slot` (1 … 3). Derived from `analyzerSlotsForLevel` — 2 · 3 are never written into the code. */
 export function analyzerSlotUnlockLevel(slot: number): number {
   for (let lv = 1; lv <= 3; lv++) if (slot < analyzerSlotsForLevel(lv)) return lv;
   return 3;
 }
 
-/** 해석 중인 칸 하나. 비어 있는 칸은 `ShipState.analyses` 에 아예 없다 (온실의 `grows` 와 같은 규약). */
+/** One slot with an analysis in it. An empty slot is simply absent from `ShipState.analyses` (the same rule as the greenhouse's `grows`). */
 export interface AnalysisSlot {
-  /** 분석기 `PlacedFurniture.uid`. */
+  /** The analyzer's `PlacedFurniture.uid`. */
   uid: string;
   /** 0 … ANALYZER_MAX_SLOTS − 1. */
   slot: number;
-  /** 표본 item def id (`ItemDef.sample` 이 있어야 한다). */
+  /** Sample item def id (`ItemDef.sample` must be set). */
   sampleDefId: string;
-  /** 넣은 시각 (epoch ms). */
+  /** Epoch ms when it was put in. */
   startedAt: number;
-  /** 회수할 수 있게 되는 시각 (epoch ms) — 시작할 때 확정된다. */
+  /** Epoch ms when it may be collected — fixed when it starts. */
   readyAt: number;
 }
 
-/** 분석 화면이 보는 칸 하나. 분석기는 언제나 `ANALYZER_MAX_SLOTS` 개를 보고하며 잠긴 칸도 들어 있다. */
+/** One slot as the analysis screen sees it. An analyzer always reports `ANALYZER_MAX_SLOTS` of them, locked slots included. */
 export interface AnalysisSlotInfo {
   slot: number;
-  /** 지금 레벨이 열지 않은 칸 (딤드 + 필요 레벨 표시). */
+  /** A slot the current level does not open (drawn dimmed with the required level). */
   locked: boolean;
-  /** 이 칸을 여는 분석기 레벨. */
+  /** The analyzer level that opens this slot. */
   unlockLevel: number;
-  /** null = 빈 칸. */
+  /** null = an empty slot. */
   sampleDefId: string | null;
-  /** 0 … 1; 비어 있으면 −1. */
+  /** 0 … 1; −1 when empty. */
   progress: number;
-  /** 남은 초. 다 됐거나 비었으면 0. */
+  /** Seconds left. 0 when ready or empty. */
   remainingS: number;
   ready: boolean;
-  /** 회수했을 때 받을 것 (패널의 산출물 칩). */
+  /** What collecting it yields (the panel's product chip). */
   rewardDefId: string | null;
   rewardQty: number;
-  /** 아직 도감에 없는 표본 — 회수하면 도감이 한 칸 차고 `SampleDef.firstDefId` 보너스가 붙는다. */
+  /** A sample not in the catalogue yet — collecting it fills one catalogue entry and adds the `SampleDef.firstDefId` bonus. */
   firstTime: boolean;
 }
 
 /**
- * 실용 가구인가 — E 로 뭔가를 하는 가구(작업대 · 스테이션 · 책장 · 관물대 · 시뮬 허브). B-13 의 기준이다:
- * 같은 실용 가구를 **이미 가지고 있으면 제작이 잠기고**(`HousingRef.furnitureCraftBlock`) 제작 목록의 맨 아래로
- * 내려간다 (사용자 결정 2026-09-11 — 벤치 레벨은 가장 높은 하나만 세므로 두 번째를 만들 이유가 없다).
- * 장식 가구(`interaction: 'none'`)는 얼마든지 만든다.
- * 2026-09-17 (사용자 결정): 앉기만 하는 좌석(`seat` — 의자 · 쇼파)도 **꾸밈용 가구**다. E 로 앉고 TV 앞이면 게임 자리가 되는 것은
- * 그대로지만 시설 관리의 「시설 가구 / 꾸밈용 가구」 하위 탭에서는 꾸밈용에 선다 (흔들의자는 서재 보너스가 있어 시설 가구로 남는다).
+ * Is this utility furniture — a piece that does something on E (workbench · station · bookshelf · locker cabinet · sim hub). It is the B-13 rule:
+ * **already owning the same utility piece locks crafting it** (`HousingRef.furnitureCraftBlock`) and drops it to the bottom
+ * of the craft list (user's decision 2026-09-11 — bench level counts only the highest one, so there is no reason to build a second).
+ * Decorative furniture (`interaction: 'none'`) may be built without limit.
+ * 2026-09-17 (user's decision): a seat that is only sat on (`seat` — chair · sofa) is **decorative furniture** too. It is still sat on with E and still
+ * becomes a game seat in front of a TV, but in 시설 관리's 「시설 가구 / 꾸밈용 가구」 sub-tabs it stands under decorative (the rocking chair keeps a library bonus, so it stays utility furniture).
  */
 export function isUtilityFurniture(def: FurnitureDef): boolean {
   return def.interaction !== 'none' && def.interaction !== 'seat';
 }
 
 export interface ShipState {
-  /* ── appended (연구실, 2026-09-11, version 5) ── */
+  /* ── appended (the lab, 2026-09-11, version 5) ── */
   /**
-   * 분석기 해석 칸. `uid` 가 배치된 분석기가 아니거나 칸이 그 분석기의 레벨 밖이면 `sanitize` 가 버린다
-   * (표본은 돌아오지 않는다 — 온실의 흙과 같은 취급).
+   * Analyzer analysis slots. `sanitize` drops an entry whose `uid` is not a placed analyzer, or whose slot is beyond
+   * that analyzer's level (the sample does not come back — treated like the greenhouse's soil).
    */
   analyses?: AnalysisSlot[];
-  /** 해석 도감: 한 번이라도 **회수**한 표본 def id 전부 (지워지지 않는다). `bookDex` 와 같은 모양이다. */
+  /** The analysis catalogue: every sample def id ever **collected** (never removed). The same shape as `bookDex`. */
   sampleDex?: string[];
 }
 
 export interface HousingRef {
-  /* ══ appended: 연구실 — 분석기 (A-12, 2026-09-11) ═══════════════════════════ */
+  /* ══ appended: the lab — the analyzer (A-12, 2026-09-11) ════════════════════ */
 
   /**
-   * 분석기 한 대의 칸 전부, **언제나 `ANALYZER_MAX_SLOTS` 개**를 칸 번호 순으로. 잠긴 칸도 `locked: true` +
-   * `unlockLevel` 로 들어 있어 패널이 「강화하면 열린다」를 그릴 수 있다. `uid` 가 배치된 분석기가 아니면 빈 배열.
+   * Every slot of one analyzer, **always `ANALYZER_MAX_SLOTS` of them** in slot order. Locked slots are in there too, as
+   * `locked: true` + `unlockLevel`, so the panel can draw 「an upgrade opens this」. Empty array when `uid` is not a placed analyzer.
    */
   getAnalyses(uid: string): AnalysisSlotInfo[];
   /**
-   * 표본 하나를 (가방 → 함선 창고 순으로) 넣고 해석을 시작한다. `readyAt` 이 여기서 확정되므로 이후 도감이
-   * 더 차도 **돌아가던 해석은 빨라지지 않는다**. 한국어 사유 / 성공하면 null.
+   * Put one sample in (bag → ship stash, in that order) and start the analysis. `readyAt` is fixed here, so **a running
+   * analysis never speeds up** however much the catalogue fills afterwards. Korean reason / null on success.
    */
   startAnalysis(uid: string, slot: number, sampleDefId: string): string | null;
   /**
-   * 해석을 중단한다. **표본은 돌아오지 않는다** (부은 흙과 같다). 한국어 사유 / null.
+   * Stop an analysis. **The sample does not come back** (the same as poured soil). Korean reason / null.
    */
   cancelAnalysis(uid: string, slot: number): string | null;
   /**
-   * 끝난 해석을 회수한다 — 산출물을 가방(없으면 함선 창고)에 넣고, 처음 보는 표본이면 도감에 적고
-   * `SampleDef.firstDefId` 보너스를 얹는다. 한국어 사유 / null.
-   * 2026-09-12 (추가 인자): `dest` 로 넣을 격자를 고른다 (`HarvestDestination`, 기본 `'bag-first'`).
+   * Collect a finished analysis — the product goes into the bag (the ship stash when there is no space), and a sample
+   * seen for the first time is written into the catalogue with the `SampleDef.firstDefId` bonus on top. Korean reason / null.
+   * 2026-09-12 (appended argument): `dest` picks the grid to put it in (`HarvestDestination`, default `'bag-first'`).
    */
   collectAnalysis(uid: string, slot: number, dest?: HarvestDestination): string | null;
-  /** 끝난 해석을 전부 회수하고 몇 개를 받았는지 돌려준다. */
+  /** Collect every finished analysis and return how many were taken. */
   collectAllAnalyses(uid: string): number;
-  /** 지금 갖고 있는 표본 (가방 + 함선 창고) — 분석 화면의 목록. */
+  /** Samples the player owns right now (bag + ship stash) — the analysis screen's list. */
   getOwnedSamples(): { defId: string; qty: number }[];
-  /** 해석 도감: 한 번이라도 회수한 표본 def id. */
+  /** The analysis catalogue: sample def ids ever collected. */
   getSampleDex(): readonly string[];
   /**
-   * @deprecated 2026-09-13 · 2026-09-16 — 도감 진척 0 … 1. 해석 시간은 이 값을 보지 않는다 (등급별 도감 칸수 + 표본 레벨이 정한다).
+   * @deprecated 2026-09-13 · 2026-09-16 — catalogue progress 0 … 1. The analysis time does not look at this value (the catalogue entries per rarity + the sample level decide it).
    */
   getSampleDexRatio(): number;
-  /** 분석 화면을 연다 (`analyzer` interaction): 좌 해석 칸 · 우 가방 + 함선 창고 + 도감. */
+  /** Open the analysis screen (`analyzer` interaction): analysis slots on the left · bag + ship stash + catalogue on the right. */
   openAnalyzer(uid: string): void;
 
-  /* ══ appended: B-13 — 배치된 가구 강화 (2026-09-11) ══════════════════════════
-   * `upgradeFurniture` 는 Phase 8 부터 있었지만 **부르는 곳이 없었다** — 작업대 Lv.2–3 이 플레이로 도달 불가였다.
-   * 시설 관리의 클릭 인스펙터(사용자 결정)가 이 셋을 읽어 레벨 · 다음 비용 · 거절 사유를 그린다. */
+  /* ══ appended: B-13 — upgrading placed furniture (2026-09-11) ════════════════
+   * `upgradeFurniture` has existed since Phase 8 but **nothing called it** — workbench Lv.2–3 was unreachable in play.
+   * 시설 관리's click inspector (user's decision) reads these three to draw the level · the next cost · the refusal reason. */
 
-  /** 지금 `upgradeFurniture(uid)` 가 거절할 한국어 사유, null = 강화할 수 있다. (시스템에만 있던 것을 계약으로) */
+  /** Korean reason `upgradeFurniture(uid)` would refuse right now, null = it can be upgraded. (What only the system had, now in the contract.) */
   furnitureUpgradeBlock(uid: string): string | null;
-  /** 이 조각의 **다음 레벨** 비용. 최대 레벨이거나 배치된 조각이 아니면 null. */
+  /** This piece's **next level** cost. null at max level or when it is not a placed piece. */
   furnitureUpgradeCost(uid: string): CraftIngredient[] | null;
   /**
-   * 지금 이 가구를 **제작**할 수 없는 한국어 사유, null = 만들 수 있다. 재료 부족과 별개로, 이미 가지고 있는
-   * 실용 가구(`isUtilityFurniture`, 배치 + 가구 창고 합산)는 여기서 잠긴다 — 시설 관리가 그 카드를 딤드로
-   * 그리고 목록 맨 아래로 내린다 (사용자 결정 2026-09-11).
+   * Korean reason this piece cannot be **crafted** right now, null = it can be built. Apart from missing materials, a
+   * utility piece already owned (`isUtilityFurniture`, placed + furniture storage together) is locked here — 시설 관리 draws
+   * that card dimmed and drops it to the bottom of the list (user's decision 2026-09-11).
    */
   furnitureCraftBlock(defId: string): string | null;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 온실 — 배양조 (A-14, 2026-09-11, 사용자 결정: 온실 배치 · 현실 시간 대기)
+ * The greenhouse — the culture tank (A-14, 2026-09-11, user's decision: placed in the greenhouse · waiting in real time)
  *
- * 배양조(`furn_culture_tank`)는 재배 스테이션 · 분석기와 **같은 모양의 스테이션**이다: 레벨이 칸을 연다.
- * 레벨 n 이면 `CULTURE_SLOTS_PER_LEVEL × n` 칸이 열리고 화면은 언제나 `CULTURE_MAX_SLOTS` 칸을 그린다
- * (잠긴 칸은 `locked: true` + `unlockLevel`). 칸 번호는 강화해도 밀리지 않는다.
+ * The culture tank (`furn_culture_tank`) is **a station of the same shape** as the grow station · the analyzer: its level opens slots.
+ * At level n, `CULTURE_SLOTS_PER_LEVEL × n` slots are open and the screen always draws `CULTURE_MAX_SLOTS` slots
+ * (a locked slot is `locked: true` + `unlockLevel`). Slot numbers never shift on an upgrade.
  *
- * 칸은 **두 단계**다 — 온실의 「흙 먼저, 씨앗 나중」 그대로:
- *   ① `fillMedium` 으로 영양 배지(`ItemDef.medium`, 추출기 산물)를 붓는다.
- *   ② `insertStrain` 으로 세포주 · 균주(`ItemDef.strain`, 분석기 해석 산물)를 넣는다.
- * 배지는 **수확마다 1회** 닳고(`mediumUsesLeft`) 0 이면 칸이 완전히 빈다. 토양의 태그 매칭과 달리 배지는
- * **등급 하나**이고(`MediumDef.speedMul`), 배양 시간은 넣는 순간 `readyAt` 에 확정된다.
+ * A slot has **two steps** — exactly the greenhouse's 「soil first, seed second」:
+ *   ① `fillMedium` pours in a nutrient medium (`ItemDef.medium`, an extractor product).
+ *   ② `insertStrain` inserts a cell line · strain (`ItemDef.strain`, an analyzer product).
+ * The medium wears **once per harvest** (`mediumUsesLeft`) and at 0 the slot empties completely. Unlike soil's tag matching a medium
+ * is **one grade** (`MediumDef.speedMul`), and the culture time is fixed into `readyAt` the moment the strain goes in.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 배양조 레벨 한 단계가 여는 배양 칸 수 (`data/tuning.csv`). */
+/** How many culture slots one culture tank level opens (`data/tuning.csv`). */
 export const CULTURE_SLOTS_PER_LEVEL = T.num('CULTURE_SLOTS_PER_LEVEL');
-/** 최대 레벨(3)에서의 칸 수 — 패널은 잠긴 칸을 포함해 언제나 이만큼 그린다. */
+/** Slots at the max level (3) — the panel always draws this many, locked slots included. */
 export const CULTURE_MAX_SLOTS = 3 * CULTURE_SLOTS_PER_LEVEL;
 
-/** `level` 의 배양조가 연 칸 수. 레벨은 부르는 쪽이 def 의 `maxLevel` 로 이미 잘라 둔다. */
+/** How many slots a culture tank of `level` has open. The caller has already clamped the level with the def's `maxLevel`. */
 export function cultureSlotsForLevel(level: number): number {
   return Math.max(0, Math.min(3, Math.floor(level))) * CULTURE_SLOTS_PER_LEVEL;
 }
 
-/** `slot` 을 여는 배양조 레벨 (1 … 3). `cultureSlotsForLevel` 에서 유도한다 — 2 · 3 을 코드에 적지 않는다. */
+/** The culture tank level that opens `slot` (1 … 3). Derived from `cultureSlotsForLevel` — 2 · 3 are never written into the code. */
 export function cultureSlotUnlockLevel(slot: number): number {
   for (let lv = 1; lv <= 3; lv++) if (slot < cultureSlotsForLevel(lv)) return lv;
   return 3;
 }
 
-/** 배지가 들어 있는 배양 칸 하나. 배지가 없는 칸은 `ShipState.cultures` 에 아예 없다 (온실의 `grows` 와 같은 규약). */
+/** One culture slot with a medium in it. A slot with no medium is simply absent from `ShipState.cultures` (the same rule as the greenhouse's `grows`). */
 export interface CultureSlot {
-  /** 배양조 `PlacedFurniture.uid`. */
+  /** The culture tank's `PlacedFurniture.uid`. */
   uid: string;
   /** 0 … CULTURE_MAX_SLOTS − 1. */
   slot: number;
-  /** 영양 배지 item def id (`ItemDef.medium` 이 있어야 한다). */
+  /** Nutrient medium item def id (`ItemDef.medium` must be set). */
   mediumDefId: string;
-  /** 이 배지가 아직 버티는 수확 횟수; 0 이 되면 칸이 빈다. */
+  /** Harvests this medium still survives; the slot empties when it reaches 0. */
   mediumUsesLeft: number;
-  /** 세포주 item def id (`ItemDef.strain` 이 있어야 한다); 없으면 = 배지만 채워져 있다. */
+  /** Cell line item def id (`ItemDef.strain` must be set); absent = only the medium is in it. */
   strainDefId?: string;
   startedAt?: number;
-  /** 수확할 수 있게 되는 시각 (epoch ms) — 넣을 때 확정된다. */
+  /** Epoch ms when it may be harvested — fixed when the strain goes in. */
   readyAt?: number;
 }
 
-/** 배양 화면이 보는 칸 하나. 배양조는 언제나 `CULTURE_MAX_SLOTS` 개를 보고하며 잠긴 칸도 들어 있다. */
+/** One slot as the culture screen sees it. A culture tank always reports `CULTURE_MAX_SLOTS` of them, locked slots included. */
 export interface CultureSlotInfo {
   slot: number;
   locked: boolean;
   unlockLevel: number;
-  /** null = 배지가 없다 (여기 배지를 먼저 부어야 한다). */
+  /** null = there is no medium (a medium has to be poured in here first). */
   mediumDefId: string | null;
   mediumUsesLeft: number;
-  /** 배지 등급이 깎아 주는 비율을 패널이 「배양 속도 +n %」로 보여 준다. */
+  /** The panel shows the fraction the medium's grade shaves off as 「배양 속도 +n %」. */
   mediumSpeedMul: number;
-  /** null = 넣을 준비가 된 배지 (또는 배지 자체가 없다). */
+  /** null = a medium ready for a strain (or no medium at all). */
   strainDefId: string | null;
-  /** 0 … 1; 비어 있으면 −1. */
+  /** 0 … 1; −1 when empty. */
   progress: number;
   remainingS: number;
   ready: boolean;
@@ -1045,162 +1045,162 @@ export interface CultureSlotInfo {
 }
 
 export interface ShipState {
-  /* ── appended (배양조 A-14, 2026-09-11, version 6) ── */
+  /* ── appended (the culture tank A-14, 2026-09-11, version 6) ── */
   /**
-   * 배양조 칸. `uid` 가 배치된 배양조가 아니거나 칸이 그 배양조의 레벨 밖이면 `sanitize` 가 버린다
-   * (배지 · 세포주는 돌아오지 않는다 — 온실의 흙과 같은 취급). v5 → v6 은 없던 필드가 생기는 것뿐이라
-   * 마이그레이션 · 환불 경로가 없다.
+   * Culture tank slots. `sanitize` drops an entry whose `uid` is not a placed culture tank, or whose slot is beyond that
+   * tank's level (the medium · strain do not come back — treated like the greenhouse's soil). v5 → v6 only adds a field
+   * that was not there, so there is no migration and no refund path.
    */
   cultures?: CultureSlot[];
 }
 
 export interface HousingRef {
-  /* ══ appended: 온실 — 배양조 (A-14, 2026-09-11) ═════════════════════════════ */
+  /* ══ appended: the greenhouse — the culture tank (A-14, 2026-09-11) ═════════ */
 
   /**
-   * 배양조 한 대의 칸 전부, **언제나 `CULTURE_MAX_SLOTS` 개**를 칸 번호 순으로. 잠긴 칸도 들어 있다.
-   * `uid` 가 배치된 배양조가 아니면 빈 배열.
+   * Every slot of one culture tank, **always `CULTURE_MAX_SLOTS` of them** in slot order. Locked slots are in there too.
+   * Empty array when `uid` is not a placed culture tank.
    */
   getCultureSlots(uid: string): CultureSlotInfo[];
-  /** 영양 배지 하나를 (가방 → 함선 창고) 빈 칸에 붓는다. 한국어 사유 / null. */
+  /** Pour one nutrient medium (bag → ship stash) into an empty slot. Korean reason / null. */
   fillMedium(uid: string, slot: number, mediumDefId: string): string | null;
   /**
-   * 칸을 배지 없음으로 되돌린다. **배지는 돌아오지 않는다** (부은 흙과 같다). 배양 중이면 거절.
-   * 2026-09-12 (추가 인자): `discardStrain` true 면 배양 중인 세포주도 함께 버린다 (우클릭 메뉴).
+   * Put a slot back to having no medium. **The medium does not come back** (the same as poured soil). Refused while a culture runs.
+   * 2026-09-12 (appended argument): `discardStrain` true throws the culturing strain away with it (the right-click menu).
    */
   clearMedium(uid: string, slot: number, discardStrain?: boolean): string | null;
-  /** 세포주 하나를 배지가 있는 칸에 넣는다. `readyAt` 이 여기서 확정된다. 한국어 사유 / null. */
+  /** Insert one strain into a slot that has a medium. `readyAt` is fixed here. Korean reason / null. */
   insertStrain(uid: string, slot: number, strainDefId: string): string | null;
   /**
-   * 다 된 칸 하나를 수확한다 (가방, 없으면 함선 창고). 배지를 1회 쓰고, 0 이 되면 칸이 완전히 빈다.
-   * 아니면 「넣을 준비가 된 배지」로 돌아간다. 한국어 사유 / null.
-   * 2026-09-12 (추가 인자): `dest` 로 넣을 격자를 고른다 (`HarvestDestination`, 기본 `'bag-first'`).
+   * Harvest one finished slot (the bag, the ship stash when there is no space). One medium use is spent, and at 0 the slot empties completely.
+   * Otherwise it goes back to 「a medium ready for a strain」. Korean reason / null.
+   * 2026-09-12 (appended argument): `dest` picks the grid to put it in (`HarvestDestination`, default `'bag-first'`).
    */
   harvestCulture(uid: string, slot: number, dest?: HarvestDestination): string | null;
-  /** 다 된 칸 전부를 수확하고 몇 개를 받았는지 돌려준다. */
+  /** Harvest every finished slot and return how many were taken. */
   harvestAllCultures(uid: string): number;
-  /** 지금 갖고 있는 영양 배지 (가방 + 함선 창고) — 배양 화면의 목록. */
+  /** Nutrient media the player owns right now (bag + ship stash) — the culture screen's list. */
   getOwnedMediums(): { defId: string; qty: number }[];
-  /** 지금 갖고 있는 세포주 · 균주 (가방 + 함선 창고). */
+  /** Cell lines · strains the player owns right now (bag + ship stash). */
   getOwnedStrains(): { defId: string; qty: number }[];
-  /** 배양 화면을 연다 (`culture_tank` interaction): 좌 배양 칸 · 우 가방 + 함선 창고. */
+  /** Open the culture screen (`culture_tank` interaction): culture slots on the left · bag + ship stash on the right. */
   openCultureTank(uid: string): void;
 
-  /* ══ appended: 주방 — 식탁 (A-3c, 2026-09-11) ═══════════════════════════════ */
+  /* ══ appended: the kitchen — the dining table (A-3c, 2026-09-11) ════════════ */
 
   /**
-   * 식사 화면을 연다 — 좌 = 지금 실린 식사 + 그 버프 한 줄, 우 = 가진 요리 + 가방/창고.
+   * Open the meal screen — left = the meal loaded right now + its one buff line, right = the meals owned + bag/stash.
    *
-   * `uid` 가 배치된 식탁 가구면 개인 함선의 식탁이고, **`null` 이면 공유 함선의 고정 식탁**이다 (가구가 아니라
-   * hub 가 심어 둔 상호작용 지점이라 uid 가 없다). 공유 함선에서만 `분대에 차리기` 버튼이 보인다 —
-   * 요리 **1개**를 소모하고 분대 전원이 같은 식사를 받는다 (사용자 결정).
+   * When `uid` is a placed dining table piece it is the personal ship's dining table; **`null` is the shared ship's fixed dining table**
+   * (it has no uid because it is not furniture but an interaction point hub planted). Only in the shared ship is the `분대에 차리기`
+   * button shown — it consumes **1** meal and every squadmate receives the same meal (user's decision).
    */
   openDiningTable(uid: string | null): void;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-12 — 조종석 · 시설 레벨 요구 (사용자 결정)
+ * appended: 2026-09-12 — the cockpit · facility level requirements (user's decision)
  *
- * 1. **조종석은 방 목록 맨 위에 늘 있는 공간이다.** `ShipState.rooms` 에는 들어가지 않고(용도 · 레벨이 없다) 방 번호로는
- *    `COCKPIT_ROOM_INDEX` 를 쓴다 — `getRoom(COCKPIT_ROOM_INDEX).purpose === 'cockpit'`, `getPlaced(COCKPIT_ROOM_INDEX)`,
- *    `canPlace / place / move / recover`, `setManageRoom(COCKPIT_ROOM_INDEX)` 가 모두 그 번호를 받는다.
- *    `setRoomPurpose` · `removeRoomFacility` 는 거절한다. 조종석에는 `room: 'any'`(공용) 가구만 놓인다.
- *    2026-09-13: 그리고 `room: 'cockpit'`(조종석 전용 시설 — 시술대 · 컴퓨터, `isCockpitOnlyFurniture`)도.
- *    번호가 `SHIP_ROOM_COUNT` 가 아니라 **고정값**인 이유: 방 수가 나중에 늘어도 저장된 조종석 가구가 다른 방으로 옮겨 가면 안 된다.
- *    `-1` 이 아닌 이유: hub 의 `HousingMode.room = -1` 이 「모드 꺼짐」이다.
- * 2. **조종석의 격자는 방보다 크고 구멍이 있다.** `roomGridSize(room)` 이 방마다 격자 크기를, `roomCellBlocked` 가 고정 소품
- *    (계기판 · 좌석 · 발사 포드 · 사물함 · 침상 · 창고 · 복도 통로) 자리를 답한다. 배치 규칙(`housing/Rules`)과 격자선 ·
- *    카메라(`hub/`)가 **이 표 하나**를 읽는다. 소품을 옮기면 이 표를 같이 고친다.
- * 3. **시설 레벨 요구**(발전기 Lv.n)는 재료 칩 옆에 `buildFacilityChip` 으로 그린다 — 질의는 아래 `HousingRef` 두 줄.
+ * 1. **The cockpit is a space that always sits at the top of the room list.** It never enters `ShipState.rooms` (it has no purpose and no
+ *    level); its room number is `COCKPIT_ROOM_INDEX` — `getRoom(COCKPIT_ROOM_INDEX).purpose === 'cockpit'`, `getPlaced(COCKPIT_ROOM_INDEX)`,
+ *    `canPlace / place / move / recover` and `setManageRoom(COCKPIT_ROOM_INDEX)` all take that number.
+ *    `setRoomPurpose` · `removeRoomFacility` refuse it. Only `room: 'any'` (shared) furniture is placed in the cockpit.
+ *    2026-09-13: and `room: 'cockpit'` as well (cockpit-only fittings — the implant bay · the computer, `isCockpitOnlyFurniture`).
+ *    Why the number is a **fixed value** and not `SHIP_ROOM_COUNT`: saved cockpit furniture must not move into another room when the room count grows later.
+ *    Why it is not `-1`: hub's `HousingMode.room = -1` means 「mode off」.
+ * 2. **The cockpit's grid is bigger than a room's and has holes in it.** `roomGridSize(room)` answers the grid size per room, and `roomCellBlocked`
+ *    answers where the fixed props stand (instrument panel · seats · launch pod · lockers · bunk · storage · the corridor passage). The placement
+ *    rules (`housing/Rules`) and the grid lines · camera (`hub/`) read **this one table**. Move a prop and this table is fixed with it.
+ * 3. **A facility level requirement** (generator Lv.n) is drawn beside the material chips with `buildFacilityChip` — the queries are the two `HousingRef` lines below.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 import { ROOM_GRID_COLS, ROOM_GRID_ROWS } from './constants';
 
-/** 조종석의 방 번호 (방이 아니므로 `0 … SHIP_ROOM_COUNT − 1` 밖의 고정값). */
+/** The cockpit's room number (a fixed value outside `0 … SHIP_ROOM_COUNT − 1`, since it is not a room). */
 export const COCKPIT_ROOM_INDEX = 100;
 
 /**
- * 조종석 바닥 격자 (칸). `hub/interiors/RoomLayout.COCKPIT` = x −5 … 5, z −6 … 0 (10 × 6 m) 을 `HOUSING_CELL_SIZE`(0.5)로
- * 나눈 것이다. 칸 (0, 0) 은 방과 같은 규약으로 min-x / min-z 모서리(좌현 · 앞창 쪽)이고 `x` 는 월드 +X, `y` 는 월드 +Z 다.
+ * The cockpit floor grid (in cells). `hub/interiors/RoomLayout.COCKPIT` = x −5 … 5, z −6 … 0 (10 × 6 m) divided by `HOUSING_CELL_SIZE` (0.5).
+ * By the same rule as a room, cell (0, 0) is the min-x / min-z corner (port side · toward the front window); `x` is world +X and `y` is world +Z.
  */
 export const COCKPIT_GRID_COLS = 20;
 export const COCKPIT_GRID_ROWS = 12;
 
-/** 격자 위의 칸 사각형 (좌상단 칸 + 크기). */
+/** A rectangle of cells on the grid (top-left cell + size). */
 export interface GridRect { x: number; y: number; cols: number; rows: number }
 
 /**
- * 조종석에서 가구를 놓을 수 없는 칸 — 고정 소품과 반드시 비워야 하는 통로. `hub/interiors/PersonalShip` 의 조종석 소품
- * 좌표에서 잡았다 (칸 x = (월드 x + 5) / 0.5, 칸 y = (월드 z + 6) / 0.5).
+ * Cells of the cockpit where furniture cannot be placed — the fixed props and the passage that has to stay clear. Taken from the
+ * cockpit prop coordinates in `hub/interiors/PersonalShip` (cell x = (world x + 5) / 0.5, cell y = (world z + 6) / 0.5).
  */
 export const COCKPIT_BLOCKED_RECTS: readonly GridRect[] = [
-  { x: 3, y: 0, cols: 14, rows: 3 },    // 계기판(x ±3.3, z −6 … −5.3) + 앞 0.8 m (x −3.5 … 3.5, z −6 … −4.5)
-  { x: 7, y: 3, cols: 6, rows: 9 },     // 조종석 두 개 · 터미널 자리 · 복도 아치까지의 통로 (x −1.5 … 1.5, z −4.5 … 0)
-  /* 2026-09-13 (사용자 결정): 사물함 두 칸 · 침상 · 창고 캐비닛은 꾸밈 가구가 됐다(`COCKPIT_DECOR_FURNITURE`) — 그 칸들은 풀렸다.
-     발사 포드는 소켓과 문 앞 탑승 동선만 막는다. 옛 표: {18,1,2,3} 사물함 · {13,7,7,5} 포드 + 캐비닛 · {0,6,2,5} 침상. */
-  { x: 13, y: 7, cols: 7, rows: 4 },    // 발사 포드 소켓(x 3 … 5, z −2.2 … −0.5) + 문(−X) 앞 탑승 동선 (x 1.5 … 5, z −2.5 … −0.5)
-  { x: 16, y: 11, cols: 4, rows: 1 },   // 포드 소켓 뒤 끝 · 뒷벽 기둥 (x 3 … 5, z −0.5 … 0)
+  { x: 3, y: 0, cols: 14, rows: 3 },    // the instrument panel (x ±3.3, z −6 … −5.3) + 0.8 m in front of it (x −3.5 … 3.5, z −6 … −4.5)
+  { x: 7, y: 3, cols: 6, rows: 9 },     // the two pilot seats · the terminal spot · the passage up to the corridor arch (x −1.5 … 1.5, z −4.5 … 0)
+  /* 2026-09-13 (user's decision): the two lockers · the bunk · the storage cabinet became decoration furniture (`COCKPIT_DECOR_FURNITURE`) — those cells were freed.
+     The launch pod blocks only its socket and the boarding path in front of the door. Old table: {18,1,2,3} lockers · {13,7,7,5} pod + cabinet · {0,6,2,5} bunk. */
+  { x: 13, y: 7, cols: 7, rows: 4 },    // the launch pod socket (x 3 … 5, z −2.2 … −0.5) + the boarding path in front of the door (−X) (x 1.5 … 5, z −2.5 … −0.5)
+  { x: 16, y: 11, cols: 4, rows: 1 },   // the far end behind the pod socket · the back wall pillar (x 3 … 5, z −0.5 … 0)
 ];
 
 /**
- * appended (2026-09-13, 사용자 결정): 조종석의 **꾸밈 가구** — 예전 고정 소품(침상 · 사물함 두 칸 · 창고 캐비닛)이 서 있던 자리.
- * 새 함선(`housing/ShipState.freshState`)과 v10 이전 세이브(`sanitize` 의 v10 절)에 **한 번만** 놓이고, 플레이어가 회수하면
- * 다시 채우지 않는다 (`COCKPIT_DEFAULT_FURNITURE` 와 다르다). 자리가 막혀 있으면 가구 창고로 간다.
- * 칸 좌표는 옛 소품 좌표에서 잡았다 (칸 x = (월드 x + 5) / 0.5, 칸 y = (월드 z + 6) / 0.5).
+ * appended (2026-09-13, user's decision): the cockpit's **decoration furniture** — where the old fixed props (the bunk · the two lockers · the storage cabinet) stood.
+ * It is placed **exactly once**, on a new ship (`housing/ShipState.freshState`) and on a pre-v10 save (the v10 section of `sanitize`), and once the player
+ * recovers it, it is never filled in again (unlike `COCKPIT_DEFAULT_FURNITURE`). It goes to furniture storage when the spot is blocked.
+ * The cell coordinates were taken from the old prop coordinates (cell x = (world x + 5) / 0.5, cell y = (world z + 6) / 0.5).
  */
 export const COCKPIT_DECOR_FURNITURE: readonly { defId: string; x: number; y: number; yaw: 0 | 1 | 2 | 3 }[] = [
-  /* 침상(2단): −X 벽에 붙어 z 로 길다 — 2 × 3 칸 = x −5 … −4, z −2.5 … −1.0 (옛 1인 침상의 중심 z −1.75) */
+  /* The bunk (2 tiers): against the −X wall, long along z — 2 × 3 cells = x −5 … −4, z −2.5 … −1.0 (the old single bunk's centre was z −1.75) */
   { defId: 'furn_bunk', x: 0, y: 7, yaw: 0 },
-  /* 사물함 두 칸: +X 벽 — 1 × 2 칸씩 = x 4.5 … 5, z −5.5 … −3.5 (옛 줄의 중심 z −4.7), 문이 ±X 면이라 한쪽 문이 조종석을 본다 */
+  /* The two lockers: the +X wall — 1 × 2 cells each = x 4.5 … 5, z −5.5 … −3.5 (the old row's centre was z −4.7); their doors face ±X, so one door looks into the cockpit */
   { defId: 'furn_locker', x: 19, y: 1, yaw: 0 },
   { defId: 'furn_locker', x: 19, y: 3, yaw: 0 },
-  /* 서랍장(옛 창고 캐비닛): 뒷벽 우현 절반, 서랍이 −Z — 2 × 1 칸 = x 2 … 3, z −0.5 … 0 (옛 중심 x 2.4) */
+  /* The drawer (the old storage cabinet): the starboard half of the back wall, drawers facing −Z — 2 × 1 cells = x 2 … 3, z −0.5 … 0 (old centre x 2.4) */
   { defId: 'furn_drawer', x: 14, y: 11, yaw: 0 },
 ];
 
 /**
- * appended (2026-09-13): 조종석 전용 시설인가 (`FurnitureDef.room === 'cockpit'` — 시술대 · 컴퓨터). 조종석에만 놓이고, 회수 · 제거할
- * 수 없고, 함선마다 정확히 하나다 (`housing/ShipState.ensureCockpitFurniture`).
+ * appended (2026-09-13): is this a cockpit-only fitting (`FurnitureDef.room === 'cockpit'` — the implant bay · the computer). It is placed only in the
+ * cockpit, cannot be recovered or removed, and there is exactly one per ship (`housing/ShipState.ensureCockpitFurniture`).
  */
 export function isCockpitOnlyFurniture(def: FurnitureDef | undefined | null): boolean {
   return !!def && def.room === 'cockpit';
 }
 
-/** appended (2026-09-13): 조종석 전용 시설의 회수 · 제거 거절 문장 — housing 의 규칙과 hub 의 시설 관리 토스트가 같은 글을 쓴다. */
+/** appended (2026-09-13): the refusal sentence for recovering · removing a cockpit-only fitting — housing's rule and hub's 시설 관리 toast use the same text. */
 export const COCKPIT_ONLY_RECOVER_REASON = '조종석 전용 시설은 회수할 수 없습니다';
 
-/** appended: 공용 시설 가구 두 점의 def id. */
+/** appended: the def ids of the two shared facility pieces. */
 export const IMPLANT_BAY_DEF_ID = 'furn_implant_bay';
 export const CORP_COMPUTER_DEF_ID = 'furn_corp_computer';
 
 /**
- * 모든 함선이 조종석에 갖고 시작하는 공용 시설 가구와 그 자리. 새 함선(`freshState`)과 옛 세이브(두 점 중 배치도 보관도
- * 안 된 것이 있으면) 모두 이 자리에 채운다 — 자리가 막혀 있으면 `housing/Rules.autoPlaceSpot` 으로, 그래도 없으면 가구 창고로.
- * 좌표는 옛 고정 설비가 서 있던 곳(시술대 = 좌현 앞 모서리, 컴퓨터 = 좌현 뒤 벽)이다.
+ * The shared facility furniture every ship starts with in its cockpit, and where it stands. A new ship (`freshState`) and an old save (whenever one
+ * of the two is neither placed nor stored) both get it filled in here — through `housing/Rules.autoPlaceSpot` when the spot is blocked, and into
+ * furniture storage when even that fails. The coordinates are where the old fixed fittings stood (the implant bay = the front port corner, the computer = the rear port wall).
  */
 export const COCKPIT_DEFAULT_FURNITURE: readonly { defId: string; x: number; y: number; yaw: 0 | 1 | 2 | 3 }[] = [
-  /* 시술대: yaw 1 = 앞이 +X(조종석 안쪽) · 등받이가 −X 벽 — 발자국 4 × 3 칸 = x −5 … −3, z −4.5 … −3 (계기판 앞 띠 바로 뒤) */
+  /* The implant bay: yaw 1 = its front faces +X (into the cockpit) · its back rests on the −X wall — a 4 × 3 cell footprint = x −5 … −3, z −4.5 … −3 (just behind the band in front of the instrument panel) */
   { defId: IMPLANT_BAY_DEF_ID, x: 0, y: 3, yaw: 1 },
-  /* 컴퓨터: yaw 0 = 모니터가 −Z(조종석 안쪽) · 책상 등이 뒷벽 — 3 × 3 칸 = x −4 … −2.5, z −1.5 … 0 (침상 옆, 옛 책상 자리) */
+  /* The computer: yaw 0 = the monitor faces −Z (into the cockpit) · the desk's back is the rear wall — 3 × 3 cells = x −4 … −2.5, z −1.5 … 0 (beside the bunk, the old desk's spot) */
   { defId: CORP_COMPUTER_DEF_ID, x: 2, y: 9, yaw: 0 },
 ];
 
 export function isCockpitRoom(room: number): boolean { return room === COCKPIT_ROOM_INDEX; }
 
-/** 방 `room` 의 바닥 격자 크기 (조종석이면 `COCKPIT_GRID_*`, 아니면 `ROOM_GRID_*`). */
+/** The floor grid size of room `room` (`COCKPIT_GRID_*` for the cockpit, else `ROOM_GRID_*`). */
 export function roomGridSize(room: number): { cols: number; rows: number } {
   return room === COCKPIT_ROOM_INDEX
     ? { cols: COCKPIT_GRID_COLS, rows: COCKPIT_GRID_ROWS }
     : { cols: ROOM_GRID_COLS, rows: ROOM_GRID_ROWS };
 }
 
-/** 칸 (x, y) 이 고정 소품 자리인가 (방은 늘 false). 격자 밖인지는 보지 않는다 — `roomGridSize` 로 따로 본다. */
+/** Is cell (x, y) a fixed prop spot (always false for a room). It does not check whether the cell is outside the grid — that is asked separately through `roomGridSize`. */
 export function roomCellBlocked(room: number, x: number, y: number): boolean {
   if (room !== COCKPIT_ROOM_INDEX) return false;
   for (const r of COCKPIT_BLOCKED_RECTS) if (x >= r.x && x < r.x + r.cols && y >= r.y && y < r.y + r.rows) return true;
   return false;
 }
 
-/** 사각형 `(x, y, cols, rows)` 가 고정 소품 자리와 한 칸이라도 겹치는가. */
+/** Does the rectangle `(x, y, cols, rows)` overlap a fixed prop spot by even one cell. */
 export function roomRectBlocked(room: number, x: number, y: number, cols: number, rows: number): boolean {
   if (room !== COCKPIT_ROOM_INDEX) return false;
   for (const r of COCKPIT_BLOCKED_RECTS) {
@@ -1209,7 +1209,7 @@ export function roomRectBlocked(room: number, x: number, y: number, cols: number
   return false;
 }
 
-/** 채워지지 않은 **시설 레벨 요구** 하나 — 「발전기 Lv.`need` 가 필요한데 지금 Lv.`have`」. */
+/** One unmet **facility level requirement** — 「generator Lv.`need` is required but it is Lv.`have` right now」. */
 export interface FacilityRequirement {
   facility: FacilityId;
   have: number;
@@ -1218,94 +1218,94 @@ export interface FacilityRequirement {
 
 export interface HousingRef {
   /**
-   * appended (2026-09-12): 놓인 가구 `uid` 의 **다음 강화**를 막는 시설 레벨 요구 — 채워지지 않은 것만 (보통 발전기 하나).
-   * 빈 배열 = 시설 레벨은 문제가 없다 (재료 · 최대 레벨은 `furnitureUpgradeBlock` 이 따로 답한다).
-   * ui 는 이것을 재료 칩 옆의 `buildFacilityChip` 으로 그린다 — 가구 인스펙터 · 스테이션 업그레이드 모달.
+   * appended (2026-09-12): the facility level requirements that block the **next upgrade** of placed piece `uid` — only the unmet ones (usually one generator).
+   * An empty array = the facility levels are no problem (materials · max level are answered separately by `furnitureUpgradeBlock`).
+   * ui draws this as a `buildFacilityChip` beside the material chips — the furniture inspector · the station upgrade modal.
    */
   furnitureUpgradeRequirements(uid: string): readonly FacilityRequirement[];
-  /** appended (2026-09-12): 빈 방에 `purpose` 를 **증축**하는 데 채워지지 않은 시설 레벨 요구 (발전기 Lv.1 게이트). */
+  /** appended (2026-09-12): the unmet facility level requirements for **building** `purpose` in an empty room (the generator Lv.1 gate). */
   purposeRequirements(purpose: RoomPurpose): readonly FacilityRequirement[];
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-12 — 서재 매체 (A-3e) · 헬스장 (A-3a). 설계 · 사용자 결정: docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」
+ * appended: 2026-09-12 — library media (A-3e) · the gym (A-3a). Design · user's decision: docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」
  *
- * 1. **서재 매체.** 책장(`bookshelf`) 옆에 디스크 전시대(`disc_stand`) · 레코드랙(`record_rack`)이 선다. 셋은 같은 규칙이다 —
- *    칸에 매체를 꽂으면 그 매체가 가르치는 숙련의 상승량 배율이 오르고, 꽂아 본 것은 도감에 남는다. 매체마다 몫을 따로 잘라 더한다:
+ * 1. **Library media.** A disc stand (`disc_stand`) · a record rack (`record_rack`) stand beside the bookshelf (`bookshelf`). The three follow one rule —
+ *    shelving a medium in a slot raises the gain multiplier of the skill that medium teaches, and what has been shelved stays in the catalogue. Each medium's share is clamped on its own and added:
  *
- *        몫[m] = min(SHELF_GAIN_MAX[m] − 1, SHELF_XP_PER_ITEM[m] × Σ BOOK_RARITY_MUL[등급])  ×  (보조 가구[m] 배치 ? 1 + SHELF_AUX_BONUS[m] : 1)
- *        서재 배율 = 1 + 몫[책] + 몫[디스크] + 몫[레코드]     ← `getBookBonus(skill)` 이 이제 이 값이다 (`getSkillGainMul` 에 접힌다)
+ *        share[m] = min(SHELF_GAIN_MAX[m] − 1, SHELF_XP_PER_ITEM[m] × Σ BOOK_RARITY_MUL[rarity])  ×  (aux furniture[m] placed ? 1 + SHELF_AUX_BONUS[m] : 1)
+ *        library multiplier = 1 + share[books] + share[discs] + share[records]     ← `getBookBonus(skill)` is now this value (folded into `getSkillGainMul`)
  *
- *    보조 가구는 **배치만으로** 켜진다 (사용자 명세 「배치 시」): 흔들의자 → 책, TV → 디스크, 축음기 · 주크박스 · 턴테이블 → 레코드.
- *    레코드 셋은 외형만 다른 한 역할이라 몇 대를 놓아도 한 번만 곱한다 (사용자 결정). 전부 서재에만 놓인다 (사용자 결정 — 2026-09-12 에
- *    휴식 공간이 서재에 합쳐졌다). 흔들의자는 E 로 앉기 토글, TV · 레코드 플레이어는 E 로 켜고 끈다 (광원 없음 — emissive 만).
- * 2. **헬스장.** 운동 기구 4종(`GYM_EQUIPMENT`)이 미니게임을 연다. 끝낸 세션의 점수가 `ProgressionRef.applyGymSession` 으로 가서
- *    스탯 포인트와 **따로 세는 단련 보너스**(`PlayerProfile.trained`)가 된다 (사용자 결정). 세션을 끝내면 그 능력치에 현실 시간
- *    `GYM_FATIGUE_HOURS` 디버프(근력 = 근육통 · 지구력 = 심폐 피로)가 걸리고 그동안 같은 능력치 운동은 상승량 −100 % 다
- *    (사용 자체는 막지 않는다). 운동 중에는 캐릭터가 기구 위에서 자세를 취하고 카메라가 고정된다 (사용자 결정 —
- *    `PlayerRef.setFurniturePose`, 부르는 쪽은 hub).
+ *    Aux furniture switches on **by being placed alone** (user's spec 「when placed」): the rocking chair → books, the TV → discs, the gramophone · jukebox · turntable → records.
+ *    Those three record pieces are one role with different looks, so however many stand there it is multiplied once (user's decision). They all go only in the library (user's decision — on 2026-09-12
+ *    the lounge was merged into the library). The rocking chair is a sit toggle on E; the TV · record player are switched on and off with E (no light source — emissive only).
+ * 2. **The gym.** The 4 pieces of equipment (`GYM_EQUIPMENT`) open a minigame. A finished session's score goes to `ProgressionRef.applyGymSession` and
+ *    becomes the **training bonus counted separately** from stat points (`PlayerProfile.trained`) (user's decision). Finishing a session puts a real-time
+ *    `GYM_FATIGUE_HOURS` debuff on that stat (strength = muscle ache · endurance = cardio fatigue), and while it lasts, training the same stat gains −100 %
+ *    (using it at all is not blocked). While training, the character takes a pose on the machine and the camera is locked (user's decision —
+ *    `PlayerRef.setFurniturePose`, called by hub).
  *
- * 새 `HousingRef` 메서드는 전부 optional 이다 — 병렬로 짓는 동안에도 트리가 타입체크를 통과하고, 소비자는 늘 하던 대로
- * `typeof h.x === 'function'` 로 방어한다.
+ * Every new `HousingRef` method is optional — the tree type-checks while these are built in parallel, and consumers guard with
+ * `typeof h.x === 'function'` as always.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 import {
   BOOKS_PER_SHELF, BOOK_GAIN_MAX, BOOK_XP_PER_BOOK, DISC_GAIN_MAX, DISC_SLOTS_PER_STAND, DISC_XP_PER_ITEM, RECORD_GAIN_MAX,
   RECORD_SLOTS_PER_RACK, RECORD_XP_PER_ITEM, SHELF_AUX_BONUS_BOOK, SHELF_AUX_BONUS_DISC, SHELF_AUX_BONUS_RECORD,
-  GAME_DISC_SLOTS_PER_STAND,   // appended (2026-09-13): 게임 디스크 전시대
+  GAME_DISC_SLOTS_PER_STAND,   // appended (2026-09-13): the game disc stand
 } from './constants';
 import type { FurniturePoseKind, ItemDef } from './types';
 import type { GymStat } from './progression';
 
 /**
- * 서재 보관함에 꽂는 매체. appended (2026-09-13): `'game'` = 게임 디스크 (게임 디스크 전시대) — **효과가 없는 보관 매체**라
- * `SHELF_MEDIA`(서재 효과 · 보조 가구를 계산하는 목록)에는 없고 `SHELF_HOLDER_MEDIA` 에만 있다.
+ * A medium shelved in a library holder. appended (2026-09-13): `'game'` = a game disc (the game disc stand) — **a holder medium with no effect**,
+ * so it is not in `SHELF_MEDIA` (the list the library effects · aux furniture are computed over) but only in `SHELF_HOLDER_MEDIA`.
  */
 export type ShelfMedium = 'book' | 'disc' | 'record' | 'game';
-/** 서재 효과를 내는 매체 — 몫 · 보조 가구 계산은 **이 목록만** 돈다 (게임 디스크 없음). */
+/** Media that produce a library effect — the share · aux furniture computation walks **only this list** (no game discs). */
 export const SHELF_MEDIA: readonly ShelfMedium[] = ['book', 'disc', 'record'];
-/** appended (2026-09-13): 보관함이 받는 매체 전부 (`SHELF_MEDIA` + 게임 디스크). 꽂기 · 빼기 · 회수 · 칸 수 · 보관함 판정은 이 목록을 돈다. */
+/** appended (2026-09-13): every medium a holder takes (`SHELF_MEDIA` + game discs). Shelving · taking out · recovering · slot counts · the holder test walk this list. */
 export const SHELF_HOLDER_MEDIA: readonly ShelfMedium[] = ['book', 'disc', 'record', 'game'];
 export const SHELF_MEDIUM_LABEL_KO: Readonly<Record<ShelfMedium, string>> = { book: '책', disc: '디스크', record: '레코드', game: '게임 디스크' };
 
-/** 매체 하나를 받는 보관함 가구의 interaction. */
+/** Interaction of the holder furniture that takes one medium. */
 export const SHELF_INTERACTION: Readonly<Record<ShelfMedium, FurnitureInteraction>> = {
   book: 'bookshelf', disc: 'disc_stand', record: 'record_rack', game: 'game_stand',
 };
 /**
- * 그 매체의 몫을 올리는 보조 가구의 interaction (레코드는 축음기 · 주크박스 · 턴테이블이 모두 `record_player`).
- * 게임 디스크는 보조 가구가 없다(`'none'`) — `SHELF_MEDIA` 에 없으므로 보조 가구 루프가 이 값을 보지 않는다. `SHELF_HOLDER_MEDIA` 로 이 표를 돌지 않는다.
+ * Interaction of the aux furniture that raises that medium's share (for records the gramophone · jukebox · turntable are all `record_player`).
+ * A game disc has no aux furniture (`'none'`) — it is not in `SHELF_MEDIA`, so the aux furniture loop never reads this value. This table is never walked with `SHELF_HOLDER_MEDIA`.
  */
 export const SHELF_AUX_INTERACTION: Readonly<Record<ShelfMedium, FurnitureInteraction>> = {
   book: 'rocking_chair', disc: 'tv', record: 'record_player', game: 'none',
 };
-/** 보관함 한 대의 칸 수. */
+/** Slots in one holder. */
 export const SHELF_SLOTS: Readonly<Record<ShelfMedium, number>> = {
   book: BOOKS_PER_SHELF, disc: DISC_SLOTS_PER_STAND, record: RECORD_SLOTS_PER_RACK, game: GAME_DISC_SLOTS_PER_STAND,
 };
-/** 한 장(권)이 몫에 더하는 값 (× `BOOK_RARITY_MUL[rarity]`). @deprecated 2026-09-13 — 서재 시리즈(`shared/library`)가 대체했다. */
+/** What one copy (volume) adds to the share (× `BOOK_RARITY_MUL[rarity]`). @deprecated 2026-09-13 — replaced by the library series (`shared/library`). */
 export const SHELF_XP_PER_ITEM: Readonly<Record<ShelfMedium, number>> = {
   book: BOOK_XP_PER_BOOK, disc: DISC_XP_PER_ITEM, record: RECORD_XP_PER_ITEM, game: 0,
 };
-/** 매체별 `1 + 몫` 의 상한 (보조 가구 배율은 자른 뒤에 곱한다). @deprecated 2026-09-13 — 종류당 1 개 + 시리즈 공식이 상한 역할을 한다. */
+/** Cap on `1 + share` per medium (the aux furniture multiplier is applied after the clamp). @deprecated 2026-09-13 — one per kind + the series formula play the cap's part. */
 export const SHELF_GAIN_MAX: Readonly<Record<ShelfMedium, number>> = {
   book: BOOK_GAIN_MAX, disc: DISC_GAIN_MAX, record: RECORD_GAIN_MAX, game: 1,
 };
-/** 보조 가구가 있을 때 그 매체의 몫에 곱하는 추가분 (`× (1 + 값)`). 2026-09-13 서재 시리즈에서도 그대로 쓴다 (매체의 효과 줄 전부에 곱한다). */
+/** The extra multiplied into that medium's share when aux furniture is present (`× (1 + value)`). The 2026-09-13 library series still uses it as it is (multiplied into every effect line of the medium). */
 export const SHELF_AUX_BONUS: Readonly<Record<ShelfMedium, number>> = {
   book: SHELF_AUX_BONUS_BOOK, disc: SHELF_AUX_BONUS_DISC, record: SHELF_AUX_BONUS_RECORD, game: 0,
 };
 
-/** 보관함 가구면 그 매체, 아니면 null. 2026-09-13: 게임 디스크 전시대(`'game'`)도 보관함이다. */
+/** The medium when the piece is a holder, else null. 2026-09-13: the game disc stand (`'game'`) is a holder too. */
 export function shelfMediumOfInteraction(interaction: FurnitureInteraction): ShelfMedium | null {
   for (const m of SHELF_HOLDER_MEDIA) if (SHELF_INTERACTION[m] === interaction) return m;
   return null;
 }
-/** 보조 가구면 그것이 올리는 매체, 아니면 null. */
+/** The medium it raises when the piece is aux furniture, else null. */
 export function shelfAuxMediumOf(interaction: FurnitureInteraction): ShelfMedium | null {
   for (const m of SHELF_MEDIA) if (SHELF_AUX_INTERACTION[m] === interaction) return m;
   return null;
 }
-/** 아이템이 서재 매체면 매체와 숙련 (`ItemDef.book` · `disc` · `record`), 아니면 null. */
+/** The medium and the skill when the item is library media (`ItemDef.book` · `disc` · `record`), else null. */
 export function shelfItemOf(def: ItemDef | null | undefined): { medium: ShelfMedium; skill: SkillId } | null {
   if (!def) return null;
   if (def.book) return { medium: 'book', skill: def.book.skill };
@@ -1314,42 +1314,42 @@ export function shelfItemOf(def: ItemDef | null | undefined): { medium: ShelfMed
   return null;
 }
 
-/** E 로 켜고 끄는 가구 (`ShipState.toggled`). */
+/** Furniture switched on and off with E (`ShipState.toggled`). */
 export const TOGGLE_INTERACTIONS: readonly FurnitureInteraction[] = ['tv', 'record_player'];
 export function isToggleInteraction(interaction: FurnitureInteraction): boolean {
   return TOGGLE_INTERACTIONS.includes(interaction);
 }
 
-/** 한 숙련의 서재 배율을 매체별로 나눈 것 (보관함 화면 · 도감 · 캐릭터 시트의 설명 줄). */
+/** One skill's library multiplier split per medium (the holder screen · the catalogue · the character sheet's explanation line). */
 export interface ShelfBonusInfo {
-  /** `1 + Σ parts` — `getBookBonus(skill)` 과 같은 값. */
+  /** `1 + Σ parts` — the same value as `getBookBonus(skill)`. */
   total: number;
-  /** 매체별 몫 (상한으로 자르고 보조 가구 배율까지 곱한 뒤). */
+  /** The share per medium (after the cap clamp and the aux furniture multiplier). */
   parts: Readonly<Record<ShelfMedium, number>>;
-  /** 그 매체의 보조 가구가 함선에 배치돼 있는가. */
+  /** Whether that medium's aux furniture is placed on the ship. */
   aux: Readonly<Record<ShelfMedium, boolean>>;
 }
 
 export interface ShipState {
   /* ── appended (A-3e, 2026-09-12, version 9) ── */
   /**
-   * 디스크 전시대 · 레코드랙에 꽂힌 것 — `PlacedBook` 과 같은 모양이고 `defId` 는 그 보관함의 매체와 맞아야 한다
-   * (`disc_*` / `record_*`). 책은 여전히 `books` 다 (옛 세이브 · 방문 와이어 호환).
+   * What is shelved on the disc stand · record rack — the same shape as `PlacedBook`, and `defId` must match that holder's
+   * medium (`disc_*` / `record_*`). Books are still `books` (old saves · the visit wire stay compatible).
    */
   media?: PlacedBook[];
-  /** 디스크 · 레코드 도감: 한 번이라도 꽂아 본 def id (`bookDex` 와 같은 append-only 기록). */
+  /** The disc · record catalogue: def ids ever shelved (an append-only record like `bookDex`). */
   mediaDex?: string[];
-  /** 켜 둔 TV · 레코드 플레이어의 uid. 배치에서 사라진 uid 는 `sanitize` 가 버린다. */
+  /** Uids of TVs · record players left switched on. `sanitize` drops a uid that is no longer placed. */
   toggled?: string[];
 }
 
-/** 운동 미니게임 3종 — 벤치프레스(바 타이밍) · 호흡 달리기(후-후-하) · 사이클링(A/D 번갈아). */
+/** The 3 gym minigames — bench press (bar timing) · breath running (후-후-하) · cycling (alternating A/D). */
 export type GymMinigame = 'press' | 'breath' | 'cycle';
 export const GYM_MINIGAME_LABEL_KO: Readonly<Record<GymMinigame, string>> = {
   press: '벤치프레스', breath: '호흡 달리기', cycle: '사이클링',
 };
 
-/** 운동 기구 하나가 무엇을 올리고 어떤 미니게임 · 자세를 쓰는가. */
+/** What one piece of gym equipment raises, and which minigame · pose it uses. */
 export interface GymEquipmentDef {
   stat: GymStat;
   minigame: GymMinigame;
@@ -1365,7 +1365,7 @@ export function gymEquipmentOf(interaction: FurnitureInteraction): GymEquipmentD
   return GYM_EQUIPMENT[interaction] ?? null;
 }
 
-/** 진행 중인 운동 세션. */
+/** A gym session in progress. */
 export interface GymSessionInfo {
   uid: string;
   defId: string;
@@ -1374,82 +1374,82 @@ export interface GymSessionInfo {
 }
 
 export interface HousingRef {
-  /* ══ appended (A-3e, 2026-09-12): 서재 매체 ══ */
-  /** 배치된 조각이 보관함(책장 · 디스크 전시대 · 레코드랙)이면 그 매체, 아니면 null. */
+  /* ══ appended (A-3e, 2026-09-12): library media ══ */
+  /** The medium when the placed piece is a holder (bookshelf · disc stand · record rack), else null. */
   getShelfMedium?(uid: string): ShelfMedium | null;
-  /** 보관함 한 대의 칸 전부, 늘 `SHELF_SLOTS[medium]` 개 (책장이면 `getBooks` 와 같다). 보관함이 아니면 빈 배열. */
+  /** Every slot of one holder, always `SHELF_SLOTS[medium]` of them (the same as `getBooks` for a bookshelf). Empty array when it is not a holder. */
   getShelfSlots?(uid: string): BookSlotInfo[];
-  /** 매체 하나를 (가방 → 창고) 꺼내 `slot` 에 꽂는다. 매체가 그 보관함과 맞아야 한다. 함선 전용. 한국어 사유 / null. */
+  /** Take one medium (bag → stash) and shelve it in `slot`. The medium must match that holder. Ship only. Korean reason / null. */
   placeShelfItem?(uid: string, slot: number, defId: string): string | null;
-  /** `slot` 의 매체를 가방(없으면 창고)으로 뺀다. 한국어 사유 / null. */
+  /** Take the medium in `slot` back into the bag (the stash when there is no space). Korean reason / null. */
   takeShelfItem?(uid: string, slot: number): string | null;
-  /** 지금 가진 그 매체 (가방 + 창고), 숙련 순. */
+  /** That medium as owned right now (bag + stash), in skill order. */
   getOwnedShelfItems?(medium: ShelfMedium): { defId: string; qty: number }[];
-  /** 그 매체의 도감 (책 = `bookDex`, 디스크 · 레코드 = `mediaDex` 에서 그 접두사). */
+  /** That medium's catalogue (books = `bookDex`, discs · records = that prefix out of `mediaDex`). */
   getShelfDex?(medium: ShelfMedium): readonly string[];
-  /** 한 숙련의 서재 배율을 매체별로. `total === getBookBonus(skill)`. */
+  /** One skill's library multiplier per medium. `total === getBookBonus(skill)`. */
   getShelfBonus?(skill: SkillId): ShelfBonusInfo;
-  /** 그 매체의 보조 가구가 함선에 배치돼 있는가. */
+  /** Whether that medium's aux furniture is placed on the ship. */
   hasShelfAux?(medium: ShelfMedium): boolean;
-  /** 보관함 화면을 연다 — 책장 · 디스크 전시대 · 레코드랙 공통 (책장은 `openBookshelfMenu` 와 같은 화면이어도 된다). */
+  /** Open the holder screen — shared by the bookshelf · disc stand · record rack (for the bookshelf it may be the same screen as `openBookshelfMenu`). */
   openShelf?(uid: string): void;
-  /** TV · 레코드 플레이어가 켜져 있는가 (`ShipState.toggled`). 켤 수 없는 가구는 false. */
+  /** Is the TV · record player switched on (`ShipState.toggled`). False for furniture that cannot be switched. */
   isFurnitureOn?(uid: string): boolean;
-  /** 켜기 / 끄기를 뒤집고 새 상태를 돌려준다 (`housing:furnitureToggled` + 저장). 켤 수 없는 가구면 null. */
+  /** Flip on / off and return the new state (`housing:furnitureToggled` + a save). null for furniture that cannot be switched. */
   toggleFurniture?(uid: string): boolean | null;
 
-  /* ══ appended (A-3a, 2026-09-12): 헬스장 ══ */
-  /** 진행 중인 운동 세션, 없으면 null. */
+  /* ══ appended (A-3a, 2026-09-12): the gym ══ */
+  /** The gym session in progress, null when there is none. */
   readonly gymSession?: GymSessionInfo | null;
-  /** 지금 `startGymSession(uid)` 가 거절할 한국어 사유, null = 시작할 수 있다. */
+  /** Korean reason `startGymSession(uid)` would refuse right now, null = it can start. */
   gymBlock?(uid: string): string | null;
   /**
-   * 운동 기구 `uid` 로 세션을 시작한다 — 미니게임 화면을 열고 `housing:gymSession {active:true}` 를 낸다 (hub 가 자세 · 카메라를 건다).
-   * 끝까지 하면 점수가 `ctx.progression.applyGymSession` 으로 가고 `housing:gymResult` 가 난다. 한국어 사유 / null.
+   * Start a session on gym machine `uid` — opens the minigame screen and emits `housing:gymSession {active:true}` (hub applies the pose · camera).
+   * Playing it out sends the score to `ctx.progression.applyGymSession` and raises `housing:gymResult`. Korean reason / null.
    */
   startGymSession?(uid: string): string | null;
-  /** 진행 중인 세션을 보상 · 디버프 없이 끝낸다 (`housing:gymSession {active:false, completed:false}`). 없으면 no-op. */
+  /** End the session in progress with no reward and no debuff (`housing:gymSession {active:false, completed:false}`). A no-op when there is none. */
   cancelGymSession?(): void;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-13 — 요리 재료 티어 (docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, 사용자 결정)
+ * appended: 2026-09-13 — cooking ingredient tiers (docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, user's decision)
  *
- * 1. **분석기는 결과표를 굴린다.** 표본은 계열(`SampleFamily`)로 해석되고, 결과는 `data/analysis_results.csv` 에서
- *    **넣는 순간** 그 계열의 분석 레벨로 가중 추첨해 칸에 적는다 (`AnalysisSlot.resultDefId` — 회수에 실패해도 다시 굴리지 않는다).
- *    회수하면 그 계열 경험치가 오르고(`ANALYSIS_XP_BY_RARITY`) 처음 받은 산출물은 분석 도감(`analysisFound`)에 적힌다.
- *    분석 레벨은 해석 시간을 줄이고(`ANALYSIS_TIME_MUL_BY_LEVEL`) 결과를 해금한다(`AnalysisResultDef.minLevel`).
- *    옛 「도감 진척률 · 기지식 → 시간 단축」(`ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP`)과 첫 해석 보너스는 이것으로 대체됐다.
- * 2. **흙 · 배지에는 내구도와 소켓이 있다.** 부으면 아이템은 소모되고(그대로) 내구도 · 소켓은 **칸이** 들고 있다.
- *    수확마다 닳고 0 이어도 계속 쓰며 **칸이 저절로 비지 않는다** — 대신 보너스(흙 궁합 · 배지 속도 · 소켓 speed/yield)가
- *    내구도 비율로 줄어든다. 소켓은 등급별 칸 수(`GROW_SOCKETS_BY_RARITY`)만큼 영구 장착이고, 가득 찬 칸에 끼우려면
- *    `replaceIndex` 로 옛 것을 파괴해야 한다 (화면이 1초 홀드 경고로 묻는다). 칸을 비우면 흙 · 배지와 소켓이 함께 사라진다.
- * 3. **배양 칸에는 배양 스캐폴드가 들어간다** — 배지 → (스캐폴드) → 세포주. 스캐폴드가 있으면 세포주의
- *    `StrainDef.scaffoldOutputDefId`(종별 고기)를 만들고 수확할 때 스캐폴드가 소모된다. 세포주가 들어가기 전이면 뺄 수 있다.
+ * 1. **The analyzer rolls a result table.** A sample is analysed by family (`SampleFamily`), and **the moment it goes in** the result is drawn
+ *    from `data/analysis_results.csv`, weighted by that family's analysis level, and written into the slot (`AnalysisSlot.resultDefId` — a failed collection never re-rolls it).
+ *    Collecting it raises that family's XP (`ANALYSIS_XP_BY_RARITY`) and a product received for the first time is written into the analysis catalogue (`analysisFound`).
+ *    The analysis level shortens the analysis time (`ANALYSIS_TIME_MUL_BY_LEVEL`) and unlocks results (`AnalysisResultDef.minLevel`).
+ *    The old 「catalogue progress · prior knowledge → a shorter time」 (`ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP`) and the first-analysis bonus were replaced by this.
+ * 2. **Soil · media have durability and sockets.** Pouring one consumes the item (as before) and the durability · sockets are held by **the slot**.
+ *    It wears with every harvest and is still used at 0, and **the slot never empties by itself** — instead the bonuses (soil match · medium speed · socket speed/yield)
+ *    shrink with the durability ratio. Sockets are fitted permanently, as many as the rarity's slot count (`GROW_SOCKETS_BY_RARITY`), and fitting one into a full
+ *    slot means destroying the old one with `replaceIndex` (the screen asks first with a 1 s hold). Emptying the slot makes the soil · medium and its sockets go together.
+ * 3. **A culture scaffold goes into a culture slot** — medium → (scaffold) → strain. With a scaffold in it the strain's
+ *    `StrainDef.scaffoldOutputDefId` (meat of that species) is made and the scaffold is consumed on harvest. It can be taken back out before the strain goes in.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 import { numberMap } from './data/tables';
-import { RARITY_ORDER } from './labels';   // 2026-09-16: 결과표의 `sampleRarity` 열 · 등급 하한 규칙
+import { RARITY_ORDER } from './labels';   // 2026-09-16: the result table's `sampleRarity` column · the rarity floor rule
 import type { GrowSocketTarget, Rarity, SampleFamily } from './types';
 import { SAMPLE_FAMILIES } from './types';
 
 const ANALYSIS_LEVEL_XP_TABLE = numberMap<string>('tables.csv', 'ANALYSIS_LEVEL_XP');
 const ANALYSIS_TIME_MUL_TABLE = numberMap<string>('tables.csv', 'ANALYSIS_TIME_MUL_BY_LEVEL');
-/** 표본 등급별로 해석 하나를 회수할 때 그 계열에 쌓이는 경험치 (`data/tables.csv`). */
+/** XP added to that family when one analysis is collected, by sample rarity (`data/tables.csv`). */
 export const ANALYSIS_XP_BY_RARITY: Readonly<Record<Rarity, number>> = numberMap<Rarity>('tables.csv', 'ANALYSIS_XP_BY_RARITY');
-/** 흙 · 배지 등급별 소켓 칸 수 (`data/tables.csv`). 읽을 때는 `growSocketSlotsFor`. */
+/** Socket slots per soil · medium rarity (`data/tables.csv`). Read it through `growSocketSlotsFor`. */
 export const GROW_SOCKETS_BY_RARITY: Readonly<Record<Rarity, number>> = numberMap<Rarity>('tables.csv', 'GROW_SOCKETS_BY_RARITY');
 
-/** 분석 레벨 상한 — `ANALYSIS_LEVEL_XP` 표의 줄 수 (코드에 5 를 적지 않는다). */
+/** The analysis level cap — the row count of the `ANALYSIS_LEVEL_XP` table (5 is never written into the code). */
 export const ANALYSIS_LEVEL_MAX: number = Math.max(1, Object.keys(ANALYSIS_LEVEL_XP_TABLE).length);
 
-/** `level` 에 도달하는 누적 경험치 (Lv.1 = 0). 범위 밖이면 잘라 읽는다. */
+/** Cumulative XP that reaches `level` (Lv.1 = 0). Out of range it is read clamped. */
 export function analysisXpForLevel(level: number): number {
   const lv = Math.max(1, Math.min(ANALYSIS_LEVEL_MAX, Math.floor(level)));
   const v = ANALYSIS_LEVEL_XP_TABLE[String(lv)];
   return Number.isFinite(v) ? v : 0;
 }
 
-/** 누적 경험치 → 분석 레벨 (1 … `ANALYSIS_LEVEL_MAX`). */
+/** Cumulative XP → the analysis level (1 … `ANALYSIS_LEVEL_MAX`). */
 export function analysisLevelForXp(xp: number): number {
   const x = Number.isFinite(xp) ? xp : 0;
   let lv = 1;
@@ -1457,28 +1457,28 @@ export function analysisLevelForXp(xp: number): number {
   return lv;
 }
 
-/** 분석 레벨의 해석 시간 배수 (Lv.1 = 1). 표본의 `analyzeHours` 에 곱해진다 — 넣는 순간 확정. */
+/** An analysis level's analysis time multiplier (Lv.1 = 1). Multiplied into the sample's `analyzeHours` — fixed the moment it goes in. */
 export function analysisTimeMul(level: number): number {
   const lv = Math.max(1, Math.min(ANALYSIS_LEVEL_MAX, Math.floor(level)));
   const v = ANALYSIS_TIME_MUL_TABLE[String(lv)];
   return Number.isFinite(v) && v > 0 ? v : 1;
 }
 
-/** 분석 결과표 한 줄 (`data/analysis_results.csv`). */
+/** One row of the analysis result table (`data/analysis_results.csv`). */
 export interface AnalysisResultDef {
   family: SampleFamily;
-  /** 이 줄이 추첨에 들어가는 최소 분석 레벨. */
+  /** The lowest analysis level at which this row enters the draw. */
   minLevel: number;
   defId: string;
   qtyMin: number;
   qtyMax: number;
-  /** 같은 계열 · 해금된 줄끼리의 가중치. */
+  /** Weight among the unlocked rows of the same family. */
   weight: number;
   /**
-   * appended (2026-09-16, 사용자 결정 「표본 등급이 산출물 등급의 하한이다」 — csv 머리글의 그 규칙):
-   * 비어 있으면 그 줄은 **등급 하한 검사**를 받는다 (`rarityRank(defId 의 등급) ≥ rarityRank(표본 등급)`).
-   * 채워져 있으면 그 줄은 **그 등급의 표본에만** 붙고 하한 검사를 **면제**받는다 — 「미확인 광물은 등급과 상관없이
-   * 석영이 나오되 등급이 높을수록 많이 나온다」를 적는 칸이고, 동시에 어떤 등급에서도 후보가 비지 않게 하는 방지턱이다.
+   * appended (2026-09-16, user's decision 「the sample's rarity is the floor of the product's rarity」 — that rule in the csv header):
+   * left empty, the row goes through the **rarity floor check** (`rarityRank(the rarity of defId) ≥ rarityRank(the sample's rarity)`).
+   * Filled in, the row attaches **only to samples of that rarity** and is **exempt** from the floor check — it is the cell for writing 「an
+   * unidentified mineral yields quartz whatever its rarity, just more of it the higher the rarity」, and at the same time a guard rail against an empty candidate list at any rarity.
    */
   sampleRarity?: Rarity;
 }
@@ -1497,50 +1497,50 @@ export const ANALYSIS_RESULTS: readonly AnalysisResultDef[] = csvRows('analysis_
   };
 });
 
-/** 한 계열의 분석 레벨 (분석 도감 머리줄 · 분석 화면). */
+/** One family's analysis level (the analysis catalogue header · the analysis screen). */
 export interface AnalysisLevelInfo {
   family: SampleFamily;
   level: number;
-  /** 누적 경험치. */
+  /** Cumulative XP. */
   xp: number;
-  /** 지금 레벨에 도달한 누적 경험치. */
+  /** Cumulative XP that reached the current level. */
   levelXp: number;
-  /** 다음 레벨의 누적 경험치; 최대 레벨이면 null. */
+  /** Cumulative XP of the next level; null at max level. */
   nextLevelXp: number | null;
-  /** 지금 레벨의 해석 시간 배수 (`analysisTimeMul`). */
+  /** The current level's analysis time multiplier (`analysisTimeMul`). */
   timeMul: number;
 }
 
-/** 분석 도감의 결과 한 줄. */
+/** One result row of the analysis catalogue. */
 export interface AnalysisResultInfo {
   defId: string;
   qtyMin: number;
   qtyMax: number;
   minLevel: number;
-  /** 지금 레벨에서 해금됐는가. */
+  /** Is it unlocked at the current level. */
   unlocked: boolean;
-  /** 지금 레벨에서 해석 한 번이 이것을 낼 확률 (0 … 1); 잠겼으면 0. */
+  /** Chance one analysis yields this at the current level (0 … 1); 0 while locked. */
   chance: number;
-  /** 한 번이라도 회수해 본 산출물인가 (`ShipState.analysisFound`). */
+  /** Is this a product that has ever been collected (`ShipState.analysisFound`). */
   found: boolean;
 }
 
 export interface AnalysisSlot {
   /* ── appended (2026-09-13) ── */
-  /** 넣은 표본의 계열 (넣는 순간 적는다). 없으면 옛 세이브 — 표본 def 에서 읽는다. */
+  /** Family of the sample put in (written the moment it goes in). Absent = an old save — read it off the sample def. */
   family?: SampleFamily;
-  /** 넣는 순간 굴린 결과. 없으면 옛 세이브 — **회수할 때** 그때 레벨로 굴린다. */
+  /** The result rolled the moment it went in. Absent = an old save — rolled **on collection**, at the level of that moment. */
   resultDefId?: string;
   resultQty?: number;
 }
 
 export interface AnalysisSlotInfo {
   /* ── appended (2026-09-13) ── */
-  /** 칸에 든 표본의 계열; 빈 칸이면 null. */
+  /** Family of the sample in the slot; null for an empty slot. */
   family: SampleFamily | null;
   /**
-   * 해석 결과 — **끝난 칸에서만** 채워진다 (해석 중에는 null, 화면은 「?」). 끝난 칸에서는 `rewardDefId` · `rewardQty` 도 같은 값이고
-   * `firstTime` 은 「이 결과가 분석 도감에 없다」로 읽는다. 옛 세이브의 칸(결과를 안 굴린 칸)은 끝나도 null 이고 회수하는 순간 굴린다.
+   * The analysis result — filled in **only on a finished slot** (null while it runs, the screen shows 「?」). On a finished slot `rewardDefId` · `rewardQty` hold the same value and
+   * `firstTime` reads as 「this result is not in the analysis catalogue」. An old save's slot (one with no rolled result) is null even when finished and is rolled the moment it is collected.
    */
   resultDefId: string | null;
   resultQty: number;
@@ -1548,9 +1548,9 @@ export interface AnalysisSlotInfo {
 
 export interface GrowSlot {
   /* ── appended (2026-09-13) ── */
-  /** 부어 둔 흙의 남은 내구도 (0 … `SoilDef.durability`). 없으면 옛 세이브 — 처음 읽을 때 `soilUsesLeft / uses × durability` 로 옮긴다. */
+  /** Durability left in the poured soil (0 … `SoilDef.durability`). Absent = an old save — carried over on the first read as `soilUsesLeft / uses × durability`. */
   soilDurability?: number;
-  /** 끼운 소켓 def id (끼운 순서). 영구 — 흙을 비우면 함께 사라진다. */
+  /** Def ids of the fitted sockets (in the order they were fitted). Permanent — they go with the soil when it is emptied. */
   sockets?: string[];
 }
 
@@ -1558,21 +1558,21 @@ export interface GrowSlotInfo {
   /* ── appended (2026-09-13) ── */
   soilDurability: number;
   soilDurabilityMax: number;
-  /** 보너스가 듣는 비율 = 내구도 / 최대 (0 … 1). 흙이 없으면 0. */
+  /** The fraction the bonuses apply at = durability / max (0 … 1). 0 with no soil. */
   soilBonusRatio: number;
-  /** 끼운 소켓 def id. */
+  /** Def ids of the fitted sockets. */
   sockets: readonly string[];
-  /** 이 흙의 소켓 칸 수 (`growSocketSlotsFor(흙 등급)`); 흙이 없으면 0. */
+  /** This soil's socket slots (`growSocketSlotsFor(the soil's rarity)`); 0 with no soil. */
   socketSlots: number;
 }
 
 export interface CultureSlot {
   /* ── appended (2026-09-13) ── */
-  /** 부어 둔 배지의 남은 내구도. 없으면 옛 세이브 — 처음 읽을 때 `mediumUsesLeft / uses × durability` 로 옮긴다. */
+  /** Durability left in the poured medium. Absent = an old save — carried over on the first read as `mediumUsesLeft / uses × durability`. */
   mediumDurability?: number;
-  /** 끼운 소켓 def id (끼운 순서). 영구 — 배지를 비우면 함께 사라진다. */
+  /** Def ids of the fitted sockets (in the order they were fitted). Permanent — they go with the medium when it is emptied. */
   sockets?: string[];
-  /** 들어 있는 배양 스캐폴드 def id (`ItemDef.scaffold`). 수확할 때 소모된다. */
+  /** Def id of the culture scaffold in it (`ItemDef.scaffold`). Consumed on harvest. */
   scaffoldDefId?: string;
 }
 
@@ -1580,178 +1580,178 @@ export interface CultureSlotInfo {
   /* ── appended (2026-09-13) ── */
   mediumDurability: number;
   mediumDurabilityMax: number;
-  /** 보너스가 듣는 비율 = 내구도 / 최대 (0 … 1). 배지가 없으면 0. */
+  /** The fraction the bonuses apply at = durability / max (0 … 1). 0 with no medium. */
   mediumBonusRatio: number;
   sockets: readonly string[];
   socketSlots: number;
-  /** null = 스캐폴드 없음. 있고 세포주가 들어 있으면 `yieldDefId` 는 종별 고기다. */
+  /** null = no scaffold. With one in it and a strain inserted, `yieldDefId` is the meat of that species. */
   scaffoldDefId: string | null;
 }
 
 export interface ShipState {
   /* ── appended (2026-09-13, version 11) ── */
-  /** 계열별 분석 누적 경험치 (없으면 0). */
+  /** Cumulative analysis XP per family (absent = 0). */
   analysisXp?: Partial<Record<SampleFamily, number>>;
-  /** 분석 도감: 분석기에서 한 번이라도 회수한 산출물 def id (append-only). */
+  /** The analysis catalogue: def ids of products ever collected from an analyzer (append-only). */
   analysisFound?: string[];
 }
 
 export interface HousingRef {
-  /* ══ appended: 2026-09-13 — 요리 재료 티어 ══ */
-  /** 한 계열의 분석 레벨 · 경험치 · 시간 배수. */
+  /* ══ appended: 2026-09-13 — cooking ingredient tiers ══ */
+  /** One family's analysis level · XP · time multiplier. */
   getAnalysisLevel(family: SampleFamily): AnalysisLevelInfo;
-  /** 한 계열의 결과표 전부 (최소 레벨 순), 지금 레벨의 확률 · 해금 · 도감 여부와 함께. */
+  /** A family's whole result table (in minimum-level order), with the chance · unlock · catalogue state at the current level. */
   getAnalysisResults(family: SampleFamily): AnalysisResultInfo[];
-  /** 분석 도감 (`ShipState.analysisFound`). */
+  /** The analysis catalogue (`ShipState.analysisFound`). */
   getAnalysisFound(): readonly string[];
   /**
-   * 부어 둔 흙에 소켓 하나를 (가방 → 창고) 끼운다. 소켓의 `target` 이 `'soil'` 이어야 한다. 빈 소켓 칸이 없으면
-   * `replaceIndex` 를 줘야 하고 그 자리의 옛 소켓은 **파괴된다** (화면이 먼저 1초 홀드로 묻는다). 이미 자라는 작물에는
-   * 소급하지 않는다 — 다음에 심는 작물부터 듣는다. 한국어 사유 / null.
+   * Fit one socket (bag → stash) into poured soil. The socket's `target` must be `'soil'`. With no empty socket slot left,
+   * `replaceIndex` has to be given and the old socket in that place is **destroyed** (the screen asks first with a 1 s hold). It does not
+   * apply retroactively to a crop already growing — it takes effect from the next crop planted. Korean reason / null.
    */
   insertGrowSocket(uid: string, tier: GrowTier, slot: number, socketDefId: string, replaceIndex?: number): string | null;
-  /** 배지가 든 배양 칸에 소켓을 끼운다 (`target: 'medium'`). 규칙은 `insertGrowSocket` 과 같다. */
+  /** Fit a socket into a culture slot that holds a medium (`target: 'medium'`). The rules are the same as `insertGrowSocket`. */
   insertCultureSocket(uid: string, slot: number, socketDefId: string, replaceIndex?: number): string | null;
-  /** 배지가 있고 세포주 · 스캐폴드가 없는 칸에 배양 스캐폴드 하나를 (가방 → 창고) 넣는다. 한국어 사유 / null. */
+  /** Put one culture scaffold (bag → stash) into a slot that has a medium and no strain · scaffold. Korean reason / null. */
   insertScaffold(uid: string, slot: number, scaffoldDefId: string): string | null;
-  /** 세포주가 들어가기 전의 스캐폴드를 되돌려받는다 (`dest` 기본 `'bag-first'`). 한국어 사유 / null. */
+  /** Take back a scaffold from before the strain went in (`dest` defaults to `'bag-first'`). Korean reason / null. */
   takeScaffold(uid: string, slot: number, dest?: HarvestDestination): string | null;
-  /** 지금 가진 소켓 (가방 + 창고). `target` 을 주면 그쪽만. */
+  /** Sockets owned right now (bag + stash). Given a `target`, only that side. */
   getOwnedSockets(target?: GrowSocketTarget): { defId: string; qty: number }[];
 }
 
-/** 수확 한 번에 부어 둔 흙 · 배지가 잃는 내구도 (`data/tuning.csv`). */
+/** Durability the poured soil · medium loses per harvest (`data/tuning.csv`). */
 export const SOIL_WEAR_PER_HARVEST = T.num('SOIL_WEAR_PER_HARVEST');
 export const MEDIUM_WEAR_PER_HARVEST = T.num('MEDIUM_WEAR_PER_HARVEST');
-/** 소켓 `speed` 를 합산한 성장 · 배양 시간 배수의 바닥. */
+/** Floor of the growth · culture time multiplier summed from the sockets' `speed`. */
 export const GROW_SOCKET_TIME_FLOOR = T.num('GROW_SOCKET_TIME_FLOOR');
-/** 소켓 `wear` 를 합산한 마모 배수의 바닥. */
+/** Floor of the wear multiplier summed from the sockets' `wear`. */
 export const GROW_WEAR_MUL_FLOOR = T.num('GROW_WEAR_MUL_FLOOR');
 
-/** 흙 · 배지 등급의 소켓 칸 수. 표에 없는 등급이면 0. */
+/** Socket slots of a soil · medium rarity. 0 for a rarity that is not in the table. */
 export function growSocketSlotsFor(rarity: Rarity): number {
   const v = GROW_SOCKETS_BY_RARITY[rarity];
   return Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
 }
-/** 어떤 등급이든 가질 수 있는 소켓 칸의 최대 (세이브 검증의 상한). */
+/** The most socket slots any rarity can have (the cap for save validation). */
 export const GROW_SOCKET_SLOTS_MAX: number = Math.max(0, ...Object.values(GROW_SOCKETS_BY_RARITY).map((v) => (Number.isFinite(v) ? Math.floor(v) : 0)));
-/* ══ end 2026-09-13 요리 재료 티어 ══ */
+/* ══ end 2026-09-13 cooking ingredient tiers ══ */
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-16 — 표본 개편 (사용자 결정, 수치는 `data/constants.csv` 의 `ANALYSIS_*` 다섯 줄)
+ * appended: 2026-09-16 — the sample rework (user's decision, the numbers are the five `ANALYSIS_*` rows of `data/constants.csv`)
  *
- * 1. **표본 등급이 산출물 등급의 하한이다** (`AnalysisResultDef.sampleRarity` 위 주석 · `data/analysis_results.csv` 머리글).
- * 2. **해석 시간 단축이 두 항으로 바뀌었다** — 옛 `ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP` 은 아무도 읽지 않는다:
- *      단축 = min(ANALYSIS_SPEEDUP_CAP, 같은 등급 도감 칸수 × ANALYSIS_DEX_BONUS_PER_ENTRY + 표본 레벨 보너스)
- *      표본 레벨 보너스 = 레벨 0 → 0 · 레벨 n≥1 → ANALYSIS_SAMPLE_LEVEL_FIRST + (n − 1) × ANALYSIS_SAMPLE_LEVEL_STEP
- *    계열 분석 레벨의 시간 배수(`analysisTimeMul`)는 이 단축과 **별개로** 곱해진다.
- * 3. **표본 레벨은 표본마다 따로 쌓인다** (`ShipState.sampleLevels`) — 그 표본을 회수한 횟수다.
+ * 1. **The sample's rarity is the floor of the product's rarity** (the comment above `AnalysisResultDef.sampleRarity` · the `data/analysis_results.csv` header).
+ * 2. **The analysis time speedup became two terms** — the old `ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP` are read by nobody:
+ *      speedup = min(ANALYSIS_SPEEDUP_CAP, catalogue entries of the same rarity × ANALYSIS_DEX_BONUS_PER_ENTRY + the sample level bonus)
+ *      the sample level bonus = level 0 → 0 · level n≥1 → ANALYSIS_SAMPLE_LEVEL_FIRST + (n − 1) × ANALYSIS_SAMPLE_LEVEL_STEP
+ *    The family's analysis level time multiplier (`analysisTimeMul`) is multiplied in **separately** from this speedup.
+ * 3. **The sample level is kept per sample** (`ShipState.sampleLevels`) — it is how many times that sample has been collected.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 export interface ShipState {
   /* ── appended (2026-09-16, version 14) ── */
   /**
-   * 표본 def id → **해석 레벨** (= 그 표본을 회수한 횟수, 1 … `ANALYSIS_SAMPLE_LEVEL_MAX`). 없는 키 = 레벨 0.
-   * 마이그레이션은 없다 (사용자 결정) — 옛 세이브는 전부 레벨 0 에서 다시 쌓는다.
+   * Sample def id → its **analysis level** (= how many times that sample was collected, 1 … `ANALYSIS_SAMPLE_LEVEL_MAX`). A missing key = level 0.
+   * There is no migration (user's decision) — every old save starts stacking again from level 0.
    */
   sampleLevels?: Record<string, number>;
 }
 
-/** 표본 하나의 해석 단축 현황 (분석 화면이 `Lv.n · −x %` 로 읽는다). */
+/** One sample's analysis speedup state (the analysis screen reads it as `Lv.n · −x %`). */
 export interface SampleAnalysisInfo {
   defId: string;
-  /** 표본 등급 — 도감 보너스가 묶이는 축이자 산출물 등급의 하한. */
+  /** The sample's rarity — the axis the catalogue bonus is grouped on, and the floor of the product's rarity. */
   rarity: Rarity;
-  /** 0 … `ANALYSIS_SAMPLE_LEVEL_MAX`. 0 = 아직 한 번도 회수하지 않았다. */
+  /** 0 … `ANALYSIS_SAMPLE_LEVEL_MAX`. 0 = never collected yet. */
   level: number;
   maxLevel: number;
-  /** 이 등급의 분석 도감 칸 수 (`analysisFound` 중 그 등급의 산출물). */
+  /** Analysis catalogue entries of this rarity (the products of that rarity among `analysisFound`). */
   dexEntries: number;
-  /** 도감 칸이 주는 단축 (상한 전). */
+  /** The speedup the catalogue entries give (before the cap). */
   dexBonus: number;
-  /** 표본 레벨이 주는 단축 (상한 전). */
+  /** The speedup the sample level gives (before the cap). */
   levelBonus: number;
-  /** 실제로 곱해지는 단축 0 … `ANALYSIS_SPEEDUP_CAP` — 해석 시간은 `× (1 − speedup)`. */
+  /** The speedup actually multiplied in, 0 … `ANALYSIS_SPEEDUP_CAP` — the analysis time is `× (1 − speedup)`. */
   speedup: number;
 }
 
 export interface HousingRef {
-  /* ══ appended: 2026-09-16 — 표본 개편 ══ */
-  /** 이 표본의 레벨 · 도감 칸 · 지금 붙는 해석 단축. 표본이 아니면 null. */
+  /* ══ appended: 2026-09-16 — the sample rework ══ */
+  /** This sample's level · catalogue entries · the analysis speedup on it right now. null when it is not a sample. */
   getSampleAnalysis?(defId: string): SampleAnalysisInfo | null;
-  /** 분석 도감(`analysisFound`)의 칸 수를 산출물 **등급별**로 센 표 — 도감 보너스가 묶이는 축 그대로. */
+  /** The analysis catalogue (`analysisFound`) entry count per product **rarity** — exactly the axis the catalogue bonus is grouped on. */
   getAnalysisDexByRarity?(): Readonly<Record<Rarity, number>>;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-13 — 요리 미니게임 (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」, 사용자 결정 — 규칙 · 표는 `shared/cooking.ts`)
+ * appended: 2026-09-13 — cooking minigames (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」, user's decision — the rules · tables are in `shared/cooking.ts`)
  *
- * 조리대 E → **조리대 화면**(`openCookStation`) — 요리 목록 · 재료 · 미니게임 순서 · 자동 가구 · 함선 창고 / 가방 카드.
- * 「조리 시작」(`startCook`) → 조리대 앞 자세 + 고정 카메라(hub, `housing:cookSession`) + 미니게임 오버레이 → 단계마다
- * 「직접 하기 / 자동」 → 끝나면 재료를 빼고 품질 붙은 요리 1개(`InventoryRef.completeCook`) → 결과 → `housing:cookResult`.
- * 중간에 닫으면(`cancelCook` · Esc · Tab · 페이즈 변경) 아무것도 소모되지 않는다. 함선 전용 · 내 함선 전용 · 한 번에 한 개.
+ * E on the cook bench → the **cook bench screen** (`openCookStation`) — the meal list · ingredients · minigame order · auto appliances · the ship stash / bag cards.
+ * 「조리 시작」 (`startCook`) → the pose at the cook bench + a locked camera (hub, `housing:cookSession`) + the minigame overlay → per step
+ * 「직접 하기 / 자동」 → at the end the ingredients are taken and one meal with a quality on it is made (`InventoryRef.completeCook`) → the result → `housing:cookResult`.
+ * Closing it midway (`cancelCook` · Esc · Tab · a phase change) consumes nothing. Ship only · own ship only · one at a time.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 import type { CookAutoInfo, CookGame, CookSessionInfo } from './cooking';
 
 export interface HousingRef {
-  /** 조리대 화면을 연다 (`uid` = 조리대 가구). 조리대가 아니거나 레이드 · 남의 함선이면 토스트만. */
+  /** Open the cook bench screen (`uid` = the cook bench furniture). Only a toast when it is not a cook bench, or in a raid · on someone else's ship. */
   openCookStation?(uid: string): void;
-  /** 진행 중인 조리 (미니게임 오버레이가 열려 있는 동안), 없으면 null. */
+  /** The cook in progress (while the minigame overlay is open), null when there is none. */
   readonly cookSession?: CookSessionInfo | null;
   /**
-   * 지금 조리대 `uid` 에서 `recipeId` 를 시작할 수 없는 한국어 사유, null = 시작할 수 있다.
-   * 순서: 조리대가 아니다 → 함선 · 내 함선이 아니다 → 이미 조리 중 → 요리 레시피가 아니다 / 단계가 없다 → `InventoryRef.cookBlock`(작업대 레벨 · 숙련 · 재료 · 자리).
+   * Korean reason `recipeId` cannot be started on cook bench `uid` right now, null = it can start.
+   * In order: not a cook bench → not the ship · not my ship → already cooking → not a meal recipe / it has no steps → `InventoryRef.cookBlock` (bench level · skill · ingredients · space).
    */
   cookBlock?(uid: string, recipeId: string): string | null;
-  /** 조리를 시작한다 — 오버레이를 열고 `housing:cookSession {active:true}`. 한국어 사유 / null. 재료는 **끝날 때** 뺀다. */
+  /** Start the cook — opens the overlay and emits `housing:cookSession {active:true}`. Korean reason / null. The ingredients are taken **at the end**. */
   startCook?(uid: string, recipeId: string): string | null;
-  /** 진행 중인 조리를 소모 없이 끝낸다 (`housing:cookSession {active:false, completed:false}`). 없으면 no-op. */
+  /** End the cook in progress with nothing consumed (`housing:cookSession {active:false, completed:false}`). A no-op when there is none. */
   cancelCook?(): void;
-  /** 그 게임을 대신하는 자동 조리 가구 중 함선에 배치된 가장 높은 레벨의 것, 없으면 null. */
+  /** The highest-level auto-cook appliance placed on the ship that stands in for that game, null when there is none. */
   getCookAuto?(game: CookGame): CookAutoInfo | null;
 }
-/* ══ end 2026-09-13 요리 미니게임 ══ */
+/* ══ end 2026-09-13 cooking minigames ══ */
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-13 — 가구 배치 규칙 · 발전기 전력 · 암호화폐 채굴 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 사용자 결정)
+ * appended: 2026-09-13 — furniture placement rules · generator power · crypto mining (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, user's decision)
  *
- * 1. **배치 규칙** (`FurnitureDef.access`). 가구의 앞은 로컬 −Z 다 — 격자로는 yaw 0 = y 감소 · 1 = x 증가 · 2 = y 증가 · 3 = x 감소.
- *    - `front` — 앞 한 줄(가구 폭만큼, 깊이 1칸)에 다른 가구가 없어야 하고 격자 밖(벽)이어도 안 된다. 상호작용은 앞에서만.
- *    - `sides` — 넓은 두 면(로컬 ±Z — csv 는 cols ≥ rows 로 적는다)의 한 줄에 다른 가구가 없어야 한다. 벽은 된다. 두 면 어디서든.
- *    - `all`   — 네 면의 한 줄씩(모서리 칸 제외)에 다른 가구가 없어야 한다. 벽은 된다. 어느 면이든 (헬스 기구).
- *    - `none`  — 예전 그대로 (몸체끼리만 안 겹치면 된다).
- *    비워야 하는 칸끼리는 겹쳐도 된다(마주보는 작업대 둘이 1칸 통로를 나눠 쓴다). 조종석 고정 소품 자리(`COCKPIT_BLOCKED_RECTS`)는 가구처럼 막는다.
- *    규칙은 양방향이다 — 내 몸체가 남의 비워야 하는 칸에 들어가도 안 된다. 옛 세이브에서 규칙을 어기는 가구는 로드할 때 **가구 창고로** 간다
- *    (사용자 결정 — `ShipState.sanitize` 가 받아들인 순서대로 검사한다).
- * 2. **전력 — 은퇴 (같은 날, 사용자 결정 「전력 할당 시스템이 너무 빡세다」).** 수동 할당 · 비활성화 · 멈춘 시계를 모두 걷어냈다. 발전기는
- *    Lv.1 로 시작해 Lv.5 까지 오르고(`GENERATOR_START_LEVEL` · `GENERATOR_MAX_LEVEL`) 하는 일은 둘뿐이다 — ① 상위 시설의 **증축 조건**
- *    (`purposeGeneratorLevel` — Lv.2 온실 · 주방 / Lv.3 연구실 / Lv.4 헬스장 · 서재 / Lv.5 채굴 시설), ② 예전 그대로 가구 · 창고 강화 게이트
- *    (Lv.n 으로 올리려면 발전기 Lv.n). 아래 전력 이름들은 계약이라 남기만 한다. `furnitureOperationalBlock` 은 「메인 컴퓨터 없는 연산 클러스터」만 답한다.
- * 3. **암호화폐 채굴.** 채굴 시설(`mining`)에 연산 클러스터(`compute_cluster` — 1×2칸, 여러 대)와 메인 컴퓨터(`mining_computer` — 함선당 1대)를 둔다.
- *    클러스터마다 코인을 정하고 **프로세서**(2026-09-16 사용자 결정 — 옛 연산 코어)를 최대 `COMPUTE_CLUSTER_MAX_CORES` 개 꽂는다.
- *    **메인 컴퓨터가 배치돼 있어야** 클러스터가 채굴한다 (사용자 결정 — 전력 폐지 전에는 「가동 중」 이었다).
- *    시간은 클러스터 한 대에 하나(재배 칸처럼 프로세서마다 따로 흐르지 않는다) — 주기는 꽂힌 프로세서들의 **성능 합**(`processorPerf`)에서 난다.
- *    한 주기가 끝날 때마다 `yieldUnits` 가 **지갑**(`cryptoWallet`)에 저절로 들어가고, 그 자리에서 꽂힌 프로세서가 전부
- *    `PROCESSOR_WEAR_PER_CYCLE` 만큼 닳는다 (닳을수록 느려지다 내구도 0 에서 절반 — 수리는 함선 작업대). 프로세서가 바뀌면
- *    진행도를 접어 새 주기 길이로 이어 가고, 코인을 바꾸면 진행도가 0 이 된다.
- *    메인 컴퓨터 = 클러스터 현황 · 지갑 · 거래소(서버 시세 차트 · 매수 · 매도 — 잠긴 코인도 차트는 보인다).
+ * 1. **Placement rules** (`FurnitureDef.access`). A piece's front is local −Z — on the grid, yaw 0 = y decreasing · 1 = x increasing · 2 = y increasing · 3 = x decreasing.
+ *    - `front` — the row in front (as wide as the piece, 1 cell deep) must hold no other furniture, and must not be outside the grid (a wall) either. Interaction only from the front.
+ *    - `sides` — one row on each of the two wide faces (local ±Z — the csv is written with cols ≥ rows) must hold no other furniture. A wall is allowed. From either face.
+ *    - `all`   — one row on each of the four faces (corner cells excluded) must hold no other furniture. A wall is allowed. From any face (gym machines).
+ *    - `none`  — as before (only the bodies must not overlap).
+ *    Cells that must stay clear may overlap each other (two workbenches facing each other share a 1-cell passage). A fixed cockpit prop spot (`COCKPIT_BLOCKED_RECTS`) blocks like furniture.
+ *    The rule works both ways — my body must not enter someone else's cells that have to stay clear either. A piece in an old save that breaks the rule goes **into furniture storage** on load
+ *    (user's decision — `ShipState.sanitize` checks them in the order it accepted them).
+ * 2. **Power — retired (the same day, user's decision 「the power allocation system is too harsh」).** Manual allocation · disabling · stopped clocks were all torn out. The generator
+ *    starts at Lv.1 and rises to Lv.5 (`GENERATOR_START_LEVEL` · `GENERATOR_MAX_LEVEL`) and does only two things — ① it is the **build condition** of the higher facilities
+ *    (`purposeGeneratorLevel` — Lv.2 greenhouse · kitchen / Lv.3 lab / Lv.4 gym · library / Lv.5 mining facility), ② as before it gates furniture · stash upgrades
+ *    (raising something to Lv.n needs generator Lv.n). The power names below are kept only because they are contract. `furnitureOperationalBlock` answers only 「a compute cluster with no main computer」.
+ * 3. **Crypto mining.** The mining facility (`mining`) holds compute clusters (`compute_cluster` — 1×2 cells, several of them) and the main computer (`mining_computer` — one per ship).
+ *    Each cluster is given a coin, and up to `COMPUTE_CLUSTER_MAX_CORES` **processors** (2026-09-16 user's decision — the old compute cores) are inserted into it.
+ *    A cluster mines only **while the main computer is placed** (user's decision — before power was dropped this was 「running」).
+ *    The clock is one per cluster (it does not run per processor the way a grow slot does) — the cycle comes out of the **sum of the performance** of the inserted processors (`processorPerf`).
+ *    Every time a cycle ends `yieldUnits` goes into the **wallet** (`cryptoWallet`) by itself, and on the spot every inserted processor wears by
+ *    `PROCESSOR_WEAR_PER_CYCLE` (the more worn the slower, down to half at durability 0 — repair is at a ship workbench). When the processors change,
+ *    the progress is folded and carried on at the new cycle length; when the coin changes, the progress goes to 0.
+ *    The main computer = cluster status · the wallet · the exchange (the server price chart · buy · sell — a locked coin still shows its chart).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 import type { CryptoCoinDef } from './crypto';
 import type { CryptoTradeSide } from './cryptoMarket';
 
-/* ── 1. 배치 규칙 ── */
+/* ── 1. Placement rules ── */
 
 export type FurnitureAccess = 'none' | 'front' | 'sides' | 'all';
 export const FURNITURE_ACCESS_VALUES: readonly FurnitureAccess[] = ['none', 'front', 'sides', 'all'];
-/** 가구의 네 면. `front` = 로컬 −Z, `back` = +Z, `right` = 로컬 +X, `left` = 로컬 −X (격자 계산용 이름). */
+/** The four faces of a piece. `front` = local −Z, `back` = +Z, `right` = local +X, `left` = local −X (names for the grid maths). */
 export type FurnitureFace = 'front' | 'back' | 'right' | 'left';
 
 export interface FurnitureDef {
-  /** appended (2026-09-13): 접근 면 규칙 (`data/furniture.csv` 의 `access`). 없으면 `'none'`. */
+  /** appended (2026-09-13): the access face rule (`access` in `data/furniture.csv`). Absent = `'none'`. */
   access?: FurnitureAccess;
-  /** appended (2026-09-13): 활성일 때 그 시설의 요구 전력에 더하는 값 (`power`). 없으면 0. */
+  /** appended (2026-09-13): what it adds to its facility's required power while active (`power`). Absent = 0. */
   power?: number;
-  /** appended (2026-09-13): 실용 가구지만 여러 대 만들 수 있다 (`multi` — 연산 클러스터). 없으면 「이미 보유 중」 규칙. */
+  /** appended (2026-09-13): utility furniture that may still be built several times (`multi` — the compute cluster). Absent = the 「already owned」 rule. */
   multi?: boolean;
 }
 
@@ -1759,7 +1759,7 @@ export function furnitureAccessOf(def: FurnitureDef | null | undefined): Furnitu
   return def?.access ?? 'none';
 }
 
-/** 규칙이 비워 두라는 면 (= 상호작용할 수 있는 면). */
+/** The faces the rule says to keep clear (= the faces it can be interacted from). */
 export function furnitureAccessFaces(access: FurnitureAccess): readonly FurnitureFace[] {
   switch (access) {
     case 'front': return ['front'];
@@ -1769,7 +1769,7 @@ export function furnitureAccessFaces(access: FurnitureAccess): readonly Furnitur
   }
 }
 
-/** 비워야 하는 칸이 격자 밖(벽)이어도 되는가 — `front` 만 안 된다. */
+/** May a cell that must stay clear be outside the grid (a wall) — only `front` may not. */
 export function accessAllowsWall(access: FurnitureAccess): boolean {
   return access !== 'front';
 }
@@ -1779,8 +1779,8 @@ const FACE_LOCAL: Readonly<Record<FurnitureFace, readonly [number, number]>> = {
 };
 
 /**
- * yaw 로 돌린 면이 가리키는 격자 방향 (`dx` = 격자 x, `dy` = 격자 y, 둘 중 하나만 ±1).
- * 근거: 격자 x = 월드 +X, y = 월드 +Z, 월드 회전 = −yaw·π/2 (`hub/interiors/RoomLayout`) — yaw 한 번에 (x, z) → (−z, x).
+ * The grid direction a face turned by `yaw` points in (`dx` = grid x, `dy` = grid y, exactly one of them ±1).
+ * Why: grid x = world +X, y = world +Z, world rotation = −yaw·π/2 (`hub/interiors/RoomLayout`) — one yaw step takes (x, z) → (−z, x).
  */
 export function furnitureFaceDir(yaw: 0 | 1 | 2 | 3, face: FurnitureFace): { dx: number; dy: number } {
   let [x, z] = FACE_LOCAL[face];
@@ -1788,12 +1788,12 @@ export function furnitureFaceDir(yaw: 0 | 1 | 2 | 3, face: FurnitureFace): { dx:
   return { dx: x, dy: z };
 }
 
-/** 가구 하나가 비워 두라는 칸 하나. 격자 밖 좌표일 수 있다 (벽). */
+/** One cell a piece asks to be kept clear. It may be a coordinate outside the grid (a wall). */
 export interface ClearanceCell { x: number; y: number; face: FurnitureFace }
 
 /**
- * (x, y, yaw) 에 놓인 `def` 가 비워 두라는 칸 전부 — 접근 면마다 몸체에 붙은 깊이 1칸 한 줄, 모서리 칸은 없다. `none` 이면 빈 배열.
- * 격자 밖 칸도 그대로 돌려준다 (`accessAllowsWall` 로 벽 허용 여부를 따로 본다).
+ * Every cell `def` placed at (x, y, yaw) asks to be kept clear — per access face, one row 1 cell deep against the body, with no corner cells. Empty array for `none`.
+ * Cells outside the grid are returned as they are (whether a wall is allowed is asked separately with `accessAllowsWall`).
  */
 export function furnitureClearanceCells(def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3): ClearanceCell[] {
   const fp = furnitureFootprint(def, yaw);
@@ -1811,101 +1811,101 @@ export function furnitureClearanceCells(def: FurnitureDef, x: number, y: number,
   return out;
 }
 
-/* ── 2. 전력 — **은퇴** (2026-09-13 같은 날, 사용자 결정 「전력 할당 시스템 제거」) ──
- * 발전기는 이제 **상위 시설의 증축 조건**(`ROOM_PURPOSE_GENERATOR_LEVEL`)과 가구 · 창고 강화 게이트뿐이다. 할당 · 비활성화 · 멈춘 시계는 없고,
- * 아래 이름은 계약이 「추가만」 이라 남긴 것이다 (`airstrike` · `damageReduction` 과 같은 처리) — housing 은 전력 API 를 구현하지 않고
- * `housing:powerChanged` · `housing:operationalChanged` 도 내지 않는다. 표(`GENERATOR_POWER_BY_LEVEL` · 용도 `power` · 가구 `power` ·
- * `COMPUTE_CLUSTER_POWER_PER_CORE` · `POWER_AUTO_TOPUP`)는 csv 에서 지웠다. */
+/* ── 2. Power — **retired** (2026-09-13, the same day, user's decision 「remove the power allocation system」) ──
+ * The generator is now only the **build condition of the higher facilities** (`ROOM_PURPOSE_GENERATOR_LEVEL`) and the furniture · stash upgrade gate. There is no allocation,
+ * no disabling and no stopped clock, and the names below are kept only because the contract is 「add-only」 (the same treatment as `airstrike` · `damageReduction`) — housing
+ * implements no power API and raises neither `housing:powerChanged` nor `housing:operationalChanged`. The tables (`GENERATOR_POWER_BY_LEVEL` · a purpose's `power` · a piece's `power` ·
+ * `COMPUTE_CLUSTER_POWER_PER_CORE` · `POWER_AUTO_TOPUP`) were deleted from the csv. */
 
-/** 은퇴 — 늘 빈 표. */
+/** Retired — always an empty table. */
 export const GENERATOR_POWER_BY_LEVEL: readonly number[] = Object.freeze([]);
 
-/** 은퇴 — 늘 0. */
+/** Retired — always 0. */
 export function generatorPowerSupply(_level: number): number {
   return 0;
 }
 
-/** 은퇴 — 빈 표 (읽으면 undefined). */
+/** Retired — an empty table (a read gives undefined). */
 export const ROOM_PURPOSE_POWER: Readonly<Record<RoomPurpose, number>> = Object.freeze({}) as Record<RoomPurpose, number>;
 
-/** 은퇴 — 늘 0. */
+/** Retired — always 0. */
 export const COMPUTE_CLUSTER_POWER_PER_CORE = 0;
 
-/** 은퇴 — 아무도 돌려주지 않는다. */
+/** Retired — nobody returns it. */
 export const POWER_SHORT_REASON_KO = '전력이 부족합니다';
-/** 은퇴 — 아무도 돌려주지 않는다. */
+/** Retired — nobody returns it. */
 export const FURNITURE_DISABLED_REASON_KO = '비활성화된 가구입니다';
-/** 연산 클러스터가 채굴하지 못하는 사유 — 함선에 메인 컴퓨터가 없다 (2026-09-13 전력 폐지 뒤에도 쓰인다: `HousingRef.furnitureOperationalBlock`). */
+/** Reason a compute cluster cannot mine — the ship has no main computer (still used after power was dropped on 2026-09-13: `HousingRef.furnitureOperationalBlock`). */
 export const MINING_COMPUTER_REQUIRED_REASON_KO = '채굴 시설에 메인 컴퓨터가 있어야 합니다';
-/** 은퇴 — 늘 false. */
+/** Retired — always false. */
 export const POWER_AUTO_TOPUP = false;
 
-/** 가구 하나의 전력 현황. */
+/** One piece's power state. */
 export interface FurniturePowerInfo {
   uid: string;
   defId: string;
-  /** 활성일 때 요구 전력 (코어 포함). 비활성이어도 이 값을 보여 준다 — 요구 합에 들어가지 않을 뿐이다. */
+  /** Required power while active (cores included). It is shown even while inactive — it just does not enter the required sum. */
   demand: number;
   disabled: boolean;
-  /** 지금 작동하는가 (활성 · 시설 전력 충분 · 가구별 추가 조건 — 클러스터는 메인 컴퓨터). */
+  /** Is it working right now (active · the facility has enough power · the piece's own extra condition — the main computer for a cluster). */
   operational: boolean;
-  /** 작동하지 않는 한국어 사유, 작동 중이면 null. */
+  /** Korean reason it is not working, null while it is. */
   block: string | null;
 }
 
-/** 시설(방) 하나의 전력 현황. 조종석 · 빈 방은 들어가지 않는다. */
+/** One facility's (room's) power state. The cockpit · an empty room are not in it. */
 export interface FacilityPowerInfo {
   room: number;
   purpose: RoomPurpose;
   /** `ROOM_PURPOSE_POWER[purpose]`. */
   base: number;
-  /** base + 활성 가구 demand 합. */
+  /** base + the sum of the active pieces' demand. */
   required: number;
-  /** 플레이어가 할당한 전력. */
+  /** The power the player allocated. */
   allocated: number;
   /** allocated ≥ required. */
   powered: boolean;
-  /** 이 방에 놓인 가구 중 전력을 쓰는 것 (demand > 0) — 비활성 포함. */
+  /** The pieces placed in this room that use power (demand > 0) — inactive ones included. */
   furniture: FurniturePowerInfo[];
 }
 
 export interface PowerOverview {
   /** `generatorPowerSupply(state.generatorLevel)`. */
   supply: number;
-  /** 할당 합. */
+  /** The sum of the allocations. */
   allocated: number;
   /** supply − allocated (≥ 0). */
   free: number;
-  /** 모든 시설 required 합 (공급과 비교해 발전기 업그레이드 필요를 알린다). */
+  /** The sum of every facility's required (compared against the supply to warn that the generator needs an upgrade). */
   required: number;
   facilities: FacilityPowerInfo[];
 }
 
-/* ── 3. 암호화폐 채굴 ── */
+/* ── 3. Crypto mining ── */
 
 export const COMPUTE_CLUSTER_DEF_ID = 'furn_compute_cluster';
 export const MINING_COMPUTER_DEF_ID = 'furn_mining_computer';
 /**
- * 연산 클러스터에 꽂는 **프로세서** (items/ 가 정의한다 — 조합대에서 결정 코어 1 + 회로 기판 4 로 만든다).
- * 2026-09-16 (사용자 결정): 중간 단계였던 연산 코어가 없어지고 이것이 곧바로 클러스터에 꽂힌다. `durabilityMax` 를 갖는
- * 장비라 주기마다 닳고(`PROCESSOR_WEAR_PER_CYCLE`) 닳은 만큼 느려지며(`PROCESSOR_PERF_MIN`) 함선 작업대에서 수리한다.
+ * The **processor** inserted into a compute cluster (items/ defines it — made at the mixer from 1 crystal core + 4 circuit boards).
+ * 2026-09-16 (user's decision): the compute core, the step in between, is gone and this goes straight into the cluster. It is gear with a
+ * `durabilityMax`, so it wears every cycle (`PROCESSOR_WEAR_PER_CYCLE`), slows down as it wears (`PROCESSOR_PERF_MIN`) and is repaired at a ship workbench.
  */
 export const PROCESSOR_DEF_ID = 'mat_processor';
 /**
- * @deprecated 2026-09-16 — 연산 코어(`mat_compute_core`)는 아이템 표에서 **사라졌다** (프로세서가 직접 꽂힌다).
- * 계약은 추가만이라 이름은 남는다; 이 id 로 아이템을 찾으면 `undefined` 다. 새 코드는 `PROCESSOR_DEF_ID` 를 쓴다.
+ * @deprecated 2026-09-16 — the compute core (`mat_compute_core`) **is gone** from the item table (the processor goes in directly).
+ * The contract is add-only, so the name stays; looking an item up by this id gives `undefined`. New code uses `PROCESSOR_DEF_ID`.
  */
 export const COMPUTE_CORE_DEF_ID = 'mat_compute_core';
 
-/** 내구도 0 인 프로세서의 성능 (1 = 새것). 완전히 닳아도 절반은 일한다 — `data/tuning.csv`. */
+/** Performance of a processor at durability 0 (1 = brand new). Even worn out it still does half the work — `data/tuning.csv`. */
 export const PROCESSOR_PERF_MIN = T.num('PROCESSOR_PERF_MIN');
-/** 채굴 주기 한 번이 끝날 때 **꽂힌 프로세서마다** 닳는 내구도 — `data/tuning.csv`. */
+/** Durability **each inserted processor** loses when one mining cycle ends — `data/tuning.csv`. */
 export const PROCESSOR_WEAR_PER_CYCLE = T.num('PROCESSOR_WEAR_PER_CYCLE');
 
 /**
- * 프로세서 하나의 성능 (0.5 … 1) — **선형** (사용자 결정): `PROCESSOR_PERF_MIN + (1 − PROCESSOR_PERF_MIN) × (남은 ÷ 최대)`.
- * 클러스터의 속도는 꽂힌 프로세서들의 이 값을 **더한 것**이라, **다 닳은 프로세서는 새것 반 개 몫**이다.
- * `max` 가 0 이하(내구도 없는 아이템)면 새것으로 본다.
+ * One processor's performance (0.5 … 1) — **linear** (user's decision): `PROCESSOR_PERF_MIN + (1 − PROCESSOR_PERF_MIN) × (left ÷ max)`.
+ * A cluster's speed is the **sum** of this value over its inserted processors, so **a worn-out processor is worth half a new one**.
+ * A `max` of 0 or below (an item with no durability) is taken as brand new.
  */
 export function processorPerf(durability: number, max: number): number {
   if (!(max > 0)) return 1;
@@ -1913,305 +1913,305 @@ export function processorPerf(durability: number, max: number): number {
   return PROCESSOR_PERF_MIN + (1 - PROCESSOR_PERF_MIN) * ratio;
 }
 
-/** 연산 클러스터 한 대의 채굴 상태. 프로세서도 코인도 없는 클러스터는 `ShipState.clusters` 에 없어도 된다. */
+/** One compute cluster's mining state. A cluster with neither a processor nor a coin need not be in `ShipState.clusters` at all. */
 export interface ComputeClusterSlot {
-  /** 연산 클러스터 `PlacedFurniture.uid`. */
+  /** The compute cluster's `PlacedFurniture.uid`. */
   uid: string;
-  /** 채굴할 코인 id (`data/crypto.csv`). 없으면 채굴하지 않는다. */
+  /** Id of the coin to mine (`data/crypto.csv`). With none it does not mine. */
   coinId?: string;
   /**
-   * 2026-09-16 (사용자 결정 「프로세서를 직접 꽂는다 · 프로세서에 내구도가 있다」):
-   * **칸마다 꽂힌 프로세서의 남은 내구도. 빈 칸은 null.** 길이 ≤ `COMPUTE_CLUSTER_MAX_CORES` 이고
-   * **인덱스가 곧 UI 격자의 칸**이다 — 그래서 3번 칸의 다 닳은 프로세서만 골라 뺄 수 있다.
-   * (옛 `cores` 는 개수 하나였다: 서로 같은 코어였으므로 셀 수만 있으면 됐다.)
+   * 2026-09-16 (user's decision 「processors go in directly · a processor has durability」):
+   * **the durability left in the processor of each slot. An empty slot is null.** Its length is ≤ `COMPUTE_CLUSTER_MAX_CORES` and
+   * **the index is the cell of the UI grid** — which is what lets the worn-out processor in slot 3 be taken out on its own.
+   * (The old `cores` was a single count: the cores were identical, so counting them was enough.)
    */
   processors: (number | null)[];
-  /** @deprecated 2026-09-16 — 옛 「꽂힌 연산 코어 수」. 읽는 곳은 세이브 정리(`sanitizeClusters`)뿐이고 새 세이브에는 없다. */
+  /** @deprecated 2026-09-16 — the old 「number of compute cores inserted」. The only reader is the save cleanup (`sanitizeClusters`); a new save has none. */
   cores?: number;
-  /** `segmentAt` 시점까지 쌓인 진행도 (주기 단위, 0 ≤ p < 1 — 넘친 주기는 지갑에 넣고 뺀다). */
+  /** Progress accumulated up to the `segmentAt` moment (in cycles, 0 ≤ p < 1 — an overflowing cycle goes into the wallet and is subtracted). */
   progress: number;
-  /** 지금 구간이 시작된 epoch ms (`stationNow` 기준). 프로세서 · 코인 · 가동 상태가 바뀌면 진행도를 접고 새로 연다. */
+  /** Epoch ms the current segment started (on `stationNow`). A change of processors · coin · running state folds the progress and opens a new one. */
   segmentAt: number;
 }
 
 export interface ShipState {
-  /* ── appended (2026-09-13, 전력 — version 12) · **은퇴** (같은 날 v13 — 전력 할당 폐지): housing 은 읽지도 쓰지도 않는다 ── */
-  /** 은퇴 — 시설 전력 할당이었다. */
+  /* ── appended (2026-09-13, power — version 12) · **retired** (the same day, v13 — power allocation dropped): housing neither reads nor writes them ── */
+  /** Retired — it was the facility's power allocation. */
   powerAlloc?: Record<string, number>;
-  /** 은퇴 — 비활성화한 가구 uid 였다. */
+  /** Retired — it was the uids of disabled furniture. */
   disabledFurniture?: string[];
-  /** 은퇴 — 멈춘 시계형 가구의 멈춘 시각이었다. */
+  /** Retired — it was the stop time of a stopped clock piece. */
   pausedAt?: Record<string, number>;
-  /* ── appended (2026-09-13, 암호화폐 채굴) ── */
+  /* ── appended (2026-09-13, crypto mining) ── */
   clusters?: ComputeClusterSlot[];
-  /** 지갑: 코인 id → 단위 수 (`CRYPTO_UNITS_PER_COIN` 단위 = 코인 1개). */
+  /** The wallet: coin id → unit count (`CRYPTO_UNITS_PER_COIN` units = 1 coin). */
   cryptoWallet?: Record<string, number>;
-  /** 지금까지 채굴한 누적 단위 (현황 화면 표시용). */
+  /** Cumulative units mined so far (for the status screen). */
   cryptoMined?: Record<string, number>;
 }
 
-/** 클러스터 한 대를 화면이 보는 모양. */
+/** One cluster as the screen sees it. */
 export interface ComputeClusterInfo {
   uid: string;
   room: number;
   coinId: string | null;
-  /** 꽂힌 프로세서 **개수** (레일 점 · 「n/m」 표시용 — 속도는 개수가 아니라 `perf` 다). */
+  /** The **number** of processors inserted (for the rail dots · the 「n/m」 readout — the speed is `perf`, not the count). */
   cores: number;
   maxCores: number;
-  /* ── appended (2026-09-16, 프로세서 직접 장착) ── */
-  /** 칸마다의 남은 내구도, 빈 칸은 null. 길이 = `maxCores` — 인덱스가 곧 화면 격자의 칸이다. */
+  /* ── appended (2026-09-16, processors fitted directly) ── */
+  /** The durability left per slot, null for an empty slot. Length = `maxCores` — the index is the cell of the screen's grid. */
   processors: readonly (number | null)[];
-  /** 프로세서 한 개의 최대 내구도 (`ItemDef.durabilityMax`) — 내구도 막대의 분모. 표를 못 읽으면 0. */
+  /** Max durability of one processor (`ItemDef.durabilityMax`) — the denominator of the durability bar. 0 when the table cannot be read. */
   processorMax: number;
-  /** 꽂힌 프로세서들의 `processorPerf` 합 — 주기는 이 값으로 난다 (다 닳은 것은 새것 반 개 몫). */
+  /** The sum of `processorPerf` over the inserted processors — the cycle comes out of this value (a worn-out one is worth half a new one). */
   perf: number;
-  /** 지금 설정의 주기 (ms). 코어 0 · 코인 없음이면 0. */
+  /** The cycle of the current setup (ms). 0 with 0 cores · no coin. */
   cycleMs: number;
-  /** 이번 주기 진행도 0 … 1 (채굴하지 않으면 0 — 멈췄으면 멈춘 자리). */
+  /** Progress of this cycle, 0 … 1 (0 while it is not mining — where it stopped when it stopped). */
   progress: number;
-  /** 이번 주기 남은 초 (채굴하지 않으면 0). */
+  /** Seconds left in this cycle (0 while it is not mining). */
   remainingS: number;
-  /** 지금 시계가 흐르는가 (코인 · 코어 · 가동 · 메인 컴퓨터 전부 충족). */
+  /** Is the clock running right now (coin · cores · running · main computer all satisfied). */
   mining: boolean;
-  /** 흐르지 않는 한국어 사유 (코인 미지정 · 코어 없음 · 전력 · 비활성 · 메인 컴퓨터 · 잠긴 코인), 흐르면 null. */
+  /** Korean reason it is not running (no coin picked · no cores · power · inactive · the main computer · a locked coin), null while it runs. */
   block: string | null;
-  /** 이 클러스터의 요구 전력 (코어 포함). */
+  /** This cluster's required power (cores included). */
   power: number;
 }
 
-/** 코인 하나를 화면이 보는 모양. */
+/** One coin as the screen sees it. */
 export interface CryptoCoinInfo {
   def: CryptoCoinDef;
   unlocked: boolean;
-  /** 잠긴 이유 (`<기업> 퀘스트 「…」 완료 필요`), 열렸으면 null. */
+  /** Why it is locked (`<기업> 퀘스트 「…」 완료 필요`), null once it is open. */
   lockReason: string | null;
   walletUnits: number;
-  /** 서버 시세 (코인 1개당 크레딧), 서버에 붙어 있지 않으면 null. */
+  /** The server price (credits per coin), null while not connected to the server. */
   price: number | null;
-  /** 24시간 변동률 (비율), 모르면 null. */
+  /** The 24-hour change (as a ratio), null when unknown. */
   change24h: number | null;
 }
 
 export type MiningComputerTab = 'clusters' | 'wallet' | 'exchange';
 
-/** 거래소 견적. `credits` = 팔면 받는 · 사면 내는 크레딧 (수수료 반영, `cryptoCreditsFor`). */
+/** An exchange quote. `credits` = the credits received on a sell · paid on a buy (fee included, `cryptoCreditsFor`). */
 export interface CryptoQuote {
   coinId: string;
   side: CryptoTradeSide;
   units: number;
   price: number;
   credits: number;
-  /** 거래를 막는 한국어 사유 (서버 없음 · 잠김 · 지갑 부족 · 크레딧 부족 · 단위 범위), 가능하면 null. */
+  /** Korean reason the trade is blocked (no server · locked · not enough in the wallet · not enough credits · the unit range), null when it can go through. */
   block: string | null;
 }
 
 export interface HousingRef {
-  /* ══ appended: 2026-09-13 — 배치 규칙 ══ */
+  /* ══ appended: 2026-09-13 — placement rules ══ */
   /**
-   * (room, defId, x, y, yaw) 배치를 막는 한국어 사유, null = 놓을 수 있다. `canPlace` 와 **같은 판정**이고 사유만 더 준다
-   * (겹침 · 격자 밖 · 앞이 벽 · 앞 · 넓은 면 · 사방 칸이 막힘 · 다른 가구의 접근 칸을 막음 …). 하우징 모드의 고스트 · 거절 토스트가 쓴다.
+   * Korean reason placing (room, defId, x, y, yaw) is blocked, null = it can be placed. It is the **same judgement** as `canPlace`, only with the reason
+   * (overlap · outside the grid · a wall in front · the front · a wide face · all four cells blocked · it blocks another piece's access cell …). The housing mode ghost · refusal toast use it.
    */
   placementBlock?(room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): string | null;
 
-  /* ══ appended: 2026-09-13 — 전력 · **은퇴** (같은 날, 사용자 결정 「전력 할당 시스템 제거」) ══
-     아래 전력 질의 · 명령은 housing 이 **구현하지 않는다** (계약은 추가만이라 이름이 남는다). 부르는 쪽은 이미 `typeof … === 'function'` 으로 묻는다. */
-  /** 은퇴 — 구현 없음. */
+  /* ══ appended: 2026-09-13 — power · **retired** (the same day, user's decision 「remove the power allocation system」) ══
+     housing **does not implement** the power queries · commands below (the names stay because the contract is add-only). Callers already ask with `typeof … === 'function'`. */
+  /** Retired — not implemented. */
   getPowerOverview?(): PowerOverview;
-  /** 은퇴 — 구현 없음. */
+  /** Retired — not implemented. */
   getFacilityPower?(room: number): FacilityPowerInfo | null;
-  /** 은퇴 — 구현 없음. */
+  /** Retired — not implemented. */
   setPowerAllocation?(room: number, amount: number): string | null;
-  /** 은퇴 — 구현 없음. */
+  /** Retired — not implemented. */
   isFurnitureDisabled?(uid: string): boolean;
-  /** 은퇴 — 구현 없음. */
+  /** Retired — not implemented. */
   setFurnitureDisabled?(uid: string, disabled: boolean): string | null;
   /**
-   * 이 가구를 지금 쓸 수 없는 한국어 사유, 쓸 수 있으면 null. 2026-09-13 전력 폐지 뒤로는 **메인 컴퓨터가 없는 연산 클러스터**
-   * (`MINING_COMPUTER_REQUIRED_REASON_KO`)뿐이고 그 밖의 가구는 늘 null 이다.
+   * Korean reason this piece cannot be used right now, null when it can. Since power was dropped on 2026-09-13 it is only **a compute cluster with no
+   * main computer** (`MINING_COMPUTER_REQUIRED_REASON_KO`); for every other piece it is always null.
    */
   furnitureOperationalBlock?(uid: string): string | null;
-  /** 시계형 가구의 「지금」 — 2026-09-13 전력 폐지 뒤로는 멈추는 가구가 없어 늘 `serverNow` 다. */
+  /** The 「now」 of a clock piece — since power was dropped on 2026-09-13 nothing stops, so it is always `serverNow`. */
   stationNow?(uid: string): number;
-  /** 은퇴 — 구현 없음 (작업대는 멈추지 않는다 — `getBenchLevel` 을 쓴다). */
+  /** Retired — not implemented (a workbench does not stop — use `getBenchLevel`). */
   getOperationalBenchLevel?(kind: WorkbenchKind): number;
-  /** 은퇴 — 구현 없음. */
+  /** Retired — not implemented. */
   benchOperationalBlock?(kind: WorkbenchKind): string | null;
 
-  /* ══ appended: 2026-09-13 — 암호화폐 채굴 ══ */
+  /* ══ appended: 2026-09-13 — crypto mining ══ */
   getCryptoCoins?(): CryptoCoinInfo[];
   getCryptoWallet?(): Readonly<Record<string, number>>;
-  /** 함선에 놓인 메인 컴퓨터 uid (없으면 null). */
+  /** Uid of the main computer placed on the ship (null when there is none). */
   getMiningComputerUid?(): string | null;
   getComputeClusters?(): ComputeClusterInfo[];
   getComputeCluster?(uid: string): ComputeClusterInfo | null;
-  /** 채굴할 코인을 정한다 (null = 해제). 잠긴 코인은 거절. 코인이 바뀌면 진행도 0. 한국어 사유 / null. `housing:clusterChanged`. */
+  /** Pick the coin to mine (null = clear it). A locked coin is refused. A coin change puts the progress at 0. Korean reason / null. `housing:clusterChanged`. */
   setClusterCoin?(uid: string, coinId: string | null): string | null;
   /**
-   * 프로세서를 (가방 → 창고에서) `qty` 개 꽂는다 — 빈 칸만큼만, **내구도가 높은 것부터**. 진행도는 접어서 새 주기로 잇는다.
-   * 2026-09-16: 이름은 계약이라 남지만 꽂히는 것은 연산 코어가 아니라 `PROCESSOR_DEF_ID` 다. 한국어 사유 / null.
+   * Insert `qty` processors (from the bag → the stash) — only as many as there are empty slots, **the highest durability first**. The progress is folded and carried into the new cycle.
+   * 2026-09-16: the name stays because it is contract, but what goes in is `PROCESSOR_DEF_ID`, not a compute core. Korean reason / null.
    */
   insertClusterCores?(uid: string, qty: number): string | null;
-  /** 프로세서를 `qty` 개 뺀다 — **뒤 칸부터**, 내구도를 그대로 들고 (`dest` 기본 `'bag-first'`, 자리가 없으면 거절). 한국어 사유 / null. */
+  /** Take out `qty` processors — **from the back slots**, carrying their durability with them (`dest` defaults to `'bag-first'`; refused when there is no space). Korean reason / null. */
   removeClusterCores?(uid: string, qty: number, dest?: HarvestDestination): string | null;
-  /* ── appended (2026-09-16, 프로세서 직접 장착): 칸을 지정하는 짝 — 화면 격자가 이것을 쓴다 ── */
+  /* ── appended (2026-09-16, processors fitted directly): the pair that names a slot — the screen's grid uses these ── */
   /**
-   * 프로세서 하나를 **`slot` 칸**에 꽂는다. `itemUid` 를 주면 가방 · 창고의 **바로 그 인스턴스**(끌어다 놓은 것)를 꽂고,
-   * 없으면 내구도가 가장 높은 것을 꽂는다. 이미 찬 칸 · 없는 칸 · 프로세서 없음은 한국어 사유. 성공하면 null.
+   * Insert one processor into **slot `slot`**. Given an `itemUid` it inserts **that exact instance** from the bag · stash (the one dragged onto it),
+   * and without one it inserts the highest-durability one. An already-full slot · a slot that does not exist · having no processor give a Korean reason. null on success.
    */
   insertClusterProcessor?(uid: string, slot: number, itemUid?: string): string | null;
-  /** **`slot` 칸**의 프로세서를 내구도 그대로 빼서 `dest` 로 돌려준다 (기본 `'bag-first'`). 한국어 사유 / null. */
+  /** Take the processor out of **slot `slot`** with its durability intact and hand it to `dest` (default `'bag-first'`). Korean reason / null. */
   removeClusterProcessor?(uid: string, slot: number, dest?: HarvestDestination): string | null;
-  /** 지금 서버 시세로 낸 견적. 코인을 모르면 null. */
+  /** A quote at the current server price. null when the coin is unknown. */
   cryptoQuote?(coinId: string, side: CryptoTradeSide, units: number): CryptoQuote | null;
-  /** 매매한다 — 크레딧은 서버 검증(`cbuy` · `csell`), 지갑은 성공했을 때만 바뀐다. 한국어 사유 / null. `housing:walletChanged`. */
+  /** Trade — the credits are validated by the server (`cbuy` · `csell`) and the wallet changes only on success. Korean reason / null. `housing:walletChanged`. */
   tradeCrypto?(coinId: string, side: CryptoTradeSide, units: number): Promise<string | null>;
-  /** 연산 클러스터 화면 (코인 지정 · 코어 칸 9개 · 함선 창고 / 가방). */
+  /** The compute cluster screen (pick the coin · the 9 core slots · the ship stash / bag). */
   openComputeCluster?(uid: string): void;
-  /** 메인 컴퓨터 화면. `uid` null = 함선의 메인 컴퓨터 (없으면 토스트). */
+  /** The main computer screen. `uid` null = the ship's main computer (a toast when there is none). */
   openMiningComputer?(uid: string | null, tab?: MiningComputerTab): void;
 }
 export interface HousingRef {
-  /* ══ appended: 2026-09-13 — 암호화폐 채굴 개발용 (콘솔 `crypto`, 스모크) ══ */
-  /** 개발용: 지갑 잔고를 `units`(정수 단위)로 맞춘다 — `housing:walletChanged {reason: 'cheat'}`. 모르는 코인이면 한국어 사유. */
+  /* ══ appended: 2026-09-13 — crypto mining, for development (the console `crypto`, smokes) ══ */
+  /** Dev only: set the wallet balance to `units` (whole units) — `housing:walletChanged {reason: 'cheat'}`. A Korean reason for an unknown coin. */
   devSetCryptoWallet?(coinId: string, units: number): string | null;
-  /** 개발용: 연산 클러스터의 코어를 아이템 없이 `cores` 개로 맞춘다 (끝난 주기를 넣고 진행도를 접는다). 한국어 사유 / null. */
+  /** Dev only: set a compute cluster's cores to `cores` with no items (banking the finished cycles and folding the progress). Korean reason / null. */
   devSetClusterCores?(uid: string, cores: number): string | null;
-  /** 개발용: 채굴할 수 있는(열린 코인 + 코어) 모든 클러스터의 시계를 `hours` 만큼 앞당기고 끝난 주기를 지갑에 넣는다. 넣은 단위 합. */
+  /** Dev only: wind the clock of every cluster that can mine (an open coin + cores) forward by `hours` and bank the finished cycles. Returns the units banked. */
   devAdvanceMining?(hours: number): number;
-  /* ── appended: 2026-09-15 2차 (분석기 해석 시간 치트) ── */
+  /* ── appended: 2026-09-15 2nd pass (the analyzer analysis-time cheat) ── */
   /**
-   * 개발용: 배치된 분석기(`uid` 생략 = 전부)의 해석 시계를 `hours` 만큼 앞당기고 **이번에 끝난 칸 수**를 돌려준다.
-   * 회수는 하지 않는다 (`devAdvanceMining` 과 같은 결). 콘솔 `analyze ff <시간>` · `analyze done [uid|all]` 이 유일한 소비자다.
+   * Dev only: wind the analysis clock of the placed analyzers (`uid` omitted = all of them) forward by `hours` and return **how many slots finished this time**.
+   * It does not collect them (the same grain as `devAdvanceMining`). The console `analyze ff <hours>` · `analyze done [uid|all]` are its only consumers.
    */
   devAdvanceAnalysis?(hours: number, uid?: string): number;
 }
-/* ══ end 2026-09-13 배치 규칙 · 전력 · 암호화폐 채굴 ══ */
+/* ══ end 2026-09-13 placement rules · power · crypto mining ══ */
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * appended: 2026-09-13 — 서재 시리즈 · 비디오게임 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 — 효과 · 시리즈 규칙의 원본은 `shared/library.ts`)
+ * appended: 2026-09-13 — library series · video games (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 — the source of the effect · series rules is `shared/library.ts`)
  *
- * 1. **서재 시리즈.** 책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대는 **여러 대** 만들 수 있다 (`FurnitureDef.multi`). 꽂힌 매체는
- *    **종류(def)당 한 번** 세고, 시리즈 몫(`librarySeriesFraction`) × 효과 줄(전권 값) × 보조 가구 배율로 합산한다 → `getLibraryEffects()`.
- *    `getSkillGainMul(skill)` = `getBookBonus(skill)` = 1 + `skillGain[skill]` (progression 경로 그대로). 옛 등급 가중치 · 매체 상한은 은퇴.
- * 2. **띠.** 매체 보관함을 보유(배치 · 가구 창고)하고 있고 그 종류가 어느 보관함에도 꽂혀 있지 않으면 `isShelfItemWanted` 가 true.
- * 3. **레시피 책.** `recipe` 효과는 그 책이 **꽂혀 있는 동안만** 레시피를 연다 (`isRecipeUnlocked`).
- * 4. **비디오게임.** TV 에 게임기를 장착하고(`tvConsoles`), 게임 디스크 전시대에 꽂힌 디스크 중 게임기가 맞는 것을 플레이한다.
- *    TV 정면의 좌석(`SEAT_INTERACTIONS`)이 TV 를 보고 있고 그 사이 통로에 `low` 가 아닌 가구가 없으면 거기 앉아 한다 (`getTvSeat`).
- *    2026-09-17 (사용자 결정): 좌석은 **조건이 아니다** — 없으면 서서 한다 (`tvSeatBlock` 은 좌석을 못 쓰는 이유일 뿐 게임을 막지 않는다).
- *    결과는 헬스와 같은 `ProgressionRef.applyGymSession(stat, score)` 이다 (능력치별 24 h 디버프 — 사용자 결정).
+ * 1. **Library series.** The bookshelf · disc stand · record rack · game disc stand may be built **several times** (`FurnitureDef.multi`). A shelved medium is
+ *    counted **once per kind (def)**, and the sum is the series share (`librarySeriesFraction`) × the effect line (the full-series value) × the aux furniture multiplier → `getLibraryEffects()`.
+ *    `getSkillGainMul(skill)` = `getBookBonus(skill)` = 1 + `skillGain[skill]` (the progression path unchanged). The old rarity weights · per-medium caps are retired.
+ * 2. **The band.** `isShelfItemWanted` is true while a holder for that medium is owned (placed · in furniture storage) and that kind is shelved in no holder.
+ * 3. **Recipe books.** A `recipe` effect opens its recipe **only while that book is shelved** (`isRecipeUnlocked`).
+ * 4. **Video games.** A console is attached to the TV (`tvConsoles`), and the discs shelved on a game disc stand whose console matches are played.
+ *    When a seat in front of the TV (`SEAT_INTERACTIONS`) faces the TV and no non-`low` furniture stands in the passage between them, it is played sitting there (`getTvSeat`).
+ *    2026-09-17 (user's decision): a seat is **not a condition** — with none it is played standing (`tvSeatBlock` is only why a seat cannot be used; it does not block the game).
+ *    The result is the same `ProgressionRef.applyGymSession(stat, score)` as the gym (a 24 h debuff per stat — user's decision).
  *
- * 새 `HousingRef` 메서드는 전부 optional — 병렬로 짓는 동안에도 트리가 타입체크를 통과하고, 소비자는 `typeof h.x === 'function'` 로 방어한다.
+ * Every new `HousingRef` method is optional — the tree type-checks while these are built in parallel, and consumers guard with `typeof h.x === 'function'`.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 import type { GameSessionInfo, LibraryEffectKind, LibraryEffectsSummary, LibrarySourceInfo, PlayableGameInfo } from './library';
 
 export interface FurnitureDef {
-  /** appended (2026-09-13): 시야를 막지 않는 **낮은 가구** (`data/furniture.csv` 의 `low` — 좌식 테이블 · 러그). TV ↔ 좌석 통로 판정이 건너뛴다. */
+  /** appended (2026-09-13): **low furniture** that does not block the view (`low` in `data/furniture.csv` — the low table · the rug). The TV ↔ seat passage test skips it. */
   low?: boolean;
 }
 
-/** TV 한 대에 장착된 게임기. */
+/** The console attached to one TV. */
 export interface TvConsoleSlot {
-  /** 배치된 TV 의 uid. */
+  /** Uid of the placed TV. */
   uid: string;
-  /** `ItemDef.gameConsole` 이 있는 아이템 def id. */
+  /** Def id of an item that has `ItemDef.gameConsole`. */
   defId: string;
 }
 
 export interface ShipState {
-  /** appended (2026-09-13): TV 마다 장착한 게임기 (TV 당 하나). 배치에서 사라진 TV 의 게임기는 `sanitize` 가 함선 창고로 돌려준다. 게임 디스크는 `media` 에 산다. */
+  /** appended (2026-09-13): the console attached per TV (one per TV). `sanitize` hands the console of a TV that is no longer placed back to the ship stash. Game discs live in `media`. */
   tvConsoles?: TvConsoleSlot[];
 }
 
 export interface HousingRef {
-  /* ══ appended (2026-09-13): 서재 시리즈 ══ */
-  /** 작동 중인 보관함 · 보조 가구로 합산한 서재 효과 전부 (함선 상태 기준 — 레이드 중에도 그대로다). 바뀌면 `housing:libraryChanged`. */
+  /* ══ appended (2026-09-13): library series ══ */
+  /** Every library effect summed over the working holders · aux furniture (on the ship's state — unchanged during a raid too). `housing:libraryChanged` when it changes. */
   getLibraryEffects?(): LibraryEffectsSummary;
   /**
-   * 한 효과 대상에 값을 주는 시리즈들 — 캐릭터 시트의 `시설 ×n` 툴팁 · 아이템 툴팁. `target` 은 효과 줄의 대상 문자열
-   * (`('skillGain', 'carry')` · `('derived', 'maxStamina')` · `('raidXp', '')` · `('trustXp', 'all')` …). 값이 0 인 시리즈는 뺀다.
+   * The series that give a value to one effect target — the character sheet's `시설 ×n` tooltip · the item tooltip. `target` is the effect line's target string
+   * (`('skillGain', 'carry')` · `('derived', 'maxStamina')` · `('raidXp', '')` · `('trustXp', 'all')` …). Series whose value is 0 are left out.
    */
   getLibrarySources?(kind: LibraryEffectKind, target: string): readonly LibrarySourceInfo[];
-  /** 시리즈 하나의 진척 (작동 중인 보관함에 꽂힌 서로 다른 권 / 전체). 모르는 시리즈면 null. */
+  /** One series' progress (distinct volumes shelved in a working holder / the total). null for an unknown series. */
   getSeriesProgress?(seriesId: string): { have: number; total: number; fraction: number } | null;
-  /** 이 아이템 타일에 「아직 꽂지 않았다」 띠를 그릴까 (그 매체의 보관함 보유 + 어느 보관함에도 같은 종류가 없음). 서재 효과 매체(책 · 비디오 · 레코드)가 아니면 false. */
+  /** Should this item tile carry the 「not shelved yet」 band (a holder for that medium is owned + no holder has the same kind). False when it is not library-effect media (book · video · record). */
   isShelfItemWanted?(defId: string): boolean;
-  /** 조리 레시피가 열려 있나 — `CraftRecipe.unlockSeries` 가 있으면 그 레시피 책이 **지금 꽂혀 있어야** true. 책이 필요 없는 레시피는 늘 true. */
+  /** Is a cook recipe open — with a `CraftRecipe.unlockSeries`, true only while that recipe book **is shelved right now**. A recipe that needs no book is always true. */
   isRecipeUnlocked?(recipeId: string): boolean;
 
-  /* ══ appended (2026-09-13): 비디오게임 ══ */
-  /** TV 에 장착된 게임기 def id, 없으면 null. */
+  /* ══ appended (2026-09-13): video games ══ */
+  /** Def id of the console attached to the TV, null when there is none. */
   getTvConsole?(tvUid: string): string | null;
-  /** 게임기를 (가방 → 창고) 꺼내 TV 에 장착한다. 이미 있으면 교체(옛 것은 가방 → 창고). 함선 전용. 한국어 사유 / null. */
+  /** Take a console (bag → stash) and attach it to the TV. With one already there it is swapped (the old one goes bag → stash). Ship only. Korean reason / null. */
   attachTvConsole?(tvUid: string, defId: string): string | null;
-  /** 게임기를 빼서 가방(없으면 창고)으로. 한국어 사유 / null. */
+  /** Detach the console into the bag (the stash when there is no space). Korean reason / null. */
   detachTvConsole?(tvUid: string): string | null;
-  /** TV 를 보고 있는 유효한 좌석 uid (가장 가까운 것), 없으면 null. */
+  /** Uid of a valid seat facing the TV (the nearest one), null when there is none. */
   getTvSeat?(tvUid: string): string | null;
   /**
-   * 좌석 규칙이 좌석을 고르지 못한 한국어 사유 (`TV 정면에 의자나 쇼파가 없습니다` · `TV 와 좌석 사이를 가구가 막고 있습니다` …), 되면 null.
-   * 2026-09-17: 진단용이다 — 게임을 막지 않고(`gameBlock` 이 보지 않는다) TV 화면에도 뜨지 않는다.
+   * Korean reason the seat rule could not pick a seat (`TV 정면에 의자나 쇼파가 없습니다` · `TV 와 좌석 사이를 가구가 막고 있습니다` …), null when it could.
+   * 2026-09-17: it is a diagnostic — it does not block the game (`gameBlock` never looks at it) and never shows on the TV screen either.
    */
   tvSeatBlock?(tvUid: string): string | null;
-  /** 이 TV 로 고를 수 있는 게임 디스크 전부 (함선의 게임 디스크 전시대에 꽂힌 것) + 각각의 거절 사유. */
+  /** Every game disc this TV can pick (those shelved on the ship's game disc stands) + each one's refusal reason. */
   getPlayableGames?(tvUid: string): readonly PlayableGameInfo[];
-  /** TV 화면을 연다 (켜기/끄기 · 게임기 장착 · 좌석 상태 · 게임 목록). hub 의 TV E 가 부른다. */
+  /** Open the TV screen (on/off · attach a console · the seat state · the game list). Called by hub's E on the TV. */
   openTvMenu?(tvUid: string): void;
-  /** 진행 중인 게임 세션, 없으면 null. */
+  /** The game session in progress, null when there is none. */
   readonly gameSession?: GameSessionInfo | null;
-  /** 지금 `startGameSession` 이 거절할 한국어 사유, null = 시작할 수 있다. */
+  /** Korean reason `startGameSession` would refuse right now, null = it can start. */
   gameBlock?(tvUid: string, discDefId: string): string | null;
   /**
-   * 게임 세션 시작 — 운동 화면(디스크 튜닝이 걸린 판정)을 열고 `housing:gameSession {active:true}` (hub 가 좌석 자세 · 고정 카메라).
-   * 끝까지 하면 점수가 `ctx.progression.applyGymSession(stat, score)` 로 가고 `housing:gameResult`. 한국어 사유 / null.
+   * Start a game session — opens the gym screen (with the disc's tuning on the judgement) and emits `housing:gameSession {active:true}` (hub applies the seated pose · locked camera).
+   * Playing it out sends the score to `ctx.progression.applyGymSession(stat, score)` and raises `housing:gameResult`. Korean reason / null.
    */
   startGameSession?(tvUid: string, discDefId: string): string | null;
-  /** 진행 중인 게임 세션을 보상 · 디버프 없이 끝낸다 (`housing:gameSession {active:false, completed:false}`). 없으면 no-op. */
+  /** End the game session in progress with no reward and no debuff (`housing:gameSession {active:false, completed:false}`). A no-op when there is none. */
   cancelGameSession?(): void;
 }
-/* ══ end 2026-09-13 서재 시리즈 · 비디오게임 ══ */
+/* ══ end 2026-09-13 library series · video games ══ */
 
-/* ══ [2026-09-14] 음악 재생 조작 (HousingRef 추가 계약) ═══════════════════════════════════════════════
- * 표시(`housing:musicChanged`)만으로는 `MusicMode 'repeat'` 에 도달할 길이 없어 조작 창구를 연다.
- * 전부 옵셔널이라 옛 소비자는 한 줄도 안 바뀐다. 성공하면 true 이고 곧바로 `housing:musicChanged` 가 난다.
+/* ══ [2026-09-14] music playback controls (an appended HousingRef contract) ════════════════════════════
+ * Display alone (`housing:musicChanged`) leaves no road to `MusicMode 'repeat'`, so this opens the control window.
+ * They are all optional, so not one line of an old consumer changes. Success is true and `housing:musicChanged` follows immediately.
  */
 export interface HousingRef {
-  /** 지금 재생 상태 — 늦게 붙는 화면이 첫 이벤트를 기다리지 않아도 되게. 꺼져 있으면 `MUSIC_PLAYER_OFF`. */
+  /** The playback state right now — so a screen attaching late need not wait for the first event. `MUSIC_PLAYER_OFF` while it is off. */
   getMusicState?(): MusicPlayerState;
-  /** 다음 곡 / 이전 곡 (`'repeat'` 이어도 사람이 누르면 넘어간다). 재생 중이 아니거나 목록이 비면 false. */
+  /** Next track / previous track (a person pressing it moves on even under `'repeat'`). False while nothing plays or the list is empty. */
   musicNext?(): boolean;
   musicPrev?(): boolean;
-  /** 재생 방식 전환. 같은 값이면 false. */
+  /** Switch the playback mode. False for the same value. */
   setMusicMode?(mode: MusicMode): boolean;
-  /** 재생을 멈춘다. ⚠ 그 가구의 `toggled` 도 **함께 내린다** — 상태만 끄면 가구는 켜진 모습으로 남는다 (E 로 끈 것과 같아야 한다). */
+  /** Stop playback. ⚠ It **also drops** that piece's `toggled` — turning off only the state would leave the piece looking switched on (it has to match turning it off with E). */
   musicStop?(): boolean;
 }
-/* ══ end 2026-09-14 음악 재생 조작 ══ */
+/* ══ end 2026-09-14 music playback controls ══ */
 
-/* ══ [2026-09-14] 서재 · 채굴 · 음악 재생 (UI 2차 개편) ═════════════════════════════════════════════════
- * 셋 다 **새 규칙이 아니라 화면의 모양**이다 — 칸 수는 늘어났을 뿐 꽂기 · 효과 식은 그대로이고,
- * 채굴 탭은 두 화면을 한 창으로 합친 것이며, 음악은 재생 목록을 들고 있는 표시 전용 상태다.
+/* ══ [2026-09-14] library · mining · music playback (2nd UI pass) ═══════════════════════════════════════
+ * All three are **the shape of a screen, not a new rule** — the slot counts merely grew while shelving · the effect formula stayed,
+ * the mining tabs join two screens into one window, and the music is a display-only state that holds a playlist.
  */
 
 /**
- * 보관함 한 대가 몇 층인가 (`SHELF_SLOTS[m] / SHELF_TIERS[m]` 이 한 층의 칸 수다).
- * 2026-09-14 사용자 결정 — 책장은 **4층 × 한 층 10칸(5권씩 2줄)** = 40권. 층 수는 그대로 두고 한 층이 넓어졌다.
- * ⚠ 층 번호는 칸 번호를 나누는 표시일 뿐이다 — 저장되는 것은 `slot` 인덱스 하나이므로 층을 바꿔도 꽂힌 것이 옮겨지지 않는다.
+ * How many tiers one holder has (`SHELF_SLOTS[m] / SHELF_TIERS[m]` is the slot count of one tier).
+ * 2026-09-14 user's decision — the bookshelf is **4 tiers × 10 slots per tier (2 rows of 5)** = 40 volumes. The tier count stayed and a tier grew wider.
+ * ⚠ The tier number is only a way of splitting up slot numbers — what is saved is the one `slot` index, so changing the tiers never moves what is shelved.
  */
-/* 2026-09-15 2차 (사용자 결정): 책장은 **3층**이고 한 층이 한 줄 6칸이다 (가운데 구분막 왼쪽 3 · 오른쪽 3) —
-   `BOOKS_PER_SHELF` 18 · `SHELF_TIER_COLS.book` 6 과 셋이 함께 움직인다. */
+/* 2026-09-15 2nd pass (user's decision): the bookshelf is **3 tiers** and one tier is a single row of 6 (3 left · 3 right of the middle divider) —
+   it moves together with `BOOKS_PER_SHELF` 18 · `SHELF_TIER_COLS.book` 6, all three at once. */
 export const SHELF_TIERS: Readonly<Record<ShelfMedium, number>> = { book: 3, disc: 3, record: 2, game: 3 };
-/** 한 층 안에서 한 줄에 몇 칸을 그리나 (책장은 5칸 × 2줄 = 한 층 10칸, 나머지는 4칸 × 1줄). */
+/** How many slots one row inside a tier draws (the bookshelf is 5 × 2 rows = 10 per tier, the rest are 4 × 1 row). */
 export const SHELF_TIER_COLS: Readonly<Record<ShelfMedium, number>> = { book: 6, disc: 4, record: 4, game: 4 };
-/** 보관함 한 대의 한 층이 받는 칸 수. */
+/** Slots one tier of a holder takes. */
 export function shelfSlotsPerTier(medium: ShelfMedium): number {
   return Math.max(1, Math.ceil(SHELF_SLOTS[medium] / SHELF_TIERS[medium]));
 }
 
 /**
- * 통합 채굴 화면의 탭 (2026-09-14 사용자 결정 — 연산 클러스터 화면과 메인 컴퓨터 화면을 한 창으로 합쳤다).
- * `'cluster'` 가 **새 탭**이고 나머지 셋은 옛 `MiningComputerTab` 그대로다 — 그래서 `openMiningComputer(uid, tab)` 의
- * 인자 타입이 바뀌지 않는다(`MiningComputerTab ⊂ MiningTab`). 가구 E 가 여는 기본 탭은 **누른 가구의 탭**이다:
- * 연산 클러스터 → `'cluster'`, 메인 컴퓨터 → `'clusters'`.
+ * Tabs of the unified mining screen (2026-09-14 user's decision — the compute cluster screen and the main computer screen were joined into one window).
+ * `'cluster'` is the **new tab** and the other three are the old `MiningComputerTab` unchanged — which is why the argument type of
+ * `openMiningComputer(uid, tab)` does not change (`MiningComputerTab ⊂ MiningTab`). The default tab E on a piece opens is **that piece's tab**:
+ * the compute cluster → `'cluster'`, the main computer → `'clusters'`.
  */
 export type MiningTab = 'cluster' | MiningComputerTab;
 export const MINING_TABS: readonly MiningTab[] = ['cluster', 'clusters', 'wallet', 'exchange'];
@@ -2220,45 +2220,45 @@ export const MINING_TAB_LABEL_KO: Readonly<Record<MiningTab, string>> = {
 };
 
 /**
- * 음악 재생 (2026-09-14 사용자 결정) — **소리는 나지 않는다**. 축음기 · 주크박스 · 턴테이블을 켜면 그 함선의
- * 레코드랙에 꽂힌 레코드가 재생 목록이 되고, 화면 구석의 재생 창이 제목 · 아티스트 · 볼륨(`AudioChannel 'bgm'`)을 띄운다.
- * 트랙이 「끝나는」 시각은 `startedAt + lengthS` 뿐이고 오디오 노드가 없으므로 상태는 순수 데이터다.
+ * Music playback (2026-09-14 user's decision) — **no sound comes out**. Switching on a gramophone · jukebox · turntable makes the records
+ * shelved in that ship's record racks the playlist, and the player window in the screen corner shows the title · artist · volume (`AudioChannel 'bgm'`).
+ * A track's 「end」 time is nothing but `startedAt + lengthS`, and since there is no audio node the state is pure data.
  */
 export interface MusicTrack {
-  /** 레코드 아이템 id (`record_<시리즈>`) — 재생 목록의 열쇠. */
+  /** Record item id (`record_<series>`) — the key of the playlist. */
   defId: string;
-  /** 곡 제목 (시리즈 이름, `《…》`). */
+  /** Track title (the series name, `《…》`). */
   title: string;
-  /** 아티스트 — `library_series.csv` 에 열이 없으므로 시리즈 id 에서 결정적으로 만든다 (`musicArtistOf`). */
+  /** Artist — `library_series.csv` has no column for it, so it is built deterministically from the series id (`musicArtistOf`). */
   artist: string;
-  /** 곡 길이(초). 시리즈 id 에서 결정적으로 뽑는다 — 같은 레코드는 늘 같은 길이다. */
+  /** Track length (s). Drawn deterministically from the series id — the same record is always the same length. */
   lengthS: number;
 }
-/** 재생 방식. `'playlist'` = 전시대에 꽂힌 순서대로 돌고 끝나면 처음으로, `'repeat'` = 지금 한 곡만 무한 반복. */
+/** Playback mode. `'playlist'` = round the order they are shelved in and back to the start at the end, `'repeat'` = this one track over and over. */
 export type MusicMode = 'playlist' | 'repeat';
 export const MUSIC_MODES: readonly MusicMode[] = ['playlist', 'repeat'];
 export const MUSIC_MODE_LABEL_KO: Readonly<Record<MusicMode, string>> = { playlist: '재생 목록', repeat: '한 곡 반복' };
 
 export interface MusicPlayerState {
-  /** 소리를 내고 있는 가구 uid (축음기 · 주크박스 · 턴테이블), 꺼져 있으면 null. */
+  /** Uid of the piece making the sound (gramophone · jukebox · turntable), null while it is off. */
   furnitureUid: string | null;
-  /** 지금 곡. 재생 목록이 비었으면 null (창은 「꽂힌 레코드가 없습니다」). */
+  /** The current track. null when the playlist is empty (the window then shows 「꽂힌 레코드가 없습니다」). */
   track: MusicTrack | null;
-  /** 이 함선의 레코드랙에 꽂힌 레코드 전부 — 재생 목록. */
+  /** Every record shelved in this ship's record racks — the playlist. */
   playlist: readonly MusicTrack[];
-  /** `playlist` 안에서 지금 곡의 자리, 없으면 -1. */
+  /** The current track's place in `playlist`, -1 when there is none. */
   index: number;
   mode: MusicMode;
-  /** 지금 곡을 튼 시각(`nowMs()`). 진행 막대는 `(now - startedAt) / (lengthS * 1000)`. */
+  /** When the current track started (`nowMs()`). The progress bar is `(now - startedAt) / (lengthS * 1000)`. */
   startedAt: number;
 }
-/** 꺼져 있는 상태 (창을 숨긴다). */
+/** The off state (the window is hidden). */
 export const MUSIC_PLAYER_OFF: MusicPlayerState = Object.freeze({ furnitureUid: null, track: null, playlist: [], index: -1, mode: 'playlist', startedAt: 0 });
 
-/** 곡 길이의 범위(초) — 시리즈 id 해시로 이 사이의 값을 고른다. */
+/** The range of track lengths (s) — a value in between is picked from the series id hash. */
 export const MUSIC_TRACK_MIN_S = 96;
 export const MUSIC_TRACK_MAX_S = 214;
-/** 아티스트 이름을 만드는 조각 (외부 에셋 금지와 같은 이유로 이름표도 코드에서 만든다). */
+/** The pieces an artist name is built from (for the same reason as the no-external-assets rule, even the name plate is made in code). */
 const MUSIC_ARTIST_FIRST: readonly string[] = ['카민', '피로스', '툰드라', '세레스', '노마드', '아셴', '베르단', '헬리오스'];
 const MUSIC_ARTIST_SECOND: readonly string[] = ['사중주단', '관현악단', '무명 악사', '군악대', '합창단', '야전 밴드', '기록 보관소', '순회 악단'];
 function musicHash(id: string): number {
@@ -2266,29 +2266,29 @@ function musicHash(id: string): number {
   for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
   return h >>> 0;
 }
-/** 레코드 시리즈 id → 아티스트 이름 (결정적). */
+/** Record series id → artist name (deterministic). */
 export function musicArtistOf(seriesId: string): string {
   const h = musicHash(seriesId);
   return `${MUSIC_ARTIST_FIRST[h % MUSIC_ARTIST_FIRST.length]} ${MUSIC_ARTIST_SECOND[(h >>> 8) % MUSIC_ARTIST_SECOND.length]}`;
 }
-/** 레코드 시리즈 id → 곡 길이(초, 결정적). */
+/** Record series id → track length (s, deterministic). */
 export function musicLengthOf(seriesId: string): number {
   const h = musicHash(seriesId) >>> 16;
   return MUSIC_TRACK_MIN_S + (h % (MUSIC_TRACK_MAX_S - MUSIC_TRACK_MIN_S + 1));
 }
 
-/* ══ [2026-09-16] 식탁 접시 — 요리는 아이템이 아니다 (사용자 결정) ════════════════════════════════════════════════
- * 1. 조리대에서 요리가 끝나면 아이템이 생기지 않고 **내 함선 식탁에 접시 하나**가 놓인다 (`ShipState.plate`). 함선당 하나 —
- *    다시 요리하면 옛 접시를 **바꾼다** (조리 시작 전에 1 초 홀드 경고). 식탁(`dining_table` 가구)이 배치돼 있지 않으면 조리대를 쓸 수 없다.
- * 2. 접시는 함선에서 언제든 먹을 수 있고 **먹어도 줄지 않는다**. 먹기 = `ProgressionRef.useMeal(요리, 품질)` (대기 식사 → 출격 때 실림 →
- *    그 레이드 1회분; 같은 요리 · 같은 품질은 거절, 다른 것은 교체) — 규칙은 progression 의 것 그대로다.
- * 3. 다음 레이드가 시작되면(`game:newMission`, 훈련장 제외 — `armPreps` 와 같은 자리) 접시는 치워지고 저장된다.
- * 4. 공유 함선: 내 접시는 공유 함선의 고정 식탁에도 놓인다. 그 식탁에는 **분대원 전원의 접시**가 놓이고(요리한 사람 표시) 누구든 어느
- *    접시든 먹을 수 있다 (줄지 않는다 · 먹은 사람의 대기 식사가 된다). 옛 「분대에 차리기」(`serveMealToSquad` · `housing:mealServed` ·
- *    `MealMessage`)는 이것으로 대체됐다 — 이름은 계약이라 남고 아무도 쓰지 않는다. 와이어는 `PlateMessage` (`shared/net.ts`).
+/* ══ [2026-09-16] the dining plate — a meal is not an item (user's decision) ══════════════════════════════════════
+ * 1. When a cook finishes at the cook bench no item appears; **one plate is set on my ship's dining table** (`ShipState.plate`). One per ship —
+ *    cooking again **replaces** the old plate (a 1 s hold warning before the cook starts). With no dining table (`dining_table` furniture) placed, the cook bench cannot be used.
+ * 2. The plate can be eaten from any time on the ship and **eating never uses it up**. Eating = `ProgressionRef.useMeal(the meal, the quality)` (a pending meal → loaded at launch →
+ *    one raid's worth; the same meal at the same quality is refused, anything else replaces it) — the rules are progression's, unchanged.
+ * 3. When the next raid starts (`game:newMission`, training excluded — the same place as `armPreps`) the plate is cleared away and saved.
+ * 4. The shared ship: my plate is set on the shared ship's fixed dining table too. That table carries **every squadmate's plate** (with who cooked it shown) and anyone may eat
+ *    from any plate (it is not used up · it becomes the eater's pending meal). The old 「분대에 차리기」 (`serveMealToSquad` · `housing:mealServed` ·
+ *    `MealMessage`) was replaced by this — the names stay because they are contract and nobody uses them. The wire is `PlateMessage` (`shared/net.ts`).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/** 식탁에 놓인 접시 하나 — 요리 id(`getMealDef`) · 품질(별 0 … `MEAL_QUALITY_MAX`) · 차린 시각(`nowMs()`, 모르면 0). */
+/** One plate set on the dining table — the meal id (`getMealDef`) · the quality (0 … `MEAL_QUALITY_MAX` stars) · when it was set (`nowMs()`, 0 when unknown). */
 export interface DiningPlate {
   mealDefId: string;
   quality: number;
@@ -2296,60 +2296,60 @@ export interface DiningPlate {
 }
 
 export interface ShipState {
-  /** appended (2026-09-16): 내 함선 식탁의 접시, 없으면 null · 생략. 다음 레이드 시작에 비워진다. */
+  /** appended (2026-09-16): the plate on my ship's dining table, null · omitted when there is none. Cleared when the next raid starts. */
   plate?: DiningPlate | null;
 }
 
-/** 식탁 화면 · 3D 식탁이 그리는 접시 한 장 (내 것 또는 분대원 것). */
+/** One plate the dining table screen · the 3D dining table draws (mine or a squadmate's). */
 export interface TablePlateInfo extends DiningPlate {
-  /** 요리한 분대원의 PeerId, **내 접시면 null**. `eatPlate` 에 그대로 넘긴다. */
+  /** PeerId of the squadmate who cooked it, **null for my own plate**. Passed to `eatPlate` as it is. */
   ownerId: string | null;
-  /** 요리한 사람의 표시 이름 (내 접시면 내 이름 · 없으면 `나`). */
+  /** Display name of whoever cooked it (my own name for my plate · `나` when there is none). */
   ownerName: string;
   mine: boolean;
 }
 
-/** 조리대 · 자동 조리 가구가 식탁 없이 눌렸을 때의 사유 (화면 · 프롬프트 · 토스트가 같은 글자를 쓴다). */
+/** The reason given when the cook bench · an auto-cook appliance is pressed with no dining table (the screen · prompt · toast all use the same text). */
 export const DINING_TABLE_MISSING_REASON = '식탁이 없습니다';
 
 export interface HousingRef {
-  /** 내 함선 식탁의 접시, 없으면 null. */
+  /** The plate on my ship's dining table, null when there is none. */
   getPlate?(): DiningPlate | null;
   /**
-   * 그 식탁에 놓인 접시들. `uid` = 개인 함선의 식탁 가구 → 내 접시만, `null` = 공유 함선의 고정 식탁 → 내 접시 + 분대원 접시
-   * (공유 함선에 서 있을 때만 분대원 것이 들어온다). 내 접시가 맨 앞, 나머지는 이름 순.
+   * The plates set on that dining table. `uid` = the personal ship's dining table piece → only my plate; `null` = the shared ship's fixed dining
+   * table → my plate + the squadmates' (theirs arrive only while standing in the shared ship). My plate first, the rest in name order.
    */
   getTablePlates?(uid: string | null): readonly TablePlateInfo[];
-  /** 내 함선에 식탁 가구가 배치돼 있나 (조리대 게이트). */
+  /** Is a dining table piece placed on my ship (the cook bench gate). */
   hasDiningTable?(): boolean;
-  /** 지금 `eatPlate(uid, ownerId)` 가 거절할 한국어 사유, null = 먹을 수 있다 (이미 같은 식사를 먹었으면 그 사유). */
+  /** Korean reason `eatPlate(uid, ownerId)` would refuse right now, null = it can be eaten (that reason when the same meal has already been eaten). */
   plateEatBlock?(uid: string | null, ownerId?: string | null): string | null;
-  /** 그 식탁의 접시를 먹는다 — 접시는 줄지 않고 `progression.useMeal` 이 대기 식사를 싣는다. `ownerId` 생략 · null = 내 접시. 한국어 사유 / null. */
+  /** Eat a plate from that dining table — the plate is not used up and `progression.useMeal` loads the pending meal. `ownerId` omitted · null = my plate. Korean reason / null. */
   eatPlate?(uid: string | null, ownerId?: string | null): string | null;
-  /** 개발 · 스모크: 내 식탁에 접시를 놓는다 (조리 없이). 요리가 아니면 한국어 사유. */
+  /** Dev · smokes: set a plate on my dining table (with no cooking). A Korean reason when it is not a meal. */
   devSetPlate?(mealDefId: string, quality?: number): string | null;
-  /** 개발 · 스모크: 내 접시를 치운다. 치운 것이 있으면 true. */
+  /** Dev · smokes: clear my plate away. True when something was cleared. */
   clearPlate?(): boolean;
 }
-/* ══ end 2026-09-16 식탁 접시 ══ */
+/* ══ end 2026-09-16 the dining plate ══ */
 
-/* ══ 2026-09-17 배양 시작 확인 (owner: housing/parts/Culture) ══════════════════════════════════════════════════
- * 세포주를 넣는 것만으로는 배양이 시작되지 않는다 — 칸 아래 「배양 시작」 버튼 → 1초 홀드 확인(`startCulture`)이 타이머를 건다.
- * 시작 전(`CultureSlot.strainDefId` 는 있고 `startedAt` · `readyAt` 는 없다)에는 세포주 · 스캐폴드 · 쓰지 않은 배지를 되돌려받는다.
- * 옛 세이브의 세포주는 늘 `startedAt` 을 들고 있으므로 그대로 배양 중이다 (마이그레이션이 따로 없다). */
+/* ══ 2026-09-17 culture start confirmation (owner: housing/parts/Culture) ══════════════════════════════════════
+ * Inserting a strain does not start the culture on its own — the 「배양 시작」 button under the slot → a 1 s hold confirm (`startCulture`) starts the timer.
+ * Before the start (`CultureSlot.strainDefId` is set while `startedAt` · `readyAt` are not) the strain · the scaffold · an unused medium can be taken back.
+ * An old save's strain always carries a `startedAt`, so it is already culturing (there is no separate migration). */
 export interface CultureSlotInfo {
-  /** 배양이 시작됐다 (타이머가 걸렸다). 세포주가 있고 이것이 false = 시작 대기. */
+  /** The culture has started (the timer is running). A strain present with this false = waiting to start. */
   started: boolean;
-  /** 배지를 되돌려받을 수 있다 (`takeMedium`) — 세포주 · 스캐폴드 · 소켓이 없고 내구도가 가득. */
+  /** The medium can be taken back (`takeMedium`) — no strain · scaffold · socket and full durability. */
   mediumReturnable: boolean;
 }
 
 export interface HousingRef {
-  /** 배지 + 세포주가 든 시작 전 칸의 배양을 시작한다 — `readyAt` 이 **여기서** 확정되고, 그 뒤로는 넣은 것을 되돌려받지 못한다. 한국어 사유 / null. */
+  /** Start the culture of a not-yet-started slot that holds a medium + a strain — `readyAt` is fixed **here**, and after it nothing put in comes back. Korean reason / null. */
   startCulture?(uid: string, slot: number): string | null;
-  /** 시작 전 칸의 세포주를 되돌려받는다 (`dest` 기본 `'bag-first'`). 한국어 사유 / null. */
+  /** Take the strain back out of a not-yet-started slot (`dest` defaults to `'bag-first'`). Korean reason / null. */
   takeStrain?(uid: string, slot: number, dest?: HarvestDestination): string | null;
-  /** 한 번도 쓰지 않은 배지(내구도 가득 · 소켓 · 스캐폴드 · 세포주 없음)를 칸째 되돌려받는다. 한국어 사유 / null. */
+  /** Take back a never-used medium (full durability · no socket · scaffold · strain) with its slot. Korean reason / null. */
   takeMedium?(uid: string, slot: number, dest?: HarvestDestination): string | null;
 }
-/* ══ end 2026-09-17 배양 시작 확인 ══ */
+/* ══ end 2026-09-17 culture start confirmation ══ */

@@ -22,15 +22,15 @@ export interface ArmorDef {
   /** 1..5 for numbered armor (방탄복 I..V), 0 for uniques. */
   tier: number;
   /**
-   * **2026-09-10 이후 피해 계산에 쓰이지 않는다.** 방탄복은 피해 감소가 아니라 실드(추가 체력)를 준다
-   * (`shield`). 이 값은 유니크 방탄복의 실드량을 비례 환산한 **근거**로만 남아 있다 — 계약은 추가만
-   * 한다는 규칙 그대로 지우지 않았을 뿐이다. 0..0.9.
+   * **Not used in damage calculation since 2026-09-10.** Armor gives a shield (extra hp), not damage reduction
+   * (`shield`). This value survives only as the **basis** from which a unique armor's shield was scaled — it was simply
+   * not deleted, under the rule that the contract is add-only. 0..0.9.
    */
   damageReduction: number;
   /**
-   * appended (2026-09-10): **실드 최대치**(추가 체력). 번호 방탄복 I..V 는 `ARMOR_SHIELD_BY_TIER`
-   * (20/40/60/80/100), 유니크(tier 0)는 `damageReduction / ARMOR_DR_BY_TIER.5 × 100` 을 반올림한 값이다.
-   * 실드는 체력보다 **먼저** 깎이고 회복은 '실드 충전기' 소모품으로만 한다.
+   * appended (2026-09-10): the **maximum shield** (extra hp). Numbered armor I..V takes `ARMOR_SHIELD_BY_TIER`
+   * (20/40/60/80/100); a unique (tier 0) takes `damageReduction / ARMOR_DR_BY_TIER.5 × 100`, rounded.
+   * The shield is chewed **before** hp, and it is refilled only with the '실드 충전기' consumable.
    */
   shield: number;
   /** kg. Counts against the weight budget while equipped. */
@@ -47,8 +47,8 @@ export interface ArmorDef {
 
 /* ── Weight ────────────────────────────────────────────────────────────────── */
 /**
- * 'normal' <70 %, 'light' 조금 무거움 ≥70 %, 'heavy' 무거움 ≥90 % (roll disabled),
- * 'over' 과적 ≥100 % (cannot move, no stamina regen).
+ * 'normal' <70 %, 'light' `조금 무거움` ≥70 %, 'heavy' `무거움` ≥90 % (roll disabled),
+ * 'over' `과적` ≥100 % (cannot move, no stamina regen).
  */
 export type WeightState = 'normal' | 'light' | 'heavy' | 'over';
 
@@ -88,7 +88,7 @@ export interface CraftRecipe {
   duration: number;
   /**
    * Skill that gains XP from this craft **and decides the material refund** (`shared/craftRefund.ts`) —
-   * 2026-09-16 (사용자 결정): a skill no longer gates or speeds up crafting.
+   * 2026-09-16 (user's decision): a skill no longer gates or speeds up crafting.
    */
   skill: 'crafting' | 'medicine' | 'gardening';
   /**
@@ -104,7 +104,7 @@ export interface CraftRecipe {
    */
   bench?: WorkbenchKind;
   benchLevel?: number;
-  /* appended (2026-09-08): 폐금속 공급 — 다중 산출물 */
+  /* appended (2026-09-08): the scrap-metal supply — multiple outputs */
   /**
    * Extra products beyond `outputDefId` / `outputQty`, produced in the same craft. Used by the 분해 recipes that
    * break one salvage item into several materials (기계 부품 → 폐금속 + 전력 케이블). The main output stays the
@@ -128,11 +128,12 @@ export interface WeaponWear {
   perShot: number;
 }
 
-/* ── appended (2026-09-13, 서재 시리즈 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
+/* ── appended (2026-09-13, library series — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
 export interface CraftRecipe {
   /**
-   * 레시피 책 시리즈 id — 있으면 그 책이 서재에 **꽂혀 있는 동안만** 만들 수 있다 (`HousingRef.isRecipeUnlocked`).
-   * csv 열이 아니다: items 로더가 `data/library_series.csv` 의 `recipe:<이 레시피 id>` 효과에서 채운다 (원본은 시리즈 표 하나).
+   * The recipe book's series id — when it is present the recipe may be crafted **only while that book is on the library
+   * shelf** (`HousingRef.isRecipeUnlocked`).
+   * It is not a csv column: the items loader fills it from the `recipe:<this recipe's id>` effect in `data/library_series.csv` (the source is the one series table).
    */
   unlockSeries?: string;
 }

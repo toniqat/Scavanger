@@ -1,24 +1,31 @@
 /**
- * src/shared/corpseViewers.ts — **지금 누가 이 시체를 들여다보고 있나** (2026-09-16, 사용자 결정).
+ * src/shared/corpseViewers.ts — **who is looking into this corpse right now** (2026-09-16, user's decision).
  *
- * 규칙: 빈 시체(플레이어 · 안드로이드 · 튜토리얼 · 적)는 **루팅이 끝난 뒤** — 들여다보던 마지막 사람이 창을 닫은 뒤 —
- * `CORPSE_EMPTY_REMOVE_DELAY_S` 기다렸다가 가라앉아 사라진다. 누가(나든 분대원이든) 창을 열어 두고 있는 동안은 사라지지 않는다.
- * 빈손으로 선 시체(아무도 연 적이 없다)는 예전처럼 선 순간부터 센다.
+ * The rule: an empty corpse (player · android · tutorial · enemy) sinks and disappears **once the looting ended** —
+ * after the last viewer closed their window — plus a `CORPSE_EMPTY_REMOVE_DELAY_S` wait. It never goes while anyone
+ * (me or a squadmate) keeps a window open. A corpse that stood up empty-handed (nobody ever opened it) counts from
+ * the moment it stood, as before.
  *
- * 이 파일이 답하는 질문: *시체 종류마다(game · enemies · world/tutorial) 같은 「보는 사람」 판정을 어떻게 한 벌로 하는가.*
+ * The question this file answers: *how every kind of corpse (game · enemies · world/tutorial) makes the same
+ * 「who is viewing」 judgement from one place.*
  *
- * - **로컬**: 인벤토리의 `inventory:opened {containerId}` / `inventory:closed` 만 듣는다 (inventory 내부를 보지 않는다). 창이
- *   그 컨테이너를 보여 주는 동안 = 본다. 안전망으로 `ctx.inventory.isOpen` 도 함께 본다 (닫기 사건을 놓쳐도 영원히 붙잡지 않게).
- * - **와이어** (`cviewq open|close`, 세션의 비호스트만 보낸다): 호스트는 시체 id → 보는 peer 집합을 들고 있다. 한 사람은 한 번에
- *   시체 하나만 본다(창이 하나다) — 그래서 표는 분대 인원보다 커지지 않는다.
- * - **호스트 가드** (`buffRules.createBuffGuard` 와 같은 순서): `open` = ① 모양(이 추적기가 맡는 id · 아는 시체) ② 보낸 사람(연결된
- *   살아 있는 스냅샷) ③ 거리(`CORPSE_EMPTY_REQUEST_REACH_M`, 수평) ④ 요율(보낸 사람별 버킷 `CORPSE_EMPTY_REQUEST_RATE_MAX` /
- *   `_BURST`). `close` 는 보낸 사람 **자기** 항목만 지우므로 모양만 본다. 다른 추적기가 맡는 id 는 거절이 아니라 무시다.
- * - **호스트 정리**: 떠남(`net:peerLeft`) · 끊김(`net:peerSuspended`) · 재합류(`flow rejoined` — 새로 뜬 창은 닫혀 있다) ·
- *   사망 · 스냅샷이 사라짐 · 거리 이탈이면 그 사람의 항목을 스스로 지운다 (`update`). 닫기 와이어를 잃어도 시체가 영원히 남지 않는다.
- * - **호스트 이관**: 새 호스트는 표가 비어 있다 — 창을 열어 둔 클라이언트가 `net:hostChanged` 에 `open` 을 다시 보낸다.
- * - 판정을 **쓰는 쪽**(치울지 말지)은 각 폴더다: `game/Corpses` · `enemies/parts/CorpseEmpty` · `world/tutorial/parts/Corpses`.
- *   서로 맡는 id 가 겹치지 않아야 한다 (같은 창 열기를 두 번 보내지 않게) — `pcorpse:` / `corpse:<숫자>` / 튜토리얼 손 시체 id.
+ * - **Local**: it listens only to inventory's `inventory:opened {containerId}` / `inventory:closed` (it never looks
+ *   inside inventory). While the window shows that container = viewing. As a safety net it also reads
+ *   `ctx.inventory.isOpen` (so a missed close event never holds one forever).
+ * - **Wire** (`cviewq open|close`, sent only by a non-host in a session): the host keeps corpse id → the set of
+ *   viewing peers. One person views exactly one corpse at a time (there is one window) — so the table never grows
+ *   beyond the squad.
+ * - **Host guard** (the same order as `buffRules.createBuffGuard`): `open` = ① shape (an id this tracker owns · a
+ *   known corpse) ② sender (a connected, living snapshot) ③ distance (`CORPSE_EMPTY_REQUEST_REACH_M`, horizontal)
+ *   ④ rate (a per-sender bucket `CORPSE_EMPTY_REQUEST_RATE_MAX` / `_BURST`). `close` only removes the sender's
+ *   **own** entry, so it is checked for shape alone. An id another tracker owns is ignored, not refused.
+ * - **Host cleanup**: on leaving (`net:peerLeft`) · dropping (`net:peerSuspended`) · rejoining (`flow rejoined` — a
+ *   freshly opened window is closed) · death · a snapshot that disappeared · walking out of range, the host removes
+ *   that person's entry itself (`update`). A lost close wire never leaves a corpse standing forever.
+ * - **Host transfer**: the new host's table is empty — a client with a window open re-sends `open` on `net:hostChanged`.
+ * - The **consumers** of the judgement (remove it or not) are the folders: `game/Corpses` · `enemies/parts/CorpseEmpty` ·
+ *   `world/tutorial/parts/Corpses`. The ids they own must not overlap (so one window opening is never sent twice) —
+ *   `pcorpse:` / `corpse:<number>` / the tutorial's hand-placed corpse ids.
  */
 import type * as THREE from 'three';
 import type { GameContext } from './GameContext';
@@ -28,26 +35,26 @@ import {
 import type { CorpseViewRequest, NetRef, PeerId } from './net';
 
 export interface CorpseViewTrackerOptions {
-  /** 이 추적기가 맡는 컨테이너 id 인가 (다른 추적기와 겹치면 안 된다). */
+  /** Is this a container id this tracker owns (it must not overlap another tracker's)? */
   matches(containerId: string): boolean;
-  /** 그 시체의 지금 자리 (모르는 시체 = null). 호스트의 거리 가드 · 거리 이탈 정리가 쓴다. */
+  /** Where that corpse stands right now (an unknown corpse = null). Used by the host's distance guard and its out-of-range cleanup. */
   positionOf(containerId: string): THREE.Vector3 | null;
-  /** false = 와이어 없이 로컬만 (튜토리얼 손 시체). 기본 true. */
+  /** false = local only, no wire (the tutorial's hand-placed corpses). Default true. */
   net?: boolean;
 }
 
 interface Bucket { tokens: number; at: number }
 
 export class CorpseViewTracker {
-  /** 내 창이 지금 보여 주는 (이 추적기가 맡는) 시체 id. */
+  /** The corpse id my window shows right now (of the ones this tracker owns). */
   private local: string | null = null;
-  /** 호스트: 시체 id → 보고 있는 원격 peer. */
+  /** Host: corpse id → the remote peers viewing it. */
   private readonly remote = new Map<string, Set<PeerId>>();
   private readonly buckets = new Map<PeerId, Bucket>();
   private readonly unsubs: Array<() => void> = [];
   private netUnsubs: Array<() => void> = [];
   private hookedNet: NetRef | null = null;
-  /** 호스트가 거절한 `cviewq open` 수 (스모크 · 디버그용 — 거절된 요청은 아무것도 하지 않는다). */
+  /** How many `cviewq open` the host refused (smokes · debugging — a refused request does nothing). */
   refused = 0;
 
   constructor(private readonly ctx: GameContext, private readonly opts: CorpseViewTrackerOptions) {
@@ -66,7 +73,7 @@ export class CorpseViewTracker {
         bus.on('net:hostChanged', ({ isLocalHost }) => {
           this.remote.clear();
           this.buckets.clear();
-          // 새 호스트는 누가 보고 있는지 모른다 — 창을 열어 둔 사람이 다시 알린다
+          // the new host does not know who is viewing — whoever has a window open tells it again
           if (!isLocalHost && this.local && this.sends()) this.ctx.net!.send({ t: 'cviewq', ev: 'open', id: this.local }, 'host');
         }),
       );
@@ -74,19 +81,19 @@ export class CorpseViewTracker {
     }
   }
 
-  /** 내 창이 지금 `id` 를 보여 주고 있는가. */
+  /** Is my window showing `id` right now? */
   isLocalViewing(id: string): boolean {
     return this.local === id && !!this.ctx.inventory?.isOpen;
   }
 
-  /** 내 창이 보여 주는 (이 추적기가 맡는) 시체 id, 없으면 null. 매 프레임 문자열을 만들지 않고 비교할 때 쓴다. */
+  /** The corpse id my window shows (of the ones this tracker owns), or null. For comparing without building a string every frame. */
   get localViewing(): string | null {
     return this.local !== null && this.ctx.inventory?.isOpen ? this.local : null;
   }
 
   /**
-   * 누가든 `id` 를 보고 있는가. 호스트 · 싱글은 전원을 안다. 세션의 비호스트는 자기 창만 안다 — 그쪽은 치우는 시점을 호스트의
-   * 방송이 정하므로 그것으로 충분하다.
+   * Is anyone viewing `id`? The host and single-player know about everyone. A non-host in a session knows only its own
+   * window — that is enough there, because the moment of removal is decided by the host's broadcast.
    */
   isViewed(id: string): boolean {
     if (this.isLocalViewing(id)) return true;
@@ -95,10 +102,10 @@ export class CorpseViewTracker {
     return !!set && set.size > 0;
   }
 
-  /** 호스트: `id` 를 보고 있는 원격 peer 수 (스모크 · 디버그용). */
+  /** Host: how many remote peers are viewing `id` (smokes · debugging). */
   remoteViewers(id: string): number { return this.remote.get(id)?.size ?? 0; }
 
-  /** 매 프레임 (쓰는 쪽의 `update`): 늦게 생긴 `ctx.net` 에 붙고, 호스트면 떠났거나 멀어진 사람의 항목을 지운다. */
+  /** Every frame (from the consumer's `update`): hooks a `ctx.net` that appeared late and, on the host, removes the entries of people who left or walked away. */
   update(): void {
     if (this.opts.net === false) return;
     this.hookNet();
@@ -118,7 +125,7 @@ export class CorpseViewTracker {
     }
   }
 
-  /** 미션 리셋: 표를 비운다 (와이어는 보내지 않는다). */
+  /** Mission reset: empties the table (no wire is sent). */
   reset(): void {
     this.local = null;
     this.remote.clear();
@@ -134,13 +141,13 @@ export class CorpseViewTracker {
     this.reset();
   }
 
-  /* ── 내부 ────────────────────────────────────────────────────────────────────────────────────────────── */
+  /* ── Internals ─────────────────────────────────────────────────────────────────────────────────────── */
 
   private hosting(): boolean {
     return this.opts.net !== false && this.ctx.isMultiplayer && !!this.ctx.net?.isHost;
   }
 
-  /** 세션의 비호스트만 호스트에게 알린다. */
+  /** Only a non-host in a session tells the host. */
   private sends(): boolean {
     return this.opts.net !== false && this.ctx.isMultiplayer && !!this.ctx.net && !this.ctx.net.isHost;
   }
@@ -171,12 +178,12 @@ export class CorpseViewTracker {
 
   private onRequest(msg: CorpseViewRequest, from: PeerId): void {
     if (!this.hosting()) return;
-    // ① 모양
+    // ① shape
     if (!msg || (msg.ev !== 'open' && msg.ev !== 'close') || typeof msg.id !== 'string' || typeof from !== 'string') {
       this.refused++;
       return;
     }
-    if (!this.opts.matches(msg.id)) return;   // 다른 시체 종류의 추적기가 맡는다
+    if (!this.opts.matches(msg.id)) return;   // another corpse kind's tracker owns it
     if (msg.ev === 'close') {
       const set = this.remote.get(msg.id);
       if (set?.delete(from) && set.size === 0) this.remote.delete(msg.id);
@@ -184,15 +191,15 @@ export class CorpseViewTracker {
     }
     const at = this.opts.positionOf(msg.id);
     if (!at) { this.refused++; return; }
-    // ② 보낸 사람
+    // ② sender
     const ref = this.ctx.net!.getRemotePlayer(from);
     if (!ref || ref.connected === false || ref.isDead) { this.refused++; return; }
-    // ③ 거리 (수평)
+    // ③ distance (horizontal)
     const dx = ref.position.x - at.x, dz = ref.position.z - at.z;
     if (dx * dx + dz * dz > CORPSE_EMPTY_REQUEST_REACH_M * CORPSE_EMPTY_REQUEST_REACH_M) { this.refused++; return; }
-    // ④ 요율
+    // ④ rate
     if (!this.spend(from)) { this.refused++; return; }
-    // 창은 하나다 — 그 사람이 보던 다른 시체는 닫혔다
+    // there is one window — any other corpse that person was viewing is closed
     this.dropViews(from);
     let set = this.remote.get(msg.id);
     if (!set) { set = new Set(); this.remote.set(msg.id, set); }

@@ -9,16 +9,16 @@ import type { EnvKind, GrowSocketEffect, GrowSocketTarget, ItemCategory, MealBuf
 export const RARITY_ORDER: readonly Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'];
 export const rarityRank = (r: Rarity): number => RARITY_ORDER.indexOf(r);
 /**
- * Rarity ↔ weapon grade (1 common … 5 legendary). 총기는 여전히 5등급까지만 있다 — 신화 총기는
- * 등급이 없는 유니크 6종이므로 `WeaponGrade` 를 6 으로 늘리지 않는다 (2026-09-16 사용자 결정).
+ * Rarity ↔ weapon grade (1 common … 5 legendary). Guns still go no further than grade 5 — the mythic guns are the six
+ * uniques, which have no grade, so `WeaponGrade` is not raised to 6 (2026-09-16 user's decision).
  */
 export const rarityForGrade = (g: WeaponGrade): Rarity => RARITY_ORDER[g - 1];
 export const gradeForRarity = (r: Rarity): WeaponGrade => (rarityRank(r) + 1) as WeaponGrade;
 
 /**
- * 등급을 로마자로 읽는다 (I … VI). 총기 등급 표기와 같은 글자를 표본 이름이 쓴다 —
- * 「미확인 유전자 III」 의 III 가 이것이고, 같은 줄이 그 표본이 보장하는 최소 등급이기도 하다.
- * 표본 이름을 csv 에 손으로 적기도 하지만, 아이콘 배경 · 툴팁은 이 함수를 거친다.
+ * Reads a rarity as a Roman numeral (I … VI). A sample's name uses the same glyphs as the weapon grade notation —
+ * the III of 「미확인 유전자 III」 is this one, and that same row is also the minimum rarity the sample guarantees.
+ * Sample names are sometimes written into csv by hand, but the icon background and the tooltip go through this function.
  */
 export const RARITY_ROMAN: readonly string[] = ['I', 'II', 'III', 'IV', 'V', 'VI'];
 export const romanForRarity = (r: Rarity): string => RARITY_ROMAN[rarityRank(r)] ?? '';
@@ -29,7 +29,7 @@ export const RARITY_COLORS: Readonly<Record<Rarity, string>> = {
   rare: '#4aa3ff',
   epic: '#b56cff',
   legendary: '#ffb347',
-  /* 2026-09-16 (사용자 결정): 신화는 분홍이다. 전설의 주황·서사의 보라 사이가 아니라 순수 마젠타라 둘 다와 겹치지 않는다. */
+  /* 2026-09-16 (user's decision): mythic is pink. Not between legendary's orange and epic's purple but pure magenta, so it collides with neither. */
   mythic: '#ff6fd0',
 };
 
@@ -107,26 +107,27 @@ export const CATEGORY_ICON: Readonly<Record<ItemCategory, string>> = {
 };
 
 /**
- * appended (온실 개편, 2026-09-11): 토양 속성의 이름과 색. 재배 화면의 흙 원, 토양 아이템 툴팁, 씨앗 툴팁의
- * 「맞는 토양」 줄이 모두 이 표 하나를 읽는다 — CLAUDE.md 의 「같은 것을 두 폴더가 쓰면 shared 로 뽑는다」 그대로다.
+ * appended (the greenhouse rework, 2026-09-11): the names and colours of the soil tags. The soil circle on the growing
+ * screen, the soil item tooltip and the 「맞는 토양」 line of a seed tooltip all read this one table — CLAUDE.md's
+ * 「the same thing in two folders moves to shared」, exactly.
  */
 export const SOIL_TAG_LABEL_KO: Readonly<Record<SoilTag, string>> = {
   ash: '화산재', frost: '동토', humus: '부엽토', mineral: '광물',
-  /* appended (품종 확장 A-11, 2026-09-11) */
+  /* appended (the variety expansion A-11, 2026-09-11) */
   saline: '염류', spore: '포자',
 };
-/** 흙이 채워진 모습을 그리는 색 (재배 화면의 원 안, 80 % 높이까지 찬다). */
+/** The colour that draws filled soil (inside the circle on the growing screen, filled to 80 % height). */
 export const SOIL_TAG_COLOR: Readonly<Record<SoilTag, string>> = {
   ash: '#6b625c', frost: '#7d8fa0', humus: '#5c4433', mineral: '#8a6a58',
   saline: '#b9b0a0', spore: '#6e7a52',
 };
 
 /**
- * appended (연구실 A-13, 2026-09-11): 행성 상시 환경의 이름 · 색 · 글리프. 행성 터미널의 브리핑 줄, 출격 경고,
- * 레이드 HUD 의 환경 배지, 준비물 아이템 툴팁이 **이 표 하나**를 읽는다.
+ * appended (the lab A-13, 2026-09-11): the name · colour · glyph of a planet's permanent environment. The briefing line
+ * on the planet terminal, the launch warning, the environment badge on the raid HUD and the preparation item tooltip all read **this one table**.
  */
 export const ENV_LABEL_KO: Readonly<Record<EnvKind, string>> = { heat: '고온', toxin: '유독' };
-/** 한 줄 설명 — 「무엇이 몸을 깎는가」. 브리핑과 준비물 툴팁이 같은 문장을 쓴다. */
+/** The one-line description — 「what is chewing at the body」. The briefing and the preparation tooltip use the same sentence. */
 export const ENV_DESC_KO: Readonly<Record<EnvKind, string>> = {
   heat: '지열과 재가 체온을 올린다. 내열 준비물 없이는 체력이 계속 깎인다.',
   toxin: '대기 자체가 독하다. 방독 준비물 없이는 체력이 계속 깎인다.',
@@ -135,9 +136,10 @@ export const ENV_COLOR: Readonly<Record<EnvKind, string>> = { heat: '#ff8f5c', t
 export const ENV_ICON: Readonly<Record<EnvKind, string>> = { heat: '♨', toxin: '☣' };
 
 /**
- * appended (주방 A-3c, 2026-09-11): 요리가 올려 주는 파생 수치의 이름과 단위. 요리 아이템 툴팁 · 식탁 화면 ·
- * 레이드 HUD 의 식사 배지가 **이 표 하나**를 읽는다 — 「+15 %」인지 「+6 kg」인지 「+6 m」인지를 여기가 정한다.
- * 단위가 `'%'` 인 줄은 `amount` 를 100 배해서 찍는다 (배수 가산이기 때문이다).
+ * appended (the kitchen A-3c, 2026-09-11): the names and units of the derived stats a meal raises. The meal item tooltip ·
+ * the dining table screen · the meal badge on the raid HUD all read **this one table** — whether it prints 「+15 %」 or
+ * 「+6 kg」 or 「+6 m」 is decided here.
+ * A row whose unit is `'%'` prints `amount` × 100 (because it is added onto a multiplier).
  */
 export const MEAL_BUFF_LABEL_KO: Readonly<Record<MealBuff, string>> = {
   carryCapacity: '운반 무게', maxStamina: '최대 스태미나', staminaRegenMul: '스태미나 회복',
@@ -153,21 +155,21 @@ export const MEAL_BUFF_UNIT: Readonly<Record<MealBuff, '%' | 'kg' | 'm' | ''>> =
 };
 
 /**
- * appended (2026-09-13, 요리 재료 티어): 요리 티어 이름. 식탁 · 요리 툴팁 · 제작 카드가 이 표 하나를 읽는다.
+ * appended (2026-09-13, meal ingredient tiers): the meal tier names. The dining table · the meal tooltip · the craft card all read this one table.
  */
 export const MEAL_TIER_LABEL_KO: Readonly<Record<MealDef['tier'], string>> = {
   1: '채소 요리', 2: '페이스트 요리', 3: '고기 요리', 4: '유제품 요리',
 };
 
 /**
- * appended (2026-09-13, 요리 재료 티어): 미확인 표본 계열의 이름 · 색 · 글리프. 분석 화면 · 분석 도감 · 표본 툴팁 ·
- * 레벨업 토스트가 **이 표 하나**를 읽는다.
+ * appended (2026-09-13, meal ingredient tiers): the name · colour · glyph of an unidentified sample family. The analysis
+ * screen · the analysis catalogue · the sample tooltip · the level-up toast all read **this one table**.
  */
 export const SAMPLE_FAMILY_LABEL_KO: Readonly<Record<SampleFamily, string>> = { cell: '세포', mineral: '광물', dna: '유전자' };
 export const SAMPLE_FAMILY_COLOR: Readonly<Record<SampleFamily, string>> = { cell: '#ff9fb0', mineral: '#d8c49a', dna: '#9fd0ff' };
 export const SAMPLE_FAMILY_ICON: Readonly<Record<SampleFamily, string>> = { cell: '⬮', mineral: '◈', dna: '⧬' };
 
-/** appended (2026-09-13): 소켓이 끼워지는 곳 · 효과의 이름. 소켓 툴팁 · 재배/배양 화면의 소켓 줄이 읽는다. */
+/** appended (2026-09-13): the names of where a socket fits and of its effect. The socket tooltip and the socket line of the growing / culture screens read it. */
 export const GROW_SOCKET_TARGET_LABEL_KO: Readonly<Record<GrowSocketTarget, string>> = { soil: '토양 소켓', medium: '배지 소켓' };
 export const GROW_SOCKET_EFFECT_LABEL_KO: Readonly<Record<GrowSocketTarget, Readonly<Record<GrowSocketEffect, string>>>> = {
   soil: { speed: '성장 속도', yield: '추가 수확', wear: '토양 마모 감소' },
@@ -175,11 +177,11 @@ export const GROW_SOCKET_EFFECT_LABEL_KO: Readonly<Record<GrowSocketTarget, Read
 };
 
 /**
- * appended (2026-09-16, 사용자 결정): 카테고리 → **대분류**. 서재에 꼽는 매체는 종류가 달라도 한 덩이로 「수집품」 이다 —
- * 툴팁의 종류 줄이 「수집품 > 서적」 로 읽히고, 퀘스트·계약 목표가 「가치 10,000 이상의 수집품」 처럼
- * 책·디스크·레코드를 구분하지 않고 물을 수 있게 하려는 것이다.
- * **카테고리를 바꾸지 않는다** — 기존 필터·정렬·저장·loot 는 여전히 `ItemCategory` 를 보므로 그대로 돌아간다.
- * 대분류가 없는 카테고리는 이 표에 줄이 없고 `superCategoryOf` 가 null 을 돌려준다.
+ * appended (2026-09-16, user's decision): category → **super category**. Media that go on a library shelf are one lump,
+ * 「수집품」, however much their kinds differ — so the tooltip's kind line reads 「수집품 > 서적」, and a quest or contract
+ * objective can ask for 「가치 10,000 이상의 수집품」 without telling books, discs and records apart.
+ * **It does not change the category** — the existing filters, sorting, saves and loot still look at `ItemCategory`, so they keep working.
+ * A category with no super category has no row in this table and `superCategoryOf` returns null.
  */
 export const SUPER_CATEGORY_OF: Readonly<Partial<Record<ItemCategory, SuperCategory>>> = {
   book: 'collectible', disc: 'collectible', record: 'collectible', game_disc: 'collectible', console: 'collectible',
@@ -190,8 +192,8 @@ export const SUPER_CATEGORY_LABEL_KO: Readonly<Record<SuperCategory, string>> = 
 export const superCategoryOf = (cat: ItemCategory): SuperCategory | null => SUPER_CATEGORY_OF[cat] ?? null;
 
 /**
- * 툴팁·목록의 「종류」 줄 문자열. 대분류가 있으면 두 단, 없으면 한 단이다.
- * 구분자를 바꾸려면 여기 하나만 고친다 — 부르는 곳이 여럿이다.
+ * The string of the 「종류」 line on a tooltip or a list. Two steps when there is a super category, one when there is not.
+ * To change the separator, fix this one place — there are several call sites.
  */
 export const categoryPathKo = (cat: ItemCategory): string => {
   const sup = superCategoryOf(cat);

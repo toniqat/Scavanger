@@ -1,28 +1,29 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * 튜토리얼 월드 질의 (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
- * Owner: `world/tutorial/` — `ctx.world.tutorial` 로 게시한다 (`ctx.world.training` 과 같은 자리 · 같은 규약).
+ * Tutorial world queries (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
+ * Owner: `world/tutorial/` — published as `ctx.world.tutorial` (the same place and contract as `ctx.world.training`).
  *
- * 이 파일이 답하는 질문: *튜토리얼 행성에서만 다른 것은 무엇인가.*
+ * The question this file answers: *what is different on the tutorial planet alone.*
  *
- *   1. **체크포인트** — 튜토리얼에는 레이드 실패가 없다. 죽으면 시체는 평소대로 서고(장비도 그 안에 남는다)
- *      마지막으로 지난 체크포인트에서 다시 선다. 그 자리를 아는 곳은 맵을 지은 `world/tutorial/` 하나뿐이라
- *      `game/parts/Death` 가 여기에 묻는다.
- *   2. **낙하 규칙** — 절벽 1 은 즉사(`kill`), 절벽 2 는 반드시 살아남아야 하므로 체력 1 클램프(`clamp`).
- *      나머지는 전역 낙하 피해 그대로(`normal`). 규칙이 자리마다 다르므로 `player/` 가 착지할 때 묻는다.
+ *   1. **Checkpoints** — the tutorial has no raid failure. On death the corpse stands as usual (the gear stays
+ *      in it) and the player stands up again at the last checkpoint passed. The only place that knows where
+ *      those are is `world/tutorial/`, which built the map, so `game/parts/Death` asks here.
+ *   2. **Fall rules** — cliff 1 kills outright (`kill`); cliff 2 must be survived, so hp is clamped to 1
+ *      (`clamp`). Everywhere else the global fall damage applies (`normal`). The rule differs per place, so
+ *      `player/` asks on landing.
  *
- * 튜토리얼 월드가 아니면 `ctx.world.tutorial` 이 null 이고, 호출부는 `?? 'normal'` 로 이어 쓴다 —
- * 본편 동작은 한 글자도 바뀌지 않는다.
+ * Outside a tutorial world `ctx.world.tutorial` is null and the caller carries on with `?? 'normal'` — the main
+ * game does not change by one character.
  * ──────────────────────────────────────────────────────────────────────────── */
 import type * as THREE from 'three';
 
 /**
- * 체크포인트 — 지나는 순서대로. 죽으면 **마지막으로 지난 곳**에서 다시 선다.
- * 이름은 그 구간이 가르치는 것이다: `wake`(기상) · `cliff`(달려서 점프) · `corpse`(시체 루팅) ·
- * `bugs`(사격) · `crawl`(앉아 이동) · `android`(앉아 정조준) · `drop`(낙하) · `supply`(회복 · 수류탄) ·
- * `wall`(무너진 벽 너머) · `ship`(버려진 함선).
+ * Checkpoints — in the order they are passed. On death the player stands up again at the **last one passed**.
+ * The name is what that stretch teaches: `wake` (waking up) · `cliff` (sprint jump) · `corpse` (corpse looting) ·
+ * `bugs` (shooting) · `crawl` (moving crouched) · `android` (aiming crouched) · `drop` (falling) ·
+ * `supply` (healing · grenades) · `wall` (past the collapsed wall) · `ship` (the abandoned ship).
  *
- * 배치 규칙: **각 체크포인트는 그 구간 적의 감지 범위 밖에 둔다** — 무기를 잃은 채 부활한 사람이
- * 자기 시체를 주우러 갈 수 있어야 한다.
+ * Placement rule: **every checkpoint sits outside the detection range of that stretch's enemies** — someone who
+ * stood up again without a weapon has to be able to go and pick up their own corpse.
  */
 export type TutorialCheckpointId =
   | 'wake' | 'cliff' | 'corpse' | 'bugs' | 'crawl' | 'android' | 'drop' | 'supply' | 'wall' | 'ship';
@@ -32,46 +33,47 @@ export const TUTORIAL_CHECKPOINTS: readonly TutorialCheckpointId[] = [
 ];
 
 /**
- * 떨어졌을 때의 규칙.
- *   `normal` = 전역 낙하 피해 그대로 (실드 → 체력, 죽을 수 있다)
- *   `kill`   = 즉사 (절벽 1 — 넘지 못하면 떨어져 체크포인트로 돌아간다)
- *   `clamp`  = 피해는 들어가되 체력이 1 밑으로 내려가지 않는다 (절벽 2 — 반드시 살아서 착지한다)
+ * The rule for falling.
+ *   `normal` = the global fall damage as it is (shield → hp, death is possible)
+ *   `kill`   = instant death (cliff 1 — failing to clear it means falling and going back to the checkpoint)
+ *   `clamp`  = the damage lands but hp never drops below 1 (cliff 2 — the landing must be survived)
  */
 export type TutorialFallRule = 'normal' | 'kill' | 'clamp';
 
 /**
- * 튜토리얼 적 한 마리의 자리 — **월드가 정하고 enemies 가 세운다**. 굴림도 웨이브도 순찰도 없다.
- * `type` 은 `data/enemies.csv` 의 적 타입 id 이고, `sense` · `leash` 는 그 마리에만 걸리는 좁은 값이다
- * (기본은 `TUTORIAL_ENEMY_SENSE_M` · `TUTORIAL_ENEMY_LEASH_M`).
+ * One tutorial enemy's spot — **the world decides it and enemies builds the body**. No rolls, no waves, no
+ * patrols. `type` is an enemy type id from `data/enemies.csv`, and `sense` · `leash` are narrow values that
+ * apply to that one body alone (the defaults are `TUTORIAL_ENEMY_SENSE_M` · `TUTORIAL_ENEMY_LEASH_M`).
  */
 export interface TutorialEnemySpawn {
   type: string;
   position: THREE.Vector3;
   yaw: number;
-  /** 감지 반경 (m). 이 구간의 체크포인트보다 짧아야 한다. */
+  /** Detection radius (m). It must be shorter than the reach of this stretch's checkpoint. */
   sense: number;
-  /** 자기 자리에서 이만큼 벗어나면 돌아간다 (m). */
+  /** It goes back once it is this far from its own spot (m). */
   leash: number;
 }
 
 export interface TutorialWorldRef {
-  /** 마지막으로 지난 체크포인트 (시작은 `'wake'`). */
+  /** The last checkpoint passed (`'wake'` at the start). */
   readonly checkpoint: TutorialCheckpointId;
-  /** 부활 자리 — 발 위치와 바라볼 yaw. 호출할 때마다 새 벡터를 돌려준다 (호출부가 들고 쓴다). */
+  /** The respawn pose — feet position and the yaw to face. Returns a fresh vector per call (the caller keeps it). */
   respawnPose(): { position: THREE.Vector3; yaw: number };
-  /** 떨어진 자리(착지 지점)의 낙하 규칙. 규칙 볼륨 밖이면 `'normal'`. */
+  /** The fall rule of the place fallen to (the landing point). `'normal'` outside every rule volume. */
   fallRule(position: THREE.Vector3): TutorialFallRule;
-  /** dev 콘솔 · 스모크 전용: 그 체크포인트로 순간이동한다. 모르는 id 면 false. */
+  /** dev console · smokes only: teleports to that checkpoint. false for an unknown id. */
   gotoCheckpoint(id: TutorialCheckpointId): boolean;
   /**
-   * 이 월드가 세워야 할 적 전부 (고정 자리 · 고정 종류). `world:ready` 에서 `enemies/` 가 한 번 읽어 세운다 —
-   * **폴더끼리 import 하지 않으려고** 월드가 자리를, 적이 몸을 갖는 것이다.
-   * 한 번 처치된 적은 체크포인트 부활로 되살아나지 않으므로 이 목록은 다시 읽지 않는다.
+   * Every enemy this world has to build (fixed spots · fixed types). `enemies/` reads it once on `world:ready`
+   * and builds them — the world owns the spots and enemies owns the bodies **so that the folders never import
+   * each other**. A killed enemy does not come back with a checkpoint respawn, so this list is never read again.
    */
   enemySpawns(): readonly TutorialEnemySpawn[];
   /**
-   * appended (2026-09-16, owner: world/tutorial — 읽는 곳 `tutorial/TutorialSystem`): 무너진 통로(포복 구간)를 얼마나 지났나.
-   * 0 = 입구 · 1 = 출구, 입구 앞은 음수 · 출구 너머는 1 보다 크다 (자르지 않는다). 통로의 좌표는 월드만 갖는다.
+   * appended (2026-09-16, owner: world/tutorial — read by `tutorial/TutorialSystem`): how far through the
+   * collapsed passage (the crawl stretch) the position is. 0 = entrance · 1 = exit; before the entrance it is
+   * negative and past the exit it is greater than 1 (never clamped). Only the world has the passage's coordinates.
    */
   crawlProgress?(position: THREE.Vector3): number;
 }

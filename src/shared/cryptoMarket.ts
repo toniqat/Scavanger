@@ -1,34 +1,35 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * 암호화폐 시세 · 거래 · 채굴 주기의 **순수 식** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 사용자 결정).
+ * The **pure formulas** of the crypto quote · trading · mining cycle (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, user's decision).
  *
- * 브라우저와 Node 릴레이가 함께 import 한다 — `shared/credits.ts` 와 같은 이유로 **런타임 import 가 없다** (csv 로더도 three 도).
- * 수치는 전부 인자로 받는다: 클라이언트는 `shared/crypto.ts`(← `data/crypto.csv` · `data/tuning.csv`)에서,
- * 릴레이는 `server/economy.gen.json` 의 `crypto` 절에서 넘긴다. 같은 식을 두 곳에 베끼지 않는다.
+ * Imported by the browser AND the Node relay — for the same reason as `shared/credits.ts` it has **no runtime import** (no csv loader, no three).
+ * Every number is passed in: the client from `shared/crypto.ts` (← `data/crypto.csv` · `data/tuning.csv`),
+ * the relay from the `crypto` section of `server/economy.gen.json`. The same formula is never copied into two places.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 거래소 차트 기간. */
+/** Exchange chart ranges. */
 export type CryptoChartRange = '1h' | '1d' | '1w' | '1M';
 export const CRYPTO_CHART_RANGES: readonly CryptoChartRange[] = ['1h', '1d', '1w', '1M'];
 export const CRYPTO_CHART_RANGE_LABEL_KO: Readonly<Record<CryptoChartRange, string>> = {
   '1h': '1시간', '1d': '1일', '1w': '1주', '1M': '1개월',
 };
-/** 기간별 봉 하나의 길이(ms) — 서버가 이 길이로 봉을 만들어 답하고 화면이 이 길이로 그린다 (표시 형식이지 밸런스 수치가 아니다). */
+/** Length of one candle per range (ms) — the server builds its answer with it and the screen draws with it (a display format, not a balance number). */
 export const CRYPTO_CANDLE_MS: Readonly<Record<CryptoChartRange, number>> = {
   '1h': 60_000, '1d': 900_000, '1w': 3_600_000, '1M': 14_400_000,
 };
-/** 기간별 봉 개수 (= 기간 ÷ 봉 길이). 서버는 이보다 많이 보내지 않는다. */
+/** Candles per range (= range ÷ candle length). The server never sends more than this. */
 export const CRYPTO_CANDLE_COUNT: Readonly<Record<CryptoChartRange, number>> = {
   '1h': 60, '1d': 96, '1w': 168, '1M': 180,
 };
 
-/** 시세 봉 하나. `t` = 봉 시작의 서버 epoch ms, 가격은 코인 1개당 크레딧. */
+/** One quote candle. `t` = server epoch ms of the candle's start; prices are credits per coin. */
 export interface CryptoCandle { t: number; o: number; h: number; l: number; c: number }
 
 export type CryptoTradeSide = 'buy' | 'sell';
 
 /**
- * 거래 한 번의 크레딧 (늘 ≥ 0 인 정수). 팔면 수수료를 떼고 **내림**, 사면 수수료를 얹고 **올림** —
- * 쪼개 팔면 내림이 여러 번, 쪼개 사면 올림이 여러 번이라 나눠 거래해서 이득 보는 길이 없다 (`sellPriceFrom` 과 같은 이유).
+ * Credits for one trade (always an integer ≥ 0). Selling takes the fee off and **floors**, buying adds it and **ceils** —
+ * splitting a sale floors several times and splitting a purchase ceils several times, so there is no way to profit by
+ * splitting a trade (the same reason as `sellPriceFrom`).
  */
 export function cryptoTradeCredits(
   side: CryptoTradeSide, pricePerCoin: number, units: number, unitsPerCoin: number, fee: number,
@@ -40,8 +41,8 @@ export function cryptoTradeCredits(
 }
 
 /**
- * 연산 코어 `cores` 개가 꽂힌 클러스터의 채굴 주기 (ms). 1개 = `baseHours`, 하나 늘 때마다 × `coreTimeMul`
- * (사용자 명세: 1개 100 % · 2개 50 % · 3개 25 % …). 코어가 없거나 기준 시간이 없으면 `Infinity` (= 채굴하지 않는다).
+ * Mining cycle (ms) of a cluster with `cores` compute cores plugged in. 1 core = `baseHours`, × `coreTimeMul` for every
+ * extra one (user's spec: 1 core 100 % · 2 cores 50 % · 3 cores 25 % …). With no core or no base time it is `Infinity` (= it does not mine).
  */
 export function miningCycleMs(baseHours: number, cores: number, coreTimeMul: number): number {
   const n = Math.floor(cores);
@@ -50,8 +51,8 @@ export function miningCycleMs(baseHours: number, cores: number, coreTimeMul: num
 }
 
 /**
- * 누적 진행도 (주기 단위 — 1 = 한 번 채굴). `segmentAt` 부터 `now` 까지 `cycleMs` 로 흘렀다. `now < segmentAt` 이면 흐르지 않는다.
- * 코어 수 · 코인 · 가동 상태가 바뀌는 순간 부르는 쪽이 지금 값을 `progress` 로 접고 `segmentAt = now` 로 새 구간을 연다.
+ * Accumulated progress (in cycles — 1 = one mining round). It ran at `cycleMs` from `segmentAt` to `now`; `now < segmentAt` does not run.
+ * The moment the core count, the coin or the running state changes, the caller folds the current value into `progress` and opens a new segment with `segmentAt = now`.
  */
 export function miningProgressAt(progress: number, segmentAt: number, now: number, cycleMs: number): number {
   const p = Number.isFinite(progress) ? Math.max(0, progress) : 0;
@@ -59,7 +60,7 @@ export function miningProgressAt(progress: number, segmentAt: number, now: numbe
   return p + Math.max(0, now - segmentAt) / cycleMs;
 }
 
-/** 지갑 단위를 코인 표기로 (`12.345`). 소수 자릿수 = log10(unitsPerCoin). */
+/** Wallet units as coin notation (`12.345`). Decimal places = log10(unitsPerCoin). */
 export function formatCryptoUnits(units: number, unitsPerCoin: number): string {
   const per = Math.max(1, Math.floor(unitsPerCoin));
   const digits = Math.max(0, Math.round(Math.log10(per)));

@@ -2,34 +2,37 @@ import { Keys, mouseButtonOf } from './constants';
 import { keyLabel } from './Keybinds';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 공용 키캡 (2026-09-15, 사용자 결정). Owner: shared/ — 계약이므로 추가만 한다.
+ * The shared keycap (2026-09-15, user's decision). Owner: shared/ — a contract, so it is add-only.
  *
- * 키캡이 뜨는 **모든 곳**(키 가이드 · 튜토리얼 조작/목표 · 상호작용 프롬프트 · HUD 힌트 · 미니게임 안내 · ESC 조작 도표 ·
- * 키 설정 메뉴)이 이 한 함수로 그린다. 폴더마다 `el('span', { cls: 'keycap', text: keyLabel(...) })` 를 따로 적으면
- * 마우스 버튼 그림이 어떤 화면에서는 나오고 어떤 화면에서는 `LMB` 글자로 남는다.
+ * **Every place** a keycap appears (the key guide · the tutorial's controls/objectives · interaction prompts · HUD hints ·
+ * minigame guidance · the ESC control table · the key settings menu) draws it with this one function. Writing
+ * `el('span', { cls: 'keycap', text: keyLabel(...) })` per folder makes the mouse-button glyph appear on some screens and
+ * stay as the letters `LMB` on others.
  *
- *  - **키보드 키**: 예전 그대로 글자 (`keyLabel`).
- *  - **마우스 좌 · 휠 · 우 (`Mouse0` · `Mouse1` · `Mouse2`, 또는 라벨 `LMB` · `MMB` · `RMB`)**: 글자 대신 **마우스 윗부분 그림**
- *    (위로 둥글고 좌 / 휠 / 우 버튼이 갈린다). 눌러야 하는 부분만 **흰색**으로 칠한다. `M4` · `M5` 는 글자 그대로.
- *  - **꾹 누르기 (`hold`)**: 키보드든 마우스든 **모양이 같다** (2026-09-15 2차, 사용자 결정) — `.kc-hold` 가 붙고
- *    ① 아래 테두리가 다른 면과 같은 1px 로 얇어지며 내용이 1px 내려앉고(「눌린 키」), ② chevron 은 키캡
- *    **윗변에 걸쳐** 절반은 안 · 절반은 밖으로 솟아 있다. 그리는 곳은 `ui/styles/base.css` 의 `.keycap.kc-hold::before`
- *    **하나**다 — 마우스 그림은 예전에 chevron 을 SVG 안에 그렸지만 이제 안 그린다(칠하는 색만 **강조색**이다).
+ *  - **A keyboard key**: letters as before (`keyLabel`).
+ *  - **Mouse left · wheel · right (`Mouse0` · `Mouse1` · `Mouse2`, or the labels `LMB` · `MMB` · `RMB`)**: instead of letters,
+ *    **a picture of the top of a mouse** (rounded above, split into left / wheel / right buttons). Only the part to press is
+ *    painted **white**. `M4` · `M5` stay as letters.
+ *  - **Hold (`hold`)**: keyboard and mouse **look the same** (2026-09-15 2nd pass, user's decision) — `.kc-hold` is added and
+ *    ① the bottom border thins to the same 1px as the other sides while the content settles 1px down (a 「pressed key」),
+ *    ② the chevron sits **astride the top edge** of the keycap, half inside and half rising outside. It is drawn in
+ *    **one** place, `.keycap.kc-hold::before` in `ui/styles/base.css` — the mouse glyph used to draw the chevron inside the
+ *    SVG but no longer does (only the fill colour is the **accent colour**).
  *
- * 스타일(크기 · 여백)은 `ui/styles/base.css` 의 `.keycap.kc-mouse` 가 갖는다. 여기는 DOM 과 SVG 모양만 만든다.
+ * The style (size · padding) belongs to `.keycap.kc-mouse` in `ui/styles/base.css`. Here only DOM and the SVG shape are built.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export interface KeycapOptions {
-  /** 꾹 누르는 키 — 키보드는 `.kc-hold`, 마우스 그림은 강조색 + 버튼 위 chevron. */
+  /** A held key — `.kc-hold` on a keyboard key, the accent colour + a chevron over the button on the mouse glyph. */
   hold?: boolean;
 }
 
-/** 마우스 그림의 버튼 칸: 0 = 좌 · 1 = 휠 · 2 = 우. 그림으로 그리지 않는 코드면 -1. */
+/** The mouse glyph's button slot: 0 = left · 1 = wheel · 2 = right. -1 for a code that is not drawn as a glyph. */
 export type MouseGlyphButton = 0 | 1 | 2;
 
 const LABEL_TO_BUTTON: Readonly<Record<string, MouseGlyphButton>> = { LMB: 0, MMB: 1, RMB: 2 };
 
-/** `Mouse0` · `Mouse1` · `Mouse2` 또는 라벨 `LMB` · `MMB` · `RMB` → 그림 버튼 칸. 아니면 -1. */
+/** `Mouse0` · `Mouse1` · `Mouse2` or the labels `LMB` · `MMB` · `RMB` → the glyph's button slot. Otherwise -1. */
 export function mouseGlyphButtonOf(codeOrLabel: string): MouseGlyphButton | -1 {
   if (typeof codeOrLabel !== 'string') return -1;
   const byLabel = LABEL_TO_BUTTON[codeOrLabel];
@@ -38,16 +41,20 @@ export function mouseGlyphButtonOf(codeOrLabel: string): MouseGlyphButton | -1 {
   return m === 0 || m === 1 || m === 2 ? m : -1;
 }
 
-/* SVG 모양 — viewBox 16×16. 위가 반원인 마우스 윗부분 (아래는 버튼이 끝나는 곧은 선).
- * 켜진 칸은 흰색(`#fff`) 또는 강조색, 꺼진 칸은 비우고 윤곽만 긋는다 (윤곽은 `currentColor` = 키캡 글자색).
+/* The SVG shape — viewBox 16×16. The top of a mouse, a half circle above (below, the straight line where the buttons end).
+ * A lit slot is white (`#fff`) or the accent colour; an unlit one is left empty and only outlined (the outline is
+ * `currentColor` = the keycap's text colour).
  *
- * 2026-09-15 (ui 다듬기): HUD 크기(키캡 20 px 안의 약 14 px)에서 어두운 바탕 위로 읽히도록 —
- *  - 윤곽 1.2 → **1.35**, 가르는 선 · 휠 1 → **1.1** (1 px 아래로 떨어지면 안티에일리어싱에 묻힌다).
- *  - 휠 안은 늘 **어둡게 채운다** (`WHEEL_HOLE`). 켜진 좌 / 우 칸은 가운데 선까지 칠해지므로, 휠을 비워 두면 흰 칸이 휠 안으로
- *    번져 휠이 사라진다. 휠 자체가 켜진 칸이면 흰색 / 강조색으로 채운다.
- *  - 꾹 누르기 chevron 은 켜진 칸의 **가운데**(좌 · 우 칸은 휠 아래 몸통 한가운데)로 옮기고 선을 굵게 했다.
- *  - `<title>` 에 키 라벨(`LMB` …)을 넣는다 — 그림 키캡의 `textContent` 가 예전 글자 키캡과 같게 남아 스모크 · 디버그가
- *    `.keycap` 글자로 읽던 자리가 그대로 맞는다 (보조 기술 이름은 키캡의 `aria-label` 이 따로 준다). */
+ * 2026-09-15 (ui polish): so that it reads over a dark background at HUD size (about 14 px inside a 20 px keycap) —
+ *  - the outline 1.2 → **1.35**, the dividing lines · the wheel 1 → **1.1** (below 1 px they drown in the antialiasing).
+ *  - the inside of the wheel is always **filled dark** (`WHEEL_HOLE`). A lit left / right slot is painted up to the middle
+ *    line, so leaving the wheel empty lets the white slot bleed into the wheel and the wheel disappears. When the wheel
+ *    itself is the lit slot it is filled white / accent.
+ *  - the hold chevron moved to the **centre** of the lit slot (for the left · right slots, the middle of the body below the
+ *    wheel) and its stroke was thickened.
+ *  - the key label (`LMB` …) goes into `<title>` — the glyph keycap's `textContent` stays the same as the old letter keycap,
+ *    so every place a smoke · a debug read as `.keycap` text still matches (the assistive name is given separately by the
+ *    keycap's `aria-label`). */
 const OUTLINE = 'M1.5 15 V8 A6.5 6.5 0 0 1 14.5 8 V15 Z';
 const LEFT = 'M1.5 15 V8 A6.5 6.5 0 0 1 8 1.5 V15 Z';
 const RIGHT = 'M8 1.5 A6.5 6.5 0 0 1 14.5 8 V15 H8 Z';
@@ -57,7 +64,7 @@ const WHEEL_HOLE = 'rgba(8, 10, 12, 0.88)';
 const GLYPH_LABEL: readonly string[] = ['LMB', 'MMB', 'RMB'];
 const SVG_CACHE = new Map<string, string>();
 
-/** 마우스 그림 SVG 문자열 (캐시). `hold` 면 켜진 칸이 강조색이고 그 칸에 아래 chevron 이 들어간다. */
+/** The mouse glyph as an SVG string (cached). With `hold` the lit slot is the accent colour and takes the chevron below. */
 export function mouseGlyphSvg(button: MouseGlyphButton, hold = false): string {
   const key = `${button}|${hold ? 1 : 0}`;
   const hit = SVG_CACHE.get(key);
@@ -66,11 +73,11 @@ export function mouseGlyphSvg(button: MouseGlyphButton, hold = false): string {
   const parts: string[] = [`<title>${GLYPH_LABEL[button]}</title>`];
   if (button === 0) parts.push(`<path d="${LEFT}" style="fill:${fill}"/>`);
   if (button === 2) parts.push(`<path d="${RIGHT}" style="fill:${fill}"/>`);
-  // 좌우 칸 가르는 선 (휠 위 · 아래)
+  // The line dividing the left and right slots (above · below the wheel)
   parts.push('<path d="M8 1.5 V4 M8 10 V15" style="fill:none;stroke:currentColor;stroke-width:1.1"/>');
-  // 휠 — 켜진 칸이 아니면 어두운 구멍 (좌 / 우 칸의 칠이 휠 안으로 번지지 않게)
+  // The wheel — a dark hole unless it is the lit slot (so the left / right slot's fill does not bleed into it)
   parts.push(`<rect x="6.55" y="4" width="2.9" height="6" rx="1.45" style="fill:${button === 1 ? fill : WHEEL_HOLE};stroke:currentColor;stroke-width:1.1"/>`);
-  // 윤곽
+  // The outline
   parts.push(`<path d="${OUTLINE}" style="fill:none;stroke:currentColor;stroke-width:1.35;stroke-linejoin:round"/>`);
   const svg = `<svg class="kcm-glyph" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">${parts.join('')}</svg>`;
   SVG_CACHE.set(key, svg);
@@ -78,9 +85,10 @@ export function mouseGlyphSvg(button: MouseGlyphButton, hold = false): string {
 }
 
 /**
- * `cap` 을 키캡으로 칠한다 — 여러 번 불러도 된다(리바인드 · 자세 변경 때 다시 부른다; 바뀐 것이 없으면 DOM 을 안 건드린다).
- * `codeOrLabel` 은 `KeyboardEvent.code` / `MouseN` 이거나 이미 만든 라벨(`LMB`, `Tab 또는 Esc` …)이다.
- * 클래스는 **더하기만** 한다 (`keycap` · `kc-hold` · `kc-mouse`) — 호출부가 붙인 다른 클래스는 그대로 남는다.
+ * Paints `cap` as a keycap — it may be called repeatedly (it is called again on a rebind · a stance change; with nothing
+ * changed it does not touch the DOM).
+ * `codeOrLabel` is a `KeyboardEvent.code` / `MouseN`, or an already-built label (`LMB`, `Tab 또는 Esc` …).
+ * Classes are **only added** (`keycap` · `kc-hold` · `kc-mouse`) — other classes the call site put on stay as they are.
  */
 export function paintKeycap(cap: HTMLElement, codeOrLabel: string, opts?: KeycapOptions): void {
   const hold = opts?.hold === true;
@@ -103,7 +111,7 @@ export function paintKeycap(cap: HTMLElement, codeOrLabel: string, opts?: Keycap
   }
 }
 
-/** 새 키캡 요소를 만들어 칠한다. `tag` 기본 `span`, `cls` 는 추가 클래스. */
+/** Builds a new keycap element and paints it. `tag` defaults to `span`, `cls` is an extra class. */
 export function createKeycap(
   codeOrLabel: string,
   opts?: KeycapOptions & { tag?: string; cls?: string; parent?: HTMLElement | null },
@@ -116,26 +124,28 @@ export function createKeycap(
 }
 
 /**
- * **꾹 누르는 버튼** 안에 라벨 왼쪽으로 붙이는 좌클릭 홀드 키캡 (2026-09-15 2차, 사용자 결정).
+ * The left-click hold keycap put **inside a hold button**, to the left of its label (2026-09-15 2nd pass, user's decision).
  *
- * `UI_HOLD_CONFIRM_S` 동안 눌러야 실행되는 버튼(확정 팝업 · 제작 · 분해 · 거래 · 강화 · 정보상 · 매매 · 시설 제거 …)은
- * 예전에 버튼 **위에** 「N초 동안 누르고 있어야 실행됩니다」 한 줄을 깔았다. 그 문구 대신 **버튼 안**에 이 키캡을
- * 둔다 — 「어떻게 누르는가」는 그림이 말하고, 문장은 그 줄이 진짜로 나를던 정보(차단 사유 · 경고)만 남긴다.
+ * A button that runs only after being held for `UI_HOLD_CONFIRM_S` (confirm popups · craft · salvage · trade · upgrade ·
+ * the intel broker · buying and selling · removing a facility …) used to lay one line 「N초 동안 누르고 있어야 실행됩니다」
+ * **above** the button. Instead of that sentence this keycap sits **inside the button** — 「how do I press it」 is told by
+ * the picture, and the text keeps only what that line really carried (a blocking reason · a warning).
  *
- * 만들어지는 것은 `Mouse0` · `hold` 키캡이고 클래스가 `kc-btn` 이다 (크기 · 여백 · 포인터 차단은 base.css).
- * ⚠ `setText(btn, ...)` 는 `textContent` 를 갈아 끼우므로 라벨을 다시 쓸 때마다 이 캡을 **다시 앞에 넣는다**
- * (채움 바 `i` 를 다시 appendChild 하는 것과 같은 규약).
+ * What is built is a `Mouse0` · `hold` keycap whose class is `kc-btn` (size · padding · pointer blocking are in base.css).
+ * ⚠ `setText(btn, ...)` replaces `textContent`, so this cap is **put back in front** every time the label is rewritten
+ * (the same convention as appendChild'ing the fill bar `i` again).
  */
 export function createHoldButtonCap(parent?: HTMLElement | null): HTMLElement {
   return createKeycap('Mouse0', { hold: true, cls: 'kc-btn', parent });
 }
 
 /**
- * **리바인드와 무관한 고정 토큰** (2026-09-16, 사용자 결정 — 튜토리얼 시체 포커싱 문구). 인벤토리의 드래그 · 더블클릭은
- * `Keys` 의 액션이 아니라 실제 버튼이다 (`contextmenu` · `dblclick`). 그래서 `{FIRE}` 로 적으면 사격을 리바인드했을 때 거짓말이 된다.
- *   `{MOUSE_LEFT}`   → 좌클릭 마우스 그림 (`Mouse0`)
- *   `{DOUBLE_CLICK}` → 키 가이드의 `더블클릭` 키캡과 **같은 모양** (`ui/hud/KeyGuide` 가 `createKeycap('더블클릭')` 으로 그린다)
- * `Keys` 의 필드 이름과 겹치지 않는다 (대문자 액션 이름 목록에 없다). 추가만 한다.
+ * **Fixed tokens, independent of rebinding** (2026-09-16, user's decision — the tutorial's corpse focus text). The
+ * inventory's drag · double-click are real buttons, not `Keys` actions (`contextmenu` · `dblclick`). So writing `{FIRE}` for
+ * them becomes a lie once firing is rebound.
+ *   `{MOUSE_LEFT}`   → the left-click mouse glyph (`Mouse0`)
+ *   `{DOUBLE_CLICK}` → **the same shape** as the key guide's `더블클릭` keycap (`ui/hud/KeyGuide` draws it with `createKeycap('더블클릭')`)
+ * They do not collide with `Keys` field names (they are not in the list of upper-case action names). Add-only.
  */
 export const KEYCAP_FIXED_TOKENS: Readonly<Record<string, string>> = {
   MOUSE_LEFT: 'Mouse0',
@@ -143,12 +153,12 @@ export const KEYCAP_FIXED_TOKENS: Readonly<Record<string, string>> = {
 };
 
 /**
- * 문장 안에 키캡을 끼워 넣는다 — 토큰 문법 (`KEYCAP_FIXED_TOKENS` 도 같은 문법이다):
- *   `{ACTION}`       → `Keys.ACTION` 의 키캡 (그릴 때 읽는다 — 리바인드하면 다시 부른다)
- *   `{ACTION:hold}`  → 꾹 누르는 키캡
- *   `{br}`           → 줄바꿈
- * `ACTION` 은 `KeyBindings` 의 필드 이름이다. 모르는 토큰은 글자 그대로 둔다. `host` 의 기존 자식은 지운다.
- * 글자는 텍스트 노드로만 넣는다 (HTML 해석 없음). 끼워 넣은 키캡에는 `kc-inline` 클래스가 붙는다.
+ * Embeds keycaps inside a sentence — the token syntax (`KEYCAP_FIXED_TOKENS` uses the same syntax):
+ *   `{ACTION}`       → the keycap of `Keys.ACTION` (read at draw time — call it again after a rebind)
+ *   `{ACTION:hold}`  → a hold keycap
+ *   `{br}`           → a line break
+ * `ACTION` is a field name of `KeyBindings`. An unknown token is left as its literal text. `host`'s existing children are cleared.
+ * Text goes in only as text nodes (no HTML parsing). An embedded keycap gets the `kc-inline` class.
  */
 export function renderKeyText(host: HTMLElement, text: string): void {
   host.textContent = '';
@@ -167,7 +177,7 @@ export function renderKeyText(host: HTMLElement, text: string): void {
   if (last < text.length) host.appendChild(document.createTextNode(text.slice(last)));
 }
 
-/** 토큰을 걷어낸 순수 글자 (콘솔 · 토스트 · 검색용). `{ACTION}` 은 그 키 라벨, `{br}` 은 공백. */
+/** The plain text with the tokens stripped (for the console · toasts · search). `{ACTION}` becomes its key label, `{br}` a space. */
 export function plainKeyText(text: string): string {
   return text.replace(/\{([A-Za-z_]+)(?::hold)?\}/g, (all, name: string) => {
     if (name === 'br') return ' ';

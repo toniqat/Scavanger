@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * 서버 크레딧 검증 계약 (2026-09-11, E-4 — 커밋 `9bd72ce`(계약) · `b3fc2f0`(구현), 사용자 결정 "서버 크레딧 검증까지").
+ * The server credit validation contract (2026-09-11, E-4 — commits `9bd72ce` (contract) · `b3fc2f0` (implementation), user's decision "서버 크레딧 검증까지").
  *
  * Until now `credits:tx {delta, reason}` was applied blindly: the relay only refused a balance below 0. The relay now
  * **parses `reason`** and checks `delta` against an economy table generated from `data/*.csv`:
@@ -28,14 +28,14 @@
 
 export type CreditReasonKind =
   | 'buy' | 'sell' | 'refund' | 'repair' | 'refund-repair' | 'contract' | 'quest' | 'migrate' | 'dev'
-  /* appended (2026-09-13): 탐사 차량 요금 `rover:<fromStationId>:<toStationId>` — delta < 0, |delta| ∈ [roverFareMin, roverFareMax] */
+  /* appended (2026-09-13): rover fare `rover:<fromStationId>:<toStationId>` — delta < 0, |delta| ∈ [roverFareMin, roverFareMax] */
   | 'rover'
-  /* appended (2026-09-13): 암호화폐 매매 `cbuy:<coin>:<units>` · `csell:<coin>:<units>` — 서버 시세 창 안의 금액이어야 한다 (`shared/cryptoMarket`) */
+  /* appended (2026-09-13): crypto trades `cbuy:<coin>:<units>` · `csell:<coin>:<units>` — the amount must sit inside the server's quote window (`shared/cryptoMarket`) */
   | 'crypto-buy' | 'crypto-sell'
   /**
-   * appended (2026-09-14): 정보상 `intel:<planetId>:<code>` — delta < 0, 정수,
-   * |delta| === `intelCost(행성 threat, parseIntelCode(code), table.intel)`. 프로필당 시간당
-   * `CREDIT_INTEL_MAX_PER_HOUR` 회. **환불 불가** (rover 와 같이 원장 debit 을 남기지 않는다).
+   * appended (2026-09-14): the intel broker `intel:<planetId>:<code>` — delta < 0, an integer,
+   * |delta| === `intelCost(the planet's threat, parseIntelCode(code), table.intel)`. At most
+   * `CREDIT_INTEL_MAX_PER_HOUR` per profile per hour. **Not refundable** (like rover it leaves no ledger debit).
    */
   | 'intel';
 
@@ -50,8 +50,8 @@ export interface CreditReason {
   /** appended (2026-09-13) — rover only: the destination station id (`id` = the station the trip starts from). */
   to?: string;
   /**
-   * appended (2026-09-14) — intel only: 압축한 기믹 고정 코드 (`shared/intel.intelCode`, 예 `x2b1h3`).
-   * `id` 는 행성 id 다. 서버는 이것을 `parseIntelCode` 로 풀어 같은 `intelCost` 로 금액을 검산한다.
+   * appended (2026-09-14) — intel only: the compressed fixed-gimmick code (`shared/intel.intelCode`, e.g. `x2b1h3`).
+   * `id` is the planet id. The server unpacks it with `parseIntelCode` and re-checks the amount with the same `intelCost`.
    */
   code?: string;
 }
@@ -86,14 +86,14 @@ export function parseCreditReason(raw: string): CreditReason | null {
   if (parts[0] === 'sell' && parts.length === 3 && ID.test(parts[1]) && /^[1-9]\d{0,4}$/.test(parts[2])) {
     return { kind: 'sell', id: parts[1], qty: Number(parts[2]) };
   }
-  /* appended (2026-09-13): 암호화폐 매매 — `qty` = 지갑 단위 수 */
+  /* appended (2026-09-13): crypto trades — `qty` = the number of wallet units */
   if ((parts[0] === 'cbuy' || parts[0] === 'csell') && parts.length === 3 && ID.test(parts[1]) && /^[1-9]\d{0,8}$/.test(parts[2])) {
     return { kind: parts[0] === 'cbuy' ? 'crypto-buy' : 'crypto-sell', id: parts[1], qty: Number(parts[2]) };
   }
   if (parts[0] === 'rover' && parts.length === 3 && ID.test(parts[1]) && ID.test(parts[2]) && parts[1] !== parts[2]) {
     return { kind: 'rover', id: parts[1], to: parts[2] };
   }
-  /* appended (2026-09-14): 정보상 — `code` 는 `shared/intel.intelCode` 가 만든 「글자+숫자」 쌍의 나열 (최대 7쌍) */
+  /* appended (2026-09-14): the intel broker — `code` is the run of 「letter+digit」 pairs `shared/intel.intelCode` builds (at most 7 pairs) */
   if (parts[0] === 'intel' && parts.length === 3 && ID.test(parts[1]) && /^(?:[a-z][1-9]){1,7}$/.test(parts[2])) {
     return { kind: 'intel', id: parts[1], code: parts[2] };
   }
@@ -142,7 +142,7 @@ export function buyPriceFrom(value: number, baseMul: number, discountPerRep: num
 }
 
 /**
- * Sell price from the raw multiplier. **Floors** (2026-09-11, E-9 · 사용자 결정) — it used to round, and because the
+ * Sell price from the raw multiplier. **Floors** (2026-09-11, E-9 · user's decision) — it used to round, and because the
  * rounding happens after `qty` is multiplied in, every odd `value` paid more when the stack was split: value 1 sold
  * one at a time gave `round(0.5) = 1` each, i.e. **twice** the `round(0.5 × 80) = 40` of the whole stack, and the
  * server could not refuse it (each single sale matched its own cap exactly). Flooring makes the split strictly worse
@@ -182,10 +182,10 @@ export const CREDIT_CONTRACT_MAX_PER_HOUR = 12;
  * exists per raid, so a real player pays a handful per raid; the cap only stops a script draining / cycling the ledger.
  */
 export const CREDIT_ROVER_MAX_PER_HOUR = 30;
-/** Env var / CLI flag the relay reads to accept `dev` reasons (2026-09-11 사용자 결정: only the relay a smoke runner starts itself — `npm run dev:all` · `npm run server` · the shipped exe · the desktop shell keep it off). */
+/** Env var / CLI flag the relay reads to accept `dev` reasons (2026-09-11 user's decision: only the relay a smoke runner starts itself — `npm run dev:all` · `npm run server` · the shipped exe · the desktop shell keep it off). */
 export const CREDIT_DEV_ENV = 'SCAV_DEV_ECONOMY';
 
-/* ══ appended: 2026-09-11 (⑦ 서버 크레딧 검증 구현) ══════════════════════════════════════════════════════════════════
+/* ══ appended: 2026-09-11 (⑦ server credit validation implemented) ══════════════════════════════════════════
  * - `credits:result.reason` has always been a **Korean sentence** the client shows (`크레딧 부족`), so the "invalid" refusal of
  *   the table above goes out as `CREDIT_TX_INVALID_KO`, not the literal `'invalid'`.
  * - `EconomyTable.hash` is the digest of the table **body** (`economyTableDigest`), i.e. of the numbers the csv produced —
@@ -198,20 +198,22 @@ export const CREDIT_DEV_ENV = 'SCAV_DEV_ECONOMY';
 export interface EconomyTable {
   /** `REP_LEVEL_MAX` of `shared/meta` (highest reputation level = the best shop discount). */
   repLevelMax?: number;
-  /** appended (2026-09-13): 탐사 차량 요금의 하한 · 상한 (`ROVER_FARE_MIN` · `ROVER_FARE_MAX`). 경로 거리는 시드마다 달라 서버는 범위만 본다. */
+  /** appended (2026-09-13): floor · cap of the rover fare (`ROVER_FARE_MIN` · `ROVER_FARE_MAX`). The route length differs per seed, so the server only checks the range. */
   roverFareMin?: number;
   roverFareMax?: number;
 }
 
-/* ══ appended: 2026-09-13 — 암호화폐 매매 검증 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) ══════════════════════════════════════════════
- *   cbuy:<coin>:<units>     delta < 0 정수, |delta| ≥ cryptoTradeCredits('buy', 창 안 **최저** 시세, units), 코인이 표에 있고
- *                           `unlockQuest` 가 있으면 원장 `quests` 에 그 id 가 있어야 한다, 1 ≤ units ≤ maxUnits, 한 시간에 `CREDIT_CRYPTO_MAX_PER_HOUR` 회
- *   csell:<coin>:<units>    0 < delta ≤ cryptoTradeCredits('sell', 창 안 **최고** 시세, units), 나머지 조건은 cbuy 와 같다
- * 「창」 = 릴레이 시세 이력의 최근 `quoteWindowMs`. 지갑을 정말 가졌는지는 보지 않는다 (함선 문서는 클라이언트 쓰기 — 아이템과 같은 한계).
+/* ══ appended: 2026-09-13 — crypto trade validation (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) ═════════════════════════════════
+ *   cbuy:<coin>:<units>     delta < 0 and an integer, |delta| ≥ cryptoTradeCredits('buy', the **lowest** price in the window, units),
+ *                           the coin is in the table and, when it has an `unlockQuest`, that id is in the ledger's `quests`,
+ *                           1 ≤ units ≤ maxUnits, at most `CREDIT_CRYPTO_MAX_PER_HOUR` per hour
+ *   csell:<coin>:<units>    0 < delta ≤ cryptoTradeCredits('sell', the **highest** price in the window, units), the rest as for cbuy
+ * The 「window」 = the last `quoteWindowMs` of the relay's quote history. Whether the wallet really holds them is not
+ * checked (the ship document is a client write — the same limit as with items).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 export interface EconomyTable {
-  /** appended (2026-09-13): 암호화폐 — `data/crypto.csv` + `data/tuning.csv` 의 `CRYPTO_*` · 없으면 모든 cbuy / csell 거절 · 시세도 돌지 않는다. */
+  /** appended (2026-09-13): crypto — `data/crypto.csv` + `CRYPTO_*` of `data/tuning.csv` · absent = every cbuy / csell refused and no quote runs. */
   crypto?: {
     unitsPerCoin: number;
     fee: number;
@@ -223,7 +225,7 @@ export interface EconomyTable {
 }
 
 export interface CreditLedger {
-  /** appended (2026-09-13): 최근 `cbuy:` · `csell:` 의 서버 epoch ms (최근 한 시간) — 시간당 상한. */
+  /** appended (2026-09-13): server epoch ms of recent `cbuy:` · `csell:` (the last hour) — the hourly cap. */
   cryptoAt?: number[];
 }
 
@@ -233,37 +235,39 @@ export const CREDIT_CRYPTO_MAX_PER_HOUR = 240;
 /** The refusal text of a `credits:tx` the relay's economy rules do not accept (`credits:result {ok:false, reason}`). */
 export const CREDIT_TX_INVALID_KO = '서버가 거래를 확인하지 못했습니다';
 
-/* ══ appended: 2026-09-14 — 정보상 검증 (docs/DECISIONS.md 「2026-09-14 — 정보상」) ═══════════════════════════════════════════════════
- *   intel:<planetId>:<code>   delta < 0 정수, |delta| === intelCost(planetThreat[planetId], parseIntelCode(code), table.intel)
- *                             한 시간에 `CREDIT_INTEL_MAX_PER_HOUR` 회. **환불 불가** (rover 와 같이 원장 debit 없음).
- * 정말 그 정보를 갖고 출격했는지는 보지 않는다 — 맵은 클라이언트가 생성하므로 서버가 증명할 것이 없다 (아이템 소유와 같은 한계).
- * 금액 식은 **클라와 릴레이가 같은 `shared/intel.intelCost`** 를 부른다 — 표만 다른 출처에서 온다.
+/* ══ appended: 2026-09-14 — intel broker validation (docs/DECISIONS.md 「2026-09-14 — 정보상」) ══════════════════════════════════
+ *   intel:<planetId>:<code>   delta < 0 and an integer, |delta| === intelCost(planetThreat[planetId], parseIntelCode(code), table.intel)
+ *                             at most `CREDIT_INTEL_MAX_PER_HOUR` per hour. **Not refundable** (no ledger debit, like rover).
+ * Whether the launch really carried that intel is not checked — the map is generated by the client, so the server has
+ * nothing to prove it with (the same limit as owning an item).
+ * The amount formula is **the same `shared/intel.intelCost` on the client and on the relay** — only the table comes from a different source.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 export interface EconomyTable {
   /**
-   * appended (2026-09-14): 정보상 — `data/intel_options.csv` 의 기믹별 기본 비용 · 최대 단계, `data/tables.csv` 의
-   * `INTEL_TIER_COST_MUL` · `INTEL_THREAT_COST_MUL` · `data/tuning.csv` 의 `INTEL_BUNDLE_COST_MUL`,
-   * 그리고 `data/planets.csv` 의 행성별 threat. 없으면 모든 `intel:` 거절.
+   * appended (2026-09-14): the intel broker — the per-gimmick base cost · max tier from `data/intel_options.csv`,
+   * `INTEL_TIER_COST_MUL` · `INTEL_THREAT_COST_MUL` from `data/tables.csv` · `INTEL_BUNDLE_COST_MUL` from
+   * `data/tuning.csv`, and each planet's threat from `data/planets.csv`. Absent = every `intel:` refused.
    */
   intel?: {
     options: Record<string, { baseCost: number; maxTier: number }>;
     tierMul: number[];
     bundleMul: number;
     threatMul: number[];
-    /** planetId → threat (1–3). 사유의 행성 id 가 여기 없으면 거절. */
+    /** planetId → threat (1–3). A reason whose planet id is not here is refused. */
     planetThreat: Record<string, number>;
   };
 }
 
 export interface CreditLedger {
-  /** appended (2026-09-14): 최근 `intel:` 구매의 서버 epoch ms (최근 한 시간) — 시간당 상한. */
+  /** appended (2026-09-14): server epoch ms of recent `intel:` purchases (the last hour) — the hourly cap. */
   intelAt?: number[];
 }
 
 /**
- * (2026-09-14) `intel:` purchases accepted per profile per rolling hour. 한 레이드에 한 번 사는 것이고 「지역 재배치」로
- * 다시 사는 경우를 넉넉히 잡아도 한 시간에 열 번을 넘지 않는다 — 상한은 스크립트가 원장을 돌리는 것만 막는다.
+ * (2026-09-14) `intel:` purchases accepted per profile per rolling hour. It is bought once per raid, and even a
+ * generous allowance for re-buying through 「지역 재배치」 does not pass ten an hour — the cap only stops a script
+ * from cycling the ledger.
  */
 export const CREDIT_INTEL_MAX_PER_HOUR = 24;
 

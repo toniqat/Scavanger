@@ -184,6 +184,14 @@ constants or pure functions is harmless, but **mutating that copy's state** (ins
 app — typically red only on a long-lived dev server. Smokes that mutate module state import **the URL the document actually fetched**:
 `smoke-library-consumers.mjs`'s `window.__imp` looks the path up in resource timing (raise the buffer with
 `performance.setResourceTimingBufferSize` in `evaluateOnNewDocument`) and falls back to the bare path.
+
+**`smoke-npc-quests.mjs` still has this bug** (found 2026-09-18 by the `src/shared` comment pass). It calls
+`await import('/src/shared/damageSource.ts')` and then **mutates that copy's scope state** with `withLocalGunHit`, so
+the app's `Enemy.takeDamage` reads the other copy and `enemy:killed.weaponClass` comes back null: `real kill inside
+withLocalGunHit(SG)` fails 68/69. It goes red the moment **any** edit to `damageSource.ts` reaches a dev server that
+was already up — a comment-only edit is enough — and green against a fresh vite, so it reads as a change breaking the
+game when nothing changed. Fix it the way `smoke-library-consumers.mjs` did (`window.__imp`); until then, a red there
+after touching `damageSource.ts` is checked by restarting vite, not by debugging the game.
 ### Known gaps in the net
 
 - `smoke-inventory-p6.mjs` does not call `quietViteHmr(page, { parkRelay: true })`, although it is the same kind of

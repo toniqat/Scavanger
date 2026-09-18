@@ -3,7 +3,7 @@ import type { PeerId } from './net';
 import type { ItemInstance } from './types';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Special gadget consumables (특수 가젯형 소모아이템).
+ * Special gadget consumables.
  * Owner: gadgets/GadgetSystem publishes `ctx.gadgets`; item definitions live in items/.
  * World-persistent gadgets (dome shield, barricade, mine, turret, jump pad, zones) are
  * host-authoritative and replicated with the `gad` / `gadq` messages.
@@ -17,28 +17,29 @@ export type GadgetId =
   | 'smokeGrenade'   // 연막탄 — blinds enemies; shooting from inside draws inaccurate return fire
   | 'mine'           // 지뢰 — arms after 3 s, friendly fire, defusable
   | 'turret'         // 포탑 — auto turret, friendly fire, recoverable
-  | 'incendiary'     // 화염 지대 — **아이템이 없는 내부 정의**(2026-09-15 화염 통합): 화염 수류탄이 터진 자리에 선다
+  | 'incendiary'     // 화염 지대 — **an internal def with no item** (2026-09-15 fire merge): it stands where a fire grenade burst
   | 'defib'          // 제세동기 — instantly revives a downed squadmate at full hp
   | 'jumpPad'        // 점프대 — launches whoever steps on it, recoverable
   /* appended (2026-09-11) */
-  | 'remoteMine'     // 원격 지뢰 — C4. 설치 후 손에 들고 우클릭으로 내 것 전부 기폭
-  | 'droneGround'    // 지상 드론 — `ctx.drones` (shared/drones.ts). 아이템은 조종기로 남는다
-  | 'droneAir'       // 공중 드론 — 같은 규칙, 제자리 비행
-  /* 2026-09-15 2차 (화염 통합, 사용자 결정): **은퇴**. `fire` 를 만드는 정의는 `incendiary` 하나뿐이다 —
-     이 id 는 `airstrike` · `secondary` 처럼 옛 세이브 · 옛 와이어를 위해 이름만 남는다 (정의가 없다). */
+  | 'remoteMine'     // 원격 지뢰 — C4. Once placed, hold it and right-click to detonate every one of yours
+  | 'droneGround'    // 지상 드론 — `ctx.drones` (shared/drones.ts). The item stays behind as the controller
+  | 'droneAir'       // 공중 드론 — the same rules, it hovers in place
+  /* 2026-09-15 2nd pass (the fire merge, user's decision): **retired**. `incendiary` is the only def that makes `fire` —
+     this id, like `airstrike` · `secondary`, keeps its name for old saves and the old wire only (it has no def). */
   | 'grenadeFire'
-  /* appended (2026-09-15, 땅굴벌레): 진동 장치 — 바닥을 1 초마다 내리쳐 다섯 번째에 땅굴벌레를 부른다 (`sandworm:summon`).
-     아켈론 II 전진기지 지하실에서만 나오고, 회수할 수 없으며, 벌레가 분출하면 그 반경 안의 것은 부서진다. */
+  /* appended (2026-09-15, the sandworm): `진동 장치` — it strikes the ground once a second and on the fifth it calls the
+     sandworm (`sandworm:summon`). It comes only from the basement of `아켈론 II 전진기지`, cannot be recovered, and when
+     the worm erupts everything inside that radius is destroyed. */
   | 'thumper';
 
 export const GADGET_IDS: readonly GadgetId[] = [
   'cloakVeil', 'domeShield', 'barricade', 'lureGrenade', 'smokeGrenade',
-  /* 2026-09-15 2차 (화염 통합): `'incendiary'` 가 **목록에서만** 빠졌다 — 아이템(`gad_incendiary`)이 사라지고
-     화염 수류탄이 터진 자리에 서는 **내부 정의**가 됐다. 타입 · 정의 · 구현은 그대로다 (`airstrike` 와 같은 처리). */
+  /* 2026-09-15 2nd pass (the fire merge): `'incendiary'` left **the list only** — the item (`gad_incendiary`) is gone and
+     it became an **internal def** that stands where a fire grenade burst. The type, the def and the implementation are unchanged (the same treatment as `airstrike`). */
   'mine', 'turret', 'defib', 'jumpPad',
   /* appended (2026-09-11) */
   'remoteMine', 'droneGround', 'droneAir',
-  /* appended (2026-09-15, 땅굴벌레) */
+  /* appended (2026-09-15, the sandworm) */
   'thumper',
 ];
 
@@ -59,15 +60,16 @@ export type DeployableKind =
   | 'lure'       // noise beacon
   /* appended (2026-09-11) */
   | 'remoteMine'  // 원격 지뢰 (C4) — detonated by its owner
-  /* appended (2026-09-15, 땅굴벌레) */
-  | 'thumper';    // 진동 장치 — 소형 설치물이지만 드론에는 못 올린다 (땅을 쳐야 한다)
+  /* appended (2026-09-15, the sandworm) */
+  | 'thumper';    // 진동 장치 — a small deployable, but it cannot be mounted on a drone (it has to strike the ground)
 
 /**
- * 2026-09-11 (설치 미리보기): **대형 설치물**은 적당히 평평하고 공간이 있는 바닥에만 선다 — 드론 위에 못 올린다.
- * 나머지 `place` 설치물(지뢰 · 원격 지뢰)은 **소형**이라 경사가 좀 있어도 되고 드론 윗면에 올릴 수 있다.
+ * 2026-09-11 (the placement preview): a **large deployable** only stands on ground that is reasonably flat and has room —
+ * it cannot be mounted on a drone. The other `place` deployables (mine · remote mine) are **small**, so some slope is
+ * fine and they can sit on a drone's top face.
  */
 export const LARGE_DEPLOYABLE_KINDS: readonly DeployableKind[] = ['barricade', 'jumpPad', 'turret'];
-/** 드론 윗면(`DroneRef.getMountPoint`)에 올릴 수 있는 설치물. 드론 하나에 하나. */
+/** Deployables that may sit on a drone's top face (`DroneRef.getMountPoint`). One per drone. */
 export const MOUNTABLE_DEPLOYABLE_KINDS: readonly DeployableKind[] = ['mine', 'remoteMine'];
 export function isLargeDeployable(kind: DeployableKind | null | undefined): boolean {
   return kind != null && LARGE_DEPLOYABLE_KINDS.includes(kind);
@@ -77,18 +79,18 @@ export function isMountableDeployable(kind: DeployableKind | null | undefined): 
 }
 
 /**
- * 2026-09-11: 손에 든 `place` 가젯의 설치 미리보기 (owner: gadgets). 좌클릭이 실제로 놓는 자리와 **같은** 판정이다 —
- * 미리보기가 초록이면 설치되고, 빨강이면 `reason` 으로 거부된다.
+ * 2026-09-11: the placement preview of the `place` gadget in hand (owner: gadgets). It is **the same** judgement as the
+ * spot a left click really places on — a green preview means it is placed, a red one that it is refused with `reason`.
  */
 export interface PlacementPreview {
   gadget: GadgetId;
   kind: DeployableKind;
   valid: boolean;
-  /** 거부 사유 (한국어 한 줄), valid 면 null. */
+  /** The refusal reason (one Korean line), null when valid. */
   reason: string | null;
   position: THREE.Vector3;
   yaw: number;
-  /** 드론 위에 올리는 중이면 그 드론 id. */
+  /** The drone's id while it is being mounted on a drone. */
   mount: string | null;
 }
 
@@ -109,12 +111,13 @@ export interface GadgetDef {
   recoverTime: number;
   icon: string;
   color: string;
-  /* ── appended: 2026-09-15 (가젯 개편, 사용자 결정) ── */
+  /* ── appended: 2026-09-15 (the gadget rework, user's decision) ── */
   /**
-   * 배치물이 받은 피해가 **아이템 내구도**로 남는가 (돔 실드 · 바리케이드).
-   * true 면 배치물의 최대 hp 를 `GadgetDef.hp` 가 아니라 **그 아이템의 `ItemDef.durabilityMax`** 에서 잡고,
-   * 회수할 때 남은 hp 를 돌려주는 `ItemInstance.durability` 로 적는다 — 그래서 까인 만큼 작업대 수리가 필요해지고
-   * 분해 산출도 「제작 재료 × 남은 내구도 20 % 5구간」(2026-09-10) 에 그대로 올라탄다. 새 개념을 만들지 않는다.
+   * Does damage the deployable took stay as **item durability** (dome shield · barricade).
+   * When true the deployable's max hp is taken not from `GadgetDef.hp` but from **that item's `ItemDef.durabilityMax`**,
+   * and on recovery the hp left is written back as the returned `ItemInstance.durability` — so whatever was chewed off
+   * needs a workbench repair, and the salvage yield rides straight on 「craft materials × the five 20 % durability
+   * buckets」 (2026-09-10). No new concept is created.
    */
   wearsItemDurability?: boolean;
 }
@@ -171,40 +174,41 @@ export interface GadgetsRef {
   clear(): void;
 }
 
-/* ── appended (2026-09-11): 설치 미리보기 · 원격 지뢰 · 드론 탑재 (owner: gadgets) ── */
+/* ── appended (2026-09-11): the placement preview · remote mines · drone mounting (owner: gadgets) ── */
 export interface DeployableRef {
-  /** 드론 위에 올라탄 설치물이면 그 드론 id (`DroneRef.id`) — 위치가 매 프레임 드론을 따라간다. */
+  /** For a deployable riding on a drone, that drone's id (`DroneRef.id`) — its position follows the drone every frame. */
   readonly mount?: string | null;
 }
 
 export interface GadgetsRef {
-  /** 손에 든 `place` 가젯의 현재 설치 미리보기, 들고 있지 않으면 null. */
+  /** The current placement preview of the `place` gadget in hand, null when none is held. */
   readonly placement?: PlacementPreview | null;
   /**
-   * 로컬 플레이어가 설치한 원격 지뢰를 **전부** 기폭한다 (무장된 것만). 비호스트는 `gadq detonate` 요청을 보낸다.
-   * 같은 기폭에서 한 대상이 여러 발에 맞으면 가장 센 한 발만 온전히, 나머지는 `GADGET_REMOTE_MINE_STACK_MUL` 배.
-   * 반환 = 기폭(요청)한 개수.
+   * Detonates **every** remote mine the local player placed (armed ones only). A non-host sends a `gadq detonate` request.
+   * When one target is caught by several in the same detonation, only the strongest lands in full and the rest are
+   * × `GADGET_REMOTE_MINE_STACK_MUL`. The return = how many were detonated (or requested).
    */
   detonateRemoteMines?(): number;
-  /** 로컬 플레이어 소유로 월드에 남아 있는 원격 지뢰 수 (기폭기 손 상태 · HUD). */
+  /** How many remote mines owned by the local player are still in the world (the detonator hand pose · the HUD). */
   liveRemoteMineCount?(): number;
 }
 
-/* ══ appended (2026-09-15, B-16): 화염 지대 질의 · G-10 소이 수류탄 ══════════════════════════════════ */
+/* ══ appended (2026-09-15, B-16): the fire-zone query · G-10 the incendiary grenade ═════════════════ */
 import type { FireZoneInfo } from './types';
 
 export interface GadgetsRef {
   /**
-   * 살아 있는 `fire` 배치물 (전부 `hostile: false`). **모든 클라이언트**가 답한다 (복제본 포함). 매 프레임 불린다 — 재사용 배열.
+   * The living `fire` deployables (all `hostile: false`). **Every client** answers (replicas included). Called every frame — reused array.
    */
   getFireZones?(): readonly FireZoneInfo[];
   /**
-   * 화염 수류탄(`ItemDef.grenade === 'fire'`)이 `position` 에서 터졌다 — 로컬 플레이어 소유의 화염 지대를 세운다
-   * (2026-09-15 2차 화염 통합 뒤로는 `GadgetId 'incendiary'` 내부 정의, `GRENADE_INCENDIARY_RADIUS` ·
-   * `GRENADE_INCENDIARY_DURATION`, 초당 피해는 `GADGET_INCENDIARY_DPS`). 이름은 계약이라 그대로 둔다.
-   * 화염수류탄의 `onThrownImpact` 와 같은 길이다 — 권위면 즉시 `spawnDeployable`, 아니면 `gadq place` 로 호스트에 요청.
-   * 부르는 곳은 weapons 의 로컬 수류탄 폭발뿐이다.
+   * A fire grenade (`ItemDef.grenade === 'fire'`) burst at `position` — this stands up a fire zone owned by the local
+   * player (since the 2026-09-15 2nd-pass fire merge it is the internal `GadgetId 'incendiary'` def,
+   * `GRENADE_INCENDIARY_RADIUS` · `GRENADE_INCENDIARY_DURATION`, damage per second `GADGET_INCENDIARY_DPS`). The name is
+   * contract, so it is left alone.
+   * It is the same road as the fire grenade's `onThrownImpact` — on the authority `spawnDeployable` at once, otherwise a `gadq place` request to the host.
+   * The one call site is the local grenade explosion in weapons.
    */
   igniteGrenadeFire?(position: THREE.Vector3): void;
 }
-/* ══ end 2026-09-15 화염 지대 ══ */
+/* ══ end 2026-09-15 fire zones ══ */

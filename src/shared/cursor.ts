@@ -1,14 +1,14 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * 마우스 커서 모드 (2026-09-07 rework). Owner: shared/ — with `itemChip.ts` the only DOM-adjacent file here.
+ * The mouse cursor mode (2026-09-07 rework). Owner: shared/ — with `itemChip.ts` the only DOM-adjacent file here.
  *
- * **The model: 락 = 시점 조작 / 언락 = 진짜 커서.**
+ * **The model: locked = camera look / unlocked = a real cursor.**
  *
  * Phase 10 tried the opposite — every cursor screen *kept* the pointer lock and a virtual cursor synthesised the DOM
  * pointer/mouse events at its own position — to stop the OS cursor wandering onto a second monitor. The cost turned
  * out to be far higher than the benefit: a synthesised event is untrusted, so the browser performs no default action
  * for it (text carets, native drags, sliders all had to be re-implemented), the arrow was a picture the game had to
  * draw and could never match the compositor's own latency, and Chrome drops the lock on **every** Escape — which left
- * a half-broken hybrid state that `game/` papered over by forcing the 일시정지 메뉴 up whenever the lock went missing.
+ * a half-broken hybrid state that `game/` papered over by forcing the pause menu up whenever the lock went missing.
  * That watchdog is what made the game pause every time the Windows cursor appeared.
  *
  * So this class no longer moves anything or dispatches anything. It is a **ref-counted mode flag**:
@@ -63,10 +63,10 @@ export class CursorMode {
 }
 
 
-/* ══ appended: 2026-09-08 — 데스크톱 셸 판별 ═══════════════════════════════════════════════════════════════════════
+/* ══ appended: 2026-09-08 — telling the desktop shell apart ════════════════════════════════════════════════════════
  * The Electron shell (`electron/`) loads the same bundle from `http://127.0.0.1:<port>/`, so nothing in the page knows
  * it is a desktop app except the user agent. Two behaviours differ there: no '좌측 클릭으로 게임 재개' gate (the shell
- * hides the cursor itself whenever no screen owns it — Alt 커서 excepted), and `start-game.bat` is gone in favour of
+ * hides the cursor itself whenever no screen owns it — the Alt cursor excepted), and `start-game.bat` is gone in favour of
  * the exe. Read it at use time; a test may override it with `window.__scavDesktop`.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 export function isDesktopShell(): boolean {

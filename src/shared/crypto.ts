@@ -1,43 +1,44 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * 암호화폐 정의 + 채굴 · 거래 수치 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 사용자 결정).
+ * Crypto coin defs + the mining · trading numbers (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, user's decision).
  *
- * 원본은 `data/crypto.csv`(코인 8종) + `data/tuning.csv`(단위 · 수수료 · 코어 배수 · 시세 틱). 이 파일은 csv 로더를 쓰므로
- * **릴레이는 import 하지 않는다** — 릴레이가 필요한 값은 `scripts/economy-table.mjs` 가 `server/economy.gen.json` 의
- * `crypto` 절로 옮기고, 식은 둘 다 `shared/cryptoMarket.ts`(런타임 import 없음)를 부른다.
+ * The source is `data/crypto.csv` (8 coins) + `data/tuning.csv` (unit · fee · core multiplier · quote tick). This file
+ * uses the csv loader, so **the relay does not import it** — the values the relay needs are moved into the `crypto`
+ * section of `server/economy.gen.json` by `scripts/economy-table.mjs`, and both call the same formulas in
+ * `shared/cryptoMarket.ts` (no runtime import).
  *
- * 규칙 요약 (사용자 결정):
- *  - 처음 4종(`corp` 없음)은 열려 있고, 나머지 4종은 그 기업의 퀘스트(`unlockQuest`)를 완료해야 채굴 · 매매할 수 있다. 차트는 늘 보인다.
- *  - 채굴은 연산 클러스터 한 대 = 한 주기. 코어 n 개면 주기 = `cycleHours × COMPUTE_CORE_TIME_MUL^(n−1)`, 한 주기에 `yieldUnits` 가 지갑에 들어온다.
- *  - 지갑은 정수 단위(`CRYPTO_UNITS_PER_COIN` 단위 = 코인 1개)이고 함선 상태(`ShipState.cryptoWallet`)에 산다.
- *  - 매매는 서버 시세로만 한다 — 크레딧 사유 `cbuy:<coin>:<units>` · `csell:<coin>:<units>` 를 릴레이가 시세 창 안에서 검증한다.
+ * The rules in short (user's decision):
+ *  - The first 4 (no `corp`) are open; the other 4 can be mined and traded only once that corporation's quest (`unlockQuest`) is completed. The chart is always visible.
+ *  - Mining is one compute cluster = one cycle. With n cores the cycle is `cycleHours × COMPUTE_CORE_TIME_MUL^(n−1)`, and one cycle puts `yieldUnits` into the wallet.
+ *  - The wallet is in whole units (`CRYPTO_UNITS_PER_COIN` units = 1 coin) and lives in the ship state (`ShipState.cryptoWallet`).
+ *  - Trading only ever happens at the server quote — the relay validates the credit reasons `cbuy:<coin>:<units>` · `csell:<coin>:<units>` inside the quote window.
  * ──────────────────────────────────────────────────────────────────────────── */
 import { csvRows, keyTable } from './data/tables';
 import type { CorpId } from './meta';
-/* 2026-09-14: 기업 퀘스트 폐지 — 해금 퀘스트는 NPC 퀘스트 (`data/npc_quests.csv`) */
+/* 2026-09-14: corporation quests retired — the unlock quest is an NPC quest (`data/npc_quests.csv`) */
 import { NPC_QUEST_DEFS } from './npc';
 import { cryptoTradeCredits, formatCryptoUnits, miningCycleMs, type CryptoTradeSide } from './cryptoMarket';
 
 const T = /* data/tuning.csv */ keyTable('tuning.csv');
 
 export interface CryptoCoinDef {
-  /** 소문자 · 숫자 · _ — 세이브 · 서버 시세 · 크레딧 사유가 이 id 를 쓴다. */
+  /** Lower case · digits · _ — saves, the server quote and credit reasons all use this id. */
   id: string;
   name: string;
-  /** 거래소 표기 (`SCRP`). */
+  /** Exchange ticker (`SCRP`). */
   ticker: string;
-  /** 연관 기업. null = 처음부터 열린 코인. */
+  /** The associated corporation. null = a coin that is open from the start. */
   corp: CorpId | null;
-  /** 완료해야 채굴 · 매매가 열리는 NPC 퀘스트 id (`data/npc_quests.csv`). null = 열려 있다. */
+  /** Id of the NPC quest that must be completed before mining / trading opens (`data/npc_quests.csv`). null = open. */
   unlockQuest: string | null;
   color: string;
   glyph: string;
-  /** 코어 1개일 때 채굴 주기 (실시간 시간). */
+  /** Mining cycle with 1 core (real-time hours). */
   cycleHours: number;
-  /** 주기 한 번에 지갑에 들어오는 단위 수. */
+  /** Units that land in the wallet per cycle. */
   yieldUnits: number;
-  /** 코인 1개의 기준 시세 (크레딧). */
+  /** Base price of one coin (credits). */
   basePrice: number;
-  /** 하루 표준편차 (비율). 서버 시세 시뮬레이션이 쓴다. */
+  /** Daily standard deviation (as a ratio). Used by the server's quote simulation. */
   volatility: number;
   description: string;
 }
@@ -68,37 +69,37 @@ export const CRYPTO_COIN_DEFS: readonly CryptoCoinDef[] = csvRows('crypto.csv').
 
 export const CRYPTO_COIN_MAP: ReadonlyMap<string, CryptoCoinDef> = new Map(CRYPTO_COIN_DEFS.map((d) => [d.id, d]));
 
-/** 지갑 단위 수 = 코인 1개. */
+/** Wallet units that make 1 coin. */
 export const CRYPTO_UNITS_PER_COIN = T.num('CRYPTO_UNITS_PER_COIN');
-/** 거래소 수수료 (살 때 얹고 팔 때 뗀다). */
+/** Exchange fee (added when buying, taken off when selling). */
 export const CRYPTO_TRADE_FEE = T.num('CRYPTO_TRADE_FEE');
-/** 거래 한 번의 최대 단위 수. */
+/** Maximum units in one trade. */
 export const CRYPTO_TRADE_MAX_UNITS = T.num('CRYPTO_TRADE_MAX_UNITS');
-/** 서버가 거래 금액을 맞춰 보는 시세 창 (초). */
+/** The quote window the server checks a trade's amount against (seconds). */
 export const CRYPTO_QUOTE_WINDOW_S = T.num('CRYPTO_QUOTE_WINDOW_S');
-/** 서버 시세가 한 번 움직이는 간격 (초). */
+/** Interval at which the server quote moves (seconds). */
 export const CRYPTO_TICK_S = T.num('CRYPTO_TICK_S');
-/** 연산 클러스터 한 대의 코어 칸 수. */
+/** Core slots on one compute cluster. */
 export const COMPUTE_CLUSTER_MAX_CORES = T.num('COMPUTE_CLUSTER_MAX_CORES');
-/** 코어가 하나 늘 때마다 채굴 주기에 곱하는 값. */
+/** Multiplier applied to the mining cycle for every extra core. */
 export const COMPUTE_CORE_TIME_MUL = T.num('COMPUTE_CORE_TIME_MUL');
 
-/** 이 코인을 코어 `cores` 개로 채굴할 때의 주기 (ms). 코어 0 = Infinity. */
+/** Cycle (ms) of mining this coin with `cores` cores. 0 cores = Infinity. */
 export function coinCycleMs(def: CryptoCoinDef, cores: number): number {
   return miningCycleMs(def.cycleHours, cores, COMPUTE_CORE_TIME_MUL);
 }
 
-/** 지갑 단위 → `12.345`. */
+/** Wallet units → `12.345`. */
 export function formatCoinUnits(units: number): string {
   return formatCryptoUnits(units, CRYPTO_UNITS_PER_COIN);
 }
 
-/** 코인 표기 → 지갑 단위 (내림). 숫자가 아니면 0. */
+/** Coin notation → wallet units (floored). 0 when it is not a number. */
 export function coinToUnits(coins: number): number {
   return Number.isFinite(coins) ? Math.max(0, Math.floor(coins * CRYPTO_UNITS_PER_COIN + 1e-6)) : 0;
 }
 
-/** 이 시세로 `units` 를 사고팔 때의 크레딧 (클라이언트 계산 — 릴레이도 같은 식으로 검증한다). */
+/** Credits for buying / selling `units` at this price (the client's calculation — the relay validates with the same formula). */
 export function cryptoCreditsFor(side: CryptoTradeSide, pricePerCoin: number, units: number): number {
   return cryptoTradeCredits(side, pricePerCoin, units, CRYPTO_UNITS_PER_COIN, CRYPTO_TRADE_FEE);
 }

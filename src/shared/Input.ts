@@ -36,10 +36,11 @@ export class Input {
     if (this.bound) return;
     this.bound = true;
     this.lockTarget = target;
-    // `window` 리스너는 등록 순서대로 돈다 — 키를 삼켜야 하는 오버레이(채팅 · 콘솔 · 팝업)는 **capture** 단계에 걸어야
-    // 여기보다 먼저 받는다. 스모크도 키를 `document.body` 에 쏜다 (window 에 직접 쏘면 이 순서를 건너뛴다).
+    // `window` listeners run in registration order — an overlay that has to swallow a key (chat · the console · a popup)
+    // must bind in the **capture** phase to receive it before this one. The smokes fire keys at `document.body` too
+    // (firing straight at window skips this order).
     window.addEventListener('keydown', (e) => {
-      // Tab/Esc are game keys; Alt would otherwise focus the browser menu bar (커서 호출 키).
+      // Tab/Esc are game keys; Alt would otherwise focus the browser menu bar (the cursor key).
       if (e.code === 'Tab' || e.code === 'Escape' || e.code === 'AltLeft' || e.code === 'AltRight') e.preventDefault();
       if (!this.down.has(e.code)) this.pressed.add(e.code);
       this.down.add(e.code);
@@ -49,28 +50,29 @@ export class Input {
       this.released.add(e.code);
     });
     /*
-     * 2026-09-10 — Escape 의 시각만 재는 capture 리스너 (`escapeHeld` · `escapeUpAt`, see `relockBlockedFor`).
-     * 가장 안쪽 팝업(설정 · 콘솔 · 수량 지정 · 채팅)은 Escape 를 자기 capture 핸들러에서 삼켜 위의 keydown 이
-     * 그것을 **보지 못한다** — 그런데 그 팝업이 닫히면서 커서를 놓으면 `main.ts` 가 재잠금을 요청하므로, 키를
-     * 놓친 채로 요청하면 이 파일이 막으려는 바로 그 사고가 난다. 그래서 시각 기록만 window 의 capture 단계에서
-     * 따로 한다 — 키를 '눌린 것'으로 기록하지는 않으므로 팝업의 삼킴은 그대로다.
+     * 2026-09-10 — a capture listener that times Escape and nothing else (`escapeHeld` · `escapeUpAt`, see
+     * `relockBlockedFor`). The innermost popups (settings · the console · the quantity picker · chat) swallow Escape in
+     * their own capture handler, so the keydown above **never sees it** — and yet when such a popup closes and lets the
+     * cursor go, `main.ts` asks for a relock, so asking with the key missed is exactly the accident this file exists to
+     * prevent. So the timing alone is recorded separately, in window's capture phase — the key is not recorded as
+     * 'pressed', so the popup's swallowing is untouched.
      */
     window.addEventListener('keydown', (e) => { if (e.code === 'Escape') this.escapeHeld = true; }, true);
     window.addEventListener('keyup', (e) => { if (e.code === 'Escape') { this.escapeHeld = false; this.escapeUpAt = performance.now(); } }, true);
     window.addEventListener('blur', () => {
       this.down.clear(); this.mouseDown.clear();
-      // Escape 를 누른 채 창을 떠나면 keyup 이 오지 않는다 — 그 프레임을 Escape 창의 끝으로 친다.
+      // leaving the window with Escape held sends no keyup — that frame counts as the end of the Escape window.
       if (this.escapeHeld) { this.escapeHeld = false; this.escapeUpAt = performance.now(); }
     });
     window.addEventListener('mousedown', (e) => {
       // middle button = ping; stop browser auto-scroll while locked
       if (e.button === 1 && this.isPointerLocked) e.preventDefault();
-      // 커서 모드: the press belongs to the UI under the real cursor, which already received it natively. Recording
+      // Cursor mode: the press belongs to the UI under the real cursor, which already received it natively. Recording
       // it here as well would fire the gun behind an open panel.
       if (this.cursor.active) return;
-      // 좌클릭으로 카메라 되찾기 (2026-09-07): nobody owns the cursor, yet the lock is missing — a screen was closed
-      // with Escape and Chrome refused to hand the lock back (see the gesture retry below). The click *is* the
-      // gesture Chrome was waiting for, so take the camera back on the spot and swallow the press: the recapture
+      // Take the camera back with a left click (2026-09-07): nobody owns the cursor, yet the lock is missing — a screen
+      // was closed with Escape and Chrome refused to hand the lock back (see the gesture retry below). The click *is*
+      // the gesture Chrome was waiting for, so take the camera back on the spot and swallow the press: the recapture
       // click must not also fire the weapon.
       if (this.takeLockOnClick(e)) return;
       if (!this.mouseDown.has(e.button)) this.mousePressed.add(e.button);
@@ -111,7 +113,7 @@ export class Input {
         this.blockedUntil = 0;
         this.relockRetries = LOCK_RELOCK_RETRIES;
         this.lockAcquiredAt = performance.now();
-        // 2026-09-08: a request that was already in flight when a screen took 커서 모드 lands *after* it — the
+        // 2026-09-08: a request that was already in flight when a screen took cursor mode lands *after* it — the
         // cursor would vanish under a popup the player is meant to click. Hand it straight back.
         if (this.cursor.active) this.exitPointerLock();
         return;
@@ -120,39 +122,41 @@ export class Input {
       this.selfExit = false;
       // 2026-09-08: a re-lock that was asked for **while this exit was still in flight** (see `requestPointerLock`)
       // is issued here, now that `pointerLockElement` is really gone. Without it the request was silently dropped
-      // and the player was left with a free cursor and no way to ask for the lock again — which is what made
-      // 훈련장을 빠져나온 뒤 / 화면이 한 tick 떴다 사라진 뒤 카메라가 죽고 Escape 만 남던 상태였다.
+      // and the player was left with a free cursor and no way to ask for the lock again — the state where, after
+      // leaving the training range / after a screen flashed up for one tick, the camera was dead and only Escape left.
       if (this.relockPending) {
         this.relockPending = false;
         if (!this.cursor.active) { this.requestPointerLock(); return; }
       }
       if (self || !this.wantLock) return;
       /*
-       * 2026-09-09 — **우리가 방금 요청한 락이 튕겨 나온 것은 Escape 가 아니다.**
+       * 2026-09-09 — **a lock we just asked for bouncing straight back out is not Escape.**
        *
-       * 전체화면 Chrome 과 데스크톱 셸(Electron)은 화면 · 모드가 닫히면서 `main.ts` 가 다시 잡은 락을 넘겨줬다가
-       * 곧바로 도로 가져가는 일이 있다. 창 모드 브라우저에서는 안 나던 증상이라 오래 안 잡혔는데, 그 두 번째
-       * `pointerlockchange` 가 여기서 `userUnlock()` 으로 새어 나가면 `game/` 이 그것을 Escape 로 읽고
-       * **일시정지 메뉴를 혼자 띄운다** — 하우징 모드를 Tab 으로 닫으면 ESC 메뉴가 뜨던 문제가 바로 이것이고,
-       * 인벤토리 · 지도 · 터미널처럼 닫으면서 락을 되찾는 화면 전부가 같은 뿌리를 공유한다.
+       * Fullscreen Chrome and the desktop shell (Electron) sometimes hand over the lock `main.ts` re-acquired as a
+       * screen or a mode closes, and then take it straight back. It never showed in a windowed browser, so it went
+       * unfound for a long time; and if that second `pointerlockchange` leaks out of here as `userUnlock()`, `game/`
+       * reads it as Escape and **puts the pause menu up by itself** — that is exactly the bug where closing housing
+       * mode with Tab raised the ESC menu, and every screen that takes the lock back as it closes (the inventory · the
+       * map · the terminal) shares the same root.
        *
-       * 그래서 락을 **잡은 직후**(`lockAcquiredAt`) `LOCK_BOUNCE_GRACE_MS` 안에 사라진 락은 플레이어의 것이
-       * 아니라고 보고 메뉴를 띄우지 않는다 (2026-09-10 에 기준을 요청 시각에서 획득 시각으로 옮겼다 — 아래).
-       * 진짜 Escape 를 이 창에서 놓치더라도 손해가 없다: 락이 없는 상태의 Escape 는 진짜 keydown 으로 들어와
-       * `GameFlowSystem.update` 가 그대로 메뉴를 연다.
+       * So a lock that disappears within `LOCK_BOUNCE_GRACE_MS` of being **acquired** (`lockAcquiredAt`) is taken not to
+       * be the player's, and raises no menu (on 2026-09-10 the anchor moved from the request time to the acquire time —
+       * below). Missing a real Escape inside that window costs nothing: with no lock, Escape arrives as a real keydown
+       * and `GameFlowSystem.update` opens the menu as usual.
        */
       /*
-       * 2026-09-10 — 여기서 잃은 락은 **플레이어가 Escape 로 푼 것**이고, Chromium 은 그 뒤
-       * `LOCK_USER_EXIT_COOLDOWN_MS`(실측 ~1.25초) 동안 재요청을 전부 거부한다 ("Pointer lock cannot be
-       * acquired immediately after the user has exited the lock"). 제스처로는 앞당겨지지 않으므로 —
-       * 클릭도 키도 소용없다 — 시각을 적어 두고 `requestPointerLock` 이 그만큼 미루게 한다.
+       * 2026-09-10 — a lock lost here is **one the player released with Escape**, and Chromium then refuses every
+       * re-request for `LOCK_USER_EXIT_COOLDOWN_MS` (measured ~1.25 s) ("Pointer lock cannot be
+       * acquired immediately after the user has exited the lock"). No gesture brings it forward —
+       * neither a click nor a key helps — so the time is written down and `requestPointerLock` defers by that much.
        */
       this.userExitAt = performance.now();
       /*
-       * 튕겨 나온 락(잡자마자 사라진 것)은 Escape 가 아니다: 메뉴를 띄우지 말고 쿨다운 뒤 다시 잡는다.
-       * 2026-09-10 — 기준을 **요청 시각에서 획득 시각으로** 옮겼다. 재잠금이 이제 Escape 를 뗀 뒤로 미뤄지므로
-       * (`relockBlockedFor`) 요청과 획득 사이가 수백 ms 씩 벌어지고, 요청 기준으로 재면 그 지연만큼 창이 길어져
-       * 화면을 닫자마자 누른 **진짜** Escape 까지 삼켰다. 튕김은 언제나 획득 직후에 일어난다.
+       * A bounced lock (gone the moment it was acquired) is not Escape: raise no menu, take it again after the cooldown.
+       * 2026-09-10 — the anchor moved **from the request time to the acquire time**. A relock is now deferred until
+       * Escape is released (`relockBlockedFor`), so hundreds of ms open up between the request and the acquire, and
+       * measuring from the request stretched the window by that delay and swallowed even the **real** Escape pressed
+       * right after closing a screen. A bounce always happens right after the acquire.
        */
       if (performance.now() - this.lockAcquiredAt < LOCK_BOUNCE_GRACE_MS) {
         if (this.wantLock && !this.cursor.active) this.deferredRelock = true;
@@ -161,7 +165,7 @@ export class Input {
       }
       this.userUnlock?.();
     });
-    // 전체화면에서 Escape 를 게임 키로 (see `syncKeyboardLock`).
+    // Escape becomes a game key in fullscreen (see `syncKeyboardLock`).
     document.addEventListener('fullscreenchange', this.syncKeyboardLock);
     this.syncKeyboardLock();
   }
@@ -171,7 +175,7 @@ export class Input {
   /**
    * Swallow a press for the rest of this frame (Phase 8). Systems are polled in registration order, so a later system
    * would otherwise react to the same key a earlier one just handled — e.g. hub/ closes the terminal on Escape and
-   * drops its blocker, and game/ then sees an unblocked Escape and opens the 일시정지 메뉴 in the same frame.
+   * drops its blocker, and game/ then sees an unblocked Escape and opens the pause menu in the same frame.
    * Call this right after handling a key that a later system also polls.
    */
   consume(code: string): void { this.pressed.delete(code); }
@@ -208,26 +212,28 @@ export class Input {
    */
   private relockPending = false;
 
-  /* ── 2026-09-10: Escape 직후의 재잠금은 **미룬다** (exe 에서 ESC 로 화면을 닫으면 조작이 죽던 문제) ────────────
+  /* ── 2026-09-10: a relock right after Escape is **deferred** (the bug where closing a screen with ESC in the exe
+   * killed the controls) ────────────────────────────────────────────────────────────────────────────────────────
    *
-   * Electron 44 / Chromium 실측 (커밋 `3b12420`):
-   *   ① 화면이 열려 있는 동안에는 락이 없다. Escape 로 화면이 닫히면 `main.ts` 가 **같은 프레임에** 락을
-   *      요청하고 Chromium 은 그것을 **허가한다** — 그런데 아직 처리 중이던 그 Escape 가 방금 생긴 락을
-   *      곧바로 도로 가져간다. 브라우저 눈에는 *플레이어가 Escape 로 락을 푼 것*이다.
-   *   ② 그 뒤 `LOCK_USER_EXIT_COOLDOWN_MS`(~1.25초) 동안 **모든** 재요청이 거부된다:
+   * Electron 44 / Chromium, measured (commit `3b12420`):
+   *   ① While a screen is open there is no lock. When Escape closes the screen, `main.ts` asks for the lock **in the
+   *      same frame** and Chromium **grants it** — and then that same Escape, still being processed, takes the
+   *      just-born lock straight back. In the browser's eyes it is *the player releasing the lock with Escape*.
+   *   ② After that **every** re-request is refused for `LOCK_USER_EXIT_COOLDOWN_MS` (~1.25 s):
    *      "Pointer lock cannot be acquired immediately after the user has exited the lock".
-   *      클릭도 키 입력도 이 쿨다운을 앞당기지 못한다 (제스처의 문제가 아니다).
-   *   ③ 그래서 카메라가 죽어 있다가 **좌클릭 한 번**에 살아났다 — 그 클릭이 마침 1.25초 뒤였을 뿐이다.
-   *      (`takeLockOnClick` · 제스처 재시도가 그때 다시 요청해 성공한다.)
-   *   ④ Escape 를 뗀 뒤에 요청하면 활성화(user activation) 없이도 그냥 성공한다 — 즉 필요한 것은
-   *      제스처가 아니라 **타이밍**이다. `electron/main.ts` 의 `__scavShellRelock` 이 건네던 activation 은
-   *      원인을 잘못 짚은 것이었고, 이제는 이 게이트를 함께 통과한다.
+   *      Neither a click nor a key press brings that cooldown forward (it is not a gesture problem).
+   *   ③ That is why the camera lay dead and came back on **one left click** — that click just happened to be 1.25 s
+   *      later. (`takeLockOnClick` · the gesture retry ask again at that point and succeed.)
+   *   ④ A request made after Escape is released simply succeeds, with no user activation — so what is needed is not
+   *      a gesture but **timing**. The activation `__scavShellRelock` in `electron/main.ts` used to hand over was
+   *      aiming at the wrong cause, and it now passes this gate along with the rest.
    *
-   * 그래서 요청이 막힌 시간대(= Escape 를 누르고 있는 동안 + 뗀 뒤 `LOCK_ESCAPE_DEFER_MS`, 그리고 진짜
-   * 사용자 해제 뒤 `LOCK_USER_EXIT_COOLDOWN_MS`)에 들어온 요청은 **브라우저에 보내지 않고** 의사만
-   * 적어 둔다(`deferredRelock`). `endFrame()` 이 매 프레임 그 시각을 다시 재서 통과하는 순간 한 번만 보낸다 —
-   * 여러 곳(main.ts 의 마이크로태스크 · 셸 훅 · 제스처 재시도)에서 겹쳐 들어와도 요청은 하나로 합쳐지므로
-   * Chromium 의 "Too many pointer lock requests in a short window of time" 스로틀에도 걸리지 않는다.
+   * So a request that arrives inside the blocked window (= while Escape is held + `LOCK_ESCAPE_DEFER_MS` after it is
+   * released, and `LOCK_USER_EXIT_COOLDOWN_MS` after a real user release) is **not sent to the browser**; only the
+   * intent is written down (`deferredRelock`). `endFrame()` re-measures that time every frame and sends it exactly once,
+   * the moment it passes — several places (the microtask in main.ts · the shell hook · the gesture retry) may pile up
+   * and the requests still merge into one, so Chromium's "Too many pointer lock requests in a short window of time"
+   * throttle is never hit either.
    */
   private escapeHeld = false;
   private escapeUpAt = 0;
@@ -243,7 +249,7 @@ export class Input {
   private relockBlockedFor(): number {
     const now = performance.now();
     let until = 0;
-    if (this.escapeHeld) until = now + LOCK_ESCAPE_DEFER_MS;                       // 아직 누르고 있다 — 매 프레임 다시 잰다
+    if (this.escapeHeld) until = now + LOCK_ESCAPE_DEFER_MS;                       // still held — re-measured every frame
     else if (this.escapeUpAt) until = Math.max(until, this.escapeUpAt + LOCK_ESCAPE_DEFER_MS);
     if (this.userExitAt) until = Math.max(until, this.userExitAt + LOCK_USER_EXIT_COOLDOWN_MS);
     if (this.blockedUntil) until = Math.max(until, this.blockedUntil);
@@ -262,15 +268,15 @@ export class Input {
     if (this.selfExit && this.isPointerLocked) { this.relockPending = true; return; }
     if (this.isPointerLocked) return;
     this.wantLock = true;
-    // Escape 창 · 사용자 해제 쿨다운 안이면 보내지 않는다 (위 블록) — `endFrame` 이 풀리는 프레임에 다시 부른다.
+    // Inside the Escape window or the user-exit cooldown it is not sent (the block above) — `endFrame` calls again on the frame it clears.
     if (this.relockBlockedFor() > 0) { this.deferredRelock = true; return; }
     /*
-     * 2026-09-10 — 요청은 한 번에 하나만. 같은 클릭에 `takeLockOnClick` 과 `onLockGesture` 가, 부팅 때는
-     * `main.ts` 와 `hub/Transitions` 가 같은 ms 에 겹쳐 들어와 두 번째가 "Pointer lock pending" 으로 거부되고
-     * 있었다 — 그 헛요청까지 Chromium 의 "Too many pointer lock requests in a short window of time" 카운터에
-     * 들어간다. 결과(허가 · 거부 · 아래 250 ms 확인)가 올 때까지는 새 요청을 보내지 않는다.
+     * 2026-09-10 — one request at a time. On the same click `takeLockOnClick` and `onLockGesture`, and at boot
+     * `main.ts` and `hub/Transitions`, piled up in the same ms and the second was being refused with "Pointer lock
+     * pending" — and even that wasted request counts toward Chromium's "Too many pointer lock requests in a short
+     * window of time" counter. No new request is sent until the outcome (granted · refused · the 250 ms check below) arrives.
      */
-    // 의사는 남긴다 — 앞선 요청이 조용히 실패해도 `endFlush` 가 250 ms 뒤에 이 요청을 대신 보낸다.
+    // the intent is kept — even when the earlier request fails silently, `endFlush` sends this one in its place 250 ms later.
     if (this.lockInFlight && performance.now() - this.lastLockRequest < LOCK_RESULT_CHECK_MS) { this.deferredRelock = true; return; }
     this.deferredRelock = false;
     this.lockInFlight = true;
@@ -300,11 +306,11 @@ export class Input {
   /* ── 2026-09-08: Escape while locked is a *lock exit*, never a keydown ─────────────────────────────────────
    *
    * The browser reserves Escape for leaving the pointer lock and **swallows the key** — the page is never told.
-   * That is why the 일시정지 메뉴 used to need two presses: the first Escape only freed the cursor. Every browser
+   * That is why the pause menu used to need two presses: the first Escape only freed the cursor. Every browser
    * FPS solves this the same way, by treating the *unlock itself* as the menu key: `pointerlockchange` is the only
    * signal there is (`web.dev/articles/pointerlock-intro`).
    *
-   * `exitPointerLock()` above marks our own releases (a screen taking 커서 모드), so what reaches the listener is a
+   * `exitPointerLock()` above marks our own releases (a screen taking cursor mode), so what reaches the listener is a
    * lock the player took away while the camera still wanted it — Escape, or a focus loss, which pauses anyway.
    *
    * Re-locking from here would be pointless: after the default unlock gesture the spec requires a fresh engagement
@@ -340,9 +346,9 @@ export class Input {
   private lockInFlight = false;
   /**
    * Chromium refuses a pointer-lock request for two reasons that **no gesture can fix**, both purely about timing
-   * (Electron 44 실측, 2026-09-10): the ~1.25 s cooldown after the player left the lock with Escape, and the rate
+   * (Electron 44, measured, 2026-09-10): the ~1.25 s cooldown after the player left the lock with Escape, and the rate
    * limit on requests in a short window. Those we simply ask again for, a moment later. Everything else — above all
-   * "A user gesture is required to request Pointer Lock" — is the case the 좌측 클릭 게이트 / gesture retry exists
+   * "A user gesture is required to request Pointer Lock" — is the case the left-click gate / gesture retry exists
    * for, and is left to it.
    */
   private static readonly TIMING_DENIAL = /too many pointer lock requests|immediately after the user has exited|pointer lock pending/i;
@@ -386,12 +392,12 @@ export class Input {
     this.requestPointerLock();
   };
 
-  /* ── 전체화면 키보드 락 (2026-09-07) ──────────────────────────────────────────
+  /* ── Fullscreen keyboard lock (2026-09-07) ───────────────────────────────────
    *
    * Escape is the one key the page cannot keep: Chrome consumes it to leave fullscreen / pointer lock, which is why a
    * screen closed with Escape lands in the retry above. `navigator.keyboard.lock(['Escape'])` — available **only**
    * while the document is fullscreen — routes it to the page instead, so Escape stops breaking the lock and
-   * "메뉴를 Esc 로 닫으면 즉시 카메라" becomes literally true. Leaving fullscreen is then a *long* Escape press,
+   * "close a menu with Esc and the camera is back at once" becomes literally true. Leaving fullscreen is then a *long* Escape press,
    * which is the browser's own documented affordance for it.
    */
   private readonly syncKeyboardLock = (): void => {
@@ -413,14 +419,14 @@ export class Input {
     return !!document.fullscreenElement && !!kb?.lock;
   }
 
-  /* ── 마우스 커서 모드 ────────────────────────────────────────────────────── */
+  /* ── Mouse cursor mode ───────────────────────────────────────────────────── */
   /** true while a UI surface owns the real mouse cursor (the pointer lock is released, the camera does not turn). */
   get isCursorMode(): boolean { return this.cursor.active; }
   /** Cursor position in client px. Kept under its own name so UI code reads intent, not the raw field. */
   get cursorX(): number { return this.mouseX; }
   get cursorY(): number { return this.mouseY; }
   /**
-   * Enter / leave 커서 모드. `owner` is the caller's `ctx.uiBlockers` token; nesting is ref-counted, so a popup
+   * Enter / leave cursor mode. `owner` is the caller's `ctx.uiBlockers` token; nesting is ref-counted, so a popup
    * layered over the inventory does not take the cursor away when it closes. Entering **releases the pointer lock**
    * (that is the whole mechanism); the re-lock on the way out is `main.ts`'s single relock point.
    */
@@ -453,10 +459,10 @@ export class Input {
     this.mouseDX = 0; this.mouseDY = 0; this.wheelDelta = 0;
   }
 
-  /** 미뤄 둔 재잠금(위 `requestPointerLock` 의 게이트)을 조건이 풀리는 첫 프레임에 한 번만 보낸다. */
+  /** Sends the deferred relock (the gate in `requestPointerLock` above) exactly once, on the first frame the conditions clear. */
   private flushDeferredRelock(): void {
     if (!this.deferredRelock) return;
-    // 그 사이에 화면이 열렸거나(커서 주인) 락이 이미 돌아왔으면 의사 자체가 사라진다.
+    // if a screen opened in the meantime (a cursor owner), or the lock already came back, the intent itself disappears.
     if (!this.wantLock || this.cursor.active || this.isPointerLocked) { this.deferredRelock = false; return; }
     if (this.relockBlockedFor() > 0) return;
     if (this.lockInFlight && performance.now() - this.lastLockRequest < LOCK_RESULT_CHECK_MS) return;

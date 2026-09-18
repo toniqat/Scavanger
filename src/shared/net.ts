@@ -2,26 +2,26 @@ import type * as THREE from 'three';
 import type { ChatKind, EnemyType, GamePhase, PingKind, Stance, ItemInstanceExtras, StratagemId } from './types';
 import type { EnemySpawnSite } from './types';
 import type { DeployableKind, GadgetId } from './gadgets';
-/* appended (2026-09-15, 땅굴벌레 등장 판정): `PlayerSnapshot.ws` · `RemotePlayerRef.weightState` */
+/* appended (2026-09-15, sandworm eruption check): `PlayerSnapshot.ws` · `RemotePlayerRef.weightState` */
 import type { WeightState } from './gear';
-/* appended (2026-09-11): 드론 (owner: gadgets/drones) */
+/* appended (2026-09-11): drones (owner: gadgets/drones) */
 import type { DroneMessage, DroneRequest } from './drones';
-/* appended (2026-09-09): 레이드 플레이 개선 — 의사소통 휠 */
+/* appended (2026-09-09): raid play improvements — the communication wheel */
 import type { CommsId } from './comms';
 import type { ImplantId } from './implants';
 /* appended (Phase 7, 2026-09-06): server profile / raid session */
 import type { ProfileDocKey, ProfileRecord, ProfileRef, RaidSessionBlob } from './profile';
 import type { MissionMode } from './types';
-/* appended (Phase 11, 2026-09-07): 행성 선택 + 소셜 */
+/* appended (Phase 11, 2026-09-07): planet selection + social */
 import type { PlanetId } from './planets';
-/* appended (2026-09-14): 정보상 — 로비 · 레이드 시작에 실리는 기믹 고정 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* appended (2026-09-14): the intel broker — the fixed gimmicks carried on the lobby and the raid start (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelPick } from './intel';
-/* appended (2026-09-08): 공용 함선 격납고 — a visited member's ship layout rides on `ship state` */
+/* appended (2026-09-08): the shared ship's hangar — a visited member's ship layout rides on `ship state` */
 import type { PlacedBook, PlacedFurniture, RoomPurpose } from './housing';
 import type {
   PlayOutcome, PlayerCode, SocialErrorCode, SocialRef, SocialSnapshot, SquadInvite,
 } from './social';
-/* appended (2026-09-11): 소셜 · 신뢰 · 연결 (커밋 `9bd72ce`(계약) · `b3fc2f0`(구현)) */
+/* appended (2026-09-11): social · trust · link (commits `9bd72ce` (contract) · `b3fc2f0` (implementation)) */
 import type { InviteOutcome } from './social';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -150,19 +150,19 @@ export interface LobbyState {
    * started from this lobby carries it in `game:start.planet`; a training ignores it.
    */
   planet?: PlanetId;
-  /* appended (2026-09-14): 정보상 — docs/DECISIONS.md 「2026-09-14 — 정보상」 */
+  /* appended (2026-09-14): the intel broker — docs/DECISIONS.md 「2026-09-14 — 정보상」 */
   /**
-   * 분대장이 산 **기믹 고정** (`lobby:intel`), 없으면 안 샀다. 분대원은 함선에서 이것을 읽어 정보상 패널에
-   * 요약을 띄운다(읽기 전용 — 사는 것도 버리는 것도 분대장뿐이다). 레이드 시작이 이것을 `game:start.intel`
-   * 로 그대로 실어 보내고, 그때 `seed` 는 `IntelWire.seed` 가 이긴다 (「산 지역으로 간다」).
+   * The **fixed gimmicks** the squad leader bought (`lobby:intel`); absent = nobody bought any. A squadmate reads it
+   * in the ship and the intel broker panel shows a summary of it (read-only — only the leader buys and discards).
+   * The raid start carries it into `game:start.intel` as it is, and `IntelWire.seed` then beats `seed` (「산 지역으로 간다」).
    */
   intel?: IntelWire | null;
 }
 
 /**
- * 와이어에 실리는 정보상 정보. `IntelSpec` 에서 `planet` 만 뺀 것이다 — 행성은 이미 `LobbyState.planet` ·
- * `game:start.planet` 에 있고 두 곳에 적으면 어긋날 수 있다. 서버는 **모양만** 씻고 그대로 broadcast 한다
- * (`planet` 과 같은 취급 — 릴레이는 레이아웃을 계산하지 않는다).
+ * The intel that rides the wire. It is `IntelSpec` with `planet` taken out — the planet is already in
+ * `LobbyState.planet` · `game:start.planet`, and writing it in two places could put them out of step. The server
+ * sanitizes **the shape only** and broadcasts it as it is (treated like `planet` — the relay never computes a layout).
  */
 export interface IntelWire {
   seed: number;
@@ -181,7 +181,7 @@ export type LobbyErrorCode =
   /* appended (Phase 11) */
   | 'no_planet'     // lobby:start of a raid while the lobby has no 목표 행성
   /* appended (2026-09-11, C-29): server console */
-  | 'kicked'        // the operator ran `kick <id>` — socket closed right after, no 재접속 유예 (clients stop reconnecting)
+  | 'kicked'        // the operator ran `kick <id>` — socket closed right after, no reconnect grace (clients stop reconnecting)
   | 'server_full'   // over the operator's `max <n>` — socket closed; a lobby member reconnecting inside its grace is exempt
   /**
    * appended (2026-09-11, B-11): `lobby:join` / `social:play` into a lobby holding someone **I** blocked.
@@ -190,9 +190,9 @@ export type LobbyErrorCode =
    * my own choice, is told plainly.
    */
   | 'blocked'
-  /** appended (2026-09-15, 분대 · 도킹 매칭): `lobby:ready` · `lobby:start` (raid or training) · `lobby:mission` in a squad that has not docked yet. */
+  /** appended (2026-09-15, squad · dock matchmaking): `lobby:ready` · `lobby:start` (raid or training) · `lobby:mission` in a squad that has not docked yet. */
   | 'not_docked'
-  /** appended (2026-09-15, 타이틀 레이드 포기): `lobby:mission {inMission:true}` from a member who abandoned this raid (`LobbyPlayer.drifted`). */
+  /** appended (2026-09-15, abandoning a raid from the title): `lobby:mission {inMission:true}` from a member who abandoned this raid (`LobbyPlayer.drifted`). */
   | 'drifted';
 
 /* ── Wire protocol: client ↔ server (JSON) ─────────────────────────────────── */
@@ -208,11 +208,11 @@ export type ClientToServer =
    * while nothing is running — no ready gating, only the sender gets `inMission`, others stay in the hub and join later.
    */
   /** `planet` appended (Phase 11): the raid's 목표 행성. Omitted for a training (the arena has no planet). */
-  /** `intel` appended (2026-09-14): 분대장이 산 기믹 고정. 있으면 `seed` 는 그 정보의 시드여야 한다. */
+  /** `intel` appended (2026-09-14): the fixed gimmicks the squad leader bought. When present, `seed` must be that intel's seed. */
   | { t: 'lobby:start'; seed: number; mode?: MissionMode; planet?: PlanetId; intel?: IntelWire | null }
   /**
-   * appended (2026-09-14). Host only, while not started: 산 정보(또는 폐기 = null)를 분대에 알린다 →
-   * `LobbyState.intel`. `lobby:planet` 과 같은 모양이고 서버는 모양만 씻는다.
+   * appended (2026-09-14). Host only, while not started: tells the squad about the intel that was bought (or
+   * discarded = null) → `LobbyState.intel`. Same shape as `lobby:planet`; the server sanitizes the shape only.
    */
   | { t: 'lobby:intel'; intel: IntelWire | null }
   /** Host only, after a mission ended: started=false, every ready=false, lobby reopened for joins. */
@@ -236,7 +236,7 @@ export type ClientToServer =
    * (`started=false`) by the server. `in_mission` error when no mission is running.
    */
   /**
-   * `keep` appended (2026-09-15, 타이틀 이어하기): `inMission:false` sent by a **reloaded page** (not a voluntary exit) — the
+   * `keep` appended (2026-09-15, resuming from the title): `inMission:false` sent by a **reloaded page** (not a voluntary exit) — the
    * relay keeps my raid blob so the next boot can still resume or abandon with it. Absent = the blob is dropped (as before).
    */
   | { t: 'lobby:mission'; inMission: boolean; keep?: boolean }
@@ -255,14 +255,14 @@ export type ClientToServer =
   | { t: 'credits:tx'; txId: number; delta: number; reason: string }
   /** Save my mid-raid state for a reconnect (only accepted while my lobby is started with `blob.seed`). */
   | { t: 'raid:save'; blob: RaidSessionBlob }
-  /* ── appended (Phase 11): 목표 행성 ── */
+  /* ── appended (Phase 11): the target planet ── */
   /**
    * Host only, while not started: pick the squad's 목표 행성 (`LobbyState.planet`). Broadcast as `lobby:state`, which
    * is what makes every member play the travel cutscene — there is no separate travel message. Refused with
    * `not_host` / `started`, and with `invalid` for an unknown id.
    */
   | { t: 'lobby:planet'; planet: PlanetId }
-  /* ── appended (Phase 11): 소셜. Every one of these needs a profile (a token); anonymous → `unavailable`. ── */
+  /* ── appended (Phase 11): social. Every one of these needs a profile (a token); anonymous → `unavailable`. ── */
   /** Ask for a fresh `social:state` (also delivered in `welcome.social`). */
   | { t: 'social:get' }
   /** Publish my level so friends' rows can show it. The name comes from the socket (`?n=` / `lobby:name`). */
@@ -285,30 +285,30 @@ export type ClientToServer =
    * `social:whisperAck {nonce}` (sent / stored for an offline friend / failed); without it the old fire-and-forget rules apply.
    */
   | { t: 'social:whisper'; code: PlayerCode; text: string; nonce?: number }
-  /* ── appended (2026-09-09): 분대장 지명 이관 ── */
+  /* ── appended (2026-09-09): naming a new squad leader ── */
   /**
-   * 분대장(호스트)을 `targetId` 에게 넘긴다. 서버가 받아 주는 경우는 둘뿐이다:
-   * ① 보낸 사람이 지금 호스트다, ② `claim` 이 true 이고 현재 호스트가 `lobby:hostDown` 으로
-   * **완전히 사망**했다고 표시해 두었다 (시체 옆의 분대장 기기). 그 외에는 `not_host`.
-   * `targetId` 가 같은 로비의 연결된 멤버가 아니면 `invalid`. 성공하면 새 `lobby:state` 가 방송된다.
+   * Hands the squad leader (host) role to `targetId`. The server accepts it in exactly two cases:
+   * ① the sender is the host right now, ② `claim` is true and the current host marked itself **fully dead** with
+   * `lobby:hostDown` (the squad-leader device next to the corpse). Anything else is `not_host`.
+   * `invalid` when `targetId` is not a connected member of the same lobby. On success a new `lobby:state` is broadcast.
    */
   | { t: 'lobby:transferHost'; targetId: PeerId; claim?: boolean }
   /**
-   * 호스트 본인이 이 레이드에서 완전히 사망했다(또는 되살아났다)고 서버에 알린다. 서버는 이 표시가
-   * 있는 동안에만 남의 `lobby:transferHost {claim:true}` 를 허용한다. 미션이 끝나면 자동으로 지워진다.
+   * The host itself tells the server it is fully dead in this raid (or alive again). Only while that mark is set does
+   * the server allow someone else's `lobby:transferHost {claim:true}`. It is cleared automatically when the mission ends.
    */
   | { t: 'lobby:hostDown'; down: boolean }
-  /* appended (2026-09-11): 소셜 · 신뢰 · 연결 — see the last section */
+  /* appended (2026-09-11): social · trust · link — see the last section */
   | ClientToServerAppended2026_09_11b
-  /* appended (2026-09-13): 암호화폐 시세 — see the 암호화폐 section */
+  /* appended (2026-09-13): crypto quotes — see the crypto quotes section */
   | ClientToServerAppended2026_09_13crypto
-  /* appended (2026-09-14): 단체 메신저방 — see the 단체 메신저방 section */
+  /* appended (2026-09-14): group messenger rooms — see the group messenger rooms section */
   | ClientToServerAppended2026_09_14rooms
-  /* appended (2026-09-15): 분대 · 도킹 매칭 — see the 분대 · 도킹 매칭 section */
+  /* appended (2026-09-15): squad · dock matchmaking — see the squad · dock matchmaking section */
   | ClientToServerAppended2026_09_15dock
-  /* appended (2026-09-15): 안드로이드 분대원 — see the 안드로이드 분대원 section */
+  /* appended (2026-09-15): android squadmates — see the android squadmates section */
   | ClientToServerAppended2026_09_15android
-  /* appended (2026-09-15): 타이틀 레이드 포기 · 표류 — see the last section */
+  /* appended (2026-09-15): abandoning a raid from the title · drifting — see the last section */
   | ClientToServerAppended2026_09_15drift;
 
 export type ServerToClient =
@@ -338,7 +338,7 @@ export type ServerToClient =
   | { t: 'lobby:left'; reason?: 'moved'; to?: string }
   /** `mode` (appended, Phase 7): a training start reaches everyone but only members with `inMission` enter it. */
   /** `planet` (appended, Phase 11): the raid's 목표 행성, echoed from `LobbyState.planet` at start time. */
-  /** `intel` (appended, 2026-09-14): 분대장이 산 기믹 고정, `LobbyState.intel` 에서 그대로 에코된다. */
+  /** `intel` (appended, 2026-09-14): the fixed gimmicks the squad leader bought, echoed from `LobbyState.intel` as it is. */
   | { t: 'game:start'; seed: number; lobby: LobbyState; mode?: MissionMode; planet?: PlanetId; intel?: IntelWire | null }
   /* appended (Phase 7) */
   | { t: 'profile:docs'; profile: ProfileRecord }
@@ -347,7 +347,7 @@ export type ServerToClient =
   /** A peer disconnected/left mid-lobby or mid-game. `lobby` is the updated state (host may have migrated). */
   | { t: 'peer:left'; id: PeerId; lobby: LobbyState }
   | { t: 'pong'; ts: number; serverTime: number }
-  /* ── appended (Phase 11): 소셜. Pushed on every change to anyone the change concerns, never polled. ── */
+  /* ── appended (Phase 11): social. Pushed on every change to anyone the change concerns, never polled. ── */
   /** The whole social snapshot. Sent after `social:get`, after any mutation, and whenever a friend's presence moves. */
   | { t: 'social:state'; social: SocialSnapshot }
   /** Someone asked me into their squad. Held client-side for `SQUAD_INVITE_TTL_S`, accepted with a P hold. */
@@ -357,13 +357,13 @@ export type ServerToClient =
   /** How my `social:play` was resolved (`joined` = I am in their lobby now, `invited` = the invite went out). */
   | { t: 'social:play'; code: PlayerCode; name: string; outcome: PlayOutcome }
   | { t: 'social:error'; code: SocialErrorCode; message: string }
-  /* appended (2026-09-11): 소셜 · 신뢰 · 연결 — see the last section */
+  /* appended (2026-09-11): social · trust · link — see the last section */
   | ServerToClientAppended2026_09_11b
-  /* appended (2026-09-13): 암호화폐 시세 — see the 암호화폐 section */
+  /* appended (2026-09-13): crypto quotes — see the crypto quotes section */
   | ServerToClientAppended2026_09_13crypto
-  /* appended (2026-09-14): 단체 메신저방 — see the 단체 메신저방 section */
+  /* appended (2026-09-14): group messenger rooms — see the group messenger rooms section */
   | ServerToClientAppended2026_09_14rooms
-  /* appended (2026-09-15): 안드로이드 분대원 — see the 안드로이드 분대원 section */
+  /* appended (2026-09-15): android squadmates — see the android squadmates section */
   | ServerToClientAppended2026_09_15android;
 
 /* ── Game messages (relayed verbatim, never inspected by the server) ───────── */
@@ -388,7 +388,7 @@ export const PlayerFlags = {
   /** Sender is walking around the shared ship (phase 'hub'), not in a mission. */
   IN_HUB: 1 << 12,
   /* appended (Phase 2) */
-  /** 전투불능: crawling, revivable (DEAD is not set). */
+  /** Downed: crawling, revivable (DEAD is not set). */
   DOWNED: 1 << 13,
   /** A consumable (stim / grenade) is in hand instead of a gun. */
   HOLDING_ITEM: 1 << 14,
@@ -416,18 +416,18 @@ export const PlayerFlags = {
   HEAVY: 1 << 24,
   /** The 용검 big slash (MELEE is set too; remotes play the heavy sweep for SLASH_DURATION). */
   MELEE_HEAVY: 1 << 25,
-  /* appended (Phase 10): 부상자 들쳐메기 */
+  /* appended (Phase 10): carrying a wounded squadmate */
   /** A downed squadmate is on this player's right shoulder — unarmed; `PlayerSnapshot.cr` names them. */
   CARRYING: 1 << 26,
   /** This player is carried by a squadmate (DOWNED is set too; ignore their `p`, use the carrier's socket). */
   CARRIED: 1 << 27,
-  /* appended (2026-09-09): 채팅 입력 중 말풍선 */
+  /* appended (2026-09-09): a speech bubble while typing in chat */
   /** Chat input is open (typing). Set by net from `ui:chatToggled`; remotes draw a `…` speech bubble over the head. */
   TYPING: 1 << 28,
-  /* appended (2026-09-11): 사다리 */
+  /* appended (2026-09-11): ladders */
   /** Hanging on a ladder (`PlayerRef.climbingLadder`); remotes play the climb pose, `p` moves vertically. */
   CLIMBING: 1 << 29,
-  /* appended (2026-09-13): 탐사 차량 */
+  /* appended (2026-09-13): the rover */
   /** Riding inside the 탐사 차량 (`PlayerRef.roverRide`): remotes hide the avatar · nameplate; enemies do not target this player. */
   IN_ROVER: 1 << 30,
 } as const;
@@ -466,7 +466,7 @@ export interface PlayerSnapshot {
   /* appended (Phase 9) — optional, older senders stay compatible. */
   /** Down-state hp (`PlayerRef.downHp`) while DOWNED, so a host ghost inherits the real bleed pool. Omitted when not downed. */
   dhp?: number;
-  /* appended (2026-09-15, 땅굴벌레 등장 판정) — optional, older senders stay compatible. */
+  /* appended (2026-09-15, sandworm eruption check) — optional, older senders stay compatible. */
   /**
    * Carry-weight state (`WeightInfo.state`) as an index into `WEIGHT_STATE_WIRE` (0 normal · 1 light · 2 heavy · 3 over).
    * The host's sandworm director counts sprinting squadmates who are `light` or heavier; omitted / unknown = `normal`.
@@ -587,10 +587,11 @@ export interface HitConfirm { t: 'hitc'; id: number; dmg: number; killed: boolea
 /** Host → one client: you took damage. Owner: enemies (host AI) → net applies `ctx.player.takeDamage`. */
 /** `kb` (appended, Phase 7): knockback the victim applies with `PlayerRef.applyKnockback(d, s)` (behemoth charge, blasts). */
 /**
- * appended (2026-09-15, 결과 창 개편): `dmg.src` — 피해 출처 (`PlayerDamageSource` 의 와이어 모양). 받는 쪽이 자기
- * `takeDamage(…, source)` 로 넘긴다. `k` = `DamageCauseKind`, `et` = 적의 `EnemyType` id 그대로, `ei` = 적 네트워크 id
- * (호스트 · 리플리카 공용), `hz` = `HazardKind`. 보내는 쪽이 받는 사람 기준으로 `self` / `ally` 를 이미 정해 싣는다.
- * 옛 클라이언트는 이 칸을 무시하고, 없는 메시지를 받으면 출처는 undefined (= 모름) 다.
+ * appended (2026-09-15, result screen rework): `dmg.src` — the damage source (the wire shape of `PlayerDamageSource`).
+ * The receiver passes it into its own `takeDamage(…, source)`. `k` = `DamageCauseKind`, `et` = the enemy's `EnemyType`
+ * id verbatim, `ei` = the enemy's network id (the same on host and replica), `hz` = `HazardKind`. The sender already
+ * decides `self` / `ally` from the receiver's point of view and puts it on the wire. An older client ignores this
+ * field, and a message without it leaves the source undefined (= unknown).
  */
 export interface DamageSourceWire { k: import('./types').DamageCauseKind; et?: string; ei?: number; hz?: string }
 export interface DamageMessage { t: 'dmg'; amount: number; from?: Vec3Tuple; slow?: { duration: number; factor: number }; kb?: { d: Vec3Tuple; s: number }; /** appended (2026-09-15) */ src?: DamageSourceWire }
@@ -618,7 +619,7 @@ export interface EnemyWire {
    * Optional animation hints: 0 none, 1 charger windup, 2 charger rush, 3 spewer windup, 4 hunter airborne;
    * Phase 4: 5 rogue shooting, 6 rogue in cover, 7 rogue rushing, 8 artillery aiming, 9 toxic swelling, 10 behemoth windup, 11 behemoth rush.
    * Phase 7: 12 rogue reloading, 13 rogue throwing a grenade.
-   * 2026-09-11 (네임드 로그 — `ai/named/*` sets `Enemy.namedHint`): 14 sniper prone idle, 15 sniper glint / aiming,
+   * 2026-09-11 (named rogues — `ai/named/*` sets `Enemy.namedHint`): 14 sniper prone idle, 15 sniper glint / aiming,
    * 16 hammer windup, 17 hammer charge, 18 heavy spin-up, 19 heavy firing, 20 scan drone pulsing. Appended 2026-09-17: 25 artillery braced flat (before / after firing).
    * 2026-09-17 (appended): 23 hunter flipped and falling, 24 hunter lying flipped (`enemies/ai/HunterFlip`).
    */
@@ -639,7 +640,7 @@ export interface EnemySnapshot { t: 'es'; time: number; seq: number; full: boole
 /** Host → all: discrete enemy events (spawn/kill/attack) for FX, audio and stats. Owner: enemies. */
 export type EnemyEvent =
   | { t: 'ee'; ev: 'spawn'; id: number; ty: EnemyType; p: Vec3Tuple; yaw: number;
-      /* appended (2026-09-13): 굴착 스폰 — 땅을 파고 올라오는 시간(초). 생략 = 그 자리에 바로 선다 (첫 배치 · 인간형 · 뱉어진 버그). */
+      /* appended (2026-09-13): burrow spawn — seconds spent digging up out of the ground. Omitted = it stands right there (the first placement · humanoids · a spat-out bug). */
       em?: number }
   /** `dd` (appended Phase 10) = index into `ENEMY_DEATH_DIRS`; omitted = 0 (`'left'`). */
   | { t: 'ee'; ev: 'kill'; id: number; ty: EnemyType; p: Vec3Tuple; killer: PeerId | null; dd?: number }
@@ -657,8 +658,9 @@ export type EnemyEvent =
   | { t: 'ee'; ev: 'toxic'; id: number; p: Vec3Tuple }
   /** `dd` / `lt` appended (Phase 10): death-direction index, and 0 = this corpse rolled un-searchable (omitted = lootable). */
   | { t: 'ee'; ev: 'corpse'; id: number; ty: EnemyType; p: Vec3Tuple; w?: string; dd?: number; lt?: 0 | 1;
-      /* appended (2026-09-13): 시체 전리품의 입력 — `si` 스폰 거점(`EnemySpawnSite`), `gc` 남은 수류탄 수, `gk` 그 종류
-         (`ENEMY_GRENADE_KINDS` 인덱스, 생략 = 0 = frag). 생략 = 없음. 리플리카도 호스트와 같은 목록을 굴린다. */
+      /* appended (2026-09-13): the inputs of the corpse loot — `si` the spawn site (`EnemySpawnSite`), `gc` grenades
+         left, `gk` their kind (`ENEMY_GRENADE_KINDS` index, omitted = 0 = frag). Omitted = none. A replica rolls the
+         same list as the host. */
       si?: EnemySpawnSite; gc?: number; gk?: number }
   | { t: 'ee'; ev: 'corpseGone'; id: number }
   /**
@@ -672,17 +674,17 @@ export type EnemyEvent =
   /* appended (Phase 7): rogue AI v2 */
   /** A rogue threw a grenade (replicas fly a visual one; the host resolves damage: own player directly, remotes via `dmg`). */
   | { t: 'ee'; ev: 'grenade'; id: number; p: Vec3Tuple; v: Vec3Tuple; fuse: number;
-      /** appended (2026-09-13): 수류탄 종류 = `ENEMY_GRENADE_KINDS` 인덱스 (생략 = 0 = frag). 리플리카가 같은 모양 · 폭발 연출을 고른다. */
+      /** appended (2026-09-13): grenade kind = `ENEMY_GRENADE_KINDS` index (omitted = 0 = frag). A replica picks the same model and explosion FX. */
       k?: number }
   /** The rogue grenade exploded (FX on replicas). */
   | { t: 'ee'; ev: 'grenadeHit'; p: Vec3Tuple;
-      /** appended (2026-09-13): 종류 = `ENEMY_GRENADE_KINDS` 인덱스 (생략 = 날아가던 복제본의 종류, 없으면 frag). 소이면 리플리카도 화염 지대 연출을 켠다 (피해는 호스트). */
+      /** appended (2026-09-13): kind = `ENEMY_GRENADE_KINDS` index (omitted = the kind of the replicated grenade that was flying, or frag when there is none). An incendiary turns the fire-zone FX on for replicas too (the damage stays on the host). */
       k?: number }
-  /* appended (2026-09-08): 배리어 정면 흡수 — see the last section */
+  /* appended (2026-09-08): the barrier absorbing frontal hits — see the last section */
   | EnemyEventAppended2026_09_08
-  /* appended (2026-09-11): 네임드 로그 · 스캔 드론 — see EnemyEventAppended2026_09_11 */
+  /* appended (2026-09-11): named rogues · scan drones — see EnemyEventAppended2026_09_11 */
   | EnemyEventAppended2026_09_11
-  /* appended (2026-09-13): 땅굴벌레 이벤트 — see EnemyEventAppended2026_09_13 */
+  /* appended (2026-09-13): sandworm events — see EnemyEventAppended2026_09_13 */
   | EnemyEventAppended2026_09_13;
 /** Client → host (Phase 4): my shot intercepted shell `sid`. Owner: enemies. */
 export interface InterceptRequest { t: 'intq'; sid: number; p: Vec3Tuple }
@@ -695,37 +697,38 @@ export type ExtractionMessage =
   | { t: 'ex'; ev: 'shipLanded' }
   | { t: 'ex'; ev: 'boarding'; boarded: PeerId[]; required: PeerId[] }
   /**
-   * 2026-09-13 (appended optional): `riders` = 호스트가 본 탑승자(살아서 함선 안), `squadDone` = 함선 밖에 살아 있는 분대원이 남지 않았다
-   * (이때만 레이드가 모두에게 끝난다). 받는 쪽의 탑승 여부는 **자기 로컬 판정**이 정한다. 생략 = 옛 호스트 → squadDone true.
+   * 2026-09-13 (appended optional): `riders` = who the host saw aboard (alive and inside the ship), `squadDone` = no
+   * living squadmate is left outside the ship (only then does the raid end for everybody). Whether the receiver is
+   * aboard is decided by **its own local judgement**. Omitted = an older host → squadDone true.
    */
   | { t: 'ex'; ev: 'liftoff'; riders?: PeerId[]; squadDone?: boolean }
   | { t: 'ex'; ev: 'reset' }
   /* appended (rejoin): host → one rejoining client, full extraction state in reply to `exq sync`. */
   | { t: 'ex'; ev: 'sync'; state: ExtractionSyncState }
-  /* appended (2026-09-13, 탈출 개편): 출발 유예 시작 · 0.5 초마다 남은 시간 맞추기 (`auto` = 대기 시간 초과로 걸렸다) */
+  /* appended (2026-09-13, extraction rework): the departure grace started · the remaining time is synced every 0.5 s (`auto` = it was raised by the idle timer running out) */
   | { t: 'ex'; ev: 'depart'; remaining: number; auto: boolean }
-  /* appended (2026-09-13, 탈출 개편): 착륙 뒤 자동 출발까지 남은 시간 (1 초마다) */
+  /* appended (2026-09-13, extraction rework): seconds left until the automatic departure after landing (every 1 s) */
   | { t: 'ex'; ev: 'wait'; remaining: number };
 
 /** Snapshot of the host's extraction flow for a late / rejoining client. Owner: extraction. */
 export interface ExtractionSyncState {
-  /** 2026-09-13: `'departing'` appended — 착륙한 함선이 출발 유예 중. */
+  /** 2026-09-13: `'departing'` appended — the landed ship is inside its departure grace. */
   stage: 'idle' | 'countdown' | 'shipIncoming' | 'shipLanded' | 'liftoff' | 'departing';
   padId: string | null;
   /** Countdown seconds left (stage 'countdown') or ship ETA (stage 'shipIncoming'). */
   remaining: number;
   boarded: PeerId[];
   required: PeerId[];
-  /* ── appended (2026-09-13, 탈출 개편) — 생략 = 모른다(받는 쪽이 기본값으로 시작) ── */
-  /** 착륙 뒤 자동 출발 유예까지 남은 초 (`shipLanded`). */
+  /* ── appended (2026-09-13, extraction rework) — omitted = unknown (the receiver starts from its default) ── */
+  /** Seconds left until the automatic departure grace after landing (`shipLanded`). */
   idleRemaining?: number;
-  /** 이륙까지 남은 초 (`departing`). */
+  /** Seconds left until liftoff (`departing`). */
   departRemaining?: number;
-  /** 출발 유예가 대기 시간 초과로 걸렸는가 (`departing`). */
+  /** Was the departure grace raised by the idle timer running out (`departing`)? */
   departAuto?: boolean;
-  /** 이륙 뒤 지난 초 (`liftoff`) — 남겨진 사람의 흐름 리셋 시각을 맞춘다. */
+  /** Seconds since liftoff (`liftoff`) — it lines up when a player left behind resets the flow. */
   sinceLiftoff?: number;
-  /** 이륙이 분대 전체의 끝이었는가 (`liftoff`). */
+  /** Was that liftoff the end for the whole squad (`liftoff`)? */
   squadDone?: boolean;
 }
 
@@ -773,9 +776,9 @@ export interface PingAckMessage { t: 'pingack'; owner: PeerId; seq: number }
 export interface CrateMessage {
   t: 'crate'; id: string;
   /**
-   * appended (2026-09-11): `sync` = 이미 열린 상자 · 컨테이너 id 전부(`ids`, 호스트 → 늦게 합류한 사람),
-   * `syncq` = 그 목록을 달라는 요청(누구나 → 호스트, `id` 는 빈 문자열). `opened` 는 누구나 → 전원이다
-   * (열린 **모습**만 맞춘다 — 내용물은 `cont` 가 따로 동기화한다). Owner: world.
+   * appended (2026-09-11): `sync` = every already-opened crate / container id (`ids`, host → a late joiner),
+   * `syncq` = the request for that list (anyone → host, `id` is the empty string). `opened` is anyone → everyone
+   * (it only lines up the opened **look** — the contents are synced separately by `cont`). Owner: world.
    */
   ev: 'opened' | 'looted' | 'sync' | 'syncq';
   ids?: string[];
@@ -869,10 +872,10 @@ export type GameMessage =
   | ShotReport
   /* appended (2026-09-09): ping acknowledgement (owner: ui/hud/Pings) */
   | PingAckMessage
-  /* appended (2026-09-08): 공용 함선 격납고 — 개인 함선 방문 (owner: hub) */
+  /* appended (2026-09-08): the shared ship's hangar — visiting a personal ship (owner: hub) */
   | ShipVisitMessage
   | ShipVisitRequest
-  /* appended (2026-09-09): 사망/시체 · 구조선 · 강하 포드 · 분대장 기기 · 안개 */
+  /* appended (2026-09-09): death / corpses · the rescue drop · drop pods · the squad-leader device · fog */
   | CorpseMessage
   | CorpseRequest
   | RescueMessage
@@ -881,132 +884,140 @@ export type GameMessage =
   | LeaderRequest
   | FogMessage
   | FogRequest
-  /* appended (2026-09-09): 레이드 플레이 개선 — 의사소통 · 구조물 · 전차 · 재해 · 로그 강하 (파일 끝 절 참고) */
+  /* appended (2026-09-09): raid play improvements — communication · structures · the tram · hazards · rogue drops (see the section at the end of the file) */
   | RaidContentMessage
-  /* appended (2026-09-11): 드론 (owner: gadgets/drones — shared/drones.ts) */
+  /* appended (2026-09-11): drones (owner: gadgets/drones — shared/drones.ts) */
   | DroneMessage
   | DroneRequest
-  /* appended (2026-09-11, A-3c): 공유 함선 식탁 (owner: net/parts/Meal — 아래 `MealMessage` 절) */
+  /* appended (2026-09-11, A-3c): the shared ship's dining table (owner: net/parts/Meal — the `MealMessage` section below) */
   | MealMessage
-  /* appended (2026-09-12): 캐릭터 버프 목록 (owner: net — 아래 `CharBuffMessage` 절) */
+  /* appended (2026-09-12): the character buff list (owner: net — the `CharBuffMessage` section below) */
   | CharBuffMessage
   | CharBuffRequest
-  /* appended (2026-09-13): 탐사 차량 (owner: world/rover — 아래 `RoverMessage` 절) */
+  /* appended (2026-09-13): the rover (owner: world/rover — the `RoverMessage` section below) */
   | RoverMessage
   | RoverRequest
-  /* appended (2026-09-15, B-14): 분대원 낙하 착지 소리 (owner: player) */
+  /* appended (2026-09-15, B-14): the landing sound of a squadmate's fall (owner: player) */
   | FallMessage
-  /* appended (2026-09-15): 안드로이드 분대원 (owner: allies) · 레이드 진입 로딩 (owner: game) — 파일 끝 절 */
+  /* appended (2026-09-15): android squadmates (owner: allies) · raid entry loading (owner: game) — the section at the end of the file */
   | AllyMessage
   | AllyRequest
   | LoadMessage
-  /* appended (2026-09-16): 식탁 접시 (owner: net/parts/Plates — 아래 `PlateMessage` 절) */
+  /* appended (2026-09-16): dining-table plates (owner: net/parts/Plates — the `PlateMessage` section below) */
   | PlateMessage
   | PlateRequest
-  /* appended (2026-09-16): 빈 적 시체 요청 (owner: enemies/parts/CorpseEmpty) */
+  /* appended (2026-09-16): the empty-enemy-corpse request (owner: enemies/parts/CorpseEmpty) */
   | EnemyCorpseRequest
-  /* appended (2026-09-16): 시체를 들여다보는 사람 — 빈 시체는 창을 닫은 뒤에 가라앉는다 (owner: shared/corpseViewers) */
+  /* appended (2026-09-16): who is looking into a corpse — an empty one sinks only after the window is closed (owner: shared/corpseViewers) */
   | CorpseViewRequest;
   /* append new message types above this line (keep `t` unique; prefix by owning folder if in doubt) */
 
 /**
- * 식탁 접시 (2026-09-16, owner: net/parts/Plates — 규칙은 `shared/housing.ts` 의 접시 절). 공유 함선의 고정 식탁에는 분대원 전원의 접시가
- * 놓이고 누구든 먹을 수 있다 (접시는 줄지 않는다 · 먹은 사람의 대기 식사가 된다).
+ * Dining-table plates (2026-09-16, owner: net/parts/Plates — the rules are the plate section of `shared/housing.ts`).
+ * The shared ship's fixed dining table holds every squad member's plate and anyone may eat from one (a plate is not
+ * used up · it becomes the eater's pending meal).
  *
- * `plate state` = 보낸 사람 **자기** 접시 (`def` 생략 = 접시 없음, `q` 생략 = 품질 0, `fresh` 1 = 방금 요리했다 — 토스트용).
- * `inHubSession` 동안 접시가 바뀔 때 · 허브 세션에 들어설 때 `others` 로 보내고, 들어서는 사람은 `plateq sync` 로 모두의 접시를 묻는다
- * (받은 사람은 요청자에게만 자기 `plate state`). 권위 검사가 없다 — 접시는 보낸 사람 자신의 상태이고, 먹는 효과는 **먹는 사람 자기**
- * 프로필에만 실린다(`useMeal`). 받는 쪽은 로비 멤버(봇 제외) · 요리 id(`getMealDef`) · 품질 정수만 본다. 서버는 한 줄도 바뀌지 않는다.
+ * `plate state` = the sender's **own** plate (`def` omitted = no plate, `q` omitted = quality 0, `fresh` 1 = just
+ * cooked — for the toast). It goes to `others` whenever the plate changes while `inHubSession` and on entering the hub
+ * session, and whoever enters asks for everybody's plates with `plateq sync` (a receiver answers the requester alone
+ * with its own `plate state`). There is no authority check — a plate is the sender's own state, and eating only
+ * touches **the eater's own** profile (`useMeal`). The receiver reads only lobby members (bots excluded), the meal id
+ * (`getMealDef`) and a whole-number quality. Not one line of the server changes.
  */
 export interface PlateMessage { t: 'plate'; ev: 'state'; def?: string; q?: number; fresh?: 1 }
-/** 허브 세션에 들어선 사람 → others: 네 접시를 달라. */
+/** Whoever entered the hub session → others: send me your plate. */
 export interface PlateRequest { t: 'plateq'; ev: 'sync' }
 
 /**
- * 공유 함선 식탁 (A-3c, 2026-09-11, owner: net/parts/Meal). 한 명이 요리 하나를 써서 차리면 **분대 전원**이
- * 같은 식사를 받는다 (사용자 결정) — 받는 사람은 아이템을 쓰지 않는다.
+ * The shared ship's dining table (A-3c, 2026-09-11, owner: net/parts/Meal). When one person serves by spending one
+ * cooked dish, **every squad member** gets the same meal (user's decision) — the receivers spend no item.
  *
- * 권한은 E-4 규약 그대로다: `ev: 'req'` 는 **요청**(누구나 → 호스트), `ev: 'serve'` 는 **사실**(호스트 → 전원)이고
- * 받는 쪽은 **로비 호스트가 보낸 것만** 받아들인다. 호스트는 `shared/buffRules.createBuffGuard` 의 네 겹
- * (모양 · 보낸 사람 · 거리 `MEAL_SERVE_RANGE` · 요율)을 지나게 한 뒤 **사거리 안의 사람에게만** 개별 전송한다 —
- * 그래서 `serve` 에는 받을 사람(`who`)이 실린다.
+ * Authority follows the E-4 rule as it is: `ev: 'req'` is a **request** (anyone → host), `ev: 'serve'` is a **fact**
+ * (host → everyone), and a receiver accepts it **only from the lobby host**. The host puts it through the four layers
+ * of `shared/buffRules.createBuffGuard` (shape · sender · distance `MEAL_SERVE_RANGE` · rate) and then sends it
+ * individually **only to the people inside that range** — which is why `serve` carries the receiver (`who`).
  */
 export interface MealMessage { t: 'meal'; ev: 'req' | 'serve'; def: string; who?: PeerId }
 
-/* ══ 2026-09-12 wire: 캐릭터 버프 · 가구 자세 (사용자 결정 — docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」) ══════════════════════════════════
+/* ══ 2026-09-12 wire: character buffs · furniture poses (user's decision — docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」) ══
  *
- * 앉기 · 운동 같은 가구 상호작용 상태가 **캐릭터 버프**가 됐고, 식사 · 준비물 · 운동 디버프 · 환경 노출도 같은 목록에 산다.
- * 분대원의 목록은 두 길로 온다:
+ * Furniture interaction states such as sitting and exercising became **character buffs**, and meals · preparations ·
+ * the gym debuff · environment exposure live in the same list. A squadmate's list arrives by two roads:
  *
- *   1. **목록 자체**(`cbuf state`) — 보낸 사람의 목록이 바뀔 때 `others` 로 한 번 (드물다).
- *   2. **리비전**(`PlayerSnapshot.bfr`) — 20 Hz 스냅샷에 숫자 하나. 받는 쪽이 가진 목록의 리비전과 다르면 그 사람에게
- *      `cbufq sync` 를 보내 목록을 받는다 (`CHAR_BUFF_SYNC_COOLDOWN_S` 에 한 번). 그래서 **늦게 합류하거나 함선을 방문한
- *      사람**, `cbuf` 를 놓친 사람도 따로 규칙 없이 따라온다 — 사용자 명세 「캐릭터 정보를 불러올 때 버프와 같이」.
+ *   1. **The list itself** (`cbuf state`) — once to `others` whenever the sender's list changes (rare).
+ *   2. **The revision** (`PlayerSnapshot.bfr`) — one number in the 20 Hz snapshot. When it differs from the revision of
+ *      the list the receiver holds, the receiver sends that person a `cbufq sync` and gets the list (at most once per
+ *      `CHAR_BUFF_SYNC_COOLDOWN_S`). So **a late joiner or a ship visitor**, and anyone who missed a `cbuf`, follows
+ *      along with no extra rule — the user's spec 「캐릭터 정보를 불러올 때 버프와 같이」.
  *
- * 가구 자세의 **연속 값**(anchor 높이 · yaw · 누적 위상 · 조각 uid)은 목록이 아니라 스냅샷(`fp` · `fu`)에 실린다 — 동작 위상은
- * 매 프레임 움직이므로 20 Hz 보간이 필요하고, 목록 메시지와 순서가 엇갈려도 자세는 늘 최신 스냅샷을 따른다.
- * 받는 쪽 가드: 로비 멤버가 보낸 것만 · `sanitizeCharBuffs` 로 모양 · 개수(`CHAR_BUFF_WIRE_MAX`)를 자른다. 버프에는 게임 효과가
- * 없으므로(사용자 결정) 권위 검사는 필요 없다 — 효과가 있는 식사 · 준비물은 여전히 자기 프로필이 원본이다.
+ * The **continuous values** of a furniture pose (anchor height · yaw · accumulated phase · piece uid) ride the snapshot
+ * (`fp` · `fu`), not the list — the motion phase moves every frame, so it needs 20 Hz interpolation, and even when it
+ * arrives out of order with a list message the pose always follows the newest snapshot.
+ * Receiver guard: only from a lobby member · `sanitizeCharBuffs` trims the shape and the count (`CHAR_BUFF_WIRE_MAX`).
+ * A buff has no game effect (user's decision), so no authority check is needed — meals and preparations, which do have
+ * one, still have the owner's own profile as their source.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 import type { FurniturePoseKind } from './types';
 import type { CharBuff } from './charBuffs';
 
-/** 가구 자세 번호 — `PlayerSnapshot.fp[0]` 이 이 배열의 인덱스다. 순서를 바꾸지 않는다 (추가만). */
-export const FURNITURE_POSE_WIRE: readonly FurniturePoseKind[] = ['sit', 'bench', 'run', 'cycle', /* 2026-09-13 요리 미니게임 */ 'cook'];
+/** Furniture pose numbers — `PlayerSnapshot.fp[0]` is the index into this array. Never reorder (append only). */
+export const FURNITURE_POSE_WIRE: readonly FurniturePoseKind[] = ['sit', 'bench', 'run', 'cycle', /* 2026-09-13 cooking minigame */ 'cook'];
 
-/** 보낸 사람의 버프 목록 전부. `rev` = `PlayerRef.buffsRevision`. */
+/** The sender's whole buff list. `rev` = `PlayerRef.buffsRevision`. */
 export interface CharBuffMessage { t: 'cbuf'; ev: 'state'; rev: number; buffs: CharBuff[] }
-/** 받는 사람 → 보낸 사람: 네 목록을 달라 (스냅샷 `bfr` 가 내가 가진 리비전과 다를 때). */
+/** Receiver → sender: send me your list (when the snapshot's `bfr` differs from the revision I hold). */
 export interface CharBuffRequest { t: 'cbufq'; ev: 'sync' }
 
 export interface PlayerSnapshot {
-  /* appended (2026-09-12): 캐릭터 버프 · 가구 자세 — optional, 옛 송신자와 호환 */
-  /** `PlayerRef.buffsRevision`. 0 · 생략 = 버프가 한 번도 없었다. */
+  /* appended (2026-09-12): character buffs · furniture poses — optional, compatible with older senders */
+  /** `PlayerRef.buffsRevision`. 0 · omitted = there has never been a buff. */
   bfr?: number;
   /**
-   * 가구 자세 중에만: `[FURNITURE_POSE_WIRE 인덱스, anchor y, yaw, 누적 위상]` (`FurniturePoseState`). 발의 x · z 는 `p` 가 이미
-   * anchor 의 x · z 다 (자세 중 player 가 발을 거기 박는다). 자세가 없으면 생략.
+   * Only while in a furniture pose: `[FURNITURE_POSE_WIRE index, anchor y, yaw, accumulated phase]`
+   * (`FurniturePoseState`). The feet's x · z need no field — `p` is already the anchor's x · z (player pins the feet
+   * there during the pose). Omitted when there is no pose.
    */
   fp?: [number, number, number, number];
-  /** 가구 자세의 조각 uid (`FurniturePoseState.furnitureUid`). 자세가 없거나 모르면 생략. */
+  /** Uid of the pose's furniture piece (`FurniturePoseState.furnitureUid`). Omitted when there is no pose or it is unknown. */
   fu?: string;
 }
 
-/** 원격 분대원의 가구 자세 — net 이 스냅샷 `fp` · `fu` 를 보간해 만든다. */
+/** A remote squadmate's furniture pose — net builds it by interpolating the snapshot's `fp` · `fu`. */
 export interface RemoteFurniturePose {
   kind: FurniturePoseKind;
   anchorY: number;
   yaw: number;
-  /** 보간된 누적 위상 (`FurniturePoseState.phase` 규약). */
+  /** The interpolated accumulated phase (the `FurniturePoseState.phase` convention). */
   phase: number;
   furnitureUid: string | null;
 }
 
 export interface RemotePlayerRef {
-  /* ── appended (2026-09-12): 캐릭터 버프 · 가구 자세 (owner: net) ── */
-  /** 이 분대원의 버프 목록 (`cbuf state` 로 받은 마지막 것, 검증 뒤). 아직 모르면 빈 배열. 바뀌면 새 배열이다. */
+  /* ── appended (2026-09-12): character buffs · furniture poses (owner: net) ── */
+  /** This squadmate's buff list (the last one received by `cbuf state`, after validation). An empty array while unknown. A change makes a new array. */
   readonly buffs?: readonly CharBuff[];
-  /** 지금 `buffs` 의 리비전 (0 = 아직 받은 적 없음). */
+  /** Revision of the current `buffs` (0 = never received one). */
   readonly buffsRevision?: number;
-  /** 가구 자세 중이면 보간된 값, 아니면 null. 고스트 · stale 이면 null. */
+  /** The interpolated value while in a furniture pose, otherwise null. null for a ghost or a stale ref. */
   readonly furniturePose?: RemoteFurniturePose | null;
 }
 
-/* ══ 2026-09-09 wire: 시체 · 구조선 · 강하 포드 · 분대장 기기 · 안개 ════════════════════════════════════════
+/* ══ 2026-09-09 wire: corpses · the rescue drop · drop pods · the squad-leader device · fog ═══════════════
  *
- * 권한 규칙은 기존과 같다 — **호스트가 진실의 원본**이고, 늦게 합류한 클라이언트는 `*q sync` 로 현황을 받는다.
- * 다만 시체의 **내용물**은 이미 있는 `cont` (ContainerMessage) 경로를 그대로 탄다: 시체는 컨테이너 하나이고
- * 그 id 가 `pcorpse:<owner>:<n>` 일 뿐이다. 아래 메시지는 시체가 **어디에 있고 누구 것인지**만 나른다.
+ * The authority rule is unchanged — **the host is the source of truth**, and a late-joining client gets the current
+ * state with `*q sync`. The **contents** of a corpse simply ride the `cont` (ContainerMessage) path that already
+ * exists: a corpse is one container whose id happens to be `pcorpse:<owner>:<n>`. The messages below carry only
+ * **where a corpse is and whose it is**.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/** 시체 안의 아이템 하나 — 정의 id · 개수 · (무기/방어구면) 내구도·장전·소켓. `PickupWire.ex` 와 같은 그릇이다. */
+/** One item inside a corpse — def id · count · (for a weapon / armor) durability, loaded rounds and sockets. The same vessel as `PickupWire.ex`. */
 export interface CorpseItemWire { defId: string; qty: number; ex?: ItemInstanceExtras }
 /**
- * 한 구의 시체. `items` 는 **사망 시점의 전부**(장비 · 임플란트 · 가방 · 퀵슬롯)이고 굴림이 아니라
- * 실측이므로 반드시 와이어에 실린다 — 상자처럼 시드로 재현할 수 없다. 받은 쪽은 이걸로
- * `openContainerItemsSized('pcorpse:...', ...)` 컨테이너를 만들고, 이후의 **가져가기**는 기존
- * `cont` / `contq` 호스트 권한 경로를 그대로 탄다.
+ * One corpse. `items` is **everything at the moment of death** (equipment · implants · bag · quick slots), and it is a
+ * measurement rather than a roll, so it must ride the wire — unlike a crate it cannot be reproduced from a seed. The
+ * receiver builds an `openContainerItemsSized('pcorpse:...', ...)` container from it, and every **take** after that
+ * rides the existing host-authoritative `cont` / `contq` path as it is.
  */
 export interface PlayerCorpseWire {
   id: string;
@@ -1014,47 +1025,52 @@ export interface PlayerCorpseWire {
   name: string;
   p: Vec3Tuple;
   yaw: number;
-  /** 사망 시각 (보낸 쪽 `ctx.missionTime`). */
+  /** Time of death (the sender's `ctx.missionTime`). */
   at: number;
   items: CorpseItemWire[];
   /**
-   * appended (2026-09-11, C-63): 보낸 쪽에서 시체가 **전차에 실려 있으면** 그 전차(`TramDef.id`)와 차량 로컬 좌표 ·
-   * 차량 기준 yaw. 받는 쪽은 `p` 로 발판을 찾지 않고 자기 전차의 **현재** 변환으로 이 로컬 좌표를 푼다 — 보간 지연
-   * 때문에 전차 후미 끝의 시체가 전차를 놓치던 틈. 생략 = 탑승 없음(옛 클라이언트 · 땅 위 시체), 모르는 id = 무시하고 `p`.
+   * appended (2026-09-11, C-63): when the corpse **rides a tram** on the sender's side, that tram (`TramDef.id`) plus
+   * the vehicle-local position and the vehicle-relative yaw. The receiver does not look for a floor with `p` but
+   * resolves these local coordinates against its own tram's **current** transform — the gap where interpolation lag
+   * let a corpse at the tram's rear end lose the tram. Omitted = not riding (an older client · a corpse on the
+   * ground); an unknown id = ignored, `p` is used.
    */
   ride?: { tram: string; local: Vec3Tuple; yaw: number };
 }
 /**
- * 사망한 플레이어의 시체. `spawn` 은 **죽은 본인**이 all 로 보낸다 (자기 인벤토리만이 진실이므로).
- * `sync` 는 호스트가 `pcorpseq sync` / `flow rejoined` 에 답하는 전체 목록이다 — 그래서 호스트는
- * 남의 시체도 `items` 채로 들고 있어야 한다.
+ * The corpse of a dead player. `spawn` is sent to all by **the person who died** (their own inventory is the only
+ * truth). `sync` is the full list the host answers `pcorpseq sync` / `flow rejoined` with — which is why the host has
+ * to keep somebody else's corpse with its `items` too.
  */
 export type CorpseMessage =
   | { t: 'pcorpse'; ev: 'spawn'; corpse: PlayerCorpseWire }
   | { t: 'pcorpse'; ev: 'emptied'; id: string }
   | { t: 'pcorpse'; ev: 'sync'; corpses: PlayerCorpseWire[] };
-/** 클라이언트 → 호스트: 지금 서 있는 시체 목록을 달라 (`world:ready` 이후 · 재합류). */
+/** Client → host: send me the list of corpses standing right now (after `world:ready` · on a rejoin). */
 export type CorpseRequest = { t: 'pcorpseq'; ev: 'sync' };
 /**
- * appended (2026-09-16, 빈 시체 제거 — owner: enemies/parts/CorpseEmpty). 클라이언트 → 호스트: 내 쪽에서 적 시체
- * `corpse:<id>` 컨테이너가 비었다 (`crate:looted`). 적 시체 내용물은 클라이언트마다 시드로 굴리므로 호스트가 한 번도 열지 않은
- * 시체는 호스트가 비었는지 모른다 — 그래서 **요청**이다. 호스트는 모양 → 보낸 사람 → 거리(`CORPSE_EMPTY_REQUEST_REACH_M`) →
- * 요율(`CORPSE_EMPTY_REQUEST_RATE_MAX` / `_BURST`)을 지나면 `ee corpseEmptied` 로 **사실**을 방송한다.
+ * appended (2026-09-16, removing empty corpses — owner: enemies/parts/CorpseEmpty). Client → host: on my side the enemy
+ * corpse container `corpse:<id>` went empty (`crate:looted`). Enemy corpse contents are rolled from a seed on every
+ * client, so the host cannot know that a corpse it never opened is empty — hence a **request**. Once it passed shape →
+ * sender → distance (`CORPSE_EMPTY_REQUEST_REACH_M`) → rate (`CORPSE_EMPTY_REQUEST_RATE_MAX` / `_BURST`), the host
+ * broadcasts the **fact** as `ee corpseEmptied`.
  */
 export interface EnemyCorpseRequest { t: 'ecorpseq'; ev: 'emptied'; id: number }
 /**
- * appended (2026-09-16, 빈 시체는 **루팅이 끝난 뒤** 사라진다 — owner: `shared/corpseViewers.CorpseViewTracker`, 쓰는 곳: game ·
- * enemies). 클라이언트 → 호스트: 내 창이 시체 컨테이너 `id`(`pcorpse:…` · `corpse:<enemyId>`)를 열었다 / 닫았다. 호스트는 시체마다
- * 들여다보는 사람을 들고 있다가 아무도 없을 때만 `pcorpse emptied` · `ee corpseEmptied` 를 방송한다. 가드: `open` 은 모양 → 보낸
- * 사람(살아 있는 스냅샷) → 거리(`CORPSE_EMPTY_REQUEST_REACH_M`) → 요율(보낸 사람별 버킷), `close` 는 보낸 사람 자기 항목만 지운다.
- * 한 사람은 한 번에 시체 하나만 본다. 떠남 · 끊김 · 재합류 · 사망 · 거리 이탈이면 호스트가 스스로 지운다.
+ * appended (2026-09-16, an empty corpse disappears **once the looting ended** — owner:
+ * `shared/corpseViewers.CorpseViewTracker`, used by: game · enemies). Client → host: my window opened / closed the
+ * corpse container `id` (`pcorpse:…` · `corpse:<enemyId>`). The host keeps the viewers per corpse and broadcasts
+ * `pcorpse emptied` · `ee corpseEmptied` only once there are none. Guard: `open` passes shape → sender (a living
+ * snapshot) → distance (`CORPSE_EMPTY_REQUEST_REACH_M`) → rate (a per-sender bucket); `close` only removes the
+ * sender's own entry. One person views one corpse at a time. On leaving · dropping · rejoining · death · walking out
+ * of range the host removes it itself.
  */
 export interface CorpseViewRequest { t: 'cviewq'; ev: 'open' | 'close'; id: string }
 
 /**
- * 구조선 투하. 분대 공용 카운터는 **호스트가 들고 있다** — 아무나 `req` 를 보내고 호스트가
- * `grant`(횟수 차감 + 착륙 지점 확정) 또는 `deny` 로 답한다. `count` 는 남은 횟수 방송이다.
- * 착륙 지점은 호스트가 `world.scatterPoints` 로 뽑아 겹치지 않게 정한다.
+ * The rescue drop. The squad's shared counter **is held by the host** — anyone sends `req` and the host answers with
+ * `grant` (deduct one + fix the landing spot) or `deny`. `count` broadcasts how many are left.
+ * The host picks the landing spot from `world.scatterPoints` so that they never overlap.
  */
 export type RescueMessage =
   | { t: 'rescue'; ev: 'req'; target: PeerId; p: Vec3Tuple }
@@ -1063,29 +1079,29 @@ export type RescueMessage =
   | { t: 'rescue'; ev: 'count'; left: number };
 
 /**
- * **강하 포드를 남들도 보이게** 하는 유일한 메시지 (2026-09-09). 지금까지 원격 분대원은 자리에 그냥
- * 스폰된 것처럼 보였다. 미션 시작 강하와 구조선 강하 둘 다 이걸 보낸다 — 받은 쪽은 `who` 의 아바타를
- * 숨긴 채 포드를 떨어뜨리고, 문이 열리면 아바타를 되돌린다.
- * `kind`: 0 = 미션 시작, 1 = 구조선.
+ * The only message that makes **a drop pod visible to everyone else** (2026-09-09). Until now a remote squadmate
+ * looked as if they had simply spawned in place. Both the mission-start drop and the rescue drop send it — the
+ * receiver hides `who`'s avatar, drops the pod and brings the avatar back when the door opens.
+ * `kind`: 0 = mission start, 1 = the rescue drop.
  */
 export interface PodMessage { t: 'pod'; ev: 'drop'; who: PeerId; p: Vec3Tuple; yaw: number; kind: 0 | 1 }
 
 /**
- * 분대장 기기 — 호스트가 완전히 사망하면 시체 옆에 떨어지는 **오브젝트**(아이템이 아니다).
- * `drop` 은 죽은 호스트가, `taken` 은 3초 홀드를 마친 사람이 보낸다. 실제 호스트 교체는
- * `NetRef.transferHost(me, true)` → 서버 → `lobby:state` 로 확정되고, 이 메시지는 오브젝트만 치운다.
+ * The squad-leader device — an **object** (not an item) that drops next to the corpse when the host dies fully.
+ * `drop` is sent by the host that died, `taken` by whoever finished the 3 s hold. The real host change is settled by
+ * `NetRef.transferHost(me, true)` → server → `lobby:state`; this message only clears the object away.
  */
 export type LeaderMessage =
   | { t: 'lead'; ev: 'drop'; p: Vec3Tuple; host: PeerId }
   | { t: 'lead'; ev: 'taken'; by: PeerId }
   | { t: 'lead'; ev: 'sync'; p: Vec3Tuple | null; host: PeerId | null };
-/** 클라이언트 → 호스트: 지금 바닥에 분대장 기기가 있나. */
+/** Client → host: is there a squad-leader device on the ground right now? */
 export type LeaderRequest = { t: 'leadq'; ev: 'sync' };
 
 /**
- * 전장의 안개. 평소에는 **와이어가 없다** — 모두가 이미 흐르는 `ps` 스냅샷의 분대원 좌표로
- * 각자 자기 마스크를 칠하므로 자연히 같아진다. 늦게 합류한 사람만 호스트에게 지금까지의 마스크를 받는다.
- * `mask` 는 `FogRef.serialize()` 의 base64.
+ * Fog of war. Normally **nothing goes on the wire** — everyone paints their own mask from the squadmate positions of
+ * the `ps` snapshots that already flow, so the masks agree by themselves. Only a late joiner gets the mask so far from
+ * the host. `mask` is the base64 of `FogRef.serialize()`.
  */
 export type FogMessage = { t: 'fog'; ev: 'sync'; mask: string };
 export type FogRequest = { t: 'fogq'; ev: 'sync' };
@@ -1158,7 +1174,7 @@ export interface RemotePlayerRef {
   readonly ghostDownHp?: number;
   /** `PlayerSnapshot.dhp` of the latest snapshot (the member's own down pool while DOWNED); undefined when unknown. */
   readonly downHp?: number;
-  /* appended (2026-09-15, 땅굴벌레 등장 판정) */
+  /* appended (2026-09-15, sandworm eruption check) */
   /** `PlayerSnapshot.ws` of the latest snapshot decoded through `WEIGHT_STATE_WIRE`; undefined when the sender never said (older sender) → treat as `normal`. */
   readonly weightState?: WeightState;
 }
@@ -1270,7 +1286,7 @@ export interface NetRef {
 export type GhostState = 0 | 1 | 2;
 export interface GhostWire {
   id: PeerId; p: Vec3Tuple; yaw: number; hp: number; dhp: number; st: GhostState;
-  /** appended (2026-09-10): 실드 — 없거나 0 이면 생략된다. 옛 호스트가 보낸 고스트는 실드가 없다. */
+  /** appended (2026-09-10): the shield — omitted when there is none or it is 0. A ghost from an older host has no shield. */
   sh?: number;
 }
 /**
@@ -1348,7 +1364,7 @@ export type ImplantMessage =
    * `ev:'barrier'` above is dead for the local implant but still parsed, so an older peer keeps working.
    */
   | { t: 'imp'; ev: 'shield'; up: boolean; hp: number }
-  /* appended (2026-09-08): 실드 배쉬 · 정찰 one-shot — see the last section */
+  /* appended (2026-09-08): the shield bash · the one-shot recon — see the last section */
   | ImplantMessageAppended2026_09_08;
 
 /**
@@ -1382,7 +1398,7 @@ export interface DeployableWire {
   armed: boolean;
   /** Seconds of life left (0 = no expiry). */
   ttl: number;
-  /** appended (2026-09-11): 드론 위에 올라탄 설치물이면 그 드론 id (`DroneWire.id`). 생략 = 바닥. */
+  /** appended (2026-09-11): the drone id (`DroneWire.id`) when the deployable rides on a drone. Omitted = on the ground. */
   mount?: string;
 }
 
@@ -1396,17 +1412,18 @@ export type GadgetMessage =
 
 /** Client → host: deployable requests. Owner: gadgets. */
 export type GadgetRequest =
-  /** `mount` appended (2026-09-11): 드론 윗면에 올리는 설치 요청이면 그 드론 id. */
-  /** `hp` appended (2026-09-15 2차): `GadgetDef.wearsItemDurability` 인 배치물(돔 실드 · 바리케이드)을 비호스트가 놓을 때
-      **그 아이템에 남아 있던 내구도**. 생략은 「모른다」라 호스트가 `ItemDef.durabilityMax`(새것)로 세운다 — 옛 클라이언트 그대로다. */
+  /** `mount` appended (2026-09-11): the drone id when the request places it on top of a drone. */
+  /** `hp` appended (2026-09-15, 2nd pass): **the durability left on the item** when a non-host places a deployable
+      with `GadgetDef.wearsItemDurability` (the dome shield · the barricade). Omitted means 「unknown」, so the host stands
+      it up at `ItemDef.durabilityMax` (as new) — exactly as an older client does. */
   | { t: 'gadq'; ev: 'place'; gadget: GadgetId; p: Vec3Tuple; yaw: number; v?: Vec3Tuple; mount?: string; hp?: number }
   | { t: 'gadq'; ev: 'damage'; id: string; dmg: number }
   | { t: 'gadq'; ev: 'recover'; id: string }
   | { t: 'gadq'; ev: 'sync' }
-  /** appended (2026-09-11): 보낸 사람(relay `from`) 소유의 무장된 원격 지뢰를 호스트가 전부 기폭한다. */
+  /** appended (2026-09-11): the host detonates every armed remote mine owned by the sender (relay `from`). */
   | { t: 'gadq'; ev: 'detonate' };
 
-/* ══ appended (2026-09-11): 네임드 로그 · 스캔 드론 (owner: enemies — shared/named.ts) ══════════════════════════ */
+/* ══ appended (2026-09-11): named rogues · scan drones (owner: enemies — shared/named.ts) ══════════════ */
 export type EnemyEventAppended2026_09_11 =
   /** Host → all: scan drone `id` pulsed (`n` of `of`). `tg` = peers inside radius `r` with line of sight (host includes its own id). */
   | { t: 'ee'; ev: 'scanPulse'; id: number; p: Vec3Tuple; r: number; n: number; of: number; tg: PeerId[] }
@@ -1425,24 +1442,27 @@ export type EnemyEventAppended2026_09_11 =
    */
   | { t: 'ee'; ev: 'acidAt'; id: number; from: Vec3Tuple; to: Vec3Tuple };
 
-/* ══ appended (2026-09-13): 땅굴벌레 이벤트 (owner: enemies — `enemies/sandworm/Director`) ══════════════════════════
- * 호스트 권한이고 받는 쪽은 로비 호스트가 보낸 것만 받는다 (`ee` 공통 규칙). 땅굴벌레 자신 · 무리 · 뱉어진 버그는 기존
- * `ee spawn`(굴착은 `em`) · `es` 스냅샷으로 오고, 산성은 기존 `ee acid` · `ee acidAt` 이다. 땅굴벌레의 와이어 애니메이션
- * 힌트(`EnemyWire.a`)는 21 = 버그를 뱉는 중(입 벌림), 22 = 독극물 연발 준비 · 발사.
+/* ══ appended (2026-09-13): sandworm events (owner: enemies — `enemies/sandworm/Director`) ═══════════════════
+ * Host-authoritative, and a receiver accepts only what the lobby host sent (the common `ee` rule). The sandworm
+ * itself · its swarm · the spat-out bugs all arrive through the existing `ee spawn` (`em` for the burrow) and the `es`
+ * snapshots, and acid through the existing `ee acid` · `ee acidAt`. The sandworm's wire animation hints
+ * (`EnemyWire.a`) are 21 = spitting bugs (mouth open), 22 = the toxic volley winding up · firing.
  */
 export type EnemyEventAppended2026_09_13 =
-  /** Host → all: 전조 — `p`(땅) 에서 `eta` 초 뒤 분출, 피해 반경 `r`. 늦은 합류자에게는 남은 `eta` 로 다시 보낸다. */
+  /** Host → all: the omen — an eruption at `p` (on the ground) in `eta` seconds, damage radius `r`. A late joiner is sent it again with the `eta` that is left. */
   | { t: 'ee'; ev: 'wormWarn'; p: Vec3Tuple; eta: number; r: number }
   /**
-   * Host → all: 땅굴벌레 `id` 가 `p` 에서 분출했다 (분진 · 흔들림 · 소리). `hp` = 굴린 최대 체력, `spit` = 버그 뱉기 단계가
-   * 남은 초 (솟아오르는 시간 포함). `sy` 1 = 늦은 합류 · 재접속 동기화 — 연출 없이 최대 체력 · 단계만 맞춘다.
+   * Host → all: sandworm `id` erupted at `p` (dust · shake · sound). `hp` = the max hp that was rolled, `spit` =
+   * seconds left of the bug-spitting stage (the rise included). `sy` 1 = a late-join / reconnect sync — it lines up
+   * the max hp and the stage only, with no FX.
    */
   | { t: 'ee'; ev: 'wormErupt'; id: number; p: Vec3Tuple; r: number; hp: number; spit: number; sy?: 1;
-      /** appended (2026-09-15): 분출한 개체의 종류 (`sandworm` 성체 · `sandworm_weak` 위협 1 어린 개체). 생략 = 옛 호스트 = 성체. 몸은 `ee spawn.ty` 가 이미 세웠다 — 이 값은 검증 · 늦은 합류자의 반경 표시용. */
+      /** appended (2026-09-15): the kind that erupted (`sandworm` the adult · `sandworm_weak` the young one of threat 1). Omitted = an older host = the adult. The body was already stood up by `ee spawn.ty` — this value is for validation and for a late joiner's radius display. */
       ty?: EnemyType }
   /**
-   * Host → all: 땅굴벌레 `id` 가 입 `from` 에서 버그를 뱉었다. `b` = `[버그 id, 착지 x, y, z]` 목록, `T` = 비행 시간(초).
-   * 버그는 같은 프레임의 `ee spawn` 이 먼저 만들고, 리플리카는 이 이벤트로 같은 포물선을 스스로 그린다 (착지 뒤는 스냅샷).
+   * Host → all: sandworm `id` spat bugs out of its mouth `from`. `b` = the list of `[bug id, landing x, y, z]`, `T` =
+   * the flight time (seconds). The bugs are created first by the `ee spawn` of the same frame, and a replica draws the
+   * same arc itself from this event (after the landing it is the snapshots).
    */
   | { t: 'ee'; ev: 'wormSpit'; id: number; from: Vec3Tuple; b: [number, number, number, number][]; T: number };
 
@@ -1457,9 +1477,9 @@ export type HarvestRequest =
   | { t: 'harvq'; ev: 'take'; id: string }
   | { t: 'harvq'; ev: 'sync' };
 
-/* ══ appended: Phase 10 — UI 개선 pass (2026-09-07) ═════════════════════════════════════════════════════════ */
+/* ══ appended: Phase 10 — the UI improvement pass (2026-09-07) ════════════════════════════════════════════ */
 
-/* ── 부상자 들쳐메기 (owner: player) ── */
+/* ── carrying a wounded squadmate (owner: player) ── */
 /**
  * Carrier → everyone. The steady state rides on `PlayerFlags.CARRYING` + `PlayerSnapshot.cr`, so these one-shots only
  * buy instant feedback (and tell the host where a body landed when the carrier suspends mid-carry).
@@ -1468,7 +1488,7 @@ export type CarryMessage =
   | { t: 'carry'; ev: 'pick'; target: PeerId }
   | { t: 'carry'; ev: 'drop'; target: PeerId; p: Vec3Tuple };
 
-/* ── 발사 준비 패널 crew cards (owner: hub, relayed in the shared ship) ── */
+/* ── crew cards of the launch READY panel (owner: hub, relayed in the shared ship) ── */
 /**
  * A member's ship-side crew card: what the READY panel needs but no snapshot carries — `PlayerSnapshot.imp` and `.w`
  * are nulled in the hub (`Snapshotter`) and `LobbyPlayer` has no level. Broadcast to `others` on `hub:entered`
@@ -1514,14 +1534,14 @@ export interface RemoteAvatarRef {
 }
 
 export interface RemotePlayerRef {
-  /* appended (Phase 10): 들쳐메기 */
+  /* appended (Phase 10): carrying */
   /** `PlayerSnapshot.cr` — the peer this ref is carrying, or null. */
   readonly carrying?: PeerId | null;
   /** `flags & CARRIED` — this ref's body hangs on `carriedBy`'s shoulder; ignore `position`. */
   readonly isCarried?: boolean;
   /** Peer carrying this ref (derived by net/ from everyone's `cr`), or null. */
   readonly carriedBy?: PeerId | null;
-  /* appended (Phase 10): 배리어 방패 */
+  /* appended (Phase 10): the barrier shield */
   /** `flags & BARRIER` — the peer's shield is raised (implants/ follows their position + yaw with it). */
   readonly isBarrierUp?: boolean;
   /** `PlayerSnapshot.bhp` of the latest snapshot; undefined when unknown. */
@@ -1534,17 +1554,17 @@ export interface RemotePlayerRef {
 }
 
 export interface NetRef {
-  /* ── appended: Phase 10 — 발사 준비 패널 ── */
+  /* ── appended: Phase 10 — the launch READY panel ── */
   /** Last `crew card` seen for `id`, including the local player's own card. null when none arrived. */
   getCrewCard(id: PeerId): CrewCardWire | null;
   /** Ask `id` for its full loadout (`crewq loadout`); the answer arrives as the `net:crewLoadout` event. */
   requestCrewLoadout(id: PeerId): void;
 }
 
-/* ══ appended: Phase 11 — 행성 선택 · 소셜 (2026-09-07) ═════════════════════════════════════════════════════ */
+/* ══ appended: Phase 11 — planet selection · social (2026-09-07) ══════════════════════════════════════ */
 
 export interface NetRef {
-  /* ── 목표 행성 ── */
+  /* ── the target planet ── */
   /** The squad's 목표 행성 (`lobby.planet`), or null outside a lobby / while nothing is picked. */
   readonly lobbyPlanet: PlanetId | null;
   /**
@@ -1558,12 +1578,12 @@ export interface NetRef {
    */
   startGame(seed: number, mode?: MissionMode, planet?: PlanetId): void;
 
-  /* ── 소셜 ── */
+  /* ── social ── */
   /** Friends / requests / recent players / whispers / squad invites. Always present; `available` is false offline. */
   readonly social: SocialRef;
 }
 
-/* ══ appended: 2026-09-08 — 총알 추적 · 배리어 정면 흡수 · 실드 배쉬 · 정찰 rework ════════════════════════════════
+/* ══ appended: 2026-09-08 — bullet tracking · barrier absorption · shield bash · recon rework ════
  * These members are joined into `GameMessage` / `EnemyEvent` / `ImplantMessage` below (the unions are re-declared as
  * `type X = XBase | XAppended` — no existing member changed). Owners as noted.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
@@ -1583,8 +1603,8 @@ export type ImplantMessageAppended2026_09_08 =
   /** Any → others: the one-shot 정찰 pulse. Receivers reveal interactables + enemies inside `radius` of `p` for `dur` s. */
   | { t: 'imp'; ev: 'scanCast'; p: Vec3Tuple; radius: number; dur: number };
 
-/* ══ appended: 2026-09-08 — 공용 함선 격납고 (owner: hub) ═══════════════════════════════════════════════════════
- * The shared ship's aft door opens onto a **격납고** where every squad member's 개인 함선 stands in its own bay.
+/* ══ appended: 2026-09-08 — the shared ship's hangar (owner: hub) ════════════════════════════════════════
+ * The shared ship's aft door opens onto a **hangar** where every squad member's personal ship stands in its own bay.
  * Boarding one swaps the hub interior to that member's personal ship — read-only for someone else's.
  *
  * Rendering a peer's ship needs their housing layout, which nothing else on the wire carries. `ship state` is that
@@ -1593,25 +1613,27 @@ export type ImplantMessageAppended2026_09_08 =
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
 /**
- * What a visitor needs to **draw** a member's personal ship. Private data (창고 · 로드아웃 프리셋 · 도감 · 재배
- * 타이머) is deliberately absent — a visit is 둘러보기 only, so nothing here can be acted on.
+ * What a visitor needs to **draw** a member's personal ship. Private data (the stash · loadout presets · the media
+ * catalogue · growing timers) is deliberately absent — a visit is only for looking around, so nothing here can be
+ * acted on.
  */
 export interface ShipVisitWire {
-  /** `SHIP_ROOM_COUNT` entries in room order — the door signs and 방 조명 of the visited ship. */
+  /** `SHIP_ROOM_COUNT` entries in room order — the door signs and room lighting of the visited ship. */
   rooms: { purpose: RoomPurpose; level: number }[];
   generatorLevel: number;
   storageLevel: number;
   /** Every placed piece (all rooms). The visitor's `FurnitureLayer` renders these instead of reading `ctx.housing`. */
   furniture: PlacedFurniture[];
-  /** Books on 책장 shelves so the spines read right. Omitted when the ship has none. */
+  /** Books on the bookshelf shelves so the spines read right. Omitted when the ship has none. */
   books?: PlacedBook[];
-  /** appended (2026-09-12, A-3e): 디스크 전시대 · 레코드랙에 꽂힌 것 (`ShipState.media`). 없으면 생략. */
+  /** appended (2026-09-12, A-3e): what is slotted into the disc display stand · the record rack (`ShipState.media`). Omitted when there is none. */
   media?: PlacedBook[];
-  /** appended (2026-09-12, A-3e): 켜 둔 TV · 레코드 플레이어 uid (`ShipState.toggled`). 없으면 생략. */
+  /** appended (2026-09-12, A-3e): uids of the TV · record player left switched on (`ShipState.toggled`). Omitted when there is none. */
   toggled?: string[];
   /**
-   * appended (2026-09-17): 배양조 칸의 겉모습 — 배지 def id (색은 받는 쪽 카탈로그에서) 와 세포주가 들었는가 (`s: 1`).
-   * 스캐폴드 · 세포주 종류 · 타이머는 싣지 않는다 (3D 는 「무언가 들어 있다」만 그린다). 없으면 생략.
+   * appended (2026-09-17): the look of a culture tank slot — the medium's def id (the colour comes from the receiver's
+   * catalogue) and whether a cell line is in it (`s: 1`). The scaffold, the cell line's kind and the timer are not
+   * carried (the 3D only draws 「something is in there」). Omitted when there is none.
    */
   cultures?: { uid: string; slot: number; medium: string; s?: 1 }[];
 }
@@ -1620,80 +1642,83 @@ export type ShipVisitRequest = { t: 'shipq'; ev: 'state' };
 
 export interface PlayerSnapshot {
   /**
-   * 격납고 (2026-09-08): the PeerId whose 개인 함선 I am standing inside (my own id while in my own ship). Omitted
-   * or null = 공유 함선 + 격납고, i.e. the deck everybody shares. Remote avatars are hidden for anyone whose `hs`
-   * differs from ours, so two members touring the same ship see each other and nobody else.
+   * The hangar (2026-09-08): the PeerId whose personal ship I am standing inside (my own id while in my own ship).
+   * Omitted or null = the shared ship + the hangar, i.e. the deck everybody shares. Remote avatars are hidden for
+   * anyone whose `hs` differs from ours, so two members touring the same ship see each other and nobody else.
    */
   hs?: PeerId | null;
 }
 
 export interface RemotePlayerRef {
-  /* appended (2026-09-08): 격납고 */
+  /* appended (2026-09-08): the hangar */
   /** `PlayerSnapshot.hs` — the personal ship this peer is inside, or null on the shared deck. */
   readonly hubSite?: PeerId | null;
 }
 
 export interface NetRef {
-  /* ── appended (2026-09-08): 공용 함선 격납고 ── */
+  /* ── appended (2026-09-08): the shared ship's hangar ── */
   /** Last `ship state` seen for `id` (including our own), or null when none arrived yet. */
   getShipVisit(id: PeerId): ShipVisitWire | null;
   /** Ask `id` for its ship layout (`shipq state`); the answer lands as `net:shipVisit`. */
   requestShipVisit(id: PeerId): void;
 }
 
-/* ══ 2026-09-09: 분대장(호스트) 지명 이관 (owner: game/parts/Leader) ══════════════════════════════════════ */
+/* ══ 2026-09-09: naming a new squad leader (host) (owner: game/parts/Leader) ════════════════════ */
 export interface NetRef {
   /* ── appended (2026-09-09) ── */
   /**
-   * 분대장(호스트)을 `targetId` 에게 넘긴다. 서버가 `lobby:transferHost` 를 처리하고 새 `lobby:state` 를
-   * 뿌리면 모두가 `net:hostChanged` 를 받는다.
+   * Hands the squad leader (host) role to `targetId`. Once the server handled `lobby:transferHost` and broadcast a new
+   * `lobby:state`, everyone gets `net:hostChanged`.
    *
-   * 서버가 허용하는 경우는 둘뿐이다 — ① 부르는 사람이 지금 호스트다, 또는 ② `claim` 이 true 이고
-   * 현재 호스트가 이 레이드에서 **완전히 사망**했다고 서버가 알고 있다 (분대장 기기). 그 외에는
-   * `lobby:error {code:'not_host'}` 가 돌아온다. 세션 밖에서는 no-op.
+   * The server allows it in exactly two cases — ① the caller is the host right now, or ② `claim` is true and the
+   * server knows the current host is **fully dead** in this raid (the squad-leader device). Anything else comes back
+   * as `lobby:error {code:'not_host'}`. A no-op outside a session.
    */
   transferHost(targetId: PeerId, claim?: boolean): void;
   /**
-   * 호스트가 이 레이드에서 완전히 사망했다고 서버에 알린다 (호스트 본인이 보낸다).
-   * 서버는 이 표시가 있을 때만 다른 사람의 `transferHost({claim:true})` 를 받아 준다.
+   * Tells the server the host is fully dead in this raid (sent by the host itself).
+   * Only while that mark is set does the server accept someone else's `transferHost({claim:true})`.
    */
   reportHostDown(down: boolean): void;
 }
 
-/* ══ 2026-09-09: 레이드 플레이 개선 — 의사소통 · 구조물 · 전차 · 재해 · 로그 강하 ═══════════════════════════
- * 전부 `GameMessage` 에 **추가**된다 (아래 union 참고). 권위 규약은 기존과 같다:
- *   - `*q` 로 끝나는 것은 **요청**(누구나 → 호스트), 접미사 없는 것은 **사실**(호스트 → 전원).
- *   - 싱글 플레이에서는 아무것도 나가지 않는다 (`ctx.net` 이 없거나 `!inSession`).
+/* ══ 2026-09-09: raid play improvements — communication · structures · the tram · hazards · rogue drops ═══════
+ * All of it is **added** to `GameMessage` (see the union below). The authority rule is unchanged:
+ *   - anything ending in `*q` is a **request** (anyone → host); without that suffix it is a **fact** (host → everyone).
+ *   - nothing goes out in single-player (no `ctx.net`, or `!inSession`).
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
 /**
- * 누구나 → 전원: 의사소통 휠 한 마디. `text` 는 **이미 완성된 문장**이다 (숫자가 든 문구는 보낸 쪽이 채운다).
- * 받는 쪽은 `id` 로 색 · 아이콘을, `text` 로 채팅 줄을 만든다. Owner: ui/hud/CommsWheel.
+ * Anyone → everyone: one line of the communication wheel. `text` is **an already-finished sentence** (a phrase with a
+ * number in it is filled in by the sender). The receiver builds the colour and icon from `id` and the chat line from
+ * `text`. Owner: ui/hud/CommsWheel.
  */
 export interface CommsMessage { t: 'comm'; id: CommsId; text: string }
 
 /**
- * 구조물 (owner: world/Structures). 호스트가 잠긴 문(지하실 · 잠긴 방) 해제 · 행성 스캔 · 로그 강하 소모를 확정한다 —
- * 두 사람이 같은 문을 동시에 열어 열쇠 · 키카드가 둘 다 사라지는 일을 막는다.
+ * Structures (owner: world/Structures). The host settles unlocking a locked door (the basement · a locked room), the
+ * planet scan and spending a rogue drop — so that two people opening the same door at once never lose both the key
+ * and the keycard.
  */
 export type StructureMessage =
   | { t: 'struct'; ev: 'unlocked'; id: string; by: PeerId | null }
   | { t: 'struct'; ev: 'scanned'; id: string }
   /**
-   * appended (2026-09-11): 창문 `w` 번이 깨졌다. **누구나 → 전원** (깬 사람이 보낸다 — 여러 명이 같은 창을 동시에
-   * 깨도 결과가 같으므로 호스트 확정이 필요 없다). 호스트는 목록을 들고 있다가 `sync.glass` 에 싣는다.
+   * appended (2026-09-11): window number `w` broke. **Anyone → everyone** (sent by whoever broke it — several people
+   * breaking the same window at once end in the same result, so no host ruling is needed). The host keeps the list
+   * and puts it into `sync.glass`.
    */
   | { t: 'struct'; ev: 'glass'; id: string; w: number }
-  /** 이미 발생한 구조물 이벤트 전체 (늦게 합류 · 호스트 이관용). `glass` (appended 2026-09-11) = 깨진 창 `<id>:<w>`. */
+  /** Every structure event that already happened (for a late join · a host transfer). `glass` (appended 2026-09-11) = the broken windows `<id>:<w>`. */
   | { t: 'struct'; ev: 'sync'; unlocked: string[]; scanned: string[]; rogued: string[]; glass?: string[] };
 export type StructureRequest =
   | { t: 'structq'; ev: 'unlock'; id: string }
   | { t: 'structq'; ev: 'scan'; id: string }
   | { t: 'structq'; ev: 'sync' };
 
-/** 전차 한 대의 와이어 상태. `st` = `TRAM_STATES` 의 index. */
+/** The wire state of one tram. `st` = index into `TRAM_STATES`. */
 export interface TramWire { id: string; s: number; dir: 1 | -1; st: number }
-/** 전차 (owner: world/Rails). 위치는 선로 위 거리 `s` 하나로 충분하다 — 경로는 시드 결정적이다. */
+/** The tram (owner: world/Rails). One distance along the rail, `s`, is enough for the position — the route is seed-deterministic. */
 export type TramMessage =
   | { t: 'tram'; ev: 'state'; tram: TramWire }
   | { t: 'tram'; ev: 'sync'; trams: TramWire[] };
@@ -1702,20 +1727,21 @@ export type TramRequest =
   | { t: 'tramq'; ev: 'sync' };
 
 /**
- * 환경 재해 (owner: world/Hazard). 종류 · 시작 시각은 **미션 시드에서** 나오므로 평상시에는 아무것도 흐르지
- * 않는다 — 늦게 합류한 사람만 `hzq sync` 로 진행 상태(`HazardRef.serialize`)를 받는다.
+ * Environmental hazards (owner: world/Hazard). The kind and the start time come **from the mission seed**, so nothing
+ * flows in normal play — only a late joiner gets the progress (`HazardRef.serialize`) with `hzq sync`.
  */
 export type HazardMessage = { t: 'hz'; ev: 'sync'; data: string };
 export type HazardRequest = { t: 'hzq'; ev: 'sync' };
 
-/** 로그 강하 (owner: enemies/RogueDrop). 실제 적 스폰은 기존 `ee spawn` 이 싣는다 — 이건 예고 연출용이다. */
+/** Rogue drops (owner: enemies/RogueDrop). The actual enemy spawn still rides the existing `ee spawn` — this is for the warning FX. */
 export type RogueDropMessage =
   | { t: 'rdrop'; ev: 'incoming'; dropId: string; p: Vec3Tuple; eta: number; count: number; boss: boolean }
   | { t: 'rdrop'; ev: 'landed'; dropId: string; p: Vec3Tuple };
 
 /**
- * 2026-09-09 이후 `GameMessage` 에 더해지는 것들. 기존 union 선언은 손대지 않고 여기서 **합집합으로 확장**한다
- * — `GameMessage` 는 `GameMessageType` / `GameMessageOf` 의 원본이므로 이 파일 안에서 한 번만 넓힌다.
+ * What is added to `GameMessage` after 2026-09-09. The existing union declaration is left alone and **widened by a
+ * union** here — `GameMessage` is the source of `GameMessageType` / `GameMessageOf`, so it is widened exactly once
+ * inside this file.
  */
 export type RaidContentMessage =
   | CommsMessage
@@ -1727,48 +1753,49 @@ export type RaidContentMessage =
   | HazardRequest
   | RogueDropMessage;
 
-/* ══ appended (2026-09-10): 방탄복 = 실드 ═══════════════════════════════════════════════════════════════ */
+/* ══ appended (2026-09-10): armor = the shield ═════════════════════════════════════════════════════ */
 
 export interface PlayerSnapshot {
   /**
-   * 실드(방탄복이 주는 추가 체력)와 그 최대치. **방탄복을 입었을 때만 실린다** (`dhp` 가 전투불능일 때만
-   * 타는 것과 같은 규약) — 옛 송신자는 둘 다 없다. 원격 체력 바가 실드를 그리고, 호스트가 고스트를 만들 때
-   * 그 사람의 실드를 물려주며, 재접속 복귀(`ghost restore`)가 실드를 되돌려 준다.
+   * The shield (the extra hp armor gives) and its maximum. **Carried only while armor is worn** (the same convention
+   * as `dhp` riding only while downed) — an older sender has neither. The remote health bar draws the shield, the host
+   * passes that person's shield on when it makes a ghost, and a reconnect (`ghost restore`) gives it back.
    */
   sh?: number;
   shm?: number;
 }
 
 export interface RemotePlayerRef {
-  /** `PlayerSnapshot.sh` — 이 peer 의 현재 실드. 방탄복이 없거나 아직 모르면 undefined. */
+  /** `PlayerSnapshot.sh` — this peer's current shield. undefined with no armor, or while it is still unknown. */
   readonly shield?: number;
-  /** `PlayerSnapshot.shm` — 이 peer 의 실드 최대치. */
+  /** `PlayerSnapshot.shm` — this peer's maximum shield. */
   readonly maxShield?: number;
 }
 
-/* ══ appended (2026-09-10): 서버 주소 — 배포용 릴레이에 붙는 길 ════════════════════════════════════════════
- * 2026-09-15: **빌드에는 서버가 없다** — 릴레이는 이 프로젝트 폴더의 `start-server.bat`(`npm run server` · `dev:all`)로만
- * 켠다 (옛 단독 exe `server/tool.ts` 와 데스크톱 앱 내장 릴레이는 없어졌다). 클라이언트는 주소를 **네 곳**에서 얻는다.
- * 위에서부터 먼저 이긴다:
+/* ══ appended (2026-09-10): the server address — how a build reaches a relay ═════════════════
+ * 2026-09-15: **a build ships no server** — a relay is started only from this project folder's `start-server.bat`
+ * (`npm run server` · `dev:all`) (the old standalone exe `server/tool.ts` and the desktop app's embedded relay are
+ * gone). A client gets the address from **four places**, the topmost winning:
  *
- *   ① 게임 안 `설정 › 서버 설정` 에 적은 주소  (localStorage `RELAY_STORAGE_KEY`, 캐릭터 슬롯 공용)
+ *   ① the address written into `설정 › 서버 설정` in game  (localStorage `RELAY_STORAGE_KEY`, shared by every slot)
  *   ② `SCAVANGER.exe --relay=<url>` / `SCAV_RELAY`
- *   ③ exe 옆 `server.txt` 첫 줄 (옛 `relay.txt` 도 읽는다)
- *   ④ 아무것도 없음 → 같은 오리진의 `/ws` (vite 프록시 · 데스크톱 앱은 이 PC 의 `ws://127.0.0.1:8787/ws` 로 넘긴다)
+ *   ③ the first line of `server.txt` next to the exe (the old `relay.txt` is read too)
+ *   ④ nothing at all → same-origin `/ws` (the vite proxy · the desktop app forwards it to this PC's `ws://127.0.0.1:8787/ws`)
  *
- * ②③④ 는 셸(`electron/main.ts`)이 고르고 렌더러에는 **같은 오리진 `/ws`** 로만 보인다 — 그래서 ① 만
- * `defaultUrl()` 안에서 갈라지면 된다. 브라우저에서도 ① 은 그대로 동작한다.
+ * ②③④ are picked by the shell (`electron/main.ts`) and the renderer only ever sees **same-origin `/ws`** — so only ①
+ * has to branch inside `defaultUrl()`. ① works in the browser just the same.
  * ──────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
-/** 사용자가 적어 둔 릴레이 주소 (`scav.relay`). **슬롯 공용 키**다 — `saveSlot.SHARED_KEYS` 참고. */
+/** The relay address the user wrote down (`scav.relay`). A **key shared by every slot** — see `saveSlot.SHARED_KEYS`. */
 export const RELAY_STORAGE_KEY = 'scav.relay';
 
 /**
- * 사람이 적은 주소 한 줄 → 완전한 ws URL. `ws://host:port/ws` 는 그대로, `host:port` 와 맨 `host` 는
- * 포트(`NET_DEFAULT_PORT`)와 경로(`NET_WS_PATH`)를 채운다. 형식이 아니면 `null`.
+ * One line of address a person typed → a full ws URL. `ws://host:port/ws` stays as it is; `host:port` and a bare
+ * `host` get the port (`NET_DEFAULT_PORT`) and the path (`NET_WS_PATH`) filled in. `null` when it is not an address.
  *
- * `electron/main.ts`(프록시 목적지) · `ui/menus/SettingsMenu`(입력 검사) · `net/parts/Socket`(접속)이 **같은**
- * 함수를 쓴다 — 셋이 각자 정규화하면 설정에서 초록불이 뜬 주소로 앱이 다른 데 붙는다.
+ * `electron/main.ts` (the proxy target) · `ui/menus/SettingsMenu` (input validation) · `net/parts/Socket` (connecting)
+ * all use **the same** function — three separate normalisations would let the app connect somewhere other than the
+ * address the settings screen showed a green light for.
  */
 export function relayUrlFrom(raw: string): string | null {
   const text = raw.trim();
@@ -1787,22 +1814,23 @@ export function relayUrlFrom(raw: string): string | null {
   return url.href;
 }
 
-/** `probeRelay` 결과. `ms` 는 소켓 open 부터 `welcome` 까지. */
+/** The result of `probeRelay`. `ms` is from the socket opening to `welcome`. */
 export interface RelayProbe {
   ok: boolean;
-  /** 실제로 두드린 주소 (정규화 뒤). 주소가 틀렸으면 빈 문자열. */
+  /** The address actually knocked on (after normalisation). An empty string when the address was wrong. */
   url: string;
-  /** 왕복 시간 ms (실패면 0). */
+  /** Round-trip time in ms (0 on failure). */
   ms: number;
-  /** 한국어 실패 사유 (성공이면 없음). */
+  /** Korean failure reason (absent on success). */
   error?: string;
 }
 
 /**
- * 한 대의 컴퓨터에서 밖으로 보이는 IPv4 후보를 **쓸 만한 순서로** 정렬한다. 개발 PC 는 Hyper-V · WSL · VPN
- * 스위치까지 여러 개를 갖고 `ipconfig` 순서는 쓸모가 없으므로, 가상 어댑터를 뒤로 밀고 실제 사설망 범위를
- * 앞으로 당긴다. `scripts/lan-address.mjs`(start-server.bat 배너)와 `server/Console.ts` 가 같은 답을 내야 해서
- * 여기 있다. `networkInterfaces()` 의 결과를 그대로 넘긴다 — `shared/` 는 node 를 import 하지 않는다.
+ * Sorts one machine's outward-facing IPv4 candidates **into the order that is actually useful**. A development PC has
+ * several of them, down to Hyper-V · WSL · VPN switches, and the `ipconfig` order is no help — so virtual adapters are
+ * pushed back and the real private ranges pulled forward. It lives here because `scripts/lan-address.mjs` (the
+ * start-server.bat banner) and `server/Console.ts` have to give the same answer. The result of `networkInterfaces()`
+ * is passed straight in — `shared/` does not import node.
  */
 export function lanAddresses(
   interfaces: Record<string, readonly { address: string; family: string | number; internal: boolean }[] | undefined>,
@@ -1813,8 +1841,8 @@ export function lanAddresses(
     if (address.startsWith('192.168.')) s += 30;
     else if (/^172\.(1[6-9]|2\d|3[01])\./.test(address)) s += 20;
     else if (address.startsWith('10.')) s += 10;
-    else if (address.startsWith('169.254.')) s -= 50;        // APIPA: DHCP 가 응답하지 않았다
-    else if (address.startsWith('100.')) s += 5;             // CGNAT 범위, Tailscale 도 여기다
+    else if (address.startsWith('169.254.')) s -= 50;        // APIPA: DHCP never answered
+    else if (address.startsWith('100.')) s += 5;             // the CGNAT range; Tailscale lives here too
     return s;
   };
   return Object.entries(interfaces)
@@ -1826,28 +1854,29 @@ export function lanAddresses(
 }
 
 export interface NetRef {
-  /* ── appended (2026-09-10): 서버 주소 ── */
-  /** 지금 접속에 쓰는(또는 쓸) 릴레이 주소. */
+  /* ── appended (2026-09-10): the server address ── */
+  /** The relay address this connection uses (or will use). */
   readonly relayUrl: string;
-  /** 설정에 적어 둔 주소 그대로 (없으면 빈 문자열 = 배포 기본값을 쓴다). */
+  /** The address written in the settings, verbatim (an empty string = the shipped default is used). */
   readonly relayOverride: string;
   /**
-   * 설정의 주소를 바꾼다. 빈 문자열 = 기본값으로 되돌린다. 형식이 아니면 `false` 를 돌려주고 아무것도
-   * 저장하지 않는다. **저장만 한다** — 실제로 옮겨 붙는 것은 `reconnectRelay()` 다.
+   * Changes the address in the settings. An empty string restores the default. When it is not an address it returns
+   * `false` and stores nothing. **It only stores** — actually moving the connection over is `reconnectRelay()`.
    */
   setRelayOverride(raw: string): boolean;
   /**
-   * 주소 하나를 **익명으로** 두드려 본다 (토큰을 보내지 않는다 — 보내면 서버가 같은 세션의 중복 접속으로
-   * 보고 살아 있는 내 소켓을 끊는다). 살아 있는 연결 · 로비를 건드리지 않는다. 인자가 없으면 지금 설정값.
+   * Knocks on one address **anonymously** (no token is sent — sending one would make the server read it as a duplicate
+   * connection of the same session and close my live socket). It touches neither the live connection nor the lobby.
+   * With no argument it uses the current setting.
    */
   probeRelay(raw?: string): Promise<RelayProbe>;
-  /** 저장된 주소로 다시 붙는다. 로비에 있었다면 떠난다. 성공 여부를 돌려준다. */
+  /** Reconnects to the stored address. Leaves the lobby when in one. Returns whether it succeeded. */
   reconnectRelay(): Promise<boolean>;
 }
 
-/* ══ appended: 2026-09-11 — 소셜 · 신뢰 · 연결 (커밋 `9bd72ce`(계약) · `b3fc2f0`(구현)) ═════════════════════════════════════
- * B-3 초대 결과 · B-4 차단 / 전송 확인 / 오프라인 보관 · E-6 문서 리비전 · B-1 링크 상태. 전부 추가만.
- * Owners: server/ (①소셜 · ③저장), net/ (②소셜 · ③ProfileSync · ④Socket), ui/ · hub/ (②④).
+/* ══ appended: 2026-09-11 — social · trust · link (commits `9bd72ce` contract · `b3fc2f0` implementation) ═══════
+ * B-3 invite outcome · B-4 blocking / delivery ack / the offline inbox · E-6 document revisions · B-1 link state. All add-only.
+ * Owners: server/ (① social · ③ storage), net/ (② social · ③ ProfileSync · ④ Socket), ui/ · hub/ (② ④).
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /** Client → server additions. Every social one needs a profile (anonymous → `social:error unavailable`). */
@@ -1896,7 +1925,7 @@ export type ServerToClientAppended2026_09_11b =
   /** E-6: the write can never succeed as sent (too large · unknown key · malformed) — drop it from the queue. */
   | { t: 'profile:refused'; writeId?: string; txId?: string; code: LobbyErrorCode };
 
-/* ── B-1: 링크 상태 (owner: net/parts/Socket) ── */
+/* ── B-1: the link state (owner: net/parts/Socket) ── */
 
 /**
  * - `idle` — nothing tried yet this page (offline single-player until someone calls `ensureConnected`).
@@ -1946,181 +1975,184 @@ export const NET_PROBE_BACKOFF_MS: readonly number[] = [5000, 10000, 20000, 3000
  */
 export const NET_SHELL_RELAY_ROUTE = '/__scav/relay';
 
-/* ══ appended: 2026-09-12 — 아이템 회수 계약: 「이번 레이드에서 얻은 아이템」 표식이 와이어를 건넌다 (`shared/raidFound.ts`) ══
- * `ItemInstanceExtras` 는 `Pick<>` 별칭이라 넓힐 수 없어 옆 필드로 싣는다. 생략 = 표식 없음 (옛 피어 · 가져온 아이템). */
+/* ══ appended: 2026-09-12 — the recovery contract: the 「found in this raid」 mark crosses the wire (`shared/raidFound.ts`) ══
+ * `ItemInstanceExtras` is a `Pick<>` alias and cannot be widened, so it rides a field next to it. Omitted = no mark (an older peer · an item brought along). */
 export interface PickupWire {
-  /** 바닥에 떨어진 아이템의 `ItemInstance.raidFound` (레이드 맵 시드). */
+  /** `ItemInstance.raidFound` of an item dropped on the ground (the raid map seed). */
   rf?: number;
 }
 export interface CorpseItemWire {
-  /** 플레이어 시체 안 아이템의 `ItemInstance.raidFound`. */
+  /** `ItemInstance.raidFound` of an item inside a player corpse. */
   rf?: number;
 }
 
-/* ══ appended: 2026-09-13 — 요리 품질이 와이어를 건넌다 (`ItemInstance.quality`, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ══
- * `rf` 와 같은 자리에 싣는다. 생략 = 품질 0 (옛 피어 · 요리가 아닌 아이템). 받는 쪽은 `normalizeMealQuality` 로 자른다. */
+/* ══ appended: 2026-09-13 — cooking quality crosses the wire (`ItemInstance.quality`, docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ══
+ * It rides in the same place as `rf`. Omitted = quality 0 (an older peer · an item that is not a dish). The receiver clamps it with `normalizeMealQuality`. */
 export interface PickupWire {
-  /** 바닥에 떨어진 요리의 `ItemInstance.quality`. */
+  /** `ItemInstance.quality` of a dish dropped on the ground. */
   q?: number;
 }
 export interface CorpseItemWire {
-  /** 플레이어 시체 안 요리의 `ItemInstance.quality`. */
+  /** `ItemInstance.quality` of a dish inside a player corpse. */
   q?: number;
 }
 export interface MealMessage {
-  /** 공유 함선 식탁에서 차린 요리의 품질 (`req` · `serve` 모두). */
+  /** Quality of the dish served at the shared ship's dining table (both `req` and `serve`). */
   q?: number;
 }
-/* ══ end 2026-09-13 요리 품질 ══ */
+/* ══ end 2026-09-13 cooking quality ══ */
 
-/* ══ appended: 2026-09-13 — 탐사 차량 (owner: world/rover · 규칙은 `shared/types.ts` 의 탐사 차량 절) ══
- * 호스트 권위 — 경로는 시드 결정적이라 흐르는 것은 진행거리 · 상태 · 체력 · 탑승자뿐이다 (`tram` 과 같은 철학).
- * 받는 쪽은 **로비 호스트가 보낸 것만** 받는다. 요청(`roverq`)은 호스트가 모양 · 보낸 사람(로비 멤버 · 살아 있음) · 거리를 본다.
- * world/rover 에이전트가 이 절 **안에서만** 변형을 추가할 수 있다 (기존 필드 변경 금지). */
+/* ══ appended: 2026-09-13 — the rover (owner: world/rover · rules in the rover section of `shared/types.ts`) ══
+ * Host-authoritative — the route is seed-deterministic, so all that flows is the distance travelled · the state · hp · the riders (the same philosophy as `tram`).
+ * A receiver accepts **only what the lobby host sent**. For a request (`roverq`) the host checks the shape · the sender (a lobby member · alive) · the distance.
+ * The world/rover agent may add variants **only inside** this section (never change an existing field). */
 /**
- * 차량 한 대의 와이어 상태. `st` = `ROVER_STATES` index · `stn`/`tgt` = 정류장 index (−1 = 없음) · `tm` = `RoverVehicleDef.timer` ·
- * `rd` = 탑승자 PeerId (호스트 자신도 PeerId) · `rv` = 정류장 공개됨.
+ * The wire state of one vehicle. `st` = `ROVER_STATES` index · `stn`/`tgt` = station index (−1 = none) · `tm` =
+ * `RoverVehicleDef.timer` · `rd` = the riders' PeerIds (the host's own id is a PeerId too) · `rv` = the stations are revealed.
  */
 export interface RoverWire { s: number; dir: 1 | -1; st: number; stn: number; tgt: number; tm: number; hp: number; rd: string[]; rv: 0 | 1 }
 export type RoverMessage =
-  /** 호스트 → 전원: `ROVER_NET_INTERVAL` 마다 + 상태 · 탑승자 · 체력 변화마다. 늦게 합류한 사람의 `roverq sync` 답도 이것이다. */
+  /** Host → everyone: every `ROVER_NET_INTERVAL` plus on every change of state · riders · hp. This is also the answer to a late joiner's `roverq sync`. */
   | { t: 'rover'; ev: 'state'; rover: RoverWire }
-  /** 호스트 → 전원: 요청 결과. `to` = 요청자 PeerId, `rid` = 그 요청 번호 — 받는 쪽은 자기 것만. `exit` = 하차 자리 (board 거절 · exit 확정). */
+  /** Host → everyone: the result of a request. `to` = the requester's PeerId, `rid` = that request's number — a receiver takes only its own. `exit` = the spot to step out at (a refused board · a settled exit). */
   | { t: 'rover'; ev: 'reply'; to: string; rid: number; req: 'board' | 'exit' | 'trip'; ok: boolean; reason?: string; exit?: Vec3Tuple }
-  /** 호스트 → 전원: 결제 출발 확정. `by` = 결제자 PeerId — **그 사람만** 크레딧을 낸다. */
+  /** Host → everyone: a paid departure is settled. `by` = the payer's PeerId — **only that person** pays the credits. */
   | { t: 'rover'; ev: 'trip'; by: string; from: number; to: number; fare: number }
-  /** 호스트 → 전원: 강제 하차 (도착 · 파괴). `exits` = 탑승자 PeerId → 내릴 자리. */
+  /** Host → everyone: a forced exit (arrival · destruction). `exits` = rider PeerId → the spot to step out at. */
   | { t: 'rover'; ev: 'eject'; reason: 'arrived' | 'destroyed'; exits: Record<string, Vec3Tuple> }
-  /** 호스트 → 전원: 포탑 사격 한 발 (연출 · 소리). `p` = 탄착점. */
+  /** Host → everyone: one turret shot (FX · sound). `p` = the impact point. */
   | { t: 'rover'; ev: 'fire'; p: Vec3Tuple };
 export type RoverRequest =
   | { t: 'roverq'; ev: 'board'; rid: number }
   | { t: 'roverq'; ev: 'exit'; rid: number }
-  /** `to` = 정류장 index, `fare` = 요청자가 본 요금 (호스트가 다시 계산해 다르면 거절). */
+  /** `to` = station index, `fare` = the fare the requester saw (the host recalculates it and refuses a mismatch). */
   | { t: 'roverq'; ev: 'trip'; rid: number; to: number; fare: number }
   | { t: 'roverq'; ev: 'sync' };
-/* ══ end 2026-09-13 탐사 차량 ══ */
+/* ══ end 2026-09-13 the rover ══ */
 
-/* ══ appended: 2026-09-13 — 암호화폐 시세 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 · owner: server/CryptoMarket · net/parts/Crypto) ══
- * 릴레이가 코인 시세를 시뮬레이션하고(`CRYPTO_TICK_S`) 봉 이력을 저장한다 — 서버에 붙어 있어야 차트 · 매매가 된다 (사용자 결정).
- * 값의 원본은 `server/economy.gen.json` 의 `crypto` 절(← data/crypto.csv · tuning.csv). 익명 연결도 받는다 (시세는 비밀이 아니다).
- * 매매 자체는 새 메시지가 아니라 `credits:tx` 의 사유 `cbuy:` · `csell:` 이다 (`shared/credits.ts`). */
+/* ══ appended: 2026-09-13 — crypto quotes (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 · owner: server/CryptoMarket · net/parts/Crypto) ══
+ * The relay simulates the coin quotes (`CRYPTO_TICK_S`) and stores the candle history — the chart and trading need a server connection (user's decision).
+ * The source of the values is the `crypto` section of `server/economy.gen.json` (← data/crypto.csv · tuning.csv). Anonymous connections are accepted too (a quote is no secret).
+ * A trade itself is not a new message but the `credits:tx` reasons `cbuy:` · `csell:` (`shared/credits.ts`). */
 import type { CryptoCandle, CryptoChartRange } from './cryptoMarket';
 
 export type ClientToServerAppended2026_09_13crypto =
-  /** 시세 구독 on / off. 켜 있는 동안 틱마다 `crypto:prices` (켜는 순간 한 번 즉시). 연결이 끊기면 서버가 잊는다 — 재접속 뒤 다시 켠다. */
+  /** Quote subscription on / off. While on, `crypto:prices` on every tick (and once immediately when it goes on). The server forgets it when the connection drops — turn it back on after reconnecting. */
   | { t: 'crypto:watch'; on: boolean }
-  /** 한 코인의 한 기간 봉을 요청한다 → `crypto:history`. 모르는 코인 · 기간은 조용히 무시한다. */
+  /** Asks for one coin's candles for one range → `crypto:history`. An unknown coin or range is silently ignored. */
   | { t: 'crypto:history'; coin: string; range: CryptoChartRange };
 
 export type ServerToClientAppended2026_09_13crypto =
-  /** 모든 코인의 지금 시세 (코인 1개당 크레딧) + 24시간 변동률(비율). `at` = 서버 epoch ms. */
+  /** The current quote of every coin (credits per coin) + the 24-hour change (as a ratio). `at` = server epoch ms. */
   | { t: 'crypto:prices'; at: number; prices: Record<string, number>; change24h: Record<string, number> }
-  /** `crypto:history` 의 답. 오래된 봉 → 최근 봉, 최대 `CRYPTO_CANDLE_COUNT[range]` 개. 마지막 봉은 아직 진행 중일 수 있다. */
+  /** The answer to `crypto:history`. Oldest candle → newest, at most `CRYPTO_CANDLE_COUNT[range]` of them. The last candle may still be running. */
   | { t: 'crypto:history'; coin: string; range: CryptoChartRange; at: number; candles: CryptoCandle[] };
 
-/** `ctx.net.crypto` — 거래소 화면 · housing 의 견적이 읽는 시세 창구 (owner: net/). */
+/** `ctx.net.crypto` — the quote window the exchange screen and housing's estimates read (owner: net/). */
 export interface CryptoMarketRef {
-  /** 서버에 붙어 있고 시세를 한 번이라도 받았다 (false = 차트 · 매매 불가 — 「서버에 연결되어야 합니다」). */
+  /** Connected to a server and a quote arrived at least once (false = no chart and no trading — 「서버에 연결되어야 합니다」). */
   readonly available: boolean;
-  /** 마지막 `crypto:prices` 의 시세. 받은 적 없으면 빈 객체. */
+  /** The quote of the last `crypto:prices`. An empty object when none ever arrived. */
   readonly prices: Readonly<Record<string, number>>;
   readonly change24h: Readonly<Record<string, number>>;
-  /** 마지막 시세의 서버 epoch ms (0 = 받은 적 없음). */
+  /** Server epoch ms of the last quote (0 = none arrived). */
   readonly pricesAt: number;
-  /** 시세 구독을 건다 (참조 계수 — 첫 구독에서 `crypto:watch on`, 마지막 해제에서 off). 돌려받은 함수로 푼다. 재접속하면 스스로 다시 건다. */
+  /** Raises a quote subscription (reference-counted — `crypto:watch on` on the first, off on the last release). Release it with the returned function. It raises itself again after a reconnect. */
   watch(): () => void;
-  /** 봉 이력을 요청한다 — 도착하면 `net:cryptoHistory {coin, range}`. */
+  /** Asks for the candle history — on arrival, `net:cryptoHistory {coin, range}`. */
   requestHistory(coin: string, range: CryptoChartRange): void;
-  /** 마지막으로 받은 봉 이력 (없으면 null). */
+  /** The last candle history received (null when there is none). */
   getHistory(coin: string, range: CryptoChartRange): readonly CryptoCandle[] | null;
 }
 
 export interface NetRef {
-  /* ── appended (2026-09-13): 암호화폐 시세 ── */
+  /* ── appended (2026-09-13): crypto quotes ── */
   readonly crypto?: CryptoMarketRef;
 }
-/* ══ end 2026-09-13 암호화폐 시세 ══ */
+/* ══ end 2026-09-13 crypto quotes ══ */
 
-/* ══ appended: 2026-09-14 — 단체 메신저방 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 · owner: server/ · net/) ══
- * 서버 권위 · 영속. 프로필(토큰)이 있어야 한다 — 익명이면 `room:error {code:'unavailable'}`. 타입 · 상수는 `shared/social.ts` 끝 절.
- * 받는 쪽은 `room:state` 를 통째로 받는다 (방 목록 · 초대가 작다). 줄은 `room:line` 으로 방 멤버 중 접속자에게 퍼진다.
- * A 에이전트(서버 · 넷)가 이 절 **안에서만** 변형을 추가할 수 있다 (기존 필드 변경 금지). */
+/* ══ appended: 2026-09-14 — group messenger rooms (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 · owner: server/ · net/) ══
+ * Server-authoritative · persistent. A profile (a token) is required — anonymous gets `room:error {code:'unavailable'}`. The types and constants are the last section of `shared/social.ts`.
+ * A receiver gets `room:state` whole (the room list and the invites are small). Lines fan out to the connected members with `room:line`.
+ * Agent A (server · net) may add variants **only inside** this section (never change an existing field). */
 import type { RoomErrorCode, RoomId, RoomLine, RoomSnapshot, RoomsRef } from './social';
 
 export type ClientToServerAppended2026_09_14rooms =
-  /** 방 목록 · 초대 다시 받기 → `room:state` (welcome 직후에는 서버가 먼저 보낸다). */
+  /** Ask for the room list · invites again → `room:state` (right after `welcome` the server sends it first). */
   | { t: 'room:get' }
-  /** 방 만들기 (나 = 방장). `invite` = 함께 초대할 친구 아이디. 답: `room:ack {nonce, room}` + `room:state`. */
+  /** Create a room (me = the owner). `invite` = the `아이디` of friends to invite with it. Answer: `room:ack {nonce, room}` + `room:state`. */
   | { t: 'room:create'; name: string; invite?: PlayerCode[]; nonce: number }
-  /** 방장만 · 친구만. */
+  /** Owner only · friends only. */
   | { t: 'room:invite'; room: RoomId; code: PlayerCode }
-  /** 받은 초대에 답한다. */
+  /** Answers an invite I received. */
   | { t: 'room:reply'; room: RoomId; accept: boolean }
   | { t: 'room:leave'; room: RoomId }
-  /** 방장만. */
+  /** Owner only. */
   | { t: 'room:kick'; room: RoomId; code: PlayerCode }
-  /** 방장만. */
+  /** Owner only. */
   | { t: 'room:rename'; room: RoomId; name: string }
-  /** 한 줄. 답: `room:ack {nonce, ok, at}` (+ 멤버에게 `room:line`). */
+  /** One line. Answer: `room:ack {nonce, ok, at}` (+ `room:line` to the members). */
   | { t: 'room:say'; room: RoomId; text: string; nonce: number }
-  /** `before` 보다 오래된 한 쪽 (`ROOM_HISTORY_PAGE`), 생략 = 최근 쪽. */
+  /** One page older than `before` (`ROOM_HISTORY_PAGE`); omitted = the newest page. */
   | { t: 'room:history'; room: RoomId; before?: number };
 
 export type ServerToClientAppended2026_09_14rooms =
   | { t: 'room:state'; rooms: RoomSnapshot }
   | { t: 'room:line'; line: RoomLine }
   | { t: 'room:ack'; nonce: number; ok: boolean; room?: RoomId; at?: number; code?: RoomErrorCode }
-  /** 오래된 것 → 최근. `more` = 더 오래된 줄이 남아 있다. */
+  /** Oldest → newest. `more` = older lines are still there. */
   | { t: 'room:history'; room: RoomId; lines: RoomLine[]; more: boolean }
   | { t: 'room:error'; code: RoomErrorCode; message: string };
 
 export interface NetRef {
-  /* ── appended (2026-09-14): 단체 메신저방 ── */
+  /* ── appended (2026-09-14): group messenger rooms ── */
   readonly rooms?: RoomsRef;
 }
-/* ══ end 2026-09-14 단체 메신저방 ══ */
+/* ══ end 2026-09-14 group messenger rooms ══ */
 
-/* ══ appended (2026-09-14): 정보상 — NetRef 표면 (docs/DECISIONS.md 「2026-09-14 — 정보상」) ══════════════════════════════
+/* ══ appended (2026-09-14): the intel broker — the NetRef surface (docs/DECISIONS.md 「2026-09-14 — 정보상」) ════════
  *
- * 와이어(`IntelWire` · `LobbyState.intel` · `lobby:intel` · `lobby:start.intel` · `game:start.intel`)는 이미 위에
- * 있는데 **그것을 보내는 `NetRef` 메서드가 빠져 있었다** — `meta/parts/Intel.ts`(구매 뒤 분대에 알린다)와
- * `hub/parts/Pods.launch`(산 정보를 실어 출격한다)가 부를 자리가 없다. 이름 변경 · 삭제 없이 **추가만** 한다
- * (기존 `startGame(seed, mode?, planet?)` 은 그대로 오버로드로 남는다 — 인자를 안 주면 옛 동작이다).
+ * The wire (`IntelWire` · `LobbyState.intel` · `lobby:intel` · `lobby:start.intel` · `game:start.intel`) is already
+ * above, but **the `NetRef` method that sends it was missing** — `meta/parts/Intel.ts` (telling the squad after a
+ * purchase) and `hub/parts/Pods.launch` (launching with the intel that was bought) had nowhere to call. This is
+ * **add-only**, with no rename and no deletion (the existing `startGame(seed, mode?, planet?)` stays as an overload —
+ * leaving the argument out is the old behaviour).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 export interface NetRef {
-  /** 분대장이 산 기믹 고정 (`lobby.intel`). 로비가 없거나 아무도 안 샀으면 null. 분대원은 **읽기만** 한다. */
+  /** The fixed gimmicks the squad leader bought (`lobby.intel`). null with no lobby, or when nobody bought any. A squadmate **only reads** it. */
   readonly lobbyIntel: IntelWire | null;
   /**
-   * 분대장 전용, 로비가 시작되기 전: 산 정보(또는 폐기 = null)를 분대에 알린다 (`lobby:intel`).
-   * `setLobbyPlanet` 과 같은 규약이다 — 낙관적으로 `lobby.intel` 을 미러링하고 서버의 `lobby:state` 가 확정한다.
-   * 호스트가 아니거나 이미 시작했으면 아무것도 하지 않는다.
+   * Squad leader only, before the lobby starts: tells the squad about the intel that was bought (or discarded = null)
+   * (`lobby:intel`). The same convention as `setLobbyPlanet` — it mirrors `lobby.intel` optimistically and the
+   * server's `lobby:state` settles it. It does nothing when not the host or once the lobby already started.
    */
   setLobbyIntel(intel: IntelWire | null): void;
   /**
-   * `intel` appended (2026-09-14): 이번 레이드에 실을 기믹 고정. 있으면 `seed` 는 **그 정보의 시드**여야 한다
-   * (「산 지역으로 간다」). 생략하면 `lobby.intel` 이 대신 실린다; 훈련장은 언제나 무시한다.
+   * `intel` appended (2026-09-14): the fixed gimmicks to carry into this raid. When present, `seed` must be **that
+   * intel's seed** (「산 지역으로 간다」). Left out, `lobby.intel` is carried instead; a training always ignores it.
    */
   startGame(seed: number, mode?: MissionMode, planet?: PlanetId, intel?: IntelWire | null): void;
 }
-/* ══ end 2026-09-14 정보상 ══ */
+/* ══ end 2026-09-14 the intel broker ══ */
 
-/* ══ appended (2026-09-15, B-14): 분대원 낙하 착지 ══════════════════════════════════════════════
- * 떨어져 **실제로 피해를 입은 본인**이 `others` 로 보낸다 (`player/parts/Fall.onLanded`, `player:fell` 을 내는 바로 그 자리).
- * `p` = 착지한 발 위치, `d` = 실제로 깎인 양(실드 + 체력). 받는 쪽(player)은 **로비 멤버가 보낸 것만**, `d` 를
- * `[0, FALL_DAMAGE_MAX]` 로 자르고 로컬 카메라에서 `FALL_REMOTE_SOUND_RANGE` 밖이면 버린 뒤 `player:remoteFell` 을 낸다.
- * 소리만을 위한 메시지다 — 체력 · 실드는 이미 스냅샷이 싣는다. 튜토리얼 · 훈련장은 솔로라 보낼 일이 없다. */
+/* ══ appended (2026-09-15, B-14): a squadmate's landing after a fall ═════════════════════
+ * Sent to `others` by **the person who actually took the damage** (`player/parts/Fall.onLanded`, the very place that emits `player:fell`).
+ * `p` = the feet position on landing, `d` = how much was actually taken off (shield + hp). The receiver (player)
+ * accepts it **only from a lobby member**, clamps `d` to `[0, FALL_DAMAGE_MAX]`, drops it when it is outside
+ * `FALL_REMOTE_SOUND_RANGE` of the local camera and then emits `player:remoteFell`.
+ * It exists for the sound alone — hp and the shield already ride the snapshots. The tutorial and the training range are solo, so they never send it. */
 export interface FallMessage { t: 'fall'; p: Vec3Tuple; d: number }
 
-/* ══ appended (2026-09-15, B-16): 수류탄 종류 ════════════════════════════════════════════════════════
- * 원격 수류탄 폭발은 **받는 쪽의 로컬 플레이어에게 피해를 준다**(`RemoteWeapons.onGrenade`) — 그래서 G-10 소이 수류탄의 작은 폭발을
- * 손에 든 아이템 스냅샷으로 추측하면, 스냅샷 하나를 놓친 순간 고폭(250 / 6 m)으로 맞는다. 던진 사람이 종류를 직접 싣는다. */
+/* ══ appended (2026-09-15, B-16): the grenade kind ══════════════════════════════════════════════
+ * A remote grenade's explosion **damages the receiver's local player** (`RemoteWeapons.onGrenade`) — so guessing the
+ * small explosion of the G-10 incendiary grenade from the held-item snapshot means that, the moment one snapshot is
+ * missed, it lands as high explosive (250 / 6 m) instead. The thrower carries the kind itself. */
 export interface GrenadeMessage {
-  /** 1 = G-10 소이 수류탄(`ItemDef.grenadeFire`) — 작은 폭발로 재생한다. 생략 = 모른다(옛 클라이언트 → 받는 쪽이 손 스냅샷으로 추측). */
+  /** 1 = the G-10 incendiary grenade (`ItemDef.grenadeFire`) — replayed as the small explosion. Omitted = unknown (an older client → the receiver guesses from the held-item snapshot). */
   fire?: 1;
 }
 
-/* ══ appended (2026-09-15): 분대 · 도킹 매칭 — docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」 ══════════════════════
+/* ══ appended (2026-09-15): squad · dock matchmaking — docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」 ════════
  *
  * The squad (lobby) and the shared ship are **separate** now. Before, a lobby *was* the shared ship: getting one (create ·
  * join · quick match · 같이 하기 · invite accept) played the docking cutscene at once. Now:
@@ -2197,37 +2229,41 @@ export interface NetRef {
    */
   readonly dockPending: boolean;
 }
-/* ══ end 2026-09-15 분대 · 도킹 매칭 ══ */
+/* ══ end 2026-09-15 squad · dock matchmaking ══ */
 
-/* ══ appended (2026-09-15): 안드로이드 분대원 · 레이드 진입 로딩 — docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」 ══
+/* ══ appended (2026-09-15): android squadmates · raid entry loading — docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」 ══
  *
- * **봇 멤버** (owner: server/ · net/). 공용 함선 조종실의 안드로이드 슬롯(bay 0..ANDROID_BAY_COUNT-1)에서 나온 분대원은 릴레이 로비의
- * 멤버다 — 소켓이 없고 `bot: true`, 늘 `connected: true` · `ready: true`, 레이드가 시작되면 `inMission: true`.
- * id = `androidIdOf(lobby.code, bay)`.
- * - `lobby:android {bay, recruit}` — 분대장만(`not_host`), **도킹된** 로비만(`not_docked`), 시작 전만(`started`), bay 범위 밖 · 이미
- *   그 상태면 `invalid`. 빈 슬롯이 없으면 `lobby:error full` 과 함께 요청자에게 `lobby:androidReturned {bay, reason:'full'}`.
- * - **사람이 이긴다.** 사람의 합류(초대 수락 · 코드 참가 · 이동)가 사람 + 봇으로 가득 찬 로비에 오면 `recruitedAt` 이 가장 늦은 봇을
- *   빼고 그 자리에 사람을 넣는다 → 로비 전원에게 `lobby:androidReturned {bay, reason:'human_joined'}` + `lobby:state`.
- *   빠른 매칭 후보 판정은 봇을 **센다** — 봇으로 찬 로비는 매칭되지 않는다 (「더 이상 다른 플레이어가 매칭되지 않음」).
- *   `canAdd`(사람 합류) · 초대 가능 판정(`my_squad_full`) · 초대 정리(`sweepInvites` full)는 사람만 센다.
- * - 봇은 **절대** 호스트가 되지 않고(`migrateHost` · `transferHostTo` · 호스트 승계), relay 대상이 되지 않고, presence · 최근 함께한
- *   플레이어 · 차단 판정 · 혼자 남은 분대 해산(`pruneLonely` — 사람 수로 센다) · 재접속 유예의 「안에 남은 사람」 · 빈 미션 리셋
- *   (`autoResetMission`)에서 빠진다. `reset()` 뒤에도 `ready: true` 로 남는다. 사람이 전부 나가면 로비와 함께 사라진다.
+ * **Bot members** (owner: server/ · net/). A squadmate that came out of an android bay of the shared ship's cockpit
+ * (bay 0..ANDROID_BAY_COUNT-1) is a member of the relay lobby — with no socket and `bot: true`, always
+ * `connected: true` · `ready: true`, and `inMission: true` once the raid starts. id = `androidIdOf(lobby.code, bay)`.
+ * - `lobby:android {bay, recruit}` — squad leader only (`not_host`), a **docked** lobby only (`not_docked`), before a
+ *   start only (`started`); a bay out of range, or one already in that state, is `invalid`. With no free slot,
+ *   `lobby:error full` plus `lobby:androidReturned {bay, reason:'full'}` to the requester.
+ * - **A human wins.** When a human joins (an invite accepted · joined by code · moved) a lobby full of humans + bots,
+ *   the bot with the latest `recruitedAt` is taken out and the human put in its place → `lobby:androidReturned
+ *   {bay, reason:'human_joined'}` + `lobby:state` to the whole lobby.
+ *   The quick-match candidate check **counts** bots — a lobby filled with bots is not matched (「더 이상 다른 플레이어가 매칭되지 않음」).
+ *   `canAdd` (a human joining) · the invitable check (`my_squad_full`) · the invite sweep (`sweepInvites` full) count humans only.
+ * - A bot **never** becomes the host (`migrateHost` · `transferHostTo` · host succession), is never a relay target, and
+ *   is left out of presence · recently played with · the block check · dissolving a lonely squad (`pruneLonely` — it
+ *   counts humans) · the 「people still inside」 of the reconnect grace · the empty-mission reset (`autoResetMission`).
+ *   It stays `ready: true` even after `reset()`. Once every human has left it disappears with the lobby.
  *
- * **안드로이드 와이어** (`ally` · `allyq`, owner: allies/). 호스트 권위 — 받는 쪽은 로비 호스트가 보낸 `ally` 만 받는다.
- * `allyq` 는 분대원 → `host`. 서버 없는 치트 명단은 와이어를 쓰지 않는다.
+ * **The android wire** (`ally` · `allyq`, owner: allies/). Host-authoritative — a receiver accepts only an `ally` the
+ * lobby host sent. `allyq` is squadmate → `host`. The serverless cheat roster uses no wire.
  *
- * **레이드 진입 로딩** (`load`, owner: game/). 발사 카운트다운이 끝나면 각자 암전 → 월드 생성 · 셰이더 컴파일 진행도를 `others` 로
- * 알리고(`p`), 호스트가 전원(사람, 연결 · 미션 안) 완료 또는 `RAID_LOAD_TIMEOUT_S` 에 `go` 를 보낸다. 늦은 사람은 자기 로딩이 끝나면 혼자 풀린다.
+ * **Raid entry loading** (`load`, owner: game/). When the launch countdown ends everyone fades to black, reports the
+ * progress of world generation and shader compilation to `others` (`p`), and the host sends `go` once everyone (human,
+ * connected, in the mission) is done or at `RAID_LOAD_TIMEOUT_S`. A latecomer releases on its own when its own loading ends.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 import type { ItemInstance as AllyItemInstance, ItemRequestKind } from './types';
 
-/** 공용 함선 조종실의 안드로이드 슬롯 수 — 함선 모델 · 릴레이 판정이 같이 쓰는 구조 상수 (릴레이는 csv 를 못 읽는다). */
+/** Android bays in the shared ship's cockpit — a structural constant the ship model and the relay's checks share (the relay cannot read csv). */
 export const ANDROID_BAY_COUNT = 3;
-/** 안드로이드 id 접두어. 프로필 PeerId(base64url 12자)에는 `:` 가 없어 겹칠 수 없다. */
+/** Prefix of an android id. A profile PeerId (12 base64url characters) holds no `:`, so they can never collide. */
 export const ANDROID_ID_PREFIX = 'android:';
 
-/** `scope` = 로비 코드 (서버 없는 치트 명단은 `'local'`). */
+/** `scope` = the lobby code (`'local'` for the serverless cheat roster). */
 export function androidIdOf(scope: string, bay: number): PeerId {
   return `${ANDROID_ID_PREFIX}${scope}:${bay}`;
 }
@@ -2236,22 +2272,22 @@ export function isAndroidId(id: unknown): boolean {
 }
 
 export interface LobbyPlayer {
-  /** true = 안드로이드 봇 멤버 (소켓 없음). 생략 = 사람. */
+  /** true = an android bot member (no socket). Omitted = a person. */
   bot?: boolean;
-  /** 봇이 나온 조종실 슬롯 0..ANDROID_BAY_COUNT-1. */
+  /** The cockpit bay the bot came out of, 0..ANDROID_BAY_COUNT-1. */
   bay?: number;
-  /** 봇이 들어온 서버 epoch ms — 사람이 가득 찬 로비에 합류하면 가장 늦은 봇부터 슬롯으로 돌아간다. */
+  /** Server epoch ms the bot joined at — when a human joins a full lobby, the latest bot goes back to its bay first. */
   recruitedAt?: number;
 }
 
 export function isBotPlayer(p: LobbyPlayer | null | undefined): boolean {
   return !!p && p.bot === true;
 }
-/** 사람 멤버만 (연결 여부와 무관). */
+/** Human members only (regardless of connection). */
 export function humanPlayersOf(lobby: LobbyState | null | undefined): LobbyPlayer[] {
   return lobby ? lobby.players.filter((p) => p.bot !== true) : [];
 }
-/** 봇 멤버만, bay 순. */
+/** Bot members only, in bay order. */
 export function androidPlayersOf(lobby: LobbyState | null | undefined): LobbyPlayer[] {
   return lobby ? lobby.players.filter((p) => p.bot === true).sort((a, b) => (a.bay ?? 0) - (b.bay ?? 0)) : [];
 }
@@ -2260,19 +2296,19 @@ export function androidOnBay(lobby: LobbyState | null | undefined, bay: number):
 }
 
 export type ClientToServerAppended2026_09_15android =
-  /** 분대장: 조종실 슬롯 `bay` 의 안드로이드를 분대원으로 들인다(`recruit`) / 슬롯으로 돌려보낸다. 결과는 `lobby:state`. */
+  /** Squad leader: takes the android of cockpit bay `bay` into the squad (`recruit`) / sends it back to its bay. The result is `lobby:state`. */
   | { t: 'lobby:android'; bay: number; recruit: boolean };
 
 export type ServerToClientAppended2026_09_15android =
-  /** 안드로이드 한 기가 분대에 들지 못하고 / 분대에서 빠져 슬롯으로 돌아갔다 (`full` = 요청자에게만, `human_joined` = 로비 전원). */
+  /** One android could not join the squad / left it and went back to its bay (`full` = to the requester only, `human_joined` = to the whole lobby). */
   | { t: 'lobby:androidReturned'; bay: number; reason: 'human_joined' | 'full' };
 
 export interface NetRef {
-  /** 분대장 전용 → `lobby:android`. 연결 · 로비가 없으면 아무것도 하지 않는다. 결과는 `net:lobbyUpdated` 또는 `net:error`. */
+  /** Squad leader only → `lobby:android`. It does nothing with no connection or no lobby. The result is `net:lobbyUpdated` or `net:error`. */
   setAndroidBay?(bay: number, recruit: boolean): void;
 }
 
-/** 한 기의 스냅샷 (호스트 → 전원, `ALLY_NET_INTERVAL_S`). 좌표는 소수 2자리로 줄여 보낸다. */
+/** The snapshot of one android (host → everyone, `ALLY_NET_INTERVAL_S`). Coordinates are trimmed to 2 decimal places. */
 export interface AllyWire {
   id: PeerId;
   /** `ALLY_MODES` index. */
@@ -2289,78 +2325,82 @@ export interface AllyWire {
   mhp: number;
   sh: number;
   msh: number;
-  /** 쓰러짐 출혈 풀 (0 = 서 있다). */
+  /** The downed bleed pool (0 = standing). */
   dhp: number;
-  /** `ALLY_FLAGS` 비트. */
+  /** `ALLY_FLAGS` bits. */
   f: number;
-  /** 주무기 · 방탄복 · 가방 def id. */
+  /** Def ids of the primary weapon · armor · bag. */
   w: string | null;
   a: string | null;
   b: string | null;
-  /** 업고 있는 사람 PeerId. */
+  /** PeerId of the person being carried. */
   c: PeerId | null;
-  /** 시선 · 조준점. */
+  /** Look / aim point. */
   lk?: Vec3Tuple;
 }
 
 export type AllyMessage =
-  /** 호스트 → 전원: 모든 기의 스냅샷 (함선에서는 `inHubSession` 동안, 레이드에서는 세션 동안). 늦은 합류자의 `allyq sync` 답도 이것 + `bag`. */
+  /** Host → everyone: the snapshots of every android (in the ship while `inHubSession`, in a raid for the session). A late joiner's `allyq sync` is answered with this + `bag`. */
   | { t: 'ally'; ev: 'state'; allies: AllyWire[] }
-  /** 호스트 → 전원: 한 기의 장비 · 가방이 바뀌었다 (호스트 승계 · 시체 · 디버그용). `kit` = 기본 킷 장비 uid (묶인 물건). */
+  /** Host → everyone: one android's equipment / bag changed (host succession · corpses · debugging). `kit` = uids of the base kit gear (the bound items). */
   | { t: 'ally'; ev: 'bag'; id: PeerId; equip: { primary: AllyItemInstance | null; armor: AllyItemInstance | null; bag: AllyItemInstance | null }; items: AllyItemInstance[]; kit: string[] }
-  /** 호스트 → 전원: 한 발 (연출 · 소리 — 피해는 호스트가 이미 넣었다). */
+  /** Host → everyone: one shot (FX · sound — the damage was already applied by the host). */
   | { t: 'ally'; ev: 'fire'; id: PeerId; from: Vec3Tuple; to: Vec3Tuple; w: string | null }
-  /** 호스트 → 전원: 안드로이드가 핑을 찍었다. 받는 쪽 ui 가 안드로이드 이름으로 그린다. */
+  /** Host → everyone: an android placed a ping. The receiving ui draws it under the android's name. */
   | { t: 'ally'; ev: 'ping'; id: PeerId; kind: PingKind; p: Vec3Tuple; label?: string; enemyId?: number }
-  /** 호스트 → 전원: 안드로이드의 채팅 한 줄. 받는 쪽은 다시 relay 하지 않는다. */
+  /** Host → everyone: one chat line from an android. A receiver never relays it again. */
   | { t: 'ally'; ev: 'chat'; id: PeerId; text: string }
-  /** 호스트 → `target`: 안드로이드가 너를 일으켰다 (`defib` = 제세동기 — 사람의 제세동기와 같은 회복). */
+  /** Host → `target`: an android got you up (`defib` = the defibrillator — the same healing as a person's). */
   | { t: 'ally'; ev: 'revive'; id: PeerId; target: PeerId; defib?: 1 }
-  /** 호스트 → 전원: 강하 포드 낙하 연출 (player `RemotePods`). */
+  /** Host → everyone: the drop pod's falling FX (player `RemotePods`). */
   | { t: 'ally'; ev: 'drop'; id: PeerId; p: Vec3Tuple; yaw: number }
-  /** 호스트 → `to`(분대장): 탈출한 안드로이드가 레이드에서 주운 물건 — 받는 쪽이 자기 창고에 넣는다. */
+  /** Host → `to` (the squad leader): what an extracted android picked up in the raid — the receiver puts it into its own stash. */
   | { t: 'ally'; ev: 'deposit'; id: PeerId; to: PeerId; items: AllyItemInstance[] };
 
 export type AllyRequest =
-  /** 늦은 합류 · 재접속 → 호스트: `ally state` + 기마다 `ally bag`. */
+  /** A late join · a reconnect → host: `ally state` + one `ally bag` per android. */
   | { t: 'allyq'; ev: 'sync' }
-  /** 분대원 → 호스트: 쓰러진 안드로이드를 일으켰다 (소생 홀드 완료 · 제세동기). 호스트가 거리 · 상태를 다시 본다. */
+  /** Squadmate → host: I got a downed android up (the revive hold completed · the defibrillator). The host re-checks the distance and the state. */
   | { t: 'allyq'; ev: 'revive'; id: PeerId; defib?: 1 }
-  /** 분대원 → 호스트: 인벤토리 요청 (가운데 클릭 · 메뉴). `p` = 요청자 위치. */
+  /** Squadmate → host: an inventory request (middle-click · the menu). `p` = the requester's position. */
   | { t: 'allyq'; ev: 'item'; kind: ItemRequestKind; defId?: string; ammoType?: string; p: Vec3Tuple }
-  /** 분대원 → 호스트: 내가 이 컨테이너를 열었다 — 그 상자를 먹던 안드로이드는 멈춘다. */
+  /** Squadmate → host: I opened this container — an android that was looting that crate stops. */
   | { t: 'allyq'; ev: 'viewing'; containerId: string };
 
 export type LoadMessage =
-  /** 각자 → others: 이 시드의 로딩 진행도 0..1 (`RAID_LOAD_REPORT_S` 마다, 1 = 끝). */
+  /** Each client → others: loading progress 0..1 for this seed (every `RAID_LOAD_REPORT_S`, 1 = done). */
   | { t: 'load'; ev: 'p'; seed: number; v: number }
-  /** 호스트 → 전원: 풀어라 (전원 완료 · 시간 초과). `to` 1 = 시간 초과. */
+  /** Host → everyone: release (everyone done · timed out). `to` 1 = timed out. */
   | { t: 'load'; ev: 'go'; seed: number; to?: 1 };
-/* ══ end 2026-09-15 안드로이드 분대원 · 레이드 진입 로딩 ══ */
+/* ══ end 2026-09-15 android squadmates · raid entry loading ══ */
 
-/* ══ appended (2026-09-15, 땅굴벌레 · 진동 장치 — owner: gadgets) ══════════════════════════════════════════ */
+/* ══ appended (2026-09-15, the sandworm · the thumper — owner: gadgets) ════════════════════════════ */
 export interface DeployableWire {
   /**
-   * 진동 장치(`kind: thumper`)만: 설치 뒤 흐른 시간 (s). 복제본이 타격 위상(1 초 주기)을 호스트와 맞추는 데 쓴다 — 늦게 합류한 사람의
-   * `gad sync` 에서도 망치가 같은 박자로 떨어진다. 다른 종류는 생략 (= 0). 타격마다 메시지를 보내지 않는다.
+   * The thumper (`kind: thumper`) only: seconds since it was placed. A replica uses it to line its strike phase (a 1 s
+   * period) up with the host's — so the hammer falls on the same beat in a late joiner's `gad sync` too. Omitted (= 0)
+   * for every other kind. No message is sent per strike.
    */
   age?: number;
 }
 
-/* ══ appended (2026-09-15): 타이틀 레이드 포기 · 표류 — docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」 ══
+/* ══ appended (2026-09-15): abandoning a raid from the title · drifting — docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」 ══
  *
- * 새로고침한 분대원은 타이틀에서 `이어하기` 와 `레이드 포기` 중 하나를 고른다 (`shared/raidResume`).
- * - 새로고침한 페이지가 `welcome` 에 답하는 `lobby:mission {inMission:false, keep:true}` 는 **raid blob 을 남긴다** — 두 번
- *   새로고침해도 이어하기 · 포기가 그 blob 으로 된다. 자발적 귀환 · 훈련장 퇴장 · 탈출은 예전처럼 `keep` 없이 보내 blob 이 지워진다.
- * - `lobby:abandon` — 레이드(`mode` raid)가 달리는 로비의 멤버만 (`not_in_lobby` · `not_started`). 릴레이는 그 멤버를 `drifted` 로
- *   적고 `inMission:false` · blob 삭제 · 호스트면 이관 · 아무도 안 남으면 리셋 뒤 `lobby:state` 를 방송한다. 이미 표류면 상태만 돌려준다.
- * - 표류한 멤버의 `lobby:mission {inMission:true}` 는 `drifted` 로 거절된다. `start()` · `reset()` 이 표시를 지운다 (다음 판은 새 판이다).
- * - 시체: 포기한 클라이언트가 blob 의 소지품 · `RaidSessionBlob.pose` 로 `pcorpse spawn` 을 `others` 에 보낸다 (죽은 본인이 보낸다는
- *   `pcorpse` 규약 그대로). 구조선 후보(`stratagems/parts/Rescue`)는 표류한 멤버를 뺀다.
+ * A squadmate who reloaded picks `이어하기` or `레이드 포기` at the title (`shared/raidResume`).
+ * - The `lobby:mission {inMission:false, keep:true}` a reloaded page answers `welcome` with **keeps the raid blob** —
+ *   so resuming or abandoning still works off that blob after two reloads. A voluntary return · leaving the training
+ *   range · extracting still send it without `keep`, and the blob is dropped.
+ * - `lobby:abandon` — members of a lobby whose raid (`mode` raid) is running only (`not_in_lobby` · `not_started`). The
+ *   relay marks that member `drifted`, sets `inMission:false`, deletes the blob, transfers the host role when it was
+ *   the host, resets when nobody is left, and then broadcasts `lobby:state`. An already-drifted member just gets the state back.
+ * - A drifted member's `lobby:mission {inMission:true}` is refused with `drifted`. `start()` · `reset()` clear the mark (the next round is a new round).
+ * - The corpse: the client that abandoned sends `pcorpse spawn` to `others` from the blob's belongings and
+ *   `RaidSessionBlob.pose` (exactly the `pcorpse` convention that the person who died sends it). Rescue-drop
+ *   candidates (`stratagems/parts/Rescue`) leave a drifted member out.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 export interface LobbyPlayer {
-  /** true = this member abandoned the running raid from the title: dead there, no 구조선, no rejoin. Absent = false. Cleared by the next start / reset. */
+  /** true = this member abandoned the running raid from the title: dead there, no rescue drop, no rejoin. Absent = false. Cleared by the next start / reset. */
   drifted?: boolean;
 }
 
@@ -2372,4 +2412,4 @@ export interface NetRef {
   /** → `lobby:abandon`, marking me `drifted` locally at once. No-op without a connected lobby whose raid runs, or inside the session. */
   abandonRaid?(): void;
 }
-/* ══ end 2026-09-15 타이틀 레이드 포기 · 표류 ══ */
+/* ══ end 2026-09-15 abandoning a raid from the title · drifting ══ */

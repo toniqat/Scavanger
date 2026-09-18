@@ -4,7 +4,7 @@ import type { GameContext } from './GameContext';
 import type { ArmorDef, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, WeightInfo } from './gear';
 import type { LoadoutPreset, WorkbenchKind } from './housing';
 import type { SkillId } from './progression';
-/* appended (Phase 11, 2026-09-07): 행성 선택 */
+/* appended (Phase 11, 2026-09-07): planet selection */
 import type { PlanetId } from './planets';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -28,16 +28,16 @@ export type HubShipKind = 'personal' | 'shared';
 
 /**
  * Ping categories (owner: ui/hud/Pings). `attack` / `caution` are the drag-gesture pings, `item` = dropped item / crate.
- * 2026-09-09 (레이드 플레이 개선): `help` / `abandon` are the **downed** variant of the same left/right hold gesture —
- * while the local player is DOWNED the 지역 핑 wheel shows 살려줘 / 나를 버려 instead of 여기 조심해 / 저쪽으로 가자.
- * `structure` = 버려진 구조물, `rail` = 선로 · 플랫폼 · 전차 (aim-assist snaps onto them like a crate does).
+ * 2026-09-09 (raid play improvements): `help` / `abandon` are the **downed** variant of the same left/right hold gesture —
+ * while the local player is DOWNED the `지역 핑` wheel shows `살려줘` / `나를 버려` instead of `여기 조심해` / `저쪽으로 가자`.
+ * `structure` = an abandoned structure, `rail` = rails · platforms · trams (aim-assist snaps onto them like a crate does).
  */
 export type PingKind =
   | 'ground' | 'enemy' | 'crate' | 'extraction' | 'item' | 'attack' | 'caution'
   | 'help' | 'abandon' | 'structure' | 'rail';
 
 /** Chat line categories (owner: ui/hud/ChatLog). */
-/** `whisper` appended (Phase 11): a direct message, rendered with a → 아이디 prefix and never relayed to the squad. */
+/** `whisper` appended (Phase 11): a direct message, rendered with a → id prefix and never relayed to the squad. */
 export type ChatKind = 'text' | 'ping' | 'request' | 'system' | 'whisper';
 
 export interface MissionStats {
@@ -56,7 +56,7 @@ export interface MissionStats {
 export type ItemCategory =
   | 'primary'     // main weapon (equippable)
   | 'secondary'   // sidearm (equippable)
-  /* 2026-09-15 (사용자 결정): `'grenade'` 폐지 — 수류탄 2종은 `category: 'gadget'` 이고 `ItemDef.grenade` 가 수류탄인지를 가른다. */
+  /* 2026-09-15 (user's decision): `'grenade'` retired — the two grenades are `category: 'gadget'` and `ItemDef.grenade` is what tells a grenade apart. */
   | 'stim'        // healing consumable, stackable
   | 'ammo'        // ammo; `qty` = rounds (v2), stackable
   | 'valuable'    // loot with sell value (mission score)
@@ -71,44 +71,44 @@ export type ItemCategory =
   /* appended: ship housing (2026-09-06) */
   | 'furniture'   // ship furniture as an inventory item (see `ItemDef.furnitureId` → FurnitureDef); placed via housing/
   /* appended: Phase 8 (2026-09-06) */
-  | 'seed'        // 씨앗 planted in a 온실 재배층 (see `ItemDef.seed`); loot + corp shop, never craftable
+  | 'seed'        // a seed planted in a greenhouse grow plot (see `ItemDef.seed`); loot + corp shop, never craftable
   /* appended: Phase 9 (2026-09-06) */
-  | 'book'        // 서적 shelved on a 서재 책장 (see `ItemDef.book`): raises one skill's XP gain; loot + corp shop, never craftable
+  | 'book'        // a book shelved on a library bookcase (see `ItemDef.book`): raises one skill's XP gain; loot + corp shop, never craftable
   /* appended: 2026-09-08 */
-  | 'implant'     // 임플란트 (능력치 장착 아이템, see `ItemDef.implant`): equipped on the 캐릭터 tab, 세레스 바이오 sells / repairs, broken ones are raid loot
-  /* appended: 온실 개편 (2026-09-11) */
-  | 'soil'        // 토양 (see `ItemDef.soil`): poured into a 재배 스테이션 재배층 before a seed goes in; 바이오별 채집 전용, never craftable
-  | 'crop'        // 작물: harvested from a 재배층. 2026-09-11 A-3c 부터 조리대의 요리 재료다 (판매 · 납품 · 추출기와 함께 네 번째 소비처)
-  /* appended: 연구실 (A-12 · A-13, 2026-09-11) */
-  | 'sample'      // 미확인 표본 (see `ItemDef.sample`): 분석기에 넣어 현실 시간만큼 기다리면 해석된다. 레이드 전용 — 제작도 상점도 없다
-  | 'prep'        // 준비물 (see `ItemDef.prep`): 함선에서 쓰면 **다음 레이드 1회분**으로 실린다 (행성 환경 상쇄)
-  /* appended: 주방 · 프린터 (A-3c · A-15, 2026-09-11) */
-  | 'meal'        // 요리 (see `ItemDef.meal`): 함선 식탁에서 먹으면 **다음 레이드 1회분**으로 실린다 (파생 수치 하나를 올린다)
-  | 'pouch'       // 주머니 (see `ItemDef.pouch`): 장비칸 `pouch` 한 칸에 끼우면 퀵슬롯 아래에 별도 격자가 열린다
-  | 'key'         // 열쇠 — 구조물 지하실 키카드 등. 2026-09-11 에 `valuable` 에서 갈라져 나왔다: 열쇠 주머니가 귀중품과 섞이면 안 된다
-  /* appended: 비디오게임 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
-  | 'game_disc'   // 게임 디스크 (see `ItemDef.gameDisc`): 게임 디스크 전시대에 꽂아 두면 TV 로 플레이한다 (지능 · 인지력 단련). 드롭 전용
-  | 'console'     // 게임기 (see `ItemDef.gameConsole`): TV 에 장착한다. 3D 프린터 제작 + 드문 드롭
-  /* appended: 서재 매체 (A-3e, 2026-09-12) */
-  | 'disc'        // 디스크 (see `ItemDef.disc`): 서재 디스크 전시대에 꽂는다 — 책과 같은 역할이고 책보다 조금 세다. loot + corp shop, never craftable
-  /* appended: 요리 재료 티어 (2026-09-13) — 소켓 (see `ItemDef.growSocket`): 부어 둔 흙 · 배지에 끼우는 영구 강화. 분석기가 미확인 DNA 를 해석해서만 나온다 */
+  | 'implant'     // an implant (a stat-granting equippable, see `ItemDef.implant`): equipped on the 캐릭터 tab, 세레스 바이오 sells / repairs them, broken ones are raid loot
+  /* appended: greenhouse rework (2026-09-11) */
+  | 'soil'        // soil (see `ItemDef.soil`): poured into a grow station's plot before a seed goes in; gathered per biome only, never craftable
+  | 'crop'        // a crop: harvested from a grow plot. Since 2026-09-11 A-3c it is a cook-bench material (the fourth consumer, beside selling · delivery · the extractor)
+  /* appended: the lab (A-12 · A-13, 2026-09-11) */
+  | 'sample'      // an unidentified sample (see `ItemDef.sample`): put into the analyzer and it is read after that much real time. Raid only — no craft, no shop
+  | 'prep'        // a preparation (see `ItemDef.prep`): used in the ship it loads as **one charge for the next raid** (it cancels the planet environment)
+  /* appended: kitchen · printer (A-3c · A-15, 2026-09-11) */
+  | 'meal'        // a meal (see `ItemDef.meal`): eaten at the ship's dining table it loads as **one charge for the next raid** (it raises one derived stat)
+  | 'pouch'       // a pouch (see `ItemDef.pouch`): fitted into the one `pouch` equipment slot it opens its own grid under the quick slots
+  | 'key'         // a key — a structure basement keycard and the like. Split off from `valuable` on 2026-09-11: a key pouch must not mix with valuables
+  /* appended: video games (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
+  | 'game_disc'   // a game disc (see `ItemDef.gameDisc`): slotted into the game-disc rack it is played on the TV (intelligence · perception training). Drop only
+  | 'console'     // a games console (see `ItemDef.gameConsole`): mounted on the TV. 3D-printer craft + a rare drop
+  /* appended: library media (A-3e, 2026-09-12) */
+  | 'disc'        // a disc (see `ItemDef.disc`): slotted into the library disc rack — the same role as a book and a little stronger. loot + corp shop, never craftable
+  /* appended: cooking material tiers (2026-09-13) — a socket (see `ItemDef.growSocket`): a permanent upgrade fitted into poured soil · a medium. Only the analyzer reading unidentified DNA yields one */
   | 'socket'
-  | 'record';     // 레코드 (see `ItemDef.record`): 서재 레코드랙에 꽂는다 — 디스크보다 조금 세다. loot + corp shop, never craftable
+  | 'record';     // a record (see `ItemDef.record`): slotted into the library record rack — a little stronger than a disc. loot + corp shop, never craftable
 
 /**
- * 아이템 희귀도. **6단계** — 2026-09-16 (사용자 결정) 에 `'mythic'` 신화가 전설 위에 붙었다.
- * 신화는 **드롭 테이블이 굴리지 않는다**: 유니크 무기 6종 · 특성 방탄복 3벌 · 신화 표본/광물만이 신화다
- * (`src/items/LootTables.ts` 의 `RARITY_ORDER_LOOT` 가 굴림을 5단계로 잘라 두므로, 새 표에 mythic 가중치를
- *  적어도 굴려지지 않는다 — 신화를 드롭에 넣으려면 그 상수를 먼저 고쳐야 한다).
- * `Record<Rarity, …>` 를 쓰는 곳은 `data/tables.csv` 의 대응 표에 mythic 행이 있어야 한다.
+ * Item rarity. **Six steps** — `'mythic'` was added above legendary on 2026-09-16 (user's decision).
+ * Mythic is **never rolled by a drop table**: only the 6 unique weapons · the 3 trait armors · mythic samples/minerals
+ * are mythic (`RARITY_ORDER_LOOT` in `src/items/LootTables.ts` cuts the roll at 5 steps, so a mythic weight written
+ *  into a new table is still not rolled — putting mythic into drops means fixing that constant first).
+ * Wherever `Record<Rarity, …>` is used, the matching table in `data/tables.csv` must have a mythic row.
  */
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'mythic';
 
 /**
- * 아이템 **대분류** (2026-09-16 사용자 결정). `ItemCategory` 위에 한 겹 얹은 축이고, 카테고리를 바꾸지 않는다 —
- * 툴팁의 종류 줄이 「수집품 > 서적」 처럼 두 단으로 읽히고, 퀘스트 · 계약 목표가 「수집품」 단위로 물어볼 수 있게 하려는 것이다.
- * 매핑과 라벨은 `src/shared/labels.ts` 의 `SUPER_CATEGORY_OF` · `SUPER_CATEGORY_LABEL_KO` 하나뿐이다.
- * 대분류가 없는 카테고리(주무기 · 탄약 …)는 `superCategoryOf` 가 `null` 을 돌려주고 종류 줄이 한 단으로 남는다.
+ * An item's **super category** (2026-09-16, user's decision). One axis laid over `ItemCategory`; it changes no category —
+ * the tooltip's kind line reads in two steps like 「수집품 > 서적」, and a quest · contract objective can ask in units of 「수집품」.
+ * The mapping and the labels live in exactly one place: `SUPER_CATEGORY_OF` · `SUPER_CATEGORY_LABEL_KO` in `src/shared/labels.ts`.
+ * A category with no super category (primary weapon · ammo …) gets `null` from `superCategoryOf` and its kind line stays one step.
  */
 export type SuperCategory = 'collectible';
 
@@ -141,8 +141,8 @@ export type SocketSlot = 'muzzle' | 'grip' | 'mag' | 'stock' | 'sight';
  * Equipment slots. `primary` = 주무기 I (key 1), `primary2` = 주무기 II (key 2), `secondary` = 보조무기 (key 3),
  * `bag` = 가방, `armor` = 방탄복.
  *
- * appended (2026-09-11, A-15): `pouch` = 주머니 **한 칸** (사용자 결정: 고정 1칸). 끼우면 퀵슬롯 아래에 그
- * 주머니의 격자가 열린다 — 가방과는 다른 컨테이너다 (`ItemDef.pouch`).
+ * appended (2026-09-11, A-15): `pouch` = the pouch slot, **one cell** (user's decision: fixed at 1). Fitting one opens
+ * that pouch's grid under the quick slots — a container of its own, not the bag (`ItemDef.pouch`).
  */
 export type LoadoutSlot = 'primary' | 'primary2' | 'secondary' | 'bag' | 'armor' | 'pouch';
 export type WeaponSlot = Exclude<LoadoutSlot, 'bag' | 'armor' | 'pouch'>;
@@ -165,7 +165,7 @@ export interface AttachmentEffects {
   scope?: boolean;
   /** Laser sight: HUD may show a laser dot; also implies `hipSpread`. */
   laser?: boolean;
-  /* ── appended 2026-09-14: 총기 밸런스 (owner: items) ── */
+  /* ── appended 2026-09-14: gun balance (owner: items) ── */
   /** ADS sway multiplier (stock · grip). Folds into `EffectiveWeaponStats.swayMul`. */
   sway?: number;
   /** Multiplier on `falloffStart` / `falloffEnd` (확장 총열 > 1 = damage holds further). */
@@ -222,7 +222,7 @@ export interface EffectiveWeaponStats {
   maxDurability: number;
   reloadTime: number;
   fireRate: number;
-  /* ── appended 2026-09-14: 총기 밸런스 · 발사체 탄도 (owner: items computes, weapons consumes) ── */
+  /* ── appended 2026-09-14: gun balance · projectile ballistics (owner: items computes, weapons consumes) ── */
   /** Sockets this weapon accepts, in `SOCKET_SLOTS` order (SG = muzzle · mag · sight …). Pips / tooltips / `canAttach` read it. */
   sockets: readonly SocketSlot[];
   /** Multiplier on the class ADS sway amplitude (`data/aim_sway.csv`) — grade handling × stock / grip. 1 = table value. */
@@ -294,7 +294,7 @@ export interface WeaponDef {
   chargeTime?: number;
   /** Continuous weapons (flame / shock arc): ammo units consumed per second instead of per shot. */
   ammoPerSec?: number;
-  /* ── appended 2026-09-14: 총기 밸런스 (owner: items data) ── */
+  /* ── appended 2026-09-14: gun balance (owner: items data) ── */
   /** Sockets this class accepts; undefined → every `SOCKET_SLOTS` entry. */
   sockets?: readonly SocketSlot[];
   /** Bullet drop (m/s²) for the class; undefined → 0. */
@@ -340,64 +340,64 @@ export interface ItemDef {
   /** category 'furniture': links to a FurnitureDef (owned by housing/). Placing it moves it into the furniture storage. */
   furnitureId?: string;
   /* ── appended: Phase 8 (2026-09-06, owner: items) ── */
-  /** category 'seed': what it grows into in a 온실 재배층 and how long that takes in **real** hours. */
+  /** category 'seed': what it grows into in a greenhouse grow plot and how long that takes in **real** hours. */
   seed?: SeedDef;
   /* ── appended: Phase 9 (2026-09-06, owner: items) ── */
-  /** category 'book': which skill the book teaches when shelved in a 서재 책장 (`BOOK_RARITY_MUL[rarity]` weight). */
+  /** category 'book': which skill the book teaches when shelved in a library bookcase (`BOOK_RARITY_MUL[rarity]` weight). */
   book?: BookDef;
-  /* ── appended: 회복 아이템 개편 (2026-09-07, owner: items) ── */
+  /* ── appended: healing item rework (2026-09-07, owner: items) ── */
   /** category 'stim': how long it takes to use, how much it heals, and (스프레이) how it channels. */
   heal?: HealDef;
-  /* ── appended: 온실 개편 (2026-09-11, owner: items) ── */
-  /** category 'soil': which 속성 it carries and how many harvests it survives. */
+  /* ── appended: greenhouse rework (2026-09-11, owner: items) ── */
+  /** category 'soil': which tag it carries and how many harvests it survives. */
   soil?: SoilDef;
-  /* ── appended: 2026-09-15 (가젯 개편, owner: items) ── */
+  /* ── appended: 2026-09-15 (gadget rework, owner: items) ── */
   /**
-   * 이 아이템이 수류탄인가 — **수류탄인지를 가르는 유일한 값**이다 (`items.csv` 의 `grenade` 열).
-   * 2026-09-15 (사용자 결정) 에 `ItemCategory` 의 `'grenade'` 가 폐지되면서 `category === 'grenade'` 를 보던 자리가
-   * 전부 이 필드로 옮겨 왔다 — 수류탄도 이제 `category: 'gadget'` 이라 분류만으로는 갈 수 없다.
-   * `grenadeFire` 는 `grenade === 'fire'` 와 같은 뜻으로 남는다 (계약이라 지우지 않았고 로더가 함께 채운다).
+   * Is this item a grenade — **the only value that tells a grenade apart** (the `grenade` column of `items.csv`).
+   * When `'grenade'` was retired from `ItemCategory` on 2026-09-15 (user's decision), every site that read
+   * `category === 'grenade'` moved to this field — a grenade is `category: 'gadget'` now, so the category cannot split them.
+   * `grenadeFire` stays as another way of saying `grenade === 'fire'` (it is contract, so it was not deleted, and the loader fills both).
    */
   grenade?: GrenadeKind;
   /**
-   * 가젯을 **쓰거나 설치하기까지** 좌클릭을 누르고 있어야 하는 초 (`items.csv` 의 `gadgetUseTime` 열).
-   * `weapons/model.useTimeOf(def)` 가 회복약 · 실드 충전기 · 전투 소모품과 **같은 홀드 틀**로 읽는다 —
-   * 그 전까지 가젯은 전부 0 이었고, 그것이 「바리케이드 설치 시간이 안 먹힌다」 의 정체다 (회수에만 시간이 걸렸다).
-   * 비우면 제세동기는 `DEFIB_USE_TIME_S`, 나머지는 0 이다.
+   * Seconds LMB must be held **before the gadget is used or placed** (the `gadgetUseTime` column of `items.csv`).
+   * `weapons/model.useTimeOf(def)` reads it in the **same hold frame** as healing items · shield chargers · combat
+   * consumables — before it every gadget was 0, and that is what 「the barricade placement time does not apply」 really was (only picking one back up took time).
+   * Left empty the defibrillator gets `DEFIB_USE_TIME_S` and everything else 0.
    */
   gadgetUseTime?: number;
 }
 
 /**
- * 수류탄의 종류 (`ItemDef.grenade`). `items/LootTables.rollCorpseOn(…, { grenades: { kind } })` 이 이미 쓰던 값을
- * 2026-09-15 에 계약으로 올렸다 — `'frag'` = 파편 수류탄(고폭), `'fire'` = 화염 수류탄(작은 폭발 + 화염 지대).
+ * Kind of grenade (`ItemDef.grenade`). The value `items/LootTables.rollCorpseOn(…, { grenades: { kind } })` was already
+ * using, raised to contract on 2026-09-15 — `'frag'` = 파편 수류탄 (high explosive), `'fire'` = 화염 수류탄 (a small blast + a fire zone).
  */
 export type GrenadeKind = 'frag' | 'fire';
 
 /**
- * 토양 속성 (2026-09-11). Four tags, one per gathering biome — `world/` drops the tag's soil on that planet,
+ * Soil tags (2026-09-11). Four tags, one per gathering biome — `world/` drops the tag's soil on that planet,
  * `data/seeds.csv` names the tag each seed wants. Matching soil grows `SOIL_MATCH_SPEEDUP` faster, a mismatch
- * `SOIL_MISMATCH_PENALTY` slower; there is no "no soil" case because a 재배층 칸 must be filled before it takes a seed.
+ * `SOIL_MISMATCH_PENALTY` slower; there is no "no soil" case because a grow-plot cell must be filled before it takes a seed.
  */
-/* appended (품종 확장 A-11, 2026-09-11): `saline` 염류 · `spore` 포자 — 새 품종이 원하는 두 속성. 태그를 늘리는 데
- * 드는 것은 이 줄 · `SOIL_TAG_LABEL_KO` · `SOIL_TAG_COLOR` · `data/items.csv` 의 `soil_*` 줄 · `data/planets.csv`
- * 의 `soils` 가중치가 전부다 (온실 개편이 그렇게 설계해 뒀다). */
+/* appended (more varieties, A-11, 2026-09-11): `saline` 염류 · `spore` 포자 — the two tags the new varieties want. Widening
+ * the tag list costs this line · `SOIL_TAG_LABEL_KO` · `SOIL_TAG_COLOR` · the `soil_*` rows of `data/items.csv` · the
+ * `soils` weights of `data/planets.csv`, and nothing else (the greenhouse rework was designed that way). */
 export type SoilTag = 'ash' | 'frost' | 'humus' | 'mineral' | 'saline' | 'spore';
 export const SOIL_TAGS: readonly SoilTag[] = ['ash', 'frost', 'humus', 'mineral', 'saline', 'spore'];
 
 /**
- * 토양 data (2026-09-11). `uses` is how many harvests one poured unit survives (`SOIL_USES_BY_RARITY`: 일반 2 ·
+ * Soil data (2026-09-11). `uses` is how many harvests one poured unit survives (`SOIL_USES_BY_RARITY`: 일반 2 ·
  * 고급 3 · 희귀 5) — the count lives on the plot (`GrowSlot.soilUsesLeft`), not on the item, so a poured soil is
  * spent even if the item stack it came from is gone.
  */
 export interface SoilDef {
   tag: SoilTag;
-  /** Harvests one poured unit survives before the 칸 goes back to 비어 있음. */
+  /** Harvests one poured unit survives before the cell goes back to 비어 있음. */
   uses: number;
 }
 
 /**
- * 회복 소모품 (2026-09-07). `weapons` holds LMB for `useTime` (moving at `CONSUMABLE_SLOW_MUL` speed), then
+ * Healing consumables (2026-09-07). `weapons` holds LMB for `useTime` (moving at `CONSUMABLE_SLOW_MUL` speed), then
  * consumes one unit and hands `amount` / `overTime` to `PlayerRef.applyHeal`. A def with `spray` is channelled
  * instead: LMB drains the item's own gauge (`ItemDef.durabilityMax` on the instance) tick by tick.
  */
@@ -424,12 +424,12 @@ export interface SprayDef {
   radius: number;
 }
 
-/** 서적 data (Phase 9). One book per skill; rarity decides its weight in `HousingRef.getBookBonus`. */
+/** Book data (Phase 9). One book per skill; rarity decides its weight in `HousingRef.getBookBonus`. */
 export interface BookDef {
   skill: SkillId;
 }
 
-/** 씨앗 growth data. `growHours` is wall-clock time and keeps running while the game is closed. */
+/** Seed growth data. `growHours` is wall-clock time and keeps running while the game is closed. */
 export interface SeedDef {
   /** Real hours from planting to harvest, before the 원예 speed-up (`GROW_SKILL_SPEEDUP`). */
   growHours: number;
@@ -437,9 +437,9 @@ export interface SeedDef {
   yieldDefId: string;
   /** Units per plot, before `derived.gatherYieldMul`. */
   yieldQty: number;
-  /* ── appended: 온실 개편 (2026-09-11) ── */
+  /* ── appended: greenhouse rework (2026-09-11) ── */
   /**
-   * 토양 속성 this seed wants. The 재배층 칸 it goes into is already filled with some soil: the same tag grows it
+   * The soil tag this seed wants. The grow-plot cell it goes into is already filled with some soil: the same tag grows it
    * `SOIL_MATCH_SPEEDUP` faster, any other tag `SOIL_MISMATCH_PENALTY` slower. Required — every row of
    * `data/seeds.csv` names one.
    */
@@ -474,8 +474,8 @@ export interface Loadout {
   /* appended (tactical kit): optional so existing emitters keep compiling. */
   armor?: ItemInstance | null;
   /**
-   * appended (2026-09-11, A-15): 장착한 주머니 (`ItemDef.pouch`). optional 인 이유는 `armor` 와 같다 —
-   * 저장된 로드아웃 · 크루 카드 · 프리셋이 이 칸 없이 적혀 있다. 끼우면 퀵슬롯 아래에 그 격자가 열린다.
+   * appended (2026-09-11, A-15): the equipped pouch (`ItemDef.pouch`). It is optional for the same reason `armor` is —
+   * saved loadouts · crew cards · presets are written without this slot. Fitting one opens its grid under the quick slots.
    */
   pouch?: ItemInstance | null;
 }
@@ -530,7 +530,7 @@ export interface InventoryRef {
   /* ── appended: quick-use slots (Phase 2, owner: inventory) ── */
   /**
    * The 8 wheel slots (index = wheel direction, see QUICK_SLOT_DIRS: 0 N, 1 NE, 2 E, 3 SE, 4 S, 5 SW, 6 W, 7 NW).
-   * **2026-09-09 — the wheel is its own container** (사용자 결정): an entry is the stack *itself*, which is therefore
+   * **2026-09-09 — the wheel is its own container** (user's decision): an entry is the stack *itself*, which is therefore
    * **not** in the bag grid any more (it still counts toward the bag weight and every `countWhere` / `consumeWhere`
    * query). A slot empties when its stack is consumed / moved back. Before that date the entries referenced bag items
    * and the stacks stayed in the grid.
@@ -566,7 +566,7 @@ export interface InventoryRef {
   /** true when every input of `recipeId` is in the bag. `count` (2026-09-09, default 1) = how many runs at once. */
   canCraft(recipeId: string, count?: number): boolean;
   /** Start a craft (hold time applies); resolves to the produced item or null. */
-  /** `targetUid` appended (2026-09-08): the exact stack a 분해 consumes first (아이템 우클릭 → 분해). */
+  /** `targetUid` appended (2026-09-08): the exact stack a salvage consumes first (item right-click → 분해). */
   /** `count` appended (2026-09-09): 제작 수량 — the recipe runs `count` times in one hold (inputs × count, output × count). */
   craft(recipeId: string, targetUid?: string, count?: number): Promise<ItemInstance | null>;
   /** Apply wear to a gear item (armor per hit). Emits `durability:changed` / `durability:broken`. Weapons keep `updateItem`. */
@@ -691,12 +691,12 @@ export interface HubRef {
    * Personal-ship room the player is standing in (0..SHIP_ROOM_COUNT−1), or null in the corridor / cockpit / shared ship.
    */
   readonly currentRoom: number | null;
-  /* ── appended (2026-09-14): 발사 슬롯 준비 (docs/DECISIONS.md 「2026-09-14 — 정보상」) ── */
+  /* ── appended (2026-09-14): launch slot readiness (docs/DECISIONS.md 「2026-09-14 — 정보상」) ── */
   /**
-   * 로컬 플레이어가 발사 슬롯에서 **준비를 확정**했는가 (스페이스 1초 홀드 + 출격 경고 승인까지 끝난 상태).
-   * 포드에 **타기만** 한 것은 false 다 — 2026-09-14 부터 탑승과 준비가 갈렸다.
-   * `inventory/` 가 이것을 보고 창고 · 장비 · 가방을 **읽기 전용**으로 잠근다 (사용자 결정: 준비 중 로드아웃 전환 불가).
-   * 선택 속성인 이유는 hub 가 없는 화면(타이틀 · 레이드)에서 `ctx.hub` 자체가 null 이기 때문이다.
+   * Has the local player **confirmed readiness** in a launch slot (the 1 s space hold plus the launch warning accepted).
+   * Merely **boarding** the pod is false — boarding and readiness split apart on 2026-09-14.
+   * `inventory/` reads it and locks the stash · equipment · bag **read-only** (user's decision: no loadout change while ready).
+   * It is optional because on a screen with no hub (title · raid) `ctx.hub` itself is null.
    */
   readonly launchReady?: boolean;
 }
@@ -771,22 +771,22 @@ export interface CrateDef {
 }
 
 /**
- * appended (2026-09-18, 사용자 결정 「벌레 알을 파괴 가능한 적으로」): 둥지 밑동의 알 한 자리.
+ * appended (2026-09-18, user's decision 「bug eggs become destructible enemies」): one egg spot at the foot of a nest.
  *
- * 자리는 `world/Nests` 가 정하고(장식 메시를 세우던 그 자리다), 그 자리에 `bug_egg` 를 세우는 것은 권위다
- * (`enemies/`). `nest` 는 그 알이 딸린 둥지의 순번 — 둥지별 재스폰 · 리시가 이 번호로 묶인다.
+ * The spot is decided by `world/Nests` (the very spot the decorative mesh used to stand on), and standing a `bug_egg`
+ * there is the authority's job (`enemies/`). `nest` is the index of the nest the egg belongs to — per-nest respawn and the leash are keyed by it.
  */
 export interface NestEggSpot {
   position: THREE.Vector3;
   /**
-   * 이 알이 딸린 **둥지(pad)** 의 순번 — 둥지별 재스폰 · 리시가 이 번호로 묶인다.
+   * The index of the **nest (pad)** this egg belongs to — per-nest respawn and the leash are keyed by this number.
    *
-   * ⚠ `getNestPositions()` 의 인덱스가 **아니다.** 그쪽은 둥지 하나당 구멍(둔덕) 4~6개를 줄줄이 내놓고
-   * 이 번호는 「사람이 둥지 하나라고 부르는 것」(`layout.nests` 의 pad) 을 가리킨다. `getNestPositions()[nest]`
-   * 는 조용히 엉뚱한 구멍을 돌려주므로 쓰지 않는다.
+   * ⚠ It is **not** an index into `getNestPositions()`. That one lists the 4–6 holes (mounds) of a single nest in a row,
+   * while this number points at 「what a person calls one nest」 (the pad of `layout.nests`). `getNestPositions()[nest]`
+   * silently returns the wrong hole, so it is never used.
    */
   nest: number;
-  /** 알 반지름(m) — 적 몸 크기가 아니라 **보이는 알**의 크기다 (히트박스 · 파편 자리). */
+  /** Egg radius (m) — the size of the **visible egg**, not of the enemy body (hitbox · debris spots). */
   radius: number;
 }
 
@@ -809,13 +809,13 @@ export interface WorldRef {
   /** Ray vs terrain heightfield + obstacle cylinders. */
   raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): TerrainHit | null;
   /**
-   * appended (2026-09-18, 사용자 결정 「폭발은 창을 뚫지 않는다」): `raycast` 와 같지만
-   * **창유리를 막는** 레이다 — `raycast` 는 깨진 창틀(`Obstacle.passRays`)을 통과시키는데,
-   * 폭발 가시성(`shared/explosion.blastReachesBody`)이 그것을 그대로 쓰면 「건물 안에 서 있는데
-   * 창 너머 폭격에 다친다」 가 된다. 판정은 콜라이더의 **종류**(유리)이지 `passRays` 가 아니다 —
-   * 튜토리얼의 유령 철조망도 `passRays` 라서, 그것까지 막으면 낮은 장벽이 갑자기 방패가 된다.
-   * 낮은 엄폐물은 이 레이에서도 그대로다(애초에 `passRays` 가 아니다) — 몸 3점 중 머리가 넘어가므로
-   * 「엄폐 너머로 고개를 내밀면 맞는다」 는 유지된다.
+   * appended (2026-09-18, user's decision 「a blast does not pass a window」): the same as `raycast` but a ray
+   * that **glass blocks** — `raycast` lets a broken window frame (`Obstacle.passRays`) through, and blast
+   * visibility (`shared/explosion.blastReachesBody`) using that as it is becomes 「standing inside a building and
+   * being hurt by a bombardment beyond the window」. The test is the collider's **kind** (glass), not `passRays` —
+   * the tutorial's ghost fence band is `passRays` too, and blocking that as well would turn low cover into a shield.
+   * Low cover is unchanged by this ray (it was never `passRays`) — the head of the three body points clears it,
+   * so 「a peeker over cover gets hit」 still holds.
    */
   raycastBlast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): TerrainHit | null;
   getObstacles(): readonly Obstacle[];
@@ -828,9 +828,9 @@ export interface WorldRef {
   /** Bug nests / hives placed by the world; enemies may spawn from them. */
   getNestPositions(): readonly THREE.Vector3[];
   /**
-   * appended (2026-09-18, 사용자 결정 「벌레 알」): 벌레 둥지 밑동의 **알 자리**. 장식이던 알이 파괴 가능한
-   * 움직이지 못하는 적(`bug_egg`)이 됐으므로, 자리를 정하는 주인은 그대로 `world/Nests` 이고
-   * 그 자리에 적을 세우는 것은 권위(`enemies/`)다. 행성이 아니면(훈련장 · 튜토리얼) 빈 배열.
+   * appended (2026-09-18, user's decision 「bug eggs」): the **egg spots** at the foot of a bug nest. The eggs that
+   * were decoration became destructible, immobile enemies (`bug_egg`), so the owner of where they stand is still
+   * `world/Nests` and standing the enemy there is the authority's (`enemies/`). Empty outside a planet (training range · tutorial).
    */
   getNestEggSpots(): readonly NestEggSpot[];
   /* ── appended (Phase 3): dynamic obstacles (owner: world) ── */
@@ -857,7 +857,7 @@ export interface GatherNodeDef {
   /** Units produced before the gardening multiplier. */
   qty: number;
   harvested: boolean;
-  /* appended (2026-09-08): 폐금속 공급 — 고철 노드 */
+  /* appended (2026-09-08): scrap-metal supply — the 고철 node */
   /**
    * What the node is. undefined / 'herb' = the 약초 plant (원예 XP, 채집 prompt); 'salvage' = a 고철 더미 at a
    * wreck, yielding `mat_scrap` (+ a chance of a bonus core, C-20) with a 해체 prompt and 제작 XP. Both share the
@@ -867,16 +867,16 @@ export interface GatherNodeDef {
 }
 
 /**
- * `GatherNodeDef.kind` (2026-09-08). appended (온실 개편, 2026-09-11): `'soil'` — 토양 더미. One soil tag per
- * planet (`data/planets.csv` 의 `soils` 열), so which 토양 속성 you can farm is a reason to pick a planet.
+ * `GatherNodeDef.kind` (2026-09-08). appended (greenhouse rework, 2026-09-11): `'soil'` — a 토양 더미. One soil tag
+ * per planet (the `soils` column of `data/planets.csv`), so which soil tag you can farm is a reason to pick a planet.
  * Shares the placement / net / interact code with the other two; yields a `category: 'soil'` item and 원예 XP.
  */
-/* appended (A-11 · A-12, 2026-09-11): `'seed'` 야생 씨앗 군락 — 행성마다 다른 품종이 난다 (`data/planets.csv` 의
- * `seeds` · `seedNodes`); `'sample'` 미확인 표본 — 분석기가 해석할 것 (`samples` · `sampleNodes`). 둘 다 토양 더미와
- * **같은** 배치 · 네트워크 · 상호작용 코드를 타고, 각자 전용 rng fork 를 써서 서로의 배치를 흔들지 않는다. */
-/* appended (2026-09-16, 사용자 결정 — 행성 광맥): `'mineral'` 광맥. 캐면 **미확인 광물**만 나오고
- * 숬련은 원예가 아니라 **채광**이다 — 그것이 이 값이 따로 있는 이유다. 표본을 내놓지만 `'sample'` 로 두면
- * `gather:collected` 가 원예 XP 를 준다. 배치 · 네트워크 · 상호작용 코드는 다른 네 종류와 완전히 같다. */
+/* appended (A-11 · A-12, 2026-09-11): `'seed'` a 야생 씨앗 군락 — a different variety per planet (`seeds` · `seedNodes`
+ * of `data/planets.csv`); `'sample'` a 미확인 표본 — something for the analyzer to read (`samples` · `sampleNodes`). Both
+ * ride the **same** placement · net · interaction code as the soil pile, each on its own rng fork so neither shifts the other's placement. */
+/* appended (2026-09-16, user's decision — planet ore veins): `'mineral'` an ore vein. Mining it yields only
+ * **unidentified minerals** and the skill is not 원예 but **채광** — that is why this value stands on its own. It hands
+ * out a sample, but left as `'sample'` `gather:collected` would pay 원예 XP. Its placement · net · interaction code is exactly the other four's. */
 export type GatherNodeKind = 'herb' | 'salvage' | 'soil' | 'seed' | 'sample' | 'mineral';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -900,7 +900,7 @@ export interface WeaponsRef {
  * G hold → wheel → arm a call → target (top view for orbital calls, ground marker for drops) → effect after a delay.
  * All calls share one cooldown.
  * ──────────────────────────────────────────────────────────────────────────── */
-/** 2026-09-09: `rescue_drop` 추가. `airstrike` 는 `STRATAGEM_ORDER` 에서 빠졌지만 타입·정의는 남는다. */
+/** 2026-09-09: `rescue_drop` added. `airstrike` dropped out of `STRATAGEM_ORDER`, but its type and def stay. */
 export type StratagemId = 'orbital_laser' | 'airstrike' | 'supply_drop' | 'structure_drop' | 'rescue_drop';
 export type StratagemStage = 'incoming' | 'active' | 'done';
 export interface StratagemCall {
@@ -951,10 +951,10 @@ export interface PlayerRef {
   readonly maxStamina: number;
   getEyePosition(out?: THREE.Vector3): THREE.Vector3;
   getForward(out?: THREE.Vector3): THREE.Vector3;   // horizontal forward
-  /** `source` appended (2026-09-15): 누가 · 무엇이 때렸나 — 결과 창의 사망 원인 · 원인별 받은 피해 (`PlayerDamageSource`). 생략 = 모름. */
+  /** `source` appended (2026-09-15): who · what hit — the result screen's death cause and the damage taken per cause (`PlayerDamageSource`). Omitted = unknown. */
   /**
-   * 2026-09-15 (사용자 결정 — 독성 포자): 넷째 인자 `opts.bypassShield` 가 실드를 건너뛰고 **체력만** 깎는다.
-   * 대기를 방탄복이 막는 것이 이상하다는 `PLANET_ENV_DPS` 의 근거(2026-09-11 A-13)를 재해에도 편 것이다.
+   * 2026-09-15 (user's decision — toxic spores): the fourth argument `opts.bypassShield` skips the shield and takes **hp only**.
+   * It extends to hazards the reason behind `PLANET_ENV_DPS` (2026-09-11 A-13): armor stopping the atmosphere makes no sense.
    */
   takeDamage(amount: number, from?: THREE.Vector3, source?: PlayerDamageSource, opts?: PlayerDamageOptions): void;
   heal(amount: number): void;
@@ -992,7 +992,7 @@ export interface PlayerRef {
   readonly interior: InteriorCollider | null;
   /**
    * Cutscene camera (docking, launch): blends to `pos` looking at `lookAt`; null releases back to the rig.
-   * 2026-09-11: `setCameraOverride(null, undefined, true)` = **hard cut** back to the rig (드론 시점 복귀 — a slow blend
+   * 2026-09-11: `setCameraOverride(null, undefined, true)` = **hard cut** back to the rig (returning from the drone view — a slow blend
    * would sweep the camera through terrain from a distant drone). Plain `null` still blends out as before.
    */
   setCameraOverride(pos: THREE.Vector3 | null, lookAt?: THREE.Vector3, snap?: boolean): void;
@@ -1006,7 +1006,7 @@ export interface PlayerRef {
   setInPod(inPod: boolean): void;
   /* ── appended: down / revive / respawn / quick-use (Phase 2, owner: player) ── */
   /**
-   * 전투불능: hp reached 0 but the player is not dead yet — crawling prone, no weapons, a separate `downHp`
+   * Downed: hp reached 0 but the player is not dead yet — crawling prone, no weapons, a separate `downHp`
    * (PLAYER_DOWN_HP) bleeding PLAYER_DOWN_BLEED_PER_SEC. Damage while downed hits `downHp`; at 0 → `player:died`.
    * `isDead` stays false while downed.
    */
@@ -1055,7 +1055,7 @@ export interface PlayerRef {
   /** Damage reduction currently granted by armor (0..0.9). Read by the HUD. */
   readonly damageReduction: number;
   /** Burning (incendiary / fire zone): applies DoT and suppresses the grit save. */
-  /** `source` appended (2026-09-15, 결과 창 개편): 불을 붙인 출처 — 화상 틱의 `player:damaged.source` · 사망 원인이 된다. 생략 = 모름. */
+  /** `source` appended (2026-09-15, result screen rework): what set the fire — it becomes the burn tick's `player:damaged.source` and the death cause. Omitted = unknown. */
   setBurning(dps: number, duration: number, source?: PlayerDamageSource): void;
   readonly isBurning: boolean;
 
@@ -1085,26 +1085,26 @@ export interface PlayerRef {
  * `behemoth` (4× bug, armoured front shell, line charge with knockback).
  */
 export type EnemyType = 'scavenger' | 'hunter' | 'warrior' | 'spewer' | 'charger' | 'rogue' | 'rogue_boss' | 'artillery' | 'toxic' | 'behemoth'
-  /* appended (2026-09-11): 네임드 로그 3종 (`shared/named`) + 로든의 스캔 드론. 전부 팩션 rogue. */
+  /* appended (2026-09-11): the 3 named rogues (`shared/named`) + 로든's scan drone. All faction rogue. */
   | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone'
-  /* appended (2026-09-13): 행성 threat 별 인간형 팩션 — 안드로이드(threat 1) · 레이더(threat 2–3). 로그는 `rogue` 그대로. */
+  /* appended (2026-09-13): humanoid factions by planet threat — android (threat 1) · raider (threat 2–3). The rogue stays `rogue`. */
   | 'android' | 'raider'
-  /* appended (2026-09-13): 땅굴벌레 — 땅에 박힌 채 버그를 뱉고 독극물을 뱉는 이벤트 보스 (팩션 bug, `enemies/sandworm`). */
+  /* appended (2026-09-13): the sandworm — an event boss stuck in the ground that spits bugs and poison (faction bug, `enemies/sandworm`). */
   | 'sandworm'
-  /* appended (2026-09-15): 어린 땅굴벌레 — 위협 1 행성의 땅굴벌레. 체력 `SANDWORM_WEAK_HP` 고정 · 몸 `SANDWORM_WEAK_SCALE` 배 ·
-     분출 반경 같은 배수 · 스캐빈저만 뱉는다. 같은 리그(`models/WormModel`) · 같은 디렉터. */
+  /* appended (2026-09-15): the young sandworm — the sandworm of a threat 1 planet. Fixed `SANDWORM_WEAK_HP` hp · body × `SANDWORM_WEAK_SCALE` ·
+     eruption radius by the same multiplier · spits scavengers only. The same rig (`models/WormModel`) · the same director. */
   | 'sandworm_weak'
-  /* appended (2026-09-14 3차): 튜토리얼 전용 4종. 수치 · 리그 · AI 는 **바탕 종류**(`enemies/EnemyTypes.baseTypeOf` —
-     `tut_bug*` = scavenger · `tut_android*` = android 체력 절반) 그대로이고, 다른 것은 **고정 드롭** 하나뿐이다
-     (`data/loot_corpses.csv` · `loot_corpse_rolls.csv`). 본편 레이드 · 훈련장에는 서지 않는다
-     (`world/tutorial` 의 목록만이 이 id 를 쓴다). */
+  /* appended (2026-09-14 3rd pass): 4 tutorial-only kinds. Numbers · rig · AI are the **base kind**'s
+     (`enemies/EnemyTypes.baseTypeOf` — `tut_bug*` = scavenger · `tut_android*` = android at half hp) as they are, and the
+     only difference is a **fixed drop** (`data/loot_corpses.csv` · `loot_corpse_rolls.csv`). They never stand in a
+     main-game raid or on the training range (only the lists of `world/tutorial` use these ids). */
   | 'tut_bug_loot' | 'tut_bug' | 'tut_android_loot' | 'tut_android'
-  /* appended (2026-09-17): 포병이 평생 한 번 불러내는 소환 스캐빈저 — 수치 · 리그 · AI · 소리는 scavenger (`enemies/EnemyTypes.baseTypeOf`), 드롭 0 %. */
+  /* appended (2026-09-17): the summoned scavenger an artillery bug calls exactly once in its life — numbers · rig · AI · sound are scavenger's (`enemies/EnemyTypes.baseTypeOf`), drop 0 %. */
   | 'scavenger_summon'
-  /* appended (2026-09-18, 사용자 결정 「벌레 알을 파괴 가능한 적으로」): 둥지 밑동의 **벌레 알**. 움직이지 · 공격하지 · 알아채지
-     않는 팩션 bug 의 고정 표적 (`enemies/models/EggModel.ts` 자기 리그, `enemies/NestDirector.ts` 가
-     `WorldRef.getNestEggSpots()` 자리에 세운다). 경직 · 넉백 면역이고 인원수 · 압박 · 포병 지원 계산 어디에도 들지
-     않는다 (`Enemy.isCombatant` 가 false 라 세는 자리가 전부 빠진다). */
+  /* appended (2026-09-18, user's decision 「bug eggs become destructible enemies」): the **bug egg** at the foot of a nest.
+     A stationary faction-bug target that never moves · attacks · notices (`enemies/models/EggModel.ts` is its own rig,
+     `enemies/NestDirector.ts` stands it on a `WorldRef.getNestEggSpots()` spot). Immune to stagger · knockback, and it
+     enters no head count · pressure · artillery-support maths (`Enemy.isCombatant` is false, so every counting site skips it). */
   | 'bug_egg';
 /**
  * Factions fight each other on sight (Phase 4). **Every pair of different factions is hostile** (2026-09-13) —
@@ -1123,8 +1123,8 @@ export interface EnemyRef {
   readonly isDead: boolean;
   readonly object: THREE.Object3D;
   /**
-   * `attacker` appended (2026-09-11, 원격 지뢰 킬 크레딧): 피해를 준 쪽 — `'local'` · PeerId · `'ai'`.
-   * 생략하면 예전처럼 `'local'`. 가젯처럼 소유자가 따로 있는 피해원이 크레딧을 넘길 때 쓴다.
+   * `attacker` appended (2026-09-11, remote-mine kill credit): who dealt the damage — `'local'` · a PeerId · `'ai'`.
+   * Omitted it is `'local'`, as before. Used when a damage source with an owner of its own, such as a gadget, hands the credit over.
    */
   takeDamage(amount: number, hitPoint?: THREE.Vector3, hitDir?: THREE.Vector3, attacker?: string): void;
   /* appended (Phase 4) */
@@ -1134,7 +1134,7 @@ export interface EnemyRef {
   readonly isIncapacitated: boolean;
   /**
    * appended (2026-09-11, C-62): the point on this body's **hitboxes** nearest to `from`, written into `out` and
-   * returned. Melee aims its cone at it, so a body that is not standing upright (엎드린 로든 — the lying capsule the
+   * returned. Melee aims its cone at it, so a body that is not standing upright (a prone 로든 — the lying capsule the
    * raycast already uses) is struck where it actually lies. Optional: callers fall back to `position` + `height`.
    */
   nearestBodyPoint?(from: THREE.Vector3, out: THREE.Vector3): THREE.Vector3;
@@ -1171,7 +1171,7 @@ export interface EnemyManagerRef {
   getAliveCount(): number;
   /** Ray vs enemy hitboxes (capsules/spheres). Nearest hit or null. */
   raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): EnemyHit | null;
-  /** Radial damage (`shared/explosion` 2단 계단 감쇠 + 적 전용 하한 0.15). Returns kills. */
+  /** Radial damage (`shared/explosion`'s two-step falloff + an enemy-only floor of 0.15). Returns kills. */
   applyExplosion(center: THREE.Vector3, radius: number, damage: number): number;
   /** Intensity 0..1 for ambient pressure (used by GameFlow/difficulty). */
   setThreatLevel(level: number): void;
@@ -1216,7 +1216,7 @@ export interface EnemyManagerRef {
  * ──────────────────────────────────────────────────────────────────────────── */
 /**
  * `Interactable.kind` (appended 2026-09-11, C-4). Add members, never rename. Unset = unknown (readers use the id prefix).
- * `object` is deliberately **not** on `Interactable` — the mesh outline it would have fed went away with the 빛기둥 rule.
+ * `object` is deliberately **not** on `Interactable` — the mesh outline it would have fed went away with the light-pillar rule.
  */
 export type InteractableKind =
   | 'corpse' | 'playerCorpse' | 'crate' | 'container' | 'gather' | 'pickup' | 'deployable' | 'drone'
@@ -1238,7 +1238,7 @@ export interface Interactable {
   /**
    * appended (2026-09-11, C-4): what this is, for code that used to guess from the id prefix (`ui/hud/pillar` · 정찰
    * `implants/effects/Scan`). Readers use `kind` first and fall back to the prefix when it is undefined. Set at least on
-   * the two corpse kinds — `'corpse'` = 적 시체 `corpse:<id>`, `'playerCorpse'` = 분대원 시체 `pcorpse:<owner>:<n>`.
+   * the two corpse kinds — `'corpse'` = an enemy corpse `corpse:<id>`, `'playerCorpse'` = a squadmate corpse `pcorpse:<owner>:<n>`.
    */
   kind?: InteractableKind;
   /**
@@ -1360,7 +1360,7 @@ export interface InventoryRef {
    */
   createTradeGrids(host: HTMLElement, opts?: TradeGridsViewOptions): EmbeddedView;
 
-  /* ══ appended 2026-09-12: 인벤토리 타일과 똑같은 독립 타일 ══════════════════════════════════════════════ */
+  /* ══ appended 2026-09-12: a standalone tile identical to an inventory tile ════════════════ */
   /**
    * A standalone tile that looks exactly like an inventory grid tile — `w × h` footprint at `cell` px (default 54),
    * rarity background, qty badge, durability bar — stamped `data-item-tip` + `data-def-id` so `ui/hud/ItemTip`
@@ -1387,7 +1387,7 @@ export interface TradeGridsViewOptions {
    * 가방 / 함선 창고 grids must match the 5-column 구매 / 판매 tray beside them.
    */
   cell?: number;
-  /* ── appended 2026-09-13 (기업 화면 카드 분리 — `inventory/ui/TradeGrids`) ── */
+  /* ── appended 2026-09-13 (splitting the corp screen into cards — `inventory/ui/TradeGrids`) ── */
   /** Label of the right-click menu's first entry (what `onTake` does on this screen). Default `빠른 이동`. */
   takeLabel?: string;
   /**
@@ -1413,7 +1413,7 @@ export interface TradeGridsView extends EmbeddedView {
   setCell(px: number): void;
   /** Append one chip row that filters every block of the view into `host` (created on first call); returns it. */
   mountFilterChips(host: HTMLElement): HTMLElement;
-  /* ── appended 2026-09-16 (사용자 보고 「장착된 것을 끌어서 뺄 때 커서가 놓인 칸으로 가야 한다」) ── */
+  /* ── appended 2026-09-16 (user's report 「dragging an equipped item out must put it in the cell the cursor is on」) ── */
   /**
    * An item that is **not in any grid yet** (a shelf's book, a cluster's core, a station's product) released at
    * viewport point `x, y`: put it in the cell under the cursor. The view resolves the cell exactly as a tile drag
@@ -1425,7 +1425,7 @@ export interface TradeGridsView extends EmbeddedView {
    * cursor was not over a cell at all (the caller falls back to its own destination rule).
    */
   placeExternalAt?(item: ItemInstance, x: number, y: number): 'bag' | 'stash' | 'blocked' | null;
-  /* ── appended 2026-09-17 (사용자 보고 「가구에서 끌어낸 것도 장비칸에서 끌 때처럼 **커서 밑 칸**이 강조돼야 한다」) ── */
+  /* ── appended 2026-09-17 (user's report 「something dragged out of furniture must highlight **the cell under the cursor** too, like a drag from an equipment slot」) ── */
   /**
    * Hover feedback for the same drop `placeExternalAt` would make: highlights the footprint of `defId × qty`
    * (unrotated) in the cell under viewport point `x, y` — `'ok'` (free), `'merge'` (joins that stack) or `'bad'`
@@ -1443,10 +1443,10 @@ export interface TradeGridsView extends EmbeddedView {
  * (personal ship) or the shared-ship terminal, left through the arena's exit console (`training:exitRequested`).
  * Ammo / durability spent in a training are restored on exit (game/ captures + re-applies `captureRaidState`).
  *
- * appended (2026-09-14, 튜토리얼 개편 — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): `'tutorial'` = 손으로 지은 튜토리얼 행성
- * (`world/tutorial/`). 절차 생성기를 아예 타지 않고 안개 · 재해 · 상자 · 채집 · 둥지가 없다. 적은 고정 자리에
- * 고정 종류로만 서고, 죽으면 체크포인트에서 다시 선다 (`ctx.world.tutorial` = `TutorialWorldRef`).
- * 훈련장과 달리 **진짜 레이드**다 — 전리품 · XP 가 프로필로 넘어가고 탈출은 평소 경로를 그대로 쓴다.
+ * appended (2026-09-14, tutorial rework — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」): `'tutorial'` = the hand-built tutorial planet
+ * (`world/tutorial/`). It never goes through the procedural generator and has no fog · hazards · crates · gathering · nests.
+ * Enemies stand only in fixed spots as fixed kinds, and a death puts you back at a checkpoint (`ctx.world.tutorial` = `TutorialWorldRef`).
+ * Unlike the training range it is a **real raid** — loot · XP carry into the profile and extraction takes the usual road.
  */
 export type MissionMode = 'raid' | 'training' | 'tutorial';
 export interface MissionStats {
@@ -1463,8 +1463,8 @@ export interface PlayerRestoreState {
   /** 0 alive · 1 downed · 2 dead (`GhostState`). */
   state: 0 | 1 | 2;
   /**
-   * appended (2026-09-10): 실드. 생략(옛 세이브 · 옛 호스트)이면 **0 이 아니라 방탄복의 최대치**로 복구한다 —
-   * 모르는 값을 0 으로 읽으면 재접속한 사람만 조용히 실드를 잃는다.
+   * appended (2026-09-10): the shield. Omitted (an old save · an old host) it is restored to **the armor's maximum, not 0** —
+   * reading an unknown value as 0 makes only the person who reconnected silently lose their shield.
    */
   shield?: number;
 }
@@ -1481,8 +1481,8 @@ export interface PlayerRef {
   /** true while the 용검 heavy slash pose is playing (`startMelee('heavy')`); MELEE_HEAVY on the wire. */
   readonly isMeleeHeavy: boolean;
   /**
-   * appended (2026-09-13, owner: player): 즉시 **완전 사망** — 전투불능을 건너뛰고 실드 · 체력과 상관없이 `player:died` 를 낸다.
-   * 이미 죽었으면 no-op. 부르는 곳은 game/ 의 자발적 귀환(`game:returnToShip`) 하나다.
+   * appended (2026-09-13, owner: player): instant **full death** — it skips downed and emits `player:died` whatever the shield · hp.
+   * A no-op when already dead. The only caller is game/'s voluntary return (`game:returnToShip`).
    */
   die?(): void;
 }
@@ -1502,7 +1502,7 @@ export interface WeaponRemoteState {
   /** Attachment def ids socketed on the active weapon (empty when none). Same array instance while unchanged. */
   attachments: readonly string[];
   /**
-   * appended (2026-09-11): the hand is the slotless **기폭기** left after the last 원격 지뢰 was placed (`heldItemId` stays
+   * appended (2026-09-11): the hand is the slotless **detonator** left after the last remote mine was placed (`heldItemId` stays
    * the C4 def id). gadgets turns the placement preview off while true; ui shows `우클릭 기폭 (n)`.
    */
   detonator?: boolean;
@@ -1511,7 +1511,7 @@ export interface WeaponsRef {
   /* ── appended: Phase 7 (owner: weapons) ── */
   readonly remoteState: WeaponRemoteState;
 }
-/** appended (2026-09-16, 우하단 무기 패널): one primary slot's magazine readout — the numbers `weapon:ammoChanged` carries. */
+/** appended (2026-09-16, the bottom-right weapon panel): one primary slot's magazine readout — the numbers `weapon:ammoChanged` carries. */
 export interface WeaponSlotAmmo {
   weaponId: string;
   magSize: number;
@@ -1587,7 +1587,7 @@ export interface EmbeddedView {
   /** Remove every element and listener the view added to the host. */
   dispose(): void;
   /**
-   * appended (2026-09-13, owner: progression — 캐릭터 탭의 확정 전 능력치 포인트): the host is about to leave this view **because
+   * appended (2026-09-13, owner: progression — unconfirmed stat points on the 캐릭터 tab): the host is about to leave this view **because
    * the player asked** (another screen tab, Tab / Escape close). A view with unsaved work returns **true** — it intercepted, the host
    * must stop there — and calls `proceed()` later if the player chooses to go on anyway (e.g. `버리고 이동`). false / omitted = leave
    * now. Forced exits (phase change, death, `openScreen`, …) do not ask: they just `dispose()`, which discards silently.
@@ -1597,16 +1597,16 @@ export interface EmbeddedView {
 
 /**
  * Volume channels the settings menu exposes. `sfx` scales gameplay one-shots; `master` scales everything.
- * appended (2026-09-14): `'bgm'` — 축음기 · 주크박스 · 턴테이블의 음악 재생 창이 보여 주는 채널. 사용자 결정으로 **소리는 아직 나지 않는다**
- * (외부 에셋 금지 · 절차 음악 미구현), 그래서 audio/ 는 이 채널의 GainNode 를 만들어 두기만 하고 아무것도 그 밑에 걸지 않는다.
- * 음악을 실제로 넣게 되면 그 노드에 걸면 되고 설정 · 저장 · UI 는 한 줄도 안 바뀐다.
+ * appended (2026-09-14): `'bgm'` — the channel the music player window of the 축음기 · 주크박스 · 턴테이블 shows. By the user's decision **no sound comes out yet**
+ * (no external assets · procedural music unimplemented), so audio/ only creates this channel's GainNode and hangs nothing under it.
+ * Once music really goes in it is hung on that node, and settings · saving · UI do not change by a line.
  */
 export type AudioChannel = 'master' | 'sfx' | 'bgm';
 
 export interface AudioSettings {
   master: number;
   sfx: number;
-  /** appended (2026-09-14). 옛 세이브에는 없으므로 읽는 쪽이 `AUDIO_DEFAULT_BGM` 으로 채운다. */
+  /** appended (2026-09-14). An old save has none, so the reader fills it with `AUDIO_DEFAULT_BGM`. */
   bgm: number;
 }
 
@@ -1656,15 +1656,15 @@ export interface WorldRef {
   /** 시뮬레이션 훈련장 controller; null outside a training world. */
   readonly training: TrainingRef | null;
   /**
-   * appended (2026-09-14): 튜토리얼 월드의 체크포인트 · 낙하 규칙 (`training` 과 같은 자리 · 같은 규약).
-   * 튜토리얼 월드가 아니면 null — 낙하 피해는 그때 언제나 전역 규칙이다.
+   * appended (2026-09-14): the tutorial world's checkpoints · fall rules (the same slot · the same convention as `training`).
+   * Null outside a tutorial world — fall damage is then always the global rule.
    */
   readonly tutorial: import('./tutorialWorld').TutorialWorldRef | null;
 }
 
-/* ══ appended: Phase 10 — UI 개선 pass (2026-09-07) ═════════════════════════════════════════════════════════ */
+/* ══ appended: Phase 10 — UI improvement pass (2026-09-07) ════════════════════════════════════════════════ */
 
-/* ── 다각화된 적 사망 + 확률 루팅 (owner: enemies) ── */
+/* ── varied enemy deaths + chance-based looting (owner: enemies) ── */
 /** Which way a dying body goes down. Decided deterministically from the world seed × enemy id, so every client agrees. */
 export type EnemyDeathDir = 'left' | 'right' | 'back';
 /** Wire order of `EnemyDeathDir` (`ee kill/corpse.dd` is an index into this; omitted = 0 = `'left'`). */
@@ -1678,21 +1678,21 @@ export const CORPSE_LOOT_CHANCE: Readonly<Record<EnemyType, number>> = {
   scavenger: 0.1, toxic: 0.1, hunter: 0.1,
   spewer: 0.35, warrior: 0.35, artillery: 0.35, charger: 0.35,
   behemoth: 1, rogue: 1, rogue_boss: 1,
-  /* appended (2026-09-11): 네임드는 늘 수색된다, 스캔 드론은 잔해뿐이다 */
+  /* appended (2026-09-11): a named rogue is always searchable, the scan drone is only wreckage */
   rogue_sniper: 1, rogue_hammer: 1, rogue_heavy: 1, rogue_scan_drone: 0,
-  /* appended (2026-09-13): 안드로이드 · 레이더도 늘 수색된다 */
+  /* appended (2026-09-13): androids · raiders are always searchable too */
   android: 1, raider: 1,
-  /* appended (2026-09-13): 땅굴벌레는 늘 수색된다 (보스급 전리품 — data/loot_corpses.csv) */
+  /* appended (2026-09-13): the sandworm is always searchable (boss-grade loot — data/loot_corpses.csv) */
   sandworm: 1,
-  /* appended (2026-09-15): 어린 땅굴벌레도 늘 수색된다 (작은 표 — data/loot_corpses.csv 의 `sandworm_weak`) */
+  /* appended (2026-09-15): the young sandworm is always searchable too (a smaller table — `sandworm_weak` in data/loot_corpses.csv) */
   sandworm_weak: 1,
-  /* appended (2026-09-14 3차): 튜토리얼 — `_loot` 둘만 늘 수색되고(고정 드롭 100 %), 나머지 둘은 **빈 시체**라
-     아예 열리지 않는다 (0 = 상호작용이 서지 않는다 — 빈 격자를 여는 것보다 조용하다). */
+  /* appended (2026-09-14 3rd pass): tutorial — only the two `_loot` kinds are always searchable (a fixed 100 % drop); the other two are
+     **empty corpses** and never open at all (0 = no interactable is registered — quieter than opening an empty grid). */
   tut_bug_loot: 1, tut_android_loot: 1, tut_bug: 0, tut_android: 0,
-  /* appended (2026-09-17): 포병의 소환 스캐빈저 — 드롭 0 % (수색 자체가 서지 않는다, `tut_bug` 와 같은 빈 시체) */
+  /* appended (2026-09-17): the artillery bug's summoned scavenger — drop 0 % (no search is registered at all, an empty corpse like `tut_bug`) */
   scavenger_summon: 0,
-  /* appended (2026-09-18): 벌레 알 — 부순 알은 **늘 수색된다**. 둥지 둘레의 상자가 없어진 뒤로 둥지의 보상이 알이다
-     (`data/loot_corpses.csv` 생체 조직 · `loot_corpse_samples.csv` 미확인 세포) */
+  /* appended (2026-09-18): the bug egg — a broken egg is **always searchable**. Since the crate ring around a nest went away the eggs
+     are the nest's reward (`data/loot_corpses.csv` 생체 조직 · `loot_corpse_samples.csv` 미확인 세포) */
   bug_egg: 1,
 };
 
@@ -1702,18 +1702,18 @@ export interface EnemyRef {
   /** false when this corpse rolled un-searchable (`CORPSE_LOOT_CHANCE`); undefined while alive. */
   readonly lootable?: boolean;
   /**
-   * appended (2026-09-18): 이 몸은 **벌레 알**(`bug_egg`)이다 — 둥지 밑동에 박힌 채 움직이지 · 돌지 · 공격하지 · 알아채지
-   * 않는 고정 표적이고 `enemies/` 안에서는 「살아 싸우는 몸」으로 세지 않는다.
+   * appended (2026-09-18): this body is a **bug egg** (`bug_egg`) — a fixed target planted at the foot of a nest that never
+   * moves · turns · attacks · notices, and inside `enemies/` it is not counted as 「a living, fighting body」.
    *
-   * 다른 폴더가 **적 목록을 위협으로 읽을 때** 이것으로 거른다 — `ctx.enemies.getEnemies()` 는 알도 그대로 담는다
-   * (쏘고 · 폭발로 부수고 · 시체를 뒤져야 하므로 목록에서 빼지 않는다). 레이더 · 위험 표시 · 포탑 표적 · 안드로이드
-   * 지시처럼 「지금 나를 위협하는 적」을 세는 자리는 알을 빼야 한다. `type === 'bug_egg'` 와 같은 뜻이고, 이 칸이
-   * 그 규칙의 이름이다.
+   * Another folder filters on it **when it reads the enemy list as a threat** — `ctx.enemies.getEnemies()` still holds the eggs
+   * (they must be shootable, blastable and lootable, so they are not left out of the list). Anywhere that counts 「the enemies
+   * threatening me now」 — the radar, danger indicators, turret targeting, android orders — has to drop them. It means the same
+   * as `type === 'bug_egg'`, and this field is the name of that rule.
    */
   readonly isEgg?: boolean;
 }
 
-/* ── 부상자 들쳐메기 (owner: player) ── */
+/* ── carrying a wounded squadmate (owner: player) ── */
 /** Why a carried squadmate was put back down. `'action'` = the carrier did something other than run. */
 export type CarryEndReason = 'manual' | 'action' | 'damage' | 'revived' | 'died' | 'reset';
 
@@ -1741,7 +1741,7 @@ export interface PlayerWeaponHost {
   getShoulderSocket?(): THREE.Object3D;
 }
 
-/* ── 발사 준비 패널 초상화 (owner: player, hosted by hub) ── */
+/* ── launch-readiness panel portraits (owner: player, hosted by hub) ── */
 /**
  * A strip of character portraits rendered into a DOM element. player/ owns it because it needs `SoldierModel`; it uses
  * its **own** `THREE.WebGLRenderer` + scene + lights, because `core/Engine` renders through the composer at the end of
@@ -1767,7 +1767,7 @@ export interface PlayerRef {
    */
   createPortraits(host: HTMLElement, cells: number): PortraitRef | null;
   /**
-   * appended (2026-09-15, 터미널 매칭 탭): one square face portrait with the **same framing as the character-creation
+   * appended (2026-09-15, the terminal's 매칭 tab): one square face portrait with the **same framing as the character-creation
    * confirm card** (head and shoulders, turned toward the camera's left diagonal), rendered once and returned as a PNG
    * data URL. `accent` = `#rrggbb` (`LobbyPlayer.accent`, falling back to the slot colour). null when no second WebGL
    * context is available — callers draw a name-only tile. May return a cached image for an accent it already drew.
@@ -1775,7 +1775,7 @@ export interface PlayerRef {
   snapshotFace?(opts: { accent: string; size?: number }): string | null;
 }
 
-/* ── 분대원 장비 열람 (owner: inventory) ── */
+/* ── viewing a squadmate's gear (owner: inventory) ── */
 /** Options for `InventoryRef.createCrewLoadoutView`. */
 export interface CrewLoadoutViewOptions {
   /** Name shown in the header (`LobbyPlayer.name`). */
@@ -1803,19 +1803,19 @@ export interface InventoryRef {
   createCrewLoadoutView(host: HTMLElement, loadout: unknown, opts?: CrewLoadoutViewOptions): EmbeddedView | null;
 }
 
-/* ══ appended: Phase 11 — 행성 선택 (2026-09-07) ════════════════════════════════════════════════════════════ */
+/* ══ appended: Phase 11 — planet selection (2026-09-07) ═════════════════════════════════════════════════ */
 
 export interface HubRef {
-  /* ── 목표 행성 (owner: hub; the terminal is the only place it is picked) ── */
+  /* ── the target planet (owner: hub; the terminal is the only place it is picked) ── */
   /**
-   * 목표 행성 of the next raid, or null while nothing is picked. In a lobby this mirrors `LobbyState.planet` (the
+   * The target planet of the next raid, or null while nothing is picked. In a lobby this mirrors `LobbyState.planet` (the
    * host's choice); solo it is the local pick, remembered in localStorage `PLANET_STORAGE_KEY`. Launch slots refuse
    * boarding while it is null.
    */
   readonly planet: PlanetId | null;
   /**
-   * Pick the 목표 행성. Refused (`false`) for a non-host in a lobby, while a launch countdown runs, while already
-   * travelling, and for an unknown id. On success the ship flies there: `hub:travel {stage:'start'}` → the 창문 워프
+   * Pick the target planet. Refused (`false`) for a non-host in a lobby, while a launch countdown runs, while already
+   * travelling, and for an unknown id. On success the ship flies there: `hub:travel {stage:'start'}` → the window warp
    * (2026-09-09: seen through the viewports, controls stay on, `hub:warpProgress` every frame) →
    * `hub:travel {stage:'end'}` → `hub:planetChanged`. In a lobby the host also calls `ctx.net.setLobbyPlanet`, and
    * every member's own `lobby:state` starts the same warp locally.
@@ -1826,16 +1826,16 @@ export interface HubRef {
 }
 
 export interface WorldRef {
-  /* ── 행성 (owner: world) ── */
+  /* ── the planet (owner: world) ── */
   /**
    * Planet the current world was generated for, or null when it came from the seeded biome draw (an older client,
    * a training, a `game:newMission` without one). `world:ready.planet` carries the same value.
-   * (2026-09-15: `MissionComplete` 의 `다시 배치` 는 사용자 결정으로 기능째 없어졌다.)
+   * (2026-09-15: `MissionComplete`'s `다시 배치` was removed, the feature and all, by the user's decision.)
    */
   readonly planet: PlanetId | null;
 }
 
-/* ══ appended: 2026-09-07 UI/UX pass — 기업 화면이 Tab 창의 탭이 되었다 ══════════════════════════════════════ */
+/* ══ appended: 2026-09-07 UI/UX pass — the corp screen became a tab of the Tab window ════════════ */
 
 /** A screen of the Tab window (`InventoryRef.openScreen` / `screenTab`). */
 export type InventoryScreenTab = 'inventory' | 'character' | 'corp' | 'ship';
@@ -1851,15 +1851,15 @@ export interface InventoryRef {
   readonly screenTab: InventoryScreenTab;
 }
 
-/* ══ appended: 2026-09-08 — 임플란트(능력치 장착 아이템) · 배리어 충돌 · 총알 추적 · 스캔 실루엣 ═══════════════════
+/* ══ appended: 2026-09-08 — implants (stat-granting equippables) · barrier collision · bullet tracking · scan silhouettes ═
  * Contract for the 2026-09-08 batch (see `docs/DECISIONS.md` 「Phase 12」).
  * Append-only, as always. Owners are named per member.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
 /**
- * category 'implant' (owner: items). An 임플란트 is a Hollow-Knight-charm style equippable: it occupies `slots` of the
+ * category 'implant' (owner: items). An implant is a Hollow-Knight-charm style equippable: it occupies `slots` of the
  * character's implant slots (`ProgressionRef.implantSlots`, 4 + 1 per 5 levels, max 10) and adds `stats` to the five
- * base stats while equipped. `broken` implants (raid loot) give nothing and cannot be equipped; 세레스 바이오's 임플란트
+ * base stats while equipped. `broken` implants (raid loot) give nothing and cannot be equipped; 세레스 바이오's implant
  * desk repairs one into `repairsTo` for the materials in `repairCost`. Legendary implants may carry a `perk`
  * (`PerkId`, progression folds it into `DerivedStats.perks`). Equip / unequip only in the ship, never mid-raid.
  */
@@ -1870,7 +1870,7 @@ export interface ImplantItemDef {
   stats: Partial<Record<import('./progression').StatId, number>>;
   /** Legendary perk this implant grants (progression → `derived.perks[perk] = true`). */
   perk?: import('./progression').PerkId;
-  /** 망가진 임플란트: cannot be equipped, gives nothing; only a repair desk wants it. */
+  /** A broken implant: cannot be equipped, gives nothing; only a repair desk wants it. */
   broken?: boolean;
   /** Broken only: the def id this repairs into at 세레스 바이오. */
   repairsTo?: string;
@@ -1901,35 +1901,35 @@ export interface EnemyManagerRef {
   setXray(ids: readonly number[], seconds: number): void;
 }
 
-/* ══ appended: 출격 준비 점검 (2026-09-08, owner: inventory) ═══════════════════════════════════════════════════════
- * 발사 슬롯에 타기 전에 "이대로 나가면 곤란한" 것들을 한 번에 훑는다. 판정은 전부 인벤토리가 한다 — 가방 · 장착
- * 장비 · 탄약 스택 · 회복 아이템을 아는 건 거기뿐이고, `hub/` 는 결과 목록을 그리기만 한다.
- * 여섯 가지 모두 **경고**일 뿐 탑승을 막지 않는다: 확인을 누르면 그대로 출격한다.
+/* ══ appended: the launch readiness check (2026-09-08, owner: inventory) ═════════════════════════════════════
+ * Before boarding a launch slot it sweeps in one pass everything that would be "awkward if you went out like this". Every
+ * judgement is the inventory's — it alone knows the bag · equipped gear · ammo stacks · healing items; `hub/` only draws the list.
+ * All six are **warnings** and none blocks boarding: press confirm and the launch goes ahead.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
 export type LaunchWarningId =
-  | 'noPrimary'    // 주무기(주무기 I · II)를 하나도 안 들었다
-  | 'lowAmmo'      // 들고 있는 무기의 구경 탄약이 한 세트(= 한 칸, `AMMO_STACK_ROUNDS`) 미만이다
-  | 'noBag'        // 가방 미장착
-  | 'noArmor'      // 방탄복 미장착
-  | 'noImplant'    // 전술 임플란트 미장착 (`ctx.implants.equipped`)
-  | 'noHeal'       // 회복 아이템(category 'stim')이 가방에 없다
-  /* appended (2026-09-11, A-13): 목표 행성에 상시 환경(`PlanetDef.env`)이 있는데 그 환경을 막는 준비물이
-   * 이번 레이드에 실려 있지 않다. **경고일 뿐 막지 않는다** — 소프트 게이트가 사용자 결정이다. */
+  | 'noPrimary'    // not carrying a single primary (주무기 I · II)
+  | 'lowAmmo'      // less than one set (= one cell, `AMMO_STACK_ROUNDS`) of the calibre of a carried weapon
+  | 'noBag'        // no bag equipped
+  | 'noArmor'      // no armor equipped
+  | 'noImplant'    // no tactical implant equipped (`ctx.implants.equipped`)
+  | 'noHeal'       // no healing item (category 'stim') in the bag
+  /* appended (2026-09-11, A-13): the target planet has a standing environment (`PlanetDef.env`) but the preparation that
+   * blocks it is not loaded for this raid. **A warning only, it does not block** — the soft gate is the user's decision. */
   | 'noEnvPrep'
-  /* appended (2026-09-11, A-3c): 식사를 차리지 않았다 (`ProgressionRef.getMeal()` 이 null).
-   * `noEnvPrep` 과 같은 결의 경고일 뿐이다 — 요리는 처음부터 있어도 되고 없어도 되는 이득이다.
-   * 2026-09-12 (사용자 결정): **주방이 있는 함선에서만** 올라온다 — 조리대도 식탁도 없는 사람에게
-   * "식사를 차리지 않았습니다" 는 고칠 길이 없는 잔소리다 (`ctx.housing.getBenchLevel('cook')`). */
+  /* appended (2026-09-11, A-3c): no meal has been laid out (`ProgressionRef.getMeal()` is null).
+   * A warning of the same grain as `noEnvPrep` — cooking is a benefit you may have or go without from the start.
+   * 2026-09-12 (user's decision): it comes up **only on a ship with a kitchen** — to someone with neither a cook bench nor
+   * a dining table, "식사를 차리지 않았습니다" is nagging with no way to fix it (`ctx.housing.getBenchLevel('cook')`). */
   | 'noMeal'
-  /* appended (2026-09-12, 사용자 결정): 수락한 기업 계약 없이 나가려 한다 (`ctx.meta.activeContract` 가 null).
-   * 역시 **경고일 뿐 막지 않는다** — 계약 없이 도는 레이드도 정상이지만, 한 판을 통째로 날리기 전에 한 번은 묻는다. */
+  /* appended (2026-09-12, user's decision): going out with no accepted corp contract (`ctx.meta.activeContract` is null).
+   * Again **a warning only, it does not block** — a raid run without a contract is normal, but it asks once before a whole run is spent. */
   | 'noContract'
-  /* appended (2026-09-16, 접시 모델 — 사용자 결정): 식탁에 먹지 않은 접시가 있는데 이미 다른 식사를 실어 두었다 — 출격하면 그 접시는
-   * 치워진다 (`HousingRef.getPlate`). 접시만 있고 식사가 없으면 `noMeal` 이 「식탁의 요리를 먹지 않았습니다」로 말한다. 막지 않는다. */
+  /* appended (2026-09-16, the plate model — user's decision): the dining table holds an uneaten plate while another meal is already loaded —
+   * launching clears that plate (`HousingRef.getPlate`). With only a plate and no meal, `noMeal` says 「식탁의 요리를 먹지 않았습니다」 instead. It does not block. */
   | 'plateDiscard';
 
-/** One reason the launch check raised. Both strings are 한국어 and ready to render. */
+/** One reason the launch check raised. Both strings are Korean and ready to render. */
 export interface LaunchWarning {
   id: LaunchWarningId;
   /** Headline (`주무기가 없습니다`). */
@@ -1940,22 +1940,22 @@ export interface LaunchWarning {
 
 export interface InventoryRef {
   /**
-   * 출격 준비 점검. Empty array = nothing to warn about. Order is fixed (the `LaunchWarningId` order above) so the
+   * The launch readiness check. Empty array = nothing to warn about. Order is fixed (the `LaunchWarningId` order above) so the
    * popup reads the same every time. Reads only — nothing is equipped, moved or consumed.
    */
   getLaunchWarnings(): LaunchWarning[];
 }
 
-/* ══ appended: 공용 함선 격납고 (2026-09-08, owner: hub) ═══════════════════════════════════════════════════════════
- * 공유 함선 뒤쪽 자동문 너머가 **격납고**다. 분대원 4명의 개인 함선이 바닥에 표시된 구역마다 한 대씩 서 있고,
- * 함선 뒷문(입구)에 상호작용하면 그 사람의 개인 함선 안으로 들어간다 — 남의 함선은 **둘러보기 전용**.
+/* ══ appended: the shared ship's hangar (2026-09-08, owner: hub) ════════════════════════════════════════════
+ * Beyond the automatic door at the back of the shared ship is the **hangar**. The four squadmates' personal ships stand one per bay
+ * marked on the floor, and interacting with a ship's rear door (its entrance) walks you inside that person's personal ship — someone else's is **look-only**.
  *
- * 인테리어는 여전히 한 번에 하나만 존재한다: 격납고는 `'shared'` 인테리어의 일부이고, 베이에 들어가면
- * 인테리어가 `'personal'` 로 교체된다(로비는 그대로 유지된다). 어느 함선 안에 있는지는 `hubSite` 가 말한다.
+ * Only one interior still exists at a time: the hangar is part of the `'shared'` interior, and entering a bay swaps the
+ * interior for `'personal'` (the lobby is kept as it is). Which ship you are inside is what `hubSite` tells.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
 /**
- * One 개인 함선 bay on the hangar deck. `slot` = the lobby slot the bay belongs to. `occupant` is a plain `string`
+ * One personal-ship bay on the hangar deck. `slot` = the lobby slot the bay belongs to. `occupant` is a plain `string`
  * (a `PeerId`) for the same reason `HubLaunchSlot.occupant` is: `types.ts` is imported *by* `net.ts`.
  */
 export interface HubShipBay {
@@ -1971,21 +1971,21 @@ export interface HubShipBay {
 }
 
 export interface HubRef {
-  /* ── appended (2026-09-08): 공용 함선 격납고 ── */
+  /* ── appended (2026-09-08): the shared ship's hangar ── */
   /**
    * The personal ship the player is standing inside, as a PeerId — our own id (or `'local'` offline) in our own
-   * ship, the owner's id in a visited one — and **null on the shared deck (공유 함선 + 격납고)**. This is what
+   * ship, the owner's id in a visited one — and **null on the shared deck (the shared ship + the hangar)**. This is what
    * `PlayerSnapshot.hs` carries, so remote avatars can be hidden for anyone standing somewhere else.
    */
   readonly hubSite: string | null;
   /** PeerId of the ship being **visited** (someone else's), or null in our own ship / on the shared deck. */
   readonly visitingPeer: string | null;
-  /** True while inside someone else's ship: every station, bench and 시설 관리 is refused (둘러보기 전용). */
+  /** True while inside someone else's ship: every station, bench and ship management is refused (look-only). */
   readonly visitReadOnly: boolean;
   /** The hangar's four bays (empty array outside the shared ship). */
   getShipBays(): readonly HubShipBay[];
   /**
-   * Board the 개인 함선 parked in `slot`. Ours enters straight away; a peer's needs their `ship state` (requested on
+   * Board the personal ship parked in `slot`. Ours enters straight away; a peer's needs their `ship state` (requested on
    * the spot when it has not arrived yet, up to `SHIP_VISIT_WAIT_S`). Returns false when the bay is empty or the hub
    * is busy (cutscene / countdown / not in the hangar).
    */
@@ -1995,164 +1995,164 @@ export interface HubRef {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
- * 2026-09-09 — 사망/시체 · 구조선 · 분대장 · 전장의 안개 · 지형지물 위 걷기
+ * 2026-09-09 — death/corpses · the rescue ship · the squad leader · fog of war · walking on terrain features
  *
- * 이 묶음의 계약. 인터페이스는 **선언 병합**으로 늘리기만 한다 (이름 변경 · 삭제 없음).
+ * The contract of this batch. Interfaces only ever grow, by **declaration merging** (no renames · no deletions).
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/* ── 전장의 안개 (owner: world/Fog, 게시: `ctx.world.fog`) ─────────────────────────────────────────────── */
+/* ── fog of war (owner: world/Fog, published on `ctx.world.fog`) ────────────────────────────────── */
 /**
- * 레이드 맵의 탐색 진행도. `MAP_SIZE / FOG_CELL_M` 변의 정사각 그리드 하나가 원본이고,
- * **한 번 밝힌 칸은 레이드가 끝날 때까지 다시 어두워지지 않는다**.
+ * Exploration progress of the raid map. One square grid `MAP_SIZE / FOG_CELL_M` cells to a side is the original, and
+ * **a cell once revealed never goes dark again until the raid ends**.
  *
- * 밝히는 주체는 **분대원 전원**이다 — world 가 매 `FOG_UPDATE_HZ` 마다 로컬 플레이어와
- * `ctx.net.getRemotePlayers()` 의 살아있는(같은 미션 안) 좌표 주위 `FOG_REVEAL_RADIUS` 를 칠한다.
- * 스냅샷이 이미 20 Hz 로 흐르므로 **새 와이어가 필요 없다**. 늦게 합류한 클라이언트만 호스트에게
- * `fogq sync` 로 지금까지의 마스크를 받는다.
+ * What reveals it is **the whole squad** — every `FOG_UPDATE_HZ` world paints `FOG_REVEAL_RADIUS` around the local
+ * player and around the living (same-mission) coordinates of `ctx.net.getRemotePlayers()`.
+ * Snapshots already flow at 20 Hz, so **no new wire is needed**. Only a client that joined late asks the host for
+ * the mask so far with `fogq sync`.
  *
- * 훈련장(`mode === 'training'`)에서는 만들어지지 않는다 (`ctx.world.fog === null`).
+ * It is not built on the training range (`mode === 'training'`) — `ctx.world.fog === null`.
  */
 export interface FogRef {
-  /** 격자 해상도 (한 변의 칸 수). */
+  /** Grid resolution (cells to a side). */
   readonly cells: number;
-  /** 한 칸의 한 변(m) = `FOG_CELL_M`. */
+  /** One cell's edge (m) = `FOG_CELL_M`. */
   readonly cellSize: number;
-  /** 새 칸이 밝혀질 때마다 1 오른다. 지도는 이 값이 바뀔 때만 안개 레이어를 다시 그린다. */
+  /** Rises by 1 every time a new cell is revealed. The map redraws the fog layer only when this value changes. */
   readonly revision: number;
-  /** 밝혀진 칸의 총 수 / 전체 칸 수 (0..1) — HUD 의 탐색률. */
+  /** Revealed cells / total cells (0..1) — the HUD's exploration rate. */
   readonly explored: number;
   /**
-   * 행 우선 `cells × cells` 마스크. 0 = 미탐색, 255 = 밝혀짐.
-   * **읽기 전용으로 다룬다** — 지도 캔버스가 그대로 ImageData 로 밀어 넣는다.
+   * Row-major `cells × cells` mask. 0 = unexplored, 255 = revealed.
+   * **Treated as read-only** — the map canvas pushes it straight into ImageData.
    */
   readonly mask: Uint8Array;
-  /** 월드 좌표가 이미 밝혀진 칸인가. 범위 밖은 true (맵 밖은 가릴 것이 없다). */
+  /** Is this world coordinate an already-revealed cell. Outside the bounds it is true (there is nothing to hide off the map). */
   isRevealed(x: number, z: number): boolean;
-  /** `position` 이 밝혀진 칸에 있는가 — 오브젝트 발견 게이트의 표준 질의. */
+  /** Is `position` in a revealed cell — the standard query of the object-discovery gate. */
   isDiscovered(position: THREE.Vector3): boolean;
-  /** 월드 좌표 주위 `radius` m 를 밝힌다 (world 가 스스로 부르고, 구조선 착륙 같은 이벤트도 쓴다). */
+  /** Reveal `radius` m around a world coordinate (world calls it itself, and events such as a rescue ship landing use it too). */
   reveal(x: number, z: number, radius: number): void;
-  /** 늦게 합류한 클라이언트용 직렬화 (base64) / 적용. 호스트만 만든다. */
+  /** Serialize (base64) / apply, for a client that joined late. Only the host builds it. */
   serialize(): string;
   applySerialized(data: string): void;
 }
 
 export interface WorldRef {
   /* ── appended (2026-09-09) ── */
-  /** 전장의 안개. 레이드에서만 존재하고 훈련장에서는 null. */
+  /** Fog of war. It exists only in a raid and is null on the training range. */
   readonly fog: FogRef | null;
   /**
-   * **걸어 다닐 수 있는 표면의 높이** — 지형 높이와 그 자리 장애물 윗면 중 높은 쪽.
-   * `getHeightAt` 은 지형만 보므로 발이 닿는 곳을 물을 때는 이쪽을 쓴다.
+   * **The height of the surface you can walk on** — the higher of the terrain height and the top of the obstacle there.
+   * `getHeightAt` looks only at the terrain, so this is what to ask when the question is where the feet land.
    *
-   * `feetY` 를 주면 그 발 높이에서 **올라설 수 있는** 윗면만 본다 (`feetY + PROP_STEP_UP_MAX` 이하).
-   * 주지 않으면 그 자리에서 제일 높은 윗면을 돌려준다 (총알 · 낙하 판정용).
-   * 움직이는 몸은 이것을 **`resolveCollision` 보다 먼저** 부른다 — 순서를 뒤집으면 옆으로 밀려난 뒤라
-   * 낮은 턱에 영영 올라서지 못한다 (`player/PlayerController` · `gadgets/drones/GroundDrone` 이 이 순서다).
+   * Given `feetY` it looks only at tops that can be **stepped onto** from that foot height (at most `feetY + PROP_STEP_UP_MAX`).
+   * Without it, it returns the highest top at that spot (for bullet and fall tests).
+   * A moving body calls this **before `resolveCollision`** — reverse the order and the body has already been pushed
+   * aside, so it can never step onto a low ledge (`player/PlayerController` · `gadgets/drones/GroundDrone` keep this order).
    */
   getSurfaceY(x: number, z: number, feetY?: number): number;
   /**
-   * `(x, z)` 에서 발 높이 `feetY` 로 서 있을 때 밟고 있는 장애물, 없으면 null.
-   * 그 위에 선 동안 그 장애물은 `resolveCollision` 이 밀어내지 않는다.
-   * 2026-09-11 (C-38): 윗면이 `PROP_TOP_MARGIN` 창 안에서 겹치면 **`velocity` 가 있는(움직이는) 발판을 높이보다
-   * 먼저** 고른다 — 선로 발판과 전차 바닥이 같은 높이일 때 삽입 순서로 고정 발판이 이기던 동점.
+   * The obstacle a body standing at `(x, z)` with foot height `feetY` is on, or null.
+   * While it stands on that obstacle, `resolveCollision` does not push it out.
+   * 2026-09-11 (C-38): when tops overlap inside the `PROP_TOP_MARGIN` window, a platform **with a `velocity` (a moving
+   * one) is picked over the higher one** — the tie where a rail deck and a tram floor sat level and insertion order let the static one win.
    */
   getStandingObstacle(x: number, z: number, feetY: number): Obstacle | null;
   /**
-   * 반경 `radius` 원 안을 장애물이 차지하는 면적 비율(0..1). 대형 적 스폰 자리를 거르는 데 쓴다.
-   * 원기둥 단면끼리의 근사값이고 겹침은 보정하지 않으므로 1 을 넘을 수 있다.
+   * Fraction of the circle of `radius` that obstacles cover (0..1). Used to reject spawn spots for large enemies.
+   * It approximates cylinder cross-sections against each other and does not correct for overlap, so it may exceed 1.
    */
   obstacleCoverage(x: number, z: number, radius: number): number;
   /**
-   * 서로 `minGap` m 이상 떨어진 지점 `count` 개를 `center` 주변 `radius` 안에서 뽑는다
-   * (구조 포드가 겹쳐 떨어지지 않게). 지형 높이가 채워지고, 자리가 모자라면 그만큼만 돌려준다.
+   * Pick `count` points inside `radius` around `center` that are at least `minGap` m apart
+   * (so rescue pods do not land on top of each other). Terrain height is filled in; short of room it returns only what it found.
    */
   scatterPoints(center: THREE.Vector3, radius: number, count: number, minGap: number, seed?: number): THREE.Vector3[];
 }
 
-/* ── 사망한 플레이어의 시체 (owner: game/parts/Corpses, 게시: `ctx.corpses`) ───────────────────────────── */
+/* ── a dead player's corpse (owner: game/parts/Corpses, published on `ctx.corpses`) ────────── */
 /**
- * 한 구의 시체. 적 시체의 `CORPSE_LIFETIME` 도, 거리 컬링도 적용되지 않는다 (사용자 결정: 최적화 대상에서 제외).
- * 2026-09-16 (사용자 결정): **아이템이 하나도 없으면 사라진다** — 빈손으로 섰거나 다 털린 시체는 `CORPSE_EMPTY_REMOVE_DELAY_S`
- * 뒤 `CORPSE_EMPTY_SINK_S` 동안 땅으로 가라앉고 치워진다 (상호작용 · 빛기둥 · 메시). 치운 id 는 레이드가 끝날 때까지 다시 서지 않는다.
+ * One corpse. Neither an enemy corpse's `CORPSE_LIFETIME` nor distance culling applies (user's decision: kept out of optimisation).
+ * 2026-09-16 (user's decision): **it disappears once it holds no item** — a corpse that stood empty-handed or was looted clean sinks into
+ * the ground over `CORPSE_EMPTY_SINK_S` after `CORPSE_EMPTY_REMOVE_DELAY_S` and is removed (interaction · light pillar · mesh). A removed id never stands again in that raid.
  */
 export interface PlayerCorpse {
-  /** `pcorpse:<ownerId>:<n>` — 같은 사람이 여러 번 죽으면 시체도 여러 구가 남는다. */
+  /** `pcorpse:<ownerId>:<n>` — one person dying several times leaves several corpses. */
   readonly id: string;
-  /** 주인의 PeerId (싱글은 `'sp'`). */
+  /** The owner's PeerId (`'sp'` in single player). */
   readonly ownerId: string;
   readonly ownerName: string;
   readonly position: THREE.Vector3;
   readonly yaw: number;
-  /** `ctx.missionTime` 기준 사망 시각. */
+  /** Time of death, in `ctx.missionTime`. */
   readonly diedAt: number;
-  /** 남은 아이템이 하나도 없으면 true (프롬프트가 `비어 있음` 으로 바뀐다). */
+  /** True once no item is left (the prompt becomes `비어 있음`). */
   readonly emptied: boolean;
 }
 
 export interface CorpsesRef {
   getCorpses(): readonly PlayerCorpse[];
   get(id: string): PlayerCorpse | null;
-  /** 이 사람의 가장 최근 시체 (구조선 대상 목록이 위치를 표시할 때 쓴다). */
+  /** This person's most recent corpse (used when the rescue-ship target list shows a position). */
   latestOf(ownerId: string): PlayerCorpse | null;
-  /* ── appended (2026-09-13, 탈출 개편 — owner: game, caller: extraction) ── */
+  /* ── appended (2026-09-13, extraction rework — owner: game, caller: extraction) ── */
   /**
-   * 시체를 움직이는 물체(탈출 함선의 `root`)에 싣는다: `parent` 로컬 좌표 `local`(생략 = 지금 자리)에 눕히고, 그 뒤로는
-   * `parent` 의 변환을 그대로 따라간다(기울기 포함). `parent` null = 지금 월드 자리에 내려놓는다. 모르는 id 면 false.
+   * Load the corpse onto a moving object (the extraction ship's `root`): it is laid at `parent`-local `local` (omitted = where it is now)
+   * and from then on follows `parent`'s transform exactly (tilt included). `parent` null = set it down where it is in the world. False for an unknown id.
    */
   attachCorpse?(id: string, parent: THREE.Object3D | null, local?: THREE.Vector3): boolean;
-  /** 시체를 레이드에서 치운다 (함선에 실려 떠났다) — 상호작용 · 메시가 함께 사라지고 안의 아이템도 잃는다. */
+  /** Remove the corpse from the raid (it left aboard the ship) — its interaction · mesh go with it and the items inside are lost too. */
   removeCorpse?(id: string): boolean;
-  /* ── appended (2026-09-16, 빈 시체 제거 — owner: game, caller: player/RemoteAvatar) ── */
+  /* ── appended (2026-09-16, removing empty corpses — owner: game, caller: player/RemoteAvatar) ── */
   /**
-   * 이번 레이드에 이 사람의 시체가 한 번이라도 섰는가 (빈 시체가 가라앉아 치워진 뒤에도 true). 죽은 분대원의 아바타를 감출지
-   * 가를 때 `latestOf` 대신 쓴다 — 시체가 사라졌다고 죽은 자세의 아바타가 다시 나타나면 안 된다. 미션 리셋에서 비워진다.
+   * Did a corpse of this person stand at any point in this raid (still true after an empty corpse sank and was removed). Used instead of
+   * `latestOf` when deciding whether to hide a dead squadmate's avatar — a corpse disappearing must not bring the dead-pose avatar back. Cleared on mission reset.
    */
   ownerHadCorpse?(ownerId: string): boolean;
 }
 
-/* ── 구조선 투하 (owner: stratagems/parts/Rescue) ─────────────────────────────────────────────────────── */
-/** 구조선 호출 화면에 뜨는 분대원 한 칸. */
+/* ── the rescue drop (owner: stratagems/parts/Rescue) ────────────────────────────────────────────── */
+/** One squadmate cell on the rescue-call screen. */
 export interface RescueCandidate {
   readonly peerId: string;
   readonly name: string;
   readonly slot: number;
-  /** 죽어 있어서 고를 수 있는가. 살아 있거나 전투불능이면 false (칸은 뜨지만 비활성). */
+  /** Selectable because they are dead. False while alive or downed (the cell shows but is disabled). */
   readonly selectable: boolean;
-  /** 죽어 있으면 그 시체의 위치, 아니면 null. */
+  /** The position of their corpse when dead, else null. */
   readonly corpse: THREE.Vector3 | null;
 }
 
 export interface StratagemsRef {
-  /* ── appended (2026-09-09): 구조선 ── */
-  /** 남은 구조선 횟수 (분대 공용). 레이드 시작 시 `RESCUE_DROPS_PER_RAID`. */
+  /* ── appended (2026-09-09): the rescue drop ── */
+  /** Rescue drops left (shared by the squad). `RESCUE_DROPS_PER_RAID` at the start of a raid. */
   readonly rescueLeft: number;
-  /** 구조선 호출이 지금 가능한가 = 남은 횟수 > 0 이고 죽어 있는 분대원이 하나라도 있다. */
+  /** Can a rescue be called right now = drops left > 0 and at least one squadmate is dead. */
   readonly rescueAvailable: boolean;
-  /** 분대원 4칸 (죽은 사람만 `selectable`). 구조선 선택 화면이 이걸 그린다. */
+  /** The 4 squadmate cells (only the dead are `selectable`). The rescue selection screen draws this. */
   getRescueCandidates(): readonly RescueCandidate[];
-  /** 지금 선택 화면에서 고른 대상, 없으면 null. */
+  /** The target picked on the selection screen right now, or null. */
   readonly rescueTarget: string | null;
 }
 
 export interface InventoryRef {
-  /* ── appended (2026-09-09): 시체 루팅 ── */
+  /* ── appended (2026-09-09): corpse looting ── */
   /**
-   * **사망 시점의 전부** — 장비 슬롯 · 가방 · 퀵슬롯의 아이템 + **장착 임플란트의 망가진 짝**
-   * (2026-09-11 C-12, `ProgressionRef.stripImplantsForCorpse`)을 하나의 목록으로 뽑고 로컬 인벤토리를 **비운다**.
-   * 시체 컨테이너를 채우는 유일한 입구이고, 사망 처리에서 한 번만 불린다.
+   * **Everything held at the moment of death** — the items in the equipment slots · bag · quick slots plus **the broken pair
+   * of every equipped implant** (2026-09-11 C-12, `ProgressionRef.stripImplantsForCorpse`) as one list, and it **empties** the local inventory.
+   * It is the only entrance that fills a corpse container, and the death handling calls it exactly once.
    */
   stripForCorpse(): ItemInstance[];
   /**
-   * `openContainerItems` 와 같지만 격자 크기를 지정한다 (시체는 `PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS`).
-   * 이미 알고 있는 id 면 `items` · 크기 모두 무시하고 남은 내용물을 보여 준다.
+   * The same as `openContainerItems` but the grid size is given (a corpse is `PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS`).
+   * For an id already known, both `items` and the size are ignored and what is left inside is shown.
    */
   openContainerItemsSized(containerId: string, items: ItemInstance[], position: THREE.Vector3,
     cols: number, rows: number, title?: string): void;
 }
 
 export interface InventoryRef {
-  /* ── appended (2026-09-11): 저장 무결성 — E-5 · E-6 (owner: inventory) ── */
+  /* ── appended (2026-09-11): save integrity — E-5 · E-6 (owner: inventory) ── */
   /**
    * E-6: write the debounced 창고 / 로드아웃 saves **now** (localStorage + the profile queue — both changed → one
    * `ProfileRef.setMany`). A caller whose edit spans documents (meta/ quest completion) runs this first and then joins the
@@ -2167,38 +2167,38 @@ export interface InventoryRef {
   readonly soloRaidSeed?: number | null;
 }
 
-/* ══ appended: 2026-09-09 — 레이드 플레이 개선 (구조물 · 선로 · 환경 재해 · 로그 강하 · 의사소통) ═════════════
- * 계약은 **추가만** 한다. 소유 폴더는 각 절의 머리에 적었다.
- * 관련 문서: docs/DECISIONS.md 의 `2026-09-09 레이드 플레이 개선`.
+/* ══ appended: 2026-09-09 — raid play improvements (structures · rails · hazards · rogue drops · communication) ═
+ * The contract is **add-only**. The owning folder is named at the head of each section.
+ * Related document: `2026-09-09 레이드 플레이 개선` in docs/DECISIONS.md.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
-/* ── 사각 콜라이더 · 함께 움직이는 발판 (owner: world) ─────────────────────────────────────────────────── */
+/* ── box colliders · platforms that carry you along (owner: world) ───────────────────────── */
 export interface Obstacle {
   /**
-   * **사각(OBB) 콜라이더.** 주면 `radius` 원 대신 이 상자로 밀어내고 레이를 맞춘다 — 건물 벽 · 전차 차체처럼
-   * 원기둥으로는 거짓말이 되는 것들을 위해 2026-09-09 에 추가했다. `radius` 는 **여전히 채워 둔다**:
-   * `SpatialHash` 버킷팅과 광역 질의(`getObstaclesNear` · `obstacleCoverage`)가 그 외접원을 쓴다
-   * (`radius >= hypot(halfX, halfZ)` 여야 질의가 상자를 놓치지 않는다).
-   * `yaw` 는 Y축 회전(rad)이고 `halfX` / `halfZ` 는 회전 **전** 로컬 축의 반길이다.
+   * **A box (OBB) collider.** Given one, the push-out and the ray use this box instead of the `radius` circle — added on
+   * 2026-09-09 for the things a cylinder lies about, such as a building wall or a tram body. `radius` is **still filled in**:
+   * `SpatialHash` bucketing and the broad queries (`getObstaclesNear` · `obstacleCoverage`) use that circumscribed circle
+   * (`radius >= hypot(halfX, halfZ)` is what keeps a query from missing the box).
+   * `yaw` is the Y-axis rotation (rad) and `halfX` / `halfZ` are the half-lengths of the local axes **before** it.
    */
   box?: { halfX: number; halfZ: number; yaw: number };
   /**
-   * 이 장애물 **윗면에 서 있는 동안** 함께 실려 가는 속도(m/s, 월드 좌표). 전차 · 움직이는 발판이 채운다.
-   * **있다는 것 자체가** "움직이는 발판" 표시다 (정지한 전차도 0 벡터로 채운다 — `getStandingObstacle` 이 동점에서
-   * 이것을 먼저 고른다, C-38). 탑승하는 쪽(플레이어 · 적 · 시체, 2026-09-11 C-18)은 이 속도를 **더하지 않는다** —
-   * 진입만 `getStandingObstacle` 로 하고, 유지 · 이동은 `shared/ride.ts`(차량 OBB + 헤드룸, 차량 로컬 좌표를
-   * 매 프레임 차량의 지금 변환으로 다시 푼다)다. 속도는 하차 관성에만 쓴다.
+   * The velocity (m/s, world space) a body is carried at **while it stands on this obstacle's top**. Trams · moving platforms fill it.
+   * **Its presence alone** marks a "moving platform" (a stopped tram fills a zero vector too — `getStandingObstacle` picks
+   * it first on a tie, C-38). The riding side (player · enemies · corpses, 2026-09-11 C-18) does **not** add this velocity —
+   * only entry goes through `getStandingObstacle`; staying on and moving with it is `shared/ride.ts` (vehicle OBB + headroom,
+   * re-solving the vehicle-local coordinates from the vehicle's current transform every frame). The velocity is used only for dismount inertia.
    */
   velocity?: THREE.Vector3;
 }
 
-/* ── 버려진 구조물 (owner: world/Structures) ──────────────────────────────────────────────────────────── */
+/* ── abandoned structures (owner: world/Structures) ─────────────────────────────────────────────── */
 /**
- * 행성 구역마다 무작위로 놓이는 **들어갈 수 있는** 폐건물. 안에 상호작용 컨테이너가 밀집해 있다.
- * 2026-09-12 (사용자 결정): 잠긴 공간은 둘이다 — `outpost` 의 **지하실**(열쇠 `key_basement`)과 2층이 굴려진 `lab` 의
- * **2층 잠긴 방**(키카드 `keycard_lab`). 둘 다 **소모형 만능 열쇠**로 열리고(같은 종류면 어느 건물이든 · 쓰면 1 개 사라진다),
- * 건물마다 확정으로 넣어 두는 열쇠는 없다 — 상자 · 구조물 컨테이너 · 로그 시체 · 노마드 상점에서 드물게 나온다.
- * 문이 요구하는 아이템은 `unlockDefId`, 문 옆 벽 아래에는 지상 드론만 드나드는 환풍구가 있다.
+ * An **enterable** derelict building placed at random in every planet sector. Interactable containers are packed inside.
+ * 2026-09-12 (user's decision): there are two locked spaces — the **basement** of an `outpost` (key `key_basement`) and the
+ * **locked upper-floor room** of a `lab` that rolled a second floor (keycard `keycard_lab`). Both open with a **consumable skeleton key**
+ * (of the matching kind, in any building · using it spends one), and no building is guaranteed a key — they come rarely from crates · structure containers · rogue corpses · the nomad shop.
+ * The item a door demands is `unlockDefId`, and low in the wall beside the door is a vent only a ground drone fits through.
  */
 export type StructureKind = 'outpost' | 'lab' | 'wreck';
 export const STRUCTURE_KINDS: readonly StructureKind[] = ['outpost', 'lab', 'wreck'];
@@ -2207,37 +2207,37 @@ export const STRUCTURE_LABEL_KO: Readonly<Record<StructureKind, string>> = {
 };
 
 export interface StructureDef {
-  /** `struct_<kind>_<n>` — 시드 결정적이므로 모든 클라이언트에서 같다. */
+  /** `struct_<kind>_<n>` — seed-deterministic, so it is the same on every client. */
   id: string;
   kind: StructureKind;
-  /** 지상층 바닥 중심 (y = 바닥 높이). */
+  /** Centre of the ground floor (y = floor height). */
   position: THREE.Vector3;
   yaw: number;
-  /** 지도 마커 · 스폰 회피 · 로그 강하 목표가 쓰는 대략 반경(m). */
+  /** Rough radius (m) used by map markers · spawn avoidance · rogue drop targets. */
   radius: number;
-  /** 지하실이 있는가. */
+  /** Does it have a basement. */
   hasBasement: boolean;
-  /** 지하실 잠금문의 위치. `hasBasement` 가 false 면 null. */
+  /** Position of the basement's locked door. Null when `hasBasement` is false. */
   basementDoor: THREE.Vector3 | null;
-  /** 키카드로 지하실 문이 열렸는가 (호스트 권위, `struct unlocked` 로 전파). */
+  /** Has the basement door been opened with a keycard (host-authoritative, spread by `struct unlocked`). */
   unlocked: boolean;
-  /** 이 구조물의 컴퓨터로 **행성 스캔**을 이미 돌렸는가 (구조물당 1회). */
+  /** Has a **planet scan** already been run from this structure's computer (once per structure). */
   scanned: boolean;
-  /** 이 구조물에서 로그 강하가 이미 일어났는가 — **구역당 1회**라는 규칙의 저장소. */
+  /** Has a rogue drop already happened at this structure — the store behind the **once per sector** rule. */
   rogueDropUsed: boolean;
 }
 
-/* ── 선로 · 플랫폼 · 전차 (owner: world/Rails) ─────────────────────────────────────────────────────────── */
-/** `loop` = 구역 외곽을 두르는 순환 선로, `line` = 구역을 가로/세로로 가로지르는 왕복 직선 선로. */
+/* ── rails · platforms · trams (owner: world/Rails) ─────────────────────────────────────────────── */
+/** `loop` = a circular line around the sector's edge, `line` = a straight back-and-forth line crossing the sector. */
 export type RailKind = 'loop' | 'line';
 export const RAIL_LABEL_KO: Readonly<Record<RailKind, string>> = { loop: '순환 선로', line: '반복 선로' };
 
-/** 선로 끝(또는 순환 선로 한 곳)의 플랫폼 — 그 자체가 파밍 장소다. */
+/** The platform at a line's end (or at one point of a loop) — a farming spot in its own right. */
 export interface RailPlatformDef {
   id: string;
   position: THREE.Vector3;
   yaw: number;
-  /** 플랫폼 데크의 대략 반경(m). */
+  /** Rough radius (m) of the platform deck. */
   radius: number;
 }
 
@@ -2246,539 +2246,541 @@ export interface RailLineDef {
   id: string;
   kind: RailKind;
   /**
-   * 선로 중심선의 지점들 (y = 레일 상면 높이). `loop` 이면 마지막 → 첫 지점이 이어지는 **닫힌 고리**이고
-   * `line` 이면 열린 꺾은선이라 전차가 끝에서 방향을 뒤집는다.
+   * The points of the line's centre line (y = the rail top's height). For a `loop` the last → first point joins into a
+   * **closed ring**; for a `line` it is an open polyline, so the tram reverses at the end.
    */
   points: readonly THREE.Vector3[];
-  /** 중심선 전체 길이(m) — `loop` 은 닫는 구간을 포함한다. */
+  /** Total length of the centre line (m) — a `loop` includes the closing segment. */
   length: number;
   platforms: readonly RailPlatformDef[];
 }
 
-/** 전차의 상태. `idle` = 시동 전, `moving` = 주행, `docked` = 플랫폼 정차 중. */
+/** Tram state. `idle` = before start-up, `moving` = travelling, `docked` = stopped at a platform. */
 export type TramState = 'idle' | 'moving' | 'docked';
-/** 와이어 순서 (`tram state.st` 가 이 배열의 인덱스다). 재정렬 금지. */
+/** Wire order (`tram state.st` is an index into this array). Never reorder. */
 export const TRAM_STATES: readonly TramState[] = ['idle', 'moving', 'docked'];
 
 export interface TramDef {
-  /** `tram_<lineId>`. 선로 하나에 전차 하나. */
+  /** `tram_<lineId>`. One tram per line. */
   id: string;
   lineId: string;
-  /** 차체 중심 (y = 데크 높이). 호스트가 굴리고 클라이언트는 보간한다. */
+  /** Centre of the body (y = deck height). The host simulates it and clients interpolate. */
   position: THREE.Vector3;
   yaw: number;
   state: TramState;
-  /** 선로 위 진행 거리(m). **호스트 권위** — 이 값 하나가 전차의 진짜 상태다. */
+  /** Travelled distance along the line (m). **Host-authoritative** — this one value is the tram's real state. */
   s: number;
-  /** 진행 방향 (+1 / −1). `loop` 은 언제나 +1. */
+  /** Direction of travel (+1 / −1). A `loop` is always +1. */
   dir: 1 | -1;
 }
 
-/* ── 환경 재해 (owner: world/Hazard) ───────────────────────────────────────────────────────────────────── */
+/* ── environmental hazards (owner: world/Hazard) ───────────────────────────────────────────────────── */
 /**
- * 레이드 시작 뒤 `HAZARD_START_MIN_S`–`HAZARD_START_MAX_S` 사이 **30초 단위**의 한 시각에 시작해 맵을
- * 서서히 덮는 행성 현상. 후보는 행성마다 정해져 있고(`data/planets.csv` 의 `hazards` 열) 그중 하나를
- * **레이드마다** 미션 시드로 뽑는다 — 와이어가 필요 없다. 범위 안에 있으면 초당 `HAZARD_DPS` 피해를 입고
- * 시야가 좁아지며, 끝까지 진행하면 안전지대가 사라져 사실상 강제 탈출이 된다.
+ * A planet phenomenon that starts at one moment **on a 30 s step** between `HAZARD_START_MIN_S` and
+ * `HAZARD_START_MAX_S` after the raid begins and slowly covers the map. The candidates are fixed per planet (the
+ * `hazards` column of `data/planets.csv`) and one of them is drawn **per raid** from the mission seed — no wire is
+ * needed. Inside it a body takes `HAZARD_DPS` per second and sight narrows; run to the end and the safe zone is gone, which is effectively a forced extraction.
  *
- * **함선이 관측하는 현상이므로 전장의 안개에 가려지지 않는다** — 지도는 안개 레이어 **위에** 그린다.
+ * **It is a phenomenon the ship observes, so the fog of war does not hide it** — the map draws it **above** the fog layer.
  */
 export type HazardKind = 'sandstorm' | 'blizzard' | 'storm_eye' | 'spores';
 export const HAZARD_KINDS: readonly HazardKind[] = ['sandstorm', 'blizzard', 'storm_eye', 'spores'];
 /**
- * 플레이어에게 보이는 이름. 2026-09-13 (사용자 결정): 모래 폭풍 · 눈보라 · 폭풍의 눈은 화면에서 전부 **「폭풍」** 하나다
- * (구분하지 않는다). 코드 · 문서에서 가를 때는 `HazardKind` 를 쓴다.
+ * The name the player sees. 2026-09-13 (user's decision): sandstorm · blizzard · storm eye are all one **「폭풍」** on screen
+ * (they are not told apart). Code and docs tell them apart with `HazardKind`.
  */
 export const HAZARD_LABEL_KO: Readonly<Record<HazardKind, string>> = {
   sandstorm: '폭풍', blizzard: '폭풍', storm_eye: '폭풍', spores: '독성 포자',
 };
 
-/** 위험/안전 구역 한 덩어리. 지도 · HUD · `isInside` 가 모두 이 도형만 본다. */
+/** One danger/safety zone. The map · HUD · `isInside` all look only at this shape. */
 export interface HazardZone {
   id: string;
   /**
-   * `front` = 반평면(가로로 넓게 차오르는 벽). 전선은 `center` 를 지나고 법선이 `(dirX, dirZ)` 이며
-   * **이미 지나온 쪽**(법선의 반대편)이 위험하다. `circle` = 원.
+   * `front` = a half-plane (a broad wall filling in sideways). The front passes through `center` with `(dirX, dirZ)` as
+   * its normal, and **the side it has already crossed** (opposite the normal) is the dangerous one. `circle` = a circle.
    */
   shape: 'front' | 'circle';
   center: { x: number; z: number };
-  /** `circle` 의 반경(m). `front` 에서는 0. */
+  /** Radius (m) of a `circle`. 0 for a `front`. */
   radius: number;
-  /** `front` 진행 방향의 단위 벡터. `circle` 에서는 (0, 0). */
+  /** Unit vector of a `front`'s direction of travel. (0, 0) for a `circle`. */
   dirX: number;
   dirZ: number;
-  /** `circle` 만: true = 원 **안이 안전**하고 바깥이 위험 (폭풍의 눈). false = 원 안이 위험 (독성 포자). */
+  /** `circle` only: true = **inside the circle is safe** and outside is dangerous (the storm eye). false = inside is dangerous (toxic spores). */
   safeInside: boolean;
 }
 
-/** 독성 포자가 피어오를 자리 — 지형의 **거대 버섯 군락**. 안개를 걷어 발견한 것만 `discovered` 다. */
+/** Where toxic spores rise from — a **giant mushroom cluster** in the terrain. Only ones found by lifting the fog are `discovered`. */
 export interface HazardSource {
   id: string;
   position: THREE.Vector3;
-  /** 이 발생지가 최종적으로 덮을 반경(m). */
+  /** The radius (m) this source finally covers. */
   radius: number;
-  /** 이미 피어오르기 시작했는가. */
+  /** Has it already started to rise. */
   erupted: boolean;
-  /** 안개가 걷혀 플레이어가 아는 자리인가 (`FogRef.isDiscovered`). 지도는 이것만 그린다. */
+  /** Is it a spot the player knows because the fog lifted (`FogRef.isDiscovered`). The map draws only these. */
   discovered: boolean;
 }
 
 export interface HazardRef {
-  /** 이번 레이드의 재해. 후보가 없는 행성(또는 훈련장)이면 null. */
+  /** This raid's hazard. Null on a planet with no candidate (or on the training range). */
   readonly kind: HazardKind | null;
-  /** 시작 시각 (`ctx.missionTime` 초). 재해가 없으면 −1. */
+  /** Start time (`ctx.missionTime` seconds). −1 when there is no hazard. */
   readonly startsAt: number;
-  /** 예고 방송이 이미 나갔는가 (`HAZARD_WARN_S` 전). */
+  /** Has the warning broadcast already gone out (`HAZARD_WARN_S` before). */
   readonly announced: boolean;
-  /** 지금 진행 중인가 (`missionTime >= startsAt`). */
+  /** Is it running now (`missionTime >= startsAt`). */
   readonly active: boolean;
-  /** 0..1 — 1 이면 맵을 다 덮었다 (안전지대 없음). */
+  /** 0..1 — at 1 it has covered the whole map (no safe zone). */
   readonly progress: number;
-  /** 이 지점이 지금 **피해 구역** 안인가. 매 프레임 불려도 되는 싼 질의다. */
+  /** Is this point inside the **damage zone** right now. A cheap query, fine to call every frame. */
   isInside(x: number, z: number): boolean;
-  /** 지도 · HUD 가 그릴 도형. 내부 배열을 재사용하므로 **읽고 바로 쓴다** (보관 금지). */
+  /** The shapes the map · HUD draw. The internal array is reused, so **read it and use it at once** (never keep it). */
   getZones(): readonly HazardZone[];
-  /** 독성 포자 발생지. 다른 재해는 빈 배열. */
+  /** Toxic spore sources. An empty array for every other hazard. */
   getSources(): readonly HazardSource[];
-  /** 늦게 합류한 클라이언트용 (호스트만 만든다). `HazardMessage 'sync'` 가 실어 나른다. */
+  /** For a client that joined late (only the host builds it). `HazardMessage 'sync'` carries it. */
   serialize(): string;
   applySerialized(data: string): void;
   /* appended (2026-09-13) */
   /**
-   * 피해 배수 = 지금 초당 피해 / `HAZARD_DPS`. 시작 1 → 진행도 1 에서 `HAZARD_DPS_MAX / HAZARD_DPS` (재해가 시간에 따라 강해진다).
-   * 시작 전에도 1 이다 — 쓰는 쪽은 `active` · `isInside` 를 먼저 본다. 적의 조용한 피해(`enemies/`)가 곱한다.
+   * Damage multiplier = the damage per second now / `HAZARD_DPS`. 1 at the start → `HAZARD_DPS_MAX / HAZARD_DPS` at progress 1 (a hazard grows stronger over time).
+   * It is 1 before the start too — the caller looks at `active` · `isInside` first. The enemies' silent damage (`enemies/`) multiplies by it.
    */
   readonly damageMul: number;
 }
 
-/* ── 위 셋을 묶는 world 접근자 ─────────────────────────────────────────────────────────────────────────── */
+/* ── the world accessors that tie the three above together ─────────────────────────────────────── */
 export interface WorldRef {
-  /* ── appended (2026-09-09): 레이드 플레이 개선 ── */
-  /** 이번 맵의 버려진 구조물 전부 (훈련장은 빈 배열). */
+  /* ── appended (2026-09-09): raid play improvements ── */
+  /** Every abandoned structure on this map (an empty array on the training range). */
   getStructures(): readonly StructureDef[];
-  /** `(x, z)` 를 품는 구조물(자기 `radius` 안), 없으면 null. */
+  /** The structure that holds `(x, z)` (inside its own `radius`), or null. */
   structureAt(x: number, z: number): StructureDef | null;
-  /** 이번 맵의 선로 (없을 수도 있다 — 구역마다 무작위). */
+  /** This map's rails (there may be none — it is random per sector). */
   getRailLines(): readonly RailLineDef[];
-  /** 선로 위의 전차 (선로 하나당 하나). */
+  /** The trams on the rails (one per line). */
   getTrams(): readonly TramDef[];
-  /** 이번 레이드의 환경 재해. 후보가 없는 행성 · 훈련장이면 null. */
+  /** This raid's environmental hazard. Null on a planet with no candidate · on the training range. */
   readonly hazard: HazardRef | null;
   /**
-   * appended (2026-09-15, 땅굴벌레 등장 판정 개편 — owner: world): `(x, z)` 둘레 `radius` m 가 땅굴벌레가 파고 나올 수 있는
-   * **평평한 맨땅**인가 — 지형 경사가 완만하고 그 원 안에 구조물 발자국 · 선로 · 전차 · 소품(바위 · 나무) · 독성 포자 군락 ·
-   * 위험 지대 · 둥지 · 훈련장 시설이 하나도 걸리지 않는다. 호스트의 발동 자리 검사(`enemies/sandworm/Director`)와 진동 장치
-   * 설치 미리보기(`gadgets/parts/Preview`)가 **같은 판정**을 써야 하므로 여기 한 곳에만 있다. 옵셔널 — 튜토리얼 · 훈련장 월드는
-   * 구현하지 않고, 부르는 쪽은 `?.` 로 읽어 없으면 false 로 본다 (거기서는 땅굴벌레가 없다).
+   * appended (2026-09-15, sandworm appearance rework — owner: world): is the `radius` m around `(x, z)` the **flat bare ground**
+   * a sandworm can dig out of — the terrain slope is gentle and the circle catches no structure footprint · rail · tram · prop
+   * (rock · tree) · spore cluster · danger zone · nest · training fixture. The host's trigger-spot check (`enemies/sandworm/Director`)
+   * and the seismic device's placement preview (`gadgets/parts/Preview`) must use the **same judgement**, so it lives here alone.
+   * Optional — the tutorial · training worlds do not implement it, and callers read it with `?.` and treat a missing one as false (no sandworm there).
    */
   burrowGroundOk?(x: number, z: number, radius: number): boolean;
 }
 
-/* ── 행성별 무기 등급 드롭 (owner: items/Loot) ─────────────────────────────────────────────────────────── */
+/* ── weapon grade drops per planet (owner: items/Loot) ────────────────────────────────────────── */
 export interface LootRef {
   /**
-   * appended (2026-09-09): 상자에서 나온 **무기의 등급**은 행성이 정한다 (`data/planet_loot.csv`).
-   * 그 행성의 등급 곡선으로 무기를 다시 등급 매기고, 곡선이 0 인 등급은 아예 나오지 않는다
-   * (앞쪽 행성에서 IV · V 가 봉인되는 이유). `planet` 이 null 이면 예전 그대로 상자 티어의 희귀도 가중치를 쓴다.
+   * appended (2026-09-09): the **grade of a weapon** out of a crate is decided by the planet (`data/planet_loot.csv`).
+   * The weapon is re-graded on that planet's grade curve, and a grade whose curve is 0 never comes out at all
+   * (which is why IV · V are sealed on the early planets). With `planet` null it uses the crate tier's rarity weights as before.
    *
-   * `rollCrate(tier, rng)` 는 그대로 남아 있고 `rollCrateOn(tier, rng, null)` 과 같은 결과를 준다.
+   * `rollCrate(tier, rng)` stays as it is and gives the same result as `rollCrateOn(tier, rng, null)`.
    */
   rollCrateOn(tier: number, rng: Random, planet: PlanetId | null,
     /**
-     * appended (2026-09-16): 이 컨테이너의 굴림 규칙 — 지금은 `lockedRoom`(연구실 잠긴 방 = 서사 이상 게이트 면제) 하나.
-     * 여는 경로 · 미리보기(드론 스캔 · 안드로이드 · 인벤토리 peek)가 **같은 값**을 넘겨야 결과가 같다 —
-     * 구조물 컨테이너의 값은 `WorldRef.crateLootOpts(id)` 가 답한다. 생략 = 보통 상자.
+     * appended (2026-09-16): this container's roll rules — for now just `lockedRoom` (the lab's locked room = exempt from the epic-plus gate).
+     * The opening path and the previews (drone scan · androids · the inventory peek) must pass the **same value** for the
+     * results to match — a structure container's value is answered by `WorldRef.crateLootOpts(id)`. Omitted = an ordinary crate.
      */
     opts?: CrateLootOpts): ItemInstance[];
   /**
-   * appended (2026-09-09): 시체(로그 · 보스)가 떨구는 무기의 등급도 같은 곡선으로 **상한**을 받는다.
-   * `planet` 이 null 이면 `rollCorpse` 와 완전히 같다.
+   * appended (2026-09-09): the grade of a weapon dropped by a corpse (rogue · boss) is **capped** by the same curve.
+   * With `planet` null it is exactly `rollCorpse`.
    */
   rollCorpseOn(type: EnemyType, rng: Random, rogueWeaponId: string | undefined, planet: PlanetId | null,
-    /** appended (2026-09-13): 팩션 전리품의 입력 — 스폰 거점 · 던지지 못한 수류탄. 생략 = 예전 굴림. */
+    /** appended (2026-09-13): the input of faction loot — the spawn site · grenades never thrown. Omitted = the old roll. */
     opts?: CorpseLootOpts): ItemInstance[];
 }
 
-/* ── appended (2026-09-16): 서사 이상 드롭률 게이트 — 잠긴 방 예외 (owner: items/Loot · world/Structures) ──────────────── */
+/* ── appended (2026-09-16): the epic-plus drop-rate gate — the locked room exception (owner: items/Loot · world/Structures) ─ */
 /**
- * `LootRef.rollCrateOn` 의 부가 인자. 행성의 `epicPlusMul`(`data/planet_loot.csv`)은 서사 · 전설이 나오는 비율을 줄이는데
- * **연구실 2층 잠긴 방**(키카드로 여는 방) 컨테이너만은 예외다 (사용자 결정 2026-09-16 「잠긴 방은 지금 그대로」).
- * 값은 world 가 정하고(`WorldRef.crateLootOpts`) 모든 굴림 경로가 그대로 넘긴다 — 시드 결정적이라 미리보기 ≡ 열기.
+ * An extra argument of `LootRef.rollCrateOn`. A planet's `epicPlusMul` (`data/planet_loot.csv`) cuts the rate at which epic · legendary come out,
+ * and the one exception is a container in the **lab's locked upper-floor room** (the keycard room) — user's decision 2026-09-16 「the locked room stays as it is」.
+ * The value is decided by world (`WorldRef.crateLootOpts`) and every roll path passes it through — seed-deterministic, so previewing ≡ opening.
  */
 export interface CrateLootOpts {
-  /** true = 연구실 잠긴 방 컨테이너 — 서사 이상 게이트를 건너뛴다 (행성의 등급 곡선 · 희귀도 배수는 그대로 탄다). */
+  /** true = a lab locked-room container — it skips the epic-plus gate (the planet's grade curve · rarity multipliers still apply). */
   lockedRoom?: boolean;
 }
 
 export interface WorldRef {
   /**
-   * appended (2026-09-16): 인벤토리 컨테이너 id(`WorldRef.getLootContainers` 의 id — 명세 id, `container:` 없음)의
-   * 굴림 규칙 (`LootRef.rollCrateOn` 의 `opts`). 잠긴 방 컨테이너면 `{ lockedRoom: true }`, 그 밖(맵 상자 · 보급 상자 ·
-   * 모르는 id · 준비 전)은 undefined. inventory 의 여는 경로 · peek · 안드로이드 확정이 이 값을 그대로 넘긴다.
+   * appended (2026-09-16): the roll rules (`LootRef.rollCrateOn`'s `opts`) of an inventory container id (the id of
+   * `WorldRef.getLootContainers` — the bare spec id, no `container:`). `{ lockedRoom: true }` for a locked-room container,
+   * undefined for anything else (map crates · supply crates · an unknown id · before the world is ready). The inventory's opening path · peek · android confirmation pass it through.
    */
   crateLootOpts?(containerId: string): CrateLootOpts | undefined;
 }
 
-/* ══ appended (2026-09-13): 행성별 적 팩션 — 안드로이드 · 로그 · 레이더 (owner: enemies · items · world) ═══════════
- * 어떤 팩션이 나오는지는 행성 threat 가 정한다 (`planetThreat`): 1 = 안드로이드 · 2 = 로그 / 레이더 · 3 = 레이더만.
- * 서로 다른 팩션은 전부 적대다. 결정: docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」
+/* ══ appended (2026-09-13): enemy factions per planet — androids · rogues · raiders (owner: enemies · items · world) ═
+ * Which faction appears is decided by the planet's threat (`planetThreat`): 1 = androids · 2 = rogues / raiders · 3 = raiders only.
+ * Every pair of different factions is hostile. Decision: docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」
  * ════════════════════════════════════════════════════════════════════════════════════════════════════ */
-/** 게임 안 팩션 이름. */
+/** The faction names in game. */
 export const ENEMY_FACTION_LABEL_KO: Readonly<Record<EnemyFaction, string>> = { bug: '벌레', rogue: '로그', android: '안드로이드', raider: '레이더' };
 /**
- * 인간형 적이 배치된 **거점** — 시체 전리품의 입력이다 (연구소 = 연구 물품, 전진기지 = 총기 등급 보너스).
- * `platform` = 선로 플랫폼, `ruin` = 폐허 전초(`WorldRef.getRuinSites`), `drop` = 레이더 강하, 나머지는 `StructureKind`.
+ * The **site** a humanoid enemy was placed at — an input of corpse loot (the lab = research goods, the outpost = a weapon grade bonus).
+ * `platform` = a rail platform, `ruin` = a ruined outpost (`WorldRef.getRuinSites`), `drop` = a raider drop; the rest are `StructureKind`.
  */
 export type EnemySpawnSite = StructureKind | 'platform' | 'ruin' | 'drop';
-/** 한 그룹 안의 역할. `flanker` = 레이더 그룹에서 떨어져 우회하는 한 명, `leader` = 로그 그룹장(rogue_boss). */
+/** The role inside one group. `flanker` = the one member of a raider group that breaks off to flank, `leader` = the rogue group's leader (rogue_boss). */
 export type EnemySquadRole = 'member' | 'leader' | 'flanker';
-/** 적이 들고 다니는 수류탄 종류. **순서가 와이어 인덱스다** (`ee grenade.k` · `ee corpse.gk`) — 재정렬 금지. */
+/** The kind of grenade an enemy carries. **The order is the wire index** (`ee grenade.k` · `ee corpse.gk`) — never reorder. */
 export type EnemyGrenadeKind = 'frag' | 'incendiary';
 export const ENEMY_GRENADE_KINDS: readonly EnemyGrenadeKind[] = ['frag', 'incendiary'];
-/** 그 종류의 아이템 id (시체에 남는 것 — `data/items.csv`). */
+/** The item id of that kind (what is left on the corpse — `data/items.csv`). */
 export const ENEMY_GRENADE_ITEM: Readonly<Record<EnemyGrenadeKind, string>> = { frag: 'grenade_frag', incendiary: 'grenade_incendiary' };
 
-/** `RogueSpawnHost.spawnRogue` 의 부가 인자 (전부 생략 가능 — 생략 = 예전 스폰). */
+/** Extra arguments of `RogueSpawnHost.spawnRogue` (all optional — omitted = the old spawn). */
 export interface HumanoidSpawnOpts {
   site?: EnemySpawnSite | null;
-  /** 같은 그룹이면 같은 값 (레이드 안에서만 유일). 생략 = -1 = 그룹 없음. */
+  /** The same value for the same group (unique only inside a raid). Omitted = -1 = no group. */
   squadId?: number;
   role?: EnemySquadRole;
 }
 
-/** `LootRef.rollCorpseOn` 의 부가 인자. 호스트는 `Enemy` 에서, 리플리카는 `ee corpse.si/gc/gk` 에서 만든다. */
+/** Extra arguments of `LootRef.rollCorpseOn`. The host builds them from `Enemy`, a replica from `ee corpse.si/gc/gk`. */
 export interface CorpseLootOpts {
   site?: EnemySpawnSite | null;
-  /** 던지지 못하고 남은 수류탄 — 그 종류 그대로 시체에 들어간다 (별도 수류탄 드롭 굴림은 없다). */
+  /** Grenades left unthrown — they go onto the corpse as that same kind (there is no separate grenade drop roll). */
   grenades?: { kind: EnemyGrenadeKind; count: number } | null;
 }
 
-/** 폐허 전초 한 곳 (world `Outposts` 의 POI 패드 — 들어가는 전진기지 `StructureKind 'outpost'` 와 **다르다**). */
+/** One ruined outpost (a POI pad of world `Outposts` — **not** the enterable outpost `StructureKind 'outpost'`). */
 export interface RuinSiteDef {
-  /** `outpost_<i>` (`fog:discovered {kind:'outpost'}` 와 같은 id). */
+  /** `outpost_<i>` (the same id as `fog:discovered {kind:'outpost'}`). */
   readonly id: string;
   readonly position: THREE.Vector3;
   readonly yaw: number;
   readonly radius: number;
 }
 
-/** 거점 그룹을 세울 자리의 종류. */
+/** The kind of spot a site group is stood on. */
 export type SiteSpawnPlace = 'indoor' | 'outdoor';
 
 export interface WorldRef {
-  /** appended (2026-09-13, owner: world): 이번 맵의 폐허 전초 (훈련장 · 없는 맵 = 빈 배열). */
+  /** appended (2026-09-13, owner: world): this map's ruined outposts (training range · a map without them = an empty array). */
   getRuinSites?(): readonly RuinSiteDef[];
   /**
-   * appended (2026-09-13, owner: world): 거점 `siteId` 에 인간형 그룹을 세울 자리 `count` 개 — 서로 `minGap` 이상, 시드 결정적.
-   * `siteId` = 구조물 id(`struct_*`) · 선로 플랫폼 id · 폐허 id(`outpost_<i>`).
-   *  - `indoor`: 구조물 = 실내의 걸을 수 있는 바닥(지상층, 2층이 있으면 2층도) — 벽 · 컨테이너 · 계단 구멍 · 잠긴 방 · 지하실 밖.
-   *    플랫폼 = 데크 위, 폐허 = 바닥판 위 벽 안쪽.
-   *  - `outdoor`: 발자국 바깥 둘레, 막히지 않았고 선로 회랑 밖.
-   * y 는 발이 닿는 높이. 자리가 모자라면 찾은 만큼만 돌려준다 (모르는 id · 훈련장 = 빈 배열).
+   * appended (2026-09-13, owner: world): `count` spots to stand a humanoid group on at site `siteId` — at least `minGap` apart, seed-deterministic.
+   * `siteId` = a structure id (`struct_*`) · a rail platform id · a ruin id (`outpost_<i>`).
+   *  - `indoor`: a structure = walkable floor inside (the ground floor, and the upper one when there is a second) — clear of walls · containers · the stair opening · the locked room · the basement.
+   *    A platform = on the deck, a ruin = on the floor plate inside the walls.
+   *  - `outdoor`: the ring outside the footprint, unblocked and clear of the rail corridor.
+   * y is the height the feet land at. Short of room it returns only what it found (an unknown id · the training range = an empty array).
    */
   getSiteSpawnPoints?(siteId: string, place: SiteSpawnPlace, count: number, minGap: number, seed: number): THREE.Vector3[];
 }
 
-/* ── 로그 강하 (owner: enemies/RogueDrop) ──────────────────────────────────────────────────────────────── */
-/** 진행 중인 로그 강하 한 건. */
+/* ── the rogue drop (owner: enemies/RogueDrop) ─────────────────────────────────────────────────────── */
+/** One rogue drop in progress. */
 export interface RogueDropView {
   readonly id: string;
   readonly position: THREE.Vector3;
-  /** 몇 명이 내리는가. */
+  /** How many are coming down. */
   readonly count: number;
-  /** 보스(옛 로그 분대장)가 섞여 있는가. 2026-09-13 레이더 강하에는 분대장이 없어 늘 false 다. */
+  /** Is a boss (the old rogue squad leader) among them. The 2026-09-13 raider drop has no leader, so it is always false. */
   readonly boss: boolean;
-  /** `ctx.time` 기준 착지 시각. */
+  /** Landing time, in `ctx.time`. */
   readonly landsAt: number;
 }
 
 export interface EnemyManagerRef {
-  /* ── appended (2026-09-09): 로그 강하 ── */
+  /* ── appended (2026-09-09): the rogue drop ── */
   /**
-   * **호스트 전용.** `position` 주위에 로그 분대를 강하시킨다 (경고 → `ROGUE_DROP_ETA_S` 뒤 착지 → 진격).
-   * 인원과 보스 여부는 **분대 인원**에서 정해진다 (`ROGUE_DROP_*` 상수) — 호출자가 정하지 않는다.
-   * 이미 같은 `dropId` 가 진행 중이거나 호스트가 아니면 false.
+   * **Host only.** Drops a rogue squad around `position` (a warning → landing after `ROGUE_DROP_ETA_S` → advance).
+   * The head count and whether a boss is in it are decided by **the squad size** (`ROGUE_DROP_*` constants) — not by the caller.
+   * False when the same `dropId` is already running, or when this is not the host.
    */
   callRogueDrop(dropId: string, position: THREE.Vector3): boolean;
-  /** 진행 중인 강하 (HUD 경고 · 오프스크린 화살표용). */
+  /** The drops in progress (for the HUD warning · off-screen arrows). */
   getRogueDrops(): readonly RogueDropView[];
 }
 
-/* ══ appended (2026-09-10): 방탄복 = 실드 ═══════════════════════════════════════════════════════════ */
+/* ══ appended (2026-09-10): armor = a shield ═══════════════════════════════════════════════════ */
 
 export interface PlayerRef {
-  /* ── 실드 (owner: player/PlayerSystem) ────────────────────────────────────
-   * 방탄복은 더 이상 피해를 깎지 않는다 (`PlayerRef.damageReduction` 은 계약으로만 남아 늘 0 이다).
-   * 대신 **추가 체력 풀**을 준다: 들어온 피해는 `shield` 를 먼저 비우고 남은 만큼만 `hp` 로 간다.
-   * 실드는 스스로 재생하지 않는다 — '실드 충전기' 소모품(`chargeShield`)과 함선 복귀로만 채워진다.
-   * 변화는 전부 `player:shieldChanged` 로 알린다. */
-  /** 현재 실드. 방탄복이 없으면 0. */
+  /* ── the shield (owner: player/PlayerSystem) ────────────────────────────
+   * Armor no longer cuts damage (`PlayerRef.damageReduction` remains as contract only and is always 0).
+   * It gives an **extra hp pool** instead: incoming damage empties `shield` first and only the rest reaches `hp`.
+   * The shield does not regenerate on its own — only the '실드 충전기' consumable (`chargeShield`) and returning to the ship refill it.
+   * Every change is announced with `player:shieldChanged`. */
+  /** The current shield. 0 with no armor. */
   readonly shield: number;
-  /** 장착한 방탄복의 `ArmorDef.shield`. 없으면 0. */
+  /** The equipped armor's `ArmorDef.shield`. 0 when there is none. */
   readonly maxShield: number;
-  /** 실드 게이지 칸 색을 정하는 방탄복 등급. 없으면 null. */
+  /** The armor rarity that decides the colour of a shield gauge segment. Null when there is none. */
   readonly shieldRarity: Rarity | null;
-  /** 방탄복 tier (번호 방탄복 1..5, 유니크 0). 없으면 0. */
+  /** Armor tier (numbered armors 1..5, uniques 0). 0 when there is none. */
   readonly shieldTier: number;
   /**
-   * 실드 충전기: `amount` 만큼 실드를 채운다 (`Infinity` = 가득). 방탄복이 없거나 이미 가득이면
-   * **아무것도 쓰지 않고** false — 호출자가 아이템을 소모하기 전에 이걸로 먼저 묻는다.
+   * The shield charger: refills the shield by `amount` (`Infinity` = full). With no armor, or already full, it returns
+   * false **without spending anything** — the caller asks with this before consuming the item.
    */
   chargeShield(amount: number): boolean;
 }
 
-/* ══ appended (2026-09-10): 제작 대개편 — 내구도 연동 수리 · 분해 ═══════════════════════════════════
+/* ══ appended (2026-09-10): the craft overhaul — repair · salvage tied to durability ══
  *
- * 수리비와 분해 산출은 이제 **그 아이템을 새로 제작할 때 드는 재료**에서 나온다. 남은 내구도를 20 % 단위
- * 다섯 구간으로 나누고 (`durabilityBucketOf`), 구간마다 정해진 배수를 제작 재료에 곱한다
- * (`data/tables.csv` 의 `REPAIR_COST_BY_DURABILITY` · `SALVAGE_YIELD_BY_DURABILITY`).
- * 그래서 같은 총이라도 **지금 남은 내구도에 따라 수리비와 분해 산출이 달라진다** — UI 는 인스턴스를 들고 물어야 한다.
+ * The repair cost and the salvage yield now come from **the materials that item costs to craft fresh**. The remaining
+ * durability is split into five 20 % buckets (`durabilityBucketOf`), and each bucket's fixed multiplier is applied to
+ * the craft materials (`REPAIR_COST_BY_DURABILITY` · `SALVAGE_YIELD_BY_DURABILITY` in `data/tables.csv`).
+ * So for one and the same gun **the repair cost and the salvage yield differ by how much durability is left** — the UI must ask with the instance in hand.
  *
- * 두 배수의 합이 언제나 1 보다 작아서 「제작 → (수리) → 분해 → 제작」 이 이득이 되지 않는다.
- * 실제 숫자로 검사하는 곳은 `items/Salvage.checkSalvageEconomy()` 이고 `npm run data:check` 가 돌린다.
+ * The two multipliers always sum to less than 1, so 「craft → (repair) → salvage → craft」 never turns a profit.
+ * What checks that against the real numbers is `items/Salvage.checkSalvageEconomy()`, and `npm run data:check` runs it.
  *
- * ⚠ **`getRepairCost(inst)` 는 시그니처가 그대로이고 구현만 이 규칙으로 바뀌었다** (위 원본 블록 참고):
- *   더 이상 "빠진 내구도 ÷ REPAIR_SCRAP_PER" 가 아니라 `제작 재료 × REPAIR_COST_BY_DURABILITY[구간]`(올림)
- *   이고, 무기뿐 아니라 **방탄복도** 값을 돌려준다 (예전에는 방탄복 수리가 공짜였다). 내구도가 가득이거나
- *   내구도 자체가 없는 아이템은 예전처럼 `[]` 다.
+ * ⚠ **`getRepairCost(inst)` keeps its signature and only its implementation moved to this rule** (see the original block above):
+ *   it is no longer "missing durability ÷ REPAIR_SCRAP_PER" but `craft materials × REPAIR_COST_BY_DURABILITY[bucket]` (rounded
+ *   up), and it returns a value for **armor** as well as weapons (armor repair used to be free). An item at full durability,
+ *   or with no durability at all, still gives `[]` as before.
  */
 export interface LootRef {
   /**
-   * 남은 내구도 구간 **0..4** — 0 = 0~20 % · 1 = 21~40 % · 2 = 41~60 % · 3 = 61~80 % · 4 = 81~100 %.
-   * 내구도가 없는 아이템(가방 · 재료 · 탄약)은 언제나 **4** 다.
+   * The remaining-durability bucket **0..4** — 0 = 0~20 % · 1 = 21~40 % · 2 = 41~60 % · 3 = 61~80 % · 4 = 81~100 %.
+   * An item with no durability (bags · materials · ammo) is always **4**.
    */
   durabilityBucketOf(inst: ItemInstance): number;
-  /** 구간 하나의 설명 — UI 가 "지금 몇 번째 구간인가" 와 그 배수를 그대로 그릴 수 있게. */
+  /** The description of one bucket — so the UI can draw "which bucket it is in now" and that bucket's multipliers as they are. */
   durabilityBucketInfo(inst: ItemInstance): DurabilityBucketInfo;
   /**
-   * 이 아이템을 **새로 제작할 때** 드는 재료 (수리 · 분해 계산의 기준). 제작 레시피가 없으면 `[]`
-   * (유니크 무기 · 유니크 방탄복 · 루팅 전용 아이템). 반환 배열은 공유되므로 고치지 않는다.
+   * The materials this item costs **to craft fresh** (the basis of the repair · salvage maths). `[]` when it has no craft
+   * recipe (unique weapons · unique armors · loot-only items). The returned array is shared, so it is never modified.
    */
   getCraftCostOf(defId: string): readonly CraftIngredient[];
   /**
-   * 이 인스턴스를 **지금** 분해하면 나오는 것. 분해할 수 없으면 null (유니크 · 제작 레시피가 없는 장비 ·
-   * 산출이 0 인 경우). 돌아오는 것은 여전히 `CraftRecipe` 모양이고 `id` 는 `getAllRecipes()` 에 있는
-   * 그 분해 레시피와 **같다** — 달라지는 것은 `outputQty` / `extraOutputs` 뿐이다 (내구도 구간이 곱해진 값).
-   * `getAllRecipes()` 에 실려 있는 쪽은 **구간 4(81~100 %) 기준**이므로, 실제로 소비 · 산출할 때는
-   * 반드시 이 함수가 돌려준 레시피를 써야 한다.
+   * What salvaging this instance **right now** yields. Null when it cannot be salvaged (uniques · gear with no craft
+   * recipe · a yield of 0). What comes back is still `CraftRecipe`-shaped and its `id` is **the same** as that salvage
+   * recipe in `getAllRecipes()` — only `outputQty` / `extraOutputs` differ (multiplied by the durability bucket).
+   * The one listed in `getAllRecipes()` is **on bucket 4 (81~100 %)**, so consuming and producing for real must always
+   * use the recipe this function returned.
    */
   getSalvageFor(inst: ItemInstance): CraftRecipe | null;
 }
 
-/** `LootRef.durabilityBucketInfo` 의 반환값. */
+/** The return value of `LootRef.durabilityBucketInfo`. */
 export interface DurabilityBucketInfo {
   /** 0..4 (0 = 0~20 %). */
   bucket: number;
-  /** 남은 내구도 비율 0..1 (내구도가 없으면 1). */
+  /** Remaining durability as a ratio 0..1 (1 when there is no durability). */
   ratio: number;
-  /** 이 구간의 수리 재료 배수 (제작 재료 × 이 값, 올림). */
+  /** This bucket's repair material multiplier (craft materials × this, rounded up). */
   repairMul: number;
-  /** 이 구간의 분해 산출 배수 (제작 재료 × 이 값, 내림). */
+  /** This bucket's salvage yield multiplier (craft materials × this, rounded down). */
   salvageMul: number;
-  /** 한국어 구간 표기 (`81~100 %`). */
+  /** The Korean bucket label (`81~100 %`). */
   label: string;
 }
 
 export interface EnemyManagerRef {
-  /* ── appended (2026-09-10): 위험 인디케이터 ── */
+  /* ── appended (2026-09-10): danger indicators ── */
   /**
-   * 지금 날아가는 **적** 수류탄 (로그가 던진 것). HUD 의 위험 인디케이터가 아군 수류탄
-   * (`WeaponsRef.getGrenades()`) 과 나란히 읽는다 — 같은 `GrenadeView` 모양이고, `remote` 는
-   * "이 클라이언트에 권한이 없는 복제본" 이라는 뜻으로 쓴다. 한 풀 몸체당 view 객체 하나를 재사용하므로
-   * 반환 배열도 그 자리에서 다시 쓰인다: **호출자는 붙들어 두지 말고 그 프레임에 다 읽는다.**
+   * The **enemy** grenades in flight right now (thrown by rogues). The HUD's danger indicators read it alongside
+   * friendly grenades (`WeaponsRef.getGrenades()`) — the same `GrenadeView` shape, where `remote` is used to mean
+   * "a replica this client has no authority over". One view object is reused per pooled body, so the returned array
+   * is reused on the spot too: **the caller must not hold on to it and reads it all within that frame.**
    */
   getEnemyGrenades(): readonly GrenadeView[];
 }
 
-/* ══ appended (2026-09-11): 볼록 콜라이더 · 경사 발판 · 깨지는 창 · 사다리 ═══════════════════════════════
- * 계약은 **추가만** 한다. 소유 폴더는 각 절의 머리에 적었다.
+/* ══ appended (2026-09-11): convex colliders · ramp platforms · breakable glass · ladders ═
+ * The contract is **add-only**. The owning folder is named at the head of each section.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
-/* ── 볼록 다각형 기둥 (owner: world) ─────────────────────────────────────────────────────────────────── */
-/** 볼록 콜라이더의 한 층 — `[y0, y1]` 높이 사이에서 보이는 메시의 볼록 윤곽 (월드 XZ, 반시계). */
+/* ── convex polygon prisms (owner: world) ─────────────────────────────────────────────────────── */
+/** One band of a convex collider — the convex outline of the mesh visible between heights `[y0, y1]` (world XZ, counter-clockwise). */
 export interface ObstacleHullBand {
   y0: number;
   y1: number;
-  /** `[x0, z0, x1, z1, …]` 월드 좌표, 반시계(위에서 내려다본 +X → +Z 회전 방향). */
+  /** `[x0, z0, x1, z1, …]` in world coordinates, counter-clockwise (the +X → +Z turn seen from above). */
   points: Float32Array;
 }
 
 /**
- * **볼록 다각형 기둥.** 주면 `radius` 원 대신 이 윤곽으로 밀어내고 발판을 판정한다 — 바위 · 크리스탈 · 첨탑처럼
- * 원 하나로는 어떤 방향은 파고들고 어떤 방향은 앞에서 막히는 소품을 위해 2026-09-11 에 추가했다.
- * `box` 와 같은 규약으로 `radius` 는 **여전히 채워 둔다** (`position` 에서 가장 먼 꼭짓점까지 = 외접원):
- * `SpatialHash` 버킷팅과 광역 질의가 그 원을 쓴다.
+ * **A convex polygon prism.** Given one, the push-out and the standing test use this outline instead of the `radius`
+ * circle — added on 2026-09-11 for props such as rocks · crystals · spires, where one circle cuts into the silhouette
+ * from one direction and blocks you short of it from another. By the same convention as `box`, `radius` is **still filled
+ * in** (the distance from `position` to the farthest vertex = the circumscribed circle): `SpatialHash` bucketing and the broad queries use that circle.
  */
 export interface ObstacleHull {
-  /** 이동 · 발판용 윤곽 (`[x0, z0, …]`, 월드 좌표, 반시계). 높이는 `position.y .. position.y + height`. */
+  /** The outline for movement · standing (`[x0, z0, …]`, world coordinates, counter-clockwise). Its height is `position.y .. position.y + height`. */
   points: Float32Array;
-  /** 총알 · 시야용 층. 없으면 `points` 를 전체 높이에 쓴다. 층은 아래에서 위로 정렬돼 있다. */
+  /** The bands for bullets · line of sight. Without them `points` is used over the whole height. Bands are sorted bottom to top. */
   bands?: readonly ObstacleHullBand[];
 }
 
 export interface Obstacle {
-  /** 볼록 다각형 기둥 (2026-09-11). `box` 와 함께 쓰지 않는다. */
+  /** A convex polygon prism (2026-09-11). Never used together with `box`. */
   hull?: ObstacleHull;
   /**
-   * **경사 발판** (2026-09-11) — `box` 와 함께만 쓴다. 윗면이 상자의 로컬 +X 방향으로 올라가는 경사면이다:
-   * 로컬 `x = -halfX` 에서 `position.y + height - rise`, `x = +halfX` 에서 `position.y + height`.
-   * 계단은 **보이는 것은 계단, 밟는 것은 이 경사면**이라 한 단씩 튀지 않고 스르륵 오르내린다.
+   * A **ramp platform** (2026-09-11) — used only together with `box`. The top is a slope rising along the box's local +X:
+   * `position.y + height - rise` at local `x = -halfX`, `position.y + height` at `x = +halfX`.
+   * Stairs are **stairs to look at and this slope to walk on**, so a body glides up and down instead of hopping step by step.
    */
   ramp?: { rise: number };
   /**
-   * 한 방에 깨지는 판 (창문 유리, 2026-09-11). 맞힌 쪽(총알 · 투척물)이 `destructible.onDamage` 를 부르고,
-   * 깨지면 소유자가 hash 에서 뺀다. 이동은 막지만 **투척물은 이 판에서 튕기지 않고 깨고 지나간다.**
+   * A pane that breaks in one hit (window glass, 2026-09-11). Whatever hit it (a bullet · a thrown object) calls
+   * `destructible.onDamage`, and once broken the owner takes it out of the hash. It blocks movement, but **a thrown object does not bounce off it: it breaks through.**
    */
   fragile?: boolean;
 }
 
-/* ── 사다리 (owner: world/Structures — 매달리는 쪽: player) ─────────────────────────────────────────────── */
+/* ── ladders (owner: world/Structures — the hanging side: player) ───────────────────────────────── */
 /**
- * 들어갈 수 있는 건물의 사다리 한 줄. 좌표는 전부 월드이고 시드 결정적이다.
- * 매달린 몸은 `base` 의 XZ 에 고정되고 `base.y .. topY` 사이를 오르내린다.
+ * One ladder run in an enterable building. Every coordinate is world space and seed-deterministic.
+ * A hanging body is pinned to `base`'s XZ and climbs between `base.y` and `topY`.
  */
 export interface LadderDef {
   /** `ladder_<structureId>_<n>`. */
   id: string;
-  /** 사다리에 매달린 **몸 중심**의 XZ, y = 아래 바닥 높이 (발치). */
+  /** The XZ of the **body centre** while hanging on the ladder, y = the height of the floor below (at the feet). */
   base: THREE.Vector3;
-  /** 꼭대기에 올라서는 바닥의 높이 (옥상 윗면). */
+  /** The height of the floor stepped onto at the top (the roof surface). */
   topY: number;
-  /** 사다리 면에서 **매달린 사람 쪽**으로 향하는 수평 단위 벡터. 매달리면 `-normal` 을 바라본다. */
+  /** The horizontal unit vector from the ladder face **toward the person hanging on it**. Hanging, the body faces `-normal`. */
   normal: THREE.Vector3;
-  /** 꼭대기에서 올라선 뒤 서는 자리 (y = `topY`). 사다리 위쪽 너머(`-normal` 방향) 바닥이다. */
+  /** Where the body stands after stepping off at the top (y = `topY`). It is the floor beyond the ladder (`-normal` direction). */
   exit: THREE.Vector3;
 }
 
 export interface WorldRef {
   /* ── appended (2026-09-11) ── */
-  /** 이번 맵의 사다리 전부 (훈련장 · 구조물이 없으면 빈 배열). */
+  /** Every ladder on this map (an empty array on the training range · with no structures). */
   getLadders(): readonly LadderDef[];
 }
 
 export interface PlayerRef {
-  /* ── appended (2026-09-11): 사다리 (owner: player) ── */
-  /** 지금 매달려 있는 사다리 id. 매달려 있지 않으면 null (없으면 null 과 같다). */
+  /* ── appended (2026-09-11): ladders (owner: player) ── */
+  /** The id of the ladder currently hung on. Null when not hanging (missing means the same as null). */
   readonly climbingLadder?: string | null;
 }
 
 export interface PlayerRef {
-  /* ── appended (2026-09-11): 드론 조종 (owner: player; caller: gadgets/drones — shared/drones.ts) ── */
+  /* ── appended (2026-09-11): drone control (owner: player; caller: gadgets/drones — shared/drones.ts) ── */
   /** true while the local player looks through a drone (`setDroneControl(true)`). */
   readonly droneControl?: boolean;
   /**
-   * 드론 조종 모드. true 인 동안: 이동 · 점프 · 자세 · 구르기 입력을 무시하고 몸을 세운다(속도 0), **앉기 자세를 강제**하고
-   * (false 가 되면 켜기 직전 자세로 돌린다), 조준 해제 · `canUseWeapons()` false · E 상호작용 없음, 마우스 시점은 카메라
-   * 리그에 적용하지 않는다 — 카메라는 drones 가 매 프레임 `setCameraOverride(pos, look, true)` 로 준다.
-   * 피해는 그대로 받는다 (조종을 끊는 것은 drones 가 `player:damaged` 를 보고 한다).
-   * 전투불능 · 사망 · `respawnAt` · `spawnStanding` · `game:abort` 가 false 로 되돌린다.
+   * Drone control mode. While true: movement · jump · stance · roll input is ignored and the body is held still (velocity 0),
+   * the **crouch stance is forced** (turning it off restores the stance from just before), aiming is released,
+   * `canUseWeapons()` is false, E interaction is gone, and mouse look is not applied to the camera rig — the camera is
+   * handed over by drones every frame with `setCameraOverride(pos, look, true)`.
+   * Damage still lands (cutting the control off is done by drones watching `player:damaged`).
+   * Downed · death · `respawnAt` · `spawnStanding` · `game:abort` set it back to false.
    */
   setDroneControl?(active: boolean): void;
 }
 
-/* ══ appended (2026-09-12): 서재 매체 (A-3e) · 헬스장 (A-3a) — docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」 ═══════════════════════════════ */
+/* ══ appended (2026-09-12): library media (A-3e) · the gym (A-3a) — docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」 ═══════════════════ */
 
 export interface ItemDef {
   /* ── appended (A-3e, owner: items) ── */
-  /** category 'disc': 서재 디스크 전시대에 꽂으면 올리는 숙련. 모양은 `BookDef` 와 같다 (등급 = `BOOK_RARITY_MUL` 가중치). */
+  /** category 'disc': the skill it raises when slotted into the library disc rack. Same shape as `BookDef` (rarity = the `BOOK_RARITY_MUL` weight). */
   disc?: BookDef;
-  /** category 'record': 서재 레코드랙에 꽂으면 올리는 숙련. */
+  /** category 'record': the skill it raises when slotted into the library record rack. */
   record?: BookDef;
 }
 
-/** 가구에 몸을 맡기는 자세 (owner: player; caller: hub). `sit` = 흔들의자, 나머지 셋 = 헬스장 운동 기구. */
+/** A pose that gives the body over to a piece of furniture (owner: player; caller: hub). `sit` = the rocking chair, the other three = gym machines. */
 export type FurniturePoseKind = 'sit' | 'bench' | 'run' | 'cycle'
   /**
-   * appended (2026-09-13, 요리 미니게임): 조리대 앞에 서서 손을 놀리는 자세. anchor = 조리대 앞 **바닥**(서는 자리), yaw = 조리대를 본다.
-   * 드라이브 위상 = 손 동작 누적 주기 (썰기 · 다지기 = 칼질 한 번, 젓기 = 국자 한 바퀴, 볶기 = 팬 한 번 튕김, 굽기 · 붓기 = 느린 흔들림).
+   * appended (2026-09-13, the cooking minigame): standing at the cook bench working the hands. anchor = the **floor** in front of the bench (where the body stands), yaw = facing the bench.
+   * The drive phase = the accumulated cycle of the hand motion (slicing · chopping = one knife stroke, stirring = one turn of the ladle, tossing = one flip of the pan, grilling · pouring = a slow sway).
    */
   | 'cook';
 
 export interface FurniturePose {
   kind: FurniturePoseKind;
   /**
-   * 몸을 받치는 면의 월드 좌표 — `sit`: 좌판 윗면 중앙 · `bench`: 벤치 패드 윗면의 **등(견갑골) 자리** ·
-   * `run`: 러닝 벨트 윗면 중앙 · `cycle`: 안장 윗면. 몸의 오프셋(엉덩이 높이 · 누운 몸 길이)은 player 가 정한다.
+   * World coordinate of the surface that carries the body — `sit`: the centre of the seat top · `bench`: the **back
+   * (shoulder-blade) spot** on top of the bench pad · `run`: the centre of the treadmill belt · `cycle`: the saddle top. The body offsets (hip height · the length of a lying body) are decided by player.
    */
   anchor: THREE.Vector3;
   /**
-   * 향하는 방향 — 플레이어 카메라 yaw 와 같은 규약 (앞 = `(−sin yaw, 0, −cos yaw)`). `bench` 는 **엉덩이 → 머리** 방향이다
-   * (누워서 바벨 거치대 쪽으로 머리를 둔다).
+   * The facing — the same convention as the player camera yaw (forward = `(−sin yaw, 0, −cos yaw)`). For `bench` it is the **hip → head** direction
+   * (lying down with the head toward the barbell rack).
    */
   yaw: number;
-  /** 고정 카메라. 없으면 평소 3인칭 리그(마우스 시점 자유) — 흔들의자는 생략, 운동 기구는 옆에서 비추는 고정 카메라를 준다. */
+  /** A fixed camera. Without one it is the usual third-person rig (mouse look free) — the rocking chair omits it, the gym machines give a fixed camera from the side. */
   camera?: { position: THREE.Vector3; lookAt: THREE.Vector3 } | null;
-  /** true 면 E(`Keys.INTERACT`)로 자세가 풀린다 (흔들의자 토글). 운동 기구는 부른 쪽(`setFurniturePose(null)`)만 푼다. */
+  /** True and E (`Keys.INTERACT`) releases the pose (the rocking chair toggle). A gym machine is released only by its caller (`setFurniturePose(null)`). */
   releaseOnInteract?: boolean;
 }
 
 export interface PlayerRef {
-  /* ── appended (2026-09-12): 가구 자세 (owner: player; caller: hub) ── */
-  /** 지금 취하고 있는 가구 자세, 없으면 null. */
+  /* ── appended (2026-09-12): furniture poses (owner: player; caller: hub) ── */
+  /** The furniture pose held right now, or null. */
   readonly furniturePose?: FurniturePoseKind | null;
   /**
-   * 가구 자세를 취한다 / 푼다. 취하는 동안: 이동 · 점프 · 자세 · 구르기 · 무기 · (releaseOnInteract 가 아니면) E 상호작용을
-   * 무시하고 몸을 `anchor` 에 붙여 자세 애니메이션을 돈다. `camera` 가 있으면 그 자리로 블렌드한다. **풀면 자세를 취하기 직전에
-   * 서 있던 자리로 돌아간다** (가구 콜라이더 안에 남지 않는다). 함선(`phase === 'hub'`)에서만 — 레이드 · 드론 조종 · 사다리 ·
-   * 포드 · 전투불능이면 false 를 돌려주고 아무것도 바꾸지 않는다. `game:abort` · `hub:left` · 페이즈 변경 · `spawnStanding` 이
-   * 풀고 `player:furniturePoseEnded {reason:'reset'}` 을 낸다.
+   * Take / release a furniture pose. While held: movement · jump · stance · roll · weapons · (unless `releaseOnInteract`)
+   * E interaction are ignored, and the body is pinned to `anchor` running the pose animation. With a `camera` it blends to
+   * that spot. **Releasing puts the body back where it stood just before taking the pose** (it never stays inside the
+   * furniture collider). Only in the ship (`phase === 'hub'`) — in a raid · drone control · on a ladder · in a pod · downed
+   * it returns false and changes nothing. `game:abort` · `hub:left` · a phase change · `spawnStanding` release it and emit
+   * `player:furniturePoseEnded {reason:'reset'}`.
    */
   setFurniturePose?(pose: FurniturePose | null): boolean;
   /**
-   * 운동 자세의 동작 위상 0 … 1 — `bench`: 0 = 바벨이 가슴 · 1 = 팔을 다 편 자리, `run`: 한 걸음 주기(0 → 1 반복),
-   * `cycle`: 크랭크 한 바퀴(0 = 왼발이 위 · 0.5 = 오른발이 위). hub 가 바벨 · 페달 모델과 같은 값으로 매 프레임 준다.
-   * 한 번도 부르지 않으면 player 가 스스로 기본 속도로 돌린다. `sit` 에는 쓰지 않는다.
+   * The motion phase 0 … 1 of an exercise pose — `bench`: 0 = the barbell at the chest · 1 = arms fully extended, `run`: one
+   * stride cycle (0 → 1 repeating), `cycle`: one turn of the crank (0 = left foot up · 0.5 = right foot up). hub hands it over
+   * every frame with the same value it drives the barbell · pedal models with. Never called, player runs it at a default speed itself. Not used for `sit`.
    */
   setFurniturePoseDrive?(phase: number): void;
 }
 
-/* ══ appended (2026-09-12): 캐릭터 버프 · 가구 자세 동기화 — docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」 ═══════════════════════════ */
+/* ══ appended (2026-09-12): character buffs · furniture pose sync — docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」 ════════ */
 import type { CharBuff } from './charBuffs';
 
 export interface FurniturePose {
   /**
-   * appended (2026-09-12): 몸을 맡긴 가구 조각의 uid (hub 가 넣는다). 버프(`rest` · `exercise`)와 원격 동기화(`PlayerSnapshot.fu`)가
-   * 이것으로 그 가구를 가리킨다 — 방문자 쪽 hub 가 그 조각의 바벨 · 벨트 · 크랭크를 같은 위상으로 돌린다. 생략 = 모른다.
+   * appended (2026-09-12): the uid of the furniture piece the body was given over to (hub fills it). The buffs (`rest` · `exercise`)
+   * and the remote sync (`PlayerSnapshot.fu`) point at that furniture with it — a visitor's hub drives that piece's barbell · belt · crank at the same phase. Omitted = unknown.
    */
   furnitureUid?: string;
 }
 
-/** 지금 취한 가구 자세를 와이어로 보낼 모양 (`PlayerRef.furniturePoseState`, owner: player). */
+/** The wire shape of the furniture pose held right now (`PlayerRef.furniturePoseState`, owner: player). */
 export interface FurniturePoseState {
   kind: FurniturePoseKind;
-  /** `FurniturePose.anchor` 그대로 (월드). */
+  /** `FurniturePose.anchor` as it is (world space). */
   anchor: Readonly<THREE.Vector3>;
-  /** `FurniturePose.yaw` 그대로 (카메라 yaw 규약, `bench` 는 엉덩이 → 머리). */
+  /** `FurniturePose.yaw` as it is (the camera yaw convention; for `bench`, hip → head). */
   yaw: number;
   /**
-   * **감지 않은 누적 위상** — 받는 쪽이 스냅샷 사이를 선형 보간할 수 있어야 한다. `bench`: 0 … 1 (바벨 가슴 → 팔 다 편 자리, 감지
-   * 않는 값이 원래 이것이다) · `run`: 걸음 수(정수부 = 몇 번째 걸음, 소수부 = 한 걸음 안의 위상) · `cycle`: 크랭크 바퀴 수 ·
-   * `sit`: 0.
+   * The **unwrapped accumulated phase** — the receiver must be able to interpolate linearly between snapshots. `bench`: 0 … 1
+   * (barbell at the chest → arms extended; this one never wraps to begin with) · `run`: the stride count (integer part = which
+   * stride, fraction = the phase inside one stride) · `cycle`: the number of crank turns · `sit`: 0.
    */
   phase: number;
-  /** `FurniturePose.furnitureUid`, 모르면 null. */
+  /** `FurniturePose.furnitureUid`, or null when unknown. */
   furnitureUid: string | null;
 }
 
 export interface PlayerRef {
-  /* ── appended (2026-09-12): 캐릭터 버프 (owner: player) ── */
-  /** 지금 가구 자세의 와이어 값, 자세가 없으면 null. net 이 스냅샷 `fp` · `fu` 로 싣는다. */
+  /* ── appended (2026-09-12): character buffs (owner: player) ── */
+  /** The wire value of the current furniture pose, or null when there is no pose. net carries it in the snapshot as `fp` · `fu`. */
   readonly furniturePoseState?: FurniturePoseState | null;
   /**
-   * 이 캐릭터에 걸린 버프 · 디버프 전부 (`CharBuff`, `CHAR_BUFF_ORDER` 순). player 가 progression(식사 · 준비물 · 운동 디버프) ·
-   * housing(운동 세션) · 자기 자세(휴식 · 운동) · 자기 환경 판정(노출)을 모아 **바뀔 때만** 새 배열로 갈아 끼운다
-   * (같은 배열이면 안 바뀐 것이다 — 소비자는 참조로 비교해도 된다). 시각은 `ctx.net.serverNow() ?? Date.now()` 의 epoch ms.
+   * Every buff · debuff on this character (`CharBuff`, in `CHAR_BUFF_ORDER`). player gathers progression (meals · preparations ·
+   * the exercise debuff) · housing (the exercise session) · its own pose (rest · exercise) · its own environment test (exposure)
+   * and swaps in a new array **only when something changed** (the same array means nothing changed — a consumer may compare by reference). Times are epoch ms of `ctx.net.serverNow() ?? Date.now()`.
    */
   readonly buffs?: readonly CharBuff[];
-  /** `buffs` 가 바뀔 때마다 +1 (1 부터). net 이 스냅샷 `bfr` 로 싣고, 받는 쪽은 이 번호로 목록이 낡았는지 안다. */
+  /** +1 every time `buffs` changes (from 1). net carries it in the snapshot as `bfr`, and the receiver knows from this number whether its list is stale. */
   readonly buffsRevision?: number;
 }
 
-/* ══ appended (2026-09-11): C 항목 배치 계약 (커밋 `36e15e3`(계약)) ═══════════════════════════════════ */
+/* ══ appended (2026-09-11): the C-item batch contract (commit `36e15e3`, the contract) ══════ */
 
 export interface EnemyManagerRef {
   /**
-   * appended (2026-09-11, C-1 · X-6 — 2026-09-08 부터 `EnemySystem` 의 캐스트 전용 메서드였다). Shove every alive
+   * appended (2026-09-11, C-1 · X-6 — it had been a cast-only method of `EnemySystem` since 2026-09-08). Shove every alive
    * combatant within `radius` of `center` horizontally away from it (or along `dir` when given) at `speed` m/s, falling
    * off linearly to 40 % at the rim; a charging behemoth is not shoved (same rule as an explosion). Returns how many
    * were pushed.
@@ -2791,7 +2793,7 @@ export interface EnemyManagerRef {
 }
 
 export interface PlayerRef {
-  /* ── appended (2026-09-11, C-3): 오버차지 (owner: player; caller: implants `applyBoost`) ── */
+  /* ── appended (2026-09-11, C-3): overcharge (owner: player; caller: implants `applyBoost`) ── */
   /**
    * Mark this player overcharged for `duration` seconds (`isOvercharged` true until then); 0 clears it. The caller
    * sets the matching speed modifier with `setSpeedModifier` itself — the two are no longer coupled by a key name.
@@ -2810,7 +2812,7 @@ export type SurfaceMaterial =
   | 'dirt' | 'sand' | 'snow' | 'mud' | 'moss' | 'ash' | 'rock' | 'crystal' | 'organic' | 'metal' | 'concrete';
 
 export interface WorldRef {
-  /* ── appended (2026-09-11, C-22): 재질별 발소리 (owner: world; callers: audio · enemies) ── */
+  /* ── appended (2026-09-11, C-22): per-material footsteps (owner: world; callers: audio · enemies) ── */
   /**
    * Material under `(x, z)`. With `feetY` the obstacle a body at that foot height stands on wins
    * (`getStandingObstacle` rules), otherwise the terrain band there. One hash query — cheap enough per footstep.
@@ -2819,93 +2821,93 @@ export interface WorldRef {
   getSurfaceMaterial?(x: number, z: number, feetY?: number): SurfaceMaterial;
 }
 
-/* ══ appended (2026-09-11): 연구실 — 분석기 · 추출기 · 조합대 (A-11 · A-12 · A-13) ══════════════════════════
+/* ══ appended (2026-09-11): the lab — analyzer · extractor · mixer (A-11 · A-12 · A-13) ═════════
  *
- * 세 줄기가 한 방(`lab`)에서 만난다:
- *   ① **미확인 표본**(`ItemDef.sample`)을 레이드에서 주워 온다 — 버그 시체 · 새 채집 노드 · 구조물 컨테이너.
- *      (로그는 표본에 관심이 없다 — 로그 시체에서는 나오지 않는다. 사용자 결정 2026-09-11.)
- *   ② **분석기**가 그것을 현실 시간만큼 해석해 **해석 도감**(`ShipState.sampleDex`)을 채우고, 도감이 찰수록
- *      다음 해석이 빨라진다. 해석 보상이 새 품종 씨앗의 두 공급원 중 하나다 (다른 하나는 행성별 야생 채집).
- *   ③ **추출기 · 조합대**는 평범한 작업대다 (`WorkbenchKind` += `'extract'` · `'mixer'`) — 작물 · 표본 산물에서
- *      성분을 뽑고(추출기), 그 성분으로 **준비물**(`ItemDef.prep`)을 만든다(조합대).
+ * Three strands meet in one room (`lab`):
+ *   ① **Unidentified samples** (`ItemDef.sample`) are picked up in a raid — bug corpses · the new gather nodes · structure containers.
+ *      (Rogues have no interest in samples — none come off a rogue corpse. User's decision 2026-09-11.)
+ *   ② The **analyzer** reads one over that much real time and fills the **analysis catalogue** (`ShipState.sampleDex`); the
+ *      fuller the catalogue, the faster the next reading. That reward is one of the two sources of new variety seeds (the other is wild gathering per planet).
+ *   ③ The **extractor · mixer** are ordinary workbenches (`WorkbenchKind` += `'extract'` · `'mixer'`) — the extractor pulls
+ *      ingredients out of crops · sample products, and the mixer makes **preparations** (`ItemDef.prep`) from them.
  *
- * 준비물은 **함선에서 쓰면 다음 레이드 1회분**으로 실린다 (사용자 결정): `PlayerProfile.prep` 에 쌓였다가 출격
- * 순간 `prepActive` 로 옮겨져 그 레이드 내내 유지되고 (사망해도 그 레이드는 유지), 레이드가 끝나면 비워진다.
- * 프로필에 사는 덕분에 재접속으로 돌아온 사람이 조용히 잃지 않는다 (2026-09-10 규약).
+ * A preparation is **loaded as one charge for the next raid when used in the ship** (user's decision): it piles up in
+ * `PlayerProfile.prep`, moves to `prepActive` at the moment of launch and is kept for that whole raid (kept even on death),
+ * and is emptied when the raid ends. Living in the profile is what keeps a person who reconnects from silently losing it (the 2026-09-10 convention).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /**
- * 행성 상시 환경 (A-13, 사용자 결정 2026-09-11 — threat 3 두 곳만). `data/planets.csv` 의 `env` 열이고 빈 칸이면
- * 없다. 맞는 준비물 없이 그 행성에 있으면 `PLANET_ENV_DPS` 로 **체력만** 깎인다 (방탄복 실드는 대기를 막지 못한다).
- * 소프트 게이트다 — 들어가는 것 자체는 막지 않는다.
+ * A planet's standing environment (A-13, user's decision 2026-09-11 — only the two threat 3 planets). It is the `env`
+ * column of `data/planets.csv`, and an empty cell means none. Being on that planet without the matching preparation takes
+ * **hp only** at `PLANET_ENV_DPS` (an armor shield cannot stop the atmosphere). It is a soft gate — going there is never blocked.
  */
 export type EnvKind = 'heat' | 'toxin';
 export const ENV_KINDS: readonly EnvKind[] = ['heat', 'toxin'];
 
 /**
- * 미확인 표본 data (A-12, owner: items — `data/samples.csv`). 해석은 **현실 시간**이라 함선을 떠나 있어도 흐른다
- * (온실과 같은 규약: `startedAt` / `readyAt` 는 `ctx.net.serverNow() ?? Date.now()` 의 epoch ms 이고, 시작한 뒤에는
- * 도감이 더 차도 **돌아가던 타이머는 움직이지 않는다**).
+ * Unidentified sample data (A-12, owner: items — `data/samples.csv`). Reading runs on **real time**, so it flows on while
+ * away from the ship (the same convention as the greenhouse: `startedAt` / `readyAt` are epoch ms of
+ * `ctx.net.serverNow() ?? Date.now()`, and once started **a running timer does not move** however much fuller the catalogue gets).
  */
 export interface SampleDef {
-  /** 도감이 텅 빈 상태에서 한 번 해석하는 데 걸리는 실제 시간(시간). 도감 진척 · 기지식이 여기서 깎는다. */
+  /** Real hours one reading takes with an empty catalogue. Catalogue progress · existing knowledge cut it down from here. */
   analyzeHours: number;
-  /** 해석이 끝나면 손에 들어오는 것 (가방 → 함선 창고). */
+  /** What lands in hand when the reading finishes (bag → ship stash). */
   rewardDefId: string;
   rewardQty: number;
-  /** **처음** 해석했을 때(= 도감에 없던 표본)만 얹어 주는 것. 없으면 보너스 없음. */
+  /** What is added on top only on the **first** reading (= a sample not yet in the catalogue). Absent = no bonus. */
   firstDefId?: string;
   firstQty?: number;
 }
 
 /**
- * 준비물 data (A-13, owner: items — `data/items.csv` 의 `prepEnv` · `prepShort` 칸). 함선에서 써서 다음 레이드에
- * 싣는 1회분이고, 같은 `env` 를 두 번 싣지는 못한다 (두 번째는 한국어 사유로 거절 — 조용히 삼키지 않는다).
+ * Preparation data (A-13, owner: items — the `prepEnv` · `prepShort` cells of `data/items.csv`). It is the one charge used
+ * in the ship and carried into the next raid, and the same `env` cannot be loaded twice (the second is refused with a Korean reason — never swallowed silently).
  */
 export interface PrepDef {
-  /** 이 준비물이 상쇄하는 행성 환경. 실려 있으면 그 환경의 피해가 **0** 이 된다 (사용자 결정: 완전 상쇄). */
+  /** The planet environment this preparation cancels. Loaded, that environment's damage becomes **0** (user's decision: a full cancel). */
   env: EnvKind;
-  /** HUD 배지에 찍는 짧은 이름 (「방독」 · 「내열」). */
+  /** The short name stamped on the HUD badge (「방독」 · 「내열」). */
   short: string;
 }
 
 export interface ItemDef {
   /* ── appended (2026-09-11, owner: items) ── */
-  /** category 'sample': 분석기가 해석하는 데 드는 시간과 그 산출물. */
+  /** category 'sample': how long the analyzer takes to read it, and what comes out. */
   sample?: SampleDef;
-  /** category 'prep': 어떤 행성 환경을 막아 주는 다음 레이드 1회분인가. */
+  /** category 'prep': which planet environment this one-raid charge blocks. */
   prep?: PrepDef;
 }
 
 export interface WorldRef {
-  /* ── appended (2026-09-11, A-13): 행성 상시 환경 (owner: world; callers: player · ui · hub) ── */
+  /* ── appended (2026-09-11, A-13): a planet's standing environment (owner: world; callers: player · ui · hub) ── */
   /**
-   * 이번 레이드 행성의 상시 환경, 없으면 null (훈련장도 null). `getPlanet(id)?.env` 를 그대로 돌려주는 얇은 질의다 —
-   * 행성 id 를 들고 다니지 않아도 되도록 world 가 대신 답한다.
+   * The standing environment of this raid's planet, or null when there is none (null on the training range too). A thin
+   * query that just returns `getPlanet(id)?.env` — world answers it so callers need not carry the planet id around.
    */
   readonly env?: EnvKind | null;
 }
 
-/* ══ appended (2026-09-11, A-3c · A-14 · A-15): 주방 · 배양조 · 3D 프린터 ═══════════════════════════════════
+/* ══ appended (2026-09-11, A-3c · A-14 · A-15): the kitchen · the culture tank · the 3D printer ═════
  *
- * 사용자 6단계 명세의 **5 · 6단계**(배양조 · 프린터)와 **주방**을 한 사이클에 넣는다. 셋은 하나의 사슬이다:
+ * Puts **steps 5 and 6** of the user's six-step spec (the culture tank · the printer) and the **kitchen** into one cycle. The three are one chain:
  *
- *   레이드 표본 `spec_*` ──분석기──▶ 세포주 `strain_*` ─┐
- *   온실 작물 `crop_*` ──추출기──▶ 배지 `mat_medium_*` ─┴─배양조──▶ 배양 산물 `cult_*`
- *        ├─ 조리대(`cook`) ──▶ 특선 요리 ──▶ 식탁 ──▶ **식사 1칸** (다음 레이드 1회분)
- *        └─ 추출기 ──▶ 필라멘트 3등급 ──▶ 프린터(`print`) ──▶ 희귀 · 서사 · 전설 가방 · 주머니 4종
+ *   raid sample `spec_*` ──analyzer──▶ cell line `strain_*` ───────┐
+ *   greenhouse crop `crop_*` ──extractor──▶ medium `mat_medium_*` ─┴─culture tank──▶ culture product `cult_*`
+ *        ├─ cook bench (`cook`) ──▶ a special dish ──▶ the dining table ──▶ **one meal slot** (one charge for the next raid)
+ *        └─ extractor ──▶ 3 filament grades ──▶ printer (`print`) ──▶ rare · epic · legendary bags · the 4 pouches
  *
- * 이 사슬이 작물 8종의 네 번째 소비처(조리대)를 만들고, 「높은 등급 가방일수록 구하기 어려운 표본에서
- * 나온다」(사용자 결정)를 데이터 하나로 성립시킨다.
+ * This chain gives the 8 crops their fourth consumer (the cook bench) and makes 「the higher a bag's rarity, the harder
+ * the sample it comes from」 (user's decision) true through data alone.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /**
- * 요리가 올려 주는 파생 수치 한 가지. 값은 전부 `DerivedStats` 에 **이미 있는 필드 이름**이다 — 그것이 요점이다:
- * 버프를 새 개념으로 만들면 player · weapons · world · inventory 가 전부 그 개념을 읽어야 하지만, 파생 수치에
- * 접어 넣으면 **소비자가 한 줄도 안 바뀐다** (이미 `ctx.progression.derived` 를 읽고 있다).
+ * One derived stat a meal raises. Every value is a field name that **already exists** on `DerivedStats` — and that is the
+ * point: making a buff a new concept would mean player · weapons · world · inventory all having to read that concept, while
+ * folding it into a derived stat means **no consumer changes by a line** (they already read `ctx.progression.derived`).
  *
- * ⚠ 크레딧 · 판매가 배수는 **일부러 없다**. 서버가 크레딧을 사유별로 검증하므로(E-4) 클라이언트가 배수를
- * 얹으면 그대로 `credits:tx` 거절이 된다. 보상계 버프는 숙련 XP · 채집량 · 감정 속도로 낸다.
+ * ⚠ There is **deliberately no** credits · sell-price multiplier. The server validates credits per reason (E-4), so a client
+ * adding a multiplier simply gets the `credits:tx` refused. Reward-side buffs are paid in skill XP · gather yield · appraisal speed.
  */
 export type MealBuff =
   | 'carryCapacity' | 'maxStamina' | 'staminaRegenMul' | 'healPowerMul' | 'gritChance'
@@ -2918,98 +2920,98 @@ export const MEAL_BUFFS: readonly MealBuff[] = [
   'detectRadius', 'useSpeedMul', 'interactSpeedMul', 'durabilityLossMul',
 ];
 
-/** 이름이 `*Mul` 로 끝나는 버프는 **배수에 가산**된다 (0.15 = +15 %); 나머지는 그 수치의 단위 그대로 더해진다. */
+/** A buff whose name ends in `*Mul` is **added to the multiplier** (0.15 = +15 %); the rest are added in that stat's own unit. */
 export const isMealBuffMultiplier = (b: MealBuff): boolean => b.endsWith('Mul') || b === 'gritChance';
 
 /**
- * 요리 data (A-3c, owner: items — `data/meals.csv`). 한 요리는 **버프 하나**만 올린다 (사용자 결정: 요리마다
- * 한 가지씩, 생존계 · 보상계를 섞어서). 함선의 식탁에서 먹으면 다음 레이드 1회분으로 실리고, 수명 규칙은
- * 준비물과 완전히 같다 (`PlayerProfile.meal` → `mealActive`, 사망해도 그 레이드는 유지).
+ * Meal data (A-3c, owner: items — `data/meals.csv`). One meal raises **one buff** only (user's decision: one per meal,
+ * mixing survival-side and reward-side ones). Eaten at the ship's dining table it loads as one charge for the next raid,
+ * and its lifetime rules are exactly a preparation's (`PlayerProfile.meal` → `mealActive`, kept for that raid even on death).
  */
 export interface MealDef {
   buff: MealBuff;
-  /** 가산값. `isMealBuffMultiplier` 인 버프는 배수에 더해지고, 나머지는 단위 그대로. `durabilityLossMul` 만 음수다. */
+  /** The added value. A buff that `isMealBuffMultiplier` is added to the multiplier, the rest in their own unit. Only `durabilityLossMul` is negative. */
   amount: number;
   /**
-   * 1 = 채소 요리(작물만) · 2 = 고기 페이스트 요리 · 3 = 고기 · 동물기름 요리 · 4 = 난백 · 유단백 요리. 툴팁 · 정렬용.
-   * (2026-09-13 요리 재료 티어로 넓혔다 — 옛 「2 = 특선 요리」는 은퇴한 네 요리뿐이다. 이름표는 `MEAL_TIER_LABEL_KO`.)
+   * 1 = a vegetable dish (crops only) · 2 = a meat-paste dish · 3 = a meat · animal-fat dish · 4 = an egg-white · milk-protein dish. For tooltips · sorting.
+   * (Widened by the 2026-09-13 cooking material tiers — the old 「2 = a special dish」 is only the four retired meals. The labels are `MEAL_TIER_LABEL_KO`.)
    */
   tier: 1 | 2 | 3 | 4;
 }
 
 /**
- * 주머니 data (A-15, owner: items — `data/items.csv` 의 `pouchCols` · `pouchRows` · `pouchAccepts`).
+ * Pouch data (A-15, owner: items — `pouchCols` · `pouchRows` · `pouchAccepts` of `data/items.csv`).
  *
- * 주머니는 **가방이 아니다** — 장비칸의 `pouch` 한 칸에 끼우는 별도 컨테이너이고, 장착하면 퀵슬롯 아래에
- * 자기 격자가 생긴다 (사용자 결정). 2026-09-09 의 「퀵슬롯은 가방 격자가 아니다」가 만든 패턴 그대로다:
- * 무게 · `countWhere` · `consumeWhere` · `stripForCorpse` · 레이드 blob 은 주머니를 보고,
- * `getAllItems()`(거래 · 수리 목록)는 **여전히 가방 격자만**이다.
+ * A pouch is **not a bag** — it is a separate container fitted into the one `pouch` equipment slot, and equipping it
+ * opens its own grid under the quick slots (user's decision). Exactly the pattern 「the quick slots are not the bag grid」
+ * set on 2026-09-09: weight · `countWhere` · `consumeWhere` · `stripForCorpse` · the raid blob all look at the pouch,
+ * while `getAllItems()` (the trade · repair lists) is **still the bag grid only**.
  */
 export interface PouchDef {
   cols: number;
   rows: number;
-  /** 이 주머니가 받아 주는 아이템 카테고리. 그 밖의 것은 격자가 거절한다. */
+  /** The item categories this pouch accepts. The grid refuses anything else. */
   accepts: readonly ItemCategory[];
 }
 
 /**
- * 세포주 · 균주 data (A-14, owner: items). 분석기 해석의 산출물이고, 배양조 칸에 **배지를 부은 뒤** 넣는다.
- * 배양 시간은 넣는 순간 `readyAt` 에 확정된다 (온실 · 분석기와 같은 규약).
+ * Cell line · strain data (A-14, owner: items). The product of an analyzer reading, put into a culture tank cell **after a
+ * medium has been poured in**. The culture time is fixed into `readyAt` the moment it goes in (the same convention as the greenhouse · analyzer).
  */
 export interface StrainDef {
   outputDefId: string;
   outputQty: number;
-  /** 기본 배지 기준 배양 시간(시간). 배지 등급(`MediumDef.speedMul`)과 원예 숙련이 여기서 깎는다. */
+  /** Culture time (hours) on a basic medium. The medium's grade (`MediumDef.speedMul`) and the 원예 skill cut it from here. */
   cultureHours: number;
 }
 
 /**
- * 영양 배지 data (A-14, owner: items). 추출기에서 만든다 — 온실 산물의 새 소비처다.
- * 토양과 같은 소모 규약: **수확마다 1회** 닳고 0 이면 칸이 완전히 빈다.
+ * Nutrient medium data (A-14, owner: items). Made at the extractor — a new consumer of greenhouse produce.
+ * The same wear convention as soil: it wears **once per harvest** and at 0 the cell is completely empty.
  *
- * 토양의 태그 매칭과 달리 배지는 **등급 하나**다 (축을 하나 더 만들 이유가 없다는 판단).
+ * Unlike soil's tag matching, a medium has **only a grade** (the judgement was that a second axis has no reason to exist).
  */
 export interface MediumDef {
-  /** 이 배지가 버티는 수확 횟수. */
+  /** How many harvests this medium survives. */
   uses: number;
-  /** 배양 시간 배수 (1 = 기본, 0.75 = 25 % 빠름). */
+  /** Culture time multiplier (1 = base, 0.75 = 25 % faster). */
   speedMul: number;
 }
 
 export interface ItemDef {
   /* ── appended (2026-09-11, A-3c · A-14 · A-15; owner: items) ── */
-  /** category 'meal': 어떤 파생 수치를 얼마나 올려 주는 다음 레이드 1회분인가. */
+  /** category 'meal': which derived stat this one-raid charge raises, and by how much. */
   meal?: MealDef;
-  /** category 'pouch': 장비칸 `pouch` 에 끼우면 열리는 별도 격자. */
+  /** category 'pouch': the separate grid that opens when it is fitted into the `pouch` equipment slot. */
   pouch?: PouchDef;
-  /** 세포주 · 균주 (category 'material'): 배양조가 무엇을 얼마나 오래 만드는가. */
+  /** A cell line · strain (category 'material'): what the culture tank makes from it and how long that takes. */
   strain?: StrainDef;
-  /** 영양 배지 (category 'material'): 배양조 칸에 붓는 것. */
+  /** A nutrient medium (category 'material'): what is poured into a culture tank cell. */
   medium?: MediumDef;
 }
 
 export interface InventoryRef {
-  /* ── appended (2026-09-11, A-15): 주머니 (owner: inventory; callers: ui · housing) ── */
-  /** 지금 장착한 주머니 아이템, 없으면 null. */
+  /* ── appended (2026-09-11, A-15): pouches (owner: inventory; callers: ui · housing) ── */
+  /** The pouch item equipped right now, or null. */
   getEquippedPouch?(): ItemInstance | null;
-  /** 장착한 주머니의 격자 크기. 주머니가 없으면 `{ cols: 0, rows: 0 }` — 그 자리를 통째로 안 그린다는 뜻이다. */
+  /** The grid size of the equipped pouch. `{ cols: 0, rows: 0 }` with no pouch — meaning that whole area is not drawn at all. */
   getPouchSize?(): { cols: number; rows: number };
 }
 
-/* ══ appended: 2026-09-12 — 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스. docs/DECISIONS.md 「2026-09-12 — 전투 소모품」 ══
- * 병렬 에이전트마다 **자기 블록 안에만** 추가한다 (인터페이스 병합 — `export interface PlayerRef { … }` 처럼 그 안에 쓴다).
- * 기존 선언은 이름 변경 · 삭제 금지. 블록 순서를 바꾸지 않는다. */
-/* ── [A1] 소모품 3종 (PlayerRef boost · ItemDef) ── */
+/* ══ appended: 2026-09-12 — consumables · implants · keys · the drone scan · favourites · the gym. docs/DECISIONS.md 「2026-09-12 — 전투 소모품」 ══
+ * Each parallel agent appends **inside its own block only** (interface merging — written inside `export interface PlayerRef { … }`).
+ * Existing declarations are never renamed or deleted. The block order is never changed. */
+/* ── [A1] the 3 consumables (PlayerRef boost · ItemDef) ── */
 /**
- * 소모품이 거는 시간제 효과 (2026-09-12, owner: player — `parts/Boosts`). 한 번에 하나만 걸린다: 새로 쓴 것이 앞의 것을 지운다.
- *   `adrenaline` 아드레날린 주사 — 스태미나 전량 + 지속 소모 0 (`BOOST_ADRENALINE_DURATION_S`)
- *   `stimulant`  각성제 — 장전 · 정조준 빠름 · 조준 흔들림 감소 / 스태미나 소모 증가 (`BOOST_STIMULANT_*`)
- * 안정제(임플란트 재충전)는 시간제 효과가 아니라서 여기 없다 — weapons 가 `ImplantsRef.refillAll` 을 부른다.
+ * The timed effect a consumable applies (2026-09-12, owner: player — `parts/Boosts`). Only one at a time: a new one clears the previous.
+ *   `adrenaline` 아드레날린 주사 — full stamina + zero continuous drain (`BOOST_ADRENALINE_DURATION_S`)
+ *   `stimulant`  각성제 — faster reload · faster ADS · less aim sway / more stamina drain (`BOOST_STIMULANT_*`)
+ * 안정제 (the implant refill) is not a timed effect, so it is not here — weapons calls `ImplantsRef.refillAll`.
  */
 export type BoostKind = 'adrenaline' | 'stimulant';
 
 export interface PlayerRef {
-  /* ── appended (2026-09-12, A1): 소모품 효과 (owner: player; caller: weapons `parts/Healing.finishHeal`) ── */
+  /* ── appended (2026-09-12, A1): consumable effects (owner: player; caller: weapons `parts/Healing.finishHeal`) ── */
   /**
    * Start (or restart) a timed boost. `defId` = the item that caused it (the buff thumbnail draws its icon / name).
    * `adrenaline` also refills the stamina bar at once. Starting one clears the other kind.
@@ -3029,669 +3031,669 @@ export interface PlayerRef {
   readonly staminaCostMul?: number;
 }
 /* ── end [A1] ── */
-/* ── [A2] 조준 흔들림 ── */
+/* ── [A2] aim sway ── */
 export interface PlayerWeaponHost {
   /**
-   * 조준 흔들림 (2026-09-12, weapons → player): 손에 든 무기 계열의 정조준 흔들림 — 좌우 최대 각도(도)와 좌우 왕복 빈도(Hz)
-   * (`data/aim_sway.csv`). 0 = 흔들림 없음 (손에 무기가 없다 · 넣었다 · RMB 가 대체 사격인 유니크). 장착 · 교체 · 해제마다
-   * `setAimZoom` 옆에서 부른다. 실제 흔들림은 player 가 정조준 정도 · 자세 · 이동 · `aimSwayMul` 로 키우고 줄인다.
+   * Aim sway (2026-09-12, weapons → player): the ADS sway of the weapon class in hand — the maximum horizontal angle (degrees) and the sweep frequency (Hz)
+   * (`data/aim_sway.csv`). 0 = no sway (no weapon in hand · holstered · a unique whose RMB is the alternative fire). Called beside
+   * `setAimZoom` on every equip · swap · unequip. The real sway is grown and shrunk by player from the ADS amount · stance · movement · `aimSwayMul`.
    */
   setAimSway?(amplitudeDeg: number, frequencyHz: number): void;
 }
 /* ── end [A2] ── */
-/* ── [B] 전술 임플란트 (ImplantsRef 는 shared/implants.ts) ── */
+/* ── [B] tactical implants (`ImplantsRef` lives in shared/implants.ts) ── */
 /* ── end [B] ── */
-/* ── [C] 열쇠 · 키카드 · 잠긴 방 · 개구멍 (WorldRef.resolveCollision height · previewContainerItems) ── */
+/* ── [C] keys · keycards · the locked room · the crawl vent (WorldRef.resolveCollision height · previewContainerItems) ── */
 export interface WorldRef {
   /**
-   * appended (2026-09-12, C): **키를 밝힌 몸**의 밀어내기. `height` 를 주면 떠 있는 상자(인방 · 슬래브 · 전차 바닥)를
-   * 사람 기준 `BOX_HEADROOM` 이 아니라 **그 키**로 잰다 — 밑면이 `발 + height` 보다 높으면 머리 위로 지나간다.
-   * 지상드론(`GroundDrone`)이 잠긴 문 옆 **개구멍**(인방 밑면이 드론 키보다 조금 높은 벽 틈)을 지나가는 유일한 길이다.
-   * 안 넘기면 예전과 한 줄도 다르지 않다 (플레이어 · 적 · 원격 · 투척물).
+   * appended (2026-09-12, C): the push-out for a body **that stated its height**. Given `height`, a floating box (a lintel · a slab · a tram floor)
+   * is measured by **that height** instead of a person's `BOX_HEADROOM` — one whose underside is higher than `feet + height` passes overhead.
+   * It is the only way a ground drone (`GroundDrone`) gets through the **crawl vent** beside a locked door (the wall gap whose lintel underside sits just above the drone's height).
+   * Not passing it is not one line different from before (players · enemies · remotes · thrown objects).
    */
   resolveCollision(position: THREE.Vector3, radius: number, height?: number): THREE.Vector3;
   /**
-   * appended (2026-09-12, C): world 가 가진 컨테이너(구조물 지상 `_c` · 지하실 `_b` · 잠긴 방 `_l` · 선로 플랫폼 ·
-   * 전차 · 맵 상자)를 **이 클라이언트가 처음 열면 나올 내용물** — 열쇠 · 키카드 부가 굴림까지 포함한다. 여는 코드와
-   * **같은 함수**라 어긋나지 않는다. 순수 · 결정적이다 (열린 표시 · 이벤트 · 캐시 없음). world 의 것이 아니거나
-   * 월드가 준비 전이면 null. 이미 연 컨테이너의 **지금** 내용물은 inventory 의 캐시가 답한다 (이 함수는 모른다).
+   * appended (2026-09-12, C): **what would come out if this client opened** a container world owns (a structure's ground floor `_c` ·
+   * basement `_b` · locked room `_l` · a rail platform · a tram · a map crate) — the extra key · keycard roll included. It is the
+   * **same function** the opening code uses, so the two cannot drift. Pure and deterministic (no opened flag · no event · no cache).
+   * Null when it is not world's or the world is not ready. The **current** contents of an already-opened container are the inventory cache's answer (this function does not know them).
    */
   previewContainerItems?(containerId: string): ItemInstance[] | null;
 }
 export interface StructureDef {
-  /** appended (2026-09-12, C): 2층 **잠긴 방**이 있는가 (2층이 올라간 연구소만). 없으면 false/undefined. */
+  /** appended (2026-09-12, C): does it have a **locked room** on the upper floor (only a lab that got a second floor). Absent = false/undefined. */
   hasLockedRoom?: boolean;
-  /** 잠긴 방 문의 위치 (문짝 밑변 가운데). 없으면 null/undefined. */
+  /** Position of the locked room's door (the centre of the door's bottom edge). Absent = null/undefined. */
   lockedRoomDoor?: THREE.Vector3 | null;
   /**
-   * 이 구조물의 잠긴 문(지하실 · 잠긴 방 — 구조물마다 많아야 하나)을 여는 아이템 def id
-   * (`key_basement` 지하실 열쇠 · `keycard_lab` 연구소 키카드). 잠긴 문이 없으면 null/undefined.
-   * 여는 사람의 것이 1 개 소모된다. `unlocked` 는 이 문 하나의 상태다.
+   * The def id of the item that opens this structure's locked door (basement · locked room — at most one per structure):
+   * `key_basement` the basement key · `keycard_lab` the lab keycard. Null/undefined when there is no locked door.
+   * One of the opener's is consumed. `unlocked` is the state of that single door.
    */
   unlockDefId?: string | null;
 }
 /* ── end [C] ── */
-/* ── [D] 지상드론 스캔 ── */
+/* ── [D] the ground drone scan ── */
 export interface InventoryRef {
-  /* ── appended (2026-09-12, 드론 스캔; owner: inventory `parts/Peek`, caller: gadgets/drones `parts/Scan`) ── */
+  /* ── appended (2026-09-12, the drone scan; owner: inventory `parts/Peek`, caller: gadgets/drones `parts/Scan`) ── */
   /**
-   * 컨테이너를 **열지 않고** 지금 열면 보일 내용물. 이 클라이언트가 이미 굴린(연) 컨테이너면 지금 들어 있는 것이고,
-   * 아니면 `tier`(≥ 1)로 `openContainer` 와 **같은** 결정적 굴림(`missionSeed ^ hash(id)` · 행성 곡선) + 같은 격자 채우기
-   * (넘치는 것 탈락) + 이미 확정된 남의 가져가기(`pendingTaken`)를 흉내 낸다. `tier` 없이 모르는 id 면 null.
-   * 캐시 · `openedIds` · 감정 상태 · 이벤트 어느 것도 바꾸지 않는다. 돌려준 목록은 **읽기 전용**이다.
+   * What a container would show if opened now, **without opening it**. For a container this client has already rolled (opened) it is
+   * what is inside now; otherwise `tier` (≥ 1) reproduces the **same** deterministic roll as `openContainer` (`missionSeed ^ hash(id)` ·
+   * the planet curve) + the same grid fill (overflow dropped) + the takes others already confirmed (`pendingTaken`). Null for an unknown id with no `tier`.
+   * It changes nothing — not the cache, `openedIds`, the appraisal state or any event. The returned list is **read-only**.
    */
   peekContainerItems?(containerId: string, tier?: number): readonly ItemInstance[] | null;
   /**
-   * 내용물을 호출자가 대는 컨테이너(시체 · 열쇠가 든 구조물 컨테이너)의 같은 질의. `cols` 가 없으면 `openContainerItems`
-   * (기본 6×4), 있으면 `openContainerItemsSized`(전부 들어가도록 행을 늘린다)와 같은 채우기다. 이미 굴린 id 면 `items` 를
-   * 무시하고 지금 내용물. 읽기 전용.
+   * The same query for a container whose contents the caller supplies (a corpse · a structure container holding a key). Without
+   * `cols` the fill is `openContainerItems`'s (6×4 by default); with it, `openContainerItemsSized`'s (rows grown so everything fits).
+   * For an id already rolled, `items` is ignored and the current contents come back. Read-only.
    */
   peekSuppliedItems?(containerId: string, items: readonly ItemInstance[], cols?: number, rows?: number): readonly ItemInstance[];
 }
 /* ── end [D] ── */
-/* ── [E1] 즐겨찾기 코어 (InventoryRef) ── */
+/* ── [E1] the favourites core (InventoryRef) ── */
 export interface InventoryRef {
-  /* ── appended (2026-09-12, E1): 아이템 즐겨찾기 (owner: inventory; callers: meta · ui 칩 위임) ──
-   * 즐겨찾기는 **아이템 종류(def id)** 단위다 — 같은 아이템은 전부 표시된다. 캐릭터별이고 로드아웃 문서(`loadout`)의
-   * `fav` 목록에 실려 서버와 동기화된다. 가지고 있지 않은 아이템도 켤 수 있다. */
-  /** 이 아이템 종류가 즐겨찾기인가. */
+  /* ── appended (2026-09-12, E1): item favourites (owner: inventory; callers: meta · the ui chip delegation) ──
+   * A favourite is per **item kind (def id)** — every copy of that item is marked. It is per character and rides in the
+   * `fav` list of the loadout document (`loadout`), synced with the server. An item you do not own can be turned on too. */
+  /** Is this item kind a favourite. */
   isFavorite?(defId: string): boolean;
   /**
-   * 즐겨찾기를 켜거나 끈다. `on` 을 주면 그 상태로, 생략하면 뒤집는다. 돌려주는 값은 **새 상태**다.
-   * 모르는 def id 는 아무것도 바꾸지 않고 false. 실제로 바뀌면 `inventory:favoritesChanged` 가 난다.
+   * Turn a favourite on or off. Given `on` it is set to that; omitted it is toggled. The returned value is the **new state**.
+   * An unknown def id changes nothing and returns false. When something really changed, `inventory:favoritesChanged` fires.
    */
   toggleFavorite?(defId: string, on?: boolean): boolean;
-  /** 지금 즐겨찾기한 def id 전부 (정렬됨, 읽기 전용 사본). */
+  /** Every def id favourited right now (sorted, a read-only copy). */
   readonly favoriteDefIds?: readonly string[];
 }
 /* ── end [E1] ── */
-/* ── [E2] 즐겨찾기 칩 · 아이템 회수 계약 ── */
+/* ── [E2] the favourite chip · the item recovery contract ── */
 /* ── end [E2] ── */
-/* ── [F] 헬스 미니게임 ── */
+/* ── [F] the gym minigame ── */
 /* ── end [F] ── */
 
-/* ══ appended: 2026-09-12 — 아이템 회수 계약: 「이번 레이드에서 얻은 아이템」 표식 (§5-2, 규칙은 `shared/raidFound.ts`) ══ */
+/* ══ appended: 2026-09-12 — the item recovery contract: the 「found in this raid」 mark (§5-2, rules in `shared/raidFound.ts`) ═ */
 export interface ItemInstance {
   /**
-   * 이 인스턴스를 **만든 레이드의 맵 시드** (`WorldRef.seed`, `>>> 0`). 레이드 루팅 굴림(상자 · 컨테이너 · 보급 · 적 시체 ·
-   * 채집)만 찍고, 함선에서 가져온 것 · 제작 · 상점 · 지급품에는 없다. 아이템과 함께 다닌다 — 픽업 와이어(`PickupWire.rf`) ·
-   * 시체 와이어(`CorpseItemWire.rf`) · 레이드 세션 blob(`SavedExtras.rf`). **생략 = 레이드에서 얻은 것이 아니다.**
-   * 프로필 문서(창고 · 로드아웃)에는 실리지 않고, 레이드가 끝나면 inventory 가 지운다.
+   * **The map seed of the raid that made** this instance (`WorldRef.seed`, `>>> 0`). Only raid loot rolls stamp it (crates · containers ·
+   * supply · enemy corpses · gathering); anything brought from the ship · crafted · bought · issued has none. It travels with the item —
+   * the pickup wire (`PickupWire.rf`) · the corpse wire (`CorpseItemWire.rf`) · the raid session blob (`SavedExtras.rf`). **Omitted = not found in a raid.**
+   * It is not carried in the profile documents (stash · loadout), and inventory clears it when the raid ends.
    */
   raidFound?: number;
 }
-/* ══ end 2026-09-12 아이템 회수 표식 ══ */
+/* ══ end 2026-09-12 the item recovery mark ══ */
 
-/* ══ appended: 2026-09-13 — 요리 재료 티어 (docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, 사용자 결정) ═══════════════════════════════
+/* ══ appended: 2026-09-13 — cooking material tiers (docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」, user's decision) ════════
  *
- *   T1  행성 씨앗 · 토양 ──온실 재배 스테이션──▶ 채소 · 버섯 ──조리대──▶ 채소 요리 (능력치 1)
- *   T2  미확인 세포 ──분석기──▶ 소 · 돼지 · 닭 · 양 세포주 ─┐
- *       작물 ──추출기──▶ 영양 배지 ─────────────────────────┴─배양조──▶ 고기 페이스트 ─┐
- *       미확인 광물 ──분석기──▶ 암염 결정 ──추출기──▶ 소금 ────────────────────────────┴─조리대──▶ 페이스트 요리 (능력치 2)
- *   T3  미확인 세포 ──분석기 Lv.3──▶ 미세조류 세포주 ──배양조──▶ 셀룰로스 ──조합대──▶ 배양 스캐폴드
- *       배지 + 스캐폴드 + 세포주 ──배양조──▶ 종별 고기 · 배양지방 세포주 ──배양조──▶ 동물기름 ──조리대──▶ 고기 요리 (능력치 3)
- *   T4  미확인 DNA ──분석기 Lv.3──▶ 난백 · 유단백 세포 ──추출기──▶ 성분 ──조합대(+ 동물기름 · 소금)──▶ 달걀 · 우유 · 치즈
- *       ──조리대──▶ 유제품 요리 (능력치 4)
- *   소켓 미확인 DNA ──분석기──▶ 토양 · 배지 소켓 ──▶ 재배 칸의 흙 · 배양 칸의 배지에 영구 장착
+ *   T1  planet seeds · soil ──grow station──▶ vegetables · mushrooms ──cook bench──▶ a vegetable dish (stat 1)
+ *   T2  unidentified cells ──analyzer──▶ cow · pig · chicken · sheep cell lines ─┐
+ *       crops ──extractor──▶ nutrient medium ────────────────────────────────────┴─culture tank──▶ meat paste ─┐
+ *       unidentified minerals ──analyzer──▶ rock-salt crystal ──extractor──▶ salt ─────────────────────────────┴─cook bench──▶ a paste dish (stat 2)
+ *   T3  unidentified cells ──analyzer Lv.3──▶ microalgae cell line ──culture tank──▶ cellulose ──mixer──▶ a culture scaffold
+ *       medium + scaffold + cell line ──culture tank──▶ meat by species · cultured-fat cell line ──culture tank──▶ animal fat ──cook bench──▶ a meat dish (stat 3)
+ *   T4  unidentified DNA ──analyzer Lv.3──▶ egg-white · milk-protein cells ──extractor──▶ ingredients ──mixer (+ animal fat · salt)──▶ eggs · milk · cheese
+ *       ──cook bench──▶ a dairy dish (stat 4)
+ *   socket  unidentified DNA ──analyzer──▶ soil · medium sockets ──▶ permanently fitted into a grow cell's soil · a culture cell's medium
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /**
- * 미확인 표본의 **계열** (사용자 결정: 표본을 3종으로 통합). 분석기의 결과표 · 분석 레벨이 계열 단위다.
- * 새 드롭은 `spec_cell` · `spec_mineral` · `spec_dna` 셋뿐이고, 옛 표본 11종은 정의가 남은 채(`ItemDef.retired`)
- * 자기 계열의 표본으로 해석된다 — 이미 가진 것이 사라지지 않는다.
+ * The **family** of an unidentified sample (user's decision: samples merged down to 3 kinds). The analyzer's result table
+ * and its analysis level are per family. The only new drops are `spec_cell` · `spec_mineral` · `spec_dna`, and the 11 old
+ * samples keep their defs (`ItemDef.retired`) and are read as a sample of their own family — nothing already owned disappears.
  */
 export type SampleFamily = 'dna' | 'mineral' | 'cell';
-/** 계열의 표시 순서 (분석 도감 · 레일). */
+/** The display order of the families (the analysis catalogue · the rail). */
 export const SAMPLE_FAMILIES: readonly SampleFamily[] = ['cell', 'mineral', 'dna'];
 
 export interface SampleDef {
   /**
-   * appended (2026-09-13): 이 표본이 해석되는 계열. 결과는 계열 결과표(`shared/housing` 의 `ANALYSIS_RESULTS`)에서 뽑힌다 —
-   * `rewardDefId` · `rewardQty` 는 이제 **결과표가 비었을 때의 대체 산출물**일 뿐이고 `first*` 보너스는 더 주지 않는다.
+   * appended (2026-09-13): the family this sample is read as. The result is drawn from the family's result table
+   * (`ANALYSIS_RESULTS` in `shared/housing`) — `rewardDefId` · `rewardQty` are now only **the fallback output when that table is empty**, and the `first*` bonus is no longer paid.
    */
   family: SampleFamily;
 }
 
-/** 소켓이 끼워지는 곳 — 재배 칸에 부어 둔 흙(`soil`) · 배양 칸에 부어 둔 배지(`medium`). */
+/** Where a socket is fitted — the soil poured into a grow cell (`soil`) · the medium poured into a culture cell (`medium`). */
 export type GrowSocketTarget = 'soil' | 'medium';
 export const GROW_SOCKET_TARGETS: readonly GrowSocketTarget[] = ['soil', 'medium'];
 
 /**
- * 소켓 효과. `speed` · `yield` 는 **그 칸의 흙 · 배지 내구도 비율**만큼만 듣는다 (`wear` 는 내구도 자체를 지키므로 예외):
- *  - `speed` — 성장 · 배양 시간 −amount (심는 · 넣는 순간 `readyAt` 에 확정, 합산한 배수의 바닥은 `GROW_SOCKET_TIME_FLOOR`)
- *  - `yield` — 수확할 때 소켓마다 amount 확률로 +1 개
- *  - `wear`  — 수확마다 닳는 내구도 −amount (합산한 배수의 바닥은 `GROW_WEAR_MUL_FLOOR`)
+ * Socket effects. `speed` · `yield` work only in proportion to **that cell's soil · medium durability ratio** (`wear` is the exception, as it protects the durability itself):
+ *  - `speed` — grow · culture time −amount (fixed into `readyAt` the moment it is planted · put in; the floor of the summed multiplier is `GROW_SOCKET_TIME_FLOOR`)
+ *  - `yield` — on harvest, +1 unit at `amount` probability per socket
+ *  - `wear`  — the durability worn per harvest −amount (the floor of the summed multiplier is `GROW_WEAR_MUL_FLOOR`)
  */
 export type GrowSocketEffect = 'speed' | 'yield' | 'wear';
 export const GROW_SOCKET_EFFECTS: readonly GrowSocketEffect[] = ['speed', 'yield', 'wear'];
 
-/** 소켓 data (owner: items — `data/sockets.csv`). 한 번 끼우면 빠지지 않는다 (사용자 결정: 덮어 끼우면 옛 것은 파괴). */
+/** Socket data (owner: items — `data/sockets.csv`). Once fitted it never comes out (user's decision: fitting over one destroys the old). */
 export interface GrowSocketDef {
   target: GrowSocketTarget;
   effect: GrowSocketEffect;
-  /** `speed` · `wear` = 비율(0.1 = 10 %), `yield` = +1 개 확률(0 … 1). */
+  /** `speed` · `wear` = a ratio (0.1 = 10 %), `yield` = the probability of +1 unit (0 … 1). */
   amount: number;
 }
 
 export interface SoilDef {
   /**
-   * appended (2026-09-13): 최대 내구도. 부어 둔 흙은 수확마다 `SOIL_WEAR_PER_HARVEST` 만큼 닳고 **0 이어도 계속 쓴다** —
-   * 다만 궁합 보너스(`SOIL_MATCH_SPEEDUP`)와 소켓 효과가 `내구도 / 최대` 비율로 줄어 0 에서는 사라진다. 궁합 패널티는 그대로다.
-   * `uses` 는 옛 세이브의 `soilUsesLeft` 를 내구도로 옮기는 데만 쓴다.
+   * appended (2026-09-13): maximum durability. Poured soil wears by `SOIL_WEAR_PER_HARVEST` per harvest and **is still used at 0** —
+   * only the matching bonus (`SOIL_MATCH_SPEEDUP`) and the socket effects shrink with the `durability / max` ratio and vanish at 0. The mismatch penalty is unchanged.
+   * `uses` is used only to move an old save's `soilUsesLeft` over to durability.
    */
   durability: number;
 }
 
 export interface MediumDef {
   /**
-   * appended (2026-09-13, 사용자 결정: 토양과 같은 내구도 규칙): 최대 내구도. 수확마다 `MEDIUM_WEAR_PER_HARVEST` 만큼 닳고
-   * 0 이어도 계속 쓴다 — 배지 속도 보너스(`1 − speedMul`)와 소켓 효과가 내구도 비율로 줄어든다. `uses` 는 옛 세이브 이관용.
+   * appended (2026-09-13, user's decision: the same durability rule as soil): maximum durability. It wears by `MEDIUM_WEAR_PER_HARVEST`
+   * per harvest and is still used at 0 — the medium's speed bonus (`1 − speedMul`) and the socket effects shrink with the durability ratio. `uses` is only for migrating an old save.
    */
   durability: number;
 }
 
 export interface StrainDef {
   /**
-   * appended (2026-09-13, T3): 배양 칸에 **배양 스캐폴드**가 들어 있으면 `outputDefId` 대신 이것을 만든다 (종별 고기).
-   * 셋은 함께 있거나 함께 없다 — 없는 세포주(미세조류 · 배양지방)는 스캐폴드가 든 칸에 넣을 수 없다.
+   * appended (2026-09-13, T3): with a **culture scaffold** in the culture cell, this is made instead of `outputDefId` (meat by species).
+   * The three are present together or absent together — a cell line without them (microalgae · cultured fat) cannot go into a cell holding a scaffold.
    */
   scaffoldOutputDefId?: string;
   scaffoldOutputQty?: number;
-  /** 기본 배지 기준 배양 시간(시간) — 스캐폴드가 있을 때. */
+  /** Culture time (hours) on a basic medium — when a scaffold is present. */
   scaffoldHours?: number;
 }
 
-/** 요리 버프에 붙는 능력치 상승 하나. */
+/** One stat rise attached to a meal buff. */
 export interface MealEffect {
   buff: MealBuff;
-  /** `isMealBuffMultiplier` 면 배수에 가산, 아니면 단위 그대로 (`durabilityLossMul` 은 음수). */
+  /** Added to the multiplier when `isMealBuffMultiplier`, otherwise in its own unit (`durabilityLossMul` is negative). */
   amount: number;
 }
 
 export interface MealDef {
   /**
-   * appended (2026-09-13, 사용자 결정: 「버프 자체는 1개이고 그 1개의 버프에 여러 능력치 상승이 붙는다」). 이 요리가 올리는
-   * 능력치 전부 — 티어가 오를수록 수치도 커지고 줄도 는다 (T1 1 · T2 2 · T3 3 · T4 4). **소비자는 이것을 읽는다.**
-   * `buff` · `amount` 는 `effects[0]` 과 같다 (옛 호출부 호환 — 새 코드는 쓰지 않는다).
+   * appended (2026-09-13, user's decision: 「the buff itself is one, and several stat rises hang off that one buff」). Every
+   * stat this meal raises — the higher the tier the bigger the numbers and the more rows (T1 1 · T2 2 · T3 3 · T4 4). **Consumers read this.**
+   * `buff` · `amount` equal `effects[0]` (kept for old call sites — new code does not use them).
    */
   effects: readonly MealEffect[];
 }
 
 export interface ItemDef {
-  /* ── appended (2026-09-13, 요리 재료 티어; owner: items) ── */
-  /** category 'socket': 부어 둔 흙 · 배지에 끼우는 영구 강화. */
+  /* ── appended (2026-09-13, cooking material tiers; owner: items) ── */
+  /** category 'socket': a permanent upgrade fitted into poured soil · a medium. */
   growSocket?: GrowSocketDef;
-  /** 배양 스캐폴드 (category 'material'): 배양 칸에 배지 다음 · 세포주 전에 넣으면 그 칸이 종별 고기를 만든다. 수확할 때 소모된다. */
+  /** A culture scaffold (category 'material'): put into a culture cell after the medium · before the cell line and that cell makes meat by species. Consumed on harvest. */
   scaffold?: boolean;
   /**
-   * 은퇴한 아이템 (옛 표본 11종 · 옛 세포주 5 · 배양 산물 5 · 특선 요리 4). 정의는 남고(가진 것이 사라지지 않는다)
-   * **모든 출처**(루팅 · 상점 · 레시피 산출 · 분석 결과 · 채집지 · 배양)에서 빠진다. `npm run data:check` 가 참조를 잡는다.
+   * A retired item (the 11 old samples · 5 old cell lines · 5 culture products · 4 special dishes). The def stays (what is
+   * already owned does not disappear) and it drops out of **every source** (loot · shops · recipe outputs · analysis results · gather sites · culturing). `npm run data:check` catches the references.
    */
   retired?: boolean;
 }
-/* ══ end 2026-09-13 요리 재료 티어 ══ */
+/* ══ end 2026-09-13 cooking material tiers ══ */
 
-/* ══ appended: 2026-09-13 — 요리 미니게임 · 요리 품질 (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」, 규칙은 `shared/cooking.ts`) ══ */
+/* ══ appended: 2026-09-13 — the cooking minigame · meal quality (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」, rules in `shared/cooking.ts`) ═ */
 export interface ItemInstance {
   /**
-   * 요리(`ItemDef.meal`)의 품질 — 별 수 0 … `MEAL_QUALITY_MAX`. 조리대 미니게임 점수가 정한다 (`mealQualityForScore`).
-   * 생략 = 0 (옛 요리 · 루팅 · 요리가 아닌 아이템). **품질이 다르면 같은 def 라도 합쳐지지 않는다** (inventory 의 스택 열쇠).
-   * `raidFound` 와 달리 **창고 · 로드아웃 문서에도 실린다** (`SavedExtras.q`) — 그리고 픽업 · 시체 와이어(`PickupWire.q` · `CorpseItemWire.q`) ·
-   * 레이드 blob 모두. 스택을 나누거나 복사하는 경로는 이 필드를 옮긴다 (생략 = 품질 0 으로 떨어진다).
+   * The quality of a meal (`ItemDef.meal`) — a star count 0 … `MEAL_QUALITY_MAX`. The cook bench minigame's score decides it (`mealQualityForScore`).
+   * Omitted = 0 (old meals · loot · anything that is not a meal). **Different quality means the same def does not merge** (the inventory's stack key).
+   * Unlike `raidFound` it **is carried in the stash · loadout documents too** (`SavedExtras.q`) — and in the pickup · corpse wires (`PickupWire.q` · `CorpseItemWire.q`) ·
+   * and the raid blob. Any path that splits or copies a stack carries this field over (omitting it drops the quality to 0).
    */
   quality?: number;
 }
 
 export interface InventoryRef {
-  /* ── appended (2026-09-13, 요리 미니게임 · 요리 품질; owner: inventory) ── */
-  /** 가방 + 창고의 `defId` 중 품질이 정확히 `quality` 인 수량 (`quality` 0 = 품질 필드 없음 포함). */
+  /* ── appended (2026-09-13, the cooking minigame · meal quality; owner: inventory) ── */
+  /** How many of `defId` in the bag + stash sit at exactly quality `quality` (`quality` 0 includes items with no quality field). */
   countDefQualityAll?(defId: string, quality: number): number;
-  /** 품질이 정확히 `quality` 인 `defId` 를 가방 먼저 → 창고에서 `qty` 개 뺀다. 전부 또는 전무; 모자라면 false. */
+  /** Remove `qty` of `defId` at exactly quality `quality`, bag first → then the stash. All or nothing; false when short. */
   consumeDefQualityAll?(defId: string, quality: number, qty: number): boolean;
-  /** 가진 요리(`ItemDef.meal`)를 (def, 품질)별로 합친 목록 (가방 + 창고) — 식탁 화면. 티어 → def → 품질 높은 순. */
+  /** The meals owned (`ItemDef.meal`) merged per (def, quality) (bag + stash) — the dining table screen. Ordered tier → def → highest quality. */
   getMealStacks?(): { defId: string; quality: number; qty: number }[];
   /**
-   * 조리대 레시피 `recipeId` 를 **지금** 1회 만들 수 없는 한국어 사유 (null = 가능) — 함선 제작과 같은 게이트: 조리대 레시피인가 ·
-   * `benchLevel` 이 레시피의 작업대 레벨 이상인가 · 숙련 · 재료(`craftCost`) · 산출물 1개가 들어갈 자리(창고 → 가방).
+   * The Korean reason why cook-bench recipe `recipeId` cannot be made once **right now** (null = it can) — the same gate as ship
+   * crafting: is it a cook-bench recipe · is `benchLevel` at least the recipe's bench level · skill · materials (`craftCost`) · room for the one output (stash → bag).
    */
   cookBlock?(recipeId: string, benchLevel: number): string | null;
   /**
-   * 조리 1회를 마무리한다 — `cookBlock` 을 다시 보고 재료를 빼고 품질 `quality` 인 산출물을 **창고 먼저 → 가방**에 넣는다.
-   * `inventory:itemAdded` · `craft:completed {recipeId, item, count:1}` (숙련 XP · 튜토리얼 · 토스트가 그대로 산다). 실패면 아무것도 빼지 않는다.
+   * Finish one cook — it re-checks `cookBlock`, takes the materials and puts the output at quality `quality` into **the stash first → the bag**.
+   * `inventory:itemAdded` · `craft:completed {recipeId, item, count:1}` (skill XP · the tutorial · the toast all still live). On failure nothing is taken.
    */
   completeCook?(recipeId: string, benchLevel: number, quality: number): { item: ItemInstance | null; landed: 'bag' | 'stash' | null; reason: string | null };
 }
-/* ══ end 2026-09-13 요리 미니게임 ══ */
+/* ══ end 2026-09-13 the cooking minigame ══ */
 
-/* ══ appended: 2026-09-16 — 식탁 접시 (요리는 아이템이 아니다, `shared/housing.ts` 의 접시 절; owner: inventory) ══
- * 조리는 산출물을 만들지 않는다 — housing 이 식탁에 접시를 놓는다. inventory 가 하는 일은 재료를 빼는 것뿐이다.
- * `completeCook` 은 계약이라 이름이 남지만 구현이 없다 (선택 메서드). `cookBlock` 은 자리(산출물 칸)를 더 보지 않는다. */
+/* ══ appended: 2026-09-16 — the dining table plate (a meal is not an item; the plate section of `shared/housing.ts`; owner: inventory) ═
+ * Cooking produces no output — housing puts a plate on the dining table. All the inventory does is take the materials.
+ * `completeCook` keeps its name as contract but has no implementation (an optional method). `cookBlock` no longer looks for room for an output. */
 export interface InventoryRef {
   /**
-   * 조리 1회분 재료를 뺀다 (`cookBlock` 을 다시 보고, 가방 먼저 → 창고). 산출물은 없다. 한국어 사유 / null.
-   * 실패면 아무것도 빼지 않는다.
+   * Take the materials of one cook (re-checking `cookBlock`, bag first → then the stash). There is no output. A Korean reason / null.
+   * On failure nothing is taken.
    */
   consumeCookInputs?(recipeId: string, benchLevel: number): string | null;
 }
-/* ══ end 2026-09-16 식탁 접시 ══ */
+/* ══ end 2026-09-16 the dining table plate ══ */
 
-/* ══ appended: 2026-09-13 — 탐사 차량 (rover). 사용자 결정은 이 머리 주석이 원본이다 ══════════════════════════════════════════
- * 병렬 에이전트마다 **자기 블록 안에만** 추가한다. 기존 선언은 이름 변경 · 삭제 금지.
+/* ══ appended: 2026-09-13 — the exploration vehicle (rover). This header comment is the original of the user's decisions ═
+ * Each parallel agent appends **inside its own block only**. Existing declarations are never renamed or deleted.
  *
- * 탐사 차량 = **레이드당 1대**, 사람이 타지 않는 자동 장갑차 (타르코프 BTR 과 달리 운전수가 없다).
- *   - 선로 없이 **닫힌 고리 경로**(바퀴자국 흙길)를 따라 정류장 4–5곳을 **순환**하고 정류장마다 `ROVER_DWELL_S`(60) 정차한다.
- *     정류장은 경로 옆 평지에 표지 기둥으로 서고, 서로 최대한 멀리 · 다른 구조물과 겹치지 않게 놓인다. 경로 회랑은 선로처럼 비운다.
- *   - 정차 중(`stopped` · `departing`) E 꾹(`ROVER_BOARD_HOLD_S`) = 탑승. 캐릭터는 **차량 안에 숨고** 무기 · 아이템 · 함선 호출을 못 쓰며
- *     카메라는 차량을 비추는 **마우스 궤도 3인칭**이 된다. 탑승자는 **어떤 피해도 받지 않는다** (재해 · 행성 환경 포함) — 차량만 맞는다.
- *   - 누군가 처음 타는 순간 **모든 정류장 위치가 분대 전원의 지도에 레이드 내내** 남는다 (그 전에는 안개로 발견한 정류장만).
- *   - 탑승자가 있고 결제 전이면 정차 타이머가 멈춘다 (기다린다). 탑승자 **한 명이 전원분 요금**(경로 거리 비례, `ROVER_FARE_MIN`–`MAX`)을
- *     내면 `ROVER_DEPART_GRACE_S`(5) 유예 뒤 목표 정류장으로 **직행**한다 (고리의 짧은 쪽). 유예 중에는 타고 내릴 수 있고,
- *     출발한 뒤로는 탑승 · 하차가 불가하다. 도착하면 **전원 강제 하차** 후 그 정류장에서 정차부터 다시 순환한다.
- *   - 이동 중(`patrol` · `trip`)에는 좁은 반경의 적을 쏜다. 체력 `ROVER_HP`(2000). **적과 재해만** 피해를 준다 (플레이어 무기 · 폭발 무효).
- *     재해 구역 안에서는 재해 피해의 `ROVER_HAZARD_DAMAGE_MUL`(5)배. 파괴되면 탑승자 즉시 그 자리 하차 · 그 레이드는 사용 불가 (잔해가 남는다).
- *     파괴 · 도중 사고에 환불은 없다.
- *   - 재해에 잡아먹힌 정류장은 목적지로 고를 수 없고 (이미 이동 중이면 그대로 간다), 그 정류장에 서 있는 차량은 탑승을 거부한다.
- * 권위: **호스트** (전차와 같다 — 경로는 시드 결정적, 와이어는 `s` · 상태 · 체력 · 탑승자). 요금은 결제자 클라이언트가 `credits:tx` 로 낸다.
- * 소유: world/rover (경로 계획 · 흙길 · 정류장 · 차량 · 동기화), player (탑승 모드 · 궤도 카메라 · 피해 면제), enemies (차량을 표적으로),
- *       ui/map (정류장 · 경로 · 목적지 선택), server (요금 검증).
+ * The exploration vehicle = **one per raid**, a driverless armoured car nobody pilots (unlike Tarkov's BTR there is no driver).
+ *   - With no rails it **circles** 4–5 stations along a **closed ring route** (a rutted dirt road), stopping `ROVER_DWELL_S` (60) at each.
+ *     A station stands on flat ground beside the route as a marker post, placed as far from the others as possible and clear of other structures. The route corridor is kept clear like a rail line.
+ *   - While stopped (`stopped` · `departing`) an E hold (`ROVER_BOARD_HOLD_S`) = boarding. The character **hides inside the vehicle** and cannot use weapons · items · ship calls,
+ *     and the camera becomes a **mouse-orbit third person** on the vehicle. A rider **takes no damage at all** (hazards · the planet environment included) — only the vehicle is hit.
+ *   - The moment anyone first boards, **every station position stays on the whole squad's map for the rest of the raid** (before that, only stations found through the fog).
+ *   - With a rider aboard and nothing paid, the dwell timer stops (it waits). When **one rider pays the fare for everybody** (proportional to the route distance, `ROVER_FARE_MIN`–`MAX`),
+ *     it goes **straight** to the target station after a `ROVER_DEPART_GRACE_S` (5) grace (the short way round the ring). People may board and get off during the grace,
+ *     and once it has departed neither is possible. On arrival **everyone is forced off** and it resumes circling from a dwell at that station.
+ *   - While moving (`patrol` · `trip`) it shoots enemies within a narrow radius. Hp `ROVER_HP` (2000). **Only enemies and hazards** damage it (player weapons · explosions do nothing).
+ *     Inside a hazard zone it takes `ROVER_HAZARD_DAMAGE_MUL` (5)× the hazard damage. Destroyed, riders get off on the spot at once and it is unusable for that raid (wreckage remains).
+ *     There is no refund for destruction or for an accident on the way.
+ *   - A station swallowed by a hazard cannot be chosen as a destination (a trip already under way still goes), and a vehicle standing at one refuses boarding.
+ * Authority: **the host** (as with the tram — the route is seed-deterministic, the wire carries `s` · state · hp · riders). The fare is paid by the payer's own client with `credits:tx`.
+ * Owners: world/rover (route planning · the dirt road · stations · the vehicle · sync), player (ride mode · the orbit camera · damage immunity), enemies (targeting the vehicle),
+ *       ui/map (stations · the route · picking a destination), server (fare validation).
  * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/** `stopped` 정류장 정차 · `departing` 결제 뒤 출발 유예 · `patrol` 빈 차 순환 주행 · `trip` 결제 이동 · `destroyed` 파괴 (레이드 내내). */
+/** `stopped` dwelling at a station · `departing` the grace after payment · `patrol` circling empty · `trip` a paid run · `destroyed` wrecked (for the rest of the raid). */
 export type RoverState = 'stopped' | 'departing' | 'patrol' | 'trip' | 'destroyed';
-/** 와이어 순서 (`RoverWire.st` 가 이 배열의 index). 재정렬 금지. */
+/** Wire order (`RoverWire.st` is an index into this array). Never reorder. */
 export const ROVER_STATES: readonly RoverState[] = ['stopped', 'departing', 'patrol', 'trip', 'destroyed'];
-/** 탐사 차량이 적을 때릴 때 `EnemyRef.takeDamage(…, attacker)` 에 넘기는 값 — enemies 는 킬 크레딧을 주지 않고 차량에 어그로를 건다. */
+/** What the rover passes to `EnemyRef.takeDamage(…, attacker)` when it hits an enemy — enemies gives no kill credit and pulls aggro onto the vehicle. */
 export const ROVER_DAMAGE_SOURCE = 'rover';
 
 export interface RoverStationDef {
-  /** `rst<n>` — 영숫자만 (크레딧 사유 `rover:<from>:<to>` 에 그대로 실린다). */
+  /** `rst<n>` — alphanumeric only (it rides verbatim in the credit reason `rover:<from>:<to>`). */
   id: string;
-  /** 경로 순서 0..n-1 (`s` 오름차순). */
+  /** Route order 0..n-1 (ascending `s`). */
   index: number;
-  /** 화면 이름 (`정류장 A` …). */
+  /** The on-screen name (`정류장 A` …). */
   label: string;
-  /** 차량이 서는 경로 위 점 (y = 노면). */
+  /** The point on the route the vehicle stops at (y = the road surface). */
   position: THREE.Vector3;
-  /** 표지 기둥 자리 (경로 옆, y = 지면). 안개 발견 · 재해 판정 · 지도 마커는 이 점을 쓴다. */
+  /** Where the marker post stands (beside the route, y = the ground). Fog discovery · hazard tests · map markers use this point. */
   polePosition: THREE.Vector3;
-  /** 경로 위 진행거리(m) — 차량이 이 `s` 에 선다. */
+  /** Travelled distance along the route (m) — the vehicle stops at this `s`. */
   s: number;
 }
 
 export interface RoverRouteDef {
-  /** 흙길 중심선 (y = 노면). **닫힌 고리** — 마지막 → 첫 점이 이어진다. 빈 차 순환은 늘 +s 방향이다. */
+  /** The dirt road's centre line (y = the road surface). A **closed ring** — the last → first point joins up. Circling empty always runs in the +s direction. */
   points: readonly THREE.Vector3[];
-  /** 고리 전체 길이(m, 닫는 구간 포함). */
+  /** Total length of the ring (m, the closing segment included). */
   length: number;
-  /** 경로 순서대로 (`s` 오름차순). */
+  /** In route order (ascending `s`). */
   stations: readonly RoverStationDef[];
 }
 
-/** 차량의 살아 있는 상태 (호스트가 굴리고 클라이언트는 보간한다). 객체는 재사용된다 — 보관하지 말고 읽고 바로 쓴다. */
+/** The vehicle's live state (the host simulates it and clients interpolate). The object is reused — never keep it, read it and use it at once. */
 export interface RoverVehicleDef {
-  /** 차체 중심 바닥 (y = 노면). */
+  /** The bottom centre of the body (y = the road surface). */
   position: THREE.Vector3;
-  /** 차체가 향한 방향. 규약은 `TramDef.yaw` 와 같다: 전방 = `(cos yaw, 0, sin yaw)` (지도는 `-yaw` 로 돌려 그린다). */
+  /** The body's facing. Same convention as `TramDef.yaw`: forward = `(cos yaw, 0, sin yaw)` (the map draws it rotated by `-yaw`). */
   yaw: number;
   state: RoverState;
-  /** 경로 위 진행거리(m). 호스트 권위. */
+  /** Travelled distance along the route (m). Host-authoritative. */
   s: number;
-  /** 지금 주행 방향 (+1 / −1). 빈 차 순환은 +1, 결제 이동은 짧은 쪽. */
+  /** The current direction of travel (+1 / −1). Circling empty is +1, a paid run takes the short way. */
   dir: 1 | -1;
   hp: number;
   maxHp: number;
-  /** 서 있는(`stopped` · `departing`) 정류장 id, 아니면 null. */
+  /** The id of the station it stands at (`stopped` · `departing`), else null. */
   stationId: string | null;
-  /** `departing` · `trip` = 결제한 목적지, `patrol` = 다음 정류장, 그 밖에는 null. */
+  /** `departing` · `trip` = the paid destination, `patrol` = the next station, otherwise null. */
   targetId: string | null;
-  /** `stopped` = 정차 남은 초 (탑승자가 있으면 줄지 않는다) · `departing` = 출발까지 남은 초 · 그 밖에는 0. */
+  /** `stopped` = seconds of dwell left (it does not count down while a rider is aboard) · `departing` = seconds until departure · otherwise 0. */
   timer: number;
-  /** 탑승자 — 이 클라이언트 기준으로 로컬 플레이어는 `'local'`, 나머지는 PeerId. */
+  /** The riders — as seen from this client the local player is `'local'`, the rest are PeerIds. */
   riders: readonly string[];
 }
 
 export interface RoverRef {
   readonly route: RoverRouteDef;
   readonly vehicle: Readonly<RoverVehicleDef>;
-  /** 누군가 한 번 탑승해 모든 정류장이 공개됐는가 (분대 공유 · 레이드 내내). 공개되면 `rover:stationsRevealed`. */
+  /** Has someone boarded once, revealing every station (shared by the squad · for the rest of the raid). On reveal, `rover:stationsRevealed`. */
   readonly stationsRevealed: boolean;
-  /** 로컬 플레이어가 지금 타 있는가. */
+  /** Is the local player aboard right now. */
   readonly localAboard: boolean;
-  /** 이 정류장(표지 기둥 자리)이 지금 재해 피해 구역 안인가. */
+  /** Is this station (its marker post) inside a hazard damage zone right now. */
   isStationSwallowed(stationId: string): boolean;
-  /** 지금 서 있는 정류장에서 `stationId` 까지 결제 이동 거리(m, 고리의 짧은 쪽). 서 있지 않거나 같은 정류장이면 null. */
+  /** The paid-run distance from the station it stands at to `stationId` (m, the short way round the ring). Null when it is not stopped, or for the same station. */
   tripDistance(stationId: string): number | null;
-  /** 그 거리의 요금(크레딧, 전원분). `tripDistance` 가 null 이면 null. **요금 식의 유일한 원본** — 지도는 이것을 그린다. */
+  /** The fare for that distance (credits, for everybody). Null when `tripDistance` is null. **The only source of the fare formula** — the map draws this. */
   fareTo(stationId: string): number | null;
   /**
-   * 로컬 플레이어가 지금 `stationId` 로 결제 출발을 **할 수 없는** 한국어 사유, 가능하면 null.
-   * (타 있지 않음 · 정차 중이 아님 · 이미 결제됨 · 같은 정류장 · 재해 지역 · 크레딧 부족 · 파괴됨)
+   * The Korean reason the local player **cannot** pay to depart for `stationId` right now, or null when they can.
+   * (not aboard · not stopped · already paid · the same station · a hazard zone · not enough credits · destroyed)
    */
   tripBlock(stationId: string): string | null;
-  /** 결제 + 출발 요청. 요청이 나갔으면 null, 막히면 `tripBlock` 사유. 확정은 `rover:tripStarted`, 거절은 `rover:refused`. */
+  /** Request payment + departure. Null when the request went out, else the `tripBlock` reason. Confirmed by `rover:tripStarted`, refused by `rover:refused`. */
   requestTrip(stationId: string): string | null;
-  /** 적이 노릴 수 있는 상태인가 (파괴되지 않았다). enemies 가 표적 목록을 만들 때 본다. */
+  /** Can enemies target it (it is not destroyed). enemies looks at this when building its target list. */
   readonly targetable: boolean;
-  /** 차체 판정 치수(m): 반길이(전방 축) · 반폭 · 높이. 판정 상자 = `vehicle.position` 에서 위로 `height`, `vehicle.yaw` 로 돈 OBB. */
+  /** The body's collision dimensions (m): half-length (forward axis) · half-width · height. The box = an OBB from `vehicle.position` up by `height`, turned by `vehicle.yaw`. */
   readonly halfLength: number;
   readonly halfWidth: number;
   readonly height: number;
   /**
-   * 적의 피해를 넣는다. 호스트 · 솔로에서만 적용된다 (리플리카에서 부르면 무시). 재해 피해는 world 가 스스로 넣으므로 부르지 않는다.
-   * 플레이어의 무기 · 가젯 · 함선 호출은 이것을 부르지 않는다 (사용자 결정: 적 · 재해만).
+   * Apply enemy damage. Only applied on the host · in single player (ignored when called on a replica). Hazard damage is applied by world itself, so it does not call this.
+   * Player weapons · gadgets · ship calls never call it (user's decision: enemies · hazards only).
    */
   damage(amount: number, from?: THREE.Vector3): void;
 }
 
 export interface WorldRef {
-  /* ── appended (2026-09-13): 탐사 차량 (owner: world/rover) ── */
-  /** 이번 레이드의 탐사 차량. 훈련장 · 경로를 못 놓은 맵 · 월드 준비 전이면 null. */
+  /* ── appended (2026-09-13): the exploration vehicle (owner: world/rover) ── */
+  /** This raid's rover. Null on the training range · on a map where no route could be laid · before the world is ready. */
   readonly rover?: RoverRef | null;
 }
 
-/** 탑승 모드가 player 에게 건네는 끈 (owner: world/rover 가 만든다, player 가 읽는다). 벡터는 **살아 있다** — 매 프레임 읽는다. */
+/** The handle ride mode gives player (owner: built by world/rover, read by player). The vectors are **live** — read them every frame. */
 export interface RoverRideBinding {
-  /** 탑승자의 발이 있을 월드 위치 (차체 안). player 가 매 프레임 몸을 여기로 옮긴다 (안개 · 지도 · 스냅샷이 이 위치를 쓴다). */
+  /** The world position the rider's feet sit at (inside the body). player moves the body here every frame (the fog · the map · snapshots use this position). */
   readonly seat: THREE.Vector3;
-  /** 궤도 카메라가 도는 중심 (차체 윗면 위). */
+  /** The centre the orbit camera turns around (above the body's roof). */
   readonly focus: THREE.Vector3;
-  /** 차체 yaw (`RoverVehicleDef.yaw` 규약) — 탑승 순간 카메라를 차 뒤에 놓는 데 쓴다. */
+  /** The body's yaw (the `RoverVehicleDef.yaw` convention) — used to put the camera behind the vehicle at the moment of boarding. */
   readonly yaw: number;
-  /** 궤도 카메라 기본 거리(m). */
+  /** The orbit camera's default distance (m). */
   readonly cameraDistance: number;
-  /** 지금 E 꾹 하차가 되는가. false 면 player 는 홀드를 시작하지 않고 `lockedPrompt` 를 프롬프트로 띄운다. */
+  /** Can an E hold get you off right now. False and player does not start the hold, showing `lockedPrompt` as the prompt instead. */
   readonly canExit: boolean;
-  /** 하차가 막혔을 때의 프롬프트 (`이동 중 — 하차 불가`). */
+  /** The prompt shown while getting off is blocked (`이동 중 — 하차 불가`). */
   readonly lockedPrompt: string;
-  /** E 홀드(`ROVER_EXIT_HOLD_S`)가 끝났다. world 가 확정하면 `setRoverRide(null, 내릴 자리)` 를 부른다 (거절이면 `rover:refused`). */
+  /** The E hold (`ROVER_EXIT_HOLD_S`) finished. When world confirms it, it calls `setRoverRide(null, <the spot to step down on>)` (a refusal is `rover:refused`). */
   requestExit(): void;
 }
 
 export interface PlayerRef {
-  /* ── appended (2026-09-13): 탐사 차량 탑승 (owner: player; caller: world/rover) ── */
-  /** 탐사 차량에 타 있는가. */
+  /* ── appended (2026-09-13): riding the exploration vehicle (owner: player; caller: world/rover) ── */
+  /** Is the body aboard the rover. */
   readonly roverRide?: boolean;
-  /** 지금 탑승할 수 **없는** 한국어 사유 (사망 · 전투불능 · 들쳐메기 · 업힘 · 사다리 · 드론 조종 · 함선/포드 안), 가능하면 null. */
+  /** The Korean reason boarding is **not** possible right now (dead · downed · carrying · being carried · on a ladder · in drone control · inside a ship/pod), or null when it is. */
   roverBoardBlock?(): string | null;
   /**
-   * 탑승 / 하차. `binding` 이 있으면: 몸을 숨기고(모델 · 그림자 — 원격에는 `PlayerFlags.IN_ROVER`), 이동 · 점프 · 자세 · 무기 · 상호작용 ·
-   * 퀵슬롯 · 임플란트 · 함선 호출 · 핑 · 의사소통 휠을 막고(`droneControl` 을 보는 게이트에 같이 건다), **모든 피해를 무시하고**
-   * (`takeDamage` · 넉백 · 재해 · 행성 환경), 매 프레임 몸을 `seat` 에 두고, 마우스로 `focus` 주위를 도는 궤도 카메라를 쓴다.
-   * E 꾹 = `canExit` 면 하차 홀드 → `requestExit()`. Tab(인벤토리) · M(지도) · 채팅 · Esc 는 그대로 쓴다.
-   * `null` 이면: `exitAt`(없으면 지금 자리)에 몸을 세우고 다시 보이게 하고 카메라를 PC 뒤로 하드 컷한다.
-   * `game:abort` · `game:newMission` · `respawnAt` · `spawnStanding` 이 스스로 푼다. 이미 같은 상태면 아무것도 안 한다.
+   * Board / get off. With a `binding`: the body is hidden (model · shadow — `PlayerFlags.IN_ROVER` for remotes), movement · jump · stance · weapons ·
+   * interaction · quick slots · implants · ship calls · pings · the comms wheel are blocked (hung on the same gates that watch `droneControl`), **all damage is
+   * ignored** (`takeDamage` · knockback · hazards · the planet environment), the body is put at `seat` every frame, and the camera orbits `focus` on the mouse.
+   * An E hold = when `canExit`, the get-off hold → `requestExit()`. Tab (the inventory) · M (the map) · chat · Esc still work as usual.
+   * With `null`: the body is stood at `exitAt` (where it is now when omitted), made visible again, and the camera hard-cuts back behind the PC.
+   * `game:abort` · `game:newMission` · `respawnAt` · `spawnStanding` release it themselves. Already in the same state, it does nothing.
    */
   setRoverRide?(binding: RoverRideBinding | null, exitAt?: THREE.Vector3): void;
   /**
-   * appended (R3, player): 탑승 중이면 차량 오른쪽 `ROVER_SAFE_SIDE_M` 의 지면(충돌 밀어내기까지)을 `out` 에 적어 돌려준다, 아니면 null.
-   * 레이드 세이브(game)가 선체 안 좌석을 저장하지 않게 이 자리를 쓴다 — 사망 · 리셋이 탑승을 풀 때도 같은 자리에 선다.
+   * appended (R3, player): while aboard, writes into `out` and returns the ground `ROVER_SAFE_SIDE_M` to the vehicle's right (collision push-out included), else null.
+   * The raid save (game) uses this spot so it never stores a seat inside the hull — and death · a reset releasing the ride stands the body on the same spot.
    */
   roverSafePosition?(out: THREE.Vector3): THREE.Vector3 | null;
 
-  /* ── appended (2026-09-14): 튜토리얼 오프닝 (owner: player; caller: tutorial) ── */
+  /* ── appended (2026-09-14): the tutorial opening (owner: player; caller: tutorial) ── */
   /**
-   * 튜토리얼의 첫 장면 — **쓰러진 자세**로 시작해 `durationS` 초에 걸쳐 일어난다. 그 동안 이동 · 자세 · 무기 ·
-   * 상호작용 입력이 잠기고 카메라는 player/ 가 든다(쓰러진 몸을 비추다 일어서면서 평소 3인칭 백뷰로 **하드 컷**).
-   * 끝나면 `player:introWakeDone`. 이미 돌고 있으면 아무것도 하지 않는다.
-   * `game:abort` · `game:newMission` · 사망은 스스로 푼다.
+   * The tutorial's first scene — it starts in a **collapsed pose** and the body gets up over `durationS` seconds. Through it,
+   * movement · stance · weapon · interaction input is locked and player/ holds the camera (on the fallen body, then a **hard cut**
+   * to the usual third-person back view as the body rises). `player:introWakeDone` when it ends. It does nothing while already running.
+   * `game:abort` · `game:newMission` · death release it themselves.
    */
   /*
-   * `opts` appended (2026-09-15, 사용자 결정 — 튜토리얼 부활도 쓰러졌다 일어난다): `respawn: true` 면 **부활 연출**이다 —
-   * 검은 페이드(`ui:screenFade`)를 걸지 않고, 오프닝 전용 카메라 · 나침반 페이드 · Tab 잠금 · `player:introWakeDone` 도 내지 않는다
-   * (쓰러진 자세 → 일어서기 애니메이션과 입력 잠금만). 생략 = 오프닝 그대로.
+   * `opts` appended (2026-09-15, user's decision — a tutorial revival also rises from the ground): with `respawn: true` it is a
+   * **revival shot** — no fade to black (`ui:screenFade`), and no opening camera · compass fade · Tab lock · `player:introWakeDone`
+   * either (only the collapsed pose → get-up animation and the input lock). Omitted = the opening as it is.
    */
   playIntroWake?(durationS: number, opts?: { respawn?: boolean }): void;
   /**
-   * appended (2026-09-14, owner: player; callers: ui/hud/Compass · inventory): 오프닝 기상 연출이 **아직 돌고 있다** —
-   * 몸이 일어서며 카메라가 평소 3인칭 백뷰로 **완전히 돌아오기 전**이다. 그 동안 나침반은 그리지 않고(끝나면 서서히
-   * 나타난다) Tab 은 가방을 불러오지 않는다 (사용자 결정). `player:introWakeDone` 이 나는 프레임에 false 가 된다.
+   * appended (2026-09-14, owner: player; callers: ui/hud/Compass · inventory): the opening wake-up shot is **still running** —
+   * the body is rising and the camera has **not fully returned** to the usual third-person back view. Through it the compass is not
+   * drawn (it fades in once it ends) and Tab does not bring up the bag (user's decision). It goes false on the frame `player:introWakeDone` fires.
    */
   readonly introWaking?: boolean;
   /**
-   * 체력을 **그대로 정한다** — 각본된 장면이 몸 상태를 정하는 자리. 지금 쓰는 곳은 튜토리얼 하나다
-   * (폐허에서 깨어난 사람은 **딸피**라 벌레에게 한 대 맞으면 죽는다 — 사용자 명세).
-   * 피격 연출 · 방향 호 · 소리를 내지 않고 **실드를 건드리지 않는다**; 죽은 · 전투불능 상태에서는 아무것도 안 한다.
-   * 1 밑으로는 내려가지 않는다 (이 함수로 사람을 죽이지 않는다 — 죽음은 `takeDamage` 의 일이다).
+   * **Sets hp outright** — the place where a scripted scene decides the state of the body. The only user today is the tutorial
+   * (the person waking in the ruins is **on a sliver of hp**, so one hit from a bug kills — the user's spec).
+   * It raises no hit shot · direction arc · sound and **does not touch the shield**; dead or downed it does nothing.
+   * It never goes below 1 (this function does not kill anyone — killing is `takeDamage`'s job).
    */
   setHp?(hp: number): void;
 
-  /* ── appended (2026-09-14 3차, owner: player; caller: extraction) ── */
+  /* ── appended (2026-09-14 3rd pass, owner: player; caller: extraction) ── */
   /**
-   * **각본 잠금** — 이동 · 자세 · 점프 · 구르기 · 조준 · 무기 · 상호작용 · 마우스 룩이 잠기고, 들어오는 피해가
-   * 전부 무시된다 (실드 · 체력 · 전투불능 · 사망 어느 것도 일어나지 않는다). 카메라는 건드리지 않는다 —
-   * 이륙 연출처럼 카메라를 이미 다른 곳이 들고 있기 때문이다.
+   * The **scene lock** — movement · stance · jump · roll · aim · weapons · interaction · mouse look are locked, and all
+   * incoming damage is ignored (neither shield nor hp moves, and there is no downed and no death). The camera is left
+   * alone — as in the liftoff shot, something else is already holding it.
    *
-   * 지금 쓰는 곳은 튜토리얼 함선의 이륙 하나다 (스위치를 누르면 즉시 뜨고, 그 동안 함선에서 나갈 수도
-   * 죽을 수도 없어야 한다 — 사용자 결정). `game:abort` · `game:newMission` · 함선 복귀가 스스로 푼다.
+   * The only user today is the tutorial ship's liftoff (pressing the switch lifts it at once, and through that the player
+   * must be unable to leave the ship or to die — user's decision). `game:abort` · `game:newMission` · returning to the ship release it themselves.
    */
   /*
-   * `opts` appended (2026-09-15, 사용자 결정 — 처치하지 않은 안드로이드의 사격을 **맞은 채** 출발한다): `allowDamage: true` 면
-   * 입력 잠금은 그대로이되 피해는 **들어간다** — 다만 체력이 `minHp`(기본 1) 밑으로 내려가지 않고 전투불능 · 사망이 없다.
-   * 생략 = 예전 그대로 (피해 전부 무시).
+   * `opts` appended (2026-09-15, user's decision — you depart **while being shot** by the android you did not kill): with
+   * `allowDamage: true` the input lock stays but damage **does land** — except that hp never drops below `minHp` (1 by
+   * default) and there is no downed and no death. Omitted = as before (all damage ignored).
    */
   setSceneLock?(on: boolean, opts?: { allowDamage?: boolean; minHp?: number }): void;
 }
-/* ══ end 2026-09-13 탐사 차량 ══ */
+/* ══ end 2026-09-13 the exploration vehicle ══ */
 
-/* ══ appended (2026-09-13): 서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 (규칙은 `shared/library.ts`) ══ */
+/* ══ appended (2026-09-13): library series · video games — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 (rules in `shared/library.ts`) ═ */
 import type { GameConsoleDef, GameDiscDef } from './library';
 export interface BookDef {
   /**
-   * 시리즈 id (`data/library_series.csv`) — 효과는 이 시리즈의 효과 줄이 정한다. 2026-09-13 부터 모든 책 · 비디오 · 레코드에 있다.
-   * ⚠ 그래서 `skill` 은 **대표 숙련**(정렬 · 도감 묶음용)일 뿐 효과 계산에 쓰지 않는다 — 숙련 효과가 없는 시리즈는 가장 가까운 숙련을 적는다.
+   * The series id (`data/library_series.csv`) — the effect is decided by that series' effect row. Since 2026-09-13 every book · video · record has one.
+   * ⚠ So `skill` is only the **representative skill** (for sorting · grouping the catalogue) and is not used in the effect maths — a series with no skill effect names the nearest skill.
    */
   series?: string;
-  /** 권 번호 1 … 시리즈 권 수. */
+  /** Volume number, 1 … the series' volume count. */
   volume?: number;
 }
 export interface ItemDef {
-  /** category 'game_disc': 게임 디스크 전시대에 꽂아 TV 로 플레이한다. */
+  /** category 'game_disc': slotted into the game-disc rack and played on the TV. */
   gameDisc?: GameDiscDef;
-  /** category 'console': TV 에 장착하는 게임기. */
+  /** category 'console': the games console mounted on the TV. */
   gameConsole?: GameConsoleDef;
 }
-/* ══ end 2026-09-13 서재 시리즈 ══ */
+/* ══ end 2026-09-13 library series ══ */
 
-/* ══ appended (2026-09-14): 정보상 지도 미리보기 — docs/DECISIONS.md 「2026-09-14 — 정보상」 ═════════════════════════════
+/* ══ appended (2026-09-14): the intel broker's map preview — docs/DECISIONS.md 「2026-09-14 — 정보상」 ══════════
  *
- * 정보상 화면은 **살 지역의 실제 레이아웃**을 흐릿한 격자로 보여 준다 (사용자 결정). 그러려면 `hub/` 가 메시를
- * 하나도 만들지 않고 `generateLayout` 의 결과만 받아야 하는데, `WorldLayout` 은 `world/` 내부 타입이고 폴더끼리는
- * 서로를 import 하지 않는다 (CLAUDE.md). 그래서 **`ctx.world.previewLayout(...)` 한 줄**이 계약이다 —
- * 실제 생성과 **같은 코드**(`world/preview.planLayoutFor`)를 지나므로 미리보기가 거짓말을 할 수 없다
- * (「열지 않고 미리 보는 것은 여는 것과 같은 함수여야 한다」와 같은 규칙).
+ * The intel broker screen shows **the real layout of the sector on sale** as a faint grid (user's decision). For that,
+ * `hub/` must build no mesh at all and only receive the result of `generateLayout` — but `WorldLayout` is a `world/`
+ * internal type and folders never import each other (CLAUDE.md). So the contract is **one line, `ctx.world.previewLayout(...)`** —
+ * it goes through the **same code** as real generation (`world/preview.planLayoutFor`), so the preview cannot lie
+ * (the same rule as 「previewing without opening must be the same function as opening」).
  *
- * 값은 전부 **평면 데이터**다 — THREE 객체도, `world/` 타입도 새지 않는다. 좌표계는 월드 XZ (m), 원점이 맵 중앙.
+ * Every value is **flat data** — no THREE object and no `world/` type leaks out. The coordinate system is world XZ (m) with the origin at the map centre.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 import type { IntelEffects } from './intel';
 
-/** 미리보기 지도의 원 하나 (월드 XZ, 반지름 m). */
+/** One circle on the preview map (world XZ, radius in m). */
 export interface MapPreviewSpot { x: number; z: number; r: number }
 
-/** `WorldRef.previewLayout` 의 결과. 메시 없이 지도를 그리기에 딱 필요한 만큼만 들어 있다. */
+/** The result of `WorldRef.previewLayout`. It holds exactly what is needed to draw the map and no mesh. */
 export interface MapPreviewLayout {
-  /** 이 미리보기가 그린 시드 · 행성 (호출값 그대로 — 화면이 「다른 행성의 정보」를 구분한다). */
+  /** The seed · planet this preview was drawn for (the call values as given — the screen tells 「intel for another planet」 apart by them). */
   seed: number;
   planet: PlanetId | null;
-  /** 맵 한 변(m) — 화면이 좌표를 격자로 옮기는 데 쓴다 (`MAP_SIZE`). */
+  /** The map's edge length (m) — the screen uses it to move coordinates onto its grid (`MAP_SIZE`). */
   mapSize: number;
   spawn: MapPreviewSpot;
   extraction: MapPreviewSpot[];
   nests: MapPreviewSpot[];
-  /** 폐허 전초. */
+  /** Ruined outposts. */
   pois: MapPreviewSpot[];
   craters: MapPreviewSpot[];
   structures: Array<MapPreviewSpot & {
     kind: StructureKind;
-    /** 지하실이 파였는가 (전진기지만 가질 수 있다). */
+    /** Was a basement dug (only an outpost can have one). */
     basement: boolean;
-    /** 1 또는 2 — 연구실은 2층일 때만 잠긴 방이 생긴다. */
+    /** 1 or 2 — a lab gets a locked room only when it has two floors. */
     floors: number;
   }>;
-  /** 선로 (없으면 null). `platforms` 는 플랫폼 부지다. */
+  /** The rails (null when there are none). `platforms` are the platform sites. */
   rail: { kind: RailKind; extent: number; angle: number; platforms: MapPreviewSpot[] } | null;
-  /** 탐사 차량 흙길 (없으면 null). `route` 는 닫힌 고리의 중심선 점열이다. */
+  /** The rover's dirt road (null when there is none). `route` is the point list of the closed ring's centre line. */
   rover: { stations: MapPreviewSpot[]; route: Array<{ x: number; z: number }> } | null;
-  /** 이번 레이드의 재해 종류 (없는 행성이면 null). 시작 시각은 여기 싣지 않는다 — 지도에 그릴 것이 없다. */
+  /** This raid's hazard kind (null on a planet with none). The start time is not carried here — there is nothing to draw for it on the map. */
   hazard: HazardKind | null;
 }
 
 export interface WorldRef {
   /**
-   * appended (2026-09-14, 정보상): `seed` · `planet` · 산 기믹(`intel`)으로 **레이아웃만** 계산한다 — 지형도 메시도
-   * 만들지 않고 씬을 건드리지 않으므로 **레이드 밖(함선)에서도** 부를 수 있다. 실제 생성이 쓰는 같은 함수를 지나기
-   * 때문에 미리보기와 진짜 맵이 어긋날 수 없다. `intel` 은 `shared/intel.resolveIntelEffects` 의 결과이거나 null.
+   * appended (2026-09-14, the intel broker): computes **the layout only** from `seed` · `planet` · the gimmicks bought
+   * (`intel`) — it builds neither terrain nor mesh and never touches the scene, so it may be called **outside a raid (in the
+   * ship)** too. It goes through the same function real generation uses, so the preview and the real map cannot drift apart. `intel` is the result of `shared/intel.resolveIntelEffects`, or null.
    */
   previewLayout?(seed: number, planet: PlanetId | null, intel?: IntelEffects | null): MapPreviewLayout;
 }
-/* ══ end 2026-09-14 정보상 지도 미리보기 ══ */
+/* ══ end 2026-09-14 the intel broker's map preview ══ */
 
-/* ══ appended (2026-09-15, B-16): 화염 지대 질의 · G-10 소이 수류탄 ═══════════════════════════════════
- * 화염 지대는 두 폴더가 만든다 — 적 소이 수류탄(enemies `fx/RogueGrenade`)과 플레이어의 화염수류탄 · G-10 소이 수류탄
- * (gadgets 배치물 `fire`). HUD 위험 표시(ui `hud/DangerIndicators`)가 둘을 **같은 모양**으로 읽는다.
- * 색은 늘 그렇듯 「누구 것인가」 — `hostile`. 소리(`fire_ignite` · `fire_crackle`)와 드론 피해는 지대를 가진 폴더가 낸다. */
+/* ══ appended (2026-09-15, B-16): the fire-zone query · the G-10 incendiary grenade ════════
+ * A fire zone is built by two folders — the enemy incendiary grenade (enemies `fx/RogueGrenade`) and the player's fire
+ * grenade · G-10 incendiary grenade (the gadgets deployable `fire`). The HUD danger indicators (ui `hud/DangerIndicators`)
+ * read both in the **same shape**. The colour, as always, is 「whose is it」 — `hostile`. The sounds (`fire_ignite` · `fire_crackle`) and drone damage are raised by the folder that owns the zone. */
 export interface FireZoneInfo {
-  /** 폴더 안에서 고유한 id (HUD 가 풀 칸을 이어 붙이는 열쇠). enemies 는 `e:` 접두어, gadgets 는 배치물 id 그대로. */
+  /** An id unique within the folder (the key the HUD stitches pool slots together with). enemies prefixes `e:`, gadgets uses the deployable id as it is. */
   readonly id: string;
-  /** 지대 중심 (바닥 높이). */
+  /** The zone's centre (at ground height). */
   readonly position: THREE.Vector3;
   readonly radius: number;
-  /** 남은 시간 (s). 끝난 지대는 목록에 없다. */
+  /** Time left (s). A finished zone is not in the list. */
   readonly remaining: number;
-  /** 적이 만든 지대 = true (빨강). 플레이어가 만든 것은 내 것이든 분대원 것이든 false (호박) — 둘 다 피아 구분 없이 태우지만 색은 주인을 말한다. */
+  /** A zone made by an enemy = true (red). One made by a player — mine or a squadmate's — is false (amber); both burn friend and foe alike, but the colour says whose it is. */
   readonly hostile: boolean;
 }
 
 export interface EnemyManagerRef {
   /**
-   * appended (2026-09-15, B-16): 적 소이 수류탄이 만든 살아 있는 화염 지대 (전부 `hostile: true`). 권위 · 리플리카 둘 다 답한다
-   * (리플리카도 `ee grenadeHit.k` 로 시각 지대를 켠다). **매 프레임** 불린다 — 내부 배열을 재사용하고 새 객체를 만들지 않는다.
+   * appended (2026-09-15, B-16): the live fire zones made by enemy incendiary grenades (all `hostile: true`). Both the authority
+   * and a replica answer (a replica also lights a visual zone from `ee grenadeHit.k`). Called **every frame** — it reuses an internal array and allocates no new object.
    */
   getFireZones?(): readonly FireZoneInfo[];
 }
 
 export interface ItemDef {
   /**
-   * appended (2026-09-15, B-16 · 사용자 버그 「소이 수류탄에 불 지대가 안 만들어진다」): 이 수류탄은 터진 자리에 **화염 지대**를
-   * 세운다 (`items.csv` 의 `grenadeFire` 열 — G-10 소이 수류탄). weapons 의 **로컬** 수류탄 폭발이 `ctx.gadgets.igniteGrenadeFire(pos)`
-   * 를 부른다 (복제본 · 시각 전용 폭발은 부르지 않는다). 없거나 false = 고폭 그대로.
+   * appended (2026-09-15, B-16 · the user's bug report 「the incendiary grenade makes no fire zone」): this grenade stands a
+   * **fire zone** where it went off (the `grenadeFire` column of `items.csv` — the G-10 incendiary grenade). The **local** grenade
+   * explosion in weapons calls `ctx.gadgets.igniteGrenadeFire(pos)` (a replica's, or a visual-only explosion, does not). Absent or false = plain high explosive.
    */
   grenadeFire?: boolean;
 }
-/* ══ end 2026-09-15 화염 지대 ══ */
+/* ══ end 2026-09-15 fire zones ══ */
 
-/* ══ appended (2026-09-15): 결과 창 개편 — 사망 원인 · 원인별 받은 피해 · 잃은 전리품 가치 ════════════════════════════════
- * 사용자 결정: 탈출 결과 창은 임무 시간 · 전리품 가치 · 보상만, 사망 결과 창은 **잃은 전리품 가치**(그 레이드에서 가장 높았던
- * 소지품 가치) + **사망 원인**(막타 — 적 개체면 그 개체의 얼굴 썸네일 · 이름 · 그 개체에게서 받은 피해, 아니면 원인 아이콘 ·
- * 이름 · 그 원인의 피해) + 획득 경험치. 피해를 넣는 모든 경로가 `PlayerRef.takeDamage(amount, from, source)` 의 셋째 인자로
- * 출처를 싣고, game/ 이 `player:damaged.source` 를 원인별로 합산해 `MissionStats.death` 를 확정한다. */
+/* ══ appended (2026-09-15): the result screen rework — the death cause · damage taken per cause · the loot value lost ═
+ * User's decision: the extraction result screen shows only the mission time · loot value · rewards; the death result screen shows
+ * **the loot value lost** (the highest value carried at any point in that raid) + **the death cause** (the last hit — for an enemy
+ * body, its face thumbnail · name · the damage taken from it, otherwise the cause's icon · name · that cause's damage) + the XP earned.
+ * Every damage path carries the source in the third argument of `PlayerRef.takeDamage(amount, from, source)`, and game/ sums `player:damaged.source` per cause to settle `MissionStats.death`. */
 
-/** 피해 출처의 종류. */
+/** The kind of damage source. */
 export type DamageCauseKind =
-  | 'enemy'      // 적 개체 (벌레 · 로그 · 레이더 · 안드로이드 · 네임드 · 땅굴벌레 …) — 근접 · 사격 · 산성 · 적 폭발 · 적 화염 지대
-  | 'fall'       // 낙하 피해
-  | 'hazard'     // 환경 재해 (모래 폭풍 · 눈보라 · 폭풍의 눈 · 독성 포자)
-  | 'env'        // 행성 상시 환경 (열 · 독) — 준비물이 없을 때
-  | 'explosion'  // 주인을 모르는 폭발 · 함선 호출 낙하물 · 전차 충돌 등 적이 아닌 물리 피해
-  | 'self'       // 자기 수류탄 · 자기 가젯 · 손 안에서 터진 수류탄
-  | 'ally'       // 분대원의 폭발물 · 화염
-  | 'other';     // 그 밖 (모르면 생략이 낫다)
+  | 'enemy'      // an enemy body (bug · rogue · raider · android · named · sandworm …) — melee · gunfire · acid · an enemy blast · an enemy fire zone
+  | 'fall'       // fall damage
+  | 'hazard'     // an environmental hazard (sandstorm · blizzard · storm eye · toxic spores)
+  | 'env'        // a planet's standing environment (heat · toxin) — when the preparation is missing
+  | 'explosion'  // physical damage that is not an enemy's: a blast with no known owner · a ship call's falling object · a tram collision
+  | 'self'       // your own grenade · your own gadget · a grenade that went off in the hand
+  | 'ally'       // a squadmate's explosive · fire
+  | 'other';     // anything else (when unknown, omitting it is better)
 
-/** 2026-09-15: `PlayerRef.takeDamage` 의 넷째 인자. 생략은 지금까지와 똑같다 (실드 먼저 · 그 다음 체력). */
+/** 2026-09-15: the fourth argument of `PlayerRef.takeDamage`. Omitting it is exactly as before (the shield first · then hp). */
 export interface PlayerDamageOptions {
-  /** true 면 실드를 건너뛰고 체력만 깎는다 (독성 포자 재해 — `HAZARD_SPORES_BYPASS_SHIELD`). */
+  /** True skips the shield and takes hp only (the toxic spore hazard — `HAZARD_SPORES_BYPASS_SHIELD`). */
   bypassShield?: boolean;
 }
 
-/** `PlayerRef.takeDamage` 의 셋째 인자 · `player:damaged.source` · `player:died.source`. */
+/** The third argument of `PlayerRef.takeDamage` · `player:damaged.source` · `player:died.source`. */
 export interface PlayerDamageSource {
   kind: DamageCauseKind;
-  /** kind `enemy`: 적의 `EnemyType` id 그대로 (튜토리얼 `tut_bug` 등 — 바탕 종류로 접지 않는다). */
+  /** kind `enemy`: the enemy's `EnemyType` id as it is (the tutorial `tut_bug` and so on — it is not folded to the base kind). */
   enemyType?: string;
-  /** kind `enemy`: 개체 id — 같은 개체의 피해를 합산하는 열쇠. 호스트 · 리플리카가 같은 값을 쓴다 (적 네트워크 id). */
+  /** kind `enemy`: the body id — the key that sums the damage from one body. The host and replicas use the same value (the enemy's network id). */
   enemyId?: number;
-  /** kind `hazard`: `HazardKind`. */
+  /** kind `hazard`: a `HazardKind`. */
   hazard?: string;
 }
 
-/** 사망 결과 창의 「사망 원인」 한 줄 (owner: game/ — `MissionStats.death`). */
+/** The 「death cause」 row of the death result screen (owner: game/ — `MissionStats.death`). */
 export interface MissionDeathCause {
   kind: DamageCauseKind;
   enemyType?: string;
   hazard?: string;
-  /** 표시 이름 — 적이면 그 적의 이름, 아니면 원인 이름 (`낙하` · `독성 포자` …). game/ 이 확정한다. */
+  /** The display name — the enemy's name for an enemy, otherwise the cause's name (`낙하` · `독성 포자` …). game/ settles it. */
   label: string;
-  /** 그 원인(적이면 **그 개체**)에게서 이번 레이드에 받은 피해 합계 (실드에 들어간 몫 포함, 정수). */
+  /** The total damage taken from that cause (for an enemy, **that body**) in this raid (the share that went into the shield included, an integer). */
   damage: number;
 }
 
 export interface MissionStats {
-  /** appended (2026-09-15): 이번 레이드 동안 소지품(장비 · 가방 · 퀵슬롯 · 주머니) 가치의 **최고값**. 사망 결과 창의 「잃은 전리품 가치」. */
+  /** appended (2026-09-15): the **highest** value of what was carried (equipment · bag · quick slots · pouch) at any point in this raid. The death result screen's 「잃은 전리품 가치」. */
   peakLootValue?: number;
-  /** appended (2026-09-15): 사망으로 끝났을 때의 사망 원인. 탈출 · 원인을 모르면 null / 생략. */
+  /** appended (2026-09-15): the death cause when the raid ended in death. Null / omitted on an extraction, or when the cause is unknown. */
   death?: MissionDeathCause | null;
 }
 
 export interface MissionStats {
   /**
-   * appended (2026-09-16, owner: enemies 가 쌓고 game 이 정산): 이번 레이드에서 **내 막타** 처치로 쌓인 경험치의 합 —
-   * 종류별 `data/enemies.csv` `raidXp`. `kills` 와 같은 자리 · 같은 조건에서 더한다 (안드로이드 분대원 · 팩션 처치는 0).
-   * 레이드 세션 blob · 솔로 저장은 `stats` 를 통째로 담으므로 재접속 · 이어하기에도 남는다. 생략 = 0.
+   * appended (2026-09-16, owner: enemies accumulates it and game settles it): the sum of the XP piled up in this raid by kills
+   * where **I landed the last hit** — `raidXp` per kind from `data/enemies.csv`. It is added at the same sites and under the same
+   * conditions as `kills` (an android squadmate's · a faction kill is 0). The raid session blob · the solo save store `stats` whole, so it survives a reconnect · a resume. Omitted = 0.
    */
   killXp?: number;
 }
 
 export interface EnemyManagerRef {
   /**
-   * appended (2026-09-15, owner: enemies; caller: ui 사망 결과 창): 그 종류 적의 **얼굴 썸네일** — 카메라를 향해 왼쪽 사선으로
-   * 돌아본 머리 · 상체를 `sizePx` 정사각형으로 그린 data URL. 적 모델은 절차 생성이라 enemies/ 만 그릴 수 있다.
-   * 자기 WebGL 렌더러를 잠깐 쓰고 버린다 (메인 캔버스 · 씬의 광원 개수를 건드리지 않는다). 그릴 수 없으면 null.
+   * appended (2026-09-15, owner: enemies; caller: the ui death result screen): the **face thumbnail** of that enemy kind — the head ·
+   * upper body turned toward the camera's left diagonal, drawn into a `sizePx` square as a data URL. Enemy models are procedural, so
+   * only enemies/ can draw them. It borrows its own WebGL renderer briefly and throws it away (never touching the main canvas · the scene's point-light count). Null when it cannot be drawn.
    */
   renderPortrait?(enemyType: string, sizePx: number): string | null;
   /**
-   * appended (2026-09-15): 그 종류 적의 한국어 표시 이름. 모르는 종류면 null. `data/enemies.csv` 에는 이름 칸이 없어
-   * enemies/ 의 이름표(`models/Portrait`)가 원본이다 — 튜토리얼 종류는 바탕 종류의 이름.
+   * appended (2026-09-15): the Korean display name of that enemy kind. Null for an unknown kind. `data/enemies.csv` has no name
+   * column, so the name table in enemies/ (`models/Portrait`) is the original — a tutorial kind gets the base kind's name.
    */
   enemyDisplayName?(enemyType: string): string | null;
 }
-/* ══ end 2026-09-15 결과 창 개편 ══ */
+/* ══ end 2026-09-15 the result screen rework ══ */
 
-/* ══ appended (2026-09-15): 안드로이드 분대원 · 레이드 진입 로딩 — docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」 ══
- * 계약 본문은 `shared/allies.ts` · `net.ts` 끝 절. 여기는 기존 Ref 에 붙는 **선택 멤버**뿐이다 — 각 소유 폴더가 구현하고, 부르는 쪽은
- * `?.` 로 부른다 (없으면 그 기능만 조용히 빠진다). 「권위」 = 솔로 또는 로비 호스트 (`ctx.isAuthority`).
+/* ══ appended (2026-09-15): android squadmates · raid entry loading — docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」 ═
+ * The body of the contract is `shared/allies.ts` · the last section of `net.ts`. Here there are only **optional members** hung on existing
+ * Refs — each owning folder implements one and callers call it with `?.` (missing, only that feature quietly drops out). 「Authority」 = single player or the lobby host (`ctx.isAuthority`).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 import type { WeightInfo as AllyWeightInfo } from './gear';
 
-/** 인벤토리 요청의 종류 (owner: inventory `requestItem`) — `heal` 회복약 · `shield` 장착 방탄복 실드 충전 · `ammo` 장착 주무기 탄약 · `item` 그 밖. */
+/** The kind of inventory request (owner: inventory `requestItem`) — `heal` a healing item · `shield` a charge for the equipped armor's shield · `ammo` ammo for the equipped primary · `item` anything else. */
 export type ItemRequestKind = 'heal' | 'shield' | 'ammo' | 'item';
 
-/** 공용 함선 조종실의 안드로이드 슬롯(캡슐) 하나 (owner: hub). 좌표는 함선 원점 기준. */
+/** One android slot (capsule) in the shared ship's cockpit (owner: hub). Coordinates are relative to the ship's origin. */
 export interface HubAndroidBay {
   bay: number;
-  /** 캡슐 안 몸이 서는 발 위치. */
+  /** Where the body's feet stand inside the capsule. */
   position: THREE.Vector3;
-  /** 캡슐 밖을 바라보는 yaw (몸 앞 = `(−sin yaw, 0, −cos yaw)`, 원격 아바타 규약). */
+  /** The yaw looking out of the capsule (body forward = `(−sin yaw, 0, −cos yaw)`, the remote avatar convention). */
   yaw: number;
-  /** 캡슐 밖 한 걸음 — 나오는 연출의 끝 · 돌아가는 연출의 시작. */
+  /** One step outside the capsule — the end of the coming-out shot · the start of the going-back one. */
   exit: THREE.Vector3;
 }
 
 export interface HubRef {
-  /** 공용 함선 조종실의 안드로이드 슬롯 (bay 순). 공용 함선이 아니면 빈 배열. */
+  /** The android slots in the shared ship's cockpit (in bay order). An empty array outside the shared ship. */
   getAndroidBays?(): readonly HubAndroidBay[];
-  /** 로비 슬롯 `slot` 의 발사 포드 앞 대기 자리 — 분대원이 된 안드로이드가 준비된 채 서 있는 곳. 없으면 null. */
+  /** The waiting spot in front of lobby slot `slot`'s launch pod — where an android that became a squadmate stands ready. Null when there is none. */
   getPodStandPose?(slot: number): { position: THREE.Vector3; yaw: number } | null;
 }
 
-/** 안드로이드의 가방 격자 — DOM 없는 격자 모델 (owner: inventory `Grid`, 만드는 곳 `InventoryRef.createAllyBag`). */
+/** An android's bag grid — a grid model with no DOM (owner: inventory `Grid`, built by `InventoryRef.createAllyBag`). */
 export interface AllyBagRef {
   readonly cols: number;
   readonly rows: number;
   items(): readonly ItemInstance[];
-  /** 겹칠 수 있는 스택에 먼저 합치고 빈 자리에 놓는다 — 전부 들어가면 true, 아니면 아무것도 바꾸지 않고 false. */
+  /** Merges into a stack it can join first, then places the rest in free cells — true when it all fits, otherwise false with nothing changed. */
   autoPlace(item: ItemInstance): boolean;
   remove(uid: string): ItemInstance | null;
-  /** 크기를 바꾼다 (가방 교체). 들어가지 못한 아이템을 돌려준다. */
+  /** Resize it (a bag swap). Returns the items that did not fit. */
   resize(cols: number, rows: number): ItemInstance[];
   usedCells(): number;
   totalValue(): number;
@@ -3699,27 +3701,27 @@ export interface AllyBagRef {
 }
 
 export interface InventoryRef {
-  /** DOM 없는 가방 격자 하나를 만든다 (안드로이드 — 플레이어 가방과 같은 배치 규칙). */
+  /** Build one bag grid with no DOM (for an android — the same placement rules as the player's bag). */
   createAllyBag?(cols: number, rows: number): AllyBagRef;
-  /** 사람과 **같은 무게 식** — `carried` = 가방 + 장착 장비, `bag` = 장착 가방 (용량 보너스). 운반 숙련 없음. */
+  /** The **same weight formula** as a person's — `carried` = the bag + equipped gear, `bag` = the equipped bag (its capacity bonus). No carrying skill. */
   weightInfoFor?(carried: readonly ItemInstance[], bag: ItemInstance | null): AllyWeightInfo;
   /*
-   * 내용물 보기는 기존 `peekContainerItems(containerId, tier?)` (2026-09-12 드론 스캔 — 여는 것과 같은 굴림)를 그대로 쓴다.
+   * Looking at the contents uses the existing `peekContainerItems(containerId, tier?)` as it is (the 2026-09-12 drone scan — the same roll as opening).
    */
   /**
-   * 권위: 사람이 아닌 몸(`by` = 안드로이드 id)이 컨테이너에서 `defId` 스택 하나를 가져간다 (`peekContainerItems` 로 본 목록의 한 줄).
-   * 아직 굴리지 않은 컨테이너면 `tier` 로 여는 것과 같은 굴림을 먼저 확정한다. 가져간 상태를 호스트가 사람의 take 와 똑같이 기록 · 방송하고,
-   * 처음이면 열린 모습(`crate opened`)도 맞춘다. 가져간 아이템(`raidFound` 표시 포함) 또는 null (없음 · 이미 가져감 · 권위 아님).
+   * Authority: a body that is not a person (`by` = an android id) takes one `defId` stack out of a container (one row of the list seen through `peekContainerItems`).
+   * For a container not yet rolled, `tier` settles the same roll as opening first. The host records and broadcasts the take exactly as it does a person's,
+   * and on a first open it matches the opened look (`crate opened`) too. The item taken (its `raidFound` mark included), or null (none · already taken · not the authority).
    */
   takeContainerItemFor?(containerId: string, tier: number, defId: string, by: string): ItemInstance | null;
 }
 
 export interface PickupsRef {
-  /** 권위: 바닥 아이템 `id` 를 사람이 아닌 몸(`by`)이 줍는다 — 지우고 `item take {by}` 를 방송한다. 주운 아이템 또는 null. */
+  /** Authority: a body that is not a person (`by`) picks up ground item `id` — it is removed and `item take {by}` is broadcast. The item picked up, or null. */
   takeBy?(id: string, by: string): ItemInstance | null;
 }
 
-/** 루팅할 수 있는 컨테이너 하나 (world 상자 + 구조물 보관함). `id` 는 inventory 컨테이너 id 와 같다. */
+/** One lootable container (a world crate + a structure locker). `id` is the same as the inventory container id. */
 export interface LootContainerInfo {
   readonly id: string;
   readonly position: THREE.Vector3;
@@ -3729,57 +3731,57 @@ export interface LootContainerInfo {
 }
 
 export interface WorldRef {
-  /** 이번 맵의 루팅 컨테이너 전부 (월드 상자 + 구조물 보관함). 재사용 배열 — 읽고 바로 쓴다. 훈련장은 빈 배열. */
+  /** Every lootable container on this map (world crates + structure lockers). A reused array — read it and use it at once. An empty array on the training range. */
   getLootContainers?(): readonly LootContainerInfo[];
   /**
-   * appended (2026-09-15, A6): 안드로이드가 연 상자 · 컨테이너를 **열린 모습**(뚜껑 · 문)으로 만들고 분대에 알린다
-   * (`crate opened`). 사람이 E 로 연 것과 같은 자리를 부르지만 이벤트 · 통계 · 감정 XP 는 내지 않는다 —
-   * 그것들은 사람의 상호작용에만 걸린다. 이 맵에 없는 id 면 false. 부르는 곳은 `InventoryRef.takeContainerItemFor` 뿐이다.
+   * appended (2026-09-15, A6): puts a crate · container an android opened into its **opened look** (lid · door) and tells the
+   * squad (`crate opened`). It calls the same site as a person opening it with E, but raises no event · no statistic · no
+   * appraisal XP — those hang on a person's interaction only. False for an id not on this map. The only caller is `InventoryRef.takeContainerItemFor`.
    */
   markContainerOpened?(containerId: string): boolean;
 }
 
 export interface HazardRef {
-  /** `(x, z)` 에서 가장 가까운, 지금 피해 구역 밖인 지점을 `out` 에 쓴다 (가장자리에서 `margin` m 안쪽). 맵이 다 덮였으면 null. */
+  /** Writes into `out` the nearest point to `(x, z)` that is outside the damage zone right now (`margin` m inside the edge). Null when the map is fully covered. */
   nearestSafePoint?(x: number, z: number, margin: number, out: THREE.Vector3): THREE.Vector3 | null;
 }
 
 export interface EnemyManagerRef {
   /**
-   * 권위: 안드로이드의 한 발이 적 `enemyId` 를 맞혔다 — `takeDamage(…, 'ai')` (킬 크레딧 없음) + 그 적을 `from` 쪽으로 깨운다.
-   * 적용했으면 true. 리플리카에서는 false.
+   * Authority: one of an android's shots hit enemy `enemyId` — `takeDamage(…, 'ai')` (no kill credit) plus waking that enemy toward `from`.
+   * True when it was applied. False on a replica.
    */
   applyAllyHit?(enemyId: number, damage: number, point: THREE.Vector3, from: THREE.Vector3): boolean;
 }
 
 export interface PlayerRef {
-  /** `snapshotFace` 의 안드로이드판 — 같은 프레이밍, 안드로이드 헬멧 · 바이저. 매칭 탭 · 발사 슬롯 · 분대 목록 초상. */
+  /** The android version of `snapshotFace` — the same framing, with the android helmet · visor. The portrait for the 매칭 tab · launch slots · the squad list. */
   snapshotAndroidFace?(opts: { accent: string; size?: number }): string | null;
 }
 
 export interface PlayerRef {
   /**
-   * appended (2026-09-16, owner: player; reader: progression 운반 숙련): **제 힘으로** 움직인 수평 거리의 누적 주행계(m, 줄지 않는다).
-   * 걷기 · 달리기 · 앉아/엎드려 이동 · 기어가기 · 구르기 · 제 발로 뛴 점프만 오른다. 탈출선 · 함선 실내 · 부착, 드롭 포드 · 구조 강하,
-   * 전차 발판, 탐사 차량, 업혀 가기, 갈고리 · 대시, 점프대 · 로켓 점프 · 넉백, 순간이동 · 부활, 가구 자세 · 드론 조종 · 각본 잠금은
-   * 오르지 않는다. 읽는 쪽은 지난 값과의 차이만 쓴다 (여러 곳이 읽어도 서로 훔치지 않도록 소비형이 아니다).
+   * appended (2026-09-16, owner: player; reader: progression's carrying skill): a cumulative odometer (m, never decreasing) of the horizontal
+   * distance moved **under the body's own power**. Only walking · running · crouched/prone movement · crawling · rolling · a jump off its own
+   * feet raise it. The extraction ship · a ship interior · attachment, drop pods · rescue drops, tram platforms, the rover, being carried, the
+   * grapple · dash, jump pads · rocket jumps · knockback, teleports · revival, furniture poses · drone control · the scene lock do not. Readers use only the difference from the value they last saw (it is not consuming, so several readers never steal from each other).
    */
   readonly selfMovedMeters?: number;
 }
 
 export interface PortraitRef {
   /**
-   * appended (2026-09-15, A4): 발사 슬롯 초상 칸 `index` 를 안드로이드 외형으로 그린다 (`SoldierModel.setAndroidLook`).
-   * `setMember` 와 순서 무관 — 칸이 기억하므로 몸이 새로 지어져도 유지된다. owner: player `Portraits.ts`.
+   * appended (2026-09-15, A4): draws launch-slot portrait cell `index` with the android look (`SoldierModel.setAndroidLook`).
+   * Order-independent with `setMember` — the cell remembers it, so it survives the body being rebuilt. owner: player `Portraits.ts`.
    */
   setAndroid?(index: number, on: boolean): void;
 }
 
 export interface CorpsesRef {
   /**
-   * 권위: 죽은 안드로이드의 잔해를 남긴다 — `pcorpse:<allyId>:<n>` 컨테이너(레이드에서 주운 물건만) + 안드로이드 외형 몸, `pcorpse spawn` 방송.
-   * 만든 시체 id 또는 null.
+   * Authority: leaves the wreckage of a dead android — a `pcorpse:<allyId>:<n>` container (only what it picked up in the raid) plus a body with the android look, broadcast as `pcorpse spawn`.
+   * The id of the corpse created, or null.
    */
   spawnAllyCorpse?(allyId: string, name: string, slot: number, position: THREE.Vector3, yaw: number, items: readonly ItemInstance[]): string | null;
 }
-/* ══ end 2026-09-15 안드로이드 분대원 ══ */
+/* ══ end 2026-09-15 android squadmates ══ */

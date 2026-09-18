@@ -1,11 +1,12 @@
 /*
- * src/shared/npc.ts — 메신저 NPC · NPC 퀘스트 계약 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
+ * src/shared/npc.ts — the messenger NPC · NPC quest contract (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」).
  *
- * 기업 퀘스트(`data/quests.csv`)는 폐지됐고, 퀘스트는 이제 **NPC 가 메신저로** 준다. 기업 계약은 그대로다.
- * 수치 · 대사의 원본은 `data/npcs.csv` · `data/npc_quests.csv` · `data/npc_objectives.csv` 이고 이 파일은 그 표를 옮기는 로더와
- * 타입 · `ctx.meta.npc`(`NpcQuestRef`) 계약만 갖는다. 규칙(제안 · 진행 · 확정 · 보상)의 구현은 meta/ 가 갖는다.
+ * Corp quests (`data/quests.csv`) are gone; a quest is now given **by an NPC through the messenger**. Corp contracts are unchanged.
+ * The source of the numbers and the lines is `data/npcs.csv` · `data/npc_quests.csv` · `data/npc_objectives.csv`, and this file holds only
+ * the loader that carries those tables over, the types and the `ctx.meta.npc` (`NpcQuestRef`) contract. The rules (offering · progress ·
+ * committing · rewards) are implemented by meta/.
  *
- * Owner: shared/ (로더 · 검사는 B 에이전트 — meta 소유). 소비: meta(엔진) · ui(메신저 · 지도 패널 · 토스트) · housing(채굴 해금 게이트 — `MetaRef.getQuestState`).
+ * Owner: shared/ (the loader and its checks were agent B's — owned by meta). Consumers: meta (the engine) · ui (the messenger · the map panel · toasts) · housing (the mining unlock gate — `MetaRef.getQuestState`).
  */
 import type { CorpId } from './meta';
 import type { StructureKind, WeaponClass } from './types';
@@ -15,29 +16,29 @@ import { addDataIssue, csvRows, keyTable } from './data/tables';
 type Row = ReturnType<typeof csvRows>[number];
 
 const T = /* data/tuning.csv */ keyTable('tuning.csv');
-/** NPC 한 명의 대화 기록에 남기는 사건 수 (넘치면 오래된 것부터). */
+/** How many events one NPC's conversation log keeps (the oldest go first when it overflows). */
 export const NPC_LOG_MAX = T.num('NPC_LOG_MAX');
-/** 함선에 있는 동안 첫 연락 · 제안 조건을 다시 보는 간격(초). */
+/** Interval (seconds) at which the first-contact and offer conditions are looked at again while in the ship. */
 export const NPC_OFFER_CHECK_S = T.num('NPC_OFFER_CHECK_S');
 
-/* ── 열거 ───────────────────────────────────────────────────────────────── */
+/* ── Enumerations ───────────────────────────────────────────────────────── */
 
 export const NPC_ROLES = ['executive', 'staff', 'independent'] as const;
-/** executive = 기업 임원 · staff = 기업 직원 · independent = 무소속. */
+/** executive = a corp executive · staff = corp staff · independent = unaffiliated. */
 export type NpcRole = typeof NPC_ROLES[number];
 export const NPC_ROLE_LABEL_KO: Readonly<Record<NpcRole, string>> = { executive: '임원', staff: '직원', independent: '무소속' };
 
 export const NPC_OBJECTIVE_KINDS = ['deliver', 'recover', 'interact', 'kill', 'discover', 'search'] as const;
 export type NpcObjectiveKind = typeof NPC_OBJECTIVE_KINDS[number];
-/** 레이드 안에서 채우는 목표 (훈련장 제외). `deliver` 만 함선에서 채운다. */
+/** Objectives filled inside a raid (the training range excluded). Only `deliver` is filled in the ship. */
 export const NPC_RAID_OBJECTIVE_KINDS: ReadonlySet<NpcObjectiveKind> = new Set(['recover', 'interact', 'kill', 'discover', 'search']);
 
 export const NPC_INTERACT_KINDS = ['scanner', 'basement_door', 'lab_door', 'tram', 'rover'] as const;
-/** scanner = 구조물 옥상 맵 스캐너 · basement_door = 전진기지 지하실 문(열쇠) · lab_door = 연구소 2층 잠긴 방(키카드) · tram = 전차 호출/시동 · rover = 탐사 차량 탑승. */
+/** scanner = the map scanner on a structure's roof · basement_door = an outpost basement door (a key) · lab_door = the locked room on a lab's 2nd floor (a keycard) · tram = calling / starting the tram · rover = boarding the rover. */
 export type NpcInteractKind = typeof NPC_INTERACT_KINDS[number];
 
 export const NPC_ENEMY_GROUPS = ['humanoid', 'rogue', 'raider', 'android', 'bug', 'named'] as const;
-/** 처치 목표의 적 묶음. 이 밖의 값은 적 타입 id (`data/enemies.csv`) 로 읽는다 — 검사는 `npm run data:check`. */
+/** The enemy group of a kill objective. Any other value is read as an enemy type id (`data/enemies.csv`) — checked by `npm run data:check`. */
 export type NpcEnemyGroup = typeof NPC_ENEMY_GROUPS[number];
 
 const WEAPON_CLASSES: readonly WeaponClass[] = ['AR', 'SMG', 'SR', 'DMR', 'SG', 'PISTOL'];
@@ -45,33 +46,33 @@ const STRUCTURE_KINDS: readonly StructureKind[] = ['outpost', 'lab', 'wreck'];
 const CORPS: readonly string[] = ['helix', 'bastion', 'nomad', 'ceres'];
 const PLANETS: readonly string[] = ['amber', 'tundra', 'mossy', 'ashen', 'crimson'];
 
-/** `item` 열의 「그 계열 총기 아무거나」 표기: `weapon:SG`. */
+/** The `item` column's 「그 계열 총기 아무거나」 (any weapon of that class) notation: `weapon:SG`. */
 export const NPC_ITEM_WEAPON_PREFIX = 'weapon:';
 
 /**
- * appended (2026-09-14 3차): **진행 플래그** — NPC 첫 연락 조건이 보는 누적 횟수.
- *   `gathered`     채집물(약초 · 고철 · 토양 · 표본 …)을 캔 횟수 — 생존 여부와 무관하다 (`gather:collected`).
- *   `raidReturned` 레이드에서 살아 돌아온 횟수 (`game:complete`).
- * 추가만 한다 — 옛 세이브는 모르는 플래그를 0 으로 읽는다.
+ * appended (2026-09-14 3rd pass): **progress flags** — the cumulative counts an NPC's first-contact condition looks at.
+ *   `gathered`     how many times something was gathered (herbs · scrap · soil · samples …) — survival does not matter (`gather:collected`).
+ *   `raidReturned` how many times a raid was returned from alive (`game:complete`).
+ * Append only — an old save reads a flag it does not know as 0.
  */
 export const NPC_FLAGS = ['gathered', 'raidReturned'] as const;
 export type NpcFlag = typeof NPC_FLAGS[number];
 
 /**
- * ⚠ `'deferred'` 는 **은퇴했다** (2026-09-14 3차, 사용자 결정 — 「생각해볼게」 선택지 제거).
- * 새 퀘스트는 `offered` → `accept()` → `active` 뿐이고, 이 값은 옛 세이브를 읽기 위해서만 남는다
- * (`airstrike` · `secondary` 와 같은 처리 — 계약은 추가만 한다).
+ * ⚠ `'deferred'` **has retired** (2026-09-14 3rd pass, user's decision — the 「생각해볼게」 choice was removed).
+ * A new quest only goes `offered` → `accept()` → `active`, and this value stays only so that old saves can be read
+ * (the same treatment as `airstrike` · `secondary` — a contract is append-only).
  */
 export type NpcQuestState = 'offered' | 'deferred' | 'active' | 'complete';
 export const NPC_QUEST_STATE_LABEL_KO: Readonly<Record<NpcQuestState, string>> = {
   offered: '제안 받음', deferred: '보류', active: '진행 중', complete: '완료',
 };
 
-/** 메신저 상단 탭. */
+/** The messenger's top tabs. */
 export type MessengerTab = 'chat' | 'friends' | 'quests';
 
-/** 퀘스트 카드 버튼에 붙는 플레이어의 정해진 답 (대화 기록에 「나」 말풍선으로 남는다). */
-/** ⚠ `decline` · `brief` 는 은퇴했다 (2026-09-14 3차 — 「생각해볼게」 제거). 옛 기록을 푸는 데만 쓰인다. */
+/** The player's fixed answer attached to a quest card's button (it stays in the conversation log as a 「나」 speech bubble). */
+/** ⚠ `decline` · `brief` have retired (2026-09-14 3rd pass — 「생각해볼게」 removed). They are only used to resolve an old log. */
 export const NPC_REPLY_KO = {
   accept: '맡겠습니다.',
   decline: '생각해보지.',
@@ -79,26 +80,27 @@ export const NPC_REPLY_KO = {
   complete: '끝냈습니다. 확인해 주세요.',
 } as const;
 
-/* ── 정의 ───────────────────────────────────────────────────────────────── */
+/* ── Definitions ────────────────────────────────────────────────────────── */
 
 export interface NpcRequirement {
-  /** 캐릭터 레벨 이상. */
+  /** At or above this character level. */
   level?: number;
-  /** 기업 신뢰도 레벨 이상 (전부 만족). */
+  /** At or above this corp reputation level (all of them satisfied). */
   rep?: readonly { corp: CorpId; level: number }[];
-  /** 먼저 **완료**한 NPC 퀘스트 id (전부). */
+  /** NPC quest ids that must have been **completed** first (all of them). */
   quests?: readonly string[];
   /**
-   * appended (2026-09-14): **NPC 개인** 신뢰도 레벨 이상 (전부 만족). 기업 신뢰도(`rep`)와 별개이고 같은
-   * `REP_TABLE`(0–5) 을 쓴다. csv 열은 `reqNpcRep` = "npcId:레벨" 을 `|` 로. 사용자 결정 2026-09-14 — 지금은
-   * **아무 줄도 이 조건을 쓰지 않는다**(적립 · 표시까지만). 계약만 먼저 두고 해금 요소는 나중에 정한다.
+   * appended (2026-09-14): at or above this **per-NPC** trust level (all of them satisfied). It is separate from corp
+   * reputation (`rep`) and uses the same `REP_TABLE` (0–5). The csv column is `reqNpcRep` = "npcId:level" joined with
+   * `|`. User's decision 2026-09-14 — **no row uses this condition today** (it only accumulates and displays). The
+   * contract is put in place first and what it unlocks is decided later.
    */
   npcRep?: readonly { npc: string; level: number }[];
   /**
-   * appended (2026-09-14 3차, 사용자 결정 — 4기업 NPC 는 튜토리얼이 끝나자마자 연락하지 않는다):
-   * **진행 플래그**가 그 수 이상 (전부 만족). csv 열은 `reqFlag` = "플래그:횟수" 를 `|` 로.
-   * 플래그를 세는 곳은 meta/ 하나이고 저장은 `NpcSave.flags` 다 — 레이드를 넘어 사는 값이지만
-   * NPC 연락 조건 말고는 읽는 곳이 없어 프로필이 아니라 NPC 계약 안에 둔다.
+   * appended (2026-09-14 3rd pass, user's decision — the four corps' NPCs must not call the moment the tutorial ends):
+   * a **progress flag** at or above that count (all of them satisfied). The csv column is `reqFlag` = "flag:count"
+   * joined with `|`. The flags are counted in meta/ alone and stored in `NpcSave.flags` — a value that outlives a
+   * raid, but nothing except the NPC contact conditions reads it, so it lives in the NPC contract, not the profile.
    */
   flags?: readonly { flag: NpcFlag; count: number }[];
 }
@@ -106,64 +108,65 @@ export interface NpcRequirement {
 export interface NpcDef {
   id: string;
   name: string;
-  /** 직함 (예: 헬릭스 조달실장). */
+  /** Job title (e.g. `헬릭스 조달실장`). */
   title: string;
   corp: CorpId | null;
   role: NpcRole;
   color: string;
-  /** 초상 글자 1–2개. */
+  /** 1–2 characters for the portrait. */
   glyph: string;
-  /** 첫 연락 조건. */
+  /** First-contact condition. */
   requires: NpcRequirement;
-  /** 첫 연락 말풍선들. */
+  /** The first-contact speech bubbles. */
   intro: readonly string[];
   bio: string;
-  /** 파일 줄 순서. */
+  /** File row order. */
   order: number;
 
-  /* ── appended (2026-09-14, 튜토리얼 개편 — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ── */
+  /* ── appended (2026-09-14, the tutorial rework — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ── */
   /**
-   * **대사 선택지** — 첫 연락 말풍선이 끝난 뒤 뜨는 내 대답 버튼들 (`data/npcs.csv` 의 `introChoices`, `|` 구분).
-   * 비어 있으면 선택지가 없다 (지금까지의 NPC 전부). 고르면 `NpcLogEntry {e:'choice', c}` 하나가 남는다.
+   * **Dialogue choices** — the answer buttons that come up after the first-contact bubbles are done (`introChoices`
+   * in `data/npcs.csv`, `|` separated). Empty = no choices (every NPC until now). Picking one leaves a single
+   * `NpcLogEntry {e:'choice', c}`.
    */
   introChoices?: readonly string[];
   /**
-   * 고른 번호에 대응하는 NPC 의 답 (`introChoiceReplies`, `|` 구분 — `introChoices` 와 같은 길이).
-   * **고른 뒤의 대화는 어느 쪽이든 같다** — 분기 상태를 저장하지 않는다 (레이븐은 어느 대답이든 흘려 넘긴다).
+   * The NPC's answer for the number picked (`introChoiceReplies`, `|` separated — the same length as `introChoices`).
+   * **The conversation after the pick is the same either way** — no branch state is saved (Raven lets any answer pass).
    */
   introChoiceReplies?: readonly string[];
 
-  /* ── appended (2026-09-14 3차, 사용자 결정 — 첫 연락은 「짧은 인사 → 선택지 → 본론」) ── */
+  /* ── appended (2026-09-14 3rd pass, user's decision — first contact is 「짧은 인사 → 선택지 → 본론」) ── */
   /**
-   * 선택지에 **답한 뒤** 이어지는 NPC 의 말풍선들 (`data/npcs.csv` 의 `introAfter`, `|` 구분).
-   * `intro` 는 이제 선택지 **앞의** 1–3 마디이고, 본론(자기소개 · 용건)은 여기 온다.
-   * 이 줄이 있는 NPC 는 **선택지에 답하기 전에는 퀘스트를 제안하지 않는다** (`NpcQuests.evaluate`).
-   * 비어 있으면 지금까지처럼 `intro` 만 있고 곧장 제안이 온다.
+   * The NPC's speech bubbles that follow **after** the choice has been answered (`introAfter` in `data/npcs.csv`,
+   * `|` separated). `intro` is now the 1–3 lines **before** the choices, and the main point (introducing themselves ·
+   * the errand) comes here. An NPC with this row **does not offer a quest before the choice is answered**
+   * (`NpcQuests.evaluate`). Empty = only `intro`, as until now, and the offer comes straight away.
    */
   introAfter?: readonly string[];
 }
 
 export interface NpcObjectiveDef {
   quest: string;
-  /** 그 퀘스트 안의 순서 (0부터, 파일 줄 순서). */
+  /** Its order within that quest (from 0, the file row order). */
   index: number;
   kind: NpcObjectiveKind;
   target: number;
-  /** deliver · recover: 아이템 id 또는 `weapon:<계열>`. */
+  /** deliver · recover: an item id or `weapon:<class>`. */
   item?: string;
-  /** kill: `NpcEnemyGroup` 또는 적 타입 id. */
+  /** kill: an `NpcEnemyGroup` or an enemy type id. */
   enemy?: string;
-  /** kill: 그 계열 총기 막타만. */
+  /** kill: only a last hit from that weapon class. */
   weapon?: WeaponClass;
   /** discover · search. */
   site?: StructureKind;
   /** interact. */
   interact?: NpcInteractKind;
-  /** 레이드 목표만: 그 행성에서만 센다. */
+  /** Raid objectives only: counted on that planet alone. */
   planet?: PlanetId;
-  /** 같은 퀘스트의 같은 chain 목표는 한 레이드 안에서 모두 채워야 함께 확정된다. */
+  /** Objectives of the same quest with the same chain must all be filled within one raid to commit together. */
   chain?: string;
-  /** 자동 문구 대신 쓸 목표 문구. */
+  /** An objective line to use instead of the automatic wording. */
   label?: string;
 }
 
@@ -171,9 +174,9 @@ export interface NpcQuestDef {
   id: string;
   npc: string;
   name: string;
-  /** 퀘스트 카드의 설명. */
+  /** The quest card's description. */
   summary: string;
-  /** 제안 조건. */
+  /** Offer condition. */
   requires: NpcRequirement;
   objectives: readonly NpcObjectiveDef[];
   rewards: {
@@ -182,18 +185,19 @@ export interface NpcQuestDef {
     rep: readonly { corp: CorpId; amount: number }[];
     items: readonly { defId: string; qty: number }[];
     /**
-     * appended (2026-09-14, 사용자 결정): 이 퀘스트를 낸 **그 NPC** 의 개인 신뢰도 보상 (csv 열 `npcTrust`).
-     * 기업 신뢰도(`rep`)와 함께 주고 서로를 대신하지 않는다 — 무소속 NPC(레이븐 · 케인)는 이것만 준다.
+     * appended (2026-09-14, user's decision): per-NPC trust reward for **the NPC who gave** this quest (csv column
+     * `npcTrust`). It is paid together with corp reputation (`rep`) and neither replaces the other — an unaffiliated
+     * NPC (`레이븐` · `케인`) gives only this.
      */
     npcTrust: number;
   };
-  /** 대사 (말풍선 단위). */
+  /** Dialogue (one speech bubble per entry). */
   lines: { offer: readonly string[]; accept: readonly string[]; decline: readonly string[]; brief: readonly string[]; complete: readonly string[] };
-  /** 파일 줄 순서 (같은 NPC 안의 제안 순서). */
+  /** File row order (the offer order within the same NPC). */
   order: number;
 }
 
-/* ── 로더 ───────────────────────────────────────────────────────────────── */
+/* ── Loader ─────────────────────────────────────────────────────────────── */
 
 function issue(r: Row, column: string, message: string): void {
   addDataIssue({ file: r.file, line: r.line, column, message });
@@ -220,7 +224,7 @@ function pairList(r: Row, col: string): { corp: CorpId; n: number }[] {
   return out;
 }
 
-/** appended (2026-09-14): `reqNpcRep` = "npcId:레벨" 을 `|` 로. `pairList` 는 기업 전용이라 따로 판다. */
+/** appended (2026-09-14): `reqNpcRep` = "npcId:level" joined with `|`. `pairList` is corp-only, so this is parsed separately. */
 function npcPairList(r: Row, col: string): { npc: string; level: number }[] {
   if (!r.has(col)) return [];
   const out: { npc: string; level: number }[] = [];
@@ -234,7 +238,7 @@ function npcPairList(r: Row, col: string): { npc: string; level: number }[] {
   return out;
 }
 
-/** appended (2026-09-14 3차): `reqFlag` = "플래그:횟수" 를 `|` 로. */
+/** appended (2026-09-14 3rd pass): `reqFlag` = "flag:count" joined with `|`. */
 function flagList(r: Row, col: string): { flag: NpcFlag; count: number }[] {
   if (!r.has(col)) return [];
   const out: { flag: NpcFlag; count: number }[] = [];
@@ -268,7 +272,7 @@ const lines = (r: Row, col: string): string[] => (r.has(col) ? r.list(col).map((
 export const NPC_DEFS: readonly NpcDef[] = csvRows('npcs.csv').map((r, order) => {
   const corp = r.optStr('corp');
   if (corp && !CORPS.includes(corp)) issue(r, 'corp', `'${corp}' — ${CORPS.join(' | ')} 또는 비움(무소속)`);
-  // 2026-09-14: 대사 선택지 — 둘 다 비었거나, 같은 개수여야 한다 (고른 번호로 답을 찾는다).
+  // 2026-09-14: dialogue choices — both must be empty, or hold the same number of entries (the answer is found by the number picked).
   const introChoices = lines(r, 'introChoices');
   const introChoiceReplies = lines(r, 'introChoiceReplies');
   const introAfter = lines(r, 'introAfter');
@@ -308,7 +312,7 @@ for (const r of csvRows('npc_objectives.csv')) {
   const chain = r.optStr('chain') || undefined;
   const label = r.optStr('label') || undefined;
   const raid = NPC_RAID_OBJECTIVE_KINDS.has(kind);
-  /* 종류마다 반드시 있어야 하는 열 · 쓰이지 않는 열 */
+  /* Columns each kind must have · columns it does not use */
   const need = (col: string, v: unknown): void => { if (v === undefined) issue(r, col, `'${kind}' 목표에는 ${col} 이 필요하다`); };
   const unused = (col: string, v: unknown): void => { if (v !== undefined) issue(r, col, `'${kind}' 목표에는 ${col} 이 쓰이지 않는다`); };
   if (kind === 'deliver' || kind === 'recover') need('item', item); else unused('item', item);
@@ -342,7 +346,7 @@ export const NPC_QUEST_DEFS: readonly NpcQuestDef[] = csvRows('npc_quests.csv').
       xp: r.has('rewardXp') ? r.int('rewardXp', { min: 0 }) : 0,
       rep: pairList(r, 'rewardRep').map((p) => ({ corp: p.corp, amount: p.n })),
       items: r.has('rewardItems') ? r.costList('rewardItems') : [],
-      /* appended (2026-09-14): 이 퀘스트를 낸 NPC 의 개인 신뢰도 */
+      /* appended (2026-09-14): per-NPC trust for the NPC who gave this quest */
       npcTrust: r.has('npcTrust') ? r.int('npcTrust', { min: 0 }) : 0,
     },
     lines: {
@@ -360,19 +364,19 @@ export const NPC_QUEST_MAP: ReadonlyMap<string, NpcQuestDef> = new Map(NPC_QUEST
   }
 }
 
-/* ── 저장 · 대화 기록 ───────────────────────────────────────────────────── */
+/* ── Save · conversation log ────────────────────────────────────────────── */
 
-/** 대화 기록의 사건. 글은 저장하지 않고 표에서 다시 푼다 (`NpcQuestRef.getMessages`). */
+/** An event in the conversation log. The text is not saved but resolved again from the tables (`NpcQuestRef.getMessages`). */
 export type NpcLogEvent = 'intro' | 'offer' | 'accept' | 'decline' | 'brief' | 'complete'
-  /** appended (2026-09-14): 첫 연락의 **대사 선택지**에서 내가 고른 대답. */
+  /** appended (2026-09-14): the answer I picked from first contact's **dialogue choices**. */
   | 'choice';
 export interface NpcLogEntry {
   at: number; e: NpcLogEvent; q?: string;
-  /** `choice` 전용: 고른 번호 (0부터 — `NpcDef.introChoices` 의 색인). */
+  /** `choice` only: the number picked (from 0 — an index into `NpcDef.introChoices`). */
   c?: number;
 }
 
-/** `getMessages` 가 푼 말풍선 한 줄. `quest` = 퀘스트 카드 (상태는 `getQuest(questId)` 로 읽는다). */
+/** One speech bubble resolved by `getMessages`. `quest` = a quest card (its state is read with `getQuest(questId)`). */
 export type NpcMessage =
   | { at: number; from: 'npc' | 'me'; text: string }
   | { at: number; from: 'quest'; questId: string }
@@ -380,56 +384,56 @@ export type NpcMessage =
 
 export interface NpcQuestSave {
   s: NpcQuestState;
-  /** 마지막 상태 변화 (epoch ms). */
+  /** The last state change (epoch ms). */
   at: number;
-  /** 목표별 **확정** 진행 (납품 = 넣은 수량, 레이드 목표 = 확정되면 target 아니면 0). */
+  /** **Committed** progress per objective (deliver = the quantity handed in, a raid objective = target once committed, else 0). */
   p: number[];
 }
 
 /** `MetaSave.npc`. */
 export interface NpcSave {
-  /** 연락이 온 NPC → 첫 연락 시각 · 마지막으로 읽은 시각. */
+  /** NPCs that made contact → the first-contact time · the last time it was read. */
   contacts: Record<string, { at: number; readAt: number }>;
-  /** NPC → 사건 목록 (오래된 것 → 최근). */
+  /** NPC → its event list (oldest → most recent). */
   log: Record<string, NpcLogEntry[]>;
   quests: Record<string, NpcQuestSave>;
   /**
-   * appended (2026-09-14): NPC → 누적 **개인 신뢰도 점수**. 레벨은 기업과 같은 `REP_TABLE` 로 환산한다
-   * (`shared/meta.repLevelOf`). 없으면 0 (옛 세이브).
+   * appended (2026-09-14): NPC → cumulative **per-NPC trust score**. The level is converted with the same `REP_TABLE`
+   * as a corp's (`shared/meta.repLevelOf`). Absent = 0 (an old save).
    */
   trust?: Record<string, number>;
   /**
-   * appended (2026-09-14 3차): 진행 플래그 누적 횟수 (`NpcFlag` → 횟수). 없으면 전부 0 (옛 세이브).
-   * 세는 곳도 읽는 곳도 meta/ 하나다 — `NpcRequirement.flags` 의 유일한 입력.
+   * appended (2026-09-14 3rd pass): the cumulative counts of the progress flags (`NpcFlag` → count). Absent = all 0 (an old save).
+   * Both the counting and the reading happen in meta/ alone — the only input of `NpcRequirement.flags`.
    */
   flags?: Partial<Record<NpcFlag, number>>;
 }
 
-/* ── 조회 모양 · `ctx.meta.npc` ─────────────────────────────────────────── */
+/* ── Query shapes · `ctx.meta.npc` ──────────────────────────────────────── */
 
 export interface NpcContactInfo {
   npc: NpcDef;
-  /** 마지막 메시지 시각. */
+  /** The time of the last message. */
   at: number;
   unread: number;
-  /** 목록 한 줄 미리보기. */
+  /** The one-line preview in the list. */
   preview: string;
 }
 
 export interface NpcObjectiveInfo {
   def: NpcObjectiveDef;
-  /** 한국어 목표 문구 (`def.label` 또는 자동 — 아이템 이름 · 행성 이름 · 무기 계열 포함). */
+  /** Korean objective wording (`def.label`, or automatic — item name · planet name · weapon class included). */
   label: string;
-  /** 표시 진행: 확정 진행, 확정 전 레이드 목표는 이번 레이드 진행 (회수 = 지금 몸에 지닌 수). */
+  /** Displayed progress: the committed progress, or, for a raid objective before it commits, this raid's progress (recover = how many are carried right now). */
   progress: number;
   target: number;
   done: boolean;
   raid: boolean;
-  /** 지금 이 레이드에서 셀 수 있다 (레이드 중 · 행성 조건 충족). 함선에서는 false. */
+  /** It can be counted in this raid right now (in a raid · the planet condition met). false in the ship. */
   countsHere: boolean;
-  /** deliver: 가방 + 창고 보유 수. */
+  /** deliver: how many are held in the bag + stash. */
   have?: number;
-  /** deliver: [납품] 을 못 누르는 이유 (함선에서만 · 보유 없음 · 이미 완료), null = 누를 수 있다. */
+  /** deliver: why `납품` cannot be pressed (in the ship only · none held · already done), null = it can be pressed. */
   blocked: string | null;
 }
 
@@ -439,68 +443,71 @@ export interface NpcQuestInfo {
   state: NpcQuestState;
   at: number;
   objectives: readonly NpcObjectiveInfo[];
-  /** 목표가 전부 done — [완료 보고] 가능 (state active 일 때). */
+  /** Every objective is done — `완료 보고` is possible (while state is active). */
   ready: boolean;
-  /** [완료 보고] 를 못 누르는 이유 (함선에서만 · 목표 미완 · 공간 없음), null = 누를 수 있다. */
+  /** Why `완료 보고` cannot be pressed (in the ship only · objectives unfinished · no room), null = it can be pressed. */
   blocked: string | null;
-  /** 0 … 1 전체 진척 (목표별 min(progress/target, 1) 의 평균) — 지도 패널 게이지. */
+  /** 0 … 1 overall progress (the average of min(progress/target, 1) per objective) — the map panel's gauge. */
   progress: number;
 }
 
 /**
- * `ctx.meta.npc` — NPC 연락 · 대화 · 퀘스트 (owner: meta/). 선택 속성이라 `ctx.meta?.npc?` 로 읽는다.
- * 모든 변경은 `npc:*` 이벤트를 낸다. 연락 · 제안은 함선에서만 도착한다.
+ * `ctx.meta.npc` — NPC contacts · conversations · quests (owner: meta/). It is an optional property, so it is read as `ctx.meta?.npc?`.
+ * Every change emits an `npc:*` event. Contacts and offers only arrive in the ship.
  */
 export interface NpcQuestRef {
-  /** 연락이 온 NPC, 마지막 메시지가 최근인 순. */
+  /** The NPCs that made contact, most recent last message first. */
   getContacts(): readonly NpcContactInfo[];
-  /** 한 NPC 와의 말풍선들 (오래된 것 → 최근). */
+  /** The speech bubbles with one NPC (oldest → most recent). */
   getMessages(npcId: string): readonly NpcMessage[];
-  /** 그 NPC 의 메시지를 읽음으로. `npc:unreadChanged`. */
+  /** Marks that NPC's messages as read. `npc:unreadChanged`. */
   markRead(npcId: string): void;
   /**
-   * appended (2026-09-15, 사용자 결정 — 「확인해야 다음 메시지가 온다」): 그 NPC 의 대화를 **마지막으로 읽은 시각**
-   * (epoch ms, 연락이 없거나 한 번도 안 읽었으면 0). `at` 이 이 값보다 큰 말풍선이 「아직 안 읽은 것」이고,
-   * 메신저는 그 줄부터 `...` 타이핑 연출로 하나씩 푼다 (`ui/menus/messenger/ChatTab`).
+   * appended (2026-09-15, user's decision — 「확인해야 다음 메시지가 온다」): the time that NPC's conversation was
+   * **last read** (epoch ms, 0 with no contact or if it was never read). A speech bubble whose `at` is greater than
+   * this value is 「not read yet」, and the messenger resolves them one at a time from that line with the `...` typing
+   * animation (`ui/menus/messenger/ChatTab`).
    *
-   * ⚠ **사건 하나가 말풍선 여러 개**로 풀리므로(`getMessages` — `intro` 한 줄이 `NpcDef.intro` 전부로 펴진다)
-   * `NpcContactInfo.unread`(사건 수)로는 말풍선 수를 셀 수 없다. 같은 사건에서 나온 말풍선은 `at` 이 같으므로
-   * 이 시각 하나면 경계가 정확히 갈린다. 선택 속성이라 없는 구현(디버그 ref)에서는 **전부 읽은 것**으로 본다.
+   * ⚠ **One event resolves into several speech bubbles** (`getMessages` — a single `intro` spreads into the whole of
+   * `NpcDef.intro`), so `NpcContactInfo.unread` (an event count) cannot count bubbles. Bubbles from the same event
+   * share an `at`, so this one time draws the boundary exactly. It is optional, so an implementation without it (a
+   * debug ref) is taken to have **read everything**.
    */
   readAtOf?(npcId: string): number;
   readonly unreadTotal: number;
-  /** hidden 이 아닌 퀘스트 전부 (진행 중 → 보류 → 제안 받음 → 완료, 같은 상태는 최근 순). */
+  /** Every quest that is not hidden (active → deferred → offered → complete; within one state, most recent first). */
   getQuests(): readonly NpcQuestInfo[];
   getQuest(id: string): NpcQuestInfo | null;
-  /** offered | deferred → active (함선). deferred 에서 오면 대화에 brief 가 붙는다. */
+  /** offered | deferred → active (ship). Coming from deferred attaches a brief to the conversation. */
   accept(id: string): boolean;
   /**
-   * ⚠ **은퇴** (2026-09-14 3차, 사용자 결정 — 「생각해볼게」 선택지 제거). 구현은 늘 false 를 돌려주고
-   * 부르는 곳이 없다. 계약은 추가만 하므로 이름만 남긴다 (`airstrike` 와 같은 처리).
+   * ⚠ **Retired** (2026-09-14 3rd pass, user's decision — the 「생각해볼게」 choice was removed). The implementation
+   * always returns false and nothing calls it. A contract is append-only, so only the name stays (the same treatment as `airstrike`).
    */
   defer(id: string): boolean;
-  /** deliver 목표에 가진 만큼(남은 수량까지) 넣는다 (함선). 넣은 수량, 0 = 못 넣음. */
+  /** Puts in as many as are held (up to the quantity left) toward a deliver objective (ship). Returns how many went in, 0 = none could. */
   deliver(questId: string, index: number): number;
-  /** active ∧ ready → complete + 보상 (함선). */
+  /** active ∧ ready → complete + rewards (ship). */
   report(id: string): boolean;
-  /** 진행 중이고 지금 레이드에서 셀 수 있는 목표가 하나라도 있는 퀘스트 (지도 패널). 레이드 밖이면 빈 배열. */
+  /** Quests that are active and have at least one objective countable in this raid (the map panel). An empty array outside a raid. */
   getRaidTracks(): readonly NpcQuestInfo[];
 
-  /* ── appended (2026-09-14): 대사 선택지 ── */
+  /* ── appended (2026-09-14): dialogue choices ── */
   /**
-   * 그 NPC 의 첫 연락에 **아직 대답하지 않은** 선택지가 있으면 그 라벨들, 없으면 빈 배열.
-   * (= `NpcDef.introChoices` 가 있고 `choice` 사건이 아직 없다.)
+   * The labels of that NPC's first-contact choices while they are **not answered yet**, else an empty array.
+   * (= `NpcDef.introChoices` exists and there is no `choice` event yet.)
    */
   getPendingChoices(npcId: string): readonly string[];
   /**
-   * 선택지 하나를 고른다 — 대화에 내 대답과 NPC 의 답 두 줄이 붙는다 (`NpcLogEntry {e:'choice', c}`).
-   * 고를 것이 없거나 범위 밖이면 false. **분기는 남지 않는다** — 그 뒤의 대화는 어느 쪽이든 같다.
+   * Picks one choice — my answer and the NPC's reply are attached to the conversation as two lines
+   * (`NpcLogEntry {e:'choice', c}`). false when there is nothing to pick or the index is out of range. **No branch
+   * is left behind** — the conversation afterwards is the same either way.
    */
   chooseIntro(npcId: string, index: number): boolean;
 
-  /* ── appended (2026-09-14 3차): 진행 플래그 (owner: meta) ── */
-  /** 그 플래그의 누적 횟수 (없으면 0). */
+  /* ── appended (2026-09-14 3rd pass): progress flags (owner: meta) ── */
+  /** The cumulative count of that flag (0 when there is none). */
   flagOf(flag: NpcFlag): number;
-  /** 누적 횟수를 더한다 (음수 불가). 바뀌면 연락 조건을 다시 본다. */
+  /** Adds to the cumulative count (no negatives). A change makes the contact conditions be looked at again. */
   bumpFlag(flag: NpcFlag, delta?: number): void;
 }

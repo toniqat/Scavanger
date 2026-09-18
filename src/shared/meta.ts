@@ -4,9 +4,10 @@ import { buyPriceFrom, sellPriceFrom } from './credits';
 import { formatCompactNumber } from './numberFormat';
 
 /*
- * 메타 수치의 원본은 `data/` 의 csv 다 — 기업(`corps.csv` · `corp_stock.csv`), 계약(`contracts.csv`),
- * 퀘스트(`quests.csv`), 신뢰도 표와 등급 상한(`tables.csv`), 크레딧 · 가격 계수(`tuning.csv`).
- * 이 파일에는 표가 없고 계약 타입과 그 줄들을 옮기는 코드만 있다.
+ * The source of the meta numbers is the csv in `data/` — corps (`corps.csv` · `corp_stock.csv`), contracts
+ * (`contracts.csv`), quests (`quests.csv`), the reputation table and the rarity caps (`tables.csv`), credit ·
+ * price coefficients (`tuning.csv`). This file holds no table, only the contract types and the code that
+ * carries those rows over.
  */
 const T = /* data/tuning.csv */ keyTable('tuning.csv');
 
@@ -33,10 +34,10 @@ export interface ShopRule {
   ammoTypes?: readonly AmmoType[];
   tactical?: boolean;
   minRepLevel?: number;
-  /* appended (Phase 12, 2026-09-08 — meta): 임플란트 stock */
+  /* appended (Phase 12, 2026-09-08 — meta): implant stock */
   /**
-   * Highest rarity this rule sells, on top of `SHOP_RARITY_CAP_BY_REP`. 세레스 바이오 stocks common / uncommon stat
-   * implants only — rare and better come from quests and the 임플란트 수리 desk, never the shelf.
+   * Highest rarity this rule sells, on top of `SHOP_RARITY_CAP_BY_REP`. `세레스 바이오` stocks common / uncommon
+   * stat implants only — rare and better come from quests and the `임플란트 수리` desk, never the shelf.
    */
   maxRarity?: Rarity;
   /**
@@ -49,9 +50,9 @@ export interface ShopRule {
 
 export interface CorpDef {
   id: CorpId;
-  name: string;        // 한국어
-  tagline: string;     // 한국어 slogan
-  description: string; // 한국어, one sentence on what they buy / sell
+  name: string;        // Korean
+  tagline: string;     // Korean slogan
+  description: string; // Korean, one sentence on what they buy / sell
   /** Accent colour (CSS). */
   color: string;
   stock: readonly ShopRule[];
@@ -86,8 +87,9 @@ export const SHOP_UNLOCK_REP_LEVEL = T.num('SHOP_UNLOCK_REP_LEVEL');
 export const SHOP_RARITY_CAP_BY_REP: readonly Rarity[] = stringList('tables.csv', 'SHOP_RARITY_CAP_BY_REP') as Rarity[];
 export const SHOP_BAG_RARITY_BONUS = T.num('SHOP_BAG_RARITY_BONUS');
 /**
- * appended (2026-09-17): reputation level at which a corp can be selected in the Tab window's 기업 tab. While **every**
- * corp is below it the 기업 screen tab itself is hidden (`inventory/ui/parts/Screens.markTab`) and `openCorpMenu` refuses.
+ * appended (2026-09-17): reputation level at which a corp can be selected in the Tab window's `기업` tab. While
+ * **every** corp is below it the `기업` screen tab itself is hidden (`inventory/ui/parts/Screens.markTab`) and
+ * `openCorpMenu` refuses.
  */
 export const CORP_ACCESS_REP_LEVEL = T.num('CORP_ACCESS_REP_LEVEL');
 /** appended (2026-09-17): true when at least one corp's level (`levelOf`) reaches `CORP_ACCESS_REP_LEVEL`. */
@@ -124,7 +126,7 @@ export function sellPriceOf(value: number, qty = 1): number {
 
 /* ── contracts ── */
 export type ContractGoalKind = 'kill_bugs' | 'kill_rogues' | 'open_crates' | 'loot_corpses' | 'extract_with_value' | 'use_stratagems'
-  /* appended 2026-09-12 (E2): 특정 아이템 회수 — `ContractDef.itemDefId` 를 `target` 개 몸에 지니고 탈출한다 */
+  /* appended 2026-09-12 (E2): recovering a specific item — extract carrying `target` of `ContractDef.itemDefId` */
   | 'extract_with_items';
 export const CONTRACT_GOAL_LABEL_KO: Readonly<Record<ContractGoalKind, string>> = {
   kill_bugs: '터미니드 처치', kill_rogues: '인간형 적 처치', open_crates: '상자 개봉', loot_corpses: '시체 수색',
@@ -142,13 +144,15 @@ export interface ContractDef {
   repReward: number;
   xpReward: number;
   creditsReward: number;
-  name: string;   // 한국어
-  desc: string;   // 한국어
-  /* appended 2026-09-12 (E2): 특정 아이템 회수 */
+  name: string;   // Korean
+  desc: string;   // Korean
+  /* appended 2026-09-12 (E2): recovering a specific item */
   /**
-   * `goal === 'extract_with_items'` 일 때만: 회수할 아이템 def id (`data/contracts.csv` 의 `itemDefId` 열), `target` = 개수.
-   * **가방 격자 + 퀵슬롯 + 주머니**(`InventoryRef.countWhere` — 몸에 지닌 것 전부, 창고 제외)를 탈출 순간에 센다.
-   * 다른 목표에는 없다. 알 수 없는 id 는 `npm run data:check` 가 잡는다 (`scripts/data-check.mjs`).
+   * Only while `goal === 'extract_with_items'`: the def id of the item to recover (the `itemDefId` column of
+   * `data/contracts.csv`), `target` = how many. **The bag grid + quick slots + pouches**
+   * (`InventoryRef.countWhere` — everything carried on the body, the stash excluded) are counted at the moment
+   * of extraction. Absent on every other goal. An unknown id is caught by `npm run data:check`
+   * (`scripts/data-check.mjs`).
    */
   itemDefId?: string;
 }
@@ -160,9 +164,9 @@ export const CONTRACT_MAX_ACTIVE = T.num('CONTRACT_MAX_ACTIVE');
 
 export const CONTRACT_DEFS: readonly ContractDef[] = csvRows('contracts.csv').map((r) => {
   const goal = r.enum('goal', ['kill_bugs', 'kill_rogues', 'open_crates', 'loot_corpses', 'extract_with_value', 'use_stratagems', 'extract_with_items'] as const);
-  /* 2026-09-12 (E2): `itemDefId` 는 아이템 회수 계약에만 있고, 그 계약에는 반드시 있다. */
+  /* 2026-09-12 (E2): `itemDefId` is only on a recovery contract, and it is always on one. */
   const itemDefId = r.optStr('itemDefId');
-  if (goal === 'extract_with_items' && !itemDefId) r.str('itemDefId');          // 빈 칸 → 「값이 비었다」 문제
+  if (goal === 'extract_with_items' && !itemDefId) r.str('itemDefId');          // an empty cell → the 「값이 비었다」 issue
   else if (goal !== 'extract_with_items' && itemDefId) {
     addDataIssue({ file: r.file, line: r.line, column: 'itemDefId', message: `'${goal}' 계약에는 itemDefId 가 쓰이지 않는다` });
   }
@@ -187,16 +191,17 @@ export type QuestState = 'locked' | 'available' | 'accepted' | 'complete';
 export interface QuestDef {
   id: string;
   corp: CorpId;
-  name: string;   // 한국어
-  desc: string;   // 한국어
+  name: string;   // Korean
+  desc: string;   // Korean
   requires: { repLevel?: number; quests?: readonly string[] };
   deliver: readonly { defId: string; qty: number }[];
   rewards: { rep: number; xp: number; credits?: number; items?: readonly { defId: string; qty: number }[] };
 }
 
 /*
- * 2026-09-14: 기업 퀘스트 폐지 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」, 사용자 결정 「전부 삭제」) — 퀘스트는 NPC 가 메신저로 준다
- * (`shared/npc.ts` 의 `NPC_QUEST_DEFS`). `data/quests.csv` 는 지웠고, 타입 · 이름은 계약이라 남기고 표만 비운다.
+ * 2026-09-14: corp quests are gone (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」, user's decision 「delete them all」) — quests are given by
+ * NPCs through the messenger (`NPC_QUEST_DEFS` in `shared/npc.ts`). `data/quests.csv` was deleted; the types ·
+ * names stay because they are a contract, and only the table is emptied.
  */
 export const QUEST_DEFS: readonly QuestDef[] = [];
 
@@ -211,7 +216,7 @@ export interface RepInfo {
 export interface ShopItem {
   def: ItemDef;
   price: number;
-  /** 한국어 reason the line cannot be bought right now (신뢰도 부족 / 크레딧 부족 / 공간 없음), null = buyable. */
+  /** Korean reason the line cannot be bought right now (`신뢰도 부족` / `크레딧 부족` / `공간 없음`), null = buyable. */
   blocked: string | null;
 }
 
@@ -220,7 +225,7 @@ export interface ContractInfo {
   progress: number;
   /** true when this is the accepted contract. */
   active: boolean;
-  /** 한국어 reason it cannot be accepted (신뢰도 부족 / 이미 진행 중인 계약), null = acceptable. */
+  /** Korean reason it cannot be accepted (`신뢰도 부족` / `이미 진행 중인 계약`), null = acceptable. */
   blocked: string | null;
 }
 
@@ -229,7 +234,7 @@ export interface QuestInfo {
   state: QuestState;
   /** Delivery lines with what the player holds (bag + stash). */
   deliver: readonly { defId: string; qty: number; have: number }[];
-  /** 한국어 reason `completeQuest` would fail, null = deliverable. */
+  /** Korean reason `completeQuest` would fail, null = deliverable. */
   blocked: string | null;
 }
 
@@ -330,7 +335,7 @@ export interface MetaRef {
 
   /* ══ appended: Phase 8 (2026-09-06) ══════════════════════════════════════ */
   /**
-   * Render the 기업 네트워크 screen inside `host` (the 기업 tab of the inventory Tab screen) instead of as its own
+   * Render the `기업 네트워크` screen inside `host` (the `기업` tab of the inventory Tab screen) instead of as its own
    * full-screen overlay. The embedded view reuses the standalone screen's renderers so both stay in sync; it must not
    * add the `'corp'` blocker or exit the pointer lock — the inventory window already owns both.
    */
@@ -354,7 +359,7 @@ export interface SquadContractInfo {
   progress: number;
 }
 
-/* ══ appended: Phase 10 — 크레딧 표기 (2026-09-07) ══════════════════════════════════════════════════════════════
+/* ══ appended: Phase 10 — credit notation (2026-09-07) ══════════════════════════════════════════════════════════
  * Every credit readout in the game renders `100 C`. The old `₩ 100` prefix (`inventory/ui/labels.ts fmtValue`) and the
  * bare `100 cr` suffix (`ui/hud/ItemTip`, `meta/ui/CorpView`) are both replaced by these helpers, so there is exactly
  * one formatter. `크레딧` stays as a *word* in sentences (toasts, quest rewards); the unit suffix is `C`.
@@ -366,8 +371,9 @@ export const CREDIT_SUFFIX = 'C';
 /**
  * `100` → `'100 C'`; `9999` → `'9,999 C'`; `12345` → `'12.3k C'`. `sign` prefixes `+` / `−`; `suffix: false` drops the ` C`.
  *
- * 2026-09-16 (사용자 결정): 10,000 부터는 `shared/numberFormat.ts` 의 축약 표기(`10.0k` · `1.00m` · `1.00b`)를 쓴다 —
- * 크레딧은 자릿수가 얼마든 커지는 값이라 쉼표만으로는 한눈에 안 읽힌다. 규칙과 이유는 그 파일에 있다.
+ * 2026-09-16 (user's decision): from 10,000 up it uses the compact notation of `shared/numberFormat.ts`
+ * (`10.0k` · `1.00m` · `1.00b`) — credits grow to any number of digits, so commas alone are not readable at a
+ * glance. The rule and the reason live in that file.
  */
 export function formatCredits(n: number, opts?: { sign?: boolean; suffix?: boolean }): string {
   const v = Math.round(Number.isFinite(n) ? n : 0);
@@ -388,77 +394,80 @@ export function itemCreditValue(def: Pick<ItemDef, 'value'> | null | undefined, 
   return Math.max(0, Math.round(def.value * Math.max(1, Math.floor(qty))));
 }
 
-/* ══ appended: 2026-09-13 — 암호화폐 매매 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) ══ */
+/* ══ appended: 2026-09-13 — crypto trading (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」) ══ */
 export interface MetaRef {
   /**
-   * 크레딧 트랜잭션을 **끝까지 기다린다** (meta 밖 폴더용 — housing 의 거래소). 릴레이가 있으면 `addCredits` 처럼 낙관적으로 적용하고
-   * `credits:tx` 의 답을 기다려 `{ok: true}`, 거절이면 잔액을 되돌린 뒤 `{ok: false, reason}` (한국어). 오프라인이면 `addCredits` 와 같은
-   * 검사만 하고 곧바로 끝난다. `reason` 은 `formatCreditReason` 문법이어야 한다 (릴레이가 해석한다).
+   * **Waits a credit transaction out to the end** (for folders outside meta — housing's exchange). With a relay it
+   * applies optimistically like `addCredits` and waits for the `credits:tx` answer: `{ok: true}`, or on a denial
+   * it rolls the balance back and returns `{ok: false, reason}` (Korean). Offline it only runs the same checks as
+   * `addCredits` and finishes at once. `reason` must follow the `formatCreditReason` grammar (the relay parses it).
    */
   creditsTx?(delta: number, reason: string): Promise<{ ok: boolean; reason?: string }>;
 }
 
-/* ══ appended: 2026-09-14 — 메신저 · NPC 퀘스트 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 · 계약 본문은 `shared/npc.ts`) ══
- * 기업 퀘스트는 없어졌다. `getQuests(corp)` 는 빈 목록, `acceptQuest` · `completeQuest` 는 false 이고,
- * `getQuestState(id)` 는 **NPC 퀘스트**로 답한다 — complete → 'complete', active → 'accepted', offered/deferred → 'available', 그 밖 → 'locked'
- * (housing 채굴 해금 게이트가 이 한 줄에 기댄다). */
+/* ══ appended: 2026-09-14 — the messenger · NPC quests (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 · the contract itself is `shared/npc.ts`) ══
+ * Corp quests are gone. `getQuests(corp)` is an empty list, `acceptQuest` · `completeQuest` are false, and
+ * `getQuestState(id)` answers with the **NPC quest** — complete → 'complete', active → 'accepted', offered/deferred → 'available', anything else → 'locked'
+ * (housing's mining unlock gate leans on this one line). */
 import type { NpcQuestRef, NpcSave } from './npc';
 
 export interface MetaRef {
-  /** NPC 연락 · 대화 · 퀘스트 (owner: meta/parts). 선택 속성 — `ctx.meta?.npc?`. */
+  /** NPC contacts · conversations · quests (owner: meta/parts). An optional property — `ctx.meta?.npc?`. */
   readonly npc?: NpcQuestRef;
 }
 
 export interface MetaSave {
-  /** 2026-09-14: NPC 연락 · 대화 기록 · 퀘스트 상태. 없으면 빈 것 (옛 세이브). `corps[corp].quests` 는 더 이상 쓰지 않는다. */
+  /** 2026-09-14: NPC contacts · conversation log · quest states. Absent = empty (an old save). `corps[corp].quests` is no longer used. */
   npc?: NpcSave;
 }
-/* ══ end 2026-09-14 메신저 · NPC 퀘스트 ══ */
+/* ══ end 2026-09-14 the messenger · NPC quests ══ */
 
-/* ══ appended: 2026-09-14 — 정보상 · NPC 개인 신뢰도 (docs/DECISIONS.md 「2026-09-14 — 정보상」, 계약 본문은 `shared/intel.ts`) ══ */
+/* ══ appended: 2026-09-14 — the intel broker · per-NPC trust (docs/DECISIONS.md 「2026-09-14 — 정보상」, the contract itself is `shared/intel.ts`) ══ */
 import type { IntelEffects, IntelGimmick, IntelPick, IntelSpec } from './intel';
 import type { PlanetId } from './planets';
 
 /**
- * 정보상(레이븐)에서 산 「행성 정보」 = 그 레이드의 기믹 고정. 한 번에 **하나만** 갖고 프로필에 저장되며
- * 그 행성으로 출격해 레이드가 끝나면 소모된다. 멀티에서 사는 사람은 **분대장뿐**이다 (탐사 차량 요금의
- * 「결제자 한 명」 규약과 같다) — 비호스트의 `buy` · `discard` 는 조용히 false / no-op 다.
+ * The 「행성 정보」 (planet intel) bought from the intel broker (`레이븐`) = pinning that raid's gimmicks. **Only one**
+ * is held at a time, it is saved in the profile, and it is consumed once a raid launched at that planet ends. In
+ * multiplayer **only the squad leader** buys (the same rule as the rover fare's 「one payer」) — a non-host's
+ * `buy` · `discard` are silently false / a no-op.
  */
 export interface IntelRef {
-  /** 지금 보유한 정보 (없으면 null). */
+  /** The intel held right now (null when there is none). */
   get(): IntelSpec | null;
-  /** 보유 정보의 해석본 (`ctx.missionIntel` 에 실릴 값). 없으면 null. */
+  /** The resolved form of the held intel (the value that goes into `ctx.missionIntel`). null when there is none. */
   effects(): IntelEffects | null;
-  /** 이 행성에서 이 선택의 총 크레딧 비용 (`shared/intel.intelCost`). */
+  /** Total credit cost of these picks on this planet (`shared/intel.intelCost`). */
   costOf(planet: PlanetId, picks: readonly IntelPick[]): number;
-  /** 이 행성에서 이 기믹의 최대 단계. **0 = 그 행성에서는 잠김** (네임드는 threat 2 이상에서만). */
+  /** The highest tier of this gimmick on this planet. **0 = locked on that planet** (named only from threat 2 up). */
   maxTierOf(g: IntelGimmick, planet: PlanetId): number;
   /**
-   * 구매. 크레딧을 `intel:<planet>:<code>` 사유로 내고 보유 정보를 갈아 끼운다 (이미 있으면 덮어쓴다 — 환불 없음).
-   * 크레딧 부족 · 비호스트 · 빈 선택이면 null. 성공하면 `intel:purchased` + `intel:changed`.
+   * Buy. Pays credits with the reason `intel:<planet>:<code>` and swaps the held intel (an existing one is
+   * overwritten — no refund). null when credits are short · this is not the host · the picks are empty. On success
+   * `intel:purchased` + `intel:changed`.
    */
   buy(planet: PlanetId, seed: number, picks: readonly IntelPick[]): IntelSpec | null;
-  /** 「지역 재배치」 — 보유 정보를 버린다. **환불 없음** (사용자 결정). `intel:changed {spec:null}`. */
+  /** 「지역 재배치」 (relocate) — throws the held intel away. **No refund** (user's decision). `intel:changed {spec:null}`. */
   discard(): void;
-  /** 레이드가 이 정보를 썼다 (`game:complete` · `game:over` · `game:abort` 정산 뒤). */
+  /** The raid used this intel (after the `game:complete` · `game:over` · `game:abort` settlement). */
   consume(): void;
 }
 
 export interface MetaRef {
-  /** 정보상 (owner: meta/parts/Intel). 선택 속성 — `ctx.meta?.intel?`. */
+  /** The intel broker (owner: meta/parts/Intel). An optional property — `ctx.meta?.intel?`. */
   readonly intel?: IntelRef;
   /**
-   * NPC 개인 신뢰도 — 기업 신뢰도(`getRep`)와 **별개**이고 같은 `REP_TABLE`(0–5)을 쓴다. 2026-09-14 사용자 결정:
-   * 지금은 **적립 · 표시까지만** 하고 이것으로 잠기는 것은 아직 없다.
+   * Per-NPC trust — **separate** from corp reputation (`getRep`) and using the same `REP_TABLE` (0–5). 2026-09-14
+   * user's decision: today it only **accumulates and displays**, and nothing is locked behind it yet.
    */
   npcTrust(npcId: string): number;
   npcTrustLevel(npcId: string): number;
-  /** NPC 신뢰도를 더한다 (음수 가능, 0 밑으로는 안 내려간다). `meta:npcTrustChanged`. */
+  /** Adds NPC trust (a negative is allowed, never below 0). `meta:npcTrustChanged`. */
   addNpcTrust(npcId: string, delta: number, reason: string): void;
 }
 
 export interface MetaSave {
-  /** 2026-09-14: 보유 중인 정보상 정보 (없으면 안 샀다). 읽을 때 `sanitizeIntelSpec` 를 지난다. */
+  /** 2026-09-14: the intel broker intel held (absent = nothing was bought). It passes `sanitizeIntelSpec` on read. */
   intel?: IntelSpec | null;
 }
-/* ══ end 2026-09-14 정보상 · NPC 신뢰도 ══ */
+/* ══ end 2026-09-14 the intel broker · NPC trust ══ */

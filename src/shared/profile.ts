@@ -1,5 +1,5 @@
 import type { MissionStats } from './types';
-/* appended (Phase 11, 2026-09-07): 소셜 */
+/* appended (Phase 11, 2026-09-07): social */
 import type { SocialRecord } from './social';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ export interface RaidSessionBlob {
   /** Client time (ms) when saved, for staleness checks. */
   savedAt: number;
   /**
-   * appended (2026-09-15, 타이틀 레이드 포기): where the body was at the save (`state` 0 alive · 1 downed · 2 dead). An
+   * appended (2026-09-15, abandoning a raid from the title): where the body was at the save (`state` 0 alive · 1 downed · 2 dead). An
    * abandon from the title raises its corpse here. Absent (older client) = unknown → the abandon leaves no corpse.
    */
   pose?: { x: number; y: number; z: number; yaw: number; state: 0 | 1 | 2 };
@@ -108,7 +108,7 @@ export interface ProfileRef {
   addCredits(delta: number, reason: string): Promise<CreditsTxResult>;
 }
 
-/* ══ appended: Phase 11 — 소셜 (2026-09-07) ═════════════════════════════════════════════════════════════════ */
+/* ══ appended: Phase 11 — social (2026-09-07) ═════════════════════════════════════════════════════════════ */
 
 export interface ProfileRecord {
   /**
@@ -120,7 +120,7 @@ export interface ProfileRecord {
   social?: SocialRecord;
 }
 
-/* ══ appended: 2026-09-11 — 프로필 GC (B-2) ═══════════════════════════════════════════════════════════════════ */
+/* ══ appended: 2026-09-11 — profile GC (B-2) ═══════════════════════════════════════════════════════════════ */
 
 export interface ProfileRecord {
   /**
@@ -137,7 +137,7 @@ export interface ProfileRecord {
  */
 export const PROFILE_GC_INACTIVE_MS = 90 * 24 * 60 * 60_000;
 
-/* ══ appended: 2026-09-11 — 문서 리비전 (E-6) · 서버 크레딧 검증 (E-4) ═══════════════════════════════════════════════ */
+/* ══ appended: 2026-09-11 — document revisions (E-6) · server credit validation (E-4) ════════════════════ */
 
 export interface ProfileRecord {
   /**

@@ -1,81 +1,81 @@
 /**
- * src/shared/cooking.ts — **요리 미니게임 · 요리 품질** 계약 (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」, 사용자 결정).
+ * src/shared/cooking.ts — the **cooking minigames · meal quality** contract (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」, user's decision).
  *
- * 조리대(`workbench_cook`)는 더 이상 인벤토리 제작 창을 열지 않는다 — housing 의 **조리대 화면**이 열린다. 요리 하나를 고르고
- * 「조리 시작」을 누르면 그 요리의 미니게임 1–3개(`data/cook_steps.csv`)를 순서대로 한다. 단계마다 점수(0 … 1)가 나오고
- * **요리 점수 = 단계 점수의 평균**, 그 점수가 **요리 품질**(별 0 … 5, `MEAL_QUALITY_*`)이 되어 만들어진 요리 아이템에 붙는다
- * (`ItemInstance.quality`). 먹으면 능력치 수치가 `× (1 + MEAL_QUALITY_BONUS[품질])` 로 오른다 (최대 +25 %).
- * 점수가 낮아도 요리는 **늘 나온다** (품질 0 = 원래 수치 100 %). 한 번에 한 개. 중간에 닫으면 아무것도 소모되지 않는다.
+ * The cook bench (`workbench_cook`) no longer opens the inventory craft window — housing's **cook bench screen** opens instead. Pick one meal and
+ * press 「조리 시작」 and its 1–3 minigames (`data/cook_steps.csv`) run in order. Each step gives a score (0 … 1),
+ * **the cook score = the average of the step scores**, and that score becomes the **meal quality** (0 … 5 stars, `MEAL_QUALITY_*`) stamped on the meal item that is made
+ * (`ItemInstance.quality`). Eating it raises the stat amounts by `× (1 + MEAL_QUALITY_BONUS[품질])` (at most +25 %).
+ * A low score **still always yields the meal** (quality 0 = 100 % of the base amounts). One at a time. Closing it midway consumes nothing.
  *
- * 미니게임 6종 (판정 수치는 전부 `data/constants.csv` 의 `COOK_*`):
- *   • `chop`    썰기   — 박자 표식에 맞춰 좌클릭 `COOK_CHOP_CUTS` 번 (리듬 박자 채점, 헛클릭 = 다음 표식 실패).
- *   • `mince`   다지기 — 좌클릭 = 좌우 게이지, 우클릭 = 상하 게이지. 같은 버튼을 연달아 누르면 반대 게이지가 줄어든다. 둘 다 차면 끝, 걸린 시간으로 채점.
- *   • `grill`   굽기   — 조각 2–3개가 동시에 오르고 재료마다 익는 속도가 다르다(`data/cook_grill.csv`). 조각 클릭 = 뒤집기(50 % 부근),
- *                        한 번 더 = 꺼내기(100 % 부근). 늦으면 탄다. 판정 = 조각마다 뒤집기 · 꺼내기의 평균.
- *   • `stirfry` 볶기   — 박자에 맞춰 좌클릭하면 퍼센트 바가 찬다. 판정이 매우 널널하고 틀려도 조금은 찬다. 판정들의 평균.
- *   • `stir`    젓기   — 좌클릭을 누르고 있으면 저어져 완성 게이지가 차고 온도가 내려간다, 떼면 온도가 오른다(끓어오름 파동).
- *                        온도가 초록 구간에 머문 시간 비율로 채점.
- *   • `pour`    붓기   — 좌클릭을 누르면 `COOK_POUR_RAMP_S` 에 걸쳐 흐름이 0 → 100 %, 떼면 같은 시간에 걸쳐 0 %. 목표량(ml)과의 오차로 채점.
+ * The 6 minigames (every judgement value is a `COOK_*` in `data/constants.csv`):
+ *   • `chop`    썰기   — left-click on the beat markers `COOK_CHOP_CUTS` times (scored on the rhythm beat, a stray click = the next marker is missed).
+ *   • `mince`   다지기 — left-click = the horizontal gauge, right-click = the vertical gauge. Pressing the same button twice in a row drains the other gauge. Both full ends it, scored by the time taken.
+ *   • `grill`   굽기   — 2–3 pieces go on at once and each ingredient cooks at its own speed (`data/cook_grill.csv`). Clicking a piece = flip it (around 50 %),
+ *                        clicking again = take it off (around 100 %). Too late and it burns. The judgement = the average of each piece's flip · removal.
+ *   • `stirfry` 볶기   — left-clicking on the beat fills a percentage bar. The judgement is very loose and even a miss fills a little. The average of the judgements.
+ *   • `stir`    젓기   — holding left-click stirs: the completion gauge fills and the temperature falls, releasing raises it (a boil-over surge).
+ *                        Scored by the fraction of time the temperature stayed in the green band.
+ *   • `pour`    붓기   — holding left-click ramps the flow 0 → 100 % over `COOK_POUR_RAMP_S`, releasing ramps it to 0 % over the same time. Scored by the error against the target amount (ml).
  *
- * **자동 조리 가구 4종**(주방): 푸드 프로세서(썰기 · 다지기) · 자동 그릴(굽기 · 볶기) · 자동 교반기(젓기) · 계량 디스펜서(붓기).
- * 함선에 배치돼 있으면 그 단계 시작에서 「직접 하기 / 자동」을 고를 수 있고, 자동이면 그 가구 레벨의 점수
- * (`COOK_AUTO_SCORE_BY_LEVEL` — Lv.1 0 % · Lv.2 60 % · Lv.3 100 %)로 친다 (사용자 결정).
+ * **The 4 auto-cook appliances** (kitchen): the food processor (썰기 · 다지기) · the auto grill (굽기 · 볶기) · the auto stirrer (젓기) · the measuring dispenser (붓기).
+ * With one placed on the ship, that step's start offers 「직접 하기 / 자동」, and auto scores it at that piece's level
+ * (`COOK_AUTO_SCORE_BY_LEVEL` — Lv.1 0 % · Lv.2 60 % · Lv.3 100 %) (user's decision).
  *
- * 스택: 품질이 다르면 같은 요리라도 합쳐지지 않는다. 판매가는 품질과 무관하다 (서버 크레딧 검증이 def 가치만 안다, E-4).
+ * Stacking: meals of different quality never merge, even when they are the same meal. The sell price does not depend on quality (the relay's credit check only knows the def's value, E-4).
  */
 import { csvRows, keyTable, numberList } from './data/tables';
 import type { FurnitureInteraction } from './housing';
 
 const K = /* data/constants.csv */ keyTable('constants.csv');
 
-/* ── 미니게임 ────────────────────────────────────────────────────────────── */
+/* ── Minigames ───────────────────────────────────────────────────────────── */
 export type CookGame = 'chop' | 'mince' | 'grill' | 'stirfry' | 'stir' | 'pour';
 export const COOK_GAMES: readonly CookGame[] = ['chop', 'mince', 'grill', 'stirfry', 'stir', 'pour'];
 export const COOK_GAME_LABEL_KO: Readonly<Record<CookGame, string>> = {
   chop: '썰기', mince: '다지기', grill: '굽기', stirfry: '볶기', stir: '젓기', pour: '붓기',
 };
-/** 툴팁 · 조리대 화면의 단계 칩 글리프 (외부 에셋 금지 — 유니코드 한 글자). */
+/** Step chip glyphs for the tooltip · the cook bench screen (no external assets — one Unicode character). */
 export const COOK_GAME_ICON: Readonly<Record<CookGame, string>> = {
   chop: '⫽', mince: '✣', grill: '▦', stirfry: '◠', stir: '◎', pour: '⩡',
 };
 
-/** 판정 한 번의 품질 (박자 게임 · 굽기의 뒤집기/꺼내기). */
+/** The quality of one judgement (beat games · a 굽기 flip/removal). */
 export type CookJudge = 'perfect' | 'good' | 'miss';
 export const COOK_JUDGE_LABEL_KO: Readonly<Record<CookJudge, string>> = { perfect: '완벽', good: '좋음', miss: '실패' };
 
 /**
- * 연출용 입력 하나 (`housing:cookBeat`) — hub 가 몸 · 도구 동작을, audio 가 소리를 맞춘다.
- * `cut` 썰기 · `mince_h` / `mince_v` 다지기 좌우 / 상하 · `flip` / `remove` / `burn` 굽기 · `toss` 볶기 · `stir` 젓기(누르는 동안 주기적으로) ·
+ * One input for the presentation (`housing:cookBeat`) — hub matches the body · tool motion, audio the sound.
+ * `cut` 썰기 · `mince_h` / `mince_v` 다지기 horizontal / vertical · `flip` / `remove` / `burn` 굽기 · `toss` 볶기 · `stir` 젓기 (periodically while held) ·
  * `pour_start` / `pour_stop` 붓기.
  */
 export type CookBeatAction = 'cut' | 'mince_h' | 'mince_v' | 'flip' | 'remove' | 'burn' | 'toss' | 'stir' | 'pour_start' | 'pour_stop';
 
-/** 붓기의 액체. */
+/** The liquid for 붓기. */
 export type CookLiquid = 'water' | 'oil' | 'milk' | 'egg';
 export const COOK_LIQUIDS: readonly CookLiquid[] = ['water', 'oil', 'milk', 'egg'];
 export const COOK_LIQUID_LABEL_KO: Readonly<Record<CookLiquid, string>> = { water: '물', oil: '기름', milk: '우유', egg: '달걀물' };
 export const COOK_LIQUID_COLOR: Readonly<Record<CookLiquid, string>> = { water: '#8fd0ff', oil: '#ffd36b', milk: '#f4f1e8', egg: '#ffd98a' };
 
-/** 한 요리가 가질 수 있는 단계 수의 상한 (간단한 음식 1 · 일반 2 · 상위 티어 3). */
+/** Cap on how many steps one meal may have (simple food 1 · normal 2 · higher tiers 3). */
 export const COOK_STEPS_MAX = 3;
-/** 굽기 한 판에 오르는 조각 수의 상한. */
+/** Cap on how many pieces go on one 굽기 round. */
 export const COOK_GRILL_PIECES_MAX = 3;
 
-/** 요리 하나의 단계 하나 (`data/cook_steps.csv` 한 줄). */
+/** One step of one meal (one row of `data/cook_steps.csv`). */
 export interface CookStepDef {
-  /** 이 단계가 속한 요리의 item def id (`ItemDef.meal`). 조리대 레시피는 산출물이 이 id 인 `bench cook` 레시피다. */
+  /** Item def id of the meal this step belongs to (`ItemDef.meal`). A cook bench recipe is the `bench cook` recipe whose output is this id. */
   meal: string;
-  /** 1 … `COOK_STEPS_MAX`, 요리 안에서 빠짐없이 이어진다. */
+  /** 1 … `COOK_STEPS_MAX`, contiguous with no gaps inside one meal. */
   order: number;
   game: CookGame;
   /**
-   * 도마 · 그릴 · 팬에 오르는 재료 item def id — 썰기 · 다지기 = 1개, 굽기 = 조각 2 … `COOK_GRILL_PIECES_MAX`개(같은 id 반복 가능 —
-   * 조각마다 `cookGrillSeconds` 가 익는 시간), 볶기 = 1 … 3개(그림), 젓기 · 붓기 = 빈 목록.
+   * Item def ids of the ingredients that go on the board · grill · pan — 썰기 · 다지기 = 1, 굽기 = 2 … `COOK_GRILL_PIECES_MAX` pieces (the same id may repeat —
+   * `cookGrillSeconds` is each piece's cooking time), 볶기 = 1 … 3 (drawn), 젓기 · 붓기 = an empty list.
    */
   items: readonly string[];
-  /** 붓기: 액체. 다른 게임은 null. */
+  /** 붓기: the liquid. null for every other game. */
   liquid: CookLiquid | null;
-  /** 붓기: 목표량(ml). 다른 게임은 null. */
+  /** 붓기: the target amount (ml). null for every other game. */
   targetMl: number | null;
 }
 
@@ -102,32 +102,32 @@ for (const s of COOK_STEPS) {
 }
 for (const list of STEPS_BY_MEAL.values()) list.sort((a, b) => a.order - b.order);
 
-/** 요리 def id 의 단계 전부 (순서대로). 조리대 요리가 아니면 빈 배열. */
+/** Every step of a meal def id (in order). Empty array when it is not a cook bench meal. */
 export function cookStepsOf(mealDefId: string): readonly CookStepDef[] {
   return STEPS_BY_MEAL.get(mealDefId) ?? [];
 }
 
-/** 굽기 조각이 0 → 100 % 익는 시간(초) — `data/cook_grill.csv`, 없으면 `COOK_GRILL_DEFAULT_S`. */
+/** Seconds a 굽기 piece takes to cook 0 → 100 % — `data/cook_grill.csv`, `COOK_GRILL_DEFAULT_S` when absent. */
 const GRILL_SECONDS = new Map<string, number>();
 for (const r of csvRows('cook_grill.csv')) GRILL_SECONDS.set(r.str('defId'), r.num('seconds', { min: 0.5 }));
 
-/* ── 판정 수치 (data/constants.csv) ─────────────────────────────────────── */
-/** 판정 한 번의 점수 — 완벽 · 좋음 (실패 = 0). */
+/* ── Judgement values (data/constants.csv) ──────────────────────────────── */
+/** Score of one judgement — perfect · good (a miss = 0). */
 export const COOK_SCORE_PERFECT = K.num('COOK_SCORE_PERFECT');
 export const COOK_SCORE_GOOD = K.num('COOK_SCORE_GOOD');
-/** 박자 게임(썰기 · 볶기)의 예비 박자 수 — 첫 표식이 판정선까지 오는 동안의 입력은 무시한다. */
+/** Lead-in beats of the beat games (썰기 · 볶기) — input is ignored while the first marker travels to the judgement line. */
 export const COOK_LEAD_BEATS = K.num('COOK_LEAD_BEATS');
-/** 썰기: 칼질 수 · 박자 간격(초) · 판정 창(±초, 1/3 안 = 완벽). */
+/** 썰기: number of cuts · beat interval (s) · judgement window (±s, within 1/3 = perfect). */
 export const COOK_CHOP_CUTS = K.num('COOK_CHOP_CUTS');
 export const COOK_CHOP_BEAT_S = K.num('COOK_CHOP_BEAT_S');
 export const COOK_CHOP_WINDOW_S = K.num('COOK_CHOP_WINDOW_S');
-/** 다지기: 클릭 한 번에 차는 양 · 같은 버튼 연타 때 반대 게이지가 주는 양 · 완벽 시간 · 0점 시간 · 강제 종료 시간(초). */
+/** 다지기: fill per click · how much the other gauge drains on repeated presses of the same button · perfect time · zero-score time · forced end time (s). */
 export const COOK_MINCE_FILL = K.num('COOK_MINCE_FILL');
 export const COOK_MINCE_DRAIN = K.num('COOK_MINCE_DRAIN');
 export const COOK_MINCE_PERFECT_S = K.num('COOK_MINCE_PERFECT_S');
 export const COOK_MINCE_ZERO_S = K.num('COOK_MINCE_ZERO_S');
 export const COOK_MINCE_MAX_S = K.num('COOK_MINCE_MAX_S');
-/** 굽기: 조각 시간 기본값 · 조각마다 늦게 오르는 간격(초) · 뒤집기/꺼내기 판정 폭(진행도 비율) · 이르게 꺼내면 실패인 진행도 · 저절로 타서 내려가는 진행도. */
+/** 굽기: default piece time · stagger between pieces going on (s) · flip/removal judgement width (progress fraction) · the progress below which taking it off is a miss · the progress at which it burns by itself. */
 export const COOK_GRILL_DEFAULT_S = K.num('COOK_GRILL_DEFAULT_S');
 export const COOK_GRILL_STAGGER_S = K.num('COOK_GRILL_STAGGER_S');
 export const COOK_GRILL_FLIP_PERFECT = K.num('COOK_GRILL_FLIP_PERFECT');
@@ -136,13 +136,13 @@ export const COOK_GRILL_DONE_PERFECT = K.num('COOK_GRILL_DONE_PERFECT');
 export const COOK_GRILL_DONE_GOOD = K.num('COOK_GRILL_DONE_GOOD');
 export const COOK_GRILL_EARLY_REMOVE = K.num('COOK_GRILL_EARLY_REMOVE');
 export const COOK_GRILL_BURN_AT = K.num('COOK_GRILL_BURN_AT');
-/** 볶기: 박자 간격 · 판정 창(±초) · 판정별로 차는 양. */
+/** 볶기: beat interval · judgement window (±s) · fill per judgement. */
 export const COOK_STIRFRY_BEAT_S = K.num('COOK_STIRFRY_BEAT_S');
 export const COOK_STIRFRY_WINDOW_S = K.num('COOK_STIRFRY_WINDOW_S');
 export const COOK_STIRFRY_FILL_PERFECT = K.num('COOK_STIRFRY_FILL_PERFECT');
 export const COOK_STIRFRY_FILL_GOOD = K.num('COOK_STIRFRY_FILL_GOOD');
 export const COOK_STIRFRY_FILL_MISS = K.num('COOK_STIRFRY_FILL_MISS');
-/** 젓기: 눌러서 채워야 하는 시간 · 온도 상승/하강(/초) · 끓어오름 파동 세기 · 주기(초) · 초록 구간 · 완벽/0점 비율. */
+/** 젓기: the hold time needed to fill · temperature rise/fall (/s) · boil-over surge strength · period (s) · the green band · perfect/zero-score ratios. */
 export const COOK_STIR_TIME_S = K.num('COOK_STIR_TIME_S');
 export const COOK_STIR_HEAT_RISE = K.num('COOK_STIR_HEAT_RISE');
 export const COOK_STIR_HEAT_FALL = K.num('COOK_STIR_HEAT_FALL');
@@ -152,15 +152,15 @@ export const COOK_STIR_BAND_LOW = K.num('COOK_STIR_BAND_LOW');
 export const COOK_STIR_BAND_HIGH = K.num('COOK_STIR_BAND_HIGH');
 export const COOK_STIR_PERFECT_RATIO = K.num('COOK_STIR_PERFECT_RATIO');
 export const COOK_STIR_ZERO_RATIO = K.num('COOK_STIR_ZERO_RATIO');
-/** 붓기: 흐름 램프(초) · 100 % 흐름의 속도(ml/초) · 떼고 이만큼 가만히 있으면 판정(초) · 완벽/0점 오차 비율 · 비커 용량 = 목표 × 이 값. */
+/** 붓기: flow ramp (s) · speed at 100 % flow (ml/s) · judged after standing still this long once released (s) · perfect/zero-score error ratios · beaker capacity = target × this value. */
 export const COOK_POUR_RAMP_S = K.num('COOK_POUR_RAMP_S');
 export const COOK_POUR_RATE_ML_S = K.num('COOK_POUR_RATE_ML_S');
 export const COOK_POUR_SETTLE_S = K.num('COOK_POUR_SETTLE_S');
 export const COOK_POUR_PERFECT_ERR = K.num('COOK_POUR_PERFECT_ERR');
 export const COOK_POUR_ZERO_ERR = K.num('COOK_POUR_ZERO_ERR');
-/** appended (2026-09-14): 「좋음」 띠의 반폭 = 완벽 띠 × 이 값 (반 박자로 클램프). */
+/** appended (2026-09-14): half-width of the 「좋음」 band = the perfect band × this value (clamped to half a beat). */
 export const COOK_GOOD_OF_PERFECT = K.num('COOK_GOOD_OF_PERFECT');
-/** appended (2026-09-14): 입력이 오지 않아도 단계가 멈추지 않게 하는 안전핀 — 제대로 하는 시간 × 이 값. */
+/** appended (2026-09-14): the safety pin that keeps a step from stalling when no input arrives — the time it takes done properly × this value. */
 export const COOK_STEP_TIMEOUT_MUL = K.num('COOK_STEP_TIMEOUT_MUL');
 export const COOK_POUR_BEAKER_MUL = K.num('COOK_POUR_BEAKER_MUL');
 
@@ -169,24 +169,24 @@ export function cookGrillSeconds(defId: string): number {
   return v !== undefined && Number.isFinite(v) && v > 0 ? v : COOK_GRILL_DEFAULT_S;
 }
 
-/* ── 자동 조리 가구 ─────────────────────────────────────────────────────── */
-/** 자동 조리 가구의 interaction → 그 가구가 대신할 수 있는 게임. */
+/* ── Auto-cook appliances ───────────────────────────────────────────────── */
+/** Auto-cook appliance interaction → the games that piece can stand in for. */
 export const COOK_APPLIANCE_GAMES: Readonly<Partial<Record<FurnitureInteraction, readonly CookGame[]>>> = {
   cook_processor: ['chop', 'mince'],
   cook_grill: ['grill', 'stirfry'],
   cook_stirrer: ['stir'],
   cook_dispenser: ['pour'],
 };
-/** 자동 조리 가구면 대신하는 게임, 아니면 빈 배열. */
+/** The games it stands in for when it is an auto-cook appliance, else an empty array. */
 export function cookGamesOfAppliance(interaction: FurnitureInteraction): readonly CookGame[] {
   return COOK_APPLIANCE_GAMES[interaction] ?? [];
 }
-/** 그 게임을 대신하는 가구의 interaction. */
+/** Interaction of the piece that stands in for that game. */
 export function cookApplianceOf(game: CookGame): FurnitureInteraction | null {
   for (const [k, games] of Object.entries(COOK_APPLIANCE_GAMES)) if (games?.includes(game)) return k as FurnitureInteraction;
   return null;
 }
-/** 자동 처리 점수 — index = 가구 레벨 (0 = 가구 없음). `data/tables.csv`. */
+/** Auto-handling score — index = furniture level (0 = no furniture). `data/tables.csv`. */
 export const COOK_AUTO_SCORE_BY_LEVEL: readonly number[] = numberList('tables.csv', 'COOK_AUTO_SCORE_BY_LEVEL');
 export function cookAutoScore(level: number): number {
   const n = COOK_AUTO_SCORE_BY_LEVEL.length;
@@ -196,10 +196,10 @@ export function cookAutoScore(level: number): number {
   return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
 }
 
-/** 지금 함선에 있는 자동 가구 하나 (`HousingRef.getCookAuto`). */
+/** One auto appliance currently on the ship (`HousingRef.getCookAuto`). */
 export interface CookAutoInfo {
   interaction: FurnitureInteraction;
-  /** 배치된 가구 중 **가장 높은 레벨**의 것. */
+  /** The **highest-level** one among the placed pieces. */
   uid: string;
   defId: string;
   level: number;
@@ -207,37 +207,37 @@ export interface CookAutoInfo {
   score: number;
 }
 
-/* ── 요리 품질 ──────────────────────────────────────────────────────────── */
-/** 품질(별 수, index)에 필요한 최소 요리 점수 — `data/tables.csv`. */
+/* ── Meal quality ───────────────────────────────────────────────────────── */
+/** Minimum cook score a quality (star count, the index) needs — `data/tables.csv`. */
 export const MEAL_QUALITY_SCORE_MIN: readonly number[] = numberList('tables.csv', 'MEAL_QUALITY_SCORE_MIN');
-/** 품질별 능력치 수치 보너스 (× (1 + 값)) — `data/tables.csv`. */
+/** Stat-amount bonus per quality (× (1 + value)) — `data/tables.csv`. */
 export const MEAL_QUALITY_BONUS: readonly number[] = numberList('tables.csv', 'MEAL_QUALITY_BONUS');
-/** 가장 높은 품질 (별 5). */
+/** The highest quality (5 stars). */
 export const MEAL_QUALITY_MAX: number = Math.max(0, Math.min(MEAL_QUALITY_SCORE_MIN.length, MEAL_QUALITY_BONUS.length) - 1);
 
-/** 세이브 · 와이어에서 온 값을 0 … `MEAL_QUALITY_MAX` 정수로 (그 밖 · 숫자 아님 = 0). */
+/** A value from a save or the wire to an integer 0 … `MEAL_QUALITY_MAX` (outside that · not a number = 0). */
 export function normalizeMealQuality(v: unknown): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return 0;
   return Math.max(0, Math.min(MEAL_QUALITY_MAX, Math.floor(v)));
 }
-/** 요리 점수(0 … 1) → 품질. 점수를 넘는 가장 높은 품질. */
+/** Cook score (0 … 1) → quality. The highest quality the score passes. */
 export function mealQualityForScore(score: number): number {
   const s = Number.isFinite(score) ? Math.max(0, Math.min(1, score)) : 0;
   let q = 0;
   for (let i = 0; i <= MEAL_QUALITY_MAX; i++) if (s + 1e-9 >= (MEAL_QUALITY_SCORE_MIN[i] ?? Infinity)) q = i;
   return q;
 }
-/** 품질의 수치 보너스 (0 … 0.25). */
+/** A quality's amount bonus (0 … 0.25). */
 export function mealQualityBonus(quality: number): number {
   const v = MEAL_QUALITY_BONUS[normalizeMealQuality(quality)];
   return Number.isFinite(v) ? Math.max(0, v) : 0;
 }
-/** `★★★☆☆` — 채운 별 = 품질, 빈 별 = 나머지. */
+/** `★★★☆☆` — filled stars = the quality, empty stars = the rest. */
 export function mealQualityStars(quality: number): string {
   const q = normalizeMealQuality(quality);
   return '★'.repeat(q) + '☆'.repeat(Math.max(0, MEAL_QUALITY_MAX - q));
 }
-/** 단계 점수들 → 요리 점수 (평균, 0 … 1). 빈 목록이면 0. */
+/** Step scores → the cook score (the average, 0 … 1). 0 for an empty list. */
 export function cookScoreOf(stepScores: readonly number[]): number {
   if (stepScores.length === 0) return 0;
   let sum = 0;
@@ -245,37 +245,37 @@ export function cookScoreOf(stepScores: readonly number[]): number {
   return sum / stepScores.length;
 }
 
-/* ── 세션 ───────────────────────────────────────────────────────────────── */
-/** 진행 중인 조리 (`HousingRef.cookSession`). */
+/* ── Session ────────────────────────────────────────────────────────────── */
+/** A cook in progress (`HousingRef.cookSession`). */
 export interface CookSessionInfo {
-  /** 조리대 가구 uid. */
+  /** Uid of the cook bench furniture. */
   uid: string;
   recipeId: string;
   mealDefId: string;
   steps: readonly CookStepDef[];
 }
 
-/** 끝낸 조리 한 번 (`housing:cookResult`). */
+/** One finished cook (`housing:cookResult`). */
 export interface CookResult {
   recipeId: string;
   mealDefId: string;
-  /** 단계 순서대로의 점수 (자동이면 그 가구의 자동 점수). */
+  /** Scores in step order (the appliance's auto score for an automated step). */
   stepScores: readonly number[];
-  /** 단계마다 자동으로 처리했는가. */
+  /** Whether each step was handled automatically. */
   stepAuto: readonly boolean[];
   /** `cookScoreOf(stepScores)`. */
   score: number;
   /** `mealQualityForScore(score)`. */
   quality: number;
-  /** 만들어진 요리 인스턴스 uid, 실패면 null. 2026-09-16 (접시 모델): 요리는 아이템이 아니므로 **늘 null** 이다. */
+  /** Uid of the meal instance that was made, null on failure. 2026-09-16 (the plate model): a meal is not an item, so it is **always null**. */
   itemUid: string | null;
   /**
-   * 어디로 갔나. 실패면 null. 2026-09-16 (접시 모델, 사용자 결정): 요리는 식탁의 접시가 되므로 성공이면 **늘 `'table'`** 이다
-   * (`'bag'` · `'stash'` 는 옛 아이템 요리의 값 — 계약이라 남긴다).
+   * Where it went. null on failure. 2026-09-16 (the plate model, user's decision): a meal becomes a plate on the dining table, so on success it is **always `'table'`**
+   * (`'bag'` · `'stash'` are the old item-meal values — kept because this is a contract).
    */
   landed: 'bag' | 'stash' | 'table' | null;
-  /** 실패 사유 (재료가 사라졌다 · 식탁이 없다), 성공이면 null. */
+  /** Failure reason (the ingredients are gone · there is no dining table), null on success. */
   reason: string | null;
-  /** appended (2026-09-16): 이번 요리로 식탁에서 치운 옛 접시 (먹었든 안 먹었든), 없었으면 null · 생략. */
+  /** appended (2026-09-16): the old plate this cook cleared from the table (eaten or not), null · omitted when there was none. */
   replaced?: { mealDefId: string; quality: number } | null;
 }

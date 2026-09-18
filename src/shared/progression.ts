@@ -14,21 +14,21 @@ export type StatId = 'strength' | 'endurance' | 'perception' | 'intelligence' | 
 export const STAT_IDS: readonly StatId[] = ['strength', 'endurance', 'perception', 'intelligence', 'dexterity'];
 
 export type SkillId =
-  | 'carry'         // 운반 (근력)
-  | 'appraisal'     // 감정 (인지력)
-  | 'grit'          // 인내 (지구력)
-  | 'gardening'     // 원예 (재주, 지능)
-  | 'crafting'      // 제작 (재주, 지능)
-  | 'medicine'      // 의학 (지능)
-  | 'cryptography'  // 암호학 (지능)
-  | 'implant'       // 전술 임플란트 (지능)
-  | 'gun_AR' | 'gun_SMG' | 'gun_SR' | 'gun_DMR' | 'gun_SG'  // 사격 (인지력)
-  | 'equipment'     // 장비 관리 (재주)
+  | 'carry'         // `운반` hauling (strength)
+  | 'appraisal'     // `감정` appraisal (perception)
+  | 'grit'          // `인내` grit (endurance)
+  | 'gardening'     // `원예` gardening (dexterity, intelligence)
+  | 'crafting'      // `제작` crafting (dexterity, intelligence)
+  | 'medicine'      // `의학` medicine (intelligence)
+  | 'cryptography'  // `암호학` cryptography (intelligence)
+  | 'implant'       // `전술 임플란트` tactical implants (intelligence)
+  | 'gun_AR' | 'gun_SMG' | 'gun_SR' | 'gun_DMR' | 'gun_SG'  // `사격` shooting (perception)
+  | 'equipment'     // `장비 관리` gear maintenance (dexterity)
   /* appended (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) */
-  | 'cooking'       // 요리 (재주) — 조리 단계 점수 (자동 포함)
-  | 'research'      // 연구 (지능) — 분석 시간 · 추출기/조합대/3D 프린터 재료 환급
-  /* appended (2026-09-16, 사용자 결정): 행성 광맥 */
-  | 'mining';       // 채광 (재주) — 광맥에서 나오는 미확인 광물의 등급이 올라간다
+  | 'cooking'       // `요리` cooking (dexterity) — the cook-step score (the automatic one included)
+  | 'research'      // `연구` research (intelligence) — analysis time · material refunds at the extractor / mixing bench / 3D printer
+  /* appended (2026-09-16, user's decision): planet ore veins */
+  | 'mining';       // `채광` mining (dexterity) — the rarity of the unidentified ore a vein yields goes up
 
 export const SKILL_IDS: readonly SkillId[] = [
   'carry', 'appraisal', 'grit', 'gardening', 'crafting', 'medicine', 'cryptography',
@@ -41,13 +41,13 @@ export const SKILL_IDS: readonly SkillId[] = [
 
 export interface StatDef {
   id: StatId;
-  name: string;        // 한국어
+  name: string;        // Korean
   description: string;
 }
 
 export interface SkillDef {
   id: SkillId;
-  name: string;        // 한국어
+  name: string;        // Korean
   description: string;
   /** Stats that scale how fast this skill rises. */
   stats: StatId[];
@@ -88,7 +88,7 @@ export interface PlayerProfile {
  * Read it; never re-derive it.
  */
 export interface DerivedStats {
-  /* 근력 */
+  /* strength */
   /** Base carry capacity in kg before the backpack bonus. */
   carryCapacity: number;
   meleeDamageMul: number;
@@ -96,43 +96,43 @@ export interface DerivedStats {
   throwRangeMul: number;
   /** 2026-09-09: flat-ground overhand throw distance (m) — GRENADE_THROW_SPEED × √throwRangeMul ballistics; the sheet shows this, not the multiplier. */
   throwRangeM: number;
-  /* 지구력 */
+  /* endurance */
   maxStamina: number;
   staminaRegenMul: number;
-  /* 인지력 */
+  /* perception */
   /** Radius (m) inside which interactables get the fresnel highlight. */
   detectRadius: number;
   /** Radius (m) inside which off-screen enemies get an arrow indicator. */
   enemyDetectRadius: number;
-  /* 지능 */
+  /* intelligence */
   /** Multiplier on all skill XP gain. */
   skillGainMul: number;
-  /* 재주 */
+  /* dexterity */
   /** Consumable / gadget use speed. */
   useSpeedMul: number;
   /** Interaction (hold) speed for crates, switches, recovering deployables. */
   interactSpeedMul: number;
   /* skills */
-  /** 운반: how much of the 조금 무거움 stamina penalty is cancelled (0..1). */
+  /** `운반` (hauling): how much of the 「조금 무거움」 stamina penalty is cancelled (0..1). */
   carryReliefFactor: number;
-  /** 감정: crate search speed multiplier. */
+  /** `감정` (appraisal): crate search speed multiplier. */
   searchSpeedMul: number;
-  /** 인내: chance (0..1) that lethal non-DoT damage leaves 1 hp instead. */
+  /** `인내` (grit): chance (0..1) that lethal non-DoT damage leaves 1 hp instead. */
   gritChance: number;
-  /** 의학: healing item potency multiplier. */
+  /** `의학` (medicine): healing item potency multiplier. */
   healPowerMul: number;
-  /** 암호학: extraction ship call speed multiplier (shortens the countdown). */
+  /** `암호학` (cryptography): extraction ship call speed multiplier (shortens the countdown). */
   shipCallSpeedMul: number;
-  /** 전술 임플란트: cooldown multiplier (also folds in the 특수 가방 perk). */
+  /** `전술 임플란트` (tactical implants): cooldown multiplier (also folds in the `특수 가방` perk). */
   implantCooldownMul: number;
-  /** 사격: per weapon class recoil / reload multipliers. */
+  /** `사격` (shooting): per weapon class recoil / reload multipliers. */
   recoilMul: Record<WeaponClass, number>;
   reloadSpeedMul: Record<WeaponClass, number>;
-  /** 장비 관리: durability loss multiplier. */
+  /** `장비 관리` (gear maintenance): durability loss multiplier. */
   durabilityLossMul: number;
-  /** 원예: herb yield multiplier. */
+  /** `원예` (gardening): herb yield multiplier. */
   gatherYieldMul: number;
-  /** 제작: field crafting speed multiplier. */
+  /** `제작` (crafting): field crafting speed multiplier. */
   craftSpeedMul: number;
 }
 
@@ -153,7 +153,7 @@ export interface ProgressionRef {
 
   /** Ship only. false during a raid or with no points left. */
   spendStatPoint(id: StatId): boolean;
-  /** Raise a skill by `amount` raw points (scaled internally by 지능 and the skill's stats). */
+  /** Raise a skill by `amount` raw points (scaled internally by `지능` (intelligence) and the skill's stats). */
   addSkillXp(id: SkillId, amount: number): void;
   /** Character XP (mission rewards, kills). */
   addXp(amount: number): void;
@@ -174,54 +174,56 @@ export interface ProgressionRef {
    * Add raw stat XP (negative allowed). Crossing 1 → +1 stat (also `progress:statChanged`), dropping below 0 → −1
    * stat (never below STAT_MIN). Emits `progress:statXp`, recomputes `derived` when the value changes, saves.
    *
-   * appended (2026-09-17, 사용자 결정 「단련은 능력치 경험치 바를 같이 쓴다」): `source` — 생략 = `'action'` (위 규칙 그대로).
-   * `'minigame'`(헬스 · 비디오게임, `GYM_STATS` 만, 양수만)은 **같은 바**를 채우지만, 그 더하기가 바를 넘기면 기본 능력치가 아니라
-   * 단련 보너스 `trained[stat]` 가 +1 이다 (`progress:trainedChanged`). 단련이 `GYM_TRAINED_MAX` 면 바는 가득 직전(0.999999)에서
-   * 멈추고 넘친 몫은 버린다 — 다음 행동 경험치가 넘기면 기본 능력치 +1 이다. 규칙 원문: `ProgressionSystem.addStatXp`.
+   * appended (2026-09-17, user's decision 「단련은 능력치 경험치 바를 같이 쓴다」 — training shares the stat XP bar):
+   * `source` — omitted = `'action'` (exactly the rule above). `'minigame'` (the gym · video games, `GYM_STATS` only,
+   * positive only) fills **the same bar**, but when that addition crosses the bar it is not the base stat that rises
+   * but the training bonus `trained[stat]`, by +1 (`progress:trainedChanged`). At `GYM_TRAINED_MAX` training the bar
+   * stops just short of full (0.999999) and the overflow is dropped — the next action XP that crosses it gives the
+   * base stat +1. The rule itself: `ProgressionSystem.addStatXp`.
    */
   addStatXp(id: StatId, amount: number, source?: StatXpSource): void;
   /** 0..1 toward the next level of `id`. */
   getSkillProgress(id: SkillId): number;
   /**
-   * Signed raw skill XP: no 지능 / stat / level scaling, negative allowed (level −1 when progress drops below 0,
-   * never below 0). Cheat / debuff entry point — normal training keeps using `addSkillXp`.
+   * Signed raw skill XP: no `지능` (intelligence) / stat / level scaling, negative allowed (level −1 when progress
+   * drops below 0, never below 0). Cheat / debuff entry point — normal training keeps using `addSkillXp`.
    */
   addSkillXpRaw(id: SkillId, amount: number): void;
   /**
-   * External skill-gain multiplier (ship facilities: 사격장 → gun_* skills). Progression reads
+   * External skill-gain multiplier (ship facilities: `사격장` the firing range → gun_* skills). Progression reads
    * `ctx.housing?.getSkillGainMul(id)` itself inside `addSkillXp`; this getter exposes the combined value for UI.
    */
   getSkillGainMul(id: SkillId): number;
 
   /* ══ appended: Phase 8 (2026-09-06) ══════════════════════════════════════ */
   /**
-   * Render the 캐릭터 sheet inside `host` (the 캐릭터 tab of the inventory Tab screen) instead of as its own
+   * Render the `캐릭터` (character) sheet inside `host` (the `캐릭터` tab of the inventory Tab screen) instead of as its own
    * full-screen overlay. The embedded view must not add the `'stats'` blocker, exit the pointer lock or install a
    * window-level Escape listener — the inventory window owns all three.
    */
   createSheetView(host: HTMLElement): EmbeddedView;
 }
 
-/* ══ appended: 2026-09-08 — 임플란트(능력치 장착 아이템) · 전설 퍽 ════════════════════════════════════════════════
- * Distinct from the six 전술 임플란트 (`ImplantId`, Q key): these are **items** (`ItemDef.implant`, category
- * 'implant') sold / repaired by 세레스 바이오, looted broken from raids, and slotted on the 캐릭터 tab. The character has
- * `implantSlots` = IMPLANT_SLOTS_BASE + floor(level / IMPLANT_SLOTS_PER_LEVELS), capped at IMPLANT_SLOTS_MAX; each
- * item takes `ItemDef.implant.slots`. Equipped implants add their `stats` to the base stats before `derived` is
+/* ══ appended: 2026-09-08 — implants (stat-carrying equippable items) · legendary perks ═══════════════════════════
+ * Distinct from the six tactical implants (`ImplantId`, Q key): these are **items** (`ItemDef.implant`, category
+ * 'implant') sold / repaired by `세레스 바이오`, looted broken from raids, and slotted on the `캐릭터` tab. The character
+ * has `implantSlots` = IMPLANT_SLOTS_BASE + floor(level / IMPLANT_SLOTS_PER_LEVELS), capped at IMPLANT_SLOTS_MAX;
+ * each item takes `ItemDef.implant.slots`. Equipped implants add their `stats` to the base stats before `derived` is
  * computed — `getStat(id)` keeps returning the **base** value, `getStatWithImplants(id)` the effective one — and a
- * legendary `perk` becomes `derived.perks[perk] = true`. Owner: progression (rules, storage, 캐릭터 tab UI).
+ * legendary `perk` becomes `derived.perks[perk] = true`. Owner: progression (rules, storage, `캐릭터` tab UI).
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
 /** Legendary implant perks. Effects are read from `derived.perks` by the named owner — never re-derived. */
 export type PerkId =
-  | 'auto_revive'    // 전투불능 시 레이드당 1회 자동 기상 (owner: player — hp 10 로 즉시 기상, 레이드마다 1회)
-  | 'quick_heal'     // 회복 아이템 사용 시간 절반 (owner: weapons — heal hold `useTime × 0.5`)
-  | 'kill_stamina';  // 처치 시 스태미나 전량 회복 (owner: player — `enemy:killed.by` 가 로컬이면 stamina = max)
+  | 'auto_revive'    // gets up once per raid on being downed (owner: player — up at once with hp 10, once per raid)
+  | 'quick_heal'     // halves the use time of a healing item (owner: weapons — heal hold `useTime × 0.5`)
+  | 'kill_stamina';  // full stamina back on a kill (owner: player — stamina = max when `enemy:killed.by` is local)
 
 export const PERK_IDS: readonly PerkId[] = ['auto_revive', 'quick_heal', 'kill_stamina'];
 
 export interface PerkDef {
   id: PerkId;
-  name: string;        // 한국어
+  name: string;        // Korean
   description: string;
 }
 
@@ -240,7 +242,7 @@ export interface EquippedImplant {
 }
 
 export interface PlayerProfile {
-  /** appended (2026-09-08): equipped 임플란트 items. Optional so older saves migrate to `[]`. */
+  /** appended (2026-09-08): equipped implant items. Optional so older saves migrate to `[]`. */
   implants?: EquippedImplant[];
 }
 
@@ -261,7 +263,7 @@ export interface ProgressionRef {
    * Emits `progress:implantsChanged`, recomputes `derived`, saves.
    */
   equipImplant(uid: string): boolean;
-  /** Ship only. Returns the item to the 함선 창고 (then the bag; refuses when neither has room). */
+  /** Ship only. Returns the item to the `함선 창고` (the ship stash; then the bag; refuses when neither has room). */
   unequipImplant(uid: string): boolean;
   /** Base stat + equipped implant bonuses (what `derived` is computed from). */
   getStatWithImplants(id: StatId): number;
@@ -270,7 +272,7 @@ export interface ProgressionRef {
 }
 
 export interface ProgressionRef {
-  /* ── appended (2026-09-11, C-12 사용자 결정): 사망하면 장착 임플란트가 몸에서 빠진다 ── */
+  /* ── appended (2026-09-11, C-12 user's decision): death takes the equipped implants out of the body ── */
   /**
    * **Death only** — bypasses the ship gate of `unequipImplant`. Unequips every equipped implant and returns one
    * **broken twin** instance per implant (`brokenImplantIdOf(defId)`, a fresh uid) for the corpse; the working items
@@ -290,237 +292,251 @@ export function brokenImplantIdOf(workingId: string): string {
   return workingId.replace(/^imp_/, 'imp_broken_');
 }
 
-/* appended (2026-09-09): 캐릭터 생성 · 슬롯 카드 */
+/* appended (2026-09-09): character creation · slot cards */
 export interface PlayerProfile {
   /**
-   * 병사 모델 악센트 색 (`#rrggbb`). 캐릭터 생성창에서 고른다. 없으면 `SOLDIER_DEFAULT_ACCENT`.
-   * 3D 프리뷰 · 함선의 내 아바타 · 분대 레이드의 내 병사가 전부 이 색을 쓴다.
+   * Soldier model accent colour (`#rrggbb`). Picked in the creation window. `SOLDIER_DEFAULT_ACCENT` when absent.
+   * The 3D preview · my avatar in the ship · my soldier in a squad raid all use this colour.
    */
   accent?: string;
-  /** 캐릭터를 만든 시각 (epoch ms). 슬롯 카드가 정렬 · 표시에 쓴다. 옛 세이브에는 없다. */
+  /** When the character was made (epoch ms). The slot cards sort and display by it. Absent in an old save. */
   createdAt?: number;
-  /** 마지막으로 이 캐릭터로 플레이한 시각 (epoch ms). */
+  /** When this character was last played (epoch ms). */
   playedAt?: number;
 }
 
-/* ══ appended (2026-09-11, A-13): 준비물 — 다음 레이드 1회분 (사용자 결정) ═══════════════════════════════════
+/* ══ appended (2026-09-11, A-13): preparations — one raid's worth (user's decision) ══════════════════════════
  *
- * 조합대에서 만든 준비물(`ItemDef.prep`)을 **함선에서 쓰면** 그 자리에서 소모돼 `PlayerProfile.prep` 에 대기하고,
- * 출격하는 순간 `prepActive` 로 옮겨져 **그 레이드 내내** 유지된다 (사망해도 그 레이드는 유지 — 장비와 달리
- * 「이미 마신 약」이다). 레이드가 끝나면(탈출 · 전멸 · 포기) 비워진다.
+ * A preparation made at the mixing bench (`ItemDef.prep`) is **used in the ship**, consumed on the spot, and waits
+ * in `PlayerProfile.prep`; the moment the squad launches it moves to `prepActive` and is kept **for that whole
+ * raid** (kept through death for that raid — unlike gear, it is 「이미 마신 약」, medicine already drunk). It is
+ * emptied when the raid ends (extraction · wipe · abandon).
  *
- * 프로필에 사는 것이 요점이다 — 재접속으로 돌아온 사람이 조용히 잃으면 안 된다는 2026-09-10 규약 그대로다.
- * 같은 `env` 는 하나만 실린다 (두 번째 사용은 한국어 사유로 거절하고 아이템을 돌려준다).
- * 주방(A-3c)의 요리 버프가 열리면 같은 두 필드에 얹는다 — 여기가 그 자리다.
+ * Living in the profile is the point — someone who came back through a reconnect must not lose it silently, the
+ * same 2026-09-10 rule as everywhere else. Only one preparation per `env` is loaded (a second use is refused with a
+ * Korean reason and the item is handed back). When the kitchen's (A-3c) meal buffs open they lay over the same two
+ * fields — this is that place.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 export interface PlayerProfile {
-  /** 다음 레이드에 실릴 준비물 item def id (환경당 최대 1개). 옛 세이브에는 없다 = 빈 것. */
+  /** Item def ids of the preparations that will load into the next raid (at most one per environment). Absent in an old save = empty. */
   prep?: string[];
-  /** 이번 레이드에 실려 있는 준비물. 레이드 밖에서는 비어 있다. */
+  /** The preparations loaded into this raid. Empty outside a raid. */
   prepActive?: string[];
 }
 
 export interface ProgressionRef {
-  /** 다음 레이드에 실릴 준비물 def id. */
+  /** Def ids of the preparations that will load into the next raid. */
   getPreps(): readonly string[];
-  /** 이번 레이드에 실려 있는 준비물 def id (함선에서는 빈 배열). */
+  /** Def ids of the preparations loaded into this raid (an empty array in the ship). */
   getActivePreps(): readonly string[];
   /**
-   * 함선 전용. 준비물 하나를 소비해 다음 레이드분에 싣는다 (아이템은 부르는 쪽이 이미 뺐거나, 구현이
-   * `ctx.inventory.consumeDefAll` 로 뺀다 — 구현 폴더가 정한다). 같은 환경을 이미 준비했거나 레이드 중이면
-   * 한국어 사유를 돌려주고 **아무것도 바꾸지 않는다**. null = 실렸다.
+   * Ship only. Consumes one preparation and loads it for the next raid (the item is either already taken by the
+   * caller, or the implementation takes it with `ctx.inventory.consumeDefAll` — the implementing folder decides).
+   * When the same environment is already prepared, or during a raid, it returns a Korean reason and **changes
+   * nothing**. null = it was loaded.
    */
   usePrep(defId: string): string | null;
-  /** 이번 레이드에 `env` 를 막아 주는 준비물이 실려 있나. player 가 환경 피해를 줄지 정할 때 묻는다. */
+  /** Is a preparation that blocks `env` loaded into this raid. player asks when deciding whether to deal environment damage. */
   hasEnvPrep(env: EnvKind): boolean;
   /**
-   * 출격: 대기분을 이번 레이드분으로 옮긴다 (game/ 이 레이드 시작 때 한 번).
-   * 2026-09-11 (A-3c): **식사 칸도 함께 옮긴다** (`meal` → `mealActive`) — 그래서 `game/` 은 한 줄도 안 바뀐다.
+   * Launch: moves what is waiting into this raid's slot (game/ does it once at raid start).
+   * 2026-09-11 (A-3c): **the meal slot moves along with it** (`meal` → `mealActive`) — so `game/` changes by not one line.
    */
   armPreps(): void;
   /**
-   * 레이드 종료: 이번 레이드분을 비운다 (game/ 이 한 번).
-   * 2026-09-11 (A-3c): **식사 칸도 함께 비운다** (`mealActive` → null).
+   * Raid end: empties this raid's slot (game/ does it once).
+   * 2026-09-11 (A-3c): **the meal slot is emptied along with it** (`mealActive` → null).
    */
   clearActivePreps(): void;
 }
 
-/* ══ appended (2026-09-11, A-3c): 식사 — 다음 레이드 1회분 (사용자 결정: 별도 「식사」 칸 1개) ═══════════════
+/* ══ appended (2026-09-11, A-3c): meals — one raid's worth (user's decision: a separate 「식사」 slot) ═══════
  *
- * 주방의 조리대에서 만든 요리(`ItemDef.meal`)를 **함선의 식탁에서 먹으면** 그 자리에서 소모돼
- * `PlayerProfile.meal` 에 대기하고, 출격하는 순간 `mealActive` 로 옮겨져 그 레이드 내내 유지된다.
- * 수명 규칙은 준비물과 **완전히 같다** (사망해도 그 레이드는 유지 — 「이미 먹은 밥」).
+ * A meal made at the kitchen's cook bench (`ItemDef.meal`) is **eaten at the ship's dining table**, consumed on the
+ * spot, and waits in `PlayerProfile.meal`; the moment the squad launches it moves to `mealActive` and is kept for
+ * that whole raid. The lifetime rules are **exactly the preparations'** (kept through death for that raid — 「이미
+ * 먹은 밥」, food already eaten).
  *
- * 준비물(`prep`)과 **자리를 다투지 않는다** (사용자 결정): 환경 준비물은 환경당 1개, 식사는 따로 1칸이다.
- * 그래서 배열이 아니라 문자열 하나이고, 두 번째 요리를 먹으면 **교체된다** (거절이 아니다 — 준비물과 다른 점).
+ * It **does not compete for a slot** with a preparation (`prep`) (user's decision): an environment preparation is
+ * one per environment, and a meal has its own single slot. So it is one string rather than an array, and eating a
+ * second meal **replaces** it (not a refusal — this is where it differs from preparations).
  *
- * 버프는 `MealDef.buff` 가 가리키는 **파생 수치**에 접힌다 (`DerivedStats` 의 필드 이름 그대로) — 그래서
- * player · weapons · world · inventory 는 한 줄도 안 바뀐다. `mealActive` 가 바뀌면 `derived` 를 다시 계산한다.
+ * The buff folds into the **derived stat** `MealDef.buff` points at (literally a `DerivedStats` field name) — so
+ * player · weapons · world · inventory change by not one line. A change to `mealActive` recomputes `derived`.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 export interface PlayerProfile {
-  /** 다음 레이드에 실릴 요리 item def id. 고정 1칸이라 배열이 아니다. 없거나 null = 안 먹었다. */
+  /** The item def id of the meal that will load into the next raid. One fixed slot, so not an array. Absent or null = nothing eaten. */
   meal?: string | null;
-  /** 이번 레이드에 실려 있는 요리. 레이드 밖에서는 null. */
+  /** The meal loaded into this raid. null outside a raid. */
   mealActive?: string | null;
 }
 
 export interface ProgressionRef {
-  /** 다음 레이드에 실릴 요리 def id, 없으면 null. */
+  /** The def id of the meal that will load into the next raid, null when there is none. */
   getMeal(): string | null;
-  /** 이번 레이드에 실려 있는 요리 def id (함선에서는 null). */
+  /** The def id of the meal loaded into this raid (null in the ship). */
   getActiveMeal(): string | null;
   /**
-   * 함선 전용. 요리 하나를 다음 레이드분에 싣는다 (아이템을 빼는 것은 부르는 쪽 — `usePrep` 과 같은 규약이라
-   * **먼저 묻고 성공할 때만** 뺀다). 이미 차려 둔 요리가 있으면 **조용히 교체**한다: 식사는 칸이 하나뿐이고
-   * 「바꿔 먹는다」가 자연스럽다. 레이드 중이거나 요리가 아니면 한국어 사유, 성공하면 null.
+   * Ship only. Loads one meal for the next raid (taking the item is the caller's job — the same contract as
+   * `usePrep`, so it **asks first and only takes on success**). When a meal is already laid out it is **replaced
+   * silently**: a meal has only one slot and 「swapping what you eat」 is the natural thing. During a raid, or for
+   * something that is not a meal, a Korean reason; null on success.
    */
-  useMeal(defId: string, quality?: number): string | null;   // 2026-09-13: `quality` = 요리 품질 (생략 = 0). 같은 요리 · **같은 품질**만 거절한다
+  useMeal(defId: string, quality?: number): string | null;   // 2026-09-13: `quality` = the meal's quality (omitted = 0). Only the same meal at **the same quality** is refused
   /**
-   * 공유 함선 식탁: 남이 차려 준 요리를 **아이템 소모 없이** 받는다 (사용자 결정: 한 명이 차리면 분대 전원).
-   * 이미 먹은 사람은 교체된다. 받는 쪽 가드는 net 이 한다 — **로비 호스트가 보낸 것만** 여기까지 온다
-   * (「남에게 영향 주는 메시지는 권위에서만 받는다」 E-4).
+   * The shared ship's dining table: a meal someone else laid out is taken **without consuming an item** (user's
+   * decision: one person cooks, the whole squad eats). Someone who already ate has theirs replaced. The receiving
+   * guard is net's — **only what the lobby host sent** gets this far (「a message that affects others is accepted
+   * only from the authority」, E-4).
    */
-  serveMeal(defId: string, quality?: number): void;   // 2026-09-13: `quality` = 차린 요리의 품질 (생략 = 0)
+  serveMeal(defId: string, quality?: number): void;   // 2026-09-13: `quality` = the quality of the meal laid out (omitted = 0)
 }
 
-/** appended (2026-09-17): 능력치 경험치의 출처 — 바를 넘겼을 때 무엇이 오르는가 (`ProgressionRef.addStatXp`). */
+/** appended (2026-09-17): where stat XP came from — what rises when the bar is crossed (`ProgressionRef.addStatXp`). */
 export type StatXpSource = 'action' | 'minigame';
 
-/* ══ appended (2026-09-12, A-3a): 헬스장 — 단련 보너스 · 운동 디버프 (사용자 결정: 스탯 포인트와 따로 센다) ═══════════════
+/* ══ appended (2026-09-12, A-3a): the gym — training bonus · exercise debuff (user's decision: counted apart from stat points) ══
  *
- * 운동 기구 미니게임을 끝내면 housing 이 `applyGymSession(stat, 점수)` 를 부른다. 점수(0 … 1)가 경험치
- * (`round(GYM_SESSION_XP × 점수)`)가 된다. 2026-09-17 (사용자 결정): 단련 전용 바는 없다 — 그 경험치는 **능력치 경험치 바**
- * (`addStatXp(stat, xp, 'minigame')`)에 들어가고, 미니게임 경험치가 바를 넘기면 기본 능력치 대신 **단련 보너스** `trained[stat]` 가
- * +1 이다 (상한 `GYM_TRAINED_MAX`, 넘친 경험치는 이월; 상한이면 바는 가득 직전에서 멈춘다).
+ * When a gym equipment minigame ends, housing calls `applyGymSession(stat, score)`. The score (0 … 1) becomes XP
+ * (`round(GYM_SESSION_XP × score)`). 2026-09-17 (user's decision): there is no training-only bar — that XP goes into
+ * the **stat XP bar** (`addStatXp(stat, xp, 'minigame')`), and when minigame XP crosses the bar it is the **training
+ * bonus** `trained[stat]` that gains +1 instead of the base stat (capped at `GYM_TRAINED_MAX`, the overflow carried
+ * over; at the cap the bar stops just short of full).
  *
- * 단련 보너스는 스탯 포인트(`stats`)와 섞이지 않는다 — `getStat` 은 여전히 기본값이고, 임플란트 보너스처럼 `derived` 를
- * 계산하기 직전에 더해지며(`getStatWithImplants` = 기본 + 임플란트 + 단련, 「`derived` 가 계산되는 값」 이라는 뜻 그대로)
- * 캐릭터 시트는 `10 (+2)` 처럼 따로 보여 준다 (2026-09-17: `단련` 글자 없이). `STAT_MAX` 로 자르지 않는다 (임플란트와 같은 의도).
+ * The training bonus never mixes with stat points (`stats`) — `getStat` is still the base value, and like the
+ * implant bonus it is added right before `derived` is computed (`getStatWithImplants` = base + implants + training,
+ * exactly what 「the value `derived` is computed from」 means), and the character sheet shows it separately as
+ * `10 (+2)` (2026-09-17: without the word `단련`). It is not cut at `STAT_MAX` (the same intent as implants).
  *
- * 세션을 끝낼 때 그 능력치에 디버프가 없으면 `gymFatigueUntil[stat] = 지금 + GYM_FATIGUE_HOURS` 가 걸린다 (근력 = 근육통 ·
- * 지구력 = 심폐 피로). 디버프 중의 세션은 경험치 × `GYM_FATIGUE_GAIN_MUL`(0 = −100 %)이고 디버프를 **다시 늘리지 않는다**.
- * 점수가 0 이어도 끝낸 세션이면 디버프가 걸린다 (「가구를 사용하면」). 시각은 `ctx.net.serverNow() ?? Date.now()` (온실과 같은
- * 현실 시간). 세 필드 모두 프로필에 살며 `Profile.migrate` 가 옮겨 담아야 새로고침을 견딘다 (2026-09-09 `accent` 사고와 같은 자리).
- * `resetProfile` 은 셋을 비운다.
+ * When a session ends and that stat has no debuff, `gymFatigueUntil[stat] = now + GYM_FATIGUE_HOURS` is raised
+ * (strength = sore muscles · endurance = cardio fatigue). A session during the debuff is worth XP ×
+ * `GYM_FATIGUE_GAIN_MUL` (0 = −100 %) and **does not extend the debuff again**. Even a score of 0 raises the debuff
+ * as long as the session was finished (「once the furniture is used」). The clock is `ctx.net.serverNow() ?? Date.now()`
+ * (real time, the same as the greenhouse). All three fields live in the profile and `Profile.migrate` has to carry
+ * them over to survive a reload (the same place as the 2026-09-09 `accent` accident). `resetProfile` empties all three.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /**
- * 운동으로 단련하는 능력치. appended (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): **비디오게임**이 지능 · 인지력을 같은 규칙
- * (`applyGymSession` · 단련 보너스 · 능력치별 24 h 디버프 — 사용자 결정 「헬스와 동일」)으로 단련한다.
+ * The stats trained by exercising. appended (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): **video games**
+ * train intelligence · perception by the same rules (`applyGymSession` · the training bonus · a 24 h debuff per stat — user's decision 「the same as the gym」).
  */
 export type GymStat = Extract<StatId, 'strength' | 'endurance' | 'intelligence' | 'perception'>;
 export const GYM_STATS: readonly GymStat[] = ['strength', 'endurance', 'intelligence', 'perception'];
-/** 디버프 이름 — 근력 운동 뒤 근육통, 지구력 운동 뒤 심폐 피로 (사용자 명세). 2026-09-13: 게임 뒤 지능 = 정신 피로 · 인지력 = 눈의 피로. */
+/** Debuff names — sore muscles after strength work, cardio fatigue after endurance work (the user's spec). 2026-09-13: after a game, intelligence = mental fatigue · perception = eye strain. */
 export const GYM_FATIGUE_LABEL_KO: Readonly<Record<GymStat, string>> = { strength: '근육통', endurance: '심폐 피로', intelligence: '정신 피로', perception: '눈의 피로' };
 
 export interface PlayerProfile {
-  /** 운동으로 얻은 단련 보너스 (정수, 0 … GYM_TRAINED_MAX). 옛 세이브에는 없다 = 0. */
+  /** The training bonus earned by exercising (an integer, 0 … GYM_TRAINED_MAX). Absent in an old save = 0. */
   trained?: Partial<Record<GymStat, number>>;
   /**
-   * 은퇴 (2026-09-17): 단련 전용 진행도였다. 단련은 이제 능력치 경험치 바(`statProgress`)를 같이 쓰고, `Profile.migrate` 가
-   * 이 필드를 버린다 (계약은 추가 전용이라 선언만 남는다). 새로 쓰지 않는다.
+   * Retired (2026-09-17): this was the training-only progress. Training now shares the stat XP bar (`statProgress`)
+   * and `Profile.migrate` throws this field away (the contract is append-only, so only the declaration stays). Never written again.
    */
   trainedProgress?: Partial<Record<GymStat, number>>;
-  /** 운동 디버프가 끝나는 시각 (epoch ms). 지난 값은 「디버프 없음」 과 같다. */
+  /** When the exercise debuff ends (epoch ms). A value in the past is the same as 「no debuff」. */
   gymFatigueUntil?: Partial<Record<GymStat, number>>;
 }
 
-/** `applyGymSession` 의 결과 — 결과 화면 · `housing:gymResult` 가 그대로 쓴다. */
+/** The result of `applyGymSession` — used as it is by the result screen and `housing:gymResult`. */
 export interface GymSessionResult {
   stat: GymStat;
-  /** 0 … 1 로 자른 점수. */
+  /** The score, clamped to 0 … 1. */
   score: number;
-  /** 실제로 더해진 단련 경험치 (디버프 중이었으면 0). */
+  /** The training XP actually added (0 if the debuff was on). */
   xp: number;
-  /** 세션을 끝낸 순간 이미 디버프 중이었다 (그래서 xp 가 0 이고 디버프는 늘지 않았다). */
+  /** The debuff was already on the moment the session ended (so xp is 0 and the debuff was not extended). */
   wasFatigued: boolean;
   trainedBefore: number;
   trainedAfter: number;
-  /** 세션 뒤 다음 단련까지의 진행도 0 … 1. */
+  /** Progress toward the next training bonus after the session, 0 … 1. */
   progress: number;
-  /** 단련 보너스가 상한이다. */
+  /** The training bonus is at its cap. */
   capped: boolean;
-  /** 디버프가 끝나는 시각 (epoch ms). */
+  /** When the debuff ends (epoch ms). */
   fatigueUntil: number;
 }
 
 export interface ProgressionRef {
-  /** 운동으로 얻은 단련 보너스 (운동 능력치가 아니면 0). */
+  /** The training bonus earned by exercising (0 for a stat that is not trainable). */
   getTrainedBonus?(id: StatId): number;
-  /** 다음 단련 보너스까지의 진행도 0 … 1. 2026-09-17: 능력치 경험치 바와 같은 값 (`getStatProgress`, 운동 능력치가 아니면 0). */
+  /** Progress toward the next training bonus, 0 … 1. 2026-09-17: the same value as the stat XP bar (`getStatProgress`, 0 for a stat that is not trainable). */
   getTrainedProgress?(id: StatId): number;
-  /** 지금 단계에서 다음 단련 보너스에 필요한 경험치. 2026-09-17: `statXpToNext` 와 같은 값. */
+  /** XP needed for the next training bonus at the current step. 2026-09-17: the same value as `statXpToNext`. */
   trainedXpToNext?(id: StatId): number;
-  /** 운동 디버프가 끝나는 시각 (epoch ms). 디버프가 없거나 지났으면 0. */
+  /** When the exercise debuff ends (epoch ms). 0 when there is none or it has passed. */
   getGymFatigueUntil?(id: StatId): number;
   /**
-   * 함선 전용. 끝낸 운동 세션 하나를 반영한다 — 단련 경험치를 더하고(디버프 중이면 0), 디버프가 없었으면 건다.
-   * `progress:trainedChanged` · (디버프를 걸었으면) `progress:gymFatigue` 를 내고, 보너스가 바뀌면 `derived` 를 다시 계산하고
-   * 즉시 저장한다. 레이드 중이거나 운동 능력치가 아니면 null (아무것도 바꾸지 않는다).
+   * Ship only. Applies one finished exercise session — adds the training XP (0 while the debuff is on) and raises
+   * the debuff if there was none. Emits `progress:trainedChanged` · (when it raised one) `progress:gymFatigue`,
+   * recomputes `derived` when the bonus changed and saves at once. null during a raid or for a stat that is not
+   * trainable (nothing changes).
    */
   applyGymSession?(id: GymStat, score: number): GymSessionResult | null;
   /**
-   * appended (2026-09-12, 개발자 콘솔 `gym` 전용): 단련 경험치를 **디버프 · 함선 게이트 · 세션 상한 없이** 더한다 (음수 = 뺀다,
-   * 0 아래로는 안 내려간다 · 상한 `GYM_TRAINED_MAX`). `progress:trainedChanged` · 보너스가 바뀌면 `derived` 재계산 · 저장.
-   * 2026-09-17: 양수 = `addStatXp(id, xp, 'minigame')`; 음수 = 바는 그대로 두고 단련을 ⌈|xp| / statXpToNext⌉ 단계 내린다.
-   * 정상 플레이는 `applyGymSession` 을 쓴다.
+   * appended (2026-09-12, dev console `gym` only): adds training XP **with no debuff, no ship gate and no session
+   * cap** (negative = subtract, never below 0 · capped at `GYM_TRAINED_MAX`). `progress:trainedChanged` · `derived`
+   * recomputed when the bonus changed · saved.
+   * 2026-09-17: positive = `addStatXp(id, xp, 'minigame')`; negative = the bar is left alone and training drops by
+   * ⌈|xp| / statXpToNext⌉ steps. Normal play uses `applyGymSession`.
    */
   addTrainedXp?(id: GymStat, xp: number): void;
-  /** appended (2026-09-12, 개발자 콘솔 `gym clear` 전용): 운동 디버프를 지운다 (`id` 생략 = 둘 다). 저장. */
+  /** appended (2026-09-12, dev console `gym clear` only): clears the exercise debuff (`id` omitted = both). Saves. */
   clearGymFatigue?(id?: GymStat): void;
 }
 
-/* ══ appended (2026-09-13): 능력치 포인트 일괄 투자 (사용자 결정 — 캐릭터 시트는 ＋/－ 로 배분해 두고 1초 홀드로 확정한다) ══ */
+/* ══ appended (2026-09-13): spending stat points in one go (user's decision — the character sheet allocates with ＋/－ and commits on a 1 s hold) ══ */
 export interface ProgressionRef {
   /**
-   * 함선 전용. `alloc` 의 포인트를 **한 번에** 투자한다 — 전부 되거나 아무것도 안 된다. 검사: 레이드 중이 아님 · 키가 전부
-   * `StatId` · 값이 0 이상의 정수 · 합이 1 이상이고 `statPoints` 이하 · 투자 뒤 어느 능력치도 `STAT_MAX` 를 넘지 않음.
-   * 통과하면 `derived` 를 한 번 다시 계산하고 한 번 저장하며, 값이 바뀐 능력치마다 `progress:statChanged` 를 한 번씩 낸다.
-   * 거절이면 false 이고 아무것도 바뀌지 않는다. 한 포인트씩은 여전히 `spendStatPoint`.
+   * Ship only. Invests the points of `alloc` **in one go** — all of it or none of it. Checks: not in a raid · every
+   * key is a `StatId` · every value is an integer ≥ 0 · the sum is ≥ 1 and ≤ `statPoints` · no stat exceeds
+   * `STAT_MAX` afterwards. On a pass it recomputes `derived` once and saves once, and emits `progress:statChanged`
+   * once per stat whose value changed. A refusal is false and nothing changes. One point at a time is still
+   * `spendStatPoint`.
    */
   spendStatPoints?(alloc: Partial<Record<StatId, number>>): boolean;
 }
 
-/* ══ appended (2026-09-13): 요리 품질 (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」 — 사용자 결정: 품질 별 0 … 5 = 능력치 수치 +0 … +25 %) ══
- * 식사 칸은 여전히 하나이고 수명 규칙도 그대로다 — 품질은 요리 id 옆에 붙어 다닌다 (`meal` ↔ `mealQuality`, `mealActive` ↔ `mealActiveQuality`).
- * `armPreps` 가 id 와 함께 품질을 옮기고 `clearActivePreps` 가 함께 비운다. `derive.applyMealBuff` 는 줄마다 `amount × (1 + mealQualityBonus(품질))`.
- * 두 필드 모두 `Profile.migrate` 가 옮겨 담아야 새로고침을 견딘다 (2026-09-09 `accent` 사고와 같은 자리). */
+/* ══ appended (2026-09-13): meal quality (docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」 — user's decision: 0 … 5 quality stars = +0 … +25 % on the stat numbers) ══
+ * There is still one meal slot and the lifetime rules are unchanged — the quality travels next to the meal id (`meal` ↔ `mealQuality`, `mealActive` ↔ `mealActiveQuality`).
+ * `armPreps` moves the quality along with the id and `clearActivePreps` empties it along with it. `derive.applyMealBuff` is `amount × (1 + mealQualityBonus(quality))` per row.
+ * Both fields have to be carried over by `Profile.migrate` to survive a reload (the same place as the 2026-09-09 `accent` accident). */
 export interface PlayerProfile {
-  /** 대기 중인 식사(`meal`)의 품질 0 … `MEAL_QUALITY_MAX`. 생략 = 0. */
+  /** The quality of the waiting meal (`meal`), 0 … `MEAL_QUALITY_MAX`. Omitted = 0. */
   mealQuality?: number;
-  /** 이번 레이드에 실린 식사(`mealActive`)의 품질. 생략 = 0. */
+  /** The quality of the meal loaded into this raid (`mealActive`). Omitted = 0. */
   mealActiveQuality?: number;
 }
 
 export interface ProgressionRef {
-  /** 대기 중인 식사의 품질 (없으면 0). */
+  /** The quality of the waiting meal (0 when there is none). */
   getMealQuality?(): number;
-  /** 이번 레이드에 실린 식사의 품질 (없으면 0). */
+  /** The quality of the meal loaded into this raid (0 when there is none). */
   getActiveMealQuality?(): number;
 }
-/* ══ end 2026-09-13 요리 품질 ══ */
+/* ══ end 2026-09-13 meal quality ══ */
 
-/* ══ appended (2026-09-13): 서재 시리즈 · 비디오게임 · 요리/연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ══
- * 새 숙련 둘(`cooking` · `research`)의 파생 수치. 서재의 `derived` 효과는 새 필드가 아니라 `MealBuff` 키에 요리 버프처럼 접힌다
- * (`ProgressionSystem` 이 `ctx.housing.getLibraryEffects().derived` 를 `recompute` 끝에서 더한다 — `housing:libraryChanged` 에 다시 계산).
- * 비디오게임은 헬스와 같은 `applyGymSession` 을 쓴다 — `GymStat` 에 지능 · 인지력이 더해졌다 (단련 · 디버프 규칙 그대로). */
+/* ══ appended (2026-09-13): library series · video games · the cooking / research skills (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ══
+ * The derived stats of the two new skills (`cooking` · `research`). A library series' `derived` effects are not new fields but fold into `MealBuff` keys like a meal buff
+ * (`ProgressionSystem` adds `ctx.housing.getLibraryEffects().derived` at the end of `recompute` — recomputed on `housing:libraryChanged`).
+ * Video games use the same `applyGymSession` as the gym — intelligence · perception were added to `GymStat` (the training and debuff rules unchanged). */
 export interface DerivedStats {
-  /** 요리: 조리 단계 점수에 더하는 값 (0 … `COOK_SKILL_SCORE_AT_MAX`). 직접 하기 · 자동 모두 — 단계 점수는 1 로 자른다. */
+  /** `요리` (cooking): the value added to a cook step's score (0 … `COOK_SKILL_SCORE_AT_MAX`). Both by hand and automatic — a step's score is cut at 1. */
   cookScoreBonus: number;
-  /** 연구: 분석 시간 배수 (1 … 1 − `RESEARCH_TIME_AT_MAX`). 넣는 순간 확정된다. */
+  /** `연구` (research): analysis time multiplier (1 … 1 − `RESEARCH_TIME_AT_MAX`). Fixed the moment it goes in. */
   researchTimeMul: number;
-  /** 연구: 추출기 · 조합대 · 3D 프린터 제작 완료 시 재료 일부를 돌려받을 확률 (0 … `RESEARCH_REFUND_CHANCE_AT_MAX`). */
+  /** `연구` (research): chance of getting some material back when an extractor · mixing bench · 3D printer craft finishes (0 … `RESEARCH_REFUND_CHANCE_AT_MAX`). */
   researchRefundChance: number;
-  /** 연구: 돌려받을 때 재료마다 돌려받는 비율 (`RESEARCH_REFUND_FRAC_MIN` … `RESEARCH_REFUND_FRAC_MAX`, 재료당 최소 1 개). */
+  /** `연구` (research): the fraction returned per material when it does come back (`RESEARCH_REFUND_FRAC_MIN` … `RESEARCH_REFUND_FRAC_MAX`, at least 1 per material). */
   researchRefundFrac: number;
   /**
-   * appended (2026-09-16, 사용자 결정 — 행성 광맥): 채광 숙련이 광맥 드롭에 얹는 **등급 가중치 보정** (0 … `MINING_RARITY_AT_MAX`).
-   * 광맥은 총기와 **같은 확률 테이블**(`data/loot_tiers.csv`)로 미확인 광물의 등급을 굴린다 — 이 값은 그 굴림의
-   * 상위 등급 쪽 가중치에 곱해지는 보너스이고, 난이도가 막아 둔 상한(난이도 1 = 희귀까지)을 **넘기지는 못한다**.
-   * 채광 숙련은 이것 하나만 바꾼다 (홀드 시간 · 수확 개수는 `gatherYieldMul` · `interactSpeedMul` 이 이미 맡는다).
+   * appended (2026-09-16, user's decision — planet ore veins): the **rarity weight bonus** the mining skill lays on a
+   * vein's drop (0 … `MINING_RARITY_AT_MAX`). A vein rolls the rarity of its unidentified ore from the **same
+   * probability table** as guns (`data/loot_tiers.csv`) — this value is a bonus multiplied into the higher-rarity
+   * side of that roll, and it **cannot go past** the ceiling the difficulty has set (difficulty 1 = up to rare).
+   * The mining skill changes this one thing only (hold time · harvest count are already `gatherYieldMul` · `interactSpeedMul`).
    */
   miningRarityBonus: number;
 }
-/* ══ end 2026-09-13 서재 시리즈 ══ */
+/* ══ end 2026-09-13 library series ══ */

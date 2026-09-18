@@ -2,21 +2,23 @@ import type { EffectiveWeaponStats, ItemInstance, SocketSlot, WeaponDef } from '
 import { SOCKET_LABEL_KO } from './constants';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 무기 카드의 **본문 한 벌** (2026-09-16).
+ * **One set of body text** for the weapon card (2026-09-16).
  *
- * 무기 상세를 그리는 카드는 둘이다 — 가방 격자의 인스턴스 카드(`inventory/ui/Tooltip`, 2×2 게이지 + 소켓 칸 +
- * 내구도 막대)와 어디서나 뜨는 떠다니는 칩 카드(`ui/hud/ItemTip`, 두 칸짜리 표). 둘은 그림이 다르지만 **읽는 숫자와
- * 그 문장은 같아야 한다**: 기업 거래 화면의 타일은 칩 카드를 쓰는데 거기에는 피해량 · 사거리가 아예 없어서, 같은
- * 총을 가방에서 볼 때와 판매대에서 볼 때 카드 내용이 달랐다 (사용자 버그, 2026-09-16).
+ * Two cards draw a weapon's detail — the instance card of the bag grid (`inventory/ui/Tooltip`, a 2×2 gauge + socket
+ * slots + a durability bar) and the floating chip card that comes up anywhere (`ui/hud/ItemTip`, a two-column table).
+ * They look different, but **the numbers read and the sentences around them must be the same**: the tiles of the
+ * corporation trade screen use the chip card, which had no damage · range at all, so the same gun's card differed
+ * between the bag and the sales desk (user's bug, 2026-09-16).
  *
- * 그래서 **값과 문장은 이 파일 하나**가 만들고, 두 카드는 그것을 자기 마크업으로 칠하기만 한다 (§4.1 — 같은 식이
- * 두 폴더에 있으면 `src/shared` 로 옮긴다). 게이지로 그릴지 표 줄로 그릴지는 카드의 선택이므로 옵션이다.
+ * So **the values and the sentences are made in this one file** and the two cards only paint them with their own markup
+ * (§4.1 — the same formula in two folders moves to `src/shared`). Whether to draw a gauge or a table row is the card's
+ * choice, so it is an option.
  *
- * `AMMO_LABEL_KO` 는 `@/items` 에 있고 `@/shared` 는 `@/items` 를 import 하지 않으므로, 탄종 이름은 부르는 쪽이
- * 문자열로 넘긴다 (`ammoLabel`).
+ * `AMMO_LABEL_KO` lives in `@/items` and `@/shared` does not import `@/items`, so the ammo type's name is handed over as
+ * a string by the caller (`ammoLabel`).
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 무기 카드 줄 이름 — 두 카드가 같은 낱말을 쓴다 (`inventory/ui/labels.TEXT.weaponStats` 의 같은 문구). */
+/** The weapon card's row names — both cards use the same words (the same text as `inventory/ui/labels.TEXT.weaponStats`). */
 export const WEAPON_TIP_LABEL_KO = {
   damage: '대미지', fireRate: '연사', recoil: '반동', range: '사거리',
   ammo: '탄종', loaded: '장전', mode: '발사 모드', zoom: '배율',
@@ -24,13 +26,13 @@ export const WEAPON_TIP_LABEL_KO = {
   auto: '자동', semi: '반자동', scope: '스코프', broken: '파손', socketNone: '없음',
 } as const;
 
-/** 유효 사거리 — 피해가 줄기 시작하는 거리, 감쇠가 없는 무기는 최대 사거리. */
+/** The effective range — the distance where damage starts to drop, or the maximum range for a weapon with no falloff. */
 export const weaponEffectiveRange = (w: WeaponDef): number => w.falloffStart ?? w.range;
 
-/** 반동 라디안 → `1.20°` (소수 둘째 자리). */
+/** Recoil radians → `1.20°` (two decimal places). */
 export const weaponRecoilText = (rad: number): string => `${(rad * 180 / Math.PI).toFixed(2)}°`;
 
-/** 게이지 넷의 **값** (`damage` 는 펠릿을 곱한 한 발의 총합, `recoil` 은 라디안, `range` 는 m). */
+/** The **values** of the four gauges (`damage` is one shot's total with the pellets multiplied in, `recoil` is radians, `range` is m). */
 export interface WeaponGaugeValues { damage: number; fireRate: number; recoil: number; range: number }
 
 export function weaponGaugeValues(weapon: WeaponDef, s: EffectiveWeaponStats): WeaponGaugeValues {
@@ -42,7 +44,7 @@ export function weaponGaugeValues(weapon: WeaponDef, s: EffectiveWeaponStats): W
   };
 }
 
-/** 게이지 넷의 **글자** (산탄총은 `24×8`). 게이지 옆의 작은 수치와 표 줄의 값이 같은 문장이어야 한다. */
+/** The **text** of the four gauges (a shotgun reads `24×8`). The small number next to a gauge and a table row's value must be the same sentence. */
 export function weaponGaugeTexts(weapon: WeaponDef, s: EffectiveWeaponStats): Record<keyof WeaponGaugeValues, string> {
   const pellets = weapon.pellets ?? 1;
   return {
@@ -56,23 +58,24 @@ export function weaponGaugeTexts(weapon: WeaponDef, s: EffectiveWeaponStats): Re
 export interface WeaponTipRow { k: string; v: string }
 
 export interface WeaponTipRowOptions {
-  /** 호버한 인스턴스 — 장전 수 · 남은 내구도 · 끼운 부착물을 여기서 읽는다. 없으면 def 만 아는 카드다. */
+  /** The hovered instance — the loaded rounds · the durability left · the fitted attachments are read from it. With none, the card knows only the def. */
   item?: ItemInstance | null;
-  /** 탄종의 한국어 이름 (`@/items` 의 `AMMO_LABEL_KO`). 주지 않으면 탄종 줄이 없다 (격자 카드는 썸네일로 그린다). */
+  /** The Korean name of the ammo type (`AMMO_LABEL_KO` in `@/items`). Without it there is no ammo row (the grid card draws a thumbnail instead). */
   ammoLabel?: string;
-  /** 대미지 · 연사 · 반동 · 사거리도 표 줄로 (격자 카드는 게이지 막대로 그리므로 false). */
+  /** Damage · fire rate · recoil · range as table rows too (false for the grid card, which draws gauge bars). */
   gauges?: boolean;
-  /** 내구도 줄 (격자 카드는 전체 폭 게이지로 그리므로 false). */
+  /** The durability row (false for the grid card, which draws a full-width gauge). */
   durability?: boolean;
-  /** 소켓 줄 (격자 카드는 정사각 칸 줄로 그리므로 false). */
+  /** The socket row (false for the grid card, which draws a row of square slots). */
   sockets?: boolean;
-  /** 부착물 def id → 이름. 없으면 끼운 부착물 이름 대신 소켓 이름만 적는다. */
+  /** An attachment def id → its name. Without it, only the socket names are written instead of the fitted attachment names. */
   attachmentName?: (defId: string) => string | undefined;
 }
 
 /**
- * 무기 카드의 표 줄들. 순서는 두 카드에서 같다 — 게이지 넷 → 탄종 → 장전 → 발사 모드 → 배율 → 내구도 → 소켓.
- * 「롱혼」처럼 장전이 없는 유니크는 장전 줄을 뺀다 (지닌 화살을 한 발씩 바로 건다 — `1 / 1` 은 거짓말이다).
+ * The weapon card's table rows. The order is the same on both cards — the four gauges → ammo → loaded → fire mode → zoom
+ * → durability → sockets. A unique with no magazine like 「롱혼」 drops the loaded row (it nocks the arrows it carries one
+ * at a time — `1 / 1` would be a lie).
  */
 export function weaponTipRows(weapon: WeaponDef, stats: EffectiveWeaponStats, opts: WeaponTipRowOptions = {}): WeaponTipRow[] {
   const L = WEAPON_TIP_LABEL_KO;
@@ -101,8 +104,9 @@ export function weaponTipRows(weapon: WeaponDef, stats: EffectiveWeaponStats, op
 }
 
 /**
- * 받는 소켓 한 줄 — `총구(소음기) · 조준경 · 개머리판`. 받는 칸은 `stats.sockets` 하나가 정하고(무기표의 `sockets`
- * 열), 낀 것이 있으면 이름을 괄호로 붙인다. 받는 칸이 없는 유니크는 빈 문자열이다.
+ * The one row of accepted sockets — `총구(소음기) · 조준경 · 개머리판`. Which slots are accepted is decided by
+ * `stats.sockets` alone (the `sockets` column of the weapon table), and a fitted attachment's name is appended in
+ * brackets. A unique with no accepted slots gives an empty string.
  */
 export function weaponSocketText(
   stats: EffectiveWeaponStats, item?: ItemInstance | null, attachmentName?: (defId: string) => string | undefined,

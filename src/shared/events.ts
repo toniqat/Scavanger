@@ -1,36 +1,36 @@
 import type * as THREE from 'three';
 import type { GamePhase, ItemInstance, MissionStats, EnemyType, Stance, HubShipKind, ChatKind, PingKind, WeaponSlot, SocketSlot, StratagemId } from './types';
-/* appended (2026-09-09): 레이드 플레이 개선 — 구조물 · 재해 · 의사소통 휠 */
+/* appended (2026-09-09): raid play improvements — structures · hazards · the comms wheel */
 import type { StructureKind, HazardKind } from './types';
 /* appended (2026-09-11) */
 import type { LadderDef } from './types';
 import type { CommsId } from './comms';
 /* appended (Phase 10): varied enemy deaths / probabilistic corpse looting */
 import type { EnemyDeathDir } from './types';
-/* appended (2026-09-08): 폐금속 공급 — 고철 노드 */
+/* appended (2026-09-08): scrap metal supply — the scrap gather node */
 import type { GatherNodeKind } from './types';
 import type { LobbyErrorCode, LobbyState, PeerId } from './net';
 import type { EquipSlot, WeightState } from './gear';
 import type { ImplantId, ScanTarget } from './implants';
 import type { DeployableKind, GadgetId } from './gadgets';
-/* appended (2026-09-11): 드론 · 네임드 로그 */
+/* appended (2026-09-11): drones · named rogues */
 import type { DroneKind, DroneReleaseReason } from './drones';
 import type { NamedRogueType } from './named';
 import type { PlayerProfile, SkillId, StatId } from './progression';
 import type { EquippedImplant } from './progression';
 /* appended (2026-09-06): ship housing payloads */
 import type { FacilityId, PlacedFurniture, RoomPurpose, ShipState } from './housing';
-/* appended (2026-09-12): 서재 매체 (A-3e) · 헬스장 (A-3a) */
+/* appended (2026-09-12): library media (A-3e) · the gym (A-3a) */
 import type { GymMinigame, ShelfMedium } from './housing';
 import type { GymSessionResult, GymStat } from './progression';
 import type { FurniturePoseKind } from './types';
-/* appended (2026-09-12): 캐릭터 버프 */
+/* appended (2026-09-12): character buffs */
 import type { CharBuff } from './charBuffs';
-/* appended (2026-09-08): 튜토리얼 */
+/* appended (2026-09-08): the tutorial */
 import type { TutorialStepId } from './tutorial';
-/* appended (2026-09-15): 사망 원인 · 원인별 받은 피해 */
+/* appended (2026-09-15): the cause of death · damage taken by cause */
 import type { PlayerDamageSource } from './types';
-/* appended (2026-09-13): 요리 재료 티어 */
+/* appended (2026-09-13): cooking material tiers */
 import type { GrowSocketTarget, SampleFamily } from './types';
 
 /**
@@ -57,9 +57,10 @@ export interface GameEvents {
    */
   'game:paused': { paused: boolean; freeze?: boolean };
   /**
-   * appended (2026-09-13): Command — 일시정지 메뉴의 `함선으로 귀환` 이 경고 팝업의 1초 홀드 확정 뒤에 낸다. 레이드 중이면
-   * 그 자리에서 **완전히 사망**하고(진짜 사망과 같은 손실 — 분대는 시체에 남고 솔로는 전부 잃는다) 사망 연출 뒤 함선으로 간다.
-   * 레이드가 아니면(훈련장 · 강하 중 · 결과 화면) 예전처럼 곧장 `hub:enter`. Owner: game/ (`parts/Death.requestReturnToShip`).
+   * appended (2026-09-13): Command — the pause menu's `함선으로 귀환` emits it after the 1 s hold confirm on its warning
+   * popup. During a raid the player **dies fully** on the spot (the same loss as a real death — a squad leaves it on the
+   * corpse, a solo player loses everything) and goes to the ship after the death cinematic. Outside a raid (training ·
+   * mid-drop · the result screen) it goes straight to `hub:enter` as before. Owner: game/ (`parts/Death.requestReturnToShip`).
    */
   'game:returnToShip': Record<string, never>;
 
@@ -70,7 +71,7 @@ export interface GameEvents {
   /** A crate was interacted with; Inventory opens the container window. */
   'crate:open': {
     crateId: string; tier: number; position: THREE.Vector3;
-    /* appended (2026-09-14, NPC 퀘스트 search 목표): 구조물 · 선로 플랫폼 · 전차 컨테이너면 그 구역 id 와 종류. 월드 상자는 없음. */
+    /* appended (2026-09-14, the NPC quest `search` objective): for a structure · rail platform · tram container, that zone's id and kind. A world crate has none. */
     zoneId?: string; zoneKind?: StructureKind | 'platform' | 'tram';
   };
   'crate:looted': { crateId: string };   // emitted by inventory when container becomes empty
@@ -78,22 +79,22 @@ export interface GameEvents {
   /* ── player (owner: player/PlayerSystem) ────────────────────────────── */
   'player:spawned': { position: THREE.Vector3 };
   'player:healthChanged': { hp: number; maxHp: number; delta: number };
-  /** `source` appended (2026-09-15): 이 피해의 출처 (`PlayerRef.takeDamage` 의 셋째 인자 그대로). 생략 = 모름. */
+  /** `source` appended (2026-09-15): where this damage came from (exactly the third argument of `PlayerRef.takeDamage`). Omitted = unknown. */
   'player:damaged': { amount: number; hp: number; from?: THREE.Vector3; source?: PlayerDamageSource };
-  /** `source` appended (2026-09-15): 마지막 피해(막타)의 출처 — 전투불능 뒤 출혈사면 전투불능을 만든 피해의 출처. 생략 = 모름. */
+  /** `source` appended (2026-09-15): where the last (killing) damage came from — for a bleed-out after being downed, the source of the damage that downed the player. Omitted = unknown. */
   'player:died': { position: THREE.Vector3; source?: PlayerDamageSource };
   'player:stimUsed': { hp: number };
   'player:sprintChanged': { sprinting: boolean };
   'player:aimChanged': { aiming: boolean };
   'player:landed': { impactSpeed: number };
   /**
-   * appended (2026-09-14, owner: player): **낙하 피해**가 들어갔다 (전역 기능 — 튜토리얼 전용이 아니다).
-   * `height` = 실제로 떨어진 높이(m), `damage` = 실드 · 체력에서 깎인 합. `rule` 은 `ctx.world.tutorial?.fallRule()`
-   * 의 답이다 — 튜토리얼 절벽에서만 `'kill'`(즉사) · `'clamp'`(체력 1 아래로 안 내려간다)이고 그 밖에는 `'normal'`.
-   * 피해가 0 이면 발행하지 않는다 (안전 높이 안).
+   * appended (2026-09-14, owner: player): **fall damage** landed (a global feature — not tutorial-only).
+   * `height` = how far the body really fell (m), `damage` = the total taken off the shield and hp. `rule` is the answer
+   * of `ctx.world.tutorial?.fallRule()` — `'kill'` (instant death) · `'clamp'` (never below 1 hp) only on the tutorial's
+   * cliffs, `'normal'` everywhere else. Nothing is emitted when the damage is 0 (inside the safe height).
    */
   'player:fell': { height: number; damage: number; rule: import('./tutorialWorld').TutorialFallRule };
-  /** appended (2026-09-14, owner: player): 튜토리얼 오프닝 기상 연출이 끝나 조작이 돌아왔다. */
+  /** appended (2026-09-14, owner: player): the tutorial's opening wake-up cinematic ended and control is back. */
   'player:introWakeDone': Record<string, never>;
   'player:footstep': { position: THREE.Vector3; sprinting: boolean };
   /** 2026-09-09 (additive): `hold` = the current interactable has a `holdTime` — the prompt keycap gets a ⌄ chevron. */
@@ -131,8 +132,8 @@ export interface GameEvents {
   /** `deathDir` appended (Phase 10): which way the body went down (enemies/ decides it seeded, so it replicates). */
   'enemy:killed': {
     id: number; type: EnemyType; position: THREE.Vector3; by?: string | null; deathDir?: EnemyDeathDir;
-    /* appended (2026-09-14, NPC 퀘스트 kill 목표): `by === 'local'` 일 때 **내 막타**가 총기였으면 그 계열, 아니면 null (수류탄 · 가젯 · 근접 · 화상).
-       생략 = 모른다 (옛 경로) — 계열 조건이 있는 목표는 세지 않는다. 비호스트도 자기 킬에 채운다. */
+    /* appended (2026-09-14, the NPC quest `kill` objective): with `by === 'local'`, the class of **my killing blow** when it was a gun, else null (grenade · gadget · melee · burn).
+       Omitted = unknown (the old path) — an objective with a class condition does not count it. A non-host fills it in for its own kills too. */
     weaponClass?: WeaponClassForKill | null;
   };
   'enemy:attacked': { id: number; type: EnemyType; damage: number; position: THREE.Vector3 };
@@ -146,8 +147,8 @@ export interface GameEvents {
   'inventory:closed': Record<string, never>;
   'inventory:changed': { totalValue: number; itemCount: number };
   /**
-   * 2026-09-12 (appended optional): `fromStash` true = 함선 창고에서 가방으로 **옮긴** 것이다 (새로 얻은 것이 아니다).
-   * ui/hud/Notifications 는 그 줄에 획득 티커를 띄우지 않는다 (사용자 결정). 생략 = 예전 그대로 획득.
+   * 2026-09-12 (appended optional): `fromStash` true = the item was **moved** from the ship stash into the bag (it was
+   * not newly acquired). ui/hud/Notifications draws no pickup ticker for that line (user's decision). Omitted = acquired, as before.
    */
   'inventory:itemAdded': { item: ItemInstance; name: string; rarity: string; fromStash?: boolean };
   'inventory:itemRemoved': { item: ItemInstance };
@@ -161,9 +162,10 @@ export interface GameEvents {
   'extraction:shipLanded': { position: THREE.Vector3 };
   'extraction:boarded': Record<string, never>;
   /**
-   * 2026-09-13 (appended optional): `aboard` = **이 클라이언트의 플레이어가** 함선 안에 살아서 함께 떠났다 (생략 = true, 옛 의미).
-   * `squadDone` = 함선 밖에 살아 있는 분대원이 하나도 남지 않았다 — 레이드가 모두에게 끝났다 (솔로는 `aboard` 와 같다).
-   * 둘 다 false 면 이 사람은 남겨졌고 레이드가 계속된다 (`extraction:reset` 이 뒤따른다).
+   * 2026-09-13 (appended optional): `aboard` = **this client's player** was alive inside the ship and left with it
+   * (omitted = true, the old meaning). `squadDone` = not one squadmate is left alive outside the ship — the raid is over
+   * for everyone (for a solo player it equals `aboard`). Both false = this person was left behind and the raid goes on
+   * (`extraction:reset` follows).
    */
   'extraction:liftoff': { position: THREE.Vector3; aboard?: boolean; squadDone?: boolean };
   'extraction:doorsClosed': Record<string, never>;
@@ -604,23 +606,23 @@ export interface GameEvents {
 
   /* ══ appended: Phase 8 — UI/UX pass (2026-09-06) ══════════════════════════ */
 
-  /* ── 온실 재배 (owner: housing) ── */
+  /* ── greenhouse growing (owner: housing) ── */
   /** A plot of `uid` was planted, harvested or became ready. `ready` = how many plots of that rack can be harvested now. */
   'housing:growChanged': { uid: string; ready: number };
   /** The 재배층 panel opened / closed (blocker `housing`). */
   'ui:growToggled': { open: boolean; uid: string | null };
 
-  /* ── 함선 관리 (owner: housing, rendered by ui) ── */
-  /** 함선 관리 (M) opened / closed, and which room the camera is on. ui/ draws the room list + furniture bar from this. */
+  /* ── ship management (owner: housing, rendered by ui) ── */
+  /** Ship management (M) opened / closed, and which room the camera is on. ui/ draws the room list + furniture bar from this. */
   'housing:shipManageChanged': { active: boolean; room: number | null };
 
-  /* ── 설정 (owner: ui, applied by audio) ── */
+  /* ── settings (owner: ui, applied by audio) ── */
   /** A volume slider moved. audio/ persists; anything else that cares can react. */
   'audio:volumeChanged': { channel: AudioChannel; value: number };
   /** The 설정 screen opened / closed (inside the pause menu, no blocker of its own). */
   'ui:settingsToggled': { open: boolean };
 
-  /* ── 아이템 분해 (owner: inventory) ── */
+  /* ── item salvage (owner: inventory) ── */
   /** The modeless 분해 dialog opened / closed over the inventory window. */
   'ui:disassembleToggled': { open: boolean; uid: string | null };
 }
@@ -639,18 +641,18 @@ export interface GameEvents {
   /** A timed course ended. `completed` false = the clock ran out; `best` = best time after this run (seconds). */
   'training:courseFinished': { time: number; score: number; completed: boolean; best: number | null };
 
-  /* ── 서재 책장 (owner: housing) ── */
+  /* ── library bookshelf (owner: housing) ── */
   /** Books on shelf `uid` changed (`count` shelved); also fired when a shelf is recovered (count 0). */
   'housing:booksChanged': { uid: string; count: number };
   /** The 책장 panel opened / closed (blocker `housing`). */
   'ui:bookshelfToggled': { open: boolean; uid: string | null };
 }
 
-/* ══ appended: Phase 10 — UI 개선 pass (2026-09-07) ═════════════════════════════════════════════════════════ */
+/* ══ appended: Phase 10 — UI improvement pass (2026-09-07) ═════════════════════════════════════════════════════════ */
 import type { CarryEndReason } from './types';
 import type { CrewCardWire } from './net';
 export interface GameEvents {
-  /* ── 재장전 게이지를 크로스헤어로 (owner: weapons, drawn by ui/hud/ReloadGauge) ── */
+  /* ── the reload gauge moves onto the crosshair (owner: weapons, drawn by ui/hud/ReloadGauge) ── */
   /**
    * A reload was aborted before it finished (melee / swap / put-away / death / a unique taking over). Genuinely new:
    * `WeaponSystem.cancelReload()` used to be silent, and the bottom-right panel only got away with it because
@@ -658,7 +660,7 @@ export interface GameEvents {
    */
   'weapon:reloadCancelled': { weaponId: string };
 
-  /* ── 회복약 2초 홀드 (owner: weapons, drawn by ui/hud/HealGauge) ── */
+  /* ── the `회복약` 2 s hold (owner: weapons, drawn by ui/hud/HealGauge) ── */
   /**
    * 회복약 in hand: `holding` while LMB is down, `t` = 0..1 of the use time, `t: -1` on cancel. Same contract shape
    * as `grenade:holdChanged`, so the HUD gauge is a sibling of `CookGauge`.
@@ -668,17 +670,17 @@ export interface GameEvents {
    */
   'heal:holdChanged': { holding: boolean; t: number; dur?: number; spray?: boolean };
 
-  /* ── 지도 핑 (owner: ui — map screen → ping system, in-folder) ── */
+  /* ── map pings (owner: ui — map screen → ping system, in-folder) ── */
   /** A ping was asked for at a world position by a surface with no aim ray (tactical-map middle click). */
   'ping:requestAt': { position: THREE.Vector3; kind: PingKind };
-  /* ── appended (2026-09-09): 확인 핑 (owner: ui/hud/Pings) ── */
+  /* ── appended (2026-09-09): the acknowledge ping (owner: ui/hud/Pings) ── */
   /**
    * Somebody pinged an existing squad ping to say 알겠다. `id` = the acknowledged ping's local id (as in `ping:placedV2`),
    * `by` = the acker (null = the local player), `slot` = their lobby slot (colour). Fired for local and remote acks.
    */
   'ping:acked': { id: number; by: PeerId | null; name: string; slot: number };
 
-  /* ── 마우스 커서 모드 (owner: shared/cursor.ts + Input; the art is ui/hud/GameCursor) ── */
+  /* ── the mouse cursor mode (owner: shared/cursor.ts + Input; the art is ui/hud/GameCursor) ── */
   /**
    * A UI surface took / released the mouse. `owner` = the blocker token that asked for it, null on the last release.
    * 2026-09-07: cursor mode means the **pointer lock is released** and the real OS cursor is back (restyled in place),
@@ -686,7 +688,7 @@ export interface GameEvents {
    */
   'input:cursorModeChanged': { active: boolean; owner: string | null };
 
-  /* ── 컨테이너 실시간 루팅 (owner: inventory) ── */
+  /* ── live container looting (owner: inventory) ── */
   /**
    * A confirmed take removed units from this client's copy of a container. `live` true = it just happened (`cont taken`
    * or a local take) and the tile plays the float-up + fade-out; `live` false = a silent catch-up reconciliation
@@ -708,7 +710,7 @@ export interface GameEvents {
     live: boolean;
   };
 
-  /* ── 부상자 들쳐메기 (owner: player; the remote mirror is net's) ── */
+  /* ── shouldering a wounded squadmate (owner: player; the remote mirror is net's) ── */
   /** We shouldered a downed squadmate (`id` null = a host-simulated ghost body). */
   'player:carryStarted': { id: NetPeerId | null; name: string | null };
   /** The carried squadmate is back on the ground. */
@@ -716,7 +718,7 @@ export interface GameEvents {
   /** A squadmate picked up / put down another squadmate (HUD markers, 분대 목록). */
   'net:remoteCarryChanged': { id: NetPeerId; carrying: NetPeerId | null };
 
-  /* ── 발사 준비 패널 (owner: hub; the crew wire is net's) ── */
+  /* ── the launch READY panel (owner: hub; the crew wire is net's) ── */
   /** A member's ship-side card arrived / changed. The local player is included (`id === net.localId`). */
   'net:crewCard': { id: NetPeerId; card: CrewCardWire };
   /** A member answered `crewq loadout`; `loadout` is inventory's opaque document — validate before rendering. */
@@ -726,17 +728,17 @@ export interface GameEvents {
   /** A member's 장비 popup opened / closed from the READY panel; `peerId` null = closed. */
   'hub:crewLoadoutToggled': { open: boolean; peerId: NetPeerId | null };
 
-  /* ── 배리어 방패 (owner: implants) ── */
+  /* ── the barrier shield (owner: implants) ── */
   /** The shield was raised / lowered (distinct from the old deploy/stow of `implant:barrierChanged`). */
   'implant:barrierCarried': { up: boolean };
 }
 
-/* ══ appended: Phase 11 — 행성 선택 · 소셜 (2026-09-07) ══════════════════════════════════════════════════════ */
+/* ══ appended: Phase 11 — planet selection · social (2026-09-07) ══════════════════════════════════════════════════════ */
 import type { PlanetId } from './planets';
 import type { PlayOutcome, PlayerCode, SocialErrorCode, SocialSnapshot, SquadInvite, WhisperLine } from './social';
 
 export interface GameEvents {
-  /* ── 목표 행성 (owner: hub; world / core / enemies read `ctx.missionPlanet` instead) ── */
+  /* ── the target planet (owner: hub; world / core / enemies read `ctx.missionPlanet` instead) ── */
   /**
    * The ship's 목표 행성 changed and the travel cutscene has finished. `by` distinguishes my own terminal pick from a
    * squad-mate's (`'squad'` = the host changed it and my `lobby:state` brought it in).
@@ -752,7 +754,7 @@ export interface GameEvents {
   /** The full-screen terminal opened / closed (blocker `'hub'`, software cursor on). Replaces nothing — new. */
   'hub:terminalToggled': { open: boolean };
 
-  /* ── 소셜 (owner: net/SocialSync; drawn by ui/) ── */
+  /* ── social (owner: net/SocialSync; drawn by ui/) ── */
   /** A snapshot arrived. `first` = the one that came with `welcome` / the first `social:get` of this connection. */
   'social:updated': { snapshot: SocialSnapshot; first: boolean };
   /** A squad invite arrived (panel under the community thumbnail, P-hold to accept). */
@@ -775,10 +777,10 @@ export interface GameEvents {
   /** A social request was refused. `message` is the Korean line from `SOCIAL_ERROR_MESSAGE_KO`. */
   'social:error': { code: SocialErrorCode; message: string };
 
-  /* ── 커뮤니티 / 개인 대화 UI (owner: ui) ── */
+  /* ── the community / private chat UI (owner: ui) ── */
   /** The ship's top-right 커뮤니티 panel opened / closed (blocker `COMMUNITY_BLOCKER`). */
   'ui:communityToggled': { open: boolean };
-  /* appended (2026-09-07, 커서 rework): Alt freed / re-captured the mouse cursor with no screen behind it. */
+  /* appended (2026-09-07, the cursor rework): Alt freed / re-captured the mouse cursor with no screen behind it. */
   'ui:freeCursorToggled': { active: boolean };
   /**
    * Command: open the chat input in whisper mode aimed at `code` (the ESC screen's 개인 대화 closes itself and emits
@@ -786,7 +788,7 @@ export interface GameEvents {
    */
   'chat:whisperTo': { code: PlayerCode; name: string };
 
-  /* ══ appended: 2026-09-08 batch — 임플란트 아이템 · 배리어 · 정찰 · 총알 추적 · 재개 게이트 · 분해 게이지 ═══════ */
+  /* ══ appended: 2026-09-08 batch — implant items · the barrier · recon · bullet tracking · the resume gate · the salvage gauge ══ */
   /** Equipped 임플란트 items changed (owner: progression). `slots` = total, `used` = occupied. */
   'progress:implantsChanged': { equipped: readonly EquippedImplant[]; slots: number; used: number };
   /** 실드 배쉬 swung (owner: implants; audio / HUD). `hits` = enemies struck. */
@@ -801,11 +803,11 @@ export interface GameEvents {
    */
   'scan:cast': { position: THREE.Vector3; radius: number; duration: number; targets: ScanTarget[]; byLocal: boolean };
   /**
-   * 브라우저 전용 '좌측 클릭으로 게임 재개' gate (owner: game). Shown when the last cursor screen closed with Escape and
+   * The browser-only `좌측 클릭으로 게임 재개` gate (owner: game). Shown when the last cursor screen closed with Escape and
    * the pointer lock could not be re-taken (Chrome grants Escape no activation); hidden on the click that re-locks.
    */
   'ui:resumeGate': { shown: boolean };
-  /** 아이템 분해 progress 0..1 while the hold runs (owner: inventory; the 분해 panel draws its bar from this). */
+  /** Item salvage progress 0..1 while the hold runs (owner: inventory; the `분해` panel draws its bar from this). */
   'inventory:disassembleProgress': { uid: string; t: number; done: boolean };
   /**
    * Continuous-use item (회복 스프레이) channel started / stopped (owner: weapons). ui keeps **one** ticker alive for the
@@ -813,28 +815,29 @@ export interface GameEvents {
    */
   'item:channelChanged': { uid: string; defId: string; active: boolean; gauge: number };
 
-  /* ── appended (2026-09-08): 튜토리얼 (owner: tutorial) ── */
+  /* ── appended (2026-09-08): the tutorial (owner: tutorial) ── */
   /**
    * The tutorial started, advanced or ended. `step` is null when it is over; `index` / `count` are 1-based progress
    * for a readout. Every folder that hides or gates something during the tutorial re-reads `ctx.tutorial` here.
    */
   'tutorial:changed': {
     active: boolean; step: TutorialStepId | null; index: number; count: number;
-    /** appended (2026-09-14): 지금 도는 트랙 (`raid` · `ship` · `build`). 비활성이면 없다. */
+    /** appended (2026-09-14): the track currently running (`raid` · `ship` · `build`). Absent while inactive. */
     track?: import('./tutorial').TutorialTrack;
   };
   /**
    * The tutorial is over — completed (`skipped: false`) or waved off from the 건너뛰기 button / console.
-   * appended (2026-09-14): `track` = 끝난 트랙. 없으면 (옛 발행) `build`.
+   * appended (2026-09-14): `track` = the track that ended. Absent (an older emit) = `build`.
    */
   'tutorial:finished': { skipped: boolean; track?: import('./tutorial').TutorialTrack };
   /**
-   * appended (2026-09-14, owner: world/tutorial): 튜토리얼 월드의 체크포인트를 지났다 — 죽으면 여기서 다시 선다.
-   * `index` 는 `TUTORIAL_CHECKPOINTS` 안의 0-based 순번. 지난 곳을 되돌아가도 **번호가 내려가지 않는다**.
+   * appended (2026-09-14, owner: world/tutorial): a checkpoint of the tutorial world was passed — a death stands the
+   * player back up here. `index` is the 0-based position inside `TUTORIAL_CHECKPOINTS`. Walking back over an earlier one
+   * **never lowers the number**.
    */
   'tutorial:checkpoint': { id: import('./tutorialWorld').TutorialCheckpointId; index: number };
 
-  /* ── 화면 설정 (2026-09-08, owner: ui/menus/SettingsMenu) ── */
+  /* ── display settings (2026-09-08, owner: ui/menus/SettingsMenu) ── */
   /**
    * The 화면 설정 section changed (or was restored at startup). Applied by **`main.ts`**, the one place that holds the
    * `Engine`: bloom → `setPostProcessing`, shadows → `setShadows`, scale → `setResolutionScale`. `fullscreen` is
@@ -843,26 +846,26 @@ export interface GameEvents {
   'ui:displayChanged': { fullscreen: boolean; bloom: boolean; shadows: boolean; scale: number };
   /**
    * appended (2026-09-11, C-58): `core/Engine`'s perf guard turned a display option off **by itself** (sustained slow
-   * frames in the first 90 s). Fact only — nothing is persisted; the 설정 row shows it as `꺼짐 (성능 자동)` until the
+   * frames in the first 90 s). Fact only — nothing is persisted; the settings row shows it as `꺼짐 (성능 자동)` until the
    * player's next real change (`ui:displayChanged`) wins. Emitted at most once per boot.
    */
   'render:autoAdjusted': { bloom: false; reason: 'perf' };
 
-  /* ── 공용 함선 격납고 (2026-09-08) ── */
+  /* ── the shared ship's hangar (2026-09-08) ── */
   /**
    * Fact (net): a member's `ship state` arrived and `ctx.net.getShipVisit(id)` now answers. hub/ waits for this
    * when a bay was entered before the layout was known.
    */
   'net:shipVisit': { id: PeerId };
   /**
-   * Fact (hub): the player entered or left a 개인 함선 through a hangar bay. `peerId` = the ship's owner (our own id
+   * Fact (hub): the player entered or left a personal ship through a hangar bay. `peerId` = the ship's owner (our own id
    * for our own ship), null when we are back on the shared deck; `readOnly` marks someone else's ship.
    */
   'hub:shipVisit': { peerId: PeerId | null; readOnly: boolean };
 
-  /* ── 키 가이드 (2026-09-09) ── */
+  /* ── the key guide (2026-09-09) ── */
   /**
-   * 키 가이드 one-liner, bottom-right of the screen (drawn by `ui/hud/KeyGuide`; e.g. `R 회전 · X 버리기 · Tab 닫기`).
+   * The key guide's one-liner, bottom-right of the screen (drawn by `ui/hud/KeyGuide`; e.g. `R 회전 · X 버리기 · Tab 닫기`).
    * A screen / mode emits `{ owner, keys }` when it opens and whenever its keys change — labels are read at emit
    * time with `keyLabel(Keys.X)`, so re-emit on `input:bindingsChanged` — and `{ owner, keys: null }` when it closes.
    * The guide keeps a stack per `owner` and shows the most recently opened one (popups over a screen win).
@@ -874,7 +877,7 @@ export interface GameEvents {
    */
   'ui:keyGuide': { owner: string; keys: ReadonlyArray<KeyGuideEntry> | null };
 
-  /* ── 창문 워프 (2026-09-09): 행성 이동 is no longer a cutscene ── */
+  /* ── the window warp (2026-09-09): planet travel is no longer a cutscene ── */
   /**
    * Fact (hub): progress of the in-ship warp seen through the viewports, emitted every frame while `hub:travel` runs.
    * `t` = 0..1 of `HUB_TRAVEL_DURATION`; `speed` = 0..1 warp intensity (ramps up over `HUB_WARP_RAMP_S`, holds, ramps
@@ -884,174 +887,178 @@ export interface GameEvents {
    */
   'hub:warpProgress': { planet: PlanetId; t: number; speed: number };
 
-  /* ══ 2026-09-09: 사망/시체 · 구조선 · 분대장 · 전장의 안개 ═══════════════════════════════════════════════
+  /* ══ 2026-09-09: death / corpses · the rescue drop · the squad leader · the fog of war ═══════════════════════════════════════════════
    *
-   * **자동 부활은 사라졌다.** `player:died` 뒤에 30초 카운트다운은 없고 `game:respawnAvailable` 도 더는
-   * 발행되지 않는다 (계약에는 남는다 — 삭제 금지). 완전히 죽으면 시체가 되고, 되살아나는 길은
-   * 분대원이 부르는 `rescue_drop` 뿐이다.
+   * **The auto-revive is gone.** There is no 30 s countdown after `player:died` and `game:respawnAvailable` is no
+   * longer emitted either (it stays in the contract — never delete it). A full death turns the player into a corpse,
+   * and the only way back is a `rescue_drop` called by a squadmate.
    * ══════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-  /* ── 시체 (owner: game/parts/Corpses) ── */
+  /* ── corpses (owner: game/parts/Corpses) ── */
   /**
-   * Fact: 사망한 플레이어의 시체가 월드에 섰다. 수명 · 거리 컬링은 없다 — **비면** 사라진다 (2026-09-16, 아래 `corpse:playerEmptied`).
-   * 루팅은 `Interactable` `pcorpse:<owner>:<n>` → 기존 컨테이너 창(`inventory:containerOpened`)이 맡는다.
+   * Fact: a dead player's corpse stands in the world. There is no lifetime and no distance culling — it goes **when it
+   * is empty** (2026-09-16, `corpse:playerEmptied` below). Looting runs through the `Interactable` `pcorpse:<owner>:<n>`
+   * → the existing container window (`inventory:containerOpened`).
    */
   'corpse:playerSpawned': { id: string; ownerId: string; ownerName: string; position: THREE.Vector3; yaw: number };
   /**
-   * Fact: 그 시체에서 마지막 아이템까지 빠졌다 (빈손으로 선 시체는 선 순간). 프롬프트가 `비어 있음` 이 되고, 2026-09-16 부터
-   * `CORPSE_EMPTY_REMOVE_DELAY_S` 뒤 `CORPSE_EMPTY_SINK_S` 동안 땅으로 가라앉아 레이드에서 치워진다 (`CorpsesRef.get` → null).
+   * Fact: the last item left that corpse (for a corpse that stood up empty, the moment it stood). The prompt becomes
+   * `비어 있음`, and since 2026-09-16 it sinks into the ground over `CORPSE_EMPTY_SINK_S` after
+   * `CORPSE_EMPTY_REMOVE_DELAY_S` and is cleared from the raid (`CorpsesRef.get` → null).
    */
   'corpse:playerEmptied': { id: string; ownerId: string };
 
-  /* ── 구조선 투하 (owner: stratagems/parts/Rescue) ── */
-  /** Fact: 분대 공용 잔여 횟수가 바뀌었다 (미션 시작의 초기값 방송 포함). */
+  /* ── the rescue drop (owner: stratagems/parts/Rescue) ── */
+  /** Fact: the squad's shared remaining count changed (including the initial broadcast at mission start). */
   'rescue:countChanged': { left: number; total: number };
-  /** Fact: 구조선 호출이 확정됐다 (횟수는 이 시점에 차감된다). `target` = 되살아날 분대원의 PeerId. */
+  /** Fact: a rescue drop call was confirmed (the count is deducted at this point). `target` = the PeerId of the squadmate to be revived. */
   'rescue:called': { callId: string; target: string; targetName: string; by: string; position: THREE.Vector3; eta: number };
-  /** Fact: 구조 포드가 착륙해 그 분대원이 다시 섰다. */
+  /** Fact: the rescue pod landed and that squadmate is back on their feet. */
   'rescue:landed': { callId: string; target: string; position: THREE.Vector3 };
-  /** Command (ui → stratagems): 구조선 선택 화면에서 이 분대원을 고른다 (`null` = 선택 해제). */
+  /** Command (ui → stratagems): pick this squadmate on the rescue drop selection screen (`null` = deselect). */
   'rescue:selectTarget': { peerId: string | null };
 
-  /* ── 분대장(호스트) (owner: game/parts/Leader) ── */
-  /** Fact: 호스트가 완전히 사망해 시체 옆에 분대장 기기가 떨어졌다 (`Interactable` `leader_device`, 3초 홀드). */
+  /* ── the squad leader (the host) (owner: game/parts/Leader) ── */
+  /** Fact: the host died fully and the squad-leader device dropped beside the corpse (`Interactable` `leader_device`, a 3 s hold). */
   'leader:deviceDropped': { position: THREE.Vector3; hostId: string };
-  /** Fact: 누군가 기기를 집어 분대장을 이어받았다 (기기는 사라진다). */
+  /** Fact: somebody picked the device up and took over as squad leader (the device disappears). */
   'leader:deviceTaken': { by: string; byName: string };
-  /** Command (ui/hub → net): 이 분대원에게 분대장을 넘긴다 (커뮤니티 우클릭 · 함선 안 상호작용). */
+  /** Command (ui/hub → net): hand the squad leadership to this squadmate (right-click in the community panel · an interaction inside the ship). */
   'leader:transferRequested': { peerId: string };
 
-  /* ── 전장의 안개 (owner: world/Fog) ── */
+  /* ── the fog of war (owner: world/Fog) ── */
   /**
-   * Fact: 안개 마스크가 자랐다. 지도는 이 이벤트에만 반응해 캐시된 안개 레이어를 다시 그린다 —
-   * 매 프레임 `FogRef.mask` 를 훑지 않는다. `explored` = 0..1 탐색률.
+   * Fact: the fog mask grew. The map reacts to this event alone to repaint its cached fog layer — it does not scan
+   * `FogRef.mask` every frame. `explored` = the explored fraction, 0..1.
    */
   'fog:revealed': { revision: number; explored: number };
   /**
-   * Fact: 아직 못 보던 랜드마크를 처음 발견했다 (탈출 신호소 · 둥지 · 상자 …). 토스트 · 지도 아이콘 · 나침반이
-   * 이걸 기준으로 켜진다. `kind` 는 지도 마커의 종류와 같은 이름을 쓴다.
+   * Fact: a landmark that had not been seen was discovered for the first time (an extraction `신호소` · a nest · a
+   * crate …). The toast, the map icon and the compass all switch on from this. `kind` uses the same names as the map
+   * marker kinds.
    */
-  /* 2026-09-09 (레이드 플레이 개선): `structure` (버려진 전진기지 · 연구실 · 불시착 함선), `rail` (선로 · 플랫폼),
-     `grove` (거대 버섯 군락 = 독성 포자 발생지) 추가 — union 은 추가만 한다. */
+  /* 2026-09-09 (raid play improvements): added `structure` (an abandoned outpost · lab · crashed ship), `rail` (rails ·
+     platforms) and `grove` (a giant mushroom grove = a toxic spore source) — the union is add-only. */
   'fog:discovered': {
     kind: 'extraction' | 'nest' | 'crate' | 'outpost' | 'gather' | 'structure' | 'rail' | 'grove'
-      /* appended (2026-09-13): 탐사 차량 정류장 — `id` = `RoverStationDef.id`, `position` = 표지 기둥 */
+      /* appended (2026-09-13): a rover station — `id` = `RoverStationDef.id`, `position` = the marker pole */
       | 'rover';
     id: string; position: THREE.Vector3;
   };
 
-  /* ── 원격 강하 포드 (owner: player/RemotePlayerSystem) ── */
+  /* ── remote drop pods (owner: player/RemotePlayerSystem) ── */
   /**
-   * Fact: 원격 분대원의 강하 포드가 떨어지기 시작했다. `kind` 0 = 미션 시작, 1 = 구조선.
-   * 2026-09-09 이전에는 아군이 그냥 자리에 나타났다 — 이제 포드가 보인다.
+   * Fact: a remote squadmate's drop pod started to fall. `kind` 0 = the mission start, 1 = a rescue drop.
+   * Before 2026-09-09 an ally simply appeared on the spot — now the pod is visible.
    */
   'net:remotePodDrop': { id: string; position: THREE.Vector3; yaw: number; kind: 0 | 1 };
 
-  /* ══ 2026-09-09: 레이드 플레이 개선 — 의사소통 · 구조물 · 선로 · 재해 · 로그 강하 ═══════════════════════
-   * 소유 폴더는 각 절 머리에. 전부 **추가**이고 기존 이벤트는 손대지 않았다.
+  /* ══ 2026-09-09: raid play improvements — comms · structures · rails · hazards · rogue drops ═══════════════════════
+   * The owning folder is named at the head of each section. Everything is an **addition**; no existing event was touched.
    * ══════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-  /* ── 의사소통 휠 (owner: ui/hud/CommsWheel) ── */
+  /* ── the comms wheel (owner: ui/hud/CommsWheel) ── */
   /**
-   * Fact: 누군가 의사소통 휠에서 한 마디를 보냈다 (`H` 홀드 → 방향 선택 → 놓기). 로컬 · 원격 공통.
-   * 채팅 한 줄(`ChatKind 'request'`)과 오디오는 ui/ 가 이 이벤트 하나에서 만든다.
-   * `text` 는 이미 완성된 한국어 문장이다 — `contract` 처럼 숫자가 들어가는 문구는 **보낸 쪽이** 채워 보낸다.
-   * `position` = 보낸 사람의 위치 (원격은 마지막 스냅샷 위치), 알 수 없으면 null.
+   * Fact: somebody sent a line from the comms wheel (hold `H` → pick a direction → release). The same for local and
+   * remote. ui/ makes both the chat line (`ChatKind 'request'`) and the audio out of this one event.
+   * `text` is an already finished Korean sentence — a line that carries a number, like `contract`, is filled in **by the sender**.
+   * `position` = the sender's position (for a remote, their last snapshot position), null when it is unknown.
    */
   'comms:sent': {
     id: CommsId; text: string; by: string | null; byName: string; slot: number; position: THREE.Vector3 | null;
   };
-  /** Fact: 의사소통 휠이 열리고 닫혔다 (`downed` = 전투불능 2칸 배치). `hover` = 지금 가리키는 칸 index, 없으면 null. */
+  /** Fact: the comms wheel opened and closed (`downed` = the 2-slot downed layout). `hover` = the index of the slot currently pointed at, null when there is none. */
   'comms:wheelChanged': { open: boolean; downed: boolean; hover: number | null };
 
-  /* ── 지역 핑 휠 (owner: ui/hud/Pings) ── */
+  /* ── the local ping wheel (owner: ui/hud/Pings) ── */
   /**
-   * Fact: 핑 버튼을 누르고 있는 동안의 좌/우 휠이 열리고 닫혔다. `downed` 면 살려줘 / 나를 버려,
-   * 아니면 여기 조심해 / 저쪽으로 가자. `hover` 는 지금 향한 쪽.
+   * Fact: the left/right wheel held open while the ping button is down opened and closed. While `downed` it is
+   * `살려줘` / `나를 버려`, otherwise `여기 조심해` / `저쪽으로 가자`. `hover` is the side currently pointed at.
    */
   'ping:wheelChanged': { open: boolean; downed: boolean; hover: 'left' | 'right' | null };
 
-  /* ── 버려진 구조물 (owner: world/Structures) ── */
-  /** Fact: 구조물의 잠긴 문(전진기지 지하실 · 연구소 2층 잠긴 방)이 열쇠 · 키카드로 열렸다 (연 사람의 것이 1 개 소비된다). */
+  /* ── abandoned structures (owner: world/Structures) ── */
+  /** Fact: a structure's locked door (the outpost basement · the lab's locked room on the 2nd floor) was opened with a key / keycard (one of the opener's is consumed). */
   'structure:unlocked': { id: string; kind: StructureKind; by: string | null; position: THREE.Vector3 };
-  /** Fact: 구조물의 컴퓨터로 행성 스캔을 돌려 주변 `radius` m 의 안개가 걷혔다 (구조물당 1회). */
+  /** Fact: a planet scan was run from the structure's computer and the fog within `radius` m cleared (once per structure). */
   'structure:scanned': { id: string; kind: StructureKind; position: THREE.Vector3; radius: number };
   /**
-   * Fact: 플레이어가 구조물(또는 선로 플랫폼)의 컨테이너를 조사했다 — **로그 강하 추첨의 유일한 계기**다.
-   * `zoneId` 는 "구역당 1회" 를 세는 열쇠(구조물 id 또는 플랫폼 id)이고, enemies/ 가 이걸 듣고 굴린다.
+   * Fact: a player investigated a container of a structure (or a rail platform) — **the only trigger of the rogue drop roll**.
+   * `zoneId` is the key that counts "once per zone" (the structure id or the platform id), and enemies/ listens to it and rolls.
    */
   'structure:investigated': { zoneId: string; kind: StructureKind | 'platform'; position: THREE.Vector3 };
 
-  /* ── 선로 · 전차 (owner: world/Rails) ── */
-  /** Fact: 콘솔에서 전차에 시동이 걸렸다 (호스트가 확정한 뒤). */
+  /* ── rails · tram (owner: world/Rails) ── */
+  /** Fact: the tram was started from a console (after the host confirmed it). */
   'rail:tramStarted': { lineId: string; tramId: string; by: string | null };
-  /** Fact: 전차가 플랫폼에 정차했다 / 다시 출발했다. */
+  /** Fact: the tram stopped at a platform / set off again. */
   'rail:tramDocked': { tramId: string; platformId: string | null; docked: boolean };
 
-  /* ── 로그 강하 (owner: enemies/RogueDrop) ── */
-  /** Fact: 로그 강하가 예고됐다 (하늘의 포드 + 경보). `eta` = `ctx.time` 기준 착지까지 남은 초. */
+  /* ── rogue drops (owner: enemies/RogueDrop) ── */
+  /** Fact: a rogue drop was announced (the pod in the sky + the alarm). `eta` = seconds left until touchdown, on `ctx.time`. */
   'rogueDrop:incoming': { dropId: string; position: THREE.Vector3; count: number; boss: boolean; eta: number };
-  /** Fact: 포드가 착지해 로그들이 내렸다. */
+  /** Fact: the pod touched down and the rogues got out. */
   'rogueDrop:landed': { dropId: string; position: THREE.Vector3; count: number; boss: boolean };
 
-  /* ── 환경 재해 (owner: world/Hazard) ── */
-  /** Fact: 이번 레이드의 재해와 시작 시각이 정해졌다 (미션 시드에서, 월드 생성 직후 한 번). */
+  /* ── environmental hazards (owner: world/Hazard) ── */
+  /** Fact: this raid's hazard and its start time were decided (from the mission seed, once right after the world was generated). */
   'hazard:planned': { kind: HazardKind; startsAt: number };
-  /** Fact: 시작 `HAZARD_WARN_S` 초 전 예고. HUD 경고 · 오디오가 여기 붙는다. */
+  /** Fact: the warning `HAZARD_WARN_S` seconds before the start. The HUD warning and the audio hang off this. */
   'hazard:announced': { kind: HazardKind; secondsLeft: number };
-  /** Fact: 재해가 시작됐다. */
+  /** Fact: the hazard started. */
   'hazard:started': { kind: HazardKind };
-  /** Fact: 진행도가 바뀌었다 (초당 몇 번 수준으로만 발행한다 — 프레임마다 쏘지 않는다). `progress` 0..1. */
+  /** Fact: the progress changed (emitted only a few times per second — never per frame). `progress` 0..1. */
   'hazard:progress': { kind: HazardKind; progress: number };
-  /** Fact: 로컬 플레이어가 피해 구역에 들어갔다 / 나왔다. 시야 · 화면 효과 · 경고음이 여기 붙는다. */
+  /** Fact: the local player entered / left the damage zone. Sight range, screen effects and the warning sound hang off this. */
   'hazard:insideChanged': { inside: boolean; kind: HazardKind | null };
 
-  /* ── 대기 오버라이드 (owner: core/Atmosphere) ── */
+  /* ── the atmosphere override (owner: core/Atmosphere) ── */
   /**
-   * Command: 하늘 · 포그를 일시적으로 밀어붙인다. `fogMul` = 현재 행성 포그 농도의 배수(1 = 원래대로),
-   * `color` = 섞어 넣을 포그/하늘 색(0xRRGGBB, null = 그대로), `blend` = 0..1 섞는 정도.
-   * 재해가 이걸로 시야를 좁히고, 재해가 끝나면 `{fogMul:1, color:null, blend:0}` 로 되돌린다.
-   * core/ 는 마지막으로 받은 값 하나만 기억하고 매 프레임 팔레트 위에 얹는다.
+   * Command: push the sky and the fog temporarily. `fogMul` = a multiplier on the current planet's fog density
+   * (1 = as it was), `color` = the fog / sky colour to mix in (0xRRGGBB, null = leave it), `blend` = 0..1, how much.
+   * A hazard narrows the view with it and restores `{fogMul:1, color:null, blend:0}` when it ends.
+   * core/ remembers only the last value it received and lays it over the palette every frame.
    */
   'atmo:override': { fogMul: number; color: number | null; blend: number };
 
-  /* ══ appended (2026-09-10): 방탄복 = 실드 · 원격 발소리 · 위험 인디케이터 ══════════════════════ */
+  /* ══ appended (2026-09-10): armor = a shield · remote footsteps · danger indicators ══════════════════════ */
   /**
-   * Fact: 로컬 플레이어의 **실드**(방탄복이 주는 추가 체력)가 바뀌었다. `hp` 와 완전히 별개의 풀이고
-   * 피해는 실드 → 체력 순으로 들어간다. 방탄복을 벗으면 `maxShield: 0`, `rarity: null`.
-   * `rarity` · `tier` 는 좌하단 실드 게이지의 **칸 색과 칸 수**를 정한다 (`ARMOR_SHIELD_PER_SEGMENT` 당 한 칸).
-   * 장착 · 교체 · 피격 · 충전 · 스폰 어디서든 발행된다 (`delta` = 이번 변화량, 감소는 음수).
+   * Fact: the local player's **shield** (the extra hp armor gives) changed. It is a pool entirely separate from `hp`,
+   * and damage goes shield first, then hp. Taking the armor off gives `maxShield: 0`, `rarity: null`.
+   * `rarity` · `tier` decide the **segment colour and segment count** of the bottom-left shield gauge (one segment per
+   * `ARMOR_SHIELD_PER_SEGMENT`). Emitted from equipping, swapping, being hit, charging and spawning alike
+   * (`delta` = this change, negative when it fell).
    */
   'player:shieldChanged': { shield: number; maxShield: number; delta: number; rarity: Rarity | null; tier: number };
   /**
-   * Fact: **원격** 분대원의 발이 땅에 닿았다 (로컬 플레이어는 `player:footstep`). audio 가 거리 감쇠를
-   * 걸어 재생한다 — 발행하는 쪽은 거리를 재지 않는다.
+   * Fact: a **remote** squadmate's foot hit the ground (the local player uses `player:footstep`). audio plays it with
+   * the distance falloff applied — the emitting side measures no distance.
    */
   'remote:footstep': { position: THREE.Vector3; sprinting: boolean; peerId: PeerId };
 
-  /* ══ appended (2026-09-10): 서버 주소 ══════════════════════════════════════════════════════════ */
+  /* ══ appended (2026-09-10): the server address ══════════════════════════════════════════════════════════ */
   /**
-   * Fact: 접속할 릴레이 주소가 바뀌었다 (`설정 › 서버 설정`). `custom` = 사용자가 직접 적은 주소이고
-   * false 면 배포 기본값(같은 오리진 `/ws`)으로 되돌아간 것이다. **재접속은 이 이벤트가 하지 않는다** —
-   * `NetRef.reconnectRelay()` 를 부른 쪽이 한다.
+   * Fact: the relay address to connect to changed (`설정 › 서버 설정`). `custom` = an address the user typed; false
+   * means it fell back to the build default (the same origin, `/ws`). **This event does not reconnect** — whoever
+   * called `NetRef.reconnectRelay()` does.
    */
   'net:relayChanged': { url: string; custom: boolean };
 
-  /* ══ appended (2026-09-11): 사다리 · 깨지는 창 · 옥상 스캐너 ══════════════════════════════════════════ */
+  /* ══ appended (2026-09-11): ladders · breakable windows · the roof scanner ══════════════════════════════════════════ */
   /**
-   * Command → player: 로컬 플레이어가 이 사다리에 매달린다. `from` = 어디서 잡았나 (`bottom` 은 발치에서 오르기
-   * 시작, `top` 은 꼭대기에서 내려가기 시작). world 의 사다리 `Interactable` 이 낸다 — 사다리 정의를 통째로 싣는다.
+   * Command → player: the local player grabs this ladder. `from` = where it was grabbed (`bottom` starts the climb from
+   * the foot, `top` starts the descent from the top). Emitted by world's ladder `Interactable` — it carries the whole ladder def.
    */
   'ladder:grab': { ladder: LadderDef; from: 'bottom' | 'top' };
-  /** Fact: 로컬 플레이어가 사다리에 매달렸다(`ladderId`) / 내려왔다(null). */
+  /** Fact: the local player is on a ladder (`ladderId`) / got off it (null). */
   'player:climbChanged': { ladderId: string | null };
   /**
-   * Fact: 구조물 창문이 깨졌다 (이 클라이언트에서든 와이어로든). `byLocal` = 이 클라이언트가 깼다.
-   * world 가 콜라이더를 빼고 유리를 감춘 **뒤에** 낸다.
+   * Fact: a structure's window broke (on this client or over the wire). `byLocal` = this client broke it.
+   * Emitted **after** world removed the collider and hid the glass.
    */
   'structure:glassBroken': { structureId: string; index: number; position: THREE.Vector3; byLocal: boolean };
 
-  /* ══ appended (2026-09-11): 드론 · 원격 지뢰 · 설치 미리보기 · 네임드 로그 ═════════════════════════════════ */
+  /* ══ appended (2026-09-11): drones · remote mines · the placement preview · named rogues ═════════════════════════════════ */
   /** Fact: a drone appeared (local deploy or a replica spawn). Owner: gadgets/drones. `position` is the live vector. */
   'drone:deployed': { id: string; kind: DroneKind; owner: PeerId | 'local'; position: THREE.Vector3 };
   /** Fact: a drone left the world (destroyed · recovered by E hold · mission reset). Owner: gadgets/drones. */
@@ -1073,12 +1080,12 @@ export interface GameEvents {
    * of those changes (never per frame). `gadget` null = no `place` gadget in hand. Owner: gadgets. Read by ui/hud.
    */
   'gadget:placementChanged': { gadget: GadgetId | null; valid: boolean; reason: string | null; mount: string | null };
-  /* ── appended: 2026-09-15 (제세동기 조준, 사용자 결정) ── */
+  /* ── appended: 2026-09-15 (defibrillator aiming, user's decision) ── */
   /**
-   * 제세동기를 든 동안의 크로스헤어 상태. `charge` 0..1 = 준비 게이지(`DEFIB_USE_TIME_S` 를 채우는 동안),
-   * `armed` = 준비 완료(작은 원이 큰 원과 겹쳐 굵어진 상태), `target` = 지금 손을 떼면 일으킬 대상이 걸려 있다
-   * (`DEFIB_AIM_CONE_DEG` 안 · `GADGET_DEFIB_RANGE` 안의 쓰러진 아군). 손을 떼면 `armed:false` 로 닫는다.
-   * 그리는 곳은 `ui/hud/Reticle` 하나다.
+   * The crosshair's state while a defibrillator is in hand. `charge` 0..1 = the readiness gauge (while
+   * `DEFIB_USE_TIME_S` fills), `armed` = ready (the small circle has met the big one and thickened), `target` = letting
+   * go right now would revive somebody (a downed ally inside `DEFIB_AIM_CONE_DEG` and inside `GADGET_DEFIB_RANGE`).
+   * Letting go closes it with `armed:false`. It is drawn in one place, `ui/hud/Reticle`.
    */
   'gadget:defibAim': { armed: boolean; charge: number; target: boolean };
   /** Fact: a named rogue was placed this raid (authority emits on spawn, replicas on first sight of the type). Owner: enemies. */
@@ -1094,31 +1101,31 @@ export interface GameEvents {
   'named:sniperGlint': { enemyId: number; position: THREE.Vector3; targetLocal: boolean; duration: number };
 }
 
-/** One 키 가이드 entry (`ui:keyGuide`): `key` is the display label (`keyLabel(...)`), `label` the Korean action. */
+/** One key guide entry (`ui:keyGuide`): `key` is the display label (`keyLabel(...)`), `label` the Korean action. */
 export interface KeyGuideEntry {
   key: string;
   label: string;
   /** 2026-09-09: the key must be **held** (탑승 · 1초 홀드) — the guide draws a downward chevron over the keycap. */
   hold?: boolean;
   /**
-   * appended (2026-09-12): **다른 키로도 같은 행동**을 한다. 가이드는 `key 또는 alt[0] 또는 …` 로 그린다 — 키캡 사이의
-   * `또는` 은 작은 글씨다. 각 키는 자기 `hold` 를 갖는다 (예: `E` 탭 또는 `LMB` 꾹 = 위치 이동).
+   * appended (2026-09-12): **another key does the same thing**. The guide draws it as `key 또는 alt[0] 또는 …` — the
+   * `또는` between the keycaps is set small. Each key carries its own `hold` (e.g. tap `E` or hold `LMB` = move a piece).
    */
   alt?: ReadonlyArray<KeyGuideKey>;
   /**
-   * appended (2026-09-12): **함께 눌러야 하는** 키 (`Ctrl + R`). 가이드는 `key + combo[0] + …` 로 그린다 — `+` 는 작은 글씨다.
-   * 지금 쓰는 곳은 없지만 규칙이 먼저 정해졌다 (사용자 결정).
+   * appended (2026-09-12): a key that must be **pressed together** with it (`Ctrl + R`). The guide draws it as
+   * `key + combo[0] + …` — the `+` is set small. Nothing uses it yet, but the rule was fixed first (user's decision).
    */
   combo?: ReadonlyArray<string>;
 }
 
-/** appended (2026-09-12): `KeyGuideEntry.alt` 의 키 하나. */
+/** appended (2026-09-12): one key of `KeyGuideEntry.alt`. */
 export interface KeyGuideKey {
   key: string;
   hold?: boolean;
 }
 
-/* ══ appended: 2026-09-11 — 소셜 · 신뢰 · 연결 (커밋 `9bd72ce`(계약) · `b3fc2f0`(구현)) ══ */
+/* ══ appended: 2026-09-11 — social · trust · connection (commits `9bd72ce` — the contract · `b3fc2f0` — the implementation) ══ */
 import type { InviteOutcome } from './social';
 import type { NetLinkInfo, NetLinkState } from './net';
 import type { ProfileDocKey } from './profile';
@@ -1148,571 +1155,616 @@ export interface GameEvents {
   'enemy:squadKill': { id: number; type: EnemyType; position: THREE.Vector3; by: PeerId };
 }
 
-/* ══ appended: 2026-09-11 — 연구실 · 가구 강화 (A-11 · A-12 · A-13 · B-13) ══ */
+/* ══ appended: 2026-09-11 — the lab · furniture upgrades (A-11 · A-12 · A-13 · B-13) ══ */
 import type { EnvKind } from './types';
 export interface GameEvents {
   /**
-   * A-12 (owner: housing): 한 분석기의 해석 상태가 바뀌었다 (넣기 · 회수 · 취소 · 강화 · 도감 추가).
-   * `ready` = 지금 회수할 수 있는 칸 수 — `housing:growChanged` 와 같은 모양이라 hub 의 발광 · ui 의 배지가 같은 길로 간다.
+   * A-12 (owner: housing): one analyzer's analysis state changed (inserting · collecting · cancelling · upgrading · a
+   * catalogue entry). `ready` = how many cells can be collected right now — the same shape as `housing:growChanged`, so
+   * hub's glow and ui's badge take the same road.
    */
   'housing:analysisChanged': { uid: string; ready: number };
   /**
-   * A-12 (owner: housing): 해석 도감에 표본이 처음 들어갔다. ui/ 가 토스트 하나를 띄운다.
+   * A-12 (owner: housing): a sample entered the analysis catalogue for the first time. ui/ raises one toast.
    */
   'housing:sampleDexAdded': { defId: string };
   /**
-   * B-13 (owner: hub — 시설 관리 카메라의 레이캐스트): 배치된 가구를 클릭했다. `uid: null` = 빈 곳을 클릭해 선택이 풀렸다.
-   * ui/hud/ShipManage 가 이것으로 **클릭 인스펙터**(이름 · 레벨 · 다음 강화 비용 · 강화)를 띄우고 닫는다.
-   * 배치 모드에서 조각을 집어 옮기는 기존 경로와는 별개다 — 인스펙터는 아무것도 옮기지 않는다.
+   * B-13 (owner: hub — the ship management camera's raycast): a placed piece of furniture was clicked. `uid: null` =
+   * empty space was clicked and the selection was released. ui/hud/ShipManage opens and closes the **click inspector**
+   * (name · level · next upgrade cost · upgrade) from this. It is separate from the existing path that picks a piece up
+   * and moves it in placement mode — the inspector moves nothing.
    */
   'housing:furnitureSelected': { uid: string | null };
   /**
-   * A-13 (owner: player): 행성 상시 환경의 노출 상태가 바뀌었다. `env: null` = 환경이 없는 행성이거나 함선.
-   * `protected` = 맞는 준비물이 실려 있어 피해가 0 이다. ui/ 의 환경 배지가 유일한 소비자다.
+   * A-13 (owner: player): exposure to the planet's permanent environment changed. `env: null` = a planet with no
+   * environment, or the ship. `protected` = the matching preparation is aboard, so the damage is 0. ui/'s environment
+   * badge is the only consumer.
    */
   'player:envChanged': { env: EnvKind | null; protected: boolean };
-  /** A-13 (owner: progression): 준비물 대기분 / 이번 레이드분이 바뀌었다. ui/ 의 출격 준비 화면과 HUD 배지가 다시 그린다. */
+  /** A-13 (owner: progression): the waiting / this-raid preparations changed. ui/'s launch prep screen and the HUD badge redraw. */
   'progress:prepChanged': { prep: readonly string[]; active: readonly string[] };
 }
 
-/* ══ appended: 2026-09-11 — 주방 · 배양조 · 프린터 (A-3c · A-14 · A-15) ══ */
+/* ══ appended: 2026-09-11 — the kitchen · culture tank · printer (A-3c · A-14 · A-15) ══ */
 export interface GameEvents {
   /**
-   * A-3c (owner: progression): 식사 대기분 / 이번 레이드분이 바뀌었다 (먹기 · 차려 받기 · 출격 · 레이드 종료).
-   * `null` = 안 먹었다. ui/ 의 식사 배지와 식탁 화면이 다시 그린다.
+   * A-3c (owner: progression): the waiting / this-raid meal changed (eating · being served · launch · raid end).
+   * `null` = nothing eaten. ui/'s meal badge and the dining table screen redraw.
    */
-  'progress:mealChanged': { meal: string | null; active: string | null; /* 2026-09-13 요리 품질 (생략 = 0) */ mealQuality?: number; activeQuality?: number };
+  'progress:mealChanged': { meal: string | null; active: string | null; /* 2026-09-13 cooking quality (omitted = 0) */ mealQuality?: number; activeQuality?: number };
   /**
-   * A-14 (owner: housing): 한 배양조의 상태가 바뀌었다 (배지 · 세포주 · 수확 · 강화).
-   * `ready` = 지금 수확할 수 있는 칸 수 — `housing:growChanged` · `housing:analysisChanged` 와 같은 모양이다.
+   * A-14 (owner: housing): one culture tank's state changed (medium · cell line · harvest · upgrade).
+   * `ready` = how many cells can be harvested right now — the same shape as `housing:growChanged` · `housing:analysisChanged`.
    */
   'housing:cultureChanged': { uid: string; ready: number };
   /**
-   * A-3c (owner: housing — 공유 함선 식탁의 `분대에 차리기`): 분대에 식사를 차렸다. net/ 이 이것을 보고
-   * `meal serve` 를 띄우고, **로비 호스트가 재방송한 것만** 받는 쪽의 `progression.serveMeal` 로 간다
-   * (「남에게 영향 주는 메시지는 권위에서만 받는다」 E-4). `by` = 차린 사람의 표시 이름 (토스트용).
+   * A-3c (owner: housing — `분대에 차리기` on the shared ship's dining table): a meal was served to the squad. net/
+   * sees this and sends `meal serve`; **only what the lobby host rebroadcast** reaches the receiver's
+   * `progression.serveMeal` (「a message that affects others is accepted only from the authority」 E-4). `by` = the
+   * display name of whoever served it (for the toast).
    */
-  'housing:mealServed': { defId: string; by: string; /* 2026-09-13 요리 품질 (생략 = 0) */ quality?: number };
-  /** A-15 (owner: inventory): 주머니 장착 · 내용물이 바뀌었다. ui/ 가 퀵슬롯 아래 격자를 다시 그린다. */
+  'housing:mealServed': { defId: string; by: string; /* 2026-09-13 cooking quality (omitted = 0) */ quality?: number };
+  /** A-15 (owner: inventory): a pouch was equipped or its contents changed. ui/ redraws the grid below the quick slots. */
   'inventory:pouchChanged': Record<string, never>;
 }
 
-/* ══ appended: 2026-09-16 — 식탁 접시 (요리는 아이템이 아니다 — `shared/housing.ts` 의 접시 절) ══ */
+/* ══ appended: 2026-09-16 — the dining plate (a meal is not an item — the plate section of `shared/housing.ts`) ══ */
 export interface GameEvents {
   /**
-   * owner: housing — 내 함선 식탁의 접시가 바뀌었다. `reason`: `cooked` 조리 완료 · `raid` 레이드 시작에 치움 · `profile` 서버 사본으로 교체 ·
-   * `dev` 콘솔 · 스모크. net 이 공유 함선의 분대원에게 알린다 (`plate state`).
+   * owner: housing — the plate on my ship's dining table changed. `reason`: `cooked` a cook finished · `raid` cleared
+   * at raid start · `profile` replaced by the server copy · `dev` console · smoke. net tells the squadmates in the
+   * shared ship (`plate state`).
    */
   'housing:plateChanged': { plate: import('./housing').DiningPlate | null; reason: 'cooked' | 'raid' | 'profile' | 'dev' };
-  /** owner: housing — 어느 식탁이든 그 위의 접시 목록이 바뀌었다 (내 접시 · 분대원 접시). hub 가 3D 접시를, 식탁 화면이 목록을 다시 그린다. */
+  /** owner: housing — the list of plates on some dining table changed (mine · a squadmate's). hub redraws the 3D plates, the table screen its list. */
   'housing:tablePlatesChanged': { count: number };
   /**
-   * owner: net — 분대원 한 명의 접시가 왔다 (`plate state`, 모양 검사를 지난 것). `plate` null = 접시 없음 · 떠났다.
-   * `fresh` = 그 사람이 방금 요리했다 (토스트는 ui 가 이것만 띄운다 — 합류할 때 받는 목록은 조용하다). `id` = PeerId.
+   * owner: net — one squadmate's plate arrived (`plate state`, past the shape check). `plate` null = no plate · they
+   * left. `fresh` = that person just cooked (ui toasts only this one — the list received on joining is silent).
+   * `id` = PeerId.
    */
   'net:squadPlate': { id: string; name: string; plate: import('./housing').DiningPlate | null; fresh: boolean };
 }
 
-/* ══ appended: 2026-09-12 — 시설 관리 가구 위치 이동 ══ */
+/* ══ appended: 2026-09-12 — moving furniture in ship management ══ */
 export interface GameEvents {
   /**
-   * (owner: ui — `hud/ShipManage` 인스펙터의 `위치 이동` 버튼): 배치된 조각 `uid` 를 **위치 이동 상태**로 들어 달라.
-   * hub/ 의 `HousingMode` 가 유일한 소비자다 — E 키로 들어가는 것과 같은 길을 탄다.
+   * (owner: ui — the `위치 이동` button in the `hud/ShipManage` inspector): please pick the placed piece `uid` up into
+   * the **move state**. hub/'s `HousingMode` is the only consumer — it takes the same road as entering with the E key.
    */
   'housing:moveRequested': { uid: string };
   /**
-   * (owner: hub — `HousingMode`): 시설 관리의 **위치 이동 상태**가 바뀌었다. `active` = 커서에 가구가 들려 있다
-   * (배치된 조각을 옮기는 중이면 `uid`, 가구 창고에서 새로 놓는 중이면 `uid: null` + `defId`).
+   * (owner: hub — `HousingMode`): ship management's **move state** changed. `active` = a piece of furniture is held on
+   * the cursor (`uid` while moving a placed piece, `uid: null` + `defId` while placing a new one from the stash).
    */
   'housing:moveStateChanged': { active: boolean; uid: string | null; defId: string | null };
   /**
-   * (owner: hub — `HousingMode`): 위치 이동 상태에서 놓을 수 없는 곳을 클릭했다. ui/hud/ShipManage 가 인스펙터
-   * **위쪽**에 짧은 토스트로 띄운다 (전역 `ui:notify` 가 아닌 이유 — 사용자가 본 자리 바로 위에 떠야 한다).
+   * (owner: hub — `HousingMode`): a spot that cannot take the piece was clicked while in the move state.
+   * ui/hud/ShipManage shows it as a short toast **above** the inspector (why not the global `ui:notify` — it has to
+   * appear right above the spot the user was looking at).
    */
   'housing:placeRefused': { reason: string };
   /**
-   * appended (2026-09-12, owner: hub — `HousingMode`): 시설 관리에서 놓인 가구를 **LMB 로 꾹 누르는 중**이다.
-   * `progress` 0 … 1 (`HOUSING_MOVE_HOLD_S` 동안 차오른다), `null` = 누르기가 끝났다 · 취소됐다 · 1 에 닿아 위치 이동 상태로
-   * 들었다. ui/ 가 **커서 위치를 중심으로** 원형 게이지를 그린다 (좌표는 ui 가 `ctx.input.uiX/uiY` 로 읽는다).
+   * appended (2026-09-12, owner: hub — `HousingMode`): a placed piece is **being held with LMB** in ship management.
+   * `progress` 0 … 1 (fills over `HOUSING_MOVE_HOLD_S`), `null` = the hold ended · was cancelled · reached 1 and picked
+   * the piece up into the move state. ui/ draws a ring gauge **centred on the cursor** (ui reads the coordinates itself
+   * from `ctx.input.uiX/uiY`).
    */
   'housing:moveHold': { progress: number | null };
 }
 
-/* ══ appended: 2026-09-12 — 서재 매체 (A-3e) · 헬스장 (A-3a). docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」 ══ */
+/* ══ appended: 2026-09-12 — library media (A-3e) · the gym (A-3a). docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」 ══ */
 export interface GameEvents {
   /**
-   * (owner: housing) 보관함 `uid` 에 꽂힌 것이 바뀌었다 — 책장 · 디스크 전시대 · 레코드랙 공통 (책장은 `housing:booksChanged` 도
-   * 그대로 낸다). 보관함을 회수하면 `count: 0`.
+   * (owner: housing) what is shelved in holder `uid` changed — shared by the bookshelf · disc stand · record rack (the
+   * bookshelf still emits `housing:booksChanged` as well). Collecting the holder gives `count: 0`.
    */
   'housing:shelfChanged': { uid: string; medium: ShelfMedium; count: number };
-  /** (owner: housing) 디스크 전시대 · 레코드랙 화면이 열렸다 / 닫혔다 (책장은 여전히 `ui:bookshelfToggled`). */
+  /** (owner: housing) the disc stand · record rack screen opened / closed (the bookshelf is still `ui:bookshelfToggled`). */
   'ui:shelfToggled': { open: boolean; uid: string | null; medium: ShelfMedium | null };
-  /** (owner: housing) TV · 레코드 플레이어를 켰다 / 껐다. hub 가 그 조각의 화면 · 램프 재질을 바꾼다 (광원 없음). */
+  /** (owner: housing) the TV · record player was turned on / off. hub swaps that piece's screen · lamp material (no light source). */
   'housing:furnitureToggled': { uid: string; on: boolean };
   /**
-   * (owner: housing) 운동 세션이 시작됐다(`active: true`) / 끝났다(`false`). `completed` = 끝까지 해서 점수가 반영됐다 (취소면 false).
-   * hub 가 이것을 보고 바벨에 원반을 끼우고 `ctx.player.setFurniturePose` 로 자세 · 고정 카메라를 건다 / 푼다.
+   * (owner: housing) a workout session started (`active: true`) / ended (`false`). `completed` = it was played to the
+   * end and the score counted (false on a cancel). hub sees this, loads the plates onto the barbell and raises /
+   * releases the pose and the fixed camera through `ctx.player.setFurniturePose`.
    */
   'housing:gymSession': { uid: string; active: boolean; stat: GymStat; minigame: GymMinigame; completed: boolean };
   /**
-   * (owner: housing) 미니게임 판정 한 번. hub 가 바벨 · 페달 · 몸 동작을 여기에 맞추고 audio 가 소리를 낸다.
-   * `index` 0 부터, `total` = 이 세션의 판정 수.
+   * (owner: housing) one minigame judgement. hub matches the barbell · pedal · body motion to it and audio plays the
+   * sound. `index` from 0, `total` = how many judgements this session has.
    */
   'housing:gymBeat': { uid: string; minigame: GymMinigame; quality: 'perfect' | 'good' | 'miss'; index: number; total: number };
-  /** (owner: housing) 세션 결과 — `ProgressionRef.applyGymSession` 이 돌려준 그대로. */
+  /** (owner: housing) the session result — exactly what `ProgressionRef.applyGymSession` returned. */
   'housing:gymResult': { uid: string; result: GymSessionResult };
-  /** (owner: progression) 단련 보너스 · 진행도가 움직였다. `value` = 단련 보너스, `delta` = 이번에 더한 경험치. */
+  /** (owner: progression) the training bonus · its progress moved. `value` = the training bonus, `delta` = the XP added this time. */
   'progress:trainedChanged': { id: GymStat; value: number; progress: number; delta: number };
-  /** (owner: progression) 운동 디버프가 걸렸다. `until` = epoch ms. 만료는 시각의 함수라 이벤트가 없다. */
+  /** (owner: progression) the workout debuff was raised. `until` = epoch ms. Expiry is a function of the clock, so it has no event. */
   'progress:gymFatigue': { id: GymStat; until: number };
   /**
-   * (owner: player) 가구 자세가 풀렸다 — `interact` = E 로 일어났다 (흔들의자), `caller` = `setFurniturePose(null)`,
-   * `reset` = 페이즈 변경 · 스폰 · `game:abort` · `hub:left`.
+   * (owner: player) a furniture pose was released — `interact` = stood up with E (the rocking chair),
+   * `caller` = `setFurniturePose(null)`, `reset` = a phase change · a spawn · `game:abort` · `hub:left`.
    */
   'player:furniturePoseEnded': { kind: FurniturePoseKind; reason: 'interact' | 'caller' | 'reset' };
 }
 
-/* ══ appended: 2026-09-12 — 캐릭터 버프. docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」 ══ */
+/* ══ appended: 2026-09-12 — character buffs. docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」 ══ */
 export interface GameEvents {
-  /** (owner: player) 내 버프 목록이 바뀌었다 — `PlayerRef.buffs` 와 같은 배열. ui 의 버프 줄과 net 의 `cbuf state` 가 듣는다. */
+  /** (owner: player) my buff list changed — the same array as `PlayerRef.buffs`. ui's buff row and net's `cbuf state` listen. */
   'player:buffsChanged': { buffs: readonly CharBuff[]; revision: number };
-  /** (owner: net) 분대원 `id` 의 버프 목록이 바뀌었다 (`RemotePlayerRef.buffs` 와 같은 배열). ui 의 분대 목록이 듣는다. */
+  /** (owner: net) squadmate `id`'s buff list changed (the same array as `RemotePlayerRef.buffs`). ui's squad list listens. */
   'net:remoteBuffsChanged': { id: PeerId; buffs: readonly CharBuff[] };
 }
 
-/* ══ appended: 2026-09-12 — 하이브리드 사격 판정 · 총구 막힘 표시 ══ */
+/* ══ appended: 2026-09-12 — hybrid shot resolution · the muzzle-blocked indicator ══ */
 export interface GameEvents {
   /**
-   * (owner: weapons/parts/AimLine) 총구가 앞 `WEAPON_MUZZLE_BLOCK_RANGE` m 안의 벽 · 창틀 · 엄폐물에 걸려 크로스헤어대로
-   * 나가지 않는다(`true`) / 다시 트였다(`false`). 바뀔 때만 나간다. 벽의 빨간 원(weapons)과 크로스헤어 경고색
-   * (ui/hud/Reticle)이 같은 판정을 본다 — 실제 사격도 그 판정 그대로 맞는다.
+   * (owner: weapons/parts/AimLine) the muzzle is caught on a wall · window frame · piece of cover within
+   * `WEAPON_MUZZLE_BLOCK_RANGE` m ahead, so the shot will not follow the crosshair (`true`) / it is clear again
+   * (`false`). Emitted only on a change. The red circle on the wall (weapons) and the crosshair's warning colour
+   * (ui/hud/Reticle) look at the same judgement — and the real shot lands by that judgement too.
    */
   'weapon:aimBlocked': { blocked: boolean };
 }
 
-/* ══ appended: 2026-09-12 — 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스. docs/DECISIONS.md 「2026-09-12 — 전투 소모품」 ══
- * 병렬 에이전트마다 **자기 블록 안에만** 추가한다 (`export interface GameEvents { … }` 를 그 안에 쓴다). 블록 순서를 바꾸지 않는다. */
-/* ── [A1] 소모품 3종 ── */
+/* ══ appended: 2026-09-12 — consumables · implants · keys · drone scan · favorites · the gym. docs/DECISIONS.md 「2026-09-12 — 전투 소모품」 ══
+ * Each parallel agent appends **only inside its own block** (writing `export interface GameEvents { … }` in there). The block order is never changed. */
+/* ── [A1] the three consumables ── */
 /* ── end [A1] ── */
-/* ── [A2] 조준 흔들림 ── */
+/* ── [A2] aim sway ── */
 /* ── end [A2] ── */
-/* ── [B] 전술 임플란트 · 함선 호출 준비 연출 ── */
+/* ── [B] tactical implants · the ship-call ready effect ── */
 export interface GameEvents {
   /**
-   * (owner: implants) 로컬 임플란트가 **쓸 수 있게 된 순간**. 쿨타임이 끝나 충전 하나가 돌아왔다(`full` false = 충전형의 중간
-   * 충전 — 대시 3칸 중 1 · 2칸째), 배리어 붕괴 잠금이 풀렸다, 오버차지 에너지가 가득 찼다, 또는 `ImplantsRef.refillAll`
-   * (`refill` true — 이미 가득이어도 나간다). **게임플레이 페이즈에서만** 나간다 — 미션 시작 · 리셋 · 장착으로 처음부터 가득인
-   * 것은 준비되는 순간이 아니다. ui 의 준비 플래시(`hud/ImplantWidget`)와 audio 의 `implant_ready` 가 듣는다.
+   * (owner: implants) **the moment** a local implant became usable. A cooldown ended and one charge came back
+   * (`full` false = a mid charge of a charge-based implant — the 1st · 2nd of the dash's 3), the barrier's collapse lock
+   * was released, overcharge energy filled up, or `ImplantsRef.refillAll` (`refill` true — emitted even when already
+   * full). Emitted **only in a gameplay phase** — being full from the start because of a mission start · reset ·
+   * equipping is not a moment of becoming ready. ui's ready flash (`hud/ImplantWidget`) and audio's `implant_ready`
+   * listen.
    */
   'implant:ready': { id: ImplantId; charges: number; maxCharges: number; full: boolean; refill: boolean };
   /**
-   * (owner: implants) 갈고리 쿨타임 환급이 적용됐다 — 남은 쿨타임이 `seconds` 만큼 줄었다. `ratio` 는 규칙이 준 비율
-   * (실효 쿨타임 대비, `IMPLANT_GRAPPLE_REFUND_*` · `_CANCEL_*`). HUD 의 초록 `−N초` 가 듣는다.
+   * (owner: implants) a grapple cooldown refund was applied — the remaining cooldown dropped by `seconds`. `ratio` is
+   * the fraction the rule gave (against the effective cooldown, `IMPLANT_GRAPPLE_REFUND_*` · `_CANCEL_*`). The HUD's
+   * green `−N초` listens.
    */
   'implant:cooldownRefunded': { id: ImplantId; seconds: number; ratio: number };
   /**
-   * (owner: stratagems) 공유 함선 호출 쿨타임이 0 이 된 순간 — 게임플레이 페이즈에서만. `refunded` = 호스트 거절 환불
-   * (`refundCooldown`)로 0 이 됐다: audio 는 이때 `stratagem_ready` 를 내지 않는다 (거절음이 이미 났다).
+   * (owner: stratagems) the moment the shared ship-call cooldown reached 0 — only in a gameplay phase. `refunded` = it
+   * reached 0 through the host-denial refund (`refundCooldown`): audio does not play `stratagem_ready` then (the denial
+   * sound already played).
    */
   'stratagem:ready': { refunded: boolean };
 }
 /* ── end [B] ── */
-/* ── [C] 열쇠 · 키카드 · 잠긴 방 · 개구멍 ── */
+/* ── [C] keys · keycards · locked rooms · crawl holes ── */
 /* ── end [C] ── */
-/* ── [D] 지상드론 스캔 ── */
+/* ── [D] ground drone scan ── */
 import type { DroneScanTargetKind } from './drones';
 export interface GameEvents {
   /**
-   * (owner: gadgets/drones `parts/Scan`) 드론 스캔 결과가 생겼다 · 바뀌었다 — 내 스캔(`local`)과 분대원 스캔 모두. `id` = 대상
-   * `Interactable.id`, `rarity` null = 비어 있음, `position` = 대상의 살아 있는 벡터. 라벨은 `DronesRef.getScanResults` 를 읽는다.
+   * (owner: gadgets/drones `parts/Scan`) a drone scan result appeared · changed — both my scan (`local`) and a
+   * squadmate's. `id` = the target's `Interactable.id`, `rarity` null = empty, `position` = the target's live vector.
+   * Labels are read from `DronesRef.getScanResults`.
    */
   'drone:scanned': { id: string; kind: DroneScanTargetKind; name: string; rarity: Rarity | null; position: THREE.Vector3; local: boolean; byName: string };
 }
 /* ── end [D] ── */
-/* ── [E1] 즐겨찾기 코어 ── */
+/* ── [E1] the favorites core ── */
 export interface GameEvents {
   /**
-   * 2026-09-12 (E1): 아이템 **종류(def id)** 하나의 즐겨찾기가 켜지거나 꺼졌다 (`InventoryRef.toggleFavorite`,
-   * 서버 프로필 문서가 다른 목록을 들고 와 바뀐 것도 def 마다 한 번). 상태가 실제로 바뀔 때만 난다.
-   * 칩 · 상점 타일처럼 인벤토리 밖에서 그린 표식은 이것을 듣고 다시 칠한다.
+   * 2026-09-12 (E1): the favorite flag of one item **kind (def id)** was turned on or off
+   * (`InventoryRef.toggleFavorite`, and once per def when the server profile document arrives with a different list).
+   * Emitted only when the state actually changed. Marks drawn outside the inventory — chips, shop tiles — listen to
+   * this and repaint.
    */
   'inventory:favoritesChanged': { defId: string; favorite: boolean };
 }
 /* ── end [E1] ── */
-/* ── [E2] 즐겨찾기 칩 · 아이템 회수 계약 ── */
+/* ── [E2] favorite chips · the recovery contract ── */
 /* ── end [E2] ── */
-/* ── [F] 헬스 미니게임 ── */
+/* ── [F] gym minigames ── */
 /* ── end [F] ── */
 
-/* ── [2026-09-13] 요리 재료 티어 (docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」) ── */
+/* ── [2026-09-13] cooking ingredient tiers (docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」) ── */
 export interface GameEvents {
   /**
-   * (owner: housing) 분석기에서 **처음** 받은 산출물이 분석 도감(`ShipState.analysisFound`)에 적혔다. ui/ 가 토스트 하나를 띄운다.
-   * 옛 `housing:sampleDexAdded` 는 더 나지 않는다 (표본 도감 대신 산출물 도감이다).
+   * (owner: housing) an output received from the analyzer for the **first** time was written into the analysis
+   * catalogue (`ShipState.analysisFound`). ui/ raises one toast. The old `housing:sampleDexAdded` is no longer emitted
+   * (it is a catalogue of outputs now, not of samples).
    */
   'housing:analysisFound': { family: SampleFamily; defId: string };
-  /** (owner: housing) 한 계열의 분석 레벨이 올랐다 — ui/ 가 토스트(이 레벨에서 새로 열린 결과 포함)를 띄운다. */
+  /** (owner: housing) one family's analysis level rose — ui/ raises a toast (including the results newly opened at this level). */
   'housing:analysisLevelUp': { family: SampleFamily; level: number };
-  /** (owner: housing) 흙 · 배지에 소켓을 끼웠다. `replaced` = 덮어 끼워 **파괴된** 옛 소켓 def id (없으면 null). */
+  /** (owner: housing) a socket was inserted into soil · a medium. `replaced` = the def id of the old socket **destroyed** by overwriting (null with none). */
   'housing:socketInserted': { uid: string; target: GrowSocketTarget; defId: string; replaced: string | null };
 }
 /* ── end [2026-09-13] ── */
 
-/* ── [2026-09-13] 탈출 개편 (owner: extraction/ExtractionSystem — `ui:cinematic` 도 extraction 이 낸다) ── */
+/* ── [2026-09-13] the extraction rework (owner: extraction/ExtractionSystem — extraction emits `ui:cinematic` too) ── */
 export interface GameEvents {
   /**
-   * 함선이 착륙해 있는 동안 매 프레임. `waiting` = 자동 출발 유예가 걸리기까지 남은 초(`total` = `EXTRACTION_AUTO_DEPART_IDLE_S`),
-   * `departing` = 이륙까지 남은 초(`total` = `EXTRACTION_DEPART_GRACE_S`). 분대 전원(탑승 여부와 무관)이 받는다.
+   * Every frame while the ship is on the ground. `waiting` = seconds left until the automatic departure grace is
+   * raised (`total` = `EXTRACTION_AUTO_DEPART_IDLE_S`), `departing` = seconds left until liftoff
+   * (`total` = `EXTRACTION_DEPART_GRACE_S`). The whole squad receives it (aboard or not).
    */
   'extraction:departureTick': { stage: 'waiting' | 'departing'; remaining: number; total: number };
-  /** 출발 유예가 시작됐다 — `auto` = 대기 시간 초과로 스스로 걸렸다(아무도 스위치를 누르지 않았다). 취소되지 않는다. */
+  /** The departure grace started — `auto` = it raised itself on the idle timeout (nobody pressed the switch). It cannot be cancelled. */
   'extraction:departureStarted': { duration: number; auto: boolean };
   /**
-   * 함선이 이 사람을 두고 떠나 탈출 흐름이 처음으로 돌아갔다 — 레이드는 계속되고 신호소를 다시 작동할 수 있다.
-   * `game:abort` · `game:newMission` 의 리셋에서는 나지 않는다.
+   * The ship left without this person and the extraction flow went back to the start — the raid continues and the
+   * `신호소` can be activated again. Not emitted on a `game:abort` · `game:newMission` reset.
    */
   'extraction:reset': Record<string, never>;
   /**
-   * 이륙 연출이 카메라를 가져갔다(`true`) / 돌려줬다(`false`). ui/HudSystem 이 전투 HUD 를 `EXTRACTION_HUD_FADE_S` 에 걸쳐
-   * 스르륵 숨긴다. 페이즈가 게임플레이를 벗어나거나 `game:abort` 가 나면 ui 가 스스로 되돌린다.
-   * 2026-09-16 (사용자 결정): **남은 HUD 전부**다 — 크로스헤어는 즉시, 소셜 레이어 · 키 가이드 등은 코드 페이드, tutorial/ 도 이것을 듣고 자기 안내를 접는다.
+   * The liftoff cinematic took the camera (`true`) / gave it back (`false`). ui/HudSystem fades the combat HUD out
+   * over `EXTRACTION_HUD_FADE_S`. ui restores it by itself once the phase leaves gameplay or `game:abort` arrives.
+   * 2026-09-16 (user's decision): it is **all of the remaining HUD** — the crosshair instantly, the social layers · key
+   * guide and the rest by a code-stepped fade, and tutorial/ listens to this too and folds its own guide.
    */
   'ui:cinematic': { active: boolean };
 }
-/* ── end [2026-09-13] 탈출 개편 ── */
+/* ── end [2026-09-13] the extraction rework ── */
 
-/* ── [2026-09-14 2차] 화면 페이드 (owner: ui/HudSystem) ── */
+/* ── [2026-09-14 2nd pass] the screen fade (owner: ui/HudSystem) ── */
 export interface GameEvents {
   /**
-   * 화면 전체를 덮는 검은 판의 목표 불투명도. `opacity` 1 = 완전한 검정 · 0 = 투명이고 `durationS` 동안 그 값으로
-   * 간다 (0 = 즉시). 판은 `ctx.uiRoot` 맨 위에 있고 **입력을 먹지 않는다** — 연출이지 blocker 가 아니다.
-   * 첫 사용자는 튜토리얼 오프닝(`PlayerRef.playIntroWake`): 검은 화면에서 시작해 쓰러진 몸이 드러나며 밝아진다.
-   * 페이즈가 게임플레이를 벗어나거나 `game:abort` 가 나면 ui 가 스스로 0 으로 되돌린다.
+   * The target opacity of the black plate covering the whole screen. `opacity` 1 = full black · 0 = transparent, and it
+   * travels to that value over `durationS` (0 = instantly). The plate sits at the top of `ctx.uiRoot` and **does not
+   * eat input** — it is an effect, not a blocker. Its first user is the tutorial opening
+   * (`PlayerRef.playIntroWake`): it starts on a black screen and brightens as the fallen body is revealed. ui returns
+   * it to 0 by itself once the phase leaves gameplay or `game:abort` arrives.
    *
-   * appended (2026-09-15, 튜토리얼 건너뛰기): `hold` — **페이즈가 바뀌어도 이 판은 스스로 걷히지 않는다.**
-   * 생략 = 예전 그대로(결과 화면 · 함선 · 타이틀로 넘어가는 순간 즉시 0). 튜토리얼 레이드 건너뛰기가
-   * 「암전된 채로 탈출 성공이 뜬다」를 위해 쓰고, 건 쪽이 `{opacity: 0}` 으로 직접 걷는다.
-   * 걸어 둔 판도 `game:abort` · `hub:entered` 에서는 ui 가 무조건 걷는다 — 함선이 검게 남는 길은 없다.
+   * appended (2026-09-15, skipping the tutorial): `hold` — **this plate does not clear itself even when the phase
+   * changes.** Omitted = as before (0 the instant the result screen · ship · title takes over). The tutorial raid skip
+   * uses it for 「탈출 성공 appears while the screen is still black」, and the side that raised it clears it itself
+   * with `{opacity: 0}`. Even a held plate is cleared unconditionally by ui on `game:abort` · `hub:entered` — there is
+   * no road that leaves the ship black.
    */
   'ui:screenFade': { opacity: number; durationS: number; hold?: boolean };
 }
-/* ── end [2026-09-14 2차] ── */
+/* ── end [2026-09-14 2nd pass] ── */
 
-/* ── [2026-09-13] 굴착 스폰 · 땅굴벌레 (owner: enemies) ── */
+/* ── [2026-09-13] burrow spawns · the sandworm (owner: enemies) ── */
 export interface GameEvents {
   /**
-   * Fact (every client): 땅굴벌레 전조가 시작됐다 — `position`(땅) 에서 `eta` 초 뒤 분출, 피해 반경 `radius`.
-   * 호스트는 굴림 직후, 리플리카는 `ee wormWarn` 에서 낸다. HUD 위험 표시가 붙을 자리다 (지금은 토스트 · 흔들림 · 지면 링).
+   * Fact (every client): the sandworm omen started — it erupts at `position` (on the ground) in `eta` seconds, damage
+   * radius `radius`. The host emits it right after the roll, replicas from `ee wormWarn`. This is where a HUD danger
+   * indicator belongs (today it is a toast · shake · ground ring).
    */
   'sandworm:warning': { position: THREE.Vector3; radius: number; eta: number };
-  /** Fact (every client): 땅굴벌레 `id`(적 id) 가 `position` 에서 분출했다. 늦은 합류자의 동기화(`sy`)에서는 나지 않는다. */
+  /** Fact (every client): sandworm `id` (an enemy id) erupted at `position`. Not emitted in a late joiner's sync (`sy`). */
   'sandworm:erupted': { id: number; position: THREE.Vector3; radius: number };
   /**
-   * Command (console `worm`): 땅굴벌레 이벤트를 **지금** 로컬 플레이어 발밑에서 시작한다 (권한만, 굴림 · 창 · 레이드당 1회 무시).
-   * `spitS` = 버그 뱉기 단계 길이를 이 초로 바꾼다 (0 = 곧장 독극물 단계, 생략 = csv).
-   * appended (2026-09-15): `weak` = 어린 개체(`sandworm_weak`)로 강제 (생략 = 행성 threat 가 정한다: 1 → 어린, 2–3 → 성체).
+   * Command (console `worm`): start a sandworm event **now**, under the local player's feet (authority only; the roll,
+   * the window and the once-per-raid limit are ignored). `spitS` = change the bug-spitting stage to this many seconds
+   * (0 = straight to the poison stage, omitted = csv).
+   * appended (2026-09-15): `weak` = force a juvenile (`sandworm_weak`) (omitted = the planet's threat decides: 1 →
+   * juvenile, 2–3 → adult).
    */
   'cheat:sandworm': { spitS?: number; weak?: boolean };
 }
-/* ── end [2026-09-13] 굴착 스폰 · 땅굴벌레 ── */
+/* ── end [2026-09-13] burrow spawns · the sandworm ── */
 
-/* ── [2026-09-13] 요리 미니게임 (owner: housing — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ── */
+/* ── [2026-09-13] cooking minigames (owner: housing — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) ── */
 import type { CookBeatAction, CookGame, CookJudge, CookResult } from './cooking';
 export interface GameEvents {
-  /** 조리대 화면이 열렸다 / 닫혔다 (미니게임 오버레이는 `housing:cookSession`). */
+  /** The cooking station screen opened / closed (the minigame overlay is `housing:cookSession`). */
   'ui:cookStationToggled': { open: boolean; uid: string | null };
   /**
-   * 조리가 시작됐다(`active: true`) / 끝났다(`false`). `completed` = 끝까지 해서 요리가 나왔다 (취소 · 실패면 false).
-   * hub 가 이것을 보고 조리대 앞 자세 · 고정 카메라를 건다 / 푼다 (`setFurniturePose` 가 거절하면 `ctx.housing.cancelCook()`).
+   * A cook started (`active: true`) / ended (`false`). `completed` = it was played to the end and a meal came out
+   * (false on a cancel · failure). hub sees this and raises / releases the pose in front of the station and the fixed
+   * camera (if `setFurniturePose` refuses, `ctx.housing.cancelCook()`).
    */
   'housing:cookSession': { uid: string; recipeId: string; mealDefId: string; active: boolean; completed: boolean };
   /**
-   * 단계 하나의 흐름 — `choose` = 「직접 하기 / 자동」 을 묻는 중(자동 가구가 없으면 곧장 `play`), `play` = 미니게임 중,
-   * `done` = 끝났다(`score` 채워짐, `auto` = 자동으로 처리했다). `index` 0 부터, `total` = 단계 수.
+   * The flow of one step — `choose` = asking 「직접 하기 / 자동」 (straight to `play` when there is no automating
+   * furniture), `play` = in the minigame, `done` = finished (`score` filled in, `auto` = it was handled
+   * automatically). `index` from 0, `total` = how many steps there are.
    */
   'housing:cookStep': { uid: string; index: number; total: number; game: CookGame; phase: 'choose' | 'play' | 'done'; auto: boolean; score: number | null };
-  /** 연출용 입력 · 판정 하나 — hub 가 손 · 도구를, audio 가 소리를 맞춘다. `quality` = 그 입력이 판정이면 결과, 아니면 null. */
+  /** One input · judgement for the effect — hub matches the hands · tools, audio the sound. `quality` = the result when that input was a judgement, else null. */
   'housing:cookBeat': { uid: string; game: CookGame; action: CookBeatAction; quality: CookJudge | null };
-  /** 조리 결과 (성공 · 실패 모두 — 실패면 `result.reason`). */
+  /** The cook result (both success and failure — on a failure, `result.reason`). */
   'housing:cookResult': { uid: string; result: CookResult };
 }
-/* ── end [2026-09-13] 요리 미니게임 ── */
+/* ── end [2026-09-13] cooking minigames ── */
 
-/* ── [2026-09-13] 탐사 차량 (owner: world/rover — 규칙은 `shared/types.ts` 의 탐사 차량 절; 소비: ui · audio · player) ── */
+/* ── [2026-09-13] the rover (owner: world/rover — the rules are the rover section of `shared/types.ts`; consumers: ui · audio · player) ── */
 import type { RoverState } from './types';
 export interface GameEvents {
   /**
-   * Command (world/rover → ui/map): 로컬 플레이어가 막 탔다 → 지도를 **목적지 선택 모드**로 연다. `open:false` = 그 모드를 닫아라
-   * (출발 · 하차 · 파괴 · 강제 하차). 탑승 중 정차해 있는 동안에는 M 으로 다시 열어도 같은 모드다 (ui 가 `ctx.world.rover` 를 본다).
+   * Command (world/rover → ui/map): the local player just boarded → open the map in **destination select mode**.
+   * `open:false` = close that mode (departure · getting off · destruction · a forced exit). While aboard and stopped,
+   * reopening with M gives the same mode (ui looks at `ctx.world.rover`).
    */
   'rover:destinationSelect': { open: boolean };
-  /** Fact (every client): 차량 상태가 바뀌었다. */
+  /** Fact (every client): the vehicle's state changed. */
   'rover:state': { state: RoverState; stationId: string | null; targetId: string | null };
-  /** Fact (every client): 모든 정류장이 처음 공개됐다 (레이드당 한 번). */
+  /** Fact (every client): every station was revealed for the first time (once per raid). */
   'rover:stationsRevealed': Record<string, never>;
-  /** Fact (every client): 누군가 탔다(`aboard: true`) / 내렸다. `local` = 로컬 플레이어, `by` = 'local' 또는 PeerId. */
+  /** Fact (every client): someone boarded (`aboard: true`) / got off. `local` = the local player, `by` = 'local' or a PeerId. */
   'rover:boarded': { by: string; name: string; local: boolean; aboard: boolean };
-  /** Fact (every client): 결제 출발이 확정됐다 — `grace` 초 뒤 출발. `local` = 로컬 플레이어가 냈다. */
+  /** Fact (every client): a paid trip was committed — departure in `grace` seconds. `local` = the local player paid. */
   'rover:tripStarted': { by: string; name: string; fromId: string; toId: string; fare: number; local: boolean; grace: number };
-  /** Fact (every client): 차량이 실제로 출발했다 (유예 끝 · 빈 차 순환 출발 포함). `trip` = 결제 이동. */
+  /** Fact (every client): the vehicle actually departed (grace over · including an empty car starting its round). `trip` = a paid trip. */
   'rover:departed': { trip: boolean; targetId: string | null };
-  /** Fact (local): 로컬 플레이어의 탑승 · 하차 · 결제 요청이 거절됐다. */
+  /** Fact (local): the local player's boarding · exit · payment request was refused. */
   'rover:refused': { reason: string };
-  /** Fact (every client): 정류장에 도착했다. `trip` = 결제 이동의 도착 (강제 하차가 뒤따른다). */
+  /** Fact (every client): it arrived at a station. `trip` = the arrival of a paid trip (a forced exit follows). */
   'rover:arrived': { stationId: string; trip: boolean };
-  /** Fact (every client): 체력이 바뀌었다. */
+  /** Fact (every client): its hp changed. */
   'rover:damaged': { hp: number; maxHp: number; hazard: boolean };
-  /** Fact (every client): 파괴됐다 (레이드 내내 사용 불가). */
+  /** Fact (every client): it was destroyed (unusable for the rest of the raid). */
   'rover:destroyed': { position: THREE.Vector3 };
-  /** Fact (every client): 포탑이 한 발 쐈다 (연출 · 소리). */
+  /** Fact (every client): the turret fired a shot (effect · sound). */
   'rover:fired': { from: THREE.Vector3; to: THREE.Vector3 };
   /* appended (2026-09-13, R2) */
   /**
-   * Command (console `rover` → world/rover, 권위에서만 적용): 개발용 치트. `hp` = 체력을 `value` 로 (0 = 파괴) ·
-   * `speed` = 주행 속도 배수 · `depart` = 정차 · 출발 유예 타이머를 0 으로 · `arrive` = 달리는 중이면 목적지 몇 m 앞으로 건너뛴다.
-   * (`rover:fired` 의 `from` · `to` 는 재사용 벡터다 — 받은 자리에서 읽고 보관하지 않는다.)
+   * Command (console `rover` → world/rover, applied on the authority only): a dev cheat. `hp` = set the hp to `value`
+   * (0 = destroyed) · `speed` = the drive speed multiplier · `depart` = set the stop · departure grace timer to 0 ·
+   * `arrive` = while driving, skip to a few m short of the destination.
+   * (`rover:fired`'s `from` · `to` are reused vectors — read them where they arrive, never keep them.)
    */
   'cheat:rover': { action: 'hp' | 'speed' | 'depart' | 'arrive'; value?: number };
 }
-/* ── end [2026-09-13] 탐사 차량 ── */
+/* ── end [2026-09-13] the rover ── */
 
-/* ── [2026-09-13] 배치 규칙 · 전력 · 암호화폐 채굴 (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 — 규칙은 `shared/housing.ts` 의 같은 날 절) ── */
+/* ── [2026-09-13] placement rules · power · crypto mining (docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 — the rules are the same-day section of `shared/housing.ts`) ── */
 import type { CryptoChartRange } from './cryptoMarket';
 export interface GameEvents {
   /**
-   * **은퇴 (2026-09-13 같은 날, 사용자 결정 「전력 할당 시스템 제거」) — 아무도 내지 않는다.** 계약은 추가만 하므로 이름만 남는다.
-   * Fact (housing): 발전기 공급 · 시설 할당 · 가구 활성 · 요구 전력이 바뀌었다. 발전기 화면 · 인스펙터 · 스테이션 배너가 다시 그린다.
+   * **Retired (the same day, 2026-09-13, user's decision 「전력 할당 시스템 제거」) — nobody emits it.** The contract is
+   * add-only, so only the name stays.
+   * Fact (housing): generator supply · facility allocation · furniture activity · power demand changed. The generator
+   * screen · inspector · station banner redraw.
    */
   'housing:powerChanged': { reason: string };
   /**
-   * **은퇴 (2026-09-13 같은 날) — 아무도 내지 않는다.** 멈춘 시계가 없어졌다.
-   * Fact (housing): 전력을 쓰는 가구 하나의 작동 여부가 바뀌었다 (할당 · 활성 · 배치 · 회수 · 발전기 · 메인 컴퓨터 때문에).
-   * `operational: true` 이면 `pausedMs` = 멈춰 있던 시간 — 재배 · 배양 · 해석 · 채굴은 **이 이벤트를 받는 자리에서 동기로** 자기 시각을 그만큼 민다.
-   * `operational: false` 이면 `pausedMs` 0 (멈춘 시각은 `stationNow(uid)` 가 들고 있다).
+   * **Retired (the same day, 2026-09-13) — nobody emits it.** There is no stopped clock any more.
+   * Fact (housing): whether one power-using piece of furniture runs changed (because of allocation · activity ·
+   * placement · collection · the generator · the main computer). With `operational: true`, `pausedMs` = how long it was
+   * stopped — growing · culturing · analysis · mining push their own clocks by that much **synchronously, right where
+   * they receive this event**. With `operational: false`, `pausedMs` is 0 (the stopped clock is held by
+   * `stationNow(uid)`).
    */
   'housing:operationalChanged': { uid: string; operational: boolean; pausedMs: number };
-  /** Fact (housing): 연산 클러스터의 코인 · 코어 · 진행 구간이 바뀌었다. */
+  /** Fact (housing): a compute cluster's coin · cores · progress band changed. */
   'housing:clusterChanged': { uid: string };
-  /** Fact (housing): 클러스터가 주기를 끝내 지갑에 넣었다 (따라잡기로 여러 주기면 합친 한 번). */
+  /** Fact (housing): a cluster finished a cycle and put it in the wallet (when catching up over several cycles, one combined event). */
   'housing:cryptoMined': { uid: string; coinId: string; units: number };
-  /** Fact (housing): 지갑 잔고가 바뀌었다. `units` = 바뀐 뒤 잔고, `delta` = 변화량. */
+  /** Fact (housing): a wallet balance changed. `units` = the balance after the change, `delta` = the change. */
   'housing:walletChanged': { coinId: string; units: number; delta: number; reason: 'mined' | 'buy' | 'sell' | 'cheat' };
-  /** Fact (housing/ui): 연산 클러스터 화면 · 메인 컴퓨터 화면이 열렸다 / 닫혔다. */
+  /** Fact (housing/ui): the compute cluster screen · main computer screen opened / closed. */
   'ui:miningToggled': { open: boolean; uid: string | null; page: 'cluster' | 'computer' };
-  /** Fact (net): 새 시세가 도착했다 (`ctx.net.crypto.prices`). */
+  /** Fact (net): new quotes arrived (`ctx.net.crypto.prices`). */
   'net:cryptoPrices': { at: number };
-  /** Fact (net): 요청한 봉 이력이 도착했다 (`ctx.net.crypto.getHistory`). */
+  /** Fact (net): the requested candle history arrived (`ctx.net.crypto.getHistory`). */
   'net:cryptoHistory': { coin: string; range: CryptoChartRange };
 }
-/* ── end [2026-09-13] 배치 규칙 · 전력 · 암호화폐 채굴 ── */
+/* ── end [2026-09-13] placement rules · power · crypto mining ── */
 
-/* ── [2026-09-13] 서재 시리즈 · 비디오게임 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 — 규칙은 `shared/library.ts` · `shared/housing.ts` 끝 절) ── */
+/* ── [2026-09-13] library series · video games (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 — the rules are the closing sections of `shared/library.ts` · `shared/housing.ts`) ── */
 import type { GameStat } from './library';
 export interface GameEvents {
-  /** Fact (housing): 서재 효과 합산이 바뀌었다 (꽂기 · 빼기 · 보관함/보조 가구 배치 · 회수 · 전력). progression 이 `derived` 를 다시 계산하고 띠 · 시트 · 조리대가 다시 그린다. */
+  /** Fact (housing): the summed library effects changed (shelving · unshelving · placing/collecting a holder or helper piece · power). progression recomputes `derived` and the band · sheet · cooking station redraw. */
   'housing:libraryChanged': { revision: number };
-  /** Fact (housing): TV 에 장착된 게임기가 바뀌었다 (`defId` null = 뺐다). hub 가 TV 모델을 다시 짓는다. */
+  /** Fact (housing): the console mounted on the TV changed (`defId` null = removed). hub rebuilds the TV model. */
   'housing:tvConsoleChanged': { uid: string; defId: string | null };
   /**
-   * Fact (housing): 게임 세션 시작 / 끝 — hub 가 좌석에 앉히고 고정 카메라를 건다(`active`), 풀어 준다(`!active`). `completed` = 끝까지 했다.
-   * 2026-09-17: `seatUid` null = 유효한 좌석이 없어 **서서** 한다 (자세 · 카메라를 걸지 않고 TV 게임 화면만 켠다).
+   * Fact (housing): a game session started / ended — hub seats the player and raises the fixed camera (`active`),
+   * releases it (`!active`). `completed` = it was played to the end.
+   * 2026-09-17: `seatUid` null = there is no valid seat, so it is played **standing** (no pose and no camera are
+   * raised; only the TV game screen is turned on).
    */
   'housing:gameSession': { tvUid: string; seatUid: string | null; discDefId: string; active: boolean; stat: GameStat; minigame: GymMinigame; completed: boolean };
-  /** Fact (housing): 게임 판정 한 번 — hub 의 TV 화면 연출. */
+  /** Fact (housing): one game judgement — the TV screen effect in hub. */
   'housing:gameBeat': { tvUid: string; quality: 'perfect' | 'good' | 'miss'; index: number; total: number };
-  /** Fact (housing): 게임 세션 결과 (`applyGymSession` 이 돌려준 그대로). */
+  /** Fact (housing): the game session result (exactly what `applyGymSession` returned). */
   'housing:gameResult': { tvUid: string; discDefId: string; result: GymSessionResult };
-  /** Fact (housing/ui): TV 화면이 열렸다 / 닫혔다. */
+  /** Fact (housing/ui): the TV screen opened / closed. */
   'ui:tvMenuToggled': { open: boolean; uid: string | null };
 }
-/* ── end [2026-09-13] 서재 시리즈 · 비디오게임 ── */
+/* ── end [2026-09-13] library series · video games ── */
 
-/* ── [2026-09-14] 인벤토리 툴팁 고정 · 공용 커서 홀드 링 ── */
+/* ── [2026-09-14] pinning the inventory tooltip · the shared cursor hold ring ── */
 export interface GameEvents {
   /**
-   * appended (2026-09-14, owner: 누르고 있는 화면 — 지금은 inventory 의 툴팁 고정 `ui/TipPin`): LMB 를 **꾹 누르는 중**이다.
-   * `progress` 0 … 1 (`UI_HOLD_CONFIRM_S` 동안 차오른다), `null` = 끝났다 · 취소됐다 · 1 에 닿았다. `x` · `y` = 커서의 클라이언트
-   * 좌표 (생략하면 ui 가 `ctx.input.uiX/uiY` 를 읽는다). `owner` = 링을 띄운 쪽 (진단용). ui/hud/CursorHoldGauge 가 `housing:moveHold` 와
-   * **같은 링**으로 그린다 — 다른 폴더 내부를 import 하지 않고 링을 쓰는 길이다.
+   * appended (2026-09-14, owner: whichever screen is being held — today the inventory's tooltip pin `ui/TipPin`): LMB
+   * is **being held**. `progress` 0 … 1 (fills over `UI_HOLD_CONFIRM_S`), `null` = it ended · was cancelled · reached 1.
+   * `x` · `y` = the cursor's client coordinates (omitted, ui reads `ctx.input.uiX/uiY`). `owner` = who raised the ring
+   * (for diagnostics). ui/hud/CursorHoldGauge draws it with the **same ring** as `housing:moveHold` — this is the way
+   * to use the ring without importing another folder's internals.
    */
   'ui:cursorHold': { owner: string; progress: number | null; x?: number; y?: number };
   /**
-   * appended (2026-09-14, owner: inventory `ui/TipPin`): 아이템 툴팁이 고정됐다(`uid`) / 풀렸다(`uid: null`). 고정은 화면 전체에서
-   * 하나뿐이라, 다른 `owner` 의 고정을 들은 쪽은 스스로 푼다. ui/hud/ItemTip 은 고정되는 순간 떠 있던 호버 카드를 내린다.
+   * appended (2026-09-14, owner: inventory `ui/TipPin`): an item tooltip was pinned (`uid`) / released (`uid: null`).
+   * There is exactly one pin on the whole screen, so anyone who hears another `owner`'s pin releases its own.
+   * ui/hud/ItemTip drops the hover card that was up the moment a pin happens.
    */
   'ui:tipPinned': { owner: string; uid: string | null };
 }
-/* ── end [2026-09-14] 인벤토리 툴팁 고정 ── */
+/* ── end [2026-09-14] pinning the inventory tooltip ── */
 
-/* ── [2026-09-14] 메신저 · NPC 퀘스트 · 단체방 (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 — 계약 본문은 `shared/npc.ts` · `shared/social.ts` 끝 절) ── */
+/* ── [2026-09-14] the messenger · NPC quests · group rooms (docs/DECISIONS.md 「2026-09-14 — 메신저 · NPC 퀘스트 · 단체방」 — the contract itself is the closing sections of `shared/npc.ts` · `shared/social.ts`) ── */
 import type { WeaponClass as WeaponClassForKill } from './types';
 import type { MessengerTab, NpcInteractKind, NpcLogEntry, NpcQuestState } from './npc';
 import type { RoomErrorCode, RoomId, RoomInvite, RoomLine } from './social';
 export interface GameEvents {
-  /** Fact (meta): NPC 대화에 사건 하나가 붙었다 (첫 연락 · 제안 · 수락 · 보류 · 다시 수주 · 완료). 함선 토스트 · 메신저 목록이 듣는다. */
+  /** Fact (meta): one event was appended to an NPC conversation (first contact · offer · accept · hold · re-taking · completion). The ship toast and the messenger list listen. */
   'npc:message': { npc: string; entry: NpcLogEntry };
-  /** Fact (meta): NPC 메시지 읽지 않음 합이 바뀌었다. */
+  /** Fact (meta): the unread total of NPC messages changed. */
   'npc:unreadChanged': { total: number };
-  /** Fact (meta): NPC 퀘스트 상태가 바뀌었다 (`prev` null = hidden 에서). */
+  /** Fact (meta): an NPC quest's state changed (`prev` null = from hidden). */
   'npc:questChanged': { id: string; npc: string; state: NpcQuestState; prev: NpcQuestState | null };
   /**
-   * Fact (meta): 목표 진행이 바뀌었다. `raid` = 레이드 목표, `done` = 확정됐다 (그 순간 한 번 true 로 온다),
-   * `delta` = 이번 변화 (레이드 끝의 되돌림은 음수).
+   * Fact (meta): objective progress changed. `raid` = a raid objective, `done` = it was committed (it arrives true
+   * once, at that moment), `delta` = this change (the rollback at raid end is negative).
    */
   'npc:objectiveProgress': { questId: string; index: number; progress: number; target: number; done: boolean; delta: number; raid: boolean };
-  /** Fact (meta): 진행 중 퀘스트의 목표가 전부 찼다 — [완료 보고] 가능. */
+  /** Fact (meta): every objective of an active quest is full — `완료 보고` is now possible. */
   'npc:questReady': { id: string; npc: string };
   /**
-   * Fact (world): **이 클라이언트의 조작으로** 상호작용이 성사됐다 — 맵 스캐너 작동 · 잠긴 문 열기 · 전차 호출/시동 · 탐사 차량 탑승.
-   * 분대원의 조작에는 나지 않는다 (NPC 퀘스트 interact 목표는 본인만 — 사용자 결정). `id` = 구조물 · 플랫폼 · 전차 · 차량 id.
+   * Fact (world): an interaction succeeded **through this client's own input** — activating a map scanner · opening a
+   * locked door · calling/starting the tram · boarding the rover. Not emitted for a squadmate's input (an NPC quest's
+   * interact objective counts only your own — user's decision). `id` = the structure · platform · tram · vehicle id.
    */
   'world:interacted': { kind: NpcInteractKind; id: string; structureKind?: StructureKind };
-  /** Fact (ui): 메신저가 열렸다 / 닫혔다. */
+  /** Fact (ui): the messenger opened / closed. */
   'ui:messengerToggled': { open: boolean };
-  /** Command (누구든 → ui): 메신저를 연다 (함선 전용 — 레이드 중이면 무시). 대상이 있으면 그 대화 · 탭으로. */
+  /** Command (anyone → ui): open the messenger (ship only — ignored during a raid). With a target, straight to that conversation · tab. */
   'ui:openMessenger': { tab?: MessengerTab; npc?: string; code?: PlayerCode; room?: RoomId };
-  /** Fact (net): 개인 대화 읽지 않음 합이 바뀌었다 (받은 줄 · 읽음 표시). */
+  /** Fact (net): the unread total of private chat changed (a received line · a read mark). */
   'social:unreadChanged': { total: number };
-  /** Fact (net): 방 목록 · 초대가 바뀌었다 (`ctx.net.rooms`). `first` = 이 연결의 첫 스냅샷. */
+  /** Fact (net): the room list · invites changed (`ctx.net.rooms`). `first` = this connection's first snapshot. */
   'room:updated': { first: boolean };
-  /** Fact (net): 방에 줄이 붙었다 (받은 줄 · 내 pending 줄 · 시스템 줄). */
+  /** Fact (net): a line was appended to a room (a received line · my pending line · a system line). */
   'room:line': { line: RoomLine };
-  /** Fact (net): 내 줄의 전송 상태가 바뀌었다 (ack). */
+  /** Fact (net): the send state of my line changed (ack). */
   'room:lineUpdated': { line: RoomLine };
-  /** Fact (net): 방 초대를 받았다. */
+  /** Fact (net): a room invite arrived. */
   'room:invited': { invite: RoomInvite };
-  /** Fact (net): 요청한 줄 한 쪽이 도착했다. */
+  /** Fact (net): the requested page of lines arrived. */
   'room:history': { room: RoomId };
-  /** Fact (net): 단체방 읽지 않음 합이 바뀌었다. */
+  /** Fact (net): the unread total of group rooms changed. */
   'room:unreadChanged': { total: number };
-  /** Fact (net): 방 요청이 거절됐다 (`message` 는 한국어). */
+  /** Fact (net): a room request was refused (`message` is Korean). */
   'room:error': { code: RoomErrorCode; message: string };
 }
-/* ── end [2026-09-14] 메신저 · NPC 퀘스트 · 단체방 ── */
+/* ── end [2026-09-14] the messenger · NPC quests · group rooms ── */
 
-/* ── [2026-09-14] 정보상 · NPC 개인 신뢰도 (docs/DECISIONS.md 「2026-09-14 — 정보상」) ──────
- * 기믹 고정 자체는 이벤트로 흐르지 않는다 — 맵에 닿는 길은 `ctx.missionIntel` 하나이고 (`missionPlanet` 과 같은
- * 규약: `game:newMission` 을 emit 하기 전에 세팅), 여기 있는 둘은 **화면 갱신용 사실**이다. */
+/* ── [2026-09-14] the intel broker · per-NPC trust (docs/DECISIONS.md 「2026-09-14 — 정보상」) ──────
+ * The gimmick lock itself does not travel as an event — the one road to the map is `ctx.missionIntel` (the same
+ * convention as `missionPlanet`: set before `game:newMission` is emitted), and the two here are **facts for redrawing
+ * the screen**. */
 import type { IntelSpec } from './intel';
 
 export interface GameEvents {
-  /** Fact (meta): 보유 중인 정보가 바뀌었다 — 구매 · 폐기(지역 재배치) · 레이드 소모 · 서버 문서 로드. */
+  /** Fact (meta): the intel held changed — a purchase · discarding it (a region reassignment) · being spent on a raid · a server document load. */
   'intel:changed': { spec: IntelSpec | null };
-  /** Fact (meta): 정보를 샀다 (락온 연출 · 토스트가 듣는다). `cost` 는 실제로 나간 크레딧. */
+  /** Fact (meta): intel was bought (the lock-on effect · the toast listen). `cost` is the credits that actually left. */
   'intel:purchased': { spec: IntelSpec; cost: number };
-  /** Fact (meta): NPC 개인 신뢰도가 바뀌었다. `level` 이 올랐으면 `levelUp` (메신저가 토스트한다). */
+  /** Fact (meta): an NPC's personal trust changed. `levelUp` when `level` rose (the messenger toasts it). */
   'meta:npcTrustChanged': { npc: string; trust: number; level: number; delta: number; levelUp: boolean };
 }
-/* ── end [2026-09-14] 정보상 · NPC 개인 신뢰도 ── */
+/* ── end [2026-09-14] the intel broker · per-NPC trust ── */
 
-/* ── [2026-09-14] 음악 재생 · 서재 · 채굴 UI 2차 개편 ──────────────────────────────
- * 음악은 **소리가 아니라 상태**다 (사용자 결정) — 그래서 audio/ 가 아니라 housing/ 이 주인이고
- * ui/ 의 재생 창이 이 사실 하나만 보고 그린다. */
+/* ── [2026-09-14] the music player · library · mining UI 2nd pass ──────────────────────────────
+ * Music is **state, not sound** (user's decision) — so housing/ owns it, not audio/, and ui/'s player window draws
+ * from this one fact. */
 import type { MusicPlayerState } from './housing';
 
 export interface GameEvents {
-  /** Fact (housing): 음악 재생 상태가 바뀌었다 — 켜기 · 끄기 · 곡 넘김 · 반복 전환 · 레코드랙의 내용 변화. */
+  /** Fact (housing): the music player state changed — on · off · skipping a track · toggling repeat · a change in the record rack's contents. */
   'housing:musicChanged': { state: MusicPlayerState };
 }
-/* ── end [2026-09-14] 음악 재생 ── */
+/* ── end [2026-09-14] the music player ── */
 
-/* ── [2026-09-15] 낙하 피드백 (docs/TODO.md B-14) ────────────────────────────────────────────
- * 로컬 낙하는 기존 `player:fell` 하나로 충분하다 — 착지음(audio `fall_impact`) · 화면 흔들림(player 가 `camera:shake`) ·
- * 붉은 비네트(ui `.fall-vignette`)가 전부 그것을 듣는다. 분대원의 낙하는 `fall` 와이어(`FallMessage`)를 받은 player/ 가
- * 아래 사실로 다시 낸다 — audio 가 거리 감쇠로 울린다. HUD 는 분대원 낙하에 반응하지 않는다. */
+/* ── [2026-09-15] fall feedback (docs/TODO.md B-14) ────────────────────────────────────────────
+ * For a local fall the existing `player:fell` alone is enough — the landing sound (audio `fall_impact`), the screen
+ * shake (player raises `camera:shake`) and the red vignette (ui `.fall-vignette`) all listen to it. A squadmate's fall
+ * is re-emitted as the fact below by player/, which received the `fall` wire (`FallMessage`) — audio plays it with
+ * distance falloff. The HUD does not react to a squadmate's fall. */
 export interface GameEvents {
-  /** Fact (player): 분대원 `peerId` 가 `position` 에 떨어져 `damage` 만큼 깎였다 (`FallMessage` 수신, 사거리 · 멤버 검사 뒤). 소리 전용. */
+  /** Fact (player): squadmate `peerId` fell at `position` and lost `damage` (a received `FallMessage`, past the range · membership checks). Sound only. */
   'player:remoteFell': { peerId: PeerId; position: THREE.Vector3; damage: number };
 }
-/* ── end [2026-09-15] 낙하 피드백 ── */
+/* ── end [2026-09-15] fall feedback ── */
 
-/* ── [2026-09-15] 안드로이드 분대원 · 레이드 진입 로딩 (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」 — 계약 본문은 `shared/allies.ts` · `net.ts` 끝 절) ── */
+/* ── [2026-09-15] android squadmates · raid entry loading (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」 — the contract itself is the closing sections of `shared/allies.ts` · `net.ts`) ── */
 import type { AllyId, AllyRosterEntry } from './allies';
-/* appended (2026-09-15): 타이틀 이어하기 · 레이드 포기 */
+/* appended (2026-09-15): `이어하기` · `레이드 포기` from the title */
 import type { RaidResumeOffer } from './raidResume';
 import type { ItemRequestKind } from './types';
 export interface GameEvents {
-  /** Fact (allies, every client): 내 분대의 안드로이드 명단이 바뀌었다. `evicted` = 사람 합류 · 인원 초과로 슬롯에 돌아간 기 (`removed` 에도 들어 있다). */
+  /** Fact (allies, every client): my squad's android roster changed. `evicted` = the units sent back to their bays by a human joining · an overflow (they are in `removed` too). */
   'ally:rosterChanged': { roster: readonly AllyRosterEntry[]; added: readonly AllyId[]; removed: readonly AllyId[]; evicted: readonly AllyId[] };
   /**
-   * Fact (net): 릴레이가 안드로이드 한 기를 슬롯으로 돌려보냈다 (`lobby:androidReturned`). `human_joined` = 사람이 합류해
-   * 가장 늦게 들어온 기가 빠졌다 (로비 전원) · `full` = 분대가 가득 차 들이지 못했다 (요청자에게만).
+   * Fact (net): the relay sent one android back to its bay (`lobby:androidReturned`). `human_joined` = a human joined
+   * and the latest recruited unit dropped out (to the whole lobby) · `full` = the squad was full and it could not be
+   * taken in (to the requester only).
    */
   'net:androidReturned': { bay: number; reason: 'human_joined' | 'full' };
-  /** Fact (allies, every client): 피해를 받았다 (리플리카는 스냅샷 체력이 줄 때). */
+  /** Fact (allies, every client): it took damage (on a replica, when the snapshot hp drops). */
   'ally:damaged': { id: AllyId; amount: number; hp: number; shield: number };
-  /** Fact (allies, every client): 쓰러졌다. */
+  /** Fact (allies, every client): it went down. */
   'ally:downed': { id: AllyId; name: string };
-  /** Fact (allies, every client): 일어났다. `by` = 일으킨 사람 PeerId (모르면 null). */
+  /** Fact (allies, every client): it got back up. `by` = the PeerId of whoever revived it (null when unknown). */
   'ally:revived': { id: AllyId; by: PeerId | null };
-  /** Fact (allies, every client): 출혈이 다해 죽었다. */
+  /** Fact (allies, every client): it bled out and died. */
   'ally:died': { id: AllyId; name: string };
-  /** Fact (allies, every client): 한 발 쐈다 — player 가 총구 섬광 · 예광탄, audio 가 총성을 낸다. 벡터는 재사용 (읽고 바로 쓴다). */
+  /** Fact (allies, every client): it fired a shot — player draws the muzzle flash · tracer, audio plays the report. The vectors are reused (read and use them at once). */
   'ally:fired': { id: AllyId; from: THREE.Vector3; to: THREE.Vector3; weaponDefId: string | null };
-  /** Command (allies → ui/Pings, every client): 안드로이드 이름으로 핑을 그린다 (핑 목록 · 콜아웃 채팅 · 화면 밖 화살표). */
+  /** Command (allies → ui/Pings, every client): draw a ping under the android's name (the ping list · callout chat · off-screen arrow). */
   'ally:ping': { id: AllyId; name: string; slot: number; kind: PingKind; position: THREE.Vector3; label?: string; enemyId?: number };
-  /** Command (allies → ui/ChatLog, every client): 안드로이드 이름으로 채팅 한 줄 (relay 하지 않는다). */
+  /** Command (allies → ui/ChatLog, every client): one chat line under the android's name (never relayed). */
   'ally:chat': { id: AllyId; name: string; slot: number; text: string };
-  /** Command (allies → player/RemotePods, every client): 강하 포드를 떨어뜨린다. */
+  /** Command (allies → player/RemotePods, every client): drop a drop pod. */
   'ally:podDrop': { id: AllyId; position: THREE.Vector3; yaw: number };
-  /** Fact (inventory, 분대장 클라이언트): 탈출한 안드로이드의 전리품이 창고에 들어갔다. `lost` = 창고가 가득 차 넣지 못한 개수. */
+  /** Fact (inventory, the squad leader's client): an extracted android's loot went into the stash. `lost` = how many did not fit because the stash was full. */
   'ally:deposited': { id: AllyId; name: string; count: number; lost: number };
   /**
-   * Fact (ui/Pings, every client): 핑이 섰다 — 로컬 · 원격 모두, **대상 정보까지** (`ping:placedV2` + `label` · `enemyId`).
-   * `owner` = 찍은 사람 PeerId (로컬 = null). 안드로이드가 찍은 핑은 `owner` 가 안드로이드 id 다. allies 가 명령으로 읽는다.
+   * Fact (ui/Pings, every client): a ping was placed — local and remote alike, **including the target info**
+   * (`ping:placedV2` + `label` · `enemyId`). `owner` = the PeerId of whoever placed it (local = null). For a ping an
+   * android placed, `owner` is the android id. allies reads it as an order.
    */
   'ping:placedV3': { id: number; position: THREE.Vector3; kind: PingKind; expires: number; owner: PeerId | null; label?: string; enemyId?: number };
-  /** Fact (inventory, local): 로컬 플레이어가 아이템을 요청했다 (가운데 클릭 · 메뉴). `position` = 로컬 플레이어 발. 원격 호스트에는 `allyq item`. */
+  /** Fact (inventory, local): the local player requested an item (middle-click · the menu). `position` = the local player's feet. To a remote host, `allyq item`. */
   'inventory:itemRequested': { kind: ItemRequestKind; defId: string | null; ammoType: string | null; position: THREE.Vector3 };
-  /** Fact (inventory, local): 로컬 플레이어가 컨테이너 창을 열었다. 원격 호스트에는 `allyq viewing`. */
+  /** Fact (inventory, local): the local player opened a container window. To a remote host, `allyq viewing`. */
   'inventory:containerViewed': { containerId: string };
-  /** Command (allies → inventory, 분대장 클라이언트): 이 물건들을 내 창고에 넣어라 (넘치면 버린다) → `ally:deposited`. */
+  /** Command (allies → inventory, the squad leader's client): put these into my stash (drop the overflow) → `ally:deposited`. */
   'inventory:allyDeposit': { id: AllyId; name: string; items: readonly ItemInstance[] };
-  /** Fact (hub, every client): 발사 카운트다운이 끝나 암전을 시작했다 (`RAID_LOAD_FADE_OUT_S` 뒤 권위가 발사한다). */
+  /** Fact (hub, every client): the launch countdown ended and the fade to black started (the authority launches `RAID_LOAD_FADE_OUT_S` later). */
   'raid:loadBegin': Record<string, never>;
-  /** Fact (game/LoadGate): 로딩 진행 — `local` = 내 진행도, `squad` = 분대(사람) 평균, `waiting` = 아직 안 끝난 사람 수, `remainingS` = 시간 초과까지. */
+  /** Fact (game/LoadGate): loading progress — `local` = my progress, `squad` = the squad (human) average, `waiting` = how many people are not done, `remainingS` = time left until the timeout. */
   'raid:loadProgress': { local: number; squad: number; waiting: number; remainingS: number };
-  /** Fact (game/LoadGate): 로딩이 풀렸다 — 페이드인이 시작된다. `timedOut` = 기다리다 넘어갔다. */
+  /** Fact (game/LoadGate): the loading hold was released — the fade in starts. `timedOut` = it gave up waiting. */
   'raid:loadReleased': { timedOut: boolean };
 }
-/* ── end [2026-09-15] 안드로이드 분대원 · 레이드 진입 로딩 ── */
+/* ── end [2026-09-15] android squadmates · raid entry loading ── */
 
-/* ══ appended: 2026-09-15 — 땅굴벌레(옛 지하벌레) 등장 판정 개편 · 진동 장치 (owner: enemies/sandworm · gadgets). docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」 ══ */
-/* (gadgets 2026-09-15: 버스의 이벤트 표는 `GameEvents` 다 — 따로 선 `Events` 인터페이스는 병합되지 않아 `bus.emit` 이 이 키를 모른다.) */
+/* ══ appended: 2026-09-15 — the sandworm eruption check reworked · the thumper (owner: enemies/sandworm · gadgets). docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」 ══ */
+/* (gadgets 2026-09-15: the bus's event table is `GameEvents` — a separately declared `Events` interface is not merged, so `bus.emit` does not know this key.) */
 export interface GameEvents {
   /**
-   * Command (gadgets → enemies/sandworm, **호스트에서만** 낸다): 이 자리에 땅굴벌레를 **반드시** 불러라 — 진동 장치가 다섯 번째로
-   * 바닥을 내리쳤다. 디렉터는 아직 이번 레이드에 벌레가 없었을 때만 전조를 시작하고(레이드당 1회), 이미 나왔으면 무시한다
-   * (장치는 계속 두드리기만 한다 — 사용자 결정). 분출하면 평소처럼 `sandworm:erupted` 가 나가고, gadgets 는 그 반경 안의 진동 장치를 부순다.
+   * Command (gadgets → enemies/sandworm, emitted **on the host only**): summon a sandworm here, **guaranteed** — a
+   * thumper struck the ground for the fifth time. The director starts the omen only when no worm has appeared in this
+   * raid yet (once per raid) and ignores it once one has (the device just keeps pounding — user's decision). On an
+   * eruption `sandworm:erupted` goes out as usual, and gadgets destroys the thumpers within that radius.
    */
   'sandworm:summon': { position: THREE.Vector3; source: 'thumper' };
 }
-/* ── end [2026-09-15] 땅굴벌레 · 진동 장치 ── */
+/* ── end [2026-09-15] the sandworm · the thumper ── */
 
-/* ══ appended: 2026-09-15 — 타이틀 이어하기 · 레이드 포기 (owner: game/parts/Resume). docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」 ══ */
+/* ══ appended: 2026-09-15 — `이어하기` · `레이드 포기` from the title (owner: game/parts/Resume). docs/DECISIONS.md 「2026-09-15 — 타이틀 이어하기 · 레이드 포기」 ══ */
 export interface GameEvents {
-  /** Fact (game): 타이틀이 내밀 레이드가 바뀌었다 (생김 · 사라짐 · 분대원 명단 · 서버 확인 시작/끝). ui/menus/TitleMenu 가 다시 그린다. */
+  /** Fact (game): the raid the title will offer changed (it appeared · disappeared · its roster · a server check starting/ending). ui/menus/TitleMenu redraws. */
   'raid:resumeChanged': { offer: RaidResumeOffer | null; checking: boolean };
 }
-/* ── end [2026-09-15] 타이틀 이어하기 · 레이드 포기 ── */
+/* ── end [2026-09-15] `이어하기` · `레이드 포기` from the title ── */
 
-/* ══ appended: 2026-09-16 — 결과 화면 → 함선 귀환 암전 (owner: ui/menus/ShipReturn) ══ */
+/* ══ appended: 2026-09-16 — the result screen → ship return fade (owner: ui/menus/ShipReturn) ══ */
 export interface GameEvents {
   /**
-   * Command (ui 결과 화면 버튼 · game 자동 귀환 → ui): 결과 화면(`complete` · `dead`)에서 함선으로 돌아간다 — 페이드아웃 →
-   * 암전 + 로딩 게이지 → (그 사이 `hub:enter`, 함선 씬 셰이더 컴파일이 끝나면) 페이드인. 이미 도는 중이면 무시한다.
-   * `hub:enter` 를 직접 내면 결과 화면에서 함선이 한 프레임에 튀어나온다 — 결과 화면에서는 이것을 낸다.
+   * Command (a ui result-screen button · game's automatic return → ui): go back to the ship from the result screen
+   * (`complete` · `dead`) — fade out → black + the loading gauge → (`hub:enter` in the middle, and once the ship
+   * scene's shaders have compiled) fade in. Ignored while one is already running.
+   * Emitting `hub:enter` directly makes the ship pop out of the result screen in one frame — from a result screen,
+   * emit this instead.
    */
   'ui:shipReturn': Record<string, never>;
 }
-/* ── end [2026-09-16] 결과 화면 → 함선 귀환 암전 ── */
+/* ── end [2026-09-16] the result screen → ship return fade ── */
 
-/* ══ appended: 2026-09-16 — 함선 트랙 튜토리얼 능력치 안내 (owner: progression/ui/SheetBody) ══ */
+/* ══ appended: 2026-09-16 — the ship track tutorial's stat guidance (owner: progression/ui/SheetBody) ══ */
 export interface GameEvents {
   /**
-   * Fact (progression ui): 캐릭터 시트의 **확정 전 ＋ 포인트** 합이 바뀌었다 (＋ · － · 되돌리기 · 확정 · 강제 폐기). 투자 자체는
-   * 여전히 `progress:statChanged` 다. tutorial 의 `stats` 단계가 「능력치 하나 상승」 목표와 포커스(＋ 열 ↔ 확정 버튼)를 이것으로 고른다.
+   * Fact (progression ui): the sum of the character sheet's **uncommitted ＋ points** changed (＋ · － · revert ·
+   * confirm · a forced discard). The investment itself is still `progress:statChanged`. The tutorial's `stats` step
+   * picks its 「능력치 하나 상승」 objective and its focus (the ＋ column ↔ the confirm button) from this.
    */
   'progress:statPending': { total: number };
 }
-/* ── end [2026-09-16] 함선 트랙 튜토리얼 능력치 안내 ── */
+/* ── end [2026-09-16] the ship track tutorial's stat guidance ── */

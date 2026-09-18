@@ -6,70 +6,72 @@ import { SKILL_IDS, STAT_IDS, type PlayerProfile, type SkillId, type StatId } fr
 import { type SlotId, writeSlotSave } from './saveSlot';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 캐릭터 생성 (2026-09-09).
+ * Character creation (2026-09-09).
  *
- * 캐릭터 선택창의 빈 칸에서 열리는 생성창의 **규칙**과, 그 결과를 슬롯에 심는 함수가 여기 있다.
- * `ui/` 가 그리고 `progression/` 이 나중에 읽으므로, 둘 다 의존하는 `shared/` 가 자리다.
+ * The **rules** of the creation window that opens from an empty slot of the character select screen, and the
+ * function that plants its result into a slot. `ui/` draws it and `progression/` reads it later, so `shared/` —
+ * which both depend on — is its place.
  *
- * **능력치**: 다섯 능력치가 전부 `CHAR_STAT_MIN`(1) 에서 시작하고 합이 `CHAR_STAT_TOTAL`(15) 이 될 때까지
- * 배분한다 — 즉 남는 점수는 15 − 5 = **10** 점. 한 능력치의 상한은 `CHAR_STAT_MAX`(5) 다. 이것은 **생성
- * 시점의** 상한일 뿐이고, 게임 안에서 자라는 상한은 그대로 `STAT_MAX`(20) 다.
+ * **Stats**: all five stats start at `CHAR_STAT_MIN` (1) and are distributed until the sum is
+ * `CHAR_STAT_TOTAL` (15) — that is, 15 − 5 = **10** points to spend. One stat's ceiling is `CHAR_STAT_MAX` (5).
+ * That is the ceiling **at creation** only; the ceiling a stat grows to in game is still `STAT_MAX` (20).
  *
- * 기존 세이브는 손대지 않는다 (2026-09-09 결정): `progression/Profile.freshProfile` 의 `STAT_BASE`(5) 는
- * 그대로 남아 생성창을 거치지 않고 만들어지는 프로필의 기본값으로 계속 쓰인다. 생성창을 거친 캐릭터만
- * 여기 규칙을 따른다.
+ * Existing saves are left alone (2026-09-09 decision): the `STAT_BASE` (5) of `progression/Profile.freshProfile`
+ * stays and keeps being the default of a profile made without going through the creation window. Only a
+ * character that went through it follows the rules here.
  *
- * **부팅 전에 쓴다.** 생성이 끝나면 이 모듈이 슬롯의 `scav.s<n>.profile` 을 직접 쓰고, 부르는 쪽이
- * `setActiveSlot` + `markAutoStart` + `location.reload()` 한다. 이미 메모리에 올라온 `ProgressionSystem` 에
- * 새 프로필을 밀어 넣는 길은 두지 않는다 — 창고 · 메타 · 함선까지 전부 다시 읽어야 하고, 그건 부팅이다.
+ * **Written before boot.** Once creation is done this module writes the slot's `scav.s<n>.profile` itself, and
+ * the caller does `setActiveSlot` + `markAutoStart` + `location.reload()`. No path is left for pushing a new
+ * profile into a `ProgressionSystem` that is already in memory — the stash · meta · the ship would all have to be
+ * read again, and that is a boot.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 생성창의 능력치 하한 · 상한 · 합 (data/constants.csv). */
+/** The creation window's stat floor · ceiling · total (data/constants.csv). */
 export const CREATE_STAT_MIN: number = Math.round(CHAR_STAT_MIN);
 export const CREATE_STAT_MAX: number = Math.round(CHAR_STAT_MAX);
 export const CREATE_STAT_TOTAL: number = Math.round(CHAR_STAT_TOTAL);
 
-/** 전부 하한에서 시작할 때 남는 배분 점수 (기본 규칙에서 10). */
+/** Points left to distribute when everything starts at the floor (10 under the default rules). */
 export const CREATE_STAT_POINTS: number = Math.max(0, CREATE_STAT_TOTAL - CREATE_STAT_MIN * STAT_IDS.length);
 
-/** 이름 주사위가 쓰는 앞말. */
+/** The prefix the name dice uses. */
 export const DEFAULT_CALLSIGN = '스캐빈저';
 
-/** 캐릭터 이름 최대 길이 (`sanitizePlayerName` 과 같은 값). */
+/** Maximum character-name length (the same value as `sanitizePlayerName`). */
 export const CHARACTER_NAME_MAX = 16;
 
-/** 생성창이 모아 넘기는 것. */
+/** What the creation window collects and hands over. */
 export interface NewCharacter {
   name: string;
   stats: Record<StatId, number>;
-  /** 병사 모델 악센트 색 `#rrggbb`. */
+  /** Soldier model accent colour `#rrggbb`. */
   accent: string;
-  /** 시작 전술 임플란트. */
+  /** The starting tactical implant. */
   implant: ImplantId;
 }
 
-/** 능력치 전부 하한인 배분 (생성창의 시작 상태). */
+/** The distribution with every stat at the floor (the creation window's starting state). */
 export function baseCreateStats(): Record<StatId, number> {
   const out = {} as Record<StatId, number>;
   for (const id of STAT_IDS) out[id] = CREATE_STAT_MIN;
   return out;
 }
 
-/** 배분의 합. */
+/** The sum of the distribution. */
 export function statTotal(stats: Record<StatId, number>): number {
   let n = 0;
   for (const id of STAT_IDS) n += stats[id] ?? 0;
   return n;
 }
 
-/** 아직 쓰지 않은 점수 (음수가 나올 수 없게 배분 쪽에서 막는다). */
+/** Points not spent yet (the distribution side blocks it from ever going negative). */
 export function statPointsLeft(stats: Record<StatId, number>): number {
   return CREATE_STAT_TOTAL - statTotal(stats);
 }
 
 /**
- * 한 능력치를 `delta` 만큼 옮길 수 있는가. 하한 · 상한 · 남은 점수를 전부 본다.
- * 올릴 때는 남은 점수가 있어야 하고, 내릴 때는 하한 위여야 한다.
+ * Can one stat be moved by `delta`. It looks at the floor · the ceiling · the points left.
+ * Raising needs points left; lowering needs to stay above the floor.
  */
 export function canAdjustStat(stats: Record<StatId, number>, id: StatId, delta: number): boolean {
   const cur = stats[id] ?? CREATE_STAT_MIN;
@@ -79,7 +81,7 @@ export function canAdjustStat(stats: Record<StatId, number>, id: StatId, delta: 
   return true;
 }
 
-/** 배분을 규칙 안으로 눌러 담는다 (밖에서 들어온 값을 믿지 않는다). */
+/** Presses a distribution back inside the rules (a value coming from outside is not trusted). */
 export function clampCreateStats(raw: Partial<Record<StatId, number>>): Record<StatId, number> {
   const out = baseCreateStats();
   for (const id of STAT_IDS) {
@@ -87,7 +89,7 @@ export function clampCreateStats(raw: Partial<Record<StatId, number>>): Record<S
     const n = typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : CREATE_STAT_MIN;
     out[id] = Math.min(CREATE_STAT_MAX, Math.max(CREATE_STAT_MIN, n));
   }
-  // 합이 넘치면 뒤에서부터 깎는다 — 넘칠 일은 UI 가 먼저 막지만 계약은 스스로 지킨다.
+  // when the sum overflows, cut from the back — the UI blocks an overflow first, but the contract keeps itself
   let over = statTotal(out) - CREATE_STAT_TOTAL;
   for (let i = STAT_IDS.length - 1; i >= 0 && over > 0; i--) {
     const id = STAT_IDS[i];
@@ -100,8 +102,8 @@ export function clampCreateStats(raw: Partial<Record<StatId, number>>): Record<S
 }
 
 /**
- * 주사위: 남은 점수를 무작위로 흩뿌린다. 한 능력치가 상한에 닿으면 그 자리는 빠지므로 합은 언제나
- * `CREATE_STAT_TOTAL` 이다. `rand` 는 0..1 (테스트가 주입할 수 있게 열어 둔다).
+ * The dice: scatters the remaining points at random. A stat that reaches the ceiling drops out of the draw, so
+ * the sum is always `CREATE_STAT_TOTAL`. `rand` is 0..1 (left open so a test can inject one).
  */
 export function rollCreateStats(rand: () => number = Math.random): Record<StatId, number> {
   const out = baseCreateStats();
@@ -117,24 +119,25 @@ export function rollCreateStats(rand: () => number = Math.random): Record<StatId
   return out;
 }
 
-/** 이름 주사위: `스캐빈저1234`. */
+/** The name dice: `스캐빈저1234`. */
 export function rollCallsign(rand: () => number = Math.random): string {
   const n = Math.floor(rand() * (Math.max(1, Math.round(CHAR_NAME_RANDOM_MAX)) + 1));
   return `${DEFAULT_CALLSIGN}${n}`;
 }
 
-/** 이름을 쓸 수 있게 다듬는다 (앞뒤 공백 제거 · 길이 제한 · 빈 이름은 기본값). */
+/** Trims a name into something usable (surrounding whitespace removed · length capped · an empty name becomes the default). */
 export function sanitizeCharacterName(raw: string): string {
   const t = (raw ?? '').replace(/\s+/g, ' ').trim().slice(0, CHARACTER_NAME_MAX);
   return t || DEFAULT_CALLSIGN;
 }
 
-/** 고를 수 있는 시작 임플란트 (전부 처음부터 소유하므로 목록이 곧 전부다). */
+/** The startable implants to pick from (every one is owned from the start, so the list is all of them). */
 export const CREATE_IMPLANT_IDS: readonly ImplantId[] = IMPLANT_IDS;
 
 /**
- * 악센트 팔레트 (2026-09-09). 절차 생성 병사 모델의 천 · 바이저 · 견장에 들어가는 색이라 어두운 함선
- * 조명에서도 실루엣이 읽히는 채도만 고른다. 값을 늘려도 UI 는 그대로 흐른다.
+ * The accent palette (2026-09-09). The colour goes on the cloth · visor · shoulder plate of the procedural
+ * soldier model, so only saturations whose silhouette still reads under the ship's dim lighting are picked.
+ * Adding values keeps the UI flowing as it is.
  */
 export const ACCENT_COLORS: readonly string[] = [
   '#ff8a5c', '#7fb4ff', '#6ee7a8', '#d9b96a', '#c98cff', '#ff6b8a', '#5fd8e0', '#b6c2cf',
@@ -155,8 +158,9 @@ function zeroStats(): Record<StatId, number> {
 }
 
 /**
- * 생성창의 선택을 그대로 담은 새 프로필. `progression/Profile.freshProfile` 과 모양은 같지만 능력치가
- * 생성창의 배분이고 악센트 · 만든 시각이 붙는다. `migrate` 가 읽을 수 있는 현재 버전으로 쓴다.
+ * A new profile holding the creation window's picks as they are. The same shape as
+ * `progression/Profile.freshProfile`, but the stats are the creation window's distribution and the accent · the
+ * creation time are attached. Written at the current version, which `migrate` can read.
  */
 export function makeCharacterProfile(c: NewCharacter): PlayerProfile {
   const now = Date.now();
@@ -170,12 +174,13 @@ export function makeCharacterProfile(c: NewCharacter): PlayerProfile {
     skills: zeroSkills(),
     skillProgress: zeroSkills(),
     /*
-     * 2026-09-14 2차 (사용자 결정) — **새 캐릭터는 전술 임플란트 없이 시작한다.** 튜토리얼 레이드에서
-     * 「임플란트를 숨긴다」가 위젯만 접는 것이었다면 Q 는 여전히 갈고리를 쏜다 — 가진 적 없는 것을 쓰는 셈이다.
-     * 그래서 값 자체를 비우고, **첫 함선 진입**에서 갈고리를 지급 · 장착한다
-     * (`progression/ProgressionSystem.grantStarterImplant`, `hub:entered`). 튜토리얼을 완주하든 건너뛰든
-     * 그 한 곳을 반드시 지난다. `NewCharacter.implant` 는 계약이라 남아 있지만(생성창은 여전히 넘긴다)
-     * 여기서는 읽지 않는다 — `airstrike` · `secondary` 와 같은 처리다.
+     * 2026-09-14 2nd pass (user's decision) — **a new character starts with no tactical implant.** If 「hide the
+     * implant」 in the tutorial raid only folded the widget away, Q would still fire the grapple — using something
+     * that was never owned. So the value itself is emptied and the grapple is granted and equipped at the
+     * **first ship entry** (`progression/ProgressionSystem.grantStarterImplant`, `hub:entered`). Whether the
+     * tutorial is completed or skipped, that one place is always passed through. `NewCharacter.implant` stays
+     * because it is a contract (the creation window still passes it), but it is not read here — the same
+     * treatment as `airstrike` · `secondary`.
      */
     implant: null,
     raids: 0,
@@ -189,8 +194,9 @@ export function makeCharacterProfile(c: NewCharacter): PlayerProfile {
 }
 
 /**
- * 새 캐릭터를 슬롯에 심는다. 그 슬롯에 남아 있던 세이브는 부르는 쪽이 미리 `deleteSlot` 으로 치운다
- * (빈 칸에서만 생성창이 열리므로 보통은 이미 비어 있다). 쓰기에 실패하면 false — 저장소가 막힌 브라우저다.
+ * Plants a new character into a slot. Any save left in that slot is cleared by the caller beforehand with
+ * `deleteSlot` (the creation window only opens on an empty slot, so it is usually empty already). false when the
+ * write fails — a browser whose storage is blocked.
  */
 export function createCharacterInSlot(slot: SlotId, c: NewCharacter): PlayerProfile | null {
   const profile = makeCharacterProfile(c);

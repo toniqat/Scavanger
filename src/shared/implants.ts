@@ -2,13 +2,13 @@ import type * as THREE from 'three';
 import type { PeerId } from './net';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Tactical implants (전술 임플란트). Owner: implants/ImplantSystem publishes `ctx.implants`.
+ * Tactical implants. Owner: implants/ImplantSystem publishes `ctx.implants`.
  * Everyone owns all five from the start; exactly one may be equipped, and only in the ship
  * (`setEquipped` refuses while a mission is running). Q activates it in game.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
- * `'atlauncher'` (대전차포) is **retired** (2026-09-15, 사용자 결정 — overlapped the legendary bazooka). The id stays in the
+ * `'atlauncher'` (`대전차포`) is **retired** (2026-09-15, user's decision — overlapped the legendary bazooka). The id stays in the
  * union because this file is add-only (same treatment as `airstrike` / `secondary`), but it is **not** in `IMPLANT_IDS`
  * and has no `ImplantDef`: every sanitizer that checks against `IMPLANT_IDS` (profile migrate, loadout presets, crew
  * cards, `isImplantId`) turns a saved / received `atlauncher` into `null`.
@@ -102,7 +102,7 @@ export interface ImplantsRef {
   reset(): void;
 }
 
-/* ══ appended: Phase 10 — 배리어 = 들고 다니는 방패 (2026-09-07) ═══════════════════════════════════════════════
+/* ══ appended: Phase 10 — the barrier = a shield carried in the hands (2026-09-07) ═════════════════════════════
  * The 배리어 def's `mode` becomes `'wielded'`, so Q takes the shield into the hands, the gun is holstered
  * (`blocksWeapons`), and a weapon key or Q again puts it away — exactly the 대전차포 flow (대전차포 retired 2026-09-15;
  * the barrier is now the only wielded implant). Remote replication comes
@@ -122,7 +122,7 @@ export interface ImplantsRef {
   getBarrierPose(outPosition: THREE.Vector3): { yaw: number } | null;
 }
 
-/* ══ appended: 2026-09-08 — 배리어 rework (넓은 방패 · 충돌 · 정면 흡수 · 실드 배쉬) · 정찰 rework ═══════════════════
+/* ══ appended: 2026-09-08 — the barrier rework (a wider shield · collision · frontal absorption · the shield bash) · the recon rework ══
  * 배리어: the carried shield is wider (`IMPLANT_BARRIER_CARRY_WIDTH` raised), and it is now a **physical wall for
  * bugs**: enemies/ resolves their movement against it and cannot walk through, and a bug that bumps it retargets the
  * carrier. A melee attack that reaches the carrier from inside the shield arc is **absorbed by the shield** instead of
@@ -153,11 +153,12 @@ export interface ImplantsRef {
   readonly bashing: boolean;
 }
 
-/* ══ appended: 2026-09-12 — 안정제 · 준비 연출 (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) ═══════════════════════
- * 안정제(consumable, owner: weapons/Healing · A1)가 부른다. 장착 임플란트를 **전부** 채운다: 충전 가득 · 쿨타임 0 · 배리어
- * 붕괴 잠금 해제 + 내구도 가득 · 오버차지 에너지 가득 → `implant:cooldownChanged` · `barrierChanged` · `energyChanged` 를
- * 다시 내고 `implant:ready {refill: true}` 로 준비 연출 · 소리가 난다 (이미 가득이어도 — 아이템을 쓴 피드백). 미장착이면
- * 아무것도 하지 않는다. 날아가는 · 붙은 갈고리, 들고 있는 방패, 오버차지 채널을 끊지 않는다. Owner: implants.
+/* ══ appended: 2026-09-12 — the stabiliser · the ready effect (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) ═══════
+ * The `안정제` (a consumable, owner: weapons/Healing · A1) calls it. It refills the equipped implant **completely**:
+ * charges full · cooldown 0 · the barrier's collapse lockout released + durability full · overcharge energy full →
+ * `implant:cooldownChanged` · `barrierChanged` · `energyChanged` are emitted again and `implant:ready {refill: true}`
+ * plays the ready effect and its sound (even when it was already full — it is feedback that an item was used). With no
+ * implant equipped it does nothing. It cuts no grapple in flight or attached, no shield in hand, no overcharge channel. Owner: implants.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 export interface ImplantsRef {
   refillAll?(): void;

@@ -3,51 +3,58 @@ import { UI_HOLD_CONFIRM_S } from './constants';
 import { createHoldButtonCap } from './keycap';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 공용 경고 · 홀드 확인 팝업 (2026-09-13). Owner: shared/ — 계약이므로 추가만 한다.
+ * The shared warning · hold-confirm popup (2026-09-13). Owner: shared/ — a contract, so it is add-only.
  *
- * 같은 물건이 `ui/menus/askPopup` · `meta/ui/HoldAsk` · `inventory/ui/DisassemblePanel` 에 **각자** 있다 — 폴더끼리 import 하지
- * 않는다는 규칙 때문이다. 이 모듈은 그 넷째 사본이 되지 않으려고 shared 에 둔 **재사용 가능한** 판이다 (그 셋은 이번에 옮기지
- * 않았다). `itemChip.ts` 처럼 DOM 을 만들지만 `ctx` 를 받아 blocker · 커서 · Escape 스택을 스스로 쥔다.
+ * The same thing exists **separately** in `ui/menus/askPopup` · `meta/ui/HoldAsk` · `inventory/ui/DisassemblePanel` — because
+ * of the rule that folders do not import each other. This module is the **reusable** edition put in shared so as not to become
+ * a fourth copy (those three were not moved this time). Like `itemChip.ts` it builds DOM, but it takes `ctx` and holds the
+ * blocker · the cursor · the Escape stack itself.
  *
- * 규약 (프로젝트의 2026-09-09 확인 규칙 그대로):
- *  - `hold: true` 인 버튼은 **`UI_HOLD_CONFIRM_S` 동안 누르고 있어야** 실행된다 — 게이지는 rAF, 확정은 타이머(프레임이 멈춘
- *    탭에서도 멎지 않는다). 도중에 떼거나 버튼을 벗어나면 0 으로 돌아간다. 클릭 · Enter 로는 실행되지 않는다.
- *    **2026-09-15 2차 (사용자 결정)**: 그 규칙을 적던 안내 줄(`.sh-ask-hint` — 일찍 떼면 `is-flash` 로 번쩍이던 그 줄)은
- *    없어졌다. 대신 홀드 버튼 **안, 라벨 왼쪽**에 좌클릭 홀드 키캡(`keycap.createHoldButtonCap`)이 선다 —
- *    「어떻게 누르는가」는 그림이 말한다. 그 줄은 홀드 문구만 나르고 있었으므로 요소째 사라졌다.
- *  - **Escape = 취소** — `ctx.escape` 맨 위에 올라가 뒤의 창보다 먼저 닫힌다. 취소는 `cancel: true` 인 버튼의 `run`
- *    (없으면 `spec.onCancel`)이다. **Enter 는 삼킨다**. 최초 포커스는 취소 버튼이다 (Space 는 안전한 쪽을 누른다).
- *  - `ctx.uiBlockers` 에 자기 토큰을 넣고 `input.setCursorMode(true, 토큰)` 한다 — 뒤의 창이 먼저 닫혀도 커서가 남는다.
- *  - `ctx.uiRoot` 바로 아래에 붙는다 (창 안에 두면 창의 transform 이 `position: fixed` 를 가둔다). 뒤판 클릭은 아무것도 안 한다.
+ * The convention (exactly the project's 2026-09-09 confirm rule):
+ *  - A button with `hold: true` runs only after **being held for `UI_HOLD_CONFIRM_S`** — the gauge is rAF, the confirm is a
+ *    timer (which does not stall in a tab whose frames stopped). Releasing part-way or leaving the button returns it to 0.
+ *    A click · Enter never runs it.
+ *    **2026-09-15 2nd pass (user's decision)**: the hint line that stated that rule (`.sh-ask-hint` — the line that flashed
+ *    with `is-flash` on an early release) is gone. Instead a left-click hold keycap (`keycap.createHoldButtonCap`) stands
+ *    **inside the hold button, left of the label** — 「how do I press it」 is told by the picture. That line carried nothing
+ *    but the hold sentence, so it went away element and all.
+ *  - **Escape = cancel** — it goes on top of `ctx.escape` and closes before the window behind it. Cancel is the `run` of the
+ *    button with `cancel: true` (or `spec.onCancel` when there is none). **Enter is swallowed**. The initial focus is the
+ *    cancel button (Space presses the safe side).
+ *  - It puts its own token in `ctx.uiBlockers` and calls `input.setCursorMode(true, the token)` — the cursor stays even if the
+ *    window behind closes first.
+ *  - It attaches directly under `ctx.uiRoot` (inside a window, the window's transform traps `position: fixed`). A click on the
+ *    backdrop does nothing.
  *
- * 스타일은 이 모듈이 처음 열릴 때 `<style>` 하나로 넣는다 (`.sh-ask*` — shared 의 접두사). 색은 `ui/styles/base.css` 의 토큰.
+ * The style is injected as one `<style>` the first time this module opens (`.sh-ask*` — shared's prefix). Colours are the
+ * tokens in `ui/styles/base.css`.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export type HoldAskKind = 'danger' | 'primary' | 'default';
 
 export interface HoldAskButton {
   label: string;
-  /** 버튼 색. `danger` = 붉은 테두리 · 붉은 게이지, `primary` = 강조색. 기본 `default`. */
+  /** The button colour. `danger` = a red border · a red gauge, `primary` = the accent colour. Defaults to `default`. */
   kind?: HoldAskKind;
-  /** true = `UI_HOLD_CONFIRM_S` 홀드로만 실행 (게이지가 버튼을 쓸고 간다). */
+  /** true = runs only on a `UI_HOLD_CONFIRM_S` hold (the gauge sweeps across the button). */
   hold?: boolean;
-  /** true = 취소 버튼 — Escape 가 이것을 누르고, 최초 포커스도 여기다. 하나만 둔다. */
+  /** true = the cancel button — Escape presses this one, and the initial focus is here too. Keep exactly one. */
   cancel?: boolean;
-  /** 눌렀을 때 할 일. 팝업은 **먼저 닫히고** 그다음에 부른다. */
+  /** What to do when pressed. The popup **closes first** and this is called after. */
   run?: () => void;
 }
 
 export interface HoldAskSpec {
   title: string;
-  /** `\n` 을 살린다 (`white-space: pre-line`). */
+  /** `\n` is kept (`white-space: pre-line`). */
   body: string;
-  /** 왼쪽 → 오른쪽 순서. 보통 취소가 왼쪽이다. */
+  /** Left → right order. Cancel is usually on the left. */
   buttons: readonly HoldAskButton[];
-  /** 붉은 제목 · 테두리 (되돌릴 수 없는 동작). */
+  /** A red title · border (an irreversible action). */
   danger?: boolean;
-  /** Escape 로 닫혔는데 `cancel` 버튼이 없을 때 부른다. */
+  /** Called when it was closed with Escape and there is no `cancel` button. */
   onCancel?: () => void;
-  /** 스모크 · CSS 가 팝업을 구분하는 표식 (`data-ask`). */
+  /** The mark a smoke · CSS tells the popup apart by (`data-ask`). */
   id?: string;
 }
 
@@ -56,9 +63,9 @@ export interface HoldAskHandle {
   readonly isOpen: boolean;
   /** 0..1 while a hold button is held (debug / smoke). */
   readonly holdProgress: number;
-  /** Escape 와 같다 — 취소 버튼의 `run` (없으면 `onCancel`) 을 부르고 닫는다. */
+  /** The same as Escape — calls the cancel button's `run` (or `onCancel` when there is none) and closes. */
   cancel(): void;
-  /** 아무것도 부르지 않고 닫는다 (띄운 화면이 사라질 때 — 강제 종료). */
+  /** Closes without calling anything (when the screen that opened it goes away — a forced exit). */
   close(): void;
 }
 
@@ -162,7 +169,7 @@ export function openHoldAsk(ctx: GameContext, spec: HoldAskSpec): HoldAskHandle 
   const cancelBtnSpec = spec.buttons.find((b) => b.cancel);
   const cancel = (): void => { if (open) fire(cancelBtnSpec, spec.onCancel); };
 
-  /** 일찍 뗐다 = 아무 일도 없다. 2026-09-15 2차부터 안내 줄이 없으므로 게이지를 0 으로 되돌리는 것이 전부다. */
+  /** Released early = nothing happens. Since the 2026-09-15 2nd pass there is no hint line, so returning the gauge to 0 is all of it. */
   const release = (): void => { if (hold) cancelHold(); };
 
   let focusBtn: HTMLButtonElement | null = null;
@@ -172,7 +179,7 @@ export function openHoldAsk(ctx: GameContext, spec: HoldAskSpec): HoldAskHandle 
     btn.type = 'button';
     if (b.cancel) btn.dataset.cancel = '';
     if (b.hold) btn.dataset.hold = '';
-    // 2026-09-15 2차: 홀드 버튼은 라벨 왼쪽에 좌클릭 홀드 키캡을 단다 (채움 바는 absolute 라 줄에서 빠진다).
+    // 2026-09-15 2nd pass: a hold button carries the left-click hold keycap left of its label (the fill bar is absolute, so it is out of the line).
     if (b.hold) createHoldButtonCap(btn);
     const fill = b.hold ? mk('i', 'sh-ask-fill', btn) : null;
     mk('span', 'sh-ask-label', btn, b.label);

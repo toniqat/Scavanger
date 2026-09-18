@@ -2,11 +2,11 @@ import type { ItemDef } from './types';
 import { CATEGORY_ICON, RARITY_COLORS } from './labels';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 재료 요구 칩 (Phase 8, 2026-09-06). One shared renderer for "this costs N of that" everywhere a cost is shown:
- * 가구 제작 / 시설 업그레이드 / 필드 · 작업대 제작 / 수리 / 퀘스트 납품 / 재배 씨앗.
+ * The material cost chip (Phase 8, 2026-09-06). One shared renderer for "this costs N of that" everywhere a cost is shown:
+ * furniture crafting / facility upgrades / field · workbench crafting / repairs / quest deliveries / growing seeds.
  *
  * Before Phase 8 every folder printed its own `"폐금속 3/8"` text run. This module is the single place that turns a
- * cost line into the **thumbnail + 보유/필요 count** the design asks for, so housing/, inventory/, meta/ and ui/ all
+ * cost line into the **thumbnail + have/need count** the design asks for, so housing/, inventory/, meta/ and ui/ all
  * render an identical chip without importing each other. It is deliberately the only DOM in `src/shared` (like
  * `labels.ts` is the only palette): it takes plain data, touches no context, and registers no listeners.
  *
@@ -18,7 +18,7 @@ import { CATEGORY_ICON, RARITY_COLORS } from './labels';
  *     div.item-chip-count  > span.have + '/' + span.need
  *     div.item-chip-name                            (only when `withName`)
  *
- * `is-short` (보유 < 필요) dims the whole chip and turns the 보유 number red — the "부족하면 딤드" rule.
+ * `is-short` (have < need) dims the whole chip and turns the have number red — the "dim when short" rule.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export interface ItemChipOptions {
@@ -58,7 +58,7 @@ export function buildItemChip(def: ItemDef | undefined, opts: ItemChipOptions = 
   // the same inventory-style item tooltip. A native `title` would race that card, so it is only written when a
   // caller explicitly asks for one (a chip whose def is unknown keeps the placeholder name as its title).
   if (def) el.dataset.defId = def.id;
-  // 2026-09-12 (E2): 즐겨찾기 표식 — the source is registered by ui/ (`setItemChipFavoriteSource`), see the block at the end
+  // 2026-09-12 (E2): the favorite mark — the source is registered by ui/ (`setItemChipFavoriteSource`), see the block at the end
   if (def && isItemChipFavorite(def.id)) el.classList.add(ITEM_CHIP_FAVORITE_CLASS);
   if (opts.title !== undefined) el.title = opts.title;
   else if (!def) el.title = d.name;
@@ -142,23 +142,24 @@ export function renderItemCost(
   return ok;
 }
 
-/* ══ appended: 2026-09-12 — 시설 레벨 요구 칩 ═══════════════════════════════════════════════════════════════════
- * 「발전기 Lv.2 가 필요하다」 같은 **시설 레벨 요구**를 아이템 칩 옆에 같은 줄로 그린다 (사용자 결정). 아이템과 헷갈리지
- * 않게 **가로로 긴 썸네일 + 이중 테두리**이고, 수치는 필요 갯수가 아니라 `현재 레벨/필요 레벨` 이다.
+/* ══ appended: 2026-09-12 — the facility level requirement chip ═════════════════════════════════════════════════
+ * A **facility level requirement** like 「발전기 Lv.2 가 필요하다」 is drawn on the same line next to the item chips (user's
+ * decision). So that it is not mistaken for an item it has a **wide thumbnail + a double border**, and its numbers are
+ * `the current level/the required level`, not a required count.
  *
- *   div.facility-chip[.is-short]                   ← `--fc` = 시설 색, `--chip-size` = 썸네일 높이 (아이템 칩과 같은 값을 넘긴다)
- *     div.facility-chip-thumb                      ← 폭은 높이의 2배 (CSS) · `border-style: double`
- *       span.facility-chip-icon                    ← 시설 글리프 (`FACILITY_GLYPH`)
- *       span.facility-chip-name                    ← 시설 이름 (`FACILITY_LABEL_KO`)
+ *   div.facility-chip[.is-short]                   ← `--fc` = the facility colour, `--chip-size` = the thumbnail height (the same value as the item chips)
+ *     div.facility-chip-thumb                      ← twice as wide as it is high (CSS) · `border-style: double`
+ *       span.facility-chip-icon                    ← the facility glyph (`FACILITY_GLYPH`)
+ *       span.facility-chip-name                    ← the facility name (`FACILITY_LABEL_KO`)
  *       div.facility-chip-count > span.facility-chip-have + '/' + span.facility-chip-need
  *
- * 스타일은 `src/ui/styles/base.css` 의 `.facility-chip*` (아이템 칩 바로 아래). 이 함수는 시설 표를 import 하지 않는다 —
- * 부르는 쪽이 이름 · 글리프 · 색을 넘긴다 (`itemChip.ts` 가 `housing.ts` 에 기대지 않게).
+ * The style is `.facility-chip*` in `src/ui/styles/base.css` (right below the item chip). This function does not import
+ * the facility table — the caller hands over the name · the glyph · the colour (so `itemChip.ts` does not lean on `housing.ts`).
  */
 export interface FacilityChipOptions {
-  /** 썸네일 높이 px — 같은 줄의 아이템 칩 `size` 와 맞춘다. 기본 34. */
+  /** The thumbnail height in px — matched to the `size` of the item chips on the same line. Default 34. */
   size?: number;
-  /** 네이티브 툴팁. 생략하면 `이름 Lv.need 필요 (현재 Lv.have)`. */
+  /** The native tooltip. Omitted, it is `이름 Lv.need 필요 (현재 Lv.have)`. */
   title?: string;
 }
 
@@ -198,21 +199,23 @@ export function buildFacilityChip(
   return root;
 }
 
-/* ══ appended: 2026-09-12 (E2) — 즐겨찾기 표식 · 우클릭 메뉴 opt-in ═══════════════════════════════════════════════
- * 아이템 즐겨찾기는 **종류(def id) 단위**이고 원본은 inventory 다 (`InventoryRef.isFavorite` · `toggleFavorite` ·
- * `inventory:favoritesChanged`, E1). 칩은 `ctx` 를 모르므로 **모듈 수준 공급자**를 하나 둔다 — ui/ 의
- * `hud/ItemFavoriteMenu` 가 부팅 때 `setItemChipFavoriteSource` 로 등록하고, `buildItemChip` 이 칩을 만들 때 물어
- * `.is-favorite` 를 붙인다 (스타일은 `ui/styles/base.css` 의 파란 사선 띠). 이미 그려진 칩은 같은 메뉴가
- * `inventory:favoritesChanged` 를 받아 DOM 에서 클래스만 고친다 — 칩을 다시 만들 필요가 없다.
+/* ══ appended: 2026-09-12 (E2) — the favorite mark · right-click menu opt-in ══════════════════════════════════════
+ * An item favorite is **per kind (def id)** and the original is inventory (`InventoryRef.isFavorite` · `toggleFavorite` ·
+ * `inventory:favoritesChanged`, E1). A chip does not know `ctx`, so there is one **module-level provider** — ui/'s
+ * `hud/ItemFavoriteMenu` registers it at boot with `setItemChipFavoriteSource`, and `buildItemChip` asks it while
+ * building a chip and adds `.is-favorite` (the style is the blue diagonal band in `ui/styles/base.css`). Chips already
+ * drawn are fixed by the same menu, which takes `inventory:favoritesChanged` and changes only the class in the DOM —
+ * no chip has to be built again.
  *
- * 우클릭 메뉴 「즐겨찾기 켜기 / 끄기」 는 `.item-chip[data-def-id]` 전부에 자동으로 붙는다. 칩이 아닌 요소(기업 상점의
- * 인벤토리 타일 등)는 `data-def-id` 옆에 **`ITEM_FAVORITE_MENU_ATTR`** 를 달아 옵트인한다 — `data-item-tip` 이 호버 카드에
- * 옵트인하는 것과 같은 규약이다. 안쪽 요소가 자기 `contextmenu` 에서 `stopPropagation` 하면 그쪽 메뉴가 이긴다.
+ * The right-click menu 「즐겨찾기 켜기 / 끄기」 is attached automatically to every `.item-chip[data-def-id]`. An element that
+ * is not a chip (an inventory tile in a corporation shop and the like) opts in by putting **`ITEM_FAVORITE_MENU_ATTR`**
+ * next to its `data-def-id` — the same convention by which `data-item-tip` opts into the hover card. If an inner element
+ * calls `stopPropagation` in its own `contextmenu`, that element's menu wins.
  */
 
 /** Class `buildItemChip` puts on a chip whose def is a favorite. */
 export const ITEM_CHIP_FAVORITE_CLASS = 'is-favorite';
-/** Attribute (value ignored) that opts a non-chip `[data-def-id]` element into the 즐겨찾기 right-click menu. */
+/** Attribute (value ignored) that opts a non-chip `[data-def-id]` element into the favorite right-click menu. */
 export const ITEM_FAVORITE_MENU_ATTR = 'data-fav-menu';
 
 /**
@@ -238,35 +241,36 @@ export function isItemChipFavorite(defId: string): boolean {
   try { return favoriteSource(defId) === true; } catch { return false; }
 }
 
-/* ══ appended: 2026-09-16 — 격자 발자국 크기의 칩 ═══════════════════════════════════════════════════════════════
- * 「가방에서 끌 때와 같은 크기」를 칩으로 그리기 위한 것이다. 인벤토리 격자는 아이템을 `ItemDef.width × height`
- * **칸**으로 그리고 드래그 고스트도 그 상자 크기 그대로 뜬다(`inventory/ui/labels.tileSizeAt`). 가구 화면의 산물
- * 드래그(`housing/ui/ProductDrag`)는 그동안 정사각형 칩 하나만 띄워 「끌면 크기가 유지되지 않는다」로 보였다.
+/* ══ appended: 2026-09-16 — a chip the size of the grid footprint ═══════════════════════════════════════════════
+ * This exists to draw 「the same size as when it is dragged from the bag」 as a chip. The inventory grid draws an item as
+ * `ItemDef.width × height` **cells** and the drag ghost comes up at exactly that box size
+ * (`inventory/ui/labels.tileSizeAt`). The product drag of the furniture screen (`housing/ui/ProductDrag`) had until now
+ * raised a single square chip, which read as 「the size is not kept while dragging」.
  *
- * 식은 한 줄이고 두 폴더가 같이 쓰므로 여기(§4.1 「같은 식이 두 폴더에 있으면 shared 로」)에 둔다.
- * `inventory/ui/labels.ts` 의 `GAP` 이 같은 값이다 — 그쪽이 격자를 그리는 원본이고, 여기는 그 격자 **밖에서**
- * 같은 크기를 재야 하는 칩용이다. 한쪽을 바꾸면 다른 쪽도 같이 바꾼다.
+ * The formula is one line and two folders use it together, so it lives here (§4.1 「the same formula in two folders moves
+ * to shared」). `GAP` in `inventory/ui/labels.ts` is the same value — that one is the original that draws the grid, and
+ * this one is for chips that must measure the same size **outside** that grid. Change one and change the other with it.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
-/** px — 격자 칸과 칸 사이 (`inventory/ui/labels.ts` 의 `GAP` 과 같은 값). */
+/** px — between one grid cell and the next (the same value as `GAP` in `inventory/ui/labels.ts`). */
 export const ITEM_GRID_GAP = 2;
 
-/** px — `w × h` 칸 발자국이 차지하는 상자 (칸 한 변 `cell`, 칸 사이 `gap`). */
+/** px — the box a `w × h` cell footprint takes up (one cell's edge `cell`, the gap between cells `gap`). */
 export function itemGridBox(w: number, h: number, cell: number, gap: number = ITEM_GRID_GAP): { width: number; height: number } {
   const cw = Math.max(1, Math.floor(w)), ch = Math.max(1, Math.floor(h));
   return { width: cw * (cell + gap) - gap, height: ch * (cell + gap) - gap };
 }
 
 export interface ItemGridChipOptions extends ItemChipOptions {
-  /** 격자 칸 한 변(px) — 부르는 쪽이 자기 격자가 쓰는 값을 준다 (`housing/ui/StationShell.stationGridCell`). */
+  /** One grid cell's edge (px) — the caller gives the value its own grid uses (`housing/ui/StationShell.stationGridCell`). */
   cell: number;
   gap?: number;
 }
 
 /**
- * 격자 한 칸이 아니라 **아이템의 발자국만큼** 큰 칩. 겉모습(테두리 · 글리프 · 개수 배지)은 `buildItemChip` 그대로이고
- * 썸네일만 `w × h` 상자로 늘어난다 — CSS 를 건드리지 않고 인라인으로 덮으므로(`.item-chip` 의 `min/max-width` 포함)
- * 칩 마크업 계약은 그대로다. 크기는 `itemGridBox` 가 잰다.
+ * A chip as big as **the item's footprint** rather than one grid cell. The look (border · glyph · count badge) is
+ * `buildItemChip`'s as it is and only the thumbnail stretches to the `w × h` box — it is overridden inline without
+ * touching CSS (including `.item-chip`'s `min/max-width`), so the chip markup contract stays. `itemGridBox` measures it.
  */
 export function buildItemGridChip(def: ItemDef | undefined, opts: ItemGridChipOptions): HTMLElement {
   const { cell, gap, ...chip } = opts;

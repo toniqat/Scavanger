@@ -1,78 +1,81 @@
 /**
- * src/shared/extraction.ts — **탈출 흐름의 동기 질의** (`ctx.extraction`, 2026-09-13 탈출 개편).
+ * src/shared/extraction.ts — **the synchronous queries of the extraction flow** (`ctx.extraction`, the 2026-09-13 extraction rework).
  *
- * 이 파일이 답하는 질문: *다른 폴더가 탈출 함선에 대해 매 프레임 물어야 하는 것은 무엇인가.*
+ * The question this file answers: *what does another folder have to ask about the extraction ship every frame.*
  *
- * - 적은 착륙한 함선 안으로 **절대** 들어오지 않는다 (사용자 결정). 외피 벽은 extraction 이 `WorldRef.addObstacle`
- *   로 등록한 사각 콜라이더라 누구에게나 벽이지만, 뒤쪽 램프 입구는 사람이 드나드는 구멍이라 열려 있다. 그 구멍을
- *   **적에게만** 막는 것이 `keepEnemyOut` 이다 — `enemies/ai/EnemyAI.integrate` 가 `world.resolveCollision` 뒤에 부른다.
- *   `resolveCollision` 은 누가 부르는지 모르므로 월드 콜라이더로는 "적만" 을 표현할 수 없어서 질의로 뺐다.
- * - 나머지는 HUD · 스모크가 읽는 상태다. 이벤트(`extraction:*`)가 원본이고 이 값들은 그 거울이다.
+ * - An enemy **never** comes inside a landed ship (user's decision). The hull walls are box colliders extraction
+ *   registered with `WorldRef.addObstacle`, so they are a wall to everyone, but the rear ramp opening is the hole people
+ *   walk through and stays open. `keepEnemyOut` is what closes that hole **to enemies alone** —
+ *   `enemies/ai/EnemyAI.integrate` calls it after `world.resolveCollision`. `resolveCollision` does not know who is
+ *   calling, so "enemies only" cannot be said with a world collider and was pulled out as a query.
+ * - The rest is state the HUD and the smokes read. The events (`extraction:*`) are the source; these values mirror them.
  */
 import type * as THREE from 'three';
 
-/** 탈출 흐름의 단계. `liftoff` 는 함선이 떠나는 중(탑승자는 이륙 연출, 남겨진 사람은 리셋 대기). */
+/** The stage of the extraction flow. `liftoff` = the ship is leaving (a rider gets the liftoff cinematic, those left behind wait for the reset). */
 export type ExtractionStage = 'idle' | 'countdown' | 'shipIncoming' | 'landed' | 'departing' | 'liftoff';
 
 export interface ExtractionRef {
   readonly stage: ExtractionStage;
-  /** 출발 유예의 남은 초. `departing` 이 아니면 -1. */
+  /** Seconds left of the departure grace. -1 when not `departing`. */
   readonly departRemaining: number;
-  /** 착륙한 함선이 자동 출발 유예를 걸기까지 남은 초. `landed` 가 아니면 -1. */
+  /** Seconds until a landed ship raises the automatic departure grace. -1 when not `landed`. */
   readonly idleRemaining: number;
-  /** 로컬 플레이어가 함선에 실려 떠나는 중이다 (이륙 연출이 카메라를 들고 있다). */
+  /** The local player is being carried away aboard the ship (the liftoff cinematic holds the camera). */
   readonly riding: boolean;
-  /** `position`(발)이 착륙한 · 이륙 중인 함선의 화물칸 안인가. 함선이 없으면 false. */
+  /** Is `position` (the feet) inside the bay of a landed or climbing ship. False with no ship. */
   isInShipBay(position: THREE.Vector3): boolean;
   /**
-   * 적의 몸(발 위치 · 반지름)을 화물칸 밖으로 민다 — 입구(함선 뒤, 로컬 +Z) 쪽으로만. 움직였으면 true.
-   * **적 전용**이다: 플레이어 · 원격 몸 · 투척물은 부르지 않는다. 함선이 땅 가까이 있을 때만 영역이 있다.
+   * Pushes an enemy body (foot position · radius) out of the bay — toward the opening only (the ship's rear, local +Z).
+   * True when it moved. **Enemies only**: the player, remote bodies and throwables never call it. The zone exists only while the ship is near the ground.
    */
   keepEnemyOut(position: THREE.Vector3, radius: number): boolean;
 
-  /* ── appended (2026-09-14, 튜토리얼 개편 — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ── */
+  /* ── appended (2026-09-14, the tutorial rework — `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ── */
   /**
-   * **이미 착륙해 있는 탈출선**을 그 자리에 세운다 — 콘솔 · 호출 20초 · 착륙 연출을 전부 건너뛰고 곧장 `landed`.
-   * 튜토리얼의 「버려진 함선」이 이것이다: 함선 메시를 따로 만들지 않고 진짜 탈출선을 처음부터 놓아 두므로,
-   * 안의 스위치 → 취소 불가 10초 유예 → 이륙 → 결과 · 정산이 **평소 경로 그대로** 흐른다.
+   * Stands an **already-landed extraction ship** on the spot — the console, the 20 s call and the landing shot are all
+   * skipped and it goes straight to `landed`. The tutorial's 「버려진 함선」 is this: no separate ship mesh is built, the
+   * real extraction ship is simply placed there from the start, so the interior switch → the uncancellable 10 s grace →
+   * liftoff → result and settlement all run **down the usual road**.
    *
-   * `ctx.missionMode !== 'tutorial'` 이거나 이미 `idle` 이 아니면 false (본편 탈출 흐름에는 문이 없다).
-   * `autoDepart: false` 면 무응답 60초 자동 출발을 걸지 않는다 — 튜토리얼은 둘러보는 시간이 필요하다.
+   * False when `ctx.missionMode !== 'tutorial'` or the stage is no longer `idle` (the main-game extraction flow has no door into it).
+   * With `autoDepart: false` the 60 s idle auto-departure is not raised — the tutorial needs time to look around.
    */
   beginPreLanded?(position: THREE.Vector3, yaw: number, opts?: { autoDepart?: boolean }): boolean;
 
-  /* ── appended (2026-09-14 2차, 사용자 결정 — 튜토리얼 건너뛰기 = 즉시 탈출) ── */
+  /* ── appended (2026-09-14 2nd pass, user's decision — skipping the tutorial = extract immediately) ── */
   /**
-   * 걸어가서 타는 것을 건너뛰고 **곧장 이륙시킨다** — 로컬 플레이어를 화물칸에 세운 뒤 유예 없이 `liftoff` 로
-   * 넘어가므로, 그 뒤의 결과 화면 · 정산 · 함선 획득이 **평소 탈출 경로 그대로** 흐른다.
+   * Skips walking aboard and **lifts off at once** — it stands the local player in the bay and moves to `liftoff` with
+   * no grace, so the result screen, the settlement and being granted the ship all run **down the usual extraction road**.
    *
-   * 튜토리얼 전용이다: `ctx.missionMode !== 'tutorial'` 이거나 함선이 `landed` 가 아니면 false.
-   * 부르는 곳은 `TutorialSystem.skipTrack('raid')` 하나다 (ESC 메뉴의 「튜토리얼 건너뛰기」가 그리로 간다).
+   * Tutorial only: false when `ctx.missionMode !== 'tutorial'` or the ship is not `landed`.
+   * There is one call site, `TutorialSystem.skipTrack('raid')` (the ESC menu's 「튜토리얼 건너뛰기」 goes there).
    */
   skipToLiftoff?(): boolean;
 
-  /* ── appended (2026-09-14 3차, 사용자 결정 — 튜토리얼 함선은 스위치를 누르면 즉시 뜬다) ── */
+  /* ── appended (2026-09-14 3rd pass, user's decision — the tutorial ship lifts off the moment the switch is pressed) ── */
   /**
-   * true 면 적이 플레이어를 **바라보되 쏘지 않는다**. 튜토리얼 이륙 동안 미처 처치하지 못한 안드로이드가
-   * 화물칸의 플레이어를 쏘는 것을 막는 유일한 문이다 — `keepEnemyOut` 과 같은 이유로 월드 콜라이더가 아니라
-   * 질의다 (`enemies/ai` 가 사격 직전에 부른다). 튜토리얼이 아니면 늘 false.
+   * True means an enemy **looks at the player but does not fire**. It is the only door that stops an android which was
+   * never killed from shooting the player in the bay during the tutorial liftoff — for the same reason as `keepEnemyOut`
+   * it is a query, not a world collider (`enemies/ai` calls it right before firing). Outside the tutorial, always false.
    */
   holdFire?(): boolean;
 
-  /* ── appended (2026-09-15, 사용자 결정 — 튜토리얼 건너뛰기 = 암전 → 보상 창 → 함선) ── */
+  /* ── appended (2026-09-15, user's decision — skipping the tutorial = fade to black → reward window → the ship) ── */
   /**
-   * 함선 탈출 시퀀스(걸어가 타기 · 이륙 · 외부 카메라 연출)를 **통째로 건너뛰고** 로컬 플레이어를 탈출한 것으로 확정한다 —
-   * 그 뒤의 결과 화면 · 정산 · 함선 획득은 평소 탈출과 **같은 경로**로 흐른다 (함선이 떠나는 모습만 없다).
-   * 화면 암전은 부르는 쪽(tutorial)이 먼저 `ui:screenFade` 로 건다. 튜토리얼 전용: `ctx.missionMode !== 'tutorial'` 이거나
-   * 이미 탈출이 확정됐으면 false.
+   * Skips the ship extraction sequence (walking aboard · the liftoff · the external camera shot) **wholesale** and commits
+   * the local player as extracted — the result screen, the settlement and being granted the ship then run **the same road**
+   * as a real extraction (only the sight of the ship leaving is missing).
+   * The fade to black is raised first by the caller (tutorial) with `ui:screenFade`. Tutorial only: false when
+   * `ctx.missionMode !== 'tutorial'` or the extraction is already committed.
    */
   skipToComplete?(): boolean;
 
-  /* ── appended (2026-09-15, 안드로이드 분대원 — docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ── */
-  /** 이번 맵의 탈출 패드 — `id` 와 콘솔 앞 발 위치 (안드로이드가 걸어가 누르는 자리). 재사용 배열. */
+  /* ── appended (2026-09-15, android squadmates — docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」) ── */
+  /** This map's extraction pads — the `id` and the standing spot in front of the console (where an android walks to press it). Reused array. */
   getPads?(): readonly { readonly id: string; readonly position: THREE.Vector3 }[];
-  /** 권위: 안드로이드가 패드 `padId` 의 콘솔을 눌렀다 — 사람의 누름과 같은 흐름. `idle` 이 아니거나 모르는 패드면 false. */
+  /** Authority: an android pressed the console of pad `padId` — the same flow as a person pressing it. False when not `idle`, or the pad is unknown. */
   requestActivate?(padId: string): boolean;
-  /** 착륙해 있는 함선 화물칸 안의 탑승 지점을 `out` 에 쓴다. 착륙선이 없으면 null. */
+  /** Writes the boarding point inside the bay of a landed ship into `out`. Null with no landed ship. */
   boardingPoint?(out: THREE.Vector3): THREE.Vector3 | null;
 }

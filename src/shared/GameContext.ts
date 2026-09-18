@@ -8,7 +8,7 @@ import type {
 } from './types';
 import type { NetRef } from './net';
 import type { MissionMode } from './types';
-/* appended (Phase 11, 2026-09-07): 행성 선택 */
+/* appended (Phase 11, 2026-09-07): planet selection */
 import type { PlanetId } from './planets';
 import type { ImplantsRef } from './implants';
 import type { GadgetsRef } from './gadgets';
@@ -17,21 +17,21 @@ import type { ConsoleRef } from './console';
 import type { AudioRef } from './types';
 import type { HousingRef } from './housing';
 import type { MetaRef } from './meta';
-/* appended (2026-09-08): 튜토리얼 */
+/* appended (2026-09-08): the tutorial */
 import type { TutorialRef } from './tutorial';
-/* appended (2026-09-09): 사망한 플레이어의 시체 */
+/* appended (2026-09-09): the corpses of dead players */
 import type { CorpsesRef } from './types';
-/* appended (2026-09-10): 셰이더 선컴파일 · 광원 예산 */
+/* appended (2026-09-10): shader pre-compile · the light budget */
 import type { OutlineRef, ShaderWarmupRef } from './render';
-/* appended (2026-09-11): 드론 */
+/* appended (2026-09-11): drones */
 import type { DronesRef } from './drones';
-/* appended (2026-09-13): 탈출 개편 */
+/* appended (2026-09-13): the extraction rework */
 import type { ExtractionRef } from './extraction';
-/* appended (2026-09-14): 정보상 — 산 기믹 고정의 해석본 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* appended (2026-09-14): the intel broker — the resolved form of the bought gimmick locks (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelEffects } from './intel';
-/* appended (2026-09-15): 안드로이드 분대원 */
+/* appended (2026-09-15): android squadmates */
 import type { AlliesRef } from './allies';
-/* appended (2026-09-15): 타이틀 이어하기 · 레이드 포기 */
+/* appended (2026-09-15): the title's `이어하기` · `레이드 포기` */
 import type { RaidResumeRef } from './raidResume';
 
 class InteractableRegistryImpl implements InteractableRegistry {
@@ -109,33 +109,33 @@ export class GameContext {
   meta: MetaRef | null = null;
 
   /* appended (2026-09-08) */
-  /** 튜토리얼 (새 프로필 안내). Published by tutorial/TutorialSystem; null while it is not registered. */
+  /** The tutorial (the guide for a new profile). Published by tutorial/TutorialSystem; null while it is not registered. */
   tutorial: TutorialRef | null = null;
   /* appended (2026-09-09) */
   /**
-   * 사망한 플레이어의 시체 (레이드 내내 남는다). Published by game/GameFlowSystem.
-   * 적 시체는 여기 없다 — 그쪽은 `enemies/Corpses` 소관이다.
+   * The corpses of dead players (they stay for the whole raid). Published by game/GameFlowSystem.
+   * Enemy corpses are not here — those belong to `enemies/Corpses`.
    */
   corpses: CorpsesRef | null = null;
   /* appended (2026-09-10) */
   /**
-   * 셰이더 선컴파일 + 점광원 예산 (`shared/render`). Published by `core/Engine` in its constructor, so it is set before
-   * any system `init` runs. 새 장면(함선 · 행성)을 보여 주기 전에 `warm` / `holdForScene` 으로 컴파일을 끝내 둔다.
+   * Shader pre-compile + the point-light budget (`shared/render`). Published by `core/Engine` in its constructor, so it is set before
+   * any system `init` runs. Compilation is finished with `warm` / `holdForScene` before a new scene (a ship · a planet) is shown.
    */
   shaders: ShaderWarmupRef | null = null;
   /* appended (2026-09-12) */
-  /** 화면 공간 외곽선 (`shared/render` 의 `OutlineRef`, 구현 `core/`). 시설 관리의 가구 호버 · 선택 표시가 쓴다. */
+  /** The screen-space outline (`OutlineRef` in `shared/render`, implemented in `core/`). Used by ship management's furniture hover · selection marks. */
   outline: OutlineRef | null = null;
   /* appended (2026-09-11) */
-  /** 지상 · 공중 드론 (`shared/drones`). Published by gadgets/drones/DroneSystem. */
+  /** Ground · air drones (`shared/drones`). Published by gadgets/drones/DroneSystem. */
   drones: DronesRef | null = null;
   /* appended (2026-09-13) */
-  /** 탈출 흐름 질의 — 적 출입 금지 영역 · 출발 유예 상태 (`shared/extraction`). Published by extraction/ExtractionSystem. */
+  /** Extraction flow queries — the enemy keep-out area · the departure grace state (`shared/extraction`). Published by extraction/ExtractionSystem. */
   extraction: ExtractionRef | null = null;
   /* appended (2026-09-15) */
-  /** 안드로이드 분대원 — 명단 · 몸 · 피해 · 소생 (`shared/allies`). Published by allies/AllySystem. */
+  /** Android squadmates — the roster · bodies · damage · revival (`shared/allies`). Published by allies/AllySystem. */
   allies: AlliesRef | null = null;
-  /** 2026-09-15: 타이틀의 `이어하기` · `레이드 포기` 가 가리키는 레이드 (`shared/raidResume`). Published by game/GameFlowSystem. */
+  /** 2026-09-15: the raid the title's `이어하기` · `레이드 포기` point at (`shared/raidResume`). Published by game/GameFlowSystem. */
   raidResume: RaidResumeRef | null = null;
   /* ── appended: Phase 7 (2026-09-06) ── */
   /** Mode of the running / last mission (`game/` sets it from `game:newMission.mode` before the world generates). */
@@ -147,17 +147,17 @@ export class GameContext {
   rejoinPending = false;
   /* ── appended: Phase 11 (2026-09-07) ── */
   /**
-   * 목표 행성 of the running / last raid, or null when the mission was generated the old way (no planet: a seeded
+   * The target planet of the running / last raid, or null when the mission was generated the old way (no planet: a seeded
    * biome + a seeded sky). Set by the **emitter** of `game:newMission` before it emits, exactly like `missionMode`,
    * so `world/` and `core/` can read it inside their synchronous handlers. A training always sets it to null.
    */
   missionPlanet: PlanetId | null = null;
-  /* ── appended (2026-09-14): 정보상 (docs/DECISIONS.md 「2026-09-14 — 정보상」) ── */
+  /* ── appended (2026-09-14): the intel broker (docs/DECISIONS.md 「2026-09-14 — 정보상」) ── */
   /**
-   * 이 레이드에 산 **기믹 고정**의 해석본 (`shared/intel` 의 `IntelEffects`), 아무것도 안 샀으면 null.
-   * `missionPlanet` 과 **똑같은 규약**이다 — `game:newMission` 을 emit 하는 쪽이 **emit 전에** 세팅하므로
-   * `world/` · `enemies/` 가 동기 핸들러 안에서 읽을 수 있다. 훈련장은 언제나 null.
-   * 소비자는 `IntelPick[]` 를 직접 보지 않는다 — 그 해석은 `resolveIntelEffects` 한 곳이다.
+   * The resolved form of the **gimmick locks** bought for this raid (`IntelEffects` in `shared/intel`), null when nothing was bought.
+   * It is **exactly the same convention** as `missionPlanet` — the emitter of `game:newMission` sets it **before it emits**, so
+   * `world/` · `enemies/` can read it inside their synchronous handlers. A training is always null.
+   * Consumers never look at `IntelPick[]` directly — resolving it happens in the one place `resolveIntelEffects`.
    */
   missionIntel: IntelEffects | null = null;
   /* ── appended: Phase 8 (2026-09-06) ── */
@@ -180,9 +180,9 @@ export class GameContext {
   /** Any system that needs gameplay input blocked adds a token here (e.g. 'inventory', 'menu'). */
   readonly uiBlockers = new Set<string>();
   /**
-   * 2026-09-09: 열린 화면들의 **Escape 닫기** 동작을 열린 순서로 (`shared/escape`). 화면은 `uiBlockers.add` 옆에서
-   * `escape.push(token, () => this.close())`, `delete` 옆에서 `escape.remove(token)` 한다. ESC 를 받은
-   * `game/GameFlowSystem` 이 `closeTop()` 을 먼저 부르고, 비어 있을 때만 일시정지 메뉴를 연다.
+   * 2026-09-09: the **Escape close** actions of the open screens, in the order they were opened (`shared/escape`). A screen
+   * does `escape.push(token, () => this.close())` next to `uiBlockers.add` and `escape.remove(token)` next to `delete`.
+   * `game/GameFlowSystem`, on getting ESC, calls `closeTop()` first and opens the pause menu only when it is empty.
    */
   readonly escape = new EscapeStack();
 

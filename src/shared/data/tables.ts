@@ -1,41 +1,41 @@
 /**
- * `data/*.csv` 를 번들에 넣고 표 단위로 꺼내 주는 레지스트리.
+ * The registry that puts `data/*.csv` into the bundle and hands it out table by table.
  *
- * Vite 의 `import.meta.glob(..., { query: '?raw', eager: true })` 로 **빌드 시점에** 전부 문자열로 인라인된다 —
- * 런타임 fetch 도, 배포본에 딸려 나가는 별도 파일도 없다. dev 에서는 csv 를 저장하면 그대로 HMR 이 돈다.
+ * Vite's `import.meta.glob(..., { query: '?raw', eager: true })` inlines all of it as strings **at build time** — there
+ * is no runtime fetch and no separate file shipping with the build. In dev, saving a csv runs HMR as it is.
  *
- * `csv.ts` 와 마찬가지로 `@/shared` 를 import 하지 않는다 (constants.ts 가 이 모듈을 쓴다).
+ * Like `csv.ts` it imports no `@/shared` (constants.ts uses this module).
  */
 import { CsvRow, addDataIssue, dataIssues, parseCsv, setNumberRefResolver } from './csv';
 
 export { CsvRow, addDataIssue, dataIssues };
 export type { CsvIssue, NumOpts } from './csv';
 
-/* 프로젝트 루트의 data/ 폴더. 새 csv 를 넣으면 이름만으로 바로 잡힌다. */
-/* `import.meta.glob` 은 Vite 전용이라 서버 tsconfig 에는 타입이 없다 — 여기서만 좁혀 쓴다. */
+/* The data/ folder at the project root. Drop a new csv in and it is picked up by name alone. */
+/* `import.meta.glob` is Vite-only, so the server tsconfig has no type for it — it is narrowed here alone. */
 type GlobFn = (pattern: string, options: { query: string; import: string; eager: true }) => Record<string, string>;
 const MODULES = (import.meta as unknown as { glob: GlobFn }).glob(
   '../../../data/*.csv', { query: '?raw', import: 'default', eager: true },
 );
 
-/** `weapons.csv` → 파일 내용. */
+/** `weapons.csv` → the file's contents. */
 const TEXT = new Map<string, string>();
 for (const [path, text] of Object.entries(MODULES)) {
   TEXT.set(path.slice(path.lastIndexOf('/') + 1), text);
 }
 
-/** 번들에 들어온 csv 파일 이름 전부 (정렬됨). `data:check` 가 고아 파일을 찾는 데 쓴다. */
+/** Every csv file name that made it into the bundle (sorted). `data:check` uses it to find orphan files. */
 export function csvFileNames(): string[] {
   return [...TEXT.keys()].sort();
 }
 
 const PARSED = new Map<string, readonly CsvRow[]>();
-/** 어떤 파일에서 무엇을 읽었는지 — 아무도 안 읽은 파일/키를 `data:check` 가 잡아낸다. */
+/** What was read out of which file — `data:check` catches a file or a key nobody read. */
 const TOUCHED = new Set<string>();
 
 /**
- * 파일 하나의 데이터 줄 전부. 없는 파일이면 문제를 남기고 빈 배열.
- * 파싱은 파일당 한 번만 하고 캐시한다.
+ * Every data line of one file. A missing file leaves a problem and returns an empty array.
+ * Parsing happens exactly once per file and is cached.
  */
 export function csvRows(file: string): readonly CsvRow[] {
   TOUCHED.add(file);
@@ -52,14 +52,14 @@ export function csvRows(file: string): readonly CsvRow[] {
   return rows;
 }
 
-/** 한 번이라도 읽힌 csv 파일 이름. */
+/** Names of the csv files that were read at least once. */
 export function touchedFiles(): string[] {
   return [...TOUCHED].sort();
 }
 
 /**
- * `group` 열의 값으로 묶은 줄들. 한 파일에 성격이 다른 표를 여러 개 담을 때 쓴다
- * (`tables.csv` 의 `table` 열, `enemy_abilities.csv` 의 `block` 열).
+ * The lines grouped by the value of the `group` column. Used when one file holds several tables of different kinds
+ * (the `table` column of `tables.csv`, the `block` column of `enemy_abilities.csv`).
  */
 export function csvGroups(file: string, groupColumn: string): Map<string, CsvRow[]> {
   const out = new Map<string, CsvRow[]>();
@@ -72,11 +72,11 @@ export function csvGroups(file: string, groupColumn: string): Map<string, CsvRow
   return out;
 }
 
-/* ── key,value 형식 ────────────────────────────────────────────────────────── */
+/* ── the key,value form ───────────────────────────────────────────────────── */
 
 /**
- * `key,value,…` 로 된 파일의 조회기. 읽은 키를 기록해 두므로 `data:check` 가
- * **아무도 안 읽는 키**(= 오타 났거나 죽은 수치)를 찾아낼 수 있다.
+ * The lookup for a `key,value,…` file. It records the keys that were read, so `data:check` can find
+ * **a key nobody reads** (= a typo, or a dead number).
  */
 export class KeyTable {
   private readonly rows = new Map<string, CsvRow>();
@@ -84,7 +84,7 @@ export class KeyTable {
 
   readonly file: string;
 
-  /* 서버 tsconfig 가 `erasableSyntaxOnly` 라 생성자 파라미터 프로퍼티를 쓸 수 없다. */
+  /* The server tsconfig is `erasableSyntaxOnly`, so constructor parameter properties cannot be used. */
   constructor(file: string, keyColumn = 'key') {
     this.file = file;
     for (const row of csvRows(file)) {
@@ -106,27 +106,27 @@ export class KeyTable {
     return row;
   }
 
-  /** 숫자 하나. 줄이 없으면 문제 + 0. */
+  /** One number. A missing line is a problem + 0. */
   num(key: string, column = 'value'): number {
     return this.row(key)?.num(column) ?? 0;
   }
 
-  /** 문자열 하나. */
+  /** One string. */
   str(key: string, column = 'value'): string {
     return this.row(key)?.str(column) ?? '';
   }
 
-  /** `true`/`false` 하나. */
+  /** One `true`/`false`. */
   bool(key: string, column = 'value'): boolean {
     return this.row(key)?.bool(column) ?? false;
   }
 
-  /** `|` 로 나뉜 목록. */
+  /** A `|`-separated list. */
   list(key: string, column = 'value'): string[] {
     return this.row(key)?.list(column) ?? [];
   }
 
-  /** 아직 아무도 읽지 않은 키 — 대개 오타이거나 지워진 수치의 잔재다. */
+  /** Keys nobody has read yet — usually a typo, or what a deleted number left behind. */
   unreadKeys(): string[] {
     return [...this.rows.keys()].filter((k) => !this.read.has(k)).sort();
   }
@@ -134,7 +134,7 @@ export class KeyTable {
 
 const KEY_TABLES = new Map<string, KeyTable>();
 
-/** 파일당 하나만 만들어 재사용 (읽음 표시가 흩어지지 않게). */
+/** Exactly one per file, reused (so the read marks do not scatter). */
 export function keyTable(file: string, keyColumn = 'key'): KeyTable {
   const hit = KEY_TABLES.get(file);
   if (hit) return hit;
@@ -143,21 +143,21 @@ export function keyTable(file: string, keyColumn = 'key'): KeyTable {
   return made;
 }
 
-/** 만들어진 모든 KeyTable (checker 가 미사용 키를 훑는다). */
+/** Every KeyTable that was built (the checker sweeps them for unused keys). */
 export function allKeyTables(): readonly KeyTable[] {
   return [...KEY_TABLES.values()];
 }
 
 /**
- * 어느 csv 든 `=FLAME_DPS` 처럼 `data/constants.csv` 의 상수를 참조할 수 있게 한다.
- * 상수를 공유하는 표가 값을 베껴 두지 않아도 되므로 원본은 계속 한 곳이다.
+ * Lets any csv reference a constant of `data/constants.csv`, like `=FLAME_DPS`.
+ * A table that shares a constant need not copy the value, so the source stays in one place.
  */
 setNumberRefResolver((name) => {
   const constants = keyTable('constants.csv');
   if (constants.has(name)) return constants.num(name);
   const tuning = keyTable('tuning.csv');
   if (tuning.has(name)) return tuning.num(name);
-  /* `표이름.키` → tables.csv 의 그 칸 (`=ARMOR_DR_BY_TIER.3`). */
+  /* `<table>.<key>` → that cell of tables.csv (`=ARMOR_DR_BY_TIER.3`). */
   const dot = name.indexOf('.');
   if (dot > 0) {
     const row = csvGroups('tables.csv', 'table').get(name.slice(0, dot))?.find((r) => r.raw('key') === name.slice(dot + 1));
@@ -166,10 +166,10 @@ setNumberRefResolver((name) => {
   return undefined;
 });
 
-/* ── table,key,value 형식 (긴 형태 표) ─────────────────────────────────────── */
+/* ── the table,key,value form (long-form tables) ──────────────────────────── */
 
 /**
- * `tables.csv` 처럼 `table,key,value` 로 여러 표를 담은 파일에서 표 하나를 꺼낸다.
+ * Pulls one table out of a file that holds several as `table,key,value`, like `tables.csv`.
  * `AMMO_STACK_ROUNDS` → `{ light: 80, medium: 50, … }`.
  */
 export function numberMap<K extends string>(file: string, table: string, groupColumn = 'table'): Record<K, number> {
@@ -189,8 +189,8 @@ export function numberMap<K extends string>(file: string, table: string, groupCo
 }
 
 /**
- * 같은 형식이지만 `key` 가 0,1,2… 인덱스인 배열 표
- * (`ARMOR_DR_BY_TIER`, `STASH_ROWS_BY_STORAGE_LEVEL`). 빠진 인덱스는 문제로 잡는다.
+ * The same form, but an array table whose `key` is the index 0,1,2…
+ * (`ARMOR_DR_BY_TIER`, `STASH_ROWS_BY_STORAGE_LEVEL`). A missing index is flagged.
  */
 export function numberList(file: string, table: string, groupColumn = 'table'): number[] {
   const map = numberMap(file, table, groupColumn);
@@ -205,7 +205,7 @@ export function numberList(file: string, table: string, groupColumn = 'table'): 
   return out;
 }
 
-/** 같은 형식의 문자열 배열 표 (`WEAPON_GRADE_ROMAN`, `QUICK_SLOT_DIRS` …). */
+/** A string array table of the same form (`WEAPON_GRADE_ROMAN`, `QUICK_SLOT_DIRS` …). */
 export function stringList(file: string, table: string, groupColumn = 'table'): string[] {
   const group = csvGroups(file, groupColumn).get(table);
   if (!group) {
@@ -229,7 +229,7 @@ export function stringList(file: string, table: string, groupColumn = 'table'): 
   return out;
 }
 
-/** 같은 형식의 문자열 사전 표 (`SOCKET_LABEL_KO`, `WEIGHT_STATE_LABEL_KO` …). */
+/** A string dictionary table of the same form (`SOCKET_LABEL_KO`, `WEIGHT_STATE_LABEL_KO` …). */
 export function stringMap<K extends string>(file: string, table: string, groupColumn = 'table'): Record<K, string> {
   const out = {} as Record<K, string>;
   const group = csvGroups(file, groupColumn).get(table);
@@ -246,8 +246,8 @@ export function stringMap<K extends string>(file: string, table: string, groupCo
 }
 
 /**
- * `facility_upgrades.csv` 처럼 "그룹 + 레벨 + 재료 목록" 으로 된 파일을
- * `[레벨1 비용, 레벨2 비용, …]` 의 배열로 묶는다.
+ * Folds a file shaped as "group + level + material list", like `facility_upgrades.csv`,
+ * into the array `[level 1 cost, level 2 cost, …]`.
  */
 export function costLevels(file: string, groupColumn: string, group: string): { defId: string; qty: number }[][] {
   const rows = csvGroups(file, groupColumn).get(group);

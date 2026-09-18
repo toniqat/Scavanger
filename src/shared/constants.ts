@@ -1,9 +1,9 @@
 /**
  * Global gameplay constants shared by every module. Do not duplicate these elsewhere.
  *
- * **수치는 여기에 없다.** 스칼라 수치는 전부 `data/constants.csv` 에 있고 이 파일은 그 표를 이름으로 읽을 뿐이다
- * (`K.num('MAP_SIZE')`). 값을 조정할 때는 csv 만 고치면 되고, 이름 · 주석 · 타입은 계속 여기가 원본이다.
- * 새 상수를 추가할 때는 csv 에 줄을 넣고 여기에 `export const X = K.num('X');` 한 줄을 더한다.
+ * **The numbers are not here.** Every scalar value lives in `data/constants.csv` and this file only reads that table
+ * by name (`K.num('MAP_SIZE')`). Tuning a value means editing the csv alone; the name, the comment and the type are
+ * still owned here. Adding a constant = a row in the csv plus one `export const X = K.num('X');` line here.
  */
 import { costLevels, csvRows, keyTable, numberList, numberMap, stringList } from './data/tables';
 
@@ -62,13 +62,13 @@ export interface KeyBindings {
   /* appended (Phase 11): hold P to accept a 분대 초대 (ship only). Took P off the undocumented character-sheet shortcut. */
   INVITE: string;
   /* appended (2026-09-07, 커서 rework): Alt frees the mouse cursor during gameplay without opening any screen.
-     2026-09-10: 그 기능은 제거됐다 — 계약이라 필드는 남고 아무도 읽지 않는다 (`SECONDARY` 와 같은 처리). */
+     2026-09-10: it was removed — the field stays because it is a contract and nobody reads it (as with `SECONDARY`). */
   CURSOR: string;
-  /* appended (2026-09-09): H 홀드 = 의사소통 휠. 톡 누르면 아무 일도 없다 (STIM 이 은퇴하며 비운 자리다). */
+  /* appended (2026-09-09): hold H = the comms wheel. A tap does nothing (the slot STIM left free when it retired). */
   COMMS: string;
-  /* appended (2026-09-12): 어깨 전환 — 3인칭 카메라를 왼쪽 / 오른쪽 어깨로 옮긴다 (owner: player/CameraRig). */
+  /* appended (2026-09-12): shoulder swap — moves the third-person camera onto the left / right shoulder (owner: player/CameraRig). */
   SHOULDER: string;
-  /* appended (2026-09-17): 튜토리얼 레이드 우측 조작 가이드 접기 / 펴기 (owner: tutorial — 증축 안내의 마지막 레이드에서만 읽는다). */
+  /* appended (2026-09-17): fold / unfold the tutorial raid's right-hand control guide (owner: tutorial — read only in the last raid of `증축 안내`). */
   GUIDE_TOGGLE: string;
 }
 
@@ -102,13 +102,13 @@ export const DEFAULT_KEYS: Readonly<KeyBindings> = {
   /* Phase 11: 분대 초대 수락 (홀드). The P character-sheet shortcut is gone — 캐릭터 is a Tab-screen tab. */
   INVITE: 'KeyP',
   /* 2026-09-07 (커서 rework): Alt = 커서 표시 / 숨기기. 구르기 moved off Alt onto V.
-     2026-09-10: Alt 커서 제거 — 값은 남지만 `KEY_ACTION_DEFS` 에 없어 아무 데도 걸리지 않는다. */
+     2026-09-10: the Alt cursor is gone — the value stays but is absent from `KEY_ACTION_DEFS`, so it binds nowhere. */
   CURSOR: 'AltLeft',
-  /* 2026-09-09: 의사소통 휠. 은퇴한 STIM 과 같은 H 를 쓴다 — 그 키는 아무 데도 안 걸려 있었다. */
+  /* 2026-09-09: the comms wheel. Uses the same H as the retired STIM — that key was bound to nothing. */
   COMMS: 'KeyH',
-  /* 2026-09-12: 어깨 전환. X 는 인벤토리(DROP_ITEM) · 시설 관리(회수)에서도 쓰지만 그 둘은 커서 화면이라 범위가 겹치지 않는다. */
+  /* 2026-09-12: shoulder swap. X is also used by the inventory (DROP_ITEM) and ship management (recover), but those two are cursor screens, so the scopes do not overlap. */
   SHOULDER: 'KeyX',
-  /* 2026-09-17: `]` = 튜토리얼 조작 가이드 숨김 / 표시. 시설 관리 모드의 `]`(가구 넘기기, 고정 키 — `hub/HousingMode`)는 커서 화면이라 범위가 겹치지 않는다. */
+  /* 2026-09-17: `]` = hide / show the tutorial control guide. The `]` of ship-management mode (paging furniture, a fixed key — `hub/HousingMode`) is a cursor screen, so the scopes do not overlap. */
   GUIDE_TOGGLE: 'BracketRight',
 };
 
@@ -212,7 +212,7 @@ export const QUICK_SLOTS = K.num('QUICK_SLOTS');
 export const QUICK_SLOT_DIRS: readonly string[] = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 export const QUICK_SLOT_LABEL_KO: readonly string[] = ['위', '오른쪽 위', '오른쪽', '오른쪽 아래', '아래', '왼쪽 아래', '왼쪽', '왼쪽 위'];
 /** Item categories that can sit in a wheel slot. */
-/** 2026-09-15: `'grenade'` 폐지 — 수류탄 2종도 `category: 'gadget'` 이라 이 목록이 그대로 덮는다. */
+/** 2026-09-15: `'grenade'` was retired — both grenades are `category: 'gadget'` too, so this list still covers them. */
 export const QUICK_USABLE_CATEGORIES: readonly string[] = ['stim', 'gadget'];
 /**
  * Which wheel slots a bag with `n` quick slots unlocks: the first `n` entries of this order (N, S, E, W, then the
@@ -237,28 +237,29 @@ export const GRENADE_THROW_SPEED = K.num('GRENADE_THROW_SPEED');
 export const GRENADE_THROW_LIFT = K.num('GRENADE_THROW_LIFT');
 export const GRENADE_UNDERHAND_LIFT = K.num('GRENADE_UNDERHAND_LIFT');
 /**
- * G-12 고폭 수류탄의 반경(m) · 중심 피해 · 플레이어 몫 (2026-09-15, 사용자 결정 — 반경 6 → 7.2 = ×1.2).
- * 2026-09-15 까지 `weapons/Grenade.ts` 에 박혀 있던 세 숫자다; 같은 이름이 `@/weapons` 배럴로도 계속 나간다.
- * 감쇠는 `shared/explosion.ts` 의 2단 계단 — 반경을 고쳐도 「가까우면 100 %」 구간이 함께 자란다.
+ * G-12 high-explosive grenade: radius (m) · damage at the centre · the player's share (2026-09-15, user's decision —
+ * radius 6 → 7.2 = ×1.2). Until 2026-09-15 these three numbers sat in `weapons/Grenade.ts`; the same names still go
+ * out through the `@/weapons` barrel. Falloff is the two-step curve of `shared/explosion.ts` — widening the radius
+ * grows the 「100 % up close」 band with it.
  */
 export const GRENADE_RADIUS = K.num('GRENADE_RADIUS');
 export const GRENADE_DAMAGE = K.num('GRENADE_DAMAGE');
-/** 수류탄 폭발이 플레이어에게 주는 몫 (내 것도 분대원 것의 복제도 같다). 적 · 드론에는 안 곱한다. */
+/** The share of a grenade blast a player takes (the same for my own and for a squadmate's replica). Not applied to enemies or drones. */
 export const GRENADE_PLAYER_DAMAGE_MUL = K.num('GRENADE_PLAYER_DAMAGE_MUL');
 /**
- * **폭발 감쇠 2단 계단** (2026-09-15, 사용자 결정) — 수식은 `shared/explosion.ts` 하나다.
- * `0 … FULL_FRACTION × radius` = 100 %, 거기서 `radius` 까지 = `OUTER_MUL`(거리 무관 고정), 밖은 0.
+ * **The two-step explosion falloff** (2026-09-15, user's decision) — the formula lives in `shared/explosion.ts` alone.
+ * `0 … FULL_FRACTION × radius` = 100 %, from there to `radius` = `OUTER_MUL` (flat, distance-independent), beyond = 0.
  */
 export const EXPLOSION_FULL_FRACTION = K.num('EXPLOSION_FULL_FRACTION');
 export const EXPLOSION_OUTER_MUL = K.num('EXPLOSION_OUTER_MUL');
-/** 2026-09-18 (사용자 결정): 폭발 · 근접 차폐 — 몸 3점 높이 · 폭심 들어올림 · 끝점 여유. 판정은 `shared/explosion.ts`. */
+/** 2026-09-18 (user's decision): blast / melee occlusion — the 3 body-point heights, the blast-centre lift, the end-point slack. The judgement is in `shared/explosion.ts`. */
 export const BLAST_LOS_FEET_M = K.num('BLAST_LOS_FEET_M');
 export const BLAST_LOS_CHEST_FRAC = K.num('BLAST_LOS_CHEST_FRAC');
 export const BLAST_LOS_HEAD_FRAC = K.num('BLAST_LOS_HEAD_FRAC');
 export const BLAST_LOS_LIFT_M = K.num('BLAST_LOS_LIFT_M');
 export const BLAST_LOS_SLACK_M = K.num('BLAST_LOS_SLACK_M');
 export const MELEE_LOS_SLACK_M = K.num('MELEE_LOS_SLACK_M');
-/** 투척 거리 배율 (2026-09-09): linear from THROW_RANGE_MUL_MIN at STAT_MIN 근력 to THROW_RANGE_MUL_MAX at STAT_MAX. */
+/** Throw range multiplier (2026-09-09): linear from THROW_RANGE_MUL_MIN at STAT_MIN `근력` to THROW_RANGE_MUL_MAX at STAT_MAX. */
 export const THROW_RANGE_MUL_MIN = K.num('THROW_RANGE_MUL_MIN');
 export const THROW_RANGE_MUL_MAX = K.num('THROW_RANGE_MUL_MAX');
 
@@ -288,12 +289,12 @@ export const STRATAGEM_DEFS: readonly StratagemDef[] = csvRows('stratagems.csv')
   hint: r.str('hint'),
 }));
 /**
- * G 휠에 뜨는 목록과 순서 — **4방위 고정**(N/E/S/W)이라 항목은 정확히 4개다.
- * 2026-09-09: `airstrike` 를 휠에서 내리고 `rescue_drop` 을 올렸다. 항공 폭탄의 정의(csv 줄)와
- * 구현(`stratagems/parts/Calls`)은 남아 있지만 어디서도 무장되지 않는다 — 계약은 지우지 않고 목록만 바꾼다.
+ * What the G wheel shows and in what order — the **four compass points are fixed** (N/E/S/W), so there are exactly 4.
+ * 2026-09-09: `airstrike` came off the wheel and `rescue_drop` went on. The airstrike's definition (its csv row) and
+ * its implementation (`stratagems/parts/Calls`) remain but are armed nowhere — the contract is not deleted, only the list changes.
  */
 export const STRATAGEM_ORDER: readonly StratagemId[] = ['orbital_laser', 'supply_drop', 'structure_drop', 'rescue_drop'];
-/** 멀티에서 **호스트만** 무장할 수 있는 호출. 나머지는 아무나 쓴다. */
+/** Calls only **the host** may arm in multiplayer. Anyone may use the rest. */
 export const STRATAGEM_HOST_ONLY: readonly StratagemId[] = ['orbital_laser', 'airstrike'];
 /** G held longer than this opens the wheel; a tap re-arms the last call. */
 export const STRATAGEM_WHEEL_HOLD = K.num('STRATAGEM_WHEEL_HOLD');
@@ -310,7 +311,7 @@ export const GROUND_TARGET_RANGE = K.num('GROUND_TARGET_RANGE');
 export const LASER_DURATION = K.num('LASER_DURATION');
 export const LASER_RADIUS = K.num('LASER_RADIUS');
 export const LASER_DPS = K.num('LASER_DPS');
-/** Airstrike: explosion radius (m) and damage at the centre (감쇠는 `shared/explosion` 2단 계단). */
+/** Airstrike: explosion radius (m) and damage at the centre (falloff = the two-step curve of `shared/explosion`). */
 export const AIRSTRIKE_RADIUS = K.num('AIRSTRIKE_RADIUS');
 export const AIRSTRIKE_DAMAGE = K.num('AIRSTRIKE_DAMAGE');
 /** Supply crate: fall time (s), impact damage radius (m) / damage, loot tier (see items LOOT_TABLES), lifetime after landing (s). */
@@ -333,16 +334,16 @@ export const OFFSCREEN_PING_SECONDS = K.num('OFFSCREEN_PING_SECONDS');
 export const CORPSE_LIFETIME = K.num('CORPSE_LIFETIME');
 /** Corpse interaction radius (m). */
 export const CORPSE_INTERACT_RADIUS = K.num('CORPSE_INTERACT_RADIUS');
-/* appended (2026-09-16): 빈 시체 제거 (owner: game/Corpses · enemies/parts/CorpseEmpty · world/tutorial/parts/Corpses) */
-/** 아이템이 하나도 남지 않은 시체가 비고 나서 가라앉기 시작할 때까지(초). 적 시체는 **열어서 비운** 것만. */
+/* appended (2026-09-16): removing an empty corpse (owner: game/Corpses · enemies/parts/CorpseEmpty · world/tutorial/parts/Corpses) */
+/** Seconds between a corpse running out of items and the moment it starts to sink. Enemy corpses only when they were **opened and emptied**. */
 export const CORPSE_EMPTY_REMOVE_DELAY_S = K.num('CORPSE_EMPTY_REMOVE_DELAY_S');
-/** 빈 시체가 땅으로 가라앉는 시간(초). 끝나면 상호작용 · 빛기둥 · 메시가 함께 사라진다. */
+/** Seconds an empty corpse takes to sink into the ground. At the end the interactable, the light pillar and the mesh all go. */
 export const CORPSE_EMPTY_SINK_S = K.num('CORPSE_EMPTY_SINK_S');
-/** 플레이어 · 안드로이드 · 튜토리얼 시체가 가라앉는 깊이(m). 적 리그는 자기 시체 가라앉기 깊이(`anim.fade`)를 쓴다. */
+/** How deep (m) a player / android / tutorial corpse sinks. The enemy rig uses its own corpse sink depth (`anim.fade`). */
 export const CORPSE_EMPTY_SINK_DEPTH_M = K.num('CORPSE_EMPTY_SINK_DEPTH_M');
-/** 호스트 가드: `ecorpseq emptied` 를 보낸 사람의 스냅샷과 적 시체의 수평 거리 상한(m). */
+/** Host guard: max horizontal distance (m) between the enemy corpse and the snapshot of whoever sent `ecorpseq emptied`. */
 export const CORPSE_EMPTY_REQUEST_REACH_M = K.num('CORPSE_EMPTY_REQUEST_REACH_M');
-/** 호스트 가드: 한 사람이 초당 보낼 수 있는 빈 적 시체 요청 수 · 버킷 크기. */
+/** Host guard: empty-enemy-corpse requests one person may send per second, and the bucket size. */
 export const CORPSE_EMPTY_REQUEST_RATE_MAX = K.num('CORPSE_EMPTY_REQUEST_RATE_MAX');
 export const CORPSE_EMPTY_REQUEST_BURST = K.num('CORPSE_EMPTY_REQUEST_BURST');
 /** Rogue gunner: reaction delay before the first shot (s), aim error (radians) at hip / after settling, damage per hit, rounds per burst. */
@@ -362,7 +363,7 @@ export const ROGUE_BOSS_ESCORTS = K.num('ROGUE_BOSS_ESCORTS');
 export const ARTILLERY_RANGE = K.num('ARTILLERY_RANGE');
 export const SHELL_FLIGHT_TIME = K.num('SHELL_FLIGHT_TIME');
 export const SHELL_BLAST_RADIUS = K.num('SHELL_BLAST_RADIUS');
-/** 2026-09-10: 포탄 궤적 전용 유효 중력 — 실제 `GRAVITY` 가 아니다 (`shared/ballistics`). */
+/** 2026-09-10: the effective gravity used for shell arcs only — not the real `GRAVITY` (`shared/ballistics`). */
 export const SHELL_ARC_GRAVITY = K.num('SHELL_ARC_GRAVITY');
 export const SHELL_DAMAGE = K.num('SHELL_DAMAGE');
 export const SHELL_RADIUS = K.num('SHELL_RADIUS');
@@ -404,9 +405,9 @@ export const ROLL_DAMAGE_MUL = K.num('ROLL_DAMAGE_MUL');
 /* ── weight ── */
 export const WEIGHT_BASE_CAPACITY = K.num('WEIGHT_BASE_CAPACITY');        // kg at strength 0
 export const WEIGHT_PER_STRENGTH = K.num('WEIGHT_PER_STRENGTH');        // kg per 근력 point
-export const WEIGHT_LIGHT_RATIO = K.num('WEIGHT_LIGHT_RATIO');         // 조금 무거움
-export const WEIGHT_HEAVY_RATIO = K.num('WEIGHT_HEAVY_RATIO');         // 무거움
-export const WEIGHT_OVER_RATIO = K.num('WEIGHT_OVER_RATIO');          // 과적
+export const WEIGHT_LIGHT_RATIO = K.num('WEIGHT_LIGHT_RATIO');         // `조금 무거움`
+export const WEIGHT_HEAVY_RATIO = K.num('WEIGHT_HEAVY_RATIO');         // `무거움`
+export const WEIGHT_OVER_RATIO = K.num('WEIGHT_OVER_RATIO');          // `과적`
 export const WEIGHT_LIGHT_STAMINA_MUL = K.num('WEIGHT_LIGHT_STAMINA_MUL');   // -30 % stamina regen
 export const WEIGHT_HEAVY_STAMINA_MUL = K.num('WEIGHT_HEAVY_STAMINA_MUL');   // -50 % stamina regen
 export const WEIGHT_HEAVY_MOVE_MUL = K.num('WEIGHT_HEAVY_MOVE_MUL');
@@ -414,7 +415,7 @@ export const WEIGHT_STATE_LABEL_KO: Record<string, string> = {
   normal: '보통', light: '조금 무거움', heavy: '무거움', over: '과적',
 };
 
-/* ── detection (감지 시스템) ── */
+/* ── detection (the detection system) ── */
 export const DETECT_BASE_RADIUS = K.num('DETECT_BASE_RADIUS');          // interactable highlight radius at 인지력 0
 export const DETECT_PER_PERCEPTION = K.num('DETECT_PER_PERCEPTION');      // + meters per 인지력 point
 export const DETECT_ENEMY_BASE_RADIUS = K.num('DETECT_ENEMY_BASE_RADIUS');    // off-screen enemy arrow radius
@@ -431,8 +432,9 @@ export const IMPLANT_DASH_CHARGES = K.num('IMPLANT_DASH_CHARGES');
 export const IMPLANT_DASH_DISTANCE = K.num('IMPLANT_DASH_DISTANCE');
 export const IMPLANT_DASH_COOLDOWN = K.num('IMPLANT_DASH_COOLDOWN');        // per charge
 /**
- * 2026-09-14 (owner: implants/parts/Devices.castDash) 대시는 앞을 레이 하나로 자르지 않고 몸을 걸음처럼 밀어 본다 —
- * 한 걸음 `SWEEP_STEP` m, 밀려난 뒤 진행이 걸음의 `SLIDE_MIN` 배 미만이면 막힘, 지형 오르막이 `MAX_SLOPE_DEG` 보다 가파르면 막힘.
+ * 2026-09-14 (owner: implants/parts/Devices.castDash) a dash does not cut the way ahead with a single ray; it pushes
+ * the body forward like walking — one step of `SWEEP_STEP` m, blocked when the progress after the push is under
+ * `SLIDE_MIN` of a step, blocked when the terrain rises steeper than `MAX_SLOPE_DEG`.
  */
 export const IMPLANT_DASH_SWEEP_STEP = K.num('IMPLANT_DASH_SWEEP_STEP');
 export const IMPLANT_DASH_SLIDE_MIN = K.num('IMPLANT_DASH_SLIDE_MIN');
@@ -486,29 +488,29 @@ export const GADGET_TURRET_HP = K.num('GADGET_TURRET_HP');
 export const GADGET_TURRET_RANGE = K.num('GADGET_TURRET_RANGE');
 export const GADGET_TURRET_DPS = K.num('GADGET_TURRET_DPS');
 export const GADGET_TURRET_DURATION = K.num('GADGET_TURRET_DURATION');
-/* ── appended: 2026-09-15 (가젯 개편 · 제세동기 조준 · 독성 포자, 사용자 결정) ── */
-/** 준비된 제세동기가 쓰러진 아군을 「겨눴다」고 보는 크로스헤어 반각(°) — `gadget:defibAim.target` 의 기준. */
+/* ── appended: 2026-09-15 (gadget rework · defibrillator aiming · toxic spores, user's decision) ── */
+/** Crosshair half-angle (°) inside which a charged defibrillator counts as 「aimed at」 a downed ally — the basis of `gadget:defibAim.target`. */
 export const DEFIB_AIM_CONE_DEG = K.num('DEFIB_AIM_CONE_DEG');
-/** 돔 실드 중앙 개체를 꾹 눌러 회수하는 시간(초). */
+/** Seconds of holding the dome shield's centre object to recover it. */
 export const GADGET_DOME_RECOVER_TIME = K.num('GADGET_DOME_RECOVER_TIME');
-/** 1 이면 독성 포자 재해 피해가 실드를 건너뛴다 (`PlayerRef.takeDamage` 의 `opts.bypassShield`). */
+/** 1 = toxic-spore hazard damage skips the shield (`opts.bypassShield` of `PlayerRef.takeDamage`). */
 export const HAZARD_SPORES_BYPASS_SHIELD = K.num('HAZARD_SPORES_BYPASS_SHIELD') > 0;
-/* 2026-09-15 2차 (화염 통합, 사용자 결정): `GADGET_INCENDIARY_RADIUS`(5) · `GADGET_INCENDIARY_DURATION`(10) 은퇴 —
-   화염 지대를 만드는 정의가 하나가 되면서 살아남은 수치는 `GRENADE_INCENDIARY_*`(3.5 m · 6 s)다. 초당 피해
-   `GADGET_INCENDIARY_DPS` 는 그대로 쓴다(지대 전체의 값이라 통합과 무관하다). */
+/* 2026-09-15 2nd pass (fire merged into one, user's decision): `GADGET_INCENDIARY_RADIUS`(5) · `GADGET_INCENDIARY_DURATION`(10)
+   retired — with one definition left that makes a fire zone, the numbers that survived are `GRENADE_INCENDIARY_*`(3.5 m · 6 s).
+   The per-second damage `GADGET_INCENDIARY_DPS` is used unchanged (it is the whole zone's value, so the merge does not touch it). */
 export const GADGET_INCENDIARY_DPS = K.num('GADGET_INCENDIARY_DPS');
 export const GADGET_JUMPPAD_IMPULSE = K.num('GADGET_JUMPPAD_IMPULSE');
 export const GADGET_JUMPPAD_FORWARD = K.num('GADGET_JUMPPAD_FORWARD');
 /** Hold time (s) to defuse a mine / recover a turret, jump pad or barricade. */
 export const GADGET_DEFUSE_TIME = K.num('GADGET_DEFUSE_TIME');
-/* 2026-09-09: 아래 여섯 개는 `gadgets/GadgetDefs.ts` 안에 리터럴로 박혀 있던 값이다 — csv 로 옮겼다. */
-/** 바리케이드가 차지하는 반경(m). */
+/* 2026-09-09: the six below were literals sitting inside `gadgets/GadgetDefs.ts` — moved into the csv. */
+/** Radius (m) a barricade occupies. */
 export const GADGET_BARRICADE_RADIUS = K.num('GADGET_BARRICADE_RADIUS');
-/** 유인 수류탄 비콘 / 지뢰 / 점프대의 내구도 (쏘면 부서진다). */
+/** Durability of the lure-grenade beacon / mine / jump pad (shooting them breaks them). */
 export const GADGET_LURE_HP = K.num('GADGET_LURE_HP');
 export const GADGET_MINE_HP = K.num('GADGET_MINE_HP');
 export const GADGET_JUMPPAD_HP = K.num('GADGET_JUMPPAD_HP');
-/** 제세동기가 닿는 거리(m)와 점프대 발동 반경(m). */
+/** Defibrillator reach (m) and jump-pad trigger radius (m). */
 export const GADGET_DEFIB_RANGE = K.num('GADGET_DEFIB_RANGE');
 export const GADGET_JUMPPAD_RADIUS = K.num('GADGET_JUMPPAD_RADIUS');
 
@@ -549,8 +551,9 @@ export const PROFILE_VERSION = 1;
 export const XP_BASE = K.num('XP_BASE');   // Phase 5 (2026-09-06): was 240 (plan: 120 × n^1.35)
 export const XP_EXPONENT = K.num('XP_EXPONENT');
 /**
- * appended (2026-09-16, owner: game): 탈출하지 못한 레이드의 처치 경험치 배율. 레이드 경험치 = Σ 처치 종류의 `enemies.csv` raidXp
- * (`MissionStats.killXp`) × (탈출 ? 1 : XP_DEATH_MUL) × 서재 배율 — `game/parts/Death.awardMissionXp`.
+ * appended (2026-09-16, owner: game): kill-XP multiplier of a raid that was not extracted from. Raid XP = Σ the killed
+ * type's `enemies.csv` raidXp (`MissionStats.killXp`) × (extracted ? 1 : XP_DEATH_MUL) × the library multiplier —
+ * `game/parts/Death.awardMissionXp`.
  */
 export const XP_DEATH_MUL = K.num('XP_DEATH_MUL');
 
@@ -664,7 +667,7 @@ export const BAZOOKA_SPEED = K.num('BAZOOKA_SPEED');
 export const BAZOOKA_ALT_FUSE = K.num('BAZOOKA_ALT_FUSE');
 export const BAZOOKA_ALT_DAMAGE = K.num('BAZOOKA_ALT_DAMAGE');
 export const BAZOOKA_ALT_RADIUS = K.num('BAZOOKA_ALT_RADIUS');
-/** 2026-09-14 은퇴 — 바주카는 자해 피해가 없다. 읽는 곳이 없고 계약 export 만 남는다 (옛 뜻: 폭발 반경 안의 고정 자해 피해). */
+/** Retired 2026-09-14 — the bazooka does no self damage. Nothing reads it and only the contract export stays (old meaning: flat self damage inside the blast radius). */
 export const BAZOOKA_SELF_DAMAGE = K.num('BAZOOKA_SELF_DAMAGE');
 /** Knockback speed away from the blast when the player is inside the radius. */
 export const BAZOOKA_KNOCKBACK = K.num('BAZOOKA_KNOCKBACK');
@@ -705,21 +708,23 @@ export const SHIP_STORAGE_KEY = 'scav.ship';
 /** Bumped to 2 in Phase 8: `ShipState.plots` / `nameLocked` and the one-off `furn_repair_bench` grant. */
 /**
  * Phase 9: 3 = `books` / `bookDex` (absent → empty; no data migration).
- * 온실 개편 (2026-09-11): **4** = `grows` (재배 스테이션 칸). A v3 save loses its 재배층 — every `furn_grow_rack`,
- * placed or stored, is refunded as materials into the 함선 창고 and its `plots` are dropped (사용자 결정: 옛 것 폐기).
- * 연구실 (2026-09-11): **5** = `analyses` / `sampleDex` (분석기). 없으면 빈 것으로 migrate — 버릴 데이터가 없다.
- * 배양조 (2026-09-11, A-14): **6** = `cultures`. v5 → v6 도 없던 필드가 생기는 것뿐이라 환불 경로가 없다.
- * 방 시설 레벨 제거 (2026-09-12): **7** — 모양은 같다. `RoomState.level` 이 늘 1 이 되고, v6 이하 세이브의 작업실 ·
- * 사격장 레벨은 관물대 · 시뮬레이션 허브 레벨로 옮겨지거나 재료로 환불된다 (`housing/ShipState.sanitize`, 한 번만).
+ * Greenhouse rework (2026-09-11): **4** = `grows` (growing-station slots). A v3 save loses its `재배층` — every
+ * `furn_grow_rack`, placed or stored, is refunded as materials into the ship stash and its `plots` are dropped
+ * (user's decision: throw the old one away).
+ * Lab (2026-09-11): **5** = `analyses` / `sampleDex` (the analyzer). Absent → migrated as empty; no data is lost.
+ * Culture tank (2026-09-11, A-14): **6** = `cultures`. v5 → v6 only adds fields that did not exist, so there is no refund path.
+ * Room facility levels removed (2026-09-12): **7** — the shape is the same. `RoomState.level` is always 1, and the
+ * workshop / range levels of a v6-or-older save move onto the locker / simulation-hub levels or are refunded as materials
+ * (`housing/ShipState.sanitize`, exactly once).
  */
-export const SHIP_STATE_VERSION = 12;  // 2026-09-12: 9 = 서재 매체 (`media` · `mediaDex` · `toggled`, A-3e) · 2026-09-13: 10 = 조종석 전용 시설 + 조종석 꾸밈 가구 (모양은 같다 — 한 번만 옮기려고 올렸다) · 11 = 요리 재료 티어 (흙 · 배지 내구도와 소켓 · 배양 스캐폴드 · 분석 결과 · 계열 경험치 · 분석 도감) · 2026-09-16: 12 = 표본 개편 · 프로세서 직접 장착 (`sampleLevels` · `ComputeClusterSlot.processors` — 사용자 결정으로 이관 없음: 표본 레벨은 0 부터, 옛 `cores` 는 새것 내구도의 프로세서로 읽는다)
+export const SHIP_STATE_VERSION = 12;  // 2026-09-12: 9 = library media (`media` · `mediaDex` · `toggled`, A-3e) · 2026-09-13: 10 = cockpit-only facilities + cockpit decoration furniture (the shape is the same — bumped only so the move happens once) · 11 = cooking material tiers (soil · medium durability and sockets · culture scaffold · analysis results · family XP · the analysis catalogue) · 2026-09-16: 12 = sample rework · processors mounted directly (`sampleLevels` · `ComputeClusterSlot.processors` — no migration, by the user's decision: sample levels start from 0, and an old `cores` reads as a processor at the new durability)
 export const SHIP_ROOM_COUNT = K.num('SHIP_ROOM_COUNT');
 /** Room floor grid (cells) and cell size (m): 8 × 8 × 0.5 = a 4 × 4 m room. */
 export const ROOM_GRID_COLS = K.num('ROOM_GRID_COLS');
 export const ROOM_GRID_ROWS = K.num('ROOM_GRID_ROWS');
 export const HOUSING_CELL_SIZE = K.num('HOUSING_CELL_SIZE');
 export const GENERATOR_MAX_LEVEL = K.num('GENERATOR_MAX_LEVEL');
-/** appended (2026-09-13 — 전력 할당 폐지): a new ship's generator level (it runs from the start; an old Lv.0 save is raised to this). */
+/** appended (2026-09-13 — power allocation abolished): a new ship's generator level (it runs from the start; an old Lv.0 save is raised to this). */
 export const GENERATOR_START_LEVEL = K.num('GENERATOR_START_LEVEL');
 export const STORAGE_MAX_LEVEL = K.num('STORAGE_MAX_LEVEL');
 export const WORKSHOP_MAX_LEVEL = K.num('WORKSHOP_MAX_LEVEL');
@@ -789,7 +794,7 @@ export const GHOST_BLEED_PER_SEC = K.num('GHOST_BLEED_PER_SEC');
 
 /* ══ appended: Phase 8 — UI/UX pass (2026-09-06) ═══════════════════════════════════════════════════════════ */
 
-/* ── 온실 재배 (owner: housing rules, hub geometry, items seed data) ── */
+/* ── greenhouse growing (owner: housing rules, hub geometry, items seed data) ── */
 /** Plots in one 재배층. */
 export const GROW_PLOTS_PER_RACK = K.num('GROW_PLOTS_PER_RACK');
 /** How many 재배층 may share one floor footprint (each on its own `PlacedFurniture.layer`). */
@@ -805,16 +810,16 @@ export const GROW_SKILL_SPEEDUP = K.num('GROW_SKILL_SPEEDUP');
 export const SEED_GROW_HOURS_BY_RARITY: Readonly<Record<Rarity, number>> =
   numberMap<Rarity>('tables.csv', 'SEED_GROW_HOURS_BY_RARITY');
 
-/* ── 온실 개편 — 토양 궁합 (2026-09-11, owner: housing rules, items soil data) ── */
+/* ── greenhouse rework — soil affinity (2026-09-11, owner: housing rules, items soil data) ── */
 /**
- * 씨앗의 `soilTag` 와 부어 둔 토양의 태그가 **같을 때** 성장 시간이 이 비율만큼 줄어든다.
- * 다르면 대신 `SOIL_MISMATCH_PENALTY` 만큼 늘어난다 — 토양 없이 심는 경우는 없으므로(칸을 먼저 채워야 한다)
- * 이 둘이 곧 기준선이다. 심는 순간 `GrowSlot.readyAt` 에 확정되고 뒤에 바뀌지 않는다.
+ * When the seed's `soilTag` and the tag of the poured soil are **the same**, the grow time drops by this fraction.
+ * When they differ it grows by `SOIL_MISMATCH_PENALTY` instead — nothing is ever planted without soil (the slot has to
+ * be filled first), so these two are the baseline. Fixed into `GrowSlot.readyAt` at planting and never moved after.
  */
 export const SOIL_MATCH_SPEEDUP = K.num('SOIL_MATCH_SPEEDUP');
-/** 궁합이 맞지 않는 토양에 심었을 때 성장 시간이 늘어나는 비율. */
+/** The fraction the grow time grows by when planted in soil that does not match. */
 export const SOIL_MISMATCH_PENALTY = K.num('SOIL_MISMATCH_PENALTY');
-/** 한 번 부은 토양이 견디는 수확 횟수 — 등급 곡선 (`ItemDef.soil.uses` 가 실제 값이다). */
+/** Harvests one pour of soil survives — a rarity curve (`ItemDef.soil.uses` is the real value). */
 export const SOIL_USES_BY_RARITY: Readonly<Record<Rarity, number>> =
   numberMap<Rarity>('tables.csv', 'SOIL_USES_BY_RARITY');
 
@@ -823,7 +828,7 @@ export const SOIL_USES_BY_RARITY: Readonly<Record<Rarity, number>> =
 export const AUDIO_STORAGE_KEY = 'scav.audio';
 export const AUDIO_DEFAULT_MASTER = K.num('AUDIO_DEFAULT_MASTER');
 export const AUDIO_DEFAULT_SFX = K.num('AUDIO_DEFAULT_SFX');
-/** appended (2026-09-14): BGM 채널 기본 음량. 지금은 소리를 내지 않고 음악 재생 창의 볼륨 표시가 이 채널을 읽는다. */
+/** appended (2026-09-14): default volume of the BGM channel. It makes no sound today; the music player window's volume readout reads this channel. */
 export const AUDIO_DEFAULT_BGM = K.num('AUDIO_DEFAULT_BGM');
 
 /* ── ship doors + room lighting (owner: hub) ── */
@@ -852,7 +857,7 @@ export const ROOM_STRIP_LIT = K.num('ROOM_STRIP_LIT');
 /** A player who was just launched by a pad cannot be launched by the same pad again for this long (was a 0.7 s per-pad literal). */
 export const JUMP_PAD_RETRIGGER_S = K.num('JUMP_PAD_RETRIGGER_S');
 
-/* ── 서재 책장 (owner: housing rules, hub geometry, items book data) ── */
+/* ── library bookshelf (owner: housing rules, hub geometry, items book data) ── */
 /** Book slots per 책장. */
 export const BOOKS_PER_SHELF = K.num('BOOKS_PER_SHELF');
 /** Skill-XP multiplier bonus per shelved book, weighted by `BOOK_RARITY_MUL[rarity]`: mul = 1 + BOOK_XP_PER_BOOK × Σ weight. */
@@ -862,61 +867,61 @@ export const BOOK_RARITY_MUL: Readonly<Record<Rarity, number>> =
 /** Cap of the 서재 multiplier for one skill. */
 export const BOOK_GAIN_MAX = K.num('BOOK_GAIN_MAX');
 
-/* ── appended (2026-09-12): 서재 매체 — 디스크 · 레코드 · 보조 가구 (A-3e; owner: housing rules, hub geometry, items data) ── */
-/** 디스크 전시대 · 레코드랙 한 대의 칸 수 (책장은 `BOOKS_PER_SHELF`). */
+/* ── appended (2026-09-12): library media — discs · records · auxiliary furniture (A-3e; owner: housing rules, hub geometry, items data) ── */
+/** Slots of one disc stand / record rack (a bookshelf uses `BOOKS_PER_SHELF`). */
 export const DISC_SLOTS_PER_STAND = K.num('DISC_SLOTS_PER_STAND');
 export const RECORD_SLOTS_PER_RACK = K.num('RECORD_SLOTS_PER_RACK');
-/** 한 장이 그 숙련의 몫에 더하는 값 (× `BOOK_RARITY_MUL[rarity]`) — 책의 `BOOK_XP_PER_BOOK` 과 같은 자리. */
+/** What one item adds to that skill's share (× `BOOK_RARITY_MUL[rarity]`) — the same place as a book's `BOOK_XP_PER_BOOK`. */
 export const DISC_XP_PER_ITEM = K.num('DISC_XP_PER_ITEM');
 export const RECORD_XP_PER_ITEM = K.num('RECORD_XP_PER_ITEM');
-/** 매체별 몫의 상한 (`1 + 몫 ≤ 이 값`) — 책의 `BOOK_GAIN_MAX` 와 같은 자리. 세 매체의 몫은 따로 잘린 뒤 더해진다. */
+/** Cap of each medium's share (`1 + share ≤ this`) — the same place as a book's `BOOK_GAIN_MAX`. The three shares are capped separately, then added. */
 export const DISC_GAIN_MAX = K.num('DISC_GAIN_MAX');
 export const RECORD_GAIN_MAX = K.num('RECORD_GAIN_MAX');
-/** 보조 가구가 배치돼 있으면 그 매체의 몫 × (1 + 이 값) — 흔들의자(책) · TV(디스크) · 축음기 · 주크박스 · 턴테이블(레코드, 셋 중 하나만). */
+/** With the auxiliary furniture placed, that medium's share × (1 + this) — rocking chair (books) · TV (discs) · gramophone · jukebox · turntable (records, only one of the three). */
 export const SHELF_AUX_BONUS_BOOK = K.num('SHELF_AUX_BONUS_BOOK');
 export const SHELF_AUX_BONUS_DISC = K.num('SHELF_AUX_BONUS_DISC');
 export const SHELF_AUX_BONUS_RECORD = K.num('SHELF_AUX_BONUS_RECORD');
 
-/* ── appended (2026-09-12): 헬스장 (A-3a; owner: progression rules, housing minigames, hub geometry) ── */
-/** 운동 · 게임 한 세션 만점(점수 1)이 능력치 경험치 바에 넣는 경험치 — 실제 = round(GYM_SESSION_XP × 점수). 2026-09-17: 능력치 경험치 단위. */
+/* ── appended (2026-09-12): the gym (A-3a; owner: progression rules, housing minigames, hub geometry) ── */
+/** XP a perfect workout / game session (score 1) puts into the stat XP bar — the real value = round(GYM_SESSION_XP × score). 2026-09-17: in stat-XP units. */
 export const GYM_SESSION_XP = K.num('GYM_SESSION_XP');
-/** 은퇴 (2026-09-17, 읽는 코드 없음 — shared 는 추가 전용): 옛 단련 전용 바의 필요 경험치. */
+/** Retired (2026-09-17, no code reads it — `src/shared` is add-only): the XP the old training-only bar needed. */
 export const GYM_TRAIN_XP_BASE = K.num('GYM_TRAIN_XP_BASE');
 export const GYM_TRAIN_XP_EXPONENT = K.num('GYM_TRAIN_XP_EXPONENT');
-/** 능력치 하나가 운동으로 얻는 단련 보너스의 상한. */
+/** Cap of the training bonus one stat can gain from working out. */
 export const GYM_TRAINED_MAX = K.num('GYM_TRAINED_MAX');
-/** 운동을 끝낸 뒤 그 능력치에 걸리는 디버프(근육통 · 심폐 피로)의 현실 시간(시간). */
+/** Real-world hours of the debuff (`근육통` · `심폐 피로`) that lands on that stat after a workout. */
 export const GYM_FATIGUE_HOURS = K.num('GYM_FATIGUE_HOURS');
-/** 디버프 중 같은 능력치 운동의 상승 배율 — 0 = −100 %. */
+/** Gain multiplier of working the same stat while the debuff is up — 0 = −100 %. */
 export const GYM_FATIGUE_GAIN_MUL = K.num('GYM_FATIGUE_GAIN_MUL');
-/** 박자 게임(호흡 달리기 · 사이클링)의 예비 박자 수 — 첫 표식이 판정선까지 걸어오는 동안, 입력은 무시한다. */
+/** Lead-in beats of the rhythm games (breathing run · cycling) — input is ignored while the first marker walks to the judgement line. */
 export const GYM_LEAD_BEATS = K.num('GYM_LEAD_BEATS');
-/** 판정 한 번이 세션 점수(판정들의 평균)에 넣는 값 — 완벽 · 성공 (실패는 0). */
+/** What one judgement puts into the session score (the average of the judgements) — perfect · good (a miss is 0). */
 export const GYM_SCORE_PERFECT = K.num('GYM_SCORE_PERFECT');
 export const GYM_SCORE_GOOD = K.num('GYM_SCORE_GOOD');
-/** 벤치프레스(벤치 랙 · 스미스 머신): 판정 횟수, 커서 속도(바 폭/초)와 회차마다 더하는 속도, 성공 · 완벽 구역 반폭(바 폭 비율). */
+/** Bench press (bench rack · Smith machine): number of judgements, cursor speed (bar widths/s) and the speed added each rep, half-width of the good / perfect zones (as a fraction of the bar width). */
 export const GYM_PRESS_REPS = K.num('GYM_PRESS_REPS');
 export const GYM_PRESS_SPEED = K.num('GYM_PRESS_SPEED');
 export const GYM_PRESS_SPEED_STEP = K.num('GYM_PRESS_SPEED_STEP');
 export const GYM_PRESS_ZONE = K.num('GYM_PRESS_ZONE');
 export const GYM_PRESS_PERFECT = K.num('GYM_PRESS_PERFECT');
-/** 호흡(트레드밀): 후-후-하 묶음 수, 박자 간격(초), 「하」 길이(초), 탭 판정 창(±초), 「하」 를 떼는 판정 창(±초). */
+/** Breathing (treadmill): number of 후-후-하 groups, beat interval (s), length of the 「하」 (s), tap judgement window (±s), judgement window for releasing the 「하」 (±s). */
 export const GYM_BREATH_CYCLES = K.num('GYM_BREATH_CYCLES');
 export const GYM_BREATH_BEAT_S = K.num('GYM_BREATH_BEAT_S');
 export const GYM_BREATH_HOLD_S = K.num('GYM_BREATH_HOLD_S');
 export const GYM_BREATH_WINDOW_S = K.num('GYM_BREATH_WINDOW_S');
 export const GYM_BREATH_HOLD_TOL_S = K.num('GYM_BREATH_HOLD_TOL_S');
-/** 사이클링: A · D 를 번갈아 밟는 횟수, 박자 간격(초), 판정 창(±초). */
+/** Cycling: how many times A · D are pressed alternately, beat interval (s), judgement window (±s). */
 export const GYM_CYCLE_STROKES = K.num('GYM_CYCLE_STROKES');
 export const GYM_CYCLE_BEAT_S = K.num('GYM_CYCLE_BEAT_S');
-/** appended (2026-09-14): 「좋음」 띠의 반폭 = 완벽 띠(= 판정 창) × 이 값. 완벽 = 화면에 보이는 표식 크기라는 규약의 짝이다. */
+/** appended (2026-09-14): half-width of the 「good」 band = the perfect band (= the judgement window) × this. The pair of the rule that perfect = the marker size drawn on screen. */
 export const GYM_GOOD_OF_PERFECT = K.num('GYM_GOOD_OF_PERFECT');
 export const GYM_CYCLE_WINDOW_S = K.num('GYM_CYCLE_WINDOW_S');
 
-/* ── appended (2026-09-12): 캐릭터 버프 (owner: player 목록, net 와이어, ui 썸네일) ── */
-/** 한 캐릭터의 버프 목록이 와이어에 실을 수 있는 최대 개수 — 받는 쪽 `sanitizeCharBuffs` 가 넘치는 것을 버린다. */
+/* ── appended (2026-09-12): character buffs (owner: the player's list, the net wire, the ui thumbnails) ── */
+/** Max entries one character's buff list may carry on the wire — the receiving `sanitizeCharBuffs` drops the overflow. */
 export const CHAR_BUFF_WIRE_MAX = K.num('CHAR_BUFF_WIRE_MAX');
-/** 스냅샷 `bfr` 가 가진 리비전과 달라 `cbufq sync` 를 보낸 뒤 같은 사람에게 다시 묻기까지 기다리는 시간(초). 답하는 쪽도 요청자별로 이만큼 막는다. */
+/** Seconds to wait before asking the same person again after a `cbufq sync` sent because the snapshot's `bfr` revision differed. The answering side blocks per requester for just as long. */
 export const CHAR_BUFF_SYNC_COOLDOWN_S = K.num('CHAR_BUFF_SYNC_COOLDOWN_S');
 
 /* ── 시뮬레이션 훈련장 target modes (owner: world) ── */
@@ -933,7 +938,7 @@ export const TRAINING_BEST_STORAGE_KEY = 'scav.training';
 
 /* ══ appended: Phase 10 — UI 개선 pass (2026-09-07) ═════════════════════════════════════════════════════════ */
 
-/* ── 배리어 = 들고 다니는 방패 (owner: implants; the 7 × 3.2 m deployed panel constants above stay for nothing —
+/* ── the barrier = a carried shield (owner: implants; the 7 × 3.2 m deployed panel constants above stay for nothing —
  *    they are superseded by the CARRY_* pair, kept only so an older save / smoke that reads them still compiles) ── */
 /**
  * Hand-shield panel size (m). Phase 12 (2026-09-08): widened 1.5 → 3.2 so the shield covers the carrier **and** a
@@ -959,7 +964,7 @@ export const IMPLANT_BARRIER_BLOCK_DAMAGE = K.num('IMPLANT_BARRIER_BLOCK_DAMAGE'
 export const IMPLANT_BARRIER_CARRY_REGEN = K.num('IMPLANT_BARRIER_CARRY_REGEN');
 export const IMPLANT_BARRIER_CARRY_REGEN_DELAY = K.num('IMPLANT_BARRIER_CARRY_REGEN_DELAY');
 
-/* ── 다각화된 적 사망 + 확률 루팅 (owner: enemies; the chance table is `CORPSE_LOOT_CHANCE` in types.ts) ── */
+/* ── varied enemy deaths + probabilistic looting (owner: enemies; the chance table is `CORPSE_LOOT_CHANCE` in types.ts) ── */
 /** Seconds of `Enemy.deathTimer` over which the fall pose blends in (bugs and rogues). */
 export const DEATH_FALL_TIME = K.num('DEATH_FALL_TIME');
 /** Terminal speed (m/s) of a body that died in the air and is still falling to the terrain. */
@@ -967,14 +972,14 @@ export const CORPSE_FALL_MAX_SPEED = K.num('CORPSE_FALL_MAX_SPEED');
 /** A mid-air kill registers its `corpse:<id>` interactable only once the body lands, or after this long. */
 export const CORPSE_LAND_TIMEOUT = K.num('CORPSE_LAND_TIMEOUT');
 
-/* ── 컨테이너 실시간 동기화 연출 (owner: inventory grid view) ── */
+/* ── live container sync presentation (owner: inventory grid view) ── */
 /** Length of the "float up + fade out" a container tile plays when someone else takes it (seconds). */
 export const CONTAINER_TAKE_ANIM_S = K.num('CONTAINER_TAKE_ANIM_S');
 /** How far the vanishing tile floats up, in grid px, and the scale it ends at. */
 export const CONTAINER_TAKE_RISE_PX = K.num('CONTAINER_TAKE_RISE_PX');
 export const CONTAINER_TAKE_END_SCALE = K.num('CONTAINER_TAKE_END_SCALE');
 
-/* ── 루팅 표시 = 빛기둥 (replaces the light-blue fresnel sphere of Detection / ScanReveal) ── */
+/* ── the loot marker = a light pillar (replaces the light-blue fresnel sphere of Detection / ScanReveal) ── */
 /** In-range interactable pillar: height (m), bottom / top radius (m), peak opacity at the base. */
 export const INTERACT_PILLAR_HEIGHT = K.num('INTERACT_PILLAR_HEIGHT');
 export const INTERACT_PILLAR_RADIUS_BOTTOM = K.num('INTERACT_PILLAR_RADIUS_BOTTOM');
@@ -988,7 +993,7 @@ export const SCAN_PILLAR_HEIGHT = K.num('SCAN_PILLAR_HEIGHT');
 export const PICKUP_PILLAR_HEIGHT = K.num('PICKUP_PILLAR_HEIGHT');
 export const PICKUP_PILLAR_OPACITY = K.num('PICKUP_PILLAR_OPACITY');
 
-/* ── 부상자 들쳐메기 (owner: player) ── */
+/* ── shouldering a wounded squadmate (owner: player) ── */
 /** Max distance (m) at which an F tap can shoulder a downed squadmate. */
 export const PLAYER_CARRY_RANGE = K.num('PLAYER_CARRY_RANGE');
 /** Pick-up / put-down animation length (s); the carrier's controls are locked for it. */
@@ -1000,7 +1005,7 @@ export const PLAYER_CARRY_SPEED_MUL = K.num('PLAYER_CARRY_SPEED_MUL');
 export const PLAYER_CARRY_OFFSET: readonly [number, number, number] =
   numberList('tables.csv', 'PLAYER_CARRY_OFFSET') as unknown as readonly [number, number, number];
 
-/* ── 회복약 (was 스팀; the `stim` def id / `ItemCategory 'stim'` / `applyStim` are unchanged) ── */
+/* ── `회복약` (was `스팀`; the `stim` def id / `ItemCategory 'stim'` / `applyStim` are unchanged) ── */
 /**
  * Fallback hold for a 회복 소모품 whose def carries no `heal` block. Since 2026-09-07 every real one states its
  * own `ItemDef.heal.useTime` (붕대 5 s · 약초 붕대 5 s · 회복주사 2 s) and the HUD reads the duration off the event.
@@ -1020,13 +1025,13 @@ export const DEFIB_USE_TIME_S = K.num('DEFIB_USE_TIME_S');
 export const HEAL_SPRAY_GAUGE = K.num('HEAL_SPRAY_GAUGE');   // 2026-09-08: 100 → 200; an empty can stays at 0 (repairable in the ship) instead of vanishing
 export const HEAL_SPRAY_RADIUS = K.num('HEAL_SPRAY_RADIUS');
 
-/* ── 발사 준비 패널 (owner: hub, portraits from player/) ── */
+/* ── the launch READY panel (owner: hub, portraits from player/) ── */
 /** Cells in the READY panel. Kept separate from the lobby size so the panel never resizes. */
 export const HUB_READY_CELLS = K.num('HUB_READY_CELLS');
 /**
  * Body yaw of a portrait (rad). The soldier model's front is −Z, so yaw θ points the body at
  * `(−sin θ, 0, −cos θ)`; the portrait camera sits on +Z. 2026-09-14: the value moved to `data/constants.csv`
- * (「수치는 코드에 적지 않는다」) and became −3π/4 — 카메라 쪽을 보면서 화면 오른쪽으로 튼 3/4 뷰.
+ * (「numbers are not written in code」) and became −3π/4 — a 3/4 view facing the camera, turned toward the right of the screen.
  */
 export const HUB_READY_PORTRAIT_YAW = K.num('HUB_READY_PORTRAIT_YAW');
 /** `ctx.uiBlockers` token the READY panel holds while it is open. */
@@ -1036,7 +1041,7 @@ export const CREW_CARD_MIN_INTERVAL_S = K.num('CREW_CARD_MIN_INTERVAL_S');
 /** Don't answer `crewq loadout` from the same peer more often than this (seconds). */
 export const CREW_LOADOUT_COOLDOWN_S = K.num('CREW_LOADOUT_COOLDOWN_S');
 
-/* ── 마우스 커서 (owner: shared/cursor.ts + Input; the art is ui/hud/GameCursor) ── */
+/* ── the mouse cursor (owner: shared/cursor.ts + Input; the art is ui/hud/GameCursor) ── */
 /*
  * 2026-09-07 rework: the virtual cursor is gone. A cursor screen releases the pointer lock and the **real** OS cursor
  * comes back, restyled as the game's own arrow through a procedurally drawn CSS `cursor:` image — so there is no
@@ -1045,29 +1050,29 @@ export const CREW_LOADOUT_COOLDOWN_S = K.num('CREW_LOADOUT_COOLDOWN_S');
 /** Side of the drawn cursor image in CSS px (a 2× copy is generated for HiDPI through `image-set`). */
 export const GAME_CURSOR_SIZE = K.num('GAME_CURSOR_SIZE');
 /**
- * `ctx.uiBlockers` token the Alt 커서 (a free cursor with no screen behind it) held while it was up.
- * 2026-09-10: 그 기능이 제거돼 아무도 이 토큰을 쓰지 않는다 — 계약이라 export 만 남았다.
+ * `ctx.uiBlockers` token the Alt cursor (a free cursor with no screen behind it) held while it was up.
+ * 2026-09-10: that feature was removed and nobody uses this token — it is a contract, so only the export stays.
  */
 export const FREE_CURSOR_BLOCKER = 'cursor';
 
 /** How long a denied pointer-lock request keeps waiting for the next real user gesture to retry (ms). */
 export const LOCK_GESTURE_RETRY_MS = K.num('LOCK_GESTURE_RETRY_MS');
 export const LOCK_BOUNCE_GRACE_MS = K.num('LOCK_BOUNCE_GRACE_MS');
-/** Escape 를 뗀 뒤 포인터 락을 다시 요청하기까지 기다리는 시간 (ms) — `Input` 의 재잠금 지연. */
+/** Milliseconds to wait after Escape is released before requesting the pointer lock again — `Input`'s deferred relock. */
 export const LOCK_ESCAPE_DEFER_MS = K.num('LOCK_ESCAPE_DEFER_MS');
-/** 사용자가 Escape 로 락을 푼 뒤 Chromium 이 재요청을 거부하는 쿨다운 (ms). */
+/** Cooldown (ms) during which Chromium refuses a re-request after the user released the lock with Escape. */
 export const LOCK_USER_EXIT_COOLDOWN_MS = K.num('LOCK_USER_EXIT_COOLDOWN_MS');
-/** 타이밍 때문에 거부된 포인터 락 요청을 스스로 다시 보내는 최대 횟수. */
+/** Max times a pointer-lock request refused for timing reasons is re-sent by itself. */
 export const LOCK_RELOCK_RETRIES = K.num('LOCK_RELOCK_RETRIES');
 
-/* ══ appended: Phase 11 — 행성 선택 · 소셜 (2026-09-07) ═════════════════════════════════════════════════════ */
+/* ══ appended: Phase 11 — planet selection · social (2026-09-07) ═════════════════════════════════════════════════════ */
 
-/* ── 행성 이동 (owner: hub; 2026-09-09: an in-ship 창문 워프 — `interiors/WarpStreaks.ViewportWarp` — not a cutscene) ── */
-/** Seconds of the 행성 이동 warp (ramp up → cruise → ramp down). Shorter than `HUB_DOCKING_DURATION` — a hop, not an arrival. */
+/* ── planet travel (owner: hub; 2026-09-09: an in-ship window warp — `interiors/WarpStreaks.ViewportWarp` — not a cutscene) ── */
+/** Seconds of the planet-travel warp (ramp up → cruise → ramp down). Shorter than `HUB_DOCKING_DURATION` — a hop, not an arrival. */
 export const HUB_TRAVEL_DURATION = K.num('HUB_TRAVEL_DURATION');
 /** How far the warp stretches a star (multiplier on its own length at full `hub:warpProgress.speed`). */
 export const HUB_TRAVEL_WARP_STRETCH = K.num('HUB_TRAVEL_WARP_STRETCH');
-/* 2026-09-09 창문 워프: the trip is watched from inside the ship (no cutscene, controls stay on). */
+/* 2026-09-09 window warp: the trip is watched from inside the ship (no cutscene, controls stay on). */
 /** Seconds the warp takes to ramp up at the start and down at the end (`hub:warpProgress.speed` 0→1 / 1→0). */
 export const HUB_WARP_RAMP_S = K.num('HUB_WARP_RAMP_S');
 /** `camera:shake` intensity at full warp speed (fed every `HUB_WARP_SHAKE_INTERVAL_S`, scaled by `speed`). */
@@ -1075,7 +1080,7 @@ export const HUB_WARP_SHAKE_PEAK = K.num('HUB_WARP_SHAKE_PEAK');
 /** Seconds between hull-shake pulses while the warp runs. */
 export const HUB_WARP_SHAKE_INTERVAL_S = K.num('HUB_WARP_SHAKE_INTERVAL_S');
 
-/* ── 터미널 (owner: hub/ui/HubMenu — full-screen since Phase 11) ── */
+/* ── the terminal (owner: hub/ui/HubMenu — full-screen since Phase 11) ── */
 /** Side of the square WebGL canvas the planet hologram renders into (device px are scaled by the DPR cap). */
 export const PLANET_HOLOGRAM_PX = K.num('PLANET_HOLOGRAM_PX');
 /** Idle spin of the hologram sphere (rad/s) and the tilt it is seen at (rad). */
@@ -1084,7 +1089,7 @@ export const PLANET_HOLOGRAM_TILT = K.num('PLANET_HOLOGRAM_TILT');
 /** Seconds the hologram takes to swap planets when the player steps left / right. */
 export const PLANET_SWAP_TIME = K.num('PLANET_SWAP_TIME');
 
-/* ── 소셜 UI (owner: ui) ── */
+/* ── social UI (owner: ui) ── */
 /** `ctx.uiBlockers` token the ship's 커뮤니티 panel holds while open (the ESC screen is inside the `'menu'` token). */
 export const COMMUNITY_BLOCKER = 'community';
 /** Profile cards per row in the 친구 / 최근 플레이어 lists (the spec's 가로 2개씩). */
@@ -1096,15 +1101,15 @@ export const SOCIAL_RECENT_ROWS = K.num('SOCIAL_RECENT_ROWS');
 export const SQUAD_VOICE_DEFAULT = K.num('SQUAD_VOICE_DEFAULT');
 
 
-/* ══ appended: 2026-09-08 batch — 임플란트 아이템 · 배리어 rework · 정찰 rework · 총알 추적 · 실드 배쉬 ═══════════════ */
+/* ══ appended: 2026-09-08 batch — implant items · barrier rework · recon rework · bullet tracking · shield bash ══════ */
 
-/* ── 임플란트(능력치 장착 아이템) 칸 (owner: progression) ── */
+/* ── implant (stat-equipment item) slots (owner: progression) ── */
 export const IMPLANT_SLOTS_BASE = K.num('IMPLANT_SLOTS_BASE');
 /** +1 slot per this many character levels. */
 export const IMPLANT_SLOTS_PER_LEVELS = K.num('IMPLANT_SLOTS_PER_LEVELS');
 export const IMPLANT_SLOTS_MAX = K.num('IMPLANT_SLOTS_MAX');
 
-/* ── 실드 배쉬 (owner: implants) ── */
+/* ── the shield bash (owner: implants) ── */
 /** Stamina spent per bash (same units as `PlayerRef.consumeStamina`). */
 export const IMPLANT_SHIELD_BASH_STAMINA = K.num('IMPLANT_SHIELD_BASH_STAMINA');
 /** Base damage per enemy in the arc (× `derived.meleeDamageMul` only — no weapon / 개머리판 bonus). */
@@ -1117,14 +1122,14 @@ export const IMPLANT_SHIELD_BASH_KNOCKBACK = K.num('IMPLANT_SHIELD_BASH_KNOCKBAC
 /** Seconds the bash pose / FX play. */
 export const IMPLANT_SHIELD_BASH_SWING_S = K.num('IMPLANT_SHIELD_BASH_SWING_S');
 
-/* ── 정찰 rework (owner: implants) — one wide instant pulse ── */
+/* ── recon rework (owner: implants) — one wide instant pulse ── */
 /** Radius of the single pulse, metres. */
 export const IMPLANT_SCAN_RADIUS = K.num('IMPLANT_SCAN_RADIUS');
 /** Seconds the reveal lasts (self + squad). Replaces `IMPLANT_SCAN_REVEAL_TIME` (10) for the new implant. */
 export const IMPLANT_SCAN_REVEAL_TIME_V2 = K.num('IMPLANT_SCAN_REVEAL_TIME_V2');
 export const IMPLANT_SCAN_COOLDOWN_V2 = K.num('IMPLANT_SCAN_COOLDOWN_V2');
 
-/* ── 총알 추적 (owner: enemies) ── */
+/* ── bullet tracking (owner: enemies) ── */
 /** An enemy this close to the bullet path (metres, closest approach) reacts even without perceiving the shooter. */
 export const ENEMY_SHOT_ALERT_DIST = K.num('ENEMY_SHOT_ALERT_DIST');
 /** … or this close to the impact point. */
@@ -1136,14 +1141,14 @@ export const ENEMY_SHOT_ALERT_CONE_MUL = K.num('ENEMY_SHOT_ALERT_CONE_MUL');
 /** Give up the investigation after this many seconds without finding anyone (returns to the previous behaviour). */
 export const ENEMY_SHOT_ALERT_GIVE_UP_S = K.num('ENEMY_SHOT_ALERT_GIVE_UP_S');
 
-/* ── 나침반 적 표시 (owner: ui) ── */
+/* ── compass enemy marks (owner: ui) ── */
 /** Compass tick colour for enemies inside `derived.enemyDetectRadius` / a 정찰 reveal. */
 export const COMPASS_ENEMY_COLOR = '#ff4d4d';
 
-/* ── 브라우저 재개 게이트 (owner: game) ── */
+/* ── the browser resume gate (owner: game) ── */
 /** `ctx.uiBlockers` token the '좌측 클릭으로 게임 재개' gate holds (browser only, never in the Electron shell). */
 export const RESUME_GATE_BLOCKER = 'resumegate';
-/* ── 일시정지 메뉴 토큰 (2026-09-08; ESC 닫기 규칙은 2026-09-09) ── */
+/* ── the pause menu token (2026-09-08; the ESC close rule is 2026-09-09) ── */
 /**
  * `ctx.uiBlockers` token every full-screen menu (`ui/menus/MenuBase`) holds — the 일시정지 메뉴 above all. Screens
  * whose own key doubles as their close key (Tab / M / P / E) test for it so that key does not reach through the
@@ -1158,7 +1163,7 @@ export const MENU_BLOCKER = 'menu';
  */
 export const COMMUNITY_TAP_MAX_S = K.num('COMMUNITY_TAP_MAX_S');
 
-/* ── 공용 함선 격납고 (2026-09-08, owner: hub) ─────────────────────────────── */
+/* ── the shared ship's hangar (2026-09-08, owner: hub) ─────────────────────── */
 /**
  * Debounce for re-broadcasting my own `ship state` (seconds). A ship layout changes far less often than a crew card
  * and costs a few kB, so it is slower than `CREW_CARD_MIN_INTERVAL_S` on purpose.
@@ -1175,983 +1180,997 @@ export const SHIP_VISIT_WAIT_S = K.num('SHIP_VISIT_WAIT_S');
  */
 export const SHIP_VISIT_MAX_FURNITURE = K.num('SHIP_VISIT_MAX_FURNITURE');
 
-/* ── 캐릭터 슬롯 · 생성 (2026-09-09, owner: shared/saveSlot · shared/character) ── */
-/** 타이틀 캐릭터 선택창의 칸 수. 슬롯마다 세이브가 완전히 분리된다 (`scav.s<n>.*`). */
-/** 튜토리얼 (2026-09-09): delay before the spotlight / guide of a new step appears, and the dim fade-in. */
+/* ── character slots · creation (2026-09-09, owner: shared/saveSlot · shared/character) ── */
+/** Slots in the title screen's character selection. Every slot's save is fully separate (`scav.s<n>.*`). */
+/** Tutorial (2026-09-09): delay before the spotlight / guide of a new step appears, and the dim fade-in. */
 export const TUTORIAL_STEP_DELAY_S = K.num('TUTORIAL_STEP_DELAY_S');
 export const TUTORIAL_DIM_FADE_S = K.num('TUTORIAL_DIM_FADE_S');
 export const CHARACTER_SLOTS = K.num('CHARACTER_SLOTS');
-/** 캐릭터 생성창에서 한 능력치가 가질 수 있는 최소값. */
+/** Minimum one stat may have in the character creation window. */
 export const CHAR_STAT_MIN = K.num('CHAR_STAT_MIN');
-/** 캐릭터 생성창에서 한 능력치가 가질 수 있는 최대값 (게임 안 성장 상한 `STAT_MAX` 와는 별개). */
+/** Maximum one stat may have in the character creation window (separate from the in-game growth cap `STAT_MAX`). */
 export const CHAR_STAT_MAX = K.num('CHAR_STAT_MAX');
-/** 캐릭터 생성창에서 다섯 능력치의 합. 남는 배분 점수는 이 값 − 5 × `CHAR_STAT_MIN`. */
+/** Sum of the five stats in the character creation window. The points left to spend are this − 5 × `CHAR_STAT_MIN`. */
 export const CHAR_STAT_TOTAL = K.num('CHAR_STAT_TOTAL');
-/** 이름 주사위가 붙이는 숫자의 상한 (`스캐빈저1234`). */
+/** Cap of the number the name dice appends (`스캐빈저1234`). */
 export const CHAR_NAME_RANDOM_MAX = K.num('CHAR_NAME_RANDOM_MAX');
 
-/* ── 위험한 버튼의 홀드 확정 (2026-09-09, owner: ui) ── */
-/** 파티 떠나기 · 타이틀로 · 게임 종료 확정 버튼을 눌러 두어야 하는 시간(초). */
+/* ── the hold confirm on dangerous buttons (2026-09-09, owner: ui) ── */
+/** Seconds the `파티 떠나기` · `타이틀로` · `게임 종료` confirm buttons must be held down. */
 export const UI_HOLD_CONFIRM_S = K.num('UI_HOLD_CONFIRM_S');
-/** appended (2026-09-12): 시설 관리에서 가구를 꾹 눌러 위치 이동 상태로 드는 시간 (hub/HousingMode · ui 의 커서 게이지). */
+/** appended (2026-09-12): seconds a piece of furniture is held in ship management before it is picked up for a move (hub/HousingMode · the ui cursor gauge). */
 export const HOUSING_MOVE_HOLD_S = K.num('HOUSING_MOVE_HOLD_S');
-/** appended (2026-09-17): 메신저 — NPC 의 마지막 말풍선이 붙은 뒤 대사 선택지가 뜨기까지의 시간(초) (`ui/menus/messenger/ChatTab`). */
+/** appended (2026-09-17): the messenger — seconds between the NPC's last speech bubble landing and the dialogue choices appearing (`ui/menus/messenger/ChatTab`). */
 export const MESSENGER_CHOICE_DELAY_S = K.num('MESSENGER_CHOICE_DELAY_S');
 
-/* ══ 2026-09-09: 사망 · 시체 · 구조선 · 안개 · 지형지물 ═════════════════════════════════════════════════════ */
+/* ══ 2026-09-09: death · corpses · the rescue drop · fog · terrain features ═════════════════════════════════════════════════════ */
 
-/* ── 사망 · 시체 (owner: game/parts/Death · player · inventory) ── */
+/* ── death · corpses (owner: game/parts/Death · player · inventory) ── */
 /**
- * **자동 부활은 없다** (2026-09-09). `PLAYER_RESPAWN_DELAY` 는 계약에 남아 있지만 아무도 읽지 않는다 —
- * 완전히 사망하면 시체가 되고, 되살아나는 길은 분대원의 `rescue_drop` 뿐이다.
+ * **There is no auto-revive** (2026-09-09). `PLAYER_RESPAWN_DELAY` stays in the contract but nobody reads it —
+ * a full death turns the player into a corpse, and the only way back is a squadmate's `rescue_drop`.
  */
-/** 사망한 플레이어의 시체를 열 수 있는 거리(m). */
+/** Distance (m) at which a dead player's corpse can be opened. */
 export const PLAYER_CORPSE_LOOT_RANGE = K.num('PLAYER_CORPSE_LOOT_RANGE');
-/** 시체 루팅 격자의 칸 수 — 사망 시점의 장비 + 가방 전부가 들어가야 하므로 상자(6×4)보다 크다. */
+/** Cells of the corpse loot grid — bigger than a crate (6×4) because every piece of equipment and the whole bag at the moment of death must fit. */
 export const PLAYER_CORPSE_COLS = K.num('PLAYER_CORPSE_COLS');
 export const PLAYER_CORPSE_ROWS = K.num('PLAYER_CORPSE_ROWS');
 
-/* ── 구조선 투하 (owner: stratagems/parts/Rescue) ── */
-/** 레이드 한 판에 분대가 공용으로 쓰는 구조선 횟수. **호출 확정 시** 1 차감된다 (취소는 환불 없음). */
+/* ── the rescue drop (owner: stratagems/parts/Rescue) ── */
+/** Rescue drops a squad shares in one raid. One is deducted **when the call is confirmed** (a cancel is not refunded). */
 export const RESCUE_DROPS_PER_RAID = K.num('RESCUE_DROPS_PER_RAID');
-/** 지정 지점 주변 이 반경(m) 안의 임의 지점에 구조 포드가 떨어진다. */
+/** The rescue pod lands at a random point within this radius (m) of the chosen spot. */
 export const RESCUE_SCATTER_RADIUS = K.num('RESCUE_SCATTER_RADIUS');
-/** 동시에 떨어지는 포드끼리 최소 이만큼(m) 떨어뜨린다 (겹침 방지). */
+/** Pods falling at the same time are kept at least this far apart (m) (no overlap). */
 export const RESCUE_POD_MIN_GAP = K.num('RESCUE_POD_MIN_GAP');
-/** 구조선으로 부활한 분대원이 시작하는 체력 (장비는 시체에 남으므로 빈손이다). */
+/** Hp a squadmate revived by a rescue drop starts with (empty-handed — the gear stays on the corpse). */
 export const RESCUE_REVIVE_HP = K.num('RESCUE_REVIVE_HP');
 
-/* ── 분대장 기기 (owner: game/parts/Leader) ── */
-/** 분대장 기기를 상호작용으로 꾹 눌러야 하는 시간(초). */
+/* ── the squad-leader device (owner: game/parts/Leader) ── */
+/** Seconds the squad-leader device's interaction must be held. */
 export const LEADER_DEVICE_HOLD_S = K.num('LEADER_DEVICE_HOLD_S');
-/** 분대장 기기 상호작용 거리(m). */
+/** Interaction distance (m) of the squad-leader device. */
 export const LEADER_DEVICE_RANGE = K.num('LEADER_DEVICE_RANGE');
 
-/* ── 전장의 안개 (owner: world/Fog) ── */
-/** 안개 그리드 한 칸의 한 변(m). `MAP_SIZE / FOG_CELL_M` 이 격자 해상도가 된다. */
+/* ── the fog of war (owner: world/Fog) ── */
+/** Side (m) of one fog grid cell. `MAP_SIZE / FOG_CELL_M` is the grid resolution. */
 export const FOG_CELL_M = K.num('FOG_CELL_M');
-/** 분대원 한 명이 자기 주위로 밝히는 반경(m). */
+/** Radius (m) one squadmate clears around themselves. */
 export const FOG_REVEAL_RADIUS = K.num('FOG_REVEAL_RADIUS');
-/** 안개 그리드를 다시 칠하는 빈도(회/초). */
+/** How often the fog grid is repainted (times per second). */
 export const FOG_UPDATE_HZ = K.num('FOG_UPDATE_HZ');
 
-/* ── 대형 적 스폰 여유 공간 (owner: enemies/Spawner) ── */
-/** 이 반경(m) 이상인 적은 구조물이 빽빽한 곳에 스폰하지 않는다. */
+/* ── clearance for spawning big enemies (owner: enemies/Spawner) ── */
+/** An enemy of at least this radius (m) does not spawn where structures are dense. */
 export const ENEMY_BIG_RADIUS = K.num('ENEMY_BIG_RADIUS');
-/** 대형 적이 검사하는 원의 반경 = 자기 반경 × 이 값. */
+/** Radius of the circle a big enemy tests = its own radius × this. */
 export const ENEMY_SPAWN_CLEARANCE_MUL = K.num('ENEMY_SPAWN_CLEARANCE_MUL');
-/** 검사 원 안의 장애물 점유 면적이 이 비율을 넘으면 그 지점을 버린다. */
+/** The spot is dropped when the obstacle area inside the test circle exceeds this fraction. */
 export const ENEMY_SPAWN_BLOCK_RATIO = K.num('ENEMY_SPAWN_BLOCK_RATIO');
-/** 버려진 지점을 다시 뽑는 최대 횟수. */
+/** Max times a dropped spot is drawn again. */
 export const ENEMY_SPAWN_RETRIES = K.num('ENEMY_SPAWN_RETRIES');
 
-/* ── 지형지물 위에 올라서기 (owner: world/WorldSystem) ── */
-/** 걷다가 그냥 올라설 수 있는 장애물 윗면의 높이 차(m). 이보다 높으면 벽처럼 막힌다. */
+/* ── stepping onto terrain features (owner: world/WorldSystem) ── */
+/** Height difference (m) of an obstacle top that can simply be walked onto. Anything higher blocks like a wall. */
 export const PROP_STEP_UP_MAX = K.num('PROP_STEP_UP_MAX');
-/** 장애물 윗면 판정에 쓰는 여유(m) — 가장자리에서 미끄러져 떨어지지 않게 한다. */
+/** Slack (m) used when judging an obstacle top — keeps the body from sliding off the edge. */
 export const PROP_TOP_MARGIN = K.num('PROP_TOP_MARGIN');
 
-/* ── 선로 회랑 (2026-09-10, owner: world/layout) ── */
+/* ── the rail corridor (2026-09-10, owner: world/layout) ── */
 /**
- * 선로 중심선 좌우로 **아무것도 놓지 않는** 회랑의 반폭(m). 구조물 · 폐허 전초 · 둥지 · 크레이터 ·
- * 소품 · 상자 · 채집 노드가 전부 이 거리를 비운다 — 검사는 `clearance + 그 물건의 반지름` 이다.
- * 플랫폼은 예외이고 그 자리는 `platform` 패드가 막는다.
+ * Half-width (m) of the corridor either side of the rail centre line where **nothing is placed**. Structures, ruined
+ * outposts, nests, craters, props, crates and gather nodes all keep this distance clear — the test is
+ * `clearance + that object's radius`. Platforms are the exception, and their spot is held by the `platform` pad.
  */
 export const RAIL_CLEARANCE_M = K.num('RAIL_CLEARANCE_M');
-/** 플랫폼 **호출 콘솔**의 홀드 시간(초). 운전실 시동(`TRAM_START_HOLD_S`)보다 길다 — 호출은 남이 타고
- * 있을 수도 있는 차를 통째로 불러오고, 잘못 부르면 분대가 반대편까지 걸어야 한다. */
+/** Hold time (s) of a platform's **call console**. Longer than starting the tram from the cab (`TRAM_START_HOLD_S`) —
+ * a call brings the whole car over, possibly with someone aboard, and a wrong call makes the squad walk to the far end. */
 export const TRAM_CALL_HOLD_S = K.num('TRAM_CALL_HOLD_S');
-/** 플랫폼 호출 콘솔의 상호작용 거리(m). */
+/** Interaction distance (m) of a platform's call console. */
 export const TRAM_CALL_RANGE = K.num('TRAM_CALL_RANGE');
-/** 2026-09-10 — 「전차가 곧 출발합니다」 알림을 받는 거리(m, 차체 단면 바깥). 멀리서 부른 사람은 보지 않는다. */
+/** 2026-09-10 — distance (m, outside the car's cross-section) at which the 「전차가 곧 출발합니다」 notice is received. Whoever called from far away does not see it. */
 export const TRAM_DEPART_NOTICE_RANGE = K.num('TRAM_DEPART_NOTICE_RANGE');
 
-/* ── 핑 v3 (2026-09-09, owner: ui/hud/Pings) ── */
-/** 한 플레이어가 동시에 유지하는 핑 수 (나도 분대원도). 넘치면 그 사람의 가장 오래된 핑이 사라진다. */
+/* ── pings v3 (2026-09-09, owner: ui/hud/Pings) ── */
+/** Pings one player keeps at once (mine and a squadmate's alike). Over that, that person's oldest ping goes. */
 export const PING_MAX_PER_PLAYER = K.num('PING_MAX_PER_PLAYER');
-/** 핑 조준 보정 — 조준점에서 이 화면 거리(px) 안의 적 · 아이템 · 상자 · 분대 핑은 정확히 맞추지 않아도 찍힌다. */
+/** Ping aim assist — an enemy, item, crate or squad ping within this screen distance (px) of the aim point is marked without being hit exactly. */
 export const PING_AIM_ASSIST_PX = K.num('PING_AIM_ASSIST_PX');
 
-/* ══ appended: 2026-09-09 — 레이드 플레이 개선 ═════════════════════════════════════════════════════════════
- * 값은 전부 `data/constants.csv` · `data/tables.csv` 다. 여기는 이름 · 주석 · 타입만 소유한다.
+/* ══ appended: 2026-09-09 — raid play improvements ═════════════════════════════════════════════════════════════
+ * Every value is in `data/constants.csv` · `data/tables.csv`. This file owns only the name, the comment and the type.
  * ══════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/* ── 의사소통 휠 (owner: ui/hud/CommsWheel; 배치와 문구는 `shared/comms.ts`) ── */
-/** `Keys.COMMS` 를 이만큼(초) 누르고 있어야 휠이 열린다. 짧게 톡 누르면 아무 일도 없다. */
+/* ── the comms wheel (owner: ui/hud/CommsWheel; the layout and the lines live in `shared/comms.ts`) ── */
+/** `Keys.COMMS` must be held this long (s) for the wheel to open. A short tap does nothing. */
 export const COMMS_WHEEL_HOLD_S = K.num('COMMS_WHEEL_HOLD_S');
-/** 휠 중심에서 이 화면 거리(px)를 넘겨야 한 칸이 선택된다 (포인터 락 델타 누적). */
+/** A slot is selected only past this screen distance (px) from the wheel centre (accumulated pointer-lock deltas). */
 export const COMMS_WHEEL_DEAD_PX = K.num('COMMS_WHEEL_DEAD_PX');
-/** 같은 사람이 다시 한 마디를 보낼 수 있게 되기까지의 시간(초). */
+/** Seconds before the same person may send another line. */
 export const COMMS_COOLDOWN_S = K.num('COMMS_COOLDOWN_S');
 
-/* ── 버려진 구조물 (owner: world/Structures) ── */
-/** 구조물 컴퓨터의 **행성 스캔**이 안개를 걷는 반경(m). 구조물당 1회. */
+/* ── abandoned structures (owner: world/Structures) ── */
+/** Radius (m) the structure computer's **planet scan** clears of fog. Once per structure. */
 export const STRUCTURE_SCAN_RADIUS = K.num('STRUCTURE_SCAN_RADIUS');
-/** 행성 스캔 콘솔의 홀드 시간(초). */
+/** Hold time (s) of the planet-scan console. */
 export const STRUCTURE_SCAN_HOLD_S = K.num('STRUCTURE_SCAN_HOLD_S');
-/** 열쇠 · 키카드로 잠긴 문(전진기지 지하실 · 연구소 잠긴 방)을 여는 홀드 시간(초). */
+/** Hold time (s) to open a door locked by a key / keycard (the outpost basement · the lab's locked room). */
 export const STRUCTURE_UNLOCK_HOLD_S = K.num('STRUCTURE_UNLOCK_HOLD_S');
-/** 구조물 문 · 컴퓨터 상호작용 거리(m). */
+/** Interaction distance (m) of a structure's doors and computer. */
 export const STRUCTURE_INTERACT_RANGE = K.num('STRUCTURE_INTERACT_RANGE');
 
-/* ── 선로 · 전차 (owner: world/Rails) ── */
-/** 구역에 선로가 놓일 확률 (0 = 언제나 없음). */
+/* ── rails · tram (owner: world/Rails) ── */
+/** Chance rails are laid in a zone (0 = never). */
 export const RAIL_CHANCE = K.num('RAIL_CHANCE');
 /**
- * 구역에 **탐사 차량 흙길**이 놓일 확률 (0 = 언제나 없음). 2026-09-14 (사용자 결정) — 선로와 같은 확률 배치.
- * 전에는 굴림 없이 늘 계획해 실측 배치율이 100 % 였고, 그러면 정보상의 「탐사 차량 확정」 줄이 아무것도 사지 못한다.
- * 굴림은 `world/layout.ts` 가 **탐사 차량 전용 fork 의 첫 draw** 로 소비한다 — 정보상으로 확정해도 그 draw 는 그대로다.
+ * Chance a **rover dirt road** is laid in a zone (0 = never). 2026-09-14 (user's decision) — placed on a roll, like the rails.
+ * It used to be planned with no roll at all, so the measured placement rate was 100 %, and then the intel broker's
+ * 「탐사 차량 확정」 row buys nothing. `world/layout.ts` consumes the roll as the **first draw of the rover-only fork** —
+ * fixing it through the intel broker leaves that draw exactly where it is.
  */
 export const ROVER_CHANCE = K.num('ROVER_CHANCE');
-/** 전차 **최고** 주행 속도(m/s). 2026-09-10: 출발 직후가 아니라 `TRAM_ACCEL_S` 에 걸쳐 여기까지 오른다. */
+/** The tram's **top** running speed (m/s). 2026-09-10: it climbs to this over `TRAM_ACCEL_S`, not right after starting. */
 export const TRAM_SPEED = K.num('TRAM_SPEED');
-/** 플랫폼 콘솔에서 전차에 시동을 거는 홀드 시간(초). */
+/** Hold time (s) to start the tram from a platform console. */
 export const TRAM_START_HOLD_S = K.num('TRAM_START_HOLD_S');
-/** 2026-09-10 — 시동 알림이 뜬 뒤 전차가 실제로 움직이기 시작할 때까지의 시간(초). */
+/** 2026-09-10 — seconds between the start notice appearing and the tram actually beginning to move. */
 export const TRAM_START_DELAY_S = K.num('TRAM_START_DELAY_S');
-/** 2026-09-10 — 움직이기 시작한 뒤 `TRAM_SPEED` 에 닿을 때까지의 시간(초). 가속 곡선은 cubic ease-in. */
+/** 2026-09-10 — seconds from starting to move until `TRAM_SPEED` is reached. The acceleration curve is a cubic ease-in. */
 export const TRAM_ACCEL_S = K.num('TRAM_ACCEL_S');
-/** 전차가 플랫폼에 정차해 있는 시간(초). */
+/** Seconds the tram stands at a platform. */
 export const TRAM_DOCK_S = K.num('TRAM_DOCK_S');
 
-/* ── 로그 강하 (owner: enemies/RogueDrop) ── */
-/** 구조물 · 플랫폼을 조사할 때 강하가 트리거될 확률. **구역당 한 번만** 굴린다. */
+/* ── rogue drops (owner: enemies/RogueDrop) ── */
+/** Chance a drop is triggered when a structure / platform is investigated. Rolled **once per zone only**. */
 export const ROGUE_DROP_CHANCE = K.num('ROGUE_DROP_CHANCE');
-/** 예고에서 착지까지의 시간(초). */
+/** Seconds from the warning to touchdown. */
 export const ROGUE_DROP_ETA_S = K.num('ROGUE_DROP_ETA_S');
-/** 착지 지점이 흩어지는 반경(m). */
+/** Radius (m) the landing points scatter over. */
 export const ROGUE_DROP_RADIUS = K.num('ROGUE_DROP_RADIUS');
-/** 강하 인원의 하한 — **index 0 = 분대 1명**, 3 = 분대 4명 (`data/tables.csv`). */
+/** Lower bound of the drop's headcount — **index 0 = a squad of 1**, 3 = a squad of 4 (`data/tables.csv`). */
 export const ROGUE_DROP_COUNT_MIN = numberList('tables.csv', 'ROGUE_DROP_COUNT_MIN');
-/** 강하 인원의 상한 (같은 색인 규칙). */
+/** Upper bound of the drop's headcount (the same index rule). */
 export const ROGUE_DROP_COUNT_MAX = numberList('tables.csv', 'ROGUE_DROP_COUNT_MAX');
-/** 그 강하에 **로그 분대장**이 섞일 확률 (같은 색인 규칙: 1명 0 · 2명 0.5 · 3명 이상 1). */
+/** Chance a **rogue squad leader** is mixed into that drop (the same index rule: 1 → 0 · 2 → 0.5 · 3 or more → 1). */
 export const ROGUE_DROP_BOSS_CHANCE = numberList('tables.csv', 'ROGUE_DROP_BOSS_CHANCE');
 /**
- * 2026-09-10 — 탈출 웨이브 규모 배수 (index 0 = 분대 1명 … 3 = 분대 4명).
- * 웨이브 표는 4인 분대 기준이라 1인 분대가 세 번째 웨이브에서 점프 사냥꾼 두 마리를 한꺼번에 받았다.
- * 로그 강하(`ROGUE_DROP_*`)가 이미 쓰던 것과 같은 "분대 인원별 표" 규약이다.
+ * 2026-09-10 — size multiplier of the extraction waves (index 0 = a squad of 1 … 3 = a squad of 4).
+ * The wave table is written for a squad of 4, so a solo player took two jump hunters at once on the third wave.
+ * The same "table by squad size" convention the rogue drops (`ROGUE_DROP_*`) already used.
  */
 export const WAVE_SQUAD_SCALE = numberList('tables.csv', 'WAVE_SQUAD_SCALE');
 
-/* ── 환경 재해 (owner: world/Hazard) ── */
-/** 재해 시작 시각의 하한(초, 레이드 시작 기준). */
+/* ── environmental hazards (owner: world/Hazard) ── */
+/** Lower bound of the hazard's start time (s, measured from the raid start). */
 export const HAZARD_START_MIN_S = K.num('HAZARD_START_MIN_S');
-/** 재해 시작 시각의 상한(초). */
+/** Upper bound of the hazard's start time (s). */
 export const HAZARD_START_MAX_S = K.num('HAZARD_START_MAX_S');
-/** 시작 시각을 이 간격(초)으로 끊어 뽑는다 — 6분 30초 · 7분 00초 같은 값만 나온다. */
+/** The start time is drawn in steps of this many seconds — only values like 6:30 or 7:00 come out. */
 export const HAZARD_START_STEP_S = K.num('HAZARD_START_STEP_S');
-/** 시작 이 초 전에 예고(`hazard:announced`)가 나간다. */
+/** The warning (`hazard:announced`) goes out this many seconds before the start. */
 export const HAZARD_WARN_S = K.num('HAZARD_WARN_S');
-/** 피해 구역 안에서 초당 받는 피해. */
+/** Damage per second taken inside the damage zone. */
 export const HAZARD_DPS = K.num('HAZARD_DPS');
-/** 피해를 주는 주기(초). */
+/** Interval (s) at which the damage is applied. */
 export const HAZARD_TICK_S = K.num('HAZARD_TICK_S');
-/** 재해가 시작해서 **맵을 완전히 덮기까지**의 시간(초). 이후에는 안전지대가 없다 = 사실상 강제 탈출. */
+/** Seconds from the hazard starting until it **covers the whole map**. After that there is no safe ground = extraction is effectively forced. */
 export const HAZARD_FULL_S = K.num('HAZARD_FULL_S');
-/** 피해 구역 안에서 포그 농도에 곱하는 배수 (`atmo:override.fogMul`). */
+/** Multiplier applied to the fog density inside the damage zone (`atmo:override.fogMul`). */
 export const HAZARD_FOG_MUL = K.num('HAZARD_FOG_MUL');
-/** 구역 경계의 페더 폭(m) — 화면 효과가 이 폭에 걸쳐 서서히 올라온다. */
+/** Feather width (m) of the zone edge — the screen effect ramps up over it. */
 export const HAZARD_EDGE_M = K.num('HAZARD_EDGE_M');
-/** 폭풍의 눈: 처음 안전 원의 반경(m). */
+/** Eye of the storm: radius (m) of the first safe circle. */
 export const STORM_EYE_RADIUS_START = K.num('STORM_EYE_RADIUS_START');
-/** 폭풍의 눈: 끝까지 좁아졌을 때의 반경(m). */
+/** Eye of the storm: the radius (m) once it has closed all the way. */
 export const STORM_EYE_RADIUS_END = K.num('STORM_EYE_RADIUS_END');
-/** 독성 포자만은 시작 시각이 고정이다(초) — 6분. */
+/** Toxic spores alone have a fixed start time (s) — 6 minutes. */
 export const SPORE_START_S = K.num('SPORE_START_S');
-/** 거대 버섯 군락(= 포자 발생지)의 최소 개수. */
+/** Minimum number of giant mushroom groves (= spore sources). */
 export const SPORE_SOURCES_MIN = K.num('SPORE_SOURCES_MIN');
-/** 거대 버섯 군락의 최대 개수. */
+/** Maximum number of giant mushroom groves. */
 export const SPORE_SOURCES_MAX = K.num('SPORE_SOURCES_MAX');
-/** 발생지가 하나씩 더 피어오르는 간격(초). */
+/** Interval (s) at which one more source blooms. */
 export const SPORE_SOURCE_INTERVAL_S = K.num('SPORE_SOURCE_INTERVAL_S');
-/** 발생지 하나가 끝까지 자랐을 때의 반경(m). */
+/** Radius (m) of one source once it has grown all the way. */
 export const SPORE_RADIUS_MAX = K.num('SPORE_RADIUS_MAX');
-/** 발생지 반경이 자라는 속도(m/s). */
+/** Speed (m/s) at which a source's radius grows. */
 export const SPORE_GROWTH_MPS = K.num('SPORE_GROWTH_MPS');
 
-/* ══ 발소리 (2026-09-10) ══════════════════════════════════════════════════════════════════════════════
- * 로컬 플레이어 본인의 발소리는 **감쇠 대상이 아니다** — 늘 같은 크기로 들린다. 원격 분대원만
- * `(1 - d / FOOTSTEP_AUDIBLE_RANGE) ^ FOOTSTEP_FALLOFF_EXP` 로 줄어들고 사거리 밖이면 재생조차 하지 않는다.
+/* ══ footsteps (2026-09-10) ══════════════════════════════════════════════════════════════════════════════
+ * The local player's own footsteps are **not subject to falloff** — they are always heard at the same volume. Only a
+ * remote squadmate's fall off by `(1 - d / FOOTSTEP_AUDIBLE_RANGE) ^ FOOTSTEP_FALLOFF_EXP`, and out of range nothing is played at all.
  */
-/** 원격 분대원 발소리가 들리는 최대 거리(m). */
+/** Max distance (m) at which a remote squadmate's footsteps are heard. */
 export const FOOTSTEP_AUDIBLE_RANGE = K.num('FOOTSTEP_AUDIBLE_RANGE');
-/** 거리 감쇠 곡선의 지수 — 크게 할수록 가까이서만 들린다. */
+/** Exponent of the distance falloff curve — the larger it is, the closer you must be to hear it. */
 export const FOOTSTEP_FALLOFF_EXP = K.num('FOOTSTEP_FALLOFF_EXP');
-/** 원격 발소리에 곱하는 기본 배수 (거리 감쇠를 먹기 전). */
+/** Base multiplier applied to remote footsteps (before the distance falloff). */
 export const FOOTSTEP_REMOTE_GAIN = K.num('FOOTSTEP_REMOTE_GAIN');
-/** 달리기 발소리 크기. */
+/** Volume of sprinting footsteps. */
 export const FOOTSTEP_VOL_SPRINT = K.num('FOOTSTEP_VOL_SPRINT');
-/** 걷기 발소리 크기. */
+/** Volume of walking footsteps. */
 export const FOOTSTEP_VOL_WALK = K.num('FOOTSTEP_VOL_WALK');
-/** 웅크림 발소리 크기. */
+/** Volume of crouched footsteps. */
 export const FOOTSTEP_VOL_CROUCH = K.num('FOOTSTEP_VOL_CROUCH');
-/** 엎드림(기어가기) 발소리 크기. */
+/** Volume of prone (crawling) footsteps. */
 export const FOOTSTEP_VOL_PRONE = K.num('FOOTSTEP_VOL_PRONE');
-/** 한 사람의 발소리 사이 최소 간격(초) — 스냅샷이 튀어도 연발되지 않는다. */
+/** Minimum interval (s) between one person's footsteps — a jumpy snapshot cannot machine-gun them. */
 export const FOOTSTEP_MIN_INTERVAL_S = K.num('FOOTSTEP_MIN_INTERVAL_S');
 
-/* ── appended: 적이 벽에 대고 쏘지 않게 (2026-09-10) ────────────────────────── */
+/* ── appended: keeping enemies from firing into a wall (2026-09-10) ────────── */
 /**
- * 원거리 적이 사격할 때 총구와 장애물 사이에 두어야 하는 최소 거리(m).
- * 사선 검사(`enemies/ai/FireLine`)는 총구에서 이만큼 **뒤로** 물러난 지점에서 레이를 쏜다 —
- * 총구가 벽 안에 박혀 있으면 벽 안쪽에서 밖으로 쏘게 되어 "뚫렸다" 로 읽히기 때문이다.
+ * Minimum distance (m) a ranged enemy must keep between its muzzle and an obstacle when it fires.
+ * The line-of-fire test (`enemies/ai/FireLine`) casts its ray from a point pulled this far **back** from the muzzle —
+ * with the muzzle buried in a wall it would shoot from inside the wall outwards, which reads as "it went through".
  */
 export const ENEMY_WALL_STANDOFF = K.num('ENEMY_WALL_STANDOFF');
-/** 총구 → 표적 사선 검사 주기(초). 적별로 결과를 캐시한다(핫 패스). */
+/** Interval (s) of the muzzle → target line-of-fire test. The result is cached per enemy (hot path). */
 export const ENEMY_FIRE_LOS_S = K.num('ENEMY_FIRE_LOS_S');
-/** 사선이 막힌 원거리 적이 한 번에 옆으로 비켜서는 시간(초). */
+/** Seconds a ranged enemy with a blocked line of fire strafes sideways in one go. */
 export const ENEMY_FIRE_STRAFE_S = K.num('ENEMY_FIRE_STRAFE_S');
 
-/* == 방탄복 = 실드 (2026-09-10) ====================================================================
- * 방탄복은 피해를 깎지 않고 **실드(추가 체력)** 를 준다. 실드량 자체는 `data/armor.csv` 의 `shield`
- * (번호 방탄복은 `tables.csv` 의 `ARMOR_SHIELD_BY_TIER`)이고, 여기 있는 것은 HUD 게이지의 눈금뿐이다.
+/* == armor = a shield (2026-09-10) ====================================================================
+ * Armor does not reduce damage; it gives a **shield (extra hp)**. The shield amount itself is `shield` in
+ * `data/armor.csv` (numbered armor uses `ARMOR_SHIELD_BY_TIER` in `tables.csv`); what lives here is only the HUD gauge's tick.
  */
-/** 좌하단 체력 · 실드 게이지 한 칸이 나타내는 양 (체력 100 = 5칸, 방탄복 V 실드 100 = 5칸). */
+/** What one segment of the bottom-left hp / shield gauge stands for (hp 100 = 5 segments, armor V shield 100 = 5 segments). */
 export const ARMOR_SHIELD_PER_SEGMENT = K.num('ARMOR_SHIELD_PER_SEGMENT');
 
-/* ══ 위험 인디케이터 (2026-09-10) ══════════════════════════════════════════════════════════════════════
- * `ui/hud/DangerIndicators` 가 곡사포탄 · 수류탄 · 함선 호출 낙하물을 하나의 언어로 그린다. 포탄에만 걸려 있던
- * 인지력 반경(`derived.enemyDetectRadius`) 게이트는 그대로 두되, **착탄 지점이 이 거리 안이면 인지력과 무관하게**
- * 보여 준다 — 인디케이터의 목적이 "날아오는 줄도 모르는 것" 을 알리는 것이기 때문이다.
+/* ══ danger indicators (2026-09-10) ══════════════════════════════════════════════════════════════════════
+ * `ui/hud/DangerIndicators` draws artillery shells, grenades and ship-call drops in one language. The perception-radius
+ * gate (`derived.enemyDetectRadius`) that only shells carried stays as it is, but **an impact point inside this distance
+ * is shown regardless of perception** — because an indicator exists to warn about "what you never saw coming".
  */
-/** 인지력 반경 밖이라도 무조건 경고하는 착탄 거리(m). */
+/** Impact distance (m) that always warns, even outside the perception radius. */
 export const DANGER_NEAR_RADIUS = K.num('DANGER_NEAR_RADIUS');
 
-/* ══ 로그 강하 경보 (2026-09-10) ══════════════════════════════════════════════════════════════════════
- * 강하는 대기를 찢으며 떨어지는 굉음이라 **평소의 인지력 게이트를 쓰지 않는다** — 경보음도 HUD 위험 표시도
- * `ROGUE_DROP_ALERT_RADIUS`(인지력 `DETECT_ENEMY_BASE_RADIUS` 26 m 의 10 배) 하나만 본다. 그 대신
- * **거리 감쇠는 남긴다**: 원격 발소리(`FOOTSTEP_*`)와 같은 철학이라 반경 밖은 아예 재생하지 않고 안쪽은
- * `(1 - d / radius) ^ ROGUE_DROP_ALERT_FALLOFF_EXP` 를 곱한다. 소유자는 `audio/AudioSystem`(소리) 과
- * `ui/hud/DangerIndicators`(표시)이고, 강하 자체의 규칙은 `enemies/RogueDrop` 그대로다.
+/* ══ the rogue drop alert (2026-09-10) ══════════════════════════════════════════════════════════════════════
+ * A drop is a roar tearing through the air, so it **does not use the usual perception gate** — both the alarm sound and
+ * the HUD danger mark look at `ROGUE_DROP_ALERT_RADIUS` alone (10 × the perception `DETECT_ENEMY_BASE_RADIUS` of 26 m).
+ * In exchange **the distance falloff stays**: the same philosophy as remote footsteps (`FOOTSTEP_*`) — outside the
+ * radius nothing is played at all, and inside it is multiplied by `(1 - d / radius) ^ ROGUE_DROP_ALERT_FALLOFF_EXP`.
+ * The owners are `audio/AudioSystem` (the sound) and `ui/hud/DangerIndicators` (the mark); the drop's own rules stay in `enemies/RogueDrop`.
  */
-/** 강하 경보 전용 반경(m). 이 안이면 인지력과 무관하게 들리고 보인다. */
+/** The drop alert's own radius (m). Inside it the drop is heard and seen regardless of perception. */
 export const ROGUE_DROP_ALERT_RADIUS = K.num('ROGUE_DROP_ALERT_RADIUS');
-/** 강하음의 거리 감쇠 지수 — `(1 - d / ROGUE_DROP_ALERT_RADIUS) ^ exp`. */
+/** Distance falloff exponent of the drop sound — `(1 - d / ROGUE_DROP_ALERT_RADIUS) ^ exp`. */
 export const ROGUE_DROP_ALERT_FALLOFF_EXP = K.num('ROGUE_DROP_ALERT_FALLOFF_EXP');
-/** 강하 경보음(`rogue_drop_alarm`)의 밑 크기 — 거리 감쇠를 먹기 전. */
+/** Base volume of the drop alarm (`rogue_drop_alarm`) — before the distance falloff. */
 export const ROGUE_DROP_ALARM_VOLUME = K.num('ROGUE_DROP_ALARM_VOLUME');
-/** 강하 낙하음(`rogue_pod_fall`)의 밑 크기 — 거리 감쇠를 먹기 전. */
+/** Base volume of the drop's fall sound (`rogue_pod_fall`) — before the distance falloff. */
 export const ROGUE_DROP_FALL_VOLUME = K.num('ROGUE_DROP_FALL_VOLUME');
-/** 이 크기 밑으로 줄어든 강하음은 보이스를 만들지 않는다. */
+/** A drop sound that falls below this volume creates no voice. */
 export const ROGUE_DROP_MIN_VOLUME = K.num('ROGUE_DROP_MIN_VOLUME');
-/** 착지 몇 초 전에 낙하 굉음이 시작되는가 (`rogue_pod_fall` 의 길이와 맞춘다). */
+/** How many seconds before touchdown the falling roar starts (matched to the length of `rogue_pod_fall`). */
 export const ROGUE_DROP_FALL_LEAD_S = K.num('ROGUE_DROP_FALL_LEAD_S');
 
-/* ══ 전차 탑승 · 전차 충돌 · 플랫폼 계단 (2026-09-10) ═════════════════════════════════════════════════
- * 값은 전부 `data/constants.csv`. 소유자는 `player/PlayerController`(RIDE_*) 와 `world/Rails`(TRAM_HIT_* ·
- * TRAM_CONSOLE_RANGE · RAIL_STAIR_*).
+/* ══ tram riding · tram collisions · platform stairs (2026-09-10) ═════════════════════════════════════════════════
+ * Every value is in `data/constants.csv`. The owners are `player/PlayerController` (RIDE_*) and `world/Rails`
+ * (TRAM_HIT_* · TRAM_CONSOLE_RANGE · RAIL_STAIR_*).
  *
- * **왜 `Obstacle.velocity` 만으로는 모자랐나**: 예전에는 "지금 밟고 있는 발판" 을 매 프레임 새로 찾아
- * 그 속도를 위치에 더했다. 한 프레임이라도 발판 질의에서 빠지면(점프 · 경사 · 문틈) 그 프레임만큼 차량이
- * 발밑에서 빠져나가고, 몇 프레임이면 차 밖이다. 그래서 **탑승을 상태로 들고**(진입 · 유지 · 이탈) 유지 조건을
- * 발판 질의가 아니라 **차량 OBB + 헤드룸**으로 본다.
+ * **Why `Obstacle.velocity` alone was not enough**: it used to look up "the platform I am standing on" fresh every
+ * frame and add its velocity to the position. Drop out of that standing query for even one frame (a jump, a slope, a
+ * doorway) and the vehicle slides out from under the feet by that much; a few frames and the body is off the car. So
+ * **riding is held as a state** (enter · stay · leave), and the stay condition is not the standing query but the
+ * **vehicle OBB + headroom**.
  */
-/** 발판 윗면에서 이 높이(m) 안이면 아직 탑승 — 점프해도 차량과 함께 날아간다. */
+/** Within this height (m) above the platform top the body is still riding — a jump flies along with the vehicle. */
 export const RIDE_HEADROOM = K.num('RIDE_HEADROOM');
-/** 발판 윗면보다 이만큼(m) 아래까지는 아직 탑승 (경사 · 프레임 요동 여유). */
+/** Down to this far (m) below the platform top the body is still riding (slack for slopes and frame jitter). */
 export const RIDE_FOOT_DROP = K.num('RIDE_FOOT_DROP');
-/** 차량 콜라이더 단면 밖으로 이만큼(m) 벗어나도 아직 탑승. */
+/** Still riding even this far (m) outside the vehicle collider's cross-section. */
 export const RIDE_EDGE_MARGIN = K.num('RIDE_EDGE_MARGIN');
-/** 하차 뒤 차량 관성이 남아 있는 최대 시간(초). */
+/** Max seconds the vehicle's inertia lingers after stepping off. */
 export const RIDE_INERTIA_S = K.num('RIDE_INERTIA_S');
-/** 하차 관성의 지수 감쇠 계수(1/초). */
+/** Exponential damping coefficient of that inertia (1/s). */
 export const RIDE_INERTIA_DAMP = K.num('RIDE_INERTIA_DAMP');
 
-/** 이 속도(m/s) 밑으로 달리는 전차는 부딪혀도 안전하다. */
+/** A tram running below this speed (m/s) is safe to bump into. */
 export const TRAM_HIT_SPEED_MIN = K.num('TRAM_HIT_SPEED_MIN');
-/** `TRAM_SPEED` 로 달리는 전차에 치였을 때의 피해 (실제 피해는 그때 속도에 비례). */
+/** Damage of being hit by a tram running at `TRAM_SPEED` (the real damage is proportional to the speed at the time). */
 export const TRAM_HIT_DAMAGE = K.num('TRAM_HIT_DAMAGE');
-/** 치였을 때 튕겨 나가는 속도(m/s, 최고 속도 기준). */
+/** Speed (m/s) the body is knocked away at when hit (at top speed). */
 export const TRAM_HIT_KNOCKBACK = K.num('TRAM_HIT_KNOCKBACK');
-/** 같은 사람이 다시 치일 수 있게 되기까지의 시간(초). */
+/** Seconds before the same person can be hit again. */
 export const TRAM_HIT_COOLDOWN_S = K.num('TRAM_HIT_COOLDOWN_S');
-/** 전차 바닥보다 발이 이만큼(m) 아래여야 치인 것 — 탑승자 · 플랫폼 위를 판정에서 빼는 값이다. */
+/** The feet must be this far (m) below the tram floor to count as hit — the value that takes riders and people on the platform out of the judgement. */
 export const TRAM_HIT_FLOOR_CLEAR = K.num('TRAM_HIT_FLOOR_CLEAR');
-/** 전차 바닥에서 아래로 이만큼(m) 까지가 치이는 높이 범위. */
+/** The height range that can be hit reaches this far (m) below the tram floor. */
 export const TRAM_HIT_REACH = K.num('TRAM_HIT_REACH');
-/** 전차 운전실 콘솔의 상호작용 거리(m). */
+/** Interaction distance (m) of the tram's cab console. */
 export const TRAM_CONSOLE_RANGE = K.num('TRAM_CONSOLE_RANGE');
 
-/** 플랫폼 계단 한 단의 최대 높이(m) — `PROP_STEP_UP_MAX` 보다 낮아야 걸어 올라간다. */
+/** Max rise (m) of one platform stair step — it must stay under `PROP_STEP_UP_MAX` to be walked up. */
 export const RAIL_STAIR_MAX_RISE = K.num('RAIL_STAIR_MAX_RISE');
-/** 플랫폼 계단 한 단의 깊이(m). */
+/** Depth (m) of one platform stair step. */
 export const RAIL_STAIR_DEPTH = K.num('RAIL_STAIR_DEPTH');
 
-/* ── 2026-09-10: 셰이더 선컴파일 · 광원 예산 (owner: core/LightBudget · core/ShaderWarmup · hub/interiors/LightPool) ── */
-/** 씬에 늘 보이는 점광원 개수 — 모자란 만큼 intensity 0 여분이 채운다 (`core/LightBudget`). 레이드의 실제 개수와 같게 둔다. */
+/* ── 2026-09-10: shader pre-compile · light budget (owner: core/LightBudget · core/ShaderWarmup · hub/interiors/LightPool) ── */
+/** Point lights always present in the scene — the shortfall is filled with intensity-0 spares (`core/LightBudget`). Kept equal to the raid's real count. */
 export const SCENE_POINT_LIGHT_BUDGET = K.num('SCENE_POINT_LIGHT_BUDGET');
-/** 함선 인테리어가 한꺼번에 켜는 점광원 개수 — 플레이어에게 가까운 광원 자리부터 (`hub/interiors/LightPool`). */
+/** Point lights a ship interior lights at once — the fixture spots nearest the player first (`hub/interiors/LightPool`). */
 export const HUB_POINT_LIGHTS = K.num('HUB_POINT_LIGHTS');
-/** 셰이더 선컴파일을 기다리며 화면을 멈춰 두는 최대 시간(초, `ctx.shaders`). */
+/** Max seconds the screen is held still waiting for the shader pre-compile (`ctx.shaders`). */
 export const SHADER_WARMUP_TIMEOUT_S = K.num('SHADER_WARMUP_TIMEOUT_S');
 
-/* ── 2026-09-11: 구조물 조명 · 사다리 · 계단 보간 · 투척 궤적 · 옥상 스캐너 ── */
-/** 버려진 구조물이 한꺼번에 켜는 점광원 개수 — 플레이어에게 가까운 광원 자리부터 (`world/Structures`). */
+/* ── 2026-09-11: structure lighting · ladders · step smoothing · throw arcs · the roof scanner ── */
+/** Point lights an abandoned structure lights at once — the fixture spots nearest the player first (`world/Structures`). */
 export const STRUCTURE_POINT_LIGHTS = K.num('STRUCTURE_POINT_LIGHTS');
-/** 옥상 맵 스캐너의 파동이 맵 끝까지 퍼지는 시간(초). */
+/** Seconds the roof map scanner's wave takes to reach the edge of the map. */
 export const STRUCTURE_SCAN_WAVE_S = K.num('STRUCTURE_SCAN_WAVE_S');
-/** 사다리 발치 · 꼭대기에서 매달릴 수 있는 거리(m). */
+/** Distance (m) at which a ladder can be grabbed at its foot or its top. */
 export const LADDER_GRAB_RANGE = K.num('LADDER_GRAB_RANGE');
-/** 사다리 오르내리기 속도(m/s). */
+/** Ladder climb speed (m/s). */
 export const LADDER_CLIMB_SPEED = K.num('LADDER_CLIMB_SPEED');
-/** 달리기 키를 누른 채 오르내리는 속도(m/s, 스태미나 소모). */
+/** Climb speed with the sprint key held (m/s, costs stamina). */
 export const LADDER_SPRINT_SPEED = K.num('LADDER_SPRINT_SPEED');
-/** 사다리에서 빠르게 오르내리는 동안 초당 스태미나 소모. */
+/** Stamina spent per second while climbing fast. */
 export const LADDER_SPRINT_DRAIN = K.num('LADDER_SPRINT_DRAIN');
-/** 사다리 점프 — 사다리를 놓고 위로 뛰는 속도(m/s). */
+/** Ladder jump — the upward speed of letting go and jumping (m/s). */
 export const LADDER_JUMP_SPEED = K.num('LADDER_JUMP_SPEED');
-/** 사다리 점프의 수평 속도(m/s, 사다리 너머 = `-LadderDef.normal` 방향). */
+/** Horizontal speed of a ladder jump (m/s, over the ladder = the `-LadderDef.normal` direction). */
 export const LADDER_JUMP_PUSH = K.num('LADDER_JUMP_PUSH');
-/** E 로 사다리를 놓을 때 떨어져 나가는 수평 속도(m/s, `+LadderDef.normal` 방향). */
+/** Horizontal speed of pushing away when the ladder is released with E (m/s, the `+LadderDef.normal` direction). */
 export const LADDER_DROP_PUSH = K.num('LADDER_DROP_PUSH');
-/** 꼭대기에서 옥상으로 올라서는 동작 길이(초). */
+/** Length (s) of the mount animation from the top onto the roof. */
 export const LADDER_MOUNT_S = K.num('LADDER_MOUNT_S');
-/** 단차를 오르내릴 때 모델이 물리 위치를 따라잡는 감쇠 계수(1/초). */
+/** Damping coefficient (1/s) with which the model catches up to the physics position over a step. */
 export const STEP_SMOOTH_RATE = K.num('STEP_SMOOTH_RATE');
-/** 이보다 큰 한 프레임 높이 변화(m)는 보간하지 않는다 (순간이동). */
+/** A one-frame height change larger than this (m) is not smoothed (a teleport). */
 export const STEP_SMOOTH_MAX = K.num('STEP_SMOOTH_MAX');
-/** 투척 궤적 미리보기가 그리는 비율 (실제 수평 비거리의 이만큼, 착지 표시 없음). */
+/** The fraction of the throw arc the preview draws (this much of the real horizontal range, no landing marker). */
 export const THROW_ARC_PREVIEW_FRACTION = K.num('THROW_ARC_PREVIEW_FRACTION');
 /**
- * 뜬 상자 콜라이더의 밑면이 발에서 이만큼(m) 위면 몸을 밀어내지 않는다 (`world/obb` · `world/WorldSystem.resolveCollision`).
- * `player/PlayerController` 의 점프 천장 클램프가 같은 값을 쓴다 (2026-09-11 — 그 전에는 두 폴더가 2.1 을 따로 적었다).
+ * A raised box collider whose bottom is this far (m) above the feet does not push the body (`world/obb` ·
+ * `world/WorldSystem.resolveCollision`). `player/PlayerController`'s jump ceiling clamp uses the same value
+ * (2026-09-11 — before that the two folders each wrote 2.1 of their own).
  */
 export const BOX_HEADROOM = K.num('BOX_HEADROOM');
 
-/* ── 2026-09-11: 설치 미리보기 · 원격 지뢰 (owner: gadgets) ── */
-/** 손에 든 설치형 가젯을 조준점에 놓을 수 있는 최대 거리(m, 발에서 수평). */
+/* ── 2026-09-11: placement preview · remote mines (owner: gadgets) ── */
+/** Max distance (m, horizontal from the feet) at which a placeable gadget in hand can be put at the aim point. */
 export const GADGET_PLACE_RANGE = K.num('GADGET_PLACE_RANGE');
-/** 대형 설치물(바리케이드 · 점프대 · 포탑)이 서는 바닥의 최소 법선 y (1 = 완전 평지). */
+/** Minimum ground normal y a large deployable (barricade · jump pad · turret) stands on (1 = perfectly flat). */
 export const GADGET_PLACE_LARGE_MIN_NORMAL_Y = K.num('GADGET_PLACE_LARGE_MIN_NORMAL_Y');
-/** 소형 설치물(지뢰 · 원격 지뢰)이 서는 바닥의 최소 법선 y. */
+/** Minimum ground normal y a small deployable (mine · remote mine) stands on. */
 export const GADGET_PLACE_SMALL_MIN_NORMAL_Y = K.num('GADGET_PLACE_SMALL_MIN_NORMAL_Y');
-/** 대형 설치물 발자국 안의 바닥 높이 차가 이보다 크면 설치 불가(m). */
+/** Placement is refused when the ground height difference inside a large deployable's footprint exceeds this (m). */
 export const GADGET_PLACE_LARGE_MAX_STEP = K.num('GADGET_PLACE_LARGE_MAX_STEP');
 export const GADGET_REMOTE_MINE_DAMAGE = K.num('GADGET_REMOTE_MINE_DAMAGE');
 export const GADGET_REMOTE_MINE_RADIUS = K.num('GADGET_REMOTE_MINE_RADIUS');
 export const GADGET_REMOTE_MINE_ARM_TIME = K.num('GADGET_REMOTE_MINE_ARM_TIME');
 export const GADGET_REMOTE_MINE_HP = K.num('GADGET_REMOTE_MINE_HP');
-/** 같은 기폭에서 한 대상이 두 번째 이후로 맞는 원격 지뢰의 피해 배수 (첫 발 = 가장 센 한 발만 온전히). */
+/** Damage multiplier of the second and later remote mines one target takes in the same detonation (only the first — the strongest — lands in full). */
 export const GADGET_REMOTE_MINE_STACK_MUL = K.num('GADGET_REMOTE_MINE_STACK_MUL');
-/** 한 플레이어가 동시에 월드에 둘 수 있는 원격 지뢰 수 (넘으면 가장 오래된 것부터 사라진다). */
+/** Remote mines one player may have in the world at once (over that, the oldest goes first). */
 export const GADGET_REMOTE_MINE_MAX_LIVE = K.num('GADGET_REMOTE_MINE_MAX_LIVE');
-/** 드론 위에 올린 지뢰가 적을 감지하는 반경(m) — 움직이는 드론이라 바닥 지뢰(1.5 m)보다 넓다. 적만 감지한다. */
+/** Radius (m) in which a mine mounted on a drone senses enemies — wider than a ground mine (1.5 m) because the drone moves. It senses enemies only. */
 export const GADGET_MOUNTED_MINE_TRIGGER_RADIUS = K.num('GADGET_MOUNTED_MINE_TRIGGER_RADIUS');
-/** 설치 자리가 발 높이에서 위아래로 이만큼(m) 넘게 벗어나면 `너무 멀다` (gadgets/parts/Preview). */
+/** A placement spot more than this far (m) above or below the feet reads as `너무 멀다` (gadgets/parts/Preview). */
 export const GADGET_PLACE_VERTICAL_REACH = K.num('GADGET_PLACE_VERTICAL_REACH');
 
-/* ── 2026-09-11: 드론 (owner: gadgets/drones — shared/drones.ts) ── */
-/** 드론 아이템을 손에 들고 조종을 잡기까지 R 을 누르는 시간(초). 조종 중 같은 홀드로 PC 로 돌아온다. */
+/* ── 2026-09-11: drones (owner: gadgets/drones — shared/drones.ts) ── */
+/** Seconds R is held, with the drone item in hand, to take control. The same hold while controlling returns to the PC. */
 export const DRONE_CONTROL_HOLD_S = K.num('DRONE_CONTROL_HOLD_S');
-/** 사거리 비율이 이 값을 넘으면 화면 외곽이 지지직거린다. */
+/** Past this fraction of the range the screen edges start to crackle. */
 export const DRONE_LINK_WARN_RATIO = K.num('DRONE_LINK_WARN_RATIO');
 export const DRONE_GROUND_HP = K.num('DRONE_GROUND_HP');
 export const DRONE_AIR_HP = K.num('DRONE_AIR_HP');
-/** 소유자 PC 로부터 조종이 유지되는 거리(m, 3D). */
+/** Distance (m, 3-D) from the owner's PC over which control holds. */
 export const DRONE_GROUND_RANGE = K.num('DRONE_GROUND_RANGE');
 export const DRONE_AIR_RANGE = K.num('DRONE_AIR_RANGE');
-/** 지상 드론 걷기 속도 = `PLAYER_WALK_SPEED` × 이 값 (조용함, 어그로 없음). */
+/** Ground drone walk speed = `PLAYER_WALK_SPEED` × this (quiet, draws no aggro). */
 export const DRONE_GROUND_WALK_MUL = K.num('DRONE_GROUND_WALK_MUL');
-/** 지상 드론 질주 속도 = `PLAYER_SPRINT_SPEED` × 이 값 (스태미나 없음, 소리 · 어그로). */
+/** Ground drone sprint speed = `PLAYER_SPRINT_SPEED` × this (no stamina, but noise and aggro). */
 export const DRONE_GROUND_SPRINT_MUL = K.num('DRONE_GROUND_SPRINT_MUL');
-/** 지상 드론 점프의 최고 높이(m) — PC 눈높이. */
+/** Peak height (m) of a ground drone's jump — the PC's eye level. */
 export const DRONE_GROUND_JUMP_HEIGHT = K.num('DRONE_GROUND_JUMP_HEIGHT');
-/** 질주하는 지상 드론의 소음이 적에게 들리는 반경(m). */
+/** Radius (m) in which enemies hear a sprinting ground drone. */
 export const DRONE_NOISE_RADIUS = K.num('DRONE_NOISE_RADIUS');
-/** 질주를 멈춘 뒤에도 적이 드론을 노릴 수 있는 시간(초) = `DroneRef.aggroable`. */
+/** Seconds enemies may still target the drone after the sprint stopped = `DroneRef.aggroable`. */
 export const DRONE_NOISE_MEMORY_S = K.num('DRONE_NOISE_MEMORY_S');
-/** `world:noise` 를 드론 하나당 초당 최대 몇 번 내는가. */
+/** How many times per second one drone may emit `world:noise` at most. */
 export const DRONE_NOISE_EMIT_HZ = K.num('DRONE_NOISE_EMIT_HZ');
 export const DRONE_AIR_SPEED = K.num('DRONE_AIR_SPEED');
 export const DRONE_AIR_CLIMB_SPEED = K.num('DRONE_AIR_CLIMB_SPEED');
-/** 공중 드론이 지형(또는 발밑 표면) 위로 오를 수 있는 최대 고도(m). */
+/** Max altitude (m) an air drone may climb above the terrain (or the surface under it). */
 export const DRONE_AIR_MAX_ALTITUDE = K.num('DRONE_AIR_MAX_ALTITUDE');
-/** 드론 옆에서 E 를 누르고 있어야 회수되는 시간(초). */
+/** Seconds E must be held next to a drone to recover it. */
 export const DRONE_RECOVER_HOLD_S = K.num('DRONE_RECOVER_HOLD_S');
-/** `drone state` 방송 빈도(Hz). */
+/** Broadcast rate (Hz) of `drone state`. */
 export const DRONE_NET_HZ = K.num('DRONE_NET_HZ');
-/** 지상 드론을 PC 정면 몇 m 에 내려놓는가 · 공중 드론을 PC 눈 앞 몇 m / 위 몇 m 에 띄우는가. */
+/** How many metres in front of the PC a ground drone is set down · how far in front of and above the PC's eyes an air drone is floated. */
 export const DRONE_DEPLOY_DIST_GROUND = K.num('DRONE_DEPLOY_DIST_GROUND');
 export const DRONE_DEPLOY_DIST_AIR = K.num('DRONE_DEPLOY_DIST_AIR');
 export const DRONE_DEPLOY_LIFT_AIR = K.num('DRONE_DEPLOY_LIFT_AIR');
-/** 지상 드론 가속 · 제동 · 점프 중 조향 가속 (m/s²). */
+/** Ground drone acceleration · braking · steering acceleration while airborne (m/s²). */
 export const DRONE_GROUND_ACCEL = K.num('DRONE_GROUND_ACCEL');
 export const DRONE_GROUND_BRAKE = K.num('DRONE_GROUND_BRAKE');
 export const DRONE_GROUND_AIR_ACCEL = K.num('DRONE_GROUND_AIR_ACCEL');
-/** 공중 드론 회수 반경 가산(m). */
+/** Extra recovery radius (m) for an air drone. */
 export const DRONE_RECOVER_AIR_BONUS = K.num('DRONE_RECOVER_AIR_BONUS');
-/** 공중 드론 수평 가속 응답(1/s) · 몸 밑 최소 여유(m). */
+/** Air drone horizontal acceleration response (1/s) · minimum clearance under the body (m). */
 export const DRONE_AIR_ACCEL = K.num('DRONE_AIR_ACCEL');
 export const DRONE_AIR_MIN_CLEARANCE = K.num('DRONE_AIR_MIN_CLEARANCE');
 
-/* ── 2026-09-11: 네임드 로그 (owner: enemies — shared/named.ts) ── */
-/** 레이드 시작 스폰 지점에서 네임드가 서지 않는 최소 거리(m). */
+/* ── 2026-09-11: named rogues (owner: enemies — shared/named.ts) ── */
+/** Minimum distance (m) from the raid's start spawn point at which no named rogue stands. */
 export const NAMED_ROGUE_MIN_SPAWN_DIST = K.num('NAMED_ROGUE_MIN_SPAWN_DIST');
-/** 네임드 확정 드롭 장비의 내구도 범위 (최대 내구도 비율). */
+/** Durability range of a named rogue's guaranteed gear drop (as a fraction of max durability). */
 export const NAMED_LOOT_DURABILITY_MIN = K.num('NAMED_LOOT_DURABILITY_MIN');
 export const NAMED_LOOT_DURABILITY_MAX = K.num('NAMED_LOOT_DURABILITY_MAX');
-/** 레이드에 네임드가 (셋 중 하나) 등장할 확률 — index 0 = 행성 난이도 1 … 4 = 5 (`planetTier − 1`). */
+/** Chance a named rogue (one of the three) appears in a raid — index 0 = planet difficulty 1 … 4 = 5 (`planetTier − 1`). */
 export const NAMED_ROGUE_CHANCE_BY_RANK: readonly number[] = numberList('tables.csv', 'NAMED_ROGUE_CHANCE_BY_RANK');
-/** 헤비의 SMG 호위 인원 — index 0 = 분대 1명 … 3 = 4명. */
+/** SMG escorts of the Heavy — index 0 = a squad of 1 … 3 = 4. */
 export const NAMED_HEAVY_ESCORTS_BY_SQUAD: readonly number[] = numberList('tables.csv', 'NAMED_HEAVY_ESCORTS_BY_SQUAD');
 
-/* ── 2026-09-11: C 항목 배치 (커밋 `36e15e3`(계약)) ── */
-/** 재해 구역 안의 적이 받는 조용한 초당 피해 (C-14, owner: enemies — world/Hazard 가 구역을 정한다). */
+/* ── 2026-09-11: the C-item batch (commit `36e15e3` — the contract) ── */
+/** Quiet per-second damage an enemy inside a hazard zone takes (C-14, owner: enemies — world/Hazard decides the zone). */
 export const HAZARD_ENEMY_DPS = K.num('HAZARD_ENEMY_DPS');
-/** 채집 노드 수량 굴림 (C-20, owner: world/Gather) — 고철 2개 · 약초 2개 확률, 고철 부가 코어 확률 · 개수. */
+/** Gather node quantity rolls (C-20, owner: world/Gather) — the chance of 2 `고철` / 2 `약초`, and the chance / count of a bonus core from `고철`. */
 export const GATHER_SALVAGE_QTY2_CHANCE = K.num('GATHER_SALVAGE_QTY2_CHANCE');
 export const GATHER_HERB_QTY2_CHANCE = K.num('GATHER_HERB_QTY2_CHANCE');
 export const GATHER_SALVAGE_CORE_CHANCE = K.num('GATHER_SALVAGE_CORE_CHANCE');
 export const GATHER_SALVAGE_CORE_QTY = K.num('GATHER_SALVAGE_CORE_QTY');
-/** 2026-09-13 (owner: world/Gather): 고철 더미의 부가 미확인 광물(`spec_mineral`) 확률 · 개수 — 코어와 같은 규약, 자기 fork `gather_mineral`. */
+/** 2026-09-13 (owner: world/Gather): chance / count of a bonus unidentified mineral (`spec_mineral`) from a `고철 더미` — the same convention as the core, on its own fork `gather_mineral`. */
 export const GATHER_SALVAGE_MINERAL_CHANCE = K.num('GATHER_SALVAGE_MINERAL_CHANCE');
 export const GATHER_SALVAGE_MINERAL_QTY = K.num('GATHER_SALVAGE_MINERAL_QTY');
-/** 장착 가방이 레이드 1회마다 잃는 내구도 (C-36, owner: inventory). */
+/** Durability the equipped bag loses per raid (C-36, owner: inventory). */
 export const BAG_DURABILITY_PER_RAID = K.num('BAG_DURABILITY_PER_RAID');
 
-/* ── 2026-09-11: 소셜 · 신뢰 · 연결 (커밋 `9bd72ce`(계약) · `b3fc2f0`(구현)) ── */
-/** E-4 (owner: shared/buffRules — implants · gadgets 가 쓴다): 버프 사거리 여유(m). */
+/* ── 2026-09-11: social · trust · connection (commits `9bd72ce` — the contract · `b3fc2f0` — the implementation) ── */
+/** E-4 (owner: shared/buffRules — used by implants · gadgets): buff range slack (m). */
 export const BUFF_RANGE_SLACK = K.num('BUFF_RANGE_SLACK');
-/** E-4: 받는 쪽 치유 토큰 버킷 배수. */
+/** E-4: the receiving side's heal token bucket multiplier. */
 export const BUFF_HEAL_RATE_MARGIN = K.num('BUFF_HEAL_RATE_MARGIN');
-/** E-4 (owner: meta): 분대원 contractHit 초당 허용량 (보낸 사람 · 목표마다). */
+/** E-4 (owner: meta): allowance of squadmate contractHit per second (per sender and per goal). */
 export const META_HIT_RATE = K.num('META_HIT_RATE');
-/** E-4 (owner: stratagems): 호스트가 받는 함선 호출의 최대 거리(m). */
+/** E-4 (owner: stratagems): max distance (m) of a ship call the host accepts. */
 export const STRAT_MAX_CALL_RANGE = K.num('STRAT_MAX_CALL_RANGE');
-/* appended (2026-09-11, E-4 ⑤ — 추가만) */
-/** E-4 (owner: stratagems): 호스트의 호출자별 공유 쿨타임 여유(초). */
+/* appended (2026-09-11, E-4 ⑤ — add-only) */
+/** E-4 (owner: stratagems): the host's per-caller slack (s) on the shared cooldown. */
 export const STRAT_COOLDOWN_SLACK_S = K.num('STRAT_COOLDOWN_SLACK_S');
-/** E-4 (owner: shared/buffRules): 받는 쪽 치유 버킷 크기(초). */
+/** E-4 (owner: shared/buffRules): the receiving side's heal bucket size (s). */
 export const BUFF_HEAL_BURST_S = K.num('BUFF_HEAL_BURST_S');
-/** E-4 (owner: enemies): 호스트가 받는 hit 요청의 보낸 사람별 초당 피해 상한 · 버킷 크기(초). */
+/** E-4 (owner: enemies): per-sender cap on damage per second of the hit requests the host accepts, and the bucket size (s). */
 export const HIT_REQUEST_DPS_MAX = K.num('HIT_REQUEST_DPS_MAX');
 export const HIT_REQUEST_BURST_S = K.num('HIT_REQUEST_BURST_S');
-/** X-6 (owner: enemies): 넉백 요청 기하 검사의 거리 여유(m). */
+/** X-6 (owner: enemies): distance slack (m) of the geometry test on a knockback request. */
 export const HIT_KNOCKBACK_RANGE_SLACK = K.num('HIT_KNOCKBACK_RANGE_SLACK');
-/** C-57 (owner: world): `crate opened` 거리 검사의 여유(m). */
+/** C-57 (owner: world): slack (m) of the distance test on `crate opened`. */
 export const CRATE_OPEN_RANGE_SLACK = K.num('CRATE_OPEN_RANGE_SLACK');
-/* appended (2026-09-11, E-8 — docs/DECISIONS.md 「2026-09-11 — 신뢰 경로의 남은 틈」 — 추가만) */
-/** E-8 (owner: enemies): explode 요청의 거리 검사 여유(m). 기준은 `STRAT_MAX_CALL_RANGE` 다. */
+/* appended (2026-09-11, E-8 — docs/DECISIONS.md 「2026-09-11 — 신뢰 경로의 남은 틈」 — add-only) */
+/** E-8 (owner: enemies): distance-test slack (m) on an explode request. The baseline is `STRAT_MAX_CALL_RANGE`. */
 export const EXPLODE_REQUEST_RANGE_SLACK = K.num('EXPLODE_REQUEST_RANGE_SLACK');
-/** E-8 (owner: enemies): 상태이상 요청의 거리 검사 여유(m). 기준은 `max(FLAME_RANGE, SHOCK_RANGE)` 다. */
+/** E-8 (owner: enemies): distance-test slack (m) on a status-effect request. The baseline is `max(FLAME_RANGE, SHOCK_RANGE)`. */
 export const STATUS_REQUEST_RANGE_SLACK = K.num('STATUS_REQUEST_RANGE_SLACK');
-/** E-8 (owner: enemies): 상태이상 요청의 보낸 사람별 초당 건수 상한 · 버킷 크기(초). */
+/** E-8 (owner: enemies): per-sender cap on status-effect requests per second, and the bucket size (s). */
 export const STATUS_REQUEST_RATE_MAX = K.num('STATUS_REQUEST_RATE_MAX');
 export const STATUS_REQUEST_BURST_S = K.num('STATUS_REQUEST_BURST_S');
-/** E-5 (owner: game/SoloRaid): 시계 역행 허용 폭(ms). */
+/** E-5 (owner: game/SoloRaid): how far the clock may run backwards (ms). */
 export const SOLO_CLOCK_BACK_TOLERANCE_MS = K.num('SOLO_CLOCK_BACK_TOLERANCE_MS');
-/** E-5: 지금까지 본 가장 늦은 `Date.now()` 를 적어 두는 키 (`slotKey` 를 통과시킨다). */
+/** E-5: the key that records the latest `Date.now()` seen so far (it goes through `slotKey`). */
 export const SOLO_CLOCK_HIGH_KEY = 'scav.clockHigh';
-/** B-4 (owner: net/SocialSync): 개인 대화(옛 귓속말) 기록 — 상대당 줄 수 · 상대 수 · 키(`slotKey`). */
+/** B-4 (owner: net/SocialSync): private chat (formerly whispers) history — lines per peer · number of peers · the key (`slotKey`). */
 export const WHISPER_HISTORY_PER_PEER = K.num('WHISPER_HISTORY_PER_PEER');
 export const WHISPER_HISTORY_PEERS = K.num('WHISPER_HISTORY_PEERS');
 export const WHISPER_STORAGE_KEY = 'scav.whispers';
 
-/* ── 2026-09-11: 연구실 — 분석기 · 행성 환경 (A-12 · A-13) ──
- * 2026-09-16 (사용자 결정): 옛 `ANALYZE_DEX_SPEEDUP`(도감 진척률 × 0.5) · `ANALYZE_KNOWN_SPEEDUP`(아는 표본이면 ×0.6)
- * 두 항은 **삭제**됐다 — 아래 `ANALYSIS_*` 다섯 항이 대신한다. csv 줄도 함께 지웠다: 읽는 코드가 없는 키는
- * `npm run data:check` 가 「아무도 읽지 않는 키」로 잡으므로 코드와 csv 를 한 번에 치워야 한다. */
+/* ── 2026-09-11: the lab — analyzer · planet environment (A-12 · A-13) ──
+ * 2026-09-16 (user's decision): the old `ANALYZE_DEX_SPEEDUP` (catalogue progress × 0.5) and `ANALYZE_KNOWN_SPEEDUP`
+ * (×0.6 for a known sample) were **deleted** — the five `ANALYSIS_*` entries below replace them. The csv rows went with
+ * them: a key no code reads is caught by `npm run data:check` as 「아무도 읽지 않는 키」, so code and csv must be cleared together. */
 
-/* ── 2026-09-16 (사용자 결정): 해석 시간 단축의 새 규칙 (owner: housing) ──
- * 옛 `ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP` 두 항을 대체한다. 바뀐 점은 둘이다:
- *   ① 도감 보너스는 「그 종류의 해석이 빨라진다」가 아니라 **도감을 한 칸 채울 때마다 같은 등급 표본 전체**가 빨라진다.
- *   ② 같은 표본을 거듭 해석하면 그 표본의 **레벨**이 올라 보너스가 더 붙되, 곡선을 앞으로 몰아 놨다 —
- *      처음 해석해 레벨 1 이 되는 순간 `FIRST`(+3 %)를 통째로 주고, 그 뒤 한 레벨마다 `STEP`(+0.5 %)만 얹는다.
- *      「처음 등록했을 때 보너스를 많이 주는 식」이라는 사용자 요구가 이 두 값의 차이 그 자체다.
- * 도감 + 레벨을 **더한** 단축은 `ANALYSIS_SPEEDUP_CAP` 에서 잘린다. 계열 분석 레벨의 시간 배수
- * (`ANALYSIS_TIME_MUL_BY_LEVEL`) 는 이것과 별개로 곱해진다.
+/* ── 2026-09-16 (user's decision): the new rule for shortening analysis time (owner: housing) ──
+ * Replaces the old `ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP` pair. Two things changed:
+ *   ① The catalogue bonus is not 「analysis of that kind gets faster」 but **every sample of the same rarity** gets
+ *      faster with each catalogue entry filled.
+ *   ② Analysing the same sample again raises that sample's **level** for a further bonus, with the curve pushed to the
+ *      front — the first analysis, which makes it level 1, hands over the whole `FIRST` (+3 %), and every level after
+ *      that adds only `STEP` (+0.5 %). The user's request for 「a big bonus the first time it is registered」 is exactly
+ *      the gap between those two values.
+ * The **sum** of the catalogue and level shortenings is clipped at `ANALYSIS_SPEEDUP_CAP`. The family's analysis-level
+ * time multiplier (`ANALYSIS_TIME_MUL_BY_LEVEL`) is multiplied in separately.
  */
-/** 해석 도감 한 칸마다, **같은 등급** 표본의 해석 시간이 줄어드는 비율. */
+/** The fraction each analysis catalogue entry takes off the analysis time of **the same rarity** of sample. */
 export const ANALYSIS_DEX_BONUS_PER_ENTRY = K.num('ANALYSIS_DEX_BONUS_PER_ENTRY');
-/** 그 표본을 처음 해석해 레벨 1 이 됐을 때의 단축 — 레벨당 증분보다 훨씬 크다 (앞으로 몰아 놓은 곡선). */
+/** The shortening when a sample is analysed for the first time and reaches level 1 — far larger than the per-level step (the front-loaded curve). */
 export const ANALYSIS_SAMPLE_LEVEL_FIRST = K.num('ANALYSIS_SAMPLE_LEVEL_FIRST');
-/** 레벨 1 이후 한 레벨 오를 때마다 더 붙는 단축. */
+/** The extra shortening added per level gained past level 1. */
 export const ANALYSIS_SAMPLE_LEVEL_STEP = K.num('ANALYSIS_SAMPLE_LEVEL_STEP');
-/** 한 표본의 레벨 상한. */
+/** Level cap of one sample. */
 export const ANALYSIS_SAMPLE_LEVEL_MAX = K.num('ANALYSIS_SAMPLE_LEVEL_MAX');
-/** 도감 + 표본 레벨을 더한 단축의 상한 (0.5 = 절반까지). */
+/** Cap of the catalogue + sample-level shortening added together (0.5 = down to half). */
 export const ANALYSIS_SPEEDUP_CAP = K.num('ANALYSIS_SPEEDUP_CAP');
 
-/* ── 2026-09-16 (사용자 결정): 행성 광맥 · 채광 (owner: world) ──
- * 광맥은 약초 · 표본과 같은 채집 노드의 한 종류다. 캐면 **미확인 광물**만 나오고, 그 등급은
- * 총기와 같은 확률 표(`data/loot_tiers.csv` 의 `tier = 행성 threat` 줄, `mythic` 열 포함)로 굴린다 —
- * 두 번째 표를 만들지 않는다. 난이도 1 은 그 줄이 희귀까지만 가중치를 주므로 저절로 희귀에서 멈춘다.
- * 채광 숙련은 `DerivedStats.miningRarityBonus` 로 그 굴림의 상위 등급 쪽만 밀어 준다 (상한은 못 넘는다).
+/* ── 2026-09-16 (user's decision): planet ore veins · mining (owner: world) ──
+ * An ore vein is a kind of gather node, like herbs and samples. Mining one yields **unidentified minerals** only, and
+ * their rarity is rolled on the same probability table as guns (the `tier = the planet's threat` row of
+ * `data/loot_tiers.csv`, `mythic` column included) — no second table is made. At difficulty 1 that row only weights up
+ * to rare, so it stops at rare by itself. The mining skill pushes only the upper end of that roll through
+ * `DerivedStats.miningRarityBonus` (it cannot go past the cap).
  */
-/** 광맥 하나를 캐는 E 홀드 시간(초). `interactSpeedMul` 이 나눈다. */
+/** Seconds of E held to mine one ore vein. `interactSpeedMul` divides it. */
 export const MINING_NODE_HOLD_S = K.num('MINING_NODE_HOLD_S');
-/** 광맥 하나에서 나오는 미확인 광물 개수의 하한 · 상한 (정수 균등). */
+/** Lower / upper bound of the unidentified minerals one ore vein yields (uniform over integers). */
 export const MINING_YIELD_MIN = K.num('MINING_YIELD_MIN');
 export const MINING_YIELD_MAX = K.num('MINING_YIELD_MAX');
-/** 이 기울기(tan θ) 이상인 사면에만 광맥이 선다 — 사용자 결정 「주로 언덕쪽 위주」. */
+/** Ore veins stand only on slopes at least this steep (tan θ) — user's decision, 「주로 언덕쪽 위주」. */
 export const MINING_HILL_MIN_SLOPE = K.num('MINING_HILL_MIN_SLOPE');
-/** 광맥 하나를 캘 때 오르는 `mining` 숙련 경험치. */
+/** `mining` skill XP gained from working one ore vein. */
 export const MINING_SKILL_XP = K.num('MINING_SKILL_XP');
 /**
- * A-13 (owner: player): 맞는 준비물 없이 상시 환경 행성(`PlanetDef.env`)에 있을 때 초당 깎이는 **체력**.
- * 방탄복 실드는 대기를 막지 못하므로 실드를 건너뛴다 (사용자 결정: 준비물이 있으면 100 % 상쇄).
+ * A-13 (owner: player): **hp** lost per second on a planet with a permanent environment (`PlanetDef.env`) without the
+ * matching preparation. Armor shield does not stop the atmosphere, so it is bypassed (user's decision: the right
+ * preparation cancels it 100 %).
  */
 export const PLANET_ENV_DPS = K.num('PLANET_ENV_DPS');
-/** A-13 (owner: player): 환경 피해를 적용하는 주기(초). 1 tick 당 `PLANET_ENV_DPS × 이 값`. */
+/** A-13 (owner: player): interval (s) at which environment damage is applied. One tick = `PLANET_ENV_DPS × this`. */
 export const PLANET_ENV_TICK_S = K.num('PLANET_ENV_TICK_S');
 /**
- * A-11 · A-12 (owner: world/Gather): 야생 씨앗 군락 · 미확인 표본 채집지의 홀드 시간(초)과 상호작용 반경(m).
- * 약초 · 고철 · 토양이 `Gather.ts` 안에 숫자로 박혀 있던 것과 달리 처음부터 csv 에 둔다 (「수치는 코드에 적지
- * 않는다」 그대로) — 옛 셋도 손볼 일이 생기면 여기로 따라 나온다.
+ * A-11 · A-12 (owner: world/Gather): hold time (s) and interaction radius (m) of wild seed clusters and unidentified
+ * sample spots. Unlike herbs, scrap and soil, which sat as numbers inside `Gather.ts`, these live in the csv from the
+ * start (「수치는 코드에 적지 않는다」, exactly) — the older three will follow here the next time they are touched.
  */
 export const SEED_INTERACT_TIME = K.num('SEED_INTERACT_TIME');
 export const SEED_NODE_RADIUS = K.num('SEED_NODE_RADIUS');
 export const SAMPLE_INTERACT_TIME = K.num('SAMPLE_INTERACT_TIME');
 export const SAMPLE_NODE_RADIUS = K.num('SAMPLE_NODE_RADIUS');
 
-/* ── 2026-09-11: 주방 · 배양조 · 프린터 (A-3c · A-14 · A-15) ── */
+/* ── 2026-09-11: the kitchen · the culture tank · the printer (A-3c · A-14 · A-15) ── */
 /**
- * A-15 (owner: inventory): 장비칸의 **주머니 칸 수**. 사용자 결정으로 고정 1칸이다 — 넷 중 하나만 끼운다.
- * 가방이 정하지 않는다 (`BagDef` 는 손대지 않았다).
+ * A-15 (owner: inventory): the **number of pouch slots** in the equipment column. Fixed at 1 by the user's decision —
+ * only one of the four is fitted. The bag does not decide it (`BagDef` was left untouched).
  */
 export const POUCH_SLOTS = K.num('POUCH_SLOTS');
 /**
- * A-3c (owner: housing — 공유 함선 식탁): `분대에 차리기` 가 먹이는 반경(m). 이 안에 있는 분대원만 받는다
- * — 호스트가 스냅샷 거리로 검사한다 (`shared/buffRules` 의 거리 가드와 같은 결).
+ * A-3c (owner: housing — the shared ship's dining table): the radius (m) `분대에 차리기` feeds. Only squadmates inside
+ * it are served — the host tests it against the snapshot distance (the same grain as the range guard of `shared/buffRules`).
  */
 export const MEAL_SERVE_RANGE = K.num('MEAL_SERVE_RANGE');
 
-/* ── 2026-09-12: 하이브리드 사격 판정 (owner: weapons/parts/AimLine) ── */
+/* ── 2026-09-12: the hybrid shot resolution (owner: weapons/parts/AimLine) ── */
 /**
- * 총구 앞 몇 m 안의 장애물까지 "총구가 막혔다" 로 보는가. 이 안에서 총구 선에 걸리면 총알은 거기에 맞고
- * (벽에 빨간 원 · 크로스헤어 경고색), 그보다 먼 것은 크로스헤어 선이 판정한다 — 먼 바위 모서리에 조준하지 않은 총알이
- * 왼쪽으로 박히던 것을 없앤다.
+ * How many metres in front of the muzzle an obstacle still counts as "the muzzle is blocked". Caught on the muzzle
+ * line inside that range, the bullet hits there (a red circle on the wall · the crosshair's warning colour); anything
+ * farther is resolved by the crosshair line — which is what stopped unaimed bullets burying themselves in the left
+ * edge of a distant rock.
  */
 export const WEAPON_MUZZLE_BLOCK_RANGE = K.num('WEAPON_MUZZLE_BLOCK_RANGE');
 
-/* ══ 2026-09-12 — 소모품 · 임플란트 · 열쇠 · 드론 스캔 · 즐겨찾기 · 헬스 (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) ══
- * 병렬 에이전트마다 **자기 블록 안에만** 추가한다. 값은 data/constants.csv 의 같은 표식 블록에. */
-/* ── [A1] 소모품 3종 ── */
+/* ══ 2026-09-12 — consumables · implants · keys · drone scan · favourites · the gym (docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) ══
+ * Every parallel agent appends **inside its own block only**. The values go in the identically marked block of data/constants.csv. */
+/* ── [A1] the three consumables ── */
 /**
- * owner: player (`parts/Boosts`). 아드레날린 주사의 효과 시간(초) — 스태미나 전량 회복 + 이 시간 동안 **지속 소모만** 0.
- * 한 번 소모(점프 · 구르기 · 근접 · 실드 배쉬)는 그대로다.
+ * owner: player (`parts/Boosts`). Duration (s) of the adrenaline shot — full stamina refill plus **continuous drain
+ * only** at 0 for that long. One-off costs (jump · roll · melee · shield bash) are unchanged.
  */
 export const BOOST_ADRENALINE_DURATION_S = K.num('BOOST_ADRENALINE_DURATION_S');
-/** owner: player. 각성제의 효과 시간(초). 아드레날린과 서로 지운다 (나중 것이 이긴다). */
+/** owner: player. Duration (s) of the stimulant. It and the adrenaline cancel each other (the later one wins). */
 export const BOOST_STIMULANT_DURATION_S = K.num('BOOST_STIMULANT_DURATION_S');
-/** 각성제 동안 장전 속도 배수 (>1 = 빠름). weapons 가 `PlayerRef.boostReloadSpeedMul` 로 읽는다. */
+/** Reload speed multiplier while the stimulant is up (>1 = faster). weapons reads it as `PlayerRef.boostReloadSpeedMul`. */
 export const BOOST_STIMULANT_RELOAD_SPEED_MUL = K.num('BOOST_STIMULANT_RELOAD_SPEED_MUL');
-/** 각성제 동안 정조준 전환 속도 배수 (>1 = 빠름). player 가 ADS 블렌드 감쇠율에 곱한다. */
+/** ADS transition speed multiplier while the stimulant is up (>1 = faster). player multiplies it into the ADS blend damping rate. */
 export const BOOST_STIMULANT_ADS_SPEED_MUL = K.num('BOOST_STIMULANT_ADS_SPEED_MUL');
-/** 각성제 동안 조준 흔들림 배수 (<1 = 줄어듦). `PlayerRef.aimSwayMul` 로 게시된다. */
+/** Aim sway multiplier while the stimulant is up (<1 = less). Published as `PlayerRef.aimSwayMul`. */
 export const BOOST_STIMULANT_AIM_SWAY_MUL = K.num('BOOST_STIMULANT_AIM_SWAY_MUL');
-/** 각성제의 대가: 스태미나 소모 배수 — 지속 소모와 한 번 소모 모두. */
+/** The stimulant's price: stamina cost multiplier — for both the continuous drain and the one-off costs. */
 export const BOOST_STIMULANT_STAMINA_COST_MUL = K.num('BOOST_STIMULANT_STAMINA_COST_MUL');
 /* ── end [A1] ── */
-/* ── [A2] 조준 흔들림 ── */
+/* ── [A2] aim sway ── */
 /**
- * 조준 흔들림 (owner: player/CameraRig · 계열별 크기는 `data/aim_sway.csv` → weapons/AimSway). 정조준 중 카메라가 8자로 떠돈다 —
- * 위아래 크기는 좌우 × `AIM_SWAY_PITCH_RATIO`(두 배 빠르게 돈다). 자세 · 이동 배수는 앉기 · 엎드리기 · 걷기 속도에서의 값이다.
+ * Aim sway (owner: player/CameraRig · the per-class amplitude is `data/aim_sway.csv` → weapons/AimSway). While aiming
+ * the camera drifts in a figure of eight — the vertical amplitude is the horizontal one × `AIM_SWAY_PITCH_RATIO` (and
+ * it turns twice as fast). The stance / movement multipliers are the values at crouch, prone and walking speed.
  */
 export const AIM_SWAY_PITCH_RATIO = K.num('AIM_SWAY_PITCH_RATIO');
 export const AIM_SWAY_CROUCH_MUL = K.num('AIM_SWAY_CROUCH_MUL');
 export const AIM_SWAY_PRONE_MUL = K.num('AIM_SWAY_PRONE_MUL');
 export const AIM_SWAY_MOVE_MUL = K.num('AIM_SWAY_MOVE_MUL');
-/** 흔들림 크기(자세 · 이동 · 무기 교체 · 정조준 게이트)가 목표를 따라가는 `damp` 속도. */
+/** The `damp` rate at which the sway amplitude (stance · movement · weapon swap · the ADS gate) follows its target. */
 export const AIM_SWAY_BLEND_RATE = K.num('AIM_SWAY_BLEND_RATE');
 /* ── end [A2] ── */
-/* ── [B] 전술 임플란트 · 함선 호출 준비 연출 ── */
+/* ── [B] tactical implants · the ship-call ready cue ── */
 /**
- * (owner: implants/parts/Devices.refundGrapple) 갈고리 쿨타임 환급 — 비율은 전부 실효 쿨타임(`ImplantsRef.cooldownTotal`) 기준.
- * 붙은 뒤 놓았으면: 붙은 순간 → 놓은 순간의 실제 이동 거리 d(관성 제외)로 `REFUND_MAX × max(0, 1 − d / REFUND_DIST)`.
- * 붙기 전에 끝났으면(날아가는 중 Q 회수 · 드론 앵커 소실): `CANCEL_REFUND`, 단 남은 쿨타임은 `CANCEL_MIN_S` 이상.
+ * (owner: implants/parts/Devices.refundGrapple) grapple cooldown refund — every ratio is measured against the
+ * effective cooldown (`ImplantsRef.cooldownTotal`). Attached and then released: from the real distance travelled
+ * between attaching and releasing, d (inertia excluded), `REFUND_MAX × max(0, 1 − d / REFUND_DIST)`.
+ * Ended before it attached (Q recalled in flight · the drone anchor lost): `CANCEL_REFUND`, but the remaining
+ * cooldown stays at `CANCEL_MIN_S` or more.
  */
 export const IMPLANT_GRAPPLE_REFUND_MAX = K.num('IMPLANT_GRAPPLE_REFUND_MAX');
 export const IMPLANT_GRAPPLE_REFUND_DIST = K.num('IMPLANT_GRAPPLE_REFUND_DIST');
 export const IMPLANT_GRAPPLE_CANCEL_REFUND = K.num('IMPLANT_GRAPPLE_CANCEL_REFUND');
 export const IMPLANT_GRAPPLE_CANCEL_MIN_S = K.num('IMPLANT_GRAPPLE_CANCEL_MIN_S');
 /* ── end [B] ── */
-/* ── [C] 열쇠 · 키카드 · 잠긴 방 · 개구멍 ── */
+/* ── [C] keys · keycards · locked rooms · crawl holes ── */
 /* ── end [C] ── */
-/* ── [D] 지상드론 스캔 ── */
+/* ── [D] the ground drone's scan ── */
 /**
- * owner: gadgets/drones (`parts/Scan`). 지상 드론 조종 중 조준을 유지한 채 좌클릭을 누르고 있어야 하는 시간(초) —
- * 채우면 대상 안의 **최고 등급**이 레이드 내내 대상 위에 뜬다 (분대 공유). 조준이 벗어나거나 멀어지면 0 부터.
+ * owner: gadgets/drones (`parts/Scan`). Seconds LMB must be held while controlling a ground drone and keeping the aim
+ * on the target — filled, the **highest rarity** inside it floats over it for the rest of the raid (shared with the
+ * squad). Lose the aim or move out of range and it restarts from 0.
  */
 export const DRONE_SCAN_HOLD_S = K.num('DRONE_SCAN_HOLD_S');
-/** 드론 렌즈 → 대상 중심의 최대 3-D 거리(m). */
+/** Max 3-D distance (m) from the drone's lens to the target's centre. */
 export const DRONE_SCAN_RANGE = K.num('DRONE_SCAN_RANGE');
-/** 조준 판정 구 반지름(m) — 렌즈 중심 광선이 대상 중심에서 이만큼 안을 지나면 조준된 것이다. */
+/** Radius (m) of the aim test sphere — the lens's centre ray counts as aimed when it passes this close to the target's centre. */
 export const DRONE_SCAN_AIM_RADIUS = K.num('DRONE_SCAN_AIM_RADIUS');
-/** 조준됐지만 사거리 밖인 대상에 「더 가까이」 안내를 띄우는 거리(m). */
+/** Distance (m) within which a target that is aimed at but out of range shows the 「더 가까이」 hint. */
 export const DRONE_SCAN_HINT_RANGE = K.num('DRONE_SCAN_HINT_RANGE');
-/** owner: ui (`hud/DroneScanLabels`). 월드 라벨 높이(m, 대상 바닥 기준) · 보이는 최대 거리(m, 카메라 기준). */
+/** owner: ui (`hud/DroneScanLabels`). World label height (m, above the target's base) · max visible distance (m, from the camera). */
 export const DRONE_SCAN_LABEL_HEIGHT = K.num('DRONE_SCAN_LABEL_HEIGHT');
 export const DRONE_SCAN_LABEL_MAX_DIST = K.num('DRONE_SCAN_LABEL_MAX_DIST');
-/** 받는 쪽: 보낸 사람의 지상 드론 복제본이 대상에서 `DRONE_SCAN_RANGE` + 이 값(m) 안일 때만 분대원 스캔을 믿는다. */
+/** Receiving side: a squadmate's scan is trusted only while the sender's ground drone replica is within `DRONE_SCAN_RANGE` + this (m) of the target. */
 export const DRONE_SCAN_SHARE_SLACK = K.num('DRONE_SCAN_SHARE_SLACK');
 /* ── end [D] ── */
-/* ── [E1] 즐겨찾기 코어 ── */
+/* ── [E1] the favourites core ── */
 /* ── end [E1] ── */
-/* ── [E2] 즐겨찾기 칩 · 아이템 회수 계약 ── */
+/* ── [E2] favourite chips · the item recovery contract ── */
 /* ── end [E2] ── */
-/* ── [F] 헬스 미니게임 ── */
+/* ── [F] the gym minigames ── */
 /* ── end [F] ── */
-/* ── [H] 재해 세기 · 독성 포자 배치 · 탈출 패드 수 (2026-09-13, owner: world/Hazard · world/layout) ── */
-/** 재해가 맵을 다 덮었을 때(진행도 1)의 초당 피해 — `HAZARD_DPS`(시작)에서 진행도에 비례해 오른다 (`HazardRef.damageMul`). */
+/* ── [H] hazard strength · toxic spore layout · extraction pad count (2026-09-13, owner: world/Hazard · world/layout) ── */
+/** Damage per second once the hazard covers the whole map (progress 1) — it rises from `HAZARD_DPS` (at the start) in proportion to the progress (`HazardRef.damageMul`). */
 export const HAZARD_DPS_MAX = K.num('HAZARD_DPS_MAX');
-/** 시야 제한 세기 배율 — `hazards.csv` fogMul 의 (fogMul − 1) 에 곱한다. 시작값 → 진행도 1 의 끝값. */
+/** Strength multiplier of the sight restriction — multiplied into (fogMul − 1) of `hazards.csv` fogMul. Start value → end value at progress 1. */
 export const HAZARD_FOG_RAMP_START = K.num('HAZARD_FOG_RAMP_START');
 export const HAZARD_FOG_RAMP_END = K.num('HAZARD_FOG_RAMP_END');
-/** 그리는 입자 비율 (`hazards.csv` particleCount 에 곱한다). 시작값 → 진행도 1 의 끝값. */
+/** Fraction of particles drawn (multiplied into `hazards.csv` particleCount). Start value → end value at progress 1. */
 export const HAZARD_PARTICLE_RAMP_START = K.num('HAZARD_PARTICLE_RAMP_START');
 export const HAZARD_PARTICLE_RAMP_END = K.num('HAZARD_PARTICLE_RAMP_END');
-/** 모래 폭풍 · 눈보라 전선은 강하 지점이 붙은 가장자리 쪽에서 들어온다 — 그 방향에서 ± 이 각도(rad). */
+/** The sandstorm / blizzard front comes in from the edge the drop point sits on — ± this angle (rad) off that direction. */
 export const HAZARD_FRONT_SPAWN_JITTER_RAD = K.num('HAZARD_FRONT_SPAWN_JITTER_RAD');
-/** 폭풍의 눈 처음 반경 = 눈 중심에서 가장 먼 맵 꼭짓점까지 + 이 값(m). `STORM_EYE_RADIUS_START` 는 그 하한으로만 남는다. */
+/** The eye's first radius = the distance from the eye's centre to the farthest map corner + this (m). `STORM_EYE_RADIUS_START` survives only as its floor. */
 export const STORM_EYE_START_MARGIN_M = K.num('STORM_EYE_START_MARGIN_M');
-/** 독성 포자 레이드: 강하 지점 반경(맵 중심 기준, m) · 군락이 서는 중앙 반경 · 군락 ↔ 강하 지점 간격 · 중앙 군락끼리 간격. */
+/** A toxic-spore raid: the drop point's radius (from the map centre, m) · the central radius the groves stand in · the grove ↔ drop point gap · the gap between central groves. */
 export const SPORE_SPAWN_CENTER_M = K.num('SPORE_SPAWN_CENTER_M');
 export const SPORE_CENTER_RADIUS_M = K.num('SPORE_CENTER_RADIUS_M');
 export const SPORE_GROVE_SPAWN_GAP_M = K.num('SPORE_GROVE_SPAWN_GAP_M');
 export const SPORE_CENTER_GROVE_GAP_M = K.num('SPORE_CENTER_GROVE_GAP_M');
-/** 독성 포자 레이드의 탈출 패드는 맵 중심에서 x · z 중 큰 쪽이 이 값(m) 이상인 외곽에만 선다. */
+/** Extraction pads of a toxic-spore raid stand only out where the larger of |x| · |z| from the map centre is at least this (m). */
 export const EXTRACTION_OUTER_MIN_M = K.num('EXTRACTION_OUTER_MIN_M');
-/** 독성 포자 레이드의 탈출 패드 수 범위 (행성 threat 와 무관). */
+/** Range of extraction pad counts in a toxic-spore raid (independent of the planet's threat). */
 export const EXTRACTION_PADS_SPORES_MIN = K.num('EXTRACTION_PADS_SPORES_MIN');
 export const EXTRACTION_PADS_SPORES_MAX = K.num('EXTRACTION_PADS_SPORES_MAX');
-/** 행성 threat 1..3 (인덱스 0..2) 별 탈출 패드 수 범위 — 미션 시드로 그 사이를 뽑는다 (`world/layout.extractionPadCount`). */
+/** Range of extraction pad counts per planet threat 1..3 (index 0..2) — drawn from that range with the mission seed (`world/layout.extractionPadCount`). */
 export const EXTRACTION_PADS_MIN_BY_THREAT: readonly number[] = numberList('tables.csv', 'EXTRACTION_PADS_MIN_BY_THREAT');
 export const EXTRACTION_PADS_MAX_BY_THREAT: readonly number[] = numberList('tables.csv', 'EXTRACTION_PADS_MAX_BY_THREAT');
 /* ── end [H] ── */
-/* ── [2026-09-13] 탈출 개편 (owner: extraction · game · ui) ── */
-/** 출발 스위치(또는 자동 출발) 뒤 실제 이륙까지의 유예(초). 취소 불가 · 그동안에도 탑승 가능. */
+/* ── [2026-09-13] the extraction rework (owner: extraction · game · ui) ── */
+/** Grace (s) between the departure switch (or the automatic departure) and the actual liftoff. Uncancellable, and people may still board during it. */
 export const EXTRACTION_DEPART_GRACE_S = K.num('EXTRACTION_DEPART_GRACE_S');
-/** 착륙 뒤 아무도 출발 스위치를 누르지 않으면 이 시간(초) 뒤 자동으로 출발 유예가 시작된다. */
+/** With nobody pressing the departure switch after touchdown, the departure grace starts by itself after this many seconds. */
 export const EXTRACTION_AUTO_DEPART_IDLE_S = K.num('EXTRACTION_AUTO_DEPART_IDLE_S');
-/** 이륙부터 탑승자의 결과 화면까지(초) — 외부 카메라 연출이 이 안에서 끝난다. */
+/** Seconds from liftoff to a rider's result screen — the external camera shot ends inside it. */
 export const EXTRACTION_LIFTOFF_TO_COMPLETE_S = K.num('EXTRACTION_LIFTOFF_TO_COMPLETE_S');
-/** 이륙 연출: 캐릭터 카메라 → 함선 외부 카메라 전환 시간(초). */
+/** Liftoff cinematic: seconds of the blend from the character camera to the ship's external camera. */
 export const EXTRACTION_CINEMATIC_BLEND_S = K.num('EXTRACTION_CINEMATIC_BLEND_S');
-/** 이륙 연출: 전투 HUD 가 사라지는 시간(초). */
+/** Liftoff cinematic: seconds over which the combat HUD disappears. */
 export const EXTRACTION_HUD_FADE_S = K.num('EXTRACTION_HUD_FADE_S');
-/* ── end [2026-09-13] 탈출 개편 ── */
+/* ── end [2026-09-13] the extraction rework ── */
 
-/* ══ appended (2026-09-13): 버그 굴착 스폰 · 땅굴벌레 이벤트 (owner: enemies) ═════════════════════════════════════
- * 값은 전부 `data/constants.csv` 의 `BURROW_*` · `SANDWORM_*` 와 `data/tables.csv` 의 `SANDWORM_*` 표. 규칙은 `src/enemies/README.md`.
+/* ══ appended (2026-09-13): burrowing bug spawns · the sandworm event (owner: enemies) ═════════════════════════════════════
+ * Every value is `BURROW_*` · `SANDWORM_*` in `data/constants.csv` and the `SANDWORM_*` tables in `data/tables.csv`. The rules are in `src/enemies/README.md`.
  */
-/** 플레이 중 스폰되는 버그가 땅을 파고 올라오는 시간(초). */
+/** Seconds a bug spawned mid-play takes to dig its way up. */
 export const BURROW_EMERGE_S = K.num('BURROW_EMERGE_S');
-/** 굴착 시작 때 몸 높이보다 더 묻혀 있는 깊이(m). */
+/** How much deeper (m) than its own height the body is buried when the burrow starts. */
 export const BURROW_SINK_EXTRA_M = K.num('BURROW_SINK_EXTRA_M');
-/** 굴착 흔들림이 나는 로컬 플레이어 거리(m). */
+/** Distance (m) from the local player within which the burrow shake is felt. */
 export const BURROW_SHAKE_RADIUS = K.num('BURROW_SHAKE_RADIUS');
-/** 굴착 흔들림 세기. */
+/** Intensity of the burrow shake. */
 export const BURROW_SHAKE_INTENSITY = K.num('BURROW_SHAKE_INTENSITY');
-/** 굴착 흔들림 사이 최소 간격(초) — 겹치지 않는다. */
+/** Minimum interval (s) between burrow shakes — they never overlap. */
 export const BURROW_SHAKE_GAP_S = K.num('BURROW_SHAKE_GAP_S');
-/* ── appended (2026-09-16): 벌레 소리 — 굴착음 · 발소리 · 포탄 낙하음 (owner: audio · enemies). 값은 `data/constants.csv`. ── */
-/** `burrow_emerge` 동시 보이스 상한 (`audio/AudioSystem.VOICE_CAP`). */
+/* ── appended (2026-09-16): bug sounds — the burrow sound · footsteps · the shell's falling sound (owner: audio · enemies). The values are in `data/constants.csv`. ── */
+/** Cap on simultaneous `burrow_emerge` voices (`audio/AudioSystem.VOICE_CAP`). */
 export const BURROW_EMERGE_VOICE_CAP = K.num('BURROW_EMERGE_VOICE_CAP');
-/** 같은 무리로 세는 굴착음 창(초) — k 번째 소리 × 1/√k (`enemies/parts/Burrow`). */
+/** The window (s) over which burrow sounds count as one group — the k-th sound × 1/√k (`enemies/parts/Burrow`). */
 export const BURROW_EMERGE_BATCH_S = K.num('BURROW_EMERGE_BATCH_S');
-/** 벌레 발소리 사거리(m) — `bug_step_skitter` · `bug_step_heavy`; 베헤모스 `bug_step_giant` 는 GIANT. */
+/** Range (m) of bug footsteps — `bug_step_skitter` · `bug_step_heavy`; the behemoth's `bug_step_giant` uses GIANT. */
 export const BUG_STEP_RANGE_M = K.num('BUG_STEP_RANGE_M');
 export const BUG_STEP_GIANT_RANGE_M = K.num('BUG_STEP_GIANT_RANGE_M');
-/** 벌레 발소리 세 id 를 합친 동시 보이스 상한. */
+/** Cap on simultaneous voices across all three bug footstep ids. */
 export const BUG_STEP_VOICE_CAP = K.num('BUG_STEP_VOICE_CAP');
-/** 「걷고 있는 가까운 벌레」 를 세는 창(초) — 발소리 × 1/√n (`enemies/model.emitEnemyStep`). */
+/** The window (s) over which 「nearby bugs that are walking」 are counted — footsteps × 1/√n (`enemies/model.emitEnemyStep`). */
 export const BUG_STEP_CROWD_WINDOW_S = K.num('BUG_STEP_CROWD_WINDOW_S');
-/** 포탄 낙하음: 착탄 몇 초 전 · 착탄점 사거리(m) · floor · 밑 크기 · 동시 보이스 상한. 발사 쿵의 사거리(m). */
+/** The shell's falling sound: how many seconds before impact · the impact point's range (m) · floor · base volume · the simultaneous voice cap. Plus the range (m) of the launch thud. */
 export const SHELL_INCOMING_LEAD_S = K.num('SHELL_INCOMING_LEAD_S');
 export const SHELL_INCOMING_RANGE_M = K.num('SHELL_INCOMING_RANGE_M');
 export const SHELL_INCOMING_FLOOR = K.num('SHELL_INCOMING_FLOOR');
 export const SHELL_INCOMING_VOLUME = K.num('SHELL_INCOMING_VOLUME');
 export const SHELL_INCOMING_VOICE_CAP = K.num('SHELL_INCOMING_VOICE_CAP');
 export const SHELL_LAUNCH_RANGE_M = K.num('SHELL_LAUNCH_RANGE_M');
-/** 땅굴벌레가 일어날 수 있는 레이드 시각 창(초, `ctx.missionTime`). */
+/** The raid-time window (s, `ctx.missionTime`) in which a sandworm may rise. */
 export const SANDWORM_WINDOW_START_S = K.num('SANDWORM_WINDOW_START_S');
 export const SANDWORM_WINDOW_END_S = K.num('SANDWORM_WINDOW_END_S');
-/** 발동 시각 뒤 조건을 다시 보는 간격(초). */
+/** Interval (s) at which the conditions are re-checked after the trigger time. */
 export const SANDWORM_CHECK_S = K.num('SANDWORM_CHECK_S');
-/** 멀티에서 「같이 다닌다」 반경(m). */
+/** The radius (m) that counts as 「moving together」 in multiplayer. */
 export const SANDWORM_GROUP_RADIUS = K.num('SANDWORM_GROUP_RADIUS');
-/** 전조 → 분출(초). */
+/** Warning → eruption (s). */
 export const SANDWORM_WARN_S = K.num('SANDWORM_WARN_S');
-/** 전조 · 분출 흔들림이 느껴지는 반경(m). */
+/** Radius (m) in which the warning / eruption shake is felt. */
 export const SANDWORM_ALERT_RADIUS = K.num('SANDWORM_ALERT_RADIUS');
-/** 전조 흔들림 한 번의 최대 세기. */
+/** Max intensity of one warning shake. */
 export const SANDWORM_SHAKE_MAX = K.num('SANDWORM_SHAKE_MAX');
-/** 분출 판정 반경(m) · 피해 · 넉백(m/s). */
+/** Eruption judgement radius (m) · damage · knockback (m/s). */
 export const SANDWORM_ERUPT_RADIUS = K.num('SANDWORM_ERUPT_RADIUS');
 export const SANDWORM_ERUPT_DAMAGE = K.num('SANDWORM_ERUPT_DAMAGE');
 export const SANDWORM_ERUPT_KNOCKBACK = K.num('SANDWORM_ERUPT_KNOCKBACK');
-/** 땅굴벌레 최대 체력 범위 (호스트가 굴린다). */
+/** Range of the sandworm's max hp (rolled by the host). */
 export const SANDWORM_HP_MIN = K.num('SANDWORM_HP_MIN');
 export const SANDWORM_HP_MAX = K.num('SANDWORM_HP_MAX');
-/** 몸통이 다 솟는 시간(초). */
+/** Seconds the body takes to rise fully. */
 export const SANDWORM_RISE_S = K.num('SANDWORM_RISE_S');
-/** 분출 버그 무리의 링 반경(m). */
+/** Ring radius (m) of the bug swarm thrown out by the eruption. */
 export const SANDWORM_BURST_RING_MIN = K.num('SANDWORM_BURST_RING_MIN');
 export const SANDWORM_BURST_RING_MAX = K.num('SANDWORM_BURST_RING_MAX');
-/** 버그 뱉기 단계의 길이 · 간격(초) · 한 번의 수 · 비행 시간(초) · 착지 거리(m). */
+/** The bug-spitting phase: its length · interval (s) · count per volley · flight time (s) · landing distance (m). */
 export const SANDWORM_SPIT_PHASE_S = K.num('SANDWORM_SPIT_PHASE_S');
 export const SANDWORM_SPIT_INTERVAL_S = K.num('SANDWORM_SPIT_INTERVAL_S');
 export const SANDWORM_SPIT_COUNT = K.num('SANDWORM_SPIT_COUNT');
 export const SANDWORM_SPIT_FLIGHT_S = K.num('SANDWORM_SPIT_FLIGHT_S');
 export const SANDWORM_SPIT_MIN_M = K.num('SANDWORM_SPIT_MIN_M');
 export const SANDWORM_SPIT_MAX_M = K.num('SANDWORM_SPIT_MAX_M');
-/** 버그를 뱉을 때의 전체 적 생존 상한. */
+/** Cap on the total living enemies while bugs are being spat out. */
 export const SANDWORM_ALIVE_CAP = K.num('SANDWORM_ALIVE_CAP');
-/** 독극물 단계: 사거리(m) · 간격(초) · 한 번의 덩어리 수. */
+/** The acid phase: range (m) · interval (s) · blobs per volley. */
 export const SANDWORM_ACID_RANGE = K.num('SANDWORM_ACID_RANGE');
 export const SANDWORM_ACID_INTERVAL_S = K.num('SANDWORM_ACID_INTERVAL_S');
 export const SANDWORM_ACID_VOLLEY = K.num('SANDWORM_ACID_VOLLEY');
-/** 레이드당 이벤트 확률 — index 0 = 행성 threat 1 (`data/tables.csv`). */
+/** Chance of the event per raid — index 0 = planet threat 1 (`data/tables.csv`). */
 export const SANDWORM_CHANCE_BY_THREAT = numberList('tables.csv', 'SANDWORM_CHANCE_BY_THREAT');
-/** 분출 버그 무리 수 — index 0 = 분대 1명. */
+/** Number of bugs in the eruption swarm — index 0 = a squad of 1. */
 export const SANDWORM_BURST_BY_SQUAD = numberList('tables.csv', 'SANDWORM_BURST_BY_SQUAD');
-/* ── end 2026-09-13 굴착 스폰 · 땅굴벌레 ── */
+/* ── end 2026-09-13 burrowing spawns · the sandworm ── */
 
-/* ── 2026-09-13 탐사 차량 — 공용 (값은 data/constants.csv, 규칙은 shared/types.ts 의 탐사 차량 절) ── */
-/** 탑승 · 하차 E 홀드 시간(초). */
+/* ── 2026-09-13 the rover — shared (the values are in data/constants.csv, the rules in the rover section of shared/types.ts) ── */
+/** Seconds of E held to board / step off. */
 export const ROVER_BOARD_HOLD_S = K.num('ROVER_BOARD_HOLD_S');
 export const ROVER_EXIT_HOLD_S = K.num('ROVER_EXIT_HOLD_S');
-/** 정류장 정차 시간(초) — 탑승자가 있고 결제 전이면 줄지 않는다. */
+/** Seconds the rover dwells at a station — the clock does not run down while someone is aboard and has not paid. */
 export const ROVER_DWELL_S = K.num('ROVER_DWELL_S');
-/** 결제 뒤 출발 유예(초). */
+/** Departure grace (s) after payment. */
 export const ROVER_DEPART_GRACE_S = K.num('ROVER_DEPART_GRACE_S');
-/** 차량 체력. */
+/** The vehicle's hp. */
 export const ROVER_HP = K.num('ROVER_HP');
-/** 재해 구역 안에서 받는 재해 피해 배수. */
+/** Multiplier on the hazard damage taken inside a hazard zone. */
 export const ROVER_HAZARD_DAMAGE_MUL = K.num('ROVER_HAZARD_DAMAGE_MUL');
-/** 요금 = 10 단위 반올림(MIN + 거리 × PER_M) 을 [MIN, MAX] 로 자른다. 식의 원본은 `RoverRef.fareTo`. */
+/** Fare = round(MIN + distance × PER_M) to the nearest 10, clamped to [MIN, MAX]. The formula's source is `RoverRef.fareTo`. */
 export const ROVER_FARE_MIN = K.num('ROVER_FARE_MIN');
 export const ROVER_FARE_MAX = K.num('ROVER_FARE_MAX');
 export const ROVER_FARE_PER_M = K.num('ROVER_FARE_PER_M');
-/* ── [R1] 경로 · 정류장 · 흙길 (owner: world/rover RoverRoad · world/layout) ── */
-/** 흙길 회랑 반폭(m) — 이 안에는 아무것도 놓지 않는다 (`layout.roverClearance` · `isSpotFree`). */
+/* ── [R1] the route · stations · the dirt road (owner: world/rover RoverRoad · world/layout) ── */
+/** Half-width (m) of the dirt road corridor — nothing is placed inside it (`layout.roverClearance` · `isSpotFree`). */
 export const ROVER_ROUTE_CLEARANCE_M = K.num('ROVER_ROUTE_CLEARANCE_M');
-/** 정류장 수 범위 (시드). */
+/** Range of the station count (seeded). */
 export const ROVER_STATION_COUNT_MIN = K.num('ROVER_STATION_COUNT_MIN');
 export const ROVER_STATION_COUNT_MAX = K.num('ROVER_STATION_COUNT_MAX');
-/** 정류장끼리 최소 거리(m). */
+/** Minimum distance (m) between stations. */
 export const ROVER_STATION_MIN_GAP_M = K.num('ROVER_STATION_MIN_GAP_M');
-/** 정류장 각도 흔들기 (각도 칸 폭 비율 ±). */
+/** Angular jitter of a station (± as a fraction of the angular slot width). */
 export const ROVER_STATION_ANGLE_JITTER = K.num('ROVER_STATION_ANGLE_JITTER');
-/** 정류장 부지(평탄화 패드) 반지름 · 가장자리 폭(m). */
+/** The station's site (its flattening pad): radius · edge width (m). */
 export const ROVER_STATION_PAD_R = K.num('ROVER_STATION_PAD_R');
 export const ROVER_STATION_PAD_BLEND = K.num('ROVER_STATION_PAD_BLEND');
-/** 흙길 · 정류장의 맵 중심 최소 거리(m) (순환 선로가 있으면 자동으로 넓힌다). */
+/** Minimum distance (m) of the dirt road and its stations from the map centre (widened automatically when there is a loop rail). */
 export const ROVER_RING_MIN_M = K.num('ROVER_RING_MIN_M');
-/** 흙길 중심선의 |x| · |z| 최대(m). */
+/** Max |x| · |z| (m) of the dirt road's centre line. */
 export const ROVER_ROUTE_BOUND_M = K.num('ROVER_ROUTE_BOUND_M');
-/** 순환 선로 회랑과 흙길 회랑 사이 여유(m). */
+/** Clearance (m) between the loop rail corridor and the dirt road corridor. */
 export const ROVER_RAIL_GAP_M = K.num('ROVER_RAIL_GAP_M');
-/** 강하 지점 부지와의 여유(m). */
+/** Clearance (m) from the drop point's site. */
 export const ROVER_SPAWN_GAP_M = K.num('ROVER_SPAWN_GAP_M');
-/** 정류장 사이 구간의 최대 휨(m). */
+/** Max bend (m) of the leg between two stations. */
 export const ROVER_ROUTE_WIGGLE_M = K.num('ROVER_ROUTE_WIGGLE_M');
-/** 레이아웃 경로 점 간격(m) · 계획 재시도 수 · 최소 회전 반경(m). */
+/** Spacing (m) of the layout route points · planning retries · minimum turning radius (m). */
 export const ROVER_PLAN_STEP_M = K.num('ROVER_PLAN_STEP_M');
 export const ROVER_PLAN_ATTEMPTS = K.num('ROVER_PLAN_ATTEMPTS');
 export const ROVER_MIN_TURN_RADIUS_M = K.num('ROVER_MIN_TURN_RADIUS_M');
-/** 세운 경로 점 간격(m) · 노면 평활화 횟수. */
+/** Spacing (m) of the built route points · road-surface smoothing passes. */
 export const ROVER_ROUTE_STEP_M = K.num('ROVER_ROUTE_STEP_M');
 export const ROVER_ROUTE_SMOOTH_PASSES = K.num('ROVER_ROUTE_SMOOTH_PASSES');
-/** 흙길 그림 반폭 · 띄우기(m). */
+/** Half-width of the drawn dirt road · its lift (m). */
 export const ROVER_ROAD_HALF_WIDTH_M = K.num('ROVER_ROAD_HALF_WIDTH_M');
 export const ROVER_ROAD_LIFT_M = K.num('ROVER_ROAD_LIFT_M');
-/** 표지 기둥의 흙길 중심선 옆 거리 · 높이(m). */
+/** The marker pole's offset from the dirt road's centre line · its height (m). */
 export const ROVER_POLE_OFFSET_M = K.num('ROVER_POLE_OFFSET_M');
 export const ROVER_POLE_HEIGHT_M = K.num('ROVER_POLE_HEIGHT_M');
 /* ── end [R1] ── */
-/* ── [R2] 차량 · 포탑 · 동기화 (owner: world/rover Rover) ── */
-/** 순환 · 결제 이동 최고 속도(m/s) · 가속 · 감속(m/s²). */
+/* ── [R2] the vehicle · the turret · sync (owner: world/rover Rover) ── */
+/** Top speed (m/s) of the patrol loop and of a paid trip · acceleration · braking (m/s²). */
 export const ROVER_PATROL_SPEED = K.num('ROVER_PATROL_SPEED');
 export const ROVER_TRIP_SPEED = K.num('ROVER_TRIP_SPEED');
 export const ROVER_ACCEL = K.num('ROVER_ACCEL');
 export const ROVER_BRAKE = K.num('ROVER_BRAKE');
-/** 제자리 회전 속도(rad/s) · 출발 허용 정렬 각(rad). */
+/** Turn-in-place rate (rad/s) · the alignment angle (rad) that allows departure. */
 export const ROVER_TURN_RATE = K.num('ROVER_TURN_RATE');
 export const ROVER_ALIGN_EPS = K.num('ROVER_ALIGN_EPS');
-/** 좌석 수 · 탑승 상호작용 거리(m) · 호스트의 탑승 요청 거리 검사(m). */
+/** Seats · boarding interaction distance (m) · the host's distance test on a boarding request (m). */
 export const ROVER_SEATS = K.num('ROVER_SEATS');
 export const ROVER_BOARD_RANGE = K.num('ROVER_BOARD_RANGE');
 export const ROVER_BOARD_CHECK_RANGE = K.num('ROVER_BOARD_CHECK_RANGE');
-/** 탑승 궤도 카메라 기본 거리(m). */
+/** Default distance (m) of the riding orbit camera. */
 export const ROVER_CAMERA_DISTANCE = K.num('ROVER_CAMERA_DISTANCE');
-/** 차체 반길이 · 반폭 · 전체 높이 · 콜라이더 높이(m). */
+/** The body's half-length · half-width · full height · collider height (m). */
 export const ROVER_HALF_LENGTH = K.num('ROVER_HALF_LENGTH');
 export const ROVER_HALF_WIDTH = K.num('ROVER_HALF_WIDTH');
 export const ROVER_HEIGHT = K.num('ROVER_HEIGHT');
 export const ROVER_HULL_H = K.num('ROVER_HULL_H');
-/** 포탑: 사거리(m) · 한 발 피해 · 간격(초) · 재조준(초) · 회전(rad/s) · 사격 원추(rad). */
+/** The turret: range (m) · damage per shot · interval (s) · retarget (s) · turn rate (rad/s) · firing cone (rad). */
 export const ROVER_TURRET_RANGE = K.num('ROVER_TURRET_RANGE');
 export const ROVER_TURRET_DAMAGE = K.num('ROVER_TURRET_DAMAGE');
 export const ROVER_TURRET_INTERVAL_S = K.num('ROVER_TURRET_INTERVAL_S');
 export const ROVER_TURRET_RETARGET_S = K.num('ROVER_TURRET_RETARGET_S');
 export const ROVER_TURRET_TURN_RATE = K.num('ROVER_TURRET_TURN_RATE');
 export const ROVER_TURRET_AIM_CONE = K.num('ROVER_TURRET_AIM_CONE');
-/** 부딪힘: 최저 속도(m/s) · 적 피해 · 넉백(m/s) · 대상별 쿨다운(초). */
+/** Ramming: minimum speed (m/s) · damage to enemies · knockback (m/s) · per-target cooldown (s). */
 export const ROVER_HIT_SPEED_MIN = K.num('ROVER_HIT_SPEED_MIN');
 export const ROVER_HIT_DAMAGE = K.num('ROVER_HIT_DAMAGE');
 export const ROVER_HIT_KNOCKBACK = K.num('ROVER_HIT_KNOCKBACK');
 export const ROVER_HIT_COOLDOWN_S = K.num('ROVER_HIT_COOLDOWN_S');
-/** 방송 주기(초) · 클라이언트 스냅 거리(m). */
+/** Broadcast interval (s) · the client's snap distance (m). */
 export const ROVER_NET_INTERVAL = K.num('ROVER_NET_INTERVAL');
 export const ROVER_SNAP_M = K.num('ROVER_SNAP_M');
-/** 하차 자리가 차체 가장자리에서 떨어진 거리(m). */
+/** How far (m) the step-off spot sits from the body's edge. */
 export const ROVER_EXIT_GAP_M = K.num('ROVER_EXIT_GAP_M');
-/** 차량 피격음 최소 간격(초, audio). */
+/** Minimum interval (s) between the vehicle's hit sounds (audio). */
 export const ROVER_CLANG_GAP_S = K.num('ROVER_CLANG_GAP_S');
 /* ── end [R2] ── */
-/* ── [R3] 탑승 모드 · 궤도 카메라 (owner: player) ── */
-/** 궤도 카메라 고도각 범위 · 시작값(도, 초점 기준). */
+/* ── [R3] riding mode · the orbit camera (owner: player) ── */
+/** Elevation range · starting value of the orbit camera (degrees, from the focus point). */
 export const ROVER_CAM_ELEV_MIN_DEG = K.num('ROVER_CAM_ELEV_MIN_DEG');
 export const ROVER_CAM_ELEV_MAX_DEG = K.num('ROVER_CAM_ELEV_MAX_DEG');
 export const ROVER_CAM_ELEV_START_DEG = K.num('ROVER_CAM_ELEV_START_DEG');
-/** 휠 확대 · 축소 범위(기본 거리 배수) · 한 칸 비율 · 충돌 뒤 풀리는 감쇠율. */
+/** Wheel zoom in / out range (as a multiple of the default distance) · the ratio of one notch · the damping rate it eases back at after a collision. */
 export const ROVER_CAM_ZOOM_MIN_MUL = K.num('ROVER_CAM_ZOOM_MIN_MUL');
 export const ROVER_CAM_ZOOM_MAX_MUL = K.num('ROVER_CAM_ZOOM_MAX_MUL');
 export const ROVER_CAM_ZOOM_STEP = K.num('ROVER_CAM_ZOOM_STEP');
 export const ROVER_CAM_ZOOM_RATE = K.num('ROVER_CAM_ZOOM_RATE');
-/** 위치 추종 감쇠율 · 충돌 여유(m) · 최소 거리(m) · 지형 위 최소 높이(m). */
+/** Position follow damping rate · collision padding (m) · minimum distance (m) · minimum height above the terrain (m). */
 export const ROVER_CAM_SMOOTH_RATE = K.num('ROVER_CAM_SMOOTH_RATE');
 export const ROVER_CAM_COLLISION_PAD = K.num('ROVER_CAM_COLLISION_PAD');
 export const ROVER_CAM_MIN_DIST = K.num('ROVER_CAM_MIN_DIST');
 export const ROVER_CAM_FLOOR = K.num('ROVER_CAM_FLOOR');
-/** 탑승 중 세이브 · 강제 해제가 몸을 두는 거리(m, 차량 오른쪽). */
+/** Where a save while riding, or a forced release, puts the body (m, to the right of the vehicle). */
 export const ROVER_SAFE_SIDE_M = K.num('ROVER_SAFE_SIDE_M');
-/** 원격 분대원이 내린 뒤 아바타를 더 숨기는 시간(초). */
+/** Extra seconds a remote squadmate's avatar stays hidden after they step off. */
 export const ROVER_REMOTE_EXIT_HIDE_S = K.num('ROVER_REMOTE_EXIT_HIDE_S');
 /* ── end [R3] ── */
-/* ── [R4] 적이 차량을 노린다 (owner: enemies) ── */
-/** 차량에 맞은 적(과 무리)이 차량을 노리는 시간(초). */
+/* ── [R4] enemies target the vehicle (owner: enemies) ── */
+/** Seconds an enemy hit by the vehicle (and its group) keeps targeting it. */
 export const ROVER_AGGRO_S = K.num('ROVER_AGGRO_S');
-/** 차량에 맞은 적과 함께 차량을 노리게 되는 같은 팩션 무리의 반경(m). */
+/** Radius (m) of the same-faction group that starts targeting the vehicle along with the enemy it hit. */
 export const ROVER_AGGRO_GROUP_RADIUS = K.num('ROVER_AGGRO_GROUP_RADIUS');
-/** 서 있는 차량을 알아채는 거리(m, 차체 가장자리까지 · 사선 필요). */
+/** Distance (m) at which a standing vehicle is noticed (to the body's edge · line of sight required). */
 export const ROVER_NOTICE_STOPPED_M = K.num('ROVER_NOTICE_STOPPED_M');
 /* ── end [R4] ── */
-/* ── end 2026-09-13 탐사 차량 ── */
+/* ── end 2026-09-13 the rover ── */
 
-/* ── 2026-09-13 서재 시리즈 · 비디오게임 · 요리/연구 숙련 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
-/** 서재 시리즈 몫 — 전권이 아니면 꽂힌 서로 다른 권마다 전권 보너스의 이만큼 (`librarySeriesFraction`). */
+/* ── 2026-09-13 library series · video games · the cooking / research skills (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
+/** The library series' share — short of the full set, each distinct volume shelved gives this much of the full-set bonus (`librarySeriesFraction`). */
 export const SHELF_SERIES_VOLUME_SHARE = K.num('SHELF_SERIES_VOLUME_SHARE');
-/** 게임 디스크 전시대 한 대의 칸 수 (`SHELF_SLOTS.game`). */
+/** Slots of one game disc stand (`SHELF_SLOTS.game`). */
 export const GAME_DISC_SLOTS_PER_STAND = K.num('GAME_DISC_SLOTS_PER_STAND');
-/** 요리 숙련 최대치의 조리 단계 점수 가산 (`derived.cookScoreBonus`). */
+/** Score added to a cooking step at max cooking skill (`derived.cookScoreBonus`). */
 export const COOK_SKILL_SCORE_AT_MAX = K.num('COOK_SKILL_SCORE_AT_MAX');
-/** 조리 한 번의 요리 숙련 경험치 (× max(0.25, 점수)). */
+/** Cooking skill XP per cook (× max(0.25, score)). */
 export const COOK_SKILL_XP = K.num('COOK_SKILL_XP');
-/** 연구 숙련 최대치의 분석 시간 감소 비율 (`derived.researchTimeMul` = 1 − 이 값 × 숙련 비율). */
+/** The fraction analysis time is cut by at max research skill (`derived.researchTimeMul` = 1 − this × the skill fraction). */
 export const RESEARCH_TIME_AT_MAX = K.num('RESEARCH_TIME_AT_MAX');
-/** 연구 숙련 최대치의 재료 환급 확률 (`derived.researchRefundChance`). */
+/** Material refund chance at max research skill (`derived.researchRefundChance`). */
 export const RESEARCH_REFUND_CHANCE_AT_MAX = K.num('RESEARCH_REFUND_CHANCE_AT_MAX');
-/** 환급 비율 — 숙련 0 / 최대 (`derived.researchRefundFrac`). */
+/** The refund fraction — at skill 0 / at max (`derived.researchRefundFrac`). */
 export const RESEARCH_REFUND_FRAC_MIN = K.num('RESEARCH_REFUND_FRAC_MIN');
 export const RESEARCH_REFUND_FRAC_MAX = K.num('RESEARCH_REFUND_FRAC_MAX');
-/** 연구 숙련 경험치 — 분석 회수 한 칸 / 연구실 작업대 제작 1개. */
+/** Research skill XP — per analyzer slot collected / per item crafted at a lab bench. */
 export const RESEARCH_XP_ANALYSIS = K.num('RESEARCH_XP_ANALYSIS');
 export const RESEARCH_XP_CRAFT = K.num('RESEARCH_XP_CRAFT');
-/* ── end 2026-09-13 서재 시리즈 ── */
+/* ── end 2026-09-13 library series ── */
 
-/* ── 2026-09-14 튜토리얼 개편 · 낙하 피해 (docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」) ── */
-/** 낙하 피해가 시작되는 높이 (m) — 이것까지는 공짜다. */
+/* ── 2026-09-14 the tutorial rework · fall damage (docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」) ── */
+/** The height (m) at which fall damage starts — up to this it is free. */
 export const FALL_DAMAGE_SAFE_M = K.num('FALL_DAMAGE_SAFE_M');
-/** 안전 높이를 넘은 1 m 당 피해 (실드 → 체력 순). */
+/** Damage per metre past the safe height (shield first, then hp). */
 export const FALL_DAMAGE_PER_M = K.num('FALL_DAMAGE_PER_M');
-/** 한 번의 낙하가 줄 수 있는 피해 상한. */
+/** Cap on the damage one fall may deal. */
 export const FALL_DAMAGE_MAX = K.num('FALL_DAMAGE_MAX');
-/** 튜토리얼 전용 적의 감지 반경 · 이탈 거리 (m). */
+/** Sense radius · leash distance (m) of the tutorial-only enemies. */
 export const TUTORIAL_ENEMY_SENSE_M = K.num('TUTORIAL_ENEMY_SENSE_M');
 export const TUTORIAL_ENEMY_LEASH_M = K.num('TUTORIAL_ENEMY_LEASH_M');
-/** 튜토리얼 사망 → 체크포인트 부활까지 (초). */
+/** Seconds from a tutorial death to the checkpoint respawn. */
 export const TUTORIAL_RESPAWN_DELAY_S = K.num('TUTORIAL_RESPAWN_DELAY_S');
-/** 오프닝 기상 연출 길이 (초) — `PlayerRef.playIntroWake` 에 넘길 값. */
+/** Length (s) of the opening wake-up cinematic — the value passed to `PlayerRef.playIntroWake`. */
 export const TUTORIAL_INTRO_WAKE_S = K.num('TUTORIAL_INTRO_WAKE_S');
-/** appended (2026-09-14): 기상 연출이 끝난 뒤 나침반이 나타나는 시간 (초) — `ui/hud/Compass` 가 코드로 opacity 를 올린다. */
+/** appended (2026-09-14): seconds the compass takes to appear once the wake-up cinematic ends — `ui/hud/Compass` raises the opacity in code. */
 export const TUTORIAL_COMPASS_FADE_S = K.num('TUTORIAL_COMPASS_FADE_S');
-/** appended (2026-09-16): 기상 연출이 끝난 뒤 크로스헤어가 나타나는 시간 (초) — `ui/hud/Reticle` 이 코드로 opacity 를 올린다. */
+/** appended (2026-09-16): seconds the crosshair takes to appear once the wake-up cinematic ends — `ui/hud/Reticle` raises the opacity in code. */
 export const TUTORIAL_RETICLE_FADE_S = K.num('TUTORIAL_RETICLE_FADE_S');
-/** 튜토리얼 레이드 완주 보상 XP (레벨 2 에 닿는다). */
+/** XP awarded for finishing the tutorial raid (enough to reach level 2). */
 export const TUTORIAL_RAID_XP = K.num('TUTORIAL_RAID_XP');
 /**
- * 자세별 몸 높이 (발 위 클리어런스, m) — `WorldRef.resolveCollision(pos, r, height?)` 에 넘길 값.
- * 서 있을 때는 넘기지 않는다 (= `BOX_HEADROOM`), 그래서 본편 동선은 한 곳도 안 바뀐다.
+ * Body height per stance (clearance above the feet, m) — the value passed to
+ * `WorldRef.resolveCollision(pos, r, height?)`. Nothing is passed while standing (= `BOX_HEADROOM`), so not one
+ * route in the main game changes.
  */
 export const PLAYER_CROUCH_CLEARANCE_M = K.num('PLAYER_CROUCH_CLEARANCE_M');
 export const PLAYER_PRONE_CLEARANCE_M = K.num('PLAYER_PRONE_CLEARANCE_M');
 /**
- * **은퇴** (2026-09-14 2차, 사용자 결정 — 「처음에 딸피가 아닌 풀피로 시작, 부활할 때에도 풀피」).
- * 읽는 곳이 없다. 이름은 계약이라 남긴다 (`airstrike` · `secondary` 와 같은 처리 — `src/shared` 는 추가만).
- * 튜토리얼의 긴장은 이제 **낙하 피해**가 만들고, 깎인 체력은 `heal` 단계의 붕대가 되돌린다.
+ * **Retired** (2026-09-14 2nd pass, user's decision — 「the player starts at full hp, not a sliver, and respawns at
+ * full hp too」). Nothing reads it. The name stays because it is a contract (the same treatment as `airstrike` ·
+ * `secondary` — `src/shared` is add-only). The tutorial's tension now comes from **fall damage**, and the bandage of
+ * the `heal` step puts the lost hp back.
  */
 export const TUTORIAL_START_HP = K.num('TUTORIAL_START_HP');
-/* ── end 2026-09-14 튜토리얼 ── */
+/* ── end 2026-09-14 the tutorial ── */
 
-/* ── 2026-09-15 낙하 피드백 · 화염 지대 · 병사 림 (docs/TODO.md B-14 · B-16 · D-7) ── */
-/** 낙하 피해 → `camera:shake` (owner: player `parts/Fall`). intensity = min(MAX, damage × PER_DAMAGE). */
+/* ── 2026-09-15 fall feedback · fire zones · the soldier rim light (docs/TODO.md B-14 · B-16 · D-7) ── */
+/** Fall damage → `camera:shake` (owner: player `parts/Fall`). intensity = min(MAX, damage × PER_DAMAGE). */
 export const FALL_SHAKE_PER_DAMAGE = K.num('FALL_SHAKE_PER_DAMAGE');
 export const FALL_SHAKE_MAX = K.num('FALL_SHAKE_MAX');
 export const FALL_SHAKE_S = K.num('FALL_SHAKE_S');
-/** 낙하 붉은 비네트 (owner: ui). 세기 = min(1, damage / FULL_DAMAGE), `FALL_VIGNETTE_S` 동안 사라진다. */
+/** The red fall vignette (owner: ui). Strength = min(1, damage / FULL_DAMAGE); it fades out over `FALL_VIGNETTE_S`. */
 export const FALL_VIGNETTE_S = K.num('FALL_VIGNETTE_S');
 export const FALL_VIGNETTE_FULL_DAMAGE = K.num('FALL_VIGNETTE_FULL_DAMAGE');
-/** 분대원 낙하 착지음 사거리 (m) — player 가 `FallMessage` 를 거르고 audio 가 감쇠에 쓴다. */
+/** Range (m) of a squadmate's landing sound — player filters `FallMessage` by it and audio uses it for the falloff. */
 export const FALL_REMOTE_SOUND_RANGE = K.num('FALL_REMOTE_SOUND_RANGE');
-/** G-10 소이 수류탄 화염 지대 (gadgets `GadgetId 'grenadeFire'`). */
+/** Fire zone of the G-10 incendiary grenade (gadgets `GadgetId 'grenadeFire'`). */
 export const GRENADE_INCENDIARY_RADIUS = K.num('GRENADE_INCENDIARY_RADIUS');
 export const GRENADE_INCENDIARY_DURATION = K.num('GRENADE_INCENDIARY_DURATION');
-/** G-10 소이 수류탄 폭발 (weapons `Grenade`) — 고폭 `GRENADE_DAMAGE` / `GRENADE_RADIUS` 대신 쓰는 작은 폭발. */
+/** Blast of the G-10 incendiary grenade (weapons `Grenade`) — the small blast used instead of the high-explosive `GRENADE_DAMAGE` / `GRENADE_RADIUS`. */
 export const GRENADE_INCENDIARY_BLAST_DAMAGE = K.num('GRENADE_INCENDIARY_BLAST_DAMAGE');
 export const GRENADE_INCENDIARY_BLAST_RADIUS = K.num('GRENADE_INCENDIARY_BLAST_RADIUS');
-/** 화염 지대 공용 — 지지직 소리 간격 · 드론이 타는 높이 · HUD 표시 거리 (enemies · gadgets · ui). */
+/** Shared by every fire zone — crackle interval · the height at which a drone burns · the HUD display range (enemies · gadgets · ui). */
 export const FIRE_ZONE_CRACKLE_S = K.num('FIRE_ZONE_CRACKLE_S');
 export const FIRE_ZONE_DRONE_HEIGHT = K.num('FIRE_ZONE_DRONE_HEIGHT');
 export const FIRE_ZONE_DANGER_RANGE = K.num('FIRE_ZONE_DANGER_RANGE');
-/** 병사 림 (owner: player `SoldierModel`). */
+/** The soldier rim light (owner: player `SoldierModel`). */
 export const SOLDIER_RIM_STRENGTH = K.num('SOLDIER_RIM_STRENGTH');
 export const SOLDIER_RIM_POWER = K.num('SOLDIER_RIM_POWER');
 /* ── end 2026-09-15 ── */
-/* ── appended (2026-09-15): 튜토리얼 부활 연출 · 벌레 연쇄 스폰 · 어그로 해제 · 이륙 사격 ── */
-/** 튜토리얼 부활 — 쓰러진 자세에서 일어서는 시간 (owner: player `parts/IntroWake`; caller: game `parts/Death.tutorialRespawn`). */
+/* ── appended (2026-09-15): the tutorial respawn cinematic · chained bug spawns · dropping aggro · firing at the liftoff ── */
+/** Tutorial respawn — seconds of getting up from the fallen pose (owner: player `parts/IntroWake`; caller: game `parts/Death.tutorialRespawn`). */
 export const TUTORIAL_RESPAWN_WAKE_S = K.num('TUTORIAL_RESPAWN_WAKE_S');
-/** 튜토리얼 벌레 매복 — 첫 벌레 뒤 다음 벌레까지 (owner: enemies `Tutorial.ts`). */
+/** The tutorial's bug ambush — seconds from the first bug to the next (owner: enemies `Tutorial.ts`). */
 export const TUTORIAL_BUG_CHAIN_SPAWN_S = K.num('TUTORIAL_BUG_CHAIN_SPAWN_S');
-/** 튜토리얼 이륙 사격 창 · 거리 (owner: enemies `Tutorial.ts`). */
+/** The tutorial's liftoff firing window · its range (owner: enemies `Tutorial.ts`). */
 export const TUTORIAL_LIFTOFF_FIRE_S = K.num('TUTORIAL_LIFTOFF_FIRE_S');
 export const TUTORIAL_LIFTOFF_FIRE_RANGE_M = K.num('TUTORIAL_LIFTOFF_FIRE_RANGE_M');
-/** 절벽 낙하 어그로 해제 높이 (owner: enemies `Tutorial.ts`). */
+/** The drop height at which a cliff fall clears aggro (owner: enemies `Tutorial.ts`). */
 export const TUTORIAL_AGGRO_DROP_M = K.num('TUTORIAL_AGGRO_DROP_M');
-/** 2026-09-16: 튜토리얼 적이 낭떠러지 가장자리에서 떨어져 서는 거리 (owner: enemies `Tutorial.ts` `tutorialEdgeGuard`). */
+/** 2026-09-16: how far back from a cliff edge a tutorial enemy stands (owner: enemies `Tutorial.ts` `tutorialEdgeGuard`). */
 export const TUTORIAL_ENEMY_EDGE_MARGIN_M = K.num('TUTORIAL_ENEMY_EDGE_MARGIN_M');
-/* ── end 2026-09-15 튜토리얼 부활 · 어그로 ── */
+/* ── end 2026-09-15 the tutorial respawn · aggro ── */
 
-/* ── 2026-09-15 안드로이드 분대원 · 레이드 진입 로딩 (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」; 계약 `shared/allies.ts`) ── */
+/* ── 2026-09-15 android squadmates · raid entry loading (docs/DECISIONS.md 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」; the contract is `shared/allies.ts`) ── */
 import type { AllyStateId } from './allies';
-/** 체력 배수 · 쓰러짐 출혈 풀 · 일으켜진 체력 (owner: allies). */
+/** Hp multiplier · the downed bleed pool · hp after being revived (owner: allies). */
 export const ALLY_HP_MUL = K.num('ALLY_HP_MUL');
 export const ALLY_DOWN_HP = K.num('ALLY_DOWN_HP');
 export const ALLY_REVIVE_HP = K.num('ALLY_REVIVE_HP');
-/** 이동 (m/s, rad/s). */
+/** Movement (m/s, rad/s). */
 export const ALLY_WALK_SPEED = K.num('ALLY_WALK_SPEED');
 export const ALLY_RUN_SPEED = K.num('ALLY_RUN_SPEED');
 export const ALLY_CARRY_SPEED = K.num('ALLY_CARRY_SPEED');
 export const ALLY_TURN_RATE = K.num('ALLY_TURN_RATE');
-/** 하네스 — 반경 · 한 방향 이동 시 줄어드는 하한 · 일관성 시간상수 · 움직임 판정 속도 · 가까이 붙지 않는 거리. */
+/** The harness — radius · the floor it shrinks to while the leader moves one way · the commitment time constant · the speed that counts as moving · the distance below which they stop closing in. */
 export const ALLY_HARNESS_RADIUS_M = K.num('ALLY_HARNESS_RADIUS_M');
 export const ALLY_HARNESS_MIN_FRAC = K.num('ALLY_HARNESS_MIN_FRAC');
 export const ALLY_HARNESS_COMMIT_TAU_S = K.num('ALLY_HARNESS_COMMIT_TAU_S');
 export const ALLY_HARNESS_COMMIT_SPEED = K.num('ALLY_HARNESS_COMMIT_SPEED');
 export const ALLY_FOLLOW_NEAR_M = K.num('ALLY_FOLLOW_NEAR_M');
-/** 반응 지연 — 무게 0 / 1 의 초 · 무작위 몫. 상태별 무게는 `ALLY_STATE_WEIGHT`. */
+/** Reaction delay — seconds at weight 0 / 1 · the random share. The per-state weight is `ALLY_STATE_WEIGHT`. */
 export const ALLY_REACT_MIN_S = K.num('ALLY_REACT_MIN_S');
 export const ALLY_REACT_MAX_S = K.num('ALLY_REACT_MAX_S');
 export const ALLY_REACT_JITTER = K.num('ALLY_REACT_JITTER');
-/** 상태별 행동 무게 0..1 (`data/tables.csv` `ALLY_STATE_WEIGHT`) — 빠진 상태는 0. */
+/** Behaviour weight per state, 0..1 (`data/tables.csv` `ALLY_STATE_WEIGHT`) — a missing state is 0. */
 export const ALLY_STATE_WEIGHT: Readonly<Partial<Record<AllyStateId, number>>> = numberMap<AllyStateId>('tables.csv', 'ALLY_STATE_WEIGHT');
-/** 요청 선착순 쿨다운 · 탈출 확인 창 (s). */
+/** First-come cooldown on requests · the extraction confirmation window (s). */
 export const ALLY_REQUEST_COOLDOWN_S = K.num('ALLY_REQUEST_COOLDOWN_S');
 export const ALLY_EXTRACT_CONFIRM_S = K.num('ALLY_EXTRACT_CONFIRM_S');
-/** 전투 — 감지 · 사거리(m) · 조준 오차(°) · 피해 배수 · 연사 발 수 · 쉬는 시간 · 적 핑 간격. */
+/** Combat — sense radius · range (m) · aim error (°) · damage multiplier · rounds per burst · the pause between bursts · the enemy ping interval. */
 export const ALLY_SENSE_RADIUS_M = K.num('ALLY_SENSE_RADIUS_M');
 export const ALLY_FIRE_RANGE_M = K.num('ALLY_FIRE_RANGE_M');
 export const ALLY_AIM_ERROR_DEG = K.num('ALLY_AIM_ERROR_DEG');
@@ -2160,7 +2179,7 @@ export const ALLY_BURST_MIN = K.num('ALLY_BURST_MIN');
 export const ALLY_BURST_MAX = K.num('ALLY_BURST_MAX');
 export const ALLY_BURST_PAUSE_S = K.num('ALLY_BURST_PAUSE_S');
 export const ALLY_ENEMY_PING_COOLDOWN_S = K.num('ALLY_ENEMY_PING_COOLDOWN_S');
-/** 루팅 · 건네기 — 칸당 초 · 손 닿는 거리 · 요청자 곁 거리 · 바라봄 내적 · 멈춤 속도 · 최대 대기 · 같은 말 간격. */
+/** Looting · handing over — seconds per cell · reach · the distance to stand beside the requester · the look dot product · the speed that counts as still · the max wait · the interval before repeating a line. */
 export const ALLY_LOOT_ITEM_S = K.num('ALLY_LOOT_ITEM_S');
 export const ALLY_LOOT_REACH_M = K.num('ALLY_LOOT_REACH_M');
 export const ALLY_DELIVER_RANGE_M = K.num('ALLY_DELIVER_RANGE_M');
@@ -2168,96 +2187,96 @@ export const ALLY_DELIVER_LOOK_DOT = K.num('ALLY_DELIVER_LOOK_DOT');
 export const ALLY_DELIVER_STILL_SPEED = K.num('ALLY_DELIVER_STILL_SPEED');
 export const ALLY_DELIVER_WAIT_MAX_S = K.num('ALLY_DELIVER_WAIT_MAX_S');
 export const ALLY_CHAT_REPEAT_S = K.num('ALLY_CHAT_REPEAT_S');
-/** 명령 — 도착 거리 · 가자 핑 머무름 · 주의 시간 · 앞장 거리. */
+/** Orders — the arrival distance · how long a `가자` ping is held · the `주의` duration · the `앞장` lead distance. */
 export const ALLY_MOVE_ARRIVE_M = K.num('ALLY_MOVE_ARRIVE_M');
 export const ALLY_MOVE_HOLD_S = K.num('ALLY_MOVE_HOLD_S');
 export const ALLY_WATCH_S = K.num('ALLY_WATCH_S');
 export const ALLY_LEAD_AHEAD_M = K.num('ALLY_LEAD_AHEAD_M');
-/** 구조 — 안전 판정 반경 · 재해 탈출 여유 (m). */
+/** Rescue — the radius judged safe · the margin for escaping a hazard (m). */
 export const ALLY_RESCUE_SAFE_RADIUS_M = K.num('ALLY_RESCUE_SAFE_RADIUS_M');
 export const ALLY_HAZARD_SAFE_MARGIN_M = K.num('ALLY_HAZARD_SAFE_MARGIN_M');
-/** 동기화 주기 (s) · 조종실 슬롯 홀드 (s, owner: hub) · 함선 치트 추종 거리 (m). */
+/** Sync interval (s) · the cockpit bay slot hold (s, owner: hub) · the follow distance of the ship cheat (m). */
 export const ALLY_NET_INTERVAL_S = K.num('ALLY_NET_INTERVAL_S');
 export const ALLY_BAY_HOLD_S = K.num('ALLY_BAY_HOLD_S');
 export const ALLY_HUB_FOLLOW_M = K.num('ALLY_HUB_FOLLOW_M');
-/** 자유 탐색 (2026-09-16 사용자 결정) — 관심 지점 반경 · 선점 거리 · 최소 이동 · 둘러보는 시간. */
+/** Roaming (2026-09-16, user's decision) — the point-of-interest radius · the distance that counts as taken · the minimum step · how long they look around. */
 export const ALLY_ROAM_POI_RADIUS_M = K.num('ALLY_ROAM_POI_RADIUS_M');
 export const ALLY_ROAM_POI_TAKEN_M = K.num('ALLY_ROAM_POI_TAKEN_M');
 export const ALLY_ROAM_MIN_STEP_M = K.num('ALLY_ROAM_MIN_STEP_M');
 export const ALLY_ROAM_PAUSE_MIN_S = K.num('ALLY_ROAM_PAUSE_MIN_S');
 export const ALLY_ROAM_PAUSE_MAX_S = K.num('ALLY_ROAM_PAUSE_MAX_S');
-/** 겹치지 않기 · 산개 (2026-09-16 사용자 결정). */
+/** Keeping apart · spreading out (2026-09-16, user's decision). */
 export const ALLY_SEPARATION_M = K.num('ALLY_SEPARATION_M');
 export const ALLY_SPREAD_M = K.num('ALLY_SPREAD_M');
-/** 「앞장서라」 — 하네스 배수 · 자동 해제 시간 (s). */
+/** 「앞장서라」 — the harness multiplier · the auto-release time (s). */
 export const ALLY_LEAD_HARNESS_MUL = K.num('ALLY_LEAD_HARNESS_MUL');
 export const ALLY_LEAD_DURATION_S = K.num('ALLY_LEAD_DURATION_S');
-/** 무기별 교전 거리 — 피해가 이 비율까지 떨어지는 거리 · 그 하한 (m). */
+/** Engage range per weapon — the distance at which damage has fallen to this fraction, and its floor (m). */
 export const ALLY_ENGAGE_DAMAGE_FRAC = K.num('ALLY_ENGAGE_DAMAGE_FRAC');
 export const ALLY_ENGAGE_MIN_M = K.num('ALLY_ENGAGE_MIN_M');
-/** 한가할 때만 줍는 상자의 반경 (m) — 핑으로 찍힌 상자는 제한이 없다. */
+/** Radius (m) of the crates picked up only while idle — a crate marked with a ping has no limit. */
 export const ALLY_IDLE_LOOT_M = K.num('ALLY_IDLE_LOOT_M');
-/** 레이드 진입 로딩 (owner: hub 암전 시작 · game `parts/LoadGate` · ui 원형 게이지). */
+/** Raid entry loading (owner: hub starts the fade to black · game `parts/LoadGate` · the ui ring gauge). */
 export const RAID_LOAD_FADE_OUT_S = K.num('RAID_LOAD_FADE_OUT_S');
 export const RAID_LOAD_FADE_IN_S = K.num('RAID_LOAD_FADE_IN_S');
 export const RAID_LOAD_TIMEOUT_S = K.num('RAID_LOAD_TIMEOUT_S');
 export const RAID_LOAD_REPORT_S = K.num('RAID_LOAD_REPORT_S');
 export const RAID_LOAD_WORLD_SHARE = K.num('RAID_LOAD_WORLD_SHARE');
 export const RAID_LOAD_MIN_BLACK_S = K.num('RAID_LOAD_MIN_BLACK_S');
-/** 대기 상한 위의 여유 (s) — 엔진 hold 상한 · 호스트의 `go` 가 오지 않은 클라이언트의 자가 해제 시점. */
+/** Slack (s) on top of the wait cap — the engine's hold cap, and when a client whose host `go` never arrived releases itself. */
 export const RAID_LOAD_HOLD_MARGIN_S = K.num('RAID_LOAD_HOLD_MARGIN_S');
-/** 암전이 끝난 뒤 권위의 발사를 기다리는 여유 (s, owner: hub) — 넘기면 암전을 풀고 함선으로 돌아온다. */
+/** Slack (s) spent waiting for the authority's launch after the fade to black finished (owner: hub) — past it the black screen is lifted and the ship comes back. */
 export const RAID_LOAD_START_GRACE_S = K.num('RAID_LOAD_START_GRACE_S');
-/* ── end 2026-09-15 안드로이드 분대원 · 레이드 진입 로딩 ── */
+/* ── end 2026-09-15 android squadmates · raid entry loading ── */
 
-/* ══ appended (2026-09-15): 땅굴벌레 등장 판정 개편 — 누적 확률제 · 진동 장치 소환 · 위협 1 어린 개체 (owner: enemies/sandworm · world/BurrowGround)
- * docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」. `SANDWORM_WINDOW_*` · `SANDWORM_CHANCE_BY_THREAT` 는 은퇴 (export 만 남는다).
- * 검사 한 번의 확률표는 `src/enemies/sandworm/Director.ts` 머리 주석.
+/* ══ appended (2026-09-15): the sandworm appearance rule reworked — accumulated probability · summoning by thumper · a young one at threat 1 (owner: enemies/sandworm · world/BurrowGround)
+ * docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」. `SANDWORM_WINDOW_*` · `SANDWORM_CHANCE_BY_THREAT` are retired (only the exports stay).
+ * The probability table of one check is in the head comment of `src/enemies/sandworm/Director.ts`.
  */
-/** 검사 한 번의 위협 배수 — index 0 = 행성 threat 1 (`data/tables.csv`). threat 1 > 0 (어린 개체가 나온다). */
+/** Threat multiplier of one check — index 0 = planet threat 1 (`data/tables.csv`). threat 1 > 0 (a young one comes out). */
 export const SANDWORM_BASE_CHANCE_BY_THREAT = numberList('tables.csv', 'SANDWORM_BASE_CHANCE_BY_THREAT');
-/** 자연 등장에 필요한 자격 인원 최소 수 (조금 무거움 이상 + 달리기, 서로 `SANDWORM_GROUP_RADIUS` 안). */
+/** Minimum qualifying people needed for a natural appearance (`조금 무거움` or heavier + running, all within `SANDWORM_GROUP_RADIUS` of each other). */
 export const SANDWORM_MIN_MEMBERS = K.num('SANDWORM_MIN_MEMBERS');
-/** 자격 인원 한 명의 가중치 — light · heavy/over. */
+/** Weight of one qualifying person — light · heavy/over. */
 export const SANDWORM_P_PER_LIGHT = K.num('SANDWORM_P_PER_LIGHT');
 export const SANDWORM_P_PER_HEAVY = K.num('SANDWORM_P_PER_HEAVY');
-/** 거리 계수: 평균 거리 ≤ NEAR 면 1, GROUP_RADIUS 에서 FAR_MUL (선형). */
+/** Distance factor: 1 at an average distance ≤ NEAR, FAR_MUL at GROUP_RADIUS (linear). */
 export const SANDWORM_P_NEAR_M = K.num('SANDWORM_P_NEAR_M');
 export const SANDWORM_P_FAR_MUL = K.num('SANDWORM_P_FAR_MUL');
-/** 유인 수류탄: 확률 가산 · 인정 거리(m) · 분출 자리로 고를 확률. */
+/** The lure grenade: the probability it adds · the distance it counts within (m) · the chance it is picked as the eruption spot. */
 export const SANDWORM_P_LURE = K.num('SANDWORM_P_LURE');
 export const SANDWORM_LURE_RANGE_M = K.num('SANDWORM_LURE_RANGE_M');
 export const SANDWORM_LURE_SPOT_CHANCE = K.num('SANDWORM_LURE_SPOT_CHANCE');
-/** 어린 땅굴벌레(`sandworm_weak`): 고정 최대 체력 · 몸 · 분출 반경 배수. */
+/** The young sandworm (`sandworm_weak`): its fixed max hp · body scale · eruption radius multiplier. */
 export const SANDWORM_WEAK_HP = K.num('SANDWORM_WEAK_HP');
 export const SANDWORM_WEAK_SCALE = K.num('SANDWORM_WEAK_SCALE');
-/** `WorldRef.burrowGroundOk`: 디렉터가 요구하는 맨땅 반지름(m) · 고리 표본 수 · 높이차 상한(m) · 경사 상한 · 둥지 여유(m). */
+/** `WorldRef.burrowGroundOk`: the bare-ground radius the director demands (m) · ring samples · the height-difference cap (m) · the slope cap · the clearance from a nest (m). */
 export const BURROW_GROUND_CHECK_R = K.num('BURROW_GROUND_CHECK_R');
 export const BURROW_GROUND_RING_SAMPLES = K.num('BURROW_GROUND_RING_SAMPLES');
 export const BURROW_GROUND_MAX_RISE_M = K.num('BURROW_GROUND_MAX_RISE_M');
 export const BURROW_GROUND_MAX_SLOPE = K.num('BURROW_GROUND_MAX_SLOPE');
 export const BURROW_GROUND_NEST_CLEAR_M = K.num('BURROW_GROUND_NEST_CLEAR_M');
-/* ── end 2026-09-15 땅굴벌레 등장 판정 개편 ── */
+/* ── end 2026-09-15 the sandworm appearance rule rework ── */
 
-/* ── [2026-09-15] 진동 장치 (owner: gadgets — docs/DECISIONS.md 「2026-09-15 — 땅굴벌레 · 진동 장치」) ── */
-/** 바닥을 내리치는 간격 (s) · 땅굴벌레를 부르는 타격 순번 · 설치 가능 판정 반경 (m, `WorldRef.burrowGroundOk`) · 내구도 · 흔들림 반경 (m) · 흔들림 세기. */
+/* ── [2026-09-15] the thumper (owner: gadgets — docs/DECISIONS.md 「2026-09-15 — 땅굴벌레 · 진동 장치」) ── */
+/** Interval between strikes on the ground (s) · which strike calls the sandworm · the radius the placement test uses (m, `WorldRef.burrowGroundOk`) · durability · shake radius (m) · shake intensity. */
 export const THUMPER_INTERVAL_S = K.num('THUMPER_INTERVAL_S');
 export const THUMPER_STRIKES = K.num('THUMPER_STRIKES');
 export const THUMPER_GROUND_R = K.num('THUMPER_GROUND_R');
 export const THUMPER_HP = K.num('THUMPER_HP');
 export const THUMPER_SHAKE_RADIUS = K.num('THUMPER_SHAKE_RADIUS');
 export const THUMPER_SHAKE = K.num('THUMPER_SHAKE');
-/* ── end 2026-09-15 진동 장치 ── */
+/* ── end 2026-09-15 the thumper ── */
 
-/* ── 2026-09-16 튜토리얼 포복 구간 조작 가이드 (owner: tutorial `TutorialSystem.pollCrawlHint`) ── */
-/** 무너진 통로를 이 비율만큼 지나면 조작 가이드에 발사 · 정조준 줄이 붙는다 (0 입구 · 1 출구). */
+/* ── 2026-09-16 the control guide of the tutorial's crawl section (owner: tutorial `TutorialSystem.pollCrawlHint`) ── */
+/** Past this fraction of the collapsed passage the fire · aim rows are added to the control guide (0 = the entrance · 1 = the exit). */
 export const TUTORIAL_CRAWL_AIM_HINT_FRAC = K.num('TUTORIAL_CRAWL_AIM_HINT_FRAC');
-/* ── 2026-09-17 증축 안내 마지막 레이드 (owner: tutorial `TutorialSystem.onBuildRaidEnd`) ── */
-/** 레이드에서 얻은 아이템의 판매가 합이 이만큼 이상인 채로 탈출하면 증축 안내의 마지막 목표가 달성된다 (크레딧). */
+/* ── 2026-09-17 the last raid of `증축 안내` (owner: tutorial `TutorialSystem.onBuildRaidEnd`) ── */
+/** Extracting while the sale value of the items found in that raid is at least this much completes the last objective of `증축 안내` (credits). */
 export const TUTORIAL_RAID_EXTRACT_VALUE_C = K.num('TUTORIAL_RAID_EXTRACT_VALUE_C');
 
-/* ── 2026-09-16 메신저 버튼 빨간 점 튀어오르기 (owner: ui — `hud/Community`) ── */
-/** 새 NPC 메시지 → 메신저 버튼 빨간 점이 튀어올랐다 내려앉는 시간 (초). 토스트 대신이다. */
+/* ── 2026-09-16 the messenger button's red dot pop (owner: ui — `hud/Community`) ── */
+/** Seconds the messenger button's red dot takes to pop up and settle back on a new NPC message. It stands in for a toast. */
 export const MESSENGER_DOT_POP_S = K.num('MESSENGER_DOT_POP_S');
-/** 그 첫 봉우리 높이 (px). */
+/** Height (px) of that first peak. */
 export const MESSENGER_DOT_POP_PX = K.num('MESSENGER_DOT_POP_PX');

@@ -28,9 +28,9 @@ const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
 const uiRoot = document.getElementById('ui-root') as HTMLElement;
 
 /*
- * 캐릭터 세이브 슬롯 (2026-09-09) — **모든 것보다 먼저**. 슬롯이 없던 시절의 `scav.*` 세이브를 슬롯 1 로
- * 옮기고 활성 슬롯을 확정한다. 시스템은 저장소를 생성자에서 한 번 읽으므로, 이 줄 뒤에 오는 `slotKey`
- * 호출은 전부 같은 슬롯을 가리켜야 한다 (`shared/saveSlot`).
+ * Character save slots (2026-09-09) — **before everything else**. It moves the `scav.*` saves of the days without slots
+ * into slot 1 and settles the active slot. Systems read storage once in their constructor, so every `slotKey` call
+ * after this line must point at the same slot (`shared/saveSlot`).
  */
 ensureMigrated();
 
@@ -40,7 +40,7 @@ loadKeybinds();
 const engine = new Engine(canvas, uiRoot);
 
 /*
- * 2026-09-07 (커서 rework): the **single** place the pointer lock is re-acquired.
+ * 2026-09-07 (cursor rework): the **single** place the pointer lock is re-acquired.
  *
  * A UI surface that wants the mouse calls `input.setCursorMode(true, token)`, which releases the lock; when the last
  * owner leaves, the camera should have the mouse back immediately. Doing that here (instead of in each of the ~14
@@ -64,14 +64,14 @@ engine.ctx.input.cursor.onModeChange((active, owner) => {
 /*
  * 2026-09-08: the browser eats the Escape that leaves the pointer lock, so the *unlock* is the only evidence the key
  * was pressed. `Input` reports one it did not cause; `game/GameFlowSystem` listens on the bus and puts the
- * 일시정지 메뉴 up, exactly as it does for a focus loss. That path is unchanged by the 2026-09-09 ESC 닫기 rule:
+ * pause menu up, exactly as it does for a focus loss. That path is unchanged by the 2026-09-09 ESC-close rule:
  * a locked pointer means no screen owns the cursor, so there is nothing for Escape to close.
  */
 engine.ctx.input.onUserUnlock(() => engine.ctx.bus.emit('input:pointerLockLost', {}));
 
 /*
- * 화면 설정 (2026-09-08). `ui/menus/SettingsMenu` owns the panel and the localStorage file; this is the only place
- * that holds the `Engine`, so it is where the choices are applied. 전체화면 is applied by the panel itself (a
+ * `화면 설정` (2026-09-08). `ui/menus/SettingsMenu` owns the panel and the localStorage file; this is the only
+ * place that holds the `Engine`, so it is where the choices are applied. `전체화면` is applied by the panel itself (a
  * fullscreen request needs the click's user activation) and only reported here.
  */
 engine.ctx.bus.on('ui:displayChanged', ({ bloom, shadows, scale }) => {
@@ -100,19 +100,19 @@ engine.addSystem(new InventorySystem());
 // Phase 5: corporations / credits / contracts / quests — after inventory so buy / sell / deliveries can use the bag + stash.
 engine.addSystem(new MetaSystem());
 engine.addSystem(new GadgetSystem());     // deployables; after inventory so `use` can consume items
-// 2026-09-11: 지상 · 공중 드론 — gadgets.use 가 deploy 를 넘기므로 가젯 바로 뒤 (조종 입력 · 드론 카메라 · 소유자 권한 동기화).
+// 2026-09-11: ground · air drones — gadgets.use hands `deploy` over, so right after gadgets (control input · drone camera · owner-authoritative sync).
 engine.addSystem(new DroneSystem());
 engine.addSystem(new PickupSystem());     // world pickups (dropped items), after inventory
 engine.addSystem(new StratagemSystem());  // ship calls (Phase 3): after weapons/enemies/inventory, before extraction
 engine.addSystem(new ExtractionSystem());
-// 2026-09-15: 안드로이드 분대원 — 적 · 인벤토리 · 줍기 · 탈출이 이번 프레임 상태를 낸 뒤에 판단하고, HUD 가 그 결과를 그린다.
+// 2026-09-15: android squadmates — they judge after enemies · inventory · pickups · extraction have produced this frame's state, and the HUD draws the result.
 engine.addSystem(new AllySystem());
 engine.addSystem(new HudSystem());
 engine.addSystem(new AudioSystem());
 engine.addSystem(new GameFlowSystem());
 // Developer console last: it reads every other ref and must see the frame's final state (dev clients only).
-// 튜토리얼은 자기가 지켜보는 시스템들 **뒤에** 등록한다 — init 에서 `ctx.console` 에 명령을 붙이므로
-// 콘솔보다는 앞이다 (콘솔은 dev 호스트에서만 존재하고, 없으면 명령 등록만 조용히 건너뛴다).
+// The tutorial is registered **after** the systems it watches — and before the console, because it attaches its
+// commands to `ctx.console` in init (the console exists on dev hosts only; without it the registration is silently skipped).
 engine.addSystem(new TutorialSystem());
 engine.addSystem(new ConsoleSystem());
 

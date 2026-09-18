@@ -21,7 +21,7 @@ export interface KeyActionDef {
   label: string;
   group: KeyGroup;
   scope: KeyScope;
-  /** Only mouse buttons may be bound (사격 / 조준 / 핑). */
+  /** Only mouse buttons may be bound (`사격` / `조준` / `핑`). */
   mouseOnly?: boolean;
   /** Listed in the rebinding menu but not on the title screen (inventory-internal keys). */
   menuOnly?: boolean;
@@ -47,10 +47,10 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   { id: 'RELOAD', label: '재장전 / (수류탄을 들고 있을 때) 코킹', group: '전투', scope: 'game' },
   { id: 'PRIMARY', label: '주무기 I', group: '전투', scope: 'game' },
   { id: 'PRIMARY2', label: '주무기 II', group: '전투', scope: 'game' },
-  // 2026-09-10: 보조무기 칸이 사라져 `SECONDARY` 줄은 이 목록에서 빠졌다 (설정 화면에도 안 뜬다).
-  // `Keys.SECONDARY` · `DEFAULT_KEYS.SECONDARY` 자체는 계약이라 그대로 있다 — 아무도 읽지 않을 뿐이다.
+  // 2026-09-10: the secondary-weapon slot is gone, so the `SECONDARY` row left this list (it is not on the settings screen either).
+  // `Keys.SECONDARY` · `DEFAULT_KEYS.SECONDARY` themselves stay, because they are contract — nobody reads them, that is all.
   { id: 'MELEE', label: '근접 공격 · (전투불능 아군 근처) 들쳐메기 / 내려놓기', group: '전투', scope: 'game' },
-  /* appended (2026-09-12): 카메라를 반대쪽 어깨로 — 왼쪽 엄폐물 뒤에서 쏠 때 */
+  /* appended (2026-09-12): the camera to the other shoulder — for shooting from behind cover on the left */
   { id: 'SHOULDER', label: '어깨 전환 (카메라 왼쪽 / 오른쪽)', group: '전투', scope: 'game' },
 
   { id: 'IMPLANT', label: '전술 임플란트', group: '장비', scope: 'game' },
@@ -61,23 +61,23 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
   { id: 'INTERACT', label: '상호작용 (길게) · 전투불능 아군 구조', group: '상호작용', scope: 'game' },
   { id: 'PING', label: '핑 (홀드+드래그: 방향 핑)', group: '상호작용', scope: 'game', mouseOnly: true },
   { id: 'CHAT', label: '채팅', group: '상호작용', scope: 'game' },
-  /* appended (2026-09-09): 꾹 눌러 방사형 휠 — 서 있으면 4칸, 전투불능이면 2칸 (`shared/comms.ts`). */
+  /* appended (2026-09-09): hold for the radial wheel — 4 slots standing, 2 while downed (`shared/comms.ts`). */
   { id: 'COMMS', label: '의사소통 (꾹 눌러 휠)', group: '상호작용', scope: 'game' },
 
   /*
-   * 2026-09-08 (ESC = 항상 일시정지): every screen is closed by the key that **opened** it, and Escape is nothing
-   * but the 일시정지 메뉴 — so these labels name both jobs of each key.
-   * 2026-09-09: **ESC 도 닫는다** — 열린 화면 중 맨 위 하나(`shared/escape` → `game/escapeKey`), 닫을 것이
-   * 없을 때만 일시정지 메뉴다. 메뉴 자신을 ESC 로 닫는 것은 데스크톱 앱 전용이라 라벨에 그렇게 적는다.
+   * 2026-09-08 (ESC = always pause): every screen is closed by the key that **opened** it, and Escape is nothing
+   * but the pause menu — so these labels name both jobs of each key.
+   * 2026-09-09: **ESC closes too** — the topmost of the open screens (`shared/escape` → `game/escapeKey`), and only
+   * when there is nothing to close is it the pause menu. Closing the menu itself with ESC is desktop-app only, and the label says so.
    */
   { id: 'INVENTORY', label: '인벤토리 · 캐릭터 · 기업 · 함선 (열기 / 닫기)', group: '인터페이스', scope: 'global' },
   { id: 'MAP', label: '지도 · 함선 관리 (열기 / 닫기)', group: '인터페이스', scope: 'game' },
   { id: 'MENU', label: '화면 닫기 · 일시 정지 (메뉴 닫기는 앱에서만)', group: '인터페이스', scope: 'global' },
-  // 2026-09-10: Alt 커서(화면 없이 마우스만 풀던 기능)를 걷어내 `CURSOR` 줄은 이 목록에서 빠졌다 (설정 화면에도 안 뜬다).
-  // `Keys.CURSOR` · `DEFAULT_KEYS.CURSOR` 자체는 계약이라 그대로 있다 — `SECONDARY` 와 같은 처리, 아무도 읽지 않을 뿐이다.
-  /* appended (Phase 11); 2026-09-08: a tap is the 커뮤니티 panel, a hold still accepts a 분대 초대. */
+  // 2026-09-10: the Alt cursor (which freed the mouse with no screen open) was removed, so the `CURSOR` row left this list (it is not on the settings screen either).
+  // `Keys.CURSOR` · `DEFAULT_KEYS.CURSOR` themselves stay, because they are contract — the same treatment as `SECONDARY`; nobody reads them, that is all.
+  /* appended (Phase 11); 2026-09-08: a tap is the community panel, a hold still accepts a squad invite. */
   { id: 'INVITE', label: '커뮤니티 (길게: 분대 초대 수락)', group: '인터페이스', scope: 'global' },
-  /* appended (2026-09-17): 튜토리얼 레이드의 우측 조작 가이드 접기 / 펴기 (그 레이드에서만 뜬다 — `tutorial/TutorialSystem`). */
+  /* appended (2026-09-17): folding / unfolding the control guide on the right of the tutorial raid (it shows in that raid only — `tutorial/TutorialSystem`). */
   { id: 'GUIDE_TOGGLE', label: '조작 가이드 숨김 / 표시 (튜토리얼)', group: '인터페이스', scope: 'game' },
 
   /* dev console (only active on a dev client; listed so the key can be moved off a layout that lacks `) */
@@ -91,7 +91,7 @@ export const KEY_ACTION_DEFS: readonly KeyActionDef[] = [
 /** Hidden actions that always follow another one (contextual uses of the same key). */
 export const KEY_ALIASES: Readonly<Partial<Record<KeyAction, KeyAction>>> = {
   RESPAWN: 'JUMP', GIVE_UP: 'JUMP', GRENADE: 'SHIP_CALL',
-  /* appended (Phase 10): 들쳐메기 is the contextual F tap; STIM is retired (kept in KeyBindings, left in the table but unbound). */
+  /* appended (Phase 10): carrying is the contextual F tap; STIM is retired (kept in KeyBindings, left in the table but unbound). */
   CARRY: 'MELEE',
 };
 
@@ -193,12 +193,12 @@ function applyAliases(): void {
 
 /**
  * appended (2026-09-11, C-9 · X-8): what `loadKeybinds` found wrong with an **old** `scav.keybinds` blob. The blob has
- * no version, so a save written before a default moved (예: `RELOAD=V` 를 저장한 뒤 새 기본 `DIVE=V`) silently shares a
+ * no version, so a save written before a default moved (e.g. `RELOAD=V` was saved and then the new default `DIVE=V` arrived) silently shares a
  * key with the new default — and nobody sees it until they open the key menu. ui/ reads this once
  * (`takeKeybindLoadReport`), tells the player, then calls `saveKeybinds()` so the retired entries leave the blob.
  */
 export interface KeybindLoadReport {
-  /** Saved entry names that are no longer a listed action (예: `SWAP` = 이전 무기). Raw strings from the blob. */
+  /** Saved entry names that are no longer a listed action (e.g. `SWAP` = the previous weapon). Raw strings from the blob. */
   retired: string[];
   /** Listed actions that came **from the blob** and now clash with another action (`conflictsOf` after the load). */
   conflicts: { action: KeyAction; with: KeyAction[] }[];
@@ -229,9 +229,10 @@ export function loadKeybinds(): void {
       if (typeof v === 'string' && canBind(d.id, v)) { Keys[d.id] = v; fromBlob.push(d.id); }
     }
     /*
-     * 2026-09-07 에는 여기서 "구르기가 `CURSOR` 와 같은 키면 기본값으로 되돌린다" 를 했다 (Alt 가 구르기 → 커서로
-     * 바뀌던 때의 이관). 2026-09-10 에 Alt 커서가 사라져 Alt 는 빈 키가 됐으므로 그 되돌리기도 걷어냈다 —
-     * 남겨 두면 구르기를 일부러 Alt 에 묶은 사람이 부팅할 때마다 V 로 돌아간다.
+     * On 2026-09-07 this place did "if the roll sits on the same key as `CURSOR`, put it back to the default" (the
+     * migration from when Alt changed from the roll to the cursor). On 2026-09-10 the Alt cursor was removed and Alt
+     * became a free key, so that reversal was removed too — leaving it in would send anyone who deliberately bound the
+     * roll to Alt back to V on every boot.
      */
     applyAliases();
     const retired = Object.keys(saved).filter((k) => !DEF_BY_ID.has(k as KeyAction));

@@ -1,40 +1,41 @@
 /**
- * **큰 수 축약 표기** (2026-09-16 사용자 결정).
+ * **Compact notation for big numbers** (2026-09-16 user's decision).
  *
- * 크레딧 · 판매가 · 가치 · 재화 수량 · 경험치처럼 **자릿수가 얼마든 커질 수 있는 값**은 전부 이 한 곳을 지난다.
- * 개수 · 무게 · 내구도처럼 "정확한 값이 곧 뜻인" 수는 여기 오지 않는다 — `3.0k발` 같은 표기는 읽는 사람을 속인다.
+ * Every **value whose digit count can grow without limit** — credits · sale prices · worth · currency amounts · XP —
+ * passes through this one place. Numbers where "the exact value is the meaning", like counts · weight · durability, do
+ * not come here — a notation like `3.0k발` lies to the reader.
  *
- * 규칙 (사용자 결정 그대로):
- *   |n| < 10,000        → `9,999`        자리 구분 쉼표, 축약하지 않는다
- *   |n| < 1,000,000     → `10.0k`        소수점 **1** 자리
- *   |n| < 1,000,000,000 → `1.00m`        소수점 **2** 자리
- *   그 이상             → `1.00b`        소수점 **2** 자리
+ * The rules (exactly as the user decided):
+ *   |n| < 10,000        → `9,999`        grouping commas, not abbreviated
+ *   |n| < 1,000,000     → `10.0k`        **1** decimal place
+ *   |n| < 1,000,000,000 → `1.00m`        **2** decimal places
+ *   Above that          → `1.00b`        **2** decimal places
  *
- * `k` 만 1,000 이 아니라 **10,000 부터**다: 네 자리(`1,234`)는 한눈에 읽히지만 다섯 자리부터는 그렇지 않다는 것이
- * 이 규칙의 이유다. 그래서 `9,999` 다음 값이 `10.0k` 로 이어진다.
+ * `k` starts at **10,000** and not at 1,000: four digits (`1,234`) read at a glance but five do not, and that is the
+ * reason for this rule. So the value after `9,999` continues as `10.0k`.
  *
- * 소수점 아래는 **버린다**(`Math.trunc`). 올림이면 `999,999` 가 `1000.0k` 가 되어 단위 경계가 깨진다 — 버리면
- * `999.9k` 로 끝나고 `1.00m` 이 정확히 1,000,000 부터 시작한다.
+ * The decimals are **truncated** (`Math.trunc`). Rounding up would turn `999,999` into `1000.0k` and break the unit
+ * boundary — truncating ends at `999.9k` and lets `1.00m` start at exactly 1,000,000.
  */
 
-/** 축약이 시작되는 값. 이 아래는 쉼표만 찍는다. */
+/** The value where abbreviating starts. Below it, only commas are put in. */
 const COMPACT_FROM = 10_000;
 
-/** [한계값, 나눌 값, 단위, 소수 자릿수] — 큰 단위부터 본다. */
+/** [the threshold, the divisor, the unit, the decimal places] — looked at from the biggest unit down. */
 const UNITS: readonly [number, string, number][] = [
   [1_000_000_000, 'b', 2],
   [1_000_000, 'm', 2],
   [1_000, 'k', 1],
 ];
 
-/** `1234` → `1,234`. 부호 없는 정수 문자열. */
+/** `1234` → `1,234`. An unsigned integer string. */
 export function groupDigits(n: number): string {
   return Math.abs(Math.round(Number.isFinite(n) ? n : 0)).toLocaleString('ko-KR');
 }
 
 /**
- * 부호를 뺀 절대값 하나를 규칙대로 적는다 (`10.0k` · `1.00m`). 부호는 부르는 쪽이 붙인다.
- * 소수 자리는 버림이라 `999999` → `999.9k`, `999999999` → `999.99m` 로 끝난다.
+ * Writes one absolute value, the sign removed, by the rules (`10.0k` · `1.00m`). The sign is added by the caller.
+ * The decimals are truncated, so `999999` ends as `999.9k` and `999999999` as `999.99m`.
  */
 export function formatCompactNumber(n: number): string {
   const v = Math.abs(Math.round(Number.isFinite(n) ? n : 0));
@@ -42,13 +43,13 @@ export function formatCompactNumber(n: number): string {
   for (const [div, unit, digits] of UNITS) {
     if (v < div) continue;
     const pow = 10 ** digits;
-    // 버림: 1000.0k 같은 경계 넘김을 막는다 (위 주석).
+    // Truncation: it stops a boundary overrun like 1000.0k (comment above).
     return `${(Math.trunc((v / div) * pow) / pow).toFixed(digits)}${unit}`;
   }
   return v.toLocaleString('ko-KR');
 }
 
-/** `formatCompactNumber` + 부호. `sign: true` 면 양수에도 `+` 를 붙인다. 음수는 언제나 `−`(U+2212). */
+/** `formatCompactNumber` + the sign. With `sign: true` a `+` is put on positives too. A negative is always `−`(U+2212). */
 export function formatCompactSigned(n: number, sign = false): string {
   const v = Math.round(Number.isFinite(n) ? n : 0);
   const head = v < 0 ? '−' : sign ? '+' : '';

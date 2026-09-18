@@ -1,15 +1,16 @@
 /**
- * src/shared/charBuffs.ts — **캐릭터 버프** (2026-09-12, 사용자 결정). 결정: `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」.
+ * src/shared/charBuffs.ts — **character buffs** (2026-09-12, user's decision). The decision: `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」.
  *
- * 한 캐릭터에 지금 걸린 것 — 먹어 둔 요리 · 실어 둔 준비물 · 운동 디버프 · 환경 노출 · 휴식 중 · 운동 중 — 을 **한 목록**으로
- * 모은다. 목록은 **표시와 동기화용**이다 (사용자 결정: 버프 자체에는 게임 효과가 없다). 효과의 원본은 여전히 제자리다 —
- * 요리 버프는 `progression` 의 `derived`, 준비물은 `hasEnvPrep`, 디버프는 `applyGymSession`, 자세는 `player`.
+ * Collects what is on one character right now — the meal eaten · the preparation loaded · the gym debuff · environment exposure ·
+ * resting · exercising — into **one list**. The list is **for display and sync** (user's decision: a buff itself has no game
+ * effect). The source of each effect stays where it was — the meal buff is `derived` in `progression`, a preparation is
+ * `hasEnvPrep`, a debuff is `applyGymSession`, a pose is `player`.
  *
- *   owner   `player`  — `PlayerRef.buffs` / `buffsRevision` / `player:buffsChanged` (progression · housing · 자기 자세 · 환경을 모은다)
- *   wire    `net`     — `cbuf state` + 스냅샷 `bfr` (리비전) → `RemotePlayerRef.buffs` / `net:remoteBuffsChanged`
- *   view    `ui`      — 내 체력바 아래 · 좌하단 분대 목록의 분대원 체력바 아래 썸네일 줄 (아이콘 + 시간 게이지)
+ *   owner   `player`  — `PlayerRef.buffs` / `buffsRevision` / `player:buffsChanged` (collects progression · housing · its own pose · the environment)
+ *   wire    `net`     — `cbuf state` + the snapshot's `bfr` (revision) → `RemotePlayerRef.buffs` / `net:remoteBuffsChanged`
+ *   view    `ui`      — the thumbnail row under my hp bar and under a squadmate's hp bar in the bottom-left squad list (icon + time gauge)
  *
- * 이 파일은 **모양 · 이름 · 순서 · 검증**만 갖는다. 목록을 어떻게 채우는지는 player, 어떻게 그리는지는 ui 의 몫이다.
+ * This file holds **the shape · the names · the order · the validation** only. How the list is filled is player's job, how it is drawn is ui's.
  */
 import type { EnvKind, FurniturePoseKind, ItemDef } from './types';
 import type { GymStat } from './progression';
@@ -21,58 +22,58 @@ import { FURNITURE_POSE_WIRE } from './net';
 import { CHAR_BUFF_WIRE_MAX } from './constants';
 import { mealQualityStars, normalizeMealQuality } from './cooking';
 
-/** 버프 종류. 추가만 한다 (옛 클라이언트는 모르는 종류를 `sanitizeCharBuffs` 에서 버린다). */
+/** Buff kinds. Append only (an older client drops a kind it does not know in `sanitizeCharBuffs`). */
 export type CharBuffKind =
-  | 'meal'          // 요리 — 함선: 다음 레이드에 실린 것(pending) · 레이드: 이번에 먹은 것(active)
-  | 'prep'          // 준비물 — 환경당 하나, 같은 pending / active 규칙
-  | 'env_exposed'   // 디버프: 상시 환경 행성에서 맞는 준비물 없이 노출돼 체력이 깎이고 있다 (레이드)
-  | 'gym_fatigue'   // 디버프: 근육통 · 심폐 피로 (현실 시간 타이머)
-  | 'rest'          // 휴식 중 — 흔들의자에 앉아 있다
-  | 'exercise'      // 운동 중 — 운동 기구 세션
-  /* appended (2026-09-12, 소모품 3종 — docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) */
-  | 'adrenaline'    // 아드레날린 주사 — 레이드 시간제 (sim 시간), 아이템 썸네일 + 시간 게이지
-  | 'stimulant'     // 각성제 — 같다
-  /* appended (2026-09-13, 요리 미니게임 — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) */
-  | 'cooking'       // 조리 중 — 조리대 앞 자세 (`defId` = 만드는 요리)
-  /* appended (2026-09-13, 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」, 사용자 결정 「헬스처럼 일시적 버프로 분대원에게 보이게」) */
-  | 'gaming';       // 게임 중 — TV 앞 좌석에 앉은 게임 세션 (`defId` = 게임 디스크 · `stat` · `minigame`)
+  | 'meal'          // a meal — ship: what is loaded for the next raid (pending) · raid: what was eaten this time (active)
+  | 'prep'          // a preparation — one per environment, the same pending / active rules
+  | 'env_exposed'   // debuff: exposed on a permanent-environment planet without the matching preparation, hp draining (raid)
+  | 'gym_fatigue'   // debuff: `근육통` (sore muscles) · `심폐 피로` (cardio fatigue) (a real-time timer)
+  | 'rest'          // resting — sitting in the rocking chair
+  | 'exercise'      // exercising — a gym equipment session
+  /* appended (2026-09-12, the 3 consumables — docs/DECISIONS.md 「2026-09-12 — 전투 소모품」) */
+  | 'adrenaline'    // an adrenaline shot — timed inside the raid (sim time), item thumbnail + time gauge
+  | 'stimulant'     // a stimulant — the same
+  /* appended (2026-09-13, the cooking minigame — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」) */
+  | 'cooking'       // cooking — the pose in front of the cook bench (`defId` = the meal being made)
+  /* appended (2026-09-13, video games — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」, user's decision 「visible to squadmates as a temporary buff, like the gym」) */
+  | 'gaming';       // gaming — a game session seated in front of the TV (`defId` = the game disc · `stat` · `minigame`)
 
 export const CHAR_BUFF_KINDS: readonly CharBuffKind[] = ['meal', 'prep', 'env_exposed', 'gym_fatigue', 'rest', 'exercise', 'adrenaline', 'stimulant', 'cooking', 'gaming'];
 
-/** `pending` = 함선에서 다음 레이드에 실어 둔 것 (썸네일이 흐리다) · `active` = 지금 몸에 걸려 있는 것. */
+/** `pending` = loaded in the ship for the next raid (the thumbnail is dimmed) · `active` = on the body right now. */
 export type CharBuffState = 'pending' | 'active';
 
 export interface CharBuff {
   kind: CharBuffKind;
   /**
-   * 한 캐릭터의 목록 안에서 유일한 키 — `meal` · `prep:<env>` · `env` · `fatigue:<stat>` · `pose`. ui 가 썸네일 DOM 을 이 키로
-   * 재사용하고, 목록 비교(`sameCharBuffs`)도 이 키 순서로 한다.
+   * A key unique within one character's list — `meal` · `prep:<env>` · `env` · `fatigue:<stat>` · `pose`. ui reuses the
+   * thumbnail DOM by this key, and the list comparison (`sameCharBuffs`) also runs in this key's order.
    */
   key: string;
-  /** 디버프인가 (`env_exposed` · `gym_fatigue`). 와이어에서는 믿지 않고 `kind` 에서 다시 정한다. */
+  /** Is this a debuff (`env_exposed` · `gym_fatigue`). Off the wire it is not trusted but decided again from `kind`. */
   debuff: boolean;
   state: CharBuffState;
-  /** `meal` · `prep` · `adrenaline` · `stimulant`: 아이템 def id (썸네일 글리프 · 색 · 이름). 소모품 둘의 key 는 `boost`. */
+  /** `meal` · `prep` · `adrenaline` · `stimulant`: the item def id (thumbnail glyph · colour · name). The key of both consumables is `boost`. */
   defId?: string;
-  /** `prep` · `env_exposed`: 행성 환경. */
+  /** `prep` · `env_exposed`: the planet environment. */
   env?: EnvKind;
-  /** `gym_fatigue` · `exercise`: 능력치. */
+  /** `gym_fatigue` · `exercise`: the stat. */
   stat?: GymStat;
-  /** `exercise`: 미니게임. */
+  /** `exercise`: the minigame. */
   minigame?: GymMinigame;
-  /** `rest` · `exercise`: 자세 종류. */
+  /** `rest` · `exercise`: the pose kind. */
   pose?: FurniturePoseKind;
-  /** `rest` · `exercise`: 몸을 맡긴 가구 조각 uid. */
+  /** `rest` · `exercise`: the uid of the furniture piece the body was handed to. */
   furnitureUid?: string;
-  /** 타이머 시작 (epoch ms, `ctx.net.serverNow() ?? Date.now()`) — 시간 게이지의 가득 찬 쪽. 없으면 타이머가 없다. */
+  /** Timer start (epoch ms, `ctx.net.serverNow() ?? Date.now()`) — the full end of the time gauge. Absent = no timer. */
   startedAt?: number;
-  /** 타이머 끝 (epoch ms) — 게이지가 빈다. 없으면 타이머가 없다 (식사 · 준비물 · 자세). */
+  /** Timer end (epoch ms) — where the gauge empties. Absent = no timer (meals · preparations · poses). */
   endsAt?: number;
-  /** appended (2026-09-13, 요리 품질): `meal` 의 품질 1 … `MEAL_QUALITY_MAX` (0 이면 생략). 썸네일 · 이름에 별로 붙는다. */
+  /** appended (2026-09-13, meal quality): the `meal`'s quality 1 … `MEAL_QUALITY_MAX` (omitted at 0). It hangs on the thumbnail · name as stars. */
   quality?: number;
 }
 
-/** 썸네일 순서 — 디버프가 먼저, 그다음 지금 하고 있는 것, 그다음 실어 둔 것. */
+/** Thumbnail order — debuffs first, then what is being done right now, then what is loaded. */
 export const CHAR_BUFF_ORDER: readonly CharBuffKind[] = ['env_exposed', 'gym_fatigue', 'adrenaline', 'stimulant', 'exercise', 'gaming', 'cooking', 'rest', 'meal', 'prep'];
 
 export const CHAR_BUFF_LABEL_KO: Readonly<Record<CharBuffKind, string>> = {
@@ -81,13 +82,14 @@ export const CHAR_BUFF_LABEL_KO: Readonly<Record<CharBuffKind, string>> = {
 };
 
 /**
- * 종류별 기본 글리프 · 색. `meal` · `prep` 은 아이템 def 의 `icon` · `color` 가, `env_exposed` 는 `ENV_ICON` · `ENV_COLOR` 가
- * 먼저다 — 이 표는 그것을 못 찾았을 때의 자리다. 외부 에셋 금지 규약대로 유니코드 한 글자.
+ * Default glyph · colour per kind. For `meal` · `prep` the item def's `icon` · `color` comes first and for `env_exposed`
+ * `ENV_ICON` · `ENV_COLOR` does — this table is the place for when neither is found. One Unicode character, as the
+ * no-external-asset rule requires.
  */
 export const CHAR_BUFF_GLYPH: Readonly<Record<CharBuffKind, string>> = {
   meal: '♨', prep: '⌾', env_exposed: '☣', gym_fatigue: '✱', rest: '☕', exercise: '⚖',
   adrenaline: '↯', stimulant: '◎', cooking: '⊛',
-  gaming: '⎚',   // 2026-09-13: 게임기 분류 글자(`CATEGORY_ICON.console`)와 같다 — 조리 중 `⊛` · 휴식 `☕` 과 겹치지 않는다
+  gaming: '⎚',   // 2026-09-13: the same as the game-console category glyph (`CATEGORY_ICON.console`) — it does not clash with cooking's `⊛` or rest's `☕`
 };
 export const CHAR_BUFF_COLOR: Readonly<Record<CharBuffKind, string>> = {
   meal: '#ffb0a0', prep: '#ffd08a', env_exposed: '#ff6b6b', gym_fatigue: '#ff8a6b', rest: '#e8a0d0', exercise: '#ff9f7a',
@@ -96,14 +98,14 @@ export const CHAR_BUFF_COLOR: Readonly<Record<CharBuffKind, string>> = {
 
 export const isDebuffKind = (kind: CharBuffKind): boolean => kind === 'env_exposed' || kind === 'gym_fatigue';
 
-/** 한 줄 이름 (썸네일 `title` · 스모크). `defOf` 로 요리 · 준비물의 아이템 이름을 찾는다. */
+/** A one-line name (the thumbnail's `title` · smokes). `defOf` finds the item name of a meal or a preparation. */
 export function charBuffTitle(b: CharBuff, defOf?: (defId: string) => ItemDef | null | undefined): string {
   switch (b.kind) {
     case 'meal':
     case 'prep': {
       let name: string = CHAR_BUFF_LABEL_KO[b.kind];
       if (b.defId && defOf) { try { name = defOf(b.defId)?.name ?? name; } catch { /* keep the label */ } }
-      if (b.kind === 'meal' && (b.quality ?? 0) > 0) name = `${name} ${mealQualityStars(b.quality ?? 0)}`;   // 2026-09-13 요리 품질
+      if (b.kind === 'meal' && (b.quality ?? 0) > 0) name = `${name} ${mealQualityStars(b.quality ?? 0)}`;   // 2026-09-13 meal quality
       return b.state === 'pending' ? `${name} · 다음 레이드` : name;
     }
     case 'cooking': {
@@ -115,7 +117,7 @@ export function charBuffTitle(b: CharBuff, defOf?: (defId: string) => ItemDef | 
     case 'rest': return CHAR_BUFF_LABEL_KO.rest;
     case 'exercise': return b.minigame ? `${CHAR_BUFF_LABEL_KO.exercise} · ${GYM_MINIGAME_LABEL_KO[b.minigame]}` : CHAR_BUFF_LABEL_KO.exercise;
     case 'gaming': {
-      // 2026-09-13: 게임 디스크 이름 (없으면 미니게임 방식)
+      // 2026-09-13: the game disc's name (the minigame kind when there is none)
       if (b.defId && defOf) { try { const n = defOf(b.defId)?.name; if (n) return `${CHAR_BUFF_LABEL_KO.gaming} · ${n}`; } catch { /* keep the label */ } }
       return b.minigame ? `${CHAR_BUFF_LABEL_KO.gaming} · ${GYM_MINIGAME_LABEL_KO[b.minigame]}` : CHAR_BUFF_LABEL_KO.gaming;
     }
@@ -127,13 +129,13 @@ export function charBuffTitle(b: CharBuff, defOf?: (defId: string) => ItemDef | 
   }
 }
 
-/** 남은 초 (타이머가 없으면 null, 끝났으면 0). */
+/** Seconds left (null with no timer, 0 once it is over). */
 export function charBuffRemainingS(b: CharBuff, nowMs: number): number | null {
   if (typeof b.endsAt !== 'number') return null;
   return Math.max(0, (b.endsAt - nowMs) / 1000);
 }
 
-/** 시간 게이지 — 남은 비율 1(막 시작) → 0(끝). 타이머가 없으면 null. */
+/** The time gauge — the fraction left, 1 (just started) → 0 (over). null with no timer. */
 export function charBuffRemainingRatio(b: CharBuff, nowMs: number): number | null {
   if (typeof b.endsAt !== 'number' || typeof b.startedAt !== 'number') return null;
   const span = b.endsAt - b.startedAt;
@@ -141,13 +143,13 @@ export function charBuffRemainingRatio(b: CharBuff, nowMs: number): number | nul
   return Math.min(1, Math.max(0, (b.endsAt - nowMs) / span));
 }
 
-/** `CHAR_BUFF_ORDER` → 키 순으로 제자리 정렬하고 같은 배열을 돌려준다. */
+/** Sorts in place by `CHAR_BUFF_ORDER` → key and returns the same array. */
 export function sortCharBuffs(list: CharBuff[]): CharBuff[] {
   list.sort((a, b) => (CHAR_BUFF_ORDER.indexOf(a.kind) - CHAR_BUFF_ORDER.indexOf(b.kind)) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   return list;
 }
 
-/** 두 목록이 표시 · 동기화상 같은가 (길이 · 순서 · 모든 필드). 리비전을 올릴지 정하는 데 쓴다. */
+/** Are the two lists the same for display and sync (length · order · every field). Used to decide whether to bump the revision. */
 export function sameCharBuffs(a: readonly CharBuff[], b: readonly CharBuff[]): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;
@@ -166,8 +168,9 @@ const isStr = (v: unknown, re: RegExp = ID_RE): v is string => typeof v === 'str
 const isTime = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
 /**
- * 와이어에서 받은 목록을 검증한 **새 배열** — 모르는 종류 · 이상한 필드 · 중복 키를 버리고, `debuff` 는 종류에서 다시 정하고,
- * `CHAR_BUFF_WIRE_MAX` 로 자르고, `CHAR_BUFF_ORDER` 로 정렬한다. 배열이 아니면 빈 배열. 던지지 않는다.
+ * A **new array** validated out of a list received off the wire — unknown kinds · odd fields · duplicate keys are dropped,
+ * `debuff` is decided again from the kind, the list is cut at `CHAR_BUFF_WIRE_MAX` and sorted by `CHAR_BUFF_ORDER`.
+ * An empty array when the input is not an array. It never throws.
  */
 export function sanitizeCharBuffs(raw: unknown): CharBuff[] {
   if (!Array.isArray(raw)) return [];
@@ -189,7 +192,7 @@ export function sanitizeCharBuffs(raw: unknown): CharBuff[] {
     if (typeof o.pose === 'string' && (FURNITURE_POSE_WIRE as readonly string[]).includes(o.pose)) b.pose = o.pose as FurniturePoseKind;
     if (isStr(o.furnitureUid)) b.furnitureUid = o.furnitureUid;
     if (isTime(o.startedAt) && isTime(o.endsAt) && o.endsAt >= o.startedAt) { b.startedAt = o.startedAt; b.endsAt = o.endsAt; }
-    if (kind === 'meal') { const q = normalizeMealQuality(o.quality); if (q > 0) b.quality = q; }   // 2026-09-13 요리 품질
+    if (kind === 'meal') { const q = normalizeMealQuality(o.quality); if (q > 0) b.quality = q; }   // 2026-09-13 meal quality
     keys.add(b.key);
     out.push(b);
   }

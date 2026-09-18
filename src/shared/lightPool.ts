@@ -1,11 +1,12 @@
 /**
- * src/shared/lightPool.ts — **점광원 풀**: 광원 자리가 많은 장면을 점광원 몇 개로 비춘다 (2026-09-10 `hub/interiors`
- * 에서 태어나 2026-09-11 에 `shared` 로 옮겼다 — 함선과 행성의 버려진 구조물이 **같은 규칙**을 쓴다).
+ * src/shared/lightPool.ts — the **point-light pool**: it lights a scene that has many light positions with a few point
+ * lights (born in `hub/interiors` on 2026-09-10 and moved to `shared` on 2026-09-11 — the ship and a planet's abandoned
+ * structures use **the same rule**).
  *
- * 씬의 점광원 개수는 `core/LightBudget` 이 세션 내내 고정한다 (셰이더 프로그램 키에 들어가서, 바뀌면 전부 다시
- * 컴파일된다). 그래서 광원 **자리**(`LightFixture`)는 얼마든지 두되 진짜 광원은 `size` 개만 만들어 **플레이어에게
- * 가장 가까운 자리**로 옮겨 단다. 자리를 바꿀 때는 intensity 를 0 까지 내렸다가 옮기고 다시 올린다 —
- * `visible` 은 절대 건드리지 않는다 (개수가 변한다).
+ * A scene's point-light count is fixed for the whole session by `core/LightBudget` (it is part of the shader program
+ * key, so a change recompiles everything). So there may be as many light **positions** (`LightFixture`) as you like,
+ * while only `size` real lights are built and moved onto the **positions nearest the player**. Moving one lowers the
+ * intensity to 0, moves it and raises it again — `visible` is never touched (that would change the count).
  */
 import * as THREE from 'three';
 
@@ -18,7 +19,7 @@ export interface LightFixture {
   intensity: number;
   distance: number;
   /**
-   * Walled-off area this fixture lights (e.g. shared deck 0, 격납고 1). While the player stands in another zone the
+   * Walled-off area this fixture lights (e.g. shared deck 0, hangar 1). While the player stands in another zone the
    * fixture ranks `ZONE_PENALTY_M` farther away — a lamp behind a bulkhead is close but lights nothing you can see.
    */
   zone?: number;
@@ -33,8 +34,9 @@ const DARK = 0.02;
 /** Extra ranking distance (m) of a fixture outside the player's zone (see `LightFixture.zone`) or on another floor. */
 const ZONE_PENALTY_M = 25;
 /**
- * 2026-09-11: 층이 다르다고 보는 높이 차(m). `update(…, eyeY)` 를 주면 광원 자리와 눈높이의 차가 이보다 크면
- * 다른 층(바닥판 너머)으로 보고 `ZONE_PENALTY_M` 을 더한다 — 지하실 전등이 1층 발밑에서 가장 가깝다고 뽑히지 않게.
+ * 2026-09-11: the height difference (m) that counts as another storey. Pass `update(…, eyeY)` and a fixture whose height
+ * differs from the eye height by more than this counts as another storey (beyond a floor plate) and takes
+ * `ZONE_PENALTY_M` — so a basement lamp is not picked as the nearest one from underfoot on the ground floor.
  */
 const FLOOR_GAP_M = 2.2;
 

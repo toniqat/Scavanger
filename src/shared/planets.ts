@@ -38,8 +38,9 @@ export function isPlanetId(v: unknown): v is PlanetId {
 
 export const PLANET_NONE_LABEL = '목표 미지정';
 /**
- * appended (2026-09-16, 사용자 결정): **튜토리얼 행성의 이름**. 손으로 지은 월드라 `PlanetId` 가 없고(`ctx.missionPlanet === null`),
- * 그래서 결과 화면이 `PLANET_NONE_LABEL` 을 보였다. 읽는 곳은 `planetDefs.missionPlanetLabel` 하나다.
+ * appended (2026-09-16, user's decision): **the tutorial planet's name**. It is a hand-built world, so it has no
+ * `PlanetId` (`ctx.missionPlanet === null`) and the result screen showed `PLANET_NONE_LABEL`. It is read in one
+ * place, `planetDefs.missionPlanetLabel`.
  */
 export const TUTORIAL_PLANET_LABEL = '표류 행성';
 

@@ -1,51 +1,51 @@
 import { CHARACTER_SLOTS } from './constants';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 캐릭터 세이브 슬롯 (2026-09-09).
+ * Character save slots (2026-09-09).
  *
- * 그전까지 세이브는 `scav.profile` · `scav.stash` · `scav.meta` · `scav.ship` · `scav.loadout` ·
- * `scav.sessionToken` … 처럼 **슬롯 개념이 없는 단일 키**였다. 캐릭터가 하나뿐이라는 뜻이고, 타이틀의
- * `새 캐릭터로 시작` 이 그 하나를 지우는 것 말고는 할 수 있는 게 없었다. 캐릭터 선택창(3칸)이 생기면서
- * 같은 브라우저에 캐릭터 셋이 나란히 살아야 하므로, **키에 슬롯 접두사를 붙인다**:
+ * Until then a save was a **single key with no notion of a slot** — `scav.profile` · `scav.stash` · `scav.meta` ·
+ * `scav.ship` · `scav.loadout` · `scav.sessionToken` … That meant exactly one character, and the title's
+ * `새 캐릭터로 시작` could do nothing but erase that one. With the character select screen (3 cells) three
+ * characters have to live side by side in the same browser, so **keys get a slot prefix**:
  *
  *     scav.profile  →  scav.s1.profile · scav.s2.profile · scav.s3.profile
  *
- * `scav.sessionToken` 도 슬롯별이다 — 릴레이는 토큰으로 서버 프로필(크레딧 · 창고 · 로드아웃 · 진행도 ·
- * 함선)을 찾으므로, 토큰을 나눠야 서버 쪽 캐릭터도 갈라진다. 나누지 않으면 슬롯 2로 접속한 순간 슬롯 1의
- * 서버 프로필을 그대로 내려받는다.
+ * `scav.sessionToken` is per slot too — the relay finds the server profile (credits · stash · loadout ·
+ * progression · ship) by the token, so the server-side character only splits when the token does. Without that,
+ * connecting on slot 2 downloads slot 1's server profile as it is.
  *
- * **공용(캐릭터가 아닌) 저장**은 접두사를 받지 않는다: 키 바인딩 · 오디오 볼륨 · 화면 설정 · 콘솔 기록.
- * 목록은 `SHARED_KEYS` 다. 이 집합에 없는 `scav.*` 는 전부 캐릭터 데이터로 본다 — 손으로 쓴 목록 대신
- * 접두사 훑기를 쓰는 이유는 `ui/menus/newCharacter` 와 같다: 나중에 추가된 세이브를 빼먹으면 반쪽짜리
- * 캐릭터가 남는다.
+ * **Shared (non-character) saves** take no prefix: keybinds · audio volume · display settings · console history.
+ * The list is `SHARED_KEYS`. Every `scav.*` not in that set counts as character data — the reason for a prefix
+ * sweep instead of a hand-written list is the same as `ui/menus/newCharacter`'s: forgetting a save added later
+ * leaves half a character behind.
  *
- * **시스템은 부팅 때 한 번 저장소를 읽는다.** 그래서 슬롯 전환은 언제나 `window.location.reload()` 를 낀다
- * (`markAutoStart` 로 새로고침 뒤 곧장 함선으로 들어가게 표시해 둔다). 실행 중에 활성 슬롯이 바뀌는 일은 없다.
+ * **Systems read storage once at boot.** So a slot switch always comes with `window.location.reload()`
+ * (`markAutoStart` marks it so the reload goes straight into the ship). The active slot never changes while running.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 슬롯 번호는 1 부터 `CHARACTER_SLOTS` 까지. */
+/** Slot numbers run from 1 to `CHARACTER_SLOTS`. */
 export type SlotId = number;
 
-/** 슬롯 수 (data/constants.csv `CHARACTER_SLOTS`). */
+/** Number of slots (data/constants.csv `CHARACTER_SLOTS`). */
 export const SLOT_COUNT: number = Math.max(1, Math.round(CHARACTER_SLOTS));
 
-/** 슬롯 번호 전부, 1..SLOT_COUNT. */
+/** Every slot number, 1..SLOT_COUNT. */
 export const SLOT_IDS: readonly SlotId[] = Array.from({ length: SLOT_COUNT }, (_, i) => i + 1);
 
-/** 어떤 슬롯으로 부팅할지 (접두사 없는 공용 키). */
+/** Which slot to boot with (a shared key, no prefix). */
 export const ACTIVE_SLOT_KEY = 'scav.slot';
 
-/** 새로고침 직후 타이틀을 건너뛰고 바로 함선으로 들어가라는 표시 (sessionStorage). */
+/** Mark telling the boot right after a reload to skip the title and go straight into the ship (sessionStorage). */
 export const AUTOSTART_KEY = 'scav.autostart';
 
-/** 캐릭터가 아닌 것 — 슬롯 접두사를 받지 않고, 슬롯을 지워도 살아남는다. */
+/** Not character data — it takes no slot prefix and survives deleting a slot. */
 export const SHARED_KEYS: ReadonlySet<string> = new Set([
-  // 2026-09-10: `scav.relay` (= shared/net `RELAY_STORAGE_KEY`) 는 이 PC 가 어느 서버에 붙는지이지 캐릭터
-  // 데이터가 아니다 — 키 바인딩 · 오디오와 같은 자리다. 슬롯을 지워도 서버 주소는 남는다.
+  // 2026-09-10: `scav.relay` (= shared/net `RELAY_STORAGE_KEY`) is which server this PC connects to, not character
+  // data — it belongs next to the keybinds and the audio settings. Deleting a slot leaves the server address.
   'scav.keybinds', 'scav.audio', 'scav.display', 'scav.console.history', 'scav.relay', ACTIVE_SLOT_KEY,
 ]);
 
-/** `scav.s3.` 같은 이미 네임스페이스된 키를 알아보는 패턴. */
+/** Pattern recognising an already-namespaced key such as `scav.s3.`. */
 const SLOTTED_RE = /^scav\.s\d+\./;
 
 function storage(): Storage | null {
@@ -66,7 +66,7 @@ function clampSlot(n: unknown): SlotId {
   return Math.min(SLOT_COUNT, Math.max(1, Math.round(v)));
 }
 
-/** 한 슬롯이 갖는 키 전부 (그 슬롯 안에서만 훑는다). */
+/** Every key of one slot (the sweep stays inside that slot). */
 function keysOfSlot(s: Storage, id: SlotId): string[] {
   const prefix = `scav.s${id}.`;
   const out: string[] = [];
@@ -77,13 +77,13 @@ function keysOfSlot(s: Storage, id: SlotId): string[] {
   return out;
 }
 
-/* ── 활성 슬롯 ────────────────────────────────────────────────────────────── */
+/* ── The active slot ──────────────────────────────────────────────────── */
 
 let cached: SlotId | null = null;
 
 /**
- * 이번 부팅이 쓰는 슬롯. 저장소를 못 읽으면 1 이다. 값은 **부팅 때 한 번** 읽고 캐시한다 — 실행 중에
- * 바뀌면 이미 메모리에 올라온 시스템들과 어긋나기 때문이다.
+ * The slot this boot uses. 1 when storage cannot be read. The value is read **once at boot** and cached — changing
+ * it while running would put it out of step with the systems already in memory.
  */
 export function activeSlot(): SlotId {
   if (cached !== null) return cached;
@@ -98,8 +98,8 @@ export function activeSlot(): SlotId {
 }
 
 /**
- * 다음 부팅이 쓸 슬롯을 적는다. **지금 실행 중인 게임에는 영향이 없다** — 부르는 쪽이 곧바로
- * `window.location.reload()` 해야 한다.
+ * Writes the slot the next boot will use. **It has no effect on the running game** — the caller has to
+ * `window.location.reload()` right after.
  */
 export function setActiveSlot(id: SlotId): void {
   const s = storage();
@@ -107,12 +107,12 @@ export function setActiveSlot(id: SlotId): void {
   try { s.setItem(ACTIVE_SLOT_KEY, String(clampSlot(id))); } catch { /* quota / private mode */ }
 }
 
-/** 새로고침 뒤 타이틀을 건너뛰라는 표시를 남긴다 (탭 안에서만 산다). */
+/** Leaves the mark to skip the title after a reload (it lives only inside the tab). */
 export function markAutoStart(): void {
   try { window.sessionStorage.setItem(AUTOSTART_KEY, '1'); } catch { /* storage off */ }
 }
 
-/** 그 표시를 **한 번** 읽고 지운다. 두 번째 호출은 false. */
+/** Reads that mark **once** and clears it. A second call is false. */
 export function takeAutoStart(): boolean {
   try {
     const on = window.sessionStorage.getItem(AUTOSTART_KEY) === '1';
@@ -123,32 +123,32 @@ export function takeAutoStart(): boolean {
   }
 }
 
-/* ── 키 ──────────────────────────────────────────────────────────────────── */
+/* ── Keys ───────────────────────────────────────────────────────────────── */
 
 /**
- * 세이브 키를 활성 슬롯의 것으로 옮긴다: `scav.profile` → `scav.s2.profile`.
- * 공용 키(`SHARED_KEYS`)와 이미 슬롯이 붙은 키는 그대로 돌려준다 — 두 번 감싸도 안전하다.
+ * Moves a save key onto the active slot: `scav.profile` → `scav.s2.profile`.
+ * A shared key (`SHARED_KEYS`) and an already-slotted key come back unchanged — wrapping twice is safe.
  */
 export function slotKey(base: string): string {
   return slotKeyFor(activeSlot(), base);
 }
 
-/** `slotKey` 와 같지만 슬롯을 지정한다 (캐릭터 선택창이 남의 슬롯을 들여다볼 때). */
+/** Same as `slotKey` but with the slot given (the character select screen looking into someone else's slot). */
 export function slotKeyFor(id: SlotId, base: string): string {
   if (SHARED_KEYS.has(base) || SLOTTED_RE.test(base)) return base;
   const rest = base.startsWith('scav.') ? base.slice('scav.'.length) : base;
   return `scav.s${clampSlot(id)}.${rest}`;
 }
 
-/* ── 이전 세이브 이관 ─────────────────────────────────────────────────────── */
+/* ── Migrating older saves ─────────────────────────────────────────── */
 
 let migrated = false;
 
 /**
- * 슬롯이 없던 시절의 `scav.*` 세이브를 **슬롯 1** 로 한 번 옮긴다. 접두사 훑기라서 나중에 추가된 세이브도
- * 같이 따라온다. 이미 슬롯이 붙은 키 · 공용 키는 건드리지 않으므로 여러 번 불러도 같다.
+ * Moves the slotless-era `scav.*` saves onto **slot 1** once. Being a prefix sweep, a save added later comes along
+ * too. Already-slotted keys and shared keys are left alone, so calling it several times is the same.
  *
- * `slotKey` 가 스스로 부르지만, 부팅 맨 앞(`main.ts`)에서 한 번 명시적으로 부르는 편이 읽기 좋다.
+ * `slotKey` calls it itself, but calling it once explicitly at the very start of the boot (`main.ts`) reads better.
  */
 export function ensureMigrated(): void {
   if (migrated) return;
@@ -164,34 +164,35 @@ export function ensureMigrated(): void {
       moves.push([k, `scav.s1.${k.slice('scav.'.length)}`]);
     }
     for (const [from, to] of moves) {
-      // 슬롯 1에 이미 값이 있으면 그쪽이 최신이다 — 낡은 키는 버린다.
+      // A value already on slot 1 is the newer one — the old key is dropped.
       const v = s.getItem(from);
       if (v !== null && s.getItem(to) === null) s.setItem(to, v);
       s.removeItem(from);
     }
-  } catch { /* quota / private mode — 이관 못 해도 새 캐릭터로 계속 갈 수 있다 */ }
+  } catch { /* quota / private mode — a failed migration still leaves a new character playable */ }
 }
 
-/* ── 슬롯 카드 ────────────────────────────────────────────────────────────── */
+/* ── Slot cards ───────────────────────────────────────────────────────── */
 
 /**
- * 캐릭터 선택창의 칸 하나가 그리는 요약. 별도 색인 파일을 두지 않고 **그 슬롯의 세이브에서 바로 읽는다** —
- * 색인은 언젠가 본체와 어긋나고, 어긋난 색인은 "없는 캐릭터" 나 "빈 칸에 뜬 레벨" 로 보인다.
+ * The summary one cell of the character select screen draws. There is no separate index file — it is **read
+ * straight from that slot's saves**: an index goes out of step with the real thing eventually, and an index out of
+ * step reads as "a character that is not there" or "a level on an empty cell".
  */
 export interface SlotCard {
   id: SlotId;
-  /** 세이브가 없으면 null — 빈 칸이다. */
+  /** null when there is no save — an empty cell. */
   name: string | null;
   level: number;
-  /** 능력치 다섯. 세이브를 못 읽으면 빈 객체. */
+  /** The five stats. An empty object when the save cannot be read. */
   stats: Record<string, number>;
-  /** 병사 모델 악센트 색 (`PlayerProfile.accent`), 없으면 null. */
+  /** Accent colour of the soldier model (`PlayerProfile.accent`), null when there is none. */
   accent: string | null;
   implant: string | null;
   credits: number;
   raids: number;
   extractions: number;
-  /** epoch ms, 없으면 0. */
+  /** epoch ms, 0 when there is none. */
   createdAt: number;
   playedAt: number;
 }
@@ -210,7 +211,7 @@ function readJson(s: Storage, key: string): Record<string, unknown> | null {
 const numOf = (v: unknown, fallback = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 const strOf = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
 
-/** 한 칸의 요약. 세이브가 없으면 `name: null` 인 빈 칸이 나온다 (throw 하지 않는다). */
+/** The summary of one cell. With no save it returns an empty cell with `name: null` (it never throws). */
 export function readSlotCard(id: SlotId): SlotCard {
   const slot = clampSlot(id);
   const empty: SlotCard = {
@@ -243,19 +244,19 @@ export function readSlotCard(id: SlotId): SlotCard {
   };
 }
 
-/** 세 칸 전부, 1번부터. */
+/** All three cells, starting at 1. */
 export function readSlotCards(): SlotCard[] {
   return SLOT_IDS.map(readSlotCard);
 }
 
-/** 그 칸에 캐릭터가 있는가. */
+/** Is there a character in that cell? */
 export function slotOccupied(id: SlotId): boolean {
   return readSlotCard(id).name !== null;
 }
 
 /**
- * 한 슬롯의 세이브를 전부 지운다 (`scav.s<id>.*`). 공용 설정은 남는다. 지운 키 목록을 돌려준다.
- * 활성 슬롯을 지웠다면 부르는 쪽이 새로고침해야 이미 메모리에 올라온 시스템들이 따라온다.
+ * Deletes every save of one slot (`scav.s<id>.*`). Shared settings stay. Returns the list of keys removed.
+ * After deleting the active slot the caller has to reload for the systems already in memory to follow.
  */
 export function deleteSlot(id: SlotId): string[] {
   ensureMigrated();
@@ -269,7 +270,7 @@ export function deleteSlot(id: SlotId): string[] {
   return removed;
 }
 
-/** 한 슬롯의 세이브 파일 하나를 직접 쓴다 (캐릭터 생성이 **부팅 전에** 프로필을 심을 때). */
+/** Writes one save file of a slot directly (character creation planting a profile **before** the boot). */
 export function writeSlotSave(id: SlotId, base: string, value: unknown): boolean {
   ensureMigrated();
   const s = storage();
