@@ -1,8 +1,9 @@
 /**
- * src/enemies/parts/Status.ts — **상태이상**: 화상 · 전소 · 감전 · 둔화, 그리고 정찰 스캔의 **x-ray 실루엣**.
+ * src/enemies/parts/Status.ts — **status effects**: burning · incinerated · shocked · slowed, and the recon scan's
+ * **x-ray silhouette**.
  *
- * 호스트가 상태를 소유하고 `EnemyWire.sb` 비트로 리플리카에 미러링한다. 리플리카는 직접 걸 수 없으므로
- * `hit {dmg:0, st, dur}` 로 **요청**한다(`requestStatus`). DoT 처치의 킬 크레딧은 불을 놓은 사람에게 간다.
+ * The host owns the status and mirrors it to a replica in the `EnemyWire.sb` bits. A replica cannot apply one itself,
+ * so it **requests** it as `hit {dmg:0, st, dur}` (`requestStatus`). A DoT kill credits whoever lit the fire.
  */
 import * as THREE from 'three';
 import {
@@ -58,11 +59,11 @@ export function setXray(sys: EnemySystem, ids: readonly number[], seconds: numbe
 /**
  * Apply a status effect. `burning` deals `dps` damage (in 0.5 s ticks) for `duration` seconds and
  * spits embers; `slowed` reads `dps` as the fraction of speed removed (0.4 → 60 % speed), clamped to 0.2…1.
- * `incinerated` (전소, 2026-09-06): `duration` s of writhing on the spot — no movement / attacks, still damageable —
+ * `incinerated` (2026-09-06): `duration` s of writhing on the spot — no movement / attacks, still damageable —
  * `isIncapacitated`, faster embers, `enemy:incinerated`; `dps` is ignored. `shocked`: `dps` is the **speed
  * multiplier** (0..1, `SHOCK_SLOW_FACTOR` = 55 % speed) for `duration` s, plus a cyan spark strobe and
  * `enemy:shocked` (emitted once per shock, not per tick — the arc calls this every frame).
- * `dps` 0 (or `duration` 0 for 전소) clears the effect. Visuals run everywhere; gameplay only on the authority:
+ * `dps` 0 (or `duration` 0 for incineration) clears the effect. Visuals run everywhere; gameplay only on the authority:
  * a replica keeps the optimistic visual and forwards the request to the host as `hit {dmg: 0, st, dur}`
  * (`ENEMY_STATUS_BITS`), throttled per enemy for the continuous callers.
  */
@@ -93,7 +94,7 @@ export function applyStatus(sys: EnemySystem, id: number, status: EnemyStatusKin
       e.slowTimer = Math.max(e.slowTimer, duration);
       if (e.shockTimer <= 0) {
         sys.ctx.bus.emit('enemy:shocked', { id: e.id, position: e.position });
-        sys.playAudio(hurtSound(e.type), e.position, 0.35, 1.6);   // 2026-09-11 (C-51): 로그는 hit_flesh
+        sys.playAudio(hurtSound(e.type), e.position, 0.35, 1.6);   // 2026-09-11 (C-51): a rogue uses hit_flesh
         e.sparkTimer = 0;
       }
       e.shockTimer = Math.max(e.shockTimer, Math.min(duration, SHOCK_SPARK_TIME));
@@ -117,14 +118,14 @@ export function applyStatus(sys: EnemySystem, id: number, status: EnemyStatusKin
   }
   }
 
-/** Authority: put `e` into 전소 for `duration` s (event, scream, ember burst). */
+/** Authority: put `e` into the incinerated state for `duration` s (event, scream, ember burst). */
 export function incinerate(sys: EnemySystem, e: Enemy, duration: number): void {
   const fresh = e.incapTimer <= 0;
   e.incinerate(duration);
   if (!e.isIncapacitated) return;
   if (fresh) {
     sys.ctx.bus.emit('enemy:incinerated', { id: e.id, position: e.position, duration });
-    if (e.isHumanoid) { const pv = humanoidPainSound(e.type); sys.playAudio(pv.id, e.position, 0.8, pv.pitch); }   // 2026-09-13: 안드로이드 = 오작동음
+    if (e.isHumanoid) { const pv = humanoidPainSound(e.type); sys.playAudio(pv.id, e.position, 0.8, pv.pitch); }   // 2026-09-13: an android = a malfunction sound
     else sys.playAudio('bug_screech', e.position, 0.9, e.type === 'behemoth' ? 0.5 : e.type === 'charger' ? 0.7 : 1.35);
     _v.set(e.position.x, e.position.y + e.stats.height * 0.6, e.position.z);
     sys.emberBurst(_v, 14);
@@ -170,12 +171,13 @@ export function debugXray(sys: EnemySystem, id: number): { overlays: number; vis
   }
 
 /**
- * 2026-09-11 (C-14): 환경 재해가 적에게도 닿는다 — **권위에서만**, `HAZARD_TICK_S` 마다 살아 있는 적 중 재해 피해
- * 구역(`ctx.world.hazard.isInside`) 안의 몸에 `HAZARD_ENEMY_DPS × HAZARD_TICK_S`. **조용한** 피해다: `Enemy.applyDot(…,
- * 'ai', quiet)` 라 피 FX · `bug_hit` · `ee damaged` · 경직 · 어그로(`aware` / `alertNear`)가 없고, 킬 크레딧은 아무에게도
- * 가지 않는다 (`'ai'` → `enemy:killed` 없음). 떨어지는 hp 는 평소 스냅샷이 리플리카에 싣는다. 재해는 `missionTime` 의
- * 함수라 호스트가 바뀌어도 새 호스트가 같은 구역으로 이어 간다. `Enemy.takeDamage` 를 쓰지 않는 이유가 이것이다 —
- * 리플리카면 `requestHit` 이 되고 권위에서도 틱마다 FX · 방송 · 경직이 난다.
+ * 2026-09-11 (C-14): the environmental hazard reaches enemies too — **on the authority only**, every `HAZARD_TICK_S`,
+ * `HAZARD_ENEMY_DPS × HAZARD_TICK_S` to every living enemy inside the damage zone (`ctx.world.hazard.isInside`). It is
+ * **quiet** damage: `Enemy.applyDot(…, 'ai', quiet)`, so there is no blood FX · `bug_hit` · `ee damaged` · flinch ·
+ * aggro (`aware` / `alertNear`), and kill credit goes to nobody (`'ai'` → no `enemy:killed`). The falling hp rides the
+ * ordinary snapshot to the replicas. The hazard is a function of `missionTime`, so a new host carries on with the same
+ * zone. That is why `Enemy.takeDamage` is not used — on a replica it would become `requestHit`, and on the authority it
+ * would fire FX · a broadcast · a flinch every tick.
  */
 export function updateHazardDot(sys: EnemySystem, dt: number): void {
   const hz = sys.ctx.world?.hazard ?? null;
@@ -183,22 +185,23 @@ export function updateHazardDot(sys: EnemySystem, dt: number): void {
   sys.hazardTick += dt;
   if (sys.hazardTick < HAZARD_TICK_S) return;
   sys.hazardTick = Math.min(sys.hazardTick - HAZARD_TICK_S, HAZARD_TICK_S);   // a long frame never stacks ticks
-  // 2026-09-13: 재해는 시간에 따라 강해진다 — 플레이어와 같은 비율(`HazardRef.damageMul`, 1 → HAZARD_DPS_MAX / HAZARD_DPS)
+  // 2026-09-13: the hazard grows stronger with time — the same ratio as for the player (`HazardRef.damageMul`, 1 → HAZARD_DPS_MAX / HAZARD_DPS)
   const dmg = HAZARD_ENEMY_DPS * HAZARD_TICK_S * hz.damageMul;
   if (!(dmg > 0)) return;
   for (let i = sys.active.length - 1; i >= 0; i--) {
     const e = sys.active[i];
     if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
-    /* 2026-09-18 (벌레 알): 재해는 알을 깨지 않는다. 알은 둥지의 **보상**이고 자리가 고정이라, 지나가는 재해가 덮으면
-       플레이어가 손도 대기 전에 그 둥지의 전리품이 통째로 사라진다 — 「재해 피해로 조용히 사라지는 보상」은 없다.
-       불 · 소이 지대 같은 **누가 낸** 상태 피해는 그대로 들어간다 (`updateStatuses`). */
+    /* 2026-09-18 (bug eggs): the hazard does not break an egg. An egg is the nest's **reward** and its spot is fixed,
+       so a passing hazard covering it would wipe that nest's loot whole before the player ever touched it — there is no
+       「reward that silently disappears to hazard damage」. Status damage **somebody caused** (fire, an incendiary zone)
+       still lands (`updateStatuses`). */
     if (e.isEgg) continue;
     if (!hz.isInside(e.position.x, e.position.z)) continue;
     e.applyDot(dmg, 'ai', true);
   }
   }
 
-/* ── status effects (burning / slow / 전소 / shocked) ──────────────────── */
+/* ── status effects (burning / slow / incinerated / shocked) ─────────── */
 export function updateStatuses(sys: EnemySystem, dt: number): void {
   const authority = sys.authority;
   for (let i = 0; i < sys.active.length; i++) {

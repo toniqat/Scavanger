@@ -27,10 +27,10 @@ export function tuple(v: THREE.Vector3, dp = 2): Vec3Tuple {
  * 2026-09-17: 23 hunter flipped and falling, 24 hunter lying flipped (`ai/HunterFlip`).
  */
 export function animHint(e: Enemy): number {
-  if (e.spatT > 0 && e.state !== 'dead') return 4;   // 2026-09-13: 땅굴벌레가 뱉은 몸은 날고 있다 (종류 분기보다 먼저 — 독성 · 포병도)
-  if (e.namedHint > 0 && e.state !== 'dead') return e.namedHint;   // 죽은 몸은 마지막 힌트(연사 19 등)를 싣지 않는다
+  if (e.spatT > 0 && e.state !== 'dead') return 4;   // 2026-09-13: a body the sandworm spat is in flight (before the type branches — toxic and artillery too)
+  if (e.namedHint > 0 && e.state !== 'dead') return e.namedHint;   // a dead body does not carry its last hint (spray 19 and the like)
   if (e.isHumanoid) {
-    if (e.incapTimer > 0) return 0;      // 전소: the replica writhes from the status bit, not the cover pose
+    if (e.incapTimer > 0) return 0;      // incinerated: the replica writhes from the status bit, not the cover pose
     if (e.state === 'stagger') return 6;
     if (e.throwTimer > 0) return 13;     // Phase 7: grenade wind-up
     if (e.reloadTimer > 0) return 12;    // Phase 7: reloading (crouched, rifle down)
@@ -47,9 +47,9 @@ export function animHint(e: Enemy): number {
     return 0;
   }
   if (e.type === 'toxic') return e.toxicPhase === 1 ? 9 : 0;
-  // 2026-09-17: 25 = 포병이 납작 엎드렸다 (쏘기 전 대기 · 쏜 뒤 고정 — `Enemy.shellPhase`, `ai/GimmickAI.artilleryFireSequence`)
+  // 2026-09-17: 25 = the artillery is braced flat (waiting before the shot · locked after it — `Enemy.shellPhase`, `ai/GimmickAI.artilleryFireSequence`)
   if (e.type === 'artillery') return e.shellPhase !== 0 ? 25 : e.dug > 0.5 ? 8 : 0;
-  // 2026-09-17: 헌터 뒤집힘 — 23 떨어지는 중 · 24 누워 있음 (`ai/HunterFlip`). `airborne` 보다 먼저 (떨어지는 동안도 airborne 이다)
+  // 2026-09-17: the hunter flip — 23 falling · 24 lying (`ai/HunterFlip`). Before `airborne` (it is airborne while falling too)
   if (e.flipFalling) return 23;
   if (e.flipTimer > 0) return 24;
   if (e.airborne) return 4;
@@ -62,7 +62,7 @@ export function animHint(e: Enemy): number {
 /** Corpses leave the snapshot once the death animation has settled (replicas keep them from their own corpse timer). */
 const CORPSE_SNAPSHOT_SECONDS = 1.5;
 
-/** Live status bits (`EnemyWire.sb`, `ENEMY_STATUS_BITS`): burning / slowed / 전소 / shocked. 0 when clean. */
+/** Live status bits (`EnemyWire.sb`, `ENEMY_STATUS_BITS`): burning / slowed / incinerated / shocked. 0 when clean. */
 export function statusBits(e: Enemy): number {
   let b = 0;
   if (e.burnTimer > 0) b |= ENEMY_STATUS_BITS.BURNING;

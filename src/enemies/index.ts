@@ -12,13 +12,13 @@ export {
 } from './Spawner';
 export { placeRogueGuards, guardCap, ECO_BOSS_CHANCE, MAX_GUARDS, type RogueSpawnHost, type GuardPlacement } from './RogueGuards';
 export { placeTutorialEnemies, tutorialHold, updateTutorialAmbush, type TutorialAmbush, type TutorialPlacement } from './Tutorial';
-/* appended (2026-09-15): 연쇄 스폰 · 구간 어그로 해제 · 이륙 사격 창 */
+/* appended (2026-09-15): chain spawn · per-stretch aggro release · the liftoff fire window */
 export { onTutorialCheckpoint, onTutorialFell, onTutorialLiftoff, updateTutorialScript, type TutorialScriptHost } from './Tutorial';
 export { RogueDropDirector, disposeRogueDropAssets, type RogueDropHost } from './RogueDrop';
 export { Corpse, CorpseManager } from './Corpses';
 export { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
 export { WaveDirector, WAVE_ALIVE_CAP } from './WaveDirector';
-/* appended (2026-09-18): 벌레 둥지 — 알 · 앵커 · 수비대 리시 · 보충 */
+/* appended (2026-09-18): bug nests — eggs · anchors · the garrison leash · refill */
 export { NestDirector, applyEggSize, type NestPlacement } from './NestDirector';
 export { nestLeashHold } from './ai/NestLeash';
 export { createEggRig, disposeEggRig, animateEgg, disposeEggAssets, setEggScale, type EggRig } from './models/EggModel';

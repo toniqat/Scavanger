@@ -1,8 +1,8 @@
 /**
- * src/enemies/parts/Attacks.ts — **적이 하는 공격**.
+ * src/enemies/parts/Attacks.ts — **the attacks enemies make**.
  *
- * 산성 침 · 로그의 총 · 포병 포탄(요격 가능) · 로그 수류탄 · 독성 자폭. 전부 **호스트에서만** 결정되고
- * 결과가 `ee` 이벤트로 나가며, 각 클라이언트는 `parts/RemoteFx.ts` 에서 연출만 재생한다.
+ * The acid spit · the rogue's gun · artillery shells (interceptable) · rogue grenades · the toxic suicide burst. All of it
+ * is decided **on the host alone**, the result goes out as an `ee` event, and each client only replays the FX in `parts/RemoteFx.ts`.
  */
 import * as THREE from 'three';
 import {
@@ -17,7 +17,7 @@ import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart, type RogueShotOpts } from '../Enemy';
 import { ENEMY_CLASH, ENEMY_INCENDIARY, ROGUE_AI, SPEWER_SPIT } from '../EnemyTypes';
 import { ENEMY_GRENADE_KINDS, type EnemyGrenadeKind } from '@/shared';
-/* appended (2026-09-15, B-16): 적 화염 지대가 드론을 태운다 */
+/* appended (2026-09-15, B-16): an enemy fire zone burns drones */
 import { FIRE_ZONE_DRONE_HEIGHT } from '@/shared';
 import { humanoidProfile } from '../ai/HumanoidProfile';
 import { SpatialGrid } from '../SpatialGrid';
@@ -44,14 +44,14 @@ import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHELL_ARC_CHECK_FRAC, SHELL_ARC_SAMPLES, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _arcA, _arcD, _arcP, _arcV, _c, _dir, _eye, _hc, _hd, _hp, _kb, _lead, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
 import { meleeHitSound } from '../model';
 import type { EnemySystem } from '../EnemySystem';
-/* 2026-09-15 (결과 창 개편): 플레이어 피해의 출처 (개체별 캐시) */
+/* 2026-09-15 (results screen overhaul): where the player's damage came from (cached per body) */
 import { enemyDamageSource, enemyTypeOf } from './Damage';
-/* 2026-09-15 (안드로이드 분대원): 적의 광역 피해 · 화염 지대의 안드로이드 몫 */
+/* 2026-09-15 (android squadmates): the android share of an enemy's area damage and of a fire zone */
 import { allyDamage, damageAlliesAt } from './Damage';
 
 /**
- * 2026-09-15 (결과 창 개편): 날아가는 포탄 → 쏜 포병 개체. 포탄 풀은 주인을 모르므로 권위가 발사 때 적고 착탄 · 요격 때 지운다.
- * 없으면(승격 전 호스트가 쏜 포탄 · 리셋으로 사라진 포탄) 예전처럼 id 0 · `artillery` 다. 상한은 표현용 안전핀.
+ * 2026-09-15 (results screen overhaul): a shell in flight → the artillery that fired it. The shell pool does not know its owner, so the
+ * authority notes it at launch and clears it on landing / interception. With none (host-fired before promotion, lost to a reset) it is id 0 · `artillery`, as before. The cap is a nominal pin.
  */
 const _shellOwners = new Map<number, { id: number; type: EnemyType }>();
 const SHELL_OWNER_CACHE_MAX = 256;
@@ -117,7 +117,7 @@ export function throwGrenade(sys: EnemySystem, e: Enemy, target: THREE.Vector3):
 
 /* ── GrenadeHost ───────────────────────────────────────────────────────── */
 /**
- * Fuse ran out. Authority: ROGUE_GRENADE_DAMAGE with the shared 2단 계단 falloff (`shared/explosion`) over ROGUE_GRENADE_RADIUS to every alive player
+ * Fuse ran out. Authority: ROGUE_GRENADE_DAMAGE with the shared two-step-stair falloff (`shared/explosion`) over ROGUE_GRENADE_RADIUS to every alive player
  * (local directly, remote via `dmg {kb}`, suspended via `ghost:damage`) and to enemies of the other faction, blast
  * noise, `ee grenadeHit`. Everyone: audio, shake near the local player.
  * 2026-09-13: `kind` — an incendiary is a small blast (`ENEMY_INCENDIARY.blastDamage` / `blastRadius`, no knockback);
@@ -133,7 +133,7 @@ export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority:
   const damage = fire ? ENEMY_INCENDIARY.blastDamage : ROGUE_GRENADE_DAMAGE;
   if (authority && sys.authority) {
     const thrower = sys.byId.get(owner);
-    const type: EnemyType = thrower?.type ?? enemyTypeOf(sys, owner, 'rogue');   // 2026-09-15: 던진 뒤 죽은 개체도 제 종류로
+    const type: EnemyType = thrower?.type ?? enemyTypeOf(sys, owner, 'rogue');   // 2026-09-15: a body that died after throwing still keeps its own type
     const players = sys.targets.alive;
     const reach = radius + PLAYER_RADIUS;
     for (let i = 0; i < players.length; i++) {
@@ -141,22 +141,22 @@ export function onGrenadeExploded(sys: EnemySystem, p: THREE.Vector3, authority:
       _c.set(t.position.x, t.position.y + PLAYER_HEIGHT * 0.5, t.position.z);
       const d = _c.distanceTo(p);
       if (d >= reach) continue;
-      // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 너머는 맞지 않는다 (몸 3점, `shared/explosion.blastReachesBody`)
+      // 2026-09-18 (user's decision): nothing past a wall · roof · floor is hit (the 3 body points, `shared/explosion.blastReachesBody`)
       if (!blastReachesBody(ctx.world, p, t.position.x, t.position.y, t.position.z, PLAYER_HEIGHT)) continue;
-      // 2026-09-15 (사용자 결정): 적 수류탄도 공용 2단 계단 (`shared/explosion`) — 하한 0.1 은 그 위에 그대로 얹는다
+      // 2026-09-15 (user's decision): an enemy grenade uses the shared two-step stair too (`shared/explosion`) — the 0.1 floor is laid on top of it unchanged
       const falloff = Math.max(0.1, explosionFalloff(Math.max(0, d - PLAYER_RADIUS), radius));
       if (fire) { sys.applyDamage(t, damage * falloff, p, owner, type, null, 0.5 * falloff, false); continue; }
       _kb.subVectors(_c, p); _kb.y = Math.max(_kb.y, 0) + 0.35;
       if (_kb.lengthSq() < 1e-4) _kb.set(0, 1, 0); else _kb.normalize();
       sys.applyDamage(t, damage * falloff, p, owner, type, null, 0.9 * falloff, false, _kb, GRENADE_KNOCKBACK * falloff);
     }
-    // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (가슴에서 잰 거리 · 하한 0.1). 넉백은 없다.
+    // 2026-09-15 (android squadmates): the same formula as the player loop (the distance measured at the chest · floor 0.1). No knockback.
     damageAlliesAt(sys, p, radius, damage, owner, type, 0.1, 'chest');
-    sys.explode(p, radius, damage * ENEMY_CLASH.damageMul, 'ai', null, null, thrower?.faction ?? 'rogue');   // 2026-09-17: 적 → 적 피해 배수
-    // 드론 · 탐사 차량 몫은 `explode()` 안이 아니라 **적 폭발 자리마다** 따로 부른다 — `explode()` 는 플레이어 무기 · 가젯 ·
-    // 함선 호출 · 리플리카 `explode` 요청도 지나가므로, 거기 넣으면 드론은 두 번 맞고 차량은 플레이어 공격에 깎인다.
-    ctx.drones?.applyExplosion(p, radius, damage);   // 2026-09-11: 권한에서만 (소유자에게는 damageDrone 이 넘긴다)
-    sys.targets.damageVehicleAt(p, radius, damage);  // 2026-09-13: 탐사 차량 (적의 폭발만)
+    sys.explode(p, radius, damage * ENEMY_CLASH.damageMul, 'ai', null, null, thrower?.faction ?? 'rogue');   // 2026-09-17: the enemy → enemy damage multiplier
+    // the drone and rover shares are called **at each enemy blast site**, not inside `explode()` — player weapons, gadgets, ship
+    // calls and a replica's `explode` request pass through `explode()` too, so putting it there hits a drone twice and lets a player's attack damage the vehicle.
+    ctx.drones?.applyExplosion(p, radius, damage);   // 2026-09-11: on the authority only (damageDrone forwards to the owner)
+    sys.targets.damageVehicleAt(p, radius, damage);  // 2026-09-13: the rover (enemy explosions only)
     sys.alertHearing(p, GRENADE_NOISE);
     if (sys.hosting) {
       const k = Math.max(0, ENEMY_GRENADE_KINDS.indexOf(kind));
@@ -179,7 +179,7 @@ const FIRE_ZONE_HEIGHT = 2.5;
  *   through `applyDamage` (no `ee attack`), a suspended one `ghost:damage` — the same routing as every other enemy hit.
  * - **enemies not of `faction`**: the burning status (`burnDps` / `burnTimer`), credited to `'ai'` unless a player
  *   already lit it — so an enemy's fire never hands a player a kill.
- * 2026-09-13: the **탐사 차량** burns too when its footprint overlaps the zone on the same floor (`RoverRef.damage`, dps × tick).
+ * 2026-09-13: the **rover** burns too when its footprint overlaps the zone on the same floor (`RoverRef.damage`, dps × tick).
  * 2026-09-15 (B-16): **drones** burn — horizontal distance ≤ `radius` and below `FIRE_ZONE_DRONE_HEIGHT` over the zone (a ground
  * drone always, an air drone only while it hovers low; another floor below does not). Drones are the players', so the thrower's
  * faction never spares them. `damageDrone(dps × tick)` forwards to the owner itself (`droneq damage`) — owner-authoritative.
@@ -199,11 +199,11 @@ export function onFireZoneTick(sys: EnemySystem, p: THREE.Vector3, radius: numbe
     if (dx * dx + dz * dz > reach * reach || Math.abs(t.position.y - p.y) > FIRE_ZONE_HEIGHT) continue;
     if (t.isLocal) {
       const pl = ctx.player;
-      // 2026-09-15 (결과 창 개편): 화상 틱 · 사망 원인 = 불을 지른 적 개체 (캐시된 출처 — 틱마다 할당 없음)
+      // 2026-09-15 (results screen overhaul): the burn tick and the cause of death = the enemy body that lit the fire (a cached source — nothing allocated per tick)
       if (pl && !pl.isDead && typeof pl.setBurning === 'function') pl.setBurning(dps, ENEMY_INCENDIARY.afterburn, enemyDamageSource(owner, type));
     } else sys.applyDamage(t, dps * tick, p, owner, type, null, 0, false);
   }
-  // 2026-09-15 (안드로이드 분대원): 지대에 서 있으면 사람과 같은 dps × tick (안드로이드는 `setBurning` 같은 자기 화상 상태가 없다)
+  // 2026-09-15 (android squadmates): standing in the zone costs the same dps × tick as a person (an android has no burning state of its own like `setBurning`)
   const allies = sys.targets.allies;
   for (let i = 0; i < allies.length; i++) {
     const t = allies[i];
@@ -237,7 +237,7 @@ export function onFireZoneTick(sys: EnemySystem, p: THREE.Vector3, radius: numbe
     const dx = e.position.x - p.x, dz = e.position.z - p.z;
     const reach = radius + e.stats.radius;
     if (dx * dx + dz * dz > reach * reach || Math.abs(e.position.y - p.y) > FIRE_ZONE_HEIGHT) continue;
-    e.burnDps = Math.max(e.burnDps, dps * ENEMY_CLASH.damageMul);   // 2026-09-17: 적 → 적 피해 배수
+    e.burnDps = Math.max(e.burnDps, dps * ENEMY_CLASH.damageMul);   // 2026-09-17: the enemy → enemy damage multiplier
     e.burnTimer = Math.max(e.burnTimer, ENEMY_INCENDIARY.afterburn);
     if (e.burnTick <= 0) e.burnTick = BURN_TICK;
     if (e.burnAttacker === null) e.burnAttacker = 'ai';
@@ -245,10 +245,10 @@ export function onFireZoneTick(sys: EnemySystem, p: THREE.Vector3, radius: numbe
   }
 
 export function fireAcid(sys: EnemySystem, from: THREE.Vector3, shooter: Enemy, target: CombatTarget): void {
-  // 2026-09-13: 탐사 차량 프록시도 같은 길 — `ee acid` 는 플레이어만 이름 붙이므로 조준점 그대로 `ee acidAt`. 직격은 글롭이 차체 상자로 판정한다.
+  // 2026-09-13: the rover proxy takes the same path — `ee acid` can only name a player, so the aim point goes out as `ee acidAt`. A direct hit is judged by the glob against the hull box.
   if (target.drone || target.vehicle) {
-    // 2026-09-11: 드론 표적 — 예측 조준(`fire`)은 그대로. 직격은 `AcidProjectiles` 가 드론 몸체로 판정한다.
-    // C-48: `ee acid` 는 플레이어만 이름 붙일 수 있으므로 조준점 그대로 `ee acidAt` 으로 보낸다 (예전엔 와이어가 없었다).
+    // 2026-09-11: drone targets — the predictive aim (`fire`) is unchanged. A direct hit is judged by `AcidProjectiles` against the drone body.
+    // C-48: `ee acid` can only name a player, so the aim point is sent as `ee acidAt` instead (before this there was no wire at all).
     if (sys.acid?.fire(from, target, shooter.id, _acidTo, shooter.faction)) sendAcidAt(sys, shooter.id, from, _acidTo);
     return;
   }
@@ -277,8 +277,8 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
   const ctx = sys.ctx;
   const world = ctx.world;
   if (!world) return false;
-  /* 2026-09-14 3차: 사격 보류(`ExtractionRef.holdFire`) — 사선 게이트(`ai/FireLine`)를 지나지 않는 사격
-     (네임드 저격 · 미니건 스프레이)까지 여기서 한 번 더 막는다. 총구 FX · 소리 · 탄약 소모 전이다. */
+  /* 2026-09-14 3rd pass: holding fire (`ExtractionRef.holdFire`) — shots that do not pass the line-of-fire gate (`ai/FireLine`)
+     — a named sniper's shot, the minigun spray — are stopped once more here. Before the muzzle FX, the sound and the ammo spend. */
   if (holdingFire(sys)) return false;
   e.muzzle(_m);
   if (opts?.aimAt) _aim.copy(opts.aimAt); else target.getChest(_aim);
@@ -303,8 +303,8 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
     const tt = rayStandingCapsule(_m, _dir, t.position, PLAYER_RADIUS, PLAYER_HEIGHT);
     if (tt >= 0 && tt < hitT) { hitT = tt; victim = t; }
   }
-  // 2026-09-15 (안드로이드 분대원): 사람과 **같은 캡슐**로 총알을 막는다 — 몸 크기도, 맞는 방식도 같다.
-  // 피해는 `applyDamage` 의 안드로이드 가지 → `ctx.allies.damage` (권위에서만).
+  // 2026-09-15 (android squadmates): they stop a bullet with the **same capsule** as a person — the same body size, hit the same way.
+  // Damage goes through `applyDamage`'s android branch → `ctx.allies.damage` (on the authority only).
   const allies = sys.targets.allies;
   for (let i = 0; i < allies.length; i++) {
     const t = allies[i];
@@ -312,8 +312,8 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
     const tt = rayStandingCapsule(_m, _dir, t.position, PLAYER_RADIUS, PLAYER_HEIGHT);
     if (tt >= 0 && tt < hitT) { hitT = tt; victim = t; }
   }
-  // 2026-09-11 (적 ↔ 드론): 노려도 되는(aggroable) 드론의 몸체도 막는다. 프록시 `position` 은 몸체 **밑면**이라 공중
-  // 드론도 같은 식이고, 납작한 몸체(높이 < 지름)는 몸체 중심의 구가 된다. 걷는 지상 드론은 목록에 없어 총알이 지나간다.
+  // 2026-09-11 (enemy ↔ drone): the body of a targetable (aggroable) drone stops a bullet too. The proxy `position` is the body's
+  // **underside**, so an air drone uses the same formula, and a flat body (height < diameter) becomes a sphere at the body centre. A walking ground drone is not in the list, so bullets pass through it.
   let droneHit: CombatTarget | null = null;
   const drones = sys.targets.drones;
   for (let i = 0; i < drones.length; i++) {
@@ -323,8 +323,8 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
     const tt = rayCapsule(_m, _dir, t.position.x, t.position.z, Math.min(cy, t.position.y + r), Math.max(cy, t.position.y + h - r), r).t;
     if (tt >= 0 && tt < hitT) { hitT = tt; victim = null; droneHit = t; }
   }
-  // 2026-09-13 (탐사 차량): 차체 상자. 월드 레이캐스트가 차체 콜라이더에서 먼저 멈추므로(`wh`) 그 탄착이 차체 입구의
-  // `VEHICLE_RAY_MARGIN` 안이면 차량이 맞은 것이다 — 플레이어를 노린 총알이 앞을 가로막은 차량에 맞아도 같다.
+  // 2026-09-13 (the rover): the hull box. The world raycast stops at the hull collider first (`wh`), so when that impact lands
+  // within `VEHICLE_RAY_MARGIN` of the hull's face the vehicle was hit — the same when a bullet aimed at a player hits the vehicle standing in front of it.
   let vehicleHit: CombatTarget | null = null;
   const vehicles = sys.targets.vehicles;
   for (let i = 0; i < vehicles.length; i++) {
@@ -336,7 +336,7 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
   let foe: Enemy | null = null;
   const eh = sys.raycastEx(_m, _dir, hitT, e);
   if (eh && eh.distance < hitT) { hitT = eh.distance; victim = null; droneHit = null; vehicleHit = null; foe = eh.enemy as Enemy; }
-  // Phase 9: a 배리어 in the line stops the round (one pure raycast per shot; the barrier takes the block damage)
+  // Phase 9: a barrier in the line stops the round (one pure raycast per shot; the barrier takes the block damage)
   let barrier = false;
   const imp = ctx.implants;
   if (imp) {
@@ -361,10 +361,10 @@ export function fireGun(sys: EnemySystem, e: Enemy, target: CombatTarget, aimErr
     if (fx) { _v2.copy(_dir).negate(); ParticleBurst.sparks(fx.additive, _to, _v2, 6, 5); }
   }
   else if (foe && foe.faction !== e.faction) {
-    foe.takeDamage(dmg * ENEMY_CLASH.damageMul, _to, _dir, 'ai');   // 2026-09-17: 적 → 적 피해 배수 (사람 · 안드로이드 몫은 위 가지 그대로)
+    foe.takeDamage(dmg * ENEMY_CLASH.damageMul, _to, _dir, 'ai');   // 2026-09-17: the enemy → enemy damage multiplier (the person and android shares keep the branches above)
     sys.noteClash(_to);
   }
-  // 2026-09-11: 로그의 총알도 창문 유리를 깬다 (몸 · 배리어에 막히지 않고 유리가 첫 표면일 때)
+  // 2026-09-11: a rogue's bullet breaks window glass too (when no body and no barrier stopped it and glass is the first surface)
   if (wh && !victim && !droneHit && !vehicleHit && !foe && !barrier && wh.obstacle?.fragile) wh.obstacle.destructible?.onDamage(dmg, wh.point);
   if (wh && !victim && !droneHit && !vehicleHit && !foe && !barrier) {
     const fx = FxManager.get();
@@ -389,14 +389,14 @@ export function shotFx(sys: EnemySystem, from: THREE.Vector3, to: THREE.Vector3,
   }
 
 /**
- * 발사 전 궤적 검사 (2026-09-10). `SHELL_ARC_GRAVITY` 를 낮춰 정점이 48.7 m → 9.9 m 가 된 뒤로 포탄이 언덕 ·
- * 나무 · 폐허 벽에 걸린다. 걸리면 그 자리에서 터지는 것 자체는 맞는 동작이지만(`fx/ShellProjectile.update`),
- * 그게 **제 발치**면 포병은 6~9초마다 자살하는 셈이라 발사가 무의미해진다. 그래서 쏘기 전에 궤적의 앞쪽
- * `SHELL_ARC_CHECK_FRAC` 를 `SHELL_ARC_SAMPLES` 개의 현으로 훑는다.
+ * The arc check before firing (2026-09-10). Since `SHELL_ARC_GRAVITY` was lowered and the apex went 48.7 m → 9.9 m, shells
+ * catch on hills, trees and ruin walls. Bursting where it caught is the right behaviour in itself
+ * (`fx/ShellProjectile.update`), but when that is **at its own feet** the artillery kills itself every 6–9 s and firing
+ * becomes pointless. So before the shot the first `SHELL_ARC_CHECK_FRAC` of the arc is swept as `SHELL_ARC_SAMPLES` chords.
  *
- * - 현은 포물선 **아래**를 지나므로 검사는 보수적이다 — "뚫렸는데 막혔다고 본다" 는 있어도 그 반대는 없다.
- * - 마지막 하강 구간은 일부러 보지 않는다: 조준점이 땅이라 무조건 걸리고, 표적 앞 벽에 맞는 것은 막을 이유가 없다.
- * - 발사 시점(포 하나가 6~9초에 한 번)에만 도는 4회 레이캐스트라 핫 패스가 아니다.
+ * - A chord passes **below** the parabola, so the check is conservative — "clear but read as blocked" happens, never the other way round.
+ * - The last descending stretch is deliberately not looked at: the aim point is the ground, so it always catches, and there is no reason to refuse a wall in front of the target.
+ * - It is 4 raycasts run only at the moment of firing (one gun every 6–9 s), so it is not a hot path.
  */
 export function shellArcBlocked(world: WorldRef, from: THREE.Vector3, target: THREE.Vector3, flight: number): boolean {
   shellLaunchVelocity(from, target, flight, _arcV);
@@ -438,7 +438,7 @@ export function fireShell(sys: EnemySystem, e: Enemy, target: CombatTarget): boo
   const sid = sys.nextShellId++;
   if (!sys.shells.fire(sid, _m, _aim, SHELL_FLIGHT_TIME)) return false;
   if (_shellOwners.size >= SHELL_OWNER_CACHE_MAX) _shellOwners.clear();
-  _shellOwners.set(sid, { id: e.id, type: e.type });   // 2026-09-15: 착탄 피해의 출처
+  _shellOwners.set(sid, { id: e.id, type: e.type });   // 2026-09-15: where the landing damage came from
   sys.playAudio('bug_attack', e.position, 1, 0.45);
   const fx = FxManager.get();
   if (fx) { ParticleBurst.smoke(fx.alpha, _m, 10, 1.0, 0x3a3532); fx.flashes.flash(_m, 0xffa060, 0, 1.4, 0.08); }
@@ -458,21 +458,21 @@ export function onShellLanded(sys: EnemySystem, sid: number, p: THREE.Vector3): 
       const t = players[i];
       const d = t.position.distanceTo(p);
       if (d < SHELL_BLAST_RADIUS + PLAYER_RADIUS) {
-        // 2026-09-18 (사용자 결정): 지붕에 떨어진 포탄은 그 아래 사람을, 벽에 맞은 포탄은 벽 너머를 다치게 하지 않는다
+        // 2026-09-18 (user's decision): a shell that landed on a roof does not hurt the person below it, and one that hit a wall does not hurt anyone past it
         if (!blastReachesBody(ctx.world, p, t.position.x, t.position.y, t.position.z, PLAYER_HEIGHT)) continue;
         _v.set(p.x, p.y + 0.6, p.z);
-        if (sys.barrierBlocks(_v, t)) continue;   // Phase 9: the blast stops at a 배리어 between the crater and the player
-        // 2026-09-15 (사용자 결정 — 모든 폭발물이 같은 공식): 옛 `× 0.75` 선형 대신 공용 2단 계단.
-        //   하한 0.25 는 남긴다 — 같은 폭발의 적 · 드론 · 차량 몫(`sys.explode` · `applyExplosion` · `damageVehicleAt`)이 이미 같은 계단이다.
+        if (sys.barrierBlocks(_v, t)) continue;   // Phase 9: the blast stops at a barrier between the crater and the player
+        // 2026-09-15 (user's decision — one formula for every explosive): the shared two-step stair instead of the old linear `× 0.75`.
+        //   The 0.25 floor stays — the enemy · drone · vehicle shares of the same blast (`sys.explode` · `applyExplosion` · `damageVehicleAt`) are already on that stair.
         const dmg = SHELL_DAMAGE * Math.max(0.25, explosionFalloff(Math.max(0, d - PLAYER_RADIUS), SHELL_BLAST_RADIUS));
         sys.applyDamage(t, dmg, p, shooter?.id ?? 0, shooter?.type ?? 'artillery', null, 0.9, false);
       }
     }
-    // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (발에서 잰 거리 · 하한 0.25). 배리어는 사람만 든다.
+    // 2026-09-15 (android squadmates): the same formula as the player loop (the distance measured at the feet · floor 0.25). Only a person carries a barrier.
     damageAlliesAt(sys, p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, shooter?.id ?? 0, shooter?.type ?? 'artillery', 0.25, 'feet');
-    sys.explode(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE * ENEMY_CLASH.damageMul, 'ai', null, null);   // friendly fire on bugs and rogues alike (2026-09-17: × 적 → 적 배수)
-    ctx.drones?.applyExplosion(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE);      // 2026-09-11: 드론도 (권한에서 한 번)
-    sys.targets.damageVehicleAt(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, 0.25); // 2026-09-13: 탐사 차량 (플레이어와 같은 최소 감쇠)
+    sys.explode(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE * ENEMY_CLASH.damageMul, 'ai', null, null);   // friendly fire on bugs and rogues alike (2026-09-17: × the enemy → enemy multiplier)
+    ctx.drones?.applyExplosion(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE);      // 2026-09-11: drones too (once, on the authority)
+    sys.targets.damageVehicleAt(p, SHELL_BLAST_RADIUS, SHELL_DAMAGE, 0.25); // 2026-09-13: the rover (the same falloff floor as the player)
   }
   sys.playAudio('explosion', p, 1, 0.85);
   const dl = sys.targets.distToLocal(p);
@@ -501,13 +501,13 @@ export function acidBurst(sys: EnemySystem, e: Enemy): void {
     for (let i = 0; i < players.length; i++) {
       const t = players[i];
       const d = t.position.distanceTo(e.position);
-      if (d < SPEWER_SPIT.deathBurstRadius && blastReachesBody(ctx.world, e.position, t.position.x, t.position.y, t.position.z, PLAYER_HEIGHT)) {   // 2026-09-18: 벽 차폐
-        // 2026-09-15 (사용자 결정): 공용 2단 계단 — 옛 `× 0.6` 선형은 하한이 없어 가장자리에서 40 % 였다.
+      if (d < SPEWER_SPIT.deathBurstRadius && blastReachesBody(ctx.world, e.position, t.position.x, t.position.y, t.position.z, PLAYER_HEIGHT)) {   // 2026-09-18: wall occlusion
+        // 2026-09-15 (user's decision): the shared two-step stair — the old linear `× 0.6` had no floor and was 40 % at the rim.
         const dmg = SPEWER_SPIT.deathBurstDamage * explosionFalloff(d, SPEWER_SPIT.deathBurstRadius);
         sys.applyDamage(t, dmg, e.position, e.id, e.type, { duration: 1.2, factor: 0.7 }, 0, false);
       }
     }
-    // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 폭발. 하한이 없는 것도 같다 (몸 반지름만큼만 후하게 잰다).
+    // 2026-09-15 (android squadmates): the same blast as the player loop. Having no floor is the same too (it only measures as generously as the body radius).
     damageAlliesAt(sys, e.position, SPEWER_SPIT.deathBurstRadius, SPEWER_SPIT.deathBurstDamage, e.id, e.type, 0, 'feet');
     ctx.drones?.applyExplosion(e.position, SPEWER_SPIT.deathBurstRadius, SPEWER_SPIT.deathBurstDamage);   // 2026-09-11
     sys.targets.damageVehicleAt(e.position, SPEWER_SPIT.deathBurstRadius, SPEWER_SPIT.deathBurstDamage, 0.4);   // 2026-09-13
@@ -528,17 +528,17 @@ export function toxicBurst(sys: EnemySystem, e: Enemy): void {
   for (let i = 0; i < players.length; i++) {
     const t = players[i];
     const d = t.position.distanceTo(_c);
-    if (d < TOXIC_RADIUS + PLAYER_RADIUS && blastReachesBody(ctx.world, _c, t.position.x, t.position.y, t.position.z, PLAYER_HEIGHT)) {   // 2026-09-18: 벽 차폐
-      // 2026-09-15 (사용자 결정): 공용 2단 계단. 하한 0.2 는 남긴다 (적 · 드론 · 차량 몫과 같은 폭발이다).
+    if (d < TOXIC_RADIUS + PLAYER_RADIUS && blastReachesBody(ctx.world, _c, t.position.x, t.position.y, t.position.z, PLAYER_HEIGHT)) {   // 2026-09-18: wall occlusion
+      // 2026-09-15 (user's decision): the shared two-step stair. The 0.2 floor stays (it is the same blast as the enemy · drone · vehicle shares).
       const dmg = TOXIC_DAMAGE * Math.max(0.2, explosionFalloff(Math.max(0, d - PLAYER_RADIUS), TOXIC_RADIUS));
       sys.applyDamage(t, dmg, _c, e.id, e.type, { duration: 1.5, factor: 0.65 }, 0.5, false);
     }
   }
-  // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (발 거리 · 하한 0.2). 둔화는 없다.
+  // 2026-09-15 (android squadmates): the same formula as the player loop (feet distance · floor 0.2). No slow.
   damageAlliesAt(sys, _c, TOXIC_RADIUS, TOXIC_DAMAGE, e.id, e.type, 0.2, 'feet');
-  sys.explode(_c, TOXIC_RADIUS, TOXIC_DAMAGE * ENEMY_CLASH.damageMul, 'ai', null, e);   // 2026-09-17: 적 → 적 피해 배수 (플레이어 몫은 TOXIC_DAMAGE 그대로)
-  ctx.drones?.applyExplosion(_c, TOXIC_RADIUS, TOXIC_DAMAGE);   // 2026-09-11: 자폭은 권한에서만 불린다
-  sys.targets.damageVehicleAt(_c, TOXIC_RADIUS, TOXIC_DAMAGE, 0.2);   // 2026-09-13: 탐사 차량
+  sys.explode(_c, TOXIC_RADIUS, TOXIC_DAMAGE * ENEMY_CLASH.damageMul, 'ai', null, e);   // 2026-09-17: the enemy → enemy damage multiplier (the player share stays TOXIC_DAMAGE)
+  ctx.drones?.applyExplosion(_c, TOXIC_RADIUS, TOXIC_DAMAGE);   // 2026-09-11: the suicide burst is only called on the authority
+  sys.targets.damageVehicleAt(_c, TOXIC_RADIUS, TOXIC_DAMAGE, 0.2);   // 2026-09-13: the rover
   ctx.bus.emit('enemy:toxicBurst', { id: e.id, position: _c.clone(), radius: TOXIC_RADIUS });
   if (sys.hosting) ctx.net!.send({ t: 'ee', ev: 'toxic', id: e.id, p: tuple(_c, 2) }, 'others');
   }

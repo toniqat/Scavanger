@@ -3,7 +3,7 @@ import {
   CORPSE_INTERACT_RADIUS, CORPSE_LIFETIME, CORPSE_LOOT_CHANCE, Random, corpseLootRandom,
   type CorpseLootOpts, type EnemyDeathDir, type EnemyType, type GameContext, type Interactable, type InteractableKind, type ItemInstance,
 } from '@/shared';
-/* appended (2026-09-12): 아이템 회수 계약 — 레이드 루팅 표식 */
+/* appended (2026-09-12): the item recovery contract — the raid-loot mark */
 import { markRaidFound, raidFoundSeed } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -13,7 +13,7 @@ import { markRaidFound, raidFoundSeed } from '@/shared';
  * (`openContainerItems`). `crate:looted` with the corpse id marks it searched (prompt `수색 완료`, no re-open).
  * Corpse contents are per-client, like crates.
  *
- * Phase 10 — **probabilistic looting**: `CORPSE_LOOT_CHANCE[type]` (trash bug 0.1 / 상위 버그 0.35 / boss + rogue 1)
+ * Phase 10 — **probabilistic looting**: `CORPSE_LOOT_CHANCE[type]` (trash bug 0.1 / higher-tier bug 0.35 / boss + rogue 1)
  * decides whether a body can be searched at all. The roll runs on its own seeded stream (`rollCorpseLootable`), never
  * on the `rng` that feeds `rollCorpse` — `src/inventory/__selftest__.ts` asserts exact `rollCorpse` output for
  * `warrior` / `rogue` / `rogue_boss` at seeds 5 / 11 / 3, so any shift of that stream would break it. A body that
@@ -25,7 +25,7 @@ export interface CorpseWireOpts {
   /** undefined = decide locally from the seeded stream (same result); the wire value always wins when present. */
   lootable?: boolean | undefined;
   deathDir?: EnemyDeathDir | undefined;
-  /** 2026-09-13: 전리품 입력 (스폰 거점 · 남은 수류탄) — 호스트는 `Enemy` 에서, 리플리카는 `ee corpse.si/gc/gk` 에서. */
+  /** 2026-09-13: the loot inputs (the spawn site · grenades left) — the host from `Enemy`, a replica from `ee corpse.si/gc/gk`. */
   loot?: CorpseLootOpts | undefined;
 }
 
@@ -42,26 +42,26 @@ export function rollCorpseLootable(seed: number, enemyId: number, type: EnemyTyp
 
 export class Corpse implements Interactable {
   readonly id: string;
-  /** 2026-09-11 (C-4): `Interactable.kind` — readers (빛기둥 · 정찰 스캔) no longer guess from the `corpse:` prefix. */
+  /** 2026-09-11 (C-4): `Interactable.kind` — readers (the light pillar · the recon scan) no longer guess from the `corpse:` prefix. */
   readonly kind: InteractableKind = 'corpse';
   readonly position = new THREE.Vector3();
   readonly radius = CORPSE_INTERACT_RADIUS;
   readonly holdTime = 0.6;
   looted = false;
   /**
-   * 2026-09-08: this client has opened the body at least once → `ui/hud/Detection` stops drawing its 빛기둥 while the
+   * 2026-09-08: this client has opened the body at least once → `ui/hud/Detection` stops drawing its light pillar while the
    * corpse stays searchable (there may be loot left). Deliberately **not** synced: another player looting the same
    * body leaves our pillar up, and ours never clears theirs.
    */
   hidePillar = false;
   life = CORPSE_LIFETIME;
-  /** 2026-09-17: 몸이 땅으로 가라앉는 중 — 상호작용 불가 (`EnemySystem.update` 가 매 프레임 `anim.fade` 로 세운다). */
+  /** 2026-09-17: the body is sinking into the ground — no interaction (`EnemySystem.update` sets it from `anim.fade` every frame). */
   sinking = false;
   private items: ItemInstance[] | null = null;
 
   /**
-   * `lootOpts` (2026-09-13): 스폰 거점 · 남은 수류탄 — `rollCorpseOn` 의 부가 인자. 지상 드론 스캔 미리보기
-   * (`gadgets/drones/parts/Scan`)가 같은 값으로 굴리므로 공개 필드다.
+   * `lootOpts` (2026-09-13): the spawn site · grenades left — extra arguments for `rollCorpseOn`. It is a public field
+   * because the ground drone's scan preview (`gadgets/drones/parts/Scan`) rolls with the same values.
    */
   constructor(private readonly ctx: GameContext, readonly enemyId: number, readonly type: EnemyType, position: THREE.Vector3, readonly weaponId: string | undefined, private readonly seed: number, readonly lootOpts: CorpseLootOpts | null = null) {
     this.id = `corpse:${enemyId}`;
@@ -86,11 +86,11 @@ export class Corpse implements Interactable {
     const inv = ctx.inventory;
     if (this.looted || !inv || typeof inv.openContainerItems !== 'function') return;
     if (!this.items) {
-      // 2026-09-12: 시드 식은 `shared/lootRolls` 한 곳 — 지상 드론 스캔(`gadgets/drones/parts/Scan`)이 같은 식으로 미리 굴린다
+      // 2026-09-12: the seed formula lives in `shared/lootRolls` alone — the ground drone's scan (`gadgets/drones/parts/Scan`) pre-rolls with the same one
       const rng = corpseLootRandom(this.seed, this.enemyId);
-      // 2026-09-09: 행성의 등급 상한을 적용한다 (`rollCorpseOn`; 행성이 null 이면 `rollCorpse` 와 완전히 같다).
+      // 2026-09-09: the planet's rarity cap is applied (`rollCorpseOn`; with a null planet it is exactly `rollCorpse`).
       this.items = ctx.loot && typeof ctx.loot.rollCorpseOn === 'function' ? ctx.loot.rollCorpseOn(this.type, rng, this.weaponId, ctx.missionPlanet, this.lootOpts ?? undefined) : [];
-      // 2026-09-12: raid loot (named drops included) carries the raid-found mark — null outside a real raid (훈련장)
+      // 2026-09-12: raid loot (named drops included) carries the raid-found mark — null outside a real raid (the training range)
       markRaidFound(this.items, raidFoundSeed(ctx));
     }
     this.hidePillar = true;
@@ -103,11 +103,11 @@ export class CorpseManager {
   private readonly corpses = new Map<number, Corpse>();
   private ctx: GameContext | null = null;
   /**
-   * 2026-09-14 4차 — 이번 레이드가 시체를 붙잡아 두는 시간(초). 평소는 `CORPSE_LIFETIME`,
-   * **튜토리얼 레이드는 `Infinity`** (`EnemySystem.corpseLifetime` 이 `world:ready` 에서 넣는다).
-   * 튜토리얼에서 45초는 「수치가 너무 짧다」가 아니라 **규칙이 다른 것**이다 — 가르치려고 놓아 둔 고정 드롭
-   * 두 구는 플레이어가 목표 패널을 읽으며 걸어가는 동안 사라지면 안 되므로, 플레이어 시체(`ctx.corpses`)와
-   * 같이 **레이드가 끝날 때까지** 남는다. 그래서 새 수치를 만들지 않았다.
+   * 2026-09-14 4th pass — how long (s) this raid holds a corpse. Normally `CORPSE_LIFETIME`,
+   * **`Infinity` in a tutorial raid** (`EnemySystem.corpseLifetime` puts it there at `world:ready`).
+   * In the tutorial 45 s is not 「the number is too short」 but **a different rule** — the two bodies with fixed
+   * drops laid out to teach must not vanish while the player walks over reading the objective panel, so they
+   * stay **until the raid ends**, like the player corpses (`ctx.corpses`). That is why no new number was made.
    */
   lifetime = CORPSE_LIFETIME;
 

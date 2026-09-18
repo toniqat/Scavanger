@@ -1,11 +1,12 @@
 /**
- * src/enemies/ai/named/remote.ts — **리플리카(비호스트)에서의 네임드 로그 · 스캔 드론** (2026-09-11).
+ * src/enemies/ai/named/remote.ts — **named rogues · the scan drone on a replica (non-host)** (2026-09-11).
  *
- * 비호스트는 AI 를 돌리지 않는다. `net/Replica` 가 세 군데에서 여기로 넘긴다:
- *  - `beforeNamedReplica(e, hint)` — 스냅샷 자세를 입히기 **전** (예: 스캔 드론은 `e.airborne = true` 로 지형 스냅을 끈다).
- *    `e.namedHint` 는 이미 받은 힌트로 채워져 있다.
- *  - `afterNamedReplica(e, hint, dt, host)` — 기본 애니메이션 목표를 댐핑한 **뒤** (종류별 자세 덮어쓰기 · 소리).
- *  - `onNamedEvent(host, msg)` — `ee scanPulse / glint / snipe / hammer / spray` 연출 (게임 상태는 바꾸지 않는다).
+ * A non-host runs no AI. `net/Replica` hands over here in three places:
+ *  - `beforeNamedReplica(e, hint)` — **before** the snapshot pose lands (e.g. the scan drone turns the terrain snap off
+ *    with `e.airborne = true`). `e.namedHint` already holds the hint that arrived.
+ *  - `afterNamedReplica(e, hint, dt, host)` — **after** the default animation targets were damped (per-type pose
+ *    overrides · sounds).
+ *  - `onNamedEvent(host, msg)` — `ee scanPulse / glint / snipe / hammer / spray` visuals (no game state changes).
  */
 import type { EnemyEvent } from '@/shared';
 import type { Enemy } from '../../Enemy';
@@ -28,8 +29,8 @@ export function beforeNamedReplica(e: Enemy, hint: number): void {
 }
 
 /**
- * `host`: 리플리카 연출이 소리 · 레이캐스트 · 표적 목록을 읽는 출구. `net/Replica.drive` 가 늘 넘기므로 **필수**다 —
- * 종류별 파일은 모듈 전역에 호스트를 받아 두지 않는다 (C-54, 2026-09-11).
+ * `host`: the exit through which replica visuals reach sounds, raycasts and the target lists. `net/Replica.drive`
+ * always passes it, so it is **required** — a per-type file never parks a host in a module global (C-54, 2026-09-11).
  */
 export function afterNamedReplica(e: Enemy, hint: number, dt: number, host: ReplicaHost): void {
   switch (e.type) {

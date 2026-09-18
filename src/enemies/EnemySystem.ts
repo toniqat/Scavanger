@@ -6,15 +6,15 @@ import {
   SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet, planetThreat,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
-  /* appended (2026-09-09): 로그 강하 계약 */
+  /* appended (2026-09-09): the rogue drop contract */
   type RogueDropView,
-  /* appended (2026-09-10): HUD 위험 인디케이터가 읽는 적 수류탄 */
+  /* appended (2026-09-10): enemy grenades, read by the HUD danger indicators */
   type GrenadeView,
-  /* appended (2026-09-11): 네임드 로그 디버그 훅 */
+  /* appended (2026-09-11): the named rogue debug hooks */
   type NamedRogueType,
-  /* appended (2026-09-13): 행성별 인간형 팩션 계약 */
+  /* appended (2026-09-13): the per-planet humanoid faction contract */
   type HumanoidSpawnOpts,
-  /* appended (2026-09-15, B-16): HUD 가 읽는 적 화염 지대 */
+  /* appended (2026-09-15, B-16): enemy fire zones, read by the HUD */
   type FireZoneInfo,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
@@ -33,7 +33,7 @@ import { ShellProjectiles, type ShellHost } from './fx/ShellProjectile';
 import { RogueGrenades, type GrenadeHost } from './fx/RogueGrenade';
 import { AmbientSpawner, ambientGroup, waveGroup, type SpawnHost } from './Spawner';
 import { WaveDirector } from './WaveDirector';
-/* appended (2026-09-18): 벌레 둥지 — 알 · 앵커 · 수비대 · 보충 */
+/* appended (2026-09-18): bug nests — eggs · anchors · the garrison · refill */
 import { NestDirector } from './NestDirector';
 import { disposeBugAssets } from './models/BugModel';
 import { disposeRogueAssets } from './models/RogueModel';
@@ -42,28 +42,28 @@ import { animHint, encodeSnapshot, round, SnapshotCache, tuple } from './net/Hos
 import { CorpseManager, rollCorpseLootable, type CorpseWireOpts } from './Corpses';
 import type { RogueSpawnHost } from './RogueGuards';
 import { placeSiteGroups, type SitePlacement } from './SiteGroups';
-/* appended (2026-09-15, B-16): 풀이 없을 때의 빈 화염 지대 목록 */
+/* appended (2026-09-15, B-16): the empty fire zone list used when there is no pool */
 import { EMPTY_FIRE_ZONES } from './model';
-/* appended (2026-09-14): 튜토리얼 전용 적 — 고정 자리 · 고정 종류 (`Tutorial.ts`) */
+/* appended (2026-09-14): tutorial-only enemies — fixed spots · fixed types (`Tutorial.ts`) */
 import { placeTutorialEnemies, type TutorialPlacement } from './Tutorial';
-/* appended (2026-09-15): 튜토리얼 벌레 연쇄 스폰 · 구간 어그로 해제 · 이륙 사격 창 */
+/* appended (2026-09-15): the tutorial bug chain spawn · per-stretch aggro release · the liftoff fire window */
 import { onTutorialCheckpoint, onTutorialFell, onTutorialLiftoff, updateTutorialScript } from './Tutorial';
 import { RogueDropDirector, type RogueDropHost } from './RogueDrop';
 import { NamedRogueDirector, type NamedRollResult } from './named/Director';
-/* appended (2026-09-13): 굴착 스폰 · 땅굴벌레 */
+/* appended (2026-09-13): the dig-in spawn · the sandworm */
 import { BURROW_EMERGE_S } from '@/shared';
 import { SandwormDirector } from './sandworm/Director';
 import { BurrowFx } from './fx/BurrowFx';
 import * as Burrow from './parts/Burrow';
 import { raySphere, rayCapsule, rayStandingCapsule, standingTopY } from './RayTests';
-/* appended (2026-09-14): 벌레 난이도 (행성 threat) */
+/* appended (2026-09-14): bug difficulty (planet threat) */
 import { bugThreatTuning, type BugThreatTuning } from './factionTables';
 import { ambientOptsOf, artilleryDigInChance, maxArtilleryOf, maxBehemothOf, threatEcosystem } from './Spawner';
 import { carryCorpse } from './ai/Ride';
 import { BODY_RAY_VERTICAL, namedBodyNormal, namedBodyRay } from './models/named';
 
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, EMPTY_GRENADES, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from './model';
-/** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
+/** The folder's shared vocabulary (constants · types · scratch) lives in `model.ts` — re-exported here for the existing import paths. */
 export * from './model';
 import * as Dmg from './parts/Damage';
 import * as Atk from './parts/Attacks';
@@ -71,19 +71,20 @@ import * as Alert from './parts/Alerts';
 import * as Status from './parts/Status';
 import * as Pool from './parts/Pool';
 import * as RFx from './parts/RemoteFx';
-/* appended (2026-09-16): 빈 시체 제거 */
+/* appended (2026-09-16): removing an emptied corpse */
 import * as CorpseEmpty from './parts/CorpseEmpty';
-/* appended (2026-09-15, 결과 창 개편): 사망 원인 썸네일 · 적 이름 */
+/* appended (2026-09-15, the result screen rework): the cause-of-death thumbnail · enemy names */
 import { enemyDisplayNameOf, renderEnemyPortrait } from './models/Portrait';
-/* appended (2026-09-15, 안드로이드 분대원): 표적 · 피해 · 엄폐 질의 */
+/* appended (2026-09-15, android squadmates): the target · damage · cover queries */
 import type { AllyBodyView, CoverSpot } from '@/shared';
 import { pickCoverSpot, type CoverQuery } from '@/shared';
 import { COVER_EYE, COVER_MAX_RANGE_FRAC, COVER_MIN_TARGET_DIST, COVER_SEARCH_RADIUS, STAND_EYE } from './ai/RogueCover';
 import { ENEMY_WALL_STANDOFF } from '@/shared';
 
 /**
- * 총성이 들리는 반경 (m). 사람(`weapon:fired` · `net:remoteFired`)과 안드로이드(`ally:fired`)가 **같은 값**이다 —
- * 안드로이드는 사람과 같은 총을 쏘므로 적이 다르게 들을 이유가 없다. 알고리즘 상수라 csv 대상이 아니다.
+ * The radius a gunshot is heard within (m). A person (`weapon:fired` · `net:remoteFired`) and an android
+ * (`ally:fired`) use **the same value** — an android fires the same guns, so an enemy has no reason to hear it
+ * differently. An algorithmic constant, so not a csv one.
  */
 const GUNSHOT_NOISE_R = 55;
 const _allyDir = new THREE.Vector3();
@@ -95,44 +96,46 @@ const _debugSpot: CoverSpot = { cover: new THREE.Vector3(), pop: new THREE.Vecto
 export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, SpawnHost, RogueSpawnHost, RogueDropHost, AcidHost, ShellHost, ReplicaHost, GrenadeHost {
   readonly name = 'enemies';
   ctx!: GameContext;
-  /* ── Phase 12: 총알 추적 · 정찰 x-ray (EnemyManagerRef) ─────────────────── */
+  /* ── Phase 12: shot tracking · the recon x-ray (EnemyManagerRef) ─────── ── */
   /**
    * A local shot was fired (weapons calls this for every one). Authority: run the alert routine; a joined client
-   * forwards it to the host as `shotq` instead (replicas have no AI). No-op on the 훈련장.
+   * forwards it to the host as `shotq` instead (replicas have no AI). No-op in the training range.
    */
   reportShot(origin: THREE.Vector3, dir: THREE.Vector3, range: number, hit: THREE.Vector3 | null): void { return Alert.reportShot(this, origin, dir, range, hit); }
 
   /**
-   * 정찰 x-ray: red through-wall silhouette for these enemies (simulated or replica) for `seconds`; a second call
+   * The recon x-ray: red through-wall silhouette for these enemies (simulated or replica) for `seconds`; a second call
    * extends. Unknown ids are ignored; `seconds <= 0` hides the listed ones (`[]` + 0 is a no-op).
    */
   setXray(ids: readonly number[], seconds: number): void { return Status.setXray(this, ids, seconds); }
-  /* ── appended (2026-09-09): 로그 강하 (`RogueDrop.ts` 가 전부 갖는다) ── */
+  /* ── appended (2026-09-09): rogue drops (`RogueDrop.ts` owns all of it) ── */
   /**
-   * **호스트 전용**: 로그 분대를 강하시킨다 (예고 → `ROGUE_DROP_ETA_S` 뒤 착지 → 구조물로 진격).
-   * 인원 · 보스 여부는 **분대 인원**이 정한다. 같은 `dropId` 가 진행 중이거나 호스트가 아니면 false.
+   * **Host only**: drops a rogue squad in (announced → landing after `ROGUE_DROP_ETA_S` → advancing on the structure).
+   * The **squad's head count** decides how many and whether a boss comes. false when the same `dropId` is already
+   * running, or this is not the host.
    */
   callRogueDrop(dropId: string, position: THREE.Vector3): boolean { return this.rogueDrops.call(dropId, position); }
-  /** 진행 중인 강하 (HUD 경고 · 오프스크린 화살표용). */
+  /** The drops in progress (for the HUD warning · the off-screen arrow). */
   getRogueDrops(): readonly RogueDropView[] { return this.rogueDrops.views(); }
-  /** 2026-09-10: 날아가는 적 수류탄 — HUD 위험 인디케이터가 아군 수류탄과 나란히 읽는다. */
+  /** 2026-09-10: enemy grenades in the air — the HUD danger indicators read them alongside friendly ones. */
   getEnemyGrenades(): readonly GrenadeView[] { return this.grenades?.getViews() ?? EMPTY_GRENADES; }
   /**
-   * 2026-09-15 (B-16): 살아 있는 적 소이 화염 지대 — 권위 지대와 리플리카의 시각 지대(`ee grenadeHit.k`) 둘 다, 전부 `hostile`.
-   * HUD 가 매 프레임 부른다 — `RogueGrenades` 가 배열과 칸별 객체를 재사용한다.
+   * 2026-09-15 (B-16): the live enemy incendiary fire zones — both the authority's zones and a replica's visual ones
+   * (`ee grenadeHit.k`), all `hostile`.
+   * The HUD calls it every frame — `RogueGrenades` reuses the array and the per-slot objects.
    */
   getFireZones(): readonly FireZoneInfo[] { return this.grenades?.getFireZones() ?? EMPTY_FIRE_ZONES; }
-  /** 2026-09-15 (결과 창 개편): 사망 원인 줄의 적 얼굴 썸네일 — 자기 오프스크린 렌더러로 한 번 그려 캐시 (`models/Portrait`). */
+  /** 2026-09-15 (the result screen rework): the enemy face thumbnail on the cause-of-death row — drawn once by its own offscreen renderer and cached (`models/Portrait`). */
   renderPortrait(enemyType: string, sizePx: number): string | null { return renderEnemyPortrait(enemyType, sizePx); }
-  /** 2026-09-15 (결과 창 개편): 적 종류의 표시 이름 (`models/Portrait`). 모르는 종류면 null. */
+  /** 2026-09-15 (the result screen rework): an enemy type's display name (`models/Portrait`). null for an unknown type. */
   enemyDisplayName(enemyType: string): string | null { return enemyDisplayNameOf(enemyType); }
-  /** 로그 강하 — 굴림 기록 · 포드 연출 · 착지 스폰 (호스트 권한, 훈련장에서는 아무 것도 하지 않는다). */
+  /** Rogue drops — the roll record · pod FX · the landing spawn (host authority; it does nothing in the training range). */
   readonly rogueDrops = new RogueDropDirector();
-  /** 2026-09-11: 네임드 로그 — 레이드당 1회 굴림 · 자리 · 스폰 · `enemy:namedSpawned` (`named/Director.ts`). */
+  /** 2026-09-11: named rogues — one roll per raid · the spot · the spawn · `enemy:namedSpawned` (`named/Director.ts`). */
   readonly named = new NamedRogueDirector();
-  /** 2026-09-13: 땅굴벌레 — 레이드당 굴림 · 전조 · 분출 · 뱉기 · 독극물 · 동기화 (`sandworm/Director.ts`). */
+  /** 2026-09-13: the sandworm — the per-raid roll · its omen · the eruption · spitting · poison · syncing (`sandworm/Director.ts`). */
   readonly sandworm = new SandwormDirector();
-  /** 2026-09-13: 굴착 분진 · 흙덩이 · 전조 링 (`fx/BurrowFx.ts`). */
+  /** 2026-09-13: the dig-in dust · clods · the omen ring (`fx/BurrowFx.ts`). */
   burrowFx: BurrowFx | null = null;
   /** 2026-09-13: ctx.time of the last burrow camera shake (`parts/Burrow.burrowShake` dedupe) · how many went out (debug). */
   burrowShakeAt = -Infinity;
@@ -152,8 +155,8 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   grenades: RogueGrenades | null = null;
   readonly corpses = new CorpseManager();
   /**
-   * 2026-09-18 (벌레 둥지): 둥지 알(`bug_egg`) · 둥지 앵커 · 수비대 리시 · 보충 (사용자 결정 「60 m 리시 · 초기 수 절반 ·
-   * 재스폰 50/35/15 %」). 권위 전용이고 새 와이어가 없다 — 리플리카는 `ee spawn` 만 본다.
+   * 2026-09-18 (bug nests): nest eggs (`bug_egg`) · nest anchors · the garrison leash · refill (user's decision
+   * 「60 m 리시 · 초기 수 절반 · 재스폰 50/35/15 %」). Authority-only with no new wire — a replica sees only `ee spawn`.
    */
   readonly nests = new NestDirector();
   readonly spawner = new AmbientSpawner();
@@ -174,49 +177,53 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /** Phase 9: delta-snapshot state (last sent fields per enemy, monotonic seq, forced keyframe). */
   readonly snapCache = new SnapshotCache();
   resetting = false;
-  /** 2026-09-11 (C-14): seconds accumulated toward the next 환경 재해 tick on enemies (`parts/Status.updateHazardDot`). */
+  /** 2026-09-11 (C-14): seconds accumulated toward the next environmental hazard tick on enemies (`parts/Status.updateHazardDot`). */
   hazardTick = 0;
   lastClash = -Infinity;
   /** Current boss (authority) for debugging / HUD. */
   bossId = 0;
-  /* ── 2026-09-13: 행성별 인간형 팩션 (`SiteGroups.ts` · `RogueDrop.ts` · `named/Director.ts`) ── */
-  /** 이번 레이드 목표 행성의 threat (1..3, `world:ready` 에서 — 행성 없음 · 훈련장 = 1). 거점 팩션 · 강하 확률 · 네임드 확률의 색인. */
+  /* ── 2026-09-13: the humanoid faction per planet (`SiteGroups.ts` · `RogueDrop.ts` · `named/Director.ts`) ── */
+  /** This raid's target planet threat (1..3, set on `world:ready` — no planet · the training range = 1). The index into the site faction · drop chance · named chance. */
   planetThreatLevel: 1 | 2 | 3 = 1;
   /**
-   * 2026-09-14: 이번 레이드의 벌레 난이도 (`bugThreatTuning(planetThreatLevel)`, 훈련장 = threat 1 칸) — 모든 클라이언트가 `world:ready` 에서 정한다.
-   * `Pool.acquire` 가 팩션 bug 의 최대 체력에 `hpMul` 을 곱한다 (리플리카도 같은 값이라 와이어가 필요 없다).
+   * 2026-09-14: this raid's bug difficulty (`bugThreatTuning(planetThreatLevel)`; the training range = the threat 1 row)
+   * — every client fixes it on `world:ready`.
+   * `Pool.acquire` multiplies a faction-bug's max hp by `hpMul` (a replica arrives at the same value, so no wire field
+   * is needed).
    */
   bugTuning: BugThreatTuning = bugThreatTuning(1);
-  /** 2026-09-14: 실효 생태계 = 행성 eco × 벌레 난이도 (`threatEcosystem`) — 순찰 · 웨이브 · 땅굴벌레가 읽는다. `eco` 는 행성 원본 그대로. */
+  /** 2026-09-14: the effective ecosystem = the planet's eco × bug difficulty (`threatEcosystem`) — read by patrols · waves · the sandworm. `eco` stays the planet's own. */
   private spawnEco: PlanetEcosystem | null = null;
-  /** 다음 분대 id (`allocSquadId`, `Pool.reset` 이 1 로). */
+  /** The next squad id (`allocSquadId`; `Pool.reset` puts it back to 1). */
   nextSquadId = 1;
-  /** 레이드 시작 거점 점거 기록 (권한만, 디버그 · 스모크 — `debugSites()`). */
+  /** The record of site occupation at the raid's start (authority only, for debug · smokes — `debugSites()`). */
   sitePlacement: SitePlacement | null = null;
-  /** `RogueSpawnHost.allocSquadId` — 레이드 안에서 유일한 새 분대 id. */
+  /** `RogueSpawnHost.allocSquadId` — a new squad id, unique within this raid. */
   allocSquadId(): number { return this.nextSquadId++; }
   /* ── Phase 7 ── */
-  /** 시뮬레이션 훈련장: no spawner / waves / guards / initial population (set at `world:ready`). */
+  /** The simulation training range: no spawner / waves / guards / initial population (set at `world:ready`). */
   training = false;
-  /* ── 2026-09-14: 튜토리얼 전용 적 (`Tutorial.ts`, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ── */
+  /* ── 2026-09-14: tutorial-only enemies (`Tutorial.ts`, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ── */
   /**
-   * 튜토리얼 레이드(`ctx.missionMode === 'tutorial'`): **고정 자리 · 고정 종류**의 적만 선다 — 굴림 · 순찰 ·
-   * 스포너 · 웨이브 · 거점 그룹 · 레이더 강하 · 네임드 · 땅굴벌레 · 총알 추적이 전부 훈련장처럼 꺼진다.
-   * 훈련장과 다른 점은 **적이 있다**는 것 하나뿐이다. `world:ready` 에서 정한다.
+   * A tutorial raid (`ctx.missionMode === 'tutorial'`): only enemies at **fixed spots, of fixed types**, stand — rolls ·
+   * patrols · the spawner · waves · site groups · raider drops · a named · the sandworm · shot tracking are all off, as
+   * in the training range.
+   * The one difference from the training range is that **there are enemies**. Fixed on `world:ready`.
    */
   tutorial = false;
-  /** 이번 튜토리얼 레이드에 세운 적 (권한 1회, 디버그 · 스모크 — `debugTutorial()`). */
+  /** What this tutorial raid stood up (once, on the authority, for debug · smokes — `debugTutorial()`). */
   tutorialPlacement: TutorialPlacement | null = null;
   /**
-   * 2026-09-14 4차 — 이번 레이드의 시체 수명(초). **튜토리얼 레이드에서는 시체가 사라지지 않는다.**
-   * 튜토리얼이 가르치려고 놓아 둔 고정 드롭(왼쪽 벌레 · 오른쪽 안드로이드)은 목표 패널을 읽으며 천천히
-   * 걸어가는 속도에서 45초를 못 버텨, 「드롭이 안 나온다」로 보였다. 수명이 아니라 **규칙**이 다른 것이므로
-   * (플레이어 시체 `ctx.corpses` 와 같이 레이드가 끝날 때까지 남는다) csv 에 새 수치를 만들지 않았다.
-   * 몸(`Enemy.corpseLife` — `Pool.acquire`)과 수색 자리(`CorpseManager.lifetime`) 둘 다 이 값을 쓴다.
+   * 2026-09-14 (4th pass) — this raid's corpse lifetime (s). **In a tutorial raid a corpse never disappears.**
+   * The fixed drops the tutorial lays out to teach with (the bug on the left · the android on the right) could not
+   * survive 45 s at the pace of someone walking slowly while reading the objective panel, and read as 「there is no
+   * drop」. What differs is the **rule**, not a number (it stays to the end of the raid, like the player corpses in
+   * `ctx.corpses`), so no new csv value was made for it.
+   * Both the body (`Enemy.corpseLife` — `Pool.acquire`) and the search spot (`CorpseManager.lifetime`) use this value.
    */
   get corpseLifetime(): number { return this.tutorial ? Infinity : CORPSE_LIFETIME; }
   /* ── Phase 11 ── */
-  /** Ecosystem of the 목표 행성 this mission runs on (`world:ready.planet` → `PLANET_DEFS`), null = the default tables. */
+  /** Ecosystem of the target planet this mission runs on (`world:ready.planet` → `PLANET_DEFS`), null = the default tables. */
   private eco: PlanetEcosystem | null = null;
   /** Waves announced so far this mission (`enemy:waveStarted`, also from `ee wave` on a replica) — the wave director resumes from it on promotion. */
   wavesSeen = 0;
@@ -267,7 +274,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.grenades.bind(this);
     this.corpses.bind(ctx);
     this.rogueDrops.bind(this);
-    this.nests.bind(this);   // 2026-09-18: 벌레 둥지
+    this.nests.bind(this);   // 2026-09-18: bug nests
     this.named.bind(this);
 
     const bus = ctx.bus;
@@ -279,28 +286,29 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         this.ensureNet();
         // Phase 7: the training arena has no enemies at all (world/ reports `mode`, game/ sets `ctx.missionMode` before emitting)
         this.training = ctx.isTraining() || ctx.missionMode === 'training' || (ctx.world as Partial<WorldRef> | null)?.mode === 'training';
-        // 2026-09-14: 튜토리얼 월드 — 훈련장과 같은 자리에서, 같은 요령으로 가른다 (`ctx.missionMode` 는 game/ 이 emit 전에 세팅한다)
+        // 2026-09-14: the tutorial world — split off at the same place, by the same trick, as the training range (`ctx.missionMode` is set by game/ before the emit)
         this.tutorial = !this.training
           && (ctx.missionMode === 'tutorial' || (ctx.world as Partial<WorldRef> | null)?.mode === 'tutorial');
-        // 2026-09-14 4차: 시체 수명은 레이드마다 정해진다 (튜토리얼 = 사라지지 않는다). `reset()` 이 이미 지난 뒤라 이번 레이드에만 걸린다.
+        // 2026-09-14 (4th pass): the corpse lifetime is decided per raid (the tutorial = never disappears). `reset()` has already run, so it binds to this raid alone.
         this.corpses.lifetime = this.corpseLifetime;
-        // Phase 11: 목표 행성 생태계 → spawner / waves / guards. Training keeps it null; so does a mission without a planet
+        // Phase 11: the target planet's ecosystem → spawner / waves / guards. Training keeps it null; so does a mission without a planet
         // (the ecosystem is host-side composition only — the `es` / `ee` wire and replica behaviour are untouched).
-        // 2026-09-14: 튜토리얼도 행성이 없다 — 훈련장과 같은 처리라 벌레 난이도 배수는 ×1 이다.
+        // 2026-09-14: the tutorial has no planet either — handled like the training range, so the bug difficulty multiplier is ×1.
         const scripted = this.training || this.tutorial;
         const planetId = scripted ? null : (planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null);
         this.eco = scripted ? null : (getPlanet(planetId)?.eco ?? null);
-        // 2026-09-13: 행성 threat → 거점 팩션 · 레이더 강하 확률 · 네임드 확률. 모든 클라이언트가 정해 둔다 (승격된 호스트의 강하 굴림)
+        // 2026-09-13: planet threat → the site faction · raider drop chance · named chance. Every client fixes it (for a promoted host's drop roll)
         this.planetThreatLevel = planetThreat(planetId);
-        // 2026-09-14: 벌레 난이도 — 체력 배수(`Pool.acquire`, 리플리카도 같은 값) · 대형 벌레 비중 · 상한(실효 생태계). 훈련장 = threat 1 칸.
+        // 2026-09-14: bug difficulty — the hp multiplier (`Pool.acquire`; a replica arrives at the same value) · the share of big bugs · the caps (the effective ecosystem). The training range = the threat 1 row.
         this.bugTuning = bugThreatTuning(scripted ? 1 : this.planetThreatLevel);
         this.spawnEco = threatEcosystem(this.eco, this.bugTuning);
         this.spawner.eco = this.spawnEco;
         this.spawner.tuning = this.bugTuning;
         this.waves.eco = this.spawnEco;
         if (this.training) return;
-        // 2026-09-14: 튜토리얼 — 월드가 정한 목록을 **한 번** 읽어 그대로 세우고 끝낸다. 굴림도, 거점 그룹도, 네임드도 없다.
-        // `ctx.world.tutorial` 이 아직 null 인 스텁이면 목록이 비고, 적 0 마리로 조용히 끝난다.
+        // 2026-09-14: the tutorial — the list the world fixed is read **once**, stood up as it is, and that is all. No
+        // rolls, no site groups, no named. With `ctx.world.tutorial` still a null stub the list is empty and it ends
+        // quietly with 0 enemies.
         if (this.tutorial) {
           if (this.authority && ctx.world?.ready) {
             this.targets.refresh(ctx);
@@ -310,21 +318,22 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         }
         if (this.authority && ctx.world?.ready) {
           this.targets.refresh(ctx);
-          /* 2026-09-18 (벌레 둥지): 알을 먼저 세우고 둥지 앵커 · 보충 횟수를 굴린 뒤 수비대를 깐다 — 앵커가 있어야
-             `initialPopulate` 의 무리가 「그 둥지의 수비대」로 묶인다 (`NestDirector` 머리 주석). */
+          /* 2026-09-18 (bug nests): the eggs stand first, then the nest anchors · refill counts are rolled, and only then
+             the garrison is laid out — the anchors have to exist for `initialPopulate`'s packs to bind as 「that nest's
+             garrison」 (`NestDirector`'s header comment). */
           this.nests.eco = this.spawnEco;
           this.nests.tuning = this.bugTuning;
           this.nests.threat = this.spawner.threat;
           this.nests.onWorldReady();
           this.spawner.initialPopulate(this, playerSpawn, this.nests.anchors, (index, from) => this.nests.claimGarrison(index, this, from));
-          // 2026-09-13: 상자 경비 폐지 → 행성 threat 별 거점 그룹 (안드로이드 · 로그 · 레이더)
+          // 2026-09-13: crate guards retired → site groups by planet threat (android · rogue · raider)
           const sites = placeSiteGroups(this, seed, this.planetThreatLevel);
           this.sitePlacement = sites;
           if (sites.boss) {
             this.bossId = sites.boss.id;
             ctx.bus.emit('enemy:bossSpawned', { id: sites.boss.id, type: sites.boss.type, position: sites.boss.position });
           }
-          // 2026-09-11: 네임드 — 거점 배치 뒤 레이드당 한 번 (world:ready 에서만 굴리므로 승격된 호스트는 다시 굴리지 않는다)
+          // 2026-09-11: the named — once per raid, after the site placement (it is rolled only on world:ready, so a promoted host never rolls again)
           this.named.roll(planetId);
         }
       }),
@@ -341,10 +350,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       bus.on('weapon:fired', ({ origin }) => this.onGunshot(origin, GUNSHOT_NOISE_R)),
       bus.on('net:remoteFired', ({ origin }) => this.onGunshot(origin, GUNSHOT_NOISE_R)),
       bus.on('grenade:exploded', ({ position }) => this.onGunshot(position, 80)),
-      /* 2026-09-15 (안드로이드 분대원): 안드로이드의 한 발도 **사람의 총성과 똑같이** 들린다 — 같은 소음 반경 +
-         총알 추적(`alertShot`). 이벤트는 모든 클라이언트에서 나므로 권위에서만 반응한다 (`onGunshot` · `alertShot`
-         은 그 자체로도 권위 검사를 하지만, 벡터 계산까지 리플리카에서 돌 이유가 없다). 쏜 쪽은 사람 id 가
-         아니므로 `'ai'` — 「사수를 이미 볼 수 있다」 예외가 없어 근처의 모르는 적은 전부 조사에 들어간다. */
+      /* 2026-09-15 (android squadmates): an android's round is heard **exactly like a person's gunshot** — the same
+         noise radius + shot tracking (`alertShot`). The event fires on every client, so only the authority reacts
+         (`onGunshot` · `alertShot` check the authority themselves, but there is no reason to run the vector maths on a
+         replica too). The shooter is not a person's id, so it is `'ai'` — there is no 「it can already see the shooter」
+         exception, and every unaware enemy nearby goes to investigate. */
       bus.on('ally:fired', ({ from, to }) => {
         if (!this.authority || this.training || !this.ctx.world?.ready) return;
         this.onGunshot(from, GUNSHOT_NOISE_R);
@@ -355,44 +365,45 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         _allyHit.copy(to);
         this.alertShot(from, _allyDir, range, _allyHit, 'ai');
       }),
-      // 2026-09-13: 탈출 디펜스 웨이브 제거 (사용자 결정) — `extraction:activated` 는 더 이상 웨이브를 부르지 않는다
+      // 2026-09-13: extraction defence waves removed (user's decision) — `extraction:activated` no longer calls a wave
       bus.on('extraction:liftoff', ({ position }) => {
         if (!this.authority) return;
-        /* 2026-09-15 (사용자 결정 — 「처치하지 않은 안드로이드가 이륙하는 함선 안의 PC 를 실제로 쏜다」): 튜토리얼 적은 달아나지
-           않는다. 18 m 도주를 걸면 함선 곁의 안드로이드가 총을 내리고 등을 돌린다 — 대신 이륙 사격 창을 연다 (`Tutorial.ts`). */
+        /* 2026-09-15 (user's decision — 「처치하지 않은 안드로이드가 이륙하는 함선 안의 PC 를 실제로 쏜다」): a tutorial enemy
+           does not flee. An 18 m flight would make the android beside the ship lower its gun and turn its back — the
+           liftoff fire window opens instead (`Tutorial.ts`). */
         if (this.tutorial) { onTutorialLiftoff(this.tutorialPlacement); return; }
         this.fleeFrom(position, 18);
       }),
-      /* 2026-09-15: 튜토리얼 구간 어그로 해제 — 체크포인트(`crawl` → 벌레 · `supply` → 절벽 위 인간형)와 절벽 낙하 (`Tutorial.ts`) */
+      /* 2026-09-15: per-stretch tutorial aggro release — on a checkpoint (`crawl` → the bugs · `supply` → the humanoids on the cliff) and on a fall (`Tutorial.ts`) */
       bus.on('tutorial:checkpoint', ({ id }) => { if (this.tutorial && this.authority) onTutorialCheckpoint(this, this.tutorialPlacement, id); }),
       bus.on('player:fell', ({ rule }) => { if (this.tutorial && this.authority) onTutorialFell(this, this.tutorialPlacement, rule); }),
       bus.on('enemy:waveStarted', ({ index, count }) => {
         this.wavesSeen = Math.max(this.wavesSeen, index + 1);
         if (this.hosting) this.ctx.net!.send({ t: 'ee', ev: 'wave', index, count }, 'others');
       }),
-      // 2026-09-16: 비운 적 시체는 가라앉아 사라진다 — 권위는 곧바로, 리플리카는 호스트에 요청 (`parts/CorpseEmpty`)
+      // 2026-09-16: an emptied enemy corpse sinks and is removed — at once on the authority, by a request to the host from a replica (`parts/CorpseEmpty`)
       bus.on('crate:looted', ({ crateId }) => CorpseEmpty.onCorpseContainerLooted(this, crateId)),
-      // 2026-09-16 (2차): 누가 적 시체 창을 열어 두고 있나 — 빈 시체는 마지막 사람이 닫은 뒤에 가라앉는다 (`shared/corpseViewers`)
+      // 2026-09-16 (2nd pass): who is holding an enemy corpse's window open — an emptied corpse sinks after the last one closes it (`shared/corpseViewers`)
       CorpseEmpty.hookCorpseViews(this),
-      // 2026-09-11 (적 ↔ 드론): 질주하는 지상 드론의 소음 — 권한 클라이언트에서만 나온다 (`parts/Alerts.onWorldNoise`)
+      // 2026-09-11 (enemies ↔ drones): the noise of a sprinting ground drone — it comes from the authority client only (`parts/Alerts.onWorldNoise`)
       bus.on('world:noise', ({ position, radius }) => this.onWorldNoise(position, radius)),
-      // 2026-09-11: 리플리카는 `ee spawn` 으로 네임드를 처음 볼 때 `enemy:namedSpawned` 를 낸다 (권한은 스폰 경로가 직접)
+      // 2026-09-11: a replica emits `enemy:namedSpawned` the first time it sees a named through `ee spawn` (on the authority the spawn path does it directly)
       bus.on('enemy:spawned', ({ id, type }) => this.named.onSpawned(id, type)),
-      // 2026-09-09: 로그 강하 — world/ 가 구조물 · 플랫폼 컨테이너를 처음 조사할 때 낸다. 호스트만 굴린다 (구역당 1회).
-      // 2026-09-14: 튜토리얼에는 강하가 없다 (구조물을 조사해도 굴리지 않는다 — 훈련장은 `RogueDrop` 자신이 이미 막는다)
+      // 2026-09-09: rogue drops — world/ emits it the first time a structure · platform container is investigated. Only the host rolls (once per zone).
+      // 2026-09-14: the tutorial has no drops (investigating a structure rolls nothing — the training range is already blocked inside `RogueDrop`)
       bus.on('structure:investigated', ({ zoneId, position }) => { if (!this.tutorial) this.rogueDrops.onInvestigated(zoneId, position); }),
       // Phase 7: mid-mission host migration — the only place authority changes while a mission runs
       bus.on('net:hostChanged', ({ isLocalHost }) => this.setAuthority(isLocalHost)),
     );
-    // 2026-09-13: 땅굴벌레 · 굴착 — 위 `world:ready` 구독 **뒤에** 등록해 리셋 · 생태계 계산이 끝난 뒤에 굴린다
+    // 2026-09-13: the sandworm · the dig-in — registered **after** the `world:ready` subscription above, so it rolls once the reset · ecosystem maths are done
     this.burrowFx = new BurrowFx(ctx.scene);
     this.sandworm.bind(this);
     this.unsub.push(
-      // 2026-09-14: 뱉기 · 분출 무리는 실효 생태계(행성 threat 의 중형 가중치)에서 뽑는다 — 등장 여부 판정(`ecoAllows`)은 배수 > 0 이라 같다
-      // 2026-09-14: 튜토리얼도 훈련장처럼 땅굴벌레를 굴리지 않는다 (`training` 인자 = 「절차 스폰이 없는 월드」)
+      // 2026-09-14: the spit · eruption packs are drawn from the effective ecosystem (the planet threat's mid-size weights) — whether it appears at all (`ecoAllows`) is unchanged, since the multiplier is > 0
+      // 2026-09-14: the tutorial rolls no sandworm either, like the training range (the `training` argument = 「a world with no procedural spawning」)
       bus.on('world:ready', ({ planet }) => this.sandworm.onWorldReady(planet ?? ctx.world?.planet ?? ctx.missionPlanet ?? null, this.spawnEco, this.training || this.tutorial)),
       bus.on('cheat:sandworm', ({ spitS, weak }) => { this.sandworm.debugForce({ ...(spitS === undefined ? {} : { spitS }), ...(weak ? { weak: true } : {}) }); }),
-      // 2026-09-15 (진동 장치): gadgets 가 호스트에서 낸다 — 확률 · 땅 검사 없이 그 자리에서 전조 (레이드에 이미 있었으면 무시)
+      // 2026-09-15 (the thumper): gadgets emits it on the host — the omen starts right there with no chance roll and no ground test (ignored when the raid already has one)
       bus.on('sandworm:summon', ({ position }) => { if (!this.training && !this.tutorial) this.sandworm.onSummon(position); }),
     );
     this.refreshMode();
@@ -428,7 +439,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       // Phase 9: a member that (re)joined the mission or a takeover needs a full picture — the next `es` is a keyframe
       net.onMessage('flow', (msg) => {
         if ((msg.ev === 'rejoined' || msg.ev === 'takeover') && this.hosting) this.snapCache.forceFull = true;
-        if (msg.ev === 'rejoined' && this.hosting) this.sandworm.resync();   // 2026-09-13: 전조 · 땅굴벌레 최대 체력 · 뱉기 시간
+        if (msg.ev === 'rejoined' && this.hosting) this.sandworm.resync();   // 2026-09-13: the omen · the sandworm's max hp · the spit timing
       }),
       net.onMessage('intq', (msg) => {
         // a client's bullet hit shell `sid`: validate it still exists, pop it here and broadcast
@@ -438,9 +449,9 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       }),
       // Phase 12: a client's bullet report — the host runs the same routine as for its own shots
       net.onMessage('shotq', (msg, from) => this.onShotReport(msg, from)),
-      // 2026-09-16: 클라이언트에서 적 시체가 비었다 — 호스트가 거른 뒤 `ee corpseEmptied` 로 방송 (`parts/CorpseEmpty`)
+      // 2026-09-16: a client emptied an enemy corpse — the host filters it, then broadcasts `ee corpseEmptied` (`parts/CorpseEmpty`)
       net.onMessage('ecorpseq', (msg, from) => CorpseEmpty.onCorpseEmptiedRequest(this, msg, from)),
-      // 2026-09-09: 로그 강하 — 비호스트는 예고 · 착지를 받아 같은 이벤트를 내고 포드만 그린다 (적은 `es` / `ee`)
+      // 2026-09-09: rogue drops — a non-host takes the announcement · landing, emits the same events and draws only the pod (the enemies come over `es` / `ee`)
       net.onMessage('rdrop', (msg) => {
         if (msg.ev === 'incoming') this.rogueDrops.onIncomingWire(msg.dropId, msg.p, msg.eta, msg.count, msg.boss);
         else this.rogueDrops.onLandedWire(msg.dropId);
@@ -465,25 +476,25 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.lures.prune(ctx.time);
     // status effects tick on every client (embers are visual); only the authority applies the damage
     if (ctx.isGameplayPhase()) this.updateStatuses(dt);
-    // 로그 강하: 포드 낙하 연출은 어디서나, 착지 스폰은 호스트에서만 (안쪽에서 갈린다). 2026-09-14: 튜토리얼도 훈련장처럼 끈다.
+    // Rogue drops: the pod's fall FX runs everywhere, the landing spawn only on the host (it splits inside). 2026-09-14: off in the tutorial as in the training range.
     if (!this.training && !this.tutorial) this.rogueDrops.update(dt);
-    if (!this.training && !this.tutorial) this.sandworm.update(dt);   // 2026-09-13: 전조 흔들림은 어디서나, 발동 · 분출 · 땅굴벌레 틱은 권위만
+    if (!this.training && !this.tutorial) this.sandworm.update(dt);   // 2026-09-13: the omen shake runs everywhere; the trigger · eruption · sandworm tick are authority-only
 
     if (this.authority) {
       if (ctx.isGameplayPhase()) {
         for (let i = 0; i < this.active.length; i++) updateEnemyAI(this.active[i], dt, this);
-        Status.updateHazardDot(this, dt);   // 2026-09-11 (C-14): 재해 구역 안의 적 — 조용한 피해 (권위만)
+        Status.updateHazardDot(this, dt);   // 2026-09-11 (C-14): enemies inside the hazard zone — quiet damage (authority only)
         this.acid?.update(dt, this);
         this.shells?.update(dt, this);
         this.grenades?.update(dt);
-        // 2026-09-14 3차: 튜토리얼 벌레는 땅속에서 기다린다 — 플레이어가 다가오면 그 자리에서 솟는다 (굴착 스폰 재사용)
-        // 2026-09-15: + 연쇄 스폰(첫 벌레 1초 뒤 다음 벌레) · 이륙 사격 창 — `Tutorial.updateTutorialScript`
+        // 2026-09-14 (3rd pass): a tutorial bug waits underground — it rises where it stands as the player approaches (reusing the dig-in spawn)
+        // 2026-09-15: + the chain spawn (the next bug 1 s after the first) · the liftoff fire window — `Tutorial.updateTutorialScript`
         if (this.tutorial) updateTutorialScript(this, this.tutorialPlacement, dt);
-        // 2026-09-14: 튜토리얼은 순찰 · 웨이브가 없다 — 목록에 적힌 마리가 전부다
+        // 2026-09-14: the tutorial has no patrols · waves — what the list says is all there is
         if (!this.training && !this.tutorial) {
           this.spawner.update(dt, this);
           this.waves.update(dt, this);
-          // 2026-09-18: 둥지별 생존 수 → 보충 (호스트만, 굴려 둔 횟수 안에서)
+          // 2026-09-18: survivors per nest → a refill (host only, within the rolled count)
           this.nests.threat = this.spawner.threat;
           this.nests.update(dt, this);
         }
@@ -503,19 +514,19 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     }
 
     // visuals always tick (frozen AI still renders idle motion), then despawn finished corpses / fled bugs
-    // 2026-09-16 (2차): 빈 시체 — 아무도 보지 않게 되면 수명을 줄이고, 내 창이 보는 동안은 붙잡는다 (`parts/CorpseEmpty`)
+    // 2026-09-16 (2nd pass): emptied corpses — the lifetime is cut once nobody is looking, and held while my own window is open (`parts/CorpseEmpty`)
     CorpseEmpty.updateEmptyCorpses(this);
     const slack = this.authority ? 0 : 1;   // replicas: the host's despawn normally arrives first
     for (let i = this.active.length - 1; i >= 0; i--) {
       const e = this.active[i];
-      // 2026-09-11 (C-18): 전차 위 시체는 전차와 함께 간다 (권위 · 리플리카 공통) — 수색 자리(`corpse:<id>`)도 몸을 따라간다
+      // 2026-09-11 (C-18): a corpse on the tram travels with it (on the authority and a replica alike) — the search spot (`corpse:<id>`) follows the body too
       if (e.state === 'dead' && (carryCorpse(e, world) || e.corpseDropped)) {
         const c = this.corpses.get(e.id);
         if (c) c.position.copy(e.position);
         if (e.deathLanded) e.corpseDropped = false;
       }
       e.animate(dt);
-      // 2026-09-17: 가라앉기 시작한 시체는 더 뒤질 수 없다 (빈 시체 · 수명 끝 시체 공통 — `anim.fade` > 0 이 가라앉는 중)
+      // 2026-09-17: a corpse that has begun to sink cannot be searched any more (an emptied one and one at the end of its lifetime alike — `anim.fade` > 0 means sinking)
       if (e.state === 'dead') { const c = this.corpses.get(e.id); if (c) c.sinking = e.anim.fade > 0; }
       // Phase 10: a mid-air kill registers its corpse once the body has come to rest (or after CORPSE_LAND_TIMEOUT)
       if (e.corpsePending && this.authority && !this.resetting && (e.deathLanded || e.deathTimer >= CORPSE_LAND_TIMEOUT)) this.registerCorpse(e);
@@ -582,7 +593,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       if (tb !== BODY_RAY_VERTICAL) {
         if (tb >= 0 && tb < bestT) { best = e; bestT = tb; bestKind = 4; bestPart = e.classifyHit(undefined, dir); }
       } else {
-        // 2026-09-11 (C-72): 서 있는 캡슐의 축 높이 규칙은 `RayTests.standingTopY` 하나다 — 여기 같은 식을 또 적지 않는다.
+        // 2026-09-11 (C-72): the axis height rule for a standing capsule lives in `RayTests.standingTopY` alone — the same expression is not written again here.
         const y0 = e.position.y + r;
         const y1 = standingTopY(e.position.y, r, h);
         const res = rayCapsule(origin, dir, cx, cz, y0, y1, r);
@@ -639,11 +650,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * Uses the per-frame spatial grid when it is fresh, else a linear scan — both allocation-free apart
    * from the returned array.
    *
-   * 2026-09-18 (벌레 알): **기본은 싸우는 몸만**이다 — `bug_egg` 는 빠진다. 이 질의를 쓰는 곳은 거의 전부 「무엇을 노릴까 ·
-   * 무엇이 나를 위협하나」 이고(포탑 표적 · 지뢰 접촉 · 안드로이드 교전 · 정찰 스캔 · 배리어 충돌), 알은 그 어느 것도 아니다.
-   * 부르는 쪽이 잊어버릴 수 없게 **기본값**으로 걸렀다. 알까지 필요한 질의(설치물 폭발 피해처럼 「닿는 것은 다 부순다」)
-   * 는 `includeProps: true` 를 준다. 알 자체는 총알 · 근접 · 수류탄 · `applyAreaDamage`(지뢰 · 함선 호출) · `explode` 로
-   * 그대로 부서진다 — 그 경로들은 이 질의를 지나지 않는다.
+   * 2026-09-18 (bug eggs): **the default is fighting bodies only** — `bug_egg` drops out. Almost every caller of this
+   * query is asking 「what do I target · what threatens me」 (turret targets · mine contact · an android engaging · the
+   * recon scan · a barrier bump), and an egg is none of those.
+   * It is filtered **by default** so a caller cannot forget it. A query that does need the eggs (a deployable's blast
+   * damage, where 「whatever it reaches, it breaks」) passes `includeProps: true`. The egg itself still breaks to
+   * bullets · melee · grenades · `applyAreaDamage` (mines · ship calls) · `explode` — none of those paths come through
+   * this query.
    */
   queryNear(pos: THREE.Vector3, radius: number, includeProps = false): EnemyRef[] {
     const out: EnemyRef[] = [];
@@ -655,7 +668,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       for (let i = 0; i < n; i++) {
         const e = queryBuf[i];
         if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
-        if (e.isEgg && !includeProps) continue;   // 2026-09-18: 이 질의의 기본은 **싸우는 몸**이다 (머리말 참고)
+        if (e.isEgg && !includeProps) continue;   // 2026-09-18: this query's default is **fighting bodies** (see the header)
         const dx = e.position.x - pos.x, dy = e.position.y + e.stats.height * 0.5 - pos.y, dz = e.position.z - pos.z;
         if (dx * dx + dy * dy + dz * dz <= r2) out.push(e);
       }
@@ -681,17 +694,17 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /**
    * Apply a status effect. `burning` deals `dps` damage (in 0.5 s ticks) for `duration` seconds and
    * spits embers; `slowed` reads `dps` as the fraction of speed removed (0.4 → 60 % speed), clamped to 0.2…1.
-   * `incinerated` (전소, 2026-09-06): `duration` s of writhing on the spot — no movement / attacks, still damageable —
+   * `incinerated` (2026-09-06): `duration` s of writhing on the spot — no movement / attacks, still damageable —
    * `isIncapacitated`, faster embers, `enemy:incinerated`; `dps` is ignored. `shocked`: `dps` is the **speed
    * multiplier** (0..1, `SHOCK_SLOW_FACTOR` = 55 % speed) for `duration` s, plus a cyan spark strobe and
    * `enemy:shocked` (emitted once per shock, not per tick — the arc calls this every frame).
-   * `dps` 0 (or `duration` 0 for 전소) clears the effect. Visuals run everywhere; gameplay only on the authority:
+   * `dps` 0 (or `duration` 0 for incineration) clears the effect. Visuals run everywhere; gameplay only on the authority:
    * a replica keeps the optimistic visual and forwards the request to the host as `hit {dmg: 0, st, dur}`
    * (`ENEMY_STATUS_BITS`), throttled per enemy for the continuous callers.
    */
   applyStatus(id: number, status: EnemyStatusKind, dps: number, duration: number, attacker?: string): void { return Status.applyStatus(this, id, status, dps, duration, attacker); }
 
-  /** Authority: put `e` into 전소 for `duration` s (event, scream, ember burst). */
+  /** Authority: put `e` into the incinerated state for `duration` s (event, scream, ember burst). */
   incinerate(e: Enemy, duration: number): void { return Status.incinerate(this, e, duration); }
 
   /**
@@ -742,12 +755,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       e.guardPos.copy(e.position); e.escortOf = null; e.leash = ROGUE_AI.leash;
       e.target = null; e.targetTimer = 0; e.perceptionTimer = Math.random() * 0.3; e.hasLOS = false; e.lostTimer = 0;
       e.roguePhase = 0; e.chargePhase = 0; e.spitPhase = 0; e.toxicPhase = 0; e.swellTimer = 0; e.dug = 0;
-      /* 2026-09-17 · 2026-09-18: 포병 발사 자세 · 포격 준비 · 부대 쿨타임은 새 호스트에서 처음부터다 — 셋 다 와이어에 없다.
-         `nestOf`(둥지 리시)도 마찬가지라 승격된 호스트에서는 둥지 벌레가 평범한 벌레가 된다 (`escortOf` 와 같은 의도). */
+      /* 2026-09-17 · 2026-09-18: the artillery's firing stance · barrage prep · squad cooldown all start over on a new
+         host — none of the three is on the wire. `nestOf` (the nest leash) is the same, so on a promoted host a nest bug
+         becomes an ordinary bug (the same intent as `escortOf`). */
       e.shellPhase = 0; e.shellPhaseT = 0; e.shellPrepDone = false; e.squadCd = 0;
       e.nestOf = -1; e.nestReturning = false;
       e.airborne = false; e.leaping = false; e.vy = 0;
-      // 2026-09-17: 뒤집힌 헌터를 이어받으면 (떨어지던 몸도) 땅에서 남은 뒤집힘을 마친다 — 힌트 유지값(0.35 s)이 아니라 최소 1 s
+      // 2026-09-17: taking over a flipped hunter (including one still falling) finishes the rest of the flip on the ground — at least 1 s, not the hint's hold value (0.35 s)
       if (e.flipFalling || e.flipTimer > 0) { e.flipFalling = false; e.flipTimer = Math.max(e.flipTimer, 1); e.state = 'stagger'; e.staggerTimer = 0; }
       e.leapDamage = 0;
       e.burstLeft = 0; e.throwTimer = 0; e.reloadTimer = 0; e.magRounds = ROGUE_MAG_ROUNDS;
@@ -773,7 +787,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.snapTimer = 0;
     this.spawner.resume();
     this.waves.reset();
-    // 2026-09-13: 탈출 디펜스 웨이브 제거 — 승격된 호스트도 웨이브를 다시 이어 붙이지 않는다 (`waves.prime` 을 부르지 않는다)
+    // 2026-09-13: extraction defence waves removed — a promoted host does not splice the waves back in either (it never calls `waves.prime`)
     this.targets.refresh(ctx);
   }
 
@@ -789,7 +803,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       e.throwTimer = 0; e.reloadTimer = 0;
       e.target = null; e.hasMoveTarget = false; e.hasFacePoint = false;
       e.chargePhase = 0; e.spitPhase = 0; e.toxicPhase = 0; e.roguePhase = 0; e.airborne = false; e.leaping = false;
-      e.flipFalling = false; e.flipTimer = 0; e.leapDamage = 0;   // 2026-09-17: 뒤집힘은 새 호스트의 힌트가 다시 입힌다
+      e.flipFalling = false; e.flipTimer = 0; e.leapDamage = 0;   // 2026-09-17: the new host's hint puts the flip back on
       e.velocity.set(0, 0, 0);
       this.replicaMgr.adopt(e, now);
     }
@@ -798,7 +812,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   applyAreaDamage(center: THREE.Vector3, radius: number, damage: number, by?: string): number { return Dmg.applyAreaDamage(this, center, radius, damage, by); }
 
   /**
-   * `EnemyManagerRef.pushBack` (실드 배쉬 knockback; Phase 12 cast-only, contract since 2026-09-11 C-1). Shove enemies
+   * `EnemyManagerRef.pushBack` (the shield bash knockback; Phase 12 cast-only, contract since 2026-09-11 C-1). Shove enemies
    * away from `center`: every alive combatant within `radius` gets a horizontal impulse of `speed` m/s (falling off
    * linearly to 40 % at the rim) away from the centre, or along `dir` — the same `velocity` nudge an explosion applies
    * (a charging behemoth is **not** shoved). Authority: applies it, returns how many were pushed. Replica: sends one
@@ -824,7 +838,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     if (type === 'rogue' || type === 'rogue_boss') {
       return this.spawnRogue(type, _v, 0, _v, type === 'rogue_boss' ? ROGUE_AI.bossWeapon : ROGUE_AI.weapons[0], null, opts);
     }
-    // 2026-09-13: 안드로이드 · 레이더도 인간형 스폰 경로 (총 = 그 팩션 목록의 첫 계열, `opts` = 거점 · 분대 · 역할)
+    // 2026-09-13: the android · raider use the humanoid spawn path too (the gun = the first family on that faction's list, `opts` = site · squad · role)
     if (type === 'android' || type === 'raider') {
       return this.spawnRogue(type, _v, 0, _v, HUMANOID_WEAPONS[type][0] ?? 'ar', null, opts);
     }
@@ -838,16 +852,18 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   debugGrenade(id: number): THREE.Vector3 | null { return this.grenades?.findByOwner(id) ?? null; }
   /** true while this client simulates the enemies (debug / smoke). */
   get isAuthority(): boolean { return this.authority; }
-  /** true in a 시뮬레이션 훈련장 world (no spawning). */
+  /** true in a simulation training range world (no spawning). */
   get isTrainingWorld(): boolean { return this.training; }
-  /** 2026-09-14: true in a 튜토리얼 world (고정 자리 적만 — 굴림 · 순찰 · 웨이브 · 강하 · 네임드 · 땅굴벌레 없음). */
+  /** 2026-09-14: true in a tutorial world (enemies at fixed spots only — no rolls · patrols · waves · drops · named · sandworm). */
   get isTutorialWorld(): boolean { return this.tutorial; }
   /**
-   * 2026-09-14 (debug / smoke): 이번 튜토리얼 레이드에 무엇이 섰는가 — 세운 마리 · 건너뛴 줄 · 마리별 감지 반경 · 리시.
-   * 2026-09-14 3차: `ambush` = 아직 땅속에서 기다리는 벌레 수 (플레이어가 감지 반경에 들어서면 솟아 `spawned` 로 옮겨 간다).
-   * 튜토리얼이 아니거나 아직 세우기 전이면 null.
+   * 2026-09-14 (debug / smoke): what this tutorial raid stood up — the bodies placed · the rows skipped · each one's
+   * detection radius · its leash.
+   * 2026-09-14 (3rd pass): `ambush` = how many bugs are still waiting underground (once the player enters the detection
+   * radius one rises and moves over to `spawned`).
+   * null outside the tutorial, or before the placement.
    */
-  /** 2026-09-18 (벌레 둥지): 이번 레이드의 알 수 · 둥지별 보충 굴림 · 수비대 · 지금 살아 있는 수 (권한만, 디버그 · 스모크). */
+  /** 2026-09-18 (bug nests): this raid's egg count · the refill roll per nest · the garrison · how many are alive now (authority only, debug · smokes). */
   debugNests(): { eggs: number; nests: Array<{ pad: number; anchorIndex: number; refillsLeft: number; garrison: number; alive: number }> } | null {
     if (!this.nests.placement) return null;
     return { eggs: this.nests.placement.eggs, nests: this.nests.debugState(this) };
@@ -880,13 +896,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /** Position of live shell `sid` (debug), or null. */
   debugShell(sid: number): THREE.Vector3 | null { return this.shells?.find(sid)?.position ?? null; }
   /**
-   * Phase 11 (debug / smoke): the 행성 생태계 in force plus the numbers derived from it, or null with no planet.
+   * Phase 11 (debug / smoke): the planet ecosystem in force plus the numbers derived from it, or null with no planet.
    * `cap` is the ambient population ceiling at the current threat.
    */
   get debugEcology(): { bugs: Partial<Record<EnemyType, number>>; pressure: number; rogues: number; boss: boolean; maxArtillery: number; maxBehemoth: number; gatherDensity: number; threat: number; cap: number; planetThreat: number; bugHpMul: number; effBugs: Partial<Record<EnemyType, number>>; effMaxArtillery: number; effMaxBehemoth: number } | null {
     const eco = this.eco;
     if (!eco) return null;
-    // 2026-09-14: 위 필드는 행성 원본(planets.csv) 그대로, `eff*` 는 벌레 난이도가 얹힌 실효 생태계
+    // 2026-09-14: the fields above are the planet's own (planets.csv); `eff*` is the effective ecosystem with bug difficulty on top
     const eff = this.spawnEco ?? eco;
     return {
       bugs: eco.bugs, pressure: eco.pressure, rogues: eco.rogues, boss: eco.boss,
@@ -900,7 +916,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   get debugAmbientCap(): number { return this.spawner.cap; }
   /**
    * Phase 11 (debug / smoke): one ambient patrol composition for `threat` through the live ecosystem. Spawns nothing.
-   * 2026-09-14: `planetThreat` 를 주면 이 행성의 원본 생태계에 **그 threat 의** 벌레 난이도를 얹어 굴린다 (같은 행성으로 threat 만 비교).
+   * 2026-09-14: given a `planetThreat`, it rolls this planet's own ecosystem with **that threat's** bug difficulty on top (comparing threats on one planet).
    */
   debugAmbientGroup(threat: number, planetThreat?: number): EnemyType[] {
     const tuning = planetThreat === undefined ? this.bugTuning : bugThreatTuning(planetThreat);
@@ -910,8 +926,9 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /** Phase 11 (debug / smoke): one extraction-wave composition through the live ecosystem. Spawns nothing. */
   debugWaveGroup(index: number, count: number): EnemyType[] { return waveGroup(index, count, this.spawnEco).slice(); }
   /**
-   * 2026-09-14 (debug / smoke): 벌레 난이도 한 칸 — 배수 · 보너스 + 이 행성에 얹었을 때의 포병 / 베헤모스 상한과 ramp `rampThreat` 에서의
-   * 포병 굴착 확률. `planetThreat` 생략 = 이번 레이드 값.
+   * 2026-09-14 (debug / smoke): one row of bug difficulty — the multipliers · bonuses, plus the artillery / behemoth caps
+   * it gives on this planet and the artillery dig-in chance at ramp `rampThreat`. `planetThreat` omitted = this raid's
+   * value.
    */
   debugBugTuning(planetThreat?: number, rampThreat = 0.7): BugThreatTuning & { maxArtillery: number; maxBehemoth: number; artilleryChance: number } {
     const tuning = planetThreat === undefined ? this.bugTuning : bugThreatTuning(planetThreat);
@@ -925,20 +942,22 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /** Phase 12 (debug / smoke): feed a `shotq` through the host path as if peer `from` sent it (authority needed, no session). */
   debugShotReport(msg: ShotReport, from: PeerId): void { this.onShotReport(msg, from, true); }
   /**
-   * 2026-09-09 (debug / smoke): 로그 강하 상태 — 진행 중인 강하, 이번 레이드에 굴린 횟수 / 실제로 부른 횟수.
-   * `rolls` 는 `structure:investigated` 로 굴린 구역 수(실패 포함)이고 `calls` 는 성공해서 부른 강하 수다.
+   * 2026-09-09 (debug / smoke): the rogue drop state — the drops in progress, and how many times this raid rolled /
+   * actually called one. `rolls` is the number of zones rolled through `structure:investigated` (failures included) and
+   * `calls` the number of drops the successes called.
    */
   get debugRogueDrops(): { pending: RogueDropView[]; rolls: number; calls: number } {
     return { pending: this.rogueDrops.views().slice(), rolls: this.rogueDrops.rolls, calls: this.rogueDrops.calls };
   }
-  /** 2026-09-09 (debug / smoke): `structure:investigated` 없이 굴림 경로를 그대로 태운다 (구역당 1회 규칙 포함). */
+  /** 2026-09-09 (debug / smoke): runs the roll path as it is, without a `structure:investigated` (the once-per-zone rule included). */
   debugInvestigate(zoneId: string, position: THREE.Vector3): void { this.rogueDrops.onInvestigated(zoneId, position); }
   /**
-   * 2026-09-11 (debug / smoke): 판정 없이 네임드 `type` 을 세운다 (헤비면 SMG 호위 포함). `at` 이 없으면 플레이어 앞 40 m.
-   * 권한만. `enemy:namedSpawned` 는 나가지만 이번 레이드의 굴림 기록은 건드리지 않는다.
+   * 2026-09-11 (debug / smoke): stands the named `type` up with no roll (the SMG escort included, for the Heavy). With
+   * no `at`, 40 m in front of the player. Authority only. `enemy:namedSpawned` goes out, but this raid's roll record is
+   * left alone.
    */
   debugSpawnNamed(type: NamedRogueType, at?: { x: number; z: number }): Enemy | null { return this.named.debugSpawn(type, at); }
-  /** 2026-09-11 (debug / smoke): 이번 레이드의 네임드 굴림 — 확률 · 굴린 값 · 뽑힌 종류 · 자리 · 호위 수. */
+  /** 2026-09-11 (debug / smoke): this raid's named roll — the chance · the rolled value · the type drawn · the spot · the escort count. */
   debugNamedRoll(): NamedRollResult { return this.named.debugRoll(); }
   /**
    * Phase 11 (debug / smoke): living humanoids right now. `rogues` counts `rogue` + `rogue_boss` (boss included) as before;
@@ -956,9 +975,10 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     return { rogues, boss, androids, raiders };
   }
   /**
-   * 2026-09-13 (debug / smoke): 이번 레이드 시작의 거점 점거 — threat · 거점별 점거 여부 · 팩션 · 그룹(분대 id · 실내/실외 ·
-   * 분대장 여부 · 멤버 id / 종류 / 역할 / 무기 / 스폰 자리) · 분대장 id · 자리 출처(`world` = getSiteSpawnPoints, `fallback`).
-   * JSON 으로 옮길 수 있는 복사본. 권한이 아니거나 굴리기 전이면 null.
+   * 2026-09-13 (debug / smoke): the site occupation at this raid's start — the threat · whether each site is occupied ·
+   * the faction · the groups (squad id · indoor/outdoor · whether it has a leader · each member's id / type / role /
+   * weapon / spawn spot) · the leader's id · where the spots came from (`world` = getSiteSpawnPoints, `fallback`).
+   * A JSON-transferable copy. null off the authority, or before the roll.
    */
   debugSites(): { threat: number; source: string; bossId: number | null; humanoids: number; sites: Array<{ siteId: string; site: string; occupied: boolean; faction: string | null; groups: Array<{ squadId: number; place: string; faction: string; leader: boolean; planned: number; members: Array<{ id: number; type: EnemyType; role: string; weapon: string; x: number; y: number; z: number }> }> }> } | null {
     const p = this.sitePlacement;
@@ -968,9 +988,9 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       sites: p.sites.map((s) => ({ ...s, groups: s.groups.map((g) => ({ ...g, members: g.members.map((m) => ({ ...m })) })) })),
     };
   }
-  /** 2026-09-13 (debug / smoke): 레이더 강하가 분대 인원을 `n`(1..4)으로 치게 한다 (null = 실제 인원). 미션 리셋이 지운다. */
+  /** 2026-09-13 (debug / smoke): makes a raider drop treat the squad as `n` members (1..4) (null = the real count). A mission reset clears it. */
   debugSetDropSquad(n: number | null): void { this.rogueDrops.squadOverride = n; }
-  /** 2026-09-13 (debug / smoke): 예약된 레이더 강하 두 번째 파도 · 이번 레이드에 떨어뜨린 파도 수. */
+  /** 2026-09-13 (debug / smoke): the scheduled second wave of a raider drop · how many waves this raid has dropped. */
   get debugDropWaves(): { pending: Array<{ id: string; count: number; at: number }>; waves: number } {
     return { pending: this.rogueDrops.pendingWaves(), waves: this.rogueDrops.waves };
   }
@@ -988,7 +1008,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   ensureCapacity(n: number, cap: number): number { return Pool.ensureCapacity(this, n, cap); }
 
-  /** `emerge` (2026-09-13) > 0 = 벌레가 그 초 동안 땅을 파고 올라온다. */
+  /** `emerge` (2026-09-13) > 0 = the bug digs up out of the ground over that many seconds. */
   spawn(type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean, emerge = 0): Enemy | null { return Pool.spawn(this, type, position, yaw, chase, relentless, emerge); }
 
   /* ── RogueSpawnHost ────────────────────────────────────────────────────── */
@@ -1024,12 +1044,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   corpseGoneRemote(id: number): void { return RFx.corpseGoneRemote(this, id); }
 
-  /** 2026-09-16 (`ee corpseEmptied`): 호스트가 정한 빈 시체 — 수명이 줄고 가라앉는다 (`parts/CorpseEmpty`). */
+  /** 2026-09-16 (`ee corpseEmptied`): a corpse the host declared empty — its lifetime is cut and it sinks (`parts/CorpseEmpty`). */
   corpseEmptiedRemote(id: number): void { CorpseEmpty.applyCorpseEmptied(this, id); }
 
   /**
-   * 2026-09-16 (debug / smoke): 권위에서 적 시체 `id` 를 「열어서 비운 시체」로 만든다 — `crate:looted corpse:<id>` 와 같은 길.
-   * 죽은 몸이 없거나 이미 비웠거나 권위가 아니면 false.
+   * 2026-09-16 (debug / smoke): on the authority, turns the enemy corpse `id` into 「a corpse opened and emptied」 — the
+   * same path as `crate:looted corpse:<id>`.
+   * false with no dead body, when it is already empty, or off the authority.
    */
   debugEmptyCorpse(id: number): boolean { return CorpseEmpty.emptyCorpseAuthority(this, id); }
 
@@ -1039,7 +1060,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   despawn(e: Enemy): void { return Pool.despawn(this, e); }
 
-  /* ── 2026-09-13: 굴착 스폰 · 땅굴벌레 (ReplicaHost / EnemyHost + debug) ─────────────── */
+  /* ── 2026-09-13: the dig-in spawn · the sandworm (ReplicaHost / EnemyHost + debug) ─ ── */
   emergeSpawned(e: Enemy): void { Burrow.emergeFx(this, e); }
 
   burrowLanded(e: Enemy): void { Burrow.spatLandedFx(this, e); }
@@ -1085,7 +1106,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
 
   /* ── GrenadeHost ───────────────────────────────────────────────────────── */
   /**
-   * Fuse ran out. Authority: ROGUE_GRENADE_DAMAGE with the shared 2단 계단 falloff (`shared/explosion`) over ROGUE_GRENADE_RADIUS to every alive player
+   * Fuse ran out. Authority: ROGUE_GRENADE_DAMAGE with the shared two-step falloff (`shared/explosion`) over ROGUE_GRENADE_RADIUS to every alive player
    * (local directly, remote via `dmg {kb}`, suspended via `ghost:damage`) and to enemies of the other faction, blast
    * noise, `ee grenadeHit`. Everyone: audio, shake near the local player.
    */
@@ -1093,7 +1114,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /** 2026-09-13 (`GrenadeHost`): an authority enemy fire zone burns for `tick` s — `parts/Attacks.onFireZoneTick`. */
   onFireZoneTick(p: THREE.Vector3, radius: number, owner: number, faction: EnemyFaction, tick: number): void { return Atk.onFireZoneTick(this, p, radius, owner, faction, tick); }
 
-  /* ── status effects (burning / slow / 전소 / shocked) ──────────────────── */
+  /* ── status effects (burning / slow / incinerated / shocked) ─────────── */
   private updateStatuses(dt: number): void { return Status.updateStatuses(this, dt); }
 
   /**
@@ -1105,30 +1126,33 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   alertHearing(position: THREE.Vector3, radius: number): void { return Alert.alertHearing(this, position, radius); }
 
   /**
-   * 2026-09-11 (적 ↔ 드론): `world:noise` (지상 드론 질주). 들을 수 있는 거리 안의 아직 아무도 인지하지 못한 적이 그
-   * 소리 쪽을 조사한다(`ai/Investigate`). 표적은 주지 않는다 — 드론이 보이면 `pickTarget` 이 고른다. 권한 전용.
+   * 2026-09-11 (enemies ↔ drones): `world:noise` (a ground drone sprinting). Enemies within earshot that nobody has made
+   * aware yet go and investigate where the sound came from (`ai/Investigate`). It hands over no target — if the drone is
+   * visible, `pickTarget` picks it. Authority only.
    */
   onWorldNoise(position: THREE.Vector3, radius: number): void { return Alert.onWorldNoise(this, position, radius); }
 
-  /** 2026-09-11 (debug / smoke): 적이 지금 노릴 수 있는 드론 프록시 — id · 밑면 고도(m). */
+  /** 2026-09-11 (debug / smoke): the drone proxies an enemy may target right now — the id · the underside height (m). */
   get debugDroneTargets(): Array<{ id: string; altitude: number }> {
     return this.targets.drones.map((t) => ({ id: t.droneId ?? '', altitude: t.droneAltitude }));
   }
 
-  /* ══ appended (2026-09-15): 안드로이드 분대원 ══════════════════════════════════════════════════════════ */
+  /* ══ appended (2026-09-15): android squadmates ═════════════════════════════════════════════════════════ */
   /**
-   * `EnemyManagerRef.applyAllyHit` — 안드로이드의 한 발이 적 `enemyId` 를 맞혔다 (권위 전용, 킬 크레딧 없음).
-   * 적용했으면 true (`parts/Damage.applyAllyHit`).
+   * `EnemyManagerRef.applyAllyHit` — an android's round hit the enemy `enemyId` (authority only, no kill credit).
+   * true when it was applied (`parts/Damage.applyAllyHit`).
    */
   applyAllyHit(enemyId: number, damage: number, point: THREE.Vector3, from: THREE.Vector3): boolean { return Dmg.applyAllyHit(this, enemyId, damage, point, from); }
 
-  /** 디버그 주입 피해 수신자 — null 이면 진짜 `ctx.allies.damage` 로 간다 (`debugAllyTargets`). */
+  /** The debug-injected damage receiver — with null it goes to the real `ctx.allies.damage` (`debugAllyTargets`). */
   debugAllySink: Dmg.AllyDamageSink | null = null;
 
   /**
-   * debug / smoke 전용: `ctx.allies` 없이 안드로이드 몸을 주입한다. `bodies` 는 `AllyBodyView` 그대로(위치 · 체력 ·
-   * `hidden` 을 스모크가 직접 채운다)이고, `onDamage` 는 적이 그 몸을 때릴 때마다 불린다. `null` 로 부르면 걷어낸다.
-   * allies/ 가 아직 없어도 적 쪽(표적 · 사격 · 광역 · 접촉)을 그대로 검사할 수 있게 하는 유일한 통로다.
+   * debug / smoke only: injects android bodies with no `ctx.allies`. `bodies` are `AllyBodyView`s as they are (the
+   * smoke fills in the position · hp · `hidden` itself) and `onDamage` is called every time an enemy hits one of them.
+   * Calling it with `null` takes them away.
+   * It is the one path that lets the enemy side (targeting · firing · area damage · contact) be tested as it is while
+   * allies/ is not there yet.
    */
   debugAllyTargets(bodies: readonly AllyBodyView[] | null, onDamage?: Dmg.AllyDamageSink | null): void {
     this.targets.allyOverride = bodies;
@@ -1136,14 +1160,14 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.targets.refresh(this.ctx);
   }
 
-  /** debug / smoke 전용: 지금 적이 노릴 수 있는 안드로이드 프록시 — id · 거리 기준 위치. */
+  /** debug / smoke only: the android proxies an enemy may target right now — the id · the position distances are measured from. */
   get debugAllyTargetList(): Array<{ id: string; x: number; z: number }> {
     return this.targets.allies.map((t) => ({ id: t.allyId ?? '', x: t.position.x, z: t.position.z }));
   }
 
   /**
-   * debug / smoke 전용: 공용 엄폐 고르기(`shared/cover.pickCoverSpot`)를 인간형 수치로 한 번 돌린다.
-   * 적 개체 없이 「이 자리에서 저 위협을 피하면 어디에 숨는가」만 물어본다.
+   * debug / smoke only: runs the shared cover pick (`shared/cover.pickCoverSpot`) once with the humanoid numbers.
+   * It asks only 「standing here, avoiding that threat, where do I hide」, with no enemy instance.
    */
   debugCoverSpot(from: readonly number[], threat: readonly number[], anchorRadius = Infinity): { cover: number[]; pop: number[]; score: number } | null {
     const world = this.ctx.world;
@@ -1199,7 +1223,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   damageTargetAcid(target: CombatTarget, amount: number, from: THREE.Vector3, shooterId: number, slow: AcidSlow): void { return Dmg.damageTargetAcid(this, target, amount, from, shooterId, slow); }
 
   /**
-   * Phase 9: does a 배리어 stand between `from` and the target's chest? If so the barrier takes the block damage
+   * Phase 9: does a barrier stand between `from` and the target's chest? If so the barrier takes the block damage
    * (`ImplantsRef.damageBarrier`) and the caller deals none. One pure raycast per call — call it per hit, never per tick.
    */
   barrierBlocks(from: THREE.Vector3, target: CombatTarget): boolean { return Dmg.barrierBlocks(this, from, target); }
@@ -1212,7 +1236,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * Phase 7: `kbDir` / `kbSpeed` = knockback (behemoth charge, grenade blast): local → `applyKnockback`, remote →
    * `dmg.kb`; a **suspended** member (host-simulated ghost) gets `ghost:damage {id, amount, from, kb}` on the bus
    * instead of a `dmg` message.
-   * Phase 12: `melee` = a bite / leap / charge contact. Before it lands on a player the raised 배리어 of that player
+   * Phase 12: `melee` = a bite / leap / charge contact. Before it lands on a player the raised barrier of that player
    * gets to absorb it (`ImplantsRef.absorbFrontalAttack`): the local carrier's shield is deducted by implants right
    * there, a peer's carrier gets `ee barrierHit` (its own shield takes it) and no `dmg`. Ranged attacks (rifle,
    * shell, acid, grenade) keep the `raycastBarrier` path of their callers.
@@ -1230,7 +1254,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /** Phase 12 (ReplicaHost): the host says enemy `id` bit **my** raised shield — the local shield takes it, bite FX at `p`. */
   barrierHitRemote(id: number, p: THREE.Vector3, amount: number): void { return Dmg.barrierHitRemote(this, id, p, amount); }
 
-  /* ── Phase 12: 배리어 충돌 (EnemyHost) ─────────────────────────────────── */
+  /* ── Phase 12: barrier bumps (EnemyHost) ────────────────────────────── ── */
   /**
    * Called from `ai/EnemyAI.integrate` after every grounded enemy moved: `ImplantsRef.resolveBarrierCollision` pushes
    * the body out of any raised shield and names the carrier. On contact the enemy hunts the carrier for
@@ -1239,7 +1263,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    */
   resolveBarrier(e: Enemy): void { return Dmg.resolveBarrier(this, e); }
 
-  /* ── Phase 12: 총알 추적 ───────────────────────────────────────────────── */
+  /* ── Phase 12: shot tracking ────────────────────────────────────────── ── */
   /**
    * `shotq` from a client (host only): validate and run the shooter's report as if it were local, credited to `from`.
    * `force` (debug / smoke) skips the session gate but keeps the authority one and the validation.

@@ -1,9 +1,9 @@
 /**
- * src/enemies/model.ts — 적 폴더의 공용 어휘.
+ * src/enemies/model.ts — the enemy folder's shared vocabulary.
  *
- * EnemySystem 에서 떼어낸 상수 · 타입 · 스크래치 벡터만 있다. 클래스를 참조하지 않으므로
- * parts/* 모듈이 클래스를 되돌아 import 하지 않고 쓸 수 있다(순환 import 방지).
- * EnemySystem.ts 가 그대로 재수출하므로 기존 import 경로는 전부 유지된다.
+ * Only the constants · types · scratch vectors taken out of EnemySystem. It references no class, so the `parts/*`
+ * modules can use it without importing the class back (no circular import).
+ * EnemySystem.ts re-exports all of it, so every existing import path still works.
  */
 import * as THREE from 'three';
 import {
@@ -51,7 +51,7 @@ export const RECYCLE_DISTANCE = 160;
 export const MAX_REQUEST_DAMAGE = 500;
 export const MAX_REQUEST_RADIUS = 20;
 /**
- * 2026-09-11 (C-1 · X-6): a replica's `HitRequest.kb` (실드 배쉬 넉백) is clamped to this many m/s on the host — a
+ * 2026-09-11 (C-1 · X-6): a replica's `HitRequest.kb` (the shield bash knockback) is clamped to this many m/s on the host — a
  * wire-validation cap like `MAX_REQUEST_DAMAGE`, not a balance number (the bash itself is `IMPLANT_SHIELD_BASH_KNOCKBACK`).
  */
 export const MAX_REQUEST_KNOCKBACK = 20;
@@ -70,7 +70,7 @@ export const SUSPICION_REFRESH = 0.2;
 export const GUNFIRE_LURE_WEIGHT = 0.25;
 export const GUNFIRE_LURE_DURATION = 4;
 /* ── appended: unique weapons (2026-09-06) ── */
-/** 전소: ember puffs come ~3× as fast as plain burning (same pooled particles, no lights). */
+/** Incinerated: ember puffs come ~3× as fast as plain burning (same pooled particles, no lights). */
 export const INCAP_EMBER_INTERVAL = 0.12;
 /** Shocked: cyan spark puffs while `shockTimer` runs. */
 export const SPARK_INTERVAL = 0.09;
@@ -80,10 +80,10 @@ export const SHOCK_SPARK_TIME = 0.6;
 export const STATUS_REQUEST_INTERVAL = 0.25;
 /** Host clamps a client's requested status duration. */
 export const MAX_STATUS_DURATION = 10;
-/* ── appended 2026-09-11 (E-8 — docs/DECISIONS.md 「2026-09-11 — 신뢰 경로의 남은 틈」): 호스트가 요청을 믿기 전의 상한 ──
- * 네 csv 수치의 이름은 다른 가드 상수들과 같이 `shared/constants.ts` 가 선언한다 (`HIT_KNOCKBACK_RANGE_SLACK` ·
- * `CRATE_OPEN_RANGE_SLACK` 바로 아래). 여기서는 실제로 비교에 쓰는 두 개의 reach 로 합치기만 한다 —
- * `parts/Damage.ts` 가 소비자 전부다.
+/* ── appended 2026-09-11 (E-8 — docs/DECISIONS.md 「2026-09-11 — 신뢰 경로의 남은 틈」): the caps before a host trusts a request ──
+ * The four csv numbers are named in `shared/constants.ts` like every other guard constant (right under
+ * `HIT_KNOCKBACK_RANGE_SLACK` · `CRATE_OPEN_RANGE_SLACK`). All that happens here is folding them into the two reaches
+ * the comparisons actually use — `parts/Damage.ts` is every consumer.
  */
 export { STATUS_REQUEST_BURST_S, STATUS_REQUEST_RATE_MAX } from '@/shared';
 
@@ -95,12 +95,13 @@ export { STATUS_REQUEST_BURST_S, STATUS_REQUEST_RATE_MAX } from '@/shared';
 export const ENEMY_STATUS_BITS_ALL = Object.values(ENEMY_STATUS_BITS).reduce((a, b) => a | b, 0);
 /**
  * 2026-09-11 (E-8): how far a client's status request may legitimately reach, **derived from data** the way
- * `shared/buffRules.limits()` is — the only two things that put a status on an enemy are the 화염방사기
- * (`FLAME_RANGE`) and the 쇼크건 (`SHOCK_RANGE`); 소이 구역(`gadgets`)은 권한에서만 도므로 와이어를 타지
- * 않는다 (`parts/Damage.statusInReach` 주석의 실측). `STATUS_REQUEST_RANGE_SLACK` 이 양쪽 스냅샷 지연 몫이다.
+ * `shared/buffRules.limits()` is — the only two things that put a status on an enemy are the flamethrower
+ * (`FLAME_RANGE`) and the shock gun (`SHOCK_RANGE`); an incendiary zone (`gadgets`) runs on the authority only and
+ * never rides the wire (measured in `parts/Damage.statusInReach`'s comment). `STATUS_REQUEST_RANGE_SLACK` is the
+ * snapshot lag on both sides.
  */
 export const STATUS_SOURCE_REACH = Math.max(FLAME_RANGE, SHOCK_RANGE) + STATUS_REQUEST_RANGE_SLACK;
-/** `explode` 요청의 상한 거리 — 폭발원 중 가장 먼 것이 함선 호출 낙하물이라 그 사거리에 slack 을 더한다. */
+/** The cap on an `explode` request's distance — the farthest blast source is a ship call's drop, so its range plus slack. */
 export const EXPLODE_SOURCE_REACH = STRAT_MAX_CALL_RANGE + EXPLODE_REQUEST_RANGE_SLACK;
 /* ── appended: Phase 7 (rogue AI v2 · live authority) ── */
 /** Grenade flight time is distance / this (clamped 0.8 … 1.8 s) — a lazy lob, not a bullet. */
@@ -113,7 +114,7 @@ export const GRENADE_NOISE = 60;
 export const PROMOTE_ID_GAP = 100;
 /** Phase 9: a promoted host continues the snapshot `seq` this far past the last one it saw as a replica (never collides with the old host's counter). */
 export const PROMOTE_SEQ_GAP = 1000;
-/* ── appended: Phase 12 (배리어 충돌 · 총알 추적, 2026-09-08) ── */
+/* ── appended: Phase 12 (barrier bumps · shot tracking, 2026-09-08) ── */
 /** Seconds a bumped enemy prefers the shield carrier as its target (`pickTarget`). */
 export const BARRIER_RETARGET_S = 6;
 /** Minimum gap between two `implant:barrierBumped` for the same enemy (≤ 2 Hz). */
@@ -122,20 +123,22 @@ export const BARRIER_BUMP_INTERVAL = 0.5;
 export const SHOT_CHECK_INTERVAL = 0.2;
 /** A `shotq` claiming a longer range than this is dropped. */
 export const MAX_SHOT_RANGE = 400;
-/** Height of the 배리어 panel centre used for the `ee barrierHit` / `implant:barrierBumped` contact point. */
+/** Height of the barrier panel centre used for the `ee barrierHit` / `implant:barrierBumped` contact point. */
 export const SHIELD_CONTACT_Y = 1.0;
-/* ── appended: 낮은 곡사 궤적 · 벽에 대고 쏘지 않기 (2026-09-10) ── */
+/* ── appended: a low shell arc · not firing into a wall (2026-09-10) ── */
 /**
- * 발사 전 궤적 검사(`parts/Attacks.shellArcBlocked`)가 궤적을 몇 개의 현(chord)으로 나누어 훑는가.
- * 포물선은 위로 볼록하므로 현은 언제나 실제 궤적 **아래**를 지난다 = 검사는 보수적이다(막혔다고 잘못 보긴 해도
- * 뚫렸다고 잘못 보지 않는다). 4개면 현과 궤적의 최대 차이가 `0.5·g·(T/8)²` ≈ 0.6 m 라 충분히 촘촘하다.
- * 시각/알고리즘 상수라 csv 대상이 아니다 (`TRAIL_SAMPLES` 와 같은 부류).
+ * How many chords the pre-fire arc check (`parts/Attacks.shellArcBlocked`) walks the arc in.
+ * A parabola is convex upward, so a chord always passes **below** the real arc = the check is conservative (it may
+ * call a clear arc blocked, never a blocked one clear). With 4, the largest gap between chord and arc is
+ * `0.5·g·(T/8)²` ≈ 0.6 m, which is close enough.
+ * A visual / algorithmic constant, so not a csv one (the same kind as `TRAIL_SAMPLES`).
  */
 export const SHELL_ARC_SAMPLES = 4;
 /**
- * 궤적의 앞쪽 이만큼만 검사한다. 마지막 하강 구간은 조준점(= 땅) 으로 내려꽂히므로 무조건 지형에 걸려
- * 전부 "막힘" 이 된다 — 표적 바로 앞의 벽에 맞는 것은 잡을 필요도 없다(그 자리에서 터지면 그만이다).
- * 0.75·T 시점의 포탄은 발사점보다 아직 7.4 m 위라 평지에서 오검출이 나지 않는다.
+ * Only this much of the front of the arc is checked. The final descent drives into the aim point (= the ground), so it
+ * always meets terrain and would read "blocked" every time — and a wall right in front of the target is not worth
+ * catching anyway (bursting there is fine).
+ * At 0.75·T the shell is still 7.4 m above the firing point, so flat ground never gives a false positive.
  */
 export const SHELL_ARC_CHECK_FRAC = 0.75;
 export const _arcV = new THREE.Vector3();
@@ -182,27 +185,33 @@ export const queryBuf: Enemy[] = [];
  * enemies or demotes the simulation into replicas) — nothing else caches it.
  */
 
-/* ── appended (2026-09-11, C-51 · C-23 · C-22): 적 타입별 소리 표 ─────────────────────────────────────────────
- * 타입마다 흩어져 있던 `bug_attack` · `bug_step` · `bug_hit` 이 로그(특히 타길라)에게까지 새던 경로들(근접 타격 ·
- * 리플리카 `ee attack` · 배리어 흡수 · 돌진 막힘 · 걷기 · 리플리카 `ee damaged`)이 전부 이 세 함수를 본다. 피치 ·
- * 밑값은 "소리 그 자체" 라 코드에 둔다 (발소리 피치와 같은 규약). 재질별 크기 · 거리 곡선은 audio/ 가 갖는다.
+/* ── appended (2026-09-11, C-51 · C-23 · C-22): the per-type enemy sound tables ──────────────────────────── ──
+ * `bug_attack` · `bug_step` · `bug_hit` were scattered per type and leaked as far as the rogues (Tagilla above all);
+ * every path that did so (melee hits · a replica's `ee attack` · a barrier absorbing · a blocked charge · walking · a
+ * replica's `ee damaged`) now reads these three functions. The pitch and base gain are "the sound itself", so they live
+ * in code (the footstep-pitch convention). Per-material volume and the distance curves belong to audio/.
  */
 
 /**
- * 한 걸음의 목소리 — id 는 밟은 재질이 정한다(`footstep_<SurfaceMaterial>`), 여기는 피치(무게)와 밑값만.
- * `layer` (2026-09-13) = 재질 발소리 위에 같은 크기로 겹치는 소리 id (안드로이드의 서보음 `android_step`).
+ * One footstep's voice — the material underfoot decides the id (`footstep_<SurfaceMaterial>`), and only the pitch
+ * (weight) and base gain are here.
+ * `layer` (2026-09-13) = a sound id laid over the material footstep at the same volume (the android's servo
+ * `android_step`).
  */
 export interface EnemyStepVoice {
   readonly pitch: number; readonly gain: number; readonly layer?: string;
   /**
-   * 2026-09-16 (벌레 발소리): 있으면 재질 발소리 대신 **이 id** 를 낸다 — 벌레 전용 `bug_step_skitter` / `_heavy` / `_giant`.
-   * 사람 발소리와 id 를 나누지 않아 audio/ 가 벌레 발소리만 한 무리로 상한을 걸 수 있다. `range` = 방출 게이트(m, audio/ 곡선과 같은 csv 값).
+   * 2026-09-16 (bug footsteps): when set, **this id** plays instead of the material footstep — the bug-only
+   * `bug_step_skitter` / `_heavy` / `_giant`. Sharing no id with a person's footstep lets audio/ cap bug footsteps as
+   * one group. `range` = the emit gate (m, the same csv value as audio/'s curve).
    */
   readonly id?: string; readonly range?: number;
 }
-/* 2026-09-16: 벌레는 몸집별 전용 발소리 — 작은 벌레 = 갑각 톡톡, 큰 벌레 = 쿵, 베헤모스 = 땅울림 (조금 더 멀리). 튜토리얼 벌레는 `baseTypeOf` 로 스캐빈저.
- * 2026-09-18 (사용자 결정 「뒤에 있을 때 소리로 알아차리게」): 밑값 상향 — 작은 벌레 ×1.7 · 큰 벌레 ×1.4 · 베헤모스 1.1 → 1.5.
- * 사거리(`BUG_STEP_RANGE_M` 22 → 32)와 거리 곡선(`AudioSystem.RANGED_SOUNDS` 지수 1.4 → 1.0)도 함께 올렸다. `audio:play` 볼륨 상한은 2. */
+/* 2026-09-16: a bug's footstep is its own, by size — a small bug = a chitin tap, a big one = a thud, the behemoth = a
+ * ground rumble (carrying a little farther). A tutorial bug goes to the scavenger through `baseTypeOf`.
+ * 2026-09-18 (user's decision 「뒤에 있을 때 소리로 알아차리게」): base gains raised — small bugs ×1.7 · big bugs ×1.4 ·
+ * the behemoth 1.1 → 1.5. The range (`BUG_STEP_RANGE_M` 22 → 32) and the distance curve
+ * (`AudioSystem.RANGED_SOUNDS` exponent 1.4 → 1.0) went up with them. `audio:play` caps volume at 2. */
 const STEP_VOICES: Readonly<Partial<Record<EnemyType, EnemyStepVoice>>> = {
   scavenger: { id: 'bug_step_skitter', pitch: 1.15, gain: 0.77, range: BUG_STEP_RANGE_M },
   hunter: { id: 'bug_step_skitter', pitch: 1.0, gain: 0.94, range: BUG_STEP_RANGE_M },
@@ -212,39 +221,39 @@ const STEP_VOICES: Readonly<Partial<Record<EnemyType, EnemyStepVoice>>> = {
   artillery: { id: 'bug_step_heavy', pitch: 0.92, gain: 0.98, range: BUG_STEP_RANGE_M },
   charger: { id: 'bug_step_heavy', pitch: 0.75, gain: 1.26, range: BUG_STEP_RANGE_M },
   behemoth: { id: 'bug_step_giant', pitch: 1.0, gain: 1.5, range: BUG_STEP_GIANT_RANGE_M },
-  // 로그 계열: 사람 발소리를 낮은 피치로 (무겁고 장비를 멨다)
-  // 2026-09-15 (B-16, 사용자 「로그 · 레이더 모두 켬다」): 일반 로그 = 레이더보다 가벼운 발
+  // The rogue family: a person's footstep at a lower pitch (heavy, and carrying gear)
+  // 2026-09-15 (B-16, the user's 「로그 · 레이더 모두 켬다」): a plain rogue = a lighter step than a raider
   rogue: { pitch: 0.86, gain: 0.6 },
   rogue_boss: { pitch: 0.86, gain: 0.7 },
   rogue_hammer: { pitch: 0.74, gain: 0.85 },
   rogue_heavy: { pitch: 0.8, gain: 0.8 },
-  // 2026-09-13: 안드로이드 = 가볍고 딱딱한 발 + 서보 한 번, 레이더 = 로그보다 무거운 군화
+  // 2026-09-13: an android = a light, hard step + one servo; a raider = heavier boots than a rogue
   android: { pitch: 1.18, gain: 0.42, layer: 'android_step' },
   raider: { pitch: 0.8, gain: 0.68 },
 };
 const STEP_VOICE_DEFAULT: EnemyStepVoice = { pitch: 0.9, gain: 0.5 };
 
-/** `type` 의 걸음 소리, 또는 null (`data/enemies.csv` 의 `stepSound` 가 false = 조용히 걷는다). */
+/** `type`'s footstep voice, or null (`stepSound` false in `data/enemies.csv` = it walks silently). */
 export function stepSound(type: EnemyType): EnemyStepVoice | null {
-  // 2026-09-14 3차: 걷느냐 아니냐는 **자기 csv 줄**(stepSound), 어떤 소리냐는 바탕 종류 (튜토리얼 전용 종류).
+  // 2026-09-14 (3rd pass): whether it steps at all is its **own csv row** (stepSound); which sound is the base type (the tutorial-only types).
   if (!ENEMY_STATS[type]?.stepSound) return null;
   return STEP_VOICES[baseTypeOf(type)] ?? STEP_VOICE_DEFAULT;
 }
 
-/** 근접 타격음 — 벌레는 `bug_attack` 을 타입별 피치로, 자기 타격음을 따로 내는 타입(타길라 = `hammer_impact`)은 null. */
+/** The melee hit sound — a bug plays `bug_attack` at its type's pitch; a type that plays its own (Tagilla = `hammer_impact`) is null. */
 export interface EnemySoundVoice { readonly id: string; readonly pitch: number }
 const BITE_DEFAULT: EnemySoundVoice = { id: 'bug_attack', pitch: 1.05 };
 const MELEE_VOICES: Readonly<Partial<Record<EnemyType, EnemySoundVoice | null>>> = {
   behemoth: { id: 'bug_attack', pitch: 0.4 },
   charger: { id: 'bug_attack', pitch: 0.6 },
   warrior: { id: 'bug_attack', pitch: 0.8 },
-  rogue_hammer: null,                               // `ai/named/Hammer` 가 `hammer_impact` 를 낸다 (이중 타격음 방지)
+  rogue_hammer: null,                               // `ai/named/Hammer` plays `hammer_impact` (so there is no double hit sound)
   rogue: { id: 'melee_hit', pitch: 0.95 },
   rogue_boss: { id: 'melee_hit', pitch: 0.85 },
   rogue_sniper: { id: 'melee_hit', pitch: 0.95 },
   rogue_heavy: { id: 'melee_hit', pitch: 0.85 },
   rogue_scan_drone: null,
-  android: { id: 'melee_hit', pitch: 1.15 },        // 2026-09-13: 가벼운 금속 주먹
+  android: { id: 'melee_hit', pitch: 1.15 },        // 2026-09-13: a light metal fist
   raider: { id: 'melee_hit', pitch: 0.88 },
 };
 export function meleeHitSound(type: EnemyType): EnemySoundVoice | null {
@@ -253,48 +262,49 @@ export function meleeHitSound(type: EnemyType): EnemySoundVoice | null {
 }
 
 /**
- * 피격음 — 벌레 `bug_hit`, 사람(로그 · 레이더) `hit_flesh`, 기계(스캔 드론) `drone_hit`, 안드로이드 `android_hit`(금속 외피).
- * 호스트 · 리플리카가 같은 답을 낸다.
+ * The hurt sound — a bug `bug_hit`, a person (rogue · raider) `hit_flesh`, a machine (the scan drone) `drone_hit`, an
+ * android `android_hit` (a metal shell). The host and a replica give the same answer.
  */
-/** 2026-09-13: 피격 · 사망 파편 — 안드로이드는 기계라 피 대신 불꽃. 호스트(`parts/Damage`) · 리플리카(`ee damaged`)가 같은 답을 낸다. */
+/** 2026-09-13: hit · death debris — an android is a machine, so sparks instead of blood. The host (`parts/Damage`) and a replica (`ee damaged`) give the same answer. */
 export function goreKindOf(type: EnemyType): 'blood' | 'spark' {
   return baseTypeOf(type) === 'android' ? 'spark' : 'blood';
 }
 
 export function hurtSound(type: EnemyType): string {
-  if (type === 'rogue_scan_drone') return 'drone_hit';   // 팩션으로 갈리는 나머지는 튜토리얼 종류도 자기 faction 이 맞다
+  if (type === 'rogue_scan_drone') return 'drone_hit';   // everything else splits by faction, and a tutorial type's own faction is the right one
   const f = ENEMY_STATS[type]?.faction;
   if (f === 'android') return 'android_hit';
   return f && f !== 'bug' ? 'hit_flesh' : 'bug_hit';
 }
 
-/* ── appended (2026-09-13): 인간형 사망 · 전소 비명 — `parts/Damage.onEnemyKilled` · `parts/Status.incinerate` 가 본다 ── */
+/* ── appended (2026-09-13): humanoid death · incineration screams — read by `parts/Damage.onEnemyKilled` · `parts/Status.incinerate` ── */
 const HUMANOID_DEATH_DEFAULT: EnemySoundVoice = { id: 'player_death', pitch: 1 };
 const HUMANOID_DEATH: Readonly<Partial<Record<EnemyType, EnemySoundVoice>>> = {
   rogue_boss: { id: 'player_death', pitch: 0.7 },
   raider: { id: 'player_death', pitch: 0.9 },
-  android: { id: 'android_death', pitch: 1 },       // 전원이 꺼지는 소리 (비명이 아니다)
+  android: { id: 'android_death', pitch: 1 },       // the sound of power cutting out (not a scream)
 };
-/** 인간형 적(벌레 · 스캔 드론 아닌 것)이 쓰러질 때의 소리. */
+/** The sound a humanoid enemy (not a bug, not the scan drone) makes as it goes down. */
 export function humanoidDeathSound(type: EnemyType): EnemySoundVoice {
   return HUMANOID_DEATH[baseTypeOf(type)] ?? HUMANOID_DEATH_DEFAULT;
 }
 const HUMANOID_PAIN_DEFAULT: EnemySoundVoice = { id: 'player_hurt', pitch: 0.9 };
 const HUMANOID_PAIN: Readonly<Partial<Record<EnemyType, EnemySoundVoice>>> = {
-  android: { id: 'android_glitch', pitch: 1 },       // 불타는 안드로이드는 비명 대신 오작동 경고음
+  android: { id: 'android_glitch', pitch: 1 },       // a burning android gives a malfunction alarm, not a scream
 };
-/** 인간형 적이 전소(불타며 몸부림)에 들어갈 때의 소리. */
+/** The sound a humanoid enemy makes entering the incinerated state (burning and writhing). */
 export function humanoidPainSound(type: EnemyType): EnemySoundVoice {
   return HUMANOID_PAIN[baseTypeOf(type)] ?? HUMANOID_PAIN_DEFAULT;
 }
 
 /**
- * 적 발소리를 내도 되는 **카메라** 거리(m). audio/ 의 적 발소리 곡선(`ENEMY_STEP_RANGE` 45 m)보다 넉넉한 게이트 —
- * 드론 조종 중에는 귀(카메라)가 몸에서 70–90 m 떨어지므로 로컬 PC 몸 기준(`distToLocal`)으로 거르면 안 된다.
- * 소리 연출 게이트라 csv 대상이 아니다.
+ * The **camera** distance (m) within which an enemy footstep may play. A looser gate than audio/'s enemy footstep
+ * curve (`ENEMY_STEP_RANGE` 45 m) — while controlling a drone the ear (the camera) is 70–90 m from the body, so
+ * filtering by the local PC's body (`distToLocal`) would be wrong.
+ * A sound-presentation gate, so not a csv one.
  */
 export const ENEMY_STEP_EMIT_RANGE = 60;
-/** 같은 적의 발소리 사이 최소 간격(s) — 스로틀은 **적 id 별**이다 (예전 전역 id 스로틀은 무리 중 한 마리만 들리게 했다). */
+/** The least gap (s) between one enemy's footsteps — the throttle is **per enemy id** (the old global one let only one of a pack be heard). */
 export const ENEMY_STEP_MIN_GAP = 0.12;
 const _stepCam = new THREE.Vector3();
 const STEP_ID: Readonly<Record<SurfaceMaterial, string>> = {
@@ -304,9 +314,10 @@ const STEP_ID: Readonly<Record<SurfaceMaterial, string>> = {
 };
 
 /**
- * 적 한 걸음 (C-23 · C-22). 권위의 `ai/EnemyAI.integrate` 와 리플리카의 `net/Replica.drive` 가 **같은 식**으로 부른다.
- * 크기 감쇠는 audio/ 의 거리 곡선이 한 번만 건다(방출부 선형 감쇠 없음 — X-3 이중 감쇠). `gainMul` / `pitchMul` 은
- * 돌진이 벽에 막힌 쿵 같은 변형용. 소리를 냈으면 true.
+ * One enemy footstep (C-23 · C-22). The authority's `ai/EnemyAI.integrate` and a replica's `net/Replica.drive` call it
+ * **the same way**. Volume falloff is applied once, by audio/'s distance curve (no linear falloff at the emitter — the
+ * X-3 double falloff). `gainMul` / `pitchMul` are for variants such as the thud of a charge stopped by a wall. true
+ * when a sound played.
  */
 export function emitEnemyStep(e: Enemy, ctx: GameContext, gainMul = 1, pitchMul = 1): boolean {
   const v = stepSound(e.type);
@@ -315,7 +326,7 @@ export function emitEnemyStep(e: Enemy, ctx: GameContext, gainMul = 1, pitchMul 
   if (now - e.stepAt < ENEMY_STEP_MIN_GAP) return false;
   const p = e.position;
   ctx.camera.getWorldPosition(_stepCam);
-  // 2026-09-16: 벌레는 자기 발소리 사거리가 게이트다 — `stepAt` 이 「들리는 거리에서 걸음을 뗐다」 를 뜻해야 무리 수가 맞는다.
+  // 2026-09-16: a bug is gated by its own footstep range — `stepAt` has to mean 「took a step within earshot」 for the crowd count to hold.
   const gate = v.id ? (v.range ?? BUG_STEP_RANGE_M) : ENEMY_STEP_EMIT_RANGE;
   if (_stepCam.distanceToSquared(p) > gate * gate) return false;
   e.stepAt = now;
@@ -332,9 +343,12 @@ export function emitEnemyStep(e: Enemy, ctx: GameContext, gainMul = 1, pitchMul 
 }
 
 /**
- * 2026-09-16: 지금 「들리는 거리에서 걷고 있는 벌레」 수 n (≥ 1, 방금 걸음을 뗀 자신 포함) — 벌레 발소리 크기 × 1/√n.
- * `stepAt` 은 벌레 발소리 사거리 게이트를 통과했을 때만 찍히므로 `BUG_STEP_CROWD_WINDOW_S` 안의 `stepAt` = 들리는 걸음이다.
- * 걸음마다 활성 목록을 한 번 훑는다 (할당 없음; 한 프레임 걸음 수 × 적 수 ≈ 수백 번 비교). 인간형은 `faction` 으로 뺀다.
+ * 2026-09-16: n, the number of 「bugs walking within earshot」 right now (≥ 1, the one that just stepped included) —
+ * bug footstep volume × 1/√n.
+ * `stepAt` is stamped only after passing the bug footstep range gate, so a `stepAt` inside `BUG_STEP_CROWD_WINDOW_S`
+ * is an audible step.
+ * Every step walks the active list once (no allocation; steps per frame × enemies ≈ a few hundred comparisons).
+ * Humanoids drop out by `faction`.
  */
 function bugStepCrowd(ctx: GameContext, now: number): number {
   const list = ctx.enemies?.getEnemies();
@@ -347,8 +361,8 @@ function bugStepCrowd(ctx: GameContext, now: number): number {
   return Math.max(1, n);
 }
 
-/* appended (2026-09-10): 적이 수류탄을 하나도 안 던지고 있을 때 `getEnemyGrenades()` 가 돌려주는 빈 목록.
- * 매번 `[]` 를 만들면 HUD 가 프레임마다 부르므로 쓰레기가 된다. */
+/* appended (2026-09-10): the empty list `getEnemyGrenades()` returns while no enemy has a grenade in the air.
+ * Building `[]` each time would be garbage, because the HUD calls it every frame. */
 export const EMPTY_GRENADES: readonly import('@/shared').GrenadeView[] = [];
-/* appended (2026-09-15, B-16): 풀이 없을 때(dispose 뒤) `getFireZones()` 가 돌려주는 빈 목록 — 같은 이유로 공유. */
+/* appended (2026-09-15, B-16): the empty list `getFireZones()` returns with no pool (after a dispose) — shared for the same reason. */
 export const EMPTY_FIRE_ZONES: readonly import('@/shared').FireZoneInfo[] = [];

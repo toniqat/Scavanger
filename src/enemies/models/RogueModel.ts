@@ -14,15 +14,15 @@ import { buildAndroid, buildRaider } from './FactionLooks';
  * left shoulder pauldron and a red visor. Vertex-coloured like the bugs; one cloned `chitin` material per rig for the
  * hit flash, one `eyeMat` for the visor glow.
  *
- * 2026-09-13: 안드로이드 · 레이더는 **같은 리그**에 다른 외피를 매단다 (`FactionLooks`). 부품 도구와 자산 모양은
- * `HumanoidParts` 에 있다. 외피가 발광 부품(관절 링 · 안테나 끝)을 더 가지면 `HumanoidAssets.glow` 로 오고,
- * 여기서 그 그룹에 `eyeMat` 메시로 붙는다 — 사망 때 바이저와 함께 꺼진다. 광원은 없다.
+ * 2026-09-13: android · raider hang a different look on the **same rig** (`FactionLooks`). The part helpers and asset
+ * shapes live in `HumanoidParts`. Extra glowing parts of a look (joint rings · an antenna tip) arrive through
+ * `HumanoidAssets.glow` and are attached here to that group as `eyeMat` meshes — they go out with the visor on death. No lights.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export type RogueType = 'rogue' | 'rogue_boss'
-  /* appended (2026-09-11): 네임드 3종 + 스캔 드론(임시 — 자기 리그가 생기면 빠진다) */
+  /* appended (2026-09-11): the three named + the scan drone (temporary — it leaves once it has a rig of its own) */
   | 'rogue_sniper' | 'rogue_hammer' | 'rogue_heavy' | 'rogue_scan_drone'
-  /* appended (2026-09-13): 안드로이드 · 레이더 — 같은 휴머노이드 리그, 외피만 다르다 */
+  /* appended (2026-09-13): android · raider — the same humanoid rig, only the look differs */
   | 'android' | 'raider';
 
 export interface RogueRigParams {
@@ -49,27 +49,27 @@ export interface RogueRig {
   legs: { hip: THREE.Group; knee: THREE.Group; side: number }[];
   chitin: THREE.MeshStandardMaterial;
   eyeMat: THREE.MeshStandardMaterial;
-  /** 2026-09-11: 네임드 로그 · 스캔 드론의 부품과 그 상태 (`models/named/*` 가 종류별 객체를 건다). 일반 로그는 undefined. */
+  /** 2026-09-11: the parts of a named rogue · scan drone and their state (`models/named/*` hangs a per-type object here). undefined for a plain rogue. */
   named?: unknown;
-  /** 2026-09-13: 살아 있는 동안의 `eyeMat.emissiveIntensity` (외피마다 다르다 — 로그 2.2). */
+  /** 2026-09-13: `eyeMat.emissiveIntensity` while alive (it differs per look — rogue 2.2). */
   eyeGlow?: number;
 }
 
 export const ROGUE_RIG_PARAMS: Record<RogueType, RogueRigParams> = {
   rogue: { head: { r: 0.16, y: 1.66, z: 0.02 }, strideLength: 1.5 },
   rogue_boss: { head: { r: 0.16 * ROGUE_BOSS_SCALE, y: 1.66 * ROGUE_BOSS_SCALE, z: 0.02 * ROGUE_BOSS_SCALE }, strideLength: 1.5 * ROGUE_BOSS_SCALE },
-  /* 2026-09-11 계약 단계의 자리표시자 — 각 네임드 담당이 자기 실루엣(망치 · 미니건 · 저격총 · 드론)으로 바꾼다. */
+  /* 2026-09-11 placeholders from the contract stage — each named owner replaces them with its own silhouette (hammer · minigun · sniper rifle · drone). */
   rogue_sniper: { head: { r: 0.16, y: 1.66, z: 0.02 }, strideLength: 1.5 },
   rogue_hammer: { head: { r: 0.18, y: 1.86, z: 0.02 }, strideLength: 1.7 },
   rogue_heavy: { head: { r: 0.18, y: 1.78, z: 0.02 }, strideLength: 1.6 },
   rogue_scan_drone: { head: { r: 0.2, y: 0.2, z: 0 }, strideLength: 1 },
-  /* 2026-09-13: 머리 판정은 로그와 같다(히트박스는 `data/enemies.csv` 가 같은 치수). 안드로이드는 보폭이 짧고 반듯하다. */
+  /* 2026-09-13: the head test is the rogue's (the hitbox has the same dimensions in `data/enemies.csv`). The android's stride is shorter and straighter. */
   android: { head: { r: 0.16, y: 1.66, z: 0.02 }, strideLength: 1.4 },
   raider: { head: { r: 0.16, y: 1.66, z: 0.02 }, strideLength: 1.55 },
 };
 
 interface Palette { armor: number; cloth: number; accent: number; metal: number; visor: number; skin: number }
-/** 로그 계열(로그 · 그룹장 · 네임드)의 팔레트. 안드로이드 · 레이더는 `FactionLooks` 가 자기 색을 갖는다. */
+/** Palette for the rogue family (rogue · boss · named). Android · raider have their own colours in `FactionLooks`. */
 const PALETTES: Record<Exclude<RogueType, 'android' | 'raider'>, Palette> = {
   rogue: { armor: 0x3b3f36, cloth: 0x26262a, accent: 0xc8641e, metal: 0x55575a, visor: 0x40d0ff, skin: 0x8a6a52 },
   rogue_boss: { armor: 0x2e2a30, cloth: 0x1e1c22, accent: 0xb02020, metal: 0x4a4650, visor: 0xff3030, skin: 0x7a5a48 },
@@ -172,7 +172,7 @@ export function createRogueRig(type: RogueType): RogueRig {
     x.layers.enable(Layers.ENEMY);
     return x;
   };
-  /** 외피의 발광 부품 (있을 때만) — 작아서 그림자를 떨구지 않는다. */
+  /** A look's glowing parts (only when it has them) — too small to cast a shadow. */
   const glow = (part: GlowPart, parent: THREE.Object3D): void => {
     const g = a.glow[part];
     if (!g) return;
@@ -238,7 +238,7 @@ export function createRogueRig(type: RogueType): RogueRig {
     kind: 'rogue', type, params: ROGUE_RIG_PARAMS[type], baseScale, root, body, torso, head, gun, muzzle, grenade, legs, chitin, eyeMat,
     eyeGlow: a.eyeGlow,
   };
-  decorateNamedRig(rig);   // 2026-09-11: 네임드 로그 · 스캔 드론 부품 (일반 로그 · 보스는 아무것도 붙지 않는다)
+  decorateNamedRig(rig);   // 2026-09-11: named rogue · scan drone parts (nothing is added for a plain rogue · boss)
   return rig;
 }
 
@@ -261,7 +261,7 @@ export function animateRogue(rig: RogueRig, a: BugAnim): void {
   const moving = a.speed > 0.03 ? 1 : 0;
   const crouch = THREE.MathUtils.clamp(a.crouch, 0, 1);
 
-  // 전소 writhe: staggering half-crouch, torso and pelvis bucking, legs kicking, rifle waved around
+  // incinerate writhe: staggering half-crouch, torso and pelvis bucking, legs kicking, rifle waved around
   const wr = dying ? 0 : a.writhe;
 
   // legs
@@ -328,7 +328,7 @@ export function animateRogue(rig: RogueRig, a: BugAnim): void {
     g.scale.setScalar(s);
   } else if (g.visible) g.visible = false;
 
-  // hit flash / 전소 glow / shock spark / visor (+ 외피의 발광 부품 — 같은 eyeMat)
+  // hit flash / incinerate glow / shock spark / visor (+ a look's glowing parts — the same eyeMat)
   statusEmissive(rig.chitin, a, 1, 0.6, 0.35, 1.1);
   const eyeGlow = rig.eyeGlow ?? ROGUE_EYE_GLOW;
   if (dying) rig.eyeMat.emissiveIntensity = eyeGlow * (1 - smooth(Math.min(1, a.death / 0.4)));

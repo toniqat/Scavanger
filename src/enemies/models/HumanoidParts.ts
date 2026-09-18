@@ -1,33 +1,33 @@
 /**
- * src/enemies/models/HumanoidParts.ts — 휴머노이드 리그의 **부품 도구와 자산 모양** (2026-09-13).
+ * src/enemies/models/HumanoidParts.ts — the humanoid rig's **part helpers and asset shapes** (2026-09-13).
  *
- * `RogueModel`(로그 · 그룹장 · 네임드 바탕)과 `FactionLooks`(안드로이드 · 레이더 외피)가 같은 도구로 부품을 짓는다.
- * 전부 빌드 시점에 한 번 불리므로(타입당 캐시) 여기의 할당은 핫 패스가 아니다. 상태도 값도 없는 파일이라
- * 두 파일이 서로를 import 하지 않고 이것만 본다 (순환 import 없음).
+ * `RogueModel` (the base for rogue · boss · named) and `FactionLooks` (the android · raider looks) build their parts with
+ * the same helpers. All of it is called once at build time (cached per type), so the allocations here are not a hot path.
+ * The file holds neither state nor values, so the two files look only at this one and never import each other (no circular import).
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-/** 발광 부품이 붙는 리그 그룹 — 머리의 발광은 따로 `visor` 다. */
+/** The rig groups a glowing part attaches to — the head's glow is `visor`, separately. */
 export type GlowPart = 'pelvis' | 'chest' | 'gunArms' | 'thigh' | 'shin';
 
-/** 한 타입의 공유 자산 (리그 인스턴스는 머티리얼 둘만 복제한다). */
+/** One type's shared assets (a rig instance clones only the two materials). */
 export interface HumanoidAssets {
   pelvis: THREE.BufferGeometry;
   chest: THREE.BufferGeometry;
   head: THREE.BufferGeometry;
-  /** 머리의 발광 부품 (`eyeMat`) */
+  /** The head's glowing part (`eyeMat`) */
   visor: THREE.BufferGeometry;
   gunArms: THREE.BufferGeometry;
   thigh: THREE.BufferGeometry;
   shin: THREE.BufferGeometry;
   grenade: THREE.BufferGeometry;
-  /** 그 밖의 발광 부품 — 관절 링 · 안테나 끝 등. `eyeMat` 으로 그려져 사망 때 바이저와 함께 꺼진다. */
+  /** The other glowing parts — joint rings, an antenna tip and so on. Drawn with `eyeMat`, they go out with the visor on death. */
   glow: Partial<Record<GlowPart, THREE.BufferGeometry>>;
   chitin: THREE.MeshStandardMaterial;
   eye: THREE.MeshStandardMaterial;
   grenadeMat: THREE.MeshStandardMaterial;
-  /** 살아 있는 동안의 `eyeMat.emissiveIntensity` */
+  /** `eyeMat.emissiveIntensity` while alive */
   eyeGlow: number;
 }
 

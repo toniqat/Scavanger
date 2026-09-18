@@ -8,15 +8,15 @@ import { ENEMY_STATS, HUMANOID_RAIDER, HUNTER_LEAP, ROGUE_AI, baseTypeOf, isRogu
 import { createBugRig, createBugAnim, disposeBugRig, animateBug, type BugRig, type BugAnim } from './models/BugModel';
 import { animateRogue, createRogueRig, disposeRogueRig, type RogueRig, type RogueType } from './models/RogueModel';
 import { animateNamedRig, namedBodyNearest } from './models/named';
-/* appended (2026-09-13): 굴착 스폰 · 땅굴벌레 */
+/* appended (2026-09-13): the dig-in spawn · the sandworm */
 import { BURROW_SINK_EXTRA_M, GRAVITY } from '@/shared';
-/* appended (2026-09-13): 탐사 차량 어그로 */
+/* appended (2026-09-13): rover aggro */
 import { ROVER_AGGRO_GROUP_RADIUS, ROVER_AGGRO_S, ROVER_DAMAGE_SOURCE } from '@/shared';
-/* 2026-09-14 (NPC 퀘스트 kill 목표): 로컬 막타가 어느 계열 총기였나 (`shared/damageSource`) */
+/* 2026-09-14 (NPC quest kill objectives): which gun class the local last hit came from (`shared/damageSource`) */
 import { localGunHitClass, type WeaponClass } from '@/shared';
 import { isWormType } from './EnemyTypes';
 import { animateWorm, createWormRig, disposeWormRig, type WormRig } from './models/WormModel';
-/* appended (2026-09-18): 벌레 알 — 자기 리그 (`models/EggModel`) */
+/* appended (2026-09-18): the bug egg — its own rig (`models/EggModel`) */
 import { animateEgg, createEggRig, disposeEggRig, type EggRig } from './models/EggModel';
 import { isEggType } from './EnemyTypes';
 import { nearestOnStandingCapsule } from './RayTests';
@@ -25,8 +25,9 @@ import { CombatTarget, type TargetId, type TargetList } from './Targets';
 import type { ReplicaBuffer } from './net/Replica';
 
 /**
- * 시체 수명의 마지막 몇 초 동안 몸이 땅으로 가라앉는다 (`anim.fade`). 예전에 `animate` 안에 박혀 있던 값 그대로이고,
- * 2026-09-16 부터 몸마다 `corpseFadeS` 로 들고 있다 — 열어서 비운 시체는 `CORPSE_EMPTY_SINK_S` 로 바뀐다 (`parts/CorpseEmpty`).
+ * Over the last few seconds of a corpse's lifetime the body sinks into the ground (`anim.fade`). It is the value that
+ * used to be buried inside `animate`, and since 2026-09-16 every body carries it as `corpseFadeS` — a corpse opened and
+ * emptied switches to `CORPSE_EMPTY_SINK_S` (`parts/CorpseEmpty`).
  */
 const CORPSE_FADE_S = 3;
 
@@ -34,29 +35,30 @@ export type EnemyState = 'idle' | 'wander' | 'alert' | 'chase' | 'attack' | 'sta
 export type HitPart = 'head' | 'body' | 'rear' | 'front';
 /** Bug rig (six legs) or humanoid rogue rig — both expose `params.head` / `params.strideLength` / `root` / `baseScale`. */
 export type EnemyRig = BugRig | RogueRig
-  /* appended (2026-09-13): 땅굴벌레 (`models/WormModel`) */
+  /* appended (2026-09-13): the sandworm (`models/WormModel`) */
   | WormRig
-  /* appended (2026-09-18): 벌레 알 (`models/EggModel`) */
+  /* appended (2026-09-18): the bug egg (`models/EggModel`) */
   | EggRig;
 
 /**
- * 2026-09-11 (네임드 로그): `EnemyHost.fireGun` 의 선택 인자. **생략하면 예전 로그 사격과 한 치도 다르지 않다.**
- * 로든(한 발 · 먼 사거리 · 머리 조준 · 자기 연출)과 헤비(미니건 — 발마다 `ee shoot` 을 보내지 않는다)가 쓴다.
+ * 2026-09-11 (named rogues): the optional argument to `EnemyHost.fireGun`. **Left out, it is not one hair different
+ * from the old rogue shot.** Used by Roden (one round · long range · aimed at the head · its own FX) and the Heavy (a
+ * minigun — it does not send an `ee shoot` per round).
  */
 export interface RogueShotOpts {
-  /** 절대 피해 (주면 `ROGUE_DAMAGE × damageMul` 대신 이 값). */
+  /** Absolute damage (given, this value replaces `ROGUE_DAMAGE × damageMul`). */
   damage?: number;
-  /** 히트스캔 사거리 (m, 기본 `ROGUE_AI.range`). */
+  /** Hitscan range (m, `ROGUE_AI.range` by default). */
   range?: number;
-  /** 조준점 (기본 = 표적 가슴). 표적 속도 보정은 이 점에도 똑같이 더해진다. */
+  /** The aim point (the target's chest by default). Target-velocity lead is added to this point just the same. */
   aimAt?: THREE.Vector3;
-  /** false = 로컬 트레이서 · 총성(`shotFx`)을 내지 않는다 — 호출자가 자기 연출을 그린다. */
+  /** false = no local tracer · gunshot (`shotFx`) — the caller draws its own FX. */
   fx?: boolean;
-  /** false = `enemy:shot` 버스 이벤트를 내지 않는다. */
+  /** false = no `enemy:shot` bus event. */
   event?: boolean;
-  /** false = `ee shoot` 을 보내지 않는다 (헤비는 `ee spray`, 로든은 `ee snipe` 로 대신한다). */
+  /** false = no `ee shoot` is sent (the Heavy uses `ee spray` and Roden `ee snipe` instead). */
   wire?: boolean;
-  /** 주면 실제 총구 · 탄착점을 여기 써 준다 (자기 연출 · 와이어용). */
+  /** Given, the real muzzle · impact point are written into it (for the caller's own FX · the wire). */
   out?: { from: THREE.Vector3; to: THREE.Vector3 };
 }
 
@@ -109,17 +111,17 @@ export interface EnemyHost {
    * Returns false when nothing was thrown (launch path blocked by a rock in the face, pool full).
    */
   throwGrenade(e: Enemy, target: THREE.Vector3): boolean;
-  /* ── appended: Phase 12 (배리어 충돌, 2026-09-08) ── */
+  /* ── appended: Phase 12 (barrier bumps, 2026-09-08) ── */
   /**
-   * After a grounded enemy integrated its movement: push it out of any raised 배리어 (`ImplantsRef.resolveBarrierCollision`)
+   * After a grounded enemy integrated its movement: push it out of any raised barrier (`ImplantsRef.resolveBarrierCollision`)
    * and, on contact, retarget it onto the carrier + throttled `implant:barrierBumped`.
    */
   resolveBarrier(e: Enemy): void;
-  /* ── appended: 2026-09-13 (굴착 스폰 · 땅굴벌레) ── */
+  /* ── appended: 2026-09-13 (the dig-in spawn · the sandworm) ── */
   /** A body the sandworm spat out has landed (`ai/Burrow`) — dust puff + thud on this client. */
   burrowLanded?(e: Enemy): void;
-  /* ── appended: 2026-09-17 (포병 호위 · 소환) ── */
-  /** 권위에서 벌레 한 마리를 세운다 (`SpawnHost.spawn` 과 같은 함수 — 체력 배수 · `ee spawn` · 굴착 연출 포함). */
+  /* ── appended: 2026-09-17 (the artillery escort · summon) ── */
+  /** Stands one bug up on the authority (the same function as `SpawnHost.spawn` — hp multiplier · `ee spawn` · the dig-in FX included). */
   spawn(type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean, emerge?: number): Enemy | null;
 }
 
@@ -165,11 +167,11 @@ export class Enemy implements EnemyRef {
   leaping = false;
   vy = 0;
   leapCd = 0;
-  /** 2026-09-17: 이번 도약(웅크리기 시작 ~ 착지) 동안 받은 피해 합 — `HUNTER_LEAP.flipDamage` 이상이면 뒤집힌다. 권위만 센다. */
+  /** 2026-09-17: damage taken over this leap (from the crouch to the landing) — at or above `HUNTER_LEAP.flipDamage` it flips. Counted on the authority only. */
   leapDamage = 0;
-  /** 2026-09-17: 도약이 끊겨 뒤집힌 채 수직으로 떨어지는 중 (권위 `ai/HunterFlip` · 리플리카는 힌트 25). */
+  /** 2026-09-17: the leap was cut short and it is dropping straight down, flipped (authority `ai/HunterFlip` · a replica reads hint 25). */
   flipFalling = false;
-  /** 2026-09-17: 뒤집혀 누운 남은 s — > 0 이면 이동 · 회전 · 공격이 없다 (권위 `ai/HunterFlip` · 리플리카는 힌트 24 동안 유지값). */
+  /** 2026-09-17: seconds left lying flipped — while > 0 there is no movement · turning · attack (authority `ai/HunterFlip` · a replica holds the value while hint 24 lasts). */
   flipTimer = 0;
   /** charger / behemoth */
   chargePhase: 0 | 1 | 2 = 0; // 0 none, 1 windup, 2 rushing
@@ -188,7 +190,7 @@ export class Enemy implements EnemyRef {
   distToTarget = Infinity;
   /** last known LOS result (to `target`) */
   hasLOS = false;
-  /* ── appended: 차량 탑승 (2026-09-11, C-18 — `ai/Ride.ts`) ─────────────────── */
+  /* ── appended: riding a vehicle (2026-09-11, C-18 — `ai/Ride.ts`) ─────────── */
   /** The moving platform (tram floor, `Obstacle.velocity`) this body rides, or null. Live hash entry — re-read every frame. */
   carrier: Obstacle | null = null;
   /** Last frame's resting spot in carrier-local coordinates (`shared/ride.recordRideLocal`) and the world spot it was taken at. */
@@ -198,7 +200,7 @@ export class Enemy implements EnemyRef {
   rideBlend = 0;
   /** Replica: the carrier last predicted on, kept while `rideBlend` eases out after leaving it. */
   lastCarrier: Obstacle | null = null;
-  /** 2026-09-11 (C-63): 하차 관성 (m/s, 월드 XZ) · 남은 시간 — 권위만 (`ai/Ride.rideRelease` · 플레이어와 같은 `RIDE_INERTIA_*`). */
+  /** 2026-09-11 (C-63): the inertia after stepping off (m/s, world XZ) · the time left — authority only (`ai/Ride.rideRelease` · the same `RIDE_INERTIA_*` as the player). */
   readonly rideInertia = new THREE.Vector3();
   rideInertiaT = 0;
   /** A carried corpse slid off its carrier and is falling — the `corpse:<id>` interactable follows it until it lands. */
@@ -215,8 +217,9 @@ export class Enemy implements EnemyRef {
   /** Replica: ctx.time of the last optimistic local hit (suppresses the echoed `damaged` flash). */
   lastLocalHit = -Infinity;
   /**
-   * 2026-09-14: 이 클라이언트가 넣은 **마지막** 피해가 총기 한 발이었으면 그 계열, 아니면 null (수류탄 · 가젯 · 근접 · 화상).
-   * `enemy:killed.weaponClass` 가 읽는다 — 호스트는 막타 그 순간, 리플리카는 자기 마지막 요청 기준.
+   * 2026-09-14: the gun class when the **last** damage this client dealt was one gun round, else null (a grenade ·
+   * gadget · melee · burning). Read by `enemy:killed.weaponClass` — the host reads it at the moment of the last hit, a
+   * replica off its own last request.
    */
   lastLocalWeaponClass: WeaponClass | null = null;
   /** Replica: interpolation ring buffer (created lazily by the replica manager, reused across pool cycles). */
@@ -231,21 +234,25 @@ export class Enemy implements EnemyRef {
   readonly guardPos = new THREE.Vector3();
   leash = ROGUE_AI.leash;
   escortOf: Enemy | null = null;
-  /* ── 2026-09-14: 튜토리얼 전용 적 (`Tutorial.ts`) ──────────────────────── */
+  /* ── 2026-09-14: tutorial-only enemies (`Tutorial.ts`) ──────────────── ── */
   /**
-   * \> 0 이면 이 마리의 감지 반경(m)을 `stats.sightRadius` 대신 쓴다 — **시야 · 소리 · 유인 · 무리 전파 전부**
-   * (`ai/Perception.senseRadiusOf` 와 `parts/Alerts` 의 반경 계산이 읽는다). 0 = 평소 표 그대로.
-   * 값을 넣는 곳은 `Tutorial.placeTutorialEnemies` 하나뿐이라 본편 · 훈련장의 적은 늘 0 이다.
+   * \> 0 replaces this one's detection radius (m) with it instead of `stats.sightRadius` — for **sight · sound · lures ·
+   * spreading through the pack alike** (read by `ai/Perception.senseRadiusOf` and the radius maths in `parts/Alerts`).
+   * 0 = the table as usual.
+   * The one place that sets it is `Tutorial.placeTutorialEnemies`, so an enemy in the main game · training range is
+   * always 0.
    */
   senseRadius = 0;
   /**
-   * \> 0 이면 `guardPos` 에서 이만큼(m) 벗어났을 때 추격을 접고 자기 자리로 돌아간다 (`ai/EnemyAI` 의 단단한 리시).
-   * 인간형의 `leash` 는 "보이면 조금 더 따라간다" 는 부드러운 리시라 튜토리얼에서는 이것이 위에 얹힌다.
+   * \> 0 makes it drop the chase and walk home once it is this far (m) from `guardPos` (the hard leash in `ai/EnemyAI`).
+   * A humanoid's `leash` is the soft one — "follow a little farther while it can see you" — so in the tutorial this sits
+   * on top of it.
    */
   homeLeash = 0;
   /**
-   * 2026-09-15 — 튜토리얼 구간을 지나쳐 **어그로를 내려놓은** 적 (`Tutorial.onTutorialCheckpoint` · `onTutorialFell`).
-   * true 면 `Tutorial.tutorialHold` 가 매 프레임 자기 자리로 돌려보내고 다시 싸우지 않는다. 본편 · 훈련장의 적은 늘 false.
+   * 2026-09-15 — an enemy that **dropped its aggro** because the tutorial moved past its stretch
+   * (`Tutorial.onTutorialCheckpoint` · `onTutorialFell`). While true, `Tutorial.tutorialHold` walks it home every frame
+   * and it never fights again. An enemy in the main game · training range is always false.
    */
   tutorialReleased = false;
   readonly coverPos = new THREE.Vector3();
@@ -272,34 +279,38 @@ export class Enemy implements EnemyRef {
    */
   readonly shellSpot = new THREE.Vector3();
   /**
-   * artillery (2026-09-17): 발사 순서 — 0 = 평소, 1 = 다리를 낮춰 납작 엎드려 기다린다(`ARTILLERY_AI.braceTime`), 2 = 쏜 뒤 움직이지 못한다
-   * (`postFireLock`). 2026-09-18 추가: **3 = 포격 준비** (`ARTILLERY_AI.prepTime`) — 표적 곁에 벌레가 붙은 뒤 첫 발 앞에서 한 번만 탄다.
-   * 남은 초는 `shellPhaseT`. 리플리카는 세 상태 모두 애님 힌트 25(납작 엎드림)로 자세만 받는다 (`net/HostSync.animHint` — 새 힌트가 없다).
+   * artillery (2026-09-17): the firing sequence — 0 = ordinary, 1 = legs lowered, braced flat and waiting
+   * (`ARTILLERY_AI.braceTime`), 2 = locked in place after firing (`postFireLock`). Added 2026-09-18: **3 = the barrage
+   * prep** (`ARTILLERY_AI.prepTime`) — it runs once, in front of the first shell, after a bug has moved in beside the
+   * target. The seconds left are `shellPhaseT`. A replica gets only the pose for all three, as anim hint 25 (braced
+   * flat) (`net/HostSync.animHint` — there is no new hint).
    */
   shellPhase: 0 | 1 | 2 | 3 = 0;
   shellPhaseT = 0;
   /**
-   * artillery (2026-09-18, 사용자 결정): 제 스캐빈저(굴착 호위 + 소환 무리)를 다시 부르기까지 남은 초. 0 = 지금 부를 수 있다.
-   * 무리가 **전멸한** 순간 `ARTILLERY_AI.squadCooldown` 이 들어간다 (`ai/ArtilleryPack.maybeSummon`). 2026-09-17 의
-   * 「평생 한 번」 (`summonDone`) 을 대신한다.
+   * artillery (2026-09-18, user's decision): the seconds left before it may call its own scavengers (the dig-in escort +
+   * the summoned pack) again. 0 = it may call now. `ARTILLERY_AI.squadCooldown` goes in the moment that pack is **wiped
+   * out** (`ai/ArtilleryPack.maybeSummon`). It replaces 2026-09-17's 「once in a lifetime」 (`summonDone`).
    */
   squadCd = 0;
   /**
-   * artillery (2026-09-18): 이번 교전의 **포격 준비**(`ARTILLERY_AI.prepTime`)를 이미 마쳤다. 표적 곁의 벌레가 사라지면 false 로
-   * 돌아가므로 「지원이 붙은 뒤 첫 발 앞에서 한 번」 준비한다 (`ai/GimmickAI.chaseArtillery`).
+   * artillery (2026-09-18): this engagement's **barrage prep** (`ARTILLERY_AI.prepTime`) is already done. It goes back
+   * to false once the bug beside the target is gone, so the prep runs 「once, in front of the first shell after support
+   * arrives」 (`ai/GimmickAI.chaseArtillery`).
    */
   shellPrepDone = false;
-  /** artillery (2026-09-17): 다음 소환 조건 검사까지 남은 초 (`ARTILLERY_AI.supportCheckS`). */
+  /** artillery (2026-09-17): the seconds left until the next summon-condition check (`ARTILLERY_AI.supportCheckS`). */
   supportCheckT = 0;
-  /* ── appended: 2026-09-18 (벌레 둥지 리시 · 보충, 사용자 결정) ────────────────── */
+  /* ── appended: 2026-09-18 (the bug nest leash · refill, user's decision) ───── ── */
   /**
-   * 이 몸이 태어난 **둥지 순번** (`WorldRef.getNestPositions()` 의 인덱스), -1 = 둥지에서 나지 않았다.
-   * 둥지 수비대(레이드 시작 배치)와 둥지 보충만 채운다 — 레이드 중 순찰 · 웨이브 · 강하 · 땅굴벌레 뱉기는 -1 이라
-   * 예전처럼 끝까지 쫓아간다. 채워져 있으면 `guardPos` 가 그 둥지 자리이고 `ai/NestLeash` 가 리시를 건다. 권위 전용
-   * (와이어에 없다 — 호스트가 바뀌면 리시가 풀린다, `ai/ArtilleryPack` 의 `escortOf` 와 같은 의도).
+   * The **nest index** this body was born at (an index into `WorldRef.getNestPositions()`), -1 = it did not come from a
+   * nest. Only the nest garrison (the raid's opening placement) and a nest refill fill it in — a mid-raid patrol · wave ·
+   * drop · sandworm spit is -1 and chases without limit as before. When it is filled in, `guardPos` is that nest's spot
+   * and `ai/NestLeash` holds the leash. Authority-only (it is not on the wire — a host change releases the leash, the
+   * same intent as `escortOf` in `ai/ArtilleryPack`).
    */
   nestOf = -1;
-  /** 리시 밖으로 나가 둥지로 **걸어 돌아가는 중** (`ai/NestLeash` 의 이력 — 경계에서 잡았다 놓았다 하지 않게). */
+  /** Past the leash and **walking home** to the nest (`ai/NestLeash`'s hysteresis — so the boundary does not grab and release it). */
   nestReturning = false;
   /** toxic: 0 running, 1 swelling, 2 burst */
   toxicPhase = 0;
@@ -315,7 +326,7 @@ export class Enemy implements EnemyRef {
   /** seconds the corpse stays (system sets it from CORPSE_LIFETIME; sinks over the last `corpseFadeS` s — cut short when emptied) */
   corpseLife = CORPSE_LIFETIME;
   /* ── appended: tactical kit ────────────────────────────────────────────── */
-  /** Lure (유인 수류탄 / 소음) currently pulling this bug: position + 0..1 strength, refreshed on the perception tick. */
+  /** Lure (a lure grenade / noise) currently pulling this bug: position + 0..1 strength, refreshed on the perception tick. */
   readonly lurePos = new THREE.Vector3();
   hasLure = false;
   lureWeight = 0;
@@ -331,7 +342,7 @@ export class Enemy implements EnemyRef {
   /** Spit at `spitPoint` instead of at a player (smoke return fire / deployable). */
   spitAtPoint = false;
   readonly spitPoint = new THREE.Vector3();
-  /** Burning DoT (화염지대 / 소이탄). */
+  /** Burning DoT (a fire zone / an incendiary round). */
   burnDps = 0;
   burnTimer = 0;
   burnTick = 0;
@@ -341,7 +352,7 @@ export class Enemy implements EnemyRef {
   /** Movement slow (0..1 multiplier, 1 = none). */
   slowFactor = 1;
   slowTimer = 0;
-  /** Deployable (바리케이드 / 돔 실드 / 포탑 / 유인) this bug is chewing on or shooting at. */
+  /** Deployable (barricade / dome shield / turret / lure) this bug is chewing on or shooting at. */
   structTarget: DeployableRef | null = null;
   structTimer = 0;
   /** true while the current attack swing is aimed at `structTarget` instead of a player. */
@@ -382,7 +393,7 @@ export class Enemy implements EnemyRef {
   readonly popPos = new THREE.Vector3();
   hasPop = false;
 
-  /* ── appended: Phase 10 (사망 다각화 · 공중 사망 낙하 · 확률 루팅) ────────── */
+  /* ── appended: Phase 10 (varied deaths · the death fall in mid-air · chance looting) ── */
   /**
    * Which way this body went down. Picked in `kill()` from an **independent** seeded stream (world seed × id) so host
    * and replicas agree without a wire field; the wire (`ee kill.dd` / `ee corpse.dd`) still overrides it for authority.
@@ -400,20 +411,21 @@ export class Enemy implements EnemyRef {
   deathLanded = false;
   /** Authority: the `corpse:<id>` interactable is waiting for the body to land (or `CORPSE_LAND_TIMEOUT`). */
   corpsePending = false;
-  /* appended (2026-09-16): 빈 시체 제거 (`parts/CorpseEmpty`) */
-  /** 열어서 다 비운 시체 — 권위가 정했다(`ee corpseEmptied`). `corpseReleased` 가 참이면 `corpseLife` 가 「지금 + 지연 + 가라앉기」로 줄어 있다. */
+  /* appended (2026-09-16): removing an emptied corpse (`parts/CorpseEmpty`) */
+  /** A corpse opened and emptied — the authority decided it (`ee corpseEmptied`). While `corpseReleased` is true, `corpseLife` is already cut to 「now + the delay + the sink」. */
   corpseEmptied = false;
   /**
-   * appended (2026-09-16, 2차): 빈 시체의 수명을 줄였다 — **아무도 창을 열어 두지 않게 된 뒤**다. 권위에서 `corpseEmptied` 만 참이면
-   * 아직 누가 들여다보고 있다 (`parts/CorpseEmpty.updateEmptyCorpses`).
+   * appended (2026-09-16, 2nd pass): an emptied corpse's lifetime was cut — **after the last window closed**. On the
+   * authority, `corpseEmptied` true on its own means somebody is still looking into it
+   * (`parts/CorpseEmpty.updateEmptyCorpses`).
    */
   corpseReleased = false;
-  /** 시체가 가라앉는 시간(초, `anim.fade` 0→1). 평소 = 수명 마지막 `CORPSE_FADE_S`, 비운 시체 = `CORPSE_EMPTY_SINK_S`. */
+  /** How long a corpse sinks for (s, `anim.fade` 0→1). Normally the last `CORPSE_FADE_S` of its lifetime; an emptied corpse uses `CORPSE_EMPTY_SINK_S`. */
   corpseFadeS = CORPSE_FADE_S;
 
-  /* ── appended: Phase 12 (총알 추적 · 배리어 충돌, 2026-09-08) ─────────────── */
+  /* ── appended: Phase 12 (shot tracking · barrier bumps, 2026-09-08) ────── ── */
   /**
-   * 총알 추적: this (unaware) enemy is investigating a shot it could not attribute to anyone (`ai/Investigate.ts`).
+   * Shot tracking: this (unaware) enemy is investigating a shot it could not attribute to anyone (`ai/Investigate.ts`).
    * Rides on the `alert` wire state with `aware` false; perceiving any target ends it and drops into the normal cycle.
    */
   investigating = false;
@@ -427,19 +439,20 @@ export class Enemy implements EnemyRef {
   shotHold = 0;
   /** ctx.time of the last per-shot perception test (`reportShot` throttle). */
   shotCheckAt = -Infinity;
-  /** 배리어 충돌: prefer the shield carrier as the target until this ctx.time (`pickTarget`). */
+  /** Barrier bump: prefer the shield carrier as the target until this ctx.time (`pickTarget`). */
   barrierUntil = -Infinity;
   /**
-   * 2026-09-13 (탐사 차량): 이 시각(`ctx.time`)까지 차량을 노린다 — 차량 포탑 · 들이받기(`attacker === ROVER_DAMAGE_SOURCE`)에 맞은 적과
-   * 그 무리(`noteVehicleAggro`). `parts/Alerts.pickTarget` 이 이 동안 플레이어보다 차량을 먼저 고르고 `ai/Perception.acquireTarget` 은
-   * 히스테리시스 없이 바꾼다. 권한만.
+   * 2026-09-13 (the rover): it hunts the vehicle until this `ctx.time` — the enemy hit by the vehicle's turret or a ram
+   * (`attacker === ROVER_DAMAGE_SOURCE`) and the pack around it (`noteVehicleAggro`). While it runs,
+   * `parts/Alerts.pickTarget` picks the vehicle over a player and `ai/Perception.acquireTarget` switches with no
+   * hysteresis. Authority only.
    */
   vehicleAggroUntil = -Infinity;
   barrierOwner: TargetId | null = null;
   /** ctx.time of the last `implant:barrierBumped` for this enemy (≤ 2 Hz). */
   barrierBumpAt = -Infinity;
 
-  /* ── appended: 총구 사선 (2026-09-10, 벽에 대고 쏘지 않게) ─────────────────── */
+  /* ── appended: the muzzle line of fire (2026-09-10, so it does not shoot into a wall) ── */
   /** ctx.time of the last muzzle → target line test (`ai/FireLine`, throttled to `ENEMY_FIRE_LOS_S`). */
   fireLineAt = -Infinity;
   /** Cached result of that test. Defaults to true so an enemy nobody tested behaves exactly as before. */
@@ -451,7 +464,7 @@ export class Enemy implements EnemyRef {
   /** Which way that step goes; flipped whenever a new leg starts so a rogue works both flanks of a wall. */
   fireStrafeSign: 1 | -1 = 1;
 
-  /* ── appended: 네임드 로그 · 스캔 드론 (2026-09-11) ─────────────────── */
+  /* ── appended: named rogues · the scan drone (2026-09-11) ────────── ── */
   /**
    * Wire animation hint a named AI sets directly (14..20 — see `EnemyWire.a`). `net/HostSync.animHint` sends it as-is
    * when > 0; a replica writes the received `a` here too so `ai/named/*` visuals can read one field on both sides.
@@ -464,35 +477,35 @@ export class Enemy implements EnemyRef {
   /** Per-type scratch object owned by that type's AI file (null after `reset`). */
   namedData: unknown = null;
 
-  /* ── appended: 행성별 인간형 팩션 (2026-09-13 계약) ─────────────────── */
-  /** 배치된 거점 (전리품 입력 — `CorpseLootOpts.site`). null = 거점 밖 (디버그 · 네임드 · 벌레). */
+  /* ── appended: the humanoid faction per planet (2026-09-13, the contract) ── */
+  /** The site it was placed at (a loot input — `CorpseLootOpts.site`). null = outside a site (debug · a named · a bug). */
   site: EnemySpawnSite | null = null;
-  /** 그룹 id (-1 = 없음) · 그룹 안 역할. 스폰 디렉터가 `spawnRogue(…, opts)` 로 준다. */
+  /** The group id (-1 = none) · its role in the group. The spawn director passes them through `spawnRogue(…, opts)`. */
   squadId = -1;
   squadRole: EnemySquadRole = 'member';
-  /** 들고 있는 수류탄 종류 · 남은 수 (0 = 없음). 인간형 AI 담당이 스폰 때 굴리고 던질 때 줄인다 — 남은 것은 시체에. */
+  /** The grenade kind it carries · how many are left (0 = none). The humanoid AI owner rolls them at spawn and decrements on a throw — what is left goes to the corpse. */
   grenadeKind: EnemyGrenadeKind = 'frag';
   grenadeCount = 0;
 
-  /* ── appended: 굴착 스폰 · 땅굴벌레 (2026-09-13 — `ai/Burrow` · `parts/Burrow` · `sandworm/Director`) ─────────── */
-  /** 땅을 파고 올라오는 중: 남은 초 (0 = 다 나왔다). 권위 · 리플리카 모두 `animate` 가 줄인다 — 그림과 판정이 같은 시계. */
+  /* ── appended: the dig-in spawn · the sandworm (2026-09-13 — `ai/Burrow` · `parts/Burrow` · `sandworm/Director`) ── */
+  /** Digging up out of the ground: the seconds left (0 = fully out). `animate` decrements it on the authority and a replica alike — the picture and the judgement share one clock. */
   emergeT = 0;
-  /** 이번 굴착의 전체 시간(초). 0 = 굴착이 없었거나 끝났다. */
+  /** This dig-in's total time (s). 0 = there was none, or it is over. */
   emergeDur = 0;
-  /** 굴착 시작 때 묻혀 있던 깊이(m) = 몸 높이 + `BURROW_SINK_EXTRA_M`. */
+  /** How deep it was buried when the dig-in started (m) = the body height + `BURROW_SINK_EXTRA_M`. */
   emergeDepth = 0;
-  /** 땅굴벌레가 뱉어 날아가는 중: 남은 초 · 전체 시간 (0 = 아니다). */
+  /** In flight after the sandworm spat it: the seconds left · the total time (0 = it is not). */
   spatT = 0;
   spatDur = 0;
   readonly spatFrom = new THREE.Vector3();
   readonly spatTo = new THREE.Vector3();
-  /** 뱉어진 순간의 속도 (`GRAVITY` 포물선이 `spatTo` 에 `spatDur` 에 닿게 푼 값). */
+  /** The velocity at the moment it was spat (solved so a `GRAVITY` parabola reaches `spatTo` in `spatDur`). */
   readonly spatVel = new THREE.Vector3();
-  /** 땅굴벌레: 버그 뱉기 단계가 끝나는 `ctx.time` (그 뒤는 독극물). 리플리카도 `ee wormErupt` 로 채워 둔다 (승격 대비). */
+  /** The sandworm: the `ctx.time` its bug-spitting phase ends (poison after that). A replica fills it in from `ee wormErupt` too, against a promotion. */
   wormSpitUntil = 0;
-  /** 땅굴벌레: 다음 뱉기 · 독극물까지 남은 초 (권위). */
+  /** The sandworm: the seconds left until the next spit · poison (authority). */
   wormTimer = 0;
-  /* ── appended: 인간형 팩션 AI (2026-09-13 — `ai/RogueAI` · `ai/SquadFlank`) ─────────────── */
+  /* ── appended: humanoid faction AI (2026-09-13 — `ai/RogueAI` · `ai/SquadFlank`) ─────── ── */
   /** rogue / raider: bursts still to fire in the current pop-out (`HUMANOID_*.burstsPerPop`). */
   popBursts = 0;
   /** raider flanker: 0 = with the squad, 1 = moving on the flank arc (the push itself is `roguePhase` 4). */
@@ -505,14 +518,16 @@ export class Enemy implements EnemyRef {
   flankClock = 0;
 
   constructor(type: EnemyType) {
-    /* 2026-09-14 3차: 튜토리얼 전용 종류는 자기 리그를 갖지 않고 **바탕 종류**의 것을 그대로 쓴다 (`baseTypeOf`) —
-       공유 지오메트리 캐시(`assets` · `BUG_PARAMS`)도 그대로라 튜토리얼이 새 셰이더 · 새 메시를 굽지 않는다. */
+    /* 2026-09-14 (3rd pass): a tutorial-only type has no rig of its own and uses the **base type**'s as it is
+       (`baseTypeOf`) — the shared geometry caches (`assets` · `BUG_PARAMS`) are the same too, so the tutorial bakes no
+       new shader and no new mesh. */
     const look = baseTypeOf(type);
     this.rig = isEggType(look) ? createEggRig(look) : isWormType(look) ? createWormRig(look) : isRogueType(look) ? createRogueRig(look as RogueType) : createBugRig(look as BugType);
     this.type = type;
-    /* 2026-09-18 (벌레 알): 알만 **개체마다 제 `EnemyStats` 사본**을 든다. 알자리(`NestEggSpot.radius`)마다 크기가 0.35~0.7 m 로
-       다른데 히트 캡슐 · 분리 · 폭발 거리는 전부 `stats.radius` / `stats.height` 를 읽기 때문이다 — 사본이 아니면 「보이는 알 ≠
-       히트박스」가 된다 (`NestDirector.spawnEgg` 가 스폰 직전에 넣는다). 다른 종류는 지금까지처럼 표 객체를 그대로 가리킨다. */
+    /* 2026-09-18 (bug eggs): only an egg carries **its own `EnemyStats` copy per instance**. The size varies 0.35~0.7 m
+       per egg spot (`NestEggSpot.radius`) while the hit capsule · separation · blast distance all read `stats.radius` /
+       `stats.height` — without a copy that becomes 「the egg you see ≠ the hitbox」 (`NestDirector.spawnEgg` puts it in
+       just before the spawn). Every other type points at the table object as it always did. */
     this.stats = isEggType(type) ? { ...ENEMY_STATS[type] } : ENEMY_STATS[type];
     this.rig.root.visible = false;
     this.asTarget.enemy = this;
@@ -525,21 +540,23 @@ export class Enemy implements EnemyRef {
   get faction(): EnemyFaction { return this.stats.faction; }
   get isRogue(): boolean { return this.stats.faction === 'rogue'; }
   /**
-   * 2026-09-13: 벌레가 아닌 **인간형 AI** (로그 · 레이더 · 안드로이드 · 네임드 · 스캔 드론). 2026-09-13 전까지 `isRogue` 가
-   * 이 뜻으로 쓰였다 — 팩션이 넷이 되어 갈라졌다. AI 분기 · 재활용 제외 · 사람 소리는 전부 이것을 본다.
+   * 2026-09-13: a **humanoid AI** rather than a bug (rogue · raider · android · a named · the scan drone). Until
+   * 2026-09-13 `isRogue` meant this — four factions split the two apart. The AI branch · the recycling exemption · the
+   * human sounds all read this one.
    */
   get isHumanoid(): boolean { return this.stats.faction !== 'bug'; }
   /**
-   * 2026-09-18 (벌레 알): 싸우지 않는 **고정 표적**이다. 움직이지 · 돌지 · 공격하지 · 알아채지 않고, 아래 `isCombatant` 가
-   * 늘 false 라 「살아 싸우는 몸」을 세는 모든 자리에서 빠진다 — 순찰 · 웨이브 인원 상한(`Pool.aliveCount`), 재활용 대상
-   * (`Pool.ensureCapacity`), 포병의 사격 지원 판정(`ai/ArtilleryPack.hasBugSupport`), 다른 팩션의 표적 고르기
-   * (`asTarget.isDead`), 넉백(`parts/Damage.pushBack`), 소리 조사(`parts/Alerts`). 총알 · 폭발은 그대로 맞는다
-   * (`EnemySystem.raycastEx` · `parts/Damage.explode` 는 `state === 'dead'` 로만 거른다).
+   * 2026-09-18 (bug eggs): a **fixed target** that does not fight. It never moves, turns, attacks or becomes aware, and
+   * `isCombatant` below is always false for it, so it drops out of everywhere that counts 「living, fighting bodies」 —
+   * the patrol · wave head cap (`Pool.aliveCount`), recycling candidates (`Pool.ensureCapacity`), the artillery's fire
+   * support test (`ai/ArtilleryPack.hasBugSupport`), another faction's target pick (`asTarget.isDead`), push-back
+   * (`parts/Damage.pushBack`) and noise investigation (`parts/Alerts`). Bullets and blasts still land on it
+   * (`EnemySystem.raycastEx` · `parts/Damage.explode` filter on `state === 'dead'` alone).
    */
   get isEgg(): boolean { return isEggType(this.type); }
-  /** 전소 (incinerated): writhing on the spot — no movement / attacks, still damageable (a kill mid-writhe works). */
+  /** Incinerated: writhing on the spot — no movement / attacks, still damageable (a kill mid-writhe works). */
   get isIncapacitated(): boolean { return this.active && this.state !== 'dead' && this.incapTimer > 0; }
-  /** Alive and fighting (not dead / fleeing / inactive / 전소). Incapacitated enemies are non-combatants: the other faction stops hunting them. */
+  /** Alive and fighting (not dead / fleeing / inactive / incinerated). Incapacitated enemies are non-combatants: the other faction stops hunting them. */
   get isCombatant(): boolean { return this.active && this.state !== 'dead' && this.state !== 'flee' && this.incapTimer <= 0 && !this.isEgg; }
 
   /** (Re)initialize a pooled instance. */
@@ -560,7 +577,7 @@ export class Enemy implements EnemyRef {
     this.lostTimer = 0; this.staggerTimer = 0; this.deathTimer = 0; this.fleeTimer = 0;
     this.flankSign = Math.random() < 0.5 ? -1 : 1; this.flankTimer = 0;
     this.airborne = false; this.leaping = false; this.vy = 0; this.leapCd = 1;
-    this.leapDamage = 0; this.flipFalling = false; this.flipTimer = 0;   // 2026-09-17: 헌터 뒤집힘
+    this.leapDamage = 0; this.flipFalling = false; this.flipTimer = 0;   // 2026-09-17: the hunter flip
     this.chargePhase = 0; this.chargeTimer = 0; this.chargeCd = 2;
     this.spitPhase = 0;
     this.nearObstacles.length = 0; this.obstacleTimer = Math.random() * 0.25;
@@ -581,20 +598,20 @@ export class Enemy implements EnemyRef {
     this.netBuf?.clear();
     // Phase 4
     this.roguePhase = 0; this.guardPos.copy(position); this.leash = ROGUE_AI.leash; this.escortOf = null;
-    // 2026-09-14: 튜토리얼 전용 값은 풀에서 빌려 올 때마다 꺼진다 — `Tutorial.placeTutorialEnemies` 만이 다시 켠다
+    // 2026-09-14: the tutorial-only values switch off every time a body is borrowed from the pool — only `Tutorial.placeTutorialEnemies` turns them back on
     this.senseRadius = 0; this.homeLeash = 0; this.tutorialReleased = false;
     this.hasCover = false; this.hasPop = false; this.coverTimer = 0; this.burstLeft = 0; this.burstTimer = 0; this.standTime = 0;
     this.rushTimer = 0; this.hitCrouchTimer = 0; this.noLosTimer = 0; this.weaponId = '';
     this.shellTimer = 3 + Math.random() * 3; this.dug = 0; this.shellRefusals = 0;
-    this.shellPhase = 0; this.shellPhaseT = 0; this.supportCheckT = 0;   // 2026-09-17: 발사 자세
-    this.squadCd = 0; this.shellPrepDone = false;                       // 2026-09-18: 포격 준비 · 부대 재소환
-    this.nestOf = -1; this.nestReturning = false;                       // 2026-09-18: 둥지 리시 (스폰 경로가 다시 채운다)
+    this.shellPhase = 0; this.shellPhaseT = 0; this.supportCheckT = 0;   // 2026-09-17: the firing stance
+    this.squadCd = 0; this.shellPrepDone = false;                       // 2026-09-18: the barrage prep · re-summoning the squad
+    this.nestOf = -1; this.nestReturning = false;                       // 2026-09-18: the nest leash (the spawn path fills it back in)
     this.toxicPhase = 0; this.swellTimer = 0;
     this.chargeSeq = 0; this.hitByCharge = -1; this.chargeVictims.length = 0; this.chargeDrones.length = 0;
     this.corpseLife = CORPSE_LIFETIME;
-    // 2026-09-13: 거점 · 분대 · 수류탄 (스폰 경로가 다시 채운다)
+    // 2026-09-13: site · squad · grenades (the spawn path fills them back in)
     this.site = null; this.squadId = -1; this.squadRole = 'member'; this.grenadeKind = 'frag'; this.grenadeCount = 0;
-    // 2026-09-13: 굴착 · 뱉어짐 · 땅굴벌레 (스폰 경로가 다시 채운다)
+    // 2026-09-13: the dig-in · being spat · the sandworm (the spawn path fills them back in)
     this.emergeT = 0; this.emergeDur = 0; this.emergeDepth = 0; this.spatT = 0; this.spatDur = 0; this.wormSpitUntil = 0; this.wormTimer = 0;
     this.popBursts = 0; this.flankPhase = 0; this.flankCd = HUMANOID_RAIDER.flankDelay; this.flankSide = 1; this.flankClock = 0;
     // Phase 7: full magazine, grenade cooldown staggered so a squad never volleys at once
@@ -603,15 +620,15 @@ export class Enemy implements EnemyRef {
     // Phase 10
     this.deathDir = undefined; this.lootable = undefined;
     this.deathVy = 0; this.deathLanded = false; this.corpsePending = false;
-    this.corpseEmptied = false; this.corpseReleased = false; this.corpseFadeS = CORPSE_FADE_S;   // 2026-09-16: 빈 시체 제거
+    this.corpseEmptied = false; this.corpseReleased = false; this.corpseFadeS = CORPSE_FADE_S;   // 2026-09-16: removing an emptied corpse
     // Phase 12
     this.investigating = false; this.shotTimer = 0; this.shotPhase = 0; this.shotHold = 0; this.shotCheckAt = -Infinity;
     this.barrierUntil = -Infinity; this.barrierOwner = null; this.barrierBumpAt = -Infinity;
     this.vehicleAggroUntil = -Infinity;
-    // 2026-09-10 (총구 사선)
+    // 2026-09-10 (the muzzle line of fire)
     this.fireLineAt = -Infinity; this.fireLineClear = true; this.fireLineGap = Infinity;
     this.fireBlockTimer = 0; this.fireStrafeSign = Math.random() < 0.5 ? -1 : 1;
-    // 2026-09-11 (네임드 로그)
+    // 2026-09-11 (named rogues)
     this.namedHint = 0; this.namedPhase = 0; this.namedTimer = 0; this.namedCooldown = 0; this.namedData = null;
     this.syncTarget();
     const a = this.anim;
@@ -646,10 +663,11 @@ export class Enemy implements EnemyRef {
     this.asTarget.isDead = true;
   }
 
-  /* ── appended: 2026-09-13 (굴착 스폰 · 땅굴벌레) ── */
+  /* ── appended: 2026-09-13 (the dig-in spawn · the sandworm) ── */
   /**
-   * `duration` 초 동안 땅을 파고 올라온다 — 몸 높이 + `BURROW_SINK_EXTRA_M` 깊이에서 시작해 ease-out 으로 솟는다. **그림만** 내린다:
-   * 판정 위치(`position`)는 땅 위 그대로라 그동안에도 맞는다. 공격 · 이동 금지는 `ai/Burrow.updateBurrowGate`. 0 이하는 무시.
+   * Digs up out of the ground over `duration` seconds — it starts at the body height + `BURROW_SINK_EXTRA_M` deep and
+   * rises with an ease-out. Only **the picture** is lowered: the judgement position (`position`) stays on the ground, so
+   * it can be hit throughout. Blocking attacks and movement is `ai/Burrow.updateBurrowGate`. 0 or less is ignored.
    */
   startEmerge(duration: number): void {
     if (!(duration > 0)) return;
@@ -660,9 +678,10 @@ export class Enemy implements EnemyRef {
   }
 
   /**
-   * 굴착 중 아직 땅속에 있는 깊이(m). 굴착이 없으면 0.
-   * 2026-09-14 4차: 죽어도 계속 줄어 몸이 마저 솟는다 — 시체를 땅속에 묻어 두면 수색할 수 없다 (`animate` 의 주석).
-   * 땅굴벌레만 죽은 자리에서 멈춘다.
+   * How deep it still is underground mid-dig (m). 0 with no dig-in.
+   * 2026-09-14 (4th pass): it keeps shrinking after death so the body finishes rising — a corpse left buried cannot be
+   * searched (the comment in `animate`).
+   * Only the sandworm stops where it died.
    */
   get burrowSink(): number {
     if (!(this.emergeDur > 0)) return 0;
@@ -672,8 +691,9 @@ export class Enemy implements EnemyRef {
   }
 
   /**
-   * `from`(땅굴벌레 입) 에서 `to`(착지 표면) 까지 `T` 초 포물선으로 뱉어진다. 날아가는 동안 `airborne` — 공중에서 죽으면 기존 사망
-   * 낙하가 이어받는다. 한 걸음은 `ai/Burrow.stepSpatFlight` (권위 · 리플리카 공용).
+   * Spat from `from` (the sandworm's mouth) to `to` (the landing surface) on a `T`-second parabola. It is `airborne`
+   * throughout — dying in the air hands over to the existing death fall. One step is `ai/Burrow.stepSpatFlight` (shared
+   * by the authority and a replica).
    */
   startSpat(from: THREE.Vector3, to: THREE.Vector3, T: number): void {
     const t = Math.max(0.2, T);
@@ -800,8 +820,9 @@ export class Enemy implements EnemyRef {
    */
   takeDamage(amount: number, hitPoint?: THREE.Vector3, hitDir?: THREE.Vector3, attacker: TargetId = 'local'): void {
     if (!this.active || this.state === 'dead' || amount <= 0) return;
-    /* 2026-09-13 (탐사 차량): 차량(포탑 · 들이받기)은 호스트 권위다 — 리플리카에서는 요청을 만들지 않는다. 킬 크레딧은 아무에게도
-     * 가지 않도록 `'ai'` 로 접고(PeerId 로 읽히지 않는다), 맞은 적과 그 무리는 차량을 노린다. */
+    /* 2026-09-13 (the rover): the vehicle (its turret · a ram) is host authority — a replica builds no request for it.
+     * It folds to `'ai'` so kill credit goes to nobody (it never reads as a PeerId), and the enemy hit plus its pack
+     * hunt the vehicle. */
     const fromRover = attacker === ROVER_DAMAGE_SOURCE;
     if (fromRover) {
       if (this.host?.replica) return;
@@ -819,16 +840,17 @@ export class Enemy implements EnemyRef {
       a.flinchX = -(hitDir.x * c - hitDir.z * s);   // roll: +X side dips when pushed toward +X
       a.flinchZ = (hitDir.x * s + hitDir.z * c);    // pitch: nose dips when pushed forward
     } else { a.flinchX = (Math.random() - 0.5) * 2; a.flinchZ = 0.3; }
-    if (attacker === 'local') this.lastLocalWeaponClass = localGunHitClass();   // 2026-09-14: NPC 퀘스트 계열 처치
+    if (attacker === 'local') this.lastLocalWeaponClass = localGunHitClass();   // 2026-09-14: kills by gun class for NPC quests
     if (this.host?.replica) {
       this.host.requestHit(this, amount, part, hitPoint, hitDir);
       return;
     }
     this.hp -= dmg;
     this.lastDamager = attacker;
-    /* wake up. 2026-09-18: 알은 깨어나지 않는다 (사용자 결정 「알아채지 않는다」) — 상태가 `alert` 로 넘어가면 힌트 · 리플리카
-       자세가 흔들리고, 무엇보다 「고정 표적」이라는 약속이 깨진다. 총성 자체는 평소 경로(`reportShot` · `onGunshot`)로 둘레
-       벌레를 깨우므로 알을 쏘고도 조용한 일은 없다. */
+    /* wake up. 2026-09-18: an egg does not wake (user's decision 「알아채지 않는다」) — moving its state to `alert` would
+       shake the hint and the replica's pose, and above all it would break the promise that it is a 「fixed target」. The
+       gunshot itself still wakes the bugs around it through the ordinary path (`reportShot` · `onGunshot`), so shooting
+       an egg is never quiet. */
     if (!this.aware && !this.isEgg) {
       this.aware = true;
       if (this.state === 'idle' || this.state === 'wander') { this.state = 'alert'; this.stateTime = 0; }
@@ -843,7 +865,7 @@ export class Enemy implements EnemyRef {
       this.kill(true);
       return;
     }
-    // 2026-09-17: 도약 중 누적 피해 → 뒤집힘. 리플리카의 hit 요청도 호스트의 이 줄을 지나므로 분대원 피해가 같이 쌓인다.
+    // 2026-09-17: damage accumulated mid-leap → the flip. A replica's hit request passes this same line on the host, so a squadmate's damage piles up with it.
     if (this.leaping) this.noteLeapDamage(dmg);
     // stagger on heavy hits
     const threshold = this.maxHp * this.stats.staggerFraction * (this.chargePhase === 2 ? 1.6 : 1);
@@ -853,9 +875,10 @@ export class Enemy implements EnemyRef {
   }
 
   /**
-   * 2026-09-13 (탐사 차량): 차량에게 맞았다 — 이 적과 `ROVER_AGGRO_GROUP_RADIUS` 안의 같은 팩션 전투원이 `ROVER_AGGRO_S` 동안 차량을
-   * 노린다 (무리를 깨우는 것은 플레이어에게 맞았을 때와 같은 `alertNear`). 표적 재평가를 곧장 돌린다. 스캔 드론 · 땅굴벌레 · 로든은
-   * 차량을 노리지 않으므로(`parts/Alerts.pickVehicleTarget`) 표시만 남아도 무해하다. 권한만.
+   * 2026-09-13 (the rover): it was hit by the vehicle — this enemy and every combatant of the same faction within
+   * `ROVER_AGGRO_GROUP_RADIUS` hunt the vehicle for `ROVER_AGGRO_S` (waking the pack is the same `alertNear` as being
+   * hit by a player). It re-evaluates the target at once. The scan drone · sandworm · Roden never hunt a vehicle
+   * (`parts/Alerts.pickVehicleTarget`), so the mark left on them is harmless. Authority only.
    */
   noteVehicleAggro(): void {
     const host = this.host;
@@ -878,29 +901,31 @@ export class Enemy implements EnemyRef {
    * Damage-over-time tick (burning). Quieter than `takeDamage`: no gore burst, no `enemy:damaged` broadcast
    * and no stagger — the host's enemy snapshots carry the falling hp to the clients.
    * Authority only; `attacker` gets the kill credit.
-   * 2026-09-11 (C-14): `quiet` = the 환경 재해 tick — no hit flash and it does **not** wake the enemy (a storm is not an
+   * 2026-09-11 (C-14): `quiet` = the environmental hazard tick — no hit flash and it does **not** wake the enemy (a storm is not an
    * attacker); the caller passes `'ai'` so a hazard kill credits nobody.
    */
   applyDot(amount: number, attacker: TargetId = 'local', quiet = false): void {
     if (!this.active || this.state === 'dead' || amount <= 0) return;
     this.hp -= amount;
     this.lastDamager = attacker;
-    if (attacker === 'local') this.lastLocalWeaponClass = null;   // 2026-09-14: 지속 피해 막타는 계열 없음
+    if (attacker === 'local') this.lastLocalWeaponClass = null;   // 2026-09-14: a last hit from a DoT has no gun class
     if (quiet) { if (this.hp <= 0) { this.hp = 0; this.kill(true); } return; }
     this.anim.hitFlash = Math.max(this.anim.hitFlash, 0.45);
-    if (!this.aware && !this.isEgg) {   // 2026-09-18: 알은 타면서도 깨어나지 않는다
+    if (!this.aware && !this.isEgg) {   // 2026-09-18: an egg does not wake even while burning
       this.aware = true;
       if (this.state === 'idle' || this.state === 'wander') { this.state = 'alert'; this.stateTime = 0; }
     }
     if (this.hp <= 0) { this.hp = 0; this.kill(true); return; }
-    if (this.leaping) this.noteLeapDamage(amount);   // 2026-09-17: 화상 틱도 도약 중 누적 피해에 든다 (재해의 조용한 틱은 빼고)
+    if (this.leaping) this.noteLeapDamage(amount);   // 2026-09-17: a burn tick counts toward the damage accumulated mid-leap too (the hazard's quiet tick does not)
   }
 
   /**
-   * 2026-09-17 (사용자 결정): 한 번의 도약 동안 받은 피해 합이 `HUNTER_LEAP.flipDamage` 에 닿으면 도약을 끊는다 — 수평 속도를 버리고
-   * 그 자리에서 수직으로 떨어져(`flipFalling`, 착지는 `ai/HunterFlip.updateHunterFlip`) 뒤집힌 채 `flipDuration` s 누워 있는다.
-   * 아직 웅크리는 중(땅 위)이면 곧바로 뒤집힌다. 상태는 `stagger` 로 두어 경직 · 다른 AI 가지가 끼어들지 않게 한다
-   * (스태거 타이머는 0 — 뒤집힘이 끝나면 평소 경직 종료 가지가 추격 / 대기로 돌려보낸다). 권위만.
+   * 2026-09-17 (user's decision): once the damage taken within one leap reaches `HUNTER_LEAP.flipDamage` the leap is cut
+   * — it throws away its horizontal speed, drops straight down where it is (`flipFalling`; the landing is
+   * `ai/HunterFlip.updateHunterFlip`) and lies flipped for `flipDuration` s.
+   * Still crouching (on the ground) it flips at once. The state is left at `stagger` so a flinch or another AI branch
+   * cannot cut in (the stagger timer is 0 — when the flip ends the ordinary flinch-end branch returns it to chase /
+   * idle). Authority only.
    */
   private noteLeapDamage(dmg: number): void {
     if (this.host?.replica || this.flipFalling || this.flipTimer > 0) return;
@@ -922,14 +947,14 @@ export class Enemy implements EnemyRef {
   enterStagger(duration: number): void {
     this.state = 'stagger';
     this.stateTime = 0;
-    // a stagger never shortens a running 전소
+    // a stagger never shortens a running incineration
     this.staggerTimer = Math.max(duration, this.incapTimer);
     this.chargePhase = 0;
     this.spitPhase = 0;
     this.roguePhase = 0;
     this.burstLeft = 0;
     this.throwTimer = 0;      // a stagger drops the wind-up (the cooldown was not spent)
-    this.investigating = false;   // Phase 12: a hit ends a 총알 추적 (the damage made us aware anyway)
+    this.investigating = false;   // Phase 12: a hit ends shot tracking (the damage made us aware anyway)
     this.anim.shake = 0;
     this.anim.abdomen = 0;
     this.hasMoveTarget = false;
@@ -937,7 +962,7 @@ export class Enemy implements EnemyRef {
   }
 
   /**
-   * 전소: writhe on the spot for `duration` s (authority). Rides on the stagger state — movement, attacks, charges,
+   * Incinerated: writhe on the spot for `duration` s (authority). Rides on the stagger state — movement, attacks, charges,
    * bursts, spits and toxic swells all stop — while `incapTimer` drives the writhing pose and `isIncapacitated`.
    * Damage still applies (a kill mid-writhe works); when the timer runs out the AI stagger exit resumes chase / idle.
    */
@@ -978,13 +1003,13 @@ export class Enemy implements EnemyRef {
     this.deathTimer = 0;
     this.airborne = false;
     this.leaping = false;
-    this.flipFalling = false; this.flipTimer = 0;   // 2026-09-17: 뒤집힌 채 죽은 몸은 `anim.flip` 이 그대로 남아 등으로 눕는다
-    this.spatT = 0;   // 2026-09-13: 뱉어져 날던 몸은 여기서부터 사망 낙하가 맡는다 (`deathVy` 는 위에서 잡았다)
+    this.flipFalling = false; this.flipTimer = 0;   // 2026-09-17: a body that died flipped keeps its `anim.flip` and comes to rest on its back
+    this.spatT = 0;   // 2026-09-13: a body in mid-spit-flight is handed to the death fall from here (`deathVy` was taken above)
     this.deathDir = dir ?? this.rollDeathDir();
     this.anim.deathDir = Math.max(0, ENEMY_DEATH_DIRS.indexOf(this.deathDir));
     this.anim.deathFall = 0;
     const world = this.host?.ctx.world ?? null;
-    // 2026-09-09: 지형이 아니라 **밟고 있는 표면** — 바위 위에서 죽으면 바위 위에 눕는다
+    // 2026-09-09: the **surface underfoot**, not the terrain — dying on a rock leaves the body on the rock
     const ground = world && world.ready ? world.getSurfaceY(this.position.x, this.position.z, this.position.y) : this.position.y;
     this.deathLanded = this.position.y <= ground + 0.05;
     if (this.deathLanded) { this.position.y = ground; this.deathVy = 0; }
@@ -1031,11 +1056,11 @@ export class Enemy implements EnemyRef {
       if (a.reload < 0.001 && reloadT === 0) a.reload = 0;
       if (a.throwing < 0.001 && throwT === 0) a.throwing = 0;
     }
-    // 전소 writhe blends in fast and settles out; the spark flicker is a short cyan strobe while `shockTimer` runs
+    // The incinerated writhe blends in fast and settles out; the spark flicker is a short cyan strobe while `shockTimer` runs
     const writheT = this.state !== 'dead' && this.incapTimer > 0 ? 1 : 0;
     a.writhe += (writheT - a.writhe) * Math.min(1, dt * (writheT > 0 ? 9 : 4));
     if (a.writhe < 0.001 && writheT === 0) a.writhe = 0;
-    // 2026-09-17: 헌터 뒤집힘 — 떨어지는 동안 빠르게 뒤집히고, 일어날 때는 조금 천천히 돌아온다. 죽은 몸은 그 자세 그대로 둔다.
+    // 2026-09-17: the hunter flip — it turns over fast while falling and comes back a little more slowly as it gets up. A dead body is left in that pose.
     if (this.state !== 'dead') {
       const flipT = this.flipFalling || this.flipTimer > 0 ? 1 : 0;
       a.flip += (flipT - a.flip) * Math.min(1, dt * (flipT > 0 ? 7 : 4));
@@ -1058,12 +1083,14 @@ export class Enemy implements EnemyRef {
     }
     this.rig.root.position.copy(this.position);
     this.rig.root.rotation.y = this.yaw;
-    /* 2026-09-13 (굴착): 땅속에서 올라오는 몸 — 그림만 내린다 (땅굴벌레는 리그가 몸통만 내린다).
-       2026-09-14 4차: **파다 죽은 몸도 끝까지 올라온다.** 판정 위치(`position`)는 굴착 내내 지표에 있어서
-       시체 수색 자리(`corpse:<id>`)는 땅 위에 서는데, 예전에는 죽는 순간 그림이 그 깊이에서 얼어붙어 —
-       몸 높이 + `BURROW_SINK_EXTRA_M` 만큼 묻힌 채라 갓 솟기 시작한 벌레는 통째로 땅속이었다 — 플레이어에게는
-       「시체가 없다 = 드롭이 없다」로 보였다 (튜토리얼 첫 벌레가 정확히 그 자리다). 남은 굴착 시간 동안
-       마저 솟으므로 사망 연출과 겹쳐 구덩이에서 빠져나오며 쓰러진다. 땅굴벌레는 뿌리박힌 채 죽는 연출이라 예전대로 멈춘다. */
+    /* 2026-09-13 (the dig-in): a body rising out of the ground — only the picture is lowered (for the sandworm the rig
+       lowers the torso alone).
+       2026-09-14 (4th pass): **a body that died mid-dig finishes rising too.** The judgement position (`position`) is at
+       the surface throughout the dig, so the corpse search spot (`corpse:<id>`) stands on the ground — but the picture
+       used to freeze at that depth the moment it died, buried by the body height + `BURROW_SINK_EXTRA_M`, and a bug that
+       had only just begun to rise was entirely underground. To the player that read as 「no corpse = no drop」 (the
+       tutorial's first bug is exactly that spot). It now finishes rising over the remaining dig time, so the death FX
+       overlaps and it climbs out of the hole as it falls. The sandworm dies rooted by design and still stops. */
     if (this.emergeDur > 0) {
       const rising = this.state !== 'dead' || this.rig.kind !== 'worm';
       if (this.emergeT > 0 && rising) this.emergeT = Math.max(0, this.emergeT - dt);
@@ -1075,12 +1102,12 @@ export class Enemy implements EnemyRef {
 
   private animateRig(dt = 0): void {
     if (this.rig.kind === 'worm') { animateWorm(this.rig, this.anim, this.burrowSink); return; }   // 2026-09-13
-    /* 2026-09-18 (벌레 알): 손상도 = 1 − hp / maxHp. 호스트도 리플리카도 `hp` 를 들고 있어(스냅숏에 실린다) 와이어 없이 같은 그림이다. */
+    /* 2026-09-18 (bug eggs): the damage level = 1 − hp / maxHp. The host and a replica both carry `hp` (the snapshot brings it), so the picture matches with no wire field. */
     if (this.rig.kind === 'egg') { animateEgg(this.rig, this.anim, 1 - Math.max(0, Math.min(1, this.hp / Math.max(1, this.maxHp)))); return; }
     if (this.rig.kind === 'bug') animateBug(this.rig, this.anim);
     else {
       animateRogue(this.rig, this.anim);
-      // 2026-09-11: 네임드 로그 · 스캔 드론 — 기본 휴머노이드 자세 위에 종류별 부품 · 자세를 더한다 (models/named/*)
+      // 2026-09-11: named rogues · the scan drone — the per-type parts and pose go on top of the base humanoid pose (models/named/*)
       if (this.rig.named !== undefined) animateNamedRig(this.rig, this.anim, this, dt);
     }
   }

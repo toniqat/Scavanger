@@ -8,11 +8,11 @@ const VISUAL_RADIUS = 0.34;
 /**
  * Additive halo around the shell body (× VISUAL_RADIUS).
  *
- * 2026-09-10 (낮은 궤적): 2.4 → 2.9. `SHELL_ARC_GRAVITY` 를 낮춰 정점이 48.7 m → 9.9 m 가 되면서 포탄은 이제
- * **하늘이 아니라 지형을 배경으로** 60~90 m 밖 수평선 근처에서 날아온다. 하늘 위에서 떨어질 때는 실루엣만으로
- * 읽혔지만 땅을 배경으로는 0.34 m 짜리 어두운 구가 묻힌다 — 거리에서 읽히는 것은 가산 혼합 헤일로뿐이라
- * 조금 키웠다. 리본(`TRAIL_*`)은 그대로 둔다: 궤적이 낮아지면서 오히려 카메라에 **옆면**을 길게 보이므로
- * 예전(거의 수직 낙하 = 짧게 뭉친 꼬리)보다 잘 읽힌다.
+ * 2026-09-10 (the low arc): 2.4 → 2.9. Lowering `SHELL_ARC_GRAVITY` brought the apex from 48.7 m down to 9.9 m, so a shell
+ * now flies in near the horizon 60~90 m out **against the terrain, not against the sky**. Falling out of the sky it read on
+ * its silhouette alone, but against the ground a 0.34 m dark sphere is lost — the only thing that reads at that distance is
+ * the additive halo, so it grew a little. The ribbon (`TRAIL_*`) is left alone: the lower arc shows the camera its **side**
+ * for longer, so it reads better than before (an almost vertical fall = a short bunched tail).
  */
 const HALO_SCALE = 2.9;
 const TRAIL_GAP = 0.05;
@@ -49,8 +49,8 @@ const _side = new THREE.Vector3();
 const _toCam = new THREE.Vector3();
 const _col = new THREE.Color();
 
-/* 2026-09-10: 궤적 수식은 `@/shared/ballistics` 로 옮겼다 (ui/hud 의 마커가 같은 식을 써야 하는데
- * 폴더끼리 import 하지 않기 때문). 이 두 줄은 기존 호출부 · import 를 지키기 위한 재수출이다. */
+/* 2026-09-10: the arc formula moved to `@/shared/ballistics` (the marker in ui/hud has to use the same formula, and
+ * folders do not import each other). These two lines are a re-export that keeps the existing call sites · imports. */
 export { shellPositionAt, shellLaunchVelocity } from '@/shared';
 
 class Shell implements InterceptableRef {
@@ -234,8 +234,8 @@ export class ShellProjectiles {
       s.life += dt;
       s.prev.copy(s.mesh.position);
       shellPositionAt(s.from, s.vel0, s.life, s.mesh.position);
-      // 2026-09-10: 궤적과 **같은** 중력이어야 한다. `GRAVITY`(9.81) 로 적분하면 위치는 `SHELL_ARC_GRAVITY` 궤적을
-      // 따라가는데 속도만 5배 빨리 아래를 향해, 리본 꼬리(`buildRibbon` 의 `_dir` 폴백)와 속도를 읽는 쪽이 어긋난다.
+      // 2026-09-10: must be the **same** gravity as the arc. Integrating with `GRAVITY` (9.81) leaves the position on the
+      // `SHELL_ARC_GRAVITY` arc but the velocity 5× faster down, so the ribbon tail and everything reading `vel` go out of step.
       s.vel.set(s.vel0.x, s.vel0.y - SHELL_ARC_GRAVITY * s.life, s.vel0.z);
       s.mesh.rotation.x += dt * 4; s.mesh.rotation.z += dt * 2.5;
       // smoke trail
@@ -248,11 +248,11 @@ export class ShellProjectiles {
       s.sampleTimer -= dt;
       if (s.sampleTimer <= 0) { s.sampleTimer = TRAIL_SAMPLE_S; s.pushSample(s.mesh.position); }
       /*
-       * 2026-09-10 (낮은 궤적): 포탄이 지형 · 소품 · 구조물에 부딪히면 **그 자리에서 터진다** — 이 단계별
-       * 레이캐스트가 그 판정이고, 폭발 · 피해는 기존 `onShellLanded` 하나로 그대로 간다(따로 만든 경로 없음).
-       * 정점이 9.9 m 로 내려온 만큼 나무 · 폐허 벽에 걸릴 일이 늘었는데, 그렇다고 포병이 제 발치에 계속
-       * 쏘게 두면 발사 자체가 무의미하므로 **쏘기 전에** `parts/Attacks.shellArcBlocked` 가 궤적을 미리
-       * 훑어 막혔으면 발사를 미루고 자리를 옮긴다. 여기는 그 대충 검사를 통과한 뒤 실제로 걸린 경우다.
+       * 2026-09-10 (the low arc): a shell that hits terrain · a prop · a structure **bursts right there** — this per-step
+       * raycast is that judgement, and the explosion · damage still go through the one existing `onShellLanded` (no separate
+       * path). With the apex down at 9.9 m it catches on trees · ruin walls far more often, but letting the artillery keep
+       * firing at its own feet makes the shot pointless, so **before firing** `parts/Attacks.shellArcBlocked` sweeps the arc
+       * and, if blocked, holds fire and relocates. This is the case that passed that rough check and caught anyway.
        */
       let landed = false;
       if (world) {

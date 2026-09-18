@@ -134,7 +134,7 @@ export function updateRogue(e: Enemy, dt: number, host: EnemyHost, t: CombatTarg
     case 'stagger': {
       e.staggerTimer -= dt;
       if (e.incapTimer > 0) {
-        // 전소: rifle dropped to the hip, writhing (anim.writhe); no cover cycle, no shots
+        // incinerated: rifle dropped to the hip, writhing (anim.writhe); no cover cycle, no shots
         e.incapTimer = Math.max(0, e.incapTimer - dt);
         crouchT = 0.35; aimT = 0;
       } else {
@@ -163,7 +163,7 @@ export function updateRogue(e: Enemy, dt: number, host: EnemyHost, t: CombatTarg
 /**
  * True while the rifle may fire: magazine not empty, not reloading, not winding up a throw — and, since 2026-09-10,
  * the **muzzle** (not the eyes) has a clear line to the target. `e.hasLOS` is an eye-to-chest ray, so a rogue with its
- * shoulder against a wall passes it while the rifle tip sits inside the wall; that is exactly the "벽에 대고 쏜다"
+ * shoulder against a wall passes it while the rifle tip sits inside the wall; that is exactly the "shooting into the wall"
  * picture. The test is cached per rogue (`ENEMY_FIRE_LOS_S`), so putting it in the shot condition costs nothing.
  */
 function canShoot(e: Enemy, host: EnemyHost, t: CombatTarget): boolean {
@@ -293,7 +293,7 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget, prof
         r.speed = s.speed;
         const dx = e.coverPos.x - e.position.x, dz = e.coverPos.z - e.position.z;
         if (dx * dx + dz * dz < 0.8 || e.stateTime > 6) enterCover(e, boss, prof);
-        // (Math.random() 를 먼저 본다 — 사선 검사는 캐시돼 있어도 총구 월드 행렬을 갱신하므로 공짜는 아니다)
+        // (Math.random() is tested first — even cached, the line check refreshes the muzzle's world matrix, so it is not free)
         else if (e.hasLOS && e.burstTimer <= 0 && d < 45 && Math.random() < dt * 0.6 && canShoot(e, host, t)) {
           // an occasional snap shot while relocating
           shoot(e, host, t, aimError(e, prof, false, SNAP_AIM_MUL), prof, boss);
@@ -334,10 +334,10 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget, prof
       }
       e.noLosTimer = 0;
       /*
-       * 2026-09-10: 눈으로는 보이는데 **총구 사선**이 막혔다 = 바위 · 벽에 몸을 붙이고 있다. 조준만 하고 서
-       * 있지 말고 옆으로 비켜서서 사선을 연다(사격만 보류, 이동은 그대로). 아직 `popPos` 로 걸어 나가는
-       * 중이면(`stepping`) 원래 자리가 막혀 있는 게 정상이므로 건드리지 않는다. 한 다리(`ENEMY_FIRE_STRAFE_S`)
-       * 를 다 걸어도 못 뚫으면 이 바위는 쏠 수 없는 자리이므로 새 엄폐물을 고른다.
+       * 2026-09-10: visible to the eyes but the **muzzle line of fire** is blocked = the body is pressed against a rock or
+       * wall. Instead of standing there aiming it sidesteps to open the line (only firing is held, movement stays). While it
+       * is still walking out to `popPos` (`stepping`) the original spot being blocked is normal, so it is left alone. If one
+       * leg (`ENEMY_FIRE_STRAFE_S`) of sidestepping still does not clear it, this rock cannot be fired from and new cover is picked.
        */
       if (!stepping && !hasFireLine(e, host, t)) {
         if (!fireLineStrafe(e, host, t, dt)) { e.fireBlockTimer = 0; e.roguePhase = 0; e.stateTime = 0; }
@@ -377,7 +377,7 @@ function coverCycle(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget, prof
       r.speed = s.speed * 1.1;
       e.rushTimer += dt;
       e.burstTimer -= dt;
-      // 돌격 중에는 **사격만** 보류한다 — 사선이 막혀도 계속 달린다(이동을 막지 않는다).
+      // during a rush **only firing** is held — a blocked line does not stop the run (movement is never blocked).
       if (e.burstTimer <= 0 && e.hasLOS && canShoot(e, host, t)) {
         shoot(e, host, t, aimError(e, prof, false, RUSH_AIM_MUL), prof, boss);
         e.burstTimer = 0.28;

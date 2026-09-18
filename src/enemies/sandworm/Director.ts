@@ -1,27 +1,27 @@
 /**
- * src/enemies/sandworm/Director.ts — **땅굴벌레 이벤트 디렉터** (2026-09-13, 등장 판정 개편 2026-09-15).
+ * src/enemies/sandworm/Director.ts — **the sandworm event director** (2026-09-13, appearance check reworked 2026-09-15).
  *
- * 이 파일이 답하는 질문: *이번 레이드에 땅굴벌레가 나오는가, 언제 · 어디서, 나온 뒤에는 무엇을 하나.*
+ * The question this file answers: *does a sandworm appear this raid, when · where, and what does it do afterwards.*
  *
- * ## 등장 — 누적 확률제 (사용자 결정 2026-09-15, docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」)
- * 미리 굴리지 않고 시각 창도 없다. **호스트**가 `SANDWORM_CHECK_S` 마다 조건을 보고 그때의 확률 `p` 를 굴린다 — 레이드당 최대 1회.
- *   1. 후보 = 살아 있는 사람(로컬 + `ctx.net.getRemotePlayers()` 중 임무 안 · 안 죽고 안 쓰러짐) + **안드로이드 분대원**
- *      (`ctx.allies.getCombatBodies()`). 무게 상태: 로컬 `ctx.inventory.getWeight().state`, 원격 `RemotePlayerRef.weightState`
- *      (옛 송신자 = 모름 = normal), 안드로이드 = 자기 가방의 kg / 용량을 사람과 같은 문턱(`WEIGHT_*_RATIO`)으로 (모르면 normal).
- *   2. **자격 인원** = 달리는 중(`isSprinting` · `PlayerFlags.SPRINT` · `ALLY_FLAGS.SPRINT`) 이고 무게가 `light`(조금 무거움) 이상.
- *      자격 인원끼리 `SANDWORM_GROUP_RADIUS`(40 m) 안에 `SANDWORM_MIN_MEMBERS`(2) 이상 모인 가장 큰 무리를 잡는다 — 없으면 p = 0.
- *      **혼자(안드로이드 없는 솔로)는 절대 나오지 않는다.**
- *   3. p = `SANDWORM_BASE_CHANCE_BY_THREAT[threat]` × min(1, Σ 가중치) × 거리 계수 (+ 유인 가산), 0..1 로 자른다.
- *      - 가중치: light `SANDWORM_P_PER_LIGHT`, heavy · over `SANDWORM_P_PER_HEAVY`.
- *      - 거리 계수: 무리 안 서로의 평균 거리 d̄ ≤ `SANDWORM_P_NEAR_M` → 1, d̄ = `SANDWORM_GROUP_RADIUS` → `SANDWORM_P_FAR_MUL` (사이는 선형).
- *      - 유인: 무리 중심 `SANDWORM_LURE_RANGE_M` 안에 살아 있는 유인 수류탄(가젯 lure 배치물 · `LureField` 의 `'lure'`)이 있으면
- *        `SANDWORM_P_LURE` 를 더하고, 그 자리가 `SANDWORM_LURE_SPOT_CHANCE` 확률로 분출 자리가 된다 (땅 검사 실패 → 다른 쪽).
- *   4. 자리 검사(`validSpot`): 맵 안 · 무리 중 누구도 지형보다 `OFF_TERRAIN_M` 높이 서 있지 않다(데크 · 지붕 · 전차) ·
- *      `WorldRef.burrowGroundOk(x, z, BURROW_GROUND_CHECK_R × 크기)` (평평한 맨땅 — 구조물 · 선로 · 흙길 · 소품 · 둥지 · 포자 군락 ·
- *      재해 구역 · 채집 · 상자 · 함선 외피 없음; 없는 월드는 false). 굴림이 성공했는데 자리가 나쁘면 이번 검사는 건너뛴다.
+ * ## Appearance — a cumulative chance (user's decision 2026-09-15, docs/DECISIONS.md 「2026-09-15 — 땅굴벌레」)
+ * No pre-roll and no time window. Every `SANDWORM_CHECK_S` the **host** reads the conditions and rolls that moment's `p` — at most once per raid.
+ *   1. Candidates = living humans (local + `ctx.net.getRemotePlayers()` in the mission, not dead, not downed) + **android
+ *      squadmates** (`ctx.allies.getCombatBodies()`). Weight state: local `ctx.inventory.getWeight().state`, remote
+ *      `RemotePlayerRef.weightState` (an older sender = unknown = normal), android = its bag kg / capacity on the same human thresholds (`WEIGHT_*_RATIO`; unknown = normal).
+ *   2. **An eligible member** = sprinting (`isSprinting` · `PlayerFlags.SPRINT` · `ALLY_FLAGS.SPRINT`) and carrying `light`
+ *      (slightly heavy) or more. The largest cluster of ≥ `SANDWORM_MIN_MEMBERS` (2) eligible members within
+ *      `SANDWORM_GROUP_RADIUS` (40 m) is taken — with none, p = 0. **Alone (solo with no android) it never appears.**
+ *   3. p = `SANDWORM_BASE_CHANCE_BY_THREAT[threat]` × min(1, Σ weights) × the closeness factor (+ the lure bonus), clamped to 0..1.
+ *      - Weights: light `SANDWORM_P_PER_LIGHT`, heavy · over `SANDWORM_P_PER_HEAVY`.
+ *      - Closeness factor: mean pairwise distance in the cluster d̄ ≤ `SANDWORM_P_NEAR_M` → 1, d̄ = `SANDWORM_GROUP_RADIUS` → `SANDWORM_P_FAR_MUL` (linear between).
+ *      - Lure: with a living lure grenade (the gadget lure deployable · `LureField`'s `'lure'`) within `SANDWORM_LURE_RANGE_M` of the
+ *        cluster centre, `SANDWORM_P_LURE` is added and that spot becomes the eruption spot with `SANDWORM_LURE_SPOT_CHANCE` (ground check fails → the other one).
+ *   4. Spot check (`validSpot`): inside the map · nobody in the cluster stands `OFF_TERRAIN_M` above the terrain (deck · roof ·
+ *      tram) · `WorldRef.burrowGroundOk(x, z, BURROW_GROUND_CHECK_R × scale)` (flat bare ground — no structure · rail · dirt road ·
+ *      prop · nest · spore grove · hazard zone · gather node · crate · ship hull; a world without it = false). A successful roll on a bad spot skips this check.
  *
- * ### 검사 한 번의 p (csv 기본값 — light 0.12 · heavy 0.25 · near 20 m · far ×0.25 · threat 0.6 / 0.8 / 1.0, 유인 없음)
- * | 인원 · 무게      | d̄ ≤ 20 m (threat 1 · 2 · 3) | d̄ = 40 m (threat 1 · 2 · 3) |
+ * ### p for one check (csv defaults — light 0.12 · heavy 0.25 · near 20 m · far ×0.25 · threat 0.6 / 0.8 / 1.0, no lure)
+ * | members · weight | d̄ ≤ 20 m (threat 1 · 2 · 3) | d̄ = 40 m (threat 1 · 2 · 3) |
  * |------------------|------------------------------|------------------------------|
  * | 2 light          | 0.144 · 0.192 · 0.24         | 0.036 · 0.048 · 0.06         |
  * | 2 heavy          | 0.30 · 0.40 · 0.50           | 0.075 · 0.10 · 0.125         |
@@ -29,34 +29,34 @@
  * | 3 heavy          | 0.45 · 0.60 · 0.75           | 0.1125 · 0.15 · 0.1875       |
  * | 4 light          | 0.288 · 0.384 · 0.48         | 0.072 · 0.096 · 0.12         |
  * | 4 heavy          | 0.60 · 0.80 · 1.00           | 0.15 · 0.20 · 0.25           |
- * 3 heavy · 20 m · threat 3 = 0.75/검사 → 2 초 간격 3 검사 안에 98 %. 2 light · 40 m · threat 2 = 0.048/검사 → 30 초(15 검사)에 52 %.
- * 유인 수류탄은 어느 칸에나 +0.15.
+ * 3 heavy · 20 m · threat 3 = 0.75/check → 98 % within 3 checks 2 s apart. 2 light · 40 m · threat 2 = 0.048/check → 52 % in 30 s (15 checks).
+ * A lure grenade adds +0.15 to any cell.
  *
- * ## 진동 장치 (`sandworm:summon`, gadgets 가 호스트에서 낸다)
- * 이 레이드에 아직 없었으면 확률 · 땅 검사 없이 그 자리에서 곧장 전조 (`OFF_TERRAIN_M` 검사만). 이미 있었으면 무시.
+ * ## The thumper (`sandworm:summon`, gadgets emits it on the host)
+ * Not yet this raid → the warning starts right there, no chance and no ground check (only `OFF_TERRAIN_M`). Already happened = ignored.
  *
- * ## 종류 (행성 위협)
- * threat 1 → **어린 개체** `sandworm_weak` (체력 `SANDWORM_WEAK_HP` 고정 · 몸 · 분출 반경 × `SANDWORM_WEAK_SCALE` · 스캐빈저만 뱉는다),
- * threat 2–3 → 성체 `sandworm` (체력 `SANDWORM_HP_MIN..MAX` 굴림). 콘솔 · 스모크는 `weak` 로 강제할 수 있다.
+ * ## The type (planet threat)
+ * threat 1 → the **young one** `sandworm_weak` (hp fixed at `SANDWORM_WEAK_HP` · body · eruption radius × `SANDWORM_WEAK_SCALE` · spits scavengers only),
+ * threat 2–3 → the adult `sandworm` (hp rolled `SANDWORM_HP_MIN..MAX`). The console · smokes can force `weak`.
  *
- * ## 순서
- *   전조 `SANDWORM_WARN_S`(5 s): `ee wormWarn` → 모든 클라이언트가 분진 · 흙 파임(점점 거세짐) · 피해 반경 링 · 거리에 따라
- *   약 → 강으로 오르는 흔들림 · 토스트 「지상이변 발생」 · 땅울림.
- *   → 분출: 반경 R 안 플레이어에 피해 + 넉백(`applyDamage` — 로컬은 직접, 원격은 `dmg.kb`, 끊긴 사람은 `ghost:damage`) ·
- *   다른 팩션 적 · 드론 · 땅굴벌레 스폰(`ee spawn` + `em` = 솟아오름, 최대 체력은 호스트가 정해 `ee wormErupt.hp` · 종류 `ty`)
- *   · 분대 인원만큼 버그 무리가 파고 나온다(`SANDWORM_BURST_BY_SQUAD`).
- *   → 버그 뱉기 `SANDWORM_SPIT_PHASE_S`(30 s): 입에서 `SANDWORM_SPIT_COUNT` 마리씩 포물선으로 뱉는다(`ee wormSpit`, 생존 상한
- *   `SANDWORM_ALIVE_CAP`). **먼저 죽이면 더 뱉지 않는다.**
- *   → 독극물: 땅에 박힌 채 `SANDWORM_ACID_RANGE` 안의 가장 가까운 플레이어에게 산성 연발(기존 `ee acid` · `ee acidAt`).
- * 죽으면 보스급 시체(`loot_corpses.csv` 의 `sandworm` · `sandworm_weak`)가 남고 킬 · 분대 킬 · 계약은 기존 경로 그대로다.
+ * ## The sequence
+ *   Warning `SANDWORM_WARN_S` (5 s): `ee wormWarn` → every client gets dust · churned soil (building up) · a damage-radius ring ·
+ *   a shake rising weak → strong with distance · the toast 「지상이변 발생」 · a ground rumble.
+ *   → Eruption: damage + knockback to players within radius R (`applyDamage` — local directly, remote as `dmg.kb`, a disconnected
+ *   member as `ghost:damage`) · enemies of other factions · drones · the sandworm spawns (`ee spawn` + `em` = emerging, max hp
+ *   decided by the host as `ee wormErupt.hp` · type `ty`) · a pack of bugs digs out, sized by the squad (`SANDWORM_BURST_BY_SQUAD`).
+ *   → Spitting bugs `SANDWORM_SPIT_PHASE_S` (30 s): `SANDWORM_SPIT_COUNT` at a time are spat from the mouth on an arc
+ *   (`ee wormSpit`, alive cap `SANDWORM_ALIVE_CAP`). **Kill it first and it spits no more.**
+ *   → Acid: rooted in the ground, acid volleys at the nearest player within `SANDWORM_ACID_RANGE` (the existing `ee acid` · `ee acidAt`).
+ * When it dies a boss-grade corpse is left (`sandworm` · `sandworm_weak` in `loot_corpses.csv`); kill · squad kill · contracts keep their paths.
  *
- * ## 늦은 합류 · 재접속 · 호스트 이관
- * `flow rejoined` 를 받은 호스트가 `resync()` — 진행 중인 전조(남은 eta), 살아 있는 땅굴벌레마다 `wormErupt {sy: 1}`(최대 체력 ·
- * 남은 뱉기 시간 · 종류), 이미 끝났으면 `wormErupt {id: 0, sy: 1}`(끝났다는 표식). 리플리카는 받은 값을 땅굴벌레에 적어 두므로
- * (`Enemy.wormSpitUntil` · `maxHp`) 승격되면 그대로 이어서 돌리고, `done` 표식 덕에 새 호스트가 두 마리째를 내지 않는다.
+ * ## Late joins · reconnects · host transfer
+ * A host that got `flow rejoined` calls `resync()` — the warning in progress (remaining eta), `wormErupt {sy: 1}` per living
+ * sandworm (max hp · remaining spit time · type), or `wormErupt {id: 0, sy: 1}` (the already-happened mark) when it is over. A
+ * replica writes what it gets onto the sandworm (`Enemy.wormSpitUntil` · `maxHp`), so a promoted host carries straight on, and the `done` mark stops a second one.
  *
- * 수치는 전부 csv 다. 이 파일의 상수는 연출 박자(흔들림 틱 · 입 벌림 준비 시간) · 산성 흩뿌림 · 행성 없는 미션의 구성 가중치 ·
- * 자리 검사의 높이 문턱뿐이다.
+ * Every number is csv. The constants in this file are only the FX beats (the shake tick · the mouth wind-up time) · the acid
+ * scatter · the composition weights for a mission with no planet · the spot check's height threshold.
  */
 import * as THREE from 'three';
 import {
@@ -78,34 +78,34 @@ import { turnToward, yawTo } from '../ai/Steering';
 import { round, tuple } from '../net/HostSync';
 import { isVec3Tuple } from '../model';
 import { applyWormHint, WORM_HINT_ACID, WORM_HINT_SPIT } from './Pose';
-/* appended (2026-09-15, 안드로이드 분대원): 분출의 안드로이드 몫 */
+/* appended (2026-09-15, android squadmates): the androids' share of the eruption */
 import { damageAlliesAt } from '../parts/Damage';
 import type { EnemySystem } from '../EnemySystem';
 
-/** 성체의 뱉기 · 분출 무리 후보 (행성 생태계 가중치로 뽑는다). 포병 · 차저 · 베헤모스는 뱉기에 너무 크다. */
+/** Candidates for the adult's spit · eruption pack (drawn on the planet ecosystem's weights). Artillery · charger · behemoth are too big to spit. */
 const SPIT_TYPES: readonly EnemyType[] = ['scavenger', 'hunter', 'warrior', 'spewer', 'toxic'];
-/** 행성이 없는 미션(`eco` null)에서 쓰는 같은 순서의 가중치. */
+/** Weights in the same order, used in a mission with no planet (`eco` null). */
 const SPIT_FALLBACK: readonly number[] = [5, 2, 1.2, 1, 0.8];
-/** 어린 개체(위협 1)는 **가장 약한 벌레만** 뱉고 분출 무리도 그것뿐이다 (사용자 결정). */
+/** The young one (threat 1) spits **only the weakest bug**, and its eruption pack is that alone (user's decision). */
 const SPIT_TYPES_WEAK: readonly EnemyType[] = ['scavenger'];
 const SPIT_FALLBACK_WEAK: readonly number[] = [1];
-/** 분대 정원 — `RogueDrop` · `WaveDirector` 와 같은 값. */
+/** Squad capacity — the same value as in `RogueDrop` · `WaveDirector`. */
 const MAX_SQUAD = 4;
-/** 전조 흔들림을 더하는 간격(초) — `camera:shake` 는 trauma 를 **더하므로** 이 박자가 세기의 단위다. */
+/** Interval at which the warning shake is added (s) — `camera:shake` **adds** trauma, so this beat is the unit of strength. */
 const WARN_SHAKE_TICK_S = 0.2;
-/** 뱉기 · 독극물 직전 입을 벌리는 시간(초) — 와이어 힌트 21 / 22 가 이만큼 먼저 선다. */
+/** How long the mouth opens before a spit · acid (s) — wire hints 21 / 22 stand this much earlier. */
 const SPIT_WINDUP_S = 0.7;
 const ACID_WINDUP_S = 0.6;
-/** 독극물 연발의 두 번째부터 표적 주변에 흩뿌리는 반경(m). */
+/** From the second shot of an acid volley on, the radius it is scattered around the target (m). */
 const ACID_SCATTER_MIN = 2.5;
 const ACID_SCATTER_MAX = 5;
-/** 리플리카: 분출 방송을 못 받은 전조를 이만큼 뒤에 스스로 거둔다(초). */
+/** Replica: a warning whose eruption broadcast never arrived is cleared by itself this long after (s). */
 const REPLICA_WARN_TIMEOUT_S = 3;
-/** 발동 자리 검사: 무리 중 누가 지형보다 이만큼 높이 서 있으면 (데크 · 지붕 · 전차) 건너뛴다(m). */
+/** Spot check: skipped when anyone in the cluster stands this far above the terrain (a deck · roof · tram) (m). */
 const OFF_TERRAIN_M = 1.2;
-/** 발동 자리 바로 위에 올라설 수 있는 소품(바위)이 이만큼 솟아 있으면 건너뛴다(m). */
+/** Skipped when a standable prop (a rock) rises this far right above the spot (m). */
 const PROP_ON_SPOT_M = 0.6;
-/** 후보 목록의 상한 (사람 4 + 안드로이드 3 — 재사용 풀 크기). */
+/** Cap of the candidate list (4 humans + 3 androids — the reuse pool's size). */
 const MAX_CANDIDATES = 8;
 
 const TOAST_WARN = '지상이변 발생 — 발밑에서 무언가 파고 올라온다!';
@@ -123,29 +123,29 @@ const _mouth = new THREE.Vector3();
 const _erupt = new THREE.Vector3();
 const _lure = new THREE.Vector3();
 
-/** 등장 검사의 후보 한 명 (재사용). */
+/** One candidate of the appearance check (reused). */
 interface Candidate {
   x: number; z: number;
   sprint: boolean;
   ws: WeightState;
   android: boolean;
-  /** 이번 검사에서 무리에 들었나. */
+  /** Did it fall into the cluster on this check. */
   inGroup: boolean;
 }
 
-/** 검사 한 번의 결과 (`debugState().plan.last` · `debugChance`). */
+/** The result of one check (`debugState().plan.last` · `debugChance`). */
 export interface SandwormCheck {
   /** `ctx.time`. */
   at: number;
-  /** 후보 수 (사람 + 안드로이드). */
+  /** Candidate count (humans + androids). */
   candidates: number;
-  /** 자격 인원 수 (달리기 + light 이상). */
+  /** Eligible member count (sprinting + light or heavier). */
   eligible: number;
-  /** 가장 큰 무리의 인원 (< SANDWORM_MIN_MEMBERS 면 p = 0). */
+  /** Members of the largest cluster (< SANDWORM_MIN_MEMBERS → p = 0). */
   n: number;
-  /** Σ 가중치 (상한 전). */
+  /** Σ weights (before the cap). */
   sum: number;
-  /** 무리 안 서로의 평균 거리(m). */
+  /** Mean pairwise distance inside the cluster (m). */
   spread: number;
   closeMul: number;
   lure: boolean;
@@ -153,18 +153,18 @@ export interface SandwormCheck {
   cx: number; cz: number;
 }
 
-/** 이번 레이드의 등장 설정 (`EnemySystem.debugSandwormState.plan`). */
+/** This raid's appearance setup (`EnemySystem.debugSandwormState.plan`). */
 export interface SandwormPlan {
-  /** 행성 threat (1..3). */
+  /** Planet threat (1..3). */
   threat: number;
-  /** 검사 한 번의 위협 배수 (`SANDWORM_BASE_CHANCE_BY_THREAT`). 0 = 이 레이드에는 자연 등장이 없다 (벌레 없는 행성 · 훈련장). */
+  /** The threat multiplier for one check (`SANDWORM_BASE_CHANCE_BY_THREAT`). 0 = no natural appearance this raid (a planet with no bugs · the training range). */
   base: number;
-  /** 이 행성의 땅굴벌레 종류. */
+  /** This planet's sandworm type. */
   type: WormEnemyType;
-  /** 호스트가 돌린 검사 횟수 · 굴림이 성공한 횟수(자리가 나빠 미뤄진 것 포함). */
+  /** How many checks the host ran · how many rolls succeeded (including ones deferred by a bad spot). */
   checks: number;
   hits: number;
-  /** 마지막 검사 (아직 없으면 null). */
+  /** The last check (null when there is none yet). */
   last: SandwormCheck | null;
 }
 
@@ -172,15 +172,15 @@ function emptyPlan(): SandwormPlan {
   return { threat: 1, base: 0, type: 'sandworm', checks: 0, hits: 0, last: null };
 }
 
-/** 행성 threat → 종류 (1 = 어린 개체). */
+/** Planet threat → type (1 = the young one). */
 export function wormTypeForThreat(threat: number): WormEnemyType {
   return threat <= 1 ? 'sandworm_weak' : 'sandworm';
 }
-/** 종류의 크기 배수 — 분출 반경 · 자리 검사 반지름에 곱한다. */
+/** The type's size multiplier — multiplies the eruption radius · the spot check's radius. */
 export function wormScaleOf(type: EnemyType): number {
   return type === 'sandworm_weak' ? SANDWORM_WEAK_SCALE : 1;
 }
-/** kg / 용량 → 무게 상태 (사람의 `WeightInfo.state` 와 같은 문턱 — 안드로이드 가방에 쓴다). */
+/** kg / capacity → weight state (the same thresholds as a human's `WeightInfo.state` — used for an android's bag). */
 function weightStateOfRatio(ratio: number): WeightState {
   if (!Number.isFinite(ratio)) return 'normal';
   if (ratio >= WEIGHT_OVER_RATIO) return 'over';
@@ -196,20 +196,20 @@ export class SandwormDirector {
   private sys!: EnemySystem;
   private plan: SandwormPlan = emptyPlan();
   private eco: PlanetEcosystem | null = null;
-  /** 이번 레이드의 이벤트가 이미 시작됐다 (레이드당 최대 1회 — 리플리카는 방송을 받으면 켠다). */
+  /** This raid's event has already started (at most once per raid — a replica sets it on the broadcast). */
   private done = false;
-  /** 진동 장치가 불렀다 (디버그 표시). */
+  /** A thumper called it (debug display). */
   private summoned = false;
   private checkTimer = 0;
   private readonly warn = { active: false, p: new THREE.Vector3(), startedAt: 0, eruptAt: 0, shakeAcc: 0, r: 0, type: 'sandworm' as WormEnemyType };
-  /** 콘솔 · 스모크가 바꾼 다음 분출의 뱉기 단계 길이(초), null = csv. */
+  /** Length of the next eruption's spit phase (s) as changed by the console · a smoke; null = csv. */
   private forcedSpitS: number | null = null;
-  /** 리플리카: `wormErupt` 로 받은 최대 체력 · 뱉기 종료 시각 — 그 적이 생기면 적용하고 지운다. */
+  /** Replica: max hp · spit end time received as `wormErupt` — applied and cleared once that enemy exists. */
   private readonly meta = new Map<number, { hp: number; spitUntil: number }>();
-  /** 등장 검사의 후보 풀 (할당 없음). */
+  /** Candidate pool of the appearance check (no allocation). */
   private readonly cands: Candidate[] = [];
   private readonly lastCheck: SandwormCheck = { at: 0, candidates: 0, eligible: 0, n: 0, sum: 0, spread: 0, closeMul: 0, lure: false, p: 0, cx: 0, cz: 0 };
-  /* 디버그 · 스모크 카운터 (이 클라이언트 기준) */
+  /* Debug · smoke counters (this client's) */
   warnings = 0;
   eruptions = 0;
   spitVolleys = 0;
@@ -221,7 +221,7 @@ export class SandwormDirector {
     for (let i = this.cands.length; i < MAX_CANDIDATES; i++) this.cands.push({ x: 0, z: 0, sprint: false, ws: 'normal', android: false, inGroup: false });
   }
 
-  /** 레이드 리셋 (`Pool.reset`). */
+  /** Raid reset (`Pool.reset`). */
   reset(): void {
     this.plan = emptyPlan();
     this.eco = null;
@@ -234,8 +234,8 @@ export class SandwormDirector {
     this.warnings = 0; this.eruptions = 0; this.spitVolleys = 0; this.acidVolleys = 0; this.warnShakes = 0;
   }
 
-  /* ── 설정 ─────────────────────────────────────────────────────────────── */
-  /** `world:ready` (권위 · 리플리카 모두). 훈련장 · 튜토리얼이면 계획이 없다 (base 0). */
+  /* ── setup ────────────────────────────────────────────────────────────── */
+  /** `world:ready` (authority and replica alike). The training range · tutorial have no plan (base 0). */
   onWorldReady(planet: PlanetId | null, eco: PlanetEcosystem | null, training: boolean): void {
     const ctx = this.sys?.ctx;
     const world = ctx?.world;
@@ -246,7 +246,7 @@ export class SandwormDirector {
     const type = wormTypeForThreat(threat);
     const raw = SANDWORM_BASE_CHANCE_BY_THREAT[threat - 1];
     let base = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0;
-    if (eco && !this.spitTypes(type).some((t) => ecoAllows(eco, t))) base = 0;   // 벌레가 안 사는 행성
+    if (eco && !this.spitTypes(type).some((t) => ecoAllows(eco, t))) base = 0;   // a planet where no bugs live
     this.plan = { threat, base, type, checks: 0, hits: 0, last: null };
     this.checkTimer = SANDWORM_CHECK_S;
     if (base > 0) this.prewarm(type);
@@ -255,7 +255,7 @@ export class SandwormDirector {
   private spitTypes(type: EnemyType): readonly EnemyType[] { return type === 'sandworm_weak' ? SPIT_TYPES_WEAK : SPIT_TYPES; }
   private spitFallback(type: EnemyType): readonly number[] { return type === 'sandworm_weak' ? SPIT_FALLBACK_WEAK : SPIT_FALLBACK; }
 
-  /** 이 행성 종류의 리그 하나를 풀에 미리 만들어 숨긴 채 씬에 넣고 셰이더를 걸어 둔다 (`acquire` 가 그대로 꺼내 쓴다). */
+  /** Builds one rig of this planet's type into the pool ahead of time, puts it hidden in the scene and warms its shader (`acquire` takes it straight out). */
   private prewarm(type: WormEnemyType): void {
     const sys = this.sys;
     const ctx = sys.ctx;
@@ -271,7 +271,7 @@ export class SandwormDirector {
     void ctx.shaders?.warm(root);
   }
 
-  /* ── 프레임 ───────────────────────────────────────────────────────────── */
+  /* ── per frame ────────────────────────────────────────────────────────── */
   update(dt: number): void {
     const sys = this.sys;
     const ctx = sys?.ctx;
@@ -296,8 +296,8 @@ export class SandwormDirector {
     }
   }
 
-  /* ── 등장 검사 (호스트) ────────────────────────────────────────────────── */
-  /** 후보 목록을 채운다 (사람 + 안드로이드). 돌려주는 값 = 후보 수. */
+  /* ── the appearance check (host) ───────────────────────────────────────── */
+  /** Fills the candidate list (humans + androids). Returns the candidate count. */
   private collectCandidates(): number {
     const sys = this.sys;
     const ctx = sys.ctx;
@@ -322,7 +322,7 @@ export class SandwormDirector {
         if (!r.connected || !r.inMission || (r.stale && !r.suspended)) continue;
         const f = r.flags;
         if (r.isDead || r.isDowned || (f & (PlayerFlags.DEAD | PlayerFlags.DOWNED | PlayerFlags.DROPPING | PlayerFlags.IN_ROVER | PlayerFlags.IN_HUB)) !== 0) continue;
-        if (r.suspended) { put(r.position.x, r.position.z, false, r.weightState ?? 'normal', false); continue; }   // 고스트는 달리지 않는다
+        if (r.suspended) { put(r.position.x, r.position.z, false, r.weightState ?? 'normal', false); continue; }   // a ghost does not sprint
         put(r.position.x, r.position.z, (f & PlayerFlags.SPRINT) !== 0, r.weightState ?? 'normal', false);
       }
     }
@@ -340,8 +340,8 @@ export class SandwormDirector {
   }
 
   /**
-   * 후보 `cands[0..count)` 로 검사 한 번의 확률을 계산한다 (굴리지 않는다). 유인은 무리 중심이 정해진 뒤에만 뜻이 있어
-   * 두 단계로 돈다: 무리 → 중심 → (호출자가 유인을 찾은 뒤) `applyLure`.
+   * Computes one check's chance from the candidates `cands[0..count)` (it does not roll). A lure only means anything once
+   * the cluster centre is known, so it runs in two stages: cluster → centre → (after the caller found a lure) `applyLure`.
    */
   private evaluate(cands: readonly Candidate[], count: number, out: SandwormCheck, base: number): void {
     out.candidates = count; out.eligible = 0; out.n = 0; out.sum = 0; out.spread = 0; out.closeMul = 0; out.lure = false; out.p = 0; out.cx = 0; out.cz = 0;
@@ -351,7 +351,7 @@ export class SandwormDirector {
     out.eligible = eligible;
     const minN = Math.max(1, Math.round(SANDWORM_MIN_MEMBERS));
     if (eligible < minN) return;
-    // 가장 큰 무리: 자격 인원 각각을 닻으로 삼아 반경 안의 자격 인원을 센다
+    // the largest cluster: each eligible member is an anchor, counting the eligible members inside the radius
     let bestN = 0, bestAnchor = -1, bestSum = 0;
     for (let i = 0; i < count; i++) {
       const a = cands[i];
@@ -379,7 +379,7 @@ export class SandwormDirector {
       b.inGroup = true; cx += b.x; cz += b.z;
     }
     cx /= bestN; cz /= bestN;
-    // 거리 = 무리 안 **서로**의 평균 거리 (중심까지의 거리로 재면 둘이 40 m 떨어져도 20 m 로 읽혀 「가까울수록」 이 사라진다)
+    // distance = the mean distance **between** cluster members (measured to the centre, two 40 m apart read as 20 m and 「the closer the better」 disappears)
     let spread = 0, pairs = 0;
     for (let j = 0; j < count; j++) {
       const b = cands[j];
@@ -399,13 +399,13 @@ export class SandwormDirector {
     out.p = THREE.MathUtils.clamp(base * Math.min(1, bestSum) * closeMul, 0, 1);
   }
 
-  /** 유인 수류탄이 무리 중심 근처에 있으면 가산 (자격 무리가 있을 때만). */
+  /** Adds the bonus when a lure grenade is near the cluster centre (only when there is an eligible cluster). */
   private applyLure(out: SandwormCheck, lureNear: boolean): void {
     out.lure = lureNear;
     if (out.n > 0 && lureNear) out.p = THREE.MathUtils.clamp(out.p + Math.max(0, SANDWORM_P_LURE), 0, 1);
   }
 
-  /** 무리 중심 `(cx, cz)` 의 `SANDWORM_LURE_RANGE_M` 안에 살아 있는 유인 수류탄이 있으면 그 자리를 `out` 에 쓴다. */
+  /** If a living lure grenade is within `SANDWORM_LURE_RANGE_M` of the cluster centre `(cx, cz)`, writes its spot into `out`. */
   private findLure(cx: number, cz: number, out: THREE.Vector3): boolean {
     const sys = this.sys;
     const ctx = sys.ctx;
@@ -420,7 +420,7 @@ export class SandwormDirector {
     return false;
   }
 
-  /** 검사 한 번 (호스트): 후보 → 확률 → 굴림 → 자리 → 전조. */
+  /** One check (host): candidates → chance → roll → spot → warning. */
   private check(): void {
     const sys = this.sys;
     const ctx = sys.ctx;
@@ -437,7 +437,7 @@ export class SandwormDirector {
     plan.last = { ...out };
     if (out.p <= 0 || Math.random() >= out.p) return;
     plan.hits++;
-    // 자리: 유인 자리를 먼저 볼지, 무리 중심을 먼저 볼지
+    // the spot: whether the lure's spot or the cluster centre is looked at first
     const scale = wormScaleOf(plan.type);
     const lureFirst = lureNear && Math.random() < SANDWORM_LURE_SPOT_CHANCE;
     const spots: Array<[number, number]> = lureFirst
@@ -449,8 +449,8 @@ export class SandwormDirector {
   }
 
   /**
-   * 분출할 수 있는 땅인가: 맵 안 · 주변 사람이 데크 · 지붕 · 전차 위가 아니다 · 바로 위에 바위가 없다 · `burrowGroundOk`
-   * (평평한 맨땅, 없는 월드는 false). 되면 지형 높이로 `out` 에 적는다.
+   * Is this ground erupt-able: inside the map · nobody nearby is on a deck · roof · tram · no rock right above it ·
+   * `burrowGroundOk` (flat bare ground; a world without it = false). On success it writes into `out` at the terrain height.
    */
   private validSpot(x: number, z: number, scale: number, out: THREE.Vector3): boolean {
     const sys = this.sys;
@@ -464,7 +464,7 @@ export class SandwormDirector {
     return true;
   }
 
-  /** `(x, z)` 의 `SANDWORM_GROUP_RADIUS` 안에 지형보다 `OFF_TERRAIN_M` 높이 선 사람이 없다 (데크 · 지붕 · 전차 위면 false). */
+  /** Nobody within `SANDWORM_GROUP_RADIUS` of `(x, z)` stands `OFF_TERRAIN_M` above the terrain (on a deck · roof · tram = false). */
   private nobodyOffTerrain(x: number, z: number): boolean {
     const sys = this.sys;
     const world = sys.ctx.world!;
@@ -479,10 +479,10 @@ export class SandwormDirector {
     return true;
   }
 
-  /* ── 진동 장치 (호스트) ────────────────────────────────────────────────── */
+  /* ── the thumper (host) ────────────────────────────────────────────────── */
   /**
-   * `sandworm:summon` — 이 레이드에 아직 없었으면 확률 · 땅 검사 없이 `position` 에서 곧장 전조를 시작한다 (설치 미리보기가 이미
-   * `burrowGroundOk` 를 지났다). 주변 사람이 데크 · 지붕 위면 이번 부름은 버린다. 이미 있었으면 무시. 시작했으면 true.
+   * `sandworm:summon` — not yet this raid → the warning starts at `position` at once, no chance and no ground check (the
+   * placement preview already passed `burrowGroundOk`). Someone nearby on a deck · roof drops the call; already there = ignored. true when started.
    */
   onSummon(position: THREE.Vector3): boolean {
     const sys = this.sys;
@@ -496,8 +496,8 @@ export class SandwormDirector {
     return true;
   }
 
-  /* ── 전조 ─────────────────────────────────────────────────────────────── */
-  /** 호스트: 전조를 시작하고 방송한다. */
+  /* ── the warning ──────────────────────────────────────────────────────── */
+  /** Host: starts the warning and broadcasts it. */
   private warnAt(p: THREE.Vector3, eta: number, type: WormEnemyType): void {
     const sys = this.sys;
     const r = SANDWORM_ERUPT_RADIUS * wormScaleOf(type);
@@ -505,7 +505,7 @@ export class SandwormDirector {
     if (sys.hosting) sys.ctx.net!.send({ t: 'ee', ev: 'wormWarn', p: tuple(p, 2), eta: round(eta, 2), r: round(r, 2) }, 'others');
   }
 
-  /** 이 클라이언트의 전조 연출 (권위 · 리플리카 공통). 같은 자리의 전조가 이미 돌고 있으면 남은 시간만 맞춘다. */
+  /** This client's warning FX (authority · replica alike). A warning already running at the same spot only has its remaining time matched. */
   private startWarnLocal(p: THREE.Vector3, eta: number, r: number, type: WormEnemyType): void {
     const sys = this.sys;
     const ctx = sys.ctx;
@@ -534,7 +534,7 @@ export class SandwormDirector {
     this.sys.burrowFx?.endWarn();
   }
 
-  /** 거리에 따라 약 → 강으로 오르는 흔들림 (모든 클라이언트). */
+  /** A shake rising weak → strong with distance (every client). */
   private tickWarn(dt: number): void {
     const sys = this.sys;
     const ctx = sys.ctx;
@@ -552,7 +552,7 @@ export class SandwormDirector {
     ctx.bus.emit('camera:shake', { intensity: SANDWORM_SHAKE_MAX * (0.12 + 0.88 * k * k) * fall, duration: 0.3 });
   }
 
-  /* ── 분출 (호스트) ────────────────────────────────────────────────────── */
+  /* ── the eruption (host) ──────────────────────────────────────────────── */
   private erupt(): void {
     const sys = this.sys;
     const ctx = sys.ctx;
@@ -571,7 +571,7 @@ export class SandwormDirector {
     this.forcedSpitS = null;
     let hp = 0;
     if (worm) {
-      // 성체는 MIN..MAX 굴림, 어린 개체는 고정 (사용자 결정 750)
+      // the adult rolls MIN..MAX, the young one is fixed (user's decision, 750)
       hp = type === 'sandworm_weak'
         ? Math.max(1, Math.round(SANDWORM_WEAK_HP))
         : Math.round(SANDWORM_HP_MIN + Math.random() * Math.max(0, SANDWORM_HP_MAX - SANDWORM_HP_MIN));
@@ -579,20 +579,20 @@ export class SandwormDirector {
       worm.hp = hp;
       worm.aware = true;
       worm.wormSpitUntil = ctx.time + SANDWORM_RISE_S + spitPhase;
-      worm.wormTimer = SPIT_WINDUP_S + 0.5;   // 다 솟은 뒤(틱은 굴착이 끝나야 돈다) 곧 첫 뱉기
+      worm.wormTimer = SPIT_WINDUP_S + 0.5;   // the first spit comes soon after it is fully up (the tick only runs once the emerge ends)
     }
 
-    // 피해 + 넉백 — 로컬은 직접, 원격은 `dmg.kb`, 끊긴 분대원은 `ghost:damage` (`applyDamage` 가 가른다)
+    // damage + knockback — local directly, remote as `dmg.kb`, a disconnected squadmate as `ghost:damage` (`applyDamage` splits them)
     const players = sys.targets.alive;
     for (let i = 0; i < players.length; i++) {
       const t = players[i];
       const dx = t.position.x - p.x, dz = t.position.z - p.z;
       const d = Math.sqrt(dx * dx + dz * dz);
       if (d > R + PLAYER_RADIUS) continue;
-      /* 2026-09-15 (사용자 결정 — 모든 폭발물이 같은 공식): **피해**는 공용 2단 계단(`shared/explosion`)이고
-       * **넉백**은 옛 선형 그대로다. 감쇠 곡선을 갈아 끼운 것은 피해뿐이라는 그날의 선을 여기서도 지킨다 —
-       * 넉백이 계단이면 안전지대 경계에서 날아가는 거리가 뚝 끊긴다. 하한 0.3 은 둘 다 유지.
-       * 어린 개체는 **반경**만 `SANDWORM_WEAK_SCALE` 배다 (피해량 · 넉백 속도는 그대로 — 사용자 결정 「넉백 + 피해 범위 70 %」). */
+      /* 2026-09-15 (user's decision — every explosive uses the same formula): **damage** is the shared two-step stair
+       * (`shared/explosion`) while **knockback** stays the old linear one. The line drawn that day — only damage got a new
+       * falloff curve — holds here too: a stepped knockback cuts the flung distance off at the safe-zone edge. Both keep the 0.3 floor.
+       * The young one scales only its **radius** by `SANDWORM_WEAK_SCALE` (damage · knockback speed unchanged — user's decision 「knockback + damage radius 70 %」). */
       const kbFalloff = THREE.MathUtils.clamp(1 - Math.max(0, d - PLAYER_RADIUS) / R, 0.3, 1);
       const falloff = Math.max(0.3, explosionFalloff(Math.max(0, d - PLAYER_RADIUS), R));
       if (d > 0.05) _kb.set(dx / d, 0, dz / d);
@@ -601,12 +601,12 @@ export class SandwormDirector {
       _kb.normalize();
       sys.applyDamage(t, SANDWORM_ERUPT_DAMAGE * falloff, p, worm?.id ?? 0, type, null, 0, false, _kb, SANDWORM_ERUPT_KNOCKBACK * kbFalloff);
     }
-    // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (수평 거리 · 하한 0.3). 넉백은 없다 — 몸은 권위가 굴린다.
+    // 2026-09-15 (android squadmates): the same formula as the human loop (horizontal distance · 0.3 floor). No knockback — the authority runs the body.
     damageAlliesAt(sys, p, R, SANDWORM_ERUPT_DAMAGE, worm?.id ?? 0, type, 0.3, 'feet2d');
     _c.set(p.x, p.y + 1, p.z);
-    sys.explode(_c, R, SANDWORM_ERUPT_DAMAGE * ENEMY_CLASH.damageMul, 'ai', null, worm, 'bug');   // 2026-09-17: × 적 → 적 배수   // 다른 팩션 적 (벌레는 제 편)
+    sys.explode(_c, R, SANDWORM_ERUPT_DAMAGE * ENEMY_CLASH.damageMul, 'ai', null, worm, 'bug');   // 2026-09-17: × the enemy → enemy multiplier   // enemies of other factions (bugs are its own side)
     ctx.drones?.applyExplosion(p, R, SANDWORM_ERUPT_DAMAGE);
-    sys.targets.damageVehicleAt(p, R, SANDWORM_ERUPT_DAMAGE, 0.3);   // 2026-09-13: 탐사 차량 (플레이어와 같은 최소 감쇠)
+    sys.targets.damageVehicleAt(p, R, SANDWORM_ERUPT_DAMAGE, 0.3);   // 2026-09-13: the rover (the same minimum falloff as a player)
 
     this.spawnBurst(p, type);
     this.eruptFxLocal(p, R);
@@ -618,7 +618,7 @@ export class SandwormDirector {
     }
   }
 
-  /** 분출과 함께 링 위에서 파고 나오는 버그 무리 (분대 인원표). 어린 개체는 스캐빈저만. */
+  /** The pack of bugs that digs out on the ring with the eruption (the squad head-count table). The young one, scavengers only. */
   private spawnBurst(p: THREE.Vector3, wormType: WormEnemyType): void {
     const sys = this.sys;
     const world = sys.ctx.world!;
@@ -650,7 +650,7 @@ export class SandwormDirector {
     }
   }
 
-  /** 분출 연출 (권위 · 리플리카 공통): 흙 폭발 · 굉음 · 거리 흔들림. */
+  /** Eruption FX (authority · replica alike): the soil blast · the roar · the distance shake. */
   private eruptFxLocal(p: THREE.Vector3, r: number): void {
     const sys = this.sys;
     const ctx = sys.ctx;
@@ -663,7 +663,7 @@ export class SandwormDirector {
     }
   }
 
-  /* ── 땅굴벌레 틱 (호스트) ─────────────────────────────────────────────── */
+  /* ── the sandworm tick (host) ─────────────────────────────────────────── */
   private tickWorm(e: Enemy, dt: number): void {
     const sys = this.sys;
     const ctx = sys.ctx;
@@ -672,7 +672,7 @@ export class SandwormDirector {
     e.investigating = false;
     e.relentless = true;
     e.aware = true;
-    if (e.state !== 'stagger') e.state = 'chase';   // 전소는 stagger 를 탄다 — 그동안은 뱉지 않는다
+    if (e.state !== 'stagger') e.state = 'chase';   // incineration rides stagger — it does not spit meanwhile
     if (e.emergeT > 0) { e.namedHint = 0; applyWormHint(e, 0, dt); return; }
     const target = sys.targets.nearestAlive(e.position);
     if (target) e.yaw = turnToward(e.yaw, yawTo(e.position, target.position), e.stats.turnRate, dt);
@@ -686,14 +686,14 @@ export class SandwormDirector {
         if (e.wormTimer <= ACID_WINDUP_S) hint = WORM_HINT_ACID;
         if (e.wormTimer <= 0) { e.wormTimer = SANDWORM_ACID_INTERVAL_S; this.spitAcid(e, target); }
       } else if (e.wormTimer < ACID_WINDUP_S + 0.2) {
-        e.wormTimer = ACID_WINDUP_S + 0.2;   // 사거리 밖: 들어오면 입을 벌린 뒤 쏜다
+        e.wormTimer = ACID_WINDUP_S + 0.2;   // out of range: once they come in, the mouth opens and then it fires
       }
     }
     e.namedHint = hint;
     applyWormHint(e, hint, dt);
   }
 
-  /** 입에서 버그를 뱉는다 (호스트). 버그는 `ee spawn` 으로 먼저 생기고 `ee wormSpit` 이 비행을 알린다. */
+  /** Spits bugs from the mouth (host). The bugs are created first by `ee spawn`, then `ee wormSpit` announces the flight. */
   private spitBugs(e: Enemy, target: CombatTarget | null): void {
     const sys = this.sys;
     const world = sys.ctx.world!;
@@ -729,7 +729,7 @@ export class SandwormDirector {
     }
   }
 
-  /** 독극물 연발 (호스트): 첫 발은 예측 조준(`ee acid`), 나머지는 주변에 흩뿌린다(`ee acidAt`). 피해는 기존 산성 경로. */
+  /** Acid volley (host): the first shot leads the target (`ee acid`), the rest are scattered around it (`ee acidAt`). Damage takes the existing acid path. */
   private spitAcid(e: Enemy, target: CombatTarget): void {
     const sys = this.sys;
     const world = sys.ctx.world!;
@@ -748,7 +748,7 @@ export class SandwormDirector {
     sys.playAudio('sandworm_spit', _mouth, 0.8, 1.3);
   }
 
-  /* ── 사망 (모든 클라이언트 — `parts/Damage.onEnemyKilled`) ─────────────── */
+  /* ── death (every client — `parts/Damage.onEnemyKilled`) ───────────────── */
   onWormKilled(e: Enemy): void {
     const sys = this.sys;
     const ctx = sys.ctx;
@@ -759,7 +759,7 @@ export class SandwormDirector {
     if (d < 40) ctx.bus.emit('camera:shake', { intensity: 0.45 * (1 - d / 40) * wormScaleOf(e.type), duration: 0.6 });
   }
 
-  /* ── 와이어 (리플리카) ────────────────────────────────────────────────── */
+  /* ── the wire (replica) ───────────────────────────────────────────────── */
   onWire(msg: EnemyEvent): void {
     const sys = this.sys;
     if (!sys || sys.authority) return;
@@ -770,14 +770,14 @@ export class SandwormDirector {
         if (!isVec3Tuple(msg.p) || !Number.isFinite(msg.eta)) return;
         _p.set(msg.p[0], msg.p[1], msg.p[2]);
         const r = Number.isFinite(msg.r) && msg.r > 0 ? msg.r : SANDWORM_ERUPT_RADIUS;
-        // 종류는 반경으로 가늠할 뿐이다 (스폰은 `ee spawn.ty` 가 정한다) — 이 값은 전조 링 · 이벤트 반경에만 쓴다
+        // the type is only guessed from the radius (`ee spawn.ty` decides the spawn) — this value is used only for the warning ring · event radius
         const type: WormEnemyType = r < SANDWORM_ERUPT_RADIUS * 0.999 ? 'sandworm_weak' : 'sandworm';
         this.startWarnLocal(_p, THREE.MathUtils.clamp(msg.eta, 0, SANDWORM_WARN_S * 2), r, type);
         return;
       }
       case 'wormErupt': {
         this.done = true;
-        if (!(msg.id > 0) || !isVec3Tuple(msg.p)) return;   // id 0 = 이미 끝난 이벤트라는 표식뿐
+        if (!(msg.id > 0) || !isVec3Tuple(msg.p)) return;   // id 0 = nothing but the mark that the event already ended
         _p.set(msg.p[0], msg.p[1], msg.p[2]);
         if (this.warn.active) this.endWarn();
         const r = Number.isFinite(msg.r) && msg.r > 0 ? msg.r : SANDWORM_ERUPT_RADIUS;
@@ -811,7 +811,7 @@ export class SandwormDirector {
     }
   }
 
-  /** 리플리카: 받아 둔 최대 체력 · 뱉기 종료 시각을 그 땅굴벌레에 적는다 (승격되면 그대로 이어 돌린다). */
+  /** Replica: writes the max hp · spit end time it kept onto that sandworm (a promotion carries straight on). */
   private applyMeta(): void {
     const sys = this.sys;
     for (const [id, m] of this.meta) {
@@ -823,7 +823,7 @@ export class SandwormDirector {
     }
   }
 
-  /** 호스트: 재접속 · 늦은 합류(`flow rejoined`)에 진행 상황을 다시 보낸다. */
+  /** Host: resends the progress on a reconnect · late join (`flow rejoined`). */
   resync(): void {
     const sys = this.sys;
     if (!sys?.hosting) return;
@@ -846,10 +846,10 @@ export class SandwormDirector {
     }
   }
 
-  /* ── 디버그 ───────────────────────────────────────────────────────────── */
+  /* ── debug ────────────────────────────────────────────────────────────── */
   /**
-   * 콘솔 · 스모크: 확률 · 땅 검사 · 레이드당 1회를 무시하고 **지금** 전조를 시작한다 (권위 · 레이드 중만). `at` 이 없으면 로컬 플레이어 발밑.
-   * `spitS` = 이번 분출의 뱉기 단계 길이(초, 0 = 곧장 독극물). `weak` = 어린 개체로 강제 (생략 = 행성 threat). 시작했으면 true.
+   * Console · smoke: ignores the chance · ground check · once-per-raid and starts the warning **now** (authority, in a raid only). No `at` = under the local player.
+   * `spitS` = this eruption's spit phase (s, 0 = straight to acid). `weak` = force the young one (omitted = planet threat). true when started.
    */
   debugForce(opts: { at?: { x: number; z: number }; spitS?: number; weak?: boolean } = {}): boolean {
     const sys = this.sys;
@@ -864,12 +864,12 @@ export class SandwormDirector {
     return true;
   }
 
-  /** 스모크: 「이 레이드에 이미 있었다」 표식을 지운다 — 강제 분출 뒤 `sandworm:summon` 을 검사하려고. */
+  /** Smoke: clears the 「it already happened this raid」 mark — to test `sandworm:summon` after a forced eruption. */
   debugClearOnce(): void { this.done = false; this.summoned = false; }
 
   /**
-   * 스모크: 가상의 인원 목록으로 검사 한 번의 확률을 계산한다 (굴리지도, 상태를 바꾸지도 않는다). `threat` 생략 = 이 레이드의 plan.
-   * 그 밖의 필드는 `SandwormCheck` 그대로.
+   * Smoke: computes one check's chance from a made-up member list (it neither rolls nor changes state). `threat` omitted = this
+   * raid's plan. Every other field is `SandwormCheck` as it is.
    */
   debugChance(members: ReadonlyArray<{ x: number; z: number; ws: WeightState; sprint: boolean }>, lure = false, threat?: number): SandwormCheck {
     const list: Candidate[] = members.slice(0, MAX_CANDIDATES).map((m) => ({ x: m.x, z: m.z, sprint: m.sprint, ws: m.ws, android: false, inGroup: false }));
@@ -904,7 +904,7 @@ export class SandwormDirector {
   }
 }
 
-/** 입 월드 위치 (리그의 입 그룹 — 마지막 프레임 자세). 리그가 없으면 머리 구 중심. */
+/** World position of the mouth (the rig's mouth group — last frame's pose). With no rig, the head sphere's centre. */
 function mouthOf(e: Enemy, out: THREE.Vector3): THREE.Vector3 {
   const rig = e.rig;
   if (rig.kind === 'worm') {
@@ -914,7 +914,7 @@ function mouthOf(e: Enemy, out: THREE.Vector3): THREE.Vector3 {
   return e.headCenter(out);
 }
 
-/** 분대 인원 (1..4). 싱글은 1. `RogueDrop.squadSize` · `WaveDirector.squadSize` 와 같은 계산. */
+/** Squad size (1..4). Single-player is 1. The same computation as `RogueDrop.squadSize` · `WaveDirector.squadSize`. */
 function squadSize(sys: EnemySystem): number {
   const net = sys.ctx.net;
   let n = 1;

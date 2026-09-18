@@ -12,16 +12,16 @@ import { attackResult, lookAtTarget, startMelee, stumble, type AttackResult } fr
 import { updateRogue } from './RogueAI';
 import { isNamedAiType, updateNamed } from './named';
 import { artilleryOffChase, attackBehemoth, attackToxic, chaseArtillery, chaseBehemoth, chaseToxic } from './GimmickAI';
-/* appended (2026-09-17): 포병 호위 */
+/* appended (2026-09-17): the artillery escort */
 import { escortFollow, escortWanderRadius } from './ArtilleryPack';
 import { endInvestigation, updateInvestigate } from './Investigate';
-/* appended (2026-09-14): 튜토리얼 전용 적의 자기 자리 지키기 · 단단한 리시 (`homeLeash > 0` 인 적에게만) */
+/* appended (2026-09-14): tutorial-only enemies holding their own post · a hard leash (only for enemies with `homeLeash > 0`) */
 import { tutorialEdgeGuard, tutorialHold } from '../Tutorial';
-/* appended (2026-09-13): 굴착 스폰 · 뱉어진 버그 */
+/* appended (2026-09-13): burrow spawns · spat bugs */
 import { updateBurrowGate } from './Burrow';
-/* appended (2026-09-17): 헌터 뒤집힘 */
+/* appended (2026-09-17): the hunter flip */
 import { updateHunterFlip } from './HunterFlip';
-/* appended (2026-09-18): 둥지 리시 */
+/* appended (2026-09-18): the nest leash */
 import { nestLeashHold } from './NestLeash';
 
 export { lookAtTarget } from './Common';
@@ -36,7 +36,7 @@ const _tmp = new THREE.Vector3();
 
 const TWO_PI = Math.PI * 2;
 
-/** A lure at least this strong overrides a live player target (유인 수류탄). */
+/** A lure at least this strong overrides a live player target (a lure grenade). */
 const LURE_OVERRIDE_WEIGHT = 0.6;
 /** Distance at which a bug considers itself "at" the lure and mills around it. */
 const LURE_ARRIVE = 2.5;
@@ -58,9 +58,9 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
 
   e.stateTime += dt;
   /*
-   * 2026-09-18 (벌레 알, 사용자 결정): 알은 **AI 가 없다** — 움직이지 · 돌지 · 공격하지 · 알아채지 않는다. 표적 굴림
-   * (`acquireTarget`)조차 하지 않으므로 이 줄이 `becomeAlert` · 인지 · 조사 · 상태 기계 **전부**의 앞이다.
-   * 죽은 뒤에는 시체 시계만 돈다 (`kill()` 이 이미 땅에 앉혔다 — 낙하가 없다).
+   * 2026-09-18 (bug eggs, user's decision): an egg has **no AI** — it does not move, turn, attack or become aware. It does not even
+   * roll a target (`acquireTarget`), so this line sits ahead of `becomeAlert`, perception, investigation and **the whole** state machine.
+   * Once dead only the corpse clock runs (`kill()` already seated it on the ground — there is no fall).
    */
   if (e.isEgg) { if (e.state === 'dead') e.deathTimer += dt; return; }
   if (e.attackCd > 0) e.attackCd -= dt;
@@ -73,10 +73,10 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   const targetAlive = !!t && !t.isDeadOrDowned;
 
   if (e.state === 'dead') { e.deathTimer += dt; integrateDeathFall(e, dt, world); return; }
-  // 2026-09-13: 땅굴벌레는 땅에 박혀 있고 `sandworm/Director` 가 돌린다. 파고 나오는 중 · 뱉어져 나는 중인 버그는 싸우지 않는다.
+  // 2026-09-13: the sandworm is rooted in the ground and `sandworm/Director` runs it. A bug still emerging, or in flight after being spat, does not fight.
   if (isWormType(e.type)) return;
   if (updateBurrowGate(e, dt, host)) return;
-  // 2026-09-17: 도약 중 피해로 뒤집힌 헌터 — 떨어지고 누워 있는 동안 AI · 이동 · 회전이 없다 (`ai/HunterFlip`)
+  // 2026-09-17: a hunter flipped by damage mid-leap — no AI, movement or turning while it falls and lies there (`ai/HunterFlip`)
   if (updateHunterFlip(e, dt, host)) return;
 
   if (e.state === 'flee') {
@@ -99,7 +99,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   updatePerception(e, dt, host);
   refreshStructureTarget(e, dt, host, t);
 
-  // Phase 12 (총알 추적): an unaware enemy investigating a shot runs its own watch → advance tick instead of the state
+  // Phase 12 (shot tracking): an unaware enemy investigating a shot runs its own watch → advance tick instead of the state
   // switch; the moment it perceives anyone (or a barrier bump / hit made it aware) the ordinary alert → chase runs.
   if (e.investigating) {
     if (e.aware) endInvestigation(e);
@@ -107,24 +107,24 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   }
 
   /*
-   * 2026-09-14 (튜토리얼 전용 적, `Tutorial.ts`): 자기 자리(`guardPos`)를 지키고 `homeLeash` 밖으로는 쫓아가지 않는다.
-   * `homeLeash` 는 **오직** `Tutorial.placeTutorialEnemies` 가 채우고 다른 모든 적은 0 이라 — `tutorialHold` 의 첫 줄이
-   * 그대로 돌아간다 — 본편 · 훈련장에서는 이 가지가 통째로 없는 것과 같다. 상태만 되돌리고 이동은 아래 평소 상태
-   * 기계(벌레) · `updateRogue`(인간형)가 그대로 맡는다.
+   * 2026-09-14 (tutorial-only enemies, `Tutorial.ts`): they hold their own post (`guardPos`) and never chase past `homeLeash`.
+   * `homeLeash` is filled in **only** by `Tutorial.placeTutorialEnemies` and is 0 for every other enemy — `tutorialHold` returns
+   * on its first line — so in a normal raid and in the training range this branch is as good as absent. It only rewinds the
+   * state; movement stays with the ordinary state machine below (bugs) and `updateRogue` (humanoids).
    */
   tutorialHold(e, dt);
-  /* 2026-09-18 (사용자 결정 「둥지 반경 60 m 리시」): 둥지에서 난 벌레(`nestOf >= 0`)는 둥지에서 그 이상 멀어지면 표적을
-     놓고 돌아간다. 둥지에서 나지 않은 벌레는 `ai/NestLeash` 첫 줄에서 그대로 돌아간다 — 추격이 한 치도 안 바뀐다. */
+  /* 2026-09-18 (user's decision 「둥지 반경 60 m 리시」): a bug born at a nest (`nestOf >= 0`) that gets farther than that from it
+     drops its target and walks home. A bug not born at a nest returns on `ai/NestLeash`'s first line — its chase does not change at all. */
   nestLeashHold(e);
 
-  // A lure (유인 수류탄 / 소음) drags a patrolling or idle bug toward the noise.
+  // A lure (a lure grenade / noise) drags a patrolling or idle bug toward the noise.
   if (e.hasLure && e.lureWeight >= 0.35 && (e.state === 'idle' || e.state === 'wander')
     && (!targetAlive || !e.aware || e.lureWeight >= LURE_OVERRIDE_WEIGHT)) {
     if (e.state === 'idle') { e.state = 'wander'; e.stateTime = 0; }
     e.moveTarget.copy(e.lurePos);
   }
 
-  // 2026-09-11: 네임드 로그 (로든 · 타길라 · 헤비) 와 스캔 드론은 각자 파일의 상태 기계를 탄다 (`ai/named/*`).
+  // 2026-09-11: the named rogues (Roden · Tagilla · Heavy) and the scan drone run the state machine in their own file (`ai/named/*`).
   if (isNamedAiType(e.type)) { updateNamed(e, dt, host, t, targetAlive); return; }
   // Phase 4: humanoid gunners run their own state machine (cover cycle) on top of the shared movement integration.
   if (e.isHumanoid) { updateRogue(e, dt, host, t, targetAlive); return; }
@@ -141,7 +141,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   let allowOverlap = false;
   e.hasMoveTarget = false;
   e.hasFacePoint = false;
-  // 2026-09-17: 포병 호위 — 표적을 모르는 동안 포병 곁을 지키고, 너무 멀어지면 뛰어 돌아온다 (`ai/ArtilleryPack`)
+  // 2026-09-17: the artillery escort — it guards the artillery while it knows no target and runs back when it gets too far (`ai/ArtilleryPack`)
   const escortRun = e.escortOf !== null && escortFollow(e);
 
   switch (e.state) {
@@ -173,7 +173,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
       if (targetAlive) { e.facePoint.copy(t!.position); e.hasFacePoint = true; lookAtTarget(e, t!, dt); }
       mandibleTarget = 0.7;
       a.crouch = THREE.MathUtils.lerp(a.crouch, 0.25, dt * 8);
-      const look = baseTypeOf(e.type);   // 2026-09-14 3차: 튜토리얼 전용 종류는 바탕 종류의 가지를 탄다
+      const look = baseTypeOf(e.type);   // 2026-09-14 3rd pass: a tutorial-only type takes its base type's branch
       const dur = look === 'scavenger' ? 0.4 : look === 'hunter' ? 0.5 : 0.75;
       if (e.stateTime >= dur) { e.state = 'chase'; e.stateTime = 0; a.crouch = 0; }
       break;
@@ -196,7 +196,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
       e.staggerTimer -= dt;
       speed = 0;
       if (e.incapTimer > 0) {
-        // 전소: writhing on the spot (pose from anim.writhe), mandibles snapping, no attacks until it wears off
+        // incinerated: writhing on the spot (pose from anim.writhe), mandibles snapping, no attacks until it wears off
         e.incapTimer = Math.max(0, e.incapTimer - dt);
         a.crouch = THREE.MathUtils.lerp(a.crouch, 0.45, dt * 8);
         a.headPitch = THREE.MathUtils.lerp(a.headPitch, -0.15, dt * 6);
@@ -216,7 +216,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
     default: break;
   }
 
-  // 2026-09-17: 포병이 추격 상태가 아닐 때도 쏜 뒤의 고정(`postFireLock`)은 끝까지 지킨다 (`GimmickAI.artilleryOffChase`)
+  // 2026-09-17: an artillery outside `chase` still holds the post-fire lock (`postFireLock`) to the end (`GimmickAI.artilleryOffChase`)
   if (e.type === 'artillery' && e.state !== 'chase' && artilleryOffChase(e, dt, host)) speed = 0;
   // status effects: burning does not slow, 'slowed' (acid / cryo gadgets) scales every movement state
   if (e.slowFactor < 1) speed *= e.slowFactor;
@@ -243,10 +243,10 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
   e.moveTarget.copy(tp);
   e.hasMoveTarget = true;
   let speed = s.speed;
-  // 2026-09-17: 엎드려 기다리거나 쏜 뒤 굳어 있는 포병은 구조물 · 미끼 가지도 타지 않는다 (움직이지 않는다)
+  // 2026-09-17: an artillery braced and waiting, or locked after firing, takes neither the structure nor the lure branch (it does not move)
   if (e.type === 'artillery' && e.shellPhase !== 0) return chaseArtillery(e, dt, host, t);
 
-  // ── a wall / dome / turret in the way gets chewed on first (근접형) ──
+  // ── a wall / dome / turret in the way gets chewed on first (melee types) ──
   const st = e.structTarget;
   if (st && st.hp > 0 && e.type !== 'spewer' && e.chargePhase === 0 && !e.leaping) {
     const sd = Math.hypot(st.position.x - e.position.x, st.position.z - e.position.z);
@@ -264,7 +264,7 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
     }
   }
 
-  // ── a strong lure outranks the player (유인 수류탄) ──
+  // ── a strong lure outranks the player (a lure grenade) ──
   if (e.hasLure && e.lureWeight >= LURE_OVERRIDE_WEIGHT && d > meleeRange + 1) {
     const ld = Math.hypot(e.lurePos.x - e.position.x, e.lurePos.z - e.position.z);
     if (ld > LURE_ARRIVE) { e.moveTarget.copy(e.lurePos); return speed; }
@@ -275,7 +275,7 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
     return 0;
   }
 
-  // 2026-09-14 3차: 종류별 추격 가지 — 튜토리얼 전용 종류는 바탕 종류(`tut_bug*` = scavenger)의 가지를 그대로 탄다
+  // 2026-09-14 3rd pass: the chase branch per type — a tutorial-only type takes its base type's branch verbatim (`tut_bug*` = scavenger)
   switch (baseTypeOf(e.type)) {
     case 'scavenger': {
       // weave while approaching so the swarm reads as a churning mass
@@ -304,7 +304,7 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
       break;
     }
     case 'spewer': {
-      // 원거리형: destroy lure beacons / barricades / turrets it can reach
+      // ranged type: destroy lure beacons / barricades / turrets it can reach
       const dep = e.structTarget;
       if (dep && dep.hp > 0 && e.attackCd <= 0) {
         const dd = Math.hypot(dep.position.x - e.position.x, dep.position.z - e.position.z);
@@ -329,12 +329,12 @@ function chase(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
         e.moveTarget.set(e.position.x + dx / d * 4, 0, e.position.z + dz / d * 4);
         e.facePoint.copy(tp); e.hasFacePoint = true;
         speed = s.speed * 0.7;
-        // 2026-09-10: 입(= 산탄이 나가는 곳) 사선이 막혔으면 침을 뱉지 않는다. 후퇴 중이라 자리는 어차피 바뀐다.
+        // 2026-09-10: it does not spit when the line from its mouth (= where the glob leaves) is blocked. It is backing off, so the spot changes anyway.
         if (e.hasLOS && e.attackCd <= 0 && d >= SPEWER_SPIT.minDist && hasFireLine(e, host, t)) startSpit(e);
       } else if (d <= SPEWER_SPIT.maxDist && e.hasLOS) {
         /*
-         * 2026-09-10: 눈에는 보여도 **입 사선**이 막혔으면(벽 · 바위에 붙어 있다) 쏘지 않고 옆으로 비켜선다.
-         * 제자리에 서서 벽에 침을 뱉던 그림이 이 가지였다 — 여기서만 `hasMoveTarget = false` 로 굳었기 때문.
+         * 2026-09-10: visible to the eyes but with the **mouth line** blocked (it is pressed against a wall · rock) it does not fire, it sidesteps.
+         * The picture of one standing still and spitting at a wall was this branch — only here did it freeze with `hasMoveTarget = false`.
          */
         if (!hasFireLine(e, host, t)) { fireLineStrafe(e, host, t, dt); speed = s.speed * 0.8; }
         else if (e.attackCd <= 0) startSpit(e);
@@ -365,7 +365,7 @@ function startLeap(e: Enemy, host: EnemyHost): void {
   e.attackTimer = 0; e.attackHitDone = false;
   e.airborne = false; // becomes true after the crouch
   e.leaping = true;
-  e.leapDamage = 0;   // 2026-09-17: 뒤집힘 판정은 이 도약에서 받은 피해만 센다 (`Enemy.noteLeapDamage`)
+  e.leapDamage = 0;   // 2026-09-17: the flip judgement counts only the damage taken during this leap (`Enemy.noteLeapDamage`)
   e.spitPhase = 0; e.chargePhase = 0;
   host.playAudio('bug_screech', e.position, 0.6, 1.3);
 }
@@ -485,7 +485,7 @@ function attack(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null): 
         e.velocity.set((_tmp.x - e.position.x) / T, 0, (_tmp.z - e.position.z) / T);
         const vmax = 16;
         if (e.velocity.length() > vmax) e.velocity.setLength(vmax);
-        // 2026-09-17: 체공이 길어져(0.62 → 1.55 s) 실제 중력이면 정점이 몸 높이의 두 배를 넘는다 — 포물선만 `arcGravityMul` 배 중력
+        // 2026-09-17: the airtime grew (0.62 → 1.55 s), so at real gravity the apex passes twice the body height — the arc alone uses `arcGravityMul` × gravity
         e.vy = (_tmp.y - e.position.y) / T + 0.5 * GRAVITY * HUNTER_LEAP.arcGravityMul * T;
         e.airborne = true;
         a.crouch = 0;
@@ -600,27 +600,27 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
   separate(e, host.grid, host.targets.all, _steer, allowOverlap || charging);
   if (!charging) e.velocity.addScaledVector(_steer, dt * 4);
 
-  // 2026-09-11 (C-18): 전차에 탄 몸은 차량이 이번 프레임에 옮겨 간 만큼 먼저 옮긴다 (`ai/Ride`). `velocity` 는 로컬 속도로 남고
-  // `_prev` 는 그 뒤에 잡으므로 보행 · 발소리 · 돌진 이탈 검사는 차량 이동을 보지 않는다.
-  // C-63: 차량을 벗어난 몸은 여기서 하차 관성을 흘린다 (역시 `_prev` 앞 — 위치에만, 보행은 보지 않는다).
+  // 2026-09-11 (C-18): a body riding the tram is moved first by however far the vehicle moved this frame (`ai/Ride`). `velocity` stays a
+  // local velocity and `_prev` is taken afterwards, so the gait, the footsteps and the charge-deviation check never see the vehicle's movement.
+  // C-63: a body that left the vehicle bleeds off its dismount inertia here (also before `_prev` — position only, the gait does not see it).
   rideCarry(e, world, dt);
   _prev.copy(pos);
   pos.x += e.velocity.x * dt;
   pos.z += e.velocity.z * dt;
-  // 2026-09-09 (지형지물 위 걷기): 표면을 **먼저** 잡는다. `getSurfaceY(x, z, feetY)` 는 지금 발 높이에서
-  // 올라설 수 있는 윗면(`PROP_STEP_UP_MAX` 이내)만 돌려주므로, 낮은 바위면 y 가 그 윗면으로 올라가고
-  // `resolveCollision` 이 그 장애물을 밀어내지 않는다(같은 `PROP_TOP_MARGIN` 판정). 높은 첨탑이면 y 는
-  // 지형에 남고 예전과 똑같이 벽으로 밀린다. 순서를 바꾸면 밀려난 뒤라 영영 못 올라간다.
+  // 2026-09-09 (walking on terrain features): the surface is queried **first**. `getSurfaceY(x, z, feetY)` returns only a top
+  // face the current foot height can step onto (within `PROP_STEP_UP_MAX`), so on a low rock y rises to that top face and
+  // `resolveCollision` does not push that obstacle away (the same `PROP_TOP_MARGIN` judgement). On a tall spire y stays on
+  // the terrain and it is pushed back by the wall exactly as before. Swap the order and it is already pushed out, so it never gets up.
   pos.y = world.getSurfaceY(pos.x, pos.z, pos.y);
   world.resolveCollision(pos, s.radius);
-  // Phase 12: a raised 배리어 is a wall for every grounded enemy (pushed out here; a charge that hits it stumbles below
+  // Phase 12: a raised barrier is a wall for every grounded enemy (pushed out here; a charge that hits it stumbles below
   // exactly like one that hit a rock). The host retargets a bumping enemy onto the carrier.
   host.resolveBarrier(e);
-  // 2026-09-13 (extraction 탈출 개편): enemies never enter the landed dropship — its walls are world colliders, but the rear
+  // 2026-09-13 (the extraction rework): enemies never enter the landed dropship — its walls are world colliders, but the rear
   // ramp opening is open for players, so it is closed to enemies only here (pushed back out through the doorway). A charge
   // that hits it stumbles below like any wall.
   host.ctx.extraction?.keepEnemyOut(pos, s.radius);
-  // 2026-09-16: 튜토리얼 적은 낭떠러지 가장자리 띠로 걸어 들어가지 않는다 (`homeLeash === 0` 인 본편 · 훈련장 적은 첫 줄에서 돌아간다)
+  // 2026-09-16: a tutorial enemy never walks into the cliff-edge band (raid and training-range enemies, with `homeLeash === 0`, return on the first line)
   tutorialEdgeGuard(e, world, pos, _prev.x, _prev.z, _prev.y);
   if (charging) {
     // hitting a rock / wall or leaving the map interrupts the charge
@@ -629,8 +629,8 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
     if (dev > 0.05 || !world.isInsideBounds(pos.x + e.chargeDir.x * 2, pos.z + e.chargeDir.z * 2)) {
       const big = e.type === 'behemoth';
       stumble(e, big ? BEHEMOTH_AI.chargeCooldown : CHARGER_CHARGE.cooldown, big ? BEHEMOTH_AI.stumble : CHARGER_CHARGE.stumble);
-      // 2026-09-11 (C-51): 막힌 쿵은 그 타입의 걸음 소리를 무겁게 — 벌레 전용 `bug_step` 이 타길라에게 새지 않는다.
-      // 걸음 스로틀을 비워 두고 부른다 (방금 한 걸음을 뗐어도 부딪힌 소리는 난다).
+      // 2026-09-11 (C-51): a blocked thud plays that type's footstep heavier — the bug-only `bug_step` never leaks onto Tagilla.
+      // The step throttle is cleared before the call (a step taken a moment ago still lets the impact sound through).
       e.stepAt = -Infinity;
       emitEnemyStep(e, host.ctx, 1.8, 0.85);
       if (host.targets.distToLocal(pos) < (big ? 45 : 25)) host.ctx.bus.emit('camera:shake', { intensity: big ? 0.6 : 0.35, duration: 0.35 });
@@ -649,7 +649,7 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
   const targetAnimSpeed = Math.min(1, spd / Math.max(1, s.speed * 0.8));
   a.speed += (targetAnimSpeed - a.speed) * Math.min(1, dt * 8);
 
-  // footsteps (heavies only) — 2026-09-11 (C-23 · C-22 · X-10): `footfall` 이 재질 발소리 + 베헤모스 흔들림을 낸다
+  // footsteps (heavies only) — 2026-09-11 (C-23 · C-22 · X-10): `footfall` emits the surface footstep + the behemoth shake
   if (s.stepSound) footfall(e, host.ctx, host.targets, moved);
 
   // yaw
@@ -662,15 +662,15 @@ export function integrate(e: Enemy, dt: number, world: WorldRef, host: EnemyHost
   applySlope(e, world, dt);
 }
 
-/** 2026-09-13: 차체 옆으로 다가간 적이 공격 사거리의 이 비율 안에 들면 멈춘다. 알고리즘 상수. */
+/** 2026-09-13: an enemy that walked up beside the hull stops within this fraction of its attack range. Algorithm constant. */
 const VEHICLE_STOP_FRAC = 0.6;
-/** 2026-09-13: 차체 발자국을 몸 반경에 더해 이만큼(m) 넓힌 둘레가 조향 목표다. 알고리즘 상수. */
+/** 2026-09-13: the steering goal is the hull footprint grown by the body radius plus this much (m). Algorithm constant. */
 const VEHICLE_APPROACH_PAD = 0.15;
 
 /**
- * 2026-09-13 (탐사 차량): 이동 목표가 표적 차량의 차체 **안**이면(= 차 중심을 향해 달린다 — 추격 · 돌격 · 근접 기동이 모두
- * `t.position` 을 넣는다) 차체 가장자리에서 가장 가까운 점으로 바꾸고, 차체까지 공격 사거리의 `VEHICLE_STOP_FRAC` 안이면 멈춘다.
- * 움직이는 차체 콜라이더에 매 프레임 몸을 들이밀어 떨지 않게. 차체 밖의 목표(엄폐 · 후퇴 · 옆걸음)는 건드리지 않는다.
+ * 2026-09-13 (the rover): when the move target lies **inside** the target vehicle's hull (= it runs at the car's centre — chase, rush
+ * and melee manoeuvres all put in `t.position`) it is replaced by the nearest point on the hull edge, and it stops within
+ * `VEHICLE_STOP_FRAC` of its attack range from the hull. So it does not shove itself into the moving hull collider every frame and judder. A goal outside the hull (cover · retreat · sidestep) is left alone.
  */
 function steerToVehicleSide(e: Enemy): void {
   const t = e.target;

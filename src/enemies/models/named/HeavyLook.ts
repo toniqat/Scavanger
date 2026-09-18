@@ -1,19 +1,19 @@
 /**
- * src/enemies/models/named/HeavyLook.ts — **헤비**(`rogue_heavy`)의 겉모습 (2026-09-11).
+ * src/enemies/models/named/HeavyLook.ts — **the look of Heavy** (`rogue_heavy`) (2026-09-11).
  *
- * 휴머노이드 로그 리그 위에 덧붙인다: 두꺼운 방탄복(흉갑 · 양 견갑 · 허리 · 허벅지/정강이 판) · 헬멧 + 노란 바이저
- * (`rig.eyeMat` — 사망 시 기본 리그와 함께 꺼진다) · 탄통 백팩과 탄띠 · **허리 높이의 6연장 미니건**.
+ * Added on top of the humanoid rogue rig: thick body armour (breastplate · both pauldrons · waist · thigh/shin plates) ·
+ * a helmet + a yellow visor (`rig.eyeMat` — it goes out with the base rig on death) · an ammo-can backpack and belt · and a **six-barrel minigun at hip height**.
  *
- * - 기본 소총 메시(`rig.gun` 안에 팔과 합쳐진 한 덩어리)는 **숨기기만** 한다 — 그룹 자체는 `animateRogue` 가 계속
- *   움직이지만 보이는 것이 없다. 미니건과 그것을 쥔 팔은 두 어깨 사이 피벗(`pivot`, 토르소 자식)에 붙는다.
- * - `rig.muzzle` 을 미니건 총구로 **옮겨 붙인다** → `Enemy.muzzle()` · `ai/FireLine` · `fireGun` 이 전부 거기서 쏜다.
- * - 총열 묶음은 `Enemy.namedHint` 18(회전) · 19(연사)에서 돌고(속도 댐핑), 19 에서는 총 전체가 떨리고 총구 끝이 달아오른다.
- *   호스트 AI 와 리플리카가 같은 필드를 채우므로 양쪽 그림이 같다.
- * - 걸음은 무겁게: 보폭을 줄이고, 발 디딤마다 골반이 내려앉고, 좌우로 흔들린다.
+ * - The base rifle mesh (one lump merged with the arms inside `rig.gun`) is only **hidden** — the group itself keeps
+ *   moving with `animateRogue`, there is simply nothing visible. The minigun and the arms holding it go on a pivot between the two shoulders (`pivot`, a child of the torso).
+ * - `rig.muzzle` is **moved onto** the minigun's muzzle → `Enemy.muzzle()` · `ai/FireLine` · `fireGun` all fire from there.
+ * - The barrel cluster spins at `Enemy.namedHint` 18 (spin) · 19 (firing) with a damped speed, and at 19 the whole gun
+ *   shakes and the barrel tips heat up. The host AI and the replica fill the same fields, so both draw the same picture.
+ * - The walk is heavy: a shorter stride, the pelvis settling on every footfall, and a sway from side to side.
  *
- * 머티리얼은 리그의 `chitin`(정점 색 · 피격 섬광 공유)과 `eyeMat` 을 쓰고, 이 파일이 만드는 것은 총구 열 머티리얼 하나다.
- * 지오메트리는 리그마다 만들고 `disposeHeavyLook` 이 해제한다 (헤비는 레이드당 최대 한 명이라 공유 캐시가 필요 없다).
- * 광원 없음. ⚠ `RogueModel` 에서는 `import type` 만 (순환 import).
+ * The materials are the rig's `chitin` (vertex colours · the shared hit flash) and `eyeMat`; the only thing this file makes is the one muzzle-heat material.
+ * Geometry is built per rig and released by `disposeHeavyLook` (at most one Heavy per raid, so a shared cache is not needed).
+ * No lights. ⚠ `RogueModel` is `import type` only (circular import).
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -22,7 +22,7 @@ import type { BugAnim } from '../BugModel';
 import type { RogueRig } from '../RogueModel';
 import type { Enemy } from '../../Enemy';
 
-/* 와이어 힌트 (`EnemyWire.a`) — ai/named/Heavy.ts 와 같은 값 (순환 import 를 피해 여기 적는다) */
+/* Wire hints (`EnemyWire.a`) — the same values as ai/named/Heavy.ts (written out here to avoid a circular import) */
 const HINT_SPIN = 18;
 const HINT_FIRE = 19;
 
@@ -31,16 +31,16 @@ const COL = {
   dark: 0x18191a, gun: 0x34373a, brass: 0xb4903c, strap: 0x2b2a22,
 } as const;
 
-/* ── 그림 상수 ── */
-/** 총열 최고 회전 속도 (rad/s). */
+/* ── drawing constants ── */
+/** Top barrel spin rate (rad/s). */
 const BARREL_MAX_RAD_S = 38;
-/** 회전 목표로 다가가는 속도 (1/s) — 올릴 때 / 내릴 때. */
+/** Rate of approach to the spin target (1/s) — spinning up / spinning down. */
 const SPIN_UP_RATE = 2.4;
 const SPIN_DOWN_RATE = 1.3;
-/** 미니건 피벗 (토르소 공간, 두 어깨 사이 = 기본 소총 그룹과 같은 높이). */
+/** Minigun pivot (torso space, between the two shoulders = the same height as the base rifle group). */
 const PIVOT_Y = 0.5;
 const PIVOT_Z = 0.06;
-/** 총 축 (피벗 공간). 피벗에서 0.44 m 아래 = 발에서 약 1.1 m, 허리 높이. */
+/** Gun axis (pivot space). 0.44 m below the pivot = about 1.1 m above the feet, hip height. */
 const GUN_X = 0.1;
 const GUN_Y = -0.44;
 const BARREL_Z0 = 0.46;
@@ -133,24 +133,24 @@ function attach(parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Ma
 function torsoArmorGeo(): THREE.BufferGeometry {
   const C = COL;
   return merge([
-    box(0.52, 0.42, 0.1, 0, 0.36, 0.19, C.plate),            // 흉갑
-    box(0.44, 0.035, 0.012, 0, 0.47, 0.245, C.accent),       // 경고 줄무늬
+    box(0.52, 0.42, 0.1, 0, 0.36, 0.19, C.plate),            // breastplate
+    box(0.44, 0.035, 0.012, 0, 0.47, 0.245, C.accent),       // warning stripes
     box(0.44, 0.035, 0.012, 0, 0.27, 0.245, C.accent),
-    box(0.44, 0.12, 0.08, 0, 0.1, 0.17, C.armor),            // 복부 판
-    box(0.46, 0.1, 0.36, 0, 0.6, 0, C.armor),                // 목 칼라
-    box(0.08, 0.36, 0.26, 0.27, 0.3, 0, C.armor),            // 옆구리 판
+    box(0.44, 0.12, 0.08, 0, 0.1, 0.17, C.armor),            // abdomen plate
+    box(0.46, 0.1, 0.36, 0, 0.6, 0, C.armor),                // neck collar
+    box(0.08, 0.36, 0.26, 0.27, 0.3, 0, C.armor),            // flank plate
     box(0.08, 0.36, 0.26, -0.27, 0.3, 0, C.armor),
-    box(0.26, 0.16, 0.32, 0.34, 0.58, 0, C.metal),           // 견갑
+    box(0.26, 0.16, 0.32, 0.34, 0.58, 0, C.metal),           // pauldron
     box(0.27, 0.04, 0.33, 0.34, 0.67, 0, C.accent),
     box(0.26, 0.16, 0.32, -0.34, 0.58, 0, C.metal),
     box(0.27, 0.04, 0.33, -0.34, 0.67, 0, C.accent),
-    // 탄통 백팩
+    // ammo-can backpack
     box(0.48, 0.52, 0.24, 0, 0.32, -0.3, C.armor),
     box(0.5, 0.06, 0.28, 0, 0.6, -0.3, C.metal),
     cylX(0.17, -0.22, 0.22, 0.16, -0.38, C.metal),
     cylX(0.175, -0.24, -0.2, 0.16, -0.38, C.accent),
     cylX(0.175, 0.2, 0.24, 0.16, -0.38, C.accent),
-    box(0.06, 0.5, 0.05, 0.18, 0.34, -0.16, C.strap),        // 멜빵
+    box(0.06, 0.5, 0.05, 0.18, 0.34, -0.16, C.strap),        // shoulder straps
     box(0.06, 0.5, 0.05, -0.18, 0.34, -0.16, C.strap),
   ]);
 }
@@ -162,22 +162,22 @@ function helmetGeo(): THREE.BufferGeometry {
   shell.translate(0, 0.02, 0);
   return merge([
     colorize(shell, C.armor),
-    box(0.36, 0.05, 0.36, 0, 0.1, -0.01, C.plate),           // 챙
-    box(0.24, 0.12, 0.08, 0, -0.08, 0.14, C.plate),          // 턱 가리개
-    box(0.06, 0.16, 0.16, 0.17, -0.01, 0.01, C.metal),       // 귀 판
+    box(0.36, 0.05, 0.36, 0, 0.1, -0.01, C.plate),           // brim
+    box(0.24, 0.12, 0.08, 0, -0.08, 0.14, C.plate),          // chin guard
+    box(0.06, 0.16, 0.16, 0.17, -0.01, 0.01, C.metal),       // ear plate
     box(0.06, 0.16, 0.16, -0.17, -0.01, 0.01, C.metal),
-    box(0.05, 0.03, 0.3, 0, 0.19, -0.02, C.accent),          // 볏
+    box(0.05, 0.03, 0.3, 0, 0.19, -0.02, C.accent),          // crest
   ]);
 }
 
 function pelvisArmorGeo(): THREE.BufferGeometry {
   const C = COL;
   return merge([
-    box(0.44, 0.09, 0.32, 0, 0.08, 0, C.strap),              // 탄띠 벨트
-    box(0.12, 0.12, 0.1, 0.16, 0, 0.16, C.armor),            // 파우치
+    box(0.44, 0.09, 0.32, 0, 0.08, 0, C.strap),              // ammo belt
+    box(0.12, 0.12, 0.1, 0.16, 0, 0.16, C.armor),            // pouch
     box(0.12, 0.12, 0.1, -0.16, 0, 0.16, C.armor),
     box(0.1, 0.12, 0.12, -0.24, -0.02, 0, C.armor),
-    box(0.16, 0.2, 0.05, 0.1, -0.13, 0.16, C.plate),         // 허리 판
+    box(0.16, 0.2, 0.05, 0.1, -0.13, 0.16, C.plate),         // waist plate
     box(0.16, 0.2, 0.05, -0.1, -0.13, 0.16, C.plate),
   ]);
 }
@@ -189,9 +189,9 @@ function thighArmorGeo(): THREE.BufferGeometry {
 function shinArmorGeo(): THREE.BufferGeometry {
   const C = COL;
   return merge([
-    box(0.15, 0.13, 0.08, 0, -0.02, 0.1, C.metal),           // 무릎
-    box(0.14, 0.26, 0.06, 0, -0.24, 0.08, C.plate),          // 정강이
-    box(0.16, 0.1, 0.3, 0, -0.46, 0.05, C.dark),             // 무거운 군화
+    box(0.15, 0.13, 0.08, 0, -0.02, 0.1, C.metal),           // knee
+    box(0.14, 0.26, 0.06, 0, -0.24, 0.08, C.plate),          // shin
+    box(0.16, 0.1, 0.3, 0, -0.46, 0.05, C.dark),             // heavy boot
   ]);
 }
 
@@ -199,32 +199,32 @@ function shinArmorGeo(): THREE.BufferGeometry {
 function gunGeo(): THREE.BufferGeometry {
   const C = COL;
   const parts: THREE.BufferGeometry[] = [
-    // 오른팔 → 뒤 손잡이
+    // right arm → rear grip
     limb(0.23, 0, 0, 0.3, -0.26, -0.06, 0.062, C.cloth),
     limb(0.3, -0.26, -0.06, 0.2, -0.52, 0.02, 0.055, C.armor),
     box(0.09, 0.09, 0.09, 0.3, -0.26, -0.06, C.metal),
     box(0.08, 0.08, 0.09, 0.2, -0.54, 0.02, C.dark),
-    // 왼팔 → 앞 손잡이
+    // left arm → front grip
     limb(-0.23, 0, 0, -0.22, -0.28, 0.16, 0.062, C.cloth),
     limb(-0.22, -0.28, 0.16, 0.04, -0.5, 0.4, 0.055, C.armor),
     box(0.09, 0.09, 0.09, -0.22, -0.28, 0.16, C.metal),
     box(0.08, 0.08, 0.09, 0.05, -0.52, 0.42, C.dark),
-    // 본체
-    cylZ(0.085, -0.16, 0, GUN_X, GUN_Y, C.dark, 10),                         // 모터
-    box(0.2, 0.22, 0.46, GUN_X, GUN_Y, 0.22, C.gun),                         // 기관부
-    box(0.12, 0.03, 0.4, GUN_X, GUN_Y + 0.125, 0.22, C.metal),               // 상부 레일
-    box(0.035, 0.035, 0.3, GUN_X, GUN_Y + 0.22, 0.22, C.metal),              // 운반 손잡이
+    // body
+    cylZ(0.085, -0.16, 0, GUN_X, GUN_Y, C.dark, 10),                         // motor
+    box(0.2, 0.22, 0.46, GUN_X, GUN_Y, 0.22, C.gun),                         // receiver
+    box(0.12, 0.03, 0.4, GUN_X, GUN_Y + 0.125, 0.22, C.metal),               // top rail
+    box(0.035, 0.035, 0.3, GUN_X, GUN_Y + 0.22, 0.22, C.metal),              // carry handle
     box(0.03, 0.09, 0.03, GUN_X, GUN_Y + 0.17, 0.1, C.metal),
     box(0.03, 0.09, 0.03, GUN_X, GUN_Y + 0.17, 0.34, C.metal),
-    box(0.05, 0.16, 0.05, 0.2, -0.52, 0.02, C.dark),                         // 뒤 손잡이
+    box(0.05, 0.16, 0.05, 0.2, -0.52, 0.02, C.dark),                         // rear grip
     box(0.1, 0.04, 0.04, 0.15, -0.46, 0.02, C.metal),
-    box(0.05, 0.14, 0.05, 0.05, -0.56, 0.42, C.dark),                        // 앞 손잡이
-    box(0.13, 0.17, 0.22, -0.04, GUN_Y - 0.04, 0.2, C.armor),                // 급탄 상자
+    box(0.05, 0.14, 0.05, 0.05, -0.56, 0.42, C.dark),                        // front grip
+    box(0.13, 0.17, 0.22, -0.04, GUN_Y - 0.04, 0.2, C.armor),                // feed box
     box(0.135, 0.03, 0.225, -0.04, GUN_Y + 0.02, 0.2, C.accent),
-    box(0.06, 0.08, 0.1, 0.23, GUN_Y - 0.02, 0.14, C.metal),                 // 급탄구
-    cylZ(0.1, BARREL_Z0 - 0.02, BARREL_Z0 + 0.04, GUN_X, GUN_Y, C.metal, 12), // 앞 베어링
+    box(0.06, 0.08, 0.1, 0.23, GUN_Y - 0.02, 0.14, C.metal),                 // feed port
+    cylZ(0.1, BARREL_Z0 - 0.02, BARREL_Z0 + 0.04, GUN_X, GUN_Y, C.metal, 12), // front bearing
   ];
-  // 탄띠: 백팩 오른쪽에서 오른쪽 허리를 돌아 급탄구로 (2차 베지어 위의 짧은 원기둥 사슬)
+  // ammo belt: from the right of the backpack, around the right hip, into the feed port (a chain of short cylinders along a quadratic Bézier)
   const p0x = 0.22, p0y = -0.34, p0z = -0.38;
   const cx = 0.4, cy = -0.66, cz = -0.14;
   const p2x = 0.24, p2y = -0.47, p2z = 0.12;
@@ -248,7 +248,7 @@ function barrelsGeo(): THREE.BufferGeometry {
     cylZ(0.024, 0, BARREL_LEN, 0, 0, C.dark, 8),
     cylZ(0.085, 0.3, 0.34, 0, 0, C.metal, 12),
     cylZ(0.082, BARREL_LEN - 0.14, BARREL_LEN - 0.1, 0, 0, C.metal, 12),
-    box(0.03, 0.014, 0.05, 0, 0.088, 0.32, C.accent),        // 회전이 읽히는 표식
+    box(0.03, 0.014, 0.05, 0, 0.088, 0.32, C.accent),        // a mark that makes the spin readable
     box(0.03, 0.014, 0.05, 0, 0.085, BARREL_LEN - 0.12, C.accent),
   ];
   for (let i = 0; i < 6; i++) {
@@ -275,18 +275,18 @@ export function decorateHeavyLook(rig: RogueRig): void {
   const geos: THREE.BufferGeometry[] = [];
   const own = (g: THREE.BufferGeometry): THREE.BufferGeometry => { geos.push(g); return g; };
 
-  // 덩치: 흉부 · 골반 메시만 넓힌다 (머리 · 다리 그룹은 그대로라 히트박스 파라미터와 어긋나지 않는다)
+  // bulk: only the chest · pelvis meshes are widened (the head · leg groups stay as they are, so nothing drifts from the hitbox parameters)
   const chest = rig.torso.children[0];
   if (chest && (chest as THREE.Mesh).isMesh) chest.scale.set(1.14, 1.04, 1.18);
   const pelvis = rig.body.children[0];
   if (pelvis && (pelvis as THREE.Mesh).isMesh) pelvis.scale.set(1.16, 1, 1.16);
 
-  // 기본 소총 + 팔(한 덩어리 메시)은 숨긴다 — 그룹은 animateRogue 가 계속 돌리지만 보이는 것이 없다
+  // hide the base rifle + arms (one merged mesh) — animateRogue keeps moving the group, there is just nothing visible
   for (const c of rig.gun.children) if ((c as THREE.Mesh).isMesh) c.visible = false;
 
   attach(rig.torso, own(torsoArmorGeo()), mat);
   attach(rig.head, own(helmetGeo()), mat);
-  attach(rig.head, own(box(0.26, 0.075, 0.035, 0, 0.02, 0.18, COL.accent)), rig.eyeMat);   // 노란 바이저 (eyeMat = 팔레트 visor)
+  attach(rig.head, own(box(0.26, 0.075, 0.035, 0, 0.02, 0.18, COL.accent)), rig.eyeMat);   // yellow visor (eyeMat = the palette's visor)
   attach(rig.body, own(pelvisArmorGeo()), mat);
   const thigh = own(thighArmorGeo());
   const shin = own(shinArmorGeo());
@@ -295,7 +295,7 @@ export function decorateHeavyLook(rig: RogueRig): void {
     attach(leg.knee, shin, mat);
   }
 
-  // 미니건
+  // minigun
   const pivot = new THREE.Group();
   pivot.name = 'heavy_minigun';
   pivot.position.set(0, PIVOT_Y, PIVOT_Z);
@@ -310,7 +310,7 @@ export function decorateHeavyLook(rig: RogueRig): void {
   const heatMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, emissive: 0xff6a1a, emissiveIntensity: 0, roughness: 0.45, metalness: 0.6 });
   attach(barrels, own(barrelTipsGeo()), heatMat);
 
-  // 총구 마커를 미니건 끝으로 — Enemy.muzzle() / FireLine / fireGun 이 여기서 쏜다
+  // the muzzle marker moves to the minigun's tip — Enemy.muzzle() / FireLine / fireGun fire from here
   rig.muzzle.removeFromParent();
   rig.muzzle.position.set(GUN_X, GUN_Y, BARREL_Z0 + BARREL_LEN + 0.04);
   pivot.add(rig.muzzle);
@@ -328,7 +328,7 @@ export function animateHeavyLook(rig: RogueRig, a: BugAnim, e: Enemy, dt: number
   const spinning = hint === HINT_SPIN || hint === HINT_FIRE;
   const firing = hint === HINT_FIRE;
 
-  // 총열: 속도 댐핑 → 각도 적분
+  // barrels: damped speed → integrated angle
   p.spin += ((spinning ? 1 : 0) - p.spin) * Math.min(1, dt * (spinning ? SPIN_UP_RATE : SPIN_DOWN_RATE));
   if (!spinning && p.spin < 0.002) p.spin = 0;
   p.angle += p.spin * p.spin * BARREL_MAX_RAD_S * dt;
@@ -339,7 +339,7 @@ export function animateHeavyLook(rig: RogueRig, a: BugAnim, e: Enemy, dt: number
   const hi = p.heat * 2.4;
   if (Math.abs(p.heatMat.emissiveIntensity - hi) > 0.002) p.heatMat.emissiveIntensity = hi;
 
-  // 무거운 걸음 (animateRogue 가 잡은 자세 위에 더한다): 보폭 70 %, 넓은 발, 디딤마다 내려앉기, 좌우 흔들림
+  // the heavy walk (added on top of the pose animateRogue set): 70 % stride, a wide stance, settling on each footfall, swaying side to side
   if (!dying) {
     const mv = a.speed > 0.03 ? a.speed * (1 - a.writhe) : 0;
     for (const leg of rig.legs) {
@@ -350,12 +350,12 @@ export function animateHeavyLook(rig: RogueRig, a: BugAnim, e: Enemy, dt: number
     rig.body.position.y -= Math.max(0, -Math.cos(a.gait * 2)) * 0.035 * mv;
     rig.body.rotation.z += Math.sin(a.gait) * 0.07 * mv;
     rig.torso.rotation.z -= Math.sin(a.gait) * 0.05 * mv;
-    // 총 무게를 버티는 앞숙임 + 연사 반동에 기대기
+    // a forward lean to carry the gun's weight + leaning into the recoil while firing
     rig.torso.rotation.x += 0.06 + p.fire * 0.05;
     rig.torso.rotation.y += p.fire * Math.sin(t * 37) * 0.012;
   }
 
-  // 미니건 자세: 낮춰 든 허리 사격 ↔ 조준(머리 피치), 반동, 연사 떨림
+  // minigun pose: hip fire held low ↔ aiming (head pitch), recoil, the shake while firing
   const aim = dying ? 0 : a.aim;
   const pitch = THREE.MathUtils.clamp(a.headPitch, -0.4, 0.4);
   const r2 = a.recoil * a.recoil;

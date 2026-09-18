@@ -1,38 +1,40 @@
 /**
- * src/enemies/ai/named/Heavy.ts — **헤비** (`rogue_heavy`, 2026-09-11). 유니크 미니건을 든 네임드 로그.
+ * src/enemies/ai/named/Heavy.ts — **the Heavy** (`rogue_heavy`, 2026-09-11). A named rogue carrying the unique minigun.
  *
- * ── 호스트 (`updateHeavy`) ─────────────────────────────────────────────────────────────────────────────
- * 엄폐 사이클이 없다. 표적과 `keepMin`–`keepMax` 를 유지하며 둔중하게 걷는다 — 멀거나 안 보이면 다가가고, 너무
- * 가까우면 물러서고, 띠 안의 먼 쪽이면 `creepMul` 로 천천히 밀고 들어온다. 눈에는 보이는데 **총구 사선**이 막혔으면
- * (`ai/FireLine`) `fireLineStrafe` 로 옆으로 비켜 선다. 사선이 열리면 상태 기계(`Enemy.namedPhase`):
+ * ── Host (`updateHeavy`) ───────────────────────────────────────────────────────────────────────────────
+ * No cover cycle. It holds `keepMin`–`keepMax` from its target and walks heavily — it closes when far or blind, backs
+ * off when too close, and creeps in at `creepMul` on the far side of the band. Visible but with the **muzzle line**
+ * blocked (`ai/FireLine`), `fireLineStrafe` steps it aside. With the line open, the state machine (`Enemy.namedPhase`):
  *
- *   ADVANCE(0) ─사선 + 쿨다운 끝→ SPINUP(1, 힌트 18, `minigun_spinup`, `spinUp` s, 이동 × `spinMoveMul`)
- *     → 사선 있음 → FIRE(2, 힌트 19, `ee spray on`, 남은 연사 `burstTime`)
- *     → 사선 없음 → LINGER(3, 힌트 18, `linger` s 헛돌기)
- *   FIRE: 발사 틱마다(`1 / rof`) `host.fireGun(e, t, spread, 1, { damage, range, fx:false, event:false, wire:false })`.
- *         몸이 표적에서 `FIRE_FACING_TOL` 넘게 돌아가 있으면 총열만 돌고 쏘지 않는다(측면을 잡을 틈).
- *         연사가 끝나면 `ee spray off` + `minigun_spindown` + `burstCooldown` → ADVANCE.
- *         사선이 끊기면 `ee spray off` → LINGER.
- *   LINGER: 그 안에 사선이 돌아오면 **남은 연사**를 곧바로 잇고(`ee spray on` 다시), 아니면 spindown + 쿨다운 절반.
- * 경직 · 표적 상실로 교전(chase)을 벗어나면 그 자리에서 연사를 끊는다.
+ *   ADVANCE(0) ─line + cooldown done→ SPINUP(1, hint 18, `minigun_spinup`, `spinUp` s, movement × `spinMoveMul`)
+ *     → line open → FIRE(2, hint 19, `ee spray on`, `burstTime` of spray left)
+ *     → no line → LINGER(3, hint 18, spinning empty for `linger` s)
+ *   FIRE: on every fire tick (`1 / rof`) `host.fireGun(e, t, spread, 1, { damage, range, fx:false, event:false, wire:false })`.
+ *         Turned more than `FIRE_FACING_TOL` off the target, only the barrels spin and nothing fires (the gap to flank it).
+ *         The burst over: `ee spray off` + `minigun_spindown` + `burstCooldown` → ADVANCE.
+ *         The line broken: `ee spray off` → LINGER.
+ *   LINGER: if the line returns inside it, the **remaining spray** resumes at once (`ee spray on` again), else spindown + half the cooldown.
+ * Leaving the fight (chase) through a stagger or a lost target cuts the spray where it stands.
  *
- * 와이어는 연사 시작/끝의 `ee spray` 두 번뿐이다 — 발마다 `ee shoot` 을 보내지 않는다. 호스트 화면의 연출
- * (트레이서 `TRACER_EVERY` 발에 하나 · 총구 섬광 · `minigun_fire` 틱)은 이 파일이 `@/core/fx` 풀로 그린다
- * (섬광 광원 세기 0 — 씬 광원 개수는 바뀌지 않는다).
+ * The wire carries only the two `ee spray` at the start and end of a burst — no `ee shoot` per round. The host-screen
+ * FX (one tracer every `TRACER_EVERY` rounds · the muzzle flash · the `minigun_fire` tick) are drawn by this file from
+ * the `@/core/fx` pools (flash light intensity 0 — the scene point-light count does not change).
  *
- * ── 리플리카 ─────────────────────────────────────────────────────────────────────────────────────────
- * `onHeavyEvent(spray on)` 이 그 적의 연사 상태를 켜 두면 `afterHeavyReplica` 가 **스스로** 같은 박자로 트레이서
- * (몸 방위 콘 안 가장 가까운 후보의 가슴 + `spread`, 후보가 없으면 yaw 전방 + 머리 피치) · 섬광 · 소리를 낸다.
- * 피해는 호스트가 이미 `dmg` 로 보냈다.
- * `off` 를 놓쳐도 `burstTime + REMOTE_GRACE` 타임아웃, 또는 스냅샷 힌트가 19 에서 벗어난 채 `REMOTE_HINT_MISS`
- * 가 지나면 멈춘다. 총열 회전 · 반동 떨림은 `models/named/HeavyLook` 이 `Enemy.namedHint` 로 양쪽에서 똑같이 그린다.
+ * ── Replica ──────────────────────────────────────────────────────────────────────────────────────────
+ * Once `onHeavyEvent(spray on)` has turned that enemy's spray state on, `afterHeavyReplica` produces the tracers
+ * **itself** on the same cadence (the chest of the nearest candidate inside the body's facing cone + `spread`, the yaw
+ * forward + head pitch with no candidate) · the flash · the sound. The damage was already sent by the host as `dmg`.
+ * A missed `off` still stops on the `burstTime + REMOTE_GRACE` timeout, or once `REMOTE_HINT_MISS` passes with the
+ * snapshot hint away from 19. Barrel spin and recoil jitter are drawn identically on both sides by
+ * `models/named/HeavyLook` from `Enemy.namedHint`.
  *
- * **드론 표적** (2026-09-11): `pickTarget` 이 드론을 줄 수 있고 헤비도 쏜다. 조준점은 `aimAt` 을 넘기지 않으므로 드론을
- * 아는 `CombatTarget.getChest`(몸체 가운데)이고, `lookAtTarget` · `hasFireLine` 도 같은 식이다. 드론에게서는 물러서지 않고
- * (`keepMin` 무시) 살 맞는 소리도 내지 않는다. 리플리카 트레이서는 방위로 표적을 추론하므로(`remoteAimPoint`) 드론 · 벌레도 향한다.
+ * **Drone targets** (2026-09-11): `pickTarget` may hand it a drone and the Heavy shoots it. It passes no `aimAt`, so the
+ * aim point is `CombatTarget.getChest` (the hull centre), which knows about drones; `lookAtTarget` and `hasFireLine`
+ * work the same way. It does not back off from a drone (`keepMin` ignored) and plays no flesh-hit sound.
+ * A replica's tracers infer the target from the facing (`remoteAimPoint`), so they point at drones and bugs too.
  *
- * 호위 SMG 로그는 기존 가드 로직(`Enemy.escortOf` → `ai/RogueAI`)을 탄다 — 헤비는 그들을 기다리지 않고,
- * 헤비가 죽으면 `RogueAI` 가 호위를 평소 로그로 풀어 준다.
+ * The escorting SMG rogues take the existing guard logic (`Enemy.escortOf` → `ai/RogueAI`) — the Heavy does not wait
+ * for them, and when the Heavy dies `RogueAI` releases the escorts as ordinary rogues.
  */
 import * as THREE from 'three';
 import { ROGUE_REACTION, type EnemyEvent, type GameContext } from '@/shared';
@@ -45,7 +47,7 @@ import { lookAtTarget } from '../Common';
 import { integrate } from '../EnemyAI';
 import { fireLineStrafe, hasFireLine } from '../FireLine';
 
-/* 와이어 애니메이션 힌트 (`EnemyWire.a`) */
+/* Wire animation hints (`EnemyWire.a`) */
 const HINT_SPIN = 18;
 const HINT_FIRE = 19;
 
@@ -55,20 +57,20 @@ const PH_SPINUP = 1;
 const PH_FIRE = 2;
 const PH_LINGER = 3;
 
-/* ── 연출 · 알고리즘 상수 — 밸런스 수치가 아니라 csv 대상이 아니다 (밸런스는 `NAMED_HEAVY`) ── */
-/** 몇 발에 트레이서 하나. */
+/* ── FX · algorithm constants — not balance numbers, so not csv material (balance is `NAMED_HEAVY`) ── */
+/** One tracer every this many rounds. */
 const TRACER_EVERY = 2;
-/** `minigun_fire` 틱 간격 (s). `host.playAudio` 의 기본 스로틀(0.12 s)보다 짧아서 버스로 직접 낸다. */
+/** `minigun_fire` tick interval (s). Shorter than `host.playAudio`'s default throttle (0.12 s), so it goes out on the bus directly. */
 const FIRE_AUDIO_TICK = 0.1;
-/** 한 프레임에 쏘는 최대 발수 — 프레임이 튀어도 몰아 쏘지 않는다. */
+/** Maximum rounds fired in one frame — a frame spike never dumps a burst at once. */
 const MAX_SHOTS_PER_FRAME = 3;
-/** 몸이 표적에서 이만큼(rad) 넘게 돌아가 있으면 총열만 돌고 쏘지 않는다. */
+/** Turned more than this (rad) off the target, only the barrels spin and nothing fires. */
 const FIRE_FACING_TOL = 0.35;
-/** 너무 가까울 때 뒤로 물러나는 조향 목표까지의 거리 (m). */
+/** Distance to the steering target it backs off to when too close (m). */
 const BACKOFF_STEP = 6;
-/** 리플리카: `ee spray on` 뒤 `off` 가 오지 않아도 `burstTime + 이 값` 이 지나면 멈춘다 (s). */
+/** Replica: with no `off` after an `ee spray on`, it stops once `burstTime + this` has passed (s). */
 const REMOTE_GRACE = 1.5;
-/** 리플리카: 연사 중인데 스냅샷 힌트가 19 가 아닌 채 이만큼 지나면 멈춘다 (s). */
+/** Replica: while spraying, it stops once this long has passed with the snapshot hint not 19 (s). */
 const REMOTE_HINT_MISS = 0.5;
 const TRACER_COLOR = 0xffd27a;
 const FLASH_COLOR = 0xffc070;
@@ -118,7 +120,7 @@ const _aimPt = new THREE.Vector3();
 const _chest = new THREE.Vector3();
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════
- * 호스트
+ * Host
  * ════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 export function updateHeavy(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget | null, targetAlive: boolean): void {
@@ -126,10 +128,10 @@ export function updateHeavy(e: Enemy, dt: number, host: EnemyHost, t: CombatTarg
   const s = e.stats;
   const a = e.anim;
   const d = heavyData(e);
-  d.remoteOn = false;   // 승격된 호스트: 이제 이 AI 가 미니건을 쥔다 (리플리카 시절의 연사 연출은 끈다)
+  d.remoteOn = false;   // a promoted host: this AI holds the minigun now (the replica-era spray FX is turned off)
   if (e.namedCooldown > 0) e.namedCooldown -= dt;
 
-  // 싸울 상대가 없다 → 그 자리를 새 순찰 기점으로 삼고 선다
+  // Nothing to fight → it takes that spot as its new patrol anchor and stands
   if (!targetAlive && e.aware && (e.state === 'chase' || e.state === 'alert')) {
     e.aware = false; e.state = 'idle'; e.stateTime = 0; e.wanderTimer = 1.5;
     e.guardPos.copy(e.position);
@@ -164,7 +166,7 @@ export function updateHeavy(e: Enemy, dt: number, host: EnemyHost, t: CombatTarg
       break;
     }
     case 'alert': {
-      // 반응 지연: 표적 쪽으로 돌아서며 미니건을 든다
+      // The reaction delay: it turns onto the target and raises the minigun
       if (targetAlive) { e.facePoint.copy(t!.position); e.hasFacePoint = true; lookAtTarget(e, t!, dt); }
       aimT = 0.8;
       if (e.stateTime >= ROGUE_REACTION) { e.state = 'chase'; e.stateTime = 0; }
@@ -180,7 +182,7 @@ export function updateHeavy(e: Enemy, dt: number, host: EnemyHost, t: CombatTarg
     case 'stagger': {
       e.staggerTimer -= dt;
       if (e.incapTimer > 0) {
-        // 전소: 미니건을 떨군 채 몸부림 (anim.writhe)
+        // Incinerated: it writhes with the minigun dropped (anim.writhe)
         e.incapTimer = Math.max(0, e.incapTimer - dt);
         crouchT = 0.35; aimT = 0;
       } else {
@@ -197,10 +199,10 @@ export function updateHeavy(e: Enemy, dt: number, host: EnemyHost, t: CombatTarg
     default: break;
   }
 
-  // 교전 밖(경직 · 표적 상실 · 순찰)으로 나가면 연사를 그 자리에서 끊고 총열을 세운다
+  // Leaving the fight (stagger · lost target · patrol) cuts the spray where it stands and spins the barrels down
   if (e.state !== 'chase' && e.namedPhase !== PH_ADVANCE) endBurst(e, d, host, NAMED_HEAVY.burstCooldown * 0.5);
 
-  e.namedHint = hint;   // 0 = 일반 로그 힌트(경직 6 등)로 `net/HostSync.animHint` 가 되돌아간다
+  e.namedHint = hint;   // 0 = `net/HostSync.animHint` falls back to the ordinary rogue hints (stagger 6 and so on)
   a.aim += (aimT - a.aim) * Math.min(1, dt * (aimT > a.aim ? 5 : 3));
   a.crouch += (crouchT - a.crouch) * Math.min(1, dt * 7);
   a.shake = Math.max(0, a.shake - dt * 4);
@@ -214,18 +216,18 @@ function engage(e: Enemy, d: HeavyData, dt: number, host: EnemyHost, t: CombatTa
   const dist = e.distToTarget;
   lookAtTarget(e, t, dt);
   e.facePoint.copy(t.position); e.hasFacePoint = true;
-  // 싼 것부터: 눈(인지 캐시) → 사거리 → 총구 사선(`ENEMY_FIRE_LOS_S` 캐시)
+  // Cheapest first: the eyes (the perception cache) → range → the muzzle line of fire (the `ENEMY_FIRE_LOS_S` cache)
   const line = e.hasLOS && dist <= H.range && hasFireLine(e, host, t);
 
-  /* ── 발놀림 — 사선이 있든 없든 계속 걷는다 (사격만 보류하고 이동은 막지 않는다, FireLine 규약 1) ── */
+  /* ── Footwork — it keeps walking with or without a line (a blocked line holds fire only, never movement; FireLine rule 1) ── */
   const mul = e.namedPhase === PH_ADVANCE ? 1 : H.spinMoveMul;
   let speed = 0;
   if (!e.hasLOS || dist > H.keepMax) {
-    // 멀거나 안 보인다: 다가간다
+    // Far or out of sight: close in
     e.moveTarget.copy(t.position); e.hasMoveTarget = true;
     speed = s.speed * mul;
   } else if (dist < H.keepMin && !t.isDrone) {
-    // 너무 가깝다: 표적을 바라본 채 뒤로 물러선다 (맵 밖이면 버틴다). 드론에게서는 물러서지 않고 그 자리에서 쓸어 버린다.
+    // Too close: it backs off while facing the target (outside the map it holds). It does not back off from a drone — it sweeps it from where it stands.
     const dx = e.position.x - t.position.x, dz = e.position.z - t.position.z;
     const l = Math.hypot(dx, dz) || 1;
     const mx = e.position.x + (dx / l) * BACKOFF_STEP, mz = e.position.z + (dz / l) * BACKOFF_STEP;
@@ -234,16 +236,16 @@ function engage(e: Enemy, d: HeavyData, dt: number, host: EnemyHost, t: CombatTa
       speed = s.speed * H.creepMul * mul;
     }
   } else if (!line) {
-    // 눈에는 보이는데 총구가 막혔다(벽 · 바위에 몸을 붙였다): 옆으로 비켜 선다. 다리가 끝나면 FireLine 이 반대쪽으로 뒤집는다.
+    // Visible but the muzzle is blocked (the target hugs a wall or a rock): it steps aside. At the end of the leg FireLine flips it to the other side.
     fireLineStrafe(e, host, t, dt);
     speed = s.speed * mul;
   } else if (dist > (H.keepMin + H.keepMax) * 0.5) {
-    // 띠 안의 먼 쪽: 쏘면서도 천천히 밀고 들어온다
+    // The far side of the band: it creeps in slowly while firing
     e.moveTarget.copy(t.position); e.hasMoveTarget = true;
     speed = s.speed * H.creepMul * mul;
   }
 
-  /* ── 미니건 ── */
+  /* ── The minigun ── */
   switch (e.namedPhase) {
     case PH_ADVANCE:
       if (line && e.namedCooldown <= 0) {
@@ -253,7 +255,7 @@ function engage(e: Enemy, d: HeavyData, dt: number, host: EnemyHost, t: CombatTa
       }
       break;
     case PH_SPINUP:
-      // 한 번 돌리기 시작하면 끝까지 돌린다 — 다 돌았을 때 사선이 없으면 헛돈다
+      // Once the barrels start they spin all the way up — with no line at the end of it, they spin empty
       e.namedTimer += dt;
       if (e.namedTimer >= H.spinUp) {
         if (line) startFire(e, d, host);
@@ -284,7 +286,7 @@ function engage(e: Enemy, d: HeavyData, dt: number, host: EnemyHost, t: CombatTa
 
 function startFire(e: Enemy, d: HeavyData, host: EnemyHost): void {
   e.namedPhase = PH_FIRE; e.namedTimer = 0;
-  d.shotAcc = 1;       // 첫 발은 곧바로
+  d.shotAcc = 1;       // the first round goes out at once
   d.audioTick = 0;
   if (!d.sprayWire) { d.sprayWire = true; sendSpray(e, host, 1); }
 }
@@ -295,7 +297,7 @@ function stopWire(e: Enemy, d: HeavyData, host: EnemyHost): void {
   sendSpray(e, host, 0);
 }
 
-/** 연사를 끝내고 총열을 세운다 (spindown 소리는 실제로 돌고 있었을 때만). */
+/** Ends the burst and spins the barrels down (the spindown sound only when they really were spinning). */
 function endBurst(e: Enemy, d: HeavyData, host: EnemyHost, cooldown: number): void {
   stopWire(e, d, host);
   if (e.namedPhase !== PH_ADVANCE) host.playAudio('minigun_spindown', e.position, 1, 1);
@@ -310,14 +312,14 @@ function sendSpray(e: Enemy, host: EnemyHost, on: 0 | 1): void {
   ctx.net.send({ t: 'ee', ev: 'spray', id: e.id, on }, 'others');
 }
 
-/** |표적 방향 − 몸 방향| (rad). */
+/** |target direction − body direction| (rad). */
 function facingError(e: Enemy, t: CombatTarget): number {
   const want = Math.atan2(t.position.x - e.position.x, t.position.z - e.position.z);
   const rel = want - e.yaw;
   return Math.abs(Math.atan2(Math.sin(rel), Math.cos(rel)));
 }
 
-/** 이번 프레임 몫의 발사 (호스트). 피해 · 가림 · 배리어 · 유리 파괴는 전부 `fireGun` 이 한다 — 여기는 박자와 연출만. */
+/** This frame's share of the firing (host). Damage · occlusion · barriers · breaking glass are all `fireGun`'s job — this is the cadence and the FX only. */
 function fireTick(e: Enemy, d: HeavyData, host: EnemyHost, t: CombatTarget, dt: number): void {
   const H = NAMED_HEAVY;
   d.shotAcc = Math.min(d.shotAcc + dt * H.rof, MAX_SHOTS_PER_FRAME);
@@ -333,13 +335,13 @@ function fireTick(e: Enemy, d: HeavyData, host: EnemyHost, t: CombatTarget, dt: 
     if (fx && d.shotCount % TRACER_EVERY === 0) fx.tracers.add(_shotOut.from, _shotOut.to, TRACER_COLOR, 0.04, 0.06, 0);
     d.shotCount++;
   }
-  // 섬광은 프레임에 하나 (FlashPool 은 모든 적 · 무기가 같이 쓰는 6칸이다). 세기 0 = 광원 기여 없음.
+  // One flash per frame (FlashPool is the 6 slots every enemy and weapon shares). Intensity 0 = no light contribution.
   if (fx) fx.flashes.flash(_shotOut.from, FLASH_COLOR, 0, 0.75, 0.04);
   e.anim.recoil = Math.max(e.anim.recoil, 0.6);
   if (hit && !t.isDrone) host.playAudio('hit_flesh', t.position, 0.5, 0.85);
 }
 
-/** `minigun_fire` 틱 — 발마다가 아니라 `FIRE_AUDIO_TICK` 마다 한 번. */
+/** The `minigun_fire` tick — once per `FIRE_AUDIO_TICK`, not once per round. */
 function tickFireAudio(ctx: GameContext, position: THREE.Vector3, d: HeavyData, dt: number): void {
   d.audioTick -= dt;
   if (d.audioTick > 0) return;
@@ -349,12 +351,12 @@ function tickFireAudio(ctx: GameContext, position: THREE.Vector3, d: HeavyData, 
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════
- * 리플리카
+ * Replica
  * ════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-export function beforeHeavyReplica(_e: Enemy, _hint: number): void { /* 지상 유닛 — 기본 스냅 그대로 */ }
+export function beforeHeavyReplica(_e: Enemy, _hint: number): void { /* a ground body — the default snap as it is */ }
 
-/** 기본 애니메이션 목표를 댐핑한 뒤: 회전 · 연사 자세, 회전음 가장자리, 그리고 `ee spray` 가 켜 둔 연사 연출. */
+/** After the default animation targets were damped: the spin · spray poses, the spin sound edges, and the spray FX `ee spray` turned on. */
 export function afterHeavyReplica(e: Enemy, hint: number, dt: number, host: ReplicaHost): void {
   const d = heavyData(e);
   const a = e.anim;
@@ -365,7 +367,7 @@ export function afterHeavyReplica(e: Enemy, hint: number, dt: number, host: Repl
 
   if (spinning) {
     a.aim += (1 - a.aim) * Math.min(1, dt * 6);
-    if (hint === HINT_FIRE) a.recoil = Math.max(a.recoil, 0.45 + Math.random() * 0.2);   // 반동 떨림
+    if (hint === HINT_FIRE) a.recoil = Math.max(a.recoil, 0.45 + Math.random() * 0.2);   // recoil jitter
   }
 
   if (!d.remoteOn) return;
@@ -376,11 +378,12 @@ export function afterHeavyReplica(e: Enemy, hint: number, dt: number, host: Repl
 }
 
 /**
- * 리플리카가 헤비의 표적을 **방위로 추론**한다 (C-50) — 와이어에는 `ee spray {on}` 뿐이라 누구를 쏘는지 모른다.
- * 몸 방향(`e.yaw`, 스냅샷)에서 `FIRE_FACING_TOL` 안(= 호스트가 실제로 방아쇠를 당기는 콘) · `range` 안의 후보 중 가장
- * 가까운 것 — 플레이어(`targets.alive`) ∪ 적이 노리는 드론(`targets.drones`) ∪ 반대 팩션 적. 찾으면 그 가슴(`getChest`,
- * 적은 키 × 0.6 = 같은 식)을 `out` 에 적고 true. 예전에는 머리 피치(가까운 **플레이어** 쪽)로 높이를 짐작해 드론 · 벌레를
- * 쏠 때 트레이서가 허공으로 갔다.
+ * A replica **infers the Heavy's target from its facing** (C-50) — the wire carries only `ee spray {on}`, so who it is
+ * shooting is unknown. Of the candidates within `FIRE_FACING_TOL` of the body direction (`e.yaw`, from the snapshot;
+ * = the cone the host really pulls the trigger in) and within `range`, the nearest one — players (`targets.alive`) ∪
+ * drones enemies go for (`targets.drones`) ∪ enemies of the opposite faction. Found, its chest (`getChest`, height ×
+ * 0.6 for an enemy = the same formula) is written into `out` and true is returned. It used to guess the height from the
+ * head pitch (toward the nearest **player**), which sent the tracers into thin air when it shot a drone or a bug.
  */
 function remoteAimPoint(e: Enemy, host: ReplicaHost, out: THREE.Vector3): boolean {
   aim.px = e.position.x; aim.pz = e.position.z;
@@ -390,9 +393,9 @@ function remoteAimPoint(e: Enemy, host: ReplicaHost, out: THREE.Vector3): boolea
   aim.out = out;
   const targets = host.targets;
   considerTargets(targets.alive);
-  considerTargets(targets.allies);      // 2026-09-15: 안드로이드 분대원 (사람과 같은 가슴 높이 — `getChest`)
+  considerTargets(targets.allies);      // 2026-09-15: android squadmates (the same chest height as a person — `getChest`)
   considerTargets(targets.drones);
-  considerTargets(targets.vehicles);   // 2026-09-13: 탐사 차량 (리플리카의 프록시도 `ctx.world.rover` 로 갱신된다)
+  considerTargets(targets.vehicles);   // 2026-09-13: the rover (a replica's proxy is refreshed from `ctx.world.rover` too)
   const active = host.active;
   for (let i = 0; i < active.length; i++) {
     const o = active[i];
@@ -403,7 +406,7 @@ function remoteAimPoint(e: Enemy, host: ReplicaHost, out: THREE.Vector3): boolea
   return aim.found;
 }
 
-/* `remoteAimPoint` 의 스크래치 — 연사 중 매 프레임 돌므로 클로저 · 배열을 만들지 않는다. */
+/* `remoteAimPoint`'s scratch — it runs every frame while spraying, so no closure and no array is created. */
 const COS_FIRE_TOL = Math.cos(FIRE_FACING_TOL);
 const aim = { px: 0, pz: 0, fx: 0, fz: 1, best: 0, found: false, out: null as THREE.Vector3 | null };
 
@@ -420,14 +423,15 @@ function considerAim(x: number, y: number, z: number): void {
   const dx = x - aim.px, dz = z - aim.pz;
   const d2 = dx * dx + dz * dz;
   if (d2 >= aim.best || d2 < 1e-4) return;
-  if (dx * aim.fx + dz * aim.fz < COS_FIRE_TOL * Math.sqrt(d2)) return;   // 콘 밖 (뒤쪽 포함)
+  if (dx * aim.fx + dz * aim.fz < COS_FIRE_TOL * Math.sqrt(d2)) return;   // outside the cone (behind included)
   aim.best = d2; aim.found = true;
   aim.out!.set(x, y, z);
 }
 
 /**
- * 리플리카 연사 연출 — 호스트와 같은 박자(`rof`, `TRACER_EVERY`). 방향은 총구 → 추론한 표적 가슴(`remoteAimPoint`) +
- * `spread`, 후보가 없으면 적 yaw 전방 + 머리 피치로 되돌아간다.
+ * The replica's spray FX — the same cadence as the host (`rof`, `TRACER_EVERY`). The direction is muzzle → the
+ * inferred target's chest (`remoteAimPoint`) + `spread`, falling back to the enemy's yaw forward + head pitch with no
+ * candidate.
  */
 function remoteSpray(e: Enemy, d: HeavyData, host: ReplicaHost, dt: number): void {
   const H = NAMED_HEAVY;
@@ -444,9 +448,9 @@ function remoteSpray(e: Enemy, d: HeavyData, host: ReplicaHost, dt: number): voi
     d.shotCount++;
     if (!tracer || !fx || !world) continue;
     if (aimed && _dir.subVectors(_aimPt, _from).lengthSq() > 1e-4) _dir.normalize();
-    // 후보가 없다: 리플리카도 가까운 플레이어를 바라보므로(`lookAtTarget`) 머리 피치가 조준 높이다: pitch = −atan(dy / dist)
+    // No candidate: a replica looks at the nearest player too (`lookAtTarget`), so the head pitch is the aim height: pitch = −atan(dy / dist)
     else _dir.set(Math.sin(e.yaw), Math.tan(THREE.MathUtils.clamp(-e.anim.headPitch, -0.6, 0.6)), Math.cos(e.yaw)).normalize();
-    // `parts/Attacks.fireGun` 과 같은 삼각 분포 퍼짐
+    // The same triangular-distribution spread as `parts/Attacks.fireGun`
     const ey = (Math.random() + Math.random() - 1) * H.spread;
     const ep = (Math.random() + Math.random() - 1) * H.spread * 0.7;
     _side.set(-_dir.z, 0, _dir.x).normalize();
@@ -460,7 +464,7 @@ function remoteSpray(e: Enemy, d: HeavyData, host: ReplicaHost, dt: number): voi
   if (fx) fx.flashes.flash(_from, FLASH_COLOR, 0, 0.75, 0.04);
 }
 
-/** `ee spray {id, on}` — 연출 상태만 켜고 끈다 (게임 상태는 바꾸지 않는다). */
+/** `ee spray {id, on}` — turns the FX state on and off only (it changes no game state). */
 export function onHeavyEvent(host: ReplicaHost, msg: Extract<EnemyEvent, { ev: 'spray' }>): void {
   const e = host.find(msg.id);
   if (!e || !e.active || e.state === 'dead' || e.type !== 'rogue_heavy') return;

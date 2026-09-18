@@ -2,22 +2,22 @@ import * as THREE from 'three';
 import { Layers } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 2026-09-11: 로든 스캔 드론의 **음파** 연출 (`ai/named/ScanDrone` 가 호스트 · 리플리카 모두에서 부른다).
+ * 2026-09-11: the **scan pulse** FX of Roden's scan drone (`ai/named/ScanDrone` calls it on host and replica alike).
  *
- * 음파 한 번 = 풀링된 메시 두 장이 `PULSE_S` 동안 `radius` 까지 퍼진다.
- *  - **원뿔 셸** — 드론(꼭짓점)에서 땅(밑면)까지 열린 원뿔. 아래로 흘러내리는 줄무늬가 "소리가 퍼진다" 를 그린다.
- *  - **바닥 띠** — 드론 바로 아래 지면 높이에 선 짧은 열린 원기둥. 세로 가운데만 밝아서 지형과 만나는 곳이
- *    **바닥을 스치는 붉은 선**으로 읽힌다 (평평한 링은 경사에서 묻히거나 뜬다).
- * 둘 다 가산 혼합 · `depthWrite: false` · `NO_RAYCAST` 이고 **광원은 없다** (루트 CLAUDE.md — 광원 개수 규칙).
- * 메시 · 머티리얼은 풀 크기만큼 한 번 만들고 `visible` 과 uniform 만 바꾼다 — 프레임당 할당 없음.
+ * One pulse = two pooled meshes spreading out to `radius` over `PULSE_S`.
+ *  - **Cone shell** — an open cone from the drone (apex) to the ground (base). Stripes running down it draw "the sound spreads".
+ *  - **Ground band** — a short open cylinder standing at ground height right below the drone. Only its vertical middle is
+ *    bright, so where it meets the terrain it reads as **a red line grazing the ground** (a flat ring sinks into a slope or floats above it).
+ * Both are additively blended · `depthWrite: false` · `NO_RAYCAST`, and there are **no lights** (the root CLAUDE.md — the light-count rule).
+ * The meshes · materials are created once, pool-sized, and only `visible` and the uniforms change — no per-frame allocation.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const POOL = 4;
-/** 한 번의 음파가 퍼지는 시간 (s). */
+/** How long one pulse takes to spread (s). */
 const PULSE_S = 1.15;
-/** 바닥 띠의 세로 폭 (m) — 경사에서도 지면을 가로지르도록 넉넉하게. */
+/** Vertical width of the ground band (m) — generous, so it still crosses the ground on a slope. */
 const BAND_H = 6;
-/** 원뿔 꼭짓점 반지름 비율 (밑면 1 기준). */
+/** Cone apex radius ratio (base = 1). */
 const CONE_TOP = 0.03;
 const PULSE_COLOR = new THREE.Color(1.0, 0.16, 0.12);
 
@@ -31,7 +31,7 @@ void main() {
   #include <logdepthbuf_vertex>
 }`;
 
-/** 원뿔: vUv.y 1 = 드론, 0 = 땅. 줄무늬가 아래로 흐른다. */
+/** Cone: vUv.y 1 = the drone, 0 = the ground. The stripes flow downward. */
 const CONE_FRAG = /* glsl */ `
 #include <common>
 #include <logdepthbuf_pars_fragment>
@@ -48,7 +48,7 @@ void main() {
   gl_FragColor = vec4(uColor, a);
 }`;
 
-/** 바닥 띠: 세로 가운데 한 줄만 밝다. */
+/** Ground band: only the one line down the vertical middle is bright. */
 const BAND_FRAG = /* glsl */ `
 #include <common>
 #include <logdepthbuf_pars_fragment>

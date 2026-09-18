@@ -1,18 +1,18 @@
 /**
- * src/enemies/sandworm/Pose.ts — **땅굴벌레 자세 힌트** (2026-09-13).
+ * src/enemies/sandworm/Pose.ts — **sandworm pose hints** (2026-09-13).
  *
- * 권위(`sandworm/Director` 의 땅굴벌레 틱)와 리플리카(`net/Replica.drive`)가 **같은 함수**로 와이어 힌트를 자세로 푼다 —
- * 호스트가 보는 입 벌림 · 꿀렁임 · 숙임이 비호스트 화면과 어긋나지 않게. 힌트 값은 `EnemyWire.a` 의 21 · 22
- * (`shared/net.ts` 의 `EnemyEventAppended2026_09_13` 주석). 판정 · 타이머는 없다.
+ * The authority (the sandworm tick in `sandworm/Director`) and the replica (`net/Replica.drive`) resolve the wire hint
+ * into a pose with the **same function** — the mouth opening · throat surge · lean the host sees never go out of step
+ * with a non-host's screen. The hints are `EnemyWire.a` 21 · 22 (`shared/net.ts`, `EnemyEventAppended2026_09_13`). No judgement, no timers.
  */
 import type { Enemy } from '../Enemy';
 
-/** 버그를 뱉는 중 — 목구멍이 꿀렁이고 입이 크게 벌어진다. */
+/** Spitting bugs — the throat surges and the mouth opens wide. */
 export const WORM_HINT_SPIT = 21;
-/** 독극물 연발 준비 · 발사 — 앞으로 숙이고 입을 벌린다. */
+/** Acid volley wind-up · fire — leans forward and opens the mouth. */
 export const WORM_HINT_ACID = 22;
 
-/** `hint` 쪽으로 `e.anim` 의 입 벌림(`mandible`) · 꿀렁임(`abdomen`) · 숙임(`aim`) · 떨림(`shake`)을 부드럽게 옮긴다. */
+/** Eases `e.anim`'s mouth opening (`mandible`) · throat surge (`abdomen`) · lean (`aim`) · tremble (`shake`) toward `hint`. */
 export function applyWormHint(e: Enemy, hint: number, dt: number): void {
   const a = e.anim;
   const spit = hint === WORM_HINT_SPIT;

@@ -1,8 +1,10 @@
 /**
- * src/enemies/ai/named/model.ts — **로든 ↔ 스캔 드론이 주고받는 상태** (2026-09-11, 리드가 고정한 폴더 내부 계약).
+ * src/enemies/ai/named/model.ts — **the state Roden and the scan drone exchange** (2026-09-11, a folder-internal
+ * contract the lead fixed).
  *
- * 저격수(`Sniper.ts`)와 스캔 드론(`ScanDrone.ts`)은 서로 다른 담당이 만든다. 둘은 서로의 `Enemy.namedData` 를
- * 이 모양으로만 읽는다 — 모양을 바꾸려면 양쪽이 같이 바꾼다. 둘 다 **호스트에서만** 쓴다(리플리카는 와이어 이벤트만 본다).
+ * The sniper (`Sniper.ts`) and the scan drone (`ScanDrone.ts`) are written by different owners. Each reads the other's
+ * `Enemy.namedData` only in this shape — changing the shape changes both sides together. Both are used **on the host
+ * only** (a replica sees the wire events and nothing else).
  */
 import type { TargetId } from '../../Targets';
 
@@ -23,32 +25,32 @@ export interface SniperData {
   aimScanned: boolean;
   /* ── appended by Sniper.ts (2026-09-11) ── */
   /**
-   * **ScanDrone.ts 에 보내는 신호.** 로든이 드론 `id` 의 스캔을 **소모**했다 — 스캔 표적에게 쐈거나(성공),
-   * 사선이 끝내 안 열려 포기했거나, 드론이 스캔을 마치기 전에 떨어졌다. 그 순간 `droneId` 는 null 로 돌아가고
-   * 여기에 그 드론의 id 가 남는다. 드론은 자기 id 가 보이면 노출을 풀고(`named:scanExposure {count:0}`) 복귀하면 된다.
-   * 다음 드론이 뜨기 전까지 값이 유지된다.
+   * **The signal to ScanDrone.ts.** Roden **consumed** drone `id`'s scan — it shot a scanned target (success), gave up
+   * because the line never opened, or the drone went down before it finished scanning. At that moment `droneId` goes
+   * back to null and that drone's id is left here. A drone that sees its own id clears the exposure
+   * (`named:scanExposure {count:0}`) and flies home. The value is kept until the next drone launches.
    */
   resolvedDroneId: number | null;
-  /* 이하 Sniper.ts 내부 상태 — 드론 쪽은 읽지 않는다. */
-  /** 스캔 완료 뒤 사선을 기다리는 남은 s (< 0 = 아직 완료를 못 봤다). */
+  /* Sniper.ts internal state from here on — the drone side does not read it. */
+  /** Seconds left waiting for a line of fire after the scan finished (< 0 = the finish has not been seen yet). */
   scanWait: number;
-  /** 지금 드론이 뜬 지 몇 s (드론이 응답이 없을 때의 안전장치). */
+  /** Seconds the current drone has been out (a safety net for a drone that never answers). */
   droneAge: number;
-  /** 지난 틱의 hp — 줄었으면 피격. */
+  /** Last tick's hp — a drop means it was hit. */
   lastHp: number;
-  /** 자리를 옮기는 중이면 남은 s (> 0 = 일어서서 달린다, 목표는 `Enemy.coverPos`). */
+  /** Seconds left of a relocation, when one is under way (> 0 = it stands up and runs, target `Enemy.coverPos`). */
   relocate: number;
-  /** 다음 자리 옮기기까지 s. */
+  /** Seconds until the next relocation. */
   relocateCd: number;
-  /** 엎드린 지 몇 s (자세가 다 내려앉기 전에는 반짝임을 시작하지 않는다). */
+  /** Seconds spent prone (no glint starts before the pose has fully settled). */
   proneTime: number;
-  /** 마지막 표적 고르기의 답 — 사선이 열린 가장 가까운 표적, 또는 null. */
+  /** The answer of the last target pick — the nearest target with an open line, or null. */
   pickId: TargetId | null;
-  /** 그 표적이 스캔 표적인가. */
+  /** Whether that target is a scanned one. */
   pickScanned: boolean;
-  /** 다음 표적 고르기까지 s. */
+  /** Seconds until the next target pick. */
   pickAt: number;
-  /** 할 일이 없을 때 조준경으로 훑는 중심 방향 (rad). */
+  /** Centre direction the scope sweeps around with nothing to do (rad). */
   watchYaw: number;
 }
 
@@ -69,7 +71,7 @@ export interface ScanDroneData {
   done: boolean;
   /** Seconds spent over the target (`NAMED_SCAN_DRONE.loiterMax` → fly back and despawn). */
   loiter: number;
-  /* ── appended (2026-09-11, ScanDrone.ts 전용 — Sniper.ts 는 읽지 않는다) ── */
+  /* ── appended (2026-09-11, ScanDrone.ts only — Sniper.ts does not read these) ── */
   /** true once the sniper's `SniperData.droneId` pointed at this drone — after that `droneId !== id` means "released". */
   claimed: boolean;
   /** The sniper is telegraphing a scanned shot (`glintLeft > 0 && aimScanned`) — a falling edge = the shot went out. */

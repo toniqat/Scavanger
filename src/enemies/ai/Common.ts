@@ -6,12 +6,12 @@ import { yawTo } from './Steering';
 /* Helpers shared by EnemyAI (bugs), RogueAI (humanoids) and GimmickAI (artillery / toxic / behemoth). */
 
 /**
- * 2026-09-14 3차 — **사격 보류**(`ExtractionRef.holdFire`). 튜토리얼 탈출선이 뜨는 동안 미처 처치하지 못한 적이
- * 화물칸의 플레이어를 쏘는 것을 막는 유일한 문이다. 막는 것은 **공격뿐**이고 조준 · 바라보기 · 이동은 그대로다 —
- * `ai/FireLine` 이 사선이 막혔을 때 하는 것과 **같은 처리**라, 적은 총을 겨눈 채 옆으로 비켜설 뿐이다.
+ * 2026-09-14 3rd pass — **holding fire** (`ExtractionRef.holdFire`). It is the one gate that stops an enemy left alive while the
+ * tutorial dropship lifts off from shooting the player in the bay. **Only the attack** is blocked; aiming, looking and movement stay —
+ * it is **the same handling** as `ai/FireLine` gives a blocked line, so the enemy just sidesteps with its gun up.
  *
- * 거는 자리는 셋이다: `FireLine.hasFireLine`(사선 게이트를 지나는 모든 사격) · `parts/Attacks.fireGun`(게이트를
- * 지나지 않는 네임드 사격까지) · `startMelee`(근접). 튜토리얼이 아니면 `holdFire` 자체가 늘 false 라 비용은 호출 하나다.
+ * It is raised in three places: `FireLine.hasFireLine` (every shot that passes the line gate) · `parts/Attacks.fireGun` (including
+ * named shots that skip the gate) · `startMelee` (melee). Outside the tutorial `holdFire` itself is always false, so it costs one call.
  */
 export function holdingFire(host: EnemyHost): boolean {
   return host.ctx.extraction?.holdFire?.() === true;
@@ -29,8 +29,8 @@ export function lookAtTarget(e: Enemy, t: CombatTarget, dt: number): void {
 }
 
 /**
- * 근접 공격을 시작한다. `host` 를 넘기면 **사격 보류**(`holdingFire`) 중에는 시작하지 않는다 — 휘두르는 시늉도
- * 하지 않고 그대로 쫓기만 한다 (2026-09-14 3차). 넘기지 않는 호출부(네임드 타길라의 자기 망치)는 예전 그대로다.
+ * Starts a melee attack. Pass `host` and it does not start while fire is held (`holdingFire`) — it does not even mime the
+ * swing, it just keeps chasing (2026-09-14 3rd pass). Callers that do not pass it (named Tagilla's own hammer) are unchanged.
  */
 export function startMelee(e: Enemy, host?: EnemyHost): void {
   if (host && holdingFire(host)) return;

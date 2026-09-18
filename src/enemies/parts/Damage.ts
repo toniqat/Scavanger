@@ -1,10 +1,10 @@
 /**
- * src/enemies/parts/Damage.ts — **적이 피해를 입는 모든 경로**.
+ * src/enemies/parts/Damage.ts — **every path by which an enemy takes damage**.
  *
- * 히트스캔 · 폭발 · 광역 · 리플리카의 `hit` 요청이 전부 여기로 모여 `applyDamage` 하나로 수렴하고,
- * 죽으면 시체 등록(`registerCorpse`, `CORPSE_LOOT_CHANCE` 추첨)까지 이어진다.
- * 배리어 판정(`resolveBarrier` / `absorbedByShield`)도 여기 있다 — 방패는 **적을 막는 벽**이자
- * 정면 근접을 대신 받는 면이라 피해 경로의 일부다.
+ * Hitscan · explosion · area damage · a replica's `hit` request all gather here and converge on the one `applyDamage`,
+ * and a death carries on into registering the corpse (`registerCorpse`, the `CORPSE_LOOT_CHANCE` roll).
+ * The barrier checks (`resolveBarrier` / `absorbedByShield`) live here too — the shield is both a **wall that stops
+ * enemies** and the face that takes a frontal melee in the carrier's place, so it is part of the damage path.
  */
 import * as THREE from 'three';
 import {
@@ -40,7 +40,7 @@ import { placeRogueGuards, type RogueSpawnHost } from '../RogueGuards';
 import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
 import { namedBodyCenterY } from '../models/named';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_KNOCKBACK, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
-// 2026-09-11 (E-8): 요청 가드의 상한 — 전부 `data/constants.csv` 에서 온다 (`../model` 이 읽는 자리)
+// 2026-09-11 (E-8): the request guards' caps — every one of them comes from `data/constants.csv` (`../model` is where they are read)
 import { ENEMY_STATUS_BITS_ALL, EXPLODE_SOURCE_REACH, STATUS_REQUEST_BURST_S, STATUS_REQUEST_RATE_MAX, STATUS_SOURCE_REACH } from '../model';
 import { goreKindOf, humanoidDeathSound, hurtSound, meleeHitSound } from '../model';
 import type { EnemySystem } from '../EnemySystem';
@@ -50,15 +50,15 @@ import {
 } from '@/shared';
 import type { PlayerDamageSource } from '@/shared';
 
-/* ══ 2026-09-15 (결과 창 개편): 적이 플레이어에게 준 피해의 출처 ══════════════════════════════════════════════
- * `PlayerRef.takeDamage(…, source)` 의 `{ kind: 'enemy', enemyType, enemyId }`. 사망 결과 창이 **그 개체**에게서 받은
- * 피해를 합산하므로 id 는 적 네트워크 id(호스트 · 리플리카 공용)이고, 종류는 `EnemyType` id 그대로다(튜토리얼
- * `tut_bug` 를 바탕 종류로 접지 않는다). 개체마다 한 객체를 만들어 돌려 쓴다 — 화염 지대 틱 · 연사에서 할당하지 않는다.
- * 같은 id 에 종류가 다르면(승격 뒤 id 재사용 등) 새 객체를 만든다(이미 넘겨준 객체는 바꾸지 않는다 — 받은 쪽이 들고 있어도 된다).
- * id ≤ 0 = 개체를 모른다(주인 모를 포탄) → `enemyId` 를 싣지 않는다.
+/* ══ 2026-09-15 (results screen overhaul): where the damage an enemy dealt the player came from ═══════════════
+ * The `{ kind: 'enemy', enemyType, enemyId }` of `PlayerRef.takeDamage(…, source)`. The death results screen sums the
+ * damage taken from **that one body**, so the id is the enemy's network id (host · replica share it) and the kind is the
+ * `EnemyType` id verbatim (a tutorial `tut_bug` is not folded to its base type). One object per body, reused — nothing is
+ * allocated on a fire-zone tick or on rapid fire; a different type on the same id (an id reused after promotion) makes a
+ * new one (an object already handed out is never changed). id ≤ 0 = the body is unknown (an ownerless shell) → no `enemyId`.
  */
 const _enemySources = new Map<number, PlayerDamageSource>();
-/** 캐시 상한 — 넘으면 통째로 비운다 (넘겨준 객체는 그대로 유효하다). 레이드당 적 수보다 넉넉한 표현용 값. */
+/** Cache cap — over it the whole map is cleared (objects already handed out stay valid). A nominal value, well above one raid's enemy count. */
 const ENEMY_SOURCE_CACHE_MAX = 1024;
 
 export function enemyDamageSource(id: number, type: EnemyType): PlayerDamageSource {
@@ -73,7 +73,7 @@ export function enemyDamageSource(id: number, type: EnemyType): PlayerDamageSour
   return s;
   }
 
-/** 개체 id 의 실제 종류 — 살아 있으면 그 적, 이미 사라졌으면 전에 만든 출처, 둘 다 없으면 `fallback`. */
+/** The real type behind a body id — the live enemy, else the source built for it earlier, else `fallback`. */
 export function enemyTypeOf(sys: EnemySystem, id: number, fallback: EnemyType): EnemyType {
   return sys.byId.get(id)?.type ?? (_enemySources.get(id)?.enemyType as EnemyType | undefined) ?? fallback;
   }
@@ -84,9 +84,9 @@ export function applyExplosion(sys: EnemySystem, center: THREE.Vector3, radius: 
     for (let i = 0; i < sys.active.length; i++) {
       const e = sys.active[i];
       if (!e.active || e.state === 'dead') continue;
-      _v.set(e.position.x, e.position.y + namedBodyCenterY(e), e.position.z);   // C-55: 엎드린 로든은 ≈ 0.25 m
+      _v.set(e.position.x, e.position.y + namedBodyCenterY(e), e.position.z);   // C-55: a prone Roden sits at ≈ 0.25 m
       if (_v.distanceToSquared(center) < radius * radius
-        && blastReachesBody(sys.ctx.world, center, e.position.x, e.position.y, e.position.z, namedBodyCenterY(e) * 2)) {   // 2026-09-18: 벽 너머엔 피 튀김도 없다 (호스트 `explode` 와 같은 판정)
+        && blastReachesBody(sys.ctx.world, center, e.position.x, e.position.y, e.position.z, namedBodyCenterY(e) * 2)) {   // 2026-09-18: not even a blood spray past a wall (the same test as the host's `explode`)
         _v2.subVectors(_v, center);
         if (_v2.lengthSq() < 1e-4) _v2.set(0, 1, 0); else _v2.normalize();
         sys.fx?.burst(_v, 6, 'blood', 5, _v2, 0.6);
@@ -107,15 +107,15 @@ export function explode(sys: EnemySystem, center: THREE.Vector3, radius: number,
     const e = sys.active[i];
     if (e === exclude || !e.active || e.state === 'dead') continue;
     if (skipFaction !== null && e.faction === skipFaction) continue;
-    _v.set(e.position.x, e.position.y + namedBodyCenterY(e), e.position.z);   // C-55: 엎드린 로든은 ≈ 0.25 m
+    _v.set(e.position.x, e.position.y + namedBodyCenterY(e), e.position.z);   // C-55: a prone Roden sits at ≈ 0.25 m
     const d2 = _v.distanceToSquared(center);
     const reach = radius + e.stats.radius;
     if (d2 > reach * reach) continue;
-    // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 너머의 적은 맞지 않는다 — 몸 3점 중 하나라도 폭심이 보여야 한다
+    // 2026-09-18 (user's decision): an enemy past a wall · roof · floor is not hit — at least one of the body's 3 points has to see the blast centre
     if (!blastReachesBody(sys.ctx.world, center, e.position.x, e.position.y, e.position.z, namedBodyCenterY(e) * 2)) continue;
     const d = Math.sqrt(d2);
-    // 2026-09-15 (사용자 결정): 거리는 예전 그대로 **몸 표면까지**, 감쇠만 공용 2단 계단 (`shared/explosion`).
-    // 하한 0.15 는 없애지 않고 그 위에 얹는다 — 큰 적이 반경 가장자리에서도 완전히 안 아프지는 않게 한 값이다.
+    // 2026-09-15 (user's decision): the distance is measured **to the body surface** as before, only the falloff is the shared two-step stair (`shared/explosion`).
+    // The 0.15 floor was not removed but laid on top of it — it is what keeps a big enemy from being completely unhurt at the rim of the radius.
     const falloff = explosionFalloff(Math.max(0, d - e.stats.radius), radius);
     const dmg = damage * Math.max(0.15, falloff);
     _v2.subVectors(_v, center);
@@ -136,11 +136,11 @@ export function explode(sys: EnemySystem, center: THREE.Vector3, radius: number,
 /**
  * 2026-09-11 (E-8): the replica branch drops `by` because `ExplodeRequest` has no owner field — and it may, because the
  * host credits the relay `from`, which **is** the owner on every path that reaches this branch. Measured: the two
- * `applyAreaDamage` callers that can run outside the authority are the AT 런처 (`implants/parts/Devices.ts` — passes
- * `ctx.net?.localId`, i.e. this client) and `gadgets.damageEnemies`; the gadget callers (지뢰 `explodeMine`, 원격 지뢰
- * `detonateWhere`, 포탑, 화염지대) are all reached only from `GadgetSystem.update`'s `if (authority)` branch, so on a
- * replica they never fire at all. `by` and the wire's `from` therefore name the same peer wherever it matters; when a
- * caller one day passes **someone else's** id from a replica, this comment is the reason it would be mis-credited.
+ * `applyAreaDamage` callers that can run outside the authority are the AT launcher (`implants/parts/Devices.ts` — passes
+ * `ctx.net?.localId`, i.e. this client) and `gadgets.damageEnemies`; the gadget callers (the mine `explodeMine`, the
+ * remote mine `detonateWhere`, the turret, fire zones) are all reached only from `GadgetSystem.update`'s `if (authority)`
+ * branch, so on a replica they never fire at all. `by` and the wire's `from` therefore name the same peer wherever it
+ * matters; when a caller one day passes **someone else's** id from a replica, this comment is why it would be mis-credited.
  */
 export function applyAreaDamage(sys: EnemySystem, center: THREE.Vector3, radius: number, damage: number, by?: string): number {
   if (sys.replica) return sys.applyExplosion(center, radius, damage);
@@ -148,15 +148,15 @@ export function applyAreaDamage(sys: EnemySystem, center: THREE.Vector3, radius:
   }
 
 /**
- * `EnemyManagerRef.pushBack` (실드 배쉬 knockback — 2026-09-08 캐스트 전용, 2026-09-11 C-1 계약). Shove enemies away from
+ * `EnemyManagerRef.pushBack` (shield-bash knockback — 2026-09-08 cast only, the 2026-09-11 C-1 contract). Shove enemies away from
  * `center`: every alive combatant within `radius` gets a horizontal impulse of `speed` m/s (falling off linearly to 40 %
  * at the rim) away from the centre, or along `dir` — the same `velocity` nudge an explosion applies, so the existing
  * steering / stumble rules absorb it (a charging behemoth / charger is **not** shoved, exactly like an explosion).
  *
  * **Authority** applies it to its own copies and returns how many were pushed. **A replica** cannot move its enemies
  * (the next snapshot overwrites them), so it sends one `HitRequest { dmg: 0, kb }` per enemy in range — the falloff is
- * already applied, `d` is the push direction — and returns how many requests went out (X-6: 비호스트 배쉬 넉백이 0
- * 이던 문제). The host's `onHitRequest` applies it. Callers never branch on role.
+ * already applied, `d` is the push direction — and returns how many requests went out (X-6: a non-host bash's knockback
+ * used to be 0). The host's `onHitRequest` applies it. Callers never branch on role.
  */
 export function pushBack(sys: EnemySystem, center: THREE.Vector3, radius: number, speed: number, dir?: THREE.Vector3): number {
   if (!(radius > 0) || !(speed > 0)) return 0;
@@ -209,7 +209,7 @@ export function onHitRequest(sys: EnemySystem, msg: HitRequest, from: string): v
   if (!sys.hosting) return;
   const { id, p, d } = msg;
   let dmg = msg.dmg;
-  // ① 비트 마스크 — 모르는 비트는 여기서 사라진다 (전부 모르는 비트였으면 상태이상 부분은 통째로 건너뛴다)
+  // ① bit mask — unknown bits disappear here (all of them unknown = the status half is skipped entirely)
   const rawSt = msg.st ?? 0;
   const st = Number.isFinite(rawSt) ? rawSt & ENEMY_STATUS_BITS_ALL : 0;
   if (rawSt !== 0 && st === 0) sys.hitGuardStats.statusBits++;
@@ -230,7 +230,7 @@ export function onHitRequest(sys: EnemySystem, msg: HitRequest, from: string): v
     e.takeDamage(dmg, _hp, dir, from);
     sys.ctx.net!.send({ t: 'hitc', id: e.id, dmg: round(before - e.hp, 1), killed: e.isDead, part }, from);
   }
-  // ②③ 거리 · 요율 — 둘 다 상태이상 부분만 버린다 (위의 피해 · 아래의 넉백은 그대로다)
+  // ②③ distance · rate — both drop the status half only (the damage above and the knockback below are untouched)
   if (st !== 0 && !e.isDead && statusInReach(sys, e, from) && spendStatusBudget(sys, from)) sys.applyStatusBits(e, st, msg.dur, from);
   if (kb > 0 && e.isCombatant && e.chargePhase !== 2 && Number.isFinite(d[0]) && Number.isFinite(d[2]) && knockbackInReach(sys, e, from)) {
     _kb.set(d[0], 0, d[2]);
@@ -238,7 +238,7 @@ export function onHitRequest(sys: EnemySystem, msg: HitRequest, from: string): v
   }
   }
 
-/* ── 2026-09-11 (E-4 · X-6): 호스트가 요청을 믿기 전에 보는 것 ─────────────── */
+/* ── 2026-09-11 (E-4 · X-6): what the host checks before trusting a request ── */
 /** Per-host, per-sender damage buckets (a WeakMap so a new `EnemySystem` in tests starts clean). */
 const HIT_BUDGET = new WeakMap<EnemySystem, Map<string, { tokens: number; at: number }>>();
 
@@ -262,7 +262,7 @@ function spendHitBudget(sys: EnemySystem, from: string, dmg: number): number {
 }
 
 /**
- * X-6: a replica's knockback request (실드 배쉬) is only honoured when the sender's snapshot stands within the bash's reach
+ * X-6: a replica's knockback request (a shield bash) is only honoured when the sender's snapshot stands within its reach
  * of the enemy on this host — shield offset + 1.5 × bash range (the push centre sits half a range in front, its radius
  * is range + half the shield width) + the enemy's radius + `HIT_KNOCKBACK_RANGE_SLACK` for both snapshots' lag.
  */
@@ -276,14 +276,14 @@ function knockbackInReach(sys: EnemySystem, e: Enemy, from: string): boolean {
   return false;
 }
 
-/* ── 2026-09-11 (E-8): 상태이상 요청 (`HitRequest.st`) ────────────────────── */
+/* ── 2026-09-11 (E-8): status requests (`HitRequest.st`) ──────────────────── */
 /**
  * ② The sender's last snapshot must stand within `STATUS_SOURCE_REACH` (horizontal) of the enemy, **plus the enemy's
  * radius** — both cones measure to the body surface, not the centre (`weapons/unique/UniqueHandler.coneTargets`:
  * `dist > range + e.radius`), so without it a legitimate flame on a behemoth would be refused.
  *
- * The only things that put a status on an enemy are the 화염방사기 (`FLAME_RANGE`) and the 쇼크건 (`SHOCK_RANGE`), both
- * short-ranged. 소이 구역(`gadgets`) also calls `applyStatus`, but it is simulated by the **authority alone**
+ * The only things that put a status on an enemy are the flamethrower (`FLAME_RANGE`) and the shock gun (`SHOCK_RANGE`),
+ * both short-ranged. A fire zone (`gadgets`) also calls `applyStatus`, but it is simulated by the **authority alone**
  * (`GadgetSystem.update` → `if (authority) simulate(…)` → `updateFireZone`), so on a replica it never runs and never
  * becomes a wire request — measured before this check went in, because an owner standing far from his own fire zone
  * would otherwise have been refused.
@@ -306,7 +306,7 @@ const STATUS_BUDGET = new WeakMap<EnemySystem, Map<string, { tokens: number; at:
  * clock, like `spendHitBudget`). The legitimate senders are already throttled per enemy (`STATUS_REQUEST_INTERVAL`
  * 0.25 s), so a flamethrower sweeping 12 targets costs 48/s. Over budget = the status is dropped (the hit's damage is
  * not — that has its own budget). Deliberately **not** charging the burn DoT's damage to the DPS bucket: the reach
- * check already bounds it and pre-charging would trim legitimate multi-target flame play (사용자 결정, 설계안 §2).
+ * check already bounds it and pre-charging would trim legitimate multi-target flame play (user's decision, design note §2).
  */
 function spendStatusBudget(sys: EnemySystem, from: string): boolean {
   let map = STATUS_BUDGET.get(sys);
@@ -322,14 +322,14 @@ function spendStatusBudget(sys: EnemySystem, from: string): boolean {
   return true;
 }
 
-/* ── 2026-09-11 (E-8): 폭발 요청 (`ExplodeRequest`) ──────────────────────── */
+/* ── 2026-09-11 (E-8): explosion requests (`ExplodeRequest`) ─────────────── */
 /**
  * ②③ The sender must be a live peer whose last snapshot stands within `EXPLODE_SOURCE_REACH` (horizontal) of the
  * blast centre — `STRAT_MAX_CALL_RANGE` because the farthest legitimate explosion is a ship call's impact, plus
  * `EXPLODE_REQUEST_RANGE_SLACK` for how far the caller can run while it falls. Grenades, the bazooka and the AT
  * launcher are all far shorter, so the one cap covers them (`knockbackInReach` is the same adapter for `kb`).
  *
- * ⚠ A **dead** sender is accepted here, unlike `knockbackInReach` (리드 통합, 2026-09-11): explosions travel, so the
+ * ⚠ A **dead** sender is accepted here, unlike `knockbackInReach` (lead integration, 2026-09-11): explosions travel, so the
  * thrower routinely dies inside a grenade's 1.5–3 s fuse or a ship call's `eta`, and refusing those would quietly
  * delete a common, entirely legitimate kill. A shield bash from a corpse is nonsense; a grenade from one is not.
  * The corpse's frozen snapshot is still a sound anchor — you die near where you threw — and the distance check plus
@@ -345,16 +345,16 @@ function explodeInReach(sys: EnemySystem, x: number, z: number, from: string): b
 }
 
 /**
- * Host: a replica's `applyExplosion` (수류탄 · 바주카 · AT 런처 · 가젯 · 함선 호출 낙하). Until 2026-09-11 (E-8) this
- * took **any** `p` from **anyone** at **any** rate; now, in order (`shared/buffRules.createBuffGuard` 와 같은 순서):
+ * Host: a replica's `applyExplosion` (grenade · bazooka · AT launcher · gadget · a ship call's impact). Until 2026-09-11
+ * (E-8) this took **any** `p` from **anyone** at **any** rate; now, in order (the same order as `shared/buffRules.createBuffGuard`):
  *
- *   ① 모양      `isVec3Tuple(p)` · `r` · `dmg` 유한 · `0 < dmg ≤ MAX_REQUEST_DAMAGE` · `0 < r ≤ MAX_REQUEST_RADIUS`
- *   ② 보낸 사람  `getRemotePlayer(from)` 스냅샷이 있다 (죽어 있어도 받는다 — 위 `explodeInReach` 주석)
- *   ③ 거리      보낸 사람 스냅샷과 폭심의 수평 거리 ≤ `EXPLODE_SOURCE_REACH`
- *   ④ 요율      `spendHitBudget` — `hit` 과 **같은** 버킷이다 (따로 두면 두 경로를 번갈아 써서 합계가 두 배가 된다).
- *                깎이면 깎인 값으로 터뜨리고, 0 이면 버린다.
+ *   ① shape     `isVec3Tuple(p)` · `r` · `dmg` finite · `0 < dmg ≤ MAX_REQUEST_DAMAGE` · `0 < r ≤ MAX_REQUEST_RADIUS`
+ *   ② sender    a `getRemotePlayer(from)` snapshot exists (a dead one is accepted — the `explodeInReach` comment above)
+ *   ③ distance  horizontal distance from the sender's snapshot to the blast centre ≤ `EXPLODE_SOURCE_REACH`
+ *   ④ rate      `spendHitBudget` — the **same** bucket as `hit` (a separate one lets the two paths alternate for twice the total).
+ *               Trimmed = it goes off at the trimmed value, 0 = it is dropped.
  *
- * 반경 · `kind` 는 여전히 뭉뚱그린 상한뿐이다 — 와이어에 종류 칸이 없다(계약 그대로).
+ * The radius and `kind` still have nothing but one blanket cap — the wire has no kind field (the contract as it stands).
  */
 export function onExplodeRequest(sys: EnemySystem, p: readonly number[], r: number, dmg: number, from: string): void {
   if (!sys.hosting) return;
@@ -376,18 +376,18 @@ export function onExplodeRequest(sys: EnemySystem, p: readonly number[], r: numb
 
 export function hitTarget(sys: EnemySystem, e: Enemy, damage: number, shake = 0, target: CombatTarget | null = e.target): void {
   if (!target || target.isDeadOrDowned) return;
-  if (!meleeClear(sys, e, target)) { if (e.faction === 'bug') sys.playAudio('bug_attack', e.position, 0.5, 1.1); return; }   // 헛물기 소리는 벌레만 (C-51)
+  if (!meleeClear(sys, e, target)) { if (e.faction === 'bug') sys.playAudio('bug_attack', e.position, 0.5, 1.1); return; }   // only bugs make a missed-bite sound (C-51)
   sys.applyDamage(target, damage, e.position, e.id, e.type, null, shake, true, null, 0, true);
-  // 2026-09-11 (C-51): 타입별 타격음 — 타길라는 null (자기 `hammer_impact` 만 난다)
+  // 2026-09-11 (C-51): the hit sound per type — Tagilla is null (only its own `hammer_impact` plays)
   const bite = meleeHitSound(e.type);
   if (bite) sys.playAudio(bite.id, e.position, 1, bite.pitch);
   }
 
 /**
- * 2026-09-18 (사용자 결정): 적의 근접 공격(물기 · 도약 착지 · 돌진 · 망치 · 베헤모스 돌진)은 벽 · 지붕 · 바닥을 뚫지 않는다.
- * 거리 판정이 대부분 **수평**(`distToTarget` · `nearestAliveWithin`)이라 위층 바닥 너머 · 얇은 벽 너머 사람도 물렸다.
- * 공격자 머리(키 × 0.8, `CombatTarget.getEyePosition` 의 적 높이와 같다)에서 대상 몸 3점을 본다 (`shared/explosion.meleeReachesBody`).
- * 막히면 헛물기 — 피해 · 흔들림 · 타격음 없음 (호출부의 쿨다운 · 경직은 그대로 흐른다).
+ * 2026-09-18 (user's decision): an enemy's melee (bite · leap landing · rush · hammer · behemoth charge) does not pass a wall, a roof or a floor.
+ * Most of the range tests are **horizontal** (`distToTarget` · `nearestAliveWithin`), so a person one floor up or behind a thin wall was still bitten.
+ * Rays go from the attacker's head (height × 0.8, the same enemy height `CombatTarget.getEyePosition` uses) to the target's 3 body points (`shared/explosion.meleeReachesBody`).
+ * Blocked = a missed bite — no damage, no shake, no hit sound (the caller's cooldown and stagger run on unchanged).
  */
 function meleeClear(sys: EnemySystem, e: Enemy, target: CombatTarget): boolean {
   _v.set(e.position.x, e.position.y + e.stats.height * 0.8, e.position.z);
@@ -407,18 +407,18 @@ export function chargeHit(sys: EnemySystem, e: Enemy, target: CombatTarget, dama
 /* ── AcidHost ──────────────────────────────────────────────────────────── */
 export function damageTargetAcid(sys: EnemySystem, target: CombatTarget, amount: number, from: THREE.Vector3, shooterId: number, slow: AcidSlow): void {
   if (!sys.authority || target.isDeadOrDowned) return;
-  // Phase 9: acid that crossed a 배리어 on its way in is stopped by it (checked once at the hit, from the spewer's mouth
+  // Phase 9: acid that crossed a barrier on its way in is stopped by it (checked once at the hit, from the spewer's mouth
   // for a direct glob and from the splash point for the splash — the glob itself keeps flying visually)
   const shooter = sys.byId.get(shooterId);
   if (shooter && slow.factor <= 0.6) _v.set(shooter.position.x, shooter.position.y + shooter.stats.height * 0.7, shooter.position.z);
   else _v.copy(from);
   if (sys.barrierBlocks(_v, target)) return;
-  // 2026-09-15: 종류는 실제 쏜 개체의 것 (땅굴벌레 독 · 튜토리얼 벌레도 산성을 쏜다) — 예전엔 늘 'spewer' 였다
+  // 2026-09-15: the type is the body that really fired (the sandworm's venom and tutorial bugs spit acid too) — it used to be always 'spewer'
   sys.applyDamage(target, amount, from, shooterId, enemyTypeOf(sys, shooterId, 'spewer'), slow, 0, false);
   }
 
 /**
- * Phase 9: does a 배리어 stand between `from` and the target's chest? If so the barrier takes the block damage
+ * Phase 9: does a barrier stand between `from` and the target's chest? If so the barrier takes the block damage
  * (`ImplantsRef.damageBarrier`) and the caller deals none. One pure raycast per call — call it per hit, never per tick.
  */
 export function barrierBlocks(sys: EnemySystem, from: THREE.Vector3, target: CombatTarget): boolean {
@@ -443,7 +443,7 @@ export function barrierBlocks(sys: EnemySystem, from: THREE.Vector3, target: Com
  * Phase 7: `kbDir` / `kbSpeed` = knockback (behemoth charge, grenade blast): local → `applyKnockback`, remote →
  * `dmg.kb`; a **suspended** member (host-simulated ghost) gets `ghost:damage {id, amount, from, kb}` on the bus
  * instead of a `dmg` message.
- * Phase 12: `melee` = a bite / leap / charge contact. Before it lands on a player the raised 배리어 of that player
+ * Phase 12: `melee` = a bite / leap / charge contact. Before it lands on a player the raised barrier of that player
  * gets to absorb it (`ImplantsRef.absorbFrontalAttack`): the local carrier's shield is deducted by implants right
  * there, a peer's carrier gets `ee barrierHit` (its own shield takes it) and no `dmg`. Ranged attacks (rifle,
  * shell, acid, grenade) keep the `raycastBarrier` path of their callers.
@@ -451,20 +451,20 @@ export function barrierBlocks(sys: EnemySystem, from: THREE.Vector3, target: Com
 export function applyDamage(sys: EnemySystem, target: CombatTarget, amount: number, from: THREE.Vector3, id: number, type: EnemyType, slow: AcidSlow | null, shake: number, announce: boolean, kbDir: THREE.Vector3 | null = null, kbSpeed = 0, melee = false): void {
   if (target.isDeadOrDowned) return; // downed players are never AI victims (Phase 2)
   const ctx = sys.ctx;
-  // 2026-09-11 (적 ↔ 드론): 드론은 소유자 권한 — `damageDrone` 이 소유자가 아니면 `droneq damage` 로 넘긴다.
-  // 플레이어 피해 이벤트(`enemy:attacked`) · `dmg` · `ee attack` · 배리어 흡수 · 넉백 · 둔화는 전부 없다.
+  // 2026-09-11 (enemy ↔ drone): a drone is owner-authoritative — `damageDrone` forwards a `droneq damage` when this is not the owner.
+  // No player damage event (`enemy:attacked`), no `dmg`, no `ee attack`, no barrier absorption, no knockback, no slow.
   if (target.drone) {
     if (target.droneId !== null) ctx.drones?.damageDrone(target.droneId, amount, from);
     return;
   }
-  // 2026-09-13 (탐사 차량): 호스트 권위 — `RoverRef.damage` 하나로 끝난다. 플레이어 이벤트 · `dmg` · `ee attack` · 배리어 흡수 ·
-  // 넉백 · 둔화는 없다 (탑승자는 차량 안에서 아무 피해도 받지 않는다).
+  // 2026-09-13 (the rover): host-authoritative — one `RoverRef.damage` and that is all. No player event, no `dmg`, no `ee attack`, no barrier
+  // absorption, no knockback, no slow (a rider takes no damage at all inside the vehicle).
   if (target.vehicle) {
     if (sys.authority && target.present && target.vehicle.targetable) target.vehicle.damage(amount, from);
     return;
   }
-  // 2026-09-15 (안드로이드 분대원): 권위에서만 `ctx.allies.damage` 하나로 끝난다 — 넉백 · 둔화 · `dmg` 와이어 ·
-  // `enemy:attacked` · 배리어 흡수는 없다 (안드로이드는 사람이 아니고, 몸은 권위가 굴려 `ally state` 로 나간다).
+  // 2026-09-15 (android squadmates): on the authority only, one `ctx.allies.damage` and that is all — no knockback, no slow, no `dmg`
+  // wire, no `enemy:attacked`, no barrier absorption (an android is not a person, and the authority simulates its body out as `ally state`).
   if (target.ally) {
     if (sys.authority && target.present && target.allyId !== null) allyDamage(sys, target.allyId, amount, enemyDamageSource(id, type), from);
     return;
@@ -474,7 +474,7 @@ export function applyDamage(sys: EnemySystem, target: CombatTarget, amount: numb
     if (!victim.isCombatant) return;
     _hd.subVectors(victim.position, from); _hd.y = 0;
     const dir = _hd.lengthSq() > 1e-4 ? _hd.normalize() : undefined;
-    // 2026-09-17 (사용자 결정): 적 → 적 피해는 1/3 (`ENEMY_CLASH.damageMul`) — 근접 · 돌진 · 도약 · 산성. 사람 · 안드로이드 · 드론 · 차량 가지는 그대로.
+    // 2026-09-17 (user's decision): enemy → enemy damage is 1/3 (`ENEMY_CLASH.damageMul`) — melee · charge · leap · acid. The player · android · drone · vehicle branches are unchanged.
     victim.takeDamage(amount * ENEMY_CLASH.damageMul, undefined, dir, 'ai');
     sys.noteClash(victim.position);
     return;
@@ -483,7 +483,7 @@ export function applyDamage(sys: EnemySystem, target: CombatTarget, amount: numb
   if (target.isLocal) {
     const player = ctx.player;
     if (!player || player.isDead || player.isDowned) return;
-    player.takeDamage(amount, from, enemyDamageSource(id, type));   // 2026-09-15: 출처 = 이 개체
+    player.takeDamage(amount, from, enemyDamageSource(id, type));   // 2026-09-15: the source = this body
     ctx.bus.emit('enemy:attacked', { id, type, damage: amount, position: from });
     if (slow) ctx.bus.emit('player:applySlow', slow);
     if (shake >= 0.4) ctx.bus.emit('camera:shake', { intensity: shake, duration: 0.3 });
@@ -502,7 +502,7 @@ export function applyDamage(sys: EnemySystem, target: CombatTarget, amount: numb
   const net = ctx.net;
   if (!net) return;
   const msg: DamageMessage = { t: 'dmg', amount: round(amount, 1), from: tuple(from, 2) };
-  // 2026-09-15 (결과 창 개편): 받는 쪽이 자기 `takeDamage` 에 출처를 싣는다 (옛 클라이언트는 무시)
+  // 2026-09-15 (results screen overhaul): the receiver carries the source into its own `takeDamage` (an older client ignores it)
   msg.src = id > 0 ? { k: 'enemy', et: type, ei: id } : { k: 'enemy', et: type };
   if (slow) msg.slow = slow;
   if (kbDir && kbSpeed > 0) msg.kb = { d: tuple(kbDir, 2), s: round(kbSpeed, 1) };
@@ -540,7 +540,7 @@ export function barrierHitRemote(sys: EnemySystem, id: number, p: THREE.Vector3,
   if (bite) sys.playAudio(bite.id, e ? e.position : p, 1, bite.pitch);
   }
 
-/* ── Phase 12: 배리어 충돌 (EnemyHost) ─────────────────────────────────── */
+/* ── Phase 12: barrier collisions (EnemyHost) ──────────────────────────── */
 /**
  * Called from `ai/EnemyAI.integrate` after every grounded enemy moved: `ImplantsRef.resolveBarrierCollision` pushes
  * the body out of any raised shield and names the carrier. On contact the enemy hunts the carrier for
@@ -573,7 +573,7 @@ export function resolveBarrier(sys: EnemySystem, e: Enemy): void {
   }
   }
 
-/** 2026-09-13: 피격 · 사망 파편의 종류 — 안드로이드는 기계라 피 대신 불꽃이 튄다 (스캔 드론은 사망 경로가 따로 불꽃을 낸다). */
+/** 2026-09-13: the kind of debris a hit or a death throws — an android is a machine, so sparks instead of blood (the scan drone's death path makes its own). */
 export function goreKind(e: Enemy): 'blood' | 'spark' {
   return goreKindOf(e.type);
 }
@@ -621,30 +621,30 @@ export function onEnemyKilled(sys: EnemySystem, e: Enemy, countKill: boolean): v
   // a `hitc`), an AI kill is credited to nobody and never reaches the bus.
   if (countKill && localKill) {
     ctx.stats.kills++;
-    // 2026-09-16: 레이드 경험치는 처치로만 — 종류별 `enemies.csv` raidXp 를 킬과 같은 조건에서 쌓는다 (정산은 `game/parts/Death.awardMissionXp`)
+    // 2026-09-16: raid XP comes from kills alone — the type's `enemies.csv` raidXp is added under the same condition as the kill (settled in `game/parts/Death.awardMissionXp`)
     ctx.stats.killXp = (ctx.stats.killXp ?? 0) + raidXpOf(e.type);
   }
-  // 2026-09-14: `weaponClass` = 내 막타가 총기였으면 그 계열 (NPC 퀘스트 kill 목표 — `shared/damageSource`)
+  // 2026-09-14: `weaponClass` = the gun's class, when my last hit was a gun (NPC quest kill objectives — `shared/damageSource`)
   if (countKill && by !== null) ctx.bus.emit('enemy:killed', { id: e.id, type: e.type, position: e.position, by, deathDir: e.deathDir, ...(localKill ? { weaponClass: e.lastLocalWeaponClass } : {}) });
-  // 2026-09-11: 로든의 스캔 드론은 기계다 — 비명 · 피 대신 파괴음 · 불꽃
+  // 2026-09-11: Roden's scan drone is a machine — a destruction sound and sparks instead of a scream and blood
   if (e.type === 'rogue_scan_drone') {
     sys.playAudio('drone_destroyed', e.position, 1, 1);
     if (sys.fx) {
       _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
       sys.fx.burst(_v, 26, 'spark', 4);
     }
-  } else if (e.isHumanoid) { const dv = humanoidDeathSound(e.type); sys.playAudio(dv.id, e.position, 0.8, dv.pitch); }   // 2026-09-13: 안드로이드 = 전원 차단음
-  // 2026-09-14 3차: 사망 비명의 피치도 바탕 종류로 (`tut_bug*` = scavenger)
+  } else if (e.isHumanoid) { const dv = humanoidDeathSound(e.type); sys.playAudio(dv.id, e.position, 0.8, dv.pitch); }   // 2026-09-13: android = a power-down sound
+  // 2026-09-14 3rd pass: the death scream's pitch follows the base type too (`tut_bug*` = scavenger)
   else if (!isWormType(e.type)) { const lk = baseTypeOf(e.type); sys.playAudio('bug_death', e.position, 1, lk === 'behemoth' ? 0.35 : lk === 'charger' ? 0.5 : lk === 'scavenger' || lk === 'toxic' ? 1.2 : 0.85); }
   if (sys.fx && e.type !== 'rogue_scan_drone') {
     _v.set(e.position.x, e.position.y + e.stats.height * 0.5, e.position.z);
     const kind = goreKind(e);
     sys.fx.burst(_v, 18 + Math.round(Math.min(2, e.stats.radius) * 22), kind, 3 + Math.min(2, e.stats.radius) * 2);
-    if (kind === 'blood') sys.fx.splat(e.position, Math.min(3.5, e.stats.radius * 1.6), 'blood', ctx.world);   // 2026-09-13: 안드로이드는 핏자국이 없다
+    if (kind === 'blood') sys.fx.splat(e.position, Math.min(3.5, e.stats.radius * 1.6), 'blood', ctx.world);   // 2026-09-13: an android leaves no blood splat
   }
   if (e.type === 'spewer') sys.acidBurst(e);
   if (e.type === 'toxic' && sys.authority) sys.toxicBurst(e);
-  if (isWormType(e.type)) sys.sandworm.onWormKilled(e);   // 2026-09-13: 굴로 가라앉는 굉음 · 분진 · 토스트 (모든 클라이언트)
+  if (isWormType(e.type)) sys.sandworm.onWormKilled(e);   // 2026-09-13: the roar, the dust and the toast of sinking back into its burrow (every client)
   // lootable corpse (authority registers; replicas mirror the `corpse` event).
   // Phase 10: a body that died in the air registers **after it lands** — `GameContext.findBest` measures a 3-D
   // distance, so a corpse pinned at the mid-air kill position was both floating and unreachable.
@@ -685,7 +685,7 @@ export function registerCorpse(sys: EnemySystem, e: Enemy): void {
   if (!ctx.world) return;
   const lootable = rollCorpseLootable(ctx.world.seed, e.id, e.type);
   e.lootable = lootable;
-  // 2026-09-13: 시체 전리품의 입력 — 스폰 거점 + 던지지 못한 수류탄 (벌레는 둘 다 없다 = 옛 굴림 그대로)
+  // 2026-09-13: the corpse loot's inputs — the spawn site + grenades never thrown (a bug has neither = the old roll unchanged)
   const loot: CorpseLootOpts | undefined = e.site || e.grenadeCount > 0
     ? { site: e.site, grenades: e.grenadeCount > 0 ? { kind: e.grenadeKind, count: e.grenadeCount } : null }
     : undefined;
@@ -707,15 +707,15 @@ export function registerCorpse(sys: EnemySystem, e: Enemy): void {
   }
   }
 
-/* ══ appended (2026-09-15): 안드로이드 분대원 — 적이 주는 피해 · 안드로이드가 주는 피해 ═══════════════════
- * 규칙은 계약(`shared/allies.ts`)과 같다: **권위만** 안드로이드를 때리고, 리플리카는 아무것도 하지 않는다
- * (몸과 체력은 호스트가 굴려 `ally state` 로 내려온다 — 리플리카가 또 깎으면 두 번 아프다).
+/* ══ appended (2026-09-15): android squadmates — the damage enemies deal · the damage androids deal ═══════
+ * The rule is the contract's (`shared/allies.ts`): **only the authority** hits an android, a replica does nothing
+ * (the host simulates the body and its hp and sends them down as `ally state` — a replica deducting again hurts twice).
  */
 
-/** 디버그 주입 전용 피해 수신자 (`EnemySystem.debugAllyTargets`). null 이면 진짜 `ctx.allies` 로 간다. */
+/** A damage sink for debug injection only (`EnemySystem.debugAllyTargets`). null = it goes to the real `ctx.allies`. */
 export type AllyDamageSink = (id: string, amount: number, source: PlayerDamageSource, from: THREE.Vector3) => void;
 
-/** 안드로이드 한 기에 피해를 넣는다 — 디버그 주입이 있으면 그쪽, 없으면 `ctx.allies.damage`. */
+/** Deal damage to one android — the debug injection when there is one, else `ctx.allies.damage`. */
 export function allyDamage(sys: EnemySystem, id: string, amount: number, source: PlayerDamageSource, from: THREE.Vector3): void {
   if (!(amount > 0)) return;
   const sink = sys.debugAllySink;
@@ -723,12 +723,12 @@ export function allyDamage(sys: EnemySystem, id: string, amount: number, source:
   sys.ctx.allies?.damage(id, amount, source, from);
 }
 
-/** 거리를 어디서 재는가 — 각 폭발이 **플레이어에게** 쓰던 식을 그대로 쓴다 (사람과 안드로이드가 같은 값을 받게). */
+/** Where the distance is measured from — each blast keeps the formula it used **for the player** (so a person and an android take the same value). */
 export type AllyBlastMeasure = 'feet' | 'chest' | 'feet2d';
 
 /**
- * 폭발 · 분출 한 번의 **안드로이드 몫** (권위만). 감쇠는 공용 2단 계단(`shared/explosion`) + 부르는 쪽의 하한 `min`,
- * 몸 크기는 사람과 같다 (`PLAYER_RADIUS`). 플레이어 루프 바로 옆에서 부른다.
+ * The **android share** of one explosion or eruption (authority only). Falloff is the shared two-step stair
+ * (`shared/explosion`) plus the caller's floor `min`, and the body size is a person's (`PLAYER_RADIUS`). Called right beside the player loop.
  */
 export function damageAlliesAt(sys: EnemySystem, center: THREE.Vector3, radius: number, damage: number, id: number, type: EnemyType, min: number, measure: AllyBlastMeasure): void {
   if (!sys.authority || !(radius > 0) || !(damage > 0)) return;
@@ -742,21 +742,21 @@ export function damageAlliesAt(sys: EnemySystem, center: THREE.Vector3, radius: 
     else if (measure === 'feet2d') d = Math.hypot(t.position.x - center.x, t.position.z - center.z);
     else d = t.position.distanceTo(center);
     if (d >= reach) continue;
-    // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 차폐 — 사람 루프와 같은 몸 3점. 땅굴벌레 분출(`feet2d`)은 땅 밑에서 솟는 몸이라 폭발이 아니다.
+    // 2026-09-18 (user's decision): wall · roof · floor occlusion — the same 3 body points as the player loop. The sandworm's eruption (`feet2d`) is a body rising from under the ground, not an explosion.
     if (measure !== 'feet2d' && !blastReachesBody(sys.ctx.world, center, t.position.x, t.position.y, t.position.z, PLAYER_HEIGHT)) continue;
     const falloff = Math.max(min, explosionFalloff(Math.max(0, d - PLAYER_RADIUS), radius));
     allyDamage(sys, t.allyId, damage * falloff, enemyDamageSource(id, type), center);
   }
   }
 
-/** `applyAllyHit` 이 발사점 둘레에서 쏜 안드로이드를 찾는 반경 (m) — 총구는 몸 안에 있다. 판정 상수라 csv 대상이 아니다. */
+/** The radius (m) in which `applyAllyHit` looks around a shot's origin for the android that fired — the muzzle sits inside the body. A judgement constant, not a csv number. */
 const ALLY_HIT_RETARGET_R = 3;
 
 /**
- * `EnemyManagerRef.applyAllyHit` — 안드로이드의 한 발이 적을 맞혔다 (권위만). 사람의 총알과 다른 점은 셋이다:
- * ① 킬 크레딧이 없다 (`'ai'` — `enemy:killed` 도 `ctx.stats.kills` 도 없다), ② 넉백 · 상태이상이 없다,
- * ③ 맞은 적은 **쏜 안드로이드**를 노린다 (사람을 노리던 적이 계속 사람만 보면 안드로이드가 방패가 되지 못한다).
- * `takeDamage` 가 이미 피격 섬광 · 깨우기 · 무리 전파(`alertNear` 14 m — 총성과 같은 팩션 소음)를 한다.
+ * `EnemyManagerRef.applyAllyHit` — one of an android's rounds hit an enemy (authority only). Three things differ from a person's bullet:
+ * ① there is no kill credit (`'ai'` — neither `enemy:killed` nor `ctx.stats.kills`), ② there is no knockback and no status effect,
+ * ③ the enemy that was hit turns on **the android that fired** (an enemy that keeps looking only at the person it was hunting never lets the android be a shield).
+ * `takeDamage` already does the hit flash, the waking and the pack propagation (`alertNear` 14 m — the same faction noise as a gunshot).
  */
 export function applyAllyHit(sys: EnemySystem, enemyId: number, damage: number, point: THREE.Vector3, from: THREE.Vector3): boolean {
   if (!sys.authority || !(damage > 0)) return false;
@@ -767,7 +767,7 @@ export function applyAllyHit(sys: EnemySystem, enemyId: number, damage: number, 
   e.takeDamage(damage, point, dir, 'ai');
   if (e.isDead) return true;
   if (!e.aware) becomeAlert(e, sys, true);
-  // 쏜 안드로이드로 돌아선다 — 프록시는 `from` 근처의 것 (한 발의 출발점이 곧 그 몸이다)
+  // it turns on the android that fired — the proxy near `from` (a round's origin is that body)
   const shooter = sys.targets.allyNear(from, ALLY_HIT_RETARGET_R);
   if (shooter && shooter.present && !shooter.isDeadOrDowned && e.target !== shooter) {
     e.target = shooter;

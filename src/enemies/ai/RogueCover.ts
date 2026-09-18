@@ -14,7 +14,7 @@ import type { CombatTarget } from '../Targets';
  * one straight ahead of (or behind) the target costs the full weight, so squads spread around the player instead of
  * stacking up in front of them.
  *
- * 2026-09-15 (안드로이드 분대원): the **world-only** half — candidate generation, the map / distance / anchor filters,
+ * 2026-09-15 (android squadmates): the **world-only** half — candidate generation, the map / distance / anchor filters,
  * the crouched-eye LOS ray and the pop-out spot — now lives in `shared/cover.ts` (`pickCoverSpot`), because the
  * androids of `allies/` pick cover by exactly the same rule. What stays here is what only an `Enemy` knows: which
  * numbers to hand over, and the scoring (flank spread, "not the rock we are already at", the approach bonus).
@@ -71,7 +71,7 @@ export function pickCover(e: Enemy, host: EnemyHost, t: CombatTarget): void {
 }
 
 /**
- * Phase 12 (총알 추적): cover for a rogue **advancing** on `t` — a proxy target standing at the shot origin. Same
+ * Phase 12 (shot tracking): cover for a rogue **advancing** on `t` — a proxy target standing at the shot origin. Same
  * candidates and LOS validation as `pickCover`, but a rock only qualifies when it brings the rogue at least
  * `APPROACH_GAIN` closer to the origin, the flank term is dropped (we want to close in, not to spread out) and the
  * score favours progress toward the origin over a short walk. No candidate → `hasCover = false` (the rogue walks
@@ -84,9 +84,9 @@ export function pickApproachCover(e: Enemy, host: EnemyHost, t: CombatTarget): v
 /** A cover leg toward a shot origin must gain at least this many metres on it. */
 const APPROACH_GAIN = 3;
 
-/* ── 점수: `pickCoverSpot` 에 넘기는 **모듈 수준** 함수 하나 (매 프레임 클로저를 만들지 않는다) ─────────
- * 부르기 직전에 `pickCoverImpl` 이 아래 상태를 채운다. `pickCoverSpot` 은 한 번의 호출 안에서 동기적으로만
- * 이 함수를 부르므로 재진입이 없다.
+/* ── Score: one **module-level** function handed to `pickCoverSpot` (no per-frame closure) ──────────────
+ * `pickCoverImpl` fills the state below right before the call. `pickCoverSpot` calls this function only
+ * synchronously inside that one call, so there is no re-entry.
  */
 let _sTarget: CombatTarget | null = null;
 let _sApproach = false;
@@ -106,7 +106,7 @@ function enemyCoverScore(x: number, z: number, walk: number, toTarget: number): 
   return score;
 }
 
-/** 한 벌만 만들어 돌려 쓰는 질의 · 결과 (할당 없음). */
+/** One query · result set, made once and reused (no allocation). */
 type MutableCoverQuery = { -readonly [K in keyof CoverQuery]: CoverQuery[K] };
 const _query: MutableCoverQuery = {
   from: new THREE.Vector3(), threat: new THREE.Vector3(), anchor: new THREE.Vector3(),
@@ -127,11 +127,11 @@ function pickCoverImpl(e: Enemy, host: EnemyHost, t: CombatTarget, approach: boo
   const q = _query;
   q.from = e.position;
   q.threat = t.position;
-  // 호위병(`escortOf`)은 리시가 없다 — 대장을 따라다니므로 경계 지점에 묶으면 아예 엄폐하지 못한다
+  // an escort (`escortOf`) has no leash — it follows its leader, so tying it to a guard spot would leave it unable to take cover at all
   q.anchor = e.escortOf ? e.position : e.guardPos;
   q.anchorRadius = e.escortOf ? Infinity : e.leash;
   q.maxThreatDist = ROGUE_AI.range * COVER_MAX_RANGE_FRAC;
-  // 표적의 가슴 = 종류마다 다르다 (사람 · 적 · 드론 · 차량) — `getChest` 가 답한 높이를 그대로 넘긴다
+  // the target's chest differs per kind (person · enemy · drone · vehicle) — the height `getChest` answered is passed straight on
   q.threatEyeHeight = _chest.y - t.position.y;
   e.hasCover = false;
   e.hasPop = false;

@@ -8,10 +8,10 @@ export type TargetId = PeerId | 'local' | 'ai';
 const EYE_STAND = 1.55, EYE_CROUCH = 1.15, EYE_PRONE = 0.45;
 
 /**
- * 2026-09-13 (탐사 차량): 차체 판정 상자(`RoverRef.halfLength/halfWidth/height`)와 월드 레이캐스트(차체 콜라이더)의 여유(m).
- * 사선 검사는 차체에 들어가기 이만큼 **앞에서** 멈춘다 — 안 그러면 차체 자신의 콜라이더가 사선을 막아 차량이 영영 안 보인다.
- * 사격 판정은 월드 탄착이 차체 입구보다 이만큼 앞이어도 차량이 맞은 것으로 본다 (콜라이더가 판정 상자보다 조금 커도 맞는다).
- * 알고리즘 상수라 csv 대상이 아니다.
+ * 2026-09-13 (the rover): the slack (m) between the hull's judgement box (`RoverRef.halfLength/halfWidth/height`) and the world raycast (the hull collider).
+ * A line-of-sight check stops this far **short** of entering the hull — otherwise the hull's own collider blocks the line and the vehicle is never seen.
+ * A shot counts as hitting the vehicle when the world impact lands within this much of the hull's face (the collider may be a little larger than the judgement box).
+ * An algorithm constant, not a csv number.
  */
 export const VEHICLE_RAY_MARGIN = 0.5;
 
@@ -48,53 +48,53 @@ export class CombatTarget {
    * refreshed by the system each frame so bug ↔ rogue combat reuses the player-hunting code paths unchanged.
    */
   enemy: Enemy | null = null;
-  /* ── appended (2026-09-11): 드론 표적 ─────────────────────────────────────── */
+  /* ── appended (2026-09-11): drone targets ─────────────────────────────────── */
   /**
-   * 이 표적이 드론의 프록시면 그 드론 (`TargetList.drones`), 아니면 null. 드론 프록시의 `id` 는 `'ai'` 다 —
-   * 플레이어 id 체계(`'local'` / PeerId)를 건드리지 않으려는 것이고, 피해는 `droneId` 로 `ctx.drones.damageDrone` 에 간다.
-   * 드론이 사라져도 이 참조는 지우지 않는다(`present` / `isDead` 만 내린다) — 그 순간 표적으로 들고 있던 적이
-   * 이 프록시를 플레이어로 착각해 `dmg` 를 `'ai'` 에게 보내는 일이 없게.
+   * The drone this target proxies (`TargetList.drones`), else null. A drone proxy's `id` is `'ai'` — so that the player
+   * id scheme (`'local'` / PeerId) is left alone — and damage goes to `ctx.drones.damageDrone` by `droneId`.
+   * The reference is not cleared when the drone goes away (only `present` / `isDead` drop) — so an enemy holding it as
+   * its target at that moment never mistakes the proxy for a player and sends a `dmg` to `'ai'`.
    */
   drone: DroneRef | null = null;
   droneId: string | null = null;
   droneRadius = 0;
   droneHeight = 0;
-  /** 드론 몸체 **밑면**이 그 아래 표면보다 몇 m 떠 있는가 — 근접 벌레가 닿을 수 있는지(`pickTarget`). */
+  /** How many m the drone body's **underside** floats above the surface below it — whether a melee bug can reach it (`pickTarget`). */
   droneAltitude = 0;
-  /** `TargetList` 가 이번 갱신에서 이 드론을 봤는가 (프레임 번호). */
+  /** Whether `TargetList` saw this drone in this refresh (the frame number). */
   droneStamp = 0;
-  /** 속도 추정용 — `DroneRef` 에는 속도가 없어서 위치 차분으로 만든다. */
+  /** For estimating velocity — `DroneRef` carries none, so it is differenced from the position. */
   readonly dronePrev = new THREE.Vector3();
   dronePrevAt = -Infinity;
-  /* ── appended (2026-09-13): 탐사 차량 ─────────────────────────────────────── */
+  /* ── appended (2026-09-13): the rover ─────────────────────────────────────── */
   /**
-   * 이 플레이어가 탐사 차량 **안에** 타 있다 (로컬 `PlayerRef.roverRide` · 원격 `PlayerFlags.IN_ROVER`). 탑승자는 어떤 피해도
-   * 받지 않으므로 적의 표적도 희생자도 아니다 — `isDeadOrDowned` 에 접혀 `alive` 에서 빠지고, 들고 있던 적은 다시 고른다.
-   * `all` 에는 남는다 (스폰 거리 · 재활용 거리는 그 몸을 계속 본다).
+   * This player is riding **inside** the rover (local `PlayerRef.roverRide` · remote `PlayerFlags.IN_ROVER`). A rider takes
+   * no damage at all, so it is neither an enemy's target nor its victim — it folds into `isDeadOrDowned`, drops out of
+   * `alive`, and an enemy holding it re-targets. It stays in `all` (spawn and recycle distances still see the body).
    */
   riding = false;
   /**
-   * 이 표적이 탐사 차량의 프록시면 그 차량 (`TargetList.vehicles`), 아니면 null. 프록시 `id` 는 `'ai'` 다 — 드론과 같은 이유.
-   * 차량이 사라져도(파괴 · 레이드 종료) 참조는 지우지 않고 `present` / `isDead` 만 내린다.
-   * `position` = 차체 중심 **바닥**(`RoverVehicleDef.position`), `dist2D` = 차체 발자국(OBB) **가장자리**까지의 거리.
+   * The rover this target proxies (`TargetList.vehicles`), else null. The proxy `id` is `'ai'` — the same reason as the drone.
+   * The reference is not cleared when the vehicle goes away (destroyed · raid over); only `present` / `isDead` drop.
+   * `position` = the **floor** at the hull's centre (`RoverVehicleDef.position`), `dist2D` = the distance to the hull footprint's (OBB) **edge**.
    */
   vehicle: RoverRef | null = null;
-  /** 차량 프록시: 차체 yaw (`RoverVehicleDef.yaw` 규약 — 전방 = (cos, 0, sin)). `yaw` 필드는 플레이어 규약으로 따로 적힌다. */
+  /** Vehicle proxy: the hull yaw (the `RoverVehicleDef.yaw` convention — forward = (cos, 0, sin)). The `yaw` field is written separately in the player convention. */
   vehicleYaw = 0;
-  /** 차량 프록시: 지금 달리는 중(`patrol` · `trip`) — 들린다. */
+  /** Vehicle proxy: it is driving right now (`patrol` · `trip`) — it can be heard. */
   vehicleMoving = false;
   readonly vehiclePrev = new THREE.Vector3();
   vehiclePrevAt = -Infinity;
-  /* ── appended (2026-09-15): 안드로이드 분대원 ─────────────────────────────── */
+  /* ── appended (2026-09-15): android squadmates ────────────────────────────── */
   /**
-   * 이 표적이 안드로이드 분대원의 프록시면 그 몸(`TargetList.allies`), 아니면 null. 프록시 `id` 는 드론 · 차량과 같은
-   * 이유로 `'ai'` 다 — 플레이어 id 체계(`'local'` / PeerId)에 섞이면 `applyDamage` 의 원격 가지가 존재하지 않는
-   * 상대에게 `dmg` 를 보내게 된다. 개체 식별은 `allyId` (`AllyBodyView.id`)로 하고, 피해는 `ctx.allies.damage` 로 간다.
-   * 안드로이드가 사라져도 참조는 지우지 않고 `present` / `isDead` 만 내린다 (드론과 같은 이유).
+   * The android squadmate's body this target proxies (`TargetList.allies`), else null. The proxy `id` is `'ai'` for the same
+   * reason as the drone and the vehicle — mixed into the player id scheme (`'local'` / PeerId), `applyDamage`'s remote
+   * branch would send a `dmg` to somebody who does not exist. Identity is `allyId` (`AllyBodyView.id`), damage goes to `ctx.allies.damage`.
+   * The reference is not cleared when the android goes away; only `present` / `isDead` drop (the same reason as the drone).
    */
   ally: AllyBodyView | null = null;
   allyId: string | null = null;
-  /** `TargetList` 가 이번 갱신에서 이 안드로이드를 봤는가 (프레임 번호). */
+  /** Whether `TargetList` saw this android in this refresh (the frame number). */
   allyStamp = 0;
 
   constructor(readonly id: TargetId) {}
@@ -103,10 +103,10 @@ export class CombatTarget {
   get isEnemy(): boolean { return this.enemy !== null; }
   get isDrone(): boolean { return this.drone !== null; }
   get isVehicle(): boolean { return this.vehicle !== null; }
-  /** 2026-09-15: 안드로이드 분대원 — 몸 크기 · 사선 · 조준은 사람과 같고, 피해만 `ctx.allies.damage` 로 간다. */
+  /** 2026-09-15: android squadmates — body size, line of sight and aim are a person's; only the damage goes to `ctx.allies.damage`. */
   get isAlly(): boolean { return this.ally !== null; }
 
-  /** True when bugs must neither hunt nor hurt this player (dead, or downed and waiting for a revive — or 2026-09-13 riding inside the 탐사 차량). */
+  /** True when bugs must neither hunt nor hurt this player (dead, or downed and waiting for a revive — or 2026-09-13 riding inside the rover). */
   get isDeadOrDowned(): boolean { return this.isDead || this.downed || this.riding; }
 
   getEyePosition(out: THREE.Vector3): THREE.Vector3 {
@@ -124,8 +124,8 @@ export class CombatTarget {
 
   /** Point bugs aim at / trace LOS to (chest height). */
   getChest(out: THREE.Vector3): THREE.Vector3 {
-    // 드론 프록시의 `position` 은 몸체 밑면이라 가운데는 높이의 절반 위다 (공중 드론 = 원래의 몸체 중심)
-    // 2026-09-13: 차량 프록시의 가운데 = 차체 높이의 절반 (바닥점 기준)
+    // a drone proxy's `position` is the body's underside, so its centre sits half the height above it (an air drone = the original body centre)
+    // 2026-09-13: a vehicle proxy's centre = half the hull height (measured from the floor point)
     const h = this.vehicle ? this.vehicle.height * 0.5 : this.drone ? this.droneHeight * 0.5 : this.enemy ? this.enemy.height * 0.6 : PLAYER_HEIGHT * 0.65;
     return out.set(this.position.x, this.position.y + h, this.position.z);
   }
@@ -144,9 +144,9 @@ export class CombatTarget {
     return Math.hypot(this.position.x - p.x, this.position.z - p.z);
   }
 
-  /* ── 2026-09-13: 탐사 차량 차체 상자 (OBB) 질의 — 차량 프록시에서만 부른다. 할당 없음. ── */
+  /* ── 2026-09-13: hull box (OBB) queries for the rover — called on a vehicle proxy only. No allocation. ── */
 
-  /** `(x, z)` 에서 차체 발자국까지의 수평 거리 (안이면 0). */
+  /** Horizontal distance from `(x, z)` to the hull footprint (0 inside it). */
   vehicleGap2D(x: number, z: number): number {
     const v = this.vehicle!;
     const c = Math.cos(this.vehicleYaw), s = Math.sin(this.vehicleYaw);
@@ -156,7 +156,7 @@ export class CombatTarget {
     return Math.hypot(ox, oz);
   }
 
-  /** 점 `p` 에서 차체 상자(바닥 … 바닥 + 높이)까지의 거리 (안이면 0) — 폭발 · 산성 스플래시. */
+  /** Distance from point `p` to the hull box (floor … floor + height), 0 inside it — explosions and acid splashes. */
   vehicleGap3D(p: THREE.Vector3): number {
     const g = this.vehicleGap2D(p.x, p.z);
     const y0 = this.position.y, y1 = y0 + this.vehicle!.height;
@@ -164,7 +164,7 @@ export class CombatTarget {
     return Math.hypot(g, oy);
   }
 
-  /** `(x, z)` 가 `pad` 만큼 넓힌 차체 발자국 안인가. */
+  /** Whether `(x, z)` is inside the hull footprint widened by `pad`. */
   vehicleContainsXZ(x: number, z: number, pad: number): boolean {
     const v = this.vehicle!;
     const c = Math.cos(this.vehicleYaw), s = Math.sin(this.vehicleYaw);
@@ -173,8 +173,8 @@ export class CombatTarget {
   }
 
   /**
-   * `pad` 만큼 넓힌 차체 발자국 둘레에서 `from` 에 가장 가까운 점을 `out` 의 x / z 에 적는다 (y 는 건드리지 않는다). `from` 이 이미
-   * 안이면 가장 가까운 면으로 밀어낸 점. 적이 차 **중심**이 아니라 차체 옆으로 다가가게 하는 조향 목표다.
+   * Writes into `out`'s x / z the point on the hull footprint widened by `pad` that is nearest to `from` (y is left alone). When `from` is already
+   * inside, the point pushed out to the nearest face. It is the steering goal that makes an enemy approach the hull's side, not the vehicle's **centre**.
    */
   vehicleApproach(from: THREE.Vector3, pad: number, out: THREE.Vector3): THREE.Vector3 {
     const v = this.vehicle!;
@@ -194,7 +194,7 @@ export class CombatTarget {
     return out;
   }
 
-  /** 레이(`d` 단위 벡터)가 차체 상자에 들어가는 거리 — 시작점이 안이면 0, `maxT` 안에서 못 맞히면 −1 (슬랩 판정). */
+  /** How far along the ray (`d` is a unit vector) it enters the hull box — 0 when the origin is inside, −1 when it misses within `maxT` (a slab test). */
   rayVehicle(o: THREE.Vector3, d: THREE.Vector3, maxT: number): number {
     const v = this.vehicle!;
     const c = Math.cos(this.vehicleYaw), s = Math.sin(this.vehicleYaw);
@@ -203,7 +203,7 @@ export class CombatTarget {
     const ox = rx * c + rz * s, oz = -rx * s + rz * c, oy = o.y - (this.position.y + hh);
     const dx = d.x * c + d.z * s, dz = -d.x * s + d.z * c, dy = d.y;
     let t0 = 0, t1 = maxT;
-    // x (전방 축)
+    // x (the forward axis)
     if (Math.abs(dx) < 1e-9) { if (Math.abs(ox) > v.halfLength) return -1; }
     else {
       let a = (-v.halfLength - ox) / dx, b = (v.halfLength - ox) / dx;
@@ -211,7 +211,7 @@ export class CombatTarget {
       if (a > t0) t0 = a; if (b < t1) t1 = b;
       if (t0 > t1) return -1;
     }
-    // z (옆 축)
+    // z (the side axis)
     if (Math.abs(dz) < 1e-9) { if (Math.abs(oz) > v.halfWidth) return -1; }
     else {
       let a = (-v.halfWidth - oz) / dz, b = (v.halfWidth - oz) / dz;
@@ -255,43 +255,43 @@ export class TargetList {
   readonly alive: CombatTarget[] = [];
   private readonly byId = new Map<TargetId, CombatTarget>();
   private readonly gone: TargetId[] = [];
-  /* ── appended (2026-09-11): 드론 표적 ── */
+  /* ── appended (2026-09-11): drone targets ── */
   /**
-   * 지금 적이 노려도 되는(`DroneRef.aggroable`, 살아 있는) 드론의 프록시. **`all` / `alive` 에는 넣지 않는다** —
-   * 스포너 · 웨이브 · 산성 스플래시 · 포탄 · 분리(separation)가 드론을 플레이어로 착각하지 않게. 드론을 알아야 하는
-   * 경로(`pickTarget` · 로그 사격 · 산성 직격 · 몸통 접촉 `nearestAliveWithin`)만 이 목록을 따로 본다.
-   * 프록시는 드론 id 당 하나이고 그 드론이 월드에 있는 동안 유지된다(조용해지면 `present` 만 내린다) — 할당은 꺼낼 때 한 번.
+   * Proxies for the drones an enemy may target right now (`DroneRef.aggroable`, alive). **They go into neither `all` nor `alive`** —
+   * so the spawner, waves, acid splashes, shells and separation never mistake a drone for a player. Only the paths that have to
+   * know about drones (`pickTarget` · rogue fire · a direct acid hit · body contact `nearestAliveWithin`) read this list.
+   * One proxy per drone id, kept while that drone is in the world (going quiet only drops `present`) — one allocation, when it first appears.
    */
   readonly drones: CombatTarget[] = [];
   private readonly droneById = new Map<string, CombatTarget>();
-  /** 모든 드론 프록시 (조용한 것 포함) — 사라진 드론을 찾는 순회용. Map 엔트리 순회는 프레임마다 튜플을 만든다. */
+  /** Every drone proxy (quiet ones included) — for the sweep that finds drones that went away. Iterating Map entries allocates a tuple per frame. */
   private readonly droneAll: CombatTarget[] = [];
   private droneFrame = 0;
-  /* ── appended (2026-09-13): 탐사 차량 ── */
+  /* ── appended (2026-09-13): the rover ── */
   /**
-   * 적이 노려도 되는(`RoverRef.targetable`) 탐사 차량의 프록시 — 레이드당 1대라 0 또는 1개. **`all` / `alive` 에는 넣지 않는다**
-   * (드론과 같은 이유 — 스포너 · 웨이브 · 분리 · 플레이어 루프가 차량을 플레이어로 착각하지 않게). 차량을 알아야 하는 경로
-   * (`pickTarget` · 사격 · 산성 · 몸통 접촉 · 적의 폭발)만 따로 본다. 프록시는 하나를 계속 쓴다.
+   * The proxy for the rover an enemy may target (`RoverRef.targetable`) — one per raid, so 0 or 1 entries. **It goes into neither `all` nor `alive`**
+   * (the same reason as the drone — so the spawner, waves, separation and the player loop never mistake the vehicle for a player). Only the paths
+   * that have to know about it (`pickTarget` · fire · acid · body contact · enemy explosions) read it. The one proxy is reused for good.
    */
   readonly vehicles: CombatTarget[] = [];
   private readonly vehicleProxy = new CombatTarget('ai');
-  /* ── appended (2026-09-15): 안드로이드 분대원 ── */
+  /* ── appended (2026-09-15): android squadmates ── */
   /**
-   * 적이 노려도 되는 안드로이드 분대원(`AlliesRef.getCombatBodies`)의 프록시. **`all` / `alive` 에는 넣지 않는다** —
-   * 드론 · 차량과 같은 이유이자, 「사람이 전원 사망하면 레이드 실패」(사용자 결정)를 세는 곳들이 안드로이드를
-   * 사람으로 세면 안 되기 때문이다. 스포너 앵커 · 웨이브 방향 · `nearestAlive` 는 사람만 본다.
-   * 표적 선택 · 사격 · 산성 · 몸통 접촉 · 광역 피해만 이 목록을 따로 본다.
+   * Proxies for the android squadmates an enemy may target (`AlliesRef.getCombatBodies`). **They go into neither `all` nor `alive`** —
+   * the same reason as the drone and the vehicle, and because the places that count 「the raid fails when every human is dead」
+   * (user's decision) must not count an android as a human. Spawner anchors, wave facing and `nearestAlive` see people only.
+   * Only target choice, fire, acid, body contact and area damage read this list.
    */
   readonly allies: CombatTarget[] = [];
   private readonly allyById = new Map<string, CombatTarget>();
   private readonly allyAll: CombatTarget[] = [];
   private allyFrame = 0;
   /**
-   * 디버그 주입(`EnemySystem.debugAllyTargets`) — null 이 아니면 `ctx.allies` 대신 이 목록을 쓴다.
-   * `scripts/smoke-enemy-allies.mjs` 가 allies/ 없이 적 쪽만 검사할 수 있게 하는 유일한 통로다.
+   * Debug injection (`EnemySystem.debugAllyTargets`) — when it is not null this list is used instead of `ctx.allies`.
+   * It is the only way `scripts/smoke-enemy-allies.mjs` can test the enemy half without allies/.
    */
   allyOverride: readonly AllyBodyView[] | null = null;
-  /** 2026-09-18: 폭발 차폐 판정(`damageVehicleAt`)이 읽는 월드 — `refresh` 가 매 프레임 담는다. */
+  /** 2026-09-18: the world the blast-occlusion test (`damageVehicleAt`) reads — `refresh` stores it every frame. */
   private world: WorldRef | null = null;
 
   refresh(ctx: GameContext): void {
@@ -313,7 +313,7 @@ export class TargetList {
       t.eyeHeight = player.stance === 'prone' ? EYE_PRONE : player.stance === 'crouch' ? EYE_CROUCH : EYE_STAND;
       t.stealth = readStealth(player);
       t.suspended = false;
-      t.riding = player.roverRide === true;   // 2026-09-13: 탐사 차량 안 — 표적도 희생자도 아니다
+      t.riding = player.roverRide === true;   // 2026-09-13: inside the rover — neither a target nor a victim
     }
 
     const net = ctx.net;
@@ -358,10 +358,10 @@ export class TargetList {
   }
 
   /**
-   * 2026-09-11: `ctx.drones.getDrones()` → `drones`. 걷는 지상 드론은 `aggroable` 이 false 라 목록에 오르지 않는다
-   * (적이 봐도 무시). 프록시 `position` 은 **몸체 밑면**이다 — 지상 드론은 `DroneRef.position`(바닥점) 그대로, 공중
-   * 드론은 몸체 중심에서 높이의 절반 아래. 그래서 발 기준으로 짜인 기존 식(`getChest` · `rayStandingCapsule` ·
-   * `lookAtTarget` · 산성 조준)이 공중 드론에도 그대로 맞는다. yaw 는 플레이어 규약(forward = −sin, −cos)으로 뒤집어 둔다.
+   * 2026-09-11: `ctx.drones.getDrones()` → `drones`. A walking ground drone has `aggroable` false and never reaches the list (an enemy
+   * that sees it ignores it). The proxy `position` is the **body's underside** — for a ground drone that is `DroneRef.position` (the
+   * floor point) unchanged, for an air drone half the height below the body centre. So the existing feet-based formulas (`getChest` ·
+   * `rayStandingCapsule` · `lookAtTarget` · acid aim) fit an air drone unchanged. yaw is flipped into the player convention (forward = −sin, −cos).
    */
   private refreshDrones(ctx: GameContext): void {
     const frame = ++this.droneFrame;
@@ -383,7 +383,7 @@ export class TargetList {
         t.droneStamp = frame;
         const p = d.position;
         const bottom = d.kind === 'air' ? p.y - d.height * 0.5 : p.y;
-        // 속도 = 위치 차분. 같은 프레임에 두 번 갱신되면(world:ready 등) 이전 값을 그대로 둔다.
+        // velocity = a position difference. Refreshed twice in one frame (world:ready and the like), the previous value is left alone.
         const dt = now - t.dronePrevAt;
         if (dt > 1e-3) {
           if (dt < 0.5) t.velocity.set((p.x - t.dronePrev.x) / dt, (p.y - t.dronePrev.y) / dt, (p.z - t.dronePrev.z) / dt);
@@ -406,7 +406,7 @@ export class TargetList {
         this.drones.push(t);
       }
     }
-    // 월드에서 사라진 드론: 프록시를 버린다. 그 프록시를 표적으로 들고 있던 적은 `present` false 를 보고 다시 고른다.
+    // a drone that left the world: its proxy is dropped. An enemy holding that proxy sees `present` false and re-targets.
     for (let i = this.droneAll.length - 1; i >= 0; i--) {
       const t = this.droneAll[i];
       if (t.droneStamp === frame) continue;
@@ -418,9 +418,9 @@ export class TargetList {
   }
 
   /**
-   * 2026-09-13: `ctx.world.rover` → `vehicles`. 파괴 · 경로 없음 · 월드 준비 전이면 비운다(`present` / `isDead` 만 내리고 `vehicle`
-   * 참조는 남긴다 — 그 순간 표적으로 들고 있던 적이 프록시를 플레이어로 착각하지 않게). 속도는 위치 차분, yaw 는 플레이어 규약
-   * (forward = −sin, −cos) 으로 옮겨 적고 차체 규약 값은 `vehicleYaw` 에 둔다.
+   * 2026-09-13: `ctx.world.rover` → `vehicles`. Destroyed, no road, or the world not ready yet = the list is emptied (only `present` /
+   * `isDead` drop and the `vehicle` reference stays — so an enemy holding the proxy at that moment never mistakes it for a player).
+   * Velocity is a position difference; yaw is written across in the player convention (forward = −sin, −cos) and the hull convention's value goes in `vehicleYaw`.
    */
   private refreshVehicle(ctx: GameContext): void {
     this.vehicles.length = 0;
@@ -457,9 +457,9 @@ export class TargetList {
   }
 
   /**
-   * 2026-09-15 (안드로이드 분대원): `ctx.allies.getCombatBodies()` → `allies`. 계약상 그 목록은 이미 「레이드 · 쓰러지지도
-   * 죽지도 않음 · 보인다」로 걸러져 있지만, 한 프레임 늦은 목록이 와도 안전하도록 여기서 한 번 더 본다.
-   * 프록시는 안드로이드 id 당 하나이고 그 기가 목록에 있는 동안 유지된다 — 할당은 처음 볼 때 한 번.
+   * 2026-09-15 (android squadmates): `ctx.allies.getCombatBodies()` → `allies`. By contract that list is already filtered to 「in a
+   * raid · neither downed nor dead · visible」, but it is checked once more here so that a list one frame late is still safe.
+   * One proxy per android id, kept while that unit is in the list — one allocation, when it is first seen.
    */
   private refreshAllies(ctx: GameContext): void {
     const frame = ++this.allyFrame;
@@ -492,7 +492,7 @@ export class TargetList {
         this.allies.push(t);
       }
     }
-    // 목록에서 사라진 안드로이드: 프록시를 버린다 (표적으로 들고 있던 적은 `present` false 를 보고 다시 고른다)
+    // an android that left the list: its proxy is dropped (an enemy holding it as its target sees `present` false and re-targets)
     for (let i = this.allyAll.length - 1; i >= 0; i--) {
       const t = this.allyAll[i];
       if (t.allyStamp === frame) continue;
@@ -503,7 +503,7 @@ export class TargetList {
     }
   }
 
-  /** 2026-09-15: `p` 에서 가장 가까운, 지금 노릴 수 있는 안드로이드 프록시 (없으면 null). */
+  /** 2026-09-15: the nearest android proxy to `p` that may be targeted right now (null when there is none). */
   nearestAllyAlive(p: THREE.Vector3): CombatTarget | null {
     let best: CombatTarget | null = null;
     let bestD = Infinity;
@@ -516,29 +516,29 @@ export class TargetList {
     return best;
   }
 
-  /** 2026-09-15: `p` 의 `maxDist` 안에서 가장 가까운 안드로이드 프록시 — `applyAllyHit` 의 재표적. */
+  /** 2026-09-15: the nearest android proxy within `maxDist` of `p` — the re-target in `applyAllyHit`. */
   allyNear(p: THREE.Vector3, maxDist: number): CombatTarget | null {
     const t = this.nearestAllyAlive(p);
     return t && t.dist2D(p) <= maxDist ? t : null;
   }
 
-  /** 2026-09-13: 지금 노릴 수 있는 탐사 차량 프록시, 없으면 null. */
+  /** 2026-09-13: the rover proxy that may be targeted right now, else null. */
   vehicleTarget(): CombatTarget | null {
     return this.vehicles.length > 0 ? this.vehicles[0] : null;
   }
 
   /**
-   * 2026-09-13 (탐사 차량): **적이 낸** 폭발 · 분출 한 번이 차체에 닿으면 피해를 넣는다 — 폭심에서 차체 상자까지의 거리로
-   * 공용 2단 계단 감쇠(`shared/explosion`, 2026-09-15 사용자 결정 — 예전에는 `1 − d / radius` 선형이었다, 최소 `minFalloff`).
-   * **권한 분기에서만** 부른다 (`RoverRef.damage` 는 리플리카에서 무시되지만 두 번 부를
-   * 이유가 없다). 플레이어 · 가젯 폭발이 지나는 공용 `explode()` 에는 넣지 않는다 — 사용자 결정 「적 · 재해만 피해」.
+   * 2026-09-13 (the rover): one explosion or eruption **an enemy made** damages the hull when it reaches it — falloff by the shared
+   * two-step stair (`shared/explosion`, 2026-09-15 user's decision — it used to be linear `1 − d / radius`; floor `minFalloff`) over
+   * the distance from the blast centre to the hull box. Called **only in an authority branch** (`RoverRef.damage` is
+   * ignored on a replica, but there is no reason to call it twice). Not put inside the shared `explode()` that player and gadget blasts pass through — user's decision 「only enemies and hazards damage it」.
    */
   damageVehicleAt(center: THREE.Vector3, radius: number, damage: number, minFalloff = 0.15): boolean {
     const t = this.vehicleTarget();
     if (!t || !t.vehicle || !(radius > 0) || !(damage > 0)) return false;
     const d = t.vehicleGap3D(center);
     if (d >= radius) return false;
-    // 2026-09-18 (사용자 결정): 벽 · 지붕 너머의 차체는 맞지 않는다 (몸 3점 — 차체 안에서 시작한 레이는 제 콜라이더를 보지 않는다)
+    // 2026-09-18 (user's decision): a hull past a wall or a roof is not hit (the 3 body points — a ray that starts inside the hull does not see its own collider)
     if (!blastReachesBody(this.world, center, t.position.x, t.position.y, t.position.z, t.bodyHeight)) return false;
     t.vehicle.damage(damage * Math.max(minFalloff, explosionFalloff(d, radius)), center);
     return true;
@@ -556,7 +556,7 @@ export class TargetList {
     this.droneAll.length = 0;
     this.droneById.clear();
     this.drones.length = 0;
-    // 2026-09-15: 안드로이드 프록시 (디버그 주입은 레이드가 끝나도 남겨 둔다 — 지우는 것은 `debugAllyTargets(null)`)
+    // 2026-09-15: the android proxies (the debug injection is left alone when the raid ends — `debugAllyTargets(null)` clears it)
     for (let i = 0; i < this.allyAll.length; i++) { const t = this.allyAll[i]; t.present = false; t.isDead = true; }
     this.allyAll.length = 0;
     this.allyById.clear();
@@ -597,14 +597,14 @@ export class TargetList {
       if (d.position.y - p.y > radius || d.position.y + d.droneHeight < p.y - radius) continue;
       best = d; bestD = dd;
     }
-    // 2026-09-15: 안드로이드 분대원 — 사람과 같은 몸이라 사람과 같은 규칙 (수평 거리만)
+    // 2026-09-15: android squadmates — the same body as a person, so the same rule (horizontal distance only)
     for (let i = 0; i < this.allies.length; i++) {
       const a = this.allies[i];
       if (a.isDeadOrDowned) continue;
       const dd = a.dist2D(p);
       if (dd < bestD) { best = a; bestD = dd; }
     }
-    // 2026-09-13: 탐사 차량 — 차체 **가장자리**까지의 수평 거리 (`dist2D`), 수직으로도 겹칠 때만
+    // 2026-09-13: the rover — horizontal distance to the hull's **edge** (`dist2D`), only when it overlaps vertically too
     for (let i = 0; i < this.vehicles.length; i++) {
       const v = this.vehicles[i];
       if (v.isDeadOrDowned) continue;

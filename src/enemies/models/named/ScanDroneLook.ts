@@ -1,15 +1,15 @@
 /**
- * 로든의 스캔 드론(`rogue_scan_drone`)의 겉모습 (2026-09-11). `RogueModel` 에서는 `import type` 만.
+ * The look of Roden's scan drone (`rogue_scan_drone`) (2026-09-11). `import type` only from `RogueModel`.
  *
- * 휴머노이드 리그 위에 꾸민다: `rig.body` 를 통째로 숨기고(골반 · 몸통 · 머리 · 총 · 수류탄 · 다리가 전부 그 밑이다)
- * 작은 쿼드콥터를 `rig.root` 에 붙인다. 치수는 히트박스와 같다 — `data/enemies.csv` 의 반경 0.45 · 높이 0.4 는
- * `EnemySystem.raycastEx` 에서 발 위 0.45 m 에 중심을 둔 구 + 머리 구(`ROGUE_RIG_PARAMS.head.y` 0.2)가 되므로,
- * 몸체 중심을 `FRAME_Y` 0.42 에 두면 **보이는 곳을 쏘면 맞는다**.
+ * It decorates the humanoid rig: `rig.body` is hidden whole (pelvis · torso · head · gun · grenade · legs all sit under it)
+ * and a small quadcopter is attached to `rig.root`. The dimensions match the hitbox — radius 0.45 · height 0.4 in
+ * `data/enemies.csv` become a sphere centred 0.45 m above the feet + the head sphere (`ROGUE_RIG_PARAMS.head.y` 0.2) in
+ * `EnemySystem.raycastEx`, so putting the body centre at `FRAME_Y` 0.42 means **what is seen is what is hit**.
  *
- * 본체 · 날개는 `rig.chitin`(리그마다 복제된 정점색 머티리얼)을 그대로 써서 피격 섬광 · 화상 발광이 공짜로 붙는다.
- * 빨간 LED 와 아래를 향한 스캐너 렌즈는 **emissive** 다 — 광원은 없다(루트 CLAUDE.md 광원 개수 규칙).
- * 힌트 20(음파 발신)에서 렌즈가 번쩍이며 맥동한다. 사망하면 회전하며 떨어지고(`ai/EnemyAI.integrateDeathFall`)
- * 땅에 닿으면 옆으로 누운 잔해로 멈춘다.
+ * The hull · blades use `rig.chitin` (the vertex-coloured material cloned per rig) as it is, so the hit flash · burning glow come for free.
+ * The red LEDs and the downward-facing scanner lens are **emissive** — no lights (the root CLAUDE.md light-count rule).
+ * At hint 20 (emitting a pulse) the lens flashes and pulses. On death it spins as it falls (`ai/EnemyAI.integrateDeathFall`)
+ * and comes to rest on its side as a wreck once it touches the ground.
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';

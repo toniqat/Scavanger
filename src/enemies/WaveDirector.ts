@@ -4,28 +4,28 @@ import { findSpawnCenter, maxBehemothOf, spawnGroup, waveGroup, type SpawnHost }
 
 export const WAVE_ALIVE_CAP = 60;
 
-/** 분대 정원 — `WAVE_SQUAD_SCALE` 표의 길이이자 로그 강하가 쓰는 것과 같은 값. */
+/** Squad cap — the length of the `WAVE_SQUAD_SCALE` table and the same value the raider drop uses. */
 const MAX_SQUAD = 4;
-/** 어떤 분대든 웨이브 하나에 최소 이만큼은 온다 (배수를 곱해도 0 이 되지 않는다). */
+/** At least this many arrive in one wave for any squad (the multiplier never takes it to 0). */
 const MIN_WAVE = 2;
 
 /**
- * **2026-09-13 — 아무도 부르지 않는다** (탈출 디펜스 제거, 사용자 결정). `EnemySystem` 이 `extraction:activated` 구독을 걷어냈고
- * 호스트 승격도 웨이브를 다시 켜지 않는다. 클래스 · 내보내기는 계약처럼 남겨 둔다 (`EnemyManagerRef.startExtractionWaves`).
+ * **2026-09-13 — nothing calls this** (extraction defense removed, user's decision). `EnemySystem` dropped its `extraction:activated`
+ * subscription and host promotion does not turn waves back on. Class · exports stay as a contract (`EnemyManagerRef.startExtractionWaves`).
  *
  * Extraction pressure: escalating waves every 14 s → 9 s until stopped.
  * Bugs spawn 45–90 m from the extraction target, out of every player's view, and hunt relentlessly.
  * Runs only on the authority (host / single-player); waves pause while no player is alive.
  *
- * **2026-09-10 — 규모는 분대 인원이 정한다.** 웨이브 표(`waveSize`)는 4인 분대 기준이고, 실제 마릿수는
- * `WAVE_SQUAD_SCALE[분대 인원 − 1]` 을 곱한 값이다 (`data/tables.csv`). 1인 분대가 세 번째 웨이브에서
- * 점프 사냥꾼 **두 마리**를 한꺼번에 받던 것이 한 마리가 된다 — `waveGroup` 의 슬롯이 남은 마릿수로
- * 잘리므로 구성은 저절로 따라온다. 로그 강하(`RogueDrop`)가 이미 쓰던 것과 같은 규약이다.
+ * **2026-09-10 — the squad's head count decides the size.** The wave table (`waveSize`) is written for a 4-person
+ * squad, and the real count is that × `WAVE_SQUAD_SCALE[head count − 1]` (`data/tables.csv`). A solo squad that used
+ * to get **two** leaping hunters at once on the third wave now gets one — `waveGroup`'s slots are cut to the count
+ * that is left, so the composition follows on its own. The same convention the raider drop (`RogueDrop`) already used.
  */
 export class WaveDirector {
   active = false;
   index = 0;
-  /** Phase 11: ecosystem of the 목표 행성 (set by `EnemySystem` at `world:ready`); null = the pre-Phase-11 tables. */
+  /** Phase 11: ecosystem of the target planet (set by `EnemySystem` at `world:ready`); null = the pre-Phase-11 tables. */
   eco: PlanetEcosystem | null = null;
   private timer = 0;
   private readonly target = new THREE.Vector3();
@@ -60,10 +60,10 @@ export class WaveDirector {
   prime(index: number): void { this.primed = Math.max(0, index); }
 
   private interval(): number { return Math.max(9, 14 - this.index * 0.8); }
-  /** 4인 분대 기준의 웨이브 크기 (표 그대로). */
+  /** The wave size for a 4-person squad (the table verbatim). */
   private fullWaveSize(): number { return Math.min(22, 6 + this.index * 2); }
 
-  /** 분대 인원 (1..4). 싱글은 1. `RogueDrop.squadSize` 와 같은 계산. */
+  /** The squad head count (1..4). Single-player is 1. The same calculation as `RogueDrop.squadSize`. */
   private squadSize(host: SpawnHost): number {
     const net = host.ctx.net;
     let n = 1;
@@ -71,7 +71,7 @@ export class WaveDirector {
     return Math.max(1, Math.min(MAX_SQUAD, n));
   }
 
-  /** 이번 웨이브가 실제로 데려올 마릿수 = 표 × 분대 인원 배수. */
+  /** How many this wave actually brings = the table × the squad head-count multiplier. */
   private waveSize(host: SpawnHost): number {
     const idx = this.squadSize(host) - 1;
     const scale = WAVE_SQUAD_SCALE[idx] ?? 1;

@@ -20,7 +20,7 @@ interface TypeAssets {
   chitin: THREE.MeshStandardMaterial;
   eye: THREE.MeshStandardMaterial;
   acid: THREE.MeshStandardMaterial | null;
-  /** 2026-09-17: 붉은 줄무늬 (헌터) — 지오메트리와 재질 모두 종류당 하나, 개체마다 복제하지 않는다 (플래시 · 전소 발광을 받지 않는다). */
+  /** 2026-09-17: red stripes (hunter) — one geometry and one material per type, never cloned per instance (they take no hit flash · incinerate glow). */
   stripes: THREE.BufferGeometry | null;
   stripeMat: THREE.MeshStandardMaterial | null;
 }
@@ -193,17 +193,17 @@ function buildMortarGeometry(p: BugParams): THREE.BufferGeometry | null {
 }
 
 /**
- * 2026-09-17 (피아 식별): 옆구리를 따라 도는 붉은 띠 하나 + 배 둘레 띠 `bands` 개. 몸통 · 배 표면보다 3–4 % 바깥으로 띄워
- * z-fighting 없이 보이게 한다. 판정에는 쓰이지 않는다 (적 판정은 캡슐 — `RayTests`).
+ * 2026-09-17 (telling friend from foe): one red band running along the flank + `bands` bands around the abdomen. They sit
+ * 3–4 % outside the thorax · abdomen surface so they show without z-fighting. No test uses them (an enemy is tested against a capsule — `RayTests`).
  */
 function buildStripeGeometry(p: BugParams): THREE.BufferGeometry | null {
   const st = p.stripes;
   if (!st) return null;
   const parts: THREE.BufferGeometry[] = [];
   const [tx, ty, tz] = p.thorax;
-  // 옆구리 띠: 몸통보다 살짝 넓은 얇은 판 — 옆에서 보면 몸통을 가로지르는 붉은 선
+  // flank band: a thin plate a little wider than the thorax — from the side, a red line across the body
   parts.push(ellipsoid(tx * 1.04, ty * 0.13, tz * 0.86, 0, p.thoraxY + ty * 0.05, 0, st.color, 16));
-  // 목깃 띠
+  // collar band
   parts.push(ellipsoid(tx * 0.74, ty * 0.74, tz * 0.08, 0, p.thoraxY - ty * 0.05, tz * 0.62, st.color, 12));
   if (!p.separateAbdomen) {
     const [ax, ay, az] = p.abdomen;
@@ -329,7 +329,7 @@ export interface BugAnim {
   /** rogue rifle / artillery mortar recoil impulse 0..1 (decays fast) */
   recoil: number;
   /* ── unique weapons (2026-09-06) ── */
-  /** 전소 writhe blend 0..1: body twists side to side, limbs flail, chitin glows orange (Enemy.animate drives it from `incapTimer`). */
+  /** incinerate writhe blend 0..1: body twists side to side, limbs flail, chitin glows orange (Enemy.animate drives it from `incapTimer`). */
   writhe: number;
   /** shocked spark 0..1: cyan-white emissive strobe (flicker computed by Enemy.animate while `shockTimer` runs). */
   spark: number;
@@ -339,9 +339,9 @@ export interface BugAnim {
   /** rogue grenade wind-up 0..1 (rifle to the hip, throwing arm raised with the grenade sphere); wire hint 13 */
   throwing: number;
   /* ── 2026-09-17 ── */
-  /** 헌터 뒤집힘 0..1: 등으로 누워 좌우로 천천히 흔들리고 다리를 허우적댄다 (`Enemy.animate` 가 `flipFalling` / `flipTimer` 로 몬다). */
+  /** hunter flip 0..1: lying on its back, rocking slowly side to side with its legs flailing (`Enemy.animate` drives it from `flipFalling` / `flipTimer`). */
   flip: number;
-  /** 2026-09-17 포병 발사 자세 0..1: 다리를 옆으로 펴 몸통을 땅에 납작 붙인다 (쏘기 전 `braceTime` · 쏜 뒤 `postFireLock`). 리플리카 = 힌트 25. */
+  /** 2026-09-17 artillery brace pose 0..1: the legs splay sideways to press the body flat on the ground (`braceTime` before the shot · `postFireLock` after). Replica = hint 25. */
   brace: number;
 }
 
@@ -355,7 +355,7 @@ export function createBugAnim(): BugAnim {
 
 const statusColor = new THREE.Color();
 /**
- * Emissive for hit flash + 전소 glow + shock spark on a per-rig chitin material (shared by bugs and rogues).
+ * Emissive for hit flash + incinerate glow + shock spark on a per-rig chitin material (shared by bugs and rogues).
  * Returns false when nothing glows so the caller can reset the material once.
  */
 export function statusEmissive(mat: THREE.MeshStandardMaterial, a: BugAnim, flashR: number, flashG: number, flashB: number, flashMul: number): void {
@@ -420,7 +420,7 @@ export function createBugRig(type: BugType): BugRig {
     body.add(abdomen);
   }
 
-  // 2026-09-17: 붉은 줄무늬 — 공유 지오메트리 + 공유 재질 (disposeBugRig 가 건드리지 않는다, disposeBugAssets 가 푼다)
+  // 2026-09-17: red stripes — shared geometry + shared material (disposeBugRig leaves them alone, disposeBugAssets releases them)
   if (a.stripes && a.stripeMat) {
     const stripeMesh = new THREE.Mesh(a.stripes, a.stripeMat);
     stripeMesh.castShadow = false;
@@ -501,14 +501,14 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
   let sink = 0;
   let curl = 0;
   /*
-   * 2026-09-17: 포병 발사 자세 — 배가 땅에 닿을 만큼 몸통을 내린다 (몸통 중심이 몸통 반두께 높이에 온다 · 웅크림이 이미 내린 만큼은 뺀다).
-   * 다리는 아래 다리 루프에서 옆으로 펴진다. 그림 전용 비율이라 csv 대상이 아니다.
+   * 2026-09-17: artillery brace pose — the body drops far enough for the abdomen to touch the ground (the thorax centre comes to half the thorax thickness · minus what the crouch already lowered).
+   * The legs splay sideways in the leg loop below. A drawing-only ratio, so it is not a csv number.
    */
   const br = dying ? 0 : a.brace;
   if (br > 0.001) {
     body.position.y -= br * Math.max(0, p.thoraxY - p.thorax[1] - a.crouch * p.thoraxY * 0.3);
   }
-  // 전소 writhe: the whole body twists and bucks, thorax dropped toward the ground
+  // incinerate writhe: the whole body twists and bucks, thorax dropped toward the ground
   const wr = a.writhe;
   if (wr > 0.001 && !dying) {
     roll += Math.sin(t * 9.3) * 0.38 * wr;
@@ -540,8 +540,8 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
     sink = sinkT * (p.thoraxY + p.thorax[1]) * 1.4;
     body.position.y -= sink - fall * p.thorax[1] * 0.2;
   }
-  // 2026-09-17: 헌터 뒤집힘 — 몸통 전체를 앞뒤 축으로 반 바퀴 굴려 등으로 눕히고, 등이 땅에 닿게 들어 올린다.
-  // 누운 채 좌우로 느리게 흔들린다 (죽은 몸과 구분). 흔들림은 등의 접점이 제자리에 남도록 x 를 되돌린다.
+  // 2026-09-17: hunter flip — the whole body rolls half a turn about the front-back axis onto its back and is lifted so the back touches the ground.
+  // Lying there it rocks slowly side to side (so it reads apart from a corpse). The rocking backs x out, so the contact point on the back stays put.
   const fl = a.flip > 0.001 ? smooth(Math.min(1, a.flip)) : 0;
   if (fl > 0) {
     const lift = p.thoraxY + p.thorax[1];
@@ -589,16 +589,16 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
     let hipPitch = L.femurUp + lift * 0.6 + idle;
     let knee = leg.restKnee - lift * 0.55 - idle * 0.5;
     if (a.crouch > 0) { hipPitch += a.crouch * 0.35; knee -= a.crouch * 0.4; }
-    if (br > 0.001) { hipPitch += br * 0.7; knee -= br * 0.6; }   // 2026-09-17: 포병 발사 자세 — 넓적다리를 들어 옆으로 펴고 무릎을 꺾는다
+    if (br > 0.001) { hipPitch += br * 0.7; knee -= br * 0.6; }   // 2026-09-17: artillery brace pose — the femur lifts and splays sideways, the knee bends
     if (a.flinch > 0) { hipPitch += a.flinch * 0.15; }
     if (wr > 0.001) {
-      // 전소: legs kick and claw at the air out of phase with each other
+      // incinerate: legs kick and claw at the air out of phase with each other
       hipYaw += Math.sin(t * 9 + i * 1.7) * 0.35 * wr;
       hipPitch += (0.45 + Math.sin(t * 11.5 + i * 1.9) * 0.5) * wr;
       knee -= (0.35 + Math.cos(t * 13 + i * 1.3) * 0.45) * wr;
     }
     if (fl > 0 && !dying) {
-      // 뒤집힘: 하늘을 향한 다리가 느리게 허우적댄다
+      // flipped: the legs pointing at the sky flail slowly
       hipYaw += Math.sin(t * 3.1 + i * 1.4) * 0.25 * fl;
       hipPitch += (0.2 + Math.sin(t * 4.2 + i * 1.9) * 0.35) * fl;
       knee -= (0.3 + Math.cos(t * 3.7 + i * 1.1) * 0.35) * fl;
@@ -613,7 +613,7 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
     leg.knee.rotation.z = knee;
   }
 
-  // ── hit flash / 전소 glow / shock spark ─────────────────────────────────
+  // ── hit flash / incinerate glow / shock spark ───────────────────────────
   statusEmissive(rig.chitin, a, 1, 0.55, 0.3, 1.2);
   if (dying) {
     rig.eyeMat.emissiveIntensity = 2.4 * (1 - smooth(Math.min(1, a.death / 0.5)));

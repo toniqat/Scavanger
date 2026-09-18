@@ -1,17 +1,17 @@
 /**
- * src/enemies/models/Portrait.ts — **적 얼굴 썸네일 · 표시 이름** (2026-09-15, 결과 창 개편).
+ * src/enemies/models/Portrait.ts — **enemy face thumbnails · display names** (2026-09-15, the result screen rework).
  *
- * 사망 결과 창의 「사망 원인」 줄이 막타를 친 적의 얼굴을 보여 준다 (`EnemyManagerRef.renderPortrait`). 적 모델은
- * 절차 생성이라 그 모양을 아는 곳이 이 폴더뿐이므로 여기서 그린다.
+ * The 「사망 원인」 row of the death result screen shows the face of the enemy that landed the last hit
+ * (`EnemyManagerRef.renderPortrait`). Enemy models are procedural, so this folder is the only place that knows the shape and it is drawn here.
  *
- * - 그 종류의 리그를 **새로** 하나 짓고(튜토리얼 `tut_*` 는 `baseTypeOf` 로 바탕 종류의 리그), 기본 자세를 한 번 입힌 뒤
- *   얼굴이 카메라를 보되 **보는 사람의 왼쪽으로 사선** 돌아가게 세운다 (리그 +Z = 정면, yaw 음수 = 화면 왼쪽).
- * - 인간형은 머리 + 어깨, 벌레는 머리 · 턱, 땅굴벌레는 입, 스캔 드론은 몸 전체를 잡는다.
- * - **자기 씬 · 자기 조명 3점(키 · 필 · 림) + 반구광 · 잠깐 쓰는 오프스크린 `WebGLRenderer`** 로 한 번 그리고
- *   곧바로 `toDataURL` 로 뽑은 뒤 리그 머티리얼 · 렌더러를 버린다(`forceContextLoss`). 메인 씬의 광원 개수 ·
- *   메인 캔버스는 건드리지 않는다 (CLAUDE.md 「씬의 광원 개수를 플레이 중에 바꾸지 않는다」 는 메인 씬의 규칙이다).
- * - 공유 지오메트리 캐시(`BugModel` · `RogueModel` · `WormModel` 의 `assets`)는 리그들이 함께 쓰는 것이라 버리지 않는다.
- * - (종류, 크기)마다 한 번만 그려 캐시한다. WebGL 을 못 만들면 null — 호출부(ui)가 대체 아이콘을 그린다.
+ * - It builds **a fresh** rig of that type (tutorial `tut_*` takes the base type's rig through `baseTypeOf`), applies the
+ *   default pose once, then stands it so the face looks at the camera but **angled to the viewer's left** (rig +Z = front, negative yaw = screen left).
+ * - Humanoids are framed on head + shoulders, bugs on head · mandibles, the sandworm on its mouth, the scan drone on the whole body.
+ * - It draws once with **its own scene · its own three-point lighting (key · fill · rim) + a hemisphere light · a
+ *   short-lived offscreen `WebGLRenderer`**, pulls the image straight out with `toDataURL` and then throws the rig
+ *   materials · the renderer away (`forceContextLoss`). The main scene's light count · the main canvas are untouched (CLAUDE.md's 「never change the point-light count at runtime」 is a rule about the main scene).
+ * - The shared geometry caches (`assets` in `BugModel` · `RogueModel` · `WormModel`) are shared by every rig, so they are not disposed.
+ * - One draw per (type, size), then cached. With no WebGL, null — the caller (ui) draws a fallback icon.
  */
 import * as THREE from 'three';
 import { NAMED_ROGUE_NAME_KO, type EnemyType } from '@/shared';
@@ -19,18 +19,18 @@ import { ALL_ENEMY_TYPES, baseTypeOf, isEggType, isRogueType, isWormType, type B
 import { animateBug, createBugAnim, createBugRig, disposeBugRig, type BugRig } from './BugModel';
 import { animateRogue, createRogueRig, disposeRogueRig, type RogueRig, type RogueType } from './RogueModel';
 import { createWormRig, disposeWormRig, type WormRig } from './WormModel';
-/* appended (2026-09-18): 벌레 알 */
+/* appended (2026-09-18): the bug egg */
 import { createEggRig, disposeEggRig, type EggRig } from './EggModel';
 
 /**
- * 표시 이름. `data/enemies.csv` 에는 이름 칸이 없어(수치 표다) 글은 여기 둔다 — meta/ 의 NPC 목표 이름표와 같은 낱말.
- * 튜토리얼 종류는 바탕 종류의 이름을 쓴다.
+ * Display names. `data/enemies.csv` has no name column (it is a table of numbers), so the text lives here — the same
+ * words as the NPC objective labels in meta/. A tutorial type uses its base type's name.
  */
 const ENEMY_NAME_KO: Readonly<Partial<Record<EnemyType, string>>> = {
   scavenger: '스캐빈저', hunter: '헌터', warrior: '워리어', spewer: '스퓨어', charger: '차저', artillery: '포격 버그',
   toxic: '독성 버그', behemoth: '베헤모스', sandworm: '땅굴벌레', sandworm_weak: '어린 땅굴벌레', rogue: '로그', rogue_boss: '로그 분대장',
   rogue_scan_drone: '스캔 드론', android: '안드로이드', raider: '레이더', ...NAMED_ROGUE_NAME_KO,
-  /* 2026-09-18: 둥지의 벌레 알 (`meta/NpcRules.ENEMY_TYPE_KO` 에도 같은 낱말을 넣어야 퀘스트 목표 이름표가 맞는다 — 그 파일은 meta/ 소유다) */
+  /* 2026-09-18: the nest's bug egg (the same word has to go into `meta/NpcRules.ENEMY_TYPE_KO` for the quest objective label to match — that file belongs to meta/) */
   bug_egg: '벌레 알',
 };
 
@@ -40,15 +40,15 @@ function asEnemyType(type: string): EnemyType | null {
   return KNOWN.has(type) ? (type as EnemyType) : null;
 }
 
-/** `EnemyManagerRef.enemyDisplayName`. 모르는 종류면 null. */
+/** `EnemyManagerRef.enemyDisplayName`. null for an unknown type. */
 export function enemyDisplayNameOf(type: string): string | null {
   const t = asEnemyType(type);
   if (!t) return null;
   return ENEMY_NAME_KO[t] ?? ENEMY_NAME_KO[baseTypeOf(t)] ?? null;
 }
 
-/* ── 연출 수치 (화면 표현 전용 — 게임 밸런스가 아니다) ─────────────────────────────────── */
-/** 얼굴을 보는 사람의 왼쪽으로 돌리는 각 (rad). 리그 정면 +Z 가 (sin, 0, cos) 로 간다 → 음수 = 화면 왼쪽. */
+/* ── Presentation numbers (screen presentation only — not game balance) ────────────────── */
+/** Angle that turns the face to the viewer's left (rad). The rig's front +Z goes to (sin, 0, cos) → negative = screen left. */
 const FACE_YAW = -0.62;
 const PORTRAIT_FOV_DEG = 30;
 const MIN_PX = 16;
@@ -69,12 +69,12 @@ function build(type: EnemyType): Built {
   if (isRogueType(look)) {
     const rig = createRogueRig(look as RogueType);
     const a = createBugAnim();
-    try { animateRogue(rig, a); } catch { /* 기본 자세가 없어도 모델은 그려진다 */ }
+    try { animateRogue(rig, a); } catch { /* the model still draws without the default pose */ }
     return { kind: 'rogue', rig };
   }
   const rig = createBugRig(look as BugType);
   const a = createBugAnim();
-  try { animateBug(rig, a); } catch { /* 위와 같다 */ }
+  try { animateBug(rig, a); } catch { /* the same as above */ }
   return { kind: 'bug', rig };
 }
 
@@ -88,10 +88,10 @@ function disposeBuilt(b: Built): void {
 const _box = new THREE.Box3();
 const _size = new THREE.Vector3();
 
-/** 카메라가 잡을 구 (중심 · 반지름, 월드). */
+/** The sphere the camera frames (centre · radius, world). */
 function frameOf(b: Built, center: THREE.Vector3): number {
   if (b.kind === 'egg') {
-    // 알은 몸 전체가 얼굴이다
+    // an egg's whole body is its face
     _box.setFromObject(b.rig.shell);
     _box.getCenter(center);
     _box.getSize(_size);
@@ -114,7 +114,7 @@ function frameOf(b: Built, center: THREE.Vector3): number {
     _box.getCenter(center);
     _box.getSize(_size);
     const h = Math.max(0.12, Math.max(_size.x, _size.y, _size.z));
-    // 머리 + 어깨: 머리 중심보다 조금 아래를 잡고 머리 크기의 1.45배 반지름
+    // head + shoulders: framed a little below the head centre, with a radius 1.45× the head size
     center.y -= h * 0.55;
     return h * 1.45;
   }
@@ -155,14 +155,14 @@ function draw(type: EnemyType, size: number): string | null {
     const radius = frameOf(built, center);
     const fov = PORTRAIT_FOV_DEG;
     const dist = radius / Math.sin(THREE.MathUtils.degToRad(fov) / 2);
-    // 벌레 · 인간형은 거의 정면(살짝 위), 땅굴벌레는 위로 벌린 입을 앞 위에서 내려다본다
+    // bugs · humanoids almost head-on (a little above); the sandworm's upward-opening mouth is looked down on from in front and above
     const dir = built.kind === 'worm' ? new THREE.Vector3(0, 0.8, 1).normalize() : new THREE.Vector3(0, 0.14, 1).normalize();
     const camera = new THREE.PerspectiveCamera(fov, 1, Math.max(0.01, dist - radius * 4), dist + radius * 8);
     camera.position.copy(center).addScaledVector(dir, dist);
     camera.lookAt(center);
     camera.updateProjectionMatrix();
 
-    // 3점 조명 (카메라 기준 방향) + 반구광 — 이 씬에만 산다
+    // three-point lighting (directions relative to the camera) + a hemisphere light — they live in this scene only
     const hemi = new THREE.HemisphereLight(0xd6dcea, 0x2a2622, 1.1);
     scene.add(hemi);
     const addDir = (color: number, intensity: number, x: number, y: number, z: number): void => {
@@ -171,9 +171,9 @@ function draw(type: EnemyType, size: number): string | null {
       l.target.position.copy(center);
       scene.add(l, l.target);
     };
-    addDir(0xfff0d8, 3.0, -1.3, 1.4, 1.5);  // key: 화면 왼쪽 위 앞
-    addDir(0x9fb6ff, 1.0, 1.5, 0.2, 1.0);   // fill: 화면 오른쪽
-    addDir(0xffffff, 2.6, 0.9, 1.1, -1.7);  // rim: 뒤 위
+    addDir(0xfff0d8, 3.0, -1.3, 1.4, 1.5);  // key: screen upper-left, in front
+    addDir(0x9fb6ff, 1.0, 1.5, 0.2, 1.0);   // fill: screen right
+    addDir(0xffffff, 2.6, 0.9, 1.1, -1.7);  // rim: behind and above
 
     renderer.render(scene, camera);
     const url = renderer.domElement.toDataURL('image/png');
@@ -182,14 +182,14 @@ function draw(type: EnemyType, size: number): string | null {
     console.warn('[enemies] portrait render failed', e);
     return null;
   } finally {
-    try { if (built) disposeBuilt(built); } catch { /* 이미 버려졌다 */ }
+    try { if (built) disposeBuilt(built); } catch { /* already disposed */ }
     if (renderer) {
-      try { renderer.dispose(); renderer.forceContextLoss(); } catch { /* 컨텍스트가 이미 없다 */ }
+      try { renderer.dispose(); renderer.forceContextLoss(); } catch { /* the context is already gone */ }
     }
   }
 }
 
-/** `EnemyManagerRef.renderPortrait`. (종류, 크기)마다 한 번 그린다. 모르는 종류 · WebGL 없음 → null. */
+/** `EnemyManagerRef.renderPortrait`. Drawn once per (type, size). Unknown type · no WebGL → null. */
 export function renderEnemyPortrait(type: string, sizePx: number): string | null {
   const t = asEnemyType(type);
   if (!t) return null;

@@ -1,9 +1,9 @@
 /**
- * src/enemies/parts/Pool.ts — **적 인스턴스 풀**.
+ * src/enemies/parts/Pool.ts — **the enemy instance pool**.
  *
- * 적은 생성/파괴하지 않고 고정 풀에서 빌려 쓴다(`acquire` / `release`) — 프레임당 할당을 피하려는 것이고,
- * 그래서 id 재사용 규칙(`find`)과 용량 확장(`ensureCapacity`)이 한곳에 있어야 한다.
- * 미션 리셋(`reset`)과 지오메트리 dispose(`disposePools`)도 이 파일의 책임이다.
+ * Enemies are borrowed from fixed pools rather than created and destroyed (`acquire` / `release`) — to avoid per-frame
+ * allocation, which is why the id reuse rule (`find`) and growing the capacity (`ensureCapacity`) belong in one place.
+ * The mission reset (`reset`) and disposing the geometry (`disposePools`) are this file's job too.
  */
 import * as THREE from 'three';
 import {
@@ -41,10 +41,10 @@ import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLA
 import type { EnemySystem } from '../EnemySystem';
 import { rollGrenadeLoadout } from '../ai/HumanoidProfile';
 import { isNamedAiType } from '../ai/named';
-/* appended (2026-09-13): 굴착 스폰 · 땅굴벌레 */
+/* appended (2026-09-13): the dig-in spawn · the sandworm */
 import { emergeFx } from './Burrow';
 import { disposeWormAssets } from '../models/WormModel';
-/* appended (2026-09-18): 벌레 알 */
+/* appended (2026-09-18): bug eggs */
 import { disposeEggAssets } from '../models/EggModel';
 import { applyEggSize } from '../NestDirector';
 
@@ -67,12 +67,12 @@ export function reset(sys: EnemySystem): void {
   sys.replicaMgr.clear();
   sys.targets.clear();
   sys.corpses.clear();
-  sys.rogueDrops.reset();     // 2026-09-09: 굴림 기록(구역당 1회)도 레이드마다 새로 시작한다
-  sys.sandworm.reset();       // 2026-09-13: 땅굴벌레 굴림 · 전조 · 받아 둔 메타도 레이드마다
+  sys.rogueDrops.reset();     // 2026-09-09: the roll record (once per zone) restarts every raid too
+  sys.sandworm.reset();       // 2026-09-13: the sandworm roll · its omen · the meta it held, every raid too
   sys.burrowFx?.clear();
   sys.burrowShakeAt = -Infinity;
-  sys.named.reset();          // 2026-09-11: 네임드 굴림 결과 · 알림 기록도 레이드마다 (네임드 · 호위는 로그라 `ensureCapacity` 재활용 대상이 아니다)
-  sys.nests.reset();          // 2026-09-18: 둥지 앵커 · 보충 굴림 · 수비대 기록도 레이드마다
+  sys.named.reset();          // 2026-09-11: the named roll · its announcement record, every raid too (a named and its escort are rogues, so `ensureCapacity` never recycles them)
+  sys.nests.reset();          // 2026-09-18: the nest anchors · refill rolls · garrison record, every raid too
   sys.fx?.clear();
   sys.acid?.clear();
   sys.shells?.clear();
@@ -82,12 +82,12 @@ export function reset(sys: EnemySystem): void {
   sys.hazardTick = 0;
   sys.snapCache.reset();
   sys.bossId = 0;
-  sys.nextSquadId = 1;        // 2026-09-13: 분대 id 는 레이드 안에서만 유일하다 (거점 그룹 · 강하 파도 · 헤비 분대)
-  sys.sitePlacement = null;   // 2026-09-13: 거점 점거 기록 (디버그 · 스모크)
+  sys.nextSquadId = 1;        // 2026-09-13: a squad id is unique within one raid only (site groups · drop waves · the Heavy's squad)
+  sys.sitePlacement = null;   // 2026-09-13: the site occupation record (debug · smokes)
   sys.lastClash = -Infinity;
   sys.training = false;
-  sys.tutorial = false;             // 2026-09-14: `world:ready` 가 매 미션 다시 정한다
-  sys.tutorialPlacement = null;     // 2026-09-14: 튜토리얼 고정 배치 기록 (디버그 · 스모크)
+  sys.tutorial = false;             // 2026-09-14: `world:ready` decides it afresh every mission
+  sys.tutorialPlacement = null;     // 2026-09-14: the tutorial's fixed placement record (debug · smokes)
   sys.wavesSeen = 0;
   sys.grenadesThrown = 0;
   sys.grenadesExploded = 0;
@@ -102,9 +102,11 @@ export function aliveCount(sys: EnemySystem): number {
   }
 
 /**
- * 종류별 상한(포병 · 베헤모스)이 세는 **살아 있는 몸**. 2026-09-17 (포병 2마리 버그): 예전에는 `isCombatant` 로 셌는데, 그것은 전소로
- * 몸부림치는 몸(`incapTimer > 0`)과 이륙에 놀라 달아나는 몸(`flee`, `FLEE_DURATION` 뒤에야 사라진다)을 **빼고** 센다 — 그 몇 초 사이에
- * 순찰 틱이 돌면 상한 1 인 행성에 포병이 하나 더 파고 나왔다. 상한은 "지금 월드에 서 있는 몸" 이라 죽지 않은 몸은 모두 센다.
+ * The **living bodies** a per-type cap (artillery · behemoth) counts. 2026-09-17 (the two-artillery bug): it used to
+ * count by `isCombatant`, which **leaves out** a body writhing in the incinerated state (`incapTimer > 0`) and one
+ * fleeing the liftoff (`flee`, gone only after `FLEE_DURATION`) — and a patrol tick inside those few seconds dug a
+ * second artillery in on a planet capped at 1. The cap means "bodies standing in the world now", so every body that is
+ * not dead counts.
  */
 export function countAlive(sys: EnemySystem, type: EnemyType): number {
   let n = 0;
@@ -119,9 +121,10 @@ export function ensureCapacity(sys: EnemySystem, n: number, cap: number): number
     for (let i = sys.active.length - 1; i >= 0 && alive + n > cap; i--) {
       const e = sys.active[i];
       if (!e.active || e.state === 'dead' || e.aware || e.relentless || e.isHumanoid) continue;
-      if (e.escortOf && e.escortOf.isCombatant) continue;   // 2026-09-17: 살아 있는 포병의 호위는 포병과 함께 남는다 (`ai/ArtilleryPack`)
-      /* 2026-09-18: 둥지 알은 재활용 대상이 아니다 — 자리가 월드의 것이고 사라지면 「둥지의 보상」이 없어진다.
-         (`isCombatant` 가 false 라 위 `aware` 검사에는 안 걸리지만 이 루프는 그것을 보지 않는다.) */
+      if (e.escortOf && e.escortOf.isCombatant) continue;   // 2026-09-17: a living artillery's escort stays with it (`ai/ArtilleryPack`)
+      /* 2026-09-18: a nest egg is never recycled — its spot belongs to the world, and losing it loses 「the nest's
+         reward」. (`isCombatant` is false for it, so the `aware` test above never catches it, but this loop does not
+         read that.) */
       if (e.isEgg) continue;
       if (sys.targets.minDist(e.position) > RECYCLE_DISTANCE) { sys.despawn(e); alive--; }
     }
@@ -142,7 +145,7 @@ export function ensureCapacity(sys: EnemySystem, n: number, cap: number): number
   return Math.max(0, Math.min(n, cap - alive));
   }
 
-/** `emerge` (2026-09-13) > 0 = 벌레가 그 초 동안 땅을 파고 올라온다 (`Enemy.startEmerge` + 연출 + `ee spawn.em`). 인간형은 무시. */
+/** `emerge` (2026-09-13) > 0 = the bug digs up out of the ground over that many seconds (`Enemy.startEmerge` + FX + `ee spawn.em`). Ignored for humanoids. */
 export function spawn(sys: EnemySystem, type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean, emerge = 0): Enemy | null {
   const ctx = sys.ctx;
   const e = sys.acquire(sys.nextId++, type, position, yaw);
@@ -168,11 +171,11 @@ export function spawnRogue(sys: EnemySystem, type: EnemyType, position: THREE.Ve
   e.weaponId = weaponId;
   e.escortOf = escortOf;
   if (escortOf) e.leash = ROGUE_AI.escortLeash;
-  // 2026-09-13 (계약): 거점 · 분대 · 역할. 수류탄 보유(`grenadeKind` / `grenadeCount`)는 인간형 AI 담당이 여기서 굴린다.
+  // 2026-09-13 (the contract): site · squad · role. The grenade loadout (`grenadeKind` / `grenadeCount`) is rolled here by the humanoid AI owner.
   e.site = opts?.site ?? null;
   e.squadId = opts?.squadId ?? -1;
   e.squadRole = opts?.role ?? 'member';
-  // 팩션 표(`HUMANOID_*.grenadeMin/Max · incendiaryChance`)로 1–3개 · 종류. 안드로이드 0, 네임드 · 스캔 드론은 던지는 AI 가 없어 0.
+  // 1–3 and the kind, from the faction table (`HUMANOID_*.grenadeMin/Max · incendiaryChance`). An android gets 0; a named and the scan drone have no throwing AI, so 0.
   rollGrenadeLoadout(e, isNamedAiType(type));
   return e;
   }
@@ -193,17 +196,21 @@ export function acquire(sys: EnemySystem, id: number, type: EnemyType, position:
   }
   if (!e.rig.root.parent) ctx.scene.add(e.rig.root);
   e.reset(id, position, yaw, ctx.time);
-  // 2026-09-14: 행성 threat 벌레 체력 (`BUG_HP_MUL_BY_THREAT`). 권위 스폰(`spawn`)도 리플리카(`ee spawn` · 스냅샷이 처음 본 id)도 여기를
-  // 지나고, 배수는 모든 클라이언트가 `world:ready` 에서 같은 행성으로 정해 둔다 — 그래서 와이어 없이 리플리카의 `maxHp`(피격 흔들림 ·
-  // 승격 때 hp 상한)가 호스트와 같다. 인간형 팩션 · 땅굴벌레(자기 `SANDWORM_HP_*` 굴림) 제외, 훈련장 · 행성 없음은 ×1.
+  // 2026-09-14: bug hp by planet threat (`BUG_HP_MUL_BY_THREAT`). Both an authority spawn (`spawn`) and a replica
+  // (`ee spawn` · an id a snapshot saw first) come through here, and every client fixes the multiplier from the same
+  // planet on `world:ready` — so a replica's `maxHp` (hit shake · the hp cap on promotion) matches the host with no wire
+  // field. Humanoid factions and the sandworm (its own `SANDWORM_HP_*` roll) are excluded; the training range and no
+  // planet are ×1.
   const hpMul = sys.bugTuning.hpMul;
   if (hpMul !== 1 && e.faction === 'bug' && !isWormType(type)) e.hp = e.maxHp = Math.max(1, Math.round(e.stats.hp * hpMul));
-  /* 2026-09-18 (벌레 알): 자리마다 크기가 다르다. 위 체력 배수와 **같은 요령**으로 와이어 없이 맞춘다 — 월드는 시드가
-     같으면 모든 클라이언트에서 똑같이 만들어지므로 권위도 리플리카도 `getNestEggSpots()` 의 같은 자리를 찾아 같은
-     반지름을 넣는다 (`NestDirector.applyEggSize`). 그래서 `ee spawn` 에 반지름 칸이 없다. */
+  /* 2026-09-18 (bug eggs): the size differs per spot. It is matched with no wire field by **the same trick** as the hp
+     multiplier above — the world is built identically on every client from the same seed, so the authority and a replica
+     both find the same spot in `getNestEggSpots()` and put in the same radius (`NestDirector.applyEggSize`). That is why
+     `ee spawn` has no radius field. */
   if (isEggType(type) && ctx.world) applyEggSize(e, ctx.world);
-  // 2026-09-14 4차: 이번 레이드의 시체 수명 (`reset` 이 넣은 `CORPSE_LIFETIME` 을 덮는다). 튜토리얼만 `Infinity` 라
-  // 본편 · 훈련장은 45초 그대로이고, 리플리카도 같은 값을 쓴다 (레이드 종류는 모든 클라이언트가 `world:ready` 에서 같이 정한다).
+  // 2026-09-14 (4th pass): this raid's corpse lifetime (it overwrites the `CORPSE_LIFETIME` `reset` put in). Only the
+  // tutorial is `Infinity`, so the main game · training range keep their 45 s, and a replica uses the same value (every
+  // client decides the raid kind together on `world:ready`).
   e.corpseLife = sys.corpseLifetime;
   sys.active.push(e);
   sys.byId.set(id, e);
@@ -233,10 +240,10 @@ export function disposePools(sys: EnemySystem): void {
   sys.xray.dispose();   // overlays are children of the pooled rigs — detach before the rigs go
   for (const pool of sys.pools.values()) { for (const e of pool) e.dispose(); pool.length = 0; }
   sys.pools.clear();
-  sys.rogueDrops.dispose(sys.ctx.scene);   // 2026-09-09: 강하 포드도 같은 리셋에서 씬에서 빠진다
+  sys.rogueDrops.dispose(sys.ctx.scene);   // 2026-09-09: the drop pods leave the scene in the same reset
   disposeBugAssets();
   disposeRogueAssets();
   disposeRogueDropAssets();
-  disposeWormAssets();        // 2026-09-13: 땅굴벌레 공유 지오메트리 (리그는 위 풀 dispose 에서 먼저 빠졌다)
-  disposeEggAssets();         // 2026-09-18: 벌레 알 공유 지오메트리
+  disposeWormAssets();        // 2026-09-13: the sandworm's shared geometry (the rigs went first, in the pool dispose above)
+  disposeEggAssets();         // 2026-09-18: the bug egg's shared geometry
   }

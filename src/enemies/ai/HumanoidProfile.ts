@@ -3,16 +3,16 @@ import type { Enemy } from '../Enemy';
 import { HUMANOID_ANDROID, HUMANOID_RAIDER, HUMANOID_ROGUE, type HumanoidProfile } from '../EnemyTypes';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 2026-09-13: 행성별 인간형 팩션 AI 프로필 — 안드로이드 · 로그 · 레이더.
+ * 2026-09-13: humanoid faction AI profiles per planet — android · rogue · raider.
  *
- * 세 팩션은 같은 로그 상태 기계(`ai/RogueAI`)를 타고, **사격 · 수류탄 · 엄폐 리듬**만 이 표에서 다르게 읽는다.
- * 수치의 원본은 `data/enemy_abilities.csv` 의 `HUMANOID_*` 블록이다 (여기에는 숫자가 없다).
+ * All three factions run the same rogue state machine (`ai/RogueAI`) and read only their **firing · grenade · cover rhythm** here.
+ * The numbers themselves come from the `HUMANOID_*` blocks of `data/enemy_abilities.csv` (there is no number in this file).
  *
- * - 조준 오차는 **거리 곡선**이다: `aimNearDist` 안은 `aimNear`, `aimFarDist` 밖은 `aimFar`, 사이는 smoothstep.
- *   로그는 가까우면 위협적이고 멀면 거의 못 맞히며(0.055 → 0.15 rad), 레이더는 멀리서도 곡선이 거의 평평하다.
- *   서서 `ROGUE_AI.settleTime` 동안 쏘면 `settleMul` 배까지 줄어든다 (옛 `ROGUE_AIM_ERROR → _SETTLED` 의 자리).
- * - 네임드(`ai/named/*`)는 이 곡선을 쓰지 않는다 — 그들은 `fireGun` 에 자기 오차 · 피해를 직접 넘긴다.
- * - 벌레 팩션이 여기로 올 일은 없지만(인간형만 부른다) 안전하게 로그 표를 준다.
+ * - Aim error is a **distance curve**: `aimNear` inside `aimNearDist`, `aimFar` beyond `aimFarDist`, smoothstep in between.
+ *   A rogue is dangerous up close and barely hits anything far away (0.055 → 0.15 rad); a raider's curve is nearly flat even at range.
+ *   Standing and firing for `ROGUE_AI.settleTime` shrinks it by up to `settleMul` (where the old `ROGUE_AIM_ERROR → _SETTLED` sat).
+ * - Named rogues (`ai/named/*`) do not use this curve — they hand their own error and damage straight to `fireGun`.
+ * - A bug faction never gets here (only humanoids call it), but it is given the rogue table to be safe.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export type { HumanoidProfile } from '../EnemyTypes';
@@ -27,19 +27,19 @@ const BY_FACTION: Readonly<Record<EnemyFaction, HumanoidProfile>> = {
   raider: HUMANOID_RAIDER,
 };
 
-/** `e` 의 팩션 프로필. */
+/** `e`'s faction profile. */
 export function humanoidProfile(e: Enemy): HumanoidProfile {
   return BY_FACTION[e.faction] ?? HUMANOID_ROGUE;
 }
 
-/** 팩션 이름으로 프로필 (스모크 · 디버그). */
+/** Profile by faction name (smokes · debug). */
 export function profileOfFaction(f: EnemyFaction): HumanoidProfile {
   return BY_FACTION[f] ?? HUMANOID_ROGUE;
 }
 
 /**
- * 거리 `dist`(m) 에서의 조준 오차(rad). `settle01` = 0 이면 막 나와서 쏘는 첫 발, 1 이면 `settleTime` 을 다 서 있었다.
- * `parts/Attacks.fireGun` 이 이 값을 삼각 분포의 반폭으로 쓴다 (좌우 × 1, 위아래 × 0.7).
+ * Aim error (rad) at distance `dist` (m). `settle01` = 0 is the first shot right after stepping out, 1 means it stood the whole `settleTime`.
+ * `parts/Attacks.fireGun` uses this as the half-width of a triangular distribution (× 1 sideways, × 0.7 vertically).
  */
 export function humanoidAimError(p: HumanoidProfile, dist: number, settle01: number): number {
   const span = p.aimFarDist - p.aimNearDist;
@@ -51,21 +51,21 @@ export function humanoidAimError(p: HumanoidProfile, dist: number, settle01: num
   return base * (1 + (p.settleMul - 1) * s);
 }
 
-/** 점사 한 번의 탄 수 (`burstMin … burstMax`, 정수). */
+/** Rounds in one burst (`burstMin … burstMax`, an integer). */
 export function rollBurst(p: HumanoidProfile): number {
   const lo = Math.max(1, Math.round(p.burstMin));
   const hi = Math.max(lo, Math.round(p.burstMax));
   return lo + Math.floor(Math.random() * (hi - lo + 1));
 }
 
-/** 점사 사이 쉼 (±30 %). */
+/** The pause between bursts (±30 %). */
 export function rollBurstPause(p: HumanoidProfile): number {
   return p.burstPause * (0.7 + Math.random() * 0.6);
 }
 
 /**
- * 스폰 때 쥐여 주는 수류탄 (`parts/Pool.spawnRogue`, 권위만). `none` = 네임드 · 스캔 드론처럼 던지는 AI 가 없는 종류.
- * 남은 수는 `Enemy.grenadeCount` 에 있고 던질 때마다 줄며(`parts/Attacks.throwGrenade`), 죽으면 시체에 그대로 들어간다.
+ * The grenades handed out at spawn (`parts/Pool.spawnRogue`, authority only). `none` = a type with no throwing AI, like a named rogue or the scan drone.
+ * The remainder lives in `Enemy.grenadeCount`, drops by one per throw (`parts/Attacks.throwGrenade`) and goes onto the corpse on death.
  */
 export function rollGrenadeLoadout(e: Enemy, none: boolean): void {
   e.grenadeKind = 'frag';

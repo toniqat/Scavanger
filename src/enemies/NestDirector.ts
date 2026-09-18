@@ -1,30 +1,30 @@
 /**
- * src/enemies/NestDirector.ts — **벌레 둥지** (2026-09-18, 사용자 결정 「둥지 반경 60 m 리시 · 초기 수 절반 ·
- * 재스폰 50/35/15 %」 + 「둥지의 장식 알을 부술 수 있는 적으로」).
+ * src/enemies/NestDirector.ts — **bug nests** (2026-09-18, user's decision 「둥지 반경 60 m 리시 · 초기 수 절반 ·
+ * 재스폰 50/35/15 %」 + 「둥지의 장식 알을 부숬 수 있는 적으로」).
  *
- * 한 레이드의 둥지에 대해 세 가지를 답한다.
+ * It answers three things about this raid's nests.
  *
- * ① **알** — `WorldRef.getNestEggSpots()` 의 자리마다 `bug_egg` 한 마리를 세운다 (`world:ready`, 권위 전용). 알은
- *    움직이지 · 공격하지 · 알아채지 않는 고정 표적이고(`Enemy.isEgg`), 자리마다 크기가 0.35~0.7 m 로 달라 **개체별
- *    `EnemyStats` 사본**과 `rig.baseScale` 로 「보이는 알 = 히트박스」를 맞춘다. 자리의 `position` 은 **그려진 구의 중심**
- *    이므로 발(= `Enemy.position`)은 거기서 `radius × EGG_CENTER_MUL` 아래다. 리플리카는 평소처럼 `ee spawn` 으로 본다 —
- *    새 와이어가 없다. 행성 레이드 전용이다: 훈련장 · 튜토리얼은 `getNestEggSpots()` 가 빈 배열이라 이 파일이 아무 일도 하지 않는다.
+ * ① **Eggs** — one `bug_egg` per spot of `WorldRef.getNestEggSpots()` (`world:ready`, authority only). An egg is a fixed target
+ *    that does not move · attack · notice (`Enemy.isEgg`), and since its size varies 0.35–0.7 m per spot a **per-instance
+ *    `EnemyStats` copy** plus `rig.baseScale` keep 「the drawn egg = the hit box」 matched. The spot's `position` is the
+ *    **centre of the drawn sphere**, so the feet (= `Enemy.position`) sit `radius × EGG_CENTER_MUL` below it. Replicas see it
+ *    through `ee spawn` as usual — no new wire. Planet raids only: `getNestEggSpots()` is empty in the training range · the tutorial, so this file does nothing.
  *
- * ② **둥지 앵커** — 「사람이 둥지 하나라고 부르는 것」(`NestEggSpot.nest` = pad 순번)의 자리. `getNestPositions()` 는 둥지
- *    하나당 구멍(둔덕) 4~6개를 줄줄이 내놓아 pad 와 색인이 다르므로 **그것으로 pad 를 찾지 않는다.** 앵커는 그 pad 에 딸린
- *    알자리들의 **무게중심**이다 — 알은 둔덕 밑동을 둘러싸므로 그 가운데가 곧 둥지 한가운데다. `AmbientSpawner` 가 레이드
- *    시작 배치에서 이 앵커를 「둥지」로 쓰고(`nests` 인자), 그 자리에 선 무리가 그 둥지의 수비대가 된다.
+ * ② **Nest anchor** — where 「what a person calls one nest」 stands (`NestEggSpot.nest` = the pad index). `getNestPositions()` lists
+ *    4–6 holes (mounds) per nest in a row and indexes differently, so **it is not used to find a pad.** The anchor is the
+ *    **centroid** of that pad's egg spots — eggs ring the foot of the mounds, so their middle is the middle of the nest.
+ *    `AmbientSpawner` uses this anchor as 「the nest」 in the raid-start placement (the `nests` argument), and the group that stands there becomes its garrison.
  *
- * ③ **수비대 · 보충** — 수비대는 `Enemy.nestOf` 로 제 둥지를 기억하고 `ai/NestLeash` 가 `NEST_LEASH_M`(60 m) 리시를 건다.
- *    레이드 시작 수는 `NEST_INITIAL_GARRISON_MUL`(0.5) 로 절반이다 (`Spawner.initialPopulate` 의 무리 수에 곱한다).
- *    둥지마다 **이번 레이드에 할 수 있는 보충 횟수**를 월드 시드로 한 번 굴린다 (`NEST_REFILL_COUNT_CHANCE` — 1회 50 % ·
- *    2회 35 % · 3회 15 %). 굴림은 `Random.hash('nest@<seed>')` 의 제 스트림이라 월드 · 네임드 굴림을 한 톨도 건드리지 않고
- *    호스트가 바뀌어도 같은 답이 나온다. 그 둥지의 살아 있는 **움직이는** 벌레(알은 `isCombatant` false 라 애초에 안 세진다)가
- *    처음 깔린 수 × `NEST_REFILL_TRIGGER_FRAC` 이하로 줄면 보충 한 번이 터져 무리 하나가 둥지에서 파고 나온다
- *    (`BURROW_EMERGE_S` — 순찰과 같은 길). 배정된 횟수를 다 쓰면 그 둥지는 레이드가 끝날 때까지 비어 있다.
+ * ③ **Garrison · refills** — the garrison remembers its nest in `Enemy.nestOf` and `ai/NestLeash` leashes it at `NEST_LEASH_M` (60 m).
+ *    The raid-start count is halved by `NEST_INITIAL_GARRISON_MUL` (0.5), which multiplies the group count in `Spawner.initialPopulate`.
+ *    Per nest, **how many refills this raid allows** is rolled once from the world seed (`NEST_REFILL_COUNT_CHANCE` — 1 refill 50 % ·
+ *    2 refills 35 % · 3 refills 15 %). The roll is a stream of its own from `Random.hash('nest@<seed>')`, so it touches not one world ·
+ *    named roll and a host change answers the same. When that nest's living **mobile** bugs (eggs are not `isCombatant`, so they never
+ *    count) fall to the initially laid count × `NEST_REFILL_TRIGGER_FRAC` or below, one refill fires and a group digs out of the nest
+ *    (`BURROW_EMERGE_S` — the same path as a patrol). Once the allotted refills are spent that nest stays empty until the raid ends.
  *
- * 전부 권위(호스트 · 싱글)의 결정이고 **새 와이어가 없다** — 리플리카는 `ee spawn` 만 본다. `nestOf` 는 호스트 메모리라
- * 호스트가 바뀌면 리시가 풀려 평범한 벌레가 된다 (`ai/ArtilleryPack` 의 `escortOf` 와 같은 의도).
+ * All of it is the authority's decision (host · single-player) and there is **no new wire** — replicas only see `ee spawn`. `nestOf`
+ * is host memory, so a host change releases the leash and they become plain bugs (the same intent as `escortOf` in `ai/ArtilleryPack`).
  */
 import * as THREE from 'three';
 import { BURROW_EMERGE_S, Random, type NestEggSpot, type PlanetEcosystem, type WorldRef } from '@/shared';
@@ -36,23 +36,23 @@ import {
 import { EGG_CENTER_MUL, setEggScale } from './models/EggModel';
 import { ambientCap, ambientGroup, ambientOptsOf, spawnGroup, type SpawnHost } from './Spawner';
 
-/** 이 레이드의 둥지 하나 (권위 전용 기록). */
+/** One nest of this raid (an authority-only record). */
 interface NestState {
-  /** `NestEggSpot.nest` — pad 순번 그대로 (기록 · 디버그용). */
+  /** `NestEggSpot.nest` — the pad index verbatim (for the record · debug). */
   readonly pad: number;
-  /** 둥지 한가운데 (그 pad 알자리들의 무게중심). 리시의 기준점이자 보충이 파고 나오는 자리다. */
+  /** The middle of the nest (the centroid of that pad's egg spots). The leash's reference point and where a refill digs out. */
   readonly anchor: THREE.Vector3;
-  /** 이번 레이드에 남은 보충 횟수. */
+  /** Refills left this raid. */
   refillsLeft: number;
-  /** 처음 깔린 수비대 마리 수 (0 = 이 둥지에는 수비대가 서지 않았다 → 보충 방아쇠도 없다). */
+  /** How many bodies the garrison was laid with (0 = no garrison stood at this nest → no refill trigger either). */
   garrison: number;
 }
 
-/** 레이드 요약 (디버그 · 스모크 — `EnemySystem.debugNests()`). */
+/** Raid summary (debug · smokes — `EnemySystem.debugNests()`). */
 export interface NestPlacement {
-  /** 세운 알 수. */
+  /** How many eggs were placed. */
   eggs: number;
-  /** 둥지별 기록 (앵커 순번 = `Enemy.nestOf`). */
+  /** Per-nest record (the anchor index = `Enemy.nestOf`). */
   nests: Array<{ pad: number; refills: number; garrison: number; x: number; z: number }>;
 }
 
@@ -63,16 +63,16 @@ export class NestDirector {
   private readonly nests: NestState[] = [];
   private readonly anchorList: THREE.Vector3[] = [];
   private checkT = 0;
-  /** 레이드 요약 (권위 1회). */
+  /** Raid summary (authority, once). */
   placement: NestPlacement | null = null;
-  /** 이번 레이드의 실효 생태계 · 난이도 · ramp threat — 보충 무리 구성 (`EnemySystem` 이 `world:ready` 에서 넣는다). */
+  /** This raid's effective ecosystem · difficulty · ramp threat — the refill group's composition (`EnemySystem` puts them in at `world:ready`). */
   eco: PlanetEcosystem | null = null;
   tuning: BugThreatTuning = bugThreatTuning(1);
   threat = 0.35;
 
   bind(host: SpawnHost): void { this.host = host; }
 
-  /** `AmbientSpawner.initialPopulate` 가 「둥지」로 쓰는 앵커 (비어 있으면 예전처럼 `getNestPositions()` 를 쓴다). */
+  /** The anchors `AmbientSpawner.initialPopulate` uses as 「the nests」 (empty = it uses `getNestPositions()` as before). */
   get anchors(): readonly THREE.Vector3[] { return this.anchorList; }
 
   reset(): void {
@@ -83,8 +83,8 @@ export class NestDirector {
   }
 
   /**
-   * `world:ready` (권위, 훈련장 · 튜토리얼 제외) — 알을 세우고 둥지별 보충 횟수를 굴린다.
-   * **`AmbientSpawner.initialPopulate` 보다 먼저** 불러야 한다 (앵커가 있어야 수비대가 둥지에 선다).
+   * `world:ready` (authority, not the training range · tutorial) — places the eggs and rolls each nest's refill count.
+   * It must be called **before `AmbientSpawner.initialPopulate`** (a garrison only stands at a nest once the anchors exist).
    */
   onWorldReady(): void {
     const host = this.host;
@@ -92,9 +92,9 @@ export class NestDirector {
     this.reset();
     if (!host || !world?.ready) return;
     const spots = world.getNestEggSpots();
-    if (spots.length === 0) return;           // 훈련장 · 튜토리얼 · 둥지 없는 맵
+    if (spots.length === 0) return;           // the training range · the tutorial · a map with no nests
 
-    // ① pad 별 무게중심 = 둥지 앵커
+    // ① the centroid per pad = the nest anchor
     const sum = new Map<number, { x: number; y: number; z: number; n: number }>();
     for (const s of spots) {
       const pad = s.nest;
@@ -103,7 +103,7 @@ export class NestDirector {
       acc.x += s.position.x; acc.y += s.position.y; acc.z += s.position.z; acc.n++;
       sum.set(pad, acc);
     }
-    // ② 둥지별 보충 횟수 — 월드 시드의 제 스트림 (`named/Director` 와 같은 요령). pad 오름차순이라 굴림 순서가 늘 같다.
+    // ② the refill count per nest — its own stream off the world seed (the same trick as `named/Director`). Ascending pad order keeps the roll order fixed.
     const rng = new Random(Random.hash(`nest@${world.seed >>> 0}`));
     const placement: NestPlacement = { eggs: 0, nests: [] };
     for (const pad of [...sum.keys()].sort((a, b) => a - b)) {
@@ -116,26 +116,26 @@ export class NestDirector {
       placement.nests.push({ pad, refills, garrison: 0, x: anchor.x, z: anchor.z });
     }
 
-    // ③ 알 — 자리마다 한 마리
+    // ③ eggs — one body per spot
     for (const s of spots) if (this.spawnEgg(host, s)) placement.eggs++;
     this.placement = placement;
   }
 
   /**
-   * 알 한 마리. 자리의 `position` 은 **그려진 구의 중심**이므로 발(= `Enemy.position`)은 그보다 `radius × EGG_CENTER_MUL`
-   * 아래다. 크기는 여기서 넣지 않는다 — `parts/Pool.acquire` 가 권위 · 리플리카 **양쪽에서** `applyEggSize` 로 넣는다.
+   * One egg body. The spot's `position` is the **centre of the drawn sphere**, so the feet (= `Enemy.position`) sit
+   * `radius × EGG_CENTER_MUL` below it. The size is not set here — `parts/Pool.acquire` applies it with `applyEggSize` on **both** authority and replica.
    */
   private spawnEgg(host: SpawnHost, spot: NestEggSpot): boolean {
     const base = ENEMY_STATS.bug_egg;
     const r = Number.isFinite(spot.radius) && spot.radius > 0 ? spot.radius : base.radius;
-    // 자리 벡터는 월드의 살아 있는 항목이다 — 읽기만 하고 절대 바꾸지 않는다
+    // the spot vector is a live entry of the world — it is only read, never changed
     _p.set(spot.position.x, spot.position.y - r * EGG_CENTER_MUL, spot.position.z);
     return host.spawn('bug_egg', _p, Math.random() * Math.PI * 2, false, false) !== null;
   }
 
   /**
-   * 앵커 `index` 에 방금 선 몸들(활성 목록에서 `from` 번째부터)을 그 둥지의 수비대로 묶는다 —
-   * `Spawner.initialPopulate` 이 무리를 세운 직후에 부른다.
+   * Binds the bodies that just stood up at anchor `index` (from index `from` of the active list) as that nest's garrison —
+   * called right after `Spawner.initialPopulate` placed the group.
    */
   claimGarrison(index: number, host: SpawnHost, from: number): void {
     const nest = this.nests[index];
@@ -154,8 +154,8 @@ export class NestDirector {
   }
 
   /**
-   * 호스트 틱 (`EnemySystem.update` 의 권위 가지, 훈련장 · 튜토리얼 제외). `NEST_REFILL_CHECK_S` 마다 둥지별 생존 수를 세고
-   * 방아쇠를 넘긴 둥지에 보충 한 번을 터뜨린다.
+   * The host tick (the authority branch of `EnemySystem.update`, not the training range · tutorial). Every `NEST_REFILL_CHECK_S`
+   * it counts each nest's survivors and fires one refill at every nest past the trigger.
    */
   update(dt: number, host: SpawnHost): void {
     if (this.nests.length === 0) return;
@@ -170,7 +170,7 @@ export class NestDirector {
     }
   }
 
-  /** 보충 한 번 — 둥지에서 무리 하나가 파고 나온다 (순찰과 같은 `BURROW_EMERGE_S` 길). 한 마리도 못 세우면 횟수를 쓰지 않는다. */
+  /** One refill — a group digs out of the nest (the `BURROW_EMERGE_S` path a patrol takes). Placing not one body spends no refill. */
   private refill(host: SpawnHost, nest: NestState, index: number): boolean {
     const types = ambientGroup(this.threat, this.eco, ambientOptsOf(this.tuning));
     if (types.length === 0) return false;
@@ -182,7 +182,7 @@ export class NestDirector {
     return true;
   }
 
-  /** 보충으로 선 몸을 이 둥지에 묶는다 — `garrison`(방아쇠의 모수)은 **처음 깔린 수 그대로** 두어야 하므로 따로 둔다. */
+  /** Binds bodies a refill placed to this nest — `garrison` (the trigger's denominator) must stay **the initially laid count**, so it is kept apart. */
   private claimGarrisonOnly(index: number, host: SpawnHost, from: number, nest: NestState): void {
     const list = host.active;
     for (let i = from; i < list.length; i++) {
@@ -194,22 +194,22 @@ export class NestDirector {
     }
   }
 
-  /** 디버그 · 스모크: 둥지별 남은 보충 횟수 · 지금 살아 있는 수. */
+  /** Debug · smokes: refills left per nest · how many are alive right now. */
   debugState(host: SpawnHost): Array<{ pad: number; anchorIndex: number; refillsLeft: number; garrison: number; alive: number }> {
     return this.nests.map((n, i) => ({ pad: n.pad, anchorIndex: i, refillsLeft: n.refillsLeft, garrison: n.garrison, alive: countNestBugs(host, i) }));
   }
 }
 
 /**
- * 알 한 마리의 **크기**를 그 자리의 반지름에 맞춘다 (`parts/Pool.acquire` 가 알 종류에만 부른다).
+ * Matches one egg's **size** to its spot's radius (`parts/Pool.acquire` calls it for the egg type only).
  *
- * 자리 목록에서 발 아래 (x, z) 가 가장 가까운 알자리를 골라 그 반지름을 쓴다 — 월드는 시드가 같으면 모든 클라이언트에서
- * 똑같이 만들어지므로 **호스트와 리플리카가 같은 답**을 얻는다. 그래서 `ee spawn` 에 반지름 칸을 더하지 않았다
- * (`BUG_HP_MUL_BY_THREAT` 가 체력 배수를 와이어 없이 맞추는 것과 같은 요령). 자리를 못 찾으면 csv 크기 그대로다.
+ * It picks the egg spot nearest the (x, z) under the feet from the spot list and uses that radius — a world builds identically
+ * on every client for the same seed, so **host and replica get the same answer**. That is why no radius field was added to
+ * `ee spawn` (the same trick `BUG_HP_MUL_BY_THREAT` uses to match the hp multiplier with no wire). No spot found = the csv size.
  *
- * 몸(`rig.baseScale`)과 히트 캡슐(`stats.radius` / `height` / `headRadius`)에 **같은 배수**를 넣는다 — 알은
- * `EnemyStats` 를 개체마다 복사해 드는 유일한 종류라(`Enemy` 생성자) 다른 알 · 다른 종류에 번지지 않는다.
- * `hp` 는 크기와 무관하다 (csv 한 줄) — 작은 알이라고 약하지 않다.
+ * The body (`rig.baseScale`) and the hit capsule (`stats.radius` / `height` / `headRadius`) take the **same multiplier** — the
+ * egg is the only type that carries a per-instance copy of `EnemyStats` (the `Enemy` constructor), so it spreads to no other
+ * egg · other type. `hp` is independent of size (one csv row) — a small egg is not a weak one.
  */
 export function applyEggSize(e: Enemy, world: WorldRef): void {
   const base = ENEMY_STATS.bug_egg;
@@ -230,7 +230,7 @@ export function applyEggSize(e: Enemy, world: WorldRef): void {
   if (e.rig.kind === 'egg') { setEggScale(e.rig, r); e.rig.root.scale.setScalar(e.rig.baseScale); }
 }
 
-/** `NEST_REFILL_COUNT_CHANCE` 한 번 굴림 → 이번 레이드에 그 둥지가 할 수 있는 보충 횟수 (index k = k+1 회). */
+/** One roll of `NEST_REFILL_COUNT_CHANCE` → how many refills that nest may have this raid (index k = k+1 refills). */
 function rollRefills(rng: Random): number {
   const table = NEST_REFILL_COUNT_CHANCE;
   let total = 0;
@@ -246,7 +246,7 @@ function rollRefills(rng: Random): number {
   return table.length;
 }
 
-/** 그 둥지에 딸린 **살아 싸우는** 벌레 수 (알은 `isCombatant` false 라 빠진다 — `Enemy.isEgg`). */
+/** How many **living, fighting** bugs belong to that nest (eggs are `isCombatant` false, so they drop out — `Enemy.isEgg`). */
 function countNestBugs(host: SpawnHost, index: number): number {
   const list = host.active;
   let n = 0;

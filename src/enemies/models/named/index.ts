@@ -1,12 +1,12 @@
 /**
- * src/enemies/models/named/index.ts — **네임드 로그 · 스캔 드론의 겉모습 분기** (2026-09-11).
+ * src/enemies/models/named/index.ts — **the look dispatch for named rogues · the scan drone** (2026-09-11).
  *
- * 네 종류 모두 휴머노이드 로그 리그(`models/RogueModel`)를 바탕으로 쓰고, 종류마다 파일 하나가 부품을 덧붙이고
- * (`decorate*` — 망치 · 미니건 · 긴 저격총 · 드론 몸체) 매 프레임 자세를 더한다(`animate*`, 기본 `animateRogue` **뒤에**).
- * 부품과 그 상태는 `RogueRig.named` 에 종류별 객체로 걸어 둔다.
+ * All four build on the humanoid rogue rig (`models/RogueModel`); one file per type adds the parts
+ * (`decorate*` — the hammer · minigun · long sniper rifle · drone body) and adds a pose every frame (`animate*`, **after** the base `animateRogue`).
+ * The parts and their state hang on `RogueRig.named` as a per-type object.
  *
- * ⚠ 순환 import: `RogueModel` 이 이 파일을 **값으로** 부르므로, 이 폴더의 파일들은 `RogueModel` 에서
- * **`import type` 만** 한다. 공유 지오메트리 · 머티리얼이 필요하면 자기 파일 안에서 만든다.
+ * ⚠ Circular import: `RogueModel` calls this file **by value**, so the files in this folder take
+ * **`import type` only** from `RogueModel`. Shared geometry · materials they need are built inside their own file.
  */
 import * as THREE from 'three';
 import type { BugAnim } from '../BugModel';
@@ -18,7 +18,7 @@ import { animateHammerLook, decorateHammerLook, disposeHammerLook } from './Hamm
 import { animateHeavyLook, decorateHeavyLook, disposeHeavyLook } from './HeavyLook';
 import { animateScanDroneLook, decorateScanDroneLook, disposeScanDroneLook } from './ScanDroneLook';
 
-/** `createRogueRig` 끝에서 한 번. 네임드가 아니면 아무것도 하지 않는다. */
+/** Once at the end of `createRogueRig`. It does nothing for anything but a named. */
 export function decorateNamedRig(rig: RogueRig): void {
   switch (rig.type) {
     case 'rogue_sniper': decorateSniperLook(rig); return;
@@ -29,7 +29,7 @@ export function decorateNamedRig(rig: RogueRig): void {
   }
 }
 
-/** `Enemy.animate` 에서 `animateRogue` 바로 뒤에 매 프레임. `e.namedHint` 는 호스트 AI · 리플리카 모두 채워 둔다. */
+/** Every frame in `Enemy.animate`, right after `animateRogue`. `e.namedHint` is filled by the host AI and the replica alike. */
 export function animateNamedRig(rig: RogueRig, a: BugAnim, e: Enemy, dt: number): void {
   switch (rig.type) {
     case 'rogue_sniper': animateSniperLook(rig, a, e, dt); return;
@@ -40,15 +40,15 @@ export function animateNamedRig(rig: RogueRig, a: BugAnim, e: Enemy, dt: number)
   }
 }
 
-/* ── 세로가 아닌 몸통 판정 (C-55) ── */
+/* ── non-vertical body test (C-55) ── */
 const _ba = new THREE.Vector3();
 const _bb = new THREE.Vector3();
-/** `namedBodyRay` 의 답: 이 적은 기본 세로 캡슐을 쓴다. */
+/** `namedBodyRay`'s answer: this enemy uses the ordinary vertical capsule. */
 export const BODY_RAY_VERTICAL = -2;
 
 /**
- * 몸통 판정이 **세로 캡슐이 아닌** 자세(지금은 엎드린 로든뿐)면 그 캡슐과 레이의 거리(맞지 않으면 -1), 기본 세로
- * 캡슐을 써야 하면 `BODY_RAY_VERTICAL`. `EnemySystem.raycastEx` 가 적마다 부르므로 네임드가 아니면 곧바로 돌아간다.
+ * For a pose whose body test is **not a vertical capsule** (today only a prone Roden), the distance from the ray to that
+ * capsule (-1 on a miss); `BODY_RAY_VERTICAL` when the ordinary vertical capsule is to be used. `EnemySystem.raycastEx` calls it per enemy, so it returns at once for anything but a named.
  */
 export function namedBodyRay(e: Enemy, o: THREE.Vector3, d: THREE.Vector3): number {
   if (e.type !== 'rogue_sniper') return BODY_RAY_VERTICAL;
@@ -56,7 +56,7 @@ export function namedBodyRay(e: Enemy, o: THREE.Vector3, d: THREE.Vector3): numb
   return r > 0 ? raySegmentCapsule(o, d, _ba, _bb, r) : BODY_RAY_VERTICAL;
 }
 
-/** `namedBodyRay` 로 맞은 점의 바깥 법선 (명중점 − 캡슐 축의 최근접점, 정규화 전) → `out`. */
+/** Outward normal at a point hit through `namedBodyRay` (hit point − the nearest point on the capsule axis, before normalising) → `out`. */
 export function namedBodyNormal(e: Enemy, point: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
   if (e.type !== 'rogue_sniper' || sniperBodyCapsule(e, _ba, _bb) <= 0) return out.set(point.x - e.position.x, 0, point.z - e.position.z);
   closestOnSegment(point, _ba, _bb, out);
@@ -64,8 +64,8 @@ export function namedBodyNormal(e: Enemy, point: THREE.Vector3, out: THREE.Vecto
 }
 
 /**
- * 몸통 판정이 세로 캡슐이 아닌 자세(엎드린 로든)면 **`namedBodyRay` 와 같은 캡슐**에서 `from` 에 가장 가까운 점을 `out` 에
- * 적고 true, 기본 세로 캡슐을 써야 하면 false (C-62 — `Enemy.nearestBodyPoint` → `weapons/Melee` 원뿔).
+ * For a pose whose body test is not a vertical capsule (a prone Roden), writes the point of **the same capsule
+ * `namedBodyRay` uses** nearest to `from` into `out` and returns true; false when the ordinary vertical capsule is to be used (C-62 — `Enemy.nearestBodyPoint` → the `weapons/Melee` cone).
  */
 export function namedBodyNearest(e: Enemy, from: THREE.Vector3, out: THREE.Vector3): boolean {
   if (e.type !== 'rogue_sniper') return false;
@@ -75,12 +75,12 @@ export function namedBodyNearest(e: Enemy, from: THREE.Vector3, out: THREE.Vecto
   return true;
 }
 
-/** 폭발이 재는 몸 중심 높이 (발 위, m) — 기본은 키의 절반, 엎드린 로든은 몸통 캡슐 가운데. */
+/** Body centre height an explosion measures to (above the feet, m) — half the height by default, the middle of the body capsule for a prone Roden. */
 export function namedBodyCenterY(e: Enemy): number {
   return e.type === 'rogue_sniper' ? sniperBodyCenterY(e) : e.stats.height * 0.5;
 }
 
-/** `disposeRogueRig` 에서. 종류 파일이 만든 인스턴스 머티리얼 등을 해제한다. */
+/** From `disposeRogueRig`. Releases the instance materials and the like that the type's file created. */
 export function disposeNamedRig(rig: RogueRig): void {
   switch (rig.type) {
     case 'rogue_sniper': disposeSniperLook(rig); return;

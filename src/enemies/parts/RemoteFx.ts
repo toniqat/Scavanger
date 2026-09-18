@@ -1,8 +1,8 @@
 /**
- * src/enemies/parts/RemoteFx.ts — **리플리카에서 재생하는 연출**.
+ * src/enemies/parts/RemoteFx.ts — **the visuals a replica plays**.
  *
- * 비호스트 클라이언트는 AI 를 돌리지 않는다. 호스트가 보낸 `ee` 이벤트(피격 · 산성 · 포탄 · 돌진 · 시체 ·
- * 수류탄)를 받아 여기서 **그림과 소리만** 만든다. 게임 상태는 하나도 바꾸지 않는 것이 이 파일의 계약이다.
+ * A non-host client runs no AI. It takes the `ee` events the host sends (hit · acid · shell · charge · corpse ·
+ * grenade) and builds **only the picture and the sound** here. Changing no game state is this file's contract.
  */
 import * as THREE from 'three';
 import {
@@ -39,7 +39,7 @@ import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLA
 import type { EnemySystem } from '../EnemySystem';
 import type { EnemyGrenadeKind } from '@/shared';
 
-/** `kind` (2026-09-13): 안드로이드는 `'spark'` (`model.goreKindOf`). */
+/** `kind` (2026-09-13): an android is `'spark'` (`model.goreKindOf`). */
 export function bloodBurst(sys: EnemySystem, point: THREE.Vector3, count: number, dir: THREE.Vector3 | null, kind: 'blood' | 'spark' = 'blood'): void {
   if (!sys.fx) return;
   if (dir) sys.fx.burst(point, count, kind, 4.5, dir, 0.9);

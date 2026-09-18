@@ -1,9 +1,9 @@
 /**
- * src/enemies/parts/Alerts.ts — **적이 무엇을 눈치채는가**.
+ * src/enemies/parts/Alerts.ts — **what an enemy notices**.
  *
- * 소리(총성 · 유인탄) · 시야 · 팩션 충돌 · 그리고 Phase 12 의 **총알 추적**: 감지 범위 밖에서 날아온
- * 총알의 발사 지점을 향해 돌아서서(`alertShot`) 그 방향 감지를 넓히고, 못 찾으면 전진한다.
- * 표적 선택(`pickTarget`)과 도주(`fleeFrom`)도 같은 인지 계통이다.
+ * Sound (gunshots · lure grenades) · sight · faction clashes · and Phase 12's **shot tracking**: a bullet that came from
+ * outside the detection range turns the body toward the shot's origin (`alertShot`), widens its perception that way, and
+ * advances when it finds nothing. Target choice (`pickTarget`) and fleeing (`fleeFrom`) are the same perception line.
  */
 import * as THREE from 'three';
 import {
@@ -40,19 +40,19 @@ import { raySphere, rayCapsule, rayStandingCapsule } from '../RayTests';
 import { BARRIER_BUMP_INTERVAL, BARRIER_RETARGET_S, BURN_TICK, CLASH_RADIUS, CLASH_THROTTLE, CORPSE_SLACK, EMBER_INTERVAL, FLEE_DURATION, GRENADE_KNOCKBACK, GRENADE_LOB_SPEED, GRENADE_NOISE, GUNFIRE_LURE_DURATION, GUNFIRE_LURE_WEIGHT, INCAP_EMBER_INTERVAL, MAX_REQUEST_DAMAGE, MAX_REQUEST_RADIUS, MAX_SHOT_RANGE, MAX_STATUS_DURATION, PROMOTE_ID_GAP, PROMOTE_SEQ_GAP, RECYCLE_DISTANCE, SHIELD_CONTACT_Y, SHOCK_SPARK_TIME, SHOT_CHECK_INTERVAL, SPARK_INTERVAL, STATUS_REQUEST_INTERVAL, SUSPICION_RADIUS, SUSPICION_REFRESH, _aim, _c, _dir, _eye, _hc, _hd, _hp, _kb, _m, _sd, _sh, _so, _to, _v, _v2, _zero, deathDirIndex, isVec3Tuple, killedBuf, queryBuf } from '../model';
 import type { EnemySystem } from '../EnemySystem';
 
-/* ── Phase 12: 총알 추적 · 정찰 x-ray (EnemyManagerRef) ─────────────────── */
+/* ── Phase 12: shot tracking · the recon x-ray (EnemyManagerRef) ────────── */
 /**
  * A local shot was fired (weapons calls this for every one). Authority: run the alert routine; a joined client
- * forwards it to the host as `shotq` instead (replicas have no AI). No-op on the 훈련장.
+ * forwards it to the host as `shotq` instead (replicas have no AI). No-op on the training range.
  */
 export function reportShot(sys: EnemySystem, origin: THREE.Vector3, dir: THREE.Vector3, range: number, hit: THREE.Vector3 | null): void {
   /*
-   * 2026-09-14 2차 (사용자 결정: **모든 적**): 튜토리얼도 이 규칙을 그대로 받는다 — 같은 날 아침에 넣었던
-   * `sys.tutorial` no-op 을 걷어냈다. 「감지 범위가 좁더라도 총알이 날아온 곳을 바라보고 사수를 추적한다」가
-   * 튜토리얼만의 예외여서는 안 되고, 예외를 두면 좁은 감지 반경(12 m)이 곧 「쏴도 모른다」가 된다.
-   * 「고정 자리 · 순찰 없음」과는 **리시**가 화해시킨다: 조사하러 나간 적도 `Enemy.homeLeash` 밖으로는 못 가고
-   * (`ai/Investigate` 의 phase 1 · `Tutorial.tutorialHold`) 자기 자리로 걸어 돌아간다.
-   * 훈련장(`sys.training`)은 적이 한 마리도 없으므로 예전 그대로 둔다.
+   * 2026-09-14 2nd pass (user's decision: **every enemy**): the tutorial takes this rule unchanged — the `sys.tutorial`
+   * no-op added that same morning was pulled out. 「narrow detection range or not, it looks where the bullet came from
+   * and tracks the shooter」 must not be an exception for the tutorial alone, and with one a narrow sense radius (12 m)
+   * simply means 「shoot it and it never knows」. The **leash** reconciles it with 「fixed posts · no patrolling」: an enemy
+   * that went out to investigate cannot pass `Enemy.homeLeash` either (`ai/Investigate` phase 1 · `Tutorial.tutorialHold`)
+   * and walks home. The training range (`sys.training`) has no enemies at all, so it is left as it was.
    */
   if (sys.training || !sys.ctx.world?.ready) return;
   if (!sys.authority) {
@@ -71,7 +71,7 @@ export function reportShot(sys: EnemySystem, origin: THREE.Vector3, dir: THREE.V
  */
 export function addDistraction(sys: EnemySystem, pos: THREE.Vector3, radius: number, duration: number, weight: number): void {
   if (!sys.authority) return;
-  // 2026-09-15 (땅굴벌레): 바깥에서 온 것은 「유인」이다 (유인 수류탄 배치물 · 그 밖의 어그로 요청) — 총성(`onGunshot`)과 구분해 디렉터가 읽는다
+  // 2026-09-15 (the sandworm): anything from outside is a 「lure」 (a lure grenade deployable · any other aggro request) — the director reads it apart from a gunshot (`onGunshot`)
   sys.lures.add(pos, radius, duration, weight, sys.ctx.time, 'lure');
   if (weight < 0.3) return;
   // a real lure also wakes the swarm around it
@@ -82,7 +82,7 @@ export function addDistraction(sys: EnemySystem, pos: THREE.Vector3, radius: num
     if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
     const dx = e.position.x - pos.x, dz = e.position.z - pos.z;
     if (dx * dx + dz * dz > r2) continue;
-    // 2026-09-14 (튜토리얼 전용 적): 자기 감지 반경 밖의 유인은 듣지도 보지도 못한다
+    // 2026-09-14 (tutorial-only enemies): a lure outside its own sense radius is neither heard nor seen
     if (e.senseRadius > 0 && dx * dx + dz * dz > e.senseRadius * e.senseRadius) continue;
     e.lurePos.copy(pos);
     e.lureWeight = Math.max(e.lureWeight, weight);
@@ -101,7 +101,7 @@ export function alertNear(sys: EnemySystem, position: THREE.Vector3, radius: num
     if (source && e.faction !== source.faction) continue;   // a screeching bug does not wake the rogues (they spot it themselves)
     const dx = e.position.x - position.x, dz = e.position.z - position.z;
     const d2 = dx * dx + dz * dz;
-    // 2026-09-14 (튜토리얼 전용 적): 무리 전파도 자기 감지 반경 안에서만 (옆 구간의 비명이 이 구간을 깨우지 않는다)
+    // 2026-09-14 (tutorial-only enemies): pack propagation stays inside the sense radius too (a scream in the next stretch does not wake this one)
     if (e.senseRadius > 0 && d2 > e.senseRadius * e.senseRadius) continue;
     if (d2 <= r2) becomeAlert(e, sys, false);
   }
@@ -169,8 +169,8 @@ export function alertHearing(sys: EnemySystem, position: THREE.Vector3, radius: 
   }
 
 /**
- * 반경 `radius` 의 소리를 `e` 가 들을 수 있는 거리 — 총성에서 쓰던 식 그대로이고 소음원(총성 · 수류탄 · 드론)과 무관하다.
- * 2026-09-14: 튜토리얼 적은 그 위에서 자기 감지 반경(`hearRadiusOf`)으로 한 번 더 잘린다.
+ * How far `e` can hear a sound of radius `radius` — the formula gunshots already used, independent of the noise source (gunshot · grenade · drone).
+ * 2026-09-14: on top of that a tutorial enemy is clipped once more by its own sense radius (`hearRadiusOf`).
  */
 function hearingReach(e: Enemy, radius: number): number {
   const reach = Math.min(radius, e.stats.hearRadius + (radius - 55));
@@ -178,22 +178,22 @@ function hearingReach(e: Enemy, radius: number): number {
 }
 
 /**
- * 드론을 노리려면 플레이어보다 이만큼 **확실히** 가까워야 한다 — `ai/Perception.acquireTarget` 의 표적 교체
- * 히스테리시스(LOS 있을 때 0.6)와 같은 값이다. 알고리즘 상수라 csv 대상이 아니다.
+ * To be targeted, a drone has to be this much **clearly** closer than the player — the same value as the target-swap
+ * hysteresis in `ai/Perception.acquireTarget` (0.6 with LOS). An algorithm constant, not a csv number.
  */
 const DRONE_PREFER_MUL = 0.6;
 
-/** 근접으로만 싸우는 적 — 공중 드론이 공격 사거리 위에 떠 있으면 노리지 않는다 (밑에서 영원히 맴돈다). */
+/** An enemy that fights in melee only — it does not target an air drone hovering above its attack range (it would circle underneath forever). */
 function isMeleeOnly(e: Enemy): boolean {
   if (e.type === 'spewer' || e.type === 'artillery') return false;
   return !e.isHumanoid || e.type === 'rogue_hammer';
 }
 
 /**
- * 2026-09-11 (적 ↔ 드론): `e` 가 지금 노릴 수 있는 가장 가까운 드론. 후보는 `TargetList.drones`(= `aggroable` —
- * 걷는 지상 드론은 애초에 없다) 중에서 ① `maxDist` 보다 가깝고 ② 근접형이면 드론 밑면이 `키 + 공격 사거리` 안에
- * 떠 있고 ③ 기존 인지 규칙(`canPerceive`: 시야 반경 × 은폐 · 연막, 5 m 근접 또는 사선, 총알 추적 콘 포함)을
- * 통과하는 것. 레이캐스트는 앞의 두 값싼 검사를 통과한 드론에만 쏜다. 스캔 드론(`rogue_scan_drone`)은 드론을 노리지 않는다.
+ * 2026-09-11 (enemy ↔ drone): the nearest drone `e` may target right now. Candidates come from `TargetList.drones` (= `aggroable`
+ * — a walking ground drone is never in it) and must ① be closer than `maxDist`, ② for a melee-only enemy float with their
+ * underside within `height + attack range`, and ③ pass the existing perception rule (`canPerceive`: sight radius × stealth ·
+ * smoke, within 5 m or a clear line, the shot-tracking cone included). The raycast is fired only at a drone that passed the two cheap checks. The scan drone (`rogue_scan_drone`) never targets a drone.
  */
 export function pickDroneTarget(sys: EnemySystem, e: Enemy, maxDist: number): CombatTarget | null {
   const list = sys.targets.drones;
@@ -214,26 +214,26 @@ export function pickDroneTarget(sys: EnemySystem, e: Enemy, maxDist: number): Co
   return best;
 }
 
-/** 차량을 노리지 않는 적 — 날아다니는 스캔 드론 · 땅에 박힌 땅굴벌레 · 플레이어만 쏘는 로든 (사용자 결정). */
+/** Enemies that never target the vehicle — the flying scan drone, the rooted sandworm, and Roden, who shoots people only (user's decision). */
 function ignoresVehicle(e: Enemy): boolean {
   return e.type === 'rogue_scan_drone' || isWormType(e.type) || e.type === 'rogue_sniper';
 }
 
 /**
- * 2026-09-15 (안드로이드 분대원): 안드로이드를 노리지 않는 적 — 네임드 저격수 로든은 **사람만** 쏜다 (기존 규칙,
- * `ai/named/Sniper.ts` 가 `targets.alive` 에서 직접 고른다). 그 밖의 적에게 안드로이드는 사람과 같은 자격의 표적이다.
+ * 2026-09-15 (android squadmates): enemies that never target an android — the named sniper Roden shoots **people only** (the
+ * existing rule; `ai/named/Sniper.ts` picks straight out of `targets.alive`). To every other enemy an android is a target of exactly a person's standing.
  */
 function ignoresAllies(e: Enemy): boolean {
   return e.type === 'rogue_sniper';
 }
 
 /**
- * 2026-09-13 (탐사 차량): `e` 가 지금 차량을 노릴 수 있으면 그 프록시(`TargetList.vehicles`), 아니면 null.
- * - **어그로**(`e.vehicleAggroUntil` — 차량 포탑 · 들이받기에 맞은 적과 그 무리): 거리 · 인지와 무관하게 차량.
- * - 그 밖에는 플레이어보다 **확실히** 가까워야 한다(`< DRONE_PREFER_MUL ×`, 플레이어가 없으면 무관) — 보이는 플레이어가 먼저다.
- * - **달리는** 차량(`patrol` · `trip`)은 청각 반경(`stats.hearRadius`, 차체 가장자리까지) 안이거나 평소 인지 규칙(`canPerceive`)으로.
- * - **서 있는** 차량은 `ROVER_NOTICE_STOPPED_M` 안 + 사선이 있을 때만 (정류장에 조용히 서 있는 빈 차는 잘 눈에 띄지 않는다).
- * 레이캐스트는 앞의 값싼 검사를 통과했을 때만 쏜다.
+ * 2026-09-13 (the rover): the vehicle proxy (`TargetList.vehicles`) when `e` may target it right now, else null.
+ * - **Aggro** (`e.vehicleAggroUntil` — an enemy the turret or a ramming hit, and its pack): the vehicle, whatever the distance or perception.
+ * - Otherwise it has to be **clearly** closer than the player (`< DRONE_PREFER_MUL ×`; irrelevant with no player) — a visible player comes first.
+ * - A **driving** vehicle (`patrol` · `trip`) qualifies inside the hearing radius (`stats.hearRadius`, to the hull's edge) or by the usual perception rule (`canPerceive`).
+ * - A **standing** vehicle only within `ROVER_NOTICE_STOPPED_M` and with a line of sight (an empty car parked quietly at a stop does not catch the eye).
+ * The raycast is fired only once the cheap checks above have passed.
  */
 export function pickVehicleTarget(sys: EnemySystem, e: Enemy, playerDist: number): CombatTarget | null {
   const t = sys.targets.vehicleTarget();
@@ -246,14 +246,14 @@ export function pickVehicleTarget(sys: EnemySystem, e: Enemy, playerDist: number
 }
 
 /**
- * 2026-09-11 (적 ↔ 드론): `world:noise` — 질주하는 지상 드론. **권한 클라이언트에서만** 나오고 여기서도 권한만 반응한다.
- * 들을 수 있는 거리(`hearingReach`, 총성과 같은 식) 안에서 **아직 아무것도 인지하지 못한** 적이 그 소리 쪽을 조사하러
- * 간다(`ai/Investigate` 재사용: 주시 → 전진). 소리만으로 표적을 주지는 않는다 — 조사하는 동안 인지 콘이 소리 쪽으로
- * 넓어지고, 드론이 **보이면** `pickTarget` 이 그것을 고른다. 이미 싸우는 적 · 웨이브 벌레 · 경직 · 스캔 드론은
- * 건드리지 않고, 이미 조사 중이면 원점만 옮긴다(`beginInvestigation` 이 그렇게 동작한다).
+ * 2026-09-11 (enemy ↔ drone): `world:noise` — a ground drone at a sprint. It is emitted **only on the authority client** and only
+ * the authority reacts here. An enemy that has **not perceived anything yet** and is within hearing (`hearingReach`, the gunshot
+ * formula) goes to investigate the sound (`ai/Investigate` reused: watch → advance). Sound alone never hands out a target — the
+ * perception cone widens toward the sound while investigating, and once the drone is **seen** `pickTarget` takes it. Enemies
+ * already fighting, wave bugs, staggered bodies and the scan drone are left alone; one already investigating only moves its origin (that is what `beginInvestigation` does).
  */
 export function onWorldNoise(sys: EnemySystem, position: THREE.Vector3, radius: number): void {
-  // 2026-09-14: 튜토리얼도 no-op — 조사(= 자기 자리를 떠나 전진)는 「순찰 없음」과 부딪힌다
+  // 2026-09-14: a no-op in the tutorial too — investigating (= leaving its post and advancing) collides with 「no patrolling」
   if (sys.training || sys.tutorial || !sys.authority || !sys.ctx.isGameplayPhase() || !(radius > 0)) return;
   for (let i = 0; i < sys.active.length; i++) {
     const e = sys.active[i];
@@ -268,18 +268,18 @@ export function onWorldNoise(sys: EnemySystem, position: THREE.Vector3, radius: 
 /**
  * Phase 4 target selection. Bugs: nearest of (alive players, rogues within sight radius) — equal priority.
  * Rogues: the nearest alive player within ROGUE_RANGE; otherwise a bug within ROGUE_AI.bugRange, else the nearest player.
- * 2026-09-11 (적 ↔ 드론): an **aggroable** drone (`pickDroneTarget`) is picked when it is clearly closer than the player
- * (< `DRONE_PREFER_MUL` ×) or there is no player, and at least as close as the hostile enemy. Bugs never take 로든's
+ * 2026-09-11 (enemy ↔ drone): an **aggroable** drone (`pickDroneTarget`) is picked when it is clearly closer than the player
+ * (< `DRONE_PREFER_MUL` ×) or there is no player, and at least as close as the hostile enemy. Bugs never take Roden's
  * scan drone (`rogue_scan_drone`) as a hostile — it flies, so a melee bug would circle underneath it forever.
  */
 export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
-  // Phase 12: an enemy that bumped a raised 배리어 hunts the carrier for BARRIER_RETARGET_S
+  // Phase 12: an enemy that bumped a raised barrier hunts the carrier for BARRIER_RETARGET_S
   if (e.barrierOwner !== null && sys.ctx.time < e.barrierUntil) {
     const carrier = sys.targets.get(e.barrierOwner);
     if (carrier && carrier.present && !carrier.isDeadOrDowned) return carrier;
   }
-  /* 2026-09-15 (안드로이드 분대원): 사람과 안드로이드는 **같은 자격**의 표적이다 — 가까운 쪽을 고른다. `nearestAlive`
-     자체는 그대로 사람만 본다 (스포너 앵커 · 웨이브 방향 · 리플리카 시선은 사람 기준이어야 한다). */
+  /* 2026-09-15 (android squadmates): a person and an android are targets of **exactly equal standing** — the nearer one wins.
+     `nearestAlive` itself still sees people only (spawner anchors · wave facing · a replica's gaze must be measured on people). */
   let player = sys.targets.nearestAlive(e.position);
   let pd = player ? player.dist2D(e.position) : Infinity;
   if (!ignoresAllies(e)) {
@@ -289,10 +289,10 @@ export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
       if (ad < pd) { player = ally; pd = ad; }
     }
   }
-  // 2026-09-13 (탐사 차량): 차량에 맞은 적은 차량부터 — 배리어 캐리어 다음, 다른 모든 규칙 앞
+  // 2026-09-13 (the rover): an enemy the vehicle hit goes for the vehicle first — after the barrier carrier, before every other rule
   const vehicle = pickVehicleTarget(sys, e, pd);
   if (vehicle && sys.ctx.time < e.vehicleAggroUntil) return vehicle;
-  // 2026-09-14 (튜토리얼 전용 적): 다른 팩션을 찾는 반경도 자기 감지 반경 안 — 벌레와 안드로이드가 구간 너머로 서로를 물지 않는다
+  // 2026-09-14 (tutorial-only enemies): the radius that looks for another faction stays inside the sense radius too — a bug and an android do not bite each other across stretches
   const range = e.senseRadius > 0
     ? Math.min(e.isHumanoid ? ROGUE_AI.bugRange : e.stats.sightRadius, e.senseRadius)
     : (e.isHumanoid ? ROGUE_AI.bugRange : e.stats.sightRadius);
@@ -301,13 +301,13 @@ export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
   for (let i = 0; i < sys.active.length; i++) {
     const o = sys.active[i];
     if (o === e || !o.isCombatant || o.faction === e.faction) continue;
-    if (o.type === 'rogue_scan_drone') continue;   // 버그만 여기까지 온다 (로그에게는 같은 팩션)
+    if (o.type === 'rogue_scan_drone') continue;   // only bugs get this far (to a rogue it is the same faction)
     const d = Math.hypot(o.position.x - e.position.x, o.position.z - e.position.z);
     if (d < fd) { fd = d; foe = o; }
   }
   const drone = pickDroneTarget(sys, e, player ? pd * DRONE_PREFER_MUL : Infinity);
   if (drone && (!foe || drone.dist2D(e.position) <= fd)) return drone;
-  // 2026-09-13: 알아챈 차량 (플레이어보다 확실히 가깝다 — `pickVehicleTarget`) — 반대 팩션 적보다 가깝거나 같을 때
+  // 2026-09-13: a noticed vehicle (clearly closer than the player — `pickVehicleTarget`) — when it is as close as the hostile-faction enemy, or closer
   if (vehicle && (!foe || vehicle.dist2D(e.position) <= fd)) return vehicle;
   if (e.isHumanoid) {
     if (player && pd < ROGUE_RANGE && (!foe || fd > pd * 0.5)) return player;
@@ -317,13 +317,13 @@ export function pickTarget(sys: EnemySystem, e: Enemy): CombatTarget | null {
   return player;
   }
 
-/* ── Phase 12: 총알 추적 ───────────────────────────────────────────────── */
+/* ── Phase 12: shot tracking ───────────────────────────────────────────── */
 /**
  * `shotq` from a client (host only): validate and run the shooter's report as if it were local, credited to `from`.
  * `force` (debug / smoke) skips the session gate but keeps the authority one and the validation.
  */
 export function onShotReport(sys: EnemySystem, msg: ShotReport, from: PeerId, force = false): void {
-  if (sys.training || !sys.authority || (!force && !sys.hosting)) return;   // 2026-09-14 2차: 튜토리얼 예외 제거 (`reportShot` 주석)
+  if (sys.training || !sys.authority || (!force && !sys.hosting)) return;   // 2026-09-14 2nd pass: the tutorial exception is gone (the `reportShot` comment)
   if (!isVec3Tuple(msg.o) || !isVec3Tuple(msg.d) || !(msg.r > 0)) return;
   _so.set(msg.o[0], msg.o[1], msg.o[2]);
   _sd.set(msg.d[0], msg.d[1], msg.d[2]);
@@ -345,9 +345,9 @@ export function onShotReport(sys: EnemySystem, msg: ShotReport, from: PeerId, fo
  * shooter on its own next tick anyway), starts investigating the origin (`ai/Investigate.ts`) → `enemy:shotAlerted`
  * once. An enemy already investigating only refreshes its origin. The perception test is throttled per enemy.
  *
- * 2026-09-14 2차: **총알이 실제로 멈춘 곳까지만** 센다. `range` 는 총의 사거리(최대 300 m)라, 코앞의 벽을 쏴도
- * 그 방위 300 m 안의 모든 적이 「총알이 스쳤다」로 읽고 있었다 — 저격 · 은신에서 가장 아픈 오판이다.
- * `hit` 이 있으면 그 거리로 선분을 자른다 (`hit` 은 이 총알이 더 못 간 지점이다).
+ * 2026-09-14 2nd pass: it counts **only as far as the bullet actually stopped**. `range` is the gun's range (up to 300 m), so
+ * shooting a wall right in front used to read as 「a bullet grazed me」 to every enemy within 300 m along that bearing — the
+ * most painful misjudgement there is for sniping and stealth. With a `hit` the segment is cut there (`hit` is where this bullet got no further).
  */
 export function alertShot(sys: EnemySystem, origin: THREE.Vector3, dir: THREE.Vector3, range: number, hit: THREE.Vector3 | null, shooter: TargetId): void {
   if (!sys.ctx.isGameplayPhase()) return;
@@ -398,8 +398,8 @@ export function fleeFrom(sys: EnemySystem, position: THREE.Vector3, radius: numb
   for (let i = 0; i < sys.active.length; i++) {
     const e = sys.active[i];
     if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
-    if (isWormType(e.type)) continue;   // 2026-09-13: 땅에 박혀 있다 — 달아나지 않는다 (도주는 FLEE_DURATION 뒤 사라지게 한다)
-    // 2026-09-18: 벌레 알도 같은 이유로 달아나지 않는다 — `flee` 로 넘어가면 `raycastEx` 가 거르므로 이륙 뒤 둥지의 알을 쏠 수 없게 된다
+    if (isWormType(e.type)) continue;   // 2026-09-13: it is rooted in the ground — it never flees (fleeing makes a body despawn after FLEE_DURATION)
+    // 2026-09-18: a bug egg does not flee either, for the same reason — once in `flee` it is filtered out by `raycastEx`, so a nest's eggs could not be shot after liftoff
     if (e.isEgg) continue;
     const dx = e.position.x - position.x, dz = e.position.z - position.z;
     if (dx * dx + dz * dz > r2) continue;

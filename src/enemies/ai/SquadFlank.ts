@@ -4,24 +4,24 @@ import { HUMANOID_RAIDER } from '../EnemyTypes';
 import type { CombatTarget } from '../Targets';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 2026-09-13: 레이더 우회조 — 그룹마다 한 명(`Enemy.squadRole === 'flanker'`, 스폰 디렉터가 준다)이 분대가 엄폐 대치하는
- * 동안 넓게 돌아 표적의 측면 · 후방으로 가서 푸시한다. 수치는 csv `HUMANOID_RAIDER.flank*`.
+ * 2026-09-13: the raider flanker — one per group (`Enemy.squadRole === 'flanker'`, handed out by the spawn director) swings wide
+ * while the squad trades fire from cover, reaches the target's flank · rear and pushes. The numbers are csv `HUMANOID_RAIDER.flank*`.
  *
- *   조건  같은 `squadId` 의 다른 분대원이 교전(chase · aware) 중 · 내 교전이 `flankDelay` 만큼 이어졌다(`flankCd`) ·
- *         표적 거리가 `flankMinDist … flankMaxDist` · 재장전 · 투척 · 돌격 중이 아니다 · 드론 표적이 아니다.
- *         분대가 없으면(`squadId` −1, 혼자 남았다) 평범한 레이더다.
- *   우회  (`flankPhase` 1, 와이어 힌트 0) 표적을 중심으로 **호를 따라** 간다: 목표 방위 = 표적 정면의 반대편 측면을
- *         `flankBehind` 만큼 뒤로 민 방향(표적이 돌면 목표도 따라 돈다 = 시선 밖에 머문다). 매 틱 지금 방위에서
- *         `flankArcStep` 도 앞 · 반지름은 지금보다 4 m 안쪽(최소 `flankRadius`)의 경유점으로 조향한다 — 곧장 달려들지
- *         않고 나선으로 좁혀 든다. 장애물은 `integrate` 의 회피가 돌아간다. 이동 속도 × `flankSpeedMul`, 사격 없음.
- *   푸시  목표 방위의 `flankArrive` 도 안에 들거나 `flankMaxTime` 이 지나면 `roguePhase` 4 (기존 돌격 — 힌트 7, 허리
- *         사격)로 넘기고 `flankCd` = `flankCooldown`. 돌격이 끝나면 평소 엄폐 순환으로 돌아간다(리시가 끌어당긴다).
+ *   condition  another member of the same `squadId` is engaged (chase · aware) · this one's own engagement has lasted `flankDelay`
+ *              (`flankCd`) · target distance is `flankMinDist … flankMaxDist` · not reloading, throwing or rushing · not a drone target.
+ *              With no squad (`squadId` −1, left alone) it is an ordinary raider.
+ *   arc        (`flankPhase` 1, wire hint 0) it runs **along an arc** around the target: the goal bearing = the side opposite the
+ *              target's facing, pushed `flankBehind` toward its back (the goal turns with the target = it stays out of sight). Every tick it
+ *              steers to a waypoint `flankArcStep` degrees ahead of the current bearing, at a radius 4 m inside the current one (at least
+ *              `flankRadius`) — it spirals in instead of charging straight. Obstacles go to `integrate`'s avoidance. Speed × `flankSpeedMul`, no firing.
+ *   push       inside `flankArrive` degrees of the goal bearing, or past `flankMaxTime`, it hands over to `roguePhase` 4 (the existing
+ *              rush — hint 7, hip fire) and sets `flankCd` = `flankCooldown`. After the rush it returns to the usual cover cycle (the leash pulls it back).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const DEG = Math.PI / 180;
-/** 조건이 안 맞으면 이만큼 뒤에 다시 본다 (분대원 스캔을 매 틱 돌리지 않는다) — 알고리즘 상수. */
+/** With the conditions unmet it looks again this many seconds later (the squad scan does not run every tick) — an algorithm constant. */
 const RETRY_S = 0.5;
-/** 경유점 반지름을 매 틱 지금보다 이만큼 안쪽에 잡는다 (m) — 나선의 조임, 그림 상수. */
+/** The waypoint radius is taken this much inside the current one every tick (m) — how tight the spiral is, a visual constant. */
 const SPIRAL_IN_M = 4;
 
 const _f = new THREE.Vector3();

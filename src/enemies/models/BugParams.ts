@@ -46,9 +46,9 @@ export interface BugParams {
   /** separateAbdomen sac swell factor at `anim.abdomen = 1` (spewer 0.18, toxic much more). */
   sacSwell?: number;
   /**
-   * 2026-09-17: 피아 식별용 **붉은 줄무늬** (헌터). 옆구리 띠 + 배 둘레 띠를 별도 메시 하나로 굽고, 종류당 하나의 공유 재질
-   * (약한 자체 발광 — 포그 · 어두운 행성에서도 붉게 읽힌다)을 모든 개체가 같이 쓴다 (`BugModel.getAssets`).
-   * `bands` = 배 둘레 띠 수.
+   * 2026-09-17: **red stripes** for telling friend from foe (hunter). The flank band + the abdomen bands are baked into
+   * one separate mesh, and every instance shares one material per type (a faint self-glow — it still reads red in fog ·
+   * on dark planets) (`BugModel.getAssets`). `bands` = the number of bands around the abdomen.
    */
   stripes?: { color: number; emissive: number; emissiveIntensity: number; bands: number };
 }
@@ -91,7 +91,7 @@ export const BUG_PARAMS: Record<BugType, BugParams> = {
   hunter: {
     type: 'hunter',
     thorax: [0.38, 0.3, 0.62], thoraxY: 0.64,
-    // 2026-09-17: 배의 주황 고리 3개(rings) → 붉은 띠 (`stripes`, 사용자 요청 「피아 식별」)
+    // 2026-09-17: the three orange rings on the abdomen (rings) → red bands (`stripes`, user's request 「telling friend from foe」)
     abdomen: [0.36, 0.32, 0.5], abdomenZ: -0.86, abdomenY: 0.68, separateAbdomen: false, rings: 0, plates: 2,
     head: { r: 0.24, z: 0.74, y: 0.62 }, mandibleLen: 0.32, mandibleR: 0.045, eyeR: 0.055, antennaLen: 0.5,
     legs: { l1: 0.64, l2: 0.86, r: 0.04, hipY: 0.62, spreadX: 0.3, zs: [0.42, 0.02, -0.4], femurUp: 0.78 },

@@ -6,10 +6,11 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **3, `src/enemies`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary) before
+> **Next session starts here:** queue item **4, `src/ui`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary) before
 > picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this file
-> originally described**; the old one let a deleted `*/` through. `src/enemies` is a normal feature folder, so its
-> `verify` is a folder-sized run, not the full net.
+> originally described**; the old one let a deleted `*/` through. `src/ui` is a normal feature folder, so its `verify`
+> is a folder-sized run, not the full net — but it is the heaviest mix of Korean on-screen strings and comments in the
+> queue, so expect many backtick-kept labels and read §3 rule 2 twice before starting.
 
 ---
 
@@ -17,15 +18,15 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`) | 7,484 | 136 |
-| **Remaining** ([§2](#2-queue)) | **19,132** | **611** |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`) | 9,784 | 207 |
+| **Remaining** ([§2](#2-queue)) | **16,832** | **540** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-**Intended permanent exceptions.** A finished folder still prints 7 lines, because a comment whose entire substance is
+**Intended permanent exceptions.** A finished folder still prints 9 lines, because a comment whose entire substance is
 a quoted label or a quoted document heading keeps its Korean (§3 rule 2 — the reader has to be able to grep it against
-the real string). So a raw run over everything prints 19,139 / 618, seven more than the queue:
+the real string). So a raw run over everything prints 16,841 / 549, nine more than the queue:
 
 | Line | What it quotes |
 |---|---|
@@ -36,6 +37,8 @@ the real string). So a raw run over everything prints 19,139 / 618, seven more t
 | `shared/npc.ts:111` | a job title (`헬릭스 조달실장`) |
 | `shared/tutorial.ts:381` | the four track names (`조작 안내` · `함선 안내` · `증축 안내` · `출격 안내`) |
 | `world/Gather.ts:779` | the four harvest prompt verbs (`약초 채집` · `고철 해체` · `토양/씨앗 채취` · `표본 수습`) |
+| `enemies/EnemySystem.ts:159` | the bug-nest decision heading (`둥지 반경 60 m 리시 · 초기 수 절반 · 재스폰 50/35/15 %`) |
+| `enemies/NestDirector.ts:2` | the same heading, plus `둥지의 장식 알을 부술 수 있는 적으로` |
 
 ---
 
@@ -47,7 +50,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 |---|---|---:|---:|---|
 | ~~1~~ | ~~`src/shared`~~ | 4,187 | 65 | **Done 2026-09-18** (with `src/main.ts`, one commit, full 96-script `verify`). Its vocabulary is now the queue's vocabulary — read that folder's comments before picking words for a new folder. |
 | ~~2~~ | ~~`src/world`~~ | 2,988 | 58 | **Done 2026-09-18** (lead + 6 parallel agents, one commit). Dense collision / layout invariants; its wording is now the reference for every world-shaped folder after it. |
-| 3 | `src/enemies` | 2,300 | 71 | `getEnemies()` vs `queryNear` prop rule, nest leash / refill, host-replica sync guards. |
+| ~~3~~ | ~~`src/enemies`~~ | 2,300 | 71 | **Done 2026-09-18** (lead + 6 parallel agents, one commit). Its anatomy and AI-phase vocabulary is now the reference for every rig- and AI-shaped folder after it. |
 | 4 | `src/ui` | 2,279 | 87 | Heaviest mix of Korean UI strings and comments — expect many backtick-kept labels. |
 | 5 | `src/housing` | 2,215 | 55 | Minigame judge bands, furniture access faces, library effects. |
 | 6 | `src/inventory` | 1,703 | 53 | |
@@ -183,9 +186,16 @@ Ask each agent to report: its final count per file, any quoted-label-only line i
 
 **Two things the lead has to check afterwards, because an agent cannot see them** (both happened in the `src/world`
 pass, 6 agents):
-1. **Line endings.** Eleven files came back LF although the brief demanded CRLF. `git show HEAD:<file>` is the
-   *normalised* blob (always LF), so comparing against it proves nothing — read the working-tree bytes:
-   `[f for f in changed if b'\r\n' not in open(f,'rb').read()]` is the list to convert back.
+1. **Line endings — and what the `src/enemies` pass corrected about this.** `git show HEAD:<file>` is the *normalised*
+   blob (always LF with `core.autocrlf=true`, which this repo uses and has no `.gitattributes` to override), so
+   comparing against it proves nothing. Read the working-tree bytes:
+   `[f for f in changed if b'\r\n' not in open(f,'rb').read()]` lists the LF ones.
+   **But do not convert them by reflex.** The working tree is legitimately mixed: a file a tool wrote with LF stays
+   LF on disk (`git add` normalises the blob, not the file), so `src/enemies` had ~20 LF files *before* the pass
+   began. The commit is unaffected either way — the blob and this file's §3 step-4 proof both normalise line
+   endings — so the rule is **preserve whatever each file already had**, and fix only a file an agent actually
+   flipped. The `src/world` pass converted eleven files to CRLF before this was understood; it changed nothing in
+   the commit, but it was noise.
 2. **One thing, two names.** Two agents independently coined *ghost block* for `tut_fence_ghost`, which
    `world/README.md` and CLAUDE.md §4.6 already call the **ghost band**; another wrote *an old peer* where the folder's
    existing English says *an older peer*. Grep the finished folder for each newly coined noun and make it agree with
@@ -456,3 +466,24 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 이삭 · 낟알 · 곁가지 · 포기 · 흙덩이 · 허물 | ear · grain · offshoot · stalk · clod · moult | `world/Gather.ts` |
 | 안전핀 · 수법 · 사건 · 굴림 스트림 | pin (a guard outside `data:check`) · trick · incident · draw stream | `world` |
 | 옛 피어 | **an older peer** (a client on an older build; the pre-existing English in `biomes.ts` · `WorldSystem.ts` set it) | `world/soil.ts`, `flora.ts`, `Hazard.ts` |
+| 겉모습 · 외피 | **the look** — one word for both; 외피 gets no second noun (`AN.shell` is a body panel, `WormModel.SKIN` a colour) | `enemies/models` |
+| 전소 | **incinerated** (adj.) · **incineration** (n.) — never the Korean, it is a concept not a label | `enemies` (folder-wide) |
+| 총알 추적 · 경직 · 헛물기 | shot tracking · stagger · a missed bite | `enemies/parts` |
+| 포병: 준비 · 엎드림 · 쏜 뒤 고정 | the barrage prep (phase 3) · the brace (phase 1) · the post-fire lock (phase 2) — three distinct words, never merged | `enemies/ai/GimmickAI.ts`, `Enemy.ts` |
+| 전조 | **the tell** (a pre-shot cue) · **telegraph / a telegraphed shot** (the sniper) · **the omen** (the sandworm's approach) — decide from what it warns of | `enemies/ai`, `enemies/sandworm` |
+| 굴착 · 솟아오름 · 뱉기 | the dig-in · emerging · the spit | `enemies/ai/Burrow.ts`, `sandworm` |
+| 흙 파임 · 분진 · 흙 폭발 · 흙덩이 | the churned spot · dust · a soil blast · clod | `enemies/fx/BurrowFx.ts` |
+| 옆걸음 · 비켜서기 | **sidestep** (noun and verb alike) | `enemies/ai/FireLine.ts`, `RogueAI.ts` |
+| 입 사선 · 발판 질의 | the mouth line (the spewer) · the platform query (`getStandingObstacle`) | `enemies/ai` |
+| 연사 · 헛돌기 · 총열 회전 | spray (matching the wire key `ee spray`) · spinning empty · barrel spin / spin-up · spin-down | `enemies/ai/named/Heavy.ts` |
+| 음파 · 노출 · 입양 | the (scan) pulse · exposure · adopt (`adoptDrone`) | `enemies/ai/named/ScanDrone.ts`, `Sniper.ts` |
+| 로든의 둥지 (`nestLeash`) | **nest** — the same word as a bug nest, because the csv field is literally `nestLeash` | `enemies/ai/named/Sniper.ts` |
+| 거점 점거 · 매복 · 연쇄 스폰 | site occupation · ambush · chain spawn | `enemies/SiteGroups.ts`, `Tutorial.ts` |
+| 낭떠러지 | **drop-off** — kept apart from 절벽 *cliff* and 끝없는 절벽 *the abyss*, which `src/world` fixed | `enemies/Tutorial.ts` |
+| 실효 생태계 · 분출 무리 · 개체수 상한 | the effective ecosystem · the eruption pack · the population cap | `enemies/Spawner.ts`, `RogueDrop.ts` |
+| 판정 상수 · 알고리즘 상수 · 그림 상수 · 연출 수치 | a judgement constant · an algorithm constant · drawing constants · presentation numbers — four different Korean words, kept apart, each ending "…, not a csv number" | `enemies` |
+| 표현용 (값 · 안전핀) | a nominal value / a nominal pin | `enemies/parts/Damage.ts` |
+| 파열구 · 노른빛 · 피아 식별 | rupture · the yolk glow · telling friend from foe | `enemies/models` |
+| 마디 · 턱 · 목구멍 · 꿀렁임 · 숙임 | segment · jaw · throat · the throat surge · lean | `enemies/models/WormModel.ts`, `sandworm/Pose.ts` |
+| 견갑 · 흉갑 / 가슴판 · 탄부판 · 정강이판 | pauldron · breastplate / chest plate (**the Korean itself uses two words — keep both**) · groin plate · shin plate | `enemies/models` |
+| 소염기 · 경통 · 기관부 · 급탄 상자 · 길리 망토 | flash hider · scope tube · receiver · feed box · ghillie cloak | `enemies/models/named` |

@@ -1,32 +1,35 @@
 /**
- * src/enemies/ai/named/Sniper.ts — **로든** (`rogue_sniper`, 2026-09-11).
+ * src/enemies/ai/named/Sniper.ts — **Roden** (`rogue_sniper`, 2026-09-11).
  *
- * 넓은 개활지에서 대물 저격총으로 플레이어의 머리를 노리는 저격수. **전조 없는 한 발은 없다** — 모든 사격은
- * `NAMED_SNIPER.glintTime` 동안의 조준경 반짝임(힌트 15 · `named:sniperGlint` · `ee glint`) 뒤에만 나간다.
- * 반짝임 동안 사선을 끊으면(엄폐) 탄은 엄폐물에 박힌다 — `fireGun` 의 월드 레이캐스트가 그대로 막는다.
+ * A sniper who puts an anti-materiel rifle on a player's head across wide open ground. **No shot comes without a
+ * telegraph** — every shot goes out only after a scope glint lasting `NAMED_SNIPER.glintTime` (hint 15 ·
+ * `named:sniperGlint` · `ee glint`). Break the line during the glint (take cover) and the round buries itself in the
+ * cover — the world raycast in `fireGun` stops it exactly as it always does.
  *
- * 상태 (`Enemy.namedData` = `SniperData`, 첫 틱에 만든다 — 호스트에서만):
- *  - **엎드림**(힌트 14) — 둥지(`guardPos`)에서 엎드려 조준경으로 천천히 훑는다. `e.aware` 는 늘 true 라
- *    총알 추적(`ai/Investigate`)이나 시야 상실이 둥지에서 끌어내지 않는다.
- *  - **근거리 모드** — `detectRange`(× 은폐 계수) 안의 살아 있는 플레이어 중 **엎드린 눈높이 → 머리** 사선이 열린
- *    가장 가까운 한 명. 몸을 돌려 조준이 맞고 `fireCooldown` 이 끝났으면 반짝임 → 발사. 명중률은 거리에 따라
- *    `nearAccuracyMax` → `nearAccuracyMin` 선형.
- *  - **원거리 모드** — `detectRange` 밖 ~ `droneRange` 안에 플레이어가 있으면 `launchScanDrone` 으로 스캔 드론을
- *    띄운다. 드론이 `done` 이 되면 `exposure ≥ exposeNeeded` 인 표적 중 사선이 열린 가장 가까운 한 명을
- *    `scannedAccuracy` 로 쏜다. `scanWait` 동안 사선이 안 열리면 포기. 드론이 `done` 전에 떨어지면 `droneRetry`,
- *    스캔 표적에게 쐈으면 `droneCooldown`. 어느 쪽이든 `SniperData.resolvedDroneId` 에 드론 id 를 남긴다
- *    (드론이 노출 표시를 풀고 복귀하는 신호).
- *  - **자리 옮기기**(힌트 0 = 서서 달린다) — 피격되었거나 플레이어가 `closeThreat` 안으로 들어오면
- *    `relocateCooldown` 에 한 번, 위협 반대쪽 옆으로 6–10 m 옮긴다(둥지에서 `nestLeash` 이상 벗어나지 않는다).
- *    반짝임 중에는 옮기지 않는다 — 전조를 띄운 한 발은 끝까지 쏜다. C-62: 반짝임을 시작하려는 순간 소염기가 파묻혀
- *    있으면(`muzzleBuried`) 전조 없이 같은 자리 옮기기를 탄다 — 후보 중 표적 쪽 총구가 트인 자리를 고른다(`buriedBeforeGlint`).
- *  - 경직 · 전소 — 힌트 0 으로 일반 로그 자세(웅크림 · 몸부림)를 쓰고 반짝임은 취소된다.
+ * States (`Enemy.namedData` = `SniperData`, created on the first tick — on the host only):
+ *  - **Prone** (hint 14) — lies at its nest (`guardPos`) and sweeps slowly through the scope. `e.aware` is always true,
+ *    so shot tracking (`ai/Investigate`) or a lost sight line never drags it off the nest.
+ *  - **Near mode** — of the living players within `detectRange` (× the stealth factor), the nearest one whose
+ *    **prone eye height → head** line is open. Once the body has turned onto it and `fireCooldown` has run out,
+ *    glint → fire. Accuracy is linear with distance, `nearAccuracyMax` → `nearAccuracyMin`.
+ *  - **Far mode** — with a player outside `detectRange` but inside `droneRange`, `launchScanDrone` puts a scan drone
+ *    up. Once the drone is `done`, it shoots the nearest target with `exposure ≥ exposeNeeded` and an open line, at
+ *    `scannedAccuracy`. If no line opens within `scanWait` it gives up. A drone that goes down before `done` costs
+ *    `droneRetry`, a shot at a scanned target costs `droneCooldown`. Either way the drone's id is left in
+ *    `SniperData.resolvedDroneId` (the signal for the drone to clear the exposure display and fly home).
+ *  - **Relocating** (hint 0 = it stands up and runs) — once it is hit, or a player comes within `closeThreat`, it moves
+ *    6–10 m sideways away from the threat, once per `relocateCooldown` (never further from the nest than `nestLeash`).
+ *    It does not move during a glint — a shot that was telegraphed is seen through. C-62: with the muzzle brake buried
+ *    (`muzzleBuried`) the moment a glint would start, it takes the same relocation with no telegraph — picking the
+ *    candidate whose muzzle is clear toward the target (`buriedBeforeGlint`).
+ *  - Stagger · incineration — hint 0 for the ordinary rogue poses (crouch · writhe), and the glint is cancelled.
  *
- * **플레이어만 쏜다** (리드 결정): `t`(= `pickTarget` 의 답, 벌레 · 드론일 수 있다)는 쓰지 않고
- * `host.targets.alive` 에서 직접 고른다. 드론 프록시(`isDrone`) · 적 프록시(`enemy`)는 반짝임도 150 피해도 받지 않는다.
+ * **It shoots players only** (the lead's decision): `t` (= `pickTarget`'s answer, which may be a bug or a drone) is
+ * unused; it picks from `host.targets.alive` itself. Drone proxies (`isDrone`) and enemy proxies (`enemy`) get neither
+ * a glint nor the 150 damage.
  *
- * 연출(트레이서 · 섬광 · 먼 총성)은 `named/SniperShot` 하나를 호스트와 리플리카가 같이 부른다. 반짝임 스프라이트와
- * 엎드림 자세는 `models/named/SniperLook` 이 `e.namedHint` 에서 그린다.
+ * The FX (tracer · flash · the distant report) are one `named/SniperShot` that the host and replicas both call. The
+ * glint sprite and the prone pose are drawn by `models/named/SniperLook` from `e.namedHint`.
  */
 import * as THREE from 'three';
 import type { EnemyEvent, PeerId, WorldRef } from '@/shared';
@@ -44,48 +47,49 @@ import { turnToward, yawTo } from '../Steering';
 import { launchScanDrone } from './ScanDrone';
 import { scanDroneDataOf, sniperDataOf, type ScanDroneData, type SniperData } from './model';
 
-/* ── 와이어 힌트 (`EnemyWire.a`) ── */
+/* ── Wire hints (`EnemyWire.a`) ── */
 const HINT_PRONE = 14;
 const HINT_GLINT = 15;
 
-/* ── 알고리즘 · 그림 상수 (밸런스 수치는 NAMED_SNIPER) ── */
-/** 표적 고르기(사선 레이캐스트) 주기 s. */
+/* ── Algorithm · look constants (the balance numbers are NAMED_SNIPER) ── */
+/** Target picking (line-of-fire raycast) interval, s. */
 const PICK_INTERVAL_S = 0.3;
-/** 엎드린 뒤 자세가 내려앉을 때까지 반짝임을 시작하지 않는다 (s). */
+/** No glint starts until the prone pose has settled (s). */
 const PRONE_SETTLE_S = 0.7;
-/** 몸이 표적을 이 각(rad) 안으로 향해야 반짝임을 시작한다. */
+/** The body must face the target within this angle (rad) before a glint starts. */
 const FACE_TOL = 0.12;
 /**
- * 사선 검사 원점: 발 기준 높이 · 표적 쪽 앞 거리 (m). C-56 (2026-09-11): 앞 거리는 **몸 반경(0.4) 이하** —
- * 예전 0.9 m 는 엎드린 몸 밖이라 바로 앞 둔덕 · 바위 **속**에서 레이가 출발해 막힘을 못 봤다(월드 레이는 원점이
- * 장애물 안이면 무충돌). 몸 안에서 출발하면 몸과 표적 사이의 모든 것이 잡힌다.
+ * Origin of the line-of-fire check: height above the feet · distance forward toward the target (m). C-56 (2026-09-11):
+ * the forward distance is **at or below the body radius (0.4)** — the old 0.9 m sat outside the prone body, so the ray
+ * started **inside** the mound or rock right in front and never saw the block (a world ray whose origin is inside an
+ * obstacle reports no hit). Starting inside the body catches everything between the body and the target.
  */
 const EYE_UP = 0.32;
 const EYE_FWD = 0.3;
-/** 발사 직전 몸 → 총구 검사: 막힌 점에서 이만큼 몸 쪽으로 물러난 곳에서 섬광이 터진다 (m). */
+/** The body → muzzle check just before firing: the flash bursts this far back toward the body from the blocked point (m). */
 const MUZZLE_BURY_BACK = 0.12;
-/** `ai/Perception` 과 같은 연막 기준 — 이 선명도 이하면 사선이 막힌 것으로 본다. */
+/** The same smoke threshold as `ai/Perception` — at or below this clarity the line counts as blocked. */
 const SMOKE_BLIND = 0.4;
-/** 표적 눈높이 위로 머리 중심까지 (m). */
+/** From the target's eye height up to the centre of the head (m). */
 const HEAD_ABOVE_EYE = 0.06;
-/** 빗나가기로 굴렸을 때 머리 옆으로 트는 거리 (m, 사용자 명세 1–2 m). */
+/** How far beside the head a shot is thrown when the accuracy roll misses (m, the user specified 1–2 m). */
 const MISS_MIN_M = 1;
 const MISS_MAX_M = 2;
-/** 자리 옮기기: 한 번에 옮기는 거리 (m) · 최대 달리는 시간 (s). */
+/** Relocating: distance moved at a time (m) · maximum running time (s). */
 const RELOCATE_MIN_M = 6;
 const RELOCATE_MAX_M = 10;
 const RELOCATE_MAX_S = 4.5;
-/** C-62: 매몰로 옮길 때 보는 후보 수 — 옆 두 쪽 × (무작위 · 최대 · 최소 거리). */
+/** C-62: candidates looked at when relocating because of a buried muzzle — the two sides × (random · maximum · minimum distance). */
 const RELOCATE_TRIES = 6;
-/** 반짝임이 취소되면(표적이 쓰러짐 · 사라짐) 다음 반짝임까지 최소 s. */
+/** Minimum s to the next glint once one was cancelled (the target went down · disappeared). */
 const CANCEL_COOLDOWN_S = 1.2;
-/** 드론을 띄우지 못했으면 이만큼 뒤 다시 시도 (s). */
+/** Retry this long after a drone could not be launched (s). */
 const LAUNCH_RETRY_S = 3;
-/** `ScanDrone.ts` 의 단계 번호 — 이 값 이상(귀환 · 이탈)인 드론은 입양하지 않는다. */
+/** The phase numbers in `ScanDrone.ts` — a drone at or past this one (flying home · escaping) is not adopted. */
 const DRONE_PHASE_RETURN = 2;
-/** 드론이 응답이 없을 때의 안전장치: `loiterMax` 에 더하는 s. */
+/** The safety net for a drone that never answers: s added to `loiterMax`. */
 const DRONE_TIMEOUT_PAD_S = 20;
-/** 할 일이 없을 때 조준경으로 훑는 폭 (rad) · 속도 (rad/s). */
+/** Width (rad) · speed (rad/s) of the scope sweep with nothing to do. */
 const WATCH_SWEEP = 0.5;
 const WATCH_SPEED = 0.23;
 
@@ -124,7 +128,7 @@ function createData(e: Enemy): SniperData {
   };
 }
 
-/** 로든이 쏠 수 있는 표적 = 살아 있는 **플레이어** (드론 · 적 프록시 제외). */
+/** What Roden may shoot = a living **player** (drone and enemy proxies excluded). */
 function isPlayerTarget(t: CombatTarget): boolean {
   return t.present && !t.isDeadOrDowned && t.enemy === null && !t.isDrone && !t.isVehicle;
 }
@@ -168,9 +172,10 @@ function nearestPlayer(host: EnemyHost, p: THREE.Vector3): CombatTarget | null {
 }
 
 /**
- * 엎드린 눈높이 → 표적 머리 사선. 몸 방향과 무관하게 **표적 쪽으로** `EYE_FWD` 앞의 조준경 자리에서 쏜다 —
- * 아직 돌아서지 않은 표적도 고를 수 있어야 해서 리그의 총구(지금 향한 방향)는 쓰지 않는다. 그 자리는 로든의 몸
- * 안이라(적은 월드 장애물이 아니다) `ai/FireLine` 의 "총구 뒤에서 출발" 규약과 같은 효과다. 연막도 막는다.
+ * The prone eye height → target head line. Regardless of the body's facing, it starts at the scope position `EYE_FWD`
+ * ahead **toward the target** — the rig's muzzle (where it currently points) is not used, because a target it has not
+ * turned onto yet must still be pickable. That position is inside Roden's body (an enemy is not a world obstacle), so
+ * the effect is the same as `ai/FireLine`'s "start behind the muzzle" convention. Smoke blocks it too.
  */
 function lineOpen(e: Enemy, host: EnemyHost, t: CombatTarget, head: THREE.Vector3): boolean {
   const world = host.ctx.world;
@@ -187,7 +192,7 @@ function lineOpen(e: Enemy, host: EnemyHost, t: CombatTarget, head: THREE.Vector
   return visionClarity(e, host, t) > SMOKE_BLIND;
 }
 
-/** 지금 드론이 스캔을 마쳤으면 그 데이터 (아니면 null). */
+/** The data of the current drone if it has finished scanning (otherwise null). */
 function finishedScan(e: Enemy, d: SniperData, host: EnemyHost): ScanDroneData | null {
   if (d.droneId === null) return null;
   const drone = findEnemy(host, d.droneId);
@@ -204,9 +209,10 @@ function resolveDrone(d: SniperData, cooldown: number): void {
 }
 
 /**
- * 주인 없는 스캔 드론 입양 (C-49): 호스트 승격으로 넘어온 드론은 `ScanDrone.ts` 가 가장 가까운 로든을 `sniperId` 로
- * 적어 새 데이터를 준다. 그 로든(역시 승격돼 `SniperData` 가 방금 생겼다)은 `droneId === null` 이므로 여기서 집어 온다.
- * 아직 아무 로든도 붙잡지 않은 드론(`!claimed`)만 — 방금 놓아 준(`resolvedDroneId`) · 귀환 중인 드론은 되잡지 않는다.
+ * Adopting an ownerless scan drone (C-49): for a drone that came over on host promotion, `ScanDrone.ts` writes the
+ * nearest Roden as its `sniperId` and gives it fresh data. That Roden (promoted too, its `SniperData` just created) has
+ * `droneId === null`, so it picks the drone up here. Only a drone no Roden has claimed yet (`!claimed`) — one just
+ * released (`resolvedDroneId`) or on its way home is not grabbed back.
  */
 function adoptDrone(e: Enemy, d: SniperData, host: EnemyHost): void {
   const list = host.active;
@@ -222,11 +228,11 @@ function adoptDrone(e: Enemy, d: SniperData, host: EnemyHost): void {
   }
 }
 
-/** 드론 수명 관리: 스캔 완료 → 사선 대기 창, 완료 전 이탈 · 요격 → `droneRetry`. */
+/** Drone lifetime bookkeeping: scan finished → the window waiting for a line; lost or intercepted before it finished → `droneRetry`. */
 function trackDrone(e: Enemy, d: SniperData, host: EnemyHost, dt: number): void {
   if (d.droneId === null) adoptDrone(e, d, host);
   if (d.droneId === null) return;
-  if (d.glintLeft > 0 && d.aimScanned) return;          // 스캔 표적에게 반짝이는 중 — 발사가 정리한다
+  if (d.glintLeft > 0 && d.aimScanned) return;          // glinting at a scanned target — the shot settles it
   d.droneAge += dt;
   const drone = findEnemy(host, d.droneId);
   const sd = drone ? scanDroneDataOf(drone) : null;
@@ -234,15 +240,15 @@ function trackDrone(e: Enemy, d: SniperData, host: EnemyHost, dt: number): void 
   if (mine && sd!.done) {
     if (d.scanWait < 0) d.scanWait = NAMED_SNIPER.scanWait;
     d.scanWait -= dt;
-    if (d.scanWait <= 0) resolveDrone(d, NAMED_SNIPER.droneRetry);   // 사선이 끝내 안 열렸다 — 포기
+    if (d.scanWait <= 0) resolveDrone(d, NAMED_SNIPER.droneRetry);   // the line never opened — give up
     return;
   }
   const lost = !mine || drone!.state === 'dead' || drone!.state === 'flee'
     || d.droneAge > NAMED_SCAN_DRONE.loiterMax + DRONE_TIMEOUT_PAD_S;
-  if (lost) resolveDrone(d, NAMED_SNIPER.droneRetry);    // 스캔을 마치기 전에 요격 · 이탈
+  if (lost) resolveDrone(d, NAMED_SNIPER.droneRetry);    // intercepted or lost before the scan finished
 }
 
-/** 쏠 표적 고르기 — 근거리(감지 범위 · 사선) 우선, 없으면 스캔 표적(노출 · 사거리 · 사선). 가장 가까운 한 명. */
+/** Picks the target to shoot — near mode first (detection range · line), else a scanned target (exposure · range · line). The nearest one. */
 function pick(e: Enemy, d: SniperData, host: EnemyHost): void {
   d.pickId = null;
   d.pickScanned = false;
@@ -285,7 +291,7 @@ function cancelGlint(d: SniperData): void {
   d.pickAt = 0;
 }
 
-/** 조준경 반짝임 시작 — 전조. 호스트 로컬 이벤트 + 소리, 멀티면 `ee glint`. */
+/** Starts the scope glint — the telegraph. A local host event + sound, plus `ee glint` in multiplayer. */
 function startGlint(e: Enemy, d: SniperData, host: EnemyHost, t: CombatTarget, scanned: boolean): void {
   const ctx = host.ctx;
   const dur = NAMED_SNIPER.glintTime;
@@ -297,7 +303,7 @@ function startGlint(e: Enemy, d: SniperData, host: EnemyHost, t: CombatTarget, s
   if (hosting(host)) ctx.net!.send({ t: 'ee', ev: 'glint', id: e.id, dur: round(dur, 2), target: peerOf(host, t) }, 'others');
 }
 
-/** 반짝임이 끝났다 — 한 발. 명중을 굴려 머리 또는 머리 옆 1–2 m 로 `fireGun` (피해 · 가림은 호스트가 판정). */
+/** The glint ended — one shot. The accuracy roll sends `fireGun` at the head or 1–2 m beside it (damage and occlusion are the host's judgement). */
 function fire(e: Enemy, d: SniperData, host: EnemyHost, t: CombatTarget): void {
   const dist = t.dist2D(e.position);
   let acc = THREE.MathUtils.lerp(NAMED_SNIPER.nearAccuracyMax, NAMED_SNIPER.nearAccuracyMin,
@@ -306,7 +312,7 @@ function fire(e: Enemy, d: SniperData, host: EnemyHost, t: CombatTarget): void {
   const hitRoll = Math.random() < acc;
   headOf(t, _aim);
   if (!hitRoll) {
-    // 빗나감: 머리 옆으로 1–2 m 튼다 (탄은 월드에만 — 스쳐 가는 소리와 흙먼지가 두 번째 경고다)
+    // A miss: thrown 1–2 m beside the head (the round only reaches the world — the crack going past and the dust are the second warning)
     const dx = _aim.x - e.position.x, dz = _aim.z - e.position.z;
     const l = Math.hypot(dx, dz) || 1;
     const side = Math.random() < 0.5 ? -1 : 1;
@@ -317,10 +323,11 @@ function fire(e: Enemy, d: SniperData, host: EnemyHost, t: CombatTarget): void {
   }
   SHOT_OPTS.damage = NAMED_SNIPER.damage;
   SHOT_OPTS.range = NAMED_SNIPER.range;
-  // C-56: 반짝임 동안 돌면서 긴 총열(총구 ≈ 몸 2.3 m 앞)이 바위 · 둔덕에 파묻혔을 수 있다. `fireGun` 은 총구에서
-  // 월드 레이를 쏘므로 그대로면 탄이 바위를 뚫는다 — 몸 → 총구 선분이 막히면 **그 점에 박힌다**. 전조를 띄운 한 발은
-  // 그래도 쏜다(소리 · 섬광 · `ee snipe hit:false` · 쿨다운) — 자리를 옮기지는 않는다. C-62 부터 반짝임 **시작 전**에도
-  // 같은 검사를 하므로(`buriedBeforeGlint`) 여기 걸리는 것은 반짝임 동안 돌다가 파묻힌 경우뿐이다.
+  // C-56: turning during the glint, the long barrel (muzzle ≈ 2.3 m ahead of the body) may have buried itself in a rock
+  // or a mound. `fireGun` casts its world ray from the muzzle, so left alone the round would pass through the rock — if
+  // the body → muzzle segment is blocked, it **lands at that point**. A telegraphed shot is still fired (sound · flash ·
+  // `ee snipe hit:false` · cooldown) — it does not relocate. Since C-62 the same check also runs **before** the glint
+  // starts (`buriedBeforeGlint`), so what reaches here is only a muzzle buried while turning during the glint.
   const buried = muzzleBuried(e, host, _shot.from, _shot.to);
   const struck = buried ? false : host.fireGun(e, t, 0, 1, SHOT_OPTS);
   if (buried) host.ctx.bus.emit('enemy:shot', { id: e.id, type: e.type, from: _shot.from.clone(), to: _shot.to.clone(), hit: false });
@@ -338,8 +345,9 @@ function fire(e: Enemy, d: SniperData, host: EnemyHost, t: CombatTarget): void {
 }
 
 /**
- * 몸 중심(발 + `EYE_UP`) → 리그 총구 선분에 월드 장애물이 있으면 true 와 함께 `from` · `to` 를 그 막힌 점(섬광은
- * `MUZZLE_BURY_BACK` 만큼 몸 쪽)으로 채운다 (C-56). 적은 월드 장애물이 아니므로 자기 몸은 걸리지 않는다.
+ * With a world obstacle on the body centre (feet + `EYE_UP`) → rig muzzle segment, returns true and fills `from` ·
+ * `to` with that blocked point (the flash `MUZZLE_BURY_BACK` back toward the body) (C-56). An enemy is not a world
+ * obstacle, so its own body never catches.
  */
 function muzzleBuried(e: Enemy, host: EnemyHost, from: THREE.Vector3, to: THREE.Vector3): boolean {
   const world = host.ctx.world;
@@ -358,7 +366,7 @@ function muzzleBuried(e: Enemy, host: EnemyHost, from: THREE.Vector3, to: THREE.
   return true;
 }
 
-/** 감지 범위 밖 · 드론 사거리 안의 가장 가까운 플레이어에게 스캔 드론. */
+/** A scan drone at the nearest player outside the detection range and inside the drone range. */
 function maybeLaunchDrone(e: Enemy, d: SniperData, host: EnemyHost): void {
   if (d.droneId !== null || d.droneCooldown > 0 || d.proneTime < PRONE_SETTLE_S) return;
   const list = host.targets.alive;
@@ -382,10 +390,11 @@ function maybeLaunchDrone(e: Enemy, d: SniperData, host: EnemyHost): void {
 }
 
 /**
- * 반짝임 직전 매몰 (C-62): 전조를 띄우지 않는다. `CANCEL_COOLDOWN_S` 동안 다시 재지 않고, 자리 옮기기 쿨다운이 끝났으면
- * **표적 쪽 총구가 트이는 자리**로 옮긴다(`startRelocate` 의 후보 검사). 쿨다운 중이면 그 자리에서 기다린다 — 표적이
- * 움직여 총구가 트이거나 쿨다운이 끝나면 다시 판단하므로 같은 자리의 매몰 → 대기 → 매몰은 `relocateCooldown` 을 넘지 않는다.
- * `muzzleBuried` 가 방금 채운 `_body` · `_muzzle` 에서 엎드린 총구의 수평 거리 · 높이를 읽는다.
+ * A muzzle buried right before a glint (C-62): no telegraph goes out. It does not aim again for `CANCEL_COOLDOWN_S`,
+ * and once the relocation cooldown has run out it moves to **a spot whose muzzle is clear toward the target** (the
+ * candidate check in `startRelocate`). Still on cooldown, it waits where it is — the target moving clear or the cooldown
+ * ending makes it judge again, so buried → wait → buried on the same spot never exceeds `relocateCooldown`. The prone
+ * muzzle's horizontal reach and rise are read from the `_body` · `_muzzle` that `muzzleBuried` just filled.
  */
 function buriedBeforeGlint(e: Enemy, d: SniperData, host: EnemyHost, t: CombatTarget): void {
   d.fireCooldown = Math.max(d.fireCooldown, CANCEL_COOLDOWN_S);
@@ -394,7 +403,7 @@ function buriedBeforeGlint(e: Enemy, d: SniperData, host: EnemyHost, t: CombatTa
   startRelocate(e, d, host, t.position, reach, _muzzle.y - _body.y);
 }
 
-/** `(px, pz)` 에 엎드렸을 때 몸 중심 → (`aim` 쪽 수평 `reach` · 높이 `rise` 의) 총구 선분이 월드에 막히지 않으면 true (C-62). */
+/** true when, lying prone at `(px, pz)`, the body centre → muzzle segment (horizontal `reach` toward `aim` · height `rise`) is not blocked by the world (C-62). */
 function muzzleClearAt(world: WorldRef, px: number, pz: number, aim: THREE.Vector3, reach: number, rise: number): boolean {
   const dx = aim.x - px, dz = aim.z - pz;
   const l = Math.hypot(dx, dz);
@@ -408,10 +417,11 @@ function muzzleClearAt(world: WorldRef, px: number, pz: number, aim: THREE.Vecto
 }
 
 /**
- * 위협 반대쪽 옆으로 짧게 옮긴다 (둥지 리시 안). 목표는 `Enemy.coverPos` (로든은 엄폐 순환을 쓰지 않는다).
- * C-62: `muzzleReach > 0` 이면 옆 방향 두 쪽 × 거리 세 가지(`RELOCATE_TRIES`)를 차례로 보고 `from` 쪽 총구가 트인
- * 첫 자리를 고른다(`muzzleClearAt`) — 막힌 자리를 다시 고르지 않는다. 트인 자리가 없으면 예전과 같은 첫 후보.
- * `muzzleReach` 를 주지 않으면(피격 · 근접) 예전과 한 치도 다르지 않다 (난수 호출 순서까지).
+ * Moves a short way sideways, away from the threat (inside the nest leash). The destination is `Enemy.coverPos` (Roden
+ * does not use the cover cycle). C-62: with `muzzleReach > 0` it walks the two sides × three distances
+ * (`RELOCATE_TRIES`) in order and takes the first spot whose muzzle is clear toward `from` (`muzzleClearAt`) — it never
+ * picks a blocked spot again. With no clear spot, the first candidate as before. Without a `muzzleReach` (hit · a close
+ * threat) it is not one bit different from before (down to the order of the random calls).
  */
 function startRelocate(e: Enemy, d: SniperData, host: EnemyHost, from: THREE.Vector3 | null, muzzleReach = 0, muzzleRise = 0): void {
   const world = host.ctx.world!;
@@ -436,7 +446,7 @@ function startRelocate(e: Enemy, d: SniperData, host: EnemyHost, from: THREE.Vec
     const gl = Math.hypot(gx, gz);
     if (gl > leash) { px = e.guardPos.x + (gx / gl) * leash; pz = e.guardPos.z + (gz / gl) * leash; }
     if (!world.isInsideBounds(px, pz)) { px = e.guardPos.x; pz = e.guardPos.z; }
-    if (k === 0) e.coverPos.set(px, 0, pz);               // 트인 자리가 없을 때의 답 = 예전의 한 후보
+    if (k === 0) e.coverPos.set(px, 0, pz);               // the answer when no spot is clear = the one old candidate
     if (tries > 1 && muzzleClearAt(world, px, pz, from!, muzzleReach, muzzleRise)) { e.coverPos.set(px, 0, pz); break; }
   }
   e.hasCover = true;
@@ -455,7 +465,7 @@ export function updateSniper(e: Enemy, dt: number, host: EnemyHost, _t: CombatTa
   let d = sniperDataOf(e);
   if (!d) { d = createData(e); e.namedData = d; }
 
-  e.aware = true;   // 늘 경계 중 — 위 머리말
+  e.aware = true;   // always alert — see the header
   if (d.droneCooldown > 0) d.droneCooldown -= dt;
   if (d.fireCooldown > 0) d.fireCooldown -= dt;
   if (d.relocateCd > 0) d.relocateCd -= dt;
@@ -472,7 +482,7 @@ export function updateSniper(e: Enemy, dt: number, host: EnemyHost, _t: CombatTa
   let wantYaw: number | null = null;
 
   if (e.state === 'stagger') {
-    // 경직 · 전소: 일반 로그 자세(힌트 0), 반짝임은 취소
+    // Stagger · incineration: the ordinary rogue poses (hint 0), the glint is cancelled
     if (d.glintLeft > 0) cancelGlint(d);
     d.relocate = 0;
     d.proneTime = 0;
@@ -482,7 +492,7 @@ export function updateSniper(e: Enemy, dt: number, host: EnemyHost, _t: CombatTa
     else { crouchT = 0.5; a.headPitch = THREE.MathUtils.lerp(a.headPitch, 0.3, dt * 6); }
     if (e.staggerTimer <= 0 && e.incapTimer <= 0) { e.incapTimer = 0; e.state = 'chase'; e.stateTime = 0; }
   } else {
-    if (e.state !== 'chase' && e.state !== 'idle') { e.state = 'idle'; e.stateTime = 0; }   // alert · wander → 로든의 두 상태
+    if (e.state !== 'chase' && e.state !== 'idle') { e.state = 'idle'; e.stateTime = 0; }   // alert · wander → Roden's two states
     const threat = nearestPlayer(host, e.position);
     const threatD = threat ? threat.dist2D(e.position) : Infinity;
 
@@ -491,7 +501,7 @@ export function updateSniper(e: Enemy, dt: number, host: EnemyHost, _t: CombatTa
     }
 
     if (d.relocate > 0) {
-      // 자리 옮기기: 일어서서 달린다 (힌트 0 — 리플리카는 기본 로그 보행)
+      // Relocating: it stands up and runs (hint 0 — a replica walks the default rogue walk)
       d.relocate -= dt;
       hint = 0; speed = s.speed; aimT = 0.3;
       e.state = 'chase';
@@ -505,7 +515,7 @@ export function updateSniper(e: Enemy, dt: number, host: EnemyHost, _t: CombatTa
     } else {
       d.proneTime += dt;
       if (d.glintLeft > 0) {
-        // 반짝임 중: 표적을 계속 따라 돌며 끝나면 발사
+        // During the glint: it keeps turning onto the target and fires when the glint ends
         e.state = 'chase';
         const tgt = d.aimTargetId !== null ? host.targets.get(d.aimTargetId) : undefined;
         if (!tgt || !isPlayerTarget(tgt)) cancelGlint(d);
@@ -527,7 +537,7 @@ export function updateSniper(e: Enemy, dt: number, host: EnemyHost, _t: CombatTa
           lookAtTarget(e, tgt, dt);
           aimT = 0.9;
           if (d.fireCooldown <= 0 && d.proneTime >= PRONE_SETTLE_S && Math.abs(angleDiff(e.yaw, wantYaw)) < FACE_TOL) {
-            // C-62: 전조를 띄우기 **전에** 소염기 매몰을 본다 — 막힌 자리에서는 반짝임을 시작하지 않고 자리를 옮긴다
+            // C-62: the buried muzzle brake is checked **before** the telegraph goes out — on a blocked spot it relocates instead of glinting
             if (muzzleBuried(e, host, _shot.from, _shot.to)) buriedBeforeGlint(e, d, host, tgt);
             else {
               startGlint(e, d, host, tgt, d.pickScanned);
@@ -535,7 +545,7 @@ export function updateSniper(e: Enemy, dt: number, host: EnemyHost, _t: CombatTa
             }
           }
         } else {
-          // 쏠 표적이 없다: 가장 가까운 플레이어 쪽(드론 사거리 안)을 중심으로 조준경을 천천히 훑는다
+          // Nothing to shoot: it sweeps the scope slowly around the nearest player (inside the drone range)
           if (threat && threatD <= NAMED_SNIPER.droneRange) { d.watchYaw = yawTo(e.position, threat.position); e.state = 'chase'; }
           else e.state = 'idle';
           wantYaw = d.watchYaw + Math.sin(a.time * WATCH_SPEED + e.id) * WATCH_SWEEP;
@@ -555,12 +565,12 @@ export function updateSniper(e: Enemy, dt: number, host: EnemyHost, _t: CombatTa
   integrate(e, dt, world, host, speed, false);
 }
 
-/* ── 리플리카 ─────────────────────────────────────────────────────────────── */
+/* ── Replica ──────────────────────────────────────────────────────────────── */
 
-/** 자세는 `afterSniperReplica` 에서만 덮어쓴다 (엎드린 몸은 지형 스냅을 그대로 쓴다). */
-export function beforeSniperReplica(_e: Enemy, _hint: number): void { /* 할 일 없음 */ }
+/** The pose is overwritten only in `afterSniperReplica` (a prone body keeps the terrain snap as it is). */
+export function beforeSniperReplica(_e: Enemy, _hint: number): void { /* nothing to do */ }
 
-/** 힌트 14 / 15: 기본 로그 애니 목표(웅크림 · 반쯤 든 총)를 엎드린 조준으로 덮어쓴다 — 몸은 `SniperLook` 이 눕힌다. */
+/** Hints 14 / 15: the default rogue animation targets (crouch · half-raised gun) are overwritten with the prone aim — `SniperLook` lays the body down. */
 export function afterSniperReplica(e: Enemy, hint: number, dt: number): void {
   if (hint !== HINT_PRONE && hint !== HINT_GLINT) return;
   const a = e.anim;
@@ -569,7 +579,7 @@ export function afterSniperReplica(e: Enemy, hint: number, dt: number): void {
   a.aim += (aimT - a.aim) * Math.min(1, dt * 7);
 }
 
-/** `ee glint` → 반짝임 스프라이트 · 소리 · `named:sniperGlint`. `ee snipe` → 트레이서 · 섬광 · 먼 총성 · 반동 (피해는 호스트의 `dmg`). */
+/** `ee glint` → the glint sprite · sound · `named:sniperGlint`. `ee snipe` → tracer · flash · the distant report · recoil (damage is the host's `dmg`). */
 export function onSniperEvent(host: ReplicaHost, msg: Extract<EnemyEvent, { ev: 'glint' | 'snipe' }>): void {
   const ctx = host.ctx;
   const fxHost: SniperFxHost = host;

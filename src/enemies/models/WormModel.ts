@@ -1,20 +1,20 @@
 /**
- * src/enemies/models/WormModel.ts — **땅굴벌레 리그** (2026-09-13).
+ * src/enemies/models/WormModel.ts — **the sandworm rig** (2026-09-13).
  *
- * 듄의 샌드웜처럼 땅에서 솟은 거대한 마디 몸통과, 꽃잎처럼 벌어지는 턱 네 장 · 안쪽을 두른 이빨 고리 · 희미하게 달아오른
- * 목구멍. 외부 에셋 없이 절차 지오메트리이고 **광원은 없다** (목구멍은 emissive).
+ * Like Dune's sandworm: a huge segmented body risen out of the ground, four jaws opening like petals · a ring of teeth
+ * lining the inside · a faintly glowing throat. Procedural geometry with no external assets, and **no lights** (the throat is emissive).
  *
- * - 머티리얼은 버그 리그와 같은 두 종류뿐이다: 정점색 `MeshStandardMaterial`(피부 · 흙 무덤) 과 정점색 없는
- *   `MeshStandardMaterial`(목구멍 — 버그 눈과 같은 프로그램). 그래서 레이드 중 처음 만들어져도 새 셰이더 변형이 생기지 않는다.
- *   (그래도 디렉터는 `world:ready` 에서 이 행성의 종류 리그 하나를 미리 만들어 `ctx.shaders.warm` 한다.)
- * - 마디는 사슬 그룹이다 — 위로 갈수록 앞으로 숙이는 각을 나눠 가져 입이 표적 쪽을 본다. 히트 캡슐은 `EnemySystem.raycastEx`
- *   의 세로 캡슐(`enemies.csv` 반지름 · 높이) 그대로이고 숙임은 그 안에 들어가게 작다.
- * - `BugAnim` 을 그대로 쓴다: `mandible` = 입 벌림, `abdomen` = 뱉기 전 목구멍 꿀렁임, `aim` = 독극물 준비 숙임,
- *   `shake` = 떨림, `death` / `deathDir` / `fade` = 옆으로 쓰러지며 굴로 가라앉음. `sink` 인자 = 굴착 중 아직 땅속인 깊이
- *   (흙 무덤은 땅 위에 남고 몸통만 내려간다).
- * - 2026-09-15: **어린 땅굴벌레** `sandworm_weak` (위협 1) 도 이 리그다. 지오메트리는 종류마다 따로 굽는다 — 자기 `enemies.csv`
- *   줄(반지름 · 높이 = 성체 × `SANDWORM_WEAK_SCALE`)로 마디 길이 · 턱 · 무덤을 재므로 `baseScale` 은 둘 다 1 이고, 히트 캡슐 ·
- *   굴착 깊이(`Enemy.startEmerge` 의 `stats.height`)가 그림과 어긋나지 않는다 (루트 스케일로 줄였다면 깊이가 두 번 곱해진다).
+ * - The materials are the same two as the bug rig: a vertex-coloured `MeshStandardMaterial` (skin · dirt mound) and one
+ *   without vertex colours (the throat — the same program as the bug eyes), so no new shader variant appears even when a rig is first built mid-raid.
+ *   (The director still builds one rig of this planet's type at `world:ready` and runs `ctx.shaders.warm` on it.)
+ * - The segments are a chain of groups — each takes a share of the forward lean toward the top so the mouth faces the
+ *   target. The hit capsule is `EnemySystem.raycastEx`'s vertical capsule (`enemies.csv` radius · height) as it is, and the lean is small enough to stay inside it.
+ * - It uses `BugAnim` as it is: `mandible` = the mouth opening, `abdomen` = the throat heaving before a spit, `aim` = the
+ *   lean while preparing acid, `shake` = shivering, `death` / `deathDir` / `fade` = toppling sideways and sinking into
+ *   its burrow. The `sink` argument = the depth still underground while digging in (the dirt mound stays above ground, only the body goes down).
+ * - 2026-09-15: **the young sandworm** `sandworm_weak` (threat 1) is this rig too. The geometry is baked per type — its
+ *   own `enemies.csv` row (radius · height = the adult × `SANDWORM_WEAK_SCALE`) measures the segment length · jaws · mound,
+ *   so `baseScale` is 1 for both and the hit capsule · the burrow depth (`stats.height` in `Enemy.startEmerge`) never drift from the drawing (scaling the root down would multiply the depth twice).
  */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -24,19 +24,19 @@ import { statusEmissive, type BugAnim } from './BugModel';
 
 export type WormType = WormEnemyType;
 
-/* ── 그림 수치 (밸런스가 아니다 — 판정은 enemies.csv 의 반지름 · 높이 · 머리 구) ── */
-/** 마디 수. */
+/* ── Drawing numbers (not balance — the tests use the radius · height · head sphere from enemies.csv) ── */
+/** Segment count. */
 const SEGMENTS = 9;
-/** 턱 수. */
+/** Jaw count. */
 const JAWS = 4;
-/** 몸통이 땅속에 박혀 시작하는 깊이(m) — 흙 무덤 아래로 몸통이 이어져 보인다. */
+/** Depth the body starts buried at (m) — the body reads as continuing below the dirt mound. */
 const BURIED_M = 0.8;
-/** 가장 아래 마디 반지름 = 판정 반지름 × 이 값, 가장 위 마디는 × (이 값 − TAPER). */
+/** Bottom segment radius = the test radius × this value; the top segment × (this value − TAPER). */
 const BASE_RADIUS_MUL = 0.92;
 const TAPER = 0.24;
-/** 서 있을 때 위로 갈수록 나눠 갖는 앞숙임 총량(rad). */
+/** Total forward lean (rad), shared out toward the top while standing. */
 const LEAN_REST = 0.3;
-/** 성체의 입 정면 거리(m) — 어린 개체는 높이 비율로 줄인다. */
+/** The adult's mouth distance forward (m) — a young one scales it down by the height ratio. */
 const HEAD_Z_ADULT = 1.6;
 
 const SKIN = 0xa68456;
@@ -46,13 +46,13 @@ const TOOTH = 0xe6dac0;
 const DIRT = 0x4e3c2b;
 
 export interface WormParams {
-  /** 입(머리) 구 — 발 기준 높이 · 정면 거리 · 반지름 (`Enemy.headCenter`). */
+  /** The mouth (head) sphere — height above the feet · forward distance · radius (`Enemy.headCenter`). */
   readonly head: { y: number; z: number; r: number };
-  /** 보행 위상용 (움직이지 않지만 공용 코드가 읽는다). */
+  /** For the gait phase (it never moves, but shared code reads it). */
   readonly strideLength: number;
-  /** 마디 하나의 길이(m). */
+  /** Length of one segment (m). */
   readonly segLen: number;
-  /** 판정 반지름(m). */
+  /** Test radius (m). */
   readonly radius: number;
 }
 
@@ -62,11 +62,11 @@ export interface WormRig {
   params: WormParams;
   baseScale: number;
   root: THREE.Group;
-  /** 몸통 전체 (굴착 · 사망 가라앉음이 여기를 내린다 — 흙 무덤은 root 에 남는다). */
+  /** The whole body (digging in · the death sink lower this — the dirt mound stays on the root). */
   body: THREE.Group;
   segments: THREE.Group[];
   segMeshes: THREE.Mesh[];
-  /** 가장 위 마디 끝에 붙은 입 (월드 위치 = 뱉는 자리). */
+  /** The mouth on the end of the top segment (its world position = where a spit comes from). */
   mouth: THREE.Group;
   jaws: THREE.Group[];
   mound: THREE.Mesh;
@@ -82,7 +82,7 @@ interface WormAssets {
   mound: THREE.BufferGeometry;
 }
 
-/** 종류별 지오메트리 (성체 · 어린 개체가 다른 크기로 굽는다). 머티리얼 템플릿은 하나다. */
+/** Geometry per type (adult · young bake at different sizes). There is one material template. */
 const assets = new Map<WormType, WormAssets>();
 let materials: { skin: THREE.MeshStandardMaterial; dirt: THREE.MeshStandardMaterial; throatMat: THREE.MeshStandardMaterial } | null = null;
 const tmpColor = new THREE.Color();
@@ -109,13 +109,13 @@ function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   return merged;
 }
 
-/** 마디 하나 (반지름 1 · 길이 `len`, 밑면이 y 0). 메시 스케일 xz 가 실제 반지름이다. */
+/** One segment (radius 1 · length `len`, base at y 0). The mesh's xz scale is the real radius. */
 function buildSegment(len: number): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   parts.push(colorize(new THREE.CylinderGeometry(0.95, 1.0, len, 18, 3, true).translate(0, len * 0.5, 0), SKIN, 0.12));
-  // 마디 사이 두꺼운 고리 (밑단) — 어두운 색이 마디를 끊어 읽히게 한다
+  // the thick ring between segments (at the base) — the dark colour breaks the segments apart to the eye
   parts.push(colorize(new THREE.TorusGeometry(1.0, 0.11, 6, 18).rotateX(Math.PI / 2).translate(0, 0.06, 0), RIDGE, 0.1));
-  // 등쪽 비늘판 세 장 (뒤 · 좌 · 우)
+  // three dorsal scale plates (back · left · right)
   for (let k = 0; k < 3; k++) {
     const a = Math.PI + (k - 1) * 0.9;
     const plate = new THREE.SphereGeometry(1, 8, 6);
@@ -127,7 +127,7 @@ function buildSegment(len: number): THREE.BufferGeometry {
   return merge(parts);
 }
 
-/** 턱 한 장 — 밑동(y 0)이 입 가장자리에 붙고 +Y 로 뻗는 휜 꽃잎, 안쪽(−Z)에 이빨. */
+/** One jaw — a curved petal whose root (y 0) sits on the mouth rim and reaches along +Y, with teeth on the inside (−Z). */
 function buildJaw(len: number, width: number): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   const petal = new THREE.SphereGeometry(1, 10, 8, 0, Math.PI * 2, 0, Math.PI * 0.55);
@@ -137,14 +137,14 @@ function buildJaw(len: number, width: number): THREE.BufferGeometry {
   for (let i = 0; i < teeth; i++) {
     const t = (i + 0.5) / teeth;
     const cone = new THREE.ConeGeometry(width * 0.1, width * 0.55, 5);
-    cone.rotateX(-Math.PI / 2 - 0.35);   // 안쪽 · 아래를 향한다
+    cone.rotateX(-Math.PI / 2 - 0.35);   // pointing inward · downward
     cone.translate((t - 0.5) * width * 1.2, len * (0.25 + 0.55 * (1 - Math.abs(t - 0.5))), -width * 0.3);
     parts.push(colorize(cone, TOOTH, 0.05));
   }
   return merge(parts);
 }
 
-/** 입 가장자리 고리 + 목구멍을 두른 안쪽 이빨. */
+/** The mouth rim ring + the inner teeth lining the throat. */
 function buildRim(r: number): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   parts.push(colorize(new THREE.TorusGeometry(r, r * 0.12, 6, 20).rotateX(Math.PI / 2), RIDGE, 0.1));
@@ -152,7 +152,7 @@ function buildRim(r: number): THREE.BufferGeometry {
   for (let i = 0; i < ring; i++) {
     const a = (i / ring) * Math.PI * 2;
     const cone = new THREE.ConeGeometry(r * 0.07, r * 0.42, 5);
-    cone.rotateZ(Math.PI / 2 + 0.5);        // 가운데를 향해 기울어진다
+    cone.rotateZ(Math.PI / 2 + 0.5);        // tilted toward the centre
     cone.rotateY(-a);
     cone.translate(Math.cos(a) * r * 0.78, -r * 0.05, Math.sin(a) * r * 0.78);
     parts.push(colorize(cone, TOOTH, 0.05));
@@ -160,7 +160,7 @@ function buildRim(r: number): THREE.BufferGeometry {
   return merge(parts);
 }
 
-/** 흙 무덤 — 납작한 둔덕 + 흩어진 흙덩이. */
+/** The dirt mound — a flat hump + scattered clods. */
 function buildMound(r: number): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   const dome = new THREE.SphereGeometry(1, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.5);
@@ -177,7 +177,7 @@ function buildMound(r: number): THREE.BufferGeometry {
   return merge(parts);
 }
 
-/** 종류의 그림 수치 — 전부 그 종류의 `enemies.csv` 줄에서 (어린 개체는 성체 × `SANDWORM_WEAK_SCALE` 이 csv 식으로 들어 있다). */
+/** A type's drawing numbers — all of them from that type's `enemies.csv` row (for a young one the adult × `SANDWORM_WEAK_SCALE` is already written into the csv). */
 function wormParams(type: WormType): WormParams {
   const st = ENEMY_STATS[type];
   const adult = ENEMY_STATS.sandworm;
@@ -212,7 +212,7 @@ function getAssets(type: WormType): WormAssets {
   return built;
 }
 
-/** 공유 지오메트리 · 템플릿 머티리얼 해제 (리그를 먼저 dispose). */
+/** Releases the shared geometries · template materials (dispose the rigs first). */
 export function disposeWormAssets(): void {
   for (const a of assets.values()) {
     a.segment.dispose(); a.jaw.dispose(); a.rim.dispose(); a.throat.dispose(); a.mound.dispose();
@@ -278,7 +278,7 @@ export function createWormRig(type: WormType = 'sandworm'): WormRig {
     const hinge = new THREE.Group();
     hinge.position.set(Math.sin(ang) * topR, 0, Math.cos(ang) * topR);
     hinge.rotation.y = ang;
-    const tilt = new THREE.Group();   // rotation.x = 벌림 (+ = 바깥으로 젖힘)
+    const tilt = new THREE.Group();   // rotation.x = the opening (+ = folded outward)
     const jm = new THREE.Mesh(a.jaw, skin);
     jm.castShadow = true;
     jm.layers.enable(Layers.ENEMY);
@@ -300,8 +300,8 @@ export function disposeWormRig(rig: WormRig): void {
 const smooth = (t: number): number => t * t * (3 - 2 * t);
 
 /**
- * 한 프레임의 자세. `sink` = 굴착 중 아직 땅속에 있는 깊이(m, `Enemy.burrowSink`) — 몸통만 내리고 흙 무덤은 땅에 남는다.
- * 할당 없음.
+ * One frame's pose. `sink` = the depth still underground while digging in (m, `Enemy.burrowSink`) — it lowers the body only and the dirt mound stays on the ground.
+ * No allocation.
  */
 export function animateWorm(rig: WormRig, a: BugAnim, sink: number): void {
   const t = a.time;
@@ -312,7 +312,7 @@ export function animateWorm(rig: WormRig, a: BugAnim, sink: number): void {
   const shake = a.shake > 0 ? (Math.sin(t * 47) * 0.05 + Math.sin(t * 31) * 0.035) * a.shake : 0;
   const wr = a.writhe;
 
-  // 몸통: 굴착 가라앉음 · 떨림 · 사망 가라앉음 · 페이드
+  // body: the burrow sink · shiver · death sink · fade
   rig.body.position.set(shake, -BURIED_M - sink - d * rig.params.segLen * 2.5 - smooth(Math.min(1, a.fade)) * rig.params.segLen * 4, shake * 0.6);
 
   const lean = LEAN_REST + a.aim * 0.18 + Math.sin(t * 0.55) * 0.05 + a.flinch * a.flinchZ * 0.12;
@@ -323,17 +323,17 @@ export function animateWorm(rig: WormRig, a: BugAnim, sink: number): void {
     const w = Math.pow(f, 1.5) / wsum;
     const g = rig.segments[i];
     const sway = Math.sin(t * 0.9 + i * 0.55) * 0.03 * f + Math.sin(t * 7.3 + i) * 0.06 * wr * f;
-    // 사망: 앞숙임이 커지고 옆으로 말리며 쓰러진다 (deathDir 2 = 뒤로 젖힌다)
+    // death: the forward lean grows and it curls sideways as it topples (deathDir 2 = it bends backward)
     const deathBend = side === 0 ? -d * 1.4 * w * n * 0.2 : d * 0.35 * w * n * 0.2;
     g.rotation.set(lean * w + deathBend + a.flinch * 0.02 * f, 0, sway + side * d * 1.7 * w + a.flinch * a.flinchX * 0.03 * f);
-    // 뱉기 전 꿀렁임: 아래에서 위로 올라가는 불룩한 고리
+    // the heave before a spit: a bulging ring travelling from bottom to top
     const ripple = a.abdomen > 0.001 ? 1 + 0.14 * a.abdomen * Math.max(0, Math.sin(t * 8 - i * 0.85)) : 1;
     const m = rig.segMeshes[i];
     const r0 = rig.params.radius * (BASE_RADIUS_MUL - TAPER * (i / (n - 1)));
     m.scale.set(r0 * ripple, 1, r0 * ripple);
   }
 
-  // 입: 쉬는 동안에도 조금씩 여닫는다
+  // mouth: it keeps opening and closing a little even at rest
   const open = dying ? THREE.MathUtils.lerp(Math.max(a.mandible, 0.2), 1.25, d) : Math.max(a.mandible, 0.12 + 0.08 * Math.sin(t * 1.3)) + wr * 0.3 * Math.abs(Math.sin(t * 9));
   for (let k = 0; k < rig.jaws.length; k++) {
     rig.jaws[k].rotation.x = -0.28 + open * 1.15 + Math.sin(t * 2.1 + k * 1.7) * 0.03;

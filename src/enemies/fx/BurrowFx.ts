@@ -1,31 +1,31 @@
 /**
- * src/enemies/fx/BurrowFx.ts — **땅을 파고 나오는 연출** (2026-09-13).
+ * src/enemies/fx/BurrowFx.ts — **the FX of digging up out of the ground** (2026-09-13).
  *
- * 이 파일이 답하는 질문: *버그가 땅에서 올라올 때 · 땅굴벌레가 올라오기 전에 땅이 어떻게 보이나.*
+ * The question this file answers: *how does the ground look while a bug comes up out of it, and before a sandworm rises.*
  *
- * - **분진 · 흙덩이**는 새 드로우콜을 만들지 않는다 — `core/fx` 의 알파 입자 풀(`FxManager.alpha`, `THREE.Points` 한 장,
- *   엔진이 처음부터 씬에 둔다 = 이미 컴파일돼 있다)에 넣는다. 흙덩이 = 빠르게 튀어 올랐다 떨어져 땅에 멈추는 작고 짙은 입자,
- *   분진 = 느리게 퍼지는 큰 입자. 색은 밟은 재질(`WorldRef.getSurfaceMaterial`)에서 고른다.
- * - **방출기**는 고정 풀(`EMITTERS`)이다. 굴착 하나 = 작은 방출기(올라오는 시간 동안), 땅굴벌레 전조 = 큰 방출기(점점 세진다).
- *   꽉 차면 가장 오래된 것을 덮어쓴다. 프레임당 할당 없음 (입자 스폰 인자도 스크래치 하나를 다시 쓴다).
- * - **전조 링**은 피해 반경을 그리는 가산 혼합 띠(`ScanPulseFx` 의 바닥 띠와 같은 기법 — 짧은 열린 원기둥이 지형을 가로질러
- *   **바닥을 스치는 붉은 선**으로 읽힌다). 메시 · 머티리얼은 생성자에서 한 번 만들어 숨긴 채 씬에 두므로 `world:ready` 의
- *   셰이더 선컴파일에 들어간다. **광원은 없다.**
- * 화면 흔들림 · 소리는 이 파일이 아니다 (`parts/Burrow` · `sandworm/Director` — 흔들림 중복 제거는 거기서 한다).
+ * - **Dust · clods** make no new draw call — they go into `core/fx`'s alpha particle pool (`FxManager.alpha`, one
+ *   `THREE.Points` the engine puts in the scene from the start = already compiled). A clod = a small dark particle that leaps
+ *   up, falls and stops on the ground; dust = large and spreads slowly. Colour from the surface (`WorldRef.getSurfaceMaterial`).
+ * - **Emitters** are a fixed pool (`EMITTERS`). One burrow = a small emitter (for the time it takes to come up), a sandworm
+ *   warning = a big one (building up). Full → the oldest is overwritten. No per-frame allocation (one spawn-argument scratch).
+ * - **The warning ring** is an additive band drawing the damage radius (the same trick as `ScanPulseFx`'s ground band — a short
+ *   open cylinder crosses the terrain and reads as a **red line grazing the ground**). Mesh · material are made once in the
+ *   constructor and left hidden in the scene, so they are in `world:ready`'s shader pre-compile. **There are no lights.**
+ * Screen shake · sound are not this file's (`parts/Burrow` · `sandworm/Director` — the shake de-duplication happens there).
  */
 import * as THREE from 'three';
 import { Layers, type SurfaceMaterial, type WorldRef } from '@/shared';
 import { FxManager, type ParticleSpawn } from '@/core/fx';
 
-/** 동시에 살아 있는 방출기 수. */
+/** How many emitters are alive at once. */
 const EMITTERS = 24;
-/** 전조 링 수 (동시 전조는 사실상 하나). */
+/** Warning ring count (in practice there is only one warning at a time). */
 const RINGS = 2;
-/** 전조 링 띠의 세로 폭(m). */
+/** Vertical width of the warning ring's band (m). */
 const RING_BAND_H = 4;
 const RING_COLOR = new THREE.Color(1.0, 0.34, 0.08);
 
-/* 재질 → 분진 색 (그림 수치). 모르면 흙. */
+/* Material → dust colour (a drawing number). Unknown = dirt. */
 const DUST_COLOR: Readonly<Record<SurfaceMaterial, number>> = {
   dirt: 0x8a7560, sand: 0xc2a878, snow: 0xdfe4e8, mud: 0x5c4a38, moss: 0x66704a, ash: 0x5f5b58,
   rock: 0x7b766f, crystal: 0x93a6b8, organic: 0x6e5448, metal: 0x86857f, concrete: 0x8c8a84,
@@ -42,7 +42,7 @@ void main() {
   #include <logdepthbuf_vertex>
 }`;
 
-/** 세로 가운데만 밝은 띠 + 둘레를 도는 줄무늬 (진행도가 오를수록 빨라진다). */
+/** A band bright only at its vertical centre + stripes running around it (faster as the progress rises). */
 const RING_FRAG = /* glsl */ `
 #include <common>
 #include <logdepthbuf_pars_fragment>
@@ -60,7 +60,7 @@ void main() {
 
 interface Emitter {
   active: boolean;
-  /** 0 굴착 · 1 전조. */
+  /** 0 burrow · 1 warning. */
   kind: 0 | 1;
   readonly p: THREE.Vector3;
   scale: number;
@@ -81,14 +81,14 @@ interface Ring {
   radius: number;
 }
 
-/** 입자 스폰 인자 스크래치 — `ParticlePool.spawn` 은 값을 복사하므로 하나를 계속 다시 쓴다. */
+/** Particle spawn argument scratch — `ParticlePool.spawn` copies the values, so one is reused over and over. */
 const S: Required<ParticleSpawn> = {
   x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 1, size: 0.2, sizeEnd: 1,
   r: 1, g: 1, b: 1, rEnd: 1, gEnd: 1, bEnd: 1, gravity: 0, drag: 0, alpha: 1, groundY: 0,
 };
 const _rgb = new THREE.Color();
 
-/** 밟은 재질의 분진 색 → `_rgb`. 월드가 없거나 재질을 모르면 흙. */
+/** Dust colour of the material underfoot → `_rgb`. No world, or an unknown material, = dirt. */
 function surfaceColor(world: WorldRef | null, p: THREE.Vector3): void {
   const m = world && world.ready ? world.getSurfaceMaterial?.(p.x, p.z, p.y) : undefined;
   _rgb.setHex((m && DUST_COLOR[m]) ?? DEFAULT_DUST);
@@ -100,7 +100,7 @@ export class BurrowFx {
   private readonly ringGeo = new THREE.CylinderGeometry(1, 1, 1, 72, 1, true);
   private readonly group = new THREE.Group();
   private live = 0;
-  /** 디버그 · 스모크: 지금까지 시작한 굴착 연출 수. */
+  /** Debug · smoke: how many burrow FX have started so far. */
   emergeCount = 0;
 
   constructor(private readonly scene: THREE.Scene) {
@@ -126,13 +126,13 @@ export class BurrowFx {
     scene.add(this.group);
   }
 
-  /** 살아 있는 방출기 수 (디버그). */
+  /** Live emitter count (debug). */
   get activeEmitters(): number { return this.live; }
-  /** 전조 링이 보이는가 (디버그). */
+  /** Is a warning ring visible (debug). */
   get ringVisible(): boolean { for (const r of this.rings) if (r.active) return true; return false; }
 
   /**
-   * 버그 한 마리가 파고 나온다: 즉시 발밑 분진 고리 + `dur` 동안 흙덩이 · 분진이 솟는다. `scale` ≈ 몸집 (0.7 … 3).
+   * One bug digs out: a ring of dust underfoot at once + clods · dust rising for `dur`. `scale` ≈ body size (0.7 … 3).
    */
   emerge(p: THREE.Vector3, scale: number, dur: number, world: WorldRef | null, now: number): void {
     const em = this.claim();
@@ -142,7 +142,7 @@ export class BurrowFx {
     this.emergeCount++;
     const fx = FxManager.get();
     if (!fx) return;
-    // 첫 순간: 발밑에서 고리로 번지는 분진 (몸집만큼)
+    // the first instant: dust spreading underfoot in a ring (as wide as the body)
     const n = Math.round(8 + 6 * scale);
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + Math.random() * 0.4;
@@ -151,7 +151,7 @@ export class BurrowFx {
     }
   }
 
-  /** 땅굴벌레 전조: 반경 `radius` 를 그리는 링 + 가운데서 점점 거세지는 흙 파임 · 분진 (`dur` 초). */
+  /** Sandworm warning: a ring drawing `radius` + churned soil · dust building up at the centre (`dur` seconds). */
   warn(p: THREE.Vector3, radius: number, dur: number, world: WorldRef | null, now: number, elapsed = 0): void {
     const em = this.claim();
     em.kind = 1; em.p.copy(p); em.scale = 1; em.radius = radius; em.start = now - elapsed; em.dur = Math.max(0.5, dur + elapsed);
@@ -167,13 +167,13 @@ export class BurrowFx {
     ring.mesh.visible = true;
   }
 
-  /** 전조를 끝낸다 (분출 · 취소). 링과 전조 방출기를 끈다. */
+  /** Ends the warning (eruption · cancel). Turns off the ring and the warning emitter. */
   endWarn(): void {
     for (const r of this.rings) if (r.active) { r.active = false; r.mesh.visible = false; }
     for (const em of this.emitters) if (em.active && em.kind === 1) this.release(em);
   }
 
-  /** 분출: 반경만큼 번지는 흙 폭발 + 연기 + 사방으로 튀는 흙덩이 (한 번). */
+  /** Eruption: a soil blast spreading out to the radius + smoke + clods flying everywhere (once). */
   erupt(p: THREE.Vector3, radius: number, world: WorldRef | null): void {
     const fx = FxManager.get();
     if (!fx) return;
@@ -201,7 +201,7 @@ export class BurrowFx {
     }
   }
 
-  /** 뱉어진 버그가 착지했다: 발밑 분진 한 줌. */
+  /** A spat bug landed: a handful of dust underfoot. */
   puff(p: THREE.Vector3, scale: number, world: WorldRef | null): void {
     const fx = FxManager.get();
     if (!fx) return;
@@ -237,14 +237,14 @@ export class BurrowFx {
       if (t >= 1) { this.release(em); continue; }
       if (!fx) continue;
       if (em.kind === 0) {
-        // 굴착: 처음에 거세고 몸이 다 나올수록 잦아든다
+        // burrow: strongest at the start, dying down as the body comes out
         const k = 1 - t;
         em.clodAcc += dt * (10 + 16 * em.scale) * k;
         em.dustAcc += dt * (4 + 5 * em.scale) * k;
         while (em.clodAcc >= 1) { em.clodAcc -= 1; this.clod(fx, em, em.radius, 1); }
         while (em.dustAcc >= 1) { em.dustAcc -= 1; this.dustAt(fx, em, em.radius * 1.4, 0.5 * em.scale); }
       } else {
-        // 전조: 진행도² 로 거세지고, 파이는 자리가 가운데서 반경 쪽으로 번진다. 링 둘레에도 흙먼지가 인다.
+        // warning: builds up with progress², and the churned spot spreads from the centre toward the radius. Dust rises at the rim too.
         const k = THREE.MathUtils.clamp(t, 0, 1);
         const spread = em.radius * (0.15 + 0.45 * k);
         em.clodAcc += dt * (8 + 110 * k * k);
@@ -259,7 +259,7 @@ export class BurrowFx {
     }
   }
 
-  /** 미션 리셋: 전부 끈다 (메시 · 머티리얼은 풀에 남는다). */
+  /** Mission reset: turns everything off (mesh · material stay in the pool). */
   clear(): void {
     for (const em of this.emitters) em.active = false;
     for (const r of this.rings) { r.active = false; r.mesh.visible = false; }
@@ -275,12 +275,12 @@ export class BurrowFx {
     this.ringGeo.dispose();
   }
 
-  /* ── 내부 ─────────────────────────────────────────────────────────────── */
+  /* ── internals ────────────────────────────────────────────────────────── */
   private claim(): Emitter {
     let pick: Emitter | null = null;
     for (const em of this.emitters) {
       if (!em.active) { pick = em; break; }
-      if (em.kind === 0 && (!pick || em.start < pick.start)) pick = em;   // 전조 방출기는 덮어쓰지 않는다
+      if (em.kind === 0 && (!pick || em.start < pick.start)) pick = em;   // a warning emitter is never overwritten
     }
     const em = pick ?? this.emitters[0];
     if (!em.active) this.live++;
@@ -298,7 +298,7 @@ export class BurrowFx {
     em.r = _rgb.r; em.g = _rgb.g; em.b = _rgb.b;
   }
 
-  /** 흙덩이: 작고 짙고, 튀어 올랐다 떨어져 땅에 멈춘다. */
+  /** A clod: small and dark, leaps up, falls and stops on the ground. */
   private clod(fx: FxManager, em: Emitter, spread: number, power: number): void {
     const a = Math.random() * Math.PI * 2;
     const d = Math.random() * spread;
@@ -316,7 +316,7 @@ export class BurrowFx {
       Math.cos(a) * (0.6 + Math.random()), 0.8 + Math.random() * 1.2, Math.sin(a) * (0.6 + Math.random()), size * (0.6 + Math.random() * 0.6));
   }
 
-  /** 전조 링 둘레의 흙먼지 — 어디까지가 위험한지 땅에서도 읽힌다. */
+  /** Dust at the warning ring's rim — how far the danger reaches reads from the ground too. */
   private rimDust(fx: FxManager, em: Emitter): void {
     const a = Math.random() * Math.PI * 2;
     const r = em.radius * (0.92 + Math.random() * 0.12);

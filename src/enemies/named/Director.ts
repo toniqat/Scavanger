@@ -1,37 +1,40 @@
 /**
- * src/enemies/named/Director.ts — **네임드 로그 스폰 디렉터** (2026-09-11).
+ * src/enemies/named/Director.ts — **the named rogue spawn director** (2026-09-11).
  *
- * 이 파일이 답하는 질문: *이번 레이드에 네임드가 나오는가, 누가, 어디에 서는가.*
+ * The question this file answers: *does a named rogue appear in this raid, which one, and where does it stand.*
  *
- * ## 굴림 (호스트 · 레이드당 1회)
- * `EnemySystem` 의 `world:ready` 권한 분기가 거점 그룹 배치(`SiteGroups`) **뒤에** `roll()` 을 한 번 부른다. 훈련장은 no-op.
- * 시드 스트림은 `hash('named@<worldSeed>')` 하나이고 (2026-09-13 전에는 `worldSeed ^ hash('named')` — 가까운 시드끼리 첫 굴림이
- * 비슷해 바꿨다), 그 스트림에서 차례로
- *   ① 등장 여부 `NAMED_ROGUE_CHANCE_BY_THREAT[planetThreat(행성) − 1]` (2026-09-13 — threat 1 = 0 · 2 = 25 % · 3 = 50 %,
- *      행성 없음 = threat 1). 네임드 셋 · 스캔 드론은 팩션 `raider` 다 (`data/enemies.csv`),
- *   ② 셋 중 누구인지 (균등),
- *   ③ 자리 · 헤비 호위의 자리
- * 를 뽑는다 — 같은 시드 + 같은 행성 = 같은 답이다. 굴림은 `world:ready` 에서만 일어나므로 호스트 이관으로
- * 승격된 사람은 다시 굴리지 않는다 (그 사람은 리플리카일 때 이미 `ee spawn` 으로 네임드를 받았다).
+ * ## The roll (host · once per raid)
+ * The `world:ready` authority branch of `EnemySystem` calls `roll()` once, **after** site group placement (`SiteGroups`).
+ * No-op in the training range. The seed stream is the single `hash('named@<worldSeed>')` (before 2026-09-13 it was
+ * `worldSeed ^ hash('named')` — nearby seeds had similar first rolls), and that stream draws, in order,
+ *   (1) whether one appears, `NAMED_ROGUE_CHANCE_BY_THREAT[planetThreat(planet) − 1]` (2026-09-13 — threat 1 = 0 ·
+ *      2 = 25 % · 3 = 50 %, no planet = threat 1). All three named rogues and the scan drone are faction `raider`
+ *      (`data/enemies.csv`),
+ *   (2) which of the three (uniform),
+ *   (3) the spot · the Heavy escorts' spots
+ * — the same seed + the same planet = the same answer. The roll only happens at `world:ready`, so someone promoted by
+ * a host transfer does not roll again (as a replica they already received the named rogue through `ee spawn`).
  *
- * ## 자리 (전부 스폰 지점에서 `NAMED_ROGUE_MIN_SPAWN_DIST` 이상 · 맵 안 · 선로 회랑 밖 · 구조물 발자국 밖 · 막히지 않은 곳)
- *  - 로든(`rogue_sniper`) — **개활지의 언덕**: 후보를 여럿 뽑아 주변 장애물이 적고(`obstacleCoverage`),
- *    구조물에서 멀고, 둘레보다 **높은** 지형을 고른다. 스폰 지점(= 분대가 오는 쪽)을 바라본다.
- *  - 타길라(`rogue_hammer`) — **구조물 곁**: 스폰에서 먼 구조물 하나의 발자국 둘레 `NAMED_HAMMER.structureRadius`
- *    안에서 엄폐물이 가장 많은 자리. `guardPos` = 그 구조물. 구조물이 없는 맵이면 장애물이 가장 많은 자리.
- *  - 헤비(`rogue_heavy`) — **스폰에서 먼 구조물 · 폐허(상자) 곁**. SMG 로그 호위
- *    `NAMED_HEAVY_ESCORTS_BY_SQUAD[분대 인원 − 1]` 명이 `NAMED_HEAVY.escortRadius` 안에 붙는다
- *    (`escortOf` = 헤비 → 기존 보스 호위 리시 규칙 그대로).
+ * ## Spots (all ≥ `NAMED_ROGUE_MIN_SPAWN_DIST` from the spawn · inside the map · outside the rail corridor · outside structure footprints · unblocked)
+ *  - Roden (`rogue_sniper`) — **a hill in the open**: several candidates are drawn, and the one with few obstacles
+ *    around it (`obstacleCoverage`), far from structures and **higher** than its surroundings wins. It faces the spawn point (= the side the squad comes from).
+ *  - Tagilla (`rogue_hammer`) — **beside a structure**: the spot with the most cover within `NAMED_HAMMER.structureRadius`
+ *    of one structure far from the spawn. `guardPos` = that structure. With no structure on the map, the spot with the most obstacles.
+ *  - The Heavy (`rogue_heavy`) — **beside a structure · ruin (crate) far from the spawn**. SMG rogue escorts,
+ *    `NAMED_HEAVY_ESCORTS_BY_SQUAD[squad size − 1]` of them, stand within `NAMED_HEAVY.escortRadius`
+ *    (`escortOf` = the Heavy → exactly the existing boss escort leash rule).
  *
- * ## 스폰 · 알림
- * 스폰은 기존 `spawnRogue` 경로라 `enemy:spawned` · `ee spawn` 이 그대로 나간다. 네임드 · 호위는 로그 팩션이라
- * `ensureCapacity` 의 재활용 대상이 아니다 (`e.isRogue`). 알림 `enemy:namedSpawned` 는 권한이면 스폰 직후,
- * 리플리카면 `enemy:spawned`(`ee spawn`) 또는 스냅샷이 조용히 만든 리플리카(`onReplicaCreated`, C-52 — 늦은 합류자)
- * 에서 네임드 종류를 처음 볼 때 id 당 한 번 낸다 (두 경로가 같은 기록을 본다). 기록은 `reset()` 이 레이드마다 비우고
- * 호스트 이관(승격 · 강등)은 건드리지 않는다 — id 는 이관 뒤에도 그대로라 이미 알린 네임드를 다시 알리지 않는다.
+ * ## Spawning · the announcement
+ * Spawning takes the existing `spawnRogue` path, so `enemy:spawned` · `ee spawn` go out as they always do. A named rogue
+ * and its escorts are the rogue faction, so `ensureCapacity` never recycles them (`e.isRogue`). `enemy:namedSpawned` goes
+ * out right after the spawn on the authority; on a replica it goes out once per id, the first time a named type is seen
+ * through `enemy:spawned` (`ee spawn`) or through a replica a snapshot created silently (`onReplicaCreated`, C-52 — a late
+ * joiner); both paths read the same record. `reset()` clears it every raid and a host transfer (promotion · demotion)
+ * leaves it alone — ids survive the transfer, so a named rogue already announced is not announced twice.
  *
- * 배치 탐색의 후보 수 · 표본 반경 같은 값은 **탐색 알고리즘의 파라미터**이지 밸런스 수치가 아니라 이 파일에 둔다
- * (`RogueGuards` 의 시도 횟수 · 링 반경과 같은 성격). 등장 확률 · 거리 · 호위 수는 전부 csv 에서 온다.
+ * Values like the placement search's candidate count and sampling radius are **parameters of the search algorithm**, not
+ * balance numbers, so they live in this file (the same nature as `RogueGuards`' try count and ring radius). The
+ * appearance chance, the distances and the escort count all come from csv.
  */
 import * as THREE from 'three';
 import {
@@ -40,61 +43,62 @@ import {
   type EnemyType, type NamedRogueType, type PlanetId, type WorldRef,
 } from '@/shared';
 /**
- * 2026-09-13: 등장 확률 — index 0 = 행성 threat 1 … 2 = threat 3 (`data/tables.csv`). 옛 `NAMED_ROGUE_CHANCE_BY_RANK`
- * (행성 순번 5칸)는 은퇴했다 — 네임드는 레이더 팩션이라 레이더가 나오는 행성(threat 2–3)에만 선다.
+ * 2026-09-13: the appearance chance — index 0 = planet threat 1 … 2 = threat 3 (`data/tables.csv`). The old
+ * `NAMED_ROGUE_CHANCE_BY_RANK` (5 slots by planet rank) is retired — named rogues are the raider faction, so they
+ * only stand on planets raiders appear on (threat 2–3).
  */
 import { NAMED_ROGUE_CHANCE_BY_THREAT as NAMED_CHANCE_BY_THREAT } from '../factionTables';
 import type { Enemy } from '../Enemy';
 import { ENEMY_STATS, NAMED_HAMMER, NAMED_HEAVY } from '../EnemyTypes';
 import type { RogueSpawnHost } from '../RogueGuards';
 
-/* ── 무기 (items/WeaponDefs 의 무기 def id — 로그 `weaponId` 는 계열 id 규약, `ROGUE_AI_TEXT` 와 같다) ── */
-/** 로든의 저격소총 = 저격소총 계열 I. */
+/* ── Weapons (item def ids from items/WeaponDefs — a rogue's `weaponId` is the family-id convention, as in `ROGUE_AI_TEXT`) ── */
+/** Roden's sniper rifle = sniper rifle family I. */
 const SNIPER_WEAPON = 'sr';
-/** 헤비의 미니건 = `data/weapons_unique.csv` 의 `u_minigun` (아이템 id 는 `wpn_u_minigun`). */
+/** The Heavy's minigun = `u_minigun` in `data/weapons_unique.csv` (item id `wpn_u_minigun`). */
 const HEAVY_WEAPON = 'u_minigun';
-/** 헤비 호위가 드는 SMG 계열 I. */
+/** The SMG family I the Heavy's escorts carry. */
 const ESCORT_WEAPON = 'smg';
 
-/* ── 배치 탐색 파라미터 (밸런스 수치가 아니다) ─────────────────────────────────────────────── */
-/** 맵 가장자리에서 이만큼은 안쪽에 선다(m). */
+/* ── Placement search parameters (not balance numbers) ─────────────────────────────────────── */
+/** It stands at least this far inside the map edge (m). */
 const EDGE_MARGIN = 24;
-/** 선로 회랑 반폭에 더 비워 둘 여유(m) — 회랑 경계에 딱 붙어 서면 전차가 스친다. */
+/** Extra room kept clear beyond the rail corridor half-width (m) — standing right on the corridor edge, the tram grazes it. */
 const RAIL_EXTRA_M = 4;
-/** 로든 후보 수. */
+/** Number of Roden candidates. */
 const SNIPER_CANDIDATES = 48;
-/** 로든: 개활도를 재는 원의 반경(m). */
+/** Roden: radius of the circle openness is measured over (m). */
 const SNIPER_OPEN_RADIUS = 22;
-/** 로든: 둘레 높이를 표본하는 링 반경(m)과 표본 수. */
+/** Roden: radius of the ring the surrounding heights are sampled on (m) and the sample count. */
 const SNIPER_RING_RADIUS = 30;
 const SNIPER_RING_SAMPLES = 8;
-/** 로든: 구조물 발자국에서 최소 이만큼 떨어진다(m). 점수는 `SNIPER_STRUCT_CAP` 까지만 오른다. */
+/** Roden: stays at least this far from a structure footprint (m). The score stops rising at `SNIPER_STRUCT_CAP`. */
 const SNIPER_STRUCT_MIN = 30;
 const SNIPER_STRUCT_CAP = 80;
-/** 로든 점수 가중치: 둘레보다 높은 1 m · 개활도 1.0 · 구조물 거리 1 m · 맵 바깥쪽으로 치우친 정도. */
+/** Roden score weights: 1 m above the surroundings · openness 1.0 · 1 m of structure distance · how far it leans toward the map edge. */
 const W_PROMINENCE = 1;
 const W_OPEN = 40;
 const W_STRUCT = 0.1;
 const W_EDGE = 40;
-/** 맵 중심에서 반폭의 이 비율을 넘어가면 점수가 깎인다 (분대가 거의 오지 않는 구석). */
+/** Past this fraction of the half-width from the map centre the score is cut (a corner the squad hardly ever reaches). */
 const EDGE_SOFT = 0.75;
-/** 타길라: 구조물 하나당 둘레 표본 수, 엄폐 밀도를 재는 원의 반경(m), 발자국 바깥 최소 간격(m). */
+/** Tagilla: ring samples per structure, radius of the circle cover density is measured over (m), minimum gap outside the footprint (m). */
 const HAMMER_RING_TRIES = 16;
 const HAMMER_COVER_RADIUS = 10;
 const HAMMER_FOOTPRINT_GAP = 1.5;
-/** 헤비: 앵커(구조물 · 폐허) 둘레 링 — 발자국 바깥 최소 · 최대 간격(m)과 표본 수. */
+/** The Heavy: the ring around the anchor (structure · ruin) — minimum · maximum gap outside the footprint (m) and the sample count. */
 const HEAVY_RING_MIN = 6;
 const HEAVY_RING_MAX = 18;
 const HEAVY_RING_TRIES = 12;
-/** 앵커가 상자일 때 쓰는 대략 반경(m). */
+/** The rough radius used when the anchor is a crate (m). */
 const CRATE_ANCHOR_RADIUS = 3;
-/** 앵커가 하나도 없을 때 무작위로 뽑는 후보 수. */
+/** Number of random candidates drawn when there is no anchor at all. */
 const FALLBACK_CANDIDATES = 32;
-/** 호위 한 명당 자리 재시도 수. */
+/** Spot retries per escort. */
 const ESCORT_TRIES = 6;
-/** 분대 정원 — `RogueDrop` · `WaveDirector` 와 같은 값. */
+/** Squad capacity — the same value as `RogueDrop` · `WaveDirector`. */
 const MAX_SQUAD = 4;
-/** 디버그 스폰: 플레이어 앞 거리(m). */
+/** Debug spawn: distance ahead of the player (m). */
 const DEBUG_AHEAD_M = 40;
 
 const _p = new THREE.Vector3();
@@ -102,39 +106,39 @@ const _best = new THREE.Vector3();
 const _guard = new THREE.Vector3();
 const _fwd = new THREE.Vector3();
 
-/** 이번 레이드의 굴림 결과 (`EnemySystem.debugNamedRoll`). */
+/** This raid's roll result (`EnemySystem.debugNamedRoll`). */
 export interface NamedRollResult {
-  /** 이 클라이언트가 이번 레이드에 굴렸는가 (리플리카 · 훈련장 · 굴림 전이면 false). */
+  /** Whether this client rolled this raid (false on a replica · in the training range · before the roll). */
   rolled: boolean;
   planet: PlanetId | null;
-  /** `planetTier` (1..5) — 2026-09-13 부터 확률에 쓰지 않는다 (디버그 표시만). */
+  /** `planetTier` (1..5) — unused by the chance since 2026-09-13 (debug display only). */
   tier: number;
-  /** 2026-09-13: `planetThreat` (1..3) — 확률 `NAMED_ROGUE_CHANCE_BY_THREAT[threat − 1]` 의 색인. */
+  /** 2026-09-13: `planetThreat` (1..3) — the index into the chance `NAMED_ROGUE_CHANCE_BY_THREAT[threat − 1]`. */
   threat: number;
-  /** 등장 확률. */
+  /** The appearance chance. */
   chance: number;
-  /** 굴린 값 (0..1, `< chance` 면 등장). */
+  /** The rolled value (0..1, `< chance` = it appears). */
   roll: number;
-  /** 뽑힌 종류 (등장하지 않았으면 null). */
+  /** The type drawn (null when none appeared). */
   type: NamedRogueType | null;
-  /** 자리를 찾아 실제로 세웠는가. */
+  /** Whether a spot was found and it actually stands there. */
   placed: boolean;
-  /** 네임드의 적 id, 없으면 null. */
+  /** The named rogue's enemy id, null with none. */
   id: number | null;
   position: { x: number; y: number; z: number } | null;
-  /** 자리를 정한 근거: `structure:<id>` · `crate` · `open`. */
+  /** What the spot was decided from: `structure:<id>` · `crate` · `open`. */
   anchor: string | null;
-  /** 헤비와 함께 세운 호위 수. */
+  /** Number of escorts placed with the Heavy. */
   escorts: number;
 }
 
-/** 디렉터가 `EnemySystem` 에 요구하는 것. */
+/** What the director asks of `EnemySystem`. */
 export interface NamedDirectorHost extends RogueSpawnHost {
-  /** 이 클라이언트가 적을 시뮬레이션하는가 (싱글 또는 호스트). */
+  /** Whether this client simulates enemies (single player or the host). */
   readonly authority: boolean;
-  /** 시뮬레이션 훈련장인가. */
+  /** Whether this is the simulation training range. */
   readonly training: boolean;
-  /** 활성 적 조회 (리플리카의 `enemy:spawned` → 네임드 알림). */
+  /** Active enemy lookup (a replica's `enemy:spawned` → the named announcement). */
   find(id: number): Enemy | undefined;
 }
 
@@ -144,23 +148,23 @@ function emptyResult(): NamedRollResult {
 
 export class NamedRogueDirector {
   private host!: NamedDirectorHost;
-  /** 이번 레이드에 `enemy:namedSpawned` 를 이미 낸 적 id. */
+  /** Enemy ids this raid already emitted `enemy:namedSpawned` for. */
   private readonly announced = new Set<number>();
   private result: NamedRollResult = emptyResult();
   private debugCount = 0;
 
   bind(host: NamedDirectorHost): void { this.host = host; }
 
-  /** 레이드 리셋 (`Pool.reset`). */
+  /** Raid reset (`Pool.reset`). */
   reset(): void {
     this.announced.clear();
     this.result = emptyResult();
   }
 
-  /* ── 굴림 ─────────────────────────────────────────────────────────────── */
+  /* ── The roll ─────────────────────────────────────────────────────────── */
   /**
-   * `world:ready` 권한 분기에서 로그 가드 배치 뒤 한 번. 등장하면 자리를 찾아 세우고 알린다.
-   * `planet` = 이번 레이드의 목표 행성 (null = 난이도 1 취급).
+   * Once in the `world:ready` authority branch, after the rogue guards are placed. If one appears, a spot is found, it
+   * is placed and announced. `planet` = this raid's target planet (null = treated as difficulty 1).
    */
   roll(planet: PlanetId | null): NamedRollResult {
     const host = this.host;
@@ -172,20 +176,21 @@ export class NamedRogueDirector {
     const idx = Math.max(0, Math.min(NAMED_CHANCE_BY_THREAT.length - 1, threat - 1));
     const raw = NAMED_CHANCE_BY_THREAT[idx];
     const chance = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0;
-    // 2026-09-13: 월드 시드를 해시 **안에** 넣는다 — `seed ^ hash('named')` 는 낮은 비트만 다른 시드끼리 첫 굴림이 비슷했다
+    // 2026-09-13: the world seed goes **inside** the hash — with `seed ^ hash('named')`, seeds differing only in the low bits had similar first rolls
     const rng = new Random(Random.hash(`named@${world.seed >>> 0}`));
     const r = rng.next();
     const res = emptyResult();
     res.rolled = true; res.planet = planet; res.tier = tier; res.threat = threat; res.chance = chance; res.roll = r;
     this.result = res;
-    /* 2026-09-14 (정보상 「현상 수배」): 산 사람은 **등장 굴림 · 종류 굴림을 건너뛰고** 그 네임드로 확정한다.
-     * 자리 굴림은 그대로다 — 이 rng 는 월드 스트림과 아예 별개(`Random.hash('named@' + seed)`)라 스트림 동일성
-     * 걱정이 없고, 여기서 두 draw 를 아끼면 자리만 달라진다 (그래야 「지정한 네임드가 그 맵의 제자리에 선다」). */
+    /* 2026-09-14 (the intel broker's 「현상 수배」): a buyer **skips the appearance roll and the type roll** and gets
+     * that named rogue for certain. The spot roll is unchanged — this rng is entirely separate from the world stream
+     * (`Random.hash('named@' + seed)`), so stream identity is no concern, and saving the two draws here would only
+     * move the spot (which is what makes 「the named rogue you named stands in its own place on that map」 true). */
     const wanted = ctx.missionIntel?.namedId ?? null;
     const forced: NamedRogueType | null = wanted && isNamedRogueType(wanted) ? wanted : null;
     if (!forced && !(r < chance)) return res;
 
-    // 종류 굴림은 **언제나 소비한다** — 그래야 뒤따르는 자리 굴림이 산 사람이나 안 산 사람이나 같은 자리에서 시작한다
+    // The type roll is **always consumed** — that way the spot roll after it starts from the same place for a buyer and a non-buyer
     const rolledType = NAMED_ROGUE_TYPES[rng.int(0, NAMED_ROGUE_TYPES.length - 1)];
     const type = forced ?? rolledType;
     res.type = type;
@@ -198,7 +203,7 @@ export class NamedRogueDirector {
     if (type === 'rogue_sniper') _guard.copy(_best);
 
     settle(world, _best, ENEMY_STATS[type].radius);
-    // 로든은 분대가 오는 쪽(스폰)을 바라보고, 타길라 · 헤비는 지키는 곳을 등지고 바깥을 본다
+    // Roden faces the side the squad comes from (the spawn); Tagilla and the Heavy turn their back on what they guard and look outward
     const yaw = type === 'rogue_sniper'
       ? Math.atan2(spawn.x - _best.x, spawn.z - _best.z)
       : outwardYaw(_best, _guard);
@@ -208,14 +213,14 @@ export class NamedRogueDirector {
     return res;
   }
 
-  /** 이번 레이드의 굴림 결과 (복사본). */
+  /** This raid's roll result (a copy). */
   debugRoll(): NamedRollResult {
     const r = this.result;
     return { ...r, position: r.position ? { ...r.position } : null };
   }
 
-  /* ── 알림 ─────────────────────────────────────────────────────────────── */
-  /** `enemy:spawned` — 리플리카만: 네임드 종류를 id 당 처음 볼 때 `enemy:namedSpawned`. 권한은 스폰 경로가 직접 낸다. */
+  /* ── The announcement ─────────────────────────────────────────────────── */
+  /** `enemy:spawned` — replicas only: `enemy:namedSpawned` the first time a named type is seen, once per id. On the authority the spawn path emits it itself. */
   onSpawned(id: number, type: EnemyType): void {
     const host = this.host;
     if (!host || host.authority || !isNamedRogueType(type)) return;
@@ -225,10 +230,11 @@ export class NamedRogueDirector {
   }
 
   /**
-   * 2026-09-11 (C-52): 스냅샷(키프레임 · `ty` 가 붙은 델타)이 **조용히** 만든 리플리카 (`net/Replica.onSnapshot` 의
-   * get-or-create — `ee spawn` 을 놓친 늦은 합류자). `enemy:spawned` 는 내지 않고(소리 · HUD 같은 다른 구독자의 동작이
-   * 바뀐다) 네임드 알림만 낸다. 기록은 `onSpawned` 와 같은 `announced` 라 `ee spawn` 이 앞뒤로 와도 id 당 한 번이다.
-   * 권한에서는 아무 것도 하지 않는다 (스폰 경로가 직접 낸다).
+   * 2026-09-11 (C-52): a replica a snapshot (a keyframe · a delta carrying `ty`) created **silently** (the
+   * get-or-create in `net/Replica.onSnapshot` — a late joiner that missed `ee spawn`). It does not emit
+   * `enemy:spawned` (that would change what other subscribers such as sounds and the HUD do) and emits the named
+   * announcement only. The record is the same `announced` as `onSpawned`, so an `ee spawn` before or after it still
+   * means once per id. On the authority it does nothing (the spawn path emits it itself).
    */
   onReplicaCreated(e: Enemy): void {
     const host = this.host;
@@ -243,10 +249,10 @@ export class NamedRogueDirector {
     this.host.ctx.bus.emit('enemy:namedSpawned', { id: e.id, type, position: e.position });
   }
 
-  /* ── 디버그 ───────────────────────────────────────────────────────────── */
+  /* ── Debug ────────────────────────────────────────────────────────────── */
   /**
-   * 판정 없이 `type` 을 세운다 (헤비면 호위 포함). `at` 이 없으면 로컬 플레이어 앞 `DEBUG_AHEAD_M`.
-   * 레이드당 1명 규칙도 굴림 기록도 건드리지 않는다. 권한이 아니면 null.
+   * Places `type` with no judgement at all (escorts included for the Heavy). With no `at`, `DEBUG_AHEAD_M` ahead of
+   * the local player. It touches neither the one-per-raid rule nor the roll record. null when not the authority.
    */
   debugSpawn(type: NamedRogueType, at?: { x: number; z: number }): Enemy | null {
     const host = this.host;
@@ -270,12 +276,12 @@ export class NamedRogueDirector {
     return this.spawnNamed(type, _p, yaw, _guard, rng, null);
   }
 
-  /* ── 스폰 ─────────────────────────────────────────────────────────────── */
-  /** 네임드 한 명 (+ 헤비면 호위). `res` 가 있으면 결과를 적는다. */
+  /* ── Spawning ─────────────────────────────────────────────────────────── */
+  /** One named rogue (+ escorts for the Heavy). With a `res`, the result is written into it. */
   private spawnNamed(type: NamedRogueType, pos: THREE.Vector3, yaw: number, guard: THREE.Vector3, rng: Random, res: NamedRollResult | null): Enemy | null {
     const host = this.host;
     const weapon = type === 'rogue_sniper' ? SNIPER_WEAPON : type === 'rogue_heavy' ? HEAVY_WEAPON : '';
-    // 2026-09-13: 헤비는 호위와 한 분대 (`leader`) — 거점(`site`)은 없다 (네임드 전리품은 확정 드롭 표가 따로 정한다)
+    // 2026-09-13: the Heavy is one squad with its escorts (`leader`) — no site (`site`) (named loot is decided by its own guaranteed drop table)
     const squadId = type === 'rogue_heavy' ? host.allocSquadId() : -1;
     const e = host.spawnRogue(type, pos, yaw, guard, weapon, null, squadId >= 0 ? { squadId, role: 'leader' } : undefined);
     if (!e) return null;
@@ -291,7 +297,7 @@ export class NamedRogueDirector {
     return e;
   }
 
-  /** 헤비 둘레 `escortRadius` 안에 SMG **레이더** 호위를 세운다 (헤비와 같은 분대). 세운 수를 돌려준다. */
+  /** Places SMG **raider** escorts within `escortRadius` of the Heavy (the same squad as the Heavy). Returns how many were placed. */
   private placeEscorts(heavy: Enemy, rng: Random, squadId: number): number {
     const host = this.host;
     const world = host.ctx.world!;
@@ -314,23 +320,23 @@ export class NamedRogueDirector {
       if (!ok) continue;
       settle(world, _p, escortRadius);
       const yaw = outwardYaw(_p, heavy.position);
-      // escortOf = 헤비 → `spawnRogue` 가 리시를 `ROGUE_AI.escortLeash` 로, RogueAI 가 guardPos 를 헤비에 붙인다.
-      // 2026-09-13: 호위는 레이더 (헤비와 같은 분대). 헤비를 따라다니므로 우회조는 두지 않는다.
+      // escortOf = the Heavy → `spawnRogue` sets the leash to `ROGUE_AI.escortLeash` and RogueAI pins guardPos to the Heavy.
+      // 2026-09-13: the escorts are raiders (the same squad as the Heavy). They follow it, so no flanker is assigned.
       if (host.spawnRogue('raider', _p, yaw, heavy.position, ESCORT_WEAPON, heavy, { squadId, role: 'member' })) placed++;
     }
     return placed;
   }
 }
 
-/* ══ 자리 고르기 ═════════════════════════════════════════════════════════════════════════════════════ */
+/* ══ Picking a spot ══════════════════════════════════════════════════════════════════════════════════ */
 
-/** 로든: 개활지 언덕. 찾으면 `out` 에 적고 true. */
+/** Roden: a hill in the open. Writes it into `out` and returns true when one is found. */
 function pickSniperSpot(world: WorldRef, rng: Random, spawn: THREE.Vector3, out: THREE.Vector3): boolean {
   const half = world.size / 2 - EDGE_MARGIN;
   const radius = ENEMY_STATS.rogue_sniper.radius;
   let bestScore = -Infinity;
   for (let i = 0; i < SNIPER_CANDIDATES; i++) {
-    // 후보마다 rng 를 정확히 두 번 쓴다 — 거절돼도 소비량이 같아 뒤따르는 호위 배치 굴림이 흔들리지 않는다
+    // Exactly two rng draws per candidate — a rejected one consumes the same, so the escort placement rolls after it do not shift
     const x = rng.range(-half, half);
     const z = rng.range(-half, half);
     if (!spotOk(world, x, z, spawn, radius)) continue;
@@ -351,12 +357,12 @@ function pickSniperSpot(world: WorldRef, rng: Random, spawn: THREE.Vector3, out:
   return bestScore > -Infinity;
 }
 
-/** 타길라: 스폰에서 먼 구조물 곁 엄폐가 많은 자리. `guard` = 그 구조물 (없으면 자리 자신). 근거 문자열 또는 null. */
+/** Tagilla: a spot with plenty of cover beside a structure far from the spawn. `guard` = that structure (the spot itself with none). The reason string, or null. */
 function pickHammerSpot(world: WorldRef, rng: Random, spawn: THREE.Vector3, out: THREE.Vector3, guard: THREE.Vector3): string | null {
   const radius = ENEMY_STATS.rogue_hammer.radius;
   const structures = farthestFirst(world.getStructures(), spawn);
   if (structures.length > 0) {
-    // 먼 쪽 절반에서 시작해 한 바퀴 — 가까운 구조물은 자리가 하나도 안 날 때만 쓴다
+    // Starts in the farther half and goes once around — a near structure is used only when no spot came up at all
     const start = rng.int(0, Math.max(0, Math.ceil(structures.length / 2) - 1));
     for (let n = 0; n < structures.length; n++) {
       const s = structures[(start + n) % structures.length];
@@ -378,13 +384,13 @@ function pickHammerSpot(world: WorldRef, rng: Random, spawn: THREE.Vector3, out:
       }
     }
   }
-  // 구조물이 없는 맵: 장애물이 가장 빽빽한(= 엄폐가 많은) 자리
+  // A map with no structure: the spot where obstacles are densest (= the most cover)
   if (!pickOpenOrCluttered(world, rng, spawn, radius, HAMMER_COVER_RADIUS, 1, out)) return null;
   guard.copy(out);
   return 'open';
 }
 
-/** 헤비: 스폰에서 먼 구조물 · 폐허(상자) 곁. `guard` = 그 앵커. 근거 문자열 또는 null. */
+/** The Heavy: beside a structure · ruin (crate) far from the spawn. `guard` = that anchor. The reason string, or null. */
 function pickHeavySpot(world: WorldRef, rng: Random, spawn: THREE.Vector3, out: THREE.Vector3, guard: THREE.Vector3): string | null {
   const radius = ENEMY_STATS.rogue_heavy.radius;
   const structures = farthestFirst(world.getStructures(), spawn);
@@ -415,7 +421,7 @@ function pickHeavySpot(world: WorldRef, rng: Random, spawn: THREE.Vector3, out: 
   return 'open';
 }
 
-/** 앵커 발자국 바깥 `HEAVY_RING_MIN..MAX` 링의 첫 유효 자리. */
+/** The first valid spot on the `HEAVY_RING_MIN..MAX` ring outside the anchor's footprint. */
 function ringAround(world: WorldRef, rng: Random, spawn: THREE.Vector3, center: THREE.Vector3, footprint: number, radius: number, out: THREE.Vector3): boolean {
   for (let t = 0; t < HEAVY_RING_TRIES; t++) {
     const ang = rng.range(0, Math.PI * 2);
@@ -430,7 +436,8 @@ function ringAround(world: WorldRef, rng: Random, spawn: THREE.Vector3, center: 
 }
 
 /**
- * 앵커가 없을 때: 무작위 후보 중 `coverRadius` 원의 장애물 밀도가 가장 높은(`sign` 1) 자리, `sign` 0 이면 첫 유효 자리.
+ * With no anchor: of the random candidates, the one with the highest obstacle density in the `coverRadius` circle
+ * (`sign` 1); with `sign` 0, the first valid one.
  */
 function pickOpenOrCluttered(world: WorldRef, rng: Random, spawn: THREE.Vector3, radius: number, coverRadius: number, sign: 0 | 1, out: THREE.Vector3): boolean {
   const half = world.size / 2 - EDGE_MARGIN;
@@ -445,21 +452,21 @@ function pickOpenOrCluttered(world: WorldRef, rng: Random, spawn: THREE.Vector3,
   return best > -Infinity;
 }
 
-/* ══ 공용 판정 ═══════════════════════════════════════════════════════════════════════════════════════ */
+/* ══ Shared judgements ═══════════════════════════════════════════════════════════════════════════════ */
 
-/** 네임드가 설 수 있는 자리인가: 맵 안 · 스폰에서 충분히 멀다 · 선로 회랑 밖 · 구조물 발자국 밖 · 막히지 않았다. */
+/** Whether a named rogue may stand here: inside the map · far enough from the spawn · outside the rail corridor · outside structure footprints · not blocked. */
 function spotOk(world: WorldRef, x: number, z: number, spawn: THREE.Vector3, radius: number): boolean {
   const half = world.size / 2 - EDGE_MARGIN;
   if (Math.abs(x) > half || Math.abs(z) > half || !world.isInsideBounds(x, z)) return false;
   if (Math.hypot(x - spawn.x, z - spawn.z) < NAMED_ROGUE_MIN_SPAWN_DIST) return false;
   if (railDistance(world, x, z) < RAIL_CLEARANCE_M + RAIL_EXTRA_M) return false;
-  // 2026-09-13: 탐사 차량 흙길 회랑도 비운다 — 엎드린 저격수가 차량이 지나가는 길 한가운데 서지 않게.
+  // 2026-09-13: the rover's dirt road corridor is kept clear too — so a prone sniper does not lie in the middle of the road the rover drives down.
   if (roverRouteDistance(world, x, z) < ROVER_ROUTE_CLEARANCE_M + RAIL_EXTRA_M) return false;
   if (world.structureAt(x, z)) return false;
   return !blocked(world, x, z, radius);
 }
 
-/** 탐사 차량 흙길 중심선(닫힌 고리)까지의 수평 거리(m). 차량이 없으면 Infinity. 할당 없음. */
+/** Horizontal distance to the rover road's centre line (a closed loop) (m). Infinity with no rover. No allocation. */
 function roverRouteDistance(world: WorldRef, x: number, z: number): number {
   const pts = world.rover?.route.points;
   if (!pts || pts.length < 2) return Infinity;
@@ -477,12 +484,12 @@ function roverRouteDistance(world: WorldRef, x: number, z: number): number {
   return Math.sqrt(best);
 }
 
-/** `Spawner.spawnBlocked` 와 같은 규칙을 반경으로 직접 — 네임드는 `ENEMY_BIG_RADIUS` 밑이라 그 함수가 늘 false 다. */
+/** The same rule as `Spawner.spawnBlocked`, applied to the radius directly — a named rogue is below `ENEMY_BIG_RADIUS`, so that function is always false for it. */
 function blocked(world: WorldRef, x: number, z: number, radius: number): boolean {
   return world.obstacleCoverage(x, z, Math.max(0.5, radius) * ENEMY_SPAWN_CLEARANCE_MUL) > ENEMY_SPAWN_BLOCK_RATIO;
 }
 
-/** 가장 가까운 선로 중심선까지의 수평 거리(m). 선로가 없으면 Infinity. 할당 없음. */
+/** Horizontal distance to the nearest rail centre line (m). Infinity with no rails. No allocation. */
 function railDistance(world: WorldRef, x: number, z: number): number {
   let best = Infinity;
   const lines = world.getRailLines();
@@ -505,7 +512,7 @@ function railDistance(world: WorldRef, x: number, z: number): number {
   return best;
 }
 
-/** 가장 가까운 구조물 발자국 가장자리까지의 거리(m). 구조물이 없으면 Infinity. */
+/** Distance to the nearest structure footprint edge (m). Infinity with no structures. */
 function structureClearance(world: WorldRef, x: number, z: number): number {
   let best = Infinity;
   const list = world.getStructures();
@@ -517,25 +524,25 @@ function structureClearance(world: WorldRef, x: number, z: number): number {
   return best;
 }
 
-/** 스폰에서 `NAMED_ROGUE_MIN_SPAWN_DIST` 이상 떨어진 것만, 먼 순으로 (복사본 — 월드 배열은 건드리지 않는다). */
+/** Only those at least `NAMED_ROGUE_MIN_SPAWN_DIST` from the spawn, farthest first (a copy — the world's array is left alone). */
 function farthestFirst<T extends { position: THREE.Vector3 }>(list: readonly T[], spawn: THREE.Vector3): T[] {
   const d = (o: T): number => Math.hypot(o.position.x - spawn.x, o.position.z - spawn.z);
   return list.filter((o) => d(o) >= NAMED_ROGUE_MIN_SPAWN_DIST).sort((a, b) => d(b) - d(a));
 }
 
-/** 장애물 밖으로 밀어내고 발이 닿는 높이로. */
+/** Pushes it out of obstacles and down to the height its feet rest at. */
 function settle(world: WorldRef, p: THREE.Vector3, radius: number): void {
   world.resolveCollision(p, Math.max(1, radius + 0.4));
   p.y = world.getSurfaceY(p.x, p.z, world.getHeightAt(p.x, p.z));
 }
 
-/** `center` 를 등지고 바깥을 보는 yaw (`RogueGuards.placeAround` 와 같은 규약). */
+/** The yaw that turns its back on `center` and looks outward (the same convention as `RogueGuards.placeAround`). */
 function outwardYaw(p: THREE.Vector3, center: THREE.Vector3): number {
   if (Math.abs(p.x - center.x) + Math.abs(p.z - center.z) < 1e-3) return 0;
   return Math.atan2(center.x - p.x, center.z - p.z) + Math.PI;
 }
 
-/** 분대 인원 (1..4). 싱글은 1. `RogueDrop.squadSize` · `WaveDirector.squadSize` 와 같은 계산. */
+/** Squad size (1..4). 1 in single player. The same calculation as `RogueDrop.squadSize` · `WaveDirector.squadSize`. */
 function squadSize(host: NamedDirectorHost): number {
   const net = host.ctx.net;
   let n = 1;

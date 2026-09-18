@@ -1,17 +1,17 @@
 /**
- * src/enemies/ai/named/ScanDrone.ts — **로든의 스캔 드론** (`rogue_scan_drone`, 2026-09-11).
+ * src/enemies/ai/named/ScanDrone.ts — **Roden's scan drone** (`rogue_scan_drone`, 2026-09-11).
  *
- * 로든(`Sniper.ts`)이 먼 플레이어를 노릴 때 띄운다. 드론은 표적 머리 위 `NAMED_SCAN_DRONE.altitude` 로 날아가
- * `pulseInterval` 마다 **음파**를 보내고, 반경 `pulseRadius`(수평) 안에서 드론 → 가슴 사선이 열린 플레이어의
- * `exposure` 를 올린다. `NAMED_SNIPER.scanPulses` 번이 되면 `done` — 로든이 쏘거나 놓아 줄 때까지(최대 `loiterMax`)
- * 머물다가 로든에게 돌아가 사라진다. 로든이 죽으면 곧장 솟구쳐 사라진다. 요격당하면 떨어진다(`integrateDeathFall`).
+ * Launched by Roden (`Sniper.ts`) at a distant player. It flies to `NAMED_SCAN_DRONE.altitude` over the target's head,
+ * sends a **pulse** every `pulseInterval` and raises the `exposure` of every player within `pulseRadius` (horizontal)
+ * whose drone → chest line is open. At `NAMED_SNIPER.scanPulses` it is `done` — it loiters (`loiterMax`) until Roden
+ * shoots or releases it, flies home and vanishes. Roden dead it climbs out; intercepted it falls (`integrateDeathFall`).
  *
- * 단계(`Enemy.namedPhase`): 0 스캔 · 1 대기(`done`) · 2 귀환 · 3 이탈(로든 사망).
- * 타이머: `namedTimer` = 힌트 20 유지(호스트) / 직전 프레임 y(리플리카) · `namedCooldown` = 비행음 간격.
+ * Phases (`Enemy.namedPhase`): 0 scanning · 1 loitering (`done`) · 2 flying home · 3 escaping (Roden dead).
+ * Timers: `namedTimer` = how long hint 20 stays up (host) / last frame's y (replica) · `namedCooldown` = hum interval.
  *
- * **로컬 노출 표시**(`named:scanExposure`)는 드론 id 별로 세고(`ScanRuntime`) 셋 중 하나에서 0 으로 떨어진다 —
- * 드론이 없어짐(격추 · 귀환) · 나를 겨눈 저격 발사(`named:sniperGlint.targetLocal` 의 `duration` 뒤) · 20 초 무갱신.
- * 드론이 전부 사라져도 시간이 흘러야 하므로 그 동안만 `requestAnimationFrame` 한 줄로 스스로 틱한다(음파 FX 도 같이).
+ * The **local exposure display** (`named:scanExposure`) counts per drone id (`ScanRuntime`) and drops to 0 in one of
+ * three ways — the drone is gone (shot down · home) · a shot aimed at us (`named:sniperGlint.targetLocal` + `duration`) ·
+ * 20 s with no update. Time still runs, so for that stretch it self-ticks on one `requestAnimationFrame` line (pulse FX too).
  */
 import * as THREE from 'three';
 import { CORPSE_FALL_MAX_SPEED, type EnemyEvent, type GameContext, type PeerId } from '@/shared';
@@ -26,7 +26,7 @@ import { ScanPulseFx } from '../../fx/ScanPulseFx';
 import { turnToward, yawTo } from '../Steering';
 import { scanDroneDataOf, sniperDataOf, type ScanDroneData } from './model';
 
-/* ── 비행 느낌 (밸런스 수치가 아니다 — 그것은 NAMED_SCAN_DRONE) ── */
+/* ── Flight feel (not balance numbers — those are NAMED_SCAN_DRONE) ── */
 /** Spawn this far above / beside the sniper. */
 const LAUNCH_UP = 2.4;
 const LAUNCH_SIDE = 1.3;
@@ -53,7 +53,7 @@ const HOME_RADIUS = 2.5;
 const RETURN_MAX_S = 45;
 const ESCAPE_S = 3.5;
 const ESCAPE_CLIMB = 30;
-/** Speed multiplier while 전소 / stunned (drifts, no pulses). */
+/** Speed multiplier while incinerated / stunned (drifts, no pulses). */
 const STUN_SPEED = 0.3;
 const HUM_INTERVAL_S = 1.8;
 const HUM_VOLUME = 0.8;
@@ -78,7 +78,7 @@ const _face = new THREE.Vector3();
 const _p = new THREE.Vector3();
 
 /* ════════════════════════════════════════════════════════════════════════════
- * 로컬 노출 · 음파 FX 런타임 (호스트 · 리플리카 공용, ctx 하나당 하나)
+ * Local exposure · pulse FX runtime (shared by host and replica, one per ctx)
  * ════════════════════════════════════════════════════════════════════════════ */
 
 interface ExposureSlot {
@@ -258,15 +258,15 @@ function droneAlive(active: readonly Enemy[], id: number): boolean {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
- * 호스트
+ * Host
  * ════════════════════════════════════════════════════════════════════════════ */
 
 type SystemLike = Partial<Pick<EnemySystem, 'spawnRogue' | 'hosting'>>;
 
 /**
- * 로든이 스캔 드론을 띄운다 (호스트에서만). 저격수 머리 위에서 스폰해 `target` 쪽으로 보낸다 — `namedData` 는
- * `ScanDroneData` (`./model`). 띄우지 못하면 null (리플리카 · 표적이 플레이어가 아님 · 이미 떠 있음 · 풀 가득).
- * 반환한 드론의 id 를 `SniperData.droneId` 에 적는 것은 호출자(Sniper.ts)다.
+ * Roden launches a scan drone (host only). It spawns over the sniper's head and is sent toward `target` — `namedData`
+ * is `ScanDroneData` (`./model`). null when it cannot launch (replica · the target is not a player · one is already
+ * out · the pool is full). Writing the returned drone's id into `SniperData.droneId` is the caller's job (Sniper.ts).
  */
 export function launchScanDrone(host: EnemyHost, sniper: Enemy, target: CombatTarget): Enemy | null {
   if (host.replica || !sniper.active || sniper.state === 'dead' || target.enemy || target.id === 'ai') return null;
@@ -323,8 +323,9 @@ export function updateScanDrone(e: Enemy, dt: number, host: EnemyHost, _t: Comba
   rt.tick();
   let d = scanDroneDataOf(e);
   if (!d) {
-    // 리플리카 시절의 드론이 호스트 승격으로 넘어왔다(`namedData` 는 호스트 전용) — 또는 디버그 스폰. 공중에서 사라지지
-    // 않고 **입양**한다: 가장 가까운 살아 있는 로든을 주인으로, 스캔은 0 부터 (C-49). 로든이 없으면 이탈 단계가 치운다.
+    // A drone from replica days came over on promotion (`namedData` is host-only) — or a debug spawn. It is not
+    // dropped in mid-air but **adopted**: the nearest living Roden becomes its owner, the scan starts at 0 (C-49).
+    // With no Roden the escape phase clears it up.
     d = adoptOrphan(e, host);
   }
 
@@ -338,7 +339,7 @@ export function updateScanDrone(e: Enemy, dt: number, host: EnemyHost, _t: Comba
   e.structTarget = null;
   e.structAttack = false;
 
-  // 전소 rides on `stagger` (the ground AI's stagger case never runs for us) — drift, no pulses, until it wears off
+  // Incineration rides on `stagger` (the ground AI's stagger case never runs for us) — drift, no pulses, until it wears off
   let stunned = false;
   if (e.state === 'stagger') {
     e.staggerTimer -= dt;
@@ -359,8 +360,8 @@ export function updateScanDrone(e: Enemy, dt: number, host: EnemyHost, _t: Comba
   const sniperOk = !!sniper && sniper.type === 'rogue_sniper' && sniper.state !== 'dead';
   const sd = sniperOk ? sniperDataOf(sniper!) : null;
   if (sd && sd.droneId === e.id) d.claimed = true;
-  // Sniper.ts 의 신호: `resolvedDroneId === 내 id` = 로든이 이 스캔을 소모했다(쐈다 · 포기했다) → 노출을 풀고 복귀.
-  // 신호를 못 봤더라도 한 번 붙잡혔던 드론을 `droneId` 에서 놓아 주면 같은 뜻이다.
+  // Sniper.ts's signal: `resolvedDroneId === my id` = Roden consumed this scan (shot · gave up) → clear the exposure
+  // and fly home. Missing that signal, a drone once claimed being let go of `droneId` means the same thing.
   const resolved = !!sd && sd.resolvedDroneId === e.id;
   if (resolved) rt.clearDrone(e.id);
   const released = resolved || (d.claimed && (!sd || sd.droneId !== e.id));
@@ -435,11 +436,11 @@ export function updateScanDrone(e: Enemy, dt: number, host: EnemyHost, _t: Comba
 }
 
 /**
- * `namedData` 없이 호스트 틱에 들어온 드론(승격 · 디버그 스폰)에 새 `ScanDroneData` 를 준다. 주인은 살아 있는
- * `rogue_sniper` 중 가장 가까운 것 — 로든 쪽이 `droneId === null` 이면 `sniperId === 자기 id` 인 미입양 드론을 집어 간다
- * (`Sniper.ts` `adoptDrone`). 표적은 일부러 무효('ai')로 둔다: 스캔 가지의 대체 로직이 로든 사거리 안 가장 가까운
- * 플레이어를 고른다. `namedTimer` 는 **반드시 0** — 리플리카 훅이 거기에 직전 프레임 y(수십 m)를 적어 두어, 안 비우면
- * 힌트 20(음파 연출)이 수십 초 켜진 채 방송된다.
+ * Gives a fresh `ScanDroneData` to a drone that reached a host tick without one (promotion · debug spawn). The owner
+ * is the nearest living `rogue_sniper` — a Roden whose `droneId === null` picks up an unclaimed drone whose
+ * `sniperId === its own id` (`Sniper.ts` `adoptDrone`). The target is deliberately left invalid ('ai'): the fallback in
+ * the scan branch picks the nearest player within Roden's reach. `namedTimer` **must be 0** — the replica hook writes
+ * last frame's y (tens of metres) there, and left uncleared it broadcasts hint 20 (the pulse FX) for tens of seconds.
  */
 function adoptOrphan(e: Enemy, host: EnemyHost): ScanDroneData {
   let sniperId = -1;
@@ -590,7 +591,7 @@ function pulse(e: Enemy, d: ScanDroneData, host: EnemyHost, rt: ScanRuntime): vo
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
- * 리플리카 (비호스트) — AI 없음, 연출 · 로컬 노출만
+ * Replica (non-host) — no AI, visuals and the local exposure only
  * ════════════════════════════════════════════════════════════════════════════ */
 
 /** Before the snapshot pose lands: remember last frame's height (vertical speed) and keep `Replica` off the terrain snap. */

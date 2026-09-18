@@ -1,14 +1,14 @@
 /**
- * src/enemies/ai/Burrow.ts — **파고 나오는 중 · 뱉어져 날아가는 중인 버그** (2026-09-13).
+ * src/enemies/ai/Burrow.ts — **bugs emerging from the ground · in spat flight** (2026-09-13).
  *
- * 이 파일이 답하는 질문: *땅에서 올라오는 버그와 땅굴벌레가 뱉은 버그는 언제부터 싸우나.*
+ * The question this file answers: *when do a bug coming up out of the ground and a bug the sandworm spat start fighting.*
  *
- * - **굴착**(`Enemy.emergeT > 0`, `Enemy.startEmerge`): 몸이 땅에서 다 올라올 때까지 **맞기는 하지만** 공격 · 이동하지 않는다
- *   (사용자 결정 권고안). 가까운 표적 쪽으로 천천히 돌아볼 뿐이다. 시간은 `Enemy.animate` 가 권위 · 리플리카 모두에서 줄인다
- *   (그림과 판정이 같은 시계를 본다).
- * - **뱉어짐**(`Enemy.spatT > 0`, `Enemy.startSpat`): 땅굴벌레 입에서 착지점까지 정해진 포물선을 날아간다. 권위는 AI 틱에서
- *   (`updateBurrowGate`), 리플리카는 `ee wormSpit` 을 받아 같은 식으로 스스로 그린다(`net/Replica.update`). 둘 다
- *   `stepSpatFlight` 하나를 부른다. 날아가는 동안 `airborne` 이라 공중에서 죽으면 기존 사망 낙하가 이어받는다.
+ * - **Emerging** (`Enemy.emergeT > 0`, `Enemy.startEmerge`): until the body is all the way out of the ground it **can be hit**
+ *   but does not attack or move (user's decision, the recommended option). It only turns slowly toward a nearby target. The
+ *   timer is run down by `Enemy.animate` on both the authority and the replica (drawing and judgement read one clock).
+ * - **Spat** (`Enemy.spatT > 0`, `Enemy.startSpat`): it flies a fixed arc from the sandworm's mouth to its landing spot. The
+ *   authority does it in the AI tick (`updateBurrowGate`), the replica draws the same arc itself from `ee wormSpit`
+ *   (`net/Replica.update`). Both call the one `stepSpatFlight`; `airborne` in flight, so a mid-air death falls as before.
  */
 import * as THREE from 'three';
 import { GRAVITY, type WorldRef } from '@/shared';
@@ -16,14 +16,14 @@ import type { Enemy, EnemyHost } from '../Enemy';
 import { turnToward, yawTo } from './Steering';
 
 /**
- * 권위의 AI 틱에서 `updateEnemyAI` 가 사망 검사 바로 뒤에 부른다. true = 이번 틱은 여기서 끝 (평소 상태 기계를 건너뛴다).
+ * Called by `updateEnemyAI` right after the death check (authority AI tick). true = the tick ends here (state machine skipped).
  */
 export function updateBurrowGate(e: Enemy, dt: number, host: EnemyHost): boolean {
   if (e.spatT > 0) {
     const world = host.ctx.world;
     if (!world) return true;
     if (stepSpatFlight(e, dt, world)) {
-      // 착지: 곧장 사냥한다 (뱉어진 무리는 relentless)
+      // landed: hunts at once (a spat pack is relentless)
       e.aware = true;
       if (e.state === 'idle' || e.state === 'wander' || e.state === 'alert') { e.state = 'chase'; e.stateTime = 0; }
       e.perceptionTimer = 0;
@@ -44,7 +44,7 @@ export function updateBurrowGate(e: Enemy, dt: number, host: EnemyHost): boolean
 }
 
 /**
- * 뱉어진 몸 한 걸음 (권위 · 리플리카 공용, 할당 없음). 착지한 순간 true — 위치는 착지점의 표면, `airborne` 해제.
+ * One step of a spat body (authority · replica, no allocation). true on landing — position = the landing surface, `airborne` off.
  */
 export function stepSpatFlight(e: Enemy, dt: number, world: WorldRef): boolean {
   if (e.spatT <= 0) return false;
@@ -68,6 +68,6 @@ export function stepSpatFlight(e: Enemy, dt: number, world: WorldRef): boolean {
   e.airborne = false;
   e.vy = 0;
   e.velocity.set(0, 0, 0);
-  a.crouch = 0.35;   // 착지 웅크림 — 평소 자세로 금방 돌아간다
+  a.crouch = 0.35;   // landing crouch — springs back to the normal pose
   return true;
 }

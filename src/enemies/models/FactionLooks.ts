@@ -1,33 +1,33 @@
 /**
- * src/enemies/models/FactionLooks.ts — **안드로이드 · 레이더 외피** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」).
+ * src/enemies/models/FactionLooks.ts — **the android · raider looks** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 행성별 적 팩션」).
  *
- * 둘 다 로그의 휴머노이드 리그(`RogueModel.createRogueRig`)를 그대로 쓴다: 같은 그룹 · 같은 피벗 · 같은 총구
- * (`gun` 로컬 (-0.1, -0.13, 1.1)) · 같은 다리 길이라 AI 애니메이션과 피격 캡슐이 한 줄도 바뀌지 않는다. 바뀌는 것은
- * 그룹마다 매다는 **지오메트리와 머티리얼**뿐이다. 광원은 하나도 없다 — 빛나는 것은 전부 `eyeMat` 의 emissive 다.
+ * Both use the rogue's humanoid rig (`RogueModel.createRogueRig`) as it is: the same groups · the same pivots · the same
+ * muzzle (`gun` local (-0.1, -0.13, 1.1)) · the same leg lengths, so not one line of the AI animation or the hit capsule
+ * changes. All that changes is the **geometry and materials** hung on each group. There is not one light — everything that glows is `eyeMat` emissive.
  *
- *   - **안드로이드** — 연구소 · 전진기지의 집사/경비 로봇. 무광 백색 외피, 가는 허리(흑연색 척추 기둥), 달걀형 머리에
- *     검은 안면판 + **단안 렌즈 하나**, 허리 · 고관절 · 무릎 · 팔꿈치 · 어깨에 발광 링, 흉골의 코어 불빛. 천 · 피부 · 가방 없음.
- *     총도 흰 외피의 카빈 + 옆면 발광 줄.
- *   - **레이더** — 함선을 타고 오는 해적단. 검은 전투복 위 판초형 방탄판 · 탄창 파우치, 붉은 가슴띠 · 붉은 어깨판 윗면 ·
- *     붉은 완장, 전투 헬멧(볼 가드 · 방독 마스크 필터 · 야시경 마운트 · 붉은 정수리 줄) + **넓은 호박색 바이저 띠**,
- *     큰 배낭과 끝이 호박색으로 빛나는 **무전 안테나** (40–60 m 에서 실루엣으로 갈리는 부분). 소음기 달린 검은 소총.
+ *   - **Android** — the butler/guard robot of labs · outposts. A matt white shell, a slim waist (a graphite spine
+ *     column), an egg-shaped head with a black face plate + **a single lens**, glowing rings at the waist · hips · knees ·
+ *     elbows · shoulders, a core light on the sternum. No cloth · skin · pack. Its gun too is a white-shelled carbine + a glowing strip along the side.
+ *   - **Raider** — a pirate crew that arrives by ship. Poncho-style armour plates · magazine pouches over a black combat
+ *     suit, a red chest band · red shoulder-pad tops · a red armband, a combat helmet (cheek guards · respirator filters ·
+ *     an NVG mount · a red crown stripe) + **a wide amber visor band**, a big backpack and a **radio antenna** with an amber-glowing tip (what tells the silhouette apart at 40–60 m). A black rifle with a suppressor.
  *
- * 로그 · 그룹장 · 네임드의 겉모습은 `RogueModel.buildRogue` 가 그대로 짓는다 (이 파일은 그쪽을 모른다).
+ * The rogue · boss · named looks are built by `RogueModel.buildRogue` as before (this file knows nothing about them).
  */
 import * as THREE from 'three';
 import {
   SHIN, THIGH, ball, box, disc, eyeMaterial, grenadeGeometry, grenadeMaterial, limb, merge, ring, type HumanoidAssets,
 } from './HumanoidParts';
 
-/* ── 안드로이드 ─────────────────────────────────────────────────────────── */
+/* ── Android ────────────────────────────────────────────────────────────── */
 const AN = {
-  shell: 0xd6d9de,     // 무광 백색 외피
-  panel: 0xaeb3bb,     // 한 톤 낮은 패널 · 이음새
-  joint: 0x2a2e35,     // 흑연색 관절 · 척추
-  glass: 0x15181d,     // 안면판
+  shell: 0xd6d9de,     // matt white shell
+  panel: 0xaeb3bb,     // one tone darker: panels · seams
+  joint: 0x2a2e35,     // graphite joints · spine
+  glass: 0x15181d,     // face plate
   gunShell: 0xc4c8ce,
   gunDark: 0x3a3e45,
-  glow: 0x52d6ff,      // 렌즈 · 관절 링 (eyeMat)
+  glow: 0x52d6ff,      // lens · joint rings (eyeMat)
 } as const;
 const ANDROID_EYE_GLOW = 2.4;
 
@@ -115,17 +115,17 @@ export function buildAndroid(): HumanoidAssets {
   };
 }
 
-/* ── 레이더 ─────────────────────────────────────────────────────────────── */
+/* ── Raider ─────────────────────────────────────────────────────────────── */
 const RD = {
-  suit: 0x1c1d20,      // 검은 전투복
-  armor: 0x2e3035,     // 방탄판 · 헬멧
-  plate: 0x3c3f45,     // 한 톤 밝은 판 (윤곽이 뭉개지지 않게)
-  strap: 0x121315,     // 벨트 · 부츠 · 소음기
+  suit: 0x1c1d20,      // black combat suit
+  armor: 0x2e3035,     // armour plates · helmet
+  plate: 0x3c3f45,     // one tone lighter plates (so the outline does not smear)
+  strap: 0x121315,     // belt · boots · suppressor
   pouch: 0x2f3129,
-  red: 0xb3221a,       // 붉은 표식
+  red: 0xb3221a,       // red markings
   metal: 0x4a4d52,
-  /* 바이저 · 안테나 끝 (eyeMat) — 호박색. 붉은 바이저는 로그 그룹장(rogue_boss)의 것이라 같은 검정 · 빨강 몸에서
-     둘이 갈려야 하고, 네임드 레이더(로든 호박 · 타길라 주황 · 헤비 노랑)와 한 계열의 따뜻한 불빛이 된다. */
+  /* Visor · antenna tip (eyeMat) — amber. A red visor belongs to the rogue boss (rogue_boss), so on the same black ·
+     red body the two have to read apart, and this puts the raider in one warm family with the named raiders (Roden amber · Tagilla orange · Heavy yellow). */
   glow: 0xff8a1c,
 } as const;
 const RAIDER_EYE_GLOW = 2.2;

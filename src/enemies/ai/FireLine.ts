@@ -5,50 +5,50 @@ import { VEHICLE_RAY_MARGIN, type CombatTarget } from '../Targets';
 import { holdingFire } from './Common';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 총구 사선 (2026-09-10) — 적이 벽에 딱 붙은 채로 사격하지 않게.
+ * The muzzle line of fire (2026-09-10) — so an enemy does not shoot while pressed flat against a wall.
  *
- * 문제: 인지(`ai/Perception.hasLineOfSight`)는 **눈**에서 표적의 가슴으로 쏘는 레이다. 총알이 나가는 곳은
- * 눈이 아니라 총구(로그의 소총 끝 · 스퓨어의 입)라, 바위 · 벽 모서리에 몸을 붙이면 눈은 표적을 보는데 총구는
- * 벽 안에 박힌다 — 그 상태로 계속 사격 자세를 잡고 벽에다 쏘는 그림이 나왔다.
+ * The problem: perception (`ai/Perception.hasLineOfSight`) is a ray from the **eyes** to the target's chest. Bullets leave
+ * the muzzle, not the eyes (the tip of a rogue's rifle · a spewer's mouth), so a body pressed to the corner of a rock or
+ * wall has eyes that see the target while the muzzle sits inside the wall — and it kept taking aim and firing into that wall.
  *
- * 규약 세 가지:
- * 1. **사격만 보류한다.** 이동은 절대 막지 않는다 — 문 · 틈처럼 좁은 통로를 지나는 중이라 한순간 사선이
- *    막히는 것은 정상이고, 그때 AI 가 굳으면 훨씬 나쁘다. 막히면 쏘지 않고 `fireLineStrafe` 로 옆으로
- *    비켜서서 사선을 연다.
- * 2. **총구에서 `ENEMY_WALL_STANDOFF` 만큼 뒤로 물러난 지점에서** 레이를 쏜다. 총구가 이미 벽 안에 있으면
- *    총구에서 밖으로 쏜 레이는 벽을 만나지 않고 그냥 통과해 "뚫렸다" 가 되기 때문이다. 물러난 지점은 제 몸
- *    안이고 적은 월드 장애물이 아니므로 오검출이 없다. 이것이 "벽과 최소 거리를 둔다" 규칙의 실체이기도 하다.
- * 3. **핫 패스다.** 결과는 적별로 `ENEMY_FIRE_LOS_S` 동안 캐시한다 — 매 프레임 · 매 발마다 레이캐스트를 쏘지
- *    않는다. 표적이 바뀌면 `ai/Perception.acquireTarget` 이 캐시를 버린다. 스크래치 벡터는 모듈 하나를 돌려
- *    쓰므로 프레임당 할당이 없다.
+ * Three rules:
+ * 1. **Only firing is held.** Movement is never blocked — a line of fire briefly blocked while passing a narrow doorway
+ *    or gap is normal, and an AI that freezes there is far worse. Blocked means it does not fire and sidesteps with
+ *    `fireLineStrafe` to open the line.
+ * 2. **The ray starts `ENEMY_WALL_STANDOFF` behind the muzzle.** With the muzzle already inside the wall, a ray cast
+ *    outward from it never meets that wall and simply passes through, reading as "clear". The pulled-back point is inside
+ *    its own body, and enemies are not world obstacles, so there is no false hit. This is also what "keep a minimum distance from walls" is.
+ * 3. **This is a hot path.** The answer is cached per enemy for `ENEMY_FIRE_LOS_S` — no raycast every frame and every
+ *    shot. A target change drops the cache in `ai/Perception.acquireTarget`. The scratch vectors are one module-level set
+ *    reused by everyone, so nothing is allocated per frame.
  *
- * 지형 · 장애물만 본다 — 아군 오사(다른 적 관통)는 보지 않는다(사용자 결정).
- * 포병의 곡사 궤적은 직선이 아니라 이 검사가 아니라 `parts/Attacks.shellArcBlocked` 가 맡는다.
+ * It only looks at terrain and obstacles — friendly fire (shooting through another enemy) is not checked (user's decision).
+ * An artillery's arc is not a straight line, so this check does not own it: `parts/Attacks.shellArcBlocked` does.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 사선이 막힌 적이 옆으로 한 걸음 잡는 조향 목표까지의 거리(m). 그림/알고리즘 상수라 csv 대상이 아니다. */
+/** Distance (m) to the steering goal one sidestep away for an enemy with a blocked line of fire. A visual / algorithm constant, not a csv number. */
 const FIRE_STRAFE_STEP = 3.5;
 
 const _o = new THREE.Vector3();
 const _t = new THREE.Vector3();
 const _d = new THREE.Vector3();
 
-/** 총알/침이 실제로 나가는 지점. 스퓨어는 `ai/EnemyAI` 가 `headCenter + 0.1` 에서 산탄을 뱉는다. */
+/** Where the bullet / spit actually leaves. For a spewer `ai/EnemyAI` spits the glob from `headCenter + 0.1`. */
 export function fireOrigin(e: Enemy, out: THREE.Vector3): THREE.Vector3 {
   if (e.type === 'spewer') { e.headCenter(out); out.y += 0.1; return out; }
   return e.muzzle(out);
 }
 
 /**
- * 총구 → 표적 가슴 사선이 뚫려 있는가. `ENEMY_FIRE_LOS_S` 주기로만 실제 레이캐스트를 쏘고 그 사이에는
- * `Enemy.fireLineClear` 를 그대로 돌려준다. 뚫려 있으면 진행 중이던 비켜서기(`fireBlockTimer`)를 끝낸다.
+ * Is the muzzle → target chest line clear? A real raycast runs only every `ENEMY_FIRE_LOS_S`; in between it returns
+ * `Enemy.fireLineClear` as it is. A clear line ends a sidestep in progress (`fireBlockTimer`).
  */
 export function hasFireLine(e: Enemy, host: EnemyHost, t: CombatTarget): boolean {
   const world = host.ctx.world;
   if (!world) return false;
-  /* 2026-09-14 3차 (튜토리얼 이륙): 사격 보류 중에는 **막힌 것과 똑같이** 답한다 — 조준 · 바라보기 · 이동은 그대로이고
-     호출부는 평소의 "막혔다" 경로(비켜서기)를 탄다. 캐시(`fireLineAt` · `fireLineClear`)는 건드리지 않으므로
-     보류가 풀리면 다음 갱신에서 원래 답으로 돌아온다. */
+  /* 2026-09-14 3rd pass (the tutorial liftoff): while fire is held the answer is **exactly the blocked one** — aiming, looking
+     and movement are unchanged and the caller takes its usual "blocked" path (the sidestep). The cache (`fireLineAt` ·
+     `fireLineClear`) is untouched, so once the hold ends the next refresh returns the real answer again. */
   if (holdingFire(host)) return false;
   const now = host.ctx.time;
   if (now - e.fireLineAt < ENEMY_FIRE_LOS_S) return e.fireLineClear;
@@ -59,16 +59,16 @@ export function hasFireLine(e: Enemy, host: EnemyHost, t: CombatTarget): boolean
   const dist = _d.length();
   if (dist < 1e-3) { e.fireLineClear = true; e.fireLineGap = Infinity; e.fireBlockTimer = 0; return true; }
   _d.multiplyScalar(1 / dist);
-  // 총구보다 ENEMY_WALL_STANDOFF 뒤(제 몸 안)에서 출발한다 — 위 규약 2.
+  // starts ENEMY_WALL_STANDOFF behind the muzzle (inside its own body) — rule 2 above.
   _o.addScaledVector(_d, -ENEMY_WALL_STANDOFF);
-  // 2026-09-13 (탐사 차량): 차체 상자에 들어가기 전에 멈춘다 — 차체 자신의 콜라이더는 사선을 막는 벽이 아니라 표적이다
+  // 2026-09-13 (the rover): it stops before entering the hull box — the hull's own collider is the target, not a wall that blocks the line
   let limit = dist + ENEMY_WALL_STANDOFF - 0.3;
   if (t.vehicle) {
     const enter = t.rayVehicle(_o, _d, dist + ENEMY_WALL_STANDOFF);
     if (enter >= 0) limit = enter - VEHICLE_RAY_MARGIN;
   }
   const hit = limit > 0 ? world.raycast(_o, _d, limit) : null;
-  // 막은 물체까지의 거리를 **총구 기준**으로 기록한다(음수 = 총구가 이미 그 안이다).
+  // the distance to the blocker is recorded **from the muzzle** (negative = the muzzle is already inside it).
   e.fireLineGap = hit ? hit.distance - ENEMY_WALL_STANDOFF : Infinity;
   e.fireLineClear = hit === null;
   if (e.fireLineClear) e.fireBlockTimer = 0;
@@ -76,13 +76,13 @@ export function hasFireLine(e: Enemy, host: EnemyHost, t: CombatTarget): boolean
 }
 
 /**
- * 사선이 막혔을 때의 답: 제자리에서 조준만 하고 있지 말고 **옆으로 비켜선다**. 표적을 계속 바라보면서
- * 표적 방향의 수직으로 `FIRE_STRAFE_STEP` 만큼 조향 목표를 잡고, 총구가 이미 장애물 안이면
- * (`fireLineGap` 이 `ENEMY_WALL_STANDOFF` 보다 가깝다) 표적 반대쪽으로도 조금 떼어 놓는다.
+ * The answer to a blocked line: instead of standing there aiming, **it sidesteps**. Still facing the target, it takes a
+ * steering goal `FIRE_STRAFE_STEP` perpendicular to the target direction, and with the muzzle already inside an obstacle
+ * (`fireLineGap` closer than `ENEMY_WALL_STANDOFF`) it also backs off a little away from the target.
  *
- * 반환값 = 이번 비켜서기 다리가 아직 남았는가. `false` 면 `ENEMY_FIRE_STRAFE_S` 동안 옆으로 걸었는데도
- * 못 뚫은 것이므로 호출부가 다른 계획을 세운다(로그는 새 엄폐물, 스퓨어는 반대쪽, 포병은 자리 이동).
- * **이동을 멈추지 않는다** — `hasMoveTarget` 을 세워 두므로 `integrate` 는 평소대로 걷는다.
+ * The return value = whether this sidestep leg is still running. `false` means it walked sideways for `ENEMY_FIRE_STRAFE_S`
+ * and still did not clear the line, so the caller makes another plan (a rogue picks new cover, a spewer goes the other way,
+ * an artillery relocates). **It never stops moving** — `hasMoveTarget` is set, so `integrate` walks as usual.
  */
 export function fireLineStrafe(e: Enemy, host: EnemyHost, t: CombatTarget, dt: number): boolean {
   if (e.fireBlockTimer <= 0) { e.fireBlockTimer = ENEMY_FIRE_STRAFE_S; e.fireStrafeSign = -e.fireStrafeSign as 1 | -1; }
@@ -96,7 +96,7 @@ export function fireLineStrafe(e: Enemy, host: EnemyHost, t: CombatTarget, dt: n
   const back = e.fireLineGap < e.stats.radius + ENEMY_WALL_STANDOFF ? ENEMY_WALL_STANDOFF : 0;
   const mx = e.position.x - nz * side * FIRE_STRAFE_STEP - nx * back;
   const mz = e.position.z + nx * side * FIRE_STRAFE_STEP - nz * back;
-  // 맵 밖으로 밀지 않는다: 그쪽이 막혔으면 반대쪽으로 돈다
+  // never pushed off the map: that side blocked, it turns to the other one
   if (!host.ctx.world!.isInsideBounds(mx, mz)) {
     e.fireStrafeSign = -side as 1 | -1;
     return e.fireBlockTimer > 0;

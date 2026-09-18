@@ -7,7 +7,7 @@ import { ARTILLERY_AI, BEHEMOTH_AI, TOXIC_AI } from '../EnemyTypes';
 import type { CombatTarget } from '../Targets';
 import { lookAtTarget, startMelee, stumble, type AttackResult } from './Common';
 import { shellArcBlocked } from '../parts/Attacks';
-/* appended (2026-09-17): 포병 호위 · 사격 조건 · 1회 소환 */
+/* appended (2026-09-17): the artillery escort · the fire condition · the one-time summon */
 import { hasBugSupport, maybeSummon } from './ArtilleryPack';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -18,13 +18,13 @@ import { hasBugSupport, maybeSummon } from './ArtilleryPack';
 const _knock = new THREE.Vector3();
 const _side = new THREE.Vector3();
 
-/** 궤적이 막힌 포병이 옆으로 옮겨 가는 거리(m) — 후보는 이것의 1 · 2 배. 그림/알고리즘 상수라 csv 대상이 아니다. */
+/** Sideways relocation distance (m) for an artillery whose arc is blocked — candidates are 1 · 2 × this. A visual / algorithm constant, not a csv number. */
 const ARTILLERY_RELOCATE_M = 7;
-/** 2026-09-11 (C-24): 표적 쪽 · 오르막 후보까지의 거리(m). 알고리즘 상수. */
+/** 2026-09-11 (C-24): distance (m) to the toward-target · uphill candidates. Algorithm constant. */
 const ARTILLERY_PROBE_FORWARD_M = 10;
-/** 후보 자리가 이보다 장애물로 덮여 있으면(`obstacleCoverage`) 서지 않는다 — 바위 한가운데를 고르지 않게. */
+/** A candidate spot covered by obstacles more than this (`obstacleCoverage`) is refused — so it never picks the middle of a rock. */
 const ARTILLERY_PROBE_MAX_COVERAGE = 0.25;
-/** 2026-09-17: 발사 자세(`anim.brace`)가 풀리는 속도 — 1 → 0 을 1/이 값 초에. 그림 전용. */
+/** 2026-09-17: how fast the firing pose (`anim.brace`) relaxes — 1 → 0 in 1/this seconds. Visual only. */
 const ARTILLERY_BRACE_RELAX = 2;
 const _aimT = new THREE.Vector3();
 const _from = new THREE.Vector3();
@@ -43,10 +43,10 @@ export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatT
   const tp = t.position;
   e.facePoint.copy(tp); e.hasFacePoint = true;
   lookAtTarget(e, t, dt);
-  // 2026-09-17: 포격 준비 중(3) · 엎드려 기다리는 중(1) · 쏜 뒤 굳어 있는 중(2)에는 후퇴 · 접근 · 자리 옮기기 어느 가지도 타지 않는다
+  // 2026-09-17: while preparing the barrage (3) · braced and waiting (1) · locked after firing (2) it takes no retreat · approach · relocate branch
   if (e.shellPhase !== 0) return artilleryFireSequence(e, dt, host, t);
   a.brace = Math.max(0, a.brace - dt * ARTILLERY_BRACE_RELAX);
-  // 2026-09-18: 제 부대(호위 + 소환 무리)가 전멸하면 쿨타임 뒤 새 무리를 파낸다 (`ai/ArtilleryPack`)
+  // 2026-09-18: when its own squad (escort + summoned pack) is wiped out it digs out a new one after the cooldown (`ai/ArtilleryPack`)
   maybeSummon(e, dt, host, t);
   if (d < ARTILLERY_AI.retreatDist) {
     const dx = e.position.x - tp.x, dz = e.position.z - tp.z;
@@ -65,14 +65,14 @@ export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatT
     return s.speed * 0.8;
   }
   /*
-   * 2026-09-10 (낮은 궤적): 궤적이 막혀 발사가 거절된 뒤 자리를 옮기는 중. 정점이 9.9 m 로 내려온 만큼
-   * 언덕 · 나무 · 폐허 벽 뒤에서는 제 발치에 떨어지므로, 같은 자리에서 6~9초마다 자살하게 두지 않고
-   * 굴착을 풀고 옆으로 걸어간 뒤 다시 판다. **조준만 하고 굳어 있지 않는다.**
+   * 2026-09-10 (the low arc): relocating after a shot was refused because the arc is blocked. The apex came down to 9.9 m, so
+   * behind a hill · tree · ruin wall the shell lands at its own feet — instead of letting it kill itself every 6–9 s on the same
+   * spot it undigs, walks aside and digs in again. **It does not freeze while merely aiming.**
    */
   if (e.fireBlockTimer > 0) {
     e.fireBlockTimer -= dt;
-    // 2026-09-11 (C-24): 고른 자리에 닿으면 바로 다시 판다 (걷는 시간은 거리에서 나온다 — `artilleryRelocate`)
-    // `chase()` 가 매 프레임 moveTarget 을 표적으로 덮으므로 거절 시점에 적어 둔 자리(`shellSpot`)를 다시 싣는다
+    // 2026-09-11 (C-24): reaching the chosen spot digs it in again at once (the walking time comes from the distance — `artilleryRelocate`)
+    // `chase()` overwrites moveTarget with the target every frame, so the spot noted at the refusal (`shellSpot`) is reloaded here
     e.moveTarget.copy(e.shellSpot);
     if (Math.hypot(e.shellSpot.x - e.position.x, e.shellSpot.z - e.position.z) < 1) e.fireBlockTimer = 0;
     e.hasMoveTarget = true;
@@ -88,17 +88,17 @@ export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatT
   a.mandible = 0.4;
   e.shellTimer -= dt;
   if (e.shellTimer <= 0) {
-    // 2026-09-17 (사용자 결정): 표적 곁(`supportRadius`)에 다른 벌레가 있어야 쏜다 — 외톨이 표적에게는 사거리 안이어도 쏘지 않는다.
+    // 2026-09-17 (user's decision): it fires only with another bug beside the target (`supportRadius`) — a lone target is not shot at even in range.
     const ready = e.dug >= 0.95 && d <= ARTILLERY_AI.maxRange && !t.isDeadOrDowned && hasBugSupport(e, host, t);
     if (ready) {
-      /* 2026-09-18 (사용자 결정 「표적 곁의 아무 벌레나 있을 때 포격 준비」): 지원이 붙고 **첫 발** 앞에서는 곧장 쏘지 않고
-         `prepTime` 동안 포격 준비 자세(3)로 버틴다. 그동안 조건이 깨지면 준비가 취소되고 `shellPrepDone` 은 false 그대로라
-         다음에 다시 처음부터 잰다. 준비를 마친 뒤의 발들은 예전처럼 `braceTime` 만 기다린다. */
+      /* 2026-09-18 (user's decision 「brace for a barrage whenever any bug stands beside the target」): with support up it does not
+         fire the **first shot** straight away but holds the barrage-prep pose (3) for `prepTime`. A condition that breaks meanwhile
+         cancels the prep and leaves `shellPrepDone` false, so next time it measures from the start; later shots only wait `braceTime`. */
       e.shellPhase = e.shellPrepDone ? 1 : 3;
       e.shellPhaseT = e.shellPrepDone ? ARTILLERY_AI.braceTime : ARTILLERY_AI.prepTime;
       if (!e.shellPrepDone) artilleryPrepTell(e, host);
     } else {
-      e.shellPrepDone = false;   // 지원이 끊겼다 — 다음 지원 때 준비를 다시 한다
+      e.shellPrepDone = false;   // support is gone — it preps again the next time support appears
       e.shellTimer = 0.5;
     }
   }
@@ -106,20 +106,20 @@ export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatT
 }
 
 /**
- * 2026-09-18: 포격 준비의 **전조**. 새 에셋을 만들지 않는다 — 이미 있는 것만 쓴다:
- *   비명(`bug_screech`, 차저 돌진 예비동작과 같은 소리를 더 낮게) + 배(`anim.abdomen`) 꿀렁임 + 납작 엎드림(`anim.brace` 램프).
- * 위험 인디케이터는 **늘어나지 않는다** — 날아가는 포탄 하나에 하나(`ui/hud/DangerIndicators`)라는 규칙은 그대로다
- * (준비는 아직 발사가 아니다). 리플리카는 `shellPhase !== 0` → 힌트 25 로 같은 자세를 받는다 (`net/HostSync.animHint`).
+ * 2026-09-18: the **tell** of the barrage prep. It makes no new assets — only what already exists:
+ *   a screech (`bug_screech`, the charger wind-up sound pitched lower) + an abdomen (`anim.abdomen`) throb + the flat brace (`anim.brace` ramp).
+ * The danger HUD **gains nothing** — the rule of one indicator per flying shell (`ui/hud/DangerIndicators`) is unchanged
+ * (a prep is not a shot yet). Replicas get the same pose from `shellPhase !== 0` → hint 25 (`net/HostSync.animHint`).
  */
 function artilleryPrepTell(e: Enemy, host: EnemyHost): void {
   host.playAudio('bug_screech', e.position, 0.85, 0.45);
 }
 
 /**
- * 2026-09-17 (사용자 결정 — 포병 발사 순서): ① 다리를 낮춰 땅에 납작 엎드린 채 `ARTILLERY_AI.braceTime` 기다린다 → ② 쏜다 →
- * ③ `postFireLock` 동안 움직이지 못한다 (후퇴 · 접근 · 자리 옮기기 모두 없음). 엎드려 있는 동안 표적이 쓰러졌거나 사거리를 벗어났거나
- * 곁의 벌레가 사라졌으면 쏘지 않고 일어난다(굳지 않는다). 궤적이 막혀 거절되면 예전처럼 자리를 옮긴다.
- * 자세는 `anim.brace` 이고 리플리카는 힌트 25 으로 받는다 (`net/HostSync.animHint`).
+ * 2026-09-17 (user's decision — the artillery fire sequence): ① it lowers its legs flat to the ground and waits `ARTILLERY_AI.braceTime` → ② fires →
+ * ③ cannot move for `postFireLock` (no retreat · approach · relocating). If the target went down, left the range or lost the bug beside
+ * it while it lay braced, it stands up without firing (it does not lock). A refusal from a blocked arc relocates it as before.
+ * The pose is `anim.brace` and replicas receive it as hint 25 (`net/HostSync.animHint`).
  */
 function artilleryFireSequence(e: Enemy, dt: number, host: EnemyHost, t: CombatTarget): number {
   const a = e.anim;
@@ -127,8 +127,8 @@ function artilleryFireSequence(e: Enemy, dt: number, host: EnemyHost, t: CombatT
   a.crouch = e.dug * 0.8;
   a.mandible = 0.4;
   e.shellPhaseT -= dt;
-  /* 2026-09-18: 포격 준비 (3) — 지원이 붙은 뒤 **첫 발 앞에 한 번**. 조건이 깨지면 그 자리에서 취소한다 (굳지 않는다).
-     끝나면 `shellPrepDone` 을 세우고 평소의 엎드림(1)으로 넘어간다 — 그 뒤의 발들은 준비 없이 `braceTime` 만 기다린다. */
+  /* 2026-09-18: the barrage prep (3) — **once, before the first shot** after support appears. A broken condition cancels it on the spot (no lock).
+     When it ends `shellPrepDone` is raised and the ordinary brace (1) follows — later shots skip the prep and only wait `braceTime`. */
   if (e.shellPhase === 3) {
     a.brace = Math.min(1, a.brace + dt / Math.max(0.05, ARTILLERY_AI.prepTime));
     a.abdomen = Math.min(1, a.abdomen + dt * 1.5);
@@ -167,15 +167,15 @@ function artilleryFireSequence(e: Enemy, dt: number, host: EnemyHost, t: CombatT
 }
 
 /**
- * 2026-09-17: 추격 상태가 아닐 때(표적을 잃고 `idle` · 경직 `stagger` …)의 포병 발사 순서. 엎드려 기다리던 것 · 포격 준비는 취소하고, 쏜 뒤의
- * 고정은 **상태와 상관없이** 끝까지 지킨다 — 호출자(`ai/EnemyAI`)는 true 면 이번 틱 이동을 0 으로 둔다.
- * 2026-09-18: 제 부대 재소환(`ai/ArtilleryPack.maybeSummon`)도 여기서 돈다 — 표적을 잃은 포병도 부대를 채운다.
+ * 2026-09-17: the artillery fire sequence outside `chase` (target lost → `idle`, staggered `stagger` …). A pending brace · barrage prep is
+ * cancelled, while the post-fire lock is held to the end **whatever the state is** — on true the caller (`ai/EnemyAI`) sets this tick's movement to 0.
+ * 2026-09-18: the own-squad re-summon (`ai/ArtilleryPack.maybeSummon`) runs here too — an artillery that lost its target still refills its squad.
  */
 export function artilleryOffChase(e: Enemy, dt: number, host: EnemyHost): boolean {
   const a = e.anim;
-  // 2026-09-18: 제 부대 재소환은 표적이 없어도 돈다 (「스캐빈저들이 모두 죽으면 쿨타임 이후 재스폰」) — 표적이 없으면 곁을 지키는 무리로 나온다
+  // 2026-09-18: the own-squad re-summon runs with no target too (「once every scavenger is dead they respawn after the cooldown」) — with no target they come out as a guarding pack
   maybeSummon(e, dt, host, null);
-  // 2026-09-18: 준비(3)도 엎드림(1)과 같이 취소한다 — 쫓던 표적이 없어졌으면 포격도 없다
+  // 2026-09-18: the prep (3) is cancelled like the brace (1) — no target left to chase means no barrage
   if (e.shellPhase === 1 || e.shellPhase === 3) { e.shellPhase = 0; e.shellPhaseT = 0; e.shellPrepDone = false; }
   if (e.shellPhase === 2) {
     e.shellPhaseT -= dt;
@@ -195,23 +195,23 @@ const ARTILLERY_PROBES: ReadonlyArray<readonly [number, number]> = [
 ];
 
 /**
- * 궤적이 막혀 발사가 거절됐다 (2026-09-11 C-24 · X-4 개정). 굴착을 풀고 **뚫린 자리를 사전 검사로 찾아** 옮긴 뒤 다시 판다.
+ * The shot was refused because the arc is blocked (2026-09-11 C-24 · X-4 revision). It undigs, **probes ahead for a clear spot**, moves there and digs in again.
  *
- * 예전(2026-09-10)에는 표적 수직으로 7 m 옮기되 방향을 **매번 뒤집어**, 1.5 s 걷는 동안 ≈3.5 m 만 가고 두 자리를 영원히
- * 왕복했다(X-4 핑퐁). 이제 후보 7곳(좌우 7 · 14 m, 표적 쪽 10 m, 그 둘의 조합) + 오르막 한 곳을 `shellArcBlocked` 로
- * 미리 검사하고(거절 1회당 레이 ≤ 32 — 발사 주기에만 돈다, 핫 패스 아님) 뚫린 곳 중 **가장 가까운** 곳으로 간다.
- * 부호 교대는 없다. 뚫린 곳이 없으면 표적 쪽으로 다가간다(후퇴 거리까지). 연속 `ARTILLERY_AI.maxRefusals` 번 거절되면
- * 다른 표적으로 바꾸고 `refusalCooldown` 동안 쏘지 않는다. 높은 궤적 · 능선 폭발은 넣지 않는다 (2026-09-10 "화면 안" 결정).
+ * Before (2026-09-10) it moved 7 m perpendicular to the target but **flipped the direction every time**, covering ≈3.5 m in a
+ * 1.5 s walk and ping-ponging between two spots forever (X-4 ping-pong). Now seven candidates (7 · 14 m to either side, 10 m
+ * toward the target, and the combinations) + one uphill spot are probed with `shellArcBlocked` (≤ 32 rays per refusal — it runs
+ * on the fire cycle, not a hot path) and it walks to the **nearest** clear one. No alternating sign. With none clear it closes in
+ * on the target (down to the retreat distance). `ARTILLERY_AI.maxRefusals` refusals in a row switch target and hold fire for `refusalCooldown`. No high arc, no ridge burst (the 2026-09-10 "on screen" decision).
  */
 function artilleryRelocate(e: Enemy, host: EnemyHost, t: CombatTarget): void {
   const world = host.ctx.world!;
   e.dug = 0;
   e.shellRefusals++;
   /*
-   * 2026-09-13 (X-4 재발): 「가장 가까운 뚫린 자리」 만 고르면, 발사가 계속 거절되는 동안 A 에서 옆 7 m 의 B 를, B 에서 다시 A 를 고르는
-   * 핑퐁이 지형에 따라 되살아났다(`smoke-phase4` C-24 가 같은 표적 기준으로 −1 · +1 · −1). 그래서 **연속 거절 중에는 지난번 옆걸음과 같은 쪽**
-   * (표적 선의 같은 편 · 앞쪽 · 옆 성분 0)을 먼저 고르고, 그쪽에 뚫린 자리가 하나도 없을 때만 반대편으로 간다. 지난 쪽은
-   * `Enemy.fireStrafeSign` 에 적는다 — 포병은 `ai/FireLine` 옆걸음을 쓰지 않으므로 이 필드를 빌려도 겹치지 않는다. 첫 거절 · 표적을 바꾼 뒤는 자유.
+   * 2026-09-13 (X-4 again): picking 「the nearest clear spot」 alone revived the ping-pong on some terrain — while shots keep being refused it
+   * picks B 7 m aside from A, then A again from B (`smoke-phase4` C-24 read −1 · +1 · −1 against the same target). So **while refusals continue
+   * it prefers the same side as the last sidestep** (same side of the target line · forward · lateral component 0) and only crosses over when
+   * that side has no clear spot at all. The last side goes in `Enemy.fireStrafeSign` — artillery does not use the `ai/FireLine` sidestep, so borrowing the field collides with nothing. A first refusal · a retarget are free.
    */
   let continuing = e.shellRefusals > 1;
   e.fireBlockTimer = ENEMY_FIRE_STRAFE_S;
@@ -235,7 +235,7 @@ function artilleryRelocate(e: Enemy, host: EnemyHost, t: CombatTarget): void {
   const probe = (cx: number, cz: number): void => {
     if (!world.isInsideBounds(cx, cz)) return;
     const walk = Math.hypot(cx - e.position.x, cz - e.position.z);
-    // 표적 선에 대한 옆 성분의 부호 (+ = 표적을 보고 왼쪽 · `smoke-phase4` 의 side 와 같은 식)
+    // sign of the lateral component against the target line (+ = left as seen from the target · the same formula as `smoke-phase4`'s side)
     const lateral = (cz - e.position.z) * nx - (cx - e.position.x) * nz;
     const side = Math.abs(lateral) < 0.5 ? 0 : Math.sign(lateral);
     const reversing = prevSide !== 0 && side !== 0 && side !== prevSide;
@@ -277,7 +277,7 @@ function walkFor(e: Enemy, dist: number): void {
 
 /**
  * Nearest alive player other than `cur` within `ARTILLERY_AI.maxRange` (the refusal cap's new target), or null.
- * 2026-09-15 (안드로이드 분대원): 안드로이드도 후보다 — 포병이 사람 하나만 붙잡고 영영 쏘지 못하는 일이 없게.
+ * 2026-09-15 (android squadmates): an android is a candidate too — so an artillery never latches onto one person and never fires again.
  */
 function otherTargetInRange(e: Enemy, host: EnemyHost, cur: CombatTarget): CombatTarget | null {
   let best: CombatTarget | null = null, bestD = ARTILLERY_AI.maxRange;
@@ -348,7 +348,7 @@ export function chaseBehemoth(e: Enemy, dt: number, host: EnemyHost, t: CombatTa
   lookAtTarget(e, t, dt);
   e.moveTarget.copy(t.position); e.hasMoveTarget = true;
   if (d < meleeRange && e.attackCd <= 0) { startMelee(e, host); return 0; }
-  // 2026-09-11 (C-47): 떠 있는 공중 드론 **밑으로는** 돌진하지 않는다 — 몸이 닿지 않는 표적을 향한 돌진은 헛돌기만 한다
+  // 2026-09-11 (C-47): it does not charge **underneath** a hovering air drone — a charge at a target its body cannot touch only goes to waste
   if (d <= BEHEMOTH_AI.engageDist + 4 && d > meleeRange * 0.8 && e.chargeCd <= 0 && e.hasLOS && canBodyReach(e, t)) { startCharge(e, host); return 0; }
   if (d > BEHEMOTH_AI.engageDist) return s.speed;
   return s.speed * 0.6;   // lumber while the charge cools down
@@ -365,9 +365,9 @@ function startCharge(e: Enemy, host: EnemyHost): void {
 }
 
 const _tp = new THREE.Vector3();
-/** 2026-09-13: `Enemy.chargeDrones` 에 넣는 탐사 차량 표식 — 드론 id 는 `#` 으로 시작하지 않는다. */
+/** 2026-09-13: the rover mark put into `Enemy.chargeDrones` — a drone id never starts with `#`. */
 const VEHICLE_CHARGE_MARK = '#rover';
-/** 2026-09-15: 같은 목록에 넣는 안드로이드 표식 접두사 (드론 id · 차량 표식과 겹치지 않는다). */
+/** 2026-09-15: the android mark prefix put into the same list (it collides with neither a drone id nor the vehicle mark). */
 const ALLY_CHARGE_MARK = '#ally:';
 
 /**
@@ -426,8 +426,8 @@ export function attackBehemoth(e: Enemy, dt: number, host: EnemyHost, t: CombatT
     _knock.set(e.chargeDir.z * side, 0.35, -e.chargeDir.x * side).addScaledVector(e.chargeDir, 0.45).normalize();
     host.chargeHit(e, p, BEHEMOTH_CHARGE_DAMAGE, _knock);
   }
-  // 2026-09-11 (C-47): 노려도 되는 드론도 들이받는다 — 몸이 수직으로 겹칠 때만(떠 있는 공중 드론 밑은 지나간다).
-  // 드론 프록시의 id 는 전부 'ai' 라 한 돌진에 한 번은 `droneId` 로 가린다. 피해는 `applyDamage` 의 드론 가지 → `damageDrone`.
+  // 2026-09-11 (C-47): an aggroable drone is rammed too — only while the bodies overlap vertically (it passes under a hovering air drone).
+  // Every drone proxy's id is 'ai', so once per charge is keyed by `droneId`. The damage goes through `applyDamage`'s drone branch → `damageDrone`.
   const drones = host.targets.drones;
   for (let i = 0; i < drones.length; i++) {
     const dr = drones[i];
@@ -438,8 +438,8 @@ export function attackBehemoth(e: Enemy, dt: number, host: EnemyHost, t: CombatT
     _knock.copy(e.chargeDir);
     host.chargeHit(e, dr, BEHEMOTH_CHARGE_DAMAGE, _knock);
   }
-  // 2026-09-15 (안드로이드 분대원): 사람과 같은 규칙으로 들이받는다. 프록시 id 는 전부 'ai' 라 한 돌진에 한 번은
-  // 안드로이드 id 로 가린다 — `chargeVictims`(TargetId) 와 섞이지 않게 `chargeDrones` 쪽에 접두사를 붙여 넣는다.
+  // 2026-09-15 (android squadmates): rammed by the same rule as people. Every proxy id is 'ai', so once per charge is keyed by the
+  // android id — with a prefix, into `chargeDrones`, so it never mixes with `chargeVictims` (TargetId).
   const chargeAllies = host.targets.allies;
   for (let i = 0; i < chargeAllies.length; i++) {
     const a = chargeAllies[i];
@@ -452,7 +452,7 @@ export function attackBehemoth(e: Enemy, dt: number, host: EnemyHost, t: CombatT
     _knock.set(e.chargeDir.z * side, 0.35, -e.chargeDir.x * side).addScaledVector(e.chargeDir, 0.45).normalize();
     host.chargeHit(e, a, BEHEMOTH_CHARGE_DAMAGE, _knock);
   }
-  // 2026-09-13 (탐사 차량): 차체 발자국에 닿으면 한 돌진에 한 번 (`chargeDrones` 에 드론 id 와 겹치지 않는 표식). 피해는 `applyDamage` 의 차량 가지.
+  // 2026-09-13 (the rover): touching the hull footprint counts once per charge (a mark in `chargeDrones` that cannot collide with a drone id). The damage goes through `applyDamage`'s vehicle branch.
   const vehicles = host.targets.vehicles;
   for (let i = 0; i < vehicles.length; i++) {
     const v = vehicles[i];

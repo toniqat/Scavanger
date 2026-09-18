@@ -5,30 +5,30 @@ import {
 import type { Enemy } from '../Enemy';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 적 · 적 시체의 차량 탑승 (2026-09-11, C-18).
+ * Vehicle riding for enemies and enemy corpses (2026-09-11, C-18).
  *
- * 플레이어(`player/PlayerController.updateRide`)와 **같은 규약**이고 수학도 같은 `shared/ride.ts` 다 — CLAUDE.md
- * "탑승은 발판 프레임이 아니라 차량 부피로 판정한다":
- *   ① 진입만 발판 질의 — 서 있는 자리의 `getStandingObstacle` 이 `velocity` 를 가진 발판(전차 바닥)이면 잡는다.
- *   ② 유지는 차량 OBB + 헤드룸 (`rideContains`) — 경사 · 승강구 · 가장자리에서 발판 질의가 한 프레임 빠져도 내리지 않는다.
- *   ③ 이동은 지난 프레임의 자리를 차량 로컬 좌표로 적어 두었다가(`rideRecord`) 이번 프레임에 차량의 **지금** 변환으로
- *      다시 풀어 **차이만** 더한다(`rideCarry`). 스냅샷을 찍지 않고, 그 사이 남이 옮긴 몸(넉백 · 분리)은 지우지 않는다.
- *   ④ (2026-09-11 C-63) 하차하면 그 순간의 차량 속도를 **관성**으로 넘겨받아 `RIDE_INERTIA_S` 동안 `RIDE_INERTIA_DAMP`
- *      로 감쇠시킨다 — 플레이어 `releaseRide(true)` · `applyRideInertia` 와 같은 상수 · 같은 식이다. 위치에만 더하고
- *      `velocity` 에는 넣지 않는다 (조향 · 보행 · 발소리가 흔들린다). 권위 적만 시뮬레이션하고 리플리카는 스냅샷을 따른다.
- * `Enemy.velocity` 는 끝까지 **로컬 속도**다 — 조향 · 보행 애니메이션 · 발소리가 전차 속도로 흔들리지 않는다.
+ * The **same contract** as the player (`player/PlayerController.updateRide`), on the same maths in `shared/ride.ts` — CLAUDE.md
+ * "riding is judged by the vehicle volume, not by the platform frame":
+ *   ① only entry is a platform query — the `getStandingObstacle` of the spot it stands on, when that platform carries `velocity` (the tram floor).
+ *   ② staying is the vehicle OBB + headroom (`rideContains`) — a platform query that misses for one frame on a slope · doorway · edge does not dismount it.
+ *   ③ movement writes last frame's spot in vehicle-local coordinates (`rideRecord`) and re-solves it this frame against the
+ *      vehicle's **current** transform, adding **only the difference** (`rideCarry`). No snapshot is taken, and a body someone else moved meanwhile (knockback · separation) is not erased.
+ *   ④ (2026-09-11 C-63) on dismount it inherits the vehicle's speed at that moment as **inertia** and damps it with `RIDE_INERTIA_DAMP`
+ *      for `RIDE_INERTIA_S` — the same constants and the same formula as the player's `releaseRide(true)` · `applyRideInertia`. It is added
+ *      to the position only, never to `velocity` (steering · gait · footsteps would shake). Only authority enemies simulate it; replicas follow the snapshots.
+ * `Enemy.velocity` stays a **local velocity** all the way — steering, the walk animation and footsteps never shake at tram speed.
  *
- * 전차 치임(world/ 담당, `rails/parts/Tram.updateTramHit`)은 이 상태를 묻지 않는다: 데크 높이(바닥 −
- * `TRAM_HIT_FLOOR_CLEAR` 위)의 몸은 치지 않고, 그 밑 `RIDE_FOOT_DROP` 띠에서는 **발밑 발판이 그 전차일 때만** 뺀다
- * (C-63 — 선로 발판 위의 적이 탑승 창 안으로 읽혀 면제되던 틈). 여기서 태운 몸은 데크 높이라 저절로 빠진다.
+ * Tram strikes (world/'s job, `rails/parts/Tram.updateTramHit`) do not ask this state: a body at deck height (above the floor −
+ * `TRAM_HIT_FLOOR_CLEAR`) is not struck, and in the `RIDE_FOOT_DROP` band below it a body is exempt **only when the platform under
+ * its feet is that tram** (C-63 — the gap where an enemy on a rail deck read as inside the riding window and was exempted). A body carried here is at deck height, so it drops out by itself.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const _ride = new THREE.Vector3();
 const _move = new THREE.Vector3();
 
 /**
- * 권위 `integrate` 의 적분 **앞**: 유지 검사 → (없으면) 진입 → 차량이 이번 프레임에 옮겨 간 만큼 몸을 옮긴다.
- * 진입한 프레임에는 옮기지 않는다 (차량은 이미 제자리다). 타고 있지 않으면 하차 관성을 흘린다. 탑승 중이면 true.
+ * **Before** the authority's `integrate` step: the stay check → (with none) entry → move the body as far as the vehicle moved this frame.
+ * Nothing is moved on the entry frame (the vehicle is already in place). Not riding → the dismount inertia bleeds off. True while riding.
  */
 export function rideCarry(e: Enemy, world: WorldRef, dt: number): boolean {
   const pos = e.position;
@@ -52,7 +52,7 @@ export function rideCarry(e: Enemy, world: WorldRef, dt: number): boolean {
   return true;
 }
 
-/** 이번 프레임의 최종 자리를 차량 좌표로 다시 적어 둔다 (적분 · 충돌 · 표면 스냅이 끝난 뒤). */
+/** Writes this frame's final spot back in vehicle coordinates (after integration · collision · the surface snap). */
 export function rideRecord(e: Enemy): void {
   const c = e.carrier;
   if (!c) return;
@@ -61,8 +61,8 @@ export function rideRecord(e: Enemy): void {
 }
 
 /**
- * 하차. `keepInertia` 면 그 순간의 차량 속도(XZ)를 관성으로 넘겨받는다 — 차량 부피를 걸어서 벗어난 몸만
- * (`rideCarry`). 도약 · 사망 · 리셋처럼 스스로 궤적을 갖는 경로는 관성 없이 내린다.
+ * Dismount. With `keepInertia` the body inherits the vehicle's speed (XZ) at that moment as inertia — only a body that
+ * walked out of the vehicle volume (`rideCarry`). Paths with a trajectory of their own (leap · death · reset) dismount without it.
  */
 export function rideRelease(e: Enemy, keepInertia = false): void {
   const c = e.carrier;
@@ -76,7 +76,7 @@ export function rideRelease(e: Enemy, keepInertia = false): void {
   }
 }
 
-/** 하차 관성: 위치에 더하고 지수 감쇠시킨다 (`PlayerController.applyRideInertia` 와 같은 식). */
+/** Dismount inertia: added to the position and damped exponentially (the same formula as `PlayerController.applyRideInertia`). */
 function applyRideInertia(e: Enemy, dt: number): void {
   if (e.rideInertiaT <= 0) return;
   e.rideInertiaT -= dt;
@@ -90,9 +90,9 @@ function applyRideInertia(e: Enemy, dt: number): void {
 }
 
 /**
- * 시체 실어 나르기 (권위 · 리플리카 공통, `EnemySystem.update` 가 죽은 몸마다 매 프레임). 땅에 닿은(`deathLanded`)
- * 몸만 탄다. 차량 부피 밖으로 벗어나면 내리고 `deathLanded` 를 풀어 `integrateDeathFall` 이 땅까지 떨어뜨린다
- * (달리던 전차가 끝에서 돌아서며 모서리의 시체를 흘린 경우 — 허공에 떠 있지 않게). 몸이 움직였으면 true.
+ * Carrying corpses (authority and replica alike, `EnemySystem.update` runs it per dead body every frame). Only a body that reached
+ * the ground (`deathLanded`) rides. Leaving the vehicle volume dismounts it and clears `deathLanded` so `integrateDeathFall` drops it
+ * to the ground (a running tram turning at the end spills a corpse off its edge — it must not hang in the air). True when the body moved.
  */
 export function carryCorpse(e: Enemy, world: WorldRef): boolean {
   if (!e.deathLanded) { if (e.carrier) rideRelease(e); return false; }
@@ -119,25 +119,25 @@ export function carryCorpse(e: Enemy, world: WorldRef): boolean {
   return moved;
 }
 
-/* ── 리플리카 예측용 차량 이동 이력 (2026-09-11, C-63) ─────────────────────────────────────────────────────
- * C-18 의 예측은 `차량 속도 × lag` — **지금** 속도로 지난 lag 초를 되짚는 선형 식이라 가속 · 제동 순간 어긋났다.
- * 지난 lag 초 동안의 실제 이동은 `v·lag − ½·ā·lag²` 이고(ā = 그 구간의 평균 가속도), 전차는 cubic 가속 뒤 정차 창에서
- * **즉시** 멈추므로(`Rails.checkDock`) 상수 가속도 한 개로는 정차 순간을 못 맞춘다. 그래서 가속도를 따로 추정하지
- * 않고 그 항 전체를 이력에서 읽는다: 차량(발판 `Obstacle`)마다 **지금 자리**를 프레임마다 링 버퍼에 적어 두고,
- * `P(now) − P(now − lag)` 를 보간으로 꺼낸다. 가속 · 즉시 정차 · 곡선 · 클라이언트의 `s` 끌어당김이 전부 들어간다.
+/* ── Carrier movement history for replica prediction (2026-09-11, C-63) ────────────────────────────────────
+ * C-18's prediction was `vehicle speed × lag` — a linear formula retracing the last lag seconds at the **current** speed, so it went
+ * out of step the moment the tram accelerated or braked. The real movement over the last lag seconds is `v·lag − ½·ā·lag²` (ā = the
+ * mean acceleration of that stretch), and a tram stops **instantly** in the docking window after a cubic acceleration
+ * (`Rails.checkDock`), so one constant acceleration cannot hit the stop. So the acceleration is not estimated: the whole term is read
+ * from a history — per vehicle (a platform `Obstacle`) the **current spot** goes into a ring buffer every frame and `P(now) − P(now − lag)` is interpolated out of it. Acceleration, the instant stop, curves and the client's `s` pull are all in it.
  *
- * - 이력은 이 모듈 안의 캐시다 (`Replica.ts` 는 건드리지 않는다 — `replicaRidePredict` 시그니처 그대로).
- *   키는 살아 있는 해시 엔트리(발판 `Obstacle`)이고 `WeakMap` 이라 미션이 바뀌어 엔트리가 버려지면 같이 사라진다.
- * - 한 프레임에 적 여럿이 불러도 같은 `now` 면 한 번만 적는다. `TRACK_GAP_S` 넘게 끊겼으면 비우고 새로 쌓는다.
- * - 이력이 lag 를 다 덮지 못한 앞부분(탑승 직후 · 끊긴 뒤)은 **지금 속도**로 채운다 — 즉 예전 선형 예측으로 돌아간다.
- * - 버퍼는 차량당 한 번만 만든다 (핫 패스 할당 없음).
+ * - The history is a cache inside this module (`Replica.ts` is untouched — `replicaRidePredict` keeps its signature).
+ *   The key is the live hash entry (a platform `Obstacle`) and it is a `WeakMap`, so it goes with the entry when a mission change drops it.
+ * - Several enemies calling in one frame write once for the same `now`. A gap longer than `TRACK_GAP_S` empties it and starts over.
+ * - The front part the history does not cover (just after boarding · after a gap) is filled at the **current speed** — i.e. it falls back to the old linear prediction.
+ * - The buffer is created once per vehicle (no hot-path allocation).
  */
 const TRACK_N = 96;
-/** 이력이 이만큼(초) 끊기면 버리고 새로 쌓는다 (차량 곁에 리플리카가 한동안 없었다). */
+/** A history gap of this many seconds is thrown away and rebuilt (no replica was near the vehicle for a while). */
 const TRACK_GAP_S = 0.5;
 
 interface CarrierTrack {
-  /** [t, x, z] × TRACK_N, 링 버퍼. `head` = 가장 새 샘플. */
+  /** [t, x, z] × TRACK_N, a ring buffer. `head` = the newest sample. */
   readonly buf: Float64Array;
   head: number;
   count: number;
@@ -151,7 +151,7 @@ function trackOf(c: Obstacle, now: number): CarrierTrack {
   if (tr.count > 0) {
     const lastT = b[tr.head * 3];
     if (now <= lastT + 1e-6) {
-      // 같은 프레임의 두 번째 호출 — 자리만 최신으로 (전차는 이미 이번 프레임 자리다)
+      // second call in the same frame — only the spot is refreshed (the tram is already at this frame's spot)
       b[tr.head * 3 + 1] = c.position.x; b[tr.head * 3 + 2] = c.position.z;
       return tr;
     }
@@ -163,7 +163,7 @@ function trackOf(c: Obstacle, now: number): CarrierTrack {
   return tr;
 }
 
-/** 차량이 `[now − span, now]` 동안 옮겨 간 수평 변위를 `out` 에 (y = 0). 이력이 모자란 앞부분은 지금 속도로 채운다. */
+/** The vehicle's horizontal displacement over `[now − span, now]` into `out` (y = 0). The front part the history lacks is filled at the current speed. */
 function carrierDisplacement(c: Obstacle, tr: CarrierTrack, now: number, span: number, out: THREE.Vector3): THREE.Vector3 {
   const b = tr.buf;
   const x0 = c.position.x, z0 = c.position.z;
@@ -171,7 +171,7 @@ function carrierDisplacement(c: Obstacle, tr: CarrierTrack, now: number, span: n
   let i = tr.head, n = tr.count;
   let tA = b[i * 3], xA = b[i * 3 + 1], zA = b[i * 3 + 2];
   if (n <= 0 || target >= tA) {
-    // 이력이 없거나 창이 가장 새 샘플보다 뒤다 — 지금 속도로
+    // no history, or the window starts past the newest sample — use the current speed
     const v = c.velocity;
     return out.set(v ? v.x * span : 0, 0, v ? v.z * span : 0);
   }
@@ -184,19 +184,19 @@ function carrierDisplacement(c: Obstacle, tr: CarrierTrack, now: number, span: n
     }
     i = j; tA = tB; xA = xB; zA = zB;
   }
-  // 가장 오래된 샘플(tA)보다 앞 — 그 앞은 지금 속도로 (선형 예측과 같은 가정)
+  // before the oldest sample (tA) — that part uses the current speed (the same assumption as the linear prediction)
   const v = c.velocity;
   const rest = tA - target;
   return out.set(x0 - xA + (v ? v.x * rest : 0), 0, z0 - zA + (v ? v.z * rest : 0));
 }
 
 /**
- * 리플리카의 탑승 **예측** (C-18 · C-63). 리플리카는 호스트 스냅샷을 `NET_INTERP_DELAY` 뒤에서 보간해 그리는데 전차는
- * 각 클라이언트가 동기화된 `s` 로 **지금** 자리를 굴린다 — 그래서 전차 위 적이 지연 × 전차 속도(최고 11.2 m/s)만큼
- * 뒤처져 데크 뒤로 미끄러져 보였다. `latest`(가장 새 샘플)를 그 뒤 흐른 시간 동안 차량이 옮겨 간 만큼 앞당긴 자리가
- * 차량 부피 안이면 탄 것으로 보고, 보간 자리 `out` 에 **지난 `lag` 초 동안 차량이 실제로 옮겨 간 변위**
- * (`v·lag − ½·ā·lag²`, 이력에서 읽는다 — 위 절)를 더한다. 오르내리며 튀지 않게 `rideBlend` 로 0.15 초 남짓에 걸쳐
- * 섞는다. 반환 = 이번 프레임에 차량이 몸을 옮긴 수평 속도 성분을 빼기 위한 차량 속도(없으면 null).
+ * The replica's riding **prediction** (C-18 · C-63). A replica draws the host's snapshots interpolated `NET_INTERP_DELAY` behind,
+ * while every client rolls the tram to its **current** spot from the synchronised `s` — so an enemy on the tram lagged by delay ×
+ * tram speed (up to 11.2 m/s) and appeared to slide off the back of the deck. `latest` (the newest sample) advanced by however far
+ * the vehicle moved since counts as riding when it falls inside the vehicle volume, and **the displacement the vehicle really
+ * covered over the last `lag` seconds** (`v·lag − ½·ā·lag²`, read from the history — the section above) is added to the interpolated
+ * spot `out`. `rideBlend` mixes it in over about 0.15 s so it does not pop on and off. Returns the vehicle speed to subtract this frame's carried horizontal component (null with none).
  */
 export function replicaRidePredict(
   e: Enemy, world: WorldRef, latest: { t: number; x: number; y: number; z: number },

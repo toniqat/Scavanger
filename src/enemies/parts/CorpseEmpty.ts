@@ -1,26 +1,26 @@
 /**
- * src/enemies/parts/CorpseEmpty.ts — **열어서 다 비운 적 시체는 루팅이 끝나고 1초 뒤 땅으로 가라앉아 사라진다** (2026-09-16, 사용자 결정).
+ * src/enemies/parts/CorpseEmpty.ts — **an enemy corpse that was opened and emptied sinks into the ground one second after the looting ended** (2026-09-16, user's decision).
  *
- * 이 파일이 답하는 질문: *누가 「이 적 시체는 비었다」를 정하고, 모든 클라이언트가 어떻게 같은 몸을 치우는가.*
+ * The question this file answers: *who decides 「this enemy corpse is empty」, and how every client removes the same body.*
  *
- * - 적 시체의 내용물은 클라이언트마다 시드로 굴리고(`Corpse.interact`), 가져간 상태만 호스트가 `cont` 로 나른다. 호스트가
- *   한 번도 열지 않은 시체는 호스트가 비었는지 모른다 — 그래서 **비운 쪽이** 알린다.
- * - 권위(싱글 · 호스트)의 `crate:looted corpse:<id>` → `markCorpseEmptied`(수색 끝 표시). 리플리카의 `crate:looted` → 내 몸이 그
- *   시체 가까이 있을 때만 `ecorpseq emptied` 를 호스트에 보낸다 (멀리서 `cont taken` 으로 비는 것을 본 사람까지 보내지 않게).
- *   스스로는 몸을 치우지 않는다 — 호스트의 `ee corpseEmptied` 를 기다린다.
- * - 2026-09-16 (2차): **누가 그 시체 창을 열어 두고 있는 동안은 치우지 않는다**. 보는 사람 판정은 `shared/corpseViewers`
- *   (`cviewq open|close`, 호스트가 시체별로 든다)이고, 권위는 비었고 아무도 보지 않는 순간 — 곧바로, 또는 마지막 사람이 닫는
- *   프레임에(`updateEmptyCorpses`) — 수명을 줄이고(`releaseCorpse`) 세션이면 `ee corpseEmptied` 를 방송한다. 그래서 가라앉기는
- *   「창을 닫고 `CORPSE_EMPTY_REMOVE_DELAY_S` 뒤」다. 이미 줄인 시체라도 **내** 창이 그것을 보여 주는 동안은 수명을 붙잡는다
- *   (방송과 내 닫기가 엇갈린 경우).
- * - 호스트의 요청 가드는 `shared/buffRules.createBuffGuard` 와 같은 순서다: ① 모양(정수 id · 알려진 죽은 몸 · 수색 자리가 있다)
- *   ② 보낸 사람(스냅샷이 있다) ③ 거리(`CORPSE_EMPTY_REQUEST_REACH_M`, 수평) ④ 요율(보낸 사람별 토큰 버킷). 이미 비운 시체의
- *   중복 요청은 거절이 아니라 무시다 (같은 `cont taken` 을 본 사람이 여럿일 수 있다 — 버킷을 쓰지 않는다).
- * - 적용(`releaseCorpse`, 모든 클라이언트가 같은 식): 몸의 `corpseLife` 를 「지금 + `CORPSE_EMPTY_REMOVE_DELAY_S` +
- *   `CORPSE_EMPTY_SINK_S`」로 줄이고 가라앉기(`anim.fade`) 시간을 `CORPSE_EMPTY_SINK_S` 로.
- *   **치우는 것은 원래의 시체 수명 루프다** (`EnemySystem.update` → `Pool.despawn` → 권위는 `ee despawn` + `corpseGone`).
- *   몸마다 수명이 실려 있으므로 호스트가 바뀌어도 새 호스트가 그대로 이어서 치운다.
- * - 열지 않은 시체 · 수색 불가 시체(수색 자리 없음)는 여기를 지나지 않는다 — 예전 그대로 `CORPSE_LIFETIME` 뒤에 사라진다.
+ * - An enemy corpse's contents are rolled per client from a seed (`Corpse.interact`) and only the taken state travels, as the host's `cont`. A corpse
+ *   the host never opened is one the host cannot know is empty — so **whoever emptied it** says so.
+ * - The authority (single player · host) on `crate:looted corpse:<id>` → `markCorpseEmptied` (marks the search finished). A replica's `crate:looted`
+ *   sends `ecorpseq emptied` to the host only when my body stands near that corpse (so that somebody who merely watched it empty from far away
+ *   through a `cont taken` does not send one). It never removes the body itself — it waits for the host's `ee corpseEmptied`.
+ * - 2026-09-16 (2nd pass): **it is not removed while anybody holds that corpse's window open**. Viewers are judged by `shared/corpseViewers`
+ *   (`cviewq open|close`, the host keeps them per corpse), and the moment it is empty and nobody is looking — at once, or on the frame the last
+ *   person closes (`updateEmptyCorpses`) — the authority shortens the lifetime (`releaseCorpse`) and in a session broadcasts `ee corpseEmptied`.
+ *   So sinking is 「`CORPSE_EMPTY_REMOVE_DELAY_S` after the window closed」. Even an already-shortened corpse has its lifetime held while **my**
+ *   window shows it (a broadcast and my own close that crossed).
+ * - The host's request guard is in the same order as `shared/buffRules.createBuffGuard`: ① shape (an integer id · a known dead body · it has a
+ *   search slot) ② sender (a snapshot exists) ③ distance (`CORPSE_EMPTY_REQUEST_REACH_M`, horizontal) ④ rate (a token bucket per sender). A
+ *   duplicate request for a corpse already emptied is ignored, not refused (several people can have seen the same `cont taken` — it spends no bucket).
+ * - Applying it (`releaseCorpse`, the same formula on every client): the body's `corpseLife` is cut to 「now + `CORPSE_EMPTY_REMOVE_DELAY_S` +
+ *   `CORPSE_EMPTY_SINK_S`」 and the sink (`anim.fade`) time to `CORPSE_EMPTY_SINK_S`.
+ *   **The removal itself is the ordinary corpse lifetime loop** (`EnemySystem.update` → `Pool.despawn` → on the authority `ee despawn` + `corpseGone`).
+ *   The lifetime rides on the body, so a new host carries on removing it exactly where the old one left off.
+ * - A corpse never opened, and one that cannot be searched (no search slot), does not pass through here — it disappears after `CORPSE_LIFETIME`, as before.
  */
 import {
   CORPSE_EMPTY_REMOVE_DELAY_S, CORPSE_EMPTY_REQUEST_BURST, CORPSE_EMPTY_REQUEST_RATE_MAX, CORPSE_EMPTY_REQUEST_REACH_M,
@@ -32,8 +32,8 @@ import type { EnemySystem } from '../EnemySystem';
 const CORPSE_PREFIX = 'corpse:';
 
 /**
- * `corpse:<enemyId>` → 적 id. 적의 것이 아니면 null — 튜토리얼 손 시체(`corpse:tut_gear`) · 스모크의 `corpse:smoke-1` 도
- * 같은 접두어를 쓰므로 **숫자만** 적 id 로 본다.
+ * `corpse:<enemyId>` → the enemy id. null when it is not an enemy's — the tutorial's hand-placed corpse (`corpse:tut_gear`) and
+ * the smoke's `corpse:smoke-1` share the prefix, so **only digits** count as an enemy id.
  */
 export function corpseEnemyId(containerId: string): number | null {
   if (typeof containerId !== 'string' || !containerId.startsWith(CORPSE_PREFIX)) return null;
@@ -43,12 +43,12 @@ export function corpseEnemyId(containerId: string): number | null {
   return Number.isSafeInteger(id) ? id : null;
 }
 
-/* ── 보는 사람 (`shared/corpseViewers`) ─────────────────────────────────────────────────────────────────── */
+/* ── viewers (`shared/corpseViewers`) ───────────────────────────────────────────────────────────────────── */
 
-/** 시스템마다 추적기 하나 (스모크가 시스템을 여럿 만들어도 섞이지 않는다). */
+/** One tracker per system (a smoke making several systems never mixes them up). */
 const viewerTrackers = new WeakMap<EnemySystem, CorpseViewTracker>();
 
-/** `init` 에서 한 번: 적 시체(`corpse:<숫자>`)를 맡는 추적기를 만든다. 돌려주는 함수가 해제한다 (`dispose`). */
+/** Once in `init`: builds the tracker that owns enemy corpses (`corpse:<digits>`). The returned function releases it (`dispose`). */
 export function hookCorpseViews(sys: EnemySystem): () => void {
   let t = viewerTrackers.get(sys);
   if (!t) {
@@ -65,15 +65,15 @@ export function hookCorpseViews(sys: EnemySystem): () => void {
   return () => { tracker.dispose(); if (viewerTrackers.get(sys) === tracker) viewerTrackers.delete(sys); };
 }
 
-/** 누가든 적 시체 `id` 를 보고 있는가 (추적기가 없으면 — 스모크의 맨 시스템 — 아무도 안 본다). */
+/** Is anybody at all looking at enemy corpse `id` (with no tracker — a smoke's bare system — nobody is). */
 function isViewed(sys: EnemySystem, id: number): boolean {
   const t = viewerTrackers.get(sys);
   return !!t && t.isViewed(CORPSE_PREFIX + id);
 }
 
-/* ── 표시 · 풀기 ────────────────────────────────────────────────────────────────────────────────────────── */
+/* ── marking · releasing ────────────────────────────────────────────────────────────────────────────────── */
 
-/** 수색 끝 표시(빛기둥 · 프롬프트 끝)와 `corpseEmptied`. 죽은 몸이 없거나 이미 표시했으면 false. */
+/** Marks the search finished (the light pillar and the prompt go) and `corpseEmptied`. false with no dead body, or when it was marked already. */
 function markCorpseEmptied(sys: EnemySystem, e: Enemy): boolean {
   if (e.corpseEmptied) return false;
   e.corpseEmptied = true;
@@ -83,8 +83,8 @@ function markCorpseEmptied(sys: EnemySystem, e: Enemy): boolean {
 }
 
 /**
- * 수명을 「지금 + 지연 + 가라앉기」로 줄인다 (한 번). 가라앉기가 이미 시작된(수명 끝의 자연스러운 가라앉기) 몸은 수명을 늘리지도,
- * 가라앉기를 되감지도 않는다.
+ * Cuts the lifetime to 「now + the delay + the sink」 (exactly once). A body already sinking (the natural sink at the end of its
+ * lifetime) has neither its lifetime extended nor its sink rewound.
  */
 function releaseCorpse(e: Enemy): boolean {
   if (e.corpseReleased) return false;
@@ -98,15 +98,15 @@ function releaseCorpse(e: Enemy): boolean {
   return true;
 }
 
-/** 권위: 수명을 줄이고, 세션이면 사실을 방송한다. */
+/** Authority: cuts the lifetime and, in a session, broadcasts the fact. */
 function releaseByAuthority(sys: EnemySystem, e: Enemy): void {
   if (!releaseCorpse(e)) return;
   if (sys.hosting) sys.ctx.net!.send({ t: 'ee', ev: 'corpseEmptied', id: e.id }, 'others');
 }
 
 /**
- * 모든 클라이언트 (리플리카는 `ee corpseEmptied`): 몸 `id` 를 「비웠고 아무도 보지 않는 시체」로 만든다 — 표시 + 수명 줄이기.
- * 죽은 몸이 없거나 이미 줄였으면 false (아무것도 안 한다).
+ * Every client (a replica from `ee corpseEmptied`): makes body `id` 「an emptied corpse nobody is looking at」 — the mark plus the
+ * shortened lifetime. false with no dead body, or when it was shortened already (nothing happens).
  */
 export function applyCorpseEmptied(sys: EnemySystem, id: number): boolean {
   const e = sys.byId.get(id);
@@ -116,8 +116,8 @@ export function applyCorpseEmptied(sys: EnemySystem, id: number): boolean {
 }
 
 /**
- * 권위: 비운 시체로 표시하고, 지금 아무도 보지 않으면 곧바로 풀어 방송한다 (누가 보고 있으면 `updateEmptyCorpses` 가 닫는 순간).
- * 죽은 몸이 없거나 이미 비웠거나 권위가 아니면 false.
+ * Authority: marks the corpse emptied and, when nobody is looking right now, releases and broadcasts it at once (with a viewer,
+ * `updateEmptyCorpses` does it the moment they close). false with no dead body, when it was emptied already, or off the authority.
  */
 export function emptyCorpseAuthority(sys: EnemySystem, id: number): boolean {
   if (!sys.authority) return false;
@@ -128,16 +128,16 @@ export function emptyCorpseAuthority(sys: EnemySystem, id: number): boolean {
 }
 
 /**
- * 매 프레임 (`EnemySystem.update`, 수명 루프 앞): 보는 사람 표를 정리하고 —
- *  · 권위: 비었지만 아직 붙잡힌 시체 가운데 아무도 보지 않게 된 것을 푼다.
- *  · 모두: 이미 풀린 시체라도 **내** 창이 보여 주는 동안은 수명을 「지금 + 지연 + 가라앉기」 밑으로 줄지 않게 붙잡는다.
- * 비운 시체가 없으면 문자열을 만들지 않는다.
+ * Every frame (`EnemySystem.update`, before the lifetime loop): tidies the viewer table and —
+ *  · Authority: releases the emptied-but-still-held corpses that nobody is looking at any more.
+ *  · Everyone: even an already-released corpse has its lifetime held above 「now + the delay + the sink」 while **my** window shows it.
+ * With no emptied corpse it builds no string.
  */
 export function updateEmptyCorpses(sys: EnemySystem): void {
   const t = viewerTrackers.get(sys);
   if (!t) return;
   t.update();
-  let mine: number | null | undefined;   // 내 창이 보여 주는 적 시체 — 필요할 때 한 번만 푼다
+  let mine: number | null | undefined;   // the enemy corpse my own window is showing — resolved once, only when it is needed
   for (let i = 0; i < sys.active.length; i++) {
     const e = sys.active[i];
     if (e.state !== 'dead' || !e.corpseEmptied) continue;
@@ -152,7 +152,7 @@ export function updateEmptyCorpses(sys: EnemySystem): void {
   }
 }
 
-/** `crate:looted` (모든 클라이언트) — 적 시체 컨테이너가 이 클라이언트에서 비었다. */
+/** `crate:looted` (every client) — an enemy corpse container went empty on this client. */
 export function onCorpseContainerLooted(sys: EnemySystem, containerId: string): void {
   const id = corpseEnemyId(containerId);
   if (id === null) return;
@@ -161,14 +161,14 @@ export function onCorpseContainerLooted(sys: EnemySystem, containerId: string): 
   const net = sys.ctx.net, p = sys.ctx.player;
   const e = sys.byId.get(id), c = sys.corpses.get(id);
   if (!net || !p || !e || !c || e.state !== 'dead' || e.corpseEmptied) return;
-  // 멀리서 남의 `cont taken` 으로 빈 것을 본 사람은 보내지 않는다 — 호스트의 거리 가드와 같은 거리
+  // somebody who watched it empty from far away through another's `cont taken` does not send — the same distance as the host's guard
   const dx = c.position.x - p.position.x, dz = c.position.z - p.position.z;
   if (dx * dx + dz * dz > CORPSE_EMPTY_REQUEST_REACH_M * CORPSE_EMPTY_REQUEST_REACH_M) return;
   net.send({ t: 'ecorpseq', ev: 'emptied', id }, 'host');
 }
 
 interface Bucket { tokens: number; at: number }
-/** 보낸 사람별 요율 버킷 — 시스템마다 따로 (스모크가 시스템을 여럿 만들어도 섞이지 않는다). */
+/** Rate buckets per sender — one set per system (a smoke making several systems never mixes them up). */
 const buckets = new WeakMap<EnemySystem, Map<string, Bucket>>();
 
 function spendRequest(sys: EnemySystem, from: string): boolean {
@@ -185,24 +185,24 @@ function spendRequest(sys: EnemySystem, from: string): boolean {
 }
 
 /**
- * 호스트: 클라이언트의 `ecorpseq emptied`. 거절은 `hitGuardStats.corpseEmptyRefused` 만 센다 (거절된 요청은 아무것도 하지
- * 않으므로 스모크가 볼 수 있는 유일한 흔적이다).
+ * Host: a client's `ecorpseq emptied`. A refusal only bumps `hitGuardStats.corpseEmptyRefused` (a refused request does nothing
+ * else, so that counter is the only trace a smoke can see).
  */
 export function onCorpseEmptiedRequest(sys: EnemySystem, msg: EnemyCorpseRequest, from: PeerId): void {
   if (!sys.hosting) return;
   const refuse = (): void => { sys.hitGuardStats.corpseEmptyRefused++; };
-  // ① 모양
+  // ① shape
   if (!msg || msg.ev !== 'emptied' || typeof msg.id !== 'number' || !Number.isSafeInteger(msg.id)) { refuse(); return; }
   const e = sys.byId.get(msg.id), c = sys.corpses.get(msg.id);
   if (!e || !e.active || e.state !== 'dead' || !c) { refuse(); return; }
   if (e.corpseEmptied) return;
-  // ② 보낸 사람
+  // ② sender
   const ref = sys.ctx.net?.getRemotePlayer(from);
   if (!ref) { refuse(); return; }
-  // ③ 거리 (수평)
+  // ③ distance (horizontal)
   const dx = c.position.x - ref.position.x, dz = c.position.z - ref.position.z;
   if (dx * dx + dz * dz > CORPSE_EMPTY_REQUEST_REACH_M * CORPSE_EMPTY_REQUEST_REACH_M) { refuse(); return; }
-  // ④ 요율
+  // ④ rate
   if (!spendRequest(sys, from)) { refuse(); return; }
   emptyCorpseAuthority(sys, msg.id);
 }

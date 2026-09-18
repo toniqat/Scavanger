@@ -11,7 +11,7 @@ const _d = new THREE.Vector3();
 /** Below this vision factor the target counts as hidden (smoke) even with a clear geometric line. */
 const SMOKE_BLIND = 0.4;
 /**
- * Phase 12 (총알 추적): half-angle of the widened perception cone toward the shot origin, as a cosine (≈ 45°). Inside
+ * Phase 12 (shot tracking): half-angle of the widened perception cone toward the shot origin, as a cosine (≈ 45°). Inside
  * it the detection range is × `ENEMY_SHOT_ALERT_CONE_MUL`; outside it the enemy is as blind as before.
  */
 const SHOT_CONE_COS = 0.7;
@@ -31,7 +31,7 @@ export function hasLineOfSight(e: Enemy, host: EnemyHost, target: CombatTarget):
   const dist = _d.length();
   if (dist < 1e-3) return true;
   _d.multiplyScalar(1 / dist);
-  // 2026-09-13 (탐사 차량): 차체에 들어가기 전에 멈춘다 — 안 그러면 차체 자신의 콜라이더가 늘 사선을 막는다
+  // 2026-09-13 (the rover): stop before entering the hull — otherwise the hull's own collider always blocks the line
   let limit = dist - 0.3;
   if (target.vehicle) {
     const enter = target.rayVehicle(_o, _d, dist);
@@ -54,27 +54,27 @@ export function visionClarity(e: Enemy, host: EnemyHost, target: CombatTarget): 
 }
 
 /**
- * 2026-09-14 (튜토리얼 전용 적): 이 마리의 기본 감지 반경 — `Enemy.senseRadius` 가 켜져 있으면 그것, 아니면 평소 표.
- * 값을 넣는 곳은 `Tutorial.placeTutorialEnemies` 하나뿐이라 본편 · 훈련장에서는 **정확히 `stats.sightRadius`** 다.
+ * 2026-09-14 (tutorial-only enemies): this body's base detection radius — `Enemy.senseRadius` when it is set, otherwise the usual table.
+ * Only `Tutorial.placeTutorialEnemies` ever fills it in, so in a normal raid and the training range it is **exactly `stats.sightRadius`**.
  */
 export function senseRadiusOf(e: Enemy): number {
   return e.senseRadius > 0 ? e.senseRadius : e.stats.sightRadius;
 }
 
 /**
- * 2026-09-14 (튜토리얼 전용 적): 이 마리가 소리를 들을 수 있는 반경. 튜토리얼 적은 감지 반경이 곧 귀라
- * (「이 반경 밖의 플레이어는 아예 알아채지 못한다」) 청각 반경도 거기서 잘린다.
+ * 2026-09-14 (tutorial-only enemies): the radius within which this body can hear. For a tutorial enemy the detection radius is its ears
+ * (「a player outside this radius is never noticed at all」), so the hearing radius is clipped to it as well.
  */
 export function hearRadiusOf(e: Enemy): number {
   return e.senseRadius > 0 ? Math.min(e.senseRadius, e.stats.hearRadius) : e.stats.hearRadius;
 }
 
 /**
- * Effective detection range for `target`: base sight radius × the target's stealth factor (은폐)
+ * Effective detection range for `target`: base sight radius × the target's stealth factor (cloaking)
  * × the smoke clarity between the two (`ctx.gadgets.visionFactor`).
  * An alerted bug closer than `CLOAK_REVEAL_DISTANCE` sees a cloaked target regardless.
- * 2026-09-14: 기본 반경은 `senseRadiusOf` — 튜토리얼 적만 다르다. 그 적은 `CLOAK_REVEAL_DISTANCE` 바닥도 받지 않는다
- * (12 m 보다 넓은 바닥을 깔면 「감지 반경 밖에서는 못 알아챈다」가 깨진다).
+ * 2026-09-14: the base radius is `senseRadiusOf` — only a tutorial enemy differs. That one does not get the `CLOAK_REVEAL_DISTANCE` floor
+ * either (a floor wider than 12 m would break 「outside the detection radius nothing is noticed」).
  */
 export function detectionRange(e: Enemy, host: EnemyHost, target: CombatTarget, clarity: number): number {
   const stealth = target.stealth > 0 && target.stealth <= 1 ? target.stealth : 1;
@@ -84,7 +84,7 @@ export function detectionRange(e: Enemy, host: EnemyHost, target: CombatTarget, 
 }
 
 /**
- * Phase 12 (총알 추적): range multiplier for `target` while `e` investigates a shot — `ENEMY_SHOT_ALERT_CONE_MUL` when
+ * Phase 12 (shot tracking): range multiplier for `target` while `e` investigates a shot — `ENEMY_SHOT_ALERT_CONE_MUL` when
  * the target lies inside the cone toward `e.shotOrigin`, 1 otherwise. Applied **on top of** `detectionRange`, so the
  * cloak / smoke factors still scale the widened range (a cloaked sniper stays hard to spot, just less so).
  */
@@ -102,7 +102,7 @@ export function shotConeFactor(e: Enemy, targetPos: THREE.Vector3): number {
  * Would an **unaware** `e` notice `target` on its next perception tick? The acquisition rule of `updatePerception`
  * (range with cloak / smoke, the 5 m proximity shortcut that a smoke wall still blocks, else a clear line of sight) as
  * a pure query — `EnemySystem.reportShot` uses it to skip enemies that are about to spot the shooter anyway.
- * `widen` = apply the 총알 추적 cone (the perception tick does; the shot report does not).
+ * `widen` = apply the shot-tracking cone (the perception tick does; the shot report does not).
  */
 export function canPerceive(e: Enemy, host: EnemyHost, target: CombatTarget, widen: boolean): boolean {
   const dist = target.dist2D(e.position);
@@ -131,14 +131,14 @@ export function acquireTarget(e: Enemy, dt: number, host: EnemyHost): void {
     } else if (!curValid) {
       e.target = best;
     } else if (best !== cur) {
-      // 2026-09-13 (탐사 차량): 차량에 맞은 적은 히스테리시스 없이 곧장 차량으로 돌아선다
+      // 2026-09-13 (the rover): an enemy the vehicle hit turns straight onto it with no hysteresis
       if (best.vehicle !== null && host.ctx.time < e.vehicleAggroUntil) e.target = best;
       else {
         const keep = e.hasLOS ? 0.6 : 0.75;
         if (best.dist2D(e.position) < cur.dist2D(e.position) * keep) e.target = best;
       }
     }
-    // 2026-09-10: 총구 사선 캐시(`ai/FireLine`)도 표적과 함께 버린다 — 옛 표적에 대한 답이다.
+    // 2026-09-10: the muzzle line-of-fire cache (`ai/FireLine`) is dropped with the target — it is the answer for the old one.
     if (e.target !== cur) { e.hasLOS = false; e.perceptionTimer = 0; e.fireLineAt = -Infinity; e.fireLineClear = true; e.fireBlockTimer = 0; }
   }
   e.distToTarget = e.target ? e.target.dist2D(e.position) : Infinity;
@@ -147,7 +147,7 @@ export function acquireTarget(e: Enemy, dt: number, host: EnemyHost): void {
 /** Wake this bug: it now knows about the players. `loud` → screech + propagate to neighbours. */
 export function becomeAlert(e: Enemy, host: EnemyHost, loud: boolean): void {
   if (e.state === 'dead' || e.state === 'flee' || !e.active) return;
-  // 2026-09-18 (벌레 알): 알은 알아채지 않는다 — 무리 전파 · 총성 · 유인 어느 쪽으로도 (`alertNear` 는 `isCombatant` 로 이미 뺀다, 여기는 직접 부르는 자리의 보험)
+  // 2026-09-18 (bug eggs): an egg never becomes aware — not by pack propagation, a gunshot or a lure (`alertNear` already drops it on `isCombatant`; this is the guard for direct callers)
   if (e.isEgg) return;
   const wasAware = e.aware;
   e.aware = true;
@@ -161,7 +161,7 @@ export function becomeAlert(e: Enemy, host: EnemyHost, loud: boolean): void {
     host.ctx.bus.emit('enemy:alerted', { id: e.id, type: e.type, position: e.position });
     const look = baseTypeOf(e.type);
     if (e.isHumanoid) { /* humans do not screech; the reaction delay + rifle raise reads as the alert */ }
-    // 2026-09-14 3차: 튜토리얼 전용 종류는 바탕 종류의 비명 (`tut_bug*` = scavenger)
+    // 2026-09-14 3rd pass: a tutorial-only type screeches like its base type (`tut_bug*` = scavenger)
     else if (look === 'scavenger' || look === 'hunter' || look === 'toxic') host.playAudio('bug_screech', e.position, 0.9, look === 'hunter' ? 0.9 : 1.15);
     else host.playAudio('bug_screech', e.position, 0.7, look === 'behemoth' ? 0.35 : look === 'charger' ? 0.55 : 0.75);
     host.alertNear(e.position, 20, e);
@@ -177,10 +177,10 @@ export function updatePerception(e: Enemy, dt: number, host: EnemyHost): void {
   if (e.perceptionTimer > 0) return;
   e.perceptionTimer = 0.3;
 
-  // lures (유인 수류탄 / 소음) — cheap, and also pulls bugs that have no target at all
+  // lures (a lure grenade / noise) — cheap, and also pulls bugs that have no target at all
   e.lureWeight = host.lureFor(e.position, e.lurePos);
   e.hasLure = e.lureWeight > 0;
-  // 2026-09-14 (튜토리얼 전용 적): 감지 반경 밖에서 난 소리는 아예 못 듣는다 — 총성 유인도 자기 자리를 뜨게 하지 못한다
+  // 2026-09-14 (tutorial-only enemies): a noise made outside the detection radius is not heard at all — not even a gunshot lure moves it off its post
   if (e.hasLure && e.senseRadius > 0) {
     const lx = e.lurePos.x - e.position.x, lz = e.lurePos.z - e.position.z;
     if (lx * lx + lz * lz > e.senseRadius * e.senseRadius) { e.hasLure = false; e.lureWeight = 0; }
@@ -202,7 +202,7 @@ export function updatePerception(e: Enemy, dt: number, host: EnemyHost): void {
   if (!e.aware) {
     // Phase 12: an investigating enemy looks harder toward the shot origin (cone × ENEMY_SHOT_ALERT_CONE_MUL)
     const acquire = e.investigating ? range * shotConeFactor(e, t.position) : range;
-    // 2026-09-13 (탐사 차량): 달리는 차량은 **들린다** — 청각 반경(차체 가장자리까지) 안이면 사선 없이도 깨어난다 (`hasLOS` 는 그대로 사선)
+    // 2026-09-13 (the rover): a running vehicle is **heard** — inside the hearing radius (to the hull edge) it wakes with no line of sight (`hasLOS` still means the line)
     const heard = t.vehicle !== null && t.vehicleMoving && dist < hearRadiusOf(e);
     if (dist < acquire) {
       // very close bugs notice you regardless of LOS (but not through a smoke wall)

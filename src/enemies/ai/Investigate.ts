@@ -8,7 +8,7 @@ import { pickApproachCover } from './RogueCover';
 import { HUMANOID_ANDROID } from '../EnemyTypes';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Phase 12: 총알 추적 — an enemy that could not perceive a shooter reacts to the **bullet** (`EnemySystem.reportShot`).
+ * Phase 12: shot tracking — an enemy that could not perceive a shooter reacts to the **bullet** (`EnemySystem.reportShot`).
  *
  * The investigation rides on the shared state machine as `state = 'alert'` with `aware = false` (`Enemy.investigating`):
  * `updateEnemyAI` hands the tick to `updateInvestigate` right after perception, so the normal alert / chase / cover
@@ -21,7 +21,7 @@ import { HUMANOID_ANDROID } from '../EnemyTypes';
  *   phase 1  advance — bugs walk straight at the origin; rogues leg cover-to-cover (`pickApproachCover`), a short
  *                      crouched hold at each rock, straight ahead for a few seconds when no rock qualifies
  *   phase 2  arrived — within `SHOT_ALERT_ARRIVE` of the origin (or a leashed enemy at its leash — humanoids, and
- *                      2026-09-14 any enemy with a `homeLeash`, i.e. 튜토리얼 적): one last look, stand down
+ *                      2026-09-14 any enemy with a `homeLeash`, i.e. a tutorial enemy): one last look, stand down
  *
  * `ENEMY_SHOT_ALERT_GIVE_UP_S` after the start the enemy returns to what it was doing (idle → wander around its own
  * anchor). A later shot while investigating only refreshes the origin (`beginInvestigation` returns false).
@@ -104,11 +104,11 @@ export function updateInvestigate(e: Enemy, dt: number, host: EnemyHost): void {
     }
     case 1: {
       /*
-       * 2026-09-14 2차: 리시를 **벌레에도** 건다 — 단, `homeLeash > 0` 인 적(= `Tutorial.placeTutorialEnemies`
-       * 가 세운 튜토리얼 적)에게만. 본편 · 훈련장의 벌레는 `homeLeash` 가 0 이라 예전과 한 글자도 다르지 않다.
-       * 이 한 줄이 「모든 적이 빗나간 총알에 반응한다」와 튜토리얼의 「고정 자리 · 순찰 없음」을 화해시킨다:
-       * 총소리 쪽으로 걸어 나가되 자기 자리에서 `TUTORIAL_ENEMY_LEASH_M` 밖으로는 못 간다.
-       * (`updateInvestigate` 가 도는 동안 `EnemyAI` 는 `tutorialHold` 를 건너뛰므로 여기서 막아야 한다.)
+       * 2026-09-14 2nd pass: the leash is raised on **bugs too** — but only on enemies with `homeLeash > 0` (= the tutorial
+       * enemies `Tutorial.placeTutorialEnemies` placed). A bug in a normal raid or the training range has `homeLeash` 0, so not
+       * one character changes for it. This one line reconciles 「every enemy reacts to a stray bullet」 with the tutorial's
+       * 「fixed posts · no patrolling」: it walks out toward the gunshot but never past `TUTORIAL_ENEMY_LEASH_M` from its post.
+       * (`EnemyAI` skips `tutorialHold` while `updateInvestigate` runs, so it has to be blocked here.)
        */
       const tethered = e.isHumanoid || e.homeLeash > 0;
       const leashed = tethered && Math.hypot(e.position.x - e.guardPos.x, e.position.z - e.guardPos.z) > e.leash;

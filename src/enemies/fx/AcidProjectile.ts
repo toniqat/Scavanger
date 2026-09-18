@@ -34,7 +34,7 @@ interface Glob {
   faction: EnemyFaction;
   /** Enemy id the glob struck directly (the splash skips it), −1 = none. */
   directEnemy: number;
-  /** 2026-09-13: the glob struck the 탐사 차량 hull directly (the splash skips it). */
+  /** 2026-09-13: the glob struck the rover hull directly (the splash skips it). */
   directVehicle: boolean;
 }
 
@@ -70,7 +70,7 @@ export class AcidProjectiles {
    */
   fire(from: THREE.Vector3, target: CombatTarget, shooterId: number, outAim?: THREE.Vector3, faction?: EnemyFaction): boolean {
     _aim.copy(target.position).addScaledVector(target.velocity, THREE.MathUtils.clamp(from.distanceTo(target.position) / 15, 0.7, 1.5) * 0.6);
-    // 2026-09-11: `fireAt` 은 발 + PLAYER_HEIGHT/2 를 노린다 — 몸 높이가 다른 표적(드론)은 그 차이만큼 내린다. 플레이어는 0.
+    // 2026-09-11: `fireAt` aims at the feet + PLAYER_HEIGHT/2 — a target of a different body height (a drone) is lowered by that difference. 0 for a player.
     _aim.y += (target.bodyHeight - PLAYER_HEIGHT) * 0.5;
     if (outAim) outAim.copy(_aim);
     return this.fireAt(from, _aim, shooterId, faction);
@@ -128,7 +128,7 @@ export class AcidProjectiles {
           splashed = true;
         }
       }
-      // 2026-09-15 (안드로이드 분대원): 사람과 **같은 캡슐** — 산성이 안드로이드를 그냥 지나가지 않는다 (권위에서만 피해).
+      // 2026-09-15 (android squadmates): **the same capsule** as a person — acid does not simply pass through an android (damage on the authority only).
       const allies = host.targets.allies;
       for (let i = 0; i < allies.length && !splashed; i++) {
         const t = allies[i];
@@ -140,8 +140,8 @@ export class AcidProjectiles {
           splashed = true;
         }
       }
-      // 2026-09-11 (C-48 · X-5): 다른 팩션 적(= 로그)의 몸통 캡슐도 막는다 — 예전엔 벌레 산성이 로그를 그냥 지나갔다.
-      // 피해는 권한에서만(`damageTargetAcid` → `applyDamage` 의 적 가지, 킬 크레딧 없음). 리플리카는 그림만 멈춘다.
+      // 2026-09-11 (C-48 · X-5): the body capsule of an enemy of another faction (= a rogue) stops it too — bug acid used to pass straight through a rogue.
+      // Damage on the authority only (`damageTargetAcid` → the enemy branch of `applyDamage`, no kill credit). A replica only stops the visual.
       if (!splashed) {
         const e = this.enemyAt(g, host);
         if (e) {
@@ -150,7 +150,7 @@ export class AcidProjectiles {
           splashed = true;
         }
       }
-      // 2026-09-11: 노려도 되는 드론의 몸체 (프록시 `position` = 밑면, 납작한 몸체는 중심의 구). 피해는 권한에서만.
+      // 2026-09-11: the body of an aggroable drone (the proxy `position` = its underside; a flat body is a sphere at the centre). Damage on the authority only.
       const drones = host.targets.drones;
       for (let i = 0; i < drones.length && !splashed; i++) {
         const t = drones[i];
@@ -162,7 +162,7 @@ export class AcidProjectiles {
           splashed = true;
         }
       }
-      // 2026-09-13 (탐사 차량): 차체 상자에 닿으면 직격 — 월드 레이캐스트(차체 콜라이더)보다 먼저 본다. 피해는 권한에서만.
+      // 2026-09-13 (the rover): touching the hull box is a direct hit — checked before the world raycast (the hull collider). Damage on the authority only.
       const vehicles = host.targets.vehicles;
       for (let i = 0; i < vehicles.length && !splashed; i++) {
         const t = vehicles[i];
@@ -203,7 +203,7 @@ export class AcidProjectiles {
       const d = t.position.distanceTo(p);
       if (d < 2.4 && d > 0.6) host.damageTargetAcid(t, SPEWER_SPIT.splashDamage, p, g.shooterId, { duration: SPEWER_SPIT.slowDuration * 0.6, factor: 0.7 });
     }
-    // 2026-09-15 (안드로이드 분대원): 사람 루프와 같은 식 (발 거리 2.4 m, 직격 거리 밖).
+    // 2026-09-15 (android squadmates): the same as the loop over people (2.4 m from the feet, outside the direct-hit distance).
     const allies = host.targets.allies;
     for (let i = 0; i < allies.length; i++) {
       const t = allies[i];
@@ -211,7 +211,7 @@ export class AcidProjectiles {
       const d = t.position.distanceTo(p);
       if (d < 2.4 && d > 0.6) host.damageTargetAcid(t, SPEWER_SPIT.splashDamage, p, g.shooterId, { duration: SPEWER_SPIT.slowDuration * 0.6, factor: 0.7 });
     }
-    // 2026-09-11 (X-5): 다른 팩션 적 — 몸 가운데에서 잰다. 직격한 몸은 위 `update` 가 이미 줬으므로 뺀다.
+    // 2026-09-11 (X-5): enemies of another faction — measured from the body centre. The body that took the direct hit is skipped; `update` above already paid it.
     const active = host.active;
     for (let i = 0; i < active.length; i++) {
       const e = active[i];
@@ -220,14 +220,14 @@ export class AcidProjectiles {
       const d = _q.distanceTo(p);
       if (d < 2.4 + e.stats.radius && d > GLOB_RADIUS) host.damageTargetAcid(e.asTarget, SPEWER_SPIT.splashDamage, p, g.shooterId, { duration: SPEWER_SPIT.slowDuration * 0.6, factor: 0.7 });
     }
-    // 2026-09-11: 드론 — 몸체 중심에서 잰다. 직격(몸체 반지름 + 글롭 안)은 위 `update` 가 이미 줬으므로 뺀다.
+    // 2026-09-11: drones — measured from the body centre. A direct hit (inside the body radius + the glob) was already paid by `update` above.
     const drones = host.targets.drones;
     for (let i = 0; i < drones.length; i++) {
       const t = drones[i];
       const d = t.getChest(_q).distanceTo(p);
       if (d < 2.4 && d > Math.max(0.6, t.bodyRadius + GLOB_RADIUS)) host.damageTargetAcid(t, SPEWER_SPIT.splashDamage, p, g.shooterId, { duration: SPEWER_SPIT.slowDuration * 0.6, factor: 0.7 });
     }
-    // 2026-09-13: 탐사 차량 — 차체 상자까지의 거리. 직격한 글롭은 위 `update` 가 이미 줬으므로 뺀다.
+    // 2026-09-13: the rover — the distance to the hull box. A glob that hit directly was already paid by `update` above.
     if (!g.directVehicle) {
       const vehicles = host.targets.vehicles;
       for (let i = 0; i < vehicles.length; i++) {

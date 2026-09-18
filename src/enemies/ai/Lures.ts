@@ -8,9 +8,9 @@ import * as THREE from 'three';
  * Entries are tiny and few (a handful at a time), so a flat array with squared-distance tests is cheaper
  * than any spatial structure and allocates nothing per frame.
  *
- * 2026-09-15 (땅굴벌레 등장 판정): 항목마다 `kind` 가 붙는다 — `'lure'` = 바깥에서 온 유인(유인 수류탄 배치물 ·
- * `addDistraction`), `'noise'` = 총성 · 폭발(`onGunshot`). 벌레 AI 는 둘을 구분하지 않고, `sandworm/Director` 만
- * `nearestLure` 로 유인 종류를 찾아 확률 가산 · 분출 자리 후보로 쓴다.
+ * 2026-09-15 (the sandworm appearance check): every entry carries a `kind` — `'lure'` = a lure from outside (the lure
+ * grenade deployable · `addDistraction`), `'noise'` = gunfire · explosions (`onGunshot`). Bug AI does not tell the two
+ * apart; only `sandworm/Director` looks a lure up with `nearestLure` as a chance bonus · eruption spot candidate.
  */
 export type LureKind = 'lure' | 'noise';
 
@@ -21,7 +21,7 @@ export interface LureEntry {
   weight: number;
   /** ctx.time when it stops pulling. */
   expires: number;
-  /** 2026-09-15: 유인인가 총성인가 (같은 자리에 합쳐질 때는 유인이 이긴다). */
+  /** 2026-09-15: a lure or gunfire (when the two merge at the same spot the lure wins). */
   kind: LureKind;
 }
 
@@ -82,8 +82,8 @@ export class LureField {
   }
 
   /**
-   * 2026-09-15 (땅굴벌레): `(x, z)` 에서 `range` m 안의 살아 있는 **유인**(`kind 'lure'`) 중 가장 가까운 것의 자리를 `out` 에 쓴다.
-   * 총성은 세지 않는다. 있으면 true.
+   * 2026-09-15 (the sandworm): writes into `out` the spot of the nearest living **lure** (`kind 'lure'`) within `range` m of `(x, z)`.
+   * Gunfire does not count. true when there is one.
    */
   nearestLure(x: number, z: number, range: number, now: number, out: THREE.Vector3): boolean {
     let best = range * range;

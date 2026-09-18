@@ -9,11 +9,11 @@ import { applySlope, footfall, integrateDeathFall } from '../ai/EnemyAI';
 import { goreKindOf, hurtSound, meleeHitSound } from '../model';
 import { replicaRidePredict } from '../ai/Ride';
 import { lookAtTarget } from '../ai/Common';
-/* 2026-09-11: 네임드 로그 · 스캔 드론 */
+/* 2026-09-11: named rogues · the scan drone */
 import { isNamedAiType } from '../ai/named';
 import { afterNamedReplica, beforeNamedReplica, onNamedEvent } from '../ai/named/remote';
 import type { NamedRogueDirector } from '../named/Director';
-/* 2026-09-13: 굴착 스폰 · 땅굴벌레 */
+/* 2026-09-13: burrow spawns · the sandworm */
 import { stepSpatFlight } from '../ai/Burrow';
 import { applyWormHint } from '../sandworm/Pose';
 import { isWormType, raidXpOf } from '../EnemyTypes';
@@ -168,7 +168,7 @@ export interface ReplicaHost {
   /** Get-or-create a pooled Enemy carrying the host's id. Silent: no `enemy:spawned`. */
   acquire(id: number, type: EnemyType, position: THREE.Vector3, yaw: number): Enemy | null;
   /**
-   * 2026-09-11 (C-52): the 네임드 director (`EnemySystem.named`). A snapshot that creates a replica silently (a late
+   * 2026-09-11 (C-52): the named-rogue director (`EnemySystem.named`). A snapshot that creates a replica silently (a late
    * joiner missed `ee spawn`) still owes `enemy:namedSpawned` — once per id, shared with the `enemy:spawned` path.
    */
   readonly named: Pick<NamedRogueDirector, 'onReplicaCreated'>;
@@ -197,13 +197,13 @@ export interface ReplicaHost {
   grenadeVisual(id: number, p: THREE.Vector3, v: THREE.Vector3, fuse: number, kind?: EnemyGrenadeKind): void;
   /** Host's `grenadeHit`: pop the local copy (or just the FX) at `p`. 2026-09-13: `kind` = `ee grenadeHit.k` (an incendiary lights the visual fire zone). */
   grenadeHitRemote(p: THREE.Vector3, kind?: EnemyGrenadeKind): void;
-  /* ── Phase 12 (배리어 정면 흡수) ── */
+  /* ── Phase 12 (frontal barrier absorption) ── */
   /** Host says enemy `id`'s melee landed on **my** raised shield at `p`: deduct `amount` from it + the bite FX. */
   barrierHitRemote(id: number, p: THREE.Vector3, amount: number): void;
-  /* ── 2026-09-13 (굴착 스폰 · 땅굴벌레) ── */
-  /** `ee spawn.em` 으로 파고 나오기 시작한 몸의 연출 · 흔들림 · 소리 (`parts/Burrow.emergeFx`). */
+  /* ── 2026-09-13 (burrow spawns · the sandworm) ── */
+  /** FX · shake · sound for a body that began emerging on `ee spawn.em` (`parts/Burrow.emergeFx`). */
   emergeSpawned(e: Enemy): void;
-  /** 뱉어져 날던 몸이 착지했다 (`parts/Burrow.spatLandedFx`). */
+  /** A body in flight after being spat has landed (`parts/Burrow.spatLandedFx`). */
   burrowLanded(e: Enemy): void;
   /** `ee wormWarn` · `wormErupt` · `wormSpit` → `sandworm/Director.onWire`. */
   onSandwormEvent(msg: EnemyEvent): void;
@@ -265,7 +265,7 @@ export class EnemyReplica {
       const buf = e.netBuf ?? (e.netBuf = new ReplicaBuffer());
       buf.applyWire(now, w, full);
       buf.seenSeq = seq;
-      // 2026-09-11 (C-52): still silent (no `enemy:spawned`), but a 네임드 made here is announced — once per id, the
+      // 2026-09-11 (C-52): still silent (no `enemy:spawned`), but a named rogue made here is announced — once per id, the
       // director's record also covers a later / earlier `ee spawn` for the same id
       if (created) host.named.onReplicaCreated(e);
     }
@@ -313,7 +313,7 @@ export class EnemyReplica {
         if (!e) return;
         const buf = e.netBuf ?? (e.netBuf = new ReplicaBuffer());
         if (buf.count === 0) buf.push(ctx.time, _p.x, _p.y, _p.z, msg.yaw, e.maxHp, 'idle', 0);
-        // 2026-09-13: 굴착 스폰 — 호스트와 같은 시간 동안 땅에서 올라온다 (연출 · 흔들림 · 소리는 `parts/Burrow`)
+        // 2026-09-13: burrow spawn — it rises out of the ground over the same time as on the host (FX · shake · sound in `parts/Burrow`)
         if (created && typeof msg.em === 'number' && msg.em > 0) { e.startEmerge(Math.min(msg.em, 5)); host.emergeSpawned(e); }
         ctx.bus.emit('enemy:spawned', { id: e.id, type: e.type, position: e.position });
         return;
@@ -328,11 +328,11 @@ export class EnemyReplica {
         const localId = ctx.net?.localId ?? null;
         if (msg.killer !== null && msg.killer === localId) {
           ctx.stats.kills++;
-          // 2026-09-16: 처치 경험치 — 호스트의 `parts/Damage.onEnemyKilled` 와 같은 조건 · 같은 값 (종류는 와이어의 `ty`)
+          // 2026-09-16: kill XP — the same condition and the same value as the host's `parts/Damage.onEnemyKilled` (the type is the wire's `ty`)
           ctx.stats.killXp = (ctx.stats.killXp ?? 0) + raidXpOf(msg.ty);
           _p.set(msg.p[0], msg.p[1], msg.p[2]);
           // Phase 9: the wire carries our real peer id; the bus payload names our own credit `'local'` (same as the host path)
-          // 2026-09-14: 계열 = 이 클라이언트가 그 적에게 보낸 마지막 요청의 출처 (호스트의 화상 지속 피해 막타는 알 수 없다)
+          // 2026-09-14: the weapon class = the source of the last request this client sent that enemy (the host's burn-DoT last hit cannot be known)
           ctx.bus.emit('enemy:killed', { id: msg.id, type: msg.ty, position: e ? e.position : _p.clone(), by: 'local', weaponClass: e ? e.lastLocalWeaponClass : null });
         } else if (typeof msg.killer === 'string' && msg.killer) {
           // 2026-09-11 (E-4): a squad-mate's kill (the host counts it too — `parts/Damage.onEnemyKilled`). meta/ derives the
@@ -363,7 +363,7 @@ export class EnemyReplica {
             a.flinchZ = (_d.x * s + _d.z * c);
             host.bloodBurst(_p, 8, _d, goreKindOf(e.type));
           } else { a.flinchX = (Math.random() - 0.5) * 2; a.flinchZ = 0.3; host.bloodBurst(_p, 8, null, goreKindOf(e.type)); }
-          // 2026-09-11 (C-51): 호스트와 같은 표 — 로그는 `hit_flesh` (예전엔 리플리카만 로그도 `bug_hit` 이었다)
+          // 2026-09-11 (C-51): the same table as the host — a rogue is `hit_flesh` (before, only the replica played `bug_hit` for rogues too)
           host.playAudio(hurtSound(e.type), e.position, 0.6, 0.9 + Math.random() * 0.2);
         }
         ctx.bus.emit('enemy:damaged', { id: e.id, type: e.type, amount: msg.amount, position: e.position, hp: Math.max(0, e.hp - msg.amount) });
@@ -371,7 +371,7 @@ export class EnemyReplica {
       }
       case 'attack': {
         _p.set(msg.p[0], msg.p[1], msg.p[2]);
-        // 2026-09-11 (C-51): 타입별 타격음 표 — 타길라는 null (`ee hammer` 가 `hammer_impact` 를 이미 낸다)
+        // 2026-09-11 (C-51): the per-type melee hit sound table — Tagilla is null (`ee hammer` already plays `hammer_impact`)
         const bite = meleeHitSound(msg.ty);
         if (bite) host.playAudio(bite.id, _p, 1, bite.pitch);
         if (msg.target === ctx.net?.localId) {
@@ -390,7 +390,7 @@ export class EnemyReplica {
         return;
       }
       case 'acidAt': {
-        // 2026-09-11 (C-48): 드론 · 적 · 지점을 노린 산성 — 호스트의 조준점 그대로 날린다 (피해는 호스트)
+        // 2026-09-11 (C-48): acid aimed at a drone · enemy · spot — flown to the host's own aim point (the host owns the damage)
         _p.set(msg.from[0], msg.from[1], msg.from[2]);
         _p2.set(msg.to[0], msg.to[1], msg.to[2]);
         host.acidVisualAt(_p, _p2, msg.id);
@@ -439,7 +439,7 @@ export class EnemyReplica {
         host.corpseSpawnedRemote(msg.id, msg.ty, _p, msg.w, {
           lootable: msg.lt === undefined ? undefined : msg.lt !== 0,
           deathDir: msg.dd !== undefined ? ENEMY_DEATH_DIRS[msg.dd] : undefined,
-          // 2026-09-13: 호스트와 같은 전리품 입력 (스폰 거점 · 남은 수류탄)
+          // 2026-09-13: the same loot inputs as the host (the spawn site · remaining grenades)
           loot: msg.si || msg.gc
             ? { site: msg.si ?? null, grenades: msg.gc ? { kind: ENEMY_GRENADE_KINDS[msg.gk ?? 0] ?? 'frag', count: msg.gc } : null }
             : undefined,
@@ -449,7 +449,7 @@ export class EnemyReplica {
       case 'corpseGone':
         host.corpseGoneRemote(msg.id);
         return;
-      case 'corpseEmptied':   // 2026-09-16: 열어서 비운 시체 — 수명이 줄고 가라앉는다 (치우는 것은 뒤따르는 `despawn` / 자기 수명)
+      case 'corpseEmptied':   // 2026-09-16: a corpse opened and emptied — its lifetime shortens and it sinks (removal is the following `despawn` / its own lifetime)
         host.corpseEmptiedRemote(msg.id);
         return;
       /* ── Phase 7 ── */
@@ -468,7 +468,7 @@ export class EnemyReplica {
         _p.set(msg.p[0], msg.p[1], msg.p[2]);
         host.barrierHitRemote(msg.id, _p, msg.amount);
         return;
-      /* ── 2026-09-11: 네임드 로그 · 스캔 드론 (ai/named/*) ── */
+      /* ── 2026-09-11: named rogues · the scan drone (ai/named/*) ── */
       case 'scanPulse':
       case 'glint':
       case 'snipe':
@@ -476,7 +476,7 @@ export class EnemyReplica {
       case 'spray':
         onNamedEvent(host, msg);
         return;
-      /* ── 2026-09-13: 땅굴벌레 (sandworm/Director) ── */
+      /* ── 2026-09-13: the sandworm (sandworm/Director) ── */
       case 'wormWarn':
       case 'wormErupt':
       case 'wormSpit':
@@ -514,7 +514,7 @@ export class EnemyReplica {
       // Phase 10: a body killed in the air falls here too — the host stops sending it after 1.5 s, so the replica
       // runs the same deterministic fall (`integrateDeathFall`) instead of freezing the corpse mid-air.
       if (e.state === 'dead') { e.deathTimer += dt; integrateDeathFall(e, dt, world); continue; }
-      // 2026-09-13: 땅굴벌레가 뱉은 몸은 `ee wormSpit` 의 포물선을 스스로 그린다 (착지 뒤는 스냅샷)
+      // 2026-09-13: a body the sandworm spat draws the `ee wormSpit` arc itself (snapshots take over after it lands)
       if (e.spatT > 0) { if (stepSpatFlight(e, dt, world)) this.host.burrowLanded(e); continue; }
       const buf = e.netBuf;
       if (!buf) continue;
@@ -533,7 +533,7 @@ export class EnemyReplica {
     const hint = latest.a;
     const rogue = e.isHumanoid;
 
-    // 2026-09-17: 23 = 뒤집혀 떨어지는 헌터 (공중이라 지형 스냅을 끈다) · 24 = 뒤집혀 누운 헌터 — `Enemy.animate` 가 `anim.flip` 을 입힌다
+    // 2026-09-17: 23 = a flipped hunter falling (airborne, so the terrain snap is off) · 24 = a hunter lying flipped — `Enemy.animate` applies `anim.flip`
     e.airborne = hint === 4 || hint === 23;
     e.leaping = hint === 4;
     e.flipFalling = hint === 23;
@@ -548,11 +548,11 @@ export class EnemyReplica {
       e.reloadTimer = hint === 12 ? STATUS_HOLD : 0;
       e.throwTimer = hint === 13 ? STATUS_HOLD : 0;
     }
-    // 2026-09-11: 네임드 로그 — 호스트 AI 가 쓰는 namedHint 를 리플리카에도 채우고, 자세를 입히기 전 상태를 맞춘다 (스캔 드론 = 공중).
+    // 2026-09-11: named rogues — the namedHint the host AI uses is filled on the replica too, and the state is matched before the pose is applied (a scan drone = airborne).
     if (isNamedAiType(e.type)) { e.namedHint = hint; beforeNamedReplica(e, hint); }
     e.position.set(_pose.x, _pose.y, _pose.z);
-    // 2026-09-11 (C-18): 전차에 탄 적은 보간 지연만큼 전차를 따라 앞당긴다 (`ai/Ride.replicaRidePredict`). 보간 자리는
-    // renderT(추정은 최대 MAX_EXTRAPOLATE 까지)의 호스트 자리이고 전차는 **지금** 자리이므로, 그 사이 시간이 lag 다.
+    // 2026-09-11 (C-18): an enemy riding the tram is advanced along with it by the interpolation delay (`ai/Ride.replicaRidePredict`). The
+    // interpolated spot is the host's spot at renderT (extrapolated at most MAX_EXTRAPOLATE) while the tram is at its **current** spot — that gap is lag.
     let rideVel: THREE.Vector3 | null = null;
     if (!e.airborne) {
       const lag = Math.max(0, this.host.ctx.time - Math.min(renderT, latest.t + MAX_EXTRAPOLATE));
@@ -578,14 +578,14 @@ export class EnemyReplica {
     const spd = dt > 0 ? moved / dt : 0;
     const targetAnimSpeed = e.airborne ? 0.2 : Math.min(1, spd / Math.max(1, s.speed * 0.8));
     a.speed += (targetAnimSpeed - a.speed) * Math.min(1, dt * 8);
-    // 2026-09-11 (C-23 · X-3): 비호스트도 적 발소리를 듣는다 — 보간된 이동량으로 권위와 같은 보폭 누적 · 방출.
-    // 한 프레임에 몇 m 씩 튀는 것(첫 스냅샷 · 순간이동)은 걸음이 아니다.
+    // 2026-09-11 (C-23 · X-3): non-hosts hear enemy footsteps too — the same stride accumulation and emission as the authority, from the interpolated movement.
+    // A jump of several metres in one frame (the first snapshot · a teleport) is not a step.
     if (s.stepSound && !e.airborne && moved < 2) footfall(e, this.host.ctx, this.host.targets, moved);
 
     // animation targets from state + hint (mirrors what the host AI would be setting)
     let shakeT = 0, abdT = 0, crouchT = 0, mandT = e.aware ? 0.25 : 0, pitchT: number | null = null;
     let aimT = rogue && e.aware ? 0.5 : 0;
-    let braceT = 0;   // 2026-09-17: 포병 발사 자세 (힌트 25)
+    let braceT = 0;   // 2026-09-17: the artillery firing pose (hint 25)
     switch (latest.st) {
       case 'alert': crouchT = rogue ? 0 : 0.25; mandT = 0.7; if (rogue) aimT = 0.8; break;
       case 'attack': mandT = 1; break;
@@ -601,13 +601,13 @@ export class EnemyReplica {
       case 6: aimT = 0.35; crouchT = 1; break;
       case 7: aimT = 1; crouchT = 0; break;
       case 8: crouchT = 0.8; mandT = 0.4; break;
-      case 25: crouchT = 0.8; mandT = 0.4; braceT = 1; break;   // 2026-09-17: 포병 발사 자세 (납작 엎드림)
+      case 25: crouchT = 0.8; mandT = 0.4; braceT = 1; break;   // 2026-09-17: the artillery firing pose (braced flat)
       case 9: abdT = 1; crouchT = 0.25; mandT = 1; break;
       case 10: shakeT = 1; crouchT = a.shake * 0.3; mandT = 1; break;
       case 11: mandT = 1; pitchT = -0.2; break;
       case 12: aimT = 0.25; crouchT = 1; break;          // Phase 7: reloading
       case 13: aimT = 0.2; crouchT = 0; break;           // Phase 7: grenade wind-up
-      case 23: case 24: crouchT = 0; mandT = Math.abs(Math.sin(a.time * 5)); pitchT = 0.3; break;   // 2026-09-17: 헌터 뒤집힘 (`ai/HunterFlip` 과 같은 입)
+      case 23: case 24: crouchT = 0; mandT = Math.abs(Math.sin(a.time * 5)); pitchT = 0.3; break;   // 2026-09-17: the hunter flip (the same mouth as `ai/HunterFlip`)
       default: break;
     }
     a.shake += (shakeT - a.shake) * Math.min(1, dt * (shakeT > 0 ? 2.5 : 4));
@@ -617,7 +617,7 @@ export class EnemyReplica {
     a.mandible += (mandT - a.mandible) * Math.min(1, dt * 10);
     a.aim += (aimT - a.aim) * Math.min(1, dt * (aimT > a.aim ? 7 : 3));
     if (isNamedAiType(e.type)) afterNamedReplica(e, hint, dt, this.host);
-    if (isWormType(e.type)) applyWormHint(e, hint, dt);   // 2026-09-13: 입 벌림 · 꿀렁임 · 숙임 (호스트와 같은 함수)
+    if (isWormType(e.type)) applyWormHint(e, hint, dt);   // 2026-09-13: mouth opening · throb · bow (the same function as the host)
 
     // head: track the nearest player while aware, idle sway otherwise
     const look = e.aware && hint !== 2 && hint !== 11 && hint !== 23 && hint !== 24 ?this.host.targets.nearestAlive(e.position) : null;
@@ -632,7 +632,7 @@ export class EnemyReplica {
   }
 
   /**
-   * Mirror the host's status bits (`EnemyWire.sb`) into the local visual timers: burning embers, the 전소 writhe and
+   * Mirror the host's status bits (`EnemyWire.sb`) into the local visual timers: burning embers, the incinerated writhe and
    * the shock spark all run from the same fields the authority uses, so `EnemySystem.updateStatuses` / `Enemy.animate`
    * render them unchanged. A bit that rises while the local timer is idle also emits the matching bus event
    * (`enemy:incinerated` / `enemy:shocked`) — an optimistic local `applyStatus` already set the timer, so no double emit.

@@ -1,18 +1,18 @@
 import * as THREE from 'three';
 import {
   ENEMY_BIG_RADIUS, ENEMY_SPAWN_BLOCK_RATIO, ENEMY_SPAWN_CLEARANCE_MUL, ENEMY_SPAWN_RETRIES,
-  /* appended (2026-09-13): 굴착 스폰 */
+  /* appended (2026-09-13): burrow spawns */
   BURROW_EMERGE_S,
   type EnemyType, type GameContext, type PlanetEcosystem, type WorldRef,
 } from '@/shared';
 import type { Enemy } from './Enemy';
 import { ARTILLERY_AI, ENEMY_STATS } from './EnemyTypes';
 import type { TargetList } from './Targets';
-/* appended (2026-09-14): 벌레 난이도 (행성 threat) */
+/* appended (2026-09-14): bug difficulty (planet threat) */
 import { bugThreatTuning, type BugThreatTuning } from './factionTables';
-/* appended (2026-09-18): 벌레 둥지 — 레이드 시작 수비대 배수 (사용자 결정 「초기 수 절반」) */
+/* appended (2026-09-18): bug nests — the raid-start garrison multiplier (user's decision 「초기 수 절반」) */
 import { NEST_INITIAL_GARRISON_MUL } from './factionTables';
-/* appended (2026-09-17): 포병 호위 */
+/* appended (2026-09-17): the artillery escort */
 import { spawnArtilleryEscort } from './ai/ArtilleryPack';
 
 /** Spawn services provided by EnemySystem to the spawner / wave director. */
@@ -23,12 +23,12 @@ export interface SpawnHost {
   aliveCount(): number;
   /** Make room for `n` more bugs (despawns corpses first, then far idle bugs). Returns how many may be spawned. */
   ensureCapacity(n: number, cap: number): number;
-  /** `emerge` (2026-09-13) > 0 = 땅을 파고 올라온다 (그 초 동안 공격 · 이동 없음, `ee spawn.em`). 생략 = 그 자리에 바로 선다. */
+  /** `emerge` (2026-09-13) > 0 = it burrows up out of the ground (no attack · move for those seconds, `ee spawn.em`). Omitted = it stands right there. */
   spawn(type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean, emerge?: number): Enemy | null;
   /** Living (not dead — 2026-09-17: incapacitated and fleeing bodies count too) enemies of one type — per-type caps (artillery, behemoth). */
   countAlive(type: EnemyType): number;
   /**
-   * appended (2026-09-18, 벌레 둥지): every active body. `NestDirector` claims the bodies a group just spawned by
+   * appended (2026-09-18, bug nests): every active body. `NestDirector` claims the bodies a group just spawned by
    * remembering `active.length` before the call and walking the tail — `spawnGroup` only appends.
    */
   readonly active: readonly Enemy[];
@@ -42,7 +42,7 @@ export interface SpawnHost {
 export const MAX_ARTILLERY = 2;
 export const MAX_BEHEMOTH = 1;
 
-/* ══ Phase 11: 행성 생태계 (`PlanetEcosystem`) ═══════════════════════════════════════════════════════════════════
+/* ══ Phase 11: the planet ecosystem (`PlanetEcosystem`) ══════════════════════════════════════════════════════════
  * The ecosystem is a **re-weighting of existing content**: it never adds a type and never opens a threat gate.
  * Group composition keeps the exact ladder it had (the same rolls, the same probabilities, the same
  * `threat > x` / `index >= n` gates, so the difficulty curve is unchanged) — what changed is that each *slot* now
@@ -96,8 +96,8 @@ export function ecoAllows(eco: PlanetEcosystem | null, t: EnemyType): boolean {
 }
 
 /**
- * 2026-09-13 (땅굴벌레 · 분출 무리): `from` 중 이 행성에 사는 종류 하나를 행성 가중치로 뽑는다. `eco` 가 null(행성 없음)이면
- * `fallback` 가중치(같은 순서)로 뽑는다. 뽑을 게 없으면 null. 구성은 늘 그랬듯 시드 없는 `Math.random()` 이다.
+ * 2026-09-13 (the sandworm · the eruption pack): draws one type of `from` that lives on this planet by the planet's weights.
+ * `eco` null (no planet) draws by the `fallback` weights (same order); nothing to draw = null. Composition is unseeded `Math.random()`, as always.
  */
 export function pickEcoType(eco: PlanetEcosystem | null, from: readonly EnemyType[], fallback: readonly number[]): EnemyType | null {
   if (eco) return weightedPick(eco, from, () => true);
@@ -122,25 +122,25 @@ export function maxBehemothOf(eco: PlanetEcosystem | null): number {
   return Math.max(0, Math.round(eco.maxBehemoth));
 }
 
-/* ══ 2026-09-14: 벌레 난이도 — 행성 threat 가 구성에 얹는 것 ═══════════════════════════════════════════════════════
- * 한 곳에서만 들어간다: `EnemySystem` 의 `world:ready` 가 `threatEcosystem(행성 eco, bugThreatTuning(threat))` 로 **실효 생태계**를 만들어
- * 순찰(`AmbientSpawner.eco`) · 웨이브(`WaveDirector.eco`) · 땅굴벌레 뱉기/분출(`SandwormDirector`)에 넘긴다. 그래서 가중치를 읽는
- * 모든 경로(`weightedPick` · `pickEcoType` · `maxArtilleryOf` · `maxBehemothOf`)가 한 줄도 안 바뀌고 같은 배수를 본다.
- * 가중치만으로는 부족한 두 곳은 따로 받는다: 대형 슬롯은 차저 · 베헤모스 **둘 다** 배수를 받아 슬롯 안 비율이 그대로라,
- * 순찰의 대형 슬롯 확률 자체에 `bigMul` 을 곱한다(`AmbientOpts.heavyMul`) · 포병은 무리에 들지 않으므로 굴착 확률에 곱한다.
- * threat 1 칸(× 1 · + 0 · 베헤모스 없음)이면 모든 굴림 · 확률 · 상한이 예전과 비트 동일하다 — 행성 없음 · 훈련장이 그 칸이다.
+/* ══ 2026-09-14: bug difficulty — what the planet threat lays on composition ═══════════════════════════════════════
+ * It enters in one place only: `EnemySystem`'s `world:ready` makes the **effective ecosystem** with `threatEcosystem(planet eco,
+ * bugThreatTuning(threat))` and hands it to patrols (`AmbientSpawner.eco`) · waves (`WaveDirector.eco`) · the sandworm's spit /
+ * eruption (`SandwormDirector`). So every path that reads a weight (`weightedPick` · `pickEcoType` · `maxArtilleryOf` ·
+ * `maxBehemothOf`) sees the same multipliers with not one line changed. Two places weights alone cannot reach take it separately:
+ * the heavy slot scales charger **and** behemoth alike, so the ratio inside the slot stays, and `bigMul` multiplies the patrol's
+ * heavy-slot chance itself (`AmbientOpts.heavyMul`) · artillery joins no group, so it multiplies the dig-in chance instead.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/** 대형 벌레 — `BIG_BUG_WEIGHT_MUL_BY_THREAT` 를 받는다. */
+/** Heavy bugs — they take `BIG_BUG_WEIGHT_MUL_BY_THREAT`. */
 export const BIG_BUG_TYPES: readonly EnemyType[] = ['charger', 'behemoth', 'artillery'];
-/** 중형 중 무거운 쪽 — `MID_BUG_WEIGHT_MUL_BY_THREAT` 를 받는다 (헌터는 받지 않는다). */
+/** The heavier half of the mediums — they take `MID_BUG_WEIGHT_MUL_BY_THREAT` (the hunter does not). */
 export const MID_BUG_TYPES: readonly EnemyType[] = ['warrior', 'spewer'];
 
-/** 순찰 구성에 행성 threat 가 얹는 것 (`ambientGroup` 의 세 번째 인자). */
+/** What the planet threat lays on a patrol's composition (`ambientGroup`'s third argument). */
 export interface AmbientOpts {
-  /** 대형(heavy) 슬롯 확률 배수. */
+  /** The multiplier on the heavy slot's chance. */
   readonly heavyMul: number;
-  /** true = 대형 슬롯의 베헤모스 게이트가 열린다 (차저와 같은 `threat > 0.5`). */
+  /** true = the behemoth gate of the heavy slot opens (`threat > 0.5`, the same as the charger). */
   readonly behemoth: boolean;
 }
 const PLAIN_AMBIENT: AmbientOpts = { heavyMul: 1, behemoth: false };
@@ -151,8 +151,8 @@ export function ambientOptsOf(tuning: BugThreatTuning | null): AmbientOpts {
 }
 
 /**
- * 행성 생태계 × 난이도 → 실효 생태계 (새 객체, `eco` 는 건드리지 않는다). 가중치가 있는 대형 · 중형 벌레만 곱하고(없는 종류는
- * 여전히 없다 — 배수 0 이면 그 종류가 빠진다), 포병 · 베헤모스 상한에 보너스를 더한다. `eco` null(행성 없음) → null.
+ * Planet ecosystem × difficulty → the effective ecosystem (a new object, `eco` is left alone). Only heavy · medium bugs that have
+ * a weight are multiplied (a missing type stays missing — multiplier 0 drops it), and the artillery · behemoth caps get a bonus. `eco` null (no planet) → null.
  */
 export function threatEcosystem(eco: PlanetEcosystem | null, tuning: BugThreatTuning): PlanetEcosystem | null {
   if (!eco) return null;
@@ -173,13 +173,13 @@ export function threatEcosystem(eco: PlanetEcosystem | null, tuning: BugThreatTu
   };
 }
 
-/** 순찰 틱 한 번에 포병이 굴착을 시도할 확률 (ramp threat 0..1, `bigMul` = 행성 threat 배수, 1 을 넘지 않는다). */
+/** The chance artillery tries to dig in on one patrol tick (ramp threat 0..1, `bigMul` = the planet threat multiplier, never over 1). */
 export function artilleryDigInChance(threat: number, bigMul = 1): number {
   if (threat < 0.5) return 0;
   return Math.min(1, (0.35 + (threat - 0.5) * 0.6) * Math.max(0, bigMul));
 }
 
-/** 순찰에 든 베헤모스 중 상한(`maxBehemothOf`)을 넘는 것은 차저로 (행성에 차저가 없으면 전사 — `WaveDirector` 와 같은 대체). */
+/** A behemoth in a patrol past the cap (`maxBehemothOf`) becomes a charger (a warrior when the planet has no charger — the same swap as `WaveDirector`). */
 function capPatrolBehemoths(host: SpawnHost, types: readonly EnemyType[], eco: PlanetEcosystem | null): readonly EnemyType[] {
   if (!types.includes('behemoth')) return types;
   const cap = maxBehemothOf(eco);
@@ -253,7 +253,7 @@ export function isVisibleToAnyPlayer(host: SpawnHost, point: THREE.Vector3): boo
 }
 
 /**
- * 2026-09-18 (벌레 둥지): index of the nest `findSpawnCenter` last landed on, or -1. **Valid only right after a call that
+ * 2026-09-18 (bug nests): index of the nest `findSpawnCenter` last landed on, or -1. **Valid only right after a call that
  * returned true** — `NestDirector` reads it to bind that group to its nest. It is an index into the `nests` argument
  * (the pad anchors), or into `WorldRef.getNestPositions()` when no anchors were passed (then nobody reads it).
  */
@@ -323,12 +323,12 @@ export function findSpawnCenter(host: SpawnHost, around: THREE.Vector3, minDist:
   return false;
 }
 
-/* ══ 2026-09-09: 덩치 큰 적의 스폰 자리 ═══════════════════════════════════════════════════════════════════
- * 반경 `ENEMY_BIG_RADIUS` 이상인 종(스퓨어 · 포병 · 차저 · 베헤모스 · 로그 보스)은 바위와 첨탑이 오밀조밀한
- * 자리에 떨어지면 자기 몸으로 낀 채 못 움직였다. 스폰 지점마다 `WorldRef.obstacleCoverage` 로 자기 반경의
- * `ENEMY_SPAWN_CLEARANCE_MUL` 배 원을 재고, 점유율이 `ENEMY_SPAWN_BLOCK_RATIO` 를 넘으면 그 자리를 버리고
- * 최대 `ENEMY_SPAWN_RETRIES` 번 다시 뽑는다. **끝내 실패하면 그 한 마리를 건너뛴다** — 작은 종으로 바꾸지
- * 않는다(구성표는 밸런스의 원본이고, 여기서 몰래 바꾸면 웨이브 난이도가 조용히 달라진다).
+/* ══ 2026-09-09: the spawn spot of a big enemy ════════════════════════════════════════════════════════════
+ * A type whose radius is `ENEMY_BIG_RADIUS` or more (spewer · artillery · charger · behemoth · rogue boss) used to sit
+ * wedged by its own body when it landed in a spot dense with rocks and spires. Every spawn point measures a circle
+ * `ENEMY_SPAWN_CLEARANCE_MUL` × its own radius with `WorldRef.obstacleCoverage`, and a coverage over
+ * `ENEMY_SPAWN_BLOCK_RATIO` drops the spot and re-rolls up to `ENEMY_SPAWN_RETRIES` times. **Failing in the end skips
+ * that one body** — never a smaller type (the composition table is the balance source; changing it quietly here shifts wave difficulty).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /** true when `type` is big enough that a cluttered spot would trap it. */
@@ -364,7 +364,7 @@ function placeMember(world: WorldRef, type: EnemyType, center: THREE.Vector3, i:
 }
 
 /** Spawn a group scattered around `center`. Returns spawned count. */
-/** `emerge` (2026-09-13): 무리 전원이 그 초 동안 땅을 파고 올라온다 (0 = 그 자리에 바로 선다 — 월드 생성 때의 첫 배치). */
+/** `emerge` (2026-09-13): the whole group burrows up out of the ground for those seconds (0 = it stands right there — the first placement at world generation). */
 export function spawnGroup(host: SpawnHost, types: readonly EnemyType[], center: THREE.Vector3, chase: boolean, relentless: boolean, faceTarget?: THREE.Vector3, emerge = 0): number {
   const world = host.ctx.world;
   if (!world) return 0;
@@ -386,7 +386,7 @@ const groupBuf: EnemyType[] = [];
  */
 export function ambientGroup(threat: number, eco: PlanetEcosystem | null = null, opts: AmbientOpts = PLAIN_AMBIENT): readonly EnemyType[] {
   groupBuf.length = 0;
-  // 2026-09-14: `opts.behemoth` (행성 threat 표) 가 켜지면 베헤모스는 차저와 같은 게이트로 대형 슬롯에 든다. 그 밖에는 예전처럼 닫혀 있다.
+  // 2026-09-14: with `opts.behemoth` (the planet threat table) on, the behemoth enters the heavy slot on the charger's gate. Otherwise it stays closed as before.
   const open: Gate = (t) => (t === 'behemoth' && opts.behemoth ? threat > 0.5 : (AMBIENT_GATE[t] ?? (() => false))(threat));
   const slot = (tier: readonly EnemyType[], def: EnemyType, widen = false): void => {
     const t = slotType(eco, tier, def, open, widen);
@@ -398,7 +398,7 @@ export function ambientGroup(threat: number, eco: PlanetEcosystem | null = null,
   if (Math.random() < threat * 0.5) slot(TIER_MEDIUM, 'hunter');
   if (threat > 0.25 && Math.random() < threat * 0.55) slot(TIER_MEDIUM, 'warrior');
   if (threat > 0.3 && Math.random() < threat * 0.4) slot(TIER_MEDIUM, 'spewer');
-  if (threat > 0.5 && Math.random() < (threat - 0.5) * 0.4 * opts.heavyMul) slot(TIER_HEAVY, 'charger');   // 2026-09-14: × 행성 threat 대형 배수
+  if (threat > 0.5 && Math.random() < (threat - 0.5) * 0.4 * opts.heavyMul) slot(TIER_HEAVY, 'charger');   // 2026-09-14: × the planet threat heavy multiplier
   // Phase 4: suicide runners from threat 0.4 (artillery is placed separately, 80–120 m out)
   if (threat >= 0.4 && Math.random() < threat * 0.6) slot(TIER_RUNNER, 'toxic');
   if (threat >= 0.6 && Math.random() < (threat - 0.4) * 0.5) slot(TIER_RUNNER, 'toxic');
@@ -444,13 +444,13 @@ export function waveGroup(index: number, count: number, eco: PlanetEcosystem | n
 export class AmbientSpawner {
   threat = 0.35;
   /**
-   * Phase 11: ecosystem of the 목표 행성 (set by `EnemySystem` at `world:ready`, null = no planet → the old numbers).
+   * Phase 11: ecosystem of the target planet (set by `EnemySystem` at `world:ready`, null = no planet → the old numbers).
    * Scales the population cap (`eco.pressure`), the artillery ceiling and every group's composition.
    */
   eco: PlanetEcosystem | null = null;
   /**
-   * 2026-09-14: 벌레 난이도 (행성 threat, `EnemySystem` 이 `world:ready` 에서 `eco` 와 함께 넣는다 — 그때 `eco` 는 이미 실효 생태계다).
-   * 여기서 읽는 것은 가중치로 표현되지 않는 둘뿐이다: 대형 슬롯 확률 · 순찰 베헤모스(`ambientOptsOf`) · 포병 굴착 확률(`bigMul`).
+   * 2026-09-14: bug difficulty (planet threat; `EnemySystem` puts it in at `world:ready` together with `eco` — by then `eco` is already the effective ecosystem).
+   * Only the two things weights cannot express are read here: the heavy-slot chance · patrol behemoths (`ambientOptsOf`) · the artillery dig-in chance (`bigMul`).
    */
   tuning: BugThreatTuning = bugThreatTuning(1);
   private timer = 6;
@@ -466,7 +466,7 @@ export class AmbientSpawner {
   /**
    * Seed the map with a few idle patrols far from the players right after world:ready.
    *
-   * 2026-09-18 (사용자 결정 「초기 수 절반」): the group count is × `NEST_INITIAL_GARRISON_MUL` (0.5). The multiplier scales
+   * 2026-09-18 (user's decision 「초기 수 절반」): the group count is × `NEST_INITIAL_GARRISON_MUL` (0.5). The multiplier scales
    * **how many groups**, never a group's composition — a group is the balance table and slicing it from the front would
    * quietly drop the heavies (`ambientGroup` pushes fillers first). At least one group still goes down.
    *
@@ -508,8 +508,8 @@ export class AmbientSpawner {
     if (!findSpawnCenter(host, around.position, 60, 140, true, 30, this.center)) return;
     // patrols that spawn because pressure is high come in already hunting
     const hunting = Math.random() < this.threat * 0.5;
-    // 2026-09-13: 레이드 중에 오는 순찰은 땅을 파고 올라온다 (첫 배치 `initialPopulate` 는 그대로 서 있다)
-    // 2026-09-14: 순찰 베헤모스(행성 threat 표)는 상한을 넘으면 차저로
+    // 2026-09-13: a patrol arriving mid-raid burrows up out of the ground (the first placement `initialPopulate` just stands there)
+    // 2026-09-14: a patrol behemoth (the planet threat table) becomes a charger past the cap
     spawnGroup(host, capPatrolBehemoths(host, types.slice(0, allowed), this.eco), this.center, hunting, false, hunting ? around.position : undefined, BURROW_EMERGE_S);
     this.maybeArtillery(host, around.position);
   }
@@ -520,7 +520,7 @@ export class AmbientSpawner {
    * Phase 11: the ceiling is `eco.maxArtillery` and a planet whose `eco.bugs` has no artillery never digs one in.
    */
   private maybeArtillery(host: SpawnHost, around: THREE.Vector3): void {
-    // 2026-09-14: 확률 × 행성 threat 대형 배수 (`artilleryDigInChance`, threat 1 칸 = 예전 식 그대로)
+    // 2026-09-14: chance × the planet threat heavy multiplier (`artilleryDigInChance`, the threat-1 row = the old formula verbatim)
     if (this.threat < 0.5 || Math.random() > artilleryDigInChance(this.threat, this.tuning.bigMul)) return;
     if (!ecoAllows(this.eco, 'artillery')) return;
     if (host.countAlive('artillery') >= maxArtilleryOf(this.eco)) return;
@@ -533,8 +533,8 @@ export class AmbientSpawner {
       if (!findSpawnCenter(host, around, ARTILLERY_AI.spawnMin, ARTILLERY_AI.spawnMax, false, 60, this.center)) return;
       if (spawnBlocked(world, 'artillery', this.center.x, this.center.z)) continue;
       const yaw = Math.atan2(around.x - this.center.x, around.z - this.center.z);
-      const arty = host.spawn('artillery', this.center, yaw, true, false, BURROW_EMERGE_S);   // 2026-09-13: 파고 나와 자리를 잡는다
-      // 2026-09-17 (사용자 결정): 스캐빈저 호위 `escortMin`–`escortMax` 마리가 함께 파고 나와 포병 곁을 지킨다 (`ai/ArtilleryPack`)
+      const arty = host.spawn('artillery', this.center, yaw, true, false, BURROW_EMERGE_S);   // 2026-09-13: it digs out and settles into place
+      // 2026-09-17 (user's decision): `escortMin`–`escortMax` scavenger escorts dig out with it and guard the artillery (`ai/ArtilleryPack`)
       if (arty) spawnArtilleryEscort(host, arty);
       return;
     }

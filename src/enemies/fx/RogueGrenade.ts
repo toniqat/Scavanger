@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {
   GRAVITY, Layers, ROGUE_GRENADE_RADIUS, breakFragileAlong,
   type EnemyFaction, type EnemyGrenadeKind, type GameContext, type GrenadeView,
-  /* appended (2026-09-15, B-16): 화염 지대 질의 · 소리 */
+  /* appended (2026-09-15, B-16): fire zone queries · sound */
   FIRE_ZONE_CRACKLE_S, type FireZoneInfo,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
@@ -129,7 +129,7 @@ function makeGlowTexture(): THREE.Texture {
 
 export class RogueGrenades {
   private readonly items: Grenade[] = [];
-  /* HUD 위험 인디케이터용 view (풀 몸체당 하나 재사용) — `getViews()` 참고. */
+  /* Views for the HUD danger indicators (one reused per pooled body) — see `getViews()`. */
   private readonly views: ({ position: THREE.Vector3; fuse: number; remote: boolean } | undefined)[] = [];
   private readonly viewList: GrenadeView[] = [];
   private readonly geo = new THREE.SphereGeometry(VISUAL_RADIUS, 10, 8);
@@ -206,10 +206,10 @@ export class RogueGrenades {
   }
 
   /**
-   * 2026-09-10: HUD 위험 인디케이터가 읽는 목록 (`EnemyManagerRef.getEnemyGrenades()`). 아군 수류탄의
-   * `weapons/Grenade.getViews()` 와 **같은 모양 · 같은 규약**이다 — 풀 몸체 하나당 view 객체 하나를 재사용하고
-   * `position` 은 살아 있는 동안 같은 `Vector3` 인스턴스(`mesh.position`)다. `remote` 는 이 클라이언트에
-   * 권한이 없는 복제본이라는 뜻으로 쓴다 (`!authority`).
+   * 2026-09-10: the list the HUD danger indicators read (`EnemyManagerRef.getEnemyGrenades()`). It is **the same shape ·
+   * the same contract** as the friendly grenades' `weapons/Grenade.getViews()` — one view object reused per pooled body,
+   * and `position` is the same `Vector3` instance (`mesh.position`) for as long as the body lives. `remote` means a
+   * replica this client has no authority over (`!authority`).
    */
   getViews(): readonly GrenadeView[] {
     this.viewList.length = 0;
@@ -224,14 +224,14 @@ export class RogueGrenades {
     return this.viewList;
   }
 
-  /* 2026-09-15 (B-16): `getFireZones()` 의 재사용 목록 · 불이 붙을 때마다 느는 id 번호 (풀 칸이 재활용돼도 새 지대는 새 id). */
+  /* 2026-09-15 (B-16): `getFireZones()`'s reused list · an id counter that rises with every fire lit (a recycled pool slot still gets a new id for a new zone). */
   private readonly zoneList: FireZoneInfo[] = [];
   private zoneSerial = 0;
 
   /**
-   * 2026-09-15 (B-16): 살아 있는 화염 지대 (`EnemyManagerRef.getFireZones`) — 권위 지대와 리플리카의 시각 지대 둘 다.
-   * HUD 가 매 프레임 부르므로 목록 배열 · 칸별 view 객체를 재사용한다 (`getViews` 와 같은 규약). `position` 은 바닥 위 지대 중심이고
-   * 지대가 사는 동안 같은 `Vector3` 인스턴스, `remaining` 은 남은 초, `hostile` 은 늘 true (적이 만든 불).
+   * 2026-09-15 (B-16): the live fire zones (`EnemyManagerRef.getFireZones`) — the authority's zones and a replica's visual zones alike.
+   * The HUD calls it every frame, so the list array · the per-slot view objects are reused (the same contract as `getViews`). `position` is the zone centre on the ground
+   * and the same `Vector3` instance for as long as the zone lives, `remaining` is the seconds left, and `hostile` is always true (a fire an enemy made).
    */
   getFireZones(): readonly FireZoneInfo[] {
     this.zoneList.length = 0;
@@ -285,7 +285,7 @@ export class RogueGrenades {
       const len = _d.length();
       if (len > 1e-4) {
         _d.multiplyScalar(1 / len);
-        // 2026-09-11: 창문 유리는 튕기지 않고 깨고 지나간다 (깨진 창틀은 레이가 무시한다)
+        // 2026-09-11: window glass is broken through, not bounced off (the ray ignores a broken frame)
         breakFragileAlong(world, g.prev, p);
         const wh = world.raycast(g.prev, _d, len + VISUAL_RADIUS);
         if (wh) { p.copy(wh.point).addScaledVector(wh.normal, VISUAL_RADIUS); _n.copy(wh.normal); hit = true; }
