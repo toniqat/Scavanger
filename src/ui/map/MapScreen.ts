@@ -419,7 +419,8 @@ export class MapScreen {
       }),
       b.on('input:bindingsChanged', () => { if (this._open) this.emitGuide(); }),
       // 2026-09-14 (튜토리얼): 단계가 넘어가면 함선 범례 줄이 붙거나 떨어진다 (지도 캔버스는 프레임마다 스스로 본다)
-      b.on('tutorial:changed', () => { if (this._open) this.refreshLegend(); }),
+      // 2026-09-18: 좌측 열 맨 위의 튜토리얼 목표 패널도 그 자리에서 다시 짓는다 (폴링을 기다리면 반 박자 늦는다)
+      b.on('tutorial:changed', () => { if (this._open) { this.refreshLegend(); this.quests.refresh(true); } }),
       // 2026-09-14: 퀘스트 패널 — 목표 진행 · 상태가 바뀌면 곧바로 (나머지는 `quests.tick` 의 폴링)
       b.on('npc:objectiveProgress', () => { if (this._open) this.quests.refresh(true); }),
       b.on('npc:questChanged', () => { if (this._open) this.quests.refresh(true); }),

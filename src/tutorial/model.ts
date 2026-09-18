@@ -1,4 +1,5 @@
 import type { KeyBindings, Stance, TutorialGate, TutorialStepId, TutorialTrack } from '@/shared';
+import { formatCredits } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * src/tutorial/model.ts — 폴더 공용 어휘 (상수 · 타입 · 텍스트). 상태는 없다.
@@ -17,7 +18,16 @@ export const TRACK_LABEL_KO: Readonly<Record<TutorialTrack, string>> = {
   raid: '조작 안내',
   ship: '함선 안내',
   build: '증축 안내',
+  // 2026-09-18 (사용자 결정): 옛 증축 안내의 뒤 두 단계(조종석 → 출격 → 첫 레이드)가 자기 트랙이 됐다
+  raid2: '출격 안내',
 };
+
+/**
+ * **함선 안에서 시작하는 제작 · 출격 트랙 둘** (2026-09-18). 갈리기 전에는 `build` 하나였으므로 「증축 트랙 내내」로
+ * 적혀 있던 규칙은 둘 다에 걸린다 — 창고 흰 목록(`stashItem`) · 훈련장 버튼 · 출격 준비 경고 숨김이 그것이다
+ * (`parts/Gates`). 트랙 이름 하나를 비교하던 자리를 이 목록으로 바꾼다.
+ */
+export const BUILD_TRACKS: readonly TutorialTrack[] = ['build', 'raid2'];
 
 /** UI blocker token the intro / 건너뛰기 팝업 holds (the spotlight holds none — it never takes the cursor itself). */
 export const TUTORIAL_BLOCKER = 'tutorial';
@@ -516,8 +526,15 @@ const RAID_GUIDE_HINTS: readonly ControlHint[] = [
 export const CONTROLS_FOLDED_TEXT = '{GUIDE_TOGGLE} 조작 가이드 표시';
 /** 조작 가이드를 접을 수 있는 단계 (그 단계에서만 `Keys.GUIDE_TOGGLE` 을 읽는다). */
 export const FOLDABLE_CONTROL_STEPS: readonly TutorialStepId[] = ['raid'];
-/** 증축 안내 마지막 레이드에서 몸에 지닌 전리품 가치를 다시 세는 주기 (프레임) — 매 프레임 가방을 훑지 않는다. */
+/** 출격 안내 마지막 레이드에서 몸에 지닌 전리품 가치를 다시 세는 주기 (프레임) — 매 프레임 가방을 훑지 않는다. */
 export const RAID_VALUE_POLL_FRAMES = 20;
+
+/**
+ * **진행 바의 숫자 라벨** (2026-09-18, 사용자 결정) — 출격 안내의 레이드 단계는 진행 바가 「몇 번째 단계인가」가 아니라
+ * **전리품 가치**를 잰다. 바의 채움은 1 에서 잘리지만 **글자는 실제 값**을 적는다: 1,400 C 를 들고 있는 사람에게
+ * `1,000 C / 1,000 C` 라고 적으면 더 챙긴 것이 없어진 것처럼 보인다. 천 단위 · 단위 표기는 공용 한 곳(`formatCredits`)이다.
+ */
+export const creditGaugeLabel = (at: number, total: number): string => `${formatCredits(at)} / ${formatCredits(total)}`;
 
 export const TUTORIAL_CONTROL_HINTS: Readonly<Partial<Record<TutorialStepId, readonly ControlHint[]>>> = {
   // 기상 직후 이동 · 달리기 · 점프를 **한꺼번에** (2026-09-14 3차, 사용자 결정)

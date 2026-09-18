@@ -47,6 +47,32 @@
 .mq-gauge > i { display: block; height: 100%; background: var(--mq-npc, var(--c-accent)); transition: width 240ms var(--ease, ease-out); }
 .mq-panel.is-ready .mq-gauge > i { background: var(--c-success, #6ee7a8); }
 
+/* ── 튜토리얼 목표 패널 (2026-09-18, `ui/map/QuestPanels` `MapTutorialPanel`) ─────────────────────────────────
+   좌측 열 **맨 위**, 퀘스트 목록 위다. 퀘스트 패널과 같은 생김새를 그대로 쓰고(`.mq-panel` …) 색은 `--mq-npc` 를
+   정하지 않아 강조색으로 떨어진다. 목표 줄은 짧은 명사구가 아니라 문장까지 오므로 **줄바꿈을 허용**한다
+   (퀘스트 줄은 이름 한 줄이라 말줄임이 맞지만 여기서는 안내가 잘린다). */
+.mq-tut {
+  flex: none;
+  display: flex; flex-direction: column; gap: 8px;
+  padding-top: 12px; border-top: 1px solid var(--c-border);
+}
+.mq-tut[hidden] { display: none !important; }
+.mq-tut-body { display: flex; flex-direction: column; gap: 6px; }
+.mq-tut .mq-obj { align-items: flex-start; gap: 6px; }
+.mq-tut .mq-obj-l { flex: 1 1 auto; white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.35; }
+/* 달성한 줄 — 안내 패널의 취소선과 같은 뜻 (`.mq-obj.is-done` 이 흐림 · 성공색을 이미 맡는다) */
+.mq-tut .mq-obj.is-done .mq-obj-l { text-decoration: line-through; }
+/* 체크박스 — 안내 패널의 SVG 체크와 같은 자리, 여기서는 테두리 사각형 하나다 (외부 에셋 없이 CSS 로만) */
+.mq-tut-box {
+  flex: none; width: 9px; height: 9px; margin-top: 3px;
+  border: 1px solid var(--c-border-strong, rgba(255, 255, 255, 0.35));
+}
+.mq-tut .mq-obj.is-done .mq-tut-box { border-color: var(--c-success, #6ee7a8); background: var(--c-success, #6ee7a8); }
+/* 게이지 위의 숫자 — 목표를 넘겨도 실제 값이다 (`1,400 C / 1,000 C`, `tutorial/model.creditGaugeLabel`) */
+.mq-tut-n { align-self: flex-end; font-size: 11px; color: var(--c-text-dim); }
+/* 목표 줄 안의 인라인 키캡 — 줄 높이를 밀지 않게 안내 패널과 같은 크기로 */
+.mq-tut .mq-obj-l .keycap { min-width: 17px; height: 17px; padding: 0 4px; margin: 0 2px; font-size: 10px; vertical-align: middle; }
+
 /* 호버 상세 툴팁 — 지도 화면 루트에 붙고 좌측 열 오른쪽에 뜬다 (포인터를 먹지 않는다) */
 .mq-tip {
   position: fixed; z-index: 60;

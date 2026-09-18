@@ -193,7 +193,8 @@ function detonateWhere(sys: GadgetSystem, peer: PeerId | null): number {
     const mine = _mines[m];
     const c = mine.position;
 
-    for (const e of sys.enemiesNear(c, R + ENEMY_QUERY_PAD)) {
+    // 2026-09-18: 피해를 주는 자리라 벌레 알도 센다 (`includeProps` true) — 지뢰 폭발과 같은 취급이다. 표적 고르기가 아니다.
+    for (const e of sys.enemiesNear(c, R + ENEMY_QUERY_PAD, true)) {
       if (e.isDead) continue;
       // 2026-09-18 (사용자 결정): 벽 · 지붕 · 바닥 너머의 대상은 이 C4 몫을 받지 않는다 (몸 3점, 설치물은 제외 — 그 몸이 곧 콜라이더)
       if (!blastReachesBody(ctx.world, c, e.position.x, e.position.y, e.position.z, e.height)) continue;

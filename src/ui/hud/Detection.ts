@@ -182,15 +182,19 @@ export class Detection {
     const er = this.enemyRadius(ctx);
     const em = ctx.enemies;
     if (em) {
-      // `queryNear` is part of the appended contract but the enemies folder may not have it yet.
+      /* `queryNear` is part of the appended contract but the enemies folder may not have it yet.
+         2026-09-18 (벌레 알): `queryNear` already leaves props out by default, and the fallback below matches it —
+         a nest holds dozens of `bug_egg` bodies and they are **not a threat**, so they never become an arrow, a
+         chevron or a radar blip (§4.2: the danger HUD is one indicator per hazard, and an egg is not a hazard).
+         The player still sees the eggs themselves: they are ordinary world geometry with a body. */
       const qn = (em as { queryNear?: (p: THREE.Vector3, radius: number) => EnemyRef[] }).queryNear;
       const near = typeof qn === 'function' ? qn.call(em, from, er) : null;
       if (near) {
-        for (const e of near) { if (!e.isDead) { this.enemies.push(e); this.enemyIds.add(e.id); } }
+        for (const e of near) { if (!e.isDead && !e.isEgg) { this.enemies.push(e); this.enemyIds.add(e.id); } }
       } else {
         const er2 = er * er;
         for (const e of em.getEnemies()) {
-          if (e.isDead) continue;
+          if (e.isDead || e.isEgg) continue;
           const dx = e.position.x - from.x, dz = e.position.z - from.z;
           if (dx * dx + dz * dz <= er2) { this.enemies.push(e); this.enemyIds.add(e.id); }
         }

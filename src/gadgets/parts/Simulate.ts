@@ -148,7 +148,10 @@ export function updateFireZone(sys: GadgetSystem, d: Deployable, dt: number, ctx
   if (d.tickTimer > 0) return;
   d.tickTimer = ZONE_TICK;
   const enemies = ctx.enemies;
-  for (const e of sys.enemiesNear(d.position, d.radius)) {
+  /* 2026-09-18: 여기는 **피해를 주는** 자리라 벌레 알도 센다 (`includeProps` true).
+   * `enemiesNear` 의 기본값이 알을 빼는 것은 「표적을 고르거나 위험을 묻는」 질문 때문이고, 불에 타는 것은 그 질문이 아니다 —
+   * 지뢰 폭발(`applyAreaDamage`)이 이미 알을 부수므로, 여기서 빼면 같은 알이 폭발에는 깨지고 불에는 안 깨진다. */
+  for (const e of sys.enemiesNear(d.position, d.radius, true)) {
     if (e.isDead) continue;
     // Phase 9: the fire's owner gets the burn kill credit (`enemy:killed.by`)
     if (enemies && typeof enemies.applyStatus === 'function') enemies.applyStatus(e.id, 'burning', GADGET_INCENDIARY_DPS, ZONE_TICK * 2.4, d.owner);

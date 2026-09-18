@@ -10,6 +10,8 @@ import { ARTILLERY_AI, ENEMY_STATS } from './EnemyTypes';
 import type { TargetList } from './Targets';
 /* appended (2026-09-14): 벌레 난이도 (행성 threat) */
 import { bugThreatTuning, type BugThreatTuning } from './factionTables';
+/* appended (2026-09-18): 벌레 둥지 — 레이드 시작 수비대 배수 (사용자 결정 「초기 수 절반」) */
+import { NEST_INITIAL_GARRISON_MUL } from './factionTables';
 /* appended (2026-09-17): 포병 호위 */
 import { spawnArtilleryEscort } from './ai/ArtilleryPack';
 
@@ -25,6 +27,11 @@ export interface SpawnHost {
   spawn(type: EnemyType, position: THREE.Vector3, yaw: number, chase: boolean, relentless: boolean, emerge?: number): Enemy | null;
   /** Living (not dead — 2026-09-17: incapacitated and fleeing bodies count too) enemies of one type — per-type caps (artillery, behemoth). */
   countAlive(type: EnemyType): number;
+  /**
+   * appended (2026-09-18, 벌레 둥지): every active body. `NestDirector` claims the bodies a group just spawned by
+   * remembering `active.length` before the call and walking the tail — `spawnGroup` only appends.
+   */
+  readonly active: readonly Enemy[];
 }
 
 /**
@@ -246,11 +253,25 @@ export function isVisibleToAnyPlayer(host: SpawnHost, point: THREE.Vector3): boo
 }
 
 /**
+ * 2026-09-18 (벌레 둥지): index of the nest `findSpawnCenter` last landed on, or -1. **Valid only right after a call that
+ * returned true** — `NestDirector` reads it to bind that group to its nest. It is an index into the `nests` argument
+ * (the pad anchors), or into `WorldRef.getNestPositions()` when no anchors were passed (then nobody reads it).
+ */
+let lastNest = -1;
+export function lastSpawnCenterNest(): number { return lastNest; }
+
+/**
  * Find a spawn center within [minDist, maxDist] of `around`, preferring nests, never within `minPlayerDist` of ANY
  * player or inside any player's view. Falls back to a point behind the player nearest to `around`.
  * Writes into `out`; returns false if nothing works.
+ *
+ * 2026-09-18: `nests` overrides what "a nest" means — `NestDirector` passes the **pad anchors** (one per nest a player
+ * would point at) because `WorldRef.getNestPositions()` lists 4–6 mound holes per pad and has a different index space.
+ * Omitted / empty = the old behaviour (`getNestPositions()`), which is what training, the tutorial and mid-raid
+ * patrols keep. The chosen index is reported by `lastSpawnCenterNest()`.
  */
-export function findSpawnCenter(host: SpawnHost, around: THREE.Vector3, minDist: number, maxDist: number, preferNests: boolean, minPlayerDist: number, out: THREE.Vector3): boolean {
+export function findSpawnCenter(host: SpawnHost, around: THREE.Vector3, minDist: number, maxDist: number, preferNests: boolean, minPlayerDist: number, out: THREE.Vector3, nests?: readonly THREE.Vector3[]): boolean {
+  lastNest = -1;
   const world = host.ctx.world;
   if (!world) return false;
   const targets = host.targets;
@@ -264,16 +285,17 @@ export function findSpawnCenter(host: SpawnHost, around: THREE.Vector3, minDist:
   };
 
   if (preferNests) {
-    const nests = world.getNestPositions();
+    const list = nests && nests.length > 0 ? nests : world.getNestPositions();
     // random start index so the same nest is not always chosen
-    const n = nests.length;
+    const n = list.length;
     if (n > 0) {
       const start = Math.floor(Math.random() * n);
       for (let i = 0; i < n; i++) {
-        const nest = nests[(start + i) % n];
+        const idx = (start + i) % n;
+        const nest = list[idx];
         const d = Math.hypot(nest.x - around.x, nest.z - around.z);
         if (d < minDist || d > maxDist) continue;
-        if (ok(nest)) { out.copy(nest); out.y = world.getHeightAt(out.x, out.z); return true; }
+        if (ok(nest)) { out.copy(nest); out.y = world.getHeightAt(out.x, out.z); lastNest = idx; return true; }
       }
     }
   }
@@ -441,19 +463,33 @@ export class AmbientSpawner {
   /** Phase 7 (host promotion): resume the ambient trickle mid-mission with a normal-length gap instead of the 6 s initial one. */
   resume(): void { this.timer = THREE.MathUtils.lerp(20, 10, this.threat) * (0.6 + Math.random() * 0.4); }
 
-  /** Seed the map with a few idle patrols far from the players right after world:ready. */
-  initialPopulate(host: SpawnHost, around?: THREE.Vector3): void {
+  /**
+   * Seed the map with a few idle patrols far from the players right after world:ready.
+   *
+   * 2026-09-18 (사용자 결정 「초기 수 절반」): the group count is × `NEST_INITIAL_GARRISON_MUL` (0.5). The multiplier scales
+   * **how many groups**, never a group's composition — a group is the balance table and slicing it from the front would
+   * quietly drop the heavies (`ambientGroup` pushes fillers first). At least one group still goes down.
+   *
+   * `nests` (`NestDirector.anchors`) replaces "a nest" for this pass: the pad anchors, one per nest a player would point
+   * at. A group that lands on anchor *i* becomes that nest's **garrison** — `claim` binds the bodies (`Enemy.nestOf`,
+   * 60 m leash, the refill trigger's denominator). With no anchors (training / tutorial / a world without eggs) this is
+   * exactly the old behaviour and nothing is claimed.
+   */
+  initialPopulate(host: SpawnHost, around?: THREE.Vector3, nests?: readonly THREE.Vector3[], claim?: (index: number, from: number) => void): void {
     const ctx = host.ctx;
     const world = ctx.world;
     if (!world) return;
     around = around ?? host.targets.local()?.position ?? world.getPlayerSpawn();
-    const groups = 2 + Math.round(this.threat * 3);
+    const groups = Math.max(1, Math.round((2 + Math.round(this.threat * 3)) * Math.max(0, NEST_INITIAL_GARRISON_MUL)));
     for (let g = 0; g < groups; g++) {
-      if (!findSpawnCenter(host, around, 70, 220, true, 60, this.center)) break;
+      if (!findSpawnCenter(host, around, 70, 220, true, 60, this.center, nests)) break;
+      const nest = nests && nests.length > 0 ? lastSpawnCenterNest() : -1;
       const types = ambientGroup(this.threat, this.eco, ambientOptsOf(this.tuning));
       const allowed = host.ensureCapacity(types.length, this.cap);
       if (allowed <= 0) break;
+      const from = host.active.length;   // `spawnGroup` only appends — the tail is exactly this group
       spawnGroup(host, capPatrolBehemoths(host, types.slice(0, allowed), this.eco), this.center, false, false);
+      if (nest >= 0 && claim) claim(nest, from);
     }
   }
 

@@ -92,7 +92,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | **map/** | |
 | `map/MapScreen.ts` | Tactical map (`M`): cached terrain, fog layer + edges, hazard hatch over fog, discovered landmarks, squad, pings (middle-click places), legend swatches, rover route + destination pick with 1 s hold payment |
 | `map/mapIcons.ts` | Stateless canvas marker painters shared by map and legend (`MAP_COL`, `MARKER_SCALE`, `draw*`), `MapLabels` overlap culling |
-| `map/QuestPanels.ts` | Map left column: NPC quest tracks for this raid (`ctx.meta.npc.getRaidTracks()`) + hover detail tooltip |
+| `map/QuestPanels.ts` | Map left column: the running tutorial track's objectives on top (`MapTutorialPanel` ← `ctx.tutorial.panelInfo()`), then NPC quest tracks for this raid (`ctx.meta.npc.getRaidTracks()`) + hover detail tooltip |
 | **menus/** | |
 | `menus/MenuBase.ts` | Full-screen menu base: `'menu'` blocker + cursor mode, show/hide |
 | `menus/TitleMenu.ts` | Title: wordmark + `게임 시작` / `설정` / `종료`; with a remaining raid (`ctx.raidResume.offer`) a highlighted `이어하기` above a red `게임 시작` that opens only the abandon popup; hosts character select/create, keybind notice, auto-start (waits for the raid check) |
@@ -137,7 +137,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `styles/hazard.css` | `.hz-*` (HazardHud) |
 | `styles/implant.css` | Bottom-centre row geometry `:root { --imp-th, --imp-tw, --imp-bottom, --imp-gap }`, `.imp-*` (ImplantWidget, Reticle grapple chip) |
 | `styles/loading.css` | `.ldg-*` (LoadingGauge) |
-| `styles/mapquests.css` | `.mq-*` (QuestPanels) |
+| `styles/mapquests.css` | `.mq-*` (QuestPanels — quest panels, tooltip and the tutorial objective panel `.mq-tut*`) |
 | `styles/messenger.css` | `.ms-*` (Messenger) |
 | `styles/music.css` | `.mus-*` (MusicPlayer) |
 | `styles/named.css` | `.ns-*` (NamedScanWarning) |
@@ -268,6 +268,9 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 
 - Screens pair `ctx.uiBlockers.add(token)` + `ctx.input.setCursorMode(true, token)` + `ctx.escape.push(token, close)`
   and undo all three on close and in `dispose`. Nothing in this folder calls `requestPointerLock`. — `menus/MenuBase.ts`, `map/MapScreen.ts`
+- Threat readouts skip `EnemyRef.isEgg`: the detection HUD's arrows / chevrons / radar, the compass ticks and every 「적」 ping
+  treat a nest egg as scenery, not as an enemy (a nest holds dozens and the danger HUD is one indicator per hazard).
+  — `hud/Detection.ts`, `hud/Compass.ts`, `hud/Pings.ts`
 - Escape closes the topmost screen via `ctx.escape` (policy in `game/parts/Phases.escapeKey`); innermost popups
   (chat input, AskPopup, settings, key capture, context menus) swallow Escape in their own capture handler. The pause
   menu closes on Escape only in the desktop shell. — `menus/PauseMenu.ts` (`isDesktopShell`)
@@ -312,6 +315,11 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 - Bottom-centre row geometry (implant + ship-call thumbnails) is only the `:root` variables in `styles/implant.css`.
 - Map, compass and world markers gate landmarks on `ctx.world.fog.isDiscovered`; live events (pings, danger
   indicators, hazards on the map) are never fog-gated. The active extraction pad is exempt. — `map/MapScreen.ts` (`discovered`)
+- **Map angles: canvas x = world X, canvas y = world +Z, never flipped** (`MapScreen.toX` / `toY`). A marker whose
+  local +X is the math convention (world `(cos yaw, sin yaw)` — the tram and the rover, `rails/model.ts`) is drawn with
+  `c.rotate(yaw)`; a third-person body, whose forward is `(-sin yaw, -cos yaw)`, is converted at the call site
+  (`Math.atan2(-Math.cos(yaw), -Math.sin(yaw))`). Mixing the two mirrors the icon across the track (2026-09-18: the
+  rover never faced its travel direction; `drawTram` had the same sign but a symmetric shape hid it). — `map/mapIcons.ts`
 - Light pillars appear only on corpses (`pillarAllowed`); crates show their opened state instead. — `hud/pillar.ts`
 - DangerIndicators draws exactly one element per threat (head on screen, arc off screen); colour = owner (ally amber,
   enemy red), `hot` = imminent. Shell arcs use `shared/ballistics`, never a copied formula. — `hud/DangerIndicators.ts`
@@ -357,8 +365,8 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
+- 2026-09-18 — Nest eggs are not threats: the detection HUD (arrows · chevrons · radar) and every enemy ping skip `EnemyRef.isEgg`, so a nest's dozens of `bug_egg` bodies never become a marker and an 「적」 ping never lands on one (`hud/Detection.ts`, `hud/Pings.ts`; `hud/Compass.ts` is covered by the `queryNear` default).
+- 2026-09-18 — `drawRover` / `drawTram` rotate by `+yaw`, not `-yaw`: the map never flips world Z, so the rover icon now points where it drives (`map/mapIcons.ts`; legend samples pass 0 and are unaffected).
+- 2026-09-18 — Map left column: the running tutorial track's objectives sit above the quest list (`QuestPanels.MapTutorialPanel`, `.mq-tut*`) — track name, the visible objective rows with their checkbox / strike state and `(n/m)` counts (through the shared `tutorialCountLabel`, so the row reads identically on both screens), and the 「출격 안내」 raid step's credit gauge (`1,400 C / 1,000 C`); source is `ctx.tutorial.panelInfo()` alone, nothing is recomputed, and no tutorial → nothing drawn.
 - 2026-09-17 — Messenger conversation list: an NPC row previews the last bubble that has actually arrived in the thread (`ChatTab.deliveredCount` — `typingShown` while typing, else what opening would show at once; `bio` when nothing has), not the end of `getMessages`, and repaints as each typed bubble lands.
 - 2026-09-17 — Prefixes split so each belongs to one folder (`scripts/check-css-prefixes.mjs`): community invite rows `.ci-` → `.cmi-` (`hud/Community.ts`, `styles/base.css`; meta keeps `.ci-` for the implant desk) and character-slot cards `.cs-` → `.csl-` (`menus/CharacterSelect.ts`, `styles/title.css`; progression keeps `.cs-` for the character sheet, which already shared `.cs-stat` with the slot card).
-- 2026-09-17 — The item hover card moved off the `.it-` prefix to `.itip-` (`hud/ItemTip.ts`, `housing/ui/StationTip.ts`, `styles/base.css`, 5 smokes); `hub/intel.css` took `.his-` at the same time, and `scripts/check-css-prefixes.mjs` now fails a build that gives one prefix two folders (B-18).
-- 2026-09-17 — The liftoff cinematic's HUD fade is reverted in the same emit that ends the raid (`game:complete` / `game:over` → `setCinematic(false)`), not a frame later by `applyVisibility`: the result screen used to appear over a HUD still faded to 0 for one frame (`smoke-tutorial-raid` 「HUD 페이드 값이 되돌아간다」, red the slower the lane). `smoke-tutorial-raid` is mapped to the `ui` folder in `verify.mjs` now.
-- 2026-09-17 — `CharacterSelect` cards drop the 레이드 / 탈출 cells (credits only in `.csl-meta`).

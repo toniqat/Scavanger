@@ -1,8 +1,8 @@
 import './tutorial.css';
 import type * as THREE from 'three';
 import type {
-  GameContext, GameSystem, ItemInstance, Stance, TutorialGate, TutorialRef, TutorialSave, TutorialStepId,
-  TutorialTrack, TutorialTrackSave,
+  GameContext, GameSystem, ItemInstance, Stance, TutorialGate, TutorialGaugeInfo, TutorialObjectiveInfo,
+  TutorialPanelInfo, TutorialRef, TutorialSave, TutorialStepId, TutorialTrack, TutorialTrackSave,
 } from '@/shared';
 import {
   COCKPIT_DECOR_FURNITURE, COCKPIT_DEFAULT_FURNITURE, COCKPIT_ROOM_INDEX, Keys, SHIP_ROOM_COUNT,
@@ -10,7 +10,8 @@ import {
   isRaidFound, raidFoundSeed, sellPriceOf, slotKey, watchCutsceneHide,
 } from '@/shared';
 import {
-  CHECKPOINT_STEP, CORPSE_MARKER_STEPS, CROUCH_AIM_TIP_KO, CROUCH_TIP_STEPS, GUIDE_ARRIVE, MARKER_RETARGET_FRAMES, RAID_KILLS_PER_STEP,
+  BUILD_TRACKS, CHECKPOINT_STEP, CORPSE_MARKER_STEPS, CROUCH_AIM_TIP_KO, CROUCH_TIP_STEPS, GUIDE_ARRIVE,
+  MARKER_RETARGET_FRAMES, OPTIONAL_PREFIX_KO, RAID_KILLS_PER_STEP, creditGaugeLabel,
   SKIP_FADE_IN_S, SKIP_FADE_OUT_S, SKIP_HOLD_TIME, STANCE_HINT_IDS, TRACK_LABEL_KO,
   TUTORIAL_AMMO_RECIPE, TUTORIAL_BENCH_DEF, TUTORIAL_CONTROL_HINTS, TUTORIAL_CRAFT_GRANT,
   TUTORIAL_GUN_DEF, TUTORIAL_GUN_FAMILY, TUTORIAL_GUN_RECIPE, TUTORIAL_ROOM_PURPOSE, TUTORIAL_SAVE_VERSION, TUTORIAL_STORAGE_KEY,
@@ -71,6 +72,12 @@ interface SaveV2 extends TutorialSave {
    * 건너뛴 사람에게는 켜지지 않는다: 「조작은 아는데 증축은 처음」인 사람이 함선 트랙까지 떠안지 않게.
    */
   pendingShip?: boolean;
+  /**
+   * 증축 트랙을 **완주**했다 (2026-09-18) — 곧바로 출격 안내(`raid2`)가 이어진다. `pendingShip` 과 같은 요령이고 근거도 같다:
+   * 건너뛴 사람에게는 켜지지 않고(그 사람은 이어지는 안내도 원치 않는다), **옛 저장에는 없는 필드**라 이미 증축을 마친
+   * 프로필에 출격 안내가 새로 뜨는 일이 없다 (`autoStart` 가 그때는 `raid2` 를 조용히 끝난 것으로 적는다).
+   */
+  pendingRaid2?: boolean;
   /** 우측 조작 가이드에 쌓인 줄 (`ControlHint.id`) — 새로고침을 견딘다. */
   learned?: string[];
   /**
@@ -175,6 +182,12 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    * 이 폴더의 DOM 은 ui/ 가 모르므로 스스로 접는다. 풀리는 곳: `ui:cinematic false` · `game:abort` · `game:newMission` · `hub:entered`.
    */
   private cinematic = false;
+  /**
+   * 전술 지도가 열려 있다 (`ui:mapToggled`, 2026-09-18 사용자 결정 — 「지도 좌측 상단에 튜토리얼 목표」). 그 동안에는
+   * 떠 있는 목표 패널만 접는다 — 지도가 제 왼쪽 열에 같은 목표를 그리므로 두 벌이 겹친다. 스포트라이트 · 안내선은
+   * 지도가 화면을 덮어 어차피 보이지 않으므로 건드리지 않는다.
+   */
+  private mapOpen = false;
   /**
    * 무너진 통로를 `TUTORIAL_CRAWL_AIM_HINT_FRAC` 만큼 지났다 (2026-09-16, 사용자 결정) — 포복 구간의 조작 가이드에 발사 · 정조준이
    * 붙는다. 한 번 서면 뒤로 물러나도 내리지 않는다 (줄이 깜빡이지 않게). 포복 구간 밖의 단계로 가면 풀린다 (`setStep`).
@@ -354,6 +367,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
 
       // 리바인드하면 조작 가이드 · 목표 줄의 키캡을 다시 읽는다 (키는 사용 시점에 읽는다 — `docs/CONTROLS.md`)
       b.on('input:bindingsChanged', () => { this.controls.relabel(); this.panel.relabel(); }),
+      // 2026-09-18: 지도가 열리면 떠 있는 패널을 접는다 (지도의 왼쪽 열이 같은 목표를 그린다 — `mapOpen`)
+      b.on('ui:mapToggled', ({ open }) => { this.mapOpen = open; this.refreshVisuals(); }),
     );
     this.registerConsole();
     this.refreshVisuals();
@@ -435,7 +450,17 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     }
     if (step === 'equipGun') {
       const open = ctx.inventory?.isOpen ?? false;
-      if (open && !this.done.has('equipOpen')) this.markObjective('equipOpen');
+      /*
+       * 2026-09-18: 창이 **열리는 그 순간**에만 「할 일이 없나」를 다시 본다 (`inventory:opened` 를 놓친 길의 보험 —
+       * 작업대 창이 닫히는 중에 이 단계로 들어선 경우다. 그래서 아직 `equipOpen` 이 안 적힌 프레임 하나뿐이다).
+       * ⚠ 창이 열려 **있는 동안 내내** 보면 2026-09-17 의 결정이 깨진다: 소총을 주무기 II 에 끼우는 순간 주무기 두 칸이
+       *   다 차므로 「장착해도 창을 닫을 때까지 같은 단계」(화면을 보고 있는 사람의 등 뒤에서 목표가 바뀌지 않는다)가
+       *   영영 도달 불가능해진다 — 실제로 그렇게 깨졌던 것을 스모크가 잡았다 (`smoke-tutorial` 「창이 열려 있는 동안은 같은 단계다」).
+       */
+      if (open && !this.done.has('equipOpen')) {
+        if (this.equipGunSkipIfMoot()) return;
+        this.markObjective('equipOpen');
+      }
       if (this.done.has('equipSlot') && !open) this.advance();
       return;
     }
@@ -451,7 +476,21 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       if (v === this.raidValue) return;
       this.raidValue = v;
       this.panel.setCounts(this.objectiveCounts());
+      // 2026-09-18 (사용자 결정): 이 단계의 진행 바는 단계 수가 아니라 **지금 지닌 가치**다 — 줄의 `(n/m)` 과 함께 움직인다
+      this.panel.setGauge(this.raidGauge());
     }
+  }
+
+  /**
+   * 출격 안내 마지막 레이드의 **진행 바** (2026-09-18, 사용자 결정) — 다른 단계 · 다른 트랙은 예전 그대로 단계 수를 재므로
+   * 그때는 null 이다. 채움은 1 에서 잘리고 글자는 실제 값을 적는다 (`model.creditGaugeLabel`).
+   */
+  private raidGauge(): TutorialGaugeInfo | null {
+    if (this.step !== 'raid' || this.track !== 'raid2') return null;
+    return {
+      at: this.raidValue, total: TUTORIAL_RAID_EXTRACT_VALUE_C,
+      label: creditGaugeLabel(this.raidValue, TUTORIAL_RAID_EXTRACT_VALUE_C),
+    };
   }
 
   /**
@@ -485,11 +524,13 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    * 이 이벤트를 못 받은 길(타이틀에서 레이드 포기 · 새로고침)은 함선에 들어서는 순간 `onHubEntered` 가 같은 일을 한다.
    */
   private onBuildRaidEnd(extracted: boolean): void {
-    if (this.step !== 'raid' || this.track !== 'build') return;
+    // 2026-09-18: 그 레이드는 이제 **출격 안내**(`raid2`)의 마지막 단계다 (id 는 그대로 `raid`)
+    if (this.step !== 'raid' || this.track !== 'raid2') return;
     const value = this.liftoffValue >= 0 ? this.liftoffValue : this.carriedRaidValue();
     if (extracted && value >= TUTORIAL_RAID_EXTRACT_VALUE_C) {
       this.raidValue = value;
       this.panel.setCounts(this.objectiveCounts());
+      this.panel.setGauge(this.raidGauge());
       this.markObjective('raidValue');
     }
     this.finish(false);
@@ -771,10 +812,11 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private onHubEntered(ship: string): void {
     /* 2026-09-17 (사용자 결정 — 마지막 레이드는 한 번): 함선에 들어섰는데 아직 `raid` 다 = 그 레이드는 끝났다 (포기 · 새로고침 ·
        결과 화면 이벤트를 놓친 길). 끝난 것으로 적는다 — 레이드 트랙의 `restartTrack` 과 달리 다시 하지 않는다. */
-    if (this.step === 'raid' && this.track === 'build') { this.finish(false); return; }
+    if (this.step === 'raid' && this.track === 'raid2') { this.finish(false); return; }
     if (ship !== 'personal') { this.refreshVisuals(); return; }
     // 이미 만들어 둔 작업대 · 이미 열린 화면 (새로고침 복구) — 2026-09-17 부터 단계가 아니라 줄을 적는다
-    if (this.track === 'build' && this.step) this.syncBuildObjectives(this.step);
+    const track = this.track;
+    if (track && BUILD_TRACKS.includes(track) && this.step) this.syncBuildObjectives(this.step);
     if (this.active) { this.refreshVisuals(); return; }
     // 저장이 없다는 것만으로는 "새 캐릭터"가 아니다 — 튜토리얼이 없던 시절부터 하던 프로필도 같은 모양이다.
     // 이미 함선을 꾸며 놓았거나 레벨이 올라 있으면 조용히 **세 트랙 전부** 끝난 것으로 표시하고 다시는 켜지 않는다.
@@ -793,6 +835,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private markAllDone(): void {
     for (const t of TUTORIAL_TRACKS) this.markDone(t);
     this.save.pendingShip = false;
+    this.save.pendingRaid2 = false;
     this.persist();
   }
 
@@ -821,6 +864,18 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       // 레벨이 아니라 **함선**을 본다 — 레이드를 마치고 돌아온 사람은 레벨 2 지만 함선은 여전히 비어 있다
       if (this.shipUntouched()) { this.startTrack('build'); return; }
       this.markDone('build');
+    }
+    /*
+     * ④ 출격 (2026-09-18) — 증축 안내를 **완주하고 막 끝낸 그 한 번**만 (`pendingRaid2`, `pendingShip` 과 같은 요령).
+     *    그 표식이 없는 저장은 전부 「이미 지난 사람」이다: 옛 저장(증축 7단계를 통째로 마친 프로필)에도, 증축을
+     *    건너뛴 사람에게도 출격 안내가 새로 뜨면 안 된다. 그러니 조용히 끝난 것으로 적는다.
+     */
+    if (!this.save.tracks.raid2?.done && !this.save.tracks.raid2?.step) {
+      if (this.save.pendingRaid2) {
+        this.save.pendingRaid2 = false;
+        if (this.startTrack('raid2')) return;
+      }
+      this.markDone('raid2');
     }
     this.persist();
   }
@@ -1100,6 +1155,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    * 지금 자리에서 읽으면 작업대를 여는 순간마다 이 단계가 잘못 넘어간다.
    */
   private onInventoryOpened(): void {
+    // 2026-09-18 (사용자 보고 — 「이미 장착했는데도 장착하라고 한다」): 창이 **열리는 그 순간**에도 할 일이 남았는지 다시 본다
+    if (this.equipGunSkipIfMoot()) return;
     // 2026-09-17: `openBag` 은 `craftGun` 의 마지막 줄(제작창 닫기)이 됐다 — 창을 닫는 것은 `onCraftPanel` · `pollBuild` 가 본다
     this.markIf('equipGun', 'equipOpen');
   }
@@ -1123,6 +1180,10 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     }
     // 2026-09-15: 보급품 시체 — 붕대를 얻은 뒤 창을 닫으면 회복 단계다
     if (step === 'supplyLoot' && this.done.has('supplyBandage')) this.advance();
+    /* 2026-09-18: 창을 **닫는** 순간에도 「할 일이 없나」를 한 번 본다 — 만든 소총이 아닌 돌격소총(등급 · 계열이 다른 것)을
+       창 안에서 끼운 사람은 `equipSlot` 이 안 켜져 그 자리에 갇힌다. 닫는 순간은 2026-09-17 이 「넘어가도 된다」고 정한 그
+       자리라 이 한 줄은 그 결정과 부딪히지 않는다 (하지도 않은 줄에 체크가 그어지지 않게 조용히 지나간다). */
+    if (step === 'equipGun' && !this.done.has('equipSlot') && this.equipGunSkipIfMoot()) return;
     // 2026-09-17 (사용자 결정): 증축 트랙 — 소총을 장착한 뒤 **인벤토리를 닫으면** 조종석 단계다 (그 사이에는 목표 줄 없이 기다린다)
     if (step === 'equipGun' && this.done.has('equipSlot')) this.advance();
     // 2026-09-16 2차: 함선 트랙은 확정한 자리에서 끝났다 — 미뤄 둔 다음 트랙(증축)을 메뉴가 닫힌 지금 연다 (`finish`)
@@ -1295,7 +1356,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       this.refreshVisuals();
       return;
     }
-    if (!this.active || this.track !== 'build') return;
+    // 2026-09-18: 출격 안내(`raid2`)의 마지막 단계가 그 레이드다 — 증축 안내는 함선 안에서 끝난다
+    if (!this.active || this.track !== 'raid2') return;
     // 훈련장은 레이드가 아니다 (이 트랙 동안 버튼은 감춰져 있지만 콘솔 · 분대 합류 길이 남는다)
     if (this.ctx.isTraining()) return;
     /* 2026-09-17 (사용자 결정): 예전에는 6초 뒤 「튜토리얼 종료」 토스트와 함께 끝났다. 이제 이 레이드가 마지막 단계이고
@@ -1458,6 +1520,10 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    *   ① 주무기 I · II 중 하나에 이미 돌격소총 계열(`TUTORIAL_GUN_FAMILY`, 등급 무관 · 유니크 제외)이 있다.
    *   ② 주무기 I · II 가 둘 다 차 있다 — 만든 소총을 넣을 빈 칸이 없으니 바꿔 끼우라고 붙잡지 않는다.
    * 로드아웃을 모르면(인벤토리가 아직 없다) false — 평소처럼 단계를 보여 준다.
+   *
+   * 2026-09-18 (사용자 보고 — 「소총을 만들고 Tab 을 눌렀는데 이미 장착돼 있는데도 「돌격소총을 주무기 칸에 장착」이 남아 있다」):
+   * 들어설 때 한 번으로는 모자랐다. 단계에 들어서는 순간은 작업대 창이 **닫히는 중**이라 로드아웃을 못 읽는 프레임이 있고,
+   * 그 사이에 제작창에서 바로 장착한 사람도 있다. 그래서 **인벤토리가 열리는 순간**에도 다시 묻는다 (`equipGunSkipIfMoot`).
    */
   private equipGunMoot(): boolean {
     const inv = this.ctx.inventory;
@@ -1466,6 +1532,17 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     try { l = inv.getLoadout(); } catch { return false; }
     if (l.primary && l.primary2) return true;
     return this.isAssaultRifle(l.primary) || this.isAssaultRifle(l.primary2);
+  }
+
+  /**
+   * `equipGun` 이고 할 일이 없으면 그 단계를 **통째로** 끝낸다 (2026-09-18, 사용자 결정 — 목표 한 줄이 아니라 단계다).
+   * `advance(true)` 라 하지도 않은 일에 체크가 그어지지 않고, 증축 안내의 마지막 단계이므로 그대로 트랙이 끝나
+   * 출격 안내가 이어진다 (`finish` → `autoStart`). @returns 끝냈으면 true (부르는 쪽은 그 자리에서 돌아간다).
+   */
+  private equipGunSkipIfMoot(): boolean {
+    if (this.step !== 'equipGun' || !this.equipGunMoot()) return false;
+    this.advance(true);
+    return true;
   }
 
   /** 돌격소총(계열 `ar` 또는 계열 AR, 등급 무관)인가. def · 무기 def 를 모르면 만든 소총 id 하나만 본다. */
@@ -1504,6 +1581,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     this.save.tracks[track] = { step: null, done: true };
     // 레이드 트랙을 **완주**했을 때만 함선 트랙이 이어진다 — 건너뛴 사람에게 「레벨이 올랐습니다」가 뜨면 안 된다
     if (track === 'raid') this.save.pendingShip = !skipped;
+    /* 2026-09-18 (사용자 결정 — 「장착이 끝나면 곧바로 출격 안내」): 증축 안내를 **완주**한 그 자리에서 출격 안내가 이어진다.
+       아래 `autoStart` 가 이 표식을 보고 곧장 `startTrack('raid2')` 한다 — 플레이어는 아무것도 누르지 않는다. */
+    if (track === 'build') this.save.pendingRaid2 = !skipped;
     this.resetControls();
     this.persist();
     this.popup.close();
@@ -1672,7 +1752,22 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     // 가구를 집은 뒤에는 밝힐 UI 가 없다 — 남은 일은 3D 바닥을 클릭하는 것뿐이다
     const placing = step === 'bench' && this.benchArmed;
     const view = this.stepView(step, def);
-    this.panel.show({
+    /*
+     * 2026-09-18 (사용자 보고 — 「발사 슬롯에서 준비를 마치고 포드가 뜨기까지의 몇 초 동안 바닥 안내선이 딴 데를 가리킨다」):
+     * 필수 목표를 **전부** 끝낸 단계에는 걸어갈 곳도 밝힐 것도 없다. 그때까지는 목표 줄이 없으면 단계의 `guide` · `spot` 으로
+     * 되돌아갔는데(`terminal` 의 단계 값은 조종석이다), 그것이 「탔으니 이제 조종석으로 가라」로 읽혔다. 이 한 줄이 그 길을 막는다 —
+     * 컷씬이 시작되면 `showable` 이 이미 전부 접으므로 출격까지 그대로 걷혀 있다.
+     */
+    const cur = currentObjective(view.objectives, this.done);
+    const nothingLeft = cur === null;
+    /*
+     * 2026-09-18 (사용자 결정 — 「튜토리얼 레이드 중 지도 좌측 상단에 목표를 띄운다」): 전술 지도가 열려 있는 동안에는
+     * 떠 있는 패널을 **접는다**. 패널은 z 79 라 지도(40) 위에 그대로 뜨는데, 지도도 같은 좌측 상단에 같은 목표를
+     * 그리므로(`ui/map/QuestPanels` 의 튜토리얼 패널) 두 벌이 겹쳐 보였다. 「한 사실은 한 자리」 — 지도가 열려 있으면
+     * 지도의 것이 그 자리를 갖는다. 데이터는 `panelInfo()` 하나에서 나오므로 둘이 어긋날 일은 없다.
+     */
+    if (this.mapOpen) this.panel.hide();
+    else this.panel.show({
       track: TRACK_LABEL_KO[track],
       // 2026-09-14 3차: **아직 안 열린 줄은 그리지 않는다** (순차 공개, `visibleObjectives`)
       objectives: visibleObjectives(view.objectives, this.done),
@@ -1680,13 +1775,17 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       // 세는 목표의 `(n/m)` (2026-09-15 2차) — 줄을 다시 지어도 지금 수가 그대로 선다
       counts: this.objectiveCounts(),
       index: stepIndexOf(step), count: this.stepCount,
+      // 2026-09-18: 출격 안내의 레이드만 진행 바가 **전리품 가치**다 (나머지는 null = 단계 수)
+      gauge: this.raidGauge(),
     });
     // 시작 카드가 떠 있는 동안에는 스포트라이트를 겹치지 않는다
-    this.spotlight.set(this.popup.isOpen || placing ? SPOT_NONE : view.spot, view.spotText, view.union, view.noDim);
+    this.spotlight.set(
+      this.popup.isOpen || placing || nothingLeft ? SPOT_NONE : view.spot, view.spotText, view.union, view.noDim,
+    );
     // 2026-09-15 (사용자 결정): 하우징 모드가 열려 있는 동안에는 바닥 안내선을 **어느 단계에서도** 그리지 않는다 — 관리
     //   카메라 아래의 빛기둥 · 점선은 지금 갈 수 없는 곳을 가리킨다. 닫히면 `onManage` 가 다시 여기로 와서 반 박자 뒤에 깐다.
     //   2026-09-17: 대상은 **지금 할 목표 줄**의 것이다 (`guideKindOf` — 조종석으로 걸어가는 줄은 터미널, 포드로 걸어가는 줄은 포드).
-    this.guide.setTarget(this.housingOpen() ? null : this.guideTarget(this.guideKindOf(def, currentObjective(view.objectives, this.done))));
+    this.guide.setTarget(this.housingOpen() || nothingLeft ? null : this.guideTarget(this.guideKindOf(def, cur)));
     // 3D 목표 마커 — 시체 구간 두 단계가 같은 시체를 가리킨다 (`CORPSE_MARKER_STEPS`)
     this.marker.setTarget(CORPSE_MARKER_STEPS.includes(step) ? this.nearestCorpse() : null);
   }
@@ -1737,6 +1836,33 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     return {
       objectives, spot: def.spot, spotText: def.spotText ?? def.hint,
       union: !!def.spotUnion, noDim: !!def.spotNoDim,
+    };
+  }
+
+  /**
+   * **목표 패널 한 장의 내용** (2026-09-18, 사용자 결정 — 전술 지도 좌측 열 맨 위에도 같은 줄이 선다).
+   * 좌상단 패널이 그리는 것과 **같은 데이터**를 읽기 전용 스냅샷으로 넘긴다 (`ui/map/QuestPanels` 가 유일한 소비자) —
+   * 지도 쪽이 순차 공개 · 달성 · 세는 수를 스스로 계산하면 두 화면이 어긋난다. 비활성이면 null 이라 지도는 아무것도 그리지 않는다.
+   */
+  panelInfo(): TutorialPanelInfo | null {
+    const step = this.step;
+    const track = this.track;
+    if (!step || !track) return null;
+    const view = this.stepView(step, stepDef(step));
+    const counts = this.objectiveCounts();
+    const objectives: TutorialObjectiveInfo[] = visibleObjectives(view.objectives, this.done).map((o) => ({
+      id: o.id,
+      // `(선택) ` 접두사는 여기서 붙인다 — 문구를 만드는 규칙은 이 폴더 것이다 (`OPTIONAL_PREFIX_KO`)
+      text: (o.optional ? OPTIONAL_PREFIX_KO : '') + o.text,
+      optional: !!o.optional,
+      done: this.done.has(o.id),
+      count: o.count === undefined ? null
+        : { at: Math.max(0, Math.min(o.count, Math.round(counts[o.id] ?? 0))), total: o.count, unit: o.countUnit },
+    }));
+    return {
+      track, label: TRACK_LABEL_KO[track], step,
+      index: stepIndexOf(step), count: this.stepCount,
+      objectives, gauge: this.raidGauge(),
     };
   }
 
@@ -1816,6 +1942,12 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       const doc = JSON.parse(raw) as Partial<SaveV2>;
       const tracks: Partial<Record<TutorialTrack, TutorialTrackSave>> = {};
       let retiredDone: readonly string[] | null = null;
+      /*
+       * 2026-09-18 (증축 안내 · 출격 안내 분리): 저장된 단계가 **다른 트랙의 것**이 됐다 (`terminal` · `raid` → `raid2`).
+       * 버리면 그 사람의 안내가 통째로 사라지므로 그 트랙으로 옮겨 붙이고, 지나온 트랙은 끝난 것으로 적는다.
+       * 옮기는 일은 본 루프가 끝난 뒤에 한다 — 루프가 뒤에서 그 트랙을 덮어쓰지 않게.
+       */
+      const moved: Array<{ step: TutorialStepId; home: TutorialTrack }> = [];
       const src = doc.tracks;
       if (src && typeof src === 'object') {
         for (const t of TUTORIAL_TRACKS) {
@@ -1823,17 +1955,28 @@ export class TutorialSystem implements GameSystem, TutorialRef {
           if (!e || typeof e !== 'object') continue;
           // 2026-09-16: 순서에서 빠진 마지막 자리(`messenger` · `ravenQuest`)에 서 있던 트랙은 끝난 것이다 (`Steps.retiredTrackEnd`)
           const done = !!e.done || retiredTrackEnd(e.step) === t;
-          // 순서에서 빠진 단계(`openCraft`)는 그 자리를 이어받은 단계로 · 남의 트랙 단계는 버린다
+          // 순서에서 빠진 단계(`openCraft`)는 그 자리를 이어받은 단계로
           const step = normalizeStep(e.step);
-          tracks[t] = { step: done || !step || trackOf(step) !== t ? null : step, done };
+          const home = step ? trackOf(step) : null;
+          const away = !done && step !== null && home !== null && home !== t;
+          if (away) moved.push({ step: step!, home: home! });
+          tracks[t] = { step: away || done || !step || home !== t ? null : step, done: done || away };
           // 2026-09-17: 묶여 없어진 증축 단계에 서 있던 저장 — 새 단계에서 그 사람이 이미 한 줄을 채워 넣는다 (`Steps.retiredObjectives`)
-          const pre = tracks[t]!.step ? retiredObjectives(e.step) : null;
+          const pre = tracks[t]!.step || away ? retiredObjectives(e.step) : null;
           if (pre) retiredDone = pre;
         }
       } else {
-        tracks.build = { step: doc.done ? null : normalizeStep(doc.step), done: !!doc.done };
+        const step = doc.done ? null : normalizeStep(doc.step);
+        const home = step ? trackOf(step) : null;
+        if (step && home && home !== 'build') moved.push({ step, home });
+        tracks.build = { step: home === 'build' ? step : null, done: !!doc.done || (!!step && home !== 'build') };
         tracks.raid = { step: null, done: true };
         tracks.ship = { step: null, done: true };
+      }
+      for (const m of moved) {
+        const cur = tracks[m.home];
+        if (cur?.step || cur?.done) continue;
+        tracks[m.home] = { step: m.step, done: false };
       }
       return {
         version: TUTORIAL_SAVE_VERSION,
@@ -1842,6 +1985,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
         granted: !!doc.granted,
         benchUid: typeof doc.benchUid === 'string' ? doc.benchUid : undefined,
         pendingShip: !!doc.pendingShip,
+        // 2026-09-18: 옛 저장에는 없는 필드다 — 그래서 이미 증축을 마친 프로필에 출격 안내가 새로 뜨지 않는다 (`autoStart`)
+        pendingRaid2: !!doc.pendingRaid2,
         learned: Array.isArray(doc.learned) ? doc.learned.filter((s): s is string => typeof s === 'string') : undefined,
         objectives: retiredDone ? [...retiredDone]
           : Array.isArray(doc.objectives) ? doc.objectives.filter((s): s is string => typeof s === 'string') : undefined,
@@ -1864,7 +2009,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     try {
       c.register({
         name: 'tutorial',
-        usage: 'tutorial [start|skip|step <id>|track <raid|ship|build>|status]',
+        usage: 'tutorial [start|skip|step <id>|track <raid|ship|build|raid2>|status]',
         description: '튜토리얼 시작 / 건너뛰기 / 특정 단계 · 트랙으로 이동',
         run: (args, _ctx, print) => {
           const sub = args[0] ?? 'status';

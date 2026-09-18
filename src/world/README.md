@@ -11,7 +11,7 @@ through `ctx.world` (only `main.ts` imports `WorldSystem`).
 
 | File | Responsibility |
 |---|---|
-| `WorldSystem.ts` | `GameSystem` + `WorldRef`. Generation order, `SpatialHash` owner, all queries, mode branches (`raid` / `training` / `tutorial`), open-state sync of crates and containers, `genTimings`. |
+| `WorldSystem.ts` | `GameSystem` + `WorldRef`. Generation order, `SpatialHash` owner, all queries (`raycast` / `raycastBlast` share one `rayQuery` body), mode branches (`raid` / `training` / `tutorial`), open-state sync of crates and containers, `genTimings`. |
 | `index.ts` | Barrel (only a few exports are used; outside code goes through `ctx.world`). |
 | `layout.ts` | Macro layout from the seed: rail plan, spawn, rover road plan, extraction pads (`extractionPadCount`), nests, POIs, craters, basins, `StructureSite`s. `railDistance` / `railClearance` / `roverClearance`, `padClearance`, `nearestPad`, `LayoutOptions` (spore layout, intel). |
 | `preview.ts` | `planLayoutFor` (biome + hazard kind + layout — used by `generate`) and `previewLayoutFor` (flat `MapPreviewLayout` for `WorldRef.previewLayout`). |
@@ -24,11 +24,11 @@ through `ctx.world` (only `main.ts` imports `WorldSystem`).
 | `propHull.ts` | `propHullOf` — measures a prop instance's movement hull + shot bands from the drawn mesh above ground. |
 | `build.ts` | `BuildCtx` for sub-builders; `isSpotFree` (pads, hash, rail + rover clearance), paint / displace / merge helpers, `PLAY_LIMIT`. |
 | `Props.ts` | Scattered instanced props (boulders, spires, trees, crystals, grass, pebbles, debris); hull colliders for rock / crystal / debris, trunk cylinder for trees. |
-| `Nests.ts` | Bug nest mounds (obstacles) and hole positions (`getNestPositions`). |
+| `Nests.ts` | Bug nest mounds (obstacles), hole positions (`getNestPositions`) and **egg spots** (`getEggSpots`, per nest pad — the eggs themselves are enemies drawn by `enemies/`). |
 | `BurrowGround.ts` | `burrowGroundOk` — the one judgement "can a sandworm erupt here": flat terrain samples, no pad / rail / rover corridor, no structure footprint, no hash collider, nest / gather / crate / spore-grove clearance, not inside the active hazard. Shared by the enemies director and the thumper placement preview. |
 | `Pads.ts` | Extraction platforms (`PLATFORM_HEIGHT` / `PLATFORM_RADIUS`, one point light each) and the spawn marker. |
 | `Outposts.ts` | POI ruins (walls, pillars, mast); `getSites()` → ruin sites for fog discovery, footstep material, `getRuinSites`. |
-| `Crates.ts` | Loot crates around landmarks only (POIs, structure rings, nest rings — none in open field, no tier 4); `Interactable`, lid tween, `crate:open`; open state via `setOpenListener` / `markOpened`. |
+| `Crates.ts` | Loot crates around landmarks only (POIs, structure rings — none in open field, none near a nest, no tier 4); `Interactable`, lid tween, `crate:open`; open state via `setOpenListener` / `markOpened`. |
 | `Gather.ts` | Harvest nodes: herbs, salvage piles (bonus core / mineral), soil, wild seeds, specimens, grove mushrooms, **mineral veins** (`vein_*`, the only node with a collider). Host-authoritative `harv` / `harvq`. `resolveNodeWeights` drops retired defs. Debug `debugBonusOf` / `debugBonusesOf`. |
 | `soil.ts`, `flora.ts`, `specimen.ts` | Per-planet soil / seed / specimen tables from `data/planets.csv` (`planetSoil`, `planetSeeds`, `planetSamples`). |
 | `mineral.ts` | 광맥 numbers: `planetMineralNodes` (`planets.csv` `mineralNodes`), `mineralRarityWeights` (`loot_tiers.csv` row `tier = planet threat`, **including the `mythic` column**), `rollMineralRarity` (채광 bonus applied as a multiplier). No THREE. |
@@ -67,9 +67,12 @@ through `ctx.world` (only `main.ts` imports `WorldSystem`).
 `WorldRef` is declared in `src/shared/types.ts` (several merged blocks); `TutorialWorldRef` in `src/shared/tutorialWorld.ts`.
 
 - **Geometry queries**: `getHeightAt`, `getNormalAt`, `getSurfaceY(x, z, feetY?)`, `getStandingObstacle`, `resolveCollision(position, radius, height?)`,
-  `raycast`, `isInsideBounds`, `obstacleCoverage`, `scatterPoints`, `getObstaclesNear`, `addObstacle` (dynamic cover; returns remover),
+  `raycast`, `raycastBlast` (2026-09-18: the same ray with glass blocking whether broken or not — `shared/explosion.lineClear` only),
+  `isInsideBounds`, `obstacleCoverage`, `scatterPoints`, `getObstaclesNear`, `addObstacle` (dynamic cover; returns remover),
   `getSurfaceMaterial(x, z, feetY?)`, `size`, `mode`, `planet`, `seed`, `getBiome()`.
-- **Objects**: `getPlayerSpawn`, `getExtractionPoints`, `getEnemySpawnPoints`, `getCrates`, `getNestPositions`, `getGatherNodes`,
+- **Objects**: `getPlayerSpawn`, `getExtractionPoints`, `getEnemySpawnPoints`, `getCrates`, `getNestPositions`,
+  `getNestEggSpots()` (2026-09-18: `NestEggSpot[]` — where a `bug_egg` enemy stands; `nest` is the **pad** index, not a
+  `getNestPositions()` index), `getGatherNodes`,
   `getStructures`, `structureAt`, `getLadders`, `getRailLines`, `getTrams`, `getRuinSites`, `getSiteSpawnPoints`, `previewContainerItems`,
   `crateLootOpts(id)` (2026-09-16: `{ lockedRoom: true }` for lab locked-room containers, else undefined — the `CrateLootOpts` every
   crate roll path passes to `LootRef.rollCrateOn`),
@@ -133,7 +136,7 @@ emitted at the end, inside the `game:newMission` emit.
 | Box (`Obstacle.box`) | `addBox` | Walls, floors, decks, doors; may float (slabs, tram deck). `radius` = circumscribed circle. |
 | Hull (`Obstacle.hull`) | `addHull` | Rocks, spires, crystals, debris, wreck nose: 2D convex hull up to body height + per-height shot bands. |
 | Ramp (`Obstacle.ramp`) | `addRamp` | Every staircase (`buildStairFlight`), wreck wings / ramp, tutorial pit ramp. Steps are drawing only. |
-| Flags | internal | `passRays` (rays ignore) + `passSmall` (bodies under `SMALL_BODY_R` pass): broken windows, tutorial fence ghost band. |
+| Flags | internal | `passRays` (rays ignore) + `passSmall` (bodies under `SMALL_BODY_R` pass): broken windows, tutorial fence ghost band. `raycastBlast` re-blocks `kind === GLASS_OBSTACLE_KIND` only — the fence ghost keeps letting blasts through. |
 | `velocity` | tram colliders | Presence marks a moving platform (also when stopped). |
 
 Box math is used only when `o.box` is set; cylinder code paths are separate.
@@ -182,6 +185,26 @@ Box math is used only when `o.box` is set; cylinder code paths are separate.
   4. **It does not emit `gather:collected`** and raises `mining` through `ProgressionRef.addSkillXp` instead: `GatherNodeKind`
      has no vein value (the node carries `'sample'`, what it yields), and that event can only point at 원예 / 제작.
      When `GatherNodeKind` gains `'mineral'`, drop the exception and map it in `ProgressionSystem` like the others.
+- **Glass blocks blasts, broken or not (2026-09-18, user decision 「창은 깨졌어도 폭발을 막고, 낮은 엄폐물은 기존대로」).**
+  A broken pane keeps its collider but turns `passRays`, so `raycast` walks straight through a window frame — which let
+  artillery hurt a player standing in the **middle of a room** that happened to have one window. `raycastBlast` is the same
+  ray with one difference: a collider whose `kind` is `GLASS_OBSTACLE_KIND` blocks it regardless of `passRays`. Only
+  `shared/explosion.lineClear` (blast + melee occlusion) uses it; bullets, enemy sight and thrown gadgets are unchanged.
+  The test is the **kind**, not the flag, because the tutorial's ghost fence band (`tut_fence_ghost`) is `passRays` too and
+  must keep letting blasts through — blocking it would turn the tutorial's low barrier into a shield. Low cover is not
+  special-cased at all: it was never `passRays`, so it blocks both rays exactly as before and a head peeking over it still
+  gets hit through `blastReachesBody`'s 3-point rule. — `WorldSystem.raycastBlast`, `structures/parts/Glass.ts`
+- **Nests hand out egg spots, not eggs (2026-09-18).** The egg sacs at a nest mound's base used to be one merged decorative
+  mesh; they are now destructible immobile enemies (`bug_egg`, owner `enemies/`). World still decides **where** an egg
+  stands and hands the spots over (`Nests.getEggSpots` → `WorldRef.getNestEggSpots`) with the old look's numbers left in a
+  comment for the new owner; it builds no mesh, no material and no collider for them. `NestEggSpot.nest` is the **nest pad**
+  index (`layout.nests`) because 「a nest」 is the pad a player sees — `getNestPositions()` is indexed per **hole** (a pad has
+  4–6 mounds), so the two orderings are deliberately different and must not be crossed. The rng draw order inside the egg
+  loop is unchanged, so the same seed still yields the same map. — `Nests.ts`
+- **No crates near a nest (2026-09-18, user decision).** The nest's reward is the eggs, so the nest crate ring (one tier-3
+  crate per nest) is gone and every other ring refuses a spot within `NEST_CRATE_CLEAR_M` (`data/tuning.csv`, 24 m — mounds
+  reach 18.1 m from the pad) of a nest pad. A raid therefore has ~4–6 fewer crates, all tier 3; nothing was raised to
+  compensate. — `Crates.ts`
 - Point lights: structures use a `LightPool` of `STRUCTURE_POINT_LIGHTS` real lights moved between room spots, built even
   on maps without structures, so the raid light count is constant (`SCENE_POINT_LIGHT_BUDGET` has zero spare in raids).
   Everything else in world (beacons, consoles, arena, tutorial, rover, scan wave) is emissive only.
@@ -200,6 +223,11 @@ Box math is used only when `o.box` is set; cylinder code paths are separate.
   rarity is rolled at harvest, so two players see different grades from the same vein (each has their own 채광 skill).
   Mythic ore has to pass difficulty 3 → 미확인 광물 VI → analysis level 4, so its felt frequency is unmeasured.
 - **Intended**: training target modes are client-local. — `TrainingArena.ts`
+- **Intended (2026-09-18 user decision)**: there are **no specimen gather nodes** on any planet — `data/planets.csv` has
+  `sampleNodes` 0 and an empty `samples` on all five rows. 미확인 광물 comes from 광맥 (`mineralNodes`) and salvage
+  piles, 미확인 세포 from killing bugs (and bug eggs), 미확인 유전자 from lab containers. `specimen.ts` and both
+  columns stay: the file is data-driven and `nodes = 0` already means 「this planet has no specimen site」, so putting
+  a number back is the whole of re-enabling them. The empty column is not a missing value.
 
 ## Structures
 
@@ -229,6 +257,7 @@ are open-topped, no scanner.
   not by width. Rays pass.
 - Windows: `GlassSet`; broken by bullets (`destructible`), grenades / thrown gadgets (`shared/fragile.breakFragileAlong`);
   broken panes keep colliders with `passRays` + `passSmall` (people cannot climb through). Unbroken glass blocks sight.
+  **Blast / melee occlusion ignores `passRays` for glass** (2026-09-18) — `WorldSystem.raycastBlast`, see Rules.
   Break sync: `struct glass`.
 - Containers (`ContainerSet`) emit `crate:open` and let `inventory/` do the loot. The *open look* (`opened`, synced to
   all) is separate from this client's first open (`rolled` → bonus key fill, `structure:investigated`).
@@ -243,6 +272,19 @@ the centreline is smoothed terrain + `RAIL_DECK_Y`, lifted over local maxima and
 piers. `RAIL_DECK_Y` must stay within `PROP_STEP_UP_MAX` so people can step onto the track.
 
 - **Axis convention: tram local +X = travel direction (length), local +Z = sideways (width).** — `rails/model.ts`
+- **The tram never turns around (2026-09-18 user decision).** `placeTram` takes the body yaw from the track tangent
+  **only** — `TramDef.dir` no longer adds 180°. It drives forwards one way and backwards the other and always stops
+  facing the same way. The old flip mirrored every rider across the car the moment it departed, because riding re-solves
+  vehicle-local coordinates every frame (`shared/ride.ts`). `dir` still flips: it drives `s`, `vel`, the hit knockback
+  direction (`knockDir` multiplies by it) and `TramWire`.
+- **Two driver consoles, one at each end** (`TRAM_CONSOLE_IDS`, `TramInst.consolePos[0|1]`) — with a fixed orientation
+  one cab would be the tail for half of every round trip. Both call the same `requestStart` → `applyStart`: no new wire,
+  no new authority path, no "which console" state. The body is drawn double-ended to match (bulkhead + glass + desk at
+  both ends; the old rear railing is gone).
+- **The tram has no cabin containers** (2026-09-18 user decision) — the tram is transport, the platform deck is the
+  farming spot. `data/structures.csv` `tram.containers` is kept but unread (`rail_platform` still reads the column);
+  `Rails`' `ContainerSet` now holds platform containers only, so `setOpenListener` / `markContainerOpened` /
+  `containerPositionOf` / `collectContainers` / `previewContainerItems` all keep working unchanged.
 - The tram's truth is its arc position `s` + `dir` + state (`TRAM_STATES`: `idle` ↔ `moving` ↔ `docked`). After docking
   (`TRAM_DOCK_S`) it settles to `idle`; **no automatic restart** — only the cab console (`TRAM_START_HOLD_S`) or a platform
   call console starts it.
@@ -389,12 +431,8 @@ gather, nests, rails or rover. Decision: `docs/DECISIONS.md` 「2026-09-14 — �
 ## Recent changes
 
 Last 5 only — older: `git log -- src/world`.
+- 2026-09-18 — Tram: constant body orientation (no 180° flip on `dir`, which teleported riders across the car), a driver console at **each** end (`TRAM_CONSOLE_IDS`, same `applyStart`), double-ended body, cabin containers removed.
+- 2026-09-18 — Specimen gather sites retired: `planets.csv` `sampleNodes` 0 · `samples` empty on all five planets (`specimen.ts` and the columns stay — data-driven, `nodes = 0` means none).
+- 2026-09-18 — Explosions and melee no longer pass a window: `WorldSystem.raycastBlast` (glass blocks whether broken or not, `GLASS_OBSTACLE_KIND`; tutorial ghost fence unaffected) and `shared/explosion.lineClear` switched to it.
+- 2026-09-18 — Bug nest eggs became enemies: `Nests` stops drawing the `nest_eggs` mesh and publishes `getEggSpots()` → `WorldRef.getNestEggSpots()` (`nest` = pad index); no crates within `NEST_CRATE_CLEAR_M` of a nest and the nest crate ring is gone.
 - 2026-09-17 — Tutorial fence drawn height ×1.5 (`BARRIER.fenceHeight` 1.35 → 2.025; lower collider follows, slats rescale).
-- 2026-09-16 — Tutorial corpses hold their sink clock while the loot window shows them; `TutorialWorld.crawlProgress` (0 entrance → 1 exit of the low passage).
-- 2026-09-16 — 행성 광맥 (`mineral.ts` + `Gather.ts` `vein_*`): hillside-only spawns (`mineralNodes`), rarity rolled at harvest
-  from the threat's `loot_tiers.csv` row (mythic included) with 채광 as a multiplier, the only gather node with a collider.
-  1 m fence stair cuts, side walls lower from the fence end (left fast, right gently), `lowerTilingErrors`, last androids' yaw fixed.
-  cliff faces everywhere), last androids face the ship with `sg` / `dmr` + 22 m sense, `ship` band moved to z −150…−158, mast collider.
-  from the lobby host is trusted without the distance check (the host opens for an android).
-- 2026-09-16 — Tutorial end area: everything past the fence is abyss except path · ship hill (+0.9 m, slope) · pit island (north rim),
-- 2026-09-16 — Tutorial corpses: emptied ones sink and are removed (`TutorialCorpses.update`, called from `TutorialWorld.update`).

@@ -9,7 +9,13 @@
  * 2026-09-10 이전에는 이 둘이 뒤바뀐 채로 지오메트리에 들어가 **선로와 수직으로 길쭉한 판때기**가 달렸다.
  *
  * **지붕은 없다** (무개차) — 3인칭 카메라가 갇히지 않게 하는 규약이고 구조물의 무너진 지붕과 같은 판단이다.
- * 대신 앞 격벽 뒤가 **운전실**이고 그 안에 시동 콘솔이 선다: 차체 안이 실제로 걸어 다니는 공간이다.
+ * 대신 격벽 뒤가 **운전실**이고 그 안에 시동 콘솔이 선다: 차체 안이 실제로 걸어 다니는 공간이다.
+ *
+ * ## 2026-09-18 배치 (사용자 결정)
+ * - **차체 방향은 고정이다** — `placeTram` 의 yaw 는 선로 접선뿐이고 `dir` 을 보지 않는다. 뒤집히던 차체가
+ *   탑승자를 차 반대편으로 순간이동시키던 버그(`shared/ride` 는 매 프레임 차량 로컬 좌표로 자리를 다시 푼다).
+ * - 그래서 **운전실 · 시동 콘솔이 양 끝에 하나씩**이다 (양운전대 셔틀). 절차는 한 벌(`Rails.applyStart`).
+ * - **객실 컨테이너는 없앴다** — 파밍 장소는 플랫폼이다.
  */
 import * as THREE from 'three';
 import {
@@ -22,11 +28,10 @@ import type { PlayerDamageSource } from '@/shared';
 
 /** 2026-09-15 (결과 창 개편): 달리는 전차에 치인 피해의 출처 — 계약의 「전차 충돌 등 적이 아닌 물리 피해」 = `explosion`. */
 const TRAM_DAMAGE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'explosion' });
-import type { ContainerSpec } from '../../structures/parts/Containers';
-import { pickTier, structureRow } from '../../structures/model';
+import { structureRow } from '../../structures/model';
 import type { SpatialHash } from '../../SpatialHash';
 import {
-  GLASS, SCREEN, STEEL, STEEL_DARK, TRAM_CAB_LEN, TRAM_DESK_H, TRAM_DESK_HALF_L, TRAM_DESK_HALF_W,
+  GLASS, SCREEN, STEEL, STEEL_DARK, TRAM_DESK_H, TRAM_DESK_HALF_L, TRAM_DESK_HALF_W,
   TRAM_DOOR_HALF, TRAM_FLOOR_T, TRAM_FLOOR_UP, TRAM_NOSE_T, TRAM_WALL_H, TRAM_WALL_T,
   type RailBuild, type RailPath, type TramInst, sampleAt,
 } from '../model';
@@ -37,10 +42,9 @@ const _tan = new THREE.Vector3();
 const _kb = new THREE.Vector3();
 const _from = new THREE.Vector3();
 
-/** 차체 · 콜라이더 · 객실 컨테이너 · 운전실 콘솔 자리를 만든다. 등록(`Interactable`)은 `Rails` 가 한다. */
+/** 차체 · 콜라이더 · **양 끝** 운전실 콘솔 자리를 만든다. 등록(`Interactable`)은 `Rails` 가 한다. */
 export function buildTram(
-  ctx: BuildCtx, rng: Random, startS: number, startDock: string | null,
-  specs: ContainerSpec[], out: RailBuild,
+  ctx: BuildCtx, rng: Random, startS: number, startDock: string | null, out: RailBuild,
 ): TramInst {
   const row = structureRow('tram');
   /** 반**길이**(진행 방향) · 반**폭** · 객실 높이 — csv 가 원본이다. */
@@ -60,8 +64,9 @@ export function buildTram(
   }
 
   /* ── 옆판 (허리 높이 — 위가 열려 있어 카메라가 갇히지 않는다) ─────────────────
-   * 가운데는 **승강구**로 비운다. 양쪽 다 비우는 이유는 왕복 선로에서 전차가 뒤집혀 달려
-   * 플랫폼이 반대편에 오기 때문이다. 승강구는 이제 **진행 방향으로** 뚫린다. */
+   * 가운데는 **승강구**로 비운다 (차 길이 방향으로 뚫린다). 양쪽을 다 비우는 것은 그대로 둔다:
+   * 2026-09-18 부터 차체가 뒤집히지 않아 플랫폼은 **늘 로컬 +Z 쪽**이지만(`Rails.build` 의 데크 중심이
+   * 접선의 왼쪽이고 전차 yaw 도 접선이다), 반대쪽 승강구는 선로 발판 쪽으로 내리는 문이라 그대로 쓴다. */
   const seg = (k: number): [number, number] => (k < 0 ? [-halfLen, -TRAM_DOOR_HALF] : [TRAM_DOOR_HALF, halfLen]);
   for (const sz of [-1, 1]) {
     for (const k of [-1, 1]) {
@@ -78,42 +83,36 @@ export function buildTram(
     }
   }
 
-  // ── 앞 격벽(기수) + 전면 유리 ──────────────────────────────────────
-  {
-    const nose = new THREE.BoxGeometry(TRAM_NOSE_T, wallH, halfWid * 2);
-    xform(nose, { x: halfLen - TRAM_NOSE_T / 2, y: wallH / 2, z: 0 });
-    paintGradient(nose, STEEL_DARK, STEEL, 0, wallH);
-    parts.push(nose);
+  /* ── 양 끝의 격벽 + 전면 유리 + 운전 콘솔 (2026-09-18 — 양쪽 운전실) ──────────────
+   * **차체가 레이드 내내 방향을 안 바꾸므로**(`placeTram`) 한쪽 끝은 절반의 주행에서 꽁무니가 된다.
+   * 그래서 기수 · 운전실 · 콘솔을 **양 끝에 똑같이** 만든다 (실제 왕복 셔틀과 같은 양운전대 구조) —
+   * 예전의 「앞 격벽 + 후미 난간」은 도는 차의 모양이었다. 두 콘솔은 **같은 시동 절차**를 부른다
+   * (`Rails.applyStart` — 새 와이어도 새 권위 경로도 없다).
+   *
+   * `end = +1` 은 로컬 +X 끝, `-1` 은 −X 끝. 180° 돌린 같은 물건이라 x · z 를 함께 뒤집는다.
+   * 격벽 뒤 `TRAM_CAB_LEN` 이 운전실이고 그 자리는 **비어 있다** — 걸어 들어가 콘솔 앞에 설 수 있어야 한다. */
+  const deskX = halfLen - TRAM_NOSE_T - TRAM_DESK_HALF_L;
+  for (const end of [1, -1] as const) {
+    const bulk = new THREE.BoxGeometry(TRAM_NOSE_T, wallH, halfWid * 2);
+    xform(bulk, { x: end * (halfLen - TRAM_NOSE_T / 2), y: wallH / 2, z: 0 });
+    paintGradient(bulk, STEEL_DARK, STEEL, 0, wallH);
+    parts.push(bulk);
     const glass = new THREE.BoxGeometry(0.08, 0.62, halfWid * 1.5);
-    xform(glass, { x: halfLen - 0.02, y: wallH * 0.66, z: 0 });
+    xform(glass, { x: end * (halfLen - 0.02), y: wallH * 0.66, z: 0 });
     paint(glass, GLASS);
     parts.push(glass);
-  }
 
-  // ── 후미 난간 ─────────────────────────────────────────────────────
-  {
-    const g = new THREE.BoxGeometry(0.22, TRAM_WALL_H, halfWid * 2);
-    xform(g, { x: -halfLen + 0.11, y: TRAM_WALL_H / 2, z: 0 });
-    paintGradient(g, STEEL_DARK, STEEL, 0, TRAM_WALL_H);
-    parts.push(g);
-  }
-
-  /* ── 운전 콘솔 (2026-09-10 — 플랫폼에서 차 안으로 옮겼다) ────────────────
-   * 앞 격벽에 등을 대고 선 데스크 + 기울어진 화면. 격벽 뒤 `TRAM_CAB_LEN` 이 운전실이고
-   * 그 자리는 **비어 있다** — 걸어 들어가 콘솔 앞에 설 수 있어야 한다. */
-  const deskX = halfLen - TRAM_NOSE_T - TRAM_DESK_HALF_L;
-  {
     const desk = new THREE.BoxGeometry(TRAM_DESK_HALF_L * 2, TRAM_DESK_H, TRAM_DESK_HALF_W * 2);
-    xform(desk, { x: deskX, y: TRAM_DESK_H / 2, z: 0 });
+    xform(desk, { x: end * deskX, y: TRAM_DESK_H / 2, z: 0 });
     paintGradient(desk, STEEL_DARK, STEEL, 0, TRAM_DESK_H);
     parts.push(desk);
     const screen = new THREE.BoxGeometry(0.46, 0.07, TRAM_DESK_HALF_W * 1.7);
-    xform(screen, { x: 0, y: 0, z: 0 }, new THREE.Euler(0, 0, 0.5));
-    xform(screen, { x: deskX - 0.04, y: TRAM_DESK_H + 0.06, z: 0 });
+    xform(screen, { x: 0, y: 0, z: 0 }, new THREE.Euler(0, 0, end * 0.5));
+    xform(screen, { x: end * (deskX - 0.04), y: TRAM_DESK_H + 0.06, z: 0 });
     paint(screen, SCREEN, 0.06, rng);
     parts.push(screen);
     const lever = new THREE.BoxGeometry(0.1, 0.42, 0.1);
-    xform(lever, { x: deskX - 0.06, y: TRAM_DESK_H + 0.2, z: TRAM_DESK_HALF_W * 0.55 });
+    xform(lever, { x: end * (deskX - 0.06), y: TRAM_DESK_H + 0.2, z: end * TRAM_DESK_HALF_W * 0.55 });
     paint(lever, STEEL, 0.05, rng);
     parts.push(lever);
   }
@@ -137,12 +136,12 @@ export function buildTram(
     position: new THREE.Vector3(), yaw: 0, state: 'idle', s: startS, dir: 1,
   };
   const inst: TramInst = {
-    def, root, parts: [], vel, containers: [], consolePos: new THREE.Vector3(),
+    def, root, parts: [], vel, consolePos: [new THREE.Vector3(), new THREE.Vector3()],
     halfLen, halfWid, wallH,
     dockTimer: 0, runT: 0, lastDock: startDock, targetS: startS, hitUntil: new Map(),
   };
 
-  /* 콜라이더: 바닥(= 발판) 하나 + 옆판 넷 + 앞 격벽 + 후미 난간 + 콘솔 데스크. 전부 `Obstacle.box` 이고
+  /* 콜라이더: 바닥(= 발판) 하나 + 옆판 넷 + 양 끝 격벽 둘 + 콘솔 데스크 둘. 전부 `Obstacle.box` 이고
    * `velocity` 는 **같은 벡터 객체**를 공유한다 — 매 프레임 그 하나만 고치면 발판 질의가 곧바로 새 속도를 본다. */
   const addPart = (ox: number, oz: number, oy: number, hx: number, hz: number, h: number): void => {
     const entry = ctx.hash.addBox(new THREE.Vector3(0, -9999, 0), hx, hz, 0, h, 'tram');
@@ -154,48 +153,32 @@ export function buildTram(
     const [x0, x1] = seg(k);
     addPart((x0 + x1) / 2, sz * halfWid, 0, (x1 - x0) / 2, TRAM_WALL_T / 2, TRAM_WALL_H);
   }
-  addPart(halfLen - TRAM_NOSE_T / 2, 0, 0, TRAM_NOSE_T / 2, halfWid, wallH);          // 앞 격벽
-  addPart(-halfLen + 0.11, 0, 0, 0.11, halfWid, TRAM_WALL_H);                         // 후미 난간
-  addPart(deskX, 0, 0, TRAM_DESK_HALF_L, TRAM_DESK_HALF_W, TRAM_DESK_H);              // 콘솔 데스크
-
-  /* ── 객실 컨테이너 (움직인다 — `ContainerSpec.dynamic`) ─────────────────
-   * 승강구와 운전실은 비운다: 문 앞에 캐비닛이 서면 타지 못하고, 운전실에 서면 콘솔을 가린다. */
-  const count = row ? row.containers : 3;
-  const allZones: Array<[number, number]> = [
-    [-halfLen + 1.0, -TRAM_DOOR_HALF - 0.7],
-    [TRAM_DOOR_HALF + 0.7, halfLen - TRAM_NOSE_T - TRAM_CAB_LEN - 0.7],
-  ];
-  const zones = allZones.filter(([a, b]) => b > a);
-  const spanTotal = zones.reduce((sum, [a, b]) => sum + (b - a), 0);
-  for (let i = 0; i < count; i++) {
-    let t = spanTotal * ((i + 0.5) / Math.max(1, count));
-    let ox = zones.length ? zones[0][0] : 0;
-    for (const [a, b] of zones) {
-      if (t <= b - a) { ox = a + t; break; }
-      t -= b - a; ox = b;
-    }
-    const oz = (i % 2 === 0 ? -1 : 1) * (halfWid - 0.7);
-    const spec: ContainerSpec = {
-      id: `tram_c${i}`, position: new THREE.Vector3(), yaw: 0,
-      tier: pickTier(row ? row.tiers : [], rng.next()), style: (i % 3) as 0 | 1 | 2,
-      zoneId: 'tram_rail_0', zoneKind: 'platform', dynamic: true,
-    };
-    specs.push(spec);
-    inst.containers.push({ spec, ox, oz, oy: 0 });
+  for (const end of [1, -1] as const) {
+    addPart(end * (halfLen - TRAM_NOSE_T / 2), 0, 0, TRAM_NOSE_T / 2, halfWid, wallH);   // 양 끝 격벽
+    addPart(end * deskX, 0, 0, TRAM_DESK_HALF_L, TRAM_DESK_HALF_W, TRAM_DESK_H);         // 그 앞의 콘솔 데스크
   }
+
+  /* 2026-09-18 (사용자 결정): **객실 컨테이너는 없앴다.** `structures.csv` 의 `tram.containers` 는 이제
+   * 아무도 안 읽는다 (은퇴 규약대로 열 · 값은 남긴다 — `rail_platform` 이 같은 열을 계속 읽는다).
+   * 플랫폼 데크의 컨테이너(`parts/Platform`)는 그대로다: 전차는 이동 수단, 파밍 장소는 승강장이다. */
 
   return inst;
 }
 
 /**
- * `s` 에서 전차 · 콜라이더 · 컨테이너 · 콘솔을 다시 놓는다. `speed` 는 발판 속도(m/s, 0 이면 정지).
+ * `s` 에서 전차 · 콜라이더 · 콘솔을 다시 놓는다. `speed` 는 발판 속도(m/s, 0 이면 정지).
  *
  * **스냅샷을 찍지 않는다** — 타고 있는 쪽(`player/PlayerController`)은 여기서 고쳐 둔 `entry.position` ·
  * `box.yaw` 를 매 프레임 다시 읽어 자기 자리를 푼다 (함선 실내가 스냅샷 때문에 깨졌던 전례와 같은 이유).
  */
 export function placeTram(inst: TramInst, path: RailPath, speed: number, hash: SpatialHash | null): void {
   sampleAt(path, inst.def.s, _pos, _tan);
-  const yaw = Math.atan2(_tan.z, _tan.x) + (inst.def.dir < 0 ? Math.PI : 0);
+  /* 2026-09-18 (사용자 결정) — **`dir` 을 보지 않는다.** 차체 방향은 선로 접선뿐이고 레이드 내내 고정이다:
+   * 한쪽으로는 앞으로, 돌아올 때는 뒤로 달리며 어느 승강장에서든 늘 같은 쪽을 보고 선다.
+   * 예전에는 `+ (dir < 0 ? Math.PI : 0)` 로 차체가 **그 자리에서 180° 뒤집혔고**, 탑승자는 매 프레임
+   * 차량 로컬 좌표로 자기 자리를 다시 푸므로(`shared/ride`) 출발하는 순간 차 반대편으로 순간이동했다.
+   * `dir` 자체는 그대로 뒤집힌다 — `s` · `vel` · 넉백 방향 · `TramWire` 가 그것을 읽는다. */
+  const yaw = Math.atan2(_tan.z, _tan.x);
   const fy = _pos.y + TRAM_FLOOR_UP;
   inst.def.position.set(_pos.x, fy, _pos.z);
   inst.def.yaw = yaw;
@@ -210,15 +193,12 @@ export function placeTram(inst: TramInst, path: RailPath, speed: number, hash: S
     const wz = _pos.z + p.ox * s + p.oz * c;
     hash?.move(p.entry, wx, fy + p.oy, wz, yaw);
   }
-  for (const cc of inst.containers) {
-    cc.spec.position.set(_pos.x + cc.ox * c - cc.oz * s, fy + cc.oy, _pos.z + cc.ox * s + cc.oz * c);
-    // 캐비닛은 벽(옆판)에 등을 대고 선다 — 벽 법선은 로컬 ±Z 다.
-    cc.spec.yaw = yaw + (cc.oz < 0 ? Math.PI / 2 : -Math.PI / 2);
-  }
   {
-    // 콘솔 앞에 서는 자리 = 데스크에서 후미 쪽으로 한 걸음. `Interactable.position` 이 이 객체다.
+    // 콘솔 앞에 서는 자리 = 데스크에서 차 안쪽으로 한 걸음. `Interactable.position` 이 이 객체들이다.
+    // 2026-09-18: 양 끝에 하나씩 (인덱스 0 = 로컬 +X 끝, 1 = −X 끝).
     const ox = inst.halfLen - TRAM_NOSE_T - TRAM_DESK_HALF_L * 2 - 0.35;
-    inst.consolePos.set(_pos.x + ox * c, fy + 1.0, _pos.z + ox * s);
+    inst.consolePos[0].set(_pos.x + ox * c, fy + 1.0, _pos.z + ox * s);
+    inst.consolePos[1].set(_pos.x - ox * c, fy + 1.0, _pos.z - ox * s);
   }
 }
 
@@ -276,7 +256,7 @@ export function updateTramHit(game: GameContext | null, inst: TramInst, speed: n
       ? 0 : hitSide(inst, c, s, p.x, p.y, p.z, PLAYER_RADIUS, floorY - TRAM_HIT_FLOOR_CLEAR, floorY - TRAM_HIT_REACH);
     if (side !== 0) {
       hitUntil.set('local', now + TRAM_HIT_COOLDOWN_S);
-      knockDir(c, s, side);
+      knockDir(c, s, side, inst.def.dir);
       game.bus.emit('audio:play', { id: 'tram_hit', position: p, volume: 0.9 });
       player.applyKnockback(_kb, TRAM_HIT_KNOCKBACK * t);
       player.takeDamage(TRAM_HIT_DAMAGE * t, inst.def.position, TRAM_DAMAGE_SOURCE);   // 2026-09-15: 적이 아닌 물리 피해
@@ -304,7 +284,7 @@ export function updateTramHit(game: GameContext | null, inst: TramInst, speed: n
       const side = hitSide(inst, c, s, ep.x, ep.y, ep.z, e.radius, floorY - TRAM_HIT_FLOOR_CLEAR, lowFoot);
       if (side === 0) continue;
       hitUntil.set(key, now + TRAM_HIT_COOLDOWN_S);
-      knockDir(c, s, side);
+      knockDir(c, s, side, inst.def.dir);
       game.bus.emit('audio:play', { id: 'tram_hit', position: e.position, volume: 0.9 });
       // 그 적 하나만 민다 — 반경을 몸 안으로 좁히고 방향을 준다 (pushBack 은 반경 + 몸 반지름까지 본다)
       enemies.pushBack(_from.copy(e.position), 0.05, TRAM_HIT_KNOCKBACK * t, _kb);
@@ -324,7 +304,7 @@ export function updateTramHit(game: GameContext | null, inst: TramInst, speed: n
     const side = hitSide(inst, c, s, rp.x, rp.y, rp.z, PLAYER_RADIUS, floorY - TRAM_HIT_FLOOR_CLEAR, floorY - TRAM_HIT_REACH);
     if (side === 0) continue;
     hitUntil.set(key, now + TRAM_HIT_COOLDOWN_S);
-    knockDir(c, s, side);
+    knockDir(c, s, side, inst.def.dir);
     game.bus.emit('audio:play', { id: 'tram_hit', position: r.position, volume: 0.9 });
     game.bus.emit('ghost:damage', {
       id: r.id as PeerId, amount: TRAM_HIT_DAMAGE * t, from: inst.def.position.clone(),
@@ -367,9 +347,15 @@ function riderExempt(game: GameContext, inst: TramInst, x: number, y: number, z:
   return !o || o.velocity === inst.vel;
 }
 
-/** 앞으로 밀면서 **선로 밖으로** 던지는 방향을 `_kb` 에 쓴다 — 그대로 앞으로만 밀면 계속 치인다. */
-function knockDir(c: number, s: number, side: number): void {
-  _kb.set(c * 0.7 - s * side, 0, s * 0.7 + c * side).normalize();
+/**
+ * 앞으로 밀면서 **선로 밖으로** 던지는 방향을 `_kb` 에 쓴다 — 그대로 앞으로만 밀면 계속 치인다.
+ *
+ * 2026-09-18: 「앞」 = **진행 방향**이라 `dir` 을 곱한다. 차체 yaw 가 `dir` 을 따라 뒤집히던 때는
+ * 로컬 +X 가 곧 진행 방향이었지만, 이제 방향이 고정이라 뒤로 달릴 때는 로컬 +X 가 뒤쪽이다
+ * (`placeTram`). 옆으로 던지는 `side` 는 이미 몸이 있는 쪽이라 그대로다.
+ */
+function knockDir(c: number, s: number, side: number, dir: number): void {
+  _kb.set(c * 0.7 * dir - s * side, 0, s * 0.7 * dir + c * side).normalize();
 }
 
 /** 운전실 콘솔의 상호작용 반경 · 홀드 시간은 계약(csv)에서 온다 — `Rails` 가 등록할 때 쓴다. */

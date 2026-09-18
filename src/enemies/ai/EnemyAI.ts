@@ -21,6 +21,8 @@ import { tutorialEdgeGuard, tutorialHold } from '../Tutorial';
 import { updateBurrowGate } from './Burrow';
 /* appended (2026-09-17): 헌터 뒤집힘 */
 import { updateHunterFlip } from './HunterFlip';
+/* appended (2026-09-18): 둥지 리시 */
+import { nestLeashHold } from './NestLeash';
 
 export { lookAtTarget } from './Common';
 import { biteStructure, refreshStructureTarget } from './Structures';
@@ -55,6 +57,12 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   const a = e.anim;
 
   e.stateTime += dt;
+  /*
+   * 2026-09-18 (벌레 알, 사용자 결정): 알은 **AI 가 없다** — 움직이지 · 돌지 · 공격하지 · 알아채지 않는다. 표적 굴림
+   * (`acquireTarget`)조차 하지 않으므로 이 줄이 `becomeAlert` · 인지 · 조사 · 상태 기계 **전부**의 앞이다.
+   * 죽은 뒤에는 시체 시계만 돈다 (`kill()` 이 이미 땅에 앉혔다 — 낙하가 없다).
+   */
+  if (e.isEgg) { if (e.state === 'dead') e.deathTimer += dt; return; }
   if (e.attackCd > 0) e.attackCd -= dt;
   if (e.leapCd > 0) e.leapCd -= dt;
   if (e.chargeCd > 0) e.chargeCd -= dt;
@@ -105,6 +113,9 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
    * 기계(벌레) · `updateRogue`(인간형)가 그대로 맡는다.
    */
   tutorialHold(e, dt);
+  /* 2026-09-18 (사용자 결정 「둥지 반경 60 m 리시」): 둥지에서 난 벌레(`nestOf >= 0`)는 둥지에서 그 이상 멀어지면 표적을
+     놓고 돌아간다. 둥지에서 나지 않은 벌레는 `ai/NestLeash` 첫 줄에서 그대로 돌아간다 — 추격이 한 치도 안 바뀐다. */
+  nestLeashHold(e);
 
   // A lure (유인 수류탄 / 소음) drags a patrolling or idle bug toward the noise.
   if (e.hasLure && e.lureWeight >= 0.35 && (e.state === 'idle' || e.state === 'wander')
@@ -206,7 +217,7 @@ export function updateEnemyAI(e: Enemy, dt: number, host: EnemyHost): void {
   }
 
   // 2026-09-17: 포병이 추격 상태가 아닐 때도 쏜 뒤의 고정(`postFireLock`)은 끝까지 지킨다 (`GimmickAI.artilleryOffChase`)
-  if (e.type === 'artillery' && e.state !== 'chase' && artilleryOffChase(e, dt)) speed = 0;
+  if (e.type === 'artillery' && e.state !== 'chase' && artilleryOffChase(e, dt, host)) speed = 0;
   // status effects: burning does not slow, 'slowed' (acid / cryo gadgets) scales every movement state
   if (e.slowFactor < 1) speed *= e.slowFactor;
 

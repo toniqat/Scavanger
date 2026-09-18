@@ -1,6 +1,9 @@
 import type { TutorialGate, TutorialHudPart, TutorialStepId } from '@/shared';
 import { TUTORIAL_TRACK_STEPS } from '@/shared';
-import { HUD_GEAR_STEP, HUD_STAMINA_STEP, TUTORIAL_STASH_WHITELIST, blockedBy, type HudRevealState, type StepDef } from '../model';
+import {
+  BUILD_TRACKS, HUD_GEAR_STEP, HUD_STAMINA_STEP, TUTORIAL_STASH_WHITELIST, blockedBy,
+  type HudRevealState, type StepDef,
+} from '../model';
 import { stepDef, trackOf } from '../Steps';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -75,7 +78,8 @@ function stashItemBlock(step: TutorialStepId, allow: true | readonly string[] | 
   if (id === undefined) return null;
   // 2026-09-14: 흰 목록은 **증축 트랙의 것**이다 — 창고를 안내에 쓰는 트랙이 거기뿐이다. 레이드에서 돌아온
   //   사람의 전리품을 함선 트랙이 감추면 곤란하다.
-  if (trackOf(step) !== 'build') return null;
+  // 2026-09-18: 증축 안내가 둘로 갈렸다 — 출격 안내(`raid2`)의 조종석 단계도 아직 함선 안이라 같은 목록이다 (`BUILD_TRACKS`).
+  if (!BUILD_TRACKS.includes(trackOf(step))) return null;
   if (TUTORIAL_STASH_WHITELIST.includes(id)) return null;
   return '튜토리얼 중에는 안내에 쓰는 재료와 만든 것만 보입니다';
 }
@@ -91,8 +95,11 @@ const shipManageBlocked = (step: TutorialStepId): boolean => trackOf(step) === '
  * `training` · `launchWarn` (2026-09-17, 사용자 결정) — **증축 트랙 내내** 감추는 것 둘 (숨김 전용, 막지는 않는다):
  * 터미널의 `시뮬레이션 훈련장` 버튼, 준비 홀드의 출격 준비 경고(기업 계약 없음 · 방탄복 없음 …). 튜토리얼 캐릭터는 둘 다 없는 것이
  * 정상이라 안내 한가운데에서 경고 팝업이 흐름을 끊었다.
+ *
+ * ⚠ 2026-09-18 (증축 안내 · 출격 안내 분리): 이 둘이 실제로 필요한 자리(터미널 버튼 · 준비 홀드)는 **출격 안내**(`raid2`)의
+ * `terminal` 단계로 옮겨 갔다 — 트랙 이름 하나를 비교하면 그날부터 아무것도 감추지 못한다. `BUILD_TRACKS` 가 둘 다 본다.
  */
-const buildOnlyHidden = (step: TutorialStepId): boolean => trackOf(step) === 'build';
+const buildOnlyHidden = (step: TutorialStepId): boolean => BUILD_TRACKS.includes(trackOf(step));
 
 /** 단계의 `allow` 대신 쓸 허용 표 (2026-09-17 — 보이는 목표 줄이 더 연 게이트까지 합친 것, `model.mergedAllow`). */
 export type AllowTable = StepDef['allow'];

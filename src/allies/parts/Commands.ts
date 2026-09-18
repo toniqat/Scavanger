@@ -86,6 +86,11 @@ export function onPing(
  */
 function onEnemyPing(sys: AllySystem, enemyId: number, at: THREE.Vector3): void {
   if (!sys.raidActive || !sys.simulating) return;   // 판단은 권위에서만 (리플리카가 대사를 내보내면 두 번 말한다)
+  /* 2026-09-18 (벌레 알): 알을 가리킨 핑에는 동의하지 않는다. 교전은 **맞서 싸우는 것**을 상대로만 한다 —
+     알은 움직이지도 쏘지도 않으므로 「저것을 쏴라」 가 성립하지 않고, 분대가 둥지 앞에서 탄을 쏟게 만든다.
+     세포가 필요하면 사람이 직접 쏜다. (`ui/hud/Pings` 가 이미 알에 핑을 붙이지 않으므로 여기는 옛 핑 · 조작된
+     id 에 대한 보험이다.) */
+  if (isEggId(sys, enemyId)) return;
   sys.preferredEnemyId = enemyId;
   sys.preferredEnemyPos.copy(at);
   sys.preferredEnemyUntil = sys.ctx.time + ALLY_WATCH_S;
@@ -107,10 +112,17 @@ export function tickEnemyPing(sys: AllySystem): void {
   for (const e of sys.ctx.enemies?.getEnemies() ?? []) {
     if (e.id === sys.preferredEnemyId) { found = e; break; }
   }
-  if (!found || found.isDead) { clearEnemyPing(sys); return; }   // 죽었거나 사라졌다
+  // 2026-09-18: 죽었거나 · 사라졌거나 · 알이다 (알은 애초에 지목되지 않지만, 지목이 살아남는 유일한 자리라 여기서도 본다)
+  if (!found || found.isDead || found.isEgg) { clearEnemyPing(sys); return; }
   sys.preferredEnemyPos.copy(found.position);
   // 창을 미는 것은 **실제로 사선에 넣은** 기뿐이다 (`parts/Combat.proposal`) — 벽 너머에 두고 서성이면 풀린다.
   if (now >= sys.preferredEnemyUntil) clearEnemyPing(sys);
+}
+
+/** 그 id 가 벌레 알인가 (`EnemyRef.isEgg` — 모르는 id 는 아니다). */
+function isEggId(sys: AllySystem, enemyId: number): boolean {
+  for (const e of sys.ctx.enemies?.getEnemies() ?? []) if (e.id === enemyId) return e.isEgg === true;
+  return false;
 }
 
 /** `at` 에 가장 가까운, 지금 레이드에서 움직일 수 있는 한 기 (한 마디는 한 기만 한다). */

@@ -1,3 +1,6 @@
+// 2026-09-18: 목표 줄의 `(n/m)` 자리 구분은 공용 표기 하나다 (`tutorialCountLabel` — 패널과 지도가 같이 쓴다).
+import { groupDigits } from './numberFormat';
+
 /* ────────────────────────────────────────────────────────────────────────────
  * 튜토리얼 (2026-09-08). Owner: `tutorial/TutorialSystem` publishes `ctx.tutorial`.
  *
@@ -27,10 +30,20 @@
  * 트랙이 갈린 것 말고 설계는 그대로다 — 진행은 버스 이벤트 관찰, 순서 강제는 각 폴더의 `blockReason` 한 줄.
  * ──────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
-/** 안내 트랙. 각각 자기 목표 패널 · 자기 건너뛰기를 갖는다. */
-export type TutorialTrack = 'raid' | 'ship' | 'build';
+/* ── appended (2026-09-18, 사용자 결정 — 증축 안내가 둘로 갈렸다) ─────────────────────────────────────────────
+ *
+ * ④ `raid2` 「출격 안내」 — 옛 `build` 트랙의 뒤 두 단계(`terminal` · `raid`)가 **자기 트랙**이 됐다.
+ *   「증축 안내」는 만든 소총을 장착하는 데서(`equipGun`) 끝나고, 조종석 · 출격 · 첫 레이드는 이어서 시작되는
+ *   별개의 안내다 — 함선을 짓는 일과 행성에 나가는 일은 배우는 것도 실패하는 방식도 다르고, 트랙마다 따로
+ *   건너뛸 수 있어야 「증축은 알지만 출격은 처음」인 사람이 생긴다 (3트랙을 가른 것과 같은 근거).
+ *   단계 id 는 하나도 바뀌지 않았다 (`terminal` · `raid` 가 트랙만 옮겼다) — 옛 저장은
+ *   `tutorial/TutorialSystem.load` 가 그 트랙으로 옮겨 붙인다.
+ * ───────────────────────────────────────────────────────────────────────────────────────────── */
 
-export const TUTORIAL_TRACKS: readonly TutorialTrack[] = ['raid', 'ship', 'build'];
+/** 안내 트랙. 각각 자기 목표 패널 · 자기 건너뛰기 · 자기 저장을 갖는다. */
+export type TutorialTrack = 'raid' | 'ship' | 'build' | 'raid2';
+
+export const TUTORIAL_TRACKS: readonly TutorialTrack[] = ['raid', 'ship', 'build', 'raid2'];
 
 /** 순서대로 진행하는 단계. `intro` 는 시작 팝업, `done` 은 끝난 상태(= 비활성). */
 export type TutorialStepId =
@@ -119,7 +132,9 @@ export const TUTORIAL_STEPS: readonly TutorialStepId[] = [
   //   terminal= 조종석 이동 → 터미널 작동 → 목표 행성 → (워프 대기) → 발사 슬롯 → 탑승 → 준비 홀드   (`planet` · `travel` · `board` 흡수)
   //   raid    = 가치 `TUTORIAL_RAID_EXTRACT_VALUE_C` 이상을 들고 탈출 — **한 번의 레이드**, 끝나면 결과와 무관하게 트랙 종료
   //   빠진 id 는 계약이라 `TutorialStepId` 에 남고, 옛 저장은 `tutorial/Steps.normalizeStep` 이 묶인 단계로 옮긴다.
-  'intro', 'manage', 'bench', 'craftGun', 'equipGun', 'terminal', 'raid',
+  // 2026-09-18 (사용자 결정 — 증축 안내 · 출격 안내 분리): 뒤 두 단계(`terminal` · `raid`)가 새 트랙 `raid2` 로 나갔다. 7 → 5 단계.
+  //   id 는 그대로다 — 옮긴 것은 **트랙**뿐이라 `TutorialStepId` 도 `STEP_DEFS` 도 한 글자 안 바뀐다.
+  'intro', 'manage', 'bench', 'craftGun', 'equipGun',
 ];
 
 /**
@@ -140,6 +155,12 @@ export const TUTORIAL_TRACK_STEPS: Readonly<Record<TutorialTrack, readonly Tutor
   //   옛 저장의 `levelUp` 은 `tutorial/Steps.normalizeStep` 이 `stats` 로 옮긴다.
   ship: ['stats'],
   build: TUTORIAL_STEPS,
+  /*
+   * 2026-09-18 (사용자 결정): 「출격 안내」 — 조종석에서 행성을 정해 출격하고(`terminal`), 전리품을 챙겨 돌아온다(`raid`).
+   * 「증축 안내」의 마지막 단계(`equipGun`)가 끝나는 그 자리에서 **바로** 시작된다 (`TutorialSystem.autoStart` —
+   * 완주한 사람에게만 이어진다, `pendingRaid2`). 두 단계 다 id 가 예전 것이라 `Steps.ts` 표도 `normalizeStep` 도 그대로 쓴다.
+   */
+  raid2: ['terminal', 'raid'],
 };
 
 /** 그 단계가 속한 트랙 (모르는 id 면 null). */
@@ -278,4 +299,62 @@ export interface TutorialRef {
    * 레이드를 포기한 캐릭터는 다음 시작에서 튜토리얼을 처음부터 다시 한다. 다른 트랙은 건드리지 않는다.
    */
   restartTrack?(track: TutorialTrack): void;
+
+  /* ── appended (2026-09-18): 목표를 **다른 화면**에서도 그린다 ── */
+  /**
+   * 지금 도는 트랙의 목표 패널 내용 (비활성이면 null). 튜토리얼이 자기 좌상단 패널에 그리는 것과 **같은 데이터**다 —
+   * 전술 지도가 좌측 열 맨 위에 같은 줄을 그린다 (`ui/map/QuestPanels`, 사용자 결정 2026-09-18). 읽기 전용 스냅샷이라
+   * 부르는 쪽은 아무것도 바꾸지 못하고, 없는 구현(옛 호출부 · 테스트)에서는 그냥 그리지 않는다.
+   */
+  panelInfo?(): TutorialPanelInfo | null;
+}
+
+/**
+ * **세는 목표의 진행 꼬리표** (2026-09-18) — `벌레 처치 (1/2)` 의 `1/2`, 전리품 목표의 `1,000 / 1,000 C`.
+ *
+ * 두 화면이 같은 줄을 그린다: 좌상단 안내 패널(`tutorial/ui/Panel`)과 전술 지도 좌측 열(`ui/map/QuestPanels`).
+ * 같은 사실을 두 곳에서 각자 적으면 어긋난다 — 실제로 지도 쪽이 `1000 / 1000 C` 로 적어 어긋났고, 스모크가 그것을
+ * 잡았다. 그래서 문구를 만드는 자리는 여기 하나다 (`CLAUDE.md` §4.1 「두 폴더에 같은 식이 생기면 shared 로」).
+ * 자리 구분은 공용 표기(`numberFormat.groupDigits`)를 쓰고, 단위가 있는 줄만 쉼표 · 간격을 넣는다 — 단위 없는
+ * 수(처치 수)는 한 자리 · 두 자리라 `1/2` 가 읽기 좋다. 괄호는 부르는 쪽이 붙인다 (패널만 쓴다).
+ */
+export function tutorialCountLabel(at: number, total: number, unit?: string): string {
+  return unit ? `${groupDigits(at)} / ${groupDigits(total)} ${unit}` : `${at}/${total}`;
+}
+
+/** `TutorialPanelInfo` 의 목표 한 줄 (2026-09-18). */
+export interface TutorialObjectiveInfo {
+  id: string;
+  /**
+   * 그릴 문구. **키캡 토큰이 살아 있다** (`{INTERACT}` · `{JUMP:hold}` — `shared/keycap.renderKeyText` 로 푼다)
+   * 그리고 선택 목표의 `(선택) ` 접두사는 **이미 붙어 있다** (문구를 만드는 규칙이 튜토리얼 폴더 안에 있어야 한다).
+   */
+  text: string;
+  optional: boolean;
+  done: boolean;
+  /** 세는 목표면 지금 수 · 목표 수 · 단위(`C`), 아니면 null. */
+  count: { at: number; total: number; unit?: string } | null;
+}
+
+/** 진행 바가 **단계 수가 아니라 목표 자체**를 잴 때 (2026-09-18) — 「출격 안내」 레이드의 전리품 가치. */
+export interface TutorialGaugeInfo {
+  at: number;
+  total: number;
+  /** 이미 다 적힌 숫자 라벨 — `at` 이 `total` 을 넘겨도 **실제 값**을 적는다 (`1,400 C / 1,000 C`). */
+  label: string;
+}
+
+/** 목표 패널 한 장의 내용 (2026-09-18) — 트랙 이름 · 진행률 · 보이는 목표 줄. */
+export interface TutorialPanelInfo {
+  track: TutorialTrack;
+  /** 트랙 이름 (`조작 안내` · `함선 안내` · `증축 안내` · `출격 안내`). */
+  label: string;
+  step: TutorialStepId;
+  /** 트랙 안에서의 1-based 순번 · 단계 수. */
+  index: number;
+  count: number;
+  /** **지금 보이는** 줄만 (순차 공개를 이미 푼 결과). */
+  objectives: readonly TutorialObjectiveInfo[];
+  /** 진행 바가 목표 자체를 잴 때만 (아니면 null → `index / count` 를 쓴다). */
+  gauge: TutorialGaugeInfo | null;
 }

@@ -60,12 +60,12 @@ never each other. This folder owns no system and no gameplay state; it must not 
 | `raidFound.ts` | "Found in this raid" item mark: `raidFoundSeed`, `markRaidFound`, `mergeRaidFoundMark`, `raidFoundScopeOf`, `countsForRecovery`, `raidFoundStackKey` |
 | `lootRolls.ts` | Loot seed formulas `crateLootRandom` · `corpseLootRandom` (open path and preview path share them) |
 | `ballistics.ts` | Artillery shell closed form (`shellLaunchVelocity` · `shellPositionAt` · `shellApexHeight`, uses `SHELL_ARC_GRAVITY`) — enemies + HUD |
-| `explosion.ts` | Explosion falloff (`explosionFalloff` · `explosionDamage` · `explosionDamageRange` for tooltips): two-step curve from `EXPLOSION_FULL_FRACTION` / `EXPLOSION_OUTER_MUL` — all explosives. Occlusion: `blastReachesBody` (blast centre ↔ body feet · chest · head, any clear ray = hit), `meleeReachesBody` (attacker head ↔ the same 3 points), `lineClear` — all over `WorldRef.raycast`, numbers `BLAST_LOS_*` / `MELEE_LOS_SLACK_M` |
+| `explosion.ts` | Explosion falloff (`explosionFalloff` · `explosionDamage` · `explosionDamageRange` for tooltips): two-step curve from `EXPLOSION_FULL_FRACTION` / `EXPLOSION_OUTER_MUL` — all explosives. Occlusion: `blastReachesBody` (blast centre ↔ body feet · chest · head, any clear ray = hit), `meleeReachesBody` (attacker head ↔ the same 3 points), `lineClear` — all over `WorldRef.raycastBlast` (2026-09-18: the glass-blocking ray, so a broken window no longer lets a blast into a room), numbers `BLAST_LOS_*` / `MELEE_LOS_SLACK_M` |
 | `fragile.ts` | `breakFragileAlong(world, from, to)` — thrown objects break window glass on their step segment |
 | `ride.ts` | Vehicle ride math (`recordRideLocal` · `restoreRideLocal` · `rideContains`) — player, enemies, corpses |
 | `lightPool.ts` | Point-light pool: many `LightFixture` spots, `size` real lights moved to the nearest (intensity only) — hub + structures |
 | `render.ts` | `ShaderWarmupRef` (`ctx.shaders`: `warm`, `hold*`, `pointLightBudget`), `OutlineRef` / `OutlineChannel` (`ctx.outline`) |
-| `tutorial.ts` | `TutorialTrack` (`raid` / `ship` / `build`), step ids + per-track order, gates, HUD parts, save shape, `TutorialRef` (`ctx.tutorial`: `blockReason`, `hides`) |
+| `tutorial.ts` | `TutorialTrack` (`raid` / `ship` / `build` / `raid2`), step ids + per-track order, gates, HUD parts, save shape, `TutorialRef` (`ctx.tutorial`: `blockReason`, `hides`, `panelInfo`), `tutorialCountLabel` (the one `(n/m)` formatter — the objective panel and the map's tutorial rows must print a counted objective identically) |
 | `tutorialWorld.ts` | `TutorialWorldRef` (`ctx.world.tutorial`): checkpoints, `TutorialFallRule`, respawn pose |
 | `comms.ts` | Comms wheel (H): `CommsId` (wire strings), alive / downed layouts |
 | `console.ts` | `ConsoleRef` (`ctx.console`), `ConsoleCommand`, `DEV_HOSTS`, `isDevHost` |
@@ -88,6 +88,10 @@ constructor before any `init`). Nested: `ctx.net.profile` / `social` / `rooms` /
   (`StratagemId 'airstrike'`, `LoadoutSlot 'secondary'`, `ImplantId 'atlauncher'`, `ArmorDef.damageReduction`,
   `NpcQuestState 'deferred'`, `QUEST_DEFS` = `[]`, the power-allocation names in `housing.ts` / `events.ts`).
   Deletion is allowed only for code-only constants that no save or wire uses (e.g. the `KEY_IMPLANT` trio, C-8).
+- **`EnemyManagerRef` answers two different questions.** `getEnemies()` returns every body, including props such as
+  `bug_egg` (they must stay shootable, blastable and lootable); `queryNear(pos, radius, includeProps = false)` leaves
+  props out **by default**, because every caller of it is picking a target or asking "is something dangerous here" and
+  a bug nest holds 8–30 eggs. A caller that deals damage (fire zone, C4) opts back in with `includeProps: true`.
 - **Optional means "unknown", not zero.** An omitted wire / restore field (`PlayerRestoreState.shield`, `ui:screenFade.hold`,
   `NpcQuestRef.readAtOf`) must keep the old behaviour on the reader side.
 - **No numbers in TS.** Tuning values live in `data/*.csv`; this folder exposes names only. Bad cells do not throw — they
@@ -123,8 +127,8 @@ constructor before any `init`). Nested: `ctx.net.profile` / `social` / `rooms` /
 ## Recent changes
 
 Last 5 only — older: `git log -- src/shared`.
+- 2026-09-18 — `types.ts` (add-only): `NestEggSpot` + `WorldRef.getNestEggSpots` (nest egg positions; `nest` is the **pad** index, not a `getNestPositions()` hole index) · `WorldRef.raycastBlast` (glass-blocking ray) · `EnemyType 'bug_egg'` + `EnemyRef.isEgg` · optional `includeProps` on `EnemyManagerRef.queryNear`.
+- 2026-09-18 — `explosion.ts` (body only, no export change): `lineClear` now casts `WorldRef.raycastBlast` instead of `raycast`, so **glass blocks a blast / melee even after it is broken** (a room with one window no longer leaks artillery damage). Low cover is untouched — it was never `passRays`.
 - 2026-09-18 — `explosion.ts` (add-only): `lineClear` · `blastReachesBody` · `meleeReachesBody` — explosions and melee stop at walls, roofs and floors (rays cast from the body toward the blast centre); constants `BLAST_LOS_FEET_M` · `_CHEST_FRAC` · `_HEAD_FRAC` · `_LIFT_M` · `_SLACK_M` · `MELEE_LOS_SLACK_M`.
 - 2026-09-17 — `explosion.ts` (add-only): `explosionDamageRange(damage)` → `{min: floor(damage × EXPLOSION_OUTER_MUL), max}` for tooltip ranges; `EXPLOSION_OUTER_MUL` 0.6 → 0.5.
 - 2026-09-17 — `cutsceneHide.ts` (add-only, B-17): `CutsceneKind` / `CUTSCENE_KINDS` / `watchCutsceneHide` — docking · warp · liftoff as one subscription; first subscriber is `tutorial/ui/Popup`.
-- 2026-09-17 — `charBuffView.ts` (add-only): `provideCharBuffStrip` / `createCharBuffStrip` (ui registers `BuffStrip`; progression's sheet borrows it, `interactive` = hover card); `StatXpSource` + optional `source` on `ProgressionRef.addStatXp`; `PlayerProfile.trainedProgress` retired (dropped by migrate); `GYM_TRAIN_XP_BASE` / `_EXPONENT` unread.
-- 2026-09-17 — Video game seat optional: `GameSessionInfo.seatUid` / `housing:gameSession.seatUid` widened to `string | null` (null = standing); `isUtilityFurniture` treats `seat` (의자 · 쇼파) as decor.

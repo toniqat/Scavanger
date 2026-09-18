@@ -1,5 +1,5 @@
 /**
- * src/enemies/ai/ArtilleryPack.ts — **포병의 호위 · 사격 조건 · 1회 소환** (2026-09-17 사용자 결정).
+ * src/enemies/ai/ArtilleryPack.ts — **포병의 호위 · 사격 조건 · 제 부대 재소환** (2026-09-17 · 2026-09-18 사용자 결정).
  *
  * 이 파일이 답하는 질문: *포병 곁에는 누가 붙어 다니고, 포병은 언제 쏘며, 언제 무리를 불러내나.*
  *
@@ -9,9 +9,12 @@
  *   알아채면 평범한 스캐빈저처럼 표적에게 달려든다. 포병이 죽으면 `escortOf` 를 놓고 그냥 벌레가 된다.
  * - **사격 조건**: 표적 둘레 `supportRadius` 안에 포병이 아닌 벌레(살아 싸우는 팩션 bug)가 하나라도 있어야 쏜다(`hasBugSupport`).
  *   외톨이 표적은 사거리 안이어도 쏘지 않는다.
- * - **1회 소환**: 표적(사람 · 안드로이드 분대원)이 사거리(`maxRange`) 안인데 곁에 벌레가 없으면, 포병은 **평생 한 번**
- *   `scavenger_summon` `summonMin`–`summonMax` 마리를 제 둘레에서 파내 그 표적에게 보낸다(`maybeSummon`). 소환 무리는 드롭 0 % ·
- *   `relentless` 이고 그 표적이 쓰러질 때까지 표적을 바꾸지 않는다.
+ * - **제 부대**(2026-09-18 사용자 결정 — 「그것과 별개로 따로 자기 부대 스캐빈저를 소환. 스캐빈저들이 모두 죽으면 쿨타임 이후 재스폰」):
+ *   포병에게 딸린 스캐빈저(굴착 호위 + 소환 무리 = `escortOf` 가 이 포병인 몸)가 **한 마리도 남지 않으면**
+ *   `ARTILLERY_AI.squadCooldown` 을 재고, 그 뒤 `summonMin`–`summonMax` 마리를 제 둘레에서 파낸다(`maybeSummon`).
+ *   예전의 「평생 한 번」 제한은 없어졌다 — 부대가 죽는 한 계속 채운다. 사거리 안에 사람 표적이 있으면 그 표적에게 보내고
+ *   (`relentless`, 그 표적이 쓰러질 때까지 바꾸지 않는다), 없으면 굴착 호위처럼 포병 곁을 지킨다. 종류는 `scavenger_summon`
+ *   (드롭 0 % · `raidXp` 0) 이라 반복 소환이 파밍이 되지 않는다.
  *
  * 모든 결정 · 스폰은 권위(호스트 · 싱글)의 AI 틱에서만 일어나고, 리플리카는 `ee spawn` 으로 결과만 본다.
  * 호위 연결(`escortOf`)은 와이어에 없다 — 호스트가 바뀌면 `EnemySystem.promote` 가 풀어 평범한 벌레가 된다 (의도).
@@ -24,7 +27,7 @@ import type { CombatTarget } from '../Targets';
 
 /** 호위로 함께 파고 나오는 종류 (사용자 결정: 스캐빈저). */
 const ESCORT_TYPE: EnemyType = 'scavenger';
-/** 1회 소환 종류 — 드롭 0 % 전용 줄 (`data/enemies.csv`). */
+/** 소환 무리 종류 — 드롭 0 % · `raidXp` 0 전용 줄 (`data/enemies.csv`). */
 const SUMMON_TYPE: EnemyType = 'scavenger_summon';
 const TWO_PI = Math.PI * 2;
 /** 무리 한 마리 자리를 다시 뽑는 횟수 (경계 밖이면 다시). 알고리즘 상수. */
@@ -119,7 +122,9 @@ export function hasBugSupport(arty: Enemy, host: PackQueryHost, t: CombatTarget)
   const list = host.active;
   for (let i = 0; i < list.length; i++) {
     const o = list[i];
-    if (o === arty || !o.isCombatant || o.faction !== 'bug' || o.type === 'artillery') continue;
+    /* 2026-09-18 (벌레 알): 알은 「곁의 벌레」가 아니다 — 움직이지도 싸우지도 않으므로 둥지 옆에 선 표적에게 포격을 열어 주면 안 된다.
+       `isCombatant` 가 이미 false 라 앞 검사에서 빠지지만, **이 조건이 곧 규칙**이라 눈에 보이게 적어 둔다. */
+    if (o === arty || o.isEgg || !o.isCombatant || o.faction !== 'bug' || o.type === 'artillery') continue;
     if (t.enemy === o) continue;
     const dx = o.position.x - tx, dz = o.position.z - tz;
     if (dx * dx + dz * dz <= r2) return true;
@@ -132,27 +137,48 @@ function isPersonTarget(t: CombatTarget): boolean {
   return !t.isEnemy && !t.isDrone && !t.isVehicle;
 }
 
+/** 이 포병에게 딸린 스캐빈저(굴착 호위 + 소환 무리) 중 살아 싸우는 몸이 하나라도 있나. */
+export function hasLivingSquad(arty: Enemy, host: PackQueryHost): boolean {
+  const list = host.active;
+  for (let i = 0; i < list.length; i++) {
+    const o = list[i];
+    if (o.escortOf === arty && o.isCombatant) return true;
+  }
+  return false;
+}
+
 /**
- * 1회 소환 검사 (`GimmickAI.chaseArtillery` 가 추격 틱마다 부른다, 권위 전용). 표적이 사거리 안인데 곁에 벌레가 없으면 소환 스캐빈저를
- * 포병 둘레에서 파내 그 표적에게 보낸다. 포병 한 마리에 한 번 — 스폰이 하나도 안 됐어도 다시 시도하지 않는다.
+ * **제 부대 재소환** (2026-09-18 사용자 결정, `GimmickAI.chaseArtillery` 가 추격 틱마다 부른다 — 권위 전용).
+ *
+ * 포병에게 딸린 스캐빈저가 **전멸**하면 `ARTILLERY_AI.squadCooldown` 을 재고, 다 되면 `summonMin`–`summonMax` 마리를 제
+ * 둘레에서 파낸다. 한 마리라도 살아 있으면 쿨타임 시계가 다시 0 으로 돌아간다 (「모두 죽으면 쿨타임 이후」).
+ * 사람 · 안드로이드 표적이 사거리 안이면 그 표적에게 보내고(`relentless` + 표적 고정), 아니면 굴착 호위처럼 곁에 둔다.
+ * 검사 주기는 호위 · 사격 조건과 같은 `supportCheckS` 다 (프레임마다 활성 목록을 훑지 않는다).
  */
-export function maybeSummon(e: Enemy, dt: number, host: PackSpawnHost & PackQueryHost, t: CombatTarget): void {
-  if (e.summonDone || t.isDeadOrDowned || !isPersonTarget(t)) return;
-  if (e.distToTarget > ARTILLERY_AI.maxRange) return;
+export function maybeSummon(e: Enemy, dt: number, host: PackSpawnHost & PackQueryHost, t: CombatTarget | null): void {
+  if (e.squadCd > 0) e.squadCd = Math.max(0, e.squadCd - dt);
   e.supportCheckT -= dt;
   if (e.supportCheckT > 0) return;
   e.supportCheckT = ARTILLERY_AI.supportCheckS;
-  if (hasBugSupport(e, host, t)) return;
-  e.summonDone = true;
+  if (hasLivingSquad(e, host)) { e.squadCd = ARTILLERY_AI.squadCooldown; return; }
+  if (e.squadCd > 0) return;
+  // 표적이 있고 사거리 안이면 그 표적에게 보낸다 (없으면 굴착 호위와 같은 「곁을 지키는」 무리)
+  const send = t && !t.isDeadOrDowned && isPersonTarget(t) && e.distToTarget <= ARTILLERY_AI.maxRange ? t : null;
   const n = rollCount(ARTILLERY_AI.summonMin, ARTILLERY_AI.summonMax);
   for (let i = 0; i < n; i++) {
     if (!placeAround(host.ctx, e.position, i, n)) continue;
-    const yaw = Math.atan2(t.position.x - _p.x, t.position.z - _p.z);
-    const s = host.spawn(SUMMON_TYPE, _p, yaw, true, true, BURROW_EMERGE_S);
+    const yaw = send ? Math.atan2(send.position.x - _p.x, send.position.z - _p.z) : e.yaw + (Math.random() - 0.5) * 0.8;
+    const s = host.spawn(SUMMON_TYPE, _p, yaw, send !== null, send !== null, BURROW_EMERGE_S);
     if (!s) continue;
+    // 부대 장부는 굴착 호위와 같다 (`escortOf`) — 다음 검사의 「전멸했나」가 이것을 센다
+    s.escortOf = e;
+    s.spawnPos.copy(e.position);
+    if (!send) continue;
     // 그 표적에게 보낸다 — 표적이 쓰러지거나 사라질 때까지 바꾸지 않는다 (`acquireTarget` 은 표적이 무효일 때만 다시 고른다)
-    s.target = t;
+    s.target = send;
     s.targetTimer = Number.POSITIVE_INFINITY;
-    s.distToTarget = t.dist2D(s.position);
+    s.distToTarget = send.dist2D(s.position);
   }
+  // 한 마리도 못 세웠어도(자리 없음 · 풀 포화) 쿨타임을 걸어 매 검사마다 다시 시도하지 않는다
+  e.squadCd = ARTILLERY_AI.squadCooldown;
 }

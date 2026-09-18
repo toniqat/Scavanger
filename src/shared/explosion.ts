@@ -68,7 +68,14 @@ export function explosionDamageRange(damage: number): { readonly min: number; re
  * 폭발 · 근접 차폐 (2026-09-18, 사용자 결정 「폭발 · 근접 공격이 벽 · 지붕 · 바닥을 뚫지 않는다」)
  *
  * 예전에는 거리만 쟀다 — 벽 너머 방, 지붕 위 포탄 아래 사람, 위층 바닥 너머 벌레가 똑같이 맞았다.
- * 판정은 `WorldRef.raycast` 하나다 (지형 · 구조물 바닥판 · 지붕 · 벽 · 계단 · 소품. 깨진 창 `passRays` 는 지나간다).
+ * 판정은 `WorldRef.raycastBlast` 하나다 (지형 · 구조물 바닥판 · 지붕 · 벽 · 계단 · 소품 · **창유리**).
+ *
+ * **왜 `raycast` 가 아니라 `raycastBlast` 인가** (2026-09-18 사용자 결정 「창은 깨졌어도 폭발을 막고, 낮은
+ * 엄폐물은 기존대로」): 깨진 창틀은 콜라이더를 남기지만 `Obstacle.passRays` 가 되어 `raycast` 를 통과시킨다.
+ * 그래서 방 한가운데에 서 있어도 그 방에 창이 하나 있으면 밖의 곡사포 폭발이 창을 지나 몸을 보고 피해를 줬다.
+ * `raycastBlast` 는 **유리만** 깨졌든 말든 막는다 — 총알 · 적 시야 · 투척물의 통과는 그대로다.
+ * 「낮은 엄폐물은 기존대로」는 저절로 지켜진다: 엄폐물은 `passRays` 가 아니라 두 레이 모두에서 똑같이 막고,
+ * 엄폐물 위로 머리만 내민 사람은 아래의 **몸 3점** 규칙이 살려 준다.
  *
  * **몸 3점** (사용자 결정): 발목(`BLAST_LOS_FEET_M`) · 가슴(`× BLAST_LOS_CHEST_FRAC`) · 머리(`× BLAST_LOS_HEAD_FRAC`).
  * 하나라도 폭심이 보이면 원래 피해 그대로, 셋 다 막히면 0 — 낮은 창턱 너머로 머리만 내민 사람은 맞는다.
@@ -89,6 +96,12 @@ const _losDir = new THREE.Vector3();
 /**
  * `from` → `to` 선분이 월드에 막히지 않았는가. `slack` = 끝점 앞 이 거리 안에서 맞은 면은 무시.
  * 근접 공격(공격자 머리 → 타격점)과 폭발 3점 판정이 같이 쓴다.
+ *
+ * **근접도 같은 `raycastBlast` 를 쓴다** (2026-09-18, 이 파일의 결정): 창은 깨졌어도 막는다. 깨진 창틀은
+ * 사람 · 적의 몸을 여전히 밀어내므로(`passSmall` 은 수류탄 크기만 통과) 적은 창틀 **밖**에 세워진 채로
+ * 물어야 하고, 그건 「벽 너머에서 물기」와 다르지 않다. 창 하나 때문에 벽이 사라지는 자리를 폭발에서는
+ * 막고 근접에서는 열어 두면 같은 방이 공격 종류마다 다르게 굴어 규칙이 두 개가 된다 — 레이는 하나로 둔다.
+ * (주먹은 깨진 창으로 지나가도 괜찮다는 반론이 있었지만, 창틀이 몸을 막는 한 그 자리에 설 수가 없다.)
  */
 export function lineClear(world: WorldRef | null | undefined, from: THREE.Vector3, to: THREE.Vector3, slack: number): boolean {
   if (!world || !world.ready) return true;
@@ -97,7 +110,7 @@ export function lineClear(world: WorldRef | null | undefined, from: THREE.Vector
   const reach = len - Math.max(0, slack);
   if (!(reach > 1e-3)) return true;
   _losDir.multiplyScalar(1 / len);
-  return world.raycast(from, _losDir, reach) === null;
+  return world.raycastBlast(from, _losDir, reach) === null;
 }
 
 /**

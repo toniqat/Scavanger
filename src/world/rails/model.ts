@@ -7,7 +7,6 @@
 import * as THREE from 'three';
 import type { TramDef } from '@/shared';
 import type { ObstacleEntry } from '../SpatialHash';
-import type { ContainerSpec } from '../structures/parts/Containers';
 
 /**
  * 레일 상면이 지형 위로 뜨는 높이(m). 교각이 이 높이를 맞춘다.
@@ -139,6 +138,13 @@ export function deltaS(path: RailPath, from: number, to: number): number {
  * 로컬 X 에, `halfD`(6, 반**길이**)를 로컬 Z 에 넣어 **선로와 수직으로 12 m 짜리 판때기**가 달렸다.
  * 치수는 그대로 두고 축만 바로잡았다 (`PLATFORM_OFFSET` 이 이미 `halfW` 를 옆으로 물러나는 거리로
  * 쓰고 있었으니, csv 의 의도는 처음부터 이쪽이었다).
+ *
+ * **2026-09-18 (사용자 결정) — 차체 방향은 레이드 내내 고정이다.** `TramDef.yaw` 는 **선로 접선만** 따르고
+ * `dir` 을 보지 않는다 (`parts/Tram.placeTram`): 한쪽으로는 앞으로, 돌아올 때는 뒤로 달리고, 어느 승강장에
+ * 서든 늘 같은 쪽을 본다. 예전에는 `dir < 0` 에 180° 를 더해 **차체가 그 자리에서 뒤집혔고**, 탑승자는 매
+ * 프레임 차량 로컬 좌표로 자기 자리를 다시 푸므로(`shared/ride`) 출발하는 순간 차 반대편으로 순간이동했다.
+ * 그래서 운전실 · 콘솔도 **양 끝에 하나씩**이다 — 도는 차라면 늘 앞이던 한 끝이, 안 도는 차에서는 절반의
+ * 주행에서 꽁무니가 되기 때문이다.
  */
 /** 전차 바닥이 레일 상면 위로 뜨는 높이(m). 플랫폼 데크 윗면도 같은 높이라 그냥 걸어 건넌다. */
 export const TRAM_FLOOR_UP = 0.35;
@@ -174,9 +180,15 @@ export interface TramInst {
   parts: MovingPart[];
   /** 모든 발판 콜라이더가 **같은 객체**를 참조한다 — 제자리에서 고치면 다 같이 바뀐다. */
   vel: THREE.Vector3;
-  containers: { spec: ContainerSpec; ox: number; oz: number; oy: number }[];
-  /** 운전실 콘솔의 **살아 있는** 위치 (`Interactable.position` 이 바로 이 객체다). */
-  consolePos: THREE.Vector3;
+  /**
+   * 2026-09-18 (사용자 결정) — **객실 컨테이너는 없다.** 전차는 이동 수단이고 파밍 장소는 플랫폼이다
+   * (`parts/Platform` 의 컨테이너는 그대로다). 움직이는 컨테이너는 `ContainerSpec.dynamic` 한 갈래를
+   * 통째로 되살려야 하므로, 다시 넣을 때는 여기서부터 시작한다 (`ContainerSet` 은 이미 dynamic 을 안다).
+   *
+   * 운전실 콘솔의 **살아 있는** 위치 두 자리 (`Interactable.position` 이 바로 이 객체들이다).
+   * 인덱스 0 = 로컬 +X 끝, 1 = 로컬 −X 끝 — 차체가 방향을 바꾸지 않으므로 **양 끝 어디서나 시동**을 건다.
+   */
+  consolePos: THREE.Vector3[];
   /** 차체 반길이 · 반폭 · 벽 높이(m) — 충돌 판정이 매 프레임 읽는다. */
   halfLen: number; halfWid: number; wallH: number;
   dockTimer: number;

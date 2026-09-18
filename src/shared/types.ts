@@ -770,6 +770,26 @@ export interface CrateDef {
   opened: boolean;
 }
 
+/**
+ * appended (2026-09-18, 사용자 결정 「벌레 알을 파괴 가능한 적으로」): 둥지 밑동의 알 한 자리.
+ *
+ * 자리는 `world/Nests` 가 정하고(장식 메시를 세우던 그 자리다), 그 자리에 `bug_egg` 를 세우는 것은 권위다
+ * (`enemies/`). `nest` 는 그 알이 딸린 둥지의 순번 — 둥지별 재스폰 · 리시가 이 번호로 묶인다.
+ */
+export interface NestEggSpot {
+  position: THREE.Vector3;
+  /**
+   * 이 알이 딸린 **둥지(pad)** 의 순번 — 둥지별 재스폰 · 리시가 이 번호로 묶인다.
+   *
+   * ⚠ `getNestPositions()` 의 인덱스가 **아니다.** 그쪽은 둥지 하나당 구멍(둔덕) 4~6개를 줄줄이 내놓고
+   * 이 번호는 「사람이 둥지 하나라고 부르는 것」(`layout.nests` 의 pad) 을 가리킨다. `getNestPositions()[nest]`
+   * 는 조용히 엉뚱한 구멍을 돌려주므로 쓰지 않는다.
+   */
+  nest: number;
+  /** 알 반지름(m) — 적 몸 크기가 아니라 **보이는 알**의 크기다 (히트박스 · 파편 자리). */
+  radius: number;
+}
+
 export interface TerrainHit {
   point: THREE.Vector3;
   normal: THREE.Vector3;
@@ -788,6 +808,16 @@ export interface WorldRef {
   resolveCollision(position: THREE.Vector3, radius: number): THREE.Vector3;
   /** Ray vs terrain heightfield + obstacle cylinders. */
   raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): TerrainHit | null;
+  /**
+   * appended (2026-09-18, 사용자 결정 「폭발은 창을 뚫지 않는다」): `raycast` 와 같지만
+   * **창유리를 막는** 레이다 — `raycast` 는 깨진 창틀(`Obstacle.passRays`)을 통과시키는데,
+   * 폭발 가시성(`shared/explosion.blastReachesBody`)이 그것을 그대로 쓰면 「건물 안에 서 있는데
+   * 창 너머 폭격에 다친다」 가 된다. 판정은 콜라이더의 **종류**(유리)이지 `passRays` 가 아니다 —
+   * 튜토리얼의 유령 철조망도 `passRays` 라서, 그것까지 막으면 낮은 장벽이 갑자기 방패가 된다.
+   * 낮은 엄폐물은 이 레이에서도 그대로다(애초에 `passRays` 가 아니다) — 몸 3점 중 머리가 넘어가므로
+   * 「엄폐 너머로 고개를 내밀면 맞는다」 는 유지된다.
+   */
+  raycastBlast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): TerrainHit | null;
   getObstacles(): readonly Obstacle[];
   getObstaclesNear(x: number, z: number, radius: number): Obstacle[];
   getPlayerSpawn(): THREE.Vector3;
@@ -797,6 +827,12 @@ export interface WorldRef {
   getEnemySpawnPoints(around: THREE.Vector3, count: number, minDist: number, maxDist: number): THREE.Vector3[];
   /** Bug nests / hives placed by the world; enemies may spawn from them. */
   getNestPositions(): readonly THREE.Vector3[];
+  /**
+   * appended (2026-09-18, 사용자 결정 「벌레 알」): 벌레 둥지 밑동의 **알 자리**. 장식이던 알이 파괴 가능한
+   * 움직이지 못하는 적(`bug_egg`)이 됐으므로, 자리를 정하는 주인은 그대로 `world/Nests` 이고
+   * 그 자리에 적을 세우는 것은 권위(`enemies/`)다. 행성이 아니면(훈련장 · 튜토리얼) 빈 배열.
+   */
+  getNestEggSpots(): readonly NestEggSpot[];
   /* ── appended (Phase 3): dynamic obstacles (owner: world) ── */
   /** Register a runtime obstacle (collision, raycast, enemy avoidance). Returns the remover. Cleared with the world. */
   addObstacle(obstacle: Obstacle): () => void;
@@ -1064,7 +1100,12 @@ export type EnemyType = 'scavenger' | 'hunter' | 'warrior' | 'spewer' | 'charger
      (`world/tutorial` 의 목록만이 이 id 를 쓴다). */
   | 'tut_bug_loot' | 'tut_bug' | 'tut_android_loot' | 'tut_android'
   /* appended (2026-09-17): 포병이 평생 한 번 불러내는 소환 스캐빈저 — 수치 · 리그 · AI · 소리는 scavenger (`enemies/EnemyTypes.baseTypeOf`), 드롭 0 %. */
-  | 'scavenger_summon';
+  | 'scavenger_summon'
+  /* appended (2026-09-18, 사용자 결정 「벌레 알을 파괴 가능한 적으로」): 둥지 밑동의 **벌레 알**. 움직이지 · 공격하지 · 알아채지
+     않는 팩션 bug 의 고정 표적 (`enemies/models/EggModel.ts` 자기 리그, `enemies/NestDirector.ts` 가
+     `WorldRef.getNestEggSpots()` 자리에 세운다). 경직 · 넉백 면역이고 인원수 · 압박 · 포병 지원 계산 어디에도 들지
+     않는다 (`Enemy.isCombatant` 가 false 라 세는 자리가 전부 빠진다). */
+  | 'bug_egg';
 /**
  * Factions fight each other on sight (Phase 4). **Every pair of different factions is hostile** (2026-09-13) —
  * `android` · `raider` appended; the named rogues and the scan drone moved to `raider` (type ids unchanged).
@@ -1144,8 +1185,17 @@ export interface EnemyManagerRef {
   raycastInterceptable(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): { target: InterceptableRef; point: THREE.Vector3; distance: number } | null;
 
   /* ── appended: tactical kit (owner: enemies) ── */
-  /** Enemies within `radius` of `pos` (alive only). Used by turrets, scans, explosions and lures. */
-  queryNear(pos: THREE.Vector3, radius: number): EnemyRef[];
+  /**
+   * Enemies within `radius` of `pos` (alive only). Used by turrets, scans, explosions and lures.
+   *
+   * appended (2026-09-18): **props are left out by default** — a `bug_egg` never comes back unless
+   * `includeProps` is true. Almost every caller asks this question to pick a target or to decide "is something
+   * dangerous here" (turret targeting, mine contact, android engagement, recon reveal, barrier contact), and a nest
+   * egg is none of those; making it the **default** is the only way a caller cannot forget. Pass `includeProps: true`
+   * from a query whose answer is "everything this blast touches". An egg is still destroyed by bullets, melee,
+   * grenades, `applyAreaDamage` / `applyExplosion` and enemy blasts — none of those go through this call.
+   */
+  queryNear(pos: THREE.Vector3, radius: number, includeProps?: boolean): EnemyRef[];
   /** Pull aggro toward `pos` for `duration` seconds (lure grenade, gunfire noise). `weight` 0..1 ranks competing lures. */
   addDistraction(pos: THREE.Vector3, radius: number, duration: number, weight: number): void;
   /**
@@ -1641,6 +1691,9 @@ export const CORPSE_LOOT_CHANCE: Readonly<Record<EnemyType, number>> = {
   tut_bug_loot: 1, tut_android_loot: 1, tut_bug: 0, tut_android: 0,
   /* appended (2026-09-17): 포병의 소환 스캐빈저 — 드롭 0 % (수색 자체가 서지 않는다, `tut_bug` 와 같은 빈 시체) */
   scavenger_summon: 0,
+  /* appended (2026-09-18): 벌레 알 — 부순 알은 **늘 수색된다**. 둥지 둘레의 상자가 없어진 뒤로 둥지의 보상이 알이다
+     (`data/loot_corpses.csv` 생체 조직 · `loot_corpse_samples.csv` 미확인 세포) */
+  bug_egg: 1,
 };
 
 export interface EnemyRef {
@@ -1648,6 +1701,16 @@ export interface EnemyRef {
   readonly deathDir?: EnemyDeathDir;
   /** false when this corpse rolled un-searchable (`CORPSE_LOOT_CHANCE`); undefined while alive. */
   readonly lootable?: boolean;
+  /**
+   * appended (2026-09-18): 이 몸은 **벌레 알**(`bug_egg`)이다 — 둥지 밑동에 박힌 채 움직이지 · 돌지 · 공격하지 · 알아채지
+   * 않는 고정 표적이고 `enemies/` 안에서는 「살아 싸우는 몸」으로 세지 않는다.
+   *
+   * 다른 폴더가 **적 목록을 위협으로 읽을 때** 이것으로 거른다 — `ctx.enemies.getEnemies()` 는 알도 그대로 담는다
+   * (쏘고 · 폭발로 부수고 · 시체를 뒤져야 하므로 목록에서 빼지 않는다). 레이더 · 위험 표시 · 포탑 표적 · 안드로이드
+   * 지시처럼 「지금 나를 위협하는 적」을 세는 자리는 알을 빼야 한다. `type === 'bug_egg'` 와 같은 뜻이고, 이 칸이
+   * 그 규칙의 이름이다.
+   */
+  readonly isEgg?: boolean;
 }
 
 /* ── 부상자 들쳐메기 (owner: player) ── */

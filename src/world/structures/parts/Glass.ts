@@ -10,6 +10,9 @@
  * - **깨져도 콜라이더는 hash 에 남는다.** 대신 `passRays`(레이가 무시) + `passSmall`(반지름 `SMALL_BODY_R` 미만의
  *   몸 — 수류탄 · 투척 가젯 — 은 밀어내지 않는다)로 바뀐다. 사람 · 적의 몸은 여전히 막힌다. 두 플래그는 world
  *   내부(`ObstacleEntry`)라 계약이 늘지 않는다.
+ * - **폭발 · 근접 가시성은 예외** (2026-09-18 사용자 결정 「창은 깨졌어도 폭발을 막는다」): `WorldSystem.raycastBlast`
+ *   는 `kind === GLASS_OBSTACLE_KIND` 인 콜라이더를 `passRays` 와 무관하게 막는다. 총알 · 적 시야 · 투척물은
+ *   그대로 지나간다 — 바뀐 것은 `shared/explosion.lineClear` 하나다.
  * - 누가 깼는지는 중요하지 않다 (결과가 같다) — 깬 클라이언트가 `struct glass` 를 보내고, 받은 쪽은 같은 함수를
  *   조용히(`byLocal: false`) 부른다. 이미 깨졌으면 아무 일도 없다.
  */
@@ -21,6 +24,14 @@ import { GLASS_T } from '../model';
 
 /** 이 반지름(m) 미만의 몸은 깨진 창틀을 지나간다 (`resolveCollision`). 수류탄 0.08 · 투척 가젯 0.08 · 사람 0.45. */
 export const SMALL_BODY_R = 0.25;
+
+/**
+ * 2026-09-18: 유리 한 장의 콜라이더 `ObstacleEntry.kind`. **유리를 세우는 곳은 이 파일 하나**라
+ * 이 이름표가 곧 「이건 창이다」의 신원이다 — `WorldSystem.raycastBlast` 가 이것으로 창을
+ * 튜토리얼 철조망의 유령 토막(`tut_fence_ghost`, 똑같이 `passRays` 다)과 갈라낸다. 새 플래그를
+ * `SpatialHash.ObstacleEntry` 에 더하지 않으려고 이미 있는 `kind` 를 쓴다.
+ */
+export const GLASS_OBSTACLE_KIND = 'glass';
 
 /** 창문 한 장의 자리 (월드). `yaw` 는 창 면이 뻗는 방향(수학 규약, 로컬 +X = 가로). */
 export interface WindowSpec {
@@ -77,7 +88,7 @@ export class GlassSet {
     specs.forEach(({ structureId, index, spec }, i) => {
       this.writeInstance(i, spec, false);
       const entry = ctx.hash.addBox(
-        new THREE.Vector3(spec.x, spec.y, spec.z), spec.halfW, GLASS_T / 2 + 0.02, spec.yaw, spec.height, 'glass',
+        new THREE.Vector3(spec.x, spec.y, spec.z), spec.halfW, GLASS_T / 2 + 0.02, spec.yaw, spec.height, GLASS_OBSTACLE_KIND,
       ) as ObstacleEntry;
       entry.fragile = true;
       const pane: Pane = { structureId, index, spec, entry, broken: false };

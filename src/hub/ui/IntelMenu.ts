@@ -1,7 +1,7 @@
 import type { GameContext, IntelGimmick, IntelPick, IntelRef, IntelSpec, PlanetId } from '@/shared';
 import {
   INTEL_COST_TABLE, INTEL_OPTIONS_IN_ORDER, NAMED_ROGUE_NAME_KO, NAMED_ROGUE_TYPES, PLANET_THREAT_LABELS,
-  UI_HOLD_CONFIRM_S, createHoldButtonCap, getPlanet, intelCost, intelEffectText, intelMaxTier, intelPlanetThreat, openHoldAsk,
+  UI_HOLD_CONFIRM_S, createHoldButtonCap, getPlanet, intelCost, intelEffectText, intelMaxTier, intelPlanetThreat, openHoldAsk, planetLabel,
   resolveIntelEffects,
 } from '@/shared';
 import { el, randomSeed, setText, toggleClass } from './dom';
@@ -270,6 +270,31 @@ export class IntelMenu {
     return this.intel()?.maxTierOf(g, p) ?? intelMaxTier(g, p);
   }
 
+  /**
+   * 잠긴 줄의 사유 한 줄 — **어느 행성으로 판정했는지를 함께 적는다** (2026-09-18, 사용자 보고
+   * 「보레아스 IX · 베르단트 III 에서 현상 수배가 잠긴다」).
+   *
+   * 잠김은 터미널에서 **넘겨 보던 행성**이 아니라 **함선의 목표 행성**(`IntelMenuHost.planet()` →
+   * `HubSystem.planet`)으로 갈린다. 터미널의 ◀ ▶ 는 미리보기일 뿐이라(`HubMenu.refreshTravel` 의
+   * 「stepping is a preview」), 목표가 아직 아켈론 II(위험도 1)인 채로 보레아스 IX 를 띄워 놓고 정보상을
+   * 열면 현상 수배(`minThreat` 2)가 잠긴 채로 뜬다 — 예전 글자는 위험도 숫자만 적어서 **화면에 보이던
+   * 행성이 잠긴 것처럼** 읽혔다. 데이터는 맞다 (`data/intel_options.csv` `named.minThreat = 2`,
+   * `planets.csv` 의 tundra · mossy `threat = 2` → `intelMaxTier` 는 1 을 돌려준다).
+   *
+   * 목표가 아예 없으면 위험도 이야기를 꺼내지 않는다 — 그건 잠김이 아니라 미지정이고, 그 상태에서는
+   * `maxTier` 가 모든 줄에 0 을 돌려주므로 위험도 1 짜리 줄까지 「위험도 1 이상 행성에서만」이 떴다.
+   *
+   * 같은 날 사용자 결정으로 **터미널이 「보던 행성 ≠ 목표 행성」이면 `정보 구매` 자체를 막는다**
+   * (`HubMenu.refreshIntel`). 그래서 이 화면이 열렸을 때 판정 행성은 방금 지정한 목표와 같고, 이 줄은
+   * 평상시에 뜨지 않는 **이중 안전장치**다 — 보유 정보 확인(`정보 확인`)처럼 목표가 그 사이에 바뀔 수 있는
+   * 길로 들어왔을 때만 보인다. 두 글자는 같은 말을 한다: 판정 기준은 **목표 행성**이다.
+   */
+  private lockText(minThreat: number): string {
+    const p = this.planet();
+    if (!p) return '목표 행성을 먼저 지정하세요';
+    return `위험도 ${minThreat} 이상 행성에서만 — 지금 목표는 ${planetLabel(p)} (위험도 ${this.threat()})`;
+  }
+
   /** 지금 고른 줄들. 순서는 `INTEL_OPTIONS_IN_ORDER` (= 계약 순서). */
   private picks(): IntelPick[] {
     const out: IntelPick[] = [];
@@ -325,7 +350,7 @@ export class IntelMenu {
       const locked = max <= 0;
       toggleClass(row.root, 'is-locked', locked);
       row.lock.hidden = !locked;
-      if (locked) setText(row.lock, `위험도 ${def.minThreat} 이상 행성에서만`);
+      if (locked) setText(row.lock, this.lockText(def.minThreat));
       let tier = this.tiers.get(row.g) ?? 0;
       if (tier > max) { tier = max; this.tiers.set(row.g, tier); }
       toggleClass(row.root, 'is-on', tier > 0);

@@ -71,6 +71,10 @@ instead of `buff revive`). The crosshair gate lives in `weapons/parts/Defib.hasA
 ## Rules
 
 - Only `ctx.isAuthority` simulates deployables; non-hosts run arming timers for smooth visuals and take values from `gad update`. — `parts/Simulate.ts`
+- Enemy queries answer **what fights back**: `enemiesNear` / `enemyById` drop `EnemyRef.isEgg` bodies (nest eggs) unless a caller
+  passes `includeProps`, because every gadget that uses them is picking a target or waiting for contact. Known consequence: the
+  fire zone's burn and the C4 accumulation share that query, so they do not damage eggs either — eggs are still destroyed by
+  bullets, melee, grenades and the mine blast (`damageEnemies` → `applyAreaDamage`, a different path). — `parts/Queries.ts`
 - Each client applies fire-zone burning to its own player (`setBurning`); the host sends `dmg` only for remote players. — `parts/Simulate.ts` (`updateLocalEffects`)
 - `buff` kinds `revive` / `cloak` are handled here, `heal` / `boost` by implants; both pass `buffGuard`. — `parts/Wire.ts` (`onBuff`)
 - Preview and placement are the same function; placement height is the judged surface (floor, roof, drone top), never re-snapped to terrain. — `parts/Preview.ts`
@@ -96,8 +100,8 @@ instead of `buff revive`). The crosshair gate lives in `weapons/parts/Defib.hasA
 ## Recent changes
 
 Last 5 only — older: `git log -- src/gadgets`.
+- 2026-09-18 — `enemiesNear` / `enemyById` leave nest eggs out by default (`includeProps` opts back in): a turret no longer burns its ammo on a `bug_egg` and a mine laid at a nest is not tripped by one (`parts/Queries.ts`).
 - 2026-09-18 — Mine / remote mine / drone blast damage skips bodies behind walls, roofs and floors (`shared/explosion.blastReachesBody`); deployables are exempt (their body is the collider).
 - 2026-09-15 — Thumper (`thumper` / `gad_thumper`, `parts/Thumper.ts`): burrow-ground placement, 1 s strikes, 5th strike → `sandworm:summon`, destroyed by `sandworm:erupted`, wire `age`.
 - 2026-09-15 — Defib works on downed androids (`DefibTarget.ally` → `AlliesRef.requestRevive({defib:true})`).
 - 2026-09-15 — Dome shield recover; dome / barricade carry item durability; fire gadget merged into internal `incendiary`; defib picks the ally nearest the aim ray.
-- 2026-09-15 — Explosion damage uses the shared two-step falloff (`shared/explosion`).

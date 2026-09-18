@@ -2,8 +2,8 @@
  * src/world/Rails.ts — **선로 · 플랫폼 · 전차**.
  *
  * 구역마다 `RAIL_CHANCE` 로 놓이고, 모양은 두 가지다 — 구역 외곽을 도는 **순환 선로**(`loop`)와 구역을
- * 가로지르는 **왕복 직선 선로**(`line`). 이동 수단이면서 파밍 장소다: 플랫폼만 털거나, **운전실 콘솔**에서
- * `TRAM_START_HOLD_S` 홀드로 전차에 시동을 걸고 **달리는 전차 안**을 털면서 다음 플랫폼까지 간다.
+ * 가로지르는 **왕복 직선 선로**(`line`). **이동 수단**이고 파밍 장소는 **플랫폼**이다: 승강장 컨테이너를
+ * 털고, **운전실 콘솔**에서 `TRAM_START_HOLD_S` 홀드로 시동을 걸어 다음 플랫폼까지 간다.
  *
  * 소유 계약: `RailLineDef` · `RailPlatformDef` · `TramDef` · `TramState` · `WorldRef.getRailLines / getTrams`
  * · `rail:tramStarted` / `rail:tramDocked` · `TramMessage`(`tram`) / `TramRequest`(`tramq`) · `RAIL_*` / `TRAM_*`.
@@ -24,6 +24,11 @@
  * - **차체가 진행 방향으로 길쭉하다.** 축 규약과 그 전의 버그는 `rails/model` 의 주석에 있다.
  * - **최고 속도 근처의 전차에 치이면 피해 + 넉백** (`parts/Tram.updateTramHit`).
  * - 지오메트리 · 배치 · 충돌은 전부 `rails/parts/` 로 내렸다. 이 파일에 남은 것은 **수명 · 상태 기계 · 멀티**다.
+ *
+ * ## 2026-09-18 배치 (사용자 결정)
+ * - **전차는 돌지 않는다.** 차체 방향은 레이드 내내 고정이고 왕복은 앞으로 · 뒤로 달린다 (`parts/Tram.placeTram`).
+ * - **운전실 콘솔이 양 끝에 하나씩**(`TRAM_CONSOLE_IDS`) — 둘 다 `requestStart` → `applyStart` 한 절차다.
+ * - **객실 컨테이너를 없앴다** — 이 파일의 컨테이너 묶음(`ContainerSet`)에는 이제 **플랫폼 것만** 들어온다.
  */
 import * as THREE from 'three';
 import {
@@ -46,8 +51,13 @@ import { TRAM_CONSOLE, buildTram, placeTram, updateTramHit } from './rails/parts
 import { ContainerSet, type ContainerSpec } from './structures/parts/Containers';
 import { structureRow } from './structures/model';
 
-/** 운전실 콘솔의 `Interactable` id — 전차가 하나뿐이라 상수다. */
-const TRAM_CONSOLE_ID = 'rail:tram_rail_0:console';
+/**
+ * 운전실 콘솔의 `Interactable` id — 전차가 하나뿐이라 상수다.
+ *
+ * 2026-09-18: **양 끝에 하나씩**이라 두 개다 (인덱스 = `TramInst.consolePos` 의 인덱스: 0 = 로컬 +X 끝).
+ * 첫 id 는 예전 그대로다 — `scripts/smoke-structures.mjs` 가 그 문자열로 운전실 콘솔을 찾는다.
+ */
+const TRAM_CONSOLE_IDS = ['rail:tram_rail_0:console', 'rail:tram_rail_0:console2'] as const;
 /** 플랫폼 호출 콘솔의 `Interactable` id. */
 const callConsoleId = (platformId: string): string => `rail:${platformId}:call`;
 /**
@@ -224,7 +234,7 @@ export class Rails {
 
     /* ── 전차 ───────────────────────────────────────────────────────── */
     const startS = this.platformS.length > 0 ? this.platformS[0] : 0;
-    const inst = buildTram(ctx, rng, startS, this.platformS.length > 0 ? 'plat_0' : null, specs, out);
+    const inst = buildTram(ctx, rng, startS, this.platformS.length > 0 ? 'plat_0' : null, out);
     this.tram = inst;
     placeTram(inst, path, 0, this.hash);
     this.registerConsole(game, inst);
@@ -237,7 +247,7 @@ export class Rails {
   dispose(): void {
     const game = this.game;
     this.containers.dispose();
-    game?.interactables.unregister(TRAM_CONSOLE_ID);
+    for (const id of TRAM_CONSOLE_IDS) game?.interactables.unregister(id);
     for (const p of this.line?.platforms ?? []) game?.interactables.unregister(callConsoleId(p.id));
     this.platformS.length = 0;
     this.callPos.length = 0;
@@ -256,19 +266,25 @@ export class Rails {
   }
 
   /* ── 운전실 콘솔 (2026-09-10 — 플랫폼에서 차 안으로) ─────────────────
-   * `Interactable.position` 은 `inst.consolePos` **그 객체**다 — `placeTram` 이 매 프레임 제자리에서
-   * 고치므로 달리는 중에도 조준이 따라붙는다 (객실 컨테이너와 같은 수법). */
+   * `Interactable.position` 은 `inst.consolePos[i]` **그 객체**다 — `placeTram` 이 매 프레임 제자리에서
+   * 고치므로 달리는 중에도 조준이 따라붙는다.
+   *
+   * 2026-09-18 (사용자 결정): **양 끝에 하나씩** 등록한다. 차체가 방향을 안 바꾸게 되면서 콘솔 하나는
+   * 절반의 주행에서 꽁무니에 남기 때문이다. 둘은 **완전히 같은 절차**를 부른다 (`requestStart` →
+   * `applyStart`) — 새 와이어도, 「어느 콘솔을 눌렀나」라는 상태도 없다. */
   private registerConsole(game: GameContext, inst: TramInst): void {
-    game.interactables.register({
-      id: TRAM_CONSOLE_ID,
-      position: inst.consolePos,
-      radius: TRAM_CONSOLE.radius,
-      holdTime: TRAM_CONSOLE.holdTime,
-      // 2026-09-10: 콘솔은 그 자체로 발광하는 장치다 — 감지 빛기둥(`ui/hud/Detection`)을 세우지 않는다.
-      hidePillar: true,
-      getPrompt: () => (this.tram && this.tram.def.state !== 'moving' ? '전차 시동 (E)' : null),
-      canInteract: () => !!this.game?.isGameplayActive() && this.tram?.def.state !== 'moving',
-      interact: () => this.requestStart(),
+    TRAM_CONSOLE_IDS.forEach((id, i) => {
+      game.interactables.register({
+        id,
+        position: inst.consolePos[i],
+        radius: TRAM_CONSOLE.radius,
+        holdTime: TRAM_CONSOLE.holdTime,
+        // 2026-09-10: 콘솔은 그 자체로 발광하는 장치다 — 감지 빛기둥(`ui/hud/Detection`)을 세우지 않는다.
+        hidePillar: true,
+        getPrompt: () => (this.tram && this.tram.def.state !== 'moving' ? '전차 시동 (E)' : null),
+        canInteract: () => !!this.game?.isGameplayActive() && this.tram?.def.state !== 'moving',
+        interact: () => this.requestStart(),
+      });
     });
   }
 
@@ -309,15 +325,15 @@ export class Rails {
 
   /* ── update ───────────────────────────────────────────────────────── */
 
-  /** 2026-09-11: 플랫폼 · 전차 컨테이너가 이 클라이언트에서 처음 열리면 불린다. */
+  /** 2026-09-11: 플랫폼 컨테이너가 이 클라이언트에서 처음 열리면 불린다 (2026-09-18: 전차 것은 없어졌다). */
   setOpenListener(cb: ((id: string) => void) | null): void { this.containers.setOpenListener(cb); }
   /** 2026-09-11: 분대원이 연 컨테이너를 열린 모습으로. 이 묶음의 것이 아니면 false. */
   markContainerOpened(id: string): boolean { return this.containers.markOpened(id); }
-  /** 2026-09-11 (C-57): 플랫폼 · 전차 컨테이너 위치 (없으면 null). */
+  /** 2026-09-11 (C-57): 플랫폼 컨테이너 위치 (없으면 null). */
   containerPositionOf(id: string): THREE.Vector3 | null { return this.containers.positionOf(id); }
   /** 2026-09-15 (안드로이드): 이 묶음의 컨테이너를 하나씩 넘긴다 (`WorldRef.getLootContainers`). */
   collectContainers(push: (id: string, position: THREE.Vector3, tier: number, opened: boolean) => void): void { this.containers.collect(push); }
-  /** 2026-09-12 (C): 플랫폼 · 전차 컨테이너를 처음 열면 나올 내용물 (`WorldRef.previewContainerItems`), 없으면 null. */
+  /** 2026-09-12 (C): 플랫폼 컨테이너를 처음 열면 나올 내용물 (`WorldRef.previewContainerItems`), 없으면 null. */
   previewContainerItems(id: string): ItemInstance[] | null { return this.containers.preview(id); }
 
   update(dt: number, time: number): void {

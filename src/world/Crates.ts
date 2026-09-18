@@ -1,6 +1,9 @@
 import * as THREE from 'three';
-import { Layers, type CrateDef, type GameContext, type Interactable, type Random } from '@/shared';
+import { Layers, keyTable, type CrateDef, type GameContext, type Interactable, type Random } from '@/shared';
 import { type BuildCtx, isSpotFree, makeSoftParticleTexture, merge, paint, paintGradient, xform } from './build';
+
+/** 둥지 pad 중심에서 이 거리(m) 안에는 상자를 놓지 않는다 (`data/tuning.csv`, 2026-09-18 사용자 결정). */
+const NEST_CRATE_CLEAR_M = /* data/tuning.csv */ keyTable('tuning.csv').num('NEST_CRATE_CLEAR_M');
 
 const CRATE_W = 1.25, CRATE_H = 0.85, CRATE_D = 0.8;
 const OPEN_ANGLE = -1.95;       // radians, lid hinges up/back
@@ -79,9 +82,19 @@ export class Crates {
     this.geometries.push(lightGeo);
 
     // ── placement ─────────────────────────────────────────────────────
+    /* 2026-09-18 (사용자 결정) — **둥지 옆에는 상자를 두지 않는다.** 둥지의 보상은 이제 부술 수 있는
+     * 알(`bug_egg`)이라 「지키는 벌레가 값을 한다」는 상자 고리가 필요 없어졌다. 고리를 없애는 것만으로는
+     * 부족한 것이, POI · 구조물 고리가 우연히 둥지 쪽으로 굴러 들어올 수 있어서 pad 중심에서
+     * `NEST_CRATE_CLEAR_M` 안은 전부 막는다 (`data/tuning.csv`). */
+    const nestClearSq = NEST_CRATE_CLEAR_M * NEST_CRATE_CLEAR_M;
+    const nestClear = (x: number, z: number): boolean => {
+      for (const n of ctx.layout.nests) if ((n.x - x) ** 2 + (n.z - z) ** 2 < nestClearSq) return false;
+      return true;
+    };
     const placements: { x: number; z: number; tier: number }[] = [];
     const tryPlace = (x: number, z: number, tier: number, padExtra: number, ignorePads = false): boolean => {
       if (!isSpotFree(ctx, x, z, 0.95, { maxSlope: 0.28, padExtra, ignorePads })) return false;
+      if (!nestClear(x, z)) return false;
       for (const p of placements) if ((p.x - x) ** 2 + (p.z - z) ** 2 < 6 * 6) return false;
       placements.push({ x, z, tier });
       // reserve immediately so later props/crates avoid it
@@ -101,7 +114,7 @@ export class Crates {
      *
      * 예전 배치는 1티어 상자 30~40개를 맵 전체에 흩뿌리고 3~4티어까지 아무 자리에나 놓았다. 그래서
      * 걷다 우연히 밟는 상자가 대부분이었고 "3~4등급이 필드에 널려 있다" 가 됐다. 이제 상자는 **사람이
-     * 있던 자리**에만 선다 — 폐허 전초(POI) · 버려진 구조물 둘레 · 둥지. 구조물 **안**의 컨테이너는
+     * 있던 자리**에만 선다 — 폐허 전초(POI) · 버려진 구조물 둘레 (2026-09-18: 둥지 고리는 빠졌다). 구조물 **안**의 컨테이너는
      * 여전히 `world/structures` 가, 플랫폼 위의 것은 `world/Rails` 가 따로 놓는다.
      * **4티어는 이 파일이 더 이상 놓지 않는다** — 지하실 · 불시착 함선 안에만 있다 (`data/structures.csv`).
      * 총량은 예전(30~40)과 비슷한 20~40개이고 전부 랜드마크 둘레에 모여 있다. */
@@ -117,8 +130,8 @@ export class Crates {
       ring(st.pad.x, st.pad.z, reach + 2, reach + 10, 3, 1, 60, true);
       ring(st.pad.x, st.pad.z, reach + 2, reach + 15, 2, 1 + rng.int(0, 1), 80, true);
     }
-    // 둥지 4~6 — 언덕 바깥 고리에 3티어 하나 (지키는 벌레가 값을 한다).
-    for (const nest of ctx.layout.nests) ring(nest.x, nest.z, 15, 21, 3, 1, 40, true);
+    /* 둥지 고리(3티어 하나 × 둥지 4~6)는 2026-09-18 에 사라졌다 — 위 `nestClear` 주석 참조.
+     * 레이드 한 판의 상자가 그만큼(보통 4~6개, 전부 3티어) 줄어든다. 다른 고리를 늘려 메우지 않았다 (사용자 판단 몫). */
 
     // ── build instances ───────────────────────────────────────────────
     let id = 0;

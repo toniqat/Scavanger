@@ -565,13 +565,24 @@ try {
   ok(await B.evaluate((a) => (window.__game.ctx.net.getRemotePlayer(a).flags & (1 << 8)) !== 0, aIdCarry), 'A is armed again on the wire once the carry ends');
 
   console.log('enemies replication');
+  /* 2026-09-18 (벌레 알): 두 쪽이 **같은 질문**을 세야 한다. 호스트의 `getAliveCount()` 는 `isCombatant` 만 세므로
+     움직이지 못하는 `bug_egg` 가 빠지고, 클라이언트의 `getEnemies()` 에는 알까지 들어 있다 (둥지 4~8개면 알만 32~240개).
+     알은 아래에서 따로 맞춰 본다 — 뚫렸던 「리플리카의 알」을 이 줄이 덮는다. */
   const aAlive = await waitFor(A, () => window.__game.ctx.enemies.getAliveCount() > 0 ? window.__game.ctx.enemies.getAliveCount() : 0, 'A enemies alive');
-  const bAlive = await waitFor(B, () => window.__game.ctx.enemies.getEnemies().length > 0 ? window.__game.ctx.enemies.getEnemies().length : 0, 'B replica enemies');
+  const bAlive = await waitFor(B, () => {
+    const n = window.__game.ctx.enemies.getEnemies().filter((e) => !e.isEgg).length;
+    return n > 0 ? n : 0;
+  }, 'B replica enemies');
   ok(Math.abs(aAlive - bAlive) <= 3, `enemy counts host=${aAlive} client=${bAlive}`);
+  // 알은 월드가 자리를 정하고 권위가 세운다 — 리플리카가 같은 수를 받았는가 (크기는 와이어 없이 같은 자리에서 나온다)
+  const aEggs = await A.evaluate(() => window.__game.ctx.enemies.getEnemies().filter((e) => e.isEgg).length);
+  const bEggs = await waitFor(B, (n) => (window.__game.ctx.enemies.getEnemies().filter((e) => e.isEgg).length === n ? 1 : 0),
+    'B replicates every nest egg', 8000, aEggs).catch(() => 0);
+  ok(aEggs > 0 && !!bEggs, `nest eggs replicate one for one (host=${aEggs})`);
   // Phase 9: `es` is a delta stream (keyframe every NET_ENEMY_KEYFRAME_S) — the replica set must still track the host later on.
   await sleep(3000);
   const aAlive2 = await A.evaluate(() => window.__game.ctx.enemies.getAliveCount());
-  const bAlive2 = await B.evaluate(() => window.__game.ctx.enemies.getEnemies().filter((e) => !e.isDead).length);
+  const bAlive2 = await B.evaluate(() => window.__game.ctx.enemies.getEnemies().filter((e) => !e.isDead && !e.isEgg).length);
   ok(Math.abs(aAlive2 - bAlive2) <= 3, `enemy counts after 3 s of delta snapshots host=${aAlive2} client=${bAlive2}`);
 
   console.log('client hit → host damage');
@@ -799,7 +810,7 @@ try {
   // Phase 9: the promoted host's snapshot stream (keyframe after takeover / rejoined, then deltas) keeps A's replicas in step.
   await sleep(3000);
   const hostAlive = await B.evaluate(() => window.__game.ctx.enemies.getAliveCount());
-  const clientAlive = await A.evaluate(() => window.__game.ctx.enemies.getEnemies().filter((e) => !e.isDead).length);
+  const clientAlive = await A.evaluate(() => window.__game.ctx.enemies.getEnemies().filter((e) => !e.isDead && !e.isEgg).length);
   ok(Math.abs(hostAlive - clientAlive) <= 3, `enemy counts after the migration host(B)=${hostAlive} client(A)=${clientAlive}`);
 
   console.log('new host aborts → squad returns to the shared ship');

@@ -15,10 +15,12 @@
  */
 import * as THREE from 'three';
 import { NAMED_ROGUE_NAME_KO, type EnemyType } from '@/shared';
-import { ALL_ENEMY_TYPES, baseTypeOf, isRogueType, isWormType, type BugType } from '../EnemyTypes';
+import { ALL_ENEMY_TYPES, baseTypeOf, isEggType, isRogueType, isWormType, type BugType } from '../EnemyTypes';
 import { animateBug, createBugAnim, createBugRig, disposeBugRig, type BugRig } from './BugModel';
 import { animateRogue, createRogueRig, disposeRogueRig, type RogueRig, type RogueType } from './RogueModel';
 import { createWormRig, disposeWormRig, type WormRig } from './WormModel';
+/* appended (2026-09-18): 벌레 알 */
+import { createEggRig, disposeEggRig, type EggRig } from './EggModel';
 
 /**
  * 표시 이름. `data/enemies.csv` 에는 이름 칸이 없어(수치 표다) 글은 여기 둔다 — meta/ 의 NPC 목표 이름표와 같은 낱말.
@@ -28,6 +30,8 @@ const ENEMY_NAME_KO: Readonly<Partial<Record<EnemyType, string>>> = {
   scavenger: '스캐빈저', hunter: '헌터', warrior: '워리어', spewer: '스퓨어', charger: '차저', artillery: '포격 버그',
   toxic: '독성 버그', behemoth: '베헤모스', sandworm: '땅굴벌레', sandworm_weak: '어린 땅굴벌레', rogue: '로그', rogue_boss: '로그 분대장',
   rogue_scan_drone: '스캔 드론', android: '안드로이드', raider: '레이더', ...NAMED_ROGUE_NAME_KO,
+  /* 2026-09-18: 둥지의 벌레 알 (`meta/NpcRules.ENEMY_TYPE_KO` 에도 같은 낱말을 넣어야 퀘스트 목표 이름표가 맞는다 — 그 파일은 meta/ 소유다) */
+  bug_egg: '벌레 알',
 };
 
 const KNOWN = new Set<string>(ALL_ENEMY_TYPES);
@@ -55,10 +59,12 @@ const cache = new Map<string, string | null>();
 type Built =
   | { kind: 'bug'; rig: BugRig }
   | { kind: 'rogue'; rig: RogueRig }
-  | { kind: 'worm'; rig: WormRig };
+  | { kind: 'worm'; rig: WormRig }
+  | { kind: 'egg'; rig: EggRig };
 
 function build(type: EnemyType): Built {
   const look = baseTypeOf(type);
+  if (isEggType(look)) return { kind: 'egg', rig: createEggRig() };   // 2026-09-18
   if (isWormType(look)) return { kind: 'worm', rig: createWormRig() };
   if (isRogueType(look)) {
     const rig = createRogueRig(look as RogueType);
@@ -75,6 +81,7 @@ function build(type: EnemyType): Built {
 function disposeBuilt(b: Built): void {
   if (b.kind === 'bug') disposeBugRig(b.rig);
   else if (b.kind === 'rogue') disposeRogueRig(b.rig);
+  else if (b.kind === 'egg') disposeEggRig(b.rig);   // 2026-09-18
   else disposeWormRig(b.rig);
 }
 
@@ -83,6 +90,13 @@ const _size = new THREE.Vector3();
 
 /** 카메라가 잡을 구 (중심 · 반지름, 월드). */
 function frameOf(b: Built, center: THREE.Vector3): number {
+  if (b.kind === 'egg') {
+    // 알은 몸 전체가 얼굴이다
+    _box.setFromObject(b.rig.shell);
+    _box.getCenter(center);
+    _box.getSize(_size);
+    return Math.max(0.2, Math.max(_size.x, _size.y, _size.z) * 0.62);
+  }
   if (b.kind === 'worm') {
     _box.setFromObject(b.rig.mouth);
     _box.getCenter(center);

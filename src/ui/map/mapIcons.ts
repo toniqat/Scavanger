@@ -170,10 +170,19 @@ export function drawPlatform(c: CanvasRenderingContext2D, x: number, y: number):
   c.strokeRect(x - 4, y - 2.5, 8, 5);
 }
 
-/** 전차: `-yaw` 로 돈 12×6 사각. 서 있으면 흐리다. */
+/**
+ * 전차: `yaw` 로 돈 12×6 사각. 서 있으면 흐리다.
+ *
+ * 2026-09-18 — **부호는 `+yaw` 다** (`-yaw` 였다). 지도는 `toX(x)` · `toY(z)` 라 **캔버스 y = 월드 +Z** 이고
+ * (`MapScreen.toX/toY`, 뒤집지 않는다), 전차 · 탐사 차량의 `yaw` 는 수학 규약(로컬 +X → 월드 `(cos, sin)`,
+ * `rails/model` 의 축 규약)이다. 그래서 화면 각도가 곧 `yaw` 다 — `c.rotate(-yaw)` 는 진행 방향을 z 축으로
+ * 뒤집어 비춘다. 전차 사각은 대칭이라 눈에 안 띄었고 `drawRover` 에서 드러났다 (사용자 보고).
+ * 3인칭 몸(플레이어 · 분대원)은 전방이 `(-sin, -cos)` 인 **다른 규약**이라 호출 쪽에서 각도로 바꿔 넘긴다
+ * (`MapScreen` 의 `Math.atan2(-Math.cos(yaw), -Math.sin(yaw))`) — 이 함수들과 섞지 않는다.
+ */
 export function drawTram(c: CanvasRenderingContext2D, x: number, y: number, yaw: number, moving: boolean): void {
   c.save();
-  c.translate(x, y); c.rotate(-yaw);
+  c.translate(x, y); c.rotate(yaw);
   c.fillStyle = moving ? MAP_COL.tram : 'rgba(255,210,127,0.5)';
   c.strokeStyle = OUTLINE; c.lineWidth = 1;
   c.beginPath(); c.rect(-6, -3, 12, 6); c.fill(); c.stroke();
@@ -222,12 +231,15 @@ export function drawStation(c: CanvasRenderingContext2D, x: number, y: number, o
 }
 
 /**
- * 탐사 차량: `-yaw` 로 돈 장갑차 윤곽 (각진 차체 + 포탑 원 + 앞으로 뻗은 포신). 전차의 납작한 사각과 다르게 읽힌다.
+ * 탐사 차량: `yaw` 로 돈 장갑차 윤곽 (각진 차체 + 포탑 원 + 앞으로 뻗은 포신). 전차의 납작한 사각과 다르게 읽힌다.
  * `destroyed` 면 흐리고 붉은 X.
+ *
+ * 2026-09-18 — 부호가 `+yaw` 인 이유는 `drawTram` 머리 주석에 있다 (캔버스 y = 월드 +Z, `yaw` 는 수학 규약).
+ * 이 아이콘은 앞이 깎인 비대칭 윤곽이라 뒤집힌 부호가 「지도에서 이동 방향으로 안 돈다」로 보였다 (사용자 보고).
  */
 export function drawRover(c: CanvasRenderingContext2D, x: number, y: number, yaw: number, destroyed = false): void {
   c.save();
-  c.translate(x, y); c.rotate(-yaw);
+  c.translate(x, y); c.rotate(yaw);
   if (destroyed) c.globalAlpha *= 0.5;
   c.fillStyle = MAP_COL.rover; c.strokeStyle = OUTLINE; c.lineWidth = 1.2;
   // 앞(+x)이 깎인 차체

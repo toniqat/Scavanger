@@ -493,3 +493,21 @@ ALLY_STATE_WEIGHT,callExtract,0.7
 ALLY_STATE_WEIGHT,rescue,0.8
 ALLY_STATE_WEIGHT,carry,1
 # ── end 2026-09-15 안드로이드 분대원 ──
+# ── 2026-09-18 벌레 둥지 (docs 결정 「둥지 반경 60 m 리시 · 초기 수 절반 · 재스폰 50/35/15 %」) ── owner: enemies/ (factionTables.ts → NestDirector.ts · ai/NestLeash.ts)
+# NEST_LEASH_M — 둥지에서 태어난 벌레가 표적을 쫓아갈 수 있는 최대 거리(m). 이보다 멀어지면 표적을 놓고 둥지로 걸어 돌아가고,
+#   리시 **안**에 있는 동안에만 평소 감지 거리로 표적을 다시 잡는다. 둥지에서 나지 않은 벌레(레이드 중 순찰 · 웨이브 · 강하 · 땅굴벌레 뱉기)는 이 값을 받지 않는다.
+NEST_LEASH_M,0,60
+# NEST_LEASH_RETURN_FRAC — 돌아가기를 끝내는 거리 = NEST_LEASH_M × 이 값. 경계(60 m)에서 잡았다 놓았다 하는 떨림을 막는 이력(히스테리시스)이다.
+NEST_LEASH_RETURN_FRAC,0,0.5
+# NEST_INITIAL_GARRISON_MUL — 레이드 시작 때 둥지 둘레에 까는 순찰 **무리 수** 배수 (`Spawner.initialPopulate` 의 2 + round(threat×3)).
+#   0.5 = 절반 (사용자 결정 「초기 수 절반」). 무리 하나의 구성표는 건드리지 않는다 — 수만 줄인다.
+NEST_INITIAL_GARRISON_MUL,0,0.5
+# NEST_REFILL_TRIGGER_FRAC — 그 둥지의 살아 있는 **움직이는** 벌레(알은 세지 않는다)가 처음 깔린 수 × 이 값 이하로 줄면 보충이 터진다.
+NEST_REFILL_TRIGGER_FRAC,0,0.34
+# NEST_REFILL_CHECK_S — 호스트가 둥지별 생존 수를 다시 세는 간격(s).
+NEST_REFILL_CHECK_S,0,2
+# NEST_REFILL_COUNT_CHANCE — 그 둥지가 이번 레이드에 할 수 있는 보충 **횟수**의 확률 (index k = k+1 회). 레이드마다 둥지마다 한 번, 월드 시드로 굴린다.
+#   사용자 결정: 1회 50 % · 2회 35 % · 3회 15 % (3회는 일부러 드물다). 합이 1 이 아니면 비율로 정규화된다.
+NEST_REFILL_COUNT_CHANCE,0,0.5
+NEST_REFILL_COUNT_CHANCE,1,0.35
+NEST_REFILL_COUNT_CHANCE,2,0.15

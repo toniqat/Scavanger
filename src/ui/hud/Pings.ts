@@ -540,9 +540,11 @@ export class Pings {
     if (interior || !world?.ready) return null;
 
     // (2) living enemies, chest height
+    // 2026-09-18 (벌레 알): 적 핑은 **알에 붙지 않는다** — 둥지 앞에서 가리키면 알이 아니라 그 뒤의 땅 · 상자가 잡힌다.
+    //   「적 핑」은 분대에게 「저것을 쏴라」 는 뜻이고(안드로이드는 그 말을 따른다), 알은 싸우지 않는다.
     if (ctx.enemies) {
       for (const e of ctx.enemies.getEnemies()) {
-        if (e.isDead) continue;
+        if (e.isDead || e.isEgg) continue;
         this.v.copy(e.position); this.v.y += e.height * 0.6;
         consider(2, this.v, e.radius, 'enemy', e.position, e, null, '');
       }
@@ -770,13 +772,14 @@ export class Pings {
     let enemy: EnemyRef | null = null;
     if (kind === 'enemy' && gameplay && ctx.enemies) {
       const list = ctx.enemies.getEnemies();
+      // 2026-09-18: 분대원 · 안드로이드가 보낸 적 핑도 알에는 붙지 않는다 (id 로 와도, 가까운 몸으로 끌어당길 때도)
       if (enemyId !== undefined) {
-        for (const e of list) if (e.id === enemyId && !e.isDead) { enemy = e; break; }
+        for (const e of list) if (e.id === enemyId && !e.isDead && !e.isEgg) { enemy = e; break; }
       }
       if (!enemy) {
         let best = REMOTE_ENEMY_SNAP;
         for (const e of list) {
-          if (e.isDead) continue;
+          if (e.isDead || e.isEgg) continue;
           const d = e.position.distanceTo(pos);
           if (d < best) { best = d; enemy = e; }
         }
@@ -812,7 +815,7 @@ export class Pings {
     const pos = position.clone();
     let enemy: EnemyRef | null = null;
     if (k === 'enemy' && ctx.isGameplayPhase() && ctx.enemies && enemyId !== undefined) {
-      for (const e of ctx.enemies.getEnemies()) if (e.id === enemyId && !e.isDead) { enemy = e; break; }
+      for (const e of ctx.enemies.getEnemies()) if (e.id === enemyId && !e.isDead && !e.isEgg) { enemy = e; break; }   // 2026-09-18: 알은 적 핑의 대상이 아니다
       if (enemy) pos.copy(enemy.position);
     }
 

@@ -4,6 +4,8 @@
 // 2026-09-16 (사용자 결정): `messenger`(메신저 열기)도 빠졌다. 옛 저장의 `messenger` · `ravenQuest` 는 「함선 트랙 끝」.
 // 2026-09-16 2차 (사용자 결정): `levelUp` 도 빠져 `stats` 한 단계에 목표 넷이 순차 공개된다 (메뉴 열기 → 캐릭터 탭 → ＋ → 확정).
 //   포커스가 목표를 따라 옮겨 가고, 확정하는 **그 자리에서** 트랙이 끝난다 — 증축 트랙은 메뉴를 닫을 때 시작한다.
+// 2026-09-18 (사용자 결정 — 증축 안내 · 출격 안내 분리): 트랙이 넷이다 (`raid ship build raid2`). 이 스모크가 보는 것은 그대로 함선 트랙이고,
+//   5 절의 `skipTrack('build')` 은 이제 「증축을 건너뛰면 출격도 이어지지 않는다」까지 함께 본다 (그래서 어느 트랙도 안 돈다 → 레이뺈).
 //   함선 트랙 동안 `시설 관리` 힌트는 숨고 시설 관리에 들어갈 수 없다 (`shipManage` 게이트).
 //
 // The raid track (①) is driven by its own smoke; this one sets up the moment that track ends for real and drives the rest with
@@ -209,8 +211,8 @@ try {
       lit: window.__lit(),
     };
   });
-  ok(s1.order.join(' ') === 'raid ship build' && s1.ship.join(' ') === 'stats',
-    `트랙 순서 raid → ship → build, 함선 트랙 ${s1.ship.join(' → ')} (한 단계)`, JSON.stringify(s1));
+  ok(s1.order.join(' ') === 'raid ship build raid2' && s1.ship.join(' ') === 'stats',
+    `트랙 순서 raid → ship → build → raid2, 함선 트랙 ${s1.ship.join(' → ')} (한 단계)`, JSON.stringify(s1));
   ok(s1.track === 'ship' && s1.step === 'stats' && s1.index === 1 && s1.count === 1
     && s1.ev?.track === 'ship' && s1.ev?.step === 'stats' && s1.ev?.index === 1 && s1.ev?.count === 1,
   '함선에 들어서면 함선 트랙 stats (1/1) 이 시작된다', JSON.stringify({ track: s1.track, step: s1.step, ev: s1.ev }));
@@ -372,7 +374,9 @@ try {
     };
   }, n0);
   ok(!s4b.open && s4b.shipDone && s4b.track === 'build' && s4b.step === 'intro' && s4b.popup && s4b.popupTitle === '튜토리얼'
-    && s4b.trail.join(' ') === 'build:intro:1/7',   // 2026-09-17: 증축 트랙은 7 단계 (묶인 목표 줄)
+    // 2026-09-17: 증축 트랙은 7 단계였다 (묶인 목표 줄). 2026-09-18: 돌격소총 장착에서 끝나 **5 단계**이고,
+    //   터미널 · 레이드는 뒤따르는 `raid2`(출격 안내) 2 단계로 갈렸다.
+    && s4b.trail.join(' ') === 'build:intro:1/5',
   `메뉴를 닫은 뒤에야 같은 함선에서 증축 트랙이 시작된다 (${s4b.trail.join(' → ')})`, JSON.stringify(s4b));
   ok(s4b.shipManage === false, '증축 트랙에서는 시설 관리가 막히지 않는다 (manage 단계가 연다)', JSON.stringify(s4b));
   ok(s4b.toggled === 0 && !s4b.messengerOpen && s4b.hidesCommunity === true,
@@ -421,7 +425,8 @@ try {
 
   /* ── 5. 레이븐 — 튜토리얼이 끝나야 쓴다 ──────────────────────────────── */
   console.log('5. 레이븐 (튜토리얼 뒤)');
-  // 증축 트랙을 건너뛰면 어느 트랙도 돌지 않는다 → 다음 평가(`NPC_OFFER_CHECK_S` 주기)에서 레이븐이 첫 연락을 보낸다
+  // 증축 트랙을 건너뛰면 어느 트랙도 돌지 않는다 → 다음 평가(`NPC_OFFER_CHECK_S` 주기)에서 레이뺈이 첫 연락을 보낸다.
+  // 2026-09-18: 그 「어느 트랙도」에는 새 트랙 `raid2`「출격 안내」도 들어간다 — 건너뛴 사람에게는 이어지지 않는다 (`pendingRaid2` 는 완주에만 선다).
   await P(() => window.__game.ctx.tutorial.skipTrack('build'));
   const s5 = await P(async () => {
     const S = await import('/src/shared/index.ts');
@@ -433,7 +438,7 @@ try {
     const raven = contacts.find((c) => c.npc.id === 'npc_raven');
     const dot = document.querySelector('.community .cm-dot');
     return {
-      ms: Math.round(performance.now() - t0), active: window.__game.ctx.tutorial.active,
+      ms: Math.round(performance.now() - t0), active: window.__game.ctx.tutorial.active, raid2: window.__game.ctx.tutorial.isTrackDone('raid2'),
       ids: contacts.map((c) => c.npc.id), unread: raven?.unread ?? 0,
       log: npc.getMessages('npc_raven').length, introLines: S.NPC_DEF_MAP.get('npc_raven').intro.length,
       choices: npc.getPendingChoices('npc_raven').length, quest: npc.getQuest('q_rv_0'),
@@ -443,6 +448,7 @@ try {
   ok(!s5.active && s5.ids.join(',') === 'npc_raven' && s5.log === s5.introLines && s5.unread > 0 && s5.choices === 2 && s5.quest === null,
     `튜토리얼이 끝나면 레이븐이 첫 연락을 보낸다 (${s5.ms} ms) — 연락은 레이븐 하나, 인사 ${s5.log}줄 · 선택지 ${s5.choices} · 퀘스트 없음`, JSON.stringify(s5));
   ok(s5.badge > 0 && s5.shown === true, `메신저 버튼이 돌아오고 썸네일 배지에 읽지 않음 ${s5.badge}`, JSON.stringify(s5));
+  ok(s5.raid2 === true, '증축 안내를 건너뛰면 출격 안내도 이어지지 않는다 — 그래서 어느 트랙도 돌지 않고 레이뺈이 온다', JSON.stringify({ raid2: s5.raid2, active: s5.active }));
 
   ok(errors.length === 0, `no console errors (${errors.length})`, errors.slice(0, 3).join(' | '));
 } catch (e) {

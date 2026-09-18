@@ -27,11 +27,15 @@
 //     얼마든 가방에 있기만 하면 `terminal` 로 넘어간다.
 // 2026-09-13 (전력 할당 폐지): 새 함선의 발전기는 처음부터 Lv.1 — `generator` 단계는 알려진 즉시(`tutorial:changed`) 조용히 지나가고
 // 시설 관리를 여는 순간 함선 관리 → 작업실이다. 반 박자 포커싱 계측은 그 전환(시설 관리 힌트 → 작업실 행)에서 한다.
-// 2026-09-14 (3트랙): 저장은 **v2** 다 — `{version:2, tracks:{raid,ship,build}}`. 이 스모크가 검사하는 것은 여전히
-// **build 트랙**(17단계)이고, 트랙 ①(레이드 조작) · ②(함선)는 그 트랙을 구현하는 쪽(world/tutorial · meta/messenger)이
+// 2026-09-14 (3트랙): 저장은 **v2** 다 — 트랙별로 갈린다. 이 스모크가 검사하는 것은 **함선 안에서 도는 두 트랙**이고,
+// 트랙 ①(레이드 조작) · ②(함선)는 그 트랙을 구현하는 쪽(world/tutorial · meta/messenger)이
 // 자기 스모크를 더한다. 새 프로필이 함선에 들어오면 raid · ship 은 조용히 `done` 으로 적히고 build 가 시작된다
 // (`TutorialSystem.autoStart` — `pendingShip` 이 없으면 함선 트랙은 켜지지 않는다).
-// 2026-09-17 (사용자 결정 — 「여러 스텝을 하나의 스텝 내 여러 목표로」): 증축 트랙은 **7 단계**다 —
+// 2026-09-18 (사용자 결정 — 증축 안내 · 출격 안내 분리): **트랙은 넷**이다 — `{version:2, tracks:{raid,ship,build,raid2}}`.
+//   `build`「증축 안내」는 `equipGun` 에서 끝나고(**5 단계**), 그 뒤를 `raid2`「출격 안내」(`terminal` · `raid`, 2 단계)가
+//   **저절로** 이어받는다 — `pendingRaid2` (완주했을 때만; 건너뛰었거나 옛 저장이면 조용히 done 으로 적힌다).
+//   단계 id 는 하나도 안 바뀌었으므로 옛 저장의 `terminal` · `raid` (그리고 그리로 접히는 `board` · `planet` · `travel`)는 `load()` 가 `raid2` 로 **옮긴다**.
+// 2026-09-17 (사용자 결정 — 「여러 스텝을 하나의 스텝 내 여러 목표로」): 증축 트랙은 7 단계였다 (2026-09-18 부터 5 + 2) —
 //   intro · manage(시설 관리 → 작업실) · bench(작업대 제작 → 창고 탭 → 배치 → 하우징 모드 닫기) · craftGun(이동 → 작동 → 소총 →
 //   탄약 → 제작창 닫기) · equipGun(Tab → 장착, 닫을 때까지 조용히 기다림 · 딤 없는 포커싱) · terminal(조종석 → 터미널 → 행성 →
 //   워프 대기 → 포드 이동 → 탑승 → Space 준비) · raid(가치 1,000 C 이상 들고 탈출, 한 번). 목표 줄이 순차 공개되고 포커싱은 지금 할
@@ -209,7 +213,7 @@ try {
   ok(intro.panel, '좌측 상단 목표 패널이 함께 뜬다');
   // 2026-09-08: 함선에 들어서며 걸린 relock 이 카드에서 커서를 빼앗아 가면 안 된다 (버튼을 누를 수가 없다)
   ok(intro.cursorOn, '카드가 뜬 채로 마우스 커서가 살아 있다 (body.cursor-on)');
-  ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 7, `tutorial:changed {intro, 1/7} (${JSON.stringify(intro.ev)})`);
+  ok(intro.ev && intro.ev.active === true && intro.ev.step === 'intro' && intro.ev.count === 5, `tutorial:changed {intro, 1/5} (${JSON.stringify(intro.ev)})`);
   const order = await P(() => window.__game.getSystem('tutorial').constructor && null);
   void order;
 
@@ -247,15 +251,15 @@ try {
     const t = window.__game.ctx.tutorial;
     return {
       track: t.track,
-      raid: t.isTrackDone('raid'), ship: t.isTrackDone('ship'), build: t.isTrackDone('build'),
+      raid: t.isTrackDone('raid'), ship: t.isTrackDone('ship'), build: t.isTrackDone('build'), raid2: t.isTrackDone('raid2'),
       hud: ['vitals', 'weapon', 'stamina', 'implant', 'stratagem'].map((p) => t.hides('hud', p)),
       controls: document.querySelector('.tut-controls')?.hidden ?? null,
       ev: window.__ev['tutorial:changed'].slice(-1)[0]?.track ?? null,
     };
   });
   ok(tracks.track === 'build' && tracks.ev === 'build', `새 프로필은 증축 트랙부터 돈다 (${JSON.stringify(tracks)})`);
-  ok(tracks.raid === true && tracks.ship === true && tracks.build === false,
-    '레이드 · 함선 트랙은 끝난 것으로, 증축 트랙은 도는 중으로 답한다', JSON.stringify(tracks));
+  ok(tracks.raid === true && tracks.ship === true && tracks.build === false && tracks.raid2 === false,
+    '레이드 · 함선 트랙은 끝난 것으로, 증축은 도는 중으로, 출격은 아직 시작 전으로 답한다', JSON.stringify(tracks));
   ok(tracks.hud.every((h) => h === false), '증축 트랙에서는 HUD 를 하나도 감추지 않는다', JSON.stringify(tracks.hud));
   ok(tracks.controls === true, '우측 조작 가이드는 증축 트랙에서 뜨지 않는다');
 
@@ -480,7 +484,7 @@ try {
       furnitureOk: t.blockReason('furniture', 'furn_bench_gun'), manageExit: t.hides('manageExit'),
     };
   });
-  ok(closeStep.step === 'bench' && closeStep.index === 3 && closeStep.count === 7 && closeStep.manage === true,
+  ok(closeStep.step === 'bench' && closeStep.index === 3 && closeStep.count === 5 && closeStep.manage === true,
     '배치 뒤에는 같은 단계의 하우징 모드 닫기 줄 (3/7) — 관리 모드는 아직 열려 있다', JSON.stringify(closeStep));
   // 목표 줄은 `{INVENTORY} 하우징 모드 닫기` — 키캡 토큰이 앞에 그려지므로 textContent 는 `Tab 하우징 모드 닫기` 다 (끝만 본다)
   ok(closeStep.objs.length === 4 && closeStep.objs[0] === '총기 작업대 제작' && closeStep.objs[1] === '가구 창고 탭으로 이동'
@@ -722,11 +726,11 @@ try {
   /* 2026-09-09: 여기까지 오는 동안 실제로 밟은 단계 · 순번이 새 순서 그대로인가 (`openCraft` 는 없다). */
   const seq = await P(() => window.__ev['tutorial:changed'].filter((e) => e.active).map((e) => ({ s: e.step, i: e.index, n: e.count })));
   // 2026-09-15: `manageDone`(하우징 모드 닫기)이 `benchPlace` 와 `craftGun` 사이로 돌아왔다 — 17 단계
-  // 2026-09-17: 7 단계 — 묶인 단계 안의 줄 사이에는 단계 전환이 없다
+  // 2026-09-17: 7 단계 — 묶인 단계 안의 줄 사이에는 단계 전환이 없다 (2026-09-18: 뒤 둘은 `raid2` 로 나가 **5 단계**)
   const WANT = ['intro', 'manage', 'bench', 'craftGun', 'equipGun'];
   ok(seq.map((e) => e.s).join(' ') === WANT.join(' '), `밟은 단계가 새 순서 그대로다 (${seq.map((e) => e.s).join(' ')})`);
-  ok(seq.every((e, i) => e.i === i + 1 && e.n === 7) && !seq.some((e) => e.s === 'openCraft'),
-    '순번은 1..5 / 7 이고 옛 단계 id 는 순서에 없다', JSON.stringify(seq.slice(-3)));
+  ok(seq.every((e, i) => e.i === i + 1 && e.n === 5) && !seq.some((e) => e.s === 'openCraft'),
+    '순번은 1..5 / 5 이고 옛 단계 id 는 순서에 없다', JSON.stringify(seq.slice(-3)));
 
   /* 2026-09-09: 어두운 판 네 장이 화면을 **빈틈없이** 덮는가. 예전에는 판마다 top/height 를 따로 반올림해서
      소수점 사각형이면 구멍 위아래에 1 px 짜리 밝은 가로줄이 남았다 (8단계에서 특히 잘 보였다). */
@@ -766,10 +770,81 @@ try {
   // 2026-09-10: 보조무기 칸이 사라져 시작 지급품이 **주무기 I** 에 기관단총을 준다 — 예전처럼 I 칸이 비어 있지 않다.
   // 2026-09-17 (사용자 결정): 장착해도 **인벤토리를 닫을 때까지** 그 단계에 머문다 (목표 줄 없이) — 포커싱은 걷힌다
   ok(equipped.primary2 === 'wpn_ar' && equipped.step === 'equipGun' && equipped.open && !equipped.spotLit,
-    '주무기 II 칸에 장착하면 체크가 그어지고 포커싱이 걷히지만, 창이 열려 있는 동안은 같은 단계다', JSON.stringify(equipped));
+    '주무기 II 칸에 장착하면 체크가 그어지고 포커싱이 걷히지만, 창이 열려 있는 동안은 같은 단계다 — 그 장착으로 주무기 두 칸이 다 차도 그렇다 (2026-09-18 의 건너뛰기 판정은 **창이 열리는 순간**만 본다)', JSON.stringify(equipped));
   await P(() => window.__game.ctx.inventory.closeAll());
   await waitStep('terminal');
   ok(true, '인벤토리를 닫으면 조종석 단계다 (탄약을 가방에 넣는 단계는 없다)');
+  await sleep(700);
+
+  /* ── 4c. 증축 안내가 끝나고 출격 안내가 저절로 이어진다 (2026-09-18, 사용자 결정) ────────────────────
+     `equipGun` 은 이제 증축 트랙의 **마지막** 단계다. 인벤토리를 닫는 그 순간 그 트랙이 끝나고(`finish` → `pendingRaid2`)
+     **같은 호출 안에서** `autoStart` 가 「출격 안내」를 연다 — 플레이어는 아무것도 누르지 않는다. */
+  const chain = await P(() => {
+    const t = window.__game.ctx.tutorial;
+    return {
+      track: t.track, step: t.step, index: t.stepIndex, count: t.stepCount,
+      label: document.querySelector('.tut-panel .tut-track')?.textContent ?? null,
+      objs: [...document.querySelectorAll('.tut-panel .tut-obj-txt')].map((e) => e.textContent),
+      fin: window.__ev['tutorial:finished'].slice(-1)[0],
+      saved: JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'),
+    };
+  });
+  ok(chain.fin?.track === 'build' && chain.fin?.skipped === false,
+    '장착을 마치고 창을 닫으면 증축 안내가 끝난다 (건너뛴 것이 아니다)', JSON.stringify(chain.fin));
+  ok(chain.track === 'raid2' && chain.step === 'terminal' && chain.index === 1 && chain.count === 2 && chain.label === '출격 안내',
+    '아무것도 누르지 않아도 출격 안내가 이어진다 (조종석 단계 1/2)', JSON.stringify(chain));
+  ok(chain.saved?.tracks?.build?.done === true && chain.saved?.tracks?.build?.step === null
+    && chain.saved?.tracks?.raid2?.step === 'terminal' && chain.saved?.tracks?.raid2?.done === false,
+    '저장도 두 트랙으로 갈린다 (증축 done · 출격 terminal)', JSON.stringify(chain.saved?.tracks));
+  ok(/조종석으로 이동/.test(chain.objs.join(' ')), `출격 안내의 첫 목표는 조종석으로 이동 (${chain.objs.join(' | ')})`);
+
+  /* ── 4c2. 장착 단계에 할 일이 없으면 지나간다 (2026-09-18, 사용자 보고 「이미 장착했는데도 장착하라고 한다」) ──
+     ① **주무기 두 칸이 다 차 있다** — 넣을 빈 칸이 없으니 들어서는 그 자리에서 지나간다 (`equipGunMoot` · `setStep`).
+     ② **이미 돌격소총을 들었다** — 만든 그 소총(`wpn_ar`)이 아니어도 된다: 계열 · 등급은 csv(`weapons.csv` 의 `class`)가
+        말한다. 이쪽은 단계 진입이 아니라 **인벤토리를 여는 순간** 판정한다 (사용자가 Tab 을 눌러 확인하는 그 자리). */
+  const mootFull = await P(() => {
+    const ctx = window.__game.ctx;
+    const t = ctx.tutorial;
+    const l = ctx.inventory.getLoadout();
+    t.goto('equipGun');
+    return { primary: l.primary?.defId ?? null, primary2: l.primary2?.defId ?? null, step: t.step, track: t.track };
+  });
+  ok(!!mootFull.primary && !!mootFull.primary2 && mootFull.step === 'terminal' && mootFull.track === 'raid2',
+    '주무기 I · II 가 다 차 있으면 장착 단계는 들어서는 즉시 지나간다 (그리고 출격 안내로 이어진다)', JSON.stringify(mootFull));
+
+  const mootAr = await P(async () => {
+    const ctx = window.__game.ctx;
+    const t = ctx.tutorial;
+    const sys = window.__game.getSystem('tutorial');
+    ctx.inventory.closeAll();
+    // 만든 소총이 아닌 **다른 등급**의 돌격소총 — id 가 달라 `onLoadout` 은 목표로 치지 않는다 (판정은 계열 · class 다)
+    const arId = ['ar_g2', 'ar_g3', 'ar_g4', 'ar_g5'].map((w) => `wpn_${w}`).find((id) => ctx.loot.getItemDef(id)) ?? null;
+    // 비우는 것은 **창고로** (가방은 이미 거의 차 있다). ⚠ `moveToStash` 는 함선 Tab 창이 열려 있을 때만 받는다
+    //   (`StashOps.moveToStash` 의 `hubMode`) — 닫힌 채로 부르면 조용히 'fail' 이라 두 칸이 그대로 남고, 그러면 진입 판정(두 칸 참)이 먼저 걸려 이 대목이 아예 안 선다.
+    if (!ctx.inventory.isOpen) window.__game.getSystem('inventory').toggleBag();
+    const l0 = ctx.inventory.getLoadout();
+    if (l0.primary) ctx.inventory.moveToStash(l0.primary.uid, { kind: 'slot', slot: 'primary' });
+    if (l0.primary2) ctx.inventory.moveToStash(l0.primary2.uid, { kind: 'slot', slot: 'primary2' });
+    ctx.inventory.closeAll();
+    t.goto('equipGun');
+    const empty = { step: t.step, primary: ctx.inventory.getLoadout().primary?.defId ?? null };
+    const it = ctx.loot.createItem(arId, 1);
+    ctx.inventory.tryAddItemAnywhere(it);
+    ctx.inventory.equip(it.uid, 'primary');
+    await new Promise((r) => setTimeout(r, 80));
+    const armed = { step: t.step, equipSlot: sys.done.has('equipSlot'), primary: ctx.inventory.getLoadout().primary?.defId ?? null };
+    window.__game.getSystem('inventory').toggleBag();
+    await new Promise((r) => setTimeout(r, 80));
+    const opened = { step: t.step, track: t.track, open: ctx.inventory.isOpen };
+    ctx.inventory.closeAll();
+    return { arId, empty, armed, opened };
+  });
+  ok(mootAr.empty.step === 'equipGun' && mootAr.empty.primary === null,
+    '주무기를 비우면 장착 단계는 할 일이 있다 (그 자리에 머문다)', JSON.stringify(mootAr.empty));
+  ok(!!mootAr.arId && mootAr.armed.step === 'equipGun' && mootAr.armed.equipSlot === false,
+    `다른 등급의 돌격소총(${mootAr.arId})은 「돌격소총 장착」 목표로 치지 않는다 (만든 그 소총이 아니다)`, JSON.stringify(mootAr.armed));
+  ok(mootAr.opened.step === 'terminal' && mootAr.opened.track === 'raid2' && mootAr.opened.open === true,
+    '그 상태로 인벤토리를 여는 순간 장착 단계가 통째로 끝난다 (계열 · 등급 무관)', JSON.stringify(mootAr.opened));
 
   /* ── 4d. 탄약 레시피의 모양 (2026-09-10 제작 대개편; 2026-09-17 `stowAmmo` 단계는 없어졌다) ──────
      `bulk_ammo_medium`(대량 제작, 90발)이 csv 에서 사라져 `make_ammo_medium`(30발)이 그 자리를 잇는다.
@@ -877,8 +952,8 @@ try {
     const t = window.__game.ctx.tutorial;
     return { active: t.active, step: t.step, index: t.stepIndex, count: t.stepCount };
   });
-  ok(stale.active && stale.step === 'craftGun' && stale.index === 4 && stale.count === 7,
-    'openCraft 를 들고 있던 저장은 craftGun(4/7) 으로 이어진다', JSON.stringify(stale));
+  ok(stale.active && stale.step === 'craftGun' && stale.index === 4 && stale.count === 5,
+    'openCraft 를 들고 있던 저장은 craftGun(4/5) 으로 이어진다', JSON.stringify(stale));
   const staleObjs = await P(() => [...window.__game.getSystem('tutorial').done]);
   ok(['craftGunWalk', 'craftGunOpen', 'craftGunMade'].every((id) => staleObjs.includes(id)) && !staleObjs.includes('craftAmmoMade'),
     '그 자리에서 이미 한 줄(이동 · 작동 · 소총)이 채워진다 — 준중량탄부터 이어진다', JSON.stringify(staleObjs));
@@ -895,21 +970,48 @@ try {
   const staleBench = await P(() => ({ step: window.__game.ctx.tutorial.step, done: [...window.__game.getSystem('tutorial').done] }));
   // 하우징 모드는 새로고침으로 닫혀 있다 → 「하우징 모드 닫기」는 할 일이 없어 그대로 다음 단계 (옛 `manageDone` 의 조용히 지나치기)
   ok(staleBench.step === 'craftGun', `manageDone 저장은 bench 로 옮겨지고, 관리 모드가 닫혀 있으면 곧장 craftGun 이다 (${staleBench.step})`, JSON.stringify(staleBench));
+  /* 2026-09-18 (증축 안내 · 출격 안내 분리): 저장된 단계가 **다른 트랙의 것**이 됐다. `board` 는 옛 순서에서 빠져
+     `terminal` 로 접히고, 그 `terminal` 은 이제 「출격 안내」(`raid2`)의 것이다 — 버리면 그 사람의 안내가 통째로
+     사라지므로 `load()` 가 그 트랙으로 **옮기고** 지나온 증축 트랙은 끝난 것으로 적는다 (다시 하지 않는다).
+     그 자리에서 이미 한 줄(`Steps.retiredObjectives`)도 함께 따라온다. */
+  await P(() => {
+    const s = JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? '{}');
+    s.tracks.build = { step: 'board', done: false };
+    delete s.tracks.raid2;
+    localStorage.setItem('scav.s1.tutorial', JSON.stringify(s));
+  });
+  await page.reload({ waitUntil: 'load' });
+  await setup();
+  await enterShip();
+  await sleep(300);
+  const moved = await P(() => {
+    const sys = window.__game.getSystem('tutorial');
+    return {
+      track: sys.track, step: sys.step, index: sys.stepIndex, count: sys.stepCount,
+      tracks: JSON.parse(JSON.stringify(sys.save.tracks)), done: [...sys.done],
+    };
+  });
+  ok(moved.track === 'raid2' && moved.step === 'terminal' && moved.index === 1 && moved.count === 2,
+    'board 를 들고 있던 옛 저장은 출격 안내의 terminal(1/2) 로 옮겨진다', JSON.stringify(moved));
+  ok(moved.tracks.build?.done === true && moved.tracks.build?.step === null,
+    '지나온 증축 트랙은 끝난 것으로 적힌다 (옛 저장이 증축 안내를 다시 하지 않는다)', JSON.stringify(moved.tracks));
+  ok(['terminalWalk', 'terminalOpen', 'planetPicked', 'travelDone'].every((id) => moved.done.includes(id)),
+    '그 자리에서 이미 한 줄(조종석 · 터미널 · 행성 · 워프)이 함께 옮겨진다', JSON.stringify(moved.done));
   const gotoStale = await P(() => {
     const t = window.__game.ctx.tutorial;
     const ret = t.goto('openCraft');
     const step = t.step;
     t.goto('board');
-    return { ret, step, board: t.step };
+    return { ret, step, board: t.step, boardTrack: t.track };
   });
-  ok(gotoStale.ret === true && gotoStale.step === 'craftGun' && gotoStale.board === 'terminal',
-    'goto("openCraft") 는 craftGun, goto("board") 는 terminal 로 접힌다 (콘솔 · 저장 경로가 같은 판정을 쓴다)', JSON.stringify(gotoStale));
+  ok(gotoStale.ret === true && gotoStale.step === 'craftGun' && gotoStale.board === 'terminal' && gotoStale.boardTrack === 'raid2',
+    'goto("openCraft") 는 craftGun, goto("board") 는 **출격 안내의** terminal 로 접힌다 (콘솔 · 저장 경로가 같은 판정을 쓴다)', JSON.stringify(gotoStale));
   await P(() => window.__game.ctx.tutorial.goto('craftGun'));
   await sleep(150);
 
   /* ── 7. 콘솔 명령 + 남은 단계 ─────────────────────────────────────────── */
   console.log('콘솔 · 남은 단계');
-  await P(() => window.__game.ctx.tutorial.goto('planet'));   // 2026-09-17: → terminal
+  await P(() => window.__game.ctx.tutorial.goto('planet'));   // 2026-09-17: → terminal (2026-09-18: 그 단계는 이제 출격 안내다)
   // PLANET_IDS[0] = 'amber' 만 허용된다
   const planetGate = await P(() => {
     const hub = window.__game.getSystem('hub');
@@ -946,13 +1048,35 @@ try {
   });
   ok(termGate.step === 'terminal' && /튜토리얼/.test(termGate.board ?? ''),
     '행성 지정 · 워프 전에는 포드가 잠겨 있다', JSON.stringify(termGate));
-  ok(termGate.training && termGate.warn && termGate.trainRowHidden, '증축 안내 동안 훈련장 버튼과 출격 준비 경고가 숨는다', JSON.stringify(termGate));
+  ok(termGate.training && termGate.warn && termGate.trainRowHidden, '함선 안에서 도는 두 트랙(증축 · 출격) 내내 훈련장 버튼과 출격 준비 경고가 숨는다', JSON.stringify(termGate));
   await P(() => { const sys = window.__game.getSystem('tutorial'); sys.markObjective('planetPicked'); sys.markObjective('travelDone'); });
   const boardOk = await P(() => {
     const it = window.__game.ctx.interactables.all().find((i) => i.id === 'hub_pod_0');
     return { prompt: it?.getPrompt() ?? null, block: window.__game.ctx.tutorial.blockReason('board') };
   });
   ok(boardOk.block === null && !/튜토리얼/.test(boardOk.prompt ?? '튜토리얼'), `워프가 끝나 「발사 슬롯으로 이동」이 열리면 포드가 열린다 ("${boardOk.prompt}")`, JSON.stringify(boardOk));
+
+  /* 2026-09-18 (사용자 보고 — 「발사 슬롯에서 준비를 마치면 바닥 안내선이 딴 데를 가리킨다」): 필수 목표를 **전부**
+     끝낸 단계에는 걸어갈 곳도 밝힐 것도 없다. 예전에는 목표 줄이 다 끝나면 단계의 `guide`(조종석) · `spot` 으로
+     되돌아가, 포드에 타고 준비까지 마친 사람에게 「조종석으로 가라」는 선이 발사까지 깔려 있었다.
+     실제로 선을 까는지는 플레이어와 목표 사이의 거리를 타므로(`parts/Guide.update` 의 `GUIDE_ARRIVE`)
+     **안내선의 대상 id** 로 본다. */
+  const doneStep = await P(() => {
+    const sys = window.__game.getSystem('tutorial');
+    const at = sys.guide.targetId;                 // 「발사 슬롯으로 이동 · 탑승」 줄 → 포드
+    sys.markObjective('boardWalk');
+    sys.markObjective('boardOn');
+    const ready = sys.guide.targetId;              // 「시작 준비」 줄 → 걸어갈 곳 없음 (`guide: null`)
+    sys.markObjective('readyHold');
+    return {
+      at, ready, after: sys.guide.targetId, step: sys.step, track: sys.track,
+      spot: document.querySelector('.tut-spot').hidden,
+    };
+  });
+  ok(doneStep.at === 'hub_pod_0', `발사 슬롯 줄에서는 안내선이 포드를 가리킨다 (${doneStep.at})`);
+  ok(doneStep.ready === null, `「시작 준비」 줄에는 걸어갈 곳이 없다 (${doneStep.ready})`);
+  ok(doneStep.after === null && doneStep.spot === true && doneStep.step === 'terminal',
+    '준비까지 끝나면 안내선도 포커싱도 걷힌다 — 단계의 조종석 안내선으로 되돌아가지 않는다', JSON.stringify(doneStep));
 
   /* ── 7b. 마지막 레이드 단계 (2026-09-17) — 목표 줄 · 진행 수 · 조작 가이드, 그리고 함선으로 돌아오면 끝 (완료 토스트 없음) ── */
   await P(() => window.__game.ctx.tutorial.goto('raid'));
@@ -977,6 +1101,70 @@ try {
   });
   ok(fold.folded && fold.list === 'none' && /\] ?조작 가이드 표시$/.test(fold.line ?? '') && !fold.hidden,
     `접으면 같은 자리에 「] 조작 가이드 표시」 한 줄만 남는다 ("${fold.line}")`, JSON.stringify(fold));
+
+  /* 2026-09-18 (사용자 결정): 이 단계의 진행 바는 **단계 수가 아니라 전리품 가치**다. 채움은 1 에서 잘리지만 바 위의
+     숫자는 **실제 값**이다 — 1,400 C 를 들고 있는 사람에게 `1,000 C / 1,000 C` 라고 적으면 더 챙긴 것이 없어진 것처럼
+     보인다. 목표 값은 csv(`TUTORIAL_RAID_EXTRACT_VALUE_C`)에서 읽으므로 여기에 숫자를 적지 않는다. */
+  const gauge = await P(() => {
+    const sys = window.__game.getSystem('tutorial');
+    const ko = (n) => Math.round(n).toLocaleString('ko-KR');     // `shared/formatCredits` 의 자리 구분
+    const en = (n) => Math.round(n).toLocaleString('en-US');     // 목표 줄 꼬리표(`ui/Panel.countText`)
+    const bar = () => {
+      const el = document.querySelector('.tut-panel .tut-bar-n');
+      return {
+        label: el?.textContent ?? null, hidden: el?.hidden ?? null,
+        fill: document.querySelector('.tut-panel .tut-bar i')?.style.transform ?? null,
+      };
+    };
+    const total = sys.panelInfo()?.gauge?.total ?? 0;
+    const zero = bar();
+    const over = Math.round(total * 1.4);                        // 목표를 넘겨 든 사람
+    sys.raidValue = over;
+    sys.panel.setGauge(sys.raidGauge());
+    sys.panel.setCounts(sys.objectiveCounts());
+    return {
+      total, over, zero, full: bar(),
+      want: `${ko(over)} C / ${ko(total)} C`, wantZero: `0 C / ${ko(total)} C`, wantRow: ` (${en(total)} / ${en(total)} C)`,
+      row: [...document.querySelectorAll('.tut-panel .tut-obj-txt')].map((e) => e.textContent)[0] ?? null,
+    };
+  });
+  ok(gauge.total > 0 && gauge.zero.hidden === false && gauge.zero.label === gauge.wantZero,
+    `진행 바 위에 전리품 가치가 적힌다 (${gauge.zero.label})`, JSON.stringify(gauge.zero));
+  ok(gauge.full.label === gauge.want, `목표를 넘겨도 **실제 값**을 적는다 (${gauge.full.label} / want ${gauge.want})`);
+  ok(/scaleX\(1(\.0+)?\)/.test(gauge.full.fill ?? ''), `바의 채움은 1 에서 잘린다 (${gauge.full.fill})`);
+  ok((gauge.row ?? '').endsWith(gauge.wantRow), `목표 줄의 꼬리표는 목표 값에서 멈춘다 (${gauge.row})`);
+
+  /* 2026-09-18 (사용자 결정 — 「튜토리얼 레이드에서는 지도에도 목표를 띄운다」): 전술 지도 좌측 열 **맨 위**에 같은 목표가
+     선다 (`ui/map/QuestPanels` 의 튜토리얼 패널, NPC 퀘스트 목록보다 위). 원본은 `ctx.tutorial.panelInfo()` 하나라 두 화면이
+     어긋날 수 없다. 지도 자체는 월드가 있어야 열리므로(`MapScreen.open` 의 `world.ready`) 함선에서는 그 패널만 직접 다시
+     그리고, 「지도가 열렸다」는 사실은 버스로 알린다 — 그동안 떠 있는 목표 패널은 접힌다 (두 벌로 겹치지 않게). */
+  const mapPanel = await P(() => {
+    const ctx = window.__game.ctx;
+    window.__game.getSystem('hud').map.quests.refresh(true);
+    const rows = [...document.querySelectorAll('.mq-tut .mq-obj')].map((r) => ({
+      l: r.querySelector('.mq-obj-l')?.textContent ?? '', n: r.querySelector('.mq-obj-n')?.textContent ?? '',
+      box: !!r.querySelector('.mq-tut-box'), done: r.classList.contains('is-done'),
+    }));
+    ctx.bus.emit('ui:mapToggled', { open: true });
+    const whileOpen = document.querySelector('.tut-panel').hidden;
+    ctx.bus.emit('ui:mapToggled', { open: false });
+    return {
+      hidden: document.querySelector('.mq-tut').hidden,
+      name: document.querySelector('.mq-tut .mq-name')?.textContent ?? null,
+      sub: document.querySelector('.mq-tut .mq-npc')?.textContent ?? null,
+      count: document.querySelector('.mq-tut .mq-count')?.textContent ?? null,
+      gauge: document.querySelector('.mq-tut .mq-tut-n')?.textContent ?? null,
+      rows, whileOpen, afterClose: document.querySelector('.tut-panel').hidden,
+    };
+  });
+  ok(!mapPanel.hidden && mapPanel.name === '출격 안내' && mapPanel.sub === '튜토리얼' && mapPanel.count === '2 / 2',
+    '지도 좌측 열 맨 위에 도는 트랙의 목표 패널이 선다', JSON.stringify(mapPanel));
+  ok(mapPanel.rows.length === 1 && mapPanel.rows[0].box && mapPanel.rows[0].l.includes(gauge.total.toLocaleString('en-US'))
+    && mapPanel.rows[0].n === `${gauge.total.toLocaleString('en-US')} / ${gauge.total.toLocaleString('en-US')} C`,
+    '목표 줄 · 체크박스 · (n/m) 이 안내 패널과 같다', JSON.stringify(mapPanel.rows));
+  ok(mapPanel.gauge === gauge.want, `지도에도 같은 게이지 숫자가 선다 (${mapPanel.gauge})`);
+  ok(mapPanel.whileOpen === true && mapPanel.afterClose === false,
+    '지도가 열려 있는 동안에는 떠 있는 목표 패널이 접힌다 (같은 목표가 두 벌로 겹치지 않게)', JSON.stringify(mapPanel));
   const nNotify = await P(() => window.__ev['ui:notify'].length);
   // 함선 진입 처리만 부른다 (가짜 `hub:entered` 를 버스에 흘리면 다른 시스템까지 함선에 들어선 줄 안다)
   await P(() => window.__game.getSystem('tutorial').onHubEntered('personal'));
@@ -985,10 +1173,10 @@ try {
     active: window.__game.ctx.tutorial.active, fin: window.__ev['tutorial:finished'].slice(-1)[0],
     toasts: window.__ev['ui:notify'].slice(n).map((t) => t.text),
   }), nNotify);
-  ok(!raidEnd.active && raidEnd.fin?.skipped === false && raidEnd.fin?.track === 'build', '레이드 단계로 함선에 돌아오면 트랙이 끝난다 (한 번뿐)', JSON.stringify(raidEnd));
+  ok(!raidEnd.active && raidEnd.fin?.skipped === false && raidEnd.fin?.track === 'raid2', '레이드 단계로 함선에 돌아오면 출격 안내가 끝난다 (한 번뿐)', JSON.stringify(raidEnd));
   ok(!raidEnd.toasts.some((t) => /완료/.test(t)), `트랙 완료 토스트는 뜨지 않는다 (${raidEnd.toasts.join(' | ')})`);
-  // 다음 절(건너뛰기)을 위해 트랙을 다시 켠다
-  await P(() => { const t = window.__game.ctx.tutorial; t.start(); t.goto('terminal'); });
+  // 다음 절(건너뛰기)을 위해 **증축** 트랙을 다시 켜고, 출격 트랙은 아직 시작 전으로 되돌린다 (2026-09-18)
+  await P(() => { const t = window.__game.ctx.tutorial; t.start(); t.goto('craftGun'); window.__game.getSystem('tutorial').save.tracks.raid2 = { step: null, done: false }; });
   await sleep(150);
 
   /* ── 8. 건너뛰면 모든 제한이 풀린다 ──────────────────────────────────── */
@@ -1002,16 +1190,24 @@ try {
       lounge: t.blockReason('roomPurpose', 'lounge'), corp: t.blockReason('screenTab', 'corp'),
       hides: t.hides('community'),
       housing: h.purposeBlock(2, 'lounge'),
-      fin: window.__ev['tutorial:finished'].slice(-1)[0],
+      track: t.track, fin: window.__ev['tutorial:finished'].slice(-1)[0],
       panel: document.querySelector('.tut-panel').hidden, spot: document.querySelector('.tut-spot').hidden,
       saved: JSON.parse(localStorage.getItem('scav.s1.tutorial') ?? 'null'),
     };
   });
-  ok(!after.active && after.step === null && after.fin && after.fin.skipped === true, '건너뛰면 튜토리얼이 끝난다', JSON.stringify(after.fin));
+  ok(!after.active && after.step === null && after.fin && after.fin.skipped === true && after.fin.track === 'build', '건너뛰면 튜토리얼이 끝난다', JSON.stringify(after.fin));
   ok(after.lounge === null && after.corp === null && !after.hides, '모든 게이트가 풀린다', JSON.stringify(after));
   ok(after.panel && after.spot, '목표 패널과 스포트라이트가 사라진다');
   ok(after.saved && after.saved.tracks?.build?.done === true && after.saved.tracks?.build?.step === null,
     '끝났다는 것이 저장된다 (그 트랙만)', JSON.stringify(after.saved));
+  ok(after.saved && after.saved.tracks?.raid2?.done === true && after.saved.tracks?.raid2?.step === null && after.track === null,
+    '증축 안내를 건너뛰면 출격 안내로 이어지지 않는다 (`pendingRaid2` 는 완주에만 선다)', JSON.stringify(after.saved?.tracks));
+  const mapEmpty = await P(() => {
+    window.__game.getSystem('hud').map.quests.refresh(true);
+    return { hidden: document.querySelector('.mq-tut').hidden, info: window.__game.ctx.tutorial.panelInfo() };
+  });
+  ok(mapEmpty.hidden === true && mapEmpty.info === null,
+    '도는 트랙이 없으면 지도의 목표 패널도 그리지 않는다 (퀘스트 목록과 같은 규칙)', JSON.stringify(mapEmpty));
 
   /* ── 9. 이미 하던 프로필에는 켜지지 않는다 ──────────────────────────── */
   console.log('기존 프로필');
@@ -1026,8 +1222,8 @@ try {
     rooms: (() => { const h = window.__game.ctx.housing; let n = 0; for (let i = 0; i < 10; i++) if (h.getRoom(i).purpose !== 'empty') n++; return n; })(),
   }));
   ok(existing.rooms > 0 && existing.step === null
-    && ['raid', 'ship', 'build'].every((t) => existing.saved?.tracks?.[t]?.done === true),
-    '이미 함선을 꾸며 놓은 프로필에서는 세 트랙 전부 조용히 끝난 것으로 표시한다', JSON.stringify(existing));
+    && ['raid', 'ship', 'build', 'raid2'].every((t) => existing.saved?.tracks?.[t]?.done === true),
+    '이미 함선을 꾸며 놓은 프로필에서는 넷 트랙 전부 조용히 끝난 것으로 표시한다', JSON.stringify(existing));
   ok(await P(() => window.__game.ctx.tutorial.start()) === true, 'start() 로는 언제든 다시 켤 수 있다 (콘솔 경로)');
   ok(await step() === 'intro', '다시 intro 부터');
 

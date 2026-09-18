@@ -93,6 +93,13 @@ ARTILLERY_AI,braceTime,1
 ARTILLERY_AI,postFireLock,5
 ARTILLERY_AI,summonMin,2
 ARTILLERY_AI,summonMax,3
+# 2026-09-18 (사용자 결정 — 「표적 곁의 아무 벌레나 있을 때 포격 준비. 그것과 별개로 자기 부대 스캐빈저를 소환. 스캐빈저가 모두 죽으면 쿨타임 뒤 재스폰」):
+#   prepTime      = 표적 곁에 벌레가 생긴 **그 순간부터** 이만큼(s) 납작 엎드려 준비한 뒤에야 첫 포탄이 나간다. 준비 중에 조건이 깨지면(표적이 쓰러짐 ·
+#                   사거리 밖 · 곁의 벌레가 사라짐) 준비가 취소되고 다음에 조건이 다시 참이 되면 처음부터 잰다. 준비를 한 번 마치면 그 교전 동안에는
+#                   포탄마다 braceTime 만 기다린다 (준비는 「첫 발 전에 한 번」이다).
+#   squadCooldown = 제 스캐빈저(굴착 호위 + 소환 무리)가 **전멸한** 뒤 새 무리를 부르기까지의 쿨타임(s). 예전의 「평생 한 번」 제한을 대신한다.
+ARTILLERY_AI,prepTime,2.5
+ARTILLERY_AI,squadCooldown,25
 
 # TOXIC_AI — 독성 벌레 (자폭 직전 부풀기 s)
 TOXIC_AI,swell,0.6

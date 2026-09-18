@@ -1,4 +1,5 @@
-import { TUTORIAL_STEP_DELAY_S, renderKeyText } from '@/shared';
+import type { TutorialGaugeInfo } from '@/shared';
+import { TUTORIAL_STEP_DELAY_S, renderKeyText, tutorialCountLabel } from '@/shared';
 import { OPTIONAL_PREFIX_KO, type TutorialObjective } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -46,6 +47,10 @@ import { OPTIONAL_PREFIX_KO, type TutorialObjective } from '../model';
  * (`벌레 처치` + `count: 2` → `벌레 처치 (0/2)`). 진행이 바뀌면 `setCounts` 가 **그 숫자 노드만** 갈아 끼운다 —
  * 줄을 다시 지으면 체크가 좌→우로 그려지는 애니메이션과 취소선의 `clip-path` 전이가 매번 처음부터 다시 돈다.
  * 달성해서 그어질 때 숫자는 `(2/2)` 로 남는다 (단계가 넘어가도 줄 자체는 반 박자 동안 그대로 서 있다).
+ *
+ * **2026-09-18 (사용자 결정) — 진행 바가 목표를 재는 단계.** 출격 안내의 마지막 레이드에서 「몇 번째 단계인가」는 아무 말도
+ * 하지 않는다 (단계가 둘뿐이다). 그 단계만 바가 **전리품 가치**를 재고(`PanelView.gauge`), 바 위에 숫자 한 줄(`.tut-bar-n`)이
+ * 붙는다 — 채움은 1 에서 자르지만 **글자는 실제 값**이다 (`1,400 C / 1,000 C`). 다른 모든 단계 · 트랙은 예전 그대로다.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** 한 번의 `show()` 가 그리는 것 전부. */
@@ -60,6 +65,12 @@ export interface PanelView {
   /** 트랙 안에서의 1-based 순번 · 단계 수 (진행 바). */
   index: number;
   count: number;
+  /**
+   * 진행 바가 **단계 수가 아니라 목표 자체**를 잴 때 (2026-09-18, 사용자 결정 — 출격 안내의 레이드는 「몇 번째 단계인가」가
+   * 아니라 「얼마나 챙겼는가」가 진행이다). 채움은 1 에서 자르고, 바 위의 숫자 라벨은 **넘긴 값 그대로** 적는다
+   * (`label` — 이미 다 적혀 온다, `model.creditGaugeLabel`). null · 생략 = 예전 그대로 `index / count`.
+   */
+  gauge?: TutorialGaugeInfo | null;
 }
 
 interface Row {
@@ -91,14 +102,17 @@ const CHECK_SVG = '<svg class="tut-obj-box" viewBox="0 0 16 16" aria-hidden="tru
  * 진행 수는 문구가 아니라 **자기 노드**가 들고 있어(`setCounts`) 세는 동안 줄을 다시 짓지 않는다 —
  * 그래서 아래 `rowKey` 에도 `count` 가 없다.
  */
-const countText = (at: number, total: number, unit?: string): string =>
-  (unit ? ` (${at.toLocaleString('en-US')} / ${total.toLocaleString('en-US')} ${unit})` : ` (${at}/${total})`);
+// 2026-09-18: 글자를 만드는 자리는 `shared/tutorial.tutorialCountLabel` 하나다 — 지도의 같은 줄이 같은 함수를 쓴다
+//   (여기서 따로 적었더니 지도 쪽이 `1000 / 1000 C` 로 어긋났다). 괄호만 이 패널의 것이다.
+const countText = (at: number, total: number, unit?: string): string => ` (${tutorialCountLabel(at, total, unit)})`;
 
 export class TutorialPanel {
   readonly root: HTMLElement;
   private readonly trackEl: HTMLElement;
   private readonly list: HTMLElement;
   private readonly fill: HTMLElement;
+  /** 진행 바 위의 숫자 라벨 (2026-09-18) — `gauge` 가 있을 때만 뜬다. */
+  private readonly num: HTMLElement;
   private readonly rows = new Map<string, Row>();
   /** 지금 그려져 있는 목표 줄의 `id + 문구` (순서 그대로) — 같으면 다시 짓지 않는다 (애니메이션이 끊기지 않게). */
   private ids: string[] = [];
@@ -123,12 +137,17 @@ export class TutorialPanel {
     this.list = document.createElement('div');
     this.list.className = 'tut-objs';
 
+    /* 2026-09-18: 진행 바 바로 위의 숫자 라벨 — 바가 목표 자체를 잴 때만 뜬다 (`gauge`). 평소(단계 수)에는 숨는다. */
+    this.num = document.createElement('div');
+    this.num.className = 'tut-bar-n ui-mono';
+    this.num.hidden = true;
+
     const bar = document.createElement('div');
     bar.className = 'tut-bar';
     this.fill = document.createElement('i');
     bar.appendChild(this.fill);
 
-    root.append(head, this.list, bar);
+    root.append(head, this.list, this.num, bar);
     parent.appendChild(root);
   }
 
@@ -171,8 +190,7 @@ export class TutorialPanel {
     if (!this._visible) { this._visible = true; this.root.hidden = false; }
     // 진행 바 · 트랙 이름은 **미루지 않는다** — "한 칸 나아갔다"가 곧 보상이다. 미루는 것은 목표 줄뿐이다.
     if (this.trackEl.textContent !== view.track) this.trackEl.textContent = view.track;
-    const frac = view.count > 0 ? Math.max(0, Math.min(1, view.index / view.count)) : 0;
-    this.fill.style.transform = `scaleX(${frac.toFixed(3)})`;
+    this.setGauge(view.gauge ?? null, view.index, view.count);
     if (this.holdTimer !== 0 && !sameIds(this.ids, view.objectives)) { this.pending = view; return; }
     this.apply(view);
   }
@@ -184,6 +202,27 @@ export class TutorialPanel {
       this.rows.get(o.id)?.el.classList.toggle('is-done', view.done.has(o.id));
     }
     this.setCounts(view.counts);
+  }
+
+  /**
+   * **진행 바**를 고친다 (2026-09-18, 사용자 결정).
+   *   • `g` 가 있으면 바는 그 목표를 잰다 — 채움은 1 에서 자르고(넘겨도 바가 넘치지 않는다) 바 위의 숫자는 **실제 값**이다
+   *     (`1,400 C / 1,000 C`). 목표를 넘긴 사람에게 `1,000 C / 1,000 C` 라고 적으면 더 챙긴 것이 사라진 것처럼 보인다.
+   *   • `g` 가 null 이면 예전 그대로 **단계 수**다 — 숫자 라벨은 숨는다. `index` · `count` 를 안 주면 바는 그대로 둔다
+   *     (전리품을 세는 폴링이 매번 단계 수를 다시 알려 줄 필요가 없다).
+   */
+  setGauge(g: TutorialGaugeInfo | null, index?: number, count?: number): void {
+    if (g) {
+      const frac = g.total > 0 ? Math.max(0, Math.min(1, g.at / g.total)) : 0;
+      this.fill.style.transform = `scaleX(${frac.toFixed(3)})`;
+      if (this.num.textContent !== g.label) this.num.textContent = g.label;
+      if (this.num.hidden) this.num.hidden = false;
+      return;
+    }
+    if (!this.num.hidden) { this.num.hidden = true; this.num.textContent = ''; }
+    if (index === undefined || count === undefined) return;
+    const frac = count > 0 ? Math.max(0, Math.min(1, index / count)) : 0;
+    this.fill.style.transform = `scaleX(${frac.toFixed(3)})`;
   }
 
   /**

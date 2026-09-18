@@ -130,6 +130,24 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-video-games.mjs` | housing, progression, hub, items | TV seat rules, game session with tuned judges, intelligence/perception gains |
 | `smoke-weapons.mjs` | weapons, items, inventory, hub, pickups, audio | Grades, durability, ammo, sockets, bags, repair, remote weapon state, barrier purity |
 
+## Known gaps in the net (2026-09-18)
+
+Things today's smokes deliberately do not measure. Each is here so the next reader knows it is a gap, not an oversight.
+
+- **Bug-egg draw-call cost at nests.** A raid now carries 32 (floor) / ~88 (typical) / 240 (absolute worst: 8 pads
+  after buying 「벌레 둥지 +2」) `bug_egg` bodies. An intact egg is one draw call and is excluded from AI, `queryNear`
+  and every head count, but nothing measures the frame time on a threat-3 planet with the nest intel bought.
+- **Nest leash and refill feel.** `smoke-*` can assert that a leashed bug turns back past `NEST_LEASH_M` and that a
+  refill fires, but 「적당히 따돌리면 돌아간다」 and whether `NEST_REFILL_TRIGGER_FRAC` 0.34 is the right trigger are
+  play-feel questions, not assertions.
+- **Eggs on a replica and across a host change.** Egg size is derived deterministically from `WorldRef.getNestEggSpots`
+  with no wire field, so host and replica should agree by construction — untested live. A host change releases the
+  nest leash by design (`Enemy.nestOf` is host-local).
+- **The tutorial credit gauge while actually looting.** `smoke-tutorial` drives `raidValue` directly because a hub-only
+  smoke has no raid to loot in; the live 「loot an item → the bar moves」 path is uncovered.
+- **Artillery prep as a warning.** That 2.5 s of 포격 준비 reads as enough warning before the first shell is a feel
+  question; only the state machine is assertable.
+
 ## Rules every smoke follows
 
 - **Argument and browser**: first argument is the vite URL (default `http://localhost:5273/`). Each script launches its own headless

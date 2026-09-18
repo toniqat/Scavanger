@@ -296,7 +296,8 @@ export class GadgetSystem implements GameSystem, GadgetsRef {
   deny(text: string | null): false { return Deploy.deny(this, text); }
 
   /* ═══════════════════════════ enemy helpers ═══════════════════════════ */
-  enemiesNear(pos: THREE.Vector3, radius: number): readonly EnemyRef[] { return Q.enemiesNear(this, pos, radius); }
+  // 2026-09-18: `includeProps` 는 **피해를 주는** 자리만 켠다 (소이 지대 · C4). 표적 고르기 · 접촉 판정은 기본값(끔)이다.
+  enemiesNear(pos: THREE.Vector3, radius: number, includeProps = false): readonly EnemyRef[] { return Q.enemiesNear(this, pos, radius, includeProps); }
 
   enemyById(id: number): EnemyRef | null { return Q.enemyById(this, id); }
 

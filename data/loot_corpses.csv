@@ -186,3 +186,8 @@ tut_bug,mat_bio_sample,1,1,0
 tut_android_loot,mat_cable,1,1,1
 tut_android,mat_cable,1,1,0
 
+
+# 2026-09-18 bug_egg — 벌레 알 (둥지 밑동의 움직이지 않는 적). 미확인 세포는 아래 loot_corpse_samples.csv 의 줄이 맡는다
+# (그래야 헌터 · 워리어와 **같은 축**에서 굴려 서사 이상 게이트 예외가 그대로 이어진다). 여기는 생체 조직만이다 —
+# 알은 분비선도 씨앗도 품지 않는다. 행성의 표본 채집지가 없어진 뒤로 벌레 시체와 이 알이 세포의 주 공급원이다.
+bug_egg,mat_bio_sample,1,2,1

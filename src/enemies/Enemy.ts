@@ -16,6 +16,9 @@ import { ROVER_AGGRO_GROUP_RADIUS, ROVER_AGGRO_S, ROVER_DAMAGE_SOURCE } from '@/
 import { localGunHitClass, type WeaponClass } from '@/shared';
 import { isWormType } from './EnemyTypes';
 import { animateWorm, createWormRig, disposeWormRig, type WormRig } from './models/WormModel';
+/* appended (2026-09-18): 벌레 알 — 자기 리그 (`models/EggModel`) */
+import { animateEgg, createEggRig, disposeEggRig, type EggRig } from './models/EggModel';
+import { isEggType } from './EnemyTypes';
 import { nearestOnStandingCapsule } from './RayTests';
 import type { SpatialGrid } from './SpatialGrid';
 import { CombatTarget, type TargetId, type TargetList } from './Targets';
@@ -32,7 +35,9 @@ export type HitPart = 'head' | 'body' | 'rear' | 'front';
 /** Bug rig (six legs) or humanoid rogue rig — both expose `params.head` / `params.strideLength` / `root` / `baseScale`. */
 export type EnemyRig = BugRig | RogueRig
   /* appended (2026-09-13): 땅굴벌레 (`models/WormModel`) */
-  | WormRig;
+  | WormRig
+  /* appended (2026-09-18): 벌레 알 (`models/EggModel`) */
+  | EggRig;
 
 /**
  * 2026-09-11 (네임드 로그): `EnemyHost.fireGun` 의 선택 인자. **생략하면 예전 로그 사격과 한 치도 다르지 않다.**
@@ -268,14 +273,34 @@ export class Enemy implements EnemyRef {
   readonly shellSpot = new THREE.Vector3();
   /**
    * artillery (2026-09-17): 발사 순서 — 0 = 평소, 1 = 다리를 낮춰 납작 엎드려 기다린다(`ARTILLERY_AI.braceTime`), 2 = 쏜 뒤 움직이지 못한다
-   * (`postFireLock`). 남은 초는 `shellPhaseT`. 리플리카는 애님 힌트 25 으로 자세만 받는다 (`net/HostSync.animHint`).
+   * (`postFireLock`). 2026-09-18 추가: **3 = 포격 준비** (`ARTILLERY_AI.prepTime`) — 표적 곁에 벌레가 붙은 뒤 첫 발 앞에서 한 번만 탄다.
+   * 남은 초는 `shellPhaseT`. 리플리카는 세 상태 모두 애님 힌트 25(납작 엎드림)로 자세만 받는다 (`net/HostSync.animHint` — 새 힌트가 없다).
    */
-  shellPhase: 0 | 1 | 2 = 0;
+  shellPhase: 0 | 1 | 2 | 3 = 0;
   shellPhaseT = 0;
-  /** artillery (2026-09-17): 소환 스캐빈저를 이미 불렀다 — 포병 한 마리의 평생 한 번 (`ai/ArtilleryPack.maybeSummon`). */
-  summonDone = false;
+  /**
+   * artillery (2026-09-18, 사용자 결정): 제 스캐빈저(굴착 호위 + 소환 무리)를 다시 부르기까지 남은 초. 0 = 지금 부를 수 있다.
+   * 무리가 **전멸한** 순간 `ARTILLERY_AI.squadCooldown` 이 들어간다 (`ai/ArtilleryPack.maybeSummon`). 2026-09-17 의
+   * 「평생 한 번」 (`summonDone`) 을 대신한다.
+   */
+  squadCd = 0;
+  /**
+   * artillery (2026-09-18): 이번 교전의 **포격 준비**(`ARTILLERY_AI.prepTime`)를 이미 마쳤다. 표적 곁의 벌레가 사라지면 false 로
+   * 돌아가므로 「지원이 붙은 뒤 첫 발 앞에서 한 번」 준비한다 (`ai/GimmickAI.chaseArtillery`).
+   */
+  shellPrepDone = false;
   /** artillery (2026-09-17): 다음 소환 조건 검사까지 남은 초 (`ARTILLERY_AI.supportCheckS`). */
   supportCheckT = 0;
+  /* ── appended: 2026-09-18 (벌레 둥지 리시 · 보충, 사용자 결정) ────────────────── */
+  /**
+   * 이 몸이 태어난 **둥지 순번** (`WorldRef.getNestPositions()` 의 인덱스), -1 = 둥지에서 나지 않았다.
+   * 둥지 수비대(레이드 시작 배치)와 둥지 보충만 채운다 — 레이드 중 순찰 · 웨이브 · 강하 · 땅굴벌레 뱉기는 -1 이라
+   * 예전처럼 끝까지 쫓아간다. 채워져 있으면 `guardPos` 가 그 둥지 자리이고 `ai/NestLeash` 가 리시를 건다. 권위 전용
+   * (와이어에 없다 — 호스트가 바뀌면 리시가 풀린다, `ai/ArtilleryPack` 의 `escortOf` 와 같은 의도).
+   */
+  nestOf = -1;
+  /** 리시 밖으로 나가 둥지로 **걸어 돌아가는 중** (`ai/NestLeash` 의 이력 — 경계에서 잡았다 놓았다 하지 않게). */
+  nestReturning = false;
   /** toxic: 0 running, 1 swelling, 2 burst */
   toxicPhase = 0;
   swellTimer = 0;
@@ -483,9 +508,12 @@ export class Enemy implements EnemyRef {
     /* 2026-09-14 3차: 튜토리얼 전용 종류는 자기 리그를 갖지 않고 **바탕 종류**의 것을 그대로 쓴다 (`baseTypeOf`) —
        공유 지오메트리 캐시(`assets` · `BUG_PARAMS`)도 그대로라 튜토리얼이 새 셰이더 · 새 메시를 굽지 않는다. */
     const look = baseTypeOf(type);
-    this.rig = isWormType(look) ? createWormRig(look) : isRogueType(look) ? createRogueRig(look as RogueType) : createBugRig(look as BugType);
+    this.rig = isEggType(look) ? createEggRig(look) : isWormType(look) ? createWormRig(look) : isRogueType(look) ? createRogueRig(look as RogueType) : createBugRig(look as BugType);
     this.type = type;
-    this.stats = ENEMY_STATS[type];
+    /* 2026-09-18 (벌레 알): 알만 **개체마다 제 `EnemyStats` 사본**을 든다. 알자리(`NestEggSpot.radius`)마다 크기가 0.35~0.7 m 로
+       다른데 히트 캡슐 · 분리 · 폭발 거리는 전부 `stats.radius` / `stats.height` 를 읽기 때문이다 — 사본이 아니면 「보이는 알 ≠
+       히트박스」가 된다 (`NestDirector.spawnEgg` 가 스폰 직전에 넣는다). 다른 종류는 지금까지처럼 표 객체를 그대로 가리킨다. */
+    this.stats = isEggType(type) ? { ...ENEMY_STATS[type] } : ENEMY_STATS[type];
     this.rig.root.visible = false;
     this.asTarget.enemy = this;
   }
@@ -501,10 +529,18 @@ export class Enemy implements EnemyRef {
    * 이 뜻으로 쓰였다 — 팩션이 넷이 되어 갈라졌다. AI 분기 · 재활용 제외 · 사람 소리는 전부 이것을 본다.
    */
   get isHumanoid(): boolean { return this.stats.faction !== 'bug'; }
+  /**
+   * 2026-09-18 (벌레 알): 싸우지 않는 **고정 표적**이다. 움직이지 · 돌지 · 공격하지 · 알아채지 않고, 아래 `isCombatant` 가
+   * 늘 false 라 「살아 싸우는 몸」을 세는 모든 자리에서 빠진다 — 순찰 · 웨이브 인원 상한(`Pool.aliveCount`), 재활용 대상
+   * (`Pool.ensureCapacity`), 포병의 사격 지원 판정(`ai/ArtilleryPack.hasBugSupport`), 다른 팩션의 표적 고르기
+   * (`asTarget.isDead`), 넉백(`parts/Damage.pushBack`), 소리 조사(`parts/Alerts`). 총알 · 폭발은 그대로 맞는다
+   * (`EnemySystem.raycastEx` · `parts/Damage.explode` 는 `state === 'dead'` 로만 거른다).
+   */
+  get isEgg(): boolean { return isEggType(this.type); }
   /** 전소 (incinerated): writhing on the spot — no movement / attacks, still damageable (a kill mid-writhe works). */
   get isIncapacitated(): boolean { return this.active && this.state !== 'dead' && this.incapTimer > 0; }
   /** Alive and fighting (not dead / fleeing / inactive / 전소). Incapacitated enemies are non-combatants: the other faction stops hunting them. */
-  get isCombatant(): boolean { return this.active && this.state !== 'dead' && this.state !== 'flee' && this.incapTimer <= 0; }
+  get isCombatant(): boolean { return this.active && this.state !== 'dead' && this.state !== 'flee' && this.incapTimer <= 0 && !this.isEgg; }
 
   /** (Re)initialize a pooled instance. */
   reset(id: number, position: THREE.Vector3, yaw: number, now: number): void {
@@ -550,7 +586,9 @@ export class Enemy implements EnemyRef {
     this.hasCover = false; this.hasPop = false; this.coverTimer = 0; this.burstLeft = 0; this.burstTimer = 0; this.standTime = 0;
     this.rushTimer = 0; this.hitCrouchTimer = 0; this.noLosTimer = 0; this.weaponId = '';
     this.shellTimer = 3 + Math.random() * 3; this.dug = 0; this.shellRefusals = 0;
-    this.shellPhase = 0; this.shellPhaseT = 0; this.summonDone = false; this.supportCheckT = 0;   // 2026-09-17: 발사 자세 · 1회 소환
+    this.shellPhase = 0; this.shellPhaseT = 0; this.supportCheckT = 0;   // 2026-09-17: 발사 자세
+    this.squadCd = 0; this.shellPrepDone = false;                       // 2026-09-18: 포격 준비 · 부대 재소환
+    this.nestOf = -1; this.nestReturning = false;                       // 2026-09-18: 둥지 리시 (스폰 경로가 다시 채운다)
     this.toxicPhase = 0; this.swellTimer = 0;
     this.chargeSeq = 0; this.hitByCharge = -1; this.chargeVictims.length = 0; this.chargeDrones.length = 0;
     this.corpseLife = CORPSE_LIFETIME;
@@ -655,6 +693,7 @@ export class Enemy implements EnemyRef {
   dispose(): void {
     if (this.rig.kind === 'bug') disposeBugRig(this.rig);
     else if (this.rig.kind === 'worm') disposeWormRig(this.rig);
+    else if (this.rig.kind === 'egg') disposeEggRig(this.rig);   // 2026-09-18
     else disposeRogueRig(this.rig);
   }
 
@@ -787,8 +826,10 @@ export class Enemy implements EnemyRef {
     }
     this.hp -= dmg;
     this.lastDamager = attacker;
-    // wake up
-    if (!this.aware) {
+    /* wake up. 2026-09-18: 알은 깨어나지 않는다 (사용자 결정 「알아채지 않는다」) — 상태가 `alert` 로 넘어가면 힌트 · 리플리카
+       자세가 흔들리고, 무엇보다 「고정 표적」이라는 약속이 깨진다. 총성 자체는 평소 경로(`reportShot` · `onGunshot`)로 둘레
+       벌레를 깨우므로 알을 쏘고도 조용한 일은 없다. */
+    if (!this.aware && !this.isEgg) {
       this.aware = true;
       if (this.state === 'idle' || this.state === 'wander') { this.state = 'alert'; this.stateTime = 0; }
       this.host?.alertNear(this.position, 14, this);
@@ -847,7 +888,7 @@ export class Enemy implements EnemyRef {
     if (attacker === 'local') this.lastLocalWeaponClass = null;   // 2026-09-14: 지속 피해 막타는 계열 없음
     if (quiet) { if (this.hp <= 0) { this.hp = 0; this.kill(true); } return; }
     this.anim.hitFlash = Math.max(this.anim.hitFlash, 0.45);
-    if (!this.aware) {
+    if (!this.aware && !this.isEgg) {   // 2026-09-18: 알은 타면서도 깨어나지 않는다
       this.aware = true;
       if (this.state === 'idle' || this.state === 'wander') { this.state = 'alert'; this.stateTime = 0; }
     }
@@ -1034,6 +1075,8 @@ export class Enemy implements EnemyRef {
 
   private animateRig(dt = 0): void {
     if (this.rig.kind === 'worm') { animateWorm(this.rig, this.anim, this.burrowSink); return; }   // 2026-09-13
+    /* 2026-09-18 (벌레 알): 손상도 = 1 − hp / maxHp. 호스트도 리플리카도 `hp` 를 들고 있어(스냅숏에 실린다) 와이어 없이 같은 그림이다. */
+    if (this.rig.kind === 'egg') { animateEgg(this.rig, this.anim, 1 - Math.max(0, Math.min(1, this.hp / Math.max(1, this.maxHp)))); return; }
     if (this.rig.kind === 'bug') animateBug(this.rig, this.anim);
     else {
       animateRogue(this.rig, this.anim);

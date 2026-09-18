@@ -1,37 +1,54 @@
 import * as THREE from 'three';
-import { Layers } from '@/shared';
+import { Layers, type NestEggSpot } from '@/shared';
 import { type BuildCtx, displace, merge, paintGradient, xform } from './build';
 
 /**
  * Terminid-style bug nests: organic mounds with glowing holes, spikes and egg sacs at each nest pad.
  * Mounds are obstacles; hole positions are exposed for enemy spawning.
+ *
+ * 2026-09-18 (사용자 결정 「둥지의 보상은 부술 수 있는 알」) — **알은 더 이상 이 파일이 그리지 않는다.**
+ * 알 자루는 장식(병합된 `nest_eggs` 메시)이 아니라 움직이지 못하는 파괴 가능한 적 `bug_egg` 가 됐다.
+ * 자리를 정하는 주인은 그대로 여기다 (「어디에 알이 서는가」는 월드의 몫) — 그 자리에 몸을 세우고
+ * 부수는 것은 권위(`src/enemies`)다. 그래서 `getEggSpots()` 만 남고 메시 · 재질은 사라졌다.
+ *
+ * 옛 모습의 수치(새 주인 `enemies/` 의 `bug_egg` 몸이 이것을 그대로 재현한다):
+ *   - 세로 그러데이션 `0xb8a070`(밑) → `0xe0d0a0`(위), emissive `0x6a5020` × 0.25
+ *   - `SphereGeometry(er, 8, 6)` 를 y 로 ×1.2 늘린 모양, 중심이 지면 + `er × 0.6`
+ *   - roughness 0.35 · metalness 0 · `castShadow`
  */
 export class Nests {
   readonly group = new THREE.Group();
   private holes: THREE.Vector3[] = [];
+  /** 2026-09-18: 알 자리 (둥지 pad 순번 포함) — `WorldRef.getNestEggSpots` 가 그대로 넘긴다. */
+  private eggs: NestEggSpot[] = [];
   private meshes: THREE.Mesh[] = [];
   private bodyMat: THREE.MeshStandardMaterial | null = null;
   private glowMat: THREE.MeshStandardMaterial | null = null;
-  private eggMat: THREE.MeshStandardMaterial | null = null;
 
   constructor() { this.group.name = 'Nests'; }
 
   getHolePositions(): readonly THREE.Vector3[] { return this.holes; }
+
+  /**
+   * 2026-09-18: 알 자리. `nest` 는 **둥지 pad 의 순번**(`ctx.layout.nests` 의 인덱스)이다 —
+   * `getHolePositions()` 는 pad 하나마다 둔덕(구멍)이 4~6 개라 순번이 다르다. 「둥지별 재스폰」을
+   * 묶는 번호라 사람이 「둥지」라 부르는 단위(pad)에 맞췄다. 구멍 자리를 찾으려면 이 번호로
+   * `getNestPositions()` 를 색인하면 **안 된다** (섞인다).
+   */
+  getEggSpots(): readonly NestEggSpot[] { return this.eggs; }
 
   build(ctx: BuildCtx): void {
     const rng = ctx.rng.fork('nests');
     const noise = ctx.noise;
     this.bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.05 });
     this.glowMat = new THREE.MeshStandardMaterial({ color: 0x1a0604, emissive: new THREE.Color(0xff6a1a), emissiveIntensity: 1.6, roughness: 0.4 });
-    this.eggMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.0, emissive: new THREE.Color(0x6a5020), emissiveIntensity: 0.25 });
 
     const dark = new THREE.Color(0x2a0e0a), mid = new THREE.Color(0x6a2a1c), light = new THREE.Color(0x9a4a30);
-    const eggA = new THREE.Color(0xb8a070), eggB = new THREE.Color(0xe0d0a0);
 
-    for (const pad of ctx.layout.nests) {
+    for (let ni = 0; ni < ctx.layout.nests.length; ni++) {
+      const pad = ctx.layout.nests[ni];
       const body: THREE.BufferGeometry[] = [];
       const glow: THREE.BufferGeometry[] = [];
-      const eggs: THREE.BufferGeometry[] = [];
       const baseY = pad.height;
 
       const mounds: { x: number; z: number; r: number; h: number }[] = [];
@@ -85,17 +102,17 @@ export class Nests {
           body.push(spike);
         }
 
-        // egg sacs around the base
+        /* 알 자루 — 둔덕 밑동 둘레. 2026-09-18 부터 **자리만 적는다** (메시는 `enemies/` 의 `bug_egg` 가 그린다).
+         * rng 를 뽑는 **순서와 횟수는 옛날 그대로**여야 한다 — 같은 시드가 같은 맵이어야 하므로 (`build.ts` 의 fork 규칙).
+         * `position` 은 옛 메시의 **중심**이다 (지면 + `er × 0.6`) — 새 주인이 그 점에 구를 놓으면 눈에 보이는 변화가 없다.
+         * 알에는 콜라이더가 없었고 지금도 월드는 만들지 않는다 (적의 몸이 곧 히트박스다). */
         const nEggs = rng.int(2, 5);
         for (let e = 0; e < nEggs; e++) {
           const ang = rng.range(0, Math.PI * 2);
           const d = m.r * rng.range(0.95, 1.35);
           const er = rng.range(0.35, 0.7);
           const ex = m.x + Math.cos(ang) * d, ez = m.z + Math.sin(ang) * d;
-          const egg = new THREE.SphereGeometry(er, 8, 6);
-          xform(egg, { x: ex, y: ctx.terrain.getHeightAt(ex, ez) + er * 0.6, z: ez }, undefined, { x: 1, y: 1.2, z: 1 });
-          paintGradient(egg, eggA, eggB);
-          eggs.push(egg);
+          this.eggs.push({ position: new THREE.Vector3(ex, ctx.terrain.getHeightAt(ex, ez) + er * 0.6, ez), nest: ni, radius: er });
         }
 
         // register obstacle
@@ -119,10 +136,8 @@ export class Nests {
       bodyMesh.position.y = 0; bodyMesh.name = 'nest_body';
       const glowMesh = new THREE.Mesh(merge(glow), this.glowMat);
       glowMesh.name = 'nest_glow';
-      const eggMesh = new THREE.Mesh(merge(eggs), this.eggMat);
-      eggMesh.castShadow = true; eggMesh.name = 'nest_eggs';
-      this.meshes.push(bodyMesh, glowMesh, eggMesh);
-      this.group.add(bodyMesh, glowMesh, eggMesh);
+      this.meshes.push(bodyMesh, glowMesh);
+      this.group.add(bodyMesh, glowMesh);
       void baseY;
     }
     ctx.root.add(this.group);
@@ -136,8 +151,9 @@ export class Nests {
     for (const m of this.meshes) { m.geometry.dispose(); this.group.remove(m); }
     this.meshes.length = 0;
     this.holes.length = 0;
-    this.bodyMat?.dispose(); this.glowMat?.dispose(); this.eggMat?.dispose();
-    this.bodyMat = this.glowMat = this.eggMat = null;
+    this.eggs.length = 0;
+    this.bodyMat?.dispose(); this.glowMat?.dispose();
+    this.bodyMat = this.glowMat = null;
     this.group.removeFromParent();
   }
 }

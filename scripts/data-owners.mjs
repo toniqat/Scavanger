@@ -35,6 +35,7 @@ export const DATA_OWNERS = [
   '/src/audio/AudioSystem.ts',   // tables (FOOTSTEP_MATERIAL_GAIN — 2026-09-11 C-22)
   '/src/weapons/AimSway.ts',     // aim_sway (무기 계열별 조준 흔들림 — 2026-09-12 A2)
   '/src/inventory/ui/labels.ts', // tuning (INV_CELL_* — 창 높이별 격자 칸 크기, 2026-09-14)
+  '/src/world/Crates.ts',        // tuning (NEST_CRATE_CLEAR_M — 둥지 옆 상자 금지 반경, 2026-09-18)
 ];
 
 /** 거의 모든 폴더가 읽는 표 — 스모크를 고르지 않는다 (경고만). */
@@ -119,5 +120,6 @@ export const CSV_FOLDERS = {
   // 2026-09-13 (암호화폐 채굴): 코인 표 — housing/(채굴 · 지갑) · net/(시세) 이 읽고 서버 경제 표로 구워진다
   'crypto.csv':              ['housing', 'net'],
   // 여러 폴더가 읽지만 목록이 짧다 (items · meta · progression · shared/housing · shared/meta)
-  'tuning.csv':              ['items', 'meta', 'progression', 'housing', 'inventory'],
+  // 2026-09-18: world 도 읽는다 — 둥지 옆 상자 금지 반경 `NEST_CRATE_CLEAR_M` (src/world/Crates.ts)
+  'tuning.csv':              ['items', 'meta', 'progression', 'housing', 'inventory', 'world'],
 };

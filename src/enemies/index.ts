@@ -1,6 +1,6 @@
 export { EnemySystem } from './EnemySystem';
 export { Enemy, type EnemyState, type HitPart, type EnemyHost } from './Enemy';
-export { ENEMY_STATS, ALL_ENEMY_TYPES, HUNTER_LEAP, SPEWER_SPIT, CHARGER_CHARGE, ROGUE_AI, ARTILLERY_AI, TOXIC_AI, BEHEMOTH_AI, isRogueType, baseTypeOf, isTutorialEnemyType, TUTORIAL_ENEMY_BASE, type EnemyStats, type BugType, type TutorialEnemyType } from './EnemyTypes';
+export { ENEMY_STATS, ALL_ENEMY_TYPES, HUNTER_LEAP, SPEWER_SPIT, CHARGER_CHARGE, ROGUE_AI, ARTILLERY_AI, TOXIC_AI, BEHEMOTH_AI, isRogueType, isEggType, baseTypeOf, isTutorialEnemyType, TUTORIAL_ENEMY_BASE, type EnemyStats, type BugType, type EggEnemyType, type TutorialEnemyType } from './EnemyTypes';
 export { BUG_PARAMS, type BugParams } from './models/BugParams';
 export { createBugRig, disposeBugRig, animateBug, createBugAnim, disposeBugAssets, type BugRig, type BugAnim } from './models/BugModel';
 export { createRogueRig, disposeRogueRig, animateRogue, disposeRogueAssets, ROGUE_RIG_PARAMS, type RogueRig, type RogueType } from './models/RogueModel';
@@ -18,6 +18,10 @@ export { RogueDropDirector, disposeRogueDropAssets, type RogueDropHost } from '.
 export { Corpse, CorpseManager } from './Corpses';
 export { raySphere, rayCapsule, rayStandingCapsule } from './RayTests';
 export { WaveDirector, WAVE_ALIVE_CAP } from './WaveDirector';
+/* appended (2026-09-18): 벌레 둥지 — 알 · 앵커 · 수비대 리시 · 보충 */
+export { NestDirector, applyEggSize, type NestPlacement } from './NestDirector';
+export { nestLeashHold } from './ai/NestLeash';
+export { createEggRig, disposeEggRig, animateEgg, disposeEggAssets, setEggScale, type EggRig } from './models/EggModel';
 export { BloodFX } from './fx/BloodFX';
 export { AcidProjectiles, type AcidHost, type AcidSlow } from './fx/AcidProjectile';
 export { ShellProjectiles, type ShellHost } from './fx/ShellProjectile';

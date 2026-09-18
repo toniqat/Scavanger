@@ -22,6 +22,8 @@ import {
   type RoverRef,
   /* appended (2026-09-15): 안드로이드 분대원 — 루팅 컨테이너 목록 */
   type LootContainerInfo,
+  /* appended (2026-09-18): 벌레 둥지 알 자리 */
+  type NestEggSpot,
 } from '@/shared';
 import { Rover } from './rover/Rover';
 import { RoverRoad } from './rover/RoverRoad';
@@ -32,7 +34,7 @@ import { obstacleMaterial, onOutpostSlab, terrainMaterial } from './surface';
 import { Ambience } from './Ambience';
 import { BOX_HEADROOM, boxContainsXZ, boxHitNormal, boxPushOut, rampTopAt, rayBox, rayRamp } from './obb';
 import { hullAreaCentroid, hullContainsXZ, hullHitNormal, hullPushOut, rayHull } from './hull';
-import { SMALL_BODY_R } from './structures/parts/Glass';
+import { GLASS_OBSTACLE_KIND, SMALL_BODY_R } from './structures/parts/Glass';
 import { rollCrateContents } from './structures/parts/Containers';
 import type { ItemInstance } from '@/shared';
 import { Fog } from './Fog';
@@ -83,6 +85,8 @@ const NONE_TRAMS: readonly TramDef[] = [];
 const NONE_LADDERS: readonly LadderDef[] = [];
 /* appended (2026-09-13) */
 const NONE_RUINS: readonly RuinSiteDef[] = [];
+/* appended (2026-09-18): 벌레 알 자리 — 훈련장 · 튜토리얼의 빈 답 */
+const NONE_EGGS: readonly NestEggSpot[] = [];
 
 /**
  * Owns the procedural planet surface: terrain, props/obstacles, nests, pads, outposts, crates, ambience.
@@ -845,6 +849,32 @@ export class WorldSystem implements GameSystem, WorldRef {
   /* ── WorldRef: raycast ─────────────────────────────────────────────── */
 
   raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): TerrainHit | null {
+    return this.rayQuery(origin, dir, maxDist, false);
+  }
+
+  /**
+   * 2026-09-18 (사용자 결정 「창은 깨졌어도 폭발을 막고, 낮은 엄폐물은 기존대로」) — `raycast` 와 같은 레이인데
+   * **창유리만** 깨졌든 말든 막는다 (`shared/explosion.lineClear` 전용).
+   *
+   * 왜 필요했나: 깨진 창틀은 콜라이더를 남기고 `passRays` 로 바뀌므로(`structures/parts/Glass.breakPane`)
+   * `raycast` 가 그냥 통과한다. 그래서 **건물 안 방 한가운데** 서 있어도 그 방에 창이 하나 있으면 밖의
+   * 곡사포 폭발이 그 창을 지나 몸을 「보고」 피해를 줬다.
+   *
+   * 왜 `passRays` 전체가 아니라 **유리**만인가: 튜토리얼 철조망의 유령 토막(`tut_fence_ghost`)도 `passRays` 다.
+   * 그것은 창이 아니라 「낮은 장애물인데 넘어갈 수는 없다」를 그리는 장치이므로 폭발은 예전처럼 지나가야 한다
+   * (막으면 튜토리얼의 낮은 철조망이 갑자기 방패가 된다). 그래서 판정은 콜라이더의 `kind` 가
+   * `GLASS_OBSTACLE_KIND` 인가 하나다 — 유리를 만드는 곳이 `Glass.ts` 하나뿐이라 이름표가 곧 신원이다.
+   *
+   * 낮은 엄폐물(`destructible` 상자 · 잔해)은 애초에 `passRays` 가 아니라 두 레이 모두에서 똑같이 막는다 —
+   * 즉 이 함수는 엄폐물 판정을 **전혀 건드리지 않는다**. 엄폐물 위로 머리만 내민 사람이 맞는 것은
+   * `blastReachesBody` 의 몸 3점(발목 · 가슴 · 머리) 규칙 그대로다.
+   */
+  raycastBlast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): TerrainHit | null {
+    return this.rayQuery(origin, dir, maxDist, true);
+  }
+
+  /** `raycast` / `raycastBlast` 의 공통 몸통. `blockGlass` = 깨진 창유리도 막는다. */
+  private rayQuery(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number, blockGlass: boolean): TerrainHit | null {
     const ox = origin.x, oy = origin.y, oz = origin.z;
     let dx = dir.x, dy = dir.y, dz = dir.z;
     const dl = Math.sqrt(dx * dx + dy * dy + dz * dz);
@@ -865,7 +895,9 @@ export class WorldSystem implements GameSystem, WorldRef {
     const ex = ox + dx * limitT, ez = oz + dz * limitT;
     this.hash.walkSegment(ox, oz, ex, ez, this.hash.maxRadius, (o) => {
       const limit = bestT > 0 ? bestT : maxDist;
-      if (o.passRays) return false;   // 2026-09-11: 깨진 창틀 — 총알 · 시야가 지나간다
+      // 2026-09-11: 깨진 창틀 — 총알 · 시야가 지나간다.
+      // 2026-09-18: 단 `raycastBlast`(폭발 · 근접 가시성)에서는 **유리만** 깨졌어도 막는다 (`raycastBlast` 주석).
+      if (o.passRays && !(blockGlass && o.kind === GLASS_OBSTACLE_KIND)) return false;
       // 2026-09-09: 사각 콜라이더는 슬래브 셋으로 맞힌다 (`obb.rayBox`), 원기둥은 예전 그대로.
       // 2026-09-11: 경사 발판은 쐐기(`obb.rayRamp`), 볼록 기둥은 층별 윤곽(`rayHullObstacle`).
       const t = o.hull ? this.rayHullObstacle(ox, oy, oz, dx, dy, dz, o, limit)
@@ -995,6 +1027,15 @@ export class WorldSystem implements GameSystem, WorldRef {
   getCrates(): readonly CrateDef[] { return this.isPlanet ? this.crates.getDefs() : NONE_CRATES; }
 
   getNestPositions(): readonly THREE.Vector3[] { return this.isPlanet ? this.nests.getHolePositions() : NONE_VEC; }
+
+  /**
+   * 2026-09-18: 벌레 알 자리. 행성 레이드만 — 훈련장 · 튜토리얼에는 둥지가 없으니 빈 배열이다
+   * (`getNestPositions` 와 같은 `isPlanet` 게이트).
+   *
+   * ⚠ `NestEggSpot.nest` 는 **둥지 pad 의 순번**이고 `getNestPositions()` 의 인덱스가 아니다 —
+   * pad 하나에 구멍(둔덕)이 4~6 개라 두 순번은 다르다. 이유는 `Nests.getEggSpots` 주석.
+   */
+  getNestEggSpots(): readonly NestEggSpot[] { return this.isPlanet ? this.nests.getEggSpots() : NONE_EGGS; }
 
   /** Harvestable plants (consumed nodes stay in the list with `harvested: true`). */
   getGatherNodes(): readonly GatherNodeDef[] { return this.isPlanet ? this.gather.getNodes() : NONE_GATHER; }

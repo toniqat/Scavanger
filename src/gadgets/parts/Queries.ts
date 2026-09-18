@@ -236,21 +236,34 @@ export function derived(sys: GadgetSystem, key: 'useSpeedMul' | 'interactSpeedMu
   }
 
 /* ═══════════════════════════ enemy helpers ═══════════════════════════ */
-export function enemiesNear(sys: GadgetSystem, pos: THREE.Vector3, radius: number): readonly EnemyRef[] {
+/**
+ * 설치물이 보는 적 목록.
+ *
+ * 2026-09-18 (벌레 알): **싸우는 몸만** 돌려준다 — 둥지의 `bug_egg` 는 빠진다. 포탑이 알을 표적으로 잡아 탄을 쏟거나
+ * (「가장 가까운 적」이 바로 옆의 알이다), 둥지 곁에 깐 지뢰가 서 있기만 한 알에 곧장 터지는 것을 막는다.
+ * `includeProps` 를 주면 알까지 포함한다 — 「닿는 것은 다 부순다」 는 폭발 피해 질의를 위한 문이다.
+ * (`EnemyManagerRef.queryNear` 도 같은 기본값이라 이 함수는 그것을 그대로 넘긴다.)
+ */
+export function enemiesNear(sys: GadgetSystem, pos: THREE.Vector3, radius: number, includeProps = false): readonly EnemyRef[] {
   const enemies = sys.ctx.enemies;
   if (!enemies) return EMPTY_ENEMIES;
-  if (typeof enemies.queryNear === 'function') return enemies.queryNear(pos, radius);
+  if (typeof enemies.queryNear === 'function') return enemies.queryNear(pos, radius, includeProps);
   const out: EnemyRef[] = [];
   const r2 = radius * radius;
   for (const e of enemies.getEnemies()) {
-    if (!e.isDead && e.position.distanceToSquared(pos) <= r2) out.push(e);
+    if (e.isDead || (e.isEgg && !includeProps)) continue;
+    if (e.position.distanceToSquared(pos) <= r2) out.push(e);
   }
   return out;
   }
 
+/**
+ * id 로 적 하나. 2026-09-18: **알은 돌려주지 않는다** — 이 함수를 쓰는 곳은 포탑이 「지난 틱의 표적」을 다시 잡는 자리라
+ * (`parts/Simulate.updateTurret`), 알이 표적으로 남아 있으면 `enemiesNear` 에서 거른 뜻이 없어진다.
+ */
 export function enemyById(sys: GadgetSystem, id: number): EnemyRef | null {
   const enemies = sys.ctx.enemies;
   if (!enemies) return null;
-  for (const e of enemies.getEnemies()) if (e.id === id) return e;
+  for (const e of enemies.getEnemies()) if (e.id === id) return e.isEgg ? null : e;
   return null;
   }

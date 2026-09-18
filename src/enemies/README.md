@@ -16,7 +16,8 @@ No asset files — every rig is built from primitives.
 | `EnemyTypes.ts` | csv loaders: `ENEMY_STATS` (incl. per-kill `raidXp`, `raidXpOf`), ability blocks (`HUNTER_LEAP`, `SPEWER_SPIT`, `CHARGER_CHARGE`, `ROGUE_AI`, `ARTILLERY_AI`, `TOXIC_AI`, `BEHEMOTH_AI`, `NAMED_*`, `HUMANOID_*`, `ENEMY_INCENDIARY`), `isRogueType`, `isWormType`, `baseTypeOf` |
 | `factionTables.ts` | csv loaders for `SITE_*`, `RAIDER_DROP_*`, `NAMED_ROGUE_CHANCE_BY_THREAT`, bug-threat tables → `bugThreatTuning(threat)` |
 | `Targets.ts` | `CombatTarget` (player / enemy / drone / vehicle / android proxy) and `TargetList` (`all`, `alive`, `drones`, `vehicles`, `allies`, nearest queries, `damageVehicleAt`) |
-| `Spawner.ts` | `AmbientSpawner` (initial population, patrols, artillery dig-in), group composition from planet ecosystem, spawn clearance (`spawnBlocked`), `threatEcosystem`, `ambientCap` |
+| `Spawner.ts` | `AmbientSpawner` (initial population, patrols, artillery dig-in), group composition from planet ecosystem, spawn clearance (`spawnBlocked`), `threatEcosystem`, `ambientCap`, `findSpawnCenter` (+ `lastSpawnCenterNest`, optional nest-anchor list) |
+| `NestDirector.ts` | Bug nests (2026-09-18): one `bug_egg` per `WorldRef.getNestEggSpots()` spot, per-nest anchors (centroid of that pad's egg spots), garrison binding (`Enemy.nestOf`), seeded refill budget (`Random.hash('nest@<seed>')`) and the refill trigger; `applyEggSize` (per-spot radius on both authority and replica) |
 | `SiteGroups.ts` | `placeSiteGroups`: humanoid groups at labs / outposts / rail platforms / ruins by planet threat |
 | `RogueDrop.ts` | `RogueDropDirector`: raider drops after structure investigation (two waves, pods, landing spawns) |
 | `RogueGuards.ts` | `RogueSpawnHost` contract only; `placeRogueGuards` / `guardCap` / `MAX_GUARDS` are retired no-op names |
@@ -41,7 +42,8 @@ No asset files — every rig is built from primitives.
 | `ai/SquadFlank.ts` | Raider flanker role |
 | `ai/FireLine.ts` | Muzzle line-of-fire check with cache and strafe response |
 | `ai/GimmickAI.ts` | Artillery (dig in, support-gated fire: brace → fire → post-fire lock, relocate on blocked arc), toxic swell, behemoth wind-up/charge |
-| `ai/ArtilleryPack.ts` | Artillery escort (`spawnArtilleryEscort`, `escortFollow`), fire condition (`hasBugSupport`), once-per-artillery summon (`maybeSummon`) |
+| `ai/ArtilleryPack.ts` | Artillery escort (`spawnArtilleryEscort`, `escortFollow`), fire condition (`hasBugSupport`), own-squad bookkeeping and respawn (`hasLivingSquad`, `maybeSummon`) |
+| `ai/NestLeash.ts` | `nestLeashHold`: a bug born at a nest (`nestOf >= 0`) drops its target and walks home past `NEST_LEASH_M`; hysteresis via `NEST_LEASH_RETURN_FRAC`. Bugs from anywhere else return on the first line |
 | `ai/Investigate.ts` | Investigation state after an unattributed shot or noise |
 | `ai/Structures.ts` | Biting / spitting at player deployables in the way |
 | `ai/Lures.ts` | `LureField` noise beacons |
@@ -57,6 +59,7 @@ No asset files — every rig is built from primitives.
 | `models/BugModel.ts` · `BugParams.ts` | Six-legged rig + animation; per-type params |
 | `models/RogueModel.ts` · `HumanoidParts.ts` · `FactionLooks.ts` | Humanoid rig + animation; part helpers; android / raider looks |
 | `models/WormModel.ts` | Sandworm rig — geometry baked per worm type from its own `enemies.csv` row (`sandworm` · `sandworm_weak`), `baseScale` stays 1 |
+| `models/EggModel.ts` | Bug-egg rig — the old decorative egg's look moved here verbatim (squashed sphere, `0xb8a070`→`0xe0d0a0` gradient, `0x6a5020` emissive); per-instance size through `baseScale` (`setEggScale`), damage ruptures that only exist while hurt (`visible` gated → an intact egg is one draw call) |
 | `models/named/` | Named looks + `namedBodyRay` (prone sniper capsule) |
 | `models/Portrait.ts` | `renderEnemyPortrait` (offscreen renderer, cached data URL), `enemyDisplayNameOf` (Korean names) |
 | `fx/` | `BloodFX`, `AcidProjectile`, `ShellProjectile` (uses `shared/ballistics`), `RogueGrenade` (grenades + fire zones), `BurrowFx`, `ScanPulseFx`, `Xray` |
@@ -73,7 +76,8 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
 | `spewer` | bug | Acid globs, death burst |
 | `charger` | bug | Wind-up rush; weak rear |
 | `artillery` | bug | Stand-off mortar, interceptable shells, never melees. Digs in with 2–3 scavenger escorts; fires only when another bug is near the target |
-| `scavenger_summon` | bug | Scavenger an artillery summons once at a lone target in range: scavenger stats / rig / AI / sounds (`baseTypeOf`), `CORPSE_LOOT_CHANCE` 0 (no drops), `raidXp` 0 (no kill XP) |
+| `scavenger_summon` | bug | Scavenger an artillery summons as its own squad: scavenger stats / rig / AI / sounds (`baseTypeOf`), `CORPSE_LOOT_CHANCE` 0 (no drops), `raidXp` 0 (no kill XP) |
+| `bug_egg` | bug | **Immobile, harmless nest egg** (2026-09-18). Speed / turn / sight / hearing / attack all 0, stagger- and knockback-immune, no footsteps; its own rig (`models/EggModel`), no AI at all. `Enemy.isCombatant` is false so it never counts as a living fighter. Per-spot size (0.35–0.7 m); drops 생체 조직 + 미확인 세포 (`loot_corpses.csv` · `loot_corpse_samples.csv`) |
 | `toxic` | bug | Suicide runner, swells then bursts (friendly fire) |
 | `behemoth` | bug | Scaled warrior (`BEHEMOTH_SCALE`), armored front plate, knockback charge |
 | `sandworm` | bug | `땅굴벌레` event boss (threat 2–3), rooted: spits bugs then acid (`sandworm/Director`) |
@@ -115,7 +119,7 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
 - Debug on `getSystem('enemies')`: `debugSpawn`, `debugSpawnNamed`, `debugNamedRoll`, `debugSites`, `debugEcology`,
   `debugBugTuning`, `debugAmbientGroup`, `debugWaveGroup`, `debugSandworm`, `debugSandwormState`, `debugSandwormChance`,
   `debugSandwormClearOnce`, `debugSpawnBurrow`,
-  `debugTutorial`, `debugDroneTargets`, `debugSnapshot`, `debugApplySnapshot`, `debugHint`, `debugGrenade`, `debugShell`,
+  `debugNests`, `debugTutorial`, `debugDroneTargets`, `debugSnapshot`, `debugApplySnapshot`, `debugHint`, `debugGrenade`, `debugShell`,
   `debugXray`, `debugSetDropSquad`, `debugDropWaves`, `debugAllyTargets` / `debugAllyTargetList` / `debugCoverSpot`,
   `debugEmptyCorpse`, `hitGuardStats`, `isAuthority`, `isTrainingWorld`, `isTutorialWorld`.
 
@@ -142,8 +146,30 @@ Stats per row in `data/enemies.csv`; abilities in `data/enemy_abilities.csv`. Fa
   kills credit `Enemy.burnAttacker`.
 
 ## Spawning
-- `world:ready` (authority, not training/tutorial): `AmbientSpawner.initialPopulate` → `placeSiteGroups(seed, threat)` →
-  `named.roll(planet)`. The sandworm director rolls on every client. Training: no enemies at all.
+- `world:ready` (authority, not training/tutorial): `nests.onWorldReady()` → `AmbientSpawner.initialPopulate` →
+  `placeSiteGroups(seed, threat)` → `named.roll(planet)`. The sandworm director rolls on every client. Training: no enemies at all.
+
+### Bug nests (`NestDirector.ts` · `ai/NestLeash.ts`, 2026-09-18 — decision 「둥지 반경 60 m 리시 · 초기 수 절반 · 재스폰 50/35/15 %」)
+- **Eggs**: one `bug_egg` per `WorldRef.getNestEggSpots()` entry, spawned by the authority before the initial population.
+  The spot's `position` is the **drawn sphere centre**, so the body's feet sit `radius × EGG_CENTER_MUL` below it. Size comes
+  from the spot's radius and is applied in `Pool.acquire` (`applyEggSize`) on **both** authority and replica — the world is
+  identical for a given seed, so no wire field (the same trick as `BUG_HP_MUL_BY_THREAT`). Empty in training / the tutorial.
+- **Nest anchor**: `NestEggSpot.nest` is the **pad** index (what a player calls a nest), *not* an index into
+  `getNestPositions()` (which lists 4–6 mound holes per pad). The anchor is the centroid of that pad's egg spots.
+  `initialPopulate` is handed those anchors and reports the one it landed on (`lastSpawnCenterNest`), so the group standing
+  there becomes that nest's **garrison** (`Enemy.nestOf`, `guardPos` = the anchor).
+- **Garrison size**: the initial patrol **group count** is × `NEST_INITIAL_GARRISON_MUL` (0.5, min 1). The multiplier never
+  touches a group's composition — slicing a group from the front would silently drop its heavies.
+- **Leash**: `NEST_LEASH_M` (60 m) from the anchor; a bug past it drops its target and walks home, and while returning it
+  cannot re-acquire. It stops returning inside `NEST_LEASH_M × NEST_LEASH_RETURN_FRAC`. Bugs with `nestOf === -1`
+  (mid-raid patrols, waves, raider drops, sandworm spit) are untouched.
+- **Refills**: per nest, one seeded roll of how many refills this raid allows — `NEST_REFILL_COUNT_CHANCE` (index k = k+1
+  refills; 1 → 50 %, 2 → 35 %, 3 → 15 %) from `Random.hash('nest@<seed>')`, a stream of its own so world / named rolls are
+  untouched and a promoted host would get the same answer. Every `NEST_REFILL_CHECK_S` the host counts that nest's living
+  **mobile** bugs (eggs are not `isCombatant`, so they never count); at or below `garrison × NEST_REFILL_TRIGGER_FRAC` one
+  group digs out at the anchor (`BURROW_EMERGE_S`, the ambient path) and one refill is spent. Exhausted = that nest stays empty.
+- Host-authoritative with **no new wire**: replicas only see `ee spawn`. `nestOf` is host memory, so a host change releases
+  the leash (the same intent as `escortOf`).
 - Ambient patrols: cap `ambientCap(threat, eco)`, groups from the planet ecosystem (`src/shared/planets.ts`) within power
   tiers; bugs burrow in (`BURROW_EMERGE_S`). Initial population does not burrow. Large bodies re-roll positions while
   `obstacleCoverage` blocks them and are skipped rather than downgraded (`spawnBlocked`).
@@ -215,14 +241,26 @@ Applied at `world:ready` on every client: bug max hp in `Pool.acquire` (not sand
   toxic burst; `sandworm/Director` eruption). The player / android / drone / vehicle share stays the csv number. Exceptions: the
   behemoth charge uses its own vs-enemy value; hazard DoT is not scaled.
 - Perception: `detectionRange = sightRadius × target stealth × smoke clarity`; alert propagates within a faction.
+- Nest leash (2026-09-18): `ai/NestLeash.nestLeashHold` runs right after `tutorialHold`, before the bug state machine. Only
+  `nestOf >= 0` bodies are touched (see **Bug nests**); airborne / charging / staggered bodies finish what they started first.
 - Bugs: `idle → wander → alert → chase → attack → stagger`, `dead` / `flee`; artillery, toxic, behemoth in `GimmickAI`.
-- Artillery (2026-09-17, `ai/ArtilleryPack.ts` + `GimmickAI`): `maxArtillery` (+ `ARTILLERY_CAP_BONUS_BY_THREAT`) is a **live** cap —
-  every not-dead artillery counts (`Pool.countAlive`), a killed one frees its slot. Dig-in brings `escortMin`–`escortMax` scavengers
-  (`escortOf`) that wander around it and run back beyond `escortFollowDist` until they notice a target, then fight normally. It fires
-  only when a non-artillery bug stands within `supportRadius` of its target: brace flat `braceTime`, fire, then no movement for
-  `postFireLock` (also outside `chase`). A person target in `maxRange` with no bug near it triggers a **once-per-artillery** summon of
-  `summonMin`–`summonMax` `scavenger_summon` (relentless, locked on that target). **Intended**: escort links and `summonDone` are host
-  memory only — after a host change escorts become plain bugs and a surviving artillery may summon once more.
+- Artillery (2026-09-17 · 2026-09-18, `ai/ArtilleryPack.ts` + `GimmickAI`): `maxArtillery` (+ `ARTILLERY_CAP_BONUS_BY_THREAT`) is a
+  **live** cap — every not-dead artillery counts (`Pool.countAlive`), a killed one frees its slot. Dig-in brings
+  `escortMin`–`escortMax` scavengers (`escortOf`) that wander around it and run back beyond `escortFollowDist` until they notice a
+  target, then fight normally. It fires only when a non-artillery bug stands within `supportRadius` of its target (a `bug_egg` is
+  **not** one — it is not `isCombatant`).
+  - **Fire sequence** (`Enemy.shellPhase`, `anim.brace`, wire hint 25 for all of it — no new hint): **3 = 포격 준비** for
+    `prepTime` the first time support appears (screech + `anim.abdomen` throb + the brace pose, all existing assets; the danger
+    HUD gains nothing — a shell still has exactly one indicator), then **1 = brace** `braceTime`, fire, **2 = lock**
+    `postFireLock`. Losing support / range / the target during prep cancels it and clears `shellPrepDone`, so the next
+    engagement preps again; shots after the first prep only brace.
+  - **Own squad** (replaces the 2026-09-17 once-per-lifetime summon): when every scavenger whose `escortOf` is this artillery is
+    dead, `squadCooldown` starts; when it runs out `summonMin`–`summonMax` `scavenger_summon` dig out around it and are bound with
+    `escortOf` too. With a person target in `maxRange` they are sent at it (relentless, target locked), otherwise they guard the
+    artillery like the dig-in escort. It runs off `chase` as well (`artilleryOffChase`), so an artillery that lost its target still
+    refills. `scavenger_summon` drops nothing and pays 0 raid XP, so repeated squads cannot be farmed.
+  - **Intended**: escort links, `shellPrepDone` and `squadCd` are host memory only — after a host change escorts become plain bugs
+    and the new host preps and re-summons from scratch.
 - Hunter flip (2026-09-17): every hp loss on the authority while `leaping` (crouch → landing) adds to `Enemy.leapDamage` — a replica's `hit`
   request lands in the same `takeDamage`, burn ticks count, the quiet hazard tick does not. At `HUNTER_LEAP.flipDamage` the leap ends:
   horizontal velocity 0, real-gravity fall (`flipFalling`, hint 23), then `flipTimer = flipDuration` on its back (hint 24). The state
@@ -267,7 +305,23 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
 `TUTORIAL_LIFTOFF_FIRE_RANGE_M` target the rider for `TUTORIAL_LIFTOFF_FIRE_S`. Both fields are 0 outside the tutorial.
 
 ## Rules
-- Bodies are pooled; spawn only through `Pool.acquire` / `spawn` / `spawnRogue` (threat hp multiplier and corpse lifetime are applied there) — `parts/Pool.ts`.
+- Bodies are pooled; spawn only through `Pool.acquire` / `spawn` / `spawnRogue` (threat hp multiplier, egg size and corpse lifetime are applied there) — `parts/Pool.ts`.
+- `bug_egg` is a **prop with hit points**: `Enemy.isCombatant` is false for it, which is the single switch that keeps it out of
+  `Pool.aliveCount` (ambient / wave / sandworm caps), `Pool.ensureCapacity` recycling (plus an explicit `isEgg` guard — an egg's
+  spot belongs to the world and must not be reclaimed), `ArtilleryPack.hasBugSupport`, `Targets`' faction scan (`asTarget.isDead`),
+  `parts/Alerts` (`alertNear` · `alertShot` · `onWorldNoise` · `pickTarget`), `parts/Damage.pushBack` (= knockback immunity) and the
+  nest refill count. `raycastEx` / `explode` gate on `state === 'dead'` only, so it is still shot and blown up. It never becomes
+  aware (`takeDamage` / `applyDot` / `becomeAlert` all refuse) and never ticks AI (`updateEnemyAI` returns on the first line).
+  New code that counts "living enemies" must use `isCombatant`, not `state !== 'dead'` — `Enemy.ts`.
+- Other folders ask two different questions and get two different answers. `getEnemies()` returns **everything**, eggs included
+  (they must be shootable and lootable), so a caller reading it as "threats" filters on `EnemyRef.isEgg` itself —
+  `ui/hud/Pings`, `ui/hud/Detection` and `allies/parts/Commands` do. `queryNear(pos, radius)` instead **leaves props out by
+  default** (`includeProps` opts back in): every one of its callers is picking a target or asking "is something dangerous
+  here" (turret targeting, mine contact, android sensing / re-targeting, the ally contract ping, recon reveal, barrier
+  contact, compass ticks), so the safe answer is the default one and nobody has to remember. A query whose answer is
+  "everything this blast touches" passes `includeProps: true`.
+- `bug_egg` is the only type whose `EnemyStats` is a **per-instance copy** (`Enemy` constructor) — nest egg spots vary 0.35–0.7 m
+  and the hit capsule must match the drawn body. Never mutate `ENEMY_STATS` rows for any other type.
 - `parts/` import only types from `EnemySystem.ts`; shared values go in `model.ts` (circular import).
 - Tutorial enemy types reuse the base type's rig/AI/sound tables via `baseTypeOf`; never add rows to those tables — `EnemyTypes.ts`.
 - `ai/RemoteFx` and replica hooks must not change game state; only the authority decides damage and spawns.
@@ -308,12 +362,22 @@ cliff fall → humanoids above the player by `TUTORIAL_AGGRO_DROP_M`). On liftof
   in the spawn wire (version mismatch) removes that corpse locally only. — `parts/CorpseEmpty.ts`
 - Known limit (2026-09-17): a hunter flipped while riding a tram skips `integrate`, so it does not ride — it stays at its world spot
   until it rights itself. — `ai/HunterFlip.ts`
+- **Intended** (2026-09-18): the nest leash, `Enemy.nestOf` and the artillery's prep / squad state are host memory with no wire, so a
+  host change releases them (the same call the escort links already made). The refill **budget** is re-rolled from the world seed by
+  whoever is host, so the new host gets the same numbers but not the spent count — a nest can refill more often across a takeover.
+- Known limits of the nest eggs (2026-09-18) — `NestDirector.ts`, `models/EggModel.ts`:
+  a raid holds one egg body per spot (2–5 per mound × 4–6 mounds × 4–6 pads), so a busy map carries a few dozen extra pooled bodies
+  and draw calls — they are excluded from AI and from every head count, and an undamaged egg draws once. The corpse interactable
+  still reads 「시체 수색」 (the shared label). Replicas recover an egg's size by looking up the nearest spot of the world they built
+  themselves; a client whose world disagrees with the host's would draw a differently sized egg (it cannot, worlds are seeded).
+  Environmental hazards deliberately do **not** damage eggs (`parts/Status.updateHazardDot`) so a nest's reward never evaporates
+  before the player reaches it; fire zones and other attacker-owned damage still burn them.
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/enemies`.
+- 2026-09-18 — Bug nests: nest egg sacs became the immobile, harmless enemy `bug_egg` (own rig `models/EggModel`, per-spot size, no AI, `isCombatant` false, 생체 조직 + 미확인 세포 80 % drops); `NestDirector` spawns them, anchors each nest at its egg centroid, halves the initial garrison (`NEST_INITIAL_GARRISON_MUL`) and rolls 1–3 seeded refills per nest (50/35/15 %) that dig out when the garrison drops to ~1/3; `ai/NestLeash` returns a nest bug that gets past `NEST_LEASH_M` (60 m). Artillery gained a `prepTime` 포격 준비 phase before its first shot and now re-summons its own scavenger squad `squadCooldown` after the last one dies (the once-per-lifetime limit is gone). `queryNear` leaves eggs out unless `includeProps` — turrets, mines, androids, recon and the compass stop treating scenery as a threat without every caller remembering.
 - 2026-09-18 — Occlusion: `explode` (every player/gadget/ship-call blast on enemies), `damageAlliesAt`, rogue grenade · shell · acid burst · toxic burst → players, `Targets.damageVehicleAt` skip bodies behind walls/roofs/floors (`blastReachesBody`; sandworm eruption exempt); `hitTarget` / `chargeHit` miss through geometry (`meleeReachesBody` from the attacker's head); bug step gains raised (`STEP_VOICES`).
 - 2026-09-17 — Artillery: `maxArtillery` stays a live cap but `Pool.countAlive` now counts incapacitated / fleeing bodies (a burning or fleeing artillery let a second dig in); 2–3 scavenger escorts follow it until they notice a target (`ai/ArtilleryPack.ts`, `Enemy.escortOf`, not recycled while it lives); fires only with a non-artillery bug within `supportRadius` of the target; brace flat `braceTime` → fire → `postFireLock` (`Enemy.shellPhase`, `anim.brace`, hint 25); once-per-artillery summon of `scavenger_summon` (new type, 0 % drops) at a lone target in range.
 - 2026-09-17 — Global 1/3 rebalance: every `enemies.csv` hp ÷3 floor (raidXp unchanged; `sandworm_weak` raidXp literal 75), `SANDWORM_HP_MIN/MAX` 666/1000, `SANDWORM_WEAK_HP` 250, `TOXIC_DAMAGE` 60; enemy → enemy damage × `ENEMY_CLASH.damageMul` (1/3; hazards exempt), `BEHEMOTH_AI.enemyDamage` 53, `tut_android*` hp 30; toxic on threat 1–2 planets; hunter leap 10–18 m · 1.55 s · cooldown 12 · `arcGravityMul`, red stripes, mid-leap flip (`ai/HunterFlip.ts`, hints 23/24).
 - 2026-09-16 — Emptied enemy corpses held while anyone views them (`Enemy.corpseReleased`, `CorpseEmpty.hookCorpseViews` / `updateEmptyCorpses`, `ee corpseEmptied` at release); tutorial enemies never step within `TUTORIAL_ENEMY_EDGE_MARGIN_M` of a cliff (`tutorialEdgeGuard`).
-- 2026-09-16 — Bug audio: `burrow_emerge` per bug (batch 1/√k, `parts/Burrow.emergeSound`); bug `STEP_VOICES` rows use `bug_step_skitter` / `_heavy` / `_giant` with a short camera gate and 1/√n crowd gain (`model.bugStepCrowd`); shell whistle lives in audio/.

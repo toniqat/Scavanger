@@ -33,6 +33,8 @@ import { ShellProjectiles, type ShellHost } from './fx/ShellProjectile';
 import { RogueGrenades, type GrenadeHost } from './fx/RogueGrenade';
 import { AmbientSpawner, ambientGroup, waveGroup, type SpawnHost } from './Spawner';
 import { WaveDirector } from './WaveDirector';
+/* appended (2026-09-18): 벌레 둥지 — 알 · 앵커 · 수비대 · 보충 */
+import { NestDirector } from './NestDirector';
 import { disposeBugAssets } from './models/BugModel';
 import { disposeRogueAssets } from './models/RogueModel';
 import { EnemyReplica, type ReplicaHost } from './net/Replica';
@@ -149,6 +151,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   /** Phase 7: rogue grenades (host = damage, replica = visual copies from `ee grenade`). */
   grenades: RogueGrenades | null = null;
   readonly corpses = new CorpseManager();
+  /**
+   * 2026-09-18 (벌레 둥지): 둥지 알(`bug_egg`) · 둥지 앵커 · 수비대 리시 · 보충 (사용자 결정 「60 m 리시 · 초기 수 절반 ·
+   * 재스폰 50/35/15 %」). 권위 전용이고 새 와이어가 없다 — 리플리카는 `ee spawn` 만 본다.
+   */
+  readonly nests = new NestDirector();
   readonly spawner = new AmbientSpawner();
   readonly waves = new WaveDirector();
   readonly replicaMgr = new EnemyReplica(this);
@@ -260,6 +267,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.grenades.bind(this);
     this.corpses.bind(ctx);
     this.rogueDrops.bind(this);
+    this.nests.bind(this);   // 2026-09-18: 벌레 둥지
     this.named.bind(this);
 
     const bus = ctx.bus;
@@ -302,7 +310,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         }
         if (this.authority && ctx.world?.ready) {
           this.targets.refresh(ctx);
-          this.spawner.initialPopulate(this, playerSpawn);
+          /* 2026-09-18 (벌레 둥지): 알을 먼저 세우고 둥지 앵커 · 보충 횟수를 굴린 뒤 수비대를 깐다 — 앵커가 있어야
+             `initialPopulate` 의 무리가 「그 둥지의 수비대」로 묶인다 (`NestDirector` 머리 주석). */
+          this.nests.eco = this.spawnEco;
+          this.nests.tuning = this.bugTuning;
+          this.nests.threat = this.spawner.threat;
+          this.nests.onWorldReady();
+          this.spawner.initialPopulate(this, playerSpawn, this.nests.anchors, (index, from) => this.nests.claimGarrison(index, this, from));
           // 2026-09-13: 상자 경비 폐지 → 행성 threat 별 거점 그룹 (안드로이드 · 로그 · 레이더)
           const sites = placeSiteGroups(this, seed, this.planetThreatLevel);
           this.sitePlacement = sites;
@@ -469,6 +483,9 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         if (!this.training && !this.tutorial) {
           this.spawner.update(dt, this);
           this.waves.update(dt, this);
+          // 2026-09-18: 둥지별 생존 수 → 보충 (호스트만, 굴려 둔 횟수 안에서)
+          this.nests.threat = this.spawner.threat;
+          this.nests.update(dt, this);
         }
       }
       if (this.hosting) {
@@ -621,8 +638,14 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * Alive enemies within `radius` of `pos` (turrets, scans, explosions, lures).
    * Uses the per-frame spatial grid when it is fresh, else a linear scan — both allocation-free apart
    * from the returned array.
+   *
+   * 2026-09-18 (벌레 알): **기본은 싸우는 몸만**이다 — `bug_egg` 는 빠진다. 이 질의를 쓰는 곳은 거의 전부 「무엇을 노릴까 ·
+   * 무엇이 나를 위협하나」 이고(포탑 표적 · 지뢰 접촉 · 안드로이드 교전 · 정찰 스캔 · 배리어 충돌), 알은 그 어느 것도 아니다.
+   * 부르는 쪽이 잊어버릴 수 없게 **기본값**으로 걸렀다. 알까지 필요한 질의(설치물 폭발 피해처럼 「닿는 것은 다 부순다」)
+   * 는 `includeProps: true` 를 준다. 알 자체는 총알 · 근접 · 수류탄 · `applyAreaDamage`(지뢰 · 함선 호출) · `explode` 로
+   * 그대로 부서진다 — 그 경로들은 이 질의를 지나지 않는다.
    */
-  queryNear(pos: THREE.Vector3, radius: number): EnemyRef[] {
+  queryNear(pos: THREE.Vector3, radius: number, includeProps = false): EnemyRef[] {
     const out: EnemyRef[] = [];
     const r2 = radius * radius;
     const usable = this.gridTime === this.ctx.time && this.active.length > 24;
@@ -632,6 +655,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       for (let i = 0; i < n; i++) {
         const e = queryBuf[i];
         if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
+        if (e.isEgg && !includeProps) continue;   // 2026-09-18: 이 질의의 기본은 **싸우는 몸**이다 (머리말 참고)
         const dx = e.position.x - pos.x, dy = e.position.y + e.stats.height * 0.5 - pos.y, dz = e.position.z - pos.z;
         if (dx * dx + dy * dy + dz * dz <= r2) out.push(e);
       }
@@ -641,6 +665,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     for (let i = 0; i < this.active.length; i++) {
       const e = this.active[i];
       if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
+      if (e.isEgg && !includeProps) continue;
       const dx = e.position.x - pos.x, dy = e.position.y + e.stats.height * 0.5 - pos.y, dz = e.position.z - pos.z;
       if (dx * dx + dy * dy + dz * dz <= r2) out.push(e);
     }
@@ -717,7 +742,10 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
       e.guardPos.copy(e.position); e.escortOf = null; e.leash = ROGUE_AI.leash;
       e.target = null; e.targetTimer = 0; e.perceptionTimer = Math.random() * 0.3; e.hasLOS = false; e.lostTimer = 0;
       e.roguePhase = 0; e.chargePhase = 0; e.spitPhase = 0; e.toxicPhase = 0; e.swellTimer = 0; e.dug = 0;
-      e.shellPhase = 0; e.shellPhaseT = 0;   // 2026-09-17: 포병 발사 자세는 새 호스트에서 처음부터 (`summonDone` 은 이어받지 못한다 — 와이어에 없다)
+      /* 2026-09-17 · 2026-09-18: 포병 발사 자세 · 포격 준비 · 부대 쿨타임은 새 호스트에서 처음부터다 — 셋 다 와이어에 없다.
+         `nestOf`(둥지 리시)도 마찬가지라 승격된 호스트에서는 둥지 벌레가 평범한 벌레가 된다 (`escortOf` 와 같은 의도). */
+      e.shellPhase = 0; e.shellPhaseT = 0; e.shellPrepDone = false; e.squadCd = 0;
+      e.nestOf = -1; e.nestReturning = false;
       e.airborne = false; e.leaping = false; e.vy = 0;
       // 2026-09-17: 뒤집힌 헌터를 이어받으면 (떨어지던 몸도) 땅에서 남은 뒤집힘을 마친다 — 힌트 유지값(0.35 s)이 아니라 최소 1 s
       if (e.flipFalling || e.flipTimer > 0) { e.flipFalling = false; e.flipTimer = Math.max(e.flipTimer, 1); e.state = 'stagger'; e.staggerTimer = 0; }
@@ -819,6 +847,12 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
    * 2026-09-14 3차: `ambush` = 아직 땅속에서 기다리는 벌레 수 (플레이어가 감지 반경에 들어서면 솟아 `spawned` 로 옮겨 간다).
    * 튜토리얼이 아니거나 아직 세우기 전이면 null.
    */
+  /** 2026-09-18 (벌레 둥지): 이번 레이드의 알 수 · 둥지별 보충 굴림 · 수비대 · 지금 살아 있는 수 (권한만, 디버그 · 스모크). */
+  debugNests(): { eggs: number; nests: Array<{ pad: number; anchorIndex: number; refillsLeft: number; garrison: number; alive: number }> } | null {
+    if (!this.nests.placement) return null;
+    return { eggs: this.nests.placement.eggs, nests: this.nests.debugState(this) };
+  }
+
   debugTutorial(): { spawned: number; skipped: number; ambush: number; enemies: Array<{ id: number; type: EnemyType; alive: boolean; sense: number; leash: number; x: number; y: number; z: number }> } | null {
     const p = this.tutorialPlacement;
     if (!this.tutorial || !p) return null;

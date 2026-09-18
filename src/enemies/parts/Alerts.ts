@@ -399,6 +399,8 @@ export function fleeFrom(sys: EnemySystem, position: THREE.Vector3, radius: numb
     const e = sys.active[i];
     if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
     if (isWormType(e.type)) continue;   // 2026-09-13: 땅에 박혀 있다 — 달아나지 않는다 (도주는 FLEE_DURATION 뒤 사라지게 한다)
+    // 2026-09-18: 벌레 알도 같은 이유로 달아나지 않는다 — `flee` 로 넘어가면 `raycastEx` 가 거르므로 이륙 뒤 둥지의 알을 쏠 수 없게 된다
+    if (e.isEgg) continue;
     const dx = e.position.x - position.x, dz = e.position.z - position.z;
     if (dx * dx + dz * dz > r2) continue;
     e.state = 'flee'; e.stateTime = 0; e.fleeTimer = 0;

@@ -2,7 +2,7 @@ import type { GameContext, IntelSpec, NetRef, PlanetDef, PlanetId } from '@/shar
 import {
   ENV_COLOR, ENV_DESC_KO, ENV_ICON, ENV_LABEL_KO,
   INTEL_OPTIONS_IN_ORDER, Keys, MENU_BLOCKER, NAMED_ROGUE_NAME_KO, NET_MAX_PLAYERS, PLANET_DEFS, PLANET_IDS,
-  PLANET_THREAT_LABELS, getPlanet, humanPlayersOf, intelEffectText, isBotPlayer, isDockedLobby, planetIndex,
+  PLANET_THREAT_LABELS, getPlanet, humanPlayersOf, intelEffectText, isBotPlayer, isDockedLobby, planetIndex, planetLabel,
 } from '@/shared';
 import { el, setText, toggleClass } from './dom';
 import { IntelMenu } from './IntelMenu';
@@ -541,11 +541,33 @@ export class HubMenu {
       : readOnly ? '분대장만 정보를 살 수 있습니다'
         : !here ? '목표 행성을 먼저 지정하세요'
           : null;
-    this.btnIntelBuy.disabled = !!blocked;
-    this.btnIntelMove.disabled = !!blocked;
+    /*
+     * 2026-09-18 (사용자 결정 「보는 행성을 목표로 정해야 정보를 살 수 있게」) —
+     * **넘겨 보던 행성으로는 살 수 없다.**
+     *
+     * 정보상 화면(`ui/IntelMenu`)은 처음부터 **함선의 목표 행성**(`IntelMenuHost.planet()` →
+     * `HubSystem.planet`)으로 값 · 가격 · 잠김을 판정한다. 그런데 이 탭의 ◀ ▶ 는 미리보기일 뿐이고
+     * (`refreshTravel` 의 「stepping is a preview」), 이 정보상 칸은 그 미리보기 **바로 옆**에 붙어 있다.
+     * 그래서 목표가 아직 아켈론 II(위험도 1)인 채로 보레아스 IX 를 띄워 놓고 열면 현상 수배가 잠긴 채
+     * 떴고, 화면에 보이던 행성이 잠긴 것처럼 읽혔다 (사용자 보고 — `data/intel_options.csv` 의
+     * `named.minThreat = 2` 도 `planets.csv` 의 tundra · mossy `threat = 2` 도 맞고, `intelMaxTier` 는
+     * 그 행성에서 1 을 돌려준다).
+     *
+     * 고른 해법은 **막는 것**이다: 누르면 목표가 바뀌는 것도(옆에 「이동」 버튼이 있는데 구매 버튼이
+     * 함선을 움직이면 안 된다), 구매가 미리보기를 따라가는 것도(보유 정보 · 출격 · 릴레이 검증이 전부
+     * 목표 행성 기준이라 조용히 어긋난다) 아니다. **보유한 정보는 건드리지 않는다** — 그 정보는 산
+     * 행성의 것이고 `IntelMenu.heldSpec()` 이 이미 그 행성을 박아 두므로 확인 · 재배치는 그대로다.
+     */
+    const looking = this.def();
+    const offTarget = !blocked && !spec && here !== looking.id
+      ? `지금 목표는 ${planetLabel(here)}입니다 — 목표를 ${looking.name}(으)로 지정해야 그 행성의 정보를 살 수 있습니다`
+      : null;
+    const buyBlocked = blocked ?? offTarget;
+    this.btnIntelBuy.disabled = !!buyBlocked;
+    this.btnIntelMove.disabled = !!blocked;       // 재배치는 보유한 정보의 일이다 — 보던 행성과 무관하다
     this.btnIntelView.disabled = !available;      // 확인은 비호스트도 할 수 있다 (읽기 전용)
-    this.intelNote.hidden = !blocked;
-    if (blocked) setText(this.intelNote, blocked);
+    this.intelNote.hidden = !buyBlocked;
+    if (buyBlocked) setText(this.intelNote, buyBlocked);
   }
 
   /** `정보 구매` · `정보 확인` · `지역 재배치` 의 공통 입구 (`relocate` 면 경고 팝업까지 바로 띄운다). */

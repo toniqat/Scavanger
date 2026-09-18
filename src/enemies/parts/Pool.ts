@@ -15,7 +15,7 @@ import {
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { Enemy, type EnemyHost, type HitPart } from '../Enemy';
-import { ROGUE_AI, SPEWER_SPIT, isWormType } from '../EnemyTypes';
+import { ROGUE_AI, SPEWER_SPIT, isEggType, isWormType } from '../EnemyTypes';
 import { SpatialGrid } from '../SpatialGrid';
 import { CombatTarget, TargetList, type TargetId } from '../Targets';
 import { SUSPICION_TIME, updateEnemyAI } from '../ai/EnemyAI';
@@ -44,6 +44,9 @@ import { isNamedAiType } from '../ai/named';
 /* appended (2026-09-13): 굴착 스폰 · 땅굴벌레 */
 import { emergeFx } from './Burrow';
 import { disposeWormAssets } from '../models/WormModel';
+/* appended (2026-09-18): 벌레 알 */
+import { disposeEggAssets } from '../models/EggModel';
+import { applyEggSize } from '../NestDirector';
 
 export function killAll(sys: EnemySystem): void {
   for (let i = 0; i < sys.active.length; i++) {
@@ -69,6 +72,7 @@ export function reset(sys: EnemySystem): void {
   sys.burrowFx?.clear();
   sys.burrowShakeAt = -Infinity;
   sys.named.reset();          // 2026-09-11: 네임드 굴림 결과 · 알림 기록도 레이드마다 (네임드 · 호위는 로그라 `ensureCapacity` 재활용 대상이 아니다)
+  sys.nests.reset();          // 2026-09-18: 둥지 앵커 · 보충 굴림 · 수비대 기록도 레이드마다
   sys.fx?.clear();
   sys.acid?.clear();
   sys.shells?.clear();
@@ -116,6 +120,9 @@ export function ensureCapacity(sys: EnemySystem, n: number, cap: number): number
       const e = sys.active[i];
       if (!e.active || e.state === 'dead' || e.aware || e.relentless || e.isHumanoid) continue;
       if (e.escortOf && e.escortOf.isCombatant) continue;   // 2026-09-17: 살아 있는 포병의 호위는 포병과 함께 남는다 (`ai/ArtilleryPack`)
+      /* 2026-09-18: 둥지 알은 재활용 대상이 아니다 — 자리가 월드의 것이고 사라지면 「둥지의 보상」이 없어진다.
+         (`isCombatant` 가 false 라 위 `aware` 검사에는 안 걸리지만 이 루프는 그것을 보지 않는다.) */
+      if (e.isEgg) continue;
       if (sys.targets.minDist(e.position) > RECYCLE_DISTANCE) { sys.despawn(e); alive--; }
     }
   }
@@ -191,6 +198,10 @@ export function acquire(sys: EnemySystem, id: number, type: EnemyType, position:
   // 승격 때 hp 상한)가 호스트와 같다. 인간형 팩션 · 땅굴벌레(자기 `SANDWORM_HP_*` 굴림) 제외, 훈련장 · 행성 없음은 ×1.
   const hpMul = sys.bugTuning.hpMul;
   if (hpMul !== 1 && e.faction === 'bug' && !isWormType(type)) e.hp = e.maxHp = Math.max(1, Math.round(e.stats.hp * hpMul));
+  /* 2026-09-18 (벌레 알): 자리마다 크기가 다르다. 위 체력 배수와 **같은 요령**으로 와이어 없이 맞춘다 — 월드는 시드가
+     같으면 모든 클라이언트에서 똑같이 만들어지므로 권위도 리플리카도 `getNestEggSpots()` 의 같은 자리를 찾아 같은
+     반지름을 넣는다 (`NestDirector.applyEggSize`). 그래서 `ee spawn` 에 반지름 칸이 없다. */
+  if (isEggType(type) && ctx.world) applyEggSize(e, ctx.world);
   // 2026-09-14 4차: 이번 레이드의 시체 수명 (`reset` 이 넣은 `CORPSE_LIFETIME` 을 덮는다). 튜토리얼만 `Infinity` 라
   // 본편 · 훈련장은 45초 그대로이고, 리플리카도 같은 값을 쓴다 (레이드 종류는 모든 클라이언트가 `world:ready` 에서 같이 정한다).
   e.corpseLife = sys.corpseLifetime;
@@ -227,4 +238,5 @@ export function disposePools(sys: EnemySystem): void {
   disposeRogueAssets();
   disposeRogueDropAssets();
   disposeWormAssets();        // 2026-09-13: 땅굴벌레 공유 지오메트리 (리그는 위 풀 dispose 에서 먼저 빠졌다)
+  disposeEggAssets();         // 2026-09-18: 벌레 알 공유 지오메트리
   }

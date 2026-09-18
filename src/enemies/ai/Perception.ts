@@ -147,6 +147,8 @@ export function acquireTarget(e: Enemy, dt: number, host: EnemyHost): void {
 /** Wake this bug: it now knows about the players. `loud` → screech + propagate to neighbours. */
 export function becomeAlert(e: Enemy, host: EnemyHost, loud: boolean): void {
   if (e.state === 'dead' || e.state === 'flee' || !e.active) return;
+  // 2026-09-18 (벌레 알): 알은 알아채지 않는다 — 무리 전파 · 총성 · 유인 어느 쪽으로도 (`alertNear` 는 `isCombatant` 로 이미 뺀다, 여기는 직접 부르는 자리의 보험)
+  if (e.isEgg) return;
   const wasAware = e.aware;
   e.aware = true;
   e.lostTimer = 0;

@@ -206,6 +206,18 @@ forwards interactions.
   `ctx.net.lobbyIntel` with the lobby planet, because `ctx.meta.intel.get()` is local-profile only.
 - Intel screen costs and tiers come from `ctx.meta.intel` (`costOf`, `maxTierOf`), falling back to
   `shared/intel.intelCost`. `buy` may be async — the screen locks until it settles. Re-roll = discard, no refund.
+- **The intel screen judges everything against the ship's 목표 행성** (`IntelMenuHost.planet()` → `HubSystem.planet`),
+  never the planet the terminal's ◀ ▶ is previewing — that is what made 「보레아스 IX 에서 현상 수배가 잠긴다」 look
+  like a bug (the target was still a threat-1 planet; `data/intel_options.csv` `named.minThreat` = 2, `planets.csv`
+  tundra/mossy `threat` = 2 and `intelMaxTier` are all correct). Two halves close it (2026-09-18 user decision
+  「보는 행성을 목표로 정해야 정보를 살 수 있게」):
+  1. `HubMenu.refreshIntel` **disables `정보 구매` while the paged planet is not the target** and says which planet is,
+     naming the one on screen (「지금 목표는 … 목표를 X(으)로 지정해야 그 행성의 정보를 살 수 있습니다」). Pressing it
+     never moves the ship (`행성 이동` is the only commit) and buying never follows the preview. `정보 확인` /
+     `지역 재배치` are untouched — held intel belongs to the planet it was bought for and `heldSpec()` pins it.
+  2. A locked row in the full-screen menu names the planet it was judged against and its threat
+     (`IntelMenu.lockText`); with no target at all it says 목표 행성을 먼저 지정하세요, because `maxTier` returns 0 for
+     every row there and threat has nothing to do with it. With the gate in place this is a belt-and-braces line.
 - The map must use `ctx.world.previewLayout` (same planner as the real map) so it never lies; without it only the grid
   is drawn.
 
@@ -324,8 +336,8 @@ doorway is an open shared edge.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/hub`.
+- 2026-09-18 — Intel is bought for the **target** planet only: the terminal disables `정보 구매` while the paged planet is not the target and names both (`HubMenu.refreshIntel`; 정보 확인 / 지역 재배치 unchanged), and a locked row in the intel screen names the planet it was judged against (`IntelMenu.lockText`).
 - 2026-09-17 — The intel screen moved off the `.it-` prefix to `.his-` (`intel.css`, `ui/IntelMenu.ts`, `ui/IntelMap.ts`): `.it-` was the item card's (`ui`), and this folder's global `.it-head` was right-aligning that card everywhere it was shown (B-18).
 - 2026-09-17 — Culture tank model shows each slot: medium-coloured translucent fluid (`BuildExtra.cultureSlots`, `cultureFluid` cache) and opaque cell masses when a strain is inside; tubes are translucent glass (no lights). Visited ships get it from `ShipVisitWire.cultures` (`Hangar.shipStateWire` / `furnitureSource.getCultures`).
 - 2026-09-17 — `GameStaging` accepts a seatless video-game session (`seatUid` null): TV game screen on, no furniture pose or camera, not cancelled; a vanished seat still cancels only when one was used.
 - 2026-09-17 — Tutorial gates: the terminal's training row hides while `ctx.tutorial.hides('training')` (`HubMenu.setTab`); `Pods.toggleReady` skips launch warnings while `hides('launchWarn')` (build tutorial track).
-- 2026-09-16 — Sliding 자동문 removed (`interiors/Doors.ts` deleted); arch/doorway trims no longer share planes with wall openings, room door signs clear the ceiling beam.

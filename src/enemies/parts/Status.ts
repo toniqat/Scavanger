@@ -189,6 +189,10 @@ export function updateHazardDot(sys: EnemySystem, dt: number): void {
   for (let i = sys.active.length - 1; i >= 0; i--) {
     const e = sys.active[i];
     if (!e.active || e.state === 'dead' || e.state === 'flee') continue;
+    /* 2026-09-18 (벌레 알): 재해는 알을 깨지 않는다. 알은 둥지의 **보상**이고 자리가 고정이라, 지나가는 재해가 덮으면
+       플레이어가 손도 대기 전에 그 둥지의 전리품이 통째로 사라진다 — 「재해 피해로 조용히 사라지는 보상」은 없다.
+       불 · 소이 지대 같은 **누가 낸** 상태 피해는 그대로 들어간다 (`updateStatuses`). */
+    if (e.isEgg) continue;
     if (!hz.isInside(e.position.x, e.position.z)) continue;
     e.applyDot(dmg, 'ai', true);
   }

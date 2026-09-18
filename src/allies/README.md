@@ -48,6 +48,9 @@ Debug hooks on `getSystem('allies')` (smokes only, never called by game code): `
 
 - **The authority simulates, replicas interpolate.** `ctx.isAuthority` decides; a replica accepts `ally` only from
   `lobby.hostId` and interpolates by `NET_INTERP_DELAY`. `damage()` is a no-op on a replica.
+- **Engagement is for things that fight back.** Androids never shoot a nest egg: `EnemyManagerRef.queryNear` leaves props out by
+  default, so sensing, re-targeting, rescue-safety and the contract 「적」 ping never see one, and an 「적」 ping naming an egg is
+  refused instead of agreed to. A player who wants the cells shoots the egg themselves. — `parts/Combat.ts`, `parts/Commands.ts`
 - **The base kit is bound, and it exists in the ship too** (2026-09-16). `Roster.syncBodies` → `Bag.ensureKit` gives a recruited
   android its kit the moment it becomes a squad member, so the body in the ship is armed and `getLoadout` feeds the launch-slot
   card; the raid still starts from a fresh kit (`Spawn` → `clearKit` → `equipKit`), and `ensureKit` is skipped while `raidActive`
@@ -82,6 +85,7 @@ Debug hooks on `getSystem('allies')` (smokes only, never called by game code): `
 ## Recent changes
 
 Last 5 only — older: `git log -- src/allies`.
+- 2026-09-18 — Androids never engage a nest egg: `queryNear` leaves props out, so sensing / targeting / contract 「적」 pings skip them, and an 「적」 ping that names an egg is refused rather than agreed to (`parts/Commands.onEnemyPing` · `tickEnemyPing`).
 - 2026-09-16 — AI pass 2: `roam` free search · 2 m separation · spread · per-weapon engage range · contact-range firing fix ·
   move-ping oscillation fix · agreeing to a PC's enemy / extraction ping · 앞장서라 doubles the harness and expires ·
   pinged crates first · the base kit now exists in the ship.

@@ -99,3 +99,23 @@ export function bugThreatTuning(threat: number): BugThreatTuning {
     behemothCapBonus: bonus(BEHEMOTH_CAP_BONUS_BY_THREAT),
   };
 }
+
+/* ── 2026-09-18: 벌레 둥지 (사용자 결정 「둥지 반경 60 m 리시 · 초기 수 절반 · 재스폰 50/35/15 %」) ──
+ * 읽는 곳: `ai/NestLeash.ts` (리시) · `NestDirector.ts` (초기 수비대 배수 · 보충 굴림 · 방아쇠) · `Spawner.initialPopulate`.
+ * 값 하나짜리 표는 `NEST_COUNT_MIN` 과 같은 요령으로 key 0 만 쓴다. */
+const one = (table: string, fallback: number): number => {
+  const v = numberList('tables.csv', table)[0];
+  return Number.isFinite(v) ? v : fallback;
+};
+/** 둥지에서 난 벌레가 표적을 쫓을 수 있는 최대 거리(m). 둥지에서 나지 않은 벌레는 받지 않는다. */
+export const NEST_LEASH_M = one('NEST_LEASH_M', 60);
+/** 돌아가기를 끝내는 거리 = `NEST_LEASH_M` × 이 값 (경계 떨림을 막는 이력). */
+export const NEST_LEASH_RETURN_FRAC = one('NEST_LEASH_RETURN_FRAC', 0.5);
+/** 레이드 시작 때 까는 순찰 **무리 수** 배수 (`Spawner.initialPopulate`). 0.5 = 절반. */
+export const NEST_INITIAL_GARRISON_MUL = one('NEST_INITIAL_GARRISON_MUL', 0.5);
+/** 그 둥지의 살아 있는 **움직이는** 벌레가 처음 깔린 수 × 이 값 이하면 보충이 터진다 (알은 세지 않는다). */
+export const NEST_REFILL_TRIGGER_FRAC = one('NEST_REFILL_TRIGGER_FRAC', 1 / 3);
+/** 호스트가 둥지별 생존 수를 다시 세는 간격(s). */
+export const NEST_REFILL_CHECK_S = one('NEST_REFILL_CHECK_S', 2);
+/** 보충 **횟수**의 확률 — index k = k+1 회 (사용자 결정 1회 50 % · 2회 35 % · 3회 15 %). */
+export const NEST_REFILL_COUNT_CHANCE: readonly number[] = numberList('tables.csv', 'NEST_REFILL_COUNT_CHANCE');

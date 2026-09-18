@@ -826,3 +826,59 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
   cell IV drops at the stated rates.
 - **Messenger preview shows only messages that have appeared.** Equip-gun tutorial step is skipped when an AR is
   already in a primary slot or both primaries are filled.
+
+## 2026-09-18 2차 — 튜토리얼 분리 · 둥지 · 포병 정찰 · Tutorial split, nests, artillery scouting
+
+### 튜토리얼
+- **「증축 안내」 ends at the rifle being equipped, and 터미널 → 탑승 → 레이드 becomes its own track** 「출격 안내」
+  (a 4th `TutorialTrack`, `raid2`). Rejected: one track renamed in two halves (the panel would lie about the
+  progress bar); appending the two steps to the ship track.
+- **The raid step's progress bar counts credits, not steps** — the bag's `raidFound` sell value against
+  `TUTORIAL_RAID_EXTRACT_VALUE_C` (1 000 C) — and the label **shows the value past the goal** (`1,400 C / 1,000 C`).
+  Rejected: clamping the text at the goal.
+- **During a tutorial raid the map shows the track's objectives, top-left**, above the NPC quest panels.
+- The equip-gun skip (already decided 2026-09-17) is re-reported as still demanding the step; it is now evaluated
+  **when the inventory opens** as well as on step entry.
+- **No floor guide line during the launch wait** — once the readiness hold is done there is nothing to walk to.
+
+### 벌레 둥지
+- **Bug eggs stop being scenery: each egg sac is a destructible, immobile enemy** (`bug_egg`, a new
+  `data/enemies.csv` row — rejected: fewer eggs with higher HP; keeping the decorative pile and adding one big
+  separate 알집). It never moves, attacks, becomes aware, staggers or makes footsteps, and it satisfies nothing that
+  counts bugs (artillery support, waves, the nest garrison).
+- **The eggs *are* the nest's reward: crates no longer spawn near a nest.** Drops are 미확인 세포 + 생체 조직, the
+  cell rate sitting **between 헌터 and 워리어**.
+- **The lost crates are not replaced anywhere else.** A raid drops ~4–6 tier-3 crates (out of ~20–40) when the nest
+  ring goes, and that is the point: part of a raid's total reward moved out of the crate system and into the eggs.
+  Rejected: raising the POI / structure crate rings to keep the old crate count.
+- **Nest bugs are leashed to 60 m from their nest** — 「적당히 따돌리면 돌아간다」. Rejected: a 40 m leash (one
+  cover-to-cover break would shake them). Bugs that did not come from a nest keep an unlimited chase.
+- **Half the initial garrison, and 1–3 refills per nest per raid at 50 / 35 / 15 %** (3 deliberately rare), fired when
+  the nest's living mobile bugs fall to about a third of what it started with.
+
+### 포병
+- **A shell needs a bug beside the target *and* a prep beat.** The support condition stays 「any bug within
+  `supportRadius` of the target」, but it now opens a 포격 준비 state before the first shot instead of firing at once —
+  the complaint was being shelled out of nowhere.
+- **The artillery keeps its own scavengers alive: the once-per-lifetime summon becomes a respawn.** When every
+  scavenger of that artillery (dig-in escort and summoned squad alike) is dead, a cooldown runs and it summons a fresh
+  squad. Rejected: requiring shared line of sight from a scout (the artillery would almost never fire).
+
+### 기타
+- **Blast damage no longer passes a window, broken or not**; low cover is untouched (the 3-point body sample already
+  lets a peeking head be hit). Rejected: letting only *unbroken* glass block; exempting destructible cover from the
+  blast rays.
+- **Planet 표본 채집지 are retired entirely** (`sampleNodes` 0, `samples` empty — the columns and the code stay).
+  미확인 광물 comes from 광맥 and 고철 더미, 미확인 세포 from bugs and now bug eggs, 미확인 유전자 from the 연구소.
+  Rejected: leaving mineral-only sample nodes standing.
+- **The tram never turns around.** It keeps one orientation for the whole raid and shuttles back and forth facing the
+  same way; only the travel direction flips. Flipping the body mirrored a rider across the car (the ride math re-solves
+  vehicle-local coordinates every frame), which is the reported teleport. **Cabin containers are removed** — platform
+  containers stay.
+- **The rover's map icon faces its travel direction** (the icon was rotated with the wrong sign for the map's
+  `canvas y = +Z` convention).
+- **You may only buy intel for the planet you have targeted.** The 현상 수배 row looked broken on the two threat-2
+  planets because the intel screen judges the ship's **target** planet while the terminal's pager is only a preview —
+  paging to 보레아스 IX with 아켈론 II still targeted locked a row that is open on 보레아스 IX. 정보 구매 is now
+  disabled until the paged planet is the target. Rejected: letting 정보 구매 silently set the target; buying for the
+  previewed planet (money spent on a raid you may not fly); leaving it and only rewording the lock note.

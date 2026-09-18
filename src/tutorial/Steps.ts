@@ -314,6 +314,10 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     guide: 'pod',
   },
   /*
+   * 2026-09-18 (사용자 결정): 아래 두 단계(`terminal` · `raid`)는 이제 **출격 안내**(`raid2`) 트랙이다 — id 도 내용도
+   * 그대로이고 옮긴 것은 트랙뿐이다 (`shared/tutorial.TUTORIAL_TRACK_STEPS`). 「증축 안내」는 `equipGun` 에서 끝난다.
+   */
+  /*
    * 2026-09-17 (사용자 결정): **⑥ 레이드 퀘스트** — 이번 레이드에서 얻은 아이템(`raidFound`)의 판매가 합이
    * `TUTORIAL_RAID_EXTRACT_VALUE_C` 이상인 채로 탈출. **기회는 한 번**: 탈출 · 사망 · 포기 어느 쪽이든 그 레이드가 끝나면 트랙이
    * 끝나고, 목표는 조건을 채워 탈출했을 때만 체크된다 (`TutorialSystem.onBuildRaidEnd`). 진행 수는 지금 몸에 지닌 그 합이다.

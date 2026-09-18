@@ -43,10 +43,10 @@ export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatT
   const tp = t.position;
   e.facePoint.copy(tp); e.hasFacePoint = true;
   lookAtTarget(e, t, dt);
-  // 2026-09-17: 엎드려 기다리는 중(1) · 쏜 뒤 굳어 있는 중(2)에는 후퇴 · 접근 · 자리 옮기기 어느 가지도 타지 않는다
+  // 2026-09-17: 포격 준비 중(3) · 엎드려 기다리는 중(1) · 쏜 뒤 굳어 있는 중(2)에는 후퇴 · 접근 · 자리 옮기기 어느 가지도 타지 않는다
   if (e.shellPhase !== 0) return artilleryFireSequence(e, dt, host, t);
   a.brace = Math.max(0, a.brace - dt * ARTILLERY_BRACE_RELAX);
-  // 2026-09-17: 사거리 안의 외톨이 표적 → 평생 한 번 소환 스캐빈저를 파내 보낸다 (`ai/ArtilleryPack`)
+  // 2026-09-18: 제 부대(호위 + 소환 무리)가 전멸하면 쿨타임 뒤 새 무리를 파낸다 (`ai/ArtilleryPack`)
   maybeSummon(e, dt, host, t);
   if (d < ARTILLERY_AI.retreatDist) {
     const dx = e.position.x - tp.x, dz = e.position.z - tp.z;
@@ -89,13 +89,30 @@ export function chaseArtillery(e: Enemy, dt: number, host: EnemyHost, t: CombatT
   e.shellTimer -= dt;
   if (e.shellTimer <= 0) {
     // 2026-09-17 (사용자 결정): 표적 곁(`supportRadius`)에 다른 벌레가 있어야 쏜다 — 외톨이 표적에게는 사거리 안이어도 쏘지 않는다.
-    // 쏠 수 있으면 곧장 쏘지 않고 먼저 납작 엎드린다 (`braceTime` 뒤 `artilleryFireSequence` 가 쏜다).
-    if (e.dug >= 0.95 && d <= ARTILLERY_AI.maxRange && !t.isDeadOrDowned && hasBugSupport(e, host, t)) {
-      e.shellPhase = 1;
-      e.shellPhaseT = ARTILLERY_AI.braceTime;
-    } else e.shellTimer = 0.5;
+    const ready = e.dug >= 0.95 && d <= ARTILLERY_AI.maxRange && !t.isDeadOrDowned && hasBugSupport(e, host, t);
+    if (ready) {
+      /* 2026-09-18 (사용자 결정 「표적 곁의 아무 벌레나 있을 때 포격 준비」): 지원이 붙고 **첫 발** 앞에서는 곧장 쏘지 않고
+         `prepTime` 동안 포격 준비 자세(3)로 버틴다. 그동안 조건이 깨지면 준비가 취소되고 `shellPrepDone` 은 false 그대로라
+         다음에 다시 처음부터 잰다. 준비를 마친 뒤의 발들은 예전처럼 `braceTime` 만 기다린다. */
+      e.shellPhase = e.shellPrepDone ? 1 : 3;
+      e.shellPhaseT = e.shellPrepDone ? ARTILLERY_AI.braceTime : ARTILLERY_AI.prepTime;
+      if (!e.shellPrepDone) artilleryPrepTell(e, host);
+    } else {
+      e.shellPrepDone = false;   // 지원이 끊겼다 — 다음 지원 때 준비를 다시 한다
+      e.shellTimer = 0.5;
+    }
   }
   return 0;
+}
+
+/**
+ * 2026-09-18: 포격 준비의 **전조**. 새 에셋을 만들지 않는다 — 이미 있는 것만 쓴다:
+ *   비명(`bug_screech`, 차저 돌진 예비동작과 같은 소리를 더 낮게) + 배(`anim.abdomen`) 꿀렁임 + 납작 엎드림(`anim.brace` 램프).
+ * 위험 인디케이터는 **늘어나지 않는다** — 날아가는 포탄 하나에 하나(`ui/hud/DangerIndicators`)라는 규칙은 그대로다
+ * (준비는 아직 발사가 아니다). 리플리카는 `shellPhase !== 0` → 힌트 25 로 같은 자세를 받는다 (`net/HostSync.animHint`).
+ */
+function artilleryPrepTell(e: Enemy, host: EnemyHost): void {
+  host.playAudio('bug_screech', e.position, 0.85, 0.45);
 }
 
 /**
@@ -110,6 +127,21 @@ function artilleryFireSequence(e: Enemy, dt: number, host: EnemyHost, t: CombatT
   a.crouch = e.dug * 0.8;
   a.mandible = 0.4;
   e.shellPhaseT -= dt;
+  /* 2026-09-18: 포격 준비 (3) — 지원이 붙은 뒤 **첫 발 앞에 한 번**. 조건이 깨지면 그 자리에서 취소한다 (굳지 않는다).
+     끝나면 `shellPrepDone` 을 세우고 평소의 엎드림(1)으로 넘어간다 — 그 뒤의 발들은 준비 없이 `braceTime` 만 기다린다. */
+  if (e.shellPhase === 3) {
+    a.brace = Math.min(1, a.brace + dt / Math.max(0.05, ARTILLERY_AI.prepTime));
+    a.abdomen = Math.min(1, a.abdomen + dt * 1.5);
+    if (t.isDeadOrDowned || e.distToTarget > ARTILLERY_AI.maxRange || !hasBugSupport(e, host, t)) {
+      e.shellPhase = 0; e.shellPhaseT = 0; e.shellTimer = 0.5; a.abdomen = 0;
+      return 0;
+    }
+    if (e.shellPhaseT > 0) return 0;
+    e.shellPrepDone = true;
+    e.shellPhase = 1; e.shellPhaseT = ARTILLERY_AI.braceTime;
+    a.abdomen = 0;
+    return 0;
+  }
   if (e.shellPhase === 1) {
     a.brace = Math.min(1, a.brace + dt / Math.max(0.05, ARTILLERY_AI.braceTime));
     if (e.shellPhaseT > 0) return 0;
@@ -135,12 +167,16 @@ function artilleryFireSequence(e: Enemy, dt: number, host: EnemyHost, t: CombatT
 }
 
 /**
- * 2026-09-17: 추격 상태가 아닐 때(표적을 잃고 `idle` · 경직 `stagger` …)의 포병 발사 순서. 엎드려 기다리던 것은 취소하고, 쏜 뒤의 고정은
- * **상태와 상관없이** 끝까지 지킨다 — 호출자(`ai/EnemyAI`)는 true 면 이번 틱 이동을 0 으로 둔다.
+ * 2026-09-17: 추격 상태가 아닐 때(표적을 잃고 `idle` · 경직 `stagger` …)의 포병 발사 순서. 엎드려 기다리던 것 · 포격 준비는 취소하고, 쏜 뒤의
+ * 고정은 **상태와 상관없이** 끝까지 지킨다 — 호출자(`ai/EnemyAI`)는 true 면 이번 틱 이동을 0 으로 둔다.
+ * 2026-09-18: 제 부대 재소환(`ai/ArtilleryPack.maybeSummon`)도 여기서 돈다 — 표적을 잃은 포병도 부대를 채운다.
  */
-export function artilleryOffChase(e: Enemy, dt: number): boolean {
+export function artilleryOffChase(e: Enemy, dt: number, host: EnemyHost): boolean {
   const a = e.anim;
-  if (e.shellPhase === 1) { e.shellPhase = 0; e.shellPhaseT = 0; }
+  // 2026-09-18: 제 부대 재소환은 표적이 없어도 돈다 (「스캐빈저들이 모두 죽으면 쿨타임 이후 재스폰」) — 표적이 없으면 곁을 지키는 무리로 나온다
+  maybeSummon(e, dt, host, null);
+  // 2026-09-18: 준비(3)도 엎드림(1)과 같이 취소한다 — 쫓던 표적이 없어졌으면 포격도 없다
+  if (e.shellPhase === 1 || e.shellPhase === 3) { e.shellPhase = 0; e.shellPhaseT = 0; e.shellPrepDone = false; }
   if (e.shellPhase === 2) {
     e.shellPhaseT -= dt;
     if (e.shellPhaseT > 0) { e.hasMoveTarget = false; a.brace = 1; return true; }

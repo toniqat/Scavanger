@@ -103,8 +103,8 @@ One line per csv. "Loader" is the parsing module under `src/`; values usually ta
 
 | File | What it holds | Loader |
 |---|---|---|
-| `planets.csv` | Planets (row order = difficulty rank): `threat`, biome, sky/fog, bugs, gather nodes, soils, seeds, samples, `env`, `hazards` | `shared/planetDefs.ts` (also `world/flora.ts`, `world/soil.ts`, `world/specimen.ts`, `items/LootTables.ts`) |
-| `structures.csv` | Abandoned structures, rail platforms, trams: counts, sizes, containers, basement/upper-floor chances, crate tiers, key and locked-room columns, `basementBonus*` (per-basement-container bonus item · chance · planets — the thumper) | `world/structures/model.ts` |
+| `planets.csv` | Planets (row order = difficulty rank): `threat`, biome, sky/fog, bugs, gather nodes, soils, seeds, samples (**retired 2026-09-18: `sampleNodes` 0 and `samples` empty on every planet — the columns and their loader stay**), `env`, `hazards` | `shared/planetDefs.ts` (also `world/flora.ts`, `world/soil.ts`, `world/specimen.ts`, `items/LootTables.ts`) |
+| `structures.csv` | Abandoned structures, rail platforms, trams: counts, sizes, containers (**the `tram` row's `containers` is unread since 2026-09-18 — the tram has no cabin containers; `rail_platform` still reads the column**), basement/upper-floor chances, crate tiers, key and locked-room columns, `basementBonus*` (per-basement-container bonus item · chance · planets — the thumper) | `world/structures/model.ts` |
 | `hazards.csv` | Environmental hazard visuals (fog color/multiplier, particles, walls). Rule numbers are `HAZARD_*`/`STORM_EYE_*`/`SPORE_*` in `constants.csv` | `world/hazard/model.ts` |
 | `stratagems.csv` | Ship calls; `cooldown` is the single cooldown shared by all calls after use | `shared/constants.ts` |
 | `room_purposes.csv` | Room purpose build cost and required `generator` level | `shared/housing.ts` |
