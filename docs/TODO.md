@@ -44,6 +44,7 @@
 | A-7 | **BGM**. 설정의 오디오 채널 자리만 비워 뒀다 | `src/ui/menus/SettingsMenu.ts:26` "Room is left for a future BGM row … there is no BGM" |
 | B-10 | **채널 티커의 음소거가 플래그 하나**. 스프레이 도중 끝난 붕대는 토스트가 없고, `active:false` 를 놓치면 라인이 남는다 | `src/ui/hud/Notifications.ts` |
 | B-22 | **`smoke-rover` 5번 단언이 알 수 없는 것을 단언한다** (2026-09-18 발견 — `9e6c01d` 와 그 부모 양쪽에서 같이 red 라 그 커밋 탓이 아니다). 로버 옆 13 m 에 `warrior` 하나를 세우고 5초 뒤 「`rover:fired` 가 늘었고 **그 적의** hp 가 줄었다」를 함께 요구하는데, 포탑은 `ROVER_TURRET_RANGE` 안 **가장 가까운** 적을 골라 직접 피해를 준다(`rover/parts/Turret.ts`). 다른 벌레가 더 가깝거나, 순환 중인 로버가 세운 적을 `ROVER_TURRET_AIM_CONE` 밖 · 차폐 뒤에 두면 16~20발을 쏘고도 `hp 213 → 213` 이 되어 29/30 이 된다. 두 조건을 **같은 적**으로 재거나(`rover:fired` 의 대상 · `ts.targetId` 고정) 주변을 먼저 비워야 한다 | `scripts/smoke-rover.mjs:235` · `src/world/rover/parts/Turret.ts:82-116` |
+| B-26 | **`e2e-mp` 의 분대 패널 단언이 기다리지 않는다** (2026-09-19 전체 선택 `verify`(96개) 에서 178/179, 재실행은 179/179). `e2e-multiplayer.mjs:298` 은 `waitFor` 로 `ctx.net.lobby` 에 바뀐 이름이 들어온 것만 확인하고 바로 `#ui-root .squad` 의 `textContent` 를 읽는다 — HUD 패널은 제 주기로 다시 그리므로 부하가 걸리면 아직 옛 이름이다. 그 구간에서 기다리지 않는 유일한 검사다. `waitFor` 로 감싸면 된다 | `scripts/e2e-multiplayer.mjs:298` · `docs/VERIFICATION.md` 「Known flakes」 |
 
 ## 묶음 7 (상시) — 밸런스 · 튜닝
 
