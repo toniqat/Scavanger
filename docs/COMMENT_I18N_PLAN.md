@@ -362,6 +362,25 @@ git checkout HEAD -- src/<folder>
 assertion asks for two things it cannot tie to one enemy). Committing first is what makes that checkout safe — this
 repo does not use `git stash`.
 
+**One green at the parent proves nothing — `src/items` learned this the hard way.** `smoke-phase4`'s artillery
+assertion went red three times at HEAD and **green at the parent on its single run**, which reads exactly like a real
+regression. It was not: five serial runs at HEAD then gave red · red · green · red · red, and the failure payload's
+`dist` drifts every run (86.90 · 86.96 · 87.24 m) because the sim is frame-timing dependent under swiftshader. The
+parent had simply been lucky. Run the parent **more than once** before believing it.
+
+**The decisive check for a comment pass is the compiler, not the smoke.** `tsc` emits with comments stripped, so if the
+emit is byte-identical the change cannot alter runtime behaviour at all and any red is environmental — no number of
+smoke runs is needed. It is one command per side (a temp dir of the folder's files at each commit):
+
+```
+npx tsc --ignoreConfig --removeComments --target es2022 --module esnext --moduleResolution bundler         --skipLibCheck --noResolve --outDir <out> <files>.ts
+diff -rq <headjs> <parentjs>
+```
+
+`--ignoreConfig` is required (tsc 7 refuses to load `tsconfig.json` alongside file arguments) and `--noResolve`
+keeps it from pulling the whole program in. This is a **stronger** statement than §3 step 4, which compares a
+hand-rolled strip; reach for it whenever step 4 says `code changes: 0` and a smoke still disagrees.
+
 ---
 
 ## 5. Measuring
