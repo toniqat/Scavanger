@@ -69,7 +69,7 @@ export type TutorialStepId =
   | 'corpseLoot'   // takes the weapon · bag · ammo out of the corpse and equips them (the hp · weapon HUD appears here)
   /*
    * appended (2026-09-14 4th pass, user's decision) — **three 「앞으로 이동」 stretches.** Before, the next step's
-   * guide came up the instant the previous one ended: 「앉아서 낮은 픹을 지나세요」 the moment the bug died,
+   * guide came up the instant the previous one ended: 「앉아서 낮은 틈을 지나세요」 the moment the bug died,
    * 「아래로 뛰어내리세요」 the moment the android died — with that thing 30 m away and only the guide arriving
    * first. So **between one stretch and the next it is always 「앞으로 이동」**, and the next guide comes up on
    * standing in front of that thing (= the checkpoint).
@@ -105,9 +105,11 @@ export type TutorialStepId =
    * id stays because it is a contract, it is only missing from `TUTORIAL_TRACK_STEPS.ship`). Raven's first contact
    * now comes **after** the ship track ends (`meta/parts/NpcQuests.tutorialBlocks`) — the guide does not drag the
    * player as far as accepting a quest.
-   * 2026-09-16 (user's decision) — `messenger`, which used to follow it, was dropped the same way. The ship track is
-   * `levelUp` → `stats`, and an old save's `messenger` · `ravenQuest` are read by `tutorial/Steps.retiredTrackEnd`
-   * as the end of the ship track (there is no step left to join on).
+   * 2026-09-16 (user's decision) — `messenger`, which used to follow it, was dropped the same way, leaving the ship
+   * track as `levelUp` → `stats`. The 2nd pass the same day dropped `levelUp` too, so today the track is the **one**
+   * step `stats` — `TUTORIAL_TRACK_STEPS.ship` below is the answer, never this sentence. An old save's `messenger` ·
+   * `ravenQuest` are read by `tutorial/Steps.retiredTrackEnd` as the end of the ship track (there is no step left to
+   * join on).
    */
   | 'ravenQuest'   // (out of the order, 2026-09-15) Raven's first contact · picking an answer · accepting the quest
   /* ── ③ build: the existing 17 steps (ids unchanged) ── */

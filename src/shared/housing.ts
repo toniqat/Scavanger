@@ -987,7 +987,9 @@ export interface HousingRef {
  * A slot has **two steps** — exactly the greenhouse's 「soil first, seed second」:
  *   ① `fillMedium` pours in a nutrient medium (`ItemDef.medium`, an extractor product).
  *   ② `insertStrain` inserts a cell line · strain (`ItemDef.strain`, an analyzer product).
- * The medium wears **once per harvest** (`mediumUsesLeft`) and at 0 the slot empties completely. Unlike soil's tag matching a medium
+ * The medium wears **once per harvest** (`mediumUsesLeft`) and **at 0 the slot is left as it is** — 2026-09-13
+ * (the cooking material tiers, user's decision) gave the medium soil's durability rule, so the tank stops producing
+ * until a fresh medium goes in instead of emptying (the 2026-09-11 rule that emptied it is gone). Unlike soil's tag matching a medium
  * is **one grade** (`MediumDef.speedMul`), and the culture time is fixed into `readyAt` the moment the strain goes in.
  * ──────────────────────────────────────────────────────────────────────────── */
 
@@ -1072,7 +1074,8 @@ export interface HousingRef {
   /** Insert one strain into a slot that has a medium. `readyAt` is fixed here. Korean reason / null. */
   insertStrain(uid: string, slot: number, strainDefId: string): string | null;
   /**
-   * Harvest one finished slot (the bag, the ship stash when there is no space). One medium use is spent, and at 0 the slot empties completely.
+   * Harvest one finished slot (the bag, the ship stash when there is no space). One medium use is spent, and **at 0 the slot is left as it is**
+   * (2026-09-13 — it stops producing, it does not empty).
    * Otherwise it goes back to 「a medium ready for a strain」. Korean reason / null.
    * 2026-09-12 (appended argument): `dest` picks the grid to put it in (`HarvestDestination`, default `'bag-first'`).
    */
@@ -1348,6 +1351,20 @@ export type GymMinigame = 'press' | 'breath' | 'cycle';
 export const GYM_MINIGAME_LABEL_KO: Readonly<Record<GymMinigame, string>> = {
   press: '벤치프레스', breath: '호흡 달리기', cycle: '사이클링',
 };
+/**
+ * appended (2026-09-19, B-32): the **game disc**'s name for the same three minigames (user's decision
+ * 「벤치프레스형 · 호흡형 · 사이클형」) — a disc is named from here, a piece of gym equipment from
+ * `GYM_MINIGAME_LABEL_KO` above. It is contract because **two folders print it**: housing's TV and library screens
+ * and ui's item tooltip, and a folder may not read another folder's internals (CLAUDE.md §4.1). Until today the
+ * tooltip printed the gym name and the library catalogue a third spelling of its own.
+ */
+export const GAME_MINIGAME_LABEL_KO: Readonly<Record<GymMinigame, string>> = {
+  press: '벤치프레스형', breath: '호흡형', cycle: '사이클형',
+};
+/** A game disc's minigame name — the one spelling every screen prints. `?? kind` only covers an id outside `GymMinigame`. */
+export function gameMinigameLabel(kind: GymMinigame): string {
+  return GAME_MINIGAME_LABEL_KO[kind] ?? kind;
+}
 
 /** What one piece of gym equipment raises, and which minigame · pose it uses. */
 export interface GymEquipmentDef {
@@ -1975,7 +1992,12 @@ export interface ComputeClusterInfo {
   mining: boolean;
   /** Korean reason it is not running (no coin picked · no cores · power · inactive · the main computer · a locked coin), null while it runs. */
   block: string | null;
-  /** This cluster's required power (cores included). */
+  /**
+   * This cluster's required power (cores included). **Dead since 2026-09-13** (power allocation removed, user's
+   * decision): the implementation always reports 0 and nothing in `src/` reads it. It stays because `src/shared`
+   * is add-only (CLAUDE.md §4.1) and a required field cannot be dropped without a decision — do not start
+   * feeding it, and do not read it (`src/housing/README.md` records the same limit).
+   */
   power: number;
 }
 

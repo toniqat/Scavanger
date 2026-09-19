@@ -146,7 +146,7 @@ export class ProgressionSystem implements GameSystem, ProgressionRef {
 
   /**
    * **Death only** (2026-09-11 C-12, user's decision): every equipped implant leaves the body — the ship gate of
-   * `unequipImplant` does not apply. Each one becomes a **broken twin** item (`brokenImplantIdOf`, fresh uid from
+   * `unequipImplant` does not apply. Each one becomes a **broken pair** item (`brokenImplantIdOf`, fresh uid from
    * `createItem`, no durability) handed to `InventoryRef.stripForCorpse` for the corpse; the working instance is gone.
    * An entry whose twin def is unknown is dropped without an item. `derived` is recomputed, `progress:implantsChanged`
    * goes out and the profile is **written at once** — a reload right after dying must not bring the implants back

@@ -275,7 +275,7 @@ export interface ProgressionRef {
   /* ── appended (2026-09-11, C-12 user's decision): death takes the equipped implants out of the body ── */
   /**
    * **Death only** — bypasses the ship gate of `unequipImplant`. Unequips every equipped implant and returns one
-   * **broken twin** instance per implant (`brokenImplantIdOf(defId)`, a fresh uid) for the corpse; the working items
+   * **broken pair** instance per implant (`brokenImplantIdOf(defId)`, a fresh uid) for the corpse; the working items
    * are gone. Emits `progress:implantsChanged`, recomputes `derived` and **saves at once** (a reload right after dying
    * must not bring them back — same reason as `loadoutStore.saveNow('corpse')`). Called by
    * `InventoryRef.stripForCorpse`; an implant whose def is unknown is dropped without a twin. Empty when none.
@@ -284,7 +284,7 @@ export interface ProgressionRef {
 }
 
 /**
- * `imp_strength_2` → `imp_broken_strength_2` — the item id of an implant's broken twin (also works for `imp_perk_*`).
+ * `imp_strength_2` → `imp_broken_strength_2` — the item id of an implant's broken pair (also works for `imp_perk_*`).
  * appended (2026-09-11, C-12): moved here from `items/ImplantDefs` because progression (death strip) and items (the
  * defs) both need the rule. Items re-exports it.
  */

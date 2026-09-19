@@ -1391,8 +1391,12 @@ export interface TradeGridsViewOptions {
   /** Label of the right-click menu's first entry (what `onTake` does on this screen). Default `빠른 이동`. */
   takeLabel?: string;
   /**
-   * `'wrap'` (default): one scroll box, blocks side by side, wrapping when narrow. `'split'`: every block scrolls itself
-   * and stretches to the view's height; a block is exactly as wide as its grid — mount **one** grid per caller card.
+   * `'wrap'`: one scroll box, blocks side by side, wrapping when narrow. `'split'`: every block scrolls itself and
+   * stretches to the view's height; a block is exactly as wide as its grid — mount **one** grid per caller card.
+   *
+   * **Never read** (2026-09-19, B-37): the implementation's root is always `trade-grids is-split`, so passing
+   * `'wrap'` changes nothing. It stays because `src/shared` is add-only (CLAUDE.md §4.1) and two callers still pass
+   * `'split'` (`meta/ui/CorpView` · `housing/ui/StationShell`) — deleting it would break them for no gain.
    */
   layout?: 'wrap' | 'split';
   /**
@@ -3287,10 +3291,10 @@ export interface InventoryRef {
  *     and the camera becomes a **mouse-orbit third person** on the vehicle. A rider **takes no damage at all** (hazards · the planet environment included) — only the vehicle is hit.
  *   - The moment anyone first boards, **every station position stays on the whole squad's map for the rest of the raid** (before that, only stations found through the fog).
  *   - With a rider aboard and nothing paid, the dwell timer stops (it waits). When **one rider pays the fare for everybody** (proportional to the route distance, `ROVER_FARE_MIN`–`MAX`),
- *     it goes **straight** to the target station after a `ROVER_DEPART_GRACE_S` (5) grace (the short way round the ring). People may board and get off during the grace,
+ *     it goes **straight** to the target station after a `ROVER_DEPART_GRACE_S` (5) grace (the short way round the ring). People may board and exit during the grace,
  *     and once it has departed neither is possible. On arrival **everyone is forced off** and it resumes circling from a dwell at that station.
  *   - While moving (`patrol` · `trip`) it shoots enemies within a narrow radius. Hp `ROVER_HP` (2000). **Only enemies and hazards** damage it (player weapons · explosions do nothing).
- *     Inside a hazard zone it takes `ROVER_HAZARD_DAMAGE_MUL` (5)× the hazard damage. Destroyed, riders get off on the spot at once and it is unusable for that raid (wreckage remains).
+ *     Inside a hazard zone it takes `ROVER_HAZARD_DAMAGE_MUL` (5)× the hazard damage. Destroyed, riders are put out on the spot at once and it is unusable for that raid (wreckage remains).
  *     There is no refund for destruction or for an accident on the way.
  *   - A station swallowed by a hazard cannot be chosen as a destination (a trip already under way still goes), and a vehicle standing at one refuses boarding.
  * Authority: **the host** (as with the tram — the route is seed-deterministic, the wire carries `s` · state · hp · riders). The fare is paid by the payer's own client with `credits:tx`.
@@ -3416,10 +3420,10 @@ export interface PlayerRef {
   /** The Korean reason boarding is **not** possible right now (dead · downed · carrying · being carried · on a ladder · in drone control · inside a ship/pod), or null when it is. */
   roverBoardBlock?(): string | null;
   /**
-   * Board / get off. With a `binding`: the body is hidden (model · shadow — `PlayerFlags.IN_ROVER` for remotes), movement · jump · stance · weapons ·
+   * Board / exit. With a `binding`: the body is hidden (model · shadow — `PlayerFlags.IN_ROVER` for remotes), movement · jump · stance · weapons ·
    * interaction · quick slots · implants · ship calls · pings · the comms wheel are blocked (hung on the same gates that watch `droneControl`), **all damage is
    * ignored** (`takeDamage` · knockback · hazards · the planet environment), the body is put at `seat` every frame, and the camera orbits `focus` on the mouse.
-   * An E hold = when `canExit`, the get-off hold → `requestExit()`. Tab (the inventory) · M (the map) · chat · Esc still work as usual.
+   * An E hold = when `canExit`, the exit hold → `requestExit()`. Tab (the inventory) · M (the map) · chat · Esc still work as usual.
    * With `null`: the body is stood at `exitAt` (where it is now when omitted), made visible again, and the camera hard-cuts back behind the PC.
    * `game:abort` · `game:newMission` · `respawnAt` · `spawnStanding` release it themselves. Already in the same state, it does nothing.
    */
@@ -3452,7 +3456,7 @@ export interface PlayerRef {
   /**
    * **Sets hp outright** — the place where a scripted scene decides the state of the body. The only user today is the tutorial
    * (the person waking in the ruins is **on a sliver of hp**, so one hit from a bug kills — the user's spec).
-   * It raises no hit shot · direction arc · sound and **does not touch the shield**; dead or downed it does nothing.
+   * It raises no hit feedback · direction arc · sound and **does not touch the shield**; dead or downed it does nothing.
    * It never goes below 1 (this function does not kill anyone — killing is `takeDamage`'s job).
    */
   setHp?(hp: number): void;

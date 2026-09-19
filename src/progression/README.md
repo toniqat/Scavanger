@@ -109,7 +109,7 @@ default (multiplier 1, bonus 0).
 - **Implant items**: slots = `min(IMPLANT_SLOTS_MAX, IMPLANT_SLOTS_BASE + ⌊level / IMPLANT_SLOTS_PER_LEVELS⌋)`. The item
   instance leaves the grids while equipped and lives in `profile.implants`. Equip / unequip only in phase `hub` and not
   in a raid; unequip refuses when stash and bag are full. `stripImplantsForCorpse` has no ship gate: every entry
-  becomes its broken twin (`brokenImplantIdOf`) for the corpse, then `recompute` + **immediate save**.
+  becomes its broken pair (`brokenImplantIdOf`) for the corpse, then `recompute` + **immediate save**.
   The equip UI lives in `inventory/ui/ImplantPanel.ts`; the sheet only shows bonuses and thumbnails.
 - **Starter tactical implant**: new profiles have `implant: null`; `grantStarterImplant` on `hub:entered` equips
   `DEFAULT_IMPLANT` through `ctx.implants.setEquipped` (idempotent — does nothing if any implant is set, or outside the

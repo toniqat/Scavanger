@@ -2116,7 +2116,7 @@ export const FALL_VIGNETTE_S = K.num('FALL_VIGNETTE_S');
 export const FALL_VIGNETTE_FULL_DAMAGE = K.num('FALL_VIGNETTE_FULL_DAMAGE');
 /** Range (m) of a squadmate's landing sound — player filters `FallMessage` by it and audio uses it for the falloff. */
 export const FALL_REMOTE_SOUND_RANGE = K.num('FALL_REMOTE_SOUND_RANGE');
-/** Fire zone of the G-10 incendiary grenade (gadgets `GadgetId 'grenadeFire'`). */
+/** Fire zone of the G-10 incendiary grenade — the gadget that makes it is `GadgetId 'incendiary'` (2026-09-15 fire merge; `'grenadeFire'` survives in `GadgetId` only as a retired marker with no definition, like `'airstrike'` · `'secondary'`). */
 export const GRENADE_INCENDIARY_RADIUS = K.num('GRENADE_INCENDIARY_RADIUS');
 export const GRENADE_INCENDIARY_DURATION = K.num('GRENADE_INCENDIARY_DURATION');
 /** Blast of the G-10 incendiary grenade (weapons `Grenade`) — the small blast used instead of the high-explosive `GRENADE_DAMAGE` / `GRENADE_RADIUS`. */

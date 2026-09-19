@@ -64,7 +64,11 @@ export interface DroneRef {
   readonly linkRatio: number;
   /** The owner PC is out of range, so it cannot be controlled. */
   readonly linkLost: boolean;
-  /** Id of the small deployable (mine · remote mine) riding on this drone, null with none. gadgets sets it. */
+  /**
+   * Id of the small deployable (mine · remote mine) riding on this drone, null with none. **Derived, never
+   * written** (2026-09-19, B-56): the implementation walks `GadgetsRef.getDeployables()` for `mount === this.id`,
+   * so gadgets marks a mount by setting `Deployable.mount` — assigning this field does nothing.
+   */
   readonly mountedDeployableId: string | null;
   /** Centre of the top face a small deployable sits on (world coordinates, it moves with the drone). */
   getMountPoint(out: THREE.Vector3): THREE.Vector3;

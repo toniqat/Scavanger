@@ -77,7 +77,7 @@ export class NetSystem implements GameSystem, NetRef {
   duplicateKicked = false;
   /**
    * 2026-09-11 (C-29): the relay closed us on purpose — `kicked` (operator console) or `server_full` (operator cap).
-   * Like `duplicateKicked` it stops auto-reconnect; an explicit `connect()` (터미널 `신호 찾기`) clears it — there is no ban.
+   * Like `duplicateKicked` it stops auto-reconnect; an explicit `connect()` (the terminal's `다시 연결`) clears it — there is no ban.
    */
   serverRefused: 'kicked' | 'server_full' | null = null;
   _reconnecting = false;
