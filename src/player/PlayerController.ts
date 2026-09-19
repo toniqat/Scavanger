@@ -98,12 +98,12 @@ const _ride = new THREE.Vector3();
 /** Ceiling probe: from the hips straight up; stops the jump when the head would pass through a deck above. */
 const CEIL_PROBE_START = 0.6;
 /**
- * World ceiling clearance (m above the feet). **Must equal `world/obb.ts` `BOX_HEADROOM`** (2.1): `WorldRef.resolveCollision`
- * pushes a box out sideways as soon as `feet + BOX_HEADROOM` passes its underside, so clamping only the 1.8 m head
- * would still let the push-out shove a jumping body out from under a slab. Mirrored here because the value is not in
- * `@/shared` yet (requested) — change both together.
+ * World ceiling clearance (m above the feet) — **is** `world/obb.ts` `BOX_HEADROOM` (2.1), imported from `@/shared`
+ * since 2026-09-11 so both read the one `data/constants.csv` row (nothing is copied here any more; the local name
+ * only says what the value means on this side). It has to be that value: `WorldRef.resolveCollision` pushes a box
+ * out sideways as soon as `feet + BOX_HEADROOM` passes its underside, so clamping only the 1.8 m head would still
+ * let the push-out shove a jumping body out from under a slab.
  */
-/** 2026-09-11: the same value as `world/obb.BOX_HEADROOM` — it now comes from one place, `data/constants.csv`. */
 const WORLD_CEIL_HEADROOM = BOX_HEADROOM;
 
 /* ── Ride coordinate transforms ───────────────────────────────────────────────────────────────
@@ -177,7 +177,6 @@ export class PlayerController {
   climbSpeed = 0;
   private readonly mountFrom = new THREE.Vector3();
   private lastStep = 0;
-  private wasGrounded = true;
   private coyote = 0;
   private rollTimer = 0;
   /**
@@ -221,7 +220,7 @@ export class PlayerController {
   reset(pos: THREE.Vector3): void {
     this.position.copy(pos);
     this.velocity.set(0, 0, 0);
-    this.grounded = true; this.wasGrounded = true;
+    this.grounded = true;
     this.stance = 'stand'; this.sprinting = false;
     this.rolling = false; this.rollTimer = 0; this.rollProgress = 0;
     this.grappleTarget = null; this.hovering = false;
@@ -267,7 +266,7 @@ export class PlayerController {
     this.climbLadder = ladder;
     this.climbMount = -1;
     this.climbFast = false; this.climbSpeed = 0;
-    this.grounded = false; this.wasGrounded = false; this.coyote = 0;
+    this.grounded = false; this.coyote = 0;
     this.lastStep = Math.floor(this.stridePhase / Math.PI);
   }
 
@@ -275,7 +274,7 @@ export class PlayerController {
   releaseClimb(): void {
     if (!this.climbLadder) return;
     this.climbLadder = null; this.climbMount = -1; this.climbFast = false; this.climbSpeed = 0;
-    this.grounded = false; this.wasGrounded = false; this.coyote = 0;
+    this.grounded = false; this.coyote = 0;
     // 2026-09-14: a body that dropped off a ladder takes no fall damage (hanging on there is no landing at all)
     this.fallFromY = this.position.y; this.fallExempt = true;
   }
@@ -357,7 +356,7 @@ export class PlayerController {
 
   private endClimb(out: MoveResult, end: ClimbEnd, grounded: boolean): void {
     this.climbLadder = null; this.climbMount = -1; this.climbFast = false; this.climbSpeed = 0;
-    this.grounded = grounded; this.wasGrounded = grounded; this.coyote = grounded ? 0.1 : 0;
+    this.grounded = grounded; this.coyote = grounded ? 0.1 : 0;
     if (grounded) this.velocity.set(0, 0, 0);
     // 2026-09-14: a fall from releasing the ladder (E · jump) is exempt — mounting · stepping off just set a base
     this.fallFromY = this.position.y; this.fallExempt = !grounded;
@@ -483,11 +482,6 @@ export class PlayerController {
   }
 
   /**
-   * The world ceiling (2026-09-11) — the same shape as the interior mode's ceiling probe. The ray is cast from the
-   * hips at the **feet height before the integration**: cast from the post-integration spot, the hips are already
-   * inside the slab and the ray does not see it. Called only on a rising frame.
-   */
-  /**
    * The **headroom** the current stance asks for (2026-09-14, crouching through a low passage).
    * Standing it is the same `WORLD_CEIL_HEADROOM` (= `BOX_HEADROOM` 2.1) as before, so the main game's routes do not
    * change. This value must be the height handed to `resolveCollision` — if the ceiling clamp and the push-out look
@@ -499,6 +493,11 @@ export class PlayerController {
     return Math.max(PLAYER_HEIGHT, WORLD_CEIL_HEADROOM);
   }
 
+  /**
+   * The world ceiling (2026-09-11) — the same shape as the interior mode's ceiling probe. The ray is cast from the
+   * hips at the **feet height before the integration**: cast from the post-integration spot, the hips are already
+   * inside the slab and the ray does not see it. Called only on a rising frame.
+   */
   private clampWorldCeiling(world: WorldRef, feetBefore: number): void {
     const pos = this.position;
     const clearance = this.bodyClearance;
@@ -734,7 +733,6 @@ export class PlayerController {
     } else {
       this.grounded = false;
     }
-    this.wasGrounded = wasGrounded;
     if (this.grounded) this.hovering = false;
 
     /*

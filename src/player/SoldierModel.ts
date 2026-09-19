@@ -276,7 +276,7 @@ function liftSocketChildren(o: THREE.Object3D, depth: number): void {
 }
 
 /**
- * Stylised armoured trooper (~1.8 m) built from primitives. Root origin is at the feet, model faces -Z.
+ * Stylised armored trooper (~1.8 m) built from primitives. Root origin is at the feet, model faces -Z.
  * Joint convention: rotation.x > 0 swings a limb forward (toward -Z).
  */
 export class SoldierModel {

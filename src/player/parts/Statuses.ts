@@ -2,30 +2,13 @@
  * src/player/parts/Statuses.ts — **the states that attach to the player**: cloak · burning · armor regen.
  *
  * The cloak multiplies enemy detection directly (`getStealthFactor`), and optical-camo armor is a permanent cloak.
- * Burning is a DoT dealing damage per second, and armor regen heals a little at a time once combat breaks off.
+ * Burning is a DoT dealing damage per second, and the armor perk `regen` (`방탄복 신화 재생`, `updateArmorRegen`)
+ * heals **hp** — neither the plate's durability nor the shield — a whole point at a time while the stamina is full.
  */
-import * as THREE from 'three';
-import type { PlayerRestoreState } from '@/shared';
 import {
-  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
-  PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
-  ARMOR_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST,
-  ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION,
-  PLANET_ENV_DPS, PLANET_ENV_TICK_S,
-  type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
+  GameContext, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, PLANET_ENV_DPS, PLANET_ENV_TICK_S,
 } from '@/shared';
-import { FxManager, ParticleBurst } from '@/core/fx';
-import { damp, dampAngle, smoothstep, wrapAngle } from '@/core/util/MathUtil';
-import { SoldierModel, type SoldierPose } from '../SoldierModel';
-import { CameraRig, type RigInput } from '../CameraRig';
-import { PlayerController, type MoveInput, type MoveResult, type ShipBounds } from '../PlayerController';
-import { Hellpod, type HellpodEvents } from '../Hellpod';
-import { PlayerGear } from '../PlayerGear';
-import type { CarryEndReason, PortraitRef } from '@/shared';
-import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER_CARRY_RANGE, PLAYER_CARRY_SPEED_MUL } from '@/shared';
-import type { CarryHost } from '../Carry';
-import { createPortraits } from '../Portraits';
-import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from '../model';
+import { BURN_TICK, CLOAK_PROBE_INTERVAL } from '../model';
 import type { PlayerSystem } from '../PlayerSystem';
 import type { PlayerDamageSource } from '@/shared';
 
@@ -43,12 +26,12 @@ export function setCloak(sys: PlayerSystem, duration: number, source: 'gadget' |
   }
   if (duration >= sys.cloakTimer || sys.cloakSource === null) sys.cloakSource = source;
   sys.cloakTimer = Math.max(sys.cloakTimer, duration);
-  }
+}
 
 /** 0..1 factor an enemy multiplies its detection range by (1 = fully visible). */
 export function getStealthFactor(sys: PlayerSystem): number {
   return sys._cloaked ? CLOAK_DETECT_MUL : 1;
-  }
+}
 
 /** Fire zone / incendiary: DoT that also suppresses the `인내` (grit) save while it kills. */
 export function setBurning(sys: PlayerSystem, dps: number, duration: number, source?: PlayerDamageSource): void {
@@ -71,7 +54,7 @@ export function setBurning(sys: PlayerSystem, dps: number, duration: number, sou
     sys.burnTick = BURN_TICK;
     sys.ctx.bus.emit('player:burning', { active: true, dps: sys.burnDps });
   }
-  }
+}
 
 /**
  * Cloak upkeep: firing, sprinting, rolling, meleeing or an enemy inside CLOAK_REVEAL_DISTANCE reveal the player
@@ -99,14 +82,14 @@ export function updateCloak(sys: PlayerSystem, dt: number, ctx: GameContext): vo
     sys._cloaked = cloaked;
     ctx.bus.emit('player:cloakChanged', { cloaked, source: cloaked ? sys.cloakSource : null });
   }
-  }
+}
 
 /** Any alive enemy within `radius`. */
 export function enemyWithin(sys: PlayerSystem, ctx: GameContext, radius: number): boolean {
   const em = ctx.enemies;
   if (!em) return false;
   return em.queryNear(sys.controller.position, radius).length > 0;
-  }
+}
 
 /** Burning DoT (incendiary / fire zone). Applied in BURN_TICK chunks; never triggers the `인내` (grit) save. */
 export function updateBurning(sys: PlayerSystem, dt: number): void {
@@ -121,7 +104,7 @@ export function updateBurning(sys: PlayerSystem, dt: number): void {
     sys._burning = false; sys.burnDps = 0; sys.burnTimer = 0; sys.burnSource = undefined;
     sys.ctx.bus.emit('player:burning', { active: false, dps: 0 });
   }
-  }
+}
 
 /* ══ the planet's permanent environment (A-13, 2026-09-11 — user's decision) ══════════════════════════════════════
  * Standing on 피로스 VII (`heat`) · 카민 I (`toxin`) **without the matching prep** takes `PLANET_ENV_DPS × tick` off
@@ -169,9 +152,13 @@ export function updateEnv(sys: PlayerSystem, dt: number, ctx: GameContext): void
   bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta: -dealt });
   // A DoT, so the `인내` (grit) save never fires — the same contract as burning.
   if (sys.hp <= 0) { sys._deathSource = ENV_DAMAGE_SOURCE; sys.onLethal(true); }
-  }
+}
 
-/** Regenerating armor: 1 hp/s (perkValue) while stamina is full. Healed in whole points to avoid event spam. */
+/**
+ * The armor perk `regen` (`방탄복 신화 재생`): 1 **hp** per second (`perkValue`) while the stamina bar is full,
+ * healed in whole points to avoid event spam. Despite the name it restores neither the plate's durability nor the
+ * shield — the shield refills only in the ship and from raid chargers (`PlayerSystem.chargeShield`).
+ */
 export function updateArmorRegen(sys: PlayerSystem, dt: number): void {
   const rate = sys.gear.regenPerSecond;
   if (rate <= 0 || sys.isDead || sys._downed || sys.hp >= sys.maxHp) { sys.regenAccum = 0; return; }
@@ -182,4 +169,4 @@ export function updateArmorRegen(sys: PlayerSystem, dt: number): void {
     sys.regenAccum -= whole;
     sys.heal(whole);
   }
-  }
+}

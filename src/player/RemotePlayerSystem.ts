@@ -243,10 +243,14 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
   update(dt: number, ctx: GameContext): void {
     this.frame++;
     const refs = ctx.net?.getRemotePlayers() ?? EMPTY;
-    for (let i = 0; i < refs.length; i++) this.drive(refs[i], dt, ctx);
-    for (let i = 0; i < this.debugRefs.length; i++) this.drive(this.debugRefs[i], dt, ctx);
-    // sweep avatars whose ref vanished without a removal event
-    if (this.avatars.size > refs.length + this.debugRefs.length) {
+    let seen = 0;
+    for (let i = 0; i < refs.length; i++) if (this.drive(refs[i], dt, ctx)) seen++;
+    for (let i = 0; i < this.debugRefs.length; i++) if (this.drive(this.debugRefs[i], dt, ctx)) seen++;
+    // Sweep avatars whose ref vanished without a removal event. The gate counts the **distinct avatars driven this
+    // frame** (2026-09-19, B-49), not the two list lengths: a ref that `drive` dropped (disconnected, not suspended)
+    // or a debug ref repeating a live peer keeps the lengths up while an avatar has gone stale, and the sweep would
+    // never run — the body would stay in the scene instead of going back to `SoldierPool`.
+    if (this.avatars.size > seen) {
       for (const [id, av] of this.avatars) if (av.seenFrame !== this.frame) this.remove(id);
     }
     // Phase 10: bodies riding on somebody's shoulder (including our own) — the avatars exist by now
@@ -394,14 +398,17 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
   }
 
   /* ─────────────────────────── internals ─────────────────────────── */
-  private drive(ref: RemotePlayerRef, dt: number, ctx: GameContext): void {
+  /** Returns true when this call is what marked that avatar as seen this frame (the caller counts them). */
+  private drive(ref: RemotePlayerRef, dt: number, ctx: GameContext): boolean {
     // Phase 7: a suspended member keeps its ref (and body) even when the lobby marks it disconnected
-    if (!ref.connected && !ref.suspended) { this.remove(ref.id); return; }
+    if (!ref.connected && !ref.suspended) { this.remove(ref.id); return false; }
     const av = this.ensure(ref);
+    const fresh = av.seenFrame !== this.frame;
     av.seenFrame = this.frame;
     av.update(dt, ctx);
     this.emitFootstep(ref, av, ctx);
     this.syncRevive(ref, ctx);
+    return fresh;
   }
 
   /**

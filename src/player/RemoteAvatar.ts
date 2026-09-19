@@ -14,7 +14,7 @@ import {
   FURN_EYE, FURN_HEAD_ABOVE_EYE, FURN_YAW_RATE, furnitureBodyYaw, lerpFurnitureRoot, stepFurnitureBlend, writeFurniturePose,
 } from './model';
 
-/* Nameplate anchors for the armoured trooper body (head ≈ 1.7 m standing; the HUD adds +0.35 m). */
+/* Nameplate anchors for the armored trooper body (head ≈ 1.7 m standing; the HUD adds +0.35 m). */
 const HEAD_STAND = 1.7;
 const HEAD_CROUCH = 1.3;
 const HEAD_PRONE = 0.5;

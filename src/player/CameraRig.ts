@@ -17,7 +17,6 @@ export interface RigInput {
   prone: number;        // 0..1
   dive: number;         // 0..1
   moveBlend: number;    // 0..1
-  stridePhase: number;  // kept for API symmetry; the camera no longer reacts to it
   grounded: boolean;
   dead: boolean;
   world: WorldRef | null;

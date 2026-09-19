@@ -16,7 +16,7 @@ revive / carry interactions. Weapons, implants and gadgets act on the player onl
 | `parts/Vitals.ts` | `applyDamage` (single damage entry: shield first, grit, source), downed / bleed / give-up, `die`, `revive`, `applyHeal`, `setHp`, perk `auto_revive` |
 | `parts/Locomotion.ts` | Stances (`canStandHere`), roll, stamina, speed-modifier stack, grapple pull, bag hover, `applyImpulse` |
 | `parts/Spawn.ts` | Hellpod drop (`startDrop`, `pod drop`), `spawnStanding`, `respawnAt`, `rescueRevive`, `restoreState` / `holdForRestore`, `teleport`, `resetAll` / `resetTactical`, `usesHellpod` |
-| `parts/Statuses.ts` | Cloak, burning (with source), armour regen, planet environment tick (`updateEnv`) |
+| `parts/Statuses.ts` | Cloak, burning (with source), the armor perk `regen` (`updateArmorRegen` — heals **hp**, not the plate or the shield), planet environment tick (`updateEnv`) |
 | `parts/Boosts.ts` | Combat consumable effects (`applyBoost`: adrenaline / stimulant) and the multipliers they expose |
 | `parts/Buffs.ts` | Character buff list (`buffs`, `buffsRevision`, `player:buffsChanged`) |
 | `parts/Shoulder.ts` | Carrying a downed squadmate (F tap), being carried |
@@ -28,17 +28,17 @@ revive / carry interactions. Weapons, implants and gadgets act on the player onl
 | `parts/RoverRide.ts` | `setRoverRide` / `roverBoardBlock` / `roverSafePosition`: hidden seated body, exit hold, orbit camera, forced release |
 | `parts/IntroWake.ts` | `playIntroWake`: rewound downed pose, input lock, wake camera and `ui:screenFade` (opening) or plain respawn stand-up |
 | `PlayerController.ts` | Kinematic controller: acceleration, jump, roll, slopes, surface + collision, interior / ship-box modes, world ceiling clamp, tram ride state, ladder state machine, fall height, `airCarry` |
-| `PlayerGear.ts` | Cached armour / backpack / weight view from inventory + loot (shield max, perks, weight state) |
+| `PlayerGear.ts` | Cached armor / backpack / weight view from inventory + loot (shield max, perks, weight state) |
 | `CameraRig.ts` | Over-the-shoulder rig: shoulder swap, collision, aim sway, shake / recoil, cutscene override, drone view, rover orbit mode, `predictPosition` |
-| `SoldierModel.ts` | Procedural trooper: pose blends (walk, stances, downed, carry, climb, throw, uniques, furniture IK), armour / glow / grey / fade, `setAndroidLook`, occlusion silhouette, `FURN_*` pose geometry, shared geometry cache, `resetForReuse` |
+| `SoldierModel.ts` | Procedural trooper: pose blends (walk, stances, downed, carry, climb, throw, uniques, furniture IK), armor / glow / grey / fade, `setAndroidLook`, occlusion silhouette, `FURN_*` pose geometry, shared geometry cache, `resetForReuse` |
 | `SoldierRim.ts` | Shared fresnel rim for soldier materials (`applySoldierRim`, one program, no lights) |
 | `SoldierPool.ts` | Parked `SoldierModel`s per accent colour for remote avatars |
-| `GearLook.ts` | Procedural armour plates, held-item looks and the android's stand-in gun (`buildHeldWeapon`), shared by local, remote and ally soldiers |
+| `GearLook.ts` | Procedural armor plates, held-item looks and the android's stand-in gun (`buildHeldWeapon`), shared by local, remote and ally soldiers |
 | `Hellpod.ts` | Procedural drop pod + drop choreography; `group` holds the light, `body` holds the meshes |
 | `RemotePods.ts` | Three pre-built pods that replay squadmates' `pod drop` |
 | `RemotePlayerSystem.ts` | Remote avatars lifecycle, remote footsteps, revive interactables, carry host, ghosts (host), remote falls, ally avatars + `ally revive` receipt + ally pod drops, debug hooks |
-| `AllyAvatars.ts` | Android squadmate bodies (`ctx.allies.getBodies()` → `SoldierModel` with the android look): pose mapping, held gun / armour, footsteps, `revive:ally:<id>`, shot FX, carry socket, smoke injection hooks |
-| `RemoteAvatar.ts` | `RemoteAvatarRef`: pose from snapshot flags, held item, armour, suspended grey look, climb / furniture / rover visibility, per-avatar `weaponSocket` |
+| `AllyAvatars.ts` | Android squadmate bodies (`ctx.allies.getBodies()` → `SoldierModel` with the android look): pose mapping, held gun / armor, footsteps, `revive:ally:<id>`, shot FX, carry socket, smoke injection hooks |
+| `RemoteAvatar.ts` | `RemoteAvatarRef`: pose from snapshot flags, held item, armor, suspended grey look, climb / furniture / rover visibility, per-avatar `weaponSocket` |
 | `Carry.ts` | `CarryHost` seam between the two systems (`PlayerSystem.setCarryHost`) |
 | `Portraits.ts` | `createPortraits` — separate WebGL canvas for the launch-slot panel portraits (null when no context) |
 | `FaceSnapshot.ts` | `snapshotFace` — one lazily created offscreen renderer draws a square face PNG per accent (cached, released after `FACE_SNAPSHOT_IDLE_DISPOSE_MS` idle); `poseFaceModel` / `aimFaceCamera` / `addFaceLights` shared with `ui/menus/SoldierPreview` |
@@ -75,6 +75,7 @@ revive / carry interactions. Weapons, implants and gadgets act on the player onl
 `debugAllyBody(opts)` / `debugAllyClear(id?)`.
 
 **`AllyAvatars`** (via `getSystem('remotePlayers').getAllyAvatars()`): `getAvatar(id)` / `getAvatars()` / `size` /
+`has(id)` (read by `RemotePlayerSystem.updateCarries` — a carry ends when the body's avatar is gone) /
 `getReviveTargets()` / `socketOf(id)` / `carrierOf(ctx, peer)`; `AllyAvatar` exposes `isShown`, `isGreyed`, `poseView`,
 `heldWeaponId`, `shoulderSocket`, `weaponSocket`, `muzzleWorld(out)`, `getHeadPosition(out)`.
 
@@ -112,7 +113,7 @@ the remote side `net:remotePlayerAdded` / `Removed`, `net:peerSuspended`, `net:m
 ## Health, shield, downed
 
 - `applyDamage` is the single entry for damage. Order: rover ride / scene lock gates → invulnerability → shield absorbs
-  first (`absorbShield`, wears armour) unless `bypassShield` (spore hazard, every fall) → hp → grit → downed / death. Shield max = worn armour's
+  first (`absorbShield`, wears armor) unless `bypassShield` (spore hazard, every fall) → hp → grit → downed / death. Shield max = worn armor's
   `ArmorDef.shield` (0 when broken); it refills every frame on the ship and in raids only via shield chargers.
 - hp 0 → downed (crawl, `downHp` bleeds `PLAYER_DOWN_BLEED_PER_SEC`, give-up hold); `downHp` 0 → `die`. A solo
   player dies at once unless `auto_revive` is unspent (`Vitals.onLethal`). "Solo" = **no android on `ctx.allies.roster`**
@@ -121,7 +122,7 @@ the remote side `net:remotePlayerAdded` / `Removed`, `net:peerSuspended`, `net:m
 - The lethal source is kept (`_deathSource`) and sent as `player:died.source`; environment = `{kind:'env'}`, fall =
   `{kind:'fall'}`, burning keeps the strongest fire's source.
 - `restoreState` restores alive / downed / dead from a rejoin without a hellpod; an omitted `shield` means full, applied
-  on the first frame armour is known (`pendingShield`).
+  on the first frame armor is known (`pendingShield`).
 - Planet environment (`updateEnv`): without a matching prep, hp only is reduced every `PLANET_ENV_TICK_S`; not in hub,
   training, downed, pod or before spawn. `player:envChanged` only on change.
 - Hellpods are skipped in training and tutorial (`usesHellpod`); rescue revive lands at the host's point, empty-handed.
@@ -142,7 +143,7 @@ the remote side `net:remotePlayerAdded` / `Removed`, `net:peerSuspended`, `net:m
 | In pod | hub → `setInPod(true)` | Movement / sprint / aim; model hidden | `setInPod(false)`, spawns, abort |
 
 Fall damage (`parts/Fall`): the controller measures fall **height** (`MoveResult.fallHeight`), damage =
-`FALL_DAMAGE_*` through `applyDamage` with `bypassShield` — **every fall hits HP directly** (shield and armour wear
+`FALL_DAMAGE_*` through `applyDamage` with `bypassShield` — **every fall hits HP directly** (shield and armor wear
 untouched; `player:fell.damage` / `fall` wire = HP lost); tutorial zones may override (`ctx.world.tutorial.fallRule`: `kill` / `clamp` /
 `normal`). Exempt: grapple, hover, tram deck, ship interiors, ladder release, dash (`exemptFall`), any impulse /
 knockback until the next landing, and every mode above.
@@ -167,7 +168,7 @@ Hub builds furniture and anchors around the geometry constants `FURN_SIT`, `FURN
 |---|---|---|---|
 | `sit` | Seat top centre | `yaw` | unused |
 | `bench` | Pad top at the shoulder blades | `yaw + π` (head toward `yaw`) | 0 = bar at chest … 1 = arms extended |
-| `run` | Belt top centre | `yaw` | steps (0 → 1 = one step) |
+| `run` | Belt top centre | `yaw` | the stride count (0 → 1 = one step, `FURN_RUN_STEPS_PER_S`) |
 | `cycle` | Saddle top | `yaw` | crank turns (0 = left pedal top) |
 | `cook` | Floor in front of the counter (counter edge at `FURN_COOK.edgeZ`) | `yaw` (toward counter) | hand cycles (knife / stir) |
 
@@ -228,8 +229,8 @@ frame plus a `BUFF_TICK_S` tick, and a new array + revision go out only when `sa
 ## Recent changes
 
 Last 5 only — older: `git log -- src/player`.
+- 2026-09-19 — Audit B-47…B-50: stale comments corrected (`rescueRevive` now gates on `usesHellpod`), dead code / imports dropped (`wasGrounded`, `RigInput.stridePhase`, 578 unused import entries in 8 files), stale-avatar sweeps count the avatars actually drawn, terms unified (armor, stride count).
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-17 — `gaming` char buff also for a standing video-game session (`housing.gameSession.seatUid` null, no furniture pose) — `parts/Buffs.ts`.
 - 2026-09-17 — No occlusion silhouette for bodies leaving in the extraction ship: local `ExtractionRef.riding`, remote / android bodies `inLeavingShip` (`RemoteAvatar.ts`).
 - 2026-09-16 — Tutorial revive starts already downed (`SoldierModel.snapDowned`), then stands up.
-- 2026-09-16 — `RemoteAvatar` stays hidden for a dead member whose corpse was removed (empty corpses sink away): reads `CorpsesRef.ownerHadCorpse`.

@@ -15,10 +15,11 @@
  * | `rest` | `pose` | pose `sit` | `active` |
  * | `exercise` | `pose` | pose `bench` · `run` · `cycle` (+ `housing.gymSession`'s `stat` · `minigame`) | `active` |
  * | `cooking` | `pose` | pose `cook` (+ `housing.cookSession.mealDefId` → `defId`) — 2026-09-13 | `active` |
+ * | `gaming` | `pose` | `housing.gameSession` on the held seat, or standing with `seatUid` null — 2026-09-17 | `active` |
+ * | `adrenaline` · `stimulant` | `boost` | `parts/Boosts` (`boostKind` · `boostDefId` · start/end times) | `active` |
  *
  * 2026-09-13 (meal quality): `quality` on `meal` — ship `getMealQuality()` · raid `getActiveMealQuality()`,
  * not carried when 0.
- * | `adrenaline` · `stimulant` | `boost` | `parts/Boosts` (`boostKind` · `boostDefId` · start/end times) | `active` |
  *
  * Ship / raid is split by `ctx.isRaidActive()` (the same test progression uses to refuse a prep). The time is
  * `ctx.net.serverNow() ?? Date.now()`. Every optional method is called through duck typing.

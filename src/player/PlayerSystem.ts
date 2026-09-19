@@ -2,10 +2,9 @@ import * as THREE from 'three';
 import type { BoostKind, EnvKind, FurniturePose, FurniturePoseKind, PlayerRestoreState, Rarity, RoverRideBinding } from '@/shared';
 import type { PlayerDamageOptions, PlayerDamageSource } from '@/shared';
 import {
-  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
-  PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
-  ARMOR_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST,
-  ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION,
+  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_WALK_SPEED, PLAYER_DOWN_BLEED_PER_SEC,
+  PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD, ARMOR_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME,
+  CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST, ROLL_COOLDOWN, ROLL_STAMINA_COST, SLASH_DURATION,
   type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
@@ -24,7 +23,11 @@ import { createPortraits } from './Portraits';
 import { snapshotAndroidFace as snapshotAndroidFaceImage, snapshotFace as snapshotFaceImage } from './FaceSnapshot';
 
 import { LADDER_STEP_VOLUME, LADDER_STEP_VOLUME_FAST, createFurniturePoseState, type FurniturePoseState } from './model';
-import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from './model';
+import {
+  AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, DEATH_ANIM, EXHAUSTED_SLOW, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND,
+  FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, STAMINA_JUMP_COST,
+  STAMINA_SPRINT_RECOVER, type SpeedMod, type WeaponState, _camLook, _camPos, _q, _up,
+} from './model';
   /** The folder's shared vocabulary (constants · types · scratch) is in `model.ts` — re-exported for old imports. */
 export * from './model';
 import * as Vitals from './parts/Vitals';
@@ -291,7 +294,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     meleeHeavy: 0, charging: 0, spraying: 0, heavyCarry: 0, cooking: 0, carry: 0,
   };
   private readonly rigInput: RigInput = {
-    pivot: new THREE.Vector3(), aim: 0, sprint: 0, crouch: 0, prone: 0, dive: 0, moveBlend: 0, stridePhase: 0,
+    pivot: new THREE.Vector3(), aim: 0, sprint: 0, crouch: 0, prone: 0, dive: 0, moveBlend: 0,
     grounded: true, dead: false, world: null, shipBounds: null, interior: null,
   };
   readonly eyePos = new THREE.Vector3();
@@ -1346,7 +1349,6 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     ri.prone = this.proneBlend;
     ri.dive = this.rollBlend;   // same camera treatment as the old dive (pull back a little)
     ri.moveBlend = Math.min(1, this.controller.speed / PLAYER_WALK_SPEED);
-    ri.stridePhase = this.controller.stridePhase;
     ri.grounded = this.controller.grounded;
     ri.dead = this.isDead;
     ri.world = ctx.world;

@@ -66,7 +66,7 @@ export class PlayerGear {
   get regenPerSecond(): number {
     return this.armorPerk === 'regen' ? (this.armor?.perkValue ?? REGEN_DEFAULT) : 0;
   }
-  /** true when the equipped armor grants a permanent cloak (광학미채). */
+  /** true when the equipped armor grants a permanent cloak (perk `optical` — `방탄복 신화 광학미채`). */
   get opticalCamo(): boolean { return this.armorPerk === 'optical'; }
   /** Roll is denied from '무거움' upward; movement stops entirely at '과적'. */
   get rollBlocked(): boolean { return this.weight.state === 'heavy' || this.weight.state === 'over'; }

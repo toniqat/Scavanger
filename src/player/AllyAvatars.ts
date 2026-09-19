@@ -42,9 +42,14 @@ const _dir = new THREE.Vector3();
 const _spark = new THREE.Vector3();
 
 /**
- * Shot sound ids — **the same table** as `weapons/WeaponDefaults.shotSoundId`. weapons/ is another folder's
- * internals and cannot be called (CLAUDE.md §4.1), and moving this table into `shared` is a contract change, so
- * it is not done in this batch — a new sound id is fixed in both places (a `docs/TODO` candidate).
+ * Shot sound id for an android's gun. `weapons/WeaponDefaults.shotSoundId` answers the same question for the player,
+ * and weapons/ is another folder's internals, which this folder must not import (CLAUDE.md §4.1) — so this is a
+ * **second judgement of the same thing, not a copy of that table** (2026-09-19, B-49, corrected): it reads the
+ * `WeaponDef` (`ammoType` · `pellets` · the class) where the weapons side switches on `WeaponKind`, and it knows no
+ * unique at all — every legendary lands on `shot_rifle` here, while the weapons side gives the flamethrower and the
+ * shockgun `shot_energy`, the bow and the shuriken `melee_swing`, the bazooka `shot_shotgun`.
+ * So a new shot sound must be added in **both** places, and the two can drift apart with nothing failing. The cure
+ * is one id table in `src/shared` that both folders read; that file is not this folder's to change.
  */
 function allyShotSound(def: WeaponDef | null): string {
   if (!def) return 'shot_rifle';
@@ -332,16 +337,22 @@ export class AllyAvatars {
     this.frame++;
     this.reviveCtx = ctx;
     const bodies = this.bodiesOf(ctx);
+    let seen = 0;
     for (let i = 0; i < bodies.length; i++) {
       const v = bodies[i];
       if (!v || typeof v.id !== 'string') continue;
       const av = this.ensure(v);
+      if (av.seenFrame !== this.frame) seen++;
       av.seenFrame = this.frame;
       av.update(dt, ctx, v);
       this.syncRevive(ctx, v);
     }
-    // a body that vanished from the list goes back to the pool
-    if (this.avatars.size > bodies.length) {
+    // A body that vanished from the list goes back to the pool. The gate counts the **distinct avatars drawn this
+    // frame** (2026-09-19, B-49), not `bodies.length`: a list that skipped an entry (no `id`) or repeated one is as
+    // long as before while an avatar has gone stale, and `bodies.length` would never let the sweep run — the body
+    // would hang in the scene and never return to `SoldierPool`. `size > seen` can only mean a stale avatar, so the
+    // map is still walked (and allocated an iterator) on exactly the frames that need it.
+    if (this.avatars.size > seen) {
       for (const [id, av] of this.avatars) if (av.seenFrame !== this.frame) this.remove(id);
     }
   }

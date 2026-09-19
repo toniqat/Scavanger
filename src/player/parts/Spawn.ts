@@ -8,26 +8,13 @@
 import * as THREE from 'three';
 import type { PlayerRestoreState } from '@/shared';
 import {
-  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
-  PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
-  ARMOR_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST,
-  ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION,
+  GameContext, PLAYER_RADIUS, PLAYER_DOWN_HP,
   /* appended (2026-09-09): the rescue drop revive */
   RESCUE_REVIVE_HP,
-  type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
 } from '@/shared';
-import { FxManager, ParticleBurst } from '@/core/fx';
-import { damp, dampAngle, smoothstep, wrapAngle } from '@/core/util/MathUtil';
-import { SoldierModel, type SoldierPose } from '../SoldierModel';
-import { CameraRig, type RigInput } from '../CameraRig';
-import { PlayerController, type MoveInput, type MoveResult, type ShipBounds } from '../PlayerController';
-import { Hellpod, type HellpodEvents } from '../Hellpod';
-import { PlayerGear } from '../PlayerGear';
-import type { CarryEndReason, PortraitRef } from '@/shared';
-import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER_CARRY_RANGE, PLAYER_CARRY_SPEED_MUL } from '@/shared';
-import type { CarryHost } from '../Carry';
-import { createPortraits } from '../Portraits';
-import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from '../model';
+import {
+  DEATH_ANIM, EYE_PRONE, EYE_STAND, MELEE_SWING_TIME, SPAWN_RING_RADIUS, _camLook, _camPos, _spawn, _up, _v,
+} from '../model';
 import * as IntroWake from './IntroWake';
 import type { PlayerSystem } from '../PlayerSystem';
 
@@ -122,7 +109,7 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
   sys.hp = THREE.MathUtils.clamp(Number.isFinite(state.hp) ? state.hp : sys.maxHp, 1, sys.maxHp);
   bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta: 0 });
   bus.emit('player:spawned', { position: sys.controller.position.clone() });
-  }
+}
 
 /**
  * Does this mission **drop by hellpod.** The training range is a simulation room with no sky (2026-09-08), and the
@@ -131,7 +118,7 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
  */
 export function usesHellpod(ctx: GameContext): boolean {
   return ctx.missionMode !== 'training' && ctx.missionMode !== 'tutorial';
-  }
+}
 
 /**
  * Re-drop at `position` like at mission start (hellpod, full hp, alive, not downed). `player:respawn` → here.
@@ -141,7 +128,7 @@ export function usesHellpod(ctx: GameContext): boolean {
 export function respawn(sys: PlayerSystem, position: THREE.Vector3): void {
   sys.respawnAt(sys.resolveSpawn(position));
   if (usesHellpod(sys.ctx)) sys.startDrop();
-  }
+}
 
 /**
  * Place the player standing at `position` facing `yaw`: alive, full hp / stamina, stance stand, no hellpod,
@@ -189,7 +176,7 @@ export function spawnStanding(sys: PlayerSystem, position: THREE.Vector3, yaw: n
   sys.interactTarget = null; sys.holdProgress = 0;
   sys.ctx.bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta: 0 });
   sys.ctx.bus.emit('player:spawned', { position: sys.controller.position.clone() });
-  }
+}
 
 /* ── dev console / unique weapons (2026-09-06) ─────────────────────────── */
 /**
@@ -225,7 +212,7 @@ export function teleport(sys: PlayerSystem, position: THREE.Vector3, yaw?: numbe
   if (!sys.attachedParent) { root.position.copy(_v); root.quaternion.setFromAxisAngle(_up, sys.bodyYaw); }
   _v.y += sys.eyePos.y;
   sys.rig.jumpTo(_v, yaw);   // keeps pitch (and yaw unless given) — the move cheat calls this every frame
-  }
+}
 
 export function respawnAt(sys: PlayerSystem, position: THREE.Vector3, yaw?: number): void {
   const y = yaw ?? Math.atan2(position.x, position.z); // face the map centre by default
@@ -265,7 +252,7 @@ export function respawnAt(sys: PlayerSystem, position: THREE.Vector3, yaw?: numb
   sys.rig.setOverride(null);
   sys.ctx.bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta: 0 });
   sys.ctx.bus.emit('player:spawned', { position: position.clone() });
-  }
+}
 
 /* ─────────────────────── tactical kit internals ─────────────────────── */
 /**
@@ -293,7 +280,7 @@ export function resetTactical(sys: PlayerSystem): void {
   sys.burnDps = 0; sys.burnTimer = 0; sys.burnTick = 0;
   sys.regenAccum = 0;
   sys.gear.markDirty();
-  }
+}
 
 /**
  * Multiplayer: every client drops on its own pad around the shared spawn — a ring of radius
@@ -314,7 +301,7 @@ export function resolveSpawn(sys: PlayerSystem, playerSpawn: THREE.Vector3): THR
     out.y = world.getHeightAt(out.x, out.z);
   }
   return out;
-  }
+}
 
 /** Rejoin wait: everything reset like `game:abort`, feet + camera parked at `position`, model hidden, no controls. */
 export function holdForRestore(sys: PlayerSystem, position: THREE.Vector3): void {
@@ -327,7 +314,7 @@ export function holdForRestore(sys: PlayerSystem, position: THREE.Vector3): void
   sys.eyePos.set(0, EYE_STAND, 0);
   _v.copy(position); _v.y += EYE_STAND;
   sys.rig.snapTo(_v, sys.bodyYaw);
-  }
+}
 
 /**
  * Starts the hellpod drop. `kind` 0 = mission start, 1 = the rescue drop (2026-09-09).
@@ -348,12 +335,17 @@ export function startDrop(sys: PlayerSystem, kind: 0 | 1 = 0): void {
   if (ctx.isMultiplayer && me) {
     ctx.net?.send({ t: 'pod', ev: 'drop', who: me, p: [pos.x, pos.y, pos.z], yaw: sys.bodyYaw, kind }, 'others');
   }
-  }
+}
 
 /**
  * The rescue pod lands (`rescue:landed`, 2026-09-09). Answered only when the target is me — the body stands again
  * through a hellpod drop, hp is `RESCUE_REVIVE_HP`, and **the inventory stays empty** (everything carried was left
  * on the corpse). The flow (phase · the squad-leader marker) is owned by `game/parts/Death.onRescueLanded`.
+ *
+ * 2026-09-19 (B-47): the pod is gated by `usesHellpod` like the other two drop paths. It used to test
+ * `missionMode !== 'training'` on its own, which would have dropped a pod in the tutorial — the one mode whose
+ * whole point is that the player has no ship (`usesHellpod`, `README.md` 「Hellpods are skipped in training and
+ * tutorial」). No tutorial rescue drop exists today, so nothing on screen changes.
  */
 export function rescueRevive(sys: PlayerSystem, position: THREE.Vector3): void {
   // The landing point is already decided and sent by the host (`world.scatterPoints`) — no squad spawn ring on top.
@@ -362,8 +354,8 @@ export function rescueRevive(sys: PlayerSystem, position: THREE.Vector3): void {
   sys.respawnAt(_v.clone());
   sys.hp = THREE.MathUtils.clamp(Math.round(RESCUE_REVIVE_HP), 1, sys.maxHp);
   sys.ctx.bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta: 0 });
-  if (sys.ctx.missionMode !== 'training') sys.startDrop(1);
-  }
+  if (usesHellpod(sys.ctx)) sys.startDrop(1);
+}
 
 export function updateDrop(sys: PlayerSystem, dt: number): void {
   const ev = sys.podEvents;
@@ -384,7 +376,7 @@ export function updateDrop(sys: PlayerSystem, dt: number): void {
     // release the cutscene camera as soon as the doors start moving
     sys.rig.setOverride(null);
   }
-  }
+}
 
 export function resetAll(sys: PlayerSystem): void {
   sys.releaseRoverRide();   // 2026-09-13: game:abort · the rejoin wait
@@ -419,4 +411,4 @@ export function resetAll(sys: PlayerSystem): void {
   sys.cancelHold(); sys.interactTarget = null;
   if (sys.lastPromptText !== null) { sys.lastPromptText = null; sys.lastHoldProgress = 0; sys.ctx.bus.emit('interact:promptChanged', { text: null, holdProgress: 0 }); }
   sys.rig.setOverride(null);
-  }
+}

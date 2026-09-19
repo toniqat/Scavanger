@@ -4,27 +4,8 @@
  * Picks the best of the `Interactable`s on screen and, telling a tap from a hold, feeds
  * `onHoldProgress` · `onHoldCancel` (the hold time takes the stats' effect here, once only).
  */
-import * as THREE from 'three';
-import type { PlayerRestoreState } from '@/shared';
-import {
-  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
-  PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
-  ARMOR_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST,
-  ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION,
-  type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
-} from '@/shared';
-import { FxManager, ParticleBurst } from '@/core/fx';
-import { damp, dampAngle, smoothstep, wrapAngle } from '@/core/util/MathUtil';
-import { SoldierModel, type SoldierPose } from '../SoldierModel';
-import { CameraRig, type RigInput } from '../CameraRig';
-import { PlayerController, type MoveInput, type MoveResult, type ShipBounds } from '../PlayerController';
-import { Hellpod, type HellpodEvents } from '../Hellpod';
-import { PlayerGear } from '../PlayerGear';
-import type { CarryEndReason, PortraitRef } from '@/shared';
-import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER_CARRY_RANGE, PLAYER_CARRY_SPEED_MUL } from '@/shared';
-import type { CarryHost } from '../Carry';
-import { createPortraits } from '../Portraits';
-import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from '../model';
+import { Keys, type Interactable } from '@/shared';
+import { _v } from '../model';
 import type { PlayerSystem } from '../PlayerSystem';
 
 /** Tell a hold interactable that its running hold was released / retargeted before completion. */
@@ -34,7 +15,7 @@ export function cancelHold(sys: PlayerSystem): void {
     try { t.onHoldCancel(); } catch (e) { console.error('[Player] onHoldCancel threw', e); }
   }
   sys.holdProgress = 0;
-  }
+}
 
 export function updateInteraction(sys: PlayerSystem, dt: number, active: boolean): void {
   const ctx = sys.ctx, input = ctx.input;
@@ -76,7 +57,7 @@ export function updateInteraction(sys: PlayerSystem, dt: number, active: boolean
     sys.lastPromptText = text; sys.lastHoldProgress = sys.holdProgress;
     ctx.bus.emit('interact:promptChanged', { text, holdProgress: sys.holdProgress, hold: isHold });
   }
-  }
+}
 
 export function perform(sys: PlayerSystem, target: Interactable): void {
   sys.interactCooldown = 0.35;
@@ -94,4 +75,4 @@ export function perform(sys: PlayerSystem, target: Interactable): void {
   }
   sys.ctx.bus.emit('interact:performed', { id: target.id });
   sys.ctx.bus.emit('audio:play', { id: 'interact', position: target.position, volume: 0.7 });
-  }
+}

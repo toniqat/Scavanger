@@ -1,34 +1,22 @@
 /**
  * src/player/parts/Vitals.ts — **hp · downed · death · healing**.
  *
- * When damage arrives (`applyDamage` — armor absorption · `인내` (grit) · knockback) and hp hits 0 the player does
+ * When damage arrives (`applyDamage` — the armor **shield** eats it first, then hp · `인내` (grit) · knockback;
+ * the plate itself cuts nothing, see the block above `applyDamage`) and hp hits 0 the player does
  * not die but goes **downed** (crawling, the `downHp` bleed, the Space give-up hold), and comes back up from an
  * ally's revive or the perk `auto_revive`. Healing is not instant: it lands over the item's own time (`applyHeal`).
  */
 import * as THREE from 'three';
-import type { PlayerRestoreState } from '@/shared';
 import type { PlayerDamageOptions, PlayerDamageSource } from '@/shared';
 import {
-  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
-  PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
-  ARMOR_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST,
-  ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION,
-  type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
+  Keys, PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD, ROLL_DAMAGE_MUL,
+  type PlayerRef,
 } from '@/shared';
 /* appended (2026-09-15): android squadmates — bots are not counted as people (`onLethal`'s solo test) */
 import { humanPlayersOf } from '@/shared';
-import { FxManager, ParticleBurst } from '@/core/fx';
-import { damp, dampAngle, smoothstep, wrapAngle } from '@/core/util/MathUtil';
-import { SoldierModel, type SoldierPose } from '../SoldierModel';
-import { CameraRig, type RigInput } from '../CameraRig';
-import { PlayerController, type MoveInput, type MoveResult, type ShipBounds } from '../PlayerController';
-import { Hellpod, type HellpodEvents } from '../Hellpod';
-import { PlayerGear } from '../PlayerGear';
-import type { CarryEndReason, PortraitRef } from '@/shared';
-import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER_CARRY_RANGE, PLAYER_CARRY_SPEED_MUL } from '@/shared';
-import type { CarryHost } from '../Carry';
-import { createPortraits } from '../Portraits';
-import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from '../model';
+import {
+  AUTO_REVIVE_DELAY_S, GIVE_UP_PROGRESS_HZ, INVULN_TIME, KNOCKBACK_MIN_LIFT, STIM_DURATION, _dir,
+} from '../model';
 import * as IntroWake from './IntroWake';
 import type { PlayerSystem } from '../PlayerSystem';
 
@@ -47,7 +35,7 @@ export function revive(sys: PlayerSystem): void {
   bus.emit('player:revived', { hp: sys.hp });
   bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta: sys.hp });
   bus.emit('audio:play', { id: 'stim', volume: 0.8 });
-  }
+}
 
 /**
  * Shove (behemoth charge, blasts, `dmg.kb`): `direction × speed` through the controller's `applyImpulse` path —
@@ -70,12 +58,12 @@ export function applyKnockback(sys: PlayerSystem, direction: THREE.Vector3, spee
   c.applyImpulse(_dir);
   c.sprinting = false;
   sys.rig.addShake(Math.min(0.6, speed * 0.04), 0.4);
-  }
+}
 
 /** Stim heal-over-time (1.5 s). The caller (weapons quick-use) has already consumed the item. */
 export function applyStim(sys: PlayerSystem, healAmount: number): boolean {
   return sys.applyHeal(healAmount, STIM_DURATION);
-  }
+}
 
 /**
  * appended (2026-09-07): the consumable's own heal-over-time. `seconds` ≤ 0 lands the whole `amount` on the next
@@ -92,11 +80,11 @@ export function applyHeal(sys: PlayerSystem, amount: number, seconds: number, qu
   sys.ctx.bus.emit('player:stimUsed', { hp: sys.hp });
   if (!quiet) sys.ctx.bus.emit('audio:play', { id: 'stim', volume: 0.8 });
   return true;
-  }
+}
 
 export function takeDamage(sys: PlayerSystem, amount: number, from?: THREE.Vector3, source?: PlayerDamageSource, opts?: PlayerDamageOptions): void {
   sys.applyDamage(amount, from, false, source, opts);
-  }
+}
 
 /**
  * Single damage path. `dot` (burning) skips the invulnerability window, the shake / audio and the `인내` (grit)
@@ -174,7 +162,7 @@ export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vecto
     bus.emit('audio:play', { id: 'player_hurt', volume: Math.min(1, 0.4 + felt / 50) });
   }
   if (sys.hp <= 0) { sys._deathSource = source; sys.onLethal(dot); }
-  }
+}
 
 /**
  * hp hit 0: the `인내` (grit) skill may leave 1 hp (never on a DoT tick), otherwise the player goes downed.
@@ -200,7 +188,7 @@ export function onLethal(sys: PlayerSystem, dot: boolean): void {
   }
   if (isAloneInSquad(sys) && !canSelfRevive(sys)) { sys.hp = 0; sys.die(); return; }
   sys.enterDowned();
-  }
+}
 
 /**
  * No squad, or a squad of one: nobody can run over and revive the player.
@@ -215,12 +203,16 @@ function isAloneInSquad(sys: PlayerSystem): boolean {
   if ((ctx.allies?.roster.length ?? 0) > 0) return false;
   if (!ctx.isMultiplayer) return true;
   return humanPlayersOf(ctx.net?.lobby).length <= 1;
-  }
+}
 
-/** The `재기동 회로` perk is bought and still unspent this life — it only fires out of the downed state. */
+/**
+ * The `재기동 회로` perk is bought and still unspent **this raid** — it only fires out of the downed state.
+ * `autoReviveUsed` is cleared on `world:ready` (`PlayerSystem`), so one raid grants exactly one self-revive no
+ * matter how many times the body goes down in it.
+ */
 function canSelfRevive(sys: PlayerSystem): boolean {
   return !sys.autoReviveUsed && !!sys.ctx.progression?.derived.perks?.auto_revive;
-  }
+}
 
 export function heal(sys: PlayerSystem, amount: number): void {
   if (sys.isDead || sys._downed || amount <= 0) return;
@@ -228,7 +220,7 @@ export function heal(sys: PlayerSystem, amount: number): void {
   sys.hp = Math.min(sys.maxHp, sys.hp + amount);
   const delta = sys.hp - before;
   if (delta > 0) sys.ctx.bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta });
-  }
+}
 
 /**
  * **Sets hp outright** (2026-09-14) — the place where a scripted scene decides the state of the body. The only user
@@ -245,7 +237,7 @@ export function setHp(sys: PlayerSystem, hp: number): void {
   if (delta === 0) return;
   sys.hp = next;
   sys.ctx.bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta });
-  }
+}
 
 /** hp reached 0: downed instead of death — prone crawl, weapons off, `downHp` starts bleeding. */
 export function enterDowned(sys: PlayerSystem): void {
@@ -275,7 +267,7 @@ export function enterDowned(sys: PlayerSystem): void {
   bus.emit('player:downHpChanged', { downHp: sys._downHp, max: PLAYER_DOWN_HP });
   bus.emit('player:healthChanged', { hp: 0, maxHp: sys.maxHp, delta: 0 });
   bus.emit('audio:play', { id: 'player_hurt', volume: 1, pitch: 0.6 });
-  }
+}
 
 /** Bleed PLAYER_DOWN_BLEED_PER_SEC (whole points → `player:downHpChanged`), Space held PLAYER_GIVE_UP_HOLD → die. */
 export function updateDowned(sys: PlayerSystem, dt: number, active: boolean): void {
@@ -305,7 +297,7 @@ export function updateDowned(sys: PlayerSystem, dt: number, active: boolean): vo
     sys.giveUpHold = 0;
     sys.emitGiveUpProgress(-1);
   }
-  }
+}
 
 /**
  * Phase 9: `player:giveUpProgress {t}` for the HUD bar — 0..1 while Space is held (≤ GIVE_UP_PROGRESS_HZ, only on
@@ -323,7 +315,7 @@ export function emitGiveUpProgress(sys: PlayerSystem, t: number): void {
   sys.giveUpSent = t;
   sys.giveUpSentAt = sys.ctx.time;
   sys.ctx.bus.emit('player:giveUpProgress', { t });
-  }
+}
 
 export function clearDowned(sys: PlayerSystem): void {
   sys.autoReviveTimer = -1;
@@ -334,7 +326,7 @@ export function clearDowned(sys: PlayerSystem): void {
   sys.bleedAcc = 0;
   sys.giveUpHold = 0;
   sys.emitGiveUpProgress(-1);
-  }
+}
 
 export function die(sys: PlayerSystem): void {
   if (sys.isDead) return;
@@ -368,4 +360,4 @@ export function die(sys: PlayerSystem): void {
   sys.rig.addShake(0.8, 0.5);
   sys.ctx.bus.emit('audio:play', { id: 'player_death', volume: 1 });
   sys.ctx.bus.emit('player:died', { position: sys.controller.position.clone(), source: deathSource });
-  }
+}

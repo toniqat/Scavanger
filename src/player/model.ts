@@ -6,25 +6,12 @@
  * `PlayerSystem.ts` re-exports it as is, so every existing import path still resolves.
  */
 import * as THREE from 'three';
-import type { FurniturePoseKind, PlayerRestoreState } from '@/shared';
+import type { FurniturePoseKind } from '@/shared';
 import {
-  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
-  PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
-  ARMOR_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST,
-  ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION,
-  type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
+  CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, SLASH_DURATION, type PlayerRef, type PlayerWeaponHost, type Stance,
 } from '@/shared';
-import { FxManager, ParticleBurst } from '@/core/fx';
-import { damp, dampAngle, smoothstep, wrapAngle } from '@/core/util/MathUtil';
+import { damp, smoothstep } from '@/core/util/MathUtil';
 import { SoldierModel, type SoldierPose } from './SoldierModel';
-import { CameraRig, type RigInput } from './CameraRig';
-import { PlayerController, type MoveInput, type MoveResult, type ShipBounds } from './PlayerController';
-import { Hellpod, type HellpodEvents } from './Hellpod';
-import { PlayerGear } from './PlayerGear';
-import type { CarryEndReason, PortraitRef } from '@/shared';
-import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER_CARRY_RANGE, PLAYER_CARRY_SPEED_MUL } from '@/shared';
-import type { CarryHost } from './Carry';
-import { createPortraits } from './Portraits';
 /* appended (Phase 10): shouldering a downed squadmate + ready-panel portraits */
 
 /** Phase 12 perk `auto_revive`: seconds between going down and the automatic stand-up. */

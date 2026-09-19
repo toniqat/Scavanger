@@ -49,9 +49,12 @@ export function fallDamageFor(height: number): number {
 }
 
 /**
- * Did the body **touch the ground in a state that can take damage.** Apart from what the controller already filtered
- * out (grapple · hover · a vehicle deck · ladder · ship interior), this stops once more the cases where the body was
- * in a state that simply 「cannot fall」 — the rule that a rider takes no damage at all (the rover) holds here too.
+ * Did the body **touch the ground in a state that can take damage.** The controller already reports `fallHeight` 0
+ * for its own exemptions (grapple · hover · a vehicle deck · ladder · ship interior — `fallExempt`), and the ladder
+ * and interior lines below **deliberately test them a second time**: the states here are read from `PlayerSystem`,
+ * whose flags (`_interior` · `shipBounds` · `climbing`) can be set in the same frame the controller measured the
+ * height, and a state 「that cannot fall」 must never leak through. The rest are states the controller knows nothing
+ * about — the rover rider (no damage at all), drone control, pods, being carried, the intro wake, the ship phase.
  */
 function canTakeFall(sys: PlayerSystem): boolean {
   if (!sys.spawned || sys.isDead || sys._downed) return false;

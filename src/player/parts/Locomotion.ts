@@ -6,26 +6,16 @@
  * arrive here). The grapple pull and the bag hover are part of movement too.
  */
 import * as THREE from 'three';
-import type { PlayerRestoreState } from '@/shared';
 import {
-  GameContext, Keys, MouseButtons, PLAYER_MAX_HP, PLAYER_MAX_STAMINA, PLAYER_RADIUS, PLAYER_WALK_SPEED,
-  PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
-  ARMOR_DURABILITY_PER_DAMAGE, BOX_HEADROOM, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST,
-  ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION, LADDER_SPRINT_DRAIN,
-  type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
+  Keys, BOX_HEADROOM, ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, LADDER_SPRINT_DRAIN,
+  type PlayerRef, type Stance,
 } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
-import { damp, dampAngle, smoothstep, wrapAngle } from '@/core/util/MathUtil';
-import { SoldierModel, type SoldierPose } from '../SoldierModel';
-import { CameraRig, type RigInput } from '../CameraRig';
-import { PlayerController, type MoveInput, type MoveResult, type ShipBounds } from '../PlayerController';
-import { Hellpod, type HellpodEvents } from '../Hellpod';
-import { PlayerGear } from '../PlayerGear';
-import type { CarryEndReason, PortraitRef } from '@/shared';
-import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER_CARRY_RANGE, PLAYER_CARRY_SPEED_MUL } from '@/shared';
-import type { CarryHost } from '../Carry';
-import { createPortraits } from '../Portraits';
-import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from '../model';
+import { PlayerController } from '../PlayerController';
+import {
+  EXHAUSTED_SLOW_TIME, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_REGEN_DELAY,
+  STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, _dir, _up,
+} from '../model';
 import type { PlayerSystem } from '../PlayerSystem';
 
 /**
@@ -87,7 +77,7 @@ export function roll(sys: PlayerSystem, direction?: THREE.Vector3): boolean {
   const fx = FxManager.get();
   if (fx) ParticleBurst.dust(fx.alpha, c.position, _up, 4, 0.6);
   return true;
-  }
+}
 
 /**
  * Multiplicative speed stack so overcharge / ultralight armor / weight / slows never overwrite each other.
@@ -99,7 +89,7 @@ export function setSpeedModifier(sys: PlayerSystem, key: string, mul: number, du
   if (mul === 1 && duration === undefined) { sys.speedMods.delete(key); return; }
   const until = duration !== undefined && duration > 0 ? (sys.ctx?.time ?? 0) + duration : Infinity;
   sys.speedMods.set(key, { mul, until });
-  }
+}
 
 /** Add to the velocity (jump pad, rocket blast, grapple release). Emits `player:launched`. */
 export function applyImpulse(sys: PlayerSystem, impulse: THREE.Vector3): void {
@@ -108,7 +98,7 @@ export function applyImpulse(sys: PlayerSystem, impulse: THREE.Vector3): void {
   sys.controller.applyImpulse(impulse);
   if (impulse.y > 0.01) sys.autoHoverUsed = false;
   sys.ctx.bus.emit('player:launched', { position: sys.controller.position.clone(), impulse: impulse.clone() });
-  }
+}
 
 /** Grapple: reel the player toward `point` until the implant releases it (null). */
 export function setGrappleTarget(sys: PlayerSystem, point: THREE.Vector3 | null): void {
@@ -122,7 +112,7 @@ export function setGrappleTarget(sys: PlayerSystem, point: THREE.Vector3 | null)
     sys.controller.grappleTarget = null;
     sys._grappling = false;
   }
-  }
+}
 
 /** Tactical bag hover: slows the fall while held (also auto-engaged once to prevent a fatal fall). */
 export function setHovering(sys: PlayerSystem, hovering: boolean): void {
@@ -130,7 +120,7 @@ export function setHovering(sys: PlayerSystem, hovering: boolean): void {
   sys.controller.hovering = want;
   if (want === sys._hovering) return;
   sys._hovering = want;
-  }
+}
 
 /**
  * Spend stamina (the big slash costs `maxStamina × SLASH_STAMINA_RATIO`). False — and nothing spent — when short
@@ -143,7 +133,7 @@ export function consumeStamina(sys: PlayerSystem, amount: number): boolean {
   if (sys.exhausted || sys.stamina < amount * sys.staminaCostMul) return false;
   sys.spendStamina(amount);
   return true;
-  }
+}
 
 /**
  * **Can the body stand up** where it is (2026-09-14, crouching through a low passage)?
@@ -179,7 +169,7 @@ export function setStance(sys: PlayerSystem, stance: Stance): void {
   sys._stance = stance;
   if (prev === 'prone') sys.standUpTimer = STAND_UP_TIME;
   if (sys.ctx) sys.ctx.bus.emit('player:stanceChanged', { stance, prev });
-  }
+}
 
 /**
  * C toggles stand↔crouch (prone → crouch). Z toggles prone (prone → stand).
@@ -201,7 +191,7 @@ export function updateStanceInput(sys: PlayerSystem, wantsJump: boolean, wantsSp
   } else if (sys._stance !== 'stand' && (wantsJump || wantsSprint) && canStandHere(sys)) {
     sys.setStance('stand');
   }
-  }
+}
 
 /**
  * A one-off stamina cost (jump · roll · melee · shield bash · big slash). 2026-09-12: × `staminaCostMul` (각성제 +50 %) —
@@ -211,18 +201,19 @@ export function spendStamina(sys: PlayerSystem, cost: number): void {
   sys.stamina = Math.max(0, sys.stamina - cost * sys.staminaCostMul);
   sys.regenDelay = STAMINA_REGEN_DELAY;
   if (sys.stamina <= 0) sys.onStaminaDepleted();
-  }
+}
 
 export function onStaminaDepleted(sys: PlayerSystem): void {
   if (sys.exhausted) return;
   sys.exhausted = true;
   sys.exhaustedSlow = EXHAUSTED_SLOW_TIME;
   sys.ctx.bus.emit('player:staminaDepleted', {});
-  }
+}
 
 /**
- * Regen is scaled by 지구력 (`derived.staminaRegenMul`), the carry weight (`WeightInfo.staminaRegenMul`,
- * softened by the 운반 skill inside inventory) and the ultralight-armor perk. Hovering burns stamina.
+ * Regen is scaled by the `지구력` (endurance) stat (`derived.staminaRegenMul`), the carry weight
+ * (`WeightInfo.staminaRegenMul`, softened by the `운반` (carry) skill inside inventory) and the ultralight-armor
+ * perk. Hovering burns stamina.
  */
 export function updateStamina(sys: PlayerSystem, dt: number): void {
   const c = sys.controller;
@@ -253,7 +244,7 @@ export function updateStamina(sys: PlayerSystem, dt: number): void {
     sys.stamina = Math.min(max, sys.stamina + Math.max(0, rate) * dt);
   }
   if (sys.exhausted && sys.stamina >= STAMINA_SPRINT_RECOVER) sys.exhausted = false;
-  }
+}
 
 /** Common precondition for roll / melee. */
 export function canAct(sys: PlayerSystem): boolean {
@@ -265,7 +256,7 @@ export function canAct(sys: PlayerSystem): boolean {
     && sys._roverRide === null    // 2026-09-13: none inside the rover either (`parts/RoverRide`)
     && sys.ctx.isControlActive()
     && !(sys.hellpod.isActive && sys.hellpod.state !== 'exiting');
-  }
+}
 
 /** Camera-relative horizontal direction of the current movement input (zero vector when idle). */
 export function wishDirection(sys: PlayerSystem, out: THREE.Vector3): THREE.Vector3 {
@@ -276,7 +267,7 @@ export function wishDirection(sys: PlayerSystem, out: THREE.Vector3): THREE.Vect
   out.set(fx * mi.z + rx * mi.x, 0, fz * mi.z + rz * mi.x);
   if (out.lengthSq() > 1e-6) out.normalize();
   return out;
-  }
+}
 
 /**
  * Product of the live speed-modifier stack (drops expired entries). 2026-09-11 (C-3): `isOvercharged` is no longer
@@ -290,7 +281,7 @@ export function speedModifierProduct(sys: PlayerSystem): number {
     mul *= mod.mul;
   }
   return mul;
-  }
+}
 
 /** Weight state and the ultralight-armor perk feed the same stack as external buffs. */
 export function applyGearModifiers(sys: PlayerSystem): void {
@@ -300,10 +291,10 @@ export function applyGearModifiers(sys: PlayerSystem): void {
   const bonus = sys.gear.ultralightBonus;
   if (bonus <= 0) sys.speedMods.delete(SPEEDMOD_ARMOR);
   else sys.speedMods.set(SPEEDMOD_ARMOR, { mul: 1 + bonus, until: Infinity });
-  // 광학미채 방탄복: permanent cloak while it is worn and intact
+  // `방탄복 신화 광학미채` (`armor_optical`, perk `optical`): a permanent cloak while it is worn and intact
   if (sys.gear.opticalCamo) sys.setCloak(Infinity, 'armor');
   else if (sys.cloakSource === 'armor' && sys.cloakTimer === Infinity) { sys.cloakTimer = 0; sys.cloakSource = null; }
-  }
+}
 
 /** Tactical bag: hold Space in the air to hover, plus one automatic hover that prevents a fatal fall. */
 export function updateBagFlight(sys: PlayerSystem): void {
@@ -316,4 +307,4 @@ export function updateBagFlight(sys: PlayerSystem): void {
   } else if (hold !== sys._hovering) {
     sys.setHovering(hold);
   }
-  }
+}
