@@ -25,7 +25,7 @@ import { snapshotAndroidFace as snapshotAndroidFaceImage, snapshotFace as snapsh
 
 import { LADDER_STEP_VOLUME, LADDER_STEP_VOLUME_FAST, createFurniturePoseState, type FurniturePoseState } from './model';
 import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from './model';
-/** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
+  /** The folder's shared vocabulary (constants · types · scratch) is in `model.ts` — re-exported for old imports. */
 export * from './model';
 import * as Vitals from './parts/Vitals';
 import * as Loco from './parts/Locomotion';
@@ -44,18 +44,19 @@ import * as IntroWake from './parts/IntroWake';
 import type { CharBuff, FurniturePoseState as FurniturePoseWire } from '@/shared';
 
 /**
- * 로컬 캐릭터의 악센트 색 (`PlayerProfile.accent`, 캐릭터 생성창에서 고른 값) 을 숫자 hex 로.
+ * The local character's accent colour (`PlayerProfile.accent`, picked in character creation) as a numeric hex.
  *
- * `SoldierModel` 은 악센트를 **생성자에서 굽는다**(재질이 그때 만들어진다). 그런데 이 모델은 `init(ctx)`
- * 전에 필드 초기화로 만들어지므로 `ctx.progression` 을 볼 수 없다 — 그래서 `shared/saveSlot.readSlotCard`
- * 로 활성 슬롯의 세이브에서 곧장 읽는다 (프로필을 읽는 시점이 시스템들과 같은 "부팅 때 한 번"이다).
- * 세이브가 없거나 색이 없으면 기본 헬다이버 노랑. **원격 아바타는 그대로 로비 슬롯 색을 쓴다.**
+ * `SoldierModel` **bakes the accent in its constructor** (the materials are created there). This model, though, is
+ * built by field initialisation *before* `init(ctx)`, so it cannot see `ctx.progression` — it therefore reads the
+ * active slot's save directly through `shared/saveSlot.readSlotCard` (the profile is read at the same "once at boot"
+ * moment the systems use). With no save, or no colour in it, the default helldiver yellow. **Remote avatars keep
+ * using the lobby slot colour.**
  */
 function localAccentColor(): number {
   try {
     const hex = readSlotCard(activeSlot()).accent;
     if (hex && /^#[0-9a-fA-F]{6}$/.test(hex)) return Number.parseInt(hex.slice(1), 16);
-  } catch { /* storage off — 기본색으로 간다 */ }
+  } catch { /* storage off — fall back to the default colour */ }
   return SOLDIER_DEFAULT_ACCENT;
 }
 
@@ -71,10 +72,10 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   // health
   hp = PLAYER_MAX_HP;
   /**
-   * 2026-09-10 — 체력 최대치는 더 이상 상수에 못 박혀 있지 않다. 기본은 `PLAYER_MAX_HP`(100)이고 여기에
-   * **다른 효과가 얹은 보너스**를 더한다. 지금은 보너스를 주는 출처가 하나도 없어 결과는 그대로 100 이지만,
-   * `player:healthChanged.maxHp` 를 읽는 HUD 가 늘 정확하도록 계산을 한 군데로 모아 뒀다.
-   * (실드는 이것과 완전히 별개의 풀이다 — `shield` / `maxShield` 참고.)
+   * 2026-09-10 — the hp maximum is no longer nailed to a constant. The base is `PLAYER_MAX_HP` (100) plus
+   * **whatever bonus another effect adds**. Nothing grants such a bonus today, so the result is still 100, but the
+   * calculation is kept in one place so the HUD reading `player:healthChanged.maxHp` is always right.
+   * (The shield is a completely separate pool — see `shield` / `maxShield`.)
    */
   bonusMaxHp = 0;
   get maxHp(): number { return Math.max(1, PLAYER_MAX_HP + this.bonusMaxHp); }
@@ -84,7 +85,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   flinch = 0;
   healPool = 0;
   healRate = 0;
-  // downed (전투불능): hp 0 but not dead — crawling prone while `downHp` bleeds
+  // downed: hp 0 but not dead — crawling prone while `downHp` bleeds
   _downed = false;
   _downHp = 0;
   bleedAcc = 0;
@@ -93,7 +94,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   giveUpSent = -1;
   giveUpSentAt = -Infinity;
   /**
-   * Phase 12 legendary perk `auto_revive` (재기동 회로): once per raid the downed player stands back up by himself
+   * Phase 12 legendary perk `auto_revive` (`재기동 회로`): once per raid the downed player stands back up by himself
    * after `AUTO_REVIVE_DELAY_S`. `autoReviveTimer` counts down while armed (−1 = not armed), `autoReviveUsed` is
    * reset on `world:ready`.
    */
@@ -101,7 +102,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   autoReviveTimer = -1;
 
   // stamina
-  // stamina (max comes from 지구력 via progression; PLAYER_MAX_STAMINA is the fallback)
+  // stamina (max comes from `지구력` endurance via progression; PLAYER_MAX_STAMINA is the fallback)
   stamina = PLAYER_MAX_STAMINA;
   get maxStamina(): number { return this.ctx?.progression?.derived.maxStamina ?? PLAYER_MAX_STAMINA; }
   regenDelay = 0;
@@ -140,17 +141,19 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   burnTimer = 0;
   burnTick = 0;
   _burning = false;
-  /** 2026-09-15 (결과 창 개편): 지금 타고 있는 불의 출처 — 화상 틱이 `applyDamage` 에 싣는다. */
+  /** 2026-09-15 (results-screen rework): source of the fire burning us — the burn tick puts it on `applyDamage`. */
   burnSource: PlayerDamageSource | undefined = undefined;
   /**
-   * 2026-09-15 (결과 창 개편): 사망 원인 후보 — 체력을 0 으로 만든 피해의 출처(전투불능이면 쓰러뜨린 피해의 출처,
-   * 쓰러진 뒤 막타가 들어오면 그 막타). `die()` 가 `player:died.source` 로 내고 비운다. revive · clearDowned 가 비운다.
+   * 2026-09-15 (results-screen rework): the candidate death cause — the source of the damage that took hp to 0 (while
+   * downed, the source that downed us; a last hit landed after that replaces it). `die()` sends it as
+   * `player:died.source` and clears it. revive · clearDowned clear it too.
    */
   _deathSource: PlayerDamageSource | undefined = undefined;
   regenAccum = 0;
-  /* 행성 상시 환경 (A-13, `parts/Statuses.updateEnv`). 프로필의 준비물이 막아 주는지까지 합쳐 **상태가 바뀔 때만**
-   * `player:envChanged` 를 낸다. 준비물 자체는 progression 의 프로필에 살기 때문에 `resetTactical` · 스폰이
-   * 건드리지 못한다 — 여기 있는 것은 노출 상태와 틱 누산기뿐이다. */
+  /* The planet's permanent environment (A-13, `parts/Statuses.updateEnv`). Folding in whether a preparation on the
+   * profile blocks it, `player:envChanged` goes out **only when the state changes**. The preparations themselves live
+   * on progression's profile, out of reach of `resetTactical` and the spawns — what is here is the exposure state and
+   * the tick accumulator, nothing else. */
   envKind: EnvKind | null = null;
   envProtected = false;
   envTick = 0;
@@ -158,7 +161,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   // stance
   _stance: Stance = 'stand';
   standUpTimer = 0;
-  /** 2026-09-16: 제 힘으로 움직인 수평 거리 누적(m) — `PlayerRef.selfMovedMeters`, 누산은 `update` 의 컨트롤러 직후. */
+  /** 2026-09-16: self-propelled horizontal metres (m) — `PlayerRef.selfMovedMeters`, summed after the controller. */
   private _selfMovedMeters = 0;
 
   // state
@@ -171,7 +174,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   scopeHidden = false;
   crouchBlend = 0;
   proneBlend = 0;
-  /** 전투불능 fall progress 0..1 — drives `SoldierModel.poseDowned` (the backward fall), 2026-09-08. */
+  /** Downed fall progress 0..1 — drives `SoldierModel.poseDowned` (the backward fall), 2026-09-08. */
   downedBlend = 0;
   sprintBlend = 0;
   throwBlend = 0;
@@ -187,7 +190,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   slowTimer = 0;
   slowFactor = 1;
   attachedParent: THREE.Object3D | null = null;
-  /* ── Phase 10: 부상자 들쳐메기 ── */
+  /* ── Phase 10: shouldering a downed squadmate ── */
   /** Peer id on our right shoulder (null = nobody). */
   _carrying: string | null = null;
   /** Another player's shoulder socket our own body hangs on (null = on our own feet). */
@@ -201,7 +204,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   shipBounds: ShipBounds = null;
   _interior: InteriorCollider | null = null;
   _inPod = false;
-  /* ── 사다리 · 단차 보간 (2026-09-11, `parts/Climb`) ── */
+  /* ── ladder · step smoothing (2026-09-11, `parts/Climb`) ── */
   /** Damped 0..1 blend driving `SoldierPose.climb`. */
   climbBlend = 0;
   /** Last `player:climbChanged.ladderId` emitted (null = on the ground). */
@@ -213,37 +216,40 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
    * edges, the ground snap) and the ladder grab snap are written here and decay by `STEP_SMOOTH_RATE`.
    */
   readonly bodyOffset = new THREE.Vector3();
-  /* ── 드론 조종 (2026-09-11, `parts/DroneControl`) ── */
+  /* ── drone control (2026-09-11, `parts/DroneControl`) ── */
   /** true while the local player looks through a drone — inputs belong to the drone, the body crouches still. */
   _droneControl = false;
   /** Stance before `setDroneControl(true)` (restored on a manual release when it was `stand`). */
   droneStancePrev: Stance | null = null;
-  /* ── 탐사 차량 탑승 (2026-09-13, `parts/RoverRide`) ── */
+  /* ── rover riding (2026-09-13, `parts/RoverRide`) ── */
   /** The world/rover binding while the body sits inside the rover (null = on foot). */
   _roverRide: RoverRideBinding | null = null;
   /** 0..1 progress of the E exit hold, and whether a fresh E press may start one. */
   roverHold = 0;
   roverHoldArmed = true;
-  /* ── 오프닝 기상 연출 (2026-09-14, `parts/IntroWake`) ── */
-  /** 남은 초. **-1 = 연출 없음** (0 은 「이번 프레임이 마지막」이라 쓰지 않는다). */
+  /* ── the intro wake (2026-09-14, `parts/IntroWake`) ── */
+  /** Seconds left. **-1 = no cutscene** (0 is not used, it would read as "this frame is the last one"). */
   introWakeT = -1;
-  /** 이번 연출의 전체 길이 (진행도 계산용). */
+  /** Full length of the running cutscene (for the progress calculation). */
   introWakeDur = 0;
   /**
-   * 2026-09-15 — 지금 도는 연출이 **부활 연출**(`playIntroWake(d, {respawn:true})`)이다: 자세 · 입력 잠금만 있고
-   * 페이드 · 전용 카메라 · `introWaking` · `player:introWakeDone` 이 없다 (`parts/IntroWake`).
+   * 2026-09-15 — the cutscene now running is the **respawn variant** (`playIntroWake(d, {respawn:true})`): pose and
+   * input lock only, no fade · dedicated camera · `introWaking` · `player:introWakeDone` (`parts/IntroWake`).
    */
   introWakeRespawn = false;
-  /* ── 각본 잠금 (2026-09-14 3차, `PlayerRef.setSceneLock`) ── */
-  /** true 인 동안 입력이 전부 잠기고 들어오는 피해가 무시된다. 카메라는 부르는 쪽(이륙 연출)이 든다. */
+  /* ── the scene lock (2026-09-14, 3rd pass, `PlayerRef.setSceneLock`) ── */
+  /** While true every input is locked and damage ignored. The caller (the liftoff cutscene) holds the camera. */
   _sceneLock = false;
-  /** 2026-09-15 — 각본 잠금 중에도 피해가 **들어간다** (`setSceneLock(true, {allowDamage})`). 체력은 `_sceneLockMinHp` 밑으로 안 내려간다. */
+  /**
+   * 2026-09-15 — damage **lands** during the scene lock too (`setSceneLock(true, {allowDamage})`); hp never falls
+   * below `_sceneLockMinHp`.
+   */
   _sceneLockDamage = false;
   _sceneLockMinHp = 1;
-  /* ── 가구 자세 (2026-09-12, `parts/FurniturePose`) ── */
+  /* ── furniture poses (2026-09-12, `parts/FurniturePose`) ── */
   /** Sit / bench / run / cycle on a piece of ship furniture: logical state, restore spot, drive phase, model blend. */
   readonly furn: FurniturePoseState = createFurniturePoseState();
-  /* ── 캐릭터 버프 (2026-09-12, `parts/Buffs`) ── */
+  /* ── character buffs (2026-09-12, `parts/Buffs`) ── */
   /** Published list (`PlayerRef.buffs`) — replaced by a new array only when it changed. */
   _buffs: readonly CharBuff[] = [];
   _buffsRevision = 0;
@@ -254,7 +260,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Recompute scratch (pooled `CharBuff` objects, never published). */
   readonly buffScratch: CharBuff[] = [];
   readonly buffPool: CharBuff[] = [];
-  /* ── 전투 소모품 효과 (2026-09-12, `parts/Boosts`) ── */
+  /* ── combat consumable effects (2026-09-12, `parts/Boosts`) ── */
   /** Running boost (null = none). Durations in `ctx.time` seconds; `boostStartedAt` / `boostEndsAt` = the buff clock (epoch ms). */
   boostKind: BoostKind | null = null;
   boostDefId: string | null = null;
@@ -306,9 +312,10 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   get isFiring(): boolean { return this.weaponState.firing; }
   get isDropping(): boolean { return this.hellpod.isActive && this.hellpod.state !== 'exiting'; }
   /**
-   * 2026-09-13 (탈출 개편): also true while standing in the **landed** dropship's bay — boarding no longer puts the body on
-   * the `shipBounds` box until it rides off (the bay is walked in world mode against the hull colliders), and the readers
-   * (`IN_SHIP` snapshot flag, tram-hit and hazard-damage exemptions) mean "in the extraction ship".
+   * 2026-09-13 (extraction rework): also true while standing in the **landed** dropship's bay — boarding no longer
+   * puts the body on the `shipBounds` box until it rides off (the bay is walked in world mode against the hull
+   * colliders), and the readers (`IN_SHIP` snapshot flag, tram-hit and hazard-damage exemptions) mean "in the
+   * extraction ship".
    */
   get isInShip(): boolean {
     return this.shipBounds !== null || (this.spawned && (this.ctx.extraction?.isInShipBay(this.controller.position) ?? false));
@@ -325,13 +332,16 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /* ── tactical kit (appended contract) ── */
   /** Alt rolls (replaces the dive); the wire keeps the DIVE flag via `isDiving`. */
   get isRolling(): boolean { return this.controller.rolling; }
-  /** 2026-09-16 (운반 숙련): 제 힘으로 움직인 수평 거리의 주행계 (m, 줄지 않는다) — 계약은 `PlayerRef.selfMovedMeters`. */
+  /**
+   * 2026-09-16 (the `운반` hauling skill): odometer of self-propelled horizontal metres (m, never decreases) — the
+   * contract is `PlayerRef.selfMovedMeters`.
+   */
   get selfMovedMeters(): number { return this._selfMovedMeters; }
   get isMeleeing(): boolean { return this.meleeTimer > 0; }
   /* ── Phase 7 (docs/DECISIONS.md Phase 7) ── */
-  /** true while the 용검 heavy slash pose plays (`startMelee('heavy')`); net puts MELEE_HEAVY on the wire from it. */
+  /** true while the `용검` heavy slash pose plays (`startMelee('heavy')`); net puts MELEE_HEAVY on the wire from it. */
   get isMeleeHeavy(): boolean { return this.meleeTimer > 0 && this.meleeKind === 'heavy'; }
-  /* ── 사다리 (2026-09-11, appended contract `PlayerRef.climbingLadder`) ── */
+  /* ── ladder (2026-09-11, appended contract `PlayerRef.climbingLadder`) ── */
   /** Id of the ladder we hang on (also while mounting the top), null otherwise. net puts `CLIMBING` on the wire from it. */
   get climbingLadder(): string | null { return this.controller.climbLadder ? this.controller.climbLadder.id : null; }
 
@@ -343,7 +353,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   clearClimbState(): void { return Climb.clearClimbState(this); }
   syncClimb(): void { return Climb.syncClimb(this); }
 
-  /* ── 드론 조종 (2026-09-11, appended contract `PlayerRef.droneControl` / `setDroneControl`) ── */
+  /* ── drone control (2026-09-11, appended contract `PlayerRef.droneControl` / `setDroneControl`) ── */
   get droneControl(): boolean { return this._droneControl; }
   /**
    * true = look through a drone: movement / jump / stance / roll / sprint / aim / E / carry / ladder / weapons off, horizontal
@@ -356,7 +366,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Internal auto-release (death · downed · resets · pod · ship · hub): no stance restore, camera override cut at once. */
   releaseDroneControl(restoreStance = false, cutCamera = true): void { return Drone.releaseDroneControl(this, restoreStance, cutCamera); }
 
-  /* ── 탐사 차량 탑승 (2026-09-13, appended contract `PlayerRef.roverRide` / `roverBoardBlock` / `setRoverRide`, `parts/RoverRide`) ── */
+  /* ── rover riding (2026-09-13, appended contract `PlayerRef.roverRide` / `roverBoardBlock` / `setRoverRide`) ── */
   get roverRide(): boolean { return this._roverRide !== null; }
   /** Korean reason the body cannot board now (dead · downed · carrying · carried · ladder · drone · ship / pod …), null = free. */
   roverBoardBlock(): string | null { return RoverRide.roverBoardBlock(this); }
@@ -367,39 +377,44 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Internal release (death · resets · backstop): alight beside the vehicle. No-op when not riding. */
   releaseRoverRide(): void { return RoverRide.releaseRoverRide(this); }
 
-  /* ── 오프닝 기상 연출 (2026-09-14, appended contract `PlayerRef.playIntroWake`, `parts/IntroWake`) ── */
+  /* ── the intro wake (2026-09-14, appended contract `PlayerRef.playIntroWake`, `parts/IntroWake`) ── */
   /**
-   * true 인 동안 이동 · 자세 · 무기 · 상호작용 · 마우스 룩이 잠기고 카메라는 쓰러진 몸을 비춘다.
-   * 2026-09-14: 계약 `PlayerRef.introWaking` 이기도 하다 — 나침반 · Tab 가방이 이것이 false 가 될 때까지 기다린다.
+   * While true, movement · stance · weapons · interaction · mouse look are locked and the camera frames the body.
+   * 2026-09-14: it is also the contract `PlayerRef.introWaking` — the compass and Tab bag wait for it to go false.
    */
-  // 2026-09-15: 부활 연출(`introWakeRespawn`)은 오프닝이 아니다 — 나침반 · Tab 이 기다리지 않는다
+  // 2026-09-15: the respawn variant (`introWakeRespawn`) is not the opening — the compass and Tab do not wait for it
   get introWaking(): boolean { return this.introWakeT >= 0 && !this.introWakeRespawn; }
   /**
-   * 튜토리얼 오프닝 — 쓰러진 자세로 시작해 `durationS` 에 걸쳐 일어난다 (`TUTORIAL_INTRO_WAKE_S`). 일어서는 동안
-   * 카메라가 평소 3인칭 백뷰 자리로 옮겨 가고, 끝나면 오버라이드를 풀고 `player:introWakeDone`.
-   * `game:abort` · `game:newMission` · 사망은 스스로 푼다.
+   * The tutorial opening — starts in the downed pose and stands up over `durationS` (`TUTORIAL_INTRO_WAKE_S`). While
+   * it rises the camera moves to the ordinary third-person back-view spot; at the end the override is released and
+   * `player:introWakeDone` goes out. `game:abort` · `game:newMission` · death release it themselves.
    */
-  /** 2026-09-15: `opts.respawn` = 튜토리얼 부활 연출 (쓰러진 자세 → 일어서기 + 입력 잠금만, 페이드 · 카메라 · 완료 신호 없음). */
+  /**
+   * 2026-09-15: `opts.respawn` = the tutorial respawn variant (downed pose → stand up + input lock only, no fade ·
+   * camera · done signal).
+   */
   playIntroWake(durationS: number, opts?: { respawn?: boolean }): void { return IntroWake.playIntroWake(this, durationS, opts); }
 
-  /* ── 각본 잠금 (2026-09-14 3차, appended contract `PlayerRef.setSceneLock`) ── */
+  /* ── the scene lock (2026-09-14, 3rd pass, appended contract `PlayerRef.setSceneLock`) ── */
   /**
-   * **각본이 몸을 들고 있다** — 이동 · 자세 · 점프 · 구르기 · 조준 · 무기 · 상호작용 · 마우스 룩이 잠기고
-   * 들어오는 피해가 전부 무시된다(실드 · 체력 · 전투불능 · 사망 어느 것도 일어나지 않는다).
+   * **The scripted scene is holding the body** — movement · stance · jump · roll · aim · weapons · interaction ·
+   * mouse look are locked and every incoming damage is ignored (no shield, hp, downed or death happens).
    *
-   * 새 잠금 경로를 만들지 않았다 — 기상 연출(`introWaking`) · 드론 조종 · 차량 탑승이 이미 보는 **그 자리들**에
-   * 조건 하나를 더했을 뿐이고(`update` 의 `scripted`, `canUseWeapons`), 피해는 단일 입구(`parts/Vitals.applyDamage`)와
-   * 그것을 우회하는 유일한 갈래(`parts/Statuses.updateEnv`)에서 `_roverRide` 와 같은 줄로 막는다.
-   * **카메라는 건드리지 않는다** (지금 유일한 사용자인 탈출 이륙 연출이 이미 들고 있다).
+   * No new lock path was created — one more condition was added to **the very places** the intro wake
+   * (`introWaking`) · drone control · rover riding already look at (`scripted` in `update`, `canUseWeapons`), and the
+   * damage is blocked on the same line as `_roverRide` at the single entry (`parts/Vitals.applyDamage`) and at the
+   * only branch that bypasses it (`parts/Statuses.updateEnv`).
+   * **The camera is not touched** (its only user today, the extraction liftoff cutscene, already holds it).
    *
-   * 스스로 푸는 곳: `game:abort`(`resetAll`) · `game:newMission` · `spawnStanding` · `respawnAt` — 즉 함선 복귀 ·
-   * 새 미션 · 부활이 전부 지난다. 끄기는 언제나 안전하다(플래그 하나).
+   * Released by itself at: `game:abort` (`resetAll`) · `game:newMission` · `spawnStanding` · `respawnAt` — that is,
+   * a ship return · a new mission · a revive all pass through one. Turning it off is always safe (one flag).
    */
   /*
-   * 2026-09-15 (`opts` — 사용자 결정 「처치하지 않은 안드로이드의 사격을 맞은 채 출발한다 · 죽지 않는다」): `allowDamage` 면
-   * 입력 잠금은 그대로이되 피해가 **들어간다** (실드 → 체력, 피격 연출 · 소리 · 방향 호 그대로). 체력만 `minHp`(기본 1, 최소 1)에서
-   * 멈추고 전투불능 · 사망이 없다 — `parts/Vitals.applyDamage` · `parts/Statuses.updateEnv` 가 이 두 필드를 본다. 넉백은 여전히 막는다.
-   * 이미 잠겨 있어도 옵션은 새로 적는다 (끄면 옵션도 기본값으로).
+   * 2026-09-15 (`opts` — user's decision 「처치하지 않은 안드로이드의 사격을 맞은 채 출발한다 · 죽지 않는다」): with
+   * `allowDamage` the input lock stays but damage **lands** (shield → hp, hit feedback · sound · direction arc as
+   * usual). Only hp stops at `minHp` (1 by default, at least 1) and there is no downed state and no death —
+   * `parts/Vitals.applyDamage` · `parts/Statuses.updateEnv` read these two fields. Knockback is still blocked.
+   * The options are rewritten even when the lock is already on (turning it off restores their defaults).
    */
   setSceneLock(on: boolean, opts?: { allowDamage?: boolean; minHp?: number }): void {
     const next = !!on;
@@ -410,7 +425,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this._sceneLock = next;
   }
 
-  /* ── 가구 자세 (2026-09-12, appended contract `PlayerRef.furniturePose` / `setFurniturePose` / `setFurniturePoseDrive`) ── */
+  /* ── furniture poses (2026-09-12, `PlayerRef.furniturePose` / `setFurniturePose` / `setFurniturePoseDrive`) ── */
   get furniturePose(): FurniturePoseKind | null { return this.furn.kind; }
   /**
    * Sit / lie / run / pedal on ship furniture (`null` releases → `player:furniturePoseEnded {reason:'caller'}`). Ship only;
@@ -424,12 +439,12 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Internal release (E · resets). No-op without a pose; emits `player:furniturePoseEnded` once. */
   releaseFurniturePose(reason: Pose.FurniturePoseEndReason): void { return Pose.releaseFurniturePose(this, reason); }
   /**
-   * 2026-09-12 (캐릭터 버프): the pose as net puts it on the wire (`fp` · `fu`) — kind, anchor, yaw, **cumulative** phase
+   * 2026-09-12 (buffs): the pose as net puts it on the wire (`fp` · `fu`) — kind, anchor, yaw, **cumulative** phase
    * (bench 0…1 · run steps · cycle revolutions · sit 0), furniture uid. A reused object; null without a pose.
    */
   get furniturePoseState(): FurniturePoseWire | null { return Pose.poseWireState(this); }
 
-  /* ── 캐릭터 버프 (2026-09-12, appended contract `PlayerRef.buffs` / `buffsRevision`, `player:buffsChanged`) ── */
+  /* ── character buffs (2026-09-12, contract `PlayerRef.buffs` / `buffsRevision`, `player:buffsChanged`) ── */
   /** Everything on this character (`CHAR_BUFF_ORDER`); a new array only when it changed. See `parts/Buffs`. */
   get buffs(): readonly CharBuff[] { return this._buffs; }
   /** +1 per published change (0 = never had a list). */
@@ -437,11 +452,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Collect the list now; true when it changed (revision bumped, `player:buffsChanged` emitted). Smokes / console. */
   recomputeBuffs(): boolean { return Buffs.recomputeBuffs(this); }
 
-  /* ── 전투 소모품 효과 (2026-09-12, appended contract `PlayerRef.applyBoost` …, `parts/Boosts`) ── */
-  /** 아드레날린 · 각성제 — weapons' `Healing.finishHeal` after the item was consumed. Starting one clears the other. */
+  /* ── combat consumable effects (2026-09-12, appended contract `PlayerRef.applyBoost` …, `parts/Boosts`) ── */
+  /** Adrenaline · stimulant — weapons' `Healing.finishHeal` after the item was used. One starts, the other clears. */
   applyBoost(kind: BoostKind, defId?: string): void { return Boosts.applyBoost(this, kind, defId); }
   get boost(): { kind: BoostKind; remaining: number; duration: number; defId: string | null } | null { return Boosts.boostState(this); }
-  /** 1 normally, `BOOST_STIMULANT_AIM_SWAY_MUL` under 각성제 (the camera sway multiplies it). */
+  /** 1 normally, `BOOST_STIMULANT_AIM_SWAY_MUL` under a stimulant (the camera sway multiplies it). */
   get aimSwayMul(): number { return Boosts.aimSwayMul(this); }
   get boostReloadSpeedMul(): number { return Boosts.reloadSpeedMul(this); }
   get adsSpeedMul(): number { return Boosts.adsSpeedMul(this); }
@@ -462,27 +477,28 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Mark overcharged for `duration` s (0 = clear). implants' `applyBoost` calls it next to `setSpeedModifier`. */
   setOvercharged(duration: number): void { this._overchargedUntil = duration > 0 && this.ctx ? this.ctx.time + duration : 0; }
   /**
-   * **항상 0 이다 (2026-09-10).** 방탄복은 피해를 깎지 않고 실드(추가 체력)를 준다 — 아래 `shield` 를 본다.
-   * `PlayerRef.damageReduction` 은 `airstrike` · `secondary` 와 같은 처리로 **계약이라 남겨 뒀을 뿐**이고
-   * 피해 계산(`parts/Vitals.applyDamage`)에서는 완전히 빠졌다.
+   * **Always 0 (2026-09-10).** Armor does not reduce damage, it grants a shield (extra hp) — see `shield` below.
+   * `PlayerRef.damageReduction` is handled like `airstrike` · `secondary`: **kept only because it is the contract**,
+   * and out of the damage calculation (`parts/Vitals.applyDamage`) entirely.
    */
   get damageReduction(): number { return this.gear.damageReduction; }
 
-  /* ── 실드 (2026-09-10) ─────────────────────────────────────────────────────
-   * 방탄복이 주는 **추가 체력 풀**. 피해는 실드를 먼저 비우고 남은 만큼만 `hp` 로 간다. 스스로 재생하지
-   * 않고 '실드 충전기' 소모품과 함선(허브) 복귀로만 찬다. 실드가 먹은 피해만큼 판의 내구도가 닳고
-   * (`wearGear`), 내구도 0 = 파손 = 최대치 0 이다 (충전기로도 못 채운다 — 함선 작업대에서 수리한다).
-   * 변화는 전부 `player:shieldChanged` 로 나간다 (좌하단 게이지가 그것만 읽는다).
+  /* ── the shield (2026-09-10) ───────────────────────────────────────────────
+   * The **extra hp pool** armor grants. Damage empties the shield first and only the remainder reaches `hp`. It never
+   * regenerates by itself: it is refilled by the '실드 충전기' consumable and by returning to the ship (hub). The
+   * plate's durability wears by whatever the shield absorbed (`wearGear`), and durability 0 = broken = maximum 0 (no
+   * charger fills it — it is repaired at the ship's workbench).
+   * Every change goes out as `player:shieldChanged` (the bottom-left gauge reads nothing else).
    */
   _shield = 0;
   /**
-   * 2026-09-10: 재접속 복귀(`restoreState`)가 돌려줄 실드. `Infinity` = 방탄복 최대치(옛 세이브 · 옛 호스트가
-   * 실드를 안 보냈을 때). `syncShield` 가 **방탄복을 실제로 읽은 뒤**(`gear.shieldMax > 0`) 한 번만 적용한다 —
-   * 복귀 프레임에는 `PlayerGear` 가 아직 인벤토리를 다시 읽기 전이라 최대치가 0 이고, 그때 바로 넣으면
-   * 돌아온 사람만 조용히 실드를 잃는다.
+   * 2026-09-10: the shield a rejoin (`restoreState`) is to give back. `Infinity` = the armor's maximum (an old save,
+   * or an older host that sent no shield). `syncShield` applies it exactly once, and only **after the armor has
+   * actually been read** (`gear.shieldMax > 0`) — on the rejoin frame `PlayerGear` has not re-read the inventory yet
+   * so the maximum is 0, and writing it there would silently cost the returning player his shield.
    */
   pendingShield: number | null = null;
-  /** 마지막으로 발행한 값 (같은 값을 두 번 보내지 않는다). */
+  /** The last value published (the same value is never sent twice). */
   private shieldSent = -1;
   private shieldMaxSent = -1;
 
@@ -492,8 +508,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   get shieldTier(): number { return this.gear.shieldTier; }
 
   /**
-   * 실드 충전기: `amount` 만큼 채운다 (`Infinity` = 가득). 방탄복이 없거나 파손이거나 이미 가득이면
-   * **아무것도 하지 않고 false** — 호출자(weapons 의 퀵 사용)가 아이템을 소모하기 전에 이걸로 먼저 묻는다.
+   * The shield charger: refills by `amount` (`Infinity` = full). With no armor, broken armor or an already full
+   * shield it **does nothing and returns false** — the caller (weapons' quick use) asks with this before consuming
+   * the item.
    */
   chargeShield(amount: number): boolean {
     if (!this.spawned || this.isDead || this._downed) return false;
@@ -504,14 +521,14 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     const delta = this._shield - before;
     if (delta <= 0) return false;
     this.emitShield(delta);
-    // 2026-09-11 (C-21): 전용 완료음 (예전엔 `stim` 을 pitch 1.25 로 빌려 썼다 — 정의는 audio/Synth)
+    // 2026-09-11 (C-21): its own completion sound (it used to borrow `stim` at pitch 1.25 — defined in audio/Synth)
     this.ctx.bus.emit('audio:play', { id: 'shield_charge', volume: 0.7 });
     return true;
   }
 
   /**
-   * 들어온 피해를 실드가 먼저 받는다. **실드가 실제로 먹은 양**을 돌려주고, 남은 것은 호출자가 체력으로 넘긴다
-   * (`parts/Vitals.applyDamage`). 0 을 돌려줘도 이벤트는 나가지 않는다.
+   * The shield takes the incoming damage first. Returns **how much the shield actually absorbed**; the caller passes
+   * the remainder on to hp (`parts/Vitals.applyDamage`). No event goes out when it returns 0.
    */
   absorbShield(amount: number): number {
     if (!(amount > 0) || this._shield <= 0) return 0;
@@ -522,19 +539,22 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   }
 
   /**
-   * 방탄복이 바뀌었나 · 함선인가를 매 프레임 확인하고 필요하면 실드를 다시 세운다. `gear.update` 바로 뒤에서 돈다.
+   * Checks every frame whether the armor changed and whether we are on the ship, and rebuilds the shield when needed.
+   * Runs right after `gear.update`.
    *
-   * - **함선(허브)에서는 늘 가득**이다 — 장착 · 교체 · 수리를 하면 그 자리에서 최대치로 찬다. 출격하면 그 상태로 나간다.
-   * - **레이드 중에 방탄복을 갈아 끼워도 채워 주지 않는다** (가진 실드를 새 최대치로 자르기만 한다) — 여벌 방탄복이
-   *   공짜 충전기가 되면 충전기가 의미를 잃기 때문이다. 레이드에서 실드를 채우는 길은 충전기뿐이다.
-   * - 방탄복을 벗거나 파손되면 최대치가 0 이라 실드도 0 이 된다.
+   * - **Always full on the ship (hub)** — equipping · swapping · repairing fills it to the maximum on the spot, and
+   *   the launch goes out in that state.
+   * - **Swapping armor mid-raid does not refill it** (the shield held is only clamped to the new maximum) — a spare
+   *   armor as a free charger would make chargers pointless. In a raid the only way to refill is a charger.
+   * - Taking the armor off or breaking it puts the maximum at 0, so the shield is 0 too.
    */
   syncShield(): void {
     const max = this.gear.shieldMax;
     const before = this.shieldSent < 0 ? 0 : this.shieldSent;
-    // 함선에서는 늘 가득; 그 밖에서는 새 최대치로 자르기만 한다 (레이드 중 교체는 채워 주지 않는다)
+    // always full on the ship; anywhere else only clamped to the new maximum (a mid-raid swap does not refill)
     this._shield = max <= 0 ? 0 : this.ctx.isHubPhase() ? max : Math.min(this._shield, max);
-    // 재접속 복귀분은 방탄복을 실제로 읽은 첫 프레임에 한 번만 들어간다 (허브에서는 이미 가득이라 무의미).
+    // the rejoin amount lands exactly once, on the first frame the armor was really read
+    // (pointless in the hub — the shield is already full there).
     if (this.pendingShield !== null && max > 0) {
       const want = this.pendingShield;
       this.pendingShield = null;
@@ -543,7 +563,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (this._shield !== this.shieldSent || max !== this.shieldMaxSent) this.emitShield(this._shield - before);
   }
 
-  /** 전투불능 · 사망: 실드를 통째로 비운다 (`parts/Vitals`). 이미 0 이면 아무것도 하지 않는다. */
+  /** Downed · death: empties the shield outright (`parts/Vitals`). Does nothing when it is already 0. */
   clearShield(): void {
     if (this._shield <= 0) return;
     const delta = -this._shield;
@@ -551,7 +571,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.emitShield(delta);
   }
 
-  /** `player:shieldChanged` 한 곳. `delta` 는 이번 변화량(감소는 음수). */
+  /** The one place `player:shieldChanged` is sent. `delta` is this change (negative for a loss). */
   emitShield(delta: number): void {
     const max = this.maxShield;
     this._shield = Math.max(0, Math.min(max, this._shield));
@@ -574,7 +594,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
   /**
    * Start a melee swing (F). `light` (default) costs MELEE_STAMINA_COST and plays for MELEE_SWING_TIME;
-   * `heavy` = the 용검 big slash: two-handed wide horizontal swing for SLASH_DURATION (`isMeleeing` stays true
+   * `heavy` = the `용검` big slash: two-handed wide horizontal swing for SLASH_DURATION (`isMeleeing` stays true
    * meanwhile) — the caller (weapons) has already taken the stamina through `consumeStamina`, so no cost here.
    * Both lock out for MELEE_COOLDOWN (a swing never starts inside another). WeaponSystem owns the key binding,
    * the hit resolution and `melee:swing` / `melee:hit` / `player:slashed`.
@@ -584,7 +604,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (this._carrying) { this.dropCarried('action'); return false; }
     if (this.meleeTimer > 0 || this.meleeCooldown > 0) return false;
     if (kind !== 'heavy') {
-      if (this.stamina < MELEE_STAMINA_COST * this.staminaCostMul) {   // 2026-09-12: 각성제 = 소모 증가 (spendStamina 가 곱한다)
+      if (this.stamina < MELEE_STAMINA_COST * this.staminaCostMul) {   // 2026-09-12: a stimulant costs more (spendStamina multiplies it)
         this.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
         return false;
       }
@@ -618,7 +638,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Tactical bag hover: slows the fall while held (also auto-engaged once to prevent a fatal fall). */
   setHovering(hovering: boolean): void { return Loco.setHovering(this, hovering); }
 
-  /** Fire zone / incendiary: DoT that also suppresses the 인내 save while it kills. */
+  /** Fire zone / incendiary: DoT that also suppresses the `인내` (grit) save while it kills. */
   setBurning(dps: number, duration: number, source?: PlayerDamageSource): void { return Stat.setBurning(this, dps, duration, source); }
 
   /** Teammate finished the revive hold (net → `ctx.player.revive()`): back up with PLAYER_REVIVE_HP, still prone. */
@@ -637,7 +657,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
   /**
    * appended (2026-09-07): the consumable's own heal-over-time. `seconds` ≤ 0 lands the whole `amount` on the next
-   * frame; `quiet` skips the SFX (the 회복 스프레이 ticks 10×/s). A pool already running is **topped up** rather than
+   * frame; `quiet` skips the SFX (the `회복 스프레이` ticks 10×/s). A pool already running is **topped up** rather than
    * refused for a spray tick — a fresh use still refuses while one is running, which is what `applyStim` always did.
    */
   applyHeal(amount: number, seconds: number, quiet = false): boolean { return Vitals.applyHeal(this, amount, seconds, quiet); }
@@ -699,14 +719,15 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   takeDamage(amount: number, from?: THREE.Vector3, source?: PlayerDamageSource, opts?: PlayerDamageOptions): void { return Vitals.takeDamage(this, amount, from, source, opts); }
 
   /**
-   * Single damage path. `dot` (burning) skips the invulnerability window, the shake / audio and the 인내 (grit)
-   * save. **실드가 먼저 피해를 먹고** 남은 만큼만 체력으로 간다 (2026-09-10 — 방탄복은 피해를 깎지 않는다);
-   * 실드가 먹은 만큼 판이 닳는다. A roll counts as a partial i-frame.
-   * 2026-09-15: `opts.bypassShield`(독성 포자 재해) 면 실드를 건너뛰고 체력만 깎는다 — 갈래는 `Vitals.applyDamage` 안에 있다.
+   * Single damage path. `dot` (burning) skips the invulnerability window, the shake / audio and the `인내` (grit)
+   * save. **The shield eats the damage first** and only the remainder reaches hp (2026-09-10 — armor does not reduce
+   * damage); the plate wears by what the shield absorbed. A roll counts as a partial i-frame.
+   * 2026-09-15: with `opts.bypassShield` (the toxic spore hazard) the shield is skipped and only hp is cut — the
+   * branch is inside `Vitals.applyDamage`.
    */
   applyDamage(amount: number, from: THREE.Vector3 | undefined, dot: boolean, source?: PlayerDamageSource, opts?: PlayerDamageOptions): void { return Vitals.applyDamage(this, amount, from, dot, source, opts); }
 
-  /** 실드가 먹은 `absorbed` 만큼 방탄복이 닳는다 (내구도는 inventory 소유; 0 이 되면 파손 = 실드 최대치 0). */
+  /** The armor wears by the `absorbed` the shield ate (durability is inventory's; 0 = broken = shield maximum 0). */
   wearGear(absorbed: number): void {
     const inv = this.ctx.inventory;
     if (!inv || absorbed <= 0 || !this.gear.armorUid) return;
@@ -714,11 +735,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.gear.markDirty();
   }
 
-  /** hp hit 0: the 인내 skill may leave 1 hp (never on a DoT tick), otherwise the player goes 전투불능. */
+  /** hp hit 0: the `인내` (grit) skill may leave 1 hp (never on a DoT tick), otherwise the player goes downed. */
   onLethal(dot: boolean): void { return Vitals.onLethal(this, dot); }
 
   heal(amount: number): void { return Vitals.heal(this, amount); }
-  /** 2026-09-14: 각본된 장면이 체력을 그대로 정한다 (튜토리얼 「딱피로 깨어난다」). 피격 연출 · 실드를 타지 않는다. */
+  /** 2026-09-14: a scripted scene sets hp outright (the tutorial's 「딱피로 깨어난다」). No hit feedback, no shield. */
   setHp(hp: number): void { return Vitals.setHp(this, hp); }
 
   /* ── dev console / unique weapons (2026-09-06) ─────────────────────────── */
@@ -732,7 +753,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   teleport(position: THREE.Vector3, yaw?: number, snap?: boolean): void { return Spawn.teleport(this, position, yaw, snap); }
   /**
    * Wide-angle camera (target FOV × SLASH_FOV_MUL, damped in and out on the rig, composed with the sprint / ADS
-   * FOV logic) while true — the 용검 slash wind-up and swing. Cleared by every reset.
+   * FOV logic) while true — the `용검` slash wind-up and swing. Cleared by every reset.
    */
   setViewWiden(active: boolean): void { this.rig.viewWiden = !!active; }
   /**
@@ -781,9 +802,9 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       && !this.controller.climbing   // 2026-09-11: both hands are on the ladder
       && !this._droneControl         // 2026-09-11: the inputs belong to the drone
       && this.furn.kind === null     // 2026-09-12: sitting / lying / running on ship furniture
-      && this._roverRide === null    // 2026-09-13: inside the 탐사 차량 (no weapons from the hull)
-      && this.introWakeT < 0         // 2026-09-14: 오프닝 기상 연출 중에는 손이 비어 있다
-      && !this._sceneLock            // 2026-09-14 3차: 각본 잠금 (`setSceneLock`) — 튜토리얼 이륙
+      && this._roverRide === null    // 2026-09-13: inside the rover (no weapons from the hull)
+      && this.introWakeT < 0         // 2026-09-14: the hands are empty during the intro wake
+      && !this._sceneLock            // 2026-09-14, 3rd pass: the scene lock (`setSceneLock`) — the tutorial liftoff
       && !(this.hellpod.isActive && this.hellpod.state !== 'exiting');
   }
   setWeaponState(state: { hasWeapon: boolean; reloading: boolean; firing: boolean; twoHanded: boolean; throwing?: boolean; holdingItem?: boolean; charging?: boolean; spraying?: boolean; heavy?: boolean; altFire?: boolean; cooking?: boolean }): void {
@@ -812,7 +833,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   setAimZoom(zoom: number, scope: boolean): void {
     if (this.rig) this.rig.setAimZoom(zoom, scope);
   }
-  /** 2026-09-12 조준 흔들림: the weapon in hand's class sway (weapons calls it beside `setAimZoom`). */
+  /** 2026-09-12 aim sway: the weapon in hand's class sway (weapons calls it beside `setAimZoom`). */
   setAimSway(amplitudeDeg: number, frequencyHz: number): void {
     if (this.rig) this.rig.setAimSway(amplitudeDeg, frequencyHz);
   }
@@ -828,7 +849,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.eyePos.set(0, EYE_STAND, 0);
     this.aimOrigin.copy(ctx.camera.position);
 
-    // Phase 12 perk `kill_stamina` (아드레날린 펌프): a kill credited to us refills the stamina bar. `by` is `'local'`
+    // Phase 12 perk `kill_stamina` (`아드레날린 펌프`): a kill credited to us refills the stamina bar. `by` is `'local'`
     // on the host for our own hits and on a replica for a `hitc` kill marker (enemies/ folds our PeerId back to it).
     ctx.bus.on('enemy:killed', ({ by }) => {
       if (by !== 'local' || !this.spawned || this.isDead || !ctx.progression?.derived.perks?.kill_stamina) return;
@@ -843,26 +864,28 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
         return;
       }
       this.respawnAt(this.resolveSpawn(playerSpawn));
-      // 2026-09-08: 시뮬레이션 훈련장은 행성이 아니다 — 헬포드로 떨어질 하늘이 없으므로 시작 지점에 그냥
-      //   선 채로 시작한다. `game/`(onWorldReady) 도 같은 규칙으로 'deploying' 을 건너뛰고 바로 'playing' 이다.
-      // 2026-09-14: 튜토리얼도 같다 — 함선 없이 **그 행성에서 깨어나는** 것이 이야기의 시작이라 포드가 없다.
+      // 2026-09-08: the simulated training range is not a planet — there is no sky for a hellpod to fall from, so
+      //   the body simply starts standing at the spawn. `game/` (onWorldReady) skips 'deploying' by the same rule.
+      // 2026-09-14: the tutorial is the same — the story starts by **waking on that planet** with no ship, so no pod.
       if (Spawn.usesHellpod(ctx)) this.startDrop();
     });
     ctx.bus.on('game:abort', () => this.resetAll());
-    // 2026-09-14: 새 미션이 시작되면 오프닝 기상 연출은 알리지 않고 끝난다 (`game:abort` 는 `resetAll` 이 푼다)
-    // 2026-09-14 3차: 각본 잠금도 여기서 풀린다 — 계약이 말하는 「`game:newMission` 이 스스로 푼다」가 이 줄이다
+    // 2026-09-14: a new mission ends the intro wake silently (`game:abort` is released by `resetAll`)
+    // 2026-09-14, 3rd pass: the scene lock is released here too — this line is the contract's
+    //   "`game:newMission` releases it itself"
     ctx.bus.on('game:newMission', () => { IntroWake.cancelIntroWake(this); this.setSceneLock(false); });
     /*
-     * 2026-09-14 (전역 낙하 피해): 대시는 **떨어진 것이 아니다** — 몸을 그 높이 그대로 앞으로 옮기므로 턱 너머로
-     * 대시하면 그 뒤의 낙하가 대시 전 발 높이에서부터 세어진다. 갈고리 · 가방 부양과 같은 취급으로 이번 낙하를 뺀다.
+     * 2026-09-14 (global fall damage): a dash is **not a fall** — it carries the body forward at its own height,
+     * so dashing over a ledge would count the fall after it from the feet height before the dash. This fall is
+     * exempted, the same treatment the grapple and the bag hover get.
      */
     ctx.bus.on('implant:dashed', () => this.controller.exemptFall());
-    // game/GameFlowSystem: 훈련장 재시작 · 재접속 복귀 fallback (2026-09-09 이후 자동 부활은 없다)
+    // game/GameFlowSystem: training-range restart · the rejoin fallback (since 2026-09-09 there is no auto revive)
     ctx.bus.on('player:respawn', ({ position }) => this.respawn(position));
     /*
-     * 2026-09-09 — **구조선 부활**. `stratagems/parts/Rescue` 가 착륙을 알리면 대상 본인만 반응한다:
-     * 헬포드 강하(`kind` 1) · 체력 `RESCUE_REVIVE_HP` · 인벤토리는 사망 때 시체로 넘어갔으므로 빈손.
-     * 싱글은 `'sp'` 가 자기 자신이다 (계약).
+     * 2026-09-09 — **the rescue drop revive**. When `stratagems/parts/Rescue` announces the landing only the target
+     * itself reacts: a hellpod drop (`kind` 1) · hp `RESCUE_REVIVE_HP` · empty-handed, because the inventory went to
+     * the corpse on death. In single player `'sp'` is oneself (the contract).
      */
     ctx.bus.on('rescue:landed', ({ target, position }) => {
       const me = ctx.isMultiplayer ? ctx.net?.localId ?? 'sp' : 'sp';
@@ -870,8 +893,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.rescueRevive(position);
     });
     /*
-     * 2026-09-09 — 내 시체가 섰다: 같은 자리에 몸이 둘일 이유가 없으므로 살아 있던 모델을 감춘다.
-     * 부활(`respawnAt`)이 다시 보이게 한다.
+     * 2026-09-09 — our own corpse stood up: there is no reason for two bodies in one spot, so the living model is
+     * hidden. A revive (`respawnAt`) shows it again.
      */
     ctx.bus.on('corpse:playerSpawned', ({ ownerId }) => {
       const me = ctx.isMultiplayer ? ctx.net?.localId ?? 'sp' : 'sp';
@@ -879,13 +902,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     });
     // the hub tore its ship down: nothing to walk on any more (world:ready -> respawnAt clears it too)
     ctx.bus.on('hub:left', () => this.setInterior(null));   // (setInterior(null) also releases a furniture pose)
-    // 2026-09-12: 가구 자세는 함선(`hub`) 전용 — 페이즈가 바뀌면 무조건 푼다 (reason 'reset')
+    // 2026-09-12: a furniture pose is ship-only (`hub`) — a phase change always releases it (reason 'reset')
     ctx.bus.on('game:phaseChanged', () => {
       this.releaseFurniturePose('reset');
-      // 2026-09-13: 탐사 차량은 레이드 게임플레이 전용 — 결과 화면 · 함선 · 메뉴로 넘어가면 차량 옆에 내린다
+      // 2026-09-13: the rover is raid gameplay only — a results screen · the ship · a menu alights beside it
       if (!ctx.isGameplayPhase()) this.releaseRoverRide();
     });
-    // 2026-09-11: 사다리 — world 의 사다리 Interactable 이 E 로 낸다. 함선에 들어가면 무조건 놓는다.
+    // 2026-09-11: ladder — world's ladder `Interactable` sends it on E. Entering the ship always lets go.
     ctx.bus.on('ladder:grab', ({ ladder, from }) => { this.grabLadder(ladder, from); });
     ctx.bus.on('hub:entered', () => { this.releaseRoverRide(); this.releaseDroneControl(); this.clearClimbState(); });
     ctx.bus.on('camera:shake', ({ intensity, duration }) => this.rig.addShake(intensity, duration));
@@ -904,7 +927,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     ctx.bus.on('durability:broken', dirty);
     ctx.bus.on('repair:completed', dirty);
     ctx.bus.on('hub:entered', dirty);
-    // 2026-09-12: 캐릭터 버프 — progression · housing · 환경 · 페이즈 사건이 목록을 다시 모으게 한다 (`parts/Buffs`)
+    // 2026-09-12: char buffs — progression · housing · environment · phase events recollect the list (`parts/Buffs`)
     Buffs.bindBuffs(this, ctx);
   }
 
@@ -926,7 +949,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       this.model.root.updateWorldMatrix(true, false);
       c.position.setFromMatrixPosition(this.model.root.matrixWorld);
     }
-    // 2026-09-13 탐사 차량: a body that stopped being free leaves the hull (beside it); a riding one sits on the seat every frame
+    // 2026-09-13 rover: a body no longer free leaves the hull (beside it); a rider sits on the seat every frame
     if (this._roverRide && !RoverRide.canHoldRoverRide(this)) this.releaseRoverRide();
     if (this._roverRide) RoverRide.pinToSeat(this);
 
@@ -939,15 +962,15 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (this._droneControl && !Drone.canHoldDroneControl(this)) this.releaseDroneControl();
     // 2026-09-12: same backstop for a furniture pose (left the ship · died · pod …); the explicit reset paths release it too
     if (this.furn.kind !== null && !Pose.canHoldFurniturePose(this)) this.releaseFurniturePose('reset');
-    // 2026-09-14: 오프닝 기상 연출 — 타이머 · 카메라 (몸이 연출을 유지할 수 없으면 스스로 끝낸다)
+    // 2026-09-14: the intro wake — timer · camera (it ends itself when the body can no longer hold the cutscene)
     IntroWake.updateIntroWake(this, dt);
     const posed = this.furn.kind !== null;
-    const riding = this._roverRide !== null;   // 2026-09-13 탐사 차량 (`parts/RoverRide`)
+    const riding = this._roverRide !== null;   // 2026-09-13 rover (`parts/RoverRide`)
     /*
-     * 2026-09-14 오프닝 기상 연출 (`parts/IntroWake`) · 2026-09-14 3차 각본 잠금 (`setSceneLock`).
-     * 둘은 「각본이 몸을 들고 있다」는 같은 뜻이라 **한 이름**으로 합쳤다 (옛 `waking` 이 서 있던 자리
-     * 전부가 곧 `scripted` 다 — 새 잠금 경로를 만들지 않는다). 다른 점은 카메라뿐이다: 기상 연출은
-     * 카메라를 직접 들고, 각본 잠금은 건드리지 않는다(이륙 연출이 이미 들고 있다).
+     * The 2026-09-14 intro wake (`parts/IntroWake`) · the 2026-09-14 3rd-pass scene lock (`setSceneLock`).
+     * Both mean "a scripted scene is holding the body", so they were merged under **one name** (every place the old
+     * `waking` stood is now `scripted` — no new lock path). The only difference is the camera: the intro wake holds
+     * the camera itself, the scene lock does not touch it (the liftoff cutscene already holds it).
      */
     const scripted = this.introWakeT >= 0 || this._sceneLock;
 
@@ -960,7 +983,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     const dropping = this.hellpod.isActive && this.hellpod.state !== 'exiting';
     // Phase 10: the pick-up / put-down animation and being carried both freeze movement (the camera keeps working)
     // 2026-09-12: a furniture pose freezes the controller too (no collision resolve — the feet are pinned under the anchor)
-    // 2026-09-14: 기상 연출도 같은 자리에서 얼린다 (몸은 제자리에 누워 있고 입력은 전부 연출의 것이다)
+    // 2026-09-14: the intro wake freezes here too (the body lies where it is, every input is the cutscene's)
     const moveFrozen = dropping || this._inPod || this.carriedSocket !== null || this.carryLock > 0 || posed || riding || scripted;
 
     // click-to-relock fallback (also in the hub)
@@ -968,10 +991,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
     // ── gear cache (armor / bag / weight) + derived stat hooks (tactical kit)
     this.gear.update(dt, ctx);
-    // 2026-09-10: 방탄복이 바뀌었나 · 함선인가를 보고 실드를 다시 세운다 (장착 · 해제 · 교체 · 파손 · 수리 · 함선 복귀)
+    // 2026-09-10: rebuild the shield from whether the armor changed and whether we are on the ship
+    //   (equip · unequip · swap · break · repair · ship return)
     this.syncShield();
     this.applyGearModifiers();
-    // Phase 7: the worn 방탄복 shows on the body (same look remotes get from `ar`); overcharge = rim glow
+    // Phase 7: the worn armor shows on the body (same look remotes get from `ar`); overcharge = rim glow
     this.model.setArmor(this.gear.armor);
     this.model.setGlow(this.isOvercharged && !this.isDead);
     c.jumpSpeedMul = Math.sqrt(Math.max(0.1, ctx.progression?.derived.jumpHeightMul ?? 1));
@@ -1001,20 +1025,23 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     // ── look & aim (aiming is cancelled during a roll / while downed; the quick-use wheel locks the look)
     // 2026-09-11: the drone view owns the mouse too — its own flag, so it never releases the quick wheel's `lookLocked`
     // 2026-09-12: a furniture pose with a fixed camera owns the view too (the rocking chair keeps free look)
-    // 2026-09-14: 기상 연출 중에는 마우스도 연출의 것이다 — 여기서 yaw 가 돌면 하드 컷이 엉뚱한 쪽을 본다
+    // 2026-09-14: during the intro wake the mouse belongs to the cutscene too — a yaw turned here would make the
+    //   hard cut face the wrong way
     if (active && locked && !this.lookLocked && !this._droneControl && !scripted && !(posed && this.furn.hasCamera)) this.rig.applyLook(input.mouseDX, input.mouseDY, this.aimBlend);
-    // 2026-09-12 어깨 전환 (`Keys.SHOULDER`, 기본 X): 카메라를 반대쪽 어깨로 — 옮기는 것은 CameraRig 의 감쇠다. 커서 화면
-    // (인벤토리의 X = 버리기 · 시설 관리의 X = 회수)은 `active` / `locked` 에서 이미 빠진다. 드론 시점 · 고정 카메라 자세는 제외.
+    // 2026-09-12 shoulder swap (`Keys.SHOULDER`, X by default): camera to the other shoulder — CameraRig's damping
+    // moves it. Cursor screens (inventory's X = drop · ship management's X = collect) already fall out of `active` /
+    // `locked`. Not in the drone view or a fixed-camera pose.
     if (active && locked && !this._droneControl && !riding && !scripted && !(posed && this.furn.hasCamera) && input.wasPressed(Keys.SHOULDER)) this.rig.toggleShoulder();
-    // 2026-09-12 조준 흔들림 (ADS only): this frame's figure-8 offset is fixed *before* the aim origin / `getAimRay` are read, so
-    // the shot and the frame `lateUpdate` renders use the same angle. Off on the ship, ladders, drone / furniture / cutscene views.
+    // 2026-09-12 aim sway (ADS only): this frame's figure-8 offset is fixed *before* the aim origin / `getAimRay`
+    // are read, so the shot and the frame `lateUpdate` renders use the same angle. Off on the ship, ladders, drone /
+    // furniture / cutscene views.
     const sw = this.rig.sway;
     sw.aim = this.aimBlend;
     sw.on = this.spawned && !this.isDead && !downed && !hub && !this._droneControl && !posed && !riding && !scripted && !c.climbing && !dropping
       && !this._inPod && !this._interior && !this.shipBounds && !this.attachedParent && this.carriedSocket === null && !this.rig.isOverridden;
     sw.crouch = this.crouchBlend; sw.prone = this.proneBlend;
     sw.move = Math.min(1, c.speed / PLAYER_WALK_SPEED);
-    sw.mul = this.aimSwayMul ?? 1;   // [A1] 각성제 (0.7)
+    sw.mul = this.aimSwayMul ?? 1;   // [A1] a stimulant (0.7)
     this.rig.advanceSway(dt);
     // 2026-09-08: the aim origin for this frame's shots is where the camera *will* be after `lateUpdate` for the look
     // just applied — not where it was last frame (see `CameraRig.predictPosition`). `lateUpdate` overwrites it again
@@ -1030,24 +1057,26 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     const mi = this.moveInput;
     const climbing = c.climbing;
     if (climbing) {
-      // 사다리 (2026-09-11): W/S · 달리기 · 점프 · E 만 (`parts/Climb.readClimbInput`). 자세 키 · 구르기 · 가방 부양 ·
-      // 조준은 없다; UI 가 열려 있거나 조작이 꺼져 있으면 그 자리에 매달려 있다.
+      // ladder (2026-09-11): W/S · sprint · jump · E only (`parts/Climb.readClimbInput`). No stance keys, no roll, no
+      // bag hover and no aim; with the UI open or the controls off the body just hangs where it is.
       mi.x = 0; mi.z = 0; mi.sprint = false; mi.jump = false; mi.aiming = false;
       Climb.readClimbInput(this, active && !moveFrozen);
     } else if (this._droneControl) {
-      // 드론 조종 (2026-09-11, `parts/DroneControl`): WASD · Shift · Space · C · Z · V 는 드론 것이다 — 몸은 켤 때 정한
-      // 자세(앉기 / 엎드리기)로 제자리에 멈춘다. 컨트롤러는 입력 0 으로 계속 돌아 중력 · 접지 · 탑승은 평소대로다.
+      // drone control (2026-09-11, `parts/DroneControl`): WASD · Shift · Space · C · Z · V belong to the drone — the
+      // body stops where it is in the stance chosen on entry (crouch / prone). The controller keeps running with
+      // input 0, so gravity · grounding · riding work as usual.
       mi.x = 0; mi.z = 0; mi.sprint = false; mi.jump = false; mi.aiming = false;
       if (this._hovering) this.setHovering(false);
     } else if (riding) {
-      // 탐사 차량 (2026-09-13, `parts/RoverRide`): 몸은 선체 안이다 — 이동 · 점프 · 자세 · 구르기가 없고 발은 좌석에 붙어 있다.
-      // 마우스는 궤도 카메라(위 `applyLook`), 휠은 그 거리다.
+      // rover (2026-09-13, `parts/RoverRide`): the body is inside the hull — no movement, jump, stance or roll, and
+      // the feet are pinned to the seat. The mouse drives the orbit camera (`applyLook` above), the wheel its range.
       mi.x = 0; mi.z = 0; mi.sprint = false; mi.jump = false; mi.aiming = false;
       if (this._hovering) this.setHovering(false);
       if (active && locked && input.wheelDelta !== 0) this.rig.zoomRoverOrbit(input.wheelDelta);
     } else if (posed) {
-      // 가구 자세 (2026-09-12, `parts/FurniturePose`): 이동 · 점프 · 자세 키 · 구르기 · 가방 부양은 없고 발은 가구 위에 박힌다.
-      // `releaseOnInteract` 면 E 가 일어나기다 (키를 삼키고 쿨다운을 건다 — 같은 누름이 가구를 다시 치지 않는다).
+      // furniture pose (2026-09-12, `parts/FurniturePose`): no movement, jump, stance key, roll or bag hover, and the
+      // feet are pinned on the furniture. With `releaseOnInteract`, E stands up (it swallows the key and raises a
+      // cooldown — the same press must not hit the furniture again).
       mi.x = 0; mi.z = 0; mi.sprint = false; mi.jump = false; mi.aiming = false;
       if (this._hovering) this.setHovering(false);
       Pose.updateFurniturePose(this, dt, active);
@@ -1076,10 +1105,11 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       const wantsJump = input.wasPressed(Keys.JUMP) && (!this.shipBounds || !!this._interior);
       const wantsSprint = input.isDown(Keys.SPRINT) && mi.z > 0.2;
       /*
-       * 2026-09-14 3차 (사용자 결정 — 함선에서도 포복): 옛 `allowProne: !hub` 게이트를 뺐다. 머리 위가 막힌
-       * 자리에서 일어서는 것은 `Loco.canStandHere` 가 여전히 막는다 — 다만 함선 실내(`controller.interior`)
-       * 에서는 그 함수가 일찌감치 true 를 돌려준다(함선 천장은 사람 키보다 높고, 못 서면 영영 못 빠져나온다).
-       * 낮은 천장이 실제로 문제가 되는 월드 갈래는 한 줄도 바뀌지 않았다.
+       * 2026-09-14, 3rd pass (user's decision — prone on the ship too): the old `allowProne: !hub` gate was removed.
+       * Standing up where the head is blocked is still refused by `Loco.canStandHere` — except that inside a ship
+       * interior (`controller.interior`) that function returns true early (a ship ceiling is taller than a person,
+       * and a body that cannot stand would never get out again).
+       * Not one line of the world branches, where a low ceiling really is a problem, changed.
        */
       this.updateStanceInput(wantsJump, wantsSprint, /* allowProne */ true);
       const transitioning = this.standUpTimer > 0;
@@ -1105,11 +1135,14 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     } else if (!moveFrozen) {
       c.update(dt, mi, this.rig.yaw, ctx.world, this.moveResult);
       /*
-       * 2026-09-16 (운반 숙련 버그, 사용자 결정 「제 힘으로 움직인 것만」): 탈출선 이륙에 실려 가는 동안 무거운 가방이 운반을
-       * 올렸다 (progression 이 위치 차이를 셌다). 이제 컨트롤러가 이번 프레임에 **몸이 스스로** 옮긴 몫(`selfMoved` —
-       * 차량 발판 · 갈고리 · 임펄스 · 실내는 이미 0)만 내고, 여기서 컨트롤러가 돌더라도 몸이 제 것이 아닌 상태를 한 번 더
-       * 거른다: 드론 조종(입력은 드론 것) · 탈출선 부착(`attachTo`) · 헬포드(나오는 자동 걸음 포함). 포드 안 · 업힘 ·
-       * 들쳐메는 동작 · 가구 자세 · 탐사 차량 · 각본 잠금은 `moveFrozen` 이라 이 줄에 오지 않고, 사다리는 위 갈래다.
+       * 2026-09-16 (the `운반` hauling skill bug, user's decision 「제 힘으로 움직인 것만」): a heavy bag was raising
+       * hauling while the body rode the extraction liftoff (progression counted a position delta). Now the controller
+       * reports only what **the body moved by itself** this frame (`selfMoved` — vehicle deck · grapple · impulse ·
+       * interiors are already 0), and this line filters once more, for a body that is not its own even though the
+       * controller ran: drone control (the inputs are the drone's) · attached to the extraction ship (`attachTo`) ·
+       * the hellpod (including the automatic steps out of it). In a pod · being carried · the shouldering animation ·
+       * a furniture pose · the rover · the scene lock are all `moveFrozen` and never reach this line, and the ladder
+       * is the branch above.
        */
       if (this.spawned && !this.isDead && !this._droneControl && this.attachedParent === null && !this.hellpod.isActive) {
         this._selfMovedMeters += c.selfMoved;
@@ -1151,15 +1184,17 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       if (fx) ParticleBurst.dust(fx.alpha, c.position, _up, 5, 0.7);
     }
     /*
-     * 2026-09-14 (전역 낙하 피해): 떨어진 **높이**로 판정한다 (`MoveResult.fallHeight` — 면제된 낙하는 0).
-     * 착지 연출(`r.landed`)과 따로인 이유는 하나다: 부양 · 갈고리로 천천히 내려와도 착지는 착지이고,
-     * 반대로 깊이 떨어져도 임펄스로 속도가 죽으면 속도만으로는 「얼마나 떨어졌나」를 알 수 없다.
+     * 2026-09-14 (global fall damage): judged by the **height** fallen (`MoveResult.fallHeight` — an exempt fall
+     * is 0). It is kept apart from the landing presentation (`r.landed`) for one reason: coming down slowly on the
+     * hover or the grapple is still a landing, and conversely a deep fall whose speed an impulse killed cannot tell
+     * from speed alone "how far did it fall".
      */
     if (r.fallHeight > 0) Fall.onLanded(this, r.fallHeight);
 
     if (c.grounded) { this.autoHoverUsed = false; if (this._hovering) this.setHovering(false); }
 
-    // ── 전투 소모품 효과 (2026-09-12): 만료 · 사망 · 함선 — 스태미나 배수를 읽기 전에 (`parts/Boosts`)
+    // ── combat consumable effects (2026-09-12): expiry · death · the ship — before the stamina multipliers are
+    //    read (`parts/Boosts`)
     Boosts.updateBoost(this);
     // ── stamina
     this.updateStamina(dt);
@@ -1167,7 +1202,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     this.updateCloak(dt, ctx);
     this.updateBurning(dt);
     this.updateArmorRegen(dt);
-    // ── 행성 상시 환경 (A-13): 준비물이 없으면 체력만 깎인다 (실드 우회)
+    // ── the planet's permanent environment (A-13): with no preparation only hp is cut (the shield is bypassed)
     this.updateEnv(dt, ctx);
 
     // ── hellpod choreography
@@ -1189,7 +1224,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     //    2026-09-11: nor one looking through a drone (a running hold is cancelled, the prompt clears)
     //    2026-09-12: nor one sitting / lying on furniture — only the `일어나기` caption of a `releaseOnInteract` pose
     if (posed) Pose.updatePosePrompt(this, active && !downed);
-    else if (this._roverRide) RoverRide.updateRoverPrompt(this, dt, active && !downed);   // 2026-09-13: E = 하차 홀드 only
+    else if (this._roverRide) RoverRide.updateRoverPrompt(this, dt, active && !downed);   // 2026-09-13: E = the exit hold only
     else this.updateInteraction(dt, active && !downed && !this._carrying && !c.climbing && !this._droneControl && !scripted);
 
     // ── death anim
@@ -1197,12 +1232,14 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
 
     // ── pose blends (the roll reuses the old dive plumbing: `diving` = rolling)
     const diving = c.rolling;
-    // 2026-09-12: 각성제의 정조준 전환 배수는 여기서 곱한다 — `setAdsTime` 은 무기가 바뀔 때만 오므로 거기서 곱하면 효과가 늦게 붙는다
+    // 2026-09-12: the stimulant's ADS-transition multiplier is applied here — `setAdsTime` only arrives on a weapon
+    //   change, so multiplying there would land the effect late
     this.aimBlend = damp(this.aimBlend, this.isAiming ? 1 : 0, this.adsRate * this.adsSpeedMul, dt);
     // scoped ADS: the camera sits at the shoulder, so hide the soldier (and the held weapon) once the blend is in
     const scopeHide = this.rig.scoped && this.aimBlend > 0.85;
     if (scopeHide !== this.scopeHidden) { this.scopeHidden = scopeHide; this.model.setVisible(!scopeHide && !this._inPod && this._roverRide === null); }
-    // 2026-09-16 낮은 구르기: 앉아서 구르는 동안에도 앉은 블렌드를 유지한다 — 구르기 자세가 위에 덮이고, 끝나면 곧장 앉은 자세
+    // 2026-09-16 the low roll: the crouch blend is held through a crouched roll — the roll pose lays over it, and
+    //   the crouch is back the moment it ends
     this.crouchBlend = damp(this.crouchBlend, this._stance === 'crouch' ? 1 : 0, 10, dt);
     this.proneBlend = damp(this.proneBlend, this._stance === 'prone' && !diving ? 1 : 0, 8, dt);
     this.downedBlend = damp(this.downedBlend, this._downed && !this.isDead ? 1 : 0, 7, dt);
@@ -1230,7 +1267,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     const ladder = c.climbLadder;
     if (!this.isDead) {
       // on a ladder the body faces the rungs (-normal); the camera stays free
-      if (Pose.updatePoseYaw(this, dt)) { /* 2026-09-12: 가구 자세 — 몸은 가구 쪽 (벤치는 발끝이 반대) */ }
+      if (Pose.updatePoseYaw(this, dt)) { /* 2026-09-12: furniture pose — the body faces the furniture (on a bench the feet face the other way) */ }
       else if (ladder) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(ladder.normal.x, ladder.normal.z), 18, dt);
       else if (diving) this.bodyYaw = dampAngle(this.bodyYaw, Math.atan2(-c.rollDir.x, -c.rollDir.z), 20, dt);
       else if (faceCamera) this.bodyYaw = dampAngle(this.bodyYaw, this.rig.yaw, this._stance === 'prone' ? 7 : 18, dt);
@@ -1265,8 +1302,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     p.hover = this.hoverBlend;
     p.carry = this.carryBlend;
     p.climb = this.climbBlend;
-    // 2026-09-08: 전투불능 is its own backward-fall pose (SoldierModel.poseDowned)
-    // 2026-09-14: 오프닝 기상 연출이 같은 자세를 1 → 0 으로 되감아 「쓰러졌다 일어난다」를 만든다 (`parts/IntroWake`)
+    // 2026-09-08: downed is its own backward-fall pose (SoldierModel.poseDowned)
+    // 2026-09-14: the intro wake rewinds that same pose 1 → 0 to make "falls, then stands up" (`parts/IntroWake`)
     p.downed = Math.max(this.downedBlend, IntroWake.wakeBlend(this));
     p.dead = this.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
     Pose.applyPoseToSoldier(this, p);   // 2026-09-12: furniture pose blend / kind / phase (`run` rides the walk cycle)
@@ -1287,7 +1324,7 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
       root.quaternion.setFromAxisAngle(_up, this.bodyYaw);
     }
 
-    // ── 2026-09-12: 캐릭터 버프 — 이번 프레임의 자세 · 환경 · 사건을 한 번에 모은다 (+ 1 초 틱, `parts/Buffs`)
+    // ── 2026-09-12: char buffs — this frame's pose · environment · events in one pass (+ a 1 s tick, `parts/Buffs`)
     Buffs.updateBuffs(this, dt);
   }
 
@@ -1329,8 +1366,8 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
     if (this._cloaked && !this.isDead) alpha = Math.min(alpha, CLOAK_FADE);
     this.model.setFade(alpha);
     // ── occlusion silhouette (black where the world hides the body); off while dead / dropping / in a pod / faded
-    // 2026-09-17 (사용자 결정): 탈출 함선에 실려 떠나는 동안(`ctx.extraction.riding`, 튜토리얼 포함)도 끈다 — 램프가 닫힌
-    // 선체 안의 몸이 이륙 연출 카메라에 실루엣으로 비쳐 보였다.
+    // 2026-09-17 (user's decision): off while riding the extraction ship away too (`ctx.extraction.riding`, the
+    //   tutorial included) — a body inside the closed-ramp hull showed through as a silhouette to the liftoff camera.
     const ridingShip = this.ctx.extraction?.riding ?? false;
     this.model.setSilhouette(this.spawned && !this.isDead && !this.hellpod.isActive && !this._inPod && !this.scopeHidden && this._roverRide === null && !ridingShip);
   }
@@ -1362,12 +1399,12 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   onStaminaDepleted(): void { return Loco.onStaminaDepleted(this); }
 
   /**
-   * Regen is scaled by 지구력 (`derived.staminaRegenMul`), the carry weight (`WeightInfo.staminaRegenMul`,
-   * softened by the 운반 skill inside inventory) and the ultralight-armor perk. Hovering burns stamina.
+   * Regen is scaled by `지구력` endurance (`derived.staminaRegenMul`), the carry weight (`WeightInfo.staminaRegenMul`,
+   * softened by the `운반` hauling skill inside inventory) and the ultralight-armor perk. Hovering burns stamina.
    */
   private updateStamina(dt: number): void { return Loco.updateStamina(this, dt); }
 
-  /** hp reached 0: 전투불능 instead of death — prone crawl, weapons off, `downHp` starts bleeding. */
+  /** hp reached 0: downed instead of death — prone crawl, weapons off, `downHp` starts bleeding. */
   enterDowned(): void { return Vitals.enterDowned(this); }
 
   /** Bleed PLAYER_DOWN_BLEED_PER_SEC (whole points → `player:downHpChanged`), Space held PLAYER_GIVE_UP_HOLD → die. */
@@ -1412,16 +1449,16 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Any alive enemy within `radius`. */
   enemyWithin(ctx: GameContext, radius: number): boolean { return Stat.enemyWithin(this, ctx, radius); }
 
-  /** Burning DoT (incendiary / fire zone). Applied in BURN_TICK chunks; never triggers the 인내 save. */
+  /** Burning DoT (incendiary / fire zone). Applied in BURN_TICK chunks; never triggers the `인내` (grit) save. */
   private updateBurning(dt: number): void { return Stat.updateBurning(this, dt); }
 
-  /** 재생 방탄복: 1 hp/s (perkValue) while stamina is full. Healed in whole points to avoid event spam. */
+  /** Regenerating armor: 1 hp/s (perkValue) while stamina is full. Healed in whole points to avoid event spam. */
   private updateArmorRegen(dt: number): void { return Stat.updateArmorRegen(this, dt); }
 
-  /** A-13: 행성 상시 환경 피해 · `player:envChanged` (`parts/Statuses.updateEnv`). */
+  /** A-13: the planet's permanent environment damage · `player:envChanged` (`parts/Statuses.updateEnv`). */
   private updateEnv(dt: number, ctx: GameContext): void { return Stat.updateEnv(this, dt, ctx); }
 
-  /** Tactical bag: hold Space in the air to hover, plus one automatic hover before a fatal fall (낙사 방지). */
+  /** Tactical bag: hold Space in the air to hover, plus one automatic hover before a fatal fall. */
   private updateBagFlight(): void { return Loco.updateBagFlight(this); }
 
   /** Tell a hold interactable that its running hold was released / retargeted before completion. */
@@ -1441,16 +1478,16 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   /** Rejoin wait: everything reset like `game:abort`, feet + camera parked at `position`, model hidden, no controls. */
   private holdForRestore(position: THREE.Vector3): void { return Spawn.holdForRestore(this, position); }
 
-  /** 헬포드 강하. `kind` 0 = 미션 시작, 1 = 구조선 — 분대원에게 `pod drop` 으로 알린다 (2026-09-09). */
+  /** The hellpod drop. `kind` 0 = mission start, 1 = a rescue drop — squadmates get `pod drop` (2026-09-09). */
   startDrop(kind: 0 | 1 = 0): void { return Spawn.startDrop(this, kind); }
 
-  /** 구조 포드가 나를 실어 왔다 (`rescue:landed`): 빈손 · `RESCUE_REVIVE_HP` 로 다시 강하한다. */
+  /** A rescue pod brought us in (`rescue:landed`): drop again empty-handed with `RESCUE_REVIVE_HP`. */
   rescueRevive(position: THREE.Vector3): void { return Spawn.rescueRevive(this, position); }
 
   private updateDrop(dt: number): void { return Spawn.updateDrop(this, dt); }
 
   resetAll(): void { return Spawn.resetAll(this); }
-  /* ══ Phase 10 — 부상자 들쳐메기 + 준비 패널 초상화 ══════════════════════════════════════════════════════ */
+  /* ══ Phase 10 — shouldering a downed squadmate + ready-panel portraits ══════════════════════════════════ */
   /**
    * `RemotePlayerSystem` installs itself here in its own `init` (it owns the avatars / refs a carry needs).
    * Without a host `carry()` always fails, so single-player and the headless tests are unaffected.
@@ -1486,10 +1523,13 @@ export class PlayerSystem implements GameSystem, PlayerRef, PlayerWeaponHost {
   setCarriedBy(socket: THREE.Object3D | null): void { return Shoulder.setCarriedBy(this, socket); }
 
   /** Build `cells` character portraits into `host` (its own WebGL context; null when one is unavailable). */
-  /** 2026-09-15: 터미널 매칭 탭의 얼굴 초상 (캐릭터 생성 확정 팝업과 같은 프레이밍) — `FaceSnapshot.ts`. */
+  /**
+   * 2026-09-15: the face portrait on the terminal's `매칭` tab (framed like the character-creation confirm card) —
+   * `FaceSnapshot.ts`.
+   */
   snapshotFace(opts: { accent: string; size?: number }): string | null { return snapshotFaceImage(opts); }
 
-  /** 2026-09-15 (안드로이드 분대원): 같은 프레이밍의 안드로이드 얼굴 — `PlayerRef.snapshotAndroidFace`. */
+  /** 2026-09-15 (android squadmates): the android face in the same framing — `PlayerRef.snapshotAndroidFace`. */
   snapshotAndroidFace(opts: { accent: string; size?: number }): string | null { return snapshotAndroidFaceImage(opts); }
 
   createPortraits(host: HTMLElement, cells: number): PortraitRef | null {

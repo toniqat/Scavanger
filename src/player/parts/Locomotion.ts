@@ -1,9 +1,9 @@
 /**
- * src/player/parts/Locomotion.ts — **이동 · 자세 · 스태미나**.
+ * src/player/parts/Locomotion.ts — **movement · stance · stamina**.
  *
- * 무엇이 얼마나 빠르게 움직이는가: 자세(서기 / 앉기 / 엎드리기), 구르기, 스태미나 소모와 회복,
- * 그리고 여러 출처가 곱해지는 **속도 배율 스택**(`setSpeedModifier` — 무게 · 소모품 · 들쳐메기 ·
- * 미니건 · 오버차지가 전부 여기로 들어온다). 갈고리 견인과 가방 부양도 이동의 일부다.
+ * What moves how fast: stances (stand / crouch / prone), the roll, stamina drain and regen, and the multiplicative
+ * **speed-modifier stack** (`setSpeedModifier` — weight · consumables · shouldering · the minigun · overcharge all
+ * arrive here). The grapple pull and the bag hover are part of movement too.
  */
 import * as THREE from 'three';
 import type { PlayerRestoreState } from '@/shared';
@@ -38,10 +38,11 @@ export function roll(sys: PlayerSystem, direction?: THREE.Vector3): boolean {
   const c = sys.controller;
   if (!sys.canAct() || !c.grounded || c.rolling || sys.ctx.isHubPhase()) return false;
   /*
-   * 2026-09-16 (사용자 결정 — 엎드린 채로는 구르지 못한다): 입력 자리(`PlayerSystem.update` 의 V 게이트)가 이미
-   * 엎드림 · 일어서는 중(`standUpTimer`, 엎드림 → 앉기 / 서기 전환)을 거르지만, `PlayerRef.roll` 을 직접 부르는
-   * 길(스모크 · 콘솔 · 다른 폴더)도 같은 규칙을 지나야 하므로 여기서 한 번 더 막는다. 거절 피드백은 없다 —
-   * 입력 게이트가 원래 조용히 거르던 경우라 토스트 · 거절음을 새로 만들지 않는다.
+   * 2026-09-16 (user's decision — no rolling while prone): the input site (the V gate in `PlayerSystem.update`)
+   * already filters prone · standing up (`standUpTimer`, the prone → crouch / stand transition), but paths that
+   * call `PlayerRef.roll` directly (smoke tests · the console · other folders) have to pass the same rule, so it
+   * is refused once more here. There is no refusal feedback — the input gate used to filter this case silently, so
+   * no toast · deny sound is invented for it.
    */
   if (sys._stance === 'prone' || sys.standUpTimer > 0) return false;
   // Phase 10: a squadmate on the shoulder is put down first; the caller retries next frame
@@ -65,12 +66,14 @@ export function roll(sys: PlayerSystem, direction?: THREE.Vector3): boolean {
   _dir.normalize();
 
   /*
-   * 2026-09-16 (사용자 결정 — 「낮은 구르기」): 앉은 채로 구르면 **끝나도 앉아 있다.** 동작 · 속도 · 거리 · 스태미나 ·
-   * 쿨다운 · 피해 판정(`ROLL_DAMAGE_MUL`)은 서서 구르기와 한 글자도 다르지 않고, 자세만 건드리지 않는다.
-   * 예전 줄(`if (stance !== 'stand') setStance('stand')`)은 `canStandHere` 를 묻지 않아 낮은 슬래브 밑에서 구르면
-   * 몸이 슬래브 안으로 일어섰다 — 이제 구르는 동안에도 컨트롤러는 앉은 머리 공간(`bodyClearance`)으로 민다.
-   * 구르는 동안 앉은 자세 블렌드는 그대로 두고(`PlayerSystem` · `RemoteAvatar` 의 crouchBlend), 구르기 블렌드가
-   * 빠지면 곧장 앉은 자세로 돌아온다 — 중간에 일어섰다 앉는 깜빡임이 없다. 엎드림은 위에서 이미 거절됐다.
+   * 2026-09-16 (user's decision — 「낮은 구르기」): a crouched roll **is still crouched when it ends.** The
+   * motion · speed · distance · stamina · cooldown · damage test (`ROLL_DAMAGE_MUL`) are not one character
+   * different from a standing roll; only the stance is left untouched. The old line
+   * (`if (stance !== 'stand') setStance('stand')`) never asked `canStandHere`, so rolling under a low slab stood the
+   * body up into the slab — now the controller pushes with the crouched headroom (`bodyClearance`) during the roll
+   * too. The crouch blend is held through the roll (`crouchBlend` in `PlayerSystem` · `RemoteAvatar`), so when the
+   * roll blend drops the body is back in the crouch at once — no flicker of standing up and crouching again in
+   * between. Prone was already refused above.
    */
   sys.setAiming(false);
   sys.setHovering(false);
@@ -101,7 +104,7 @@ export function setSpeedModifier(sys: PlayerSystem, key: string, mul: number, du
 /** Add to the velocity (jump pad, rocket blast, grapple release). Emits `player:launched`. */
 export function applyImpulse(sys: PlayerSystem, impulse: THREE.Vector3): void {
   if (!sys.spawned || sys.isDead) return;
-  if (sys._roverRide) return;   // 2026-09-13: 탐사 차량 안 — 점프대 · 폭발 충격이 몸을 선체 밖으로 날리지 않는다
+  if (sys._roverRide) return;   // 2026-09-13: in the rover — no jump pad · blast throws the body out of the hull
   sys.controller.applyImpulse(impulse);
   if (impulse.y > 0.01) sys.autoHoverUsed = false;
   sys.ctx.bus.emit('player:launched', { position: sys.controller.position.clone(), impulse: impulse.clone() });
@@ -143,15 +146,16 @@ export function consumeStamina(sys: PlayerSystem, amount: number): boolean {
   }
 
 /**
- * 지금 자리에서 **일어설 수 있나** (2026-09-14, 낮은 통로를 앉아서 지나기).
+ * **Can the body stand up** where it is (2026-09-14, crouching through a low passage)?
  *
- * 앉은 몸은 `PLAYER_CROUCH_CLEARANCE_M` 만큼의 머리 위 공간만 요구하므로(`PlayerController.bodyClearance`)
- * 낮은 슬래브 밑을 지날 수 있는데, 그 밑에서 그냥 일어서면 몸이 슬래브 안에 들어가고 다음 프레임의
- * `resolveCollision` 이 옆으로 밀어낸다. 그래서 **일어서기를 막는다** — 사람이 누르는 경로(C · Z · 달리기 ·
- * 점프로 자동 기립)에서만 묻고, 사다리 · 가구 자세 · 드론 조종 해제 같은 **각본된 기립은 묻지 않는다**
- * (그 자리는 원래 설 수 있던 곳이고, 못 서면 영영 못 빠져나온다).
+ * A crouched body only asks for `PLAYER_CROUCH_CLEARANCE_M` of headroom (`PlayerController.bodyClearance`), so it
+ * can pass under a low slab; standing up there would put the body inside the slab and the next frame's
+ * `resolveCollision` would push it out sideways. So **standing up is refused** — asked only on the paths a person
+ * presses (C · Z · sprint · the automatic stand-up on jump), and **a scripted stand-up is not asked** — the ladder,
+ * a furniture pose, leaving drone control (that spot could be stood on to begin with, and a body that cannot stand
+ * there would never get out).
  *
- * 월드에서만 검사한다 — 함선 실내 · 탈출선 안은 천장이 사람 키보다 높다.
+ * Only checked in the world — the ship interior and the extraction ship have ceilings higher than a person.
  */
 export function canStandHere(sys: PlayerSystem): boolean {
   const c = sys.controller;
@@ -164,7 +168,7 @@ export function canStandHere(sys: PlayerSystem): boolean {
   return reach <= 0 || !world.raycast(_standProbe, _standUp, reach);
 }
 
-/** 기립 검사용 스크래치 — 엉덩이에서 곧장 위로 (컨트롤러의 천장 프로브와 같은 시작 높이). */
+/** Stand-up check scratch — straight up from the hips (the same start height as the controller's ceiling probe). */
 const _standProbe = new THREE.Vector3();
 const _standUp = new THREE.Vector3(0, 1, 0);
 const STAND_PROBE_START = 0.6;
@@ -186,8 +190,8 @@ export function setStance(sys: PlayerSystem, stance: Stance): void {
 export function updateStanceInput(sys: PlayerSystem, wantsJump: boolean, wantsSprint: boolean, allowProne: boolean): void {
   const c = sys.controller, input = sys.ctx.input;
   if (!c.grounded || c.rolling || sys.standUpTimer > 0) return;
-  // 2026-09-14: 머리 위가 막힌 자리에서는 일어서지 않는다 (`canStandHere`) — 낮은 통로 한가운데의 C · Z ·
-  //   달리기 · 점프가 전부 여기로 모이므로 한 곳만 막으면 된다. 앉기 · 엎드리기는 언제나 된다.
+  // 2026-09-14: no standing up where the headroom is blocked (`canStandHere`) — C · Z · sprint · jump in the middle
+  //   of a low passage all arrive here, so blocking one place is enough. Crouching · going prone always work.
   if (input.wasPressed(Keys.CROUCH)) {
     if (sys._stance !== 'crouch') sys.setStance('crouch');
     else if (canStandHere(sys)) sys.setStance('stand');
@@ -224,7 +228,8 @@ export function updateStamina(sys: PlayerSystem, dt: number): void {
   const c = sys.controller;
   const max = sys.maxStamina;
   if (sys.stamina > max) sys.stamina = max;
-  // 2026-09-12 전투 소모품: 지속 소모 배수 — 아드레날린 0 (소모도 회복 차단도 없다) · 각성제 1.5 (`parts/Boosts`)
+  // 2026-09-12 combat consumables: the drain multiplier — adrenaline 0 (no drain, no regen block) · the stimulant
+  //   1.5 (`parts/Boosts`)
   const drainMul = sys.staminaDrainMul;
   if (sys._hovering && !c.grounded && !sys.isDead && drainMul > 0) {
     sys.stamina = Math.max(0, sys.stamina - HOVER_STAMINA_DRAIN * drainMul * dt);
@@ -232,7 +237,7 @@ export function updateStamina(sys: PlayerSystem, dt: number): void {
     if (sys.stamina <= 0) { sys.onStaminaDepleted(); sys.setHovering(false); }
     return;
   }
-  // 2026-09-11: 사다리를 빠르게 오르내리는 동안은 달리기와 같은 자리에서 `LADDER_SPRINT_DRAIN` 을 쓴다 (회복도 막는다)
+  // 2026-09-11: climbing a ladder fast spends `LADDER_SPRINT_DRAIN` where sprinting does (regen is blocked too)
   const drain = (c.climbFast ? LADDER_SPRINT_DRAIN : c.sprinting ? STAMINA_SPRINT_DRAIN : 0) * drainMul;
   if (drain > 0 && !sys.isDead) {
     sys.stamina -= drain * dt;
@@ -254,10 +259,10 @@ export function updateStamina(sys: PlayerSystem, dt: number): void {
 export function canAct(sys: PlayerSystem): boolean {
   return sys.spawned && sys.controlsEnabled && !sys.isDead && !sys._downed && !sys._inPod
     && sys.carriedSocket === null
-    && !sys.controller.climbing   // 2026-09-11: 사다리에 매달린 손으로는 구르기 · 근접 · 들쳐메기가 없다
-    && !sys._droneControl         // 2026-09-11: 드론 조종 중에도 없다 (`parts/DroneControl`)
-    && sys.furn.kind === null     // 2026-09-12: 가구 자세 중에도 없다 (`parts/FurniturePose`)
-    && sys._roverRide === null    // 2026-09-13: 탐사 차량 안에서도 없다 (`parts/RoverRide`)
+    && !sys.controller.climbing   // 2026-09-11: hands hanging on a ladder do no roll · melee · shouldering
+    && !sys._droneControl         // 2026-09-11: none during drone control either (`parts/DroneControl`)
+    && sys.furn.kind === null     // 2026-09-12: none during a furniture pose either (`parts/FurniturePose`)
+    && sys._roverRide === null    // 2026-09-13: none inside the rover either (`parts/RoverRide`)
     && sys.ctx.isControlActive()
     && !(sys.hellpod.isActive && sys.hellpod.state !== 'exiting');
   }
@@ -300,7 +305,7 @@ export function applyGearModifiers(sys: PlayerSystem): void {
   else if (sys.cloakSource === 'armor' && sys.cloakTimer === Infinity) { sys.cloakTimer = 0; sys.cloakSource = null; }
   }
 
-/** Tactical bag: hold Space in the air to hover, plus one automatic hover before a fatal fall (낙사 방지). */
+/** Tactical bag: hold Space in the air to hover, plus one automatic hover that prevents a fatal fall. */
 export function updateBagFlight(sys: PlayerSystem): void {
   const c = sys.controller;
   if (c.grounded || !sys.gear.tacticalBag) return;

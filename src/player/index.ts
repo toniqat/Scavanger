@@ -11,12 +11,12 @@ export { Hellpod } from './Hellpod';
 export type { Ghost } from './RemotePlayerSystem';
 export { buildArmorPlate, buildHeldItem } from './GearLook';
 export type { GearLook } from './GearLook';
-/* appended (Phase 10): 들쳐메기 seam + 준비 패널 초상화 */
+/* appended (Phase 10): shouldering seam + ready-panel portraits */
 export type { CarryHost, CarryStatus, CarryTarget } from './Carry';
 export { createPortraits } from './Portraits';
-/* appended (2026-09-15): 얼굴 초상 — 터미널 매칭 탭(`PlayerRef.snapshotFace`)과 캐릭터 생성 미리보기가 같은 절차를 쓴다 */
+/* appended (2026-09-15): face portraits — `PlayerRef.snapshotFace`, shared by the `매칭` tab and character creation */
 export { addFaceLights, aimFaceCamera, poseFaceModel, releaseFaceSnapshots, snapshotAndroidFace, snapshotFace } from './FaceSnapshot';
-/* appended (2026-09-15): 안드로이드 분대원의 몸 — `ctx.allies` 의 `AllyBodyView` 를 `SoldierModel` 로 그린다 */
+/* appended (2026-09-15): android squadmate bodies — `ctx.allies`' `AllyBodyView` drawn as a `SoldierModel` */
 export { AllyAvatar, AllyAvatars } from './AllyAvatars';
 export type { DebugAllyBody } from './AllyAvatars';
 export { buildHeldWeapon } from './GearLook';

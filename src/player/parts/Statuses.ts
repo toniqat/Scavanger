@@ -1,8 +1,8 @@
 /**
- * src/player/parts/Statuses.ts — **플레이어에게 붙는 상태**: 은폐 · 화상 · 방어구 재생.
+ * src/player/parts/Statuses.ts — **the states that attach to the player**: cloak · burning · armor regen.
  *
- * 은폐는 적 인지(`getStealthFactor`)에 직접 곱해지고, 광학 방어구는 영구 은폐다.
- * 화상은 초당 피해를 주는 DoT 이고, 방어구는 전투가 끊기면 조금씩 회복된다.
+ * The cloak multiplies enemy detection directly (`getStealthFactor`), and optical-camo armor is a permanent cloak.
+ * Burning is a DoT dealing damage per second, and armor regen heals a little at a time once combat breaks off.
  */
 import * as THREE from 'three';
 import type { PlayerRestoreState } from '@/shared';
@@ -29,7 +29,10 @@ import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH
 import type { PlayerSystem } from '../PlayerSystem';
 import type { PlayerDamageSource } from '@/shared';
 
-/** 2026-09-15 (결과 창 개편): 행성 상시 환경 틱의 출처 — 하나를 돌려 쓴다 (틱마다 할당하지 않는다). */
+/**
+ * 2026-09-15 (the result screen rework): the source for the planet environment tick — one object, reused
+ * (nothing is allocated per tick).
+ */
 const ENV_DAMAGE_SOURCE: PlayerDamageSource = Object.freeze({ kind: 'env' });
 
 /** Apply / refresh a cloak. Optical-camo armor passes `Infinity`; the strongest remaining duration wins. */
@@ -47,16 +50,18 @@ export function getStealthFactor(sys: PlayerSystem): number {
   return sys._cloaked ? CLOAK_DETECT_MUL : 1;
   }
 
-/** Fire zone / incendiary: DoT that also suppresses the 인내 save while it kills. */
+/** Fire zone / incendiary: DoT that also suppresses the `인내` (grit) save while it kills. */
 export function setBurning(sys: PlayerSystem, dps: number, duration: number, source?: PlayerDamageSource): void {
   if (!(dps > 0) || !(duration > 0)) {
     if (sys._burning) { sys._burning = false; sys.burnDps = 0; sys.burnTimer = 0; sys.burnSource = undefined; sys.ctx.bus.emit('player:burning', { active: false, dps: 0 }); }
     return;
   }
-  if (sys._roverRide) return;   // 2026-09-13: 탐사 차량 안에는 불이 붙지 않는다
+  if (sys._roverRide) return;   // 2026-09-13: nothing catches fire inside the rover
   const wasBurning = sys._burning;
-  // 2026-09-15 (결과 창 개편): 화상의 출처 — 새로 붙었거나 더 센(같은) 불이 덮으면 그 출처로. 모르는 출처는 아는 출처를 지우지 않는다.
-  // (화염 지대 안에서는 매 프레임 불리므로 부르는 쪽은 미리 만들어 둔 출처 객체를 넘긴다 — 여기서도 할당하지 않는다.)
+  // 2026-09-15 (the result screen rework): the source of the burn — taken when the fire is new, or when an equal or
+  //   stronger fire covers it. An unknown source never erases a known one.
+  // (Inside a fire zone this is called every frame, so the caller passes a pre-made source object — nothing is
+  //   allocated here either.)
   if (!wasBurning) sys.burnSource = source;
   else if (source && (dps >= sys.burnDps || !sys.burnSource)) sys.burnSource = source;
   sys.burnDps = Math.max(sys.burnDps, dps);
@@ -103,7 +108,7 @@ export function enemyWithin(sys: PlayerSystem, ctx: GameContext, radius: number)
   return em.queryNear(sys.controller.position, radius).length > 0;
   }
 
-/** Burning DoT (incendiary / fire zone). Applied in BURN_TICK chunks; never triggers the 인내 save. */
+/** Burning DoT (incendiary / fire zone). Applied in BURN_TICK chunks; never triggers the `인내` (grit) save. */
 export function updateBurning(sys: PlayerSystem, dt: number): void {
   if (!sys._burning) return;
   sys.burnTimer -= dt;
@@ -118,13 +123,15 @@ export function updateBurning(sys: PlayerSystem, dt: number): void {
   }
   }
 
-/* ══ 행성 상시 환경 (A-13, 2026-09-11 — 사용자 결정) ═══════════════════════════════════════════════════════
- * 피로스 VII(`heat`) · 카민 I(`toxin`) 에 **맞는 준비물 없이** 서 있으면 `PLANET_ENV_TICK_S` 마다
- * `PLANET_ENV_DPS × tick` 만큼 깎인다. 두 가지가 규약이다 —
- *   ① **체력만 깎는다.** 대기는 방탄복이 막지 못하므로 `applyDamage` 를 타지 않는다 (그 길은 실드를 먼저 비운다).
- *   ② 준비물이 있으면 **100 % 상쇄**다. 감소가 아니라 0 이다.
- * 소프트 게이트라 들어가는 것 자체는 막지 않는다 — 막는 곳은 어디에도 없다.
- * `player:envChanged` 는 **노출 상태가 바뀔 때만** 나간다 (매 틱 발행 금지 — ui/ 의 배지 하나가 유일한 소비자다).
+/* ══ the planet's permanent environment (A-13, 2026-09-11 — user's decision) ══════════════════════════════════════
+ * Standing on 피로스 VII (`heat`) · 카민 I (`toxin`) **without the matching prep** takes `PLANET_ENV_DPS × tick` off
+ * every `PLANET_ENV_TICK_S`. Two things are contract —
+ *   ① **hp only.** Armor cannot stop the atmosphere, so this does not ride `applyDamage` (that path empties the
+ *      shield first).
+ *   ② with the prep it is a **100 % cancel**. Not a reduction — zero.
+ * It is a soft gate: entering is never blocked — nowhere blocks it.
+ * `player:envChanged` goes out **only when the exposed state changes** (never per tick — one badge in ui/ is its
+ * only consumer).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 export function updateEnv(sys: PlayerSystem, dt: number, ctx: GameContext): void {
   const exposed = ctx.isGameplayPhase() && !ctx.isTraining();
@@ -137,31 +144,34 @@ export function updateEnv(sys: PlayerSystem, dt: number, ctx: GameContext): void
     ctx.bus.emit('player:envChanged', { env, protected: guarded });
   }
   if (env === null || guarded) return;
-  // 2026-09-13: 탐사 차량 안은 밀폐돼 있다 — 노출 상태(배지)는 그대로 두고 피해만 없다
+  // 2026-09-13: the rover is sealed — the exposed state (the badge) stays, only the damage is gone
   if (sys._roverRide) { sys.envTick = 0; return; }
-  // 2026-09-14 3차: 각본 잠금 — `applyDamage` 를 우회하는 **유일한** 피해라 여기도 같이 막는다 (배지는 그대로)
-  // 2026-09-15: 피해를 허용한 각본 잠금(`allowDamage`)이면 들어가되 아래에서 `_sceneLockMinHp` 로 자른다
+  // 2026-09-14 3rd pass: the scene lock — this is the **only** damage that bypasses `applyDamage`, so it is blocked
+  //   here too (the badge stays)
+  // 2026-09-15: a damage-taking scene lock (`allowDamage`) does land, but is clamped to `_sceneLockMinHp` below
   if (sys._sceneLock && !sys._sceneLockDamage) { sys.envTick = 0; return; }
-  // 전투불능 · 사망 · 강하 포드 안 · 아직 안 내린 몸은 대기를 마시지 않는다.
+  // Downed · dead · inside the drop pod · a body not yet out does not breathe the atmosphere.
   if (!sys.spawned || sys.isDead || sys._downed) return;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return;
   sys.envTick += dt;
   if (sys.envTick < PLANET_ENV_TICK_S) return;
   sys.envTick -= PLANET_ENV_TICK_S;
-  const room = sys._sceneLock ? Math.max(0, sys.hp - sys._sceneLockMinHp) : sys.hp;   // 2026-09-15: 각본 잠금 = 체력 클램프
+  // 2026-09-15: the scene lock = an hp clamp
+  const room = sys._sceneLock ? Math.max(0, sys.hp - sys._sceneLockMinHp) : sys.hp;
   const dealt = Math.min(room, PLANET_ENV_DPS * PLANET_ENV_TICK_S);
   if (dealt <= 0) return;
   sys.hp -= dealt;
   ctx.stats.damageTaken += dealt;
   const bus = ctx.bus;
-  // 2026-09-15 (결과 창 개편): 출처 `env` — 이 경로는 예전부터 `player:damaged` 를 냈다 (방향 호 · 흔들림은 원래 없다)
+  // 2026-09-15 (the result screen rework): source `env` — this path has emitted `player:damaged` all along (there
+  //   never was a direction arc or a shake here)
   bus.emit('player:damaged', { amount: dealt, hp: sys.hp, from: undefined, source: ENV_DAMAGE_SOURCE });
   bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta: -dealt });
-  // DoT 이므로 인내(grit)는 걸리지 않는다 — 화상과 같은 규약.
+  // A DoT, so the `인내` (grit) save never fires — the same contract as burning.
   if (sys.hp <= 0) { sys._deathSource = ENV_DAMAGE_SOURCE; sys.onLethal(true); }
   }
 
-/** 재생 방탄복: 1 hp/s (perkValue) while stamina is full. Healed in whole points to avoid event spam. */
+/** Regenerating armor: 1 hp/s (perkValue) while stamina is full. Healed in whole points to avoid event spam. */
 export function updateArmorRegen(sys: PlayerSystem, dt: number): void {
   const rate = sys.gear.regenPerSecond;
   if (rate <= 0 || sys.isDead || sys._downed || sys.hp >= sys.maxHp) { sys.regenAccum = 0; return; }

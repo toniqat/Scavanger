@@ -1,9 +1,9 @@
 /**
- * src/player/parts/Spawn.ts — **월드에 들어가고 나오는 모든 방법**.
+ * src/player/parts/Spawn.ts — **every way into and out of the world**.
  *
- * 헬포드 강하(`startDrop`), 함선에서 그냥 서서 시작(`spawnStanding`), 부활(`respawnAt`),
- * 그리고 레이드 재접속 복귀(`restoreState` / `holdForRestore` — 강하 없이 마지막 위치 · 상태로).
- * 미션 리셋에서 전투 상태를 전부 지우는 `resetAll` / `resetTactical` 도 여기 있다.
+ * The hellpod drop (`startDrop`), simply standing up in the ship (`spawnStanding`), the respawn (`respawnAt`), and
+ * the rejoin return to a raid (`restoreState` / `holdForRestore` — to the last position · state, with no drop).
+ * `resetAll` / `resetTactical`, which wipe every combat state on a mission reset, live here too.
  */
 import * as THREE from 'three';
 import type { PlayerRestoreState } from '@/shared';
@@ -12,7 +12,7 @@ import {
   PLAYER_DOWN_HP, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_DOWN_SPEED_MUL, PLAYER_REVIVE_HP, PLAYER_GIVE_UP_HOLD,
   ARMOR_DURABILITY_PER_DAMAGE, CLOAK_BREAK_TIME, CLOAK_DETECT_MUL, CLOAK_REVEAL_DISTANCE, MELEE_COOLDOWN, MELEE_STAMINA_COST,
   ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION,
-  /* appended (2026-09-09): 구조선 부활 */
+  /* appended (2026-09-09): the rescue drop revive */
   RESCUE_REVIVE_HP,
   type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
 } from '@/shared';
@@ -49,7 +49,7 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
   sys.releaseDroneControl();   // 2026-09-11
   sys.releaseFurniturePose('reset');   // 2026-09-12
   IntroWake.cancelIntroWake(sys);      // 2026-09-14
-  sys.setSceneLock(false);             // 2026-09-14 3차: 각본 잠금 (부활 · 함선 복귀는 스스로 푼다)
+  sys.setSceneLock(false);             // 2026-09-14 3rd pass: the scene lock (respawn · ship return release it)
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);
@@ -57,7 +57,8 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
   sys._inPod = false;
   sys.shipBounds = null; sys.controller.shipBounds = null;
   sys.controller.reset(_v);
-  // 2026-09-14: 저장된 자세가 공중이었다면(점프 중에 끊겼다) 돌아온 사람만 낙하 피해를 받는다 — 복귀의 첫 낙하는 면제다
+  // 2026-09-14: if the saved pose was airborne (cut off mid-jump), the returning player alone would take fall
+  // damage — the first fall of a return is exempt
   sys.controller.exemptFall();
   sys.slowTimer = 0; sys.slowFactor = 1; sys.controller.speedMultiplier = 1;
   sys.isDead = false; sys.deadTimer = 0; sys.invuln = 0.5; sys.flinch = 0;
@@ -83,8 +84,9 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
   sys.interactTarget = null; sys.holdProgress = 0;
 
   /*
-   * 2026-09-10: 실드도 돌려준다. 생략된 값(옛 세이브 · 실드를 모르는 옛 호스트)은 **0 이 아니라 최대치**다 —
-   * 모르는 것을 0 으로 읽으면 재접속한 사람만 방탄복을 입은 채 실드를 잃는다. 전투불능 · 사망은 실드가 0.
+   * 2026-09-10: the shield comes back too. An omitted value (an old save · an older host that does not know the
+   * shield) means **the maximum, not 0** — reading the unknown as 0 would make the rejoining player alone lose the
+   * shield while wearing armor. Downed · dead means a shield of 0.
    */
   sys._shield = 0;
   sys.pendingShield = state.state === 0 ? (Number.isFinite(state.shield) ? (state.shield as number) : Infinity) : null;
@@ -123,9 +125,9 @@ export function restoreState(sys: PlayerSystem, state: PlayerRestoreState): void
   }
 
 /**
- * 이 미션은 **헬포드로 떨어지는가.** 훈련장은 하늘이 없는 시뮬레이션 방이고(2026-09-08), 튜토리얼은
- * 함선을 아직 갖지 못한 사람이 **그 행성에서 깨어나는** 이야기라 둘 다 포드가 없다 (2026-09-14).
- * 강하 경로는 셋(`world:ready` · `respawn` · 구조선)이라 판정을 한 곳에 둔다.
+ * Does this mission **drop by hellpod.** The training range is a simulation room with no sky (2026-09-08), and the
+ * tutorial is the story of someone who has no ship yet **waking up on that planet** (2026-09-14) — neither has a pod.
+ * There are three drop paths (`world:ready` · `respawn` · the rescue drop), so the judgement lives in one place.
  */
 export function usesHellpod(ctx: GameContext): boolean {
   return ctx.missionMode !== 'training' && ctx.missionMode !== 'tutorial';
@@ -133,8 +135,8 @@ export function usesHellpod(ctx: GameContext): boolean {
 
 /**
  * Re-drop at `position` like at mission start (hellpod, full hp, alive, not downed). `player:respawn` → here.
- * 2026-09-08: **훈련장에서는 헬포드가 없다** — 시뮬레이션 방에 하늘이 없는 것은 진입이나 재시작이나 같다.
- * 2026-09-14: 튜토리얼의 체크포인트 부활도 같은 이유로 포드가 없다 (`usesHellpod`).
+ * 2026-09-08: **no hellpod on the training range** — the simulation room has no sky, on entry as on a restart.
+ * 2026-09-14: a tutorial checkpoint respawn has no pod for the same reason (`usesHellpod`).
  */
 export function respawn(sys: PlayerSystem, position: THREE.Vector3): void {
   sys.respawnAt(sys.resolveSpawn(position));
@@ -152,7 +154,7 @@ export function spawnStanding(sys: PlayerSystem, position: THREE.Vector3, yaw: n
   sys.releaseDroneControl();   // 2026-09-11
   sys.releaseFurniturePose('reset');   // 2026-09-12
   IntroWake.cancelIntroWake(sys);      // 2026-09-14
-  sys.setSceneLock(false);             // 2026-09-14 3차: 각본 잠금 (부활 · 함선 복귀는 스스로 푼다)
+  sys.setSceneLock(false);             // 2026-09-14 3rd pass: the scene lock (respawn · ship return release it)
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);
@@ -231,7 +233,7 @@ export function respawnAt(sys: PlayerSystem, position: THREE.Vector3, yaw?: numb
   sys.releaseDroneControl();   // 2026-09-11
   sys.releaseFurniturePose('reset');   // 2026-09-12
   IntroWake.cancelIntroWake(sys);      // 2026-09-14
-  sys.setSceneLock(false);             // 2026-09-14 3차: 각본 잠금 (부활 · 함선 복귀는 스스로 푼다)
+  sys.setSceneLock(false);             // 2026-09-14 3rd pass: the scene lock (respawn · ship return release it)
   sys.clearClimbState();
   sys.attachTo(null);
   sys.setInterior(null);
@@ -328,11 +330,11 @@ export function holdForRestore(sys: PlayerSystem, position: THREE.Vector3): void
   }
 
 /**
- * 헬포드 강하 시작. `kind` 0 = 미션 시작, 1 = 구조선 (2026-09-09).
+ * Starts the hellpod drop. `kind` 0 = mission start, 1 = the rescue drop (2026-09-09).
  *
- * 2026-09-09: **분대원에게도 포드가 보인다.** 지금까지 원격 분대원은 자리에 그냥 나타났다 — 이제 강하를
- * 시작한 사람이 `pod drop` 을 `'others'` 로 보내고, 받은 쪽(`RemotePlayerSystem`)이 원격 포드를 떨어뜨린다.
- * 카메라 연출은 로컬만의 것이라 와이어에 없다.
+ * 2026-09-09: **squadmates see the pod too.** A remote squadmate used to simply appear in place — now whoever starts
+ * the drop sends `pod drop` to `'others'` and the receiving side (`RemotePlayerSystem`) drops a remote pod.
+ * The camera cutscene is the local one's alone, so it is not on the wire.
  */
 export function startDrop(sys: PlayerSystem, kind: 0 | 1 = 0): void {
   const pos = sys.controller.position;
@@ -349,12 +351,12 @@ export function startDrop(sys: PlayerSystem, kind: 0 | 1 = 0): void {
   }
 
 /**
- * 구조 포드 착륙 (`rescue:landed`, 2026-09-09). 내가 대상일 때만 반응한다 — 헬포드 강하로 다시 서고,
- * 체력은 `RESCUE_REVIVE_HP`, **인벤토리는 빈 채로**다 (들고 있던 것은 전부 시체에 남았다).
- * 흐름(페이즈 · 분대장 표시)은 `game/parts/Death.onRescueLanded` 이 맡는다.
+ * The rescue pod lands (`rescue:landed`, 2026-09-09). Answered only when the target is me — the body stands again
+ * through a hellpod drop, hp is `RESCUE_REVIVE_HP`, and **the inventory stays empty** (everything carried was left
+ * on the corpse). The flow (phase · the squad-leader marker) is owned by `game/parts/Death.onRescueLanded`.
  */
 export function rescueRevive(sys: PlayerSystem, position: THREE.Vector3): void {
-  // 착륙 지점은 호스트가 `world.scatterPoints` 로 이미 정해 보낸 값이다 — 분대 스폰 링을 다시 씌우지 않는다.
+  // The landing point is already decided and sent by the host (`world.scatterPoints`) — no squad spawn ring on top.
   _v.copy(position);
   if (sys.ctx.world?.ready) _v.y = sys.ctx.world.getHeightAt(_v.x, _v.z);
   sys.respawnAt(_v.clone());
@@ -385,11 +387,11 @@ export function updateDrop(sys: PlayerSystem, dt: number): void {
   }
 
 export function resetAll(sys: PlayerSystem): void {
-  sys.releaseRoverRide();   // 2026-09-13: game:abort · 재접속 대기
-  sys.releaseDroneControl();   // 2026-09-11: game:abort · 재접속 대기
+  sys.releaseRoverRide();   // 2026-09-13: game:abort · the rejoin wait
+  sys.releaseDroneControl();   // 2026-09-11: game:abort · the rejoin wait
   sys.releaseFurniturePose('reset');   // 2026-09-12
-  IntroWake.cancelIntroWake(sys);      // 2026-09-14: `game:abort` · 재접속 대기 — 알리지 않고 끝낸다
-  sys.setSceneLock(false);             // 2026-09-14 3차: 각본 잠금도 `game:abort` 가 푼다 (계약)
+  IntroWake.cancelIntroWake(sys);      // 2026-09-14: `game:abort` · the rejoin wait — ends without announcing
+  sys.setSceneLock(false);             // 2026-09-14 3rd pass: `game:abort` releases the scene lock too (contract)
   sys.clearClimbState();
   sys.hellpod.hide();
   sys.attachTo(null);

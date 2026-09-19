@@ -1,7 +1,7 @@
 import type * as THREE from 'three';
 
 /**
- * 부상자 들쳐메기 (Phase 10) — the seam between the two systems in this folder.
+ * Shouldering a downed squadmate (Phase 10) — the seam between the two systems in this folder.
  *
  * `PlayerSystem` owns the rules (`PlayerRef.carry / dropCarried / carrying / isCarried / setCarriedBy`, the F-tap
  * precedence and the carry pose) but it must not know how remote bodies are built; `RemotePlayerSystem` owns the

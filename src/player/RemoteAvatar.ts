@@ -34,7 +34,7 @@ const DOWN_MARKER_Y = 0.95;
 const SUSPENDED_FLAG_MASK = PlayerFlags.HAS_WEAPON | PlayerFlags.TWO_HANDED | PlayerFlags.DOWNED | PlayerFlags.DEAD
   | PlayerFlags.IN_POD | PlayerFlags.IN_HUB;
 
-/* ── 사다리 (2026-09-11) ── */
+/* ── Ladder (2026-09-11) ── */
 /** A snapshot height change bigger than this in one frame is a teleport / stream restart, not climbing. */
 const CLIMB_PHASE_MAX_DY = 1;
 /** A climbing peer is matched to the ladder whose base is this close (XZ, m) to face its rungs. */
@@ -126,7 +126,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
   private climbStepIdx = 0;
   /** Facing of the matched ladder (`atan2(normal.x, normal.z)`); null = not matched yet / not climbing. */
   private climbYaw: number | null = null;
-  /* ── 2026-09-12: 원격 가구 자세 (`ref.furniturePose` — net 이 스냅샷 `fp` · `fu` 를 보간한다) ── */
+  /* ── 2026-09-12: the remote furniture pose (`ref.furniturePose` — net interpolates snapshot `fp` · `fu`) ── */
   /** Pose the model draws — outlives the release until the blend is out (null = none). */
   private furnKind: FurniturePoseKind | null = null;
   /** The ref reports a pose this frame. */
@@ -140,7 +140,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
   private heldLook: GearLook | null = null;
   private heldDefId: string | null = null;
   private armorLookId: string | null = null;
-  /** Pulsing beacon shown over a downed team-mate (a 표식 the whole squad can see through the crowd). */
+  /** Pulsing beacon shown over a downed team-mate (a marker the whole squad can see through the crowd). */
   private downMarker: THREE.Mesh | null = null;
   private downMarkerGeo: THREE.BufferGeometry | null = null;
   private downMarkerMat: THREE.MeshBasicMaterial | null = null;
@@ -221,7 +221,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
   /** Current pose values (read-only snapshot for tests). */
   get poseView(): Readonly<SoldierPose> { return this.pose; }
 
-  /** 2026-09-13 탐사 차량: `ctx.time` until which the body stays hidden after `IN_ROVER` cleared (the ref still slides seat → exit). */
+  /** 2026-09-13 rover: `ctx.time` until which the body stays hidden after `IN_ROVER` cleared (the ref still slides seat → exit). */
   private roverHideUntil = 0;
 
   update(dt: number, ctx: GameContext): void {
@@ -233,23 +233,23 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const dropping = (flags & PlayerFlags.DROPPING) !== 0;
     const inPod = (flags & PlayerFlags.IN_POD) !== 0;   // boarded in a hub launch pod: pod shown closed, body hidden
     /*
-     * 공용 함선 격납고 (2026-09-08): every ship interior is built at the world origin, so two members standing in
-     * *different* ships occupy the same coordinates. `hubSite` (`PlayerSnapshot.hs`) says which one each of us is in
-     * — null = the shared deck (공유 함선 + 격납고) — and a peer somewhere else is simply not drawn. Two people
-     * touring the same 개인 함선 do see each other, which is the whole point.
+     * The shared ship's hangar (2026-09-08): every ship interior is built at the world origin, so two members
+     * standing in *different* ships occupy the same coordinates. `hubSite` (`PlayerSnapshot.hs`) says which one
+     * each of us is in — null = the shared deck (the shared ship + its hangar) — and a peer somewhere else is
+     * simply not drawn. Two people touring the same personal ship do see each other, which is the whole point.
      */
     const elsewhere = (ref.hubSite ?? null) !== (ctx.hub?.hubSite ?? null);
     /*
-     * 2026-09-09: 완전히 사망한 분대원은 **시체 오브젝트**(`ctx.corpses`)가 대신 서 있다. 그 시체가 존재하는
-     * 동안 아바타까지 죽은 자세로 누워 있으면 같은 자리에 몸이 둘이므로 아바타를 감춘다. 전투불능(`downed`)은
-     * 시체가 아니라 여전히 아바타다 — 제세동기로 일어날 수 있다.
+     * 2026-09-09: a fully dead squadmate is stood in for by a **corpse object** (`ctx.corpses`). While that corpse
+     * exists, leaving the avatar lying in its dead pose too would put two bodies on the same spot, so the avatar
+     * is hidden. A downed (`downed`) member is still the avatar, not a corpse — a defibrillator stands it back up.
      */
-    // 2026-09-16: 빈 시체는 가라앉아 치워진다 — 그 뒤에도 죽은 자세의 아바타가 다시 나타나지 않게 「섰던 적이 있다」로 본다
+    // 2026-09-16: empty corpses sink away — 「it once had a corpse」 is the test, so no dead-posed avatar comes back
     const corpses = ctx.corpses;
     const replacedByCorpse = ref.isDead && !!corpses
       && (typeof corpses.ownerHadCorpse === 'function' ? corpses.ownerHadCorpse(ref.id) : !!corpses.latestOf(ref.id));
     // Phase 7: a suspended member stays visible even though its snapshots are stale (the host's ghost owns the body)
-    // 2026-09-13 탐사 차량: inside the hull the body is hidden, and for `ROVER_REMOTE_EXIT_HIDE_S` after it alights
+    // 2026-09-13 rover: inside the hull the body is hidden, and for `ROVER_REMOTE_EXIT_HIDE_S` after it alights
     if ((flags & PlayerFlags.IN_ROVER) !== 0) this.roverHideUntil = ctx.time + ROVER_REMOTE_EXIT_HIDE_S;
     const inRover = ctx.time < this.roverHideUntil;
     const visible = !dropping && !inPod && !inRover && !elsewhere && !replacedByCorpse && (suspended || (!ref.stale && ref.connected));
@@ -309,7 +309,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const reloading = (flags & PlayerFlags.RELOADING) !== 0;
     const hasWeapon = (flags & PlayerFlags.HAS_WEAPON) !== 0;
     const twoHanded = (flags & PlayerFlags.TWO_HANDED) !== 0;
-    // downed (전투불능): always lying prone, crawl cycle from stride/moveBlend; weapons hides the gun model itself
+    // downed: always lying prone, crawl cycle from stride/moveBlend; weapons hides the gun model itself
     const downed = ref.isDowned || (flags & PlayerFlags.DOWNED) !== 0;
     const holdingItem = holdingItemFlag && !downed;
     const throwing = (flags & PlayerFlags.THROWING) !== 0 && !downed;
@@ -325,7 +325,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const spraying = (flags & PlayerFlags.SPRAYING) !== 0 && hasWeapon && !downed;
     const heavy = (flags & PlayerFlags.HEAVY) !== 0 && hasWeapon && !downed;
     const moveBlend = suspended ? 0 : ref.moveBlend;
-    // 사다리 (2026-09-11): 오르기 자세 — 위상은 높이 변화에서, 방향은 가까운 사다리에서
+    // ladder (2026-09-11): the climb pose — the phase from the height change, the facing from the nearest ladder
     const climbing = (flags & PlayerFlags.CLIMBING) !== 0 && !downed && !ref.isDead;
     this.updateClimb(ctx, climbing);
     this.climbBlend = damp(this.climbBlend, climbing ? 1 : 0, 12, dt);
@@ -356,8 +356,8 @@ export class RemoteAvatar implements RemoteAvatarRef {
 
     this.sprintBlend = damp(this.sprintBlend, sprinting && !downed && !climbing ? 1 : 0, 8, dt);
     this.aimBlend = damp(this.aimBlend, aiming && hasWeapon && !downed ? 1 : 0, 12, dt);
-    // 2026-09-16 낮은 구르기: 스냅샷의 자세(`stance`)와 구르기 비트(DIVE)는 같은 스냅샷에 실린다 — 앉아서 구르는 분대원은
-    // 구르는 내내 `crouch` 이므로 로컬과 같이 앉은 블렌드를 유지해야 끝날 때 일어섰다 앉는 깜빡임이 없다
+    // 2026-09-16 low roll: `stance` and the roll bit (DIVE) ride the same snapshot — a squadmate rolling crouched
+    // stays `crouch` the whole way, so the crouch blend is held as it is locally: no stand-up flicker at the end
     this.crouchBlend = damp(this.crouchBlend, ref.stance === 'crouch' && !downed ? 1 : 0, 10, dt);
     this.proneBlend = damp(this.proneBlend, prone && !rolling ? 1 : 0, 8, dt);
     this.downedBlend = damp(this.downedBlend, downed && !ref.isDead ? 1 : 0, 7, dt);
@@ -374,7 +374,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
     const carrying = (flags & PlayerFlags.CARRYING) !== 0 && !downed && !ref.isDead;
     this.carryBlend = damp(this.carryBlend, carrying ? 1 : 0, 8, dt);
     this.updateDownMarker(ctx, downed && !ref.isDead);
-    // 2026-09-12: 가구 자세 — net 이 스냅샷 `fp` 를 보간한 값. 전투불능 · 사망 · 정지(suspended) · 업힌 몸은 그리지 않는다
+    // 2026-09-12: furniture pose — net interpolates snapshot `fp`; skipped while downed · dead · suspended · carried
     this.updateFurniturePose(dt, !wasShown, downed || ref.isDead || suspended || riding);
 
     // ── recoil pulses while firing
@@ -439,7 +439,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
     p.spraying = this.sprayBlend;
     p.heavyCarry = this.heavyBlend;
     p.hover = this.hoverBlend;
-    p.downed = this.downedBlend;   // 2026-09-08: 전투불능 = the backward-fall pose, same as the local player
+    p.downed = this.downedBlend;   // 2026-09-08: downed = the backward-fall pose, same as the local player
     p.dead = ref.isDead ? Math.min(1, this.deadTimer / DEATH_ANIM) : 0;
     p.carry = this.carryBlend;
     p.climb = this.climbBlend;
@@ -455,7 +455,7 @@ export class RemoteAvatar implements RemoteAvatarRef {
   }
 
   /**
-   * 사다리 (2026-09-11). The wire carries only `CLIMBING`: the rung phase is accumulated from the interpolated
+   * Ladder (2026-09-11). The wire carries only `CLIMBING`: the rung phase is accumulated from the interpolated
    * snapshot height (π per `LADDER_RUNG_M`, same rule as the local controller), each rung boundary plays a quiet
    * positional `ladder_step`, and the facing comes from the nearest ladder in `ctx.world.getLadders()`.
    */
@@ -479,10 +479,10 @@ export class RemoteAvatar implements RemoteAvatarRef {
   get climbAmount(): number { return this.climbBlend; }
 
   /**
-   * 2026-09-12 (캐릭터 버프 · 가구 자세 동기화). `ref.furniturePose` (net 이 스냅샷 `fp` · `fu` 를 보간 — 누적 위상이라 감김 없이
-   * 선형) → 자세 종류 · 방향 · 위상 · anchor, 블렌드는 로컬과 같은 `stepFurnitureBlend`. `justShown` = 이번 프레임에 처음 보인다 —
-   * 이미 자세를 든 몸은 블렌드 1 로 스냅한다. `blocked` (전투불능 · 사망 · suspended · 업힘)이면 자세가 없는 것으로 본다.
-   * 자세가 끝나면 마지막 anchor · 위상을 들고 블렌드가 빠질 때까지 그린다.
+   * 2026-09-12 (character buffs · furniture pose sync). `ref.furniturePose` (net interpolates snapshot `fp` · `fu` —
+   * cumulative phase, no wrap) → pose kind · facing · phase · anchor; the blend is the local `stepFurnitureBlend`.
+   * `justShown` = first visible this frame — a body already posed snaps to blend 1. `blocked` (downed · dead ·
+   * suspended · carried) reads as no pose. A finished pose keeps its last anchor · phase until the blend is out.
    */
   private updateFurniturePose(dt: number, justShown: boolean, blocked: boolean): void {
     const fp = blocked ? null : validFurniturePose(this.ref.furniturePose);
@@ -608,7 +608,7 @@ function validFurniturePose(fp: RemoteFurniturePose | null | undefined): RemoteF
 
 /** `ar` may be an ArmorDef id or the item def id that links to one (`ItemDef.armorId`). */
 /**
- * 2026-09-17 (사용자 결정 — 「마지막 함선을 탔을 때 PC 가 함선 내부에 실루엣으로 보이지 않도록」): the extraction ship is
+ * 2026-09-17 (user's decision — 「마지막 함선을 탔을 때 PC 가 함선 내부에 실루엣으로 보이지 않도록」): the extraction ship is
  * leaving (`stage === 'liftoff'`, ramp closing / closed) and this body stands in its bay. The occlusion silhouette would
  * paint it through the closed hull, so remote squadmates and android bodies drop it here; the local player reads
  * `ExtractionRef.riding` instead (`PlayerSystem`). Tutorial and every raid alike — same ship, same query.

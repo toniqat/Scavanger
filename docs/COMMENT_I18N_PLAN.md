@@ -6,15 +6,22 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **9, `src/player`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
+> **Next session starts here:** queue item **10, `src/items`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
 > before picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this
 > file originally described**; the old one let a deleted `*/` through, and **§3 step 4b**, which `src/tutorial` added
-> after catching a re-typed Korean label. `src/player` is a normal feature folder, so its `verify` is a folder-sized
-> run, not the full net. At 949 lines over 30 files it is the first queue item where the files are small enough that
-> the `src/hub` shape (bundles by subject) fits again — cut it by subject (controller · camera rig · soldier model ·
-> vitals / damage · interaction + riding · remote avatars), not by file size. Much of its vocabulary is already fixed:
-> `src/enemies` set the anatomy words, §7 fixes **the intro wake**, and CLAUDE.md §3.2 lists the folder's own nouns
-> (shoulder swap · aim sway · stance · downed · drop pods · face portraits) in English already.
+> after catching a re-typed Korean label. `src/items` is item **data**, not a system: 612 lines over 12 files, so it is
+> a two- or three-agent folder at most, and `src/inventory` (queue item 6) already fixed every noun it uses — read that
+> folder's comments and §7's `inventory` rows before coining anything.
+
+> **Run §3 step 4 yourself — an agent reporting `code changes: 0` is not evidence.** In `src/player` the controller
+> bundle's applier deleted two whole declarations, `const LADDER_BOTTOM_GRAB_CLEAR = 0.5;` and
+> `private airCarry = false;`: each sat *between* two Korean doc blocks, inside a replaced range. The agent's own
+> report said `code changes: 0` — it had run the proof before its last write. The lead's run over the whole tree,
+> **after the last agent reported**, printed `code changes: 1`, twice in a row (the second only surfaced once the
+> first was fixed), so re-run it after every fix until it prints 0.
+> These two would have been caught by `tsc` as well (measured: 7 errors, `TS2304` + `TS2339` — both names were still
+> referenced). That is the *lucky* shape. The dangerous one is a declaration **nothing references** — the interface
+> field `miningRarityBonus: number;` that `src/shared` lost — which `tsc` passes and only step 4 sees.
 
 > **`src/tutorial` cut by file, not by track.** This file used to say to cut it by track; that does not work, because
 > the four tracks are *data* in `Steps.ts` and `TutorialSystem.ts`, not folders — cutting that way puts two agents in
@@ -28,8 +35,8 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`) | 18,828 | 453 |
-| **Remaining** ([§2](#2-queue)) | **7,788** | **294** |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`, `src/player`) | 19,777 | 483 |
+| **Remaining** ([§2](#2-queue)) | **6,839** | **264** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
@@ -66,6 +73,8 @@ so its rows are grouped into one line instead of listed file by file:
 | `tutorial/model.ts:626` | the three stance label sets, drawn as the control guide swaps them (`C 앉기` · `Z 포복` · `C 일어서기`) |
 | `tutorial/ui/Panel.ts:14-15` | the objective panel's ASCII diagram, drawn with real objective rows (`갈라진 땅까지 걸어간다`, `(선택) 수류탄으로 …`) |
 | `tutorial/TutorialSystem.ts:1430` · `:1772` · `:1814` | an objective row (`제작창 닫기`), a toast (`레벨이 올랐습니다`) and the stance labels (`앉기` ↔ `일어서기`) |
+| `player/PlayerSystem.ts:413` | the verbatim user decision the scene lock's `allowDamage` option was built from (`처치하지 않은 안드로이드의 사격을 맞은 채 출발한다 · 죽지 않는다`) |
+| `player/RemoteAvatar.ts:611` | a verbatim user decision (`마지막 함선을 탔을 때 PC 가 함선 내부에 실루엣으로 보이지 않도록`) |
 
 ---
 
@@ -83,7 +92,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~6~~ | ~~`src/inventory`~~ | 1,703 | 53 | **Done 2026-09-19** (lead + 7 agents, one commit). 12 quoted-only lines stay (§1). Its grid · cell · pane · stack · crate · search · bucket · salvage vocabulary is now the reference for every item- and screen-shaped folder after it. |
 | ~~7~~ | ~~`src/hub`~~ | 1,569 | 40 | **Done 2026-09-19** (lead + 6 agents, one commit). 8 quoted-only lines stay (§1). Its ship · dock · staging · station vocabulary is now the reference for every hub- and furniture-shaped folder after it. |
 | ~~8~~ | ~~`src/tutorial`~~ | 1,278 | 11 | **Done 2026-09-19** (lead + 4 agents, one commit). 6 quoted-only lines stay (§1). Cut **by file**, not by track — see the banner above. Its track · step · stretch · objective-row · control-guide · spotlight vocabulary is now the reference for every guidance-shaped folder after it. |
-| 9 | `src/player` | 949 | 30 | |
+| ~~9~~ | ~~`src/player`~~ | 949 | 30 | **Done 2026-09-19** (lead + 6 agents, one commit). 2 quoted-only lines stay (§1). Cut **by subject** and it held: controller · vitals / damage · wake + spawn + camera · body modes · soldier model · remote avatars, lead on `PlayerSystem` · `model` · `index`. Its body-mode · stance / pose · scene-lock · intro-wake · shouldering · rig vocabulary is now the reference for every controller- and avatar-shaped folder after it. |
 | 10 | `src/items` | 612 | 12 | |
 | 11 | `src/gadgets` | 573 | 22 | |
 | 12 | `src/allies` | 561 | 22 | |
@@ -308,6 +317,7 @@ and `net-selftest`) — a folder's smoke map, not its size, sets the cost.
 
 - **A normal feature folder** costs 16–25 scripts and ~6 min: 16 for the pilot, 25 for `src/world`, 25 for
   `src/enemies` — whose folder map pulls in **`e2e-mp`**, so a red there is a real two-client run, not a unit check.
+  `src/player` cost 22 scripts and 5 min 53 s, `e2e-mp` among them (179/179).
   Every remaining queue item except `src/core` is one of these.
 - **`src/core`** still selects **everything** (~17 min, 96 scripts), as `src/shared` and `src/main.ts` did — those two
   were done together in one commit on 2026-09-18 so that run happened once.
@@ -468,7 +478,8 @@ few hundred, because a Korean **label** inside English prose is correct and stay
   `B-36` · `B-37` · `B-38` · `B-39` (`src/inventory`, 20 + 8 + 3 + 2),
   `B-40` · `B-41` · `B-42` · `B-43` (`src/hub`, 20 + 5 + 5 + 4),
   `B-44` · `B-45` · `B-46` (`src/tutorial`, 14 + 2 + 1 — the last one a label **this project itself** mistyped in
-  `src/shared`, which is why §3 now has step 4b).
+  `src/shared`, which is why §3 now has step 4b),
+  `B-47` · `B-48` · `B-49` · `B-50` (`src/player`, 9 + 7 + 5 + 6).
   Reading a folder this closely is the most productive defect hunt in the project — expect five to ten per folder (`src/ui`
   gave 23 and `src/housing` 35, each with a live bug in it: a member row that is built and never appended, and a stir-fry
   score whose denominator is the number of clicks that were judged), and keep filing rather than fixing.
@@ -735,3 +746,19 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 접힌 조작 가이드 · 구간 상자 | the **folded** control guide · a **section box** (`.tut-ctl-sec`) | `tutorial/ui/Controls.ts` |
 | 눌림 강조 · 도장 · 새 줄 강조 | the **press highlight** / a **lit keycap** (`LitCap`) · the **stamp** (`data-kc`) · the **new-row highlight** (`is-new`) | `tutorial/ui/Controls.ts` |
 | 함선 관리 모드 | **ship management** in prose (§7's `hub` row); the mode itself is named by its identifier `shipManageMode`, never re-worded | `tutorial/parts/Gates.ts` |
+| **자세** | **two words, decide from the code**: **stance** for stand / crouch / prone (`setStance`, `canStandHere`) and **pose** for a body pose (`SoldierPose`, 가구 자세 = the **furniture pose**, 대기 자세 = the idle pose). One Korean word, two of this folder's central nouns | `player` (folder-wide) |
+| 각본 잠금 · 각본 · 각본된 | the **scene lock** (`setSceneLock`) · the **scripted scene** · **scripted** (a scripted stand-up). 「각본이 몸을 들고 있다」 is *a scripted scene is holding the body* — the sentence `update`'s `scripted` flag is named after | `player` (folder-wide) |
+| 기상 연출 · 부활 연출 | **the intro wake** (never *waking cutscene* — §7's `ui` row, `player/README.md`, CLAUDE.md §3.2) · **the respawn wake**, the `playIntroWake(d, {respawn:true})` variant, kept *under* the intro wake rather than given a second name | `player/parts/IntroWake.ts` |
+| 들쳐메기 · 업힘 | **shouldering** (a downed squadmate) · **being carried** — `parts/Shoulder.ts`, `README.md`'s own word | `player` (folder-wide) |
+| 구조선 | **the rescue drop** (`rescue_drop`, CLAUDE.md §4.6's word) — never *rescue ship*, although the Korean says 선. 구조 포드 is **the rescue pod**, the object | `player/parts/Spawn.ts`, `RemotePods.ts` |
+| 전역 낙하 피해 · 낙사 · 치사 낙하 | **global fall damage** (the feature) · **a fatal fall** (§7) · **a lethal fall** — three things, kept apart | `player/parts/Fall.ts`, `PlayerController.ts` |
+| 막타 · 출처 · 피격 연출 | the **last hit** (CLAUDE.md §4.8) · the **source** (`PlayerDamageSource`) · the **hit feedback**. `shared/types.ts:3455` still writes *hit shot* for the third — align that one line the next time it is touched, not in a player commit | `player/parts/Vitals.ts` |
+| 단차 보간 · 하차 관성 · 천장 클램프 | **step smoothing** (`bodyOffset`) · **exit inertia** (`RIDE_*`) · **the ceiling clamp** — all three are `player/README.md`'s own words | `player/PlayerController.ts` |
+| 가로대 · 옥상으로 올라서기 · 머리 위 공간 | **rung** (`LADDER_RUNG_M`) · **the mount** onto the roof (`climbMount`) · **headroom** — one word for both 머리 위 공간 and 헤드룸 | `player/parts/Climb.ts` |
+| 남이 띄운 몸 · 면제된 낙하 | **a body something else lifted** · **an exempt fall** (`fallExempt`) — the pair the jump pad / bazooka rule is written in | `player/PlayerController.ts` |
+| 병사 · 대역 (총) · 룩 | **the soldier** (`SoldierModel`) · a **stand-in** gun (README's word) · the **look** (`setAndroidLook` = the **android look**) | `player/SoldierModel.ts`, `GearLook.ts` |
+| 잠든 슬롯 몸 | **dormant** / a body asleep in its slot (`AllyBodyView.pose === 'dormant'`) — a **third** state, kept apart from **suspended** (the member state that also renders grey) and from the android look | `player/AllyAvatars.ts` |
+| 총구 연출 (`ally:fired`) | **shot FX** (muzzle flash + tracer + shot sound) — kept apart from §7's *presentation* / *cutscene* | `player/AllyAvatars.ts` |
+| 초상 (얼굴 vs 전신) | the **face portrait** (`snapshotFace`) vs a **portrait** in `Portraits.ts` (full body) — the same split §7's `hub` row draws | `player/FaceSnapshot.ts`, `Portraits.ts` |
+| 리그 · 흔들림 · 슬래브 · 위상 | the **rig** (camera rig) · **shake** (camera) · **slab** (a low / roof slab, the `hub` row's word) · **phase** (§7's `hub` row; 걸음 위상 = the **stride phase**, `stridePhase`) | `player` (folder-wide) |
+| **armor vs armour** | **armor** in this folder's prose — its own English runs 130 : 2, and §7 binds 방탄복 → armor. `player/README.md` writes *armour* in four rows and `SoldierModel` · `RemoteAvatar` each keep one pre-existing *armoured trooper*; align those the next time they are touched, not in a translation commit | `player` (folder-wide) |

@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { Layers, type ArmorDef, type FurniturePoseKind } from '@/shared';
 import { damp } from '@/core/util/MathUtil';
-/** `snapDowned` 가 관절 `damp` 를 **수렴**시키는 가짜 `dt` (s) — exp(−8 × 1000) = 0. 연출 값이 아니라 수치 트릭이라 코드에 둔다. */
+/**
+ * Fake `dt` (s) that converges the joint `damp` inside `snapDowned` — exp(−8 × 1000) = 0. A numeric trick, not a
+ * presentation number, so it stays in code rather than csv.
+ */
 const SNAP_POSE_DT = 1000;
 import { buildArmorPlate, type GearLook } from './GearLook';
 import { applySoldierRim } from './SoldierRim';
@@ -63,21 +66,21 @@ export interface SoldierPose {
   /* ── appended: Phase 7 (remote pose sync) ── */
   /** pin pulled / cooking 0..1: item held in front of the chest, left hand reaching across to it (over `holdItem`) */
   cooking?: number;
-  /* ── appended: Phase 10 (부상자 들쳐메기) ── */
+  /* ── appended: Phase 10 (shouldering a downed squadmate) ── */
   /**
    * Fireman carry 0..1: the right arm reaches up over the shoulder to hold the load (`shoulderSocket`), the left arm
    * stays free for balance, the torso leans forward and the knees soften. Never combined with ADS (the gun is
    * holstered while carrying).
    */
   carry?: number;
-  /* ── appended: 사다리 (2026-09-11) ── */
+  /* ── appended: the ladder (2026-09-11) ── */
   /**
    * Ladder climb 0..1: torso upright facing the rungs (no camera twist), hands alternately gripping above the head,
    * knees alternately raised; the cycle is `stridePhase` (π per rung). The weapon socket is hidden above
    * `CLIMB_HIDE_WEAPON`.
    */
   climb?: number;
-  /* ── appended: 가구 자세 (2026-09-12, `parts/FurniturePose`) ── */
+  /* ── appended: the furniture pose (2026-09-12, `parts/FurniturePose`) ── */
   /**
    * Furniture pose blend 0..1 (already damped by the owner). `sit` / `bench` / `cycle` hand the skeleton to
    * `poseFurniture` (root = the pose anchor, see the `FURN_*` geometry below); `run` is fed through the walk cycle by the
@@ -120,52 +123,67 @@ const ROLL_PIVOT_Y = 0.55;
 const CLIMB_HIDE_WEAPON = 0.35;
 const _silColor = new THREE.Color();
 
-/* ══ 가구 자세 기하 (2026-09-12, `poseFurniture`) ═══════════════════════════════════════════════════════════════
- * 루트 = `FurniturePose.anchor` 이고 값은 전부 **anchor 기준 m**, 루트 좌표계(앞 = −Z)다. `bench` 는 PlayerSystem 이 루트를
- * `yaw + π` 로 돌리므로 루트 +Z 가 머리(= 계약의 `yaw` 방향)다. hub 는 가구 모델을 이 값에 맞춘다 —
- * 바꾸면 src/player/README.md 의 *가구 자세* 표도 고친다. 손 · 발은 두 마디 IK(`solveTwoBone`)라 목표점에 정확히 닿는다. */
-/** 흔들의자: 좌판 윗면 중앙. 발바닥이 anchor 아래 0.36 m(= 좌판 높이), 손은 허벅지 위. */
+/* ══ Furniture pose geometry (2026-09-12, `poseFurniture`) ═══════════════════════════════════════
+ * The root is `FurniturePose.anchor` and every value is **metres from the anchor**, in root space (forward = −Z).
+ * For `bench` PlayerSystem turns the root by `yaw + π`, so root +Z is the head (= the contract's `yaw` direction).
+ * The hub matches its furniture models to these values — changing one means fixing the *Furniture poses* table in
+ * src/player/README.md too. Hands · feet run two-bone IK (`solveTwoBone`), so they land exactly on their targets. */
+/** `흔들의자`: centre of the seat top. Soles 0.36 m below the anchor (= the seat height), hands on the thighs. */
 export const FURN_SIT = {
   hipsY: 0.13, bodyZ: 0.06, hipPitch: 0.2, torsoLean: 0.06,
   footX: 0.17, footY: -0.36, footZ: -0.4, handX: 0.18, handY: 0.22, handZ: -0.2,
 } as const;
 /**
- * 벤치: 패드 윗면의 견갑골 자리. 등(배낭)이 패드에 닿고 머리는 +Z, 발은 −Z 쪽 바닥(anchor 아래 0.40 m = 패드 높이).
- * 바벨(주먹 중심)은 위상 0 에서 (±0.42, 0.50, −0.03), 1 에서 (±0.42, 0.81, +0.06) — 그 사이는 선형.
+ * Bench: the shoulder-blade spot on the pad top. The back (the pack) rests on the pad, the head points +Z and the
+ * feet toward the floor on the −Z side (0.40 m below the anchor = the pad height).
+ * The bar (fist centre) is at (±0.42, 0.50, −0.03) at phase 0 and (±0.42, 0.81, +0.06) at 1 — linear in between.
  */
 export const FURN_BENCH = {
   backY: 0.19, bodyZ: -1.4, torsoLean: -0.12,
   footX: 0.36, footY: -0.4, footZ: -0.78, barX: 0.42, barY0: 0.5, barZ0: -0.03, barY1: 0.81, barZ1: 0.06,
 } as const;
 /**
- * 사이클: 안장 윗면. 크랭크 축 (0, −0.60, −0.25), 반지름 0.16, 페달 x ±0.13 (왼발 = −x). 위상 0 = 왼 페달 맨 위, 앞으로 돈다
- * (위에서 −Z 로). 손잡이 (±0.22, +0.14, −0.50).
+ * Cycle: the saddle top. Crank axis (0, −0.60, −0.25), radius 0.16, pedal x ±0.13 (left foot = −x). Phase 0 = the
+ * left pedal on top, turning forward (seen from above, toward −Z). Grips (±0.22, +0.14, −0.50).
  */
 export const FURN_CYCLE = {
   hipsY: 0.11, hipPitch: -0.12, torsoLean: -0.36,
   crankY: -0.6, crankZ: -0.25, crankR: 0.16, pedalX: 0.13, gripX: 0.22, gripY: 0.14, gripZ: -0.5,
 } as const;
 /**
- * 조리대 앞 (2026-09-13, 요리 미니게임): anchor = 조리대 앞 **바닥**(서는 자리 — 발바닥이 anchor 높이), 루트 앞(−Z) = 조리대 쪽.
- * 몸은 똑바로 서서 골반 −0.06 + 몸통 −0.24 ≈ 0.3 rad 조리대 쪽으로 숙인다. **hub 는 anchor · 도구를 이 값에 맞춘다**:
- *   • `edgeZ` −0.30 — 조리대 상판의 **앞 가장자리**가 anchor 앞 0.30 m 에 온다. anchor = 앞 가장자리 점 − 앞 방향 × 0.30, y = 바닥.
- *   • `topY` 1.08 — 상판 윗면 높이(바닥 기준). `bench_cook` 모델(h 1.1 → 상판 1.07–1.09)과 같다.
- *   • `workZ` −0.52 · `handY` 1.13 — 칼을 쥔 오른손의 기본 작업점 = 앞 가장자리 안쪽 0.22 m, 상판 + 0.05(도마 윗면). 도마 · 냄비 · 팬의
- *     중앙을 여기(x = `knifeX` 부근)에 둔다. 그보다 안쪽(가장자리에서 0.3 m 넘게)은 팔이 닿지 않는다.
- *   • `pressX` −0.16 · `pressY` 1.12 · `pressZ` −0.48 — 재료를 누르는 왼손 (위상에 따라 1.5 cm 눌린다).
- *   • 위상 φ (한 주기 = 1, 누적 위상의 소수부): 오른손 = (knifeX + stirR·0.6·sin 2πφ, handY + chopLift·smoothstep(½ + ½cos 2πφ),
- *     workZ − stirR·cos 2πφ) — φ 0 = 칼이 위(+0.12) · 앞, 0.5 = 도마에 닿음 · 몸 쪽. 위아래로 보면 칼질, 위에서 보면 국자 원운동이다.
+ * In front of the cook bench (2026-09-13, the cooking minigame): anchor = the **floor** in front of the bench (the
+ * standing spot — the soles are at anchor height), root forward (−Z) = toward the bench.
+ * The body stands upright and leans hips −0.06 + torso −0.24 ≈ 0.3 rad toward the bench. **The hub matches its
+ * anchor · tools to these values**:
+ *   • `edgeZ` −0.30 — the bench top's **front edge** sits 0.30 m in front of the anchor. anchor = the front edge
+ *     point − forward × 0.30, y = the floor.
+ *   • `topY` 1.08 — height of the bench top's upper face (from the floor). Matches the `bench_cook` model
+ *     (h 1.1 → top 1.07–1.09).
+ *   • `workZ` −0.52 · `handY` 1.13 — the default work point of the right hand holding the knife = 0.22 m inside the
+ *     front edge, bench top + 0.05 (the board's top face). The board · pot · pan are centred here (x near
+ *     `knifeX`). Anything further in (more than 0.3 m from the edge) is out of the arm's reach.
+ *   • `pressX` −0.16 · `pressY` 1.12 · `pressZ` −0.48 — the left hand pressing the ingredient (it sinks 1.5 cm with
+ *     the phase).
+ *   • Phase φ (one cycle = 1, the fractional part of the accumulated phase): right hand = (knifeX + stirR·0.6·sin
+ *     2πφ, handY + chopLift·smoothstep(½ + ½cos 2πφ), workZ − stirR·cos 2πφ) — φ 0 = the knife up (+0.12) · away,
+ *     0.5 = on the board · toward the body. Seen from the side it is chopping, seen from above a ladle's circle.
  */
 export const FURN_COOK = {
   edgeZ: -0.3, topY: 1.08, workZ: -0.52, handY: 1.13, knifeX: 0.1, pressX: -0.16, pressY: 1.12, pressZ: -0.48,
   chopLift: 0.12, stirR: 0.05,
   hipsY: 0.92, bodyZ: 0.04, hipPitch: -0.06, torsoLean: -0.24, footX: 0.13, footZ: 0.02,
 } as const;
-/** 팔 · 다리 마디 길이와 관절 자리 — `makeArm` · `makeLeg` 의 치수 그대로 (손 = 장갑 중심, 발 = 발바닥 접점). */
+/**
+ * Arm · leg segment lengths and joint spots — exactly the dimensions of `makeArm` · `makeLeg`
+ * (hand = the glove centre, foot = the sole contact point).
+ */
 const ARM_U = 0.3, ARM_F = 0.29, SHOULDER_X = 0.29, SHOULDER_Y = 0.5;
 const LEG_U = 0.47, LEG_F = 0.42, HIP_X = 0.11, HIP_Y = -0.05;
 
-/** 한 프레임의 가구 자세 목표 (모듈 스크래치 하나 — 프레임당 할당 없음). 팔다리 배열 [0] = 오른쪽(+x), [1] = 왼쪽. */
+/**
+ * One frame's furniture pose targets (one module scratch — no per-frame allocation).
+ * Limb arrays [0] = right (+x), [1] = left.
+ */
 const _fk = {
   bodyRotX: 0, bodyY: 0, bodyZ: 0, hipsY: 0, hipX: 0, hipZ: 0, torsoX: 0, torsoY: 0, torsoZ: 0, headX: 0, headY: 0,
   cape0: 0, cape1: 0, limbL: 14,
@@ -210,12 +228,14 @@ function solveTwoBone(rel: THREE.Vector3, pole: THREE.Vector3, u: number, f: num
 }
 
 /*
- * 2026-09-10 — **공유 GPU 자원.** 병사 한 명은 지오메트리 43개 · 실루엣 머티리얼 1개를 쓰는데, 그 값은 인스턴스와
- * 무관하다(치수 · 악센트 색만 정한다). 예전에는 인스턴스마다 새로 만들어 원격 아바타가 함선 ↔ 행성을 오갈 때마다
- * 43개를 다시 올렸다. 이제 모듈 캐시 하나가 들고 **아무 인스턴스도 dispose 하지 않는다** (별도 WebGL 컨텍스트를
- * 쓰는 `Portraits` · `ui/menus/SoldierPreview` 도 같은 객체를 쓴다 — three.js 는 GPU 버퍼를 렌더러별로 따로 잡으므로
- * 공유해도 된다; 누가 `geometry.dispose()` 를 부르면 모든 렌더러에서 사라지므로 부르지 않는 것이 규약이다).
- * **몸 머티리얼은 공유하지 않는다** — `setFade` · `setGreyed` · `setGlow` · 바이저 맥동이 인스턴스마다 값을 바꾼다.
+ * 2026-09-10 — **Shared GPU resources.** One soldier uses 43 geometries · 1 silhouette material, and none of those
+ * values depends on the instance (only the dimensions · the accent colour decide them). They used to be built per
+ * instance, so a remote avatar re-uploaded the 43 of them every time it moved ship ↔ planet. Now one module cache
+ * holds them and **no instance ever disposes them** (`Portraits` · `ui/menus/SoldierPreview`, which run their own
+ * WebGL context, use the same objects too — three.js allocates GPU buffers per renderer, so sharing is safe; the
+ * contract is that nobody calls `geometry.dispose()`, since that would drop them from every renderer).
+ * **Body materials are not shared** — `setFade` · `setGreyed` · `setGlow` and the visor pulse change them per
+ * instance.
  */
 const SHARED_GEOS = new Map<string, THREE.BufferGeometry>();
 const SHARED_SIL_MATS = new Map<number, THREE.MeshBasicMaterial>();
@@ -299,11 +319,12 @@ export class SoldierModel {
   private glowTarget = 0;
   private glow = 0;
   private greyed = false;
-  /* ── 2026-09-15: 안드로이드 외형 (`setAndroidLook`) ── */
+  /* ── 2026-09-15: the android look (`setAndroidLook`) ── */
   /**
-   * 안드로이드일 때만 보이는 조각 (얼굴판 · 바이저 띠 · 관절 링 …) 과, 그때 **감추는** 사람 얼굴 조각(볏 · 바이저 · 챙).
-   * 둘 다 생성자에서 한 번 지어 두고 `visible` 만 뒤집는다 — 나중에 지으면 `mat()` 이 `materials` 에 붙는 순서가
-   * `baseColors`(회색 처리의 기준)와 어긋나고, 공유 지오메트리 캐시(`SHARED_GEOS`)도 못 쓴다.
+   * The parts visible only on an android (faceplate · visor band · joint rings …) and the human face parts it
+   * **hides** then (crest · visor · brim). Both are built once in the constructor and only their `visible` is
+   * flipped — a material created later breaks the `materials` / `baseColors` pairing `setGreyed` relies on, and
+   * misses the shared geometry cache (`SHARED_GEOS`).
    */
   private readonly androidParts: THREE.Object3D[] = [];
   private readonly faceParts: THREE.Object3D[] = [];
@@ -379,17 +400,18 @@ export class SoldierModel {
     this.legL = this.makeLeg(-1, mArmor, mSteel, mDark, mAccent);
 
     /*
-     * 2026-09-15 — **안드로이드 외형** (`setAndroidLook`, 사용자 결정 「안드로이드 분대원」). 얼굴이 없는 헬멧 + 빛나는
-     * 바이저 띠 + 악센트 색 관절 · 판 장식이다. 몸 · 팔다리 자체는 그대로라 **모든 자세**(걷기 · 엎드림 · 쓰러짐 · 업힘 ·
-     * 가구)가 그대로 동작한다. 바이저 띠는 사람 바이저와 **같은 머티리얼**(`visorMat`)을 써서 맥동 · 사망 시 꺼짐 ·
-     * 회색 처리(`setGreyed` — 잠든 슬롯 몸)가 저절로 따라온다. 새 광원은 없다 (발광 머티리얼뿐).
+     * 2026-09-15 — **the android look** (`setAndroidLook`, user's decision 「안드로이드 분대원」). A faceless helmet
+     * + a glowing visor band + accent-coloured joint · plate trim. The body · limbs themselves are unchanged, so
+     * **every pose** (walking · prone · downed · being carried · furniture) keeps working. The visor band uses the
+     * **same material** as the human visor (`visorMat`), so the pulse · going dark on death · greying (`setGreyed`
+     * — a dormant slot's body) follow by themselves. No new light (emissive materials only).
      */
     const faceplate = this.box(0.23, 0.19, 0.045, mDark, 0, 0.155, -0.115);
     const band = this.box(0.19, 0.05, 0.03, this.visorMat, 0, 0.19, -0.145);
     const ridge = this.box(0.04, 0.035, 0.24, mSteel, 0, 0.3, 0);
     this.headPivot.add(faceplate, band, ridge);
     this.androidParts.push(faceplate, band, ridge);
-    // 귀 쪽 센서 판 — `resetPose` 가 모든 자식의 회전을 0 으로 되돌리므로 **회전이 필요 없는** 상자로 만든다
+    // The ear sensor plates — `resetPose` zeroes every child's rotation, so they are boxes that **need no rotation**
     for (const s of [-1, 1]) {
       const pod = this.box(0.055, 0.07, 0.09, mAccent, s * 0.145, 0.175, 0);
       this.headPivot.add(pod);
@@ -403,7 +425,7 @@ export class SoldierModel {
       this.torso.add(bar);
       this.androidParts.push(bar);
     }
-    // 합성 관절: 팔꿈치 · 무릎의 소매형 링 (마디가 −Y 로 뻗으므로 실린더 축이 그대로 맞는다)
+    // Synthetic joints: sleeve rings at elbow · knee (the segments run along −Y, so the cylinder axis fits as is)
     for (const limb of [this.armR, this.armL]) {
       const ring = this.cyl(0.062, 0.062, 0.035, mAccent, 0, -0.02, 0);
       limb.lower.add(ring);
@@ -473,7 +495,7 @@ export class SoldierModel {
 
   /* ─────────────── Phase 7: gear look / glow / grey ─────────────── */
   /**
-   * Equipped 방탄복 plate set over the torso (`GearLook.buildArmorPlate`), the same rule for the local soldier
+   * Equipped armor plate set over the torso (`GearLook.buildArmorPlate`), the same rule for the local soldier
    * (`PlayerGear.armor`) and remote avatars (`PlayerSnapshot.ar`). `null` removes it. Rebuilt only when the def id
    * changes; the plates share the body's render order (never painted over by the silhouette) and follow the fade /
    * grey tint.
@@ -496,9 +518,10 @@ export class SoldierModel {
   get armorId(): string | null { return this.armorLookId; }
 
   /**
-   * 2026-09-15 — 안드로이드 분대원의 몸(`ctx.allies`)과 그 시체(`game/Corpses` 가 duck-typed 로 부른다). 얼굴 없는
-   * 헬멧 · 빛나는 바이저 띠 · 악센트 관절로 바꾼다. 조각은 생성자에서 이미 지어져 있으므로 여기서는 `visible` 만
-   * 뒤집는다 — 자세 · 풀 재사용(`resetForReuse`)과 무관하게 언제 불러도 된다.
+   * 2026-09-15 — the body of an android squadmate (`ctx.allies`) and its corpse (`game/Corpses` calls this
+   * duck-typed). Switches to the faceless helmet · glowing visor band · accent joints. The parts are already built
+   * in the constructor, so this only flips their `visible` — it can be called at any time, independently of the
+   * pose and of pool reuse (`resetForReuse`).
    */
   setAndroidLook(on: boolean): void {
     if (on === this.androidOn) return;
@@ -681,11 +704,12 @@ export class SoldierModel {
     if (this.weaponSocket.visible !== socketShown) this.weaponSocket.visible = socketShown;
     const dead = p.dead;
     if (dead > 0) { this.poseDead(dt, p); return; }
-    // 2026-09-08: 전투불능 is its own pose, not "prone with a tilt" — the body falls **backwards** and lies on its
+    // 2026-09-08: downed is its own pose, not "prone with a tilt" — the body falls **backwards** and lies on its
     //   back. It takes over the whole skeleton the way death does, so no crawl / aim / weapon blend leaks into it.
     if (p.downed > 0.001) { this.poseDowned(dt, time, p); return; }
     if (dt <= 0) return;
-    // 2026-09-12: 가구 자세 (앉기 · 벤치 · 사이클) take over the skeleton the same way; `run` stays on the walk cycle below
+    // 2026-09-12: furniture poses (sit · bench · cycle) take over the skeleton the same way; `run` stays on
+    //   the walk cycle below
     const furn = p.furniture ?? 0;
     if (furn > 0.001 && p.furnitureKind && p.furnitureKind !== 'run') { this.poseFurniture(dt, time, p, furn, p.furnitureKind); return; }
 
@@ -1006,17 +1030,17 @@ export class SoldierModel {
       this.bodyGroup.position.y = damp(this.bodyGroup.position.y, 0, 12, dt);
       this.bodyGroup.position.z = damp(this.bodyGroup.position.z, 0, 12, dt);
     }
-    // 전투불능 never reaches here any more (`poseDowned` takes the frame), so the body only ever unwinds toward 0.
+    // Downed never reaches here any more (`poseDowned` takes the frame), so the body only ever unwinds toward 0.
     this.bodyGroup.rotation.z = damp(this.bodyGroup.rotation.z, 0, 8, dt);
   }
 
   /**
-   * 가구 자세 (2026-09-12). The root is the pose anchor (see `FURN_SIT` / `FURN_BENCH` / `FURN_CYCLE`); `w` is the owner's
-   * damped blend, eased here. Trunk joints lerp from neutral toward the pose by the blend, the bench lie-back is written
-   * straight from it (the owner already damps `w`), and hands / feet come from two-bone IK solved in the frames the parents
-   * will have at the full pose — so the feet stay planted while the chair rocks, the fists ride the bar path and the feet
-   * follow the pedal circle (`p.furniturePhase`). Leaving the pose hands back to `update`, which damps every joint (and
-   * `bodyGroup`) back to the upright rig.
+   * The furniture pose (2026-09-12). The root is the pose anchor (see `FURN_SIT` / `FURN_BENCH` / `FURN_CYCLE`);
+   * `w` is the owner's damped blend, eased here. Trunk joints lerp from neutral toward the pose by the blend, the
+   * bench lie-back is written straight from it (the owner already damps `w`), and hands / feet come from two-bone
+   * IK solved in the frames the parents will have at the full pose — so the feet stay planted while the chair
+   * rocks, the fists ride the bar path and the feet follow the pedal circle (`p.furniturePhase`). Leaving the pose
+   * hands back to `update`, which damps every joint (and `bodyGroup`) back to the upright rig.
    */
   private poseFurniture(dt: number, time: number, p: SoldierPose, w: number, kind: FurniturePoseKind): void {
     const s = THREE.MathUtils.clamp(w, 0, 1);
@@ -1054,17 +1078,18 @@ export class SoldierModel {
         T.hand[i].set(sg * B.barX, barY, barZ); T.elbowPole[i].set(sg, -0.7, -0.2);
       }
     } else if (kind === 'cook') {
-      // 2026-09-13 조리대 앞: 선 채로 숙이고, 오른손은 칼질 / 젓기 고리 (`FURN_COOK` 주석), 왼손은 재료를 누른다
+      // 2026-09-13 in front of the cook bench: stands and leans in, the right hand runs the chop / stir loop
+      //   (the `FURN_COOK` comment), the left hand presses the ingredient
       const K = FURN_COOK;
       const th = Math.PI * 2 * (ph - Math.floor(ph));
-      const up = 0.5 + 0.5 * Math.cos(th);                 // 1 = 칼이 위 (φ 0) … 0 = 도마 (φ 0.5)
+      const up = 0.5 + 0.5 * Math.cos(th);                 // 1 = knife up (φ 0) … 0 = the board (φ 0.5)
       const lift = up * up * (3 - 2 * up);
       T.bodyZ = K.bodyZ;
       T.hipsY = K.hipsY; T.hipX = K.hipPitch;
-      T.torsoX = K.torsoLean - 0.02 * (1 - lift) + breathe * 0.006;   // 내려칠 때 어깨가 조금 따라 내려간다
+      T.torsoX = K.torsoLean - 0.02 * (1 - lift) + breathe * 0.006;   // the shoulders dip a little on the downstroke
       T.torsoY = -0.05 + 0.03 * Math.sin(th);
-      T.headX = -0.12; T.headY = -0.08;                     // 도마를 내려다본다 (칼 쪽으로 살짝)
-      T.cape0 = 0.06; T.cape1 = 0.1; T.limbL = 26;          // 입력마다 반 주기씩 튕겨도 손이 따라온다
+      T.headX = -0.12; T.headY = -0.08;                     // looks down at the board (slightly toward the knife)
+      T.cape0 = 0.06; T.cape1 = 0.1; T.limbL = 26;          // the hands keep up even when an input jumps half a cycle
       for (let i = 0; i < 2; i++) {
         const sg = i === 0 ? 1 : -1;
         T.foot[i].set(sg * K.footX, 0, K.footZ); T.kneePole[i].set(sg * 0.1, 0.2, -1);
@@ -1137,7 +1162,7 @@ export class SoldierModel {
   }
 
   /**
-   * 전투불능 (downed, 2026-09-08). Reads like the death fall — the soldier goes over **backwards** — but settles into a
+   * Downed (2026-09-08). Reads like the death fall — the soldier goes over **backwards** — but settles into a
    * living pose instead of a limp one: knees drawn up, one arm clutching the chest, the other flung out, head lolled
    * to the side, and a shallow breathing rise so it never looks like a corpse. Empty-handed by design (weapons
    * holsters the gun while downed), so no weapon-carry angles are applied.
@@ -1214,9 +1239,11 @@ export class SoldierModel {
   }
 
   /**
-   * 2026-09-16 (사용자 결정 — 튜토리얼 부활 전용): 전투불능 자세(`poseDowned`, 진행도 1)로 **즉시** 선다. 관절은 평소 `damp` 로
-   * 따라가므로 `resetPose`(선 자세) 뒤에 `downed` 1 을 주면 첫 몇 프레임 동안 선 몸이 쓰러지는 것이 보였다 — 그 프레임을 없앤다.
-   * 수렴한 `dt` 로 한 번 풀어 둘 뿐이라 다음 `update` 부터는 평소 블렌드가 그대로 이어받는다 (`player/parts/IntroWake`).
+   * 2026-09-16 (user's decision — tutorial revive only): settles **immediately** into the downed pose
+   * (`poseDowned`, progress 1). The joints follow through the usual `damp`, so giving `downed` 1 after `resetPose`
+   * (the standing pose) showed the standing body falling over for the first few frames — this removes them. It
+   * only unwinds them once with a converged `dt`, so from the next `update` the usual blend takes over again
+   * (`player/parts/IntroWake`).
    */
   snapDowned(time: number): void {
     this.snapDownedPose.downed = 1;
@@ -1252,7 +1279,7 @@ export class SoldierModel {
    */
   resetForReuse(): void {
     this.setArmor(null);
-    this.setAndroidLook(false);   // 2026-09-15: 안드로이드 몸이 돌아온 자리를 사람이 다시 쓴다
+    this.setAndroidLook(false);   // 2026-09-15: a person takes back the slot an android body returned to
     this.setGreyed(false);
     this.setFade(1);
     this.setSilhouette(false);

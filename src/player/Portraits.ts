@@ -6,11 +6,12 @@ import { resolveArmorDef } from './RemoteAvatar';
 /**
  * Camera framing: a 1.8 m body centred a little above the hips reads best from slightly above eye height.
  *
- * 2026-09-14 (발사 슬롯 UI 대개편): the panel is 화면 세로 70 % now and the portrait strip owns its **top 55 %**, so a
- * cell viewport went from landscape (~280 × 200) to portrait (~280 × 415). `render` derives `camera.aspect` from
- * `cellWidth / height`, i.e. the **vertical** FOV is the fixed one — the visible height at the body is
- * `2 · CAM_DIST · tan(CAM_FOV/2)` = 2.36 m around `LOOK_Y`, which puts the feet (0 m) and a hand's width of head
- * room inside the frame. Widening the FOV instead of pulling the camera back keeps the slight looking-down read.
+ * 2026-09-14 (the launch-slot UI rework): the panel is 70 % of the screen height now and the portrait strip owns
+ * its **top 55 %**, so a cell viewport went from landscape (~280 × 200) to portrait (~280 × 415). `render` derives
+ * `camera.aspect` from `cellWidth / height`, i.e. the **vertical** FOV is the fixed one — the visible height at the
+ * body is `2 · CAM_DIST · tan(CAM_FOV/2)` = 2.36 m around `LOOK_Y`, which puts the feet (0 m) and a hand's width of
+ * head room inside the frame. Widening the FOV instead of pulling the camera back keeps the slight looking-down
+ * read.
  */
 const CAM_FOV = 30;
 const CAM_DIST = 4.4;
@@ -26,30 +27,32 @@ interface Cell {
   yaw: number;
   /** true while a member fills this cell (an empty cell draws nothing at all). */
   filled: boolean;
-  /** 2026-09-15: 이 칸이 안드로이드 분대원이다 (`PortraitRef.setAndroid`). 모델을 새로 지어도 유지된다. */
+  /** 2026-09-15: this cell is an android squadmate (`PortraitRef.setAndroid`). Kept when the model is rebuilt. */
   android: boolean;
 }
 
 /**
- * `cells` character portraits drawn into ONE canvas through scissored viewports (Phase 10, 발사 준비 패널).
+ * `cells` character portraits drawn into ONE canvas through scissored viewports (Phase 10, the launch ready panel).
  *
  * It owns its **own** `THREE.WebGLRenderer` + `Scene` + `PerspectiveCamera` + lights because `core/Engine`
  * renders the world through an `EffectComposer` at the end of the frame and offers no post-render hook, so a
  * portrait can never share the main canvas. Each cell builds its **own** `SoldierModel` (rebuilt when the cell's
  * slot colour changes, since the accent is baked into its per-instance materials at construction).
  *
- * **2026-09-11 (C-42) — 정정.** 예전 주석은 "여기 있는 것은 메인 렌더러의 아바타와 아무것도 공유하지 않는다" 였지만
- * 2026-09-10 부터 `SoldierModel` 의 **지오메트리 43개와 실루엣 머티리얼은 모듈 전체가 공유한다** (`SHARED_GEOS` —
- * three.js 가 GPU 버퍼를 렌더러별로 따로 잡으므로 두 번째 GL 컨텍스트에서도 같은 객체를 쓴다; 아무도
- * `geometry.dispose()` 를 부르지 않는 것이 규약이다). 공유하지 않는 것은 인스턴스마다의 **몸 머티리얼**뿐이다.
- * 그 공유 지오메트리마다 이 렌더러의 `WebGLGeometries` 가 `dispose` 리스너를 하나씩 붙이는데, 지오메트리가 영영
- * dispose 되지 않으므로 리스너는 렌더러를 만든 횟수만큼 남는다 — 발사 준비 패널은 페이지당 한 번만 만들므로 최대
- * 43개 한 벌이고, 그래서 고치지 않고 적어만 둔다.
+ * **2026-09-11 (C-42) — a correction.** The old comment said "nothing here is shared with the main renderer's
+ * avatars", but since 2026-09-10 `SoldierModel`'s **43 geometries and its silhouette material are shared by the
+ * whole module** (`SHARED_GEOS` — three.js allocates GPU buffers per renderer, so a second GL context uses the
+ * same objects; the contract is that nobody calls `geometry.dispose()`). The only thing not shared is the
+ * per-instance **body materials**. This renderer's `WebGLGeometries` hangs one `dispose` listener on each of those
+ * shared geometries, and since a geometry is never disposed the listeners stay, one set per renderer created — the
+ * launch ready panel is built once per page, so it is one set of 43 at most, which is why this is only recorded
+ * and not fixed.
  *
- * **이전 모델은 다음 render 뒤에 dispose 한다 (C-42).** 슬롯 색이 바뀌어 모델을 새로 지을 때 옛 모델의 머티리얼을
- * **먼저** dispose 하면, 같은 셰이더 프로그램(cacheKey)을 쥔 머티리얼이 하나도 남지 않은 순간 `WebGLPrograms` 가
- * 프로그램을 지우고 새 모델이 그것을 **다시 컴파일**했다(색만 바뀌었는데 한 프레임이 멎는다). 이제 옛 모델은
- * 씬에서 떼기만 하고 `pendingDispose` 에 두었다가, 새 모델이 한 번 그려진(= 같은 프로그램을 잡은) 뒤에 놓는다.
+ * **The previous model is disposed after the next render (C-42).** When a slot colour changed and the model was
+ * rebuilt, disposing the old model's materials **first** left no material holding that shader program (cacheKey),
+ * and at that moment `WebGLPrograms` dropped the program and the new model **recompiled** it (a frame stalls for a
+ * colour change alone). Now the old model is only detached from the scene and parked in `pendingDispose`, then
+ * released once the new model has been drawn (= has taken the same program).
  *
  * The occlusion silhouette stays off (there is no world to be occluded by) and `render` returns immediately
  * while `visible` is false.
@@ -130,7 +133,7 @@ class Portraits implements PortraitRef {
       cell.model = model;
       cell.slot = member.slot;
       cell.armorId = null;      // force the armor rebuild below
-      cell.model.setAndroidLook(cell.android);   // 2026-09-15: 새 몸도 이 칸의 안드로이드 여부를 따른다
+      cell.model.setAndroidLook(cell.android);   // 2026-09-15: a new body follows this cell's android flag too
     }
     cell.model.setVisible(false); // only the cell being drawn is visible (see `render`)
     cell.model.root.rotation.set(0, cell.yaw, 0);
@@ -141,8 +144,8 @@ class Portraits implements PortraitRef {
   }
 
   /**
-   * 2026-09-15 (안드로이드 분대원): 이 칸의 몸을 안드로이드 외형으로 그린다 (`PortraitRef.setAndroid`). 순서와 무관하다 —
-   * `setMember` 로 몸이 새로 지어져도 칸의 값이 그대로 다시 걸린다.
+   * 2026-09-15 (android squadmates): draws this cell's body with the android look (`PortraitRef.setAndroid`).
+   * Order does not matter — when `setMember` rebuilds the body, the cell's value is applied again as it was.
    */
   setAndroid(index: number, on: boolean): void {
     const cell = this.cells[index];

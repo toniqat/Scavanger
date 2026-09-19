@@ -1,17 +1,17 @@
 /**
- * src/player/AllyAvatars.ts — **안드로이드 분대원의 몸** (2026-09-15, 계약 `shared/allies.ts`).
+ * src/player/AllyAvatars.ts — **android squadmate bodies** (2026-09-15, contract `shared/allies.ts`).
  *
- * 이 파일이 답하는 질문: *`ctx.allies` 가 말하는 안드로이드가 화면에서 어떻게 보이는가.*
+ * The question this file answers: *how the androids `ctx.allies` talks about look on screen.*
  *
- * allies/ 는 메시를 만들지 않는다 — 명단 · FSM · 동기화만 하고 `getBodies()` 로 **읽기 전용 몸 상태**를 내놓는다.
- * 여기서 그 목록을 매 프레임 읽어 한 기당 `SoldierModel` 하나(안드로이드 외형)를 맞춰 준다: 자리 · 방향 · 자세 ·
- * 장비 모습 · 발소리 · 총구 섬광 · 쓰러진 기를 일으키는 상호작용까지. 원격 플레이어와 같은 몸 풀(`SoldierPool`)을
- * 쓰므로 함선 ↔ 레이드를 오가도 몸을 다시 짓지 않는다.
+ * allies/ builds no meshes — it owns the roster · the FSM · the sync only, and hands out **read-only body state**
+ * through `getBodies()`. That list is read here every frame and one `SoldierModel` (the android look) per unit is
+ * matched to it: position · facing · pose · gear look · footsteps · muzzle flash · the interaction that stands a
+ * downed unit up. The same body pool (`SoldierPool`) as remote players, so crossing ship ↔ raid rebuilds no body.
  *
- * **광원을 절대 늘리지 않는다** — 총구 섬광은 `core/fx` 의 고정 개수 풀(`FlashPool`)을 빌려 쓰고, 안드로이드 바이저 ·
- * 관절은 발광 머티리얼이다 (CLAUDE.md §4.5).
+ * **The light count is never raised** — the muzzle flash borrows `core/fx`'s fixed-size pool (`FlashPool`), and the
+ * android's visor · joints are emissive materials (CLAUDE.md §4.5).
  *
- * 몸 상태 객체(`AllyBodyView`)와 그 벡터는 allies/ 가 재사용한다 — **읽고 바로 쓰고 보관하지 않는다.**
+ * The body-state object (`AllyBodyView`) and its vectors are reused by allies/ — **read them now, never store.**
  */
 import * as THREE from 'three';
 import {
@@ -28,11 +28,11 @@ import type { SoldierPool } from './SoldierPool';
 import { STRIDE_MIN_SPEED } from './PlayerController';
 
 const EMPTY_BODIES: readonly AllyBodyView[] = [];
-/** 총성이 이어질 때 반동 맥동 간격 (원격 아바타의 `FIRE_PULSE_INTERVAL` 과 같은 뜻). */
+/** Recoil pulse interval during sustained fire (the same as the remote avatar's `FIRE_PULSE_INTERVAL`). */
 const FIRE_PULSE_INTERVAL = 0.11;
-/** 소생 홀드가 끝난 뒤 상호작용을 다시 걸지 않는 시간 (스냅샷이 일어난 상태를 실어 올 때까지). */
+/** How long the interactable stays away after a revive hold (until a snapshot carries the stood-up state). */
 const REVIVE_DONE_SUPPRESS = 1.5;
-/** 총구 섬광의 세기 · 크기 · 수명 · 거리 — `weapons/fx/WeaponFx.muzzleFlash` 와 같은 값 (같은 풀을 빌려 쓴다). */
+/** Muzzle flash intensity · size · life · distance — `weapons/fx/WeaponFx.muzzleFlash`'s own values (same pool). */
 const FLASH = { intensity: 7, size: 0.45, life: 0.045, distance: 7 } as const;
 
 const _up = new THREE.Vector3(0, 1, 0);
@@ -42,9 +42,9 @@ const _dir = new THREE.Vector3();
 const _spark = new THREE.Vector3();
 
 /**
- * 총성 id — `weapons/WeaponDefaults.shotSoundId` 와 **같은 표**다. weapons/ 는 다른 폴더의 내부라 부를 수 없고
- * (CLAUDE.md §4.1), 이 표를 `shared` 로 옮기는 것은 계약 변경이라 이번 묶음에서 하지 않는다 — 소리 id 가 늘어나면
- * 두 곳을 같이 고친다 (docs/TODO 후보).
+ * Shot sound ids — **the same table** as `weapons/WeaponDefaults.shotSoundId`. weapons/ is another folder's
+ * internals and cannot be called (CLAUDE.md §4.1), and moving this table into `shared` is a contract change, so
+ * it is not done in this batch — a new sound id is fixed in both places (a `docs/TODO` candidate).
  */
 function allyShotSound(def: WeaponDef | null): string {
   if (!def) return 'shot_rifle';
@@ -59,12 +59,12 @@ function allyShotSound(def: WeaponDef | null): string {
   }
 }
 
-/** `items/WeaponDefs.weaponClassOf` 와 같은 한 줄 (그 폴더를 import 하지 않기 위해 여기 둔다). */
+/** The same one line as `items/WeaponDefs.weaponClassOf` (kept here so that folder is never imported). */
 function weaponClassOfDef(def: WeaponDef): WeaponClass {
   return def.weaponClass ?? (def.slot === 'secondary' ? 'PISTOL' : 'AR');
 }
 
-/** 나이·자세와 무관하게 읽을 수 있는, 스모크가 직접 쓰는 몸 상태 (`debugAllyBody`). */
+/** Body state a smoke writes directly (`debugAllyBody`), readable whatever the body's age and pose. */
 export interface DebugAllyBody {
   id: AllyId; name: string; bay: number; slot: number;
   mode: AllyMode; state: AllyStateId; pose: AllyPose;
@@ -79,19 +79,20 @@ export interface DebugAllyBody {
   stridePhase: number; moveBlend: number;
 }
 
-/** 소생 상호작용 하나 — 몸을 따라다니게 자기 좌표를 들고 있다. */
+/** One revive interactable — it owns its own position vector so it can follow the body. */
 interface ReviveEntry { interactable: Interactable; position: THREE.Vector3 }
 
 /**
- * 한 기의 그려지는 몸. 아무것도 시뮬레이션하지 않는다 — 자리 · 플래그는 전부 `AllyBodyView` 에서 오고, 여기서는
- * 스냅샷 사이를 부드럽게 잇는 감쇠 블렌드만 가진다 (원격 아바타와 같은 구조).
+ * One unit's drawn body. Nothing here simulates — position · flags all come from `AllyBodyView`, and this class
+ * owns only the damped blends that smooth the gaps between snapshots (the same shape as a remote avatar).
  */
 export class AllyAvatar {
   readonly model: SoldierModel;
   readonly root: THREE.Group;
   /**
-   * 아바타마다 **새 소켓 객체**를 손 소켓 안에 단다 — 몸은 풀에서 온 것일 수 있고, 소켓 정체성으로 부착물을 기억하는
-   * 다른 폴더가 죽은 몸에 붙인 것을 살아 있다고 믿지 않게 한다 (`RemoteAvatar` 와 같은 이유).
+   * A **fresh socket object** per avatar, parented inside the hand socket — the body may have come from the pool,
+   * and another folder that keys its attachments on socket identity must not believe that what it parented into a
+   * now-parked body is still in the hand (the same reason as `RemoteAvatar`).
    */
   readonly weaponSocket: THREE.Object3D;
   seenFrame = 0;
@@ -107,7 +108,7 @@ export class AllyAvatar {
   private carryBlend = 0;
   private recoil = 0;
   private firePulse = 0;
-  /** 감춰진 동안 자세를 한 번 중립으로 되돌렸다 (사망 → 시체가 대신 선다). */
+  /** The pose was reset to neutral once while hidden (dead → the corpse stands in for it). */
   private poseReset = false;
   private lastStepIdx = 0;
   private stepAt = -Infinity;
@@ -140,17 +141,17 @@ export class AllyAvatar {
     parent.add(this.root);
   }
 
-  /** 카메라가 보는 몸인가 (스모크 · 이름표). */
+  /** Is this body on camera (smoke tests · nameplates). */
   get isShown(): boolean { return this.shown; }
   get isGreyed(): boolean { return this.greyed; }
-  /** 지금 그리는 자세 값 (스모크 전용, 읽기 전용). */
+  /** The pose values being drawn (smoke tests only, read-only). */
   get poseView(): Readonly<SoldierPose> { return this.pose; }
-  /** 손에 든 총의 def id (없으면 null). */
+  /** Def id of the gun in the hand (null = none). */
   get heldWeaponId(): string | null { return this.weaponDefId; }
-  /** 업힌 몸이 매달리는 어깨 소켓 (`PlayerRef.setCarriedBy`). */
+  /** The shoulder socket a carried body hangs on (`PlayerRef.setCarriedBy`). */
   get shoulderSocket(): THREE.Object3D { return this.model.shoulderSocket; }
 
-  /** 머리 높이 월드 좌표 (이름표 · 디버그). */
+  /** World-space head position (nameplates · debug). */
   getHeadPosition(out: THREE.Vector3): THREE.Vector3 {
     const lie = Math.min(1, this.proneBlend);
     let h = THREE.MathUtils.lerp(1.7, 1.3, this.crouchBlend);
@@ -159,7 +160,7 @@ export class AllyAvatar {
     return out.copy(this.root.position).setY(this.root.position.y + h);
   }
 
-  /** 총구의 월드 좌표를 `out` 에 쓴다 (총이 없으면 false). */
+  /** Writes the muzzle's world position into `out` (false with no gun). */
   muzzleWorld(out: THREE.Vector3): boolean {
     const look = this.weaponLook;
     if (!look || !look.group.parent) return false;
@@ -170,24 +171,24 @@ export class AllyAvatar {
 
   update(dt: number, ctx: GameContext, v: AllyBodyView): void {
     if (this.disposed) return;
-    // 숨어 있어도 자리는 맞춰 둔다 — 소켓 · 핑이 읽는다 (원격 아바타와 같은 규약)
+    // keep the position right even while hidden — sockets · pings read it (the remote avatar's contract)
     this.root.position.copy(v.position);
     const dead = v.dead || v.pose === 'dead';
     const visible = !v.hidden && !dead && (v.flags & ALLY_FLAGS.HIDDEN) === 0;
     if (visible !== this.shown) { this.shown = visible; this.model.setVisible(visible); }
     if (!visible) {
       this.model.setSilhouette(false);
-      // 사망 = 시체 오브젝트(`game/Corpses`)가 대신 서 있다 — 여기서는 자세를 한 번 되돌려 다음에 다시 쓸 수 있게 둔다
+      // dead = the corpse object (`game/Corpses`) stands in — the pose is reset once here so the body can be reused
       if (dead && !this.poseReset) { this.poseReset = true; this.model.resetPose(); }
       return;
     }
     this.poseReset = false;
 
-    /* 잠든 슬롯 몸 = 힘이 꺼진 상태 — 원격 분대원의 「정지」와 같은 회색 + 흐린 바이저를 그대로 쓴다 */
+    /* a body asleep in its slot = powered down — the same grey + dim visor as a suspended remote squadmate */
     const dormant = v.pose === 'dormant';
     if (dormant !== this.greyed) { this.greyed = dormant; this.model.setGreyed(dormant); }
     const downed = v.downed || v.pose === 'downed';
-    // 2026-09-17: 떠나는 탈출 함선 안의 몸은 닫힌 선체 너머로 실루엣을 비추지 않는다 (`inLeavingShip`)
+    // 2026-09-17: a body in the leaving extraction ship casts no silhouette through the closed hull (`inLeavingShip`)
     this.model.setSilhouette(!dormant && !inLeavingShip(ctx, v.position));
 
     this.syncArmor(ctx, v);
@@ -217,7 +218,8 @@ export class AllyAvatar {
     }
     this.recoil = damp(this.recoil, 0, 14, dt);
 
-    // 몸 방향: 조준 · 사격 · 재장전 · 쓰러짐 · 잠듦은 `yaw` 를 보고, 그 밖에는 실제 이동 방향을 본다 (로컬 규칙과 같다)
+    // body facing: aiming · firing · reloading · downed · dormant read `yaw`, everything else reads the actual
+    // movement direction (the same rule as the local body)
     const vel = v.velocity;
     const speed = dormant ? 0 : Math.hypot(vel.x, vel.z);
     const faceYaw = aiming || firing || reloading || downed || dormant || carry;
@@ -250,8 +252,8 @@ export class AllyAvatar {
   }
 
   /**
-   * 원격 분대원과 **같은 기준**의 발소리 (`remote:footstep`): 보이는 몸 · 걸음 위상이 π 경계를 넘을 때 · 실제로
-   * 움직이는 중. 거리 감쇠는 `audio/` 의 몫이다.
+   * Footsteps on the **same test** as a remote squadmate (`remote:footstep`): the body is shown · the stride phase
+   * crosses a π boundary · it is really moving. The distance falloff is `audio/`'s job.
    */
   private emitFootstep(ctx: GameContext, v: AllyBodyView, sprinting: boolean): void {
     const idx = Math.floor(v.stridePhase / Math.PI);
@@ -278,49 +280,49 @@ export class AllyAvatar {
     if (!defId) return;
     const def = ctx.loot?.getWeaponDef(defId) ?? ctx.loot?.getWeaponDef(defId.replace(/_g\d+$/, '')) ?? null;
     const look = buildHeldWeapon(def ? weaponClassOfDef(def) : 'AR');
-    this.weaponSocket.add(look.group);   // SoldierModel 이 소켓 자식을 몸 렌더 순서로 올린다
+    this.weaponSocket.add(look.group);   // SoldierModel lifts socket children to the body render order
     this.weaponLook = look;
   }
 
-  /** 몸을 풀에 돌려준다 — 이 아바타가 소켓에 걸어 둔 것은 전부 먼저 뗀다. */
+  /** Hands the body back to the pool — everything this avatar hung on the socket comes off first. */
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
     if (this.weaponLook) { this.weaponLook.group.removeFromParent(); this.weaponLook.dispose(); this.weaponLook = null; }
     this.weaponDefId = null;
     this.weaponSocket.removeFromParent();
-    this.pool.release(this.model);   // `resetForReuse` 가 안드로이드 외형 · 회색 · 자세를 되돌리고 씬에서 뗀다
+    this.pool.release(this.model);   // `resetForReuse` undoes the android look · grey · pose and detaches the root
   }
 }
 
 /**
- * 모든 안드로이드 몸의 수명 관리자 (`RemotePlayerSystem` 이 들고 있다): 몸 만들기 / 돌려주기 · 쓰러진 기의 소생
- * 상호작용 · 총구 연출 · 업힘 소켓 질의.
+ * Lifetime manager for every android body (held by `RemotePlayerSystem`): building / returning bodies · the revive
+ * interactable on a downed unit · the shot FX · carry-socket queries.
  */
 export class AllyAvatars {
   private readonly avatars = new Map<AllyId, AllyAvatar>();
   private readonly revives = new Map<AllyId, ReviveEntry>();
-  /** id → 이 시각까지 소생 상호작용을 다시 걸지 않는다 (막 끝낸 홀드). */
+  /** id → no revive interactable is re-registered until this time (a hold that just finished). */
   private readonly reviveSuppress = new Map<AllyId, number>();
   private frame = 0;
-  /** 스모크 전용: 이 목록이 있으면 `ctx.allies.getBodies()` 대신 쓴다 (`debugAllyBodies`). */
+  /** Smoke-test only: when this list exists it is used instead of `ctx.allies.getBodies()` (`debugAllyBodies`). */
   private debug: DebugAllyBody[] | null = null;
-  /** `clear()` 에서도 상호작용 등록을 풀 수 있게 마지막 `update` 의 ctx 를 들고 있는다. */
+  /** The last `update`'s ctx, kept so `clear()` can unregister the interactables too. */
   private reviveCtx: GameContext | null = null;
 
   constructor(private readonly scene: THREE.Object3D, private readonly pool: SoldierPool) {}
 
-  /** 지금 그려지는 몸 수 (스모크 · 디버그). */
+  /** How many bodies are drawn right now (smoke tests · debug). */
   get size(): number { return this.avatars.size; }
   getAvatar(id: AllyId): AllyAvatar | undefined { return this.avatars.get(id); }
   getAvatars(): ReadonlyMap<AllyId, AllyAvatar> { return this.avatars; }
-  /** 지금 소생 상호작용이 걸린 기 (스모크). */
+  /** The units with a revive interactable registered right now (smoke tests). */
   getReviveTargets(): AllyId[] { return [...this.revives.keys()]; }
   has(id: AllyId): boolean { return this.avatars.has(id); }
-  /** `id` 의 어깨 소켓 (업힌 로컬 플레이어가 매달리는 자리), 없으면 null. */
+  /** `id`'s shoulder socket (where a carried local player hangs), or null. */
   socketOf(id: AllyId): THREE.Object3D | null { return this.avatars.get(id)?.shoulderSocket ?? null; }
 
-  /** 이번 프레임에 그릴 몸 목록 — 스모크 주입이 있으면 그것, 없으면 `ctx.allies`. */
+  /** The bodies to draw this frame — the smoke injection when there is one, else `ctx.allies`. */
   private bodiesOf(ctx: GameContext): readonly AllyBodyView[] {
     if (this.debug) return this.debug as unknown as readonly AllyBodyView[];
     return ctx.allies?.getBodies() ?? EMPTY_BODIES;
@@ -338,7 +340,7 @@ export class AllyAvatars {
       av.update(dt, ctx, v);
       this.syncRevive(ctx, v);
     }
-    // 목록에서 사라진 몸은 풀로 돌려보낸다
+    // a body that vanished from the list goes back to the pool
     if (this.avatars.size > bodies.length) {
       for (const [id, av] of this.avatars) if (av.seenFrame !== this.frame) this.remove(id);
     }
@@ -361,7 +363,7 @@ export class AllyAvatars {
     av.dispose();
   }
 
-  /** 미션 리셋 · 함선 진입: 모든 몸을 풀로 돌려보낸다 (다음 프레임에 명단에서 다시 만들어진다). */
+  /** Mission reset · entering a ship: every body goes back to the pool (rebuilt from the roster next frame). */
   clear(): void {
     for (const id of [...this.revives.keys()]) this.unregisterRevive(id);
     this.reviveSuppress.clear();
@@ -369,10 +371,10 @@ export class AllyAvatars {
     this.avatars.clear();
   }
 
-  /* ─────────────────────────── 소생 상호작용 ─────────────────────────── */
+  /* ─────────────────── the revive interactable ─────────────────── */
   /**
-   * 쓰러졌지만 죽지 않은 기마다 `revive:ally:<id>` 를 건다 — 사람 분대원과 **같은 홀드 시간 · 사거리 · 진행 UI**.
-   * 완료하면 `ctx.allies.requestRevive(id)` 한 줄이고, 권위 판정(거리 · 상태)은 allies/ 가 다시 본다.
+   * Every downed, not dead unit gets `revive:ally:<id>` — the **same hold time · range · progress UI** as a human
+   * squadmate. Completing it is one `ctx.allies.requestRevive(id)` line; the authority re-judges distance · state.
    */
   private syncRevive(ctx: GameContext, v: AllyBodyView): void {
     const suppressed = (this.reviveSuppress.get(v.id) ?? 0) > ctx.time;
@@ -419,13 +421,13 @@ export class AllyAvatars {
     this.reviveCtx?.interactables.unregister(entry.interactable.id);
   }
 
-  /* ─────────────────────────── 연출 ─────────────────────────── */
+  /* ─────────────────────────── shot FX ─────────────────────────── */
   /**
-   * `ally:fired` — 총구 섬광 · 예광탄 · 총성. 피해는 권위가 이미 넣었다 (연출뿐). 섬광은 고정 개수 풀을 빌려 쓰므로
-   * **씬의 광원 개수가 바뀌지 않는다**.
+   * `ally:fired` — muzzle flash · tracer · shot sound. The authority has already applied the damage (this is FX
+   * only). The flash borrows the fixed-size pool, so **the scene's point-light count does not change**.
    */
   onFired(ctx: GameContext, id: AllyId, from: THREE.Vector3, to: THREE.Vector3, weaponDefId: string | null): void {
-    // 벡터는 allies/ 가 재사용한다 — 먼저 복사한다
+    // allies/ reuses the vectors — copy them first
     _from.copy(from);
     _to.copy(to);
     const av = this.avatars.get(id);
@@ -445,8 +447,8 @@ export class AllyAvatars {
     ctx.bus.emit('audio:play', { id: allyShotSound(def), position: _from, volume: 0.85, pitch: 0.95 + Math.random() * 0.1 });
   }
 
-  /* ─────────────────────────── 업힘 ─────────────────────────── */
-  /** `peer` 를 업고 있는 안드로이드 id (없으면 null). 스모크 주입 몸도 센다. */
+  /* ──────────────────────── being carried ──────────────────────── */
+  /** Id of the android carrying `peer` (null = none). Smoke-injected bodies count too. */
   carrierOf(ctx: GameContext, peer: PeerId): AllyId | null {
     if (this.debug) {
       for (const b of this.debug) if (b.carrying === peer && !b.dead) return b.id;
@@ -455,16 +457,16 @@ export class AllyAvatars {
     return ctx.allies?.carrierOf(peer)?.id ?? null;
   }
 
-  /* ─────────────────────────── 디버그 (스모크) ─────────────────────────── */
+  /* ───────────────────── debug (smoke tests) ───────────────────── */
   /**
-   * 스모크 전용: `ctx.allies.getBodies()` 를 이 목록으로 **갈아끼운다** (`null` = 원래대로). allies/ 가 아직
-   * 없어도 몸 · 자세 · 소생 · 업힘을 그대로 검사할 수 있다.
+   * Smoke-test only: **swaps** `ctx.allies.getBodies()` for this list (`null` = back to normal). Bodies · poses ·
+   * revives · carries can be checked exactly as they are even with no allies/ yet.
    */
   debugAllyBodies(views: DebugAllyBody[] | null): void {
     this.debug = views;
   }
 
-  /** 스모크 전용: 기본값이 채워진 몸 하나를 주입 목록에 넣고 돌려준다 (돌려받은 객체를 그 자리에서 고친다). */
+  /** Smoke-test only: puts one body filled with defaults into the injection list and returns it (edit in place). */
   debugAllyBody(opts: Partial<DebugAllyBody> & { id: string }): DebugAllyBody {
     const body: DebugAllyBody = {
       id: opts.id,
@@ -498,7 +500,7 @@ export class AllyAvatars {
     return body;
   }
 
-  /** 스모크 전용: 주입한 몸 하나 / 전부를 뺀다. */
+  /** Smoke-test only: removes one injected body, or all of them. */
   debugAllyClear(id?: AllyId): void {
     if (!this.debug) return;
     if (id === undefined) { this.debug = null; return; }

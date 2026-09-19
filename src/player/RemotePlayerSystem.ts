@@ -9,18 +9,18 @@ import {
 import { RemoteAvatar } from './RemoteAvatar';
 import { STRIDE_MIN_SPEED } from './PlayerController';
 import type { CarryHost, CarryStatus, CarryTarget } from './Carry';
-/* appended (2026-09-09): 아군의 강하 포드 */
+/* appended (2026-09-09): squadmates' drop pods */
 import { RemotePods } from './RemotePods';
 import { SoldierPool } from './SoldierPool';
-/* appended (2026-09-15, B-14): 분대원 낙하 착지음 */
+/* appended (2026-09-15, B-14): a squadmate's fall landing sound */
 import { receiveRemoteFall, type RemoteFallReject } from './parts/Fall';
 import type { FallMessage } from '@/shared';
-/* appended (2026-09-15): 안드로이드 분대원의 몸 (`ctx.allies` → `SoldierModel`) */
+/* appended (2026-09-15): android squadmate bodies (`ctx.allies` → `SoldierModel`) */
 import { AllyAvatars, type DebugAllyBody } from './AllyAvatars';
 import { ALLY_LOCAL_PEER, type AllyId, type AllyMessage } from '@/shared';
 
 const EMPTY: readonly RemotePlayerRef[] = [];
-/** 스크래치 — `pod drop` 좌표 (핫 패스는 아니지만 프레임당 할당을 만들지 않는다). */
+/** Scratch — the `pod drop` position (not a hot path, but it still makes no per-frame allocation). */
 const _podPos = new THREE.Vector3();
 /** Max rate of `revive progress` relay messages while holding E on a downed teammate. */
 const REVIVE_PROGRESS_INTERVAL = 0.25;
@@ -31,12 +31,13 @@ const GHOST_KB_SCALE = 0.12;
 const GHOST_KB_MAX = 2.0;
 
 /**
- * 2026-09-10 — 원격 발소리. 로컬이 `PlayerController` 의 보행 위상에서 `player:footstep` 을 내는 것과 **같은
- * 기준**을 스냅샷 쪽에서 다시 적용한다: 접지 + 수평 속도 `STRIDE_MIN_SPEED` 초과 + 구르는 중이 아님,
- * 그리고 `stridePhase` 가 π 경계를 넘을 때 한 걸음. 거리는 여기서 재지 않는다 — 감쇠는 `audio/` 의 몫이다.
+ * 2026-09-10 — remote footsteps. The **same test** the local body uses when `PlayerController`'s stride phase
+ * emits `player:footstep` is re-applied on the snapshot side: grounded + horizontal speed over
+ * `STRIDE_MIN_SPEED` + not rolling, and one step per π boundary of `stridePhase`. Distance is not measured
+ * here — the falloff is `audio/`'s job.
  */
 interface StepState { idx: number; t: number }
-/** 발소리를 내지 않는 플래그 묶음 — 공중 · 구르기 · 강하 중 · 포드 안. */
+/** The flags that mute footsteps — airborne · rolling · dropping · inside a pod. */
 const STEP_MUTE_FLAGS = PlayerFlags.AIRBORNE | PlayerFlags.DIVE | PlayerFlags.DROPPING | PlayerFlags.IN_POD;
 
 /**
@@ -65,7 +66,7 @@ export interface DebugRemoteRef {
   ghostDownHp?: number;
   /** The member's own down pool (`PlayerSnapshot.dhp` mirror) — a ghost created from a downed ref inherits it. */
   downHp?: number;
-  /* Phase 10: 들쳐메기 mirrors (`PlayerSnapshot.cr` / `flags & CARRIED`, derived `carriedBy`) */
+  /* Phase 10: shouldering mirrors (`PlayerSnapshot.cr` / `flags & CARRIED`, derived `carriedBy`) */
   carrying?: PeerId | null;
   isCarried?: boolean;
   carriedBy?: PeerId | null;
@@ -91,7 +92,7 @@ export interface Ghost {
   yaw: number;
   hp: number;
   downHp: number;
-  /** 2026-09-10: 실드 — 피해는 이것부터 비운다 (살아 있는 몸과 같은 순서). 방탄복이 없으면 0. */
+  /** 2026-09-10: shield — damage empties this first (the same order as a live body). 0 with no armor. */
   shield: number;
   state: GhostState;
   /** ctx.time of the last `ghost state` broadcast. */
@@ -153,11 +154,11 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
   private readonly localCarried = new Set<PeerId>();
   /** Phase 10: peer id whose shoulder socket our own body currently hangs on (null = not carried). */
   private myCarrier: PeerId | null = null;
-  /** 2026-09-09: 아군의 강하 포드 (`pod drop`). 미션 시작 · 구조선 둘 다 여기로 들어온다. */
+  /** 2026-09-09: squadmates' drop pods (`pod drop`). Mission start and the rescue drop both come through here. */
   private pods: RemotePods | null = null;
-  /** 2026-09-10: 원격 발소리 — peer 별 마지막 걸음 인덱스와 시각 (`remote:footstep`). */
+  /** 2026-09-10: remote footsteps — the last step index and time per peer (`remote:footstep`). */
   private readonly steps = new Map<PeerId, StepState>();
-  /** 2026-09-15 (B-14): peer → 마지막으로 받아들인 `fall` 의 실시간 초 (`parts/Fall.receiveRemoteFall` 의 요율 겹). */
+  /** 2026-09-15 (B-14): peer → wall-clock seconds of its last accepted `fall` (`receiveRemoteFall`'s rate layer). */
   private readonly fallHeardAt = new Map<PeerId, number>();
 
   /**
@@ -167,8 +168,8 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
   private readonly soldierPool = new SoldierPool();
 
   /**
-   * 2026-09-15: 안드로이드 분대원의 몸 (`AllyAvatars`). 원격 분대원과 **같은 몸 풀**을 쓴다 — 안드로이드가 슬롯으로
-   * 돌아가면 그 몸을 사람 아바타가 그대로 받는다.
+   * 2026-09-15: android squadmate bodies (`AllyAvatars`). They use the **same body pool** as remote squadmates —
+   * when an android goes back to its slot a human avatar takes that same body.
    */
   private allies: AllyAvatars | null = null;
 
@@ -190,10 +191,10 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     // the shared ship re-avatar from their next hub snapshot
     ctx.bus.on('hub:entered', () => this.clearAll());
 
-    /* ── 2026-09-15: 안드로이드 분대원 — 총구 연출 · 강하 포드 (모든 클라이언트가 받는다) ── */
+    /* ── 2026-09-15: android squadmates — shot FX · drop pods (every client receives them) ── */
     ctx.bus.on('ally:fired', ({ id, from, to, weaponDefId }) => this.allies?.onFired(ctx, id, from, to, weaponDefId));
     ctx.bus.on('ally:podDrop', ({ id, position, yaw }) => {
-      // 안드로이드도 사람과 같은 헬포드를 쓴다 (미리 지어 둔 포드 — 광원 개수가 바뀌지 않는다)
+      // androids use the same hellpod as people (pre-built pods — the light count does not change)
       this.pods?.drop(ctx, id, position, yaw, 0);
     });
 
@@ -218,16 +219,16 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
           this.sendSync(from);
         }),
         /*
-         * 2026-09-09 — **아군의 강하 포드**. 지금까지 원격 분대원은 자리에 그냥 나타났다. `who` 의 아바타는
-         * 그 사람의 `PlayerFlags.DROPPING` 이 이미 감추고 있으므로 여기서는 포드만 떨어뜨리면 된다.
+         * 2026-09-09 — **squadmates' drop pods**. Until now a remote squadmate simply appeared on the spot. That
+         * person's own `PlayerFlags.DROPPING` already hides `who`'s avatar, so only the pod is dropped here.
          */
         net.onMessage('pod', (msg) => {
           if (msg.ev !== 'drop' || !msg.who || msg.who === net.localId) return;
           this.pods?.drop(ctx, msg.who, _podPos.set(msg.p[0], msg.p[1], msg.p[2]), msg.yaw, msg.kind);
         }),
-        /* 2026-09-15 (B-14): 분대원이 떨어져 다쳤다 — 검사를 지나면 `player:remoteFell` (audio 가 착지음을 낸다) */
+        /* 2026-09-15 (B-14): a squadmate fell and got hurt — past the checks, `player:remoteFell` (audio plays it) */
         net.onMessage('fall', (msg, from) => { this.receiveFall(msg, from); }),
-        /* 2026-09-15: 안드로이드가 나를 일으켰다 (`ally revive`) — 호스트의 자기 플레이어는 allies/ 가 직접 부른다 */
+        /* 2026-09-15: an android stood me up (`ally revive`) — the host's own player is called by allies/ directly */
         net.onMessage('ally', (msg, from) => { this.onAllyMessage(msg, from); }),
         net.onMessage('ghost', (msg) => {
           // every client remembers the last wire state so a promoted host can rebuild the ghosts
@@ -250,14 +251,14 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     }
     // Phase 10: bodies riding on somebody's shoulder (including our own) — the avatars exist by now
     this.updateCarries(refs, ctx);
-    // 2026-09-09: 떨어지는 중인 아군 포드 (없으면 즉시 반환)
+    // 2026-09-09: squadmate pods still falling (returns at once when there are none)
     this.pods?.update(dt, ctx);
     if (this.ghosts.size > 0 || this.parked.size > 0) this.updateGhosts(dt, ctx);
   }
 
   /**
-   * 2026-09-15: 안드로이드의 몸은 **`lateUpdate`** 에서 그린다. `AllySystem` 은 이 시스템보다 **뒤에** 등록돼 있어
-   * (`main.ts`), `update` 에서 `getBodies()` 를 읽으면 늘 한 프레임 늦은 자리를 그리게 된다.
+   * 2026-09-15: android bodies are drawn in **`lateUpdate`**. `AllySystem` is registered **after** this system
+   * (`main.ts`), so reading `getBodies()` in `update` would always draw a frame-old position.
    */
   lateUpdate(dt: number, ctx: GameContext): void {
     this.allies?.update(dt, ctx);
@@ -276,8 +277,9 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
   }
 
   /**
-   * 2026-09-15 (B-14): `fall` 수신의 유일한 입구 (relay 가 부르고, 스모크가 가짜 메시지로 직접 부른다).
-   * 검사 규칙은 `parts/Fall.receiveRemoteFall` — 돌려주는 값은 거절 사유, `null` = `player:remoteFell` 을 냈다.
+   * 2026-09-15 (B-14): the only entry for a received `fall` (the relay calls it, a smoke with a fake message).
+   * The check rules are `parts/Fall.receiveRemoteFall` — it returns the refusal reason, `null` = it emitted
+   * `player:remoteFell`.
    */
   receiveFall(msg: FallMessage, from: PeerId): RemoteFallReject | null {
     return receiveRemoteFall(this.ctx, msg, from, this.fallHeardAt, performance.now() / 1000);
@@ -373,14 +375,14 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     return wire;
   }
 
-  /* ── 2026-09-15: 안드로이드 몸 (질의 · 스모크 주입) ── */
-  /** 안드로이드 몸 관리자 (`ctx.allies` 를 읽어 그린다). */
+  /* ── 2026-09-15: android bodies (queries · smoke injection) ── */
+  /** The android body manager (it reads `ctx.allies` and draws it). */
   getAllyAvatars(): AllyAvatars | null { return this.allies; }
-  /** 스모크 전용: `ctx.allies.getBodies()` 를 이 목록으로 갈아끼운다 (`null` = 원래대로). */
+  /** Smoke-test only: swaps `ctx.allies.getBodies()` for this list (`null` = back to normal). */
   debugAllyBodies(views: DebugAllyBody[] | null): void { this.allies?.debugAllyBodies(views); }
-  /** 스모크 전용: 기본값이 채워진 몸 하나를 주입하고 그 객체를 돌려준다 (그 자리에서 고쳐 쓴다). */
+  /** Smoke-test only: injects one body filled with defaults and returns that object (edit it in place). */
   debugAllyBody(opts: Partial<DebugAllyBody> & { id: string }): DebugAllyBody | null { return this.allies?.debugAllyBody(opts) ?? null; }
-  /** 스모크 전용: 주입한 몸 하나 / 전부를 뺀다. */
+  /** Smoke-test only: removes one injected body, or all of them. */
   debugAllyClear(id?: AllyId): void { this.allies?.debugAllyClear(id); }
 
   /** Smoke-test helper: make a parked ghost expire on the next frame instead of after `NET_GHOST_PARK_S`. */
@@ -403,11 +405,11 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
   }
 
   /**
-   * 2026-09-10 — **원격 분대원의 발소리** (`remote:footstep`). `av.update` 뒤에 부르므로 `av.isShown` 이
-   * 이번 프레임의 값이다: 강하 중 · 포드 안 · 다른 함선 · 시체로 대체된 몸은 그대로 조용하다.
-   * 거리는 재지 않는다 — "멀 수록 작게" 는 `audio/AudioSystem` 이 `FOOTSTEP_AUDIBLE_RANGE` 로 건다.
-   * 핫 패스라 프레임당 할당이 없다: peer 별 `StepState` 는 한 번만 만들고 `ref.position` 을 그대로 넘긴다
-   * (로컬이 `c.position` 을 그대로 넘기는 것과 같다 — 받는 쪽이 동기적으로 읽는다).
+   * 2026-09-10 — **remote squadmate footsteps** (`remote:footstep`). Called after `av.update`, so `av.isShown` is
+   * this frame's value: a body dropping · in a pod · in another ship · replaced by a corpse stays silent.
+   * Distance is not measured — "quieter the further away" is `audio/AudioSystem`'s, via `FOOTSTEP_AUDIBLE_RANGE`.
+   * This is a hot path, so there is no per-frame allocation: the per-peer `StepState` is built once and
+   * `ref.position` is passed as it is (as the local body passes `c.position` — the receiver reads it synchronously).
    */
   private emitFootstep(ref: RemotePlayerRef, av: RemoteAvatar, ctx: GameContext): void {
     const idx = Math.floor(ref.stridePhase / Math.PI);
@@ -415,10 +417,10 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     if (st === undefined) { st = { idx, t: -Infinity }; this.steps.set(ref.id, st); }
     if (idx === st.idx) return;
     st.idx = idx;
-    // 보이지 않는 몸 · 죽은 몸 · 스냅샷이 끊긴 몸(정지한 위상이 한 번 튄다)은 소리를 내지 않는다
+    // a body that is not shown · a dead body · one cut off from snapshots (its frozen phase jumps once) is silent
     if (!av.isShown || ref.isDead || ref.suspended || ref.stale) return;
     if ((ref.flags & STEP_MUTE_FLAGS) !== 0) return;
-    // 로컬의 `speed > STRIDE_MIN_SPEED` 게이트와 같은 기준 — 제자리에서 위상이 중립으로 되감길 때는 조용하다
+    // the same test as the local `speed > STRIDE_MIN_SPEED` gate — silent while the phase rewinds to neutral in place
     const v = ref.velocity;
     if (Math.hypot(v.x, v.z) <= STRIDE_MIN_SPEED) return;
     if (ctx.time - st.t < FOOTSTEP_MIN_INTERVAL_S) return;
@@ -477,13 +479,14 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     this.lastGhost.clear();
     this.parked.clear();
     this.pods?.clear();
-    this.allies?.clear();   // 2026-09-15: 안드로이드 몸도 풀로 돌아간다 (다음 프레임에 명단에서 다시 선다)
+    this.allies?.clear();   // 2026-09-15: android bodies return to the pool too (rebuilt from the roster next frame)
   }
 
   /**
-   * `ally revive` 수신 (2026-09-15): **로비 호스트**가 보낸, 나를 가리키는 것만 받는다. 호스트 자신의 플레이어는
-   * allies/ 가 `ctx.player.revive()` 를 직접 부르므로 여기로 오지 않는다 (두 번 적용될 일이 없다).
-   * `defib` = 제세동기 — 사람의 제세동기와 **같은 회복**(`revive` 뒤 `applyStim(maxHp)`, `gadgets/parts/Wire.onBuff`).
+   * `ally revive` received (2026-09-15): accepted only from the **lobby host**, and only when it points at me. The
+   * host's own player never arrives here — allies/ calls `ctx.player.revive()` on it directly, so it is never
+   * applied twice. `defib` = the defibrillator — the **same heal** a person's gives (`revive` then
+   * `applyStim(maxHp)`, `gadgets/parts/Wire.onBuff`).
    */
   private onAllyMessage(msg: AllyMessage, from: PeerId): void {
     if (msg.ev !== 'revive') return;
@@ -576,7 +579,7 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     this.ctx.interactables.unregister(entry.interactable.id);
   }
 
-  /* ─────────────────────── Phase 10: 부상자 들쳐메기 (CarryHost) ─────────────────────── */
+  /* ──────────── Phase 10: shouldering a downed squadmate (CarryHost) ──────────── */
   /** Every ref this client knows about (real peers first, then the console's fake ones). Reuses one array. */
   private allRefs(): readonly RemotePlayerRef[] {
     const real = this.ctx.net?.getRemotePlayers() ?? EMPTY;
@@ -699,20 +702,21 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
       }
     }
     /*
-     * 2026-09-15 — **안드로이드가 나를 업고 있나.** 로컬 id 가 없어도(서버 없는 치트 솔로 — `ALLY_LOCAL_PEER`) 성립하므로
-     * 아래의 `if (!localId) return` 보다 **먼저** 본다. 사람의 업기와는 배타적이다: 안드로이드가 업고 있으면 그것이 이긴다.
+     * 2026-09-15 — **is an android carrying me.** This holds with no local id too (server-less cheat solo —
+     * `ALLY_LOCAL_PEER`), so it is checked **before** the `if (!localId) return` below. It is exclusive with a
+     * person's carry: an android carrying us wins.
      */
     const myPeer: PeerId = localId ?? ALLY_LOCAL_PEER;
     const allyCarrier = this.allies?.carrierOf(ctx, myPeer) ?? null;
     if (allyCarrier) {
       if (this.myCarrier !== allyCarrier) {
         const socket = this.allies?.socketOf(allyCarrier) ?? null;
-        if (socket) { this.myCarrier = allyCarrier; ctx.player?.setCarriedBy(socket); }   // 아바타가 아직 없으면 다음 프레임에
+        if (socket) { this.myCarrier = allyCarrier; ctx.player?.setCarriedBy(socket); }   // no avatar → next frame
       }
       return;
     }
     if (this.myCarrier !== null && this.allies?.has(this.myCarrier)) {
-      // 안드로이드가 내려놓았다
+      // the android put us down
       this.myCarrier = null;
       ctx.player?.setCarriedBy(null);
     }
@@ -799,7 +803,7 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
         g.downHp = Math.max(1, Math.min(PLAYER_DOWN_HP, Math.round(Number.isFinite(dhp) ? (dhp as number) : PLAYER_DOWN_HP)));
       }
       else g.hp = Math.max(1, Math.min(PLAYER_MAX_HP, ref.hp));
-      /* 실드는 마지막 스냅샷(`PlayerSnapshot.sh`)에서 온다 — 방탄복이 없거나 아직 모르면 0. */
+      /* The shield comes from the last snapshot (`PlayerSnapshot.sh`) — 0 with no armor, or while it is unknown. */
       const sh = ref.shield;
       if (g.state === 0 && Number.isFinite(sh)) g.shield = Math.max(0, Math.round(sh as number));
     }
@@ -814,7 +818,7 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
     let changed = false;
     if (amount > 0) {
       if (g.state === 0) {
-        /* 살아 있는 몸과 같은 순서: 실드를 먼저 비우고 남은 만큼만 hp 로. */
+        /* The same order as a live body: the shield empties first, and only the remainder reaches hp. */
         const absorbed = Math.min(g.shield, amount);
         g.shield -= absorbed;
         g.hp = Math.max(0, g.hp - (amount - absorbed));
@@ -983,6 +987,6 @@ export class RemotePlayerSystem implements GameSystem, CarryHost {
 
 function toWire(g: Ghost): GhostWire {
   const w: GhostWire = { id: g.id, p: [g.position.x, g.position.y, g.position.z], yaw: g.yaw, hp: g.hp, dhp: g.downHp, st: g.state };
-  if (g.shield > 0) w.sh = g.shield;   // 실드가 있을 때만 실어 보낸다 (`PlayerSnapshot.sh` 와 같은 규약)
+  if (g.shield > 0) w.sh = g.shield;   // sent only when there is a shield (the same contract as `PlayerSnapshot.sh`)
   return w;
 }

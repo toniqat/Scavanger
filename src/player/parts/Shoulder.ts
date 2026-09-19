@@ -1,9 +1,9 @@
 /**
- * src/player/parts/Shoulder.ts — **부상자 들쳐메기** (Phase 10).
+ * src/player/parts/Shoulder.ts — **shouldering a downed squadmate** (Phase 10).
  *
- * 전투불능 아군 근처에서 F 를 짧게 누르면 어깨에 메고(비무장 · 걷기/달리기만), 다른 행동을 하면
- * 먼저 내려놓는다. 메인 쪽이 권한이고 업힌 쪽은 캐리어의 어깨 소켓을 따라간다 — 캐리어가 사라지면
- * 몸은 마지막 위치에 그대로 내려진다.
+ * A short F press near a downed teammate shoulders them (unarmed · walking / sprinting only), and any
+ * other action puts them down first. The carrier side is the authority and the carried side follows the
+ * carrier's shoulder socket — when the carrier disappears the body is put down at its last position.
  */
 import * as THREE from 'three';
 import type { PlayerRestoreState } from '@/shared';
@@ -28,7 +28,7 @@ import { createPortraits } from '../Portraits';
 import { AUTO_REVIVE_DELAY_S, BURN_TICK, CLOAK_FADE, CLOAK_PROBE_INTERVAL, DEATH_ANIM, EXHAUSTED_SLOW, EXHAUSTED_SLOW_TIME, EYE_CROUCH, EYE_PRONE, EYE_ROLL, EYE_STAND, FADE_FAR, FADE_NEAR, GIVE_UP_PROGRESS_HZ, HOVER_AUTO_FALL, HOVER_STAMINA_DRAIN, INVULN_TIME, KNOCKBACK_MIN_LIFT, MELEE_SWING_TIME, type MeleeKind, SPAWN_RING_RADIUS, SPEEDMOD_ARMOR, SPEEDMOD_WEIGHT, STAMINA_JUMP_COST, STAMINA_REGEN_DELAY, STAMINA_REGEN_IDLE, STAMINA_REGEN_MOVING, STAMINA_SPRINT_DRAIN, STAMINA_SPRINT_RECOVER, STAND_UP_TIME, STIM_DURATION, type SpeedMod, type WeaponState, _camLook, _camPos, _dir, _q, _spawn, _up, _v } from '../model';
 import type { PlayerSystem } from '../PlayerSystem';
 
-/* ══ Phase 10 — 부상자 들쳐메기 + 준비 패널 초상화 ══════════════════════════════════════════════════════ */
+/* ══ Phase 10 — shouldering a downed squadmate + the launch-slot panel portraits ══════════ */
 /**
  * `RemotePlayerSystem` installs itself here in its own `init` (it owns the avatars / refs a carry needs).
  * Without a host `carry()` always fails, so single-player and the headless tests are unaffected.

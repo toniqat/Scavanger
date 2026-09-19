@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {
   SLASH_FOV_MUL, AIM_SWAY_PITCH_RATIO, AIM_SWAY_CROUCH_MUL, AIM_SWAY_PRONE_MUL, AIM_SWAY_MOVE_MUL, AIM_SWAY_BLEND_RATE,
-  /* 2026-09-13 탐사 차량 궤도 카메라 */
+  /* 2026-09-13 rover orbit camera */
   ROVER_CAM_ELEV_MIN_DEG, ROVER_CAM_ELEV_MAX_DEG, ROVER_CAM_ELEV_START_DEG, ROVER_CAM_ZOOM_MIN_MUL, ROVER_CAM_ZOOM_MAX_MUL,
   ROVER_CAM_ZOOM_STEP, ROVER_CAM_ZOOM_RATE, ROVER_CAM_SMOOTH_RATE, ROVER_CAM_COLLISION_PAD, ROVER_CAM_MIN_DIST, ROVER_CAM_FLOOR,
   type InteriorCollider, type WorldRef,
@@ -27,19 +27,23 @@ export interface RigInput {
 }
 
 /**
- * 2026-09-12 조준 흔들림 입력 (`CameraRig.sway`, PlayerSystem 이 `advanceSway` 직전에 채운다). 흔들림은 `update` 보다 **먼저**
- * 이번 프레임 값으로 정해져야 한다 — 같은 프레임의 `predictPosition` · `getLookDir`(= 사격 판정)과 `lateUpdate` 의 렌더가 같은 각을 쓴다.
+ * 2026-09-12 aim sway input (`CameraRig.sway`, filled by PlayerSystem right before `advanceSway`). The sway has to
+ * be fixed to this frame's value **before** `update` — the same frame's `predictPosition` · `getLookDir` (= the shot
+ * judgement) and `lateUpdate`'s render then use the same angle.
  */
 export interface SwayInput {
-  /** 0..1 정조준 정도 (`aimBlend`) — 바로 곱한다 (정조준 전환이 곧 흔들림의 시작 · 끝). */
+  /** 0..1 how far into ADS (`aimBlend`) — multiplied directly (the ADS transition is the sway's start · end). */
   aim: number;
-  /** false = 흔들림이 없어야 하는 상태 (함선 · 사다리 · 드론 · 가구 · 연출 카메라 …). 크기가 `AIM_SWAY_BLEND_RATE` 로 0 이 된다. */
+  /**
+   * false = a state that must not sway (the ship · ladder · drone · furniture · a cutscene camera …). The amplitude
+   * goes to 0 at `AIM_SWAY_BLEND_RATE`.
+   */
   on: boolean;
   crouch: number;       // 0..1
   prone: number;        // 0..1
-  /** 0..1 = 걷기 속도에 대한 비율. */
+  /** 0..1 = the ratio to walking speed. */
   move: number;
-  /** 외부 배수 (`PlayerRef.aimSwayMul`, 각성제 0.7). */
+  /** External multiplier (`PlayerRef.aimSwayMul`, stimulant 0.7). */
   mul: number;
 }
 
@@ -112,15 +116,16 @@ export class CameraRig {
   /** true → while aiming the camera tucks into the shoulder so the soldier leaves the frame. */
   scoped = false;
   /**
-   * 2026-09-11 드론 시점 (`setDroneView`): the camera belongs to a drone override, so the body's own shake, recoil and
-   * FOV changes (sprint kick, ADS, view widen) must not leak into it. Collision keeps running on the rig position
+   * 2026-09-11 drone view (`setDroneView`): the camera belongs to a drone override, so the body's own shake, recoil
+   * and FOV changes (sprint kick, ADS, view widen) must not leak into it. Collision keeps running on the rig position
    * behind the player so releasing the override returns to a valid spot.
    */
   private droneView = false;
   /**
-   * 2026-09-13 탐사 차량 궤도 모드 (`enterRoverOrbit`): non-null = the live focus vector the camera orbits (mouse = yaw / pitch,
-   * `orbitWant` = wheel zoom, `orbitCur` = after collision). The shoulder pivot / collision / FOV logic is skipped; shake, recoil
-   * and sway are off like the drone view. `exitRoverOrbit` + `snapTo` hard-cut back behind the body.
+   * 2026-09-13 rover orbit mode (`enterRoverOrbit`): non-null = the live focus vector it orbits (mouse = yaw /
+   * pitch, `orbitWant` = wheel zoom, `orbitCur` = after collision). The shoulder pivot / collision / FOV logic is
+   * skipped; shake, recoil and sway are off like the drone view. `exitRoverOrbit` + `snapTo` hard-cut back behind
+   * the body.
    */
   private orbitFocus: THREE.Vector3 | null = null;
   private orbitBase = 8;
@@ -132,9 +137,11 @@ export class CameraRig {
   private pivotInit = false;
   private shoulder = HIP_SHOULDER;
   /**
-   * 2026-09-12 어깨 전환 (`Keys.SHOULDER`): +1 = 오른쪽 어깨 (기본), −1 = 왼쪽. 거리 · 충돌 · 조준 원점은 전부 부호가 붙은
-   * `shoulder` 하나를 보므로 이 값만 뒤집으면 된다 — 옮겨 가는 동안은 평소 어깨 감쇠(damp 10)로 부드럽게 넘어간다.
-   * 병사 모델은 뒤집지 않는다 (총은 여전히 오른손에 있다). 사격 판정은 크로스헤어 선이라 어느 쪽이든 같다 (`weapons/parts/AimLine`).
+   * 2026-09-12 the shoulder swap (`Keys.SHOULDER`): +1 = the right shoulder (default), −1 = the left. The distance ·
+   * collision · aim origin all read the one signed `shoulder`, so flipping this value is enough — while it moves
+   * across, the usual shoulder damping (damp 10) carries it smoothly. The soldier model is not mirrored (the gun is
+   * still in the right hand). The shot resolves on the crosshair line, so either side is the same
+   * (`weapons/parts/AimLine`).
    */
   shoulderSide: 1 | -1 = 1;
   private collisionDist = 10;
@@ -148,7 +155,7 @@ export class CameraRig {
   // recoil (offset that recovers)
   private recoilPitch = 0;
   private recoilYaw = 0;
-  // 2026-09-12 조준 흔들림 (aim sway): an additive look offset like the recoil — the mouse counters it, nothing locks
+  // 2026-09-12 aim sway: an additive look offset like the recoil — the mouse counters it, nothing locks
   /** Filled by the player before `advanceSway`. */
   readonly sway: SwayInput = { aim: 0, on: false, crouch: 0, prone: 0, move: 0, mul: 1 };
   /** Weapon-class amplitude (rad, yaw) / frequency (Hz) from `setAimSway`; `swayAmpCur` damps toward it (weapon swap). */
@@ -208,17 +215,17 @@ export class CameraRig {
     this.yaw += yaw * 0.35;
   }
 
-  /** 2026-09-12 조준 흔들림: the weapon in hand's class sway (`data/aim_sway.csv`); 0 = none (holstered / no aimable weapon). */
+  /** 2026-09-12 aim sway: the weapon's class sway (`data/aim_sway.csv`); 0 = none (holstered / no aimable weapon). */
   setAimSway(amplitudeDeg: number, frequencyHz: number): void {
     this.swayAmp = Math.max(0, amplitudeDeg || 0) * DEG;
     this.swayHz = Math.max(0, frequencyHz || 0);
   }
 
   /**
-   * 2026-09-12 조준 흔들림 — advance the figure-8 (yaw `sin φ`, pitch `ratio · sin 2φ`) for this frame. Call from the player's
-   * `update` **before** `predictPosition`: the shot (weapons `update`, crosshair line) and the frame the rig renders in
-   * `lateUpdate` then read the same offsets, so the reticle and the impact never disagree. The phase restarts at the centre
-   * whenever the sway has fully faded, so every ADS begins on the crosshair.
+   * 2026-09-12 aim sway — advance the figure-8 (yaw `sin φ`, pitch `ratio · sin 2φ`) for this frame. Call from the
+   * player's `update` **before** `predictPosition`: the shot (weapons `update`, crosshair line) and the frame the rig
+   * renders in `lateUpdate` then read the same offsets, so the reticle and the impact never disagree. The phase
+   * restarts at the centre whenever the sway has fully faded, so every ADS begins on the crosshair.
    */
   advanceSway(dt: number): void {
     const s = this.sway;
@@ -266,16 +273,17 @@ export class CameraRig {
   }
 
   /**
-   * 2026-09-12 (가구 자세): true = 오버라이드가 걸려 있고 그 자리가 `pos` 다. 자세가 걸었던 고정 카메라를 풀 때, 그사이 다른
-   * 연출(도킹 · 발사)이 오버라이드를 새로 걸었으면 건드리지 않으려고 묻는다.
+   * 2026-09-12 (the furniture pose): true = an override is held and its spot is `pos`. Asked when releasing the fixed
+   * camera the pose raised, so that an override another cutscene (docking · launch) has raised since is left alone.
    */
   overrideMatches(pos: THREE.Vector3): boolean {
     return this.overrideTarget > 0.5 && this.overridePos.distanceToSquared(pos) < 1e-6;
   }
 
   /**
-   * 2026-09-11 드론 시점 on / off. Clears the pending shake and recoil offsets both ways, ignores `addShake` while on and
-   * snaps the FOV to the base value on entry (an ADS / sprint FOV would otherwise damp out inside the drone view).
+   * 2026-09-11 drone view on / off. Clears the pending shake and recoil offsets both ways, ignores `addShake` while
+   * on, and snaps the FOV to the base value on entry (an ADS / sprint FOV would otherwise damp out inside the drone
+   * view).
    */
   setDroneView(on: boolean): void {
     if (on === this.droneView) return;
@@ -287,7 +295,7 @@ export class CameraRig {
   }
 
   /**
-   * 2026-09-13 탐사 차량: orbit `focus` (a live vector — read every frame) at `distance`, starting behind the vehicle
+   * 2026-09-13 the rover: orbit `focus` (a live vector — read every frame) at `distance`, starting behind the vehicle
    * (`vehicleYaw` = `RoverVehicleDef.yaw`, forward `(cos, 0, sin)`) at `ROVER_CAM_ELEV_START_DEG`. Clears shake / recoil / sway,
    * resets the FOV, places the camera at once (no sweep from the shoulder). Calling it again swaps the focus and keeps the view.
    */
@@ -364,7 +372,7 @@ export class CameraRig {
   }
 
   /**
-   * Where `update()` will put the camera **this** frame for the *current* yaw / pitch (2026-09-08, 정밀 사격 쏠림):
+   * Where `update()` will put the camera **this** frame for the *current* yaw / pitch (2026-09-08, shot drift):
    * the rig moves in `lateUpdate`, weapons fire in `update`, so a shot used to leave from the **previous** frame's
    * camera position with this frame's look direction. Standing still that is exact, but while the camera is moving
    * (turning orbits it by `dist × Δyaw`, the ADS blend slides the shoulder) the ray ran parallel to — and beside — the
@@ -390,7 +398,7 @@ export class CameraRig {
     this.recoilPitch = damp(this.recoilPitch, 0, 9, dt);
     this.recoilYaw = damp(this.recoilYaw, 0, 9, dt);
 
-    // 2026-09-13 탐사 차량: the orbit owns the camera — none of the shoulder pivot / collision / FOV logic below applies
+    // 2026-09-13 the rover: the orbit owns the camera — none of the shoulder pivot / collision / FOV logic applies
     if (this.orbitFocus) { this.updateRoverOrbit(dt, world, this.orbitFocus); return; }
 
     // ── prone on a slope: probe the terrain behind the player; a rising rear lifts the pivot and
@@ -510,9 +518,10 @@ export class CameraRig {
   }
 
   /**
-   * 2026-09-13 탐사 차량 궤도: camera = `focus − look × distance`, the distance pulled in (instantly) by a `world.raycast` from the
-   * focus and eased back out, never under the terrain, the position damped toward it (`ROVER_CAM_SMOOTH_RATE`). The focus sits above
-   * the hull roof (world/rover), so the ray starts clear of the vehicle's own colliders.
+   * 2026-09-13 the rover orbit: camera = `focus − look × distance`, the distance pulled in (instantly) by a
+   * `world.raycast` from the focus and eased back out, never under the terrain, the position damped toward it
+   * (`ROVER_CAM_SMOOTH_RATE`). The focus sits above the hull roof (world/rover), so the ray starts clear of the
+   * vehicle's own colliders.
    */
   private updateRoverOrbit(dt: number, world: WorldRef | null, focus: THREE.Vector3): void {
     const p = this.pitch, y = this.yaw;

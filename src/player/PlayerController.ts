@@ -26,55 +26,56 @@ export interface MoveResult {
   jumped: boolean;
   /** roll finished this frame (duration elapsed) → caller drops the roll blend */
   rollEnded: boolean;
-  /* ── appended (2026-09-11): 사다리 ── */
-  /** 사다리 가로대 하나를 지났다 (`ladder_step` 소리). */
+  /* ── appended (2026-09-11): ladder ── */
+  /** One ladder rung was passed (the `ladder_step` sound). */
   rung: boolean;
-  /** 이번 프레임에 사다리를 놓았다면 그 이유. */
+  /** Why the ladder was released this frame, if it was. */
   climbEnded: ClimbEnd | null;
-  /* ── appended (2026-09-14): 전역 낙하 피해 ── */
+  /* ── appended (2026-09-14): global fall damage ── */
   /**
-   * 이번 프레임에 착지했다면 **떨어진 높이**(m) — 낙하가 시작된 높이(공중에 있는 동안의 최고점) − 착지 높이.
-   * 착지하지 않았거나 **면제된 낙하**면 0 이다 (`fallExempt` — 갈고리 · 가방 부양 · 차량 발판 · 사다리 놓기 ·
-   * 함선 실내). 높이를 피해로 바꾸는 것은 `player/parts/Fall` 이고 컨트롤러는 **높이만** 잰다.
+   * The **fall height** (m) if the body landed this frame — the height the fall started from (the peak reached
+   * while airborne) − the landing height. 0 when it did not land or the fall is **exempt** (`fallExempt` —
+   * grapple · bag hover · a vehicle deck · releasing a ladder · the ship interior). Turning height into damage
+   * is `player/parts/Fall`'s job; the controller measures the **height only**.
    */
   fallHeight: number;
 }
 
-/** 사다리를 놓는 이유 — 꼭대기에 올라섬 · 발치에 내려섬 · E 로 놓음 · 점프. */
+/** Why the ladder was released — mounted at the top · stepped off at the bottom · released with E · jumped. */
 export type ClimbEnd = 'top' | 'bottom' | 'drop' | 'jump';
 
-/** 매달린 동안의 입력 (PlayerSystem 이 키 · 스태미나 규칙을 보고 채운다). */
+/** Input while hanging on (PlayerSystem fills it from the key · stamina rules). */
 export interface ClimbInput {
-  /** -1..1 (W = +1 위, S = -1 아래) */
+  /** -1..1 (W = +1 up, S = -1 down) */
   z: number;
-  /** 달리기 키 + 스태미나 있음 → `LADDER_SPRINT_SPEED` */
+  /** the sprint key + stamina left → `LADDER_SPRINT_SPEED` */
   fast: boolean;
-  /** 이번 프레임 점프 (스태미나는 호출자가 이미 확인했다) */
+  /** jump this frame (the caller has already checked the stamina) */
   jump: boolean;
-  /** 이번 프레임 E — 그 자리에서 놓고 떨어진다 */
+  /** E this frame — releases on the spot and drops */
   drop: boolean;
 }
 
 export type ShipBounds = { center: THREE.Vector3; halfExtents: THREE.Vector3 } | null;
 
 /**
- * 보행 위상이 도는(= 발소리가 나는) 최소 수평 속도(m/s). 이보다 느리면 위상은 중립으로 되감기기만 한다.
- * 원격 아바타의 발소리(`RemotePlayerSystem`)도 스냅샷 속도로 같은 문턱을 쓴다 — 두 곳의 기준이 갈리면
- * 원격만 제자리에서 소리가 난다.
+ * Minimum horizontal speed (m/s) at which the stride phase turns (= footsteps sound). Slower than this and the phase
+ * only rewinds toward neutral. Remote avatars' footsteps (`RemotePlayerSystem`) use the same threshold on the
+ * snapshot speed — if the two differ, only remote bodies make footstep sounds standing still.
  */
 export const STRIDE_MIN_SPEED = 0.3;
 
 /**
- * 사다리 가로대 간격(m) — 매달린 몸의 수직 이동이 가로대 하나를 지날 때마다 보행 위상이 π 만큼 돈다(손 하나가
- * 다음 가로대를 잡는다). 원격 아바타(`RemoteAvatar`)가 스냅샷 높이 변화로 같은 위상을 만든다.
+ * Ladder rung spacing (m) — every rung the hanging body's vertical movement passes turns the stride phase by π (one
+ * hand takes the next rung). Remote avatars (`RemoteAvatar`) build the same phase from the snapshot height change.
  */
 export const LADDER_RUNG_M = 0.35;
-/* 사다리 기하 (몸 치수에 묶인 값이라 여기 둔다 — 속도 · 스태미나 수치는 `data/constants.csv` 의 `LADDER_*`). */
-/** 발이 `topY` 에서 이만큼 아래에 닿으면 W 가 옥상으로 올라서기(`LADDER_MOUNT_S`)를 시작한다. */
+/* Ladder geometry (bound to the body's dimensions — speed · stamina are `LADDER_*` in `data/constants.csv`). */
+/** Once the feet reach this far below `topY`, W starts the mount onto the roof (`LADDER_MOUNT_S`). */
 const LADDER_MOUNT_MARGIN = 0.2;
-/** 꼭대기에서 잡으면 발이 `topY` 에서 이만큼 아래에 매달린다 (머리가 옥상 구멍 높이). */
+/** Grabbing at the top hangs the feet this far below `topY` (the head at the roof opening's height). */
 const LADDER_TOP_GRAB_DEPTH = 1.1;
-/** 발치에서 잡을 때 발이 올라갈 수 있는 한계는 `topY` 에서 이만큼 아래 (곧장 올라서기가 시작되지 않게). */
+/** Grabbing at the bottom lifts the feet to at most this far below `topY` (so the mount does not start at once). */
 const LADDER_BOTTOM_GRAB_CLEAR = 0.5;
 
 const JUMP_SPEED = 7.6;
@@ -92,7 +93,7 @@ const GRAPPLE_ARRIVE = 1.4;
 
 const _wish = new THREE.Vector3(), _hv = new THREE.Vector3(), _n = new THREE.Vector3(), _slide = new THREE.Vector3();
 const _rayO = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0), _pull = new THREE.Vector3();
-/** 차량 탑승 스크래치 — 차량의 현재 변환으로 푼 자리. */
+/** Ride scratch — the spot solved with the vehicle's current transform. */
 const _ride = new THREE.Vector3();
 /** Ceiling probe: from the hips straight up; stops the jump when the head would pass through a deck above. */
 const CEIL_PROBE_START = 0.6;
@@ -102,13 +103,14 @@ const CEIL_PROBE_START = 0.6;
  * would still let the push-out shove a jumping body out from under a slab. Mirrored here because the value is not in
  * `@/shared` yet (requested) — change both together.
  */
-/** 2026-09-11: `world/obb.BOX_HEADROOM` 과 같은 값 — 이제 `data/constants.csv` 한 곳에서 온다. */
+/** 2026-09-11: the same value as `world/obb.BOX_HEADROOM` — it now comes from one place, `data/constants.csv`. */
 const WORLD_CEIL_HEADROOM = BOX_HEADROOM;
 
-/* ── 차량 탑승 좌표 변환 ─────────────────────────────────────────────────────────────────────────────
- * 2026-09-10 에 여기 private 함수 셋으로 태어났고, 2026-09-11 (C-18) 적 · 시체도 같은 식으로 전차에 타게 되면서
- * `@/shared` 의 `ride.ts`(`recordRideLocal` · `restoreRideLocal` · `rideContains`)로 옮겨 갔다. 식은 한 줄도 바뀌지
- * 않았고 `rideContains` 의 기본 인자가 옛 상수(`RIDE_HEADROOM` · `RIDE_FOOT_DROP` · `RIDE_EDGE_MARGIN`) 그대로다.
+/* ── Ride coordinate transforms ───────────────────────────────────────────────────────────────
+ * Born here on 2026-09-10 as three private functions; on 2026-09-11 (C-18), when enemies · corpses came to ride the
+ * tram the same way, they moved to `ride.ts` in `@/shared` (`recordRideLocal` · `restoreRideLocal` · `rideContains`).
+ * Not one line of the formulas changed, and `rideContains`'s default arguments are still the old constants
+ * (`RIDE_HEADROOM` · `RIDE_FOOT_DROP` · `RIDE_EDGE_MARGIN`).
  */
 
 /**
@@ -149,28 +151,29 @@ export class PlayerController {
   /** Tactical backpack hover: caps the fall speed while airborne. */
   hovering = false;
   /**
-   * 지금 타고 있는 **차량**(움직이는 발판). null = 걷고 있다. 2026-09-10 부터 탑승은 상태다 — 자세한 이유는
-   * `updateRide` 의 주석에 있다. 참조는 `SpatialHash` 안의 살아 있는 `Obstacle` 이라 **매 프레임 현재
-   * 변환을 다시 읽는다** (스냅샷을 찍지 않는다).
+   * The **vehicle** (moving platform) currently ridden. null = walking. Since 2026-09-10 riding is a state — the
+   * full reason is in `updateRide`'s comment. The reference is a live `Obstacle` inside the `SpatialHash`, so its
+   * **current transform is re-read every frame** (no snapshot is taken).
    */
   private carrier: Obstacle | null = null;
-  /** 차량 로컬 좌표 (x = 차 길이 방향, z = 폭 방향, y = 발판 윗면 기준 높이). */
+  /** Vehicle-local coordinates (x = along the car, z = across it, y = height above the deck's top face). */
   private readonly rideLocal = new THREE.Vector3();
-  /** `rideLocal` 을 적어 둔 순간의 **월드** 자리. 차이만 더하려고 들고 있다. */
+  /** The **world** spot at the moment `rideLocal` was recorded. Held so that only the difference is added. */
   private readonly rideWorld = new THREE.Vector3();
-  /** 하차 관성 (m/s, 월드 XZ). 마찰로 감쇠한다. */
+  /** Exit inertia (m/s, world XZ). Damped by friction. */
   private readonly rideInertia = new THREE.Vector3();
   private rideInertiaT = 0;
   /**
-   * 매달린 사다리 (2026-09-11). null = 매달려 있지 않다. 매달린 동안 `update` 대신 `updateClimb` 이 돈다 —
-   * 중력도, `world.resolveCollision` 도, 지면 스냅도 없다 (몸이 옥상 슬래브 구멍을 지나가므로 밀어내면 안 된다).
+   * The ladder being hung on (2026-09-11). null = not hanging on. While hanging on, `updateClimb` runs instead of
+   * `update` — no gravity, no `world.resolveCollision`, no ground snap (the body passes through the hole in the
+   * roof slab, so it must not be pushed out).
    */
   climbLadder: LadderDef | null = null;
-  /** 옥상으로 올라서는 동작 진행 0..1. -1 = 사다리에서 오르내리는 중. */
+  /** Progress 0..1 of the mount onto the roof. -1 = climbing up or down the ladder. */
   climbMount = -1;
-  /** 이번 프레임에 빠르게(달리기) 오르내렸는가 — 스태미나 소모 기준. */
+  /** Whether this frame climbed fast (sprint) — the basis for the stamina drain. */
   climbFast = false;
-  /** 이번 프레임의 수직 이동 속도 절댓값(m/s) — 스태미나 회복률 기준. */
+  /** Absolute vertical speed this frame (m/s) — the basis for the stamina regen rate. */
   climbSpeed = 0;
   private readonly mountFrom = new THREE.Vector3();
   private lastStep = 0;
@@ -178,29 +181,35 @@ export class PlayerController {
   private coyote = 0;
   private rollTimer = 0;
   /**
-   * 전역 낙하 피해 (2026-09-14): 지금 낙하가 **시작된 높이**. 접지해 있는 동안은 발 높이를 계속 따라가고,
-   * 공중에서는 최고점만 올라간다 — 그래서 「점프해서 올라갔다가 떨어진 높이」가 아니라 **실제로 떨어진 높이**다.
+   * Global fall damage (2026-09-14): the height the current fall **started from**. While grounded it follows
+   * the feet, and while airborne only the peak rises — so it is not 「the height jumped up to and then fallen
+   * from」 but the **height actually fallen**.
    */
   private fallFromY = 0;
   /**
-   * 이번 낙하는 피해를 계산하지 않는다. 갈고리 · 가방 부양 · 차량 발판 · 함선 실내처럼 「떨어진 것이 아닌」
-   * 상태가 낙하 중에 한 번이라도 있었으면 서고, 접지하는 순간 내려간다 (사다리를 놓은 낙하도 여기에 든다).
+   * This fall computes no damage. Raised as soon as a 「not really a fall」 state — grapple · bag hover · a
+   * vehicle deck · the ship interior — has held even once during the fall, and lowered the moment the body lands
+   * (a fall that began by releasing a ladder belongs here too).
    */
   private fallExempt = false;
   /**
-   * 2026-09-14: 공중에서 `applyImpulse` 를 받았다 — 착지(또는 `reset` · 갈고리)까지 목표 속도를 넘는 수평 운동량을
-   * 공중 조작이 깎지 않는다 (`update` 의 수평 속도 절). 바주카 로켓 점프의 「더 멀리」 가 여기 기댄다.
+   * 2026-09-14: an `applyImpulse` was received in the air — until landing (or `reset` · grapple) air control does
+   * not shave horizontal momentum above the target speed (`update`'s horizontal-velocity section). The bazooka
+   * rocket jump's 「further」 rests on this.
    */
   private airCarry = false;
   /**
-   * 2026-09-16 (운반 숙련 버그 — 사용자 결정 「제 힘으로 움직인 거리만」): 이번 `update` 에서 **몸이 제 힘으로** 옮긴 수평 거리(m).
-   * 매 `update` · `updateClimb` 첫 줄에서 0 으로 시작한다. 세는 것: 걷기 · 달리기 · 앉아/엎드려 이동 · 구르기 · 제 발로 뛴 점프.
-   * 세지 않는 것 — 차량 발판이 옮긴 몫 · 하차 관성(`updateRide` 가 적분 **전에** 더하므로 측정 구간 밖), 갈고리 견인,
-   * 남이 준 임펄스(점프대 · 바주카 · 넉백 — `airCarry`) 와 낙하 면제가 선 공중(갈고리 놓은 뒤 · 대시 · 사다리 놓기 등 —
-   * `fallExempt`), 함선 실내 · 탈출선 화물칸, 이 함수 밖에서 위치를 쓰는 모든 것(순간이동 · 대시 · 부활 · 탑승 부착).
-   * 이번 프레임에 제 힘으로 낼 수 있는 속도(`targetSpeed`, 구르는 중이면 구르기 속도)를 넘는 몫도 세지 않는다 —
-   * 경사 미끄럼 · 땅 위 넉백이 입력 없이 거리를 만들지 못한다. 벽에 막힌 걸음은 실제로 움직인 만큼(0)만 센다.
-   * 그 밖의 몸 상태(드론 조종 · 포드 · 부착 등)는 `PlayerSystem.update` 가 누산하기 전에 거른다.
+   * 2026-09-16 (the `운반` hauling skill bug — user's decision 「제 힘으로 움직인 거리만」): the horizontal distance (m)
+   * the body moved **under its own power** in this `update`; reset to 0 on the first line of `update`/`updateClimb`.
+   * Counted: walking · sprinting · crouched / prone movement · rolling · a jump taken on its own legs. Not counted —
+   * the share a vehicle deck moved · exit inertia (`updateRide` adds it **before** the integration, so it is outside
+   * the measured span), the grapple pull, an impulse given by someone else (jump pad · bazooka · knockback —
+   * `airCarry`) and air a fall exemption stood through (after a grapple release · dash · ladder release —
+   * `fallExempt`), the ship interior · the extraction ship's hold, and everything that writes the position outside
+   * this function (teleport · dash · revive · ride attachment). The share above the speed the body can reach on its
+   * own this frame (`targetSpeed`, the roll speed while rolling) is not counted either — slope sliding · knockback
+   * on the ground must not make distance without input. A stride blocked by a wall counts only what really moved (0).
+   * Other body states (drone control · pod · attached …) are filtered by `PlayerSystem.update` before it accumulates.
    */
   selfMoved = 0;
 
@@ -219,29 +228,30 @@ export class PlayerController {
     this.speed = 0; this.stridePhase = 0; this.lastStep = 0;
     this.carrier = null; this.rideInertia.set(0, 0, 0); this.rideInertiaT = 0;
     this.climbLadder = null; this.climbMount = -1; this.climbFast = false; this.climbSpeed = 0;
-    // 2026-09-14: 스폰 · 부활 · 순간이동(대시 · 콘솔)은 낙하가 아니다 — 새 자리에서 다시 잰다
+    // 2026-09-14: spawn · revive · a teleport (dash · console) is not a fall — measured again from the new spot
     this.fallFromY = pos.y; this.fallExempt = false;
     this.airCarry = false;
   }
 
-  /** 지금 차량(전차 데크 등)에 타고 있는가. HUD · 디버그용. */
+  /** Whether a vehicle (a tram deck …) is being ridden right now. For the HUD · debug. */
   get riding(): boolean { return this.carrier !== null; }
 
   /**
-   * 2026-09-14: 지금 진행 중인 낙하를 **낙하 피해에서 뺀다** — 걸어서 떨어진 것이 아닌 이동(대시 같은 순간이동)이
-   * 부른다. 접지하는 순간 저절로 풀리므로 켜 두고 잊어도 된다.
+   * 2026-09-14: takes the fall in progress **out of fall damage** — called by movement that is not a walked fall
+   * (a teleport such as a dash). It releases itself the moment the body lands, so it can be set and forgotten.
    */
   exemptFall(): void { this.fallExempt = true; this.fallFromY = this.position.y; }
 
-  /* ── 사다리 (2026-09-11) ─────────────────────────────────────────────────────────────────────────────
-   * 상태는 `climbLadder` 하나다. 잡기(`startClimb`)는 몸을 사다리 XZ 에 붙이고, 매달린 동안은
-   * `updateClimb` 이 `update` 를 대신한다: W/S 로 수직 이동만, 발치에서 S = 내려섬(접지), 꼭대기에서 W =
-   * `LADDER_MOUNT_S` 동안 `exit` 로 올라섬(먼저 위로, 나중에 너머로), E = `normal` 쪽으로 떨어져 나감,
-   * 점프 = 사다리를 놓고 위 + `-normal`(사다리 너머) 으로 도약. 놓은 뒤에는 평소 `update` 의 착지 규칙이 그대로 돈다.
+  /* ── Ladder (2026-09-11) ───────────────────────────────────────────────────────────────────────────
+   * The state is one field, `climbLadder`. Grabbing (`startClimb`) sticks the body to the ladder's XZ, and while
+   * hanging on `updateClimb` stands in for `update`: W/S move vertically only, S at the foot = stepping off
+   * (grounded), W at the top = mounting to `exit` over `LADDER_MOUNT_S` (up first, over afterwards), E = dropping
+   * away toward `normal`, jump = releasing the ladder and leaping up + `-normal` (past the ladder). Once released,
+   * `update`'s usual landing rules run as always.
    */
   get climbing(): boolean { return this.climbLadder !== null; }
 
-  /** 사다리에 매달린다. 규칙 검사(죽음 · 전투불능 · 들쳐메기 …)는 PlayerSystem 이 이미 했다. */
+  /** Hangs on the ladder. The rule checks (death · downed · shouldering …) were already done by PlayerSystem. */
   startClimb(ladder: LadderDef, from: 'bottom' | 'top'): void {
     this.releaseRide(false);
     this.cancelRoll();
@@ -261,27 +271,27 @@ export class PlayerController {
     this.lastStep = Math.floor(this.stridePhase / Math.PI);
   }
 
-  /** 속도를 건드리지 않고 사다리를 놓는다 (사망 · 전투불능 · 리셋 경로). 몸은 그 자리에서 떨어진다. */
+  /** Releases the ladder without touching the velocity (death · downed · reset paths). The body drops on the spot. */
   releaseClimb(): void {
     if (!this.climbLadder) return;
     this.climbLadder = null; this.climbMount = -1; this.climbFast = false; this.climbSpeed = 0;
     this.grounded = false; this.wasGrounded = false; this.coyote = 0;
-    // 2026-09-14: 사다리에서 떨어져 나온 몸은 낙하 피해를 받지 않는다 (매달린 동안은 애초에 착지가 없다)
+    // 2026-09-14: a body that dropped off a ladder takes no fall damage (hanging on there is no landing at all)
     this.fallFromY = this.position.y; this.fallExempt = true;
   }
 
-  /** 매달린 동안의 한 프레임. `update` 대신 불린다. */
+  /** One frame while hanging on. Called instead of `update`. */
   updateClimb(dt: number, inp: ClimbInput, out: MoveResult): void {
     out.footstep = false; out.landed = 0; out.jumped = false; out.rollEnded = false;
     out.rung = false; out.climbEnded = null; out.fallHeight = 0;
-    this.selfMoved = 0;   // 2026-09-16: 사다리는 수직 이동뿐 — 운반 거리에 들지 않는다
+    this.selfMoved = 0;   // 2026-09-16: a ladder moves vertically only — it does not count as hauling distance
     const l = this.climbLadder;
     if (!l || dt <= 0) return;
     const pos = this.position, vel = this.velocity;
     this.speed = 0;
     this.climbFast = false;
 
-    // ── 옥상으로 올라서는 중: 위로는 ease-out(먼저), 너머로는 ease-in(나중) — 슬래브 모서리를 긁지 않는다
+    // ── Mounting onto the roof: ease-out going up (first), ease-in going over (after) — no scraping the slab edge
     if (this.climbMount >= 0) {
       const prevY = pos.y;
       this.climbMount = Math.min(1, this.climbMount + dt / Math.max(0.05, LADDER_MOUNT_S));
@@ -295,21 +305,21 @@ export class PlayerController {
       return;
     }
 
-    // ── 점프: 사다리를 놓고 위 + 사다리 너머로 (꼭대기 근처면 옥상 가장자리를 넘는다)
+    // ── Jump: releases the ladder and leaps up + past it (near the top this clears the roof edge)
     if (inp.jump) {
       vel.set(-l.normal.x * LADDER_JUMP_PUSH, LADDER_JUMP_SPEED * this.jumpSpeedMul, -l.normal.z * LADDER_JUMP_PUSH);
       out.jumped = true;
       this.endClimb(out, 'jump', false);
       return;
     }
-    // ── E: 그 자리에서 놓는다 — 벽에 붙은 채 떨어지지 않게 사다리 반대쪽으로 살짝
+    // ── E: releases on the spot — a nudge away from the ladder so the body does not drop hugging the wall
     if (inp.drop) {
       vel.set(l.normal.x * LADDER_DROP_PUSH, 0, l.normal.z * LADDER_DROP_PUSH);
       this.endClimb(out, 'drop', false);
       return;
     }
 
-    // ── W/S: 수직 이동만. XZ 는 사다리에 고정
+    // ── W/S: vertical movement only. XZ is pinned to the ladder
     const z = THREE.MathUtils.clamp(inp.z, -1, 1);
     const moving = Math.abs(z) > 0.01;
     this.climbFast = inp.fast && moving;
@@ -332,12 +342,12 @@ export class PlayerController {
     if (y < l.base.y) y = l.base.y;
     pos.y = y;
     const moved = y - prevY;
-    vel.y = moved / dt;                       // 스냅샷 보간용 (원격이 수직 이동을 외삽한다)
+    vel.y = moved / dt;                       // for snapshot interpolation (remotes extrapolate vertical movement)
     this.climbSpeed = Math.abs(vel.y);
     this.advanceRung(Math.abs(moved), out);
   }
 
-  /** 수직 이동 거리만큼 가로대 위상을 돌리고, 가로대 하나를 지날 때마다 `out.rung`. */
+  /** Turns the rung phase by the vertical distance moved, and sets `out.rung` every time a rung is passed. */
   private advanceRung(dist: number, out: MoveResult): void {
     if (dist <= 0) return;
     this.stridePhase += dist / LADDER_RUNG_M * Math.PI;
@@ -349,7 +359,7 @@ export class PlayerController {
     this.climbLadder = null; this.climbMount = -1; this.climbFast = false; this.climbSpeed = 0;
     this.grounded = grounded; this.wasGrounded = grounded; this.coyote = grounded ? 0.1 : 0;
     if (grounded) this.velocity.set(0, 0, 0);
-    // 2026-09-14: 사다리를 놓고(E · 점프) 떨어지는 낙하는 면제다 — 올라선 · 내려선 쪽은 그냥 새 기준점이다
+    // 2026-09-14: a fall from releasing the ladder (E · jump) is exempt — mounting · stepping off just set a base
     this.fallFromY = this.position.y; this.fallExempt = !grounded;
     out.climbEnded = end;
   }
@@ -382,27 +392,28 @@ export class PlayerController {
   /** Add to the velocity (jump pad, rocket blast, jump backpack). Positive Y also unsticks from the ground. */
   applyImpulse(impulse: THREE.Vector3): void {
     this.velocity.add(impulse);
-    // 2026-09-14: 공중에 뜬 몸의 수평 운동량을 착지까지 지킨다 (`update` 의 공중 조작 절)
+    // 2026-09-14: a body lifted into the air keeps its horizontal momentum until landing (`update`'s air section)
     if (impulse.y > 0.01 || !this.grounded) this.airCarry = true;
     if (impulse.y > 0.01) {
       this.grounded = false; this.coyote = 0; this.position.y += 0.02;
       /*
-       * 2026-09-14 (전역 낙하 피해): **남이 띄운 몸은 착지로 죽지 않는다.** 점프대 · 바주카 슈퍼점프 ·
-       * 폭발 · 적 넉백이 전부 이 한 줄을 지난다 (`applyKnockback` 도 여기로 온다). 안 그러면 바주카
-       * 슈퍼점프(+29.9 m/s → 정점 45 m)가 착지에서 상한 피해를 받는 **자살 버튼**이 되고, 자기 점프대에
-       * 올라선 사람이 죽는다 — 둘 다 이동 수단으로 만든 것이다.
-       * 면제는 **다음 착지까지**만 산다 (`exemptFall` → 착지 프레임이 되돌린다). 제 발로 뛰어내리는
-       * 평범한 점프는 임펄스가 아니라 속도를 직접 넣으므로 여전히 높이만큼 아프다.
+       * 2026-09-14 (global fall damage): **a body something else lifted does not die on landing.** Jump pads ·
+       * bazooka super jumps · explosions · enemy knockback all pass through this one line (`applyKnockback` arrives
+       * here too). Otherwise a bazooka super jump (+29.9 m/s → 45 m peak) becomes a **suicide button** that takes
+       * capped damage on landing, and a person who steps onto their own jump pad dies — both were made as means of
+       * travel. The exemption lives **only until the next landing** (`exemptFall` → the landing frame reverts it).
+       * An ordinary jump made on its own legs writes the velocity directly instead of an impulse, so it still hurts
+       * by its height.
        */
       this.exemptFall();
     }
   }
 
   /**
-   * 발이 닿는 표면의 높이. 2026-09-09 부터 지형만이 아니라 **장애물 윗면**도 본다 (`getSurfaceY`) —
-   * 낮은 바위 위로 걸어 올라갈 수 있는 이유다. `feetY` 를 반드시 넘겨라: 그래야 지금 발 높이에서
-   * `PROP_STEP_UP_MAX` 안에 있는 윗면만 잡는다. 생략하면 그 자리에서 제일 높은 윗면이 나오는데
-   * 그건 총알 · 낙하용 질의지 걷기용이 아니다.
+   * The height of the surface the feet stand on. Since 2026-09-09 it looks at **obstacle top faces** too, not only
+   * the terrain (`getSurfaceY`) — that is why a low rock can be walked up onto. Always pass `feetY`: only then are
+   * the top faces within `PROP_STEP_UP_MAX` of the current feet height taken. Omitting it returns the highest top
+   * face at that spot, which is a query for bullets · falling things, not for walking.
    */
   groundHeight(x: number, z: number, world: WorldRef | null, feetY?: number): number {
     if (this.interior) return this.interior.getFloorAt(x, z);
@@ -412,29 +423,31 @@ export class PlayerController {
   }
 
   /**
-   * **차량(움직이는 발판) 탑승** — 진입 · 유지 · 이탈이 전부 여기 있다 (2026-09-10).
+   * **Riding a vehicle (a moving platform)** — entry · staying on · leaving are all here (2026-09-10).
    *
-   * ## 왜 상태인가
-   * 2026-09-09 판은 매 프레임 `getStandingObstacle(...)?.velocity` 를 찾아 그 속도를 위치에 더했다.
-   * 그러면 **발판 질의에서 한 프레임만 빠져도** 그 프레임만큼 차량이 발밑에서 빠져나간다 — 점프 · 경사 ·
-   * 승강구 · 데크 가장자리에서 늘 생기는 일이고, 몇 프레임이면 차 밖이다 ("조금만 움직여도 내려진다").
-   * 그래서 탑승을 **명시적인 상태**(`carrier`)로 들고, 유지 조건을 발판 질의가 아니라
-   * **차량 OBB + 헤드룸**(`RIDE_*`)으로 본다. 특정 발판 프레임을 밟았는지는 진입에만 쓴다.
+   * ## Why it is a state
+   * The 2026-09-09 version looked up `getStandingObstacle(...)?.velocity` every frame and added that velocity to the
+   * position. That way **a single frame missed by the platform query** lets the vehicle slip that far out from under
+   * the feet — which happens constantly on jumps · slopes · the doorway · the deck edge, and a few frames put the
+   * body off the car ("조금만 움직여도 내려진다"). So riding is held as an **explicit state** (`carrier`), and the
+   * condition for staying on is not the platform query but the **vehicle OBB + headroom** (`RIDE_*`). Whether a
+   * particular platform frame was stood on is used for entry only.
    *
-   * ## 이동은 차량 좌표에서 푼다
-   * 지난 프레임의 자리를 차량 로컬 좌표(`rideLocal`)로 적어 두고, 이번 프레임에 **차량의 현재 변환**으로
-   * 다시 푼다 — 직선 속도만이 아니라 곡선 구간의 **회전**까지 정확히 따라가고, 프레임 누락이 없다.
-   * 스냅샷은 절대 찍지 않는다 (`CLAUDE.md`: 함선 실내가 같은 이유로 깨졌다).
+   * ## Movement is solved in vehicle coordinates
+   * The previous frame's spot is recorded in vehicle-local coordinates (`rideLocal`) and solved again this frame
+   * with the **vehicle's current transform** — which follows not only the linear velocity but the **rotation** on a
+   * curve exactly, and misses no frame. A snapshot is never taken (`CLAUDE.md`: the ship interior broke that way).
    *
-   * ## `vel` 은 손대지 않는다
-   * 옮기는 것은 **위치뿐**이고 `vel` 은 끝까지 **차량 기준 로컬 속도**다. 이동 속도 · 스태미나(`sprinting`) ·
-   * 보행 애니메이션(`speed` · `stridePhase`)이 전차 속도로 흔들리지 않는다 — 2026-09-09 규약의 **이유**가
-   * 그것이고, 여기서도 그대로 지킨다. 점프해도 헤드룸 안이므로 차량과 함께 날아간다.
+   * ## `vel` is left alone
+   * Only the **position** is moved; `vel` stays a **vehicle-local velocity** throughout. Movement speed · stamina
+   * (`sprinting`) · the walk animation (`speed` · `stridePhase`) therefore do not swing with the tram's speed —
+   * that is the **reason** behind the 2026-09-09 contract, and it is kept here too. A jump stays inside the
+   * headroom, so the body flies along with the vehicle.
    *
-   * ## 하차
-   * OBB(+`RIDE_EDGE_MARGIN`) 나 높이 범위를 벗어나면 그 순간의 차량 속도를 **관성**으로 넘겨받아
-   * `RIDE_INERTIA_S` 동안 `RIDE_INERTIA_DAMP` 로 감쇠시킨다 — 달리는 전차에서 옆으로 뛰어내리면
-   * 앞으로 날아간다.
+   * ## Leaving
+   * Leaving the OBB (+`RIDE_EDGE_MARGIN`) or the height range hands over the vehicle's velocity at that moment as
+   * **inertia**, damped by `RIDE_INERTIA_DAMP` for `RIDE_INERTIA_S` — jumping sideways off a running tram throws
+   * the body forward.
    */
   private updateRide(dt: number, world: WorldRef | null): void {
     const pos = this.position;
@@ -443,9 +456,9 @@ export class PlayerController {
       this.applyRideInertia(dt);
       return;
     }
-    // ① 유지 — 차량 OBB + 헤드룸 안이면 계속 탄 것이다 (발판을 밟았는지는 보지 않는다)
+    // ① Staying on — inside the vehicle OBB + headroom is still riding (the platform query is not consulted)
     if (this.carrier && !rideContains(this.carrier, pos)) this.releaseRide(true);
-    // ② 진입 — 새로 잡을 때만 발판 질의를 쓴다. 잡은 프레임에는 옮기지 않는다 (차량은 이미 제자리다)
+    // ② Entry — the platform query is used only to grab anew; the grab frame moves nothing (the vehicle is in place)
     if (!this.carrier && this.grounded) {
       const o = world.getStandingObstacle(pos.x, pos.z, pos.y);
       if (o && o.velocity) {
@@ -456,9 +469,9 @@ export class PlayerController {
         return;
       }
     }
-    // ③ 이동 — 차량의 **현재** 변환으로 지난 프레임의 로컬 좌표를 다시 푼다.
-    //    자리를 통째로 덮어쓰지 않고 **차이만** 더한다 — 그 사이에 남이 몸을 옮겼다면(순간이동 · 임펄스)
-    //    그것을 지우지 않기 위해서다.
+    // ③ Movement — the previous frame's local coordinates are solved again with the vehicle's **current**
+    //    transform. The spot is not overwritten wholesale; only the **difference** is added — so that a move
+    //    somebody else made in the meantime (teleport · impulse) is not erased.
     if (this.carrier) {
       restoreRideLocal(this.carrier, this.rideLocal, _ride);
       pos.x += _ride.x - this.rideWorld.x;
@@ -470,14 +483,15 @@ export class PlayerController {
   }
 
   /**
-   * 월드 천장 (2026-09-11) — 실내 모드의 천장 프로브와 같은 식. 광선은 **적분 전 발 높이**의 엉덩이에서 쏜다:
-   * 적분 뒤 자리에서 쏘면 엉덩이가 이미 슬래브 안이라 광선이 슬래브를 못 본다. 올라가는 프레임에만 불린다.
+   * The world ceiling (2026-09-11) — the same shape as the interior mode's ceiling probe. The ray is cast from the
+   * hips at the **feet height before the integration**: cast from the post-integration spot, the hips are already
+   * inside the slab and the ray does not see it. Called only on a rising frame.
    */
   /**
-   * 지금 자세가 요구하는 **머리 위 공간** (2026-09-14, 낮은 통로를 앉아서 지나기).
-   * 서 있으면 지금까지와 똑같은 `WORLD_CEIL_HEADROOM`(= `BOX_HEADROOM` 2.1) 이므로 본편 동선은 바뀌지 않는다.
-   * 이 값이 곧 `resolveCollision` 에 넘기는 높이여야 한다 — 천장 클램프와 밀어내기가 다른 높이를 보면
-   * 슬래브 밑에서 위로는 안 막히는데 옆으로는 밀려나는(또는 그 반대의) 모순이 생긴다.
+   * The **headroom** the current stance asks for (2026-09-14, crouching through a low passage).
+   * Standing it is the same `WORLD_CEIL_HEADROOM` (= `BOX_HEADROOM` 2.1) as before, so the main game's routes do not
+   * change. This value must be the height handed to `resolveCollision` — if the ceiling clamp and the push-out look
+   * at different heights, a body under a slab is not stopped going up but is pushed out sideways (or the reverse).
    */
   private get bodyClearance(): number {
     if (this.stance === 'crouch') return PLAYER_CROUCH_CLEARANCE_M;
@@ -497,7 +511,7 @@ export class PlayerController {
     if (pos.y > maxFeet) { pos.y = Math.max(feetBefore, maxFeet); this.velocity.y = 0; }
   }
 
-  /** 지금 자리를 차량 좌표로 적어 둔다 (다음 프레임에 차량의 새 변환으로 푼다). */
+  /** Records the current spot in vehicle coordinates (solved next frame with the vehicle's new transform). */
   private recordRide(): void {
     const c = this.carrier;
     if (!c) return;
@@ -505,7 +519,7 @@ export class PlayerController {
     this.rideWorld.copy(this.position);
   }
 
-  /** 하차. `keepInertia` 면 그 순간의 차량 속도를 관성으로 넘겨받는다. */
+  /** Leaves the vehicle. With `keepInertia` the vehicle's velocity at that moment is handed over as inertia. */
   private releaseRide(keepInertia: boolean): void {
     const c = this.carrier;
     if (!c) return;
@@ -519,7 +533,7 @@ export class PlayerController {
     }
   }
 
-  /** 하차 관성: 위치에 더하고 지수 감쇠시킨다 (`vel` 에는 넣지 않는다 — 스태미나 · 보행이 흔들린다). */
+  /** Exit inertia: added to the position, decayed exponentially (not into `vel` — that swings stamina · walking). */
   private applyRideInertia(dt: number): void {
     if (this.rideInertiaT <= 0) return;
     this.rideInertiaT -= dt;
@@ -542,8 +556,9 @@ export class PlayerController {
     if (dt <= 0) return;
     const pos = this.position, vel = this.velocity;
     this.stance = inp.stance;
-    // 2026-09-16 (`selfMoved`): 프레임 **시작** 의 상태로 가른다 — 착지 프레임의 이동도 공중에서 한 것이고, 프레임 사이에
-    //   들어온 임펄스 · 대시(`exemptFall`)도 여기서 잡힌다. 구르기는 이번 프레임 안에서 끝날 수 있어 시작 값을 쓴다.
+    // 2026-09-16 (`selfMoved`): split on the state at the **start** of the frame — the landing frame's movement was
+    //   made in the air too, and an impulse · dash (`exemptFall`) that arrived between frames is caught here. A roll
+    //   can end inside this frame, so the start value is used.
     const selfTainted = this.airCarry || this.fallExempt || this.grappleTarget !== null;
     const rollingAtStart = this.rolling;
 
@@ -583,11 +598,12 @@ export class PlayerController {
     if (!this.rolling) {
       const accel = this.grounded ? (moving ? GROUND_ACCEL : GROUND_DECEL) : AIR_ACCEL;
       /*
-       * 2026-09-14 (바주카 로켓 점프): **남이 준 수평 운동량은 착지할 때까지 산다** (`airCarry` ← `applyImpulse`).
-       * 예전에는 공중에서도 목표 속도(달리기 7.2 m/s)로 `AIR_ACCEL` 만큼 끌어당겨, 수평 가속을 줘도 1초 안에
-       * 달리기 속도로 되돌아갔다 — 「더 멀리」 가 성립하지 않았다. 목표 속도보다 빠른 동안에는 공중 조작이 방향만
-       * 틀고(크기는 유지) **반대쪽으로 누를 때만** 그 성분만큼 `AIR_ACCEL` 로 감속한다. 손을 떼도 줄지 않는다.
-       * 목표 속도 이하이거나 제 발로 뛴 점프(임펄스 없음)는 예전 그대로다.
+       * 2026-09-14 (the bazooka rocket jump): **horizontal momentum given by something else lives until landing**
+       * (`airCarry` ← `applyImpulse`). It used to be pulled toward the target speed (sprint 7.2 m/s) by `AIR_ACCEL`
+       * in the air as well, so a horizontal boost fell back to the sprint speed within a second — 「further」 did
+       * not hold. While faster than the target speed, air control only turns the direction (the magnitude is kept)
+       * and decelerates by that component with `AIR_ACCEL` **only when pushed the other way**. Letting go does not
+       * shrink it. At or below the target speed, and a jump made on its own legs (no impulse), behave as before.
        */
       const carried = this.airCarry && !this.grounded ? Math.hypot(_hv.x, _hv.z) : 0;
       let brake = 0;
@@ -609,10 +625,11 @@ export class PlayerController {
     }
 
     // ── slope handling (heightfield only)
-    // 2026-09-13: **발이 지형 위에 있을 때만**이다. 구조물 바닥판 · 전차 데크처럼 장애물 윗면에 서 있으면 그 밑
-    // 지형이 가파르더라도 미끄러지거나 막히면 안 된다 — 지하실 구덩이 위 1층 바닥에서 바깥벽 쪽이 전부 "오르막"으로
-    // 읽혀 벽 1–2 m 앞에서 멈췄고, 정문으로 들어오는 것(내리막)만 되고 나가지는 못했다. 판정은 투척물 ·
-    // 아이템이 이미 쓰는 `surface > terrain + 0.02` 와 같은 식이다.
+    // 2026-09-13: **only when the feet are on terrain**. Standing on an obstacle top face — a structure floor plate,
+    // a tram deck — must not slide or block even when the terrain beneath is steep: on the ground floor above a
+    // basement pit every direction toward the outer wall read as "uphill", the body stopped 1–2 m short of the wall,
+    // and only coming in through the front door (downhill) worked, never going out. The test is the same
+    // `surface > terrain + 0.02` shape throwables · items already use.
     let steep = false;
     if (!this.interior && !this.shipBounds && world && world.ready && this.grounded && !this.rolling
       && world.getHeightAt(pos.x, pos.z) >= pos.y - 0.02) {
@@ -661,10 +678,10 @@ export class PlayerController {
       vel.y = Math.max(vel.y, 0);
     }
 
-    // ── 차량 탑승 (2026-09-10): 차량이 이번 프레임에 옮겨 간 만큼 몸을 먼저 옮긴다. `vel` 은 손대지 않는다.
+    // ── Ride (2026-09-10): the body is moved first by however far the vehicle moved this frame. `vel` is untouched.
     this.updateRide(dt, world);
     const feetBefore = pos.y;
-    const selfX = pos.x, selfZ = pos.z;   // 2026-09-16: 차량 몫 · 하차 관성을 더한 **뒤** — 여기서부터가 몸의 몫이다
+    const selfX = pos.x, selfZ = pos.z;   // 2026-09-16: **after** the ride · exit inertia — the body's own share
 
     // ── integrate
     pos.x += vel.x * dt;
@@ -688,19 +705,21 @@ export class PlayerController {
       pos.x = THREE.MathUtils.clamp(pos.x, c.x - h.x + PLAYER_RADIUS, c.x + h.x - PLAYER_RADIUS);
       pos.z = THREE.MathUtils.clamp(pos.z, c.z - h.z + PLAYER_RADIUS, c.z + h.z - PLAYER_RADIUS);
     } else if (world && world.ready) {
-      // 천장 (2026-09-11): 구조물에 천장 · 떠 있는 슬래브 상자가 생겼다. 머리가 슬래브에 박힌 채로
-      // `resolveCollision` 에 들어가면 몸이 옆으로 밀려 나오므로, **밀어내기 전에** 올라가는 동안만 위로 한 번 잰다.
+      // Ceiling (2026-09-11): structures gained ceilings · floating slab boxes. Entering `resolveCollision` with the
+      // head buried in a slab pushes the body out sideways, so measure upward once, **before the push-out**, and
+      // only while rising.
       if (vel.y > 0) this.clampWorldCeiling(world, feetBefore);
-      // 지형지물 위 걷기 (2026-09-09): **표면을 먼저 잡고** 밀어낸다. `getSurfaceY(x, z, feetY)` 는 지금 발
-      // 높이에서 `PROP_STEP_UP_MAX` 안에 있는 윗면만 돌려주고, 일단 올라선 뒤에는 `resolveCollision` 이
-      // 같은 `PROP_TOP_MARGIN` 판정으로 그 장애물을 밀어내지 않는다. 순서를 뒤집으면 옆으로 밀려난
-      // 다음이라 낮은 바위에 영영 못 올라간다.
+      // Walking on terrain features (2026-09-09): **resolve the surface first**, then push out.
+      // `getSurfaceY(x, z, feetY)` returns only top faces within `PROP_STEP_UP_MAX` of the current feet height, and
+      // once the body has stepped up, `resolveCollision` does not push it off that obstacle by the same
+      // `PROP_TOP_MARGIN` test. Reversed, the body is pushed out sideways first and can never get onto a low rock.
       if (this.grounded) {
         const step = world.getSurfaceY(pos.x, pos.z, pos.y);
         if (step > pos.y) pos.y = step;
       }
-      // 2026-09-14: 자세 높이를 함께 넘긴다 — 서 있으면 예전과 같은 2.1 이고, 앉거나 엎드렸을 때만 낮은
-      //   슬래브 밑을 지난다. 일어설 수 있는지는 `parts/Locomotion.canStandHere` 가 따로 막는다.
+      // 2026-09-14: the stance height goes along — standing it is the same 2.1 as before, and only a crouched or
+      //   prone body passes under a low slab. Whether it can stand up again is blocked separately by
+      //   `parts/Locomotion.canStandHere`.
       world.resolveCollision(pos, PLAYER_RADIUS, this.bodyClearance);
     }
 
@@ -719,10 +738,11 @@ export class PlayerController {
     if (this.grounded) this.hovering = false;
 
     /*
-     * 낙하 추적 (2026-09-14, 전역 낙하 피해). 접지하면 발 높이가 곧 다음 낙하의 기준점이고, 공중에서는 최고점만
-     * 올라간다 — 「떨어진 높이」이지 「속도」가 아니다 (경사를 타고 내려오면 접지가 이어져 0 이고, 같은 자리에서
-     * 점프해 떨어져도 발 높이 차이만큼뿐이다). 면제는 **낙하 중 한 번이라도** 서면 착지까지 유지된다:
-     * 갈고리로 끌려가는 중 · 가방 부양(자동 catch 포함) · 차량 발판 위 · 함선 실내 · 사다리에서 놓은 몸.
+     * Fall tracking (2026-09-14, global fall damage). While grounded the feet height is the base for the next fall,
+     * and airborne only the peak rises — it is the 「height fallen」, not the 「speed」 (walking down a slope keeps
+     * the body grounded, so 0, and jumping and landing on the spot is only the feet-height difference). An
+     * exemption, raised **even once during the fall**, is held until landing: while reeled by the grapple · bag
+     * hover (the automatic catch included) · on a vehicle deck · the ship interior · a body released from a ladder.
      */
     if (this.grappleTarget || this.hovering || this.carrier || this.interior || this.shipBounds) this.fallExempt = true;
     if (this.grounded) {
@@ -734,10 +754,10 @@ export class PlayerController {
       this.fallFromY = pos.y;
     }
 
-    // 이번 프레임의 최종 자리를 **차량 좌표로 다시 적어 둔다** — 다음 프레임에 차량의 새 변환으로 푼다.
+    // The frame's final spot is **re-recorded in vehicle coordinates** — solved next frame with the new transform.
     this.recordRide();
 
-    // ── 제 힘으로 움직인 거리 (2026-09-16, 운반 숙련 — 필드 `selfMoved` 의 주석)
+    // ── Distance moved under its own power (2026-09-16, the `운반` hauling skill — see the `selfMoved` field)
     if (!selfTainted && !this.grappleTarget && !this.interior && !this.shipBounds) {
       const own = Math.hypot(pos.x - selfX, pos.z - selfZ);
       const cap = (rollingAtStart ? ROLL_SPEED : targetSpeed) * dt;

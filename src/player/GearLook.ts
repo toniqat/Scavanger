@@ -4,7 +4,7 @@ import { applySoldierRim } from './SoldierRim';
 
 /**
  * Procedural gear looks shared by the local soldier and the remote avatars (Phase 7):
- *  - `buildArmorPlate(def)`: the equipped 방탄복 as a chest / back / shoulder plate set tinted with `ArmorDef.color`,
+ *  - `buildArmorPlate(def)`: the equipped armor as a chest / back / shoulder plate set tinted with `ArmorDef.color`,
  *    one greeble strip per tier (I..V) and a brighter rim for uniques (tier 0). Parented into `SoldierModel.torso`
  *    by `SoldierModel.setArmor`, so the same rule renders the local `PlayerGear.armor` and a remote `ar` snapshot field.
  *  - `buildHeldItem(category)`: the consumable / gadget in the hand while `HOLDING_ITEM` — stim = cylinder,
@@ -107,21 +107,23 @@ export function buildArmorPlate(def: ArmorDef): GearLook {
  * cylinder / box stand along the forearm and the sphere sits just past the glove.
  */
 /**
- * 2026-09-15 (가젯 개편): `ItemCategory` 의 `'grenade'` 가 폐지돼(수류탄도 `category: 'gadget'`) 손에 든 모습을
- * 고르는 열쇠를 이 파일 안에서만 한 칸 넓혔다 — 부르는 쪽이 `def.grenade ? 'grenade' : def.category` 를 넘긴다.
+ * 2026-09-15 (the gadget rework): `ItemCategory`'s `'grenade'` was removed (a grenade is `category: 'gadget'`
+ * too), so the key that picks the held look is widened by one slot inside this file only — the caller passes
+ * `def.grenade ? 'grenade' : def.category`.
  */
 export type HeldItemLook = ItemCategory | 'grenade';
 
-/** 총 대역 + 총구 자리 (`buildHeldWeapon`). */
+/** The stand-in gun + its muzzle spot (`buildHeldWeapon`). */
 export interface WeaponLook extends GearLook {
-  /** 총구 끝 — 안드로이드의 총구 섬광 · 예광탄이 여기서 출발한다. */
+  /** The muzzle tip — an android's muzzle flash · tracers start here. */
   readonly muzzle: THREE.Object3D;
 }
 
 /**
- * 2026-09-15 (안드로이드 분대원): 손에 든 **총의 대역**. 사람의 총은 `weapons/WeaponModel` 이 그리지만 그것은 다른 폴더의
- * 내부라 여기서 쓸 수 없다 (CLAUDE.md §4.1) — 안드로이드는 무기 등급 · 부착물 없이 실루엣만 맞으면 되므로 등급별 길이만
- * 다른 상자 몇 개로 만든다. 아이템 축 규약은 손에 든 물건과 같다: **−Z 가 팔을 따라 앞으로** 나간다.
+ * 2026-09-15 (android squadmates): the **stand-in for a gun** in the hand. A person's gun is drawn by
+ * `weapons/WeaponModel`, but that is another folder's internals and cannot be used here (CLAUDE.md §4.1) — an
+ * android only needs the silhouette to match, with no weapon grade · attachments, so it is a few boxes differing
+ * only in length per class. The item axis contract is the held item's: **−Z runs forward along the arm**.
  */
 export function buildHeldWeapon(cls: WeaponClass): WeaponLook {
   const look = new Look();
@@ -132,11 +134,11 @@ export function buildHeldWeapon(cls: WeaponClass): WeaponLook {
   const barrel = short ? 0.1 : long ? 0.4 : 0.24;
   const mBody = look.mat(0x2a2f38, 0.45, 0.5);
   const mSteel = look.mat(0x7c8796, 0.6, 0.4);
-  look.box(0.06, 0.09, bodyLen, mBody, 0, 0, -bodyLen / 2 - 0.02);                       // 기관부
-  look.box(0.034, 0.034, barrel, mSteel, 0, 0.015, -bodyLen - barrel / 2 - 0.02);        // 총열
-  look.box(0.042, 0.09, 0.05, mBody, 0, -0.07, -0.05);                                   // 손잡이
-  if (!short) look.box(0.05, 0.07, 0.14, mBody, 0, -0.005, 0.06);                        // 개머리판
-  if (cls === 'SG') look.box(0.03, 0.03, bodyLen * 0.8, mSteel, 0, -0.045, -bodyLen / 2); // 튜브 탄창
+  look.box(0.06, 0.09, bodyLen, mBody, 0, 0, -bodyLen / 2 - 0.02);                       // receiver
+  look.box(0.034, 0.034, barrel, mSteel, 0, 0.015, -bodyLen - barrel / 2 - 0.02);        // barrel
+  look.box(0.042, 0.09, 0.05, mBody, 0, -0.07, -0.05);                                   // grip
+  if (!short) look.box(0.05, 0.07, 0.14, mBody, 0, -0.005, 0.06);                        // stock
+  if (cls === 'SG') look.box(0.03, 0.03, bodyLen * 0.8, mSteel, 0, -0.045, -bodyLen / 2); // tube magazine
   const muzzle = new THREE.Object3D();
   muzzle.name = 'muzzle';
   muzzle.position.set(0, 0.015, -(bodyLen + barrel + 0.02));

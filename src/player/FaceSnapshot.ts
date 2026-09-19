@@ -8,25 +8,29 @@ import {
 import { SOLDIER_DEFAULT_ACCENT, SoldierModel, type SoldierPose } from './SoldierModel';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 얼굴 초상 스냅숏 (2026-09-15, 터미널 매칭 탭 — `PlayerRef.snapshotFace`).
+ * The face portrait snapshot (2026-09-15, the terminal's `매칭` tab — `PlayerRef.snapshotFace`).
  *
- * 매칭 탭의 정사각 초상 4칸은 **정지 이미지**다. 칸마다 WebGL 캔버스를 두면 컨텍스트가 넷이 되므로(브라우저 상한이
- * 16 이고 홀로그램 · 발사 슬롯 초상이 이미 하나씩 쓴다) 오프스크린 렌더러 **하나**로 한 장씩 그려 `toDataURL` 로
- * 뽑고 색 · 크기별로 캐시한다. `preserveDrawingBuffer` 없이도 같은 태스크 안의 `toDataURL` 은 방금 그린 버퍼를 읽는다
- * (`ui/menus/SoldierPreview.snapshotFace` 가 기대는 성질과 같다).
+ * The four square portrait cells of the `매칭` tab are **still images**. A WebGL canvas per cell would make four
+ * contexts (the browser cap is 16, and the hologram · the launch-slot portraits already take one each), so **one**
+ * offscreen renderer draws them one at a time, pulls each out with `toDataURL` and caches them per colour · size.
+ * Even without `preserveDrawingBuffer`, a `toDataURL` inside the same task reads the buffer just drawn (the same
+ * property `ui/menus/SoldierPreview.snapshotFace` leans on).
  *
- * **프레이밍은 캐릭터 생성 확정 팝업과 똑같다** — 숫자는 `shared/faceFraming`, 절차는 이 파일의 `poseFaceModel` ·
- * `aimFaceCamera` · `addFaceLights` 하나이고 `SoldierPreview` 도 이 셋을 부른다. 한쪽을 따로 고치지 않는다.
+ * **The framing is exactly the character-creation confirm popup's** — the numbers live in `shared/faceFraming` and
+ * the procedure is this file's one `poseFaceModel` · `aimFaceCamera` · `addFaceLights`, which `SoldierPreview`
+ * calls too. Neither side is fixed on its own.
  *
- * 렌더러 수명: 처음 부를 때 만들고, `FACE_SNAPSHOT_IDLE_DISPOSE_MS` 동안 아무도 부르지 않으면 모델 · 씬 · 렌더러를
- * 전부 놓는다 (`forceContextLoss`). 캐시(data URL 문자열)는 남는다 — 다시 그릴 일이 없다. 두 번째 GL 컨텍스트를
- * 한 번 못 얻으면 이 페이지에서는 다시 시도하지 않고 늘 null 이다 (부르는 쪽이 이름만 남은 칸으로 내려간다).
+ * Renderer lifetime: built on the first call, and when nobody calls for `FACE_SNAPSHOT_IDLE_DISPOSE_MS` the model ·
+ * scene · renderer are all released (`forceContextLoss`). The cache (data URL strings) stays — there is nothing to
+ * draw again. Once a second GL context cannot be obtained, this page never tries again and is always null (the
+ * caller then degrades to a name-only cell).
  *
- * C-42 규약(`Portraits` · `SoldierPreview`): 방금 쓴 모델은 씬에서 떼기만 하고 **다음 render 뒤에** dispose 한다 —
- * 먼저 dispose 하면 같은 셰이더 프로그램을 쥔 머티리얼이 사라진 순간 프로그램이 지워져 다음 색이 다시 컴파일한다.
+ * The C-42 contract (`Portraits` · `SoldierPreview`): the model just used is only detached from the scene and
+ * disposed **after the next render** — disposing first drops the program the moment no material holds that shader
+ * program any more, and the next colour compiles it again.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 서 있는 대기 자세 (무기 없음, 걷지 않음) — `Portraits` · `SoldierPreview` 의 포즈와 같다. */
+/** The standing idle pose (no weapon, not walking) — the same pose as `Portraits` · `SoldierPreview`. */
 const IDLE_POSE: SoldierPose = {
   moveBlend: 0, sprint: 0, stridePhase: 0, crouch: 0, aim: 0, aimPitch: 0, torsoTwist: 0, airborne: 0,
   verticalVel: 0, flinch: 0, hasWeapon: false, twoHanded: false, reloading: false, recoil: 0, dead: 0,
@@ -36,7 +40,7 @@ const IDLE_POSE: SoldierPose = {
 
 const _head = new THREE.Vector3();
 
-/** 얼굴 초상의 조명 (키 + 림 + 반구광) 을 `scene` 에 단다. */
+/** Adds the face portrait lights (key + rim + hemisphere) to `scene`. */
 export function addFaceLights(scene: THREE.Scene): void {
   const key = new THREE.DirectionalLight(FACE_LIGHT_KEY.color, FACE_LIGHT_KEY.intensity);
   key.position.set(FACE_LIGHT_KEY.x, FACE_LIGHT_KEY.y, FACE_LIGHT_KEY.z);
@@ -48,8 +52,9 @@ export function addFaceLights(scene: THREE.Scene): void {
 }
 
 /**
- * 몸을 얼굴 초상 각도로 돌리고 대기 자세에 고정한다 (숨쉬기 위상 `FACE_SNAPSHOT_TIME`, 관절 감쇠 몇 걸음).
- * 끝나면 월드 행렬까지 갱신돼 있어 `aimFaceCamera` 가 `headPivot` 을 바로 읽는다.
+ * Turns the body to the face portrait angle and holds it in the idle pose (breathing phase `FACE_SNAPSHOT_TIME`,
+ * a few steps of joint damping). Afterwards the world matrices are updated too, so `aimFaceCamera` reads
+ * `headPivot` straight away.
  */
 export function poseFaceModel(model: SoldierModel, pose: SoldierPose = IDLE_POSE): void {
   model.root.rotation.set(0, FACE_SNAPSHOT_YAW, 0);
@@ -57,7 +62,7 @@ export function poseFaceModel(model: SoldierModel, pose: SoldierPose = IDLE_POSE
   model.root.updateMatrixWorld(true);
 }
 
-/** `cam` 을 `model` 의 얼굴에 겨눈다. `aspect` = 그릴 캔버스의 가로 / 세로. */
+/** Aims `cam` at `model`'s face. `aspect` = width / height of the canvas being drawn. */
 export function aimFaceCamera(model: SoldierModel, cam: THREE.PerspectiveCamera, aspect: number): void {
   model.headPivot.getWorldPosition(_head);
   _head.y += FACE_SNAPSHOT_LOOK_UP;
@@ -76,9 +81,9 @@ class FaceSnapshotter {
   private canvas: HTMLCanvasElement | null = null;
   private scene: THREE.Scene | null = null;
   private camera: THREE.PerspectiveCamera | null = null;
-  /** C-42: 방금 찍은 모델 — 다음 render 뒤에 놓는다. */
+  /** C-42: the model just shot — released after the next render. */
   private pendingDispose: SoldierModel[] = [];
-  /** 두 번째 GL 컨텍스트를 한 번 못 얻었다 — 이 페이지에서는 다시 시도하지 않는다. */
+  /** A second GL context could not be obtained once — this page never tries again. */
   private failed = false;
   private readonly cache = new Map<string, string>();
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -87,7 +92,7 @@ class FaceSnapshotter {
     const accent = sanitizeAccent(opts?.accent) ?? `#${SOLDIER_DEFAULT_ACCENT.toString(16).padStart(6, '0')}`;
     const rawSize = Math.round(Number(opts?.size ?? FACE_SNAPSHOT_SIZE));
     const size = Math.max(FACE_SNAPSHOT_SIZE_MIN, Math.min(FACE_SNAPSHOT_SIZE_MAX, Number.isFinite(rawSize) ? rawSize : FACE_SNAPSHOT_SIZE));
-    // 2026-09-15: 안드로이드는 같은 색이라도 다른 그림이다 — 캐시 열쇠를 나눈다
+    // 2026-09-15: an android is a different picture even at the same colour — the cache key is split
     const key = `${android ? 'android|' : ''}${accent}|${size}`;
     const hit = this.cache.get(key);
     if (hit) return hit;
@@ -100,7 +105,7 @@ class FaceSnapshotter {
       renderer.setSize(size, size, false);
       model = new SoldierModel(Number.parseInt(accent.slice(1), 16));
       if (android) model.setAndroidLook(true);
-      model.setSilhouette(false);            // 가려질 월드가 없다
+      model.setSilhouette(false);            // there is no world to be occluded by
       model.resetPose();
       model.setVisible(true);
       scene.add(model.root);
@@ -112,7 +117,7 @@ class FaceSnapshotter {
       console.warn('[FaceSnapshot] snapshot failed', e);
       url = null;
     }
-    this.flushPendingDispose();              // 이번 render 가 프로그램을 잡았다 — 지난 모델은 이제 놓아도 된다
+    this.flushPendingDispose();              // this render has taken the program — the last model can go now
     if (model) { model.root.removeFromParent(); this.pendingDispose.push(model); }
     this.scheduleIdle();
     if (!url || !url.startsWith('data:image/')) return null;
@@ -136,7 +141,7 @@ class FaceSnapshotter {
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = FACE_TONE_EXPOSURE;
       renderer.setClearColor(0x000000, 0);
-      renderer.setPixelRatio(1);             // 크기는 부르는 쪽이 px 로 준다
+      renderer.setPixelRatio(1);             // the caller gives the size in px
     } catch (e) {
       console.warn('[FaceSnapshot] no second WebGL context', e);
       this.failed = true;
@@ -161,7 +166,7 @@ class FaceSnapshotter {
     this.pendingDispose.length = 0;
   }
 
-  /** 모델 · 씬 · 렌더러를 놓는다 (캐시는 남긴다). 다음 스냅숏이 다시 만든다. */
+  /** Releases the model · scene · renderer (the cache is kept). The next snapshot builds them again. */
   release(): void {
     if (this.idleTimer !== null) { clearTimeout(this.idleTimer); this.idleTimer = null; }
     this.flushPendingDispose();
@@ -179,22 +184,24 @@ class FaceSnapshotter {
 const snapper = new FaceSnapshotter();
 
 /**
- * `PlayerRef.snapshotFace` 의 구현: `accent`(`#rrggbb`, 틀리면 기본 헬다이버 노랑) 병사의 얼굴 한 장을 `size`×`size`
- * PNG data URL 로. GL 컨텍스트가 없으면 null. 같은 색 · 크기는 캐시에서 돌려준다.
+ * The implementation of `PlayerRef.snapshotFace`: one face of the `accent` soldier (`#rrggbb`, the default
+ * helldiver yellow when it is wrong) as a `size`×`size` PNG data URL. null without a GL context. The same colour ·
+ * size comes back from the cache.
  */
 export function snapshotFace(opts: { accent: string; size?: number }): string | null {
   return snapper.snapshot(opts);
 }
 
 /**
- * `PlayerRef.snapshotAndroidFace` 의 구현 (2026-09-15, 안드로이드 분대원): `snapshotFace` 와 **같은 프레이밍 · 자세 ·
- * 조명**에 `SoldierModel.setAndroidLook(true)` 만 켠 얼굴 한 장. 색 · 크기별 캐시는 사람 얼굴과 따로 잡는다.
+ * The implementation of `PlayerRef.snapshotAndroidFace` (2026-09-15, android squadmates): one face with the
+ * **same framing · pose · lighting** as `snapshotFace` and only `SoldierModel.setAndroidLook(true)` turned on. Its
+ * cache per colour · size is kept apart from the human faces'.
  */
 export function snapshotAndroidFace(opts: { accent: string; size?: number }): string | null {
   return snapper.snapshot(opts, true);
 }
 
-/** 오프스크린 렌더러를 지금 놓는다 (캐시는 남는다). 보통은 유휴 타이머가 알아서 부른다. */
+/** Releases the offscreen renderer now (the cache stays). Normally the idle timer calls this by itself. */
 export function releaseFaceSnapshots(): void {
   snapper.release();
 }

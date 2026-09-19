@@ -1,33 +1,38 @@
 /**
- * src/player/parts/Buffs.ts — **이 캐릭터에 지금 무엇이 걸려 있는가** (2026-09-12, 캐릭터 버프 — `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」).
+ * src/player/parts/Buffs.ts — **what is on this character right now**
+ * (2026-09-12, character buffs — `docs/DECISIONS.md` 「2026-09-12 — 캐릭터 버프」).
  *
- * `PlayerRef.buffs` / `buffsRevision` / `player:buffsChanged` 의 구현. 목록은 **표시 · 동기화용**이고 효과가 없다 — 효과의 원본은
- * 제자리(요리 `derived` · 준비물 `hasEnvPrep` · 디버프 `applyGymSession` · 자세 `parts/FurniturePose`)이고 여기는 읽기만 한다.
+ * The implementation of `PlayerRef.buffs` / `buffsRevision` / `player:buffsChanged`. The list is **for display and
+ * sync** and has no effect — each effect stays at its own source (the meal's `derived` · the prep's `hasEnvPrep` ·
+ * the debuff's `applyGymSession` · the pose's `parts/FurniturePose`), and this file only reads them.
  *
- * | kind | key | 원본 | state |
+ * | kind | key | source | state |
  * |---|---|---|---|
- * | `meal` | `meal` | 함선 `progression.getMeal()` · 레이드 `getActiveMeal()` | 함선 `pending` · 레이드 `active` |
- * | `prep` | `prep:<env>` | 함선 `getPreps()` · 레이드 `getActivePreps()` 각각, env = `loot.getItemDef(id).prep.env` | 같다 |
- * | `env_exposed` | `env` | 이 폴더의 환경 판정(`envKind !== null && !envProtected`, `parts/Statuses.updateEnv`) | `active` |
+ * | `meal` | `meal` | ship `progression.getMeal()` · raid `getActiveMeal()` | ship `pending` · raid `active` |
+ * | `prep` | `prep:<env>` | ship `getPreps()` · raid `getActivePreps()`, env `loot.getItemDef(id).prep.env` | same |
+ * | `env_exposed` | `env` | env test (`envKind !== null && !envProtected`, `parts/Statuses.updateEnv`) | `active` |
  * | `gym_fatigue` | `fatigue:<stat>` | `getGymFatigueUntil(stat) > now` | `active`, `startedAt = until − GYM_FATIGUE_HOURS h` · `endsAt = until` |
- * | `rest` | `pose` | 가구 자세 `sit` | `active` |
- * | `exercise` | `pose` | 가구 자세 `bench` · `run` · `cycle` (+ `housing.gymSession` 의 `stat` · `minigame`) | `active` |
- * | `cooking` | `pose` | 가구 자세 `cook` (+ `housing.cookSession.mealDefId` → `defId`) — 2026-09-13 | `active` |
+ * | `rest` | `pose` | pose `sit` | `active` |
+ * | `exercise` | `pose` | pose `bench` · `run` · `cycle` (+ `housing.gymSession`'s `stat` · `minigame`) | `active` |
+ * | `cooking` | `pose` | pose `cook` (+ `housing.cookSession.mealDefId` → `defId`) — 2026-09-13 | `active` |
  *
- * 2026-09-13 (요리 품질): `meal` 에 `quality` — 함선 `getMealQuality()` · 레이드 `getActiveMealQuality()`, 0 이면 싣지 않는다.
- * | `adrenaline` · `stimulant` | `boost` | `parts/Boosts` (`boostKind` · `boostDefId` · 버프 시계로 찍은 시작 / 끝) | `active` |
+ * 2026-09-13 (meal quality): `quality` on `meal` — ship `getMealQuality()` · raid `getActiveMealQuality()`,
+ * not carried when 0.
+ * | `adrenaline` · `stimulant` | `boost` | `parts/Boosts` (`boostKind` · `boostDefId` · start/end times) | `active` |
  *
- * 함선 / 레이드는 `ctx.isRaidActive()` 가 가른다 (progression 이 준비물 사용을 거절하는 기준과 같다). 시각은
- * `ctx.net.serverNow() ?? Date.now()`. 모든 선택 메서드는 덕 타이핑으로 부른다.
+ * Ship / raid is split by `ctx.isRaidActive()` (the same test progression uses to refuse a prep). The time is
+ * `ctx.net.serverNow() ?? Date.now()`. Every optional method is called through duck typing.
  *
- * **언제 모으나**: 이벤트(`progress:mealChanged` · `progress:prepChanged` · `progress:gymFatigue` · `player:envChanged` ·
- * `housing:gymSession` · `game:newMission` · `game:abort` · `game:phaseChanged` · `hub:entered`)와 자세 시작/끝이 `buffsDirty` 만
- * 세우고, `update` 끝의 `updateBuffs` 가 프레임당 한 번 모은다 — 같은 프레임의 변경은 하나로 합쳐진다. 거기에 **1 초 틱**
- * (`BUFF_TICK_S`)이 디버프 만료처럼 이벤트가 없는 변화를 잡는다.
+ * **When it is collected**: events (`progress:mealChanged` · `progress:prepChanged` · `progress:gymFatigue` ·
+ * `player:envChanged` · `housing:gymSession` · `game:newMission` · `game:abort` · `game:phaseChanged` ·
+ * `hub:entered`) and a pose starting / ending only raise `buffsDirty`, and `updateBuffs` at the end of `update`
+ * collects once per frame — changes in the same frame fold into one. On top of that a **1 s tick** (`BUFF_TICK_S`)
+ * catches changes that have no event, such as a debuff expiring.
  *
- * **리비전**: 모은 목록을 `CHAR_BUFF_ORDER` 로 정렬해 `sameCharBuffs` 로 지금 목록과 비교하고, 다를 때만 새 배열(깨끗한 복사본)로
- * 갈아 끼우고 리비전 +1 · `player:buffsChanged`. 처음은 빈 배열 · 리비전 0 이라 첫 비지 않은 목록이 리비전 1 이다.
- * 모으는 동안에는 풀의 객체를 다시 쓴다 — 틱마다 할당하지 않는다(바뀔 때만 복사본을 만든다).
+ * **Revision**: the collected list is sorted by `CHAR_BUFF_ORDER` and compared with the current list through
+ * `sameCharBuffs`; only when they differ is it swapped for a new array (a clean copy), the revision raised by 1 and
+ * `player:buffsChanged` emitted. It starts empty at revision 0, so the first non-empty list is revision 1.
+ * While collecting, objects from the pool are reused — nothing is allocated per tick (a copy is made only on change).
  */
 import {
   GYM_FATIGUE_HOURS, GYM_STATS, isDebuffKind, sameCharBuffs, sortCharBuffs,
@@ -36,7 +41,10 @@ import {
 import { BUFF_TICK_S } from '../model';
 import type { PlayerSystem } from '../PlayerSystem';
 
-/** progression 의 선택 메서드 — 덕 타이핑 (옛 구현 · 테스트 대역에서 빠져 있어도 목록이 비는 것으로 끝난다). */
+/**
+ * progression's optional methods — duck typing (when an older implementation or a test double lacks one, the list
+ * simply comes out empty).
+ */
 interface ProgressionView {
   getMeal?(): string | null;
   getActiveMeal?(): string | null;
@@ -49,7 +57,7 @@ interface ProgressionView {
 
 const HOUR_MS = 3600e3;
 
-/** `init` 에서 한 번: 목록을 다시 모아야 하는 사건들이 `buffsDirty` 를 세운다. */
+/** Once in `init`: the events that require the list to be collected again raise `buffsDirty`. */
 export function bindBuffs(sys: PlayerSystem, ctx: GameContext): void {
   const dirty = (): void => { sys.buffsDirty = true; };
   const bus = ctx.bus;
@@ -58,22 +66,22 @@ export function bindBuffs(sys: PlayerSystem, ctx: GameContext): void {
   bus.on('progress:gymFatigue', dirty);
   bus.on('player:envChanged', dirty);
   bus.on('housing:gymSession', dirty);
-  bus.on('housing:cookSession', dirty);   // 2026-09-13: 조리 중 버프의 요리 (`cookSession.mealDefId`)
-  bus.on('housing:gameSession', dirty);   // 2026-09-13: 게임 중 버프 (좌석 자세 `sit` + `housing.gameSession`)
+  bus.on('housing:cookSession', dirty);   // 2026-09-13: the meal for the `cooking` buff (`cookSession.mealDefId`)
+  bus.on('housing:gameSession', dirty);   // 2026-09-13: the `gaming` buff (seat pose `sit` + `housing.gameSession`)
   bus.on('game:newMission', dirty);
   bus.on('game:abort', dirty);
   bus.on('game:phaseChanged', dirty);
   bus.on('hub:entered', dirty);
 }
 
-/** `update` 끝에서 매 프레임: 1 초 틱 + 더러우면 한 번 모은다. */
+/** Every frame at the end of `update`: the 1 s tick + one collect when dirty. */
 export function updateBuffs(sys: PlayerSystem, dt: number): void {
   if (dt > 0) sys.buffsTick += dt;
   if (sys.buffsTick >= BUFF_TICK_S) { sys.buffsTick %= BUFF_TICK_S; sys.buffsDirty = true; }
   if (sys.buffsDirty) recomputeBuffs(sys);
 }
 
-/** 버프 시계 (epoch ms) — 릴레이가 있으면 서버 시각, 없으면 `Date.now()`. */
+/** The buff clock (epoch ms) — server time when a relay is there, `Date.now()` otherwise. */
 export function buffNow(ctx: GameContext): number {
   const net = ctx.net as { serverNow?(): number } | null;
   if (net && typeof net.serverNow === 'function') {
@@ -84,8 +92,8 @@ export function buffNow(ctx: GameContext): number {
 }
 
 /**
- * 지금 목록을 모아 바뀌었으면 게시한다. 게시했으면 true (리비전이 올랐다). 스모크 · 콘솔도 부른다
- * (`window.__game.getSystem('player').recomputeBuffs()`).
+ * Collects the current list and publishes it if it changed. true when it published (the revision went up). Smokes ·
+ * the console call it too (`window.__game.getSystem('player').recomputeBuffs()`).
  */
 export function recomputeBuffs(sys: PlayerSystem): boolean {
   sys.buffsDirty = false;
@@ -98,7 +106,7 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
   const state: CharBuffState = raid ? 'active' : 'pending';
   const prog = ctx.progression as unknown as ProgressionView | null;
 
-  // ── 식사 · 준비물 (함선 = 다음 레이드에 실린 것, 레이드 = 이번에 실린 것)
+  // ── Meal · preps (ship = what is loaded for the next raid, raid = what is loaded for this one)
   if (prog) {
     const meal = raid
       ? (typeof prog.getActiveMeal === 'function' ? prog.getActiveMeal() : null)
@@ -106,7 +114,7 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
     if (typeof meal === 'string' && meal) {
       const b = take(sys, 'meal', 'meal', state);
       b.defId = meal;
-      // 2026-09-13 요리 품질 — 대기분과 이번 레이드분이 각자 품질을 든다 (0 = 생략)
+      // 2026-09-13 meal quality — the pending one and this raid's one each carry their own quality (0 = omitted)
       const qf = raid ? prog.getActiveMealQuality : prog.getMealQuality;
       const q = typeof qf === 'function' ? qf.call(prog) : 0;
       if (typeof q === 'number' && Number.isFinite(q) && q >= 1) b.quality = Math.floor(q);
@@ -121,7 +129,8 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
         if (typeof id !== 'string' || !id) continue;
         const env = ctx.loot?.getItemDef(id)?.prep?.env ?? null;
         const key = env ? `prep:${env}` : `prep:${id}`;
-        if (hasKey(list, key)) continue;   // 환경당 하나 (progression 이 이미 막지만 키가 겹치면 목록이 깨진다)
+        // one per env (progression already blocks it, but a duplicate key would break the list)
+        if (hasKey(list, key)) continue;
         const b = take(sys, 'prep', key, state);
         b.defId = id;
         if (env) b.env = env;
@@ -129,10 +138,10 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
     }
   }
 
-  // ── 환경 노출 (레이드에서만 판정이 선다 — `updateEnv`)
+  // ── Env exposure (the test only stands in a raid — `updateEnv`)
   if (sys.envKind !== null && !sys.envProtected) take(sys, 'env_exposed', 'env', 'active').env = sys.envKind;
 
-  // ── 운동 디버프 (함선 · 레이드 어디서든, 현실 시간)
+  // ── The gym debuff (anywhere, ship or raid, on real time)
   if (prog && typeof prog.getGymFatigueUntil === 'function') {
     const now = buffNow(ctx);
     for (let i = 0; i < GYM_STATS.length; i++) {
@@ -146,7 +155,8 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
     }
   }
 
-  // ── 전투 소모품 (2026-09-12 — 레이드 시간제, `parts/Boosts`): 시각은 Boosts 가 버프 시계로 찍어 둔 값 (정수 ms)
+  // ── Combat consumables (2026-09-12 — timed inside the raid, `parts/Boosts`): the times are the values Boosts
+  //    stamped on the buff clock (whole ms)
   if (sys.boostKind !== null) {
     const b = take(sys, sys.boostKind, 'boost', 'active');
     if (sys.boostDefId) b.defId = sys.boostDefId;
@@ -154,10 +164,11 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
     if (e >= s) { b.startedAt = s; b.endsAt = e; }
   }
 
-  // ── 가구 자세 (휴식 중 · 운동 중 · 2026-09-13 조리 중)
+  // ── Furniture pose (`rest` · `exercise` · 2026-09-13 `cooking`)
   const f = sys.furn;
   if (f.kind !== null) {
-    // 2026-09-13 (사용자 결정): TV 앞 좌석의 게임 세션이면 `sit` 이라도 휴식이 아니라 「게임 중」 — 좌석 uid 가 같거나 자세에 uid 가 없을 때
+    // 2026-09-13 (user's decision): a game session in the seat in front of the TV is 「게임 중」 rather than rest even
+    //   on `sit` — when the seat uid matches, or the pose carries no uid
     const game = f.kind === 'sit' ? (ctx.housing?.gameSession ?? null) : null;
     const gaming = !!game && (!f.furnitureUid || game.seatUid === f.furnitureUid);
     const b = take(sys, gaming ? 'gaming' : f.kind === 'sit' ? 'rest' : f.kind === 'cook' ? 'cooking' : 'exercise', 'pose', 'active');
@@ -168,7 +179,8 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
       b.stat = game.stat;
       b.minigame = game.minigame;
     } else if (f.kind === 'cook') {
-      // 만드는 요리 — 조리대 세션이 있고 uid 가 같거나 자세에 uid 가 없을 때 (운동 세션과 같은 규칙). 타이머는 없다.
+      // The meal being made — when a cook bench session exists and the uid matches, or the pose carries no uid (the
+      //   same rule as the gym session). There is no timer.
       const cook = ctx.housing?.cookSession ?? null;
       if (cook && (!f.furnitureUid || cook.uid === f.furnitureUid) && typeof cook.mealDefId === 'string' && cook.mealDefId) b.defId = cook.mealDefId;
     } else if (f.kind !== 'sit') {
@@ -179,7 +191,8 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
       }
     }
   } else {
-    // 2026-09-17 (사용자 결정): 좌석 없이 **서서** 하는 게임 세션(`seatUid` null)도 「게임 중」이다 — 걸린 자세가 없어 위 절을 지나지 않는다
+    // 2026-09-17 (user's decision): a game session played **standing**, with no seat (`seatUid` null), is 「게임 중」
+    //   too — with no pose held it never reaches the clause above
     const game = ctx.housing?.gameSession ?? null;
     if (game && !game.seatUid) {
       const b = take(sys, 'gaming', 'pose', 'active');
@@ -199,7 +212,7 @@ export function recomputeBuffs(sys: PlayerSystem): boolean {
   return true;
 }
 
-/** 풀에서 객체 하나를 꺼내 초기화하고 목록에 넣는다. */
+/** Takes one object out of the pool, resets it and puts it on the list. */
 function take(sys: PlayerSystem, kind: CharBuffKind, key: string, state: CharBuffState): CharBuff {
   const list = sys.buffScratch, pool = sys.buffPool;
   const i = list.length;
@@ -217,7 +230,7 @@ function hasKey(list: readonly CharBuff[], key: string): boolean {
   return false;
 }
 
-/** 게시용 복사본 — 정해진 필드만 싣는다 (와이어 JSON 에 `undefined` 키가 남지 않게). */
+/** The copy that gets published — only the fields that are set ride (no `undefined` key in the wire JSON). */
 function cleanCopy(b: CharBuff): CharBuff {
   const o: CharBuff = { kind: b.kind, key: b.key, debuff: b.debuff, state: b.state };
   if (b.defId !== undefined) o.defId = b.defId;

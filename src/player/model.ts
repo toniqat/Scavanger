@@ -1,9 +1,9 @@
 /**
- * src/player/model.ts — 플레이어 폴더의 공용 어휘.
+ * src/player/model.ts — the player folder's shared vocabulary.
  *
- * `PlayerSystem` 에서 떼어낸 상수 · 타입 · 스크래치 벡터만 있다. 클래스를 참조하지 않으므로
- * `parts/*` 모듈이 클래스를 되돌아 import 하지 않고 쓸 수 있다(순환 import 방지).
- * `PlayerSystem.ts` 가 그대로 재수출하므로 기존 import 경로는 전부 유지된다.
+ * Only the constants · types · scratch vectors split out of `PlayerSystem`. It references no class, so a
+ * `parts/*` module can use it without importing the class back (no circular import).
+ * `PlayerSystem.ts` re-exports it as is, so every existing import path still resolves.
  */
 import * as THREE from 'three';
 import type { FurniturePoseKind, PlayerRestoreState } from '@/shared';
@@ -25,7 +25,7 @@ import type { CarryEndReason, PortraitRef } from '@/shared';
 import { PLAYER_CARRY_DROP_S, PLAYER_CARRY_OFFSET, PLAYER_CARRY_PICKUP_S, PLAYER_CARRY_RANGE, PLAYER_CARRY_SPEED_MUL } from '@/shared';
 import type { CarryHost } from './Carry';
 import { createPortraits } from './Portraits';
-/* appended (Phase 10): 부상자 들쳐메기 + 준비 패널 초상화 */
+/* appended (Phase 10): shouldering a downed squadmate + ready-panel portraits */
 
 /** Phase 12 perk `auto_revive`: seconds between going down and the automatic stand-up. */
 export const AUTO_REVIVE_DELAY_S = 1;
@@ -47,7 +47,7 @@ export const CLOAK_PROBE_INTERVAL = 0.25;
 export const BURN_TICK = 0.5;
 /** Stamina drained per second while the tactical bag hovers. */
 export const HOVER_STAMINA_DRAIN = 10;
-/** Fall speed (m/s, negative) that auto-triggers the tactical bag's one free hover (낙사 방지). */
+/** Fall speed (m/s, negative) that auto-triggers the tactical bag's one free hover (prevents a fatal fall). */
 export const HOVER_AUTO_FALL = -18;
 /** Speed-modifier keys the player owns itself (external callers must not reuse them). */
 export const SPEEDMOD_WEIGHT = 'weight';
@@ -75,64 +75,66 @@ export const SPAWN_RING_RADIUS = 4;         // multiplayer: per-slot drop offset
 export const FADE_FAR = 0.9;
 export const FADE_NEAR = 0.45;
 
-/* ── 단차 보간 · 사다리 (2026-09-11) — 수치 원본은 `STEP_SMOOTH_RATE` · `STEP_SMOOTH_MAX` (data/constants.csv) ── */
-/** 한 프레임 높이 변화가 이보다 작으면(m) 보간하지 않는다 — 지형 굴곡은 그대로 따라간다. */
+/* ── step smoothing · ladder (2026-09-11) — numbers in `STEP_SMOOTH_RATE` · `STEP_SMOOTH_MAX` (constants.csv) ── */
+/** A one-frame height change smaller than this (m) is not smoothed — the body follows the terrain's undulation. */
 export const STEP_SMOOTH_MIN = 0.04;
 /**
- * 높이 변화 / 수평 이동이 이 비율을 넘을 때만 "단차" 다. 경사면(최대 50° ≈ 1.19)은 연속이므로 보간하면 모델이
- * 발밑에서 뜨거나 가라앉는다 — 낮은 바위 · 상자 모서리 · `SNAP_DOWN` 은 한 프레임에 수 배로 튄다.
+ * Only a height change / horizontal move over this ratio is a "step". A slope (at most 50° ≈ 1.19) is continuous,
+ * so smoothing it lifts the model off its feet or sinks it — a low rock · box edge · `SNAP_DOWN` jump far more.
  */
 export const STEP_SLOPE_RATIO = 1.5;
-/** 사다리를 잡을 때 몸이 옮겨 붙는 시각 보간의 최대 길이(m). */
+/** Longest visual offset (m) the body is smoothed over when it snaps onto a ladder. */
 export const CLIMB_GRAB_OFFSET_MAX = 2;
-/** 가로대 소리 크기: 보통 / 빠르게. */
+/** Rung sound volume: normal / fast. */
 export const LADDER_STEP_VOLUME = 0.45;
 export const LADDER_STEP_VOLUME_FAST = 0.6;
 
-/* ── 가구 자세 (2026-09-12, `parts/FurniturePose`) — 몸의 오프셋은 `SoldierModel` 의 `FURN_*` 가 원본이다 ── */
-/** 자세 블렌드(0 ↔ 1)의 감쇠 계수 — 앉기 · 눕기 · 일어서기가 약 0.6 초에 끝난다. */
+/* ── furniture poses (2026-09-12, `parts/FurniturePose`) — the body offsets live in `SoldierModel`'s `FURN_*` ── */
+/** Damp rate of the pose blend (0 ↔ 1) — sitting · lying down · standing up finish in about 0.6 s. */
 export const FURN_BLEND_RATE = 5;
-/** 자세 중 몸이 향하는 방향으로 도는 감쇠 계수. */
+/** Damp rate at which the body turns toward the pose's facing. */
 export const FURN_YAW_RATE = 10;
-/** 카메라 피벗(눈) 높이 — **anchor 위**로 잰다. 흔들의자는 자유 시점이라 이 값이 곧 궤도 중심이다. */
+/** Camera pivot (eye) height — **above the anchor**. The rocking chair has free look: this is its orbit centre. */
 export const FURN_EYE: Readonly<Record<FurniturePoseKind, number>> = {
   sit: 0.85, bench: 0.45, run: EYE_STAND, cycle: 0.8,
-  /* 2026-09-13 요리: anchor = 바닥이고 조리대 쪽으로 약 0.3 rad 숙여 서 있다 — 선 눈높이보다 조금 낮다 (`SoldierModel.FURN_COOK`). */
+  /* 2026-09-13 cooking: anchor = the floor and the body leans ~0.3 rad toward the cook bench — a little under the
+     standing eye height (`SoldierModel.FURN_COOK`). */
   cook: 1.42,
 };
-/** 부른 쪽이 위상을 한 번도 안 주면 스스로 도는 속도: 벤치 한 회 (초) · 달리기 걸음 / 초 · 페달 바퀴 / 초. */
+/** Self-driven rates when the caller never sets a phase: a bench rep (s) · run steps / s · pedal revs / s. */
 export const FURN_BENCH_REP_S = 2.6;
 export const FURN_RUN_STEPS_PER_S = 2.8;
 export const FURN_CYCLE_REV_PER_S = 1.2;
-/** 2026-09-13 요리: `cook` 을 부른 쪽이 위상을 한 번도 안 주면 손 동작이 스스로 도는 속도 (주기 / 초) — 느린 칼질 · 젓기. */
+/** 2026-09-13 cooking: self-driven hand rate when `cook` gets no phase (cycles / s) — slow chopping · stirring. */
 export const FURN_COOK_CYCLE_PER_S = 0.9;
-/** `run` 은 보행 주기를 그대로 쓴다 — 그때 넣는 moveBlend · sprint 블렌드. */
+/** `run` rides the walk cycle as is — the moveBlend · sprint blends fed in while it does. */
 export const FURN_RUN_MOVE = 1.15;
 export const FURN_RUN_SPRINT = 0.7;
-/** `releaseOnInteract` 자세에서 E 캡션. */
+/** E caption on a `releaseOnInteract` pose. */
 export const FURN_STAND_PROMPT = '일어나기';
-/** 원격 명판: 자세 중 머리 높이 = anchor + `FURN_EYE[kind]` + 이만큼 (서 있을 때 머리 1.7 − 눈 1.55). */
+/** Remote nameplate: head height while posed = anchor + `FURN_EYE[kind]` + this (standing head 1.7 − eye 1.55). */
 export const FURN_HEAD_ABOVE_EYE = 0.15;
 
-/* ── 가구 자세 공용 수학 (2026-09-12 캐릭터 버프 — 로컬 `parts/FurniturePose` 와 원격 `RemoteAvatar` 가 같은 식을 쓴다) ── */
-/** 몸(루트) 방향 — `bench` 는 머리 → 거치대라 발끝이 반대 = `yaw + π`. */
+/* ── furniture-pose shared math (2026-09-12 char buffs — local `parts/FurniturePose` and remote `RemoteAvatar`) ── */
+/** Body (root) facing — on `bench` the head points at the rack, so the feet face the other way = `yaw + π`. */
 export function furnitureBodyYaw(kind: FurniturePoseKind, yaw: number): number {
   return kind === 'bench' ? yaw + Math.PI : yaw;
 }
-/** 자세 블렌드 한 걸음 (`FURN_BLEND_RATE`). */
+/** One step of the pose blend (`FURN_BLEND_RATE`). */
 export function stepFurnitureBlend(blend: number, on: boolean, dt: number): number {
   return damp(blend, on ? 1 : 0, FURN_BLEND_RATE, dt);
 }
-/** 루트를 anchor 쪽으로: `out` 에는 서 있던 자리가 이미 들어 있다 — smoothstep(blend) 만큼 `anchor` 로 끌어간다. */
+/** Root toward the anchor: `out` already holds the standing spot — pulled toward `anchor` by smoothstep(blend). */
 export function lerpFurnitureRoot(out: THREE.Vector3, anchor: THREE.Vector3, blend: number): THREE.Vector3 {
   const e = blend * blend * (3 - 2 * blend);
   return out.lerp(anchor, e);
 }
 /**
- * `SoldierPose` 의 가구 자세 필드. `cumPhase` 는 **누적 위상**(`FurniturePoseState.phase` 와이어 규약 — bench 0…1 · run 걸음 수 ·
- * cycle 바퀴 수 · cook 손 동작 주기 수 · sit 0). `run` 은 보행 주기(`stridePhase = π × 걸음`)를 타고, 나머지는 `SoldierModel.poseFurniture` 가
- * 뼈대를 맡는다 (`cook` 은 소수부 = 한 주기 안의 위치).
- * 호출 전에 평소 자세 값(moveBlend · sprint …)이 이미 쓰여 있어야 한다 — `run` 은 그 위에 블렌드한다.
+ * The furniture-pose fields of `SoldierPose`. `cumPhase` is the **accumulated phase** (`FurniturePoseState.phase`
+ * wire contract — bench 0…1 · run steps · cycle revolutions · cook hand cycles · sit 0). `run` rides the walk cycle
+ * (`stridePhase = π × steps`), the rest let `SoldierModel.poseFurniture` own the skeleton (`cook` = the fractional
+ * part, the position inside one cycle). The ordinary pose values (moveBlend · sprint …) must already be written
+ * before this is called — `run` blends on top of them.
  */
 export function writeFurniturePose(p: SoldierPose, kind: FurniturePoseKind | null, blend: number, cumPhase: number): void {
   if (kind === null) { p.furniture = 0; p.furnitureKind = null; p.furniturePhase = 0; return; }
@@ -149,42 +151,42 @@ export function writeFurniturePose(p: SoldierPose, kind: FurniturePoseKind | nul
   p.torsoTwist *= 1 - e;
   p.crouch *= 1 - e;
 }
-/** 캐릭터 버프 목록을 다시 모으는 주기(초) — 운동 디버프 만료처럼 이벤트가 없는 변화를 잡는다 (`parts/Buffs`). */
+/** Recollect period (s) for the char buff list — catches eventless change, e.g. a gym debuff expiry (`Buffs`). */
 export const BUFF_TICK_S = 1;
 
-/** `PlayerSystem.furn` — 가구 자세 하나의 상태 (`parts/FurniturePose` 만 쓴다). */
+/** `PlayerSystem.furn` — the state of one furniture pose (only `parts/FurniturePose` uses it). */
 export interface FurniturePoseState {
-  /** 논리 상태 (`PlayerRef.furniturePose`). null = 자세 없음. */
+  /** The logical state (`PlayerRef.furniturePose`). null = no pose. */
   kind: FurniturePoseKind | null;
-  /** 모델이 그리는 자세 — 풀린 뒤에도 블렌드가 0 이 될 때까지 남는다. */
+  /** The pose the model draws — it stays after the release until the blend reaches 0. */
   visKind: FurniturePoseKind | null;
-  /** 0..1, `FURN_BLEND_RATE` 로 감쇠. */
+  /** 0..1, damped by `FURN_BLEND_RATE`. */
   blend: number;
   releaseOnInteract: boolean;
   readonly anchor: THREE.Vector3;
   yaw: number;
-  /** 고정 카메라를 걸었는가 (`camPos` · `camLook` 이 그 값). */
+  /** Whether a fixed camera was raised (`camPos` · `camLook` hold it). */
   hasCamera: boolean;
   readonly camPos: THREE.Vector3;
   readonly camLook: THREE.Vector3;
-  /** 자세 직전의 발 위치 · 몸 방향 · 자세 — 풀면 여기로 돌아간다. */
+  /** Feet position · body facing · stance from just before the pose — a release returns to these. */
   readonly restorePos: THREE.Vector3;
   restoreYaw: number;
   restoreStance: Stance;
-  /** `setFurniturePoseDrive` 가 한 번이라도 불렸는가 (아니면 스스로 돈다). */
+  /** Whether `setFurniturePoseDrive` was ever called (otherwise the pose drives itself). */
   driven: boolean;
-  /** 위상 0..1 — `bench` 바벨 · `cycle` 크랭크 · `run` 걸음 안의 위치. */
+  /** Phase 0..1 — the position inside a `bench` bar · `cycle` crank · `run` step. */
   phase: number;
   /**
-   * `run`: 지나간 걸음 수 · `cycle`: 지나간 바퀴 수 (위상이 1 → 0 으로 감길 때마다 +1 — 좌우 발이 번갈아야 한다).
-   * 2026-09-12: 와이어의 **누적 위상**이 `steps + phase` 다 (`furniturePoseState`).
+   * `run`: steps taken · `cycle`: revolutions taken (+1 every time the phase wraps 1 → 0 — the feet must alternate).
+   * 2026-09-12: the wire's **accumulated phase** is `steps + phase` (`furniturePoseState`).
    */
   steps: number;
-  /** 자기 구동용 시계 (초). */
+  /** Self-drive clock (s). */
   clock: number;
-  /** 2026-09-12: `FurniturePose.furnitureUid` (모르면 null) — 버프 · 와이어가 가구 조각을 가리킨다. */
+  /** 2026-09-12: `FurniturePose.furnitureUid` (null when unknown) — buffs · the wire point at the furniture piece. */
   furnitureUid: string | null;
-  /** 2026-09-12: `PlayerRef.furniturePoseState` 가 돌려주는 재사용 객체 (`anchor` 는 위 `anchor` 와 같은 Vector3). */
+  /** 2026-09-12: the reused object `PlayerRef.furniturePoseState` returns (`anchor` is the same Vector3 as above). */
   readonly wire: { kind: FurniturePoseKind; anchor: THREE.Vector3; yaw: number; phase: number; furnitureUid: string | null };
 }
 
@@ -212,7 +214,7 @@ export interface WeaponState {
   /* Phase 7: pin pulled (grenade cooking) — optional hint, remotes get it from the COOKING flag */
   cooking: boolean;
 }
-/** Melee swing kinds: `light` = the F chop (MELEE_SWING_TIME), `heavy` = the 용검 two-handed slash (SLASH_DURATION). */
+/** Melee swing kinds: `light` = the F chop (MELEE_SWING_TIME), `heavy` = the `용검` two-hand slash (SLASH_DURATION). */
 export type MeleeKind = 'light' | 'heavy';
 
 /** One entry of the multiplicative speed-modifier stack (`setSpeedModifier`). */

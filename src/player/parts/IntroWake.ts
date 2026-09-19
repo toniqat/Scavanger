@@ -1,91 +1,97 @@
 /**
- * src/player/parts/IntroWake.ts — **오프닝 기상 연출** (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
+ * src/player/parts/IntroWake.ts — **the intro wake** (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
  *
- * 이 파일이 답하는 질문: *깨어나는 동안 몸과 카메라는 무엇을 하는가.*
+ * The question this file answers: *what the body and the camera do while waking up.*
  *
- * `PlayerRef.playIntroWake(durationS)` 의 구현이다. 튜토리얼이 시작하면서 한 번 부르고(수치는
- * `TUTORIAL_INTRO_WAKE_S`), 그 시간 동안:
- *   - 몸은 **쓰러진 자세**로 시작해 천천히 일어난다. 새 자세를 만들지 않고 전투불능 자세
- *     (`SoldierPose.downed` → `SoldierModel.poseDowned`)의 진행도를 1 → 0 으로 되감는다 — 그 자세가 곧
- *     「등을 대고 쓰러진 산 사람」이고, 0 에서 평소 자세로 매끄럽게 넘어간다.
- *   - 이동 · 자세 · 점프 · 구르기 · 조준 · 무기 · 상호작용 · 마우스 룩이 잠긴다 (드론 조종 게이트를
- *     보는 곳들과 같은 요령 — `PlayerSystem.update` 의 `moveFrozen` · `canUseWeapons`).
- *   - 카메라는 쓰러진 몸을 옆 낮은 곳에서 비추다가, **일어서는 동안 평소 3인칭 백뷰 자리로 스르륵 옮겨 간다**
- *     (2026-09-14 사용자 결정 — 아래 `updateIntroCamera`). 끝나는 프레임에는 이미 백뷰 자리라 오버라이드를 풀어도
- *     (`setCameraOverride(null, undefined, true)`) 화면이 튀지 않는다.
- *   - **화면은 검정에서 시작해 밝아진다** (2026-09-14 2차, 사용자 결정 — 아래 *오프닝 페이드*).
- * 끝나면 `player:introWakeDone` 을 낸다. 그 프레임까지 `PlayerRef.introWaking` 이 true 이고 나침반 · Tab 가방이
- * 그것을 본다 — 카메라가 완전히 돌아오기 전에는 나타나지 않는다 (사용자 결정).
+ * The implementation of `PlayerRef.playIntroWake(durationS)`. The tutorial calls it once as it starts (the number is
+ * `TUTORIAL_INTRO_WAKE_S`), and for that long:
+ *   - the body starts in the **downed pose** and rises slowly. No new pose is built: the progress of the downed pose
+ *     (`SoldierPose.downed` → `SoldierModel.poseDowned`) is rewound 1 → 0 — that pose already is
+ *     「a living person fallen on their back」, and 0 crosses smoothly into the normal pose.
+ *   - movement · stance · jump · roll · aim · weapons · interaction · mouse look are locked (the same trick as the
+ *     places that read the drone-control gate — `moveFrozen` · `canUseWeapons` in `PlayerSystem.update`).
+ *   - the camera looks at the downed body from low at its side, then **slides to the normal third-person back-view
+ *     spot while the body rises** (2026-09-14 user's decision — `updateIntroCamera` below). On the last frame it is
+ *     already at that spot, so releasing the override (`setCameraOverride(null, undefined, true)`) does not jump.
+ *   - **the screen starts black and brightens** (2026-09-14 2nd pass, user's decision — *the opening fade* below).
+ * It emits `player:introWakeDone` when it ends. `PlayerRef.introWaking` is true until that frame, and the compass and
+ * the Tab bag read it — they do not appear before the camera is fully back (user's decision).
  *
- * 스스로 푸는 경우: `game:abort` · `game:newMission` · 사망 · 리셋 경로(`resetAll` · `respawnAt` ·
- * `spawnStanding` · `restoreState`). 그때는 `player:introWakeDone` 을 내지 않는다 (연출이 끝난 것이 아니다).
+ * It releases itself on: `game:abort` · `game:newMission` · death · the reset paths (`resetAll` · `respawnAt` ·
+ * `spawnStanding` · `restoreState`). Those do not emit `player:introWakeDone` (the cutscene did not finish).
  *
- * ## 2026-09-14 — 끝나지 않던 연출
+ * ## 2026-09-14 — the cutscene that never ended
  *
- * 타이머를 `introWakeT -= dt` 로 줄여 **0 을 지나 음수**가 된 프레임에 `endIntroWake` 를 불렀는데, 그 함수의 첫 줄이
- * 「연출 중이 아니다」 표식인 `introWakeT < 0` 에서 되돌아갔다. 그래서 오버라이드가 풀리지 않아 **카메라가 옆자리에
- * 영영 남았고**, `player:introWakeDone` 이 안 나서 튜토리얼이 `wake` 단계에 갇혔다 (안내가 안 뜬다 — `cliff`
- * 체크포인트가 접어 줄 때까지). 다음 프레임부터는 `updateIntroWake` 도 같은 표식에서 조용히 돌아갔다.
- * 타이머를 **0 에서 멈추게**(`Math.max(0, …)`) 해 음수 표식과 섞이지 않게 했다. 회귀는 `scripts/smoke-intro-wake.mjs`.
+ * The timer was decremented with `introWakeT -= dt` and `endIntroWake` was called on the frame it went **past 0 into
+ * the negative**, where that function's first line turned back on `introWakeT < 0` — the 「not playing」 marker. The
+ * override was never released, so **the camera stayed beside the body forever**, and with no `player:introWakeDone`
+ * the tutorial was stuck on the `wake` step (no guidance, until the `cliff` checkpoint folded it away). From the next
+ * frame `updateIntroWake` turned back on the same marker too. The timer now **stops at 0** (`Math.max(0, …)`) and
+ * never mixes with the negative marker. Regression: `scripts/smoke-intro-wake.mjs`.
  *
- * ## 오프닝 페이드 (2026-09-14 2차)
+ * ## The opening fade (2026-09-14 2nd pass)
  *
- * 그리는 것은 `ui/` 다 — 이 파일은 `ui:screenFade {opacity, durationS}` 로 **언제 · 얼마 동안**만 말한다
- * (opacity 1 = 완전한 검정, 0 = 투명). 규칙은 하나다: **검은 화면에 갇히지 않는다.**
- * 시작(`playIntroWake`)에 즉시 검정을 깔고, 연출을 끝내거나(`endIntroWake`) 취소하는(`cancelIntroWake`)
- * **모든 경로**가 `{opacity: 0, durationS: 0}` 으로 화면을 되돌린다 — 사망 · 전투불능 · `game:abort` ·
- * `game:newMission` · 리셋이 전부 그 둘 중 하나를 지난다.
- * (2026-09-14: 밝아지는 전이는 `ui/HudSystem` 이 **코드로** 돌린다 — OS 가 애니메이션 효과를 끄면 CSS 전이가
- *  0.01 ms 로 잘려 페이드가 한 프레임에 끝났다. 이 파일이 말하는 방식은 그대로다.)
+ * `ui/` draws it — this file only says **when · for how long**, through `ui:screenFade {opacity, durationS}`
+ * (opacity 1 = fully black, 0 = transparent). There is one rule: **never get stuck on a black screen.**
+ * The start (`playIntroWake`) lays black down at once, and **every path** that ends (`endIntroWake`) or cancels
+ * (`cancelIntroWake`) the cutscene restores the screen with `{opacity: 0, durationS: 0}` — death · downed ·
+ * `game:abort` · `game:newMission` · a reset all pass through one of those two.
+ * (2026-09-14: `ui/HudSystem` runs the brightening transition **in code** — when the OS turns animation effects off a
+ *  CSS transition is clipped to 0.01 ms and the fade ended in one frame. The way this file speaks is unchanged.)
  */
 import * as THREE from 'three';
 import { TUTORIAL_INTRO_WAKE_S } from '@/shared';
-/* appended (2026-09-15): 튜토리얼 부활 연출 — `playIntroWake(d, {respawn:true})` */
+/* appended (2026-09-15): the tutorial respawn wake — `playIntroWake(d, {respawn:true})` */
 import { TUTORIAL_RESPAWN_WAKE_S } from '@/shared';
 import { smoothstep } from '@/core/util/MathUtil';
 import type { PlayerSystem } from '../PlayerSystem';
 
-/* 연출 기하 — 밸런스 수치가 아니라 카메라 · 자세 프레이밍이라 `model.ts` 의 `EYE_*` · `FADE_*` 와 같은 자리에 둔다. */
+/* Cutscene geometry — camera · pose framing, not balance numbers, so it sits with `model.ts`'s `EYE_*` · `FADE_*`. */
 /**
- * 이 진행도까지는 쓰러진 채로 있다가 그 뒤에 일어난다 (0..1).
- * 2026-09-14 3차: **값은 그대로**다 — 일어서는 속도를 절반으로 만든 것은 `TUTORIAL_INTRO_WAKE_S`(4.5 → 9)이고,
- * 여기는 진행도 위의 자리라 그 길이에 비례해 저절로 두 배로 늘어난다 (3.15 → 6.3 초).
+ * Stays down until this progress and rises after it (0..1).
+ * 2026-09-14 3rd pass: **the value is unchanged** — what halved the rise speed is `TUTORIAL_INTRO_WAKE_S` (4.5 → 9),
+ * and this is a spot on the progress, so it stretches twice as long by itself (3.15 → 6.3 s).
  */
 const WAKE_RISE_START = 0.3;
 /**
- * 2026-09-15 — **부활 연출**(`respawn`)의 같은 자리. 2 초 연출(`TUTORIAL_RESPAWN_WAKE_S`)에서 0.4 초 누워 있다가 1.6 초에 걸쳐
- * 일어난다 — 오프닝처럼 30 % 를 누워 있으면 짧은 연출에서는 「멈춘 화면」으로 읽힌다.
+ * 2026-09-15 — the same spot for the **respawn wake** (`respawn`). In the 2 s cutscene (`TUTORIAL_RESPAWN_WAKE_S`)
+ * the body lies for 0.4 s and rises over 1.6 s — lying 30 % of it as the opening does reads as 「a frozen screen」
+ * in a cutscene this short.
  */
 const RESPAWN_RISE_START = 0.2;
-/** 카메라가 선 각도 — 몸이 보는 쪽(`bodyYaw`)에서 이만큼 돌아간 옆앞. */
+/** The angle the camera stands at — this much turned from where the body faces (`bodyYaw`), to its front side. */
 const CAM_YAW_OFFSET = 2.1;
-/** 카메라 거리 (시작 → 끝, m) · 높이 (발 기준, m) · 바라보는 높이 (발 기준, m). */
+/** Camera distance (start → end, m) · height (from the feet, m) · the height it looks at (from the feet, m). */
 const CAM_DIST = [3.6, 2.7] as const;
 const CAM_HEIGHT = [0.75, 1.45] as const;
 const CAM_LOOK_Y = [0.35, 1.05] as const;
 /**
- * 카메라 복귀 (2026-09-14, 사용자 결정 — 「일어나면서 원래 시점으로 돌아온다」). 이 진행도부터 끝(1)까지 옆 카메라가
- * 리그의 백뷰 자리로 smoothstep 으로 옮겨 간다 — 일어서기(`WAKE_RISE_START` 0.3 → 1)의 뒤쪽 절반쯤이다
- * (9 초 연출에서 4.95 초부터 4.05 초 동안).
+ * The camera's return (2026-09-14, user's decision — 「the view comes back to normal while rising」). From this
+ * progress to the end (1) the side camera moves by smoothstep to the rig's back-view spot — about the rear half of
+ * the rise (`WAKE_RISE_START` 0.3 → 1); in a 9 s cutscene that is 4.05 s starting at 4.95 s.
  */
 const CAM_RETURN_START = 0.55;
-/** 백뷰 시선 위의 한 점 — 리그 자리에서 보는 방향으로 이만큼 앞 (m). `lookAt` 만 쓰므로 거리 자체는 회전을 안 바꾼다. */
+/**
+ * A point on the back-view sight line — this far ahead of the rig spot along its look direction (m).
+ * Only `lookAt` uses it, so the distance itself does not change the rotation.
+ */
 const CAM_RETURN_LOOK_DIST = 10;
 
-/* 페이드도 같은 자리에 둔다 — **밸런스 수치가 아니라 연출 진행도(0..1) 위의 자리**라 바로 위
- * `WAKE_RISE_START` 와 한 묶음이고, 길이는 csv 의 `TUTORIAL_INTRO_WAKE_S` 에 비례해 함께 늘고 준다.
- * (csv 줄로 빼려면 `shared/constants.ts` 의 `K.num` 한 줄이 필요하다 — 그 파일은 이 배치의 소유가
- *  아니라 지금은 여기 둔다.) */
-/** 이 진행도까지는 완전한 검정 — 아주 짧은 뜸 (9 초 연출에서 0.36 초 = 이전 4.5 초 × 0.08 과 같은 실시간). */
+/* The fade sits here too — **not a balance number but a spot on the cutscene progress (0..1)**, so it belongs with
+ * `WAKE_RISE_START` right above, and its length grows and shrinks with the csv's `TUTORIAL_INTRO_WAKE_S`.
+ * (Moving it to a csv row would need one `K.num` line in `shared/constants.ts` — that file is not owned by this
+ *  change, so it stays here for now.) */
+/** Fully black until this progress — a very short hold (0.36 s in a 9 s cutscene = the old 4.5 s × 0.08). */
 const FADE_HOLD = 0.04;
 /**
- * 이 진행도에 다 밝아진다. `WAKE_RISE_START`(일어나기 시작) **직전**이라 몸이 일어설 때는 이미 다 보인다.
+ * Fully bright at this progress. **Just before** `WAKE_RISE_START` (where the rise begins), so the body is already
+ * fully visible as it stands up.
  *
- * 2026-09-14 3차 (사용자 결정 — 「약 2초에 걸쳐 서서히 밝아진다」): 밝아지는 데 걸리는 **실시간**은
- * `(FADE_DONE − FADE_HOLD) × TUTORIAL_INTRO_WAKE_S` 다 (`updateIntroWake` 가 그 값을 `ui:screenFade.durationS`
- * 로 넘긴다). 길이가 4.5 → 9 초가 됐으므로 `0.26 − 0.04 = 0.22`, `0.22 × 9 = 1.98 초` ≈ 2 초.
- * 시각으로 풀면: 0.36 초까지 검정 → 2.34 초에 완전히 밝음 → 2.7 초(`WAKE_RISE_START` × 9)에 일어나기 시작.
- * `WAKE_RISE_START` 는 **그대로 0.3** 이라 일어서는 구간이 3.15 → 6.3 초, 즉 정확히 절반 속도가 된다.
+ * 2026-09-14 3rd pass (user's decision — 「brightens gradually over about 2 seconds」): the **real time** the
+ * brightening takes is `(FADE_DONE − FADE_HOLD) × TUTORIAL_INTRO_WAKE_S` (`updateIntroWake` hands that value to
+ * `ui:screenFade.durationS`). The length became 4.5 → 9 s, so `0.26 − 0.04 = 0.22`, `0.22 × 9 = 1.98 s` ≈ 2 s.
+ * In clock terms: black until 0.36 s → fully bright at 2.34 s → the rise starts at 2.7 s (`WAKE_RISE_START` × 9).
+ * `WAKE_RISE_START` **stays 0.3**, so the rise stretches 3.15 → 6.3 s — exactly half speed.
  */
 const FADE_DONE = 0.26;
 
@@ -95,22 +101,23 @@ const _rigLook = new THREE.Vector3();
 
 function lerp(a: number, b: number, t: number): number { return a + (b - a) * t; }
 
-/** 0 (시작) … 1 (끝). 연출 중이 아니면 1. */
+/** 0 (start) … 1 (end). 1 when no cutscene is playing. */
 function progress(sys: PlayerSystem): number {
   if (sys.introWakeT < 0 || sys.introWakeDur <= 0) return 1;
   return Math.min(1, Math.max(0, 1 - sys.introWakeT / sys.introWakeDur));
 }
 
 /**
- * `PlayerRef.playIntroWake`. 몸이 월드에 서 있을 때만 받는다 (죽었거나 스폰 전이면 무시).
- * 이미 돌고 있으면 길이만 새로 잡는다.
+ * `PlayerRef.playIntroWake`. Taken only while the body stands in the world (ignored when dead or before the spawn).
+ * One already running only gets a new length.
  *
- * ## 2026-09-15 — 부활 연출 (`opts.respawn`, 사용자 결정 「튜토리얼 부활도 쓰러졌다 일어난다」)
+ * ## 2026-09-15 — the respawn wake (`opts.respawn`, user's decision 「a tutorial respawn also rises from the ground」)
  *
- * 같은 쓰러진 자세 → 일어서기와 입력 잠금만 쓴다. **오프닝에만 있는 것은 전부 빠진다**: 검은 페이드(`ui:screenFade`) ·
- * 몸을 비추는 전용 카메라(평소 3인칭 카메라 그대로) · `PlayerRef.introWaking`(나침반 페이드 · Tab 잠금이 보는 값 — false 로 남는다) ·
- * `player:introWakeDone`(튜토리얼 `wake` 단계가 기다리는 신호). 표식은 `PlayerSystem.introWakeRespawn` 하나다.
- * 오프닝이 돌고 있는 몸에는 덮어쓰지 않는다 (부활 경로 `respawnAt` 이 오프닝을 먼저 취소하므로 실제로는 닿지 않는 보험이다).
+ * It uses only the same downed pose → rise and the input lock. **Everything the opening alone has is dropped**: the
+ * black fade (`ui:screenFade`) · the dedicated camera on the body (the normal third-person camera instead) ·
+ * `PlayerRef.introWaking` (read by the compass fade · the Tab lock — it stays false) · `player:introWakeDone` (the
+ * signal the tutorial's `wake` step waits for). The marker is `PlayerSystem.introWakeRespawn`. It never overwrites
+ * a body playing the opening (insurance never actually reached — the respawn path `respawnAt` cancels it first).
  */
 export function playIntroWake(sys: PlayerSystem, durationS: number, opts?: { respawn?: boolean }): void {
   if (!sys.spawned || sys.isDead || sys._downed) return;
@@ -118,7 +125,7 @@ export function playIntroWake(sys: PlayerSystem, durationS: number, opts?: { res
   if (respawn && sys.introWakeT >= 0 && !sys.introWakeRespawn) return;
   const fallback = respawn ? TUTORIAL_RESPAWN_WAKE_S : TUTORIAL_INTRO_WAKE_S;
   const dur = Number.isFinite(durationS) && durationS > 0 ? durationS : fallback;
-  // 몸이 하던 일을 전부 내려놓는다 (차량 · 드론 · 가구 · 사다리는 각자의 해제 경로가 있다)
+  // Puts down everything the body was doing (the rover · drone · furniture · ladder each have their own release)
   sys.releaseRoverRide();
   sys.releaseDroneControl();
   sys.releaseFurniturePose('reset');
@@ -133,34 +140,35 @@ export function playIntroWake(sys: PlayerSystem, durationS: number, opts?: { res
   sys.introWakeDur = Math.max(0.1, dur);
   sys.introWakeT = sys.introWakeDur;
   sys.introWakeRespawn = respawn;
-  // 부활 연출: 카메라는 평소 리그 그대로 · 화면도 가리지 않는다
-  // 2026-09-16 (사용자 결정 — 튜토리얼 부활만): **첫 프레임부터 누워 있다.** `respawnAt` 이 `resetPose`(선 자세)로 세운 몸을 관절 블렌드가
-  // 따라 눕히면 「선 채로 나타나 → 털썩 쓰러지고 → 천천히 일어난다」가 됐다 — 자세를 곧장 쓰러진 자리로 옮겨 일어서기만 남긴다.
+  // The respawn wake: the camera stays the normal rig · nothing covers the screen
+  // 2026-09-16 (user's decision — the tutorial respawn only): **it lies down from the first frame.** With the joint
+  // blend pulling the body `respawnAt` had stood up with `resetPose` back down, it read as 「appears standing → drops
+  // in a heap → rises slowly」 — the pose is moved straight to the downed spot so only the rise is left.
   if (respawn) { sys.model.snapDowned(sys.ctx?.time ?? 0); return; }
-  // 첫 프레임부터 그 자리에서 시작한다 (블렌드해 들어가면 백뷰에서 몸으로 카메라가 훑고 지나간다)
+  // Starts at that spot from the first frame (blending in would sweep the camera from the back view onto the body)
   updateIntroCamera(sys, true);
-  // 그리고 그 첫 프레임은 **아무것도 보이지 않는다** — 밝아지는 것은 `updateIntroWake` 가 건다
+  // And that first frame shows **nothing at all** — `updateIntroWake` is what starts the brightening
   fade(sys, 1, 0);
 }
 
-/** `ui:screenFade` 한 줄 (그리는 것은 `ui/`). */
+/** One `ui:screenFade` line (`ui/` draws it). */
 function fade(sys: PlayerSystem, opacity: number, durationS: number): void {
   sys.ctx?.bus.emit('ui:screenFade', { opacity, durationS });
 }
 
-/** `PlayerSystem.update` 가 매 프레임 부른다. 끝나는 프레임에 오버라이드 해제 + `player:introWakeDone`. */
+/** Called every frame by `PlayerSystem.update`. On the last frame: release the override + `player:introWakeDone`. */
 export function updateIntroWake(sys: PlayerSystem, dt: number): void {
   if (sys.introWakeT < 0) return;
-  // 몸이 연출을 유지할 수 없게 됐다 (사망 · 전투불능 · 함선) — 조용히 끝낸다
+  // The body can no longer hold the cutscene (death · downed · the ship) — end it silently
   if (!sys.spawned || sys.isDead || sys._downed) { cancelIntroWake(sys); return; }
   /*
-   * 페이드를 **상태 없이** 건다: 이번 프레임에 진행도가 `FADE_HOLD` 를 넘어섰으면 그때 한 번만
-   * 밝아지기 시작한다 (경계를 지나는 프레임은 하나뿐이라 새 플래그가 필요 없다).
+   * Raises the fade **without state**: when this frame's progress crosses `FADE_HOLD`, the brightening
+   * starts exactly once right there (only one frame crosses the boundary, so no new flag is needed).
    */
   const before = progress(sys);
-  // ⚠ 0 에서 멈춘다 — 음수는 「연출 중이 아니다」 표식이다 (머리 주석 *끝나지 않던 연출*)
+  // ⚠ Stops at 0 — a negative value is the 「not playing」 marker (header comment, *the cutscene that never ended*)
   sys.introWakeT = Math.max(0, sys.introWakeT - Math.max(0, dt));
-  // 2026-09-15 부활 연출: 페이드 · 카메라가 없다 — 시계만 돈다
+  // 2026-09-15 the respawn wake: no fade · no camera — only the clock runs
   if (sys.introWakeRespawn) { if (sys.introWakeT <= 0) endIntroWake(sys); return; }
   const after = progress(sys);
   if (before < FADE_HOLD && after >= FADE_HOLD) {
@@ -170,33 +178,33 @@ export function updateIntroWake(sys: PlayerSystem, dt: number): void {
   endIntroWake(sys);
 }
 
-/** 연출을 정상 종료한다 — 오버라이드 해제(이미 백뷰 자리다) + `player:introWakeDone`. */
+/** Ends the cutscene normally — releases the override (already at the back-view spot) + `player:introWakeDone`. */
 export function endIntroWake(sys: PlayerSystem): void {
   if (sys.introWakeT < 0) return;
   const respawn = sys.introWakeRespawn;
   sys.introWakeT = -1; sys.introWakeDur = 0; sys.introWakeRespawn = false;
-  // 부활 연출은 카메라를 잡은 적도 화면을 가린 적도 없고, `player:introWakeDone` 은 오프닝만의 신호다
+  // The respawn wake never took the camera or covered the screen, and `player:introWakeDone` is the opening's signal
   if (respawn) return;
   sys.setCameraOverride(null, undefined, true);
-  // 이미 밝아져 있는 것이 정상이지만(페이드는 `FADE_DONE` 에 끝난다) 짧은 연출에서도 확실히 걷는다
+  // Normally it is bright already (the fade ends at `FADE_DONE`), but a short cutscene takes it down for certain too
   fade(sys, 0, 0);
   sys.ctx.bus.emit('player:introWakeDone', {});
 }
 
-/** 리셋 · 사망 · 새 미션: 알리지 않고 끝낸다. **화면은 반드시 되돌린다** (검은 화면에 갇히지 않는다). */
+/** Reset · death · new mission: ends without announcing. **The screen is always restored** (never stuck on black). */
 export function cancelIntroWake(sys: PlayerSystem): void {
   if (sys.introWakeT < 0) return;
   const respawn = sys.introWakeRespawn;
   sys.introWakeT = -1; sys.introWakeDur = 0; sys.introWakeRespawn = false;
-  // 부활 연출은 되돌릴 카메라 · 화면이 없다 (이륙 연출 같은 다른 오버라이드를 잘못 풀지 않는다)
+  // The respawn wake has no camera · screen to restore (so it never wrongly releases another override, e.g. liftoff)
   if (respawn) return;
   sys.setCameraOverride(null, undefined, true);
   fade(sys, 0, 0);
 }
 
 /**
- * 쓰러진 정도 0..1 — `SoldierPose.downed` 에 실린다 (`PlayerSystem` 이 전투불능 블렌드와 큰 쪽을 쓴다).
- * 앞 `WAKE_RISE_START` 구간은 1 로 누워 있다가 그 뒤 부드럽게 0 으로 간다.
+ * How far down the body is, 0..1 — carried on `SoldierPose.downed` (`PlayerSystem` takes the larger of it and the
+ * downed blend). It lies at 1 for the first `WAKE_RISE_START` of the progress, then eases smoothly to 0.
  */
 export function wakeBlend(sys: PlayerSystem): number {
   if (sys.introWakeT < 0) return 0;
@@ -204,12 +212,14 @@ export function wakeBlend(sys: PlayerSystem): number {
 }
 
 /**
- * 쓰러진 몸을 비추는 카메라 (일어나는 만큼 눈높이로 함께 올라온다) — 뒤쪽 구간에서는 리그의 백뷰 자리로 옮겨 간다.
+ * The camera on the downed body (rising to eye height as the body does) — over the last part of the progress it
+ * moves to the rig's back-view spot.
  *
- * 백뷰 자리는 **리그가 오버라이드 밑에서도 매 프레임 계속 계산하고 있는 자기 자리**다 (`CameraRig.position` —
- * `finishFrame` 은 그 위에 오버라이드를 섞을 뿐이다). 바라보는 방향은 `getLookDir` 이고 roll 이 없으므로
- * `lookAt(자리 + 방향)` 이 리그의 회전과 같다 — 진행도 1 에서 오버라이드 = 리그라 해제가 보이지 않는다.
- * 읽는 값은 직전 `lateUpdate` 의 것이지만 몸이 얼어 있어(`scripted`) 프레임 사이에 움직이지 않는다.
+ * That spot is **the rig's own position, which it keeps computing every frame even under an override**
+ * (`CameraRig.position` — `finishFrame` only blends the override on top of it). Its look direction is `getLookDir`
+ * and there is no roll, so `lookAt(spot + direction)` equals the rig's rotation — at progress 1 the override is the
+ * rig, so the release is invisible. The values read are the previous `lateUpdate`'s, but the body is frozen
+ * (`scripted`) and does not move between frames.
  */
 function updateIntroCamera(sys: PlayerSystem, snap: boolean): void {
   const t = progress(sys);

@@ -1,13 +1,14 @@
 /**
- * src/player/parts/Climb.ts — **몸이 수직으로 어떻게 옮겨 가는가: 사다리 · 단차 보간** (2026-09-11).
+ * src/player/parts/Climb.ts — **how the body moves vertically: ladders · step smoothing** (2026-09-11).
  *
- * 사다리: `ladder:grab` 을 받아 매달리고(`grabLadder`), 매달린 동안의 입력 규칙(`readClimbInput` — W/S · 달리기 ·
- * 점프 · E)을 채우고, 어떤 이유로든 놓이면 `player:climbChanged {ladderId: null}` 를 **한 번만** 낸다
- * (`syncClimb` — 컨트롤러의 `climbLadder` 와 마지막으로 보낸 값을 비교한다). 몸을 움직이는 수학은
- * `PlayerController.updateClimb` 에 있다.
+ * Ladders: takes `ladder:grab` and hangs on (`grabLadder`), fills the input rules for while hanging on
+ * (`readClimbInput` — W/S · sprint · jump · E), and emits `player:climbChanged {ladderId: null}` **exactly once**
+ * whenever the ladder is released for any reason (`syncClimb` — it compares the controller's `climbLadder` with the
+ * last value sent). The maths that moves the body is in `PlayerController.updateClimb`.
  *
- * 단차 보간: 낮은 바위 · 상자 모서리 · 지면 스냅처럼 **한 프레임에 튀는 높이**를 모델에서만 부드럽게 한다
- * (`updateStepSmoothing` → `bodyOffset`). 물리 위치(충돌 · 스냅샷 · 적 인지)는 그대로 즉시 옮겨 간다.
+ * Step smoothing: a **height that jumps within one frame** — a low rock · a crate edge · the ground snap — is
+ * smoothed in the model only (`updateStepSmoothing` → `bodyOffset`). The physics position (collision · snapshots ·
+ * enemy perception) moves at once, as before.
  */
 import * as THREE from 'three';
 import { Keys, STEP_SMOOTH_MAX, STEP_SMOOTH_RATE, type LadderDef } from '@/shared';
@@ -17,21 +18,23 @@ import type { PlayerSystem } from '../PlayerSystem';
 const _from = new THREE.Vector3();
 
 /**
- * `ladder:grab` (world 의 사다리 `Interactable` 이 E 로 낸다). 죽음 · 전투불능 · 들쳐메기(양쪽) · 포드 · 강하 ·
- * 조작 불가 · 함선 실내 · 탈출선 · 이미 매달림이면 무시한다. 매달리면 구르기 · 조준이 풀리고 자세는 서기다.
+ * `ladder:grab` (world's ladder `Interactable` emits it on E). Ignored on death · downed · shouldering (either
+ * side) · in a pod · the drop · controls off · the ship interior · the extraction ship · already hanging on. On a
+ * grab the roll and aiming are released and the stance becomes stand.
  */
 export function grabLadder(sys: PlayerSystem, ladder: LadderDef, from: 'bottom' | 'top'): boolean {
   const c = sys.controller;
   if (!ladder || c.climbing) return false;
   if (!sys.spawned || sys.isDead || sys._downed || !sys.controlsEnabled) return false;
-  if (sys._droneControl || sys._roverRide) return false;   // 2026-09-13: 탐사 차량 안도 마찬가지   // 2026-09-11: 드론 조종 중에는 `ladder:grab` 을 무시한다
-  if (sys.furn.kind !== null) return false;   // 2026-09-12: 가구 자세 중에도 (`parts/FurniturePose`)
+  // 2026-09-11: `ladder:grab` is ignored during drone control
+  if (sys._droneControl || sys._roverRide) return false;   // 2026-09-13: the rover too
+  if (sys.furn.kind !== null) return false;   // 2026-09-12: during a furniture pose too (`parts/FurniturePose`)
   if (sys._carrying || sys.carriedSocket || sys.carryLock > 0 || sys._inPod) return false;
   if (sys._interior || sys.shipBounds || sys.attachedParent) return false;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return false;
   _from.copy(c.position);
   c.startClimb(ladder, from === 'top' ? 'top' : 'bottom');
-  // 물리 위치는 곧장 사다리에 붙고, 모델은 서 있던 자리에서 미끄러져 붙는다 (단차 보간과 같은 오프셋)
+  // The physics position snaps onto the ladder; the model slides in from where it stood (the step-smoothing offset)
   sys.bodyOffset.add(_from.sub(c.position));
   if (sys.bodyOffset.length() > CLIMB_GRAB_OFFSET_MAX) sys.bodyOffset.setLength(CLIMB_GRAB_OFFSET_MAX);
   sys.setAiming(false);
@@ -44,20 +47,20 @@ export function grabLadder(sys: PlayerSystem, ladder: LadderDef, from: 'bottom' 
   return true;
 }
 
-/** 무슨 이유로든 사다리를 놓는다 (속도는 건드리지 않는다 — 그 자리에서 떨어진다). 매달려 있지 않으면 아무것도 안 한다. */
+/** Releases the ladder for any reason (velocity untouched — it drops on the spot). A no-op when not hanging on. */
 export function releaseLadder(sys: PlayerSystem): void {
   if (sys.controller.climbing) sys.controller.releaseClimb();
   syncClimb(sys);
 }
 
-/** 리셋 경로(부활 · 순간이동 · 함선 · 중단): 사다리를 놓고 시각 오프셋 · 자세 블렌드까지 지운다. */
+/** Reset paths (revive · teleport · the ship · abort): releases the ladder and clears the offset · pose blend. */
 export function clearClimbState(sys: PlayerSystem): void {
   releaseLadder(sys);
   sys.bodyOffset.set(0, 0, 0);
   sys.climbBlend = 0;
 }
 
-/** `player:climbChanged` 한 곳 — 컨트롤러의 상태와 마지막으로 보낸 값이 다를 때만. */
+/** The one place `player:climbChanged` is emitted — only when the controller's state differs from the last sent. */
 export function syncClimb(sys: PlayerSystem): void {
   const id = sys.controller.climbLadder ? sys.controller.climbLadder.id : null;
   if (id === sys.climbSent) return;
@@ -66,9 +69,10 @@ export function syncClimb(sys: PlayerSystem): void {
 }
 
 /**
- * 매달린 동안의 입력. `active` 가 아니거나(UI · 조작 끔) 올라서는 중이면 전부 0 — 그 자리에 매달려 있다.
- * 달리기는 **스태미나가 있고 지치지 않았을 때만**(소모는 `Locomotion.updateStamina` 가 `climbFast` 로 한다),
- * 점프는 보통 점프와 같은 스태미나 · 무게 규칙이다. E 는 상호작용이 꺼져 있으므로(PlayerSystem) 여기로만 온다.
+ * Input while hanging on. All zero when not `active` (UI · controls off) or while mounting — the body just hangs
+ * there. Sprinting **only with stamina left and not exhausted** (the drain is `Locomotion.updateStamina`'s, through
+ * `climbFast`); a jump follows the same stamina · weight rules as a normal jump. E arrives only here, because
+ * interaction is switched off (PlayerSystem).
  */
 export function readClimbInput(sys: PlayerSystem, active: boolean): void {
   const inp = sys.climbInput, input = sys.ctx.input, c = sys.controller;
@@ -77,7 +81,8 @@ export function readClimbInput(sys: PlayerSystem, active: boolean): void {
   inp.z = (input.isDown(Keys.FORWARD) ? 1 : 0) - (input.isDown(Keys.BACK) ? 1 : 0);
   inp.fast = inp.z !== 0 && input.isDown(Keys.SPRINT) && !sys.exhausted && sys.stamina > 0;
   if (input.wasPressed(Keys.JUMP)) {
-    // 2026-09-12: 각성제 = 한 번 소모 ×1.5 — 검사도 `spendStamina` 가 실제로 빼는 양으로 잰다 (보통 점프 · 구르기와 같다)
+    // 2026-09-12: the stimulant = ×1.5 on a one-off cost — the check too measures the amount `spendStamina`
+    //   actually subtracts (the same as a normal jump · roll)
     if (sys.stamina >= STAMINA_JUMP_COST * sys.staminaCostMul && !sys.gear.overloaded) inp.jump = true;
     else sys.ctx.bus.emit('audio:play', { id: 'ui_deny', volume: 0.4 });
   }
@@ -85,9 +90,10 @@ export function readClimbInput(sys: PlayerSystem, active: boolean): void {
 }
 
 /**
- * 단차 보간. `c.update` 직전의 자리 · 접지를 받아, 접지 → 접지 사이에 **단차로 보이는** 높이 변화가 있었으면
- * 그만큼을 `bodyOffset.y` 에 반대로 쌓는다. 그다음 오프셋 전체(사다리 잡기의 XZ 포함)를 `STEP_SMOOTH_RATE`
- * 로 0 에 감쇠시킨다. 차량 탑승 · 사다리 · 부모에 붙음 · 업힘은 건너뛴다 (그쪽 이동은 연속이거나 남의 것이다).
+ * Step smoothing. Takes the spot · grounded flag from just before `c.update`; if the height changed **in a way that
+ * looks like a step** between one grounded frame and the next, that much is stacked into `bodyOffset.y` the other
+ * way. The whole offset (the XZ of a ladder grab included) then decays to 0 at `STEP_SMOOTH_RATE`. Riding · the
+ * ladder · attached to a parent · being carried are skipped (that movement is continuous, or somebody else's).
  */
 export function updateStepSmoothing(sys: PlayerSystem, dt: number, prevX: number, prevY: number, prevZ: number, wasGrounded: boolean): void {
   const c = sys.controller, o = sys.bodyOffset;

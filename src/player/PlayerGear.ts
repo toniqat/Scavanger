@@ -32,26 +32,28 @@ export class PlayerGear {
   private timer = 0;
 
   /**
-   * **항상 0 이다 (2026-09-10).** 방탄복은 더 이상 피해를 깎지 않는다 — 대신 `shieldMax` 만큼의 추가 체력
-   * (실드)을 주고, 피해는 실드를 먼저 비운다 (`parts/Vitals.applyDamage`). `ArmorDef.damageReduction` 은
-   * 유니크 방탄복의 실드량을 환산한 근거로만 남아 있고 아무도 읽지 않는다. 이 getter 와 `PlayerRef.damageReduction`
-   * 은 **계약이라 지우지 않았을 뿐**이다 (`airstrike` · `secondary` 와 같은 처리).
+   * **Always 0 (2026-09-10).** Armor no longer cuts damage — it grants `shieldMax` extra hp (the shield) instead,
+   * and damage empties the shield first (`parts/Vitals.applyDamage`). `ArmorDef.damageReduction` survives only as
+   * the basis the unique armors' shield amounts were converted from, and nobody reads it. This getter and
+   * `PlayerRef.damageReduction` **are only kept because they are contract** (the same handling as `airstrike` ·
+   * `secondary`).
    */
   get damageReduction(): number { return 0; }
 
   /**
-   * 실드 최대치 = 장착한 방탄복의 `ArmorDef.shield`. 방탄복이 없거나 **내구도가 0(파손)** 이면 0 이다 —
-   * 파손된 판은 실드를 세우지 못하고 충전기로도 못 채운다. 함선 작업대에서 수리하면 되살아난다.
+   * Shield max = the equipped armor's `ArmorDef.shield`. With no armor, or with **durability 0 (broken)**, it is
+   * 0 — a broken plate raises no shield and a charger cannot fill it either. Repairing it at the ship workbench
+   * brings it back.
    */
   get shieldMax(): number {
     if (!this.armor || this.armorBroken) return 0;
     return Math.max(0, this.armor.shield ?? 0);
   }
-  /** 실드 게이지의 칸 색을 정하는 방탄복 등급 (없거나 파손이면 null). */
+  /** The armor rarity deciding the colour of the shield gauge pips (null with no armor or a broken one). */
   get shieldRarity(): Rarity | null {
     return this.armor && !this.armorBroken ? this.armor.rarity : null;
   }
-  /** 방탄복 tier (번호 방탄복 1..5, 유니크 0). 없거나 파손이면 0. */
+  /** Armor tier (numbered armor 1..5, unique 0). 0 with no armor or a broken one. */
   get shieldTier(): number {
     return this.armor && !this.armorBroken ? this.armor.tier : 0;
   }

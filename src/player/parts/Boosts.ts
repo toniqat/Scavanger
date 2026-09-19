@@ -1,20 +1,24 @@
 /**
- * src/player/parts/Boosts.ts — **전투 소모품의 시간제 효과** (2026-09-12, `docs/DECISIONS.md` 「2026-09-12 — 전투 소모품」).
+ * src/player/parts/Boosts.ts — **the timed effects of combat consumables**
+ * (2026-09-12, `docs/DECISIONS.md` 「2026-09-12 — 전투 소모품」).
  *
  * `PlayerRef.applyBoost` / `boost` / `aimSwayMul` / `boostReloadSpeedMul` / `adsSpeedMul` / `staminaDrainMul` / `staminaCostMul`
- * 의 구현. 부르는 곳은 weapons 의 `parts/Healing.finishHeal`(홀드가 끝나 아이템이 소모된 뒤)뿐이다.
+ * are implemented here. The only caller is weapons' `parts/Healing.finishHeal` (after the hold ends and the item
+ * is consumed).
  *
- * | kind | 효과 | 시간 |
+ * | kind | effect | duration |
  * |---|---|---|
- * | `adrenaline` | 쓰는 순간 스태미나 전량 · 지친 상태 해제, 그동안 **지속 소모**(질주 · 사다리 빠르게 · 가방 부양) 0 | `BOOST_ADRENALINE_DURATION_S` |
- * | `stimulant` | 장전 × `_RELOAD_SPEED_MUL` · 정조준 전환 × `_ADS_SPEED_MUL` · 조준 흔들림 × `_AIM_SWAY_MUL` / 스태미나 소모(지속 · 한 번) × `_STAMINA_COST_MUL` | `BOOST_STIMULANT_DURATION_S` |
+ * | `adrenaline` | full stamina · exhaustion cleared; **continuous drains** 0 | `BOOST_ADRENALINE_DURATION_S` |
+ * | `stimulant` | reload × `_RELOAD_SPEED_MUL` · ADS × `_ADS_SPEED_MUL` · aim sway × `_AIM_SWAY_MUL` / stamina cost × `_STAMINA_COST_MUL` | `BOOST_STIMULANT_DURATION_S` |
  *
- * **한 번에 하나다** — 새로 쓴 것이 앞의 것을 지운다 (같은 종류면 시간을 새로 잰다). 시간은 `ctx.time`(시뮬레이션)으로 잰다.
- * 버프 썸네일은 epoch ms(`buffNow`)로 그리므로 시작 · 끝 시각을 그 시계로도 찍고, 일시정지처럼 두 시계가 벌어지면
- * (`CLOCK_SLACK_MS` 넘게) 다시 찍는다 — 틱마다 다시 찍으면 목록 리비전이 매초 올라 와이어가 시끄러워진다.
+ * **One at a time** — a new one clears the previous (the same kind restarts its clock). The duration is measured on
+ * `ctx.time` (simulation). The buff thumbnail draws on epoch ms (`buffNow`), so the start · end are stamped on that
+ * clock as well, and re-stamped when the two clocks drift apart (by more than `CLOCK_SLACK_MS`), as a pause makes
+ * them — re-stamping every tick would raise the list revision every second and make the wire noisy.
  *
- * **지우는 곳**: `resetTactical`(스폰 · 구조선 부활 · 함선에서 서기 · `game:abort` → 새 미션도 `respawnAt` 을 탄다),
- * 사망, 함선 페이즈, 만료. 레이드 세션 세이브에는 싣지 않는다 (길어야 30 초라 재접속 복귀에서 사라져도 잃는 것이 작다).
+ * **Where it is cleared**: `resetTactical` (spawn · rescue revive · standing up in the ship · `game:abort` — a new
+ * mission rides `respawnAt` too), death, the ship phase, expiry. It is not carried in the raid session save (30 s at
+ * the most, so losing it across a rejoin costs little).
  */
 import {
   BOOST_ADRENALINE_DURATION_S, BOOST_STIMULANT_ADS_SPEED_MUL, BOOST_STIMULANT_AIM_SWAY_MUL, BOOST_STIMULANT_DURATION_S,
@@ -24,7 +28,10 @@ import {
 import { buffNow } from './Buffs';
 import type { PlayerSystem } from '../PlayerSystem';
 
-/** 시뮬레이션 시계와 버프 시계(epoch ms)가 이만큼 벌어지면 썸네일 시각을 다시 찍는다 (UI 동기 여유, 밸런스 아님). */
+/**
+ * When the simulation clock and the buff clock (epoch ms) drift this far apart, the thumbnail times are re-stamped
+ * (a UI sync slack, not a balance number).
+ */
 const CLOCK_SLACK_MS = 1500;
 
 /** Start (or restart) `kind` for its csv duration. Clears the other kind. Ignored while dead / not spawned. */
@@ -84,8 +91,8 @@ const isStim = (sys: PlayerSystem): boolean => sys.boostKind === 'stimulant';
 export const aimSwayMul = (sys: PlayerSystem): number => (isStim(sys) ? BOOST_STIMULANT_AIM_SWAY_MUL : 1);
 export const reloadSpeedMul = (sys: PlayerSystem): number => (isStim(sys) ? BOOST_STIMULANT_RELOAD_SPEED_MUL : 1);
 export const adsSpeedMul = (sys: PlayerSystem): number => (isStim(sys) ? BOOST_STIMULANT_ADS_SPEED_MUL : 1);
-/** Continuous drains (sprint · fast ladder · hover): 0 under 아드레날린, the cost multiplier under 각성제. */
+/** Continuous drains (sprint · fast ladder · hover): 0 under adrenaline, the cost multiplier under the stimulant. */
 export const staminaDrainMul = (sys: PlayerSystem): number =>
   (sys.boostKind === 'adrenaline' ? 0 : isStim(sys) ? BOOST_STIMULANT_STAMINA_COST_MUL : 1);
-/** One-off costs (jump · roll · melee · shield bash · big slash): only 각성제 changes them. */
+/** One-off costs (jump · roll · melee · shield bash · big slash): only the stimulant changes them. */
 export const staminaCostMul = (sys: PlayerSystem): number => (isStim(sys) ? BOOST_STIMULANT_STAMINA_COST_MUL : 1);

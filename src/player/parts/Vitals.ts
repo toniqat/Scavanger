@@ -1,9 +1,9 @@
 /**
- * src/player/parts/Vitals.ts — **체력 · 전투불능 · 사망 · 회복**.
+ * src/player/parts/Vitals.ts — **hp · downed · death · healing**.
  *
- * 피해가 들어와서(`applyDamage` — 방어구 감쇄 · 인내 grit · 넉백) 체력이 0 이 되면 죽는 대신
- * **전투불능**이 되고(기어다니기, `downHp` 출혈, Space 홀드 포기), 아군의 소생이나 퍽 `auto_revive` 로
- * 일어난다. 회복은 즉시가 아니라 아이템이 정한 시간에 걸쳐 들어온다(`applyHeal`).
+ * When damage arrives (`applyDamage` — armor absorption · `인내` (grit) · knockback) and hp hits 0 the player does
+ * not die but goes **downed** (crawling, the `downHp` bleed, the Space give-up hold), and comes back up from an
+ * ally's revive or the perk `auto_revive`. Healing is not instant: it lands over the item's own time (`applyHeal`).
  */
 import * as THREE from 'three';
 import type { PlayerRestoreState } from '@/shared';
@@ -15,7 +15,7 @@ import {
   ROLL_COOLDOWN, ROLL_DAMAGE_MUL, ROLL_DURATION, ROLL_STAMINA_COST, SLASH_DURATION,
   type GameSystem, type PlayerRef, type PlayerWeaponHost, type Interactable, type Stance, type InteriorCollider,
 } from '@/shared';
-/* appended (2026-09-15): 안드로이드 분대원 — 봇은 사람 수에 들지 않는다 (`onLethal` 의 혼자 판정) */
+/* appended (2026-09-15): android squadmates — bots are not counted as people (`onLethal`'s solo test) */
 import { humanPlayersOf } from '@/shared';
 import { FxManager, ParticleBurst } from '@/core/fx';
 import { damp, dampAngle, smoothstep, wrapAngle } from '@/core/util/MathUtil';
@@ -38,7 +38,7 @@ export function revive(sys: PlayerSystem): void {
   sys.autoReviveTimer = -1;
   sys._downed = false;
   sys._downHp = 0;
-  sys._deathSource = undefined;   // 2026-09-15: 일어났다 — 쓰러뜨린 출처는 더 이상 사망 원인이 아니다
+  sys._deathSource = undefined;   // 2026-09-15: stood back up — the downing source is no longer the cause of death
   sys.bleedAcc = 0; sys.giveUpHold = 0;
   sys.hp = PLAYER_REVIVE_HP;
   sys.invuln = Math.max(sys.invuln, 0.5);
@@ -57,8 +57,8 @@ export function revive(sys: PlayerSystem): void {
  */
 export function applyKnockback(sys: PlayerSystem, direction: THREE.Vector3, speed: number): void {
   if (sys.isDead || sys._downed || !sys.spawned) return;
-  if (sys._roverRide) return;   // 2026-09-13: 탐사 차량 안의 몸은 밀리지 않는다
-  if (sys._sceneLock) return;   // 2026-09-14 3차: 각본 잠금 — 각본이 세워 둔 몸을 폭발이 옮기지 않는다
+  if (sys._roverRide) return;   // 2026-09-13: a body inside the rover is not shoved
+  if (sys._sceneLock) return;   // 2026-09-14 3rd pass: the scene lock — no blast moves a body the scene put in place
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return;
   const len = direction.length();
   if (len < 1e-5 || !(speed > 0)) return;
@@ -99,32 +99,37 @@ export function takeDamage(sys: PlayerSystem, amount: number, from?: THREE.Vecto
   }
 
 /**
- * Single damage path. `dot` (burning) skips the invulnerability window, the shake / audio and the 인내 (grit)
- * save. **2026-09-10 — 실드 먼저**: 방탄복이 준 실드가 피해를 먼저 먹고 (그만큼 판이 닳는다) 남은 것만
- * 체력으로 간다. 방탄복의 피해 감소는 없다. A roll counts as a partial i-frame.
+ * Single damage path. `dot` (burning) skips the invulnerability window, the shake / audio and the `인내` (grit)
+ * save. **2026-09-10 — shield first**: the shield the armor grants eats the damage first (and the plate wears by
+ * that much) and only the remainder goes to hp. Armor gives no damage reduction. A roll counts as a partial i-frame.
  *
- * 2026-09-15 (결과 창 개편): `source` = 피해 출처 (`PlayerDamageSource`). `player:damaged.source` 로 그대로 나가고,
- * 이 피해가 체력을 0 으로 만들면 `sys._deathSource` 에 적혀 `die()` 가 `player:died.source` 로 낸다 — 전투불능이면
- * 쓰러뜨린 피해의 출처가 출혈사 · 포기까지 남고, 쓰러진 뒤 들어온 막타가 있으면 그것으로 바뀐다.
+ * 2026-09-15 (the result screen rework): `source` = the damage source (`PlayerDamageSource`). It goes out unchanged
+ * on `player:damaged.source`, and if this damage takes hp to 0 it is written to `sys._deathSource` so that `die()`
+ * sends it as `player:died.source` — while downed, the source of the damage that downed the player survives through
+ * bleeding out · giving up, and a last hit landed after going down replaces it.
  *
- * 2026-09-15 (독성 포자, 사용자 결정): `opts.bypassShield` 면 **실드를 건너뛰고 체력만** 깎는다 (`absorbShield` 를
- * 아예 부르지 않으므로 방탄복도 안 닳는다). 「대기를 방탄복 실드가 막는 것이 이상하다」 는 `PLANET_ENV_DPS`(A-13) 의
- * 근거를 재해에 편 것이다. **새 우회 갈래를 만들지 않았다** — 여기서 흡수량만 0 으로 갈라지고 각본 잠금 · 전투불능 ·
- * 사망 · 통계 · 이벤트는 전부 같은 줄을 그대로 지난다.
+ * 2026-09-15 (toxic spores, user's decision): with `opts.bypassShield` the damage **skips the shield and takes hp
+ * only** (`absorbShield` is never called, so the armor does not wear either). 「대기를 방탄복 실드가 막는 것이 이상하다」
+ * extends the reasoning behind `PLANET_ENV_DPS` (A-13) to hazards. **No new bypass branch was made** — only the
+ * absorbed amount forks to 0 here; the scene lock · downed · death · stats · events all run the same lines.
  */
 export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vector3 | undefined, dot: boolean, source?: PlayerDamageSource, opts?: PlayerDamageOptions): void {
   if (sys.isDead || !(amount > 0) || !sys.spawned) return;
-  if (sys._roverRide) return;   // 2026-09-13: 탐사 차량 안 — 차량만 맞는다 (재해 · 화상 · 전차 · 폭발 전부 이 길을 탄다)
-  // 2026-09-14 3차: 각본 잠금 (`PlayerRef.setSceneLock`) — 각본이 몸을 들고 있는 동안은 죽지도 다치지도 않는다.
-  // 위 줄과 같은 자리인 이유는 같다: 화상 · 재해 · 폭발 · 총알이 전부 이 **단일 입구**를 지난다.
-  // 2026-09-15: `setSceneLock(true, {allowDamage})` 는 피해를 **받는다** — 아래에서 체력을 `_sceneLockMinHp` 로 자르고 전투불능 · 사망은 없다
+  // 2026-09-13: inside the rover — only the vehicle is hit (hazard · burning · tram · blast all take this path)
+  if (sys._roverRide) return;
+  // 2026-09-14 3rd pass: the scene lock (`PlayerRef.setSceneLock`) — while the scene holds the body it is neither
+  //   hurt nor killed. It sits next to the line above for the same reason: burning · hazards · blasts · bullets all
+  //   pass through this **single entry**.
+  // 2026-09-15: `setSceneLock(true, {allowDamage})` **does take** damage — hp is clamped to `_sceneLockMinHp` below,
+  //   and there is no downed and no death
   if (sys._sceneLock && !sys._sceneLockDamage) return;
   if (!dot && sys.invuln > 0) return;
   if (sys.hellpod.isActive && sys.hellpod.state !== 'exiting') return; // safe inside the pod
   if (!dot) sys.invuln = INVULN_TIME;
   const bus = sys.ctx.bus;
   if (sys._downed) {
-    if (sys._sceneLock) return;   // 2026-09-15: 각본이 든 몸은 출혈 풀을 깎지 않는다 (잠금 중에는 쓰러질 수도 없다 — 보험)
+    // 2026-09-15: a body the scene holds does not lose its bleed pool (it cannot go down while locked — insurance)
+    if (sys._sceneLock) return;
     // already down: damage eats the bleed-out pool instead
     const dealt = Math.min(sys._downHp, amount);
     sys._downHp -= dealt;
@@ -136,7 +141,7 @@ export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vecto
     sys.rig.addShake(Math.min(0.5, 0.1 + dealt / 80), 0.2);
     bus.emit('audio:play', { id: 'player_hurt', volume: Math.min(1, 0.4 + dealt / 50), pitch: 0.85 });
     if (sys._downHp <= 0) {
-      if (source) sys._deathSource = source;   // 쓰러진 뒤의 막타 — 모르는 출처면 쓰러뜨린 출처를 남긴다
+      if (source) sys._deathSource = source;   // the last hit after going down — unknown source keeps the downing one
       sys.die();
     }
     return;
@@ -144,16 +149,17 @@ export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vecto
   let raw = amount;
   if (sys.controller.rolling) raw *= ROLL_DAMAGE_MUL;
   /*
-   * 2026-09-10 — 방탄복은 피해를 **깎지 않는다**. 대신 실드(추가 체력)를 먼저 비우고 남은 만큼만 체력으로
-   * 간다 (`absorbShield` 가 `player:shieldChanged` 를 낸다). 옛 `raw * (1 - gear.damageReduction)` 경로는
-   * 통째로 사라졌고 `damageReduction` 은 늘 0 인 계약 잔재다.
+   * 2026-09-10 — armor **does not reduce** damage. Instead the shield (extra hp) is emptied first and only the
+   * remainder goes to hp (`absorbShield` emits `player:shieldChanged`). The old `raw * (1 - gear.damageReduction)`
+   * path is gone entirely, and `damageReduction` is a contract leftover that is always 0.
    */
-  // 2026-09-15: 독성 포자 재해 — 실드를 건너뛰고 체력만 (방탄복도 안 닳는다). 그 밖은 예전 그대로 실드가 먼저 먹는다.
+  // 2026-09-15: the toxic-spore hazard — skips the shield, hp only (the armor does not wear either). Everything else
+  //   still has the shield eating first, as before.
   const absorbed = opts?.bypassShield ? 0 : sys.absorbShield(raw);
   const after = raw - absorbed;
-  // 2026-09-15: 피해를 허용한 각본 잠금 — 체력은 `_sceneLockMinHp`(≥ 1) 에서 멈춘다 (실드는 평소대로 먼저 먹는다)
+  // 2026-09-15: a damage-taking scene lock — hp stops at `_sceneLockMinHp` (≥ 1) (the shield still eats first)
   const dealt = Math.min(sys._sceneLock ? Math.max(0, sys.hp - sys._sceneLockMinHp) : sys.hp, after);
-  /** 이번에 몸으로 느낀 총량 (실드가 다 막아도 피격 피드백은 나가야 한다). */
+  /** The total the body felt this time (the hit feedback goes out even when the shield stopped all of it). */
   const felt = dealt + absorbed;
   sys.wearGear(absorbed);
   sys.hp -= dealt;
@@ -171,20 +177,21 @@ export function applyDamage(sys: PlayerSystem, amount: number, from: THREE.Vecto
   }
 
 /**
- * hp hit 0: the 인내 skill may leave 1 hp (never on a DoT tick), otherwise the player goes 전투불능.
+ * hp hit 0: the `인내` (grit) skill may leave 1 hp (never on a DoT tick), otherwise the player goes downed.
  *
- * **2026-09-08 — 혼자면 바로 사망.** 전투불능 is a window for a squadmate to pick you up; alone (no lobby, or a
- * one-player 분대) there is nobody to come, so the bleed-out was just `PLAYER_DOWN_HP / PLAYER_DOWN_BLEED_PER_SEC`
+ * **2026-09-08 — solo dies at once.** Downed is a window for a squadmate to pick the player up; alone (no lobby, or
+ * a one-player squad) there is nobody to come, so the bleed-out was just `PLAYER_DOWN_HP / PLAYER_DOWN_BLEED_PER_SEC`
  * seconds of crawling before the same death screen. Solo therefore skips straight to `die()`. The one exception is
- * the Phase 12 perk **재기동 회로** (`auto_revive`), which revives *you* from downed: while it is still unspent the
- * downed state is what makes it fire, so a solo player who bought it still goes down first.
+ * the Phase 12 perk **재기동 회로** (`auto_revive`), which brings the player back up from downed with nobody else
+ * there: while it is still unspent the downed state is what makes it fire, so a solo player who bought it goes down
+ * first all the same.
  */
 export function onLethal(sys: PlayerSystem, dot: boolean): void {
   if (!dot) {
     const chance = sys.ctx.progression?.derived.gritChance ?? 0;
     if (chance > 0 && Math.random() < chance) {
       sys.hp = 1;
-      sys._deathSource = undefined;   // 2026-09-15: 살아남았다 — 사망 원인 후보를 버린다
+      sys._deathSource = undefined;   // 2026-09-15: survived — the candidate cause of death is dropped
       sys.ctx.bus.emit('player:gritSaved', { hp: sys.hp });
       sys.ctx.bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta: 1 });
       sys.ctx.bus.emit('ui:notify', { text: '인내! 버텨냈다', kind: 'warning', duration: 1.6 });
@@ -196,11 +203,12 @@ export function onLethal(sys: PlayerSystem, dot: boolean): void {
   }
 
 /**
- * No squad, or a 분대 of one: nobody can run over and revive us.
+ * No squad, or a squad of one: nobody can run over and revive the player.
  *
- * 2026-09-15 (안드로이드 분대원): 안드로이드도 쓰러진 PC 를 일으킨다 — 한 기라도 분대에 있으면 **혼자가 아니다**
- * (서버 없는 치트 명단도 `ctx.allies.roster` 에 들어 있으므로 솔로 레이드에서도 성립한다). 반대로 로비의 봇 멤버는
- * 사람 수에 넣지 않는다 (`humanPlayersOf`) — 사람 수는 여기서 재는 「누가 달려와 주는가」 와 다른 축이다.
+ * 2026-09-15 (android squadmates): an android picks a downed PC up too — one unit on the squad already means **not
+ * alone** (the server-less cheat roster is on `ctx.allies.roster` as well, so it holds in a solo raid too). A bot
+ * member of the lobby, on the other hand, is not counted as a person (`humanPlayersOf`) — the head count is a
+ * different axis from the 「who comes running」 measured here.
  */
 function isAloneInSquad(sys: PlayerSystem): boolean {
   const ctx = sys.ctx;
@@ -209,7 +217,7 @@ function isAloneInSquad(sys: PlayerSystem): boolean {
   return humanPlayersOf(ctx.net?.lobby).length <= 1;
   }
 
-/** The 재기동 회로 perk is bought and still unspent this life — it only fires out of the downed state. */
+/** The `재기동 회로` perk is bought and still unspent this life — it only fires out of the downed state. */
 function canSelfRevive(sys: PlayerSystem): boolean {
   return !sys.autoReviveUsed && !!sys.ctx.progression?.derived.perks?.auto_revive;
   }
@@ -223,11 +231,12 @@ export function heal(sys: PlayerSystem, amount: number): void {
   }
 
 /**
- * 체력을 **그대로 정한다** (2026-09-14) — 각본된 장면이 몸 상태를 정하는 자리. 지금 쓰는 곳은
- * 튜토리얼 하나다 — 폐허에서 깨어난 사람은 **딱피**라 벌레에게 한 대 맞으면 죽는다 (사용자 명세).
+ * **Sets hp outright** (2026-09-14) — the place where a scripted scene decides the state of the body. The only user
+ * today is the tutorial — the person waking in the ruins is **on a sliver of hp**, so one hit from a bug kills (the
+ * user's spec).
  *
- * `takeDamage` 로 깎지 **않는** 이유: 피격 연출 · 방향 호 · 소리가 따라붙고 실드를 먼저 깎는다 — 둘 다
- * 「깨어나 보니 이미 다쳐 있었다」와 다른 말이다. 죽은 · 전투불능 상태에서는 아무것도 하지 않는다.
+ * Why it does **not** go through `takeDamage`: that drags the hit feedback · a direction arc · a sound along with it
+ * and eats the shield first — both say something other than 「waking up already hurt」. Dead or downed it does nothing.
  */
 export function setHp(sys: PlayerSystem, hp: number): void {
   if (sys.isDead || sys._downed || !sys.spawned) return;
@@ -238,10 +247,10 @@ export function setHp(sys: PlayerSystem, hp: number): void {
   sys.ctx.bus.emit('player:healthChanged', { hp: sys.hp, maxHp: sys.maxHp, delta });
   }
 
-/** hp reached 0: 전투불능 instead of death — prone crawl, weapons off, `downHp` starts bleeding. */
+/** hp reached 0: downed instead of death — prone crawl, weapons off, `downHp` starts bleeding. */
 export function enterDowned(sys: PlayerSystem): void {
   if (sys._downed || sys.isDead) return;
-  sys.releaseDroneControl();  // 2026-09-11: 쓰러지면 드론 시점도 끊긴다 (자세는 아래에서 엎드리기로)
+  sys.releaseDroneControl();  // 2026-09-11: going down cuts the drone view too (the stance goes prone below)
   sys.releaseFurniturePose('reset');   // 2026-09-12
   sys.clearCarry('action');   // a downed carrier cannot hold anybody up
   sys.releaseLadder();        // 2026-09-11: nor hang on a ladder — the body falls
@@ -250,7 +259,7 @@ export function enterDowned(sys: PlayerSystem): void {
   sys.bleedAcc = 0; sys.giveUpHold = 0;
   sys.hp = 0;
   sys.healPool = 0;
-  sys.clearShield();   // 2026-09-10: 쓰러지면 실드도 없다 (충전기로도 못 채운다 — `chargeShield` 는 살아 있을 때만)
+  sys.clearShield();   // 2026-09-10: downed means no shield (not even a charger — `chargeShield` is alive-only)
   sys.setAiming(false);
   sys.setHovering(false);
   sys.controller.cancelRoll();
@@ -320,7 +329,8 @@ export function clearDowned(sys: PlayerSystem): void {
   sys.autoReviveTimer = -1;
   sys._downed = false;
   sys._downHp = 0;
-  sys._deathSource = undefined;   // 2026-09-15: 스폰 · 복귀 리셋이 지난 레이드의 원인을 끌고 오지 않게 (`die` 는 먼저 읽는다)
+  // 2026-09-15: so a spawn · return reset does not drag the last raid's cause along (`die` reads it first)
+  sys._deathSource = undefined;
   sys.bleedAcc = 0;
   sys.giveUpHold = 0;
   sys.emitGiveUpProgress(-1);
@@ -329,20 +339,22 @@ export function clearDowned(sys: PlayerSystem): void {
 export function die(sys: PlayerSystem): void {
   if (sys.isDead) return;
   /*
-   * 2026-09-15 (결과 창 개편): 사망 원인 = 체력을 0 으로 만든 피해의 출처 (전투불능 중이면 쓰러뜨린 · 막타 출처).
-   * 체력이 남아 있는데 죽는 것은 자발적 귀환(`PlayerRef.die`)뿐이라 그때는 원인이 없다 — 옛 값이 새지 않게 여기서 거른다.
-   * `clearDowned` 가 비우기 전에 읽는다.
+   * 2026-09-15 (the result screen rework): the cause of death = the source of the damage that took hp to 0 (while
+   * downed, the source that downed the player · the last hit). Dying with hp left is only the voluntary return
+   * (`PlayerRef.die`), which has no cause — filtered here so that an old value cannot leak. Read before
+   * `clearDowned` empties it.
    */
   const deathSource = sys._downed || sys.hp <= 0 ? sys._deathSource : undefined;
   sys._deathSource = undefined;
-  sys.releaseRoverRide();   // 2026-09-13: 자발적 귀환(`die`)은 차량 옆에서 죽는다 — 시체가 선체 안에 서지 않게
+  // 2026-09-13: the voluntary return (`die`) dies beside the vehicle — so the corpse does not stand inside the hull
+  sys.releaseRoverRide();
   sys.isDead = true;
   sys.deadTimer = 0;
   sys.healPool = 0;
   sys.clearShield();
   sys.releaseDroneControl();   // 2026-09-11
   sys.releaseFurniturePose('reset');   // 2026-09-12
-  IntroWake.cancelIntroWake(sys);      // 2026-09-14: 연출 중에 죽으면 카메라를 돌려주고 조용히 끝낸다
+  IntroWake.cancelIntroWake(sys);      // 2026-09-14: dying mid-cutscene gives the camera back and ends it silently
   sys.clearCarry('died');
   sys.releaseLadder();   // 2026-09-11
   sys.clearDowned();

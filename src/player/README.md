@@ -228,8 +228,8 @@ frame plus a `BUFF_TICK_S` tick, and a new array + revision go out only when `sa
 ## Recent changes
 
 Last 5 only — older: `git log -- src/player`.
+- 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-17 — `gaming` char buff also for a standing video-game session (`housing.gameSession.seatUid` null, no furniture pose) — `parts/Buffs.ts`.
 - 2026-09-17 — No occlusion silhouette for bodies leaving in the extraction ship: local `ExtractionRef.riding`, remote / android bodies `inLeavingShip` (`RemoteAvatar.ts`).
 - 2026-09-16 — Tutorial revive starts already downed (`SoldierModel.snapDowned`), then stands up.
 - 2026-09-16 — `RemoteAvatar` stays hidden for a dead member whose corpse was removed (empty corpses sink away): reads `CorpsesRef.ownerHadCorpse`.
-- 2026-09-16 — Low roll (crouched roll ends crouched), no roll while prone / standing up, fall damage bypasses the shield, `selfMovedMeters` odometer (controller `selfMoved`).

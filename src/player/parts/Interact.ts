@@ -1,8 +1,8 @@
 /**
- * src/player/parts/Interact.ts — **E 상호작용**.
+ * src/player/parts/Interact.ts — **E interaction**.
  *
- * 화면 안의 `Interactable` 중 가장 알맞은 것을 고르고, 탭 / 홀드를 구분해
- * `onHoldProgress` · `onHoldCancel` 을 흘린다(홀드 시간은 능력치의 영향을 여기서 한 번만 받는다).
+ * Picks the best of the `Interactable`s on screen and, telling a tap from a hold, feeds
+ * `onHoldProgress` · `onHoldCancel` (the hold time takes the stats' effect here, once only).
  */
 import * as THREE from 'three';
 import type { PlayerRestoreState } from '@/shared';
@@ -46,11 +46,11 @@ export function updateInteraction(sys: PlayerSystem, dt: number, active: boolean
   if (target !== sys.interactTarget) { sys.cancelHold(); sys.interactTarget = target; }
   if (!input.isDown(Keys.INTERACT)) sys.holdArmed = true;
   let text: string | null = null;
-  let isHold = false; // 2026-09-09: told to the prompt so the ui can draw the 꾹 누르기 chevron over the keycap
+  let isHold = false; // 2026-09-09: told to the prompt so the ui can draw the hold chevron over the keycap
   if (target) {
     text = target.getPrompt();
-    // 재주 (Phase 5): every hold interaction runs `derived.interactSpeedMul` times faster — applied here once, so
-    // interactables publish their base `holdTime` and never scale it themselves.
+    // `재주` dexterity (Phase 5): every hold interaction runs `derived.interactSpeedMul` times faster — applied here
+    // once, so interactables publish their base `holdTime` and never scale it themselves.
     const hold = (target.holdTime ?? 0) / Math.max(0.25, ctx.progression?.derived.interactSpeedMul ?? 1);
     isHold = hold > 0;
     if (hold > 0) {
