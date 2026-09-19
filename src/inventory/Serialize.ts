@@ -1,6 +1,6 @@
 import type { ItemInstance, LootRef, SocketSlot } from '@/shared';
 import { SOCKET_SLOTS, normalizeMealQuality, slotKey } from '@/shared';
-/* 2026-09-13 (서재 시리즈, 사용자 결정): 옛 숙련별 책 · 디스크 · 레코드 id → 새 시리즈 1권 (`data/item_aliases.csv`) */
+/* 2026-09-13 (library series, user's decision): the old per-skill book · disc · record ids → the new series' vol. 1 (`data/item_aliases.csv`) */
 import { resolveItemAlias } from '@/shared';
 import type { DefLookup, Placement } from './Grid';
 
@@ -18,13 +18,13 @@ export interface SavedExtras {
   ammoInMag?: number;
   sockets?: Partial<Record<SocketSlot, SavedExtras>>;
   /**
-   * 2026-09-12 (아이템 회수 계약): `ItemInstance.raidFound`. **레이드 세션 blob 에만** 실린다 (`parts/ProfileDocs.captureRaidState`
-   * 가 붙인다 — `serializeExtras` 는 쓰지 않으므로 창고 · 로드아웃 문서에는 없다). 생략 = 표식 없음.
+   * 2026-09-12 (item recovery contracts): `ItemInstance.raidFound`, written **only into the raid session blob**
+   * (`parts/ProfileDocs.captureRaidState` adds it; `serializeExtras` does not, so stash · loadout have none). Omitted = no mark.
    */
   rf?: number;
   /**
-   * 2026-09-13 (요리 품질): `ItemInstance.quality` (별 1 … `MEAL_QUALITY_MAX`). `rf` 와 달리 `serializeExtras` 가 직접 싣는다 —
-   * **창고 · 로드아웃 문서 · 레이드 blob 모두**. 생략 = 품질 0. `reviveItem` 이 `normalizeMealQuality` 로 자른다.
+   * 2026-09-13 (meal quality): `ItemInstance.quality` (★1 … `MEAL_QUALITY_MAX`). Unlike `rf`, `serializeExtras` writes it
+   * itself — **into the stash · loadout documents and the raid blob alike**. Omitted = quality 0; `reviveItem` clamps it with `normalizeMealQuality`.
    */
   q?: number;
 }
@@ -70,7 +70,7 @@ export function serializeExtras(item: ItemInstance): SavedExtras {
   const out: SavedExtras = { defId: item.defId, qty: item.qty };
   if (item.durability !== undefined) out.durability = item.durability;
   if (item.ammoInMag !== undefined) out.ammoInMag = item.ammoInMag;
-  const q = normalizeMealQuality(item.quality);   // 2026-09-13: 요리 품질 (0 = 필드 없음)
+  const q = normalizeMealQuality(item.quality);   // 2026-09-13: meal quality (0 = no field)
   if (q > 0) out.q = q;
   if (item.sockets) {
     const sockets: SavedExtras['sockets'] = {};
@@ -95,7 +95,7 @@ export function serializePlacement(p: Placement): SavedPlacement {
  * when the def no longer exists; qty / durability / rounds are clamped to sane values. `tag` prefixes warnings.
  */
 export function reviveItem(sv: SavedExtras | undefined | null, getDef: DefLookup, loot: LootRef, tag: string): ItemInstance | null {
-  // 2026-09-13: every saved item id passes the alias table first — an old 책 · 디스크 · 레코드 comes back as its series vol. 1
+  // 2026-09-13: every saved item id passes the alias table first — an old book · disc · record comes back as its series vol. 1
   const defId = sv && typeof sv.defId === 'string' ? resolveItemAlias(sv.defId) : null;
   if (!sv || !defId || !getDef(defId)) {
     if (sv?.defId) console.warn(`[${tag}] unknown item '${sv.defId}' dropped`);
@@ -106,7 +106,7 @@ export function reviveItem(sv: SavedExtras | undefined | null, getDef: DefLookup
   if (typeof sv.durability === 'number' && Number.isFinite(sv.durability)) item.durability = Math.max(0, sv.durability);
   if (typeof sv.ammoInMag === 'number' && Number.isFinite(sv.ammoInMag)) item.ammoInMag = Math.max(0, Math.floor(sv.ammoInMag));
   if (typeof sv.rf === 'number' && Number.isFinite(sv.rf)) item.raidFound = sv.rf >>> 0;   // 2026-09-12: raid blob only
-  const q = normalizeMealQuality(sv.q);   // 2026-09-13: 요리 품질 — 창고 · 로드아웃 · 레이드 blob
+  const q = normalizeMealQuality(sv.q);   // 2026-09-13: meal quality — stash · loadout · raid blob
   if (q > 0) item.quality = q;
   if (sv.sockets && typeof sv.sockets === 'object') {
     for (const slot of SOCKET_SLOTS) {
@@ -122,7 +122,7 @@ export function reviveItem(sv: SavedExtras | undefined | null, getDef: DefLookup
 }
 
 /**
- * 2026-09-14 (총기 밸런스 — 계열별 소켓, 사용자 결정 "로드할 때 떼어서 돌려주기"): take every socketed attachment off `weapon`
+ * 2026-09-14 (gun balance — per-class sockets, user's decision "detach and hand back at load"): take every socketed attachment off `weapon`
  * that `loot.canAttach` refuses today (its class lost that socket, the attachment's `classes` narrowed) or that sits in a socket
  * other than its own. Returns them in `SOCKET_SLOTS` order with the socket they came from. The caller finds each a grid cell and,
  * when there is none, puts it back (`weapon.sockets[socket] = item` — it has no effect there, `computeWeaponStats` skips it):

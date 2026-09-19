@@ -14,7 +14,7 @@ import {
   createQuickSlots, firstFreeQuickSlot, isQuickIndex, isQuickUsable, mergeIntoQuick, quickSlotOf, quickSlotsSignature,
   type QuickSlotItems,
 } from './QuickSlots';
-/* appended (2026-09-10): 휠 교체에서 밀려난 스택이 갈 자리 — 미리보기와 실행이 같은 규칙을 본다 */
+/* appended (2026-09-10): where a stack displaced by a wheel swap goes — preview and execution read the same rule */
 import { applyQuickSwap, type QuickSwapCell, type QuickSwapPlan } from './QuickSwap';
 import { InventoryUI, type ScreenTab } from './ui/InventoryUI';
 export type { ScreenTab } from './ui/InventoryUI';
@@ -24,7 +24,7 @@ import { CELL } from './ui/labels';
 import { Stash, setStarterGrantState, starterGrantState } from './Stash';
 import { LOADOUT_SAVE_VERSION, LoadoutStore, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from './Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from './Serialize';
-/* appended (Phase 10): 분대원 장비 열람 */
+/* appended (Phase 10): viewing a squadmate's loadout */
 import type { CrewLoadoutViewOptions } from '@/shared';
 import { COMMUNITY_BLOCKER, HUB_READY_BLOCKER, MENU_BLOCKER } from '@/shared';
 import { CrewLoadoutView } from './ui/CrewLoadoutView';
@@ -36,10 +36,10 @@ import {
   type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type CraftJob, type DropPreview, type DropTarget,
   type GridId, type ItemLocation, type MissionOutcome, type OpResult, type PendingTake, type RaidInventoryState, type RepairInfo, type SlotId, type UiSfx,
 } from './model';
-/** 폴더 공용 어휘는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 그대로 재수출한다. */
+/** The folder's shared vocabulary lives in `model.ts` — re-exported verbatim so existing import paths keep working. */
 export * from './model';
 
-/* 분할된 구현 모듈 — 같은 이름의 위임 메서드가 이 안의 함수를 부른다. 폴더 README 의 `Files` 참고. */
+/* The split implementation modules — a delegate of the same name calls the function inside. See the folder README's `Files`. */
 import * as Life from './parts/Lifecycle';
 import * as CNet from './parts/ContainerNet';
 import * as Docs from './parts/ProfileDocs';
@@ -48,36 +48,36 @@ import * as Cat from './parts/Catalog';
 import * as StashOps from './parts/StashOps';
 import * as Drop from './parts/DropResolver';
 import * as Dur from './parts/Durability';
-import * as SockOut from './parts/SocketDetach';   // 2026-09-14: 고정 툴팁에서 소켓 하나 꺼내기
+import * as SockOut from './parts/SocketDetach';   // 2026-09-14: pulling one socket out of the pinned tooltip
 import * as Launch from './parts/LaunchCheck';
-/* appended (2026-09-09): 사망 → 시체 컨테이너 */
+/* appended (2026-09-09): death → the corpse container */
 import * as Corpse from './parts/CorpseLoot';
-/* appended (2026-09-11, A-15): 주머니 — 퀵슬롯과 같은 선을 긋는 또 하나의 컨테이너 */
+/* appended (2026-09-11, A-15): the pouch — one more container drawing the line the quick slots drew */
 import * as Pouch from './parts/Pouch';
 import * as SortOps from './parts/Sort';
-/* appended (2026-09-12, 드론 스캔): 컨테이너를 열지 않고 들여다보기 */
+/* appended (2026-09-12, the drone scan): looking inside a container without opening it */
 import * as Peek from './parts/Peek';
-/* appended (2026-09-12, E1): 아이템 즐겨찾기 */
+/* appended (2026-09-12, E1): item favourites */
 import * as Fav from './parts/Favorites';
-/* appended (2026-09-12): 아이템 회수 계약 — 「이번 레이드에서 얻은 아이템」 표식 (규칙은 `shared/raidFound.ts`) */
+/* appended (2026-09-12): item recovery contracts — the "found in this raid" mark (the rules are `shared/raidFound.ts`) */
 import * as RaidMarks from './parts/RaidFound';
 import type { RaidFoundScope } from '@/shared';
 import { canStackTogether } from './Grid';
 import { copyRaidFoundMark, mergeRaidFoundMark } from '@/shared';
 import { setRecoveryScope } from './ui/GridView';
-/* appended (2026-09-13): 요리 품질 — 스택 · 나누기 · 식탁 질의 (규칙은 `shared/cooking.ts`) */
+/* appended (2026-09-13): meal quality — stack · split · dining-table queries (the rules are `shared/cooking.ts`) */
 import * as Meal from './parts/MealQuality';
-/* appended (2026-09-14): 소모품 퀵슬롯 자동 장착 (전역) — 「주웠다」의 세 지점이 같은 규칙을 본다 */
+/* appended (2026-09-14): auto-seating a consumable on the wheel (game-wide) — the three "picked it up" sites read one rule */
 import * as AutoQuick from './parts/AutoQuick';
-/* appended (2026-09-13): 서재 시리즈 — 아직 꽂지 않은 매체 띠 (규칙은 `HousingRef.isShelfItemWanted`) */
+/* appended (2026-09-13): library series — the ribbon on media not yet shelved (the rule is `HousingRef.isShelfItemWanted`) */
 import * as ShelfWanted from './parts/ShelfWanted';
-/* appended (2026-09-15): 안드로이드 분대원 — 가방 · 무게 · 컨테이너 획득 · 요청 · 창고 입고 (`parts/Allies.ts`) */
+/* appended (2026-09-15): android squadmates — bag · weight · container takes · requests · stash deposits (`parts/Allies.ts`) */
 import * as Allies from './parts/Allies';
 import type { AllyBagRef } from '@/shared';
 
-/* ── 2026-09-14 (발사 슬롯 UI 대개편): 준비 상태 = 로드아웃 읽기 전용 ─────────────────────────────────────────
-   `readOnlyReason()` 의 사유 문장과 그 거절 토스트의 debounce. 둘 다 밸런스 수치가 아니라 화면 문구 · UI 디바운스라
-   코드에 산다 (`ui/model.ts` 의 `DRAG_THRESHOLD` · `CLICK_SUPPRESS_MS` 와 같은 자리). */
+/* ── 2026-09-14 (launch-pod UI rework): ready = the loadout is read-only ─────────────────────────────────────
+   The reason sentence of `readOnlyReason()` and the debounce of its refusal toast. Neither is a balance number —
+   screen text and a UI debounce — so both live in code (`ui/model.ts`'s `DRAG_THRESHOLD` · `CLICK_SUPPRESS_MS` spot). */
 const READY_LOCK_TEXT = '준비 상태에서는 장비를 바꿀 수 없습니다';
 /** Seconds between two refusal toasts (a drag over a locked grid asks many times per second). */
 const READY_LOCK_TOAST_S = 1.5;
@@ -89,12 +89,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
   loot = new LootService();
   bag!: Grid;
   /**
-   * 2026-09-11 (A-15) — **주머니 격자**. 장비칸 `pouch` 에 끼운 주머니의 `PouchDef` 크기로 `resize` 되고,
-   * 주머니가 없으면 1×1 로 비어 있으며 **아무도 그리지 않는다** (`getPouchSize()` 가 `{0, 0}` 을 돌려준다).
-   * 「주머니는 가방 격자가 아니다」의 전문은 `parts/Pouch.ts` 머리 주석에 있다.
+   * 2026-09-11 (A-15) — the **pouch grid**. `resize`d to the `PouchDef` size of the pouch seated in the `pouch`
+   * equipment slot; with no pouch it stays an empty 1×1 that **nobody draws** (`getPouchSize()` returns `{0, 0}`).
+   * The full text of 「주머니는 가방 격자가 아니다」 is the head comment of `parts/Pouch.ts`.
    */
   pouch!: Grid;
-  /** `inventory:pouchChanged` 의 게이트 (`lastQuickSig` 와 같은 역할). */
+  /** The gate on `inventory:pouchChanged` (the same role `lastQuickSig` plays). */
   lastPouchSig = '';
   loadout: Loadout = { primary: null, primary2: null, secondary: null, bag: null, armor: null, pouch: null };
   /** Tactical kit: last emitted weight / loadout (gates `inventory:weightChanged` / `equip:changed`), running craft. */
@@ -102,7 +102,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   lastEquipUids: Partial<Record<LoadoutSlot, string | null>> = {};
   craftJob: CraftJob | null = null;
   containers = new ContainerStore((id) => ITEM_DEF_MAP.get(id));
-  /** 함선 창고 (persisted). Shown only while the window is open in the hub (`hubMode`). */
+  /** The ship stash (persisted). Shown only while the window is open in the hub (`hubMode`). */
   stash!: Stash;
   /** Phase 5: loadout save (`scav.loadout`); `announcePending` = a save was restored at init and nobody has been told yet. */
   loadoutStore!: LoadoutStore;
@@ -115,37 +115,37 @@ export class InventorySystem implements GameSystem, InventoryRef {
   lastGrenades = -1;
   lastStims = -1;
   /**
-   * Quick-use wheel — **its own container** (2026-09-09, 사용자 결정): the stack in each wheel direction lives *here*,
+   * Quick-use wheel — **its own container** (2026-09-09, user's decision): the stack in each wheel direction lives *here*,
    * not in the bag grid (see `QuickSlots.ts`). It still counts toward the bag weight, the HUD counts and every
    * `countWhere` / `consumeWhere` query. `lastQuickSig` gates the change event.
    */
   quickSlots: QuickSlotItems = createQuickSlots();
   lastQuickSig = '';
   lastStashVersion = 0;
-  /* Phase 6: 무한 상자 window state + the bench the craft panel is showing. */
+  /* Phase 6: infinite-box window state + the bench the craft panel is showing. */
   catalogOpen = false;
   bench: ActiveBench | null = null;
   /* Phase 7: container search + host authority + net subscriptions. */
-  /** `parts/` 가 닿는다 (`CorpseLoot.openContainerItemsSized`) — 폴더 밖 계약은 아니다. */
+  /** `parts/` reaches it (`CorpseLoot.openContainerItemsSized`) — it is not a contract outside the folder. */
   openedIds = new Set<string>();
   /**
-   * 2026-09-09: 이번 사망에서 `stripForCorpse()` 로 전부 시체에 넘겼다 → **구조선 부활은 빈손**이다.
-   * `player:respawn` 의 스타터 지급 분기를 한 번만 건너뛰고 스스로 꺼진다.
+   * 2026-09-09: this death handed everything to the corpse through `stripForCorpse()` → **the rescue revival is
+   * empty-handed**. It skips the starter-grant branch of `player:respawn` exactly once, then clears itself.
    */
   strippedForCorpse = false;
   /**
-   * 2026-09-11 (C-36): 이번 레이드에서 장착 가방이 이미 닳았다 (`Dur.wearBagForRaid`). `world:ready` 에서 내린다.
-   * (C-61): 레이드 세션 상태(`captureRaidState` → `RaidInventoryState.bagWorn`)에 실려 새로고침 복귀에서도 산다.
+   * 2026-09-11 (C-36): the equipped bag has already worn this raid (`Dur.wearBagForRaid`). Cleared at `world:ready`.
+   * (C-61): it rides in the raid session state (`captureRaidState` → `RaidInventoryState.bagWorn`) and survives a reload.
    */
   bagWornThisRaid = false;
   /**
-   * 2026-09-11 (C-61): 마지막 `applyRaidState` 가 되살린 `bagWorn` 시드 (없으면 null). 복귀 blob 이 `world:ready` 보다
-   * **먼저** 적용되는 순서에서도 그 레이드의 표시를 지우지 않게 `Life.onWorldReady` 가 한 번 본다.
+   * 2026-09-11 (C-61): the `bagWorn` seed the last `applyRaidState` revived (null when there was none). `Life.onWorldReady`
+   * reads it once, so the order where the resume blob lands **before** `world:ready` cannot erase that raid's mark.
    */
   bagWornRestoreSeed: number | null = null;
   pendingTakes: PendingTake[] = [];
   private lastSearchEmit = -1;
-  /** Seconds left of the `SEARCH_START_DELAY` grace after the container window opened (0 = 감정 ticking). */
+  /** Seconds left of the `SEARCH_START_DELAY` grace after the container window opened (0 = the search is ticking). */
   private searchDelay = 0;
   /**
    * Phase 9: no inventory-side offline queue any more — every save goes to `profile.set` (`ProfileSync` stamps it and
@@ -155,7 +155,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
    */
   freshSave = false;
   /**
-   * 2026-09-11 (E-6): while `flushSaves` writes the 창고 + 로드아웃, `uploadProfileDoc` collects the documents here and they
+   * 2026-09-11 (E-6): while `flushSaves` writes the stash + loadout, `uploadProfileDoc` collects the documents here and they
    * go up afterwards as one `ProfileRef.setMany`. null outside that call.
    */
   uploadBatch: Partial<Record<'stash' | 'loadout', { doc: unknown; fresh: boolean }>> | null = null;
@@ -171,14 +171,14 @@ export class InventorySystem implements GameSystem, InventoryRef {
   ui: InventoryUI | null = null;
   private offs: Array<() => void> = [];
   /**
-   * 2026-09-08: **Escape no longer closes the window** — it is the 일시정지 메뉴 everywhere, and this window (bag,
-   * container, 캐릭터 / 기업 / 함선 tabs alike) closes on the key that opened it, `Keys.INVENTORY`. What Escape still
+   * 2026-09-08: **Escape no longer closes the window** — it is the pause menu everywhere, and this window (bag,
+   * container, `캐릭터` / `기업` / `함선` tabs alike) closes on the key that opened it, `Keys.INVENTORY`. What Escape still
    * does is cancel the innermost popup: a context menu, a split dialog, a confirm card. Those swallow the key, so
    * a mistyped Escape never throws away a drag or a typed amount; with nothing open it falls through to `game/`.
    */
   private escHandler = (e: KeyboardEvent): void => {
     if (e.code !== Keys.MENU || !this._open) return;
-    // 2026-09-16: 창 위에 메신저가 떠 있으면 Escape 는 그 패널 몫이다 (`ctx.escape` 맨 위) — 뒤의 팝업 · 드래그를 건드리지 않는다
+    // 2026-09-16: with the messenger over the window, Escape belongs to that panel (top of `ctx.escape`) — the popups and the drag behind it are untouched
     if (this.ctx.uiBlockers.has(COMMUNITY_BLOCKER)) return;
     // 2026-09-12: a stack held on the cursor after a merge goes back where it came from first (it never left)
     if (this.ui?.drag?.held) { this.ui.cancelDrag(); this.sfx('ui_drop'); e.preventDefault(); e.stopPropagation(); return; }
@@ -194,14 +194,14 @@ export class InventorySystem implements GameSystem, InventoryRef {
     ctx.inventory = this;
     ctx.loot = this.loot;
     this.bag = new Grid(BAG_DEFAULT_COLS, BAG_DEFAULT_ROWS, (id) => ITEM_DEF_MAP.get(id));
-    // A-15: 주머니를 끼우기 전에는 1×1 로 비어 있다 — `getPouchSize()` 가 `{0,0}` 이라 UI 는 자리를 안 그린다
+    // A-15: before a pouch is seated it is an empty 1×1 — `getPouchSize()` says `{0,0}`, so the UI draws no spot for it
     this.pouch = new Grid(1, 1, (id) => ITEM_DEF_MAP.get(id));
     // 2026-09-11 (E-6): before the stores' own page-hide listeners, so a closing tab writes both as one transaction
     window.addEventListener('pagehide', this.onSavesPageHide);
     window.addEventListener('beforeunload', this.onSavesPageHide);
     this.stash = new Stash((id) => ITEM_DEF_MAP.get(id), this.loot);
     this.stash.onSaved = (file) => this.uploadProfileDoc('stash', file); // Phase 7: mirror to the server profile
-    // ship housing: the 창고 facility decides the stash size. At startup only *grow* to it — a persisted larger grid
+    // ship housing: the stash facility decides the stash size. At startup only *grow* to it — a persisted larger grid
     // (older facility state, cheat) is kept, and a shrink could strand items; `housing:stashSizeChanged` applies exactly.
     const housing = ctx.housing;
     if (housing && typeof housing.getStashSize === 'function') {
@@ -212,13 +212,13 @@ export class InventorySystem implements GameSystem, InventoryRef {
         if ((cols !== this.stash.cols || rows !== this.stash.rows) && this.stash.resize(cols, rows)) this.withFreshSave(() => this.stash.flush());
       }
     }
-    // 2026-09-07: 기본 지급품 — handed out once per **profile** (`starterGrantState()`), not once per stash file.
+    // 2026-09-07: the starter grant — handed out once per **profile** (`starterGrantState()`), not once per stash file.
     if (starterGrantState() === 'none') this.tryStarterGrant();
     // Phase 10: a take that arrives through the shared state (`cont sync`, or the pending map applied on the first
     // open) is a catch-up, not something happening in front of the player → `live: false`, no animation.
     this.containers.onTaken = (info) =>
       this.emitItemTaken(info.containerId, info.idx, info.uid, info.qty, info.remaining, null, false);
-    // 2026-09-12 (아이템 회수 계약): stack key for every grid / the wheel / sort + the crate roll's raid-found seed
+    // 2026-09-12 (item recovery contracts): stack key for every grid / the wheel / sort + the crate roll's raid-found seed
     RaidMarks.installRaidFoundRules(this);
     // Phase 5: the persisted loadout fills the bag + slots once, here; from now on the session state is the truth.
     this.loadoutStore = new LoadoutStore(() => this.captureLoadoutSave(), (reason, file) => {
@@ -228,13 +228,13 @@ export class InventorySystem implements GameSystem, InventoryRef {
         Fav.onLoadoutSaved(this);               // 2026-09-12 (E1): the favourite list went up with it
       }
     });
-    // E-6: one debounce for both stores (a 창고 ↔ 가방 move is one save, one transaction)
+    // E-6: one debounce for both stores (a stash ↔ bag move is one save, one transaction)
     this.stash.schedule = () => Docs.scheduleSaves(this);
     this.loadoutStore.schedule = () => Docs.scheduleSaves(this);
     this.restoreLoadoutSave();
     this.ui = new InventoryUI(this, ctx);
     this.ui.mount();
-    // 2026-09-13 (서재 시리즈): 「아직 꽂지 않은」 띠의 공급자 + 캐시를 비우는 사건
+    // 2026-09-13 (library series): the source of the "not yet shelved" ribbon + the events that clear its cache
     this.offs.push(...ShelfWanted.installShelfWanted(this));
 
     const bus = ctx.bus;
@@ -251,9 +251,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
       bus.on('game:complete', ({ stats }) => {
         this.outcome = 'complete';
         this.loadoutStore.clearRaid();   // 2026-09-11 (E-5): the solo raid is over — its marker goes before the save
-        // 2026-09-11 (C-36): 탈출에 성공했으면 장착 가방이 레이드 1회분 닳는다 — 저장 **전에**
+        // 2026-09-11 (C-36): on a successful extraction the equipped bag takes one raid's wear — **before** the save
         if (stats.extracted) this.wearBagForRaid();
-        // 2026-09-12 (아이템 회수 계약): meta settled before this event — the raid-found marks stop meaning anything now
+        // 2026-09-12 (item recovery contracts): meta settled before this event — the raid-found marks stop meaning anything now
         this.stripRaidMarks();
         this.loadoutStore.saveNow('complete');
       }),
@@ -266,7 +266,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
       bus.on('net:hostChanged', ({ isLocalHost }) => { if (!isLocalHost) this.requestContainerSync(); }),
       bus.on('hub:entered', () => {
         // 2026-09-07: only the very first run (`STARTER_STASH` was just granted) and a player with nothing anywhere
-        // get the kit handed to them — a lost raid is re-equipped from the 함선 창고, not refilled for free.
+        // get the kit handed to them — a lost raid is re-equipped from the ship stash, not refilled for free.
         if (this.isCompletelyEmpty() && (this.firstRunGrant || this.stash.count === 0)) {
           this.firstRunGrant = false;
           // a fresh browser: the starter is "no data", not an edit — it goes up as a `fresh` document so a real server profile wins
@@ -276,17 +276,17 @@ export class InventorySystem implements GameSystem, InventoryRef {
         if (this.stripRaidMarks()) this.afterChange();   // 2026-09-12: no raid-found mark survives into the ship
       }),
       bus.on('game:phaseChanged', () => { if (!ctx.isGameplayPhase() && !ctx.isHubPhase()) this.closeAll(); }),
-      // 2026-09-15 (안드로이드 분대원): 탈출한 안드로이드의 전리품 → 분대장(= 이 클라이언트)의 창고
+      // 2026-09-15 (android squadmates): an extracted android's loot → the squad leader's (this client's) stash
       bus.on('inventory:allyDeposit', ({ id, name, items }) => Allies.onAllyDeposit(this, id, name, items)),
       bus.on('implant:equipped', () => { if (this._open) this.ui?.refresh(); }),
-      // 2026-09-08: the 캐릭터 tab's 능력치 포인트 red dot follows the level-ups / spends that happen behind it
+      // 2026-09-08: the `캐릭터` tab's stat-point red dot follows the level-ups / spends that happen behind it
       bus.on('progress:levelUp', () => { if (this._open) this.ui?.markTab(); }),
       bus.on('progress:statChanged', () => { if (this._open) this.ui?.markTab(); }),
       bus.on('progress:loaded', () => { if (this._open) this.ui?.markTab(); }),
-      // 2026-09-17: the 기업 tab appears once any corp reaches 신뢰도 Lv.1 (and hides again on a reset profile) — live
+      // 2026-09-17: the `기업` tab appears once any corp reaches `신뢰도` Lv.1 (and hides again on a reset profile) — live
       bus.on('meta:repChanged', () => { if (this._open) this.ui?.onCorpAccessChanged(); }),
       bus.on('meta:loaded', () => { if (this._open) this.ui?.onCorpAccessChanged(); }),
-      // 2026-09-08: 임플란트 칸이 인벤토리로 옮겨왔으므로 밖에서 바뀐 장착(프리셋 적용 · 수리)도 여기서 다시 그린다
+      // 2026-09-08: the implant slots moved into the inventory, so an equip changed from outside (a preset, a repair) repaints here too
       bus.on('progress:implantsChanged', () => { if (this._open) this.ui?.refresh(); }),
     );
     // Phase 7: host-authoritative container contents (`cont` / `contq`, sync on rejoin)
@@ -299,8 +299,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
           if (msg.ev === 'rejoined' && this.isNetAuthority()) net.send({ t: 'cont', ev: 'sync', items: this.containers.takenWire() }, from);
         }),
       );
-      // 2026-09-09: 플레이어 시체는 컨테이너 하나다 (`pcorpse:<owner>:<n>`). 와이어가 도착하는 즉시 컨테이너를
-      // 만들어 두어야 호스트가 한 번도 열어 본 적 없는 시체의 `contq take` 도 심판할 수 있다.
+      // 2026-09-09: a player corpse is one container (`pcorpse:<owner>:<n>`). The container has to be created the
+      // moment the wire arrives, so the host can judge a `contq take` on a corpse it has never opened itself.
       const corpseOff = Corpse.hookCorpseWire(this, ctx);
       if (corpseOff) this.offs.push(corpseOff);
     }
@@ -309,30 +309,30 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   update(dt: number, ctx: GameContext): void {
-    // 2026-09-12 (아이템 회수 계약): the ribbon's display copy of the scope (`ui/GridView`) — every open grid repaints on a change
+    // 2026-09-12 (item recovery contracts): the ribbon's display copy of the scope (`ui/GridView`) — every open grid repaints on a change
     setRecoveryScope(this.raidFoundScope());
-    // Tab: bag window on a mission, the 3-column ship screen (창고 / 장비 / 가방) in the hub.
+    // Tab: bag window on a mission, the 3-column ship screen (`창고` / `장비` / `가방`) in the hub.
     // Phase 10: the launch-pod READY panel holds its own blocker, and Tab must still work while boarded (as before).
     const onlyReadyBlocked = ctx.uiBlockers.size === 0
       || (ctx.uiBlockers.size === 1 && ctx.uiBlockers.has(HUB_READY_BLOCKER));
-    // 2026-09-08: Tab is now also the *close* key, so it must not reach through the 일시정지 메뉴 stacked on top.
-    // 2026-09-14 (튜토리얼 오프닝, 사용자 결정): 기상 연출이 돌고 있는 동안(`PlayerRef.introWaking` — 카메라가 백뷰로
-    // 완전히 돌아오기 전)에는 Tab 이 가방을 **불러오지 않는다**. 이미 열려 있는 창을 닫는 쪽은 막지 않는다.
+    // 2026-09-08: Tab is now also the *close* key, so it must not reach through the pause menu stacked on top.
+    // 2026-09-14 (the tutorial opening, user's decision): while the intro wake runs (`PlayerRef.introWaking` — before
+    // the camera is all the way back to the back view) Tab **does not open** the bag. Closing an open window is fine.
     const waking = ctx.player?.introWaking ?? false;
-    // 2026-09-16: 창 위에 메신저(`COMMUNITY_BLOCKER`)가 떠 있으면 Tab 은 그 패널만 닫는다 (`ui/hud/Community`) — 창은 남는다.
+    // 2026-09-16: with the messenger (`COMMUNITY_BLOCKER`) over the window, Tab closes only that panel (`ui/hud/Community`) — the window stays.
     if (ctx.input.wasPressed(Keys.INVENTORY) && !ctx.uiBlockers.has(MENU_BLOCKER) && !ctx.uiBlockers.has(COMMUNITY_BLOCKER)
       && (ctx.isGameplayPhase() || ctx.isHubPhase()) && (this._open || (onlyReadyBlocked && !waking))) {
-      // 2026-09-09 (Tab 은 모든 화면을 닫는다): like Escape, Tab cancels the **innermost popup** first — 수량 지정 ·
-      // 우클릭 메뉴 · 분해 · 수리 · 임플란트 피커 — and closes the window only when nothing is stacked over it. The
-      // 제작 열 is a column of the window, not a popup, so it goes with the window.
+      // 2026-09-09 (Tab closes every screen): like Escape, Tab cancels the **innermost popup** first — `수량 지정` ·
+      // the right-click menu · salvage · repair · the implant picker — and closes the window only when nothing is
+      // stacked over it. The craft column is a column of the window, not a popup, so it goes with the window.
       if (!(this._open && this.ui?.closePopups())) {
-        // 2026-09-13: an embedded screen with unsaved work (캐릭터 탭의 확정 전 포인트) may intercept the close and ask first
+        // 2026-09-13: an embedded screen with unsaved work (unconfirmed points on the `캐릭터` tab) may intercept the close and ask first
         if (!(this._open && this.ui?.screenView?.requestLeave?.(() => this.closeAll()))) this.toggleBag();
       }
     }
     this.updateCraft(dt);
     if (!this._open) return;
-    // 2026-09-16: 메신저가 창 위에 떠 있는 동안 회전 · 버리기 키는 뒤의 격자에 닿지 않는다
+    // 2026-09-16: while the messenger is over the window the rotate · drop keys never reach the grid behind it
     const messengerOver = ctx.uiBlockers.has(COMMUNITY_BLOCKER);
     if (!messengerOver && ctx.input.wasPressed(Keys.ROTATE_ITEM)) this.ui?.onRotateKey();
     if (!messengerOver && ctx.input.wasPressed(Keys.DROP_ITEM)) {
@@ -342,7 +342,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     }
     const player = ctx.player;
     if (player?.isDead) { this.closeAll(); return; }
-    // 2026-09-10: 연 순간의 복사본이 아니라 **지금 자리**와 잰다 — 달리는 전차 안의 컨테이너가 곧바로 닫혔다.
+    // 2026-09-10: measured against **the current spot**, not the copy taken when it opened — a container in a moving tram closed instantly.
     if (this.activeContainer && player && player.position.distanceTo(this.activeContainer.livePosition) > AUTO_CLOSE_DISTANCE) {
       this.closeAll();
       return;
@@ -370,7 +370,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /**
    * `world:ready`: the kit the player equipped in the ship is what they raid with (2026-09-07 — no automatic starter
-   * per mission any more). Only a player with nothing anywhere (loadout, bag **and** 함선 창고) gets the minimum kit
+   * per mission any more). Only a player with nothing anywhere (loadout, bag **and** the ship stash) gets the minimum kit
    * so a lost run can never soft-lock the game; otherwise everything is kept and only the events every consumer needs
    * (`loadout:changed`, counts, `inventory:changed`) are re-emitted.
    */
@@ -381,10 +381,10 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Snapshot for the save file: slots + bag placements + quick slots as bag indices. */
   captureLoadoutSave(): LoadoutSave { return Life.captureLoadoutSave(this); }
 
-  /* ── 2026-09-12: 아이템 회수 계약 (`parts/RaidFound.ts`) ── */
-  /** 활성 회수 계약 범위 — 진짜 레이드이고 활성 계약이 `extract_with_items` 일 때만, 아니면 null. */
+  /* ── 2026-09-12: item recovery contracts (`parts/RaidFound.ts`) ── */
+  /** The active recovery-contract scope — only in a real raid with an active `extract_with_items` contract, else null. */
   raidFoundScope(): RaidFoundScope | null { return RaidMarks.raidFoundScope(this); }
-  /** 레이드가 끝났다: 몸 · 창고의 「이번 레이드에서 얻은」 표식을 전부 지운다 (바뀐 것이 있으면 true). */
+  /** The raid ended: strip every "found in this raid" mark off the body and the stash (true when anything changed). */
   stripRaidMarks(): boolean { return RaidMarks.stripRaidMarks(this); }
 
   /**
@@ -420,28 +420,28 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   isCompletelyEmpty(): boolean { return Life.isCompletelyEmpty(this); }
 
-  /** Nothing to raid with anywhere: no loadout, empty bag **and** an empty 함선 창고 (2026-09-07 safety net). */
+  /** Nothing to raid with anywhere: no loadout, empty bag **and** an empty ship stash (2026-09-07 safety net). */
   isDestitute(): boolean { return Life.isDestitute(this); }
 
   /**
-   * A failed / abandoned raid: everything the player carried is gone and they re-equip from the 함선 창고
+   * A failed / abandoned raid: everything the player carried is gone and they re-equip from the ship stash
    * (2026-09-07). Only a player whose stash is empty too falls back to the minimum kit.
    */
   loseKit(): void { return Life.loseKit(this); }
 
   /**
-   * 기본 지급품, once per profile (2026-09-07 fix). The old condition was `Stash.firstRun` — no `scav.stash` file —
-   * which silently skipped every profile that existed before the grant did, and every profile whose 창고 was emptied
+   * The starter grant, once per profile (2026-09-07 fix). The old condition was `Stash.firstRun` — no `scav.stash`
+   * file — which silently skipped every profile that existed before the grant did, and every profile whose stash was emptied
    * by an incoming (empty) server document. The state now lives in its own localStorage key:
    *   `none` → grant here (as a `fresh` document on a true first run, so a real server profile still wins) and mark
-   *            `pending`; `pending` → re-checked once at `net:profileLoaded`, where the server's 창고 is known, and
+   *            `pending`; `pending` → re-checked once at `net:profileLoaded`, where the server's stash is known, and
    *            settled to `done` either way. A player who already owns something is settled without a grant.
    */
   tryStarterGrant(): void { return Life.tryStarterGrant(this); }
 
   /**
-   * `STARTER_STASH` into the 함선 창고 (2026-09-07); the "once per profile" decision is `tryStarterGrant`. `stacks`
-   * splits an entry into that many full stacks — one 세트 per grid cell.
+   * `STARTER_STASH` into the ship stash (2026-09-07); the "once per profile" decision is `tryStarterGrant`. `stacks`
+   * splits an entry into that many full stacks — one set per grid cell.
    */
   grantStarterStash(): void { return Life.grantStarterStash(this); }
 
@@ -463,26 +463,26 @@ export class InventorySystem implements GameSystem, InventoryRef {
    */
   getAllItems(): ItemInstance[] { return this.bag.items().map((p) => p.item); }
 
-  /** Bag grid + wheel stacks + 주머니 (all of it is carried). */
+  /** Bag grid + wheel stacks + pouch (all of it is carried). */
   getTotalValue(): number { return this.bag.totalValue() + this.quickTotalValue() + Pouch.pouchTotalValue(this); }
 
-  /* ── A-15 (2026-09-11): 주머니 (InventoryRef) ──────────────────────────── */
+  /* ── A-15 (2026-09-11): the pouch (InventoryRef) ───────────────────────── */
 
-  /** 지금 장착한 주머니 아이템, 없으면 null. */
+  /** The pouch item equipped right now, or null. */
   getEquippedPouch(): ItemInstance | null { return Pouch.getEquippedPouch(this); }
 
-  /** 장착한 주머니의 격자 크기. 주머니가 없으면 `{ cols: 0, rows: 0 }` — 그 자리를 통째로 안 그린다. */
+  /** Grid size of the equipped pouch. `{ cols: 0, rows: 0 }` with no pouch — the whole spot goes undrawn. */
   getPouchSize(): { cols: number; rows: number } { return Pouch.getPouchSize(this); }
 
-  /** 이 아이템을 지금 장착한 주머니가 받아 주는가 (`PouchDef.accepts`); 주머니가 없으면 false. */
+  /** Whether the pouch equipped right now accepts this item (`PouchDef.accepts`); false with no pouch. */
   pouchAccepts(def: ItemDef | undefined): boolean { return Pouch.pouchAccepts(this, def); }
 
-  /** 주머니 격자의 스택들. */
+  /** The stacks in the pouch grid. */
   pouchItems(): ItemInstance[] { return Pouch.pouchItems(this); }
 
   /**
-   * 주머니를 갈아 끼운다 (null = 벗는다). 내용물이 가방에 못 들어가면 **이동 자체를 거절한다** —
-   * 규칙 전문은 `parts/Pouch.ts`.
+   * Swap the pouch (null = take it off). When its contents do not fit in the bag **the move itself is refused** —
+   * the full rules are in `parts/Pouch.ts`.
    */
   changePouch(next: ItemInstance | null, from: ItemLocation | null, oldTo: 'grid' | 'world',
     hint?: { x: number; y: number }, dest: GridId = 'bag'): OpResult {
@@ -515,11 +515,11 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return this.countWhere((d) => d.id === defId);
   }
 
-  /** Bag + wheel + equipped gear weight against the character's carry capacity (근력 via `ctx.progression`). */
+  /** Bag + wheel + equipped gear weight against the character's carry capacity (the `근력` strength stat via `ctx.progression`). */
   getWeight(): WeightInfo {
     const mult = gearMultipliers(this.ctx.progression?.derived);
     // 2026-09-09: the wheel is a separate container but it hangs off the same shoulders — its stacks weigh in too.
-    // 2026-09-11 (A-15): so does the 주머니 (and the pouch item itself comes through `LOADOUT_SLOTS` below).
+    // 2026-09-11 (A-15): so does the pouch (and the pouch item itself comes through `LOADOUT_SLOTS` below).
     let w = sumWeight([...this.bag.items().map((p) => p.item), ...this.quickItems(), ...this.pouchItems()], (id) => ITEM_DEF_MAP.get(id));
     for (const slot of LOADOUT_SLOTS) {
       const it = this.loadout[slot];
@@ -529,7 +529,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     }
     // bigger bags carry more — `BAG_CAPACITY_PER_CELL` kg per grid cell above the bare-shoulders grid
     // (2026-09-12: the 0.5 used to be written here; 「수치는 코드에 적지 않는다」 moved it to data/tuning.csv,
-    //  and the 가방 툴팁 now shows the same number as 「소지 한계 +N kg」 via `bagCapacityBonus`).
+    //  and the bag tooltip now shows the same number as 「소지 한계 +N kg」 via `bagCapacityBonus`).
     const capacity = mult.carryCapacity + bagCapacityBonus(this.bagSizeOf(this.loadout.bag));
     return makeWeightInfo(Math.round(w * 100) / 100, capacity, mult.carryRelief);
   }
@@ -553,31 +553,31 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Wear on non-weapon gear (armor per absorbed hit). Weapons keep `updateItem` (weapons/ owns that path). */
   damageDurability(uid: string, amount: number): void { return Dur.damageDurability(this, uid, amount); }
 
-  /** 2026-09-11 (C-36): 장착 가방이 레이드 1회분(`BAG_DURABILITY_PER_RAID`)만큼 닳는다 — 레이드당 한 번. */
+  /** 2026-09-11 (C-36): the equipped bag wears by one raid's worth (`BAG_DURABILITY_PER_RAID`) — once per raid. */
   wearBagForRaid(): boolean { return Dur.wearBagForRaid(this); }
 
   /**
-   * Phase 12: refill cost of a 회복 스프레이 (`ItemDef.heal.spray`, gauge = `durability` / `durabilityMax`) — one 캔 +
-   * one 소독약 per **full** refill, scaled by the missing fraction (ceil, never below 1 each). null for anything else
+   * Phase 12: refill cost of a `회복 스프레이` (`ItemDef.heal.spray`, gauge = `durability` / `durabilityMax`) — one `캔`
+   * + one `소독약` per **full** refill, scaled by the missing fraction (ceil, never below 1 each). null for anything else
    * or a full can. The materials come from the bag, exactly like a weapon repair.
    */
   sprayRepairCost(item: ItemInstance, def: ItemDef): CraftIngredient[] | null { return Dur.sprayRepairCost(this, item, def); }
 
   /**
-   * 완전 수리에 드는 재료 — `getRepairCost` (무기 · 방탄복) 를 먼저 보고, 비었을 때만 회복 스프레이의
-   * 게이지 충전(`sprayRepairCost`). 2026-09-10 부터 방탄복 수리도 재료를 쓴다.
+   * Materials for a full repair — `getRepairCost` (weapons · armor) is read first, and only when it comes back empty
+   * the `회복 스프레이`'s gauge refill (`sprayRepairCost`). Since 2026-09-10 repairing armor costs materials too.
    */
   repairMaterials(item: ItemInstance, def: ItemDef): CraftIngredient[] { return Dur.repairMaterials(this, item, def); }
 
   /**
    * Ship workbench: weapons go through `repairWeapon` (materials), everything else pays `repairMaterials`
-   * (방탄복 = 제작 재료 × 내구도 구간 배수, 회복 스프레이 = 캔 + 소독약, 그 밖에는 무료).
+   * (armor = the craft materials × the durability bucket multiplier, `회복 스프레이` = `캔` + `소독약`, everything else free).
    */
   repair(uid: string): boolean { return this.readOnlyBlocked() ? false : Dur.repair(this, uid); }
 
   /**
    * Context-menu repair readout (hub only): materials still needed (`[]` = free), `short` = which of them the bag
-   * lacks, `bucket` = 남은 내구도 구간. null when the item is not worn / not repairable.
+   * lacks, `bucket` = the remaining durability bucket. null when the item is not worn / not repairable.
    */
   repairInfo(uid: string): RepairInfo | null { return Dur.repairInfo(this, uid); }
 
@@ -585,12 +585,12 @@ export class InventorySystem implements GameSystem, InventoryRef {
   currentStation(): CraftStation { return Craft.currentStation(this); }
 
   /**
-   * 2026-09-14 (사용자 결정): **제작 재료를 세는 범위** — 함선이면 가방 + 함선 창고, 레이드 현장의 빠른제작은 가방만.
-   * `canCraft` · `maxCraftCount` · 소비(`consumeFor`) · 제작 창의 보유 칩이 전부 이 하나를 본다.
+   * 2026-09-14 (user's decision): **the range craft materials are counted over** — bag + ship stash in the ship, bag
+   * only for a field quick craft. `canCraft` · `maxCraftCount` · `consumeFor` · the craft window's held chips read this one.
    */
   craftCountDef(defId: string): number { return Craft.craftCountDef(this, defId); }
 
-  /* ── Phase 6 (2026-09-06): 무한 상자 catalog ──────────────────────────── */
+  /* ── Phase 6 (2026-09-06): the infinite-box catalog ────────────────────── */
 
   /**
    * `/items` cheat: open the catalog panel (every item def, infinite stock) inside the inventory window — the ship
@@ -624,7 +624,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Put a detached item into the bag, else the stash (ship). Returns where it went, null when nothing fits. */
   stow(item: ItemInstance): GridId | null { return Cat.stow(this, item); }
 
-  /* ── Phase 6: stash size (housing 창고 facility) ─────────────────────── */
+  /* ── Phase 6: stash size (the housing stash facility) ──────────────────── */
 
   getStashSize(): { cols: number; rows: number } { return StashOps.getStashSize(this); }
 
@@ -640,38 +640,38 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Bag first, then the stash; all-or-nothing. */
   consumeDefAll(defId: string, qty: number): boolean { return StashOps.consumeDefAll(this, defId, qty); }
 
-  /* ── A-13 (2026-09-11): 준비물을 함선에서 쓴다 ───────────────────────── */
+  /* ── A-13 (2026-09-11): using a preparation in the ship ────────────────── */
 
   /**
-   * 준비물(`ItemDef.prep`) 하나를 **함선에서** 써서 다음 레이드분으로 싣는다 (`ctx.progression.usePrep`).
-   * null = 실렸다, 문자열 = 한국어 거절 사유 (그때는 아이템이 **그대로 남는다**).
+   * Use one preparation (`ItemDef.prep`) **in the ship** so it is armed for the next raid (`ctx.progression.usePrep`).
+   * null = armed, a string = the Korean refusal reason (and then the item is **left exactly where it was**).
    *
-   * 순서가 요점이다 — **progression 에게 먼저 묻고 성공할 때만 뺀다.** 뺀 뒤에 거절당하면 되돌릴 곳이
-   * 없어(`prep` 은 progression 소유다) 아이템만 조용히 사라진다. 뺄 수 없는 자리(열어 둔 상자 · 장비 칸)는
-   * 묻기 전에 미리 거른다.
+   * The order is the point — **ask progression first and consume only on success.** Consuming first and then being
+   * refused leaves nowhere to put it back (`prep` belongs to progression) and the item would silently vanish. A spot
+   * it cannot be taken from (an open crate · an equipment slot) is filtered out before asking.
    */
   usePrepItem(uid: string, from?: ItemLocation): string | null { return this.readOnlyReason() ?? StashOps.usePrepItem(this, uid, from); }
 
-  /* 2026-09-16 (접시 모델): 옛 `useMealItem`(우클릭 `먹기`)은 없어졌다 — 요리는 아이템이 아니라 식탁의 접시다 (housing `eatPlate`). */
+  /* 2026-09-16 (the plate model): the old `useMealItem` (right-click `먹기`) is gone — a meal is not an item but the dining table's plate (housing `eatPlate`). */
 
-  /* ── 2026-09-13: 요리 품질 · 조리 (InventoryRef, `parts/MealQuality.ts` · `parts/Crafting.ts`) ─────────── */
+  /* ── 2026-09-13: meal quality · cooking (InventoryRef, `parts/MealQuality.ts` · `parts/Crafting.ts`) ────── */
 
-  /** 가방 + 창고의 `defId` 중 품질이 정확히 `quality` 인 수량 (0 = 품질 필드 없음 포함). */
+  /** How many `defId` in bag + stash sit at exactly quality `quality` (0 includes "no quality field"). */
   countDefQualityAll(defId: string, quality: number): number { return Meal.countDefQualityAll(this, defId, quality); }
-  /** 품질이 정확히 `quality` 인 `defId` 를 가방 먼저 → 창고에서 `qty` 개. 전부 또는 전무. */
+  /** Take `qty` of `defId` at exactly quality `quality`, bag first → stash. All or nothing. */
   consumeDefQualityAll(defId: string, quality: number, qty: number): boolean { return Meal.consumeDefQualityAll(this, defId, quality, qty); }
-  /** 가진 요리를 (def, 품질)별로 — 식탁 화면. 티어 → 이름 → 품질 높은 순. */
+  /** The meals held, per (def, quality) — the dining-table screen. Sorted tier → name → highest quality. */
   getMealStacks(): { defId: string; quality: number; qty: number }[] { return Meal.getMealStacks(this); }
-  /** 조리대 레시피를 지금 1회 만들 수 없는 한국어 사유 (null = 가능). 함선 작업대 제작과 같은 게이트. */
+  /** The Korean reason a cook-bench recipe cannot be run once right now (null = it can). The same gate as a ship workbench craft. */
   cookBlock(recipeId: string, benchLevel: number): string | null { return Craft.cookBlock(this, recipeId, benchLevel); }
-  /** 조리 1회분 재료를 뺀다 (산출물 없음 — 2026-09-16 접시 모델, housing 이 식탁에 놓는다). 한국어 사유 / null, 실패면 아무것도 빼지 않는다. */
+  /** Consume one cook's materials (no product — the 2026-09-16 plate model; housing puts it on the table). A Korean reason / null; on failure nothing is consumed. */
   consumeCookInputs(recipeId: string, benchLevel: number): string | null { return Craft.consumeCookInputs(this, recipeId, benchLevel); }
 
-  /* ── Phase 6: loadout presets (사격장) ───────────────────────────────── */
+  /* ── Phase 6: loadout presets (the range) ──────────────────────────────── */
 
   captureLoadout(): LoadoutPreset { return StashOps.captureLoadout(this); }
 
-  /** 출격 준비 점검 (2026-09-08): 발사 슬롯 탑승 전 경고 목록. 읽기 전용 — 자세한 규칙은 `parts/LaunchCheck`. */
+  /** The launch readiness check (2026-09-08): the warnings raised before boarding a launch pod. Read-only — the rules are in `parts/LaunchCheck`. */
   getLaunchWarnings(): LaunchWarning[] { return Launch.getLaunchWarnings(this); }
 
   /**
@@ -694,7 +694,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Move a bag / stash item into `slot`; the displaced item goes to the bag, else the stash, else the vacated cells. */
   equipFromStorage(item: ItemInstance, gridId: GridId, slot: LoadoutSlot): boolean { return this.readOnlyBlocked() ? false : StashOps.equipFromStorage(this, item, gridId, slot); }
 
-  /* ── Phase 6: 작업실 bench crafting ─────────────────────────────────── */
+  /* ── Phase 6: workshop bench crafting ──────────────────────────────────── */
 
   /**
    * Open the craft panel in bench mode (ship only): recipes of `getRecipes('ship', bench, level)` + locked rows for
@@ -702,31 +702,31 @@ export class InventorySystem implements GameSystem, InventoryRef {
    */
   openBenchCraft(bench: WorkbenchKind, level: number): void { return Craft.openBenchCraft(this, bench, level); }
 
-  /** Bench the craft panel is showing (null = plain 제작 panel). */
+  /** Bench the craft panel is showing (null = the plain `제작` panel). */
   getBench(): ActiveBench | null { return Craft.getBench(this); }
 
   /**
-   * 2026-09-12: 열려 있는 제작 열 안에서 작업대만 갈아 끼운다 (왼쪽 세로 작업대 리스트). 창을 열지도 닫지도
-   * 않는다 — `null` = 빠른제작. 부르는 곳은 `ui/CraftPanel` 하나다.
+   * 2026-09-12: swap only the bench inside the already-open craft column (the vertical bench list on the left). It
+   * neither opens nor closes the window — `null` = quick craft. `ui/CraftPanel` is its only caller.
    */
   switchBench(bench: WorkbenchKind | null, level = 0): void { return Craft.switchBench(this, bench, level); }
 
-  /** Leave bench mode (panel 닫기 / window closed). The window itself stays open. */
+  /** Leave bench mode (the panel's `닫기` / the window closed). The window itself stays open. */
   closeBench(): void { return Craft.closeBench(this); }
 
-  /** 2026-09-16: 제작 창의 `닫기` — 작업대가 연 창이면 **창째** 닫는다. false = 닫을 작업대가 없었다. */
+  /** 2026-09-16: the craft window's `닫기` — when a workbench opened it, **the whole window** closes. false = there was no bench to close. */
   closeCraftWindow(): boolean { return Craft.closeCraftWindow(this); }
 
   /** Rows for the craft panel: available recipes, then (bench mode) the bench's recipes above its level as locked. */
   getBenchRecipes(): BenchRecipeRow[] { return Craft.getBenchRecipes(this); }
 
   /**
-   * 수리할 수 있는 장비 (장비칸 + 가방). 2026-09-12: 작업대 종류를 보지 않는다 — 함선이면 무기 · 방탄복 · 가방
-   * 전부이고 레이드 중에는 빈 배열이다. `wornOnly` (2026-09-08, 수리 팝업의 기본값) 는 만피인 줄을 뺀다.
+   * The gear that can be repaired (equipment slots + bag). 2026-09-12: the bench kind is not read — in the ship it is
+   * weapons · armor · bags alike, in a raid an empty array. `wornOnly` (2026-09-08, the repair popup's default) drops full rows.
    */
   benchRepairRows(wornOnly = false): BenchRepairRow[] { return Craft.benchRepairRows(this, wornOnly); }
 
-  /** `모두 수리`: every worn row in order while the materials last. `skip` = uids the 팝업 excluded with ×. */
+  /** `모두 수리`: every worn row in order while the materials last. `skip` = uids the popup excluded with ×. */
   benchRepairAll(skip?: ReadonlySet<string>): { done: number; skipped: number } {
     if (this.readOnlyBlocked()) return { done: 0, skipped: 0 };
     return Craft.benchRepairAll(this, skip);
@@ -740,14 +740,14 @@ export class InventorySystem implements GameSystem, InventoryRef {
   getRecipes(station: CraftStation, bench?: WorkbenchKind, level = 0): readonly CraftRecipe[] { return Craft.getRecipes(this, station, bench, level); }
 
   /**
-   * Phase 8 — 분해 recipe of an item the player owns, or null. A `break_*` recipe whose **only** input is that
+   * Phase 8 — the salvage recipe of an item the player owns, or null. A `break_*` recipe whose **only** input is that
    * item's def id counts; the UI turns it into the `분해` context-menu entry and the modeless dialog. Crafting
    * itself is unchanged (`craft()` still accepts these recipes) — they are only hidden from the craft *list*.
    */
   disassembleRecipeFor(uid: string): CraftRecipe | null { return Craft.disassembleRecipeFor(this, uid); }
 
   /**
-   * Open the modeless 분해 dialog over the open window (the item context menu's `분해` entry; also a handle for
+   * Open the modeless salvage dialog over the open window (the item context menu's `분해` entry; also a handle for
    * the console / smoke tests). False when the window is closed or the item has no `break_*` recipe.
    */
   openDisassemble(uid: string): boolean { return this.readOnlyBlocked() ? false : Craft.openDisassemble(this, uid); }
@@ -761,23 +761,23 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Inputs of a recipe after the workshop discount (ceil, never below 1). */
   craftCost(recipe: CraftRecipe): CraftIngredient[] { return Craft.craftCost(this, recipe); }
 
-  /** `count` (2026-09-09, 제작 수량, default 1): every ingredient × count must be owned. */
+  /** `count` (2026-09-09, the craft count, default 1): every ingredient × count must be owned. */
   canCraft(recipeId: string, count = 1): boolean { return this.readOnlyReason() === null && Craft.canCraft(this, recipeId, count); }
 
   /** 2026-09-09: the most runs the owned materials pay for (≥ 1 — 1 even when nothing is affordable); the count control's `▶` limit. */
   maxCraftCount(recipeId: string): number { return Craft.maxCraftCount(this, recipeId); }
 
-  /** Seconds the 제작 / 분해 button is held — the same `CRAFT_HOLD_TIME` for every recipe (2026-09-08). */
+  /** Seconds the `제작` / `분해` button is held — the same `CRAFT_HOLD_TIME` for every recipe (2026-09-08). */
   craftDuration(recipeId: string): number { return Craft.craftDuration(this, recipeId); }
 
   /**
    * 2026-09-08: can the bag take this recipe's output (+ `extraOutputs`) right now? The same check `updateCraft`
-   * makes when the hold ends — the 분해 dialog runs it **first** so an impossible shred never costs the hold.
+   * makes when the hold ends — the salvage dialog runs it **first** so an impossible shred never costs the hold.
    */
   craftHasRoom(recipeId: string, count = 1, targetUid?: string): boolean { return Craft.craftHasRoom(this, recipeId, count, targetUid); }
 
-  /** `targetUid` (2026-09-08): the exact stack a 분해 shreds — consumed before any other stack of the same def. */
-  /** `count` (2026-09-09): 제작 수량 — the recipe runs `count` times in one hold (inputs × count, output × count). */
+  /** `targetUid` (2026-09-08): the exact stack a salvage shreds — consumed before any other stack of the same def. */
+  /** `count` (2026-09-09): the craft count — the recipe runs `count` times in one hold (inputs × count, output × count). */
   craft(recipeId: string, targetUid?: string, count = 1): Promise<ItemInstance | null> {
     if (this.readOnlyBlocked()) return Promise.resolve(null);
     return Craft.craft(this, recipeId, targetUid, count);
@@ -792,8 +792,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private updateCraft(dt: number): void { return Craft.updateCraft(this, dt); }
 
   /**
-   * Units in the bag grid, **the 주머니 and the wheel** matching `pred` (2026-09-09: a stim on the wheel is still
-   * carried; 2026-09-11 A-15: so is a herb in the 채집 주머니).
+   * Units in the bag grid, **the pouch and the wheel** matching `pred` (2026-09-09: a stim on the wheel is still
+   * carried; 2026-09-11 A-15: so is a herb in the `채집 주머니`).
    */
   countWhere(pred: (def: ItemDef, inst: ItemInstance) => boolean): number {
     let n = 0;
@@ -814,7 +814,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /**
    * Remove up to `qty` units matching `pred`: bag stacks first (smallest first, so partial stacks disappear before
-   * full ones), then the 주머니, then the wheel — what the player put away on purpose is the last thing a recipe eats.
+   * full ones), then the pouch, then the wheel — what the player put away on purpose is the last thing a recipe eats.
    */
   consumeWhere(pred: (def: ItemDef, inst: ItemInstance) => boolean, qty: number): number {
     let left = Math.max(0, Math.floor(qty));
@@ -902,8 +902,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
       return true;
     }
 
-    // 2026-09-10: the incoming stack may live in **any** grid — 가방 · 열어 둔 상자 · 함선 창고. It used to be
-    // `this.bag.get(uid)` only, so 상자에서 곧장 휠에 올리는 길이 없었다. A container source is host-gated by the
+    // 2026-09-10: the incoming stack may live in **any** grid — the bag · an open crate · the ship stash. It used to
+    // be `this.bag.get(uid)` only, so there was no way from a crate straight onto the wheel. A container source is host-gated by the
     // caller (`drop`/`registerQuick` → `guardedTake`); an unsearched container stack is refused here as everywhere.
     const found = this.locateInGrids(uid);
     const item = found?.item;
@@ -916,9 +916,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const cell = { x: p.x, y: p.y, rotated: item.rotated };
     found.grid.remove(uid);
     /*
-     * 2026-09-10 — 밀려난 스택의 자리는 `QuickSwap` 이 정한다: **들어오는 스택이 비운 그 칸** → 가방 → 출발 격자.
-     * 예전에는 가방만 봤고(`returnQuickToBag`), 그래서 **가방이 꽉 차면 1:1 교체 자체가 거절**됐다 — 자리를
-     * 맞바꾸기만 하면 되는데도. 실패하면 여기서 아무것도 바뀌지 않는다 (`place`/`autoPlace` 는 전부-아니면-전무).
+     * 2026-09-10 — `QuickSwap` decides where the displaced stack goes: **the cell the incoming stack emptied** → the
+     * bag → the source grid. It used to look at the bag only (`returnQuickToBag`), so **a full bag refused the 1:1
+     * swap outright**, though the two only had to trade spots. On failure nothing changes (`place`/`autoPlace` are all-or-nothing).
      */
     const swapped = occupant ? applyQuickSwap(this.quickSwapPlan(occupant, found.grid, found.gridId, cell, uid)) : null;
     if (occupant && !swapped) {
@@ -931,9 +931,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (found.gridId === 'container') item.searched = true;
     this.quickSlots[index] = item;
     this.afterQuickChange();
-    // 상자/창고 → 휠 is a location change, so it announces itself like a container → bag take does
+    // crate / stash → wheel is a location change, so it announces itself like a container → bag take does
     if (found.gridId !== 'bag') this.emitTransfer(item, def, { kind: 'grid', grid: found.gridId }, { kind: 'quick', index });
-    // …and the displaced stack leaving the player for that same 상자/창고 is the mirror of it
+    // …and the displaced stack leaving the player for that same crate / stash is the mirror of it
     if (occupant && swapped !== 'bag' && found.gridId !== 'bag') {
       const od = ITEM_DEF_MAP.get(occupant.defId);
       if (od) this.emitTransfer(occupant, od, { kind: 'quick', index }, { kind: 'grid', grid: found.gridId });
@@ -942,29 +942,29 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   /**
-   * 2026-09-10 — 휠 교체에서 **밀려난 스택**이 갈 자리 규칙 (`QuickSwap.ts`). `previewDrop` 은 `canQuickSwap` 으로,
-   * `setQuickSlot` 은 `applyQuickSwap` 으로 **같은 계획**을 본다. 멀티플레이의 공유 상자에는 내 물건을 넣을 수
-   * 없으므로(`refusesIntoContainer` 와 같은 이유) 그때만 출발 격자를 후보에서 뺀다.
+   * 2026-09-10 — the rule for where a wheel swap's **displaced stack** goes (`QuickSwap.ts`). `previewDrop` reads it
+   * through `canQuickSwap` and `setQuickSlot` through `applyQuickSwap` — **the same plan**. One's own things cannot go
+   * into multiplayer's shared crate (the reason `refusesIntoContainer` exists), so only then the source grid is dropped.
    */
   quickSwapPlan(occupant: ItemInstance, source: Grid | null, sourceId: GridId | null, cell: QuickSwapCell | null, incomingUid: string): QuickSwapPlan {
-    // 2026-09-11 (A-15): 출발 격자가 **주머니**일 때는 그 주머니가 밀려난 스택을 받아 줄 때만 후보다 —
-    // 구급 주머니에서 붕대를 휠에 올리며 수류탄이 조용히 그 안으로 들어가면 안 된다.
+    // 2026-09-11 (A-15): when the source grid is the **pouch** it is a candidate only if that pouch accepts the
+    // displaced stack — taking a bandage out of a first-aid pouch onto the wheel must not quietly push a grenade in.
     const pouchRefuses = sourceId === 'pouch' && !this.pouchAccepts(ITEM_DEF_MAP.get(occupant.defId));
     const allowSource = !(this.ctx.isMultiplayer && sourceId === 'container') && !pouchRefuses;
     return { occupant, bag: this.bag, source, cell, incomingUid, allowSource };
   }
 
   /**
-   * 2026-09-12 (사용자 결정) — **같은 아이템이면 휠 칸에서 합친다.** 가방 붕대 2 를 붕대 3 이 든 칸에 놓으면 칸이 5 가
-   * 된다. 넘치는 만큼은 **출발한 자리에 남고**(수량만 줄어든다) UI 가 그 나머지를 커서에 붙여 둔다 (`Drag.holdRemainder`).
-   * 출발지는 가방 · 창고 · 상자 · 주머니 격자 또는 **다른 휠 칸**이다. 합칠 것이 없으면(다른 아이템 · 칸이 꽉 참) false.
+   * 2026-09-12 (user's decision) — **the same item merges in the wheel cell.** Dropping 2 bandages from the bag onto
+   * a cell holding 3 makes it 5. The overflow **stays where it came from** (only the count drops) and the UI sticks
+   * that remainder to the cursor (`Drag.holdRemainder`). Source = bag · stash · crate · pouch grid or **another wheel cell**; false when nothing merges.
    */
   mergeIntoQuickSlot(index: number, uid: string, from: ItemLocation): boolean {
     if (this.readOnlyBlocked()) return false;
     const occupant = isQuickIndex(index) ? this.quickSlots[index] : null;
     const item = this.findItem(uid, from);
     const def = item && ITEM_DEF_MAP.get(item.defId);
-    // 2026-09-12 (아이템 회수 계약): a raid-found contract stack and a brought one never merge (`canStackTogether`)
+    // 2026-09-12 (item recovery contracts): a raid-found contract stack and a brought one never merge (`canStackTogether`)
     if (!occupant || !item || !def || occupant.uid === uid || !canStackTogether(occupant, item) || def.stackMax <= 1) return false;
     if (item.searched === false) return false;
     const moved = Math.min(def.stackMax - occupant.qty, item.qty);
@@ -1033,7 +1033,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return 'ok';
   }
 
-  /** 2026-09-12: 자동 정렬 (가방 · 함선 창고) — `parts/Sort.ts`. `keep` uids are moved but never merged away. */
+  /** 2026-09-12: the auto sort (bag · ship stash) — `parts/Sort.ts`. `keep` uids are moved but never merged away. */
   sortGrid(gridId: 'bag' | 'stash', keep?: (uid: string) => boolean): OpResult { return this.readOnlyBlocked() ? 'fail' : SortOps.sortGrid(this, gridId, keep); }
 
   /** Wheel to bag (merging into stacks first). False when the bag has no room; the caller then refuses the move. */
@@ -1057,8 +1057,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
 
   /**
    * Context menu: move the stack into the first free usable slot. 'noop' when it is already on the wheel.
-   * 2026-09-10: the stack may sit in the open 상자 — that path is a take, so it goes through `guardedTake`
-   * (host-confirmed in multiplayer) exactly like 상자 → 가방.
+   * 2026-09-10: the stack may sit in the open crate — that path is a take, so it goes through `guardedTake`
+   * (host-confirmed in multiplayer) exactly like crate → bag.
    */
   registerQuick(uid: string): OpResult {
     if (this.readOnlyBlocked()) return 'fail';
@@ -1139,7 +1139,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   tryAddItem(item: ItemInstance): boolean {
     const def = ITEM_DEF_MAP.get(item.defId);
     if (!def) return false;
-    // 2026-09-09: top the **wheel** stacks up first — picking up 붕대 while the wheel holds a partial 붕대 stack
+    // 2026-09-09: top the **wheel** stacks up first — picking up a bandage while the wheel holds a partial bandage stack
     // should refill the thing the player actually uses, not start a second stack in the grid.
     if (mergeIntoQuick(this.quickSlots, item, (id) => ITEM_DEF_MAP.get(id)) <= 0) {
       this.syncQuickSlots();
@@ -1148,9 +1148,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
       return true;
     }
     /*
-     * 2026-09-14 (사용자 결정 — 소모품 퀵슬롯 자동 장착, **게임 전역**): 합치고 남은 스택이 휠에 올릴 수 있는 종류이고
-     * **빈 칸**이 있으면 가방보다 먼저 그 칸에 앉는다. 규칙은 `parts/AutoQuick` 한 벌이고, 여기는 아직 어느 격자에도
-     * 없는 스택이라 `setQuickSlot`(격자 → 휠)이 아니라 칸에 바로 넣는다 — 그래도 **옮기기**다(복사가 아니다).
+     * 2026-09-14 (user's decision — auto-seating a consumable on the wheel, **game-wide**): when what is left after the
+     * merge is a kind the wheel takes and a **free cell** exists, it sits there before the bag. The rule is the one set
+     * in `parts/AutoQuick`; this stack is in no grid yet, so it goes straight into the cell, not through `setQuickSlot` — still a **move**, not a copy.
      */
     const qi = AutoQuick.autoQuickIndexFor(this, item, def);
     if (qi >= 0) {
@@ -1200,7 +1200,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     const n = Math.min(want, item.qty);
 
     if (from.kind === 'slot' && from.slot === 'bag') return this.changeBag(null, null, 'world') === 'ok';
-    // A-15: the equipped 주머니 goes through `changePouch` too — its contents must reach the bag first
+    // A-15: the equipped pouch goes through `changePouch` too — its contents must reach the bag first
     if (from.kind === 'slot' && from.slot === 'pouch') return this.changePouch(null, null, 'world') === 'ok';
 
     let dropped: ItemInstance;
@@ -1259,7 +1259,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     }
     const p = this.bag.get(uid);
     if (p) return p.item;
-    const pp = this.pouch.get(uid);   // A-15: the 주머니 is carried, so a bare uid must find it too
+    const pp = this.pouch.get(uid);   // A-15: the pouch is carried, so a bare uid must find it too
     if (pp) return pp.item;
     const qi = quickSlotOf(this.quickSlots, uid);
     if (qi >= 0) return this.quickSlots[qi];
@@ -1290,13 +1290,13 @@ export class InventorySystem implements GameSystem, InventoryRef {
   detachAllSockets(uid: string): boolean { return this.readOnlyBlocked() ? false : Dur.detachAllSockets(this, uid); }
 
   /**
-   * 2026-09-14 (고정 툴팁): 무기 `weaponUid` 의 `socket` 하나를 `target`(가방 · 창고 · 주머니 칸, 또는 레이드의 바닥)으로 꺼낸다 —
-   * `attachToWeapon` 의 거울 (`parts/SocketDetach`). 가리킨 칸이 막혔으면 `'fail'` 이고 부착물은 소켓에 남는다.
+   * 2026-09-14 (the pinned tooltip): take one `socket` off weapon `weaponUid` into `target` (a bag · stash · pouch cell,
+   * or the ground in a raid) — the mirror of `attachToWeapon` (`parts/SocketDetach`). A blocked cell gives `'fail'` and the attachment stays in its socket.
    */
   detachSocket(weaponUid: string, socket: SocketSlot, target: import('./model').DetachTarget): OpResult { return this.readOnlyBlocked() ? 'fail' : SockOut.detachSocket(this, weaponUid, socket, target); }
-  /** 끄는 동안의 칸 강조 — `detachSocket` 이 지금 성공할까 (아무것도 바꾸지 않는다). */
+  /** The cell highlight while dragging — would `detachSocket` succeed right now (it changes nothing). */
   previewDetach(weaponUid: string, socket: SocketSlot, target: import('./model').DetachTarget): 'ok' | 'bad' { return this.readOnlyReason() ? 'bad' : SockOut.previewDetach(this, weaponUid, socket, target); }
-  /** 이 무기의 소켓을 끌어낼 수 있는 자리(가방 · 장비칸 · 함선 창고)에 있나. 상자 · 시체 안의 무기는 false. */
+  /** Whether this weapon sits where its sockets can be dragged out (bag · equipment slot · ship stash). False inside a crate or a corpse. */
   canDetachSockets(weaponUid: string): boolean { return SockOut.canDetachSockets(this, weaponUid); }
 
   /** Magazine → bag as ammo of the weapon's calibre (merge into stacks, new stacks, overflow drops). */
@@ -1323,7 +1323,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Context menu `창고로 이동` on an equipped item (hub only): unequip straight into the stash. The bag slot shrinks the grid first. */
   moveToStash(uid: string, from: ItemLocation): OpResult { return this.readOnlyBlocked() ? 'fail' : StashOps.moveToStash(this, uid, from); }
 
-  /** 2026-09-16: 가방 머리의 `모두 창고로 이동` (함선) — 가방 **격자**만, 큰 것부터; `left` = 자리가 없어 남은 개수. */
+  /** 2026-09-16: `모두 창고로 이동` in the bag header (ship) — the bag **grid** only, largest first; `left` = how many had no room. */
   moveBagToStash(): { moved: number; left: number } { return this.readOnlyBlocked() ? { moved: 0, left: 0 } : StashOps.moveBagToStash(this); }
 
   /**
@@ -1343,14 +1343,14 @@ export class InventorySystem implements GameSystem, InventoryRef {
       : this.wantsShieldRecharge(from) ? '실드 충전 필요'
       : `${def.name} 필요`;
     this.ctx.bus.emit('chat:post', { text, kind: 'request' });
-    // 2026-09-15 (안드로이드 분대원): 같은 요청을 안드로이드가 들을 수 있는 사건으로도 낸다 (원격 호스트에는 `allyq item`)
+    // 2026-09-15 (android squadmates): the same request also goes out as an event androids can hear (`allyq item` to a remote host)
     Allies.emitItemRequest(this, item, from, stats ? stats.ammoType : null);
     return true;
   }
 
   /**
-   * 2026-09-15 (사용자 결정): 이 자리의 아이템을 요청하면 「실드 충전」 부탁이 되나 — **장착한 방탄복 칸**이고 실드가
-   * 조금이라도 비었을 때만. 요청 문구(`requestItem`)와 메뉴 이름(`ui/parts/ContextMenu`)이 같은 이 함수를 본다.
+   * 2026-09-15 (user's decision): whether requesting the item in this spot asks for a 「실드 충전」 instead — only in the
+   * **equipped armor slot** and only while the shield is short. The request text and the menu name read this one function.
    */
   wantsShieldRecharge(from: ItemLocation): boolean {
     if (from.kind !== 'slot' || from.slot !== 'armor') return false;
@@ -1371,7 +1371,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     if (this.isShowingContainer(containerId)) return;
     const first = !this.openedIds.has(containerId);
     this.openedIds.add(containerId);
-    // 2026-09-16: 굴림 규칙(잠긴 방 = 서사 이상 게이트 면제)은 world 가 답한다 — peek · 안드로이드 확정과 같은 값
+    // 2026-09-16: world answers the roll rules (the locked room is exempt from the epic-plus gate) — the same value peek and the android settle read
     const c = this.containers.getOrCreate(containerId, tier, position, this.loot, this.missionSeed, this.ctx.missionPlanet,
       this.ctx.world?.crateLootOpts?.(containerId));
     this.showContainer(c);
@@ -1393,32 +1393,32 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   /**
-   * 2026-09-09 — `openContainerItems` 와 같지만 격자 크기를 지정한다 (플레이어 유해는
-   * `PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS`). 이미 아는 id 면 `items` · 크기 모두 무시하고 남은 내용물을 보여 준다.
+   * 2026-09-09 — the same as `openContainerItems` but the grid size is given (a player corpse asks for
+   * `PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS`). For a known id both `items` and the size are ignored and what is left is shown.
    */
   openContainerItemsSized(containerId: string, items: ItemInstance[], position: THREE.Vector3,
     cols: number, rows: number, title?: string): void {
     return Corpse.openContainerItemsSized(this, containerId, items, position, cols, rows, title);
   }
 
-  /** 2026-09-12 (드론 스캔) — 열지 않고 지금 열면 보일 내용물 (`parts/Peek`). */
+  /** 2026-09-12 (the drone scan) — what opening it right now would show, without opening it (`parts/Peek`). */
   peekContainerItems(containerId: string, tier?: number): readonly ItemInstance[] | null { return Peek.peekContainerItems(this, containerId, tier); }
   peekSuppliedItems(containerId: string, items: readonly ItemInstance[], cols?: number, rows?: number): readonly ItemInstance[] { return Peek.peekSuppliedItems(this, containerId, items, cols, rows); }
 
   /**
-   * 2026-09-09 — 사망 시점의 전부(장비 · 가방 · 퀵슬롯)를 뽑고 로컬 인벤토리를 비운다. 시체 컨테이너를
-   * 채우는 유일한 입구이고, `game/parts/Death` 의 사망 처리에서 정확히 한 번만 불린다.
+   * 2026-09-09 — pulls everything held at the moment of death (equipment · bag · quick slots) and empties the local
+   * inventory. It is the only way a corpse container is filled, called exactly once from `game/parts/Death`.
    */
   stripForCorpse(): ItemInstance[] { return Corpse.stripForCorpse(this); }
 
   showContainer(c: Container): void {
     this.activeContainer = c;
-    this.searchDelay = SEARCH_START_DELAY;   // 2026-09-08: 감정 waits out the window's open animation
+    this.searchDelay = SEARCH_START_DELAY;   // 2026-09-08: the search waits out the window's open animation
     this.hubMode = false;
     this.setOpen(true);
     this.ui?.show(c, false);
     this.ctx.bus.emit('inventory:opened', { containerId: c.id });
-    // 2026-09-15 (안드로이드 분대원): 상자 · 구조물 컨테이너 · 시체 — 창을 여는 **유일한 길**이라 여기 한 곳에서 알린다
+    // 2026-09-15 (android squadmates): crates · structure containers · corpses — this is the **only way** the window opens, so it is announced here alone
     Allies.emitContainerViewed(this, c.id);
     this.checkLooted();
   }
@@ -1436,8 +1436,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   get isHubScreen(): boolean { return this._open && this.hubMode; }
 
   /**
-   * Open the Tab window in ship mode on a **screen tab** (2026-09-07). The 기업 네트워크 console uses this: the corp
-   * screen has no overlay of its own any more, it is the window's 기업 tab. Ship-only (the embedded screens are), and
+   * Open the Tab window in ship mode on a **screen tab** (2026-09-07). The `기업 네트워크` console uses this: the corp
+   * screen has no overlay of its own any more, it is the window's `기업` tab. Ship-only (the embedded screens are), and
    * returns false when the tab could not be shown (wrong phase, the owning folder missing).
    */
   openScreen(tab: ScreenTab): boolean {
@@ -1460,7 +1460,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   getStashItems(): ItemInstance[] { return this.stash.items(); }
 
   /**
-   * Phase 9 UI pass: the player's real 가방 / 함선 창고 grids embedded in another folder's screen (기업 거래).
+   * Phase 9 UI pass: the player's real bag / ship stash grids embedded in another folder's screen (corp trading).
    * `ui/TradeGrids.ts` is read + drag-out only and mutates nothing — see `InventoryRef.createTradeGrids`.
    */
   createTradeGrids(host: HTMLElement, opts: TradeGridsViewOptions = {}): EmbeddedView {
@@ -1482,9 +1482,9 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return el;
   }
 
-  /* ── 2026-09-12 (E1): 아이템 즐겨찾기 (InventoryRef, `parts/Favorites.ts`) ─────────────────────────────── */
+  /* ── 2026-09-12 (E1): item favourites (InventoryRef, `parts/Favorites.ts`) ───────────────────────────── */
 
-  /** Favourite item kinds (def ids). The one table — `ui/GridView` only holds a drawing copy. */
+  /** Favourite item kinds (def ids). The one table — `ui/GridView` only holds a display copy. */
   favorites = new Set<string>();
   /** A toggle not yet written with a loadout save (set outside the ship, or while the save debounce runs). */
   favoritesDirty = false;
@@ -1581,7 +1581,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.searchDelay = 0;
   }
 
-  /* ── Phase 7 (2026-09-06): container search (감정) ──────────────────────── */
+  /* ── Phase 7 (2026-09-06): container search ─────────────────────────────── */
 
   /**
    * Every frame while a container window is open: reveal the first unsearched item in grid order (top-left →
@@ -1633,16 +1633,16 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this.ui?.refresh();
   }
 
-  /* ── 2026-09-14: 준비 상태 = 로드아웃 읽기 전용 (발사 슬롯 UI 대개편) ──────── */
+  /* ── 2026-09-14: ready = the loadout is read-only (launch-pod UI rework) ─── */
 
   /**
-   * **왜 지금 장비를 바꿀 수 없는가** (null = 바꿀 수 있다). 발사 슬롯에 앉아 **준비까지 마친** 동안에는 Tab 창이
-   * 그대로 열리되(분대원 장비를 들여다보는 것은 계속 된다) 드래그 · 장착 · 해제 · 분해 · 수리 · 제작 · 퀵슬롯
-   * 변경이 전부 거절된다. 준비를 풀면 그대로 다시 편집된다.
+   * **Why the loadout cannot be changed right now** (null = it can). While seated in a launch pod and **marked ready**
+   * the Tab window still opens (looking at a squadmate's loadout keeps working) but drag · equip · unequip · salvage ·
+   * repair · craft · quick-slot changes are all refused. Cancelling ready makes it editable again exactly as before.
    *
-   * 게이트는 **여기 한 곳**이고 UI 는 이것만 본다 — 화면마다 자기 판정을 만들면 어느 화면 하나가 빠진다. 상태의
-   * 원본은 hub(`HubSystem.launchReady`, `boardedSlot >= 0 && readyLocal`)이고 계약은 `HubRef.launchReady`(선택 필드 —
-   * 타이틀 · 레이드에서는 `ctx.hub` 자체가 null 이다).
+   * The gate is **this one place** and the UI reads nothing else — a per-screen judgement of its own would leave one
+   * screen out. The state itself belongs to hub (`HubSystem.launchReady`, `boardedSlot >= 0 && readyLocal`) and the
+   * contract is `HubRef.launchReady` (an optional field — on the title screen and in a raid `ctx.hub` is null).
    */
   readOnlyReason(): string | null {
     const hub = this.ctx.hub;
@@ -1654,8 +1654,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   private lastReadOnlyToastAt = -Infinity;
 
   /**
-   * true = 지금은 읽기 전용이니 **거절하고 사유를 말한다**. 모든 변경 진입점의 첫 줄이다; 미리보기
-   * (`previewDrop` 류)는 토스트 없이 `readOnlyReason()` 만 보고 빨간색을 돌려준다.
+   * true = it is read-only right now, so **refuse and say why**. It is the first line of every mutating entry point;
+   * a preview (`previewDrop` and its kind) reads `readOnlyReason()` alone and returns red without a toast.
    */
   private readOnlyBlocked(): boolean {
     const why = this.readOnlyReason();
@@ -1744,18 +1744,18 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Ask the (new) host for every taken map (host migration, rejoin fallback). */
   private requestContainerSync(): void { return CNet.requestContainerSync(this); }
 
-  /* ── 2026-09-15: 안드로이드 분대원 (`parts/Allies.ts`) ─────────────────── */
+  /* ── 2026-09-15: android squadmates (`parts/Allies.ts`) ────────────────── */
 
-  /** DOM 없는 가방 격자 하나 (안드로이드 — 플레이어 가방과 같은 배치 · 스택 규칙). */
+  /** One bag grid with no DOM (for an android — the same placement · stack rules as the player's bag). */
   createAllyBag(cols: number, rows: number): AllyBagRef { return Allies.createAllyBag(cols, rows); }
 
-  /** 사람과 **같은 무게 식** — `carried` = 가방 + 장착 장비, `bag` = 장착 가방 (용량 보너스). 운반 숙련 없음. */
+  /** **The same weight formula** as a person — `carried` = bag + equipped gear, `bag` = the equipped bag (its capacity bonus). No `운반` hauling skill. */
   weightInfoFor(carried: readonly ItemInstance[], bag: ItemInstance | null): WeightInfo { return Allies.weightInfoFor(this, carried, bag); }
 
   /**
-   * 권위: 사람이 아닌 몸(`by` = 안드로이드 id)이 컨테이너에서 `defId` 스택 하나를 가져간다. `containerId` 는 인벤토리
-   * 컨테이너 id (= `WorldRef.getLootContainers()` 의 id): 맵 상자는 `crate_<n>`, 구조물 · 플랫폼 · 전차 컨테이너는
-   * 상호작용 id 의 `container:` 를 뗀 명세 id 다.
+   * Authority: a body that is not a person (`by` = an android id) takes one `defId` stack out of a container.
+   * `containerId` is the inventory container id (= the id in `WorldRef.getLootContainers()`): `crate_<n>` for a map
+   * crate, and for structure · platform · tram containers the spec id with the interaction id's `container:` stripped.
    */
   takeContainerItemFor(containerId: string, tier: number, defId: string, by: string): ItemInstance | null {
     return Allies.takeContainerItemFor(this, containerId, tier, defId, by);
@@ -1787,7 +1787,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /** Run `fn` with every save it triggers uploaded as a `fresh` (default) document. */
   withFreshSave(fn: () => void): void { return Docs.withFreshSave(this, fn); }
 
-  /** 2026-09-11 (E-6, `InventoryRef.flushSaves`): write the debounced 창고 / 로드아웃 saves now — both changed → one transaction. */
+  /** 2026-09-11 (E-6, `InventoryRef.flushSaves`): write the debounced stash / loadout saves now — both changed → one transaction. */
   flushSaves(): void { return Docs.flushSaves(this); }
 
   /** 2026-09-11 (E-5, `InventoryRef.soloRaidSeed`): the solo raid the saved kit is out on (local loadout marker), null = none. */
@@ -1813,7 +1813,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   getGrid(id: GridId): Grid | null {
     if (id === 'bag') return this.bag;
     if (id === 'stash') return this.stash.grid;
-    // A-15: the 주머니 grid exists even without a pouch (1×1, empty) — `getPouchSize()` is what says "do not draw it"
+    // A-15: the pouch grid exists even without a pouch (1×1, empty) — `getPouchSize()` is what says "do not draw it"
     if (id === 'pouch') return this.pouch;
     return this.activeContainer?.grid ?? null;
   }
@@ -1826,7 +1826,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /**
    * Find an item anywhere (bag → container → stash → **wheel** → equipment slots).
    *
-   * 2026-09-09: the wheel had to be added here, not just to `findItem` — `dropItem` (버리기) and the repair /
+   * 2026-09-09: the wheel had to be added here, not just to `findItem` — `dropItem` (the `버리기` entry) and the repair /
    * stash helpers resolve a bare uid through this, so without it a stack on the wheel could not be thrown away.
    */
   locate(uid: string): { item: ItemInstance; from: ItemLocation } | null {
@@ -1853,7 +1853,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
     return null;
   }
 
-  /** Slot a double-click / `장착` sends a weapon to: first empty primary slot, else 주무기 I (swap). Armor / bags → their slot. */
+  /** Slot a double-click / `장착` sends a weapon to: first empty primary slot, else `주무기 I` (swap). Armor / bags → their slot. */
   equipTargetFor(def: ItemDef): LoadoutSlot | null { return Drop.equipTargetFor(this, def); }
 
   /** Split size a Shift (half) / Ctrl (one) drag would carry, or null when the item cannot be split. */
@@ -1896,18 +1896,18 @@ export class InventorySystem implements GameSystem, InventoryRef {
   quickMoveImpl(uid: string, from: ItemLocation): OpResult { return Drop.quickMoveImpl(this, uid, from); }
 
   /**
-   * Double-click. **2026-09-14 2차 (사용자 결정) — 격자를 가리지 않고 「빈 자리가 있으면 곧장 그리로」**:
-   * `빈 장비 칸 → 빈 임플란트 칸 → 빈 퀵슬롯`(`Drop.tryAutoPlace`), 하나도 없으면 예전 경로(가방 → `inventory:full`).
-   * **비어 있는 칸에만** 넣으므로 장착한 것은 조용히 밀려나지 않는다 (2026-09-10 결정이 지키려던 것).
-   * 교체는 드래그와 우클릭 메뉴의 「장착」(`equip`) 몫이다 (폴더 README 의 `Equipment slots` 절).
+   * Double-click. **2026-09-14, 2nd pass (user's decision) — regardless of the grid, 「빈 자리가 있으면 곧장 그리로」**:
+   * a free equipment slot → a free implant slot → a free quick slot (`Drop.tryAutoPlace`); with none, the old path
+   * (bag → `inventory:full`). It fills **empty** slots only, so nothing equipped is silently displaced (what the
+   * 2026-09-10 decision protected). Swapping is for a drag and the menu's `장착` (`equip`) — README `Equipment slots`.
    */
   activate(uid: string, from: ItemLocation): OpResult { return this.readOnlyBlocked() ? 'fail' : Drop.activate(this, uid, from); }
 
   activateImpl(uid: string, from: ItemLocation): OpResult { return Drop.activateImpl(this, uid, from); }
 
   /**
-   * 지금 더블클릭하면 **빈 장비 칸 · 임플란트 칸 · 휠 칸**으로 갈까 (아무것도 바꾸지 않는다). 우클릭 메뉴가
-   * 「빠른 이동」 줄의 `더블클릭` 힌트를 달지 말지 정할 때만 쓴다 (2026-09-14 2차).
+   * Would a double-click right now land in a **free equipment · implant · wheel slot** (it changes nothing). Used only
+   * so the right-click menu can decide whether to put the `더블클릭` hint on its 「빠른 이동」 row (2026-09-14, 2nd pass).
    */
   wouldAutoPlace(item: ItemInstance, def: ItemDef, quick = true): boolean { return Drop.wouldAutoPlace(this, item, def, quick); }
 
@@ -1941,7 +1941,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   /* ── internals ─────────────────────────────────────────────────────────── */
 
   /**
-   * Phase 10 (인게임 커서): the window keeps the **pointer lock** and drives the software cursor instead of handing
+   * Phase 10 (the in-game cursor): the window keeps the **pointer lock** and drives the software cursor instead of handing
    * the OS cursor back — `setCursorMode` is ref-counted by blocker token, so a modeless popup layered on top (which
    * takes no token of its own) cannot steal it. No `exitPointerLock()`, and therefore no relock either.
    */
@@ -1950,8 +1950,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
     this._open = open;
     if (open) {
       this.ctx.uiBlockers.add(BLOCKER_TOKEN);
-      // 2026-09-09: ESC 도 이 창을 닫는다 (`shared/escape` — 열린 순서의 역순으로 맨 위 하나). 팝업이 떠 있는
-      // 동안은 `escHandler` 가 Escape 를 먼저 삼키므로 여기까지 오지 않는다.
+      // 2026-09-09: Escape closes this window too (`shared/escape` — the topmost one, in reverse open order). While a
+      // popup is up `escHandler` swallows Escape first, so it never reaches here.
       // 2026-09-13: an intercepted leave (`EmbeddedView.requestLeave` raised its warning) keeps the entry (`false`)
       this.ctx.escape.push(BLOCKER_TOKEN, () => (this.ui?.screenView?.requestLeave?.(() => this.closeAll()) ? false : this.closeAll()));
       this.ctx.input.setCursorMode(true, BLOCKER_TOKEN);
@@ -1968,8 +1968,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   /**
-   * 'player' = bag / 주머니 / loadout (HUD counts, sockets); the crate and the stash are 'container'.
-   * 2026-09-11 (A-15): the 주머니 is carried, so moving something in and out of it is not a transfer.
+   * 'player' = bag / pouch / loadout (HUD counts, sockets); the crate and the stash are 'container'.
+   * 2026-09-11 (A-15): the pouch is carried, so moving something in and out of it is not a transfer.
    */
   locKind(loc: ItemLocation): 'player' | 'container' {
     return loc.kind === 'grid' && loc.grid !== 'bag' && loc.grid !== 'pouch' ? 'container' : 'player';
@@ -2063,7 +2063,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   emitTransfer(item: ItemInstance, def: ItemDef, from: ItemLocation, to: ItemLocation): void {
     const a = this.locKind(from), b = this.locKind(to);
     if (a === b) return;
-    // 2026-09-12: 함선 창고 → 가방은 「옮기기」다 — `fromStash` 가 붙으면 ui 가 획득 티커를 띄우지 않는다
+    // 2026-09-12: ship stash → bag is a move, not a pickup — with `fromStash` set the ui raises no acquisition ticker
     const fromStash = from.kind === 'grid' && from.grid === 'stash';
     if (b === 'player') this.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity, ...(fromStash ? { fromStash: true } : {}) });
     else this.ctx.bus.emit('inventory:itemRemoved', { item });
@@ -2126,7 +2126,7 @@ export class InventorySystem implements GameSystem, InventoryRef {
   canSwap(item: ItemInstance, fromGrid: GridId, other: ItemInstance, targetGrid: Grid): boolean { return Drop.canSwap(this, item, fromGrid, other, targetGrid); }
 
   performSwap(item: ItemInstance, srcGrid: Grid, other: ItemInstance, dstGrid: Grid, x: number, y: number, rotated: boolean): boolean { return Drop.performSwap(this, item, srcGrid, other, dstGrid, x, y, rotated); }
-  /* ── Phase 10: 분대원 장비 열람 (발사 준비 패널 → 우클릭) ─────────────────── */
+  /* ── Phase 10: viewing a squadmate's loadout (ready panel → right-click) ── */
 
   /**
    * My bag + equip slots + quick slots for `CrewMessage.loadout` — the `captureLoadoutSave()` document without the
@@ -2139,8 +2139,8 @@ export class InventorySystem implements GameSystem, InventoryRef {
   }
 
   /**
-   * Read-only 장비 / 가방 / 빠른 사용 view of another member's `captureCrewLoadout()` document (`ui/CrewLoadoutView.ts`):
-   * a throwaway grid, no drag / rotate / socket / drop, no 함선 창고 column and no 크레딧 pill. Null when the document
+   * Read-only `장비` / `가방` / `빠른 사용` view of another member's `captureCrewLoadout()` document (`ui/CrewLoadoutView.ts`):
+   * a throwaway grid, no drag / rotate / socket / drop, no ship stash column and no credits pill. Null when the document
    * is not a loadout. The popup frame belongs to the caller (`hub/`).
    */
   createCrewLoadoutView(host: HTMLElement, loadout: unknown, opts: CrewLoadoutViewOptions = {}): EmbeddedView | null {

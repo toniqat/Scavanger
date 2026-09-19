@@ -1,10 +1,10 @@
 /**
- * src/inventory/parts/Lifecycle.ts — **세이브 · 기본 지급품 · 미션 리셋**.
+ * src/inventory/parts/Lifecycle.ts — **saves · the starter grant · the mission reset**.
  *
- * `InventorySystem` 에서 떼어낸 함수들이다. 인스턴스를 첫 인자 `sys` 로 받고, 클래스에는 같은 이름의
- * 한 줄 위임 메서드가 남아 있으므로 **호출부는 전부 그대로**다.
- * 여기가 답하는 질문은 하나다 — *레이드가 시작 · 종료 · 실패할 때 플레이어의 장비에 무슨 일이 일어나는가.*
- * 규칙 전문은 폴더 README 의 `Reset policy` 절에 있다.
+ * Functions split out of `InventorySystem`. They take the instance as their first argument `sys`, and the class keeps a
+ * one-line delegate of the same name, so **every call site is unchanged**.
+ * The one question answered here — *what happens to the player's gear when a raid starts · ends · fails.*
+ * The rules in full are in the folder README's `Reset policy` section.
  */
 import * as THREE from 'three';
 import type {
@@ -21,7 +21,7 @@ import { createQuickSlots, isQuickUsable, pickStarterQuick } from '../QuickSlots
 import { setStarterGrantState, starterGrantState } from '../Stash';
 import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
-import { resolveItemAlias } from '@/shared';   // 2026-09-13 (서재 시리즈): 옛 매체 id 로 저장된 가방 스택을 다시 합친다
+import { resolveItemAlias } from '@/shared';   // 2026-09-13 (the library series): re-merges bag stacks saved under an old media id
 import {
   AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
   LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
@@ -31,7 +31,7 @@ import {
 } from '../model';
 import { pouchAcceptsDef } from '../model';
 import * as Pouch from './Pouch';
-import { returnForbiddenAttachments } from './SocketRules';   // 2026-09-14 (총기 소켓 규칙)
+import { returnForbiddenAttachments } from './SocketRules';   // 2026-09-14 (the gun socket rules)
 import type { InventorySystem } from '../InventorySystem';
 
 /**
@@ -65,11 +65,11 @@ export function onWorldReady(sys: InventorySystem, seed: number): void {
   }
 
 /**
- * Snapshot for the save file: slots + bag placements + the wheel's own stacks + the 주머니 격자.
+ * Snapshot for the save file: slots + bag placements + the wheel's own stacks + the pouch grid.
  *
  * v2 (2026-09-09): `quick[i]` is the **stack itself**, not an index into `bag` — the wheel is its own container, so
  * a stack on the wheel is not in `bag` at all. `Loadout.sanitizeLoadoutSave` migrates a v1 file on read.
- * v3 (2026-09-11, A-15): `pouch` is that same idea for the 주머니 — placements, not indices.
+ * v3 (2026-09-11, A-15): `pouch` is that same idea for the pouch — placements, not indices.
  */
 export function captureLoadoutSave(sys: InventorySystem): LoadoutSave {
   const slots: LoadoutSave['slots'] = {};
@@ -80,7 +80,7 @@ export function captureLoadoutSave(sys: InventorySystem): LoadoutSave {
     v: LOADOUT_SAVE_VERSION, slots, bag: placements.map(serializePlacement), quick,
     pouch: sys.pouch.items().map(serializePlacement),
   };
-  // 2026-09-12 (E1): 즐겨찾기 종류 목록 — 비었으면 필드가 없다 (`LoadoutSave.fav`, `parts/Favorites.ts`)
+  // 2026-09-12 (E1): the favourite def-id list — with none the field is absent (`LoadoutSave.fav`, `parts/Favorites.ts`)
   const fav = sys.captureFavorites();
   if (fav) save.fav = fav;
   return save;
@@ -93,11 +93,11 @@ export function captureLoadoutSave(sys: InventorySystem): LoadoutSave {
  */
 export function restoreLoadoutSave(sys: InventorySystem): boolean {
   const save = loadLoadoutSave();
-  // 2026-09-12 (E1): 즐겨찾기는 킷이 비어 있어도 읽는다 — 킷과 수명이 다르다 (`parts/Favorites.ts`)
+  // 2026-09-12 (E1): favourites are read even when the kit is empty — their lifetime differs from the kit's (`parts/Favorites.ts`)
   sys.applySavedFavorites(save?.fav, true);
   if (!save || isEmptyLoadoutSave(save)) return false;
   sys.applyLoadoutSave(save);
-  // 2026-09-14 (총기 소켓 규칙): attachments a weapon no longer accepts → 함선 창고 (→ 가방); the kit is saved with the 창고
+  // 2026-09-14 (the gun socket rules): attachments a weapon no longer accepts → the stash (→ the bag); the kit is saved with the stash
   if (returnForbiddenAttachments(sys, 'stash') > 0) sys.loadoutStore.markDirty('sockets');
   sys.announcePending = true;
   return true;
@@ -134,7 +134,7 @@ export function applyLoadoutSave(sys: InventorySystem, save: LoadoutSave): (Item
     if (cell && sys.bag.place(item, cell.x, cell.y, !!sv.rotated)) continue;
     pending.push(item);
   }
-  // 2026-09-13 (서재 시리즈): same order as `Stash.load` — merge into a stack of the new id, own saved cell, then the refill below
+  // 2026-09-13 (the library series): same order as `Stash.load` — merge into a stack of the new id, own saved cell, then the refill below
   for (const { item, sv } of converted) {
     if ((getDef(item.defId)?.stackMax ?? 1) > 1 && sys.bag.mergeIntoStacks(item) <= 0) continue;
     const cell = savedCell(sv);
@@ -142,10 +142,10 @@ export function applyLoadoutSave(sys: InventorySystem, save: LoadoutSave): (Item
     pending.push(item);
   }
   /*
-   * 2026-09-12 — 가방 모양이 바뀌었다 (전부 가로 5칸, `data/bags.csv`). 옛 세이브의 `x ≥ 5` 칸은 새 격자에 없으므로
-   * 저장된 칸에 못 선 것이 생긴다. 예전처럼 그것만 빈자리에 끼우면 조각이 나 **들어갈 수 있는데도 버려진다** —
-   * 그래서 하나라도 못 섰으면 가방 전체를 **큰 것부터** 다시 채운다 (합치지는 않는다: 레이드 blob 의 항목별 표시가
-   * 인스턴스에 붙어 있다). 그래도 안 들어가는 것은 함선 창고로 보내고, 창고마저 가득일 때만 예전처럼 버린다.
+   * 2026-09-12 — the bag shape changed (all of them 5 cells wide, `data/bags.csv`). An old save's `x ≥ 5` cells are not in
+   * the new grid, so some items miss their saved cell. Fitting only those into free spots as before fragments the grid and
+   * **throws away items that would have fitted** — so if even one missed, the whole bag is refilled **largest first** (no
+   * merging: the raid blob's per-entry marks sit on the instances). What still does not fit goes to the stash, and only when the stash is full too is it discarded as before.
    */
   if (pending.length > 0) {
     const all = [...sys.bag.items().map((p) => p.item), ...pending].sort((a, b) => sys.area(b) - sys.area(a));
@@ -176,8 +176,8 @@ export function applyLoadoutSave(sys: InventorySystem, save: LoadoutSave): (Item
     }
     sys.quickSlots[i] = item;
   });
-  // 2026-09-11 (A-15): 주머니도 자기 컨테이너다 — 장착한 주머니 크기로 열고 그 안에만 되살린다.
-  // 주머니가 없거나(옛 세이브 · 주머니를 벗은 채 저장) 그 주머니가 안 받는 것은 가방으로 간다.
+  // 2026-09-11 (A-15): the pouch is its own container too — opened at the equipped pouch's size, revived only inside it.
+  // With no pouch (an old save · saved with the pouch off), or an item that pouch does not accept, it goes to the bag.
   const pouchDef = Pouch.pouchDefOf(sys);
   Pouch.resetPouchGrid(sys);
   for (const sv of save.pouch) {
@@ -207,21 +207,21 @@ export function announceLoaded(sys: InventorySystem): void {
 /** Legacy mission failure (Phase 2 death flow no longer emits it): everything carried is lost (2026-09-07). */
 export function onGameOver(sys: InventorySystem): void {
   sys.outcome = 'over';
-  sys.loadoutStore.clearRaid();   // 2026-09-11 (E-5): 레이드 실패 ends the solo raid marker
+  sys.loadoutStore.clearRaid();   // 2026-09-11 (E-5): a failed raid ends the solo raid marker
   sys.closeAll();
   sys.clearContainers();
   sys.loseKit();
   }
 
 /**
- * 부활 시 인벤토리.
+ * The inventory on revival.
  *
- * 2026-09-09: **자동 부활이 사라지고** 되살아나는 길은 분대원의 구조선뿐이다. 완전히 사망한 순간
- * `stripForCorpse()` 가 들고 있던 것을 전부 시체로 옮겼으므로 **구조 포드에서는 빈손으로 내린다** —
- * `strippedForCorpse` 가 서 있으면 아무것도 지급하지 않고 그 표시만 내린다.
+ * 2026-09-09: **auto-revive is gone** and the only way back is a squadmate's rescue drop. At the moment of a full death
+ * `stripForCorpse()` moved everything carried onto the corpse, so the player **steps out of the rescue pod empty-handed** —
+ * while `strippedForCorpse` stands, nothing is handed out and only that flag is lowered.
  *
- * 그 밖의 재드롭(훈련장 재시작, 재접속 복귀 실패 fallback)은 예전처럼 스타터 킷을 받는다.
- * 레이드 실패 후 함선 복귀의 킷 리셋은 `onAbort` / `onGameOver` → `loseKit` 이 그대로 맡는다.
+ * Every other re-drop (a training range restart, the fallback when a reconnect return failed) gets the starter kit as before.
+ * The kit reset on returning to the ship after a failed raid stays with `onAbort` / `onGameOver` → `loseKit`.
  */
 export function onRespawn(sys: InventorySystem): void {
   sys.closeAll();
@@ -270,7 +270,7 @@ export function loseKit(sys: InventorySystem): void {
   const size = sys.bagSizeOf(null);
   sys.bag.resize(size.cols, size.rows);
   sys.quickSlots.fill(null);
-  Pouch.resetPouchGrid(sys);   // A-15: 주머니를 잃으면 그 안의 것도 함께 사라진다 (가방과 같다)
+  Pouch.resetPouchGrid(sys);   // A-15: losing the pouch loses what is inside it too (the same as the bag)
   sys.lastGrenades = -1; sys.lastStims = -1; sys.lastQuickSig = ''; sys.lastPouchSig = '';
   sys.ctx.bus.emit('inventory:bagChanged', { ...size, dropped: [] });
   sys.emitLoadout();
@@ -280,18 +280,18 @@ export function loseKit(sys: InventorySystem): void {
   }
 
 /**
- * 기본 지급품, once per profile (2026-09-07 fix). The old condition was `Stash.firstRun` — no `scav.stash` file —
- * which silently skipped every profile that existed before the grant did, and every profile whose 창고 was emptied
+ * The starter grant, once per profile (2026-09-07 fix). The old condition was `Stash.firstRun` — no `scav.stash` file —
+ * which silently skipped every profile that existed before the grant did, and every profile whose stash was emptied
  * by an incoming (empty) server document. The state now lives in its own localStorage key:
  *   `none` → grant here (as a `fresh` document on a true first run, so a real server profile still wins) and mark
- *            `pending`; `pending` → re-checked once at `net:profileLoaded`, where the server's 창고 is known, and
+ *            `pending`; `pending` → re-checked once at `net:profileLoaded`, where the server's stash is known, and
  *            settled to `done` either way. A player who already owns something is settled without a grant.
  */
 export function tryStarterGrant(sys: InventorySystem): void {
   const state = starterGrantState();
-  // already owns a 창고 → nothing to hand out, and never ask again
+  // already owns a stash → nothing to hand out, and never ask again
   if (sys.stash.count > 0) { setStarterGrantState('done'); return; }
-  // a grant made at init can still be replaced by an (empty) server 창고 document, so it stays `pending` until
+  // a grant made at init can still be replaced by an (empty) server stash document, so it stays `pending` until
   // the `net:profileLoaded` re-check has seen the result once — that call is the one that settles it.
   setStarterGrantState(state === 'none' ? 'pending' : 'done');
   if (sys.stash.firstRun && state === 'none') sys.withFreshSave(() => sys.grantStarterStash());
@@ -302,8 +302,8 @@ export function tryStarterGrant(sys: InventorySystem): void {
   }
 
 /**
- * `STARTER_STASH` into the 함선 창고 (2026-09-07); the "once per profile" decision is `tryStarterGrant`. `stacks`
- * splits an entry into that many full stacks — one 세트 per grid cell.
+ * `STARTER_STASH` into the stash (2026-09-07); the "once per profile" decision is `tryStarterGrant`. `stacks`
+ * splits an entry into that many full stacks — one set per grid cell.
  */
 export function grantStarterStash(sys: InventorySystem): void {
   for (const e of STARTER_STASH) {
@@ -333,7 +333,7 @@ export function applyStarter(sys: InventorySystem): void {
     secondary: mk(STARTER_LOADOUT.secondary),
     bag: bagItem,
     armor: mk(STARTER_LOADOUT.armor),
-    // A-15: 주머니는 기본 지급품에 없다 (프린터로 만든다)
+    // A-15: the pouch is not in the starter grant (it is made at the printer)
     pouch: null,
   };
   const size = sys.bagSizeOf(bagItem);

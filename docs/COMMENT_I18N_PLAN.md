@@ -6,12 +6,13 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **6, `src/inventory`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
+> **Next session starts here:** queue item **7, `src/hub`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
 > before picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this
-> file originally described**; the old one let a deleted `*/` through. `src/inventory` is a normal feature folder, so
-> its `verify` is a folder-sized run, not the full net. `src/housing` (just finished) is the folder `src/inventory`
-> shares the most vocabulary with — grid · 칸 (**cell**) · stash · product · holder · the (block) reason all came out
-> there; read its finished comments before coining an item- or grid-shaped word.
+> file originally described**; the old one let a deleted `*/` through. `src/hub` is a normal feature folder, so its
+> `verify` is a folder-sized run, not the full net. Its subject is the squad dock / cutscene ordering rules, so the
+> folders it shares the most vocabulary with are `src/inventory` (just finished — screen · window · popup · pane ·
+> header row) and `src/game` (phases), plus CLAUDE.md §4.3's squad-vs-shared-ship wording, which is already English
+> and is what the hub's comments point at. Read those before coining a dock- or screen-shaped word.
 
 ---
 
@@ -19,17 +20,17 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`) | 14,278 | 349 |
-| **Remaining** ([§2](#2-queue)) | **12,338** | **398** |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`) | 15,981 | 402 |
+| **Remaining** ([§2](#2-queue)) | **10,635** | **345** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-**Intended permanent exceptions.** A finished folder still prints 34 lines, because a comment whose entire substance is
-a quoted label or a quoted document heading keeps its Korean (§3 rule 2 — the reader has to be able to grep it against
-the real string). So a raw run over everything prints 12,372 / 425, thirty-four more than the queue. `src/ui` alone
-contributes 24 — which is what "the heaviest mix of Korean on-screen strings" meant in practice — so its rows are
-grouped into one line instead of listed file by file:
+**Intended permanent exceptions.** A finished folder still prints 46 lines, because a comment whose entire substance is
+a quoted label, a quoted document heading or a verbatim user decision keeps its Korean (§3 rule 2 — the reader has to be
+able to grep it against the real string). So a raw run over everything prints 10,681 / 350, forty-six more than the
+queue. `src/ui` alone contributes 24 — which is what "the heaviest mix of Korean on-screen strings" meant in practice —
+so its rows are grouped into one line instead of listed file by file:
 
 | Line | What it quotes |
 |---|---|
@@ -43,6 +44,10 @@ grouped into one line instead of listed file by file:
 | `world/Gather.ts:779` | the four harvest prompt verbs (`약초 채집` · `고철 해체` · `토양/씨앗 채취` · `표본 수습`) |
 | `enemies/EnemySystem.ts:159` | the bug-nest decision heading (`둥지 반경 60 m 리시 · 초기 수 절반 · 재스폰 50/35/15 %`) |
 | `enemies/NestDirector.ts:2` | the same heading, plus `둥지의 장식 알을 부술 수 있는 적으로` |
+| `inventory/model.ts:42-44` | the equipment-grid diagram, drawn with the real slot labels (`주무기 I` · `방탄복` · `전술 임플란트` · `주머니`) |
+| `inventory/ui/InventoryUI.ts:970` · `:1313-1314` and `ui/parts/ContextMenu.ts:76-77` | the equip-slot labels, and the twin `TEXT.menu.*` entry list (`장착` · `가방으로 이동` · `수리` · `버리기` …) |
+| `inventory/parts/Allies.ts:3` · `:163` | a `docs/DECISIONS.md` section heading, and a verbatim user's decision |
+| `inventory/ui/TradeGrids.ts:82` · `:762` | a verbatim user's decision and a verbatim user's bug report |
 | `ui/` — **24 lines in 18 files** | on-screen strings the prose exists to name: chat / ping / toast / badge texts (`hud/Pings.ts`, `hud/Notifications.ts`, `hud/NetBadge.ts` ×2, `hud/MetaToasts.ts`, `hud/ChatLog.ts`, `hud/RoverHud.ts`, `hud/GadgetHandHint.ts`, `hud/StratagemWheel.ts`, `hud/PingWheel.ts`), tab / row / button labels (`hud/ShipManage.ts`, `hud/ItemTip.ts`, `menus/PauseMenu.ts`, `menus/keybindNotice.ts`, `menus/RewardsBlock.ts`, `menus/messenger/QuestCard.ts` ×3, `menus/social/SocialMenu.ts`, `menus/social/socialSource.ts`) and the four `menus/social/SocialColumn.ts` section dividers, each verbatim the `ui-label` drawn two lines below |
 
 ---
@@ -58,7 +63,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~3~~ | ~~`src/enemies`~~ | 2,300 | 71 | **Done 2026-09-18** (lead + 6 parallel agents, one commit). Its anatomy and AI-phase vocabulary is now the reference for every rig- and AI-shaped folder after it. |
 | ~~4~~ | ~~`src/ui`~~ | 2,279 | 87 | **Done 2026-09-18** (lead + 6 parallel agents, one commit). Its screen · card · panel · toast vocabulary is now the reference for every UI-shaped folder after it. 24 quoted-label lines stay Korean (§1). |
 | ~~5~~ | ~~`src/housing`~~ | 2,215 | 55 | **Done 2026-09-19** (lead + 7 agents, one commit). One quoted-label-only line stays (§1). Its station · minigame · holder · product vocabulary is now the reference for every furniture- and screen-shaped folder after it. |
-| 6 | `src/inventory` | 1,703 | 53 | |
+| ~~6~~ | ~~`src/inventory`~~ | 1,703 | 53 | **Done 2026-09-19** (lead + 7 agents, one commit). 12 quoted-only lines stay (§1). Its grid · cell · pane · stack · crate · search · bucket · salvage vocabulary is now the reference for every item- and screen-shaped folder after it. |
 | 7 | `src/hub` | 1,569 | 40 | Squad dock / cutscene ordering rules. |
 | 8 | `src/tutorial` | 1,278 | 11 | Only 11 files — very long per-file headers. |
 | 9 | `src/player` | 949 | 30 | |
@@ -396,7 +401,8 @@ few hundred, because a Korean **label** inside English prose is correct and stay
   code, a csv number copied into prose) goes in [`docs/TODO.md`](TODO.md), **not** fixed in the translation commit —
   the commit has to stay provably comment-only. Filed so far: `B-19` (`src/shared`, 3), `B-20` · `B-21` (`src/world`,
   7 + 4), `B-23` · `B-24` · `B-25` (`src/enemies`, 6 + 4 + 3), `B-27` · `B-28` · `B-29` · `B-30` (`src/ui`, 12 + 6 + 1 + 4),
-  `B-32` · `B-33` · `B-34` · `B-35` (`src/housing`, 14 + 8 + 5 + 8).
+  `B-32` · `B-33` · `B-34` · `B-35` (`src/housing`, 14 + 8 + 5 + 8),
+  `B-36` · `B-37` · `B-38` · `B-39` (`src/inventory`, 20 + 8 + 3 + 2).
   Reading a folder this closely is the most productive defect hunt in the project — expect five to ten per folder (`src/ui`
   gave 23 and `src/housing` 35, each with a live bug in it: a member row that is built and never appended, and a stir-fry
   score whose denominator is the number of clicks that were judged), and keep filing rather than fixing.
@@ -582,4 +588,21 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 시술대 · 무한 상자 · 휴식 공간 | implant bay · the infinite box (`/items`) · the lounge | `housing/parts/Furniture.ts`, `ui/Panel.ts`, `ui/ShipView.ts` |
 | 한국어 (형용사) | **Korean** — it is under both §5 gates and is everywhere in this folder; sweep for it before closing a folder | `housing` (folder-wide) |
 | 도감 (산문 vs 식별자) | **the catalogue** in prose; the identifier stays `sampleDex` · `bookDex` · `dexEntries` in backticks. `src/housing/README.md` writes *dex* in prose — align that README the next time it is touched, not in a translation commit | `housing` (folder-wide) |
+| 격자 · 칸 · 타일 | grid · **cell** · tile. A *panel* 칸 (`창고 칸` · `가방 칸`) is a **pane** — `inventory/README.md` already writes *stash pane*; a grid 칸 stays **cell** | `inventory` (folder-wide) |
+| **감정** | **the search** (`searchProgress` · `searchTimeFor` · `item.searched`); its on-tile gauge is **the scan gauge** (`.inv-tile-scan`, the README's word). Never *appraisal* — that is the **skill** `감정` (`shared/progression.ts` `'appraisal'`), a different thing. `shared/types.ts:3083` still says *the appraisal state* for the container search — align that one line the next time it is touched, not in an inventory commit | `inventory/Container.ts`, `Gear.ts`, `ui/GridView.ts` |
+| **구간** (내구도) | **bucket** (`DurabilityBucketInfo`) — not the minigame's *band*, not mining's *segment*, not the tutorial's *stretch*. Four folders, four words, all kept apart | `inventory/model.ts`, `parts/Durability.ts` |
+| **분해** | **salvage** (the `break_*` recipes). The on-screen entry / dialog title `분해` stays Korean, and so do the identifiers `DisassemblePanel` · `disassembleRecipeFor` · `openDisassemble` | `inventory` (folder-wide) |
+| **사선 띠** | **the ribbon** (the top-right diagonal ribbon: needed ammo · favourite · not-yet-shelved · recovery contract) — the word `inventory/README.md` uses. `src/shared` (`index.ts:68`, `itemChip.ts:206`, `raidFound.ts:9` · `:94`) still says *diagonal band* for the same thing — align those four the next time they are touched, not in an inventory commit. Kept apart from a plain 띠 = **band** (`AUTO_SCROLL_EDGE_IN`, a px band along an edge) | `inventory/ui/GridView.ts`, `ui/model.ts` |
+| 빠른제작 · 작업실 | **quick craft** (the `null` bench) · **workshop** (housing's `FacilityId`) | `inventory/parts/Crafting.ts` |
+| 회수 계약 vs 재료 회수 | **recovery contract** (CLAUDE.md §4.7) vs **the material refund** — two different things, never merged | `inventory` (folder-wide) |
+| 스택 분류 열쇠 · 밀려난 스택 · 남는 스택 | the **stack key** (`stackKeyOf`) · the **displaced stack** (`QuickSwap`) · the **remainder** held on the cursor (`DragState.held`) | `inventory/Grid.ts`, `QuickSwap.ts` |
+| 보폭 (`STEP`) · 칸 사다리 | the one-cell **pitch** (never *stride*) · the **ladder** (`CELL_LADDER`) | `inventory/ui/labels.ts` |
+| 머리줄 · 이음매 | the **header row** · **seam** (CLAUDE.md §4.2's `--inv-panel-gap` seams) | `inventory/ui` |
+| 표시 전용 사본 | a **display copy** (the README's word — not *display-only copy*, not *drawing copy*): the module-level copies of favourites / needed ammo / recovery scope / shelf-wanted | `inventory/ui/GridView.ts` |
+| **즐겨찾기** | **favourite** in prose — the folder's own pre-existing English and `inventory/README.md` both spell it that way; the identifiers stay `favorite` / `isFavorite` / `favoriteDefIds`. The US-spelling row above was matching `ITEM_CHIP_FAVORITE_CLASS`; **do not sed one into the other** | `inventory` (folder-wide) |
+| 기본 지급품 · 출격 준비 점검 | **the starter grant** (`tryStarterGrant`) · **the launch readiness check** (`getLaunchWarnings`) | `inventory/parts/Lifecycle.ts`, `LaunchCheck.ts` |
+| 획득 티커 | the **item-gained ticker** — already the wording `ui/hud/Notifications.ts` uses for the same `inventory:itemAdded` line, not a new noun | `inventory/parts/Crafting.ts` |
+| 무한 상자 | **the infinite box** as a concept; the on-screen title `무한 상자` and the literal `'CHEAT · INFINITE CRATE'` stay untouched. The `/items` panel itself is **the catalog** (`CatalogView`) — kept apart from the library's **catalogue** (`도감`) | `inventory/parts/Catalog.ts`, `ui/CatalogView.ts` |
+| 넷 중 하나만 (주머니) | one of the **four** pouches in `data/items.csv` (`pouch_gather` · `pouch_key` · `pouch_medical` · `pouch_valuable`) — `POUCH_SLOTS` is 1, so the "four" is the item count, not a slot count | `inventory/parts/Pouch.ts` |
+| 망가진 짝 | **broken twin** — the folder's pre-existing English. CLAUDE.md §4.6 says *broken pairs* for the same thing; one of the two should win the next time either is touched | `inventory/parts/CorpseLoot.ts` |
 | 가구 창고 · 조종석 vs furniture storage · cockpit | **both, on purpose** — Korean when the prose names the on-screen tab or room label, English when it names the concept. Exactly the split the folder already runs for `함선 창고` vs *the stash*; do not sed one into the other | `housing` (folder-wide) |

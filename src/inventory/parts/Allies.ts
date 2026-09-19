@@ -1,18 +1,18 @@
 /**
- * src/inventory/parts/Allies.ts — **안드로이드 분대원이 인벤토리에 거는 갈고리** (2026-09-15,
+ * src/inventory/parts/Allies.ts — **the hooks android squadmates put into the inventory** (2026-09-15,
  * `docs/DECISIONS.md` 「2026-09-15 — 안드로이드 분대원 · 레이드 진입 로딩」).
  *
- * 여기 있는 것은 전부 **계약(`shared/types.ts` 의 2026-09-15 안드로이드 절 · `shared/events.ts`)이 이름을 정한 것**뿐이고,
- * allies/ 는 이 파일의 결과만 본다. 새 루팅 · 새 무게 식을 만들지 않는다 — 사람이 쓰는 그 식을 그대로 부른다:
- *  - `createAllyBag` = DOM 없는 `Grid` 하나 (플레이어 가방과 **같은** 스택 열쇠 · 같은 배치 규칙).
- *  - `weightInfoFor` = `InventorySystem.getWeight` 의 식에서 **운반 숙련(carryRelief)만 뺀** 것. 안드로이드에는 능력치가
- *    없으므로 기준 소지 한계는 레벨 1 캐릭터의 값(`DEFAULT_CARRY_CAPACITY`)이고, 가방 보너스는 사람과 같은 `bagCapacityBonus`.
- *  - `takeContainerItemFor` = 사람의 상자 획득(`trackTake` → `announceTake` → `emitItemTaken`)과 **같은 기록 · 같은 방송**.
- *    다른 점은 `by` 가 사람의 PeerId 가 아니라 안드로이드 id 라는 것뿐이다 (받는 쪽은 `msg.by !== localId` 이므로
- *    「남이 가져갔다」 경로를 그대로 탄다).
- *  - `emitItemRequest` / `emitContainerViewed` = 가운데 클릭 요청 · 컨테이너 창 열기를 allies 가 들을 수 있게 내보내는 사건.
- *    호스트가 아닌 클라이언트는 같은 내용을 `allyq` 로 호스트에게도 보낸다 (안드로이드는 호스트가 굴린다).
- *  - `onAllyDeposit` = 탈출한 안드로이드의 전리품을 **분대장의 창고**에 넣는다 (넘치면 잃는다 — `ally:deposited.lost`).
+ * Everything here is only **what the contract named** (the 2026-09-15 android section of `shared/types.ts` · `shared/events.ts`),
+ * and allies/ reads only this file's results. It invents no new looting and no new weight formula — it calls the ones people use:
+ *  - `createAllyBag` = one DOM-less `Grid` (the **same** stack key · the same placement rules as the player's bag).
+ *  - `weightInfoFor` = the `InventorySystem.getWeight` formula **minus the hauling relief (carryRelief)** alone. An android has
+ *    no stats, so the base carry capacity is a level 1 character's value (`DEFAULT_CARRY_CAPACITY`), and the bag bonus is the same `bagCapacityBonus`.
+ *  - `takeContainerItemFor` = the **same record · the same broadcast** as a person's crate take (`trackTake` → `announceTake` → `emitItemTaken`).
+ *    The only difference is that `by` is an android id instead of a person's PeerId (the receiving side sees `msg.by !== localId`,
+ *    so it rides the 「somebody else took it」 path unchanged).
+ *  - `emitItemRequest` / `emitContainerViewed` = the events that let allies hear a middle-click request · a container window opening.
+ *    A client that is not the host sends the same thing to the host as `allyq` too (androids are simulated by the host).
+ *  - `onAllyDeposit` = puts an extracted android's loot into the **squad leader's stash** (overflow is lost — `ally:deposited.lost`).
  */
 import * as THREE from 'three';
 import {
@@ -27,14 +27,14 @@ import type { ItemLocation } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
 const getDef = (defId: string): ItemDef | undefined => ITEM_DEF_MAP.get(defId);
-/** `previewContainerItems` 가 없는 트리 · 훈련장에서 쓰는 원점 (컨테이너 자리를 모를 때). */
+/** The origin used on a tree with no `previewContainerItems` · the training range (when the container's spot is unknown). */
 const _origin = new THREE.Vector3();
 
-/* ── 가방 ──────────────────────────────────────────────────────────────── */
+/* ── Bag ───────────────────────────────────────────────────────────────── */
 
 /**
- * 안드로이드 한 기의 가방 격자. 플레이어 가방과 **같은 `Grid`** 라 스택 열쇠(회수 계약 · 요리 품질) · 회전 · 병합이 전부 같다.
- * DOM 은 없다 — 그리는 쪽은 아무도 없고, 호스트만 들고 있다가 `ally bag` 으로 내용을 방송한다.
+ * One android unit's bag grid. The **same `Grid`** as the player's bag, so the stack key (recovery contract · meal quality) ·
+ * rotation · merging are all the same. There is no DOM — nobody draws it; the host just holds it and broadcasts the contents as `ally bag`.
  */
 export function createAllyBag(cols: number, rows: number): AllyBagRef {
   const grid = new Grid(Math.max(1, Math.floor(cols)), Math.max(1, Math.floor(rows)), getDef);
@@ -52,9 +52,9 @@ export function createAllyBag(cols: number, rows: number): AllyBagRef {
 }
 
 /**
- * 사람과 같은 무게 식 (`InventorySystem.getWeight`): 들고 있는 전부(가방 + 장착 장비)의 무게 합 대 소지 한계.
- * 운반 숙련은 없다(세 번째 인자 0) — 안드로이드에는 능력치도 스킬도 없기 때문이다. 기준 한계는 레벨 1 캐릭터 값이고,
- * 장착 가방이 `bagCapacityBonus` 만큼 늘려 준다 (사람과 **같은 함수**라 수치를 고치면 함께 움직인다).
+ * The same weight formula as a person's (`InventorySystem.getWeight`): the summed weight of everything carried (bag + equipment) against the carry capacity.
+ * There is no hauling relief (third argument 0) — an android has neither stats nor skills. The base capacity is a level 1 character's value,
+ * and the equipped bag raises it by `bagCapacityBonus` (the **same function** as a person's, so a number fixed there moves both).
  */
 export function weightInfoFor(sys: InventorySystem, carried: readonly ItemInstance[], bag: ItemInstance | null): WeightInfo {
   const w = sumWeight(carried, getDef);
@@ -62,15 +62,15 @@ export function weightInfoFor(sys: InventorySystem, carried: readonly ItemInstan
   return makeWeightInfo(Math.round(w * 100) / 100, capacity, 0);
 }
 
-/* ── 컨테이너 획득 ─────────────────────────────────────────────────────── */
+/* ── Container takes ───────────────────────────────────────────────────── */
 
 /**
- * 아직 이 클라이언트가 굴리지 않은 컨테이너를 **여는 것과 같은 굴림**으로 확정한다.
+ * Settles a container this client has not rolled yet with **the same roll as opening it**.
  *
- * 굴림의 원본은 `WorldRef.previewContainerItems` 다 — 맵 상자는 상자 코드와 같은 `crateLootRandom` 식이고, 구조물 ·
- * 플랫폼 · 전차 컨테이너는 열쇠 부가 굴림까지 포함한 **여는 경로 그대로**다 (드론 스캔이 쓰는 그 경로와 같다).
- * world 가 답하지 못하면(훈련장 · 모르는 id) 상자 코드와 같은 티어 굴림으로 떨어진다. 레이드 표식(`raidFound`)은
- * `ContainerStore.getOrCreate` 와 같은 자리에서 찍는다 — 미리보기 경로는 표식이 없기 때문이다.
+ * The roll's origin is `WorldRef.previewContainerItems` — a map crate is the same `crateLootRandom` formula as the crate code,
+ * and structure · platform · tram containers are **the opening path exactly**, the key's bonus roll included (the same path
+ * the drone scan uses). When world cannot answer (the training range · an unknown id) it falls back to the same tier roll as
+ * the crate code. The raid-found mark (`raidFound`) is stamped at the same place as `ContainerStore.getOrCreate` — because the preview path carries no mark.
  */
 function primeContainer(sys: InventorySystem, containerId: string, tier: number): Container | null {
   const ctx = sys.ctx;
@@ -89,13 +89,13 @@ function primeContainer(sys: InventorySystem, containerId: string, tier: number)
 }
 
 /**
- * 권위(솔로 · 로비 호스트): 안드로이드 `by` 가 컨테이너에서 `defId` 스택 하나를 가져간다.
+ * The authority (solo · lobby host): the android `by` takes one `defId` stack out of the container.
  *
- * `containerId` 는 **인벤토리 컨테이너 id** 다 — 맵 상자는 `CrateDef.id`(`crate_<n>`), 구조물 · 플랫폼 · 전차 컨테이너는
- * 그 명세 id (상호작용 id 의 `container:` 접두어를 **뗀** 것). `WorldRef.getLootContainers()` 가 돌려주는 id 와 같다.
+ * `containerId` is the **inventory container id** — a map crate is `CrateDef.id` (`crate_<n>`), a structure · platform · tram
+ * container its spec id (the interaction id **without** the `container:` prefix). The same id `WorldRef.getLootContainers()` returns.
  *
- * 흐름은 사람의 획득과 하나도 다르지 않다: 굴리지 않았으면 여는 것과 같은 굴림으로 확정 → 격자에서 스택을 빼고 →
- * 호스트가 `cont taken` 으로 기록 · 방송 → `container:itemTaken` → 처음이면 world 에 열린 모습(`crate opened`)을 맞춘다.
+ * The flow is not one step different from a person's take: not rolled yet → settled with the same roll as opening → the stack
+ * comes off the grid → the host records · broadcasts it as `cont taken` → `container:itemTaken` → on the first one world's opened look (`crate opened`) is matched.
  */
 export function takeContainerItemFor(sys: InventorySystem, containerId: string, tier: number, defId: string, by: string): ItemInstance | null {
   const ctx = sys.ctx;
@@ -103,7 +103,7 @@ export function takeContainerItemFor(sys: InventorySystem, containerId: string, 
   if (ctx.isMultiplayer && !ctx.isAuthority) return null;
   const c = sys.containers.get(containerId) ?? primeContainer(sys, containerId, tier);
   if (!c) return null;
-  // 굴림 순서(`order`)대로 첫 스택 — 어느 클라이언트에서 굴려도 같은 스택이 나간다
+  // The first stack in roll order (`order`) — whichever client rolled it, the same stack leaves
   let idx = -1;
   let uid: string | null = null;
   for (let i = 0; i < c.order.length; i++) {
@@ -121,25 +121,25 @@ export function takeContainerItemFor(sys: InventorySystem, containerId: string, 
   sys.emitItemTaken(containerId, idx, uid, qty, c.remainingAt(idx), by, true);
   sys.checkLootedFor(c);
   if (sys._open) sys.ui?.refresh();
-  // 열린 모습은 world 소유다 — 뚜껑 · 문을 열고 분대에 `crate opened` 를 보낸다 (이 맵의 것이 아니면 조용히 넘어간다)
+  // The opened look is world's — it opens the lid · door and sends `crate opened` to the squad (silently skipped when it is not of this map)
   try { ctx.world?.markContainerOpened?.(containerId); } catch { /* world lane still mid-flight */ }
   return item;
 }
 
-/* ── 요청 · 컨테이너 창 ────────────────────────────────────────────────── */
+/* ── Requests · the container window ───────────────────────────────────── */
 
-/** 지금 이 클라이언트가 안드로이드 질의를 **호스트에게 보내야 하나** (세션 안 · 내가 권위가 아님). */
+/** Does this client have to **send the android query to the host** right now (in a session · not the authority). */
 function needsAllyQuery(sys: InventorySystem): boolean {
   const ctx = sys.ctx;
   return !!ctx.net && ctx.isMultiplayer && !ctx.isAuthority;
 }
 
 /**
- * 가운데 클릭 · 우클릭 메뉴의 아이템 요청을 안드로이드가 들을 수 있게 내보낸다 (`requestItem` 이 채팅 줄과 **함께** 부른다).
+ * Emits the item request of the middle-click · right-click menu so androids can hear it (`requestItem` calls it **together** with the chat line).
  *
- * `kind` 는 요청의 뜻이다 — 장착 방탄복인데 실드가 덜 찼으면 `shield`, 탄약이 있는 무기면 `ammo`(`ammoType` = 그 구경),
- * 순수 회복약이면 `heal`, 나머지는 `item`. `defId` 는 **누른 그 아이템의 def** 다 (탄약 요청이면 그 총) — 탄약을 찾는
- * 쪽은 `ammoType` 을 본다. `position` 은 요청한 사람(= 로컬 플레이어)의 발이다.
+ * `kind` is what the request means — `shield` for equipped armor whose shield is not full, `ammo` for a weapon that takes ammo
+ * (`ammoType` = that calibre), `heal` for a pure healing item, `item` for the rest. `defId` is **the def of the item that was
+ * clicked** (for an ammo request, that gun) — the side looking for ammo reads `ammoType`. `position` is the feet of the requester (= the local player).
  */
 export function emitItemRequest(sys: InventorySystem, item: ItemInstance, from: ItemLocation, ammoType: string | null): void {
   const ctx = sys.ctx;
@@ -159,8 +159,8 @@ export function emitItemRequest(sys: InventorySystem, item: ItemInstance, from: 
 }
 
 /**
- * 컨테이너 창(상자 · 구조물 컨테이너 · 시체)을 열었다 — 그 상자를 먹으러 가던 안드로이드는 멈춘다
- * (사용자 결정: 「아이템 상자를 먹고 있을 때, PC 가 그 상자를 열면 먹는 것을 중단한다」).
+ * A container window (crate · structure container · corpse) was opened — an android on its way to loot that crate stops
+ * (user's decision: 「아이템 상자를 먹고 있을 때, PC 가 그 상자를 열면 먹는 것을 중단한다」).
  */
 export function emitContainerViewed(sys: InventorySystem, containerId: string): void {
   const ctx = sys.ctx;
@@ -169,18 +169,18 @@ export function emitContainerViewed(sys: InventorySystem, containerId: string): 
   ctx.net!.send({ t: 'allyq', ev: 'viewing', containerId }, 'host');
 }
 
-/* ── 창고 입고 ─────────────────────────────────────────────────────────── */
+/* ── Into the stash ────────────────────────────────────────────────────── */
 
 /**
- * 탈출한 안드로이드의 전리품을 **내 창고**에 넣는다 (`inventory:allyDeposit` — 분대장 클라이언트에서만 온다).
- * 창고가 가득 차 넣지 못한 것은 잃는다 (`lost`) — 안드로이드는 레이드가 끝나면 사라지므로 들고 있을 수 없다.
+ * Puts an extracted android's loot into **my stash** (`inventory:allyDeposit` — it comes only from the squad leader's client).
+ * What a full stash could not take is lost (`lost`) — an android disappears when the raid ends, so it cannot keep holding it.
  */
 export function onAllyDeposit(sys: InventorySystem, id: string, name: string, items: readonly ItemInstance[]): void {
   let count = 0;
   let lost = 0;
   for (const it of items) {
     if (!it) continue;
-    // `tryAddToStash` 가 성공하면 그 안에서 `afterChange()` 로 창고를 저장하고 `inventory:stashChanged` 를 낸다
+    // on success `tryAddToStash` saves the stash inside itself with `afterChange()` and emits `inventory:stashChanged`
     if (sys.tryAddToStash(it)) count++;
     else lost++;
   }

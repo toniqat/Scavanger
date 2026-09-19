@@ -1,9 +1,9 @@
 /**
- * src/inventory/ui/parts/ContextMenu.ts — **우클릭 메뉴 · 수량 분할 · 버리기**.
+ * src/inventory/ui/parts/ContextMenu.ts — **the right-click menu · splitting a stack · dropping**.
  *
- * 아이템마다 무엇을 할 수 있는지(장착 · 수리 · 분해 · 장전 탄약 탈착 · 소켓 탈착 · 창고로 이동 ·
- * 버리기 · 채팅에 올리기)를 한곳에서 정한다. 실제 동작은 전부 `ctx.inventory` 를 부르고,
- * 이 파일은 **어떤 항목을 보여줄지**만 결정한다.
+ * One place decides what each item can do (equip · repair · salvage · unload the loaded ammo · detach sockets ·
+ * move to the stash · drop · post to chat). Every action calls `ctx.inventory`; this file decides
+ * **which entries are shown** and nothing else.
  */
 import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
 import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
@@ -25,8 +25,8 @@ import type { InventoryUI } from '../InventoryUI';
 
 /**
  * Right-click on a wheel cell: `빠른 슬롯 해제` (assigned cells only).
- * 2026-09-10: 상자를 열어 둔 채라면 `상자로 이동` 도 함께 — 퀵슬롯에서 곧장 상자로 넣는 두 번째 길
- * (첫 번째는 휠 칸을 상자 격자로 끌어다 놓는 것).
+ * 2026-09-10: with a crate left open, `상자로 이동` comes along too — the second way from a quick slot straight into
+ * the crate (the first is dragging the wheel cell onto the crate grid).
  */
 export function onQuickContextMenu(sys: InventoryUI, index: number, e: MouseEvent): void {
   if (sys.drag?.started || sys.dialog.isOpen) return;
@@ -42,7 +42,7 @@ export function onQuickContextMenu(sys: InventoryUI, index: number, e: MouseEven
   if (sys.sys.getActiveContainer()) {
     entries.push({ label: TEXT.menu.toContainer, run: () => sys.result(sys.sys.quickMove(uid, from), 'ui_drop', from, uid) });
   }
-  // 2026-09-12 (E1): 휠 칸의 스택도 즐겨찾기를 켜고 끈다
+  // 2026-09-12 (E1): a stack in a wheel cell toggles its favourite too
   const stack = sys.sys.getQuickSlots()[index];
   if (stack) entries.push(favoriteEntry(sys, stack.defId, true));
   entries.push({ label: TEXT.menu.request, hint: keyLabel('Mouse1'), separator: true, run: () => { sys.sys.requestItem(uid, BAG_LOC); } });
@@ -50,10 +50,10 @@ export function onQuickContextMenu(sys: InventoryUI, index: number, e: MouseEven
   }
 
 /**
- * **2026-09-12 (E1, 사용자 결정) — 우클릭은 모든 아이템에 메뉴를 연다.** 예전에는 무기 · 가방 · 방탄복 · 수리할 장비 ·
- * 2개 이상 스택 · 준비물 · 요리만 메뉴가 뜨고 나머지는 우클릭 한 번에 곧장 옮겨졌다(Shift+우클릭 = 메뉴). 이제 그 이동은
- * 메뉴의 「빠른 이동 (…)」 항목이자 **더블클릭**이고, 메뉴에는 언제나 「즐겨찾기 켜기 / 끄기」가 있다.
- * 감정 전(잠긴) 타일은 예전처럼 아무 메뉴도 없다.
+ * **2026-09-12 (E1, user's decision) — right-click opens the menu on every item.** It used to appear only on weapons ·
+ * bags · armor · gear to repair · stacks of 2 or more · preparations · meals, and everything else moved straight away
+ * on one right-click (Shift + right-click = the menu). That move is now the menu's 「빠른 이동 (…)」 entry and the
+ * **double-click**, and the menu always carries 「즐겨찾기 켜기 / 끄기」. A tile before the search (locked) still has no menu.
  */
 export function onContextMenu(sys: InventoryUI, uid: string, from: ItemLocation, e: MouseEvent): void {
   if (sys.drag?.started || sys.dialog.isOpen) return;
@@ -66,7 +66,7 @@ export function onContextMenu(sys: InventoryUI, uid: string, from: ItemLocation,
   sys.menu.open(e.clientX, e.clientY, sys.menuEntries(uid, from, item, def));
   }
 
-/** 2026-09-12 (E1): the 즐겨찾기 entry — one shape for grid tiles, equipment slot cards and wheel cells. */
+/** 2026-09-12 (E1): the favourite entry — one shape for grid tiles, equipment slot cards and wheel cells. */
 export function favoriteEntry(sys: InventoryUI, defId: string, separator: boolean): MenuEntry {
   const on = sys.sys.isFavorite(defId);
   return { label: on ? TEXT.menu.favoriteOff : TEXT.menu.favoriteOn, separator, run: () => sys.toggleFavoriteFromMenu(defId) };
@@ -83,7 +83,7 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
   const isStack = def.stackMax > 1 && item.qty >= 2;
   const hasContainer = !!sys.sys.getActiveContainer();
   const quick = () => sys.result(sys.sys.quickMove(uid, from), 'ui_drop', from, uid);
-  // A-15: 주머니도 「내가 들고 있는 것」이다 (퀵슬롯과 같다)
+  // A-15: the pouch is 「something I am carrying」 too (like the quick slots)
   const owned = from.kind === 'slot' || from.kind === 'quick' || from.grid === 'bag' || from.grid === 'pouch';
 
   // 1. quick action. 2026-09-12 (E1): 「빠른 이동 (가방 / 창고 / 상자)」 — the move a plain right-click used to make on
@@ -96,10 +96,11 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
     const target = sys.sys.equipTargetFor(def);
     if (target) {
       /*
-       * 2026-09-14 2차 — 「장착」은 **`equip` 으로** 간다 (예전에는 `activate`). 같은 날 더블클릭이 「빈 칸일 때만」으로
-       * 내려갔으므로, 여기서 `activate` 를 그대로 두면 두 칸이 다 찼을 때 「장착」을 눌렀는데 창고 · 상자로 **옮겨지는**
-       * 라벨의 거짓말이 된다. 메뉴 항목은 사람이 글자를 읽고 고른 **명시적 지시**라 교체가 맞다 — 「주우면서 조용히
-       * 바뀌지 않는다」(2026-09-10) 가 막으려던 것은 조용한 교체이지 이것이 아니다.
+       * 2026-09-14 2nd pass — 「장착」 goes **through `equip`** (it used to be `activate`). The same day the double-click
+       * came down to 「only when a slot is empty」, so leaving `activate` here would make the label lie: with both slots
+       * full, pressing 「장착」 would **move** the item to the stash · the crate instead. A menu entry is an **explicit
+       * order** a person read and chose, so a swap is right — what 「nothing is silently displaced while picking up」
+       * (2026-09-10) blocks is a silent swap, not this.
        */
       const label = target === 'primary2' ? TEXT.menu.equipPrimary2 : TEXT.menu.equip;
       entries.push({ label, run: () => sys.result(sys.sys.equip(uid, target) ? 'ok' : 'fail', 'ui_equip', from, uid) });
@@ -109,10 +110,11 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
     }
     if (dest) {
       /*
-       * `더블클릭` hint only where a double-click makes this very move. 2026-09-14 2차부터 그 조건은 **어느 격자든
-       * 「빈 장비칸 · 임플란트 칸 · 휠 칸이 하나도 없을 때」**다 (`wouldAutoPlace` — 더블클릭과 같은 판정).
-       * 창고는 그것 말고도 토스트를 띄우며 보내므로 예전처럼 통째로 뺀다. 가방은 ③(휠)을 보지 않는 갈래라
-       * `quick: false` 로 묻고, 상자가 닫혀 있을 때의 `registerQuick` 가로채기(`ui/InventoryUI.tileHandlers`)도 뺀다.
+       * `더블클릭` hint only where a double-click makes this very move. Since the 2026-09-14 2nd pass that condition is
+       * **「no empty equipment slot · implant slot · wheel cell at all」, from any grid** (`wouldAutoPlace` — the same
+       * judgement the double-click makes). The stash also sends with a toast on top, so it is left out whole as before.
+       * The bag is the branch that does not look at ③ (the wheel), so it asks with `quick: false` and also leaves out
+       * the `registerQuick` interception used while the crate is closed (`ui/InventoryUI.tileHandlers`).
        */
       const fromBag = from.kind === 'grid' && from.grid === 'bag';
       const dblSame = from.kind === 'grid' && from.grid !== 'stash'
@@ -126,13 +128,13 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
   if (sys.hub && owned) {
     const info = sys.sys.repairInfo(uid);
     if (info) {
-      // Phase 8: the material requirement is item chips (thumbnail + 보유/필요), not a text run
+      // Phase 8: the material requirement is item chips (thumbnail + held/needed), not a text run
       const costs = document.createElement('div');
       const have = new Map(info.cost.map((c) => [c.defId, c.have]));
       renderItemCost(costs, info.cost, (id) => ITEM_DEF_MAP.get(id), (id) => have.get(id) ?? 0, { size: 28 });
       entries.push({
         label: TEXT.menu.repair,
-        // 2026-09-10: 재료가 있으면 **왜 이만큼인가** = 남은 내구도 구간 (`제작 재료 × 구간 배수`)
+        // 2026-09-10: with the materials in hand, **why this much** = the remaining durability bucket (craft materials × bucket multiplier)
         hint: info.short ? TEXT.menu.repairShort
           : info.bucket ? TEXT.durability.repair(info.bucket.label, info.bucket.repairMul) : undefined,
         costs,
@@ -156,7 +158,7 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
     }
   }
 
-  // 1c. quick-use wheel (stims / grenades). 2026-09-10: from **any** grid — 가방 · 열어 둔 상자 · 함선 창고.
+  // 1c. quick-use wheel (stims / grenades). 2026-09-10: from **any** grid — the bag · an open crate · the stash.
   if (isQuickUsable(def) && from.kind === 'grid') {
     const idx = sys.sys.quickIndexOf(uid);
     if (idx >= 0) {
@@ -166,12 +168,13 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
     }
   }
 
-  // 1c-1. 즐겨찾기 (2026-09-12, E1, 사용자 결정): 모든 아이템 — 종류(def id) 단위로 켜고 끈다
+  // 1c-1. favourite (2026-09-12, E1, user's decision): every item — toggled per def (the def id)
   entries.push(favoriteEntry(sys, def.id, entries.length > 0));
 
-  /* 1c-2. 준비물 (A-13, 2026-09-11): **함선에서만** — 쓰면 그 자리에서 소모돼 다음 레이드 1회분으로 실린다
-   * (`ctx.progression.usePrep`). 레이드 중이거나 이미 같은 환경을 준비했으면 항목은 그대로 보이되 사유가
-   * 붙고, 눌러도 아이템은 사라지지 않는다 — 거절은 조용히 삼키지 않는다. */
+  /* 1c-2. preparations (A-13, 2026-09-11): **in the ship only** — using one consumes it on the spot and loads it as
+   * one use for the next raid (`ctx.progression.usePrep`). During a raid, or with the same environment already
+   * prepared, the entry still shows but carries a reason and pressing it consumes nothing — a refusal is never
+   * silently swallowed. */
   if (def.prep) {
     const blocked = !sys.hub ? TEXT.menu.usePrepRaid : null;
     entries.push({
@@ -192,7 +195,8 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
     });
   }
 
-  /* 1c-3. 요리 — 2026-09-16 (접시 모델, 사용자 결정): 요리는 아이템이 아니다. 옛 우클릭 `먹기` 는 없어졌고 먹는 곳은 식탁뿐이다. */
+  /* 1c-3. cooking — 2026-09-16 (the plate model, user's decision): a meal is not an item. The old right-click `먹기`
+   * is gone and the only place to eat is the dining table. */
 
   // 1d. 분해 (Phase 8): any item with a matching `break_*` recipe — the ammo packs today
   if (sys.canDisassemble(uid, from)) {
@@ -213,7 +217,7 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
 
   // 3. quick chat request
   entries.push({
-    // 2026-09-15 (사용자 결정): 장착 방탄복 + 실드가 덜 찼으면 「실드 충전 요청」 — 판정은 `requestItem` 과 같은 함수
+    // 2026-09-15 (user's decision): with armor equipped and the shield not full, 「실드 충전 요청」 — judged by the same function as `requestItem`
     label: isWeapon ? TEXT.menu.requestAmmo : sys.sys.wantsShieldRecharge(from) ? TEXT.menu.requestShield : TEXT.menu.request,
     hint: keyLabel('Mouse1'),
     separator: entries.length > 0,
@@ -234,7 +238,7 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
  * container stack must be taken first, because the recipe consumes from the bag.
  */
 export function canDisassemble(sys: InventoryUI, uid: string, from: ItemLocation): boolean {
-  // the recipe consumes from the bag, so a crate / 창고 stack has to be taken into the bag first
+  // the recipe consumes from the bag, so a crate / stash stack has to be taken into the bag first
   if (from.kind === 'grid' && from.grid !== 'bag') return false;
   return !!sys.sys.disassembleRecipeFor(uid);
   }

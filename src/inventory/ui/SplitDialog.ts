@@ -16,7 +16,7 @@ export class SplitDialog {
   private max = 1;
   private onConfirm: ((qty: number) => void) | null = null;
 
-  /** @param onToggle 2026-09-09: open / close report for the window's 키 가이드 (the dialog has no bus of its own). */
+  /** @param onToggle 2026-09-09: open / close report for the window's key guide (the dialog has no bus of its own). */
   constructor(host: HTMLElement, private readonly onToggle: (open: boolean) => void = () => {}) {
     this.el = document.createElement('div');
     this.el.className = 'inv-dialog-backdrop';

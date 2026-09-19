@@ -1,9 +1,9 @@
 /**
- * src/inventory/parts/DropResolver.ts — **드래그 앤 드롭 판정**.
+ * src/inventory/parts/DropResolver.ts — **the drag-and-drop judgement**.
  *
- * UI 가 묻는 두 가지 질문에만 답한다 — *여기 놓으면 어떻게 되나* (`preview*`, 타일 하이라이트 색)와
- * *실제로 놓아라* (`drop` / `quickMove` / `activate` / `rotateItem` / `attachFrom`). 스왑 · 병합 · 장비칸 ·
- * 퀵슬롯 · 소켓 · 부분 수량(Shift/Ctrl 드래그)이 전부 이 파일의 규칙이고, DOM 은 하나도 없다.
+ * It answers only the two questions the UI asks — *what happens if it lands here* (`preview*`, the tile highlight
+ * colour) and *actually place it* (`drop` / `quickMove` / `activate` / `rotateItem` / `attachFrom`). Swap · merge ·
+ * equipment slot · quick slot · socket · partial quantity (Shift/Ctrl drag) are all this file's rules, and no DOM.
  */
 import * as THREE from 'three';
 import type {
@@ -11,7 +11,7 @@ import type {
   ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
 } from '@/shared';
 import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
-/* appended (2026-09-12): 아이템 회수 계약 — 스택 분류 열쇠 · 표식 병합 / 나누기 */
+/* appended (2026-09-12): item recovery contracts — the stack key · merging / splitting the mark */
 import { copyRaidFoundMark, mergeRaidFoundMark } from '@/shared';
 import { copyMealQuality } from './MealQuality';
 import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
@@ -20,9 +20,9 @@ import { Grid, OOB, canStackTogether, type Placement, type PriorityPlacement } f
 import { Container, ContainerStore } from '../Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
 import { isQuickIndex, isQuickUsable, lockedQuickItems } from '../QuickSlots';
-/* appended (2026-09-10): 휠 교체 규칙 — `previewDrop` 과 `setQuickSlot` 이 같은 계획을 본다 */
+/* appended (2026-09-10): the wheel swap rule — `previewDrop` and `setQuickSlot` read the same plan */
 import { canQuickSwap } from '../QuickSwap';
-/* appended (2026-09-14): 소모품 퀵슬롯 자동 장착 (전역) — 「주웠다」의 규칙 한 벌 */
+/* appended (2026-09-14): consumables auto-seated on a quick slot (game-wide) — one set of 「picked it up」 rules */
 import { autoQuickIndexFor, takeIntoQuick } from './AutoQuick';
 import { QUICK_DIR_GLYPH, SLOT_LABEL } from '../ui/labels';
 import { setStarterGrantState, starterGrantState } from '../Stash';
@@ -41,7 +41,7 @@ import type { InventorySystem } from '../InventorySystem';
 export function equipTargetFor(sys: InventorySystem, def: ItemDef): LoadoutSlot | null {
   if (def.category === 'bag') return 'bag';
   if (def.category === 'armor') return 'armor';
-  if (def.category === 'pouch') return 'pouch';   // A-15: 고정 1칸 (`POUCH_SLOTS`)
+  if (def.category === 'pouch') return 'pouch';   // A-15: a fixed single slot (`POUCH_SLOTS`)
   if (def.category === 'secondary') return 'secondary';
   if (def.category !== 'primary') return null;
   if (!sys.loadout.primary) return 'primary';
@@ -58,7 +58,7 @@ export function partialQtyFor(sys: InventorySystem, item: ItemInstance, mode: 'h
 
 /** Non-mutating classification of a partial-stack drag (`qty` units of `uid`) onto `target`. */
 export function previewPartial(sys: InventorySystem, uid: string, from: ItemLocation, qty: number, target: DropTarget): DropPreview {
-  // 2026-09-12: 나눈 스택을 휠 칸에 — 빈 칸이면 새 스택, 같은 아이템이면 합치기 (`previewQuickPartial`)
+  // 2026-09-12: a split stack onto a wheel slot — free slot = a new stack, same item = a merge (`previewQuickPartial`)
   if (target.kind === 'quick') return sys.previewQuickPartial(target.index, uid, from, qty);
   const v = sys.validatePartial(uid, from, qty, target);
   if (!v) return 'bad';
@@ -145,21 +145,21 @@ export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocatio
   if (target.kind === 'quick') {
     // 2026-09-09: the wheel is its own container — a grid stack **moves** in, and a stack already on the wheel
     // may be re-ordered between slots (that one never touches the bag).
-    // 2026-09-10: the source grid is **any** grid, not just the bag — 상자(컨테이너) · 함선 창고에서 곧장 휠에 올린다.
-    // A container source is a take like any other, so `drop` sends it through `guardedTake` (see there).
+    // 2026-09-10: the source grid is **any** grid, not just the bag — a crate (container) or the ship stash goes
+    // straight onto the wheel. A container source is a take like any other, so `drop` sends it through `guardedTake`.
     if ((from.kind !== 'grid' && from.kind !== 'quick') || !isQuickUsable(def)) return 'bad';
     if (!isQuickIndex(target.index) || !isQuickSlotActive(target.index, sys.getQuickSlotCount())) return 'bad';
     const occupant = sys.quickSlots[target.index];
     if (occupant?.uid === uid) return 'noop';
-    // 2026-09-12 (사용자 결정): 같은 아이템이 든 칸이면 교체가 아니라 **합치기** (넘친 만큼은 커서에 남는다)
-    // 2026-09-12 (아이템 회수 계약): a raid-found contract stack and a brought one are not "the same item" here — swap instead
+    // 2026-09-12 (user's decision): a slot with the same item **merges**, not swaps (the overflow stays on the cursor)
+    // 2026-09-12 (item recovery contract): a raid-found stack and a brought one are not "the same item" — swap instead
     if (occupant && canStackTogether(occupant, item) && def.stackMax > 1 && occupant.qty < def.stackMax && item.searched !== false) return 'merge';
     /*
-     * 2026-09-10 — **1:1 교체는 가방 여유를 요구하지 않는다.** 예전에는 여기서 `sys.bag.canAbsorb(occupant)` 만
-     * 봤는데, 그 검사는 들어오는 스택이 **아직 격자에 있는 상태**에서 돌아 그것이 곧 비울 칸을 세지 않았다.
-     * 그래서 가방이 꽉 차면 `가방 → 휠` 교체가 미리보기 단계에서 빨간불(= `dropImpl` 이 곧장 'fail')이 됐고,
-     * `상자 → 휠` 은 `setQuickSlot` 이 밀려난 스택을 가방에서만 찾다가 거절했다. 이제 양쪽이 `QuickSwap` 의
-     * 같은 규칙을 본다 — 비운 그 칸 → 가방 → 출발 격자.
+     * 2026-09-10 — **a 1:1 swap does not require room in the bag.** This used to read `sys.bag.canAbsorb(occupant)`
+     * alone, and that check runs while the incoming stack is **still in the grid**, so it never counted the cell the
+     * stack is about to vacate. So a full bag turned a `bag → wheel` swap red at the preview stage (= `dropImpl`
+     * failing outright), and `crate → wheel` was refused because `setQuickSlot` looked for the displaced stack in the
+     * bag alone. Both now read the same `QuickSwap` rule — the vacated cell → the bag → the source grid.
      */
     if (occupant && from.kind !== 'quick') {
       const src = sys.getGrid(from.grid);
@@ -180,14 +180,14 @@ export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocatio
     }
     if (!current) return 'ok';
     if (target.slot === 'bag') return 'swap'; // the displaced bag is placed first in the resized grid
-    // A-15: 주머니 교체도 `changePouch` 가 전부-아니면-전무로 판정한다 (내용물이 가방에 들어가야 한다)
+    // A-15: a pouch swap is judged all-or-nothing by `changePouch` too (the contents have to fit the bag)
     if (target.slot === 'pouch') return 'swap';
     return sys.canPlaceDisplaced(current, from, uid) ? 'swap' : 'bad';
   }
 
   const grid = sys.getGrid(target.grid);
   if (!grid) return 'bad';
-  // A-15: 주머니 격자는 `PouchDef.accepts` 밖의 것을 아예 받지 않는다 (주머니가 없으면 격자 자체가 없다)
+  // A-15: the pouch grid refuses anything outside `PouchDef.accepts` (with no pouch there is no grid at all)
   if (target.grid === 'pouch' && !sys.pouchAccepts(def)) return 'bad';
   if (from.kind === 'grid' && from.grid === target.grid) {
     const p = grid.get(uid);
@@ -195,7 +195,7 @@ export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocatio
   }
   const blockers = grid.blockersAt(item, target.x, target.y, target.rotated, uid);
   if (from.kind === 'slot' && from.slot === 'bag' && target.grid !== 'bag') return 'bad';
-  // A-15: 장착한 주머니는 가방 · 창고로만 벗는다 (상자에는 넣지 않는다 — `dropImpl` 의 pouch 가지와 같은 판정)
+  // A-15: an equipped pouch comes off into the bag or stash only (never a crate — as `dropImpl`'s pouch branch judges)
   if (from.kind === 'slot' && from.slot === 'pouch' && (target.grid === 'pouch' || target.grid === 'container')) return 'bad';
   if (blockers.length === 0) return 'ok';
   if (blockers.length !== 1 || blockers[0] === OOB) return 'bad';
@@ -203,7 +203,7 @@ export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocatio
   if (!other) return 'bad';
   if (target.grid === 'container' && other.item.searched === false) return 'bad'; // never touch an unsearched item
   if (canStackTogether(other.item, item) && def.stackMax > 1 && other.item.qty < def.stackMax) return 'merge';
-  // A-15: 교체는 밀려난 쪽이 **주머니로 들어가는** 이동이기도 하다 — 주머니가 안 받으면 교체 자체가 안 된다
+  // A-15: a swap is also a move of the displaced stack **into the pouch** — if the pouch refuses it, the swap is off
   if (from.kind === 'grid' && from.grid === 'pouch' && !sys.pouchAccepts(ITEM_DEF_MAP.get(other.item.defId))) return 'bad';
   if (from.kind === 'slot') {
     const od = ITEM_DEF_MAP.get(other.item.defId);
@@ -250,7 +250,7 @@ export function nearestFreeSpot(sys: InventorySystem, uid: string, from: ItemLoc
 /** Execute a drag-and-drop. Container → player moves go through `guardedTake` (Phase 7). */
 export function drop(sys: InventorySystem, uid: string, from: ItemLocation, target: DropTarget): OpResult {
   if (sys.refusesIntoContainer(from, target)) return 'fail';
-  // 2026-09-10: a **wheel** target is a take too (상자 → 퀵슬롯). Before that the wheel could only be fed from the
+  // 2026-09-10: a **wheel** target is a take too (crate → quick slot). Before that the wheel could only be fed from the
   // bag, so it was excluded here; leaving it excluded now would move a shared container stack without telling the host.
   const takes = sys.isContainerLoc(from) && !(target.kind === 'grid' && target.grid === 'container');
   if (takes) return sys.guardedTake(uid, from, null, () => sys.dropImpl(uid, from, target));
@@ -275,7 +275,7 @@ export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, 
   const grid = sys.getGrid(target.grid);
   if (!grid) return 'fail';
   const to: ItemLocation = { kind: 'grid', grid: target.grid };
-  // A-15: 주머니 격자가 받는 것만 (미리보기와 같은 판정)
+  // A-15: only what the pouch grid accepts (the same judgement as the preview)
   if (target.grid === 'pouch' && !sys.pouchAccepts(def)) return 'fail';
 
   if (from.kind === 'grid' && from.grid === target.grid) {
@@ -287,9 +287,9 @@ export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, 
   if (blockers.includes(OOB)) return 'fail';
 
   /*
-   * 2026-09-11 (A-15) — 장착한 주머니를 격자로 끌어다 놓기. 가방과 **같은 이유로** 여기서 가로챈다:
-   * 그냥 `detach` 하면 주머니 격자의 내용물이 갈 데 없이 남는다. `changePouch` 가 내용물을 가방으로 옮기고,
-   * 하나라도 못 들어가면 이동 자체를 거절한다.
+   * 2026-09-11 (A-15) — dragging an equipped pouch into a grid. It is intercepted here for **the same reason** as
+   * the bag: a plain `detach` would leave the pouch grid's contents with nowhere to go. `changePouch` moves the
+   * contents into the bag, and refuses the move itself when even one of them does not fit.
    */
   if (from.kind === 'slot' && from.slot === 'pouch') {
     if (target.grid === 'container' || target.grid === 'pouch') return 'fail';
@@ -360,7 +360,7 @@ export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, 
     return 'ok';
   }
   if (from.kind !== 'grid') return 'fail';   // wheel stack: no cells to trade (see `previewDrop`)
-  // A-15: 밀려난 쪽이 주머니로 들어가는 교체 — 주머니가 안 받으면 거절 (미리보기와 같은 판정)
+  // A-15: a swap where the displaced stack goes into the pouch — refused if the pouch does not take it (as the preview)
   if (from.grid === 'pouch' && !sys.pouchAccepts(ITEM_DEF_MAP.get(other.item.defId))) return 'fail';
   const srcGrid = sys.getGrid(from.grid);
   if (!srcGrid) return 'fail';
@@ -384,9 +384,9 @@ export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, 
 export function quickMoveDest(sys: InventorySystem, from: ItemLocation): GridId | null {
   let dest: GridId;
   if (from.kind === 'slot') dest = 'bag';
-  // 2026-09-09: 우클릭 = 가방으로 되돌리기. 2026-09-10: 상자를 열어 둔 채라면 그 상자로 곧장 간다 (가방과 같은 규칙).
+  // 2026-09-09: right-click = back into the bag. 2026-09-10: with a crate open it goes straight into that crate.
   else if (from.kind === 'quick') dest = sys.activeContainer ? 'container' : 'bag';
-  // 2026-09-11 (A-15): 주머니에서 우클릭하면 가방으로 (퀵슬롯과 같다)
+  // 2026-09-11 (A-15): a right-click in the pouch goes to the bag (the same as a quick slot)
   else if (from.grid === 'container' || from.grid === 'stash' || from.grid === 'pouch') dest = 'bag';
   else if (sys.activeContainer) dest = 'container';
   else if (sys.hubMode) dest = 'stash';
@@ -406,7 +406,7 @@ export function quickMoveImpl(sys: InventorySystem, uid: string, from: ItemLocat
   const def = item && ITEM_DEF_MAP.get(item.defId);
   if (!item || !def) return 'fail';
   if (from.kind === 'slot' && from.slot === 'bag') return sys.changeBag(null, null, 'grid');
-  // A-15: 장착한 주머니의 우클릭도 `changePouch` 를 지난다 (내용물이 먼저 가방으로 간다)
+  // A-15: a right-click on the equipped pouch also goes through `changePouch` (the contents move to the bag first)
   if (from.kind === 'slot' && from.slot === 'pouch') return sys.changePouch(null, null, 'grid');
   const dest = quickMoveDest(sys, from);
   if (!dest) return 'fail';
@@ -423,9 +423,9 @@ export function quickMoveImpl(sys: InventorySystem, uid: string, from: ItemLocat
   }
 
 /**
- * Double-click. **2026-09-14 2차 (사용자 결정) — 「비어 있는 자리가 있으면 곧장 그리로」가 이제 모든 격자의 규칙이다.**
- * 상자 · 시체 · 함선 창고 · 가방 · 주머니 어디서 눌러도 `tryAutoPlace` 한 벌(`빈 장비 칸 → 빈 임플란트 칸 →
- * 빈 퀵슬롯`)을 먼저 보고, 빈 자리가 하나도 없을 때에만 예전 경로(가방 → `inventory:full`)로 내려간다.
+ * Double-click. **2026-09-14 2nd pass (user's decision) — 「a free spot means straight there」 is now every grid's rule.**
+ * Pressed in a crate · corpse · ship stash · bag · pouch alike it reads the one `tryAutoPlace` set (`empty equipment
+ * slot → empty implant slot → empty quick slot`) first, and falls to the old path (bag → `inventory:full`) only with none.
  */
 export function activate(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
   if (sys.isContainerLoc(from)) return sys.guardedTake(uid, from, null, () => sys.activateImpl(uid, from));
@@ -436,39 +436,39 @@ export function activateImpl(sys: InventorySystem, uid: string, from: ItemLocati
   const item = sys.findItem(uid, from);
   const def = item && ITEM_DEF_MAP.get(item.defId);
   if (!item || !def) return 'fail';
-  // 감정 전 상자 스택은 어디로도 못 간다 (UI 가 이미 막지만 — `InventoryUI.locked` — 여기가 마지막 문이다.
-  // 2026-09-14 2차부터 ①장비 칸이 가방보다 먼저 도므로 `dropOnSlot` 앞에 이 줄이 필요하다).
+  // An unsearched crate stack can go nowhere (the UI blocks it already — `InventoryUI.locked` — but this is the last
+  // door. From the 2026-09-14 2nd pass ① the equipment slots come before the bag, so this line precedes `dropOnSlot`).
   if (sys.isItemLocked(uid, from)) return 'fail';
-  // 장비 칸 타일: 이미 제자리다 (예전 `equipTargetFor` 의 slot 가지가 하던 'noop').
+  // An equipment-slot tile: it is already in place (the 'noop' the old `equipTargetFor` slot branch gave).
   if (from.kind === 'slot') return 'noop';
-  // 휠 타일: 예전 그대로 빠른 이동 (상자가 열려 있으면 상자, 아니면 가방 — `quickMoveDest`).
+  // A wheel tile: a quick move as before (the crate when one is open, else the bag — `quickMoveDest`).
   if (from.kind !== 'grid') return sys.quickMoveImpl(uid, from);
   /*
-   * **2026-09-14 2차 (사용자 결정)** — 「아이템 더블클릭 시, 장착하고 있지 않은 슬롯이 있으면 장착(또는 퀵슬롯)」.
-   * 그래서 격자마다 다르던 세 갈래(창고만 `tryAutoPlace`, 상자는 휠만, 가방은 `equipTargetFor`)가 **한 벌**이 됐다.
+   * **2026-09-14 2nd pass (user's decision)** — 「double-clicking an item equips it (or seats it on the wheel) when a
+   * slot is free」. The three branches that differed per grid (stash, crate, bag) became **one set**.
    *
-   * 2026-09-10 (사용자 결정) 의 **「상자에서 찾은 것은 무조건 가방이 먼저다」는 뒤집히지 않았다.** 그 결정이 지키려던
-   * 것은 *주우면서 지금 든 총 · 방탄복이 조용히 바뀌는 것*이고, `tryAutoPlace` 는 **비어 있는 칸에만** 넣는다 —
-   * 장착한 것을 밀어내는 길은 여전히 드래그와 우클릭 메뉴의 「장착」(`ui/parts/ContextMenu` → `equip`)뿐이다.
-   * 2026-09-12 의 창고 예외와 2026-09-14 의 「상자 소모품 → 빈 휠 칸」(`parts/AutoQuick`)은 이 한 벌에 흡수됐다.
+   * 2026-09-10's **「what is found in a crate always goes to the bag first」 (user's decision) was not overturned.**
+   * What it protects is *the gun · armor in hand silently changing while picking up*, and `tryAutoPlace` fills only
+   * **empty** slots — displacing equipped gear is still only a drag or the menu's 「장착」 (`ui/parts/ContextMenu` →
+   * `equip`). The 2026-09-12 stash exception and 2026-09-14's 「crate consumable → free wheel slot」 (`AutoQuick`) fold in.
    *
-   * 갈래가 남는 곳은 둘뿐이고 이유가 서로 다르다:
-   *   • **알리는 방법** — 창고는 예전처럼 토스트(`notifySentTo`), 나머지는 그 칸의 플래시(`flashPlaced`). 아래 주석.
-   *   • **가방은 ③(빈 휠 칸)을 보지 않는다** — 가방 타일의 더블클릭에는 이미 자기 휠 몸짓이 있고
-   *     (`ui/InventoryUI.tileHandlers` 가 상자가 닫혀 있을 때 `registerQuick` 으로 가로챈다), 상자를 열어 둔 채의
-   *     가방 더블클릭은 **상자에 넣기**를 뜻한다(우클릭 메뉴의 「빠른 이동 (상자)」가 `더블클릭` 힌트를 단다).
-   *     여기서 휠을 먼저 보면 그 힌트가 거짓말이 된다.
+   * Two branches are left, for different reasons:
+   *   • **how it is announced** — the stash toasts as before (`notifySentTo`), the rest flash that slot (`flashPlaced`).
+   *   • **the bag does not read ③ (an empty wheel slot)** — a bag tile's double-click already has its own wheel
+   *     gesture (`ui/InventoryUI.tileHandlers` intercepts with `registerQuick` while no crate is open), and with a
+   *     crate open a bag double-click means **into the crate** (the menu's 「빠른 이동 (상자)」 carries a `더블클릭`
+   *     hint). Reading the wheel first here would make that hint a lie.
    */
   const fromBag = from.grid === 'bag';
   const placed = tryAutoPlace(sys, item, def, from, from.grid === 'stash' ? notifySentTo : flashPlaced, !fromBag);
   if (placed) return placed;
   /*
-   * 빈 자리가 없다 → **예전 경로 그대로**.
+   * No free spot → **the old path unchanged**.
    *
-   * ⚠ 가방은 `equipTargetFor`(= 차 있어도 교체)를 **여전히** 탄다. 사용자 요청은 「장착하고 있지 않은 슬롯이
-   * 있으면 장착하도록 **추가**」였지 가방의 교체를 없애 달라는 것이 아니었다 — 여기서 빼면 레이드 중 주무기
-   * 두 칸이 다 찬 흔한 상태에서 가방의 총을 더블클릭하면 `fail` + 거부음이 되어, 있던 조작이 사라진다.
-   * 그래서 순서만 바뀌었다: **빈 칸이 있으면 그리로**(새 규칙), 없으면 예전처럼 교체.
+   * ⚠ The bag **still** goes through `equipTargetFor` (= it swaps even when full). The user's request was to **add**
+   * 「equip it when a slot is not equipped」, not to remove the bag's swap — take it out and double-clicking a gun in
+   * the bag in the common mid-raid state of two full primary slots becomes `fail` + a refusal sound, and an existing
+   * gesture disappears. So only the order changed: **a free slot means straight there** (new rule), else the swap.
    */
   if (fromBag) {
     const slot = sys.equipTargetFor(def);
@@ -477,28 +477,28 @@ export function activateImpl(sys: InventorySystem, uid: string, from: ItemLocati
   }
   if (sys.bag.canAbsorb(item)) return sys.quickMoveImpl(uid, from);
   /*
-   * 2026-09-10 의 폴백(`activateFallback`)이 여기 남은 전부다 — `빈 장비 칸 → 임플란트 칸 → 빈 퀵슬롯` 을 다시
-   * 훑던 부분은 위에서 **이미** 돌았고 그 사이에 바뀐 것이 없으므로(`bag.canAbsorb` 는 순수 질의) 지웠다.
+   * 2026-09-10's fallback (`activateFallback`) is all that is left — the sweep of `empty equipment slot → implant
+   * slot → empty quick slot` ran **already** above and nothing changed since (`bag.canAbsorb` is pure), so it went.
    */
   sys.ctx.bus.emit('inventory:full', { item, name: def.name });
   return 'fail';
   }
 
 /**
- * 2026-09-14 (사용자 결정) — **어디로 갔는지 말하는 방법 두 가지.**
+ * 2026-09-14 (user's decision) — **two ways of saying where it went.**
  *
- *  • `notifySentTo` — 창고 더블클릭이 **일부러** 장비칸 · 임플란트 칸 · 퀵슬롯으로 보낸 경우. 의도한 이동이라
- *    예전 그대로 `ui:notify` 한 줄(`{name} → {where}`)이 뜬다.
- *  • `flashPlaced` — 상자 · 시체 · 가방 · 주머니에서 보낸 경우. 예전의 `가방이 가득 찼습니다 — …` 토스트를
- *    빼고, 실제로 들어간 칸이 그 자리에서 번쩍인다 (`InventoryUI.flashSlot` / `flashQuick` / `flashImplant`).
- *    토스트는 화면 구석이라 눈이 상자에 있는 동안 놓치기 쉬웠다.
+ *  • `notifySentTo` — a stash double-click that **deliberately** sent it to an equipment slot · implant slot · quick
+ *    slot. It is an intended move, so the one `ui:notify` line (`{name} → {where}`) appears as before.
+ *  • `flashPlaced` — sent from a crate · corpse · bag · pouch. The old `가방이 가득 찼습니다 — …` toast is dropped
+ *    and the slot it really landed in flashes in place (`InventoryUI.flashSlot` / `flashQuick` / `flashImplant`).
+ *    A toast sits in a screen corner and was easy to miss while the eye was on the crate.
  *
- * **2026-09-14 2차 — 상자 · 시체에서 빈 칸으로 곧장 간 경우도 `flashPlaced` 다** (같은 근거의 연장): 그 순간
- * 눈은 상자 격자에 있고, 장비 칸 · 휠은 같은 창 안 바로 옆이라 번쩍임이 시야에 든다. 창고만 토스트를 지키는
- * 이유는 「창고 → 장비」가 출격 준비의 **의도한 지시**여서다 (2026-09-14 1차 결정을 그대로 둔다).
+ * **2026-09-14 2nd pass — a crate · corpse going straight into a free slot is `flashPlaced` too** (the same reasoning
+ * extended): the eye is on the crate grid then, and the equipment slots · wheel are right beside it in the same
+ * window. Only the stash keeps the toast — 「stash → equipment」 is launch prep's **intended instruction** (1st stands).
  *
- * 그래서 `tryAutoPlace` 는 문구가 아니라 **「놓였다」 콜백**을 받는다 — 자리(`slot` · `quick` · `implant`)와
- * 라벨을 함께 넘기므로 부르는 쪽이 토스트를 띄우든 칸을 번쩍이든 고른다.
+ * So `tryAutoPlace` takes a **「placed」 callback** rather than a phrase — it hands over the spot (`slot` · `quick` ·
+ * `implant`) together with the label, so the caller picks between a toast and flashing the slot.
  */
 type PlacedAt = { kind: 'slot'; slot: LoadoutSlot } | { kind: 'quick'; index: number } | { kind: 'implant' };
 type OnPlaced = (sys: InventorySystem, def: ItemDef, where: string, at: PlacedAt) => void;
@@ -516,20 +516,20 @@ const flashPlaced: OnPlaced = (sys, _def, _where, at) => {
 };
 
 /**
- * **비어 있는 제자리**를 순서대로 훑어 거기로 보낸다. 아무 데도 못 갔으면 null (아이템은 한 칸도 안 움직인다).
+ * Sweeps the **empty slots it belongs in**, in order, and sends it there. Null when nowhere took it (nothing moved).
  *
- *   ① **빈** 장비 칸 (주무기 I · II · 가방 · 방탄복 · 주머니). 이미 장착한 것을 조용히 밀어내지 않는다 — 빈 칸일 때만.
- *   ② 임플란트 아이템이면 빈 임플란트 장착칸 (`ctx.progression.equipImplant`; 함선에서만이고 그 함수가
- *      가방 · 창고만 보므로 사실상 **함선 창고**에서 누른 경우다. 레이드 상자에서는 조용히 실패한다).
- *   ③ 퀵슬롯에 올릴 수 있는 소모품이면 **빈** 휠 칸 (`quick` false 면 건너뛴다 — 가방 갈래, `activateImpl` 주석).
+ *   ① an **empty** equipment slot (주무기 I · II · 가방 · 방탄복 · 주머니). Equipped gear is never silently displaced.
+ *   ② an empty implant slot for an implant item (`ctx.progression.equipImplant`; ship only, and as that function
+ *      reads the bag · stash alone it is in practice a press in the **ship stash**. In a raid crate it fails silently).
+ *   ③ an **empty** wheel slot for a consumable the wheel takes (`quick` false skips it — the bag branch, `activateImpl`).
  *
- * 세 가지 모두 **비어 있는 칸에만** 넣는다. 그래서 2026-09-10 의 「주우면서 손에 든 것이 조용히 바뀌지 않는다」가
- * 모든 격자에서 그대로 산다 — 장착한 것을 밀어내는 길은 드래그와 우클릭 메뉴의 「장착」뿐이다.
+ * All three place **only into empty slots**. That is how 2026-09-10's 「what is in hand never changes silently while
+ * picking up」 stays alive in every grid — equipped gear is displaced only by a drag or the menu's 「장착」.
  *
- * 성공하면 **어디로 갔는지** 알린다 — 방법은 부르는 쪽이 정한다 (`onPlaced`: 창고는 토스트, 나머지는 그 칸의 플래시).
+ * On success it says **where it went** — the caller chooses how (`onPlaced`: a toast for the stash, a flash for the rest).
  *
- * 2026-09-12: `activateFallback`(2026-09-10) 의 ①②③ 을 그대로 떼어낸 것이다. 2026-09-14 2차부터는 **모든 격자의
- * 더블클릭이 이것 하나를 먼저 탄다** (`activateImpl`).
+ * 2026-09-12: ①②③ lifted straight out of `activateFallback` (2026-09-10). From the 2026-09-14 2nd pass **every grid's
+ * double-click reads this one first** (`activateImpl`).
  */
 function tryAutoPlace(
   sys: InventorySystem, item: ItemInstance, def: ItemDef, from: ItemLocation, onPlaced: OnPlaced, quick = true,
@@ -549,9 +549,9 @@ function tryAutoPlace(
   }
 
   /*
-   * 2026-09-14 2차 — ③ 은 `parts/AutoQuick.autoQuickIndexFor` 로 통일했다 (예전에는 `firstFreeQuickSlot` 만 봤다).
-   * `takeIntoQuick` 의 두 줄을 펼친 것이고, 다른 점은 **라벨에 칸 번호가 필요하다**는 것뿐이다. 그래서 「같은 종류가
-   * 이미 휠에 있으면 빈 칸을 새로 먹지 않는다」(한 칸 = 한 종류)와 감정 전 스택 거부가 창고 · 상자 · 시체에 똑같이 걸린다.
+   * 2026-09-14 2nd pass — ③ was unified on `parts/AutoQuick.autoQuickIndexFor` (before, only `firstFreeQuickSlot`).
+   * It is `takeIntoQuick`'s two lines spelled out, differing only in that **the label needs the slot number**. So
+   * 「a def already on the wheel eats no new slot」 (one slot = one def) and the unsearched refusal bind every source alike.
    */
   if (quick) {
     const index = autoQuickIndexFor(sys, item, def);
@@ -565,12 +565,12 @@ function tryAutoPlace(
   }
 
 /**
- * **더블클릭이 지금 이 아이템을 빈 자리로 보낼까** — `tryAutoPlace` 와 같은 순서를 **아무것도 바꾸지 않고** 묻는다.
- * 2026-09-14 2차에 우클릭 메뉴가 「빠른 이동」 줄의 `더블클릭` 힌트를 정확히 달기 위해 생겼다 (`ui/parts/ContextMenu`):
- * 빈 자리가 있으면 더블클릭은 빠른 이동을 **하지 않으므로** 그 힌트가 거짓말이 된다.
+ * **Would a double-click send this item to a free spot right now** — asks `tryAutoPlace`'s order **changing nothing**.
+ * It was added in the 2026-09-14 2nd pass so the right-click menu can attach the `더블클릭` hint to its 「빠른 이동」
+ * row accurately (`ui/parts/ContextMenu`): with a free spot a double-click does **not** quick-move, so the hint lies.
  *
- * 임플란트만 근사다 — `equipImplant` 는 시도해 봐야 아는 함수라 여기서는 `implantSlots − implantSlotsUsed` 로
- * 칸이 남는지만 본다 (함선 게이트는 `equipImplant` 가 들고 있다). 힌트 한 줄의 정확도이므로 이 정도로 충분하다.
+ * Only the implant is an approximation — `equipImplant` is a function only a real attempt answers, so room is read
+ * from `implantSlots − implantSlotsUsed` alone (the ship gate lives in `equipImplant`). Enough for one hint line.
  */
 export function wouldAutoPlace(sys: InventorySystem, item: ItemInstance, def: ItemDef, quick = true): boolean {
   if (emptyEquipTargetFor(sys, def)) return true;
@@ -582,7 +582,7 @@ export function wouldAutoPlace(sys: InventorySystem, item: ItemInstance, def: It
   return quick && autoQuickIndexFor(sys, item, def) >= 0;
   }
 
-/** 지금 **비어 있는** 장비 칸 중 이 아이템을 받는 곳. 장착된 것을 밀어내지 않으므로 `equipTargetFor` 와 다르다. */
+/** The currently **empty** equipment slot that accepts this item. Unlike `equipTargetFor` it displaces nothing. */
 function emptyEquipTargetFor(sys: InventorySystem, def: ItemDef): LoadoutSlot | null {
   for (const slot of LOADOUT_SLOTS) {
     if (!slotAccepts(def, slot)) continue;
@@ -618,7 +618,7 @@ export function takeAll(sys: InventorySystem): number {
   for (const item of items) {
     const def = ITEM_DEF_MAP.get(item.defId);
     if (!def) continue;
-    // 2026-09-14: 가방이 꽉 찼어도 **빈 휠 칸**이 받아 줄 소모품은 지나간다 (`takeOne` 이 그리로 옮긴다)
+    // 2026-09-14: with a full bag a consumable an **empty wheel slot** would take still passes (`takeOne` moves it there)
     if (!sys.bag.canAbsorb(item) && autoQuickIndexFor(sys, item, def) < 0) {
       if (!fullReported) { fullReported = true; sys.ctx.bus.emit('inventory:full', { item, name: def.name }); }
       continue;
@@ -636,8 +636,8 @@ export function takeOne(sys: InventorySystem, uid: string): OpResult {
   const def = p && ITEM_DEF_MAP.get(p.item.defId);
   if (!c || !p || !def) return 'fail';
   /*
-   * 2026-09-14 (사용자 결정 — 소모품 퀵슬롯 자동 장착, **게임 전역**): 「모두 가져가기」는 사람이 목적지를 고르지 않는
-   * 줍기다. 휠에 올릴 수 있는 소모품이고 **빈 칸**이 있으면 가방보다 먼저 그 칸으로 (`parts/AutoQuick`).
+   * 2026-09-14 (user's decision — consumables auto-seated on a quick slot, **game-wide**): 「모두 가져가기」 is a pickup
+   * where nobody chooses a destination. A wheel-usable consumable with a **free slot** goes there before the bag.
    */
   if (takeIntoQuick(sys, p.item, def)) return 'ok';
   if (!sys.bag.canAbsorb(p.item)) { sys.ctx.bus.emit('inventory:full', { item: p.item, name: def.name }); return 'fail'; }
@@ -650,12 +650,12 @@ export function takeOne(sys: InventorySystem, uid: string): OpResult {
   }
 
 /**
- * **2026-09-12 (사용자 결정) — 창고 안 총기에도 부착물을 끼울 수 있다.**
+ * **2026-09-12 (user's decision) — attachments go into a gun sitting in the stash too.**
  *
- * 부착 경로의 게이트는 `locKind(loc) === 'player'` 였는데 **함선 창고는 `'container'`** 다 (`locKind` 의 뜻은
- * "옮기면 전달인가"이고, 창고에 넣는 것은 전달이 맞다). 그래서 창고에 둔 총에는 조준경 하나 못 끼우고
- * 가방으로 꺼냈다가 다시 넣어야 했다. `locKind` 의 의미를 바꾸는 대신 **부착 경로에서만** 창고를 명시적으로
- * 허용한다 — 상자 · 시체(`'container'` 격자)는 남의 물건이라 계속 거부한다.
+ * The attach path's gate was `locKind(loc) === 'player'`, but **the ship stash is `'container'`** (`locKind` means
+ * "is moving it a transfer", and putting something in the stash is). So a gun left in the stash could not take a
+ * single scope — it had to be pulled into the bag and put back. Rather than change what `locKind` means, the stash is
+ * allowed explicitly **on the attach path only** — crates · corpses (`'container'`) are someone else's, still refused.
  */
 export function canSocketAt(sys: InventorySystem, loc: ItemLocation): boolean {
   if (sys.locKind(loc) === 'player') return true;
@@ -663,8 +663,8 @@ export function canSocketAt(sys: InventorySystem, loc: ItemLocation): boolean {
   }
 
 /**
- * 소켓이 바뀐 무기가 든 격자의 `version` 을 올린다 — 그래야 그 타일이 다시 그려진다 (`GridView` 는 버전 게이트).
- * 2026-09-12: 예전에는 가방만 봤으므로 창고 총의 소켓 핍이 갱신되지 않았다.
+ * Bumps the `version` of the grid holding the weapon whose socket changed — that is what redraws its tile (`GridView`
+ * is version-gated). 2026-09-12: this used to read the bag only, so a stashed gun's socket pips never refreshed.
  */
 function bumpWeaponGrid(sys: InventorySystem, weapon: ItemInstance): void {
   if (sys.bag.has(weapon.uid)) { sys.bag.version++; return; }
@@ -673,8 +673,8 @@ function bumpWeaponGrid(sys: InventorySystem, weapon: ItemInstance): void {
   }
 
 /**
- * 소켓에서 빠진 부착물이 갈 자리: 가방 → (함선이면) 창고 → 바닥. 2026-09-12 에 창고가 끼었다 — 창고 총의
- * 부착물을 바꿨는데 가방이 꽉 찼다고 함선 안에서 바닥에 던질 수는 없다.
+ * Where an attachment pulled out of a socket goes: bag → (in the ship) stash → the ground. The stash was inserted on
+ * 2026-09-12 — a full bag must not throw a stashed gun's attachment onto the floor inside the ship.
  */
 function stowDetached(sys: InventorySystem, att: ItemInstance): void {
   if (sys.bag.autoPlace(att)) return;
@@ -820,8 +820,8 @@ export function dropOnSlot(sys: InventorySystem, item: ItemInstance, def: ItemDe
     return 'ok';
   }
   if (slot === 'bag') return sys.changeBag(item, from, 'grid');
-  // A-15: 주머니 칸도 격자를 갈아 끼우는 이동이다 — `changePouch` 하나가 내용물까지 책임진다.
-  // 벗겨진 주머니는 새 주머니가 오던 격자로 (상자에서 왔으면 가방으로 — 공유 상자에 내 물건을 넣지 않는다).
+  // A-15: the pouch slot is a move that swaps a grid too — `changePouch` alone is responsible for the contents.
+  // The removed pouch goes to the grid the new one came from (from a crate → the bag: nothing of mine into a shared crate).
   if (slot === 'pouch') {
     const back: GridId = from.kind === 'grid' && from.grid === 'stash' ? 'stash' : 'bag';
     return sys.changePouch(item, from, 'grid', undefined, back);

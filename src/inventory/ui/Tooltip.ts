@@ -1,25 +1,25 @@
 import type { AmmoType, ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, MealBuff, MealDef, MealEffect, SkillId, StatId, WeaponDef } from '@/shared';
 import { PERK_DEFS, SOCKET_LABEL_KO, SOCKET_SLOTS, itemCreditValue, renderItemCost } from '@/shared';
 /*
- * 2026-09-16 (사용자 버그 「기업 화면의 총 카드가 가방 카드와 다르다」): 무기 카드가 읽는 **숫자와 문장**은
- * `shared/weaponTip` 한 곳이 만든다 — 이 카드는 게이지 막대로, 칩 카드(`ui/hud/ItemTip`)는 표 줄로 칠할 뿐이다.
- * 여기서 직접 계산하면 두 카드가 다시 갈라진다.
+ * 2026-09-16 (user's bug report 「기업 화면의 총 카드가 가방 카드와 다르다」): the **numbers and sentences** a weapon
+ * card reads are made by `shared/weaponTip` alone — this card paints them as gauge bars, the chip card
+ * (`ui/hud/ItemTip`) as table rows. Computing them again here would split the two cards apart.
  */
 import { weaponGaugeTexts, weaponGaugeValues, weaponTipRows, type WeaponGaugeValues } from '@/shared';
-/* 2026-09-13 (요리 품질 · 조리 단계): `ui/hud/ItemTip` 과 같은 요리 줄 — 그 폴더의 `hud/mealText` 는 import 할 수 없어 아래에 작게 한 벌 */
+/* 2026-09-13 (meal quality · cook steps): the same meal rows as `ui/hud/ItemTip` — that folder's `hud/mealText` cannot be imported, so a small copy sits below */
 import {
   COOK_GAME_LABEL_KO, MEAL_BUFF_LABEL_KO, MEAL_BUFF_UNIT, MEAL_TIER_LABEL_KO, cookStepsOf, mealQualityBonus, mealQualityStars, normalizeMealQuality,
 } from '@/shared';
 
-/* ── 2026-09-13: 요리 줄 포맷 (원본 규칙은 `ui/hud/mealText` — 같은 문장이어야 한다) ───────────────────────────────── */
-/** `+15 %` · `+6 kg` · `+20` — 단위는 `MEAL_BUFF_UNIT` 하나가 정한다 (`'%'` 만 100 배). */
+/* ── 2026-09-13: meal row formatting (the original rule is `ui/hud/mealText` — the sentences must match) ───────────── */
+/** `+15 %` · `+6 kg` · `+20` — the unit is decided by `MEAL_BUFF_UNIT` alone (only `'%'` scales by 100). */
 function mealAmountText(buff: MealBuff, amount: number): string {
   const unit = MEAL_BUFF_UNIT[buff] ?? '';
   const n = Math.round((unit === '%' ? amount * 100 : amount) * 10) / 10;
   const mag = Math.abs(n);
   return `${n < 0 ? '−' : '+'}${Number.isInteger(mag) ? String(mag) : mag.toFixed(1)}${unit ? ` ${unit}` : ''}`;
 }
-/** 요리의 능력치 줄 전부 × `(1 + mealQualityBonus(quality))` — `effects` 가 없는 옛 def 는 `buff` · `amount` 한 줄. */
+/** Every stat row of a meal × `(1 + mealQualityBonus(quality))` — an old def with no `effects` is one `buff` · `amount` row. */
 function mealEffectsFor(meal: MealDef, quality: number): MealEffect[] {
   const list = (meal as Partial<MealDef>).effects;
   const base: readonly MealEffect[] = Array.isArray(list) && list.length > 0 ? list : meal.buff ? [{ buff: meal.buff, amount: meal.amount }] : [];
@@ -27,11 +27,11 @@ function mealEffectsFor(meal: MealDef, quality: number): MealEffect[] {
   return base.map((e) => ({ buff: e.buff, amount: e.amount * mul }));
 }
 const COOK_STEP_MARK = ['①', '②', '③', '④', '⑤'];
-/** `① 썰기 → ② 젓기` — 조리대 요리가 아니면 빈 문자열. */
+/** `① 썰기 → ② 젓기` — an empty string when it is not a cook-bench meal. */
 function cookStepsLine(defId: string): string {
   return cookStepsOf(defId).map((s, i) => `${COOK_STEP_MARK[i] ?? `${i + 1}.`} ${COOK_GAME_LABEL_KO[s.game] ?? s.game}`).join(' → ');
 }
-/* 2026-09-15 (가젯 개편): 설명 인라인 마크업 · 스펙 줄은 `@/items` 한 곳이 만든다 — 칩 카드(`ui/hud/ItemTip`)와 **같은 함수**다. */
+/* 2026-09-15 (the gadget rework): the description's inline markup · the spec rows are made by `@/items` alone — the **same function** as the chip card (`ui/hud/ItemTip`). */
 import type { SpecSeg, SpecValue } from '@/items';
 import { WEAPON_CLASS_LABEL_KO, itemSpecRows, parseItemText } from '@/items';
 import { bagCapacityBonus } from '../Gear';
@@ -39,9 +39,9 @@ import {
   DURABILITY_LOW, TEXT, ammoTypeLabel, fmtKg, fmtMul, fmtValue, rarityColor, rarityLabel,
   socketTip, weaponClassLabel,
 } from './labels';
-/* appended (2026-09-16, 수집품 대분류): 종류 줄은 「수집품 > 서적」처럼 두 단이 될 수 있다 — 칩 카드(`ui/hud/ItemTip`)와 같은 함수다 */
+/* appended (2026-09-16, the collectible super category): the category line under the name can read two levels deep (`수집품 > 서적`) — the same function as the chip card (`ui/hud/ItemTip`) */
 import { categoryPathKo } from '@/shared';
-/* 2026-09-14: 받는 소켓만 · 내구도 게이지 색 — 타일과 같은 함수 */
+/* 2026-09-14: only the sockets it accepts · the durability gauge colour — the same functions as the tile */
 import { setDurabilityColorVars, shownSockets } from './GridView';
 
 export interface TooltipLookups {
@@ -53,12 +53,12 @@ export interface TooltipLookups {
   getArmorDef(armorId: string): ArmorDef | undefined;
   /** appended (Phase 9): Korean skill name for a 서적 (`ItemDef.book.skill`); the id when progression is not around. */
   getSkillName?(id: SkillId): string;
-  /** appended (Phase 12): Korean stat name for an 임플란트 bonus line (`ItemDef.implant.stats`); the id as a fallback. */
+  /** appended (Phase 12): Korean stat name for an implant bonus line (`ItemDef.implant.stats`); the id as a fallback. */
   getStatName?(id: StatId): string;
-  /** appended (Phase 12): units of `defId` the player owns (bag + 창고) — the 보유/필요 split of the repair-cost chips. */
+  /** appended (Phase 12): units of `defId` the player owns (bag + stash) — the held / needed split of the repair-cost chips. */
   countOwned?(defId: string): number;
   /**
-   * appended (2026-09-09, 게이지 툴팁): the **bare** graded def stats of a weapon item def — no sockets
+   * appended (2026-09-09, the gauge tooltip): the **bare** graded def stats of a weapon item def — no sockets
    * (`LootRef.getEffectiveStats(defId)`). The white layer of a gauge; `getStats(item)` is the socketed layer.
    */
   getBaseStats?(defId: string): EffectiveWeaponStats | null;
@@ -77,25 +77,25 @@ type GaugeValues = WeaponGaugeValues;
 /**
  * Hover card: name, category · rarity, description, value, size and — for weapons — the effective stats
  * (grade / sockets folded in), durability and the five sockets; attachments list their effects, bags their grid.
- * Phase 12: 임플란트 (`ItemDef.implant`) show 장착칸 / one line per stat bonus / the legendary perk, and a broken one
- * a red 망가짐 line with its 세레스 바이오 repair cost as item chips; a 회복 스프레이 shows its 게이지 (`durability` /
+ * Phase 12: implants (`ItemDef.implant`) show 장착칸 / one line per stat bonus / the legendary perk, and a broken one
+ * a red 망가짐 line with its 세레스 바이오 repair cost as item chips; a 회복 스프레이 shows its gauge (`durability` /
  * `durabilityMax`, `0 / 200` included — an empty can is still an item).
  *
- * 2026-09-09 (무기 카드 재설계): the numeric 대미지 / 연사 / 반동 / 사거리 rows became a **2×2 gauge grid**
+ * 2026-09-09 (the weapon card redesign): the numeric 대미지 / 연사 / 반동 / 사거리 rows became a **2×2 gauge grid**
  * (`.inv-tt-gauges`) normalised against the catalog maximum of each stat, with the raw number kept small at the
  * right. Every bar has two layers — the bare def value (`getBaseStats`, white) and the socketed value (`getStats`):
  * a socket that raises a stat paints the extra segment green (`.bonus`), one that lowers it (a muzzle brake on
  * recoil) shrinks the white fill and leaves the removed segment as a hollow green outline (`.reduced`). The ammo
  * calibre is an item-chip-like **thumbnail** in the head's right corner, the five sockets are a **row of small
  * squares** (attachment glyph, rarity border; empty = dashed + socket abbreviation), and the bottom bar reads
- * 무게 on the left and 가치 on the right for every item. 종류 / 등급 / 탄창 / 정조준 시간 / 재장전 / 크기 rows are gone.
+ * weight on the left and value on the right for every item. 종류 / 등급 / 탄창 / 정조준 시간 / 재장전 / 크기 rows are gone.
  *
- * **2026-09-12 (사용자 결정)** — 세 가지:
- *  - **내구도는 게이지 한 줄**(`buildDurabilityBar`, `.inv-tt-durbar`)이다. 무기 · 가방 · 방탄복 · 회복 스프레이가
- *    같은 함수를 부르므로 같은 값이 어디서나 같은 모양이고, 그 아래 있던 `구간` 줄(C-37)은 **사라졌다** —
- *    수리 · 분해 구간은 그 팝업들이 자기 자리에서 말한다.
- *  - **가방**은 「소지 한계 +N kg」 한 줄을 더 갖는다 (`Gear.bagCapacityBonus` — 무게 계산과 **같은 식**).
- *  - **방탄복**의 `특성` 행은 설명 문단과 글자가 같으면 서지 않는다 (유니크 description 이 곧 퍽 문장이다).
+ * **2026-09-12 (user's decision)** — three things:
+ *  - **Durability is one gauge row** (`buildDurabilityBar`, `.inv-tt-durbar`). Weapon · bag · armor · 회복 스프레이 all
+ *    call the same function, so the same value has the same shape everywhere, and the `구간` row under it (C-37) is
+ *    **gone** — the repair · salvage buckets are said by those popups in their own place.
+ *  - **A bag** carries one more row, 「소지 한계 +N kg」 (`Gear.bagCapacityBonus` — the **same formula** as the weight sum).
+ *  - **Armor**'s `특성` row is not raised when its text equals the description paragraph (a unique's description *is* the perk sentence).
  */
 export class Tooltip {
   readonly el: HTMLElement;
@@ -109,11 +109,11 @@ export class Tooltip {
   }
 
   /**
-   * **2026-09-12 (사용자 결정) — 내구도는 숫자 줄이 아니라 게이지다.** 무기 2×2 게이지(`buildGauge`)와 같은
-   * `.track` / `.fill` 마크업을 쓰되 **한 줄 전체 폭**이고, 채움 색만 남은 비율이 정한다 (`is-low` 30 % 미만 ·
-   * `is-broken` 0). 무기 · 가방 · 방탄복 · 회복 스프레이 게이지가 전부 이 하나를 부르므로 같은 값이 화면 어디서나
-   * 같은 모양이다. 같은 배치에서 그 아래 `구간` 줄(2026-09-11 C-37)은 사라졌다 — 수리 · 분해의 구간 안내는
-   * 수리 팝업(`ui/RepairPanel`)과 분해 팝업(`ui/DisassemblePanel`)이 이미 자기 자리에서 말한다.
+   * **2026-09-12 (user's decision) — durability is a gauge, not a number row.** It uses the same `.track` / `.fill`
+   * markup as the weapon's 2×2 gauges (`buildGauge`), but **one row at full width**, and only the fill colour is decided
+   * by the fraction left (`is-low` under 30 % · `is-broken` 0). The weapon · bag · armor · 회복 스프레이 gauges all call
+   * this one, so the same value has the same shape anywhere on screen. In that same pass the `구간` row under it
+   * (2026-09-11 C-37) went — the repair · salvage buckets are already said by `ui/RepairPanel` and `ui/DisassemblePanel`.
    */
   private buildDurabilityBar(label: string, cur: number, max: number, brokenLabel?: string): HTMLElement {
     const safeMax = Math.max(1, max);
@@ -123,7 +123,7 @@ export class Tooltip {
     cell.className = 'inv-tt-gauge inv-tt-durbar';
     if (value <= 0) cell.classList.add('is-broken');
     else if (ratio < DURABILITY_LOW) cell.classList.add('is-low');
-    setDurabilityColorVars(cell, ratio);   // 2026-09-14: 채움 색 = 타일 게이지와 같은 초록 → 노랑 → 주황 → 빨강
+    setDurabilityColorVars(cell, ratio);   // 2026-09-14: fill colour = the tile gauge's green → yellow → orange → red
     const k = document.createElement('span'); k.className = 'k'; k.textContent = label;
     const n = document.createElement('span'); n.className = 'n';
     n.textContent = value <= 0 && brokenLabel ? `${brokenLabel} · 0 / ${safeMax}` : `${Math.round(value)} / ${safeMax}`;
@@ -153,8 +153,8 @@ export class Tooltip {
     name.textContent = def.name;
     const sub = document.createElement('div');
     sub.className = 'inv-tt-sub';
-    // 2026-09-15: 유니크는 `무기` 대신 **자기 종류**(`컴포짓 보우 · 신화`) — 이름이 별명 한 단어라 종류는 여기서만 읽힌다
-    // 2026-09-16: 나머지는 대분류까지 읽는다 (`수집품 > 서적`) — `shared/labels.categoryPathKo`
+    // 2026-09-15: a unique shows **its own class** (`컴포짓 보우 · 신화`), not `무기` — its name is one nickname, so the class reads only here
+    // 2026-09-16: everything else reads down to the super category (`수집품 > 서적`) — `shared/labels.categoryPathKo`
     sub.textContent = `${weapon?.unique ? weaponClassLabel(weapon) : categoryPathKo(def.category)} · ${rarityLabel(def)}`;
     headText.append(name, sub);
     head.appendChild(headText);
@@ -165,14 +165,14 @@ export class Tooltip {
 
     if (weapon && stats) this.el.appendChild(this.buildGauges(def, weapon, stats));
 
-    /** 2026-09-15: 값은 통짜 문자열이거나 조각 목록(`SpecSeg[]`)이다 — 숫자만 본문 색인 줄이 생겼다. */
+    /** 2026-09-15: a value is either one whole string or a list of segments (`SpecSeg[]`) — rows appeared where only the number keeps the body colour. */
     const rows: Array<[string, SpecValue, string?]> = [];
-    /** 2026-09-12: 이 아이템의 내구도(또는 게이지) 한 줄 게이지. 종류마다 최대치의 출처만 다르고 그림은 하나다. */
+    /** 2026-09-12: this item's durability (or gauge) as one gauge row. Only where the maximum comes from differs per def; the drawing is one. */
     let durBar: HTMLElement | null = null;
     if (weapon && stats) {
       const s = TEXT.weaponStats;
-      /* 2026-09-16: 장전 · 발사 모드 · 배율은 `shared/weaponTip` 이 만든다 (칩 카드와 같은 문장). 탄종은 머리의
-         썸네일, 내구도는 아래 게이지, 소켓은 정사각 칸 줄이라 이 카드에서는 그 셋을 줄로 받지 않는다. */
+      /* 2026-09-16: reload · fire mode · zoom come from `shared/weaponTip` (same sentences as the chip card). The calibre is
+         the head's thumbnail, durability the gauge below, the sockets a row of squares — this card takes none of them as rows. */
       for (const r of weaponTipRows(weapon, stats, { item })) rows.push([r.k, r.v]);
       const max = Math.max(1, stats.maxDurability);
       durBar = this.buildDurabilityBar(s.durability, item.durability ?? max, max, TEXT.broken);
@@ -201,13 +201,13 @@ export class Tooltip {
       rows.push([b.grid, `${def.bag.cols} × ${def.bag.rows}${def.bag.tactical ? ` · ${b.tactical}` : ''}`]);
       rows.push([b.quickSlots, `${def.bag.quickSlots}`]);
       /*
-       * 2026-09-12 — **소지 한계 +N kg.** 가방이 늘려 주는 무게는 `Gear.bagCapacityBonus` 하나가 정하고
-       * (`data/tuning.csv` 의 `BAG_CAPACITY_PER_CELL` × 기본 격자를 넘는 칸 수) 이 줄은 그 함수를 그대로 부른다 —
-       * 숫자를 여기 베껴 적으면 표를 고칠 때 글이 어긋난다. 기본 격자보다 작은 가방은 0 이라 줄 자체가 없다.
+       * 2026-09-12 — **「소지 한계 +N kg」.** The weight a bag adds is decided by `Gear.bagCapacityBonus` alone
+       * (`data/tuning.csv`'s `BAG_CAPACITY_PER_CELL` × the cells beyond the default grid) and this row calls that function —
+       * copying the number here goes out of step the next time the table changes. A bag below the default grid gives 0, so no row.
        */
       const capBonus = bagCapacityBonus(def.bag);
       if (capBonus > 0) rows.push([b.capacity, `+${fmtKg(capBonus)}`]);
-      // 2026-09-11 (C-36): 가방 내구도 — 레이드마다 닳지만 0 이어도 격자는 그대로라 `파손` 이라 적지 않는다
+      // 2026-09-11 (C-36): bag durability — it wears every raid, but the grid is unchanged at 0, so it is not labelled `파손`
       const max = def.durabilityMax;
       if (max !== undefined && max > 0) durBar = this.buildDurabilityBar(b.durability, item.durability ?? max, max);
     }
@@ -215,46 +215,46 @@ export class Tooltip {
       const a = this.lookups.getArmorDef(def.armorId);
       const t = TEXT.armorStats;
       if (a) {
-        // 2026-09-10: 방탄복은 피해를 깎지 않는다 — 실드(추가 체력)를 준다
+        // 2026-09-10: armor does not cut damage — it gives a shield (extra hp)
         rows.push([t.shield, `+${Math.round(a.shield)}`]);
         /*
-         * 2026-09-12 — **퍽 문장은 한 번만.** `ItemDef.description` 은 `ArmorDef.description` 을 그대로 받아온
-         * 값이고(`items/ItemDefs`), 유니크 방탄복의 그 문장이 곧 퍽 효과 설명이 됐다 — `특성` 행에 다시 적으면
-         * 위의 설명 문단과 **글자 그대로 같은 줄**이 두 번 나온다. 그래서 둘이 다를 때만 행을 세운다.
+         * 2026-09-12 — **The perk sentence appears exactly once.** `ItemDef.description` takes `ArmorDef.description` verbatim
+         * (`items/ItemDefs`), and a unique armor's sentence *is* its perk description — writing it into the `특성` row would
+         * print **literally the same line** twice under the description paragraph. So the row is raised only when they differ.
          */
         if (a.perk !== 'none' && a.description !== def.description) rows.push([t.perk, a.description]);
         const max = def.durabilityMax ?? a.durabilityMax;
         durBar = this.buildDurabilityBar(t.durability, item.durability ?? max, max, TEXT.broken);
       }
     }
-    // Phase 12: a channelled consumable's 게이지 (회복 스프레이) — `0 / 200` is a valid, repairable state
+    // Phase 12: a channelled consumable's gauge (회복 스프레이) — `0 / 200` is a valid, repairable state
     if (def.heal?.spray && def.durabilityMax !== undefined && def.durabilityMax > 0) {
       const max = def.durabilityMax;
       durBar = this.buildDurabilityBar(TEXT.gauge, item.durability ?? max, max);
     }
     /*
-     * 2026-09-15 (가젯 개편, 사용자 결정) — 회복약 · 실드 충전기 · 전투 소모품 · 가젯 · 수류탄의 스펙은
-     * **`items/ItemSpec.itemSpecRows` 하나**가 만든다 (칩 카드 `ui/hud/ItemTip` 과 같은 함수 · 같은 문장).
-     * 맨 위가 언제나 `사용 시간` 이고, 옛 `지속 소모` 줄은 없어졌으며, 설명 글에서는 그 수치를 전부 걷어냈다.
-     * 예전에 여기 있던 실드 충전기 · 전투 소모품 블록이 이 세 줄로 접혔다 (`TEXT.shieldChargeStats` ·
-     * `TEXT.boostStats` 는 labels 의 계약이라 그대로 남아 있다).
+     * 2026-09-15 (the gadget rework, user's decision) — the specs of healing items · shield chargers · combat consumables ·
+     * gadgets · grenades are made by **`items/ItemSpec.itemSpecRows` alone** (the same function and sentences as the chip
+     * card `ui/hud/ItemTip`). `사용 시간` is always first, the old `지속 소모` row is gone, and those numbers were stripped
+     * out of the description text. The shield-charger and combat-consumable blocks that used to sit here folded into these
+     * three lines (`TEXT.shieldChargeStats` · `TEXT.boostStats` stay — they are labels' contract).
      */
     for (const r of itemSpecRows(def)) {
       rows.push([r.k, r.v, r.tone === 'good' ? 'is-bonus' : r.tone === 'bad' ? 'is-broken' : undefined]);
     }
-    /* 2026-09-15: 내구도를 들고 다니는 가젯(돔 실드 · 바리케이드) — 무기 · 가방 · 방탄복과 같은 게이지 한 줄. */
+    /* 2026-09-15: gadgets that carry durability (dome shield · barricade) — the same one gauge row as weapon · bag · armor. */
     if (def.category === 'gadget' && def.durabilityMax !== undefined && def.durabilityMax > 0) {
       const max = def.durabilityMax;
       durBar = this.buildDurabilityBar(TEXT.bagStats.durability, item.durability ?? max, max, TEXT.broken);
     }
-    // 2026-09-12 (A-3e): 디스크 · 레코드는 책과 같은 두 줄, 용도만 꽂는 보관함 이름이 다르다
+    // 2026-09-12 (A-3e): discs · records get the same two rows as a book; only the holder named in the use row differs
     const media = def.book ?? def.disc ?? def.record;
     if (media) {
       const t = TEXT.bookStats;
       rows.push([t.skill, this.lookups.getSkillName?.(media.skill) ?? media.skill]);
       rows.push([t.use, def.book ? t.shelf : def.disc ? t.discShelf : t.recordShelf]);
     }
-    // Phase 12: 임플란트 — slot cost + one line per stat bonus (`근력 +2`); a broken one has no bonuses to list
+    // Phase 12: implants — slot cost + one line per stat bonus (`근력 +2`); a broken one has no bonuses to list
     const imp = def.implant;
     if (imp) {
       const t = TEXT.implantStats;
@@ -267,8 +267,8 @@ export class Tooltip {
         }
       }
     }
-    /* 2026-09-13 (요리 품질 · 조리 단계): `ui/hud/ItemTip` 의 요리 블록과 같은 줄 — 구분 · 품질(인스턴스 품질 > 0 일 때만) · 사용 ·
-       능력치(품질 보너스 반영) · 조리 순서(조리대 요리만). 이 카드는 언제나 인스턴스를 들고 있으므로 품질은 `item.quality` 다. */
+    /* 2026-09-13 (meal quality · cook steps): the same rows as `ui/hud/ItemTip`'s meal block — 구분 · 품질 (instance quality > 0 only) ·
+       사용 · the stats (quality bonus folded in) · 조리 (cook-bench meals only). This card always holds an instance, so quality is `item.quality`. */
     const meal = def.meal;
     if (meal) {
       const tier = def.retired ? '' : (MEAL_TIER_LABEL_KO[meal.tier] ?? '');
@@ -280,7 +280,7 @@ export class Tooltip {
       const steps = cookStepsLine(def.id);
       if (steps) rows.push(['조리', steps]);
     }
-    // 2026-09-15: 옛 `회복 +N HP` 줄은 `itemSpecRows` 의 「5초간 매 초 HP 4 회복, 총 20 회복」 이 대신한다
+    // 2026-09-15: the old `회복 +N HP` row is replaced by `itemSpecRows`' 「5초간 매 초 HP 4 회복, 총 20 회복」
     if (def.stackMax > 1) rows.push([TEXT.qty, `${item.qty} / ${def.stackMax}`]);
 
     if (rows.length > 0) {
@@ -295,7 +295,7 @@ export class Tooltip {
       }
       this.el.appendChild(table);
     }
-    // 2026-09-12: 내구도 게이지는 수치 표 **바로 아래** 한 줄 — 표의 두 칸 격자에 들어가지 않는 전체 폭 막대다
+    // 2026-09-12: the durability gauge is one row **directly under** the stat table — a full-width bar outside the table's two-column grid
     if (durBar) this.el.appendChild(durBar);
 
     if (imp) {
@@ -329,8 +329,8 @@ export class Tooltip {
       if (row) this.el.appendChild(row);
     }
 
-    // Phase 10: 가치 is a bottom bar of the card (same shape as `ui/hud/ItemTip`'s). 2026-09-09: 무게 sits at its
-    // left end (a stack's total), 가치 at the right — a stack shows `단가 × 수량` next to the total.
+    // Phase 10: value is a bottom bar of the card (same shape as `ui/hud/ItemTip`'s). 2026-09-09: weight sits at its
+    // left end (a stack's total), value at the right — a stack shows unit price × quantity next to the total.
     const value = document.createElement('div');
     value.className = 'inv-tt-value';
     const qty = Math.max(1, item.qty);
@@ -370,11 +370,11 @@ export class Tooltip {
     this.move(x, y);
   }
 
-  /* ── 2026-09-15 (가젯 개편): 설명 마크업 · 값 조각 ────────────────────────────── */
+  /* ── 2026-09-15 (the gadget rework): description markup · value segments ──────── */
 
   /**
-   * 설명 문단. `data/items.csv` 의 `description` 은 `{em}…{/em}` · `{dim}…{/dim}` · `{br}` 토큰을 쓸 수 있고
-   * 푸는 곳은 `items/ItemText.parseItemText` **하나**다 (칩 카드도 같은 함수). 색만 이 카드의 팔레트다.
+   * The description paragraph. `data/items.csv`'s `description` may use `{em}…{/em}` · `{dim}…{/dim}` · `{br}` tokens and
+   * **one** place resolves them — `items/ItemText.parseItemText` (the chip card too). Only the colours are this card's palette.
    */
   private buildDesc(text: string): HTMLElement {
     const p = document.createElement('p');
@@ -393,7 +393,7 @@ export class Tooltip {
     return p;
   }
 
-  /** 값 조각 하나 — 흐린 조각만 인라인 색을 받는다 (숫자는 본문 색 그대로). */
+  /** One value segment — only a dim segment takes an inline colour (numbers keep the body colour). */
   private buildSeg(seg: SpecSeg): HTMLElement {
     const sp = document.createElement('span');
     sp.textContent = seg.text;
@@ -431,7 +431,7 @@ export class Tooltip {
     const max = this.gaugeMaxima();
     const base = weaponGaugeValues(weapon, this.lookups.getBaseStats?.(def.id) ?? stats);
     const eff = weaponGaugeValues(weapon, stats);
-    // 2026-09-16: 게이지 옆의 작은 수치도 `shared/weaponTip` 의 문장이다 — 칩 카드의 같은 줄과 글자가 같아야 한다
+    // 2026-09-16: the small number beside a gauge is a `shared/weaponTip` sentence too — it must read exactly as the chip card's row
     const text = weaponGaugeTexts(weapon, stats);
     const s = TEXT.weaponStats;
     const grid = document.createElement('div');
@@ -504,7 +504,7 @@ export class Tooltip {
 
   /**
    * The weapon's sockets as a **centred** row of small squares: attachment glyph + rarity border, or a dashed empty square
-   * with the socket's Korean name (`SOCKET_LABEL_KO`). 2026-09-14 (사용자 결정): only the sockets the weapon accepts
+   * with the socket's Korean name (`SOCKET_LABEL_KO`). 2026-09-14 (user's decision): only the sockets the weapon accepts
    * (`shownSockets` — the same list as the tile's pips); null when it accepts none. Every square carries `data-socket` —
    * the pinned card (`ui/TipPin`) shows the attachment's own card on hover and drags it out from there.
    */

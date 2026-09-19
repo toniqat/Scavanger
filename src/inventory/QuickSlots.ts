@@ -4,7 +4,7 @@ import { canStackTogether } from './Grid';
 
 /**
  * Pure bookkeeping for the quick-use wheel: eight slots indexed by wheel direction (`QUICK_SLOT_DIRS`: 0 N … 4 S …
- * 7 NW), each holding the **`ItemInstance` itself** (2026-09-09, 사용자 결정 — the wheel is its own container, "another
+ * 7 NW), each holding the **`ItemInstance` itself** (2026-09-09, user's decision — the wheel is its own container, "another
  * bag space": a stack on the wheel is *not* in the bag grid any more). No events, no grid access — the system moves
  * stacks between the bag grid and this array and decides when to emit.
  *
@@ -59,7 +59,7 @@ export function mergeIntoQuick(slots: QuickSlotItems, item: ItemInstance, getDef
   if (!def || def.stackMax <= 1) return item.qty;
   for (const q of slots) {
     if (item.qty <= 0) break;
-    // 2026-09-12: the stack key (아이템 회수 계약 — raid-found vs brought) gates the merge like every grid
+    // 2026-09-12: the stack key (item recovery contracts — raid-found vs brought) gates the merge like every grid
     if (!q || q.uid === item.uid || !canStackTogether(q, item)) continue;
     const room = def.stackMax - q.qty;
     if (room <= 0) continue;
@@ -86,13 +86,13 @@ export function pickStarterQuick(
   const taken = slots.map((s) => s !== null);
   const out: { index: number; item: ItemInstance }[] = [];
   /*
-   * 2026-09-12 (E1, A1 요청): `stim` 카테고리에 체력 회복이 아닌 것(전투 소모품 `boost_*` · 실드 충전기)이 섞였다.
-   * 기본 지급의 S 칸은 **회복제**의 자리이므로 `def.heal` 이 있는 스택이 먼저 이기고, 같은 부류 안에서는 예전처럼 큰 스택이다.
-   * 회복제가 하나도 없으면 예전과 똑같이 가장 큰 stim 스택이다.
+   * 2026-09-12 (E1, A1's request): the `stim` category picked up things that do not heal (the combat consumables
+   * `boost_*` · the shield charger). The starter grant's S slot is a **healing item's** spot, so a stack with `def.heal`
+   * wins first and, within one kind, the biggest stack wins as before. With no healing item it is the biggest stim stack.
    */
   /*
-   * 2026-09-15 (`ItemCategory 'grenade'` 폐지): 수류탄도 `category: 'gadget'` 이라 **카테고리로는 못 고른다** —
-   * 고르는 기준을 술어로 받는다. 수류탄인지를 가르는 값은 `ItemDef.grenade` 하나다 (`weapons/model.quickKindOf` 와 같은 근거).
+   * 2026-09-15 (`ItemCategory 'grenade'` dropped): a grenade is `category: 'gadget'` too, so **the category cannot
+   * pick one** — the pick takes a predicate. `ItemDef.grenade` alone says it is a grenade (`weapons/model.quickKindOf` reasons the same way).
    */
   const pick = (want: (def: ItemDef) => boolean, healFirst = false): ItemInstance | null => {
     let best: ItemInstance | null = null;

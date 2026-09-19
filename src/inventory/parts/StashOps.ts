@@ -1,11 +1,11 @@
 /**
- * src/inventory/parts/StashOps.ts — **함선 창고를 함께 보는 연산**.
+ * src/inventory/parts/StashOps.ts — **the operations that read the ship stash as well**.
  *
- * 가방 하나만 보는 연산(`countDef` 등)은 클래스에 남아 있고, 여기 있는 것은 전부 **가방 + 창고**를 하나의
- * 보관 공간으로 취급한다: 재료 집계 · 소모, 로드아웃 프리셋 저장/적용, 창고로 이동, 어디든 넣기, 공간 확인.
- * 창고는 함선에서만 존재하므로 레이드 중에는 이 함수들이 가방만 본다.
- * ⚠ 이 함수들(`countDefAll` · `consumeDefAll` · `tryAddItemAnywhere` …)은 **페이즈를 확인하지 않는다** — 레이드 중에
- * 쓰면 안 되는 경로는 부르는 쪽이 막는다.
+ * Operations reading the bag alone (`countDef` and friends) stay on the class; everything here treats **bag + stash**
+ * as one store: material counting · consuming, saving / applying a loadout preset, moving to the stash, placing
+ * anywhere, checking for room. The stash exists only in the ship, so during a raid these read the bag only.
+ * ⚠ These functions (`countDefAll` · `consumeDefAll` · `tryAddItemAnywhere` …) **do not check the phase** — a path
+ * that must not run during a raid is blocked by its caller.
  */
 import * as THREE from 'three';
 import type {
@@ -70,10 +70,10 @@ export function consumeDefAll(sys: InventorySystem, defId: string, qty: number):
   return left === 0;
   }
 
-/* ══ A-13 (2026-09-11): 준비물을 함선에서 쓴다 ══════════════════════════════════════════════════════════════
- * 규칙의 주인은 progression 이다 (`ProgressionRef.usePrep` — 함선 게이트 · 환경당 하나 · 한국어 사유).
- * inventory 는 **아이템을 뺄 수 있는 자리인지**만 먼저 보고, progression 이 받아들였을 때 1개를 뺀다.
- * 순서를 뒤집으면(빼고 나서 묻는다) 거절당했을 때 되돌릴 곳이 없다 — `prep` 은 이 폴더의 것이 아니다.
+/* ══ A-13 (2026-09-11): preparations are used in the ship ═══════════════════════════════════════════════════
+ * progression owns the rule (`ProgressionRef.usePrep` — the ship gate · one per environment · a Korean reason).
+ * inventory only checks first **whether the item can be taken from where it is**, and removes 1 once progression took
+ * it. Reversed (take first, ask after) a refusal has nowhere to roll back to — `prep` does not belong to this folder.
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 export function usePrepItem(sys: InventorySystem, uid: string, from?: ItemLocation): string | null {
   const ctx = sys.ctx;
@@ -82,7 +82,7 @@ export function usePrepItem(sys: InventorySystem, uid: string, from?: ItemLocati
   if (!item || !def) return '아이템을 찾을 수 없습니다';
   if (!def.prep) return '준비물이 아닙니다';
   if (!ctx.isHubPhase() || ctx.isRaidActive()) return '함선에서만 사용할 수 있습니다';
-  // 열어 둔 상자 · 장비 칸의 스택은 `takeItem` 이 거절한다 — 물어보기 전에 거른다.
+  // `takeItem` refuses a stack in an open crate or an equipment slot — filtered out before asking.
   if (from?.kind === 'slot') return '가방이나 창고로 옮긴 뒤 사용하세요';
   if (from?.kind === 'grid' && from.grid === 'container') return '가방이나 창고로 옮긴 뒤 사용하세요';
   const prog = ctx.progression;
@@ -90,24 +90,24 @@ export function usePrepItem(sys: InventorySystem, uid: string, from?: ItemLocati
   const refusal = prog.usePrep(def.id);
   if (refusal) return refusal;
   if (sys.takeItem(uid, 1) !== 1) {
-    // 여기까지 오면 progression 은 이미 실었다. 자리를 미리 걸렀으므로 사실상 오지 않는 가지다.
+    // Reaching here means progression already armed it. The spot was filtered ahead, so in practice this never runs.
     console.error('[inventory] 준비물을 실었지만 아이템을 빼지 못했다', uid, def.id);
   }
   return null;
   }
 
-/* 2026-09-16 (접시 모델, 사용자 결정): 옛 `useMealItem`(요리 아이템 우클릭 `먹기`)은 없어졌다 — 요리는 아이템이 아니라
- * 식탁의 접시이고, 먹는 곳은 식탁 하나다 (housing `parts/Dining.eatPlate` → `progression.useMeal`). */
+/* 2026-09-16 (the plate model, user's decision): the old `useMealItem` (right-click `먹기` on a meal item) is gone — a
+ * meal is not an item but the dining table's plate, eaten only there (housing `parts/Dining.eatPlate`). */
 
 export function captureLoadout(sys: InventorySystem): LoadoutPreset {
   const l = sys.loadout;
   return {
     name: '프리셋', primary: l.primary?.defId ?? null, primary2: l.primary2?.defId ?? null, secondary: l.secondary?.defId ?? null,
     bag: l.bag?.defId ?? null, armor: l.armor?.defId ?? null,
-    // A-15: `undefined` = 주머니는 건드리지 않는다 / `null` = 비운다 (`implantItems` 와 같은 규약)
+    // A-15: `undefined` = the pouch is left alone / `null` = emptied (the same contract as `implantItems`)
     pouch: l.pouch?.defId ?? null,
     implant: sys.ctx.progression?.profile.implant ?? sys.ctx.implants?.equipped ?? null,
-    // 2026-09-08: 임플란트 아이템도 로드아웃의 일부다 (인벤토리 장착 장비 칸으로 옮겨온 뒤)
+    // 2026-09-08: implant items are part of the loadout too (once moved into the inventory's equipment slots)
     implantItems: (sys.ctx.progression?.getEquippedImplants() ?? []).map((e) => e.defId),
   };
   }
@@ -153,10 +153,10 @@ export function applyLoadout(sys: InventorySystem, preset: LoadoutPreset): { equ
   }
 
 /**
- * 임플란트 아이템 part of a preset (2026-09-08). Everything currently slotted comes **off** first (an implant the
+ * The implant-item part of a preset (2026-09-08). Everything currently slotted comes **off** first (an implant the
  * preset also wants is re-equipped below — the round trip costs nothing and keeps the slot budget honest), then each
- * wanted def is equipped from the bag / 함선 창고 in the preset's order. A def that is nowhere, broken, or no longer
- * fits the slot budget lands in `missing`. `[]` therefore means "take everything off".
+ * wanted def is equipped from the bag / the ship stash in the preset's order. A def that is nowhere, broken, or no
+ * longer fits the slot budget lands in `missing`. `[]` therefore means "take everything off".
  */
 function applyImplantItems(sys: InventorySystem, want: readonly string[]): { equipped: number; missing: string[] } {
   const prog = sys.ctx.progression;
@@ -190,7 +190,7 @@ export function unequipToStorage(sys: InventorySystem, slot: LoadoutSlot): boole
     if (sys.changeBag(null, null, 'grid') === 'ok') return true;
     return sys.changeBag(null, null, 'world') === 'ok';
   }
-  // A-15: 주머니는 내용물부터 가방으로 — 안 들어가면 벗기 자체가 거절된다
+  // A-15: a pouch moves its contents into the bag first — if they do not fit, taking it off is refused
   if (slot === 'pouch') {
     if (sys.changePouch(null, null, 'grid') === 'ok') return true;
     return sys.changePouch(null, null, 'grid', undefined, 'stash') === 'ok';
@@ -220,7 +220,7 @@ export function equipFromStorage(sys: InventorySystem, item: ItemInstance, gridI
     }
     return r === 'ok';
   }
-  // A-15: 주머니 칸도 자기 함수가 있다 (내용물 이사 · 거절 규칙이 거기 있다)
+  // A-15: the pouch slot has its own function too (the contents move and the refusal rule live there)
   if (slot === 'pouch') {
     const back: GridId = gridId === 'stash' ? 'stash' : 'bag';
     return sys.changePouch(item, from, 'grid', undefined, back) === 'ok';
@@ -258,7 +258,7 @@ export function moveToStash(sys: InventorySystem, uid: string, from: ItemLocatio
     if (!found || found.from.kind !== 'grid') return 'ok';
     from = found.from;
   }
-  // A-15: 주머니는 곧장 창고로 (내용물은 `changePouch` 가 가방에 옮긴다 — 안 되면 거절)
+  // A-15: a pouch goes straight to the stash (`changePouch` moves the contents into the bag — refused if it cannot)
   if (from.kind === 'slot' && from.slot === 'pouch') return sys.changePouch(null, null, 'grid', undefined, 'stash');
   const stash = sys.stash.grid;
   if (!stash.canAbsorb(item)) { sys.ctx.bus.emit('ui:notify', { text: '창고에 공간이 없습니다', kind: 'warning' }); return 'fail'; }
@@ -269,15 +269,15 @@ export function moveToStash(sys: InventorySystem, uid: string, from: ItemLocatio
   }
 
 /**
- * 2026-09-16 (사용자 결정) — 가방 머리의 **`모두 창고로 이동`** (함선 전용). **가방 격자의 아이템만** 창고로 옮긴다 —
- * 퀵슬롯(휠) · 주머니 · 장착 장비는 그대로다. 즐겨찾기도 옮긴다 (되돌릴 수 있는 이동이라 확인 카드가 없다).
+ * 2026-09-16 (user's decision) — the bag header's **`모두 창고로 이동`** (ship only). **Only bag-grid items** move to the
+ * stash — quick slots (the wheel) · the pouch · equipped gear stay. Favourites move too (undoable, so no confirm card).
  *
- * - 큰 것부터(`area` 내림차순) 넣어야 격자가 잘 채워진다 — `takeAll` · 가방 재배치와 같은 순서.
- * - 한 개씩 `canAbsorb` → `detach` → `autoPlace`, 들어간 것마다 한 칸 이동과 **같은 이벤트**(`emitTransfer` —
- *   계약 · 튜토리얼이 `inventory:itemRemoved` 를 듣는다)를 보내고, 끝에서 `afterChange` 는 **한 번**만 부른다.
- * - 이벤트에 싣는 사본은 넣기 **전에** 뜬다: `autoPlace` 가 창고 스택에 합치면 `item.qty` 가 0 으로 줄어든다.
- * - 튜토리얼이 창고에서 감추는 아이템(`hides('stashItem', defId)`)은 옮기지 않는다 — 옮기면 화면에서 사라져 보인다.
- * - 안 들어가는 것은 가방에 남기고 몇 개가 남았는지 돌려준다 (토스트는 부른 쪽 = UI 가 한 번 띄운다).
+ * - Largest first (`area` descending) packs the grid well — the same order as `takeAll` and a bag relayout.
+ * - One at a time `canAbsorb` → `detach` → `autoPlace`, each landing sending **the same event** as a single-cell move
+ *   (`emitTransfer` — contracts · the tutorial listen for `inventory:itemRemoved`), and `afterChange` **once** at the end.
+ * - The copy carried on the event is taken **before** placing: `autoPlace` merging into a stash stack drops `qty` to 0.
+ * - An item the tutorial hides in the stash (`hides('stashItem', defId)`) is not moved — moving it looks like it vanished.
+ * - What does not fit stays in the bag and the number left is returned (the caller = the UI raises one toast).
  */
 export function moveBagToStash(sys: InventorySystem): { moved: number; left: number } {
   if (!sys.hubMode) return { moved: 0, left: 0 };
@@ -295,7 +295,7 @@ export function moveBagToStash(sys: InventorySystem): { moved: number; left: num
     const sent: ItemInstance = { ...item };
     sys.detach(item, from);
     if (!stash.autoPlace(item)) {
-      // `canAbsorb` 가 방금 참이었으므로 오지 않는 가지 — 그래도 아이템을 잃지 않게 가방으로 되돌린다
+      // `canAbsorb` was just true, so this never runs — the item still goes back to the bag so it cannot be lost
       if (!sys.bag.autoPlace(item)) console.error('[inventory] 모두 창고로: 되돌릴 자리가 없다', item.defId);
       left++;
       continue;

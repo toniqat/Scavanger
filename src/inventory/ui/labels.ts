@@ -6,27 +6,27 @@ import { categoryPathKo } from '@/shared';
 /** 2026-09-13: English eyebrow word of the facility a bench belongs to (`TEXT.bench.eyebrow`). Wording only — no numbers. */
 const FACILITY_EYEBROW: Partial<Record<RoomPurpose, string>> = { workshop: 'WORKSHOP', lab: 'LAB', kitchen: 'KITCHEN' };
 
-/* ── 격자 칸 크기 — **단일 원본** (2026-09-14, 사용자 결정 「작은 화면에서 칸을 줄여 세로 여유를 만든다」) ──────────
+/* ── Grid cell size — **the single source** (2026-09-14, user's decision 「a smaller cell frees vertical room」) ────
  *
- * 칸 한 변은 예전에 두 곳에 적혀 있었다 — 여기의 `CELL = 54` 와 `inventory.css` 의 `--inv-cell: 54px`. JS 는 그
- * 값으로 격자 상자의 px 폭 · 높이(`GridView.syncDims`) · 드래그 히트테스트(`hitTest` · `cellForGhost`) · 하이라이트
- * 자리를 정하고 CSS 는 같은 값으로 칸을 그리므로, **한쪽만 줄이면 놓은 자리가 커서 밑 칸이 아니게 된다.**
- * 그래서 지금은 **JS 가 원본**이고 CSS 의 `--inv-cell` 은 첫 프레임용 기본값일 뿐이다 — 격자 · 창 · 고스트를 만드는
- * 코드가 전부 `applyGridCellVar` 로 그 변수를 인라인으로 덮어쓴다. CSS 에는 이 값의 미디어 쿼리가 **없다**.
+ * The cell edge used to be written in two places — `CELL = 54` here and `--inv-cell: 54px` in `inventory.css`. JS sets
+ * the grid box's px width · height (`GridView.syncDims`), the drag hit test (`hitTest` · `cellForGhost`) and the
+ * highlight spot from it while CSS draws the cells with the same value, so **shrinking only one of them puts the drop
+ * spot on a different cell than the cursor.** **JS is the source** now, and CSS's `--inv-cell` is only a first-frame
+ * default — grid · window · ghost code all overwrite it inline with `applyGridCellVar`. CSS holds **no** media query.
  *
- * 사다리(경계 높이 · 칸 크기)의 수치는 `data/tuning.csv` 의 `INV_CELL_*` 다. 기준은 **뷰포트 높이**다: 1280×760 ·
- * 1440×900 에서는 창이 화면을 세로로 꽉 채워 `.inv-root` 의 `safe center` 가 `flex-start` 로 떨어졌고(= 위로 붙었다),
- * 칸을 줄여 창을 짧게 만드는 것이 남는 높이를 만드는 유일한 길이었다. 1080 px 이상은 예전 그대로 54 다.
+ * The ladder's numbers (threshold height · cell size) are `INV_CELL_*` in `data/tuning.csv`. The measure is the
+ * **viewport height**: at 1280×760 · 1440×900 the window filled the screen vertically, `.inv-root`'s `safe center` fell
+ * back to `flex-start` (= it stuck to the top), and a shorter window was the only spare height. 1080 px up keeps 54.
  */
 const TUNING = /* data/tuning.csv */ keyTable('tuning.csv');
-/** 창 높이 오름차순 계단. 첫 번째로 `maxH` 를 넘지 않는 칸을 쓴다. */
+/** Steps in ascending window height. The first step whose `maxH` the height does not exceed gives the cell. */
 const CELL_LADDER: readonly { readonly maxH: number; readonly cell: number }[] = [
   { maxH: TUNING.num('INV_CELL_TINY_MAX_VH'), cell: TUNING.num('INV_CELL_TINY_PX') },
   { maxH: TUNING.num('INV_CELL_SHORT_MAX_VH'), cell: TUNING.num('INV_CELL_SHORT_PX') },
 ];
 const CELL_BASE = TUNING.num('INV_CELL_PX');
 
-/** 이 창 높이에서 쓸 칸 한 변(px). 표를 읽기만 한다 — 경계와 크기는 csv 가 정한다. */
+/** The cell edge (px) for this window height. It only reads the table — the thresholds and sizes are decided by csv. */
 export const gridCellForHeight = (viewportH: number): number => {
   for (const step of CELL_LADDER) if (viewportH <= step.maxH) return step.cell;
   return CELL_BASE;
@@ -35,17 +35,17 @@ export const gridCellForHeight = (viewportH: number): number => {
 const viewportHeight = (): number => (typeof window === 'undefined' ? CELL_BASE * 20 : window.innerHeight);
 
 /**
- * px — 지금 창 높이에서의 격자 칸 한 변. **`let` 이고 `syncGridCell()` 이 바꾼다** (ESM 라이브 바인딩이라 `import`
- * 한 쪽도 새 값을 본다). 기본 인자(`cell = CELL`)는 호출 시점에 평가되므로 이 값이 그대로 따라간다.
+ * px — the grid cell edge at the current window height. **It is a `let` and `syncGridCell()` changes it** (an ESM live
+ * binding, so importers see it too). A default argument (`cell = CELL`) is evaluated at the call, so it follows.
  */
 export let CELL = gridCellForHeight(viewportHeight());
 export const GAP = 2;     // px
-/** px — 칸 + 칸 사이. 드래그 · 하이라이트 수학이 쓰는 한 칸의 보폭. `CELL` 과 함께 움직인다. */
+/** px — cell + gap. The one-cell pitch the drag · highlight math uses. It moves together with `CELL`. */
 export let STEP = CELL + GAP;
 
 /**
- * 창 높이가 다른 칸을 요구하면 `CELL` · `STEP` 을 그 값으로 옮기고 true. 부르는 곳은 `InventoryUI`(mount · resize)
- * 하나이고, true 를 받으면 창의 `--inv-cell` 과 살아 있는 `GridView` 들에게 새 값을 나눠 준다.
+ * Moves `CELL` · `STEP` to the cell the window height now asks for and returns true. The one caller is `InventoryUI`
+ * (mount · resize), and on true it hands the new value to the window's `--inv-cell` and to every live `GridView`.
  */
 export function syncGridCell(): boolean {
   const next = gridCellForHeight(viewportHeight());
@@ -55,7 +55,7 @@ export function syncGridCell(): boolean {
   return true;
 }
 
-/** `--inv-cell` 을 이 요소에 적는다 — CSS 의 기본값을 덮어써 JS 와 CSS 가 같은 칸을 본다. */
+/** Writes `--inv-cell` on this element — it overrides the CSS default so JS and CSS see the same cell. */
 export const applyGridCellVar = (el: HTMLElement, cell: number = CELL): void => {
   el.style.setProperty('--inv-cell', `${cell}px`);
 };
@@ -70,10 +70,10 @@ export const tileSizeAt = (w: number, h: number, cell: number): { width: number;
 });
 
 /**
- * **격자 머리의 칸 readout** — `사용칸 / 전체칸` (2026-09-16, 사용자 결정). 정렬 버튼 **왼쪽**에 서고, 종류 수(`N점`)는
- * 세지 않는다: 격자에서 알고 싶은 것은 "몇 칸 남았나" 하나이고 종류 수는 타일을 보면 된다. Tab 창의 창고 머리
- * (`InventoryUI.stashCount`, `.inv-capacity`)와 끼워 넣는 격자(`ui/TradeGrids`)가 **같은 문자열**을 써야 두 화면이
- * 같은 것을 말한다 — 그래서 문구는 여기 한 곳에만 있다.
+ * **The cell readout in the grid header** — `사용칸 / 전체칸` (2026-09-16, user's decision). It stands **left** of the
+ * sort button and does not count defs (`N점`): the one thing a grid has to answer is "how many cells are left", and the
+ * number of defs is what the tiles show. The Tab window's stash header (`InventoryUI.stashCount`, `.inv-capacity`) and
+ * the embedded grids (`ui/TradeGrids`) must print the **same string** — so the wording lives here alone.
  */
 export const capacityLabel = (usedCells: number, totalCells: number): string => `${usedCells} / ${totalCells}`;
 
@@ -85,9 +85,9 @@ export const fmtValue = (n: number): string => formatCredits(n);
 /** 2026-09-16: the number part alone (`1,200`) — for a line that paints the unit in its own colour (가방 내 가치). */
 export const fmtCreditNumber = (n: number): string => formatCreditAmount(n);
 /**
- * 아이템의 **종류** 줄. 2026-09-16 (사용자 결정) 부터 대분류가 있는 카테고리는 두 단으로 읽는다 —
- * 「수집품 > 서적」. 두 툴팁(`inventory/ui/Tooltip` · `ui/hud/ItemTip`)과 제작 카드가 같은 문장을 말하도록
- * 여기도 `categoryPathKo` 를 지나간다 (구분자를 바꾸려면 `shared/labels.ts` 하나만 고친다).
+ * The item's **`종류`** row. Since 2026-09-16 (user's decision) a category that has a super category reads in two steps
+ * — 「수집품 > 서적」. It goes through `categoryPathKo` here too so the two tooltips (`inventory/ui/Tooltip` ·
+ * `ui/hud/ItemTip`) and the craft card say the same sentence (change the separator in `shared/labels.ts` alone).
  */
 export const categoryLabel = (def: ItemDef): string => categoryPathKo(def.category);
 export const rarityLabel = (def: ItemDef): string => RARITY_LABEL_KO[def.rarity];
@@ -95,7 +95,7 @@ export const rarityColor = (def: ItemDef): string => RARITY_COLORS[def.rarity];
 export const ammoLabel = (w: WeaponDef): string => AMMO_LABEL_KO[w.ammoType];
 export const ammoTypeLabel = (t: AmmoType): string => AMMO_LABEL_KO[t];
 /**
- * The weapon's **type** word (종류). 2026-09-15 (사용자 결정): a legendary unique names its own kind (`컴포짓 보우` …,
+ * The weapon's **type** word (종류). 2026-09-15 (user's decision): a legendary unique names its own kind (`컴포짓 보우` …,
  * `UNIQUE_WEAPON_LABEL_KO`) — its csv `class` (AR / DMR / SMG / SR) only picks the shooting skill and never reaches the
  * screen. Graded guns keep the class label. (Same rule as `ui/hud/WeaponPanel.weaponTypeLabel`.)
  */
@@ -118,15 +118,15 @@ export const socketAbbr = (s: SocketSlot): string => SOCKET_LABEL_KO[s].slice(0,
 export const socketTip = (s: SocketSlot, attachmentName?: string): string => `${SOCKET_LABEL_KO[s]}: ${attachmentName ?? TEXT.socketNone}`;
 
 /**
- * 2026-09-11 (A-15): `PouchDef.accepts` 를 한 줄로 — `약초 · 씨앗 · 토양 · 작물 · 표본`.
- * 카테고리 이름의 원본은 `CATEGORY_LABEL_KO`(`@/shared`) 하나다.
+ * 2026-09-11 (A-15): `PouchDef.accepts` as one line — `약초 · 씨앗 · 토양 · 작물 · 표본`.
+ * The source of the category names is `CATEGORY_LABEL_KO` (`@/shared`) alone.
  */
 export const pouchAcceptsLabel = (accepts: readonly ItemCategory[]): string =>
   accepts.map((c) => CATEGORY_LABEL_KO[c] ?? c).join(' · ');
 
 export const SLOT_LABEL: Readonly<Record<LoadoutSlot, string>> = {
   primary: '주무기 I', primary2: '주무기 II', secondary: '보조무기', bag: '가방', armor: '방탄복',
-  /** 2026-09-11 (A-15): 고정 1칸 — 채집 · 열쇠 · 구급 · 귀중품 넷 중 하나만 끼운다. */
+  /** 2026-09-11 (A-15): a fixed single slot — only one of 채집 · 열쇠 · 구급 · 귀중품 goes in. */
   pouch: '주머니',
 };
 /** @deprecated static defaults — use `slotKeyLabel(slot)` (follows the live bindings). */
@@ -152,7 +152,7 @@ export const TEXT = {
   emptySlot: '비어 있음',
   takeAll: '모두 가져가기',
   value: '가치',
-  /** 2026-09-16: 가방 바닥 줄 왼쪽 끝의 작은 글자 — `가방 내 가치 1,000 C` (숫자만 흰색). */
+  /** 2026-09-16: the small text at the left end of the bag's bottom row — `가방 내 가치 1,000 C` (only the number is white). */
   bagValue: '가방 내 가치',
   creditUnit: CREDIT_SUFFIX,
   quickSlots: '퀵슬롯',
@@ -167,7 +167,7 @@ export const TEXT = {
     shipHint: '함선 관리: 시설 업그레이드 · 방 용도',
     unavailable: (what: string): string => `${what} 정보를 사용할 수 없습니다`,
   },
-  /* Phase 7: container search (감정) */
+  /* Phase 7: container search */
   search: {
     hiddenIcon: '?',
     hiddenName: '???',
@@ -179,7 +179,7 @@ export const TEXT = {
     /** Host refused a take (someone else got it first). */
     denied: '다른 대원이 먼저 가져갔습니다',
   },
-  /* 2026-09-16 (사용자 결정): 보유 크레딧은 가방 바닥 줄 오른쪽 끝의 **글자** `12,345 C` — `CREDITS` 알약 · 눈썹은 없어졌다. */
+  /* 2026-09-16 (user's decision): held credits are **text** at the right end of the bag's bottom row, `12,345 C` — the `CREDITS` pill · eyebrow are gone. */
   credits: { value: (n: number): string => formatCredits(Math.max(0, n)), none: '—' },
   quick: {
     title: '퀵슬롯',
@@ -190,14 +190,14 @@ export const TEXT = {
     empty: '비어 있음',
   },
   /**
-   * **주머니** (2026-09-11, A-15) — 퀵슬롯 패널 바로 아래 격자의 제목 한 줄. 장착한 주머니가 없으면
-   * 그 자리를 통째로 그리지 않으므로 "비어 있음" 문구는 없다.
+   * **The pouch** (2026-09-11, A-15) — the one title line of the grid right under the quick-slot panel. With no pouch
+   * equipped the block is not drawn at all, so there is no "비어 있음" wording.
    */
   pouch: {
-    /** `채집 주머니 · 약초 · 씨앗 · 토양 · 작물 · 표본` — 받는 카테고리 이름은 `CATEGORY_LABEL_KO` 가 원본이다. */
+    /** `채집 주머니 · 약초 · 씨앗 · 토양 · 작물 · 표본` — the accepted category names come from `CATEGORY_LABEL_KO`. */
     line: (name: string, accepts: string): string => `${name} · ${accepts}`,
   },
-  /** 2026-09-16 (사용자 결정): 가방 머리의 `모두 창고로 이동` — 함선 전용, 가방 격자만 (`StashOps.moveBagToStash`). */
+  /** 2026-09-16 (user's decision): `모두 창고로 이동` in the bag header — ship only, the bag grid only (`StashOps.moveBagToStash`). */
   bagToStash: {
     label: '모두 창고로 이동',
     title: '가방 격자의 아이템을 모두 함선 창고로 옮깁니다 (퀵슬롯 · 주머니 · 장착 장비는 그대로)',
@@ -216,10 +216,10 @@ export const TEXT = {
     repairShort: '재료 부족',
     repairShortMsg: '수리 재료가 부족합니다',
     repairFail: '수리할 수 없습니다',
-    /* A-13 (2026-09-11): 준비물 — 함선에서 쓰면 다음 레이드 1회분으로 실린다 */
+    /* A-13 (2026-09-11): a preparation — used in the ship it is loaded as one use for the next raid */
     usePrep: '사용 (다음 레이드 1회분)',
     usePrepRaid: '레이드 중에는 쓸 수 없음',
-    /* 2026-09-16 (접시 모델): 요리 `먹기` 항목은 없어졌다 — 요리는 아이템이 아니라 식탁의 접시다. */
+    /* 2026-09-16 (the plate model): the meal's `먹기` entry is gone — a meal is not an item but the dining table's plate. */
     unload: '장전된 탄약 모두 탈착',
     detachAll: '무기 소켓 모두 탈착',
     splitHalf: '절반 나누기',
@@ -227,21 +227,21 @@ export const TEXT = {
     splitCustom: '수량 지정…',
     requestAmmo: '탄약 요청',
     request: '요청',
-    /* 2026-09-15 (사용자 결정): 장착한 방탄복 + 실드가 조금이라도 비었을 때의 요청 항목 */
+    /* 2026-09-15 (user's decision): the request entry for an equipped armor whose shield is even slightly down */
     requestShield: '실드 충전 요청',
     quickAssign: '빠른 슬롯에 등록',
     quickClear: '빠른 슬롯 해제',
     drop: '버리기',
     dropOne: '하나 버리기',
-    /* 2026-09-12 (E1, 사용자 결정): 우클릭은 **모든 아이템**에 메뉴를 연다 — 예전의 「바로 옮기기」는 이 항목이 됐다 */
+    /* 2026-09-12 (E1, user's decision): right-click opens the menu on **every item** — the old 「바로 옮기기」 became this entry */
     quickMove: { bag: '빠른 이동 (가방)', stash: '빠른 이동 (창고)', container: '빠른 이동 (상자)', pouch: '빠른 이동 (주머니)' } as Record<'bag' | 'stash' | 'container' | 'pouch', string>,
     favoriteOn: '즐겨찾기 켜기',
     favoriteOff: '즐겨찾기 끄기',
   },
   /**
-   * 2026-09-12 (E1): 즐겨찾기 — 분해 전에 한 번 더 묻는 확인 카드 (`ui/DisassemblePanel`).
-   * 2026-09-15 2차 (사용자 결정): `confirmHint`(「분해 버튼을 N초 동안 누르고 있어야 실행됩니다」)는 없앴다 —
-   * 「어떻게 누르는가」는 버튼 **안**의 좌클릭 홀드 키캡(`shared/keycap.createHoldButtonCap`)이 말한다.
+   * 2026-09-12 (E1): favourites — the confirm card that asks once more before a salvage (`ui/DisassemblePanel`).
+   * 2026-09-15 2nd pass (user's decision): `confirmHint` (「분해 버튼을 N초 동안 누르고 있어야 실행됩니다」) is gone —
+   * 「how it is pressed」 is said by the left-click hold keycap **inside** the button (`shared/keycap.createHoldButtonCap`).
    */
   favorite: {
     confirmTitle: '즐겨찾기한 아이템입니다',
@@ -269,29 +269,29 @@ export const TEXT = {
     hipSpread: '지향 사격 퍼짐', adsTime: '정조준 시간', magSize: '장탄수', zoom: '배율', scope: '스코프', laser: '레이저',
   },
   /**
-   * 2026-09-11 (C-36): `durability` — 가방도 레이드마다 닳는다 (0 이어도 격자는 그대로).
-   * 2026-09-12: `capacity` — 가방이 늘려 주는 소지 한계 (`Gear.bagCapacityBonus`, 0 이면 줄이 없다).
+   * 2026-09-11 (C-36): `durability` — a bag wears down every raid too (its grid is unchanged even at 0).
+   * 2026-09-12: `capacity` — the carry limit the bag adds (`Gear.bagCapacityBonus`; at 0 there is no row).
    */
   bagStats: { grid: '칸', quickSlots: '퀵슬롯', tactical: '전술형', durability: '내구도', capacity: '소지 한계' },
   /* Phase 9: 서적 (`ItemDef.book`) */
-  /* 2026-09-12 (A-3e): 디스크 · 레코드도 같은 두 줄 — 꽂는 보관함만 다르다 */
+  /* 2026-09-12 (A-3e): discs · records get the same two rows — only the holder they go into differs */
   bookStats: {
     skill: '스킬', use: '용도', shelf: '서재 책장에 꽂으면 해당 스킬 XP 증가',
     discShelf: '서재 디스크 전시대에 꽂으면 해당 스킬 XP 증가', recordShelf: '서재 레코드랙에 꽂으면 해당 스킬 XP 증가',
   },
   /* appended: tactical kit */
   weight: '무게',
-  /* 2026-09-10: 방탄복은 피해 감소가 아니라 실드(추가 체력)를 준다 — `dr` 은 안 쓰지만 남겨 둔다 */
+  /* 2026-09-10: armor gives a shield (extra hp), not damage reduction — `dr` is unused but left alone */
   armorStats: { dr: '피해 감소', shield: '실드', durability: '내구도', perk: '특성' },
   /**
    * 2026-09-10: 실드 충전기 (`shieldChargeOf`).
-   * @deprecated 2026-09-15 — 이 줄들은 `items/ItemSpec.itemSpecRows` 가 만든다 (칩 카드와 같은 함수).
-   *   읽는 곳이 없지만 문구의 옛 원본으로 남긴다.
+   * @deprecated 2026-09-15 — these rows are built by `items/ItemSpec.itemSpecRows` (the same function as the chip card).
+   *   Nothing reads them; they stay as the old source of the wording.
    */
   shieldChargeStats: { amount: '실드 회복', useTime: '사용 시간', full: '최대치까지' },
   /**
-   * 2026-09-12: 전투 소모품 3종 (`boostItemOf`) — 아드레날린 주사 · 각성제 · 안정제.
-   * @deprecated 2026-09-15 — 위와 같은 이유로 `itemSpecRows` 가 대신한다.
+   * 2026-09-12: the three combat consumables (`boostItemOf`) — 아드레날린 주사 · 각성제 · 안정제.
+   * @deprecated 2026-09-15 — for the same reason as above, `itemSpecRows` takes over.
    */
   boostStats: {
     stamina: '스태미나', staminaFull: '전부 회복', drain: '지속 소모', drainNone: '없음 (질주 · 사다리 · 부양)',
@@ -300,34 +300,34 @@ export const TEXT = {
   },
   craft: '제작',
   craftPanel: '필드 제작',
-  /** 2026-09-15 2차 (사용자 결정): 고를 것이 하나도 없는 작업대의 **가운데 한 줄**. */
+  /** 2026-09-15 2nd pass (user's decision): the **one centred line** of a workbench with nothing to pick. */
   craftNone: '제작할 수 있는 레시피가 없습니다.',
   /**
-   * 2026-09-15 2차 (사용자 결정): 상세 패널의 **현재 보유 수** 한 줄. 세는 범위는 재료를 세는 범위와 같다 —
-   * 함선이면 가방 + 함선 창고, 레이드 현장의 빠른제작은 가방만 (`InventoryRef.craftCountDef`).
+   * 2026-09-15 2nd pass (user's decision): the detail panel's **held count** row. Its scope is the scope the materials
+   * are counted over — bag + ship stash in the ship, the bag alone for quick craft in a raid (`InventoryRef.craftCountDef`).
    */
   craftOwned: (n: number): string => `보유 ${n}`,
   /**
-   * 홀드 버튼의 라벨 (2026-09-15 2차, 사용자 결정 — 옛 `길게 눌러 제작`). 「길게 눌러」는 버튼 **안**의
-   * 좌클릭 홀드 키캡(`shared/keycap.createHoldButtonCap`)이 대신하므로 라벨은 할 일만 말한다.
+   * The hold button's label (2026-09-15 2nd pass, user's decision — the old `길게 눌러 제작`). 「how long to press」 is
+   * said by the left-click hold keycap **inside** the button (`shared/keycap.createHoldButtonCap`), so the label only names the act.
    */
   craftHold: '제작',
   craftMaking: '제작 중…',
   /**
-   * 2026-09-09: 산출물이 갈 데가 없으면 홀드 버튼이 이 문구로 바뀌며 비활성화된다 (`CraftPanel.paint`).
-   * 함선 작업대는 가방 → 창고 순으로 보므로 (`Crafting.roomForOutputs`) 두 곳을 다 말한다.
+   * 2026-09-09: with nowhere for the product to go the hold button turns into this wording and is disabled (`CraftPanel.paint`).
+   * A ship workbench looks bag → stash (`Crafting.roomForOutputs`), so there it names both places.
    */
   craftNoRoomShip: '가방·창고 공간 부족',
   craftNoRoomField: '가방 공간 부족',
-  /** 비활성 버튼의 `title` — 왜 못 누르는지 한 문장으로. */
+  /** The disabled button's `title` — one sentence on why it cannot be pressed. */
   craftNoRoomTipShip: '만든 것을 넣을 자리가 없습니다 — 가방과 함선 창고를 비우세요',
   craftNoRoomTipField: '만든 것을 넣을 자리가 없습니다 — 가방을 비우세요',
-  /* 제작 수량 (2026-09-09) — `◀ 90 ▶` 위의 라벨과 화살표 버튼의 접근성 이름. */
+  /* The craft count (2026-09-09) — the label above `◀ 90 ▶` and the accessible names of the arrow buttons. */
   craftCount: {
     label: '제작 수량',
     less: '수량 줄이기',
     more: '수량 늘리기',
-    /** 버튼 · 컨트롤의 `title` — 휠로도 조절된다는 것을 알려 준다. */
+    /** The `title` of the buttons · the control — it says the wheel adjusts it too. */
     hint: '휠 또는 좌우 버튼으로 조절',
   },
   craftStationShip: '함선 작업대',
@@ -343,18 +343,18 @@ export const TEXT = {
     title: '무한 상자',
     search: '이름으로 검색…',
     count: (n: number): string => `${n}종`,
-    /* 2026-09-13 (사용자 결정): 하단 안내 줄(`hint`)은 없앴다 — 드래그 · 더블클릭은 다른 격자와 같은 동작이다. */
+    /* 2026-09-13 (user's decision): the bottom hint line (`hint`) is gone — drag · double-click behave as in any other grid. */
     empty: '일치하는 아이템이 없습니다',
     close: '닫기',
     bagFull: '가방에 공간이 없습니다',
-    /** 2026-09-17: 함선에서는 더블클릭이 창고 → 가방 순서라 둘 다 찼다고 말한다. */
+    /** 2026-09-17: in the ship a double-click goes stash → bag, so this says both are full. */
     stashBagFull: '창고와 가방에 공간이 없습니다',
     tabs: {
       all: '전체', weapon: '무기', ammo: '탄약', attachment: '부착물', bag: '가방', armor: '방탄복',
       gadget: '가젯', consumable: '소모품', material: '재료', herb: '약초', seed: '씨앗', book: '서재', furniture: '가구',
       /** Phase 12: 임플란트 items (label from the shared category table, the one source of the word). */
       implant: CATEGORY_LABEL_KO.implant,
-      /** 2026-09-16 (사용자 보고): 표본 탭 — 가방 필터의 `표본` 칩과 같은 말을 쓴다 (원본은 공유 카테고리 표). */
+      /** 2026-09-16 (user's report): the sample tab — the same word as the bag filter's `표본` chip (source: the shared category table). */
       sample: CATEGORY_LABEL_KO.sample,
     },
   },
@@ -383,64 +383,64 @@ export const TEXT = {
     close: '닫기',
     /**
      * 2026-09-08: the bag is checked **before** the hold now, so this is a refusal, not a post-mortem.
-     * 2026-09-09: 함선에서는 결과물이 가방 → 창고 순으로 들어가므로 (`Crafting.roomForOutputs`) 거기서는
-     * 두 곳을 다 말한다. `noRoom` 은 레이드(창고 없음) 쪽 문구로 남는다.
+     * 2026-09-09: in the ship the outputs go bag → stash (`Crafting.roomForOutputs`), so there the wording names both
+     * places. `noRoom` stays the raid wording (no stash there).
      */
     noRoom: '가방에 공간이 없습니다',
     noRoomShip: '가방과 함선 창고에 공간이 없습니다',
   },
   /**
-   * **내구도 구간** (2026-09-10, 제작 대개편). 수리 재료와 분해 산출은 `제작 재료 × 남은 내구도 구간의 배수`
-   * 라서, 화면이 말해 줘야 하는 것은 두 가지다 — ① 지금 **어느 구간**인가, ② 그 구간의 **배수가 얼마**인가.
-   * 배수는 `ctx.loot.durabilityBucketInfo` 가 주는 값이고 여기 상수로 적지 않는다 (수치는 `data/tables.csv`).
-   * 내구도가 없는 아이템은 언제나 구간 4 이므로 이 줄을 그리지 않는다.
+   * **Durability buckets** (2026-09-10, the craft rework). Repair materials and salvage output are `craft materials ×
+   * the multiplier of the remaining bucket`, so the screen has to say two things — ① **which bucket** it is in now, and
+   * ② **what that bucket's multiplier** is. The multiplier comes from `ctx.loot.durabilityBucketInfo`, never a constant
+   * here (the numbers live in `data/tables.csv`). An item with no durability is always bucket 4, so it draws no row.
    */
   durability: {
     eyebrow: '남은 내구도',
-    /** `81~100 % · 제작 재료의 10 %` — 수리 팝업. */
+    /** `81~100 % · 제작 재료의 10 %` — the repair popup. */
     repair: (label: string, mul: number): string => `${label} · 제작 재료의 ${Math.round(mul * 100)} %`,
-    /** `81~100 % · 제작 재료의 40 %` — 분해 팝업. */
+    /** `81~100 % · 제작 재료의 40 %` — the salvage popup. */
     salvage: (label: string, mul: number): string => `${label} · 제작 재료의 ${Math.round(mul * 100)} %`,
-    /** 구간이 바뀌면 숫자가 바뀐다는 것을 말해 주는 한 줄. */
+    /** The one line that says the numbers change when the bucket does. */
     repairNote: '내구도가 낮을수록 수리 재료가 많이 듭니다',
     salvageNote: '내구도가 낮을수록 나오는 재료가 적습니다',
     /*
-     * 2026-09-12: 호버 카드의 `구간` 줄(2026-09-11 C-37 의 `tooltip` · `tooltipKey`)은 **없앴다** — 아이템 카드는
-     * 내구도 게이지 하나로 말하고, 구간과 배수는 그것으로 값이 정해지는 두 화면(수리 팝업 `ui/RepairPanel` ·
-     * 분해 팝업 `ui/DisassemblePanel`)이 `repair` · `salvage` 로 계속 적는다.
+     * 2026-09-12: the hover card's `구간` row (`tooltip` · `tooltipKey` of 2026-09-11 C-37) is **gone** — an item card
+     * says it with the durability gauge alone, and the bucket and its multiplier keep being written by `repair` ·
+     * `salvage` in the two screens they decide (the repair popup `ui/RepairPanel` · the salvage popup `ui/DisassemblePanel`).
      */
   },
   /** Shared close affordance of the modeless popups (임플란트 / 제작 / 분해). */
   modelessClose: '닫기',
   /**
-   * **작업대 고르기** (2026-09-10 가로 탭 → 2026-09-12 왼쪽 세로 리스트, 사용자 결정). 작업대 **이름**의 원본은
-   * `WORKBENCH_LABEL_KO`(`@/shared`) 하나이고 여기 있는 것은 `빠른제작` 라벨과 **글리프뿐**이다.
-   * (같은 글리프를 `ui/hud/ShipManage` 의 시설 관리 화면도 쓴다 — 작업대를 알아보는 눈이 같아야 한다.)
-   * `all` (`전체`) 은 리스트에서 빠졌고 2026-09-13 에 라벨 · 글리프도 지웠다 — 94 줄을 한 목록에 쏟는 것이 애초에
-   * 읽히지 않아 가르기 시작한 이유다.
+   * **Picking a workbench** (2026-09-10 a row of tabs → 2026-09-12 a vertical list on the left, user's decision). The
+   * source of a workbench **name** is `WORKBENCH_LABEL_KO` (`@/shared`) alone; what lives here is the `빠른제작` label
+   * and **the glyphs only**. (The ship management screen `ui/hud/ShipManage` uses the same glyphs — a workbench has to
+   * be recognised by the same eye.) `all` (`전체`) left the list and on 2026-09-13 its label · glyph went too — pouring
+   * 94 rows into one list was unreadable, which is why they were split up in the first place.
    */
   craftTabs: {
-    /** `bench` 가 없는 레시피 = 현장 빠른제작 (함선에서도 만들 수 있다). 작업실 묶음의 맨 위다 (2026-09-13). */
+    /** A recipe with no `bench` = field quick craft (it can be made in the ship too). It heads the workshop group (2026-09-13). */
     field: '빠른제작',
-    /** 작업대 글리프의 원본은 `shared` 의 `WORKBENCH_ICON` 이다 — 가구 카드(`ui/hud/ShipManage`)와 같은 글자여야 한다. */
+    /** The workbench glyphs come from `WORKBENCH_ICON` in `shared` — the same character the furniture card (`ui/hud/ShipManage`) uses. */
     icon: { field: '✥', ...WORKBENCH_ICON } as Readonly<Record<string, string>>,
   },
   /* Phase 6: 작업실 bench crafting */
   bench: {
     /**
-     * 2026-09-13: 머리의 영문 줄은 작업대가 속한 **시설**이다 (`ui/CraftPanel.benchFacility` — `data/furniture.csv` 의
-     * `room`). 예전에는 어느 작업대든 `WORKSHOP BENCH` 였다. 모르는 시설은 방 용도 id 를 그대로 대문자로 쓴다.
+     * 2026-09-13: the header's English line is the **facility** the workbench belongs to (`ui/CraftPanel.benchFacility` —
+     * `room` in `data/furniture.csv`). It used to be `WORKSHOP BENCH` always; an unknown facility = its room id upper-cased.
      */
     eyebrow: (facility: RoomPurpose): string => `${FACILITY_EYEBROW[facility] ?? facility.toUpperCase()} BENCH`,
     level: (n: number): string => `Lv.${n}`,
     lockedLevel: (n: number): string => `작업대 Lv.${n} 필요`,
-    /* 2026-09-16 (사용자 결정 2차): 숙련이 모자라 잠긴 줄 — `제작 20 필요`. 지금은 `recipes.csv` 의
-       `skillRequired` 가 전부 0 이라 나오지 않지만, 숫자만 올리면 그대로 뜬다. */
+    /* 2026-09-16 (user's decision, 2nd pass): the row locked for want of skill — `제작 20 필요`. Every
+       `skillRequired` in `recipes.csv` is 0 today so it never shows, but raising the number brings it straight back. */
     lockedSkill: (label: string, n: number): string => `${label} ${n} 필요`,
     discount: (pct: number): string => `작업실 할인 −${pct} %`,
     repairTitle: '수리',
     repairNone: '수리할 장비가 없습니다',
-    /* 2026-09-08 — 수리는 작업대 패널 아래가 아니라 헤더의 `모두 수리` → 모달 팝업이다 */
+    /* 2026-09-08 — repair is not under the workbench panel but the header's `모두 수리` → a modal popup */
     repairEyebrow: 'MAINTENANCE',
     repairModal: '장비 수리',
     repairTotal: '소모 재료',

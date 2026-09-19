@@ -6,8 +6,8 @@ import { GridView, buildTileContent, setNeededAmmoFrom, type HighlightState } fr
 import { buildFilterSelect, buildSortButton, type FilterControl } from './GridTools';
 import { CELL, GAP, TEXT, capacityLabel, tileSizeAt } from './labels';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
-/* 2026-09-14: 툴팁 고정 · 고정 카드에서 소켓 끌어내기 */
-/* 2026-09-16: 격자 안 / 격자 사이 옮기기 — 판정은 `parts/DropResolver` 가 하고 여기는 물어보기만 한다 */
+/* 2026-09-14: the pinned tooltip · dragging a socket out of the pinned card */
+/* 2026-09-16: moves inside a grid / between grids — `parts/DropResolver` judges and this file only asks */
 import type { DetachTarget, DropTarget, ItemLocation } from '../model';
 import { Tooltip } from './Tooltip';
 import { TipPin, inventoryTooltipLookups, type DetachAim, type SocketDrag } from './TipPin';
@@ -17,26 +17,26 @@ import { CLICK_SUPPRESS_MS, DRAG_THRESHOLD } from './model';
 export type TradeGridId = Extract<GridId, 'bag' | 'stash'>;
 
 /**
- * 2026-09-13 → **2026-09-15 2차 (사용자 결정): 두 값의 차이가 없어졌다.**
+ * 2026-09-13 → **2026-09-15 2nd pass (user's decision): the two values no longer differ.**
  *
- * 창고 + 가방은 이제 어느 화면에서든 **한 패널 안의 두 칸**이고 (창고 왼쪽 · 가방 오른쪽, 2026-09-12 결정 그대로),
- * **칸마다 자기 스크롤 · 자기 정렬 버튼 · 자기 필터**를 갖는다 — 즉 옛 `'split'` 이 유일한 배치다.
- * `'wrap'` 은 계약을 흔들지 않으려고 남겨 둔 이름이고 (`TradeGridsViewOptions.layout` 은 `src/shared` 계약이다)
- * 지금은 둘 다 같은 것을 그린다.
+ * On every screen the stash + bag are now **two panes in one panel** (stash left · bag right, exactly the 2026-09-12
+ * decision) and **each pane has its own scroll · its own sort button · its own filter** — that is, the old `'split'` is
+ * the only layout. `'wrap'` is a name kept so the contract is not shaken (`TradeGridsViewOptions.layout` is a
+ * `src/shared` contract), and today both draw the same thing.
  *
- * ⚠ 옛 `'wrap'` 의 「한 스크롤 안에 블록이 나란히, 좁으면 줄바꿈」 은 되살리지 않는다 — 창고 24행 · 가방 틀 12행이
- * 한 스크롤을 나눠 쓰면 어느 쪽을 위에 올려도 다른 쪽이 화면 밖이고, 끄는 중에는 스크롤할 수 없다 (2026-09-12 경고).
+ * ⚠ The old `'wrap'`'s 「blocks side by side in one scroll, wrapping when narrow」 is not brought back — a 24-row stash and
+ * a 12-row bag frame sharing one scroll leave whichever is below off-screen, and it cannot be scrolled mid-drag (2026-09-12 warning).
  */
 export type TradeGridsLayout = 'wrap' | 'split';
 /**
- * 2026-09-13 → 2026-09-15 2차: 필터는 칩 줄이 아니라 **정렬 버튼 오른쪽의 드롭다운**이다 (`ui/GridTools`).
- * `'block'`(기본) = 칸마다 자기 머리에 자기 드롭다운, `'shared'` = 패널 위 한 줄이 모든 칸을 함께 거른다,
- * `'none'` = 뷰 안에는 없다 (부른 쪽이 `mountFilterChips(host)` 로 아무 데나 한 줄 올릴 수 있다).
+ * 2026-09-13 → 2026-09-15 2nd pass: the filter is not a chip row but **a dropdown right of the sort button** (`ui/GridTools`).
+ * `'block'` (default) = its own dropdown in each pane's header, `'shared'` = one row above the panel filters every pane,
+ * `'none'` = none inside the view (the caller can mount a row anywhere with `mountFilterChips(host)`).
  */
 export type TradeGridsChips = 'shared' | 'block' | 'none';
 
 export interface TradeGridsOptions {
-  /** Grids to render, in order. Default (2026-09-12, 사용자 결정): **함선 창고가 왼쪽, 내 가방이 오른쪽**. */
+  /** Grids to render, in order. Default (2026-09-12, user's decision): **`함선 창고` left, `내 가방` right**. */
   grids?: readonly TradeGridId[];
   /**
    * A tile was handed **out** of the grids: dropped on an element matching `dropSelector` (`target`), or
@@ -56,8 +56,8 @@ export interface TradeGridsOptions {
    */
   cell?: number;
   /**
-   * 2026-09-12: 우클릭 메뉴의 첫 항목 이름 — 이 화면의 더블클릭(`onTake`)이 하는 일. 기본 `빠른 이동`.
-   * `onTake` 가 없으면 그 항목 자체가 없다 (메뉴에는 즐겨찾기만).
+   * 2026-09-12: the name of the right-click menu's first entry — what this screen's double-click (`onTake`) does.
+   * Default `빠른 이동`. With no `onTake` the entry itself is absent (the menu holds only the favourite toggle).
    */
   takeLabel?: string;
   /** 2026-09-13: see `TradeGridsLayout`. Default `'wrap'`. */
@@ -71,7 +71,7 @@ interface Block {
   el: HTMLElement;
   view: GridView;
   countEl: HTMLElement;
-  /** The box around the grid — **always the scroller** (2026-09-15 2차; `housing.css`'s `.hs-inv` agrees). */
+  /** The box around the grid — **always the scroller** (2026-09-15 2nd pass; `housing.css`'s `.hs-inv` agrees). */
   wrap: HTMLElement;
   /** This block's own filter dropdown (`chips: 'block'`), else null. */
   chips: FilterControl | null;
@@ -79,33 +79,33 @@ interface Block {
 }
 
 /**
- * 2026-09-16 (사용자 결정 「창고 · 가방 아이템을 여기서도 옮길 수 있어야 한다 — 회전 · 머지 · 칸 옮기기 전부」):
- * 끌고 있는 것 한 벌. 예전에는 「호출자의 트레이로 끌어내기」밖에 없어서 `uid` · 고스트 · 반쪽 크기뿐이었다.
+ * 2026-09-16 (user's decision 「창고 · 가방 아이템을 여기서도 옮길 수 있어야 한다 — 회전 · 머지 · 칸 옮기기 전부」):
+ * one drag in flight. It used to be 「drag out to the caller's tray」 only, so it held just `uid` · the ghost · the half size.
  */
 interface DragInfo {
   uid: string;
   gridId: TradeGridId;
-  /** `DropResolver` 가 묻는 출발지 (`{kind:'grid', grid: gridId}`) — 매번 새로 만들지 않고 들고 다닌다. */
+  /** The source `DropResolver` asks for (`{kind:'grid', grid: gridId}`) — carried along instead of rebuilt every time. */
   from: ItemLocation;
   def: ItemDef;
-  /** R 로 뒤집힌 방향 (아이템 자체는 놓일 때까지 그대로다 — `DropTarget.rotated` 로만 전해진다). */
+  /** The orientation flipped by R (the item itself is untouched until it lands — it travels only in `DropTarget.rotated`). */
   rotated: boolean;
   ghost: HTMLElement;
   /** Half the ghost's size, known at pick-up (never measured while moving — that forced a layout per event). */
   halfW: number;
   halfH: number;
   /**
-   * 2026-09-16: 합치고 **남은 수량이 커서에 남은** 상태 (Tab 창의 `DragState.held` 와 같은 규칙). 남은 몫은
-   * 출발 스택을 떠나지 않았고 — 그 스택의 수량이 줄었을 뿐이다 — 다음 좌클릭이 그것을 놓는다.
+   * 2026-09-16: the state where the **remainder of a merge stays on the cursor** (the same rule as the Tab window's `DragState.held`).
+   * The remainder never left the source stack — that stack's quantity merely dropped — and the next left-click places it.
    */
   held: boolean;
-  /** `held` 드래그: 다음 누름이 도착했으니 그 **놓음**이 드롭이다. */
+  /** A `held` drag: the next press has arrived, so its **release** is the drop. */
   armed: boolean;
 }
 
 /** Smallest cell edge a caller can ask for (tiles stop being legible well before this). */
 const MIN_CELL = 16;
-/** A block narrower than this stacks its header tools (정렬 · 필터) instead of putting them on one line. */
+/** A block narrower than this stacks its header tools (`정렬` · the filter) instead of putting them on one line. */
 const NARROW_BLOCK_PX = 260;
 
 const clampCell = (px: number | undefined): number => Math.max(MIN_CELL, Math.round(px ?? CELL));
@@ -114,41 +114,41 @@ const clampCell = (px: number | undefined): number => Math.max(MIN_CELL, Math.ro
  * **Embedded 가방 / 함선 창고 grids** (Phase 9 UI pass) — real inventory grids, rendered by the same `GridView` the
  * Tab window uses, for another folder's screen (기업 거래 · 재배 스테이션 · 분석기 · 배양조 · 식탁).
  *
- * **2026-09-16 (사용자 결정) — 여기서도 아이템을 옮길 수 있다.** 예전 이 뷰는 「읽기 + 끌어내기」 전용이라 드롭을
- * 아예 판정하지 않았다 (`pointerup` 이 호출자의 `dropSelector` 만 보고, 격자 위에서 놓으면 아무 일도 일어나지 않았다).
- * 이제 **같은 격자 안의 다른 칸 · 창고 ↔ 가방 · 드래그 중 `R` 회전 · 같은 스택 위에 합치기**가 Tab 인벤토리와
- * 똑같이 된다 — 판정과 실행은 전부 `parts/DropResolver`(`InventorySystem.previewDrop` / `drop`)이고, 이 파일은
- * 커서 밑의 칸을 찾아 물어보고 하이라이트를 칠할 뿐이다. 그래서 Tab 창의 규칙이 그대로 따라온다:
- * 합치고 남은 수량은 커서에 남고(`DragInfo.held`), 장착 장비를 조용히 밀어내는 길은 없으며, 주머니 · 퀵슬롯처럼
- * **아이템을 떨어뜨릴 이동은 거절**된다. 여기 없는 것은 여전히 없다 — 장비칸 · 퀵슬롯 · 상자 격자가 이 뷰에 없으므로
- * 그것들은 드롭 대상이 아니고, 바닥에 버리기(`X`)도 없다 (격자 밖에서 놓으면 제자리로 돌아간다).
+ * **2026-09-16 (user's decision) — items can be moved here too.** This view used to be 「read + drag out」 only and judged no
+ * drop at all (`pointerup` looked only at the caller's `dropSelector`; releasing over a grid did nothing). Now **another cell
+ * of the same grid · stash ↔ bag · `R` rotation mid-drag · merging onto a matching stack** work exactly as in the Tab
+ * inventory — judging and executing are all `parts/DropResolver` (`InventorySystem.previewDrop` / `drop`), and this file only
+ * finds the cell under the cursor, asks, and paints the highlight. So the Tab window's rules follow: a merge remainder stays
+ * on the cursor (`DragInfo.held`), no path silently displaces equipped gear, and **a move that would drop items is refused**,
+ * as for pouches · quick slots. What is not here is still not here — no equipment slots · quick slots · container grid in this
+ * view, so they are no drop targets, and there is no world drop (`X`) (releasing outside a grid returns the item to its place).
  *
- * 호출자의 트레이는 그대로다: `dropSelector` 에 맞는 요소 위에서 놓으면 (또는 더블클릭하면) `onTake` 가 불린다 —
- * **트레이가 격자보다 먼저**라 기업 거래의 판매 트레이는 예전과 똑같이 동작한다.
+ * The caller's tray is unchanged: releasing over an element matching `dropSelector` (or double-clicking) calls `onTake` —
+ * **the tray comes before the grids**, so the corp trade's 판매 tray behaves exactly as before.
  *
- * **2026-09-12 (사용자 결정)** —
- *   - **창고가 왼쪽, 가방이 오른쪽**으로 나란히 선다 (`.tg-scroll` 이 가로 2열). 한 스크롤 안에 위아래로 쌓던 앞
- *     배치는 긴 가방 틀 때문에 창고를 아래로 밀어냈다. 폭이 모자라면 `flex-wrap` 이 가방을 스스로 아랫줄로
- *     내린다. 가방은 가로 5칸, 창고는 가로 10칸 — Tab 인벤토리와 똑같다. 틀 높이(`BAG_FRAME_ROWS`)는 여기만 남았다:
- *     2026-09-18 부터 Tab 은 장착한 가방 크기 그대로 그리지만, 24행 창고와 나란히 서는 이 화면에서는 틀이 없으면 토막처럼 보인다.
- *     ⚠ 세로가 되면 두 격자가 **한 스크롤에 이어 붙는다**: 창고 24행 = 1381 px · 가방 틀 12행 = 709 px 인데
- *     스크롤 창은 600 px 남짓이라 **어느 쪽을 위에 올려도 다른 쪽이 화면 밖**이고, 끄는 중에는 스크롤할 수 없어
- *     그 방향의 드래그가 통째로 막힌다. 그래서 두 열이 못 들어가는 화면은 블록마다 자기 스크롤을 준다 —
- *     2026-09-13 부터는 `layout: 'split'` 이 그것을 이 뷰 안에서 한다.
- *   - 머리에 **정렬** 버튼(`InventorySystem.sortGrid` — 이 뷰가 인벤토리를 바꾸는 유일한 동작이다. 호출자가 트레이에 올린
- *     uid 는 `isStaged` 로 넘겨 합치기에서 뺀다)과 **필터 칩**(걸러진 타일은 어두워질 뿐 자리를 지킨다).
- *   - 드래그는 pointermove 를 **rAF 한 번으로 합치고** 고스트를 `transform` 으로 옮긴다. 버스 이벤트 여러 개가 한 프레임에
- *     오면 갱신도 한 번이고, `GridView` 가 바뀐 타일만 다시 그린다.
+ * **2026-09-12 (user's decision)** —
+ *   - **The stash stands left and the bag right**, side by side (`.tg-scroll` is two columns). The earlier layout stacked them
+ *     in one scroll, where the long bag frame pushed the stash below it; when the width is short, `flex-wrap` drops the bag to
+ *     the next row by itself. The bag is 5 cells wide, the stash 10 — exactly the Tab inventory. The frame height
+ *     (`BAG_FRAME_ROWS`) is left only here: from 2026-09-18 the Tab draws the equipped bag's own size, but beside a 24-row
+ *     stash a frameless bag reads as a stump. ⚠ Stacked vertically the two grids **join into one scroll**: 24-row stash =
+ *     1381 px · 12-row bag frame = 709 px against a scroll window of barely 600 px, so **whichever goes on top leaves the
+ *     other off-screen**, and it cannot be scrolled mid-drag, which blocks that direction of dragging entirely. So a screen
+ *     without room for two columns gives each block its own scroll — since 2026-09-13 `layout: 'split'` does that in this view.
+ *   - In the header, a **`정렬`** button (`InventorySystem.sortGrid` — the one action of this view that changes the inventory;
+ *     uids the caller staged are passed as `isStaged` and left out of merging) and **filter chips** (a filtered tile only dims).
+ *   - A drag **coalesces pointermove into one rAF** and moves the ghost by `transform`. Several bus events in one frame
+ *     repaint once, and `GridView` rebuilds only the tiles that changed.
  *
- * **2026-09-15 2차 (사용자 결정) — 창고 + 가방은 한 패널이다.** 어느 화면에서든 `.trade-grids` 하나가 카드이고 그 안에
- * **왼쪽 칸 = 함선 창고 · 오른쪽 칸 = 내 가방**이 나란히 선다. 칸마다 **자기 세로 스크롤 · 자기 정렬 버튼 · 자기 필터
- * 드롭다운**이고(따로 작동한다), 창고 쪽 라벨은 없앴다. `layout` 은 더 이상 갈래를 만들지 않는다 (`TradeGridsLayout` 주석).
- * ⚠ 옛 경고는 그대로 유효하다 — 두 격자를 **한 스크롤에 세로로 이어 붙이지 않는다**; `.tg-gridwrap` 이 각자의 스크롤러이고
- * `scrollbar-gutter: stable` 로 마지막 열을 지킨다.
+ * **2026-09-15 2nd pass (user's decision) — stash + bag are one panel.** On every screen one `.trade-grids` is the card, and
+ * inside it **left pane = `함선 창고` · right pane = `내 가방`** stand side by side. Each pane has **its own vertical scroll ·
+ * its own sort button · its own filter dropdown** (they work independently), and the stash-side label was dropped. `layout`
+ * no longer forks anything (see the `TradeGridsLayout` comment). ⚠ The old warning still holds — the two grids are **never
+ * joined vertically in one scroll**; `.tg-gridwrap` is each one's scroller and `scrollbar-gutter: stable` keeps the last column.
  *
- * **2026-09-13 (기업 화면 카드 분리)** — `layout: 'split'` · `chips: 'block' | 'none'` · `mountFilterChips(host)` ·
- * `setCell(px)` (살아 있는 뷰의 칸 크기를 바꾼다: 블록의 `GridView` 를 새 칸으로 다시 짓고 필터 · 스크롤 줄 위치는 지킨다).
- * 칸이 기본(54)보다 작으면 루트에 `.tg-compact` 가 붙어 타일 글리프 · 수량 배지 · 소켓 핍이 칸 크기를 따라 줄어든다.
+ * **2026-09-13 (the 기업 screen's card split)** — `layout: 'split'` · `chips: 'block' | 'none'` · `mountFilterChips(host)` ·
+ * `setCell(px)` (changes a live view's cell edge: each block's `GridView` is rebuilt at the new cell, keeping the filter and the
+ * scrolled-to row). Below the default cell (54) the root takes `.tg-compact` and tile glyph · qty badge · socket pips shrink with it.
  *
  * Tiles are stamped `data-item-tip` + `data-def-id`, the hook `ui/hud/ItemTip` delegates on. Each grid block carries
  * `data-tg-grid="bag" | "stash"` so a caller can tell which grid a drop of its own landed on.
@@ -178,19 +178,19 @@ export class TradeGrids implements TradeGridsView {
   private refreshRaf = 0;
   private disposed = false;
   /**
-   * 2026-09-16: 커서에 남은 몫을 내려놓거나(좌클릭) 놓아 준(우클릭) **그 클릭**이 밑에 있는 타일의
-   * `dblclick` / `contextmenu` 로 이어지면 안 된다 — Tab 창의 `suppressClicksUntil` 과 같은 창(`CLICK_SUPPRESS_MS`).
+   * 2026-09-16: **the very click** that puts down a held remainder (left-click) or lets it go (right-click) must not carry on
+   * into the `dblclick` / `contextmenu` of the tile beneath — the same window as the Tab window's `suppressClicksUntil` (`CLICK_SUPPRESS_MS`).
    */
   private suppressUntil = 0;
   /**
-   * 2026-09-12 (사용자 결정 「모든 아이템 우클릭 = 메뉴」): 빠른 이동(= 더블클릭) · 즐겨찾기. `ctx.uiRoot` 에 붙인다 —
-   * `.inv-menu` 는 `position: fixed` 라 transform 이 걸린 화면 안에 두면 자리가 어긋난다.
+   * 2026-09-12 (user's decision 「모든 아이템 우클릭 = 메뉴」): `빠른 이동` (= double-click) · favourite. Mounted on `ctx.uiRoot` —
+   * `.inv-menu` is `position: fixed`, so inside a screen carrying a transform it would sit in the wrong place.
    */
   private readonly menu: ContextMenu;
   /**
-   * 2026-09-14 (사용자 결정): 툴팁 고정 — 타일을 움직이지 않고 1초 누르면 **인벤토리 툴팁**(무기 게이지 · 소켓 줄이 있는 인스턴스 카드)이
-   * 누른 자리에 선다 (`ui/TipPin`). 떠다니는 호버 카드는 여전히 `ui/hud/ItemTip` 이고(고정한 타일은 `data-tip-pinned` 로 빠진다),
-   * 고정 카드와 그 소켓 썸네일의 호버 카드(`hoverTip`)는 `ctx.uiRoot` 에 산다 — 화면의 transform 밖이어야 `position: fixed` 가 맞는다.
+   * 2026-09-14 (user's decision): the pinned tooltip — holding a tile still for one second stands the **inventory tooltip** (the instance card
+   * with weapon gauges · socket row) where it was pressed (`ui/TipPin`). The floating hover card is still `ui/hud/ItemTip` (a pinned tile opts out
+   * via `data-tip-pinned`); the pinned card and its socket hover card live on `ctx.uiRoot` — `position: fixed` needs to be outside the transform.
    */
   private readonly pin: TipPin;
   private readonly hoverTip: Tooltip;
@@ -203,7 +203,7 @@ export class TradeGrids implements TradeGridsView {
     host: HTMLElement,
     private readonly opts: TradeGridsOptions = {},
   ) {
-    // 2026-09-15 2차: 배치는 하나뿐이다 (`is-split` 은 이름만 남는다 — 바깥 스타일시트가 그 이름으로 붙어 있다)
+    // 2026-09-15 2nd pass: there is only one layout (`is-split` is a name kept — outside stylesheets hang off it)
     this.chipsMode = opts.chips ?? 'block';
     this.root = document.createElement('div');
     this.root.className = `trade-grids is-split${opts.className ? ` ${opts.className}` : ''}`;
@@ -235,7 +235,7 @@ export class TradeGrids implements TradeGridsView {
     this.scroll.className = 'tg-scroll';
     this.root.appendChild(this.scroll);
 
-    // 2026-09-12 (사용자 결정): 창고 왼쪽 · 가방 오른쪽. 호출자가 `grids` 를 직접 주면 그 순서가 이긴다.
+    // 2026-09-12 (user's decision): stash left · bag right. A caller that passes `grids` itself wins that order.
     const ids = opts.grids ?? (['stash', 'bag'] as const);
     for (const id of ids) this.blocks.push(this.buildBlock(id));
 
@@ -244,9 +244,9 @@ export class TradeGrids implements TradeGridsView {
     this.unsubs.push(
       b.on('inventory:changed', repaint), b.on('inventory:stashChanged', repaint),
       b.on('inventory:bagChanged', repaint), b.on('loadout:changed', repaint),
-      // 2026-09-12 (E1): 즐겨찾기 띠 · 「즐겨찾기」 필터 — `GridView.refresh` 가 즐겨찾기 리비전을 보고 다시 칠한다
+      // 2026-09-12 (E1): the favourite ribbon · the 「즐겨찾기」 filter — `GridView.refresh` repaints on the favourite revision
       b.on('inventory:favoritesChanged', repaint),
-      // 2026-09-13 (서재 시리즈): 「아직 꽂지 않은」 띠 — 캐시는 `parts/ShelfWanted` 가 먼저(시스템 init 구독) 비운다
+      // 2026-09-13 (library series): the "not yet shelved" ribbon — `parts/ShelfWanted` clears the cache first (subscribed at system init)
       b.on('housing:libraryChanged', repaint),
       b.on('ui:tipPinned', repaint),   // 2026-09-14: the pinned tile's `data-tip-pinned` flag
     );
@@ -254,18 +254,18 @@ export class TradeGrids implements TradeGridsView {
   }
 
   /**
-   * One block: header (label · 칸 readout · 정렬 · 필터 드롭다운) and the grid inside its scrolling wrap.
-   * 2026-09-16: 그 readout 은 `사용칸 / 전체칸` 이고 **정렬 버튼 왼쪽**이다 (`refresh`, `labels.capacityLabel`).
+   * One block: header (label · cell readout · `정렬` · the filter dropdown) and the grid inside its scrolling wrap.
+   * 2026-09-16: that readout is `사용칸 / 전체칸` and sits **left of the sort button** (`refresh`, `labels.capacityLabel`).
    *
-   * **2026-09-15 2차 (사용자 결정)** — 두 가지가 바뀌었다:
-   *  - **창고 쪽 라벨(`함선 창고`)은 없앴다.** 창고 · 가방이 한 패널의 두 칸으로 나란히 서면서 왼쪽 큰 격자가
-   *    창고라는 것은 그림이 말한다. 가방 라벨은 남는다 (오른쪽 칸이 **내** 것이라는 표시다).
-   *  - **필터는 정렬 버튼 오른쪽의 드롭다운**이다 — 머리 아래 따로 서던 칩 줄(`.tg-tools`)이 사라졌다.
+   * **2026-09-15 2nd pass (user's decision)** — two things changed:
+   *  - **The stash-side label (`함선 창고`) was dropped.** With stash · bag standing as two panes of one panel, the picture
+   *    says that the big left grid is the stash. The bag label stays (it marks the right pane as **mine**).
+   *  - **The filter is a dropdown right of the sort button** — the chip row that stood under the header (`.tg-tools`) is gone.
    */
   private buildBlock(id: TradeGridId): Block {
     const el = document.createElement('div');
     el.className = `tg-block tg-${id}`;
-    el.dataset.tgGrid = id;   // 2026-09-12: 다른 화면이 드롭 위치를 가방 / 창고로 가른다 (`closest('[data-tg-grid]')`)
+    el.dataset.tgGrid = id;   // 2026-09-12: another screen splits a drop position into bag / stash (`closest('[data-tg-grid]')`)
     const head = document.createElement('div');
     head.className = 'tg-head';
     const label = document.createElement('span');
@@ -281,9 +281,9 @@ export class TradeGrids implements TradeGridsView {
       block.chips = buildFilterSelect((f) => this.setBlockFilter(block, f));
       head.appendChild(block.chips.el);
     }
-    // 2026-09-12: 격자는 **자기 폭을 px 로 못박은** 상자다(`GridView.syncDims`). 그래서 세로 스크롤을 격자 자신에게
-    // 걸면 스크롤바가 그 폭 안에서 자리를 빼앗아 마지막 열이 잘린다 — 폭이 내용에서 나오는 이 상자가 대신 맡는다
-    // (`Tab` 인벤토리의 `.inv-bag-scroll` 과 같은 방식). `'wrap'` 기본값에서는 아무것도 하지 않는다.
+    // 2026-09-12: a grid is a box that **pins its own width in px** (`GridView.syncDims`), so putting the vertical scroll on
+    // the grid itself lets the scrollbar take space inside that width and clip the last column — this box, whose width comes
+    // from its content, takes it instead (as the `Tab` inventory's `.inv-bag-scroll` does). Under the `'wrap'` default it does nothing.
     block.wrap.className = 'tg-gridwrap';
     el.appendChild(block.wrap);
     this.mountView(block);
@@ -324,14 +324,14 @@ export class TradeGrids implements TradeGridsView {
     if (this.disposed) return;
     const staged = this.opts.isStaged;
     const step = this.cellPx + GAP;
-    // 2026-09-12: 내게 필요한 탄약의 사선 띠 — Tab 창과 **같은 표**를 쓰므로 여기서도 갈아 끼운다 (바뀔 때만 true)
+    // 2026-09-12: the needed-ammo ribbon — it uses the **same table** as the Tab window, so it is swapped here too (true only on a change)
     const ammoChanged = setNeededAmmoFrom(this.inv.getLoadout(), (item) => this.inv.getStats(item));
     for (const bl of this.blocks) {
       const grid = this.inv.getGrid(bl.id);
       if (bl.view.current !== grid) bl.view.setGrid(grid);
       else bl.view.refresh(ammoChanged);   // version-gated; only changed tiles are rebuilt
-      // 2026-09-16 (사용자 결정): 머리의 `N점`(종류 수)은 없앴다 — Tab 창의 창고 머리와 **같은** `사용칸 / 전체칸`
-      // (`labels.capacityLabel`). 가방 틀의 빈 줄(`BAG_FRAME_ROWS`)은 칸이 아니므로 전체칸에 들어가지 않는다.
+      // 2026-09-16 (user's decision): the header's `N점` (the number of defs) was dropped — the **same** `사용칸 / 전체칸` as
+      // the Tab window's stash header (`labels.capacityLabel`). The bag frame's padding rows (`BAG_FRAME_ROWS`) are not cells, so they do not count.
       bl.countEl.textContent = grid ? capacityLabel(grid.usedCells(), grid.cols * grid.rows) : '';
       const w = grid ? grid.cols * step - GAP : 0;
       bl.el.classList.toggle('is-narrow', w > 0 && w < NARROW_BLOCK_PX);
@@ -352,13 +352,13 @@ export class TradeGrids implements TradeGridsView {
     this.pin.validate();
   }
 
-  /* ── 2026-09-13: 칸 크기 · 칩 줄 ───────────────────────────────────────── */
+  /* ── 2026-09-13: cell size · the chip row ──────────────────────────────── */
 
   /** Current grid cell edge in px. */
   get cell(): number { return this.cellPx; }
 
   /**
-   * Change the cell edge of a live view (the 기업 화면 shrinks its grids to fit the window). Each block's `GridView` is
+   * Change the cell edge of a live view (the 기업 screen shrinks its grids to fit the window). Each block's `GridView` is
    * rebuilt at the new edge — its cell size is fixed at construction — keeping the block's filter and the **row** the
    * block was scrolled to. A drag in flight is cancelled and an open menu closes. Same edge = no-op.
    */
@@ -403,7 +403,7 @@ export class TradeGrids implements TradeGridsView {
     return tools;
   }
 
-  /* ── 2026-09-12: 정렬 · 필터 ───────────────────────────────────────────── */
+  /* ── 2026-09-12: sort · filter ─────────────────────────────────────────── */
 
   private sort(id: TradeGridId): void {
     this.endDrag();
@@ -436,7 +436,7 @@ export class TradeGrids implements TradeGridsView {
   /** The chip currently lit (smoke tests): the shared row's, else the first block's. */
   get filterGroup(): FilterGroupId { return this.sharedChips ? this.sharedFilter : this.blocks[0]?.filter ?? 'all'; }
 
-  /* ── drag: 격자 안 / 격자 사이 옮기기 · 호출자 트레이로 끌어내기 ──────────── */
+  /* ── drag: moves inside a grid / between grids · dragging out to the caller's tray ─ */
   /**
    * 2026-09-14: a press no longer lifts the ghost at once. The tile is only **pressed** until the pointer moves past
    * `DRAG_THRESHOLD` — then the ghost lifts exactly as before (`liftGhost`). Holding still for `UI_HOLD_CONFIRM_S` pins the
@@ -476,7 +476,7 @@ export class TradeGrids implements TradeGridsView {
     };
     this.rebuildGhost(this.drag);
     this.blockOf(pr.gridId)?.view.setDragging(pr.uid);
-    window.addEventListener('keydown', this.onKey, true);   // 2026-09-16: R 회전 — 끄는 동안만 (그 밖에는 키를 듣지 않는다)
+    window.addEventListener('keydown', this.onKey, true);   // 2026-09-16: R rotate — only while dragging (no key is listened to otherwise)
     this.inv.sfx('ui_pickup');
     return true;
   }
@@ -531,7 +531,7 @@ export class TradeGrids implements TradeGridsView {
     if (!d) return;
     d.ghost.style.transform = `translate3d(${this.moveX - d.halfW}px, ${this.moveY - d.halfH}px, 0)`;
     this.hideHighlights();
-    // 호출자의 트레이가 **먼저**다 — 기업 거래의 판매 트레이는 격자와 겹치지 않으므로 순서만 지키면 예전 그대로다
+    // the caller's tray comes **first** — the corp trade's 판매 tray does not overlap the grids, so keeping the order keeps it as before
     const tray = this.dropTargetAt(this.moveX, this.moveY);
     this.setOver(tray);
     if (tray) { d.ghost.classList.toggle('is-ok', true); return; }
@@ -546,7 +546,7 @@ export class TradeGrids implements TradeGridsView {
 
   /**
    * Cell of one of **this view's** grids under the ghost, resolved **strictly first** — a grid that really contains
-   * the pointer beats one that only sits within its half-cell tolerance, so 창고 and 가방 (side by side with a gap)
+   * the pointer beats one that only sits within its half-cell tolerance, so the stash and the bag (side by side with a gap)
    * never steal each other's edge column. Same two-pass order as the Tab window (`ui/parts/Drag.resolveGridTarget`).
    */
   private cellUnderGhost(d: DragInfo): { bl: Block; x: number; y: number } | null {
@@ -562,7 +562,7 @@ export class TradeGrids implements TradeGridsView {
     const d = this.drag;
     if (!d) { this.endDrag(); return; }
     if (d.held) {
-      // 합치고 남은 몫은 **다음** 누름의 놓음에서 내려놓는다 (`onHeldDown` 이 무장한다)
+      // a merge remainder is put down on the release of the **next** press (`onHeldDown` arms it)
       if (e.type === 'pointercancel') { this.endDrag(); return; }
       if (!d.armed || e.button !== 0) return;
       d.armed = false;
@@ -574,8 +574,8 @@ export class TradeGrids implements TradeGridsView {
   };
 
   /**
-   * Release: the caller's tray first (`onTake` — the item is **not** moved here), else a cell of 창고 / 가방 through
-   * `InventoryRef.drop`. Released over neither, the item simply stays where it was — this view has no 버리기 zone, so
+   * Release: the caller's tray first (`onTake` — the item is **not** moved here), else a cell of the stash / bag through
+   * `InventoryRef.drop`. Released over neither, the item simply stays where it was — this view has no drop zone, so
    * nothing can be lost by missing.
    */
   private finishDrop(d: DragInfo): void {
@@ -584,7 +584,7 @@ export class TradeGrids implements TradeGridsView {
     const hit = this.cellUnderGhost(d);
     if (!hit) { if (d.held) this.inv.sfx('ui_drop'); return; }
     const target = this.targetOf(d, hit);
-    // 2026-09-12 규칙 그대로: 합치기 판정과 출발 수량을 **놓기 전에** 읽는다 — 남은 몫은 움직이지 않은 만큼이다
+    // the 2026-09-12 rule unchanged: the merge judgement and the source quantity are read **before** the drop — the remainder is what did not move
     const pv = this.inv.previewDrop(d.uid, d.from, target);
     const r = this.inv.drop(d.uid, d.from, target);
     if (r === 'ok') this.inv.sfx('ui_drop');
@@ -596,9 +596,9 @@ export class TradeGrids implements TradeGridsView {
   }
 
   /**
-   * 2026-09-16 (Tab 창의 `DragState.held` 와 같은 규칙): 대상 스택이 다 받지 못한 나머지는 **커서에 남는다**.
-   * 그 수량은 출발 스택을 떠난 적이 없으므로(줄었을 뿐이다) 세이브 · 시체 벗기기 · 화면 닫기가 끼어들어도
-   * 아이템은 제자리에 있다. 다음 좌클릭이 놓고, 우클릭 · Escape · 빈 곳 · `dispose` 가 놓아 준다.
+   * 2026-09-16 (the same rule as the Tab window's `DragState.held`): whatever the target stack could not take **stays on the
+   * cursor**. That quantity never left the source stack (it only dropped), so the item is still in place even if a save · a
+   * corpse strip · a window close cuts in. The next left-click places it; right-click · Escape · empty space · `dispose` let it go.
    */
   private holdRemainder(prev: DragInfo): void {
     const item = this.inv.findItem(prev.uid, prev.from);
@@ -693,7 +693,7 @@ export class TradeGrids implements TradeGridsView {
     d.ghost.remove();
   }
 
-  /* ── 2026-09-14: 고정 카드에서 소켓 끌어내기 — `TipPin` 에 이 뷰가 주는 대답 ─────────────────────────────── */
+  /* ── 2026-09-14: dragging a socket out of the pinned card — this view's answers to `TipPin` ──────────────── */
 
   /** The ghost of an attachment pulled out of a pinned weapon card — the same `.tg-ghost` a tile drag lifts. */
   private buildSocketGhost(item: ItemInstance, def: ItemDef): { el: HTMLElement; halfW: number; halfH: number } {
@@ -723,15 +723,15 @@ export class TradeGrids implements TradeGridsView {
 
   private clearDetachAim(): void { this.hideHighlights(); }
 
-  /* ── 2026-09-16: 격자 **밖**에서 온 아이템을 커서가 놓인 칸에 (`TradeGridsView.placeExternalAt`) ─────────── */
+  /* ── 2026-09-16: an item from **outside** the grids into the cell under the cursor (`TradeGridsView.placeExternalAt`) ─ */
 
   /**
-   * 가구 화면이 자기 칸에서 **뽑아 낸** 것(선반의 책 · 클러스터의 코어 · 스테이션의 산물)을 커서 밑의 칸에 넣는다.
-   * 칸 찾기는 타일 드래그와 **같은 두 벌 판정**(`cellUnderGhost`)이라 강조된 칸과 놓이는 칸이 어긋나지 않는다.
+   * Puts what a furniture screen **pulled out** of its own cell (a shelf's book · a cluster's core · a station's product) into the cell under
+   * the cursor. Finding the cell is the **same two-pass judgement** as a tile drag (`cellUnderGhost`), so the highlight and the landing cell agree.
    *
-   * 판정은 「밀어내지 않는다」 하나다: 빈 자리면 그 칸, 같은 스택이면 합치기, 그 밖에는 `'blocked'` 로 거절한다
-   * (남의 아이템을 치우거나 다른 칸으로 슬쩍 보내지 않는다 — Tab 창의 드롭 규칙과 같은 정신이다). 격자 밖이면
-   * `null` 이라 부른 쪽이 자기 규칙(가방 먼저 · 창고 먼저)으로 넣는다.
+   * The judgement is one rule, 「nothing is displaced」: a free spot takes it, a matching stack merges, anything else is refused
+   * with `'blocked'` (no one else's item is moved aside or slipped into another cell — the same spirit as the Tab window's drop
+   * rules). Outside the grids it is `null`, so the caller places it by its own rule (bag first · stash first).
    */
   placeExternalAt(item: ItemInstance, x: number, y: number): 'bag' | 'stash' | 'blocked' | null {
     if (this.disposed) return null;
@@ -746,8 +746,8 @@ export class TradeGrids implements TradeGridsView {
     if (!grid) return null;
     const occupant = grid.at(hit.x, hit.y)?.item;
     if (occupant) {
-      /* 같은 스택이면 합친다 (가방에서 끌 때와 같다). **전부 들어갈 때만** 손을 댄다 — 자리를 먼저 재고
-         `mergeInto` 를 부르므로 「반쪽만 옮기고 거절」이 나올 수 없다 (합칠 수 없는 짝이면 0 을 돌려준다). */
+      /* A matching stack merges (the same as dragging from the bag). It is touched **only when all of it fits** — the room is
+         measured before `mergeInto` is called, so 「half moved and then refused」 cannot happen (an unmergeable pair returns 0). */
       if (def.stackMax - occupant.qty < item.qty || grid.mergeInto(item, occupant.uid) <= 0) return 'blocked';
     } else if (!grid.place(item, hit.x, hit.y, item.rotated)) {
       return 'blocked';
@@ -759,9 +759,9 @@ export class TradeGrids implements TradeGridsView {
   }
 
   /**
-   * 2026-09-17 (사용자 보고 「가구에서 끌어낸 것은 창고 · 가방 **전체**가 아니라 커서 밑 **칸**이 강조돼야 한다」):
-   * `placeExternalAt` 이 할 판정의 **미리보기** — 같은 칸 찾기(`cellAt`)와 같은 「밀어내지 않는다」 규칙으로 발자국을
-   * 칠한다 (`showHighlight`, 타일 드래그와 같은 `.inv-hl`). 아무것도 바꾸지 않는다. 합치기는 전부 들어갈 때만 `merge` 다.
+   * 2026-09-17 (user's report 「가구에서 끌어낸 것은 창고 · 가방 **전체**가 아니라 커서 밑 **칸**이 강조돼야 한다」):
+   * a **preview** of the judgement `placeExternalAt` would make — the same cell search (`cellAt`) and the same 「nothing is displaced」
+   * rule paint the footprint (`showHighlight`, the same `.inv-hl` as a tile drag). Nothing changes; a merge is `merge` only when all of it fits.
    */
   previewExternalAt(defId: string, qty: number, x: number, y: number): 'ok' | 'merge' | 'bad' | null {
     this.hideHighlights();
@@ -807,7 +807,7 @@ export class TradeGrids implements TradeGridsView {
     this.opts.onTake?.(p.item, gridId, target);
   }
 
-  /** 2026-09-12: 우클릭 메뉴 — 이 화면의 더블클릭 동작(`takeLabel`) · 즐겨찾기 켜기 / 끄기 (Tab 창의 `favoriteEntry` 와 같은 문구). */
+  /** 2026-09-12: the right-click menu — this screen's double-click action (`takeLabel`) · favourite on / off (the same wording as the Tab window's `favoriteEntry`). */
   private openMenu(uid: string, gridId: TradeGridId, e: MouseEvent): void {
     if (this.drag || this.disposed || this.clicksSuppressed()) return;
     const p = this.inv.getGrid(gridId)?.get(uid);
@@ -837,7 +837,7 @@ export class TradeGrids implements TradeGridsView {
     for (const u of this.unsubs) u();
     this.unsubs.length = 0;
     for (const bl of this.blocks) bl.view.dispose();
-    // 2026-09-16: 필터 목록은 `document.body` 의 자식이라(`shared/dropdown`) 뷰를 지워도 저 혼자 화면에 남는다
+    // 2026-09-16: the filter list is a child of `document.body` (`shared/dropdown`), so it would stay on screen alone after the view is removed
     for (const bl of this.blocks) bl.chips?.dispose();
     this.sharedChips?.dispose();
     this.sharedTools?.remove();

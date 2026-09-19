@@ -1,9 +1,9 @@
 import type { LoadoutSlot } from '@/shared';
 import { LOADOUT_STORAGE_KEY, QUICK_SLOTS } from '@/shared';
-/* 2026-09-13 (서재 시리즈): 즐겨찾기한 옛 책 · 디스크 · 레코드 id 도 새 시리즈 1권으로 옮긴다 */
+/* 2026-09-13 (library series): a favourited old book · disc · record id moves to its new series' vol. 1 too */
 import { resolveItemAlias } from '@/shared';
 import { readSaveFile, writeSaveFile, type SavedExtras, type SavedPlacement } from './Serialize';
-/* 2026-09-11 (E-5 · E-6): 솔로 레이드 표식 · 창고와 합친 디바운스 — see `LoadoutStore` */
+/* 2026-09-11 (E-5 · E-6): the solo raid marker · the debounce shared with the stash — see `LoadoutStore` */
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Loadout persistence (Phase 5, 2026-09-06): the equipment slots, the bag contents (positions / rotation /
@@ -21,7 +21,7 @@ import { readSaveFile, writeSaveFile, type SavedExtras, type SavedPlacement } fr
  * v1 `quick` index pointed at is **moved out of `bag` into `quick`** — its grid cells free up, exactly what the
  * live model does.
  *
- * **v3 (2026-09-11, A-15)**: the 주머니 is its own container too — `pouch` carries its placements exactly like `bag`
+ * **v3 (2026-09-11, A-15)**: the pouch is its own container too — `pouch` carries its placements exactly like `bag`
  * does (the pouch **item** itself rides in `slots.pouch`, like every other equipped thing). v2 → v3 is a field that
  * did not exist before, so the migration is an empty array: nothing to move, nothing to lose. Every write is v3.
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -39,14 +39,15 @@ export interface LoadoutSave {
   /** Quick-use wheel: the stack in each wheel direction (null = empty). v2 — a v1 file's bag indices are migrated on read. */
   quick: (SavedExtras | null)[];
   /**
-   * 2026-09-11 (A-15) — **주머니 격자**의 스택과 자리. v3. 주머니 아이템 자체는 `slots.pouch` 에 있다.
-   * v2 이하의 파일에서는 빈 배열이다 (`sanitizeLoadoutSave`).
+   * 2026-09-11 (A-15) — the stacks and spots of the **pouch grid**. v3. The pouch item itself lives in `slots.pouch`.
+   * An empty array in a v2-or-older file (`sanitizeLoadoutSave`).
    */
   pouch: SavedPlacement[];
   /**
-   * 2026-09-12 (E1) — **즐겨찾기한 아이템 종류(def id)**, 정렬된 목록. 비었으면 필드 자체가 없다 (그래야 즐겨찾기가 없는
-   * 옛 문서와 `sameProfileDoc` 비교가 그대로 같다). 버전은 올리지 않았다 — 없던 선택 필드라 v3 리더는 그냥 무시한다.
-   * 킷(장비 · 가방)과 수명이 다르므로 `applyLoadoutSave` 는 이것을 건드리지 않는다 — `parts/Favorites.ts` 참고.
+   * 2026-09-12 (E1) — the **favourited item defs (def ids)**, sorted. Absent when empty, so a `sameProfileDoc` compare
+   * against an old document with no favourites still matches. The version was not raised — an optional field that did
+   * not exist, ignored by a v3 reader. Its lifetime differs from the kit's, so `applyLoadoutSave` leaves it alone
+   * (`parts/Favorites.ts`).
    */
   fav?: string[];
 }
@@ -59,7 +60,7 @@ export function sanitizeFavoriteList(raw: unknown): string[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const set = new Set<string>();
   for (const v of raw) {
-    if (typeof v === 'string' && v.length > 0 && v.length <= 96) set.add(resolveItemAlias(v));   // 2026-09-13: 옛 id → 새 id
+    if (typeof v === 'string' && v.length > 0 && v.length <= 96) set.add(resolveItemAlias(v));   // 2026-09-13: old id → new id
     if (set.size >= FAVORITES_SANE_MAX) break;
   }
   return set.size > 0 ? [...set].sort() : undefined;
@@ -111,9 +112,9 @@ export function sanitizeLoadoutSave(file: unknown): LoadoutSave | null {
       quick[i] = q && typeof q === 'object' && typeof (q as SavedExtras).defId === 'string' ? (q as SavedExtras) : null;
     }
   }
-  // v3 (A-15): 없던 필드가 생기는 것뿐 — v1 · v2 파일은 빈 주머니로 읽힌다
+  // v3 (A-15): only a field that did not exist before — a v1 · v2 file reads back with an empty pouch
   const pouch = Array.isArray(f.pouch) ? f.pouch.filter((e): e is SavedPlacement => !!e && typeof e === 'object') : [];
-  // 2026-09-12 (E1): 즐겨찾기 — 비었으면 필드를 싣지 않는다 (`LoadoutSave.fav`)
+  // 2026-09-12 (E1): favourites — the field is not written when empty (`LoadoutSave.fav`)
   const fav = sanitizeFavoriteList(f.fav);
   return fav ? { v: LOADOUT_SAVE_VERSION, slots, bag, quick, pouch, fav } : { v: LOADOUT_SAVE_VERSION, slots, bag, quick, pouch };
 }
@@ -130,7 +131,7 @@ export class LoadoutStore {
   private timer: number | null = null;
   private pendingReason: string | null = null;
   private onPageHide = (): void => this.flush();
-  /** E-6: when set, `markDirty` hands the debounce to the owner (`InventorySystem` saves 창고 + 로드아웃 together). */
+  /** E-6: when set, `markDirty` hands the debounce to the owner (`InventorySystem` saves the stash + loadout together). */
   schedule: (() => void) | null = null;
   /** E-5: seed of the solo raid the saved kit was carried into (null = none). Read from the file once, here. */
   private _raidSeed: number | null = null;
@@ -154,7 +155,7 @@ export class LoadoutStore {
     writeSaveFile(LOADOUT_STORAGE_KEY, this.withMarker(this.capture()));
   }
 
-  /** E-5: the solo raid ended (extraction · 레이드 실패 · abort) — drop the marker (rewrites the local file if it had one). */
+  /** E-5: the solo raid ended (extraction · raid failure · abort) — drop the marker (rewrites the local file if it had one). */
   clearRaid(): void {
     if (this._raidSeed === null) return;
     this._raidSeed = null;

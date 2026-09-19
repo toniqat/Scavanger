@@ -4,31 +4,31 @@ import { mergeRaidFoundMark, normalizeMealQuality } from '@/shared';
 export type DefLookup = (defId: string) => ItemDef | undefined;
 
 /**
- * 2026-09-13 (요리 품질): 스택 열쇠가 읽는 인스턴스 필드 — 회수 계약 표식(`raidFound`) + 요리 품질(`quality`).
- * `RaidFoundItem` 을 넓힌 것이라 기존 호출부(`{ defId }` 탐침 포함)는 그대로 들어온다.
+ * 2026-09-13 (meal quality): the instance fields the stack key reads — the recovery-contract mark (`raidFound`) and
+ * the meal quality (`quality`). It widens `RaidFoundItem`, so every existing call site (the `{ defId }` probes too) still fits.
  */
 export type StackItem = RaidFoundItem & Pick<ItemInstance, 'quality'>;
 
-/* ── 2026-09-12 (아이템 회수 계약, 사용자 결정): 스택 분류 열쇠 ─────────────────────────────────────────────────────────
- * 같은 def 의 두 스택은 **열쇠가 같을 때만** 합친다. 기본은 모두 `''` 라 예전과 똑같다. `InventorySystem` 이 활성 회수 계약
- * 아이템의 「이번 레이드에서 얻은 것」 을 `'rf'` 로 가르는 규칙(`shared/raidFound.raidFoundStackKey`)을 **질의 시점의 ctx** 로
- * 꽂는다 (`parts/RaidFound.installRaidFoundRules`). 모든 격자(가방 · 창고 · 주머니 · 상자 · 시체 · 미리보기 흉내 격자)와
- * 휠(`QuickSlots.mergeIntoQuick`) · 자동 정렬(`parts/Sort`)이 같은 열쇠를 본다. */
+/* ── 2026-09-12 (item recovery contracts, user's decision): the stack key ───────────────────────────────────────────
+ * Two stacks of the same def merge **only when their keys match**; everything is `''` by default, so nothing changed.
+ * `InventorySystem` installs the rule that splits an active recovery-contract item's "found in this raid" off as
+ * `'rf'` (`shared/raidFound.raidFoundStackKey`) against **the ctx at query time** (`parts/RaidFound.installRaidFoundRules`).
+ * Every grid (bag · stash · pouch · crate · corpse · the preview's stand-in), the wheel and the auto sort read that key. */
 export type StackKeyRule = (item: RaidFoundItem) => string;
 let stackKeyRule: StackKeyRule | null = null;
-/** 스택 분류 규칙을 꽂는다 (null = 전부 한 분류). `InventorySystem.init` 만 부른다. */
+/** Installs the stack key rule (null = everything in one class). Only `InventorySystem.init` calls it. */
 export function setStackKeyRule(rule: StackKeyRule | null): void { stackKeyRule = rule; }
 /**
- * 이 스택의 분류 열쇠. 2026-09-13 (요리 품질, 사용자 결정 「품질이 다르면 다른 칸에 쌓인다」): 꽂힌 규칙(회수 계약)의 열쇠에
- * **요리 품질**이 늘 덧붙는다 — 규칙을 갈아 끼우는 것이 아니라 합친다. 품질 0(필드 없음)은 예전 열쇠 그대로다.
- * 모든 합치기 경로(격자 · 휠 · 정렬 · 넘친 수량 들기 · 상자/시체 격자)가 이 함수 하나를 본다.
+ * This stack's key. 2026-09-13 (meal quality, user's decision 「품질이 다르면 다른 칸에 쌓인다」): the **meal quality** is
+ * always appended to the installed rule's key (the recovery contract) — combined with it, never swapping it out.
+ * Quality 0 (no field) keeps the old key; every merge path (grid · wheel · sort · overflow · crate / corpse) reads this one.
  */
 export function stackKeyOf(item: StackItem): string {
   const base = stackKeyRule ? stackKeyRule(item) : '';
   const q = normalizeMealQuality(item.quality);
   return q > 0 ? `${base}|q${q}` : base;
 }
-/** 두 스택이 합쳐질 수 있는 사이인가 (같은 def + 같은 분류). 수량 여유는 따로 본다. */
+/** Whether two stacks may merge at all (same def + same key). Room left in the stack is checked separately. */
 export function canStackTogether(a: StackItem, b: StackItem): boolean {
   return a.defId === b.defId && stackKeyOf(a) === stackKeyOf(b);
 }

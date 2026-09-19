@@ -1,8 +1,8 @@
 /**
- * src/inventory/ui/parts/SlotPanel.ts — **장비 칸** (주무기 I / II · 보조무기 · 가방 · 방탄복).
+ * src/inventory/ui/parts/SlotPanel.ts — **the equipment slots** (주무기 I / II · 보조무기 · 가방 · 방탄복).
  *
- * 칸 다섯 개의 DOM 을 만들고 아이템 타일을 그린다. 무엇이 어느 칸에 들어갈 수 있는지는
- * `model.ts` 의 `slotAccepts` 가 정하고, 여기서는 그림과 포인터 바인딩만 맡는다.
+ * Builds the DOM of the five slots and draws the item tiles. What may go into which slot is decided by
+ * `slotAccepts` in `model.ts`; this file takes only the drawing and the pointer bindings.
  */
 import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
 import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';

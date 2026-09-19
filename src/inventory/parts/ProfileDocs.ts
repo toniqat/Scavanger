@@ -1,9 +1,9 @@
 /**
- * src/inventory/parts/ProfileDocs.ts — **서버 프로필 문서 · 레이드 세션 상태**.
+ * src/inventory/parts/ProfileDocs.ts — **server profile documents · the raid session state**.
  *
- * 창고(`stash`)와 로드아웃(`loadout`)을 릴레이의 프로필 저장소에 올리고 내려받는 경로, 그리고
- * 레이드 도중 끊긴 플레이어가 복귀할 때 쓰는 `captureRaidState` / `applyRaidState` 가 여기 있다.
- * 오프라인 편집이 서버의 빈 문서에 지워지지 않게 하는 규칙(`fresh` 저장)도 이 파일의 책임이다.
+ * The path that uploads the stash (`stash`) and the loadout (`loadout`) to the relay's profile store and downloads them
+ * again, plus the `captureRaidState` / `applyRaidState` a player who dropped mid-raid returns through.
+ * The rule that keeps an offline edit from being wiped by the server's empty document (the `fresh` save) is this file's too.
  */
 import * as THREE from 'three';
 import type {
@@ -28,11 +28,11 @@ import {
 } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 import * as RaidMarks from './RaidFound';
-import { returnForbiddenAttachments } from './SocketRules';   // 2026-09-14 (총기 소켓 규칙)
+import { returnForbiddenAttachments } from './SocketRules';   // 2026-09-14 (the gun socket rules)
 
 /** Bag + 5 slots + quick slots with every instance field incl. `searched` (raid session blob / training freeze). */
 export function captureRaidState(sys: InventorySystem): unknown {
-  // 2026-09-12 (E1): 즐겨찾기는 킷이 아니다 — 레이드 blob · 훈련장 스냅샷에 싣지 않는다 (복원이 토글을 되돌리면 안 된다)
+  // 2026-09-12 (E1): favourites are not the kit — they never ride in the raid blob · the training range snapshot (a restore must not undo a toggle)
   const { fav: _fav, ...save } = sys.captureLoadoutSave();
   const placements = sys.bag.items();
   const bag = save.bag.map((sv, i) => {
@@ -40,7 +40,7 @@ export function captureRaidState(sys: InventorySystem): unknown {
     return flag === undefined ? sv : { ...sv, searched: flag };
   });
   const state: RaidInventoryState = { ...save, bag, raid: 1 };
-  // 2026-09-12 (아이템 회수 계약): the raid-found marks ride in the blob only (`rf`, revived by `Serialize.reviveItem`)
+  // 2026-09-12 (item recovery contracts): the raid-found marks ride in the blob only (`rf`, revived by `Serialize.reviveItem`)
   RaidMarks.annotateRaidState(sys, state);
   // 2026-09-11 (C-61): the once-per-raid bag wear travels with the session (stamped with this raid's seed)
   if (sys.bagWornThisRaid) state.bagWorn = sys.missionSeed;
@@ -52,14 +52,14 @@ export function captureRaidState(sys: InventorySystem): unknown {
  *
  * 2026-09-11 (C-61): also restores `bagWornThisRaid` — true only when the state's `bagWorn` is **this** raid's seed
  * (`missionSeed`, set at `world:ready`, which runs before game/ applies a rejoin blob). Omitted / another seed = false:
- * an old blob, and the 훈련장 snapshot restored on exit, can never carry a wear mark across raids.
+ * an old blob, and the training range snapshot restored on exit, can never carry a wear mark across raids.
  */
 export function applyRaidState(sys: InventorySystem, state: unknown): boolean {
   const save = sanitizeLoadoutSave(state);
   if (!save) return false;
   sys.cancelCraft();
   const revived = sys.applyLoadoutSave(save);
-  // 2026-09-14 (총기 소켓 규칙): mid-raid a detached attachment goes to the bag only (never the 함선 창고); no room → stays on the weapon, inert
+  // 2026-09-14 (the gun socket rules): mid-raid a detached attachment goes to the bag only (never the stash); no room → stays on the weapon, inert
   returnForbiddenAttachments(sys, 'bag');
   save.bag.forEach((sv, i) => {
     const item = revived[i];
@@ -89,7 +89,7 @@ export function uploadProfileDoc(sys: InventorySystem, key: 'stash' | 'loadout',
   }
 
 /**
- * 2026-09-11 (E-6): the **one** debounce of the 창고 and the loadout (`Stash.schedule` / `LoadoutStore.schedule` point
+ * 2026-09-11 (E-6): the **one** debounce of the stash and the loadout (`Stash.schedule` / `LoadoutStore.schedule` point
  * here) — a move between the two used to be two unrelated `profile:set`s 350 ms apart on separate timers, so a crash or
  * a refused write in between duplicated or lost the item on the server.
  */
@@ -102,7 +102,7 @@ export function scheduleSaves(sys: InventorySystem): void {
 export const SAVE_BATCH_DELAY_MS = 350;
 
 /**
- * Write the pending 창고 / 로드아웃 saves now. Both written → one `ProfileRef.setMany({stash, loadout})` (all or nothing on
+ * Write the pending stash / loadout saves now. Both written → one `ProfileRef.setMany({stash, loadout})` (all or nothing on
  * the server); one → an ordinary `set`. A `fresh` (default) save keeps its own `set {fresh}` — a transaction has no
  * default semantics. Also `InventoryRef.flushSaves` (meta/ quest completion) and the page-hide path.
  */
@@ -164,7 +164,7 @@ export function withFreshSave(sys: InventorySystem, fn: () => void): void {
  */
 export function onProfileLoaded(sys: InventorySystem, profile: ProfileRecord): void {
   sys.applyProfileDocs(profile);
-  // 2026-09-07: a first-run grant goes up as a `fresh` document, so an (empty) server 창고 has just replaced it —
+  // 2026-09-07: a first-run grant goes up as a `fresh` document, so an (empty) server stash has just replaced it —
   // re-check exactly once, now that the server's stash is known. A profile that really owns something skips it.
   if (starterGrantState() === 'pending') sys.tryStarterGrant();
   }
@@ -184,7 +184,7 @@ export function applyProfileDocs(sys: InventorySystem, profile: ProfileRecord): 
     return;
   }
   const save = sanitizeLoadoutSave(docs.loadout);
-  // 2026-09-12 (E1): 즐겨찾기는 킷이 아니다 — 레이드 중에도 서버 목록을 받는다 (올리지 못한 로컬 토글이 있으면 그것이 이긴다)
+  // 2026-09-12 (E1): favourites are not the kit — the server list is taken even mid-raid (an unsent local toggle wins over it)
   if (save) sys.applySavedFavorites(save.fav);
   if (sys.ctx.isRaidActive()) return;
   if (!save) return;
@@ -201,11 +201,11 @@ export function applyProfileDocs(sys: InventorySystem, profile: ProfileRecord): 
   }
   sys.cancelCraft();
   sys.applyLoadoutSave(save);
-  const returned = returnForbiddenAttachments(sys, 'stash');   // 2026-09-14 (총기 소켓 규칙)
+  const returned = returnForbiddenAttachments(sys, 'stash');   // 2026-09-14 (the gun socket rules)
   sys.announcePending = false;
   sys.announceLoaded();
   sys.loadoutStore.saveNow('profile'); // mirror to localStorage without echoing the document back
-  // 2026-09-14: …but a kit whose attachments just moved into the 창고 must go up **with** the 창고 (one `setMany`) — marked after
+  // 2026-09-14: …but a kit whose attachments just moved into the stash must go up **with** the stash (one `setMany`) — marked after
   // `saveNow`, which would cancel the pending loadout save
   if (returned > 0) sys.loadoutStore.markDirty('sockets');
   }

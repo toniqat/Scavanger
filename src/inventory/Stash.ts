@@ -1,9 +1,9 @@
 import type { ItemInstance, LootRef } from '@/shared';
 import { STASH_COLS, STASH_ROWS, STASH_STORAGE_KEY, slotKey } from '@/shared';
-import { resolveItemAlias } from '@/shared';   // 2026-09-13 (서재 시리즈): 옛 매체 id → 새 시리즈 1권 (`reviveItem` 이 바꾸고, 여기서 다시 합친다)
+import { resolveItemAlias } from '@/shared';   // 2026-09-13 (library series): old media ids → the new series' vol. 1 (`reviveItem` converts, this file re-merges)
 import { Grid, type DefLookup } from './Grid';
 import { readSaveFile, reviveItem, savedCell, serializePlacement, writeSaveFile, type SavedPlacement } from './Serialize';
-import { detachForbiddenSockets } from './Serialize';   // 2026-09-14 (총기 소켓 규칙): 더는 맞지 않는 부착물을 로드할 때 뗀다
+import { detachForbiddenSockets } from './Serialize';   // 2026-09-14 (gun socket rules): an attachment that no longer fits is taken off at load
 import type { SocketSlot } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -13,22 +13,22 @@ import type { SocketSlot } from '@/shared';
  * save carries positions + instance extras and fresh instances are minted on load (`Serialize.ts`, shared with
  * the loadout save; attachments inside sockets are serialised recursively).
  * Phase 6 (ship housing): the grid size is persisted too (`cols` / `rows`, save v2 — v1 files migrate to the
- * default size) and `resize()` grows it for the 창고 facility; shrinking is refused while an item would fall outside.
+ * default size) and `resize()` grows it for the stash facility; shrinking is refused while an item would fall outside.
  * Phase 7 (server profile): every write also hands the file to `onSaved` (→ `ctx.net.profile.set('stash', file)`), and
  * `loadFrom(doc)` replaces the contents with a server document (same shape as the file; the local file is rewritten
  * without echoing the document back).
- * 2026-09-11 (E-6): the debounce can be handed to the owner (`schedule`) — `InventorySystem` saves 창고 + 로드아웃 together.
+ * 2026-09-11 (E-6): the debounce can be handed to the owner (`schedule`) — `InventorySystem` saves the stash + loadout together.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const SAVE_VERSION = 2;
 /**
- * 기본 지급품 flag (2026-09-07 fix). The grant used to key off `Stash.firstRun` (no `scav.stash` file), which missed
- * every profile made before 기본 지급품 existed and every profile whose local file was written before the server
+ * The starter grant flag (2026-09-07 fix). The grant used to key off `Stash.firstRun` (no `scav.stash` file), which
+ * missed every profile made before the starter grant existed and every profile whose local file was written before the server
  * document arrived. This key records the grant per **browser profile** instead, deliberately outside the stash file
  * so that a server document replacing the stash cannot make the grant repeat every session:
  *   `none`    — never handed out
  *   `pending` — handed out locally, not yet reconciled with a server profile (the upload went up as a `fresh` doc,
- *               so an empty server 창고 may still overwrite it — `net:profileLoaded` re-checks exactly once)
+ *               so an empty server stash may still overwrite it — `net:profileLoaded` re-checks exactly once)
  *   `done`    — settled; never granted again
  */
 export const STARTER_GRANT_KEY = 'scav.grant';
@@ -61,13 +61,13 @@ export class Stash {
   onSaved: ((file: StashSaveFile) => void) | null = null;
   /**
    * 2026-09-11 (E-6): when set, `markDirty` hands the debounce to the owner instead of its own timer — `InventorySystem`
-   * runs **one** timer for the 창고 and the loadout so a move between them is saved (and uploaded) as one transaction.
+   * runs **one** timer for the stash and the loadout so a move between them is saved (and uploaded) as one transaction.
    */
   schedule: (() => void) | null = null;
 
   /**
    * True when no `scav.stash` file existed at startup — a profile that has never had a stash. `InventorySystem`
-   * uses it to decide whether the 기본 지급품 grant goes up as a `fresh` document (a server profile still wins over
+   * uses it to decide whether the starter grant goes up as a `fresh` document (a server profile still wins over
    * it); **whether** to grant is decided by `starterGrantState()`, not by this flag (2026-09-07 fix).
    */
   readonly firstRun: boolean;
@@ -168,7 +168,7 @@ export class Stash {
       if (cell && this.grid.place(item, cell.x, cell.y, !!sv.rotated)) continue;
       pending.push(item);
     }
-    // 2026-09-13 (서재 시리즈): a converted stack first joins a stack of its **new** id (two old ids can map to one new id),
+    // 2026-09-13 (library series): a converted stack first joins a stack of its **new** id (two old ids can map to one new id),
     // then takes its own saved cell, then any free spot like the rest
     for (const { item, sv } of converted) {
       if ((this.getDef(item.defId)?.stackMax ?? 1) > 1 && this.grid.mergeIntoStacks(item) <= 0) continue;
@@ -178,7 +178,7 @@ export class Stash {
     }
     // anything whose cell was taken (corrupt / overlapping save) is auto-placed; what does not fit is dropped
     for (const item of pending) if (!this.grid.autoPlace(item)) console.warn(`[Stash] no room for '${item.defId}' on load — discarded`);
-    // 2026-09-14 (총기 소켓 규칙, 사용자 결정): a detached attachment goes into this 창고; no room → back on its weapon, where it
+    // 2026-09-14 (gun socket rules, user's decision): a detached attachment goes into this stash; no room → back on its weapon, where it
     // has no effect (`computeWeaponStats` skips it) — nothing is lost and the next load tries again
     let returned = 0;
     for (const { weapon, socket, item } of loose) {
@@ -187,7 +187,7 @@ export class Stash {
       console.warn(`[Stash] no room for '${item.defId}' taken off '${weapon.defId}' — left on the weapon (no effect)`);
     }
     if (returned > 0) console.info(`[Stash] ${returned} attachment(s) no longer fit their weapon — moved into the 창고`);
-    // a fixed 창고 stays dirty so the next save writes (and uploads) it; `loadFrom` rewrites the local file itself
+    // a repaired stash stays dirty so the next save writes (and uploads) it; `loadFrom` rewrites the local file itself
     this.savedVersion = returned > 0 ? -1 : this.grid.version;
   }
 

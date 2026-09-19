@@ -1,9 +1,9 @@
 /**
- * src/inventory/ui/model.ts — 인벤토리 창의 공용 어휘.
+ * src/inventory/ui/model.ts — the inventory window's shared vocabulary.
  *
- * `InventoryUI` 에서 떼어낸 상수 · 타입만 있다. 클래스를 참조하지 않으므로 `parts/*` 모듈이
- * 클래스를 되돌아 import 하지 않고 쓸 수 있다(순환 import 방지).
- * `InventoryUI.ts` 가 그대로 재수출하므로 기존 import 경로는 전부 유지된다.
+ * Only the constants · types split out of `InventoryUI`. It references no class, so a `parts/*` module can use them
+ * without importing the class back (no circular import).
+ * `InventoryUI.ts` re-exports it as is, so every existing import path still works.
  */
 import './../inventory.css';
 import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
@@ -27,14 +27,14 @@ export const DRAG_THRESHOLD = 4; // px before a press becomes a drag
 export const GHOST_SCALE = 1.04;
 export const MIDDLE_BUTTON = 1;
 /**
- * 2026-09-11 (C-60): 드래그 중 스크롤되는 컨테이너 격자의 위/아래 가장자리 자동 스크롤. 보이는 영역 안쪽
- * `AUTO_SCROLL_EDGE_IN` px 띠에서 속도가 0 → 최고로 오르고, 바깥(패널 머리 · 아래 여백) `AUTO_SCROLL_EDGE_OUT` px 까지는 최고 속도.
+ * 2026-09-11 (C-60): auto-scroll at the top/bottom edge of a container grid that scrolls during a drag. The speed rises
+ * 0 → max over an `AUTO_SCROLL_EDGE_IN` px band inside the view and is max out to `AUTO_SCROLL_EDGE_OUT` px beyond it (panel header · bottom margin).
  */
 export const AUTO_SCROLL_EDGE_IN = 36;
 export const AUTO_SCROLL_EDGE_OUT = 64;
 /** px/s at the very edge. */
 export const AUTO_SCROLL_MAX_SPEED = 900;
-/** Two presses on the same catalog tile within this window = 가방에 넣기. */
+/** Two presses on the same catalog tile within this window = put it in the bag. */
 export const CATALOG_DBL_MS = 400;
 export const BAG_LOC: ItemLocation = { kind: 'grid', grid: 'bag' };
 export const LOCK_SVG = '<svg viewBox="0 0 12 14" aria-hidden="true"><rect x="1.5" y="6" width="9" height="7" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M3.5 6V4a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>';
@@ -46,7 +46,7 @@ export const LOCK_SVG = '<svg viewBox="0 0 12 14" aria-hidden="true"><rect x="1.
  * `.inv-layout` content for a `.inv-screen` host and builds the owning folder's **embedded view** into it —
  * `ctx.progression.createSheetView` / `ctx.meta.createCorpView` / `ctx.housing.createShipView`, each an
  * `EmbeddedView` we `refresh()` on show and `dispose()` on leave. The window keeps its single `inventory` blocker
- * and its blurred `.inv-root` backdrop is the 배경 블러 the design asks for.
+ * and its blurred `.inv-root` backdrop is the background blur the design asks for.
  */
 export type ScreenTab = 'inventory' | 'character' | 'corp' | 'ship';
 export const SCREEN_TABS: readonly { id: ScreenTab; label: string; title?: string }[] = [
@@ -78,7 +78,7 @@ export interface DragState {
   lastX: number;
   lastY: number;
   /**
-   * 2026-09-12 (사용자 결정): the remainder of a stack merge **stays on the cursor**. The units never left their source
+   * 2026-09-12 (user's decision): the remainder of a stack merge **stays on the cursor**. The units never left their source
    * (the source stack is only smaller), so a save / corpse strip in the meantime sees them where they were; the next
    * left click drops them like a normal release, a right click / Escape / a miss / closing the window just lets go.
    */

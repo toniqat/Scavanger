@@ -62,8 +62,8 @@ export class CrewLoadoutView implements EmbeddedView {
 
     this.root = document.createElement('div');
     this.root.className = `crew-loadout${opts.className ? ` ${opts.className}` : ''}`;
-    // 2026-09-14: 이 뷰는 `.inv-root` 밖(hub 팝업)이라 자기 `--inv-cell` 을 갖는다 — 격자(`GridView`)가 쓰는
-    // 값과 슬롯 · 퀵슬롯이 쓰는 값이 갈라지지 않게 창 높이에 맞춘 지금 값을 적어 둔다.
+    // 2026-09-14: this view sits outside `.inv-root` (a hub popup), so it carries its own `--inv-cell` — the value for
+    // the current window height is written here so the grid's (`GridView`) and the slots' · quick slots' never split.
     applyGridCellVar(this.root);
     const accent = NET_SLOT_COLORS_CSS[opts.slot ?? -1];
     if (accent) this.root.style.setProperty('--crew-slot', accent);

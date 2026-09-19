@@ -1,25 +1,25 @@
 /**
- * src/inventory/parts/LaunchCheck.ts — **출격 준비 점검** (2026-09-08).
+ * src/inventory/parts/LaunchCheck.ts — **the launch readiness check** (2026-09-08).
  *
- * 발사 슬롯에 타기 직전 `hub/` 가 부르는 읽기 전용 점검. 아홉 가지를 훑고 각각의 이유를 한국어 두 줄
- * (`text` 표제 + `detail` 상세)로 돌려준다. 아무것도 바꾸지 않고, 아무것도 막지 않는다 — 팝업은 경고일 뿐이다.
- * 순서는 `LaunchWarningId` 의 열거 순서 그대로다 (계약에 적힌 규약 — 팝업이 매번 같은 순서로 읽힌다).
+ * A read-only check `hub/` calls right before boarding a launch pod. It sweeps nine items and gives each one's reason
+ * as two Korean lines (`text` headline + `detail`). It changes nothing and blocks nothing — the popup is a warning.
+ * The order is exactly the `LaunchWarningId` enum order (a contract rule — the popup always reads in the same order).
  *
- *   1. **주무기 없음** — 주무기 I · II 둘 다 비었다 (보조무기만으로는 통과하지 못한다).
- *   2. **탄약 부족** — 장착한 무기 하나하나의 구경마다, 가지고 있는 총 탄수가 **한 세트**(그 구경의 스택 한 칸,
- *      `AMMO_STACK_ROUNDS` — 중량탄이면 25발) 미만이면 걸린다. 총 탄수 = 가방 + 함선 창고의 탄약 아이템 +
- *      그 무기 탄창에 든 것. 무기를 안 들었으면 이 항목은 건너뛴다 (1번이 이미 말해 준다).
- *   3. **가방 없음** · 4. **방탄복 없음** — 해당 장비 칸이 비었다.
- *   5. **전술 임플란트 없음** — `ctx.implants.equipped` 가 null.
- *   6. **회복 아이템 없음** — 가방에 `category: 'stim'` 이 하나도 없다 (창고에 있는 건 못 들고 나간다).
- *   7. **준비물 없음** (2026-09-11, A-13) — 목표 행성에 상시 환경이 있는데 그것을 막는 준비물을 안 실었다.
- *      목표 행성을 아는 곳은 `ctx.hub.planet` 하나뿐이고, 실린 준비물은 `ctx.progression.hasEnvPrep(env)` 다.
- *      다른 여섯과 똑같이 **막지 않는다** — 맨몸으로 들어가면 체력이 계속 깎일 뿐이다 (사용자 결정: 소프트 게이트).
- *   8. **식사 없음** (2026-09-11, A-3c) — `ctx.progression.getMeal()` 이 비었다. 역시 **막지 않는다**.
- *      2026-09-12 (사용자 결정): **주방(조리대)이 있는 함선에서만** 올라온다 — `ctx.housing.getBenchLevel('cook')`.
- *   9. **기업 계약 없음** (2026-09-12, 사용자 결정) — `ctx.meta.activeContract` 가 null. 역시 **막지 않는다**.
- *  10. **치워질 접시** (2026-09-16, 접시 모델) — 식탁에 먹지 않은 접시가 있는데 이미 다른 식사를 실었다 (`plateDiscard`).
- *      식사가 비어 있으면 8 번이 「식탁의 요리를 먹지 않았습니다」로 대신 말한다. 역시 **막지 않는다**.
+ *   1. **No primary** — 주무기 I · II are both empty (a secondary alone does not pass).
+ *   2. **Low ammo** — for each calibre of the equipped weapons, held when the total rounds held are under **one set**
+ *      (one grid cell of that calibre's stack, `AMMO_STACK_ROUNDS` — 25 rounds for heavy ammo). Total rounds = the ammo
+ *      items in the bag + the stash + that weapon's magazine. With no weapon this item is skipped (1 already says it).
+ *   3. **No bag** · 4. **No armor** — that equipment slot is empty.
+ *   5. **No tactical implant** — `ctx.implants.equipped` is null.
+ *   6. **No healing item** — not one `category: 'stim'` in the bag (what sits in the stash cannot be taken out).
+ *   7. **No preparation** (2026-09-11, A-13) — the target planet has a permanent environment and nothing that blocks
+ *      it is loaded. The target planet is known only to `ctx.hub.planet`, the loaded preparation only to
+ *      `ctx.progression.hasEnvPrep(env)`. Like the other six it **does not block** — going in bare only drains hp (user's decision: a soft gate).
+ *   8. **No meal** (2026-09-11, A-3c) — `ctx.progression.getMeal()` is empty. It **does not block** either.
+ *      2026-09-12 (user's decision): it comes up **only on a ship that has a kitchen (a cook bench)** — `ctx.housing.getBenchLevel('cook')`.
+ *   9. **No corporation contract** (2026-09-12, user's decision) — `ctx.meta.activeContract` is null. It **does not block** either.
+ *  10. **A plate about to be cleared** (2026-09-16, the plate model) — the dining table holds an uneaten plate and another meal is already loaded (`plateDiscard`).
+ *      With the meal empty, 8 says it instead as 「식탁의 요리를 먹지 않았습니다」. It **does not block** either.
  */
 import type { AmmoType, ItemDef, LaunchWarning } from '@/shared';
 import { AMMO_STACK_ROUNDS, ENV_DESC_KO, ENV_LABEL_KO, getMealDef, getPlanet, mealQualityStars, normalizeMealQuality } from '@/shared';
@@ -27,7 +27,7 @@ import { ITEM_DEF_MAP, boostItemOf, getWeaponDef, shieldChargeOf } from '@/items
 import { WEAPON_SLOT_IDS } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
-/** 한 세트 = 그 구경의 스택 한 칸. 미등록 구경은 보수적으로 1발로 본다 (경고를 남발하지 않는다). */
+/** One set = one grid cell of that calibre's stack. An unregistered calibre is read conservatively as 1 round (no warning spam). */
 function setSizeOf(ammo: AmmoType): number {
   const n = AMMO_STACK_ROUNDS[ammo];
   return Number.isFinite(n) && n > 0 ? n : 1;
@@ -42,12 +42,12 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
   const loadout = sys.getLoadout();
   const def = (id: string | undefined): ItemDef | undefined => (id ? ITEM_DEF_MAP.get(id) : undefined);
 
-  /* 1. 주무기 */
+  /* 1. Primary */
   if (!loadout.primary && !loadout.primary2) {
     out.push({ id: 'noPrimary', text: '주무기가 없습니다', detail: '주무기 칸이 둘 다 비어 있습니다 — 보조무기만으로는 버티기 어렵습니다.' });
   }
 
-  /* 2. 탄약 — 장착한 무기의 구경마다 한 세트 이상 */
+  /* 2. Ammo — at least one set per calibre of the equipped weapons */
   const shortages: string[] = [];
   const seen = new Set<AmmoType>();
   for (const slot of WEAPON_SLOT_IDS) {
@@ -59,7 +59,7 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
     if (!ammo || seen.has(ammo)) continue;
     seen.add(ammo);
     const need = setSizeOf(ammo);
-    // 소지한 총 탄수: 탄약 아이템(가방 + 창고) + 이 구경 무기들의 탄창에 든 것
+    // Total rounds held: ammo items (bag + stash) + what sits in the magazines of the weapons of this calibre
     let have = sys.countDefAll(`ammo_${ammo}`);
     for (const s2 of WEAPON_SLOT_IDS) {
       const it = loadout[s2];
@@ -73,24 +73,24 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
     out.push({ id: 'lowAmmo', text: '탄약이 한 세트도 안 됩니다', detail: shortages.join(' · ') });
   }
 
-  /* 3 · 4. 가방 · 방탄복 */
+  /* 3 · 4. Bag · armor */
   if (!loadout.bag) out.push({ id: 'noBag', text: '가방이 없습니다', detail: '가방 없이는 전리품을 거의 못 담습니다.' });
   if (!loadout.armor) out.push({ id: 'noArmor', text: '방탄복이 없습니다', detail: '피해 감소가 하나도 없습니다.' });
 
-  /* 5. 전술 임플란트 */
+  /* 5. Tactical implant */
   let implant: string | null = null;
   try { implant = sys.ctx.implants?.equipped ?? null; } catch { implant = null; }
   if (!implant) out.push({ id: 'noImplant', text: '전술 임플란트가 없습니다', detail: '인벤토리 장착 장비 칸에서 하나 고르세요.' });
 
-  /* 6. 회복 아이템 (가방에 든 것만 — 창고에 있는 건 못 들고 나간다)
-   *    2026-09-10: 실드 충전기도 `category: 'stim'` 이지만 체력을 채우지 않으므로 여기서는 세지 않는다.
-   *    2026-09-12: 전투 소모품 3종(`boostItemOf` — 아드레날린 · 각성제 · 안정제)도 같은 이유로 세지 않는다. */
+  /* 6. Healing items (only what is in the bag — what sits in the stash cannot be taken out)
+   *    2026-09-10: a shield charger is `category: 'stim'` too, but it refills no hp, so it is not counted here.
+   *    2026-09-12: the three combat consumables (`boostItemOf` — 아드레날린 · 각성제 · 안정제) are left out for the same reason. */
   let heals = 0;
   try { heals = sys.countWhere((d) => d.category === 'stim' && !shieldChargeOf(d.id) && !boostItemOf(d.id)); } catch { heals = 0; }
   if (heals <= 0) out.push({ id: 'noHeal', text: '회복 아이템이 없습니다', detail: '가방에 붕대나 주사기를 넣어 두세요.' });
 
-  /* 7. 준비물 — 목표 행성의 상시 환경을 막을 것을 실었나 (2026-09-11, A-13).
-   *    ref 둘 다 선택적으로 만진다: 훈련장 · 스모크처럼 hub 나 progression 이 없는 트리에서도 점검이 돌아야 한다. */
+  /* 7. Preparation — is something loaded that blocks the target planet's permanent environment (2026-09-11, A-13).
+   *    Both refs are touched optionally: the check has to run on a tree with no hub or progression too (the training range · smokes). */
   try {
     const env = getPlanet(sys.ctx.hub?.planet ?? null)?.env ?? null;
     if (env && sys.ctx.progression?.hasEnvPrep?.(env) !== true) {
@@ -100,20 +100,20 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
         detail: `${ENV_DESC_KO[env]} 연구실 조합대에서 준비물을 만들어 함선에서 쓰세요.`,
       });
     }
-  } catch { /* hub · progression 이 아직 없다 — 경고를 남발하지 않는다 */ }
+  } catch { /* hub · progression not there yet — no warning spam */ }
 
-  /* 8. 식사 — 주방 식탁에서 요리를 먹어 두면 다음 레이드 1회분이 실린다 (2026-09-11, A-3c).
-   *    `noEnvPrep` 과 똑같이 **막지 않는다**: 소프트 게이트이고 팝업의 한 줄일 뿐이다. progression 이 없는
-   *    트리(훈련장 · 스모크)에서는 조용히 건너뛴다.
+  /* 8. Meal — a dish eaten at the kitchen's dining table loads one raid's worth for the next raid (2026-09-11, A-3c).
+   *    Exactly like `noEnvPrep` it **does not block**: a soft gate, and one line of the popup. On a tree with no
+   *    progression (the training range · smokes) it is silently skipped.
    *
-   *    2026-09-12 (사용자 결정): **주방이 있는 함선에서만** 올라온다. 조리대가 없으면 요리를 만들 수조차 없으니
-   *    「식사를 차리지 않았습니다」는 고칠 길이 없는 잔소리다 — 경고는 플레이어가 지금 할 수 있는 일이어야 한다.
-   *    질의는 `ctx.housing.getBenchLevel('cook')`(배치된 조리대 중 가장 높은 레벨, 없으면 0) 하나다. 식탁까지
-   *    보지 않는 이유: 조리대를 지은 사람은 식탁도 지을 수 있고, 공유 함선에는 붙박이 식탁이 있어 조리대만으로
-   *    먹을 길이 열린다 — 게이트는 「만들 수 있느냐」 한 겹이면 된다. */
-  /*  2026-09-16 (접시 모델, 사용자 결정): 요리는 식탁의 접시이고 **출격하면 치워진다**. 그래서 접시가 있는데 그 요리를 먹지 않았으면
-   *  「먹지 않은 요리가 사라진다」를 말한다 — 식사가 비었으면 `noMeal` 이 그 문장으로(할 일이 바로 그것이다), 이미 다른 식사를
-   *  실었으면 목록 끝의 `plateDiscard` 가 (`LaunchWarningId` 순서). 「먹었다」 = 대기 식사가 접시와 같은 요리 · 같은 품질. */
+   *    2026-09-12 (user's decision): it comes up **only on a ship that has a kitchen**. With no cook bench a dish cannot
+   *    even be made, so 「식사를 차리지 않았습니다」 is nagging with no way to fix it — a warning has to be something the
+   *    player can do right now. The query is `ctx.housing.getBenchLevel('cook')` alone (the highest level among the placed
+   *    cook benches, 0 with none). The dining table is not read too because whoever built a cook bench can build a table,
+   *    and the shared ship has a built-in one — one layer of gate, 「can it be made」, is enough. */
+  /*  2026-09-16 (the plate model, user's decision): a dish is the dining table's plate and **is cleared away on launch**. 「Eaten」 =
+   *  the pending meal is the plate's dish at the plate's quality; an uneaten plate says 「먹지 않은 요리가 사라진다」 — with the meal
+   *  empty as `noMeal` (that is exactly the thing to do), with another meal already loaded as `plateDiscard`, last (`LaunchWarningId` order). */
   let plateUneaten: { name: string; stars: string } | null = null;
   try {
     const prog = sys.ctx.progression;
@@ -132,7 +132,7 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
         text: '식탁의 요리를 먹지 않았습니다',
         detail: `출격하면 식탁의 「${plateUneaten.name}${plateUneaten.stars}」 이(가) 치워집니다 — 먹어 두면 다음 레이드 1회분이 실립니다.`,
       });
-      plateUneaten = null;                              // 같은 말을 목록 끝에서 한 번 더 하지 않는다
+      plateUneaten = null;                              // the same thing is not said a second time at the end of the list
     } else if (kitchen && prog && typeof prog.getMeal === 'function' && !pending) {
       out.push({
         id: 'noMeal',
@@ -140,12 +140,12 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
         detail: '조리대에서 요리하면 식탁에 차려집니다 — 식탁에서 먹어 두면 다음 레이드 1회분이 실립니다.',
       });
     }
-  } catch { /* progression · housing 이 아직 없다 */ plateUneaten = null; }
+  } catch { /* progression · housing not there yet */ plateUneaten = null; }
 
-  /* 9. 기업 계약 — 수락한 계약 없이 나가려 한다 (2026-09-12, 사용자 결정).
-   *    다른 여덟과 똑같이 **막지 않는다**. 계약 없이 도는 레이드도 정상이지만 한 판은 길고, 돌아와서야
-   *    「계약을 안 걸었네」를 깨닫는 것이 가장 아깝다 — 그래서 나가기 전에 한 번 묻는다.
-   *    `ctx.meta.activeContract` 가 유일한 질의다(수락한 계약 하나뿐이고, 없으면 null). */
+  /* 9. Corporation contract — launching with no accepted contract (2026-09-12, user's decision).
+   *    Exactly like the other eight it **does not block**. A raid run with no contract is normal, but one run is long, and
+   *    realising 「I never took a contract」 only after coming back is the biggest waste — so it asks once before the launch.
+   *    `ctx.meta.activeContract` is the only query (there is exactly one accepted contract, null with none). */
   try {
     const meta = sys.ctx.meta;
     if (meta && !meta.activeContract) {
@@ -155,9 +155,9 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
         detail: '함선 컴퓨터의 기업 네트워크에서 계약을 하나 수락하면 이번 레이드의 전리품이 곧바로 보상이 됩니다.',
       });
     }
-  } catch { /* meta 가 아직 없다 — 훈련장 · 스모크 */ }
+  } catch { /* meta not there yet — the training range · smokes */ }
 
-  /* 10. 치워질 접시 (2026-09-16, 접시 모델) — 이미 다른 식사를 실었는데 식탁에 먹지 않은 요리가 남았다. 막지 않는다. */
+  /* 10. A plate about to be cleared (2026-09-16, the plate model) — another meal is loaded and an uneaten dish is left on the table. Does not block. */
   if (plateUneaten) {
     out.push({
       id: 'plateDiscard',

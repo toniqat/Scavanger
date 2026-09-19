@@ -24,22 +24,22 @@ export interface TileHandlers {
 /** Phase 7: an item rolled into a container that has not been searched yet shows only its footprint. */
 export const isHiddenItem = (item: ItemInstance): boolean => item.searched === false;
 
-/* ── 2026-09-12 (사용자 결정): 내게 필요한 탄약에만 사선 띠 ──────────────────────────────────────────────────
- * "내가 장착하고 있는 무기에 맞는 탄약에만 탄약 아이템 타일 우측 상단에 표시용 사선 띠를 추가한다."
+/* ── 2026-09-12 (user's decision): the ribbon only on the ammo I need ────────────────────────────────────────
+ * "a display ribbon is added at the top right of an ammo tile only for ammo that fits the weapon I have equipped."
  *
- * 타일을 그리는 `buildTileContent` 는 격자 · 장비칸 · 고스트 · 카탈로그 · 거래 화면이 함께 쓰는 **순수 함수**라
- * 로드아웃을 모른다. 그래서 "지금 필요한 탄종"만 모듈 하나에 들고, 타일을 그리는 쪽(Tab 창 `InventoryUI` ·
- * 끼워 넣는 격자 `TradeGrids`)이 갱신한다 — 표시 전용 상태이고 인벤토리 데이터는 한 글자도 건드리지 않는다.
+ * `buildTileContent`, which draws the tile, is a **pure function** the grid · equipment slot · ghost · catalog · trade
+ * screens all share, so it knows no loadout. One module holds "the ammo types needed now" and the drawing side (the Tab
+ * window `InventoryUI` · the embedded grids `TradeGrids`) refreshes it — display state that never touches inventory data.
  */
 let neededAmmo: ReadonlySet<string> = new Set<string>();
 
-/** `def` 가 지금 장착한 주무기가 쓰는 탄약인가 (탄약이 아니면 언제나 false). */
+/** Is `def` the ammo an equipped primary uses (always false when it is not ammo). */
 export const isNeededAmmo = (def: ItemDef): boolean =>
   def.category === 'ammo' && def.ammoType !== undefined && neededAmmo.has(def.ammoType);
 
 /**
- * 장착한 주무기 I · II 의 탄종으로 표를 갈아 끼운다. **바뀌었을 때만 true** 를 돌려주므로 부른 쪽이 그때만
- * 타일을 다시 그리면 된다 (`GridView.refresh(true)`). 무기를 바꾸면 띠도 따라 움직인다.
+ * Swaps the table for the ammo types of the equipped primary slots I · II. It returns **true only when it changed**, so
+ * the caller redraws the tiles only then (`GridView.refresh(true)`). Swap the gun and the ribbon follows.
  */
 export function setNeededAmmoFrom(loadout: Loadout, getStats: StatsLookup): boolean {
   const next = new Set<AmmoType>();
@@ -58,37 +58,37 @@ export function setNeededAmmoFrom(loadout: Loadout, getStats: StatsLookup): bool
   return true;
 }
 
-/* ── 2026-09-12 (E1, 사용자 결정): 즐겨찾기 — 타일 우측 상단 **파란 사선 띠** ─────────────────────────────────────
- * `neededAmmo` 와 같은 이유로 모듈이 표 하나를 든다: `buildTileContent` 는 순수 함수라 인벤토리를 모르기 때문이다.
- * 표의 주인은 `InventorySystem`(`parts/Favorites`)이고 여기는 그 사본만 받는다. `favoriteRev` 는 바뀔 때마다 오르며
- * `GridView.refresh` 가 그것을 보고 격자 버전이 그대로여도 다시 칠한다 (띠 · 필터 칩 「즐겨찾기」의 어두움).
+/* ── 2026-09-12 (E1, user's decision): favourites — a **blue ribbon** at the tile's top right ─────────────────────
+ * The module holds one table for the same reason as `neededAmmo`: `buildTileContent` is a pure function and knows no
+ * inventory. Its owner is `InventorySystem` (`parts/Favorites`); only a copy arrives here. `favoriteRev` rises on every
+ * change and `GridView.refresh` repaints on it even if the grid version stood still (the ribbon · the dark 「즐겨찾기」 filter).
  */
 let favoriteDefs: ReadonlySet<string> = new Set<string>();
 let favoriteRev = 0;
 
-/** 이 아이템 종류가 즐겨찾기인가 (표시 전용 사본 — 규칙은 `InventoryRef.isFavorite`). */
+/** Is this item def a favourite (a display copy — the rule is `InventoryRef.isFavorite`). */
 export const isFavoriteDef = (defId: string): boolean => favoriteDefs.has(defId);
-/** 즐겨찾기 표가 바뀐 횟수 — 다시 그릴지 판단하는 서명에 넣는다. */
+/** How often the favourites table changed — it goes into the signature that decides a redraw. */
 export const favoritesRevision = (): number => favoriteRev;
-/** 표를 갈아 끼운다 (`parts/Favorites` 만 부른다). */
+/** Swaps the table (only `parts/Favorites` calls it). */
 export function setFavoriteDefs(defs: ReadonlySet<string>): void {
   favoriteDefs = new Set(defs);
   favoriteRev++;
 }
 
-/* ── 2026-09-13 (서재 시리즈, 사용자 결정): 「아직 서재에 꽂지 않은」 책 · 비디오 · 레코드 — 즐겨찾기와 **똑같은** 사선 띠 ─────────
- * 질의는 housing 의 `HousingRef.isShelfItemWanted(defId)` 하나다 (그 매체의 보관함을 보유 + 어느 보관함에도 같은 종류가 없음).
- * 즐겨찾기 표와 같은 이유로 모듈이 공급자 · 캐시를 든다 — `buildTileContent` 는 ctx 를 모른다. 공급자를 거는 곳은 `parts/ShelfWanted`
- * 하나이고, 답은 **def 당 한 번** 물어 캐시한다 (타일마다 housing 을 부르지 않는다). `housing:libraryChanged` 등에서
- * `bumpShelfWanted()` 가 캐시를 비우고 리비전을 올리면 `GridView.refresh` 가 격자 버전이 그대로여도 다시 칠한다.
- * 클래스는 `.is-shelf-wanted` — CSS 는 `.is-favorite` 띠와 **같은 규칙에 선택자만 나란히** 둔다 (둘 다면 띠는 하나).
- * 정렬 앞 · 「즐겨찾기」 필터 · 분해/판매 확인 · 컨테이너 글로우는 계속 진짜 즐겨찾기(`.is-favorite`)만의 것이다.
+/* ── 2026-09-13 (library series, user's decision): a book · video · record 「not yet shelved」 — the **same** ribbon ──────
+ * The query is housing's single `HousingRef.isShelfItemWanted(defId)` (that medium's holder is owned + no holder holds the same def).
+ * The module holds a source · a cache for the same reason as the favourites table — `buildTileContent` knows no ctx. The source is hung
+ * in `parts/ShelfWanted` alone and the answer is asked **once per def** and cached (housing is not called per tile). When
+ * `bumpShelfWanted()` empties the cache and raises the revision (`housing:libraryChanged` and the like) `GridView.refresh` repaints
+ * even with the grid version unmoved. The class is `.is-shelf-wanted` — CSS lays its selector **beside** the `.is-favorite` rule
+ * (both at once = one ribbon). Sort-first · the 「즐겨찾기」 filter · the salvage/sell confirm · the container glow stay the real favourite's.
  */
 let shelfWantedSource: ((defId: string) => boolean) | null = null;
 let shelfWantedRev = 0;
 const shelfWantedCache = new Map<string, boolean>();
 
-/** 이 def 타일에 「아직 꽂지 않았다」 띠를 거나 (책 · 비디오 · 레코드만 묻는다 — 나머지는 공급자를 부르지도 않는다). */
+/** Does this def's tile take the 「not yet shelved」 ribbon (only books · videos · records are asked — the rest never reach the source). */
 export function isShelfWantedDef(def: ItemDef): boolean {
   if (!shelfWantedSource || !(def.book || def.disc || def.record)) return false;
   let v = shelfWantedCache.get(def.id);
@@ -98,33 +98,33 @@ export function isShelfWantedDef(def: ItemDef): boolean {
   }
   return v;
 }
-/** 띠 답이 바뀌었을 수 있는 횟수 — 다시 그릴지 판단하는 서명에 넣는다. */
+/** How often the ribbon's answers may have changed — it goes into the signature that decides a redraw. */
 export const shelfWantedRevision = (): number => shelfWantedRev;
-/** 공급자를 건다 / 뗀다 (`parts/ShelfWanted` 만 부른다). */
+/** Hangs / unhooks the source (only `parts/ShelfWanted` calls it). */
 export function setShelfWantedSource(fn: ((defId: string) => boolean) | null): void {
   shelfWantedSource = fn;
   bumpShelfWanted();
 }
-/** 캐시를 비우고 리비전을 올린다 — 서재 · 보관함이 바뀌었다. */
+/** Empties the cache and raises the revision — the library · a holder changed. */
 export function bumpShelfWanted(): void {
   shelfWantedCache.clear();
   shelfWantedRev++;
 }
 
-/* ── 2026-09-12 (아이템 회수 계약, 사용자 결정): 이번 레이드에서 얻은 계약 아이템 — 즐겨찾기와 **똑같은** 사선 띠 ────────────
- * 레이드 중(훈련장 아님)에만, 활성 `extract_with_items` 계약 아이템 중 **이번 레이드 표식**(`ItemInstance.raidFound`)이 있는
- * 스택에 `.is-recovery-item` 을 건다. CSS 는 `.is-favorite` 띠와 같은 선언이라 둘은 구분되지 않고, 둘 다면 띠는 하나다.
- * `.is-favorite` 는 계속 「사용자 즐겨찾기」 만 뜻한다 (필터 · 정렬 · 글로우 · 판매/분해 확인). 범위의 주인은
- * `InventorySystem`(`parts/RaidFound.raidFoundScope`)이고 매 프레임 · Tab 창 새로 그리기 때 여기 사본을 갈아 끼운다.
+/* ── 2026-09-12 (item recovery contracts, user's decision): a contract item found this raid — the **same** ribbon ────────────
+ * Only in a raid (not the training range), `.is-recovery-item` is hung on stacks of an active `extract_with_items` contract item that
+ * carry **this raid's mark** (`ItemInstance.raidFound`). CSS declares it as the `.is-favorite` ribbon, so the two are indistinguishable
+ * and both at once draw one ribbon. `.is-favorite` still means 「the user's favourite」 alone (filter · sort · glow · sell/salvage
+ * confirm). The scope's owner is `InventorySystem` (`parts/RaidFound.raidFoundScope`) and the copy here is swapped every frame · repaint.
  */
 let recoveryScope: RaidFoundScope | null = null;
 let recoveryRev = 0;
 
-/** 이 타일에 회수 계약 띠를 거나 (표시 전용 사본 — 규칙은 `shared/raidFound.countsForRecovery`). */
+/** Does this tile take the recovery-contract ribbon (a display copy — the rule is `shared/raidFound.countsForRecovery`). */
 export const isRecoveryTile = (item: ItemInstance): boolean => countsForRecovery(item, recoveryScope);
-/** 회수 범위가 바뀐 횟수 — 다시 그릴지 판단하는 서명에 넣는다. */
+/** How often the recovery scope changed — it goes into the signature that decides a redraw. */
 export const recoveryRevision = (): number => recoveryRev;
-/** 범위를 갈아 끼운다. **바뀌었을 때만 true**. */
+/** Swaps the scope. **True only when it changed**. */
 export function setRecoveryScope(scope: RaidFoundScope | null): boolean {
   if (sameRaidFoundScope(scope, recoveryScope)) return false;
   recoveryScope = scope;
@@ -158,16 +158,16 @@ function buildHiddenTileContent(el: HTMLElement, item: ItemInstance, w: number, 
   }
 }
 
-/* ── 2026-09-14 (사용자 결정): 내구도 게이지 · 받는 소켓만 ────────────────────────────────────────────────────────────────
- * **내구도가 있는 모든 타일**(무기 · 방탄복 · 가방 · 회복 스프레이 게이지 …)이 바닥에 얇은 게이지를 단다 — 장착 전(가방 · 창고 ·
- * 상자 · 시체 · 거래 격자)에도, 장비칸 카드에도. 색은 남은 비율로 **초록(가득) → 노랑 → 주황 → 빨강(빔)** 사이를 잇는다.
- * 팔레트는 CSS 변수(`--dur-c-full` · `--dur-c-mid` · `--dur-c-low` · `--dur-c-empty`, inventory.css `:root`)이고, 여기서는 비율이
- * 네 색(같은 간격) 중 **어느 두 색 사이의 몇 %** 인지만 적는다 (`--dur-a` · `--dur-b` · `--dur-t`). 숫자는 타일에서 빠졌다 —
- * `cur / max` 는 툴팁이 말한다. 무기 타일의 소켓 핍 · 툴팁의 소켓 줄은 **그 무기가 받는 소켓**(`EffectiveWeaponStats.sockets`)만 그린다.
+/* ── 2026-09-14 (user's decision): the durability gauge · accepted sockets only ───────────────────────────────────────────
+ * **Every tile with durability** (weapon · armor · bag · the 회복 스프레이 gauge …) wears a thin gauge along its bottom — before equipping
+ * (bag · stash · crate · corpse · trade grids) and on the equipment-slot card. Its colour walks the remaining ratio **green (full) →
+ * yellow → orange → red (empty)**; the palette is CSS variables (`--dur-c-full` · `--dur-c-mid` · `--dur-c-low` · `--dur-c-empty`,
+ * inventory.css `:root`) and only **which two of the four evenly spaced colours, at what %** is written here (`--dur-a` · `--dur-b` · `--dur-t`).
+ * The number left the tile — `cur / max` is the tooltip's. Pips and the socket row draw **only the accepted sockets** (`stats.sockets`).
  */
 const DUR_COLOR_STOPS = ['var(--dur-c-empty)', 'var(--dur-c-low)', 'var(--dur-c-mid)', 'var(--dur-c-full)'] as const;
 
-/** `el` 에 남은 비율 `ratio`(0 … 1)의 게이지 색 변수를 적는다 — CSS 가 `color-mix(in srgb, var(--dur-b) var(--dur-t), var(--dur-a))` 로 칠한다. */
+/** Writes the gauge colour variables for the remaining `ratio` (0 … 1) on `el` — CSS paints with `color-mix(in srgb, var(--dur-b) var(--dur-t), var(--dur-a))`. */
 export function setDurabilityColorVars(el: HTMLElement, ratio: number): void {
   const segs = DUR_COLOR_STOPS.length - 1;
   const r = Math.max(0, Math.min(1, Number.isFinite(ratio) ? ratio : 1)) * segs;
@@ -177,15 +177,15 @@ export function setDurabilityColorVars(el: HTMLElement, ratio: number): void {
   el.style.setProperty('--dur-t', `${Math.round((r - i) * 100)}%`);
 }
 
-/** 타일 아이템의 내구도 최대치 — 무기는 실효 스탯, 그 밖에는 `def.durabilityMax`. 0 = 내구도가 없는 아이템 (게이지 없음). */
+/** Max durability of a tile's item — the effective stats for a weapon, `def.durabilityMax` otherwise. 0 = no durability (no gauge). */
 export function durabilityMaxOf(def: ItemDef, stats?: EffectiveWeaponStats | null): number {
   if (stats) return Math.max(1, stats.maxDurability);
   return def.durabilityMax !== undefined && def.durabilityMax > 0 ? def.durabilityMax : 0;
 }
 
 /**
- * 무기 타일의 핍 · 툴팁의 소켓 줄에 그릴 소켓 — 그 무기가 **받는** 소켓(`stats.sockets`) + (옛 세이브로) 받지 않는 소켓에 아직 든 부착물,
- * `SOCKET_SLOTS` 순서. 계약 필드가 아직 비어 오면(옛 로더) 다섯 칸 전부.
+ * The sockets a weapon tile's pips · the tooltip's socket row draw — the sockets that weapon **accepts** (`stats.sockets`) plus an
+ * attachment still sitting in a socket it does not accept (an old save), in `SOCKET_SLOTS` order. All five if the field comes empty (an old loader).
  */
 export function shownSockets(item: ItemInstance, stats: EffectiveWeaponStats): SocketSlot[] {
   const accepted: readonly SocketSlot[] = Array.isArray(stats.sockets) ? stats.sockets : SOCKET_SLOTS;
@@ -209,9 +209,9 @@ export function shownSockets(item: ItemInstance, stats: EffectiveWeaponStats): S
  */
 export function buildSlotCardContent(el: HTMLElement, item: ItemInstance, def: ItemDef, stats?: EffectiveWeaponStats | null): boolean {
   el.className = `inv-tile inv-slot-card rarity-${def.rarity}`;
-  if (isFavoriteDef(def.id)) el.classList.add('is-favorite');   // 2026-09-12 (E1): 파란 사선 띠
-  if (isRecoveryTile(item)) el.classList.add('is-recovery-item');   // 2026-09-12: 회수 계약 — 같은 띠
-  if (isShelfWantedDef(def)) el.classList.add('is-shelf-wanted');   // 2026-09-13: 아직 꽂지 않은 서재 매체 — 같은 띠
+  if (isFavoriteDef(def.id)) el.classList.add('is-favorite');   // 2026-09-12 (E1): the blue ribbon
+  if (isRecoveryTile(item)) el.classList.add('is-recovery-item');   // 2026-09-12: a recovery contract — the same ribbon
+  if (isShelfWantedDef(def)) el.classList.add('is-shelf-wanted');   // 2026-09-13: library media not yet shelved — the same ribbon
   el.style.setProperty('--rc', def.color);
   el.innerHTML = '';
 
@@ -265,13 +265,13 @@ export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemD
   el.className = `inv-tile rarity-${def.rarity}`;
   if (def.attachment) el.classList.add('is-attachment');
   if (def.bag) el.classList.add('is-bag');
-  // 2026-09-12: 우상단 사선 띠 — 지금 장착한 무기가 쓰는 탄약만 (무기 타일의 소켓 핍과 자리가 겹칠 일은 없다)
+  // 2026-09-12: the top-right ribbon — only ammo the equipped weapon uses (it can never collide with a weapon tile's socket pips)
   if (isNeededAmmo(def)) el.classList.add('is-ammo-needed');
-  // 2026-09-12 (E1): 즐겨찾기 파란 띠 — 필요한 탄약이기도 하면 CSS 가 노란 띠를 그 **아래**로 민다 (둘 다 보인다)
+  // 2026-09-12 (E1): the favourite's blue ribbon — if it is needed ammo too, CSS pushes the yellow ribbon **below** it (both show)
   if (isFavoriteDef(def.id)) el.classList.add('is-favorite');
-  // 2026-09-12: 이번 레이드에서 얻은 회수 계약 아이템 — 즐겨찾기와 같은 띠 (감정 전 타일은 위에서 이미 돌아갔다: 내용을 흘리지 않는다)
+  // 2026-09-12: a recovery-contract item found this raid — the favourite's ribbon (an unsearched tile already returned above: nothing leaks)
   if (isRecoveryTile(item)) el.classList.add('is-recovery-item');
-  // 2026-09-13 (서재 시리즈): 보관함은 있는데 아직 어디에도 꽂지 않은 책 · 비디오 · 레코드 — 같은 띠 (즐겨찾기와 겹치면 CSS 가 하나만 그린다)
+  // 2026-09-13 (library series): a book · video · record whose holder is owned but which is shelved nowhere — the same ribbon (with a favourite CSS draws one)
   if (isShelfWantedDef(def)) el.classList.add('is-shelf-wanted');
   el.style.setProperty('--rc', def.color);
   const { width, height } = tileSizeAt(w, h, cell);
@@ -300,7 +300,7 @@ export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemD
   qty.hidden = def.stackMax <= 1;
   el.appendChild(qty);
 
-  // 2026-09-13 (요리 품질): 품질이 붙은 요리에만 좌하단 작은 `★n` — 수량(우하단) · 휠 방향(좌상단) · 사선 띠(우상단)와 모서리가 다르다
+  // 2026-09-13 (meal quality): a small `★n` bottom left, on a meal with quality only — its corner differs from qty (bottom right) · wheel dir (top left) · ribbon (top right)
   const quality = def.meal ? normalizeMealQuality(item.quality) : 0;
   if (quality > 0) {
     el.classList.add('has-quality');
@@ -330,7 +330,7 @@ export function buildTileContent(el: HTMLElement, item: ItemInstance, def: ItemD
     }
   }
   /*
-   * 2026-09-14 (사용자 결정): **every** item with durability wears the gauge — weapons (effective max), 방탄복 · 가방 and a
+ * 2026-09-14 (user's decision): **every** item with durability wears the gauge — weapons (effective max), 방탄복 · 가방 and a
    * channelled consumable's 게이지 (회복 스프레이, Phase 12 — an empty can stays a tile, marked broken, until the ship
    * repairs it). Before this only weapons and the spray had a bar, so a worn 방탄복 looked new until it was equipped.
    */
@@ -359,7 +359,7 @@ function appendDurabilityBar(el: HTMLElement, item: ItemInstance, maxDurability:
   const fill = document.createElement('i');
   fill.className = 'inv-dur-fill';
   bar.appendChild(fill);
-  // a 가방 at 0 keeps its grid (2026-09-11 C-36: "0 이어도 효과 없음") — an empty gauge, never the red 파손 look
+  // a 가방 at 0 keeps its grid (2026-09-11 C-36: "0 이어도 효과 없음") — an empty gauge, never the red broken look
   if (cur <= 0 && breakable) { bar.classList.add('is-broken'); el.classList.add('is-broken'); }
   else if (ratio < DURABILITY_LOW) bar.classList.add('is-low');
   el.appendChild(bar);
@@ -369,7 +369,7 @@ function appendDurabilityBar(el: HTMLElement, item: ItemInstance, maxDurability:
 /**
  * 2026-09-12: everything a grid tile draws, as one string — `GridView.refresh` rebuilds a tile's DOM only when this
  * changed. Weapon stats (sockets / grade / durability bar) derive from the fields listed here, so they are covered.
- * `needAmmo` (2026-09-12) is in here because the 사선 띠 depends on the **equipped weapon**, not on the item itself —
+ * `needAmmo` (2026-09-12) is in here because the ribbon depends on the **equipped weapon**, not on the item itself —
  * swapping guns has to redraw the ammo tiles.
  */
 function tileSignature(item: ItemInstance, w: number, h: number, badge: string | undefined, needAmmo: boolean, favorite: boolean, recovery = false, shelfWanted = false): string {
@@ -402,9 +402,9 @@ export class GridView {
   private lastVersion = -1;
   /** 2026-09-12 (E1): `favoritesRevision()` at the last repaint. */
   private lastFavRev = -1;
-  /** 2026-09-12 (아이템 회수 계약): `recoveryRevision()` at the last repaint. */
+  /** 2026-09-12 (item recovery contracts): `recoveryRevision()` at the last repaint. */
   private lastRecoveryRev = -1;
-  /** 2026-09-13 (서재 시리즈): `shelfWantedRevision()` at the last repaint. */
+  /** 2026-09-13 (library series): `shelfWantedRevision()` at the last repaint. */
   private lastShelfRev = -1;
   private dims = '';
   /** uid → direction glyph for items assigned to the quick-use wheel (bag grid only). */
@@ -424,17 +424,17 @@ export class GridView {
   private hideItem: ((item: ItemInstance) => boolean) | null = null;
 
   /** Cell edge / cell pitch of this grid in px. Only the 기업 거래 desk passes anything but the default. */
-  /** 2026-09-14: `readonly` 이었다 — 창 높이 계단을 넘으면 `setCell` 이 둘을 함께 옮긴다. */
+  /** 2026-09-14: it used to be `readonly` — crossing a window-height step makes `setCell` move both together. */
   private cell: number;
   private step: number;
   /**
-   * 2026-09-12 (가방 틀 고정, 사용자 결정): the box is drawn at least this many rows tall. Rows past the grid's real
+   * 2026-09-12 (the fixed bag frame, user's decision): the box is drawn at least this many rows tall. Rows past the grid's real
    * `rows` are blank space — no cell layer, no drop target — so the 가방 panel keeps the size of the longest bag and a
    * bigger bag simply fills more of that space with cells. null = the box is exactly the grid.
    */
   private frameRows: number | null = null;
   /**
-   * 2026-09-12 (필터): tiles the predicate rejects get `.is-filtered-out` (dimmed). Positions never change and the
+   * 2026-09-12 (the filter): tiles the predicate rejects get `.is-filtered-out` (dimmed). Positions never change and the
    * tile stays draggable — a Diablo grid that hid items would lie about which cells are free.
    */
   private filter: ((item: ItemInstance, def: ItemDef) => boolean) | null = null;
@@ -450,8 +450,8 @@ export class GridView {
     this.step = cell + GAP;
     this.el = document.createElement('div');
     this.el.className = `inv-grid inv-grid-${id}`;
-    // 2026-09-14: **항상** 적는다. 예전에는 기본 크기일 때 CSS 의 `--inv-cell` 에 맡겼는데, 그 값이 이제
-    // 창 높이를 따라 움직이므로 (`labels.gridCellForHeight`) 한 곳에만 적으면 JS 의 `step` 과 갈라진다.
+    // 2026-09-14: written **always**. It used to be left to the CSS `--inv-cell` at the default size, but that value now
+    // moves with the window height (`labels.gridCellForHeight`), so writing it in one place alone splits it from JS's `step`.
     applyGridCellVar(this.el, cell);
     this.cellsEl = document.createElement('div');
     this.cellsEl.className = 'inv-cells';
@@ -482,8 +482,8 @@ export class GridView {
   }
 
   /**
-   * 2026-09-14 (작은 화면 칸 축소): 칸 한 변을 바꾼다. 상자 px · 드래그 보폭 · 하이라이트가 전부 `step` 을 보므로
-   * CSS 변수와 `step` 을 **한 번에** 옮기고 칸 층 · 타일을 다시 그린다. 창 크기가 계단을 넘을 때만 불린다.
+   * 2026-09-14 (smaller cells on a small screen): changes the cell edge. Box px · drag pitch · highlight all read `step`,
+   * so the CSS variable and `step` move **at once** and the cell layer · tiles are redrawn. Called only when a resize crosses a step.
    */
   setCell(px: number): void {
     const cell = Math.max(1, Math.round(px));
@@ -491,8 +491,8 @@ export class GridView {
     this.cell = cell;
     this.step = cell + GAP;
     applyGridCellVar(this.el, cell);
-    this.dims = '';               // 칸 층을 다시 짓게 한다 (`syncDims` 는 가로세로가 같으면 건너뛴다)
-    this.sigs.clear();            // 타일 내용은 칸 크기를 타므로 서명을 버리고 전부 다시 그린다
+    this.dims = '';               // forces the cell layer to be rebuilt (`syncDims` skips when the dimensions match)
+    this.sigs.clear();            // tile content rides the cell size, so the signatures are dropped and everything is redrawn
     if (this.grid) { this.syncDims(this.grid); this.refresh(true); }
   }
 
@@ -537,9 +537,9 @@ export class GridView {
   refresh(force = false): void {
     const grid = this.grid;
     if (!grid) return;
-    // 2026-09-12 (E1): 즐겨찾기가 바뀌면 격자 버전이 그대로여도 다시 칠한다 (띠 · 「즐겨찾기」 필터)
-    // 2026-09-12: …and when the 회수 계약 범위 changed (raid start / end, contract abandoned) — the ribbon follows it
-    // 2026-09-13: …and when the 서재 띠 answers may have changed (`housing:libraryChanged`)
+    // 2026-09-12 (E1): a favourites change repaints even when the grid version stood still (the ribbon · the 「즐겨찾기」 filter)
+    // 2026-09-12: …and when the recovery-contract scope changed (raid start / end, contract abandoned) — the ribbon follows it
+    // 2026-09-13: …and when the library ribbon's answers may have changed (`housing:libraryChanged`)
     if (!force && grid.version === this.lastVersion && favoriteRev === this.lastFavRev && recoveryRev === this.lastRecoveryRev
       && shelfWantedRev === this.lastShelfRev) return;
     this.lastVersion = grid.version;
@@ -562,7 +562,7 @@ export class GridView {
         this.bindTile(el, p.item.uid);
         this.tiles.set(p.item.uid, el);
         this.tilesEl.appendChild(el);
-        // 2026-09-12: no `.is-new` pop — an item that moved grids is simply there (사용자 결정: 즉시 옮겨진다)
+        // 2026-09-12: no `.is-new` pop — an item that moved grids is simply there (user's decision: it moves at once)
       }
       const badge = this.quickBadges.get(p.item.uid);
       const sig = tileSignature(p.item, fp.w, fp.h, badge, isNeededAmmo(def), isFavoriteDef(def.id), isRecoveryTile(p.item), isShelfWantedDef(def));
@@ -643,10 +643,10 @@ export class GridView {
     this.refresh(true);
   }
 
-  /* ── Phase 7: container search gauge / pending takes ── */
+  /* ── Phase 7: container scan gauge / pending takes ── */
 
   /**
-   * Show the search gauge on `uid` at `progress` (0..1); null clears it. Cheap: only the `--p` custom property changes
+   * Show the scan gauge on `uid` at `progress` (0..1); null clears it. Cheap: only the `--p` custom property changes
    * while the same item is being searched (no re-render), so it can be called every frame.
    */
   setScan(uid: string | null, progress = 0): void {

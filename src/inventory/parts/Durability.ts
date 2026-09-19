@@ -1,9 +1,9 @@
 /**
- * src/inventory/parts/Durability.ts — **내구도 · 수리 · 소켓**.
+ * src/inventory/parts/Durability.ts — **durability · repair · sockets**.
  *
- * 무기와 방어구가 닳고(`damageDurability`), 재료로 고쳐지고(`repair` / `repairWeapon`), 부착물이
- * 붙고 떨어지는(`attachToWeapon` / `detachAllSockets`) 경로. 회복 스프레이의 게이지 충전도 여기 있다
- * (`sprayRepairCost` — 남은 게이지 비율만큼만 재료를 받는다).
+ * The paths where weapons and armor wear down (`damageDurability`), are fixed with materials (`repair` /
+ * `repairWeapon`) and take attachments on and off (`attachToWeapon` / `detachAllSockets`). Refilling the gauge of a
+ * `회복 스프레이` lives here too (`sprayRepairCost` — it charges materials only for the missing part of the gauge).
  */
 import * as THREE from 'three';
 import type {
@@ -16,7 +16,7 @@ import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeig
 import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
 import { Container, ContainerStore } from '../Container';
 import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
-/* 2026-09-12: 소켓을 만질 수 있는 자리의 규칙은 `DropResolver` 하나가 갖는다 (가방 · 장비칸 · 함선 창고) */
+/* 2026-09-12: the rule for where a socket may be touched is owned by `DropResolver` alone (bag · equipment slot · ship stash) */
 import { canSocketAt } from './DropResolver';
 import { setStarterGrantState, starterGrantState } from '../Stash';
 import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
@@ -67,18 +67,19 @@ export function damageDurability(sys: InventorySystem, uid: string, amount: numb
   }
 
 /**
- * 2026-09-11 (C-36) — **가방은 레이드 한 번에 한 번 닳는다.** 장착 가방이 `BAG_DURABILITY_PER_RAID` 를 잃는다.
+ * 2026-09-11 (C-36) — **the bag wears once per raid.** The equipped bag loses `BAG_DURABILITY_PER_RAID`.
  *
- * - 부르는 곳은 둘: 탈출 성공(`game:complete` 에서 `stats.extracted`) 과 사망(`CorpseLoot.stripForCorpse` 가 시체로
- *   옮기기 **전**). 먼저 온 쪽만 깎는다 — `bagWornThisRaid` 가 레이드 동안 서 있어서 사망 → 구조선 → 자기 가방을
- *   되찾아 탈출해도 두 번 닳지 않고, 레이드 중에 가방을 갈아 끼워도 한 번이다. 가방 없이 죽었다면 아무것도 깎지
- *   않았으므로 표시도 세우지 않는다 (그 뒤 주운 가방으로 탈출하면 그 가방이 닳는다).
- * - 훈련장은 레이드가 아니다 (`missionMode === 'training'`).
- * - **0 이 되어도 효과가 없다** (사용자 결정) — 격자 · 퀵슬롯은 그대로이고 수리비만 크다. 그래서 `damageDurability`
- *   와 달리 `durability:broken` (「파손 — 성능이 크게 떨어집니다」 토스트 · 파손음)을 내지 않는다. 낮아진 경고는
- *   `durability:changed` 로 HUD 가 알아서 띄운다.
+ * - Two callers: a successful extraction (`stats.extracted` in `game:complete`) and death (`CorpseLoot.stripForCorpse`,
+ *   **before** it moves anything to the corpse). Only the first to arrive wears it — `bagWornThisRaid` stands for the
+ *   whole raid, so death → rescue drop → recovering the bag and extracting never wears it twice, and swapping bags
+ *   mid-raid is still once. Dying with no bag wears nothing, so no mark is raised (extracting on a bag picked up
+ *   afterwards wears that bag).
+ * - The training range is not a raid (`missionMode === 'training'`).
+ * - **Reaching 0 has no effect** (user's decision) — the grid · quick slots are unchanged and only the repair cost is
+ *   large. So unlike `damageDurability` it does not emit `durability:broken` (the 「파손 — 성능이 크게 떨어집니다」
+ *   toast · the break sound). The low warning is raised by the HUD itself off `durability:changed`.
  *
- * 깎았으면 true.
+ * True when it wore.
  */
 export function wearBagForRaid(sys: InventorySystem): boolean {
   if (sys.bagWornThisRaid || sys.ctx.missionMode === 'training') return false;
@@ -113,17 +114,17 @@ export function sprayRepairCost(sys: InventorySystem, item: ItemInstance, def: I
   }
 
 /**
- * **완전 수리에 드는 재료** — 한 곳에서만 정한다 (2026-09-10, 제작 대개편 2단계).
+ * **The materials a full repair costs** — decided in one place only (2026-09-10, craft rework 2nd stage).
  *
- * 예전에는 `getEffectiveStats(item) ? getRepairCost(item) : sprayRepairCost(...)` 였다. 즉 **무기일 때만**
- * `getRepairCost` 를 물었고, 방탄복은 그 삼항의 else 가지로 흘러 `sprayRepairCost` 도 null 이라 **재료 없이
- * 만피 복구**됐다 (실측: 내구도 5 / 200 짜리 방탄복 I 을 `repair()` 하면 폐금속 0 을 쓰고 200 이 됐다).
- * 이제 `getRepairCost` 가 방탄복에도 값을 돌려주므로 **그것을 먼저 보고, 비었을 때만** 회복 스프레이의
- * 게이지 충전(`sprayRepairCost`)으로 내려간다.
+ * It used to be `getEffectiveStats(item) ? getRepairCost(item) : sprayRepairCost(...)`, so `getRepairCost` was asked
+ * **only for a weapon**; armor fell into that ternary's else branch where `sprayRepairCost` is null too, and so was
+ * **restored to full with no materials** (measured: `repair()` on an armor I at 5 / 200 durability spent 0 `폐금속`
+ * and came back at 200). `getRepairCost` now returns a value for armor too, so **it is read first and only when it
+ * is empty** does this drop to the gauge refill of a `회복 스프레이` (`sprayRepairCost`).
  *
- * 2026-09-11 (C-36): 둘 다 비었을 때 **무료 수리가 아니다** — 제작 레시피가 있는 아이템(`needsRepairCost`)이면
- * 그것은 수리 표의 구멍이므로 `repair` · `repairInfo` · 작업대 수리 목록이 모두 거절한다. 가방이 내구도를 얻으며
- * `Salvage.REPAIRABLE` 에 함께 들어갔고, `npm run data:check` 가 같은 규칙을 표 전체에 대해 검산한다.
+ * 2026-09-11 (C-36): both of them empty is **not a free repair** — for an item that has a craft recipe
+ * (`needsRepairCost`) that is a hole in the repair table, so `repair` · `repairInfo` and the bench repair list all
+ * refuse it. The bag joined `Salvage.REPAIRABLE` when it gained durability, and `npm run data:check` checks the same rule over the whole table.
  */
 export function repairMaterials(sys: InventorySystem, item: ItemInstance, def: ItemDef): CraftIngredient[] {
   const cost = sys.loot.getRepairCost(item);
@@ -132,8 +133,8 @@ export function repairMaterials(sys: InventorySystem, item: ItemInstance, def: I
 }
 
 /**
- * Ship workbench: weapons go through `repairWeapon` (materials), everything else pays `repairMaterials` —
- * 방탄복은 **제작 재료 × 내구도 구간 배수**, 회복 스프레이는 캔 + 소독약 (Phase 12), 그 밖에는 무료.
+ * Ship workbench: weapons go through `repairWeapon` (materials), everything else pays `repairMaterials` — armor is
+ * **craft materials × the durability bucket multiplier**, a `회복 스프레이` is a `캔` + `소독약` (Phase 12), the rest free.
  */
 export function repair(sys: InventorySystem, uid: string): boolean {
   if (sys.ctx.isRaidActive()) return false;
@@ -148,7 +149,7 @@ export function repair(sys: InventorySystem, uid: string): boolean {
   const max = def.durabilityMax;
   if (max === undefined || max <= 0) return false;
   if ((item.durability ?? max) >= max) return false;
-  // all materials or nothing — a half-worn 방탄복 / an empty can stays a valid (n / max) item until then
+  // all materials or nothing — a half-worn armor / an empty can stays a valid (n / max) item until then
   const cost = repairMaterials(sys, item, def);
   if (!cost.length && needsRepairCost(def)) return false;   // a hole in the repair table is not a free repair
   for (const c of cost) if (sys.countDef(c.defId) < c.qty) return false;
@@ -164,8 +165,8 @@ export function repair(sys: InventorySystem, uid: string): boolean {
 
 /**
  * Context-menu repair readout (hub only): materials still needed (`[]` = free), `short` = which of them the bag
- * lacks, `bucket` = 남은 내구도 구간 (그 구간의 배수가 곧 재료 수량이다 — 2026-09-10). null when the item is
- * not worn / not repairable.
+ * lacks, `bucket` = the remaining-durability bucket (that bucket's multiplier is the material quantity — 2026-09-10).
+ * null when the item is not worn / not repairable.
  */
 export function repairInfo(sys: InventorySystem, uid: string): RepairInfo | null {
   const item = sys.findItem(uid);
@@ -173,15 +174,15 @@ export function repairInfo(sys: InventorySystem, uid: string): RepairInfo | null
   if (!item || !def) return null;
   const dur = sys.getDurability(uid);
   if (!dur || dur.max <= 0 || dur.durability >= dur.max) return null;
-  // 2026-09-10: `getRepairCost` 를 **먼저** 본다 (무기 · 방탄복). 비었을 때만 회복 스프레이의 게이지 충전.
+  // 2026-09-10: `getRepairCost` is read **first** (weapons · armor). Only when it is empty, the `회복 스프레이` gauge refill.
   const byCraft = sys.loot.getRepairCost(item);
   const raw = byCraft.length ? byCraft : sys.sprayRepairCost(item, def) ?? [];
   if (!raw.length && needsRepairCost(def)) return null;   // 2026-09-11: never offer a free repair for a crafted item
   const cost = raw.map((c) => ({
     ...c, name: ITEM_DEF_MAP.get(c.defId)?.name ?? c.defId, have: sys.countDef(c.defId),
   }));
-  // 구간은 **제작 재료 규칙으로 값이 나온 경우에만** 뜻이 있다. 회복 스프레이의 캔 · 소독약은 게이지 비율로
-  // 정해지므로 (`sprayRepairCost`) 여기서 `제작 재료의 n %` 라고 말하면 거짓말이 된다.
+  // The bucket means something **only when the value came out of the craft-material rule**. A `회복 스프레이`'s `캔` ·
+  // `소독약` are set by the gauge fraction (`sprayRepairCost`), so saying `n % of the craft materials` here would lie.
   return { cost, short: cost.some((c) => c.have < c.qty), bucket: byCraft.length ? sys.loot.durabilityBucketInfo(item) : null };
   }
 
@@ -194,11 +195,11 @@ export function attachToWeapon(sys: InventorySystem, weaponUid: string, attachme
   }
 
 /**
- * Every attachment of weapon `uid` back into the bag (overflow: 함선이면 창고, 그래도 없으면 바닥).
- * False when none / not found.
+ * Every attachment of weapon `uid` back into the bag (overflow: the stash in the ship, the ground when even that is
+ * full). False when there are none / it is not found.
  *
- * 2026-09-12 (사용자 결정): 대상은 `canSocketAt` — 가방 · 장비칸 · **함선 창고**이고 상자 · 시체는 아니다
- * (그 규칙의 근거는 `parts/DropResolver.canSocketAt` 의 주석에 있다).
+ * 2026-09-12 (user's decision): the targets are `canSocketAt` — bag · equipment slot · **ship stash**, and not a
+ * container or a corpse (the reason for that rule is in the comment on `parts/DropResolver.canSocketAt`).
  */
 export function detachAllSockets(sys: InventorySystem, uid: string): boolean {
   const w = sys.locate(uid);

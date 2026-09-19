@@ -1,9 +1,9 @@
 /**
- * src/inventory/ui/parts/Screens.ts — **Tab 창의 화면 탭**과 부속 열.
+ * src/inventory/ui/parts/Screens.ts — **the Tab window's screen tabs** and the columns beside them.
  *
- * 함선에서 Tab 은 인벤토리 / 캐릭터 / 기업 / 함선 네 화면을 한 창 안에서 전환한다
- * (각 화면은 그 폴더가 준 `EmbeddedView` 라서 이 파일은 붙였다 뗐다만 한다).
- * 제작 열과 무한 상자 카탈로그의 열고 닫기도 여기 있다.
+ * In the ship, Tab switches between four screens inside one window — 인벤토리 / 캐릭터 / 기업 / 함선
+ * (each screen is the `EmbeddedView` its own folder handed over, so this file only attaches and detaches it).
+ * Opening and closing the craft column and the infinite box catalog live here too.
  */
 import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
 import { Keys, QUICK_SLOTS, anyCorpAccessible, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
@@ -25,7 +25,7 @@ import type { InventoryUI } from '../InventoryUI';
 
 export function onTab(sys: InventoryUI, tab: ScreenTab): void {
   if (tab === sys.activeTab) return;
-  // 2026-09-13: the screen being left may ask first (캐릭터 탭의 확정 전 포인트 — `EmbeddedView.requestLeave`) and switch later
+  // 2026-09-13: the screen being left may ask first (unconfirmed points on the 캐릭터 tab — `EmbeddedView.requestLeave`) and switch later
   if (sys.screenView?.requestLeave?.(() => onTab(sys, tab))) return;
   sys.setTab(tab);
   sys.sys.sfx(sys.activeTab === tab ? 'ui_pickup' : 'ui_error');
@@ -50,9 +50,9 @@ export function showScreenTab(sys: InventoryUI, tab: ScreenTab): boolean {
 export function setTab(sys: InventoryUI, tab: ScreenTab): void {
   if (!sys.root) return;
   if (tab !== 'inventory' && !sys.hub) tab = 'inventory'; // the embedded screens are ship-only
-  // 2026-09-08: 튜토리얼 중에는 인벤토리 탭만 — 나머지는 잠긴 채로 그려지고 클릭도 되돌려진다
+  // 2026-09-08: during the tutorial only the 인벤토리 tab — the rest are drawn locked and a click is turned back
   if (tab !== 'inventory' && sys.ctx.tutorial?.blockReason('screenTab', tab)) tab = 'inventory';
-  // 2026-09-17 (사용자 결정): 기업 탭은 신뢰도 Lv.1 기업이 하나라도 생기기 전까지 감춰져 있고 열리지도 않는다
+  // 2026-09-17 (user's decision): the 기업 tab stays hidden and refuses to open until some corp reaches 신뢰도 Lv.1
   if (tab === 'corp' && corpTabLocked(sys)) tab = 'inventory';
   if (tab === sys.activeTab && (tab === 'inventory' || sys.screenView)) return;
   // leaving a screen: dispose its view, close the popups that belong to the grid
@@ -67,7 +67,7 @@ export function setTab(sys: InventoryUI, tab: ScreenTab): void {
     sys.layout.hidden = false;
     sys.screenHost.hidden = true;
     sys.markTab();
-    sys.emitGuide();               // 2026-09-09: the 키 가이드 line follows the tab
+    sys.emitGuide();               // 2026-09-09: the key guide line follows the tab
     return;
   }
   const view = sys.buildScreenView(tab);
@@ -93,7 +93,7 @@ export function setTab(sys: InventoryUI, tab: ScreenTab): void {
   }
 
 /**
- * 2026-09-17 (사용자 결정): true while no corp has reached `CORP_ACCESS_REP_LEVEL` — the 기업 screen tab is hidden then
+ * 2026-09-17 (user's decision): true while no corp has reached `CORP_ACCESS_REP_LEVEL` — the 기업 screen tab is hidden then
  * (the first level comes from the corp NPCs' first quests). Without `ctx.meta` the tab is not rep-gated here; `buildScreenView`
  * already answers "unavailable".
  */
@@ -134,13 +134,13 @@ export function buildScreenView(sys: InventoryUI, tab: ScreenTab): EmbeddedView 
   }
 
 export function markTab(sys: InventoryUI): void {
-  // 2026-09-08: 캐릭터 tab wears a red dot while there are unspent 능력치 포인트 (level-ups are easy to miss)
+  // 2026-09-08: the 캐릭터 tab wears a red dot while there are unspent stat points (level-ups are easy to miss)
   let statPoints = 0;
   try { statPoints = sys.ctx.progression?.statPoints ?? 0; } catch { statPoints = 0; }
   for (const [id, b] of sys.tabButtons) {
     b.classList.toggle('is-on', id === sys.activeTab);
-    // 2026-09-08: 튜토리얼이 막는 탭은 **아예 감춘다** — 자물쇠 + "튜토리얼에서는 ~" 툴팁을 남겨 두는 것보다
-    // 지금 쓸 수 있는 탭만 보이는 편이 낫다. 끝나거나 건너뛰면 `tutorial:changed` 로 다시 나타난다.
+    // 2026-09-08: a tab the tutorial blocks is **hidden outright** — showing only the tabs usable now beats leaving a
+    // lock plus a "튜토리얼에서는 ~" tooltip. Once it ends or is skipped they come back on `tutorial:changed`.
     const tutHidden = id !== 'inventory' && (sys.ctx.tutorial?.hides('screenTab', id) ?? false);
     b.title = SCREEN_TABS.find((t) => t.id === id)?.title ?? '';
     if (id === 'character') {
@@ -149,14 +149,14 @@ export function markTab(sys: InventoryUI): void {
       b.dataset.alert = alert ? String(statPoints) : '';
     }
     // 함선 needs the housing system; hide the tab entirely when there is none
-    // 2026-09-17: 기업 is hidden until any corp reaches 신뢰도 Lv.1 (`corpTabLocked`)
+    // 2026-09-17: 기업 stays hidden until some corp reaches 신뢰도 Lv.1 (`corpTabLocked`)
     b.hidden = tutHidden || (id === 'ship' && !sys.ctx.housing) || (id === 'corp' && corpTabLocked(sys));
   }
   }
 
 /**
- * 보유 크레딧 글자 (`ctx.meta.credits`; refreshed on `meta:creditsChanged` and every `refresh`). 2026-09-16: 우측 상단 알약이
- * 아니라 가방 바닥 줄 오른쪽 끝의 `12,345 C` 다 — 단위까지 한 글자열(`formatCredits`).
+ * The held-credits text (`ctx.meta.credits`; refreshed on `meta:creditsChanged` and every `refresh`). 2026-09-16: not the
+ * top-right pill but the `12,345 C` at the right end of the bag's bottom row — one string, unit included (`formatCredits`).
  */
 export function refreshCredits(sys: InventoryUI): void {
   if (!sys.root) return;
@@ -178,30 +178,31 @@ export function toggleCraft(sys: InventoryUI): void {
  * System-driven craft panel visibility (`openBenchCraft` / `closeBench`).
  *
  * **2026-09-07**: the panel is a **column of the window** again instead of a modeless popup — `.inv-layout.is-craft`
- * puts the recipe list leftmost (where 함선 창고 sits otherwise) and stacks 가방 over 함선 창고 on the right, so the
- * materials a recipe needs are visible next to it. Still no blocker and no pointer-lock change: the window owns both.
+ * puts the recipe list leftmost (where the stash sits otherwise) and stacks the bag over the stash on the right, so
+ * the materials a recipe needs are visible next to it. Still no blocker and no pointer-lock change: the window owns both.
  *
  * **2026-09-08**: `.is-craft` also lands on the **root**, and there it *hides* everything a recipe list has nothing
- * to do with — 장착 장비 + 임플란트 열 · 퀵슬롯 로즈 · 가방 헤더의 `제작`/가치 · 상단 화면 탭. 제작 중에는 재료와
- * 레시피만 남는다 (사용자 결정). 장비 칸이 사라지므로 만든 무기를 장착하려면 제작 창을 닫아야 한다 — 튜토리얼의
- * `openBag` 단계가 그 순서를 그대로 안내한다.
+ * to do with — the equipment + implant column · the quick-slot rose · the bag header's `제작` / value · the screen tabs
+ * on top. While crafting only materials and recipes are left (user's decision). The equipment slots go with them, so
+ * equipping a crafted weapon means closing the craft window — the tutorial's `openBag` step walks exactly that order.
  *
- * **2026-09-15 4차 (사용자 결정)**: 창고 · 가방 격자 카드(`.inv-panel-grids`)도 제작 중에는 숨는다 (css `.inv-layout.is-craft`)
- * — 재료는 격자가 아니라 인벤토리 모델에서 센다. 창은 [작업대 목록 · 조합 목록] [상세 카드] 둘만 남는다. Tab · Escape · 키
- * 가이드는 그대로다 (숨김은 css 뿐이라 `closeOverlays` → `closeCraft` 경로가 바뀌지 않는다).
+ * **2026-09-15 4th pass (user's decision)**: the stash · bag grid card (`.inv-panel-grids`) hides while crafting too
+ * (css `.inv-layout.is-craft`) — materials are counted from the inventory model, not from the grids. The window keeps
+ * [the bench list · the recipe list] and [the detail card] alone. Tab · Escape · the key guide are unchanged (the
+ * hiding is css only, so the `closeOverlays` → `closeCraft` path does not change).
  */
 export function setCraftOpen(sys: InventoryUI, open: boolean): void {
   const was = sys.craftPanel.isOpen;
   sys.craftPanel.setOpen(open);
   if (open) sys.disassemble.close();
-  else { sys.repair.close(); sys.tooltip.hide(); }   // 수리 팝업은 작업대에 붙어 있다 — 작업대를 떠나면 같이 닫힌다; 목록 칸의 호버 카드도
-  // 2026-09-15 4차: 격자가 숨는 동안 그 위에 올린 카드 · 끌던 것이 남지 않게
+  else { sys.repair.close(); sys.tooltip.hide(); }   // the repair popup is attached to the bench — leaving it closes both; so goes the list's hover card
+  // 2026-09-15 4th pass: so no hover card and no drag survives on a grid while it is hidden
   if (open) { if (sys.drag && !sys.drag.catalog) sys.cancelDrag(); sys.hoverLeave(); }
   sys.layout?.classList.toggle('is-craft', open);
   sys.root?.classList.toggle('is-craft', open);
   if (open) sys.craftPanel.refresh();
-  // 2026-09-09 키 가이드: the 제작 열 is its own owner over the window's line. Mouse only — the hold button says what it
-  //   is, so the line carries no keys of its own (the guide appends `Tab 닫기` itself).
+  // 2026-09-09 key guide: the 제작 column is its own owner over the window's line. Mouse only — the hold button says
+  //   what it is, so the line carries no keys of its own (the guide appends `Tab 닫기` itself).
   if (was !== open) sys.ctx.bus.emit('ui:keyGuide', { owner: 'inventory.craft', keys: open ? [] : null });
   }
 
@@ -216,17 +217,18 @@ export function closeCraft(sys: InventoryUI): void {
 export function refreshCraft(sys: InventoryUI): void {
   if (!sys.root || sys.root.hidden) return;
   sys.craftPanel.refresh();
-  // Phase 12: the 분해 게이지 advances with the job every frame (cheap tick, not the chip rebuild of `refresh()`)
+  // Phase 12: the 분해 gauge advances with the job every frame (cheap tick, not the chip rebuild of `refresh()`)
   if (sys.disassemble.isOpen) sys.disassemble.tick();
   }
 
 /**
  * Show / hide the catalog panel (system state lives in `InventorySystem.isCatalogOpen`).
  *
- * **2026-09-13 (사용자 결정)**: 카탈로그가 열려 있는 동안 창에는 **무한 상자 · 함선 창고(함선) · 가방**만 남는다 —
- * `.is-catalog` 가 장착 장비 열(주무기 · 방탄복 · 가방 칸 · 전술 임플란트 · 주머니 칸) · 퀵슬롯 로즈 · 주머니 격자를
- * 감춘다 (`inventory.css`). 감춘 칸은 드롭 대상도 아니다 — `Drag.updateDragTarget` / `updateCatalogTarget` 이 장비칸 ·
- * 퀵슬롯을 건너뛰고 `activeViews()` 가 주머니 격자를 뺀다. 닫으면 클래스가 빠져 평소 배치로 돌아온다.
+ * **2026-09-13 (user's decision)**: while the catalog is open the window keeps only **the infinite box · the stash (in
+ * the ship) · the bag** — `.is-catalog` hides the equipment column (primary · armor · bag slot · tactical implants ·
+ * pouch slot) · the quick-slot rose · the pouch grid (`inventory.css`). A hidden slot is no drop target either:
+ * `Drag.updateDragTarget` / `updateCatalogTarget` skip the equipment and quick slots and `activeViews()` leaves the
+ * pouch grid out. Closing it drops the class and the usual layout returns.
  */
 export function setCatalog(sys: InventoryUI, open: boolean): void {
   sys.catalogView.setOpen(open);

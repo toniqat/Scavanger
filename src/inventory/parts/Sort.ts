@@ -1,12 +1,12 @@
 /**
- * src/inventory/parts/Sort.ts — **가방 · 창고 자동 정렬** (2026-09-12, 사용자 결정).
+ * src/inventory/parts/Sort.ts — **auto-sorting the bag · stash** (2026-09-12, user's decision).
  *
- * 순서: 카테고리(`SORT_CATEGORY_ORDER`) → 등급(높은 것 먼저) → 크기(큰 것 먼저) → 이름 → 수량.
- * 같은 아이템의 스택은 정렬하면서 `stackMax` 까지 합친다. 채우기는 **위에서부터 줄 단위**(`Grid.findFreeSlot` 의
- * 행 우선 탐색)이고, 가로로 누운 모양을 먼저 시도한다.
+ * The order: category (`SORT_CATEGORY_ORDER`) → rarity (highest first) → size (largest first) → name → quantity.
+ * Stacks of the same item are merged up to `stackMax` while sorting. Packing runs **row by row from the top**
+ * (`Grid.findFreeSlot`'s row-first search) and tries the landscape orientation first.
  *
- * **아이템을 절대 잃지 않는다.** 카테고리 순서로 다 안 들어가면(큰 것이 뒤에 오며 조각이 난 경우) 크기 순으로 한 번
- * 더 채워 보고, 그것도 안 되면 `snapshot()` 으로 **정렬 전 그대로** 되돌린 뒤 'fail' 이다 (합친 수량까지 복원된다).
+ * **An item is never lost.** When the category order does not all fit (a large item late, fragmenting the grid) it
+ * packs once more by size; failing that `snapshot()` restores **the pre-sort state exactly** (merged qty too) and 'fail'.
  */
 import type { ItemDef, ItemInstance } from '@/shared';
 import { normalizeMealQuality, rarityRank } from '@/shared';
@@ -24,7 +24,7 @@ function categoryRank(def: ItemDef | undefined): number {
 
 /**
  * The sort order itself (exported for the smoke tests' expectations).
- * 2026-09-12 (E1, 사용자 결정): `isFavorite` 를 주면 **즐겨찾기한 종류가 맨 앞**이고, 그 안에서 원래 순서를 따른다.
+ * 2026-09-12 (E1, user's decision): given `isFavorite`, **favourited defs come first**, and inside them the normal order.
  */
 export function compareForSort(a: ItemInstance, b: ItemInstance, isFavorite?: (defId: string) => boolean): number {
   const da = ITEM_DEF_MAP.get(a.defId), db = ITEM_DEF_MAP.get(b.defId);
@@ -34,7 +34,7 @@ export function compareForSort(a: ItemInstance, b: ItemInstance, isFavorite?: (d
     || ((db ? rarityRank(db.rarity) : -1) - (da ? rarityRank(da.rarity) : -1))
     || (area(db) - area(da))
     || (da?.name ?? a.defId).localeCompare(db?.name ?? b.defId, 'ko')
-    // 2026-09-13 (요리 품질): 같은 요리면 별이 많은 스택이 앞 (품질이 다르면 합쳐지지 않으므로 나란히 선다)
+    // 2026-09-13 (meal quality): among equal meals more stars come first (different qualities never merge, so they stand apart)
     || (normalizeMealQuality(b.quality) - normalizeMealQuality(a.quality))
     || (b.qty - a.qty)
     || a.uid.localeCompare(b.uid);
@@ -45,7 +45,7 @@ export function compareForSort(a: ItemInstance, b: ItemInstance, isFavorite?: (d
  * 기업 거래 desk has them staged in a tray by uid. Returns the stacks that still hold something.
  */
 function mergeStacks(items: readonly ItemInstance[], keep?: (uid: string) => boolean): ItemInstance[] {
-  // 2026-09-12 (아이템 회수 계약): groups are def + stack key — a raid-found contract stack never folds into a brought one
+  // 2026-09-12 (item recovery contract): groups are def + stack key — a raid-found stack never folds into a brought one
   const groups = new Map<string, { max: number; list: ItemInstance[] }>();
   for (const it of items) {
     const def = ITEM_DEF_MAP.get(it.defId);
@@ -92,7 +92,7 @@ export function sortGrid(sys: InventorySystem, gridId: 'bag' | 'stash', keep?: (
   const before = layoutKey(snap.placements.map((p) => ({ uid: p.item.uid, x: p.x, y: p.y, rotated: p.rotated, qty: p.qty })));
 
   const merged = mergeStacks(items, keep);
-  const fav = (defId: string): boolean => sys.isFavorite(defId);   // 2026-09-12 (E1): 즐겨찾기가 앞
+  const fav = (defId: string): boolean => sys.isFavorite(defId);   // 2026-09-12 (E1): favourites first
   grid.clear();
   if (!pack(grid, [...merged].sort((a, b) => compareForSort(a, b, fav)))) {
     grid.clear();

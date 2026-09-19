@@ -8,7 +8,7 @@ export {
   lockedQuickItems, mergeIntoQuick, pickStarterQuick, quickSlotsSignature,
 } from './QuickSlots';
 export type { QuickSlotItems } from './QuickSlots';
-/* 2026-09-10: 퀵슬롯 1:1 교체에서 밀려난 스택이 갈 자리 (미리보기 · 실행이 같은 규칙을 본다) */
+/* 2026-09-10: where a stack displaced by a 1:1 quick-slot swap goes (preview and execution read the same rule) */
 export { canQuickSwap, applyQuickSwap } from './QuickSwap';
 export type { QuickSwapCell, QuickSwapPlan, QuickSwapWhere } from './QuickSwap';
 export { Container, ContainerStore, CONTAINER_COLS, CONTAINER_ROWS } from './Container';
@@ -22,6 +22,6 @@ export type { StashSaveFile } from './Stash';
 export type { LoadoutSave } from './Loadout';
 export { serializeExtras, serializePlacement, reviveItem, readSaveFile, writeSaveFile, safeStorage, savedCell } from './Serialize';
 export type { SavedExtras, SavedPlacement } from './Serialize';
-/* Phase 8: Tab-screen host, modeless popups, 아이템 분해 */
+/* Phase 8: Tab-screen host, modeless popups, item salvage */
 export { isDisassembleRecipe } from './InventorySystem';
 export { Modeless } from './ui/Modeless';

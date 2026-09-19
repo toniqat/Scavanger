@@ -414,6 +414,7 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 
 Older: `git log -- src/inventory`.
 
+- 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, item names and verbatim user decisions kept in backticks / 「」, no string literal touched.
 - 2026-09-18 — Tab 가방: the fixed 12-row frame is gone (grid = equipped bag), the card stretches to the equipment column, and 무게 · 가치 · 크레딧 moved into the grid's right-hand column bottom (`.inv-bag-side` / `.inv-bag-readouts`). Where the 창고 stands beside it (ship Tab ≥ 1600 px) the row keeps its old height to the pixel — the frame's height moved onto the stash grid as a `min-height` (`--inv-bag-frame-rows`).
 - 2026-09-17 — `TradeGridsView.previewExternalAt` / `clearExternalPreview` (shared contract, add-only): the cell-footprint highlight for an item dragged in from a furniture screen, same hit test and rule as `placeExternalAt`.
 - 2026-09-17 — 무한 상자 double-click puts the item into the stash first while the stash shows (ship), then the bag (`takeFromCatalog`; failure toast `창고와 가방에 공간이 없습니다`).

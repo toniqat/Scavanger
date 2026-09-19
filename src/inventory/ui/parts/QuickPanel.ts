@@ -1,13 +1,13 @@
 /**
- * src/inventory/ui/parts/QuickPanel.ts — **빠른 사용 나침반 로제트**.
+ * src/inventory/ui/parts/QuickPanel.ts — **the quick-use compass rose**.
  *
- * 가방이 정한 개수만큼 8방향 칸을 열어 주고(잠긴 칸은 회색), 각 칸에 **그 칸이 들고 있는 스택**을 그린다.
- * 드래그로 채우고 더블클릭으로 비운다.
+ * Opens as many of the eight direction cells as the bag allows (a locked cell is grey) and draws **the stack that cell
+ * holds** in each of them. They are filled by a drag and emptied by a double-click.
  *
- * **2026-09-09 — 휠은 자기 컨테이너다** (사용자 결정). 칸의 아이템은 가방 격자에 없으므로 이 패널이 넘기는
- * `ItemLocation` 은 `BAG_LOC` 이 아니라 **`{ kind: 'quick', index }`** 다 — 그래야 `findItem` · 툴팁 ·
- * 우클릭 메뉴 · 드래그가 그 스택을 찾는다. 가방 타일의 방향 뱃지(`setQuickBadges`)는 이제 달 것이 없다:
- * 휠에 올린 스택은 가방에서 사라지므로 뱃지를 붙일 타일 자체가 없다.
+ * **2026-09-09 — the wheel is its own container** (user's decision). A cell's item is not in the bag grid, so the
+ * `ItemLocation` this panel hands over is **`{ kind: 'quick', index }`**, not `BAG_LOC` — that is what lets `findItem` ·
+ * the tooltip · the right-click menu · a drag find that stack. The direction badges on bag tiles (`setQuickBadges`) now
+ * have nothing to wear: a stack put on the wheel leaves the bag, so there is no tile to badge at all.
  */
 import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
 import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
@@ -79,7 +79,7 @@ export function refreshQuick(sys: InventoryUI): void {
   const slots = sys.sys.getQuickSlots();
   const active = sys.sys.getQuickSlotCount();
   sys.quickCount.textContent = `${active}/${QUICK_SLOTS}`;
-  // 2026-09-09: 휠 스택은 가방 격자에 없다 — 뱃지를 붙일 가방 타일이 없으므로 목록은 늘 비어 있다
+  // 2026-09-09: a wheel stack is not in the bag grid — there is no bag tile to badge, so the map is always empty
   const badges = new Map<string, string>();
   for (const cell of sys.quickCells) {
     const item = slots[cell.index] ?? null;
@@ -123,7 +123,7 @@ export function bindQuickTile(sys: InventoryUI, el: HTMLElement, cell: QuickCell
   el.addEventListener('dblclick', (e) => {
     e.preventDefault();
     if (sys.drag?.started || performance.now() < sys.suppressClicksUntil) return;
-    // 가방으로 되돌리기 — 가방이 꽉 차 있으면 거절되고 스택은 칸에 그대로 남는다
+    // back into the bag — refused when the bag is full, and the stack stays in its cell
     sys.result(sys.sys.setQuickSlot(cell.index, null) ? 'ok' : 'fail', 'ui_drop', loc(), cell.uid ?? '');
   });
   }

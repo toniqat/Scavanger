@@ -25,7 +25,7 @@ interface CatalogTab {
 /** Category tabs of the 무한 상자, derived from `ItemCategory` (weapons / consumables / materials fold two categories each). */
 export const CATALOG_TABS: readonly CatalogTab[] = [
   { id: 'all', label: TEXT.catalog.tabs.all, categories: null },
-  { id: 'weapon', label: TEXT.catalog.tabs.weapon, categories: ['primary'] },   // 2026-09-10: 보조무기 제거
+  { id: 'weapon', label: TEXT.catalog.tabs.weapon, categories: ['primary'] },   // 2026-09-10: 보조무기 removed
   { id: 'ammo', label: TEXT.catalog.tabs.ammo, categories: ['ammo'] },
   { id: 'attachment', label: TEXT.catalog.tabs.attachment, categories: ['attachment'] },
   { id: 'bag', label: TEXT.catalog.tabs.bag, categories: ['bag'] },
@@ -36,10 +36,10 @@ export const CATALOG_TABS: readonly CatalogTab[] = [
   { id: 'material', label: TEXT.catalog.tabs.material, categories: ['material', 'valuable'] },
   { id: 'herb', label: TEXT.catalog.tabs.herb, categories: ['herb'] },
   { id: 'seed', label: TEXT.catalog.tabs.seed, categories: ['seed'] },
-  // 2026-09-16 (사용자 보고): 표본은 재배 탭에도 재료 탭에도 없어 이름을 알아야만 꺼낼 수 있었다 — 가방 필터의
-  //   `표본` 칩과 같은 축이다 (`model.FILTER_GROUPS`). 정의가 하나도 없으면 탭은 스스로 빠진다 (`ensureBuilt`).
+  // 2026-09-16 (user's report): samples were in neither the growing tab nor the material tab, so they could only be pulled
+  //   out by name — the same axis as the bag filter's `표본` chip (`model.FILTER_GROUPS`). No def at all → the tab drops itself (`ensureBuilt`).
   { id: 'sample', label: TEXT.catalog.tabs.sample, categories: ['sample'] },
-  { id: 'book', label: TEXT.catalog.tabs.book, categories: ['book', 'disc', 'record'] },   // Phase 9: 서적 · 2026-09-12 (A-3e): 디스크 · 레코드도 같은 서재 탭
+  { id: 'book', label: TEXT.catalog.tabs.book, categories: ['book', 'disc', 'record'] },   // Phase 9: 서적 · 2026-09-12 (A-3e): discs · records share the 서재 tab
   { id: 'furniture', label: TEXT.catalog.tabs.furniture, categories: ['furniture'] },
 ];
 
@@ -138,7 +138,7 @@ export class CatalogView {
     this.emptyEl.hidden = true;
     scroll.append(this.listEl, this.emptyEl);
 
-    // 2026-09-13 (사용자 결정): 하단 안내 줄(`드래그 → 가방 · 창고 · 슬롯에 …`)은 없앴다
+    // 2026-09-13 (user's decision): the bottom hint line (`드래그 → 가방 · 창고 · 슬롯에 …`) is gone
     this.el.append(head, this.tabsEl, this.searchEl, scroll);
   }
 
@@ -151,8 +151,8 @@ export class CatalogView {
     if (open) {
       this.ensureBuilt();
       this.apply();
-      // 2026-09-15 2차 (사용자 결정): 열자마자 타자로 검색된다 — `/items` 로 여는 것이 곧 "찾겠다" 는 뜻이다.
-      // (콘솔 쪽에서 selector 로 `.inv-cat-search` 를 찾아 focus 하던 임시 배선의 제자리다.)
+      // 2026-09-15 2nd pass (user's decision): typing searches the moment it opens — opening with `/items` already means
+      // "I am looking for something". (This is the proper home of the console's stopgap `.inv-cat-search` selector focus.)
       this.searchEl.focus();
       this.searchEl.select();
     } else this.searchEl.blur();
@@ -255,11 +255,11 @@ export class CatalogView {
   /** Number of tiles currently shown (smoke tests). */
   get visibleCount(): number { return this.listEl.childElementCount; }
 
-  /** 2026-09-12 (E1): tiles are built once — re-flag the 즐겨찾기 ribbon after a toggle. */
+  /** 2026-09-12 (E1): tiles are built once — re-flag the favourite ribbon after a toggle. */
   refreshFavorites(): void {
     for (const e of this.entries) {
       e.tile.classList.toggle('is-favorite', isFavoriteDef(e.def.id));
-      e.tile.classList.toggle('is-shelf-wanted', isShelfWantedDef(e.def));   // 2026-09-13: 서재 띠 — 같은 모양
+      e.tile.classList.toggle('is-shelf-wanted', isShelfWantedDef(e.def));   // 2026-09-13: the library ribbon — the same look
     }
   }
 

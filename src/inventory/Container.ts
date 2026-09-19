@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { Random, crateLootRandom, markRaidFound } from '@/shared';
-/* appended (2026-09-16): 서사 이상 드롭률 게이트 — 잠긴 방 예외 */
+/* appended (2026-09-16): the epic-plus drop-rate gate — the locked room exception */
 import type { CrateLootOpts } from '@/shared';
 import type { ContainerTakenWire, ItemInstance, LootRef, PlanetId } from '@/shared';
 import { Grid, type DefLookup, type Placement } from './Grid';
@@ -27,13 +27,13 @@ export class Container {
   readonly grid: Grid;
   readonly position = new THREE.Vector3();
   /**
-   * 2026-09-10 — 연 쪽이 넘긴 **살아 있는** 자리 객체. 달리는 전차 안의 컨테이너는 그 객체가 매 프레임 제자리에서
-   * 고쳐지는데 `position` 은 연 순간의 복사본이라, 거리 판정이 그것을 보면 창을 연 지 0.4초 만에 "멀어졌다" 며
-   * 닫히고 감정도 멈췄다. 여는 쪽은 전부 수명이 긴 객체(상자 def · 컨테이너 spec · 시체 · 보급 상자)를 넘긴다 —
-   * **스크래치 벡터를 넘기면 안 된다.**
+   * 2026-09-10 — the **live** position object the opener handed in. A container in a moving tram has that object
+   * rewritten in place every frame, while `position` is a copy taken when it opened: a distance check reading the copy
+   * declared "too far" 0.4 s after the window opened, closing it and stopping the search. Every opener hands in a
+   * long-lived object (the crate def · container spec · corpse · supply crate) — **never a scratch vector.**
    */
   anchor: THREE.Vector3 | null = null;
-  /** 거리 판정용 자리 — 살아 있는 `anchor`, 없으면 복사본. */
+  /** The spot the distance check reads — the live `anchor`, or the copy when there is none. */
   get livePosition(): THREE.Vector3 { return this.anchor ?? this.position; }
   /** `crate:looted` emitted once when the grid first becomes empty. */
   lootedEmitted = false;
@@ -50,7 +50,7 @@ export class Container {
     /** Loot-window title; undefined → the tier label. */
     public title?: string,
     /**
-     * appended (2026-09-09): per-container grid. Crates keep the 6×4 default; a 플레이어 유해 asks for
+     * appended (2026-09-09): per-container grid. Crates keep the 6×4 default; a player corpse asks for
      * `PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS` because a whole loadout + bag has to fit in it.
      */
     cols: number = CONTAINER_COLS, rows: number = CONTAINER_ROWS) {
@@ -159,7 +159,7 @@ export class ContainerStore {
   /** Set by `InventorySystem`: a take applied from the shared state (never a live one). */
   onTaken: ((info: StoreTakenInfo) => void) | null = null;
   /**
-   * 2026-09-12 (아이템 회수 계약): set by `InventorySystem` — the seed a crate roll stamps on its items
+   * 2026-09-12 (item recovery contracts): set by `InventorySystem` — the seed a crate roll stamps on its items
    * (`shared/raidFound.raidFoundSeed`; null outside a real raid). Caller-supplied contents are stamped by their source.
    */
   raidMark: (() => number | null) | null = null;
@@ -169,8 +169,8 @@ export class ContainerStore {
   get(id: string): Container | undefined { return this.containers.get(id); }
   all(): Container[] { return [...this.containers.values()]; }
 
-  /** `planet` (2026-09-09): 이 레이드의 목표 행성 — 무기 등급 곡선(`rollCrateOn`). null = 예전 동작. */
-  /** `opts` (2026-09-16): 그 컨테이너의 굴림 규칙 — 호출자가 `WorldRef.crateLootOpts(id)` 를 그대로 넘긴다 (잠긴 방). */
+  /** `planet` (2026-09-09): this raid's target planet — the weapon grade curve (`rollCrateOn`). null = the old behaviour. */
+  /** `opts` (2026-09-16): that container's roll rules — the caller passes `WorldRef.crateLootOpts(id)` straight through (the locked room). */
   getOrCreate(id: string, tier: number, position: THREE.Vector3, loot: LootRef, missionSeed: number, planet: PlanetId | null = null,
     opts?: CrateLootOpts): Container {
     let c = this.containers.get(id);
@@ -181,7 +181,7 @@ export class ContainerStore {
     }
     c = new Container(id, tier, position, this.getDef);
     c.anchor = position;
-    // 2026-09-12: 시드 식은 `shared/lootRolls` 한 곳 — world 의 미리보기 · 드론 스캔(`parts/Peek`)이 같은 식으로 미리 굴린다
+    // 2026-09-12: the seed formula lives in one place, `shared/lootRolls` — world's preview and the drone scan (`parts/Peek`) pre-roll with it
     const rng = crateLootRandom(missionSeed, id);
     const items = loot.rollCrateOn(tier, rng, planet, opts);
     markRaidFound(items, this.raidMark?.() ?? null);   // 2026-09-12: raid loot — never touches the rng
@@ -214,10 +214,10 @@ export class ContainerStore {
   }
 
   /**
-   * 2026-09-15 (안드로이드 분대원) — 아직 굴리지 않은 컨테이너를 **호출자가 넘긴 내용물**로 확정한다 (`parts/Allies`).
-   * `getOrCreate` 와 같은 자리에 서지만 굴림만 밖에서 온다: 맵 상자는 상자 코드와 같은 식, 구조물 · 플랫폼 · 전차
-   * 컨테이너는 열쇠 부가 굴림까지 포함한 여는 경로 그대로여야 하는데, 그 굴림을 아는 것은 world 이기 때문이다.
-   * 티어를 그대로 들고 서므로 나중에 사람이 같은 상자를 열면(`getOrCreate`) 캐시의 이 컨테이너를 그대로 본다.
+   * 2026-09-15 (android squadmates) — settles a not-yet-rolled container with the **contents the caller hands in**
+   * (`parts/Allies`). It stands where `getOrCreate` does, only the roll comes from outside: a map crate uses the crate
+   * code's own formula, while structure · platform · tram containers must follow the opening path including the key
+   * bonus roll, and world is what knows it. It keeps the tier, so a person opening that crate later sees this one.
    */
   prime(id: string, tier: number, position: THREE.Vector3, items: readonly ItemInstance[]): Container {
     const known = this.containers.get(id);

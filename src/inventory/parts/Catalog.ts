@@ -1,8 +1,8 @@
 /**
- * src/inventory/parts/Catalog.ts — **무한 상자** (개발자 카탈로그, Phase 6).
+ * src/inventory/parts/Catalog.ts — the **무한 상자** (the dev catalog, Phase 6).
  *
- * `/items` 콘솔 명령이 여는 치트 창이다. 다른 그리드와 달리 원본이 줄지 않고 드래그마다 **새 인스턴스**를 만든다
- * (`dropFromCatalog` / `takeFromCatalog`). 훈련장의 무기 거치대도 카테고리를 지정해 이 창을 연다.
+ * The cheat window the `/items` console command opens. Unlike any other grid its source never shrinks and every drag
+ * mints a **fresh instance** (`dropFromCatalog` / `takeFromCatalog`). The training range's weapon rack opens it too, with a category.
  */
 import * as THREE from 'three';
 import type {
@@ -48,7 +48,7 @@ export function openCatalog(sys: InventorySystem, opts?: { category?: ItemCatego
     ctx.bus.emit('inventory:opened', { containerId: null });
   }
   sys.ui?.setCatalog(true);
-  // Phase 9: `category` preselects the tab holding it (훈련장 무기 거치대 → 'primary'); unknown / unbuilt → 전체 stays
+  // Phase 9: `category` preselects the tab holding it (the training range's weapon rack → 'primary'); unknown / unbuilt → 전체 stays
   if (category) sys.ui?.catalog.setTabForCategory(category);
   ctx.bus.emit('ui:catalogToggled', { open: true });
   }
@@ -101,7 +101,7 @@ export function dropFromCatalog(sys: InventorySystem, item: ItemInstance, target
       sys.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
       return 'ok';
     }
-    // A-15: 주머니 칸은 격자까지 갈아 끼우므로 `changePouch` 를 지나야 한다
+    // A-15: the pouch slot swaps the grid as well, so it has to go through `changePouch`
     if (slot === 'pouch') {
       if (sys.changePouch(item, null, 'grid') !== 'ok') return 'fail';
       sys.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
@@ -137,15 +137,15 @@ export function dropFromCatalog(sys: InventorySystem, item: ItemInstance, target
 
 /**
  * Catalog double-click: a fresh instance (merge into stacks first).
- * 2026-09-17 (사용자 결정): 창고와 가방이 **둘 다 보이면 창고가 먼저**다 (`sys.hubMode` = 창고 패널이 보이는 조건,
- * `InventoryUI.show`) — 창고에 안 들어가면 가방. 임무 중(창고 없음)은 예전처럼 가방뿐이다.
+ * 2026-09-17 (user's decision): with the stash and the bag **both visible the stash comes first** (`sys.hubMode` = the
+ * condition the stash panel shows under, `InventoryUI.show`) — the bag when it will not fit. On a mission (no stash) the bag alone, as before.
  */
 export function takeFromCatalog(sys: InventorySystem, defId: string): OpResult {
   const def = ITEM_DEF_MAP.get(defId);
   if (!def || !sys.catalogOpen) return 'fail';
   const item = sys.loot.createItem(defId, sys.catalogQty(def));
   if (sys.hubMode && sys.stash.grid.autoPlace(item)) {
-    sys.afterChange();   // 창고로 간 것은 `inventory:itemAdded` 를 내지 않는다 (카탈로그 드래그를 창고에 놓을 때와 같다)
+    sys.afterChange();   // what went to the stash emits no `inventory:itemAdded` (the same as dropping a catalog drag on the stash)
     return 'ok';
   }
   if (!sys.bag.autoPlace(item)) {

@@ -1,11 +1,11 @@
 /**
- * src/inventory/ui/parts/Drag.ts — **아이템 끌어 놓기**.
+ * src/inventory/ui/parts/Drag.ts — **dragging an item and dropping it**.
  *
- * 누름 판정 → 고스트 생성 → 커서 추적 → 대상 격자/칸 판정 → 놓기 까지의 포인터 상태 기계 전부.
- * 어떤 칸에 놓을 수 있는지는 여기서 정하지 않는다 — `inventory/parts/DropResolver.ts` 에 물어보고
- * 그 답(`ok` / `swap` / `merge` / `bad`)을 하이라이트 색으로 그릴 뿐이다.
- * 고스트는 커서 **중앙**에 붙고, 확대는 CSS `scale:` 이 아니라 `positionGhost` 의 transform 안에 있다
- * (개별 변환은 translate → scale 순이라 JS 가 쓴 translate 가 곱해져 커서에서 벌어졌다).
+ * The whole pointer state machine: the press judgement → building the ghost → following the cursor → resolving the
+ * target grid/cell → the drop. Where an item may be dropped is not decided here — it is asked of
+ * `inventory/parts/DropResolver.ts` and the answer (`ok` / `swap` / `merge` / `bad`) is only painted as a highlight.
+ * The ghost rides the **centre** of the cursor, and the lift lives inside `positionGhost`'s transform, not in a CSS
+ * `scale:` (individual transforms run translate → scale, so the translate JS wrote got multiplied and drifted off).
  */
 import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
 import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
@@ -31,8 +31,8 @@ import type { DetachAim, SocketDrag } from '../TipPin';
 /**
  * Grid cell a ghost of `w × h` at (left, top) would land on, resolved **strictly first**: a grid that actually
  * contains the pointer always wins over one that only sits within its half-cell tolerance. The two-pass order is
- * what stopped 가방 and 함선 창고 (stacked with a small gap since the 2026-09-07 pass) from stealing each other's
- * edge rows — `activeViews()` is ordered 창고 → 가방, so the padded box of the stash used to swallow drops the
+ * what stopped the bag and the stash (stacked with a small gap since the 2026-09-07 pass) from stealing each other's
+ * edge rows — `activeViews()` is ordered stash → bag, so the padded box of the stash used to swallow drops the
  * player aimed at the bag's last row.
  */
 export function resolveGridTarget(sys: InventoryUI, views: GridView[], left: number, top: number, w: number, h: number, px: number, py: number): { view: GridView; x: number; y: number } | null {
@@ -144,12 +144,12 @@ function removeDragListeners(sys: InventoryUI): void {
 }
 
 /**
- * 2026-09-12 (사용자 결정) — **합치고 남은 수량은 커서에 붙는다.** 붕대 2 를 붕대 4 가 든 퀵슬롯(최대 5)에 놓으면
- * 칸은 5 가 되고 1 이 커서에 남는다. 격자끼리 합칠 때도 같다.
+ * 2026-09-12 (user's decision) — **the remainder of a merge sticks to the cursor.** Dropping 2 `붕대` on a quick slot
+ * holding 4 `붕대` (max 5) leaves the cell at 5 and 1 on the cursor. Merging between grids is the same.
  *
- * 남은 수량은 **출발지를 떠나지 않는다** — 출발 스택의 수량이 줄었을 뿐이고, 여기서는 그 스택을 다시 끄는 드래그를
- * `held` 로 열어 둔다. 그래서 세이브 · 시체 벗기기 · 창 닫기 어느 쪽이 끼어들어도 아이템은 제자리에 있다.
- * `qty` null = 남은 스택 전부, 숫자 = 나눈 드래그(Shift / Ctrl)의 남은 몫.
+ * The remainder **never leaves its source** — only the source stack's quantity went down, and what is opened here is a
+ * `held` drag of that same stack. So whichever of a save · stripping a corpse · closing the window cuts in, the item is
+ * in its place. `qty` null = the whole remaining stack, a number = the remaining share of a split drag (Shift / Ctrl).
  */
 export function holdRemainder(sys: InventoryUI, prev: DragState, qty: number | null, x: number, y: number): void {
   const item = sys.sys.findItem(prev.uid, prev.from);
@@ -264,7 +264,7 @@ export function startDrag(sys: InventoryUI, d: DragState): void {
     sys.sys.sfx('ui_pickup');
     return;
   }
-  // a stim / grenade from any grid — 가방 · 상자 · 창고 (2026-09-10) — or a wheel cell: light the usable cells
+  // a stim / grenade from any grid — the bag · a crate · the stash (2026-09-10) — or a wheel cell: light the usable cells
   // 2026-09-12: a Shift / Ctrl split may go onto the wheel too (new stack or merge), so it lights the cells as well
   if (isQuickUsable(d.def) && d.from.kind === 'grid') sys.root?.classList.add('is-quick-drag');
   if (d.quickFrom !== null) {
@@ -339,7 +339,7 @@ export function updateDragTarget(sys: InventoryUI, px: number, py: number): void
 
   if (d.catalog) { sys.updateCatalogTarget(d, px, py); return; }
 
-  // 2026-09-13: the 무한 상자 layout hides 장착 장비 · 퀵슬롯 · 주머니 (`.is-catalog`) — none of them is a target then
+  // 2026-09-13: the infinite box layout hides the equipment · quick slots · pouch (`.is-catalog`) — none of them is a target then
   const catalogLayout = sys.catalogView.isOpen;
 
   // quick-use wheel cells (any drag: non-usable items light red)
@@ -350,8 +350,8 @@ export function updateDragTarget(sys: InventoryUI, px: number, py: number): void
     cell.el.classList.add(pv === 'bad' ? 'is-target-bad' : pv === 'swap' ? 'is-target-swap' : 'is-target-ok');
     return;
   }
-  // 2026-09-10: a wheel-cell drag may also aim at a grid (가방 · 상자 · 창고) or an equipment slot — 퀵슬롯에서
-  // 곧장 상자로. Only when it lands on **no** target at all does the release clear the slot (see `finishDrag`).
+  // 2026-09-10: a wheel-cell drag may also aim at a grid (the bag · a crate · the stash) or an equipment slot — from a
+  // quick slot straight into the crate. Only a landing on **no** target at all makes the release clear the slot (see `finishDrag`).
 
   // attachments: a weapon tile under the pointer (bag or equipment slot) is a socket target
   if (isAttachmentDef(d.def)) {
@@ -451,7 +451,7 @@ export function clearSocketTarget(sys: InventoryUI): void {
   sys.bagView.setSocketTarget(null, null);
   sys.containerView.setSocketTarget(null, null);
   sys.stashView.setSocketTarget(null, null);
-  sys.pouchView.setSocketTarget(null, null);   // A-15 (주머니에 무기는 안 들어가지만 정리는 같이 한다)
+  sys.pouchView.setSocketTarget(null, null);   // A-15 (no weapon goes into the pouch, but it is cleared along with the rest)
   for (const sv of sys.slots.values()) sv.tile?.classList.remove('is-socket-ok', 'is-socket-bad');
   }
 
@@ -493,7 +493,7 @@ export function handlePointerUp(sys: InventoryUI, e: PointerEvent): void {
 
   // dragged out of a wheel cell onto nothing: clear the slot (the stack returns to the bag).
   // 2026-09-10: a wheel drag that *does* have a target falls through to the normal drop below — another cell
-  // re-orders the wheel, a grid cell moves the stack there (상자 · 창고 포함).
+  // re-orders the wheel, a grid cell moves the stack there (the crate · the stash included).
   if (d.quickFrom !== null && !d.target) {
     sys.result(sys.sys.setQuickSlot(d.quickFrom, null) ? 'ok' : 'fail', 'ui_drop', d.from, d.uid);
     return;
@@ -560,7 +560,7 @@ export function cancelDrag(sys: InventoryUI): void {
   if (d.started) sys.endDragVisuals(d);
   }
 
-/* ── 2026-09-14 (사용자 결정): 고정한 무기 툴팁에서 부착물 끌어내기 — `ui/TipPin` 에 Tab 창이 주는 대답 ────────────────────── */
+/* ── 2026-09-14 (user's decision): attachment drag-out from a pinned weapon tooltip — the Tab window's answer to `ui/TipPin` ─────────── */
 
 /** The ghost of an attachment pulled out of a pinned weapon card — the same `.inv-ghost` tile a grid drag lifts. */
 export function buildSocketGhost(sys: InventoryUI, item: ItemInstance, def: ItemDef): { el: HTMLElement; halfW: number; halfH: number } {
@@ -573,10 +573,10 @@ export function buildSocketGhost(sys: InventoryUI, item: ItemInstance, def: Item
 }
 
 /**
- * Where an attachment dragged out of a pinned weapon card would land: a cell of 가방 · 함선 창고 · 주머니 (strict-first, like a
+ * Where an attachment dragged out of a pinned weapon card would land: a bag · stash · pouch cell (strict-first, like a
  * grid drag; never the open crate — putting into someone else's container is not a detach), or — on a mission, over the
  * backdrop / the 버리기 zone — the world. Paints the cell highlight (green / red from `previewDetach`) and lights the drop zone.
- * null = over a panel, or the ship's backdrop (no ground in the ship: point at a 창고 cell instead) — releasing there does nothing.
+ * null = over a panel, or the ship's backdrop (no ground in the ship: point at a stash cell instead) — releasing there does nothing.
  */
 export function aimDetach(sys: InventoryUI, px: number, py: number, d: SocketDrag): DetachAim | null {
   clearDetachAim(sys);

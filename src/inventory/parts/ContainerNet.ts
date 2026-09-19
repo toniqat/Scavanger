@@ -1,9 +1,9 @@
 /**
- * src/inventory/parts/ContainerNet.ts — **컨테이너 획득의 호스트 권한 경로** (Phase 7).
+ * src/inventory/parts/ContainerNet.ts — **the host-authoritative path of a container take** (Phase 7).
  *
- * 싱글 플레이에서 상자에서 아이템을 집으면 즉시 반영되지만, 멀티에서는 호스트가 심판이다:
- * 클라이언트는 `contq take` 를 보내고 `cont taken` / `cont denied` 를 기다린다 (`OpResult` 의 `'pending'`).
- * 이 파일이 그 대기열(`pendingTakes`) · 타임아웃 · 호스트 측 검증 · 다른 대원의 획득 반영을 전부 갖는다.
+ * In single player picking an item out of a crate applies at once, but in multiplayer the host is the judge:
+ * a client sends `contq take` and waits for `cont taken` / `cont denied` (`'pending'` in `OpResult`).
+ * This file holds all of it — that queue (`pendingTakes`) · the timeout · the host-side validation · applying another member's take.
  */
 import * as THREE from 'three';
 import type {
@@ -92,8 +92,8 @@ export function trackTake(sys: InventorySystem, uid: string, from: ItemLocation,
   }
 
 /**
- * `by` (2026-09-15, 안드로이드 분대원): 가져간 몸의 id — 생략하면 지금까지처럼 **나**다. 안드로이드가 가져가면 그 기의
- * id 가 실린다 (받는 쪽은 `msg.by !== localId` 이므로 「남이 가져갔다」 경로를 그대로 탄다 — 새 갈래가 생기지 않는다).
+ * `by` (2026-09-15, android squadmates): the id of the body that took it — omitted it is **me**, as it always was. An android
+ * take carries that unit's id (the receiving side sees `msg.by !== localId`, so it rides the 「somebody else took it」 path unchanged — no new branch appears).
  */
 export function announceTake(sys: InventorySystem, c: Container, idx: number, qty: number, by?: string): void {
   const net = sys.ctx.net;
@@ -238,7 +238,7 @@ export function onContainerRequest(sys: InventorySystem, msg: ContainerRequest, 
 export function materializeCrate(sys: InventorySystem, id: string): Container | null {
   const crate = sys.ctx.world?.getCrates().find((k) => k.id === id);
   if (!crate) return null;
-  // 2026-09-16: 여는 경로와 같은 굴림 규칙 (맵 상자는 늘 undefined 지만 한 규칙으로 둔다)
+  // 2026-09-16: the same roll rules as the opening path (a map crate is always undefined, but it is kept as one rule)
   return sys.containers.getOrCreate(id, crate.tier, crate.position, sys.loot, sys.missionSeed, sys.ctx.missionPlanet,
     sys.ctx.world?.crateLootOpts?.(id));
   }

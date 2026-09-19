@@ -1,19 +1,19 @@
 /**
- * src/inventory/parts/Favorites.ts — **아이템 즐겨찾기** (2026-09-12, E1, 사용자 결정).
+ * src/inventory/parts/Favorites.ts — **item favourites** (2026-09-12, E1, user's decision).
  *
- * 답하는 질문: *이 아이템 종류를 즐겨찾기했는가, 그리고 그 표는 언제 저장되고 어디서 오나.*
+ * The question answered: *is this item def a favourite, and when is that table saved and where does it come from.*
  *
- *  - 단위는 **아이템 종류(def id)** 다 — 같은 아이템은 전부 표시된다. 가지고 있지 않은 것도 켤 수 있다.
- *  - **캐릭터별 · 서버 동기**: 로드아웃 문서의 `fav` 목록에 실린다 (`Loadout.LoadoutSave.fav`). 새 프로필 키를 만들지 않았다.
- *  - 킷(장비 · 가방)과 **수명이 다르다**. 그래서 `applyLoadoutSave`(레이드 blob · 훈련장 복원 · 크루 카드도 지나는 길)는
- *    즐겨찾기를 건드리지 않고, 표를 갈아 끼우는 곳은 둘뿐이다 — 부팅 때 로컬 파일(`Lifecycle.restoreLoadoutSave`)과
- *    서버 문서(`ProfileDocs.applyProfileDocs`, 레이드 중에도 — 킷은 레이드 blob 이 진실이지만 즐겨찾기는 아니다).
- *  - **저장**: 함선에서는 곧바로 로드아웃 저장을 예약한다(`markDirty('favorite')`). 함선 밖(레이드 · 훈련장)에서는 그 자리에서
- *    로드아웃을 쓰면 들고 나간 킷이 파일에 적히므로(리셋 정책 위반) `favoritesDirty` 만 세우고, 다음 로드아웃 저장
- *    (탈출 `complete` · 사망 `corpse` · 실패 `starter` · 다음 `hub:entered`)이 함께 싣는다.
- *  - **서버 문서가 로컬 편집을 덮지 않는다** (CLAUDE.md 2026-09-11): 올리지 못한 토글이 있으면(`favoritesDirty` 또는 저장
- *    디바운스 중) 들어온 목록을 적용하지 않는다 — 그 편집이 곧 올라간다.
- *  - 표시는 `ui/GridView` 의 모듈 사본(`setFavoriteDefs`)이 맡는다 — 타일 띠 · 정렬 · 필터 · 분해 확인은 전부 이 표를 본다.
+ *  - The unit is the **item def (def id)** — every copy is marked. A def that is not owned can be turned on too.
+ *  - **Per character · server-synced**: carried by the loadout document's `Loadout.LoadoutSave.fav` list. No new profile key.
+ *  - It has **a different lifetime** from the kit (gear · bag), so `applyLoadoutSave` (the raid blob · range restore ·
+ *    crew cards) never touches favourites — the blob owns the kit, not this list. The table is replaced in two places
+ *    only: the boot file (`Lifecycle.restoreLoadoutSave`) and the server document (`ProfileDocs.applyProfileDocs`, raids too).
+ *  - **Saving**: in the ship a loadout save is scheduled at once (`markDirty('favorite')`). Outside it (raid · range) a
+ *    loadout write on the spot would put the carried kit on disk (a breach of the reset policy), so only `favoritesDirty`
+ *    is raised and the next save (extraction `complete` · death `corpse` · failure `starter` · `hub:entered`) carries it.
+ *  - **A server document never overwrites a local edit** (CLAUDE.md 2026-09-11): with a toggle not yet uploaded
+ *    (`favoritesDirty`, or a save debounce running) the incoming list is not applied — that edit goes up shortly.
+ *  - Display is `ui/GridView`'s module copy (`setFavoriteDefs`) — tile ribbon · sort · filter · salvage confirm all read it.
  */
 import { ITEM_DEF_MAP } from '@/items';
 import { sanitizeFavoriteList } from '../Loadout';

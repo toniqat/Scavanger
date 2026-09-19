@@ -12,11 +12,11 @@ import { BAG_CAPACITY_PER_CELL, itemWeight, rarityRank } from '@/items';
 export const DEFAULT_CARRY_CAPACITY = WEIGHT_BASE_CAPACITY + WEIGHT_PER_STRENGTH * STAT_BASE;
 
 /**
- * 가방이 늘려 주는 소지 한계 (kg). 맨 어깨 격자(`BAG_DEFAULT_COLS × BAG_DEFAULT_ROWS`) 를 넘는 칸마다
- * `BAG_CAPACITY_PER_CELL` 씩이고, 그보다 작은 가방은 0 이다 (깎지는 않는다).
+ * The carry capacity a bag adds (kg): `BAG_CAPACITY_PER_CELL` for every cell beyond the bare-shoulders grid
+ * (`BAG_DEFAULT_COLS × BAG_DEFAULT_ROWS`); a bag smaller than that gives 0 (it never takes capacity away).
  *
- * 2026-09-12: `InventorySystem.getWeight` 안에 `* 0.5` 로 박혀 있던 식을 여기로 뽑았다 — 가방 툴팁이 「소지 한계 +N kg」
- * 줄을 그리려면 **같은 식**을 읽어야 하고, 두 곳에 베껴 적으면 수치를 고칠 때 표와 글이 어긋난다.
+ * 2026-09-12: the formula used to sit inside `InventorySystem.getWeight` as a `* 0.5` and was lifted here — the bag
+ * tooltip's 「소지 한계 +N kg」 line must read **the same formula**, and a copy in two places makes table and text disagree.
  */
 export function bagCapacityBonus(size: { cols: number; rows: number }): number {
   const extra = size.cols * size.rows - BAG_DEFAULT_COLS * BAG_DEFAULT_ROWS;
@@ -31,8 +31,8 @@ export function weightStateFor(ratio: number): WeightState {
 }
 
 /**
- * Build the `WeightInfo` contract value. `carryRelief` (운반 skill, 0..1) cancels part of the
- * 조금 무거움 stamina penalty; 무거움 and 과적 are never softened.
+ * Build the `WeightInfo` contract value. `carryRelief` (the `운반` hauling skill, 0..1) cancels part of the
+ * `조금 무거움` stamina penalty; `무거움` and `과적` are never softened.
  */
 export function makeWeightInfo(weight: number, capacity: number, carryRelief: number): WeightInfo {
   const cap = Math.max(1, capacity);
@@ -93,7 +93,7 @@ export function durabilityRatio(item: ItemInstance, def: ItemDef): number | null
   return info ? info.durability / info.max : null;
 }
 
-/* ── crate search (감정) ──────────────────────────────────────────────────── */
+/* ── crate search ─────────────────────────────────────────────────────────── */
 
 /** Seconds by rarity — the table lives in the contract since Phase 7 (`@/shared` `SEARCH_TIME_BY_RARITY`); re-exported for callers. */
 export { SEARCH_TIME_BY_RARITY };

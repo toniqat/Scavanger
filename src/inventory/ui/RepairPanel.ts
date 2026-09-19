@@ -5,29 +5,29 @@ import { Modeless } from './Modeless';
 import { SLOT_LABEL, TEXT } from './labels';
 
 /**
- * **장비 수리 팝업** (2026-09-08).
+ * **The gear repair popup** (2026-09-08).
  *
- * 수리는 작업대 패널 **하단의 목록**이었다 — 레시피를 읽으려고 연 화면의 절반을, 지금 고칠 생각이 없는 장비가
- * 늘 차지하고 있었다. 이제 작업대 헤더의 `모두 수리`(닫기 왼쪽)가 이 팝업을 연다:
+ * Repair used to be a **list at the bottom of the craft panel** — half of a screen opened to read recipes was
+ * permanently taken by gear nobody meant to repair. Now `모두 수리` in the bench header (left of `닫기`) opens this popup:
  *
- *   - **목록** — 닳은 장비 한 줄에 하나(`benchRepairRows(wornOnly)`). 가로로 긴 패널이고, 이름 아래에 내구도
- *     막대와 `현재 / 최대`, 오른쪽에 그 하나를 고치는 데 드는 재료 칩, 맨 오른쪽에 **×**.
- *   - **×** — 그 항목만 `모두 수리`에서 뺀다(줄은 남고 흐려진다, 다시 누르면 돌아온다). 팝업을 닫으면 초기화된다
- *     (사용자 결정) — 한 번의 `모두 수리`를 위한 임시 선택이지 저장하는 설정이 아니다.
- *   - **소모 재료** — 목록 아래에 제외를 뺀 **합계**를 `보유/필요` 칩으로. × 를 누를 때마다 그 자리에서 다시 센다.
+ *   - **The list** — one row per worn item (`benchRepairRows(wornOnly)`). The panel is wide: under the name a
+ *     durability bar and `현재 / 최대`, on the right the material chips one repair costs, **×** at the far right.
+ *   - **×** — drops that one item out of `모두 수리` (the row stays, dimmed; pressing again brings it back). Closing
+ *     the popup resets it (user's decision) — a temporary pick for one `모두 수리`, not a setting that is saved.
+ *   - **Materials spent** — below the list, the **total** without the dropped rows as `보유/필요` chips. Every × recounts it.
  *
- * **2026-09-10 (제작 대개편 2단계)** — 수리비는 이제 `제작 재료 × 남은 내구도 구간의 배수`(올림)이고 **방탄복도
- * 재료를 쓴다** (예전에는 그 자리가 무료였다). 그래서 줄마다 내구도 막대 옆에 `61~80 % · 제작 재료의 20 %` 를
- * 붙이고, 목록 아래 안내 한 줄이 "더 닳으면 더 든다" 를 말한다 — 같은 장비인데 어제와 값이 다른 이유가
- * 화면 안에 있어야 한다. 배수는 `ctx.loot.durabilityBucketInfo`(원본 `data/tables.csv`) 에서 온다.
+ * **2026-09-10 (craft rework, stage 2)** — a repair now costs `craft materials × the multiplier of the remaining
+ * durability bucket` (rounded up), and **armor pays materials too** (that slot used to be free). So every row carries
+ * `61~80 % · 제작 재료의 20 %` beside its durability bar and a hint under the list says "the more worn, the more it
+ * costs" — why the same gear costs more than yesterday must be on screen. Multipliers: `ctx.loot.durabilityBucketInfo` (source `data/tables.csv`).
  *
- * 개별 수리는 아이템 우클릭 메뉴의 `수리` 가 갖는다 (`ui/parts/ContextMenu`) — 이 팝업은 일괄 작업만 한다.
+ * A single repair belongs to `수리` in the item right-click menu (`ui/parts/ContextMenu`) — this popup only works in bulk.
  *
- * 모달처럼 보이지만 셸은 다른 팝업과 같은 `Modeless` 다: blocker 도 포인터 락도 건드리지 않고(창이 이미 둘 다
- * 쥐고 있다), Escape · 닫기 · 바깥 클릭으로 닫힌다. 뒤를 덮는 어두운 판(`scrim`)만 이 파일이 따로 갖는다.
+ * It looks modal, but the shell is the same `Modeless` as every other popup: it touches neither blocker nor pointer
+ * lock (the window holds both already) and closes on Escape · `닫기` · an outside click. Only the dark plate behind it (`scrim`) is this file's own.
  */
 export class RepairPanel {
-  /** 팝업 프레임 + 뒤를 덮는 판을 함께 담는 껍데기 (`InventoryUI.modelessLayer` 에 붙는다). */
+  /** The shell holding the popup frame and the plate behind it (appended to `InventoryUI.modelessLayer`). */
   readonly el: HTMLElement;
   private readonly shell: Modeless;
   private readonly scrim: HTMLElement;
@@ -39,14 +39,14 @@ export class RepairPanel {
   private readonly runBtn: HTMLButtonElement;
   private readonly msgEl: HTMLElement;
   private msgTimer: number | null = null;
-  /** × 로 이번 열림에서 뺀 항목들 (닫으면 비운다). */
+  /** The items dropped with × during this opening (cleared on close). */
   private excluded = new Set<string>();
 
   constructor(
     private readonly sys: InventorySystem,
     private readonly getDef: (id: string) => ItemDef | undefined,
   ) {
-    // 닫기 버튼 · 바깥 클릭으로 셸이 스스로 닫힐 때도 뒤를 덮는 판과 제외 표시를 같이 치운다
+    // When the shell closes itself (the `닫기` button · an outside click) the plate and the drop marks go with it
     this.shell = new Modeless('repair', () => this.afterClose());
     this.shell.withHeader(TEXT.bench.repairEyebrow, TEXT.bench.repairModal);
 
@@ -71,7 +71,7 @@ export class RepairPanel {
 
     this.hintEl = document.createElement('div');
     this.hintEl.className = 'inv-rep-hint';
-    // 2026-09-10: 두 줄 — 개별 수리가 어디에 있는지, 그리고 왜 값이 매번 다른지 (내구도 구간)
+    // 2026-09-10: two lines — where a single repair lives, and why the cost differs each time (the durability bucket)
     const where = document.createElement('span');
     where.textContent = TEXT.bench.repairHint;
     const why = document.createElement('em');
@@ -86,7 +86,7 @@ export class RepairPanel {
 
     this.shell.body.append(this.listEl, this.emptyEl, this.totalEl, this.msgEl, this.hintEl, this.runBtn);
 
-    // 뒤를 덮는 판. 클릭은 `Modeless` 의 document 리스너가 "바깥"으로 보고 닫아 준다.
+    // The plate behind it. A click on it is read as "outside" by `Modeless`'s document listener, which closes.
     this.scrim = document.createElement('div');
     this.scrim.className = 'inv-rep-scrim';
     this.scrim.hidden = true;
@@ -98,7 +98,7 @@ export class RepairPanel {
 
   get isOpen(): boolean { return this.shell.isOpen; }
 
-  /** 작업대 헤더의 `모두 수리`. 화면 한가운데에 뜬다 (anchor 는 그 버튼의 클릭을 "바깥"에서 빼기 위한 것뿐). */
+  /** `모두 수리` in the bench header. It opens at the centre of the screen (`anchor` only keeps that button's own click out of "outside"). */
   open(anchor: HTMLElement | null = null): void {
     if (this.shell.isOpen) { this.close(); return; }
     this.excluded.clear();
@@ -106,18 +106,18 @@ export class RepairPanel {
     this.scrim.hidden = false;
     this.shell.open(anchor, true);
     this.refresh();
-    // 2026-09-09 키 가이드: mouse-only popup, so the line is the close entry alone (Tab closes this before the window)
+    // 2026-09-09 key guide: mouse-only popup, so the line is the close entry alone (Tab closes this before the window)
     this.sys.ctx.bus.emit('ui:keyGuide', { owner: 'inventory.repair', keys: [] });
   }
 
-  /** Escape · 창이 닫힐 때. 열려 있었으면 true (Escape 가 소비된다). */
+  /** Escape · the window closing. True when it was open (Escape is consumed). */
   close(): boolean {
     const was = this.shell.close();
     this.afterClose();
     return was;
   }
 
-  /** 셸이 스스로 닫힌 뒤(닫기 버튼 · 바깥 클릭)와 `close()` 둘 다가 지나가는 뒤처리. */
+  /** The tail both paths pass through: the shell closing itself (the `닫기` button · an outside click) and `close()`. */
   private afterClose(): void {
     const wasUp = !this.scrim.hidden;
     this.scrim.hidden = true;
@@ -126,11 +126,11 @@ export class RepairPanel {
     if (wasUp) this.sys.ctx.bus.emit('ui:keyGuide', { owner: 'inventory.repair', keys: null });
   }
 
-  /** 목록 · 합계 · 버튼을 지금 상태로 다시 그린다 (열려 있을 때만). */
+  /** Redraws list · total · button from the current state (only while open). */
   refresh(): void {
     if (!this.shell.isOpen) return;
     const rows = this.sys.benchRepairRows(true);
-    // 사라진 항목의 제외 표시는 같이 지운다 (수리되어 목록에서 빠졌거나, 버려졌거나)
+    // Drop marks for items that are gone go with them (repaired out of the list, or thrown away)
     const live = new Set(rows.map((r) => r.uid));
     for (const uid of [...this.excluded]) if (!live.has(uid)) this.excluded.delete(uid);
 
@@ -174,7 +174,7 @@ export class RepairPanel {
     const text = document.createElement('div');
     text.className = 'inv-repair-dur';
     text.textContent = `${Math.round(cur)} / ${Math.round(max)}`;
-    // 2026-09-10: 구간이 곧 재료 배수다 — `61~80 % · 제작 재료의 20 %`
+    // 2026-09-10: the bucket *is* the material multiplier — `61~80 % · 제작 재료의 20 %`
     const bucket = document.createElement('span');
     bucket.className = 'inv-repair-bucket';
     bucket.textContent = TEXT.durability.repair(r.bucket.label, r.bucket.repairMul);
@@ -186,7 +186,7 @@ export class RepairPanel {
     const have = new Map(r.cost.map((c) => [c.defId, c.have]));
     renderItemCost(cost, r.cost, this.getDef, (id) => have.get(id) ?? 0, { size: 28 });
 
-    // × — 그 항목만 `모두 수리`에서 뺀다 (다시 누르면 되돌린다)
+    // × — drops that one item out of `모두 수리` (pressing again puts it back)
     const drop = document.createElement('button');
     drop.type = 'button';
     drop.className = 'inv-repair-drop';
@@ -202,7 +202,7 @@ export class RepairPanel {
     return row;
   }
 
-  /** 제외를 뺀 합계 재료 (`보유/필요`). 같은 재료를 쓰는 두 장비는 한 칩으로 합쳐진다. */
+  /** The total materials without the dropped rows (`보유/필요`). Two items using the same material merge into one chip. */
   private paintTotal(rows: readonly BenchRepairRow[]): void {
     const need = new Map<string, number>();
     const have = new Map<string, number>();

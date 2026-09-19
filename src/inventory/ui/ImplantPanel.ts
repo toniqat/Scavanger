@@ -3,27 +3,27 @@ import { Keys, PERK_DEFS, RARITY_COLORS, RARITY_LABEL_KO, buildItemChip, keyLabe
 import type { InventorySystem } from '../InventorySystem';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * src/inventory/ui/ImplantPanel.ts — **임플란트 칸** (전술 임플란트 + 임플란트 아이템).
+ * src/inventory/ui/ImplantPanel.ts — **the implant block** (the tactical implant + implant items).
  *
- * 2026-09-08: 두 블록 모두 캐릭터 시트(`progression/ui/SheetBody`)에서 이리로 옮겨왔다. 임플란트는 레이드에 들고
- * 나가는 **장비**지 캐릭터 스탯 화면이 아니고, 로드아웃 프리셋(`LoadoutPreset.implant` · `implantItems`)에 함께
- * 들어가야 하므로 장착 장비 칸(`.inv-equip`) 바로 아래가 제자리다. 캐릭터 탭에는 아무것도 남지 않는다.
+ * 2026-09-08: both blocks moved here from the character sheet (`progression/ui/SheetBody`). An implant is **gear** taken
+ * into a raid, not a character-stat screen, and it has to travel in the loadout preset (`LoadoutPreset.implant` ·
+ * `implantItems`), so directly under the equipment slots (`.inv-equip`) is its place. Nothing is left on the character tab.
  *
- *   • **전술 임플란트** — Q 로 쓰는 5종 중 하나 (2026-09-15 대전차포 은퇴). 슬롯 카드 하나를 누르면 모달리스 피커(`.inv-imp-pop`)가 뜨고
- *     카드를 고르면 `ctx.implants.setEquipped` 로 장착된다. 레이드 중에는 잠긴다. **2026-09-12 (사용자 결정)**:
- *     그 슬롯은 가로 바가 아니라 다른 장비칸과 같은 높이의 **정사각 썸네일**이고, 이 블록(`.inv-implants`) 자체가
- *     장비칸 그리드의 `implant` 칸(주무기 II 아래 · 주머니 왼쪽)에 들어간다.
- *   • **임플란트 아이템** — `ItemDef.implant` 를 가진 아이템. `임플란트 n / m칸` + 핍 줄, 그 아래에 장착한 것들이
- *     **정사각 썸네일 가로 나열**(`.inv-impi-cell`, 클릭 = 해제)이고 줄 끝의 `＋` 셀이 두 번째
- *     피커(`.inv-impi-pop`)를 띄운다. 가방 + 함선 창고를 훑어 후보를 만든다.
- *     썸네일에는 글자가 없다 — 이름 · 장착칸 · 퍽 · 능력치는 `data-item-tip` 으로 `ui/hud/ItemTip` 의 hover
- *     카드가 말한다 (2026-09-08: 세로 카드 목록이 인벤토리 한 칸에 문단 세 줄씩을 채우고 있었다).
+ *   • **The tactical implant** — one of the 5 used with Q (2026-09-15: `대전차포` retired). Pressing the one slot card opens a modeless
+ *     picker (`.inv-imp-pop`) and picking a card equips it through `ctx.implants.setEquipped`. It is locked during a raid.
+ *     **2026-09-12 (user's decision)**: that slot is not a horizontal bar but a **square thumbnail** the height of the other
+ *     equipment slots, and this block (`.inv-implants`) itself goes into the equipment grid's `implant` cell (under 주무기 II · left of the pouch).
+ *   • **Implant items** — items carrying `ItemDef.implant`. `임플란트 n / m칸` + the pip row, and below it the equipped ones are
+ *     a **horizontal row of square thumbnails** (`.inv-impi-cell`, click = unequip) with the `＋` cell at the end of the row
+ *     raising the second picker (`.inv-impi-pop`). Candidates are swept from the bag + 함선 창고.
+ *     The thumbnails carry no text — name · 장착칸 · perk · stats are said by `ui/hud/ItemTip`'s hover card through
+ *     `data-item-tip` (2026-09-08: a vertical card list was filling one inventory column with three lines of prose each).
  *
- * 두 피커는 **`ctx.uiRoot` 의 직속 자식**이다 — `.inv-root` 의 열림 애니메이션이 `scale:` 을 남기고, 그러면
- * `position: fixed` 팝업의 컨테이닝 블록이 되어 버린다 (캐릭터 시트에서 쓰던 이유와 같다).
+ * Both pickers are **direct children of `ctx.uiRoot`** — `.inv-root`'s opening animation leaves a `scale:` behind, which
+ * would then become the containing block of a `position: fixed` popup (the same reason the character sheet had).
  *
- * 폴더 간 규약대로 다른 기능 폴더 내부를 import 하지 않는다: 능력치 임플란트는 `ctx.progression`(ProgressionRef),
- * 전술 임플란트는 `ctx.implants`(ImplantsRef) 로만 오간다. 이 패널은 상태를 하나도 들고 있지 않다.
+ * Per the cross-folder contract it imports no other feature folder's internals: stat implants travel only through
+ * `ctx.progression` (ProgressionRef), the tactical implant only through `ctx.implants` (ImplantsRef). This panel holds no state at all.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 interface ElOptions { cls?: string; text?: string; parent?: HTMLElement; attrs?: Record<string, string> }
@@ -41,7 +41,7 @@ function setText(e: HTMLElement, text: string): void {
   if (e.textContent !== text) e.textContent = text;
 }
 
-/** 전술 임플란트 (Q). */
+/** The tactical implant (Q). */
 const TAC_TEXT = {
   label: '전술 임플란트',
   empty: '장착한 임플란트가 없습니다 — 칸을 눌러 고르세요.',
@@ -56,7 +56,7 @@ const TAC_TEXT = {
   mode: { instant: '즉시', hold: '홀드', wielded: '장비형' } as Readonly<Record<ImplantMode, string>>,
 };
 
-/** 임플란트 아이템 (능력치 · 퍽). */
+/** Implant items (stats · perk). */
 const ITEM_TEXT = {
   label: '임플란트',
   slots: (used: number, total: number) => `${used} / ${total}칸`,
@@ -90,7 +90,7 @@ function implantStatLine(def: ItemDef | undefined, statName: (id: StatId) => str
 export class ImplantPanel {
   readonly root: HTMLElement;
 
-  /* 전술 임플란트 */
+  /* tactical implant */
   private readonly tacSlot: HTMLButtonElement;
   private readonly tacHint: HTMLElement;
   private readonly tacPop: HTMLElement;
@@ -98,7 +98,7 @@ export class ImplantPanel {
   private readonly tacCards = new Map<ImplantId, { root: HTMLButtonElement; meta: HTMLElement }>();
   private tacPickerOpen = false;
 
-  /* 임플란트 아이템 */
+  /* implant items */
   private readonly itemCount: HTMLElement;
   private readonly itemPips: HTMLElement;
   private readonly itemList: HTMLElement;
@@ -137,7 +137,7 @@ export class ImplantPanel {
   constructor(private readonly sys: InventorySystem, private readonly ctx: GameContext) {
     const root = this.root = el('div', { cls: 'inv-implants' });
 
-    /* ── 전술 임플란트 ── */
+    /* ── tactical implant ── */
     const tacHead = el('div', { cls: 'h', parent: root });
     el('div', { cls: 'inv-eyebrow', text: TAC_TEXT.label, parent: tacHead });
     el('kbd', { cls: 'inv-imp-key', text: keyLabel(Keys.IMPLANT), parent: tacHead });
@@ -153,7 +153,7 @@ export class ImplantPanel {
     this.tacGrid = el('div', { cls: 'inv-imp-grid', parent: this.tacPop });
     this.buildTacCards();
 
-    /* ── 임플란트 아이템 ── */
+    /* ── implant items ── */
     const block = el('div', { cls: 'inv-impitems', parent: root });
     const head = el('div', { cls: 'h', parent: block });
     el('div', { cls: 'inv-eyebrow', text: ITEM_TEXT.label, parent: head });
@@ -181,7 +181,7 @@ export class ImplantPanel {
     this.itemOpts = el('div', { cls: 'inv-impi-opts', parent: this.itemPop });
   }
 
-  /* ══ 공통 ═══════════════════════════════════════════════════════════════ */
+  /* ══ shared ═════════════════════════════════════════════════════════════ */
 
   /** true while either picker is up — the window's Escape chain consumes it before closing itself. */
   get isPickerOpen(): boolean { return this.tacPickerOpen || this.itemPickerOpen; }
@@ -194,19 +194,19 @@ export class ImplantPanel {
   }
 
   /**
-   * 2026-09-14 2차 (사용자 결정) — **튜토리얼 중에는 전술 임플란트 · 임플란트를 숨긴다.** HUD 위젯
-   * (`ui/hud/ImplantWidget`)이 이미 `hides('hud', 'implant')` 를 보고 접히므로, 인벤토리 화면의 **장착칸**도 같은
-   * 질의를 본다 — 「막히는 것은 곧 감추는 것」(`shared/tutorial`) 이고 `hides('stashItem', …)` 를 묻는
-   * `ui/InventoryUI` 와 같은 요령이다. 이 질의는 **튜토리얼 레이드 트랙 안에서만** true 이고 그 밖에서는 언제나
-   * false 라, 평소 화면은 한 글자도 바뀌지 않는다. (`[hidden]` 은 `ui/styles/base.css` 에서 `display: none !important`
-   * 라 `.inv-implants` 의 `display: flex` 를 이긴다 — 장비칸 그리드의 `implant` 칸이 통째로 빈다.)
+   * 2026-09-14 2nd pass (user's decision) — **the tactical implant · implants are hidden during the tutorial.** The HUD
+   * widget (`ui/hud/ImplantWidget`) already folds on `hides('hud', 'implant')`, so the inventory screen's **equipment
+   * slot** reads the same query — 「what is blocked is hidden」 (`shared/tutorial`), the same trick as `ui/InventoryUI`
+   * asking `hides('stashItem', …)`. The query is true **only inside the tutorial raid track** and always false outside
+   * it, so the ordinary screen does not change by one character. (`[hidden]` is `display: none !important` in
+   * `ui/styles/base.css`, so it beats `.inv-implants`'s `display: flex` — the equipment grid's `implant` cell goes empty.)
    */
   refresh(): void {
     if (this.disposed) return;
     const hidden = this.ctx.tutorial?.hides('hud', 'implant') ?? false;
     if (hidden !== this.root.hidden) {
       this.root.hidden = hidden;
-      if (hidden) this.closePickers();   // 숨기는 순간 떠 있던 피커도 함께 닫는다 (`ctx.uiRoot` 직속이라 안 따라간다)
+      if (hidden) this.closePickers();   // a picker that was up closes with it (a direct child of `ctx.uiRoot`, it would not follow)
     }
     if (hidden) return;
     this.refreshTactical();
@@ -250,13 +250,13 @@ export class ImplantPanel {
     pop.style.top = `${Math.round(Math.max(m, top))}px`;
   }
 
-  /* ══ 전술 임플란트 ══════════════════════════════════════════════════════ */
+  /* ══ tactical implant ═══════════════════════════════════════════════════ */
 
   /**
-   * **2026-09-12 (사용자 결정) — 정사각 썸네일.** 예전에는 아이콘 + 이름 + 태그가 가로로 늘어선 바(`display: flex`)
-   * 였는데, 이 블록이 장비칸 그리드의 한 칸(`grid-area: implant`)으로 들어가면서 옆 칸들과 모양이 달랐다.
-   * 이제 다른 장비칸과 같은 높이의 **정사각 칸**이고 아이콘이 크게 가운데, 이름은 **하단 캡션**, 구동 방식은
-   * 우상단 작은 태그다. 설명은 여전히 여기 없다 (2026-09-08) — 교체 피커의 카드가 말한다.
+   * **2026-09-12 (user's decision) — a square thumbnail.** It was a horizontal bar of icon + name + tag (`display: flex`),
+   * and once this block moved into one cell of the equipment grid (`grid-area: implant`) its shape no longer matched the
+   * cells beside it. Now it is a **square cell** the height of the other equipment slots: the icon large in the centre,
+   * the name a **bottom caption**, the mode a small top-right tag. Still no description here (2026-09-08) — the picker's card says it.
    */
   private buildTacSlot(parent: HTMLElement): HTMLButtonElement {
     const slot = el('button', { cls: 'inv-imp-slot', parent, attrs: { type: 'button' } });
@@ -328,8 +328,8 @@ export class ImplantPanel {
   }
 
   /**
-   * The equipped-implant slot card (empty state included). 2026-09-12: 정사각 썸네일이라 이름은 하단 캡션이고
-   * **설명 · 구동 방식은 `title`** 이 함께 말한다 — 좁은 칸에 글이 들어갈 자리가 없기 때문이다.
+   * The equipped-implant slot card (empty state included). 2026-09-12: being a square thumbnail, the name is a bottom
+   * caption and **the description · mode are said by the `title`** — a narrow cell has no room for the words.
    */
   private paintTacSlot(def: ImplantDef | null, inRaid: boolean): void {
     const slot = this.tacSlot;
@@ -389,7 +389,7 @@ export class ImplantPanel {
     return true;
   }
 
-  /* ══ 임플란트 아이템 ════════════════════════════════════════════════════ */
+  /* ══ implant items ══════════════════════════════════════════════════════ */
 
   /** Why a swap is refused right now (null = allowed): raid first, then anything that is not the ship. */
   private swapBlockReason(): string | null {
@@ -426,11 +426,11 @@ export class ImplantPanel {
     const blocked = this.swapBlockReason();
     const list = prog?.getEquippedImplants() ?? [];
     /*
-     * 2026-09-08 — **정사각 썸네일 가로 나열**. This was a column of wide rows carrying the name, the slot cost,
+     * 2026-09-08 — **a horizontal row of square thumbnails**. This was a column of wide rows carrying the name, the slot cost,
      * the perk and the stat line; three lines of prose per implant in a panel that is one column of the inventory
      * window. The equipped implants are items, so they are drawn the way every other item is — a square cell with
      * `buildItemChip` — and the words live in the hover card (`data-item-tip` → `ui/hud/ItemTip`, which grew
-     * 장착칸 · 퍽 · 능력치 rows for exactly this). The `＋` cell that opens the picker closes the row.
+     * 장착칸 · perk · stat rows for exactly this). The `＋` cell that opens the picker closes the row.
      */
     for (const el0 of [...this.itemList.children]) if (el0 !== this.itemAdd) el0.remove();
     for (const e of list) {

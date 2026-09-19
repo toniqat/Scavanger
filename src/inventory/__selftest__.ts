@@ -1,7 +1,7 @@
 import type { ItemInstance } from '@/shared';
 import { INVENTORY_COLS, INVENTORY_ROWS, QUICK_SLOTS, Random } from '@/shared';
 import { ITEM_DEF_MAP, LootService, STARTER_LOADOUT } from '@/items';
-import { WEAPON_GRADE_HANDLING_MUL, damageFalloffStats } from '@/items';   // 2026-09-14 (총기 밸런스)
+import { WEAPON_GRADE_HANDLING_MUL, damageFalloffStats } from '@/items';   // 2026-09-14 (gun balance)
 import { detachForbiddenSockets } from './Serialize';
 import { Grid } from './Grid';
 import { attachedItems, clearAllSockets, clearSocket, filledSocketCount, findSocketed, setSocket } from './Sockets';
@@ -9,7 +9,7 @@ import {
   QUICK_AUTO_GRENADE, QUICK_AUTO_STIM, createQuickSlots, firstFreeQuickSlot, isQuickUsable, lockedQuickItems,
   mergeIntoQuick, pickStarterQuick, quickSlotOf, quickSlotsSignature,
 } from './QuickSlots';
-/* 2026-09-10: 퀵슬롯 1:1 교체에서 밀려난 스택이 갈 자리 */
+/* 2026-09-10: where a stack displaced by a 1:1 quick-slot swap goes */
 import { applyQuickSwap, canQuickSwap } from './QuickSwap';
 
 /**
@@ -69,7 +69,7 @@ export function runInventorySelfTest(): boolean {
   // split / partial-merge math (what InventorySystem.splitItem / dropPartial do on top of Grid)
   {
     const g = new Grid(4, 2, getDef);
-    const src = loot.createItem('grenade_frag', 3);       // stackMax 3 (2026-09-07: 수류탄은 한 칸에 3개), 1×1
+    const src = loot.createItem('grenade_frag', 3);       // stackMax 3 (2026-09-07: three grenades to a cell), 1×1
     check(g.autoPlace(src), 'split: place source stack');
     const half = Math.max(1, Math.floor(src.qty / 2));
     check(half === 1, 'split: half of 3 is 1');
@@ -137,7 +137,7 @@ export function runInventorySelfTest(): boolean {
   const c2 = loot.rollCorpse('warrior', new Random(5)).map((i) => `${i.defId}x${i.qty}`).join(',');
   check(c1 === c2 && c1.includes('mat_bio_sample'), 'rollCorpse deterministic, bugs drop bio samples');
   const rogue = loot.rollCorpse('rogue', new Random(11), 'smg');
-  // 2026-09-13 팩션 전리품: 로그의 총은 같은 계열(smg)이고 등급만 I 85 / II 14 / III 1 로 굴린다 (`data/loot_factions.csv`)
+  // 2026-09-13 faction loot: a rogue's gun is the same family (smg) and only the grade rolls, I 85 / II 14 / III 1 (`data/loot_factions.csv`)
   const rogueWeapon = rogue.find((i) => /^wpn_smg(_g[23])?$/.test(i.defId));
   const rogueStats = rogueWeapon && loot.getEffectiveStats(rogueWeapon);
   check(!!rogueWeapon && !!rogueStats && (rogueWeapon.durability ?? 0) <= rogueStats.maxDurability * 0.15 + 1, 'rogue corpse carries its weapon (same family, grade I–III) at ≤ 15 % durability');
@@ -149,13 +149,13 @@ export function runInventorySelfTest(): boolean {
   check(boss.some((i) => getDef(i.defId)!.category === 'attachment') && boss.some((i) => getDef(i.defId)!.category === 'stim'), 'boss corpse has an attachment and stims');
   check(loot.rollCorpse('nope' as never, new Random(1)).length === 1, 'unknown corpse type → single bio sample');
 
-  // 2026-09-13 인간형 팩션 전리품 (안드로이드 · 로그 · 레이더 — `loot_factions.csv` · `loot_faction_sites.csv`)
+  // 2026-09-13 humanoid faction loot (android · rogue · raider — `loot_factions.csv` · `loot_faction_sites.csv`)
   {
     const sig = (xs: readonly ItemInstance[]): string => xs.filter((i) => getDef(i.defId)!.grenade === undefined)
       .map((i) => `${i.defId}x${i.qty}:${i.durability ?? ''}:${i.ammoInMag ?? ''}`).sort().join(',');
     const gradeOfItem = (i: ItemInstance): number => { const w = getDef(i.defId)?.weaponId; return w ? (loot.getWeaponDef(w)?.grade ?? 0) : 0; };
 
-    // 남은 수류탄: 종류 × 개수 그대로, 다른 굴림은 한 톨도 안 움직인다 (rng 를 안 쓴다)
+    // Leftover grenades: kind × count verbatim, and not one other roll moves (the rng is not touched)
     const withNades = loot.rollCorpseOn('rogue', new Random(11), 'smg', null, { grenades: { kind: 'incendiary', count: 2 } });
     check(withNades.some((i) => i.defId === 'grenade_incendiary' && i.qty === 2) && sig(withNades) === sig(rogue), 'leftover grenades go into the corpse as-is (kind × count) without moving other rolls');
     check(!loot.rollCorpseOn('rogue', new Random(11), 'smg', null, { grenades: { kind: 'frag', count: 0 } }).some((i) => getDef(i.defId)!.grenade !== undefined), 'zero leftover grenades → no grenade item');
@@ -202,7 +202,7 @@ export function runInventorySelfTest(): boolean {
   }
 
   // starter ids exist (weapon package shape: primary / primary2 / secondary / bag / items[{id, qty}])
-  check(!!getDef(STARTER_LOADOUT.primary), 'starter weapon def exists');   // 2026-09-10: 보조무기 제거 → 주무기
+  check(!!getDef(STARTER_LOADOUT.primary), 'starter weapon def exists');   // 2026-09-10: the secondary weapon was removed → primary
   check(!!getDef(STARTER_LOADOUT.bag) && !!getDef(STARTER_LOADOUT.bag)!.bag, 'starter bag def exists and is a bag');
   for (const e of STARTER_LOADOUT.items) {
     const d = getDef(e.id);
@@ -237,9 +237,10 @@ export function runInventorySelfTest(): boolean {
     g.restore(snap);
     check(g.cols === 4 && g.rows === 2 && g.has(ar.uid) && g.count === 1, 'restore: layout back after a failed resize');
     // priority placement: the displaced bag lands first, at its hint
-    /* 2026-09-16 (수집품 대분류, 사용자 결정): 석영 결정(`gem_quartz`)이 5개들이 **재료**가 되면서, 재배치 중에 낱개들이
-       서로 합쳐져 26칸이 60개를 전부 삼켰다 (흘러넘치는 것이 없다). 이 검사는 「칸이 모자라면 넘친다」는 산수를 보는
-       것이므로 **쌓이지 않는** 귀중품(호박석)으로 센다 — 합쳐짐은 `merge` 검사들이 따로 본다. */
+    /* 2026-09-16 (the collectible super category, user's decision): once `gem_quartz` became a **material** that stacks
+       five to a cell, the loose ones merged with each other during the re-placement and 26 cells swallowed all 60 (there
+       was no overflow left). This check is about the arithmetic 「칸이 모자라면 넘친다」, so it counts with a valuable that
+       **never stacks** (`gem_amber`) — merging is what the `merge` checks look at. */
     const g2 = new Grid(10, 6, getDef);
     check(getDef('gem_amber')!.stackMax === 1, 'resize: the gem the cell arithmetic counts with never stacks');
     for (let i = 0; i < 60; i++) g2.place(loot.createItem('gem_amber'), i % 10, Math.floor(i / 10));
@@ -377,23 +378,24 @@ export function runInventorySelfTest(): boolean {
   }
 
   /*
-   * 2026-09-10 — **퀵슬롯 1:1 교체는 가방 여유를 요구하지 않는다** (`QuickSwap.ts`).
+   * 2026-09-10 — **a 1:1 quick-slot swap does not demand room in the bag** (`QuickSwap.ts`).
    *
-   * `setQuickSlot` 은 옮기기라 휠에 있던 스택이 갈 자리가 있어야 하는데, 예전에는 그 자리를 **가방에서만**
-   * 찾아 가방이 꽉 차면 교체가 통째로 거절됐다. 들어오는 스택이 격자에서 빠지면 **그 칸이 비므로** 교체는
-   * 언제나 성립한다. 여기서 재는 것은 그 규칙 — 출발지별 성공, 자리 없으면 실패, 실패했으면 원상복구.
+   * `setQuickSlot` is a move, so the stack that was on the wheel needs somewhere to go; that somewhere used to be
+   * looked for **in the bag only**, and a full bag refused the whole swap. Since the incoming stack leaves the grid,
+   * **its cell frees up** and the swap always works. What is measured here is that rule — success per source, failure
+   * with nowhere to go, and everything restored after a failure.
    */
   {
     const mkBag = (): { bag: Grid; filler: ItemInstance[] } => {
-      const bag = new Grid(2, 2, getDef);                 // 4칸
-      const filler = [0, 1, 2, 3].map(() => loot.createItem('gem_quartz'));   // 1×1 ×4 = 가방 꽉 참
+      const bag = new Grid(2, 2, getDef);                 // 4 cells
+      const filler = [0, 1, 2, 3].map(() => loot.createItem('gem_quartz'));   // 1×1 ×4 = a full bag
       for (const f of filler) bag.place(f, filler.indexOf(f) % 2, Math.floor(filler.indexOf(f) / 2));
       return { bag, filler };
     };
     const nade = (q = 1): ItemInstance => loot.createItem('grenade_frag', q);
     const stim = (q = 1): ItemInstance => loot.createItem('heal_bandage', q);
 
-    // ① 가방 격자 → 휠: 밀려난 스택이 **드래그해 온 아이템이 비운 그 칸**으로 들어간다
+    // ① bag grid → wheel: the displaced stack goes into **the very cell the dragged item left empty**
     {
       const bag = new Grid(2, 2, getDef);
       for (let i = 0; i < 3; i++) bag.place(loot.createItem('gem_quartz'), i % 2, Math.floor(i / 2));
@@ -402,14 +404,14 @@ export function runInventorySelfTest(): boolean {
       const occupant = stim(2);
       const plan = { occupant, bag, source: bag, cell: { x: 1, y: 1, rotated: false }, incomingUid: incoming.uid, allowSource: true };
       check(canQuickSwap(plan), 'quickswap: 가방이 꽉 차 있어도 교체는 성립한다 (미리보기)');
-      bag.remove(incoming.uid);                            // setQuickSlot 이 하는 그대로
+      bag.remove(incoming.uid);                            // exactly what `setQuickSlot` does
       check(applyQuickSwap(plan) === 'cell', 'quickswap: 밀려난 스택이 비운 그 칸으로 들어간다');
       const at = bag.get(occupant.uid);
       check(!!at && at.x === 1 && at.y === 1, 'quickswap: 정확히 그 자리다');
       check(!bag.has(incoming.uid) && bag.count === 4, 'quickswap: 들어온 스택은 격자에 없고 칸 수는 그대로');
     }
 
-    // ② 컨테이너 → 휠: 가방이 꽉 차면 밀려난 스택이 **그 상자의 빈 자리**로 간다
+    // ② container → wheel: with a full bag the displaced stack goes to **the free spot in that crate**
     {
       const { bag } = mkBag();
       const crate = new Grid(2, 1, getDef);
@@ -423,8 +425,8 @@ export function runInventorySelfTest(): boolean {
       check(crate.has(occupant.uid) && !bag.has(occupant.uid), 'quickswap: 상자에 있고 가방에는 없다');
     }
 
-    // ③ 상자에서 왔더라도 **가방에 자리가 있으면 가방으로** (내 소모품을 상자 바닥에 흘려 두지 않는다 —
-    //    자리가 있을 때의 예전 동작 그대로다)
+    // ③ even coming from a crate, **the bag wins while it has room** (one's own consumables are not left lying on
+    //    the crate floor — the old behaviour, unchanged, whenever there is room)
     {
       const bag = new Grid(2, 2, getDef);
       const crate = new Grid(2, 1, getDef);
@@ -437,7 +439,7 @@ export function runInventorySelfTest(): boolean {
       check(bag.has(occupant.uid) && !crate.has(occupant.uid), 'quickswap: 상자 바닥에 흘려 두지 않는다');
     }
 
-    // ④ 멀티플레이의 공유 상자에는 넣지 않는다 (`allowSource: false`) — 가방이 꽉 차면 거절
+    // ④ nothing is put back into multiplayer's shared crate (`allowSource: false`) — a full bag means refusal
     {
       const { bag } = mkBag();
       const crate = new Grid(2, 1, getDef);
@@ -451,12 +453,12 @@ export function runInventorySelfTest(): boolean {
       check(!crate.has(occupant.uid) && !bag.has(occupant.uid), 'quickswap: 거절했으면 아무 격자도 건드리지 않는다');
     }
 
-    // ⑤ 아무 데도 못 놓으면 null 이고 **격자는 하나도 바뀌지 않는다** (호출자가 들어온 스택을 되돌린다)
+    // ⑤ with nowhere at all it is null and **not one grid changes** (the caller puts the incoming stack back)
     {
       const { bag, filler } = mkBag();
       const crate = new Grid(1, 1, getDef);
-      const incoming = loot.createItem('sample_canister');       // 3×1 — 1×1 상자에는 애초에 안 들어간다
-      const occupant = loot.createItem('wpn_ar');                // 4×2 — 어느 격자에도 안 들어간다
+      const incoming = loot.createItem('sample_canister');       // 3×1 — it never fitted the 1×1 crate to begin with
+      const occupant = loot.createItem('wpn_ar');                // 4×2 — it fits no grid here
       const plan = { occupant, bag, source: crate, cell: { x: 0, y: 0, rotated: false }, incomingUid: incoming.uid, allowSource: true };
       check(!canQuickSwap(plan), 'quickswap: 어디에도 안 들어가면 미리보기가 막는다');
       const before = bag.snapshot();
@@ -465,7 +467,7 @@ export function runInventorySelfTest(): boolean {
       bag.restore(before);
     }
 
-    // ⑥ 병합으로도 자리가 난다 — 가방에 같은 소모품 스택이 있으면 칸이 없어도 흡수된다
+    // ⑥ a merge makes room too — with the same consumable stack in the bag it is absorbed even with no free cell
     {
       const bag = new Grid(2, 2, getDef);
       const room = loot.createItem('heal_bandage', 1);
@@ -482,31 +484,31 @@ export function runInventorySelfTest(): boolean {
     }
   }
 
-  /* ── 2026-09-10 (제작 대개편 2단계): 내구도 연동 수리 · 분해 ───────────────────────────────────
+  /* ── 2026-09-10 (craft rework, stage 2): durability-linked repair · salvage ──────────────────
    *
-   * 인벤토리가 이 규칙에 **의존**한다 (수리 팝업 · 분해 팝업 · `updateCraft` 의 산출). 그래서 `items/` 의
-   * `checkSalvageEconomy()` (npm run data:check) 와 별개로, **인벤토리가 실제로 부르는 `LootRef` 표면**
-   * 으로 한 번 더 확인한다 — 구간 경계 · 방향 · 무한 이득 루프 없음. */
+   * The inventory **depends** on these rules (the repair popup · the salvage popup · what `updateCraft` produces).
+   * So, separately from `items/`'s `checkSalvageEconomy()` (npm run data:check), they are checked once more through
+   * **the `LootRef` surface the inventory actually calls** — bucket boundaries · direction · no infinite-profit loop. */
   {
-    /** 이 def 의 최대 내구도 — 무기는 실효 스탯, 나머지는 `ItemDef.durabilityMax`. */
+    /** This def's max durability — the effective stats for a weapon, `ItemDef.durabilityMax` for everything else. */
     const maxDurOf = (defId: string): number => {
       const stats = loot.getEffectiveStats(loot.createItem(defId));
       return stats ? stats.maxDurability : (getDef(defId)?.durabilityMax ?? 0);
     };
-    /** 남은 비율 `frac` 인 인스턴스 하나. */
+    /** One instance sitting at the remaining fraction `frac`. */
     const at = (defId: string, frac: number): ItemInstance =>
       loot.createItem(defId, 1, { durability: Math.max(0, Math.round(maxDurOf(defId) * frac)) });
     const bucketAt = (defId: string, frac: number): number => loot.durabilityBucketOf(at(defId, frac));
-    // 20 % 단위 다섯 구간, 경계는 아래 구간에 붙는다 (`bucketOfRatio`)
+    // Five buckets of 20 % each; a boundary belongs to the bucket below it (`bucketOfRatio`)
     check(bucketAt('armor_1', 1.0) === 4, '내구도 구간: 100 % → 4');
     check(bucketAt('armor_1', 0.81) === 4, '내구도 구간: 81 % → 4');
     check(bucketAt('armor_1', 0.80) === 3, '내구도 구간: 80 % → 3 (경계는 아래로)');
     check(bucketAt('armor_1', 0.21) === 1, '내구도 구간: 21 % → 1');
     check(bucketAt('armor_1', 0.20) === 0, '내구도 구간: 20 % → 0');
     check(bucketAt('armor_1', 0) === 0, '내구도 구간: 0 % → 0');
-    // 내구도가 없는 것(재료 · 탄약)은 언제나 구간 4 — UI 가 구간 줄을 그리지 않는 조건이기도 하다
+    // Anything without durability (materials · ammo) is always bucket 4 — also the condition on which the UI draws no bucket line
     check(loot.durabilityBucketOf(loot.createItem('mat_scrap', 3)) === 4, '내구도 구간: 내구도가 없으면 언제나 4');
-    // 2026-09-11 (C-36): 가방은 이제 내구도가 있다 — 새 가방은 가득(구간 4), 닳으면 구간이 내려간다
+    // 2026-09-11 (C-36): a bag has durability now — a new one is full (bucket 4) and the bucket drops as it wears
     check(loot.durabilityBucketOf(loot.createItem('bag_common')) === 4, '내구도 구간: 새 가방은 4');
     check(maxDurOf('bag_common') > 0 && bucketAt('bag_common', 0.1) === 0, '내구도 구간: 가방도 닳으면 0');
 
@@ -522,15 +524,15 @@ export function runInventorySelfTest(): boolean {
       check(repairAt(id, 1) === 0, `가득 찬 ${id} 는 수리비가 없다`);
       check(repairAt(id, 0.05) > repairAt(id, 0.9), `수리비는 내구도가 낮을수록 비싸다 (${id})`);
     }
-    // **방탄복 수리는 공짜가 아니다** (2026-09-10) — 예전에는 이 자리가 빈 배열이라 재료 없이 만피가 됐다
+    // **repairing armor is not free** (2026-09-10) — this used to be an empty array, so it went back to full for nothing
     check(repairAt('armor_1', 0.5) > 0, '방탄복 수리에도 재료가 든다');
-    // 2026-09-11 (C-36): 가방 수리도 공짜가 아니다 — 내구도가 0 이어도(효과 없음) 수리비는 든다
+    // 2026-09-11 (C-36): repairing a bag is not free either — it costs even at 0 durability (where it has no effect)
     for (const id of ['bag_common', 'bag_legendary_tac']) {
       check(repairAt(id, 0.9) > 0 && repairAt(id, 0) > repairAt(id, 0.9), `가방 수리에도 재료가 들고, 닳을수록 비싸다 (${id})`);
       check(repairAt(id, 1) === 0, `가득 찬 가방은 수리비가 없다 (${id})`);
     }
 
-    // 「제작 → (수리) → 분해 → 제작」 이 이득이 되지 않는다: 어느 구간에서도 수리 + 분해 ≤ 제작
+    // 「제작 → (수리) → 분해 → 제작」 never turns a profit: in every bucket, repair + salvage ≤ craft
     for (const id of ['armor_1', 'armor_5', 'wpn_ar', 'wpn_smg_g4', 'bag_rare']) {
       const craft = new Map<string, number>();
       for (const c of loot.getCraftCostOf(id)) craft.set(c.defId, (craft.get(c.defId) ?? 0) + c.qty);
@@ -544,7 +546,7 @@ export function runInventorySelfTest(): boolean {
         }
       }
     }
-    // 유니크는 제작 레시피가 없으니 분해도 없다 (되돌릴 수 없는 유일품) — 수리는 된다
+    // A unique has no craft recipe, so it cannot be salvaged either (one of a kind, irreversible) — it can be repaired
     for (const id of ['armor_regen', 'armor_optical']) {
       check(loot.getCraftCostOf(id).length === 0, `유니크에는 제작 레시피가 없다 (${id})`);
       check(loot.getSalvageFor(loot.createItem(id)) === null, `유니크는 분해되지 않는다 (${id})`);

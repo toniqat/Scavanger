@@ -1,7 +1,7 @@
 import { TEXT } from './labels';
 
 /**
- * Phase 8 — **모달리스 팝업** shell shared by the 전술 임플란트 picker, the 필드 제작 panel and the 아이템 분해 dialog.
+ * Phase 8 — the **modeless popup** shell shared by the 전술 임플란트 picker, the 필드 제작 panel and the 아이템 분해 dialog.
  *
  * A modeless popup is a child of the inventory window, floating above `.inv-layout` while the grid stays visible
  * *and interactive* behind it. It therefore:

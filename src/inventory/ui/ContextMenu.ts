@@ -9,7 +9,7 @@ export interface MenuEntry {
   hint?: string;
   /**
    * Phase 8: material requirement chips rendered on a second line of the entry (built with `renderItemCost`
-   * from `@/shared`, e.g. the 수리 cost). The menu only adopts the element — the caller fills it.
+   * from `@/shared`, e.g. the repair cost). The menu only adopts the element — the caller fills it.
    */
   costs?: HTMLElement;
   /** Red styling for destructive actions. */
@@ -58,7 +58,7 @@ export class ContextMenu {
         const k = document.createElement('kbd');
         const glyph = mouseGlyphButtonOf(entry.hint);
         if (glyph !== -1) {
-          // 2026-09-15: 마우스 버튼은 공용 마우스 그림 (kbd 틀은 그대로 — `.keycap` 을 겹쳐 씌우지 않는다)
+          // 2026-09-15: a mouse button uses the shared mouse glyph (the kbd frame stays — `.keycap` is not layered over it)
           k.className = 'inv-menu-kmouse';
           k.innerHTML = mouseGlyphSvg(glyph);
           k.setAttribute('aria-label', entry.hint);

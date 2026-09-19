@@ -1,59 +1,59 @@
 /**
- * src/inventory/QuickSwap.ts — **퀵슬롯 1:1 교체에서 밀려난 스택이 갈 자리**를 정하는 순수 규칙.
+ * src/inventory/QuickSwap.ts — the pure rule deciding **where a stack displaced by a 1:1 quick-slot swap goes**.
  *
- * 2026-09-10. `setQuickSlot` 은 *옮기기*라서 휠에 이미 있던 스택(= occupant)이 갈 자리를 먼저 찾아야 한다
- * (`InventorySystem.returnQuickToBag` 규약 — 휠 아이템을 조용히 버리거나 바닥에 떨어뜨리지 않는다).
- * 예전에는 그 자리를 **가방에서만** 찾았고, 그래서 **가방이 꽉 차면 교체 자체가 거절**됐다.
- * 하지만 1:1 교체는 가방 여유가 필요 없다 — 들어오는 스택이 격자에서 빠지면서 **그 칸이 비기 때문**이다.
+ * 2026-09-10. `setQuickSlot` is a *move*, so the stack already on the wheel (= the occupant) needs a spot first
+ * (the `InventorySystem.returnQuickToBag` contract — a wheel item is never silently discarded or dropped on the
+ * ground). That spot used to be looked for **in the bag alone**, so **a full bag refused the swap itself**.
+ * But a 1:1 swap needs no room in the bag — the incoming stack leaves the grid, **so its cell frees up**.
  *
- * 순서(들어오는 스택을 격자에서 뺀 뒤). **출발지가 가방인가**로 갈린다:
+ * The order (after the incoming stack has left the grid). It splits on **whether the source is the bag**:
  *
- *   가방 → 휠 : ① 들어오는 스택이 **비운 바로 그 칸** (회전 그대로 → 반대로) → ② 가방 아무 데나.
- *   상자·창고 → 휠 : ① **가방** → ② 들어오는 스택이 비운 그 칸(= 그 컨테이너의 빈 자리) → ③ 출발 격자 아무 데나.
+ *   bag → wheel : ① **the very cell** the incoming stack vacated (same rotation → the other) → ② anywhere in the bag.
+ *   crate · stash → wheel : ① **the bag** → ② the cell it vacated (= that container's free spot) → ③ the source grid.
  *
- * 어디에도 못 놓으면 null — 호출자는 **아무것도 바꾸지 않고** 거절한다.
+ * With nowhere to put it, null — the caller refuses **changing nothing**.
  *
- * 컨테이너에서 올 때 가방을 **먼저** 보는 것은 의도한 것이다: 가방에 자리가 있는데 내 소모품을 상자 바닥에
- * 흘려 두고 오면 안 된다 (그 전까지 상자 → 휠 교체는 늘 가방으로 갔고, 자리가 **있을 때**의 그 동작은
- * 한 줄도 바꾸지 않는다 — 이 파일이 고치는 것은 자리가 **없을 때** 통째로 거절되던 쪽이다).
- * 가방에서 올 때 비운 칸이 먼저인 것은 순수한 모양 문제다 — 맞바꾼 스택이 제자리에 앉는 편이 읽기 쉽다
- * (기능상으로는 `bag.autoPlace` 가 어차피 그 칸을 찾는다).
+ * Reading the bag **first** when it comes from a container is deliberate: my consumable must not be left on a crate
+ * floor while the bag has room (until then a crate → wheel swap always went to the bag, and that behaviour **when
+ * there is room** is not changed by one line — what this file fixes is the side refused outright **when there is
+ * none**). The vacated cell coming first from the bag is purely a matter of shape — a swapped stack sitting back in
+ * place reads better (functionally `bag.autoPlace` finds that cell anyway).
  *
- * 멀티플레이의 **공유 상자**에는 내 물건을 넣을 수 없으므로(호스트 권한, `refusesIntoContainer`) 그때는
- * `allowSource: false` 로 ①③을 건너뛴다.
+ * Nothing of mine can go into a multiplayer **shared crate** (host authority, `refusesIntoContainer`), so ①③ are
+ * skipped there with `allowSource: false`.
  *
- * 순수 모듈이다 — 이벤트도 DOM 도 `InventorySystem` 도 모른다 (`__selftest__` 가 격자 두 개로 직접 돌린다).
+ * A pure module — it knows no events, no DOM and no `InventorySystem` (`__selftest__` drives it with two grids).
  */
 import type { ItemInstance } from '@/shared';
 import type { Grid } from './Grid';
 
-/** 들어오는 스택이 출발 격자에서 차지하고 있던 칸. */
+/** The cell the incoming stack occupied in the source grid. */
 export interface QuickSwapCell { x: number; y: number; rotated: boolean }
 
-/** 밀려난 스택이 실제로 간 곳. */
+/** Where the displaced stack actually went. */
 export type QuickSwapWhere = 'cell' | 'bag' | 'source';
 
 export interface QuickSwapPlan {
-  /** 휠에서 밀려나 자리를 찾아야 하는 스택. */
+  /** The stack pushed off the wheel that needs a spot. */
   occupant: ItemInstance;
-  /** 가방 격자 (언제나 후보). */
+  /** The bag grid (always a candidate). */
   bag: Grid;
-  /** 들어오는 스택이 있던 격자 (가방일 수도 있다). null = 휠 ↔ 휠 재배치라 격자가 없다. */
+  /** The grid the incoming stack was in (it may be the bag). null = a wheel ↔ wheel re-order, so there is no grid. */
   source: Grid | null;
-  /** 들어오는 스택이 비운 칸. `source` 가 null 이면 무시된다. */
+  /** The cell the incoming stack vacated. Ignored when `source` is null. */
   cell: QuickSwapCell | null;
-  /** 들어오는 스택의 uid — 미리보기가 "이건 곧 빠진다" 고 볼 대상. */
+  /** The incoming stack's uid — what the preview reads as "this one is about to leave". */
   incomingUid: string;
-  /** false = 출발 격자에 넣지 않는다 (멀티플레이 공유 상자). */
+  /** false = never into the source grid (a multiplayer shared crate). */
   allowSource: boolean;
 }
 
 /**
- * **아무것도 바꾸지 않고** 교체가 성립하는지 본다 (드래그 하이라이트 · `previewDrop`).
+ * Reads whether the swap holds **changing nothing** (the drag highlight · `previewDrop`).
  *
- * 들어오는 스택은 **아직 격자에 있는 채로** 불린다 — 그래서 ①은 그 uid 를 `ignore` 로 넘겨 "곧 비는 칸"으로
- * 읽는다. ②③은 `canAbsorb` 라 그 칸을 세지 않지만(약간 보수적), ①이 이미 그 자리를 대표하므로 문제되지 않는다.
- * 이 함수가 true 인데 `applyQuickSwap` 이 실패하는 일은 없어야 한다 (반대 — 조금 더 보수적인 것 — 은 안전하다).
+ * It is called while the incoming stack is **still in the grid** — so ① passes that uid as `ignore` and reads the cell
+ * as "about to free up". ②③ use `canAbsorb` and miss that cell (slightly conservative), which is fine because ① already
+ * stands for it. True here while `applyQuickSwap` fails must never happen (the other way round is safe).
  */
 export function canQuickSwap(plan: QuickSwapPlan): boolean {
   const { occupant, bag, source, cell, incomingUid, allowSource } = plan;
@@ -70,8 +70,8 @@ export function canQuickSwap(plan: QuickSwapPlan): boolean {
 }
 
 /**
- * 밀려난 스택을 실제로 놓는다. **들어오는 스택이 이미 격자에서 빠진 뒤에** 부른다.
- * 어디에도 못 놓으면 `null` 이고 격자는 하나도 건드려지지 않는다 (`autoPlace` 는 전부-아니면-전무다).
+ * Actually places the displaced stack. Called **after the incoming stack has already left the grid**.
+ * With nowhere to put it, `null`, and not one grid is touched (`autoPlace` is all-or-nothing).
  */
 export function applyQuickSwap(plan: QuickSwapPlan): QuickSwapWhere | null {
   const { occupant, bag, source, cell, allowSource } = plan;
