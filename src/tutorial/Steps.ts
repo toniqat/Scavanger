@@ -6,27 +6,30 @@ import {
 } from './model';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * src/tutorial/Steps.ts — **단계 표**. 각 단계가 무엇을 보여 주고 무엇을 허용하는지만 적는다.
- * 무엇으로 다음 단계에 넘어가는지(진행 조건)는 `TutorialSystem.onEvent` 의 스위치에 있다 — 조건이
- * 이벤트마다 제각각이라 표로 만들면 오히려 읽기 어려워진다.
+ * src/tutorial/Steps.ts — **the step table**. It records only what each step shows and what it allows. What moves on
+ * to the next step (the advance condition) is in `TutorialSystem.onEvent`'s switch — the condition differs per event,
+ * so putting them in a table would only read worse.
  *
- * `allow` 에 **없는** 게이트는 전부 막힌다 (사용자 결정: 순서를 엄격하게 강제). `community` 와
- * `screenTab`(인벤토리 외)은 어느 단계에도 없으므로 튜토리얼 내내 잠긴다. `stashItem`(창고 아이템 숨김)은
- * 단계와 무관한 허용 목록(`TUTORIAL_STASH_WHITELIST`)이라 `parts/Gates` 가 직접 판정한다 — `raid` 만 전부 연다.
+ * Every gate **not** in `allow` is blocked (user's decision: enforce the order strictly). `community` and `screenTab`
+ * (other than the inventory) are in no step at all, so they stay locked for the whole tutorial. `stashItem` (hiding
+ * stash items) is a step-independent allow list (`TUTORIAL_STASH_WHITELIST`) that `parts/Gates` judges itself — only
+ * `raid` opens everything.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   intro: {
     id: 'intro', title: '함선에 오신 것을 환영합니다',
     hint: '안내를 읽고 시작하세요.',
-    // 2026-09-15: 목표 줄은 문장이 아니라 명사구다 — `hint` 가 목표가 되던 단계에도 짧은 줄을 적는다
+    // 2026-09-15: an objective row is a noun phrase, not a sentence — even a step where `hint` used to be the
+    //   objective gets a short row too
     objectives: [{ id: 'introRead', text: '시작 안내 확인' }],
   },
   /*
-   * 2026-09-17 (사용자 결정 — 「여러 스텝을 하나의 스텝 내 여러 목표로」): **① 시설 관리 → 작업실 증축** 한 단계다 (옛 `manage` ·
-   * `generator` · `workshop`). 목표가 순차 공개되고, 포커싱 · 안내선은 **지금 할 목표**의 것이다 (`model.currentObjective`).
-   * 「발전기 가동」 줄은 발전기가 Lv.0 인 함선에서만 선다 — 새 함선은 처음부터 Lv.1 이라 `TutorialSystem.objectivesFor` 가
-   * 그 줄을 목록에서 뺀다 (옛 `generator` 단계의 「조용히 지나치기」와 같은 뜻). 넘어가는 신호는 작업실 증축 하나다.
+   * 2026-09-17 (user's decision — 「여러 스텝을 하나의 스텝 내 여러 목표로」): **① ship management → build the workshop** is one step
+   * (old `manage` · `generator` · `workshop`). The objectives reveal in sequence, and the focus · the floor guide
+   * belong to the **current objective** (`model.currentObjective`). The 「발전기 가동」 row stands only where the generator
+   * is Lv.0 — a new ship is Lv.1 from the start, so `TutorialSystem.objectivesFor` drops that row from the list (the
+   * same as the old `generator` step's silent pass). The one signal that advances is the workshop build.
    */
   manage: {
     id: 'manage', title: '빈 방을 작업실로 증축하세요',
@@ -34,7 +37,8 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     objectives: [
       {
         id: 'manageOpen', text: '{MAP} 시설 관리 열기',
-        // 2026-09-08: 아무것도 안 열린 상태라 밝힐 화면이 없었다 — 우측 하단에 늘 떠 있는 `시설 관리` 키 힌트를 가리킨다
+        // 2026-09-08: with nothing open there was no screen to light — it points at the `시설 관리` key hint that always
+        //   sits bottom right
         spot: ['.ship-hint'], spotText: '시설 관리 {MAP}',
       },
       {
@@ -46,18 +50,21 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
         spot: ['.sm-purposes .sm-purpose[data-purpose="workshop"]', '.sm-purposes', '.sm-side'], spotText: '빈 방의 시설 증축 → 작업실',
       },
     ],
-    // 작업실은 처음부터 열어 둔다 — 줄이 바뀔 때마다 용도 목록이 흔들리지 않게 (`ui/hud/ShipManage` 는 단계 id 로만 다시 그린다)
+    // The workshop is open from the start — so the purpose list does not shift every time the row changes
+    //   (`ui/hud/ShipManage` redraws by step id only)
     allow: { roomPurpose: [TUTORIAL_ROOM_PURPOSE] },
     spot: ['.ship-hint'],
     spotText: '시설 관리 {MAP}',
   },
-  /* 2026-09-13 (사용자 결정 — 전력 할당 폐지): 새 함선의 발전기는 처음부터 Lv.1 이라 이 단계는 `TutorialSystem.setStep` 이 늘 조용히 지나친다.
-     발전기가 Lv.0 인 함선이 없어졌을 뿐 단계 id 는 계약(`TUTORIAL_STEPS`)이라 남긴다. */
+  /* 2026-09-13 (user's decision — power allocation removed): a new ship's generator is Lv.1 from the start, so
+     this step is always passed silently by `TutorialSystem.setStep`. Only ships with a Lv.0 generator are gone;
+     the step id is contract (`TUTORIAL_STEPS`) and stays. */
   generator: {
     id: 'generator', title: '발전기를 가동하세요',
     hint: '시설 증축에는 발전기 Lv.1 이 필요합니다. 방 목록 아래의 발전기를 가동하세요.',
     objectives: [{ id: 'generatorOn', text: '발전기 가동' }],
-    // 작업실도 함께 열어 둔다 — 발전기가 켜지는 순간 바로 다음 단계로 넘어가므로 목록이 흔들리지 않는다.
+    // The workshop is left open too — the moment the generator turns on this moves to the next step, so the list does
+    //   not shift.
     allow: { roomPurpose: [TUTORIAL_ROOM_PURPOSE] },
     spot: ['.sm-gen .sm-gen-btn', '.sm-gen', '.sm-side'],
     spotText: '발전기 가동',
@@ -71,11 +78,13 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     spotText: '빈 방의 시설 증축 → 작업실',
   },
   /*
-   * 2026-09-17 (사용자 결정): **② 총기 작업대 제작 → 가구 창고 탭 → 가구 배치 → 하우징 모드 닫기** (옛 `bench` · `benchPlace` ·
-   * `manageDone`). 가구 제작은 가운데 모달(`.sm-craft`)의 **1초 홀드** 버튼(`.sm-craft-ok`)이다 — 모달이 떠 있으면 그 버튼을,
-   * 아니면 카드를 밝힌다 (먼저 찾히는 하나). 「가구 창고 탭」은 탭 버튼이 켜져 있는가를 `TutorialSystem.poll` 이 본다.
-   * 가구를 집은(커서에 든) 동안에는 포커싱을 접는다 — 내려놓을 바닥을 어두운 판이 덮으면 안 된다 (`benchArmed`).
-   * 배치가 끝났는데 하우징 모드가 이미 닫혀 있으면 마지막 줄은 할 일이 없으므로 그대로 넘어간다 (옛 `manageDone` 의 조용히 지나치기).
+   * 2026-09-17 (user's decision): **② craft the gun workbench → the furniture store tab → place the furniture → close
+   * housing mode** (old `bench` · `benchPlace` · `manageDone`). The furniture craft is the centre modal's
+   * (`.sm-craft`) **1 s hold** button (`.sm-craft-ok`) — with the modal up it lights that button, else the card (the
+   * first one found). 「가구 창고 탭」 is `TutorialSystem.poll` reading whether the tab button is on. While furniture is
+   * held on the cursor the focus folds — a dim plate must not cover the floor it goes down on (`benchArmed`). A
+   * placement that ends with housing mode already closed leaves the last row nothing to do, so it passes straight on
+   * (the old `manageDone`'s silent pass).
    */
   bench: {
     id: 'bench', title: '총기 작업대를 만들어 배치하세요',
@@ -97,7 +106,8 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
       },
       {
         id: 'manageClose', text: '{INVENTORY} 하우징 모드 닫기', reveal: true,
-        // 관리 모드가 켜져 있는 동안 우측 하단 키 가이드(`ui/hud/KeyGuide`)가 스스로 붙이는 `Tab 닫기` 항목
+        // The `Tab 닫기` entry the bottom-right key guide (`ui/hud/KeyGuide`) appends itself while management mode is
+        //   on
         spot: ['.key-guide .kg-close', '.key-guide'], spotText: 'Tab — 하우징 모드 닫기',
       },
     ],
@@ -108,48 +118,56 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   benchPlace: {
     id: 'benchPlace', title: '만든 작업대를 배치하세요',
     hint: '가구 창고 탭에서 총기 작업대를 고른 다음, 작업실 바닥을 클릭해 내려놓습니다.',
-    // 2026-09-14 3차: 「고른다 → 내려놓는다」 두 동작이라 줄도 둘이다 (순차 공개).
+    // 2026-09-14 3rd pass: 「picking it up → putting it down」 is two actions, so the rows are two as well (sequential
+    //   reveal).
     objectives: [
       { id: 'benchPick', text: '가구 창고에서 총기 작업대 선택' },
       { id: 'benchDown', text: '작업실 바닥에 배치', reveal: true },
     ],
     allow: { furniture: [TUTORIAL_BENCH_DEF] },
-    // 창고 탭이 아직 열려 있지 않으면 그 탭 버튼을 밝힌다 — 탭 자체가 어두운 판에 덮여 못 눌리던 자리다.
+    // If the store tab is not open yet it lights that tab button — the tab itself used to sit under a dim plate and
+    //   could not be clicked.
     spot: ['.sm-store .fcard[data-def-id="furn_bench_gun"]', '.sm-tabs .sm-tab[data-tab="store"]', '.sm-side'],
     spotText: '가구 창고 → 총기 작업대',
   },
   /*
-   * 2026-09-14 3차 (사용자 결정) — 순서에서 빠졌었다: 「닫으세요」만 하는 단계가 서 있을 이유가 없다고 봤다.
-   * 2026-09-15 (사용자 결정 — 뒤집음) — **순서로 돌아왔다.** 「작업실로 이동」(`craftGun` 의 첫 줄) 바로 앞이다:
-   * 관리 모드가 열린 채로는 걸어갈 수 없는데 안내는 걸어가라고 했고, 바닥 안내선까지 관리 카메라 아래에 깔렸다.
-   * 그래서 이 단계가 먼저 닫게 하고, 안내선은 관리 모드가 열려 있는 동안 **어느 단계에서도 그리지 않는다**
-   * (`TutorialSystem.refreshVisuals` — `ctx.housing.shipManageMode` · `housingMode`).
-   * 관리 모드가 이미 닫힌 채 이 단계에 들어서면(콘솔 · 저장 복구) 할 일이 없으므로 `setStep` 이 조용히 지나친다
-   * (`generator` 와 같은 요령).
+   * 2026-09-14 3rd pass (user's decision) — it had dropped out of the order: a step that only says 「close it」 was
+   * seen as having no reason to stand.
+   * 2026-09-15 (user's decision — reversed) — **it is back in the order.** It sits right before 「작업실로 이동」
+   * (`craftGun`'s first row): the workshop cannot be walked to while management mode is open, yet the guide told the
+   * player to walk there, and the floor guide was laid under the management camera too. So this step closes it first,
+   * and the floor guide is **drawn in no step at all** while management mode is open (`TutorialSystem.refreshVisuals`
+   * — `ctx.housing.shipManageMode` · `housingMode`). Entering this step with management mode already closed (console
+   * · save restore) leaves nothing to do, so `setStep` passes it silently (the same trick as `generator`).
    */
   manageDone: {
     id: 'manageDone', title: '하우징 모드를 닫으세요',
     hint: '화면 우측 아래 키 가이드의 닫기 키(Tab)를 누르면 하우징 모드를 빠져나옵니다 (M · C 도 됩니다).',
     objectives: [{ id: 'manageClose', text: '{INVENTORY} 하우징 모드 닫기' }],
-    // 작업대는 계속 허용해 둔다 — 막힌 것은 목록에서 사라지므로, 방금까지 보던 카드가 통째로 비지 않도록.
+    // The workbench stays allowed — a blocked entry vanishes from the list, so the card being looked at a moment ago
+    //   does not go blank.
     allow: { manageExit: true, furniture: [TUTORIAL_BENCH_DEF] },
-    // 2026-09-09: 관리 모드가 켜져 있는 동안 우측 하단에 떠 있는 키 가이드(`ui/hud/KeyGuide`, `.key-guide`)를 밝힌다 —
-    //   가이드가 스스로 맨 오른쪽에 붙이는 `Tab 닫기` 항목(`.kg-close`)이 먼저, 없으면 가이드 한 줄 전체.
-    //   가이드는 `pointer-events:none` 이고 z 84 라 어두운 판(78) 위에 떠 있다 — 링은 그 둘레를 두른다.
+    // 2026-09-09: lights the key guide (`ui/hud/KeyGuide`, `.key-guide`) that sits bottom right while management mode
+    //   is on — the `Tab 닫기` entry the guide appends itself at the far right (`.kg-close`) first, else the whole
+    //   guide row. The guide is `pointer-events:none` and at z 84, so it floats over the dim plate (78) — the ring
+    //   goes around it.
     spot: ['.key-guide .kg-close', '.key-guide'],
     spotText: 'Tab — 하우징 모드 닫기',
   },
   /*
-   * 2026-09-09 — 제작 흐름은 **작업대 한 번**이다: 소총 → (같은 창에서) 준중량탄 → 창 닫기 → 장착 → 탄약 가방에.
-   * 그래서 `craftGun` 부터 `stowAmmo` 까지는 소총 · 탄약 레시피를 **둘 다** 허용한다 — 막힌 레시피는 목록에서
-   * 사라지므로(`hides`), 소총을 만드는 순간 그 행이 빠지고 탄약 행이 튀어나오면 목록이 흔들린다. 어느 것을
-   * 만들 차례인지는 스포트라이트가 가리킨다.
+   * 2026-09-09 — the craft flow is **one visit to the workbench**: the rifle → (in the same window) the ammo → close
+   * the window → equip → the ammo into the bag. So `craftGun` through `stowAmmo` allow **both** the rifle and the
+   * ammo recipe — a blocked recipe vanishes from the list (`hides`), so the rifle row dropping out and the ammo row
+   * popping up the instant the rifle is made would shift the list. Which one is next to make is what the spotlight
+   * points at.
    */
   /*
-   * 2026-09-17 (사용자 결정): **③ 작업실로 이동 → 작업대 작동 → 돌격소총 → 준중량탄 → 제작창 닫기** (옛 `craftGun` · `craftAmmo` ·
-   * `openBag`). 준중량탄 재료는 소총이 완성되는 순간 채운다 (`TutorialSystem.onCrafted` → `ensureMaterials`). 닫기는 작업대 창째
-   * 닫는다 (`inventory/parts/Crafting.closeCraftWindow`) — 그것이 이 단계의 끝이다.
-   * 걸어가는 두 줄은 스포트라이트가 없고(아직 창이 없다) 안내선이 작업대를 가리킨다. 창 안의 줄은 안내선이 없다.
+   * 2026-09-17 (user's decision): **③ walk to the workshop → work the bench → the assault rifle → the medium ammo →
+   * close the craft window** (old `craftGun` · `craftAmmo` · `openBag`). The ammo's materials are topped up the
+   * moment the rifle is finished (`TutorialSystem.onCrafted` → `ensureMaterials`). Closing closes the whole workbench
+   * window (`inventory/parts/Crafting.closeCraftWindow`) — that is where this step ends. The two walking rows have no
+   * spotlight (there is no window yet) and the floor guide points at the bench; the rows inside the window have no
+   * floor guide.
    */
   craftGun: {
     id: 'craftGun', title: '작업대에서 돌격소총과 탄약을 만드세요',
@@ -166,35 +184,42 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
       { id: 'craftClosed', text: '제작창 닫기', reveal: true, guide: null, spot: ['.inv-craft-close', '.inv-panel-craft'], spotText: '제작창 닫기' },
     ],
     arriveObjective: 'craftGunWalk',
-    // 관리 모드를 다시 열어도(콘솔 · 저장 복구 · 되돌아간 사람) 가구 카드가 통째로 비지 않도록 작업대는 계속
-    //   허용해 둔다 (`manageDone` 과 같은 이유). 2026-09-15 부터는 `manageDone` 이 앞에 있어 평소에는 닫힌 채 들어선다.
+    // The workbench stays allowed so that reopening management mode (console · save restore · someone going back)
+    //   never leaves the furniture cards blank (the same reason as `manageDone`). Since 2026-09-15 `manageDone` comes
+    //   first, so this is normally entered closed.
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE], furniture: [TUTORIAL_BENCH_DEF], manageExit: true },
-    /* 2026-09-15 3차 (제작 UI 개편): 고른 레시피의 **상세**가 `.inv-craft-row` 라, 그 레시피가 골라져 있으면 홀드 버튼을,
-       아직 아니면 눌러야 할 **조합 목록 칸**(`.inv-craft-cell`)을 밝힌다 — `spot` 은 먼저 맞는 것 하나를 고르는 폴백 목록이다. */
+    /* 2026-09-15 3rd pass (craft UI rework): the picked recipe's **detail** is `.inv-craft-row`, so with that
+       recipe picked it lights the hold button, and otherwise the **recipe list cell** (`.inv-craft-cell`) that has
+       to be clicked — `spot` is a fallback list, the first match wins. */
     spot: [`.inv-craft-row[data-recipe="${TUTORIAL_GUN_RECIPE}"] .inv-craft-btn`, `.inv-craft-cell[data-recipe="${TUTORIAL_GUN_RECIPE}"]`, '.inv-panel-craft'],
     spotText: '돌격소총 제작',
     guide: 'bench',
   },
   craftAmmo: {
     id: 'craftAmmo', title: '준중량탄을 만드세요',
-    // 소총 바로 다음, **같은 작업대 창**이 열린 채로. 재료 부족분은 이 단계에 들어설 때 `ensureMaterials` 가 채운다.
+    // Right after the rifle, with the **same workbench window** still open. Missing materials are topped up by
+    //   `ensureMaterials` on entering this step.
     hint: '같은 작업대에서 준중량탄 제작을 1초간 누릅니다. 재료는 튜토리얼이 채워 둡니다.',
     objectives: [{ id: 'craftAmmoMade', text: '준중량탄 제작' }],
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
-    // 2026-09-10: `bulk_ammo_medium`(대량 제작)이 제작 대개편에서 사라져 `make_ammo_medium` 으로 옮겼다.
-    //   선택자는 `TUTORIAL_AMMO_RECIPE` 에서 만든다 — id 를 손으로 두 번 적으면 다음에 또 어긋난다.
-    /* 2026-09-15 3차 (제작 UI 개편): 고른 레시피의 **상세**가 `.inv-craft-row` 라, 그 레시피가 골라져 있으면 홀드 버튼을,
-       아직 아니면 눌러야 할 **조합 목록 칸**(`.inv-craft-cell`)을 밝힌다 — `spot` 은 먼저 맞는 것 하나를 고르는 폴백 목록이다. */
+    // 2026-09-10: `bulk_ammo_medium` (bulk crafting) disappeared in the big craft rework, so this moved to
+    //   `make_ammo_medium`. The selector is built from `TUTORIAL_AMMO_RECIPE` — writing the id out by hand twice goes
+    //   out of step again next time.
+    /* 2026-09-15 3rd pass (craft UI rework): the picked recipe's **detail** is `.inv-craft-row`, so with that
+       recipe picked it lights the hold button, and otherwise the **recipe list cell** (`.inv-craft-cell`) that has
+       to be clicked — `spot` is a fallback list, the first match wins. */
     spot: [`.inv-craft-row[data-recipe="${TUTORIAL_AMMO_RECIPE}"] .inv-craft-btn`, `.inv-craft-cell[data-recipe="${TUTORIAL_AMMO_RECIPE}"]`, '.inv-panel-craft'],
     spotText: '준중량탄 제작',
     guide: 'bench',
   },
   openBag: {
     id: 'openBag', title: '제작 창을 닫고 가방을 여세요',
-    // 2026-09-08: 제작 중에는 장착 장비 칸이 숨는다 (`.inv-root.is-craft`) — 만든 무기를 장착하려면 먼저 작업대를
-    //   닫아야 한다. 그 순서를 안내 없이 두면 "장비 칸이 어디 갔지"에서 막힌다.
-    // 2026-09-16 (`inventory/parts/Crafting.closeCraftWindow`): 닫기는 제작 열만 접는 것이 아니라 **작업대 창째**
-    //   닫는다 — 예전 문구(「장착 장비와 가방이 나타납니다」)는 이제 거짓말이다. 다시 여는 키까지 여기서 적는다.
+    // 2026-09-08: the equipment slots are hidden while crafting (`.inv-root.is-craft`) — equipping the crafted weapon
+    //   means closing the workbench first. Left unexplained, that order strands the player on "where did the
+    //   equipment slots go".
+    // 2026-09-16 (`inventory/parts/Crafting.closeCraftWindow`): closing does not just fold the craft column, it
+    //   closes the **whole workbench window** — the old wording (「장착 장비와 가방이 나타납니다」) is a lie now. The key that
+    //   reopens it is written here too.
     hint: '작업대 우측 상단의 닫기를 누르면 작업대 창이 닫힙니다. 이어서 Tab 으로 가방을 엽니다.',
     objectives: [{ id: 'craftClosed', text: '제작 창 닫기' }],
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
@@ -204,49 +229,59 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   equipGun: {
     id: 'equipGun', title: '만든 소총을 주무기로 장착하세요',
     /*
-     * 2026-09-15 3차 (사용자 결정 「제작품은 함선 창고로」) — 만든 소총은 **함선 창고**에 있다. 목표 줄과 완료 판정은
-     * 한 줄도 안 바뀌었다(`onLoadout` = 주무기 I · II 어느 쪽이든 그 소총이 들어오면 끝) — 바뀐 것은 **어디서 집어
-     * 오는가**뿐이라 안내 문구와 포커싱만 창고까지 넓혔다. 창고 · 가방이 이제 한 패널(`.inv-panel-grids`)이므로
-     * 구멍은 여전히 「장비칸 두 개 + 그 옆 격자 카드」 하나로 이어진 사각형이다.
+     * 2026-09-15 3rd pass (user's decision 「제작품은 함선 창고로」) — the crafted rifle sits in the **ship stash**. The
+     * objective rows and the completion check did not change by one line (`onLoadout` = done once that rifle lands in
+     * 주무기 I or II) — what changed is only **where it is picked up from**, so the wording and the focus were widened
+     * as far as the stash. The stash · the bag are one panel now (`.inv-panel-grids`), so the hole is still one
+     * connected rectangle, 「the two equipment slots + the grid card beside them」.
      */
-    // 2026-09-16: 작업대 창의 닫기가 창째 닫으므로 이 단계는 **창이 닫힌 채로 시작한다** — Tab 이 앞에 온다
-    //   (우측 조작 가이드도 그 한 줄을 띄운다: `model.EQUIP_HINTS`).
+    // 2026-09-16: the workbench window's close closes the whole window, so this step **starts with the window
+    //   closed** — Tab comes first (the control guide on the right shows that one row too: `model.EQUIP_HINTS`).
     hint: 'Tab 으로 가방을 열고, 함선 창고의 소총을 왼쪽 장착 장비의 주무기 I 또는 II 칸으로 끌어다 놓습니다.',
     /*
-     * 2026-09-14 3차 — **제작 창이 열려 있으면 장비 칸이 없다** (`.inv-root.is-craft` 가 숨긴다). 그 상태에서
-     * 장비칸+가방을 포커싱하면 가방만 밝고 링이 허공을 두른다. 그래서 「제작 창을 닫는다」가 앞줄이고,
-     * 닫혀 있으면 `TutorialSystem` 이 단계에 들어서는 순간 그 줄을 달성으로 적어 다음 줄이 바로 열린다.
-     * 스포트라이트도 `craftOpen` 을 따라 닫기 버튼 ↔ 장비칸+가방으로 갈린다 (`TutorialSystem.stepView`).
+     * 2026-09-14 3rd pass — **with the craft window open there are no equipment slots** (`.inv-root.is-craft` hides
+     * them). Focusing the equipment slots + bag in that state lights only the bag and the ring is drawn around empty
+     * air. So 「close the craft window」 is the first row, and when it is already closed `TutorialSystem` marks that
+     * row done the moment the step is entered, so the next row opens at once. The spotlight splits with `craftOpen`
+     * too — close button ↔ equipment slots + bag (`TutorialSystem.stepView`).
      */
     /*
-     * 2026-09-17 (사용자 결정): **④ Tab 인벤토리 열기 → 돌격소총 장착.** 포커싱은 **딤 없이**(`spotNoDim`). 장착하면 체크만 긋고
-     * **인벤토리를 닫을 때까지 조용히 기다린다** — 목표 줄은 없다 (`TutorialSystem.poll`). 예전의 `stowAmmo`(탄약을 가방으로)는
-     * 없어졌다. 옛 `equipClose` 줄은 앞 단계가 제작창 닫기로 끝나므로 빠졌다 — 제작 창이 열린 채 들어서는 드문 길(콘솔)만
-     * `stepView` 가 닫기 버튼을 먼저 밝힌다.
+     * 2026-09-17 (user's decision): **④ Tab to open the inventory → equip the assault rifle.** The focus carries **no
+     * dim** (`spotNoDim`). Equipping only draws the check and then **waits silently until the inventory is closed** —
+     * there is no objective row for it (`TutorialSystem.poll`). The old `stowAmmo` (the ammo into the bag) is gone,
+     * and the old `equipClose` row dropped out because the previous step ends on closing the craft window — only on
+     * the rare path in with it still open (console) does `stepView` light the close button first.
      */
     objectives: [
       { id: 'equipOpen', text: '{INVENTORY} 인벤토리 열기', spot: [] },
       { id: 'equipSlot', text: '돌격소총 장착', reveal: true },
     ],
-    // 직전 단계의 레시피는 그대로 열어 둔다 — 막힌 레시피는 목록에서 사라지므로 작업대가 통째로 비지 않게.
+    // The previous step's recipes are left open — a blocked recipe vanishes from the list, so the workbench does not
+    //   go blank.
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
-    // 2026-09-08: 주무기 칸 하나만 밝히면 **집을 곳(가방)이 어두운 판 아래** 깔려 드래그를 시작조차 못 했다.
-    //   장비 열과 가방은 맞닿아 있으므로(−24 px 이음매) 둘의 합집합이 이어진 도형 하나가 된다.
-    // 2026-09-09: 장비 열 전체(`.inv-equip`)가 아니라 **주무기 I · II 칸**(`inventory/ui/parts/SlotPanel.buildSlot` 의
-    //   `.inv-slot-primary` · `.inv-slot-primary2`, `data-slot` 도 같다)부터 가방까지만 — 보조무기 · 방탄복 · 가방 칸과
-    //   임플란트 칸은 이 단계와 상관없다. 구멍은 여전히 사각형 하나라 두 칸과 가방 패널을 감싸는 최소 사각형이 된다.
-    // 2026-09-15 3차: 마지막 칸이 `.inv-panel-bag` → **`.inv-panel-grids`**(창고 + 가방 한 카드) — 소총은 창고에 있다.
-    // 2026-09-16: 함선 Tab 이 창고 | 장비 | 가방이 되어 창고가 그 카드 밖(장비 열 왼쪽)이다 → 마지막 칸은 `.inv-panel-stash`.
+    // 2026-09-08: lighting only the primary slot left **the place to pick from (the bag) under the dim plate**, so
+    //   the drag could not even be started. The equipment column and the bag touch (a −24 px seam), so their union is
+    //   one connected shape.
+    // 2026-09-09: not the whole equipment column (`.inv-equip`) but **the 주무기 I · II slots**
+    //   (`inventory/ui/parts/SlotPanel.buildSlot`'s `.inv-slot-primary` · `.inv-slot-primary2`, `data-slot` the same)
+    //   through to the bag — the secondary · armor · bag slots and the implant slots have nothing to do with this
+    //   step. The hole is still one rectangle, so it is the smallest one around those two slots and the bag panel.
+    // 2026-09-15 3rd pass: the last entry went `.inv-panel-bag` → **`.inv-panel-grids`** (stash + bag, one card) —
+    //   the rifle is in the stash.
+    // 2026-09-16: the ship Tab became 창고 | 장비 | 가방, putting the stash outside that card (left of the equipment
+    //   column) → the last entry is `.inv-panel-stash`.
     spot: ['.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2', '.inv-panel-stash'],
     spotUnion: true,
-    // 2026-09-17 (사용자 결정): 화면 전체 딤은 없다 — 구멍 · 링 · 말풍선만 (`corpseLoot` 과 같다)
+    // 2026-09-17 (user's decision): there is no full-screen dim — only the hole · the ring · the callout (the same as
+    //   `corpseLoot`)
     spotNoDim: true,
     spotText: '창고의 소총 → 주무기 I · II 칸',
   },
   openCraft: {
-    // (순서에서 제외, 2026-09-09) `TUTORIAL_STEPS` 에 없다 — id 가 계약(`TutorialStepId`)에 남아 있어 표에만 자리를 둔다.
-    //   예전에는 장착 다음에 가방의 `제작` 버튼을 밝혀 탄약 제작 창을 다시 열게 했는데, 지금은 소총 · 탄약을 작업대에서
-    //   한 번에 만들므로 할 일이 없다. `stepDef('openCraft')` 는 안전하게 이 항목을 돌려주고 `nextStep` 은 null 이다.
+    // (out of the order, 2026-09-09) not in `TUTORIAL_STEPS` — the id stays in the contract (`TutorialStepId`), so it
+    //   keeps a place in the table only. It used to light the bag's `제작` button after equipping, to reopen the ammo
+    //   craft window; now that the rifle · the ammo are made at the workbench in one go there is nothing to do.
+    //   `stepDef('openCraft')` safely returns this entry and `nextStep` is null.
     id: 'openCraft', title: '제작 창을 여세요',
     hint: '가방 우측 상단의 제작 버튼을 누르면 제작 창이 열립니다 (작업대를 직접 사용해도 됩니다).',
     objectives: [{ id: 'craftOpened', text: '제작 창 열기' }],
@@ -259,17 +294,19 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     hint: '함선 창고의 준중량탄을 가방 격자로 끌어다 놓습니다.',
     objectives: [{ id: 'ammoStowed', text: '준중량탄을 가방으로 이동' }],
     allow: { craft: [TUTORIAL_GUN_RECIPE, TUTORIAL_AMMO_RECIPE] },
-    // `equipGun` 과 같은 이유의 합집합 — 집을 곳(창고)과 놓을 곳(가방)이 둘 다 밝아야 드래그가 된다.
+    // A union for the same reason as `equipGun` — the place to pick from (the stash) and the place to drop (the bag)
+    //   must both be lit for the drag to work.
     spot: ['.inv-panel-stash', '.inv-panel-bag'],
     spotUnion: true,
     spotText: '준중량탄을 가방으로',
   },
   /*
-   * 2026-09-17 (사용자 결정): **⑤ 조종석 이동 → 터미널 작동 → 목표 행성 지정 → (워프 대기) → 발사 슬롯으로 이동 → 탑승 →
-   * `{JUMP:hold}` 준비** (옛 `terminal` · `planet` · `travel` · `board`). 워프를 기다리는 줄은 없다 — 「발사 슬롯으로 이동」은 워프가
-   * 끝나야(`travelDone`, 목록에 없는 id) 열린다. 포드는 그 줄이 보이는 순간부터 열린다 (목표별 `allow`). 이 트랙 동안
-   * 터미널의 `시뮬레이션 훈련장` 버튼과 준비 때의 출격 준비 경고는 감춰진다 (`training` · `launchWarn` 게이트).
-   * 레이드가 시작되면(`game:newMission`) 다음 단계다.
+   * 2026-09-17 (user's decision): **⑤ walk to the cockpit → work the terminal → pick the target planet → (wait out
+   * the warp) → walk to the launch slot → board → `{JUMP:hold}` ready** (old `terminal` · `planet` · `travel` ·
+   * `board`). There is no row for waiting out the warp — 「발사 슬롯으로 이동」 opens only once it ends (`travelDone`, an id
+   * that is not in the list). The pod opens from the moment that row is visible (the row's own `allow`). For this
+   * whole track the terminal's `시뮬레이션 훈련장` button and the ready-time launch warnings are hidden (the `training` ·
+   * `launchWarn` gates). The raid starting (`game:newMission`) is the next step.
    */
   terminal: {
     id: 'terminal', title: '행성을 정하고 출격하세요',
@@ -314,14 +351,17 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     guide: 'pod',
   },
   /*
-   * 2026-09-18 (사용자 결정): 아래 두 단계(`terminal` · `raid`)는 이제 **출격 안내**(`raid2`) 트랙이다 — id 도 내용도
-   * 그대로이고 옮긴 것은 트랙뿐이다 (`shared/tutorial.TUTORIAL_TRACK_STEPS`). 「증축 안내」는 `equipGun` 에서 끝난다.
+   * 2026-09-18 (user's decision): the two steps below (`terminal` · `raid`) are now the **「출격 안내」** (`raid2`) track —
+   * the ids and the contents are unchanged, the only thing moved is the track
+   * (`shared/tutorial.TUTORIAL_TRACK_STEPS`). 「증축 안내」 ends at `equipGun`.
    */
   /*
-   * 2026-09-17 (사용자 결정): **⑥ 레이드 퀘스트** — 이번 레이드에서 얻은 아이템(`raidFound`)의 판매가 합이
-   * `TUTORIAL_RAID_EXTRACT_VALUE_C` 이상인 채로 탈출. **기회는 한 번**: 탈출 · 사망 · 포기 어느 쪽이든 그 레이드가 끝나면 트랙이
-   * 끝나고, 목표는 조건을 채워 탈출했을 때만 체크된다 (`TutorialSystem.onBuildRaidEnd`). 진행 수는 지금 몸에 지닌 그 합이다.
-   * 우측에는 이 레이드에서만 조작 가이드가 뜬다 (`model.RAID_GUIDE_HINTS`, `]` 로 접기).
+   * 2026-09-17 (user's decision): **⑥ the raid quest** — extract while the sum of the sell prices of the items found
+   * in this raid (`raidFound`) is at least `TUTORIAL_RAID_EXTRACT_VALUE_C`. **There is one attempt**: extraction ·
+   * death · abandoning, whichever it is, ends the track once that raid ends, and the objective is checked only when
+   * the extraction happened with the condition met (`TutorialSystem.onBuildRaidEnd`). The progress count is that sum
+   * as it is carried right now. On the right the control guide shows in this raid only (`model.RAID_GUIDE_HINTS`,
+   * folded with `]`).
    */
   raid: {
     id: 'raid', title: '행성에서 전리품을 챙겨 탈출하세요',
@@ -331,31 +371,35 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
       text: `행성에서 가치 ${TUTORIAL_RAID_EXTRACT_VALUE_C.toLocaleString('en-US')} C 이상 아이템을 획득한 후 무사히 탈출`,
       count: TUTORIAL_RAID_EXTRACT_VALUE_C, countUnit: 'C',
     }],
-    // 레이드는 그대로 진행된다 — 이 단계에서는 아무것도 막지 않고 아무것도 감추지 않는다.
+    // The raid runs as it normally does — this step blocks nothing and hides nothing.
     allow: {
       roomPurpose: true, furniture: true, manageExit: true, craft: true,
       terminal: true, planet: true, board: true, screenTab: true, stashItem: true,
     },
   },
 
-  /* ══ 2026-09-14 튜토리얼 개편 (docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」) ══════════════════════════════════════════════
-   * ① raid — 손으로 지은 튜토리얼 행성. 안내할 것이 **UI 가 아니라 손가락**이라 스포트라이트가 거의 없다:
-   *    쓰는 키는 우측 조작 가이드(`ui/Controls`, `TUTORIAL_CONTROL_HINTS`)가 그리고, 목표 패널은
-   *    "지금 무엇을 하는가"만 말한다.
-   *    2026-09-15 (사용자 결정) — 목표는 **짧은 명사구**이고, 키를 말하는 줄은 **키캡 토큰**(`{QUICK:hold}` …)을 쓴다.
-   *    예전의 「문구에 키 글자를 적지 않는다」는 글자를 박아 두면 리바인드에 거짓말이 되기 때문이었는데, 토큰은
-   *    그릴 때 `Keys` 에서 풀리고 리바인드하면 다시 그려지므로 그 걱정이 없다 (`shared/keycap.renderKeyText`).
-   * ② ship — 함선 첫 진입. 레벨 · 능력치는 전부 기존 화면이라 **스포트라이트로 가리키기만** 한다 (2026-09-16: 메신저 단계 제외).
+  /* ══ 2026-09-14 the tutorial rework (docs/DECISIONS.md 「2026-09-14 — 튜토리얼 개편」) ══════════════════════════════════
+   * ① raid — a hand-built tutorial planet. What has to be guided is **the fingers, not the UI**, so there is almost
+   *    no spotlight: the keys in use are drawn by the control guide on the right (`ui/Controls`,
+   *    `TUTORIAL_CONTROL_HINTS`), and the objective panel says only "what is being done right now".
+   *    2026-09-15 (user's decision) — an objective is a **short noun phrase**, and a row that names a key uses
+   *    **keycap tokens** (`{QUICK:hold}` …). The old 「no key letters in the wording」 was because a letter burned into
+   *    the text becomes a lie after a rebinding; a token is resolved from `Keys` at draw time and redrawn on a
+   *    rebinding, so that worry is gone (`shared/keycap.renderKeyText`).
+   * ② ship — the first ship entry. Level · stats are all existing screens, so it **only points at them with the
+   *    spotlight** (2026-09-16: the messenger step excepted).
    * ═══════════════════════════════════════════════════════════════════════════════════════════════════ */
-  /* ── ① raid — 튜토리얼 레이드 ── */
+  /* ── ① raid — the tutorial raid ── */
   /*
-   * 2026-09-14 2차 — 목표 패널이 **체크박스 목록**이 되면서 각 단계가 짧은 목표 문장을 갖는다 (`objectives`).
-   * `hint` 는 그대로 두었다: 스포트라이트 말풍선의 기본 문구이자 `objectives` 가 없는 단계의 목표 문장이다.
+   * 2026-09-14 2nd pass — the objective panel became a **checkbox list**, so every step carries a short objective
+   * sentence (`objectives`). `hint` was left alone: it is the spotlight callout's default wording and the objective
+   * sentence of a step that has no `objectives`.
    */
   /*
-   * 2026-09-14 4차 (사용자 결정) — **목표가 없다.** 「몸을 일으킨다」는 플레이어가 하는 일이 아니라
-   * 연출이 하는 일이라, 체크박스로 세워 두면 할 수 있는 것이 없는 목표가 화면에 남는다. 그리고 이 단계
-   * 동안에는 목표 패널 · 조작 가이드를 **아예 그리지 않는다** (`TutorialSystem.quiet`) — 화면이 아직 검다.
+   * 2026-09-14 4th pass (user's decision) — **there is no objective.** 「getting the body up」 is not something the
+   * player does but something the cutscene does, so standing it up as a checkbox leaves an objective on screen that
+   * nothing can be done about. And for this step the objective panel · the control guide are **not drawn at all**
+   * (`TutorialSystem.quiet`) — the screen is still black.
    */
   wake: {
     id: 'wake', title: '정신을 차리세요',
@@ -363,9 +407,9 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     objectives: [],
   },
   /*
-   * 2026-09-15 2차 (사용자 결정) — 목표 문구가 **「앞으로 이동」**이다. 구간과 구간 사이의 `advance1`·`2`·`3` 이
-   * 이미 그 문장이고, 첫 걸음만 「갈라진 땅까지 이동」이면 같은 일에 이름이 둘이 된다 (그리고 그 땅은 아직
-   * 보이지도 않는다 — 어디까지 가야 하는지는 걸어가 보면 알게 된다).
+   * 2026-09-15 2nd pass (user's decision) — the objective wording is **「앞으로 이동」**. `advance1`·`2`·`3` between one
+   * stretch and the next already carry that sentence, and making only the first step 「갈라진 땅까지 이동」 would give one
+   * thing two names (and that ground is not even visible yet — how far to go is something walking there teaches).
    */
   move: {
     id: 'move', title: '주변을 둘러보고 걸어가세요',
@@ -378,13 +422,15 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     objectives: [{ id: 'jumpGap', text: '{SPRINT:hold} 달리며 {JUMP} 점프로 갈라진 땅 건너기' }],
   },
   /*
-   * 2026-09-15 2차 (사용자 결정) — **시체 상호작용.** 전에는 절벽을 넘자마자 곧장 「기관단총을 주무기 칸에 장착」이
-   * 떴다: 아직 시체를 열지도 않았는데 그 안의 물건을 옮기라고 한다 (`supplyLoot` 을 넣은 것과 같은 눈이다 —
-   * 「줍기도 전에 쓰라고 하지 않는다」). 그래서 시체 앞에 서면 먼저 이 한 줄이고, **시체 가방이 열리면**
-   * `corpseLoot` 이다 (`TutorialSystem.onContainerOpened` — `corpse:` 로 시작하는 컨테이너).
+   * 2026-09-15 2nd pass (user's decision) — **interacting with a corpse.** Before, 「기관단총을 주무기 칸에 장착」 came up the
+   * moment the cliff was cleared: telling someone to move what is inside a corpse they have not even opened yet (the
+   * same eye that added `supplyLoot` — 「nothing is told to be used before it is picked up」). So standing in front of
+   * the corpse is this one row first, and **once the corpse's bag opens** it is `corpseLoot`
+   * (`TutorialSystem.onContainerOpened` — a container id starting `corpse:`).
    *
-   * 스포트라이트가 없다 — 할 일이 화면이 아니라 **월드의 시체**라 밝힐 DOM 이 없다. 대신 3D 목표 마커
-   * (`parts/Marker`)가 `corpseLoot` 과 **똑같이** 그 시체 위에 선다.
+   * There is no spotlight — what has to be done is **the corpse in the world**, not a screen, so there is no DOM to
+   * light. Instead a 3D target marker (`parts/Marker`) stands over that corpse **exactly** as it does in
+   * `corpseLoot`.
    */
   corpseOpen: {
     id: 'corpseOpen', title: '쓰러진 대원을 살펴보세요',
@@ -395,56 +441,66 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     id: 'corpseLoot', title: '쓰러진 대원의 장비를 챙기세요',
     hint: '열린 가방에서 무기를 주무기 칸에 끌어다 놓습니다. 가방 · 탄약도 함께 챙길 수 있습니다.',
     /*
-     * 2026-09-14 2차 (사용자 결정) — **총을 드는 것만이 필수**다. 가방 · 탄약 · 붕대는 선택 목표로 내려
-     * 체크박스로 함께 보이기만 한다 (안 챙겨도 넘어간다). 총을 장착하는 순간 다음 단계이고,
-     * 그 순간 체력 · 무기 HUD 가 나타난다 (`HUD_GEAR_STEP` 이 이 단계라 **지나면** 보인다 — 관계는 그대로).
+     * 2026-09-14 2nd pass (user's decision) — **only picking up the gun is required.** The bag · the ammo · the
+     * bandage drop to optional objectives and are only shown alongside as checkboxes (not taking them still moves
+     * on). Equipping the gun is the next step, and at that moment the hp · weapon HUD appears (`HUD_GEAR_STEP` is
+     * this step, so it shows **past** it — the relation is unchanged).
      */
     /*
-     * 2026-09-14 3차 (사용자 결정) — **가방을 닫아야** 다음 단계다. 총을 드는 순간 안내가 벌레 구간으로
-     * 넘어가면, 아직 인벤토리 화면을 보고 있는 사람의 등 뒤에서 목표가 바뀌어 있다. 그래서 필수가 둘이고
-     * 「가방을 닫는다」는 **총을 든 뒤에** 열린다 (`revealOn` — 앞줄이 선택 목표들이라 `reveal` 을 못 쓴다).
+     * 2026-09-14 3rd pass (user's decision) — the next step comes only **once the bag is closed**. If the guide moved
+     * on to the bug stretch the moment the gun is taken, the objective would change behind the back of someone still
+     * reading the inventory screen. So there are two required rows and 「closing the bag」 opens **after the gun is
+     * taken** (`revealOn` — the rows before it are optional objectives, so `reveal` will not do).
      */
     /*
-     * 2026-09-14 4차 (사용자 결정) — 줄이 셋으로 줄었다.
-     *   • `corpseStim` 삭제 — 그 시체(`corpse:tut_gear`)에는 **회복 아이템이 없다**. 못 하는 일을 적어 두면
-     *     선택 목표가 아니라 못 찾은 목표가 된다 (회복은 `heal` 단계의 보급품 시체에서 배운다).
-     *   • `corpseClose` 삭제 — 닫는 것은 목표가 아니라 화면을 빠져나오는 방법이다. **단계를 넘기는 신호로는
-     *     그대로 남는다** (`onInventoryClosed`): 총을 든 그 순간 목표에 체크가 들어가고 스포트라이트가 꺼지되,
-     *     다음 안내는 인벤토리를 닫을 때 온다 — 화면을 보는 동안 등 뒤에서 안내가 바뀌지 않게.
+     * 2026-09-14 4th pass (user's decision) — the rows came down to three.
+     *   • `corpseStim` removed — that corpse (`corpse:tut_gear`) holds **no healing item**. Writing down something
+     *     that cannot be done makes it not an optional objective but an objective that was never found (healing is
+     *     taught at `heal`'s supply corpse).
+     *   • `corpseClose` removed — closing is not an objective but the way out of the screen. **It stays as the signal
+     *     that advances the step** (`onInventoryClosed`): the check goes into the objective and the spotlight turns
+     *     off the moment the gun is taken, but the next guidance comes when the inventory is closed — so nothing
+     *     changes behind the back of someone reading the screen.
      */
     objectives: [
       { id: 'corpseGun', text: '기관단총을 주무기 칸에 장착' },
       { id: 'corpseBag', text: '가방을 장비 칸에 장착', optional: true },
       { id: 'corpseAmmo', text: '탄약 챙기기', optional: true },
     ],
-    // 장비 칸 ↔ 시체 격자에 걸친 드래그라 합집합으로 밝힌다 (`equipGun` 과 같은 이유).
-    // ⚠ 격자 타일에는 def id 가 없고 `data-uid` 뿐이라(`inventory/ui/GridView`) 총 한 칸만 고르는 선택자가
-    //   없다 — 구멍은 「시체 격자 ~ 주무기 칸」, 즉 드래그 경로 전체다. 드래그를 시작하면 받을 수 있는 칸이
-    //   초록으로 켜지는 것은 인벤토리가 이미 한다 (`.inv-slot.is-target-ok`).
-    // 2026-09-15 (사용자 결정): 구멍을 **방탄복 칸까지** 넓힌다 (`inventory/ui/parts/SlotPanel.buildSlot` 의
-    //   `inv-slot-${slot}` — `LOADOUT_SLOTS` 의 `armor`). 창을 곧바로 닫으면 포커싱은 풀린다 (`TutorialSystem.corpseFocusOff`).
+    // The drag spans the equipment slots ↔ the corpse grid, so it is lit as a union (the same reason as `equipGun`).
+    // ⚠ A grid tile carries no def id, only `data-uid` (`inventory/ui/GridView`), so there is no selector that picks
+    //   the gun's one cell — the hole is 「the corpse grid ~ the primary slot」, i.e. the whole drag path. Lighting the
+    //   cells that can take the item in green once the drag starts is something the inventory already does
+    //   (`.inv-slot.is-target-ok`).
+    // 2026-09-15 (user's decision): the hole widens **as far as the armor slot**
+    //   (`inventory/ui/parts/SlotPanel.buildSlot`'s `inv-slot-${slot}` — `LOADOUT_SLOTS`'s `armor`). Closing the
+    //   window at once releases the focus (`TutorialSystem.corpseFocusOff`).
     spot: [
       '.inv-panel-container', '.inv-root .inv-equip .inv-slot-primary', '.inv-root .inv-equip .inv-slot-primary2',
       '.inv-root .inv-equip .inv-slot-armor',
     ],
     spotUnion: true,
-    // 2026-09-14 2차 (사용자 결정): 이 단계만 **딤이 없다** — 시체 격자 · 장비 칸 말고도 볼 것이 많고,
-    //   어두운 판이 화면 절반을 덮으면 처음 여는 인벤토리 화면을 읽을 수가 없다.
+    // 2026-09-14 2nd pass (user's decision): this step alone has **no dim** — there is much to look at besides the
+    //   corpse grid · the equipment slots, and a dim plate over half the screen makes the first-ever inventory screen
+    //   unreadable.
     spotNoDim: true,
-    // 2026-09-16 (사용자 결정): 옮기는 **방법**을 말한다 — 좌클릭 드래그 · 더블클릭 키캡 (`{MOUSE_LEFT}` · `{DOUBLE_CLICK}` 은
-    //   리바인드와 무관한 고정 토큰, `shared/keycap.KEYCAP_FIXED_TOKENS` — 더블클릭 키캡은 키 가이드의 것과 같은 모양이다)
+    // 2026-09-16 (user's decision): it names the **way** to move it — left-click drag · double-click keycaps
+    //   (`{MOUSE_LEFT}` · `{DOUBLE_CLICK}` are fixed tokens independent of rebinding,
+    //   `shared/keycap.KEYCAP_FIXED_TOKENS` — the double-click keycap is shaped like the key guide's)
     spotText: '아이템을 {MOUSE_LEFT} 드래그 또는 {DOUBLE_CLICK}해서 장착 칸으로 이동',
   },
   /*
-   * ── 「앞으로 이동」 구간 셋 (2026-09-14 4차, 사용자 결정) ────────────────────────────────────────
-   * 전에는 앞 구간이 끝나는 순간 다음 구간의 안내가 떴다 — 벌레를 잡자마자 「앉아서 낮은 틈을 지나세요」,
-   * 안드로이드를 잡자마자 「아래로 뛰어내리세요」. 그 물건은 아직 30 m 앞에 있는데 안내만 먼저 도착한다.
-   * 그래서 구간과 구간 사이는 언제나 이 단계이고, 다음 안내는 **그 물건 앞에 섰을 때** 뜬다.
+   * ── the three 「앞으로 이동」 stretches (2026-09-14 4th pass, user's decision) ──────────
+   * Before, the next stretch's guidance came up the instant the previous one ended — 「앉아서 낮은 틈을 지나세요」 the moment the
+   * bug died, 「아래로 뛰어내리세요」 the moment the android died. That thing is still 30 m away and only the guidance arrives
+   * first. So between one stretch and the next it is always this step, and the next guidance comes up **on standing
+   * in front of that thing**.
    *
-   * 셋 다 **이미 있는 체크포인트**로 끝난다 (`advance1`→`bugs` · `advance2`→`crawl` · `advance3`→`drop`,
-   * `model.CHECKPOINT_STEP`) — 월드에 새 트리거가 없다. 스포트라이트도 안내선도 없고, 조작 가이드만
-   * `move` 와 같은 세 줄로 되돌아온다 (`TUTORIAL_CONTROL_HINTS` 의 `MOVE_HINTS`).
-   * 셋의 정의가 같은 것은 의도다 — 「어디까지 왔는가」는 진행 바가 말하고, 목표 문장은 늘 한 가지다.
+   * All three end at a **checkpoint that already exists** (`advance1`→`bugs` · `advance2`→`crawl` ·
+   * `advance3`→`drop`, `model.CHECKPOINT_STEP`) — there is no new trigger in the world. No spotlight and no floor
+   * guide either; only the control guide comes back to the same three rows as `move` (`TUTORIAL_CONTROL_HINTS`'s
+   * `MOVE_HINTS`). The three definitions being identical is deliberate — the progress bar says 「how far along am I」,
+   * and the objective sentence is always the one thing.
    */
   advance1: {
     id: 'advance1', title: '앞으로 나아가세요',
@@ -464,8 +520,9 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   shoot: {
     id: 'shoot', title: '벌레를 처치하세요',
     hint: '정조준하면 탄이 덜 퍼집니다. 둘 다 쓰러뜨리면 다음으로 넘어갑니다.',
-    // 2026-09-15 2차 (사용자 결정): 수는 문구에 적지 않고 **`count` 로 넘긴다** — 패널이 뒤에 `(n/m)` 을 붙이고
-    //   처치할 때마다 그 숫자만 갱신한다. 목표 수의 원본은 `RAID_KILLS_PER_STEP` 하나다.
+    // 2026-09-15 2nd pass (user's decision): the number is not written into the wording but **passed as `count`** —
+    //   the panel appends `(n/m)` after it and refreshes only that number on each kill. The one source of the target
+    //   count is `RAID_KILLS_PER_STEP`.
     objectives: [{ id: 'killBugs', text: '벌레 처치', count: RAID_KILLS_PER_STEP }],
   },
   crouch: {
@@ -484,11 +541,12 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     objectives: [{ id: 'dropDown', text: '아래로 뛰어내리기' }],
   },
   /*
-   * 2026-09-15 (사용자 결정) — **보급품 시체 루팅.** `supply` 체크포인트가 여는 단계다 (전에는 곧장 `heal` 이라
-   * 붕대를 줍기도 전에 「붕대 사용」이 떴다). 두 줄이 함께 보이고 — 필수 「붕대 획득」 · 선택 「수류탄 획득」 —
-   * 가방에 붕대가 들어오면 필수가 체크된다 (`TutorialSystem.onInventory`, 튜토리얼 레이드는 빈손으로 시작하고 첫
-   * 시체에는 회복 아이템이 없으므로 「가방 · 빠른 사용 칸에 회복 아이템이 있다」 = 그 시체에서 얻었다).
-   * 붕대를 얻은 뒤 **창을 닫으면** `heal` 이다. 줍지 않고 `wall` 까지 가면 `heal` 까지 함께 건너뛴다.
+   * 2026-09-15 (user's decision) — **looting the supply corpse.** The step the `supply` checkpoint opens (before, it
+   * went straight to `heal`, so 「붕대 사용」 came up before a bandage had even been picked up). Two rows show together —
+   * required 「붕대 획득」 · optional 「수류탄 획득」 — and the required one is checked once a bandage lands in the bag
+   * (`TutorialSystem.onInventory`; the tutorial raid starts empty-handed and the first corpse holds no healing item,
+   * so 「a healing item is in the bag · a quick slot」 = it came from that corpse). **Closing the window** after
+   * getting the bandage is `heal`. Walking on to `wall` without picking it up skips `heal` too.
    */
   supplyLoot: {
     id: 'supplyLoot', title: '보급품 시체를 뒤지세요',
@@ -501,14 +559,15 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   heal: {
     id: 'heal', title: '보급품을 챙기고 회복하세요',
     hint: '주운 회복 아이템은 빠른 사용 칸에 올려야 꺼낼 수 있습니다. 꺼낸 뒤 길게 눌러 쓰세요.',
-    // 2026-09-14 2차 (사용자 결정): 체력이 이미 가득이면 이 단계는 조용히 지나친다 (`TutorialSystem.setStep`).
+    // 2026-09-14 2nd pass (user's decision): at full health this step is passed silently (`TutorialSystem.setStep`).
     /*
-     * 2026-09-14 4차 (사용자 결정) — 「붕대를 빠른 사용 칸에 올린다」(`healStock`) 삭제: 붕대 · 수류탄은 주우면
-     * **빈 휠 칸에 자동 등록**된다. 남는 것은 **손에 드는 것**과 **쓰는 것** 둘이다.
+     * 2026-09-14 4th pass (user's decision) — 「붕대를 빠른 사용 칸에 올린다」 (`healStock`) removed: a bandage · a grenade is
+     * **registered into an empty wheel slot automatically** when picked up. What is left is two things, **holding
+     * it** and **using it**.
      *
-     * 2026-09-15 (사용자 결정) — ① 두 줄이 **순차 공개**다: 붕대를 손에 들어야 「붕대 사용」이 나타난다.
-     * ② 줄 안에 **키캡**이 들어간다 (`{QUICK:hold}` · `{FIRE:hold}`). ③ 선택 목표 「수류탄을 챙긴다」
-     * (`healGrenade`)는 삭제 — 보급품 시체 단계(`supplyLoot`)의 「시체에서 수류탄 획득」으로 옮겨 갔다.
+     * 2026-09-15 (user's decision) — ① the two rows are a **sequential reveal**: 「붕대 사용」 appears only once the
+     * bandage is held. ② **keycaps** go inside the rows (`{QUICK:hold}` · `{FIRE:hold}`). ③ the optional objective
+     * 「수류탄을 챙긴다」 (`healGrenade`) is removed — it moved to 「시체에서 수류탄 획득」 on the supply-corpse step (`supplyLoot`).
      */
     objectives: [
       { id: 'healHold', text: '{QUICK:hold} 길게 눌러 붕대 장착' },
@@ -518,14 +577,17 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   grenade: {
     id: 'grenade', title: '무너진 벽 너머를 정리하세요',
     hint: '엄폐한 적에게는 수류탄이 답입니다. 쓰지 않고 지나가도 됩니다.',
-    // 2026-09-14 2차 (사용자 결정) — 한 단계에 필수 + 선택이 함께 보이는 본보기다.
+    // 2026-09-14 2nd pass (user's decision) — the model case of a required + an optional row showing together in one
+    //   step.
     /*
-     * 2026-09-14 4차 (사용자 결정) — 선택 목표가 「처치」에서 **「꺼내 던진다」**로 바뀌었다. 배우는 것은
-     * 수류탄을 손에 드는 길이지 명중이 아니고, 빗나갔다고 해서 배운 것이 없어지지는 않는다.
-     * 그래서 판정은 `grenade:exploded` 한 줄이다 (처치 여부를 보지 않는다).
+     * 2026-09-14 4th pass (user's decision) — the optional objective changed from 「a kill」 to **「take one out and
+     * throw it」**. What is being learnt is the path to getting a grenade in hand, not hitting with it, and missing
+     * does not undo what was learnt. So the check is one line, `grenade:exploded` (it does not look at whether
+     * anything died).
      */
     objectives: [
-      // 2026-09-15: 무너진 벽은 사선 방벽이 됐다 — 다른 구간과 같은 「앞으로 이동」 (사용자 결정)
+      // 2026-09-15: the collapsed wall became a diagonal barricade — the same 「앞으로 이동」 as the other stretches (user's
+      //   decision)
       { id: 'wallPass', text: '앞으로 이동' },
       { id: 'grenadeThrow', text: '{QUICK:hold} 수류탄 장착 후 {FIRE:hold} 투척', optional: true },
     ],
@@ -534,36 +596,43 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
     id: 'extract', title: '버려진 함선으로 탈출하세요',
     hint: '함선 안의 스위치를 누르면 곧바로 이륙합니다. 그 함선이 앞으로 당신의 함선입니다.',
     objectives: [{ id: 'extractSwitch', text: '{INTERACT:hold} 함선 스위치 작동' }],
-    // 레이드가 끝나는 단계다 — 아무것도 막지 않는다 (build 트랙의 `raid` 와 같은 처리).
+    // The step the raid ends on — it blocks nothing (the same treatment as the build track's `raid`).
     allow: {
       roomPurpose: true, furniture: true, manageExit: true, craft: true,
       terminal: true, planet: true, board: true, screenTab: true, stashItem: true,
     },
   },
-  /* ── ② ship — 함선 첫 진입 ── */
+  /* ── ② ship — the first ship entry ── */
   /*
-   * (순서에서 제외, 2026-09-16 2차 — 사용자 결정) `TUTORIAL_TRACK_STEPS.ship` 에 없다. 「인벤토리 화면 열기」는 `stats` 의 첫 목표
-   * (`statsMenu`)가 됐고, 옛 저장의 `levelUp` 은 `normalizeStep` 이 `stats` 로 옮긴다. 아래는 순서에 있던 때의 모습이다.
+   * (out of the order, 2026-09-16 2nd pass — user's decision) not in `TUTORIAL_TRACK_STEPS.ship`. 「인벤토리 화면 열기」 became
+   * `stats`'s first objective (`statsMenu`), and an old save's `levelUp` is moved to `stats` by `normalizeStep`.
+   * Below is how it looked while it was in the order.
    */
   levelUp: {
     id: 'levelUp', title: '레벨이 올랐습니다',
-    // 넘어가는 신호는 `inventory:opened` 하나다 — 인벤토리 화면이 열리면 그 안의 캐릭터 탭은 다음 단계가 밝힌다.
+    // The advance signal is `inventory:opened` alone — once the inventory screen opens, the character tab inside it
+    //   is lit by the next step.
     hint: '임무 보상으로 능력치 포인트가 생겼습니다. 인벤토리 화면을 여세요.',
     objectives: [{ id: 'levelScreen', text: '인벤토리 화면 열기' }],
     allow: { screenTab: ['character'] },
-    // `.scr-tab` 에는 탭마다의 표식이 없다 — 지금 보이는 탭이 인벤토리 · 캐릭터 둘뿐이라 탭 줄 전체를 밝힌다.
+    // `.scr-tab` carries no per-tab mark — the only tabs visible right now are the inventory · the character, so the
+    //   whole tab row is lit.
     spot: ['.inv-root .scr-tabs', '.inv-root'],
     spotText: '캐릭터 탭',
   },
   /*
-   * 2026-09-16 2차 (사용자 결정) — **함선 트랙의 유일한 단계.** 목표 넷이 하나씩 열린다 (순차 공개 `reveal`):
-   *   ① `statsMenu`  메뉴(Tab 창) 열기 — 우측 조작 가이드에 `{INVENTORY}` 한 줄 (`model.TUTORIAL_CONTROL_HINTS.stats`)
-   *   ② `statsTab`   캐릭터 탭으로 이동 — 스포트라이트는 탭 줄의 캐릭터 탭
-   *   ③ `statsRaise` 능력치 하나 ＋ — 스포트라이트는 능력치 열 (`progress:statPending` 으로 판정)
-   *   ④ `statsSpent` 투자 확정 (1초 홀드) — 스포트라이트는 `되돌리기 · 포인트 투자 확정` 줄
-   * ①② 는 화면 상태를 `poll` 이 보고, 어떤 목표에 무엇을 밝힐지는 `TutorialSystem.stepView` 가 고른다 (화면 상태에 따라 갈린다).
-   * 확정하는 순간 포커싱이 걷히고 트랙이 **그 자리에서** 끝난다 (`onStatsConfirmed`). `statsSpent` id 는 옛 저장 호환으로 그대로다.
-   * 아래 `spot` · `spotText` 는 ③ 의 모습 — 화면 상태를 모를 때(`stepView` 가 가르기 전)의 기본값이다.
+   * 2026-09-16 2nd pass (user's decision) — **the ship track's only step.** Four objectives open one at a time
+   * (sequential reveal, `reveal`):
+   *   ① `statsMenu`  open the menu (the Tab window) — one `{INVENTORY}` row in the control guide on the right
+   *                  (`model.TUTORIAL_CONTROL_HINTS.stats`)
+   *   ② `statsTab`   move to the character tab — the spotlight is the character tab in the tab row
+   *   ③ `statsRaise` raise one stat with ＋ — the spotlight is the stat column (judged by `progress:statPending`)
+   *   ④ `statsSpent` confirm the investment (a 1 s hold) — the spotlight is the `되돌리기 · 포인트 투자 확정` row
+   * ①② are read from the screen state by `poll`, and what to light for which objective is picked by
+   * `TutorialSystem.stepView` (it splits on the screen state). The moment it is confirmed the focus is taken down and
+   * the track ends **right there** (`onStatsConfirmed`). The `statsSpent` id stays as it is for old-save
+   * compatibility. The `spot` · `spotText` below are ③'s look — the default for when the screen state is unknown
+   * (before `stepView` splits it).
    */
   stats: {
     id: 'stats', title: '능력치에 포인트를 투자하세요',
@@ -581,32 +650,36 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
   messenger: {
     id: 'messenger', title: '메신저를 여세요',
     /*
-     * (순서에서 제외, 2026-09-16 — 사용자 결정) `TUTORIAL_TRACK_STEPS.ship` 에 없다 — `openCraft` · `ravenQuest` 와 같은 처리로 표에만
-     * 남는다. 레벨업 포인트를 나눠 준 뒤 메신저 창으로 끌고 가는 단계를 없앴다: 함선 트랙은 `stats` 에서 끝나고 (화면을 닫을 때 —
-     * `TutorialSystem.onStatsConfirmed`), 옛 저장의 `messenger` 는 `retiredTrackEnd` 가 「함선 트랙 끝」으로 읽는다.
-     * 아래는 순서에 있던 때의 기록이다.
+     * (out of the order, 2026-09-16 — user's decision) not in `TUTORIAL_TRACK_STEPS.ship` — it keeps a place in the
+     * table only, the same treatment as `openCraft` · `ravenQuest`. The step that dragged the player to the messenger
+     * window after handing out the level-up points is gone: the ship track ends at `stats` (when the screen closes —
+     * `TutorialSystem.onStatsConfirmed`), and an old save's `messenger` is read by `retiredTrackEnd` as 「the ship
+     * track is done」. Below is the record of when it was in the order.
      *
-     * 2026-09-15 (사용자 결정) — 함선 트랙의 **마지막 단계**다. 예전 문구 「읽지 않은 연락이 와 있습니다」는 거짓말이 된다:
-     * 레이븐의 첫 연락은 이제 이 트랙이 끝난 뒤에 온다 (`meta/parts/NpcQuests.tutorialBlocks`). 그래서 「어디에 무엇이
-     * 오는가」만 말한다. 열리는 순간 트랙이 끝나고(`ui:messengerToggled {open:true}` → `advance` → `finish`) 증축 트랙이
-     * 곧바로 이어진다 — 그 트랙은 메신저를 다시 감추므로 열려 있던 창은 닫힌다 (현재 동작).
+     * 2026-09-15 (user's decision) — the ship track's **last step**. The old wording 「읽지 않은 연락이 와 있습니다」 becomes a
+     * lie: Raven's first contact now comes after this track ends (`meta/parts/NpcQuests.tutorialBlocks`). So it says
+     * only 「where what arrives」. The moment it opens the track ends (`ui:messengerToggled {open:true}` → `advance` →
+     * `finish`) and 「증축 안내」 follows straight on — that track hides the messenger again, so a window left open is
+     * closed (current behaviour).
      */
     hint: '우측 상단의 메신저 버튼을 누릅니다. NPC 의 연락과 의뢰는 여기로 옵니다.',
     objectives: [{ id: 'messengerOpen', text: '메신저 열기' }],
     allow: { community: true },
     /*
-     * 2026-09-15 (E-12, smoke-tutorial-ship) — **`.show` 가 붙은 버튼만** 밝힌다. `stats` 는 인벤토리 창 안에서 끝나므로
-     * 이 단계는 대개 창이 열린 채 시작하는데, 그동안 `.community` 는 blocker 때문에 `opacity: 0` 으로만 접혀 사각형이
-     * 그대로 남는다 — `Spotlight.firstShown` 이 그것을 「보인다」로 읽어 **투명한 버튼에 링을 두르고** 창 전체를 딤으로 덮었다.
-     * 창을 닫으면 `.show` 가 붙고 그때 반 박자 뒤에 켜진다.
+     * 2026-09-15 (E-12, smoke-tutorial-ship) — it lights **only a button that carries `.show`**. `stats` ends inside
+     * the inventory window, so this step usually starts with that window open, and meanwhile `.community` is only
+     * folded to `opacity: 0` by the blocker and its rectangle stays — `Spotlight.firstShown` read that as 「visible」
+     * and **put the ring around an invisible button**, covering the whole window with the dim. Closing the window
+     * adds `.show`, and it lights half a beat later.
      */
     spot: ['.community.show .cm-btn', '.community.show'],
     spotText: '메신저',
   },
   /*
-   * (순서에서 제외, 2026-09-15 — 사용자 결정) `TUTORIAL_TRACK_STEPS.ship` 에 없다 — `openCraft` 와 같은 처리로 표에만 남는다.
-   * 레이븐의 첫 연락은 함선 트랙이 끝난 뒤에 오므로 이 단계가 기다릴 것이 없어졌다. 옛 저장의 `ravenQuest` 는
-   * 2026-09-16 부터 `messenger` 와 함께 `retiredTrackEnd` 가 「함선 트랙 끝」으로 읽는다 (옮겨 붙을 순서 안의 단계가 없다).
+   * (out of the order, 2026-09-15 — user's decision) not in `TUTORIAL_TRACK_STEPS.ship` — it keeps a place in the
+   * table only, the same treatment as `openCraft`. Raven's first contact comes after the ship track ends, so this
+   * step has nothing left to wait for. Since 2026-09-16 an old save's `ravenQuest`, together with `messenger`, is
+   * read by `retiredTrackEnd` as 「the ship track is done」 (there is no step left in the order to join on).
    */
   ravenQuest: {
     id: 'ravenQuest', title: '레이븐의 의뢰를 받으세요',
@@ -616,56 +689,67 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
       { id: 'ravenAccept', text: '퀘스트 수락' },
     ],
     allow: { community: true },
-    // 2026-09-15 (E-12): 대화 페이지의 클래스는 `.ms-page.chat` 이다 (탭 id `chat`) — `.chats` 는 아무것도 못 찾아 틀 전체로 흘렀다
+    // 2026-09-15 (E-12): the conversation page's class is `.ms-page.chat` (tab id `chat`) — `.chats` found nothing
+    //   and fell through to the whole frame
     spot: ['.ms-qcard', '.ms-page.chat', '.ms-frame'],
     spotText: '레이븐의 첫 연락',
   },
 };
 
-/** 단계 정의. 순서에서 빠진 id(`openCraft` · `ravenQuest`)도 표에 있으므로 언제나 정의를 돌려준다. */
+/** The step definition. An id out of the order (`openCraft` · `ravenQuest`) is in the table too, so a definition
+ *  always comes back. */
 export const stepDef = (id: TutorialStepId): StepDef => STEP_DEFS[id];
 
 /**
- * 그 단계가 속한 트랙의 순서 배열 (2026-09-14). 진행률 · 다음 단계는 **자기 트랙 안에서만** 센다 —
- * 트랙마다 목표 패널도 건너뛰기도 따로이기 때문이다. 트랙을 모르는 id(`openCraft` · `ravenQuest`)는 build 로 본다
- * (둘 다 `normalizeStep` 이 먼저 순서 안의 단계로 옮기므로 실제로 여기까지 오지 않는다).
+ * The order array of the track that step belongs to (2026-09-14). Progress · the next step are counted **only inside
+ * its own track** — each track has its own objective panel and its own skip. An id whose track is unknown
+ * (`openCraft` · `ravenQuest`) is read as build (both are moved into the order by `normalizeStep` first, so they
+ * never actually reach here).
  */
 export const trackStepsOf = (id: TutorialStepId): readonly TutorialStepId[] =>
   TUTORIAL_TRACK_STEPS[tutorialTrackOf(id) ?? 'build'];
 
-/** 그 단계의 트랙 (모르는 id 는 build — `openCraft` · `ravenQuest`). */
+/** That step's track (an unknown id is build — `openCraft` · `ravenQuest`). */
 export const trackOf = (id: TutorialStepId): TutorialTrack => tutorialTrackOf(id) ?? 'build';
 
-/** 순서에 있는 단계인가 — **세 트랙 전부**를 본다 (`openCraft` 처럼 계약에만 남은 id 를 거른다). */
+/** Is this a step in the order — it looks at **all three tracks** (it filters out an id left only in the contract,
+ *  like `openCraft`). */
 export const isOrderedStep = (id: string): id is TutorialStepId =>
   tutorialTrackOf(id as TutorialStepId) !== null;
 
 /**
- * 저장 · 콘솔에서 들어온 id 를 순서 안의 단계로 고친다 (2026-09-09). 순서에서 빠진 단계는 **그 자리를 이어받은**
- * 단계로 옮겨 붙는다 — 진행 중이던 저장이 새 순서에서도 막히지 않고 이어진다. 모르는 값은 null.
+ * Fixes an id coming in from a save · the console into a step inside the order (2026-09-09). A step that is out of
+ * the order is moved onto the step that **took over its place** — a save in progress carries on under the new order
+ * instead of being stuck. An unknown value is null.
  *
- * `openCraft`(2026-09-09) → `craftAmmo`. `ravenQuest`(2026-09-15) · `messenger`(2026-09-16) → **null** — 둘 다 함선 트랙의
- *   마지막 자리였고 그 뒤를 이을 단계가 없다. 그 저장은 `retiredTrackEnd` 가 「그 트랙은 끝났다」로 읽는다 (`TutorialSystem.load`).
- * ⚠ 셋 다 `TutorialStepId` 와 위 `STEP_DEFS` 표에는 **남아 있다** (계약은 이름을 지우지 않는다) — 빠진 것은
- *   `TUTORIAL_TRACK_STEPS` 의 **순서**뿐이다. 그래서 `tutorialTrackOf` 가 null 을 돌려주고 `trackOf` 가 build 로 본다.
- * `manageDone` 은 2026-09-14 3차 → 2026-09-15 사이에만 여기서 `craftGun` 으로 옮겨졌다 — 순서로 돌아왔으므로
- *   이제 `isOrderedStep` 이 그대로 통과시킨다 (그 사이의 저장은 `craftGun` 을 들고 있으니 옮길 것이 없다).
+ * `openCraft` (2026-09-09) → `craftAmmo`. `ravenQuest` (2026-09-15) · `messenger` (2026-09-16) → **null** — both were
+ *   the ship track's last place and no step follows them. Such a save is read by `retiredTrackEnd` as 「that track is
+ *   done」 (`TutorialSystem.load`).
+ * ⚠ All three **stay** in `TutorialStepId` and in the `STEP_DEFS` table above (a contract does not erase a name) —
+ *   what is gone is only the **order** in `TUTORIAL_TRACK_STEPS`. So `tutorialTrackOf` returns null and `trackOf`
+ *   reads them as build.
+ * `manageDone` was moved here to `craftGun` only between 2026-09-14 3rd pass and 2026-09-15 — it came back into the
+ *   order, so `isOrderedStep` now passes it through as it is (a save from in between holds `craftGun`, so there is
+ *   nothing to move).
  */
 export function normalizeStep(id: string | null | undefined): TutorialStepId | null {
   if (typeof id !== 'string') return null;
-  // 2026-09-17: 증축 트랙이 7 단계로 묶였다 — 빠진 단계는 자기를 삼킨 단계로 (`RETIRED_BUILD`)
+  // 2026-09-17: 「증축 안내」 was grouped into 7 steps — a dropped step maps to the step that swallowed it
+  //   (`RETIRED_BUILD`)
   const grouped = RETIRED_BUILD[id];
   if (grouped) return grouped.step;
-  // 2026-09-16 2차: 「메뉴 열기」는 `stats` 의 첫 목표가 됐다 — 그 자리에 서 있던 저장은 `stats` 를 처음부터 한다
+  // 2026-09-16 2nd pass: 「메뉴 열기」 became `stats`'s first objective — a save standing at that place does `stats` from
+  //   the beginning
   if (id === 'levelUp') return 'stats';
   return isOrderedStep(id) ? id : null;
 }
 
 /**
- * 2026-09-17 (사용자 결정 — 증축 트랙 17 → 7 단계): 순서에서 빠진 증축 단계 → **그것을 삼킨 단계**와 그 자리에 서 있던 사람이
- * **이미 한 목표**. 옛 저장이 새 단계의 첫 줄부터 다시 하지 않게 `TutorialSystem.load` 가 목표를 채워 넣는다.
- * (`openCraft` 는 2026-09-09 부터 `craftAmmo` 로 옮겨졌고, 이제 그 `craftAmmo` 도 `craftGun` 에 들어갔다.)
- * `stowAmmo` 는 할 일이 없어진 단계라 다음 단계(`terminal`)의 처음이다.
+ * 2026-09-17 (user's decision — 「증축 안내」 17 → 7 steps): a build step out of the order → **the step that swallowed it**
+ * and the objectives someone standing at that place has **already done**. `TutorialSystem.load` fills those in so
+ * that an old save does not redo the new step from its first row. (`openCraft` moved to `craftAmmo` back on
+ * 2026-09-09, and now that `craftAmmo` has gone into `craftGun` too.) `stowAmmo` is a step with nothing left to do,
+ * so it maps to the start of the next step (`terminal`).
  */
 const RETIRED_BUILD: Readonly<Record<string, { step: TutorialStepId; done: readonly string[] }>> = {
   generator: { step: 'manage', done: ['manageOpen'] },
@@ -681,32 +765,34 @@ const RETIRED_BUILD: Readonly<Record<string, { step: TutorialStepId; done: reado
   board: { step: 'terminal', done: ['terminalWalk', 'terminalOpen', 'planetPicked', 'travelDone'] },
 };
 
-/** 옛 증축 단계 id 면 그 자리에서 이미 한 목표 (새 단계 기준), 아니면 null. */
+/** For an old build step id, the objectives already done at that place (in the new step's terms); otherwise null. */
 export function retiredObjectives(id: string | null | undefined): readonly string[] | null {
   return typeof id === 'string' ? RETIRED_BUILD[id]?.done ?? null : null;
 }
 
 /**
- * 순서에서 빠진 **트랙의 마지막 자리** → 그 트랙 (2026-09-16). 저장에 이 id 가 남아 있으면 그 사람은 트랙의 끝에 서 있던 것이므로
- * 이어 붙일 단계 대신 「끝났다」로 읽는다 — `stats` 로 되돌리면 이미 쓴 포인트를 다시 투자하라는 막다른 길이 된다.
+ * A **track's last place** that dropped out of the order → that track (2026-09-16). This id left in a save means that
+ * player stood at the track's end, so it is read as 「done」 instead of a step to join on — going back to `stats` would
+ * be a dead end that asks for points already spent to be invested again.
  */
 const RETIRED_TRACK_END: Readonly<Record<string, TutorialTrack>> = { messenger: 'ship', ravenQuest: 'ship' };
 
-/** 저장에 남은 id 가 순서에서 빠진 트랙의 마지막 자리면 그 트랙, 아니면 null. */
+/** If the id left in a save is the last place of a track that dropped out of the order, that track; otherwise
+ *  null. */
 export function retiredTrackEnd(id: string | null | undefined): TutorialTrack | null {
   return typeof id === 'string' ? RETIRED_TRACK_END[id] ?? null : null;
 }
 
-/** 같은 트랙의 다음 단계 (그 트랙의 마지막이면 null = 트랙 종료). */
+/** The next step in the same track (null at that track's last = the track ends). */
 export function nextStep(id: TutorialStepId): TutorialStepId | null {
   const arr = trackStepsOf(id);
   const i = arr.indexOf(id);
   return i < 0 || i + 1 >= arr.length ? null : arr[i + 1];
 }
 
-/** 자기 트랙 안에서의 1-based 순번 (없는 단계는 0). */
+/** The 1-based position inside its own track (0 for a step that is not there). */
 export const stepIndexOf = (id: TutorialStepId | null): number =>
   (id ? trackStepsOf(id).indexOf(id) + 1 : 0);
 
-/** 자기 트랙의 단계 수 (없는 단계는 0). */
+/** The number of steps in its own track (0 for a step that is not there). */
 export const stepCountOf = (id: TutorialStepId | null): number => (id ? trackStepsOf(id).length : 0);

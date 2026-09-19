@@ -3,35 +3,38 @@ import { Keys, paintKeycap, renderKeyText } from '@/shared';
 import { CONTROL_SECTIONS, CONTROLS_TITLE_KO, hintPairs, type ControlHint, type ControlSection } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * src/tutorial/ui/Controls.ts — **우측 조작 가이드** (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
+ * src/tutorial/ui/Controls.ts — **the right-side control guide** (2026-09-14,
+ * `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」).
  *
- * 우하단 키 가이드(`ui/hud/KeyGuide`, `.key-guide`)와는 주인도 자리도 다르다 — 그쪽은 "지금 열린 **화면**의 키"라
- * 화면이 열리고 닫힐 때마다 갈리고, 이쪽은 "지금 **구간**에서 쓰는 조작"이다.
+ * Its owner and its place differ from the bottom-right key guide (`ui/hud/KeyGuide`, `.key-guide`) — that one is "the
+ * keys of the **screen** open right now" and changes every time a screen opens or closes, while this one is "the
+ * controls used in the current **stretch**".
  *
- * **2026-09-14 3차 (사용자 결정) — 누적이 아니라 교체.** 예전에는 배운 줄이 쌓이기만 해서 레이드 끝에는
- * 여덟 줄이 우측을 채웠고 정작 지금 배우는 키가 그 안에 파묻혔다. 이제 `set(hints)` 하나가 「이 단계에 보일 줄」
- * 전부를 받아 **없는 줄은 지우고 · 새 줄은 넣고 · 남는 줄은 문구만 고친다**. 줄 요소를 다시 만들지 않으므로
- * 단계가 바뀌어도 살아남은 줄이 깜빡이지 않고, 자세에 따라 바뀌는 라벨(`앉기` ↔ `일어서기`)도 같은 길로 간다.
+ * **2026-09-14 3rd pass (user's decision) — replacement, not accumulation.** Learnt rows only piled up, so by the
+ * end of a raid eight rows filled the right side and the key being learnt was buried among them. Now one `set(hints)`
+ * takes 「every row visible in this step」 and **removes what is missing · adds what is new · relabels the survivors**.
+ * Row elements are not remade, so a surviving row never flickers when the step changes, and a label that follows the
+ * stance (`앉기` ↔ `일어서기`) goes the same way.
  *
- * **2026-09-14 2차 (사용자 결정) — 조작별 구간 · 한 줄에 쌍 둘 · 자리 재조정.**
- *   ① 줄이 **배운 순서가 아니라 구간 순서**로 쌓인다 (`CONTROL_SECTIONS`: 이동 / 화면 / 전투 / 장비).
- *      구간 상자는 **첫 줄이 들어올 때 생기고** 자기 자리에 끼워지므로, 비어 있는 구간은 DOM 에 아예 없다 —
- *      그래서 구분선을 `.tut-ctl-sec + .tut-ctl-sec` 한 줄로 그릴 수 있다 (`:empty` + 인접 선택자는 숨겨진
- *      상자를 그대로 세어 맨 위에 선을 남긴다). **해금은 여전히 줄마다 따로**다.
- *   ② 한 줄이 쌍을 여럿 가질 수 있다 (`ControlHint.more` — `LMB 사격 / RMB 정조준`).
- *   ③ 자리는 `tutorial.css` — 우하단 무기 패널 · 퀵슬롯 **위**로 뺐다.
+ * **2026-09-14 2nd pass (user's decision) — a section per control · two pairs on one row · the place readjusted.**
+ *   ① Rows pile up **in section order, not learning order** (`CONTROL_SECTIONS`: move / screen / combat / gear).
+ *      A section box **is made when its first row arrives** and is inserted in its own place, so an empty section is
+ *      not in the DOM at all — that lets the divider be one line `.tut-ctl-sec + .tut-ctl-sec` (`:empty` plus an
+ *      adjacent selector counts a hidden box and leaves a line at the very top). **Unlocking is still per row.**
+ *   ② One row can hold several pairs (`ControlHint.more` — `LMB 사격 / RMB 정조준`).
+ *   ③ The place is in `tutorial.css` — moved **above** the bottom-right weapon panel · quick slots.
  *
- * 키 라벨은 **그릴 때 `Keys` 에서 읽는다** (`docs/CONTROLS.md`: 키를 모듈 상수로 캐시하지 않는다).
- * 리바인드하면 `TutorialSystem` 이 `input:bindingsChanged` 에 `relabel()` 을 부른다.
+ * Key labels are **read from `Keys` at draw time** (`docs/CONTROLS.md`: never cache a key in a module constant).
+ * On a rebinding `TutorialSystem` calls `relabel()` from `input:bindingsChanged`.
  *
- * ⚠ 키캡 modifier 는 `.keycap.kc-hold` 를 그대로 쓴다 — HUD 위젯과 같은 이름의 클래스를 새로 만들지 않는다
- * (2026-09-10 `kc-hold` 사고: `.hold` 가 크로스헤어 홀드 링과 겹쳐 키캡이 통째로 사라졌다).
+ * ⚠ The keycap modifier uses `.keycap.kc-hold` as it is — never make a new class with the same name as a HUD widget
+ * (the 2026-09-10 `kc-hold` accident: `.hold` collided with the crosshair hold ring and the keycaps vanished whole).
  *
- * **2026-09-15 (사용자 결정) — 공용 키캡 · 토큰 문장 줄.**
- *   ① 키캡은 `shared/keycap.paintKeycap` 으로 칠한다 — 마우스 버튼이 `LMB` 글자가 아니라 마우스 그림으로 나오는 것이
- *      키 가이드 · 상호작용 프롬프트와 같아진다.
- *   ② `ControlHint.text` 줄은 쌍을 그리지 않고 `renderKeyText` 로 **문장 안에 키캡을 끼워** 그린다 (`.tut-ctl.is-text`) —
- *      `{QUICK:hold}를 꾹 눌러 수류탄 장착 후,{br}{FIRE:hold} 수류탄 던지기` 같은 줄이 그렇다. 리바인드하면 다시 푼다.
+ * **2026-09-15 (user's decision) — shared keycaps · token-text rows.**
+ *   ① Keycaps are painted by `shared/keycap.paintKeycap` — a mouse button comes out as a mouse drawing instead of the
+ *      text `LMB`, the same as in the key guide · the interaction prompt.
+ *   ② A `ControlHint.text` row draws no pairs: `renderKeyText` **inserts the keycaps inside the sentence**
+ *      (`.tut-ctl.is-text`) — e.g. `{QUICK:hold}를 꾹 눌러 수류탄 장착 후,{br}{FIRE:hold} 수류탄 던지기`. Re-resolved on a rebinding.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 interface Cap { el: HTMLElement; action: keyof KeyBindings; hold: boolean }
@@ -40,18 +43,19 @@ interface Row {
   el: HTMLElement;
   caps: Cap[];
   hint: ControlHint;
-  /** 토큰 문장 줄(`hint.text`)의 글자 상자 — 쌍 줄이면 null. */
+  /** The text box of a token-text row (`hint.text`) — null on a pair row. */
   textEl: HTMLElement | null;
-  /** 누르는 동안 켜는 키캡과 그 키 코드 (2026-09-16) — 칠할 때마다 다시 모은다 (`relabelRow`). */
+  /** The keycaps lit while held down and their key codes (2026-09-16) — recollected on every paint (`relabelRow`). */
   lit: LitCap[];
 }
 
-/** 눌림 강조 대상 — 키캡 요소 · 그 키 코드(`Keys[action]` · `MouseN`) · 지금 켜져 있나. */
+/** A press-highlight target — the keycap element · its key code (`Keys[action]` · `MouseN`) · whether it is lit. */
 interface LitCap { el: HTMLElement; code: string; on: boolean }
 
 /**
- * 누르는 동안의 키캡 강조 클래스 (2026-09-16, 사용자 결정 — 「패널에 떠 있는 키를 누르면 그 키캡이 주황으로」).
- * `tut-` 접두사 — HUD 위젯 클래스와 겹치지 않는다 (`.kc-hold` 사고, 위 머리 주석).
+ * The keycap highlight class for the length of a press (2026-09-16, user's decision — 「pressing a key shown on the
+ * panel turns that keycap orange」). The `tut-` prefix never collides with a HUD widget class (the `.kc-hold`
+ * accident, header comment above).
  */
 const CAP_DOWN = 'tut-kc-down';
 
@@ -61,14 +65,15 @@ export class TutorialControls {
   readonly root: HTMLElement;
   private readonly list: HTMLElement;
   private readonly rows = new Map<string, Row>();
-  /** 구간 상자 — **줄이 들어올 때만** 만든다 (빈 구간은 DOM 에 없다 → 구분선도 없다). */
+  /** The section boxes — made **only when a row arrives** (an empty section is not in the DOM → no divider). */
   private readonly sections = new Map<ControlSection, HTMLElement>();
   private _visible = false;
-  /** `show()` 가 말한 뜻 (실제 표시는 줄이 하나라도 있을 때만). */
+  /** What `show()` asked for (it is actually shown only while at least one row exists). */
   private want = false;
   /**
-   * 접힌 모습의 한 줄 (2026-09-17, 사용자 결정 — 증축 안내 마지막 레이드의 `]`). 접히면 머리 · 줄 목록이 숨고 이 줄만 같은 자리에 선다
-   * (`.tut-controls.is-folded`). 패널 요소는 그대로라 토스트 스택이 그 바닥을 재는 규칙(`ui/hud/Notifications`)이 그대로 산다.
+   * The folded shape's one row (2026-09-17, user's decision — the `]` of 증축 안내's last raid). Folded, the head · the
+   * row list hide and only this row stands in the same place (`.tut-controls.is-folded`). The panel element stays, so
+   * the rule that has the toast stack measure its bottom (`ui/hud/Notifications`) lives on unchanged.
    */
   private readonly fold: HTMLElement;
   private foldText = '';
@@ -96,7 +101,7 @@ export class TutorialControls {
 
   get folded(): boolean { return this._folded; }
 
-  /** 접기 / 펴기 (2026-09-17). `text` 는 접힌 줄의 키캡 토큰 문장 (`{GUIDE_TOGGLE} 조작 가이드 표시`). */
+  /** Fold / unfold (2026-09-17). `text` is the folded row's keycap token sentence (`{GUIDE_TOGGLE} 조작 가이드 표시`). */
   setFolded(on: boolean, text: string): void {
     if (on === this._folded && text === this.foldText) return;
     this._folded = on;
@@ -106,13 +111,14 @@ export class TutorialControls {
   }
 
   get visible(): boolean { return this._visible; }
-  /** 지금 쌓여 있는 줄의 id (저장 · 스모크). */
+  /** The ids of the rows piled up right now (the save · smokes). */
   get ids(): string[] { return [...this.rows.keys()]; }
 
   /**
-   * **이 단계에 보일 줄 전부**로 갈아 끼운다 (2026-09-14 3차). 살아남는 줄은 요소를 그대로 두고 문구만 고치므로
-   * 단계가 바뀌어도 깜빡이지 않고, 없어진 줄은 그 자리에서 사라진다. 빈 구간 상자는 함께 치운다 —
-   * 구분선이 `.tut-ctl-sec + .tut-ctl-sec` 한 줄이라 빈 상자가 남으면 맨 위에 선이 그어진다.
+   * Swaps in **every row visible in this step** (2026-09-14 3rd pass). A surviving row keeps its element and only its
+   * wording changes, so nothing flickers on a step change; a row that is gone vanishes where it stood. Empty section
+   * boxes go with it — the divider is one line `.tut-ctl-sec + .tut-ctl-sec`, so a leftover box draws a line at
+   * the very top.
    */
   set(hints: readonly ControlHint[]): void {
     const want = new Set(hints.map((h) => h.id));
@@ -131,7 +137,7 @@ export class TutorialControls {
     this.apply();
   }
 
-  /** 한 줄 추가 — 이미 있으면 아무 일도 없다. */
+  /** Adds one row — nothing happens when it is already there. */
   add(hint: ControlHint): void {
     if (this.rows.has(hint.id)) return;
     const el = document.createElement('div');
@@ -141,14 +147,14 @@ export class TutorialControls {
     this.render(row, hint);
     this.sectionEl(sectionOf(hint)).appendChild(el);
     this.rows.set(hint.id, row);
-    // 새 줄 강조는 한 번만 — 애니메이션이 끝나면 평범한 줄이 된다 (기록이지 알림이 아니다)
+    // The new-row highlight runs once — after the animation it is an ordinary row (a record, not a notification)
     window.setTimeout(() => el.classList.remove('is-new'), 1400);
-    // ⚠ 여기서 `show(true)` 를 부르지 않는다 (2026-09-14 2차) — 인벤토리 화면이 열려 있는 동안에는 접혀 있어야
-    //   하는데, 그 사이에 줄이 하나 늘면 패널이 스스로 다시 떠 버린다. 보이고 말고는 `show()` 의 뜻만 따른다.
+    // ⚠ `show(true)` is never called here (2026-09-14 2nd pass) — the guide must stay folded while the inventory
+    //   screen is open, and a row added meanwhile would raise the panel by itself. Visibility follows `show()` alone.
     this.apply();
   }
 
-  /** 줄의 내용(키캡 · 문구)을 다시 짓는다 — 요소 자체는 그대로라 애니메이션 · 자리가 유지된다. */
+  /** Rebuilds a row's contents (keycaps · wording) — the element itself stays, so its animation · place are kept. */
   private render(row: Row, hint: ControlHint): void {
     row.hint = hint;
     row.caps = [];
@@ -156,7 +162,8 @@ export class TutorialControls {
     const isText = hint.text !== undefined;
     row.el.classList.toggle('is-text', isText);
     if (isText) {
-      // 토큰 문장 줄 (2026-09-15) — 문장 안에 키캡을 끼운다. 글자는 `relabelRow` 가 그린다 (리바인드와 같은 길).
+      // A token-text row (2026-09-15) — the keycaps go inside the sentence. `relabelRow` draws the text
+      //   (the same path as a rebinding).
       const text = document.createElement('span');
       text.className = 'tut-ctl-text';
       row.textEl = text;
@@ -184,7 +191,10 @@ export class TutorialControls {
     this.relabelRow(row);
   }
 
-  /** 구간 안의 줄 순서를 표와 맞춘다 (이미 맞으면 DOM 을 건드리지 않는다 — 옮기면 애니메이션이 다시 돈다). */
+  /**
+   * Matches the row order inside a section to the table (already matching = the DOM is not touched — moving a row
+   * replays its animation).
+   */
   private order(hints: readonly ControlHint[]): void {
     for (const [section, box] of this.sections) {
       const want = hints.filter((h) => sectionOf(h) === section)
@@ -195,7 +205,7 @@ export class TutorialControls {
     }
   }
 
-  /** 줄이 하나도 안 남은 구간 상자를 치운다. */
+  /** Clears a section box with no rows left. */
   private prune(): void {
     for (const [section, box] of [...this.sections]) {
       if (box.childElementCount > 0) continue;
@@ -204,7 +214,7 @@ export class TutorialControls {
     }
   }
 
-  /** 그 구간의 상자 — 없으면 만들어 **구간 순서에 맞는 자리**에 끼운다. */
+  /** That section's box — with none it is made and inserted **in the place section order asks for**. */
   private sectionEl(section: ControlSection): HTMLElement {
     const have = this.sections.get(section);
     if (have) return have;
@@ -223,13 +233,13 @@ export class TutorialControls {
     return el;
   }
 
-  /** 여러 줄을 한 번에 (저장에서 되살릴 때 — 강조 없이). */
+  /** Several rows at once (restoring from the save — with no highlight). */
   restore(hints: readonly ControlHint[]): void {
     this.set(hints);
     for (const h of hints) this.rows.get(h.id)?.el.classList.remove('is-new');
   }
 
-  /** 리바인드 — 키캡을 살아 있는 `Keys` 에서 다시 칠한다 (토큰 문장 줄은 문장째 다시 푼다). */
+  /** A rebinding — repaints the keycaps from the live `Keys` (a token-text row is re-resolved whole). */
   relabel(): void {
     for (const row of this.rows.values()) this.relabelRow(row);
     if (this.foldText) renderKeyText(this.fold, this.foldText);
@@ -239,15 +249,16 @@ export class TutorialControls {
     if (row.textEl) {
       renderKeyText(row.textEl, row.hint.text ?? '');
     } else {
-      // `paintKeycap` 은 바뀐 것이 없으면 DOM 을 건드리지 않는다 (`data-kc` 도장)
+      // `paintKeycap` does not touch the DOM when nothing changed (the `data-kc` stamp)
       for (const cap of row.caps) paintKeycap(cap.el, Keys[cap.action], { hold: cap.hold });
     }
     this.collectLit(row);
   }
 
   /**
-   * 그 줄의 키캡을 모은다 — 쌍 줄이든 토큰 문장 줄이든 키캡은 전부 `paintKeycap` 을 거치므로 `data-kc`(`코드|hold`) 도장에서
-   * 키 코드를 읽는다. 키가 아닌 라벨(`더블클릭`)은 눌릴 일이 없어 그대로 꺼져 있다. 새로 칠한 요소는 강조가 없는 상태다.
+   * Collects that row's keycaps — on a pair row and a token-text row alike every keycap goes through `paintKeycap`,
+   * so the key code is read from the `data-kc` (`code|hold`) stamp. A label that is not a key (`더블클릭`) is never
+   * pressed and stays off. A freshly painted element carries no highlight.
    */
   private collectLit(row: Row): void {
     row.lit = [];
@@ -260,9 +271,10 @@ export class TutorialControls {
   }
 
   /**
-   * 프레임마다 (2026-09-16, 사용자 결정) — **패널에 떠 있는 키**를 누르고 있는 동안 그 키캡을 주황으로 켠다 (마우스 버튼 포함 —
-   * `Input` 이 `MouseN` 을 키 코드로 함께 적는다). 패널에 없는 키는 아무것도 켜지 않는다. 바뀐 캡만 클래스를 만진다.
-   * 패널이 숨어 있으면 보지 않는다 — 다시 뜰 때 켜진 채로 남은 캡은 첫 프레임에 꺼진다.
+   * Every frame (2026-09-16, user's decision) — a **key shown on the panel** lights its keycap orange while it is
+   * held down (mouse buttons too — `Input` writes `MouseN` as a key code as well). A key not on the panel lights
+   * nothing, and only a cap that changed has its class touched. A hidden panel is not read — a cap left lit goes out
+   * on the first frame after it comes back.
    */
   update(input: Input): void {
     if (!this._visible) return;
@@ -276,7 +288,7 @@ export class TutorialControls {
     }
   }
 
-  /** 보이기 / 숨기기. 줄이 하나도 없으면 언제나 숨는다. */
+  /** Show / hide. With no rows at all it always hides. */
   show(on: boolean): void {
     this.want = on;
     this.apply();
@@ -289,7 +301,7 @@ export class TutorialControls {
     this.root.hidden = !want;
   }
 
-  /** 트랙이 끝났다 — 다음에 다시 켜질 때 처음부터 쌓는다. */
+  /** The track ended — the next time it comes on, rows pile up from the beginning. */
   clear(): void {
     this.rows.clear();
     this.sections.clear();

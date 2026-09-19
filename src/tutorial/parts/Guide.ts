@@ -7,20 +7,22 @@ import {
 } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * src/tutorial/parts/Guide.ts — **바닥 안내선** (흐르는 점선 + 목표 빛기둥).
+ * src/tutorial/parts/Guide.ts — **the floor guide** (a flowing dashed strip + the target pillar).
  *
- * 목표는 `Interactable.id` 로 준다 (`hub_terminal` · `hub_pod_0` · `hub_furn_<uid>`) — 그러면 방 배치나
- * 가구 위치를 몰라도 `ctx.interactables` 하나로 좌표가 나온다.
+ * The target is given as an `Interactable.id` (`hub_terminal` · `hub_pod_0` · `hub_furn_<uid>`) — `ctx.interactables`
+ * alone then yields the coordinates, with no knowledge of the room layout or where the furniture stands.
  *
- * 선은 **플레이어 → 목표** 직선을 바닥 위 `GUIDE_LIFT` 에 깐 얇은 띠 하나(`PlaneGeometry`)이고, 점선은
- * 지오메트리가 아니라 **셰이더**가 그린다: 길이 방향 UV 를 실제 미터로 환산해 `fract()` 로 잘라 내고
- * `uTime` 만큼 밀면 마디가 목표 쪽으로 흐른다. 마디를 메시로 만들면 경로가 바뀔 때마다 지오메트리를
- * 새로 만들어야 하는데, 이 방식은 uniform 두 개만 갱신하면 된다 (프레임당 할당 0).
+ * The line is one thin strip (`PlaneGeometry`) laying the straight **player → target** line at `GUIDE_LIFT` above the
+ * floor, and the dashes are drawn by a **shader**, not by geometry: the lengthwise UV is converted back into real
+ * metres, cut with `fract()` and pushed along by `uTime`, so the dashes flow towards the target. Dashes as meshes
+ * would mean new geometry every time the path changes; this way only two uniforms are updated (zero allocation per
+ * frame).
  *
- * 목표에는 반투명 원기둥 빛기둥 + 바닥 링을 세운다. 둘 다 `depthWrite: false` 라 서로 겹쳐도 깨지지 않는다.
- * 벽을 통과해 보이는 것은 의도한 것이다 — 안내선은 "저쪽이다"를 알려 주는 물건이지 시야 판정이 아니다.
+ * At the target stand a translucent cylindrical pillar + a floor ring. Both are `depthWrite: false`, so overlapping
+ * each other does not break them. Being visible through walls is intended — the floor guide is a thing that says
+ * "it is over there", not a line-of-sight test.
  *
- * 미션 리셋 때 dispose 해야 하는 지오메트리 · 머티리얼은 전부 `disposables` 에 모아 둔다.
+ * Every geometry · material that has to be disposed on a mission reset is collected in `disposables`.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const _from = new THREE.Vector3();
@@ -36,8 +38,8 @@ const VERT = /* glsl */`
 `;
 
 /**
- * `uLength` = 띠의 실제 길이(m) — UV.x 를 미터로 되돌리는 데 쓴다. `uTime` 이 마디를 흘린다.
- * 가장자리(`vUv.y`)는 부드럽게 흐리고, 목표에 가까울수록 밝게 해서 방향이 읽히게 한다.
+ * `uLength` = the strip's real length (m) — used to turn UV.x back into metres. `uTime` makes the dashes flow.
+ * The edges (`vUv.y`) are blurred softly, and the closer to the target the brighter, so the direction reads.
  */
 const FRAG = /* glsl */`
   uniform vec3 uColor;
@@ -68,7 +70,10 @@ export class Guide {
   private readonly disposables: Array<THREE.BufferGeometry | THREE.Material> = [];
   private targetId: string | null = null;
   private timer = 0;
-  /** 새 목표가 정해진 뒤 선을 깔기까지 남은 시간 (s, `TUTORIAL_STEP_DELAY_S`) — 스포트라이트와 같은 박자로 늦게 나타난다 (2026-09-09). */
+  /**
+   * Time left (s, `TUTORIAL_STEP_DELAY_S`) from a new target being set until the line is laid — it appears late on
+   * the same beat as the spotlight (2026-09-09).
+   */
   private wait = 0;
   private mounted = false;
   private time = 0;
@@ -81,7 +86,7 @@ export class Guide {
 
     const geo = new THREE.PlaneGeometry(1, GUIDE_WIDTH, 1, 1);
     geo.rotateX(-Math.PI / 2);
-    geo.translate(0.5, 0, 0);              // 원점이 시작점이 되도록 (스케일 = 길이)
+    geo.translate(0.5, 0, 0);              // so the origin is the start point (scale = length)
     this.lineMat = new THREE.ShaderMaterial({
       uniforms: {
         uColor: { value: new THREE.Color(GUIDE_COLOR) },
@@ -118,13 +123,13 @@ export class Guide {
     this.disposables.push(rGeo, rMat);
   }
 
-  /** 목표 `Interactable.id` (null = 안내선 끄기). */
+  /** The target `Interactable.id` (null = the floor guide off). */
   setTarget(id: string | null): void {
     if (this.targetId === id) return;
     this.targetId = id;
     this.timer = 0;
     this.wait = TUTORIAL_STEP_DELAY_S;
-    this.unmount();                       // 이전 목표의 선은 바로 걷고, 새 선은 반 박자 뒤에
+    this.unmount();                       // the previous target's line is taken down at once, the new one half a beat on
   }
 
   update(dt: number): void {
@@ -141,17 +146,17 @@ export class Guide {
     _from.copy(player.position); _from.y = GUIDE_LIFT;
     _to.copy(this.target); _to.y = GUIDE_LIFT;
     const len = _from.distanceTo(_to);
-    if (len < GUIDE_ARRIVE) { this.unmount(); return; }   // 다 왔으면 걷어 준다
+    if (len < GUIDE_ARRIVE) { this.unmount(); return; }   // on arrival it is taken down
     this.mount();
 
-    // 띠: 시작점에 놓고 목표를 향해 회전 + 길이만큼 스케일
+    // the strip: placed at the start point, rotated towards the target + scaled by the length
     this.line.position.copy(_from);
     this.line.rotation.set(0, Math.atan2(_to.x - _from.x, _to.z - _from.z) - Math.PI / 2, 0);
     this.line.scale.set(len, 1, 1);
     this.lineMat.uniforms.uLength.value = len;
     this.lineMat.uniforms.uTime.value = this.time;
 
-    // 빛기둥: 목표 위, 천천히 도는 링
+    // the pillar: over the target, with a slowly turning ring
     _mid.copy(this.target); _mid.y = 0.02;
     this.pillar.position.set(this.target.x, 0.02, this.target.z);
     this.ring.position.copy(_mid);
@@ -178,7 +183,7 @@ export class Guide {
     this.ctx.scene.remove(this.group);
   }
 
-  /** 스모크 / 디버그. */
+  /** Smoke / debug. */
   get visible(): boolean { return this.mounted; }
   get targetPosition(): THREE.Vector3 | null { return this.mounted ? this.target : null; }
 

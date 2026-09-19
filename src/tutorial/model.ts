@@ -2,66 +2,76 @@ import type { KeyBindings, Stance, TutorialGate, TutorialStepId, TutorialTrack }
 import { formatCredits } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * src/tutorial/model.ts — 폴더 공용 어휘 (상수 · 타입 · 텍스트). 상태는 없다.
+ * src/tutorial/model.ts — the folder's shared vocabulary (constants · types · text). No state.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** localStorage key of the tutorial save (`TutorialSave`). */
 export const TUTORIAL_STORAGE_KEY = 'scav.tutorial';
 /**
- * **v2 (2026-09-14)** — 트랙별 저장(`TutorialSave.tracks`). v1(`step` · `done` 최상위)은 읽을 때
- * `tracks.build` 로 옮겨 붙이고 `raid` · `ship` 은 **이미 끝난 것으로** 본다 (하던 사람에게 새 안내가 뜨면 안 된다).
+ * **v2 (2026-09-14)** — saved per track (`TutorialSave.tracks`). v1 (`step` · `done` at the top level) is moved onto
+  * `tracks.build` when read, and `raid` · `ship` count as **already finished** (a player mid-game gets no new
+  * guidance).
  */
 export const TUTORIAL_SAVE_VERSION = 2;
 
-/** 트랙 이름 — 목표 패널 라벨 · 건너뛰기 확인 카드 문구. */
+/** Track names — the objective panel's label · the skip-confirm card's text. */
 export const TRACK_LABEL_KO: Readonly<Record<TutorialTrack, string>> = {
   raid: '조작 안내',
   ship: '함선 안내',
   build: '증축 안내',
-  // 2026-09-18 (사용자 결정): 옛 증축 안내의 뒤 두 단계(조종석 → 출격 → 첫 레이드)가 자기 트랙이 됐다
+  // 2026-09-18 (user's decision): the last two steps of the old 증축 안내 (cockpit → launch → first raid) became their
+  //   own track
   raid2: '출격 안내',
 };
 
 /**
- * **함선 안에서 시작하는 제작 · 출격 트랙 둘** (2026-09-18). 갈리기 전에는 `build` 하나였으므로 「증축 트랙 내내」로
- * 적혀 있던 규칙은 둘 다에 걸린다 — 창고 흰 목록(`stashItem`) · 훈련장 버튼 · 출격 준비 경고 숨김이 그것이다
- * (`parts/Gates`). 트랙 이름 하나를 비교하던 자리를 이 목록으로 바꾼다.
+ * **The two tracks that start inside the ship**, craft and launch (2026-09-18). Before the split there was only
+ * `build`, so a rule written as 「throughout the build track」 holds for both — the stash whitelist (`stashItem`), the
+ * training button and the hidden launch-readiness warnings (`parts/Gates`). Anywhere one track name was compared,
+ * this list takes its place.
  */
 export const BUILD_TRACKS: readonly TutorialTrack[] = ['build', 'raid2'];
 
-/** UI blocker token the intro / 건너뛰기 팝업 holds (the spotlight holds none — it never takes the cursor itself). */
+/** UI blocker token the intro / skip popup holds (the spotlight holds none — it never takes the cursor itself). */
 export const TUTORIAL_BLOCKER = 'tutorial';
 
-/** 튜토리얼이 만들게 하는 것들. */
+/** What the tutorial has the player build. */
 export const TUTORIAL_ROOM_PURPOSE = 'workshop' as const;
 export const TUTORIAL_BENCH_DEF = 'furn_bench_gun';
 export const TUTORIAL_GUN_RECIPE = 'make_wpn_ar';
 export const TUTORIAL_GUN_DEF = 'wpn_ar';
 /**
- * 만든 소총의 **무기 계열** (`WeaponDef.family ?? id`, 등급 무관 — `ar` · `ar_g3` …). 2026-09-17 (사용자 결정): 장착 단계
- * (`equipGun`)에 들어서는 순간 이 계열 · 계열 AR 무기가 이미 주무기 칸에 있으면 그 단계는 할 일이 없다 (`TutorialSystem.equipGunMoot`).
+ * The crafted rifle's **weapon family** (`WeaponDef.family ?? id`, grade-independent — `ar` · `ar_g3` …). 2026-09-17
+ * (user's decision): if a weapon of this family already sits in a primary slot the moment the equip step (`equipGun`)
+ * is entered, that step has nothing to do (`TutorialSystem.equipGunMoot`).
  */
 export const TUTORIAL_GUN_FAMILY = 'ar';
-// (2026-09-15) `TUTORIAL_RAVEN_NPC` 는 없어졌다 — `ravenQuest` 단계가 순서에서 빠지면서 이 폴더는 NPC 를 하나도 모른다.
+// (2026-09-15) `TUTORIAL_RAVEN_NPC` is gone — with the `ravenQuest` step dropped from the order this folder knows
+//   no NPC at all.
 /*
- * 2026-09-10 (제작 대개편) — `bulk_ammo_medium`(대량 제작, 화약 16 · 폐금속 5 → 90발)이 `data/recipes.csv` 에서
- * 사라져 이 단계가 **영영 끝나지 않았다**. 그 자리를 잇는 것은 `make_ammo_medium`(화약 6 · 폐금속 2 → 30발)이다.
- * `station: 'field'` · `bench` 없음 이라 현장에서도 되고, 작업대 창의 목록은 `bench` 가 없는 레시피를 전부 싣기
- * 때문에(`inventory/parts/Crafting.getRecipes`) **총기 작업대 창에도 그대로 뜬다** — 튜토리얼의 "같은 창에서" 흐름이
- * 그대로다. 산출이 90 → 30발로 줄었지만 뒤 단계(`stowAmmo`)는 "가방에 준중량탄이 있나"만 보므로 수량과 무관하다.
+  * 2026-09-10 (the crafting rework) — `bulk_ammo_medium` (bulk craft, gunpowder 16 · scrap 5 → 90 rounds) vanished
+  * from
+  * `data/recipes.csv` and this step **never finished again**. What takes its place is `make_ammo_medium` (gunpowder
+  * 6 ·
+ * scrap 2 → 30 rounds). It is `station: 'field'` with no `bench`, so it works in the field, and a workbench window
+ * lists every recipe that has no `bench` (`inventory/parts/Crafting.getRecipes`), so **it still shows in the gun
+ * workbench window** — the tutorial's "in the same window" flow is unchanged. The yield fell 90 → 30, but the step
+ * after it (`stowAmmo`) only asks "is there medium ammo in the bag", so the count does not matter.
  */
 export const TUTORIAL_AMMO_RECIPE = 'make_ammo_medium';
 export const TUTORIAL_AMMO_DEF = 'ammo_medium';
 
 /**
- * 제작 단계에서 한 번 지급하는 재료의 **바닥**(`craftGun` 에 들어설 때 함선 창고로).
- * 기본 지급품은 발전기 Lv.1 + 작업실 증축 + 작업대 제작으로 폐금속 20 · 케이블 3 · 합금 2 를 쓰도록 맞춰져 있어
- * 작업대를 짓고 나면 아무것도 만들 수 없다. 소총(`폐금속 8`) + 준중량탄(`화약 6 · 폐금속 2`)에 여유를 더한 양이다
- * (2026-09-10 제작 대개편으로 두 레시피의 재료가 바뀌었다 — 이 표는 늘리지 않는다, 아래 top-up 이 본다).
+ * The **floor** of the materials granted once at the craft step (into the ship stash on entering `craftGun`).
+ * The starter grant is tuned so that generator Lv.1 + building out the workshop + crafting the bench spend scrap 20 ·
+ * cable 3 · alloy 2, which leaves nothing to make anything with once the bench stands. This is the rifle
+ * (`scrap 8`) + medium ammo (`gunpowder 6 · scrap 2`) plus room to spare (the 2026-09-10 crafting rework changed both
+ * recipes' materials — this table is not grown, the top-up below looks at them).
  *
- * 2026-09-09: 이 표는 바닥일 뿐이고 **실제 필요량은 레시피에서 읽는다** — `TutorialSystem.ensureMaterials(recipeId)`
- * 가 제작 단계(`craftGun` · `craftAmmo`)에 들어설 때마다 재료별 `필요 − 보유` 만큼만 채운다(top-up).
- * 소총이 폐금속 6 을 먹은 뒤 준중량탄의 폐금속 5 가 모자라던 문제가 그래서 없다. 여기에 숫자를 더 적지 않는다.
+ * 2026-09-09: this table is only the floor and **the real requirement is read from the recipe** —
+ * `TutorialSystem.ensureMaterials(recipeId)` tops up `needed − held` per material every time a craft step
+ * (`craftGun` · `craftAmmo`) is entered. That is why the rifle eating scrap 6 no longer leaves medium ammo five scrap
+ * short. No more numbers are written here.
  */
 export const TUTORIAL_CRAFT_GRANT: readonly { defId: string; qty: number }[] = [
   { defId: 'mat_scrap', qty: 16 },
@@ -70,9 +80,10 @@ export const TUTORIAL_CRAFT_GRANT: readonly { defId: string; qty: number }[] = [
 ];
 
 /**
- * 튜토리얼 동안 **함선 창고에 그려지는** 아이템 (`hides('stashItem', defId)`, 2026-09-09). 지급 재료 · 만든 소총 ·
- * 만든 탄약뿐이다 — 기본 지급품(씨앗 · 서적 · 기타 소모품)은 안내가 끝날 때까지 창고에서 사라져 있다.
- * 없어지는 것이 아니라 **그리지 않는** 것이라(`inventory/ui` 의 판정), 건너뛰거나 끝나면 그 자리에 그대로 돌아온다.
+ * The items **drawn in the ship stash** during the tutorial (`hides('stashItem', defId)`, 2026-09-09). Only the
+ * granted materials · the crafted rifle · the crafted ammo — the rest of the starter grant (seeds · books · other
+ * consumables) is gone from the stash until the guidance ends. It is not removed but simply **not drawn**
+ * (`inventory/ui` judges it), so skipping or finishing brings every item back in its place.
  */
 export const TUTORIAL_STASH_WHITELIST: readonly string[] = [
   ...TUTORIAL_CRAFT_GRANT.map((g) => g.defId),
@@ -81,137 +92,152 @@ export const TUTORIAL_STASH_WHITELIST: readonly string[] = [
 ];
 
 /**
- * 건너뛰기 확인 카드의 **홀드 시간** (s, 2026-09-09). 제작 버튼의 1초 홀드(`inventory/model.CRAFT_HOLD_TIME`)와 같은
- * 값이지만 다른 기능 폴더의 내부를 import 하지 않으므로 여기 다시 적는다 — UI 타이밍이라 csv 대상이 아니다.
+ * The skip-confirm card's **hold time** (s, 2026-09-09). The same value as the craft button's 1 s hold
+ * (`inventory/model.CRAFT_HOLD_TIME`), written again here because another feature folder's internals are never
+ * imported — UI timing, not a csv number.
  */
 export const SKIP_HOLD_TIME = 1.0;
 
-/** 안내선 · 스포트라이트가 목표를 다시 찾는 주기 (s) — 매 프레임 DOM 을 뒤지지 않는다. */
+/** How often the floor guide · spotlight re-find their target (s) — the DOM is not searched every frame. */
 export const RETARGET_INTERVAL = 0.25;
 
-/** 바닥 안내선. */
+/** The floor guide. */
 export const GUIDE_COLOR = 0x7ad7ff;
-/** 점선 한 마디의 길이 · 간격 (m) 과 흐르는 속도 (m/s). */
+/** One dash's length · gap (m) and the flow speed (m/s). */
 export const GUIDE_DASH = 0.34;
 export const GUIDE_GAP = 0.26;
 export const GUIDE_FLOW = 2.2;
-/** 선의 폭 (m) 과 바닥에서 띄우는 높이 (z-fighting 방지). */
+/** The strip's width (m) and how far it is lifted off the ground (z-fighting). */
 export const GUIDE_WIDTH = 0.16;
 export const GUIDE_LIFT = 0.03;
-/** 목표 빛기둥의 반지름 · 높이. */
+/** The target pillar's radius · height. */
 export const PILLAR_RADIUS = 0.55;
 export const PILLAR_HEIGHT = 3.0;
-/** 목표에 이만큼 다가서면 안내선을 걷는다 (m). */
+/** Come this close to the target and the floor guide is taken down (m). */
 export const GUIDE_ARRIVE = 2.2;
 
-/* ── 목표 마커 (2026-09-14 3차) — 「저 시체다」를 3D 로 짚는다 ──────────────
- * 세로선 + 아래를 가리키는 chevron 하나. 절차 지오메트리이고 **광원을 만들지 않는다**
- * (`CLAUDE.md`: 씬의 광원 개수를 플레이 중에 바꾸지 않는다 — 여기는 emissive 없는 basic 재질이다).
+/* ── The target marker (2026-09-14 3rd pass) — points at 「that corpse」 in 3D ──
+ * A vertical line + one chevron pointing down. Procedural geometry, and it **creates no light**
+ * (`CLAUDE.md`: never change the point-light count at runtime — this is a basic material with no emissive).
  * ────────────────────────────────────────────────────────────────────────── */
 
-/** 마커 색 — UI 강조색(`--c-accent` #ffb347)과 같은 주황. */
+/** The marker's colour — the same orange as the UI accent (`--c-accent` #ffb347). */
 export const MARKER_COLOR = 0xffb347;
-/** 세로선의 아래 끝 · 위 끝 높이 (대상 발치 기준, m) 와 폭. */
+/** The vertical line's bottom · top height (from the target's feet, m) and its width. */
 export const MARKER_BASE_Y = 0.45;
 export const MARKER_TOP_Y = 3.2;
 export const MARKER_WIDTH = 0.07;
-/** chevron 한 날개의 길이 · 두께 · 벌어진 각(rad) — 아래를 가리킨다. */
+/** One chevron wing's length · thickness · spread angle (rad) — it points down. */
 export const MARKER_CHEVRON_LEN = 0.52;
 export const MARKER_CHEVRON_W = 0.1;
 export const MARKER_CHEVRON_ANGLE = 0.72;
-/** 위아래로 천천히 오가는 폭 (m) 과 주기 (s). */
+/** How far it bobs up and down (m) and the period (s). */
 export const MARKER_BOB = 0.28;
 export const MARKER_BOB_PERIOD = 2.6;
-/** 마커가 대상을 다시 찾는 주기 (프레임) — 매 프레임 `ctx.interactables` 를 훑지 않는다. */
+/** How often the marker re-finds its target (frames) — `ctx.interactables` is not swept every frame. */
 export const MARKER_RETARGET_FRAMES = 15;
 /**
- * 목표 마커가 서는 단계 — **첫 시체 구간 둘**이다 (2026-09-15 2차: 「열어라」(`corpseOpen`)와 「챙겨라」(`corpseLoot`)가
- * 갈렸지만 가리키는 것은 같은 시체 하나라, 열라고 할 때부터 마커가 서 있어야 한다).
+ * The steps the target marker stands on — **the two first-corpse steps** (2026-09-15 2nd pass: 「open it」
+ * (`corpseOpen`) and 「loot it」 (`corpseLoot`) split, but they point at one and the same corpse, so the marker has to
+ * stand from the moment it says to open it).
  */
 export const CORPSE_MARKER_STEPS: readonly TutorialStepId[] = ['corpseOpen', 'corpseLoot'];
 
-/* ── 기상 연출과 첫 안내 사이 (2026-09-14 4차, 사용자 결정) ────────────────
- * 깨어나는 동안에는 목표 패널도 조작 가이드도 그리지 않는다 — 화면이 아직 검고 몸도 내 것이 아닌데
- * 「걸어가세요」가 먼저 떠 있으면 연출이 아니라 안내를 읽게 된다. 연출이 끝나도 곧바로 띄우지 않고
- * **한 박자** 둔다: 그 사이에 스스로 움직여 본 사람에게는 그 순간 바로 띄운다 (기다릴 이유가 없다).
- * 연출 수치라 csv 가 아니라 여기 있다 (`MARKER_*` · `GUIDE_*` 와 같은 자리).
+/* ── Between the intro wake and the first guidance (2026-09-14 4th pass, user's decision) ──
+ * While waking, neither the objective panel nor the control guide is drawn — with the screen still black and the body
+ * not yet the player's, 「walk forward」 standing there first makes them read guidance instead of a cutscene. Nor is it
+  * shown the instant the cutscene ends: it waits **a beat**, and for someone who moved on their own within that
+  * beat it
+ * appears at that moment (there is no reason left to wait).
+ * Presentation numbers, not csv numbers, so they live here beside `MARKER_*` · `GUIDE_*`.
  * ────────────────────────────────────────────────────────────────────────── */
 
-/** 기상 연출이 끝난 뒤 목표 패널 · 조작 가이드가 나타나기까지 (s). */
+/** From the end of the intro wake until the objective panel · control guide appear (s). */
 export const WAKE_REVEAL_DELAY_S = 2.0;
-/** 그 유예를 앞당기는 이동 거리 (m) — 이만큼 움직이면 기다리지 않고 바로 띄운다. */
+/** The distance that cuts that wait short (m) — move this far and they appear at once. */
 export const WAKE_REVEAL_MOVE_M = 1.0;
 
 /* ════════════════════════════════════════════════════════════════════════════
- * 목표 줄 (2026-09-14 2차, 사용자 결정)
+ * Objective rows (2026-09-14 2nd pass, user's decision)
  *
- * 목표 패널은 이제 **제목 + 부제 두 줄**이 아니라 **체크박스가 달린 목표 줄 목록**이다. 한 단계가 목표를
- * 여럿 가질 수 있고, 그 중 일부는 **선택**이라 안 해도 다음 단계로 넘어간다 (라벨 앞에 `(선택)`).
- * 달성하면 체크가 좌→우로 그려지고 라벨에 취소선이 좌→우로 그어진다 (`tutorial.css`).
+  * The objective panel is no longer **a title + subtitle, two lines**, but **a list of objective rows with a
+  * checkbox**.
+ * One step can hold several objectives, and some of them are **optional** — the step moves on without them (the label
+ * is prefixed `(선택)`). On completion the check is drawn left→right and a strike-through is drawn left→right across
+ * the label (`tutorial.css`).
  * ════════════════════════════════════════════════════════════════════════════ */
 
 /**
- * 목표 한 줄. `id` 는 달성 표시(`TutorialSystem.markObjective`)와 저장에 남는 이름이다.
+ * One objective row. `id` is the name that survives in the done marks (`TutorialSystem.markObjective`) and the save.
  *
- * 2026-09-15 (사용자 결정) — **문장이 아니라 짧은 명사구**다 (`길게 눌러 붕대 사용` · `벌레 2마리 처치`).
- * 키를 말하는 줄은 **키캡 토큰**을 쓴다 (`shared/keycap.renderKeyText` — `{QUICK:hold}` · `{FIRE}` · `{br}`).
- * 토큰은 그릴 때 `Keys` 에서 풀리고 리바인드하면 `ui/Panel.relabel` 이 다시 그리므로, 2026-09-14 까지의
- * 「문구에 키 글자를 적지 않는다」(리바인드하면 거짓말이 된다)는 더 이상 걸림돌이 아니다 — 글자를 적지 말고 토큰을 적는다.
+ * 2026-09-15 (user's decision) — **a short noun phrase, not a sentence** (`길게 눌러 붕대 사용` · `벌레 2마리 처치`).
+  * A row that names a key uses a **keycap token** (`shared/keycap.renderKeyText` — `{QUICK:hold}` · `{FIRE}` ·
+  * `{br}`).
+ * Tokens resolve from `Keys` when drawn and `ui/Panel.relabel` redraws them on a rebind, so 「never write a key letter
+  * into the text」 (a rebind makes it a lie), the rule up to 2026-09-14, is no longer in the way — write a token,
+  * not a letter.
  */
 export interface TutorialObjective {
   id: string;
-  /** 명사구 + 키캡 토큰 (`{ACTION}` · `{ACTION:hold}` · `{br}`). */
+  /** A noun phrase + keycap tokens (`{ACTION}` · `{ACTION:hold}` · `{br}`). */
   text: string;
-  /** 안 해도 다음 단계로 넘어간다 — 라벨 앞에 `(선택)` 이 붙고, **실제로 달성했을 때만** 체크된다. */
+  /** The step moves on without it — the label is prefixed `(선택)`, and it is checked **only when actually done**. */
   optional?: boolean;
   /**
-   * **세어야 하는 목표의 목표 수** (2026-09-15 2차, 사용자 결정). 있으면 패널이 문구 뒤에 ` (현재/목표)` 를 붙이고
-   * 진행이 바뀔 때마다 **그 숫자 노드만** 갈아 끼운다 (`ui/Panel.setCounts` — 줄을 다시 지으면 체크 · 취소선
-   * 애니메이션이 처음부터 다시 돈다). 그래서 **문구에는 수를 적지 않는다**: `벌레 처치` + `count: 2` → `벌레 처치 (0/2)`.
-   * 진행 수의 원본은 `TutorialSystem` 이고(지금은 처치 수 `kills` 하나), 목표 수는 그 단계가 세는 상수에서 유도한다.
+    * **The target count of a counted objective** (2026-09-15 2nd pass, user's decision). When present the panel
+    * appends
+   * ` (current/target)` after the text and swaps **only that number node** whenever progress changes
+   * (`ui/Panel.setCounts` — rebuilding the row restarts the check · strike-through animation from the beginning).
+   * So **no number is written into the text**: `벌레 처치` + `count: 2` → `벌레 처치 (0/2)`.
+   * The progress count's source is `TutorialSystem` (today only the kill count `kills`), and the target count is
+   * derived from the constant that step counts against.
    */
   count?: number;
   /**
-   * **순차 공개** (2026-09-14 3차, 사용자 결정) — **앞 줄을 달성해야 보인다**. 할 일이 셋이나 되는 단계에서
-   * 셋을 한꺼번에 늘어놓으면 「지금 무엇을 하는가」가 묻힌다. 패널은 아직 열리지 않은 줄을 **그리지 않는다**
-   * (`visibleObjectives`). 달성 표시(`markObjective`)와 저장은 예전 그대로다.
+   * **Sequential reveal** (2026-09-14 3rd pass, user's decision) — **visible only once the row before it is done**.
+   * On a step that holds three things to do, laying all three out at once buries 「what am I doing right now」. The
+   * panel **does not draw** a row that has not opened yet (`visibleObjectives`). The done marks (`markObjective`) and
+   * the save are unchanged.
    */
   reveal?: true;
   /**
-   * 앞 줄이 아니라 **바깥 사건**이 여는 줄 — 이 id 가 달성 표시돼야 보인다. `reveal` 이 쓸 앞 줄이 없는
-   * 첫 줄에 쓴다 (`heal` 의 「붕대가 빠른 사용 칸에 올라갔다」). 목록에 없는 id 여도 된다 — `done` 은
-   * 목표 목록과 무관하게 달성 표시를 기억한다.
+   * A row opened by an **outside event** rather than by the row before it — visible once this id is marked done. Used
+   * on a first row, where `reveal` has no preceding row to look at (`heal`'s 「the bandage went into a quick slot」).
+   * The id need not be in the list — `done` remembers done marks independently of the objective list.
    */
   revealOn?: string;
   /**
-   * 세는 목표의 **단위** (2026-09-17) — 있으면 꼬리표가 ` (n / m 단위)` 이고 수에 천 단위 쉼표가 붙는다 (`(420 / 1,000 C)`).
-   * 없으면 예전 그대로 ` (n/m)`.
+   * A counted objective's **unit** (2026-09-17) — when present the tag reads ` (n / m unit)` and the numbers carry
+   * grouping commas (`(420 / 1,000 C)`). With none it stays ` (n/m)`.
    */
   countUnit?: string;
 
-  /* ── 목표별 표시 · 허용 (2026-09-17, 사용자 결정 — 증축 안내의 「한 단계 = 목표 여럿」) ─────────────────────────────
-   * 단계 여럿을 한 단계로 묶으면서, 전에는 단계가 들고 있던 것들이 **지금 할 목표**를 따라가야 한다. 지금 할 목표 =
-   * 보이는 줄 중 **아직 안 한 첫 필수 줄** (`currentObjective`). 그 줄에 적힌 것이 단계의 값보다 앞선다 — 안 적힌 필드는
-   * 단계의 값을 그대로 쓴다. */
-  /** 이 줄이 지금 할 목표일 때의 스포트라이트 선택자 (`[]` = 밝히지 않는다). */
+  /* ── Per-objective display · allowance (2026-09-17, user's decision — 증축 안내's 「one step = several objectives」) ──
+   * Grouping several steps into one means what the step used to hold now has to follow the **current objective** =
+   * the **first visible, not-yet-done required row** (`currentObjective`). What that row states wins over the step's
+   * value — a field the row leaves out keeps the step's. */
+  /** The spotlight selectors while this row is the current objective (`[]` = light nothing). */
   spot?: readonly string[];
   spotText?: string;
   spotUnion?: boolean;
   spotNoDim?: boolean;
-  /** 이 줄이 지금 할 목표일 때의 바닥 안내선 대상. `null` = 안내선 없음. */
+  /** The floor guide's target while this row is the current objective. `null` = no floor guide. */
   guide?: 'bench' | 'terminal' | 'pod' | null;
-  /** 「…으로 이동」 줄 — 그 안내선 대상의 상호작용 범위에 들어서면 달성 (`StepDef.arriveObjective` 의 목표판). */
+  /**
+   * A 「walk to …」 row — done on entering that guide target's interaction range (the per-row form of
+   * `StepDef.arriveObjective`).
+   */
   arrive?: true;
   /**
-   * 이 줄이 **보이는 순간부터** 더 여는 게이트 (단계의 `allow` 위에 합친다). 한 단계 안에서도 순서를 지키게 한다 —
-   * 「발사 슬롯 탑승」 줄이 열리기 전에는 포드에 탈 수 없다.
+   * Gates this row opens on top of the step's `allow`, **from the moment it becomes visible**. It keeps the order
+   * within a single step — the pod cannot be boarded before the 「발사 슬롯 탑승」 row has opened.
    */
   allow?: Partial<Record<TutorialGate, true | readonly string[]>>;
 }
 
 /**
- * **지금 할 목표** (2026-09-17) — 보이는 줄 중 아직 안 한 첫 필수 줄. 전부 했으면 null.
- * 선택 줄은 건너뛴다 (안 해도 넘어가는 줄이 포커스를 붙들면 안 된다).
+ * **The current objective** (2026-09-17) — the first visible, not-yet-done required row. Null once every one is done.
+ * Optional rows are skipped (a row the step moves on without must not hold the focus).
  */
 export function currentObjective(
   list: readonly TutorialObjective[], done: ReadonlySet<string>,
@@ -221,8 +247,8 @@ export function currentObjective(
 }
 
 /**
- * 보이는 줄들이 더 여는 게이트를 단계의 `allow` 위에 합친다 (2026-09-17). 줄이 하나도 더 열지 않으면 단계의 것을 그대로 돌려준다.
- * 배열끼리는 합집합, 한쪽이 `true` 면 `true`.
+ * Merges the gates the visible rows open on top of the step's `allow` (2026-09-17). With no row opening anything, the
+ * step's own is returned unchanged. Array against array is a union; either side `true` makes it `true`.
  */
 export function mergedAllow(
   base: StepDef['allow'], list: readonly TutorialObjective[], done: ReadonlySet<string>,
@@ -239,19 +265,20 @@ export function mergedAllow(
   return out ?? base;
 }
 
-/** 선택 목표의 라벨 접두사. */
+/** The label prefix of an optional objective. */
 export const OPTIONAL_PREFIX_KO = '(선택) ';
 
 /**
- * 그 단계의 목표 줄. `objectives` 를 안 적은 단계는 **부제 한 줄**이 곧 유일한 필수 목표다
- * (예전의 `제목 + 부제` 두 줄 중 부제가 그대로 목표 문장이었다).
+ * That step's objective rows. On a step that states no `objectives`, **the subtitle line** is the one required
+ * objective (of the old `title + subtitle` pair, the subtitle already was the objective sentence).
  */
 export const objectivesOf = (def: StepDef): readonly TutorialObjective[] =>
   def.objectives ?? [{ id: def.id, text: def.hint }];
 
 /**
- * **지금 그릴 목표 줄** (2026-09-14 3차) — 순차 공개를 푼 결과다. 한 줄이 아직 안 열렸으면 **그 뒤는 전부**
- * 닫혀 있다 (목록은 순서가 곧 차례다). 순수 함수라 패널도 시스템도 같은 답을 본다.
+ * **The objective rows to draw right now** (2026-09-14 3rd pass) — the sequential reveal already resolved. If one row
+ * has not opened, **everything after it** is closed too (the list's order is its turn order). A pure function, so the
+ * panel and the system see the same answer.
  */
 export function visibleObjectives(
   list: readonly TutorialObjective[], done: ReadonlySet<string>,
@@ -270,8 +297,9 @@ export function visibleObjectives(
 }
 
 /**
- * `id` 와 **그 앞의 순차 공개 사슬 전부**. 뒤 줄을 먼저 해낸 사람(휠을 안 열고 탭으로 꺼낸 사람)의 앞 줄이
- * 영영 안 켜져 그 뒤가 통째로 숨는 길을 막는다 — 사슬은 `reveal` 이 이어진 만큼만 거슬러 올라간다.
+ * `id` plus **the whole sequential-reveal chain before it**. It stops a player who did a later row first (opening the
+ * item with the key instead of the wheel) from leaving the earlier row unlit forever, which would hide everything
+ * after it — the chain walks back only as far as `reveal` links it.
  */
 export function objectiveChain(list: readonly TutorialObjective[], id: string): readonly string[] {
   const at = list.findIndex((o) => o.id === id);
@@ -282,157 +310,191 @@ export function objectiveChain(list: readonly TutorialObjective[], id: string): 
 }
 
 /*
- * 2026-09-14 4차 (사용자 결정) — `grenade` 의 선택 목표는 「처치」가 아니라 **「꺼내 던진다」**가 됐다.
- * 던진 것이 빗나갔다고 해서 배운 것이 없어지지는 않는다. 그래서 터진 시각을 적어 두고 그 창 안의
- * 비총기 처치를 세던 `GRENADE_KILL_WINDOW_S` 는 없어졌다 — 판정이 `grenade:exploded` 한 줄이다.
+ * 2026-09-14 4th pass (user's decision) — `grenade`'s optional objective became **「draw it and throw it」**, not
+ * 「a kill」. Missing with the throw does not unlearn what was learnt. So `GRENADE_KILL_WINDOW_S`, which noted the
+  * moment of the blast and counted non-gun kills inside that window, is gone — the judgement is one
+  * `grenade:exploded`.
  */
 
-/** 한 단계의 정의. 진행 조건은 `TutorialSystem` 의 이벤트 스위치가 갖는다 — 여기는 표시와 게이트뿐이다. */
+/**
+ * One step's definition. The progress conditions live in `TutorialSystem`'s event switch — this is display and
+ * gates only.
+ */
 export interface StepDef {
   id: TutorialStepId;
-  /** 단계 이름 (콘솔 · 게이트 사유 문구 `blockedBy`). **목표 패널은 2026-09-14 2차부터 이것을 그리지 않는다.** */
+  /**
+   * The step's name (console · the gate reason text `blockedBy`). **The objective panel has not drawn it since
+   * 2026-09-14 2nd pass.**
+   */
   title: string;
-  /** `objectives` 가 없는 단계의 **유일한 필수 목표 문장**. */
+  /** The **one required objective sentence** of a step with no `objectives`. */
   hint: string;
   /**
-   * 목표 줄 (2026-09-14 2차). 생략하면 `[{ id, text: hint }]` 하나다.
-   * 필수 목표는 **단계가 넘어가는 순간** 전부 달성으로 표시되고, 선택 목표는 실제로 달성했을 때만 체크된다.
+   * The objective rows (2026-09-14 2nd pass). Left out, it is the single `[{ id, text: hint }]`.
+   * Every required objective is marked done **the moment the step moves on**; an optional one is checked only when
+   * it was actually done.
    */
   objectives?: readonly TutorialObjective[];
   /**
-   * 이 단계에서 **허용**하는 게이트. 여기 없는 게이트는 전부 막힌다.
-   * 값이 문자열 배열이면 그 id 만 허용한다 (`roomPurpose: ['workshop']`).
+   * The gates this step **allows**. Every gate not listed here is blocked.
+   * A string-array value allows those ids only (`roomPurpose: ['workshop']`).
    */
   allow?: Partial<Record<TutorialGate, true | readonly string[]>>;
-  // `stashItem` 은 여기 적지 않는다 — 허용 목록이 단계와 무관하게 `TUTORIAL_STASH_WHITELIST` 하나라 `parts/Gates`
-  //   가 특별 취급한다 (`raid` 만 `stashItem: true` 로 전부 연다).
-  /** 이 단계에서 화면에 뜨는 UI 중 밝힐 요소의 CSS 선택자 (앞에서부터 먼저 찾히는 것 하나). */
+  // `stashItem` is not written here — its allow list is the one step-independent `TUTORIAL_STASH_WHITELIST`, so
+  //   `parts/Gates` treats it specially (only `raid` opens everything with `stashItem: true`).
+  /** CSS selectors of the on-screen element this step lights (the first one found, front to back). */
   spot?: readonly string[];
   /**
-   * `spot` 을 "먼저 찾히는 하나"가 아니라 **전부의 합집합**으로 밝힌다 (2026-09-08).
-   * 두 패널에 걸친 드래그를 안내할 때 쓴다 — 하나만 밝히면 출발점이나 도착점이 어두운 판에 덮여 손이 묶인다.
-   * 구멍은 사각형 하나이므로 **서로 맞닿은 것들**을 넘겨야 이어진 도형으로 읽힌다.
+   * Lights `spot` as **the union of them all** rather than "the first one found" (2026-09-08).
+   * Used to guide a drag that spans two panels — lighting only one leaves the start or the end under a dim plate,
+   * which ties the hand. The hole is a single rectangle, so **elements that touch each other** have to be passed for
+   * it to read as one connected shape.
    */
   spotUnion?: boolean;
   /**
-   * **딤 없는 포커싱** (2026-09-14 2차, 사용자 결정 — `corpseLoot`). 구멍 · 링 · 말풍선은 그대로지만 네 판이
-   * 투명해지고 **클릭도 통과시킨다**. 어두운 판이 없는데 클릭만 막히면 "왜 안 눌리지"가 되기 때문이다.
+   * **No-dim focus** (2026-09-14 2nd pass, user's decision — `corpseLoot`). The hole · ring · callout stay, but the
+    * four plates turn transparent and **pass clicks through** too. With no dim plate visible, blocked clicks alone
+    * read
+   * as "why won't this press".
    */
   spotNoDim?: boolean;
-  /** 스포트라이트 말풍선 문구 (없으면 `hint`). */
+  /** The spotlight callout's text (`hint` with none). */
   spotText?: string;
-  /** 걸어서 가야 하는 목표 — 안내선이 가리킬 `Interactable.id` (`bench` 는 런타임에 정해진다). */
+  /** A target to walk to — the `Interactable.id` the floor guide points at (`bench` is decided at runtime). */
   guide?: 'bench' | 'terminal' | 'pod';
   /**
-   * **「…으로 이동」 목표 줄의 id** (2026-09-14 3차). `guide` 가 가리키는 그 물건의 상호작용 범위 안에 들어서면
-   * 달성으로 적는다 — 좌표를 여기 적지 않으려고 `ctx.interactables` 가 준 자리와 반지름만 본다.
+   * **The id of the 「walk to …」 objective row** (2026-09-14 3rd pass). It is marked done on entering the interaction
+   * range of whatever `guide` points at — to keep coordinates out of this file, only the spot and radius
+   * `ctx.interactables` gives are read.
    */
   arriveObjective?: string;
 }
 
-/* ── 단계가 상황에 따라 갈아 끼우는 스포트라이트 (2026-09-14 3차) ──────────
- * `Spotlight.set` 은 선택자 배열을 **참조로** 비교해 「대상이 바뀌었다」를 판단한다 (바뀌면 지금 켜진 것을 접고
- * 반 박자를 다시 센다). 그래서 갈아 끼우는 목록은 **모듈 상수로 한 번만** 만든다 — 부를 때마다 새 배열을
- * 넘기면 `refreshVisuals` 가 돌 때마다 포커싱이 꺼져 영영 안 켜진다.
+/* ── Spotlights a step swaps by situation (2026-09-14 3rd pass) ────────────
+ * `Spotlight.set` compares selector arrays **by reference** to judge 「the target changed」 (on a change it folds what
+ * is lit and counts half a beat again). So a swapped list is built **once, as a module constant** — handing it a new
+ * array on every call turns the focus off every time `refreshVisuals` runs, and it never lights at all.
  * ────────────────────────────────────────────────────────────────────────── */
 
-/** `equipGun` 인데 제작 창이 열려 있다 — 장비 칸이 숨었으므로 먼저 닫기 버튼을 밝힌다. */
+/** `equipGun` with the craft window open — the equipment slots are hidden, so the close button is lit first. */
 export const SPOT_CRAFT_CLOSE: readonly string[] = ['.inv-craft-close', '.inv-panel-craft'];
 /*
- * 2026-09-14 4차 — `SPOT_HEAL_STOCK`(시체 격자 + 빠른 사용 로제트)은 없어졌다. 붕대 · 수류탄은 주우면 빈 휠
- * 칸에 **자동 등록**되므로 「빠른 사용 칸에 올린다」는 할 일 자체가 사라졌고, 남은 일(휠에서 골라 손에 들고
- * 길게 눌러 쓰기)은 화면이 아니라 손가락이라 밝힐 UI 가 없다 — 조작 가이드가 살아 있는 키를 그린다.
+ * 2026-09-14 4th pass — `SPOT_HEAL_STOCK` (the corpse grid + the quick-use wheel) is gone. A bandage · grenade is
+ * **registered automatically** into an empty wheel slot when picked up, so 「put it in a quick slot」 stopped being a
+ * thing to do at all, and what is left (pick it from the wheel, hold it, press and hold to use) is the fingers, not
+ * the screen — there is no UI to light. The control guide draws the keys that are live.
  */
-/** 밝힐 것이 없다 (화면이 아니라 손가락으로 하는 일). */
+/** Nothing to light (a thing done with the fingers, not on screen). */
 export const SPOT_NONE: readonly string[] = [];
 
 /*
- * 함선 트랙 `stats` 의 목표별 포커싱 (2026-09-16 2차, 사용자 결정) — 목표가 하나씩 열리는 대로 **포커스가 옮겨 간다**.
- * 고르는 곳은 `TutorialSystem.stepView` 다. 메뉴가 닫혀 있는 첫 목표(`statsMenu`)는 밝힐 화면이 없어 `SPOT_NONE` 이고,
- * 그 안내는 우측 조작 가이드의 한 줄(`TUTORIAL_CONTROL_HINTS.stats`)이 한다.
- * ⚠ 탭 버튼에는 탭마다의 표식이 없다 — `SCREEN_TABS`(inventory/ui/model) 의 두 번째가 캐릭터 탭이라 `:nth-child(2)` 로 집고,
- *   못 찾으면 탭 줄 전체로 넓힌다. (함선 트랙에서 보이는 탭은 인벤토리 · 캐릭터 둘뿐이다.)
+  * The ship track `stats` step's per-objective focus (2026-09-16 2nd pass, user's decision) — **the focus moves
+  * on** as
+  * the objectives open one by one. It is picked in `TutorialSystem.stepView`. The first objective (`statsMenu`) has
+  * the
+ * menu closed, so there is no screen to light and it is `SPOT_NONE`; that guidance is one row of the right-side
+ * control guide instead (`TUTORIAL_CONTROL_HINTS.stats`).
+ * ⚠ The tab buttons carry no per-tab mark — the second of `SCREEN_TABS` (inventory/ui/model) is the character tab, so
+ *   it is taken with `:nth-child(2)`, widening to the whole tab row when that is not found. (The ship track shows two
+ *   tabs only, inventory and character.)
  */
-/** ② 캐릭터 탭으로 이동. */
+/** ② Move to the character tab. */
 export const SPOT_STATS_TAB: readonly string[] = ['.inv-root .scr-tabs .scr-tab:nth-child(2)', '.inv-root .scr-tabs'];
 export const STATS_TAB_TEXT = '캐릭터 탭으로 이동';
-/** ③ 능력치 하나 ＋ — 능력치 열 전체 (＋ 줄이 전부 그 안에 있다). */
+/** ③ ＋ on one stat — the whole stat column (every ＋ row is inside it). */
 export const SPOT_STATS_RAISE: readonly string[] = ['.cs-col', '.inv-root .scr-tabs'];
-/** `{+}` 는 스포트라이트 말풍선이 능력치 시트의 ＋ 버튼 모양으로 그린다 (`parts/Spotlight.renderSpotText`). */
+/**
+ * The spotlight callout draws `{+}` in the shape of the character sheet's ＋ button
+ * (`parts/Spotlight.renderSpotText`).
+ */
 export const STATS_RAISE_TEXT = '원하는 능력치 하나 {+} 를 눌러 상승';
-/** ④ 투자 확정 — `되돌리기 · 포인트 투자 확정` 줄. */
+/** ④ Confirm the investment — the `되돌리기 · 포인트 투자 확정` row. */
 export const SPOT_STATS_CONFIRM: readonly string[] = ['.pg-alloc .pg-confirm', '.pg-alloc', '.cs-col'];
 export const STATS_CONFIRM_TEXT = '버튼을 길게 눌러 확정';
 
-/** 게이트가 막혔을 때 쓰는 기본 문구 — 단계 제목을 끼워 넣는다. */
+/** The default text used when a gate blocks — the step's title is spliced in. */
 export const blockedBy = (title: string): string => `튜토리얼 진행 중 — 먼저 '${title}'`;
 
 /* ════════════════════════════════════════════════════════════════════════════
- * 우측 조작 가이드 (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」)
+ * The right-side control guide (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」)
  *
- * 배운 조작이 **한 줄씩 쌓이고 사라지지 않는다.** 우하단 키 가이드(`ui/hud/KeyGuide`, `.key-guide`)는 "지금 열린
- * 화면의 키"라 매번 바뀌지만 이쪽은 누적이라 자리가 아예 다르다 — 화면 **우측 세로 가운데**다 (CSS 참고).
+ * A control that was learnt **stacks up one row at a time and never disappears.** The bottom-right key guide
+ * (`ui/hud/KeyGuide`, `.key-guide`) is "the keys of the screen open right now" and changes every time; this one
+ * accumulates, so its place is different entirely — **vertically centred on the right** of the screen (see the CSS).
  *
- * 표는 **키 액션 이름**(과 2026-09-15 부터 키캡 토큰 `{ACTION}`)만 들고 있다 — 키캡은 그릴 때 `shared/keycap.paintKeycap(Keys[action])` 으로 칠한다
- * (`docs/CONTROLS.md`: 키는 사용 시점에 읽는다. 리바인드하면 `input:bindingsChanged` 에 다시 그린다).
+ * The table holds **key action names** only (and, since 2026-09-15, keycap tokens `{ACTION}`) — the keycap is painted
+ * when drawn, with `shared/keycap.paintKeycap(Keys[action])` (`docs/CONTROLS.md`: keys are read at use time. On a
+ * rebind they are redrawn on `input:bindingsChanged`).
  * ════════════════════════════════════════════════════════════════════════════ */
 
 /**
- * 조작 **구간** (2026-09-14 2차, 사용자 결정). 줄은 배운 순서가 아니라 이 구간 순서로 쌓이고, 구간과 구간
- * 사이에만 얇은 구분선이 들어간다. 비어 있는 구간은 아예 그려지지 않으므로 구분선도 생기지 않는다.
+ * A control **section** (2026-09-14 2nd pass, user's decision). Rows stack in this section order, not in the order
+ * they were learnt, and a thin divider goes only between one section and the next. An empty section is not drawn at
+ * all, so no divider appears for it either.
  */
-/* 2026-09-17: `meta` — 조작 가이드 자신을 다루는 줄(`] 조작 가이드 숨김`)이 맨 아래 구분선 밑에 선다. */
+/*
+ * 2026-09-17: `meta` — the row that handles the control guide itself (`] 조작 가이드 숨김`) stands below the bottom
+ * divider.
+ */
 export type ControlSection = 'move' | 'stance' | 'screen' | 'combat' | 'gear' | 'meta';
 
 /**
- * 구간이 그려지는 순서. 2026-09-16 (사용자 결정): `stance`(앉기 · 포복)가 `move` 에서 갈라졌다 — 포복 구간의 패널은
- * `WASD 이동` ─ 구분선 ─ `C 앉기 · Z 포복` ─ 구분선 ─ `발사 · 정조준` 세 묶음이다.
+  * The order the sections are drawn in. 2026-09-16 (user's decision): `stance` (crouch · prone) split off from
+  * `move` —
+ * on the crawl stretch the panel is three groups, `WASD 이동` ─ divider ─ `C 앉기 · Z 포복` ─ divider ─ `발사 · 정조준`.
  */
 export const CONTROL_SECTIONS: readonly ControlSection[] = ['move', 'stance', 'screen', 'combat', 'gear', 'meta'];
 
-/** 한 줄 안의 **쌍** — 키캡 묶음 하나 + 그 라벨 하나 (`LMB 사격 / RMB 정조준`). */
+/** A **pair** inside one row — one keycap group + its one label (`LMB 사격 / RMB 정조준`). */
 export interface ControlHintPair {
-  /** 이 쌍이 보여 주는 키 액션들 (`Keys` 의 필드 이름). 여러 개면 나란히 그린다. */
+  /** The key actions this pair shows (field names of `Keys`). Several are drawn side by side. */
   keys: readonly (keyof KeyBindings)[];
   label: string;
-  /** 꾹 누르는 키 — 키캡에 chevron 을 단다 (`.keycap.kc-hold`). */
+  /** A held key — the keycap gets a chevron (`.keycap.kc-hold`). */
   hold?: boolean;
 }
 
 /**
- * 조작 한 줄. `id` 는 저장에 남는 안정된 이름이라 문구를 고쳐도 중복되지 않는다.
+ * One control row. `id` is a stable name that survives in the save, so editing the text never duplicates a row.
  *
- * `keys` · `label` · `hold` 는 **첫 쌍**이고 (2026-09-14 의 모양 그대로 — 깨지 않았다), `more` 는 같은 줄에
- * 이어 붙는 쌍들이다 (`LMB 사격 / RMB 정조준` 을 한 줄에 담으려고 2026-09-14 2차에 더했다).
+ * `keys` · `label` · `hold` are the **first pair** (the 2026-09-14 shape exactly — it was not broken), and `more` are
+ * the pairs appended to the same row (added on 2026-09-14 2nd pass to fit `LMB 사격 / RMB 정조준` into one row).
  *
- * **2026-09-15 (사용자 결정) — 토큰 문장 줄 `text`.** 「키 쌍」 모양으로 담기지 않는 조작이 있다
- * (`{QUICK:hold}를 꾹 눌러 수류탄 장착 후,{br}{FIRE:hold} 수류탄 던지기`). `text` 가 있으면 그 줄은 쌍을 그리지 않고
- * `shared/keycap.renderKeyText` 로 문장 안에 키캡을 끼워 그린다 (`keys` · `label` · `more` 는 무시).
+ * **2026-09-15 (user's decision) — the token-text row `text`.** Some controls do not fit the 「key pair」 shape
+ * (`{QUICK:hold}를 꾹 눌러 수류탄 장착 후,{br}{FIRE:hold} 수류탄 던지기`). With `text` present the row draws no pairs and
+  * `shared/keycap.renderKeyText` splices the keycaps into the sentence instead (`keys` · `label` · `more` are
+  * ignored).
  */
 export interface ControlHint {
   id: string;
-  /** 첫 쌍의 키 액션들 (`text` 줄이면 생략). */
+  /** The first pair's key actions (left out on a `text` row). */
   keys?: readonly (keyof KeyBindings)[];
-  /** 첫 쌍의 라벨 (`text` 줄이면 생략). */
+  /** The first pair's label (left out on a `text` row). */
   label?: string;
-  /** 첫 쌍이 꾹 누르는 키. */
+  /** The first pair is a held key. */
   hold?: boolean;
-  /** 같은 줄의 나머지 쌍 (2026-09-14 2차). 앞에 얇은 구분자를 두고 이어 그린다. */
+  /** The rest of the pairs on the same row (2026-09-14 2nd pass). Drawn on with a thin separator before each. */
   more?: readonly ControlHintPair[];
-  /** 토큰 문장 줄 (2026-09-15) — `{ACTION}` · `{ACTION:hold}` · `{br}`. 있으면 쌍 대신 이것을 그린다. */
+  /**
+   * A token-text row (2026-09-15) — `{ACTION}` · `{ACTION:hold}` · `{br}`. When present it is drawn instead of the
+   * pairs.
+   */
   text?: string;
-  /** 이 줄이 속한 구간 (생략 = `gear`). */
+  /** The section this row belongs to (left out = `gear`). */
   section?: ControlSection;
 }
 
-/** 한 줄이 가진 쌍 전부 (첫 쌍 + `more`). 토큰 문장 줄(`text`)은 쌍이 없다. */
+/** Every pair a row holds (the first pair + `more`). A token-text row (`text`) has no pairs. */
 export const hintPairs = (h: ControlHint): readonly ControlHintPair[] =>
   h.text !== undefined ? [] : [{ keys: h.keys ?? [], label: h.label ?? '', hold: h.hold }, ...(h.more ?? [])];
 
 /**
- * 이동 · 달리기 · 점프 — `move` 와 「앞으로 이동」 구간 셋이 **같은 배열을 공유한다** (2026-09-14 4차).
- * (`ControlHint` 는 2026-09-15 에 `keys` · `label` 이 선택 필드가 됐다 — 토큰 문장 줄 `text` 가 대신할 수 있다.)
- * 줄 목록이 참조까지 같으면 `applyControls` 의 id 비교가 그대로 통과해 DOM 을 한 번도 안 건드린다.
+  * Move · sprint · jump — `move` and the three 「walk forward」 stretches **share the same array** (2026-09-14 4th
+  * pass).
+  * (On 2026-09-15 `ControlHint`'s `keys` · `label` became optional fields — a token-text row `text` can stand for
+  * them.)
+ * When the row list is the same by reference too, `applyControls`'s id comparison passes straight through and the DOM
+ * is never touched.
  */
 const MOVE_HINT: ControlHint = { id: 'move', keys: ['FORWARD', 'LEFT', 'BACK', 'RIGHT'], label: '이동', section: 'move' };
 const SPRINT_HINT: ControlHint = { id: 'sprint', keys: ['SPRINT'], label: '달리기', hold: true, section: 'move' };
@@ -443,21 +505,23 @@ const MOVE_HINTS: readonly ControlHint[] = [
 ];
 
 /**
- * **그 단계에 보일 줄 전부** (2026-09-14 3차, 사용자 결정 — 「누적」에서 「교체」로).
+ * **Every row to show on that step** (2026-09-14 3rd pass, user's decision — from 「accumulate」 to 「replace」).
  *
- * 예전에는 배운 줄이 한 줄씩 쌓이고 트랙이 끝날 때까지 사라지지 않았다. 레이드 끝에 가면 여덟 줄이
- * 우측을 채우는데 그 중 **지금 쓰는 것은 한둘**이라, 정작 배우는 중인 키가 목록에 파묻혔다.
- * 이제 표는 「그 단계에서 화면에 **있어야** 하는 줄」이고, 단계가 바뀌면 그 줄로 **갈아 끼운다**.
+  * A learnt row used to stack up one at a time and stay until the track ended. By the end of the raid eight rows
+  * filled
+ * the right side while **one or two of them were in use**, and the key actually being learnt was buried in the list.
+ * Now the table is 「the rows that **should** be on screen on that step」, and a step change **swaps them in**.
  *
- * ⚠ **표에 없는 단계는 직전 단계의 줄을 그대로 유지한다** (`wake` · `sprintJump` · `drop` 처럼
- * 새로 배우는 키가 없는 단계). 빈 배열을 적으면 「조작 가이드를 비운다」는 다른 뜻이 된다.
+ * ⚠ **A step missing from the table keeps the previous step's rows** (`wake` · `sprintJump` · `drop` and the like,
+ * which teach no new key). Writing an empty array means 「empty the control guide」, which is a different thing.
  *
- * `crouch` · `crouchAim` 단계는 **자세에 따라 라벨이 바뀌므로** 표가 아니라 `controlHintsFor(step, stance)` 가 만든다 —
- * 여기 있는 것은 선 자세(기본)의 모습이고, 저장에서 되살릴 때 id 를 찾는 데 쓰인다 (2026-09-15: `crouchAim` 이 표에 들어왔다).
+ * The `crouch` · `crouchAim` steps **relabel with the stance**, so they are built by `controlHintsFor(step, stance)`
+ * and not by the table — what is here is the standing (default) shape, used to find ids when restoring from the save
+ * (2026-09-15: `crouchAim` joined the table).
  */
 /**
- * 루팅 두 줄 — 첫 시체(`corpseLoot`)와 보급품 시체(`supplyLoot`, 2026-09-15)가 **같은 배열**을 쓴다
- * (`MOVE_HINTS` 와 같은 이유: 참조가 같으면 `applyControls` 의 id 비교가 DOM 을 안 건드린다).
+ * The two looting rows — the first corpse (`corpseLoot`) and the supply corpse (`supplyLoot`, 2026-09-15) use **the
+ * same array** (the `MOVE_HINTS` reason: same reference means `applyControls`'s id comparison never touches the DOM).
  */
 const BAG_HINT: ControlHint = { id: 'bag', keys: ['INVENTORY'], label: '가방 · 장비', section: 'screen' };
 
@@ -467,52 +531,64 @@ const LOOT_HINTS: readonly ControlHint[] = [
 ];
 
 /**
- * 장착 단계의 한 줄 (2026-09-16) — **작업대 창의 `닫기` 는 창째 닫는다** (`inventory/parts/Crafting.closeCraftWindow`,
- * 사용자 보고 「작업대 창을 닫았는데 가방이 열린다」). 그래서 `equipGun` 에 들어서는 순간 장비 칸도 가방도 화면에
- * 없고, 밝힐 DOM 이 없으니 스포트라이트도 뜨지 못한다 (`parts/Spotlight` 는 대상이 없으면 스스로 접힌다).
- * 남은 안내는 「창을 다시 열어라」 하나이고, 그것을 적는 자리는 우측 조작 가이드다 — 창이 열리면 가이드가
- * 스스로 접히므로(`TutorialSystem.setInventoryOpen`) 줄은 필요한 동안에만 떠 있다.
+ * The equip step's one row (2026-09-16) — **the workbench window's `닫기` closes the whole window**
+ * (`inventory/parts/Crafting.closeCraftWindow`, from the user's report 「I closed the workbench window and the bag
+ * opened」). So the moment `equipGun` is entered neither the equipment slots nor the bag are on screen, and with no
+ * DOM to light the spotlight cannot come up either (`parts/Spotlight` folds itself with no target).
+ * The only guidance left is 「open the window again」, and the place to write it is the right-side control guide —
+ * the guide folds itself once the window opens (`TutorialSystem.setInventoryOpen`), so the row stands only while it
+ * is needed.
  */
 const EQUIP_HINTS: readonly ControlHint[] = [BAG_HINT];
 
 /*
- * 발사 · 정조준 두 줄 (2026-09-16, 사용자 결정) — 예전의 `LMB 사격 / RMB 정조준` 한 줄을 갈랐고 정조준은 **꾹 누르기** 키캡이다.
- * `shoot` · `advance2` · 포복 구간 뒤쪽(`crouch` · `crouchAim`)이 같은 두 객체를 쓴다. 이동 묶음과는 구간이 달라 구분선이 선다.
+ * The two fire · aim rows (2026-09-16, user's decision) — the old single `LMB 사격 / RMB 정조준` row was split, and aim
+  * is a **hold** keycap. `shoot` · `advance2` and the back of the crawl stretch (`crouch` · `crouchAim`) use these
+  * same
+ * two objects. Their section differs from the movement group, so a divider stands between them.
  */
 const FIRE_HINT: ControlHint = { id: 'fire', keys: ['FIRE'], label: '발사', section: 'combat' };
 const AIM_HINT: ControlHint = { id: 'aim', keys: ['AIM'], label: '정조준', hold: true, section: 'combat' };
 /**
- * 재장전 줄 (2026-09-17, 사용자 결정 — 「벌레 둘 처치한 후, 발사 및 정조준 밑에 재장전」). `shoot` 에는 없고 벌레를 다 잡은 뒤
- * (`advance2`)부터 발사 · 정조준 바로 아래에 선다 — 포복 구간 뒤쪽(`crawlHalf`)의 발사 · 정조준 묶음에도 함께 붙는다.
+ * The reload row (2026-09-17, user's decision — 「after killing the two bugs, reload below fire and aim」). Not on
+ * `shoot`; it stands right under fire · aim from the moment the bugs are down (`advance2`) — and it joins the fire ·
+ * aim group at the back of the crawl stretch (`crawlHalf`) as well.
  */
 const RELOAD_HINT: ControlHint = { id: 'reload', keys: ['RELOAD'], label: '재장전', section: 'combat' };
-/** 전투 구간의 이동 묶음 — `WASD 이동` · `Shift 달리기` (점프는 뺀다). */
+/** The combat section's movement group — `WASD 이동` · `Shift 달리기` (jump is left out). */
 const COMBAT_MOVE_HINTS: readonly ControlHint[] = [MOVE_HINT, SPRINT_HINT];
 const SHOOT_HINTS: readonly ControlHint[] = [...COMBAT_MOVE_HINTS, FIRE_HINT, AIM_HINT];
 /**
- * 벌레를 잡은 뒤 걸어가는 구간 (2026-09-16, 사용자 결정) — 발사 · 정조준을 그대로 두고 그 아래에 벌레 시체를 뒤져 보라는
- * `E 시체 상호작용` 한 줄을 붙인다 (같은 구간이라 구분선 없이 이어진다).
+  * The stretch walked after the bugs are killed (2026-09-16, user's decision) — fire · aim are left as they are and
+  * one
+ * `E 시체 상호작용` row is appended below them, to say the bug corpses can be searched (same section, so it follows on
+ * with no divider).
  */
 const ADVANCE_AFTER_BUGS_HINTS: readonly ControlHint[] = [
   ...SHOOT_HINTS,
   RELOAD_HINT,
-  // 2026-09-17:적 시체는 꾹 누르기다 (`enemies/Corpses` 의 `holdTime`) — 키캡에 chevron (`hold`)
+  // 2026-09-17: an enemy corpse is a hold (`holdTime` in `enemies/Corpses`) — the keycap gets a chevron (`hold`)
   { id: 'bugCorpse', keys: ['INTERACT'], label: '시체 상호작용', hold: true, section: 'combat' },
 ];
 
 /*
- * 빠른 사용 두 줄 (2026-09-15, 사용자 결정) — 예전에는 `T 빠른 사용 꺼내기 · T 휠 열기` 가 **한 줄에 쌍 둘**이었는데
- * 202 px 패널에서 쌍 중간이 접혀 키캡과 라벨이 서로 다른 줄로 흩어졌다. 그래서 두 줄로 가른다.
+ * The two quick-use rows (2026-09-15, user's decision) — `T 빠른 사용 꺼내기 · T 휠 열기` used to be **two pairs on one
+ * row**, and in the 202 px panel the row wrapped between the pairs, scattering keycaps and labels onto different
+ * lines. So it is split into two rows.
  */
 const QUICK_HINT: ControlHint = { id: 'quick', keys: ['QUICK'], label: '빠른 사용 꺼내기', section: 'gear' };
 const QUICK_WHEEL_HINT: ControlHint = { id: 'quickWheel', keys: ['QUICK'], label: '휠 열기', hold: true, section: 'gear' };
-/** 손에 든 붕대를 쓰는 줄 — `heal` 에서 **붕대가 손에 있을 때만** 선다 (2026-09-16, `controlHintsFor`). */
+/**
+ * The row for using the held bandage — on `heal` it stands **only while the bandage is in hand** (2026-09-16,
+ * `controlHintsFor`).
+ */
 const QUICK_USE_HINT: ControlHint = { id: 'quickUse', keys: ['FIRE'], label: '길게 눌러 사용', hold: true, section: 'gear' };
 
 /**
- * 증축 안내 마지막 레이드의 조작 가이드 (2026-09-17, 사용자 결정) — `M 지도 / Q 전술 임플란트 / G (꾹) 함선 지원 / V 구르기 /
- * X 시점 변경` ─ 구분선 ─ `] 조작 가이드 숨김`. 이 레이드에서만 뜬다. `]` 로 접으면 같은 자리에 `] 조작 가이드 표시` 한 줄만 남는다
- * (`ui/Controls.setCollapsed`, 문구는 `CONTROLS_FOLDED_TEXT`). 키 글자는 그릴 때 `Keys` 에서 읽는다.
+ * The control guide of 증축 안내's last raid (2026-09-17, user's decision) — `M 지도 / Q 전술 임플란트 / G (꾹) 함선 지원 /
+ * V 구르기 / X 시점 변경` ─ divider ─ `] 조작 가이드 숨김`. It shows in this raid only. Folded with `]`, one row is left
+ * in its place, `] 조작 가이드 표시` (`ui/Controls.setCollapsed`, text `CONTROLS_FOLDED_TEXT`). Key letters are read
+ * from `Keys` when drawn.
  */
 const RAID_GUIDE_HINTS: readonly ControlHint[] = [
   { id: 'rgMap', keys: ['MAP'], label: '지도', section: 'gear' },
@@ -522,70 +598,82 @@ const RAID_GUIDE_HINTS: readonly ControlHint[] = [
   { id: 'rgCamera', keys: ['SHOULDER'], label: '시점 변경', section: 'gear' },
   { id: 'rgFold', keys: ['GUIDE_TOGGLE'], label: '조작 가이드 숨김', section: 'meta' },
 ];
-/** 접힌 조작 가이드의 한 줄 (키캡 토큰) — 이 줄만 남는다. */
+/** The folded control guide's one row (a keycap token) — this row alone is left. */
 export const CONTROLS_FOLDED_TEXT = '{GUIDE_TOGGLE} 조작 가이드 표시';
-/** 조작 가이드를 접을 수 있는 단계 (그 단계에서만 `Keys.GUIDE_TOGGLE` 을 읽는다). */
+/** The steps whose control guide can be folded (`Keys.GUIDE_TOGGLE` is read on those steps only). */
 export const FOLDABLE_CONTROL_STEPS: readonly TutorialStepId[] = ['raid'];
-/** 출격 안내 마지막 레이드에서 몸에 지닌 전리품 가치를 다시 세는 주기 (프레임) — 매 프레임 가방을 훑지 않는다. */
+/** How often the carried loot value is recounted in 출격 안내's last raid (frames) — the bag is not swept every frame. */
 export const RAID_VALUE_POLL_FRAMES = 20;
 
 /**
- * **진행 바의 숫자 라벨** (2026-09-18, 사용자 결정) — 출격 안내의 레이드 단계는 진행 바가 「몇 번째 단계인가」가 아니라
- * **전리품 가치**를 잰다. 바의 채움은 1 에서 잘리지만 **글자는 실제 값**을 적는다: 1,400 C 를 들고 있는 사람에게
- * `1,000 C / 1,000 C` 라고 적으면 더 챙긴 것이 없어진 것처럼 보인다. 천 단위 · 단위 표기는 공용 한 곳(`formatCredits`)이다.
+ * **The progress bar's number label** (2026-09-18, user's decision) — on 출격 안내's raid step the bar measures **the
+ * loot value**, not 「which step of how many」. The bar's fill is clipped at 1, but **the text prints the real value**:
+  * writing `1,000 C / 1,000 C` to someone carrying 1,400 C makes the extra look lost. Grouping commas and the unit
+  * come
+ * from one shared place (`formatCredits`).
  */
 export const creditGaugeLabel = (at: number, total: number): string => `${formatCredits(at)} / ${formatCredits(total)}`;
 
 export const TUTORIAL_CONTROL_HINTS: Readonly<Partial<Record<TutorialStepId, readonly ControlHint[]>>> = {
-  // 기상 직후 이동 · 달리기 · 점프를 **한꺼번에** (2026-09-14 3차, 사용자 결정)
+  // Straight after waking, move · sprint · jump **all at once** (2026-09-14 3rd pass, user's decision)
   move: MOVE_HINTS,
-  // 「앞으로 이동」 구간 셋 (2026-09-14 4차) — 배우는 키가 이동뿐이라 `move` 와 같은 세 줄로 되돌아온다.
-  //   직전 단계(루팅 · 사격 · 정조준)의 줄을 그대로 두면 걸어가는 동안 쓰지도 않는 키가 우측을 채운다.
+  // The three 「walk forward」 stretches (2026-09-14 4th pass) — movement is the only key being learnt, so they come
+  //   back to `move`'s three rows. Keeping the previous step's rows (looting · fire · aim) would fill the right side
+  //   with keys that go unused during the walk.
   advance1: MOVE_HINTS,
-  // 2026-09-16 (사용자 결정): 벌레를 잡은 뒤에는 발사 · 정조준이 남고 그 아래에 `E 시체 상호작용`
+  // 2026-09-16 (user's decision): after the bugs are killed, fire · aim stay and `E 시체 상호작용` goes below them
   advance2: ADVANCE_AFTER_BUGS_HINTS,
   advance3: MOVE_HINTS,
-  // 2026-09-15 2차: 시체를 여는 단계와 뒤지는 단계가 **같은 배열**을 쓴다 (참조가 같으면 `applyControls` 의
-  //   id 비교가 그대로 통과해 DOM 을 한 번도 안 건드린다 — 줄이 깜빡이지 않는다).
+  // 2026-09-15 2nd pass: the step that opens the corpse and the one that searches it use **the same array** (same
+  // reference means `applyControls`'s id comparison passes straight through and never touches the DOM — no
+  //   flicker).
   corpseOpen: LOOT_HINTS,
   corpseLoot: LOOT_HINTS,
-  // 2026-09-16 (사용자 결정): `WASD 이동 · Shift 달리기` ─ 구분선 ─ `좌클 발사 · 우클(꾹) 정조준` (재장전 줄은 뺐다)
+  // 2026-09-16 (user's decision): `WASD 이동 · Shift 달리기` ─ divider ─ `좌클 발사 · 우클(꾹) 정조준` (the reload row was left out)
   shoot: SHOOT_HINTS,
-  // 아래 둘은 **선 자세 · 통로 뒤쪽의 모습**이다 — 실제로 그리는 줄은 `controlHintsFor` 가 지금 자세 · 통로 진행으로 만든다.
-  //   표에 두는 이유는 저장에서 줄을 되살릴 때(`restoreControls`) id 를 찾는 것 하나다.
+  // The two below are **the standing shape, at the back of the passage** — the rows actually drawn are built by
+  //   `controlHintsFor` from the current stance and progress through the passage. They sit in the table for one
+  //   reason only: finding ids when restoring the rows from the save (`restoreControls`).
   crouch: [MOVE_HINT, ...crouchHints('stand'), FIRE_HINT, AIM_HINT, RELOAD_HINT],
   crouchAim: [MOVE_HINT, ...crouchHints('stand'), FIRE_HINT, AIM_HINT, RELOAD_HINT],
-  // 증축 트랙에서 유일하게 줄이 있는 단계 — 작업대 창이 통째로 닫힌 뒤 「가방을 다시 열어라」 (위 `EQUIP_HINTS`)
+  // The only step in the build track with a row — after the whole workbench window closed, 「open the bag again」
+  //   (`EQUIP_HINTS` above)
   equipGun: EQUIP_HINTS,
-  // 2026-09-17: 장착을 마치면 `Tab 가방 · 장비` 줄을 걷는다 (전에는 표에 없어 출격까지 남아 있었다)
+  // 2026-09-17: once equipping is done the `Tab 가방 · 장비` row is taken down (missing from the table before, it
+  //   stayed until launch)
   terminal: [],
-  // 2026-09-17 (사용자 결정): 증축 안내의 마지막 **레이드** — 레이드에서 처음 쓰는 키 다섯 + 가이드 접기 (위 `RAID_GUIDE_HINTS`)
+  // 2026-09-17 (user's decision): 증축 안내's last **raid** — the five keys first used in a raid + folding the guide
+  //   (`RAID_GUIDE_HINTS` above)
   raid: RAID_GUIDE_HINTS,
   supplyLoot: LOOT_HINTS,
-  // 2026-09-16 (사용자 결정): `T 꾹 누르기 (휠 열기)` 가 맨 위. `길게 눌러 사용` 은 붕대가 손에 있을 때만 (`controlHintsFor`)
+  // 2026-09-16 (user's decision): `T 꾹 누르기 (휠 열기)` on top. `길게 눌러 사용` only while the bandage is in hand
+  //   (`controlHintsFor`)
   heal: [QUICK_WHEEL_HINT, QUICK_HINT, QUICK_USE_HINT],
   grenade: [
     QUICK_HINT,
     QUICK_WHEEL_HINT,
-    // 2026-09-15 (사용자 결정) — 수류탄의 쓰는 법은 「키 쌍」 한 칸에 안 담긴다: 토큰 문장 줄 (`ControlHint.text`)
+    // 2026-09-15 (user's decision) — how to use a grenade does not fit one 「key pair」: a token-text row
+    //   (`ControlHint.text`)
     { id: 'grenadeThrow', text: '{QUICK:hold}를 꾹 눌러 수류탄 장착 후,{br}{FIRE:hold} 수류탄 던지기', section: 'combat' },
-    // 핀 뽑기 = 좌클릭을 누른 채 R (`weapons/parts/Throwing` 이 `Keys.RELOAD` 를 읽는다)
+    // Pulling the pin = R while the left button is held (`weapons/parts/Throwing` reads `Keys.RELOAD`)
     { id: 'grenadePin', text: '{FIRE:hold} 누른 상태에서 {RELOAD} : 핀 뽑기', section: 'combat' },
   ],
   extract: [{ id: 'map', keys: ['MAP'], label: '지도', section: 'screen' }],
   /*
-   * 함선 트랙 (2026-09-16 2차, 사용자 결정) — 「메뉴를 열어 능력치를 투자하라」의 여는 키. 메뉴가 열리면 가이드가 스스로 접히므로
-   * (`TutorialSystem.setInventoryOpen`) 창을 닫은 동안에만 떠 있다.
-   * ⚠ ESC 는 적지 않는다: ESC 가 여는 것은 일시정지 메뉴이고 거기에는 캐릭터 탭으로 가는 길이 없다 (`ui/menus/PauseMenu`).
+   * The ship track (2026-09-16 2nd pass, user's decision) — the key that opens 「open the menu and invest a stat」.
+   * The guide folds itself once the menu opens (`TutorialSystem.setInventoryOpen`), so it stands only while the
+   * window is closed.
+   * ⚠ ESC is not written here: what ESC opens is the pause menu, and there is no way to the character tab from it
+   *   (`ui/menus/PauseMenu`).
    */
   stats: [{ id: 'statsMenu', keys: ['INVENTORY'], label: '메뉴 열기', section: 'screen' }],
 };
 
 /**
- * 앉기 · 포복 두 줄 — **라벨이 지금 자세를 따라간다** (2026-09-14 3차, 사용자 결정).
- * 같은 키가 「앉기」였다가 「일어서기」가 되므로, 서 있는 사람에게 「일어서기」라고 적지 않는다.
- *   서 있음 → `C 앉기` · `Z 포복` / 앉음 → `C 일어서기` · `Z 포복` / 엎드림 → `C 앉기` · `Z 일어서기`.
- * 키 글자는 여전히 그릴 때 `Keys` 에서 읽는다 (`ui/Controls`) — 여기 있는 것은 문구뿐이다.
+ * The two crouch · prone rows — **the label follows the current stance** (2026-09-14 3rd pass, user's decision).
+ * The same key is 「앉기」 and then 「일어서기」, so someone standing is never told 「일어서기」.
+ *   standing → `C 앉기` · `Z 포복` / crouched → `C 일어서기` · `Z 포복` / prone → `C 앉기` · `Z 일어서기`.
+ * Key letters are still read from `Keys` when drawn (`ui/Controls`) — what is here is the text alone.
  */
 export function crouchHints(stance: Stance): readonly ControlHint[] {
   return [
@@ -594,27 +682,36 @@ export function crouchHints(stance: Stance): readonly ControlHint[] {
   ];
 }
 
-/** 표 하나로 못 정하는 조작 가이드 줄의 **관찰 상태** (2026-09-16) — `TutorialSystem` 이 채운다. */
+/**
+ * The **observed state** of control guide rows the table alone cannot decide (2026-09-16) — `TutorialSystem` fills
+ * it.
+ */
 export interface ControlHintState {
-  /** 지금 자세 (앉기 · 포복 라벨). */
+  /** The current stance (the crouch · prone labels). */
   stance: Stance;
-  /** 무너진 통로를 `TUTORIAL_CRAWL_AIM_HINT_FRAC` 만큼 지났다 — 포복 구간에 발사 · 정조준 줄이 붙는다. */
+  /**
+   * `TUTORIAL_CRAWL_AIM_HINT_FRAC` of the collapsed passage is behind — the fire · aim rows join the crawl stretch.
+   */
   crawlHalf: boolean;
-  /** 손에 든 빠른 사용 아이템이 회복 아이템(붕대)이다 — `heal` 의 `길게 눌러 사용` 줄. */
+  /** The held quick-use item is a healing item (a bandage) — `heal`'s `길게 눌러 사용` row. */
   handStim: boolean;
 }
 
 /**
- * 그 단계에 보일 줄 (자세를 타는 단계는 여기서 갈린다). `undefined` = **직전 줄 유지**.
+ * The rows to show on that step (a step that rides the stance splits here). `undefined` = **keep the previous rows**.
  *
- * 2026-09-15 — `crouchAim` 도 자세를 탄다. 2026-09-14 3차의 사용자 보고 「라벨이 안 바뀐다」의 뿌리가 여기였다:
- * `crouch` 단계는 **앉는 그 순간 끝나고**(`player:stanceChanged` → `crouchAim`), `crouchAim` 은 표에 줄이 없어
- * 직전 줄을 **선 자세 라벨 그대로 얼려 둔 채** 포복 구간 전체를 지났다. 이제 두 단계 모두 지금 자세로 만든다.
+ * 2026-09-15 — `crouchAim` rides the stance too. This was the root of the 2026-09-14 3rd pass user report 「the label
+  * does not change」: the `crouch` step **ends the instant the player crouches** (`player:stanceChanged` →
+  * `crouchAim`),
+  * and `crouchAim` had no rows in the table, so it carried the previous rows **frozen with the standing labels**
+  * across
+ * the whole crawl stretch. Now both steps are built from the current stance.
  */
 /*
- * 2026-09-16 (사용자 결정) — 포복 구간(`crouch` · `crouchAim`)은 `WASD 이동`(달리기 없음) ─ `C 앉기 · Z 포복` 이고, 통로를 절반쯤
- * 지나면(`crawlHalf`) 그 아래에 `발사 · 정조준` 이 붙는다. `heal` 의 `길게 눌러 사용` 은 붕대를 손에 들었을 때만 선다 —
- * 총 · 수류탄으로 바꾸면 빠지고 붕대로 돌아오면 다시 선다.
+ * 2026-09-16 (user's decision) — the crawl stretch (`crouch` · `crouchAim`) is `WASD 이동` (no sprint) ─
+ * `C 앉기 · Z 포복`, and about halfway through the passage (`crawlHalf`) `발사 · 정조준` joins below them. `heal`'s
+ * `길게 눌러 사용` stands only while the bandage is in hand — switching to the gun · a grenade drops it, and coming
+ * back to the bandage raises it again.
  */
 export function controlHintsFor(step: TutorialStepId, state: ControlHintState): readonly ControlHint[] | undefined {
   if (step === 'crouch' || step === 'crouchAim') {
@@ -625,100 +722,128 @@ export function controlHintsFor(step: TutorialStepId, state: ControlHintState): 
   return TUTORIAL_CONTROL_HINTS[step];
 }
 
-/** `heal` 인데 붕대가 손에 없다 — 휠 두 줄만 (참조가 같아야 `applyControls` 가 DOM 을 안 건드린다). */
+/**
+ * `heal` with no bandage in hand — the two wheel rows only (the reference has to be the same for `applyControls` to
+ * leave the DOM alone).
+ */
 const HEAL_NO_STIM_HINTS: readonly ControlHint[] = [QUICK_WHEEL_HINT, QUICK_HINT];
 
-/** 자세를 따라가는 줄의 id — 지금 떠 있는 줄에 이것이 있으면 자세가 바뀔 때마다 다시 그린다. */
+/**
+ * The ids of the rows that follow the stance — while one of them is up, the rows are redrawn on every stance
+ * change.
+ */
 export const STANCE_HINT_IDS: readonly string[] = ['crouch', 'prone'];
 
-/* ── 앉아 조준 TIP (2026-09-15, 사용자 결정) ────────────────────────────────
- * 포복 · 앉아 조준 구간에서 **처음으로** 앉거나 엎드린 채 정조준하면 우측 조작 가이드 바로 아래에 토스트처럼
- * 작은 TIP 패널이 한 번 뜬다. 나타남 · 사라짐은 `update(dt)` 가 인라인 opacity 로 몬다 (reduced motion 이
- * CSS 전이를 0.01 ms 로 자르는 PC 가 있다 — 의미를 싣는 페이드는 CSS 로 만들지 않는다).
+/* ── The crouch-aim TIP (2026-09-15, user's decision) ──────────────────────
+ * Aiming **for the first time** while crouched or prone on the crawl · crouch-aim stretch brings up a small TIP panel
+  * once, toast-like, right below the right-side control guide. Its appearance · disappearance is driven by
+  * `update(dt)`
+ * on inline opacity (some PCs report reduced motion, which clips CSS transitions to 0.01 ms — a fade that carries
+ * meaning is never built in CSS).
  * ────────────────────────────────────────────────────────────────────────── */
 
-/** TIP 이 뜨는 단계. */
+/** The steps the TIP comes up on. */
 export const CROUCH_TIP_STEPS: readonly TutorialStepId[] = ['crouch', 'crouchAim'];
-/** TIP 머리 라벨과 본문. */
+/** The TIP's header label and its body. */
 export const TIP_LABEL_KO = 'TIP';
 export const CROUCH_AIM_TIP_KO = '앉거나 포복해서 조준 시, 명중률이 높아집니다.';
-/** 다 보인 채 머무는 시간 (s) · 나타나고 사라지는 시간 (s). */
+/** How long it stays fully visible (s) · how long it takes to appear and to go (s). */
 export const TIP_HOLD_S = 6;
 export const TIP_FADE_S = 0.35;
-/** 조작 가이드 바닥과 TIP 사이 (px). */
+/** Between the control guide's bottom and the TIP (px). */
 export const TIP_GAP_PX = 8;
 
-/* ── 레이드 트랙 건너뛰기 = 암전 → 결과 화면 (2026-09-15, 사용자 결정) ────────
- * ESC 메뉴의 「튜토리얼 건너뛰기」는 화면을 검게 덮은 뒤 **완전히 검어진 순간** `ExtractionRef.skipToComplete` 를 부른다 —
- * 함선이 떠나는 연출 없이 평소 탈출과 같은 결과 화면이 뜬다. 검은 판은 결과 화면으로 페이즈가 바뀌는 순간
- * `ui/HudSystem` 이 스스로 걷는다(`applyVisibility` 의 페이즈 가드).
+/* ── Skipping the raid track = fade to black → the results screen (2026-09-15, user's decision) ──
+ * The ESC menu's 「튜토리얼 건너뛰기」 covers the screen in black and calls `ExtractionRef.skipToComplete` **the moment
+ * it is fully black** — the usual extraction results screen comes up, with no ship-departure cutscene. `ui/HudSystem`
+  * takes the black plate down itself the moment the phase changes to the results screen (`applyVisibility`'s phase
+  * guard).
  * ────────────────────────────────────────────────────────────────────────── */
 
-/** 건너뛰기 암전에 걸리는 시간 (s). */
+/** How long the skip's fade to black takes (s). */
 export const SKIP_FADE_OUT_S = 0.6;
-/** 결과 화면 대신 이륙 연출로 떨어졌을 때(폴백) 다시 밝아지는 시간 (s). */
+/**
+ * How long the fade back in takes when it fell through to the liftoff cutscene instead of the results screen (the
+ * fallback) (s).
+ */
 export const SKIP_FADE_IN_S = 0.4;
 
-/** 우측 조작 가이드의 머리 라벨 — 2026-09-14 3차부터 **누적이 아니라 지금 구간의 조작**이라 `배운 조작` 이 아니다. */
+/**
+ * The right-side control guide's header label — since 2026-09-14 3rd pass it is **the current stretch's controls,
+ * not an accumulation**, so it is not `배운 조작`.
+ */
 export const CONTROLS_TITLE_KO = '조작';
 
 /* ════════════════════════════════════════════════════════════════════════════
- * 레이드 트랙의 진행 (2026-09-14)
+ * Progress through the raid track (2026-09-14)
  * ════════════════════════════════════════════════════════════════════════════ */
 
 /**
- * 체크포인트(`tutorial:checkpoint`, owner: `world/tutorial`) → **그 자리에서 시작되는 단계**.
- * 체크포인트는 구간의 **입구**라, 지나는 순간 앞 구간의 단계는 끝난 것이다. 그래서 안내는 이 표 하나로
- * 어디까지 왔는지를 되찾는다 — 선택 단계(`grenade`)를 쓰지 않고 지나가도, 체크포인트 하나를 놓쳐도 막히지 않는다.
- * `TutorialCheckpointId` 를 그대로 쓰지 않고 문자열 키를 쓰는 이유는 하나다: 이 폴더는 월드의 계약을 **읽기만** 한다.
+ * A checkpoint (`tutorial:checkpoint`, owner: `world/tutorial`) → **the step that starts there**.
+ * A checkpoint is a stretch's **entrance**, so passing it means the previous stretch's step is over. That makes this
+ * one table enough for the guidance to recover how far the player has come — walking past an optional step
+ * (`grenade`) without using it, or missing one checkpoint, never blocks it.
+ * There is one reason string keys are used rather than `TutorialCheckpointId` itself: this folder only **reads** the
+ * world's contract.
  */
 export const CHECKPOINT_STEP: Readonly<Record<string, TutorialStepId>> = {
   wake: 'wake',
   cliff: 'sprintJump',
   /*
-   * 2026-09-15 2차 (사용자 결정) — `corpse` 는 `corpseLoot` 이 아니라 **`corpseOpen`** 을 연다. 절벽을 건너선
-   * 사람에게 「기관단총을 주무기 칸에 장착」부터 띄우면, 아직 열지도 않은 가방 속 물건을 옮기라는 말이 된다.
-   * 시체 가방이 실제로 열리면(`inventory:containerOpened` 의 `corpse:…`) 그때 `corpseLoot` 이다.
+   * 2026-09-15 2nd pass (user's decision) — `corpse` opens **`corpseOpen`**, not `corpseLoot`. Showing 「equip the SMG
+   * in a primary slot」 first to someone who has just crossed the cliff tells them to move an item out of a bag they
+   * have not even opened. `corpseLoot` comes once the corpse's bag actually opens (`corpse:…` on
+   * `inventory:containerOpened`).
    */
   corpse: 'corpseOpen',
   /*
-   * 2026-09-14 4차 (사용자 결정: 「걸어가다 **벌레가 솟으면** 그때 시작」) — `bugs` 는 `shoot` 이 아니라
-   * **`advance1`** 로 접는다. 이 체크포인트는 z 60 이고 벌레(−2.5, 34)·(2.5, 28) 는 감지 12 m 라
-   * 첫 마리가 솟는 자리는 z ≈ 45.7 — 체크포인트로 `shoot` 을 열면 「벌레를 처치하세요」를 띄운 채 14 m 를
-   * 더 걸어야 한다. 체크포인트 자리는 못 옮긴다(부활 자리는 감지 반경 **밖**이어야 한다는 월드 규약).
-   * 그래서 자리는 그대로 두고 뜻만 「앞으로 이동 구간의 입구」로 바꾸고, `shoot` 은 실제 스폰이 연다
-   * (`TutorialSystem` 의 `enemy:spawned` 구독). 지날 때 이미 `advance1` 이면 `foldRaid` 가 조용히 지나간다.
+   * 2026-09-14 4th pass (user's decision: 「it starts when **a bug erupts** during the walk」) — `bugs` folds to
+   * **`advance1`**, not `shoot`. This checkpoint is at z 60 and the bugs at (−2.5, 34) · (2.5, 28) detect at 12 m, so
+   * the first one erupts around z ≈ 45.7 — opening `shoot` at the checkpoint means walking another 14 m with
+   * 「벌레를 처치하세요」 on screen. The checkpoint cannot be moved (the world's contract: a respawn spot must be
+   * **outside** the detection radius). So the spot is left alone and only its meaning changes to 「the entrance of the
+   * walk-forward stretch」, and `shoot` is opened by the actual spawn (`TutorialSystem`'s `enemy:spawned`
+   * subscription). If the step is already `advance1` when it is passed, `foldRaid` goes quietly by.
    */
   bugs: 'advance1',
   crawl: 'crouch',
   android: 'crouchAim',
   drop: 'drop',
   /*
-   * 2026-09-15 (사용자 결정) — `supply` 는 `heal` 이 아니라 **`supplyLoot`** 를 연다. 전에는 절벽 2 를 내려서자마자
-   * 붕대를 줍기도 전에 「붕대를 사용」이 떴다. 이제 보급품 시체에서 붕대를 얻고 창을 닫아야 `heal` 이다.
-   * 줍지 않고 `wall` 까지 가면 `foldRaid('grenade')` 가 `heal` 까지 함께 건너뛴다.
+   * 2026-09-15 (user's decision) — `supply` opens **`supplyLoot`**, not `heal`. 「use the bandage」 used to appear the
+    * moment the player came down cliff 2, before there was a bandage to pick up. Now `heal` comes only once the
+    * bandage
+   * is taken from the supply corpse and the window closed. Walking on to `wall` without taking it makes
+   * `foldRaid('grenade')` skip `heal` along with the rest.
    */
   supply: 'supplyLoot',
   wall: 'grenade',
   ship: 'extract',
 };
 
-/** 전투 단계(`shoot` · `crouchAim`)에서 넘어가는 데 필요한 처치 수 — 그 구간에 세워 둔 적 수와 같다. */
+/**
+ * The kills a combat step (`shoot` · `crouchAim`) needs to move on — the same as the number of enemies placed on
+ * that stretch.
+ */
 export const RAID_KILLS_PER_STEP = 2;
 
 /* ════════════════════════════════════════════════════════════════════════════
- * HUD 점진 노출 (2026-09-14) — `hides('hud', part)`.
+ * The gradual HUD reveal (2026-09-14) — `hides('hud', part)`.
  *
- * **레이드 트랙 안에서만 산다.** 함선 트랙 · 증축 트랙에서는 평소 화면 그대로다 (그래서 판정이 트랙을 먼저 본다).
+ * **It lives inside the raid track only.** The ship track · build track show the usual screen (which is why the
+ * judgement looks at the track first).
  * ════════════════════════════════════════════════════════════════════════════ */
 
-/** `hides('hud', …)` 가 참고하는 **관찰 상태** — 표 하나로 못 정하는 것만. */
+/** The **observed state** `hides('hud', …)` consults — only what the table alone cannot decide. */
 export interface HudRevealState {
-  /** 스태미나가 한 번이라도 줄었다 (달리기 · 점프). */
+  /** Stamina has dropped at least once (sprinting · jumping). */
   staminaUsed: boolean;
 }
 
-/** 체력 · 실드 · 무기 패널이 나타나는 단계 — 시체에서 장비를 얻는 그 단계를 **지나면** 보인다. */
+/**
+ * The step the hp · shield · weapon panels appear on — visible **once past** the step that takes gear off the
+ * corpse.
+ */
 export const HUD_GEAR_STEP: TutorialStepId = 'corpseLoot';
-/** 스태미나 바는 늦어도 이 단계를 지나면 보인다 (그전에 실제로 소모했으면 그때 바로). */
+/** The stamina bar is visible past this step at the latest (or the moment it was actually spent, if earlier). */
 export const HUD_STAMINA_STEP: TutorialStepId = 'sprintJump';

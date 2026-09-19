@@ -6,14 +6,21 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **8, `src/tutorial`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
+> **Next session starts here:** queue item **9, `src/player`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
 > before picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this
-> file originally described**; the old one let a deleted `*/` through. `src/tutorial` is a normal feature folder, so its
-> `verify` is a folder-sized run, not the full net. It is only **11 files** with very long per-file headers, so the
-> `src/hub` split (six bundles by subject) does not fit — cut it by **track** (`조작 안내` · `함선 안내` · `증축 안내` ·
-> `출격 안내`) instead, and keep the four track names Korean (`shared/tutorial.ts:381` already does). Its vocabulary is
-> already fixed by §7 (track · step · stretch · checkpoint · the control guide · spotlight · sequential reveal) and by
-> CLAUDE.md §4.8's two-track `build` / `raid2` paragraph, which is English and is what these comments point at.
+> file originally described**; the old one let a deleted `*/` through, and **§3 step 4b**, which `src/tutorial` added
+> after catching a re-typed Korean label. `src/player` is a normal feature folder, so its `verify` is a folder-sized
+> run, not the full net. At 949 lines over 30 files it is the first queue item where the files are small enough that
+> the `src/hub` shape (bundles by subject) fits again — cut it by subject (controller · camera rig · soldier model ·
+> vitals / damage · interaction + riding · remote avatars), not by file size. Much of its vocabulary is already fixed:
+> `src/enemies` set the anatomy words, §7 fixes **the intro wake**, and CLAUDE.md §3.2 lists the folder's own nouns
+> (shoulder swap · aim sway · stance · downed · drop pods · face portraits) in English already.
+
+> **`src/tutorial` cut by file, not by track.** This file used to say to cut it by track; that does not work, because
+> the four tracks are *data* in `Steps.ts` and `TutorialSystem.ts`, not folders — cutting that way puts two agents in
+> one file, which §3's rule 2 forbids. The working cut was by file ownership: `TutorialSystem.ts` (490) · `Steps.ts`
+> (206) · `ui/` ×4 (174) · `parts/` ×4 (153), with the lead on `model.ts` (255). Read the folder's `README.md` first
+> either way — it is already English and it, not §7, is what settles this folder's nouns.
 
 ---
 
@@ -21,15 +28,15 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`) | 17,550 | 442 |
-| **Remaining** ([§2](#2-queue)) | **9,066** | **305** |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`, `src/tutorial`) | 18,828 | 453 |
+| **Remaining** ([§2](#2-queue)) | **7,788** | **294** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
 **Intended permanent exceptions.** A finished folder still prints 54 lines, because a comment whose entire substance is
 a quoted label, a quoted document heading or a verbatim user decision keeps its Korean (§3 rule 2 — the reader has to be
-able to grep it against the real string). So a raw run over everything prints 9,120 / 344, fifty-four more than the
+able to grep it against the real string). So a raw run over everything prints 7,848 / 336, sixty more than the
 queue. `src/ui` alone contributes 24 — which is what "the heaviest mix of Korean on-screen strings" meant in practice —
 so its rows are grouped into one line instead of listed file by file:
 
@@ -56,6 +63,9 @@ so its rows are grouped into one line instead of listed file by file:
 | `hub/ui/HubMenu.ts:554` | a verbatim user decision (`보는 행성을 목표로 정해야 정보를 살 수 있게`) |
 | `hub/ui/IntelMenu.ts:280` | a verbatim user bug report (`보레아스 IX · 베르단트 III 에서 현상 수배가 잠긴다`) |
 | `hub/LaunchPod.ts:25` · `hub/ui/ReadyPanel.ts:29` | the pod tag / ready-cell state strings (`준비 완료` · `대기 중` · `연결 끊김` …) |
+| `tutorial/model.ts:626` | the three stance label sets, drawn as the control guide swaps them (`C 앉기` · `Z 포복` · `C 일어서기`) |
+| `tutorial/ui/Panel.ts:14-15` | the objective panel's ASCII diagram, drawn with real objective rows (`갈라진 땅까지 걸어간다`, `(선택) 수류탄으로 …`) |
+| `tutorial/TutorialSystem.ts:1430` · `:1772` · `:1814` | an objective row (`제작창 닫기`), a toast (`레벨이 올랐습니다`) and the stance labels (`앉기` ↔ `일어서기`) |
 
 ---
 
@@ -72,7 +82,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~5~~ | ~~`src/housing`~~ | 2,215 | 55 | **Done 2026-09-19** (lead + 7 agents, one commit). One quoted-label-only line stays (§1). Its station · minigame · holder · product vocabulary is now the reference for every furniture- and screen-shaped folder after it. |
 | ~~6~~ | ~~`src/inventory`~~ | 1,703 | 53 | **Done 2026-09-19** (lead + 7 agents, one commit). 12 quoted-only lines stay (§1). Its grid · cell · pane · stack · crate · search · bucket · salvage vocabulary is now the reference for every item- and screen-shaped folder after it. |
 | ~~7~~ | ~~`src/hub`~~ | 1,569 | 40 | **Done 2026-09-19** (lead + 6 agents, one commit). 8 quoted-only lines stay (§1). Its ship · dock · staging · station vocabulary is now the reference for every hub- and furniture-shaped folder after it. |
-| 8 | `src/tutorial` | 1,278 | 11 | Only 11 files — very long per-file headers. |
+| ~~8~~ | ~~`src/tutorial`~~ | 1,278 | 11 | **Done 2026-09-19** (lead + 4 agents, one commit). 6 quoted-only lines stay (§1). Cut **by file**, not by track — see the banner above. Its track · step · stretch · objective-row · control-guide · spotlight vocabulary is now the reference for every guidance-shaped folder after it. |
 | 9 | `src/player` | 949 | 30 | |
 | 10 | `src/items` | 612 | 12 | |
 | 11 | `src/gadgets` | 573 | 22 | |
@@ -176,6 +186,42 @@ Per folder:
    **Anything but `code changes: 0` is a real edit and has to be reverted.** Filter to `.ts` — a `README.md` in the
    same commit is not code and would report a difference. A mis-parse (a regex literal holding `//`) is harmless here:
    the stripper is deterministic, so it mangles both sides the same way and equality still means the code matches.
+4b. **Prove no retained Korean was re-typed** — a check `src/tutorial` added after catching itself, and the only one
+   of these that catches this class at all.
+
+   Rule 2 keeps a Korean label in a comment for exactly one reason: the reader must be able to grep it against the
+   real string. Re-typing one syllable wrong destroys that, and **nothing else sees it** — not `tsc`, not a smoke, not
+   step 4 (which strips comments before comparing). The `src/tutorial` pass mistyped `틈` as `턈` inside a quoted step
+   title, and the earlier `src/shared` pass shipped the same class of error, still live: `shared/tutorial.ts:72` says
+   「앉아서 낮은 **픹**을 지나세요」 where the real title is 「… **틈**을 지나세요」 (filed as `docs/TODO.md` B-46).
+
+   The check is one line of reasoning: **every Korean run left in a changed file must appear verbatim in that file at
+   HEAD.** Translating only ever *removes* Korean, so a run that is not in the old text is one you typed. Save as
+   `<scratchpad>/korean_audit.py` and run it from the repo root:
+
+   ```py
+   import re, subprocess
+   RUN = re.compile(r'[가-힣][가-힣 ·|/]*[가-힣]|[가-힣]')
+   files = [f for f in subprocess.run(['git', 'diff', '--name-only'], capture_output=True,
+                                      text=True, encoding='utf-8').stdout.split('\n') if f.endswith('.ts')]
+   bad = 0
+   for f in files:
+       head = subprocess.run(['git', 'show', 'HEAD:' + f], capture_output=True, encoding='utf-8').stdout
+       work = open(f, 'rb').read().decode('utf-8')
+       runs = {}
+       for i, line in enumerate(work.split('\n'), 1):
+           for m in RUN.finditer(line):
+               r = m.group(0).strip()
+               if len(r) >= 2: runs.setdefault(r, i)
+       for r, ln in sorted(((r, ln) for r, ln in runs.items() if r not in head), key=lambda x: x[1]):
+           bad += 1; print('%s:%d  %s' % (f, ln, r))
+   print('files checked: %d   runs not found in HEAD: %d' % (len(files), bad))
+   ```
+
+   **Anything but `runs not found in HEAD: 0` is a label you re-typed.** Its false positives are benign and rare: a
+   Korean run you legitimately *split* across a re-wrap, or one you newly quoted from a neighbouring file — read those
+   two kinds and move on.
+
 5. **Verify** (§4), then **commit** (§6).
 
 ### What never changes
@@ -249,6 +295,16 @@ and the reports are not.
 
 `npm run verify` picks smokes from the touched folders. Run `node scripts/verify.mjs --dry-run` first to see the
 selection.
+
+**Before that, check the column limit** — `awk 'length($0)>118' src/<folder>/**/*.ts`. §7's "wrap column (~118)" is
+not an approximation: `src/tutorial` at HEAD had **zero** comment lines over 118 and a maximum of exactly 118, and
+English runs longer than the Korean it replaces, so a pass blows through it without noticing (this one did, on 55
+lines across two bundles, before the lead caught it). Only pre-existing **code** lines may exceed it. Growing the
+line count to stay inside is fine and expected — `src/hub` and `src/tutorial` both did.
+
+**`src/tutorial` cost 4 scripts and 1 min 26 s**, the cheapest folder-sized run in the queue so far
+(`smoke-tutorial` · `smoke-tutorial-raid` · `smoke-tutorial-ship` · `smoke-intro-wake`, plus the four static checks
+and `net-selftest`) — a folder's smoke map, not its size, sets the cost.
 
 - **A normal feature folder** costs 16–25 scripts and ~6 min: 16 for the pilot, 25 for `src/world`, 25 for
   `src/enemies` — whose folder map pulls in **`e2e-mp`**, so a red there is a real two-client run, not a unit check.
@@ -409,7 +465,10 @@ few hundred, because a Korean **label** inside English prose is correct and stay
   the commit has to stay provably comment-only. Filed so far: `B-19` (`src/shared`, 3), `B-20` · `B-21` (`src/world`,
   7 + 4), `B-23` · `B-24` · `B-25` (`src/enemies`, 6 + 4 + 3), `B-27` · `B-28` · `B-29` · `B-30` (`src/ui`, 12 + 6 + 1 + 4),
   `B-32` · `B-33` · `B-34` · `B-35` (`src/housing`, 14 + 8 + 5 + 8),
-  `B-36` · `B-37` · `B-38` · `B-39` (`src/inventory`, 20 + 8 + 3 + 2).
+  `B-36` · `B-37` · `B-38` · `B-39` (`src/inventory`, 20 + 8 + 3 + 2),
+  `B-40` · `B-41` · `B-42` · `B-43` (`src/hub`, 20 + 5 + 5 + 4),
+  `B-44` · `B-45` · `B-46` (`src/tutorial`, 14 + 2 + 1 — the last one a label **this project itself** mistyped in
+  `src/shared`, which is why §3 now has step 4b).
   Reading a folder this closely is the most productive defect hunt in the project — expect five to ten per folder (`src/ui`
   gave 23 and `src/housing` 35, each with a live bug in it: a member row that is built and never appended, and a stir-fry
   score whose denominator is the number of clicks that were judged), and keep filing rather than fixing.
@@ -659,3 +718,20 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 머리 띠 · 본체 · 꼬리 (봉 차트) · 통풍 격자 | the **top band** (deliberately **not** housing's 머리줄 *header row*) · the **tower** (under the desk) · the **wick** (kept apart from 꼬리표 *tag*) · the **vent grille** | `hub/interiors/FurnitureMining.ts` |
 | 메인 컴퓨터 | **the main computer** in prose (CLAUDE.md §4.7's word and the csv name `메인 컴퓨터`); `hub/README.md`'s *mining computer desk* names the builder, not the thing | `hub/interiors/FurnitureMining.ts` |
 | 받침 | **plinth** for a rack / cluster base (the `world/Outposts` row) but **stand** for a monitor's foot — one Korean word, two objects | `hub/interiors` |
+| **구간** (다섯째 뜻) | **section** — a `ControlSection` group of the control guide. The fifth thing this word means, kept apart from the tutorial's *stretch*, the minigame's *band*, mining's *segment* and durability's *bucket*. In `ui/Controls.ts` the header's 「지금 구간에서 쓰는 조작」 **is** the raid-flow *stretch* (it is contrasted with the key guide's *screen*) while every other 구간 in that file is a *section* — decide from the code, as always | `tutorial/model.ts`, `ui/Controls.ts` |
+| 목표 줄 · 지금 할 목표 · 사슬 | the **objective row** · the **current objective** (`currentObjective`) · the **chain** (`objectiveChain`) | `tutorial` (folder-wide) |
+| 쌍 · 토큰 문장 줄 · 쌍 줄 | **pair** (`ControlHintPair`) · a **token-text row** (`ControlHint.text`) · a **pair row** (its opposite) | `tutorial/model.ts`, `ui/Controls.ts` |
+| 꼬리표 (`(n/m)`) | the **tag** — §7's 꼬리표 row, **not** *tail*: `ui/menus/messenger` already binds *tail* to `.ms-tail` | `tutorial/model.ts`, `ui/Panel.ts` |
+| 판 (스포트라이트) · 구멍 · 말풍선 (스포트라이트) | the **dim plates** (four) · the **hole** · the **callout** — never *speech bubble*, which is `ui/menus/messenger`'s 말풍선. Kept apart from the skip fade's **black plate** (`ui/HudSystem`'s word) | `tutorial/parts/Spotlight.ts` |
+| 밝힌다 · 포커싱 · 딤 없는 포커싱 | **lights** (what the spotlight does to an element) · the **focus** · **no-dim** focus (`spotNoDim`) | `tutorial` (folder-wide) |
+| 바닥 안내선 · 목표 빛기둥 · 목표 마커 · 점선 한 마디 | the **floor guide** · the **target pillar** · the **target marker** · a **dash** of the flowing **strip** | `tutorial/parts/Guide.ts`, `Marker.ts` |
+| 걷는다 (안내선 · 검은 판 · 줄) | is **taken down** | `tutorial` (folder-wide) |
+| 게이트 판정 · 숨김 전용 · HUD 점진 노출 | the **gate judgement** · **hide-only** · the **gradual HUD reveal** — one name; `README.md` writes the short "HUD reveal (`hudHidden`)" for the same thing | `tutorial/parts/Gates.ts` |
+| 기본 지급품 vs 바닥 지급 | the **starter grant** (`기본 지급품`, what a new profile owns) vs the **floor grant** (`TUTORIAL_CRAFT_GRANT`, the floor the craft step tops up from) — two different things, never merged | `tutorial/model.ts`, `TutorialSystem.ts` |
+| 흰 목록 · 조용히 지나친다 · 넘어가는 신호 | the **whitelist** (`TUTORIAL_STASH_WHITELIST`) · a **silent pass** / **passes it silently** · the **advance signal** | `tutorial` (folder-wide) |
+| 한 박자 · 반 박자 · 기상 유예 | a **beat** · **half a beat** · the **wake grace** | `tutorial/model.ts`, `TutorialSystem.ts` |
+| 가구 창고 | the **furniture store** (the DOM's own word, `.sm-tab[data-tab="store"]`) — deliberately **not** *stash*, which §7 reserves for `함선 창고`; both appear in `Steps.ts` | `tutorial/Steps.ts` |
+| 무너진 통로 | the **collapsed passage**, and the steps across it the **crawl stretch** — the wording `shared/constants.ts` already uses for `TUTORIAL_CRAWL_AIM_HINT_FRAC` | `tutorial` (folder-wide) |
+| 접힌 조작 가이드 · 구간 상자 | the **folded** control guide · a **section box** (`.tut-ctl-sec`) | `tutorial/ui/Controls.ts` |
+| 눌림 강조 · 도장 · 새 줄 강조 | the **press highlight** / a **lit keycap** (`LitCap`) · the **stamp** (`data-kc`) · the **new-row highlight** (`is-new`) | `tutorial/ui/Controls.ts` |
+| 함선 관리 모드 | **ship management** in prose (§7's `hub` row); the mode itself is named by its identifier `shipManageMode`, never re-worded | `tutorial/parts/Gates.ts` |

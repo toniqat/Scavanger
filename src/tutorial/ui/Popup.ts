@@ -2,29 +2,33 @@ import type { GameContext } from '@/shared';
 import { TUTORIAL_BLOCKER } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * src/tutorial/ui/Popup.ts — 시작 안내 카드와 건너뛰기 확인 카드.
+ * src/tutorial/ui/Popup.ts — the intro card and the skip-confirm card.
  *
- * 두 카드는 같은 셸(`.tut-popup`)을 쓰고 버튼만 다르다.
- *   • **시작 안내** — 확인을 누르면 첫 단계로. `건너뛰기` 버튼도 함께 있다(요구사항).
- *   • **건너뛰기 확인** — 모달리스다: 뒤의 화면은 그대로 살아 있고, 취소하면 하던 자리로 돌아간다.
+ * The two cards use the same shell (`.tut-popup`) and differ only in their buttons.
+ *   • **the intro card** — pressing confirm goes to the first step. A `건너뛰기` button sits next to it (a requirement).
+ *   • **the skip-confirm card** — modeless: the screen behind stays alive, and cancelling returns to where the
+ *     player was.
  *
- * 커서 예절은 함선 패널들과 같다 — `TUTORIAL_BLOCKER` 를 넣고 소프트 커서를 켜되 **포인터 락은 유지**한다.
+ * Cursor manners are the same as the ship panels' — it adds `TUTORIAL_BLOCKER` and turns the soft cursor on while
+ * **keeping pointer lock**.
  *
- * **2026-09-17 (B-17) — 컷씬 중 숨김**: 도킹 직전의 「모든 UI 닫기」(`hub/parts/SquadDock.cancelEverything`)는 이 카드를
- * 못 닫는다 — escape 스택에 없고, 닫는 것 자체가 단계를 진행시킨다. 그래서 닫는 대신 **숨는다**(`setHidden`, 위쪽
- * `suspended` 주석) — 연출 동안 사라졌다가 끝나면 그대로 돌아온다.
+ * **2026-09-17 (B-17) — hidden during a cutscene**: the 「모든 UI 닫기」 just before docking
+ * (`hub/parts/SquadDock.cancelEverything`) cannot close this card — it is not on the escape stack and closing it is
+ * itself what advances the step. So it **hides** instead (`setHidden`, the `suspended` comment below) — gone for the
+ * length of the cutscene and back unchanged when it ends.
  *
- * **2026-09-09 — 홀드 버튼** (`PopupButton.hold`, 초). 건너뛰기처럼 되돌릴 수 없는 버튼은 클릭이 아니라 **누르고
- * 있어야** 한다: `pointerdown` 에 게이지(`.tut-hold-fill`)가 왼쪽에서 채워지기 시작하고, 다 차기 전에 손을 떼거나
- * 버튼 밖으로 나가면 취소, 다 차면 `onClick`. 제작 버튼의 1초 홀드와 같은 문법이라 손에 익은 대로 동작한다.
- * `click` 은 홀드 버튼에서는 무시한다 (짧게 눌러 실수로 끝내는 일이 없다).
+ * **2026-09-09 — the hold button** (`PopupButton.hold`, seconds). An irreversible button like skip is not clicked but
+ * **held down**: on `pointerdown` the gauge (`.tut-hold-fill`) starts filling from the left; letting go or leaving
+ * the button before it is full cancels, filling it up calls `onClick`. It is the same grammar as the craft button's
+ * 1 s hold, so it behaves the way the hand already knows. `click` is ignored on a hold button (no ending it by a
+ * short press).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export interface PopupButton {
   label: string;
   kind?: 'primary' | 'danger' | '';
   onClick: () => void;
-  /** 이 시간(초)만큼 눌러야 `onClick` 이 불린다 (없으면 보통 클릭). */
+  /** `onClick` is called only after a press this long (seconds); with none it is an ordinary click. */
   hold?: number;
 }
 
@@ -36,13 +40,14 @@ export class TutorialPopup {
   private readonly actsEl: HTMLElement;
   private _open = false;
   /**
-   * 컷씬이 화면을 가져갔다 (`shared/cutsceneHide`, 2026-09-17 사용자 결정 — B-17). **닫지 않고 숨는다** — 이 카드를
-   * 닫는 것은 곧 단계를 진행시키는 것이라(`onClosed`) 도킹 한 번에 안내가 흘러가 버린다. 숨는 동안 DOM 뿐 아니라
-   * 블로커 · 커서도 내려놓는다 (그러지 않으면 컷씬 위에 커서가 뜨고 `hub` 의 재락이 막힌다), 그리고 누르고 있던
-   * 홀드 게이지는 취소한다 (안 보이는 버튼이 계속 차는 일은 없다). 연출이 끝나면 그대로 다시 뜬다.
+   * A cutscene took the screen (`shared/cutsceneHide`, 2026-09-17 user's decision — B-17). It **hides without
+   * closing** — closing this card is the same as advancing the step (`onClosed`), so one docking would let the
+   * guidance run away.
+   * While hidden it drops the blocker · cursor as well as the DOM (else a cursor sits over the cutscene and `hub`'s
+   * relock is blocked), and a pressed hold gauge is cancelled (no unseen button keeps filling). It returns unchanged.
    */
   private suspended = false;
-  /** 진행 중인 홀드 (버튼 하나만). rAF 가 게이지를 그리고, 놓거나 카드가 닫히면 `cancel` 이 지운다. */
+  /** A hold in progress (one button only). rAF draws the gauge; a release or a close has `cancel` wipe it. */
   private hold: { cancel: () => void } | null = null;
 
   constructor(private readonly ctx: GameContext, private readonly onClosed: () => void) {
@@ -88,13 +93,16 @@ export class TutorialPopup {
     }
     if (this._open) return;
     this._open = true;
-    // 컷씬 중에 열렸으면 상태만 켜 두고 화면에는 올리지 않는다 — 연출이 끝나는 순간 `setHidden(false)` 가 올린다
+    // Opened during a cutscene it only turns the state on, raising nothing — `setHidden(false)` raises it at the end
     if (this.suspended) return;
     this.show();
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
-  /** 카드를 화면에 올린다 (블로커 먼저, 그 다음 커서 — 함선 UI 예절). 여는 것과 컷씬에서 돌아오는 것이 함께 쓴다. */
+  /**
+   * Raises the card (the blocker first, then the cursor — ship UI manners). Opening and coming back from a cutscene
+   * share it.
+   */
   private show(): void {
     this.ctx.uiBlockers.add(TUTORIAL_BLOCKER);
     this.ctx.input.setCursorMode(true, TUTORIAL_BLOCKER);
@@ -104,7 +112,10 @@ export class TutorialPopup {
     this.card.style.animation = '';
   }
 
-  /** 화면에서 내린다 — 홀드 게이지 · DOM · 포커스 · 블로커 · 커서. `_open` 은 건드리지 않는다 (닫기와 숨김이 함께 쓴다). */
+  /**
+   * Takes it off the screen — the hold gauge · DOM · focus · blocker · cursor. `_open` is left alone (closing and
+   * hiding share this).
+   */
   private hide(): void {
     this.cancelHold();
     this.root.hidden = true;
@@ -114,8 +125,9 @@ export class TutorialPopup {
   }
 
   /**
-   * 컷씬이 시작 · 끝났다 (`shared/cutsceneHide` 를 `TutorialSystem` 이 구독한다). 멱등이고, 카드가 열려 있지 않으면
-   * 상태만 기억한다 — 연출 중에 열린 카드도 끝날 때 같이 뜬다. 다시 뜰 때 소리는 내지 않는다 (이미 열렸던 카드다).
+   * A cutscene started · ended (`TutorialSystem` subscribes to `shared/cutsceneHide`). Idempotent, and with no card
+   * open it only remembers the state — a card opened during the cutscene comes up with it at the end. Returning makes
+   * no sound (the card was already open).
    */
   setHidden(hidden: boolean): void {
     if (hidden === this.suspended) return;
@@ -124,7 +136,7 @@ export class TutorialPopup {
     if (hidden) this.hide(); else this.show();
   }
 
-  /** 홀드 버튼: 라벨 + 게이지, 누르고 있는 동안만 채워진다. */
+  /** A hold button: label + gauge, filling only while it is held down. */
   private makeHold(el: HTMLButtonElement, b: PopupButton): void {
     const holdMs = (b.hold ?? 0) * 1000;
     el.classList.add('tut-hold');
@@ -133,7 +145,7 @@ export class TutorialPopup {
     const label = document.createElement('span');
     label.textContent = b.label;
     el.append(fill, label);
-    el.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); });   // 클릭으로는 안 된다
+    el.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); });   // a click does not do it
     el.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || this.hold) return;
       e.stopPropagation(); e.preventDefault();
@@ -166,13 +178,13 @@ export class TutorialPopup {
 
   private cancelHold(): void { this.hold?.cancel(); }
 
-  /** 스모크 / 디버그: 홀드 게이지가 차고 있다. */
+  /** Smoke / debug: the hold gauge is filling. */
   get isHolding(): boolean { return this.hold !== null; }
 
   close(): void {
     if (!this._open) return;
     this._open = false;
-    this.hide();      // 숨어 있었다면 블로커 · 커서는 이미 내려놓았다 (둘 다 멱등)
+    this.hide();      // if it was hidden the blocker · cursor are already dropped (both idempotent)
     this.onClosed();
   }
 

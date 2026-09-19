@@ -2,48 +2,50 @@ import { TUTORIAL_DIM_FADE_S, TUTORIAL_STEP_DELAY_S, renderKeyText } from '@/sha
 import { RETARGET_INTERVAL } from '../model';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * src/tutorial/parts/Spotlight.ts — **UI 포커싱**.
+ * src/tutorial/parts/Spotlight.ts — **UI focus**.
  *
- * 화면 전체를 어둡게 덮고 대상 요소 자리만 구멍을 뚫어 밝힌다. 구멍은 네 장의 `div` 로 만든다 —
- * 위 · 아래 · 왼쪽 · 오른쪽 판을 대상 사각형에 맞춰 붙이면 가운데가 비고, 그 네 판이 **클릭을 먹는다**.
- * (`clip-path` 한 장으로도 그릴 수는 있지만 그러면 구멍까지 포인터를 먹거나 반대로 전부 통과한다.)
- * 대상 위에는 테두리 링과 짧은 말풍선만 얹고 `pointer-events: none` 이라, 밝은 부분의 클릭은 그대로 UI 로 간다.
+ * Dims the whole screen and lights only the target element by punching a hole there. The hole is made of four `div`s
+ * — fit the top · bottom · left · right plates to the target rect and the centre is left empty; those four plates
+ * **eat clicks**. (One `clip-path` plate could draw it, but it eats the pointer over the hole too, or lets it all
+ * through.) Only a ring and a short callout sit over the target, `pointer-events: none`, so lit clicks reach the UI.
  *
- * 대상은 CSS 선택자 목록으로 받아 **먼저 찾히는 것 하나**를 쓴다 (버튼 → 그 행 → 그 패널 순으로 넓혀 둔다:
- * 화면이 아직 안 그려졌거나 구조가 바뀌어도 최소한 패널은 밝힌다). 없으면 스스로 숨는다 — 어두운 화면만
- * 남기고 아무것도 누를 수 없게 되는 상황을 만들지 않는다.
+ * The target arrives as a list of CSS selectors and **the first one found** is used (they widen button → its row →
+ * its panel: even if the screen is not drawn yet or its structure changed, at least the panel is lit). With none the
+ * spotlight hides itself — it never leaves a dim screen on which nothing can be pressed.
  *
- * **2026-09-08 — 합집합 모드** (`union`). 한 곳이 아니라 **여러 패널에 걸친 동작**을 안내해야 할 때가 있다:
- * 가방에서 집어 장비 칸에 놓는 드래그가 그렇다. 대상 하나만 밝히면 출발점이나 도착점 중 하나가 어두운 판 아래
- * 깔려 **드래그를 시작할 수도, 놓을 수도 없다**. union 모드는 찾은 대상들의 사각형을 **하나로 합쳐** 뚫는다 —
- * 네 판으로 만드는 구멍은 언제나 사각형 하나이므로, 서로 붙어 있는 패널들을 넘겨야 이어진 도형으로 읽힌다
- * (장비 열과 가방은 실제로 맞닿아 있다: `.inv-layout:not(.is-craft)` 의 −24 px 이음매; 2026-09-16 부터 함선에서는
- * 창고 | 장비 | 가방이 모두 맞닿는다).
+ * **2026-09-08 — union mode** (`union`). Sometimes the thing to guide is not one place but **an action spanning
+ * several panes**: the drag that picks an item out of the bag and drops it in an equipment slot. Lighting a single
+ * target buries the start or the end under a dim plate, and then **the drag can neither start nor drop**. Union mode
+ * punches the rects of everything found **merged into one** — the hole four plates make is always one rectangle, so
+ * the panes handed in have to touch for it to read as one connected shape (the equipment column and the bag really do
+ * touch: `.inv-layout:not(.is-craft)`'s −24 px seam; since 2026-09-16 stash | equipment | bag all touch in the ship).
  *
- * **2026-09-09 — 반 박자 늦게 켜진다** (`TUTORIAL_STEP_DELAY_S`, `data/constants.csv`). 대상이 **나타난 순간**부터
- * 그만큼 기다렸다가 판 · 링 · 말풍선을 한 번에 올린다 — 단계가 넘어간 직후든, 작업대를 열어 제작 행이 뒤늦게
- * 생긴 때든 마찬가지다. 새 화면이 먼저 보이고 그 뒤에 포커싱이 따라와야 "무엇이 열렸는지"가 읽힌다. 켜질 때
- * 어두운 판은 `TUTORIAL_DIM_FADE_S` 동안 투명에서 서서히 어두워진다 (`.tut-spot.is-lit`, `--tut-dim-fade`) —
- * 같은 단계 안에서 대상이 자리를 옮기는 재조준(`RETARGET_INTERVAL`)은 이미 켜진 판을 그대로 쓰므로 다시
- * 페이드하지 않는다. 대상이 사라졌다가(확인 팝업 · 화면 닫힘) 다시 나타나면 그때는 또 한 번 기다리고 페이드한다.
+ * **2026-09-09 — it lights half a beat late** (`TUTORIAL_STEP_DELAY_S`, `data/constants.csv`). From **the moment the
+ * target appears** it waits that long, then raises plates · ring · callout at once — whether a step just moved on or
+ * a craft row turned up late on opening the workbench. The new screen must show before the focus follows, or "what
+ * opened" does not read. On lighting, the dim plates darken from transparent over `TUTORIAL_DIM_FADE_S`
+ * (`.tut-spot.is-lit`, `--tut-dim-fade`) — a retarget within the step (`RETARGET_INTERVAL`) reuses the lit plates and
+ * does not fade again. A vanished target (confirm popup · screen closed) waits and fades again when it returns.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 interface Rect { x: number; y: number; w: number; h: number }
 
 /**
- * 그 선택자에 맞는 것 중 **실제로 화면에 그려진 첫 요소**.
+ * The **first element actually drawn on screen** among those matching that selector.
  *
- * ⚠ `querySelector` **하나로는 안 된다** (2026-09-14 4차 — `stats` 단계가 영영 탭 줄만 밝히던 버그). 같은 화면이
- * DOM 에 **둘** 있을 수 있다: 캐릭터 시트는 `progression` 이 부팅 때 세워 두는 독립 오버레이(`.menu.char-sheet`,
- * 닫혀 있는 동안 `[hidden]` = `display:none`)와 인벤토리 캐릭터 탭에 끼워 넣는 사본(`SheetView`)이 같은 `SheetBody`
- * 를 그리고, `progression` 이 `inventory` 보다 먼저 등록되므로 **닫힌 쪽이 문서 순서에서 앞**이다. 그래서
- * `querySelector('.pg-confirm')` 은 늘 숨은 사본을 집었고, 사각형이 없으니 그 선택자는 통째로 실패한 것으로
- * 읽혀 뒤의 보험 선택자(`.inv-root .scr-tabs`)까지 흘러내렸다 — 열려 있는 캐릭터 화면을 두고 탭 줄에 구멍이
- * 뚫린 채, 정작 ＋ 버튼과 확정 버튼은 어두운 판 밑이라 포인트를 투자할 수 없었다.
+ * ⚠ `querySelector` **alone is not enough** (2026-09-14 4th pass — the bug where the `stats` step lit only the tab
+ * row forever). The same screen can be in the DOM **twice**: the character sheet is drawn by the standalone overlay
+ * `progression` puts up at boot (`.menu.char-sheet`, `[hidden]` = `display:none` while closed) and by the copy
+ * inlined into the inventory's character tab (`SheetView`), both from the same `SheetBody`, and `progression` is
+ * registered before `inventory`, so **the closed one comes first in document order**. `querySelector('.pg-confirm')`
+ * therefore always picked the hidden copy, and with no rect that selector read as a whole miss and fell through to
+ * the fallback selector behind it (`.inv-root .scr-tabs`) — a hole punched in the tab row with the character screen
+ * open, while the ＋ button and the confirm button sat under a dim plate, so no point could be invested.
  *
- * 보이는지의 판정은 예전 그대로 둘이다 — `offsetParent` 는 `position: fixed` 조상 아래의 HUD 조각에서 멀쩡히
- * 보이는데도 null 이라 못 쓰고, 사각형(`getClientRects`)만으로도 모자란다: 닫힌 화면 중에는 `display:none` 이
- * 아니라 **`visibility:hidden`** 으로 접히는 것이 있어(`.ship-manage`) 사각형이 그대로 남는다 (2026-09-08).
+ * The visibility test is the same two checks as before — `offsetParent` is unusable because it is null on a HUD
+ * piece under a `position: fixed` ancestor that is perfectly visible, and the rect (`getClientRects`) alone is not
+ * enough either: some closed screens fold with **`visibility:hidden`** rather than `display:none` (`.ship-manage`)
+ * and keep their rect (2026-09-08).
  */
 function firstShown(sel: string): HTMLElement | null {
   for (const el of document.querySelectorAll<HTMLElement>(sel)) {
@@ -56,13 +58,13 @@ function firstShown(sel: string): HTMLElement | null {
   return null;
 }
 
-/** 말풍선 안의 ＋ 버튼 토큰 (2026-09-16 2차). */
+/** The ＋ button token inside the callout (2026-09-16 2nd pass). */
 const PLUS_TOKEN = '{+}';
 
 /**
- * 말풍선 글을 그린다 (2026-09-16 2차, 사용자 결정 — 「＋ 는 버튼 모양으로」). 키 토큰(`{ACTION}` · `{ACTION:hold}`)은
- * `shared/keycap.renderKeyText` 가 키캡으로, `{+}` 는 능력치 시트의 ＋ 버튼을 닮은 작은 네모(`.tut-spot-plus`)로 그린다.
- * 글자는 텍스트 노드로만 넣는다 (HTML 해석 없음).
+ * Draws the callout text (2026-09-16 2nd pass, user's decision — 「＋ 는 버튼 모양으로」). Key tokens (`{ACTION}` ·
+ * `{ACTION:hold}`) are drawn as keycaps by `shared/keycap.renderKeyText`, and `{+}` as a small box resembling the
+ * stat sheet's ＋ button (`.tut-spot-plus`). Text goes in as text nodes only (no HTML parsing).
  */
 export function renderSpotText(host: HTMLElement, text: string): void {
   host.textContent = '';
@@ -81,14 +83,15 @@ export function renderSpotText(host: HTMLElement, text: string): void {
   });
 }
 
-/** 구멍 둘레 여백 (px). */
+/** The margin around the hole (px). */
 const PAD = 6;
 
 /**
- * 2026-09-08 — **비켜서야 하는 것들**. 스포트라이트가 밝히는 버튼을 누르면 그 위에 확인 팝업이 뜨는 화면이
- * 있다 (시설 증축 · 발전기 가동의 `.sm-confirm`). 어두운 판은 화면 전체를 덮으므로 그 팝업까지 덮어 클릭을
- * 먹어 버린다 — 안내를 따랐는데 다음 버튼을 못 누르는, 튜토리얼에서 제일 나쁜 상태다.
- * 이 선택자 중 하나라도 화면에 있으면 스포트라이트는 스스로 접힌다 (팝업이 닫히면 다시 켜진다).
+ * 2026-09-08 — **what it yields to**. On some screens the button the spotlight lights raises a confirm popup on
+ * top of it (`.sm-confirm` of building out a facility · starting the generator). The dim plates cover the whole
+ * screen, so they cover that popup too and eat its clicks — following the guidance and then not being able to press
+ * the next button is the worst state a tutorial has. With any of these selectors on screen the spotlight folds itself
+ * (it lights again once the popup closes).
  */
 const YIELD_TO: readonly string[] = ['.sm-confirm', '.tut-popup'];
 
@@ -99,22 +102,23 @@ export class Spotlight {
   private readonly tip: HTMLElement;
   private selectors: readonly string[] = [];
   private text = '';
-  /** 말풍선에 마지막으로 그린 글 — 재조준마다 DOM 을 다시 짓지 않는다 (키캡 토큰이 들어간다). */
+  /** The text last drawn in the callout — the DOM is not rebuilt on every retarget (keycap tokens go in it). */
   private tipText: string | null = null;
-  /** 선택자를 "먼저 찾히는 하나"가 아니라 **전부의 합집합**으로 쓴다 (2026-09-08). */
+  /** Uses the selectors as **the union of them all** rather than "the first one found" (2026-09-08). */
   private union = false;
   /**
-   * **딤 없는 모드** (2026-09-14 2차, 사용자 결정 — `StepDef.spotNoDim`). 구멍 · 링 · 말풍선은 그대로이고
-   * 네 판만 투명해진다. 그리고 그때는 **클릭도 통과시킨다** (`tutorial.css` 의 `pointer-events: none`) —
-   * 어두운 판이 없는데 손만 묶이면 "왜 안 눌리지"가 되기 때문이다.
+   * **No-dim mode** (2026-09-14 2nd pass, user's decision — `StepDef.spotNoDim`). Hole · ring · callout stay as they
+   * are and only the four plates turn transparent. And then **clicks pass through too** (`pointer-events: none` in
+   * `tutorial.css`) — with no dim plate there, hands tied on their own just read as "why is nothing clicking".
    */
   private noDim = false;
   private timer = 0;
   private last: Rect | null = null;
   private shown = false;
   /**
-   * 대상이 나타난 뒤 켜지기까지 남은 시간 (s). `-1` = 아직 대상을 못 봤다(세지 않는다). 대상이 보이는 첫 update 에
-   * `TUTORIAL_STEP_DELAY_S` 로 시작해 0 이 되는 순간 `place()` 한다. 숨거나 대상이 바뀌면 `-1` 로 돌아간다.
+   * Time left (s) from the target appearing until it lights. `-1` = the target has not been seen yet (not counting).
+   * It starts at `TUTORIAL_STEP_DELAY_S` on the first update where the target is visible and `place()`s the moment it
+   * reaches 0. Hiding or a changed target puts it back to `-1`.
    */
   private wait = -1;
 
@@ -122,12 +126,12 @@ export class Spotlight {
     this.root = document.createElement('div');
     this.root.className = 'tut-spot';
     this.root.hidden = true;
-    // 페이드 시간은 csv 상수 하나가 원본 — CSS 는 이 변수만 읽는다
+    // One csv constant is the source of the fade time — CSS reads only this variable
     this.root.style.setProperty('--tut-dim-fade', `${TUTORIAL_DIM_FADE_S}s`);
     for (let i = 0; i < 4; i++) {
       const p = document.createElement('div');
       p.className = 'tut-spot-pane interactive';
-      // 어두운 판이 클릭을 먹는다 — 이것이 "클릭 차단"의 전부다
+      // The dim plates eat clicks — this is all there is to "blocking clicks"
       p.addEventListener('pointerdown', (e) => { e.stopPropagation(); e.preventDefault(); });
       p.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); });
       p.addEventListener('contextmenu', (e) => { e.preventDefault(); });
@@ -143,9 +147,10 @@ export class Spotlight {
   }
 
   /**
-   * 이 선택자들 중 먼저 찾히는 것을 밝힌다. 빈 목록 = 끄기.
-   * `union` 이면 대신 **찾히는 것 전부**의 사각형을 합쳐 한 구멍으로 뚫는다.
-   * `noDim` 이면 어두운 판을 투명하게 두고 **클릭도 통과시킨다** (링 · 말풍선만 남는 포커싱).
+   * Lights the first of these selectors that is found. An empty list = off.
+   * With `union` it merges the rects of **everything found** into one hole instead.
+    * With `noDim` the dim plates are left transparent and **clicks pass through too** (a focus of ring · callout
+    * only).
    */
   set(selectors: readonly string[] | undefined, text: string, union = false, noDim = false): void {
     const next = selectors ?? [];
@@ -156,23 +161,23 @@ export class Spotlight {
     this.union = union;
     this.noDim = noDim;
     this.root.classList.toggle('is-nodim', noDim);
-    this.timer = 0;                       // 다음 update 에서 즉시 다시 찾는다
-    // 대상이 바뀌었다(= 단계가 넘어갔다) — 지금 켜진 것은 바로 접고, 새 대상은 나타난 뒤 반 박자 기다려 켠다.
-    //   말풍선 문구만 바뀐 것은 재조준으로 취급해 그대로 따라간다.
+    this.timer = 0;                       // finds again immediately on the next update
+    // The target changed (= the step moved on) — what is lit now folds at once, and the new target lights half a beat
+    //   after it appears. A change of callout text alone counts as a retarget and simply follows along.
     if (next.length === 0 || retarget) this.hide();
   }
 
   /**
-   * 프레임마다. 대상이 움직이거나 사라지는 것을 따라간다 (`RETARGET_INTERVAL` 간격).
-   * 꺼져 있는 동안 대상이 보이면 `wait` 를 세기 시작하고, 다 세고 나서야 켠다 — 기다리는 동안은 다음 확인을
-   * 남은 시간에 맞춰 당겨 잡아 켜지는 순간이 `RETARGET_INTERVAL` 만큼 더 늦어지지 않게 한다.
+   * Every frame. Follows the target moving or disappearing (every `RETARGET_INTERVAL`).
+   * While it is off, seeing the target starts counting `wait` down and it lights only once that is spent — during the
+   * wait the next check is pulled in to the time left, so the moment it lights is not `RETARGET_INTERVAL` later.
    */
   update(dt: number): void {
     if (this.selectors.length === 0) return;
-    // 세는 동안에는 **0 밑으로 내려가지 않는다**. `-1` 은 "아직 세고 있지 않다" 는 별개의 표식이라,
-    // 카운트다운이 음수로 넘어가면 아래의 `wait < 0` 이 그것을 "대상이 지금 나타났다" 로 잘못 읽어
-    // 0.5 초를 영원히 다시 센다 (2026-09-09 버그 — 스포트라이트가 몇십 초씩 안 뜨거나 끝내 안 떴다:
-    // `timer = min(RETARGET_INTERVAL, wait)` 가 둘을 같은 값으로 묶어 늘 같은 프레임에 함께 넘어갔다).
+    // While counting it **never goes below 0**. `-1` is a separate mark for "not counting yet", so a countdown that
+    // crossed into negatives would be misread by the `wait < 0` below as "the target just appeared" and would count
+    // the 0.5 s again forever (2026-09-09 bug — the spotlight came up tens of seconds late, or never at all:
+    // `timer = min(RETARGET_INTERVAL, wait)` tied the two to one value, so they always crossed on the same frame).
     if (this.wait > 0) this.wait = Math.max(0, this.wait - dt);
     this.timer -= dt;
     if (this.timer > 0) return;
@@ -181,13 +186,13 @@ export class Spotlight {
     const b = this.union ? this.unionRect() : this.find()?.getBoundingClientRect() ?? null;
     if (!b || b.width <= 0 || b.height <= 0) { this.hide(); return; }
     if (!this.shown) {
-      if (this.wait < 0) this.wait = TUTORIAL_STEP_DELAY_S;          // 대상이 지금 나타났다 (`-1` 표식) — 세기 시작
+      if (this.wait < 0) this.wait = TUTORIAL_STEP_DELAY_S;          // the target just appeared (the `-1` mark) — count now
       if (this.wait > 0) { this.timer = Math.min(RETARGET_INTERVAL, this.wait); return; }
     }
     this.place({ x: b.left - PAD, y: b.top - PAD, w: b.width + PAD * 2, h: b.height + PAD * 2 });
   }
 
-  /** 찾히는 대상 전부를 감싸는 사각형 (하나도 없으면 null). */
+  /** The rect enclosing every target found (null when there is none). */
   private unionRect(): DOMRect | null {
     let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
     for (const sel of this.selectors) {
@@ -201,7 +206,7 @@ export class Spotlight {
     return l === Infinity ? null : new DOMRect(l, t, r - l, b - t);
   }
 
-  /** 위에 확인 팝업 같은 것이 떠 있는가 (`YIELD_TO`). */
+  /** Is something like a confirm popup up on top (`YIELD_TO`). */
   private yielding(): boolean {
     for (const sel of YIELD_TO) {
       const el = document.querySelector<HTMLElement>(sel);
@@ -210,7 +215,7 @@ export class Spotlight {
     return false;
   }
 
-  /** 선택자 목록 중 **먼저 찾히는 보이는 것** 하나. */
+  /** The one **first visible match** in the selector list. */
   private find(): HTMLElement | null {
     for (const sel of this.selectors) {
       const el = firstShown(sel);
@@ -220,10 +225,12 @@ export class Spotlight {
   }
 
   /**
-   * 네 판 + 링을 놓는다. **모서리를 먼저 정수로 굳히고**(2026-09-09) 판 네 장과 링을 전부 그 네 모서리에서 파생한다 —
-   * 예전에는 판마다 `top`/`height` 를 따로 반올림해서, 대상 사각형이 소수점이면 구멍 위아래에 **가로 한 줄이
-   * 어둡지 않게 남았다**(1 px 띠, 8단계에서 특히 잘 보였다). 지금은 아래 판의 `top` 이 곧 옆 판의 `bottom` 이라
-   * 네 판이 화면을 빈틈없이 덮는다 (스모크가 그 타일링을 검사한다). 구멍은 바깥으로 넉넉히 잡는다(floor / ceil).
+   * Places the four plates + the ring. **The corners are frozen to integers first** (2026-09-09) and all four plates
+   * and the ring derive from those four corners — before, each plate rounded its own `top`/`height`, so a fractional
+    * target rect **left one horizontal line above and below the hole undimmed** (a 1 px strip, most visible on step
+    * 8).
+   * Now the bottom plate's `top` is exactly the side plates' `bottom`, so the four plates cover the screen with no
+   * gap (a smoke checks that tiling). The hole is taken generously outwards (floor / ceil).
    */
   private place(r: Rect): void {
     const vw = window.innerWidth, vh = window.innerHeight;
@@ -236,7 +243,7 @@ export class Spotlight {
     left.style.cssText = `left:0;top:${px(y0)};width:${px(x0)};height:${px(Math.max(0, y1 - y0))}`;
     right.style.cssText = `left:${px(x1)};top:${px(y0)};width:${px(Math.max(0, vw - x1))};height:${px(Math.max(0, y1 - y0))}`;
     this.ring.style.cssText = `left:${px(x0)};top:${px(y0)};width:${px(Math.max(0, x1 - x0))};height:${px(Math.max(0, y1 - y0))}`;
-    // 말풍선은 대상 아래, 화면을 벗어나면 위로
+    // the callout goes below the target, above it when that leaves the screen
     const below = y1 + 10;
     const tipTop = below + 44 > vh ? y0 - 44 : below;
     if (this.tipText !== this.text) { this.tipText = this.text; renderSpotText(this.tip, this.text); }
@@ -245,7 +252,8 @@ export class Spotlight {
     if (!this.shown) {
       this.shown = true;
       this.root.hidden = false;
-      // `display:none` 에서 막 나온 요소는 클래스를 같은 프레임에 달면 transition 이 돌지 않는다 — 한 번 재계산시킨 뒤 켠다
+      // an element just out of `display:none` runs no transition if the class lands on the same frame — reflow,
+      //   then light
       void this.root.offsetWidth;
       this.root.classList.add('is-lit');
     }
@@ -254,7 +262,7 @@ export class Spotlight {
 
   private hide(): void {
     this.wait = -1;
-    this.tipText = null;              // 다시 켜질 때 키캡을 지금 바인딩으로 다시 그린다
+    this.tipText = null;              // redraws the keycaps with the current bindings when it lights again
     if (!this.shown) return;
     this.shown = false;
     this.root.hidden = true;
@@ -262,10 +270,10 @@ export class Spotlight {
     this.last = null;
   }
 
-  /** 스모크 / 디버그: 지금 밝히고 있는 사각형 — 정수 모서리로 굳힌 구멍 (없으면 null). */
+  /** Smoke / debug: the rect being lit right now — the hole frozen to integer corners (null when there is none). */
   get rect(): Rect | null { return this.last; }
   get visible(): boolean { return this.shown; }
-  /** 스모크 / 디버그: 대상은 보이는데 아직 반 박자를 세고 있다. */
+  /** Smoke / debug: the target is visible but the half beat is still counting down. */
   get pending(): boolean { return !this.shown && this.wait > 0; }
 
   dispose(): void {
