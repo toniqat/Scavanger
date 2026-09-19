@@ -1,5 +1,5 @@
 /**
- * src/allies/parts/Extract.ts — **extraction**. Three user's decisions live here.
+ * src/allies/parts/Extract.ts — **extraction**. Four user's decisions live here.
  *
  *  ① A 「탈출하고 싶다」 ping → it looks inside the harness for an **already discovered** extraction pad and pings it.
  *     When the same person says it again within `ALLY_EXTRACT_CONFIRM_S`, it walks there and **presses the call
@@ -155,7 +155,11 @@ function sayExtract(sys: AllySystem, a: Ally): void {
 
 /* ── liftoff ─────────────────────────────────────────────────────────────── */
 
-/** Liftoff — a unit alive in the ship bay counts as extracted; its loot goes to the squad leader's stash. */
+/**
+ * Liftoff — a unit in the ship bay that is **not dead** counts as extracted; its loot goes to the squad leader's
+ * stash. The test is `a.dead` alone, so a **downed** body lying in the bay goes out with the ship too (it was carried
+ * or fell inside; leaving it behind because nobody got it up would lose its loot for no reason a player can see).
+ */
 export function onLiftoff(sys: AllySystem): void {
   if (!sys.simulating) return;
   const ex = sys.ctx.extraction;

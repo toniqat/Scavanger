@@ -66,11 +66,14 @@ try {
       bus.on(n, (p) => { window.__ev[n].push(JSON.parse(JSON.stringify(p ?? {}, (k, v) => (v && v.isVector3) ? [v.x, v.y, v.z] : v))); });
     }
     window.__pingId = 1;
-    window.__ping = (kind, x, z, owner = null, label, enemyId) => {
+    // `label` is the **display string** (`보급 상자 (n등급)`), `containerId` the loot-container id a crate ping
+    // carries — allies/ acts on the id alone (2026-09-19, TODO B-61). Passing the id as the label the way this
+    // helper used to is what hid the bug from this smoke.
+    window.__ping = (kind, x, z, owner = null, label, enemyId, containerId) => {
       const ctx = window.__game.ctx;
       const V = ctx.player.position.constructor;
       const y = ctx.world ? ctx.world.getHeightAt(x, z) : 0;
-      ctx.bus.emit('ping:placedV3', { id: window.__pingId++, position: new V(x, y, z), kind, expires: ctx.time + 30, owner, label, enemyId });
+      ctx.bus.emit('ping:placedV3', { id: window.__pingId++, position: new V(x, y, z), kind, expires: ctx.time + 30, owner, label, enemyId, containerId });
     };
     window.__comms = (id, text) => {
       const ctx = window.__game.ctx;
@@ -218,19 +221,22 @@ try {
       let best = null;
       for (const c of ctx.world.getLootContainers()) {
         const d = Math.hypot(c.position.x - b.position.x, c.position.z - b.position.z);
-        if (!best || d < best.d) best = { id: c.id, x: c.position.x, y: c.position.y, z: c.position.z, d };
+        if (!best || d < best.d) best = { id: c.id, tier: c.tier, x: c.position.x, y: c.position.y, z: c.position.z, d };
       }
       if (!best) return null;
       // put the android and the leader next to it so the harness holds and the walk is short
       sys.debugTeleport(id, best.x + 4, best.y, best.z);
       ctx.player.teleport(new ctx.player.position.constructor(best.x + 6, best.y, best.z));
       sys.request = null; sys.requestBlockedUntil = -Infinity; sys.watchUntil = -Infinity; sys.orderKind = null;
-      window.__ping('crate', best.x, best.z, null, best.id);
+      // exactly as `ui/hud/Pings` sends it: a display label, and the container id beside it
+      window.__ping('crate', best.x, best.z, null, `보급 상자 (${best.tier}등급)`, undefined, best.id);
       return best;
     }, K.localId);
     if (!box) skipped('container looting', 'no container found near the android');
     else {
       ok(await waitState(K.localId, 'loot', 8), 'state becomes loot');
+      const latched = await P((id) => window.__game.getSystem('allies').byId.get(id).lootContainerId, K.localId);
+      ok(latched === box.id, 'it latched onto the **pinged** container id', `${latched} vs ${box.id}`);
       await waitSim(6);
       const took = await info(K.localId);
       if (!hasBag) skipped('it takes a stack out of the box', 'ally bag missing');
@@ -240,6 +246,44 @@ try {
       const left = await info(K.localId);
       ok(left.state !== 'loot' || (await P((id) => window.__game.getSystem('allies').byId.get(id).lootContainerId, K.localId)) !== box.id,
         'it stops looting the box a player opened', JSON.stringify(left));
+    }
+  }
+
+  /* ── 6b. an item ping on the ground becomes a pickup job ───────── */
+  // 2026-09-19 (TODO B-61): an `'item'` ping carries no defId, and `canFulfil` used to answer it with `!!defId`,
+  // so **every** item ping died on `건넬 만한 물건이 없다.` and the pickup branch in `parts/Loot` was unreachable.
+  console.log('item ping on a dropped thing → it walks over and picks it up');
+  if (!hasBag) skipped('item ping → pickup', 'InventoryRef.createAllyBag not implemented yet');
+  else {
+    const drop = await P((id) => {
+      const ctx = window.__game.ctx; const sys = window.__game.getSystem('allies');
+      if (!ctx.pickups || !ctx.loot) return null;
+      const b = ctx.allies.getBody(id);
+      const V = ctx.player.position.constructor;
+      // a thing on the ground 6 m from the android, with the leader beside it so the harness holds
+      const at = new V(b.position.x + 6, b.position.y, b.position.z);
+      at.y = ctx.world ? ctx.world.getSurfaceY(at.x, at.z, b.position.y) : b.position.y;
+      const item = ctx.loot.createItem('heal_bandage', 2);
+      if (!item) return null;
+      ctx.player.teleport(new V(at.x + 3, at.y, at.z));
+      sys.request = null; sys.requestBlockedUntil = -Infinity; sys.watchUntil = -Infinity; sys.orderKind = null;
+      const before = ctx.allies.getLoadout(id);
+      window.__itemsBefore = before ? before.items.length : 0;
+      ctx.pickups.spawn(item, at);
+      return { x: at.x, y: at.y, z: at.z };
+    }, K.localId);
+    if (!drop) skipped('item ping → pickup', 'PickupsRef / LootRef not available');
+    else {
+      await resetEv();
+      await P((p) => window.__ping('item', p.x, p.z), drop);
+      const became = await waitState(K.localId, 'pickup', 8);
+      ok(became, 'state becomes pickup (the ping is a job, not a `건넬 만한 물건이 없다.` line)');
+      const refused = await P(() => window.__ev['ally:chat'].some((c) => /건넬 만한/.test(c.text || '')));
+      ok(!refused, 'it does not answer an item ping with the 「nothing to hand over」 line');
+      await waitSim(10);
+      const got = await info(K.localId);
+      ok(got.items.length > (await P(() => window.__itemsBefore)), `it picked the thing up (${JSON.stringify(got.items)})`);
+      ok(got.task === null, 'the job is finished', JSON.stringify(got));
     }
   }
 

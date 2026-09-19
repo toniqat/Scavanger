@@ -23,10 +23,19 @@ import type { AllySystem } from '../AllySystem';
 const _dir = new THREE.Vector3();
 let override: THREE.Vector3 | null = null;
 
-/** For the smokes — overwrites the squad leader's position (null clears it). */
+/**
+ * For the smokes — overwrites the squad leader's position (null clears it). It is **module state**, so it is
+ * dropped on every raid boundary (`AllySystem.clearPingOrders` → `clearDebug`, on `world:ready` · `game:abort`):
+ * a smoke that set it and never cleared it would otherwise pin the harness centre for the rest of the session.
+ */
 export function debugOverride(sys: AllySystem, pos: THREE.Vector3 | null): void {
   override = pos ? pos.clone() : null;
   void sys;
+}
+
+/** Drops the smoke override (a new map · leaving a raid). */
+export function clearDebug(): void {
+  override = null;
 }
 
 /**

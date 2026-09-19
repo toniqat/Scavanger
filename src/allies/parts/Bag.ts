@@ -50,7 +50,7 @@ function hasKit(a: Ally): boolean {
 }
 
 /**
- * 2026-09-16 (user's decision 「안드로이드는 호출되는 순간 기본 킷을 장착한 채로 선다」): **the kit is guaranteed in the
+ * 2026-09-16 (user's decision 「호출되는 순간 기본 킷을 장착한 채로 선다」): **the kit is guaranteed in the
  * ship**. Called over and over — the moment it enters the roster (`parts/Roster.syncBodies`) and while it stands in
  * the ship (`parts/Hub.update`) — and does nothing once the kit is in place. A kit built in the ship is just as much
  * a **bound thing**, so `kitUids` keeps the gate on every way out (dropping · handing over · a corpse · the stash),

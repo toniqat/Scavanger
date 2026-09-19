@@ -8,7 +8,6 @@
  * and a **new kit** is built — the kit is a bound thing, so the stripped one simply vanishes and by no road at all
  * ends up in the stash · a corpse · on the ground.
  */
-import { ALLY_LOCAL_PEER } from '@/shared';
 import type * as THREE from 'three';
 import type { AllySystem } from '../AllySystem';
 import { _v1 } from '../model';
@@ -94,9 +93,4 @@ export function updateLanding(sys: AllySystem): void {
     a.hidden = false;
     Nav.snapToGround(sys, a);
   }
-}
-
-/** The PeerId that names this client (`ALLY_LOCAL_PEER` when there is no server). */
-export function localPeer(sys: AllySystem): string {
-  return sys.ctx.net?.localId ?? ALLY_LOCAL_PEER;
 }

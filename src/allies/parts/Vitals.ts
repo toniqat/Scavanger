@@ -8,12 +8,18 @@
  *
  * A hazard · the planet atmosphere deal a person's damage per second on the same tick. Atmosphere damage
  * (`PLANET_ENV_DPS`) **skips the shield** — the reasoning 「대기를 방탄복이 막는 것이 이상하다」 carried over as it
- * stands (2026-09-11 A-13).
+ * stands (2026-09-11 A-13) — and so does the **toxic spore** hazard alone (2026-09-15 user's decision,
+ * `HAZARD_SPORES_BYPASS_SHIELD`; `world/Hazard.SPORE_DAMAGE_OPTS` is the person's side of the same rule). Every
+ * other hazard hits the shield first.
+ *
+ * **Known limit** (the folder `README.md` carries it too): the atmosphere tick here has no counterpart to a
+ * person's `ProgressionRef.hasEnvPrep` — an android buys no preparation, so it is never offset. The exposure gate
+ * itself is the same as a person's (`isGameplayPhase()` · not the training range).
  *
  * Damage lands **on the authority only** (`AlliesRef.damage` is ignored on a replica) — cut in two places, hp splits.
  */
 import {
-  ALLY_DOWN_HP, ALLY_HP_MUL, ALLY_REVIVE_HP, HAZARD_DPS, HAZARD_TICK_S,
+  ALLY_DOWN_HP, ALLY_HP_MUL, ALLY_REVIVE_HP, HAZARD_DPS, HAZARD_SPORES_BYPASS_SHIELD, HAZARD_TICK_S,
   PLANET_ENV_DPS, PLANET_ENV_TICK_S, PLAYER_DOWN_BLEED_PER_SEC, PLAYER_MAX_HP, getPlanet,
 } from '@/shared';
 import type { AllyId, PeerId, PlayerDamageSource } from '@/shared';
@@ -34,7 +40,14 @@ export function resetVitals(a: Ally): void {
 export function update(sys: AllySystem, dt: number): void {
   const ctx = sys.ctx;
   const hz = ctx.world?.hazard ?? null;
-  const envKind = getPlanet(ctx.missionPlanet)?.env ?? null;
+  // The same exposure gate a person has (`player/parts/Statuses.updateEnv`): the atmosphere is breathed only
+  // during play, never on the training range. (`ctx.missionPlanet` is null there today, so this only makes the
+  // rule readable — it stops a future training planet from quietly gassing the squad.)
+  const exposed = ctx.isGameplayPhase() && !ctx.isTraining();
+  const envKind = exposed ? getPlanet(ctx.missionPlanet)?.env ?? null : null;
+  // 2026-09-15 (user's decision): the toxic spores alone take hp straight through the shield — the same test
+  // `world/Hazard` runs for a person.
+  const hazardBypass = hz?.kind === 'spores' && HAZARD_SPORES_BYPASS_SHIELD;
   sys.hazardTimer += dt;
   sys.envTimer += dt;
   const hazardTick = sys.hazardTimer >= HAZARD_TICK_S;
@@ -50,7 +63,7 @@ export function update(sys: AllySystem, dt: number): void {
       continue;
     }
     if (hazardTick && hz?.active && hz.isInside(a.position.x, a.position.z)) {
-      apply(sys, a, HAZARD_DPS * hz.damageMul * HAZARD_TICK_S, false);
+      apply(sys, a, HAZARD_DPS * hz.damageMul * HAZARD_TICK_S, hazardBypass);
     }
     if (envTick && envKind) apply(sys, a, PLANET_ENV_DPS * PLANET_ENV_TICK_S, true);
   }

@@ -38,7 +38,7 @@ Folders = the `SMOKES` mapping in `verify.mjs` (what makes the runner pick the s
 | `smoke-ally-avatars.mjs` | player, allies | Android bodies from injected `AllyBodyView`s: android look, pose mapping, hidden / dead bodies, held gun + armour, pooled reuse, `revive:ally:<id>` → `requestRevive`, carried by an android, `ally:fired` FX keeps the point-light count, android face portrait, downed-not-dead with an android on the roster |
 | `smoke-ally-hooks.mjs` | inventory, pickups, extraction, world, gadgets, stratagems | Android raid hooks: ally bag/weight, container peek == take, item requests, `takeBy`, pads, loot list, hazard safe point, stash deposit |
 | `smoke-allies-core.mjs` | allies | Android core loop: the `/android` cheat roster in the personal ship, solo raid pod drop with the bound base kit and ×`ALLY_HP_MUL` hp, follow back into the harness, the harness halving while the leader keeps one heading, sense → enemy ping → burst → `applyAllyHit`, damage → downed → revive, bleed-out → `spawnAllyCorpse` |
-| `smoke-allies-orders.mjs` | allies | Android orders: leader move / caution pings, first-request-wins + `ALLY_REQUEST_COOLDOWN_S`, the "I have none" chat line, heal delivery (ping → approach → drop while the requester stands still), crate looting that stops when a player opens the box, extract ping → second call → console press |
+| `smoke-allies-orders.mjs` | allies | Android orders: leader move / caution pings, first-request-wins + `ALLY_REQUEST_COOLDOWN_S`, the "I have none" chat line, heal delivery (ping → approach → drop while the requester stands still), crate looting by the ping's **`containerId`** that stops when a player opens the box, an item ping → ground pickup, extract ping → second call → console press |
 | `smoke-ally-ui.mjs` | ui, allies | Android HUD from a fake `ctx.allies` (`hud.debugAllies`) + bus events: squad rows (badge, shield, bots never drawn as human rows), nameplates, compass ticks, map legend, `ally:ping` marker / callout / `ping:placedV3`, `ally:chat` never relayed, the seven toasts, and the raid-entry loading gauge (above the black plate, `squad` fill, spins at dt 0, hides on release) |
 | `smoke-android-bays.mjs` | hub | Cockpit android bays without a relay lobby (`HubSystem.debugSharedShip`): 3 capsules (bridge half, facing the deck, one-step `exit`, solid collider), `hub_android_<bay>` with the 3 s hold, recruit / dismiss prompts and the leader refusal shown as the prompt, a bot pod seated and ready with an `is-bot` ready cell (no crew-loadout popup), `getPodStandPose`, the match tab's android tile and crew counts, and the raid-entry fade (`ui:screenFade {1, hold}` + `raid:loadBegin` → launch only after `RAID_LOAD_FADE_OUT_S`, un-readying no longer cancels) |
 | `smoke-android-lobby.mjs` | net, server · X (own relay on 8896) | Two clients: `setAndroidBay` recruits bot lobby members (bot · bay · ready · own slot), androids are no peers (no `net:peerJoined`, no remote ref), a human joining evicts the latest one (`net:androidReturned human_joined` — the newcomer too), member `not_host`, a full squad `full` + the notice to the requester only, dismissal, human leave |
@@ -156,6 +156,13 @@ Things today's smokes deliberately do not measure. Each is here so the next read
   measured against the **same** enemy (assert on `rover:fired`'s target, or pin `ts.targetId`), or the check has to
   clear the area first. See `docs/TODO.md` B-22.
 
+- **A smoke that builds its own event payload can hide a contract bug (found 2026-09-19, TODO B-61).** `smoke-allies-orders`
+  emitted its crate ping as `ping:placedV3 {label: <container id>}`, so the android latched on and the step was green for
+  three weeks — while the real `ui/hud/Pings` put the **display string** `보급 상자 (n등급)` in that field and no crate
+  ping ever got looted in the game. A hand-built payload has to be the one the real producer sends, field for field; where
+  it cannot be, the step is measuring the smoke, not the game. (The ping now carries `containerId` and the smoke passes
+  both fields as the HUD does, but the shape of the mistake is worth keeping.)
+
 ## Rules every smoke follows
 
 - **Argument and browser**: first argument is the vite URL (default `http://localhost:5273/`). Each script launches its own headless
@@ -268,6 +275,9 @@ Measured 2026-09-16 on a Ryzen 7 7800X3D (8 cores / 16 threads) + RTX 4080 SUPER
 ## Recent changes
 
 Older: `git log -- scripts` (full previous README: `git show 3949d37:scripts/README.md`).
+- 2026-09-19 — `smoke-allies-orders`: `window.__ping` gained `containerId` (crate pings name their container by id, not by
+  the display label), the crate step asserts the android latched onto **that** container, and a new step 6b covers the item
+  ping → ground pickup path that had never been exercised (TODO B-61).
 - 2026-09-17 — `closeBrowser` no longer waits on a stuck `browser.close()` (5 s, then it deletes the temp profile itself) and `verify.mjs` sweeps stale profiles: the middle group of a 4-lane run no longer runs at 2× (E-12).
 - 2026-09-17 — 「Known gaps in the net」 collects what nothing checks (moved out of `docs/TODO.md`); `smoke-tutorial-raid` is mapped to `ui` as well — its liftoff HUD frames are ui's.
 - 2026-09-17 — `verify.mjs` keeps a red run's logs in `<log-dir>/failed/`; `smoke-desktop` says **why** a boot timed out (listening

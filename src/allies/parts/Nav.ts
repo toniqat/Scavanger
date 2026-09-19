@@ -30,7 +30,12 @@ const _n3 = new THREE.Vector3();
 
 /** How often nearby obstacles are fetched again (s) — `getObstaclesNear` every frame keeps making arrays. */
 const OBS_REFRESH_S = 0.35;
-/** The query radius the avoidance uses (m) — body radius + one step. Not a balance number but a query window. */
+/**
+ * The **forward query window** (m) the avoidance fetches obstacles inside. Not a balance number and not the
+ * avoidance distance either — `avoidObstacles` reacts out to `o.radius + PLAYER_RADIUS + 0.4 + 2.5`, which for a
+ * wide prop is further than this; the window only has to hold everything worth looking at between two refreshes
+ * (`OBS_REFRESH_S` at `ALLY_RUN_SPEED`).
+ */
 const OBS_QUERY_M = 6;
 /** Staying in the same spot this long (s) counts as stuck, and it sidesteps. */
 const STUCK_S = 0.8;
@@ -167,8 +172,10 @@ function avoidObstacles(sys: AllySystem, a: Ally, dir: THREE.Vector3, dt: number
 }
 
 /**
- * Squad bodies step aside so they **do not overlap** (2026-09-16 user's decision 「2 m 이내에 겹치지 않도록 피해서 가기,
- * 부득이 겹칠 경우 갈 수 있음」). It is **the same shape of soft push** as `avoidObstacles` — it only adds to the
+ * Squad bodies step aside so they **do not overlap**. The 2026-09-16 user's decision, kept on **one line** so the
+ * three places that carry it grep as one (here · `data/constants.csv` `ALLY_SEPARATION_M` · `docs/DECISIONS.md`):
+ * 「2 m 이내에 겹치지 않도록 피해서 가기, 부득이 겹칠 경우 갈 수 있음」.
+ * It is **the same shape of soft push** as `avoidObstacles` — it only adds to the
  * wanted direction and neither stops nor blocks: a hard block leaves two bodies tangled in a doorway forever.
  *
  * Left out of the push: itself · a dead or hidden body · **the person it is carrying** · **whoever stands on

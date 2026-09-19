@@ -4,7 +4,8 @@
  *  ① Exactly **one proposal** per frame (the highest-priority condition of them all — `PRIO`).
  *  ② A state change waits a **random delay** of `ALLY_REACT_MIN_S … ALLY_REACT_MAX_S` before acting — the heavier the
  *     action the longer (`ALLY_STATE_WEIGHT`). 「실제 PC 의 반응속도를 반영」. A more urgent proposal pushes out the
- *     one that was waiting. Downed · dead are applied instantly, with no delay.
+ *     one that was waiting. The four states of `model.isInstantState` (downed · dead · dormant · aboard) are applied
+ *     instantly, with no delay.
  *
  * The floor rank is not one state but **one of two** (2026-09-16 user's decision): outside the harness `follow` (it
  * goes back), inside it `roam` (the free search — `parts/Roam`). They share one rank (`PRIO.follow` ≡ `PRIO.roam`),

@@ -759,6 +759,14 @@ export type FlowMessage =
 export interface PingMessage {
   t: 'ping'; p: Vec3Tuple; kind: PingKind; label?: string; enemyId?: number;
   /**
+   * appended (2026-09-19): for a `'crate'` ping, the **container id** it snapped onto (`CrateDef.id` · a structure
+   * container's spec id — the id `WorldRef.getLootContainers` · `peekContainerItems` · `takeContainerItemFor` use).
+   * `allies/` takes its 「go check that crate」 order from this (`AllyRequest.targetId`); `label` beside it is a
+   * display string (`보급 상자 (2등급)`) and never an id. Absent from a ping that snapped onto nothing — the
+   * receiver then matches the crate by position.
+   */
+  containerId?: string;
+  /**
    * appended (2026-09-09): sender-local sequence number of this ping, so a squadmate can name it in a `PingAckMessage`.
    * Older senders omit it — such pings cannot be acknowledged.
    */
@@ -2340,7 +2348,7 @@ export interface AllyWire {
 }
 
 export type AllyMessage =
-  /** Host → everyone: the snapshots of every android (in the ship while `inHubSession`, in a raid for the session). A late joiner's `allyq sync` is answered with this + `bag`. */
+  /** Host → everyone: the snapshots of every android — **in a raid only** (`allies/parts/Sync.update` returns at once unless `raidActive`; the ship has no wire, every client computes the bay / pod poses from the lobby). A late joiner's `allyq sync` is answered with this + `bag`. */
   | { t: 'ally'; ev: 'state'; allies: AllyWire[] }
   /** Host → everyone: one android's equipment / bag changed (host succession · corpses · debugging). `kit` = uids of the base kit gear (the bound items). */
   | { t: 'ally'; ev: 'bag'; id: PeerId; equip: { primary: AllyItemInstance | null; armor: AllyItemInstance | null; bag: AllyItemInstance | null }; items: AllyItemInstance[]; kit: string[] }

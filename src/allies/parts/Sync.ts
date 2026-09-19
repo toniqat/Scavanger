@@ -162,7 +162,7 @@ function onAlly(sys: AllySystem, msg: Extract<GameMessage, { t: 'ally' }>, from:
       break;
     }
     case 'bag': {
-      const a = sys.byId.get(w2id(msg.id));
+      const a = sys.byId.get(msg.id);
       if (!a) break;
       a.equip.primary = msg.equip.primary;
       a.equip.armor = msg.equip.armor;
@@ -173,7 +173,7 @@ function onAlly(sys: AllySystem, msg: Extract<GameMessage, { t: 'ally' }>, from:
       break;
     }
     case 'fire': {
-      const a = sys.byId.get(w2id(msg.id));
+      const a = sys.byId.get(msg.id);
       if (!a) break;
       sys.fireFrom.set(msg.from[0], msg.from[1], msg.from[2]);
       sys.fireTo.set(msg.to[0], msg.to[1], msg.to[2]);
@@ -181,7 +181,7 @@ function onAlly(sys: AllySystem, msg: Extract<GameMessage, { t: 'ally' }>, from:
       break;
     }
     case 'ping': {
-      const a = sys.byId.get(w2id(msg.id));
+      const a = sys.byId.get(msg.id);
       if (!a) break;
       sys.fireFrom.set(msg.p[0], msg.p[1], msg.p[2]);
       sys.ctx.bus.emit('ally:ping', {
@@ -191,12 +191,12 @@ function onAlly(sys: AllySystem, msg: Extract<GameMessage, { t: 'ally' }>, from:
       break;
     }
     case 'chat': {
-      const a = sys.byId.get(w2id(msg.id));
+      const a = sys.byId.get(msg.id);
       if (a) sys.ctx.bus.emit('ally:chat', { id: a.id, name: a.name, slot: a.slot, text: msg.text });
       break;
     }
     case 'drop': {
-      const a = sys.byId.get(w2id(msg.id));
+      const a = sys.byId.get(msg.id);
       if (!a) break;
       sys.fireFrom.set(msg.p[0], msg.p[1], msg.p[2]);
       a.mode = 'raid';
@@ -208,7 +208,7 @@ function onAlly(sys: AllySystem, msg: Extract<GameMessage, { t: 'ally' }>, from:
     }
     case 'deposit': {
       // Loot that arrived because this client is the squad leader — inventory puts it in the stash.
-      const a = sys.byId.get(w2id(msg.id));
+      const a = sys.byId.get(msg.id);
       sys.ctx.bus.emit('inventory:allyDeposit', { id: msg.id, name: a?.name ?? msg.id, items: msg.items });
       break;
     }
@@ -228,7 +228,7 @@ function onAllyq(sys: AllySystem, msg: Extract<GameMessage, { t: 'allyq' }>, fro
       break;
     }
     case 'revive': {
-      const a = sys.byId.get(w2id(msg.id));
+      const a = sys.byId.get(msg.id);
       if (!a || !a.downed || a.dead) break;
       const rp = sys.ctx.net?.getRemotePlayer(from);
       // The host looks at the distance again — a request sent from far away is dropped.
@@ -246,8 +246,6 @@ function onAllyq(sys: AllySystem, msg: Extract<GameMessage, { t: 'allyq' }>, fro
       break;
   }
 }
-
-function w2id(id: PeerId): AllyId { return id; }
 
 /* ═══════════════════════════ Replica interpolation ═══════════════════════════ */
 
@@ -283,7 +281,6 @@ function applyWire(sys: AllySystem, w: AllyWire): void {
 }
 
 export function updateReplicas(sys: AllySystem, dt: number): void {
-  void dt;
   for (const a of sys.bodies) {
     if (a.mode !== 'raid' || a.wireSpan <= 0) continue;
     const t = Math.min(1, (sys.ctx.time - a.wireAt) / a.wireSpan);

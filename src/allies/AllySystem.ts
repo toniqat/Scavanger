@@ -187,6 +187,7 @@ export class AllySystem implements GameSystem, AlliesRef {
    * way-out coordinates, or start it with a widened harness.
    */
   private clearPingOrders(): void {
+    Harness.clearDebug();            // module state — a smoke that forgot to clear it must not pin the next raid
     this.leadUntil = -Infinity;
     this.preferredEnemyUntil = -Infinity;
     this.hasHumanExtractPing = false;

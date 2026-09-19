@@ -10,8 +10,8 @@
  *  ② **it gives that point up when another squadmate · android already stands** within `ALLY_ROAM_POI_TAKEN_M`
  *     of it and switches to a random patrol inside the harness (three of them piled into one building does not
  *     read as 「free search」).
- * The point of interest is re-picked only every `POI_PICK_S` — a world query is not cheap (the same shape as
- * `Loot.LOOT_SCAN_S`; the period is counted down by `Fsm`).
+ * The point of interest is re-picked only every `POI_PICK_S` — a world query is not cheap (the same shape as the
+ * crate-candidate scan period of `parts/Loot`; the period itself is counted down by `Fsm`).
  *
  * There is no wire: `roam` is one more state of the existing `ally` snapshot, and every judgement runs on the
  * authority only.
@@ -38,6 +38,13 @@ const POI_MIN_HEIGHT_M = 1.2;
 const PICK_TRIES = 6;
 /** When `resolveCollision` pushes further than this, the spot is inside a prop — no place to walk to (m). */
 const BLOCKED_SLACK_M = 0.35;
+/**
+ * How far the point of interest has to have moved (m) before the path to it is dropped and re-picked — its own
+ * threshold, because `refreshPoi` asks a different question from `walkable` (「is this the same point」, not
+ * 「is this spot inside a prop」). Small, so a reservoir sample that landed on a neighbouring structure counts as a
+ * change while the same one re-drawn does not.
+ */
+const POI_MOVED_M = 0.35;
 /**
  * While it looks around, the look point sits this far in front of the body (m — `yawToward` reads XZ only, so
  * the distance itself changes no direction).
@@ -108,7 +115,7 @@ function refreshPoi(sys: AllySystem, a: Ally): void {
   _r4.copy(a.roamPoi);
   a.hasRoamPoi = pickPoi(sys, a);
   // It drops the path it was on only when the point of interest really changed (the same point keeps it circling).
-  if (a.hasRoamPoi !== had || (a.hasRoamPoi && dist2D(_r4, a.roamPoi) > BLOCKED_SLACK_M)) a.hasRoamDest = false;
+  if (a.hasRoamPoi !== had || (a.hasRoamPoi && dist2D(_r4, a.roamPoi) > POI_MOVED_M)) a.hasRoamDest = false;
 }
 
 /** Picks an unclaimed terrain feature inside the harness into `a.roamPoi`. false with none (= random patrol). */

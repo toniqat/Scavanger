@@ -514,7 +514,7 @@ User choices (android AI):
 - **Free search inside the leader's harness** instead of trailing the leader: prefer a structure / cover point of interest and wander
   around it, but **switch to random patrol when another squadmate or android is already at that point** (a mix of the two options
   offered, chosen by the user).
-- **No overlapping**: keep 2 m from other squad members and androids, soft — *"부득이 겹칠 경우, 갈 수 있음"*.
+- **No overlapping**: keep 2 m from other squad members and androids, soft — 「2 m 이내에 겹치지 않도록 피해서 가기, 부득이 겹칠 경우 갈 수 있음」 (`src/allies/parts/Nav.separate` · `ALLY_SEPARATION_M`).
 - **Spread out when moving toward a person** instead of stacking into one line.
 - **「앞장서라」 doubles the harness** so each android searches its own area, and **expires by itself after a set time** (a newer order
   still overrides it immediately).
@@ -882,3 +882,43 @@ with a new 채광 skill, the 연산 코어 → 프로세서 swap, and a 수집�
   paging to 보레아스 IX with 아켈론 II still targeted locked a row that is open on 보레아스 IX. 정보 구매 is now
   disabled until the paged planet is the target. Rejected: letting 정보 구매 silently set the target; buying for the
   previewed planet (money spent on a raid you may not fly); leaving it and only rewording the lock note.
+
+
+## 2026-09-19 — 안드로이드 감사 묶음 · Android audit (B-59…B-62)
+
+Four TODO rows the English comment pass had surfaced in `src/allies`. Only the questions that were a real choice are here;
+everything else was code brought back in line with a rule already written down.
+
+- **A crate ping names its container by id.** `PingMessage.containerId` / `ping:placedV3.containerId` (add-only) carry the
+  loot-container id, and `allies/` acts on that. Rejected: matching the crate by the ping's position alone (the existing
+  fallback, kept only for a ping that carries no id) — the ping already knows exactly which crate it snapped onto, and the
+  label it used to pass (`보급 상자 (n등급)`) is a display string that matched nothing.
+- **An android's atmosphere damage gets the exposure gate, not the preparation gate.** `parts/Vitals.update` now skips the
+  planet-atmosphere tick outside gameplay and on the training range, the same as a person. It does **not** read
+  `ProgressionRef.hasEnvPrep`: a preparation is a personal profile purchase and an android has no profile. Recorded as a known
+  limit in `src/allies/README.md`. Rejected: giving an android the squad leader's preparation (a bought preparation would then
+  protect bodies it was never bought for); leaving the code untouched and only documenting it.
+- **Dead code is deleted, not annotated.** `Roster.isAlly` · `copyOf` · `snapshotItems` · `myPeer`, `Spawn.localPeer` and the
+  `Sync.w2id` alias had no callers; their comments explained invariants nothing was keeping. `w2id` was removed without adding
+  an `isAndroidId` re-check on those seven paths — `onAlly` already refuses anything not sent by the host. Rejected: keeping
+  them with a 「no callers today」 note.
+- **The 2 m separation decision is one sentence in three places.** 「2 m 이내에 겹치지 않도록 피해서 가기, 부득이 겹칠 경우 갈 수 있음」
+  — `parts/Nav.separate` (on one line now), `ALLY_SEPARATION_M` in `data/constants.csv`, and this file. Same for the base kit:
+  「호출되는 순간 기본 킷을 장착한 채로 선다」 in all three of `parts/Bag` · `parts/Hub` · `parts/Roster`.
+
+
+## 2026-09-19 — 출력 언어 분리 · Output language split
+
+The English comment / docs migration (§4.1) was starting to pull the *conversation* into English with it. The two are now
+stated as separate channels: **what an AI reads is English** (code comments, `CLAUDE.md`, every `README.md`, `docs/*.md`
+except `docs/TODO.md`), **what a person reads is Korean**.
+
+- **Korean covers chat replies and work summaries, commit messages (subject and body) and `/compact` context summaries.**
+  Generated trailers (`Co-Authored-By:`) stay as they are. Inside Korean prose, labels, paths, identifiers, commands and csv
+  names are kept verbatim in backticks — the same rule §4.1 applies to English comments, run in reverse.
+- **The rule is written twice on purpose**: `~/.claude/CLAUDE.md` §4 as the principle for every project, project
+  `CLAUDE.md` §4.1 + §6 for this repo’s specifics. Rejected: a custom `~/.claude/output-styles/` file switched on with
+  `/output-style` (it replaces the whole system prompt behaviour for a one-line language preference, and a teammate cloning
+  the repo would not get it); leaving it implicit because replies happen to be Korean already.
+- `docs/*.md` stays English — **not** rolled back to Korean. `DECISIONS.md` and `HISTORY.md` are read by an AI far more
+  often than by a person; the summary in chat is where the person gets the Korean.

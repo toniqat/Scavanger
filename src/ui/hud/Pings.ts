@@ -92,7 +92,11 @@ interface Ping extends PingView {
 type Gesture = 'plain' | 'left' | 'right';
 
 /** Aim-assist candidate. `pri` 1 = squad ping (→ ack), 2 enemy, 3 pickup, 4 crate, 5 pad; lower wins, then screen distance. */
-interface AimCandidate { pri: number; px: number; kind: PingKind; pos: THREE.Vector3; enemy: EnemyRef | null; ping: Ping | null; label: string }
+interface AimCandidate {
+  pri: number; px: number; kind: PingKind; pos: THREE.Vector3; enemy: EnemyRef | null; ping: Ping | null; label: string;
+  /** Crate candidates only: the loot-container id (`PingMessage.containerId` — what `allies/` acts on). */
+  containerId: string | null;
+}
 
 /**
  * Middle-mouse pings (v3, 2026-09-09).
@@ -221,7 +225,7 @@ export class Pings {
         ctx.net.onMessage('pingack', (msg, from) => this.onPingAck(msg, from)),
       );
     } else {
-      this.unsubs.push(ctx.bus.on('net:remotePing', ({ id, position, kind }) => this.placeRemote(id, position, kind, undefined, undefined, null)));
+      this.unsubs.push(ctx.bus.on('net:remotePing', ({ id, position, kind }) => this.placeRemote(id, position, kind, undefined, undefined, null, null)));
     }
   }
 
@@ -467,7 +471,7 @@ export class Pings {
       const c = this.aimAssist(ctx, interior);
       if (c) {
         if (c.ping) { this.ack(ctx, c.ping); return; }
-        this.placeResolved(ctx, c.pos.clone(), c.kind, c.label, c.enemy);
+        this.placeResolved(ctx, c.pos.clone(), c.kind, c.label, c.enemy, c.containerId);
         return;
       }
     }
@@ -475,6 +479,7 @@ export class Pings {
     let kind: PingKind = 'ground';
     let enemy: EnemyRef | null = null;
     let label = '';
+    let containerId: string | null = null;
     const pos = new THREE.Vector3();
 
     if (ship) {
@@ -485,7 +490,7 @@ export class Pings {
         if (interior) pos.y = interior.getFloorAt(pos.x, pos.z);
       }
       // no enemies / crates / pads / pickups inside a ship — always a ground ping
-      this.placeResolved(ctx, pos, forced ?? 'ground', '', null);
+      this.placeResolved(ctx, pos, forced ?? 'ground', '', null, null);
       return;
     }
 
@@ -509,10 +514,10 @@ export class Pings {
       kind = forced;
     } else if (kind !== 'enemy') {
       const snapped = this.snap(ctx, pos);
-      kind = snapped.kind; label = snapped.label;
+      kind = snapped.kind; label = snapped.label; containerId = snapped.containerId;
     }
 
-    this.placeResolved(ctx, pos, kind, label, enemy);
+    this.placeResolved(ctx, pos, kind, label, enemy, containerId);
   }
 
   /**
@@ -523,13 +528,13 @@ export class Pings {
   private aimAssist(ctx: GameContext, interior: InteriorCollider | null): AimCandidate | null {
     // holder object rather than a `let` — TS would narrow a closure-assigned local to its initial `null`
     const acc: { best: AimCandidate | null } = { best: null };
-    const consider = (pri: number, target: THREE.Vector3, margin: number, kind: PingKind, pos: THREE.Vector3, enemy: EnemyRef | null, ping: Ping | null, label: string): void => {
+    const consider = (pri: number, target: THREE.Vector3, margin: number, kind: PingKind, pos: THREE.Vector3, enemy: EnemyRef | null, ping: Ping | null, label: string, containerId: string | null = null): void => {
       const cur = acc.best;
       if (cur && cur.pri < pri) return;
       const px = this.screenDistance(ctx, target, margin, interior, PING_AIM_ASSIST_PX);
       if (px < 0) return;
       if (cur && cur.pri === pri && cur.px <= px) return;
-      acc.best = { pri, px, kind, pos, enemy, ping, label };
+      acc.best = { pri, px, kind, pos, enemy, ping, label, containerId };
     };
 
     // (1) squadmates' pings — an ack. Own pings and legacy pings without `seq` are not candidates.
@@ -571,7 +576,7 @@ export class Pings {
     // (4) crates
     for (const c of world.getCrates()) {
       this.v.copy(c.position); this.v.y += 0.7;
-      consider(4, this.v, GROUND_OCCLUSION_MARGIN + 0.6, 'crate', c.position, null, null, `보급 상자 (${c.tier}등급)`);
+      consider(4, this.v, GROUND_OCCLUSION_MARGIN + 0.6, 'crate', c.position, null, null, `보급 상자 (${c.tier}등급)`, c.id);
     }
     if (acc.best) return acc.best;
 
@@ -604,28 +609,37 @@ export class Pings {
 
     let k = kind;
     let label = '';
-    if (k === 'ground') { const snapped = this.snap(ctx, pos); k = snapped.kind; label = snapped.label; }
-    this.placeResolved(ctx, pos, k, label, null);
+    let containerId: string | null = null;
+    if (k === 'ground') {
+      const snapped = this.snap(ctx, pos);
+      k = snapped.kind; label = snapped.label; containerId = snapped.containerId;
+    }
+    this.placeResolved(ctx, pos, k, label, null, containerId);
   }
 
-  /** Snap a resolved point onto a dropped item / crate / extraction pad; mutates `pos` and returns kind + label. */
-  private snap(ctx: GameContext, pos: THREE.Vector3): { kind: PingKind; label: string } {
+  /**
+   * Snap a resolved point onto a dropped item / crate / extraction pad; mutates `pos` and returns kind + label.
+   * A crate also returns its **container id** — the label is a display string (`보급 상자 (n등급)`), so it is
+   * the id that tells `allies/` which crate was meant (`PingMessage.containerId`).
+   */
+  private snap(ctx: GameContext, pos: THREE.Vector3): { kind: PingKind; label: string; containerId: string | null } {
     const world = ctx.world;
     let kind: PingKind = 'ground';
     let label = '';
+    let containerId: string | null = null;
     const pickup = ctx.pickups?.findNear(pos, ITEM_SNAP) ?? null;
     if (pickup) {
       kind = 'item';
       pos.copy(pickup.position);
       const name = ctx.loot?.getItemDef(pickup.item.defId)?.name ?? pickup.item.defId;
       label = pickup.item.qty > 1 ? `${name} ×${pickup.item.qty}` : name;
-      return { kind, label };
+      return { kind, label, containerId };
     }
-    if (!world?.ready) return { kind, label };
+    if (!world?.ready) return { kind, label, containerId };
     let bestD = CRATE_SNAP;
     for (const c of world.getCrates()) {
       const d = Math.hypot(c.position.x - pos.x, c.position.z - pos.z);
-      if (d < bestD) { bestD = d; kind = 'crate'; pos.copy(c.position); label = `보급 상자 (${c.tier}등급)`; }
+      if (d < bestD) { bestD = d; kind = 'crate'; pos.copy(c.position); label = `보급 상자 (${c.tier}등급)`; containerId = c.id; }
     }
     if (kind !== 'crate') {
       let padD = PAD_SNAP;
@@ -634,7 +648,7 @@ export class Pings {
         if (d < padD) { padD = d; kind = 'extraction'; pos.copy(e.position); }
       }
     }
-    return { kind, label };
+    return { kind, label, containerId };
   }
 
   /** Chat callout for a local ping — every kind posts one (v3), with the horizontal distance from the player. */
@@ -657,7 +671,7 @@ export class Pings {
   }
 
   /** Shared tail of every local ping: eviction → build → `ping:placed(V2)` → chat callout → relay. */
-  private placeResolved(ctx: GameContext, pos: THREE.Vector3, kind: PingKind, label: string, enemy: EnemyRef | null): void {
+  private placeResolved(ctx: GameContext, pos: THREE.Vector3, kind: PingKind, label: string, enemy: EnemyRef | null, containerId: string | null): void {
     const text = label || PING_LABEL[kind];
 
     this.evictFor(null);
@@ -669,7 +683,7 @@ export class Pings {
     this.pings.push(ping);
     ctx.bus.emit('ping:placed', { id, position: ping.position, kind, expires });
     ctx.bus.emit('ping:placedV2', { id, position: ping.position, kind, expires, owner: null });
-    this.emitV3(ctx, ping, null, label, enemy?.id);
+    this.emitV3(ctx, ping, null, label, enemy?.id, containerId);
 
     // chat line — every ping (v3)
     const player = ctx.player;
@@ -681,6 +695,8 @@ export class Pings {
     if (ctx.net && (ctx.isMultiplayer || ctx.net.inHubSession)) {
       const msg: PingMessage = { t: 'ping', p: [pos.x, pos.y, pos.z], kind, seq };
       if (kind === 'item' || kind === 'crate') msg.label = text;
+      // The id is what an android acts on; the label beside it is only what a person reads.
+      if (kind === 'crate' && containerId) msg.containerId = containerId;
       if (enemy) msg.enemyId = enemy.id;
       ctx.net.send(msg, 'others');
     }
@@ -758,11 +774,12 @@ export class Pings {
     const label = typeof msg.label === 'string' ? msg.label.slice(0, 40) : undefined;
     const enemyId = typeof msg.enemyId === 'number' ? msg.enemyId : undefined;
     const seq = typeof msg.seq === 'number' && Number.isFinite(msg.seq) ? msg.seq : null;
-    this.placeRemote(from, this.v.set(p[0], p[1], p[2]), kind, label, enemyId, seq);
+    const containerId = typeof msg.containerId === 'string' ? msg.containerId.slice(0, 64) : null;
+    this.placeRemote(from, this.v.set(p[0], p[1], p[2]), kind, label, enemyId, seq, containerId);
   }
 
   /** A squad member pinged. Up to `PING_MAX_PER_PLAYER` live pings per sender; drawn in their slot colour. */
-  private placeRemote(peerId: PeerId, position: THREE.Vector3, kind: PingKind, label: string | undefined, enemyId: number | undefined, seq: number | null): void {
+  private placeRemote(peerId: PeerId, position: THREE.Vector3, kind: PingKind, label: string | undefined, enemyId: number | undefined, seq: number | null, containerId: string | null): void {
     const ctx = this.ctx;
     const net = ctx.net;
     if (!net) return;
@@ -801,7 +818,7 @@ export class Pings {
     this.pings.push(ping);
     ctx.bus.emit('ping:placed', { id, position: ping.position, kind, expires });
     ctx.bus.emit('ping:placedV2', { id, position: ping.position, kind, expires, owner: owner.id });
-    this.emitV3(ctx, ping, owner.id, label, enemy?.id ?? enemyId);
+    this.emitV3(ctx, ping, owner.id, label, enemy?.id ?? enemyId, containerId);
     // no local chat line: the sender's own callout arrives through the chat relay
   }
 
@@ -836,7 +853,7 @@ export class Pings {
     this.pings.push(ping);
     ctx.bus.emit('ping:placed', { id: pid, position: ping.position, kind: k, expires });
     ctx.bus.emit('ping:placedV2', { id: pid, position: ping.position, kind: k, expires, owner: id });
-    this.emitV3(ctx, ping, id, label, enemy?.id ?? enemyId);
+    this.emitV3(ctx, ping, id, label, enemy?.id ?? enemyId, null);
 
     const player = ctx.player;
     const dist = player ? Math.round(Math.hypot(pos.x - player.position.x, pos.z - player.position.z)) : 0;
@@ -848,12 +865,13 @@ export class Pings {
    * android id) carries its target info (`label` · `enemyId`) too. allies/ reads its orders (`가자` · `조심` · item
    * · crate …) from this one event.
    */
-  private emitV3(ctx: GameContext, ping: Ping, owner: PeerId | null, label: string | undefined, enemyId: number | undefined): void {
-    const payload: { id: number; position: THREE.Vector3; kind: PingKind; expires: number; owner: PeerId | null; label?: string; enemyId?: number } = {
+  private emitV3(ctx: GameContext, ping: Ping, owner: PeerId | null, label: string | undefined, enemyId: number | undefined, containerId: string | null): void {
+    const payload: { id: number; position: THREE.Vector3; kind: PingKind; expires: number; owner: PeerId | null; label?: string; enemyId?: number; containerId?: string } = {
       id: ping.id, position: ping.position, kind: ping.kind, expires: ping.expires, owner,
     };
     if (label && label.length) payload.label = label;
     if (enemyId !== undefined) payload.enemyId = enemyId;
+    if (containerId) payload.containerId = containerId;
     ctx.bus.emit('ping:placedV3', payload);
   }
 

@@ -54,7 +54,11 @@ export interface AllyRequest {
   /** For an item request, its def id / ammo type. */
   defId: string | null;
   ammoType: string | null;
-  /** For a crate · item ping, the id of its target. */
+  /**
+   * For a **crate** ping, the id of the container it names (`WorldRef.getLootContainers` — the same id
+   * `peekContainerItems` · `takeContainerItemFor` use; `PingMessage.containerId` carries it over the wire). Null on an
+   * **item** ping: that one names a thing on the ground, and `parts/Loot` finds it by position (`PickupsRef.findNear`).
+   */
   targetId: string | null;
   /** The `ctx.time` the request arrived. */
   time: number;
@@ -125,7 +129,7 @@ export function reactionDelay(state: AllyStateId, rand: number): number {
   return ALLY_REACT_MIN_S + (ALLY_REACT_MAX_S - ALLY_REACT_MIN_S) * Math.min(1, Math.max(0, t));
 }
 
-/** States applied instantly — downed · dead · dormant do not go through the reaction delay. */
+/** States applied instantly — downed · dead · dormant · aboard do not go through the reaction delay. */
 export function isInstantState(state: AllyStateId): boolean {
   return state === 'downed' || state === 'dead' || state === 'dormant' || state === 'aboard';
 }

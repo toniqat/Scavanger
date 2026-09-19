@@ -6,12 +6,10 @@
  *  - Outside that (personal ship · no server) there is only the **local roster** the `/android` cheat built.
  * In both cases every client **computes it from the same lobby state** — the roster has no wire.
  */
-import * as THREE from 'three';
 import {
-  ALLY_LOCAL_PEER, ANDROID_BAY_COUNT, androidIdOf, androidNameOf, androidPlayersOf, isAndroidId,
-  markRaidFound, raidFoundSeed,
+  ANDROID_BAY_COUNT, androidIdOf, androidNameOf, androidPlayersOf, markRaidFound, raidFoundSeed,
 } from '@/shared';
-import type { AllyId, AllyLoadoutView, AllyRosterEntry, ItemInstance, LobbyState } from '@/shared';
+import type { AllyId, AllyLoadoutView, AllyRosterEntry, LobbyState } from '@/shared';
 import type { AllySystem } from '../AllySystem';
 import { Ally } from './Body';
 import * as Bag from './Bag';
@@ -30,8 +28,10 @@ function lobbyOf(sys: AllySystem): LobbyState | null {
 
 /**
  * Recomputes the roster from the current state; if it changed, matches the bodies and emits `ally:rosterChanged`.
- * Calling it every frame keeps minting two arrays, so the frame loop calls it only while `rosterDirty` is raised
- * (`net:lobbyUpdated` · `net:lobbyLeft` · `net:androidReturned` · ship entry / exit · the cheat raise it).
+ * Calling it every frame keeps minting two arrays, so the frame loop calls it only while `rosterDirty` is raised —
+ * `net:lobbyUpdated` · `net:lobbyLeft` · **entering** the ship (`hub:entered`; `hub:left` does not touch the roster).
+ * `net:androidReturned` (`onReturned`) and the `/android` cheat (`addLocal` · `removeLocal`) do not wait for the
+ * flag — they call this directly.
  */
 export function refresh(sys: AllySystem): void {
   sys.rosterDirty = false;
@@ -206,17 +206,3 @@ export function debugGive(sys: AllySystem, id: AllyId, defId: string, qty: numbe
   a.bagDirty = true;
   return true;
 }
-
-/** Is it an android id (wraps the contract's `isAndroidId` once more, so the parts can write it short). */
-export function isAlly(id: unknown): boolean { return isAndroidId(id); }
-
-/** The local player's PeerId — `ALLY_LOCAL_PEER` when there is no server. */
-export function myPeer(sys: AllySystem): string {
-  return sys.ctx.net?.localId ?? ALLY_LOCAL_PEER;
-}
-
-/** A throwaway position copy, not a scratch (for keeping a request — a reused vector must never be kept). */
-export function copyOf(v: THREE.Vector3): THREE.Vector3 { return v.clone(); }
-
-/** Shallow-copies the bag's item list (a corpse · a stash deposit must never be handed the original). */
-export function snapshotItems(items: readonly ItemInstance[]): ItemInstance[] { return items.slice(); }

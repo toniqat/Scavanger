@@ -10,6 +10,12 @@
  * With a person · another android on the line of fire it **does not shoot** — friendly fire is real damage in
  * this game.
  *
+ * **It never engages a nest egg** (2026-09-18). Every `queryNear` in this file is a 「what do I shoot / is something
+ * dangerous here」 question, so all three leave props out — that is `EnemyManagerRef.queryNear`'s default
+ * (`shared/types.ts`), not a filter written here. **Never pass `includeProps: true` from this file**: a nest holds
+ * 8–30 eggs, so one such call makes the squad pour its magazines into a nest and stand in front of it. An egg that
+ * should die dies to a person's bullet · melee · grenade, none of which come through this call.
+ *
  * Three 2026-09-16 user's decisions landed here.
  *  ① **It does not move at contact range.** Even for an enemy that has closed in (inside `ALLY_ENGAGE_MIN_M`),
  *     `pickCoverSpot` returning a cover spot a few m away makes `act` walk toward it every frame and `return`,
@@ -62,6 +68,7 @@ function sense(sys: AllySystem, a: Ally, prefId: number | null): typeof _sensed 
   _sensed.pref = null;
   const enemies = sys.ctx.enemies;
   if (!enemies) return _sensed;
+  // Props left out (the default) — sensing picks what to shoot, and a nest egg does not fight back (the header).
   const list = enemies.queryNear(a.position, ALLY_SENSE_RADIUS_M);
   let bestD = Infinity;
   eyeOf(a, _eye);
@@ -166,6 +173,7 @@ export function onExit(sys: AllySystem, a: Ally): void {
 function findTarget(sys: AllySystem, a: Ally): EnemyRef | null {
   const enemies = sys.ctx.enemies;
   if (!enemies || a.targetEnemyId === null) return null;
+  // Props left out (the default) — an egg is never a target, so it can never be re-found as one either.
   const list = enemies.queryNear(a.position, ALLY_SENSE_RADIUS_M);
   for (const e of list) if (e.id === a.targetEnemyId && !e.isDead) return e;
   return null;
@@ -313,7 +321,13 @@ function blockedByFriend(sys: AllySystem, a: Ally, from: THREE.Vector3, dir: THR
   return false;
 }
 
-/** Is there an enemy alive and awake inside the radius around `a` (the rescue safety test). */
+/**
+ * Is there an enemy alive and awake inside the radius around `a` (the rescue safety test).
+ *
+ * Props stay out (the `queryNear` default) **on purpose** — this asks 「is it dangerous to get this body up here」,
+ * and a nest egg is not a danger. Passing `includeProps: true` here would leave an android standing over a downed
+ * player in front of a nest forever, waiting for a safety that never comes.
+ */
 export function enemiesNear(sys: AllySystem, at: THREE.Vector3, radius: number): boolean {
   const list = sys.ctx.enemies?.queryNear(at, radius) ?? [];
   for (const e of list) if (!e.isDead && !e.isIncapacitated) return true;

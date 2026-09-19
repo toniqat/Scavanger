@@ -103,11 +103,17 @@ function carry(sys: AllySystem, a: Ally, at: THREE.Vector3, dt: number): void {
   a.running = true;
   const left = Nav.step(sys, a, a.carryDest, ALLY_CARRY_SPEED, dt);
   if (left > 1) return;
-  // Put them down and get them up.
+  // Put them down and get them up. The decision 「제세동기가 있으면 안전하지 않아도 쓴다」 holds on this road
+  // out too — carrying is the **most** unsafe of the two, so the one that heals is the one to use here, and it is
+  // consumed exactly as on the standing revive in `act` above.
   a.carrying = null;
   a.hasCarryDest = false;
   a.running = false;
   Nav.halt(a);
-  if (a.rescueTarget) sys.revivePlayer(a, a.rescueTarget, false);
+  if (a.rescueTarget) {
+    const defib = Bag.findInBag(sys, a, (d) => d.id === DEFIB_DEF_ID);
+    if (defib) { a.bag?.remove(defib.uid); a.bagDirty = true; }
+    sys.revivePlayer(a, a.rescueTarget, !!defib);
+  }
   a.rescueTarget = null;
 }

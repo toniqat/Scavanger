@@ -6,8 +6,10 @@
  *  - A **pinged** crate · ground item (`taskKind` `'crate'` / `'item'`) keeps the priority `PRIO.orderLoot` and has
  *    **no distance limit** — it goes even outside the harness. Taking it on it says one line (`CHAT_KO.agreeCrate`).
  *  - **Autonomous looting** happens only with no order · request · combat · rescue at all (`isIdle`), and even then
- *    it looks only at containers inside `ALLY_IDLE_LOOT_M` (a corpse container passes the same gate —
- *    `getLootContainers()` is the only list of autonomous candidates).
+ *    it looks only at containers inside `ALLY_IDLE_LOOT_M`. `WorldRef.getLootContainers()` is the only list of
+ *    autonomous candidates, and it holds map crates + `structures` / `rails` containers only
+ *    (`LootContainerInfo.kind` is `'crate' | 'structure'`) — **a corpse is not in it**, so an android never loots a
+ *    body on its own.
  *
  * The contents are previewed with **the same roll as opening** (`InventoryRef.peekContainerItems` — the path the
  * 2026-09-12 drone scan used). Only the host authority's `takeContainerItemFor` actually takes anything — it rides
@@ -25,38 +27,63 @@ import { CHAT_KO, PRIO, _v1, dist2D } from '../model';
 import * as Nav from './Nav';
 import * as Bag from './Bag';
 import * as Ping from './Ping';
+// `parts/Commands` imports this file back (`canFulfil` → `pickupAt`). The cycle is safe: neither module touches
+// the other at evaluation time, both only call its exported functions from inside their own — the same shape as
+// `parts/Extract` · `parts/Contract` · `parts/Support`, all of which end their task through `finishTask`.
+import * as Commands from './Commands';
 
 /** How often the crate candidates are scanned again (s) — a layout constant. */
 const LOOT_SCAN_S = 1;
 /**
  * The match window (m) between a ping spot and a container — not a limit on how far an android may go, but
- * 「is this ping this crate」.
+ * 「is this ping this crate」. It is the **fallback** only: a crate ping carries the real container id
+ * (`PingMessage.containerId` → `AllyRequest.targetId`), and this runs for a ping that arrived without one (an older
+ * client, a ping placed where no crate was found).
  */
 const PING_CRATE_MATCH_M = ALLY_LOOT_REACH_M * 4;
+/**
+ * The match window (m) between an **item** ping and a thing on the ground. An item ping carries no id (there is
+ * nothing stable to name — a pickup is spawned and taken within seconds), so the spot **is** the target, and this
+ * one window is asked twice: `Commands.canFulfil` before the job is handed out, and `autoProposal` when it is acted
+ * on. One constant, so the two can never disagree and leave a body holding a job it cannot finish.
+ */
+const PING_ITEM_MATCH_M = ALLY_LOOT_REACH_M * 3;
 
 export function onEnter(sys: AllySystem, a: Ally): void { a.lootTakeT = 0; void sys; }
 export function onExit(sys: AllySystem, a: Ally): void { a.lootTakeT = 0; void sys; }
 
-/** Proposes autonomous looting · an ordered crate · a ground item, all in one place. */
+/**
+ * Proposes autonomous looting · an ordered crate · a ground item, all in one place.
+ *
+ * A pinged job that **cannot be done any more** (the crate is not on this map, the thing on the ground is gone) is
+ * ended here with `Commands.finishTask`. Without that the body keeps `taskKind` for the rest of the raid, `isIdle`
+ * never comes back true, and it stops looting anything at all — with nothing on screen to say why.
+ */
 export function autoProposal(sys: AllySystem, a: Ally): Proposal | null {
   // ── pinged — no distance limit ──
   if (a.taskKind === 'crate') {
-    const id = a.taskTargetId ?? nearestContainerId(sys, a, a.taskAt);
+    // The id the ping carried, but only while that container really is on this map; otherwise the crate nearest
+    // the ping spot (a ping from an older client carries no id at all).
+    const named = a.taskTargetId && containerOf(sys, a.taskTargetId) ? a.taskTargetId : null;
+    const id = named ?? nearestContainerId(sys, a.taskAt);
     if (id) {
       if (a.lootContainerId !== id) Ping.say(sys, a, CHAT_KO.agreeCrate);   // `Ping.say` blocks the repeat
       a.lootContainerId = id;
       return { state: 'loot', prio: PRIO.orderLoot };
     }
+    Commands.finishTask(sys, a);
   }
+  // An **item ping** (`taskDefId` null — `parts/Support` takes the hand-over kind, which always names a def).
   if (a.taskKind === 'item' && !a.taskDefId) {
-    const p = sys.ctx.pickups?.findNear(a.taskAt, ALLY_LOOT_REACH_M * 3) ?? null;
+    const p = sys.ctx.pickups?.findNear(a.taskAt, PING_ITEM_MATCH_M) ?? null;
     if (p) { a.pickupId = p.id; return { state: 'pickup', prio: PRIO.orderLoot }; }
+    Commands.finishTask(sys, a);      // somebody else got there first
   }
   // ── autonomous looting — only while idle, only inside `ALLY_IDLE_LOOT_M` ──
   if (!isIdle(sys, a)) { a.lootContainerId = null; return null; }
   // The contents preview is not cheap — a crate already picked is left alone while it lives, and otherwise the
   // candidates are scanned again only once per period.
-  if (a.lootContainerId && stillWorth(sys, a, a.lootContainerId)) return { state: 'loot', prio: PRIO.autoLoot };
+  if (a.lootContainerId && stillWorth(sys, a.lootContainerId)) return { state: 'loot', prio: PRIO.autoLoot };
   if (a.lootScanT > 0) return null;          // `parts/Fsm` ticks the period down
   a.lootScanT = LOOT_SCAN_S;
   const id = pickContainer(sys, a);
@@ -130,7 +157,9 @@ function pickContainer(sys: AllySystem, a: Ally): string | null {
   let best: string | null = null;
   let bestD = Infinity;
   for (const c of containers(sys)) {
-    if (sys.viewedContainers.has(c.id)) continue;
+    // Already opened · already looked into — the same two gates `parts/Contract.find('container')` uses, so
+    // 「is this container worth something」 reads the same in both places.
+    if (c.opened || sys.viewedContainers.has(c.id)) continue;
     if (dist2D(c.position, sys.leaderPos) > sys.harness) continue;
     const d = dist2D(a.position, c.position);
     if (d > ALLY_IDLE_LOOT_M) continue;
@@ -147,22 +176,28 @@ function pickContainer(sys: AllySystem, a: Ally): string | null {
  * The container standing at the ping spot (null when nothing is inside `PING_CRATE_MATCH_M` — that ping was not a
  * crate).
  */
-function nearestContainerId(sys: AllySystem, a: Ally, near: THREE.Vector3): string | null {
+function nearestContainerId(sys: AllySystem, near: THREE.Vector3): string | null {
   let best: string | null = null;
   let bestD = Infinity;
   for (const c of containers(sys)) {
     const d = dist2D(c.position, near);
     if (d < bestD) { best = c.id; bestD = d; }
   }
-  void a;
   return bestD <= PING_CRATE_MATCH_M ? best : null;
 }
 
-function stillWorth(sys: AllySystem, a: Ally, id: string): boolean {
+function stillWorth(sys: AllySystem, id: string): boolean {
   const c = containerOf(sys, id);
   if (!c || sys.viewedContainers.has(id)) return false;
-  void a;
   return !!peekBest(sys, c);
+}
+
+/**
+ * Is there something on the ground at that ping spot — `parts/Commands` asks before it hands an **item ping** to a
+ * body, so a ping at bare ground is answered with one line instead of hanging a job nobody can finish.
+ */
+export function pickupAt(sys: AllySystem, at: THREE.Vector3): boolean {
+  return !!(sys.ctx.pickups?.findNear(at, PING_ITEM_MATCH_M) ?? null);
 }
 
 /** The most valuable row in this crate (null with none). **The same roll** as opening, so peek equals take. */

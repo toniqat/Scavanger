@@ -86,7 +86,15 @@ export class Ally implements AllyBodyView {
   /* ── Movement ── */
   readonly dest = new THREE.Vector3();
   hasDest = false;
-  /** Is it running (outside the harness · a rescue · carrying). */
+  /**
+   * Is it running — the sprint flag `player/` draws from (`ALLY_FLAGS.SPRINT`, raised in `Fsm.act`). Every state
+   * that has somewhere urgent to be sets it: getting back to the harness (`Fsm.follow`), closing on a target and
+   * running to the designated enemy's last spot (`parts/Combat`), holding position beside the leader during a
+   * `주의` (`parts/Commands.act`), the `앞장서라` walk out (`Commands.act`, `a.running = lead`), all three
+   * extraction moves (walking to a pinged way out · the call button · boarding), the approach of a hand-over
+   * (`parts/Support`) and every rescue move (`parts/Rescue` — to the body, carrying, the carry run). The free
+   * search **walks** (`Roam.act` lowers it every frame).
+   */
   running = false;
   /** Stuck detection — after too long in the same spot it sidesteps. */
   stuckT = 0;

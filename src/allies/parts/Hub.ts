@@ -153,7 +153,12 @@ function personal(sys: AllySystem, a: Ally, recruited: boolean, dt: number): voi
   else { Nav.halt(a); a.yaw = yawToward(a.position, p.position); }
 }
 
-/** Stands the cheat android beside the PC for the first time. */
+/**
+ * Puts a body on its **entry spot** — every body, both ships. `onHubEntered` calls it for each one: in the shared
+ * ship an unrecruited unit lands inside its cockpit bay and a recruited one at its launch-pod stand (falling back to
+ * the bay exit when the pod stand is not built yet), and in the personal ship the cheat android lands
+ * `ALLY_HUB_FOLLOW_M` beside the PC. `snap` also sticks it to the floor.
+ */
 export function place(sys: AllySystem, a: Ally, snap: boolean): void {
   const ship = sys.ctx.hub?.ship ?? null;
   if (ship === 'shared') {

@@ -1709,7 +1709,8 @@ export interface GameEvents {
    * (`ping:placedV2` + `label` · `enemyId`). `owner` = the PeerId of whoever placed it (local = null). For a ping an
    * android placed, `owner` is the android id. allies reads it as an order.
    */
-  'ping:placedV3': { id: number; position: THREE.Vector3; kind: PingKind; expires: number; owner: PeerId | null; label?: string; enemyId?: number };
+  /** `containerId` (2026-09-19) = the loot-container id a `'crate'` ping snapped onto (`WorldRef.getLootContainers`); `label` stays a display string. */
+  'ping:placedV3': { id: number; position: THREE.Vector3; kind: PingKind; expires: number; owner: PeerId | null; label?: string; enemyId?: number; containerId?: string };
   /** Fact (inventory, local): the local player requested an item (middle-click · the menu). `position` = the local player's feet. To a remote host, `allyq item`. */
   'inventory:itemRequested': { kind: ItemRequestKind; defId: string | null; ammoType: string | null; position: THREE.Vector3 };
   /** Fact (inventory, local): the local player opened a container window. To a remote host, `allyq viewing`. */

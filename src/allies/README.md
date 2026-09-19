@@ -50,7 +50,9 @@ Debug hooks on `getSystem('allies')` (smokes only, never called by game code): `
   `lobby.hostId` and interpolates by `NET_INTERP_DELAY`. `damage()` is a no-op on a replica.
 - **Engagement is for things that fight back.** Androids never shoot a nest egg: `EnemyManagerRef.queryNear` leaves props out by
   default, so sensing, re-targeting, rescue-safety and the contract 「적」 ping never see one, and an 「적」 ping naming an egg is
-  refused instead of agreed to. A player who wants the cells shoots the egg themselves. — `parts/Combat.ts`, `parts/Commands.ts`
+  refused instead of agreed to. A player who wants the cells shoots the egg themselves. The invariant is written where it can be
+  broken: the `parts/Combat.ts` header plus each of its three `queryNear` calls (`sense` · `findTarget` · `enemiesNear` — **never**
+  pass `includeProps: true` from that file), `parts/Commands.onEnemyPing` · `tickEnemyPing`, and `shared/types.ts` `queryNear`.
 - **The base kit is bound, and it exists in the ship too** (2026-09-16). `Roster.syncBodies` → `Bag.ensureKit` gives a recruited
   android its kit the moment it becomes a squad member, so the body in the ship is armed and `getLoadout` feeds the launch-slot
   card; the raid still starts from a fresh kit (`Spawn` → `clearKit` → `equipKit`), and `ensureKit` is skipped while `raidActive`
@@ -74,6 +76,11 @@ Debug hooks on `getSystem('allies')` (smokes only, never called by game code): `
   requests, not orders). 앞장서라 widens the harness for `ALLY_LEAD_DURATION_S` and then expires by itself.
 - **Crates are not raced for**: a pinged one first with no distance limit, an unpinged one only while idle and within
   `ALLY_IDLE_LOOT_M`.
+- **A ping names its target by id, never by its label.** A `'crate'` ping carries the loot-container id
+  (`PingMessage.containerId` → `ping:placedV3.containerId` → `AllyRequest.targetId`); the `label` beside it is the display string
+  `보급 상자 (n등급)`. An `'item'` ping carries no id — a pickup is spawned and taken within seconds, so the **spot** is the
+  target and one window (`parts/Loot` `PING_ITEM_MATCH_M`) answers both 「can anyone take this job」 (`Commands.canFulfil`) and
+  「what is there now」 (`Loot.autoProposal`). A pinged job that cannot be done any more ends through `Commands.finishTask`.
 - Other folders' contract members are called with `?.`; a missing one degrades that behaviour only.
 - **Intended limits** (2026-09-16): solo (`/android` cheat, no relay) death still fails the raid at once even with an
   android standing (a real android is a relay bot member, so the wipe check takes the `isMultiplayer` branch); an
@@ -81,10 +88,24 @@ Debug hooks on `getSystem('allies')` (smokes only, never called by game code): `
   `Nav.spreadToward` applies to following only, because rescue and hand-over approaches need contact range; `roam`
   points of interest are `WorldRef.getStructures` / `getRuinSites` / large obstacles only, so a structureless map is
   always a random patrol, and at the harness edge `follow` ↔ `roam` can alternate within the reaction delay.
+- **Known limit** (2026-09-19): the planet-atmosphere tick (`parts/Vitals.update`) has **no counterpart to
+  `ProgressionRef.hasEnvPrep`** — a person who bought the matching preparation takes no atmosphere damage at all, an android
+  always does. A preparation is a personal profile purchase (CLAUDE.md §4.8) and an android has no profile, so there is nothing
+  to read. The other gates of a person's path **are** matched: the exposure gate (`isGameplayPhase()` · not the training range)
+  and, for the hazard tick, the spore shield bypass (`HAZARD_SPORES_BYPASS_SHIELD`). An android is not in a rover and has no
+  scene lock, so those two branches have no android side.
+- **Known limit**: `Extract.onLiftoff` extracts every body in the bay that is **not dead**, a downed one included — the test is
+  `a.dead` alone, so a body that was carried in or fell inside goes out with the ship and its loot reaches the stash.
 
 ## Recent changes
 
 Last 5 only — older: `git log -- src/allies`.
+- 2026-09-19 — TODO B-59…B-62: comments matched to the code (instant-state count, `Extract` decision count, `running`, the corpse
+  claim in `Loot`, `OBS_QUERY_M`, `Hub.place`, `Roster.refresh`); dead code removed (`Roster.isAlly` · `copyOf` · `snapshotItems` ·
+  `myPeer`, `Spawn.localPeer`, `Sync.w2id`, two `void a` params, a false `void dt`); a **crate ping now carries the container id**
+  (`PingMessage.containerId`) and an **item ping is a real pickup job**; spores bypass an android's shield, the hazard carry-out
+  spends its defibrillator, `agreeToHumanExtract` skips downed bodies, `padNearPing` gained the fog gate, `pickContainer` skips an
+  opened container, the atmosphere tick gained the exposure gate, and `Harness.debugOverride` is cleared on every raid boundary.
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); the seven verbatim user decisions inside `「」` and every Korean on-screen / ping label (`가자` · `주의` · `앞장서라` · `탈출하고 싶다` · the weight states) kept verbatim, no string literal touched.
 - 2026-09-18 — Androids never engage a nest egg: `queryNear` leaves props out, so sensing / targeting / contract 「적」 pings skip them, and an 「적」 ping that names an egg is refused rather than agreed to (`parts/Commands.onEnemyPing` · `tickEnemyPing`).
 - 2026-09-16 — AI pass 2: `roam` free search · 2 m separation · spread · per-weapon engage range · contact-range firing fix ·
@@ -92,4 +113,3 @@ Last 5 only — older: `git log -- src/allies`.
   pinged crates first · the base kit now exists in the ship.
 - 2026-09-15 — Full implementation: roster · ship poses · raid spawn · FSM · harness · nav · combat · vitals · commands ·
   bag · loot · deliver · extract · contract · rescue · sync · `/android` cheat (replaces the contract stub).
-- 2026-09-15 — Folder created with a stub `ctx.allies` (contract commit).

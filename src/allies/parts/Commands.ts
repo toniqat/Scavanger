@@ -25,13 +25,15 @@ import type { AllyRequestKind } from '../model';
 import * as Nav from './Nav';
 import * as Ping from './Ping';
 import * as Bag from './Bag';
+import * as Loot from './Loot';
 import * as Harness from './Harness';
 
 /** Never goes closer than this to a `주의` ping spot (m) — 「해당 위치로 가려고 하지 않음」. */
 const WATCH_KEEP_OUT_M = 6;
 /**
- * The window that matches a person's extraction ping to a pad (m) — not a distance limit but the match window for
- * 「does that ping point at this pad」 (a layout constant).
+ * The window that matches a person's extraction ping to a pad (m) — not a distance limit but the judgement
+ * 「does that ping point at this pad」. A judgement constant, so it lives here and not in csv (`enemies` keeps the
+ * same kind of window beside the code that reads it).
  */
 const PING_PAD_MATCH_M = 20;
 
@@ -39,7 +41,7 @@ const PING_PAD_MATCH_M = 20;
 
 export function onPing(
   sys: AllySystem,
-  e: { position: THREE.Vector3; kind: PingKind; owner: PeerId | null; label?: string; enemyId?: number },
+  e: { position: THREE.Vector3; kind: PingKind; owner: PeerId | null; label?: string; enemyId?: number; containerId?: string },
 ): void {
   if (isAndroidId(e.owner)) return;                 // a ping it placed itself (or a fellow android) is not an order
   const by = e.owner ?? (sys.ctx.net?.localId ?? 'local');
@@ -75,7 +77,10 @@ export function onPing(
       }
       break;
     case 'crate':
-      request(sys, 'crate', by, e.position, { targetId: e.label ?? null });
+      // The **container id**, never `e.label` — that one is the display string `보급 상자 (n등급)` and matches no
+      // container, so an android would walk nowhere and only say its line. With no id (an older client · a ping
+      // that snapped onto nothing) `parts/Loot` falls back to the crate nearest the ping spot.
+      request(sys, 'crate', by, e.position, { targetId: e.containerId ?? null });
       break;
     case 'item':
       request(sys, 'item', by, e.position, {});
@@ -224,7 +229,9 @@ function agreeToHumanExtract(sys: AllySystem, by: PeerId): boolean {
   const padId = padNearPing(sys);
   let any = false;
   for (const a of sys.bodies) {
-    if (a.mode !== 'raid' || a.dead || a.hidden) continue;
+    // The same test as `nearestBody` · `tickRequest`: a downed body takes no job (「who can take work on」 is one
+    // judgement, and it must read the same everywhere).
+    if (a.mode !== 'raid' || a.dead || a.downed || a.hidden) continue;
     a.extractPingPos.copy(sys.humanExtractPos);
     a.hasExtractPing = true;
     a.taskKind = 'extract';
@@ -243,11 +250,17 @@ function agreeToHumanExtract(sys: AllySystem, by: PeerId): boolean {
   return true;
 }
 
-/** The id of the pad nearest the extraction ping a person placed (null when that ping names no pad). */
+/**
+ * The id of the pad nearest the extraction ping a person placed (null when that ping names no pad). An
+ * **undiscovered** pad is not one — the same fog gate as `Extract.findPad`, so agreeing to a person's ping can never
+ * hang a pad the squad has not found on the bodies (the fog contract: undiscovered = it does not exist).
+ */
 function padNearPing(sys: AllySystem): string | null {
+  const fog = sys.ctx.world?.fog ?? null;
   let best: string | null = null;
   let bestD = Infinity;
   for (const p of sys.ctx.extraction?.getPads?.() ?? []) {
+    if (fog && !fog.isDiscovered(p.position)) continue;
     const d = dist2D(p.position, sys.humanExtractPos);
     if (d < bestD) { best = p.id; bestD = d; }
   }
@@ -317,7 +330,7 @@ export function tickRequest(sys: AllySystem): void {
     if (a.mode !== 'raid' || a.dead || a.downed || a.hidden) continue;
     const d = dist2D(a.position, req.at);
     if (d < nearestD) { nearest = a; nearestD = d; }
-    if (!canFulfil(sys, a, req.kind, req.defId, req.ammoType)) continue;
+    if (!canFulfil(sys, a, req.kind, req.defId, req.ammoType, req.at)) continue;
     if (d < bestD) { best = a; bestD = d; }
   }
   if (best) {
@@ -340,8 +353,15 @@ export function tickRequest(sys: AllySystem): void {
 /**
  * Does this body hold something that fills that request right now. A search kind (crate · extraction · contract) is
  * always taken.
+ *
+ * `'item'` is **two requests on one axis**: with a `defId` it is 「hand me this」 from the inventory (the body needs
+ * that item in its bag — `parts/Support`), without one it is an **item ping**, 「pick that up」, which any body can
+ * take as long as something really lies at `at` (`parts/Loot`). Answering the second one with the first one's test
+ * (`!!defId`) is what made every item ping die on `CHAT_KO.noItem`.
  */
-function canFulfil(sys: AllySystem, a: Ally, kind: AllyRequestKind, defId: string | null, ammoType: string | null): boolean {
+function canFulfil(
+  sys: AllySystem, a: Ally, kind: AllyRequestKind, defId: string | null, ammoType: string | null, at: THREE.Vector3,
+): boolean {
   switch (kind) {
     case 'heal':
       // 「회복 아이템」 = a pure healing drug — not a shield charger, not a boost.
@@ -351,7 +371,7 @@ function canFulfil(sys: AllySystem, a: Ally, kind: AllyRequestKind, defId: strin
     case 'ammo':
       return !!Bag.findInBag(sys, a, (d) => d.category === 'ammo' && (!ammoType || d.ammoType === ammoType));
     case 'item':
-      return !!defId && !!Bag.findInBag(sys, a, (d) => d.id === defId);
+      return defId ? !!Bag.findInBag(sys, a, (d) => d.id === defId) : Loot.pickupAt(sys, at);
     default:
       return true;
   }
