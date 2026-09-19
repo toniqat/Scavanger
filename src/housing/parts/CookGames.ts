@@ -1,31 +1,31 @@
 /**
- * src/housing/parts/CookGames.ts — **요리 미니게임 판정** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」). DOM · ctx 없는 순수 클래스.
+ * src/housing/parts/CookGames.ts — **the cooking minigame judgement** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」). Pure classes, no DOM, no ctx.
  *
- * `parts/GymGames.ts` 를 그대로 본떴다: 화면(`ui/cook/*`)은 이 객체를 그리기만 하고, 스모크는 화면 없이 이것만 몰아
- * 판정을 검사한다 (`HousingSystem.cookDebug.makeGame`). 시간은 **스스로 들고 있다** — `update(dt)` 가 `time` 을 밀고
- * `press` · `release` · `clickPiece` 는 **지금 `time`** 에서 판정한다. 그래서 화면은 입력을 넘기기 직전에 그 순간까지
- * `update` 를 먼저 부른다.
+ * Modelled exactly on `parts/GymGames.ts`: the screen (`ui/cook/*`) only draws this object, and the smoke test drives
+ * it alone, with no screen, to check the judgement (`HousingSystem.cookDebug.makeGame`). It **holds its own time** —
+ * `update(dt)` pushes `time` and `press` · `release` · `clickPiece` judge at the **current `time`**. So the screen
+ * calls `update` up to that moment right before it hands the input over.
  *
- * 수치는 전부 `shared/cooking` 의 `COOK_*` (`data/constants.csv`) — 여기에는 판정에 쓰는 숫자가 하나도 없다.
- *   • 판정 한 번 = 완벽 `COOK_SCORE_PERFECT` · 좋음 `COOK_SCORE_GOOD` · 실패 0.
- *   • **2026-09-14 (사용자 결정): 보이는 것 = 판정.** `cookJudgeBands` 가 창 하나를 두 띠로 나눈다 — `perfect` 는 csv 창
- *     (`COOK_*_WINDOW_S`) 그대로이고 **화면에 그려지는 표식의 크기가 곧 그 띠**다 (`ui/cook/CookViews` 가 이 값에서 폭을 만든다),
- *     `good` 은 그 바깥으로 `GOOD_OF_PERFECT` 배까지. 옛 규칙(완벽 = 창의 1/3)을 뒤집은 것이라 전체가 훨씬 관대하다.
- *   • **2026-09-14: 멈추지 않는다.** 입력이 한 번도 없으면 끝나지 않던 볶기 · 젓기 · 붓기에 `maxTime` 안전핀을 달았다
- *     (다지기의 `COOK_MINCE_MAX_S` 와 같은 자리). 판정 수치가 아니라 **그때까지의 점수로 끝내는 멈춤 방지**다.
- *   • `chop`    썰기   — 예비 박 뒤 박자마다 표식 `COOK_CHOP_CUTS` 개. 창 밖 헛클릭은 **다음 표식의 실패**(직전 창이 닫힌 뒤) —
- *                        헬스장 `BeatGame.strayMiss` 와 같은 규칙. 점수 = 판정 평균.
- *   • `mince`   다지기 — 좌클릭 = 좌우 게이지 · 우클릭 = 상하 게이지 +FILL, **직전 클릭과 같은 버튼이면** 반대 게이지 −DRAIN.
- *                        둘 다 1 이면 끝(걸린 시간으로 선형 점수), `COOK_MINCE_MAX_S` 에 강제 끝(0 점).
- *   • `grill`   굽기   — 조각 i 는 `i × STAGGER` 뒤부터 `cookGrillSeconds` 에 걸쳐 익는다(계속 오른다). 조각 클릭 = 뒤집기 /
- *                        (이미 늦었으면 뒤집기 실패 + 꺼내기) / 뒤집은 조각은 꺼내기. `BURN_AT` 에서 타서 내려간다(남은 판정 실패).
- *                        점수 = 조각 × 2 판정의 평균.
- *   • `stirfry` 볶기   — 클릭은 가장 가까운 박자에 판정하고 **한 박자에 한 번만**. 판정마다 바가 찬다, 바 ≥ 1 이면 끝. 판정 평균.
- *   • `stir`    젓기   — 누르는 동안 온도 ↓ · 완성 ↑, 떼면 온도 ↑(끓어오름 파동). 초록 구간에 머문 시간 비율로 선형 점수.
- *   • `pour`    붓기   — 흐름이 `RAMP_S` 에 걸쳐 0 ↔ 1 로 선형으로 간다. 한 번 부은 뒤 흐름 0 으로 `SETTLE_S` 가만히 있으면 끝,
- *                        비커(목표 × `BEAKER_MUL`)가 넘치면 곧장 끝. 목표량 오차 비율로 선형 점수.
+ * Every number is a `COOK_*` from `shared/cooking` (`data/constants.csv`) — not one judgement number lives here.
+ *   • One judgement = perfect `COOK_SCORE_PERFECT` · good `COOK_SCORE_GOOD` · miss 0.
+ *   • **2026-09-14 (user's decision): what you see is the judgement.** `cookJudgeBands` splits one window into two bands — `perfect` is the csv
+ *     window (`COOK_*_WINDOW_S`) as it is and **the size of the marker drawn on screen is that band** (`ui/cook/CookViews` builds its width from it),
+ *     and `good` reaches `GOOD_OF_PERFECT` × beyond it. It inverts the old rule (perfect = a third of the window), so everything is far more forgiving.
+ *   • **2026-09-14: it never stalls.** Stir-frying · stirring · pouring, which never ended with no input at all, got a `maxTime` pin
+ *     (the same place as mincing's `COOK_MINCE_MAX_S`). Not a judgement number but **stall prevention that ends on the score so far**.
+ *   • `chop`    chopping    — a marker on every beat after the lead-in, `COOK_CHOP_CUTS` of them. A stray click outside the window is
+ *                             **the next marker's miss** (after the previous window closed) — the gym's `BeatGame.strayMiss` rule. Score = the judgement average.
+ *   • `mince`   mincing     — LMB = the left-right gauge · RMB = the up-down gauge, +FILL; **on the same button as the previous click** the other gauge −DRAIN.
+ *                             Both at 1 ends it (score linear in the time taken), `COOK_MINCE_MAX_S` force-ends it (0 points).
+ *   • `grill`   grilling    — piece i cooks from `i × STAGGER` on, over `cookGrillSeconds` (and keeps rising). Clicking a piece = a flip /
+ *                             (a failed flip + removal, if it is already late) / a flipped piece comes off. At `BURN_AT` it burns and comes off (the rest miss).
+ *                             Score = the average of the pieces × 2 judgements.
+ *   • `stirfry` stir-frying — a click is judged against the nearest beat, **once per beat only**. Each judgement fills the bar, bar ≥ 1 ends it. Judgement average.
+ *   • `stir`    stirring    — held, temperature ↓ · doneness ↑; released, temperature ↑ (the boiling surge). Score linear in the time spent in the green band.
+ *   • `pour`    pouring     — the flow runs linearly 0 ↔ 1 over `RAMP_S`. Once something has been poured, standing at flow 0 for `SETTLE_S` ends it,
+ *                             and an overflowing beaker (target × `BEAKER_MUL`) ends it at once. Score linear in the error against the target amount.
  *
- * 연출 이벤트(`drain()`): `judge`(판정 하나) · `beat`(hub 손 동작 · 소리 — `housing:cookBeat` 로 나간다) · `sound`(굽기 조각이 불에 닿음).
+ * Presentation events (`drain()`): `judge` (one judgement) · `beat` (the hub hand motion · sound — goes out as `housing:cookBeat`) · `sound` (a piece hitting the grill).
  */
 import type { CookBeatAction, CookGame, CookJudge, CookStepDef } from '@/shared';
 import {
@@ -43,7 +43,7 @@ import {
   cookGrillSeconds,
 } from '@/shared';
 
-/** 마우스 버튼 — 화면이 `pointerdown.button` 0 / 2 를 이것으로 옮긴다. */
+/** The mouse button — the screen maps `pointerdown.button` 0 / 2 onto this. */
 export type CookButton = 'left' | 'right';
 
 export type CookGameEvent =
@@ -52,25 +52,26 @@ export type CookGameEvent =
   | { type: 'sound'; id: 'cook_sizzle' };
 
 /**
- * 젓기: 누르고 있는 동안 `stir` 연출 이벤트를 다시 내는 간격 (초). **판정과 무관한 연출 박자**다 — hub 의 국자는 마지막 `stir` 뒤
- * 0.45 초가 지나면 멈추므로(「뗐다」 이벤트가 없다) 그보다 넉넉히 짧아야 한다. 소리(`cook_stir`)는 화면이 따로 솎는다 (구현 값, 밸런스 수치가 아니다).
+ * Stirring: the interval (seconds) at which the `stir` presentation event is re-emitted while the button is held. **A presentation beat with
+ * nothing to do with the judgement** — the hub's ladle stops 0.45 s after the last `stir` (there is no 「released」 event), so this has to be
+ * comfortably shorter. The sound (`cook_stir`) is thinned out separately by the screen (an implementation value, not a balance number).
  */
 export const COOK_STIR_BEAT_INTERVAL_S = 0.25;
-/** 적분 한 걸음의 상한 (초) — 젓기 온도가 틱 간격(최대 수십 ms)에 따라 달라지지 않게 잘게 나눈다 (구현 값). */
+/** The cap on one integration step (seconds) — sub-stepped so the stir temperature never depends on the tick interval (tens of ms at worst) (an implementation value). */
 const SUBSTEP_S = 1 / 240;
 /**
- * 박자 게임 판정 띠의 상한 = 박자 × 이 값 (구현 값 — `parts/GymGames.WINDOW_MAX_OF_BEAT` 와 같은 규칙): 띠가 박자의 절반을 넘으면
- * 이웃 표식의 띠와 겹쳐 헛클릭 규칙이 깨진다.
+ * The cap on a beat game's judgement band = beat × this (an implementation value — the same rule as `parts/GymGames.WINDOW_MAX_OF_BEAT`):
+ * a band past half a beat overlaps the neighbouring marker's band and breaks the stray-click rule.
  */
 const WINDOW_MAX_OF_BEAT = 0.5;
 /**
- * 좋음 띠 = 완벽 띠의 이 배수 (구현 값). **완벽 띠가 곧 화면에 그려지는 표식**이고 좋음은 그 바깥의 나머지다 — 이 값이 1 이면
- * 좋음이 사라지고, `WINDOW_MAX_OF_BEAT` 에 닿으면 헛클릭이 실패로 잡히지 않는다.
+ * The good band = this multiple of the perfect band (an implementation value). **The perfect band is the marker drawn on screen** and good is
+ * the rest outside it — at 1 good disappears, and at `WINDOW_MAX_OF_BEAT` a stray click is no longer caught as a miss.
  */
 const GOOD_OF_PERFECT = COOK_GOOD_OF_PERFECT;
 /**
- * 입력이 끊긴 단계를 끝내는 안전핀의 배수 (구현 값) — 끝까지 제대로 하는 사람은 절대 닿지 않는 길이여야 한다.
- * 판정 수치가 아니다: 닿으면 **그때까지의 점수 그대로** 끝낸다.
+ * The multiplier for the pin that ends a step whose input has stopped (an implementation value) — it has to be a length
+ * nobody who plays the step through ever reaches. Not a judgement number: on reaching it the step ends **on the score so far**.
  */
 const STALL_TIMEOUT_MUL = COOK_STEP_TIMEOUT_MUL;
 
@@ -78,7 +79,7 @@ export function cookJudgeScore(q: CookJudge): number {
   return q === 'perfect' ? COOK_SCORE_PERFECT : q === 'good' ? COOK_SCORE_GOOD : 0;
 }
 
-/** 판정들의 평균 (분모 = `total`). 0 … 1 로 자른다. */
+/** The average of the judgements (denominator = `total`). Clamped to 0 … 1. */
 export function cookJudgeAverage(judgements: readonly CookJudge[], total: number): number {
   if (total <= 0) return 0;
   let sum = 0;
@@ -86,15 +87,15 @@ export function cookJudgeAverage(judgements: readonly CookJudge[], total: number
   return clamp01(sum / total);
 }
 
-/** 판정 띠 한 벌 (초) — `perfect` 는 **화면에 그려지는 표식의 반지름**, `good` 은 그 바깥까지. */
+/** One set of judgement bands (seconds) — `perfect` is **the radius of the marker drawn on screen**, `good` reaches beyond it. */
 export interface CookJudgeBands {
   perfect: number;
   good: number;
 }
 
 /**
- * csv 창(`COOK_*_WINDOW_S`) → 판정 띠. `perfect` 는 그 창 그대로이고(이웃 표식과 겹치지 않게 잘린다) `good` 은 `GOOD_OF_PERFECT` 배.
- * 화면은 `perfect` 로 표식 크기를 만든다 — 그래서 「표식이 판정선을 덮으면 완벽」 이 눈으로 보인다.
+ * csv window (`COOK_*_WINDOW_S`) → judgement bands. `perfect` is the window itself (clamped clear of the neighbouring marker), `good` is `GOOD_OF_PERFECT` ×.
+ * The screen builds the marker size from `perfect` — that is what makes 「the marker covering the judgement line is perfect」 visible.
  */
 export function cookJudgeBands(window: number, beat: number): CookJudgeBands {
   const cap = Math.max(0, beat) * WINDOW_MAX_OF_BEAT;
@@ -102,7 +103,7 @@ export function cookJudgeBands(window: number, beat: number): CookJudgeBands {
   return { perfect: good / GOOD_OF_PERFECT, good };
 }
 
-/** 오차 → 판정 (완벽 띠 안 = 완벽, 좋음 띠 안 = 좋음), 밖이면 null. */
+/** Error → judgement (inside the perfect band = perfect, inside the good band = good), null outside. */
 export function cookGrade(err: number, bands: CookJudgeBands): CookJudge | null {
   const e = Math.abs(err);
   if (e <= bands.perfect + 1e-9) return 'perfect';
@@ -112,14 +113,14 @@ export function cookGrade(err: number, bands: CookJudgeBands): CookJudge | null 
 
 function clamp01(v: number): number { return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0; }
 
-/** v ≤ best → 1, v ≥ worst → 0, 사이 선형 (best < worst). */
+/** v ≤ best → 1, v ≥ worst → 0, linear between (best < worst). */
 function linearDown(v: number, best: number, worst: number): number {
   if (v <= best) return 1;
   if (v >= worst) return 0;
   return clamp01(1 - (v - best) / (worst - best));
 }
 
-/** v ≥ best → 1, v ≤ worst → 0, 사이 선형 (worst < best). */
+/** v ≥ best → 1, v ≤ worst → 0, linear between (worst < best). */
 function linearUp(v: number, best: number, worst: number): number {
   if (v >= best) return 1;
   if (v <= worst) return 0;
@@ -128,9 +129,9 @@ function linearUp(v: number, best: number, worst: number): number {
 
 export abstract class CookGameBase {
   abstract readonly game: CookGame;
-  /** 판정 순서대로 (다지기 · 젓기 · 붓기는 판정이 없어 비어 있다). */
+  /** In judgement order (mincing · stirring · pouring have no judgements, so it stays empty). */
   readonly judgements: CookJudge[] = [];
-  /** 게임 시작부터 흐른 시간 (초). */
+  /** Time elapsed since the game started (seconds). */
   time = 0;
   protected finished = false;
   private events: CookGameEvent[] = [];
@@ -138,15 +139,15 @@ export abstract class CookGameBase {
   constructor(readonly step: CookStepDef) {}
 
   get done(): boolean { return this.finished; }
-  /** 단계 점수 0 … 1 (끝나기 전에는 지금까지의 잠정값). */
+  /** The step score 0 … 1 (before it ends, the provisional value so far). */
   abstract get score(): number;
   /**
-   * 단계 진행도 0 … 1 — 화면 아래 프로그레스바 하나가 이것만 읽는다 (2026-09-14, 사용자 결정 「라벨 없이 바만」).
-   * 「끝까지 가면 1」 이라는 뜻이고 점수가 아니다.
+   * The step progress 0 … 1 — the one progress bar at the bottom of the screen reads only this (2026-09-14, user's decision 「a bar only, no label」).
+   * It means 「1 once it runs to the end」, and is not a score.
    */
   abstract get completion(): number;
   /**
-   * 입력이 하나도 없어도 이 시각(초)에는 끝난다 — **판정이 아니라 멈춤 방지 안전핀**이다. 스스로 반드시 끝나는 게임은 Infinity.
+   * It ends at this time (seconds) even with no input at all — **not a judgement but a stall-prevention pin**. Infinity for a game that always ends on its own.
    */
   get maxTime(): number { return Infinity; }
 
@@ -156,7 +157,7 @@ export abstract class CookGameBase {
     return c;
   }
 
-  /** 쌓인 이벤트를 꺼내고 비운다 (화면이 틱마다 · 입력마다 부른다). */
+  /** Takes the queued events and empties them (the screen calls it every tick · every input). */
   drain(): CookGameEvent[] {
     const out = this.events;
     this.events = [];
@@ -173,7 +174,7 @@ export abstract class CookGameBase {
 
   press(button: CookButton): void { if (!this.finished) this.onPress(button); }
   release(button: CookButton): void { if (!this.finished) this.onRelease(button); }
-  /** 굽기 조각 클릭 — 다른 게임에서는 아무 일도 없다. */
+  /** A click on a grilling piece — nothing happens in the other games. */
   clickPiece(index: number): void { if (!this.finished) this.onPiece(index); }
 
   protected judge(quality: CookJudge): void {
@@ -184,30 +185,30 @@ export abstract class CookGameBase {
   protected sound(id: 'cook_sizzle'): void { this.events.push({ type: 'sound', id }); }
   protected finish(): void { this.finished = true; }
 
-  /** `maxTime` 에 닿았다 — 끝내기 직전에 게임마다 마무리할 것 (기본은 그때까지의 점수 그대로). */
-  protected onTimeout(): void { /* 게임마다 */ }
+  /** `maxTime` was reached — what each game finishes off right before the end (by default, the score so far as it is). */
+  protected onTimeout(): void { /* per game */ }
 
-  /** `step` 은 계약 필드 이름이라 판정 틱은 `step_` 이다. */
+  /** `step` is a contract field name, so the judgement tick is `step_`. */
   protected abstract step_(dt: number): void;
-  protected onPress(_button: CookButton): void { /* 게임마다 */ }
-  protected onRelease(_button: CookButton): void { /* 탭만 쓰는 게임 */ }
-  protected onPiece(_index: number): void { /* 굽기만 */ }
+  protected onPress(_button: CookButton): void { /* per game */ }
+  protected onRelease(_button: CookButton): void { /* games that only tap */ }
+  protected onPiece(_index: number): void { /* grilling only */ }
 }
 
-/* ── 썰기 ────────────────────────────────────────────────────────────────── */
+/* ── Chopping ────────────────────────────────────────────────────────────── */
 export interface CookNote {
-  /** 표식이 판정선에 닿는 시각 (초). */
+  /** The time the marker reaches the judgement line (seconds). */
   t: number;
-  /** 이 표식의 판정, 아직이면 null. */
+  /** This marker's judgement, null until then. */
   q: CookJudge | null;
 }
 
 export class ChopGame extends CookGameBase {
   readonly game = 'chop' as const;
   readonly beatS = COOK_CHOP_BEAT_S;
-  /** 판정 띠 — `perfect` 가 곧 화면 표식의 반지름 (2026-09-14). */
+  /** The judgement bands — `perfect` is exactly the on-screen marker's radius (2026-09-14). */
   readonly bands: CookJudgeBands;
-  /** 바깥 띠 (= 좋음까지). 놓침 · 헛클릭 규칙이 쓰는 창이다. */
+  /** The outer band (= out to good). The window the miss · stray-click rules use. */
   readonly window: number;
   readonly notes: CookNote[] = [];
   private next = 0;
@@ -233,7 +234,7 @@ export class ChopGame extends CookGameBase {
     if (this.judgements.length >= this.total) this.finish();
   }
 
-  /** 다음 표식보다 이른 헛클릭이 그 표식의 실패인가 (직전 창이 닫힌 뒤) — 아니면 무시 (예비 박자 포함). */
+  /** Is a stray click earlier than the next marker that marker's miss (after the previous window closed) — otherwise ignored (the lead-in beats included). */
   private strayMiss(n: CookNote): boolean {
     const err = this.time - n.t;
     return err < -this.window && err >= -(this.beatS - this.window);
@@ -254,18 +255,18 @@ export class ChopGame extends CookGameBase {
   }
 }
 
-/* ── 다지기 ──────────────────────────────────────────────────────────────── */
+/* ── Mincing ─────────────────────────────────────────────────────────────── */
 export class MinceGame extends CookGameBase {
   readonly game = 'mince' as const;
-  /** 좌우 게이지 (좌클릭) 0 … 1. */
+  /** The left-right gauge (left click) 0 … 1. */
   h = 0;
-  /** 상하 게이지 (우클릭) 0 … 1. */
+  /** The up-down gauge (right click) 0 … 1. */
   v = 0;
-  /** 직전 클릭 버튼. */
+  /** The previous click's button. */
   last: CookButton | null = null;
-  /** 두 게이지를 다 채운 시각, 강제 종료면 null. */
+  /** The time both gauges filled, null on a forced end. */
   doneAt: number | null = null;
-  /** `COOK_MINCE_MAX_S` 에 강제로 끝났다. */
+  /** Force-ended at `COOK_MINCE_MAX_S`. */
   timedOut = false;
 
   get score(): number {
@@ -276,7 +277,7 @@ export class MinceGame extends CookGameBase {
   get completion(): number { return clamp01((this.h + this.v) / 2); }
   get maxTime(): number { return COOK_MINCE_MAX_S; }
 
-  protected step_(): void { /* 강제 종료는 `maxTime` · `onTimeout` 이 한다 */ }
+  protected step_(): void { /* the forced end is done by `maxTime` · `onTimeout` */ }
 
   protected onTimeout(): void { this.timedOut = true; }
 
@@ -295,19 +296,19 @@ export class MinceGame extends CookGameBase {
   }
 }
 
-/* ── 굽기 ────────────────────────────────────────────────────────────────── */
+/* ── Grilling ────────────────────────────────────────────────────────────── */
 export interface GrillPiece {
   defId: string;
-  /** 불에 닿는 시각 (초). */
+  /** The time it hits the heat (seconds). */
   start: number;
-  /** 0 → 100 % 익는 시간 (초). */
+  /** The time it takes to cook 0 → 100 % (seconds). */
   seconds: number;
   flipped: boolean;
   removed: boolean;
   burned: boolean;
   flipQ: CookJudge | null;
   doneQ: CookJudge | null;
-  /** `cook_sizzle` 을 냈다. */
+  /** `cook_sizzle` has been emitted. */
   sizzled: boolean;
 }
 
@@ -328,14 +329,14 @@ export class GrillGame extends CookGameBase {
   get score(): number { return cookJudgeAverage(this.judgements, this.total); }
   get completion(): number { return this.total > 0 ? clamp01(this.judgements.length / this.total) : 0; }
 
-  /** 조각의 진행도 (불에 닿기 전 0, 계속 오른다). */
+  /** A piece's progress (0 before it hits the heat, and it keeps rising). */
   progressOf(i: number): number {
     const p = this.pieces[i];
     if (!p) return 0;
     return Math.max(0, (this.time - p.start) / Math.max(1e-6, p.seconds));
   }
 
-  /** 조각이 불 위에 있는가 (닿았고 아직 안 내려갔다). */
+  /** Is the piece on the heat (it has landed and has not come off yet). */
   onGrill(i: number): boolean {
     const p = this.pieces[i];
     return !!p && !p.removed && this.time >= p.start;
@@ -372,7 +373,7 @@ export class GrillGame extends CookGameBase {
         this.beat('flip', q);
         return;
       }
-      // 늦었다 — 뒤집기 실패로 치고 곧장 꺼낸다
+      // late — counted as a failed flip and taken off at once
       p.flipQ = 'miss';
       this.judge('miss');
     }
@@ -390,41 +391,41 @@ export class GrillGame extends CookGameBase {
   }
 }
 
-/* ── 볶기 ────────────────────────────────────────────────────────────────── */
+/* ── Stir-frying ─────────────────────────────────────────────────────────── */
 export class StirfryGame extends CookGameBase {
   readonly game = 'stirfry' as const;
   readonly beatS = COOK_STIRFRY_BEAT_S;
-  /** 판정 띠 — `perfect` 가 곧 화면 안내 링의 반지름 (2026-09-14). */
+  /** The judgement bands — `perfect` is exactly the radius of the on-screen guide ring (2026-09-14). */
   readonly bands: CookJudgeBands = cookJudgeBands(COOK_STIRFRY_WINDOW_S, COOK_STIRFRY_BEAT_S);
-  /** 바깥 띠 (= 좋음까지). */
+  /** The outer band (= out to good). */
   readonly window = this.bands.good;
-  /** 퍼센트 바 0 … 1. */
+  /** The percentage bar 0 … 1. */
   bar = 0;
-  /** 판정한 박자 번호 (0 = 예비 박 뒤 첫 박자). */
+  /** The beat numbers already judged (0 = the first beat after the lead-in). */
   readonly usedBeats = new Set<number>();
 
   get score(): number { return cookJudgeAverage(this.judgements, this.judgements.length); }
   get completion(): number { return clamp01(this.bar); }
 
   /**
-   * 멈춤 방지 (2026-09-14): 한 박자도 안 누르면 바가 영영 안 차므로, **가장 못한 사람이 바를 채우는 데 드는 박자 수**
-   * (`1 / COOK_STIRFRY_FILL_MISS`)가 지나면 그때까지의 점수로 끝낸다. 박자마다 누르는 사람은 그 훨씬 전에 끝난다.
+   * Stall prevention (2026-09-14): with not one beat clicked the bar never fills, so once **the number of beats the worst
+   * player needs to fill the bar** (`1 / COOK_STIRFRY_FILL_MISS`) has passed it ends on the score so far. Anyone clicking on the beat ends long before that.
    */
   get maxTime(): number {
     return (COOK_LEAD_BEATS + Math.ceil(1 / Math.max(1e-6, COOK_STIRFRY_FILL_MISS))) * this.beatS;
   }
 
-  /** 박자 k 가 판정선에 닿는 시각. */
+  /** The time beat k reaches the judgement line. */
   beatTime(k: number): number { return (COOK_LEAD_BEATS + k) * this.beatS; }
-  /** 지금 시각에 가장 가까운 박자 번호 (예비 박이면 음수). */
+  /** The beat number nearest the current time (negative during the lead-in beats). */
   nearestBeat(t = this.time): number { return Math.round(t / Math.max(1e-6, this.beatS)) - COOK_LEAD_BEATS; }
 
-  protected step_(): void { /* 박자를 놓쳐도 판정이 없다 — 바가 안 찰 뿐 */ }
+  protected step_(): void { /* a missed beat is not judged — the bar simply does not fill */ }
 
   protected onPress(button: CookButton): void {
     if (button !== 'left') return;
     const k = this.nearestBeat();
-    if (k < 0 || this.usedBeats.has(k)) return;          // 예비 박 · 이미 판정한 박자
+    if (k < 0 || this.usedBeats.has(k)) return;          // a lead-in beat · a beat already judged
     this.usedBeats.add(k);
     const q = cookGrade(this.time - this.beatTime(k), this.bands) ?? 'miss';
     this.bar = Math.min(1, this.bar + (q === 'perfect' ? COOK_STIRFRY_FILL_PERFECT : q === 'good' ? COOK_STIRFRY_FILL_GOOD : COOK_STIRFRY_FILL_MISS));
@@ -434,15 +435,15 @@ export class StirfryGame extends CookGameBase {
   }
 }
 
-/* ── 젓기 ────────────────────────────────────────────────────────────────── */
+/* ── Stirring ────────────────────────────────────────────────────────────── */
 export class StirGame extends CookGameBase {
   readonly game = 'stir' as const;
-  /** 온도 0 … 1. */
+  /** Temperature 0 … 1. */
   temp = (COOK_STIR_BAND_LOW + COOK_STIR_BAND_HIGH) / 2;
-  /** 완성 0 … 1. */
+  /** Doneness 0 … 1. */
   progress = 0;
   holding = false;
-  /** 초록 구간 안에 머문 시간 · 전체 시간 (초). */
+  /** Time spent inside the green band · total time (seconds). */
   bandTime = 0;
   elapsed = 0;
   private beatClock = 0;
@@ -451,13 +452,13 @@ export class StirGame extends CookGameBase {
   get inBand(): boolean { return this.temp >= COOK_STIR_BAND_LOW && this.temp <= COOK_STIR_BAND_HIGH; }
   get score(): number { return linearUp(this.ratio, COOK_STIR_PERFECT_RATIO, COOK_STIR_ZERO_RATIO); }
   get completion(): number { return clamp01(this.progress); }
-  /** 멈춤 방지 (2026-09-14) — 한 번도 안 저으면 완성이 안 오른다. 계속 젓는 사람은 `COOK_STIR_TIME_S` 에 끝난다. */
+  /** Stall prevention (2026-09-14) — with no stirring at all, doneness never rises. Anyone who keeps stirring ends at `COOK_STIR_TIME_S`. */
   get maxTime(): number { return Math.max(1e-6, COOK_STIR_TIME_S) * STALL_TIMEOUT_MUL; }
-  /** 지금의 끓어오름 배수 (1 + SURGE × sin) — 화면의 거품 세기. */
+  /** The current boil surge multiplier (1 + SURGE × sin) — the strength of the bubbles on screen. */
   get surge(): number { return 1 + COOK_STIR_SURGE * Math.sin((2 * Math.PI * this.time) / Math.max(1e-6, COOK_STIR_SURGE_S)); }
 
   protected step_(dt: number): void {
-    // `time` 은 이미 dt 만큼 밀렸다 — 파동의 위상은 걸음마다 그 걸음의 시각으로 잰다
+    // `time` has already been pushed by dt — the wave's phase is measured per sub-step, at that sub-step's time
     let left = dt;
     let t = this.time - dt;
     while (left > 1e-12 && !this.finished) {
@@ -493,23 +494,23 @@ export class StirGame extends CookGameBase {
   }
 }
 
-/* ── 붓기 ────────────────────────────────────────────────────────────────── */
+/* ── Pouring ─────────────────────────────────────────────────────────────── */
 export class PourGame extends CookGameBase {
   readonly game = 'pour' as const;
-  /** 목표량 (ml). */
+  /** The target amount (ml). */
   readonly target: number;
-  /** 비커 용량 (ml) = 목표 × `COOK_POUR_BEAKER_MUL`. */
+  /** The beaker's capacity (ml) = target × `COOK_POUR_BEAKER_MUL`. */
   readonly capacity: number;
-  /** 흐름 0 … 1. */
+  /** Flow 0 … 1. */
   flow = 0;
-  /** 비커에 든 양 (ml). */
+  /** The amount in the beaker (ml). */
   amount = 0;
   holding = false;
-  /** 한 번이라도 부었다. */
+  /** Something has been poured at least once. */
   poured = false;
-  /** 흐름이 0 이 된 뒤 가만히 있던 시간 (초). */
+  /** The time spent still since the flow reached 0 (seconds). */
   idle = 0;
-  /** 넘쳐서 끝났다. */
+  /** It ended by overflowing. */
   overflowed = false;
 
   constructor(step: CookStepDef) {
@@ -518,13 +519,13 @@ export class PourGame extends CookGameBase {
     this.capacity = this.target * Math.max(1, COOK_POUR_BEAKER_MUL);
   }
 
-  /** 목표량과의 오차 비율. */
+  /** The error against the target amount, as a fraction. */
   get error(): number { return Math.abs(this.amount - this.target) / this.target; }
   get score(): number { return this.overflowed ? 0 : linearDown(this.error, COOK_POUR_PERFECT_ERR, COOK_POUR_ZERO_ERR); }
   get completion(): number { return clamp01(this.amount / Math.max(1e-6, this.target)); }
   /**
-   * 멈춤 방지 (2026-09-14) — 한 번도 안 부으면 `poured` 가 서지 않아 영영 안 끝난다. 가득 붓는 데 드는 시간(흐름 100 %)의
-   * 몇 배를 주므로 조금씩 나눠 붓는 사람도 닿지 않는다.
+   * Stall prevention (2026-09-14) — with nothing ever poured, `poured` never goes up and it never ends. It grants a few
+   * times the time a full pour takes (at 100 % flow), so even someone pouring in small doses never reaches it.
    */
   get maxTime(): number {
     return (COOK_POUR_RAMP_S * 2 + this.capacity / Math.max(1e-6, COOK_POUR_RATE_ML_S) + COOK_POUR_SETTLE_S) * STALL_TIMEOUT_MUL;
@@ -534,7 +535,7 @@ export class PourGame extends CookGameBase {
     let left = dt;
     const want = this.holding ? 1 : 0;
     const ramp = COOK_POUR_RAMP_S > 0 ? 1 / COOK_POUR_RAMP_S : Infinity;
-    // 흐름은 목표(0 또는 1)까지 선형 — 그 구간의 부은 양은 사다리꼴로 정확히 적분한다
+    // the flow is linear up to its target (0 or 1) — the amount poured over that stretch is integrated exactly, as a trapezoid
     if (this.flow !== want) {
       const reach = Math.abs(want - this.flow) / ramp;
       const h = Math.min(left, reach);
@@ -577,7 +578,7 @@ export class PourGame extends CookGameBase {
 
 export type AnyCookGame = ChopGame | MinceGame | GrillGame | StirfryGame | StirGame | PourGame;
 
-/** 단계 하나의 판정 객체. */
+/** One step's judge object. */
 export function createCookGame(step: CookStepDef): AnyCookGame {
   switch (step.game) {
     case 'chop': return new ChopGame(step);

@@ -5,10 +5,10 @@ import {
 import type { HousingSystem } from '../HousingSystem';
 import { clear, el, setText, toggleClass } from './dom';
 
-/** Chip / silhouette edge in a 결과 row (px). */
+/** Chip / silhouette edge in a result row (px). */
 const ROW_CHIP_PX = 26;
 
-/** One 결과 row (an 산출물 of a family's 결과표). */
+/** One result row (a product of a family's result table). */
 interface DexRow {
   root: HTMLElement;
   icon: HTMLElement;
@@ -19,7 +19,7 @@ interface DexRow {
   iconKey: string;
 }
 
-/** One 계열 구획. */
+/** One family section. */
 interface FamilySection {
   family: SampleFamily;
   lv: HTMLElement;
@@ -31,7 +31,7 @@ interface FamilySection {
   builtKey: string;
 }
 
-/** Live handle of a rendered 분석 도감 (the 분석 화면 owns one; `createBookDex` 와 같은 모양이다). */
+/** Live handle of a rendered analysis catalogue (the analysis screen owns one; the same shape as `createBookDex`). */
 export interface SampleDexView {
   root: HTMLElement;
   refresh(): void;
@@ -47,19 +47,19 @@ const qtyText = (min: number, max: number): string => (max > min ? `×${min}–$
 const mulText = (m: number): string => `×${(Math.round(m * 100) / 100).toFixed(2).replace(/0$/, '')}`;
 
 /**
- * **분석 도감** (A-12 2026-09-11 해석 도감 → **2026-09-13 재작성**, 요리 재료 티어 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」).
+ * **The analysis catalogue** (A-12 2026-09-11 the old analysis catalogue → **rewritten 2026-09-13**, cooking material tiers — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」).
  *
- * 표본 목록이 아니라 **계열 결과표**다 (사용자 결정: 표본 3계열 · 분석 레벨 = 시간 단축 + 결과 해금). 계열
- * (`SAMPLE_FAMILIES` 순서 — 세포 · 광물 · DNA)마다 한 구획:
- *  - **머리줄** — 계열 칩(`SAMPLE_FAMILY_ICON/COLOR/LABEL_KO`) · `Lv.n` · 경험치 막대 `(xp − levelXp) / (next − levelXp)` 와
- *    `n / m` (최대 레벨이면 가득 + `MAX`) · 「해석 시간 ×0.85」 (`AnalysisLevelInfo.timeMul`).
- *  - **결과 행** (`getAnalysisResults(family)` 순서 = 최소 레벨 → 가중치) — 발견(`found`) = 아이템 칩(호버 = 아이템 카드) + 이름 /
- *    미발견 = **실루엣**(글리프를 검게, `data-def-id` 없음 — 호버로 이름이 새지 않는다) + 「???」 / 잠김 = 흐린 실루엣 + 「Lv.n 해금」,
- *    오른쪽에 개수 범위(`×1–2`)와 지금 레벨의 확률(잠김이면 「—」).
+ * Not a list of samples but **the families' result tables** (user's decision: 3 sample families · the analysis level = a shorter
+ * time + unlocked results). One section per family (`SAMPLE_FAMILIES` order — cell · mineral · DNA):
+ *  - **The header row** — the family chip (`SAMPLE_FAMILY_ICON/COLOR/LABEL_KO`) · `Lv.n` · the XP bar `(xp − levelXp) / (next − levelXp)`
+ *    with `n / m` (full + `MAX` at the max level) · 「해석 시간 ×0.85」 (`AnalysisLevelInfo.timeMul`).
+ *  - **The result rows** (`getAnalysisResults(family)` order = minimum level → weight) — found (`found`) = the item chip (hover = the item card) + the name /
+ *    not found = a **silhouette** (the glyph blacked out, no `data-def-id` — hovering leaks no name) + 「???」 / locked = a faded silhouette + 「Lv.n 해금」,
+ *    and on the right the quantity range (`×1–2`) and the chance at the current level (「—」 when locked).
  *
- * `ui/BookDex.ts` 와 같은 규약: pure DOM into `host`, no blocker, no listeners — 주인(`Analyzer`)이 `housing:analysisChanged` ·
- * `housing:analysisFound` · `housing:analysisLevelUp` · `housing:changed` 에서 `refresh()` 를 부른다. 행은 결과표의 산출물 목록이
- * 바뀔 때만 다시 짓고, 나머지는 글자 · 클래스 · 막대 폭만 고친다. 아이템 def 가 없어도(다른 에이전트의 표가 아직) 깨지지 않는다.
+ * The same contract as `ui/BookDex.ts`: pure DOM into `host`, no blocker, no listeners — the owner (`Analyzer`) calls `refresh()`
+ * on `housing:analysisChanged` · `housing:analysisFound` · `housing:analysisLevelUp` · `housing:changed`. The rows are rebuilt only
+ * when the result table's product list changes; the rest only fixes text · classes · bar widths. A missing item def (another agent's table not there yet) does not break it.
  */
 export function createSampleDex(ctx: GameContext, housing: HousingSystem, host: HTMLElement): SampleDexView {
   const root = el('div', { cls: 'hs-dex az-dex', parent: host });
@@ -98,7 +98,7 @@ export function createSampleDex(ctx: GameContext, housing: HousingSystem, host: 
     }
   }
 
-  /** 발견 = 아이템 칩 · 미발견 = 실루엣(글리프만, 검게) · 잠김 = 흐린 실루엣. 바뀔 때만 다시 짓는다. */
+  /** Found = the item chip · not found = a silhouette (the glyph only, blacked out) · locked = a faded silhouette. Rebuilt only when it changes. */
   function paintIcon(row: DexRow, r: AnalysisResultInfo): void {
     const key = r.found ? `found:${r.defId}` : r.unlocked ? 'sil' : 'lock';
     if (row.iconKey === key) return;
@@ -108,7 +108,7 @@ export function createSampleDex(ctx: GameContext, housing: HousingSystem, host: 
       row.icon.appendChild(buildItemChip(housing.defOf(r.defId), { size: ROW_CHIP_PX }));
       return;
     }
-    // 실루엣은 **직접** 그린다 — `buildItemChip` 은 `data-def-id` 를 달아 호버 카드가 이름을 보여 주기 때문이다
+    // the silhouette is drawn **by hand** — `buildItemChip` would attach `data-def-id` and the hover card would show the name
     const sil = el('span', { cls: 'az-dex-sil', text: housing.defOf(r.defId)?.icon || '?', parent: row.icon });
     sil.setAttribute('aria-hidden', 'true');
   }
@@ -149,18 +149,18 @@ export function createSampleDex(ctx: GameContext, housing: HousingSystem, host: 
         toggleClass(row.root, 'is-locked', !r.unlocked);
       });
     }
-    /* 2026-09-16 (사용자 결정): 두 규칙을 여기서 말한다 — ① 표본 등급이 산출물 등급의 **하한**이라 실제 확률은
-     넣는 표본마다 다르다 (여기 확률은 후보가 가장 넓은 **일반 표본** 기준이다), ② 도감 한 칸은 **같은 등급**
-     표본 전체의 해석 시간을 줄인다 (등급별 수치는 해석 탭 머리줄). */
+    /* 2026-09-16 (user's decision): the two rules are said here — ① the sample's rarity is the **floor** of the product's
+     rarity, so the real chance differs with every sample put in (the chances here are for a **common sample**, the widest
+     pool), ② one catalogue entry shortens the analysis time of every sample of **the same rarity** (the per-rarity numbers are at the head of the 해석 tab). */
   setText(summary, `발견한 산출물 ${found} / ${total} · 확률은 일반 표본 기준 — 표본 등급이 산출물 등급의 하한이라`
     + ` 높은 등급 표본일수록 아래쪽 결과가 빠집니다. 도감 한 칸은 같은 등급 표본의 해석을 빠르게 합니다.`);
   }
 
-  refresh();                 // 첫 `refresh` 가 행도 함께 짓는다 (`builtKey` 가 아직 비어 있다)
+  refresh();                 // the first `refresh` builds the rows too (`builtKey` is still empty)
   return { root, refresh };
 }
 
-/** housing 쪽 구현이 아직 없거나(다른 에이전트 작업 중) 던지면 도감 한 구획만 비우고 화면은 산다. */
+/** When the housing side is not implemented yet (another agent still at work) or throws, only that one catalogue section empties and the screen lives. */
 function safe<T>(fn: () => T): T | null {
   try { return fn(); } catch { return null; }
 }

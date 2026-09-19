@@ -3,16 +3,18 @@ import { clear, el } from './dom';
 
 export interface StationMenuItem {
   label: string;
-  /** Red — 되돌릴 수 없는 것 (작물을 버린다). */
+  /** Red — something irreversible (the crop is thrown away). */
   danger?: boolean;
   run(): void;
 }
 
 /**
- * **우클릭 메뉴** (2026-09-12) — 흙구멍 · 배양관의 「흙 비우기」 · 「배지 비우기」. 칸 아래 버튼을 걷어낸 자리다.
+ * **The right-click menu** (2026-09-12) — the pot's · the culture tube's 「흙 비우기」 · 「배지 비우기」. It took the
+ * place of the buttons under the cell.
  *
- * 가장 안쪽 팝업 규약 그대로: Escape 는 자기 capture 핸들러에서 삼키고 닫는다 (`Input` 이 기록조차 못 하게),
- * 바깥을 누르거나 휠을 굴리면 닫힌다. E · Tab 은 패널이 `PanelOverlay` 로 먼저 닫는다.
+ * Exactly the innermost-popup contract: Escape is swallowed and closes it in its own capture handler (so `Input` never
+ * even records it), and a press outside or a wheel turn closes it. E · Tab are closed first by the panel through
+ * `PanelOverlay`.
  */
 export class StationMenu implements PanelOverlay {
   readonly el: HTMLElement;

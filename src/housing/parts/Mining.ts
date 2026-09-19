@@ -1,24 +1,24 @@
 /**
- * src/housing/parts/Mining.ts — **암호화폐 채굴 · 지갑 · 거래소** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, 사용자 결정).
+ * src/housing/parts/Mining.ts — **crypto mining · the wallet · the exchange** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, user's decision).
  *
- * 연산 클러스터(`furn_compute_cluster`) 한 대가 시계 하나다 — 꽂힌 것마다 따로 흐르지 않는다. 주기는 `clusterCycleMs(coin, 성능 합)`,
- * 한 주기가 끝날 때마다 `yieldUnits` 가 지갑(`ShipState.cryptoWallet`)에 저절로 들어가고 다음 주기가 이어진다. 오프라인 · 레이드 중의
- * 시간은 함선에서 틱이 돌 때 한 번에 따라잡는다 (클러스터마다 `housing:cryptoMined` 한 번).
+ * One compute cluster (`furn_compute_cluster`) is one clock — it does not run separately per mounted processor. The cycle is
+ * `clusterCycleMs(coin, the perf sum)`, and each completed cycle puts `yieldUnits` into the wallet (`ShipState.cryptoWallet`) by
+ * itself before the next one follows. Offline · in-raid time is caught up in one go when the tick runs in the ship (one `housing:cryptoMined` per cluster).
  *
- * **2026-09-16 (사용자 결정 — 연산 코어 폐지)**: 클러스터에 꽂는 것은 **프로세서**(`PROCESSOR_DEF_ID`)이고 내구도가 있다.
- * 칸은 개수가 아니라 **칸마다의 남은 내구도**(`ComputeClusterSlot.processors`)이고 인덱스가 곧 화면 격자의 칸이다.
- *  - **속도**는 개수가 아니라 성능 합(`clusterPerf`)이다 — 다 닳은 프로세서는 새것 반 개 몫(`PROCESSOR_PERF_MIN`).
- *  - **마모**는 주기가 끝나는 그 자리에서 꽂힌 **전부**에게 `PROCESSOR_WEAR_PER_CYCLE × 끝난 주기 수` 만큼 붙는다.
- *    0 이 되어도 빠지지 않고 절반 성능으로 계속 돈다 — 최고 성능을 내려면 빼서 함선 작업대에서 수리한다.
- *  - 빼면 **그 칸의 내구도를 그대로 들고** 가방 · 창고로 돌아간다 (`loot.createItem(…, { durability })`).
+ * **2026-09-16 (user's decision — the `연산 코어` compute core dropped)**: what mounts into a cluster is a **processor** (`PROCESSOR_DEF_ID`), and it has durability.
+ * A cell is not a count but the **remaining durability per cell** (`ComputeClusterSlot.processors`), and the index is the screen grid cell.
+ *  - **Speed** is the perf sum (`clusterPerf`), not the count — a worn-out processor is worth half a new one (`PROCESSOR_PERF_MIN`).
+ *  - **Wear** lands on **every** mounted processor right where the cycle ends, `PROCESSOR_WEAR_PER_CYCLE × the completed cycles`.
+ *    A 0 is not unmounted and keeps running at half perf — reaching top perf means pulling it and repairing it at the ship workbench.
+ *  - Pulling one returns it to the bag · the stash **carrying that cell's durability** (`loot.createItem(…, { durability })`).
  *
- * 시계 규약:
- *  - 「지금」 = `sys.nowMs()`. 2026-09-13 같은 날 전력 할당이 폐지되어 멈춘 시계(`stationNow` · `housing:operationalChanged`)는 없다.
- *  - 꽂힌 것이 바뀌면 끝난 주기를 먼저 넣고 옛 주기 길이로 진행도를 접는다(손해 없음). 코인을 바꾸면 진행도 0.
- *  - **메인 컴퓨터가 함선에 없는 동안은 흐르지 않는다** (사용자 결정 「메인 컴퓨터 필수」) — 막힌 동안은 구간을 새로 연다.
+ * The clock contract:
+ *  - 「now」 = `sys.nowMs()`. Power allocation was dropped the same day, 2026-09-13, so there is no stopped clock (`stationNow` · `housing:operationalChanged`).
+ *  - When the mounted processors change, the completed cycles go in first and the progress is folded at the old cycle length (nothing is lost). Changing coin resets progress to 0.
+ *  - **It does not run while the ship has no main computer** (user's decision 「메인 컴퓨터 필수」) — while blocked, a new segment is opened.
  *
- * 매매는 서버 시세로만 한다 — 크레딧은 `ctx.meta.creditsTx` 가 릴레이 검증(`cbuy` · `csell`)까지 기다리고, 지갑은 **성공했을 때만** 늘어난다
- * (팔 때는 먼저 떼어 두고 거절이면 되돌린다 — 같은 단위를 두 번 파는 길을 막는다).
+ * Trading only ever goes by the server quote — the credits wait on `ctx.meta.creditsTx` through the relay's check (`cbuy` · `csell`), and the
+ * wallet grows **only on success** (a sale is taken off first and restored on a refusal — it closes the route to selling the same units twice).
  */
 import type {
   ComputeClusterInfo, ComputeClusterSlot, CryptoCoinDef, CryptoCoinInfo, CryptoQuote, CryptoTradeSide, HarvestDestination, HousingRef,
@@ -37,11 +37,11 @@ import {
 } from '../MiningRules';
 import { deliverItem, noRoomReason } from './Deliver';
 
-/* ── 런타임 (저장하지 않는다) ─────────────────────────────────────────────── */
+/* ── Runtime (not saved) ───────────────────────────────────────────────── */
 interface MiningRuntime {
-  /** 마지막 틱의 `performance.now()`. */
+  /** The last tick's `performance.now()`. */
   lastTick: number;
-  /** 이벤트 처리 중에 칸을 고쳐 다음 틱에 저장해야 한다 (이벤트 안에서 `changed()` 를 부르지 않기 위해). */
+  /** A cell was edited while handling an event and has to be saved on the next tick (so `changed()` is never called inside an event). */
   dirty: boolean;
 }
 const RUNTIME = new WeakMap<HousingSystem, MiningRuntime>();
@@ -53,12 +53,12 @@ function runtime(sys: HousingSystem): MiningRuntime {
 
 const EMPTY_WALLET: Readonly<Record<string, number>> = Object.freeze({});
 
-/* ── 상태 접근 ─────────────────────────────────────────────────────────────── */
+/* ── State access ──────────────────────────────────────────────────────── */
 export function clusterSlots(sys: HousingSystem): ComputeClusterSlot[] { return (sys.state.clusters ??= []); }
 function walletMap(sys: HousingSystem): Record<string, number> { return (sys.state.cryptoWallet ??= {}); }
 function minedMap(sys: HousingSystem): Record<string, number> { return (sys.state.cryptoMined ??= {}); }
 
-/** `uid` 가 배치된 연산 클러스터면 그 가구, 아니면 null. */
+/** The furniture when `uid` is a placed compute cluster, else null. */
 export function clusterOf(sys: HousingSystem, uid: string): PlacedFurniture | null {
   const f = sys.getPlacedByUid(uid);
   return f && f.defId === COMPUTE_CLUSTER_DEF_ID ? f : null;
@@ -74,7 +74,7 @@ function ensureSlot(sys: HousingSystem, uid: string): ComputeClusterSlot {
   return s;
 }
 
-/** 코인도 프로세서도 없는 칸은 세이브에 남기지 않는다. */
+/** A cell with neither a coin nor a processor is not kept in the save. */
 function pruneSlot(sys: HousingSystem, slot: ComputeClusterSlot): void {
   if (slotWorthKeeping(slot)) return;
   const list = clusterSlots(sys);
@@ -82,27 +82,27 @@ function pruneSlot(sys: HousingSystem, slot: ComputeClusterSlot): void {
   if (i >= 0) list.splice(i, 1);
 }
 
-/** 이 클러스터의 「지금」 (2026-09-13 전력 폐지 뒤로는 멈춘 시계가 없어 서버 시각 그대로다). */
+/** This cluster's 「now」 (since power was dropped on 2026-09-13 there is no stopped clock, so it is the server time as-is). */
 function clockOf(sys: HousingSystem, _uid: string): number {
   return sys.nowMs();
 }
 
-/* ── 프로세서 칸 ───────────────────────────────────────────────────────────── */
+/* ── Processor cells ───────────────────────────────────────────────────── */
 /**
- * 프로세서의 최대 내구도 (`ItemDef.durabilityMax`). 아이템 표를 아직 못 읽으면 0 — 그때 `processorPerf` 는 전부 새것으로 본다
- * (housing 은 inventory · items 보다 **먼저** 등록되므로 생성자 시점에는 정말로 0 이다).
+ * The processor's maximum durability (`ItemDef.durabilityMax`). 0 while the item table cannot be read yet — `processorPerf` then
+ * counts everything as new (housing is registered **before** inventory · items, so at constructor time it really is 0).
  */
 function processorDurMax(sys: HousingSystem): number {
   const v = sys.defOf(PROCESSOR_DEF_ID)?.durabilityMax;
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
 }
 
-/** 이 클러스터의 성능 합 — 주기는 개수가 아니라 이 값에서 난다. */
+/** This cluster's perf sum — the cycle comes from this value, not from the count. */
 function perfOf(sys: HousingSystem, slot: ComputeClusterSlot | null): number {
   return clusterPerf(slot, processorDurMax(sys));
 }
 
-/** 가방 + 함선 창고의 프로세서 인스턴스, **내구도가 높은 것부터** (개수를 지정한 꽂기가 좋은 것을 먼저 쓴다). */
+/** The processor instances in the bag + the ship stash, **highest durability first** (a count-based mount uses the good ones first). */
 function ownedProcessors(sys: HousingSystem): ItemInstance[] {
   const inv = sys.ctx.inventory;
   if (!inv) return [];
@@ -114,20 +114,20 @@ function ownedProcessors(sys: HousingSystem): ItemInstance[] {
     .sort((a, b) => (b.durability ?? max) - (a.durability ?? max));
 }
 
-/** 칸 목록을 `COMPUTE_CLUSTER_MAX_CORES` 길이로 맞춰 칸에 다시 적는다 (저장 · 화면 격자와 길이를 맞춘다). */
+/** Resizes the cell list to `COMPUTE_CLUSTER_MAX_CORES` and writes it back into the cell (matching the save · the screen grid length). */
 function cellsOf(slot: ComputeClusterSlot): (number | null)[] {
   slot.processors = processorCells(slot, COMPUTE_CLUSTER_MAX_CORES);
   return slot.processors;
 }
 
-/* ── 잠금 · 가동 ───────────────────────────────────────────────────────────── */
-/** 코인이 잠긴 이유 (`<기업> 퀘스트 「…」 완료 필요`), 열렸으면 null. meta 가 없으면 잠긴 것으로 본다. */
+/* ── Locks · operation ─────────────────────────────────────────────────── */
+/** Why the coin is locked (`<기업> 퀘스트 「…」 완료 필요`), null once unlocked. With no meta it counts as locked. */
 export function coinLockReason(sys: HousingSystem, def: CryptoCoinDef): string | null {
   if (!def.unlockQuest) return null;
   let state: string | undefined;
   try { state = sys.ctx.meta?.getQuestState(def.unlockQuest); } catch { state = undefined; }
   if (state === 'complete') return null;
-  // 2026-09-14: 기업 퀘스트 폐지 — 해금 퀘스트는 기업 임원 NPC 의 퀘스트다 (`shared/npc.ts`)
+  // 2026-09-14: corporation quests dropped — an unlock quest is a corporation-executive NPC's quest (`shared/npc.ts`)
   const quest = NPC_QUEST_MAP.get(def.unlockQuest);
   const npc = quest ? NPC_DEF_MAP.get(quest.npc) : undefined;
   const corpId = def.corp ?? npc?.corp ?? null;
@@ -140,8 +140,8 @@ export function getMiningComputerUid(sys: HousingSystem): string | null {
 }
 
 /**
- * 연산 클러스터가 채굴하지 못하는 가구 쪽 사유 — 함선에 메인 컴퓨터가 없다 (사용자 결정 「메인 컴퓨터 필수」). 클러스터가 아니면 null.
- * `HousingSystem.furnitureOperationalBlock` 이 이것을 그대로 돌려준다 (2026-09-13 전력 폐지 뒤 남은 유일한 「가동」 조건).
+ * The furniture-side reason a compute cluster cannot mine — the ship has no main computer (user's decision 「메인 컴퓨터 필수」). Null when it is not a cluster.
+ * `HousingSystem.furnitureOperationalBlock` returns this as-is (the only 「running」 condition left after power was dropped on 2026-09-13).
  */
 export function clusterOperationalBlock(sys: HousingSystem, uid: string): string | null {
   if (!clusterOf(sys, uid)) return null;
@@ -152,14 +152,14 @@ function operationalBlock(sys: HousingSystem, uid: string): string | null {
   return clusterOperationalBlock(sys, uid);
 }
 
-/** 채굴 칸이 주기를 가질 수 있는가 (알려진 · 열린 코인 + 프로세서 1개 이상) — 그 코인, 아니면 null. */
+/** Can this mining cell have a cycle (a known · unlocked coin + at least one processor) — that coin, else null. */
 function activeCoin(sys: HousingSystem, slot: ComputeClusterSlot | null): CryptoCoinDef | null {
   if (!slot || processorCount(slot) < 1 || !slot.coinId) return null;
   const coin = CRYPTO_COIN_MAP.get(slot.coinId);
   return coin && !coinLockReason(sys, coin) ? coin : null;
 }
 
-/** 시계가 흐르지 않는 한국어 사유 (코인 미지정 · 잠긴 코인 · 프로세서 없음 · 메인 컴퓨터), 흐르면 null. */
+/** The Korean reason the clock is not running (no coin chosen · a locked coin · no processor · the main computer), null when it runs. */
 function miningBlock(sys: HousingSystem, uid: string, slot: ComputeClusterSlot | null): string | null {
   const coin = slot?.coinId ? CRYPTO_COIN_MAP.get(slot.coinId) : undefined;
   if (!coin) return '채굴할 코인을 정하세요';
@@ -169,7 +169,7 @@ function miningBlock(sys: HousingSystem, uid: string, slot: ComputeClusterSlot |
   return operationalBlock(sys, uid);
 }
 
-/* ── 지갑 ─────────────────────────────────────────────────────────────────── */
+/* ── Wallet ────────────────────────────────────────────────────────────── */
 function addWallet(sys: HousingSystem, coinId: string, delta: number, reason: 'mined' | 'buy' | 'sell' | 'cheat'): void {
   const w = walletMap(sys);
   const before = Math.max(0, Math.floor(w[coinId] ?? 0));
@@ -178,22 +178,22 @@ function addWallet(sys: HousingSystem, coinId: string, delta: number, reason: 'm
   if (after !== before) sys.ctx.bus.emit('housing:walletChanged', { coinId, units: after, delta: after - before, reason });
 }
 
-/* ── 주기 떼어 내기 · 접기 ─────────────────────────────────────────────────── */
+/* ── Taking cycles off · folding ───────────────────────────────────────── */
 /**
- * 끝난 주기를 지갑에 넣는다. 메인 컴퓨터가 없어 막혀 있으면 넣지 않고 구간만 새로 연다 (막힌 동안은 흐르지 않는다).
- * 넣은 단위 수(칸을 고쳤으면 −1 도 참).
+ * Puts the completed cycles into the wallet. Blocked with no main computer it puts nothing in and only opens a new segment (it does not run while blocked).
+ * The units put in (with the cell edited, −1 counts as true too).
  */
 function settle(sys: HousingSystem, slot: ComputeClusterSlot): { units: number; touched: boolean } {
   const coin = activeCoin(sys, slot);
   if (!coin) return { units: 0, touched: false };
   const now = clockOf(sys, slot.uid);
   if (operationalBlock(sys, slot.uid)) {
-    foldProgress(slot, Infinity, now);                  // 시간 장부만 — 매 틱 저장하지 않는다 (다음 실제 변경이 싣는다)
+    foldProgress(slot, Infinity, now);                  // the time ledger only — not saved every tick (the next real change carries it)
     return { units: 0, touched: false };
   }
   const cycles = takeCompletedCycles(slot, clusterCycleMs(coin, perfOf(sys, slot)), now);
   if (cycles < 1) return { units: 0, touched: false };
-  // 2026-09-16 (사용자 결정): 주기가 끝나면 그 자리에서 꽂힌 프로세서가 전부 닳는다 — 다음 주기는 그만큼 느려진다 (0 에서 멈추고 절반 성능)
+  // 2026-09-16 (user's decision): when a cycle ends every mounted processor wears right there — the next cycle is that much slower (it stops at 0 and runs at half perf)
   wearProcessors(slot, cycles);
   const units = Math.min(Number.MAX_SAFE_INTEGER, cycles * coin.yieldUnits);
   const mined = minedMap(sys);
@@ -203,7 +203,7 @@ function settle(sys: HousingSystem, slot: ComputeClusterSlot): { units: number; 
   return { units, touched: true };
 }
 
-/** 끝난 주기를 넣고 지금 설정(꽂힌 프로세서 · 코인)의 주기로 진행도를 접는다 — 설정을 바꾸기 **직전**에 부른다. */
+/** Puts the completed cycles in and folds the progress at the current setup's cycle (mounted processors · coin) — called **just before** that setup changes. */
 function settleAndFold(sys: HousingSystem, slot: ComputeClusterSlot): void {
   settle(sys, slot);
   const coin = activeCoin(sys, slot);
@@ -218,8 +218,8 @@ function commit(sys: HousingSystem, uid: string, reason: string): null {
   return null;
 }
 
-/* ── 틱 · 구독 ────────────────────────────────────────────────────────────── */
-/** `HousingSystem.update` 가 매 프레임 부른다 — 1초에 한 번 끝난 주기를 넣는다. 레이드 중에는 넣지 않는다 (함선에 돌아와 따라잡는다). */
+/* ── Tick · subscriptions ──────────────────────────────────────────────── */
+/** `HousingSystem.update` calls this every frame — completed cycles go in once a second. Nothing goes in during a raid (it catches up on the return to the ship). */
 export function tickMining(sys: HousingSystem): void {
   const r = runtime(sys);
   const t = performance.now();
@@ -239,7 +239,7 @@ export function tickMining(sys: HousingSystem): void {
   if (dirty) sys.changed('mining');
 }
 
-/** 구독 — 회수된 클러스터의 칸 지우기. `HousingSystem.init` 이 unsubs 에 넣는다. */
+/** Subscriptions — clearing the cell of a recovered cluster. `HousingSystem.init` puts it into unsubs. */
 export function bindMining(sys: HousingSystem): Array<() => void> {
   const b = sys.ctx.bus;
   return [
@@ -247,18 +247,18 @@ export function bindMining(sys: HousingSystem): Array<() => void> {
       if (defId !== COMPUTE_CLUSTER_DEF_ID) return;
       const slot = slotOf(sys, uid);
       if (!slot) return;
-      clusterSlots(sys).splice(clusterSlots(sys).indexOf(slot), 1);   // 프로세서는 회수 전에 이미 빠졌다 (`clusterRecoverBlock`)
+      clusterSlots(sys).splice(clusterSlots(sys).indexOf(slot), 1);   // the processors were already pulled before the recovery (`clusterRecoverBlock`)
     }),
   ];
 }
 
-/** 프로세서가 꽂힌 클러스터는 회수할 수 없다 (내구도를 잃지 않게 — 사람이 먼저 뺀다). 클러스터가 아니거나 비었으면 null. */
+/** A cluster with processors mounted cannot be recovered (so no durability is lost — a person pulls them first). Null when it is not a cluster, or empty. */
 export function clusterRecoverBlock(sys: HousingSystem, uid: string): string | null {
   const slot = slotOf(sys, uid);
   return slot && processorCount(slot) > 0 ? CLUSTER_CORES_BLOCK_REASON : null;
 }
 
-/* ── 조회 (HousingRef) ─────────────────────────────────────────────────────── */
+/* ── Queries (HousingRef) ──────────────────────────────────────────────── */
 function infoOf(sys: HousingSystem, f: PlacedFurniture): ComputeClusterInfo {
   const slot = slotOf(sys, f.uid);
   const processors = processorCells(slot, COMPUTE_CLUSTER_MAX_CORES);
@@ -276,7 +276,7 @@ function infoOf(sys: HousingSystem, f: PlacedFurniture): ComputeClusterInfo {
   return {
     uid: f.uid, room: f.room, coinId: coin?.id ?? null, cores, maxCores: COMPUTE_CLUSTER_MAX_CORES,
     processors, processorMax: processorDurMax(sys), perf,
-    // `power` 는 계약 필드라 남는다 — 2026-09-13 전력 할당 폐지로 늘 0
+    // `power` stays because it is a contract field — always 0 since power allocation was dropped on 2026-09-13
     cycleMs: Number.isFinite(cycle) ? cycle : 0, progress, remainingS, mining: block === null, block, power: 0,
   };
 }
@@ -299,7 +299,7 @@ export function getCryptoWallet(sys: HousingSystem): Readonly<Record<string, num
   return sys.state.cryptoWallet ?? EMPTY_WALLET;
 }
 
-/** 서버 시세 (코인 1개당 크레딧), 서버에 붙어 있지 않거나 아직 모르면 null. */
+/** The server quote (credits per coin), null when not connected to the server or not known yet. */
 function priceOf(sys: HousingSystem, coinId: string): number | null {
   const m = sys.ctx.net?.crypto;
   if (!m || m.available !== true) return null;
@@ -322,13 +322,13 @@ export function getCryptoCoins(sys: HousingSystem): CryptoCoinInfo[] {
   });
 }
 
-/* ── 조작 (HousingRef) ─────────────────────────────────────────────────────── */
+/* ── Operations (HousingRef) ───────────────────────────────────────────── */
 export function setClusterCoin(sys: HousingSystem, uid: string, coinId: string | null): string | null {
   if (!clusterOf(sys, uid)) return '연산 클러스터가 아닙니다';
   if (coinId === null) {
     const slot = slotOf(sys, uid);
     if (!slot?.coinId) return null;
-    settle(sys, slot);                                  // 옛 코인의 끝난 주기는 넣어 준다
+    settle(sys, slot);                                  // the old coin's completed cycles are still put in
     delete slot.coinId;
     slot.progress = 0;
     slot.segmentAt = clockOf(sys, uid);
@@ -343,15 +343,15 @@ export function setClusterCoin(sys: HousingSystem, uid: string, coinId: string |
   if (slot.coinId === coin.id) return null;
   settle(sys, slot);
   slot.coinId = coin.id;
-  slot.progress = 0;                                    // 코인을 바꾸면 진행도 0 (사용자 결정 기본값)
+  slot.progress = 0;                                    // changing coin resets progress to 0 (the user's decision default)
   slot.segmentAt = clockOf(sys, uid);
   return commit(sys, uid, 'clusterCoin');
 }
 
 /**
- * 프로세서 하나를 **`cell` 칸**에 꽂는다 (칸을 정하지 않는 `insertClusterCores` 도 이 길로 온다).
- * `itemUid` 를 주면 가방 · 창고의 **바로 그 인스턴스**(끌어다 놓은 타일)를 쓰고, 없으면 내구도가 가장 높은 것을 쓴다.
- * 꺼낸 인스턴스의 **내구도를 그대로** 칸에 적는다 — 닳은 프로세서는 닳은 채로 일한다.
+ * Mounts one processor into **cell `cell`** (`insertClusterCores`, which names no cell, comes down this path too).
+ * With `itemUid` it uses **that exact instance** in the bag · the stash (the dropped tile), without it the highest durability one.
+ * The taken instance's **durability is written into the cell as-is** — a worn processor works worn.
  */
 function mountOne(sys: HousingSystem, uid: string, cell: number, itemUid?: string): string | null {
   const slot = ensureSlot(sys, uid);
@@ -373,12 +373,12 @@ function mountOne(sys: HousingSystem, uid: string, cell: number, itemUid?: strin
   if (!inst) return `${name}이(가) 없습니다`;
   const durability = typeof inst.durability === 'number' && Number.isFinite(inst.durability) ? Math.max(0, inst.durability) : max;
   if (inv.takeItem(inst.uid, 1) < 1) return `${name}을(를) 꺼낼 수 없습니다`;
-  settleAndFold(sys, slot);                             // 옛 성능의 주기로 접는다 — 손해 없음
+  settleAndFold(sys, slot);                             // folded at the old perf's cycle — nothing is lost
   cellsOf(slot)[cell] = durability;
   return null;
 }
 
-/** 첫 빈 칸의 번호, 가득 찼으면 −1. */
+/** The index of the first empty cell, −1 when full. */
 function firstFreeCell(slot: ComputeClusterSlot | null): number {
   const cells = processorCells(slot, COMPUTE_CLUSTER_MAX_CORES);
   return cells.indexOf(null);
@@ -391,7 +391,7 @@ export function insertClusterProcessor(sys: HousingSystem, uid: string, cell: nu
   return commit(sys, uid, 'clusterCores');
 }
 
-/** 칸을 정하지 않고 `qty` 개를 **빈 칸 앞에서부터** 꽂는다 — 하나도 못 꽂으면 그 사유, 하나라도 꽂으면 성공이다. */
+/** Mounts `qty` of them without naming a cell, **from the first empty cell on** — the reason when none went in, success when even one did. */
 export function insertClusterCores(sys: HousingSystem, uid: string, qty: number): string | null {
   if (!clusterOf(sys, uid)) return '연산 클러스터가 아닙니다';
   const want = Math.floor(Number(qty));
@@ -410,7 +410,7 @@ export function insertClusterCores(sys: HousingSystem, uid: string, qty: number)
   return commit(sys, uid, 'clusterCores');
 }
 
-/** `cell` 칸의 프로세서를 **내구도 그대로** 빼서 `dest` 로 돌려준다. 자리가 없으면 칸은 그대로다. */
+/** Pulls the processor in cell `cell` **with its durability** and returns it to `dest`. With no room the cell is left alone. */
 export function removeClusterProcessor(sys: HousingSystem, uid: string, cell: number, dest: HarvestDestination = 'bag-first'): string | null {
   if (!clusterOf(sys, uid)) return '연산 클러스터가 아닙니다';
   const slot = slotOf(sys, uid);
@@ -421,7 +421,7 @@ export function removeClusterProcessor(sys: HousingSystem, uid: string, cell: nu
   if (durability === null) return '꽂힌 프로세서가 없습니다';
   const loot = sys.ctx.loot;
   if (!loot || typeof loot.createItem !== 'function') return '프로세서를 만들 수 없습니다';
-  // 내구도는 인스턴스를 만들 때 실어 준다 (`ItemInstanceExtras`) — 닳은 채로 나와야 작업대에서 고칠 것이 남는다
+  // durability is carried when the instance is created (`ItemInstanceExtras`) — it has to come out worn for the workbench to have something to repair
   if (!deliverItem(sys, loot.createItem(PROCESSOR_DEF_ID, 1, { durability }), dest)) return noRoomReason(dest);
   settleAndFold(sys, slot);
   cellsOf(slot)[cell] = null;
@@ -429,7 +429,7 @@ export function removeClusterProcessor(sys: HousingSystem, uid: string, cell: nu
   return commit(sys, uid, 'clusterCores');
 }
 
-/** 칸을 정하지 않고 `qty` 개를 **뒤 칸부터** 뺀다 (프로세서는 서로 달라 앞에서부터 밀지 않는다). */
+/** Pulls `qty` of them without naming a cell, **from the last cell back** (processors differ from each other, so nothing is shifted up from the front). */
 export function removeClusterCores(sys: HousingSystem, uid: string, qty: number, dest: HarvestDestination = 'bag-first'): string | null {
   if (!clusterOf(sys, uid)) return '연산 클러스터가 아닙니다';
   const slot = slotOf(sys, uid);
@@ -450,7 +450,7 @@ export function removeClusterCores(sys: HousingSystem, uid: string, qty: number,
   return done > 0 ? null : last ?? '꽂힌 프로세서가 없습니다';
 }
 
-/* ── 거래소 ───────────────────────────────────────────────────────────────── */
+/* ── Exchange ──────────────────────────────────────────────────────────── */
 export function cryptoQuote(sys: HousingSystem, coinId: string, side: CryptoTradeSide, units: number): CryptoQuote | null {
   const coin = CRYPTO_COIN_MAP.get(coinId);
   if (!coin) return null;
@@ -488,7 +488,7 @@ export async function tradeCrypto(sys: HousingSystem, coinId: string, side: Cryp
     try { return await meta.creditsTx!(delta, reason); } catch { return { ok: false, reason: '서버 응답이 없습니다' }; }
   };
   if (side === 'sell') {
-    addWallet(sys, q.coinId, -q.units, 'sell');         // 먼저 떼어 둔다 — 같은 단위를 두 번 팔지 못하게
+    addWallet(sys, q.coinId, -q.units, 'sell');         // taken off first — so the same units cannot be sold twice
     sys.changed('cryptoSell');
     const res = await tx(q.credits);
     if (!res.ok) {
@@ -505,7 +505,7 @@ export async function tradeCrypto(sys: HousingSystem, coinId: string, side: Cryp
   return null;
 }
 
-/* ── 개발용 (콘솔 `crypto`) ───────────────────────────────────────────────── */
+/* ── Dev (the `crypto` console) ────────────────────────────────────────── */
 export function devSetCryptoWallet(sys: HousingSystem, coinId: string, units: number): string | null {
   if (!CRYPTO_COIN_MAP.has(coinId)) return `알 수 없는 코인입니다: ${coinId}`;
   const target = Math.max(0, Math.floor(Number(units)));
@@ -515,7 +515,7 @@ export function devSetCryptoWallet(sys: HousingSystem, coinId: string, units: nu
   return null;
 }
 
-/** 아이템 없이 **새 프로세서** `cores` 개를 앞 칸부터 채운다 (줄이면 뒤 칸부터 사라진다 — 치트라 돌려주지 않는다). */
+/** Fills `cores` **new processors** from the front cell on, with no item (lowering it clears from the last cell back — a cheat, so nothing is returned). */
 export function devSetClusterCores(sys: HousingSystem, uid: string, cores: number): string | null {
   if (!clusterOf(sys, uid)) return '연산 클러스터가 아닙니다';
   const n = Math.floor(Number(cores));
@@ -530,7 +530,7 @@ export function devSetClusterCores(sys: HousingSystem, uid: string, cores: numbe
   return commit(sys, uid, 'clusterCheat');
 }
 
-/** 채굴할 수 있는 모든 클러스터(열린 코인 + 코어)의 구간을 `hours` 만큼 앞당기고 끝난 주기를 넣는다. 넣은 단위 합. */
+/** Brings the segment of every cluster that can mine (an unlocked coin + cores) forward by `hours` and puts the completed cycles in. The total units put in. */
 export function devAdvanceMining(sys: HousingSystem, hours: number): number {
   const ms = Number(hours) * 3_600_000;
   if (!Number.isFinite(ms) || ms <= 0) return 0;

@@ -1,11 +1,11 @@
 /**
- * src/housing/parts/Library.ts — **서재 책장** (Phase 9) → **서재 매체** (A-3e, 2026-09-12) → **서재 시리즈** (2026-09-13).
+ * src/housing/parts/Library.ts — **the library bookshelf** (Phase 9) → **library media** (A-3e, 2026-09-12) → **library series** (2026-09-13).
  *
- * 책 · 디스크 · 레코드는 **시리즈**(`data/library_series.csv`)의 한 권이고, 보관함에 꽂힌 서로 다른 권 수가 그 시리즈의
- * 몫을 정한다 (전권 = 100 %, 아니면 권당 `SHELF_SERIES_VOLUME_SHARE`). 효과 줄(숙련 상승량 · 파생 · 헬스 · 요리 · 레이드 경험치 ·
- * 신뢰도 · 레시피)은 `Rules.computeLibraryEffects` 가 합산하고, 이 파일이 캐시 · `housing:libraryChanged` 를 맡는다.
- * 게임 디스크(`'game'`)는 게임 디스크 전시대에 꽂는 **효과 없는 보관 매체**다 (TV 로 플레이 — `parts/VideoGame`).
- * 매체는 **함선 단위**이지 캐릭터 단위가 아니며, 도감은 **꽂아 본 적 있는** 것만 기록한다. **같은 def 는 한 보관함에만** 꽂힌다 (사용자 결정).
+ * A book · disc · record is one volume of a **series** (`data/library_series.csv`), and the number of distinct volumes shelved in
+ * holders decides that series' share (every volume = 100 %, else `SHELF_SERIES_VOLUME_SHARE` per volume). The effect lines (skill gain · derived ·
+ * gym · cooking · raid XP · trust · recipe) are summed by `Rules.computeLibraryEffects`, and this file owns the cache and `housing:libraryChanged`.
+ * A game disc (`'game'`) is shelved on the game disc stand and is an **effect-less storage medium** (played on the TV — `parts/VideoGame`).
+ * Media belong to the **ship**, not the character, and the catalogue records only what **has been shelved at least once**. **The same def is shelved in one holder only** (user's decision).
  */
 import type { BookSlotInfo, ItemDef, PlacedBook, PlacedFurniture, SkillId } from '@/shared';
 import { BOOKS_PER_SHELF, FURNITURE_DEF_MAP, SKILL_IDS } from '@/shared';
@@ -14,12 +14,12 @@ import { isBookshelfDefId } from '../ShipState';
 import { BOOKS_BLOCK_REASON } from '../model';
 import type { HousingSystem } from '../HousingSystem';
 import { deliverItem, noRoomReason } from './Deliver';
-/* A-3e (2026-09-12): 서재 매체 */
+/* A-3e (2026-09-12): library media */
 import type { FurnitureDef, ShelfBonusInfo, ShelfMedium } from '@/shared';
 import { SHELF_MEDIA, SHELF_MEDIUM_LABEL_KO, SHELF_SLOTS, isToggleInteraction, shelfItemOf, shelfMediumOfInteraction } from '@/shared';
 import { SHELF_ID_PREFIX, shelfAuxPlaced, shelfItemWeightOf, shelfMediumOfDefId } from '../Rules';
 import { SHELF_BLOCK_REASON, SHELF_OBJ_KO, shelfHolderName } from '../model';
-/* 2026-09-13: 서재 시리즈 */
+/* 2026-09-13: library series */
 import type { LibraryEffectKind, LibraryEffectsSummary, LibrarySourceInfo } from '@/shared';
 import { EMPTY_LIBRARY_EFFECTS, LIBRARY_SERIES_DEFS, LIBRARY_SERIES_MAP, resolveItemAlias } from '@/shared';
 import type { LibraryComputation, LibrarySeriesState } from '../Rules';
@@ -27,12 +27,12 @@ import {
   computeLibraryEffects, libraryEffectsSignature, librarySeriesOfItem, librarySourcesIn, shelfBonusFromLibrary, shelfHolderMediumOfItem,
 } from '../Rules';
 
-/* ── 공통: 런타임 정리 (옛 id → 새 id · 모르는 def · 같은 def 중복) ─────────────── */
+/* ── Shared: runtime sanitizing (old id → new id · unknown def · the same def twice) ─ */
 
 /**
- * 세이브는 id **모양**만 보고(`ShipState.sanitize` — 옛 id 치환 · 중복 환불도 거기서 한다), `ctx.loot` 가 처음 있을 때 여기서 한 번 더 거른다:
- * 옛 id 는 `resolveItemAlias` 로 바꾸고, `ok` 가 거절하는 def 는 버리고, 같은 def 가 두 번째로 나오면 빼서 **함선 창고로 돌려준다**
- * (sanitize 뒤라 보통은 없다 — 콘솔 · 손으로 고친 상태). 목록은 제자리에서 고친다.
+ * The save looks only at the id **shape** (`ShipState.sanitize` — the old-id swap and the duplicate refund happen there too); the first time `ctx.loot`
+ * is around, this filters once more: an old id goes through `resolveItemAlias`, a def `ok` rejects is dropped, and a second copy of the same def is
+ * pulled out and **returned to the ship stash** (normally none after sanitize — a console- or hand-edited state). The list is fixed in place.
  */
 function pruneShelfList(sys: HousingSystem, list: PlacedBook[], ok: (def: ItemDef | undefined, entry: PlacedBook) => boolean, seen: Set<string>): void {
   const keep: PlacedBook[] = [];
@@ -55,10 +55,10 @@ function pruneShelfList(sys: HousingSystem, list: PlacedBook[], ok: (def: ItemDe
   sys.saveSoon();
 }
 
-/* ── 서재 책장 (Phase 9) ────────────────────────────────────────────────── */
+/* ── The library bookshelf (Phase 9) ────────────────────────────────────── */
 /**
  * The shelved books. The save only shape-checks def ids (`book_*`); the first time `ctx.loot` is around every id
- * that is not a real 서적 any more is dropped here (a removed book def never breaks the shelf). 2026-09-13: old ids are
+ * that is not a real book any more is dropped here (a removed book def never breaks the shelf). 2026-09-13: old ids are
  * aliased and a second copy of the same def is returned to the stash (`pruneShelfList`).
  */
 export function books(sys: HousingSystem): PlacedBook[] {
@@ -75,7 +75,7 @@ export function bookDex(sys: HousingSystem): string[] {
   return sys.state.bookDex;
   }
 
-/** The 책장 behind `uid`, or null when it is not a bookshelf (or gone). */
+/** The bookshelf behind `uid`, or null when it is not a bookshelf (or gone). */
 export function shelfOf(sys: HousingSystem, uid: string): PlacedFurniture | null {
   const item = sys.getPlacedByUid(uid);
   return item && isBookshelfDefId(item.defId) ? item : null;
@@ -97,11 +97,11 @@ export function booksChanged(sys: HousingSystem, uid: string, reason: string): v
   sys.changed(reason);
   const count = sys.booksOf(uid).length;
   sys.ctx.bus.emit('housing:booksChanged', { uid, count });
-  // A-3e: the 매체 공통 event fires for a 책장 too (책장 소비자는 옛 `housing:booksChanged` 를 계속 본다)
+  // A-3e: the shared media event fires for a bookshelf too (bookshelf consumers keep watching the old `housing:booksChanged`)
   sys.ctx.bus.emit('housing:shelfChanged', { uid, medium: 'book', count });
   }
 
-/** Book def with its `book` data, or null when `defId` is not a 서적. */
+/** Book def with its `book` data, or null when `defId` is not a book. */
 export function bookDef(sys: HousingSystem, defId: string): ItemDef | null {
   const def = sys.defOf(defId);
   return def && def.book ? def : null;
@@ -175,7 +175,7 @@ export function getBooks(sys: HousingSystem, uid: string): BookSlotInfo[] {
   return out;
   }
 
-/** 2026-09-13 (사용자 결정 — 같은 책은 한 권만 센다): 이 def 가 어느 보관함에든(전력 무관) 이미 꽂혀 있는가. */
+/** 2026-09-13 (user's decision — the same book counts once): is this def already shelved in any holder (regardless of power). */
 export function isShelvedAnywhere(sys: HousingSystem, defId: string): boolean {
   return sys.books().some((b) => b.defId === defId) || media(sys).some((e) => e.defId === defId);
   }
@@ -206,7 +206,7 @@ export function takeBook(sys: HousingSystem, uid: string, slot: number): string 
   const loot = sys.ctx.loot;
   if (!loot || typeof loot.createItem !== 'function') return '책을 만들 수 없습니다';
   const item = loot.createItem(book.defId, 1);
-  // 2026-09-16: 전달은 `parts/Deliver` 한 길이다 — 끌어서 놓았으면 **커서가 놓인 칸**으로 간다 (`withDropCell`).
+  // 2026-09-16: delivery has one path, `parts/Deliver` — a drag-and-drop goes to **the cell the cursor was dropped on** (`withDropCell`).
   if (!deliverItem(sys, item, 'bag-first')) return `공간 없음 — ${noRoomReason('bag-first')}`;
   sys.books().splice(sys.books().indexOf(book), 1);
   sys.booksChanged(uid, 'bookTake');
@@ -216,8 +216,8 @@ export function takeBook(sys: HousingSystem, uid: string, slot: number): string 
 export function getOwnedBooks(sys: HousingSystem): { defId: string; qty: number }[] { return ownedShelfItems(sys, 'book'); }
 
 /**
- * 2026-09-13 (서재 시리즈): `1 + 서재 skillGain[skill]` — 작동 중인 보관함의 책 · 디스크 · 레코드 시리즈가 그 숙련에 주는 상승량의 합.
- * `getSkillGainMul` 이 이것을 읽으므로 progression/ 의 경로는 그대로다.
+ * 2026-09-13 (library series): `1 + library skillGain[skill]` — the sum of what the book · disc · record series in working holders give that skill.
+ * `getSkillGainMul` reads this, so progression/'s path is unchanged.
  */
 export function getBookBonus(sys: HousingSystem, skill: SkillId): number {
   return 1 + (ensureLibrary(sys).summary.skillGain[skill] ?? 0);
@@ -233,19 +233,19 @@ export function openBookshelfMenu(sys: HousingSystem, uid: string): void {
   sys.bookshelfMenu.openShelf(uid);
   }
 
-/* ══ 서재 매체 — 디스크 전시대 · 레코드랙 · 게임 디스크 전시대 · 보조 가구 (A-3e, 2026-09-12 · 2026-09-13) ══════════════
- * 책장은 **옛 경로 그대로**다 (`books` / `bookDex` · `placeBook` / `takeBook` · `housing:booksChanged`) — 매체 공통 API 는 책장이면
- * 그 함수들로 넘기고, 디스크 · 레코드 · 게임 디스크는 `ShipState.media` / `mediaDex` 를 쓴다. 두 배열 모두 `PlacedBook` 모양이다.
- * 보조 가구는 **배치만으로** 켜지고(`Rules.shelfAuxPlaced`, 2026-09-13 부터 작동 중이어야), TV · 레코드 플레이어의 켜짐
- * (`ShipState.toggled`)은 겉모습일 뿐 배율에 관여하지 않는다. 보관함은 매체마다 **여러 대** 둘 수 있다 (`FurnitureDef.multi`).
+/* ══ Library media — the disc stand · record rack · game disc stand · aux furniture (A-3e, 2026-09-12 · 2026-09-13) ═════
+ * The bookshelf keeps its **old path** (`books` / `bookDex` · `placeBook` / `takeBook` · `housing:booksChanged`) — the shared media API hands a
+ * bookshelf to those functions, while discs · records · game discs use `ShipState.media` / `mediaDex`. Both arrays have the `PlacedBook` shape.
+ * Aux furniture switches on **by being placed alone** (`Rules.shelfAuxPlaced`; since 2026-09-13 placed = working); the TV's and record
+ * player's on-state (`ShipState.toggled`) is only a look, no part of the multiplier. **Several** holders per medium may be built (`FurnitureDef.multi`).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /** `media` arrays already checked against `ctx.loot` — keyed by the array, so a state replaced by the server copy is checked again. */
 const prunedMedia = new WeakSet<PlacedBook[]>();
 
 /**
- * 디스크 · 레코드 · 게임 디스크 칸 (`ShipState.media`). 세이브는 id **모양**(`disc_*` · `record_*` · `game_*`)만 보고, `ctx.loot` 가 처음
- * 있을 때 진짜 그 매체가 아니거나 모양과 매체가 어긋나는 것을 한 번 걸러 낸다 (`books()` 와 같은 규약 — 옛 id 치환 · 중복 환불 포함).
+ * The disc · record · game disc slots (`ShipState.media`). The save looks only at the id **shape** (`disc_*` · `record_*` · `game_*`); the first time
+ * `ctx.loot` is around, anything not really that medium or whose shape disagrees is filtered once (same contract as `books()` — old-id swap · duplicate refund).
  */
 export function media(sys: HousingSystem): PlacedBook[] {
   if (!Array.isArray(sys.state.media)) sys.state.media = [];
@@ -260,26 +260,26 @@ export function media(sys: HousingSystem): PlacedBook[] {
   return list;
   }
 
-/** 디스크 · 레코드 · 게임 디스크 도감 (append-only). */
+/** The disc · record · game disc catalogue (append-only). */
 export function mediaDex(sys: HousingSystem): string[] {
   if (!Array.isArray(sys.state.mediaDex)) sys.state.mediaDex = [];
   return sys.state.mediaDex;
   }
 
-/** 켜 둔 TV · 레코드 플레이어 uid (`ShipState.toggled`). */
+/** The uids of the TVs · record players left on (`ShipState.toggled`). */
 export function toggledUids(sys: HousingSystem): string[] {
   if (!Array.isArray(sys.state.toggled)) sys.state.toggled = [];
   return sys.state.toggled;
   }
 
-/** 배치된 조각이 보관함이면 그 매체 (`HousingRef.getShelfMedium`) — 2026-09-13 게임 디스크 전시대 = `'game'`. */
+/** The medium when the placed piece is a holder (`HousingRef.getShelfMedium`) — 2026-09-13 the game disc stand = `'game'`. */
 export function shelfMediumOf(sys: HousingSystem, uid: string): ShelfMedium | null {
   const item = sys.getPlacedByUid(uid);
   const def = item ? FURNITURE_DEF_MAP.get(item.defId) : undefined;
   return def ? shelfMediumOfInteraction(def.interaction) : null;
   }
 
-/** 보관함 `uid` 에 꽂힌 것 전부 (책장이면 `booksOf`). 보관함이 아니면 빈 배열. */
+/** Everything shelved in holder `uid` (`booksOf` for a bookshelf). Empty array when it is not a holder. */
 export function shelfItemsOf(sys: HousingSystem, uid: string): PlacedBook[] {
   const m = shelfMediumOf(sys, uid);
   if (!m) return [];
@@ -290,7 +290,7 @@ function mediaAt(sys: HousingSystem, uid: string, slot: number): PlacedBook | nu
   return media(sys).find((e) => e.uid === uid && e.slot === slot) ?? null;
   }
 
-/** 그 매체의 아이템 def (`ItemDef.book` / `disc` / `record` / 2026-09-13 `gameDisc`), 아니면 null. */
+/** That medium's item def (`ItemDef.book` / `disc` / `record` / 2026-09-13 `gameDisc`), else null. */
 export function shelfItemDef(sys: HousingSystem, defId: string, medium: ShelfMedium): ItemDef | null {
   const def = sys.defOf(defId);
   return def && shelfHolderMediumOfItem(def) === medium ? def : null;
@@ -301,7 +301,7 @@ export function shelfChanged(sys: HousingSystem, uid: string, medium: ShelfMediu
   sys.ctx.bus.emit('housing:shelfChanged', { uid, medium, count: shelfItemsOf(sys, uid).length });
   }
 
-/** 매체 공통의 「회수 전에 창고로 옮길 수 있는가」 (`booksBlock` 의 일반판). 보관함이 아니거나 비었으면 null. */
+/** The shared-media 「can it be moved to the stash before recovery」 (the general form of `booksBlock`). null when it is not a holder, or is empty. */
 export function shelfBlock(sys: HousingSystem, uid: string): string | null {
   const m = shelfMediumOf(sys, uid);
   if (!m) return null;
@@ -318,8 +318,8 @@ export function shelfBlock(sys: HousingSystem, uid: string): string | null {
   }
 
 /**
- * 보관함 `uid` 의 매체를 전부 함선 창고로 (all or nothing — 첫 거절에서 이미 넣은 것을 `takeItem` 으로 되돌린다). 책장이면
- * `stashBooksOf`. 옮긴 뒤 보관함이 비었으면 true.
+ * Move every medium of holder `uid` into the ship stash (all or nothing — on the first refusal the ones already added are taken back out
+ * with `takeItem`). `stashBooksOf` for a bookshelf. True when the holder is empty afterwards.
  */
 export function stashShelfItemsOf(sys: HousingSystem, uid: string): boolean {
   const m = shelfMediumOf(sys, uid);
@@ -344,7 +344,7 @@ export function stashShelfItemsOf(sys: HousingSystem, uid: string): boolean {
   return true;
   }
 
-/** 회수된 조각의 켜짐을 지운다 (`recover`). */
+/** Clears the on-state of a recovered piece (`recover`). */
 export function dropToggled(sys: HousingSystem, uid: string): void {
   const list = toggledUids(sys);
   const i = list.indexOf(uid);
@@ -380,11 +380,11 @@ export function placeShelfItem(sys: HousingSystem, uid: string, slot: number, de
   if (mediaAt(sys, uid, slot)) return `이미 ${label}가 꽂혀 있습니다`;
   const def = shelfItemDef(sys, defId, m);
   if (!def) return `${label}가 아닙니다`;
-  // 2026-09-13 (사용자 결정): 같은 종류는 한 장만 센다 — 이미 어느 보관함에든 꽂혀 있으면 거절
+  // 2026-09-13 (user's decision): one copy of a kind counts — refused when it is already shelved in any holder
   if (isShelvedAnywhere(sys, defId)) return `이미 꽂혀 있는 ${label}입니다`;
   if (sys.countDef(defId) < 1) return `${def.name}이(가) 없습니다`;
   const inv = sys.ctx.inventory;
-  // `consumeDefAll` takes from the bag first, then the stash (책과 같다)
+  // `consumeDefAll` takes from the bag first, then the stash (the same as a book)
   if (!inv || typeof inv.consumeDefAll !== 'function' || !inv.consumeDefAll(defId, 1)) return `${SHELF_OBJ_KO[m]} 꺼낼 수 없습니다`;
   media(sys).push({ uid, slot, defId });
   const dex = mediaDex(sys);
@@ -402,7 +402,7 @@ export function takeShelfItem(sys: HousingSystem, uid: string, slot: number): st
   const loot = sys.ctx.loot;
   if (!loot || typeof loot.createItem !== 'function') return `${SHELF_OBJ_KO[m]} 만들 수 없습니다`;
   const item = loot.createItem(e.defId, 1);
-  // 2026-09-16: 전달은 `parts/Deliver` 한 길이다 — 끌어서 놓았으면 **커서가 놓인 칸**으로 간다 (`withDropCell`).
+  // 2026-09-16: delivery has one path, `parts/Deliver` — a drag-and-drop goes to **the cell the cursor was dropped on** (`withDropCell`).
   if (!deliverItem(sys, item, 'bag-first')) return `공간 없음 — ${noRoomReason('bag-first')}`;
   const list = media(sys);
   list.splice(list.indexOf(e), 1);
@@ -410,7 +410,7 @@ export function takeShelfItem(sys: HousingSystem, uid: string, slot: number): st
   return null;
   }
 
-/** 정렬 순서: 서재 매체 = 시리즈 표 순서 → 권 번호 (시리즈 없는 옛 def 는 숙련 순서로 뒤에), 게임 디스크 = 게임기 → id. */
+/** Sort order: library media = the series table's order → volume number (an old def with no series goes last, by skill), game discs = console → id. */
 function ownedOrder(def: ItemDef): [number, number, string] {
   const s = librarySeriesOfItem(def);
   if (s) {
@@ -445,21 +445,21 @@ export function getShelfDex(sys: HousingSystem, medium: ShelfMedium): readonly s
   return mediaDex(sys).filter((id) => id.startsWith(prefix));
   }
 
-/** 그 매체의 보조 가구가 함선에 배치돼 있는가 (전력 무관). 게임 디스크는 보조 가구가 없다. */
+/** Is that medium's aux furniture placed on the ship (regardless of power). A game disc has no aux furniture. */
 export function hasShelfAux(sys: HousingSystem, medium: ShelfMedium): boolean {
   return medium !== 'game' && shelfAuxPlaced(sys.state.furniture, medium);
   }
 
 /**
- * 한 숙련의 서재 배율을 매체별로 — 2026-09-13 부터 시리즈 공식의 `skillGain` 을 매체별로 나눈 것 (`total === getBookBonus(skill)`).
- * `aux` = 배치된 보조 가구 (2026-09-13 같은 날 전력 할당이 폐지되어 「작동 중」 과 「배치됨」 이 같다).
+ * One skill's library multiplier per medium — since 2026-09-13 the series formula's `skillGain` split per medium (`total === getBookBonus(skill)`).
+ * `aux` = the aux furniture placed (power allocation was dropped the same day, 2026-09-13, so 「working」 and 「placed」 mean the same thing).
  */
 export function getShelfBonus(sys: HousingSystem, skill: SkillId): ShelfBonusInfo {
   const c = ensureLibrary(sys);
   return shelfBonusFromLibrary(c.comp, skill, c.aux);
   }
 
-/** 보관함 화면 — 책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대 공통 (`BookshelfMenu` 한 장이 매체를 바꿔 그린다). */
+/** The holder screen — shared by the bookshelf · disc stand · record rack · game disc stand (one `BookshelfMenu` redraws for the medium). */
 export function openShelf(sys: HousingSystem, uid: string): void {
   if (!sys.bookshelfMenu) return;
   if (!shelfMediumOf(sys, uid)) { sys.notify('보관함이 없습니다', 'warning'); return; }
@@ -468,7 +468,7 @@ export function openShelf(sys: HousingSystem, uid: string): void {
   sys.bookshelfMenu.openShelf(uid);
   }
 
-/* ── 켜기 / 끄기 (TV · 레코드 플레이어) ─────────────────────────────────── */
+/* ── On / off (TV · record player) ──────────────────────────────────────── */
 function toggleDefOf(sys: HousingSystem, uid: string): FurnitureDef | null {
   const item = sys.getPlacedByUid(uid);
   const def = item ? FURNITURE_DEF_MAP.get(item.defId) : undefined;
@@ -479,7 +479,7 @@ export function isFurnitureOn(sys: HousingSystem, uid: string): boolean {
   return !!toggleDefOf(sys, uid) && toggledUids(sys).includes(uid);
   }
 
-/** 켜짐을 뒤집고 새 상태를 돌려준다 — 켤 수 없는 가구 · 없는 uid 는 null. 저장되고(`changed('toggle')`) 소리가 난다. */
+/** Flips the on-state and returns the new one — null for a piece that cannot be toggled and for an unknown uid. It is saved (`changed('toggle')`) and sounds. */
 export function toggleFurniture(sys: HousingSystem, uid: string): boolean | null {
   const def = toggleDefOf(sys, uid);
   if (!def) return null;
@@ -494,34 +494,34 @@ export function toggleFurniture(sys: HousingSystem, uid: string): boolean | null
   return on;
   }
 
-/* ══ 서재 시리즈 — 효과 합산 캐시 · 소스 · 띠 · 레시피 해금 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ══════════════════
- * 합산은 `Rules.computeLibraryEffects` (순수) 이고 여기서는 **무엇을 넣을지**(작동 중인 보관함 · 보조 가구)와 **언제 다시 셀지**를 정한다.
+/* ══ Library series — the effect-sum cache · sources · the band · recipe unlocks (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ═
+ * The summing is `Rules.computeLibraryEffects` (pure); this file decides **what goes in** (working holders · aux furniture) and **when to count again**.
  *
- * - 캐시는 시스템마다 하나(`WeakMap`)이고 질의는 전부 `ensureLibrary` 를 지난다 — 더러우면 그 자리에서 다시 센다.
- * - **더럽히는 사건**: `housing:changed`(꽂기 · 빼기 · 배치 · 이동 · 회수 · 제작 · 켜기 · 서버 사본 …) · `housing:loaded` ·
+ * - One cache per system (`WeakMap`) and every query passes through `ensureLibrary` — a dirty one is counted again on the spot.
+ * - **Dirtying events**: `housing:changed` (shelving · taking out · placing · moving · recovery · crafting · toggling · the server copy …) · `housing:loaded` ·
  *   `housing:shelfChanged` · `housing:furniturePlaced/Moved/Recovered` ·
- *   `housing:roomPurposeChanged`. 한 호출 스택의 여러 사건은 **마이크로태스크 한 번**으로 합친다. `parts/Furniture` 는 고치지 않는다.
- * - **`housing:libraryChanged {revision}`** 는 서명이 바뀔 때만 난다: 합산 내용 **또는** 꽂힌 def 집합(전력 무관 — 띠) **또는**
- *   보유한 보관함 매체 집합(배치 + 가구 창고 — 띠). 리비전은 그때마다 1 오르고 `getLibraryEffects().revision` 과 같다.
- * - `ctx.loot` 없이 센 결과는 def 를 못 읽은 결과라, loot 가 생긴 뒤 첫 질의 · 첫 `update` 가 다시 센다 (`tickLibrary`).
+ *   `housing:roomPurposeChanged`. Several events in one call stack are folded into **one microtask**. `parts/Furniture` is not touched.
+ * - **`housing:libraryChanged {revision}`** fires only when the signature changes: the summed content **or** the set of shelved defs (regardless of power — the band)
+ *   **or** the set of owned holder media (placed + furniture storage — the band). The revision rises by 1 each time and equals `getLibraryEffects().revision`.
+ * - A result counted without `ctx.loot` could not read the defs, so the first query · first `update` after loot appears counts again (`tickLibrary`).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 interface LibraryCache {
   dirty: boolean;
   queued: boolean;
-  /** 마지막 계산 때 `ctx.loot` 가 있었나. */
+  /** Was `ctx.loot` around at the last computation. */
   hadLoot: boolean;
   comp: LibraryComputation;
-  /** 매체별 보조 가구 **작동** 여부 (마지막 계산). */
+  /** Whether each medium's aux furniture is **working** (at the last computation). */
   aux: Record<ShelfMedium, boolean>;
   summary: LibraryEffectsSummary;
   sig: string;
-  /** 어느 보관함에든 꽂힌 def id (전력 무관). */
+  /** The def ids shelved in any holder (regardless of power). */
   shelved: Set<string>;
-  /** 보유한 보관함의 매체 (배치 + 가구 창고, 전력 무관). */
+  /** The media of the holders owned (placed + furniture storage, regardless of power). */
   holderMedia: Set<ShelfMedium>;
   revision: number;
-  /** 레시피 id → 그것을 여는 시리즈 id (시리즈 표 · `CraftRecipe.unlockSeries`). `recipeLocksKey` 가 다르면 다시 만든다. */
+  /** Recipe id → the series id that unlocks it (the series table · `CraftRecipe.unlockSeries`). Rebuilt when `recipeLocksKey` differs. */
   recipeLocks: Map<string, string> | null;
   recipeLocksKey: string;
 }
@@ -541,12 +541,12 @@ function libCacheOf(sys: HousingSystem): LibraryCache {
   return c;
 }
 
-/** 지금 상태로 다시 센다 — 서명이 바뀌었으면 리비전을 올리고 `housing:libraryChanged` 를 낸다. */
+/** Counts again from the current state — when the signature changed the revision rises and `housing:libraryChanged` fires. */
 function refreshLibrary(sys: HousingSystem): void {
   const c = libCacheOf(sys);
   c.dirty = false;
   const state = sys.state;
-  // 2026-09-13 (같은 날 전력 할당 폐지): 배치된 보관함 · 보조 가구는 늘 작동한다 — 멈춘 보관함을 거르던 필터를 걷어냈다
+  // 2026-09-13 (power allocation dropped the same day): a placed holder · aux furniture always works — the filter that dropped stopped holders is gone
   const aux: Record<ShelfMedium, boolean> = { book: false, disc: false, record: false, game: false };
   for (const m of SHELF_MEDIA) aux[m] = shelfAuxPlaced(state.furniture, m);
   const all = [...books(sys), ...media(sys)];
@@ -575,14 +575,14 @@ function refreshLibrary(sys: HousingSystem): void {
   sys.ctx?.bus.emit('housing:libraryChanged', { revision: c.revision });
 }
 
-/** 캐시를 최신으로 (더럽거나 loot 없이 셌으면 다시 센다). */
+/** Brings the cache up to date (counts again when it is dirty or was counted without loot). */
 export function ensureLibrary(sys: HousingSystem): LibraryCache {
   const c = libCacheOf(sys);
   if (c.dirty || (!c.hadLoot && sys.ctx?.loot)) refreshLibrary(sys);
   return c;
 }
 
-/** 더럽히고 이 호출 스택 끝(마이크로태스크)에 한 번 다시 센다. */
+/** Marks it dirty and counts again once at the end of this call stack (a microtask). */
 export function markLibraryDirty(sys: HousingSystem): void {
   const c = libCacheOf(sys);
   c.dirty = true;
@@ -594,7 +594,7 @@ export function markLibraryDirty(sys: HousingSystem): void {
   });
 }
 
-/** `HousingSystem.init` 에서 한 번 — 더럽히는 사건을 묶고 첫 계산을 예약한다. */
+/** Once from `HousingSystem.init` — binds the dirtying events and schedules the first computation. */
 export function bindLibrary(sys: HousingSystem): Array<() => void> {
   const b = sys.ctx.bus;
   const dirty = (): void => markLibraryDirty(sys);
@@ -611,7 +611,7 @@ export function bindLibrary(sys: HousingSystem): Array<() => void> {
   return unsubs;
 }
 
-/** `HousingSystem.update` — loot 없이 센 결과를 loot 가 생긴 첫 프레임에 다시 센다 (그 밖에는 아무 일도 하지 않는다). */
+/** `HousingSystem.update` — a result counted without loot is counted again on the first frame loot exists (it does nothing else). */
 export function tickLibrary(sys: HousingSystem): void {
   const c = LIB_CACHE.get(sys);
   if (c && !c.hadLoot && !c.dirty && sys.ctx?.loot) markLibraryDirty(sys);
@@ -627,7 +627,7 @@ export function getLibrarySources(sys: HousingSystem, kind: LibraryEffectKind, t
   return librarySourcesIn(ensureLibrary(sys).comp, kind, typeof target === 'string' ? target : '');
 }
 
-/** `HousingRef.getSeriesProgress` — 모르는 시리즈면 null, 꽂힌 권이 없으면 0 / 전체. */
+/** `HousingRef.getSeriesProgress` — null for an unknown series, 0 / total when no volume is shelved. */
 export function getSeriesProgress(sys: HousingSystem, seriesId: string): { have: number; total: number; fraction: number } | null {
   const def = LIBRARY_SERIES_MAP.get(seriesId);
   if (!def) return null;
@@ -635,19 +635,19 @@ export function getSeriesProgress(sys: HousingSystem, seriesId: string): { have:
   return st ? { have: st.have, total: st.total, fraction: st.fraction } : { have: 0, total: Math.max(1, def.volumes), fraction: 0 };
 }
 
-/** 화면용 — 꽂힌 권이 있는 시리즈 전부의 상태 (작동 중인 보관함 기준). */
+/** For the screen — the state of every series with a shelved volume (measured over the working holders). */
 export function librarySeriesStates(sys: HousingSystem): ReadonlyMap<string, LibrarySeriesState> {
   return ensureLibrary(sys).comp.series;
 }
 
-/** 화면용 — 매체별 보조 가구 **작동** 여부 (마지막 계산). */
+/** For the screen — whether each medium's aux furniture is **working** (at the last computation). */
 export function libraryAuxActive(sys: HousingSystem, medium: ShelfMedium): boolean {
   return ensureLibrary(sys).aux[medium] === true;
 }
 
 /**
- * `HousingRef.isShelfItemWanted` — 서재 효과 매체(책 · 디스크 · 레코드)이고, 그 매체의 보관함을 보유(배치 또는 가구 창고)했고, 어느 보관함에도
- * 같은 def 가 꽂혀 있지 않으면 true. 캐시된 집합 두 개와 def 조회 하나라 O(1) 이다.
+ * `HousingRef.isShelfItemWanted` — true when it is library-effect media (book · disc · record), a holder for that medium is owned (placed or in furniture
+ * storage), and no holder has the same def shelved. Two cached sets and one def lookup, so it is O(1).
  */
 export function isShelfItemWanted(sys: HousingSystem, defId: string): boolean {
   if (typeof defId !== 'string' || !defId) return false;
@@ -658,7 +658,7 @@ export function isShelfItemWanted(sys: HousingSystem, defId: string): boolean {
   return c.holderMedia.has(s.medium) && !c.shelved.has(id);
 }
 
-/** 레시피 id → 그것을 여는 시리즈 id (없으면 null). 시리즈 표의 `recipe:` 효과가 기본, `CraftRecipe.unlockSeries` 가 있으면 그것이 이긴다. */
+/** Recipe id → the series id that unlocks it (null with none). The series table's `recipe:` effect is the default; `CraftRecipe.unlockSeries` wins when present. */
 function recipeLockOf(sys: HousingSystem, recipeId: string): string | null {
   const c = libCacheOf(sys);
   const loot = sys.ctx?.loot;
@@ -674,7 +674,7 @@ function recipeLockOf(sys: HousingSystem, recipeId: string): string | null {
   return c.recipeLocks.get(recipeId) ?? null;
 }
 
-/** `HousingRef.isRecipeUnlocked` — 잠그는 시리즈가 없으면 true, 있으면 그 시리즈가 **지금** 이 레시피 효과를 주고 있어야(작동 중인 보관함에 전권) true. */
+/** `HousingRef.isRecipeUnlocked` — true with no locking series; with one, true only while that series **currently** gives this recipe effect (every volume in working holders). */
 export function isRecipeUnlocked(sys: HousingSystem, recipeId: string): boolean {
   if (typeof recipeId !== 'string') return true;
   const seriesId = recipeLockOf(sys, recipeId);

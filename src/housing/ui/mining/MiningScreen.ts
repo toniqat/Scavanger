@@ -12,16 +12,16 @@ import type { MiningHousing } from './common';
 
 const TICK_MS = 1000;
 
-/** 카운터 하나를 네 페이지가 나눠 쓴다 (스모크 · 성능 계측). */
+/** One counter shared by the four pages (smoke tests · performance measurement). */
 export interface MiningDebug {
   paints: number; tabSets: number;
-  /* 채굴 탭 */ rails: number; inserts: number; removes: number; coinSets: number;
-  /* 컴퓨터 탭 */ watches: number; unwatches: number; requests: number; trades: number; chartPaints: number;
+  /* the `채굴` tab */ rails: number; inserts: number; removes: number; coinSets: number;
+  /* the computer tabs */ watches: number; unwatches: number; requests: number; trades: number; chartPaints: number;
 }
 
 /**
- * 페이지가 창(패널)에 물어보는 것 전부 — 페이지는 `HousingPanel` 이 아니라 **이 창 안의 한 쪽**이다.
- * 창이 `HousingPanel` 의 protected 헬퍼(`button` · `deny` · `overlays`)를 이 모양으로 열어 준다.
+ * Everything a page asks of the window (the panel) — a page is not a `HousingPanel` but **one side inside this window**.
+ * The window opens `HousingPanel`'s protected helpers (`button` · `deny` · `overlays`) in this shape.
  */
 export interface MiningHost {
   readonly shell: StationShell;
@@ -30,28 +30,28 @@ export interface MiningHost {
   showMsg(text: string, kind?: 'info' | 'success' | 'warning' | 'danger'): void;
   denyMsg(reason: string): void;
   addOverlay(o: PanelOverlay): void;
-  /** 머리줄 제목 · 부가 글 (페이지가 자기 것으로 칠한다). */
+  /** The header row's title · sub-text (a page paints its own). */
   setTitle(text: string, meta: string, bad?: boolean): void;
-  /** 좌 패널 맨 위 빨간 배너 (null = 숨김). */
+  /** The red banner at the top of the left panel (null = hidden). */
   setBanner(text: string | null): void;
   setTab(tab: MiningTab): void;
-  /** 버스 이벤트가 부르는 다시 그리기 — 한 호출 스택의 여러 이벤트를 창이 하나로 합친다(`coalesceRefresh`). */
+  /** The redraw a bus event calls — the window folds several events of one call stack into one (`coalesceRefresh`). */
   refreshLater(): void;
-  /** 현황 줄 클릭 → 그 클러스터의 채굴 탭. */
+  /** Clicking a status row → that cluster's `채굴` tab. */
   openCluster(uid: string): void;
 }
 
 /**
- * **채굴 화면** (2026-09-14, 사용자 결정 — 연산 클러스터 화면과 메인 컴퓨터 화면을 **한 창**으로 합쳤다).
+ * **The mining screen** (2026-09-14, user's decision — the compute cluster screen and the main computer screen merged into **one window**).
  *
- * 화면 상단 가로 탭 네 개(`MINING_TABS` — 채굴 · 클러스터 현황 · 지갑 · 거래소, 인벤토리/캐릭터 Tab 화면의
- * `nav.scr-tabs > button.scr-tab` 과 같은 결)가 한 `StationShell` 카드 배치를 갈아 끼운다:
- *  - **채굴**(`ClusterPage`) — 좌측 레일 = 함선의 연산 클러스터 목록 · 프로세서 9칸 · 이번 주기 · 채굴 코인 드롭다운 +
- *    현황 수치, 그리고 [함선 창고] [가방] 카드. 이 탭에서만 격자 카드와 레일이 보인다.
- *  - **클러스터 현황 · 지갑 · 거래소**(`ComputerPages`) — 옛 메인 컴퓨터 세 쪽 그대로.
+ * Four horizontal tabs at the top of the screen (`MINING_TABS` — `채굴` · `클러스터 현황` · `지갑` · `거래소`, of the same grain
+ * as the 인벤토리/캐릭터 Tab screens' `nav.scr-tabs > button.scr-tab`) swap the card layout of one `StationShell`:
+ *  - **`채굴`** (`ClusterPage`) — the left rail = the ship's list of compute clusters · 9 processor cells · `이번 주기` · the
+ *    `채굴 코인` dropdown + the stat numbers, and the [함선 창고] [가방] cards. The grid cards and the rail show on this tab only.
+ *  - **`클러스터 현황` · `지갑` · `거래소`** (`ComputerPages`) — the old main computer's three pages as they were.
  *
- * 가구 E 가 여는 **기본 탭은 누른 가구의 탭**이다 (사용자 결정): 연산 클러스터 → `'cluster'`, 메인 컴퓨터 →
- * `'clusters'`. 옛 진입점 이름(`openComputeCluster` · `openMiningComputer`)은 계약이라 그대로 남고 기본 탭만 다르다.
+ * The **default tab an E on the furniture opens is that furniture's tab** (user's decision): a compute cluster → `'cluster'`, the
+ * main computer → `'clusters'`. The old entry-point names (`openComputeCluster` · `openMiningComputer`) are a contract and stay; only the default tab differs.
  */
 export class MiningScreen extends HousingPanel {
   readonly shell: StationShell;
@@ -67,12 +67,12 @@ export class MiningScreen extends HousingPanel {
   private timer = 0;
 
   constructor(ctx: GameContext, private readonly housing: HousingSystem) {
-    // `HousingPage` 는 계약이라 값을 더하지 않는다 — 통합 창은 옛 `'cluster'` 쪽 이름을 그대로 쓴다
+    // `HousingPage` is a contract, so no value is added to it — the combined window keeps the old `'cluster'` name
     super(ctx, 'cluster', 'mining-screen hs-station');
     this.coalesceRefresh = true;
 
-    /* 2026-09-17 (사용자 결정): 탭 줄은 Tab 화면과 **같은 자리**다 — 같은 `.scr-tabs` 를 프레임이 아니라 화면 루트에
-       붙인다 (절대 배치 `top: 22px`, `ui/styles/base.css`). 프레임은 그 밑에서 시작한다 (`mining.css`). */
+    /* 2026-09-17 (user's decision): the tab row sits in **the same place** as on the Tab screens — the same `.scr-tabs`, attached
+       to the screen root rather than the frame (absolute, `top: 22px`, `ui/styles/base.css`). The frame starts below it (`mining.css`). */
     const tabs = el('nav', { cls: 'scr-tabs mn-tabs', parent: this.root });
     for (const id of MINING_TABS) {
       const b = el('button', { cls: 'scr-tab mn-tab', text: MINING_TAB_LABEL_KO[id], attrs: { 'data-tab': id }, parent: tabs });
@@ -122,17 +122,17 @@ export class MiningScreen extends HousingPanel {
     this.applyTab('cluster');
   }
 
-  /* ── 탭 ────────────────────────────────────────────────────────────────── */
+  /* ── Tabs ──────────────────────────────────────────────────────────────── */
   get currentTab(): MiningTab { return this.tab; }
-  /** 옛 `MiningComputer.selectedCoin` (거래소 탭의 코인) — 스모크 · 콘솔이 본다. */
+  /** The old `MiningComputer.selectedCoin` (the `거래소` tab's coin) — read by the smoke tests · the console. */
   get selectedCoin(): string { return this.computer.selectedCoin; }
-  /** 옛 `ClusterScreen.currentUid` (채굴 탭의 클러스터). */
+  /** The old `ClusterScreen.currentUid` (the `채굴` tab's cluster). */
   get currentUid(): string { return this.cluster.currentUid; }
   get chart(): ComputerPages['chart'] { return this.computer.chart; }
-  /** 메인 컴퓨터 가구가 바뀌었다 (E 를 다른 컴퓨터에서 눌렀다) — 배너가 그 가구를 본다. */
+  /** The main computer furniture changed (E was pressed on another computer) — the banner looks at that furniture. */
   setComputerUid(uid: string): void { this.computer.setUid(uid); }
 
-  /** DOM 만 갈아 끼운다 (refresh 없이) — 열기 직전에도 쓴다. */
+  /** Swaps the DOM only (no refresh) — used just before opening too. */
   private applyTab(id: MiningTab): void {
     this.tab = MINING_TABS.includes(id) ? id : 'cluster';
     const onCluster = this.tab === 'cluster';
@@ -153,14 +153,14 @@ export class MiningScreen extends HousingPanel {
     this.ctx.bus.emit('ui:miningToggled', { open: true, uid: this.activeUid(), page: this.wirePage() });
   }
 
-  /** `ui:miningToggled` 의 `page` 는 계약이라 둘뿐이다 — 채굴 탭은 `'cluster'`, 나머지 셋은 `'computer'`. */
+  /** `ui:miningToggled`'s `page` is a contract, so there are only two — the `채굴` tab is `'cluster'`, the other three `'computer'`. */
   private wirePage(): 'cluster' | 'computer' { return this.tab === 'cluster' ? 'cluster' : 'computer'; }
   private activeUid(): string | null {
     return this.tab === 'cluster' ? this.cluster.currentUid || null : this.computer.currentUid;
   }
 
   /* ── open / close ──────────────────────────────────────────────────────── */
-  /** `uid` = 누른 가구. 채굴 탭이면 그 연산 클러스터, 나머지 탭이면 그 메인 컴퓨터. */
+  /** `uid` = the furniture pressed. On the `채굴` tab that compute cluster, on the other tabs that main computer. */
   openMining(uid: string, tab: MiningTab): void {
     if (tab === 'cluster') this.cluster.setUid(uid); else this.computer.setUid(uid);
     this.applyTab(tab);
@@ -177,7 +177,7 @@ export class MiningScreen extends HousingPanel {
     this.cluster.onClose();
     this.computer.onClose();
     super.close(relock);
-    this.computer.syncWatch();              // 창이 닫혔으니 시세 구독을 푼다
+    this.computer.syncWatch();              // the window closed, so the price subscription is released
     if (was) this.ctx.bus.emit('ui:miningToggled', { open: false, uid, page });
   }
 
@@ -194,7 +194,7 @@ export class MiningScreen extends HousingPanel {
     if (this.tab === 'cluster') this.cluster.tick(); else this.computer.tick();
   }
 
-  /* ── 머리줄 · 배너 ─────────────────────────────────────────────────────── */
+  /* ── The header row · the banner ───────────────────────────────────────── */
   private paintHead(title: string, meta: string, bad: boolean): void {
     setText(this.shell.title, title);
     setText(this.shell.meta, meta);
@@ -221,9 +221,9 @@ export class MiningScreen extends HousingPanel {
   }
 }
 
-/* ── 진입점 (`HousingRef`) ──────────────────────────────────────────────────── */
+/* ── Entry points (`HousingRef`) ────────────────────────────────────────── */
 
-/** `openComputeCluster(uid)` 의 몸통 — 연산 클러스터가 아니면 토스트. 기본 탭 `채굴`. */
+/** The body of `openComputeCluster(uid)` — a toast when it is not a compute cluster. Default tab `채굴`. */
 export function openComputeClusterScreen(sys: HousingSystem, uid: string): void {
   const screen = sys.miningScreen;
   if (!screen) return;
@@ -235,7 +235,7 @@ export function openComputeClusterScreen(sys: HousingSystem, uid: string): void 
   screen.openMining(uid, 'cluster');
 }
 
-/** `openMiningComputer(uid, tab)` 의 몸통 — `uid` null = 함선의 메인 컴퓨터. 기본 탭 `클러스터 현황`. */
+/** The body of `openMiningComputer(uid, tab)` — `uid` null = the ship's main computer. Default tab `클러스터 현황`. */
 export function openMiningComputerScreen(sys: HousingSystem, uid: string | null, tab?: MiningComputerTab): void {
   const screen = sys.miningScreen;
   if (!screen) return;

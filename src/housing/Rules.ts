@@ -12,10 +12,10 @@ import {
   STASH_COLS, STASH_ROWS_BY_STORAGE_LEVEL, STORAGE_MAX_LEVEL, STORAGE_UPGRADE_COST,
   WORKSHOP_UPGRADE_COST, benchKindOf, furnitureFootprint,
 } from '@/shared';
-/* 2026-09-13 (요리 재료 티어) */
+/* 2026-09-13 (cooking material tiers) */
 import type { AnalysisResultDef, SampleFamily } from '@/shared';
 import { ANALYSIS_RESULTS, GROW_SOCKET_TIME_FLOOR, GROW_WEAR_MUL_FLOOR, analysisTimeMul } from '@/shared';
-/* 2026-09-16 (표본 개편 — 등급 하한 추첨 · 도감/레벨 단축) */
+/* 2026-09-16 (sample rework — the rarity-floor draw · catalogue / level speedup) */
 import type { Rarity } from '@/shared';
 import {
   ANALYSIS_DEX_BONUS_PER_ENTRY, ANALYSIS_SAMPLE_LEVEL_FIRST, ANALYSIS_SAMPLE_LEVEL_MAX, ANALYSIS_SAMPLE_LEVEL_STEP,
@@ -30,7 +30,7 @@ import {
 
 /** Units of `defId` the player owns (bag + stash). */
 export type CountFn = (defId: string) => number;
-/** 한국어 item name for a def id (falls back to the id). */
+/** Korean item name for a def id (falls back to the id). */
 export type NameFn = (defId: string) => string;
 
 /** Lowest craft-cost multiplier the workshop discount may reach. */
@@ -39,9 +39,9 @@ export const CRAFT_COST_MUL_MIN = 0.5;
 /* ── facilities ───────────────────────────────────────────────────────────── */
 
 /**
- * 2026-09-12 (사용자 결정 — **방 시설 레벨 제거**): 작업실 · 시뮬레이션실은 레벨이 없다 (방이 있으면 1, 없으면 0).
- * 강화는 그 방 안의 가구가 한다 — 작업대(레시피), 관물대(프리셋 슬롯), 시뮬레이션 허브(사격 숙련 상승). 발전기 ·
- * 창고는 함선 전체 시설이라 그대로 레벨을 갖는다.
+ * 2026-09-12 (user's decision — **room facility levels removed**): 작업실 and 시뮬레이션실 have no level (1 while
+ * the room exists, 0 when it does not). Upgrading is the job of the furniture inside — 작업대 (recipes), 관물대
+ * (preset slots), 시뮬레이션 허브 (gun skill gain). 발전기 and 창고 are ship-wide and keep their levels.
  */
 export function facilityMaxLevel(id: FacilityId): number {
   switch (id) {
@@ -86,9 +86,10 @@ export function nextFacilityCost(id: FacilityId, level: number): CraftIngredient
 }
 
 /**
- * 옛 세이브의 방 시설 레벨이 **쓴 재료** (Lv.1 → `level`, 재료별 합산). 2026-09-12 에 방 시설 레벨을 없애면서
- * `ShipState.sanitize` 가 레벨 2 이상인 작업실 · 사격장을 만나면 이 값을 함선 창고로 돌려준다 — 은퇴 가구
- * (`furnitureRefundCost`)와 같은 철학이다. 표는 `data/facility_upgrades.csv` 의 은퇴 묶음(`workshop` · `range`)이다.
+ * The **materials spent** on an old save's room facility levels (Lv.1 → `level`, merged per material). When room
+ * facility levels went away on 2026-09-12, `ShipState.sanitize` began handing this back into the 함선 창고 for every
+ * 작업실 · 사격장 above level 1 — the same philosophy as retired furniture (`furnitureRefundCost`). The table is the
+ * retired block (`workshop` · `range`) of `data/facility_upgrades.csv`.
  */
 export function legacyRoomLevelCost(id: 'workshop' | 'range', level: number): CraftIngredient[] {
   const table = id === 'workshop' ? WORKSHOP_UPGRADE_COST : RANGE_UPGRADE_COST;
@@ -110,9 +111,10 @@ export function missingIngredients(cost: readonly CraftIngredient[], count: Coun
 }
 
 /**
- * 재료가 모자라 막혔을 때의 사유 (2026-09-15, 사용자 결정).
- * **모자란 재료를 글로 열거하지 않는다** — 화면마다 재료 칩이 이미 `보유/필요` 를 적고 모자라면 스스로 `.is-short`
- * (빨강)로 말하므로, 같은 말을 문장으로 한 번 더 하면 줄만 길어진다. 사유 함수 넷이 이 한 줄을 돌려준다.
+ * The reason shown when missing materials block something (2026-09-15, user's decision).
+ * **It never lists the missing materials in prose** — every screen's material chip already prints `보유/필요` and
+ * says it itself in `.is-short` (red) when it falls short, so repeating that in a sentence only makes the line
+ * longer. Four reason functions return this one string.
  */
 export const MISSING_MATERIALS_REASON = '재료 부족';
 
@@ -120,7 +122,7 @@ export function formatCost(cost: readonly CraftIngredient[], nameOf: NameFn): st
   return cost.map((c) => `${nameOf(c.defId)} ${c.qty}`).join(' · ');
 }
 
-/** 한국어 reason the generator gate blocks a target level, null when the generator is high enough. */
+/** Korean reason the generator gate blocks a target level, null when the generator is high enough. */
 export function generatorGateReason(state: ShipState, targetLevel: number): string | null {
   return state.generatorLevel >= targetLevel ? null : `발전기 레벨 ${targetLevel} 필요 (현재 ${state.generatorLevel})`;
 }
@@ -129,7 +131,7 @@ export function generatorGateReason(state: ShipState, targetLevel: number): stri
 export function facilityBlockReason(state: ShipState, id: FacilityId, count: CountFn, nameOf: NameFn): string | null {
   const level = facilityLevel(state, id);
   const purpose = facilityPurpose(id);
-  // 2026-09-12: 방 시설에는 레벨이 없다 — 방이 없으면 그 사유, 있으면 「가구를 강화하세요」
+  // 2026-09-12: a room facility has no level — the reason is "no such room" when there is none, else "upgrade the furniture"
   if (purpose) return level < 1 ? `${ROOM_PURPOSE_LABEL_KO[purpose]} 용도의 방이 필요합니다` : '시설 레벨은 없습니다 — 시설 안의 가구를 강화하세요';
   if (level >= facilityMaxLevel(id)) return '최대 레벨입니다';
   const target = level + 1;
@@ -161,7 +163,7 @@ export function facilityRefundCost(id: FacilityId, level: number): CraftIngredie
   return [...total].map(([defId, qty]) => ({ defId, qty }));
 }
 
-/* ── 시설 증축 (Phase 9 UI pass) ───────────────────────────────────────────
+/* ── facility build-out (Phase 9 UI pass) ─────────────────────────────────────
  * Giving an empty room a purpose costs materials now (`ROOM_PURPOSE_BUILD_COST`) and sits behind the same 발전기
  * gate as every other upgrade. 빈 방 (tearing a room back down) stays free and always refunds.
  * ────────────────────────────────────────────────────────────────────────── */
@@ -172,7 +174,7 @@ export function purposeBuildCost(purpose: RoomPurpose): readonly CraftIngredient
 }
 
 /**
- * Full 한국어 reason a 시설 증축 is refused; null = go ahead. Structure first (`purposeChangeReason` — locked room,
+ * Full Korean reason a 시설 증축 is refused; null = go ahead. Structure first (`purposeChangeReason` — locked room,
  * duplicate facility, blocking furniture, 연구실 prerequisite), then the 발전기 gate, then the materials. 빈 방 only
  * ever hits the structural rules.
  */
@@ -182,7 +184,7 @@ export function purposeBuildBlockReason(
   const structural = purposeChangeReason(state, index, purpose);
   if (structural) return structural;
   if (purpose === 'empty') return null;
-  // 2026-09-13 (사용자 결정 — 전력 할당 폐지): 용도마다 필요한 발전기 레벨이 다르다 (`purposeGeneratorLevel`)
+  // 2026-09-13 (user's decision — power allocation dropped): every purpose needs its own generator level (`purposeGeneratorLevel`)
   const gate = generatorGateReason(state, purposeGeneratorLevel(purpose));
   if (gate) return gate;
   const missing = missingIngredients(purposeBuildCost(purpose), count);
@@ -213,7 +215,7 @@ export function stashSizeFor(storageLevel: number): { cols: number; rows: number
 
 /**
  * Preset slots for the highest placed **관물대** level (0 = none placed). 2026-09-12: was the 사격장 room level.
- * @deprecated 2026-09-12 (사용자 결정 — 프리셋 기능 제거 · 관물대 은퇴): no caller; `getPresetCount()` is always 0.
+ * @deprecated 2026-09-12 (user's decision — 프리셋 기능 제거 · 관물대 retired): no caller; `getPresetCount()` is always 0.
  */
 export function presetCountFor(consoleLevel: number): number {
   const i = Math.max(0, Math.min(PRESETS_BY_RANGE_LEVEL.length - 1, Math.floor(consoleLevel)));
@@ -222,7 +224,7 @@ export function presetCountFor(consoleLevel: number): number {
 
 /**
  * Craft material multiplier. **Always 1 since 2026-09-12** — the 작업실 discount went away with the room levels
- * (사용자 결정). Kept so `HousingRef.getCraftCostMul` (contract) has one place to answer from.
+ * (user's decision). Kept so `HousingRef.getCraftCostMul` (contract) has one place to answer from.
  */
 export function craftCostMulFor(_workshopLevel: number): number {
   return 1;
@@ -231,15 +233,15 @@ export function craftCostMulFor(_workshopLevel: number): number {
 /**
  * Gun skills gain `1 + RANGE_SKILL_GAIN_PER_LEVEL × level` of the highest placed **시뮬레이션 허브** (0 = none);
  * everything else 1. 2026-09-12: was the 사격장 room level.
- * @deprecated 2026-09-12 (사용자 결정 — 시뮬레이션실 · 시뮬레이션 허브 제거): no caller; `getSkillGainMul` is the 서재 alone.
+ * @deprecated 2026-09-12 (user's decision — 시뮬레이션실 · 시뮬레이션 허브 removed): no caller; `getSkillGainMul` is the 서재 alone.
  */
 export function skillGainMulFor(skill: SkillId, simHubLevel: number): number {
   return skill.startsWith('gun_') && simHubLevel > 0 ? 1 + RANGE_SKILL_GAIN_PER_LEVEL * simHubLevel : 1;
 }
 
-/* ── 서재 책장 (Phase 9) ──────────────────────────────────────────────────── */
+/* ── library bookshelves (Phase 9) ───────────────────────────────────────── */
 
-/** Weight one shelved book contributes (`BOOK_RARITY_MUL[rarity]`); 0 for anything that is not a 서적. */
+/** Weight one shelved book contributes (`BOOK_RARITY_MUL[rarity]`); 0 for anything that is not a book. */
 export function bookWeightOf(def: ItemDef | undefined): number {
   if (!def || !def.book) return 0;
   const w = BOOK_RARITY_MUL[def.rarity];
@@ -261,31 +263,33 @@ export function bookGainMulFor(skill: SkillId, books: readonly PlacedBook[], def
   return Math.min(BOOK_GAIN_MAX, 1 + BOOK_XP_PER_BOOK * sum);
 }
 
-/* ── 서재 매체 (A-3e, 2026-09-12) ─────────────────────────────────────────────
- * 책장 · 디스크 전시대 · 레코드랙은 같은 규칙이다 — 매체마다 몫을 **따로 상한으로 자르고**, 그 매체의 보조 가구가 함선
- * 어딘가에 배치돼 있으면 자른 뒤에 `1 + SHELF_AUX_BONUS[m]` 을 곱하고, 셋을 더한다 (docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」):
+/* ── library media (A-3e, 2026-09-12) ─────────────────────────────────────────
+ * 책장 · 디스크 전시대 · 레코드랙 follow one rule — each medium's share is **capped on its own**, then multiplied by
+ * `1 + SHELF_AUX_BONUS[m]` when that medium's auxiliary furniture stands anywhere on the ship, and the three are
+ * added (docs/DECISIONS.md 「2026-09-12 — 헬스장 · 서재 매체」):
  *
- *     몫[m]     = min(SHELF_GAIN_MAX[m] − 1, SHELF_XP_PER_ITEM[m] × Σ BOOK_RARITY_MUL[등급]) × (보조 가구 ? 1 + SHELF_AUX_BONUS[m] : 1)
- *     서재 배율 = 1 + 몫[책] + 몫[디스크] + 몫[레코드]
+ *     share[m]  = min(SHELF_GAIN_MAX[m] − 1, SHELF_XP_PER_ITEM[m] × Σ BOOK_RARITY_MUL[rarity]) × (aux ? 1 + SHELF_AUX_BONUS[m] : 1)
+ *     library multiplier = 1 + share[book] + share[disc] + share[record]
  *
- * 책만 있고 보조 가구가 없으면 `1 + min(BOOK_GAIN_MAX − 1, x)` = `min(BOOK_GAIN_MAX, 1 + x)` 라 `bookGainMulFor` 와 **같은 값**이다
- * (`smoke-library` 의 Phase 9 검사가 그대로 통과해야 한다). 수치는 전부 계약의 `SHELF_*` 표(= `data/constants.csv`)에서 온다.
+ * With books alone and no auxiliary furniture, `1 + min(BOOK_GAIN_MAX − 1, x)` = `min(BOOK_GAIN_MAX, 1 + x)`, i.e. **the
+ * same value** as `bookGainMulFor` (`smoke-library`'s Phase 9 check has to keep passing). Every number comes from the
+ * contract's `SHELF_*` tables (= `data/constants.csv`).
  * ────────────────────────────────────────────────────────────────────────── */
 import type { ShelfBonusInfo, ShelfMedium } from '@/shared';
 import { SHELF_AUX_BONUS, SHELF_AUX_INTERACTION, SHELF_GAIN_MAX, SHELF_MEDIA, SHELF_XP_PER_ITEM, shelfItemOf } from '@/shared';
 
-/** 세이브의 매체 id 접두사 — `ctx.loot` 가 없을 때(`sanitize`) 모양만 보는 규칙. 진짜 매체인지는 런타임에 걸러 낸다. */
+/** Medium id prefixes in the save — the shape-only rule for when there is no `ctx.loot` (`sanitize`). Whether it really is that medium is filtered at runtime. */
 export const SHELF_ID_PREFIX: Readonly<Record<ShelfMedium, string>> = { book: 'book_', disc: 'disc_', record: 'record_', game: 'game_' };
 const SHELF_ID_SHAPE = /^(book|disc|record|game)_[A-Za-z0-9_]{1,40}$/;
 
-/** 매체 id **모양**(`book_*` · `disc_*` · `record_*` · 2026-09-13 `game_*`)에서 읽은 매체, 모양이 아니면 null. */
+/** The medium read from a media id's **shape** (`book_*` · `disc_*` · `record_*` · 2026-09-13 `game_*`), null when the shape does not match. */
 export function shelfMediumOfDefId(defId: unknown): ShelfMedium | null {
   if (typeof defId !== 'string') return null;
   const m = SHELF_ID_SHAPE.exec(defId);
   return m ? (m[1] as ShelfMedium) : null;
 }
 
-/** 꽂힌 한 장(권)의 가중치 `BOOK_RARITY_MUL[rarity]` — 서재 매체가 아니면 0. `bookWeightOf` 의 매체 공통판. */
+/** Weight of one shelved item, `BOOK_RARITY_MUL[rarity]` — 0 when it is not library media. The all-media form of `bookWeightOf`. */
 export function shelfItemWeightOf(def: ItemDef | undefined): number {
   if (!def || !shelfItemOf(def)) return 0;
   const w = BOOK_RARITY_MUL[def.rarity];
@@ -293,8 +297,9 @@ export function shelfItemWeightOf(def: ItemDef | undefined): number {
 }
 
 /**
- * 매체 `medium` 의 몫: `items` 중 그 매체이면서 `skill` 을 가르치는 것의 가중치 합 × `SHELF_XP_PER_ITEM[medium]`, 상한
- * `SHELF_GAIN_MAX[medium] − 1` 로 자른 뒤 보조 가구 배율. 없으면 정확히 0.
+ * Medium `medium`'s share: the summed weight of the `items` of that medium which teach `skill`, ×
+ * `SHELF_XP_PER_ITEM[medium]`, capped at `SHELF_GAIN_MAX[medium] − 1` and then multiplied by the auxiliary furniture
+ * factor. Exactly 0 when there are none.
  */
 export function shelfPartFor(
   medium: ShelfMedium, skill: SkillId, items: readonly PlacedBook[], defOf: (defId: string) => ItemDef | undefined, aux: boolean,
@@ -311,15 +316,16 @@ export function shelfPartFor(
 }
 
 /**
- * 그 매체의 보조 가구(`SHELF_AUX_INTERACTION[medium]`)가 함선 어딘가에 배치돼 있는가. 여러 대여도 **한 번**이다 —
- * 축음기 · 주크박스 · 턴테이블은 모두 `record_player` 라 이 질의 하나가 「셋은 외형만 다른 한 역할」(사용자 결정)을 성립시킨다.
+ * Does that medium's auxiliary furniture (`SHELF_AUX_INTERACTION[medium]`) stand anywhere on the ship? Several of
+ * them still count **once** — 축음기 · 주크박스 · 턴테이블 are all `record_player`, so this one query is what makes
+ * 「the three are one role in three shapes」 (user's decision) true.
  */
 export function shelfAuxPlaced(furniture: readonly PlacedFurniture[], medium: ShelfMedium): boolean {
   const want = SHELF_AUX_INTERACTION[medium];
   return furniture.some((f) => FURNITURE_DEF_MAP.get(f.defId)?.interaction === want);
 }
 
-/** 한 숙련의 서재 배율을 매체별로 (`HousingRef.getShelfBonus`). `books` = `ShipState.books`, `media` = `ShipState.media`. */
+/** One skill's library multiplier, per medium (`HousingRef.getShelfBonus`). `books` = `ShipState.books`, `media` = `ShipState.media`. */
 export function shelfGainFor(
   skill: SkillId, books: readonly PlacedBook[], media: readonly PlacedBook[],
   defOf: (defId: string) => ItemDef | undefined, aux: Readonly<Record<ShelfMedium, boolean>>,
@@ -329,29 +335,31 @@ export function shelfGainFor(
   return { total: 1 + parts.book + parts.disc + parts.record, parts, aux: { book: aux.book, disc: aux.disc, record: aux.record, game: false } };
 }
 
-/* ── 서재 시리즈 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 — 사용자 결정) ─────────────────────────────────────
- * **옛 공식은 은퇴했다** — 위의 `bookWeightOf` · `bookGainMulFor` · `shelfItemWeightOf` · `shelfPartFor` · `shelfGainFor` 와 계약의
- * `BOOK_RARITY_MUL` · `SHELF_XP_PER_ITEM` · `SHELF_GAIN_MAX` 는 이름만 남는다 (호출자 없음 — 추가만 하는 규약). 새 공식:
+/* ── library series (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」 — user's decision) ─────
+ * **The old formula is retired** — `bookWeightOf` · `bookGainMulFor` · `shelfItemWeightOf` · `shelfPartFor` ·
+ * `shelfGainFor` above and the contract's `BOOK_RARITY_MUL` · `SHELF_XP_PER_ITEM` · `SHELF_GAIN_MAX` keep their names
+ * only (no caller — the add-only convention). The new formula:
  *
- *     가진 권수 = 작동 중인 보관함에 꽂힌 그 시리즈의 **서로 다른 권** 수 (같은 def 여러 장 = 1, 같은 권 번호 = 1)
- *     시리즈 몫 = librarySeriesFraction(가진 권수, 전체 권수)   ← 전권이면 1, 아니면 권당 SHELF_SERIES_VOLUME_SHARE
- *     줄 값     = 전권 값 × 시리즈 몫 × (그 매체의 보조 가구가 작동 중 ? 1 + SHELF_AUX_BONUS[매체] : 1)
- *     합산      = 같은 (종류, 대상)끼리 더한다 → `LibraryEffectsSummary`. `recipe` 는 몫 1 인 시리즈의 대상만 연다.
+ *     volumes held = the number of **distinct volumes** of that series shelved in a working holder (several copies of one def = 1, the same volume number = 1)
+ *     series share = librarySeriesFraction(volumes held, total volumes)   ← 1 for the full set, else SHELF_SERIES_VOLUME_SHARE per volume
+ *     line value   = full-set value × series share × (that medium's auxiliary furniture working ? 1 + SHELF_AUX_BONUS[medium] : 1)
+ *     the sum      = added per (kind, target) → `LibraryEffectsSummary`. `recipe` only opens the targets of a series at share 1.
  *
- * 입력 `items` 는 **이미 작동 중인 보관함으로 거른** 칸 목록이다 — 전력 판정 · 캐시 · 이벤트는 `parts/Library` 가 하고, 이 절은 ctx 를 모른다.
- * 게임 디스크(`'game'`)는 효과가 없는 보관 매체라 여기에 오지 않는다 (시리즈가 없다).
+ * The `items` input is a slot list **already filtered down to working holders** — the power judgement, the cache and
+ * the events are `parts/Library`'s job, and this section knows nothing about ctx.
+ * A game disc (`'game'`) is a storage medium with no effect and never reaches here (it has no series).
  * ────────────────────────────────────────────────────────────────────────── */
 import type { LibraryEffect, LibraryEffectKind, LibraryEffectsSummary, LibraryMedium, LibrarySeriesDef, LibrarySourceInfo } from '@/shared';
 import { LIBRARY_SERIES_MAP, librarySeriesFraction } from '@/shared';
 
-/** 보관함에 꽂을 수 있는 아이템이면 그 매체 — 책 · 디스크 · 레코드(`shelfItemOf`) + 게임 디스크(`ItemDef.gameDisc`), 아니면 null. */
+/** The medium of an item that can go into a holder — 책 · 디스크 · 레코드 (`shelfItemOf`) + a game disc (`ItemDef.gameDisc`), else null. */
 export function shelfHolderMediumOfItem(def: ItemDef | null | undefined): ShelfMedium | null {
   if (!def) return null;
   if (def.gameDisc) return 'game';
   return shelfItemOf(def)?.medium ?? null;
 }
 
-/** 서재 효과 매체 아이템의 시리즈 · 권 번호 (`ItemDef.book` / `disc` / `record` 의 `series` · `volume`). 시리즈가 없으면 null. 권 번호가 없으면 1. */
+/** Series and volume number of an effect-carrying library item (`series` · `volume` of `ItemDef.book` / `disc` / `record`). null without a series; 1 without a volume number. */
 export function librarySeriesOfItem(def: ItemDef | null | undefined): { medium: LibraryMedium; seriesId: string; volume: number } | null {
   if (!def) return null;
   const medium: LibraryMedium | null = def.book ? 'book' : def.disc ? 'disc' : def.record ? 'record' : null;
@@ -361,35 +369,35 @@ export function librarySeriesOfItem(def: ItemDef | null | undefined): { medium: 
   return { medium, seriesId: data.series, volume: Number.isFinite(v) && v >= 1 ? v : 1 };
 }
 
-/** 한 시리즈의 지금 상태 (`computeLibraryEffects` 가 꽂힌 권이 있는 시리즈마다 하나). */
+/** One series' current state (`computeLibraryEffects` builds one per series with a shelved volume). */
 export interface LibrarySeriesState {
   def: LibrarySeriesDef;
-  /** 작동 중인 보관함에 꽂힌 서로 다른 권 수. */
+  /** How many distinct volumes are shelved in a working holder. */
   have: number;
   total: number;
   /** `librarySeriesFraction(have, total)`. */
   fraction: number;
-  /** 그 매체의 보조 가구가 작동 중인가 (몫이 0 이어도 적는다). */
+  /** Is that medium's auxiliary furniture working (recorded even when the share is 0). */
   auxApplied: boolean;
-  /** 꽂힌 권 번호 (서로 다른, 오름차순). */
+  /** The shelved volume numbers (distinct, ascending). */
   volumes: readonly number[];
-  /** 꽂힌 권의 item def id (파일 순서). */
+  /** Item def ids of the shelved volumes (file order). */
   defIds: readonly string[];
 }
 
 export interface LibraryComputation {
-  /** 합산 (리비전 없이 — 리비전은 캐시가 붙인다). */
+  /** The sum (without a revision — the cache adds that). */
   effects: Omit<LibraryEffectsSummary, 'revision'>;
-  /** 꽂힌 권이 하나라도 있는 시리즈. */
+  /** Every series with at least one shelved volume. */
   series: ReadonlyMap<string, LibrarySeriesState>;
 }
 
-/** 부동소수 찌꺼기 자르기 (1e-9) — 서명 비교 · 화면 숫자가 `0.30000000000000004` 를 보지 않게. */
+/** Cuts floating-point dust (1e-9) — so neither the signature comparison nor a number on screen ever sees `0.30000000000000004`. */
 function libRound(v: number): number {
   return Math.round(v * 1e9) / 1e9;
 }
 
-/** 효과 줄 하나가 지금 실제로 더하는 값: `recipe` = 몫 1 이면 1, 나머지 = 전권 값 × 몫 × 보조 가구 배율. */
+/** What one effect line actually adds right now: `recipe` = 1 at share 1, everything else = full-set value × share × the auxiliary furniture factor. */
 export function libraryLineValue(effect: LibraryEffect, s: Pick<LibrarySeriesState, 'def' | 'fraction' | 'auxApplied'>): number {
   if (effect.kind === 'recipe') return s.fraction >= 1 ? 1 : 0;
   const aux = s.auxApplied ? 1 + (SHELF_AUX_BONUS[s.def.medium] ?? 0) : 1;
@@ -397,9 +405,10 @@ export function libraryLineValue(effect: LibraryEffect, s: Pick<LibrarySeriesSta
 }
 
 /**
- * 서재 효과 합산 (순수). `items` = 작동 중인 보관함에 꽂힌 칸들 (책 + 디스크 · 레코드 — 게임 디스크가 섞여도 시리즈가 없어 무시된다),
- * `aux` = 매체별 보조 가구 작동 여부, `seriesMap` = 시리즈 표 (스모크가 주입할 수 있게 인자다). def 는 **한 번만** 센다.
- * 시리즈의 매체와 아이템의 매체가 다르면(데이터 오류) 세지 않는다.
+ * The library effect sum (pure). `items` = the slots shelved in working holders (books + discs · records — a game
+ * disc mixed in is ignored, it has no series), `aux` = whether each medium's auxiliary furniture is working,
+ * `seriesMap` = the series table (an argument so a smoke can inject one). A def is counted **exactly once**.
+ * An item whose medium differs from its series' medium (a data error) is not counted.
  */
 export function computeLibraryEffects(
   items: readonly PlacedBook[], defOf: (defId: string) => ItemDef | undefined,
@@ -460,7 +469,7 @@ export function computeLibraryEffects(
   };
 }
 
-/** 한 효과 대상에 값을 주는 시리즈들 (`HousingRef.getLibrarySources`) — 값 큰 순. 값이 0 인 시리즈는 뺀다. */
+/** The series that give one effect target a value (`HousingRef.getLibrarySources`) — largest first. A series worth 0 is left out. */
 export function librarySourcesIn(comp: LibraryComputation, kind: LibraryEffectKind, target: string): LibrarySourceInfo[] {
   const out: LibrarySourceInfo[] = [];
   for (const st of comp.series.values()) {
@@ -478,7 +487,7 @@ export function librarySourcesIn(comp: LibraryComputation, kind: LibraryEffectKi
   return out;
 }
 
-/** 한 숙련의 서재 배율을 매체별로 (`HousingRef.getShelfBonus` — 옛 모양 그대로, 값은 시리즈 공식). 게임 디스크 몫은 늘 0. */
+/** One skill's library multiplier, per medium (`HousingRef.getShelfBonus` — the old shape, the series formula's values). The game disc share is always 0. */
 export function shelfBonusFromLibrary(comp: LibraryComputation, skill: SkillId, aux: Readonly<Partial<Record<ShelfMedium, boolean>>>): ShelfBonusInfo {
   const parts: Record<ShelfMedium, number> = { book: 0, disc: 0, record: 0, game: 0 };
   for (const st of comp.series.values()) {
@@ -490,21 +499,22 @@ export function shelfBonusFromLibrary(comp: LibraryComputation, skill: SkillId, 
   };
 }
 
-/** 합산의 내용 서명 (리비전 제외, 키 정렬 · 소수 6자리) — 캐시가 「실제로 바뀌었나」를 이것으로 본다. */
+/** Content signature of the sum (revision excluded, keys sorted, 6 decimal places) — this is how the cache answers 「did it really change」. */
 export function libraryEffectsSignature(e: Omit<LibraryEffectsSummary, 'revision'>): string {
   const rec = (r: Readonly<Partial<Record<string, number>>>): string =>
     Object.keys(r).filter((k) => r[k]).sort().map((k) => `${k}=${(r[k] as number).toFixed(6)}`).join(',');
   return [rec(e.skillGain), rec(e.derived), rec(e.gymScore), rec(e.cookScore), e.raidXp.toFixed(6), rec(e.trustXp), [...e.recipes].sort().join(',')].join('|');
 }
 
-/* ── 온실 재배 스테이션 (2026-09-11) ──────────────────────────────────────────
- * 순수 판정만 여기 있다 — 층이 열렸는가 · 토양 궁합 · 성장에 걸리는 시간 · 진행도. 상태를 건드리는 것은
- * `parts/Garden.ts` 이고, 수치는 전부 `@/shared`(= `data/*.csv`) 에서 온다.
+/* ── greenhouse grow station (2026-09-11) ─────────────────────────────────────
+ * Only the pure judgements live here — is the tier open · does the soil match · how long growing takes · progress.
+ * Touching the state is `parts/Garden.ts`'s job, and every number comes from `@/shared` (= `data/*.csv`).
  * ────────────────────────────────────────────────────────────────────────── */
 
 /**
- * 재배 스테이션 레벨이 `tier` 를 여는 최소 레벨 (아래 2 · 위 3). 숫자를 다시 적지 않고 계약
- * (`growTiersForLevel`) 에서 **유도한다** — 층을 여는 레벨이 바뀌면 이 함수가 저절로 따라간다.
+ * The lowest grow station level that opens `tier` (2 for the middle, 3 for the top). The numbers are not written
+ * again — they are **derived** from the contract (`growTiersForLevel`), so this function follows on its own when
+ * the unlock levels change.
  */
 export function growTierUnlockLevel(tier: GrowTier): number {
   const max = GROW_TIER_DRAW_ORDER.length;
@@ -517,36 +527,37 @@ export function growTierOpen(level: number, tier: GrowTier): boolean {
   return growTiersForLevel(Math.max(0, Math.floor(level))).includes(tier);
 }
 
-/** 씨앗이 원하는 토양과 부어 둔 토양이 같은가 (둘 중 하나라도 모르면 false = 궁합 패널티). */
+/** Is the soil poured in the one the seed wants (false, i.e. the mismatch penalty, when either is unknown). */
 export function soilMatches(soilTag: SoilTag | null | undefined, seedTag: SoilTag | null | undefined): boolean {
   return !!soilTag && !!seedTag && soilTag === seedTag;
 }
 
 /**
- * 재배 스테이션 레벨의 **성장 속도 배율** (2026-09-13, 사용자 결정): `1 + GROW_STATION_SPEED_PER_LEVEL × (레벨 − 1)` —
- * Lv.1 = 1 · Lv.2 = 1.15 · Lv.3 = 1.3. 성장 시간은 이 값으로 **나눈다**. 레벨 1 미만은 1 로 본다.
+ * A grow station level's **growth speed multiplier** (2026-09-13, user's decision): `1 + GROW_STATION_SPEED_PER_LEVEL
+ * × (level − 1)` — Lv.1 = 1 · Lv.2 = 1.15 · Lv.3 = 1.3. Growth time is **divided** by it. Below level 1 it reads as 1.
  */
 export function growStationSpeedMul(level: number): number {
   const lv = Math.max(1, Math.floor(Number.isFinite(level) ? level : 1));
   return 1 + Math.max(0, GROW_STATION_SPEED_PER_LEVEL) * (lv - 1);
 }
 
-/** 화면용 「+15%」 — 레벨이 올려 준 성장 속도(%), 반올림. Lv.1 = 0. */
+/** The 「+15%」 the screens show — the growth speed the level added, in per cent, rounded. Lv.1 = 0. */
 export function growStationSpeedPct(level: number): number {
   return Math.round((growStationSpeedMul(level) - 1) * 100);
 }
 
 /**
- * 심는 순간 확정되는 성장 시간(ms): `growHours × 3600e3 × 원예 단축 × 토양 궁합 ÷ 스테이션 속도`.
- * 궁합이 맞으면 `1 − SOIL_MATCH_SPEEDUP`, 아니면 `1 + SOIL_MISMATCH_PENALTY` 다 (토양 없이 심는 경우는 없다).
- * 스테이션 속도는 `growStationSpeedMul(stationLevel)` (2026-09-13 — 생략하면 Lv.1 = 1). 1초 미만으로는 내려가지 않는다.
+ * Growth time (ms), fixed the moment the seed goes in: `growHours × 3600e3 × the gardening speedup × the soil match
+ * ÷ the station speed`. A match is `1 − SOIL_MATCH_SPEEDUP`, otherwise `1 + SOIL_MISMATCH_PENALTY` (nothing is ever
+ * planted without soil). The station speed is `growStationSpeedMul(stationLevel)` (2026-09-13 — Lv.1 = 1 when
+ * omitted). It never drops below one second.
  */
 export function growDurationMs(
   growHours: number, matched: boolean, gardening: number, stationLevel = 1, bonusRatio = 1, socketSpeed = 0,
 ): number {
   const skill = Math.max(0, Math.min(SKILL_LEVEL_MAX, gardening));
   const speed = 1 - GROW_SKILL_SPEEDUP * (skill / SKILL_LEVEL_MAX);
-  /* 2026-09-13 (요리 재료 티어): 궁합 **보너스**만 흙 내구도 비율로 준다 — 패널티는 그대로다. 비율 1 이면 옛 식과 같은 값. */
+  /* 2026-09-13 (cooking material tiers): only the match **bonus** scales with the soil's durability ratio — the penalty does not. At ratio 1 this is the old formula. */
   const ratio = clamp01(bonusRatio);
   const soil = matched ? (ratio >= 1 ? 1 - SOIL_MATCH_SPEEDUP : 1 - SOIL_MATCH_SPEEDUP * ratio) : 1 + SOIL_MISMATCH_PENALTY;
   const station = growStationSpeedMul(stationLevel);
@@ -554,11 +565,12 @@ export function growDurationMs(
 }
 
 /**
- * **강화 순간의 재배 시간 재조정** (2026-09-13, 사용자 결정 — 「readyAt 은 심는 순간 확정」의 **유일한 예외**).
- * 스테이션 속도가 `oldMul` → `newMul` 로 오르면 자라던 작물의 타임라인을 **지금(`now`)을 축으로** `oldMul / newMul`
- * 만큼 압축한다: 남은 시간이 그 비율로 줄고, 이미 지난 구간도 같은 비율로 줄여 **진행도(%)가 그대로** 이어진다
- * (`plantedAt` 만 두면 막대가 한 번에 튄다). 이미 여문 작물(`now ≥ readyAt`)과 속도가 오르지 않은 경우는 그대로 돌려준다.
- * `readyAt` 은 `now` 보다 앞당겨지지 않고, `plantedAt` 은 늘 `readyAt` 보다 이르다.
+ * **Rescaling growth times at the moment of an upgrade** (2026-09-13, user's decision — the **only exception** to
+ * 「readyAt is fixed when the seed goes in」). When the station speed rises `oldMul` → `newMul`, a growing crop's
+ * timeline is compressed by `oldMul / newMul` **around now (`now`)**: the remaining time shrinks by that ratio and
+ * the elapsed stretch shrinks by the same ratio, so the **progress (%) carries straight over** (leaving `plantedAt`
+ * alone makes the bar jump). A ripe crop (`now ≥ readyAt`) and a speed that did not rise come back unchanged.
+ * `readyAt` is never pulled earlier than `now`, and `plantedAt` always stays earlier than `readyAt`.
  */
 export function rescaleGrowTimes(
   now: number, plantedAt: number, readyAt: number, oldMul: number, newMul: number,
@@ -572,82 +584,88 @@ export function rescaleGrowTimes(
   return { plantedAt: nextPlanted, readyAt: nextReady };
 }
 
-/** 0…1 진행도 (심은 적이 없으면 −1). 미래 시각으로 심힌 저장(시계가 틀린 클라이언트)도 클램프된다. */
+/** Progress 0…1 (−1 when nothing was ever planted). A save planted in the future (a client with a wrong clock) is clamped too. */
 export function growProgress(now: number, plantedAt: number | undefined, readyAt: number | undefined): number {
   if (!plantedAt || !readyAt) return -1;
   const total = Math.max(1, readyAt - plantedAt);
   return Math.max(0, Math.min(1, (now - plantedAt) / total));
 }
 
-/** 남은 초 (여물었거나 비었으면 0). */
+/** Seconds left (0 when ripe or empty). */
 export function growRemainingS(now: number, readyAt: number | undefined): number {
   if (!readyAt) return 0;
   return Math.max(0, Math.ceil((readyAt - now) / 1000));
 }
 
-/* ── 연구실 분석기 (A-12, 2026-09-11) ────────────────────────────────────────
- * 온실과 같은 자리 · 같은 철학이다 — 걸리는 시간은 **넣는 순간** 확정되고, 그 뒤로 도감이 더 차도 돌아가던
- * 해석은 빨라지지 않는다. 진행도 · 남은 초는 `growProgress` / `growRemainingS` 를 그대로 쓴다 (순수한 시각
- * 계산이라 작물이냐 표본이냐를 모른다 — 같은 폴더 안이므로 한 번 더 베끼지 않는다).
+/* ── lab analyzer (A-12, 2026-09-11) ──────────────────────────────────────────
+ * Same place, same philosophy as the greenhouse — the duration is fixed **the moment the sample goes in**, and an
+ * analysis already running never speeds up as the catalogue fills. Progress and seconds left reuse `growProgress` /
+ * `growRemainingS` as they are (pure clock arithmetic that knows nothing about crops or samples — one folder, so it
+ * is not copied a second time).
  * ────────────────────────────────────────────────────────────────────────── */
 
-/* 옛 `analyzeDurationMs`(도감 진척률 · 기지식 두 항)는 2026-09-16 에 지웠다 — 부르는 곳이 없었고, 그 두 상수
-   (`ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP`)는 이제 아무도 읽지 않는다. 시간 식은 `analysisDurationMs` 하나다. */
+/* The old `analyzeDurationMs` (a catalogue-ratio term and a known-sample term) was deleted on 2026-09-16 — nothing
+   called it, and nobody reads those two constants (`ANALYZE_DEX_SPEEDUP` · `ANALYZE_KNOWN_SPEEDUP`) any more. There
+   is one duration formula, `analysisDurationMs`. */
 
-/* ── 온실 배양조 (A-14, 2026-09-11) ──────────────────────────────────────────
- * 분석기 · 재배 스테이션과 같은 자리 · 같은 철학이다 — 걸리는 시간은 **넣는 순간** 확정되고, 그 뒤로 배지를
- * 바꾸거나 원예 숙련이 올라도 돌아가던 배양은 빨라지지 않는다. 진행도 · 남은 초는 `growProgress` /
- * `growRemainingS` 를 그대로 쓴다 (작물이냐 표본이냐 세포주냐를 모르는 순수한 시각 계산이다).
+/* ── greenhouse culture tank (A-14, 2026-09-11) ───────────────────────────────
+ * Same place, same philosophy as the analyzer and the grow station — the duration is fixed **the moment the strain
+ * goes in**, and a culture already running never speeds up when the medium is swapped or the gardening skill rises.
+ * Progress and seconds left reuse `growProgress` / `growRemainingS` as they are (pure clock arithmetic that knows
+ * nothing about crops, samples or strains).
  * ────────────────────────────────────────────────────────────────────────── */
 
 /**
- * 배양에 걸리는 시간(ms), **넣는 순간** 확정된다:
- * `cultureHours × 배지 등급(`MediumDef.speedMul`) × 원예 단축`.
- * 원예 항은 `growDurationMs` 가 쓰는 것과 **같은 항**이다 (온실 가구이므로 같은 숙련이 일한다 — 수치를 새로
- * 적지 않는다). 토양의 태그 매칭에 해당하는 축은 없다: 배지는 등급 하나다. 1초 미만은 없다.
+ * Culture time (ms), fixed **the moment the strain goes in**:
+ * `cultureHours × the medium's grade (`MediumDef.speedMul`) × the gardening speedup`.
+ * The gardening term is **the same term** `growDurationMs` uses (greenhouse furniture, so the same skill does the
+ * work — the number is not written again). There is no axis matching soil tags: a medium has only its grade.
+ * Never below one second.
  */
 export function cultureDurationMs(cultureHours: number, mediumSpeedMul: number, gardening: number, bonusRatio = 1, socketSpeed = 0): number {
   const skill = Math.max(0, Math.min(SKILL_LEVEL_MAX, gardening));
   const speed = 1 - GROW_SKILL_SPEEDUP * (skill / SKILL_LEVEL_MAX);
   const m = Number.isFinite(mediumSpeedMul) && mediumSpeedMul > 0 ? mediumSpeedMul : 1;
-  /* 2026-09-13 (요리 재료 티어): 배지 속도 보너스(`1 − speedMul`)를 배지 내구도 비율로 준다. 비율 1 이면 옛 식과 같은 값. */
+  /* 2026-09-13 (cooking material tiers): the medium's speed bonus (`1 − speedMul`) scales with the medium's durability ratio. At ratio 1 this is the old formula. */
   const ratio = clamp01(bonusRatio);
   const medium = ratio >= 1 ? m : 1 - (1 - m) * ratio;
   return Math.max(1000, Math.round(Math.max(0, cultureHours) * 3600e3 * medium * speed * socketTimeMul(socketSpeed, ratio)));
 }
 
-/* ── 요리 재료 티어 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」) ─────────────────────────────────────────────
- * 흙 · 배지 내구도와 소켓, 분석기 결과표. 전부 순수 함수이고 수치는 계약(`@/shared` = `data/*.csv`)에서 온다.
- * 난수는 **주입한다**(`rng01`) — 부르는 쪽은 `Math.random` 을, 스모크는 고정 수열을 넘긴다.
+/* ── cooking material tiers (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」) ─────
+ * Soil and medium durability with their sockets, plus the analyzer result table. All pure functions, every number
+ * from the contract (`@/shared` = `data/*.csv`).
+ * Randomness is **injected** (`rng01`) — callers pass `Math.random`, a smoke passes a fixed sequence.
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
 function clamp01(v: number): number {
   return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
 }
 
-/** 소켓 `speed` 합이 주는 시간 배수: `max(GROW_SOCKET_TIME_FLOOR, 1 − speed × 비율)`. 소켓이 없으면 정확히 1. */
+/** The time multiplier the summed socket `speed` gives: `max(GROW_SOCKET_TIME_FLOOR, 1 − speed × ratio)`. Exactly 1 with no socket. */
 function socketTimeMul(socketSpeed: number, ratio: number): number {
   const s = Number.isFinite(socketSpeed) ? Math.max(0, socketSpeed) : 0;
   if (s <= 0) return 1;
   return Math.max(GROW_SOCKET_TIME_FLOOR, 1 - s * ratio);
 }
 
-/** 흙 · 배지의 보너스 비율 = 내구도 / 최대 (0 … 1). 최대가 0 이하이면 0. */
+/** A soil's or medium's bonus ratio = durability / max (0 … 1). 0 when the max is 0 or less. */
 export function durabilityRatio(cur: number, max: number): number {
   if (!(max > 0)) return 0;
   return clamp01(cur / max);
 }
 
 /**
- * 수확 한 번 뒤의 내구도: `max(0, cur − wear × max(GROW_WEAR_MUL_FLOOR, 1 − wearSum))`. `wearSum` = 끼운 `wear` 소켓 합
- * (내구도 비율을 타지 않는다 — 내구도 자체를 지키는 소켓이다). 부동소수 찌꺼기는 소수 둘째 자리에서 자른다.
+ * Durability after one harvest: `max(0, cur − wear × max(GROW_WEAR_MUL_FLOOR, 1 − wearSum))`. `wearSum` = the summed
+ * `wear` of the fitted sockets (it does **not** scale with the durability ratio — this is the socket that protects
+ * durability itself). Floating-point dust is cut at the second decimal place.
  */
 export function wearAfterHarvest(cur: number, wearPerHarvest: number, wearSum: number): number {
   const c = Number.isFinite(cur) ? Math.max(0, cur) : 0;
   return Math.max(0, Math.round((c - effectiveWear(wearPerHarvest, wearSum)) * 100) / 100);
 }
 
-/** 수확 한 번에 실제로 닳는 양 (`wearAfterHarvest` 와 같은 항). */
+/** How much one harvest actually wears off (the same term `wearAfterHarvest` uses). */
 export function effectiveWear(wearPerHarvest: number, wearSum: number): number {
   const w = Number.isFinite(wearPerHarvest) ? Math.max(0, wearPerHarvest) : 0;
   const s = Number.isFinite(wearSum) ? Math.max(0, wearSum) : 0;
@@ -655,8 +673,9 @@ export function effectiveWear(wearPerHarvest: number, wearSum: number): number {
 }
 
 /**
- * 내구도가 0 이 될 때까지 남은 수확 횟수 `ceil(cur / 실제 마모)` — 옛 `soilUsesLeft` · `mediumUsesLeft` 칸이 이제 이 뜻이다
- * (칸은 0 이 돼도 비지 않는다). 마모가 0 이면 내구도가 남아 있는 한 1 로 본다(무한을 적지 않는다).
+ * Harvests left until durability reaches 0, `ceil(cur / the effective wear)` — this is what the old `soilUsesLeft` ·
+ * `mediumUsesLeft` slots mean now (a slot does not empty when it hits 0). With zero wear it reads as 1 for as long as
+ * any durability is left (infinity is never written down).
  */
 export function harvestsUntilWorn(cur: number, wearPerHarvest: number, wearSum: number): number {
   const c = Number.isFinite(cur) ? Math.max(0, cur) : 0;
@@ -666,7 +685,7 @@ export function harvestsUntilWorn(cur: number, wearPerHarvest: number, wearSum: 
 }
 
 /**
- * 옛 세이브의 「남은 수확 횟수」를 내구도로 옮긴다: `round(최대 × clamp(usesLeft / uses))`. `uses` 가 없으면 최대 그대로.
+ * Migrates an old save's 「harvests left」 to durability: `round(max × clamp(usesLeft / uses))`. Without `uses`, the max as it is.
  */
 export function durabilityFromUses(max: number, usesLeft: number, uses: number): number {
   const m = Number.isFinite(max) ? Math.max(0, max) : 0;
@@ -675,21 +694,24 @@ export function durabilityFromUses(max: number, usesLeft: number, uses: number):
 }
 
 /**
- * 2026-09-16 (사용자 결정 — `data/analysis_results.csv` 머리글): **표본 등급이 산출물 등급의 하한이다**.
- * 후보를 거르는 쪽이 아는 두 가지를 부르는 쪽이 넘긴다 — 표본의 등급과, 산출물 def 의 등급(아이템 표는 ctx 에 있다).
- * 주지 않으면(도감 화면의 「기준」 목록) 하한 검사를 하지 않는다.
+ * 2026-09-16 (user's decision — the `data/analysis_results.csv` header): **the sample's rarity is the floor for the
+ * result's rarity**. The caller passes the two things the filter cannot know — the sample's rarity, and the result
+ * def's rarity (the item table lives on ctx). Without them (the catalogue screen's 「기준」 list) the floor is not checked.
  */
 export interface AnalysisRollOpts {
-  /** 넣은 표본의 등급. 없으면 하한 검사를 건너뛴다. */
+  /** Rarity of the sample that went in. Without it the floor check is skipped. */
   sampleRarity?: Rarity;
-  /** 산출물 def 의 등급 (아이템 표에 없으면 null → 그 줄은 하한 검사를 통과한 것으로 본다). */
+  /** Rarity of the result def (null when the item table does not know it → that row counts as passing the floor check). */
   rarityOf?: (defId: string) => Rarity | null;
 }
 
 /**
- * 결과표에서 추첨 대상으로 남는 줄: `family` · `minLevel ≤ level` · `weight > 0` · `defOk(defId)` 에 더해,
- *  - 줄에 `sampleRarity` 가 있으면 **그 등급의 표본에만** 붙고 등급 하한 검사는 **면제**된다 (석영 6줄 — 빈 후보 방지턱),
- *  - 없으면 `rarityRank(산출물 등급) ≥ rarityRank(표본 등급)` 이어야 한다 (사용자 결정: 희귀 표본은 희귀 이상만 낸다).
+ * The rows of the result table that stay in the draw: `family` · `minLevel ≤ level` · `weight > 0` · `defOk(defId)`,
+ * and on top of that,
+ *  - a row carrying `sampleRarity` attaches **only to samples of that rarity** and is **exempt** from the floor check
+ *    (the six quartz rows — the guard against an empty pool),
+ *  - a row without it needs `rarityRank(result rarity) ≥ rarityRank(sample rarity)` (user's decision: a rare sample
+ *    yields nothing below rare).
  */
 function analysisPool(
   family: SampleFamily, level: number, defOk: (defId: string) => boolean, opts: AnalysisRollOpts = {},
@@ -707,8 +729,9 @@ function analysisPool(
 }
 
 /**
- * 분석 결과 한 번 굴리기 — 후보로 남은 줄끼리 가중 추첨하고 개수는 `qtyMin … qtyMax` 정수 균등. `rng01` 은 **두 번** 부른다
- * (줄 · 개수). 추첨할 줄이 없으면 null (부르는 쪽이 표본의 대체 산출물 `rewardDefId` 로 떨어진다).
+ * One roll of an analysis result — a weighted draw among the surviving rows, with the quantity uniform over the
+ * integers `qtyMin … qtyMax`. `rng01` is called **twice** (row, then quantity). null when there is no row to draw
+ * from (the caller then falls back to the sample's own `rewardDefId`).
  */
 export function rollAnalysisResult(
   family: SampleFamily, level: number, rng01: () => number, defOk: (defId: string) => boolean, opts: AnalysisRollOpts = {},
@@ -727,7 +750,7 @@ export function rollAnalysisResult(
   return { defId: row.defId, qty: Math.max(1, qty) };
 }
 
-/** 지금 레벨에서 해석 한 번이 각 산출물을 낼 확률 (`rollAnalysisResult` 와 같은 식 — 같은 defId 의 줄은 합친다). */
+/** The chance one analysis at this level yields each result (the same formula as `rollAnalysisResult` — rows with the same defId are merged). */
 export function analysisChances(
   family: SampleFamily, level: number, defOk: (defId: string) => boolean, opts: AnalysisRollOpts = {},
 ): Record<string, number> {
@@ -739,35 +762,39 @@ export function analysisChances(
   return out;
 }
 
-/* ── 2026-09-16 (사용자 결정): 해석 시간 단축 ─────────────────────────────────
- * 옛 「도감 진척률 × ANALYZE_DEX_SPEEDUP」 · 「아는 표본이면 ANALYZE_KNOWN_SPEEDUP」 두 항을 걷어낸 자리다.
- * 바뀐 점이 둘 있고, 둘 다 수치가 아니라 **무엇에 비례하는가**의 문제라 여기에 적어 둔다:
- *  ① 도감 보너스는 비율이 아니라 **칸 수**에 비례하고, 「그 표본 종류」가 아니라 **같은 등급 표본 전체**에 듣는다.
- *  ② 표본 레벨 보너스는 **처음 한 번이 크다** — 레벨 1 에서 `FIRST` 를 통째로 주고 그 뒤로는 레벨마다 `STEP` 만 얹는다.
- *     「처음 등록했을 때 보너스를 많이 주는 식」이라는 사용자 요구가 `FIRST`(3 %)와 `STEP`(0.5 %)의 **차이 그 자체**다.
+/* ── 2026-09-16 (user's decision): the analysis speedup ──────────────────────
+ * This is where the old 「catalogue ratio × ANALYZE_DEX_SPEEDUP」 and 「ANALYZE_KNOWN_SPEEDUP for a known sample」
+ * terms were taken out. Two things changed, and both are about **what it scales with** rather than a number, so they
+ * are written down here:
+ *  ① The catalogue bonus scales with the **number of entries**, not a ratio, and it applies to **every sample of the
+ *     same rarity**, not to 「that kind of sample」.
+ *  ② The sample level bonus is **largest the first time** — level 1 gives the whole of `FIRST` and every level after
+ *     that only adds `STEP`. The user's ask, 「give a big bonus the first time it is registered」, **is** the gap
+ *     between `FIRST` (3 %) and `STEP` (0.5 %).
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 표본 레벨이 주는 단축 (상한 전). 레벨 0 = 0, 1 = `FIRST`, n = `FIRST + (n − 1) × STEP`. */
+/** The speedup a sample level gives (before the cap). Level 0 = 0, 1 = `FIRST`, n = `FIRST + (n − 1) × STEP`. */
 export function analysisLevelBonus(sampleLevel: number): number {
   const lv = Math.max(0, Math.min(ANALYSIS_SAMPLE_LEVEL_MAX, Math.floor(Number.isFinite(sampleLevel) ? sampleLevel : 0)));
   return lv <= 0 ? 0 : ANALYSIS_SAMPLE_LEVEL_FIRST + (lv - 1) * ANALYSIS_SAMPLE_LEVEL_STEP;
 }
 
-/** 같은 등급 분석 도감 `dexEntries` 칸이 주는 단축 (상한 전). */
+/** The speedup `dexEntries` analysis catalogue entries of the same rarity give (before the cap). */
 export function analysisDexBonus(dexEntries: number): number {
   const n = Math.max(0, Math.floor(Number.isFinite(dexEntries) ? dexEntries : 0));
   return n * ANALYSIS_DEX_BONUS_PER_ENTRY;
 }
 
-/** 두 보너스를 **더한 뒤** `ANALYSIS_SPEEDUP_CAP` 에서 자른 최종 단축 (0 … CAP). 해석 시간은 `× (1 − 이 값)`. */
+/** The final speedup: the two bonuses **added** and then cut at `ANALYSIS_SPEEDUP_CAP` (0 … CAP). Analysis time is `× (1 − this)`. */
 export function analysisSpeedup(dexEntries: number, sampleLevel: number): number {
   return Math.max(0, Math.min(ANALYSIS_SPEEDUP_CAP, analysisDexBonus(dexEntries) + analysisLevelBonus(sampleLevel)));
 }
 
 /**
- * 해석에 걸리는 시간(ms), 넣는 순간 확정:
- * `analyzeHours × 3600e3 × analysisTimeMul(계열 분석 레벨) × (1 − speedup)`, 최소 1000 ms.
- * 계열 분석 레벨의 배수와 표본 단축은 **서로 다른 축**이라 곱해진다 (단축의 상한은 배수를 덮지 않는다).
+ * Analysis time (ms), fixed the moment the sample goes in:
+ * `analyzeHours × 3600e3 × analysisTimeMul(the family's analysis level) × (1 − speedup)`, at least 1000 ms.
+ * The family analysis level's multiplier and the sample speedup are **different axes**, so they multiply (the
+ * speedup's cap does not cover the multiplier).
  */
 export function analysisDurationMs(analyzeHours: number, level: number, speedup = 0): number {
   const h = Number.isFinite(analyzeHours) ? Math.max(0, analyzeHours) : 0;
@@ -775,11 +802,12 @@ export function analysisDurationMs(analyzeHours: number, level: number, speedup 
   return Math.max(1000, Math.round(h * 3600e3 * analysisTimeMul(level) * (1 - cut)));
 }
 
-/* ── 은퇴 가구 환불 (온실 개편, 2026-09-11) ───────────────────────────────── */
+/* ── retired furniture refund (greenhouse rework, 2026-09-11) ────────────── */
 
 /**
- * 은퇴한(`FurnitureDef.retired`) 가구 한 점이 돌려주는 재료 — 제작비 + 그 레벨까지의 강화비 전부, 재료별로 합산.
- * 시설 환불(`facilityRefundCost`)과 같은 철학이다: **지금의 표**를 그대로 되돌려 준다.
+ * The materials one retired piece (`FurnitureDef.retired`) gives back — its craft cost plus every upgrade cost up to
+ * its level, merged per material. The same philosophy as the facility refund (`facilityRefundCost`): it hands back
+ * **today's table**, as it stands.
  */
 export function furnitureRefundCost(def: FurnitureDef, level: number): CraftIngredient[] {
   const total = new Map<string, number>();
@@ -790,7 +818,7 @@ export function furnitureRefundCost(def: FurnitureDef, level: number): CraftIngr
   return [...total].map(([defId, qty]) => ({ defId, qty }));
 }
 
-/** 재료 목록 두 개를 재료별로 합친다 (은퇴 가구 여러 점의 환불을 모을 때). */
+/** Merges two material lists per material (used to collect the refunds of several retired pieces). */
 export function mergeCost(into: CraftIngredient[], add: readonly CraftIngredient[], times = 1): CraftIngredient[] {
   for (const c of add) {
     const hit = into.find((e) => e.defId === c.defId);
@@ -806,20 +834,21 @@ export function isRoomIndex(state: ShipState, index: number): boolean {
 }
 
 /**
- * 2026-09-12 (사용자 결정 — 조종석): 가구를 **놓을 수 있는** 자리 = 방(`isRoomIndex`) 또는 조종석(`COCKPIT_ROOM_INDEX`).
- * 용도 · 시설 규칙(`setRoomPurpose` · `removeRoomFacility` · 시설 증축)은 여전히 `isRoomIndex` 만 본다 — 조종석에는 용도가 없다.
+ * 2026-09-12 (user's decision — the cockpit): a spot furniture **may be placed in** = a room (`isRoomIndex`) or the
+ * cockpit (`COCKPIT_ROOM_INDEX`). The purpose and facility rules (`setRoomPurpose` · `removeRoomFacility` · 시설 증축)
+ * still look at `isRoomIndex` alone — the cockpit has no purpose.
  */
 export function isPlaceRoom(state: ShipState, room: number): boolean {
   return room === COCKPIT_ROOM_INDEX || isRoomIndex(state, room);
 }
 
-/** 가구 규칙이 보는 그 자리의 용도 — 조종석은 `'cockpit'`(= `'any'` 가구만 받는다), 없는 방은 null. */
+/** The purpose the furniture rules see for that spot — the cockpit is `'cockpit'` (it takes `'any'` furniture only), a room that does not exist is null. */
 export function placeRoomPurpose(state: ShipState, room: number): RoomPurpose | null {
   if (room === COCKPIT_ROOM_INDEX) return 'cockpit';
   return isRoomIndex(state, room) ? state.rooms[room].purpose : null;
 }
 
-/** 빈 방이 될 수 있는 용도인가 (`ROOM_PURPOSES_ASSIGNABLE` — 2026-09-12 부터 시뮬레이션실 · 휴식 공간 · 조종석은 아니다). */
+/** Can an empty room be given this purpose (`ROOM_PURPOSES_ASSIGNABLE` — since 2026-09-12 시뮬레이션실 · 휴식 공간 · 조종석 cannot). */
 export function isAssignablePurpose(purpose: RoomPurpose): boolean {
   return ROOM_PURPOSES_ASSIGNABLE.includes(purpose);
 }
@@ -834,14 +863,16 @@ export function furnitureAllowedIn(def: FurnitureDef, purpose: RoomPurpose): boo
 }
 
 /**
- * 온실이 먼저 있어야 지을 수 있는 용도. 한 줄이 세 곳의 원본이다: `purposeChangeReason` ·
- * `ShipState.sanitize` 의 낙오 처리 · `Rooms.setRoomPurpose` 의 「마지막 온실이 사라지면 딸린 방도 비운다」.
+ * The purposes that need a greenhouse first. One line is the source for three places: `purposeChangeReason`,
+ * `ShipState.sanitize`'s orphan handling, and `Rooms.setRoomPurpose`'s 「when the last greenhouse goes, the rooms
+ * that depend on it are emptied too」.
  *
- * **2026-09-14 (사용자 결정) — 선행 시설 조건은 없다.** 옛 값은 `['lab', 'kitchen']`(연구실은 표본 · 배지가
- * 온실에서 오고, 주방은 A-3c 당시 작물이 유일한 요리 재료였다)였다. 증축의 게이트는 이제 **발전기 레벨
- * 하나**뿐이고(`purposeGeneratorLevel` · `generatorGateReason` — 그것은 그대로다), 방 용도끼리의 선후 관계는
- * 없앴다. 계약 이름은 **추가만 하고 지우지 않는다**는 규약 그대로 남기고 값만 비웠다 — 빈 배열이면 세 소비처가
- * 전부 저절로 no-op 이 되므로 그 자리들은 한 줄도 고치지 않았다 (`includes` 가 늘 false).
+ * **2026-09-14 (user's decision) — there is no prerequisite facility.** The old value was `['lab', 'kitchen']` (the
+ * 연구실 because its samples and media come from the greenhouse, the 주방 because crops were the only cooking
+ * ingredient back at A-3c). The only gate on a build-out now is **the generator level** (`purposeGeneratorLevel` ·
+ * `generatorGateReason` — that is unchanged), and the ordering between room purposes is gone. The contract name stays
+ * under the **add only, never delete** convention with just its value emptied — an empty array turns all three
+ * consumers into no-ops by themselves, so not one of those lines was touched (`includes` is always false).
  */
 export const NEEDS_GREENHOUSE: readonly RoomPurpose[] = [];
 
@@ -856,15 +887,15 @@ export function purposeChangeReason(state: ShipState, index: number, purpose: Ro
   if (index === COCKPIT_ROOM_INDEX) return '조종석은 용도를 바꾸거나 제거할 수 없습니다';
   if (!isRoomIndex(state, index)) return '없는 방입니다';
   if (purpose === 'empty') return null;
-  // 2026-09-12 (사용자 결정): 시뮬레이션실 · 휴식 공간(서재에 합쳐졌다) · 조종석은 빈 방이 될 수 없다
+  // 2026-09-12 (user's decision): 시뮬레이션실 · 휴식 공간 (merged into 서재) · 조종석 can no longer be assigned to an empty room
   if (!isAssignablePurpose(purpose)) return `${ROOM_PURPOSE_LABEL_KO[purpose]}은(는) 더 이상 지을 수 없습니다`;
-  // 온실 선행 — **2026-09-14 사용자 결정으로 `NEEDS_GREENHOUSE` 가 비었다**: 이 가지는 더 이상 서지 않는다.
-  // 규칙을 되살리려면 그 배열에 용도를 넣으면 되므로 갈래는 그대로 둔다 (계약은 추가만, 삭제 금지와 같은 결).
+  // The greenhouse prerequisite — **`NEEDS_GREENHOUSE` has been empty since the 2026-09-14 user's decision**: this branch never fires.
+  // Putting a purpose back into that array revives the rule, so the branch stays (the same grain as add only, never delete).
   if (NEEDS_GREENHOUSE.includes(purpose) && !state.rooms.some((r, i) => i !== index && r.purpose === 'greenhouse')) {
     return `${ROOM_PURPOSE_LABEL_KO[purpose]}은(는) 온실이 먼저 필요합니다`;
   }
-  // 2026-09-12 (사용자 결정): **모든 용도가 함선당 하나다** — 시설 관리의 용도 목록은 이미 지은 용도를 아예
-  // 보여 주지 않는다. 예전(작업실 · 사격장만 하나)에 두 개를 지어 둔 세이브는 그대로 둔다 (`sanitize` 는 건드리지 않는다).
+  // 2026-09-12 (user's decision): **every purpose is once per ship** — 시설 관리's purpose list does not show a
+  // purpose that already exists at all. A save that built two back when only 작업실 · 사격장 were unique is left alone (`sanitize` does not touch it).
   {
     const other = state.rooms.findIndex((r, i) => i !== index && r.purpose === purpose);
     if (other >= 0) return `${ROOM_PURPOSE_LABEL_KO[purpose]}은(는) 함선에 하나만 둘 수 있습니다 (방 ${other + 1})`;
@@ -912,7 +943,7 @@ export function furnitureAtCell(furniture: readonly PlacedFurniture[], room: num
   return best;
 }
 
-/* ── stacking (Phase 8: 재배층) ─────────────────────────────────────────────
+/* ── stacking (Phase 8: the grow rack) ────────────────────────────────────────
  * `FurnitureDef.stackLimit > 1` lets several copies of the **same** def share one footprint, each on its own
  * `PlacedFurniture.layer` (0 = deck). Everything else keeps the strict "nothing may overlap" rule, and a stack is
  * homogeneous: same defId, same `x`/`y`, same `yaw`. hub/ lifts layer n by `n × GROW_RACK_LAYER_HEIGHT`.
@@ -950,22 +981,26 @@ export function topLayer(members: readonly PlacedFurniture[]): number {
   return top;
 }
 
-/* ── 배치 규칙: 접근 면 (2026-09-13, 사용자 결정 — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 · 계약 `shared/housing.ts` 끝 절) ──────────
- * 가구의 앞은 로컬 −Z 다. `front` 가구는 앞 한 줄(몸체 폭 × 깊이 1칸)에 다른 가구 몸체가 없어야 하고 그 줄이 격자 밖(벽)이어도 안 된다.
- * `sides` 는 넓은 두 면(로컬 ±Z), `all` 은 네 면의 한 줄씩에 몸체가 없어야 하되 벽은 된다. 모서리 칸은 비울 필요가 없다.
- * 규칙은 **양방향**이다 — 새 몸체가 이미 놓인 가구의 비워야 하는 칸에 들어가도 안 된다. 비워야 하는 칸끼리는 겹쳐도 된다
- * (마주보는 작업대 둘이 1칸 통로를 나눠 쓴다). 조종석 고정 소품 자리(`roomCellBlocked`)는 몸체로 센다.
- * 칸 계산의 원본은 계약의 `furnitureFaceDir` · `furnitureClearanceCells` 이고, 여기서는 면마다 한 줄짜리 **사각형**으로 본다
- * (칸 목록을 만들지 않으려고 — 하우징 모드가 매 프레임 묻는다). 방향표는 모듈 로드 때 계약 함수로 한 번 채운다.
+/* ── placement rules: access faces (2026-09-13, user's decision — docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 · the contract's closing section in `shared/housing.ts`) ──────────
+ * A piece's front is local −Z. A `front` piece needs its front row (body width × one cell deep) free of other bodies,
+ * and that row must not be outside the grid (a wall) either.
+ * `sides` is the two long faces (local ±Z); `all` needs one row on each of the four faces free of bodies, though a
+ * wall is allowed there. Corner cells need not be free.
+ * The rule is **two-way** — a new body may not enter the cells an already placed piece needs free either. Cells that
+ * must be free may overlap each other (two workbenches facing each other share a one-cell corridor). A cockpit fixture
+ * cell (`roomCellBlocked`) counts as a body.
+ * The cell arithmetic comes from the contract's `furnitureFaceDir` · `furnitureClearanceCells`; here each face is read
+ * as a one-row **rectangle** (so no cell list is built — housing mode asks every frame). The direction table is filled
+ * once at module load from that contract function.
  * ────────────────────────────────────────────────────────────────────────── */
 import type { FurnitureAccess, FurnitureFace } from '@/shared';
 import { accessAllowsWall, furnitureAccessFaces, furnitureAccessOf, furnitureFaceDir, isCockpitOnlyFurniture } from '@/shared';
 
-/** 배치를 막는 규칙의 종류. `access` = 접근 면 규칙(2026-09-13) — `ShipState.sanitize` 는 이것만 가구 창고로 옮기고 나머지는 예전처럼 버린다. */
+/** The kind of rule that blocks a placement. `access` = the access-face rule (2026-09-13) — `ShipState.sanitize` moves only these into 가구 창고 and drops the rest as before. */
 export type PlacementBlockKind = 'place' | 'purpose' | 'grid' | 'fixture' | 'stack' | 'overlap' | 'access';
 export interface PlacementBlock { kind: PlacementBlockKind; reason: string }
 
-/** 배치 거절 문장 (시설 관리 토스트 · 스모크가 같은 글을 본다). */
+/** The placement refusal strings (시설 관리's toast and the smokes read the same text). */
 export const PLACEMENT_REASON_KO = {
   place: '가구를 놓을 수 없는 곳입니다',
   grid: '방 격자 밖으로 나갑니다',
@@ -980,11 +1015,11 @@ export const PLACEMENT_REASON_KO = {
 } as const;
 
 const ACCESS_FACES: readonly FurnitureFace[] = ['front', 'back', 'right', 'left'];
-/** `FACE_DIR[yaw][face]` = 계약의 `furnitureFaceDir(yaw, face)` (모듈 로드 때 한 번). */
+/** `FACE_DIR[yaw][face]` = the contract's `furnitureFaceDir(yaw, face)` (built once at module load). */
 const FACE_DIR: ReadonlyArray<Readonly<Record<FurnitureFace, { dx: number; dy: number }>>> = ([0, 1, 2, 3] as const).map(
   (yaw) => Object.fromEntries(ACCESS_FACES.map((f) => [f, furnitureFaceDir(yaw, f)])) as Record<FurnitureFace, { dx: number; dy: number }>,
 );
-/** 면 한 줄의 사각형 (재사용 스크래치 — 받은 자리에서 바로 읽는다). */
+/** The one-row rectangle of a face (a reused scratch — read it right where it is handed back). */
 const _face = { x: 0, y: 0, cols: 0, rows: 0 };
 function faceRect(x: number, y: number, cols: number, rows: number, yaw: 0 | 1 | 2 | 3, face: FurnitureFace): typeof _face {
   const { dx, dy } = FACE_DIR[yaw][face];
@@ -998,13 +1033,14 @@ function accessReason(access: FurnitureAccess): string {
 }
 
 /**
- * `def` 를 `room` 의 (x, y, yaw) 에 놓을 수 없는 이유 — null 이면 놓을 수 있다. 순서: 자리 → 용도 → 격자 → 고정 소품 → 쌓기 한도 →
- * 몸체 겹침 → 내 접근 면(벽 · 몸체) → 남의 접근 면. `ignoreUid` = 옮기는 중인 조각 (자기 자신과는 비교하지 않는다).
+ * Why `def` cannot go at (x, y, yaw) of `room` — null means it can. Order: spot → purpose → grid → fixture → stack
+ * limit → body overlap → my own access faces (wall · body) → someone else's access face. `ignoreUid` = the piece being
+ * moved (it is never compared against itself).
  */
 export function placementBlockOf(
   state: ShipState, room: number, def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string,
 ): PlacementBlock | null {
-  // 2026-09-12: 조종석도 놓을 자리다 (용도 'cockpit' = 'any' 가구 + 조종석 전용 시설) — 격자 크기와 고정 소품 자리는 계약의 표가 답한다
+  // 2026-09-12: the cockpit is a placement spot too (purpose 'cockpit' = 'any' furniture + cockpit-only facilities) — the contract's tables answer the grid size and the fixture cells
   const purpose = placeRoomPurpose(state, room);
   if (purpose === null) return { kind: 'place', reason: PLACEMENT_REASON_KO.place };
   if (!furnitureAllowedIn(def, purpose)) {
@@ -1027,7 +1063,7 @@ export function placementBlockOf(
     if (limit > 1 && other.defId === def.id && other.x === x && other.y === y && other.yaw === yaw) continue;
     return { kind: 'overlap', reason: PLACEMENT_REASON_KO.overlap };
   }
-  // 2026-09-13: 내 접근 면 — 앞(front)은 벽이 안 되고, 어느 면이든 그 줄에 고정 소품 · 다른 가구 몸체가 없어야 한다
+  // 2026-09-13: my own access faces — the front may not be a wall, and no face's row may hold a fixture or another piece's body
   const access = furnitureAccessOf(def);
   if (access !== 'none') {
     const grid = roomGridSize(room);
@@ -1036,7 +1072,7 @@ export function placementBlockOf(
       const inside = r.x >= 0 && r.y >= 0 && r.x + r.cols <= grid.cols && r.y + r.rows <= grid.rows;
       if (!inside) {
         if (!accessAllowsWall(access)) return { kind: 'access', reason: PLACEMENT_REASON_KO.frontWall };
-        continue;                                   // 한 줄짜리라 격자 밖이면 줄 전체가 벽이다 (몸체는 이미 격자 안)
+        continue;                                   // one row only, so outside the grid means the whole row is wall (the body is already inside)
       }
       const rx = r.x, ry = r.y, rc = r.cols, rr = r.rows;
       if (roomRectBlocked(room, rx, ry, rc, rr)) return { kind: 'access', reason: accessReason(access) };
@@ -1049,7 +1085,7 @@ export function placementBlockOf(
       }
     }
   }
-  // 2026-09-13: 남의 접근 면 — 내 몸체가 이미 놓인 가구의 비워야 하는 줄에 들어가면 안 된다 (줄끼리는 겹쳐도 된다)
+  // 2026-09-13: someone else's access face — my body may not enter the row an already placed piece needs free (the rows themselves may overlap)
   for (const other of state.furniture) {
     if (other.room !== room || other.uid === ignoreUid) continue;
     const odef = FURNITURE_DEF_MAP.get(other.defId);
@@ -1065,7 +1101,7 @@ export function placementBlockOf(
   return null;
 }
 
-/** `placementBlockOf` 의 문장만 — `HousingRef.placementBlock` 이 이것을 돌려준다. null = 놓을 수 있다. */
+/** Only `placementBlockOf`'s string — this is what `HousingRef.placementBlock` returns. null = it can be placed. */
 export function placementBlockReason(
   state: ShipState, room: number, def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string,
 ): string | null {
@@ -1076,81 +1112,87 @@ export function placementBlockReason(
  * Purpose match (or 'any') + inside the grid + no overlap with other pieces in the room (`ignoreUid` = the piece being
  * moved). Stackable defs (`stackLimit > 1`) may share their footprint with the same def at the same cell / yaw while
  * the stack is below its limit. **2026-09-13**: + the access-face rules (`placementBlockOf`) — this is exactly
- * `placementBlockOf(...) === null`, so every caller (hand placement · `move` · 자동 배치 · `sanitize`) sees one rule.
+ * `placementBlockOf(...) === null`, so every caller (hand placement · `move` · auto placement · `sanitize`) sees one rule.
  */
 export function canPlaceAt(state: ShipState, room: number, def: FurnitureDef, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): boolean {
   return placementBlockOf(state, room, def, x, y, yaw, ignoreUid) === null;
 }
 
-/* ── 자동 배치 (2026-09-10) ────────────────────────────────────────────────
- * 「좌측 상단부터 가로줄을 먼저 채우고, 가구는 아래를 가리킨다」 — 시설 관리 화면(가구 창고의 `배치` 버튼)이
- * 손으로 고르지 않은 자리를 정할 때의 **유일한** 규칙이다. 사용자가 하우징 모드에서 직접 돌려 놓은 회전은
- * 이 함수를 지나지 않으므로 그대로다.
+/* ── auto placement (2026-09-10) ──────────────────────────────────────────────
+ * 「fill a row from the top left first, and the piece faces down」 — the **only** rule 시설 관리 (the `배치` button in
+ * 가구 창고) uses when it has to pick a spot the player did not. A rotation the player set by hand in housing mode
+ * never passes through this function and is left alone.
  *
- * 화면 ↔ 격자 대응의 근거는 두 곳이다 (여기서 다시 재지 않고 그대로 옮겨 적는다):
- *   · `hub/interiors/RoomLayout` — 격자 `x` 는 월드 +X, `y` 는 월드 +Z (셀 (0,0) = 방의 min-x / min-z 모서리).
- *     가구의 월드 회전은 `rotation.y = −yaw·π/2` 이고 절차 모델의 **정면은 로컬 −Z** 다.
- *   · `hub/HousingMode` — 시설 관리 카메라는 Phase 10 부터 **모든 방**에서 방 중심의 +X 쪽(`CAM_TOWARD_DOOR`)
- *     에서 −X 를 내려다본다. 그래서 **화면 오른쪽 = 월드 −Z, 화면 아래 = 월드 +X** 다 (그 파일의 커서
- *     이동 주석과 같은 문장이다: "screen right = world −Z and screen down = world +X for every room").
+ * The screen ↔ grid correspondence is grounded in two places (copied here rather than measured again):
+ *   · `hub/interiors/RoomLayout` — grid `x` is world +X, `y` is world +Z (cell (0,0) = the room's min-x / min-z
+ *     corner). A piece's world rotation is `rotation.y = −yaw·π/2`, and a procedural model's **front is local −Z**.
+ *   · `hub/HousingMode` — since Phase 10 the 시설 관리 camera looks down −X from the +X side of the room centre
+ *     (`CAM_TOWARD_DOOR`) in **every room**. So **screen right = world −Z and screen down = world +X** (the same
+ *     sentence as that file's cursor-movement comment: "screen right = world −Z and screen down = world +X for every room").
  *
- * 두 줄을 합치면 이 폴더가 쓸 좌표가 나온다:
- *   화면 아래   = 격자 `x` 증가          화면 오른쪽 = 격자 `y` 감소
- *   화면 좌측 상단 = (x 0, y 최대)        화면의 가로줄 = `x` 를 고정한 채 `y` 를 줄여 가는 줄
- * 그래서 훑는 순서는 **x 오름차순(바깥) × y 내림차순(안쪽)** — 화면으로 보면 왼쪽 위에서 오른쪽으로 한 줄을
- * 채우고 다음 줄로 내려간다. 앵커(`x`,`y`)는 격자 최소 모서리라, 화면 좌측 상단에 딱 붙이려면 `y` 를
- * `ROOM_GRID_ROWS − fp.rows` 에서 시작해 0 까지 내린다.
+ * Putting the two together gives the coordinates this folder uses:
+ *   screen down = grid `x` rising            screen right = grid `y` falling
+ *   screen top left = (x 0, y max)           a row on screen = `x` fixed while `y` counts down
+ * So the scan order is **x ascending (outer) × y descending (inner)** — on screen it fills one row from top left to
+ * the right, then drops to the next. The anchor (`x`,`y`) is the grid's minimum corner, so reaching the screen's top
+ * left means starting `y` at `ROOM_GRID_ROWS − fp.rows` and counting down to 0.
  *
- * 방향은 정면 벡터로 정한다: `R_y(−yaw·π/2)·(0,0,−1) = (−sin θ, −cos θ)` 이므로
- *   yaw 0 → −Z (화면 오른쪽) · **yaw 1 → +X (화면 아래)** · yaw 2 → +Z (화면 왼쪽) · yaw 3 → −X (화면 위).
- * 예전에는 `[0, 1]` 순서라 작업대가 언제나 yaw 0 = **화면 오른쪽 벽**을 보고 서서, 쓰려면 벽과 작업대 사이로
- * 끼어 들어가야 했다. 이제 yaw 1 이 먼저다. 대체 회전이 `0` 인 이유는 yaw 1/3 과 0/2 의 발자국이 서로 전치라
- * "yaw 1 로 안 들어가는 가구"는 yaw 3 으로도 안 들어가기 때문이다 — 눕혀 봐야 의미가 있다.
+ * The facing comes from the front vector: `R_y(−yaw·π/2)·(0,0,−1) = (−sin θ, −cos θ)`, so
+ *   yaw 0 → −Z (screen right) · **yaw 1 → +X (screen down)** · yaw 2 → +Z (screen left) · yaw 3 → −X (screen up).
+ * The order used to be `[0, 1]`, which left every workbench at yaw 0 facing the **right-hand wall on screen**, so
+ * using it meant squeezing in between the wall and the bench. yaw 1 comes first now. The fallback rotation is `0`
+ * because the footprints of yaw 1/3 and 0/2 are transposes of each other: a piece that does not fit at yaw 1 does not
+ * fit at yaw 3 either — only turning it on its side means anything.
  */
 export const AUTO_PLACE_YAWS: readonly (0 | 1 | 2 | 3)[] = [1, 0];
 /**
- * 2026-09-13 (배치 규칙): 선호 회전(`AUTO_PLACE_YAWS`)으로 자리가 없을 때 이어서 보는 회전. 접근 면 규칙이 생기면서 yaw 3 은 더 이상
- * yaw 1 의 사본이 아니다 — 발자국은 같아도 **앞이 반대**라, 앞이 벽에 막히는 `front` 가구(격자 끝 줄)가 돌아서면 선다.
- * 순서 · 선호 회전은 그대로이고, 접근 면이 없는 가구에게는 새 자리가 생기지 않는다(발자국이 같다).
+ * 2026-09-13 (placement rules): the rotations tried next when the preferred ones (`AUTO_PLACE_YAWS`) find no spot.
+ * Since the access-face rule, yaw 3 is no longer a copy of yaw 1 — the footprint is the same but the **front is
+ * reversed**, so a `front` piece whose front is against a wall (the grid's last row) stands once it turns around.
+ * The order and the preferred rotations are unchanged, and a piece with no access face gains no new spot (same footprint).
  */
 export const AUTO_PLACE_FALLBACK_YAWS: readonly (0 | 1 | 2 | 3)[] = [3, 2];
 const AUTO_PLACE_YAW_ORDER: readonly (0 | 1 | 2 | 3)[] = [...AUTO_PLACE_YAWS, ...AUTO_PLACE_FALLBACK_YAWS];
 
-/* ── 출입구 앞 여유 (자동 배치에만 적용) ───────────────────────────────────
- * 순서만 바꾸면 **문이 막힌다.** 방문은 방의 ±X 벽 한가운데(`hub/interiors/RoomLayout`: `doorZ` = 방의 z 중앙,
- * `DOOR_WIDTH` 1.6 m)에 있고, 어느 벽인지는 방 번호가 정한다 — 앞쪽 절반(0…4)은 좌현이라 문이 **+X** 벽에,
- * 뒤쪽 절반(5…9)은 우현이라 문이 **−X** 벽에 붙는다. 새 규칙의 첫 자리(격자 x 0, 화면 좌측 상단)는 우현 방에서
- * 바로 그 문 앞이고, 4×2 작업대를 yaw 1 로 놓으면 1.6 m 문틈의 절반(0.8 m)을 막아 `PLAYER_RADIUS` 0.45 ×2 =
- * 0.9 m 인 플레이어가 **드나들지 못한다**(가구는 `hub/interiors/Furniture` 가 실제 콜라이더를 세운다).
+/* ── door clearance (auto placement only) ─────────────────────────────────────
+ * Change nothing but the order and **the door is blocked.** A room door sits in the middle of the room's ±X wall
+ * (`hub/interiors/RoomLayout`: `doorZ` = the room's z centre, `DOOR_WIDTH` 1.6 m), and the room number decides which
+ * wall — the forward half (0…4) is to port, so its door is on the **+X** wall; the aft half (5…9) is to starboard,
+ * so its door is on the **−X** wall. The new rule's first spot (grid x 0, the screen's top left) is right in front of
+ * that door in a starboard room, and a 4×2 workbench at yaw 1 covers half of the 1.6 m gap (0.8 m), so a player of
+ * `PLAYER_RADIUS` 0.45 ×2 = 0.9 m **cannot get through** (the real colliders are built by `hub/interiors/Furniture`).
  *
- * 그래서 자동 배치만 문 앞 상자를 비켜 간다 — 문 쪽 벽에서 `DOOR_CLEAR_DEPTH` 칸 깊이 ×
- * 벽 한가운데 `DOOR_CLEAR_SPAN` 칸. 손으로 놓는 경로(하우징 모드 고스트 · `move`)와 `canPlaceAt` 자체는
- * **건드리지 않는다**: `ShipState.sanitize` 가 저장된 배치를 `canPlaceAt` 으로 다시 검사하므로, 이 여유를
- * 배치 규칙에 넣었다면 이미 문 앞에 가구를 둔 함선의 가구가 로드할 때 가구 창고로 쫓겨났을 것이다
- * (= 세이브 소급 변경). 좌현 방에서는 예약 칸이 화면 아래쪽 끝이라 「좌측 상단부터」가 그대로 성립한다.
+ * So auto placement alone steps around a box in front of the door — `DOOR_CLEAR_DEPTH` cells deep from the door's
+ * wall × `DOOR_CLEAR_SPAN` cells across its middle. The by-hand paths (the housing-mode ghost · `move`) and
+ * `canPlaceAt` itself are **left alone**: `ShipState.sanitize` re-checks every saved placement with `canPlaceAt`, so
+ * putting this clearance into the placement rules would have thrown the furniture of any ship that already had a
+ * piece in front of its door into 가구 창고 on load (= changing saves retroactively). In a port room the reserved
+ * cells are at the bottom end of the screen, so 「from the top left」 still holds.
  *
- * 두 수치는 밸런스가 아니라 **치수**라 csv 가 아니라 여기 있다 (`data/README.md` 의 "csv 로 옮기지 않은 것" —
- * `world/structures/model.ts` 가 벽 두께 · 문 폭을 TS 에 두는 것과 같은 이유).
+ * The two numbers are **dimensions**, not balance, which is why they are here and not in csv (`data/README.md`, "what
+ * was not moved into csv" — the same reason `world/structures/model.ts` keeps wall thickness and door width in TS).
  */
 /*
- * 2026-09-12 (`ROOM_GRID_COLS/ROWS` 8 → 16, 방 4 × 4 → 8 × 8 m): **두 수치는 그대로다.** 둘 다 격자 칸수의
- * 비율이 아니라 **문의 치수**에서 나오고, 문은 여전히 1.6 m 폭 · 플레이어는 여전히 지름 0.9 m 이기 때문이다 —
- * 방이 커졌다고 문 앞 여유를 같이 키우면 새로 생긴 공간을 그만큼 도로 뺏는다.
+ * 2026-09-12 (`ROOM_GRID_COLS/ROWS` 8 → 16, rooms 4 × 4 → 8 × 8 m): **both numbers stay.** Neither is a fraction of
+ * the grid; both come from **the door's dimensions**, and the door is still 1.6 m wide and the player still 0.9 m
+ * across — growing the clearance because the room grew would take the new space straight back again.
  *
- * 구역이 여전히 문 앞에 오는지만 다시 쟀다. 문은 방의 z 중앙(`doorZ`)에 있고 격자 `y` 는 월드 +Z 이므로
- * 구역의 중앙 정렬은 `doorClearanceCell` 의 `(ROWS − SPAN)/2` 한 줄이 정한다:
- *   · 8 칸일 때  y 2…5 → 방 앞쪽 모서리에서 1.0 … 3.0 m, 문은 2.0 ± 0.8 = 1.2 … 2.8 m  ✔
- *   · 16 칸일 때 y 6…9 → 3.0 … 5.0 m,                     문은 4.0 ± 0.8 = 3.2 … 4.8 m  ✔
- * `ROWS` 가 짝수이고 `SPAN` 이 짝수인 한 구역은 정확히 방 중앙에 물리고, 문(3.2 칸)보다 넓다.
+ * Only whether the zone still lands in front of the door was measured again. The door is at the room's z centre
+ * (`doorZ`) and grid `y` is world +Z, so the zone's centring is decided by the one `(ROWS − SPAN)/2` line in
+ * `doorClearanceCell`:
+ *   · at 8 cells   y 2…5 → 1.0 … 3.0 m from the room's forward corner, the door at 2.0 ± 0.8 = 1.2 … 2.8 m  ✔
+ *   · at 16 cells  y 6…9 → 3.0 … 5.0 m,                                the door at 4.0 ± 0.8 = 3.2 … 4.8 m  ✔
+ * As long as `ROWS` and `SPAN` are both even the zone bites exactly on the room's centre, and it is wider than the
+ * door (3.2 cells).
  */
-/** 문 쪽 벽에서 비워 두는 깊이(칸). 2 칸 = 1.0 m ≥ 플레이어 지름 0.9 m. */
+/** Depth kept free from the door's wall, in cells. 2 cells = 1.0 m ≥ the player's 0.9 m width. */
 export const DOOR_CLEAR_DEPTH = 2;
-/** 벽 한가운데에서 비워 두는 폭(칸). 4 칸 = 2.0 m ≥ 문 폭 1.6 m. */
+/** Width kept free across the middle of that wall, in cells. 4 cells = 2.0 m ≥ the door's 1.6 m. */
 export const DOOR_CLEAR_SPAN = 4;
 
 /** Min corner of the `DOOR_CLEAR_DEPTH × DOOR_CLEAR_SPAN` block auto-placement keeps free in front of `room`'s door. */
 export function doorClearanceCell(room: number): { x: number; y: number } {
-  // 좌현(앞 절반)은 문이 +X 벽 = 격자 x 최대 쪽, 우현(뒤 절반)은 −X 벽 = 격자 x 0 쪽.
+  // To port (the forward half) the door is on the +X wall = the grid's high-x side; to starboard (the aft half) on the −X wall = grid x 0.
   const port = room < Math.floor(SHIP_ROOM_COUNT / 2);
   return {
     x: port ? ROOM_GRID_COLS - DOOR_CLEAR_DEPTH : 0,
@@ -1159,9 +1201,10 @@ export function doorClearanceCell(room: number): { x: number; y: number } {
 }
 
 /**
- * 2026-09-11 (C-27) — 문 앞 여유 구역 안에 **나란히 비어 있는 두 줄**이 남는가. 문 폭 방향(`DOOR_CLEAR_SPAN` 칸)
- * 중 인접한 2칸이 문 쪽 벽에서 `DOOR_CLEAR_DEPTH` 칸 깊이까지 전부 비어 있으면 통로가 열려 있다 — 2칸 = 1.0 m ≥
- * 플레이어 지름 0.9 m (`PLAYER_RADIUS` × 2). `extra` = 이제 놓으려는 가구의 발자국 (그것까지 포함해서 본다).
+ * 2026-09-11 (C-27) — are **two adjacent free lanes** left inside the door clearance zone? When two neighbouring
+ * cells of the door-width direction (`DOOR_CLEAR_SPAN` cells) are free all the way to `DOOR_CLEAR_DEPTH` from the
+ * door's wall, the passage is open — 2 cells = 1.0 m ≥ the player's 0.9 m width (`PLAYER_RADIUS` × 2). `extra` = the
+ * footprint of the piece about to be placed (it is counted in).
  */
 export function doorPassageOpen(
   state: ShipState, room: number, extra?: { x: number; y: number; cols: number; rows: number } | null,
@@ -1176,35 +1219,38 @@ export function doorPassageOpen(
     rects.push({ x: f.x, y: f.y, cols: fp.cols, rows: fp.rows });
   }
   if (extra) rects.push(extra);
-  /** 문 폭 방향 k 번째 줄(격자 y = door.y + k)이 깊이 전부 비었는가. */
+  /** Is lane k of the door-width direction (grid y = door.y + k) free all the way through the depth? */
   const laneFree = (k: number): boolean =>
     !rects.some((r) => overlaps(door.x, door.y + k, DOOR_CLEAR_DEPTH, 1, r.x, r.y, r.cols, r.rows));
   for (let k = 0; k + 1 < DOOR_CLEAR_SPAN; k++) if (laneFree(k) && laneFree(k + 1)) return true;
   return false;
 }
 
-/** A free cell + yaw the 배치 버튼 drops a stored piece on. */
+/** A free cell + yaw the `배치` button drops a stored piece on. */
 export interface FurniturePlacement { x: number; y: number; yaw: 0 | 1 | 2 | 3 }
 
 /**
- * First spot `def` fits in `room` under the rule above — 화면 좌측 상단부터 가로줄 먼저, 아래를 향한 채,
- * 출입구 앞은 비워 두고. `null` when nothing fits (the caller keeps its existing 자리 없음 handling); every
- * candidate still goes through `canPlaceAt`, so 용도 · 격자 경계 · 겹침 · 쌓기 한도 규칙은 하나도 우회하지 않는다.
+ * First spot `def` fits in `room` under the rule above — rows first from the screen's top left, facing down, and
+ * keeping the space in front of the door clear. `null` when nothing fits (the caller keeps its existing "no spot"
+ * handling); every candidate still goes through `canPlaceAt`, so not one of the purpose · grid bound · overlap ·
+ * stack limit rules is bypassed.
  *
- * 2026-09-11 (C-27) **2차 패스**: 여유 구역을 통째로 피해서는 자리가 없으면(방이 거의 찼다) 같은 순서로 다시 훑되
- * 여유 구역에 걸치는 자리도 받는다 — 단 놓은 뒤에도 `doorPassageOpen` (문 폭 4칸 중 인접 2칸이 깊이 전부 비었다)
- * 이어야 한다. 1차에서 이미 본 자리(구역 밖)는 2차에서 다시 볼 필요가 없다. `canPlaceAt` 은 그대로다.
+ * 2026-09-11 (C-27) **second pass**: when avoiding the clearance zone entirely leaves no spot (the room is nearly
+ * full), the same order is walked again and spots that reach into the zone are accepted too — but only while
+ * `doorPassageOpen` still holds afterwards (two adjacent of the four door-width cells free through the whole depth).
+ * Spots already seen in the first pass (outside the zone) need not be looked at again. `canPlaceAt` is unchanged.
  */
 export function autoPlaceSpot(state: ShipState, room: number, def: FurnitureDef): FurniturePlacement | null {
-  /* 2026-09-12 (조종석): 격자 크기는 `roomGridSize` 가, 막힌 칸은 `canPlaceAt` 안의 `roomRectBlocked` 가 답한다. 조종석에는
-     문 앞 여유 구역이 없다 — 고정 소품 표(`COCKPIT_BLOCKED_RECTS`)가 이미 복도 아치 · 포드 동선을 비워 두므로 한 패스뿐이다. */
+  /* 2026-09-12 (the cockpit): the grid size is answered by `roomGridSize` and the blocked cells by `roomRectBlocked`
+     inside `canPlaceAt`. The cockpit has no door clearance zone — the fixture table (`COCKPIT_BLOCKED_RECTS`) already
+     keeps the corridor arch and the pod approach clear, so there is only one pass. */
   const grid = roomGridSize(room);
   const door = room === COCKPIT_ROOM_INDEX ? null : doorClearanceCell(room);
   for (const pass of door ? [1, 2] : [1]) {
-    for (const yaw of AUTO_PLACE_YAW_ORDER) {        // 2026-09-13: 선호 회전 다음에 뒤집은 회전 (접근 면 규칙)
+    for (const yaw of AUTO_PLACE_YAW_ORDER) {        // 2026-09-13: the preferred rotations first, then the reversed ones (the access-face rule)
       const fp = furnitureFootprint(def, yaw);
-      for (let x = 0; x + fp.cols <= grid.cols; x++) {               // 화면 세로: 위 → 아래
-        for (let y = grid.rows - fp.rows; y >= 0; y--) {             // 화면 가로: 왼쪽 → 오른쪽
+      for (let x = 0; x + fp.cols <= grid.cols; x++) {               // vertically on screen: top → bottom
+        for (let y = grid.rows - fp.rows; y >= 0; y--) {             // horizontally on screen: left → right
           const inDoorZone = !!door && overlaps(x, y, fp.cols, fp.rows, door.x, door.y, DOOR_CLEAR_DEPTH, DOOR_CLEAR_SPAN);
           if (inDoorZone !== (pass === 2)) continue;
           if (!canPlaceAt(state, room, def, x, y, yaw)) continue;
@@ -1218,7 +1264,7 @@ export function autoPlaceSpot(state: ShipState, room: number, def: FurnitureDef)
 }
 
 /**
- * 한국어 reason a placed piece may not be recovered right now; null = go ahead. Only stacks block: taking a piece out
+ * Korean reason a placed piece may not be recovered right now; null = go ahead. Only stacks block: taking a piece out
  * from under another one would leave the upper layers floating, so only the top layer may leave.
  */
 export function recoverBlockReason(state: ShipState, item: PlacedFurniture): string | null {
@@ -1260,49 +1306,56 @@ export function furnitureUpgradeReason(state: ShipState, item: PlacedFurniture, 
   return null;
 }
 
-/* ── 시설 레벨 요구 (2026-09-12, 사용자 결정) ────────────────────────────────
- * 「발전기 Lv.n 이 필요하다」를 문장이 아니라 **칩**으로 그리기 위한 질의다 (`HousingRef.furnitureUpgradeRequirements` ·
- * `purposeRequirements` → ui 의 `buildFacilityChip`). 게이트의 식은 `generatorGateReason` 과 **같은 한 줄**이다.
+/* ── facility level requirements (2026-09-12, user's decision) ────────────────
+ * The query that lets 「발전기 Lv.n is needed」 be drawn as a **chip** rather than a sentence
+ * (`HousingRef.furnitureUpgradeRequirements` · `purposeRequirements` → ui's `buildFacilityChip`). The gate's formula
+ * is **the same single line** as `generatorGateReason`.
  *
- * ⚠ 2026-09-14 (사용자 결정 — 「재료 썸네일에 발전기 레벨 썸네일을 표시」): 이제 **채워진 요구도 돌려준다.**
- * 재료 칩이 가진 것과 필요한 것을 늘 같이 보여 주듯 발전기도 `현재/필요` 를 늘 보여 줘야 하기 때문이고, 모자랄 때는
- * 칩이 스스로 `.is-short`(빨강)로 말한다. 그래서 **빈 배열이 더 이상 「문제 없음」을 뜻하지 않는다** — 막는지 여부는
- * 예전부터 그랬듯 사유 함수(`generatorGateReason` · `furnitureUpgradeReason` · `purposeBuildBlockReason`)가 답한다.
- * 발전기는 Lv.1 로 시작하므로 요구가 1 이하인 것(작업실 · 첫 강화)은 늘 채워져 있어 칩을 만들지 않는다 — 잡음이다.
+ * ⚠ 2026-09-14 (user's decision — 「show the generator level thumbnail next to the material thumbnails」): it now
+ * **returns satisfied requirements too.** A material chip always shows what is held next to what is needed, so the
+ * generator has to show `현재/필요` always as well, and when it falls short the chip says so itself in `.is-short`
+ * (red). So **an empty array no longer means 「nothing is wrong」** — whether something is blocked is answered, as it
+ * always was, by the reason functions (`generatorGateReason` · `furnitureUpgradeReason` · `purposeBuildBlockReason`).
+ * The generator starts at Lv.1, so a requirement of 1 or less (작업실 · the first upgrade) is always satisfied and
+ * gets no chip — that would be noise.
  * ────────────────────────────────────────────────────────────────────────── */
 
-/** 발전기 레벨 요구 하나 (요구가 `GENERATOR_START_LEVEL` 이하면 늘 채워져 있으므로 빈 배열). */
+/** One generator level requirement (an empty array at or below `GENERATOR_START_LEVEL`, where it is always satisfied). */
 export function generatorRequirement(state: ShipState, targetLevel: number): FacilityRequirement[] {
   if (targetLevel <= GENERATOR_START_LEVEL) return [];
   return [{ facility: 'generator', have: state.generatorLevel, need: targetLevel }];
 }
 
-/** 놓인 가구의 **다음 강화**를 막는 시설 레벨 요구 (최대 레벨이거나 모르는 가구면 빈 배열). */
+/** The facility level requirements that block a placed piece's **next upgrade** (an empty array at max level, or for an unknown piece). */
 export function furnitureUpgradeRequirementsFor(state: ShipState, item: PlacedFurniture): FacilityRequirement[] {
   const def = FURNITURE_DEF_MAP.get(item.defId);
   if (!def || item.level >= furnitureMaxLevel(def)) return [];
   return generatorRequirement(state, item.level + 1);
 }
 
-/** 빈 방에 `purpose` 를 **증축**하는 데 채워지지 않은 시설 레벨 요구 (빈 방 · 지을 수 없는 용도는 빈 배열). */
+/** The facility level requirements still unmet for **building** `purpose` into an empty room (an empty array for 빈 방 and for a purpose that can no longer be built). */
 export function purposeRequirementsFor(state: ShipState, purpose: RoomPurpose): FacilityRequirement[] {
   if (purpose === 'empty' || !isAssignablePurpose(purpose)) return [];
   return generatorRequirement(state, purposeGeneratorLevel(purpose));
 }
 
-/* ── 비디오게임: TV 좌석 (2026-09-13, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ───────────────────────────────────
- * 격자 규약은 위 「배치 규칙: 접근 면」 절과 **같은 것**이다 — 가구의 앞 = 로컬 −Z, 그 격자 방향 = 계약의 `furnitureFaceDir(yaw, 'front')`
- * (yaw 0 → 격자 y 감소 · 1 → x 증가 · 2 → y 증가 · 3 → x 감소). TV 의 접근 면은 `front` 라 앞 한 줄은 늘 비어 있다.
+/* ── video games: the TV seat (2026-09-13, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ─────
+ * The grid convention is **the same one** as the 「placement rules: access faces」 section above — a piece's front is
+ * local −Z, and its grid direction is the contract's `furnitureFaceDir(yaw, 'front')` (yaw 0 → grid y falling · 1 → x
+ * rising · 2 → y rising · 3 → x falling). A TV's access face is `front`, so its front row is always clear.
  *
- *   ① 좌석 = TV 와 **같은 방**에 놓인 가구 중 interaction ∈ `SEAT_INTERACTIONS` (의자 · 쇼파 `seat`, 흔들의자).
- *   ② **TV 정면**: 좌석 몸체 전체가 TV 의 앞 끝 바깥에 있다 (앞 방향 = 깊이 축에서 좌석의 가까운 끝이 TV 앞 끝을 넘지 않는다),
- *      그리고 깊이 축에 수직인 **폭 축**에서 좌석과 TV 의 칸 범위가 한 칸 이상 겹친다.
- *   ③ **TV 를 본다**: 좌석 yaw = (TV yaw + 2) % 4 — 좌석의 앞(로컬 −Z)이 TV 쪽을 가리킨다.
- *   ④ **통로** = ② 의 겹친 폭 × TV 앞 끝과 좌석 가까운 끝 **사이** 칸. TV · 그 좌석이 아닌 가구 몸체가 한 칸이라도 걸리면 막힌다 —
- *      단 `FurnitureDef.low`(좌식 테이블 · 러그)는 건너뛴다. 거리는 무관하다.
- * 유효한 좌석이 여럿이면 통로가 가장 짧은 것 → 겹친 폭이 넓은 것 → 배치 순서. 없으면 **가장 멀리 간 후보의 사유**를 준다:
- * 통로가 막힘 > TV 를 보고 있지 않음 > 정면에 없음 (다른 방의 좌석은 후보가 아니다).
- * hub 는 이 규칙이 고른 좌석에 앉히고 좌석의 앞 방향(= TV 쪽)을 보게 한다.
+ *   ① A seat = a piece in the **same room** as the TV whose interaction ∈ `SEAT_INTERACTIONS` (의자 · 쇼파 `seat`, 흔들의자).
+ *   ② **In front of the TV**: the whole seat body lies beyond the TV's front edge (along the depth axis, the seat's
+ *      near end does not cross the TV's front edge), and on the **width axis** perpendicular to it the seat's and the
+ *      TV's cell ranges overlap by at least one cell.
+ *   ③ **Facing the TV**: seat yaw = (TV yaw + 2) % 4 — the seat's front (local −Z) points at the TV.
+ *   ④ The **corridor** = ②'s overlapping width × the cells **between** the TV's front edge and the seat's near end. A
+ *      single cell of any body that is not the TV or that seat blocks it — except `FurnitureDef.low` (a low table, a
+ *      rug), which is skipped. Distance does not matter.
+ * With several valid seats: shortest corridor → widest overlap → placement order. With none, the reason comes from
+ * **the candidate that got furthest**: corridor blocked > not facing the TV > not in front (a seat in another room is
+ * not a candidate at all).
+ * hub seats the player on the seat this rule picked and turns them to the seat's front direction (= towards the TV).
  * ────────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 import { SEAT_INTERACTIONS } from '@/shared';
 
@@ -1313,20 +1366,20 @@ export const TV_SEAT_REASON_KO = {
   blocked: 'TV 와 좌석 사이를 가구가 막고 있습니다',
 } as const;
 
-/** `tvSeatFor` 의 답 — 좌석이 있으면 `seatUid`(reason null), 없으면 한국어 `reason`(seatUid null). */
+/** `tvSeatFor`'s answer — `seatUid` with a null `reason` when there is a seat, otherwise a Korean `reason` with a null `seatUid`. */
 export interface TvSeatResult {
   seatUid: string | null;
   reason: string | null;
-  /** 고른 좌석의 통로 사각형 (격자 칸, 깊이 0 이면 좌석이 TV 앞 줄 바로 너머다). 좌석이 없으면 null. */
+  /** The chosen seat's corridor rectangle (grid cells; depth 0 means the seat sits just beyond the TV's front row). null with no seat. */
   corridor: { x: number; y: number; cols: number; rows: number } | null;
 }
 
-/** TV 를 볼 수 있는 좌석 가구인가 (`SEAT_INTERACTIONS`). */
+/** Is this a seat a TV can be watched from (`SEAT_INTERACTIONS`)? */
 export function isSeatDef(def: FurnitureDef | null | undefined): boolean {
   return !!def && SEAT_INTERACTIONS.includes(def.interaction);
 }
 
-/** TV `tvUid` 를 보는 유효한 좌석 (규칙은 위 절 주석). 순수 함수 — 전력 · 켜짐은 보지 않는다. */
+/** The valid seat facing TV `tvUid` (the rules are in the section comment above). A pure function — it looks at neither power nor the on-state. */
 export function tvSeatFor(state: ShipState, tvUid: string): TvSeatResult {
   const tv = state.furniture.find((f) => f.uid === tvUid);
   const tvDef = tv ? FURNITURE_DEF_MAP.get(tv.defId) : undefined;
@@ -1334,7 +1387,7 @@ export function tvSeatFor(state: ShipState, tvUid: string): TvSeatResult {
   const tfp = furnitureFootprint(tvDef, tv.yaw);
   const { dx, dy } = furnitureFaceDir(tv.yaw, 'front');
   const wantYaw = (tv.yaw + 2) % 4;
-  /** 0 = 정면에 없음 · 1 = 보고 있지 않음 · 2 = 막힘 — 사유는 가장 큰 단계. */
+  /** 0 = not in front · 1 = not facing · 2 = blocked — the reason is the highest stage reached. */
   let stage = 0;
   let best: { uid: string; depth: number; width: number; corridor: { x: number; y: number; cols: number; rows: number } } | null = null;
   for (const seat of state.furniture) {
@@ -1344,7 +1397,7 @@ export function tvSeatFor(state: ShipState, tvUid: string): TvSeatResult {
     const sfp = furnitureFootprint(sdef, seat.yaw);
     let corridor: { x: number; y: number; cols: number; rows: number };
     if (dy !== 0) {
-      // 깊이 축 = 격자 y, 폭 축 = 격자 x
+      // depth axis = grid y, width axis = grid x
       let a: number, b: number;
       if (dy < 0) { if (seat.y + sfp.rows > tv.y) continue; a = seat.y + sfp.rows; b = tv.y; }
       else { if (seat.y < tv.y + tfp.rows) continue; a = tv.y + tfp.rows; b = seat.y; }
@@ -1352,7 +1405,7 @@ export function tvSeatFor(state: ShipState, tvUid: string): TvSeatResult {
       if (wb <= wa) continue;
       corridor = { x: wa, y: a, cols: wb - wa, rows: b - a };
     } else {
-      // 깊이 축 = 격자 x, 폭 축 = 격자 y
+      // depth axis = grid x, width axis = grid y
       let a: number, b: number;
       if (dx < 0) { if (seat.x + sfp.cols > tv.x) continue; a = seat.x + sfp.cols; b = tv.x; }
       else { if (seat.x < tv.x + tfp.cols) continue; a = tv.x + tfp.cols; b = seat.x; }

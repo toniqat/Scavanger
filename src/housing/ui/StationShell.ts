@@ -2,36 +2,39 @@ import type { EmbeddedView, GameContext, ItemInstance, TradeGridsView } from '@/
 import { el, setText, toggleClass } from './dom';
 
 /**
- * **가구 화면 공통 틀** (2026-09-12 · 카드 배치 2026-09-13) — 재배 스테이션 · 분석기 · 배양조 · 식탁(그리고 서재)이 같은
- * 뼈대를 쓴다.
+ * **The common furniture-screen shell** (2026-09-12 · card layout 2026-09-13) — the grow station · analyzer · culture
+ * tank · dining table (and the library) use the same skeleton.
  *
- * 2026-09-13 (사용자 결정 「작업대 제작 화면처럼」): 바깥 틀 하나에 모두 담던 배치를 걷어내고 **따로 떨어진 카드
- * 셋이 한 줄**로 선다 — 작업대 제작 창의 `[제작] [함선 창고] [가방]` 과 같은 결이다. 공유하는 바깥 테두리는 없다.
+ * 2026-09-13 (user's decision 「like the workbench craft screen」): the one outer frame that held everything is gone and
+ * **three separate cards stand in one row** — the grain of the workbench craft window's `[제작] [함선 창고] [가방]`. No shared outer border.
  *
  * ```
- * ┌ 제목  Lv. 1  +15% ───── [업그레이드] ┐  ┌ 창고 · 가방 ────────────────────┐
- * │ ┌ 레일 ┐ ┌ 좌 패널 (가구 내용) ────┐ │  │ 창고 격자(스크롤) │ 내 가방(스크롤) │
- * │ │ 목록 │ │                         │ │  │ 정렬 · 필터       │ 정렬 · 필터     │
- * │ └──────┘ └─────────────────────────┘ │  │                   │                 │
- * └──────────────────────────────────────┘  └─────────────────────────────────────┘
- *   메시지 줄 · 안내 ·························································· [닫기]
+ * ┌ title  Lv. 1  +15% ──── [업그레이드] ┐  ┌ stash · bag ──────────────────────────┐
+ * │ ┌ rail ┐ ┌ left pane (furniture) ──┐ │  │ stash grid (scroll) │ my bag (scroll) │
+ * │ │ list │ │                         │ │  │ sort · filter       │ sort · filter   │
+ * │ └──────┘ └─────────────────────────┘ │  │                     │                 │
+ * └──────────────────────────────────────┘  └───────────────────────────────────────┘
+ *   message line · hint ······················································· [닫기]
  * ```
  *
- * - **스테이션 카드**(`.hs-card-station`)가 제목 + `Lv. n` + 부가 글(`meta`, 예: 재배 스테이션의 성장 속도)을 들고,
- *   「업그레이드」 버튼은 **그 카드의** 우상단에 붙는다(화면이 아니라). 레일(스테이션 목록 · 분석기 탭)도 카드 안이다.
- * - **2026-09-15 3차 (사용자 결정 — 창고 + 가방은 한 패널이다)**: 격자 카드는 **하나**(`.hs-card-inv`)이고 그 안에서
- *   `TradeGrids` 가 왼쪽 창고 · 오른쪽 내 가방을 **칸마다 자기 스크롤 · 자기 정렬 · 자기 필터**로 그린다
- *   (`mountStationGrids` 가 `createTradeGrids` 를 **한 번**만 부른다). 옛 배치는 카드마다 한 번씩 **두 번** 불러
- *   카드가 둘이었다 — 인벤토리가 2026-09-15 2차에 한 패널로 바뀌면서 그 갈래가 사라졌다. 카드 머리(`.hs-card-head`)도
- *   같이 없앴다: 이름은 격자 블록이 스스로 말한다(창고는 그림이, 가방은 `내 가방` 라벨이).
- * - 격자 칸 크기는 뷰포트로 고른다(`stationGridCell` — 넓으면 54, 아니면 46): 1440 에서도 카드 둘이 한 줄에 들어간다.
- *   창 크기가 그 경계를 넘으면 살아 있는 뷰에 `setCell` 을 건다. 더 좁으면 CSS 가 스테이션 카드를 위, 격자 카드를 아래로 쌓는다.
+ * - **The station card** (`.hs-card-station`) carries the title + `Lv. n` + the meta text (`meta`, e.g. the grow
+ *   station's growth speed), and the 「업그레이드」 button sits at the top right of **that card**, not of the screen.
+ *   The rail (station list · analyzer tabs) is inside the card too.
+ * - **2026-09-15, 3rd pass (user's decision — the stash + the bag are one panel)**: there is **one** grid card
+ *   (`.hs-card-inv`), and inside it `TradeGrids` draws the stash on the left · my bag on the right, **each pane with
+ *   its own scroll · its own sort · its own filter** (`mountStationGrids` calls `createTradeGrids` exactly **once**).
+ *   The old layout called it **twice**, once per card, so there were two cards — that split went away when the
+ *   inventory became one panel in the 2026-09-15 2nd pass. The card head (`.hs-card-head`) went with it: the grid
+ *   blocks name themselves (the stash by its drawing, the bag by its `내 가방` label).
+ * - The grid cell edge is picked from the viewport (`stationGridCell` — 54 when wide, else 46): two cards still fit in
+ *   one row at 1440. When the window crosses that boundary a live view gets `setCell`. Narrower than that, CSS stacks
+ *   the station card on top and the grid card below.
  *
- * 레일을 쓰지 않는 화면(배양조 · 식탁)에서는 `rail` 이 `hidden` 이라 flex gap 까지 사라진다.
- * `inventory: false` 면 격자 카드를 만들지 않는다(`invCard` = null, `invHost` 는 빈 자리).
+ * On screens that do not use the rail (culture tank · dining table) `rail` is `hidden`, so the flex gap beside it goes too.
+ * With `inventory: false` no grid card is built (`invCard` = null, `invHost` is an empty spot).
  *
- * 2026-09-13 (같은 날, 사용자 결정 「전력 할당 시스템 제거」): 업그레이드 왼쪽의 비활성화 버튼 · 멈춤 배너(`power` 옵션 ·
- * `paintStationPower` · `.hpw-`)를 걷어냈다 — 가구는 멈추지 않는다.
+ * 2026-09-13 (the same day, user's decision 「remove the power allocation system」): the disable button · the stopped
+ * banner left of 업그레이드 (the `power` option · `paintStationPower` · `.hpw-`) are gone — furniture never stops.
  */
 export interface StationShell {
   /** Header row of the **station card** (title + Lv + meta left, 업그레이드 right). */
@@ -58,18 +61,18 @@ export interface StationShell {
   /** Small text after `Lv. n` (`.hs-meta`, hidden while empty) — e.g. `성장 속도 +15%`. Set it with `paintStationMeta`. */
   readonly meta: HTMLElement;
   /**
-   * appended 2026-09-15 3차: the **one** 창고 + 가방 card (`.hs-card-inv`), null with `inventory: false`.
+   * appended 2026-09-15, 3rd pass: the **one** 창고 + 가방 card (`.hs-card-inv`), null with `inventory: false`.
    * `TradeGrids` draws both grids inside it.
    */
   readonly invCard: HTMLElement | null;
-  /** @deprecated 2026-09-15 3차 — 카드가 하나가 됐다. `invCard` 와 같은 요소다 (이름만 남긴다). */
+  /** @deprecated 2026-09-15, 3rd pass — there is one card now. The same element as `invCard` (only the name is kept). */
   readonly stashCard: HTMLElement | null;
-  /** @deprecated 2026-09-15 3차 — `invCard` 와 같은 요소다. */
+  /** @deprecated 2026-09-15, 3rd pass — the same element as `invCard`. */
   readonly bagCard: HTMLElement | null;
-  /* appended 2026-09-14 (서재 화면 개편) */
+  /* appended 2026-09-14 (the library screen rework) */
   /**
-   * 좌 패널 **맨 위의 가로 탭 줄** (`.hs-tabs`), `tabs: true` 일 때만 만들어진다 — 옵션이라 옛 화면(분석기 · 재배 ·
-   * 조리대 · 채굴)은 한 줄도 바뀌지 않는다. 레일(`rail`)이 목록이 되면 탭이 갈 곳이 여기다.
+   * The left pane's **horizontal tab row at the top** (`.hs-tabs`), built only with `tabs: true` — an option, so the old
+   * screens (analyzer · grow · cook bench · mining) do not change by a line. Tabs go here when the rail (`rail`) is a list.
    */
   readonly tabsRow: HTMLElement | null;
 }
@@ -88,8 +91,8 @@ export interface StationShellOptions {
 }
 
 /**
- * 2026-09-15 3차: 격자 카드는 **하나**다 (`.hs-card-inv` > `.hs-inv`). 머리줄이 없다 — 창고 · 가방의 이름은
- * `TradeGrids` 블록이 스스로 말한다. `data-hs-grid="inv"` 는 `mountStationGrids` 가 호스트를 찾는 손잡이다.
+ * 2026-09-15, 3rd pass: there is **one** grid card (`.hs-card-inv` > `.hs-inv`). It has no header row — the stash · bag
+ * names are said by the `TradeGrids` blocks themselves. `data-hs-grid="inv"` is the handle `mountStationGrids` finds the host by.
  */
 function buildInvCard(parent: HTMLElement): HTMLElement {
   const card = el('section', { cls: 'hs-card hs-card-inv', attrs: { 'data-hs-grid': 'inv' }, parent });
@@ -120,8 +123,8 @@ export function buildStationShell(frame: HTMLElement, o: StationShellOptions): S
   const right = el('div', { cls: 'hs-pane-right hs-inv-cards', parent: cards });
   const withInv = o.inventory !== false;
   right.hidden = !withInv;
-  // 2026-09-12 (사용자 결정): **함선 창고가 왼쪽, 가방이 오른쪽** — 2026-09-15 3차부터 그 순서는 `TradeGrids` 의
-  // `grids: ['stash','bag']` 이 지킨다 (카드는 하나다)
+  // 2026-09-12 (user's decision): **the ship stash on the left, the bag on the right** — since the 2026-09-15 3rd pass
+  // that order is kept by `TradeGrids`'s `grids: ['stash','bag']` (there is one card)
   const invCard = withInv ? buildInvCard(right) : null;
   return {
     head, title, level, upBtn, body, rail, left, right, invHost: right, cards, stationCard, meta,
@@ -160,10 +163,11 @@ export function stationGridCell(viewportWidth = window.innerWidth): number {
  * The 함선 창고 / 가방 grids are built **lazily**: housing/ is registered before inventory/, so `ctx.inventory` does not
  * exist yet when a panel is constructed. Null when the inventory cannot render them.
  *
- * **2026-09-15 3차 (사용자 결정 — 창고 + 가방은 한 패널이다)**: `createTradeGrids` 를 **한 번**만 부른다
- * (`grids: ['stash','bag']`). 인벤토리가 그 한 패널 안에서 왼쪽 창고 · 오른쪽 내 가방을 칸마다 자기 스크롤 · 자기
- * 정렬 · 자기 필터로 그린다. 옛 배치(카드마다 한 번씩 두 번)는 카드가 둘로 갈렸다 — 그 갈래가 없어졌다.
- * 격자 칸은 `stationGridCell()` 이고, 창 크기가 경계를 넘으면 **뷰를 다시 짓지 않고** `setCell` 을 건다(필터 · 스크롤 유지).
+ * **2026-09-15, 3rd pass (user's decision — the stash + the bag are one panel)**: `createTradeGrids` is called exactly
+ * **once** (`grids: ['stash','bag']`). Inside that one panel the inventory draws the stash left · my bag right, each
+ * pane with its own scroll · its own sort · its own filter. The old layout (twice, once per card) split into two cards
+ * — that split is gone. The grid cell is `stationGridCell()`; crossing the boundary applies `setCell` **without
+ * rebuilding the view** (filters · scroll kept).
  */
 export function mountStationGrids(
   ctx: GameContext,
@@ -173,30 +177,31 @@ export function mountStationGrids(
 ): StationGridsView | null {
   const inv = ctx.inventory;
   if (!inv || typeof inv.createTradeGrids !== 'function') return null;
-  // `shell.invHost`(= `right`) 안의 격자 카드. 카드가 없는 호스트를 넘긴 화면은 그 호스트에 그대로 그린다.
+  // The grid card inside `shell.invHost` (= `right`). A screen that passed a host with no card draws straight into that host.
   const gridHost = host.querySelector<HTMLElement>('.hs-card-inv .hs-inv') ?? host;
   return new StationGrids(ctx, gridHost, dropSelector, onTake);
 }
 
 /**
  * One `TradeGrids`(창고 + 가방) behind one `EmbeddedView`, plus the viewport-driven cell size.
- * `layout: 'split'` · `chips: 'block'` 은 2026-09-15 2차부터 인벤토리의 **유일한** 배치라 값은 그대로 두었다 —
- * 이름을 남겨 두는 편이 「이 화면이 무엇을 기대하는가」를 말해 준다.
+ * `layout: 'split'` · `chips: 'block'` have been the inventory's **only** layout since the 2026-09-15 2nd pass, so the
+ * values were left in place — keeping the names says 「what this screen expects」.
  */
 /**
- * 2026-09-16 (사용자 보고 「끌어서 뺀 것이 커서가 놓인 칸으로 가야 한다」): 가구 화면이 이 뷰에 묻는 한 가지가
- * 더 생겼다 — **커서 밑의 칸**. 답은 인벤토리의 `TradeGridsView.placeExternalAt` 이고 여기는 그대로 넘긴다
- * (그 판정은 격자를 그리는 쪽만 할 수 있다: 칸 크기 · 스크롤 위치 · 두 격자의 경계).
+ * 2026-09-16 (user's report 「what is dragged out has to go to the cell the cursor is over」): the furniture screens ask
+ * this view one more thing — **the cell under the cursor**. The answer is the inventory's `TradeGridsView.placeExternalAt`
+ * and this passes it straight through (only the side that draws the grid can judge it: cell size · scroll position ·
+ * the boundary between the two grids).
  */
 export interface StationGridsView extends EmbeddedView {
-  /** 격자 밖에서 온 아이템을 `x, y` 밑의 칸에 놓는다 — `'blocked'` = 그 칸이 받지 못한다, null = 격자 밖이다. */
+  /** Puts an item from outside the grid into the cell under `x, y` — `'blocked'` = that cell cannot take it, null = outside the grid. */
   placeExternalAt(item: ItemInstance, x: number, y: number): 'bag' | 'stash' | 'blocked' | null;
   /**
-   * 2026-09-17: 끄는 동안 커서 밑 **칸**의 발자국 강조 (`TradeGridsView.previewExternalAt`). null = 격자 밖이거나
-   * 옛 인벤토리 — 부른 쪽은 강조하지 않는다.
+   * 2026-09-17: while dragging, the footprint highlight of the **cell** under the cursor
+   * (`TradeGridsView.previewExternalAt`). null = outside the grid or an older inventory — the caller highlights nothing.
    */
   previewExternalAt(defId: string, qty: number, x: number, y: number): 'ok' | 'merge' | 'bad' | null;
-  /** false = 이 인벤토리에는 칸 미리보기가 없다 (부른 쪽이 옛 「격자 통째 강조」로 떨어진다). */
+  /** false = this inventory has no cell preview (the caller falls back to the old 「highlight the whole grid」). */
   readonly canPreview: boolean;
   clearExternalPreview(): void;
 }
@@ -243,7 +248,7 @@ class StationGrids implements StationGridsView {
 
   refresh(): void { this.view?.refresh(); }
 
-  /** 인벤토리가 없거나(부팅 순서) 옛 뷰면 null — 부른 쪽은 자기 규칙(가방 먼저 · 창고 먼저)으로 넣는다. */
+  /** null with no inventory (boot order) or an older view — the caller then places by its own rule (bag-first · stash-first). */
   placeExternalAt(item: ItemInstance, x: number, y: number): 'bag' | 'stash' | 'blocked' | null {
     const live = this.view as Partial<TradeGridsView> | null;
     return live && typeof live.placeExternalAt === 'function' ? live.placeExternalAt(item, x, y) : null;

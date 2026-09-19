@@ -2,7 +2,7 @@ import type {
   AnalysisSlot, CraftIngredient, CultureSlot, GrowSlot, GrowTier, LoadoutPreset, PlacedBook, PlacedFurniture, ProfileRef, RoomPurpose,
   RoomState, ShipState, StoredFurniture,
 } from '@/shared';
-/* 요리 재료 티어 (v11, 2026-09-13) */
+/* Cooking material tiers (v11, 2026-09-13) */
 import type { SampleFamily } from '@/shared';
 import { GROW_SOCKET_SLOTS_MAX, SAMPLE_FAMILIES } from '@/shared';
 import {
@@ -11,18 +11,18 @@ import {
   ROOM_PURPOSES_ASSIGNABLE, SHIP_ROOM_COUNT, SHIP_STATE_VERSION, SHIP_STORAGE_KEY,
   analyzerSlotsForLevel, cultureSlotsForLevel, slotKey,
 } from '@/shared';
-/* 2026-09-13 (전력 할당 폐지 — v13): 발전기 시작 레벨 · 용도별 증축 요구 */
+/* 2026-09-13 (power allocation dropped — v13): the generator start level · the build requirement of each purpose */
 import { GENERATOR_START_LEVEL, ROOM_PURPOSE_LABEL_KO, purposeGeneratorLevel } from '@/shared';
-/* A-3e (2026-09-12): 서재 매체 (v9) */
+/* A-3e (2026-09-12): library media (v9) */
 import type { ShelfMedium } from '@/shared';
 import { SHELF_SLOTS, isToggleInteraction, shelfMediumOfInteraction } from '@/shared';
 import { shelfMediumOfDefId } from './Rules';
-/* 2026-09-13 (서재 시리즈 · 비디오게임): 옛 아이템 id 치환 · TV 게임기 */
+/* 2026-09-13 (library series · video games): the old item id swap · the TV console */
 import type { TvConsoleSlot } from '@/shared';
 import { resolveItemAlias } from '@/shared';
-/* 2026-09-13 (암호화폐 채굴) · 2026-09-16 (프로세서 직접 장착 — 옛 연산 코어는 프로세서로 환불된다) */
+/* 2026-09-13 (crypto mining) · 2026-09-16 (processors mounted directly — an old 연산 코어 is refunded as a processor) */
 import { COMPUTE_CLUSTER_DEF_ID, COMPUTE_CLUSTER_MAX_CORES, PROCESSOR_DEF_ID } from '@/shared';
-/* 2026-09-16 (표본 개편): 표본별 해석 레벨의 상한 */
+/* 2026-09-16 (the sample rework): the cap on a sample's analysis level */
 import { ANALYSIS_SAMPLE_LEVEL_MAX } from '@/shared';
 import { sanitizeClusters, sanitizeUnitsMap } from './MiningRules';
 import {
@@ -30,10 +30,10 @@ import {
   autoPlaceSpot, canPlaceAt, facilityMaxLevel, facilityPurposeOf, furnitureAllowedIn, furnitureMaxLevel, furnitureRefundCost, growTierOpen,
   isRoomPurpose, legacyRoomLevelCost, mergeCost, nextFreeLayer, roomRefundCost, stackLimitOf, stackMembers,
 } from './Rules';
-/* 2026-09-13 (배치 규칙 — 접근 면): 규칙을 어기는 옛 배치는 가구 창고로, 조종석 전용 시설은 늘 조종석에 */
+/* 2026-09-13 (placement rules — access faces): an old placement that breaks the rule goes to the 가구 창고, a 조종석-only facility always back to the 조종석 */
 import { placementBlockOf } from './Rules';
 import { furnitureFootprint } from '@/shared';
-/* 2026-09-16 (접시 모델): 식탁의 접시 — 요리 id 는 요리 표(`shared/meals`)로 검사한다 */
+/* 2026-09-16 (the plate model): the dining table's plate — the meal id is checked against the meal table (`shared/meals`) */
 import type { DiningPlate } from '@/shared';
 import { getMealDef, normalizeMealQuality } from '@/shared';
 
@@ -42,88 +42,91 @@ import { getMealDef, normalizeMealQuality } from '@/shared';
  * inventory/Stash.ts (try/catch around every localStorage touch, SAVE_DELAY_MS debounce). Uids of placed furniture
  * are `f-<n>`; `nextUid` continues after the highest one found in the save. Phase 7: every flush also mirrors the state
  * into the server profile document `ship` (`ctx.net.profile.set`) when a profile is available.
- * Phase 8: state **version 2** — `plots` (온실 재배), `nameLocked`, `PlacedFurniture.layer`, and the 정비 벤치 that
- * left the cockpit was granted once to every profile (v1 → v2). **그 지급은 2026-09-12 에 걷어냈다** — 정비 벤치가
- * 은퇴해서(사용자 결정) 지급해 봐야 곧바로 환불 대상이고, 지급 자리가 은퇴 가구 청소보다 아래라 걸러지지도 않았다.
+ * Phase 8: state **version 2** — `plots` (greenhouse growing), `nameLocked`, `PlacedFurniture.layer`, and the 정비 벤치 that
+ * left the cockpit was granted once to every profile (v1 → v2). **That grant was swept out on 2026-09-12** — the 정비 벤치 is
+ * retired (user's decision), so a granted one was a refund case at once, and the grant sat below the retired sweep, unfiltered.
  * Phase 9: state **version 3** — `books` (서재 책장 slots) + `bookDex` (every book ever shelved); absent → empty, no
  * data migration. `SHIP_STATE_VERSION` in the contract is 3 now, so `SHIP_STATE_VERSION_CURRENT` follows it.
- * 온실 개편 (2026-09-11): state **version 4** — `grows` (재배 스테이션 칸) replaces `plots`, and **every `retired`
+ * The greenhouse rework (2026-09-11): state **version 4** — `grows` (재배 스테이션 slots) replaces `plots`, and **every `retired`
  * furniture def is swept out of the save** (placed or stored) and handed back as materials. `sanitize` cannot reach
  * the inventory, so it only *computes* that refund into its optional `out` and `HousingSystem` pays it into the
  * 함선 창고 as soon as `ctx.inventory` exists (see `flushRetiredRefund`).
- * 연구실 (2026-09-11): state **version 5** — `analyses` (분석기 해석 칸) + `sampleDex` (해석 도감). 없던 필드가
- * 생기는 것뿐이라 **버릴 데이터도 환불 경로도 없다** — v4 세이브는 빈 값으로 열린다.
- * 배양조 (A-14, 2026-09-11): state **version 6** — `cultures` (배양 칸). v5 → v6 도 없던 필드가 생기는 것뿐이라
- * 마이그레이션 · 환불 경로가 없다.
- * 방 시설 레벨 제거 (2026-09-12): state **version 7** — 모양은 그대로이고 `RoomState.level` 이 언제나 1(빈 방 0)이 된다.
- * v6 이하의 사격장 Lv.n 은 관물대 · 시뮬레이션 허브 레벨로 옮겨지고, 둘 다 없으면 쓴 재료가, 작업실 Lv.n 은 늘 쓴
- * 재료가 함선 창고로 환불된다 (`sanitize` 의 v7 절). 버전을 올린 이유는 **한 번만** 옮기기 위해서다.
+ * The lab (2026-09-11): state **version 5** — `analyses` (analyzer slots) + `sampleDex` (the analysis catalogue). Only new fields
+ * appear, so **there is no data to drop and no refund path** — a v4 save opens with them empty.
+ * The culture tank (A-14, 2026-09-11): state **version 6** — `cultures` (culture slots). v5 → v6 is only new fields again,
+ * so it has no migration and no refund path.
+ * Room facility levels removed (2026-09-12): state **version 7** — same shape, `RoomState.level` is always 1 (empty room 0).
+ * A v6-or-older 사격장 Lv.n moves into the 관물대 · 시뮬레이션 허브 level, or refunds what it cost when it has neither;
+ * a 작업실 Lv.n always refunds into the 함선 창고 (`sanitize`'s v7 block). The version was raised to migrate **once only**.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /*
- * 조종석 · 방 8개 (2026-09-12, 사용자 결정): state **version 8** — 모양은 그대로다. 방은 `SHIP_ROOM_COUNT`(8)개이고,
- * 옛 세이브의 방 9 · 10 과 더 이상 지을 수 없는 용도(시뮬레이션실 · 휴식 공간)의 방은 **전부 제거 + 환불**된다
- * (가구 → 가구 창고, 증축 재료 → 함선 창고 = `out.refund`, 그 방의 책장에 꽂혀 있던 책도 함선 창고로). 관물대 · 표적 레인 ·
- * 시뮬레이션 허브는 은퇴 가구라 은퇴 청소가 재료로 돌려준다. 그리고 **모든 로드**가 공용 시설 가구 두 점(전술 임플란트
- * 시술대 · 기업 네트워크 컴퓨터)이 어딘가에 있는지 보고 없으면 조종석에 채운다 (`ensureCockpitFurniture`).
+ * 조종석 · 8 rooms (2026-09-12, user's decision): state **version 8** — same shape. A ship has `SHIP_ROOM_COUNT` (8) rooms;
+ * 방 9 · 10 of an old save and any room whose purpose can no longer be built (시뮬레이션실 · 휴식 공간) are **removed and
+ * refunded in full** (furniture → 가구 창고, build materials → 함선 창고 = `out.refund`, books on that room's bookshelf too).
+ * 관물대 · 표적 레인 · 시뮬레이션 허브 are retired, so the retired sweep hands their materials back. And **every load** checks
+ * that the two shared facility pieces (전술 임플란트 시술대 · 기업 네트워크 컴퓨터) exist, filling the 조종석 if not (`ensureCockpitFurniture`).
  */
 /*
- * 서재 매체 (A-3e, 2026-09-12): state **version 9** — `media` (디스크 전시대 · 레코드랙 칸, `PlacedBook` 모양) · `mediaDex`
- * (디스크 · 레코드 도감) · `toggled` (켜 둔 TV · 레코드 플레이어). 없던 필드가 생기는 것뿐이라 v8 세이브는 빈 값으로 열리고
- * 마이그레이션이 없다. v8 의 「사라진 방의 보관함 → 함선 창고」 환불은 디스크 · 레코드에도 똑같이 적용된다.
+ * Library media (A-3e, 2026-09-12): state **version 9** — `media` (디스크 전시대 · 레코드랙 slots, `PlacedBook` shape) · `mediaDex`
+ * (the disc · record dex) · `toggled` (a TV · record player left on). Only new fields appear, so a v8 save opens with them empty
+ * and has no migration. The v8 refund 「a holder in a removed room → 함선 창고」 applies to discs and records just the same.
  */
 /*
- * 조종석 전용 시설 · 조종석 꾸밈 가구 (2026-09-13, 사용자 결정): state **version 10** — 모양은 그대로다.
- *  · 시술대 · 컴퓨터가 `room: 'cockpit'`(조종석 전용)이 됐다. 다른 방에 놓여 있던 것은 가구 규칙이 먼저 가구 창고로 빼고,
- *    `ensureCockpitFurniture` 가 가구 창고에서 꺼내 조종석(기본 자리 → 자동 배치 자리)에 다시 놓는다 — 함선마다 정확히 한 대.
- *    이 규칙은 버전과 상관없이 **모든 로드**가 지난다 (v10 세이브를 손으로 고쳐도 같은 답이다).
- *  · 조종석의 고정 소품(침상 · 사물함 두 칸 · 창고 캐비닛)이 꾸밈 가구(`furn_bunk` · `furn_locker` ×2 · `furn_drawer`)가 됐다.
- *    `version < 10` 세이브에만 한 번 옛 소품 자리에 놓는다(`placeCockpitDecor`, 자리가 막혀 있으면 가구 창고로) — 그 칸들은 v9 까지
- *    `COCKPIT_BLOCKED_RECTS` 가 막고 있었으므로 옛 세이브에서는 늘 비어 있다. v10 으로 저장된 뒤에는 회수해도 다시 채우지 않는다.
+ * 조종석-only facilities · 조종석 decor furniture (2026-09-13, user's decision): state **version 10** — same shape.
+ *  · The 시술대 · 컴퓨터 became `room: 'cockpit'` (조종석-only). One placed in another room is pulled into the 가구 창고 by the
+ *    furniture rules first, and `ensureCockpitFurniture` puts it back in the 조종석 (default spot → auto-placement spot) —
+ *    exactly one per ship. The rule runs on **every load**, whatever the version (a hand-edited v10 save gets the same answer).
+ *  · The fixed props of the 조종석 (침상 · two 사물함 · 창고 캐비닛) became decor (`furn_bunk` · `furn_locker` ×2 · `furn_drawer`).
+ *    Only a `version < 10` save gets them, once, at the old prop spots (`placeCockpitDecor`; a blocked spot goes to the 가구 창고) —
+ *    those cells were `COCKPIT_BLOCKED_RECTS` until v9, so an old save always has them free. Once saved as v10, nothing is put back.
  */
 /*
- * 요리 재료 티어 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」): state **version 11** — 없던 필드가 생기는 것뿐이다:
+ * Cooking material tiers (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」): state **version 11** — only new fields appear:
  * `grows[].soilDurability` · `sockets`, `cultures[].mediumDurability` · `sockets` · `scaffoldDefId`, `analyses[].family` · `resultDefId` ·
- * `resultQty`, `analysisXp` · `analysisFound`. 환불 · 마이그레이션 경로가 없다 — 옛 `soilUsesLeft` · `mediumUsesLeft` 를 내구도로 옮기는 일은
- * 아이템 표가 있어야 해서 런타임 정리(`parts/Garden.grows()` · `parts/Culture.cultures()`)가 한다. ⚠ 여기서 **새 필드를 버리지 않는 것**이
- * 요점이다 (칸을 필드별로 다시 짓기 때문에 적지 않은 필드는 조용히 사라진다). `soilUsesLeft` · `mediumUsesLeft` 는 이제 0 도 된다.
+ * `resultQty`, `analysisXp` · `analysisFound`. There is no refund and no migration path — moving an old `soilUsesLeft` ·
+ * `mediumUsesLeft` into a durability needs the item table, so the runtime sanitizing does it (`parts/Garden.grows()` ·
+ * `parts/Culture.cultures()`). ⚠ The point here is **not to drop a new field** (a slot is rebuilt field by field, so a field
+ * that is not written silently disappears). `soilUsesLeft` · `mediumUsesLeft` may now be 0 as well.
  */
 /*
- * 서재 시리즈 · 비디오게임 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): **버전을 올리지 않았다** (여전히 12). 새 필드는 `tvConsoles` 하나이고
- * (없으면 빈 배열), 나머지는 버전과 상관없이 **모든 로드**가 지나는 멱등 규칙이다 — `ensureCockpitFurniture` 와 같은 자리다:
- *  · `books` · `media` · `bookDex` · `mediaDex` · `tvConsoles` 의 옛 아이템 id 를 `resolveItemAlias`(`data/item_aliases.csv`)로 바꾼다 (사용자 결정: 옛 숙련별
- *    책 · 디스크 · 레코드 → 새 시리즈 1권). 바꾼 것만 있으면 `out.aliasedLibrary` (저장만 예약 — 편집 취급 아님).
- *  · 같은 def 는 **보관함 전체에서 한 칸만** — 저장 순서대로 먼저 온 칸이 남고 여분은 `out.refund`(함선 창고)로 (사용자 결정: 같은 책은 한 권만 센다).
- *  · `tvConsoles`: 배치된 TV · `console_*` 모양 · TV 당 하나. 모양은 맞는데 설 자리가 없으면 게임기를 `out.refund` 로.
- *  환불이 있었으면 `out.migratedLibrary` — v7/v8 처럼 곧 다시 써서 같은 여분을 두 번 돌려주지 않는다.
- * 버전 숫자는 여러 스모크(`smoke-housing` · `smoke-library`)가 리터럴로 본다 — 모양이 바뀌지 않는 규칙에 버전을 쓰지 않은 이유다.
+ * Library series · video games (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): **the version was not raised** (still 12). The only new field
+ * is `tvConsoles` (absent → an empty array); the rest are idempotent rules **every load** runs whatever the version — the same place as `ensureCockpitFurniture`:
+ *  · The old item ids in `books` · `media` · `bookDex` · `mediaDex` · `tvConsoles` are swapped by `resolveItemAlias` (`data/item_aliases.csv`) (user's decision: an old
+ *    per-skill book · disc · record → volume 1 of the new series). With nothing but swaps, `out.aliasedLibrary` (a save is scheduled — not treated as an edit).
+ *  · One def takes **exactly one slot across all holder furniture** — in save order the first one stays and each extra goes to `out.refund` (함선 창고)
+ *    (user's decision: the same book counts once).
+ *  · `tvConsoles`: a placed TV · `console_*` shape · one per TV. Shape-valid with nowhere to stand → that console goes to `out.refund`.
+ *  A refund sets `out.migratedLibrary` — written back at once like v7/v8, so the same extra is never handed back twice.
+ * Several smokes (`smoke-housing` · `smoke-library`) read the version number as a literal — the reason a shape-preserving rule does not spend one.
  */
 const SAVE_DELAY_MS = 350;
 /*
- * 발전기 전력 (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」): state **version 12** 가 `powerAlloc` · `disabledFurniture` · `pausedAt` 를 들고 있었다.
+ * Generator power (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」): state **version 12** carried `powerAlloc` · `disabledFurniture` · `pausedAt`.
  */
 /*
- * 발전기 = 증축 조건 (2026-09-13 같은 날, 사용자 결정 「전력 할당 시스템 제거」): state **version 13**.
- *  · 전력 필드(`powerAlloc` · `disabledFurniture` · `pausedAt`)는 **읽지도 쓰지도 않는다** — 멈춘 시계가 없으므로 옮길 것도 없다
- *    (멈춰 있던 칸은 로드한 순간부터 저장된 시각 그대로 다시 흐른다).
- *  · 발전기 레벨은 `GENERATOR_START_LEVEL` … `GENERATOR_MAX_LEVEL`(1 … 5) — Lv.0 은 1 로, 옛 Lv.6–10 은 **환불 없이** 5 로 (사용자 결정).
- *  · 발전기가 `purposeGeneratorLevel(용도)` 보다 낮은 방은 **제거 + 전액 환불** (사용자 결정): v8 의 「사라진 방」 과 같은 길이라
- *    증축 재료 → 함선 창고(`out.refund`), 가구 → 가구 창고, 그 가구에 담긴 것(책 · 매체 · 재배 · 해석 · 배양 칸 · 코어 · 게임기) → 함선 창고.
- *    규칙이라 **모든 로드**가 지난다(발전기는 내려가지 않으므로 v13 세이브에서는 다시 걸릴 일이 없다). 몇 곳을 지웠는지는 `out.removedByGenerator`.
+ * Generator = the build condition (2026-09-13, the same day, user's decision 「전력 할당 시스템 제거」): state **version 13**.
+ *  · The power fields (`powerAlloc` · `disabledFurniture` · `pausedAt`) are **neither read nor written** — no clock is paused, so
+ *    there is nothing to migrate (a paused slot runs on from its saved time the moment it is loaded).
+ *  · The generator level is `GENERATOR_START_LEVEL` … `GENERATOR_MAX_LEVEL` (1 … 5) — Lv.0 → 1, an old Lv.6–10 → 5 **with no refund** (user's decision).
+ *  · A room the generator is too low for (`purposeGeneratorLevel(purpose)`) is **removed and refunded in full** (user's decision):
+ *    the same path as v8's 「removed room」 — build materials → 함선 창고 (`out.refund`), furniture → 가구 창고, its contents (books ·
+ *    media · grow · analysis · culture slots · cores · consoles) → 함선 창고. It is a rule, so **every load** runs it (the generator
+ *    never drops, so a v13 save never trips it again); `out.removedByGenerator` counts the removals.
  */
 /**
- * Current on-disk version (14 since 표본 레벨 + 프로세서 칸 목록, 2026-09-16; never below the contract's `SHIP_STATE_VERSION`).
- * v13 → v14 에는 이관 코드가 없다 (사용자 결정): `sampleLevels` 는 없으면 전부 레벨 0 이고, 옛 `clusters[].cores` 는
- * 같은 수의 **프로세서**로 함선 창고에 환불된다 (연산 코어가 아이템 표에서 사라졌다 — `MiningRules.sanitizeClusters`).
+ * Current on-disk version (14 since the sample level + the processor cell list, 2026-09-16; never below the contract's `SHIP_STATE_VERSION`).
+ * v13 → v14 has no migration code (user's decision): without `sampleLevels` every sample is level 0, and an old
+ * `clusters[].cores` is refunded into the 함선 창고 as the same number of **processors** (연산 코어 left the item table — `MiningRules.sanitizeClusters`).
  */
 export const SHIP_STATE_VERSION_CURRENT = Math.max(14, SHIP_STATE_VERSION);
-/** 옛 세이브에서 읽어 볼 방의 최대 개수 (방 수가 10 이던 세이브 + 손으로 고친 파일에 대한 여유). */
+/** The most rooms read out of an old save (the room count was 10 back then, plus slack for a hand-edited file). */
 const MAX_SAVED_ROOMS = 32;
 /**
  * The 정비 벤치 moved out of the cockpit in Phase 8 and every profile was handed one, once (v1 → v2).
- * **2026-09-12 (사용자 결정): 그 가구는 은퇴했다** — `data/furniture.csv` 의 `retired=1` 이라 `sanitize` 가
- * 놓인 것 · 보관된 것을 걷어내 재료로 환불하고, 함선에서의 무기 수리는 인벤토리에서 재료로 한다.
- * 이 id 는 **이름만 남긴다** (이 프로젝트는 `airstrike` · `secondary` 처럼 추가만 하고 지우지 않는다).
+ * **2026-09-12 (user's decision): that piece is retired** — `retired=1` in `data/furniture.csv`, so `sanitize` sweeps out the
+ * placed and the stored ones and refunds them as materials, and repairing a weapon in the ship is done from the inventory.
+ * This id **keeps only its name** (this project only adds, like `airstrike` · `secondary`, and never deletes).
  */
 export const REPAIR_BENCH_DEF_ID = 'furn_repair_bench';
 export const GUN_BENCH_DEF_ID = 'furn_bench_gun';
@@ -150,37 +153,37 @@ export function freshState(): ShipState {
   const state: ShipState = {
     version: SHIP_STATE_VERSION_CURRENT,
     rooms: freshRooms(),
-    generatorLevel: GENERATOR_START_LEVEL,     // 2026-09-13 (전력 할당 폐지): 가동하지 않아도 처음부터 Lv.1
+    generatorLevel: GENERATOR_START_LEVEL,     // 2026-09-13 (power allocation dropped): Lv.1 from the start, with nothing running
     storageLevel: 0,
     furniture: [],                            // 2026-09-07: no free 총기 작업대 / 정비 벤치 — both are crafted
     furnitureStorage: [],
     presets: [],
-    plots: [],                                // 은퇴한 재배층의 잔재 — 언제나 빈 배열이다 (온실 개편, 2026-09-11)
+    plots: [],                                // what the retired 재배층 left behind — always an empty array (the greenhouse rework, 2026-09-11)
     nameLocked: false,
     books: [],
     bookDex: [],
     grows: [],
-    analyses: [],                             // 연구실 분석기 (v5, 2026-09-11)
+    analyses: [],                             // the lab's analyzer (v5, 2026-09-11)
     sampleDex: [],
-    cultures: [],                             // 온실 배양조 (v6, A-14, 2026-09-11)
-    media: [],                                // 서재 매체 (v9, A-3e, 2026-09-12)
+    cultures: [],                             // the greenhouse culture tank (v6, A-14, 2026-09-11)
+    media: [],                                // library media (v9, A-3e, 2026-09-12)
     mediaDex: [],
     toggled: [],
-    analysisXp: {},                           // 요리 재료 티어 (v11, 2026-09-13)
+    analysisXp: {},                           // cooking material tiers (v11, 2026-09-13)
     analysisFound: [],
-    sampleLevels: {},                         // 표본 개편 (v14, 2026-09-16 — 표본 def id → 해석 레벨)
-    tvConsoles: [],                           // 비디오게임 (2026-09-13 — TV 마다 장착한 게임기)
-    plate: null,                              // 식탁 접시 (2026-09-16 — 요리는 아이템이 아니다)
+    sampleLevels: {},                         // the sample rework (v14, 2026-09-16 — 표본 def id → analysis level)
+    tvConsoles: [],                           // video games (2026-09-13 — the console attached to each TV)
+    plate: null,                              // the dining-table plate (2026-09-16 — a meal is not an item)
   };
-  ensureCockpitFurniture(state);             // 2026-09-12: 조종석의 공용 시설 가구 두 점 (f-1 시술대 · f-2 컴퓨터)
-  placeCockpitDecor(state);                   // 2026-09-13: 조종석 꾸밈 가구 (f-3 침상 · f-4 / f-5 사물함 · f-6 서랍장)
+  ensureCockpitFurniture(state);             // 2026-09-12: the two shared facility pieces of the 조종석 (f-1 시술대 · f-2 컴퓨터)
+  placeCockpitDecor(state);                   // 2026-09-13: 조종석 decor furniture (f-3 침상 · f-4 / f-5 사물함 · f-6 서랍장)
   return state;
 }
 
 /**
- * 2026-09-13 (사용자 결정): 조종석 꾸밈 가구(`COCKPIT_DECOR_FURNITURE` — 옛 고정 소품 자리의 침상 · 사물함 두 칸 · 서랍장)를 **한 번**
- * 놓는다. 새 함선(`freshState`)과 v10 이전 세이브(`sanitize` 의 v10 절)만 부른다 — 회수된 꾸밈 가구를 다시 채우지 않기 위해서다.
- * 자리가 막혀 있으면(손으로 고친 세이브) 버리지 않고 가구 창고에 넣는다. 무엇이든 넣었으면 true.
+ * 2026-09-13 (user's decision): places the 조종석 decor furniture (`COCKPIT_DECOR_FURNITURE` — 침상 · two 사물함 · 서랍장 at the old
+ * prop spots) **once**. Only a new ship (`freshState`) and a pre-v10 save (the v10 block of `sanitize`) call it, so a recovered
+ * piece is never put back. A blocked spot (a hand-edited save) is not dropped but goes to the 가구 창고. True if anything landed.
  */
 export function placeCockpitDecor(state: ShipState): boolean {
   let changed = false;
@@ -200,8 +203,9 @@ export function placeCockpitDecor(state: ShipState): boolean {
 }
 
 /**
- * 2026-09-13 (배치 규칙): 조종석의 꾸밈 가구(조종석 전용 시설이 아닌 것)를 가구 창고로 옮긴다 — `rect` 가 있으면 그 사각형과 몸체가 겹치는
- * 것만. `ensureCockpitFurniture` 가 시설을 세울 자리를 만들 때만 부른다. 조종석에는 `any` 가구만 들어가므로 담긴 것(재배 칸 · 책)이 없다.
+ * 2026-09-13 (placement rules): moves the decor furniture of the 조종석 (everything that is not a 조종석-only facility) into the
+ * 가구 창고 — with `rect` given, only the pieces whose body overlaps that rectangle. Called only when `ensureCockpitFurniture` makes
+ * room for a facility. The 조종석 takes `any` furniture only, so nothing in it has contents (grow slots · books).
  */
 function evictCockpitDecor(state: ShipState, rx?: number, ry?: number, rcols?: number, rrows?: number): void {
   for (let i = state.furniture.length - 1; i >= 0; i--) {
@@ -219,10 +223,11 @@ function evictCockpitDecor(state: ShipState, rx?: number, ry?: number, rcols?: n
 }
 
 /**
- * 2026-09-12 (사용자 결정): 공용 시설 가구(`COCKPIT_DEFAULT_FURNITURE` — 전술 임플란트 시술대 · 기업 네트워크 컴퓨터)는
- * **잃을 수 없다.** 배치된 곳(어느 방이든)에도 가구 창고에도 없는 것이 있으면 조종석의 기본 자리 → 거기가 막혀 있으면 조종석의
- * 자동 배치 자리(`Rules.autoPlaceSpot`) → 그래도 없으면 가구 창고에 Lv.1 한 점을 채운다. 새 함선과 **모든 로드**가 지난다.
- * 채운 것이 하나라도 있으면 true. 좌표는 계약의 표를 읽기만 한다 (hub 가 조종석 소품에 맞춰 고칠 수 있다).
+ * 2026-09-12 (user's decision): the shared facility furniture (`COCKPIT_DEFAULT_FURNITURE` — 전술 임플란트 시술대 · 기업 네트워크
+ * 컴퓨터) **cannot be lost.** Anything neither placed (in any room) nor in the 가구 창고 is filled in at its default spot in the
+ * 조종석 → if that is blocked, at the auto-placement spot (`Rules.autoPlaceSpot`) → failing that, as one Lv.1 piece in the 가구 창고.
+ * A new ship and **every load** run it; true when anything was filled in. The coordinates are only read from the contract's
+ * table (hub may correct them against the 조종석 props).
  */
 export function ensureCockpitFurniture(state: ShipState): boolean {
   let changed = false;
@@ -231,9 +236,10 @@ export function ensureCockpitFurniture(state: ShipState): boolean {
     if (!def || def.retired) continue;
     let level = 1;
     if (isCockpitOnlyFurniture(def)) {
-      /* 2026-09-13 (사용자 결정): 조종석 전용 시설은 **조종석에 정확히 한 대**다. 조종석에 놓인 첫 한 대만 남기고, 그 밖의 배치(다른
-         방 · 두 번째 조각)와 가구 창고의 사본은 걷어 낸다 — 제작할 수 없는 가구라 돌려줄 재료가 없다. 조종석에 한 대도 없으면
-         가구 창고에 있던 것을 꺼내 아래에서 조종석에 놓는다 (레벨은 가장 높던 것). */
+      /* 2026-09-13 (user's decision): a 조종석-only facility is **exactly one piece in the 조종석**. The first one placed in the 조종석
+         is kept; every other placement (another room · a second piece) and the copies in the 가구 창고 are swept out — the furniture
+         cannot be crafted, so there is nothing to hand back. With none in the 조종석 one is taken out of the 가구 창고 and placed in
+         the 조종석 below (at the highest level found). */
       const keep = state.furniture.find((f) => f.defId === def.id && f.room === COCKPIT_ROOM_INDEX) ?? null;
       for (let i = state.furniture.length - 1; i >= 0; i--) {
         const f = state.furniture[i];
@@ -251,7 +257,7 @@ export function ensureCockpitFurniture(state: ShipState): boolean {
       }
       if (keep) continue;
     } else {
-      // (csv 로 되돌린 공용 가구라면 예전 규칙: 어디에든 — 가구 창고 포함 — 있으면 된다)
+      // (a shared piece put back by csv follows the old rule: it only has to exist somewhere — the 가구 창고 counts)
       const owned = state.furniture.some((f) => f.defId === def.id) || state.furnitureStorage.some((s) => s.defId === def.id && s.qty > 0);
       if (owned) continue;
     }
@@ -260,8 +266,9 @@ export function ensureCockpitFurniture(state: ShipState): boolean {
     const fits = (): { x: number; y: number; yaw: 0 | 1 | 2 | 3 } | null =>
       canPlaceAt(state, COCKPIT_ROOM_INDEX, def, spot.x, spot.y, spot.yaw) ? { x: spot.x, y: spot.y, yaw: spot.yaw } : null;
     let at = fits() ?? autoPlaceSpot(state, COCKPIT_ROOM_INDEX, def);
-    /* 2026-09-13 (배치 규칙): 조종석 전용 시설은 가구 창고로 가면 안 된다 (회수할 수 없어 다시 놓을 길이 없다). 기본 자리 · 자동 배치 자리가
-       모두 막혔으면 먼저 기본 자리 둘레(몸체 + 1칸)의 꾸밈 가구를, 그래도 안 되면 조종석의 꾸밈 가구 전부를 가구 창고로 옮기고 다시 본다. */
+    /* 2026-09-13 (placement rules): a 조종석-only facility must not end up in the 가구 창고 (it cannot be recovered, so there is no way
+       to place it again). With the default spot and the auto-placement spot both blocked, the decor around the default spot (body
+       + 1 cell) moves to the 가구 창고 first, and failing that all decor of the 조종석 does, then it looks again. */
     if (!at) {
       const fp = furnitureFootprint(def, spot.yaw);
       evictCockpitDecor(state, spot.x - 1, spot.y - 1, fp.cols + 2, fp.rows + 2);
@@ -288,30 +295,30 @@ export function isGrowRackDefId(defId: string): boolean {
   return FURNITURE_DEF_MAP.get(defId)?.interaction === 'grow_rack';
 }
 
-/** A 재배 스테이션 (온실 개편, 2026-09-11): the furniture whose E opens the 재배 화면. */
+/** A 재배 스테이션 (the greenhouse rework, 2026-09-11): the furniture whose E opens the grow-station screen. */
 export function isGrowStationDefId(defId: string): boolean {
   return FURNITURE_DEF_MAP.get(defId)?.interaction === 'grow_station';
 }
 
-/** 은퇴한 가구인가 (`data/furniture.csv` 의 `retired` 칸). 목록 · 제작 · 배치 · 세이브 어디에도 남지 않는다. */
+/** Retired furniture? (the `retired` column of `data/furniture.csv`) — it is left in no list, no craft, no placement, no save. */
 export function isRetiredDefId(defId: string): boolean {
   return FURNITURE_DEF_MAP.get(defId)?.retired === true;
 }
 
-/** 분석기인가 (연구실, 2026-09-11): E 로 분석 화면을 여는 가구. */
+/** An analyzer (the lab, 2026-09-11): the furniture whose E opens the analysis screen. */
 export function isAnalyzerDefId(defId: string): boolean {
   return FURNITURE_DEF_MAP.get(defId)?.interaction === 'analyzer';
 }
 
-/** 배양조인가 (A-14, 2026-09-11): E 로 배양 화면을 여는 가구. */
+/** A culture tank (A-14, 2026-09-11): the furniture whose E opens the culture screen. */
 export function isCultureTankDefId(defId: string): boolean {
   return FURNITURE_DEF_MAP.get(defId)?.interaction === 'culture_tank';
 }
 
-/** 식탁인가 (A-3c, 2026-09-11): E 로 식사 화면을 여는 가구. 공유 함선의 고정 식탁에는 uid 가 없다. */
+/** A dining table (A-3c, 2026-09-11): the furniture whose E opens the dining screen. The shared ship's fixed table has no uid. */
 /**
- * 2026-09-16 (접시 모델): 저장된 식탁 접시 — 요리 표가 아는 id · 품질 정수 0 … `MEAL_QUALITY_MAX` · 차린 시각(유한 ≥ 0, 아니면 0).
- * 모양이 틀리면 접시가 없는 것으로 본다 (옛 세이브의 요리 아이템은 이전하지 않는다 — 사용자 결정).
+ * 2026-09-16 (the plate model): the saved dining-table plate — an id the meal table knows · a quality integer 0 … `MEAL_QUALITY_MAX` ·
+ * the time it was served (finite ≥ 0, else 0). A wrong shape reads as no plate (the meal items of an old save are not migrated — user's decision).
  */
 export function sanitizePlate(raw: unknown): DiningPlate | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -332,7 +339,7 @@ const isSampleDefIdShape = (v: unknown): v is string => typeof v === 'string' &&
  * Shape check of a 배지 · 세포주 def id in a save. Unlike 표본(`spec_*`) · 토양(`soil_*`) · 서적(`book_*`) these two
  * carry **no id prefix of their own** (`mat_medium_*` · `strain_*` are `material` ids like any other), so the shape
  * check only keeps out obvious junk — whether the id is a real `ItemDef.medium` / `ItemDef.strain` is the runtime
- * prune in `parts/Culture.cultures()` (same 규약 as the 서재 · 온실 · 연구실).
+ * prune in `parts/Culture.cultures()` (the same contract as the library · greenhouse · lab).
  */
 const isItemDefIdShape = (v: unknown): v is string => typeof v === 'string' && /^[a-z][A-Za-z0-9_]{1,48}$/.test(v);
 
@@ -340,8 +347,9 @@ const isItemDefIdShape = (v: unknown): v is string => typeof v === 'string' && /
 const nonNegNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
 
 /**
- * v11: 소켓 id 목록 — 아이템 id 모양만, 최대 `GROW_SOCKET_SLOTS_MAX` 개 (같은 소켓 두 개는 된다). 진짜 소켓인지 · 대상이 맞는지 ·
- * 흙 · 배지 등급의 칸 수 안인지는 런타임 정리(`parts/Sockets.sanitizeSocketIds`)가 본다. 배열이 아니면 undefined(필드 없음).
+ * v11: the socket id list — item-id shapes only, at most `GROW_SOCKET_SLOTS_MAX` of them (two of the same socket are fine).
+ * Whether a socket is real, whether it fits its target and whether it stays inside the slot count of the soil · medium grade is
+ * left to the runtime sanitizing (`parts/Sockets.sanitizeSocketIds`). Not an array → undefined (no field).
  */
 function socketIdsOf(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined;
@@ -379,32 +387,35 @@ export interface SanitizeOutcome {
    */
   migratedCockpit?: boolean;
   /**
-   * 2026-09-13 (v13 — 전력 할당 폐지, 사용자 결정): 발전기 레벨이 `purposeGeneratorLevel(용도)` 에 못 미쳐 제거한 시설 수. 그 방들은
-   * `migratedRooms` 로도 세어져 곧 저장되고(증축 재료 · 담긴 것은 `refund`, 가구는 가구 창고), 이 수는 caller 가 한 번 알리는 데만 쓴다.
+   * 2026-09-13 (v13 — power allocation dropped, user's decision): how many facilities were removed because the generator level
+   * fell short of `purposeGeneratorLevel(purpose)`. Those rooms count as `migratedRooms` too and are written back soon (build
+   * materials and contents into `refund`, furniture into the 가구 창고); this number is only there for the caller's one notice.
    */
   removedByGenerator?: number;
   /**
-   * 2026-09-13 (배치 규칙, 사용자 결정): 접근 면 규칙을 어겨 **가구 창고로** 옮긴 조각 수 (조종석 전용 시설 제외). 담긴 것은 `refund` 에 들어 있다.
+   * 2026-09-13 (placement rules, user's decision): how many pieces were moved **into the 가구 창고** for breaking the access-face
+   * rule (조종석-only facilities excluded). Their contents are in `refund`.
    * The caller notifies once and writes the result back.
    */
   evictedByAccess?: number;
   /**
-   * 2026-09-13 (서재 시리즈 · 비디오게임): `sanitize` 가 무언가를 **함선 창고로 돌려줬다** — 같은 def 가 두 보관함 이상에 꽂혀 있던 여분
-   * (옛 id 치환으로 생긴 것 포함, 사용자 결정 「같은 책은 한 권만 센다」) 또는 배치되지 않은 TV · 두 번째 장착의 게임기. `refund` 에 들어 있다.
-   * `migratedRooms` 처럼 곧 다시 쓴다 (다시 쓰지 않으면 다음 로드가 같은 여분을 또 돌려준다).
+   * 2026-09-13 (library series · video games): `sanitize` **handed something back to the 함선 창고** — an extra copy of a def that
+   * was shelved in two or more holders (including one created by an id swap, user's decision 「같은 책은 한 권만 센다」), or the console
+   * of an unplaced TV / a second console on one TV. It is in `refund`. Written back at once like `migratedRooms` (without that,
+   * the next load hands the same extra back again).
    */
   migratedLibrary?: boolean;
   /**
-   * 2026-09-13: 옛 서재 아이템 id(`data/item_aliases.csv`)를 새 id 로 바꿨을 뿐 돌려준 것은 없다 — 치환은 멱등이라 편집 취급하지 않고
-   * (`grantedCockpit` 처럼) 저장만 예약한다.
+   * 2026-09-13: old library item ids (`data/item_aliases.csv`) were swapped for new ones and nothing was handed back — the swap
+   * is idempotent, so it does not count as an edit and only schedules a save (like `grantedCockpit`).
    */
   aliasedLibrary?: boolean;
 }
 
-/** 2026-09-13: TV 에 장착하는 게임기 def id **모양** (`console_*`). 진짜 게임기인지는 런타임(`parts/VideoGame`)이 본다. */
+/** 2026-09-13: the **shape** of a console def id mounted on a TV (`console_*`). Whether it is a real console is a runtime check (`parts/VideoGame`). */
 const isConsoleDefIdShape = (v: unknown): v is string => typeof v === 'string' && /^console_[A-Za-z0-9_]{1,40}$/.test(v);
 
-/** 2026-09-13: 세이브의 아이템 id 를 옛 id 치환표로 — 문자열이 아니면 그대로 (모양 검사가 버린다). `changed` 는 바뀌었을 때만 부른다. */
+/** 2026-09-13: runs a save's item id through the old-id alias table — a non-string is left alone (the shape check drops it). `changed` is called only when it changed. */
 function aliasOf(v: unknown, changed: () => void): unknown {
   if (typeof v !== 'string') return v;
   const id = resolveItemAlias(v);
@@ -440,22 +451,22 @@ export function maxUidIndex(furniture: readonly PlacedFurniture[]): number {
 /**
  * Turn whatever was in localStorage into a valid ShipState: unknown furniture defs / purposes / out-of-range numbers
  * are dropped or clamped, duplicated uids re-minted, stack layers re-assigned, plots without a rack dropped.
- * Migrations: **v1 → v2** granted the 정비 벤치 that moved out of the cockpit; **2026-09-12 부터 아무것도 주지 않는다**
- * (그 가구는 은퇴했다 — 아래 그 자리의 주석). **v3** adds `books` / `bookDex` (Phase 9): a book needs a
+ * Migrations: **v1 → v2** granted the 정비 벤치 that moved out of the cockpit; **nothing has been granted since 2026-09-12**
+ * (that piece is retired — see the comment at that spot below). **v3** adds `books` / `bookDex` (Phase 9): a book needs a
  * placed 책장 uid, a slot below `BOOKS_PER_SHELF`, one book per (uid, slot) and a `book_*`-shaped def id; the 도감 is
  * a unique list of such ids. Whether an id still resolves to a 서적 is checked by `HousingSystem` once `ctx.loot`
  * exists. 2026-09-07: the room-1 작업실 invariant is gone — the only room rule left is "at most one facility room of
  * each kind"; furniture whose room no longer accepts it moves into furniture storage instead of being dropped.
- * **v4 (온실 개편, 2026-09-11)**: every `retired` def (지금은 옛 재배층 `furn_grow_rack`) is swept out — placed and
- * stored alike — and what it cost is accumulated into `out.refund` for the caller to pay into the 함선 창고. The old
- * `plots` are dropped wholesale (사용자 결정: 옛 것 폐기) and the new `grows` are validated against the 재배
- * 스테이션 that owns them (placed uid · tier its current level opens · slot in range · soil id shape).
- * **v5 (연구실, 2026-09-11)**: `analyses` (분석기 해석 칸 — placed 분석기 uid · slot inside `analyzerSlotsForLevel`
+ * **v4 (the greenhouse rework, 2026-09-11)**: every `retired` def (today the old 재배층 `furn_grow_rack`) is swept out — placed
+ * and stored alike — and what it cost is accumulated into `out.refund` for the caller to pay into the 함선 창고. The old
+ * `plots` are dropped wholesale (user's decision: the old ones are scrapped) and the new `grows` are validated against the grow
+ * station that owns them (placed uid · tier its current level opens · slot in range · soil id shape).
+ * **v5 (the lab, 2026-09-11)**: `analyses` (analyzer slots — a placed analyzer uid · slot inside `analyzerSlotsForLevel`
  * of its **current** level · one per (uid, slot) · `spec_*` id shape · a real `startedAt`) and `sampleDex` (unique
  * `spec_*` ids). A v4 save simply opens with both empty — nothing is dropped, so there is no refund path.
- * **v6 (배양조 A-14, 2026-09-11)**: `cultures` (배양 칸 — placed 배양조 uid · slot inside `cultureSlotsForLevel` of
- * its **current** level · one per (uid, slot) · an item-id-shaped 배지 · the 세포주 fields only together with a real
- * `startedAt`). Again 없던 필드가 생기는 것뿐이라 마이그레이션 · 환불 경로가 없다.
+ * **v6 (the culture tank, A-14, 2026-09-11)**: `cultures` (culture slots — a placed culture-tank uid · slot inside
+ * `cultureSlotsForLevel` of its **current** level · one per (uid, slot) · an item-id-shaped medium · the strain fields only
+ * together with a real `startedAt`). Again only new fields appear, so there is no migration and no refund path.
  */
 export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   const fresh = freshState();
@@ -471,17 +482,18 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   /** v7: each source room's purpose as the save had it (the v8 removal below empties some of them). */
   const rawPurposes: RoomPurpose[] = [];
   /**
-   * v8 (2026-09-12, 사용자 결정 「전부 제거 + 환불」): source rooms `sanitize` removes — index ≥ `SHIP_ROOM_COUNT` (방 9 · 10)
+   * v8 (2026-09-12, user's decision 「전부 제거 + 환불」): source rooms `sanitize` removes — index ≥ `SHIP_ROOM_COUNT` (방 9 · 10)
    * with a facility, and any room whose purpose can no longer be built (시뮬레이션실 · 휴식 공간 — `ROOM_PURPOSES_ASSIGNABLE`).
    * The build cost goes into `refund`, the room's pieces into furniture storage (below).
    */
   const removedRooms = new Set<number>();
-  /** 은퇴 가구 · 사라진 방이 돌려줄 재료: 한 자루에 모아 caller 가 함선 창고로 넣는다. */
+  /** The materials retired furniture · a removed room owes back: collected in one bag for the caller to put into the 함선 창고. */
   const refund: CraftIngredient[] = [];
-  /* v13 (2026-09-13, 사용자 결정 — 전력 할당 폐지): 발전기 레벨을 방보다 **먼저** 읽는다 — 레벨이 모자란 시설을 v8 의 「사라진 방」 과 같은
-     길(증축 재료 → `refund`, 가구 → 가구 창고, 담긴 것 → `refund`)로 걷어내야 해서다. Lv.0(옛 새 함선) → 시작 레벨, 옛 Lv.6–10 → 최대 (환불 없음). */
+  /* v13 (2026-09-13, user's decision — power allocation dropped): the generator level is read **before** the rooms — a facility
+     the level falls short of has to be swept out down the same path as v8's 「removed room」 (build materials → `refund`, furniture
+     → 가구 창고, contents → `refund`). Lv.0 (an old new ship) → the start level, an old Lv.6–10 → the max (no refund). */
   const generatorLevel = int(r.generatorLevel, GENERATOR_START_LEVEL, GENERATOR_START_LEVEL, facilityMaxLevel('generator'));
-  /** v13: 발전기 레벨이 모자라 제거한 시설 수 (`out.removedByGenerator`). */
+  /** v13: how many facilities were removed for a generator level that fell short (`out.removedByGenerator`). */
   let removedByGenerator = 0;
   const srcRooms = Array.isArray(r.rooms) ? r.rooms.slice(0, MAX_SAVED_ROOMS) : [];
   /** Source room slots the furniture pass still recognises (a 10-room save keeps pieces of 방 9 · 10). */
@@ -496,7 +508,7 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     const gone = purpose !== 'empty' && (!buildable || underGenerator);
     if (gone) {
       removedRooms.add(i);
-      mergeCost(refund, roomRefundCost(purpose, 1));   // the 시설 증축 price (legacy room levels: the v7 block below)
+      mergeCost(refund, roomRefundCost(purpose, 1));   // the facility build price (legacy room levels: the v7 block below)
       if (underGenerator) {
         removedByGenerator++;
         console.warn(`[housing] room ${i + 1} (${ROOM_PURPOSE_LABEL_KO[purpose]}) needs 발전기 Lv.${purposeGeneratorLevel(purpose)} (ship Lv.${generatorLevel}) — removed, build cost refunded, furniture to storage`);
@@ -505,7 +517,7 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
       }
     }
     if (i >= SHIP_ROOM_COUNT) continue;
-    // 2026-09-12: 방 시설에는 레벨이 없다 — 용도가 있으면 1, 빈 방이면 0 (`Rules.facilityMaxLevel` 이 1 이다)
+    // 2026-09-12: a room facility has no level — 1 with a purpose, 0 for an empty room (`Rules.facilityMaxLevel` is 1)
     rooms.push(gone || purpose === 'empty' ? freshRoom() : { purpose, level: 1 });
   }
   // 2026-09-07: the 작업실 is an ordinary purpose again — any room may hold it (one per ship, `purposeChangeReason`),
@@ -517,9 +529,9 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     if (!fid) continue;
     if (seenFacility.has(fid)) rooms[i] = freshRoom(); else seenFacility.add(fid);
   }
-  // a room without its prerequisite greenhouse (edited save) falls back to empty (`Rules.NEEDS_GREENHOUSE` 가 원본)
-  // 2026-09-14 (사용자 결정): 그 목록이 비었으므로 이 낙오 처리는 아무 방도 건드리지 않는다 — 선행 시설 조건 폐지.
-  // 온실 없이 지어 둔 연구실 · 주방이 로드에서 사라지던 길이 이것이었다.
+  // a room without its prerequisite greenhouse (edited save) falls back to empty (`Rules.NEEDS_GREENHOUSE` is the source)
+  // 2026-09-14 (user's decision): that list is empty, so this fallback touches no room at all — purpose prerequisites dropped.
+  // This was the path that made a lab · kitchen built without a greenhouse disappear on load.
   if (!rooms.some((x) => x.purpose === 'greenhouse')) {
     for (const x of rooms) if (NEEDS_GREENHOUSE.includes(x.purpose)) { x.purpose = 'empty'; x.level = 0; }
   }
@@ -538,14 +550,14 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   const displacedUids = new Set<string>();
   /** v9 (A-3e): displaced uid → the shelf medium it held (a displaced 디스크 전시대 · 레코드랙 refunds its media the same way). */
   const displacedShelf = new Map<string, ShelfMedium>();
-  /** 2026-09-13 (배치 규칙): 접근 면 규칙을 어겨 가구 창고로 옮긴 조각 수 (조종석 전용 시설은 곧바로 조종석에 다시 서므로 세지 않는다). */
+  /** 2026-09-13 (placement rules): how many pieces moved to the 가구 창고 for breaking the access-face rule (a 조종석-only facility is not counted — it stands in the 조종석 again right away). */
   let evictedByAccess = 0;
   for (const f of Array.isArray(r.furniture) ? (r.furniture as Partial<PlacedFurniture>[]) : []) {
     if (!f || typeof f.defId !== 'string') continue;
     const def = FURNITURE_DEF_MAP.get(f.defId);
     if (!def) { console.warn(`[housing] unknown furniture '${f.defId}' dropped`); continue; }
     if (def.retired) {
-      // 온실 개편 (2026-09-11): 은퇴한 가구는 함선에서 걷어내고 값을 재료로 돌려준다 (사용자 결정: 옛 것 폐기)
+      // the greenhouse rework (2026-09-11): retired furniture is swept off the ship and its price handed back as materials (user's decision: the old ones are scrapped)
       mergeCost(refund, furnitureRefundCost(def, int(f.level, 1, 1, furnitureMaxLevel(def))));
       console.warn(`[housing] retired furniture '${def.id}' removed from the ship — refunded as materials`);
       continue;
@@ -569,22 +581,23 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
       continue;
     }
     /*
-     * ⚠ 이 검사는 **클램프가 아니라 드롭**이다 — 안 맞는 가구는 창고로도 안 가고 사라진다. 그래서 격자 치수를
-     * 건드릴 때는 「옛 좌표가 전부 여전히 유효한가」를 먼저 본다.
+     * ⚠ This check is a **drop, not a clamp** — a piece that does not fit vanishes instead of going to storage. So before
+     * touching the grid dimensions, ask 「are all the old coordinates still valid」 first.
      *
-     * 2026-09-12 (`ROOM_GRID_COLS/ROWS` 8 → 16, 방 4 × 4 → 8 × 8 m): **버전을 올리지 않았다.** `PlacedFurniture.x/y`
-     * 는 좌상단(방의 min-x / min-z 모서리)이 원점인 정수라 격자가 **커지기만** 하면 옛 좌표의 뜻이 한 자도 안
-     * 바뀐다. `canPlaceAt` 이 거는 조건 셋 중 용도 · 겹침은 격자 크기와 무관하고, 남은 하나 `insideGrid`
-     * (`x + cols ≤ COLS`, `y + rows ≤ ROWS`)는 **느슨해지기만** 한다 — 8 칸에서 통과한 배치는 16 칸에서 전부
-     * 통과한다. 가구는 기존 자리(화면 좌측 상단 구석)에 그대로 서고 방의 나머지가 빈 공간으로 열린다.
-     * 격자를 **줄이는** 변경을 한다면 그때는 v 마이그레이션이 필요하다 (여기서 조용히 증발한다).
+     * 2026-09-12 (`ROOM_GRID_COLS/ROWS` 8 → 16, a room 4 × 4 → 8 × 8 m): **the version was not raised.** `PlacedFurniture.x/y`
+     * are integers whose origin is the top-left (the room's min-x / min-z corner), so as long as the grid **only grows** an old
+     * coordinate does not change meaning by one digit. Of the three conditions `canPlaceAt` applies, purpose and overlap do not
+     * depend on the grid size, and the last one `insideGrid` (`x + cols ≤ COLS`, `y + rows ≤ ROWS`) **only loosens** — every
+     * placement that passed at 8 cells passes at 16. Furniture stands where it stood (the top-left corner of the screen) and the
+     * rest of the room opens up as free space. A change that **shrinks** the grid does need a v migration (things evaporate here).
      */
     // `canPlaceAt` answers "is this a place at all" too (a room index or `COCKPIT_ROOM_INDEX` — 2026-09-12)
     const block = placementBlockOf(partial, room, def, item.x, item.y, item.yaw);
     if (block?.kind === 'access') {
-      /* 2026-09-13 (사용자 결정 — 배치 규칙): 접근 면 규칙만 어기는 옛 배치는 버리지 않고 **가구 창고로** 옮긴다. 저장 순서대로 검사하므로
-         먼저 받아들인 가구가 이긴다. 담긴 것(재배 칸 · 해석 칸 · 배양 칸 · 책 · 매체)은 아래 각 절이 `displacedUids` 를 보고 함선 창고로
-         돌려준다 — 채굴 클러스터의 코어도 같은 집합을 보면 된다. 조종석 전용 시설은 아래 `ensureCockpitFurniture` 가 조종석에 다시 세운다. */
+      /* 2026-09-13 (user's decision — placement rules): an old placement that breaks only the access-face rule is not dropped but
+         moved **into the 가구 창고**. Pieces are checked in save order, so the one accepted first wins. Its contents (grow · analysis ·
+         culture slots · books · media) are handed back to the 함선 창고 by each block below, which reads `displacedUids` — a mining
+         cluster's cores may read the same set. A 조종석-only facility is stood up in the 조종석 again by `ensureCockpitFurniture` below. */
       console.warn(`[housing] '${def.id}' at room ${room} (${item.x}, ${item.y}) breaks the access rule (${block.reason}) — moved to furniture storage`);
       displaced.push({ defId: def.id, level: item.level, qty: 1 });
       if (item.uid) displacedUids.add(item.uid);
@@ -625,23 +638,24 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     if (existing) existing.qty += qty; else furnitureStorage.push({ defId: def.id, level, qty });
   }
   /*
-   * v1 → v2 은 여기서 **정비 벤치 한 개를 지급**했다 (`furn_repair_bench`, 콕핏에서 나온 몫). 2026-09-12
-   * (사용자 결정)에 그 가구가 은퇴하면서 그 지급은 **낭비를 넘어 버그**가 됐다: 은퇴 가구를 걷어내는 두 자리
-   * (배치 · 보관)는 둘 다 이 줄보다 **위**라, 여기서 밀어 넣으면 걸러지지 않고 가구 창고에 은퇴 가구가
-   * 남는다(`getStored()` 에 뜨고 배치하려 하면 def 가 목록에 없다). 그래서 지급을 걷어냈다 —
-   * v1 세이브도 이제 아무것도 못 받고, 대신 이미 벤치를 갖고 있던 세이브는 `sanitize` 의 환불을 받는다.
-   * `REPAIR_BENCH_DEF_ID` 는 이름만 남는다 (위 주석).
+   * v1 → v2 used to **grant one 정비 벤치** here (`furn_repair_bench`, the piece that came out of the cockpit). When that
+   * furniture retired on 2026-09-12 (user's decision) the grant became **worse than waste — a bug**: both places that sweep
+   * retired furniture out (placed · stored) sit **above** this line, so a piece pushed in here is not filtered and stays in the
+   * 가구 창고 as retired furniture (it shows in `getStored()`, and its def is not in the list when placing it). So the grant was
+   * swept out — a v1 save now gets nothing, and a save that already held the bench gets `sanitize`'s refund instead.
+   * `REPAIR_BENCH_DEF_ID` keeps only its name (the comment above).
    */
 
-  /* v6 → v7 (2026-09-12, 사용자 결정 — 방 시설 레벨 제거): 손해 없이 옮긴다.
-     · 사격장 Lv.n (n ≥ 2) → 그 레벨을 **관물대 · 시뮬레이션 허브**에 준다 (배치된 것은 레벨을 max 로, 창고에만 있으면
-       가장 높은 한 점을 그 레벨로). 둘 다 함선에 없으면 옛 강화에 쓴 재료를 환불한다.
-     · 작업실 Lv.n (n ≥ 2) → 제작 할인이 폐지됐으므로 옮길 곳이 없다 — 옛 강화에 쓴 재료를 환불한다.
-     환불은 은퇴 가구와 같은 `refund` 자루로 가서 `HousingSystem` 이 함선 창고에 넣는다. 레벨은 위에서 이미 1 로
-     내려갔으므로 v7 로 저장된 뒤에는 다시 돌지 않는다. */
-  /* v8 (2026-09-12, 같은 날): 관물대 · 시뮬레이션 허브가 **은퇴**했다. 위의 옮기기는 이제 옮길 곳이 없다 — 은퇴 가구는 이미
-     청소에서 걸러져 `furniture` · `furnitureStorage` 어디에도 없으므로 사격장 Lv.n 은 늘 쓴 재료를 환불한다. v7 로 저장된
-     세이브가 관물대 · 허브에 옮겨 둔 레벨은 은퇴 청소가 그 레벨까지의 강화비와 함께 환불한다 (`furnitureRefundCost`). */
+  /* v6 → v7 (2026-09-12, user's decision — room facility levels removed): migrated at no loss.
+     · 사격장 Lv.n (n ≥ 2) → the level is given to the **관물대 · 시뮬레이션 허브** (a placed piece takes it as its max, a piece only
+       in storage raises its highest copy to it). With neither on the ship, the materials the old upgrade cost are refunded.
+     · 작업실 Lv.n (n ≥ 2) → the craft discount is gone, so there is nowhere to move it — the old upgrade materials are refunded.
+     A refund goes into the same `refund` bag as retired furniture and `HousingSystem` puts it into the 함선 창고. The levels are
+     already down to 1 above, so nothing runs again once the save is stored as v7. */
+  /* v8 (2026-09-12, the same day): the 관물대 · 시뮬레이션 허브 **retired**. The migration above has nowhere left to go — retired
+     furniture is already filtered out by the sweep and is in neither `furniture` nor `furnitureStorage`, so a 사격장 Lv.n always
+     refunds the materials spent. A level a v7-stored save moved onto the 관물대 · 허브 is refunded by the retired sweep together
+     with the upgrade cost up to that level (`furnitureRefundCost`). */
   let migratedRoomLevels = false;
   if (version < 7) {
     // the first source room of that purpose — v8 may already have emptied it, so read the raw list, not `rooms`
@@ -671,7 +685,7 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
       primary: strOrNull(p.primary), primary2: strOrNull(p.primary2), secondary: strOrNull(p.secondary),
       bag: strOrNull(p.bag), armor: strOrNull(p.armor),
       implant: implant && (IMPLANT_IDS as readonly string[]).includes(implant) ? (implant as LoadoutPreset['implant']) : null,
-      // appended (2026-09-08): 임플란트 아이템 def ids. Absent in an older save → left undefined, which `applyLoadout`
+      // appended (2026-09-08): implant item def ids. Absent in an older save → left undefined, which `applyLoadout`
       // reads as "leave the equipped implants alone" (an empty array means "take everything off").
       ...(Array.isArray(p.implantItems)
         ? { implantItems: (p.implantItems as unknown[]).filter((d): d is string => typeof d === 'string' && !!d).slice(0, 16) }
@@ -679,15 +693,16 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     });
   }
 
-  /* 온실 개편 (2026-09-11): the 재배층 `plots` are gone with the furniture they belonged to — 사용자 결정 「옛 것
-     폐기」. The field stays in the contract (추가만 하는 규약) and is written back empty. */
+  /* The greenhouse rework (2026-09-11): the 재배층 `plots` are gone with the furniture they belonged to — user's decision
+     「옛 것 폐기」. The field stays in the contract (an add-only contract) and is written back empty. */
 
   // 재배 스테이션 칸: the station must still be placed, its level must open the tier, the slot must be in range,
   // one entry per (uid, tier, slot), and the soil id must at least *look* like a 토양 (the real def check is a
   // runtime prune in `parts/Garden.grows()`, exactly like the 서재 does with its books).
   /**
-   * 2026-09-13 (배치 규칙): 가구 창고로 옮겨진 조각(`displacedUids`)의 칸 하나가 들고 있던 아이템 → `refund`(함선 창고). 칸 열쇠당 한 번,
-   * 아이템 id 모양인 것만. 흙 · 배지는 새것으로, 심은 씨앗 · 넣은 세포주 · 표본은 넣기 전 모습으로 돌아온다 (다 자란 작물 · 해석 결과는 아니다).
+   * 2026-09-13 (placement rules): the items one slot of a piece moved to the 가구 창고 (`displacedUids`) was holding → `refund`
+   * (함선 창고). Once per slot key, and only for item-id shapes. Soil · medium come back new, a planted seed · an inserted strain ·
+   * a sample come back as they were before they went in (not a grown crop, not an analysis result).
    */
   const refundedSlots = new Set<string>();
   const refundSlotOnce = (key: string, ids: readonly unknown[]): void => {
@@ -718,10 +733,10 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     takenGrowSlots.add(key);
     const entry: GrowSlot = {
       uid: g.uid, tier, slot, soilDefId: g.soilDefId,
-      // v11: 「0 까지 남은 수확」이라 0 도 된다 (옛 세이브는 ≥ 1 이었다)
+      // v11: it counts 「harvests left until 0」, so 0 is allowed too (an old save was ≥ 1)
       soilUsesLeft: int(g.soilUsesLeft, 1, 0),
     };
-    // v11 (2026-09-13): 흙 내구도 · 소켓 — 버리지 않는다 (최대 · 칸 수는 런타임 정리가 자른다)
+    // v11 (2026-09-13): soil durability · sockets — not dropped (the runtime sanitizing trims the max and the slot count)
     const soilDur = nonNegNum(g.soilDurability);
     if (soilDur !== null) entry.soilDurability = soilDur;
     const soilSockets = socketIdsOf(g.sockets);
@@ -736,13 +751,14 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     grows.push(entry);
   }
 
-  /* 2026-09-13 (서재 시리즈 — 사용자 결정): ① 옛 숙련별 책 · 디스크 · 레코드 id 는 새 시리즈 1권 id 로 바꾼다 (`resolveItemAlias`, 모든 로드 —
-     치환은 멱등이다). ② 같은 def 는 **보관함 전체에서 한 번만** 꽂힌다 — 저장 순서대로 먼저 온 것이 남고, 그 뒤의 같은 def(치환으로 생긴
-     중복 포함)는 칸에서 빼 함선 창고로 돌려준다(`refund`). 칸 번호 충돌 · 모양 오류는 예전처럼 조용히 버린다. */
+  /* 2026-09-13 (library series — user's decision): ① an old per-skill book · disc · record id becomes the id of volume 1 of the
+     new series (`resolveItemAlias`, on every load — the swap is idempotent). ② one def is shelved **only once across all holder
+     furniture** — in save order the first one stays and every later copy of the same def (duplicates created by the swap included)
+     is taken out of its slot and handed back to the 함선 창고 (`refund`). A slot-number clash · a wrong shape is dropped silently, as before. */
   let aliasedLibrary = false;
   let migratedLibrary = false;
   const markAliased = (): void => { aliasedLibrary = true; };
-  /** 이미 꽂힌 def (책 + 매체 — 매체가 달라 겹칠 일은 없지만 한 집합으로 본다). */
+  /** Defs already shelved (books + media — different media never collide, but they are kept as one set). */
   const shelvedDefs = new Set<string>();
 
   // Phase 9 서재: a shelved book needs its 책장 to still be placed; one book per (uid, slot); slot < BOOKS_PER_SHELF
@@ -772,17 +788,17 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     shelvedDefs.add(defId);
     books.push({ uid: b.uid, slot, defId });
   }
-  // 도감: unique book ids, every shelved book included (a save edited by hand cannot forget what is on its shelves)
+  // the catalogue: unique book ids, every shelved book included (a save edited by hand cannot forget what is on its shelves)
   const bookDex: string[] = [];
   for (const raw of [...(Array.isArray(r.bookDex) ? r.bookDex : []), ...books.map((b) => b.defId)]) {
     const id = aliasOf(raw, markAliased);
     if (isBookDefIdShape(id) && !bookDex.includes(id)) bookDex.push(id);
   }
 
-  /* 연구실 분석기 (v5, 2026-09-11): 해석 칸은 배치된 분석기의 것이어야 하고, 칸 번호가 그 분석기의 **지금 레벨**이
-     연 범위 안이어야 하며, (uid, slot) 하나에 하나뿐이고, 표본 id 는 최소한 `spec_*` **모양**이어야 한다 (진짜
-     표본인지는 `parts/Lab.analyses()` 가 `ctx.loot` 로 한 번 걸러 낸다 — 서재 · 온실과 같은 규약). 걸러진 칸의
-     표본은 돌아오지 않는다 (부은 흙과 같은 취급, 계약에 적힌 그대로). */
+  /* The lab's analyzer (v5, 2026-09-11): an analysis slot must belong to a placed analyzer, its slot number must be inside the
+     range the analyzer's **current level** opens, there is one per (uid, slot), and a sample id must at least have the `spec_*`
+     **shape** (whether it is a real sample is pruned once by `parts/Lab.analyses()` through `ctx.loot` — the same contract as the
+     library · greenhouse). The sample of a pruned slot does not come back (treated like poured soil, exactly as the contract says). */
   const analyses: AnalysisSlot[] = [];
   const analyzerSlots = new Map<string, number>();
   for (const f of furniture) if (isAnalyzerDefId(f.defId)) analyzerSlots.set(f.uid, analyzerSlotsForLevel(f.level));
@@ -791,7 +807,7 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     if (!a || typeof a.uid !== 'string' || !isSampleDefIdShape(a.sampleDefId)) continue;
     const open = analyzerSlots.get(a.uid);
     if (open === undefined) {
-      if (displacedUids.has(a.uid)) refundSlotOnce(`a#${a.uid}#${a.slot}`, [a.sampleDefId]);   // 2026-09-13: 옮겨진 분석기의 표본
+      if (displacedUids.has(a.uid)) refundSlotOnce(`a#${a.uid}#${a.slot}`, [a.sampleDefId]);   // 2026-09-13: the sample of a moved analyzer
       continue;
     }
     const slot = int(a.slot, -1, -1);
@@ -799,10 +815,10 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     const key = `${a.uid}#${slot}`;
     if (takenAnalysisSlots.has(key)) continue;
     const startedAt = int(a.startedAt, 0, 0);
-    if (startedAt <= 0) continue;                       // 시작 시각이 없는 칸은 타이머를 되살릴 수 없다
+    if (startedAt <= 0) continue;                       // a slot with no start time cannot have its timer revived
     takenAnalysisSlots.add(key);
     const entry: AnalysisSlot = { uid: a.uid, slot, sampleDefId: a.sampleDefId, startedAt, readyAt: int(a.readyAt, startedAt, startedAt) };
-    // v11 (2026-09-13): 넣는 순간 굴린 결과 · 계열 — 버리지 않는다 (없으면 회수할 때 굴린다)
+    // v11 (2026-09-13): the result · family rolled on insert — not dropped (absent, it is rolled when the slot is collected)
     if (typeof a.family === 'string' && (SAMPLE_FAMILIES as readonly string[]).includes(a.family)) entry.family = a.family as SampleFamily;
     if (isItemDefIdShape(a.resultDefId)) {
       entry.resultDefId = a.resultDefId;
@@ -810,16 +826,16 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     }
     analyses.push(entry);
   }
-  // 해석 도감: `spec_*` 모양의 유일한 id 목록 (append-only — 한 번 회수한 표본은 지워지지 않는다)
+  // the analysis catalogue: the unique list of `spec_*`-shaped ids (append-only — a sample collected once is never erased)
   const sampleDex: string[] = [];
   for (const id of Array.isArray(r.sampleDex) ? r.sampleDex : []) {
     if (isSampleDefIdShape(id) && !sampleDex.includes(id)) sampleDex.push(id);
   }
 
-  /* 온실 배양조 (v6, A-14, 2026-09-11): 배양 칸은 배치된 배양조의 것이어야 하고, 칸 번호가 그 배양조의 **지금
-     레벨**이 연 범위 안이어야 하며, (uid, slot) 하나에 하나뿐이고, 배지 id 는 최소한 아이템 id **모양**이어야
-     한다. 세포주 필드는 `grows` 의 씨앗과 같은 규약으로 **함께 오고 함께 간다** — 반쯤 쓰인 칸은 「넣을 준비가
-     된 배지」로 남는다. 걸러진 칸의 배지 · 세포주는 돌아오지 않는다 (부은 흙과 같은 취급). */
+  /* The greenhouse culture tank (v6, A-14, 2026-09-11): a culture slot must belong to a placed culture tank, its slot number must
+     be inside the range the tank's **current level** opens, there is one per (uid, slot), and a medium id must at least have an
+     item-id **shape**. The strain fields **come and go together**, the same contract as the seed in `grows` — a half-written slot
+     is left as 「a medium ready to take one」. The medium · strain of a pruned slot do not come back (treated like poured soil). */
   const cultures: CultureSlot[] = [];
   const tankSlots = new Map<string, number>();
   for (const f of furniture) if (isCultureTankDefId(f.defId)) tankSlots.set(f.uid, cultureSlotsForLevel(f.level));
@@ -829,7 +845,7 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     const open = tankSlots.get(c.uid);
     if (open === undefined) {
       if (displacedUids.has(c.uid)) {
-        // 2026-09-13: 옮겨진 배양조의 배지 · 스캐폴드 · 넣은 세포주 · 소켓
+        // 2026-09-13: the medium · scaffold · inserted strain · sockets of a moved culture tank
         refundSlotOnce(`c#${c.uid}#${c.slot}`, [c.mediumDefId, c.scaffoldDefId, c.strainDefId, ...(socketIdsOf(c.sockets) ?? [])]);
       }
       continue;
@@ -841,10 +857,10 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     takenCultureSlots.add(key);
     const entry: CultureSlot = {
       uid: c.uid, slot, mediumDefId: c.mediumDefId,
-      // v11: 「0 까지 남은 수확」이라 0 도 된다
+      // v11: it counts 「harvests left until 0」, so 0 is allowed too
       mediumUsesLeft: int(c.mediumUsesLeft, 1, 0),
     };
-    // v11 (2026-09-13): 배지 내구도 · 소켓 · 스캐폴드 — 버리지 않는다 (진짜 스캐폴드인지는 런타임 정리가 본다)
+    // v11 (2026-09-13): medium durability · sockets · scaffold — not dropped (whether a scaffold is real is left to the runtime sanitizing)
     const mediumDur = nonNegNum(c.mediumDurability);
     if (mediumDur !== null) entry.mediumDurability = mediumDur;
     const mediumSockets = socketIdsOf(c.sockets);
@@ -856,17 +872,17 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
       entry.startedAt = startedAt;
       entry.readyAt = int(c.readyAt, startedAt, startedAt);
     } else if (isItemDefIdShape(c.strainDefId)) {
-      // 2026-09-17 (배양 시작 확인): 세포주만 넣고 아직 시작하지 않은 칸 — 타이머 없이 세포주만 남긴다. 옛 세이브에는 이런 칸이
-      // 없다 (넣는 순간 시작됐고 `startedAt` 이 없으면 위에서 버렸다) → 배양 중이던 칸은 그대로 배양 중이다.
+      // 2026-09-17 (the culture-start confirm): a slot with a strain inserted but not started yet — the strain is kept with no
+      // timer. An old save has no such slot (inserting started it, and without `startedAt` it was dropped above) → a culture that was running stays running.
       entry.strainDefId = c.strainDefId;
     }
     cultures.push(entry);
   }
 
-  /* 서재 매체 (v9, A-3e, 2026-09-12): 디스크 · 레코드 칸은 `books` 와 같은 규칙이다 — 배치된 보관함 uid 이고 **그 보관함의 매체가
-     id 모양의 매체와 같아야 하며**(`disc_*` 는 디스크 전시대에만), 칸 < `SHELF_SLOTS[매체]`, (uid, slot) 하나에 하나. 진짜
-     디스크 · 레코드인지는 `parts/Library.media()` 가 `ctx.loot` 로 한 번 걸러 낸다. 사라진 방에서 가구 창고로 간 보관함의 것은
-     책처럼 `out.refund`(함선 창고)로 돌려준다. */
+  /* Library media (v9, A-3e, 2026-09-12): a disc · record slot follows the same rules as `books` — a placed holder uid, **the
+     holder's medium must equal the medium of the id shape** (`disc_*` only on a 디스크 전시대), slot < `SHELF_SLOTS[medium]`, one per
+     (uid, slot). Whether a disc · record is real is pruned once by `parts/Library.media()` through `ctx.loot`. What sat in a holder
+     that went from a removed room to the 가구 창고 is handed back to `out.refund` (함선 창고), like the books. */
   const media: PlacedBook[] = [];
   const shelfMediumByUid = new Map<string, ShelfMedium>();
   for (const f of furniture) {
@@ -876,7 +892,7 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   const takenMediaSlots = new Set<string>();
   for (const e of Array.isArray(r.media) ? (r.media as Partial<PlacedBook>[]) : []) {
     if (!e || typeof e.uid !== 'string') continue;
-    const defIdRaw = aliasOf(e.defId, markAliased);        // 2026-09-13: 옛 id → 새 id (게임 디스크 `game_*` 도 이 목록에 산다)
+    const defIdRaw = aliasOf(e.defId, markAliased);        // 2026-09-13: old id → new id (a game disc `game_*` lives in this list too)
     const m = shelfMediumOfDefId(defIdRaw);
     if (!m || m === 'book') continue;
     const defId = defIdRaw as string;
@@ -891,7 +907,7 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     const key = `${e.uid}#${slot}`;
     if (takenMediaSlots.has(key)) continue;
     if (shelvedDefs.has(defId)) {
-      // 2026-09-13: 같은 def 가 이미 다른 칸에 있다 — 여분은 함선 창고로
+      // 2026-09-13: the same def is already in another slot — the extra goes back to the 함선 창고
       mergeCost(refund, [{ defId, qty: 1 }]);
       migratedLibrary = true;
       console.warn(`[housing] shelf item '${defId}' was shelved twice — the extra copy goes back to the ship stash`);
@@ -901,15 +917,16 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     shelvedDefs.add(defId);
     media.push({ uid: e.uid, slot, defId });
   }
-  // 도감: `disc_*` / `record_*` / `game_*` 모양의 유일한 id, 꽂혀 있는 것은 전부 포함 (`bookDex` 와 같다)
+  // the catalogue: unique ids shaped `disc_*` / `record_*` / `game_*`, everything shelved included (the same as `bookDex`)
   const mediaDex: string[] = [];
   for (const raw of [...(Array.isArray(r.mediaDex) ? r.mediaDex : []), ...media.map((e) => e.defId)]) {
     const id = aliasOf(raw, markAliased);
     const m = shelfMediumOfDefId(id);
     if (m && m !== 'book' && !mediaDex.includes(id as string)) mediaDex.push(id as string);
   }
-  /* 2026-09-13 (비디오게임): TV 마다 장착한 게임기 — 배치된 TV(`interaction 'tv'`) uid · `console_*` 모양 · TV 당 하나. 모양은 맞는데 TV 가 없거나
-     (회수 · 가구 창고로 옮겨짐 · 사라진 방) 같은 TV 의 두 번째 장착이면 그 게임기를 함선 창고로 돌려준다. 모양이 틀린 줄은 버린다. */
+  /* 2026-09-13 (video games): the console attached to each TV — a placed TV (`interaction 'tv'`) uid · `console_*` shape · one per TV.
+     Shape-valid but with no TV (recovered · moved to the 가구 창고 · a removed room), or a second console on the same TV, and the
+     console is handed back to the 함선 창고. A row of the wrong shape is dropped. */
   const tvUids = new Set(furniture.filter((f) => FURNITURE_DEF_MAP.get(f.defId)?.interaction === 'tv').map((f) => f.uid));
   const tvConsoles: TvConsoleSlot[] = [];
   for (const t of Array.isArray(r.tvConsoles) ? (r.tvConsoles as Partial<TvConsoleSlot>[]) : []) {
@@ -924,14 +941,14 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     migratedLibrary = true;
     console.warn(`[housing] console '${defId}' of TV '${String(t.uid)}' has no placed TV slot — returned to the ship stash`);
   }
-  // 켜짐: 배치된 TV · 레코드 플레이어 uid 만, 중복 없이
+  // on: placed TV · record player uids only, without duplicates
   const toggleUids = new Set(furniture.filter((f) => isToggleInteraction(FURNITURE_DEF_MAP.get(f.defId)?.interaction ?? 'none')).map((f) => f.uid));
   const toggled: string[] = [];
   for (const uid of Array.isArray(r.toggled) ? r.toggled : []) {
     if (typeof uid === 'string' && toggleUids.has(uid) && !toggled.includes(uid)) toggled.push(uid);
   }
 
-  /* 요리 재료 티어 (v11, 2026-09-13): 계열별 분석 경험치(유한 ≥ 0 인 계열만) · 분석 도감(아이템 id 모양, 중복 없이). */
+  /* Cooking material tiers (v11, 2026-09-13): analysis XP per family (only a family with a finite ≥ 0) · the analysis catalogue (item id shapes, no duplicates). */
   const analysisXp: Partial<Record<SampleFamily, number>> = {};
   const rawXp = r.analysisXp && typeof r.analysisXp === 'object' && !Array.isArray(r.analysisXp) ? (r.analysisXp as Record<string, unknown>) : {};
   for (const fam of SAMPLE_FAMILIES) {
@@ -942,8 +959,8 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
   for (const id of Array.isArray(r.analysisFound) ? r.analysisFound : []) {
     if (isItemDefIdShape(id) && !analysisFound.includes(id)) analysisFound.push(id);
   }
-  /* 표본 개편 (v14, 2026-09-16): 표본별 해석 레벨 — `spec_*` 모양의 키에 1 … `ANALYSIS_SAMPLE_LEVEL_MAX` 정수만.
-     이관은 없다 (사용자 결정) — 없는 키는 레벨 0 이고 다시 쌓인다. */
+  /* The sample rework (v14, 2026-09-16): the analysis level per sample — a `spec_*`-shaped key carrying an integer
+     1 … `ANALYSIS_SAMPLE_LEVEL_MAX` only. There is no migration (user's decision) — a missing key is level 0 and builds up again. */
   const sampleLevels: Record<string, number> = {};
   const rawLv = r.sampleLevels && typeof r.sampleLevels === 'object' && !Array.isArray(r.sampleLevels) ? (r.sampleLevels as Record<string, unknown>) : {};
   for (const [id, v] of Object.entries(rawLv)) {
@@ -960,24 +977,26 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
     media, mediaDex, toggled,
     analysisXp, analysisFound, sampleLevels,
     tvConsoles,
-    plate: sanitizePlate(r.plate),            // 2026-09-16 (접시 모델): 버전은 그대로 — 없는 필드 = 접시 없음
+    plate: sanitizePlate(r.plate),            // 2026-09-16 (the plate model): the version is unchanged — a missing field = no plate
   };
-  /* v9 → v10 (2026-09-13, 사용자 결정 — 조종석 고정 소품 → 꾸밈 가구): 옛 소품 자리에 침상 · 사물함 두 칸 · 서랍장을 **한 번** 놓는다.
-     그 칸들은 v9 까지 `COCKPIT_BLOCKED_RECTS` 였으므로 옛 세이브에는 늘 비어 있다 — 그래서 조종석 전용 시설(아래)보다 **먼저** 놓는다
-     (시설이 기본 자리를 잃었을 때 자동 배치가 옛 소품 자리를 먼저 차지하지 않게). uid 를 다 매긴 뒤라 새 uid 가 겹치지 않는다. */
+  /* v9 → v10 (2026-09-13, user's decision — the fixed props of the 조종석 → decor furniture): 침상 · two 사물함 · 서랍장 are placed at
+     the old prop spots **once**. Those cells were `COCKPIT_BLOCKED_RECTS` until v9, so an old save always has them free — which is
+     why they go down **before** the 조종석-only facilities (below), so auto placement cannot take an old prop spot first when a
+     facility has lost its default spot. It runs after every uid is minted, so a new uid cannot collide. */
   let migratedCockpit = false;
   if (version < 10) {
     migratedCockpit = placeCockpitDecor(state);
     if (migratedCockpit) console.warn(`[housing] v${version} cockpit props → decor furniture (침상 · 사물함 ×2 · 서랍장)`);
   }
-  // 2026-09-12: 공용 시설 가구 두 점은 잃을 수 없다 — uid 를 다 매긴 뒤라야 새 uid 가 겹치지 않는다
-  // 2026-09-13: 조종석 전용 시설이다 — 다른 방 · 가구 창고에 있던 것도 조종석으로 돌아오고, 사본은 걷힌다 (모든 로드)
+  // 2026-09-12: the two shared facility pieces cannot be lost — only after every uid is minted can a new uid avoid colliding
+  // 2026-09-13: they are 조종석-only facilities — one in another room · in the 가구 창고 comes back to the 조종석, copies are swept (every load)
   const grantedCockpit = ensureCockpitFurniture(state);
-  /* v13 (2026-09-13): v12 의 전력 필드(`powerAlloc` · `disabledFurniture` · `pausedAt`)는 옮기지 않는다 — 전력 할당이 폐지됐다 (위 `state` 에 없다). */
-  /* 암호화폐 채굴 (2026-09-13 · 프로세서 직접 장착 2026-09-16): 클러스터 칸은 **최종** 배치(접근 면 규칙으로 가구 창고에 간 것 ·
-     드롭된 것을 뺀 뒤)의 연산 클러스터 것만 남는다 — 칸마다 빈 칸(null) 또는 남은 내구도 · 진행도 [0, 1) · 구간 시작 유한 ·
-     코인 id 모양 (`MiningRules.sanitizeClusters`). 배치되지 않은 클러스터에 꽂혀 있던 프로세서와 **옛 세이브의 연산 코어**는
-     사라지지 않고 은퇴 가구와 같은 자루(`refund` → 함선 창고)로 프로세서가 되어 돌아온다. 지갑 · 누적 채굴은 id 모양 키 · 정수 ≥ 1. */
+  /* v13 (2026-09-13): v12's power fields (`powerAlloc` · `disabledFurniture` · `pausedAt`) are not migrated — power allocation was dropped (they are not in `state` above). */
+  /* Crypto mining (2026-09-13 · processors mounted directly 2026-09-16): only the cluster cells of a 연산 클러스터 in the **final**
+     placement survive (once the pieces the access-face rule sent to the 가구 창고 and the dropped ones are gone) — per cell either
+     empty (null) or a remaining durability · progress [0, 1) · a finite segment start · a coin id shape (`MiningRules.sanitizeClusters`).
+     A processor mounted in a cluster that is not placed, and **an old save's 연산 코어**, do not vanish: they come back as processors
+     in the same bag as retired furniture (`refund` → 함선 창고). The wallet · mined totals are id-shaped keys · integers ≥ 1. */
   const placedClusters = new Set(state.furniture.filter((f) => f.defId === COMPUTE_CLUSTER_DEF_ID).map((f) => f.uid));
   const miningSlots = sanitizeClusters(r.clusters, placedClusters, COMPUTE_CLUSTER_MAX_CORES);
   if (miningSlots.orphanCores > 0) {
@@ -1021,10 +1040,10 @@ export function loadState(): {
   const state = sanitize(raw, out);
   return {
     state, fresh: false, refund: out.refund,
-    // 2026-09-13 (v13): 발전기 레벨로 제거한 시설은 `migratedRooms` 에 들어 있다
+    // 2026-09-13 (v13): a facility removed for the generator level is inside `migratedRooms`
     migrated: out.migratedRoomLevels === true || out.migratedRooms === true || out.migratedCockpit === true
-      || out.migratedLibrary === true,                        // 2026-09-13: 서재 중복 · 게임기 환불은 다시 써야 한 번만 돈다
-    granted: out.grantedCockpit === true || out.aliasedLibrary === true,   // 2026-09-13: 옛 서재 id 치환 (멱등 — 저장만 예약)
+      || out.migratedLibrary === true,                        // 2026-09-13: a library duplicate · console refund only runs once when it is written back
+    granted: out.grantedCockpit === true || out.aliasedLibrary === true,   // 2026-09-13: the old library id swap (idempotent — it only schedules a save)
     evicted: out.evictedByAccess ?? 0,
     removedByGenerator: out.removedByGenerator ?? 0,
   };

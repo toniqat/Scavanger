@@ -1,21 +1,21 @@
 /**
- * src/housing/parts/Cooking.ts — **조리대 · 조리 세션** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」).
+ * src/housing/parts/Cooking.ts — **the cook bench · the cook session** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」).
  *
- * `parts/Gym.ts` 의 구조를 그대로 본떴다:
- *   ① 조리대 E → hub 가 `openCookStation(uid)` — 조리대 화면(`ui/cook/CookStation`, 요리 목록 · 재료 · 단계 · 자동 가구 · 창고/가방).
- *   ② 「조리 시작」 → `startCook(uid, recipeId)` — `cookBlock`(계약 주석의 순서) → 세션(`sys.cookState`) → 미니게임 오버레이
- *      (`ui/cook/CookScreen`)를 연 뒤 조리대 화면을 닫고 `housing:cookSession {active:true}` — hub 가 조리대 앞 자세 · 고정 카메라를
- *      건다 (2026-09-14, 사용자 결정: **자세가 거절돼도 미니게임은 그대로 진행한다** — 연출만 없다).
- *   ③ 단계마다 「직접 하기 / 자동」 → 판정(`parts/CookGames`) → 단계 점수. 마지막 단계가 끝나면 `completeCookRun` —
- *      요리 점수(평균) → 품질 → `ctx.inventory.consumeCookInputs(recipeId, 조리대 레벨)` → **식탁에 접시**(`parts/Dining.setPlate`) → `housing:cookResult`.
- *      **재료는 여기서만 빠진다** — 중간에 닫으면(Esc · Tab · 페이즈 변경 · 자세 리셋) 아무것도 소모되지 않고 옛 접시도 그대로다.
- *      2026-09-16 (접시 모델, 사용자 결정): 요리는 아이템이 아니다 — 끝난 요리는 내 함선 식탁의 접시 하나가 되고 옛 접시를 바꾼다.
- *      식탁 가구가 배치돼 있지 않으면 조리대를 쓸 수 없다 (`DINING_TABLE_MISSING_REASON`). 바꾸기 경고는 화면의 몫이다 (`ui/cook/PlateAsk`).
- *   ④ 오버레이가 닫히면 `endCook` — `housing:cookSession {active:false, completed}` (`completed` = 이 세션에서 요리가 하나라도 나왔다).
+ * Modelled exactly on the structure of `parts/Gym.ts`:
+ *   ① E on the cook bench → hub calls `openCookStation(uid)` — the cook bench screen (`ui/cook/CookStation`, recipe list · materials · steps · auto appliance · stash/bag).
+ *   ② 「조리 시작」 → `startCook(uid, recipeId)` — `cookBlock` (the order in the contract's comment) → the session (`sys.cookState`) → opens the minigame overlay
+ *      (`ui/cook/CookScreen`), then closes the cook bench screen and emits `housing:cookSession {active:true}` — hub raises the pose at the bench · the fixed
+ *      camera (2026-09-14, user's decision: **the minigame runs even when the pose is refused** — only the presentation is missing).
+ *   ③ Per step 「직접 하기 / 자동」 → the judgement (`parts/CookGames`) → the step score. When the last step ends, `completeCookRun` —
+ *      the cook score (the average) → quality → `ctx.inventory.consumeCookInputs(recipeId, the bench level)` → **a plate on the dining table** (`parts/Dining.setPlate`) → `housing:cookResult`.
+ *      **Materials are taken only here** — closing mid-way (Esc · Tab · a phase change · a pose reset) consumes nothing and leaves the old plate alone.
+ *      2026-09-16 (the plate model, user's decision): a meal is not an item — a finished meal becomes the one plate on the personal ship's dining table and replaces the old plate.
+ *      With no dining-table furniture placed the cook bench cannot be used (`DINING_TABLE_MISSING_REASON`). The replace warning is the screen's job (`ui/cook/PlateAsk`).
+ *   ④ When the overlay closes, `endCook` — `housing:cookSession {active:false, completed}` (`completed` = at least one meal came out of this session).
  *
- * 품질 · 보너스 규칙은 하나도 여기 없다 — `shared/cooking` 의 함수(`cookScoreOf` · `mealQualityForScore`)와 inventory · progression 의 몫이다.
- * inventory 의 새 메서드(`cookBlock` · `completeCook`)는 계약에서 선택이라 **덕 타이핑**으로 부른다 — 없으면 결과가 「완성하지 못했다」고
- * 말한다 (조용히 성공한 척하지 않는다, `parts/Gym` 의 `applyGymSession` 과 같은 규약).
+ * Not one quality · bonus rule lives here — they belong to `shared/cooking`'s functions (`cookScoreOf` · `mealQualityForScore`) and to inventory · progression.
+ * inventory's new methods (`cookBlock` · `completeCook`) are optional in the contract, so they are called by **duck typing** — with none the result says
+ * 「it could not be finished」 (it never silently pretends to have succeeded, the same contract as `parts/Gym`'s `applyGymSession`).
  */
 import type {
   CookAutoInfo, CookGame, CookResult, CookSessionInfo, CookStepDef, CraftRecipe, FurnitureDef, HousingRef, LibraryCookTarget, PlacedFurniture,
@@ -24,41 +24,41 @@ import {
   COOK_SKILL_XP, COOK_STEPS, LIBRARY_COOK_TARGETS, LIBRARY_SERIES_MAP, cookAutoScore, cookGamesOfAppliance, cookScoreOf, cookStepsOf,
   mealQualityForScore,
 } from '@/shared';
-import { DINING_TABLE_MISSING_REASON } from '@/shared';     // 2026-09-16 (접시 모델): 식탁이 없으면 조리대를 쓸 수 없다
+import { DINING_TABLE_MISSING_REASON } from '@/shared';     // 2026-09-16 (the plate model): with no dining table the cook bench cannot be used
 import { hasDiningTable, setPlate } from './Dining';
 import type { HousingSystem } from '../HousingSystem';
 import type { CookScreenKind } from '../ui/cook/CookScreen';
 import { createCookGame } from './CookGames';
 import type { AnyCookGame } from './CookGames';
 
-/** 조리 오버레이의 `ctx.uiBlockers` 토큰 — 패널들의 `'housing'` 과 따로라, 조리대 화면이 닫히며 지워 가지 않는다. */
+/** The cook overlay's `ctx.uiBlockers` token — separate from the panels' `'housing'`, so the cook bench screen does not clear it as it closes. */
 export const COOK_BLOCKER = 'housing.cook';
 
-/** 숙련 이름 대체 표 — progression 이 없을 때만 (`cookSkillLabel`). 원본은 `skills.csv` 의 `name` 이다. */
+/** The skill-name fallback table — only when progression is missing (`cookSkillLabel`). The source is `skills.csv`'s `name`. */
 const SKILL_LABEL_KO: Readonly<Record<CraftRecipe['skill'], string>> = { crafting: '제작', medicine: '의학', gardening: '원예' };
 
 export interface CookState {
   info: CookSessionInfo;
-  /** 시작할 때의 조리대 레벨 — `completeCook` 에 넘긴다. */
+  /** The cook bench level at the start — passed to `completeCook`. */
   benchLevel: number;
-  /** 이번 판의 단계 점수 (순서대로, 아직이면 비어 있다). 2026-09-13: 요리 숙련 · 서재 보너스를 **더하고 1 로 자른** 값 — 품질은 이것으로 정한다. */
+  /** This run's step scores (in order, empty until then). 2026-09-13: the cooking skill · library bonus **added and clamped to 1** — quality is decided from this. */
   stepScores: number[];
-  /** 2026-09-13 (H3): 보너스를 더하기 전의 단계 점수 (미니게임 · 자동 가구가 낸 그대로 — 화면의 `72 → 84`). */
+  /** 2026-09-13 (H3): the step score before the bonus is added (exactly what the minigame · auto appliance produced — the screen's `72 → 84`). */
   stepRaw: number[];
-  /** 2026-09-13 (H3): 단계마다 더한 보너스 (요리 숙련 · 서재). */
+  /** 2026-09-13 (H3): the bonus added per step (cooking skill · library). */
   stepBonus: CookStepBonus[];
-  /** 이번 판에서 단계마다 자동으로 처리했나. */
+  /** Whether each step of this run was handled automatically. */
   stepAuto: boolean[];
-  /** 이번 판을 마무리했다 (`completeCookRun` 을 불렀다). */
+  /** This run is finished (`completeCookRun` was called). */
   finished: boolean;
-  /** 이 세션에서 요리가 하나라도 나왔다 — 세션 끝 이벤트의 `completed`. */
+  /** At least one meal came out of this session — the session-end event's `completed`. */
   anyCompleted: boolean;
-  /** 이번 판의 결과, 아직이면 null. */
+  /** This run's result, null until then. */
   result: CookResult | null;
 }
 
-/* ── 조회 ─────────────────────────────────────────────────────────────────── */
-/** `uid` 가 배치된 조리대(`workbench_cook`)면 그 가구. */
+/* ── Queries ──────────────────────────────────────────────────────────────── */
+/** The furniture at `uid` when it is a placed cook bench (`workbench_cook`). */
 export function cookBenchAt(sys: HousingSystem, uid: string): { item: PlacedFurniture; def: FurnitureDef } | null {
   const item = sys.getPlacedByUid(uid);
   if (!item) return null;
@@ -67,13 +67,13 @@ export function cookBenchAt(sys: HousingSystem, uid: string): { item: PlacedFurn
 }
 
 /**
- * 조리대 레시피 **전부** — 원본 표(`ctx.loot.getAllRecipes()`) 중 조리대(`bench cook`) 레시피이고 산출물에 조리 단계(`cookStepsOf`)가 있는 것.
- * 잠김은 하나도 거르지 않는다 — 조리대 레벨(`benchLevel`) · 숙련(`cookRecipeSkillBlock`) · 레시피 책(`cookRecipeBookBlock`)은
- * 화면이 딤드 + 배지로 가르고, 시작은 `cookBlock` 이 막는다.
- * 2026-09-16 (사용자 결정 2차): 숙련 배지는 같은 날 오전에 지웠다가 **되살렸다** — `skillRequired` 열을 남겨 둔 이상 나중에 csv
- * 숫자만 올려서 켤 수 있어야 한다. 값이 전부 0 인 지금은 배지가 한 번도 뜨지 않는다 (데이터가 꺼 둔 표시다).
- * 이 목록이 원본 표를 읽는 이유는 그대로다 (B-15): `inventory.getRecipes` 를 읽으면 **숙련이 모자란 요리가 레일에 아예 없어져**
- * 무엇을 올려야 열리는지 알 수 없었다. 그 경로는 inventory 가 없을 때의 대체로만 남는다 (그때는 숙련으로 걸러진다).
+ * **Every** cook bench recipe — those of the source table (`ctx.loot.getAllRecipes()`) that are cook bench (`bench cook`) recipes whose product has cook steps (`cookStepsOf`).
+ * Not one lock is filtered out — the cook bench level (`benchLevel`) · skill (`cookRecipeSkillBlock`) · the recipe book (`cookRecipeBookBlock`) are
+ * told apart by the screen with dimming + a badge, and starting is blocked by `cookBlock`.
+ * 2026-09-16 (user's decision, 2nd pass): the skill badge was deleted that same morning and then **restored** — as long as the `skillRequired` column stays, it has to be
+ * switchable later by raising a csv number alone. With every value 0 today the badge never appears once (the data has it turned off).
+ * Why this list reads the source table is unchanged (B-15): reading `inventory.getRecipes` made **a meal short on skill vanish from the rail entirely**,
+ * so there was no telling what to raise to open it. That path stays only as the fallback for when inventory is missing (it filters by skill then).
  */
 export function cookRecipes(sys: HousingSystem): CraftRecipe[] {
   const inv = sys.ctx.inventory;
@@ -85,10 +85,10 @@ export function cookRecipes(sys: HousingSystem): CraftRecipe[] {
 }
 
 /**
- * 레시피 하나 — 원본 표를 읽는다 (목록 `cookRecipes` 와 같은 원본): 잠긴 요리를 부른 곳도 「요리 레시피가 아닙니다」 가 아니라
- * inventory `cookBlock` 의 진짜 사유(`조리대 Lv.2 이 필요합니다`)를 받아야 한다.
+ * One recipe — reads the source table (the same source as the `cookRecipes` list): a caller asking for a locked meal also has to get
+ * inventory `cookBlock`'s real reason (`조리대 Lv.2 이 필요합니다`) rather than 「요리 레시피가 아닙니다」.
  */
-/** 레시피 숙련 이름 — progression 표(`skills.csv` 의 `name`)가 원본, 없을 때만 대체 표 → id. */
+/** A recipe's skill name — the progression table (`skills.csv`'s `name`) is the source, the fallback table → the id only when it is missing. */
 export function cookSkillLabel(sys: HousingSystem, skill: CraftRecipe['skill']): string {
   const prog = sys.ctx.progression;
   const def = prog && typeof prog.getSkillDef === 'function' ? prog.getSkillDef(skill) : null;
@@ -96,9 +96,9 @@ export function cookSkillLabel(sys: HousingSystem, skill: CraftRecipe['skill']):
 }
 
 /**
- * 숙련이 모자라 잠긴 요리면 `{ label, need, have }` (배지 `제작 20` 의 재료), 아니면 null (2026-09-15 B-15 → 2026-09-16 복원).
- * 표시용이다 — 시작을 막는 것은 여전히 `cookBlock`(inventory 의 진짜 사유)이다. `need === 0` 이면 언제나 null 이라
- * `recipes.csv` 가 전부 0 인 지금은 아무것도 잠그지 않는다.
+ * `{ label, need, have }` when the meal is locked for want of skill (the material for the `제작 20` badge), else null (2026-09-15 B-15 → restored 2026-09-16).
+ * Display only — starting is still blocked by `cookBlock` (inventory's real reason). `need === 0` is always null, so
+ * with `recipes.csv` all zeroes today nothing is locked.
  */
 export function cookRecipeSkillBlock(sys: HousingSystem, recipe: CraftRecipe): { label: string; need: number; have: number } | null {
   const need = recipe.skillRequired;
@@ -118,16 +118,16 @@ export function cookSession(sys: HousingSystem): CookSessionInfo | null {
   return sys.cookState ? sys.cookState.info : null;
 }
 
-/* ── 2026-09-13 (H3): 요리 숙련 · 서재 보너스 · 레시피 책 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ───────────────
- * 단계 점수 = min(1, 미니게임 · 자동 가구 점수 + `derived.cookScoreBonus` + 서재 `cookScore[game]`) — **직접 하기 · 자동 모두** (사용자 결정 ·
- * 리드 결정). 서재 보너스는 썰기 · 다지기 · 굽기 · 볶기(`LIBRARY_COOK_TARGETS`)만 받는다. 레시피 책(`CraftRecipe.unlockSeries`)은
- * `HousingRef.isRecipeUnlocked` 가 false 면 잠김 — 서재 에이전트가 그 메서드를 아직 주지 않으면 책이 필요한 레시피는 잠긴 채다. */
+/* ── 2026-09-13 (H3): the cooking skill · library bonus · recipe books (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ───────
+ * Step score = min(1, the minigame · auto appliance score + `derived.cookScoreBonus` + library `cookScore[game]`) — **manual and auto alike** (user's decision ·
+ * lead's decision). Only chopping · mincing · grilling · stir-frying (`LIBRARY_COOK_TARGETS`) take the library bonus. A recipe book (`CraftRecipe.unlockSeries`) is
+ * locked while `HousingRef.isRecipeUnlocked` is false — until the library agent supplies that method, a recipe that needs a book stays locked. */
 
-/** 한 단계에 더하는 보너스 (0 … 1, 자르기 전). */
+/** The bonus added to one step (0 … 1, before clamping). */
 export interface CookStepBonus {
-  /** 요리 숙련 (`derived.cookScoreBonus`). */
+  /** The cooking skill (`derived.cookScoreBonus`). */
   skill: number;
-  /** 서재 (`getLibraryEffects().cookScore[game]`). */
+  /** The library (`getLibraryEffects().cookScore[game]`). */
   library: number;
   /** `skill + library`. */
   total: number;
@@ -135,7 +135,7 @@ export interface CookStepBonus {
 
 const finiteNonNeg = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
 
-/** 지금 이 조리 단계(`game`)에 더해질 보너스. */
+/** The bonus that would be added to this cook step (`game`) right now. */
 export function cookStepBonus(sys: HousingSystem, game: CookGame): CookStepBonus {
   const skill = finiteNonNeg(sys.ctx.progression?.derived?.cookScoreBonus);
   let library = 0;
@@ -147,15 +147,15 @@ export function cookStepBonus(sys: HousingSystem, game: CookGame): CookStepBonus
   return { skill, library, total: skill + library };
 }
 
-/** 단계 점수에 보너스를 더하고 0 … 1 로 자른다. */
+/** Adds the bonus to the step score and clamps it to 0 … 1. */
 export function applyCookStepBonus(raw: number, bonus: CookStepBonus): number {
   const s = Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0;
   return Math.max(0, Math.min(1, s + bonus.total));
 }
 
 /**
- * 레시피 책이 꽂혀 있지 않아 잠긴 요리면 한국어 사유 (`『시리즈 이름』 을(를) 서재에 꽂아야 합니다`), 아니면 null.
- * 책이 필요 없는 레시피(`unlockSeries` 없음)는 늘 null.
+ * The Korean reason when the meal is locked because its recipe book is not shelved (`『시리즈 이름』 을(를) 서재에 꽂아야 합니다`), else null.
+ * A recipe that needs no book (no `unlockSeries`) is always null.
  */
 export function cookRecipeBookBlock(sys: HousingSystem, recipe: CraftRecipe): string | null {
   const series = recipe.unlockSeries;
@@ -166,7 +166,7 @@ export function cookRecipeBookBlock(sys: HousingSystem, recipe: CraftRecipe): st
   return `『${LIBRARY_SERIES_MAP.get(series)?.name ?? '레시피 책'}』 을(를) 서재에 꽂아야 합니다`;
 }
 
-/** 그 게임을 대신하는 자동 조리 가구 중 함선에 배치된 가장 높은 레벨의 것 (방은 묻지 않는다 — 주방에만 놓인다). */
+/** The highest-level auto cooking appliance placed on the ship that stands in for that game (the room is not asked — they go only in the kitchen). */
 export function getCookAuto(sys: HousingSystem, game: CookGame): CookAutoInfo | null {
   let best: CookAutoInfo | null = null;
   for (const f of sys.state.furniture) {
@@ -179,26 +179,26 @@ export function getCookAuto(sys: HousingSystem, game: CookGame): CookAutoInfo | 
   return best;
 }
 
-/* ── 게이트 ───────────────────────────────────────────────────────────────── */
+/* ── Gates ────────────────────────────────────────────────────────────────── */
 function blockCore(sys: HousingSystem, uid: string, recipeId: string, ignoreActive: boolean): string | null {
   const ctx = sys.ctx;
   const bench = cookBenchAt(sys, uid);
   if (!bench) return '조리대가 아닙니다';
   if (ctx.isRaidActive() || !ctx.isHubPhase()) return '함선에서만 요리할 수 있습니다';
   if (ctx.hub && (ctx.hub.ship !== 'personal' || ctx.hub.visitReadOnly)) return '내 함선에서만 요리할 수 있습니다';
-  if (!hasDiningTable(sys)) return DINING_TABLE_MISSING_REASON;   // 2026-09-16: 끝난 요리가 놓일 식탁이 있어야 한다
+  if (!hasDiningTable(sys)) return DINING_TABLE_MISSING_REASON;   // 2026-09-16: a dining table for the finished meal to land on has to exist
   if (!ignoreActive && sys.cookState) return '이미 조리 중입니다';
   const recipe = cookRecipeOf(sys, recipeId);
   if (!recipe) return '요리 레시피가 아닙니다';
   if (!cookStepsOf(recipe.outputDefId).length) return '조리 단계가 없는 요리입니다';
-  const book = cookRecipeBookBlock(sys, recipe);             // 2026-09-13 (H3): 레시피 책이 꽂혀 있어야 한다
+  const book = cookRecipeBookBlock(sys, recipe);             // 2026-09-13 (H3): the recipe book has to be shelved
   if (book) return book;
   const inv = ctx.inventory;
   if (inv && typeof inv.cookBlock === 'function') return inv.cookBlock(recipeId, bench.item.level);
   return fallbackBlock(sys, recipe, bench.item.level);
 }
 
-/** inventory 가 `cookBlock` 을 아직 주지 않을 때 — 레벨 · 숙련 · 재료만 본다 (자리는 `completeCook` 이 없으면 어차피 끝에서 실패한다). */
+/** When inventory does not supply `cookBlock` yet — looks only at level · skill · materials (space fails at the end anyway with no `completeCook`). */
 function fallbackBlock(sys: HousingSystem, recipe: CraftRecipe, benchLevel: number): string | null {
   const need = recipe.benchLevel ?? 1;
   if (benchLevel < need) return `조리대 Lv.${need} 이 필요합니다`;
@@ -208,19 +208,19 @@ function fallbackBlock(sys: HousingSystem, recipe: CraftRecipe, benchLevel: numb
   return null;
 }
 
-/** 지금 조리대 `uid` 에서 `recipeId` 를 시작할 수 없는 한국어 사유 (계약 `HousingRef.cookBlock` 의 순서), null = 시작할 수 있다. */
+/** The Korean reason `recipeId` cannot be started at cook bench `uid` right now (the order of the contract `HousingRef.cookBlock`), null = it can be started. */
 export function cookBlock(sys: HousingSystem, uid: string, recipeId: string): string | null {
   return blockCore(sys, uid, recipeId, false);
 }
 
-/** 결과 화면의 「다시 만들기」 사유 — 지금 세션은 세지 않는다. 세션이 없으면 사유. */
+/** The result screen's 「다시 만들기」 reason — the current session is not counted. With no session, a reason. */
 export function restartBlock(sys: HousingSystem): string | null {
   const st = sys.cookState;
   if (!st) return '조리 중이 아닙니다';
   return blockCore(sys, st.info.uid, st.info.recipeId, true);
 }
 
-/* ── 세션 ─────────────────────────────────────────────────────────────────── */
+/* ── The session ──────────────────────────────────────────────────────────── */
 export function startCook(sys: HousingSystem, uid: string, recipeId: string): string | null {
   const reason = cookBlock(sys, uid, recipeId);
   if (reason) return reason;
@@ -232,21 +232,21 @@ export function startCook(sys: HousingSystem, uid: string, recipeId: string): st
   sys.cookState = {
     info, benchLevel: bench.item.level, stepScores: [], stepRaw: [], stepBonus: [], stepAuto: [], finished: false, anyCompleted: false, result: null,
   };
-  // 오버레이가 먼저 커서 · 블로커를 잡고 나서 조리대 화면을 닫는다 — 그 사이에 포인터 락이 되돌아갔다 풀리지 않게
-  // 2026-09-17: 요리는 아이템이 아니다 — `nameOf` 는 요리 id 를 그대로 돌려주므로 머리줄 이름은 요리 표에서 읽는다
+  // the overlay grabs the cursor · blocker first and only then the cook bench screen closes — so pointer lock does not come back and drop in between
+  // 2026-09-17: a meal is not an item — `nameOf` returns the meal id as it stands, so the header row's name is read from the meal table
   screen.open(info, sys.mealDef(recipe.outputDefId)?.name ?? sys.nameOf(recipe.outputDefId));
   sys.exitHousingMode();
   sys.closeMenus(false);
   sys.ctx.bus.emit('audio:play', { id: 'cook_start' });
   sys.ctx.bus.emit('housing:cookSession', { uid, recipeId, mealDefId: info.mealDefId, active: true, completed: false });
-  // 2026-09-14 (사용자 결정): hub 가 **자세를 못 걸어도 미니게임은 진행한다** — `cancelCook` 은 조리대 조각이 통째로 사라진 것 같은
-  // 진짜 사고에서만 온다. 그래도 같은 호출 스택에서 세션이 사라졌다면 시작하지 못한 것이다.
+  // 2026-09-14 (user's decision): **the minigame runs even when hub cannot raise the pose** — `cancelCook` comes only from a real accident such as the
+  // cook bench piece vanishing outright. Even so, a session gone within the same call stack means it did not start.
   if (!sys.cookState) return '조리를 시작할 수 없습니다';
   screen.beginSteps();
   return null;
 }
 
-/** 결과 화면의 「다시 만들기」 — 같은 세션(자세 · 카메라 유지)에서 같은 요리를 처음 단계부터. 한국어 사유 / null. */
+/** The result screen's 「다시 만들기」 — the same meal from the first step in the same session (the pose · camera are kept). A Korean reason / null. */
 export function restartCook(sys: HousingSystem): string | null {
   const st = sys.cookState;
   const reason = restartBlock(sys);
@@ -262,16 +262,16 @@ export function restartCook(sys: HousingSystem): string | null {
   return null;
 }
 
-/** 진행 중인 조리를 소모 없이 끝낸다 (결과 화면이었다면 이미 나온 요리는 그대로다). 없으면 no-op. */
+/** Ends the cook in progress with nothing consumed (on the result screen a meal already produced is left alone). A no-op with none. */
 export function cancelCook(sys: HousingSystem): void {
   if (!sys.cookState) return;
-  if (sys.cookScreen?.isOpen) sys.cookScreen.close();     // 화면이 `endCook` 을 부른다
+  if (sys.cookScreen?.isOpen) sys.cookScreen.close();     // the screen calls `endCook`
   else endCook(sys);
 }
 
 /**
- * 화면이 단계 하나를 끝냈다 — 이번 판의 점수표에 적는다. 2026-09-13 (H3): `score` 는 미니게임 · 자동 가구가 낸 **원점수**이고, 여기서
- * 요리 숙련 · 서재 보너스를 더해 1 로 자른 값을 적고 돌려준다 (직접 하기 · 자동 모두). 적지 못하면(세션 없음 · 끝난 판) 원점수를 자른 값.
+ * The screen finished one step — writes it into this run's score table. 2026-09-13 (H3): `score` is the **raw score** the minigame · auto appliance produced, and here
+ * the cooking skill · library bonus is added, clamped to 1, written and returned (manual and auto alike). When it cannot be written (no session · a finished run), the clamped raw score.
  */
 export function recordCookStep(sys: HousingSystem, index: number, score: number, auto: boolean): number {
   const raw = Math.max(0, Math.min(1, Number.isFinite(score) ? score : 0));
@@ -287,9 +287,9 @@ export function recordCookStep(sys: HousingSystem, index: number, score: number,
 }
 
 /**
- * 이번 판을 마무리한다 — 요리 점수 · 품질을 내고 inventory 에 재료 소모를 맡긴 뒤 **식탁에 접시**를 놓는다. 한 판에 한 번만.
- * inventory 에 `consumeCookInputs` 가 없거나 거절하면(또는 식탁이 사라졌으면) 결과의 `reason` 에 한국어 사유가 실린다 —
- * 그때는 아무것도 빠지지 않고 옛 접시도 그대로다.
+ * Finishes this run — works out the cook score · quality, leaves the material consumption to inventory and then puts **a plate on the dining table**. Once per run only.
+ * When inventory has no `consumeCookInputs` or refuses (or the dining table is gone), the result's `reason` carries a Korean reason —
+ * nothing is taken then and the old plate is left alone.
  */
 export function completeCookRun(sys: HousingSystem): CookResult | null {
   const st = sys.cookState;
@@ -305,7 +305,7 @@ export function completeCookRun(sys: HousingSystem): CookResult | null {
   let replaced: CookResult['replaced'] = null;
   const inv = sys.ctx.inventory;
   if (!hasDiningTable(sys)) {
-    reason = DINING_TABLE_MISSING_REASON;                    // 식탁이 없으면 요리가 놓일 곳이 없다 — 재료를 쓰지 않는다
+    reason = DINING_TABLE_MISSING_REASON;                    // with no dining table the meal has nowhere to land — no material is spent
   } else if (inv && typeof inv.consumeCookInputs === 'function') {
     try {
       reason = inv.consumeCookInputs(recipeId, st.benchLevel);
@@ -318,16 +318,16 @@ export function completeCookRun(sys: HousingSystem): CookResult | null {
     reason = '요리를 완성할 수 없습니다 — 인벤토리가 아직 조리를 지원하지 않습니다';
   }
   if (!reason) {
-    const before = setPlate(sys, mealDefId, quality, 'cooked');   // 재료가 빠진 뒤에만 — 옛 접시는 여기서 바뀐다
+    const before = setPlate(sys, mealDefId, quality, 'cooked');   // only after the materials are gone — the old plate is replaced here
     replaced = before ? { mealDefId: before.mealDefId, quality: before.quality } : null;
   }
   const result: CookResult = { recipeId, mealDefId, stepScores, stepAuto, score, quality, itemUid: null, landed: reason ? null : 'table', reason, replaced };
   st.result = result;
   if (!reason) {
     st.anyCompleted = true;
-    // 2026-09-13 (H3): 요리 숙련 경험치 — 요리가 실제로 나온 판만, 점수 비례 (최소 ¼)
+    // 2026-09-13 (H3): cooking skill XP — only a run that actually produced a meal, proportional to the score (a quarter at least)
     const prog = sys.ctx.progression;
-    const xp = COOK_SKILL_XP * Math.max(0.25, score);   // 리드 2026-09-13: 숙련 경험치는 소수 눈금(CRAFT_XP 0.5)이라 반올림하지 않는다
+    const xp = COOK_SKILL_XP * Math.max(0.25, score);   // lead 2026-09-13: skill XP runs on a fractional scale (CRAFT_XP 0.5), so it is not rounded
     if (prog && typeof prog.addSkillXp === 'function' && xp > 0) {
       try { prog.addSkillXp('cooking', xp); } catch (e) { console.error('[housing] progression.addSkillXp(cooking) threw', e); }
     }
@@ -337,7 +337,7 @@ export function completeCookRun(sys: HousingSystem): CookResult | null {
   return result;
 }
 
-/** 화면이 닫혔다 — 세션을 비우고 `housing:cookSession {active:false}`. */
+/** The screen closed — clears the session and emits `housing:cookSession {active:false}`. */
 export function endCook(sys: HousingSystem): void {
   const st = sys.cookState;
   if (!st) return;
@@ -346,7 +346,7 @@ export function endCook(sys: HousingSystem): void {
   sys.ctx.bus.emit('housing:cookSession', { uid, recipeId, mealDefId, active: false, completed: st.anyCompleted });
 }
 
-/** 조리대 화면을 연다. 조리대가 아니거나 레이드 · 남의 함선 · 조리 중이면 토스트만. */
+/** Opens the cook bench screen. Not a cook bench, or a raid · someone else's ship · already cooking: a toast only. */
 export function openCookStation(sys: HousingSystem, uid: string): void {
   const ctx = sys.ctx;
   if (!sys.cookStation) return;
@@ -354,7 +354,7 @@ export function openCookStation(sys: HousingSystem, uid: string): void {
   if (!cookBenchAt(sys, uid)) reason = '조리대가 아닙니다';
   else if (ctx.isRaidActive() || !ctx.isHubPhase()) reason = '함선에서만 요리할 수 있습니다';
   else if (ctx.hub && (ctx.hub.ship !== 'personal' || ctx.hub.visitReadOnly)) reason = '내 함선에서만 요리할 수 있습니다';
-  // 2026-09-16 (접시 모델, 사용자 결정): 식탁 가구가 없으면 조리대를 쓸 수 없다 — 자동 조리 가구가 여는 길도 여기를 지난다
+  // 2026-09-16 (the plate model, user's decision): with no dining-table furniture the cook bench cannot be used — the path an auto appliance opens passes here too
   else if (!hasDiningTable(sys)) reason = `${DINING_TABLE_MISSING_REASON} — 주방에 식탁을 놓아야 요리할 수 있습니다`;
   else if (sys.cookState) reason = '이미 조리 중입니다';
   if (reason) { sys.notify(reason, 'warning'); sys.ctx.bus.emit('audio:play', { id: 'ui_deny' }); return; }
@@ -363,7 +363,7 @@ export function openCookStation(sys: HousingSystem, uid: string): void {
   sys.cookStation.openStation(uid);
 }
 
-/** 세션을 끊는 바깥 사건들 — `parts/Gym.bindGym` 과 같은 자리. `init` 에서 한 번. */
+/** The outside events that cut the session — the same place as `parts/Gym.bindGym`. Once, in `init`. */
 export function bindCooking(sys: HousingSystem): Array<() => void> {
   const b = sys.ctx.bus;
   const stop = (): void => cancelCook(sys);
@@ -372,43 +372,43 @@ export function bindCooking(sys: HousingSystem): Array<() => void> {
     b.on('game:abort', stop),
     b.on('hub:left', stop),
     b.on('game:phaseChanged', ({ phase }) => { if (phase !== 'hub') stop(); }),
-    // 자세가 스스로 풀렸다(스폰 · 리셋) — 조리 자세가 아닌데 오버레이만 남기지 않는다. `caller` 는 hub 가 우리 끝을 받아 푼 것이다.
+    // the pose released itself (spawn · reset) — the overlay is not left standing while the pose is no longer the cook pose. `caller` is hub releasing it after taking our end.
     b.on('player:furniturePoseEnded', ({ kind, reason }) => {
       if (sys.cookState && reason !== 'caller' && kind === 'cook') stop();
     }),
   ];
 }
 
-/* ── 스모크 훅 ────────────────────────────────────────────────────────────── */
+/* ── Smoke hooks ──────────────────────────────────────────────────────────── */
 export interface CookDebug {
-  /** 오버레이 화면 (`choose` 선택 카드 · `game` 미니게임 · `auto` 자동 연출 · `step` 단계 점수 · `result` 결과), 닫혀 있으면 null. */
+  /** The overlay screen (`choose` the choice card · `game` the minigame · `auto` the auto presentation · `step` the step score · `result` the result), null when closed. */
   readonly screen: CookScreenKind | null;
-  /** 지금 몰고 있는 판정 객체 (`game` · `step` 화면), 아니면 null. */
+  /** The judgement object being driven right now (the `game` · `step` screens), else null. */
   readonly game: AnyCookGame | null;
-  /** 지금 단계 번호 (0 부터), 닫혀 있으면 −1. */
+  /** The current step number (from 0), −1 when closed. */
   readonly stepIndex: number;
-  /** 마지막으로 끝낸 판의 결과 (화면을 닫은 뒤에도 남는다). */
+  /** The result of the last finished run (it survives the screen closing). */
   readonly result: CookResult | null;
-  /** 조리대 화면: 열렸나 · 조리대 uid · 고른 레시피 · 「조리 시작」 막힘 사유. */
+  /** The cook bench screen: is it open · the bench uid · the chosen recipe · the 「조리 시작」 block reason. */
   readonly station: { open: boolean; uid: string; recipeId: string | null; startBlock: string | null };
-  /** 선택 카드 → 직접 하기 (`choose('manual')` 과 같다). */
+  /** The choice card → manual (the same as `choose('manual')`). */
   start(): boolean;
   choose(mode: 'manual' | 'auto'): boolean;
-  /** 지금 단계를 `score` 로 끝내고 **곧장** 다음 단계(또는 결과)로 넘어간다 — 단계 점수 글자를 기다리지 않는다. */
+  /** Ends the current step with `score` and moves **straight** on to the next step (or the result) — it does not wait for the step-score text. */
   finishStep(score: number): boolean;
-  /** 결과 화면의 「다시 만들기」. */
+  /** The result screen's 「다시 만들기」. */
   restart(): string | null;
-  /** 화면과 무관한 새 판정 객체 — 판정 규칙만 따로 검사한다. 게임 이름이면 표에서 그 게임의 첫 단계(없으면 기본값)를 쓴다. */
+  /** A new judgement object independent of the screen — the judgement rules alone are checked separately. Given a game name, the table's first step for that game (a default with none) is used. */
   makeGame(step: CookStepDef | CookGame): AnyCookGame;
-  /** 조리대 레시피 요약. */
+  /** A summary of the cook bench recipes. */
   recipes(): { id: string; mealDefId: string; benchLevel: number; steps: CookGame[] }[];
-  /** 2026-09-13 (H3): 지금 그 단계에 더해질 요리 숙련 · 서재 보너스. */
+  /** 2026-09-13 (H3): the cooking skill · library bonus that would be added to that step right now. */
   bonus(game: CookGame): CookStepBonus;
-  /** 2026-09-13 (H3): 진행 중인 판의 원점수 (보너스 전), 세션이 없으면 []. */
+  /** 2026-09-13 (H3): the raw scores of the run in progress (before the bonus), [] with no session. */
   readonly stepRaw: readonly number[];
-  /** 2026-09-16 (접시 모델): 「식탁의 요리를 바꿉니다」 경고가 떠 있나 (`ui/cook/PlateAsk`). */
+  /** 2026-09-16 (the plate model): whether the 「식탁의 요리를 바꿉니다」 warning is up (`ui/cook/PlateAsk`). */
   readonly replaceAsk: boolean;
-  /** 2026-09-16: 떠 있는 바꾸기 경고를 홀드 없이 확정한다 (조리 시작 · 다시 만들기가 이어진다). 없었으면 false. */
+  /** 2026-09-16: confirms the open replace warning without the hold (the cook start · restart follows). false when there was none. */
   confirmReplace(): boolean;
 }
 
@@ -425,7 +425,7 @@ export function cookDebug(sys: HousingSystem): CookDebug {
     start: () => sys.cookScreen?.choose('manual') ?? false,
     choose: (mode) => sys.cookScreen?.choose(mode) ?? false,
     finishStep: (score: number) => sys.cookScreen?.finishStepWith(score) ?? false,
-    restart: () => (sys.cookScreen ? sys.cookScreen.restart() : '조리 중이 아닙니다'),   // null(성공)을 `??` 로 덮지 않는다
+    restart: () => (sys.cookScreen ? sys.cookScreen.restart() : '조리 중이 아닙니다'),   // does not cover null (success) with `??`
     makeGame: (step) => {
       if (typeof step !== 'string') return createCookGame(step);
       const row = COOK_STEPS.find((s) => s.game === step);

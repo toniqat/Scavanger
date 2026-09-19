@@ -1,26 +1,26 @@
 /**
- * src/housing/parts/Culture.ts — **온실 배양조** (A-14, 2026-09-11).
+ * src/housing/parts/Culture.ts — **the greenhouse culture tank** (A-14, 2026-09-11).
  *
- * 「배지를 붓고 그 위에 세포주를 넣으면 현실 시간만큼 자라 배양 산물이 된다.」
- * 분석기(`parts/Lab.ts`)와 재배 스테이션(`parts/Garden.ts`)을 합친 모양이다 — **분석기처럼 레벨이 칸을 열고**
- * (`cultureSlotsForLevel`, Lv.1 = 1칸 … Lv.3 = 3칸, 칸 번호는 강화해도 밀리지 않는다), **온실처럼 두 단계**다
- * (① `fillMedium` 배지 → ② `insertStrain` 세포주). 배지는 **수확마다 1회** 닳고(`mediumUsesLeft`) 0 이면 칸이
- * 완전히 빈다. 배양 시간은 **넣는 순간** `readyAt` 에 확정된다: 그 뒤로 배지를 갈거나 원예 숙련이 올라도
- * 돌아가던 타이머는 움직이지 않는다.
+ * 「Pour a medium in, put a strain on it, and it grows for that much real time into a culture product.」
+ * It is the analyzer (`parts/Lab.ts`) and the grow station (`parts/Garden.ts`) merged — **the level opens slots, like the**
+ * **analyzer** (`cultureSlotsForLevel`, Lv.1 = 1 slot … Lv.3 = 3 slots; slot numbers do not shift on an upgrade), and there are
+ * **two steps, like the greenhouse** (① `fillMedium` the medium → ② `insertStrain` the strain). A medium wears **once per**
+ * **harvest** (`mediumUsesLeft`) and at 0 the slot empties completely. The culture time is fixed into `readyAt` **the moment it**
+ * **goes in**: swapping the medium or raising the gardening skill afterwards never moves a running timer.
  *
- * 순수 판정(배양 시간 · 진행도 · 남은 초)은 전부 `../Rules.ts` 에 있고, 여기서는 상태를 바꾼다.
+ * The pure judgements (culture time · progress · seconds left) are all in `../Rules.ts`; this file changes state.
  *
- * **2026-09-13 (요리 재료 티어 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」)**: 배지는 흙과 **같은 내구도 규칙**이다 — 수확마다
- * `MEDIUM_WEAR_PER_HARVEST` 만큼 닳고 **0 이어도 칸이 비지 않으며**, 배지 속도 보너스 · 소켓 `speed` · `yield` 가 내구도 비율로 준다.
- * `mediumUsesLeft` 는 「0 까지 남은 수확」이다. 칸에는 **배양 스캐폴드**가 들어갈 수 있다: 배지 → (스캐폴드) → 세포주. 스캐폴드가
- * 있으면 세포주의 `scaffoldOutputDefId`(종별 고기)를 `scaffoldHours` 동안 만들고 **수확할 때 소모된다**. 세포주가 들어가기 전이면
- * `takeScaffold` 로 되돌려받는다. 은퇴한 세포주(`strain` 데이터가 없다)는 배양조가 받지 않는다.
+ * **2026-09-13 (cooking material tiers — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」)**: a medium follows **the same durability**
+ * **rule as soil** — it wears `MEDIUM_WEAR_PER_HARVEST` per harvest, **the slot does not empty even at 0**, and the medium's speed bonus · the sockets' `speed` · `yield` apply by the durability ratio.
+ * `mediumUsesLeft` is 「harvests left until 0」. A slot may hold a **culture scaffold**: medium → (scaffold) → strain. With a scaffold
+ * in it the strain's `scaffoldOutputDefId` (meat of that species) is made over `scaffoldHours` and **the scaffold is consumed on**
+ * **harvest**. Before the strain goes in, `takeScaffold` gives it back. A retired strain (no `strain` data) is refused by the tank.
  *
- * **2026-09-17 (배양 시작 확인 — 사용자 결정)**: 세포주를 넣어도 **배양은 시작되지 않는다**. 칸은 「시작 대기」(`strainDefId` 만 있고
- * `startedAt` · `readyAt` 가 없다)로 서고, 화면의 「배양 시작」 → 1초 홀드 확인이 `startCulture` 를 불러 **그 순간** `readyAt` 을 확정한다.
- * 시작 전에는 세포주(`takeStrain`) · 스캐폴드(`takeScaffold`) · 한 번도 쓰지 않은 배지(`takeMedium`)를 되돌려받고, 시작한 뒤에는 셋 다
- * 꺼낼 수 없다. 「시작했는가」 = `startedAt > 0` 하나다 — 옛 세이브의 세포주는 넣는 순간 시작돼 늘 `startedAt` 을 들고 있으므로
- * 마이그레이션 없이 그대로 배양 중이다 (`ShipState.sanitize` 도 같은 기준으로 시작 대기 칸을 남긴다).
+ * **2026-09-17 (the culture start confirm — user's decision)**: inserting a strain **does not start the culture**. The slot stands
+ * 「시작 대기」 (only `strainDefId`, no `startedAt` · `readyAt`), and the screen's 「배양 시작」 → a 1 s hold confirm calls `startCulture`, which fixes `readyAt` **at that moment**.
+ * Before the start the strain (`takeStrain`) · the scaffold (`takeScaffold`) · a never-used medium (`takeMedium`) all come back; after
+ * it none of the three can be taken out. 「Has it started」 is the one test `startedAt > 0` — an old save's strain started the moment it
+ * went in and always carries `startedAt`, so it keeps culturing with no migration (`ShipState.sanitize` keeps a waiting slot by the same test).
  */
 import type { CultureSlot, CultureSlotInfo, HarvestDestination, ItemDef, PlacedFurniture } from '@/shared';
 import { CULTURE_MAX_SLOTS, MEDIUM_WEAR_PER_HARVEST, cultureSlotUnlockLevel, cultureSlotsForLevel, growSocketSlotsFor } from '@/shared';
@@ -35,10 +35,10 @@ import { deliverItem, noRoomReason } from './Deliver';
 
 /* ── state access ──────────────────────────────────────────────────────── */
 /**
- * 배양 칸. The save only shape-checks the ids; the first time `ctx.loot` is around every id that is not a real
- * 배지 / 세포주 any more is dropped here (서재의 `books()` · 온실의 `grows()` · 연구실의 `analyses()` 와 같은
- * 규약 — 아이템 표에서 사라진 def 가 배양조를 깨뜨리지 않는다). An unknown 세포주 leaves plain 배지 behind,
- * exactly like an unknown seed leaves plain soil.
+ * The culture slots. The save only shape-checks the ids; the first time `ctx.loot` is around, every id that is no longer a
+ * real medium / strain is dropped here (the same contract as the library's `books()` · the greenhouse's `grows()` · the lab's
+ * `analyses()` — a def gone from the item table must not break the culture tank). An unknown strain leaves plain medium
+ * behind, exactly like an unknown seed leaves plain soil.
  */
 export function cultures(sys: HousingSystem): CultureSlot[] {
   if (!Array.isArray(sys.state.cultures)) sys.state.cultures = [];
@@ -52,7 +52,7 @@ export function cultures(sys: HousingSystem): CultureSlot[] {
         list.splice(i, 1);
         continue;
       }
-      // 2026-09-13: 은퇴한 세포주는 `strain` 데이터가 없다 — 세포주 필드만 지우고 배지는 남긴다 (모르는 id 와 같은 길)
+      // 2026-09-13: a retired strain has no `strain` data — only the strain fields are deleted and the medium stays (the same path as an unknown id)
       if (c.strainDefId && !sys.defOf(c.strainDefId)?.strain) {
         console.warn(`[housing] unknown / retired strain '${c.strainDefId}' dropped from 배양조 ${c.uid}`);
         delete c.strainDefId; delete c.startedAt; delete c.readyAt;
@@ -67,8 +67,8 @@ export function cultures(sys: HousingSystem): CultureSlot[] {
   return list;
 }
 
-/* ── 배지 내구도 (2026-09-13) ───────────────────────────────────────────── */
-/** 배지 한 종류의 최대 내구도 — `MediumDef.durability`. 값이 없으면(옛 아이템 표) 옛 수확 횟수 × 수확당 마모. */
+/* ── medium durability (2026-09-13) ─────────────────────────────────────── */
+/** One medium kind's maximum durability — `MediumDef.durability`. With no value (an old item table), the old harvest count × the wear per harvest. */
 export function mediumMaxDurability(def: ItemDef | null | undefined): number {
   const m = def?.medium;
   if (!m) return 0;
@@ -77,7 +77,7 @@ export function mediumMaxDurability(def: ItemDef | null | undefined): number {
   return Math.max(1, Math.floor(Number.isFinite(m.uses) ? m.uses : 1)) * Math.max(0, MEDIUM_WEAR_PER_HARVEST);
 }
 
-/** 한 칸의 배지 상태를 규칙에 맞춘다 (`parts/Garden` 의 `normalizeSoil` 과 같은 식). 배지 def 를 모르면 아무것도 안 한다. */
+/** Brings one slot's medium state in line with the rules (the same shape as `normalizeSoil` in `parts/Garden`). Does nothing when the medium def is unknown. */
 function normalizeMedium(sys: HousingSystem, c: CultureSlot, withSockets: boolean): void {
   const def = sys.mediumDef(c.mediumDefId);
   if (!def || !def.medium) return;
@@ -90,7 +90,7 @@ function normalizeMedium(sys: HousingSystem, c: CultureSlot, withSockets: boolea
   c.mediumUsesLeft = harvestsUntilWorn(c.mediumDurability, MEDIUM_WEAR_PER_HARVEST, socketSum(sys, c.sockets, 'wear'));
 }
 
-/** 칸의 배지 수치 한 벌. 배지 def 를 모르면 전부 0 (속도 배수는 1). */
+/** One set of the slot's medium numbers. All 0 when the medium def is unknown (the speed multiplier is 1). */
 function mediumStats(sys: HousingSystem, c: CultureSlot): { max: number; dur: number; ratio: number; slots: number; speedMul: number } {
   const def = sys.mediumDef(c.mediumDefId);
   if (!def || !def.medium) return { max: 0, dur: 0, ratio: 0, slots: 0, speedMul: 1 };
@@ -100,7 +100,7 @@ function mediumStats(sys: HousingSystem, c: CultureSlot): { max: number; dur: nu
   return { max, dur, ratio: durabilityRatio(dur, max), slots: growSocketSlotsFor(def.rarity), speedMul: def.medium.speedMul };
 }
 
-/** 스캐폴드가 든 칸에서 이 세포주가 만드는 것 — 세 값이 다 있어야 한다. 없으면 null (그 세포주는 스캐폴드에서 자라지 않는다). */
+/** What this strain makes in a slot holding a scaffold — all three values must be there. null otherwise (that strain does not grow on a scaffold). */
 function scaffoldOutputOf(def: ItemDef | null): { defId: string; qty: number; hours: number } | null {
   const s = def?.strain;
   if (!s || !s.scaffoldOutputDefId) return null;
@@ -109,7 +109,7 @@ function scaffoldOutputOf(def: ItemDef | null): { defId: string; qty: number; ho
   return { defId: s.scaffoldOutputDefId, qty, hours };
 }
 
-/** 이 칸에서 지금 세포주가 만들 것 (스캐폴드 반영). 세포주가 없으면 null. */
+/** What the strain in this slot would make right now (the scaffold folded in). null with no strain. */
 function outputOf(sys: HousingSystem, c: CultureSlot): { defId: string; qty: number; usesScaffold: boolean } | null {
   const def = c.strainDefId ? sys.strainDef(c.strainDefId) : null;
   if (!def || !def.strain) return null;
@@ -118,7 +118,7 @@ function outputOf(sys: HousingSystem, c: CultureSlot): { defId: string; qty: num
   return { defId: def.strain.outputDefId, qty: Math.max(1, Math.floor(def.strain.outputQty)), usesScaffold: false };
 }
 
-/** The 배양조 behind `uid`, or null when it is not one (or gone). */
+/** The culture tank behind `uid`, or null when it is not one (or gone). */
 export function tankOf(sys: HousingSystem, uid: string): PlacedFurniture | null {
   const item = sys.getPlacedByUid(uid);
   return item && isCultureTankDefId(item.defId) ? item : null;
@@ -128,25 +128,25 @@ export function cultureAt(sys: HousingSystem, uid: string, slot: number): Cultur
   return sys.cultures().find((c) => c.uid === uid && c.slot === slot) ?? null;
 }
 
-/** 2026-09-17: 배양이 시작됐는가 (타이머가 걸렸다). 세포주가 있고 false 면 「시작 대기」 — 넣은 것을 아직 되돌려받는다. */
+/** 2026-09-17: has the culture started (is a timer running). With a strain and false it is 「시작 대기」 — what went in still comes back. */
 export function cultureStarted(c: CultureSlot | null | undefined): boolean {
   return !!c && typeof c.startedAt === 'number' && c.startedAt > 0 && typeof c.readyAt === 'number';
 }
 
-/** 2026-09-17: 한 번도 쓰지 않은 배지 — 세포주 · 스캐폴드 · 소켓이 없고 내구도가 가득하다 (`takeMedium` 이 되돌려준다). */
+/** 2026-09-17: a never-used medium — no strain · scaffold · socket, and full durability (`takeMedium` gives it back). */
 function mediumPristine(sys: HousingSystem, c: CultureSlot): boolean {
   if (c.strainDefId || c.scaffoldDefId || (c.sockets?.length ?? 0) > 0) return false;
   const st = mediumStats(sys, c);
   return st.max > 0 && st.dur >= st.max;
 }
 
-/** Drop every 배양 칸 of a tank that is being recovered (its 배지 · 세포주 go with it). */
+/** Drop every culture slot of a tank that is being recovered (its medium · strain go with it). */
 export function dropCulturesOf(sys: HousingSystem, uid: string): void {
   const list = sys.cultures();
   for (let i = list.length - 1; i >= 0; i--) if (list[i].uid === uid) list.splice(i, 1);
 }
 
-/** Finished 칸 of a tank (the `housing:cultureChanged` payload and the hub's glowing tubes). */
+/** Finished slots of a tank (the `housing:cultureChanged` payload and the hub's glowing tubes). */
 export function readyCultures(sys: HousingSystem, uid: string): number {
   const now = sys.stationNow(uid);
   return sys.cultures().filter((c) => c.uid === uid && !!c.readyAt && now >= c.readyAt).length;
@@ -158,22 +158,22 @@ export function cultureChanged(sys: HousingSystem, uid: string, reason: string):
 }
 
 /* ── item lookups ──────────────────────────────────────────────────────── */
-/** 배지 def with its `medium` data, or null when `defId` is not a 배지. */
+/** The medium def with its `medium` data, or null when `defId` is not a medium. */
 export function mediumDef(sys: HousingSystem, defId: string): ItemDef | null {
   const def = sys.defOf(defId);
   return def && def.medium ? def : null;
 }
 
-/** 세포주 def with its `strain` data, or null when `defId` is not a 세포주. */
+/** The strain def with its `strain` data, or null when `defId` is not a strain. */
 export function strainDef(sys: HousingSystem, defId: string): ItemDef | null {
   const def = sys.defOf(defId);
   return def && def.strain ? def : null;
 }
 
-/* ── 배양 화면이 읽는 값 ────────────────────────────────────────────────── */
+/* ── what the culture screen reads ──────────────────────────────────────── */
 /**
- * Every 배양 칸 of one tank — **always `CULTURE_MAX_SLOTS`** in slot order, locked ones included so the panel can draw
- * the slots an upgrade will open. `[]` when `uid` is not a 배양조.
+ * Every culture slot of one tank — **always `CULTURE_MAX_SLOTS`** in slot order, locked ones included so the panel can draw
+ * the slots an upgrade will open. `[]` when `uid` is not a culture tank.
  */
 export function getCultureSlots(sys: HousingSystem, uid: string): CultureSlotInfo[] {
   const tank = sys.tankOf(uid);
@@ -190,15 +190,15 @@ export function getCultureSlots(sys: HousingSystem, uid: string): CultureSlotInf
     out.push({
       slot, locked, unlockLevel: cultureSlotUnlockLevel(slot),
       mediumDefId: c?.mediumDefId ?? null,
-      // 2026-09-13: 뜻이 「내구도 0 까지 남은 수확 횟수」로 바뀌었다 (0 이어도 칸은 남는다)
+      // 2026-09-13: its meaning changed to 「harvests left until durability 0」 (the slot stays even at 0)
       mediumUsesLeft: c?.mediumUsesLeft ?? 0,
       mediumSpeedMul: medium?.speedMul ?? 1,
       strainDefId: c?.strainDefId ?? null,
-      // 진행도 · 남은 초는 온실 · 연구실과 같은 순수 시각 계산이다 (`Rules` 의 그 둘은 무엇이 자라는지 모른다)
+      // progress · seconds left are the same pure time arithmetic as the greenhouse's · the lab's (those two in `Rules` know nothing of what is growing)
       progress: growProgress(now, c?.startedAt, c?.readyAt),
       remainingS: growRemainingS(now, c?.readyAt),
       ready: !!c?.readyAt && now >= c.readyAt,
-      // 2026-09-13: 스캐폴드가 있으면 종별 고기 (`outputOf`)
+      // 2026-09-13: with a scaffold, meat of that species (`outputOf`)
       yieldDefId: output?.defId ?? null,
       yieldQty: output?.qty ?? 0,
       mediumDurability: st?.dur ?? 0,
@@ -207,7 +207,7 @@ export function getCultureSlots(sys: HousingSystem, uid: string): CultureSlotInf
       sockets: c?.sockets ? [...c.sockets] : [],
       socketSlots: st?.slots ?? 0,
       scaffoldDefId: c?.scaffoldDefId ?? null,
-      // 2026-09-17: 시작 대기 칸은 `strainDefId` 가 있어도 `started` false (진행도 −1 · 남은 0 은 `readyAt` 이 없어서 저절로 나온다)
+      // 2026-09-17: a waiting slot is `started` false even with a `strainDefId` (progress −1 · 0 left come out by themselves, from the missing `readyAt`)
       started: cultureStarted(c),
       mediumReturnable: !!c && mediumPristine(sys, c),
     });
@@ -215,7 +215,7 @@ export function getCultureSlots(sys: HousingSystem, uid: string): CultureSlotInf
   return out;
 }
 
-/** 배지 item defs the player owns right now (bag + stash), 최대 내구도가 낮은 것부터 (2026-09-13) — the 배양 화면 hint. */
+/** Medium item defs the player owns right now (bag + stash), lowest maximum durability first (2026-09-13) — the culture screen's hint. */
 export function getOwnedMediums(sys: HousingSystem): { defId: string; qty: number }[] {
   const loot = sys.ctx.loot;
   if (!loot || typeof loot.getAllItemDefs !== 'function') return [];
@@ -229,7 +229,7 @@ export function getOwnedMediums(sys: HousingSystem): { defId: string; qty: numbe
   return out;
 }
 
-/** 세포주 item defs the player owns (bag + stash), shortest 배양 first. */
+/** Strain item defs the player owns (bag + stash), shortest culture first. */
 export function getOwnedStrains(sys: HousingSystem): { defId: string; qty: number }[] {
   const loot = sys.ctx.loot;
   if (!loot || typeof loot.getAllItemDefs !== 'function') return [];
@@ -243,8 +243,8 @@ export function getOwnedStrains(sys: HousingSystem): { defId: string; qty: numbe
   return out;
 }
 
-/* ── 한국어 게이트 ──────────────────────────────────────────────────────── */
-/** Why `uid` / `slot` is not a usable 배양 칸 right now; null = fine. Every mutator starts here. */
+/* ── the Korean block reasons ───────────────────────────────────────────── */
+/** Why `uid` / `slot` is not a usable culture slot right now; null = fine. Every mutator starts here. */
 function slotBlock(sys: HousingSystem, uid: string, slot: number): string | null {
   const tank = sys.tankOf(uid);
   if (!tank) return '배양조가 아닙니다';
@@ -253,10 +253,10 @@ function slotBlock(sys: HousingSystem, uid: string, slot: number): string | null
   return null;
 }
 
-/* ── 칸 조작 ────────────────────────────────────────────────────────────── */
+/* ── slot mutations ─────────────────────────────────────────────────────── */
 /**
- * Pour one 영양 배지 (bag → stash, consumes 1) into an empty 칸. 2026-09-13: 내구도 최대 · 소켓 없음 ·
- * `mediumUsesLeft` = 0 까지 남은 수확. 한국어 reason on failure, null on success.
+ * Pour one nutrient medium (bag → stash, consumes 1) into an empty slot. 2026-09-13: durability at maximum · no sockets ·
+ * `mediumUsesLeft` = harvests left until 0. A Korean reason on failure, null on success.
  */
 export function fillMedium(sys: HousingSystem, uid: string, slot: number, mediumDefId: string): string | null {
   const block = slotBlock(sys, uid, slot);
@@ -278,19 +278,19 @@ export function fillMedium(sys: HousingSystem, uid: string, slot: number, medium
 }
 
 /**
- * Scrape a 칸 back to 배지 없음. **The 배지 is not returned** — 남은 내구도가 있어도 버려진다 (부은 흙과 같다), 끼운 소켓도 함께.
- * Refused while something is culturing in it. 2026-09-13: 세포주 없이 스캐폴드만 들어 있으면 **스캐폴드는 되돌려준다**
- * (가방 → 창고, 자리가 없으면 거절 — 아직 쓰지 않은 아이템을 조용히 버리지 않는다). 세포주와 함께 버리면 스캐폴드도 버려진다.
+ * Scrape a slot back to no medium. **The medium is not returned** — it is thrown away with durability left (the same as poured soil), and the inserted sockets with it.
+ * Refused while something is culturing in it. 2026-09-13: with a scaffold in it and no strain, **the scaffold is given back**
+ * (bag → stash, refused when there is no room — an unused item is never thrown away silently). Discarded together with a strain, the scaffold goes too.
  */
 export function clearMedium(sys: HousingSystem, uid: string, slot: number, discardStrain = false): string | null {
   const block = slotBlock(sys, uid, slot);
   if (block) return block;
   const c = sys.cultureAt(uid, slot);
   if (!c) return '배지가 없습니다';
-  // 2026-09-12: 우클릭 「세포주 버리고 배지 비우기」 — 버리겠다고 한 경우만 통과한다
+  // 2026-09-12: the right-click 「세포주 버리고 배지 비우기」 — it passes only when the discard was asked for
   const started = cultureStarted(c);
   if (c.strainDefId && started && !discardStrain) return '배양 중인 세포주를 먼저 수확하세요';
-  // 2026-09-17: 시작 전의 세포주는 버리지 않고 되돌려준다 (스캐폴드와 같은 규칙 — 쓰지 않은 아이템을 조용히 버리지 않는다)
+  // 2026-09-17: a strain from before the start is given back, not thrown away (the same rule as the scaffold — an unused item is never thrown away silently)
   if (c.strainDefId && !started) {
     const loot = sys.ctx.loot;
     if (!loot || typeof loot.createItem !== 'function') return '세포주를 되돌려받을 수 없습니다';
@@ -310,10 +310,10 @@ export function clearMedium(sys: HousingSystem, uid: string, slot: number, disca
 }
 
 /**
- * Put one 세포주 (bag → stash, consumes 1) into a 칸 that already holds 배지. `readyAt` is fixed **here** from
- * `cultureHours × 배지 등급 × 원예`, so a later 배지 swap or skill change never moves a running timer.
- * 2026-09-13: 스캐폴드가 든 칸이면 `scaffoldHours` 를 쓰고(스캐폴드 산출이 없는 세포주는 거절), 배지 보너스 · 소켓 speed 는 내구도 비율만큼.
- * 은퇴한 세포주는 받지 않는다.
+ * Put one strain (bag → stash, consumes 1) into a slot that already holds a medium. `readyAt` is fixed **here** from
+ * `cultureHours × the medium's rarity × gardening`, so a later medium swap or skill change never moves a running timer.
+ * 2026-09-13: in a slot with a scaffold it uses `scaffoldHours` (a strain with no scaffold output is refused), and the medium bonus · the socket speed apply as far as the durability ratio.
+ * A retired strain is refused.
  */
 export function insertStrain(sys: HousingSystem, uid: string, slot: number, strainDefId: string): string | null {
   const block = slotBlock(sys, uid, slot);
@@ -329,7 +329,7 @@ export function insertStrain(sys: HousingSystem, uid: string, slot: number, stra
   if (sys.countDef(strainDefId) < 1) return `${def.name}이(가) 없습니다`;
   const inv = sys.ctx.inventory;
   if (!inv || typeof inv.consumeDefAll !== 'function' || !inv.consumeDefAll(strainDefId, 1)) return '세포주를 꺼낼 수 없습니다';
-  // 2026-09-17: 넣기만 한다 — 타이머는 `startCulture` (화면의 1초 홀드 확인) 가 건다
+  // 2026-09-17: it only goes in — the timer is started by `startCulture` (the screen's 1 s hold confirm)
   c.strainDefId = strainDefId;
   delete c.startedAt; delete c.readyAt;
   sys.cultureChanged(uid, 'strain');
@@ -337,9 +337,9 @@ export function insertStrain(sys: HousingSystem, uid: string, slot: number, stra
 }
 
 /**
- * 2026-09-17: 시작 대기 칸의 배양을 시작한다 (`HousingRef.startCulture`). `readyAt` 은 **여기서** `cultureHours`(스캐폴드면
- * `scaffoldHours`) × 배지 등급 × 원예 × 배지 내구도 비율 × 소켓 speed 로 확정되고, 그 뒤로 배지 · 세포주 · 스캐폴드는 꺼낼 수 없다.
- * 스캐폴드 산출이 없는 세포주가 스캐폴드 칸에 있으면(넣은 뒤 데이터가 바뀐 경우) 거절한다. 한국어 사유 / null.
+ * 2026-09-17: starts the culture of a waiting slot (`HousingRef.startCulture`). `readyAt` is fixed **here** from `cultureHours`
+ * (`scaffoldHours` with a scaffold) × the medium's rarity × gardening × the medium durability ratio × the socket speed, and after
+ * that the medium · strain · scaffold cannot be taken out. A strain with no scaffold output sitting in a scaffold slot (its data changed after it went in) is refused. A Korean reason / null.
  */
 export function startCulture(sys: HousingSystem, uid: string, slot: number): string | null {
   const block = slotBlock(sys, uid, slot);
@@ -360,7 +360,7 @@ export function startCulture(sys: HousingSystem, uid: string, slot: number): str
   return null;
 }
 
-/** 2026-09-17: 시작 전 칸의 세포주를 되돌려받는다 (`HousingRef.takeStrain`, 가방 → 창고 · 자리가 없으면 거절). 한국어 사유 / null. */
+/** 2026-09-17: takes the strain back out of a slot before the start (`HousingRef.takeStrain`, bag → stash · refused with no room). A Korean reason / null. */
 export function takeStrain(sys: HousingSystem, uid: string, slot: number, dest: HarvestDestination = 'bag-first'): string | null {
   const block = slotBlock(sys, uid, slot);
   if (block) return block;
@@ -376,8 +376,8 @@ export function takeStrain(sys: HousingSystem, uid: string, slot: number, dest: 
 }
 
 /**
- * 2026-09-17: 한 번도 쓰지 않은 배지를 칸째 되돌려받는다 (`HousingRef.takeMedium`). 내구도 · 소켓은 칸에 사는 값이라 아이템에 실을 수
- * 없으므로 **새것 그대로인 배지만** 돌려준다 — 한 번이라도 수확했거나 소켓을 끼웠으면 기존 「배지 비우기」(버림)뿐이다. 한국어 사유 / null.
+ * 2026-09-17: takes a never-used medium back, slot and all (`HousingRef.takeMedium`). Durability · sockets live in the slot and
+ * cannot ride on the item, so **only an untouched medium** comes back — after one harvest or one socket the only way out is the old 「배지 비우기」 (discard). A Korean reason / null.
  */
 export function takeMedium(sys: HousingSystem, uid: string, slot: number, dest: HarvestDestination = 'bag-first'): string | null {
   const block = slotBlock(sys, uid, slot);
@@ -396,15 +396,15 @@ export function takeMedium(sys: HousingSystem, uid: string, slot: number, dest: 
 }
 
 /**
- * 2026-09-13: 배지가 있고 세포주 · 스캐폴드가 없는 칸에 배양 스캐폴드 하나를 (가방 → 창고, 1개 소모) 넣는다
- * (`HousingRef.insertScaffold`). 한국어 사유 / null.
+ * 2026-09-13: puts one culture scaffold (bag → stash, consumes 1) into a slot that holds a medium and no strain · scaffold
+ * (`HousingRef.insertScaffold`). A Korean reason / null.
  */
 export function insertScaffold(sys: HousingSystem, uid: string, slot: number, scaffoldDefId: string): string | null {
   const block = slotBlock(sys, uid, slot);
   if (block) return block;
   const c = sys.cultureAt(uid, slot);
   if (!c) return '영양 배지를 먼저 채우세요';
-  // 2026-09-17: 칸 순서는 배지 → 스캐폴드 → 세포주 — 시작 전이라도 세포주가 먼저 들어 있으면 빼고 넣는다
+  // 2026-09-17: the slot order is medium → scaffold → strain — even before the start, a strain already in it has to come out first
   if (c.strainDefId) return cultureStarted(c) ? '이미 배양 중인 칸입니다' : '세포주를 뺀 뒤에 스캐폴드를 넣으세요';
   if (c.scaffoldDefId) return '이미 스캐폴드가 들어 있습니다';
   const def = sys.defOf(scaffoldDefId);
@@ -417,14 +417,14 @@ export function insertScaffold(sys: HousingSystem, uid: string, slot: number, sc
   return null;
 }
 
-/** 2026-09-13: 세포주가 들어가기 전의 스캐폴드를 되돌려받는다 (`HousingRef.takeScaffold`). 한국어 사유 / null. */
+/** 2026-09-13: takes back a scaffold from before the strain went in (`HousingRef.takeScaffold`). A Korean reason / null. */
 export function takeScaffold(sys: HousingSystem, uid: string, slot: number, dest: HarvestDestination = 'bag-first'): string | null {
   const block = slotBlock(sys, uid, slot);
   if (block) return block;
   const c = sys.cultureAt(uid, slot);
   if (!c) return '배지가 없습니다';
   if (!c.scaffoldDefId) return '스캐폴드가 없습니다';
-  // 2026-09-17: 시작 대기 칸이면 뺄 수 있다 — 남은 세포주는 기본 산출(`outputDefId`)로 자란다
+  // 2026-09-17: it may come out of a waiting slot — the strain left behind grows into the default output (`outputDefId`)
   if (cultureStarted(c)) return '배양 중에는 스캐폴드를 뺄 수 없습니다';
   const loot = sys.ctx.loot;
   if (!loot || typeof loot.createItem !== 'function') return '스캐폴드를 되돌려받을 수 없습니다';
@@ -434,7 +434,7 @@ export function takeScaffold(sys: HousingSystem, uid: string, slot: number, dest
   return null;
 }
 
-/** 2026-09-13: 배지가 든 배양 칸에 배지 소켓을 끼운다 (`HousingRef.insertCultureSocket`) — 규칙은 `insertGrowSocket` 과 같다. */
+/** 2026-09-13: inserts a medium socket into a culture slot that holds a medium (`HousingRef.insertCultureSocket`) — the same rules as `insertGrowSocket`. */
 export function insertCultureSocket(sys: HousingSystem, uid: string, slot: number, socketDefId: string, replaceIndex?: number): string | null {
   const block = slotBlock(sys, uid, slot);
   if (block) return block;
@@ -448,8 +448,8 @@ export function insertCultureSocket(sys: HousingSystem, uid: string, slot: numbe
 }
 
 /**
- * Harvest one finished 칸 into the bag (stash fallback). 2026-09-13: 산출 = 스캐폴드면 스캐폴드 산출(스캐폴드 소모), 아니면 기본 산출,
- * 수량 + `yield` 소켓 덤(마모 **전** 비율) → 세포주 필드 삭제 → 배지 마모. **칸은 비지 않는다.**
+ * Harvest one finished slot into the bag (stash fallback). 2026-09-13: the output = the scaffold output with a scaffold in it (the
+ * scaffold is consumed), else the default output, quantity + the `yield` socket bonus (the ratio **before** the wear) → delete the strain fields → wear the medium. **The slot does not empty.**
  */
 export function harvestCulture(sys: HousingSystem, uid: string, slot: number, dest: HarvestDestination = 'bag-first'): string | null {
   const block = slotBlock(sys, uid, slot);
@@ -462,12 +462,12 @@ export function harvestCulture(sys: HousingSystem, uid: string, slot: number, de
   const output = outputOf(sys, c);
   const loot = sys.ctx.loot;
   if (!output || !loot || typeof loot.createItem !== 'function') return '배양 산물을 만들 수 없습니다';
-  // 배양조는 채집이 아니다 — 원예 `gatherYieldMul` 을 곱하지 않는다 (산출량은 세포주가 정한 그대로다). 소켓 덤만 더한다.
+  // a culture tank is not gathering — the gardening `gatherYieldMul` is not multiplied in (the strain decides the amount). Only the socket bonus is added.
   const { ratio } = mediumStats(sys, c);
   const qty = output.qty + yieldBonus(sys, c.sockets, ratio, Math.random);
   const item = loot.createItem(output.defId, qty);
   if (!deliverItem(sys, item, dest)) return noRoomReason(dest);
-  // 2026-09-13: the 배지 wears per harvest but the 칸 never empties by itself; a 스캐폴드 that was used is consumed
+  // 2026-09-13: the medium wears per harvest but the slot never empties by itself; a scaffold that was used is consumed
   delete c.strainDefId; delete c.startedAt; delete c.readyAt;
   if (output.usesScaffold) delete c.scaffoldDefId;
   c.mediumDurability = wearAfterHarvest(c.mediumDurability ?? 0, MEDIUM_WEAR_PER_HARVEST, socketSum(sys, c.sockets, 'wear'));
@@ -476,7 +476,7 @@ export function harvestCulture(sys: HousingSystem, uid: string, slot: number, de
   return null;
 }
 
-/** Harvest every finished 칸 of the tank; returns how many were taken. */
+/** Harvest every finished slot of the tank; returns how many were taken. */
 export function harvestAllCultures(sys: HousingSystem, uid: string): number {
   const tank = sys.tankOf(uid);
   if (!tank) return 0;
@@ -489,7 +489,7 @@ export function harvestAllCultures(sys: HousingSystem, uid: string): number {
   return taken;
 }
 
-/** Open the 배양 화면 (`culture_tank` interaction): 좌 배양 칸 · 우 가방 + 함선 창고. */
+/** Open the culture screen (`culture_tank` interaction): culture slots on the left · bag + ship stash on the right. */
 export function openCultureTank(sys: HousingSystem, uid: string): void {
   if (!sys.cultureTank) return;
   if (!sys.tankOf(uid)) { sys.notify('배양조가 없습니다', 'warning'); return; }

@@ -1,35 +1,35 @@
 /**
- * src/housing/parts/Presets.ts — **로드아웃 프리셋 (은퇴)** 과 패널 목록 · 옛 메뉴 진입점.
+ * src/housing/parts/Presets.ts — **loadout presets (retired)**, the panel list · the old menu entry points.
  *
- * 2026-09-12 (사용자 결정 — 시설관리 정리): 시뮬레이션실이 없어지면서 관물대가 은퇴했고 **프리셋 기능 자체를 걷어냈다.**
- * 계약(`HousingRef`)은 추가만 하므로 메서드는 남는다 — 전부 「슬롯이 없다」로 답한다: `getPresetCount()` 0,
- * `getPresets()` 빈 배열, `savePreset` false, `applyPreset` null, `openPresetMenu()` 는 아무 일도 하지 않는다.
- * 세이브의 `ShipState.presets` 는 **건드리지 않는다** — `sanitize` 가 그대로 읽고 그대로 쓴다.
- * (저장 · 적용 경로는 `inventory.captureLoadout` / `applyLoadout` 이었고 그 둘은 inventory 에 그대로 있다.)
+ * 2026-09-12 (user's decision — the ship-management cleanup): the simulation room went, 관물대 retired with it, and
+ * **the preset feature itself was removed.** The contract (`HousingRef`) is add-only, so the methods stay — all of them
+ * answer 「there are no slots」: `getPresetCount()` 0, `getPresets()` an empty array, `savePreset` false, `applyPreset`
+ * null, `openPresetMenu()` does nothing. The save's `ShipState.presets` is **left alone** — `sanitize` reads it and
+ * writes it back unchanged. (The save · apply paths were `inventory.captureLoadout` / `applyLoadout`, both still in inventory.)
  */
 import type { LoadoutPreset } from '@/shared';
 import { isRoomIndex } from '../Rules';
 import type { HousingPanel } from '../ui/Panel';
 import type { HousingSystem } from '../HousingSystem';
 
-/* ── loadout presets (은퇴, 2026-09-12) ─────────────────────────────────── */
-/** 늘 0 — 프리셋 슬롯을 여는 가구(관물대)가 은퇴했다. */
+/* ── loadout presets (retired, 2026-09-12) ──────────────────────────────── */
+/** Always 0 — the furniture that opens preset slots (관물대) retired. */
 export function getPresetCount(_sys: HousingSystem): number { return 0; }
 
-/** 늘 빈 배열 (저장된 `state.presets` 는 세이브에 그대로 남는다). */
+/** Always an empty array (a stored `state.presets` stays in the save untouched). */
 export function getPresets(sys: HousingSystem): readonly (LoadoutPreset | null)[] {
   return Array.from({ length: sys.getPresetCount() }, (_, i) => sys.state.presets[i] ?? null);
 }
 
-/** 늘 false — 슬롯이 없다. */
+/** Always false — there are no slots. */
 export function savePreset(sys: HousingSystem, index: number, preset: LoadoutPreset): boolean {
   return !!preset && Number.isInteger(index) && index >= 0 && index < sys.getPresetCount() && false;
 }
 
-/** 늘 false — 슬롯이 없으니 지울 것도 없다 (세이브의 옛 프리셋은 그대로 둔다). */
+/** Always false — with no slots there is nothing to delete (old presets in the save are left alone). */
 export function deletePreset(_sys: HousingSystem, _index: number): boolean { return false; }
 
-/** 늘 null — 슬롯이 없다. */
+/** Always null — there are no slots. */
 export function applyPreset(sys: HousingSystem, index: number): { equipped: number; missing: string[] } | null {
   return index >= 0 && index < sys.getPresetCount() ? null : null;
 }
@@ -49,10 +49,10 @@ export function panels(sys: HousingSystem): HousingPanel[] {
   if (sys.cultureTank) out.push(sys.cultureTank);
   if (sys.diningTable) out.push(sys.diningTable);
   if (sys.bookshelfMenu) out.push(sys.bookshelfMenu);
-  if (sys.cookStation) out.push(sys.cookStation);          // 조리대 화면 (2026-09-13) — 조리 오버레이는 패널이 아니다 (`cookScreen`)
-  if (sys.clusterScreen) out.push(sys.clusterScreen);      // 연산 클러스터 화면 (2026-09-13, 암호화폐 채굴)
-  if (sys.miningComputer) out.push(sys.miningComputer);    // 메인 컴퓨터 (2026-09-13, 암호화폐 채굴)
-  if (sys.tvMenu) out.push(sys.tvMenu);                    // TV 화면 (2026-09-13, 비디오게임) — `closeMenus` · `isMenuOpen` 이 함께 본다
+  if (sys.cookStation) out.push(sys.cookStation);          // the cook bench screen (2026-09-13) — the cooking overlay is not a panel (`cookScreen`)
+  if (sys.clusterScreen) out.push(sys.clusterScreen);      // the compute cluster screen (2026-09-13, crypto mining)
+  if (sys.miningComputer) out.push(sys.miningComputer);    // the main computer (2026-09-13, crypto mining)
+  if (sys.tvMenu) out.push(sys.tvMenu);                    // the TV screen (2026-09-13, video games) — `closeMenus` · `isMenuOpen` look at it too
   return out;
 }
 
@@ -70,15 +70,15 @@ export function openFacilityMenu(sys: HousingSystem): void {
 }
 
 /**
- * 2026-09-12 (프리셋 기능 제거): **아무 일도 하지 않는다.** 프리셋 메뉴(`ui/PresetMenu.ts`)는 파일째 지웠다 — 계약의 메서드만
- * 남아 옛 호출자(은퇴한 관물대의 E)가 조용히 끝난다.
+ * 2026-09-12 (the preset feature removed): **does nothing.** The preset menu (`ui/PresetMenu.ts`) was deleted file and
+ * all — only the contract's method remains, so an old caller (E on the retired 관물대) ends quietly.
  */
 export function openPresetMenu(_sys: HousingSystem): void { /* retired */ }
 
 /** Close every panel; `relock` false when another panel opens right away. */
 export function closeMenus(sys: HousingSystem, relock = true): void {
   for (const p of sys.panels()) if (p.isOpen) p.close(relock);
-  // 2026-09-16: 창고 업그레이드 모달은 패널이 아니라 `ctx.uiRoot` 직계라 `panels()` 에 없다 — 강제 퇴장(레이드 시작 ·
-  // 함선 전환)에 혼자 남지 않게 여기서 같이 닫는다.
+  // 2026-09-16: the stash upgrade modal is not a panel but a direct child of `ctx.uiRoot`, so it is not in `panels()` —
+  // it is closed here too, so a forced exit (raid start · ship switch) never leaves it behind alone.
   sys.storageUpgrade?.close();
 }

@@ -15,10 +15,10 @@ import type { StationGridsView, StationShell } from './StationShell';
 import { UpgradeModal } from './UpgradeModal';
 import type { UpgradeSpec } from './UpgradeModal';
 import { clear, el, formatRemaining, renderClock, renderClockText, setText, toggleClass } from './dom';
-import { researchTimeMul } from '../parts/Lab';   // 2026-09-13 (H3): 연구 숙련 해석 시간 배수
-import { analysisDexBonus } from '../Rules';     // 2026-09-16: 등급별 도감 칸이 주는 단축
+import { researchTimeMul } from '../parts/Lab';   // 2026-09-13 (H3): the research skill's analysis time multiplier
+import { analysisDexBonus } from '../Rules';     // 2026-09-16: the speedup the catalogue entries of a rarity give
 
-/** 0.035 → `4 %` (0 보다 크고 1 % 미만이면 `<1 %`) — 단축 비율 표기 한 곳. */
+/** 0.035 → `4 %` (`<1 %` above 0 but under 1 %) — the one place a speedup ratio is spelled. */
 const pctText = (v: number): string => {
   const p = Math.max(0, v) * 100;
   if (p <= 0) return '0 %';
@@ -39,14 +39,14 @@ interface SlotCard {
   cell: HTMLElement;
   glyph: HTMLElement;
   name: HTMLElement;
-  /** 계열 칩 (2026-09-13) — 표본이 들어 있을 때만 보인다. */
+  /** The family chip (2026-09-13) — shown only while a sample is in. */
   fam: HTMLElement;
-  /** 표본 레벨 칩 (2026-09-16) — `Lv.n −x %`. 표본이 들어 있을 때만 보인다. */
+  /** The sample level chip (2026-09-16) — `Lv.n −x %`. Shown only while a sample is in. */
   lv: HTMLElement;
   time: HTMLElement;
   prog: HTMLElement;
   fill: HTMLElement;
-  /** 결과 자리 (2026-09-13): 해석 중 「?」, 끝나면 산출물 칩 + 「새 발견」. */
+  /** The result column (2026-09-13): 「?」 while analysing, the product chip + 「새 발견」 once finished. */
   result: HTMLElement;
   resultKey: string;
   collect: HTMLButtonElement;
@@ -54,30 +54,30 @@ interface SlotCard {
 }
 
 /**
- * **분석 화면** (연구실 A-12, 2026-09-11 · 화면 개편 2026-09-12 · 결과표 2026-09-13 — `openAnalyzer(uid)` ← E on a 분석기).
+ * **The analysis screen** (the lab A-12, 2026-09-11 · screen rework 2026-09-12 · result table 2026-09-13 — `openAnalyzer(uid)` ← E on an analyzer).
  *
- * 틀은 `StationShell` 공통이다 (제목 + `Lv. n` · 우상단 업그레이드 모달 · 좌 패널 / 우 가방 · 함선 창고).
- * **세로 탭**(「해석」 · 「분석 도감」)은 화면 맨 왼쪽 레일(`StationShell.rail`)이다 — 재배 스테이션 목록과 같은 자리 · 같은 결.
+ * The frame is the shared `StationShell` (title + `Lv. n` · the upgrade modal at the top right · the left panel / the bag · the ship stash on the right).
+ * The **vertical tabs** (「해석」 · 「분석 도감」) are the screen's leftmost rail (`StationShell.rail`) — the same place · the same grain as the grow station list.
  *
- * 해석 칸 한 줄 = **칸(표본 글리프, 드롭 대상) | 본문(이름 + 계열 칩 · `HH:MM:SS` · 진행바) | 결과 | 버튼(「회수」 · 「중단」)** 의
- * 네 열이다. **2026-09-13 (요리 재료 티어)**: 표본은 계열(세포 · 광물 · DNA)로 해석되고 결과는 **넣는 순간** 굴려져 있다 —
- * 결과 자리는 해석 중에 「?」, 끝나면 산출물 칩(`resultDefId ×resultQty`, 호버 = 아이템 카드)과, 분석 도감에 없던 산출물이면
- * 「새 발견」 배지(`firstTime`). 옛 세이브의 칸(결과를 안 굴린 칸)은 끝나도 「?」 이고 회수하는 순간 굴린다.
- * 잠긴 칸은 썸네일도 글자도 없는 **빈 칸**이다. 끝난 칸은 **더블클릭 = 함선 창고 먼저**, 끌어서 격자에 놓으면 그 격자로
- * 회수된다 (`ProductDrag`). 분석 도감(`createSampleDex`)은 도감 탭일 때만 갱신한다.
+ * One analysis slot row is four columns: **the cell (the sample glyph, the drop target) | the body (name + the family chip · `HH:MM:SS` · the progress bar) | the result | the buttons (「회수」 · 「중단」)**.
+ * **2026-09-13 (cooking material tiers)**: a sample is analysed by family (cell · mineral · DNA) and the result is already rolled **the moment it goes in** —
+ * the result column is 「?」 while analysing, and once finished the product chip (`resultDefId ×resultQty`, hover = the item card) plus a 「새 발견」 badge
+ * (`firstTime`) when that product was not in the analysis catalogue. An old save's slot (one with no rolled result) stays 「?」 even when finished and is
+ * rolled the moment it is collected. A locked slot is an **empty cell** with no thumbnail and no text. A finished slot is **double-click = the ship stash
+ * first**, and a drag onto a grid collects into that grid (`ProductDrag`). The analysis catalogue (`createSampleDex`) is refreshed only while its tab is up.
  *
- * **2026-09-16 (표본 개편 — 사용자 결정)**: 해석 시간 단축이 화면에 드러난다. 칸의 이름 줄에 표본 레벨 칩
- * `Lv.n −x %`(`paintSampleLevel`, 호버 = 도감 · 레벨 분해)가 서고, 해석 탭 머리에 등급별 도감 줄
- * (`paintDexSpeed` — 「일반 12칸 −12 %」)이 붙는다. 둘 다 **다음에 넣는 표본**에 듣는 값이다: 돌아가는 해석의
- * 시간은 넣는 순간 확정돼 있다 (그래서 칩의 제목이 그렇게 적는다).
+ * **2026-09-16 (the sample rework — user's decision)**: the analysis speedup shows on the screen. The slot's name row carries the
+ * sample level chip `Lv.n −x %` (`paintSampleLevel`, hover = the catalogue · level breakdown), and the head of the 해석 tab
+ * carries the per-rarity catalogue line (`paintDexSpeed` — 「일반 12칸 −12 %」). Both are values that apply to **the next sample put
+ * in**: a running analysis's time was fixed the moment it went in (which is what the chip's title says).
  */
 export class Analyzer extends HousingPanel {
   private uid = '';
   private readonly shell: StationShell;
   private readonly slotsEl: HTMLElement;
-  /** 2026-09-13 (H3): 해석 탭 머리의 「연구 숙련 — 해석 시간 ×0.85」 줄 (배수가 1 이면 숨김). */
+  /** 2026-09-13 (H3): the 「연구 숙련 — 해석 시간 ×0.85」 line at the head of the 해석 tab (hidden when the multiplier is 1). */
   private readonly researchEl: HTMLElement;
-  /** 2026-09-16: 해석 탭 머리의 「분석 도감 — 일반 12칸 −12 % · …」 줄 (칸이 하나도 없으면 숨김). */
+  /** 2026-09-16: the 「분석 도감 — 일반 12칸 −12 % · …」 line at the head of the 해석 tab (hidden with no entries at all). */
   private readonly dexSpeedEl: HTMLElement;
   private readonly dexHost: HTMLElement;
   private readonly tabBtns: Record<AnalyzerTab, HTMLButtonElement>;
@@ -102,15 +102,15 @@ export class Analyzer extends HousingPanel {
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });
 
-    // 2026-09-12: 탭은 분석기 패널 **바깥**의 독립 열이다 (`StationShell.rail`) — 재배 스테이션 목록과 같은 자리 ·
-    // 같은 결이라 두 화면의 좌측이 일관된다. 좌 패널에는 페이지만 남는다.
+    // 2026-09-12: the tabs are an independent column **outside** the analyzer panel (`StationShell.rail`) — the same place ·
+    // the same grain as the grow station list, so the left side of the two screens agrees. Only the pages stay in the left panel.
     const tabs = this.shell.rail;
     tabs.hidden = false;
     this.tabBtns = { slots: this.tabButton(tabs, '해석', 'slots'), dex: this.tabButton(tabs, '분석 도감', 'dex') };
     const pages = el('div', { cls: 'az-pages', parent: this.shell.left });
     this.researchEl = el('div', { cls: 'hint az-research', parent: pages });
     this.researchEl.hidden = true;
-    // 2026-09-16: 분석 도감이 **등급별로** 주는 단축 — 「도감을 한 칸 채우면 같은 등급 표본 전체가 빨라진다」가 이 한 줄이다
+    // 2026-09-16: the speedup the analysis catalogue gives **per rarity** — 「fill one catalogue entry and every sample of that rarity gets faster」 is this one line
     this.dexSpeedEl = el('div', { cls: 'hint az-dexspeed', parent: pages });
     this.dexSpeedEl.hidden = true;
     this.slotsEl = el('div', { cls: 'az-slots', parent: pages });
@@ -128,10 +128,10 @@ export class Analyzer extends HousingPanel {
       productAt: (t) => this.productAt(t),
       collect: (key, dest) => this.collect(Number(key), dest),
       defOf: (id) => housing.defOf(id),
-      // 2026-09-16: 끌어서 놓은 **그 칸**으로 간다 (격자는 화면이 열릴 때 만들어지므로 함수로 준다)
+      // 2026-09-16: it goes to **the very cell** it was dropped on (the grids are built when the screen opens, so they come as a function)
       grids: () => this.grids,
     });
-    // 2026-09-13: 회수가 도감 · 분석 레벨을 바꾼다 — 머리줄(Lv · 경험치)과 결과 행이 따라오게 (refresh 는 한 번으로 합쳐진다)
+    // 2026-09-13: a collect changes the catalogue · the analysis level — so the header row (Lv · XP) and the result rows follow (the refreshes coalesce into one)
     this.unsubs.push(
       ctx.bus.on('housing:analysisChanged', () => this.refreshIfOpen()),
       ctx.bus.on('housing:analysisFound', () => this.refreshIfOpen()),
@@ -164,7 +164,7 @@ export class Analyzer extends HousingPanel {
   }
 
   /* ── open / close ──────────────────────────────────────────────────────── */
-  /** Open the panel for one 분석기. */
+  /** Open the panel for one analyzer. */
   openAnalyzer(uid: string): void {
     if (uid !== this.uid) this.builtKey = '';
     this.uid = uid;
@@ -191,7 +191,7 @@ export class Analyzer extends HousingPanel {
     if (this.timer) { clearInterval(this.timer); this.timer = 0; }
   }
 
-  /** The 분석 도감 is mounted lazily for the same reason the grids are (`ctx.loot` may not exist at construction). */
+  /** The analysis catalogue is mounted lazily for the same reason the grids are (`ctx.loot` may not exist at construction). */
   private mountDex(): void {
     if (this.dex) return;
     if (!this.ctx.loot || typeof this.ctx.loot.getItemDef !== 'function') return;
@@ -199,7 +199,7 @@ export class Analyzer extends HousingPanel {
   }
 
   /* ── actions ───────────────────────────────────────────────────────────── */
-  /** A tile was dragged out of the 가방 / 창고 onto a 해석 칸 (or double-clicked, `target` null). */
+  /** A tile was dragged out of the bag / stash onto an analysis slot (or double-clicked, `target` null). */
   private dropOn(item: ItemInstance, target: HTMLElement | null): void {
     if (!target) { this.showMsg('표본을 해석 칸으로 끌어다 놓으세요', 'info'); return; }
     const slot = Number(target.dataset.slot);
@@ -209,17 +209,17 @@ export class Analyzer extends HousingPanel {
     if (!def.sample) { this.showMsg('미확인 표본만 넣을 수 있습니다', 'warning'); return; }
     const reason = this.housing.startAnalysis(this.uid, slot, item.defId);
     const fam = def.sample.family ? SAMPLE_FAMILY_LABEL_KO[def.sample.family] : null;
-    // 2026-09-13 (H3): 넣는 순간 정해진 해석 시간(분석 레벨 × 연구 숙련)을 같이 알린다 — 칸의 시계와 같은 `readyAt` 에서 읽는다
+    // 2026-09-13 (H3): the analysis time fixed on insertion (analysis level × the research skill) is announced with it — read from the same `readyAt` as the slot's clock
     const info = reason ? null : this.infoOf(slot);
     const time = info && info.sampleDefId && !info.ready ? formatRemaining(Math.max(0, Math.ceil(info.remainingS))) : '';
-    // 2026-09-16: 이 표본에 붙은 단축을 같이 알린다 — 「왜 이만큼 걸리는가」가 토스트 한 줄에 다 있다
+    // 2026-09-16: the speedup on this sample is announced with it — 「why it takes this long」 is all in the one toast line
     const sa = reason ? null : this.housing.getSampleAnalysis(item.defId);
     const speed = sa && sa.speedup > 0 ? `Lv.${sa.level} −${pctText(sa.speedup)}` : '';
     const extra = [fam ? `${fam} 분석` : '', time, speed].filter(Boolean).join(' · ');
     this.showMsg(reason ?? `${def.name} 해석을 시작했습니다${extra ? ` (${extra})` : ''}`, reason ? 'warning' : 'success');
   }
 
-  /** 2026-09-13 (H3): 연구 숙련이 해석 시간을 줄이고 있으면 해석 탭 머리에 그 배수 — 새로 넣는 표본부터 적용된다. */
+  /** 2026-09-13 (H3): while the research skill is shortening the analysis time, its multiplier at the head of the 해석 tab — it applies from the next sample put in. */
   private paintResearch(): void {
     if (!this.researchEl) return;
     const mul = researchTimeMul(this.housing);
@@ -230,8 +230,8 @@ export class Analyzer extends HousingPanel {
   }
 
   /**
-   * 2026-09-16: 등급마다 「도감 n칸 −x %」. 도감 보너스는 종류가 아니라 **등급**으로 묶여 그 등급 표본 전체에 듣는다 —
-   * 칸이 하나도 없는 등급은 적지 않는다 (없는 줄이 규칙을 가리지 않게).
+   * 2026-09-16: 「도감 n칸 −x %」 per rarity. The catalogue bonus is grouped by **rarity**, not by kind, and applies to every
+   * sample of that rarity — a rarity with no entries at all is not written (an empty row must not hide the rule).
    */
   private paintDexSpeed(): void {
     if (!this.dexSpeedEl) return;
@@ -247,7 +247,7 @@ export class Analyzer extends HousingPanel {
     return this.housing.getAnalyses(this.uid).find((i) => i.slot === slot) ?? null;
   }
 
-  /** 끝난 칸의 산출물 — 결과가 굴려져 있으면 그것, 옛 칸이면(회수할 때 굴린다) 대체 산출물 · 표본 글리프로 끈다. */
+  /** A finished slot's product — the rolled result when there is one, else (an old slot, rolled on collection) the fallback product · the sample glyph is dragged. */
   private productAt(target: Element): Product | null {
     if (target.closest('.az-acts')) return null;              // the buttons have their own click
     const slot = Number(target.closest<HTMLElement>('.az-slot[data-slot]')?.dataset.slot);
@@ -258,7 +258,7 @@ export class Analyzer extends HousingPanel {
     return { key: String(slot), defId, qty: Math.max(1, qty || 1) };
   }
 
-  /** 끝난 해석을 회수한다 — 버튼 · 더블클릭은 함선 창고 먼저, 격자에 끌어다 놓으면 그 격자. */
+  /** Collect a finished analysis — the button · a double-click go to the ship stash first, a drag onto a grid to that grid. */
   private collect(slot: number, dest: HarvestDestination): void {
     const info = this.infoOf(slot);
     if (!info) return;
@@ -276,13 +276,13 @@ export class Analyzer extends HousingPanel {
     this.showMsg(reason ?? '해석을 중단했습니다 (표본은 돌아오지 않습니다)', reason ? 'warning' : 'info');
   }
 
-  /* ── 업그레이드 (모달) ─────────────────────────────────────────────────── */
+  /* ── the upgrade modal ─────────────────────────────────────────────────── */
   private openUpgrade(): void {
     if (!this.housing.getPlacedByUid(this.uid)) return;
     this.modal.open(() => this.upgradeSpec(), () => this.upgrade());
   }
 
-  /** 다음 레벨이 여는 칸 수는 계약 `analyzerSlotsForLevel` 에서 유도한다. */
+  /** How many slots the next level opens is derived from the contract's `analyzerSlotsForLevel`. */
   private upgradeSpec(): UpgradeSpec | null {
     const h = this.housing;
     const analyzer = h.getPlacedByUid(this.uid);
@@ -332,7 +332,7 @@ export class Analyzer extends HousingPanel {
     this.modal.refresh();
   }
 
-  /** Rebuild the 해석 칸 rows — only when the analyzer (or its level) changed. */
+  /** Rebuild the analysis slot rows — only when the analyzer (or its level) changed. */
   private build(infos: readonly AnalysisSlotInfo[]): void {
     this.debug.builds++;
     clear(this.slotsEl);
@@ -342,7 +342,7 @@ export class Analyzer extends HousingPanel {
       return;
     }
     for (const info of infos) {
-      if (info.locked) { el('div', { cls: 'az-slot is-locked', parent: this.slotsEl }); continue; }   // 잠긴 칸 = 빈 칸
+      if (info.locked) { el('div', { cls: 'az-slot is-locked', parent: this.slotsEl }); continue; }   // a locked slot = an empty cell
       this.cards.push(this.buildSlot(this.slotsEl, info));
     }
   }
@@ -369,7 +369,7 @@ export class Analyzer extends HousingPanel {
     return { slot: info.slot, wrap, cell, glyph, name, fam, lv, time, prog, fill, result, resultKey: '', collect, cancel };
   }
 
-  /** 계열 칩: 글리프 + 이름, 계열 색 (`SAMPLE_FAMILY_*`). */
+  /** The family chip: glyph + name, in the family colour (`SAMPLE_FAMILY_*`). */
   private paintFamily(card: SlotCard, family: SampleFamily | null): void {
     const key = family ?? '';
     if (card.fam.dataset.f === key) return;
@@ -381,9 +381,9 @@ export class Analyzer extends HousingPanel {
   }
 
   /**
-   * 2026-09-16 (사용자 결정 「표본 레벨 · 도감 단축이 보여야 한다」): 표본 레벨 칩 `Lv.n −x %`.
-   * 레벨은 **그 표본을 회수한 횟수**이고 단축은 도감(같은 등급 칸수) + 레벨을 합친 지금 값이다 — 돌아가는 해석의
-   * 시간은 넣는 순간 확정됐으므로, 이 칩은 「다음에 넣으면 이만큼」이라고 제목(title)에 적는다.
+   * 2026-09-16 (user's decision 「the sample level · the catalogue speedup have to be visible」): the sample level chip `Lv.n −x %`.
+   * The level is **how often that sample was collected** and the speedup is the current sum of the catalogue (entries of the same
+   * rarity) + the level — a running analysis's time was fixed on insertion, so the chip says 「this much next time」 in its title.
    */
   private paintSampleLevel(card: SlotCard, defId: string | null): void {
     const info = defId ? this.housing.getSampleAnalysis(defId) : null;
@@ -399,7 +399,7 @@ export class Analyzer extends HousingPanel {
       + `\n= 해석 시간 −${pctText(info.speedup)} (다음에 넣는 표본부터)`;
   }
 
-  /** 결과 자리: 빈 칸 = 비움 · 해석 중(또는 결과를 아직 안 굴린 옛 칸) = 「?」 · 끝남 = 산출물 칩 (+ 「새 발견」). 바뀔 때만 짓는다. */
+  /** The result column: an empty slot = empty · analysing (or an old slot with no rolled result) = 「?」 · finished = the product chip (+ 「새 발견」). Rebuilt only when it changes. */
   private paintResult(card: SlotCard, info: AnalysisSlotInfo, running: boolean): void {
     const done = running && info.ready && !!info.resultDefId;
     const key = !running ? '' : done ? `r:${info.resultDefId}:${info.resultQty}:${info.firstTime ? 1 : 0}` : '?';
@@ -415,7 +415,7 @@ export class Analyzer extends HousingPanel {
       return;
     }
     card.result.removeAttribute('title');
-    // `buildItemChip` 이 `data-def-id` 를 달아 호버 = 그 산출물의 아이템 카드 (`ui/hud/ItemTip`)
+    // `buildItemChip` attaches `data-def-id`, so hover = that product's item card (`ui/hud/ItemTip`)
     card.result.appendChild(buildItemChip(this.housing.defOf(info.resultDefId!), { size: RESULT_CHIP_PX, have: Math.max(1, info.resultQty) }));
     if (info.firstTime) el('span', { cls: 'az-new', text: '새 발견', parent: card.result });
   }
@@ -435,7 +435,7 @@ export class Analyzer extends HousingPanel {
       toggleClass(card.wrap, 'is-ready', info.ready);
       setText(card.glyph, running ? (sampleDef?.icon || (family ? SAMPLE_FAMILY_ICON[family] : '◍')) : '+');
       if (family) card.cell.style.setProperty('--fc', SAMPLE_FAMILY_COLOR[family]); else card.cell.style.removeProperty('--fc');
-      // 표본 칸 호버 = 그 표본의 아이템 카드 (`ui/hud/ItemTip` 이 `[data-item-tip][data-def-id]` 를 본다)
+      // hovering the sample cell = that sample's item card (`ui/hud/ItemTip` looks at `[data-item-tip][data-def-id]`)
       if (sampleDef) { card.cell.dataset.itemTip = ''; card.cell.dataset.defId = sampleDef.id; }
       else { delete card.cell.dataset.itemTip; delete card.cell.dataset.defId; }
 

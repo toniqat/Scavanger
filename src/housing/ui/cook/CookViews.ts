@@ -1,18 +1,18 @@
 /**
- * src/housing/ui/cook/CookViews.ts — 요리 미니게임 6종의 **무대**(`.cook-stage`). 판정 객체(`parts/CookGames`)를 그리기만 한다.
+ * src/housing/ui/cook/CookViews.ts — the **stages** (`.cook-stage`) of the six cooking minigames. It only draws the judge object (`parts/CookGames`).
  *
- * DOM 은 만들 때 한 번 짓고, 매 틱 `paint()` 는 CSS 변수(`--x` · `--f` · `--p` · `--t` · `--lvl` · `--flow`)와 클래스만 고쳐 쓴다.
- * 외부 에셋 없음 — 재료는 공용 아이템 칩(`buildItemChip`), 도마 · 칼 · 그릴 · 팬 · 냄비 · 비커는 CSS 도형이다.
- * 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 그리는 크기를 **판정 값에서 유도한다** — 썰기 줄의 완벽 · 좋음 띠와 표식 폭은
- * `ChopGame.bands`, 볶기의 안내원은 `StirfryGame.bands`, 굽기 링의 호는 `COOK_GRILL_*_PERFECT` · `_GOOD` 이다. csv 를 고치면
- * 그림이 저절로 따라오므로 「보이는 것과 판정이 다르다」 가 생기지 않는다.
+ * The DOM is built once, at construction, and every tick `paint()` rewrites only CSS variables (`--x` · `--f` · `--p` · `--t` · `--lvl` · `--flow`) and classes.
+ * No external assets — the ingredients are the shared item chips (`buildItemChip`), and the board · knife · grill · pan · pot · beaker are CSS shapes.
+ * 2026-09-14 (user's decision 「what you see is the judgement」): the drawn sizes are **derived from the judgement values** — the chopping lane's
+ * perfect · good bands and marker width from `ChopGame.bands`, stir-frying's guide ring from `StirfryGame.bands`, and the grilling ring's arcs from
+ * `COOK_GRILL_*_PERFECT` · `_GOOD`. Fixing the csv makes the drawing follow by itself, so 「what is drawn differs from the judgement」 cannot happen.
  *
- *   • 썰기   = 도마 위 재료 + 칼(칼질마다 내리친다) + 썬 조각 + 오른쪽에서 흘러와 판정선에 닿는 박자 표식.
- *   • 다지기 = 좌 · 우 세로 게이지(좌우 LMB · 상하 RMB) + 도마 위 다진 조각(클릭마다 하나) + 걸린 시간.
- *   • 굽기   = 그릴 위 조각 2–3개 — 진행 링(0 … `BURN_AT`, 50 % · 100 % 눈금) · 뒤집힘 표시 · 익을수록 짙어지고 타면 검다. 조각이 클릭 대상.
- *   • 볶기   = 팬(재료 칩이 튄다) + 박자마다 줄어드는 링 + 퍼센트 바.
- *   • 젓기   = 냄비(누르는 동안 국자가 돈다 · 온도만큼 거품) + 세로 온도계(초록 구간) + 완성 바.
- *   • 붓기   = 가운데 계량 비커(목표선 · 액체 높이 · 액체 색) + 우상단 기울어지는 비커 + 흐름 줄기(굵기 = 흐름).
+ *   • chopping    = the ingredient on the board + the knife (it comes down on every cut) + the cut slices + beat markers flowing in from the right to the judgement line.
+ *   • mincing     = a left · right vertical gauge (left-right LMB · up-down RMB) + the minced bits on the board (one per click) + the time taken.
+ *   • grilling    = 2–3 pieces on the grill — a progress ring (0 … `BURN_AT`, ticks at 50 % · 100 %) · a flipped mark · darker as it cooks, black once burnt. The pieces are the click targets.
+ *   • stir-frying = the pan (the ingredient chips toss) + a ring shrinking on every beat + the percentage bar.
+ *   • stirring    = the pot (the ladle turns while held · bubbles with the temperature) + a vertical thermometer (the green band) + the doneness bar.
+ *   • pouring     = the measuring beaker in the centre (target line · liquid height · liquid colour) + the tilting jug at the top right + the stream (thickness = flow).
  */
 import type { CookJudge, CookBeatAction, ItemDef } from '@/shared';
 import {
@@ -36,14 +36,14 @@ export interface CookView {
 type DefOf = (defId: string) => ItemDef | undefined;
 
 const QUALITY_CLASSES = ['is-perfect', 'is-good', 'is-miss'];
-/** 다지기 도마에 쌓아 그리는 조각 수의 상한 (그림, 판정과 무관). */
+/** The cap on how many bits are piled up on the mincing board (drawing only, nothing to do with the judgement). */
 const MINCE_BITS_MAX = 28;
-/** 볶기 팬에 올려 그리는 재료 칩 크기 · 도마 재료 칩 크기 (px, 레이아웃 값). */
+/** The size of the ingredient chips drawn in the stir-fry pan · on the board (px, layout values). */
 const PAN_CHIP = 34;
 const BOARD_CHIP = 52;
 const GRILL_CHIP = 40;
 
-/** 한 번 켜는 CSS 애니메이션을 처음부터 다시 튼다. */
+/** Restarts a one-shot CSS animation from the beginning. */
 export function replayCookClass(e: HTMLElement, cls: string): void {
   e.classList.remove(cls);
   void e.offsetWidth;
@@ -79,13 +79,13 @@ abstract class BaseView implements CookView {
   }
   protected setVar(e: HTMLElement, name: string, value: string): void { setVar(e, name, value, this.vars); }
   abstract paint(): void;
-  judged(_q: CookJudge, _i: number): void { /* 게임마다 */ }
-  beat(_a: CookBeatAction, _q: CookJudge | null): void { /* 게임마다 */ }
-  input(_b: CookButton, _down: boolean): void { /* 게임마다 */ }
+  judged(_q: CookJudge, _i: number): void { /* per game */ }
+  beat(_a: CookBeatAction, _q: CookJudge | null): void { /* per game */ }
+  input(_b: CookButton, _down: boolean): void { /* per game */ }
   dispose(): void { this.root.remove(); }
 }
 
-/* ── 썰기 ────────────────────────────────────────────────────────────────── */
+/* ── Chopping ────────────────────────────────────────────────────────────── */
 class ChopView extends BaseView {
   private readonly board: HTMLElement;
   private readonly knife: HTMLElement;
@@ -103,7 +103,7 @@ class ChopView extends BaseView {
     const track = el('div', { cls: 'cook-track', parent: this.root });
     this.lane = el('div', { cls: 'cook-lane', parent: track });
     this.look = g.beatS * (COOK_LEAD_BEATS + 1);
-    // 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 띠 · 표식의 폭이 판정 값(`g.bands`)에서 나온다 — 표식이 완벽 띠를 덮으면 완벽
+    // 2026-09-14 (user's decision 「what you see is the judgement」): the band · marker widths come from the judgement values (`g.bands`) — a marker covering the perfect band is perfect
     const half = (g.bands.perfect / this.look).toFixed(4);
     this.lane.style.setProperty('--half', half);
     this.lane.style.setProperty('--good-half', (g.bands.good / this.look).toFixed(4));
@@ -141,7 +141,7 @@ class ChopView extends BaseView {
   }
 }
 
-/* ── 다지기 ──────────────────────────────────────────────────────────────── */
+/* ── Mincing ─────────────────────────────────────────────────────────────── */
 class MinceView extends BaseView {
   private readonly gh: HTMLElement;
   private readonly gv: HTMLElement;
@@ -162,7 +162,7 @@ class MinceView extends BaseView {
     this.paint();
   }
 
-  /** `code` = 그 게이지를 채우는 마우스 버튼 (2026-09-15: 공용 키캡의 마우스 그림 — 예전 `LMB` · `RMB` 글자). */
+  /** `code` = the mouse button that fills that gauge (2026-09-15: the shared keycap's mouse glyph — formerly the text `LMB` · `RMB`). */
   private gauge(label: string, code: string): HTMLElement {
     const box = el('div', { cls: 'cook-gauge', parent: this.root });
     const bar = el('div', { cls: 'cook-gauge-bar', parent: box });
@@ -189,7 +189,7 @@ class MinceView extends BaseView {
     replayCookClass(this.knife, action === 'mince_h' ? 'is-chop-h' : 'is-chop-v');
     replayCookClass(action === 'mince_h' ? this.gh : this.gv, 'is-hit');
     if (this.bitCount >= MINCE_BITS_MAX) return;
-    // 조각 자리는 번호에서 나오는 결정적 위치 (그림일 뿐 — 무작위가 필요 없다)
+    // a bit's spot is a deterministic position derived from its number (drawing only — no randomness needed)
     const k = this.bitCount++;
     const b = el('i', { cls: 'cook-bit', parent: this.bits });
     b.style.setProperty('--bx', `${(((k * 37) % 80) + 10).toFixed(0)}%`);
@@ -202,10 +202,10 @@ class MinceView extends BaseView {
   }
 }
 
-/* ── 굽기 ────────────────────────────────────────────────────────────────── */
+/* ── Grilling ────────────────────────────────────────────────────────────── */
 /**
- * 진행 링 위의 판정 호 (2026-09-14) — 진행도 `at`(0.5 뒤집기 · 1 꺼내기) ± `half` 를 한 바퀴 = `burn` 인 각으로 옮긴다.
- * 폭이 곧 `COOK_GRILL_*_PERFECT` · `_GOOD` 이라 눈으로 보는 것이 판정이다.
+ * A judgement arc on the progress ring (2026-09-14) — progress `at` (0.5 flip · 1 remove) ± `half`, mapped onto angles where one full turn = `burn`.
+ * Its width is exactly `COOK_GRILL_*_PERFECT` · `_GOOD`, so what the eye sees is the judgement.
  */
 function arc(ring: HTMLElement, cls: string, at: number, half: number, burn: number): void {
   const a0 = Math.max(0, (at - half) / burn), a1 = Math.min(1, (at + half) / burn);
@@ -223,9 +223,9 @@ class GrillView extends BaseView {
     g.pieces.forEach((p, i) => {
       const e = el('div', { cls: 'cook-piece is-waiting', attrs: { 'data-i': String(i) }, parent: plate });
       const ring = el('div', { cls: 'cook-ring', parent: e });
-      // 50 % · 100 % 눈금 — 링은 0 … BURN_AT 한 바퀴
+      // ticks at 50 % · 100 % — one turn of the ring is 0 … BURN_AT
       const burn = Math.max(1, COOK_GRILL_BURN_AT);
-      // 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 눈금 옆에 **판정 폭 그대로**의 호를 깐다 (좋음 아래 · 완벽 위)
+      // 2026-09-14 (user's decision 「what you see is the judgement」): arcs **exactly as wide as the judgement** are laid beside the ticks (good below · perfect above)
       arc(ring, 'is-good', 0.5, COOK_GRILL_FLIP_GOOD, burn);
       arc(ring, 'is-perfect', 0.5, COOK_GRILL_FLIP_PERFECT, burn);
       arc(ring, 'is-good', 1, COOK_GRILL_DONE_GOOD, burn);
@@ -275,7 +275,7 @@ class GrillView extends BaseView {
 
 const JUDGE_KO: Readonly<Record<CookJudge, string>> = { perfect: '완벽', good: '좋음', miss: '실패' };
 
-/* ── 볶기 ────────────────────────────────────────────────────────────────── */
+/* ── Stir-frying ─────────────────────────────────────────────────────────── */
 class StirfryView extends BaseView {
   private readonly pan: HTMLElement;
   private readonly ring: HTMLElement;
@@ -285,7 +285,7 @@ class StirfryView extends BaseView {
   constructor(private readonly g: StirfryGame, parent: HTMLElement, defOf: DefOf) {
     super(parent, 'stirfry');
     const stove = el('div', { cls: 'cook-stove', parent: this.root });
-    // 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 링이 이 안내원 안으로 들어오면 완벽 — 반지름이 판정 띠에서 나온다
+    // 2026-09-14 (user's decision 「what you see is the judgement」): perfect once the ring comes inside this guide ring — its radius comes from the judgement band
     const guide = el('i', { cls: 'cook-beatguide', parent: stove });
     guide.style.setProperty('--s', (1 + g.bands.perfect / Math.max(1e-6, g.beatS)).toFixed(3));
     const guideGood = el('i', { cls: 'cook-beatguide is-good', parent: stove });
@@ -307,7 +307,7 @@ class StirfryView extends BaseView {
     const beats = this.g.time / Math.max(1e-6, this.g.beatS);
     const frac = beats - Math.floor(beats);
     const lead = beats < COOK_LEAD_BEATS - 0.5;
-    // 박자에 가까워질수록 링이 팬 테두리(1)로 줄어든다 — 박자 순간 1, 막 지난 뒤 2
+    // the closer the beat, the further the ring shrinks toward the pan's rim (1) — 1 at the beat, 2 just after it
     this.setVar(this.ring, '--s', (1 + (1 - frac)).toFixed(3));
     toggleClass(this.ring, 'is-lead', lead);
     toggleClass(this.ring, 'is-used', this.g.usedBeats.has(this.g.nearestBeat()));
@@ -322,7 +322,7 @@ class StirfryView extends BaseView {
   }
 }
 
-/* ── 젓기 ────────────────────────────────────────────────────────────────── */
+/* ── Stirring ────────────────────────────────────────────────────────────── */
 class StirView extends BaseView {
   private readonly pot: HTMLElement;
   private readonly thermo: HTMLElement;
@@ -366,7 +366,7 @@ class StirView extends BaseView {
   }
 }
 
-/* ── 붓기 ────────────────────────────────────────────────────────────────── */
+/* ── Pouring ─────────────────────────────────────────────────────────────── */
 class PourView extends BaseView {
   private readonly beaker: HTMLElement;
   private readonly jug: HTMLElement;

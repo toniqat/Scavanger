@@ -5,47 +5,47 @@ import { buildFootprintCells, cellToFit } from './ItemTile';
 import { clear, el, setText, toggleClass } from './dom';
 
 /**
- * **그려진 선반** (2026-09-13) — 서재 보관함 화면 왼쪽 카드의 가구 그림. 책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대가 같은 뼈대를
- * 쓰고 매체가 모양만 바꾼다 (전부 CSS 로 그린다 — 이미지 파일 없음, `housing.css` 의 `.lib-*`).
+ * **The drawn shelf** (2026-09-13) — the furniture drawing on the left card of the library holder screen. The bookshelf · disc stand · record rack ·
+ * game disc stand share one skeleton and the medium changes the shape only (all drawn in CSS — no image file, `.lib-*` in `housing.css`).
  *
- * **2026-09-16 (사용자 결정 — 칸은 아이템 격자 칸이다)**: 한 칸에 그리던 **전용 그림**(책등 · 디스크 케이스 ·
- * 레코드 슬리브 · 게임 케이스 = `.lib-deco` · `.lib-face` · `.lib-glyph` · `.lib-label`)을 걷어내고, 꽂힌 칸에는
- * **가방에서 보던 아이템 타일 그대로**(`ui/ItemTile.buildStationItemTile`)가 선다. 수량 숫자는 그리지 않는다.
- * 가구(틀 · 층 판 · 구분막 · 받침)는 그대로다 — 바뀐 것은 「칸 **안**에 무엇이 서는가」뿐이다.
- * 타일은 `paintShelfSlot` 에 넘어온 `buildTile` 이 만든다 — 이 파일은 여전히 `ctx` 를 모른다.
+ * **2026-09-16 (user's decision — a cell is an item grid cell)**: the **dedicated drawing** once painted into a cell (book spine · disc case ·
+ * record sleeve · game case = `.lib-deco` · `.lib-face` · `.lib-glyph` · `.lib-label`) is gone, and a filled cell now holds
+ * **exactly the item tile seen in the bag** (`ui/ItemTile.buildStationItemTile`). No quantity number is drawn.
+ * The furniture (frame · tier plate · divider · plinth) is unchanged — what changed is only 「what stands **inside** a cell」.
+ * The tile is made by the `buildTile` handed to `paintShelfSlot` — this file still knows nothing of `ctx`.
  *
- * **2026-09-14 (층당 여러 줄, 사용자 결정)**: 층 수 `SHELF_TIERS` · 한 줄의 칸 수 `SHELF_TIER_COLS` · 한 층의 칸 수
- * `shelfSlotsPerTier` 가 전부 계약(`shared/housing`)에 있고 이 파일은 그대로 그린다 — 한 층(`.lib-tier`, 아래가 두꺼운
- * 선반 판)이 `.lib-row` 를 필요한 만큼 품고, 한 줄이 `SHELF_TIER_COLS` 열 격자다. 열 수는 `.lib-case` 의
- * `--lib-cols` 로 CSS 에 넘어간다.
- * ⚠ 층은 **표시**일 뿐이다 — 저장되는 것은 `slot` 인덱스 하나이고 번호는 0 부터 이어진다.
+ * **2026-09-14 (several rows per tier, user's decision)**: the tier count `SHELF_TIERS` · a row's cell count `SHELF_TIER_COLS` · a tier's cell count
+ * `shelfSlotsPerTier` all live in the contract (`shared/housing`) and this file just draws them — one tier (`.lib-tier`, a shelf plate thick at
+ * the bottom) holds as many `.lib-row` as it needs, and one row is a `SHELF_TIER_COLS`-column grid. The column count reaches CSS as
+ * `--lib-cols` on `.lib-case`.
+ * ⚠ A tier is **display** only — what is saved is the one `slot` index, numbered from 0 without a break.
  *
- * **2026-09-15 (구분막 · 칸 번호 제거, 사용자 결정)**:
- * - 칸의 **숫자 표기(`.lib-num`)를 없앴다.** 꽂는 자리는 그림이 말하고 번호는 어차피 저장값일 뿐이다.
- * - 한 줄의 **가운데에 구분막**이 선다. 새 자식을 만들지 않고 가운데 오른쪽 칸에 `.is-div` 를 붙여 CSS 가 그 칸의
- *   왼쪽에 판을 세운다 — `.lib-row` 의 자식은 여전히 **칸뿐**이라 열 수를 세는 쪽(스모크 · CSS 격자)이 안 흔들린다.
- *   구분막 자리는 `floor(cols / 2)` 이고, 열이 하나면 구분막이 없다.
+ * **2026-09-15 (the divider · the cell number removed, user's decision)**:
+ * - A cell's **number (`.lib-num`) is gone.** The drawing says where a thing goes, and the number is only a saved value anyway.
+ * - A **divider stands in the middle** of a row. No new child is made: `.is-div` goes on the cell right of the middle and CSS raises a plate
+ *   on that cell's left — `.lib-row`'s children are still **cells only**, so whatever counts columns (the smoke test · the CSS grid) is not shaken.
+ *   The divider sits at `floor(cols / 2)`, and with a single column there is none.
  *
- * 2026-09-13 (서재 시리즈): 꽂힌 칸에 **권 번호 배지**(`.lib-vol`, `II` — 단편이면 숨김)가 붙고, 그 시리즈를 전권 모았으면 `.is-full`
- * (초록 윤곽)이다.
+ * 2026-09-13 (library series): a filled cell carries a **volume badge** (`.lib-vol`, `II` — hidden for a one-shot), and once every volume of that series
+ * is collected it is `.is-full` (a green outline).
  *
- * 칸 번호는 **위 → 아래, 왼 → 오른쪽**이고 3D 모델(`hub/interiors/Furniture` 의 `bookshelf`)과 같은 순서다.
- * 빈 칸은 인벤토리의 빈 칸처럼 점선 상자다. `.lib-slot[data-slot]` 이 드롭 대상이고(TradeGrids 가 `.is-over` 를 붙인다),
- * 아이템 카드(`ui/hud/ItemTip`)는 타일이 `data-item-tip` 을 달고 온다.
- * 이 파일은 상태도 리스너도 없다 — 칠하기는 `paintShelfSlot`, 규칙은 `parts/Library` 다.
+ * Cell numbers run **top → bottom, left → right**, the same order as the 3D model (`bookshelf` in `hub/interiors/Furniture`).
+ * An empty cell is a dashed box, like an empty inventory cell. `.lib-slot[data-slot]` is the drop target (TradeGrids adds `.is-over`),
+ * and the item card (`ui/hud/ItemTip`) comes from the tile carrying `data-item-tip`.
+ * This file has no state and no listener — painting is `paintShelfSlot`, the rules are `parts/Library`.
  */
 
 /**
- * 한 줄에 그리는 칸 수. 2026-09-14 부터 매체마다 다르다 — 값의 원본은 계약의 `SHELF_TIER_COLS` 다.
- * @deprecated 옛 고정값 2 를 읽던 곳을 위해 남긴다 (부르는 곳 없음).
+ * How many cells one row draws. Since 2026-09-14 it differs per medium — the source of the value is the contract's `SHELF_TIER_COLS`.
+ * @deprecated kept for whatever read the old fixed 2 (no caller).
  */
 export const SHELF_COLS = 2;
 
 /**
- * **한 칸의 상자** (px) — 가구 그림에서 한 칸이 차지하는 자리다 (2026-09-16 부터 JS 가 원본이고 CSS 는
- * `--lib-item-w` / `--lib-item-h` 로 받는다: 아이템 타일의 칸 크기를 같은 값에서 유도해야 해서 두 곳에 둘 수 없다).
- * 값은 2026-09-15 까지 CSS 가 쓰던 것 그대로이고, 매체의 아이템 발자국(책 1×2 · 디스크 2×2 · 레코드 3×3 ·
- * 게임 1×2)이 이 상자 안에 통째로 들어간다 — 배치 상수다.
+ * **One cell's box** (px) — the room one cell takes in the furniture drawing (since 2026-09-16 JS is the source and CSS receives it
+ * through `--lib-item-w` / `--lib-item-h`: the item tile's cell size has to be derived from the same value, so it cannot live in two places).
+ * The values are the ones CSS used up to 2026-09-15, and a medium's item footprint (book 1×2 · disc 2×2 · record 3×3 ·
+ * game 1×2) fits whole inside this box — a layout constant.
  */
 const SHELF_SLOT_BOX: Readonly<Record<ShelfMedium, { width: number; height: number }>> = {
   book: { width: 44, height: 86 },
@@ -54,15 +54,15 @@ const SHELF_SLOT_BOX: Readonly<Record<ShelfMedium, { width: number; height: numb
   game: { width: 46, height: 64 },
 };
 
-/** 그 매체의 한 칸 상자 (px) — 부르는 쪽이 여기에 맞는 타일 칸 크기를 잰다 (`ui/ItemTile.cellToFit`). */
+/** That medium's one-cell box (px) — the caller measures the tile cell size that fits it (`ui/ItemTile.cellToFit`). */
 export function shelfSlotBox(medium: ShelfMedium): { width: number; height: number } {
   return SHELF_SLOT_BOX[medium] ?? SHELF_SLOT_BOX.book;
 }
 
 /**
- * **그 매체가 받는 아이템의 발자국** (칸 수) — 2026-09-17 (사용자 결정 「칸 모양은 받는 아이템의 크기를 따른다」).
- * 매체에 속하는 아이템 def 들(`shelfHolderMediumOfItem`)의 **가장 큰 폭 · 높이**다: 어느 것을 꽂아도 칸에 통째로 들어간다.
- * 데이터에 적힌 크기가 원본이라 코드에 1×2 · 2×2 를 적지 않는다. def 가 없으면(부팅 순서) null — 칸 상자 하나로 그린다.
+ * **The footprint of the items that medium takes** (in cells) — 2026-09-17 (user's decision 「a cell's shape follows the size of the item it takes」).
+ * The **largest width · height** among the item defs that belong to the medium (`shelfHolderMediumOfItem`): whatever is shelved fits whole in a cell.
+ * The size written in the data is the source, so no 1×2 · 2×2 is written into the code. null with no def (boot order) — drawn as one cell box.
  */
 export function shelfFootprint(defs: readonly ItemDef[] | null | undefined, medium: ShelfMedium): { w: number; h: number } | null {
   let w = 0, h = 0;
@@ -88,16 +88,16 @@ export interface ShelfDrawing {
   readonly root: HTMLElement;
   readonly medium: ShelfMedium;
   readonly slots: readonly ShelfSlotView[];
-  /** 2026-09-17: 칸의 발자국 (칸 수) — 빈 칸이 이만큼의 격자 칸으로 그려진다. */
+  /** 2026-09-17: the cell's footprint (in cells) — an empty cell is drawn as this many grid cells. */
   readonly footprint: { w: number; h: number };
-  /** 2026-09-17: 격자 칸 한 변(px) — 꽂힌 타일도 이 칸 크기로 짓는다 (빈 칸과 꽂힌 칸이 같은 상자다). */
+  /** 2026-09-17: the grid cell's edge (px) — a shelved tile is built at this cell size too (an empty and a filled cell are the same box). */
   readonly cell: number;
 }
 
 /** What one slot shows. `defId` null = empty (the other fields are ignored except `line`). */
 export interface ShelfSlotPaint {
   defId: string | null;
-  /** The slot's info line (shown under the shelf while the slot is hovered). 2026-09-14: **빈 칸은 빈 문자열**이다 — 빈 칸 호버는 아무것도 말하지 않는다. */
+  /** The slot's info line (shown under the shelf while the slot is hovered). 2026-09-14: **an empty cell is the empty string** — hovering one says nothing. */
   line: string;
   /** 2026-09-13: roman volume number (`II`) — empty / omitted hides the badge. */
   volume?: string;
@@ -107,8 +107,8 @@ export interface ShelfSlotPaint {
 
 /**
  * (Re)draw the case for `medium` into `host` (emptied first).
- * 2026-09-17: `footprint` (칸 수, `shelfFootprint`) 를 주면 칸 상자가 **그 발자국의 격자 상자**다 — 매체의 자리
- * (`SHELF_SLOT_BOX`) 안에 통째로 들어가는 칸 크기(`cellToFit`)로 잰다. 주지 않으면 1×1 칸 하나로 자리를 채운다.
+ * 2026-09-17: given a `footprint` (in cells, `shelfFootprint`) the cell box is **that footprint's grid box** — measured at the cell size
+ * (`cellToFit`) that fits whole inside the medium's room (`SHELF_SLOT_BOX`). Without one, a single 1×1 cell fills the room.
  */
 export function buildShelfDrawing(host: HTMLElement, medium: ShelfMedium, footprint?: { w: number; h: number } | null): ShelfDrawing {
   clear(host);
@@ -124,7 +124,7 @@ export function buildShelfDrawing(host: HTMLElement, medium: ShelfMedium, footpr
   root.style.setProperty('--lib-cols', String(cols));
   root.style.setProperty('--lib-item-w', `${box.width}px`);
   root.style.setProperty('--lib-item-h', `${box.height}px`);
-  // 2026-09-15: 구분막이 서는 열 (그 칸의 **왼쪽**에 판이 선다). 열이 하나뿐이면 구분막이 없다.
+  // 2026-09-15: the column the divider stands at (the plate rises on that cell's **left**). With a single column there is no divider.
   const divAt = cols >= 2 ? Math.floor(cols / 2) : -1;
   const slots: ShelfSlotView[] = [];
   for (let t = 0; t < tiers; t++) {
@@ -135,7 +135,7 @@ export function buildShelfDrawing(host: HTMLElement, medium: ShelfMedium, footpr
       for (let c = 0; c < cols; c++) {
         const slot = t * perTier + r * cols + c;
         const div = c === divAt ? ' is-div' : '';
-        // 빈 격자 칸: 층에 배정된 칸을 넘었거나(마지막 층이 짧다) 전체 칸 수를 넘었다 — 자리는 지키고 드롭 대상이 아니다
+        // A void grid cell: past the cells the tier was given (the last tier is short) or past the total count — it keeps the room and is no drop target
         if (slot >= count || r * cols + c >= perTier) { el('div', { cls: `lib-slot is-void${div}`, parent: row }); continue; }
         const slotEl = el('div', { cls: `lib-slot${div}`, attrs: { 'data-slot': String(slot) }, parent: row });
         const item = el('div', { cls: 'lib-item', parent: slotEl });
@@ -160,15 +160,15 @@ export function paintShelfSlot(
   const filled = p.defId !== null;
   toggleClass(v.root, 'is-filled', filled);
   toggleClass(v.root, 'is-full', filled && p.full === true);
-  // 2026-09-17: 빈 칸 = 발자국만큼의 격자 칸 (`empty` 를 준 화면만). 한 번 지은 빈 칸은 다시 짓지 않는다.
+  // 2026-09-17: an empty cell = as many grid cells as the footprint (only on a screen that passed `empty`). Once built it is never rebuilt.
   if (!filled && empty && v.item.dataset.defId === undefined && !v.item.firstChild) {
     v.item.appendChild(buildFootprintCells(empty.w, empty.h, empty.cell));
   }
   if (v.item.dataset.defId !== (p.defId ?? undefined)) {
     clear(v.item);
     if (filled) {
-      // `data-item-tip` + `data-def-id` 는 칸 상자에도 그대로 둔다 (타일이 스스로 달고 오지만, 「꽂힌 칸이
-      // 아이템 카드를 띄운다」는 이 요소의 오랜 계약이고 스모크도 여기를 본다 — `scripts/smoke-library.mjs`)
+      // `data-item-tip` + `data-def-id` stay on the cell box as well (the tile brings its own, but 「a filled cell raises
+      // the item card」 is this element's long-standing contract and the smoke test reads it here — `scripts/smoke-library.mjs`)
       v.item.dataset.itemTip = '';
       v.item.dataset.defId = p.defId!;
       v.item.appendChild(buildTile(p.defId!));

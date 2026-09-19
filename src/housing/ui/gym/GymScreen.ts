@@ -1,32 +1,35 @@
 /**
- * src/housing/ui/gym/GymScreen.ts — **운동 화면** (A-3a, 2026-09-12). 한 오버레이(`.gym`)가 세 화면을 갈아 끼운다:
+ * src/housing/ui/gym/GymScreen.ts — **the gym screen** (A-3a, 2026-09-12). One overlay (`.gym`) swaps three screens in:
  *
- *   시작 안내(`intro`) ─ Space ─▶ 게임(`game`) ─ 마지막 판정 ─▶ 결과(`result`)
+ *   the intro (`intro`) ─ Space ─▶ the game (`game`) ─ the last judgement ─▶ the result (`result`)
  *
- * **키보드 게임이라 커서 모드를 켜지 않는다.** 블로커(`housing.gym`)만 올려 다른 시스템(이동 · 상호작용 · M · 인벤토리)을
- * 멈추고, 입력은 `window` capture 단계의 keydown / keyup 리스너가 받는다 — `Keys.JUMP` · `Keys.LEFT` · `Keys.RIGHT` 를
- * **사용 시점에** 읽고 `stopImmediatePropagation` 으로 삼키므로 `Input` 은 점프를 기록조차 못 한다. keyup 은 **우리가
- * keydown 을 삼킨 키만** 삼킨다 — 화면이 열리기 전부터 쥐고 있던 키(걷던 D)의 keyup 까지 먹으면 `Input` 이 그 키를
- * 영영 눌린 채로 안다.
+ * **It is a keyboard game, so cursor mode stays off.** Only the blocker (`housing.gym`) goes up, stopping the other systems
+ * (movement · interaction · M · inventory), and the input is taken by keydown / keyup listeners in `window`'s capture phase —
+ * they read `Keys.JUMP` · `Keys.LEFT` · `Keys.RIGHT` **at use time** and swallow them with `stopImmediatePropagation`, so
+ * `Input` never even records the jump. keyup is swallowed **only for a key whose keydown we swallowed** — eating the keyup of
+ * a key held since before the screen opened (the D of walking) would leave `Input` believing that key is held forever.
  *
- * 닫기: Escape(`ctx.escape` 토큰 `housing.gym`) · Tab 은 어느 화면에서든 닫는다 — 게임 도중이면 **취소**(보상 · 디버프 없음).
- * E(`Keys.INTERACT`)는 패널 규약대로 시작 안내 · 결과에서 닫고, **게임 도중에는 삼키기만 한다** (사이클의 D 바로 위 키라
- * 한 번 스쳐서 세션을 날리지 않게). 키 가이드 owner 는 `housing.gym` 이고 화면마다 자기 키를 올린다.
+ * Closing: Escape (`ctx.escape` token `housing.gym`) · Tab closes from any screen — mid-game that is a **cancel** (no reward,
+ * no debuff). E (`Keys.INTERACT`) closes the intro · the result as the panel contract says, and **mid-game it is only
+ * swallowed** (it sits right above cycling's D, so one brush of it must not throw the session away). The key-guide owner is
+ * `housing.gym`, and every screen raises its own keys.
  *
- * 시간은 `performance.now()` 기반이다. **루프는 화면 프레임마다 한 번**(`requestAnimationFrame`) 판정 객체를 밀고 그린다 —
- * 키가 오면 **그 순간까지** 먼저 민 뒤 판정하고 그 자리에서 다시 그린다 (틱 간격만큼 판정이 늦지 않고, 화면이 판정과 어긋나지 않는다).
+ * Time is based on `performance.now()`. **The loop pushes and draws the judge object once per screen frame**
+ * (`requestAnimationFrame`) — when a key arrives it is pushed **up to that moment** first, judged, then redrawn on the spot (no judgement late by a tick, no screen out of step with it).
  *
- * 2026-09-12 정정 (F): 처음 판은 `setInterval(16 ms)` 가 밀고 그렸다. 3D 프레임이 무겁고 입력(포인터 락 마우스 · 키)이
- * 들어오는 동안 Chrome 은 렌더링 · 입력 태스크를 타이머보다 먼저 돌리므로, 30 ms 프레임 + 입력 스트림에서 그 타이머는
- * 1.6 초에 24 번(중간 61 ms · 최대 122 ms 간격 — rAF 는 52 번)밖에 못 돌았다. 커서 · 표식이 2–4 프레임씩 건너뛰며 끊겼고,
- * 키 핸들러는 판정 객체만 밀고 그리지 않아 화면이 키 입력 순간에 맞춰 튀는 것처럼 보였다. rAF 는 **그리기 직전에** 돌므로
- * 화면이 바뀌는 프레임마다 반드시 한 번 칠한다. 예비 타이머(`FALLBACK_MS`)는 rAF 가 멈춘 경우(헤드리스 · 가려진 창)에만 일한다.
+ * 2026-09-12 correction (F): the first build pushed and drew from `setInterval(16 ms)`. While the 3D frame is heavy and
+ * input (pointer-lock mouse · keys) keeps arriving, Chrome runs rendering · input tasks ahead of timers, so on 30 ms frames
+ * plus an input stream that timer only ran 24 times in 1.6 s (61 ms median · 122 ms worst gap — rAF ran 52). The cursor ·
+ * markers skipped 2–4 frames at a time and stuttered, and the key handler pushed the judge object without drawing, so the
+ * screen looked as if it jumped at the moment of the key. rAF runs **right before drawing**, so it paints exactly once on
+ * every frame that changes. The fallback timer (`FALLBACK_MS`) works only when rAF has stopped (headless · a hidden window).
  *
- * 2026-09-13 (비디오게임, H2): **게임 모드**(`openGame`)가 같은 화면을 쓴다 — 헬스 모드(`open`)는 한 글자도 바뀌지 않았다.
- * 게임 모드의 차이: 판정 = `createGymGame(minigame, 디스크 튜닝)` · 제목 = 디스크 이름 · 부제 = 게임기 · 방식(`벤치프레스형` …) ·
- * 강조색 = 디스크 테마 색(루트의 `--c-accent` 를 덮어 `.gym-*` 전부가 따라간다, 루트 클래스 `is-game`) · 블로커 / ESC / 키 가이드 토큰
- * `housing.game` · 판정 이벤트 `housing:gameBeat` · 끝 = `parts/VideoGame` 의 `completeGameSession` / `endGameSession`.
- * 소리는 헬스와 같은 id(`gym_*`)를 쓴다.
+ * 2026-09-13 (video games, H2): **game mode** (`openGame`) uses the same screen — gym mode (`open`) did not change one letter.
+ * Game mode differs in: the judge = `createGymGame(minigame, the disc's tuning)` · the title = the disc name · the subtitle =
+ * the console · the kind (`벤치프레스형` …) · the accent colour = the disc's theme colour (it overrides the root's `--c-accent`,
+ * so every `.gym-*` follows it, root class `is-game`) · the blocker / ESC / key-guide token `housing.game` · the judgement
+ * event `housing:gameBeat` · the end = `parts/VideoGame`'s `completeGameSession` / `endGameSession`.
+ * The sounds use the same ids as the gym (`gym_*`).
  */
 import type {
   GameContext, GameSessionInfo, GymGameTuning, GymMinigame, GymSessionInfo, GymSessionResult, GymStat, KeyGuideEntry,
@@ -46,18 +49,18 @@ import type { GymNoteLabels, GymView } from './GymViews';
 import './gym.css';
 
 export type GymScreenKind = 'intro' | 'game' | 'result';
-/** 화면이 몰고 있는 세션의 종류 — 헬스 기구 · 비디오게임 (2026-09-13). */
+/** The kind of session the screen is driving — gym equipment · a video game (2026-09-13). */
 export type GymScreenMode = 'gym' | 'game';
 
-/** 헬스 모드의 ESC 토큰 · 키 가이드 owner (블로커 `GYM_BLOCKER` 와 같은 글자). */
+/** Gym mode's ESC token · key-guide owner (the same text as the blocker `GYM_BLOCKER`). */
 const GYM_TOKEN = 'housing.gym';
-/** 예비 타이머 간격 (ms) — rAF 가 돌지 않을 때만 일한다 (구현 값). */
+/** The fallback timer's interval (ms) — it works only while rAF is not running (an implementation value). */
 const FALLBACK_MS = 50;
-/** 마지막 루프가 이보다 오래됐으면 rAF 가 멈춘 것으로 본다 (ms, 구현 값). */
+/** A last loop older than this counts as rAF having stopped (ms, an implementation value). */
 const FALLBACK_STALE_MS = 100;
-/** 마지막 판정 뒤 결과 화면으로 넘어가기까지 (ms) — 마지막 판정 글자를 읽을 틈 (연출 시간). */
+/** From the last judgement to the result screen (ms) — a moment to read the last judgement's text (a presentation time). */
 const RESULT_DELAY_MS = 700;
-/** 게임 모드 호흡형 표식 글자. */
+/** Game mode's breathing marker text. */
 const GAME_NOTE_LABELS: GymNoteLabels = { tap: '톡', hold: '꾹' };
 const COLOR_SHAPE = /^#[0-9a-fA-F]{6}$/;
 
@@ -67,18 +70,18 @@ const isField = (t: EventTarget | null): boolean => t instanceof HTMLInputElemen
 
 interface Clock { el: HTMLElement; until: number; format: (s: string) => string; text: string }
 
-/** 한 번 연 세션의 모든 것 — 헬스 · 게임이 이것 하나로 갈린다. */
+/** Everything about one opened session — gym · game split on this one object. */
 interface ScreenSpec {
   mode: GymScreenMode;
-  /** 운동 기구 uid · TV uid. */
+  /** The gym equipment's uid · the TV's uid. */
   uid: string;
   stat: GymStat;
   minigame: GymMinigame;
-  /** 기구 이름 · 디스크 이름. */
+  /** The equipment name · the disc name. */
   title: string;
-  /** 게임기 이름 (게임 모드 부제), 헬스는 ''. */
+  /** The console name (game mode's subtitle), '' for the gym. */
   consoleName: string;
-  /** 게임 테마 색 `#rrggbb`, 헬스 · 잘못된 값은 null. */
+  /** The game's theme colour `#rrggbb`; null for the gym · for a malformed value. */
   color: string | null;
   tuning: GymGameTuning | undefined;
 }
@@ -94,16 +97,16 @@ export class GymScreen {
   readonly root: HTMLElement;
   screen: GymScreenKind | null = null;
   game: GymGame | null = null;
-  /** 마지막으로 끝낸 **헬스** 세션의 결과 (닫은 뒤에도 남는다 — 스모크). */
+  /** The result of the last finished **gym** session (it survives closing — smoke test). */
   lastResult: GymSessionResult | null = null;
-  /** 마지막으로 끝낸 **게임** 세션의 결과 (2026-09-13). */
+  /** The result of the last finished **game** session (2026-09-13). */
   lastGameResult: GymSessionResult | null = null;
   private spec: ScreenSpec | null = null;
-  /** 지금 열린 모드의 블로커 · ESC · 키 가이드 토큰 (닫을 때 spec 이 먼저 비워져도 남는다). */
+  /** The open mode's blocker · ESC · key-guide token (it survives even when spec is cleared first on close). */
   private token = GYM_TOKEN;
   private card: HTMLElement | null = null;
   private panel: HTMLElement | null = null;
-  /** 진행 바의 채움 (2026-09-14 — 옛 `N / M` 글자를 대신한다). */
+  /** The progress bar's fill (2026-09-14 — it replaces the old `N / M` text). */
   private progFill: HTMLElement | null = null;
   private progF = -1;
   private verdict: HTMLElement | null = null;
@@ -111,9 +114,9 @@ export class GymScreen {
   private clocks: Clock[] = [];
   private raf = 0;
   private timer = 0;
-  /** 판정 객체를 마지막으로 민 시각 (`performance.now()`). */
+  /** The time the judge object was last pushed (`performance.now()`). */
   private last = 0;
-  /** 루프가 마지막으로 돈 시각 — 예비 타이머가 rAF 가 살아 있는지 본다. */
+  /** The time the loop last ran — the fallback timer looks at it to see whether rAF is alive. */
   private lastLoop = 0;
   private resultAt = 0;
   private finalScore = 0;
@@ -127,18 +130,18 @@ export class GymScreen {
   }
 
   get isOpen(): boolean { return this.screen !== null; }
-  /** 열린 화면의 모드 (닫혀 있으면 null). */
+  /** The open screen's mode (null when closed). */
   get mode(): GymScreenMode | null { return this.isOpen && this.spec ? this.spec.mode : null; }
-  /** 화면 루프(rAF · 예비 타이머)가 걸려 있는가 — 스모크 (닫으면 false). */
+  /** Is the screen loop (rAF · the fallback timer) armed — smoke test (false once closed). */
   get ticking(): boolean { return this.raf !== 0 || this.timer !== 0; }
 
-  /* ── 열기 · 닫기 ─────────────────────────────────────────────────────────── */
-  /** 헬스 기구 세션 (A-3a). */
+  /* ── Open · close ────────────────────────────────────────────────────────── */
+  /** A gym equipment session (A-3a). */
   open(session: GymSessionInfo, equipName: string): void {
     this.openSpec({ mode: 'gym', uid: session.uid, stat: session.stat, minigame: session.minigame, title: equipName, consoleName: '', color: null, tuning: undefined });
   }
 
-  /** 비디오게임 세션 (2026-09-13) — 디스크 이름 · 테마 색 · 튜닝. */
+  /** A video-game session (2026-09-13) — the disc name · theme colour · tuning. */
   openGame(info: GameSessionInfo, opts: GameScreenOptions): void {
     const color = typeof opts.color === 'string' && COLOR_SHAPE.test(opts.color) ? opts.color : null;
     this.openSpec({
@@ -168,7 +171,7 @@ export class GymScreen {
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
-  /** 닫는다 — 게임 도중이면 취소다. 세션 끝(`housing:gymSession` / `housing:gameSession {active:false}`)은 parts 가 낸다. */
+  /** Closes — mid-game that is a cancel. The session end (`housing:gymSession` / `housing:gameSession {active:false}`) is emitted by parts. */
   close(): void {
     if (!this.isOpen) return;
     const mode = this.spec?.mode ?? 'gym';
@@ -205,7 +208,7 @@ export class GymScreen {
     this.root.remove();
   }
 
-  /* ── 모드별 끝 ───────────────────────────────────────────────────────────── */
+  /* ── Per-mode end ────────────────────────────────────────────────────────── */
   private complete(score: number): GymSessionResult | null {
     return this.spec?.mode === 'game' ? completeGameSession(this.sys, score) : completeGymSession(this.sys, score);
   }
@@ -214,7 +217,7 @@ export class GymScreen {
     return (this.spec?.mode === 'game' ? this.sys.gameState?.result : this.sys.gymState?.result) ?? null;
   }
 
-  /* ── 루프 ────────────────────────────────────────────────────────────────── */
+  /* ── Loop ────────────────────────────────────────────────────────────────── */
   private startLoop(): void {
     this.stopLoop();
     this.last = this.lastLoop = performance.now();
@@ -227,13 +230,13 @@ export class GymScreen {
     if (this.timer) { clearInterval(this.timer); this.timer = 0; }
   }
 
-  /** 화면 프레임마다 — 그리기 직전이라 이번 프레임에 반드시 보인다. */
+  /** Once per screen frame — right before drawing, so it is bound to show this frame. */
   private readonly onFrame = (): void => {
     this.raf = requestAnimationFrame(this.onFrame);
     this.loop();
   };
 
-  /** rAF 가 멈췄을 때만 (헤드리스 · 가려진 창) — 살아 있으면 한 프레임에 두 번 칠하지 않는다. */
+  /** Only when rAF has stopped (headless · a hidden window) — while it is alive, nothing paints twice in one frame. */
   private readonly onFallback = (): void => {
     if (performance.now() - this.lastLoop < FALLBACK_STALE_MS) return;
     this.loop();
@@ -246,8 +249,8 @@ export class GymScreen {
     this.paint();
   }
 
-  /* ── 흐름 ────────────────────────────────────────────────────────────────── */
-  /** 시작 안내 → 게임. */
+  /* ── Flow ────────────────────────────────────────────────────────────────── */
+  /** Intro → game. */
   start(): boolean {
     const s = this.spec;
     if (this.screen !== 'intro' || !s) return false;
@@ -258,7 +261,7 @@ export class GymScreen {
     panel.dataset.minigame = s.minigame;
     const head = el('div', { cls: 'gym-head', parent: panel });
     el('div', { cls: 'gym-name', text: `${s.title} · ${this.minigameLabel(s)}`, parent: head });
-    // 2026-09-14 (사용자 결정): 라벨 없는 진행 바 하나 — 회차 글자(`N / M`)는 없앴다
+    // 2026-09-14 (user's decision): one progress bar with no label — the rep text (`N / M`) is gone
     const prog = el('div', { cls: 'gym-prog', parent: head });
     this.progFill = el('i', { cls: 'gym-prog-fill', parent: prog });
     this.progF = -1;
@@ -272,7 +275,7 @@ export class GymScreen {
     return true;
   }
 
-  /** 스모크: 게임을 건너뛰고 `score` 로 끝낸다 (시작 안내에서도). */
+  /** Smoke test: skips the game and ends on `score` (from the intro too). */
   finishWith(score: number): GymSessionResult | null {
     if (this.screen !== 'intro' && this.screen !== 'game') return null;
     this.finalScore = Math.max(0, Math.min(1, score));
@@ -291,7 +294,7 @@ export class GymScreen {
     else if (this.resultAt && now >= this.resultAt) this.showResult(true);
   }
 
-  /** 판정 객체가 쌓은 이벤트 → 버스 · 소리 · 판정 글자. 마지막 판정이면 점수를 넘기고 결과 화면을 예약한다. */
+  /** The events the judge object queued → bus · sound · the judgement text. On the last judgement it hands the score over and schedules the result screen. */
   private flush(): void {
     const g = this.game, s = this.spec;
     if (!g || !s) return;
@@ -337,7 +340,7 @@ export class GymScreen {
     }
   }
 
-  /* ── 입력 ────────────────────────────────────────────────────────────────── */
+  /* ── Input ───────────────────────────────────────────────────────────────── */
   private actionOf(code: string): GymAction | null {
     if (code === Keys.JUMP) return 'jump';
     if (code === Keys.LEFT) return 'left';
@@ -349,7 +352,7 @@ export class GymScreen {
     if (!this.isOpen || isField(e.target) || this.ctx.uiBlockers.has(MENU_BLOCKER)) return;
     const code = e.code;
     if (code === Keys.INVENTORY || code === Keys.INTERACT) {
-      // 2026-09-15: Tab 은 맨 위 화면의 것이다 (`housing/ui/Panel` 과 같은 규칙 — `ctx.escape` 스택 순서)
+      // 2026-09-15: Tab belongs to the topmost screen (the same rule as `housing/ui/Panel` — the `ctx.escape` stack order)
       if (code === Keys.INVENTORY && this.ctx.escape.topKey !== this.token) return;
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -365,12 +368,12 @@ export class GymScreen {
     if (e.repeat) return;
     if (this.screen === 'intro') { if (action === 'jump') this.start(); return; }
     if (this.screen !== 'game' || !this.game) return;
-    this.tick();                                   // 판정은 **지금** 시각에서
+    this.tick();                                   // judge at the **current** time
     this.view?.input(action, true);
     if (this.screen !== 'game' || !this.game) return;
     this.game.press(action);
     this.flush();
-    this.paint();                                  // 판정한 그 자리를 곧바로 — 다음 프레임까지 옛 자리를 보여 주지 않는다
+    this.paint();                                  // the judged position at once — the old position is never left up until the next frame
   };
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {
@@ -388,7 +391,7 @@ export class GymScreen {
     this.paint();
   };
 
-  /* ── 화면 ────────────────────────────────────────────────────────────────── */
+  /* ── Screens ─────────────────────────────────────────────────────────────── */
   private clearBody(): void {
     this.view?.dispose(); this.view = null;
     clear(this.root);
@@ -405,8 +408,8 @@ export class GymScreen {
   }
 
   /**
-   * 안내 한 줄 — 2026-09-15: 키 자리는 `{JUMP}` · `{LEFT}` · `{RIGHT}` **토큰**이고 `renderKeyText` 가 공용 키캡으로 끼워 넣는다
-   * (글자 `Space` 대신 키캡 — 마우스로 리바인딩하면 그림). 그릴 때 `Keys` 를 읽으므로 리바인드 = `relabel()` 이 다시 그린다.
+   * The one-line rule text — 2026-09-15: the key slots are the **tokens** `{JUMP}` · `{LEFT}` · `{RIGHT}` and `renderKeyText` inserts the shared keycaps
+   * (a keycap instead of the text `Space` — a mouse glyph once rebound to the mouse). It reads `Keys` while drawing, so a rebind = `relabel()` redraws it.
    */
   private ruleText(s: ScreenSpec): string {
     const kind = s.minigame;
@@ -422,9 +425,9 @@ export class GymScreen {
   }
 
   /**
-   * 단련 보너스 · 진행도 한 덩어리 (시작 안내 · 결과 공용).
-   * 2026-09-17 (사용자 결정): 단련 수치는 `+N` 만 적는다. 진행도는 **능력치 경험치 바** 그 자체다 (단련 전용 바가 없어졌다 —
-   * `ProgressionSystem.addStatXp` 의 minigame 규칙). 상한이면 바는 가득 직전에서 멈춘다.
+   * The training bonus · progress as one block (shared by the intro · the result).
+   * 2026-09-17 (user's decision): the training number is written as `+N` only. The progress **is the stat-XP bar** itself (the training-only bar
+   * is gone — the minigame rule in `ProgressionSystem.addStatXp`). At the cap the bar stops just short of full.
    */
   private trainedBlock(parent: HTMLElement, stat: GymStat, trained: number, progress: number, need: number | null, capped: boolean): void {
     const box = el('div', { cls: 'gym-trained', parent });
@@ -497,8 +500,8 @@ export class GymScreen {
     if (!r) {
       el('div', { cls: 'gym-warn', text: '단련 결과를 반영하지 못했습니다', parent: card });
     } else {
-      // 2026-09-16: 경험치 수는 공용 축약 표기(`formatCompactSigned` — 10,000 → `10.0k`). 개수 · 단련 수치 · 시계는 그대로 정확히 적는다.
-      // 2026-09-17: 경험치는 능력치 경험치 바로 들어간다 (단련 전용 바 없음) — 라벨도 그 바의 이름
+      // 2026-09-16: the XP number uses the shared compact notation (`formatCompactSigned` — 10,000 → `10.0k`). Counts · the training number · the clock stay exact.
+      // 2026-09-17: the XP goes into the stat-XP bar (there is no training-only bar) — and the label is that bar's name
       el('div', { cls: 'gym-xp', text: `${name} 경험치 ${formatCompactSigned(r.xp, true)}`, parent: card });
       const gained = r.trainedAfter - r.trainedBefore;
       if (gained > 0) el('div', { cls: 'gym-level', text: `${name} +${gained}!`, parent: card });
@@ -514,11 +517,11 @@ export class GymScreen {
     this.paint();
   }
 
-  /* ── 키 이름 (사용 시점) ─────────────────────────────────────────────────── */
+  /* ── Key names (at use time) ─────────────────────────────────────────────── */
   private relabelKeys(): void {
     for (const k of this.root.querySelectorAll<HTMLElement>('.keycap[data-key]')) {
       const a = k.dataset.key as GymAction;
-      paintKeycap(k, a === 'jump' ? Keys.JUMP : a === 'left' ? Keys.LEFT : Keys.RIGHT);   // 2026-09-15: 공용 키캡
+      paintKeycap(k, a === 'jump' ? Keys.JUMP : a === 'left' ? Keys.LEFT : Keys.RIGHT);   // 2026-09-15: the shared keycap
     }
   }
 

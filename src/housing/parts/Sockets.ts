@@ -1,25 +1,28 @@
 /**
- * src/housing/parts/Sockets.ts — **흙 · 배지 소켓** (요리 재료 티어, 2026-09-13 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」).
+ * src/housing/parts/Sockets.ts — **soil · medium sockets** (food material tiers, 2026-09-13 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」).
  *
- * 「부어 둔 흙 · 배지에 끼우는 영구 강화.」 재배 스테이션(`parts/Garden.ts`)과 배양조(`parts/Culture.ts`)가 **같은 규칙**을
- * 쓰므로 여기 한 벌만 있다. 소켓은 칸(`GrowSlot` · `CultureSlot`)이 id 목록으로 들고 있고, 칸 수는 흙 · 배지 등급이 정한다
- * (`growSocketSlotsFor`). 가득 찬 칸에 끼우려면 `replaceIndex` 를 줘야 하고 그 자리의 옛 소켓은 **파괴된다** — 되돌려 주지 않는다
- * (사용자 결정, 화면이 먼저 1초 홀드로 묻는다). 칸을 비우면 흙 · 배지와 함께 사라진다.
+ * 「A permanent upgrade fitted into poured soil · medium.」 The grow station (`parts/Garden.ts`) and the culture tank
+ * (`parts/Culture.ts`) use the **same rules**, so there is one set of them here. Sockets are held by the slot
+ * (`GrowSlot` · `CultureSlot`) as a list of ids, and the slot count is set by the soil · medium tier
+ * (`growSocketSlotsFor`). Fitting into a full slot needs a `replaceIndex`, and the old socket in that spot is
+ * **destroyed** — it is never given back (user's decision; the screen asks first with a 1 s hold). Clearing the slot
+ * loses them with the soil · medium.
  *
- * `speed` · `yield` 는 내구도 비율로 줄고(`Rules.growDurationMs` · `cultureDurationMs` · 여기의 `yieldBonus`), `wear` 는 비율을 타지
- * 않는다(`Rules.wearAfterHarvest`). 수치는 소켓 아이템 def(`ItemDef.growSocket`, `data/sockets.csv`)에서만 온다.
+ * `speed` · `yield` scale down by the durability ratio (`Rules.growDurationMs` · `cultureDurationMs` · `yieldBonus`
+ * here), `wear` does not ride the ratio (`Rules.wearAfterHarvest`). The numbers come only from the socket item def
+ * (`ItemDef.growSocket`, `data/sockets.csv`).
  */
 import type { GrowSocketEffect, GrowSocketTarget, ItemDef } from '@/shared';
 import { GROW_SOCKET_EFFECTS, GROW_SOCKET_TARGETS } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
 
-/** 소켓 def (`ItemDef.growSocket` 이 있는 것), 아니면 null. */
+/** The socket def (one that has `ItemDef.growSocket`), else null. */
 export function socketDef(sys: HousingSystem, defId: string): ItemDef | null {
   const def = sys.defOf(defId);
   return def && def.growSocket ? def : null;
 }
 
-/** 끼운 소켓 중 `effect` 인 것의 `amount` 합 (모르는 id 는 0). */
+/** The sum of `amount` over the fitted sockets with `effect` (an unknown id counts 0). */
 export function socketSum(sys: HousingSystem, ids: readonly string[] | undefined, effect: GrowSocketEffect): number {
   let sum = 0;
   for (const id of ids ?? []) {
@@ -30,8 +33,8 @@ export function socketSum(sys: HousingSystem, ids: readonly string[] | undefined
 }
 
 /**
- * 수확 한 번의 소켓 덤: `yield` 소켓마다 `amount × ratio` 확률로 +1 개. `ratio` = **마모 전** 내구도 비율. `rng01` 은 소켓마다
- * 한 번 부른다 (부르는 쪽은 `Math.random`).
+ * The socket bonus of one harvest: +1 per `yield` socket at probability `amount × ratio`. `ratio` = the durability
+ * ratio **before wear**. `rng01` is called once per socket (the caller passes `Math.random`).
  */
 export function yieldBonus(sys: HousingSystem, ids: readonly string[] | undefined, ratio: number, rng01: () => number): number {
   const r = Number.isFinite(ratio) ? Math.max(0, Math.min(1, ratio)) : 0;
@@ -46,8 +49,9 @@ export function yieldBonus(sys: HousingSystem, ids: readonly string[] | undefine
 }
 
 /**
- * 세이브에서 읽은 소켓 목록을 칸에 맞게 거른다: 문자열 · 진짜 소켓 def · 대상(`soil` / `medium`)이 맞는 것만, 앞에서부터
- * `slots` 개까지. `ctx.loot` 가 있을 때(런타임 정리) 부른다 — `ShipState.sanitize` 는 모양만 본다.
+ * Filters a socket list read from a save down to the slot: strings · real socket defs · a matching target
+ * (`soil` / `medium`) only, up to `slots` of them from the front. Called when `ctx.loot` exists (runtime sanitizing) —
+ * `ShipState.sanitize` only looks at the shape.
  */
 export function sanitizeSocketIds(sys: HousingSystem, ids: unknown, target: GrowSocketTarget, slots: number): string[] {
   const out: string[] = [];
@@ -66,18 +70,19 @@ export function sanitizeSocketIds(sys: HousingSystem, ids: unknown, target: Grow
   return out;
 }
 
-/** 칸이 들고 있는 소켓 필드 (`GrowSlot` · `CultureSlot` 둘 다 이 모양이다). */
+/** The socket field a slot holds (`GrowSlot` · `CultureSlot` are both this shape). */
 export interface SocketHolder {
   uid: string;
   sockets?: string[];
 }
 
 /**
- * 소켓 하나를 (가방 → 창고, 1개 소모) `holder` 에 끼운다 — 칸 게이트(`slotBlock`)는 부르는 쪽이 먼저 지난다. 성공하면
- * `housing:socketInserted` 를 내고 null, 아니면 한국어 사유. `housing:changed` 는 부르는 쪽(`growChanged` · `cultureChanged`)이 낸다.
+ * Fits one socket (bag → stash, 1 consumed) into `holder` — the slot gate (`slotBlock`) is passed by the caller first.
+ * On success it emits `housing:socketInserted` and returns null, else the Korean reason. `housing:changed` is emitted by
+ * the caller (`growChanged` · `cultureChanged`).
  *
- * 사유 순서: 흙/배지 없음 → 소켓 아님 → 반대 대상 → 없는 소켓 칸(`replaceIndex` 가 범위 밖) → 가득 참(`replaceIndex` 없음) → 보유 없음.
- * `replaceIndex` 는 **이미 끼운 소켓의 번호**(0 … 끼운 수 − 1)다 — 빈 칸이 남아 있어도 주면 그 자리를 갈아 끼운다.
+ * Reason order: no soil/medium → not a socket → the wrong target → no such socket slot (`replaceIndex` out of range) → full (`replaceIndex` absent) → not owned.
+ * `replaceIndex` is the **index of an already fitted socket** (0 … fitted count − 1) — given, it swaps that spot even when free slots remain.
  */
 export function insertSocket(
   sys: HousingSystem, holder: SocketHolder | null, target: GrowSocketTarget, socketDefId: string, slots: number, replaceIndex?: number,
@@ -109,7 +114,7 @@ export function insertSocket(
   return null;
 }
 
-/** 지금 가진 소켓 (가방 + 창고). `target` 을 주면 그쪽만. 순서: 대상(흙 → 배지) → 효과(speed → yield → wear) → 수치 오름차순. */
+/** The sockets owned right now (bag + stash). With `target`, only that side. Order: target (soil → medium) → effect (speed → yield → wear) → amount ascending. */
 export function getOwnedSockets(sys: HousingSystem, target?: GrowSocketTarget): { defId: string; qty: number }[] {
   const loot = sys.ctx.loot;
   if (!loot || typeof loot.getAllItemDefs !== 'function') return [];

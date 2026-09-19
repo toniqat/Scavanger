@@ -5,14 +5,14 @@ import { el } from '../dom';
 import './mining.css';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * **채굴 화면 공용** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 · 2026-09-14 통합 창).
+ * **Shared by the mining screen** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」 · the 2026-09-14 combined window).
  *
- * 채굴 탭(`ClusterPage`) · 코인 드롭다운(`CoinPicker`) · 메인 컴퓨터 세 탭(`ComputerPages`)이 같이 쓰는 표기 · 계산 · 입력 조각.
- * 규칙은 하나도 없다 — 채굴 주기 · 견적 · 잠김 사유는 전부 `ctx.housing`(에이전트 ③)이 돌려준다. 여기 있는 계산은
- * **표시용 추정**(시간당 코인 · 크레딧)뿐이고, 식은 계약의 `cryptoCreditsFor` 를 그대로 부른다. CSS 접두사는 `.mn-`.
+ * The formatting · calculation · input pieces the `채굴` tab (`ClusterPage`) · the coin dropdown (`CoinPicker`) · the main computer's three tabs (`ComputerPages`) share.
+ * Not one rule lives here — the mining cycle · the quote · the lock reason all come back from `ctx.housing` (agent ③). The
+ * calculations here are **display estimates** only (coins · credits per hour), and the formula calls the contract's `cryptoCreditsFor` as-is. The CSS prefix is `.mn-`.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 채굴 계약 메서드는 전부 optional 이다 (병렬로 짓는 폴더가 아직 없을 수 있다) — 화면은 이 모양으로만 읽는다. */
+/** Every mining contract method is optional (a folder built in parallel may not exist yet) — the screen reads only through this shape. */
 export type MiningHousing = HousingRef;
 
 export const MS_PER_HOUR = 3_600_000;
@@ -21,7 +21,7 @@ export function coinDef(id: string | null | undefined): CryptoCoinDef | null {
   return id ? CRYPTO_COIN_MAP.get(id) ?? null : null;
 }
 
-/** 코인 목록 (housing 이 아직 없으면 csv 정의만으로 — 잠김 · 지갑 · 시세는 모른다). */
+/** The coin list (with no housing yet, from the csv defs alone — the lock · the wallet · the quote are unknown). */
 export function coinInfos(h: MiningHousing, ctx: GameContext): CryptoCoinInfo[] {
   try {
     const list = h.getCryptoCoins?.();
@@ -49,7 +49,7 @@ export function clusterOf(h: MiningHousing, uid: string): ComputeClusterInfo | n
   } catch { return null; }
 }
 
-/** 서버 시세 (코인 1개당 크레딧), 모르면 null. */
+/** The server quote (credits per coin), null when unknown. */
 export function livePrice(ctx: GameContext, coinId: string | null | undefined): number | null {
   const m = ctx.net?.crypto;
   if (!coinId || !m || !m.available) return null;
@@ -64,23 +64,23 @@ export function liveChange(ctx: GameContext, coinId: string): number | null {
   return typeof c === 'number' && Number.isFinite(c) ? c : null;
 }
 
-/** 이 클러스터가 지금 설정으로 한 시간에 버는 단위 수 (코인 · 프로세서가 없으면 0). 표시용 추정. */
+/** The units this cluster earns in an hour at its current setup (0 with no coin · no processor). A display estimate. */
 export function unitsPerHour(c: Pick<ComputeClusterInfo, 'coinId' | 'cycleMs'>): number {
   const def = coinDef(c.coinId);
   if (!def || !(c.cycleMs > 0) || !Number.isFinite(c.cycleMs)) return 0;
   return (def.yieldUnits * MS_PER_HOUR) / c.cycleMs;
 }
 
-/** 단위 수 → 시세 크레딧 (수수료 없는 평가액, 반올림). */
+/** Units → credits at the quote (the value with no fee, rounded). */
 export function unitsValue(price: number, units: number): number {
   return (Math.max(0, price) * Math.max(0, units)) / Math.max(1, CRYPTO_UNITS_PER_COIN);
 }
 
-/** 크레딧 `credits` 로 살 수 있는 최대 단위 (수수료 포함, `CRYPTO_TRADE_MAX_UNITS` 까지). */
+/** The most units `credits` credits can buy (fee included, up to `CRYPTO_TRADE_MAX_UNITS`). */
 export function affordableUnits(price: number, credits: number): number {
   if (!(price > 0) || !(credits > 0)) return 0;
   let u = Math.min(CRYPTO_TRADE_MAX_UNITS, Math.floor((credits / price) * CRYPTO_UNITS_PER_COIN));
-  // 올림 · 수수료 때문에 한두 단위 넘칠 수 있다 — 맞을 때까지 내린다 (많아야 몇 번)
+  // the ceil · the fee can overshoot by a unit or two — lowered until it fits (a few rounds at most)
   for (let guard = 0; u > 0 && cryptoCreditsFor('buy', price, u) > credits && guard < 64; guard++) {
     u = Math.max(0, Math.floor(u * 0.995) - 1);
   }
@@ -91,13 +91,13 @@ export function fmtCredits(n: number): string {
   return Math.round(n).toLocaleString('ko-KR');
 }
 
-/** 시세 표기 — 100 이상은 정수, 그 밑은 소수 둘째 자리. */
+/** Quote formatting — an integer at 100 and above, two decimals below it. */
 export function fmtPrice(p: number): string {
   if (!Number.isFinite(p)) return '—';
   return p >= 100 ? Math.round(p).toLocaleString('ko-KR') : p.toFixed(2);
 }
 
-/** 24시간 변동률 `+3.25 %` (null = `—`). */
+/** The 24-hour change `+3.25 %` (null = `—`). */
 export function fmtChange(c: number | null): string {
   if (c === null || !Number.isFinite(c)) return '—';
   const v = c * 100;
@@ -109,7 +109,7 @@ export function changeTone(c: number | null): 'up' | 'down' | '' {
   return c > 0 ? 'up' : 'down';
 }
 
-/** 시간 길이 `12시간 30분` · `45분` · `30초` (주기 표기 — 남은 시간은 `HH:MM:SS` 시계를 쓴다). */
+/** A duration `12시간 30분` · `45분` · `30초` (the cycle readout — the remaining time uses the `HH:MM:SS` clock). */
 export function fmtDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '—';
   const s = Math.round(ms / 1000);
@@ -119,7 +119,7 @@ export function fmtDuration(ms: number): string {
   return `${sec}초`;
 }
 
-/** 코인 글리프 칩 (`.mn-glyph`, 코인 색 `--cc`). */
+/** The coin glyph chip (`.mn-glyph`, the coin colour `--cc`). */
 export function coinGlyph(parent: HTMLElement, def: CryptoCoinDef | null, cls = ''): HTMLElement {
   const g = el('span', { cls: `mn-glyph ${cls}`.trim(), text: def?.glyph ?? '·', parent });
   if (def) g.style.setProperty('--cc', def.color);
@@ -133,7 +133,7 @@ export function paintCoinGlyph(g: HTMLElement, def: CryptoCoinDef | null): void 
   if (g.dataset.c !== c) { g.dataset.c = c; if (c) g.style.setProperty('--cc', c); else g.style.removeProperty('--cc'); }
 }
 
-/* ── 1초 홀드 확정 버튼 ─────────────────────────────────────────────────────── */
+/* ── The 1 s hold confirm button ───────────────────────────────────────── */
 
 export interface HoldButton {
   readonly holding: boolean;
@@ -142,13 +142,13 @@ export interface HoldButton {
 }
 
 /**
- * **되돌릴 수 없는 확정 = `UI_HOLD_CONFIRM_S` 홀드** (CLAUDE.md, 기업 거래 성사와 같은 게이지 · 같은 규약): 클릭 · Enter · Space 로는
- * 아무 일도 없다. 게이지는 rAF(`fill` 의 `scaleX`), 확정은 타이머 — 프레임이 멈춘 탭에서도 확정이 멎지 않는다.
- * 일찍 떼면 `onTap`(사용법 안내).
+ * **An irreversible confirm = a `UI_HOLD_CONFIRM_S` hold** (CLAUDE.md, the same gauge · the same contract as closing a corporation
+ * trade): a click · Enter · Space does nothing. The gauge is rAF (`fill`'s `scaleX`), the confirm is a timer — the confirm does
+ * not stall in a tab whose frames have stopped. Released early it is `onTap` (the usage hint).
  *
- * **2026-09-15 2차 (사용자 결정)**: 「버튼을 N초 동안 누르고 있으면 …」 안내 줄은 없앴다 — 이 함수로 묶는 버튼은
- * 라벨 왼쪽에 `shared/keycap.createHoldButtonCap()` 키캡을 둔다 (부르는 쪽이 만든다: 라벨 · 채움 바의 순서를
- * 아는 것은 그쪽이고, `setText` 로 라벨을 다시 쓸 때 키캡이 날아가지 않게 라벨은 자기 `span` 이어야 한다).
+ * **2026-09-15 2nd pass (user's decision)**: the 「버튼을 N초 동안 누르고 있으면 …」 guidance row is gone — a button bound by this
+ * function carries a `shared/keycap.createHoldButtonCap()` keycap left of the label (built by the caller: it is the caller that
+ * knows the order of the label · the fill bar, and the label has to be its own `span` so rewriting it with `setText` does not blow the keycap away).
  */
 export function bindHoldButton(btn: HTMLButtonElement, fill: HTMLElement, onDone: () => void, onTap?: () => void): HoldButton {
   let hold: { t0: number; raf: number; timer: number } | null = null;
@@ -211,7 +211,7 @@ export function bindHoldButton(btn: HTMLButtonElement, fill: HTMLElement, onDone
   };
 }
 
-/** 패널 안 1초 홀드 경고 팝업 (`openHoldAsk`) — `PanelOverlay` 라 E · Tab 이 먼저 닫고, 패널이 닫히면 실행 없이 닫힌다. */
+/** The in-panel 1 s hold warning popup (`openHoldAsk`) — a `PanelOverlay`, so E · Tab close it first, and it closes without running when the panel closes. */
 export class MiningAsk implements PanelOverlay {
   private handle: HoldAskHandle | null = null;
   constructor(private readonly ctx: GameContext) {}

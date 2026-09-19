@@ -91,7 +91,7 @@ export class FacilityRows {
       el('span', { cls: 'v', text: v, parent: row });
     };
     line('창고 크기', `${stash.cols} × ${stash.rows} 칸`);
-    // 2026-09-12 (사용자 결정): 시뮬레이션실 · 프리셋 제거 — 「로드아웃 프리셋 (관물대)」 · 「사격 숙련 상승 (시뮬레이션 허브)」 줄을 뺐다
+    // 2026-09-12 (user's decision): the simulation room · presets removed — the 「로드아웃 프리셋 (관물대)」 · 「사격 숙련 상승 (시뮬레이션 허브)」 rows were dropped
     line('작업대', (['gun', 'gear', 'gadget', 'medical'] as const)
       .map((k) => `${k === 'gun' ? '총기' : k === 'gear' ? '장비' : k === 'gadget' ? '가젯' : '의학'} Lv.${h.getBenchLevel(k)}`).join(' · '));
   }

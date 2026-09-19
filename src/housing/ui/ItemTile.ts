@@ -2,25 +2,27 @@ import type { GameContext } from '@/shared';
 import { ITEM_GRID_GAP, buildItemGridChip, itemGridBox } from '@/shared';
 
 /**
- * **가구 화면의 아이템 칸** (2026-09-16, 사용자 결정 「연산 클러스터 · 전시대의 칸을 아이템 그리드로 바꾼다」).
+ * **The item cell of a furniture screen** (2026-09-16, user's decision 「turn the compute cluster's · the display
+ * stand's cells into item grids」).
  *
- * 꽂힌 것은 **가방에서 보던 바로 그 타일**이다: 그리는 것은 인벤토리의 `InventoryRef.buildItemTile` 한 벌이고
- * (§4.1 「같은 마크업을 두 폴더에 두지 않는다」) 여기는 크기만 정한다. 전용 그림(코어 칩 · 책등 · 디스크 케이스)을
- * 손으로 그리던 자리다 — 같은 아이템이 가방에서와 다르게 보이면 무엇이 꽂혔는지 두 번 배워야 한다.
+ * What is slotted in is **exactly the tile seen in the bag**: the drawing is the inventory's one
+ * `InventoryRef.buildItemTile` (§4.1 「the same markup is not kept in two folders」) and only the size is decided here.
+ * This is where a dedicated drawing (core chip · book spine · disc case) used to be drawn by hand — when the same item
+ * looks different from the bag, what is slotted in has to be learned twice.
  *
- * **수량 숫자는 그리지 않는다** (사용자 결정): 이 칸들은 「한 칸에 하나」라 우하단 배지가 늘 `1` 이거나 뜻이 없다.
- * 인벤토리 타일의 배지 요소(`.inv-tile-qty`)를 **숨기기만** 한다 — 지우지 않는 이유는, 이름이 바뀌어도 최악이
- * 「숫자가 다시 보인다」이지 예외가 아니기 때문이다.
+ * **The quantity number is not drawn** (user's decision): these cells are 「one per cell」, so the bottom-right badge is
+ * always `1` or meaningless. The inventory tile's badge element (`.inv-tile-qty`) is **only hidden** — it is not removed
+ * because, if the name ever changes, the worst case is 「the number shows again」, not an exception.
  *
- * 인벤토리가 아직 없을 때(housing 은 inventory 보다 **먼저** 등록된다)는 공용 칩(`buildItemGridChip`)이 대신 선다.
+ * With no inventory yet (housing is registered **before** inventory) the shared chip (`buildItemGridChip`) stands in.
  */
 
-/** 칸 한 변(px)의 최소 — 이보다 작으면 글리프가 읽히지 않는다 (배치 상수). */
+/** The minimum cell edge (px) — below this the glyph is unreadable (a layout constant). */
 const MIN_TILE_CELL = 14;
 
 /**
- * `boxW × boxH` px 상자 안에 **발자국 `w × h` 칸**이 통째로 들어가는 칸 한 변(px).
- * 칸 사이 여백(`ITEM_GRID_GAP`)까지 셈에 넣는다 — `itemGridBox` 의 역식이다.
+ * The cell edge (px) at which a **`w × h` cell footprint** fits whole inside a `boxW × boxH` px box.
+ * The gap between cells (`ITEM_GRID_GAP`) is counted in too — this is the inverse of `itemGridBox`.
  */
 export function cellToFit(boxW: number, boxH: number, w: number, h: number, gap: number = ITEM_GRID_GAP): number {
   const cw = Math.max(1, Math.floor(w)), ch = Math.max(1, Math.floor(h));
@@ -30,30 +32,31 @@ export function cellToFit(boxW: number, boxH: number, w: number, h: number, gap:
 }
 
 export interface StationTileOptions {
-  /** 격자 칸 한 변(px). */
+  /** The grid cell edge (px). */
   cell: number;
-  /** 있으면 타일 아래 내구도 바 (인벤토리 타일과 같은 규칙). */
+  /** When present, a durability bar under the tile (the same rule as the inventory tile). */
   durability?: number;
 }
 
-/** 그 아이템의 발자국이 차지하는 상자 (px) — 칸 상자를 이 크기로 잡으면 타일이 딱 맞는다. */
+/** The box that item's footprint takes (px) — a cell box at this size fits the tile exactly. */
 export function stationTileBox(ctx: GameContext, defId: string, cell: number): { width: number; height: number } {
   const def = ctx.loot?.getItemDef(defId);
   return itemGridBox(def?.width ?? 1, def?.height ?? 1, cell);
 }
 
-/** 그 아이템의 발자국 (칸 수, 회전 없음). 모르는 아이템은 1×1. */
+/** That item's footprint (in cells, no rotation). An unknown item is 1×1. */
 export function itemFootprint(ctx: GameContext, defId: string): { w: number; h: number } {
   const def = ctx.loot?.getItemDef(defId);
   return { w: Math.max(1, Math.floor(def?.width ?? 1)), h: Math.max(1, Math.floor(def?.height ?? 1)) };
 }
 
 /**
- * **빈 칸 = 그 아이템 발자국만큼의 격자 칸** (2026-09-17, 사용자 결정 「프로세서는 2×1 이니 빈 칸도 인벤토리 격자
- * 2칸처럼 그린다 — 칸 모양은 받는 아이템의 크기를 따른다」). 가구 화면의 꽂는 칸(연산 클러스터 · 서재 보관함)이
- * 비어 있을 때 점선 상자 하나 대신 `w × h` 개의 `.hs-fcell`(인벤토리 빈 칸과 같은 결)을 칸 간격 `ITEM_GRID_GAP` 으로
- * 세운다 — 상자 크기는 `itemGridBox(w, h, cell)` 이라 꽂힌 타일과 정확히 같다. 포인터는 통과한다 (드롭 대상은 바깥 칸).
- * ⚠ 재배 스테이션 · 배양조의 칸은 여기를 쓰지 않는다 (그 화면의 네모 칸은 그대로다).
+ * **An empty slot = as many grid cells as that item's footprint** (2026-09-17, user's decision 「a processor is 2×1, so
+ * draw the empty slot as two inventory grid cells too — the cell shape follows the size of the item it accepts」). When
+ * a furniture screen's mount slot (compute cluster · library holder) is empty, `w × h` `.hs-fcell`s (the same grain as
+ * an inventory empty cell) stand at cell spacing `ITEM_GRID_GAP` instead of one dashed box — the box size is
+ * `itemGridBox(w, h, cell)`, exactly the slotted tile's. The pointer passes through (the drop target is the outer cell).
+ * ⚠ The grow station's · the culture tank's cells do not use this (the square cells of those screens are unchanged).
  */
 export function buildFootprintCells(w: number, h: number, cell: number): HTMLElement {
   const cw = Math.max(1, Math.floor(w)), ch = Math.max(1, Math.floor(h));
@@ -72,8 +75,9 @@ export function buildFootprintCells(w: number, h: number, cell: number): HTMLEle
 }
 
 /**
- * 한 칸에 들어갈 **인벤토리 타일 하나**. 수량 배지는 숨어 있고, 호버 카드(`data-item-tip`)는 인벤토리 타일이
- * 스스로 달고 온다. 반환 요소에는 `.hs-tile` 이 붙어 글리프 · 이름 크기가 칸 크기를 따라간다 (`housing.css`).
+ * **One inventory tile** to sit in one cell. The quantity badge is hidden, and the hover card (`data-item-tip`) comes
+ * attached by the inventory tile itself. The returned element carries `.hs-tile`, so the glyph · name size follow the
+ * cell size (`housing.css`).
  */
 export function buildStationItemTile(ctx: GameContext, defId: string, opts: StationTileOptions): HTMLElement {
   const inv = ctx.inventory;

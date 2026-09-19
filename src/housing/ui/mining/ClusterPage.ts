@@ -18,38 +18,38 @@ const MAX_CORES = Math.max(1, Math.floor(COMPUTE_CLUSTER_MAX_CORES));
 const NO_API = '채굴 기능을 사용할 수 없습니다';
 
 /**
- * **클러스터 칸에 꽂는 아이템** — 한 곳에서만 읽는다. 2026-09-16 (사용자 결정 「연산 코어를 없애고 프로세서를 직접 꽂는다」)
- * 부터 **프로세서**(`mat_processor`, 내구도를 갖는 2×1 아이템)다. 칸 크기는 그 아이템의 발자국에서 나오고,
- * 꽂힌 칸의 타일은 `ComputeClusterInfo.processors[i]` 의 남은 내구도를 그대로 들고 선다 (인벤토리 타일의 내구도 막대).
+ * **The item that mounts into a cluster cell** — read in one place only. Since 2026-09-16 (user's decision 「연산 코어를 없애고 프로세서를 직접 껣는다」)
+ * it is a **processor** (`mat_processor`, a 2×1 item with durability). The cell size comes from that item's footprint, and a
+ * mounted cell's tile carries `ComputeClusterInfo.processors[i]`'s remaining durability as-is (the inventory tile's durability bar).
  */
 const SLOT_DEF_ID = PROCESSOR_DEF_ID;
-/** 칸 한 변(px) — 가구 화면의 격자(`stationGridCell`)와 같은 결의 배치 상수. 칸 상자는 아이템 발자국에서 나온다. */
+/** One cell edge (px) — a layout constant of the same grain as the furniture screen's grid (`stationGridCell`). The cell box comes from the item footprint. */
 const SLOT_CELL_PX = 52;
-/** 빈 칸 · 꽂힌 칸을 그린 모양의 기억 열쇠 접두사 (발자국이 바뀌면 — 아이템 데이터가 늦게 붙으면 — 다시 그린다). */
+/** The fingerprint prefix for the drawn shape of an empty · mounted cell (a changed footprint — item data arriving late — redraws it). */
 const EMPTY_KEY = 'e:';
 
 interface RailItem { uid: string; el: HTMLElement; dots: HTMLElement[]; red: HTMLElement }
 interface StatRow { row: HTMLElement; v: HTMLElement }
 
 /**
- * **채굴 탭** (`MiningTab 'cluster'` — 옛 연산 클러스터 화면, 2026-09-14 통합 창의 한 쪽).
+ * **The `채굴` tab** (`MiningTab 'cluster'` — the old compute cluster screen, one side of the 2026-09-14 combined window).
  *
- * 위에서 아래로: **프로세서 9칸**(아이템 격자 칸 · 중앙 정렬) → **이번 주기** 진행 막대 → **채굴 코인 드롭다운 + 현황 수치**.
- * 왼쪽 레일은 함선의 연산 클러스터 목록(이름 + 칸 점 9개 · 멈췄으면 레드닷)이고, 오른쪽 [함선 창고] [가방]
- * 카드에서 프로세서를 끌어 온다.
+ * Top to bottom: **9 processor cells** (item grid cells · centred) → the **`이번 주기`** progress bar → the **`채굴 코인` dropdown + the stat numbers**.
+ * The left rail is the ship's list of compute clusters (a name + 9 cell dots · a red dot when stopped), and processors are
+ * dragged in from the [함선 창고] [가방] cards on the right.
  *
- * 2026-09-14 (사용자 결정):
- *  - 칸의 모양은 꽂는 아이템의 **발자국**이 정한다 (프로세서 2×1 이라 가로로 긴 칸).
- *  - 드롭 · 더블클릭 · 우클릭은 **한 개씩** 옮긴다.
- *  - 코인 목록 버튼 줄 · 안내문(`.mn-hint` · 푸터 · 「코인을 바꾸면 진행도가 초기화됩니다」)은 없어졌다 — 코인은
- *    현황 칸의 **드롭다운**(`CoinPicker`)이 고르고, 진행도가 있으면 1초 홀드 경고(`MiningAsk`)가 그것을 말한다.
+ * 2026-09-14 (user's decision):
+ *  - The cell's shape is decided by the mounted item's **footprint** (a processor is 2×1, so the cell is wide).
+ *  - A drop · a double-click · a right-click moves **one at a time**.
+ *  - The coin list button row · the guidance text (`.mn-hint` · the footer · 「코인을 바꾸면 진행도가 초기화됩니다」) are gone — the
+ *    coin is picked by the **dropdown** (`CoinPicker`) in the stat row, and with progress a 1 s hold warning (`MiningAsk`) says so.
  *
- * 2026-09-16 (사용자 결정 — 프로세서 직접 장착): 프로세서에는 내구도가 있어 칸마다 다르다. 그래서 세이브도 화면도
- * **칸 목록**(`ComputeClusterSlot.processors`, 인덱스 = 이 격자의 칸)이고, 놓은 칸 · 집은 칸이 그대로 쓰인다
- * (`insertClusterProcessor` · `removeClusterProcessor`). 꽂힌 타일에는 그 칸의 내구도 막대가 선다 — 다 닳아도
- * 빠지지 않고 절반 성능으로 돌므로, 「고쳐야 빨라진다」가 눈에 보여야 한다.
+ * 2026-09-16 (user's decision — processors mounted directly): a processor has durability, so it differs from cell to cell. The
+ * save and the screen are therefore both a **cell list** (`ComputeClusterSlot.processors`, index = a cell of this grid), and the
+ * cell dropped on · the cell picked from is used as-is (`insertClusterProcessor` · `removeClusterProcessor`). A mounted tile
+ * carries that cell's durability bar — a worn-out one is not unmounted and runs at half perf, so 「repair it and it speeds up」 has to be visible.
  *
- * 규칙은 하나도 여기 없다 — 사유는 전부 `ctx.housing`(parts/Mining)이 돌려준다.
+ * Not one rule lives here — every reason comes back from `ctx.housing` (parts/Mining).
  */
 export class ClusterPage {
   readonly el: HTMLElement;
@@ -58,9 +58,9 @@ export class ClusterPage {
   private readonly coreCells: HTMLElement[] = [];
   private readonly coreCount: HTMLElement;
   private readonly stats: Record<'cycle' | 'next' | 'yield' | 'rate' | 'credits', StatRow>;
-  /** 칸마다 마지막으로 그린 상태 (`빈 칸` = '' · `내구도`) — 1초마다 도는 `paint` 가 DOM 을 다시 만들지 않게. */
+  /** The state last drawn per cell (an empty cell = '' · the durability) — so the `paint` that runs every second does not rebuild the DOM. */
   private readonly cellKeys: string[] = [];
-  /** 칸 모양(`w×h`) — 마지막으로 격자에 쓴 발자국. */
+  /** The cell shape (`w×h`) — the footprint last written onto the grid. */
   private cellShape = '';
   private readonly progFill: HTMLElement;
   private readonly progClock: HTMLElement;
@@ -81,21 +81,21 @@ export class ClusterPage {
     const page = this.el = el('div', { cls: 'mn-page mn-cl', attrs: { 'data-page': 'cluster' }, parent: host.shell.left });
     host.shell.rail.addEventListener('click', (e) => this.onRailClick(e));
 
-    /* 프로세서 — 가로로 긴 칸 9개, 중앙 정렬 */
+    /* Processors — 9 wide cells, centred */
     const coreBox = el('div', { cls: 'mn-corebox', parent: page });
     const coreHead = el('div', { cls: 'mn-sec-head', parent: coreBox });
     el('span', { cls: 'mn-sec-title', text: '프로세서', parent: coreHead });
     this.coreCount = el('span', { cls: 'mn-sec-count', text: `0 / ${MAX_CORES}`, parent: coreHead });
     this.coresEl = el('div', { cls: 'mn-cores', parent: coreBox });
-    /* 2026-09-16 (사용자 결정): 칸은 **아이템 격자 칸**이다 — 전용 그림(`.mn-core-chip` · LED)을 걷어내고, 꽂힌
-       칸에는 가방에서 보던 타일이 그대로 선다 (`ui/ItemTile`). 칸 상자는 그 아이템의 발자국 크기다.
-       2026-09-17 (버그): 그 크기를 **여기서** 재면 1×1 이었다 — housing 은 inventory 보다 먼저 등록되어 생성자 시점에
-       `ctx.loot` 이 없다. 발자국은 `paint` 가 잰다 (`applyCellShape`). */
+    /* 2026-09-16 (user's decision): a cell is an **item grid cell** — the dedicated drawing (`.mn-core-chip` · the LED) is gone,
+       and a mounted cell carries the same tile seen in the bag (`ui/ItemTile`). The cell box is that item's footprint size.
+       2026-09-17 (bug): measuring that size **here** gave 1×1 — housing is registered before inventory, so at constructor time
+       there is no `ctx.loot`. The footprint is measured by `paint` (`applyCellShape`). */
     for (let i = 0; i < MAX_CORES; i++) {
       this.coreCells.push(el('div', { cls: 'mn-core', attrs: { 'data-core': String(i) }, parent: this.coresEl }));
     }
 
-    /* 이번 주기 */
+    /* The `이번 주기` progress bar */
     const prog = el('div', { cls: 'mn-cl-prog', parent: page });
     const progHead = el('div', { cls: 'mn-sec-head', parent: prog });
     el('span', { cls: 'mn-sec-title', text: '이번 주기', parent: progHead });
@@ -103,7 +103,7 @@ export class ClusterPage {
     this.progClock = el('span', { cls: 'mn-clock hs-clock', text: '', parent: progHead });
     this.progFill = el('i', { parent: el('div', { cls: 'mn-bar', parent: prog }) });
 
-    /* 채굴 코인 드롭다운 + 현황 수치 */
+    /* the `채굴 코인` dropdown + the stat numbers */
     const statBox = el('div', { cls: 'mn-stats', parent: page });
     const coinRow = el('div', { cls: 'mn-stat mn-stat-coin', parent: statBox });
     el('span', { cls: 'k', text: '채굴 코인', parent: coinRow });
@@ -134,7 +134,7 @@ export class ClusterPage {
       productAt: (t) => this.productAt(t),
       collect: (key, dest) => this.removeCore(Number(key), dest),
       defOf: (id) => housing.defOf(id),
-      // 2026-09-16: 빼서 놓은 **그 칸**으로 간다 (격자는 화면이 열릴 때 만들어지므로 함수로 준다)
+      // 2026-09-16: it goes to **the exact cell** it was dropped on (the grids are built when the screen opens, so they are passed as a function)
       grids: () => this.grids,
     });
     this.coresEl.addEventListener('contextmenu', (e) => {
@@ -195,16 +195,16 @@ export class ClusterPage {
 
   private coins(): CryptoCoinInfo[] { return coinInfos(this.ref, this.ctx); }
 
-  /** 함선에 놓인 연산 클러스터 (배치 순서 그대로 — 레일 번호가 흔들리지 않는다). */
+  /** The compute clusters placed in the ship (in placement order — the rail numbers never shift). */
   private clusters(): readonly PlacedFurniture[] {
     try { return this.housing.getPlaced().filter((p) => p.defId === COMPUTE_CLUSTER_DEF_ID); } catch { return []; }
   }
 
   /* ── actions ───────────────────────────────────────────────────────────── */
   /**
-   * 가방 / 창고의 타일을 프로세서 칸에 놓았다 (또는 더블클릭 — `target` null).
-   * **놓은 그 칸**에, **끌어온 그 인스턴스**를 꽂는다 (2026-09-16): 프로세서는 내구도가 저마다 달라 「아무거나 다음 빈 칸」이
-   * 더 이상 같은 결과가 아니다. 더블클릭은 칸을 고르지 않았으므로 첫 빈 칸이다 (`insertClusterCores(uid, 1)`).
+   * A tile from the bag / the stash was dropped on a processor cell (or double-clicked — `target` null).
+   * **That exact instance** is mounted into **the cell it was dropped on** (2026-09-16): processors differ in durability, so
+   * 「any one into the next empty cell」 is no longer the same result. A double-click named no cell, so it takes the first empty one (`insertClusterCores(uid, 1)`).
    */
   private dropOn(item: ItemInstance, target: HTMLElement | null): void {
     if (item.defId !== SLOT_DEF_ID) { this.host.denyMsg('프로세서만 꽂을 수 있습니다'); return; }
@@ -222,7 +222,7 @@ export class ClusterPage {
     this.host.showMsg(`프로세서를 꽂았습니다${after && after.cycleMs > 0 ? ` — 채굴 주기 ${fmtDuration(after.cycleMs)}` : ''}`, 'success');
   }
 
-  /** `cell` 칸의 프로세서를 뺀다 — 내구도는 그대로 따라간다 (닳은 것을 골라 빼서 작업대로 가져가는 길). */
+  /** Pulls the processor in cell `cell` — its durability follows it (the route for picking the worn one out and taking it to the workbench). */
   private removeCore(cell: number, dest: HarvestDestination): void {
     const info = this.info();
     if (!info || !Number.isInteger(cell) || info.processors[cell] === null || info.processors[cell] === undefined) return;
@@ -287,7 +287,7 @@ export class ClusterPage {
     this.applyCoin(null);
   }
 
-  /* ── 레일 ──────────────────────────────────────────────────────────────── */
+  /* ── The rail ──────────────────────────────────────────────────────────── */
   private buildRail(list: readonly PlacedFurniture[]): void {
     this.host.debug.rails++;
     const rail = this.host.shell.rail;
@@ -334,8 +334,8 @@ export class ClusterPage {
 
   /* ── state → DOM ───────────────────────────────────────────────────────── */
   refresh(): void {
-    /* 2026-09-17 (버그: 메인 컴퓨터로 연 창에서 「채굴」 탭을 누르면 「연산 클러스터가 없습니다」 배너) — 그 길에는
-       클러스터 uid 가 없다(`''`) · 고른 클러스터가 회수됐을 수도 있다. 함선에 클러스터가 있으면 **첫 번째**를 보여 준다. */
+    /* 2026-09-17 (bug: pressing the 「채굴」 tab in a window opened from the main computer gave the 「연산 클러스터가 없습니다」 banner) — that
+       path has no cluster uid (`''`) · the chosen cluster may have been recovered. With any cluster in the ship, the **first** one is shown. */
     const placedList = this.clusters();
     if (placedList.length && !placedList.some((p) => p.uid === this.uid)) this.uid = placedList[0].uid;
     if (!this.grids) {
@@ -344,14 +344,14 @@ export class ClusterPage {
     const list = placedList;
     const key = list.map((p) => p.uid).join(',');
     if (key !== this.railKey) { this.railKey = key; this.buildRail(list); }
-    // 레일은 `MiningScreen.applyTab` 이 탭으로 한 번 열고, 클러스터가 하나도 없으면 여기서 다시 닫는다
+    // the rail is opened once by the tab in `MiningScreen.applyTab`, and closed again here when there is no cluster at all
     this.host.shell.rail.hidden = list.length === 0;
     this.paint();
   }
 
   /**
-   * 칸 상자 = 꽂는 아이템의 발자국 (`--mn-core-w/h`). 아이템 데이터(`ctx.loot`)는 생성자보다 늦게 붙으므로 매번 재고,
-   * 바뀐 때만 쓴다 (1 초 틱이 스타일을 흔들지 않는다).
+   * The cell box = the mounted item's footprint (`--mn-core-w/h`). Item data (`ctx.loot`) arrives later than the constructor, so
+   * it is measured every time and written only when it changed (the 1 s tick never shakes the style).
    */
   private applyCellShape(): void {
     const fp = itemFootprint(this.ctx, SLOT_DEF_ID);
@@ -370,9 +370,9 @@ export class ClusterPage {
     const def = coinDef(info?.coinId);
     const index = this.clusters().findIndex((p) => p.uid === this.uid);
 
-    /* 2026-09-17 (사용자 결정): **프로세서가 하나도 없으면 아무 안내도 하지 않는다** — 빨간 배너(`프로세서를 꽂으세요` ·
-       `채굴할 코인을 정하세요`)도, 머리줄의 빨간 사유도 없다. 빈 칸 격자가 스스로 말한다. 사유 자체(`info.block`)는
-       규칙 쪽에 그대로 있고 다른 곳(레일 레드닷 · 현황 탭)이 읽는다. */
+    /* 2026-09-17 (user's decision): **with no processor at all, nothing is announced** — no red banner (`프로세서를 껣으세요` ·
+       `채굴할 코인을 정하세요`) and no red reason in the header row. The empty cell grid says it by itself. The reason itself
+       (`info.block`) is still there on the rules side and is read elsewhere (the rail red dot · the status tab). */
     const empty = !!info && info.cores <= 0;
     const status = !placed ? '없는 클러스터'
       : !info ? NO_API
@@ -382,7 +382,7 @@ export class ClusterPage {
     this.host.setBanner(!placed ? '연산 클러스터가 없습니다' : !info ? NO_API : info.mining || empty ? null : info.block ?? null);
     this.applyCellShape();
 
-    // 프로세서 칸 — 꽂힌 칸은 **가방과 같은 아이템 타일**이고 그 칸의 내구도 막대를 들고 선다 (2026-09-16 사용자 결정)
+    // processor cells — a mounted cell is **the same item tile as in the bag** and carries that cell's durability bar (2026-09-16 user's decision)
     const cores = info?.cores ?? 0;
     const max = info?.maxCores || MAX_CORES;
     const cells = info?.processors ?? [];
@@ -393,9 +393,9 @@ export class ClusterPage {
       const on = dur !== null;
       toggleClass(c, 'is-on', on);
       toggleClass(c, 'is-closed', i >= max);
-      // 타일은 **칸의 내구도가 바뀔 때만** 짓는다 (1 초마다 도는 `paint` 가 DOM 을 다시 만들지 않게).
-      // 꽂힌 칸의 호버 카드(`ui/hud/ItemTip`)는 타일이 `data-item-tip` 을 달고 오므로 칸은 아무것도 달지 않는다.
-      // 빈 칸은 **발자국만큼의 격자 칸**이다 (2026-09-17 사용자 결정 — 프로세서 2×1 = 가로 두 칸, `ui/ItemTile.buildFootprintCells`)
+      // the tile is built **only when the cell's durability changes** (so the `paint` that runs every second does not rebuild the DOM).
+      // a mounted cell's hover card (`ui/hud/ItemTip`) comes with the tile's own `data-item-tip`, so the cell attaches nothing.
+      // an empty cell is **grid cells the size of the footprint** (2026-09-17 user's decision — a processor is 2×1 = two cells wide, `ui/ItemTile.buildFootprintCells`)
       const key = on ? String(dur) : EMPTY_KEY + this.cellShape;
       if (this.cellKeys[i] === key) return;
       this.cellKeys[i] = key;
@@ -408,7 +408,7 @@ export class ClusterPage {
     });
     if (def) this.coresEl.style.setProperty('--cc', def.color); else this.coresEl.style.removeProperty('--cc');
 
-    // 진행 막대 · 시계
+    // the progress bar · the clock
     const p = Math.max(0, Math.min(1, info?.progress ?? 0));
     this.progFill.style.transform = `scaleX(${p.toFixed(4)})`;
     toggleClass(this.progFill.parentElement!, 'is-paused', !info?.mining);
@@ -416,7 +416,7 @@ export class ClusterPage {
     if (info?.mining) renderClock(this.progClock, info.remainingS);
     else renderClockText(this.progClock, info && p > 0 ? '정지됨' : '—');
 
-    // 채굴 코인 드롭다운 + 현황 수치
+    // the `채굴 코인` dropdown + the stat numbers
     this.picker.paint();
     const s = this.stats;
     const statText = (row: StatRow, text: string, tone: '' | 'good' | 'bad' = ''): void => {
@@ -424,11 +424,11 @@ export class ClusterPage {
       toggleClass(row.v, 'good', tone === 'good');
       toggleClass(row.v, 'bad', tone === 'bad');
     };
-    /* 주기는 개수가 아니라 **성능 합**(`ComputeClusterInfo.perf`)에서 난다 — 「프로세서 +1」은 **새것 한 개**를 더 꽂았을 때다
-       (다 닳은 것을 더하면 그 절반이라, 새것 기준이 사람이 기대하는 수치다). */
+    /* The cycle comes from the **perf sum** (`ComputeClusterInfo.perf`), not the count — 「프로세서 +1」 is mounting **one more new one**
+       (adding a worn-out one is half of that, and the new-one figure is the number a person expects). */
     const perf = info?.perf ?? 0;
     const cycle = info && info.cycleMs > 0 ? info.cycleMs : def && perf > 0 ? clusterCycleMs(def, perf) : 0;
-    // 2026-09-17: 프로세서가 없으면 안내 문구 없이 `—` (빈 클러스터는 아무것도 요구하지 않는다)
+    // 2026-09-17: with no processor it is `—` and no guidance text (an empty cluster asks for nothing)
     statText(s.cycle, cores <= 0 ? '—' : !def ? '코인을 고르세요' : fmtDuration(cycle), cores > 0 && !def ? 'bad' : '');
     s.next.row.hidden = !def || cores >= max;
     if (def && cores < max) statText(s.next, `${fmtDuration(clusterCycleMs(def, perf + 1))}`, 'good');

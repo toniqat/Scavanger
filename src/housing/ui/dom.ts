@@ -94,9 +94,9 @@ export function clockText(seconds: number): string {
 }
 
 /**
- * Countdown into `host` as `<span.hs-clock-hm>HH:MM</span><span.hs-clock-ss>:SS</span>`. 2026-09-12 (사용자 지적 —
- * 분석기에서 초가 너무 작았다): `:SS` 도 **`HH:MM` 과 같은 크기**다 (`.hs-clock-ss { font-size: inherit }`); 두 span 은
- * 스테이션 네 화면이 한 크기를 쓰게 하는 자리일 뿐이다. 두 span 을 재사용하므로 1초 틱은 텍스트 노드만 고쳐 쓴다.
+ * Countdown into `host` as `<span.hs-clock-hm>HH:MM</span><span.hs-clock-ss>:SS</span>`. 2026-09-12 (user's remark —
+ * the seconds were too small on the analyzer): `:SS` is **the same size as `HH:MM`** (`.hs-clock-ss { font-size: inherit }`);
+ * the two spans only make the four station screens share one size. They are reused, so a one-second tick rewrites the text nodes.
  */
 export function renderClock(host: HTMLElement, seconds: number): void {
   let hm = host.firstElementChild as HTMLElement | null;
@@ -115,7 +115,7 @@ export function renderClockText(host: HTMLElement, text: string): void {
   if (host.firstElementChild || host.textContent !== text) host.textContent = text;
 }
 
-/** Compact 한국어 countdown for a growing plot: `2시간 5분`, `12분 30초`, `45초`. */
+/** Compact Korean countdown for a growing plot: `2시간 5분`, `12분 30초`, `45초`. */
 export function formatRemaining(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
@@ -125,10 +125,11 @@ export function formatRemaining(seconds: number): string {
 }
 
 /**
- * 시설 레벨 요구 칩 (2026-09-15, 사용자 결정) — `shared/itemChip.buildFacilityChip` 이 만든 칩을 **아이템 칩처럼
- * 아이콘만** 그리게 두고(모양은 `housing.css` 의 `.facility-chip` 규칙), 시설 이름과 현재 · 필요 레벨은 **호버 툴팁**
- * 으로 옮긴다. 툴팁 글의 원본은 이 한 줄이다 — 칩을 만드는 화면(업그레이드 모달 · 함선 탭 · 시설 관리)이 함께 쓴다.
- * 인자 그대로 붙이기만 하므로 칩을 돌려준다 (`host.appendChild(facilityChipTip(chip, …))`).
+ * The facility level requirement chip (2026-09-15, user's decision) — the chip `shared/itemChip.buildFacilityChip`
+ * builds is left drawing **only the icon, like an item chip** (its look is the `.facility-chip` rule in `housing.css`),
+ * and the facility name with the current · needed level moves into a **hover tooltip**. The source of that tooltip text
+ * is this one line — every screen that builds a chip (the upgrade modal · the 함선 tab · ship management) shares it.
+ * It only attaches to the argument, so the chip itself is returned (`host.appendChild(facilityChipTip(chip, …))`).
  */
 export function facilityChipTip(chip: HTMLElement, name: string, have: number, need: number): HTMLElement {
   const text = `${name} — Lv.${need} 필요 (현재 Lv.${have})`;

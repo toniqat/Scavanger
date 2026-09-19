@@ -5,31 +5,33 @@ import { stationGridCell } from './StationShell';
 import type { StationGridsView } from './StationShell';
 import { el } from './dom';
 
-/** A finished product sitting in a station 칸 (다 자란 작물 · 해석 산출물 · 배양 산물). */
+/** A finished product sitting in a station cell (a grown crop · an analysis product · a culture product). */
 export interface Product {
-  /** The panel's own id of the 칸 (`tier:slot` · `slot`). */
+  /** The panel's own id of the cell (`tier:slot` · `slot`). */
   key: string;
   defId: string;
   qty: number;
 }
 
 export interface ProductDragOptions {
-  /** The finished product under `target`, or null (not ready / not a 칸). */
+  /** The finished product under `target`, or null (not ready / not a cell). */
   productAt(target: Element): Product | null;
-  /** Collect the 칸 — dropped on a grid (`'bag'` / `'stash'`) or double-clicked (`'stash-first'`). */
+  /** Collect the cell — dropped on a grid (`'bag'` / `'stash'`) or double-clicked (`'stash-first'`). */
   collect(key: string, dest: HarvestDestination): void;
   defOf(defId: string): ItemDef | undefined;
   /**
-   * 2026-09-16 (사용자 보고 「끌어서 뺀 것은 **커서가 놓인 칸**으로 가야 한다」) — 이 화면의 창고 · 가방 격자
-   * (`mountStationGrids` 가 준 뷰). 주면 놓은 좌표가 그 칸으로 간다 (`parts/Deliver.withDropCell`); 주지 않으면
-   * 예전처럼 첫 빈 칸이다. 격자는 화면이 열릴 때 늦게 만들어지므로 **값이 아니라 함수**로 받는다.
+   * 2026-09-16 (user's report 「what is dragged out has to go to **the cell the cursor is over**」) — this screen's
+   * stash · bag grids (the view from `mountStationGrids`). Given, the release coordinates go to that cell
+   * (`parts/Deliver.withDropCell`); not given, it is the first free cell as before. The grids are built late when the
+   * screen opens, so this is taken as **a function, not a value**.
    */
   grids?(): StationGridsView | null;
   /** A drag really started (the panel hides its hover card). */
   onDragStart?(): void;
   /**
-   * 2026-09-16 — 고스트가 쓸 격자 칸 한 변(px). 기본은 스테이션 화면의 격자와 같은 `stationGridCell()` 이라
-   * 놓을 곳(창고 · 가방 격자)과 끌고 있는 것의 크기가 한 화면 안에서 맞는다. 다른 칸을 쓰는 화면만 넘긴다.
+   * 2026-09-16 — the grid cell edge (px) the ghost uses. The default is `stationGridCell()`, the same as the station
+   * screen's grids, so what is dragged and where it lands (the stash · bag grids) match within one screen. Only a
+   * screen using a different cell passes this.
    */
   cellPx?(): number;
 }
@@ -37,20 +39,20 @@ export interface ProductDragOptions {
 const THRESHOLD_PX = 5;
 
 /**
- * **다 된 것을 아이템처럼 옮긴다** (2026-09-12) — 수확 버튼 · 모두 수확을 걷어낸 자리.
+ * **A finished thing moves like an item** (2026-09-12) — the place where the harvest button · harvest-all were removed.
  *
- * - **더블클릭** → 함선 창고 먼저, 가득이면 가방 (`'stash-first'`, 사용자 결정 — 함선 안이다).
- * - **끌어서 가방 / 함선 창고 격자에 놓기** → 그 격자에만 (`closest('[data-tg-grid]')` — `inventory/ui/TradeGrids`
- *   가 블록에 찍는 속성). 다른 곳에 놓으면 아무 일도 없다.
+ * - **Double-click** → the ship stash first, the bag when it is full (`'stash-first'`, user's decision — this is inside the ship).
+ * - **Drag and drop on the bag / ship stash grid** → into that grid only (`closest('[data-tg-grid]')` — the attribute
+ *   `inventory/ui/TradeGrids` stamps on the block). Dropped anywhere else, nothing happens.
  *
- * 성능 규약 (재배 화면 드래그 렉): `pointermove` 는 좌표만 적고, 고스트 `transform` 과 격자 강조
- * (`elementFromPoint`)는 **rAF 에 한 번**이다. 놓을 때의 판정은 `pointerup` 좌표로 다시 잰다 — rAF 가 멈춘
- * 헤드리스에서도 결과가 같다.
+ * Performance contract (drag lag on the grow screen): `pointermove` only records the coordinates; the ghost `transform`
+ * and the grid highlight (`elementFromPoint`) happen **once per rAF**. The drop judgement is re-measured from the
+ * `pointerup` coordinates — so the result is the same headless, where rAF has stopped.
  */
 export class ProductDrag {
   private press: { p: Product; x0: number; y0: number; x: number; y: number } | null = null;
   private ghost: HTMLElement | null = null;
-  /** 고스트 상자의 반폭 · 반높이 (px) — 커서가 늘 그 한가운데다. 발자국이 정사각형이 아니므로 둘을 따로 잰다. */
+  /** Half the ghost box's width · height (px) — the cursor is always at its centre. The footprint is not square, so the two are measured apart. */
   private halfW = 0;
   private halfH = 0;
   private over: HTMLElement | null = null;
@@ -86,10 +88,11 @@ export class ProductDrag {
   };
 
   /**
-   * 2026-09-17 (사용자 보고 「장비칸에서 가방으로 끌 때처럼 **커서 밑 칸**이 강조돼야 한다 — 지금은 창고 · 가방 칸
-   * 전체가 빛난다」): 격자 뷰가 칸 미리보기를 주면 **발자국 강조**(`previewExternalAt`, 타일 드래그와 같은 `.inv-hl`)만
-   * 쓰고 격자 통째 강조는 하지 않는다. 놓을 때의 칸(`withDropCell` → `placeExternalAt`)과 같은 칸 찾기다.
-   * 미리보기가 없는 옛 인벤토리 · `grids` 를 안 준 화면만 예전처럼 격자 블록 전체를 칠한다.
+   * 2026-09-17 (user's report 「the **cell under the cursor** should be highlighted, as when dragging from an equipment
+   * slot to the bag — right now the whole stash · bag cell area lights up」): when the grid view offers a cell preview,
+   * only the **footprint highlight** (`previewExternalAt`, the same `.inv-hl` as a tile drag) is used and the grid is
+   * not highlighted whole. It is the same cell lookup as the drop (`withDropCell` → `placeExternalAt`). Only an older
+   * inventory without the preview · a screen that did not pass `grids` paints the whole grid block as before.
    */
   private aim(p: Product, x: number, y: number): void {
     const view = this.o.grids?.() ?? null;
@@ -108,8 +111,8 @@ export class ProductDrag {
     this.end();
     if (!s || !target) return;
     const dest: HarvestDestination = target.dataset.tgGrid === 'bag' ? 'bag' : 'stash';
-    /* 2026-09-16: 놓은 **칸**이 곧 결과다 — 좌표를 `Deliver` 에 한 번 적어 두고 규칙 함수를 부른다. 규칙이
-       아이템을 건네는 그 한 번만 그 칸으로 가고(막힌 칸이면 거절), 격자 밖이면 예전 규칙 그대로다. */
+    /* 2026-09-16: the **cell** it was dropped on is the result — the coordinates are noted once in `Deliver`, then the
+       rule function is called. Only that one handover goes to that cell (a blocked cell refuses); outside the grid the old rule stands. */
     const view = this.o.grids?.() ?? null;
     if (!view) { this.o.collect(s.p.key, dest); return; }
     withDropCell({ view, x: e.clientX, y: e.clientY }, () => this.o.collect(s.p.key, dest));
@@ -129,9 +132,10 @@ export class ProductDrag {
   get dragging(): boolean { return !!this.ghost; }
 
   /**
-   * 2026-09-16 (버그: 재배 스테이션 · 전시대에서 끌면 격자 크기가 유지되지 않았다) — 고스트는 가방에서 끌 때와 **같은
-   * 발자국**이다: 아이템의 `width × height` 칸을 격자 칸 크기(`cellPx`)로 잰 상자(`itemGridBox`). 예전에는 발자국과
-   * 무관한 정사각형 칩 하나였다. 크기 식은 인벤토리 격자(`tileSizeAt`)와 같은 것을 `shared/itemChip` 이 갖는다.
+   * 2026-09-16 (bug: dragging from the grow station · a holder did not keep the grid size) — the ghost has the
+   * **same footprint** as a drag from the bag: the item's `width × height` cells measured at the grid cell size
+   * (`cellPx`) into a box (`itemGridBox`). It used to be one square chip unrelated to the footprint. The size formula
+   * is the inventory grid's (`tileSizeAt`), held once in `shared/itemChip`.
    */
   private startGhost(p: Product): void {
     const def = this.o.defOf(p.defId);

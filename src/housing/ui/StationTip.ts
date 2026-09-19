@@ -20,11 +20,13 @@ const OFFSET = 16;
 const MARGIN = 8;
 
 /**
- * **가구 화면 호버 카드** (2026-09-12) — 흙구멍 · 배양관처럼 아이템이 아닌 칸의 툴팁. `ui/hud/ItemTip` 은 아이템
- * · 재화 카드만 그리고 다른 폴더라 import 할 수 없으므로, 같은 `.item-tip` 겉모습을 빌려 여기서 그린다.
+ * **The furniture-screen hover card** (2026-09-12) — the tooltip of a cell that is not an item, like the pot · the
+ * culture tube. `ui/hud/ItemTip` draws only item · currency cards and lives in another folder, so it cannot be
+ * imported; the same `.item-tip` look is borrowed and drawn here.
  *
- * 성능 규약 (재배 화면 드래그 렉): `pointermove` 에서는 **좌표만 적고** rAF 에 한 번 `transform` 을 쓴다.
- * 크기는 내용을 바꿀 때(`show` · `update`)만 잰다 — 움직일 때마다 `offsetWidth` 를 읽지 않는다.
+ * Performance contract (drag lag on the grow screen): `pointermove` **only records the coordinates** and one
+ * `transform` is written per rAF. The size is measured only when the content changes (`show` · `update`) —
+ * `offsetWidth` is not read on every move.
  */
 export class StationTip {
   readonly el: HTMLElement;

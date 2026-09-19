@@ -3,8 +3,8 @@ import { Keys, MENU_BLOCKER } from '@/shared';
 import { el, section } from './dom';
 
 export type HousingPage = 'room' | 'facility' | 'presets' | 'grow' | 'bookshelf' | 'analyzer' | 'culture' | 'dining' | 'cook'
-  | 'cluster' | 'computer'    // 2026-09-13 암호화폐 채굴 — 연산 클러스터 화면 · 메인 컴퓨터 (`ui/mining`, `ui:miningToggled`)
-  | 'tv';                     // 2026-09-13 비디오게임 — TV 화면 (`ui/tv/TvMenu`, `ui:tvMenuToggled`)
+  | 'cluster' | 'computer'    // 2026-09-13 crypto mining — the compute cluster screen · the main computer (`ui/mining`, `ui:miningToggled`)
+  | 'tv';                     // 2026-09-13 video games — the TV screen (`ui/tv/TvMenu`, `ui:tvMenuToggled`)
 const BLOCKER = 'housing';
 
 /**
@@ -57,18 +57,19 @@ export abstract class HousingPanel {
    * even from a focused 프리셋 이름 field — nothing is typed with Tab, and `close()` blurs the field anyway.
    * 2026-09-12: an open overlay (업그레이드 모달 · 우클릭 메뉴) is closed first — the panel stays.
    *
-   * **2026-09-15 — Tab 은 맨 위 화면의 것이다.** 이 리스너는 window **capture** 라, 패널이 열려 있기만 하면 Tab 을
-   * 삼키고 자기를 닫았다: 책장 화면을 보다가 무한 상자(`/items`)를 열고 Tab 을 누르면 상자가 아니라 **책장**이 닫혔다.
-   * 그래서 Tab 은 `ctx.escape` 스택의 맨 위가 나일 때만 가로챈다 — Escape 가 이미 그 순서로 도는 것과 같은 규칙
-   * (`shared/escape`). 내 안의 오버레이(업그레이드 모달 · 우클릭 메뉴)는 스택 맨 위가 그 토큰이므로 예전처럼 내가 닫는다.
-   * E 는 가구에 붙은 키라 예전 그대로 패널이 가져간다.
+   * **2026-09-15 — Tab belongs to the topmost screen.** This listener is window **capture**, so it swallowed Tab and
+   * closed itself whenever the panel was merely open: with the 책장 screen up, opening the infinite box (`/items`) and
+   * pressing Tab closed the **책장**, not the box. So Tab is intercepted only while the top of the `ctx.escape` stack is
+   * this panel — the same rule Escape already runs by (`shared/escape`). An overlay inside it (the 업그레이드 modal ·
+   * the right-click menu) owns the top token, so the panel still closes that one as before.
+   * E is a key attached to the furniture, so the panel takes it exactly as before.
    */
   private onKeyCapture = (e: KeyboardEvent): void => {
     if (!this._open) return;
     const tab = e.code === Keys.INVENTORY;
     if (!tab && e.code !== Keys.INTERACT) return;
     if (this.ctx.uiBlockers.has(MENU_BLOCKER)) return;
-    // 나중에 열린 화면(무한 상자 · 인벤토리 창)이 위에 있으면 Tab 은 그쪽 것이다
+    // a screen opened later (the infinite box · the inventory window) sitting on top means Tab is theirs
     if (tab && this.ctx.escape.topKey !== BLOCKER && !this.overlays.some((o) => o.isOpen)) return;
     // This listener is capture-phase on `window`, so it runs *before* a focused field's own handler: without this
     // the E of a 프리셋 이름 would close the panel instead of being typed.
@@ -135,7 +136,7 @@ export abstract class HousingPanel {
     this.frame.style.animation = '';
     window.addEventListener('keydown', this.onKeyCapture, true);
     this.refresh();
-    // 2026-09-09 키 가이드: the panels are buttons only, so their line is the guide's own `Tab 닫기` (owner per page)
+    // 2026-09-09 key guide: the panels are buttons only, so their line is the guide's own `Tab 닫기` (owner per page)
     this.ctx.bus.emit('ui:keyGuide', { owner: `housing.${this.page}`, keys: [] });
     this.ctx.bus.emit('ui:housingToggled', { open: true, page: wirePage(this.page) });
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
@@ -177,7 +178,7 @@ export abstract class HousingPanel {
     this.msgTimer = window.setTimeout(() => { this.msg.hidden = true; }, 4500);
   }
 
-  /** 2026-09-12: a refused 수확 · 회수 (자리가 없다 …) — deny sound + a toast, not just the message line. */
+  /** 2026-09-12: a refused harvest · recovery (no room …) — deny sound + a toast, not just the message line. */
   protected deny(reason: string): void {
     this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
     this.ctx.bus.emit('ui:notify', { text: reason, kind: 'warning' });

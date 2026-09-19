@@ -1,28 +1,28 @@
 /**
- * src/housing/parts/Lab.ts — **연구실 분석기** (A-12, 2026-09-11 · 결과표 개편 2026-09-13).
+ * src/housing/parts/Lab.ts — **the lab analyzer** (A-12, 2026-09-11 · result table rework 2026-09-13).
  *
- * 「표본을 넣으면 현실 시간만큼 해석되고, 회수하면 산출물 하나와 그 계열의 분석 경험치를 받는다.」
- * 해석 칸은 가구 레벨이 연다 (`analyzerSlotsForLevel` = `ANALYZER_SLOTS_BASE + 레벨 × PER_LEVEL` — 2026-09-15 2차
- * 사용자 결정으로 **Lv.1 = 2칸 · Lv.2 = 3칸 · Lv.3 = 4칸**) 이고 **칸 번호는 강화해도
- * 밀리지 않는다** — 돌아가던 해석이 다른 칸으로 옮겨 가면 안 된다.
+ * 「A sample put in is analysed for that much real time; collecting it gives one product and that family's analysis XP.」
+ * Analysis slots are opened by the furniture level (`analyzerSlotsForLevel` = `ANALYZER_SLOTS_BASE + level × PER_LEVEL` —
+ * 2026-09-15 2nd pass, user's decision: **Lv.1 = 2 · Lv.2 = 3 · Lv.3 = 4 slots**) and **slot numbers do not shift on an
+ * upgrade** — a running analysis must never move to another slot.
  *
- * **2026-09-13 (요리 재료 티어 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」)**: 표본은 **계열**(`SampleDef.family` — 세포 · 광물 · DNA)로
- * 해석된다. 넣는 순간 ① 그 계열의 **분석 레벨**(`ShipState.analysisXp` → `analysisLevelForXp`)이 시간을 정하고
- * (`Rules.analysisDurationMs`), ② 결과표(`ANALYSIS_RESULTS`)를 그 레벨로 **지금 굴려** 칸에 적는다(`resultDefId` · `resultQty` —
- * 회수에 실패해도 다시 굴리지 않는다; 표가 비면 표본의 `rewardDefId` 가 대체 산출물이다). 회수하면 산출물 하나만 건네고(첫 해석
- * 보너스 없음) 그 계열에 `ANALYSIS_XP_BY_RARITY[표본 등급]` 이 쌓여 레벨이 오르면 `housing:analysisLevelUp`, 처음 받은 산출물이면
- * 분석 도감(`ShipState.analysisFound`)에 적고 `housing:analysisFound` 를 낸다. 옛 표본 도감(`sampleDex`)은 조용히 계속 채우지만
- * `housing:sampleDexAdded` 는 더 내지 않는다. 결과를 안 굴린 옛 세이브의 칸은 **회수할 때** 그때 레벨로 굴린다.
- * 은퇴한 표본도 자기 계열로 해석된다.
+ * **2026-09-13 (cooking material tiers — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」)**: a sample is analysed by its **family**
+ * (`SampleDef.family` — cell · mineral · DNA). On insertion ① that family's **analysis level** (`ShipState.analysisXp` →
+ * `analysisLevelForXp`) fixes the time (`Rules.analysisDurationMs`), ② the result table (`ANALYSIS_RESULTS`) is **rolled now**
+ * at that level into the slot (`resultDefId` · `resultQty` — a failed collect never re-rolls; an empty table falls back to the
+ * sample's `rewardDefId`). Collecting gives that one product (no first-analysis bonus) and adds `ANALYSIS_XP_BY_RARITY[sample
+ * rarity]` to that family; a new level raises `housing:analysisLevelUp`, a first-time product goes into the analysis catalogue
+ * (`ShipState.analysisFound`) and raises `housing:analysisFound`, while the old sample catalogue (`sampleDex`) fills quietly with
+ * no `housing:sampleDexAdded`. An unrolled old slot rolls **when collected**, at that level. Retired samples are analysed too.
  *
- * **2026-09-16 (표본 전면 개편 — 사용자 결정)**: 두 가지가 더해졌고 둘 다 축이 **표본의 등급**이다.
- *  ① **등급 하한** — 추첨에 남는 줄은 `rarityRank(산출물) ≥ rarityRank(표본)` 인 것뿐이다. `data/analysis_results.csv` 의
- *     `sampleRarity` 열이 적힌 줄은 그 등급 표본 전용이면서 하한을 면제받는다 (미확인 광물 → 석영; 빈 후보 방지턱이기도 하다).
- *  ② **해석 시간 단축** — `min(CAP, 같은 등급 도감 칸수 × PER_ENTRY + 표본 레벨 보너스)`. 표본 레벨(`ShipState.sampleLevels`)은
- *     그 표본을 **회수한 횟수**이고, 레벨 1 의 `FIRST`(+3 %)가 그 뒤 레벨당 `STEP`(+0.5 %)보다 훨씬 크다 — 「처음 등록했을 때
- *     보너스를 많이 준다」가 그 두 값의 차이다. 계열 분석 레벨의 시간 배수는 이것과 **별개로** 곱해진다.
+ * **2026-09-16 (the sample rework — user's decision)**: two more rules, both turning on **the sample's rarity**.
+ *  ① **The rarity floor** — the roll keeps only rows with `rarityRank(product) ≥ rarityRank(sample)`. A row whose `sampleRarity`
+ *     column is set in `data/analysis_results.csv` is that rarity's own and skips the floor (미확인 광물 → 석영, also an empty-pool guard).
+ *  ② **A shorter analysis time** — `min(CAP, catalogue entries of the same rarity × PER_ENTRY + the sample level bonus)`. A sample's
+ *     level (`ShipState.sampleLevels`) is **how often it was collected**, and level 1's `FIRST` (+3 %) far outweighs the per-level
+ *     `STEP` (+0.5 %) after it — 「a big bonus the first time it is registered」 is that difference. The family's analysis level time multiplier is multiplied in **separately** from this.
  *
- * 순수 판정(해석 시간 · 단축 · 결과 추첨 · 확률 · 진행도 · 남은 초)은 전부 `../Rules.ts` 에 있고, 여기서는 상태를 바꾼다.
+ * The pure judgements (analysis time · speedup · the result roll · chance · progress · seconds left) are all in `../Rules.ts`; this file changes state.
  */
 import type {
   AnalysisLevelInfo, AnalysisResultInfo, AnalysisSlot, AnalysisSlotInfo, HarvestDestination, ItemDef, PlacedFurniture, Rarity,
@@ -45,9 +45,9 @@ import { deliverItem, noRoomReason } from './Deliver';
 
 /* ── state access ──────────────────────────────────────────────────────── */
 /**
- * 해석 칸. The save only shape-checks 표본 ids (`spec_*`); the first time `ctx.loot` is around every id that is not a
- * real 표본 any more is dropped here (서재의 `books()` · 온실의 `grows()` 와 같은 규약 — 아이템 표에서 사라진 def 가
- * 분석기를 깨뜨리지 않는다). 은퇴한 표본(`ItemDef.retired`)은 `sample` 데이터가 남아 있으므로 걸러지지 않는다.
+ * The analysis slots. The save only shape-checks sample ids (`spec_*`); the first time `ctx.loot` is around, every id that is
+ * no longer a real sample is dropped here (the same contract as the library's `books()` · the greenhouse's `grows()` — a def
+ * gone from the item table must not break the analyzer). A retired sample (`ItemDef.retired`) keeps its `sample` data, so it stays.
  */
 export function analyses(sys: HousingSystem): AnalysisSlot[] {
   if (!Array.isArray(sys.state.analyses)) sys.state.analyses = [];
@@ -64,33 +64,33 @@ export function analyses(sys: HousingSystem): AnalysisSlot[] {
   return list;
 }
 
-/** 옛 해석 도감 (append-only: 한 번 회수한 표본). 2026-09-13 부터 화면에 나오지 않지만 조용히 계속 채운다. */
+/** The old analysis catalogue (append-only: samples collected at least once). Off screen since 2026-09-13 but still filled quietly. */
 export function sampleDex(sys: HousingSystem): string[] {
   if (!Array.isArray(sys.state.sampleDex)) sys.state.sampleDex = [];
   return sys.state.sampleDex;
 }
 
-/** 2026-09-13: 계열별 분석 누적 경험치 (`ShipState.analysisXp`). */
+/** 2026-09-13: cumulative analysis XP per family (`ShipState.analysisXp`). */
 function analysisXp(sys: HousingSystem): Partial<Record<SampleFamily, number>> {
   const cur = sys.state.analysisXp;
   if (!cur || typeof cur !== 'object' || Array.isArray(cur)) sys.state.analysisXp = {};
   return sys.state.analysisXp!;
 }
 
-/** 2026-09-13: 분석 도감 — 분석기에서 한 번이라도 회수한 산출물 def id (append-only). */
+/** 2026-09-13: the analysis catalogue — def ids of products ever collected from an analyzer (append-only). */
 function analysisFound(sys: HousingSystem): string[] {
   if (!Array.isArray(sys.state.analysisFound)) sys.state.analysisFound = [];
   return sys.state.analysisFound;
 }
 
-/** 2026-09-16: 표본 def id → 해석 레벨 (= 회수 횟수). 없는 키 = 레벨 0. */
+/** 2026-09-16: sample def id → analysis level (= how often it was collected). A missing key = level 0. */
 function sampleLevels(sys: HousingSystem): Record<string, number> {
   const cur = sys.state.sampleLevels;
   if (!cur || typeof cur !== 'object' || Array.isArray(cur)) sys.state.sampleLevels = {};
   return sys.state.sampleLevels!;
 }
 
-/** The 분석기 behind `uid`, or null when it is not one (or gone). */
+/** The analyzer behind `uid`, or null when it is not one (or gone). */
 export function analyzerOf(sys: HousingSystem, uid: string): PlacedFurniture | null {
   const item = sys.getPlacedByUid(uid);
   return item && isAnalyzerDefId(item.defId) ? item : null;
@@ -100,13 +100,13 @@ export function analysisAt(sys: HousingSystem, uid: string, slot: number): Analy
   return sys.analyses().find((a) => a.uid === uid && a.slot === slot) ?? null;
 }
 
-/** Drop every 해석 칸 of an analyzer that is being recovered (the samples go with it). */
+/** Drop every analysis slot of an analyzer that is being recovered (the samples go with it). */
 export function dropAnalysesOf(sys: HousingSystem, uid: string): void {
   const list = sys.analyses();
   for (let i = list.length - 1; i >= 0; i--) if (list[i].uid === uid) list.splice(i, 1);
 }
 
-/** Finished 칸 of an analyzer (the `housing:analysisChanged` payload and the hub's 발광 창). */
+/** Finished slots of an analyzer (the `housing:analysisChanged` payload and the hub's glowing window). */
 export function readyAnalyses(sys: HousingSystem, uid: string): number {
   const now = sys.stationNow(uid);
   return sys.analyses().filter((a) => a.uid === uid && now >= a.readyAt).length;
@@ -118,26 +118,26 @@ export function analysisChanged(sys: HousingSystem, uid: string, reason: string)
 }
 
 /* ── item lookups ──────────────────────────────────────────────────────── */
-/** 표본 def with its `sample` data, or null when `defId` is not a 표본. */
+/** The sample def with its `sample` data, or null when `defId` is not a sample. */
 export function sampleDef(sys: HousingSystem, defId: string): ItemDef | null {
   const def = sys.defOf(defId);
   return def && def.sample ? def : null;
 }
 
-/** Every 표본 def the item table knows (은퇴한 것 포함 — 해석은 된다). */
+/** Every sample def the item table knows (retired ones included — they still analyse). */
 function allSampleDefs(sys: HousingSystem): readonly ItemDef[] {
   const loot = sys.ctx.loot;
   if (!loot || typeof loot.getAllItemDefs !== 'function') return [];
   return loot.getAllItemDefs().filter((d) => !!d.sample);
 }
 
-/** 표본의 계열. 표에 계열이 없으면(옛 아이템 표) 세포로 본다. */
+/** The sample's family. With no family in the table (an old item table) it counts as `cell`. */
 function familyOfDef(def: ItemDef | null | undefined): SampleFamily {
   const f = (def?.sample as { family?: unknown } | undefined)?.family;
   return typeof f === 'string' && (SAMPLE_FAMILIES as readonly string[]).includes(f) ? (f as SampleFamily) : 'cell';
 }
 
-/** 분석 결과 · 대체 산출물로 받을 수 있는 아이템인가 — 아이템 표에 있고 은퇴하지 않았다. */
+/** Can this item be received as an analysis result · fallback product — it is in the item table and not retired. */
 function resultDefOk(sys: HousingSystem): (defId: string) => boolean {
   return (defId) => {
     const d = sys.defOf(defId);
@@ -145,29 +145,29 @@ function resultDefOk(sys: HousingSystem): (defId: string) => boolean {
   };
 }
 
-/** 계열의 지금 분석 레벨 (1 … `ANALYSIS_LEVEL_MAX`). */
+/** The family's current analysis level (1 … `ANALYSIS_LEVEL_MAX`). */
 function levelOf(sys: HousingSystem, family: SampleFamily): number {
   return analysisLevelForXp(analysisXp(sys)[family] ?? 0);
 }
 
-/* ── 2026-09-16 (사용자 결정): 표본 등급 하한 · 표본 레벨 단축 ─────────────────
- * 두 규칙 모두 **표본의 등급**을 축으로 삼는다:
- *  ① 추첨 — 산출물 등급이 표본 등급 이상이어야 한다 (`Rules.rollAnalysisResult` 의 `AnalysisRollOpts`).
- *  ② 도감 보너스 — 분석 도감의 칸을 **산출물 등급별로** 세고, 그 등급 표본의 해석 시간을 칸 수만큼 줄인다.
- * 아이템 등급은 ctx 의 아이템 표에만 있으므로 순수 규칙에 **콜백으로** 넘긴다 (`Rules.ts` 는 ctx 를 모른다).
+/* ── 2026-09-16 (user's decision): the rarity floor · the sample level speedup ─
+ * Both rules turn on **the sample's rarity**:
+ *  ① The roll — the product's rarity must be at least the sample's (`AnalysisRollOpts` of `Rules.rollAnalysisResult`).
+ *  ② The catalogue bonus — catalogue entries are counted **per product rarity** and shorten that rarity's analysis time.
+ * Item rarity lives only in ctx's item table, so it is handed to the pure rules **as a callback** (`Rules.ts` knows no ctx).
  * ────────────────────────────────────────────────────────────────────────── */
 
-/** def 의 등급 (아이템 표에 없으면 null — 순수 규칙은 그때 하한 검사를 통과시킨다). */
+/** A def's rarity (null when it is not in the item table — the pure rules then let the floor check pass). */
 function rarityOf(sys: HousingSystem): (defId: string) => Rarity | null {
   return (defId) => sys.defOf(defId)?.rarity ?? null;
 }
 
-/** 추첨에 넘길 옵션 — 표본 등급(하한) + 산출물 등급 조회. */
+/** The options handed to the roll — the sample's rarity (the floor) + a product rarity lookup. */
 function rollOpts(sys: HousingSystem, sampleRarity?: Rarity): AnalysisRollOpts {
   return { sampleRarity, rarityOf: rarityOf(sys) };
 }
 
-/** 분석 도감(`analysisFound`)의 칸 수를 산출물 **등급별**로 센 표 — 도감 보너스가 묶이는 축 그대로. */
+/** Analysis catalogue (`analysisFound`) entries counted **per product rarity** — exactly the axis the catalogue bonus groups on. */
 export function getAnalysisDexByRarity(sys: HousingSystem): Record<Rarity, number> {
   const out = Object.fromEntries(RARITY_ORDER.map((r) => [r, 0])) as Record<Rarity, number>;
   const rar = rarityOf(sys);
@@ -179,8 +179,8 @@ export function getAnalysisDexByRarity(sys: HousingSystem): Record<Rarity, numbe
 }
 
 /**
- * 표본 하나의 해석 단축 현황 (`HousingRef.getSampleAnalysis`). 표본이 아니면 null.
- * 단축 = min(CAP, 같은 등급 도감 칸수 × PER_ENTRY + 표본 레벨 보너스) — 식은 `Rules.analysisSpeedup`.
+ * One sample's analysis speedup state (`HousingRef.getSampleAnalysis`). null when it is not a sample.
+ * speedup = min(CAP, catalogue entries of the same rarity × PER_ENTRY + the sample level bonus) — the formula is `Rules.analysisSpeedup`.
  */
 export function getSampleAnalysis(sys: HousingSystem, defId: string): SampleAnalysisInfo | null {
   const def = sys.sampleDef(defId);
@@ -195,43 +195,43 @@ export function getSampleAnalysis(sys: HousingSystem, defId: string): SampleAnal
   };
 }
 
-/** 이 표본의 지금 레벨 (0 … `ANALYSIS_SAMPLE_LEVEL_MAX`). */
+/** This sample's current level (0 … `ANALYSIS_SAMPLE_LEVEL_MAX`). */
 function sampleLevelOf(sys: HousingSystem, defId: string): number {
   const v = sampleLevels(sys)[defId];
   return Number.isFinite(v) ? Math.max(0, Math.min(ANALYSIS_SAMPLE_LEVEL_MAX, Math.floor(v))) : 0;
 }
 
-/** 지금 이 표본에 붙는 단축 (0 … `ANALYSIS_SPEEDUP_CAP`). 표본이 아니면 0. */
+/** The speedup on this sample right now (0 … `ANALYSIS_SPEEDUP_CAP`). 0 when it is not a sample. */
 function speedupOf(sys: HousingSystem, def: ItemDef | null): number {
   if (!def) return 0;
   return analysisSpeedup(getAnalysisDexByRarity(sys)[def.rarity] ?? 0, sampleLevelOf(sys, def.id));
 }
 
-/* ── 2026-09-13 (H3): 연구 숙련 — 분석 시간 단축 (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
-/** 연구 숙련의 분석 시간 배수 (`derived.researchTimeMul`, 1 = 그대로). progression 이 없거나 값이 이상하면 1. */
+/* ── 2026-09-13 (H3): the `연구` research skill — a shorter analysis time (docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ── */
+/** The research skill's analysis time multiplier (`derived.researchTimeMul`, 1 = unchanged). 1 with no progression, or a bad value. */
 export function researchTimeMul(sys: HousingSystem): number {
-  const v = sys.ctx?.progression?.derived?.researchTimeMul;   // 분석 화면이 생성자에서 부를 때 ctx 가 아직 없을 수 있다
+  const v = sys.ctx?.progression?.derived?.researchTimeMul;   // ctx may not exist yet when the analysis screen calls this from its constructor
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 1;
 }
 
 /**
- * 지금 넣으면 걸릴 해석 시간(ms) — `Rules.analysisDurationMs(시간, 계열 분석 레벨, 표본 단축) × 연구 숙련 배수`, 최소 1000 ms.
- * **넣는 순간 확정**된다 (`startAnalysis` 가 이 값으로 `readyAt` 을 적는다 — 나중에 도감이 차거나 숙련이 올라도 돌아가던 해석은 그대로다).
+ * The analysis time (ms) a sample put in now would take — `Rules.analysisDurationMs(hours, family level, sample speedup) × the research multiplier`, at least 1000 ms.
+ * **Fixed the moment it goes in** (`startAnalysis` writes `readyAt` from it — a catalogue entry or a skill level gained later never moves a running analysis).
  */
 export function analysisMsFor(sys: HousingSystem, analyzeHours: number, level: number, speedup = 0): number {
   return Math.max(1000, Math.round(analysisDurationMs(analyzeHours, level, speedup) * researchTimeMul(sys)));
 }
 
-/** 표본 하나를 지금 넣으면 걸릴 해석 시간(ms), 표본이 아니면 null (분석 화면의 예상 시간). */
+/** The analysis time (ms) one sample would take if put in now, null when it is not a sample (the analysis screen's estimate). */
 export function analysisEstimateMs(sys: HousingSystem, sampleDefId: string): number | null {
   const def = sys.sampleDef(sampleDefId);
   if (!def?.sample) return null;
   return analysisMsFor(sys, def.sample.analyzeHours, levelOf(sys, familyOfDef(def)), speedupOf(sys, def));
 }
 
-/** 결과 한 번 굴리기 — 결과표가 비면 표본의 대체 산출물(`rewardDefId`), 그것도 못 받으면 null. */
+/** Roll the result once — with an empty result table the sample's fallback product (`rewardDefId`), and null when even that cannot be given. */
 function rollResult(sys: HousingSystem, def: ItemDef, family: SampleFamily, level: number): { defId: string; qty: number } | null {
-  // 2026-09-16: 표본의 등급이 산출물 등급의 하한이다 (`sampleRarity` 가 적힌 줄은 그 등급 전용 + 하한 면제)
+  // 2026-09-16: the sample's rarity is the floor of the product's rarity (a row with `sampleRarity` set is that rarity's own + exempt)
   const rolled = rollAnalysisResult(family, level, Math.random, resultDefOk(sys), rollOpts(sys, def.rarity));
   if (rolled) return rolled;
   const s = def.sample;
@@ -239,11 +239,11 @@ function rollResult(sys: HousingSystem, def: ItemDef, family: SampleFamily, leve
   return { defId: s.rewardDefId, qty: Math.max(1, Math.floor(Number.isFinite(s.rewardQty) ? s.rewardQty : 1)) };
 }
 
-/* ── 분석 화면이 읽는 값 ────────────────────────────────────────────────── */
+/* ── what the analysis screen reads ─────────────────────────────────────── */
 /**
- * Every 해석 칸 of one analyzer — **always `ANALYZER_MAX_SLOTS`** in slot order, locked ones included so the panel can
- * draw the slots an upgrade will open. `[]` when `uid` is not an analyzer. 2026-09-13: 결과(`resultDefId` · `rewardDefId`)는
- * **끝난 칸에서만** 채워지고, `firstTime` = 끝났고 그 결과가 분석 도감에 없다.
+ * Every analysis slot of one analyzer — **always `ANALYZER_MAX_SLOTS`** in slot order, locked ones included so the panel can
+ * draw the slots an upgrade will open. `[]` when `uid` is not an analyzer. 2026-09-13: the result (`resultDefId` · `rewardDefId`)
+ * is filled **only on a finished slot**, and `firstTime` = it is finished and that result is not in the analysis catalogue.
  */
 export function getAnalyses(sys: HousingSystem, uid: string): AnalysisSlotInfo[] {
   const analyzer = sys.analyzerOf(uid);
@@ -261,7 +261,7 @@ export function getAnalyses(sys: HousingSystem, uid: string): AnalysisSlotInfo[]
     out.push({
       slot, locked, unlockLevel: analyzerSlotUnlockLevel(slot),
       sampleDefId: a?.sampleDefId ?? null,
-      // 진행도 · 남은 초는 온실과 같은 순수 시각 계산이다 (`Rules` 의 그 둘은 작물인지 표본인지 모른다)
+      // progress · seconds left are the same pure time arithmetic as the greenhouse's (those two in `Rules` know of no crop or sample)
       progress: growProgress(now, a?.startedAt, a?.readyAt),
       remainingS: growRemainingS(now, a?.readyAt),
       ready,
@@ -276,7 +276,7 @@ export function getAnalyses(sys: HousingSystem, uid: string): AnalysisSlotInfo[]
   return out;
 }
 
-/** 표본 item defs the player owns right now (bag + stash, 은퇴한 표본 포함), 계열 순(`SAMPLE_FAMILIES`) → 해석 시간 짧은 순. */
+/** Sample item defs the player owns right now (bag + stash, retired samples included), in family order (`SAMPLE_FAMILIES`) → shortest analysis first. */
 export function getOwnedSamples(sys: HousingSystem): { defId: string; qty: number }[] {
   const out: { defId: string; qty: number; def: ItemDef }[] = [];
   for (const def of allSampleDefs(sys)) {
@@ -288,12 +288,12 @@ export function getOwnedSamples(sys: HousingSystem): { defId: string; qty: numbe
   return out.map(({ defId, qty }) => ({ defId, qty }));
 }
 
-/** 옛 해석 도감: 한 번이라도 회수한 표본 def id. */
+/** The old analysis catalogue: def ids of samples ever collected. */
 export function getSampleDex(sys: HousingSystem): readonly string[] { return sys.sampleDex(); }
 
 /**
- * @deprecated 2026-09-13 — 분석 도감 진척 0…1: 결과표의 **서로 다른 산출물**(받을 수 있는 것) 중 `analysisFound` 에 든 비율.
- * 해석 시간은 더 이상 이 값을 보지 않는다 (분석 레벨이 정한다).
+ * @deprecated 2026-09-13 — analysis catalogue progress 0 … 1: the share of the result table's **distinct products** (the
+ * receivable ones) that are in `analysisFound`. The analysis time no longer looks at this value (the analysis level decides it).
  */
 export function getSampleDexRatio(sys: HousingSystem): number {
   const ok = resultDefOk(sys);
@@ -305,7 +305,7 @@ export function getSampleDexRatio(sys: HousingSystem): number {
   return Math.max(0, Math.min(1, n / ids.size));
 }
 
-/** 2026-09-13: 한 계열의 분석 레벨 · 경험치 · 시간 배수 (`HousingRef.getAnalysisLevel`). */
+/** 2026-09-13: one family's analysis level · XP · time multiplier (`HousingRef.getAnalysisLevel`). */
 export function getAnalysisLevel(sys: HousingSystem, family: SampleFamily): AnalysisLevelInfo {
   const xp = Math.max(0, analysisXp(sys)[family] ?? 0);
   const level = analysisLevelForXp(xp);
@@ -318,17 +318,17 @@ export function getAnalysisLevel(sys: HousingSystem, family: SampleFamily): Anal
 }
 
 /**
- * 2026-09-13: 한 계열의 결과표 (`HousingRef.getAnalysisResults`) — 받을 수 있는 아이템의 줄만, 최소 레벨 오름차순 → 같은 레벨은
- * 가중치 내림차순. `chance` 는 지금 레벨의 확률(`Rules.analysisChances`, 잠긴 줄은 0).
+ * 2026-09-13: one family's result table (`HousingRef.getAnalysisResults`) — only rows of receivable items, ascending by minimum
+ * level → descending by weight within a level. `chance` is the chance at the current level (`Rules.analysisChances`, 0 on a locked row).
  */
 export function getAnalysisResults(sys: HousingSystem, family: SampleFamily): AnalysisResultInfo[] {
   const ok = resultDefOk(sys);
   const level = levelOf(sys, family);
-  /* 2026-09-16: 확률은 **일반 표본 기준**이다 — 등급 하한 때문에 실제 확률은 넣는 표본마다 달라지고, 일반 표본이
-     후보가 가장 넓다(= 도감이 보여 줄 수 있는 유일한 한 벌). 도감 머리줄이 그 기준을 한국어로 적는다. */
+  /* 2026-09-16: the chances are **for a common sample** — the rarity floor makes the real chance depend on the sample put in,
+     and a common sample has the widest pool (= the only set the catalogue can show). The catalogue's header row states that basis. */
   const chances = analysisChances(family, level, ok, rollOpts(sys, 'common'));
   const found = analysisFound(sys);
-  /* 같은 산출물이 여러 줄인 표(등급별 석영 6줄 같은)는 한 줄로 합친다 — 도감은 「무엇이 나오는가」의 목록이지 csv 줄 목록이 아니다. */
+  /* Rows that share a product (like the six 석영 rows, one per rarity) are merged into one — the catalogue lists 「what comes out」, not csv rows. */
   const merged = new Map<string, AnalysisResultInfo>();
   for (const r of ANALYSIS_RESULTS) {
     if (r.family !== family || !ok(r.defId)) continue;
@@ -349,11 +349,11 @@ export function getAnalysisResults(sys: HousingSystem, family: SampleFamily): An
   return [...merged.values()].sort((a, b) => (a.minLevel - b.minLevel) || (b.chance - a.chance));
 }
 
-/** 2026-09-13: 분석 도감 (`HousingRef.getAnalysisFound`). */
+/** 2026-09-13: the analysis catalogue (`HousingRef.getAnalysisFound`). */
 export function getAnalysisFound(sys: HousingSystem): readonly string[] { return analysisFound(sys); }
 
-/* ── 한국어 게이트 ──────────────────────────────────────────────────────── */
-/** Why `uid` / `slot` is not a usable 해석 칸 right now; null = fine. Every mutator starts here. */
+/* ── the Korean block reasons ───────────────────────────────────────────── */
+/** Why `uid` / `slot` is not a usable analysis slot right now; null = fine. Every mutator starts here. */
 function slotBlock(sys: HousingSystem, uid: string, slot: number): string | null {
   const analyzer = sys.analyzerOf(uid);
   if (!analyzer) return '분석기가 아닙니다';
@@ -362,10 +362,10 @@ function slotBlock(sys: HousingSystem, uid: string, slot: number): string | null
   return null;
 }
 
-/* ── 칸 조작 ────────────────────────────────────────────────────────────── */
+/* ── slot mutations ─────────────────────────────────────────────────────── */
 /**
- * Put one 표본 (bag → stash, consumes 1) into an empty 칸. 2026-09-13: 계열 · 분석 레벨이 **여기서** `readyAt` 을 정하고, 결과도
- * **여기서** 굴려 칸에 적는다 — 나중에 레벨이 올라도 돌아가던 해석의 시간 · 결과는 움직이지 않는다.
+ * Put one sample (bag → stash, consumes 1) into an empty slot. 2026-09-13: the family · the analysis level fix `readyAt`
+ * **here**, and the result is rolled into the slot **here** too — a later level never moves a running analysis's time or result.
  */
 export function startAnalysis(sys: HousingSystem, uid: string, slot: number, sampleDefId: string): string | null {
   const block = slotBlock(sys, uid, slot);
@@ -383,7 +383,7 @@ export function startAnalysis(sys: HousingSystem, uid: string, slot: number, sam
   const startedAt = sys.stationNow(uid);
   sys.analyses().push({
     uid, slot, sampleDefId, startedAt,
-    // 2026-09-13 (H3): × 연구 숙련 · 2026-09-16: × (1 − 표본 단축) — 전부 **넣는 순간** 확정된다
+    // 2026-09-13 (H3): × the research skill · 2026-09-16: × (1 − the sample speedup) — all fixed **the moment it goes in**
     readyAt: startedAt + analysisMsFor(sys, def.sample.analyzeHours, level, speedupOf(sys, def)),
     family, resultDefId: result.defId, resultQty: result.qty,
   });
@@ -391,7 +391,7 @@ export function startAnalysis(sys: HousingSystem, uid: string, slot: number, sam
   return null;
 }
 
-/** Stop a running 해석. **The sample is not returned** (부은 흙과 같다, 계약에 적힌 그대로). */
+/** Stop a running analysis. **The sample is not returned** (the same as poured soil, exactly as the contract says). */
 export function cancelAnalysis(sys: HousingSystem, uid: string, slot: number): string | null {
   const block = slotBlock(sys, uid, slot);
   if (block) return block;
@@ -404,9 +404,9 @@ export function cancelAnalysis(sys: HousingSystem, uid: string, slot: number): s
 }
 
 /**
- * Collect a finished 해석: 칸에 적힌 결과 **하나**가 `dest` 로 간다 (첫 해석 보너스 없음). 결과가 없는 옛 칸은 지금 레벨로 굴려
- * 칸에 먼저 적는다(자리가 없어 실패해도 다시 굴리지 않는다). 성공하면 칸 제거 → 계열 경험치 → 레벨이 올랐으면
- * `housing:analysisLevelUp` → 새 산출물이면 `analysisFound` + `housing:analysisFound`. 옛 표본 도감은 조용히 채운다.
+ * Collect a finished analysis: the **one** result written in the slot goes to `dest` (no first-analysis bonus). An old slot with
+ * no result is rolled at the current level and written in first (a failure for lack of room never re-rolls). On success: remove
+ * the slot → family XP → `housing:analysisLevelUp` on a new level → `analysisFound` + `housing:analysisFound` on a new product.
  */
 export function collectAnalysis(sys: HousingSystem, uid: string, slot: number, dest: HarvestDestination = 'bag-first'): string | null {
   const block = slotBlock(sys, uid, slot);
@@ -421,7 +421,7 @@ export function collectAnalysis(sys: HousingSystem, uid: string, slot: number, d
   const family = a.family ?? familyOfDef(def);
 
   if (!a.resultDefId) {
-    // 옛 세이브의 칸 — 회수하는 지금 굴린다 (한 번만: 칸에 적어 두고 저장한다)
+    // an old save's slot — rolled now, on collection (once only: written into the slot and saved)
     const rolled = rollResult(sys, def, family, levelOf(sys, family));
     if (!rolled) return '해석 결과를 만들 수 없습니다';
     a.family = family;
@@ -435,7 +435,7 @@ export function collectAnalysis(sys: HousingSystem, uid: string, slot: number, d
 
   const list = sys.analyses();
   list.splice(list.indexOf(a), 1);
-  // 경험치 → 레벨업
+  // XP → level up
   const xpMap = analysisXp(sys);
   const before = Math.max(0, xpMap[family] ?? 0);
   const gain = ANALYSIS_XP_BY_RARITY[def.rarity];
@@ -443,21 +443,21 @@ export function collectAnalysis(sys: HousingSystem, uid: string, slot: number, d
   xpMap[family] = after;
   const lvBefore = analysisLevelForXp(before), lvAfter = analysisLevelForXp(after);
   for (let lv = lvBefore + 1; lv <= lvAfter; lv++) sys.ctx.bus.emit('housing:analysisLevelUp', { family, level: lv });
-  // 분석 도감
+  // the analysis catalogue
   const found = analysisFound(sys);
   if (!found.includes(resultDefId)) {
     found.push(resultDefId);
     sys.ctx.bus.emit('housing:analysisFound', { family, defId: resultDefId });
   }
-  // 옛 표본 도감은 조용히 (`housing:sampleDexAdded` 는 더 내지 않는다)
+  // the old sample catalogue, quietly (`housing:sampleDexAdded` is no longer raised)
   const dex = sys.sampleDex();
   if (!dex.includes(a.sampleDefId)) dex.push(a.sampleDefId);
-  /* 2026-09-16 (사용자 결정): 표본 레벨은 **회수한 횟수**다 — 중단(`cancelAnalysis`)은 세지 않는다. 레벨 1 이 되는
-     첫 회수에서 `ANALYSIS_SAMPLE_LEVEL_FIRST` 가 통째로 붙고, 그 뒤로는 레벨마다 `..._STEP` 만 얹힌다. */
+  /* 2026-09-16 (user's decision): a sample's level is **how often it was collected** — cancelling (`cancelAnalysis`) does not
+     count. The first collect, the one that makes level 1, adds `ANALYSIS_SAMPLE_LEVEL_FIRST` whole; every level after adds `..._STEP`. */
   const lvMap = sampleLevels(sys);
   const lvNow = sampleLevelOf(sys, a.sampleDefId);
   if (lvNow < ANALYSIS_SAMPLE_LEVEL_MAX) lvMap[a.sampleDefId] = lvNow + 1;
-  // 2026-09-13 (H3): 연구 숙련 경험치 — 회수한 칸마다
+  // 2026-09-13 (H3): research skill XP — once per collected slot
   const prog = sys.ctx.progression;
   if (prog && typeof prog.addSkillXp === 'function' && RESEARCH_XP_ANALYSIS > 0) {
     try { prog.addSkillXp('research', RESEARCH_XP_ANALYSIS); } catch (e) { console.error('[housing] progression.addSkillXp(research) threw', e); }
@@ -466,7 +466,7 @@ export function collectAnalysis(sys: HousingSystem, uid: string, slot: number, d
   return null;
 }
 
-/** Collect every finished 칸 of the analyzer; returns how many were taken. */
+/** Collect every finished slot of the analyzer; returns how many were taken. */
 export function collectAllAnalyses(sys: HousingSystem, uid: string): number {
   const analyzer = sys.analyzerOf(uid);
   if (!analyzer) return 0;
@@ -479,7 +479,7 @@ export function collectAllAnalyses(sys: HousingSystem, uid: string): number {
   return taken;
 }
 
-/** Open the 분석 화면 (`analyzer` interaction): 좌 해석 칸 · 우 가방 + 함선 창고 + 분석 도감. */
+/** Open the analysis screen (`analyzer` interaction): analysis slots on the left · bag + ship stash + the catalogue on the right. */
 export function openAnalyzer(sys: HousingSystem, uid: string): void {
   if (!sys.analyzerPanel) return;
   if (!sys.analyzerOf(uid)) { sys.notify('분석기가 없습니다', 'warning'); return; }
@@ -488,12 +488,12 @@ export function openAnalyzer(sys: HousingSystem, uid: string): void {
   sys.analyzerPanel.openAnalyzer(uid);
 }
 
-/* ── 개발용 (2026-09-15 2차 — 콘솔 `analyze ff <시간>` · `analyze done [uid|all]`) ───────────────────────────── */
+/* ── dev only (2026-09-15 2nd pass — console `analyze ff <시간>` · `analyze done [uid|all]`) ─────────────────── */
 /**
- * 배치된 분석기(`uid` 생략 = 전부)의 해석 시계를 `hours` 만큼 **앞당기고** 이번에 끝난 칸 수를 돌려준다.
- * `parts/Mining.devAdvanceMining` 과 같은 결이다 — 시각만 옮기고 **회수는 하지 않는다**(회수는 사람이 화면에서
- * 하거나 콘솔이 `collectAllAnalyses` 로 한다). `startedAt` 도 같이 당겨 진행 막대가 100 % 를 넘지 않게 한다.
- * `hours` 가 0 이하 · 유한하지 않으면 아무것도 하지 않는다 (0 을 돌려준다).
+ * Pull the analysis clock of placed analyzers (`uid` omitted = all of them) **forward** by `hours` and return how many slots
+ * finished this time. The same grain as `parts/Mining.devAdvanceMining` — it only moves the time and **does not collect** (a
+ * person collects on the screen, or the console does with `collectAllAnalyses`). `startedAt` is pulled along too, so the
+ * progress bar never passes 100 %. With `hours` at 0 or below, or not finite, it does nothing (and returns 0).
  */
 export function devAdvanceAnalysis(sys: HousingSystem, hours: number, uid?: string): number {
   const ms = Number(hours) * 3_600_000;
@@ -502,7 +502,7 @@ export function devAdvanceAnalysis(sys: HousingSystem, hours: number, uid?: stri
   let finished = 0;
   for (const a of sys.analyses()) {
     if (uid !== undefined && a.uid !== uid) continue;
-    if (!sys.analyzerOf(a.uid)) continue;                    // 놓여 있지 않은 분석기의 칸은 건드리지 않는다
+    if (!sys.analyzerOf(a.uid)) continue;                    // slots of an analyzer that is not placed are left alone
     const now = sys.stationNow(a.uid);
     const wasReady = now >= a.readyAt;
     a.startedAt -= ms;

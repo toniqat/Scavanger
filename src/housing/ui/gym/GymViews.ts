@@ -1,18 +1,20 @@
 /**
- * src/housing/ui/gym/GymViews.ts — 운동 미니게임 3종의 **무대**(`.gym-stage`). 판정 객체(`parts/GymGames`)를 그리기만 한다.
+ * src/housing/ui/gym/GymViews.ts — the **stages** (`.gym-stage`) of the three gym minigames. It only draws the judge object (`parts/GymGames`).
  *
- * 매 틱 `paint()` 는 스타일 속성 몇 개(`left` · `--x` · `--f`)와 클래스만 고쳐 쓴다 — DOM 은 만들 때 한 번 짓는다.
- *   • 벤치프레스: 굵은 가로 바 + 성공 구역(가운데) + 완벽 구역 + 왕복하는 원형 커서 + 회차 칸.
- *   • 호흡 달리기 · 사이클링: 오른쪽에서 흘러와 판정선에 닿는 표식 (호흡 = 한 줄, 「하」 는 길이가 있는 알약 ·
- *     사이클 = 왼발 / 오른발 두 줄, 줄 머리에 키캡).
- * 키 이름은 사용 시점에 `Keys` 에서 읽는다 (`relabel` — `input:bindingsChanged`).
+ * Every tick `paint()` rewrites a few style properties (`left` · `--x` · `--f`) and classes — the DOM is built once, at construction.
+ *   • Bench press: a thick horizontal bar + the good zone (centre) + the perfect zone + a round cursor sweeping it + the rep pips.
+ *   • Breathing run · cycling: markers that flow in from the right and reach the judgement line (breathing = one lane, 「하」 a pill
+ *     with a length · cycling = two lanes, left foot / right foot, with a keycap at the head of each lane).
+ * Key names are read from `Keys` at use time (`relabel` — `input:bindingsChanged`).
  *
- * 2026-09-13 (비디오게임, H2): 벤치프레스 구역 폭은 판정 객체의 `zone` · `perfect`(디스크 튜닝 `windowMul` 이 걸린 값)에서 읽는다 —
- * 튜닝이 없으면 `GYM_PRESS_ZONE` · `GYM_PRESS_PERFECT` 그대로다. 호흡형 표식 글자는 `GymViewOptions.labels` 로 바꿀 수 있다 (게임 = 톡 · 꾹).
+ * 2026-09-13 (video games, H2): the bench-press zone widths are read from the judge object's `zone` · `perfect` (the values with the disc
+ * tuning `windowMul` applied) — with no tuning they are `GYM_PRESS_ZONE` · `GYM_PRESS_PERFECT` as they are. The breathing marker text can be
+ * changed with `GymViewOptions.labels` (game = 톡 · 꾹).
  *
- * 2026-09-14 (사용자 결정 「보이는 것 = 판정」): 박자 줄도 벤치프레스처럼 **판정 값에서 그림을 만든다** — 판정선 위에 완벽 띠
- * (`bands.perfect`) · 좋음 띠(`bands.good`)를 깔고, 탭 표식의 폭을 완벽 띠와 **같게** 한다 (알약). 그래서 「표식이 띠를 덮는 순간
- * 완벽」 이 눈으로 보이고, csv 창을 고치면 그림이 저절로 따라온다. 「하」 표식은 쥐는 길이가 폭이라 그대로다.
+ * 2026-09-14 (user's decision 「what you see is the judgement」): the beat lanes too **build their drawing from the judgement values**, like the
+ * bench press — the perfect band (`bands.perfect`) · the good band (`bands.good`) are laid over the judgement line, and a tap marker's width is
+ * made **equal** to the perfect band (a pill). So 「the moment the marker covers the band it is perfect」 is visible, and fixing the csv window
+ * makes the drawing follow by itself. The 「하」 marker keeps its hold length as its width, unchanged.
  */
 import { Keys, keyLabel, paintKeycap } from '@/shared';
 import { BreathGame, CycleGame, GYM_LEAD_BEATS, PressGame } from '../../parts/GymGames';
@@ -30,7 +32,7 @@ export interface GymView {
 
 const QUALITY_CLASSES = ['is-perfect', 'is-good', 'is-miss'];
 
-/** 한 번 켜는 CSS 애니메이션을 처음부터 다시 튼다. */
+/** Restarts a one-shot CSS animation from the beginning. */
 export function replayClass(e: HTMLElement, cls: string): void {
   e.classList.remove(cls);
   void e.offsetWidth;
@@ -42,7 +44,7 @@ function setQuality(e: HTMLElement, q: GymQuality | null): void {
   for (const c of QUALITY_CLASSES) toggleClass(e, c, c === want);
 }
 
-/* ── 벤치프레스 ──────────────────────────────────────────────────────────── */
+/* ── Bench press ─────────────────────────────────────────────────────────── */
 class PressView implements GymView {
   readonly root: HTMLElement;
   private readonly bar: HTMLElement;
@@ -82,11 +84,11 @@ class PressView implements GymView {
     if (action === 'jump') toggleClass(this.cursor, 'is-down', down);
   }
 
-  relabel(): void { /* 키캡 없음 — 키 이름은 머리줄 · 키 가이드가 말한다 */ }
+  relabel(): void { /* no keycap — the header row · the key guide name the key */ }
   dispose(): void { this.root.remove(); }
 }
 
-/* ── 박자 게임 (호흡 · 사이클) ───────────────────────────────────────────── */
+/* ── Beat games (breathing · cycling) ────────────────────────────────────── */
 interface LaneEls { lane: HTMLElement; key: HTMLElement; action: GymAction }
 interface NoteEls { note: BeatNote; el: HTMLElement; label: HTMLElement; q: GymQuality | null; off: boolean }
 
@@ -94,7 +96,7 @@ class BeatView implements GymView {
   readonly root: HTMLElement;
   private readonly lanes: LaneEls[] = [];
   private readonly notes: NoteEls[] = [];
-  /** 판정선에서 오른쪽 끝까지 몇 초인가 — 첫 표식이 시작하자마자 오른쪽 끝 가까이에 보이게 예비 박자 + 1 박. */
+  /** How many seconds from the judgement line to the right edge — the lead-in beats + 1, so the first marker shows near the right edge right at the start. */
   private readonly look: number;
   private readonly holdLen: number;
 
@@ -107,7 +109,7 @@ class BeatView implements GymView {
     const laneDefs: Array<{ id: string; action: GymAction }> = breath
       ? [{ id: 'breath', action: 'jump' }]
       : [{ id: 'left', action: 'left' }, { id: 'right', action: 'right' }];
-    // 2026-09-14: 판정선 위에 **완벽 띠**를 그린다 — 폭이 판정 객체의 `bands.perfect` 에서 나오므로 「표식이 띠를 덮으면 완벽」 이 눈에 보인다
+    // 2026-09-14: the **perfect band** is drawn over the judgement line — its width comes from the judge object's `bands.perfect`, so 「the marker covering the band is perfect」 is visible
     const half = (game.bands.perfect / this.look).toFixed(4);
     const goodHalf = (game.bands.good / this.look).toFixed(4);
     for (const d of laneDefs) {
@@ -125,7 +127,7 @@ class BeatView implements GymView {
     for (const n of game.notes) {
       const host = breath ? this.lanes[0].lane : this.lanes[n.lane === 'right' ? 1 : 0].lane;
       const e = el('div', { cls: `gym-note${n.hold ? ' is-hold' : ''}`, parent: host });
-      // 탭 표식은 완벽 띠와 **같은 폭**이다 (알약). 「하」 는 쥐는 길이가 폭이라 그대로 둔다.
+      // a tap marker is **the same width as** the perfect band (a pill). 「하」 is left alone — its width is the length it is held.
       if (!n.hold) e.style.setProperty('--span', half);
       if (n.hold) { e.style.setProperty('--len', this.holdLen.toFixed(4)); el('i', { cls: 'gym-note-fill', parent: e }); }
       const label = el('span', { cls: 'gym-note-label', parent: e });
@@ -171,7 +173,7 @@ class BeatView implements GymView {
   relabel(): void {
     const codeOf = (a: GymAction): string => (a === 'jump' ? Keys.JUMP : a === 'left' ? Keys.LEFT : Keys.RIGHT);
     const keyOf = (a: GymAction): string => keyLabel(codeOf(a));
-    // 2026-09-15: 줄 앞 키캡은 공용 `paintKeycap` (마우스로 리바인딩하면 그림). 표식 안의 글자는 키캡이 아니라 글자로 남는다.
+    // 2026-09-15: the keycap at the head of a lane is the shared `paintKeycap` (a glyph once rebound to the mouse). The text inside a marker stays text, not a keycap.
     for (const l of this.lanes) paintKeycap(l.key, codeOf(l.action));
     for (const ne of this.notes) {
       const n = ne.note;
@@ -182,12 +184,12 @@ class BeatView implements GymView {
   dispose(): void { this.root.remove(); }
 }
 
-/** 호흡형 표식 글자 (2026-09-13) — 헬스 = 후 · 하, 비디오게임 = 톡 · 꾹. */
+/** The breathing marker text (2026-09-13) — gym = 후 · 하, video game = 톡 · 꾹. */
 export interface GymNoteLabels { tap: string; hold: string }
 export const GYM_NOTE_LABELS: GymNoteLabels = { tap: '후', hold: '하' };
 
 export interface GymViewOptions {
-  /** 호흡형 표식 글자 — 생략 = 헬스(`GYM_NOTE_LABELS`). */
+  /** The breathing marker text — omitted = the gym (`GYM_NOTE_LABELS`). */
   labels?: GymNoteLabels;
 }
 

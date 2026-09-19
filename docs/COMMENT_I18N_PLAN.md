@@ -6,11 +6,12 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **5, `src/housing`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary) before
-> picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this file
-> originally described**; the old one let a deleted `*/` through. `src/housing` is a normal feature folder, so its
-> `verify` is a folder-sized run, not the full net. `src/ui` (just finished) already fixed the vocabulary for every
-> screen, card, panel and toast this folder draws — read its finished comments before coining a UI word.
+> **Next session starts here:** queue item **6, `src/inventory`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
+> before picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this
+> file originally described**; the old one let a deleted `*/` through. `src/inventory` is a normal feature folder, so
+> its `verify` is a folder-sized run, not the full net. `src/housing` (just finished) is the folder `src/inventory`
+> shares the most vocabulary with — grid · 칸 (**cell**) · stash · product · holder · the (block) reason all came out
+> there; read its finished comments before coining an item- or grid-shaped word.
 
 ---
 
@@ -18,15 +19,15 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`) | 12,063 | 294 |
-| **Remaining** ([§2](#2-queue)) | **14,553** | **453** |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`) | 14,278 | 349 |
+| **Remaining** ([§2](#2-queue)) | **12,338** | **398** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-**Intended permanent exceptions.** A finished folder still prints 33 lines, because a comment whose entire substance is
+**Intended permanent exceptions.** A finished folder still prints 34 lines, because a comment whose entire substance is
 a quoted label or a quoted document heading keeps its Korean (§3 rule 2 — the reader has to be able to grep it against
-the real string). So a raw run over everything prints 14,586 / 479, thirty-three more than the queue. `src/ui` alone
+the real string). So a raw run over everything prints 12,372 / 425, thirty-four more than the queue. `src/ui` alone
 contributes 24 — which is what "the heaviest mix of Korean on-screen strings" meant in practice — so its rows are
 grouped into one line instead of listed file by file:
 
@@ -38,6 +39,7 @@ grouped into one line instead of listed file by file:
 | `shared/allies.ts:3` | a `docs/DECISIONS.md` section heading |
 | `shared/npc.ts:111` | a job title (`헬릭스 조달실장`) |
 | `shared/tutorial.ts:381` | the four track names (`조작 안내` · `함선 안내` · `증축 안내` · `출격 안내`) |
+| `housing/ui/SocketFlow.ts:100` | the socket-replace popup, body and button (`끼운 소켓은 빼낼 수 없습니다 — 교체하면 <이름>은(는) 파괴됩니다`, red `교체`) |
 | `world/Gather.ts:779` | the four harvest prompt verbs (`약초 채집` · `고철 해체` · `토양/씨앗 채취` · `표본 수습`) |
 | `enemies/EnemySystem.ts:159` | the bug-nest decision heading (`둥지 반경 60 m 리시 · 초기 수 절반 · 재스폰 50/35/15 %`) |
 | `enemies/NestDirector.ts:2` | the same heading, plus `둥지의 장식 알을 부술 수 있는 적으로` |
@@ -55,7 +57,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~2~~ | ~~`src/world`~~ | 2,988 | 58 | **Done 2026-09-18** (lead + 6 parallel agents, one commit). Dense collision / layout invariants; its wording is now the reference for every world-shaped folder after it. |
 | ~~3~~ | ~~`src/enemies`~~ | 2,300 | 71 | **Done 2026-09-18** (lead + 6 parallel agents, one commit). Its anatomy and AI-phase vocabulary is now the reference for every rig- and AI-shaped folder after it. |
 | ~~4~~ | ~~`src/ui`~~ | 2,279 | 87 | **Done 2026-09-18** (lead + 6 parallel agents, one commit). Its screen · card · panel · toast vocabulary is now the reference for every UI-shaped folder after it. 24 quoted-label lines stay Korean (§1). |
-| 5 | `src/housing` | 2,215 | 55 | Minigame judge bands, furniture access faces, library effects. `src/ui/hud/ShipManage.ts` is the screen that drives it — read that finished file before coining a word. |
+| ~~5~~ | ~~`src/housing`~~ | 2,215 | 55 | **Done 2026-09-19** (lead + 7 agents, one commit). One quoted-label-only line stays (§1). Its station · minigame · holder · product vocabulary is now the reference for every furniture- and screen-shaped folder after it. |
 | 6 | `src/inventory` | 1,703 | 53 | |
 | 7 | `src/hub` | 1,569 | 40 | Squad dock / cutscene ordering rules. |
 | 8 | `src/tutorial` | 1,278 | 11 | Only 11 files — very long per-file headers. |
@@ -185,6 +187,9 @@ works, with three conditions:
    list and tell it to touch nothing else — not the folder `README.md`, not this file.
 3. **Agents do not run `git add` / `commit` / `typecheck` / `verify`.** The lead runs each once, at the end, over
    everything. An agent that commits its own bundle makes the comment-only proof impossible to run as one check.
+4. **The scratchpad directory is shared, so every helper script needs an owner-specific name.** In the `src/housing`
+   pass two agents and the lead independently wrote `apply.py`; the last write won and the lead's applier vanished
+   mid-run. Say so in the brief (`<subject>_apply.py`) — nothing was lost, but it costs a restart.
 
 **How to cut the bundles**, as the `src/world`, `src/enemies` and `src/ui` passes settled it: six agent bundles of
 roughly 300–500 lines each, **and a seventh for the lead** — the contract-ish files the rest of the folder points at
@@ -364,6 +369,18 @@ if ((stripped.match(/[가-힣]/g) || []).length >= 4 && PROSE.test(stripped)) re
 Its remaining false positives are English sentences that quote a Korean label in `'…'` rather than backticks — read
 them, do not translate them.
 
+**Two things slip past *both* gates, in every folder — grep for them by hand before closing one** (`src/housing`
+found six of the second kind in one bundle alone):
+
+1. A **short Korean divider**: `/* ── 도감 ── */`, `/* ── 헬스장 (A-3a) 끝 ══ */`. Under four Hangul syllables it is
+   invisible to `kc.mjs`, and it carries no sentence ending, so the prose sweep skips it too.
+2. The word **`한국어` used as a plain adjective** inside an already-English line (`한국어 reason`, `한국어 item
+   name`). The Hangul ratio is far under the gate and there is no verb. It is a concept, not a label → **Korean**.
+
+The cheap catch for both is one pass over *every* comment line holding any Hangul at all, with backticks, `「」`,
+`『』` and quoted strings stripped first; read the hits rather than counting them (a finished folder still prints a
+few hundred, because a Korean **label** inside English prose is correct and stays).
+
 ---
 
 ## 6. Recording a finished folder
@@ -378,9 +395,11 @@ them, do not translate them.
 - **A defect the translation uncovered but did not cause** (a doc that contradicts its code, a stale reference, dead
   code, a csv number copied into prose) goes in [`docs/TODO.md`](TODO.md), **not** fixed in the translation commit —
   the commit has to stay provably comment-only. Filed so far: `B-19` (`src/shared`, 3), `B-20` · `B-21` (`src/world`,
-  7 + 4), `B-23` · `B-24` · `B-25` (`src/enemies`, 6 + 4 + 3), `B-27` · `B-28` · `B-29` · `B-30` (`src/ui`, 12 + 6 + 1 + 4).
+  7 + 4), `B-23` · `B-24` · `B-25` (`src/enemies`, 6 + 4 + 3), `B-27` · `B-28` · `B-29` · `B-30` (`src/ui`, 12 + 6 + 1 + 4),
+  `B-32` · `B-33` · `B-34` · `B-35` (`src/housing`, 14 + 8 + 5 + 8).
   Reading a folder this closely is the most productive defect hunt in the project — expect five to ten per folder (`src/ui`
-  gave 23, one of them a live bug: a member row that is built and never appended), and keep filing rather than fixing.
+  gave 23 and `src/housing` 35, each with a live bug in it: a member row that is built and never appended, and a stir-fry
+  score whose denominator is the number of clicks that were judged), and keep filing rather than fixing.
 - **A gap the pass found in the verification net** goes in [`scripts/README.md`](../scripts/README.md).
 - Nothing goes in `docs/HISTORY.md` or `docs/DECISIONS.md` — the rule change is already recorded in `CLAUDE.md` §4.1,
   and per-folder progress is this file plus `git log`.
@@ -544,3 +563,23 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 조리대 · 배지 (배양) · 세포주 · 스캐폴드 | cook bench · medium · strain · scaffold | `ui/hud/ShipManage.ts`, `mealText.ts` |
 | 딤드 · 모달리스 · 하위 탭 · 손잡이 (DOM) | dimmed · modeless · sub-tab · handle | `ui/hud/ShipManage.ts`, `ItemTip.ts` |
 | 기 (안드로이드 수사) · 빈 자리 | unit · an empty slot | `ui/hud/Squad.ts`, `Nameplates.ts` |
+| 보관함 · 책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대 | **holder** (any of them) · bookshelf · disc stand · record rack · game disc stand | `housing` (folder-wide) |
+| 도감 | the **catalogue** — a `도감` tab label stays Korean, the concept is English (`분석 도감` → the analysis catalogue) | `housing` (folder-wide) |
+| 배지 | **medium** in the culture tank, **badge** in the UI — two different words, decide from the code | `housing/parts/Culture.ts` vs `ui` |
+| 흙구멍 (`.gs-pot`) · 관 (배양) · 전시대 | the **pot** · tube · a holder (never "display stand"). `shared/housing.ts:754` still says *soil hole* — align that one word the next time that line is touched, not in a housing commit | `housing/ui/GrowStation.ts`, `CultureTank.ts`, `ProductDrag.ts` |
+| 레일 (`StationShell.rail`) · 머리줄 · 껍데기 | the **rail** · the **header row** · shell | `housing/ui` (folder-wide) |
+| 산출물 · 배달 · 회수 (완성물) | the **product** · delivery (`parts/Deliver`) · collect | `housing/parts/Deliver.ts`, `ui/ProductDrag.ts` |
+| 판정 객체 · 무대 · 판정선 · 예비 박(자) · 헛클릭 · 헛누름 | the **judge object** · the **stage** (`.gym-stage` · `.cook-stage`, never a screen phase) · the judgement line · the **lead-in beat** (`GYM_LEAD_BEATS`) · a stray click · a stray press | `housing/parts/CookGames.ts`, `GymGames.ts`, `ui/gym`, `ui/cook` |
+| 안내 링 · 회차 · 구역 · 칸 (`gym-pip`) · 완성 · 끓어오름 · 초록 구간 | the guide ring · rep · zone · pip · doneness · the boiling surge · the green band | `housing/ui/gym`, `ui/cook` |
+| 국자 · 비커 · (우상단) 비커 (`cook-jug`) · 자동 조리 가구 · 선택 카드 | ladle · beaker · the jug · an **auto appliance** · the choice card | `housing/ui/cook` |
+| 성능 합 · 구간 (채굴) · 따라잡기 · 누적 채굴 · 꽂는다 / 뺀다 | the perf sum · **segment** (never the tutorial's *stretch*) · the catch-up · the mined total · mount / pull (a processor) | `housing/MiningRules.ts`, `parts/Mining.ts` |
+| 봉 · 꼬리표 · 눈금 간격 · 시세가 오래됐다 | candle · tag · tick step · a stale quote | `housing/ui/mining/CryptoChart.ts`, `ComputerPages.ts` |
+| 권 칸 (`.lib-pip`) · 대표 권 · 층 판 · 단편 · 시리즈 색 | the volume pip · the lead volume · tier plate · one-shot (a single-volume series) · the series tint | `housing/ui/ShelfDrawing.ts`, `BookDex.ts` |
+| 기억 열쇠 · 지문 | **fingerprint** — one word for a cheap repaint key, the one `ui/menus/messenger` set | `housing/ui/mining/ClusterPage.ts` |
+| 배치 상수 | a **layout constant** — a fourth kind beside the judgement / algorithm / drawing constants of `enemies` | `housing/ui/ShelfDrawing.ts` |
+| 정리 (`sanitize`) · 이관 · 멱등 · 지급 · 옛 세이브 · 모양 (검사) | sanitizing · migration · idempotent · the grant · an old save · the shape (check) | `housing/ShipState.ts` |
+| 은퇴 · 폐지 | **retired** (`FurnitureDef.retired`) · **dropped** (a feature that was taken out) — kept apart | `housing` (folder-wide) |
+| 시술대 · 무한 상자 · 휴식 공간 | implant bay · the infinite box (`/items`) · the lounge | `housing/parts/Furniture.ts`, `ui/Panel.ts`, `ui/ShipView.ts` |
+| 한국어 (형용사) | **Korean** — it is under both §5 gates and is everywhere in this folder; sweep for it before closing a folder | `housing` (folder-wide) |
+| 도감 (산문 vs 식별자) | **the catalogue** in prose; the identifier stays `sampleDex` · `bookDex` · `dexEntries` in backticks. `src/housing/README.md` writes *dex* in prose — align that README the next time it is touched, not in a translation commit | `housing` (folder-wide) |
+| 가구 창고 · 조종석 vs furniture storage · cockpit | **both, on purpose** — Korean when the prose names the on-screen tab or room label, English when it names the concept. Exactly the split the folder already runs for `함선 창고` vs *the stash*; do not sed one into the other | `housing` (folder-wide) |

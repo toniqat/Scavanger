@@ -16,8 +16,9 @@ import {
 const MAX_CORES = Math.max(1, Math.floor(COMPUTE_CLUSTER_MAX_CORES));
 const OFFLINE = '서버에 연결되어야 합니다';
 /**
- * 시세가 이보다 오래되면 매매 확정을 막는다 (ms). 릴레이는 최근 `CRYPTO_QUOTE_WINDOW_S` 창의 시세로만 금액을 맞춰 보므로, 거래 요청이
- * 도착하기 전에 창을 벗어날 시세로는 보내지 않는다 — 창에서 틱 반 개를 뺀 값 (30 s · 10 s → 25 s). 수치의 원본은 `data/tuning.csv`.
+ * A quote older than this blocks the trade confirm (ms). The relay only checks the amount against a quote inside the last
+ * `CRYPTO_QUOTE_WINDOW_S` window, so nothing is sent on a quote that will leave the window before the request arrives — the
+ * window minus half a tick (30 s · 10 s → 25 s). The numbers come from `data/tuning.csv`.
  */
 const STALE_MS = Math.max(1000, CRYPTO_QUOTE_WINDOW_S * 1000 - (CRYPTO_TICK_S * 1000) / 2);
 const STALE = '시세가 오래되었습니다 — 새 시세를 기다리는 중';
@@ -39,31 +40,31 @@ interface WalletRow { id: string; row: HTMLElement; units: HTMLElement; value: H
 interface ListRow { id: string; row: HTMLElement; price: HTMLElement; change: HTMLElement; lock: HTMLElement }
 
 /**
- * **메인 컴퓨터 세 탭** (`클러스터 현황` · `지갑` · `거래소`) — 2026-09-14 부터 채굴 탭과 **한 창**에 산다
- * (`MiningScreen`). 옛 `MiningComputer` 패널의 내용 그대로이고, 달라진 것은 셋뿐이다: 탭 줄이 화면 상단으로
- * 올라갔고(창이 갖는다), 머리줄 · 배너를 `MiningHost` 로 칠하며, 「현황 줄 클릭 → 그 클러스터」가 창을 닫는 대신
- * **채굴 탭으로 바꾼다**.
+ * **The main computer's three tabs** (`클러스터 현황` · `지갑` · `거래소`) — since 2026-09-14 they live in **one window** with
+ * the `채굴` tab (`MiningScreen`). The content is the old `MiningComputer` panel's as it was; only three things differ: the tab
+ * row moved to the top of the screen (the window owns it), the header row · the banner are painted through `MiningHost`, and
+ * 「click a status row → that cluster」 switches to the **`채굴` tab** instead of closing the window.
  *
- *  - **클러스터 현황** — 클러스터마다 한 줄(방 · 코인 글리프 + 티커 · 프로세서 n/9 · 진행 막대 + `HH:MM:SS` · 채굴 중 / 막는 사유).
- *  - **지갑** — 코인마다 보유 · 평가액 · 24시간 변동 · 누적 채굴, 총 평가액. 줄을 누르면 그 코인의 거래소.
- *  - **거래소** — 코인 목록 + 차트(`CryptoChart`) + 매매(수량 · 25/50/100 % · 견적 · **1초 홀드 확정**).
+ *  - **`클러스터 현황`** — one row per cluster (room · coin glyph + ticker · processors n/9 · progress bar + `HH:MM:SS` · mining / the blocking reason).
+ *  - **`지갑`** — per coin the holding · value · the 24-hour change · the mined total, plus the total value. Pressing a row opens that coin's exchange.
+ *  - **`거래소`** — the coin list + the chart (`CryptoChart`) + trading (quantity · 25/50/100 % · the quote · a **1 s hold confirm**).
  *
- * 시세 구독(`ctx.net.crypto.watch()`)은 지갑 · 거래소 탭이 열려 있는 동안만 건다.
+ * The price subscription (`ctx.net.crypto.watch()`) is held only while the `지갑` · `거래소` tab is open.
  */
 export class ComputerPages {
   private uid: string | null = null;
   private tab: MiningComputerTab | null = null;
   private readonly pages: Record<MiningComputerTab, HTMLElement>;
-  /* 클러스터 현황 */
+  /* Cluster overview */
   private readonly clSummary: HTMLElement;
   private readonly clList: HTMLElement;
   private clRows: ClusterRow[] = [];
   private clKey = '';
-  /* 지갑 */
+  /* Wallet */
   private readonly wSummary: HTMLElement;
   private readonly wList: HTMLElement;
   private wRows: WalletRow[] = [];
-  /* 거래소 */
+  /* Exchange */
   private readonly xList: HTMLElement;
   private xRows: ListRow[] = [];
   private readonly xHeadGlyph: HTMLElement;
@@ -104,7 +105,7 @@ export class ComputerPages {
     };
     for (const k of TABS) this.pages[k].hidden = true;
 
-    /* ── 클러스터 현황 ── */
+    /* ── Cluster overview ── */
     this.clSummary = el('div', { cls: 'mn-sum', parent: this.pages.clusters });
     this.clList = el('div', { cls: 'mn-crows', parent: this.pages.clusters });
     this.clList.addEventListener('click', (e) => {
@@ -115,7 +116,7 @@ export class ComputerPages {
       this.host.openCluster(uid);
     });
 
-    /* ── 지갑 ── */
+    /* ── Wallet ── */
     this.wSummary = el('div', { cls: 'mn-sum', parent: this.pages.wallet });
     const wHead = el('div', { cls: 'mn-wrow mn-whead', parent: this.pages.wallet });
     for (const t of ['코인', '보유', '평가액', '24시간', '누적 채굴']) el('span', { text: t, parent: wHead });
@@ -129,7 +130,7 @@ export class ComputerPages {
       this.host.setTab('exchange');
     });
 
-    /* ── 거래소 ── */
+    /* ── Exchange ── */
     const x = this.pages.exchange;
     this.xList = el('div', { cls: 'mn-xlist', parent: x });
     this.xList.addEventListener('click', (e) => {
@@ -200,7 +201,7 @@ export class ComputerPages {
     this.holdBtn = el('button', { cls: 'ui-btn primary mn-hold', parent: this.trade });
     this.holdBtn.type = 'button';
     const fill = el('i', { cls: 'mn-hold-fill', parent: this.holdBtn });
-    // 2026-09-15 2차 (사용자 결정): 「버튼을 1초 동안 누르고 있으면 …」 안내 줄 대신 버튼 **안**의 좌클릭 홀드 키캡.
+    // 2026-09-15 2nd pass (user's decision): a left-click hold keycap **inside** the button instead of the 「버튼을 1초 동안 누르고 있으면 …」 guidance row.
     createHoldButtonCap(this.holdBtn);
     this.holdLabel = el('span', { cls: 'mn-hold-label', text: '매수', parent: this.holdBtn });
     this.hold = bindHoldButton(this.holdBtn, fill, () => { void this.runTrade(); }, () => this.host.showMsg('거래 버튼을 1초간 꾹 누르세요', 'info'));
@@ -228,7 +229,7 @@ export class ComputerPages {
   setUid(uid: string): void { this.uid = uid; }
   get selectedCoin(): string { return this.coin; }
 
-  /** `null` = 채굴 탭이 떠 있다 (세 쪽 모두 숨기고 시세 구독을 푼다). */
+  /** `null` = the `채굴` tab is up (all three pages hidden, the price subscription released). */
   setActive(tab: MiningComputerTab | null): void {
     this.tab = tab;
     for (const k of TABS) this.pages[k].hidden = k !== tab;
@@ -254,10 +255,10 @@ export class ComputerPages {
   tick(): void {
     this.paintHeader();
     if (this.tab === 'clusters') this.paintClusters();
-    else if (this.tab === 'exchange') this.paintTrade();   // 시세가 오래되면 이벤트 없이도 확정 버튼이 잠겨야 한다
+    else if (this.tab === 'exchange') this.paintTrade();   // a stale quote has to lock the confirm button even with no event
   }
 
-  /** 시세 구독 — 지갑 · 거래소 탭이 열려 있는 동안만. */
+  /** The price subscription — only while the `지갑` · `거래소` tab is open. */
   syncWatch(): void {
     const want = this.host.isOpen && (this.tab === 'exchange' || this.tab === 'wallet');
     const market = this.ctx.net?.crypto;
@@ -276,7 +277,7 @@ export class ComputerPages {
     return (list.find((c) => c.unlocked) ?? list[0])?.def.id ?? '';
   }
 
-  /* ── 거래소 조작 ───────────────────────────────────────────────────────── */
+  /* ── Exchange actions ──────────────────────────────────────────────────── */
   selectCoin(id: string, paint = true): void {
     if (!coinDef(id)) return;
     const changed = id !== this.coin;
@@ -314,7 +315,7 @@ export class ComputerPages {
     this.paintTrade();
   }
 
-  /** 봉 이력 요청 — 고를 때마다(`force`), 그리고 서버에 막 붙었는데 이력이 없을 때 한 번. */
+  /** Requests the candle history — on every pick (`force`), and once when the server has just connected and there is no history. */
   private ensureHistory(force: boolean): void {
     if (!this.host.isOpen || this.tab !== 'exchange' || !this.coin) return;
     const market = this.ctx.net?.crypto;
@@ -350,7 +351,7 @@ export class ComputerPages {
     return Number.isFinite(n) && n > 0 ? coinToUnits(n) : 0;
   }
 
-  /** 지금 매매를 막는 사유와 견적 (UI 가 먼저 보는 것 → housing 견적). */
+  /** The reason a trade is blocked right now, and the quote (what the UI checks first → the housing quote). */
   private quote(): { block: string | null; price: number | null; credits: number | null } {
     const coin = coinInfos(this.ref, this.ctx).find((c) => c.def.id === this.coin);
     if (!coin) return { block: '코인을 고르세요', price: null, credits: null };
@@ -369,7 +370,7 @@ export class ComputerPages {
     return { block: q.block, price: q.price, credits: q.credits };
   }
 
-  /** 마지막 시세가 `STALE_MS` 보다 오래됐는가 (서버 시계 기준 — 없으면 로컬 시계). */
+  /** Is the last quote older than `STALE_MS` (by the server clock — the local clock with none). */
   private pricesStale(pricesAt: number): boolean {
     if (!(pricesAt > 0)) return true;
     let now = Date.now();
@@ -391,7 +392,7 @@ export class ComputerPages {
     this.pending = true;
     this.host.debug.trades++;
     this.paintTrade();
-    // 릴레이는 구독 중인 소켓에만 시세를 밀고 그 창으로 거래를 검증한다 — 답이 올 때까지 탭을 바꿔도 구독을 쥐고 있는다 (탭 구독과 별개의 참조)
+    // the relay pushes quotes only to subscribed sockets and validates the trade against that window — the subscription is held until the answer arrives even if the tab changes (a reference separate from the tab's)
     const market = this.ctx.net?.crypto;
     let release: (() => void) | null = null;
     try { release = market && typeof market.watch === 'function' ? market.watch() : null; } catch { release = null; }
@@ -414,7 +415,7 @@ export class ComputerPages {
     this.syncWatch();
     const market = this.ctx.net?.crypto;
     const available = !!market?.available;
-    if (available && !this.lastAvailable) this.requested = '';     // 막 붙었다 — 이력을 한 번 다시 받는다
+    if (available && !this.lastAvailable) this.requested = '';     // just connected — the history is fetched once more
     this.lastAvailable = available;
     this.paintHeader();
     if (this.tab === 'clusters') this.paintClusters();
@@ -426,12 +427,12 @@ export class ComputerPages {
     const list = clusterList(this.ref);
     const mining = list.filter((c) => c.mining).length;
     this.host.setTitle('메인 컴퓨터', list.length ? `채굴 중 ${mining} / ${list.length}대` : '연산 클러스터 없음', list.length > 0 && mining === 0);
-    // 2026-09-13 (전력 할당 폐지): 메인 컴퓨터는 멈추지 않는다 — 배너는 「메인 컴퓨터가 없다」 하나뿐이다
+    // 2026-09-13 (power allocation dropped): the main computer never stops — the only banner left is 「메인 컴퓨터가 없다」
     const placed = this.uid ? this.housing.getPlacedByUid(this.uid) : null;
     this.host.setBanner(!placed ? '메인 컴퓨터가 없습니다' : null);
   }
 
-  /* 클러스터 현황 */
+  /* Cluster overview */
   private paintClusters(): void {
     const list = clusterList(this.ref);
     const key = list.map((c) => c.uid).join(',');
@@ -521,7 +522,7 @@ export class ComputerPages {
     toggleClass(r.row, 'is-mining', c.mining);
   }
 
-  /* 지갑 */
+  /* Wallet */
   private paintWallet(): void {
     const coins = coinInfos(this.ref, this.ctx);
     if (this.wRows.length !== coins.length) this.buildWalletRows(coins);
@@ -572,7 +573,7 @@ export class ComputerPages {
     }
   }
 
-  /* 거래소 */
+  /* Exchange */
   private paintExchange(): void {
     const coins = coinInfos(this.ref, this.ctx);
     if (!this.coin) this.coin = this.defaultCoin();
@@ -651,8 +652,8 @@ export class ComputerPages {
     setText(this.quoteRows.fee, `${(CRYPTO_TRADE_FEE * 100).toFixed(1)} %`);
     setText(this.quoteRows.creditsK, this.side === 'buy' ? '내는 크레딧' : '받는 크레딧');
     setText(this.quoteRows.credits, q.credits !== null ? `${fmtCredits(q.credits)} 크레딧` : '—');
-    // 2026-09-15 2차 (사용자 결정): 이 줄은 **막힌 사유**만 말한다 — 홀드 안내는 버튼 안의 키캡이 대신하고,
-    // 막히지 않았으면 줄 자체가 사라진다 (빈 줄이 자리를 차지하지 않게 `hidden`).
+    // 2026-09-15 2nd pass (user's decision): this row says **only the blocking reason** — the hold guidance is the keycap inside
+    // the button instead, and with nothing blocking the row disappears (`hidden`, so an empty row takes no space).
     setText(this.blockEl, q.block ?? '');
     this.blockEl.hidden = !q.block;
     toggleClass(this.blockEl, 'bad', !!q.block);

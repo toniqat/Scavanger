@@ -18,10 +18,10 @@ import { clear, clockText, el, renderClock, renderClockText, setText, toggleClas
 
 /** How often the countdowns / progress bars are refreshed while the panel is open (ms). */
 const TICK_MS = 1000;
-/** Fallback fluid colour when a 배지 def carries none. */
+/** Fallback fluid colour when a medium def carries none. */
 const FLUID_FALLBACK = '#8fe8ff';
 const fin = (v: number | undefined): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-/** 배지의 보너스 비율 (0 … 1). 계약 필드가 아직 없는 옛 빌드면 1 로 읽는다. */
+/** The medium's bonus ratio (0 … 1). Read as 1 on an old build whose contract field is not there yet. */
 const mediumRatio = (info: CultureSlotInfo): number => {
   const r = fin(info.mediumBonusRatio);
   return r === null ? 1 : Math.max(0, Math.min(1, r));
@@ -32,22 +32,22 @@ interface TankCard {
   wrap: HTMLElement;
   cell: HTMLElement;
   fluid: HTMLElement;
-  /** 배양 스캐폴드 격자 (2026-09-13) — 들어 있을 때만 보인다. */
+  /** The culture scaffold's grid pattern (2026-09-13) — shown only while one is in. */
   scaffold: HTMLElement;
-  /** 유리 안의 소켓 점 (2026-09-13). */
+  /** The socket dots inside the glass (2026-09-13). */
   socks: HTMLElement;
   glyph: HTMLElement;
   name: HTMLElement;
   time: HTMLElement;
   prog: HTMLElement;
   fill: HTMLElement;
-  /** 2026-09-17: 관 아래 「배양 시작」 버튼 — 배지 + 세포주가 든 시작 전 칸에서만 눌린다 (→ 1초 홀드 확인). */
+  /** 2026-09-17: the 「배양 시작」 button under the tube — enabled only on a not-yet-started slot holding a medium + a strain (→ a 1 s hold confirm). */
   start: HTMLButtonElement;
   /** Medium id painted last time (`''` = none, `null` = never painted) — a null → medium change plays the rising fluid. */
   medium: string | null;
 }
 
-/** 2026-09-17: 좌측 배양조 목록 한 줄 (`.hs-rail-item`) — 이름 + 관마다 점 하나 + 레드닷 (재배 스테이션 목록과 같은 결). */
+/** 2026-09-17: one row of the tank list on the left (`.hs-rail-item`) — name + one dot per tube + the red dot (the same grain as the grow station list). */
 interface TankRailItem {
   uid: string;
   el: HTMLElement;
@@ -55,32 +55,32 @@ interface TankRailItem {
   red: HTMLElement;
 }
 
-/** 스모크 · CSS 가 배양 시작 확인 팝업을 찾는 표식 (`.sh-ask[data-ask]`). */
+/** The mark the smoke test · CSS find the culture start confirm popup by (`.sh-ask[data-ask]`). */
 export const CULTURE_START_ASK_ID = 'cult-start';
 
 /**
- * **배양 화면** (배양조 A-14, 2026-09-11 · 화면 개편 2026-09-12 · 배양관 2026-09-13 — `openCultureTank(uid)` ← E on a 배양조).
+ * **The culture screen** (culture tank A-14, 2026-09-11 · screen rework 2026-09-12 · culture tubes 2026-09-13 — `openCultureTank(uid)` ← E on a culture tank).
  *
- * 틀은 `StationShell` 공통이고 **수확 규칙은 재배 스테이션과 똑같다** (사용자 결정): 끝난 칸은 **더블클릭 = 함선
- * 창고 먼저 · 끌어서 격자에 놓기 = 그 격자** (`ProductDrag`), 배지 비우기는 **우클릭 메뉴**(`StationMenu`), 부연 설명은
- * **호버 카드**(`StationTip`).
+ * The frame is the shared `StationShell` and **the harvest rules are exactly the grow station's** (user's decision): a finished
+ * slot is **double-click = the ship stash first · drag onto a grid = that grid** (`ProductDrag`), clearing the medium is the
+ * **right-click menu** (`StationMenu`), and the detail is the **hover card** (`StationTip`).
  *
- * **2026-09-13 (사용자 결정)**: 칸은 **세로로 긴 유리 배양관 3개가 나란히** 선다 — 늘 3열이고, 레벨이 아직 열지 않은
- * 관은 점선 빈 관 + `Lv.N 필요`. 한 관 = 뚜껑(`.cult-cap`) · 유리(`.cult-cell[data-slot]` = 드롭 대상) · 받침
- * (`.cult-base`). 세포주를 넣으면 그 글리프가 액체 속에 떠 있다. 관 아래 = 이름 · `HH:MM:SS`(또는 「수확 가능」 · 배지
- * 내구도) · 진행바. 배지를 **그 관에** 떨어뜨리면 그 관 하나가 채워지고 액체가 차오르는 연출이 한 번 돈다 (transform 만).
+ * **2026-09-13 (user's decision)**: the slots stand as **three tall glass culture tubes side by side** — always 3 columns, and a
+ * tube the level has not opened yet is a dashed empty tube + `Lv.N 필요`. One tube = the cap (`.cult-cap`) · the glass
+ * (`.cult-cell[data-slot]` = the drop target) · the base (`.cult-base`). A strain that goes in floats its glyph in the fluid.
+ * Under the tube = name · `HH:MM:SS` (or 「수확 가능」 · the medium durability) · the progress bar. A medium dropped **on that tube** fills that one tube and the fluid runs up once (transforms only).
  *
- * **2026-09-13 (요리 재료 티어)**: 배지는 **내구도**를 들고 수확해도 칸이 비지 않는다 — **액체 높이 = 배지 내구도 ÷ 최대**.
- * 칸 순서는 **배지 → (배양 스캐폴드) → 세포주**이고, 스캐폴드는 유리 안의 **격자 무늬**(`.cult-scaffold`)로, 배지 소켓은 유리
- * 아래쪽의 **작은 점**(`SocketFlow.paintSocketDots`)으로 보인다. 드롭: 배지 `fillMedium` · 스캐폴드 `insertScaffold` · 세포주
- * `insertStrain` · 배지 소켓은 재배 화면과 같은 흐름(가득이면 고르기 → 1초 홀드, `SocketAsk`). 우클릭에 세포주가 없을 때
- * 「스캐폴드 빼기」(`takeScaffold`), 소켓이 있는 칸의 「배지 비우기」는 1초 홀드 경고를 거친다. 호버 카드 = 배지 · 내구도 ·
- * 배양 속도(비율 반영) · 소켓 · 스캐폴드 · 세포주 · 남은 시간 · 산출물(스캐폴드면 종별 고기 — housing 이 `yieldDefId` 에 반영한다).
+ * **2026-09-13 (cooking material tiers)**: a medium carries **durability** and the slot does not empty on harvest — **the fluid level = the medium durability ÷ its maximum**.
+ * The slot order is **medium → (culture scaffold) → strain**; the scaffold shows as a **grid pattern** inside the glass
+ * (`.cult-scaffold`), the medium sockets as **small dots** low in the glass (`SocketFlow.paintSocketDots`). Drops: a medium
+ * `fillMedium` · a scaffold `insertScaffold` · a strain `insertStrain` · a medium socket takes the grow station screen's flow
+ * (full = pick → a 1 s hold, `SocketAsk`). Right-click gives 「스캐폴드 빼기」 (`takeScaffold`) while there is no strain, and
+ * 「배지 비우기」 on a slot with sockets goes through a 1 s hold warning. The hover card = medium · durability · culture speed (the ratio folded in) · sockets · scaffold · strain · time left · the product (meat of that species with a scaffold — housing folds it into `yieldDefId`).
  *
- * **2026-09-17 (사용자 결정)**: ① 세포주를 넣어도 배양은 시작되지 않는다 — 관 아래 **「배양 시작」** 버튼이 공용 `openHoldAsk` 로
- * 「배양을 시작하겠습니까?」를 묻고(확정 = `UI_HOLD_CONFIRM_S` 홀드, Enter 는 확정하지 않는다, Escape = 취소, 최초 포커스 = 취소),
- * 확정해야 `startCulture` 가 타이머를 건다. 시작 전에는 우클릭으로 세포주 · 스캐폴드 · 새 배지를 되돌려받는다. ② 함선에 배양조가 여러 대일
- * 수 있어 **맨 왼쪽 레일**이 배양조 목록이다 (재배 스테이션 목록과 같은 `.hs-rail-item` — 이름 + 관마다 점 + 레드닷).
+ * **2026-09-17 (user's decision)**: ① inserting a strain does not start the culture — the **「배양 시작」** button under the tube asks
+ * 「배양을 시작하겠습니까?」 through the shared `openHoldAsk` (confirm = a `UI_HOLD_CONFIRM_S` hold, Enter does not confirm, Escape = cancel, initial focus = 취소),
+ * and only a confirm lets `startCulture` start the timer. Before the start, right-click takes the strain · the scaffold · a new medium back. ② A ship may hold
+ * several culture tanks, so the **leftmost rail** is the tank list (the same `.hs-rail-item` as the grow station list — name + a dot per tube + the red dot).
  */
 export class CultureTank extends HousingPanel {
   private uid = '';
@@ -96,9 +96,9 @@ export class CultureTank extends HousingPanel {
   private builtKey = '';
   private railItems: TankRailItem[] = [];
   private railKey = '';
-  /** 떠 있는 「배양을 시작하겠습니까?」 (한 번에 하나). 화면이 닫히거나 배양조를 바꾸면 아무것도 부르지 않고 닫는다. */
+  /** The open 「배양을 시작하겠습니까?」 (one at a time). Closing the screen or switching tank closes it without calling anything. */
   private startAsk: HoldAskHandle | null = null;
-  /** 스모크: 떠 있는 시작 확인을 홀드 없이 확정한다. */
+  /** Smoke test: confirms the open start ask with no hold. */
   startAskConfirm: (() => void) | null = null;
   private hoverSlot: number | null = null;
   private timer = 0;
@@ -131,7 +131,7 @@ export class CultureTank extends HousingPanel {
       productAt: (t) => this.productAt(t),
       collect: (key, dest) => this.collect(Number(key), dest),
       defOf: (id) => housing.defOf(id),
-      // 2026-09-16: 끌어서 놓은 **그 칸**으로 간다 (격자는 화면이 열릴 때 만들어지므로 함수로 준다)
+      // 2026-09-16: it goes to **the very cell** it was dropped on (the grids are built when the screen opens, so they come as a function)
       grids: () => this.grids,
       onDragStart: () => this.hideTip(),
     });
@@ -148,7 +148,7 @@ export class CultureTank extends HousingPanel {
   }
 
   /* ── open / close ──────────────────────────────────────────────────────── */
-  /** Open the panel for one 배양조. */
+  /** Open the panel for one culture tank. */
   openTank(uid: string): void {
     if (uid !== this.uid) this.builtKey = '';
     this.uid = uid;
@@ -178,7 +178,7 @@ export class CultureTank extends HousingPanel {
   }
 
   /* ── actions ───────────────────────────────────────────────────────────── */
-  /** A tile was dragged out of the 가방 / 창고 onto a 배양관 (or double-clicked, `target` null). */
+  /** A tile was dragged out of the bag / stash onto a culture tube (or double-clicked, `target` null). */
   private dropOn(item: ItemInstance, target: HTMLElement | null): void {
     if (!target) { this.showMsg('배지 · 스캐폴드 · 세포주 · 배지 소켓을 배양관으로 끌어다 놓으세요', 'info'); return; }
     const slot = Number(target.dataset.slot);
@@ -206,7 +206,7 @@ export class CultureTank extends HousingPanel {
     this.showMsg(reason ?? done, reason ? 'warning' : 'success');
   }
 
-  /** 배지 소켓 드롭 — 재배 화면과 같은 흐름 (가득 찬 칸만 고르기 → 1초 홀드, 나머지 판단 · 사유는 `insertCultureSocket`). */
+  /** A medium socket drop — the grow station screen's flow (only a full slot asks pick → a 1 s hold; every other judgement · reason is `insertCultureSocket`). */
   private dropSocket(slot: number, def: ItemDef, anchor: HTMLElement): void {
     const info = this.infoOf(slot);
     const sockets = info?.sockets ?? [];
@@ -256,7 +256,7 @@ export class CultureTank extends HousingPanel {
     const before = id ? this.housing.countDef(id) : 0;
     const reason = this.housing.harvestCulture(this.uid, slot, dest);
     if (reason) { this.deny(reason); return; }
-    // 2026-09-13: 소켓 `yield` 가 +1 을 붙일 수 있다 — 받은 개수는 가방 + 창고의 차이로 읽는다
+    // 2026-09-13: a `yield` socket may add +1 — how many arrived is read as the bag + stash difference
     const got = id ? this.housing.countDef(id) - before : 0;
     const qty = got > 0 ? got : info.yieldQty;
     const bonus = got > info.yieldQty ? ` (추가 +${got - info.yieldQty})` : '';
@@ -270,8 +270,8 @@ export class CultureTank extends HousingPanel {
     this.showMsg(discardStrain ? '세포주를 버리고 배지를 비웠습니다' : '배지를 비웠습니다 (배지 · 소켓은 돌려받지 않습니다)', 'info');
   }
 
-  /* ── 배양 시작 (2026-09-17) ────────────────────────────────────────────── */
-  /** 이 칸을 지금 시작할 수 없는 사유 (버튼 `title`), null = 시작할 수 있다. 판정의 원본은 `startCulture` — 이것은 화면용이다. */
+  /* ── starting a culture (2026-09-17) ───────────────────────────────────── */
+  /** Why this slot cannot start right now (the button's `title`), null = it can. The original judgement is `startCulture` — this one is for the screen. */
   private startBlock(info: CultureSlotInfo): string | null {
     if (info.locked) return `배양조를 Lv.${info.unlockLevel} 로 강화해야 열립니다`;
     if (!info.mediumDefId) return '영양 배지를 먼저 채우세요';
@@ -280,7 +280,7 @@ export class CultureTank extends HousingPanel {
     return null;
   }
 
-  /** 「배양 시작」 → 「배양을 시작하겠습니까?」 (1초 홀드 확인). 확정해야 `startCulture` 를 부른다. */
+  /** 「배양 시작」 → 「배양을 시작하겠습니까?」 (a 1 s hold confirm). Only a confirm calls `startCulture`. */
   private askStart(slot: number): void {
     const info = this.infoOf(slot);
     if (!info) return;
@@ -322,7 +322,7 @@ export class CultureTank extends HousingPanel {
     this.startAskConfirm = () => { if (!handle.isOpen) return; handle.close(); run(); };
   }
 
-  /** 떠 있는 시작 확인을 **아무것도 부르지 않고** 닫는다 (화면이 닫힐 때 · 배양조를 바꿀 때). */
+  /** Closes the open start ask **without calling anything** (when the screen closes · when the tank is switched). */
   private closeStartAsk(): void {
     const a = this.startAsk;
     this.startAsk = null;
@@ -351,7 +351,7 @@ export class CultureTank extends HousingPanel {
     this.showMsg(`${id ? this.housing.nameOf(id) : '배양 스캐폴드'}을(를) 돌려받았습니다`, 'info');
   }
 
-  /** 배지 내구도의 최대 (액체 높이 · 글자). 계약 필드가 없으면 옛 「수확 횟수」 로 읽는다. 최소 1. */
+  /** The medium durability maximum (the fluid height · the text). With no contract field it reads the old 「수확 횟수」. At least 1. */
   private mediumMax(info: CultureSlotInfo): number {
     const max = fin(info.mediumDurabilityMax);
     if (max !== null && max > 0) return max;
@@ -359,20 +359,20 @@ export class CultureTank extends HousingPanel {
     return Math.max(1, Math.floor(def?.medium?.uses ?? 1), info.mediumUsesLeft);
   }
 
-  /** 배지의 지금 내구도 (없으면 옛 남은 횟수). */
+  /** The medium's current durability (the old uses left when there is none). */
   private mediumNow(info: CultureSlotInfo): number {
     const d = fin(info.mediumDurability);
     return d !== null && fin(info.mediumDurabilityMax) !== null ? d : info.mediumUsesLeft;
   }
 
-  /* ── 업그레이드 (모달) ─────────────────────────────────────────────────── */
+  /* ── the upgrade modal ─────────────────────────────────────────────────── */
   private openUpgrade(): void {
     if (!this.housing.getPlacedByUid(this.uid)) return;
     this.hideTip();
     this.modal.open(() => this.upgradeSpec(), () => this.upgrade());
   }
 
-  /** 다음 레벨이 여는 칸 수는 계약 `cultureSlotsForLevel` 에서 유도한다. */
+  /** How many slots the next level opens is derived from the contract's `cultureSlotsForLevel`. */
   private upgradeSpec(): UpgradeSpec | null {
     const h = this.housing;
     const tank = h.getPlacedByUid(this.uid);
@@ -403,7 +403,7 @@ export class CultureTank extends HousingPanel {
     }
   }
 
-  /* ── 호버 카드 · 우클릭 ────────────────────────────────────────────────── */
+  /* ── hover card · right-click ──────────────────────────────────────────── */
   private onHover(e: PointerEvent): void {
     if (this.drag.dragging) return;
     const slot = this.slotAt(e.target as Element | null);
@@ -475,7 +475,7 @@ export class CultureTank extends HousingPanel {
     const pending = !!info.strainDefId && !running;
     const socketCount = info.sockets?.length ?? 0;
     const items: StationMenuItem[] = [];
-    // 2026-09-17: 시작 전이면 넣은 것을 되돌려받는다 — 세포주 → 스캐폴드 순 (넣은 반대 순서), 한 번도 쓰지 않은 배지는 칸째
+    // 2026-09-17: before the start what went in comes back — strain → scaffold (the reverse of the order they went in), and a never-used medium slot and all
     if (pending) items.push({ label: '세포주 빼기', run: () => this.takeStrain(slot) });
     if (!running && info.scaffoldDefId) items.push({ label: '스캐폴드 빼기', run: () => this.takeScaffold(slot) });
     if (info.mediumReturnable) {
@@ -521,7 +521,7 @@ export class CultureTank extends HousingPanel {
     this.modal.refresh();
   }
 
-  /** Rebuild the 배양관 — only when the tank (or its level) changed. Always `CULTURE_MAX_SLOTS` tubes in 3 columns. */
+  /** Rebuild the culture tubes — only when the tank (or its level) changed. Always `CULTURE_MAX_SLOTS` tubes in 3 columns. */
   private build(infos: readonly CultureSlotInfo[]): void {
     this.debug.builds++;
     this.hideTip();
@@ -554,10 +554,10 @@ export class CultureTank extends HousingPanel {
     const wrap = el('div', { cls: 'cult-slot', attrs: { 'data-slot': s }, parent });
     const tube = el('div', { cls: 'cult-tube', parent: wrap });
     el('i', { cls: 'cult-cap', parent: tube });
-    // 유리 = 드롭 대상. 액체(`.cult-fluid`)는 transform 으로만 차오른다 — 드래그 렉 규약 (레이아웃을 흔들지 않는다)
+    // the glass = the drop target. The fluid (`.cult-fluid`) rises by transform only — the drag-lag contract (it never disturbs the layout)
     const cell = el('div', { cls: 'cult-glass cult-cell', attrs: { 'data-slot': s }, parent: tube });
     const fluid = el('i', { cls: 'cult-fluid', parent: cell });
-    // 배양 스캐폴드 = 액체 속에 선 격자 (CSS 그림), 소켓 = 유리 아래쪽의 점 — 둘 다 `pointer-events: none`
+    // the culture scaffold = a grid standing in the fluid (drawn in CSS), the sockets = dots low in the glass — both `pointer-events: none`
     const scaffold = el('i', { cls: 'cult-scaffold', parent: cell });
     const glyph = el('span', { cls: 'cult-glyph', text: '', parent: cell });
     const socks = el('span', { cls: 'cult-socks', parent: cell });
@@ -568,7 +568,7 @@ export class CultureTank extends HousingPanel {
     const time = el('div', { cls: 'cult-time hs-clock', text: '', parent: body });
     const prog = el('div', { cls: 'cult-prog', parent: body });
     const fill = el('i', { parent: prog });
-    // 2026-09-17: 배양 시작 — 늘 자리를 차지하고(관 아래 줄 높이가 흔들리지 않게) 시작할 수 있을 때만 눌린다
+    // 2026-09-17: the culture start — it always takes its space (so the line height under the tube never moves) and is enabled only when it can start
     const slot = info.slot;
     const start = this.button(body, '배양 시작', () => this.askStart(slot), 'cult-start');
     start.type = 'button';
@@ -586,7 +586,7 @@ export class CultureTank extends HousingPanel {
       if (!info) continue;
       const hasMedium = !!info.mediumDefId;
       const hasStrain = !!info.strainDefId;
-      // 2026-09-17: 세포주가 있어도 시작 전이면 배양 중이 아니다 (`is-pending` — 세포는 떠 있지만 움직이지 않고 진행바도 비어 있다)
+      // 2026-09-17: a strain before the start is not culturing (`is-pending` — the cell floats but does not move and the progress bar stays empty)
       const running = hasStrain && info.started !== false;
       toggleClass(card.wrap, 'has-medium', hasMedium);
       toggleClass(card.wrap, 'has-strain', hasStrain);
@@ -601,10 +601,10 @@ export class CultureTank extends HousingPanel {
       if (card.fluid.dataset.c !== color) { card.fluid.dataset.c = color; card.fluid.style.setProperty('--mc', color || FLUID_FALLBACK); }
       const max = this.mediumMax(info);
       const now = this.mediumNow(info);
-      // 2026-09-13: 액체 높이 = 배지 내구도 ÷ 최대 (옛 「남은 수확 횟수」 대신). 0 이어도 칸은 남는다 — 바닥의 얇은 띠만.
+      // 2026-09-13: the fluid height = the medium durability ÷ its maximum (in place of the old 「남은 수확 횟수」). The slot stays at 0 too — only a thin band at the bottom.
       const lvl = hasMedium ? Math.max(0, Math.min(1, now / max)).toFixed(3) : '0';
       if (card.fluid.dataset.lvl !== lvl) { card.fluid.dataset.lvl = lvl; card.fluid.style.setProperty('--lvl', lvl); }
-      // 배지를 막 부었을 때(빈 관 → 배지) 한 번만 액체가 차오른다 — 화면을 열 때 이미 차 있던 관은 조용히 그린다
+      // the fluid runs up once, only when a medium has just been poured (empty tube → medium) — a tube already full when the screen opens is drawn quietly
       const mediumKey = info.mediumDefId ?? '';
       if (card.medium === '' && mediumKey) {
         card.fluid.classList.remove('is-filling');
@@ -622,7 +622,7 @@ export class CultureTank extends HousingPanel {
       paintSocketDots(card.socks, hasMedium ? info.socketSlots : 0, info.sockets?.length ?? 0);
 
       const strainDef = hasStrain ? this.housing.defOf(info.strainDefId!) : undefined;
-      // 떠 있는 세포는 CSS 가 그린다 (`.cult-glyph`, 세포주가 들었을 때 — 배양 중에만 아주 천천히 흔들린다) — 색은 배양 산물 아이템의 색
+      // the floating cell is drawn by CSS (`.cult-glyph`, while a strain is in — it sways, very slowly, only while culturing) — the colour is the culture product item's colour
       const organism = hasStrain && info.yieldDefId ? this.housing.defOf(info.yieldDefId)?.color || '' : '';
       if (card.glyph.dataset.c !== organism) { card.glyph.dataset.c = organism; if (organism) card.glyph.style.setProperty('--oc', organism); else card.glyph.style.removeProperty('--oc'); }
       setText(card.name, hasStrain ? (strainDef?.name ?? '세포주') : mediumDef?.name ?? '빈 배양관');
@@ -638,7 +638,7 @@ export class CultureTank extends HousingPanel {
         renderClockText(card.time, hasMedium ? `내구도 ${Math.round(now)}/${Math.round(max)}` : '배지 필요');
       }
 
-      // 진행바는 자리를 늘 차지한다 (관 아래 줄 높이가 상태마다 흔들리지 않게) — 배양 중이 아니면 비어 보일 뿐이다
+      // the progress bar always takes its space (so the line height under the tube does not move per state) — it merely looks empty when not culturing
       toggleClass(card.prog, 'is-idle', !running || info.ready);
       card.fill.style.width = running ? `${Math.round(Math.max(0, info.progress) * 100)}%` : '0%';
     }
@@ -649,13 +649,13 @@ export class CultureTank extends HousingPanel {
     }
   }
 
-  /* ── 좌측 배양조 목록 (`StationShell.rail`, 2026-09-17) ───────────────────── */
-  /** 함선에 배치된 배양조 전부 — `interaction` 으로 고른다 (defId 를 코드에 적지 않는다). */
+  /* ── the tank list on the left (`StationShell.rail`, 2026-09-17) ──────────── */
+  /** Every culture tank placed in the ship — picked by `interaction` (no defId is written into the code). */
   private tanks(): readonly PlacedFurniture[] {
     return this.housing.getPlaced().filter((p) => this.housing.getFurnitureDef(p.defId)?.interaction === 'culture_tank');
   }
 
-  /** 목록은 배양조 구성이 바뀔 때만 짓는다. 한 대뿐이어도 숨기지 않는다 (재배 스테이션 목록과 같은 이유 — 레드닷 · 좌측 정렬). */
+  /** The list is built only when the set of tanks changes. Not hidden even with one tank (the same reason as the grow station list — the red dot · the left alignment). */
   private buildRail(list: readonly PlacedFurniture[]): void {
     const rail = this.shell.rail;
     clear(rail);
@@ -673,7 +673,7 @@ export class CultureTank extends HousingPanel {
     });
   }
 
-  /** 점 색 · 레드닷 · 선택 표시만 다시 칠한다 (1초 틱과 같은 자리). 회색 = 배양 중 · 초록 = 수확 가능 · 까망 = 그 밖. */
+  /** Repaints only the dot colours · the red dot · the selection mark (the same place as the 1 s tick). Grey = culturing · green = ready to harvest · black = anything else. */
   private paintRail(): void {
     for (const it of this.railItems) {
       toggleClass(it.el, 'is-active', it.uid === this.uid);
@@ -699,7 +699,7 @@ export class CultureTank extends HousingPanel {
     this.hideTip();
     this.drag.end();
     this.sockAsk.close();
-    this.uid = uid;                       // `builtKey` 가 uid 를 담고 있어 `refresh()` 가 관을 다시 짓는다
+    this.uid = uid;                       // `builtKey` holds the uid, so `refresh()` rebuilds the tubes
     this.refresh();
   }
 
@@ -715,12 +715,12 @@ export class CultureTank extends HousingPanel {
   }
 }
 
-/** 배지 등급이 깎아 주는 시간 비율 × 내구도 비율 (2026-09-13 — 배지가 닳으면 보너스가 준다). */
+/** The time fraction the medium's rarity cuts × the durability ratio (2026-09-13 — the bonus shrinks as the medium wears). */
 function speedCut(info: CultureSlotInfo): number {
   return Math.max(0, 1 - info.mediumSpeedMul) * mediumRatio(info);
 }
 
-/** 「배양 속도」 한 줄: 등급이 좋을수록 빠르고, 내구도 비율만큼만 듣는다 (소켓의 속도는 소켓 줄에 따로 적는다). */
+/** The 「배양 속도」 row: the better the rarity the faster, and it applies only as far as the durability ratio (a socket's speed is written on its own socket row). */
 function speedText(info: CultureSlotInfo): string {
   const cut = Math.round(speedCut(info) * 100);
   const full = Math.round(Math.max(0, 1 - info.mediumSpeedMul) * 100);

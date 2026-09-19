@@ -1,23 +1,23 @@
 /**
- * src/housing/ui/cook/CookScreen.ts — **조리 오버레이** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」). 화면 하단 가운데 패널 하나
- * (`.cook-panel`)가 단계마다 내용을 갈아 끼운다 — 위쪽 3D(조리대 앞 자세 · 고정 카메라, hub)가 보이게 화면을 덮지 않는다:
+ * src/housing/ui/cook/CookScreen.ts — **the cook overlay** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」). One panel at the bottom centre of the screen
+ * (`.cook-panel`) swaps its contents per step — it does not cover the screen, so the 3D above it (the pose at the cook bench · the fixed camera, hub) stays visible:
  *
- *   단계 i ─ 자동 가구가 있으면 선택 카드(`choose`: 「직접 하기」 / 「자동 — 자동 교반기 Lv.2 · 60 %」), 없으면 곧장 ─▶
- *           미니게임(`game`) 또는 자동 연출(`auto`) ─▶ 단계 점수 글자(`step`, 0.7 초) ─▶ 다음 단계 … ─▶ 결과(`result`)
+ *   step i ─ with an auto appliance the choice card (`choose`: 「직접 하기」 / 「자동 — 자동 교반기 Lv.2 · 60 %」), without one straight on ─▶
+ *           the minigame (`game`) or the auto presentation (`auto`) ─▶ the step-score text (`step`, 0.7 s) ─▶ the next step … ─▶ the result (`result`)
  *
- * 머리줄 = 요리 이름 + 단계 진행(`① 썰기 ✓ → ② 젓기 …`).
+ * The header row = the meal name + the step progress (`① 썰기 ✓ → ② 젓기 …`).
  *
- * **마우스 게임이라 커서 모드를 켠다** (`setCursorMode(true, 'housing.cook')` — 선택 카드 · 굽기 조각을 클릭해야 한다). 입력은
- * 게임 무대(`.cook-stage`)의 `pointerdown`(button 0 = 좌 · 2 = 우, `preventDefault` 로 호환 mouse 이벤트를 막는다)과
- * `window` capture `pointerup`(창 밖에서 뗀 것도 받는다)이고, 패널 위 `contextmenu` 는 막는다. 입력이 오면 **그 순간까지**
- * 판정 객체를 먼저 민 뒤 넘기고 그 자리에서 다시 그린다.
+ * **It is a mouse game, so cursor mode goes on** (`setCursorMode(true, 'housing.cook')` — the choice card · the grilling pieces have to be clicked). Input is
+ * `pointerdown` on the game stage (`.cook-stage`) (button 0 = left · 2 = right, `preventDefault` blocks the compatibility mouse events) and
+ * `window` capture `pointerup` (a release outside the window is taken too), and `contextmenu` over the panel is blocked. When input arrives, the judgement
+ * object is pushed **up to that instant** first, then handed the input, and redrawn on the spot.
  *
- * 닫기(= 취소, 재료 소모 없음 — 결과 화면이면 이미 나온 요리는 그대로): Escape(`ctx.escape` 토큰 `housing.cook`) · Tab(capture 에서
- * 삼키고 `consume(Keys.INVENTORY)` — 인벤토리가 같은 키에 열리지 않는다). E 는 선택 카드 · 결과에서 닫고 게임 도중에는 삼키기만 한다.
- * 키 가이드 owner `housing.cook`.
+ * Closing (= cancel, no material consumed — on the result screen a meal already produced is left alone): Escape (`ctx.escape` token `housing.cook`) · Tab (swallowed in
+ * capture and `consume(Keys.INVENTORY)` — the inventory does not open on the same key). E closes on the choice card · the result and is only swallowed during a game.
+ * Key guide owner `housing.cook`.
  *
- * 루프는 `ui/gym/GymScreen` 의 2026-09-12 정정 그대로다 — `requestAnimationFrame` 이 프레임마다 밀고 그리고, 예비 타이머는 rAF 가
- * 멈췄을 때(헤드리스 · 가려진 창)만 일한다.
+ * The loop is exactly `ui/gym/GymScreen`'s 2026-09-12 correction — `requestAnimationFrame` pushes and draws every frame, and the fallback timer works only when
+ * rAF has stopped (headless · a hidden window).
  */
 import type { CookAutoInfo, CookBeatAction, CookJudge, CookResult, CookSessionInfo, CookStepDef, GameContext, KeyGuideEntry } from '@/shared';
 import {
@@ -40,18 +40,18 @@ export type CookScreenKind = 'choose' | 'game' | 'auto' | 'step' | 'result';
 
 const ESCAPE_TOKEN = 'housing.cook';
 const GUIDE_OWNER = 'housing.cook';
-/** 예비 타이머 간격 · rAF 가 멈췄다고 볼 시간 (ms, 구현 값 — GymScreen 과 같다). */
+/** The fallback timer interval · how long before rAF counts as stopped (ms, implementation values — the same as GymScreen). */
 const FALLBACK_MS = 50;
 const FALLBACK_STALE_MS = 100;
-/** 단계 점수 글자를 보여 주는 시간 (ms, 연출 — 설계안 「0.7 초」). */
+/** How long the step-score text shows (ms, presentation — the design's 「0.7 초」). */
 const STEP_SCORE_MS = 700;
-/** 자동 조리 가구가 단계를 처리하는 연출 시간 (ms, 연출 — 점수와 무관). */
+/** How long the auto appliance's presentation takes to handle a step (ms, presentation — unrelated to the score). */
 const AUTO_MS = 1100;
 const CIRCLED = ['①', '②', '③', '④', '⑤'];
-/** 젓기 긁는 소리(`cook_stir`)의 최소 간격 (ms) — 연출 `stir` 는 hub 의 국자를 위해 더 촘촘히 온다 (구현 값). */
+/** The minimum interval between the stirring scrape sounds (`cook_stir`) (ms) — the presentation's `stir` comes more densely, for hub's ladle (an implementation value). */
 const STIR_SOUND_MIN_MS = 450;
 
-/** 연출 입력 → 소리 (`audio:play`). `pour_stop` 은 소리가 없다. */
+/** Presentation input → sound (`audio:play`). `pour_stop` has no sound. */
 const BEAT_SOUND: Partial<Record<CookBeatAction, string>> = {
   cut: 'cook_chop', mince_h: 'cook_mince', mince_v: 'cook_mince', flip: 'cook_flip', remove: 'cook_remove', burn: 'cook_burn',
   toss: 'cook_toss', stir: 'cook_stir', pour_start: 'cook_pour',
@@ -59,12 +59,12 @@ const BEAT_SOUND: Partial<Record<CookBeatAction, string>> = {
 
 const pct = (v: number): number => Math.round(Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0)) * 100);
 
-/** 요리 안내의 버튼 토큰 → 실제 마우스 버튼 코드 (2026-09-15). */
+/** The cooking guidance's button tokens → the real mouse button codes (2026-09-15). */
 const RULE_MOUSE: Readonly<Record<string, string>> = { L: 'Mouse0', R: 'Mouse2' };
 
 /**
- * 2026-09-15: `{L}` · `{R}` 토큰을 공용 키캡(마우스 그림, `kc-inline`)으로 끼워 `host` 를 다시 채운다. 글자는 텍스트 노드로만 넣는다.
- * (`renderKeyText` 는 `Keys` 액션 토큰이라, 리바인딩과 무관한 실제 좌 / 우 버튼은 여기서 따로 그린다.)
+ * 2026-09-15: refills `host` with the `{L}` · `{R}` tokens fitted with the shared keycap (the mouse glyph, `kc-inline`). Text goes in as text nodes only.
+ * (`renderKeyText` takes `Keys` action tokens, so the real left / right buttons, which are rebind-independent, are drawn separately here.)
  */
 function renderMouseRule(host: HTMLElement, text: string): void {
   host.textContent = '';
@@ -79,13 +79,13 @@ function renderMouseRule(host: HTMLElement, text: string): void {
   if (last < text.length) host.appendChild(document.createTextNode(text.slice(last)));
 }
 
-/** 2026-09-13 (H3): 보너스를 준 곳 — `(+요리 숙련 · 서재)`, 없으면 빈 문자열. */
+/** 2026-09-13 (H3): where the bonus came from — `(+요리 숙련 · 서재)`, an empty string with none. */
 function bonusSourcesText(b: CookStepBonus | undefined): string {
   if (!b || !(b.total > 0)) return '';
   const names = [b.skill > 0 ? '요리 숙련' : '', b.library > 0 ? '서재' : ''].filter(Boolean);
   return names.length ? `(+${names.join(' · ')})` : '';
 }
-/** 2026-09-13 (H3): 보너스 수치 — `요리 숙련 +8 · 서재 +4` (호버 제목). */
+/** 2026-09-13 (H3): the bonus numbers — `요리 숙련 +8 · 서재 +4` (the hover title). */
 function bonusDetailText(b: CookStepBonus | undefined): string {
   if (!b || !(b.total > 0)) return '';
   const parts: string[] = [];
@@ -102,7 +102,7 @@ export class CookScreen {
   screen: CookScreenKind | null = null;
   game: AnyCookGame | null = null;
   stepIndex = 0;
-  /** 마지막으로 끝낸 판의 결과 (닫은 뒤에도 남는다 — 스모크). */
+  /** The result of the last finished run (it survives closing — smoke tests). */
   lastResult: CookResult | null = null;
   private opened = false;
   private info: CookSessionInfo | null = null;
@@ -112,7 +112,7 @@ export class CookScreen {
   private readonly body: HTMLElement;
   private readonly verdict: HTMLElement;
   private readonly stepScoreEl: HTMLElement;
-  /** 단계 진행 바 (2026-09-14, 사용자 결정 「라벨 없이 바만」). */
+  /** The step progress bar (2026-09-14, user's decision 「라벨 없이 바만」). */
   private readonly progBar: HTMLElement;
   private readonly progFill: HTMLElement;
   private progF = -1;
@@ -131,8 +131,8 @@ export class CookScreen {
   private readonly down = new Set<CookButton>();
 
   constructor(private readonly ctx: GameContext, private readonly sys: HousingSystem) {
-    // 2026-09-17: 루트는 `.cook-ovl` 이다 — 옛 이름 `.cook` 은 `ui/styles/base.css` 의 수류탄 쿠킹 게이지(`opacity: 0` · 120 px 상자)와
-    // 겹쳐, 세션 · 블로커 · DOM 은 다 살아 있는데 오버레이가 **투명한 120 px 상자**가 되어 미니게임이 한 번도 보이지 않았다
+    // 2026-09-17: the root is `.cook-ovl` — the old name `.cook` collided with the grenade cook gauge in `ui/styles/base.css` (`opacity: 0` · a 120 px box), so
+    // with the session · blocker · DOM all alive the overlay became **a transparent 120 px box** and the minigame was never once visible
     this.root = el('div', { cls: 'cook-ovl', parent: ctx.uiRoot });
     this.root.hidden = true;
     this.panel = el('div', { cls: 'cook-panel', parent: this.root });
@@ -145,19 +145,19 @@ export class CookScreen {
     this.progBar = el('div', { cls: 'cook-prog', parent: this.panel });
     this.progFill = el('i', { cls: 'cook-prog-fill', parent: this.progBar });
     this.hint = el('div', { cls: 'cook-hint', parent: this.panel });
-    // 2026-09-14: 우클릭(다지기)이 브라우저 메뉴를 열지 않아야 하는 범위는 **입력을 받는 범위**와 같다 — 판 전체다
+    // 2026-09-14: the area where right-click (mincing) must not open the browser menu is the same as **the area that takes input** — the whole overlay
     this.root.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); });
-    // 패널 안의 클릭이 캔버스의 클릭-락 폴백까지 가지 않게
+    // so a click inside the panel does not reach the canvas's click-to-lock fallback
     this.root.addEventListener('mousedown', (e) => e.stopPropagation());
     this.root.addEventListener('pointerdown', this.onPointerDown);
   }
 
   get isOpen(): boolean { return this.opened; }
-  /** 화면 루프(rAF · 예비 타이머)가 걸려 있는가 — 스모크 (닫으면 false). */
+  /** Whether the screen loop (rAF · the fallback timer) is running — smoke tests (false once closed). */
   get ticking(): boolean { return this.raf !== 0 || this.timer !== 0; }
 
-  /* ── 열기 · 닫기 ─────────────────────────────────────────────────────────── */
-  /** 오버레이를 연다 — 단계는 아직 시작하지 않는다 (`beginSteps`, `parts/Cooking.startCook` 이 세션 이벤트 뒤에 부른다). */
+  /* ── Open · close ────────────────────────────────────────────────────────── */
+  /** Opens the overlay — the steps do not start yet (`beginSteps`, which `parts/Cooking.startCook` calls after the session event). */
   open(info: CookSessionInfo, mealName: string): void {
     if (this.opened) this.teardown();
     this.opened = true;
@@ -177,14 +177,14 @@ export class CookScreen {
     this.startLoop();
   }
 
-  /** 첫 단계부터. */
+  /** From the first step. */
   beginSteps(): void {
     if (!this.opened || !this.info) return;
     this.stepIndex = 0;
     this.beginStep();
   }
 
-  /** 닫는다 — 결과 전이면 취소다. 세션 끝(`housing:cookSession {active:false}`)은 `endCook` 이 낸다. */
+  /** Closes — before the result that is a cancel. The session end (`housing:cookSession {active:false}`) is emitted by `endCook`. */
   close(): void {
     if (!this.opened) return;
     this.teardown();
@@ -192,7 +192,7 @@ export class CookScreen {
   }
 
   private teardown(): void {
-    closePlateAsk(this.sys);                // 2026-09-16: 「다시 만들기」 경고가 떠 있던 채 닫히면 확정 없이 걷는다
+    closePlateAsk(this.sys);                // 2026-09-16: when it closes with the 「다시 만들기」 warning up, the warning is taken down without confirming
     this.stopLoop();
     window.removeEventListener('keydown', this.onKeyDown, true);
     window.removeEventListener('pointerup', this.onPointerUp, true);
@@ -217,7 +217,7 @@ export class CookScreen {
     this.root.remove();
   }
 
-  /* ── 루프 ────────────────────────────────────────────────────────────────── */
+  /* ── The loop ────────────────────────────────────────────────────────────── */
   private startLoop(): void {
     this.stopLoop();
     this.last = this.lastLoop = performance.now();
@@ -247,7 +247,7 @@ export class CookScreen {
     this.paint();
   }
 
-  /* ── 흐름 ────────────────────────────────────────────────────────────────── */
+  /* ── The flow ────────────────────────────────────────────────────────────── */
   private tick(): void {
     const now = performance.now();
     const dt = (now - this.last) / 1000;
@@ -279,7 +279,7 @@ export class CookScreen {
     else this.play(step);
   }
 
-  /** 선택 카드 → 직접 하기 / 자동. 선택 카드가 아니면 false. */
+  /** The choice card → manual / auto. false when it is not the choice card. */
   choose(mode: 'manual' | 'auto'): boolean {
     const step = this.currentStep();
     if (this.screen !== 'choose' || !step) return false;
@@ -298,7 +298,7 @@ export class CookScreen {
     const row = el('div', { cls: 'cook-choose-row', parent: card });
     this.button(row, '직접 하기', () => this.choose('manual'), 'primary cook-choose-manual');
     const name = this.applianceName(auto);
-    const bonus = cookStepBonus(this.sys, step.game);           // 2026-09-13 (H3): 자동 단계에도 요리 숙련 · 서재 보너스가 붙는다
+    const bonus = cookStepBonus(this.sys, step.game);           // 2026-09-13 (H3): an auto step gets the cooking skill · library bonus too
     const autoBtn = this.button(row, `자동 — ${name} Lv.${auto.level} · ${pct(auto.score)} %${bonus.total > 0 ? ` (+${Math.round(bonus.total * 100)})` : ''}`,
       () => this.choose('auto'), 'cook-choose-auto');
     if (bonus.total > 0) autoBtn.title = bonusDetailText(bonus);
@@ -352,7 +352,7 @@ export class CookScreen {
     this.paint();
   }
 
-  /** 판정 객체가 쌓은 이벤트 → 버스 · 소리 · 판정 글자. 게임이 끝났으면 단계를 마무리한다. */
+  /** The events the judgement object piled up → the bus · sounds · the judgement text. Finishes the step when the game is over. */
   private flush(): void {
     const g = this.game, info = this.info;
     if (!g || !info) return;
@@ -382,7 +382,7 @@ export class CookScreen {
     const step = this.currentStep();
     if (!info || !step) return;
     const raw = Math.max(0, Math.min(1, Number.isFinite(score) ? score : 0));
-    // 2026-09-13 (H3): 적는 곳이 요리 숙련 · 서재 보너스를 더해 1 로 자른 값을 돌려준다 — 이벤트 · 품질은 그 값
+    // 2026-09-13 (H3): the place that writes it returns the cooking skill · library bonus added and clamped to 1 — the event · the quality use that value
     const s = recordCookStep(this.sys, this.stepIndex, raw, auto);
     const bonus = this.sys.cookState?.stepBonus[this.stepIndex];
     this.screen = 'step';
@@ -417,7 +417,7 @@ export class CookScreen {
     this.showResult(r);
   }
 
-  /** 스모크: 지금 단계를 `score` 로 끝내고 곧장 다음 단계(또는 결과)로 — 단계 점수 글자를 기다리지 않는다. */
+  /** Smoke tests: ends the current step with `score` and moves straight on to the next step (or the result) — it does not wait for the step-score text. */
   finishStepWith(score: number): boolean {
     if (!this.opened) return false;
     if (this.screen === 'choose' || this.screen === 'game' || this.screen === 'auto') {
@@ -430,9 +430,9 @@ export class CookScreen {
   }
 
   /**
-   * 결과 화면의 「다시 만들기」 — 한국어 사유 / null.
-   * 2026-09-16 (접시 모델, 사용자 결정): 방금 만든 요리가 식탁에 있으므로 **다시 만들기 전에** 「식탁의 요리를 바꿉니다」 경고를 띄운다
-   * (그때는 null — 확정되면 다시 시작한다). `skipAsk` = 경고를 지난 확정.
+   * The result screen's 「다시 만들기」 — a Korean reason / null.
+   * 2026-09-16 (the plate model, user's decision): the meal just made is on the dining table, so **before making it again** the 「식탁의 요리를 바꿉니다」 warning goes up
+   * (null then — it starts again once confirmed). `skipAsk` = a confirm that has passed the warning.
    */
   restart(skipAsk = false): string | null {
     if (this.screen !== 'result') return '결과 화면이 아닙니다';
@@ -451,7 +451,7 @@ export class CookScreen {
     return null;
   }
 
-  /* ── 결과 ────────────────────────────────────────────────────────────────── */
+  /* ── The result ──────────────────────────────────────────────────────────── */
   private showResult(r: CookResult | null): void {
     const info = this.info;
     if (!info) return;
@@ -474,7 +474,7 @@ export class CookScreen {
     info.steps.forEach((s, i) => {
       const row = el('div', { cls: 'cook-result-step', parent: steps });
       el('span', { text: `${CIRCLED[i] ?? ''} ${COOK_GAME_LABEL_KO[s.game]}${r?.stepAuto[i] ? ' · 자동' : ''}`, parent: row });
-      // 2026-09-13 (H3): 보너스가 붙은 단계는 `72 → 84 % (+요리 숙련 · 서재)`, 호버 = 수치
+      // 2026-09-13 (H3): a step with a bonus reads `72 → 84 % (+요리 숙련 · 서재)`, hover = the numbers
       const bonus = st?.stepBonus[i];
       const final = r?.stepScores[i] ?? 0;
       if (bonus && bonus.total > 0 && st) {
@@ -495,7 +495,7 @@ export class CookScreen {
     const text = el('div', { cls: 'cook-result-text', parent: meal });
     el('div', { cls: 'cook-result-name', text: def?.meal ? `${def.name} · ${mealTierText(def.meal)}` : def?.name ?? info.mealDefId, parent: text });
     if (def?.meal) el('div', { cls: 'cook-result-effects', text: mealEffectLines(def.meal, q).join('\n'), parent: text });
-    // 2026-09-16 (접시 모델): 요리는 식탁에 차려진다 — 바뀐 옛 접시가 있으면 그것도 한 줄
+    // 2026-09-16 (the plate model): the meal is set on the dining table — an old plate that was replaced gets a line too
     if (r && !r.reason) {
       const landed = r.landed === 'bag' ? '가방' : r.landed === 'stash' ? '함선 창고' : '식탁에 차렸습니다';
       el('div', { cls: 'cook-landed', text: `→ ${landed}`, parent: text });
@@ -515,7 +515,7 @@ export class CookScreen {
     this.emitGuide();
   }
 
-  /* ── 그리기 ──────────────────────────────────────────────────────────────── */
+  /* ── Drawing ─────────────────────────────────────────────────────────────── */
   private clearBody(): void {
     this.view?.dispose();
     this.view = null;
@@ -530,12 +530,12 @@ export class CookScreen {
       auto = Math.max(0, Math.min(1, (performance.now() - this.autoStart) / AUTO_MS));
       this.autoBar.style.setProperty('--f', auto.toFixed(3));
     }
-    // 게임 도중에만 판 전체가 입력을 받는다 (선택 카드 · 결과의 버튼을 가리지 않게)
+    // only during a game does the whole overlay take input (so it does not cover the choice card · result buttons)
     toggleClass(this.root, 'is-playing', this.screen === 'game');
     this.paintProgress(auto);
   }
 
-  /** 단계 진행 바 — 글자 없이 채움만 (CSS 가 ease-out 으로 따라간다). 선택 카드 · 결과에서는 바 자체를 감춘다. */
+  /** The step progress bar — the fill only, no text (CSS follows with ease-out). On the choice card · the result the bar itself is hidden. */
   private paintProgress(auto: number): void {
     const on = this.screen === 'game' || this.screen === 'auto' || this.screen === 'step';
     toggleClass(this.progBar, 'is-off', !on);
@@ -548,7 +548,7 @@ export class CookScreen {
     this.progFill.style.transform = `scaleX(${Math.max(0, Math.min(1, f)).toFixed(4)})`;
   }
 
-  /** 새 단계는 바를 0 에서 다시 시작한다 (되감기는 보이지 않게 전이를 한 프레임 끈다). */
+  /** A new step restarts the bar from 0 (the transition is turned off for one frame so the rewind is not seen). */
   private resetProgress(): void {
     this.progF = 0;
     this.progFill.style.transition = 'none';
@@ -557,7 +557,7 @@ export class CookScreen {
     this.progFill.style.transition = '';
   }
 
-  /** 머리줄 단계 진행 — `① 썰기 ✓ → ② 젓기 …`. */
+  /** The header row's step progress — `① 썰기 ✓ → ② 젓기 …`. */
   private paintHead(): void {
     const info = this.info;
     clear(this.stepsEl);
@@ -601,9 +601,9 @@ export class CookScreen {
   }
 
   /**
-   * 단계 안내 한 줄. 2026-09-15 (사용자 결정 — 키캡이 뜨는 모든 곳에 마우스 그림): 누를 버튼 자리는 `{L}`(좌) · `{R}`(우) 토큰이고
-   * `renderMouseRule` 이 공용 키캡의 마우스 그림으로 끼운다. 요리 입력은 `Keys.FIRE` 가 아니라 **실제 좌 / 우 버튼**
-   * (`CookButton`)이라 `renderKeyText` 의 `{ACTION}` 토큰을 쓰지 않는다. 굽기는 「조각을 누르는」 것이라 버튼 그림 없이 글자로 둔다.
+   * One line of step guidance. 2026-09-15 (user's decision — the mouse glyph everywhere a keycap appears): the button to press is a `{L}` (left) · `{R}` (right) token and
+   * `renderMouseRule` fits the shared keycap's mouse glyph in. Cooking input is not `Keys.FIRE` but **the real left / right buttons**
+   * (`CookButton`), so `renderKeyText`'s `{ACTION}` tokens are not used. Grilling is 「pressing a piece」, so it is left as text with no button glyph.
    */
   private ruleText(step: CookStepDef): string {
     switch (step.game) {
@@ -634,21 +634,21 @@ export class CookScreen {
     this.ctx.bus.emit('ui:keyGuide', { owner: GUIDE_OWNER, keys });
   }
 
-  /* ── 입력 ────────────────────────────────────────────────────────────────── */
+  /* ── Input ───────────────────────────────────────────────────────────────── */
   /**
-   * 2026-09-14 (사용자 결정): 미니게임 입력은 **화면 어디를 눌러도** 먹는다. 예전에는 `.cook-stage`(패널 가운데의 작은 상자) 안만
-   * 받아서 780 px 패널의 여백을 누르면 아무 반응이 없었다 — 헬스장은 키보드라 없던 문제다. 게임 도중에만 루트가 입력을 받으므로
-   * (`.cook-ovl.is-playing`) 선택 카드 · 결과 화면의 버튼은 그대로 눌린다.
+   * 2026-09-14 (user's decision): minigame input is taken **anywhere on the screen**. It used to be taken only inside `.cook-stage` (a small box in the middle of the
+   * panel), so pressing the margin of the 780 px panel did nothing — the gym is keyboard, so it never had the problem. Only during a game does the root take input
+   * (`.cook-ovl.is-playing`), so the choice card · result screen buttons still press.
    */
   private readonly onPointerDown = (e: PointerEvent): void => {
     if (!this.opened || this.screen !== 'game' || !this.game) return;
     const target = e.target as Element | null;
-    if (target?.closest?.('button')) return;                 // 게임 도중에는 버튼이 없지만, 있으면 버튼이 이긴다
+    if (target?.closest?.('button')) return;                 // there is no button during a game, but if there is one the button wins
     const button = buttonOf(e.button);
     if (!button) return;
     e.preventDefault();
     e.stopPropagation();
-    this.tick();                                   // 판정은 **지금** 시각에서
+    this.tick();                                   // the judgement runs from **this** instant
     if (this.screen !== 'game' || !this.game) return;
     this.down.add(button);
     this.view?.input(button, true);
@@ -676,7 +676,7 @@ export class CookScreen {
     if (!this.opened || isField(e.target) || this.ctx.uiBlockers.has(MENU_BLOCKER)) return;
     const code = e.code;
     if (code !== Keys.INVENTORY && code !== Keys.INTERACT) return;
-    // 2026-09-16: 「식탁의 요리를 바꿉니다」 경고가 위에 떠 있다 — E · Tab 은 오버레이가 아니라 경고의 것이다 (취소)
+    // 2026-09-16: the 「식탁의 요리를 바꿉니다」 warning is up above — E · Tab belong to the warning, not the overlay (cancel)
     if (this.sys.plateAsk?.handle.isOpen) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -684,8 +684,8 @@ export class CookScreen {
       if (!e.repeat) this.sys.plateAsk.handle.cancel();
       return;
     }
-    // 2026-09-15: Tab 은 `ctx.escape` 스택의 **맨 위 화면**의 것이다 — 이 화면 위에 나중에 열린 창(무한 상자 ·
-    // 인벤토리)이 있으면 가로채지 않는다 (`housing/ui/Panel` 과 같은 규칙).
+    // 2026-09-15: Tab belongs to **the topmost screen** on the `ctx.escape` stack — it is not intercepted while a window opened later above this one (the
+    // the infinite box · the inventory) is there (the same rule as `housing/ui/Panel`).
     if (code === Keys.INVENTORY && this.ctx.escape.topKey !== ESCAPE_TOKEN) return;
     e.preventDefault();
     e.stopImmediatePropagation();

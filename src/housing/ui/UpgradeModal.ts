@@ -5,25 +5,28 @@ import type { CostSource } from './dom';
 import { clear, el, facilityChipTip, renderCost, setText, toggleClass } from './dom';
 
 /**
- * What the modal shows for **one upgradable thing** — re-read on every refresh (재료가 가방 · 창고에서 오갈 수 있다).
+ * What the modal shows for **one upgradable thing** — re-read on every refresh (materials can come and go between the
+ * bag · the stash).
  *
- * 2026-09-16: 가구 전용이었던 것을 **시설도 쓴다** (창고 업그레이드). 필드는 원래부터 「이름 · 레벨 · 다음 레벨이 여는
- * 것 · 재료 · 막힌 사유」뿐이라 가구 고유의 것이 하나도 없었다 — 이름만 일반화하고 모양 · 규칙은 그대로다.
+ * 2026-09-16: what was furniture-only is **used by facilities too** (the stash upgrade). The fields were always just
+ * 「name · level · what the next level opens · materials · the block reason」, nothing furniture-specific — only the
+ * names were generalised, the look · the rules are unchanged.
  */
 export interface UpgradeSpec {
-  /** 대상 이름 (가구 `FurnitureDef.name` · 시설 `FACILITY_LABEL_KO`). */
+  /** The subject's name (furniture `FurnitureDef.name` · facility `FACILITY_LABEL_KO`). */
   name: string;
   level: number;
   maxLevel: number;
-  /** 다음 레벨이 여는 것 한 줄 (`아래 재배층 개방` · `해석 칸 +1`), 없으면 빈 문자열. */
+  /** One line of what the next level opens (`아래 재배층 개방` · `해석 칸 +1`), an empty string when there is none. */
   gain: string;
   /** Next level's materials (`nextFurnitureCost`), null at the last level. */
   cost: readonly CraftIngredient[] | null;
-  /** `furnitureUpgradeBlock(uid)` — null = 강화할 수 있다. */
+  /** `furnitureUpgradeBlock(uid)` — null = it can be upgraded. */
   reason: string | null;
   /**
-   * appended (2026-09-12): 채워지지 않은 **시설 레벨 요구** (`HousingRef.furnitureUpgradeRequirements(uid)` — 보통 발전기).
-   * 재료 칩 뒤에 같은 줄로, 가로로 긴 이중 테두리 칩(`buildFacilityChip`, `현재 레벨/필요 레벨`)으로 그린다.
+   * appended (2026-09-12): the unmet **facility level requirements** (`HousingRef.furnitureUpgradeRequirements(uid)` —
+   * usually the generator). Drawn on the same row after the material chips, as a wide double-bordered chip
+   * (`buildFacilityChip`, `현재 레벨/필요 레벨`).
    */
   requirements?: readonly FacilityRequirement[];
 }
@@ -33,30 +36,33 @@ const ESCAPE_TOKEN = 'housing.upgrade';
 const MODAL_CHIP_SIZE = 44;
 
 /**
- * 2026-09-16 (창고 업그레이드): 가구 화면 **밖**에서 홀로 뜰 때 붙이는 것들.
+ * 2026-09-16 (the stash upgrade): what is attached when it stands alone **outside** a furniture screen.
  *
- * `standalone` 이면 모달이 `ctx.uiRoot` 직계로 붙으므로 스스로 `.interactive`(= `#ui-root` 의 `pointer-events: none`
- * 을 푼다)와 `.hs-modal-top`(인벤토리 창 위 z, `housing.css`)을 쓰고, **Tab 도 스스로 삼켜 닫는다** — 패널이
- * 대신 닫아 주지 않는데 Tab 을 흘리면 뒤의 인벤토리 창만 닫히고 모달이 혼자 남는다 (§4.2 「Tab 은 만능 닫기」).
- * blocker 는 더하지 않는다: 이 모달을 여는 두 곳(인벤토리 Tab · 작업대 창)이 이미 blocker 와 커서를 쥐고 있다.
+ * With `standalone` the modal is a direct child of `ctx.uiRoot`, so it wears `.interactive` (= releases `#ui-root`'s
+ * `pointer-events: none`) and `.hs-modal-top` (z above the inventory window, `housing.css`) itself, and **swallows Tab
+ * to close itself too** — no panel closes it for it, and letting Tab through would close only the inventory window
+ * behind it and leave the modal alone (§4.2 「Tab is the universal close key」). No blocker is added: the two places
+ * that open this modal (the inventory Tab · the workbench window) already hold a blocker and the cursor.
  */
 export interface UpgradeModalOptions {
   standalone?: boolean;
-  /** 어떤 길로 닫혔든(취소 · Escape · Tab · 바깥 클릭 · 확정) 한 번 불린다 — 부르는 쪽이 구독을 끊는다. */
+  /** Called once however it closed (cancel · Escape · Tab · an outside click · confirm) — the caller cuts its subscription. */
   onClose?(): void;
 }
 
 /**
- * **업그레이드 모달** (2026-09-12) — 가구 화면 머리줄 오른쪽 「업그레이드」가 연다. 옛 「강화 줄」(`.gs-up` · `.az-up` ·
- * `.ct-up`)을 대신한다. **2026-09-16 부터 시설(창고)도 같은 모달을 쓴다** (`ui/StorageUpgrade.ts` — 가구 화면이
- * 아니라 `ctx.uiRoot` 에 홀로 뜨는 `standalone` 갈래다). 보이는 것도 규칙도 하나다.
+ * **The upgrade modal** (2026-09-12) — opened by the 「업그레이드」 at the right of a furniture screen's header row. It
+ * replaces the old 「강화 줄」 (`.gs-up` · `.az-up` · `.ct-up`). **Since 2026-09-16 facilities (the stash) use the same
+ * modal** (`ui/StorageUpgrade.ts` — the `standalone` branch that stands on `ctx.uiRoot`, not on a furniture screen).
+ * One look, one set of rules.
  *
- * 재료를 소모하는 확정이라 제작 · 분해 · 거래와 같은 **`UI_HOLD_CONFIRM_S` 홀드**다 (사용자 결정): 클릭만으로는 아무
- * 일도 없고, 누르는 동안 채움 바가 버튼을 쓸고 가며 도중에 놓거나 벗어나면 0 으로 돌아간다. **Enter 는 삼킨다.**
- * Escape 는 `ctx.escape` 스택으로 닫힌다 (패널보다 위에 쌓인다), E · Tab 은 패널이 `PanelOverlay` 로 먼저 닫는다.
+ * It is a confirm that consumes materials, so it is a **`UI_HOLD_CONFIRM_S` hold** like craft · salvage · trade (user's
+ * decision): a click alone does nothing, a fill bar sweeps the button while it is held, and releasing or leaving part
+ * way returns it to 0. **Enter is swallowed.** Escape closes it through the `ctx.escape` stack (it stacks above the
+ * panel); E · Tab are closed first by the panel through `PanelOverlay`.
  *
- * 홀드는 rAF 가 아니라 `setInterval` + 실제 경과 시간으로 잰다 — 숨겨진 탭 · 헤드리스에서 rAF 가 멈춰도 확정이
- * 영영 안 되는 일이 없게.
+ * The hold is measured with `setInterval` + real elapsed time, not rAF — so a hidden tab · headless, where rAF stops,
+ * can still reach the confirm.
  */
 export class UpgradeModal implements PanelOverlay {
   readonly root: HTMLElement;
@@ -76,11 +82,11 @@ export class UpgradeModal implements PanelOverlay {
   private readonly onKey = (e: KeyboardEvent): void => {
     if (this.root.hidden) return;
     if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); e.stopImmediatePropagation(); return; }
-    // 2026-09-16: 홀로 뜬 모달은 Tab 도 자기가 먹고 닫는다 (키는 늘 쓰는 시점에 읽는다 — `docs/CONTROLS.md`)
+    // 2026-09-16: a standalone modal eats Tab itself and closes (keys are always read at use time — `docs/CONTROLS.md`)
     if (this.opts.standalone && e.code === Keys.INVENTORY) { e.preventDefault(); e.stopImmediatePropagation(); this.close(); }
   };
 
-  /** 포인터를 어디서 놓든 홀드가 남지 않게 `window` 에서 듣는다. */
+  /** Listened for on `window`, so no hold is left behind wherever the pointer is released. */
   private readonly onUp = (): void => this.stopHold();
 
   constructor(
@@ -101,25 +107,25 @@ export class UpgradeModal implements PanelOverlay {
     const no = el('button', { cls: 'ui-btn', text: '취소', parent: foot });
     this.okBtn = el('button', { cls: 'ui-btn primary hs-hold hs-modal-ok', parent: foot });
     this.fill = el('i', { cls: 'hs-hold-fill', parent: this.okBtn });
-    // 2026-09-15 2차 (사용자 결정): 「N초 동안 누르고 있으면 …」 안내 줄 대신 버튼 **안**의 좌클릭 홀드 키캡.
+    // 2026-09-15, 2nd pass (user's decision): the left-click hold keycap **inside** the button instead of a 「hold for N seconds …」 hint line.
     createHoldButtonCap(this.okBtn);
     el('span', { cls: 'hs-hold-label', text: '업그레이드', parent: this.okBtn });
     no.type = 'button';
     this.okBtn.type = 'button';
     no.addEventListener('click', (e) => { e.stopPropagation(); this.close(); });
-    this.okBtn.addEventListener('click', (e) => e.stopPropagation());          // 클릭은 확정하지 않는다 — 홀드만
+    this.okBtn.addEventListener('click', (e) => e.stopPropagation());          // a click never confirms — only the hold
     this.okBtn.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       e.stopPropagation();
       this.startHold();
     });
     this.okBtn.addEventListener('pointerleave', () => this.stopHold());
-    // 바깥(어두운 막)을 누르면 닫는다
+    // pressing outside (the dark backdrop) closes it
     this.root.addEventListener('pointerdown', (e) => { if (e.target === this.root) this.close(); });
   }
 
   get isOpen(): boolean { return !this.root.hidden; }
-  /** 홀드 진행도 0..1 (스모크). */
+  /** Hold progress 0..1 (for the smoke test). */
   get holdProgress(): number { return this.hold; }
 
   /** Open for one piece of furniture. `spec` is re-read on every `refresh()`; `run` performs the upgrade. */
@@ -149,18 +155,18 @@ export class UpgradeModal implements PanelOverlay {
     this.gainEl.hidden = atMax || !s.gain;
     if (atMax || !s.cost) clear(this.costEl);
     else renderCost(this.costEl, s.cost, this.costs, MODAL_CHIP_SIZE);
-    // 2026-09-12: 시설 레벨 요구(발전기 Lv.n)는 재료 칩 **뒤에 같은 줄로** — 아이템과 헷갈리지 않는 가로로 긴 이중 테두리 칩
+    // 2026-09-12: a facility level requirement (generator Lv.n) goes **on the same row after** the material chips — a wide double-bordered chip nothing confuses with an item
     if (!atMax) {
       for (const q of s.requirements ?? []) {
-        // 2026-09-15 (사용자 결정): 칩은 아이콘만 그리고 시설 이름 · 레벨은 호버 툴팁이 말한다 (`facilityChipTip`)
+        // 2026-09-15 (user's decision): the chip draws only the icon and the hover tooltip says the facility name · level (`facilityChipTip`)
         this.costEl.appendChild(facilityChipTip(
           buildFacilityChip(FACILITY_LABEL_KO[q.facility], FACILITY_GLYPH[q.facility], FACILITY_COLOR[q.facility], q.have, q.need, { size: MODAL_CHIP_SIZE }),
           FACILITY_LABEL_KO[q.facility], q.have, q.need));
       }
     }
     const blocked = atMax ? '최대 레벨입니다' : s.reason;
-    // 2026-09-15 2차 (사용자 결정): 이 줄은 **막힌 사유**만 말한다 — 홀드 안내는 버튼 안의 키캡이 대신하고,
-    // 막히지 않았으면 줄 자체가 사라진다 (빈 줄이 카드의 `gap` 을 먹지 않게 `hidden`).
+    // 2026-09-15, 2nd pass (user's decision): this line says only the **block reason** — the keycap inside the button
+    // carries the hold hint, and with nothing blocking the line itself goes (`hidden`, so an empty line does not eat the card's `gap`).
     setText(this.noteEl, blocked ?? '');
     this.noteEl.hidden = !blocked;
     toggleClass(this.noteEl, 'bad', !!blocked);
@@ -180,7 +186,7 @@ export class UpgradeModal implements PanelOverlay {
     this.opts.onClose?.();
   }
 
-  /* ── 홀드 확인 ────────────────────────────────────────────────────────── */
+  /* ── the hold confirm ─────────────────────────────────────────────────── */
   private startHold(): void {
     if (this.okBtn.disabled || this.holdTimer) return;
     this.holdStart = performance.now();

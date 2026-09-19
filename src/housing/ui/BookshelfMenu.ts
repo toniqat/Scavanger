@@ -20,43 +20,43 @@ import { clear, el, setText, toggleClass } from './dom';
 type ShelfTab = 'shelf' | 'dex';
 
 const pct = (v: number): string => `${Math.round(v * 100)} %`;
-/** What a 보관함 accepts, for the wrong-medium refusal (`책장에는 서적만 꽂을 수 있습니다`). */
+/** What a holder accepts, for the wrong-medium refusal (`책장에는 서적만 꽂을 수 있습니다`). */
 const ACCEPTS_KO: Readonly<Record<ShelfMedium, string>> = { book: '서적', disc: '디스크', record: '레코드', game: '게임 디스크' };
 
 /**
- * 보관함 화면 (Phase 9 책장 → A-3e 2026-09-12 매체 공통 → 2026-09-13 그려진 선반 + 시리즈 → **2026-09-14 서재 화면 개편**).
+ * The holder screen (Phase 9 the bookshelf → A-3e 2026-09-12 shared media → 2026-09-13 the drawn shelf + series → **2026-09-14 the library screen rework**).
  * `openShelf(uid)` reads the medium from `housing.getShelfMedium(uid)` and redraws for it.
  *
- * **2026-09-14 (사용자 결정)** — 틀은 `StationShell` 공통이되 레일과 탭의 역할이 바뀌었다:
- * - **좌측 레일(`.hs-rail`) = 서재 가구 목록**이다 (작업대 제작 창의 `.inv-craft-benches` 와 같은 결). 맨 위가 **「서재」**,
- *   그 아래로 **함선에 실제로 배치된** 책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대가 여러 대여도 전부 한 줄씩.
- *   고르면 창을 닫지 않고 그 자리에서 바뀐다.
- * - **「서재」** = 서재 시설의 보너스. **2026-09-15 (사용자 결정)**: 좌측 상단 `적용 효과`(`.lib-eff-head`) 라벨과 그 아래
- *   **가로로 긴 패널**(`.lib-eff-list`) 하나이고, 패널 안은 **배치된 보관함 가구마다 한 칸**(`.lib-effcard` — 글리프 ·
- *   이름 · `n / N` + 그 가구가 내고 있는 효과 줄)이다. 맨 아래 한 칸이 시설 전체 합산(`getLibraryEffects()`).
- *   **아무 보관함도 배치돼 있지 않으면** 같은 크기의 패널 가운데에 `아무 것도 배치되어 있지 않습니다.` 한 줄만 선다.
- *   ⚠ 값을 여기서 **새로 계산하지 않는다** — 시리즈 상태는 `librarySeriesStates()`, 줄 값은 `libraryLineValue`(선반 칸
- *   정보 줄과 같은 함수), 합산은 `getLibraryEffects()` 다.
- * - **가구를 고르면** 콘텐츠 **상단 가로 탭**(`StationShell.tabsRow`) `[선반] [도감]` 이 보인다 (옛 좌측 레일 탭).
- * - 선반 페이지 = `n / N권` 한 줄 + 가구 그림(`ui/ShelfDrawing`) + 칸 정보 한 줄.
- *   **빈 칸 호버는 아무것도 말하지 않고**, 꽂힌 칸은 `data-item-tip` 으로 `ui/hud/ItemTip` 의 아이템 카드가 뜬다.
- *   **2026-09-15**: 칸의 **숫자 표기가 없다** — 그림에도(`.lib-num` 삭제) 메시지 줄에도 칸 번호를 적지 않는다.
+ * **2026-09-14 (user's decision)** — the frame stays the shared `StationShell`, but the rail's and the tabs' roles changed:
+ * - **The left rail (`.hs-rail`) = the list of library furniture** (the same grain as the workbench craft window's `.inv-craft-benches`). 「서재」 on top,
+ *   and below it every bookshelf · disc stand · record rack · game disc stand **actually placed on the ship**, one row each however many there are.
+ *   Picking one switches in place without closing the window.
+ * - **「서재」** = the library facility's bonus. **2026-09-15 (user's decision)**: a top-left `적용 효과` (`.lib-eff-head`) label with, below it,
+ *   one **wide panel** (`.lib-eff-list`), and inside the panel **one card per placed holder piece** (`.lib-effcard` — glyph ·
+ *   name · `n / N` + the effect lines that piece is giving). The bottom card is the facility total (`getLibraryEffects()`).
+ *   **With no holder placed at all**, one line `아무 것도 배치되어 있지 않습니다.` stands in the middle of the same-sized panel.
+ *   ⚠ The values are **not computed again** here — the series state is `librarySeriesStates()`, a line's value is `libraryLineValue` (the
+ *   same function as the shelf cell's info line), and the sum is `getLibraryEffects()`.
+ * - **Picking a piece** shows the content's **top tab row** (`StationShell.tabsRow`) `[선반] [도감]` (the old left-rail tabs).
+ * - The shelf page = one `n / N권` line + the furniture drawing (`ui/ShelfDrawing`) + one cell info line.
+ *   **Hovering an empty cell says nothing**, and a filled cell raises `ui/hud/ItemTip`'s item card through `data-item-tip`.
+ *   **2026-09-15**: a cell carries **no number** — neither the drawing (`.lib-num` deleted) nor the message line prints a cell number.
  *
- * 조작:
- * - **꽂기** = 창고 · 가방 타일을 칸으로 끌어다 놓기 (`mountStationGrids` → `dropOn`). 타일 더블클릭 = 첫 빈 칸.
- *   매체가 맞지 않으면 `책장에는 서적만 꽂을 수 있습니다`. 이미 어느 보관함에든 꽂힌 종류면 `이미 꽂혀 있는 책입니다`.
- *   **이미 꽂힌 칸에 놓으면 교체**다 — `takeShelfItem`(가방 먼저 · 없으면 창고) 뒤에 `placeShelfItem`; 꽂기가 거절되면 뺀 것을
- *   같은 칸에 다시 꽂아 되돌린다. 같은 아이템이면 아무 일도 없다.
- * - **빼기** = 꽂힌 칸을 격자로 끌어다 놓기 또는 더블클릭 (`ProductDrag` → `takeShelfItem`, 놓은 격자와 무관하게 가방 먼저).
+ * Controls:
+ * - **Shelving** = drag a stash · bag tile onto a cell (`mountStationGrids` → `dropOn`). Double-clicking a tile = the first empty cell.
+ *   On the wrong medium `책장에는 서적만 꽂을 수 있습니다`. On a kind already shelved in any holder `이미 꽂혀 있는 책입니다`.
+ *   **Dropping onto a filled cell replaces** — `takeShelfItem` (bag first · the stash with none) then `placeShelfItem`; when the shelving is refused the
+ *   one taken out is shelved in the same cell again. Nothing happens for the same item.
+ * - **Taking out** = drag a filled cell onto a grid, or double-click it (`ProductDrag` → `takeShelfItem`, bag first whatever grid it was dropped on).
  *
- * 규칙은 전부 `HousingSystem.placeShelfItem / takeShelfItem`(책장은 옛 `placeBook / takeBook`)이고 패널은 한국어 사유를 옮길 뿐이다.
- * 책장은 `ui:bookshelfToggled {open, uid}`, 그 밖의 보관함은 `ui:shelfToggled {open, uid, medium}`; `ui:housingToggled` 에는 `page: null`.
- * The root carries `data-medium`. `housing:libraryChanged` 도 다시 그린다 (다른 보관함 · 보조 가구의 변화).
+ * Every rule lives in `HousingSystem.placeShelfItem / takeShelfItem` (the bookshelf on the old `placeBook / takeBook`); the panel only relays the Korean reason.
+ * A bookshelf emits `ui:bookshelfToggled {open, uid}`, every other holder `ui:shelfToggled {open, uid, medium}`; `ui:housingToggled` carries `page: null`.
+ * The root carries `data-medium`. `housing:libraryChanged` redraws too (another holder's · the aux furniture's change).
  */
 export class BookshelfMenu extends HousingPanel {
   private uid = '';
   private medium: ShelfMedium = 'book';
-  /** false = 레일의 「서재」 항목 (보관함이 아니라 시설 전체 요약). */
+  /** false = the rail's 「서재」 row (the whole facility's summary, not a holder). */
   private onHolder = true;
   private tab: ShelfTab = 'shelf';
   private readonly shell: StationShell;
@@ -72,13 +72,13 @@ export class BookshelfMenu extends HousingPanel {
   private readonly dex: BookDexView;
   private readonly drag: ProductDrag;
   private drawing: ShelfDrawing | null = null;
-  /** 지금 그림의 매체 + 발자국 (`book:1x2`) — 아이템 데이터가 늦게 붙으면 발자국이 바뀌어 다시 짓는다. */
+  /** The current drawing's medium + footprint (`book:1x2`) — when item data arrives late the footprint changes and it is rebuilt. */
   private drawingKey = '';
   private grids: StationGridsView | null = null;
   private hoverSlot: number | null = null;
   private railKey = '';
   private libKey = '';
-  /** 마지막으로 `ui:*Toggled {open:true}` 를 낸 보관함 (닫기 이벤트를 한 번만 내기 위해). */
+  /** The holder the last `ui:*Toggled {open:true}` was emitted for (so the closing event fires exactly once). */
   private announced: ShelfMedium | null = null;
   private announcedUid = '';
   /** Smoke / perf counters: how often the shelf drawing was (re)built. */
@@ -102,8 +102,8 @@ export class BookshelfMenu extends HousingPanel {
 
     const pages = el('div', { cls: 'lib-pages', parent: this.shell.left });
     this.libPage = el('div', { cls: 'lib-page', attrs: { 'data-page': 'library' }, parent: pages });
-    // 2026-09-15 (사용자 결정): 좌측 상단 `적용 효과` 라벨 + 그 아래 **가로로 긴 패널** 하나. 패널 안은 배치된 보관함
-    // 가구마다 한 칸이고, 아무것도 배치돼 있지 않으면 같은 크기의 패널 가운데에 한 줄만 선다.
+    // 2026-09-15 (user's decision): a top-left `적용 효과` label + one **wide panel** below it. Inside the panel there is one
+    // card per placed holder piece, and with nothing placed one line stands in the middle of the same-sized panel.
     el('div', { cls: 'lib-eff-head', text: '적용 효과', parent: this.libPage });
     this.libList = el('div', { cls: 'lib-eff-list', parent: this.libPage });
     this.shelfPage = el('div', { cls: 'lib-page', attrs: { 'data-page': 'shelf' }, parent: pages });
@@ -123,14 +123,14 @@ export class BookshelfMenu extends HousingPanel {
       productAt: (t) => this.productAt(t),
       collect: (key) => this.take(Number(key)),
       defOf: (id) => housing.defOf(id),
-      // 2026-09-16: 빼서 놓은 **그 칸**으로 간다 (격자는 열릴 때 만들어지므로 함수로 준다)
+      // 2026-09-16: it goes to **the cell** it was dropped on (the grids are made when the panel opens, so they come as a function)
       grids: () => this.grids,
       onDragStart: () => this.setHover(null),
     });
     this.caseHost.addEventListener('pointerover', (e) => { if (!this.drag.dragging) this.setHover(this.slotAt(e.target as Element | null)); });
     this.caseHost.addEventListener('pointerleave', () => this.setHover(null));
     this.buildDrawing('book');
-    // 2026-09-13 (서재 시리즈): 합산이 바뀌면(다른 보관함 · 보조 가구) 몫 · 효과 숫자가 바뀐다
+    // 2026-09-13 (library series): when the sum changes (another holder · aux furniture) the share · effect numbers change
     this.unsubs.push(ctx.bus.on('housing:libraryChanged', () => this.refreshIfOpen()));
   }
 
@@ -154,7 +154,7 @@ export class BookshelfMenu extends HousingPanel {
     if (id === 'dex' && this.onHolder) this.dex.refresh();
   }
 
-  /** Which of the three pages (서재 요약 · 선반 · 도감) is on screen, and whether the tab row shows at all. */
+  /** Which of the three pages (the library summary · the shelf · the catalogue) is on screen, and whether the tab row shows at all. */
   private applyPages(): void {
     const holder = this.onHolder;
     this.tabsRow.hidden = !holder;
@@ -165,8 +165,8 @@ export class BookshelfMenu extends HousingPanel {
 
   /** (Re)build the drawing when the medium on screen changes (the slot count / shape follow it). */
   private buildDrawing(medium: ShelfMedium): void {
-    /* 2026-09-17 (사용자 결정 「칸 모양은 받는 아이템의 크기를 따른다」): 칸 = 그 매체 아이템의 발자국 격자.
-       생성자 시점에는 `ctx.loot` 이 없어(housing 이 inventory 보다 먼저 등록) 발자국을 모른다 — 알게 되면 다시 짓는다. */
+    /* 2026-09-17 (user's decision 「a cell's shape follows the size of the item it takes」): a cell = that medium's item footprint grid.
+       At constructor time there is no `ctx.loot` (housing registers before inventory) so the footprint is unknown — it is rebuilt once known. */
     const loot = this.ctx.loot;
     const fp = shelfFootprint(loot && typeof loot.getAllItemDefs === 'function' ? loot.getAllItemDefs() : null, medium);
     const key = `${medium}:${fp ? `${fp.w}x${fp.h}` : '-'}`;
@@ -179,10 +179,10 @@ export class BookshelfMenu extends HousingPanel {
 
   /** The medium on screen (smoke / consumers). */
   get shownMedium(): ShelfMedium { return this.medium; }
-  /** The 보관함 on screen, `''` while the 「서재」 summary is selected (smoke / consumers). */
+  /** The holder on screen, `''` while the 「서재」 summary is selected (smoke / consumers). */
   get shownUid(): string { return this.onHolder ? this.uid : ''; }
 
-  /** Open the panel for one 보관함 (책장 · 디스크 전시대 · 레코드랙 · 게임 디스크 전시대 — the medium comes from the piece). */
+  /** Open the panel for one holder (bookshelf · disc stand · record rack · game disc stand — the medium comes from the piece). */
   openShelf(uid: string): void {
     const medium = typeof this.housing.getShelfMedium === 'function' ? this.housing.getShelfMedium(uid) ?? 'book' : 'book';
     if (this.isOpen && (this.uid !== uid || this.medium !== medium)) this.close(false);   // closing emits for the old piece
@@ -213,7 +213,7 @@ export class BookshelfMenu extends HousingPanel {
     if (refresh) this.refresh();
   }
 
-  /** `ui:bookshelfToggled` / `ui:shelfToggled` — one `open: true` per shown 보관함, one `open: false` when it leaves. */
+  /** `ui:bookshelfToggled` / `ui:shelfToggled` — one `open: true` per shown holder, one `open: false` when it leaves. */
   private announce(): void {
     const next = this.onHolder && this.isOpen ? this.medium : null;
     const nextUid = next ? this.uid : '';
@@ -244,8 +244,8 @@ export class BookshelfMenu extends HousingPanel {
     this.announce();
   }
 
-  /* ── 좌측 레일 = 서재 가구 목록 ────────────────────────────────────────── */
-  /** 함선에 배치된 보관함 전부 — `interaction` 으로 고른다 (defId 를 코드에 적지 않는다). */
+  /* ── The left rail = the list of library furniture ─────────────────────── */
+  /** Every holder placed on the ship — picked by `interaction` (no defId is written into the code). */
   private holders(): readonly PlacedFurniture[] {
     return this.housing.getPlaced().filter((p) => {
       const def = this.housing.getFurnitureDef(p.defId);
@@ -253,7 +253,7 @@ export class BookshelfMenu extends HousingPanel {
     });
   }
 
-  /** 목록은 가구 구성이 바뀔 때만 짓는다 (작업대 목록과 같은 규약). 맨 위는 늘 「서재」. */
+  /** The list is built only when the furniture line-up changes (the same contract as the workbench list). 「서재」 is always on top. */
   private buildRail(list: readonly PlacedFurniture[]): void {
     const rail = this.shell.rail;
     clear(rail);
@@ -277,7 +277,7 @@ export class BookshelfMenu extends HousingPanel {
     }
   }
 
-  /** 선택 표시 + 칸 수만 다시 칠한다. */
+  /** Repaints only the selection mark + the cell count. */
   private paintRail(): void {
     for (const btn of Array.from(this.shell.rail.children) as HTMLElement[]) {
       const uid = btn.dataset.uid ?? '';
@@ -303,7 +303,7 @@ export class BookshelfMenu extends HousingPanel {
   }
 
   /* ── actions ───────────────────────────────────────────────────────────── */
-  /** A tile was dragged out of the 창고 / 가방 onto a slot (`target`), or double-clicked (`target` null → the first empty slot). */
+  /** A tile was dragged out of the stash / bag onto a slot (`target`), or double-clicked (`target` null → the first empty slot). */
   private dropOn(item: ItemInstance, target: HTMLElement | null): void {
     if (!this.onHolder) return;
     const h = this.housing;
@@ -334,7 +334,7 @@ export class BookshelfMenu extends HousingPanel {
   private swap(slot: number, currentDefId: string, def: ItemDef): void {
     const h = this.housing;
     if (currentDefId === def.id) { this.showMsg(`이미 ${def.name}이(가) 꽂혀 있습니다`, 'info'); return; }
-    // 2026-09-13: 다른 칸에 이미 꽂힌 종류면 빼기 전에 거절한다 (빼고 되돌리는 왕복 없이)
+    // 2026-09-13: a kind already shelved in another cell is refused before anything is taken out (no take-and-put-back round trip)
     if (h.isShelvedAnywhere(def.id)) { this.refuse(`이미 꽂혀 있는 ${SHELF_MEDIUM_LABEL_KO[this.medium]}입니다`); return; }
     const out = h.takeShelfItem(this.uid, slot);
     if (out) { this.deny(out); return; }
@@ -352,7 +352,7 @@ export class BookshelfMenu extends HousingPanel {
     const reason = this.housing.takeShelfItem(this.uid, slot);
     if (reason) { this.deny(reason); return; }
     this.setHover(null);
-    // 2026-09-15: 칸 번호를 더 말하지 않는다 (`n번 칸의 책을 …` → `책을 …`)
+    // 2026-09-15: the cell number is no longer said (`n번 칸의 책을 …` → `책을 …`)
     this.showMsg(`${SHELF_OBJ_KO[this.medium]} 뺐습니다`, 'success');
   }
 
@@ -385,15 +385,15 @@ export class BookshelfMenu extends HousingPanel {
     const list = this.holders();
     const railKey = list.map((p) => `${p.uid}:${p.defId}`).join(',');
     if (railKey !== this.railKey) { this.railKey = railKey; this.buildRail(list); }
-    // 고른 보관함이 사라졌으면(회수 · 이동) 「서재」 로 떨어진다
+    // When the picked holder is gone (recovered · moved) it falls back to 「서재」
     if (this.onHolder && !list.some((p) => p.uid === this.uid)) { this.onHolder = false; this.applyPages(); this.announce(); }
     this.paintRail();
     if (!this.onHolder) { this.paintLibrary(list); setText(this.shell.title, '서재'); return; }
     this.paintShelf();
-    this.dex.refresh();   // 도감은 탭 뒤에 있어도 최신으로 둔다 (탭을 눌렀을 때 한 프레임 늦게 그려지지 않도록)
+    this.dex.refresh();   // the catalogue is kept up to date even behind its tab (so pressing the tab never draws one frame late)
   }
 
-  /** 선반 페이지 + 제목 + 칸 수. */
+  /** The shelf page + the title + the cell count. */
   private paintShelf(): void {
     const h = this.housing;
     const m = this.medium;
@@ -407,8 +407,8 @@ export class BookshelfMenu extends HousingPanel {
     setText(this.countEl, shelf ? `${filled} / ${slots}${SHELF_UNIT_KO[m]}` : `${holder}이(가) 사라졌습니다`);
 
     this.buildDrawing(m);
-    // 2026-09-16: 칸에 서는 것은 가방과 **같은 타일**이다. 2026-09-17: 타일의 칸 크기는 그림의 격자 칸(`drawing.cell`)
-    // 그대로다 — 빈 칸(발자국 격자)과 꽂힌 칸이 같은 상자다
+    // 2026-09-16: what stands in a cell is **the same tile** as in the bag. 2026-09-17: the tile's cell size is the drawing's grid
+    // cell (`drawing.cell`) as it is — an empty cell (the footprint grid) and a filled one are the same box
     const drawing = this.drawing!;
     const cell = drawing.cell;
     const empty = { w: drawing.footprint.w, h: drawing.footprint.h, cell };
@@ -418,7 +418,7 @@ export class BookshelfMenu extends HousingPanel {
       const info = infos[view.slot];
       const def = info?.defId ? h.defOf(info.defId) : undefined;
       if (!info || !info.defId) {
-        // 2026-09-14 (사용자 결정): 빈 칸은 아무 말도 하지 않는다 — 호버해도 정보 줄이 비어 있다
+        // 2026-09-14 (user's decision): an empty cell says nothing — hovering it leaves the info line empty
         paintShelfSlot(view, { defId: null, line: '' }, tileOf, empty);
         continue;
       }
@@ -451,19 +451,19 @@ export class BookshelfMenu extends HousingPanel {
   }
 
   /**
-   * 「서재」 항목의 **`적용 효과` 패널** (2026-09-14 요약 → **2026-09-15 가구별로 나눔**, 사용자 결정).
+   * The 「서재」 row's **`적용 효과` panel** (2026-09-14 a summary → **2026-09-15 split per piece**, user's decision).
    *
-   * 패널은 **배치된 보관함 가구마다 한 칸**이다 — 머리줄(글리프 · 이름 · `n / N` 칸 수) 아래에 그 가구에 꽂힌 것이
-   * 지금 내고 있는 효과 줄이 선다. 값은 **새로 계산하지 않는다**: 시리즈 상태는 `librarySeriesStates()`(= 규칙이
-   * 이미 합산해 둔 것)이고 줄 값은 `libraryLineValue` 하나다 (선반 칸의 정보 줄과 **같은 함수**).
-   * 맨 아래 한 칸은 시설 전체 합산(`getLibraryEffects()`) — 서로 다른 가구의 같은 시리즈가 합쳐진 결과다.
+   * The panel holds **one card per placed holder piece** — under the header row (glyph · name · `n / N` cell count) stand the
+   * effect lines that what is shelved in that piece is giving now. The values are **not computed again**: the series state is
+   * `librarySeriesStates()` (= what the rules already summed) and a line's value is `libraryLineValue` (the **same function** as the shelf cell's info line).
+   * The bottom card is the facility total (`getLibraryEffects()`) — the same series scattered over different pieces folded together.
    *
-   * **아무 보관함도 배치돼 있지 않으면** 같은 크기의 패널 가운데에 `아무 것도 배치되어 있지 않습니다.` 한 줄만 선다.
+   * **With no holder placed at all**, one line `아무 것도 배치되어 있지 않습니다.` stands in the middle of the same-sized panel.
    */
   private paintLibrary(list: readonly PlacedFurniture[]): void {
     const h = this.housing;
     const states = h.librarySeriesStates();
-    /** 가구 한 대의 칸 → (중복 없는) 시리즈 → 효과 줄. 게임 디스크 전시대는 시리즈가 없어 늘 빈 목록이다. */
+    /** One piece's cells → its (deduplicated) series → the effect lines. The game disc stand has no series, so it is always an empty list. */
     const linesOf = (uid: string): string[] => {
       const out: string[] = [];
       const seen = new Set<string>();
@@ -512,7 +512,7 @@ export class BookshelfMenu extends HousingPanel {
       if (!c.lines.length) { el('div', { cls: 'lib-eff-none', text: '효과 없음', parent: card }); continue; }
       for (const text of c.lines) el('div', { cls: 'lib-eff', text, parent: card });
     }
-    // 시설 전체 합산 — 가구별 줄과 달리 **서로 다른 가구에 흩어진 같은 시리즈**가 합쳐진 결과다
+    // The facility total — unlike the per-piece lines, **the same series scattered over different pieces** is folded together here
     const sum = el('div', { cls: 'lib-effcard is-total', parent: this.libList });
     const shead = el('div', { cls: 'lib-effcard-head', parent: sum });
     el('i', { cls: 'lib-effcard-ico', text: LIBRARY_GLYPH, parent: shead });
@@ -521,7 +521,7 @@ export class BookshelfMenu extends HousingPanel {
     else for (const text of total) el('div', { cls: 'lib-eff', text, parent: sum });
   }
 
-  /** 시설 전체 합산 줄 — 원본은 `getLibraryEffects()` **하나**다 (2026-09-13 규약). */
+  /** The facility total lines — the source is `getLibraryEffects()`, **one** place (the 2026-09-13 contract). */
   private totalLines(): string[] {
     const h = this.housing;
     const e: LibraryEffectsSummary | null = typeof h.getLibraryEffects === 'function' ? h.getLibraryEffects() : null;

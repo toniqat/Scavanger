@@ -1,10 +1,11 @@
 /**
- * src/housing/parts/Rooms.ts — **방 용도와 시설 레벨**.
+ * src/housing/parts/Rooms.ts — **room purposes and facility levels**.
  *
- * 빈 방에 용도를 주는 것이 **시설 증축**(재료 소모, 용도별 발전기 게이트 `purposeGeneratorLevel` — 2026-09-13, 함선당 하나)이다. 2026-09-12 부터 방 시설
- * (작업실 · 시뮬레이션실)에는 레벨이 없고 발전기 · 창고만 레벨을 올린다 — 방의 강화는 그 안의 가구가 한다
- * (`placedLevelOf`). 제거하면 가구는 가구 창고로, 증축 재료는 함선 창고로 전액 돌아온다.
- * 규칙 자체는 `Rules.ts` 가 갖고, 여기서는 그 규칙에 따라 재료를 소모하고 상태를 쓴다.
+ * Giving an empty room a purpose is a **시설 증축** (materials consumed, a per-purpose generator gate `purposeGeneratorLevel` — 2026-09-13, one per ship). Since 2026-09-12 room
+ * facilities (the workshop · the simulation room) have no level and only the generator · the stash raise one — a room
+ * is upgraded by the furniture inside it (`placedLevelOf`). On removal the furniture goes to furniture storage and the
+ * build materials go back to the ship stash in full.
+ * The rules themselves live in `Rules.ts`; here they are followed to consume materials and write state.
  */
 import type {
   BookSlotInfo, CraftIngredient, EmbeddedView, FacilityId, FacilityInfo, FacilityRequirement, FurnitureDef, GameContext, GameSystem, GrowPlot, GrowPlotInfo,
@@ -52,22 +53,22 @@ export function emitStashSizeIfChanged(sys: HousingSystem): void {
   }
 
 /* ── rooms ─────────────────────────────────────────────────────────────── */
-/** 2026-09-12: 조종석(`COCKPIT_ROOM_INDEX`)은 `rooms[]` 에 없는 고정 공간이다 — 늘 `{purpose: 'cockpit', level: 1}`. */
+/** 2026-09-12: the cockpit (`COCKPIT_ROOM_INDEX`) is a fixed space outside `rooms[]` — always `{purpose: 'cockpit', level: 1}`. */
 export function getRoom(sys: HousingSystem, index: number): RoomState {
   if (index === COCKPIT_ROOM_INDEX) return { purpose: 'cockpit', level: 1 };
   return sys.state.rooms[index] ?? freshRoom();
 }
 
-/** 조종석에 대한 용도 · 제거 거절 문장 (시설 관리의 버튼이 이 한 줄을 그린다). */
+/** The purpose · removal refusal line for the cockpit (ship management's button draws this one line). */
 export const COCKPIT_PURPOSE_REASON = '조종석은 용도를 바꾸거나 제거할 수 없습니다';
 
 /**
- * 한국어 reason `setRoomPurpose` would refuse (null = allowed). Used by the room menu for button hints. `empty`
+ * Korean reason `setRoomPurpose` would refuse (null = allowed). Used by the room menu for button hints. `empty`
  * recovers every piece, so it is also refused while a 책장 in the room cannot hand its books to the stash.
  */
 export function purposeBlock(sys: HousingSystem, index: number, purpose: RoomPurpose): string | null {
   if (index === COCKPIT_ROOM_INDEX) return COCKPIT_PURPOSE_REASON;
-  // 2026-09-08: 튜토리얼이 순서를 강제하는 동안에는 그 단계가 허락한 용도만 지을 수 있다 (튜토리얼이 꺼져 있으면 null)
+  // 2026-09-08: while the tutorial forces the order, only the purpose that step allows can be built (null when the tutorial is off)
   const tut = sys.ctx.tutorial?.blockReason('roomPurpose', purpose) ?? null;
   if (tut) return tut;
   // Phase 9 UI pass: 시설 증축 costs materials and sits behind the 발전기 gate, so the block reason covers those too.
@@ -81,7 +82,7 @@ export function purposeCost(sys: HousingSystem, purpose: RoomPurpose): readonly 
 /** Why the room cannot be emptied right now (a 책장 whose books have no stash room), null when it can. */
 export function emptyRoomBlock(sys: HousingSystem, index: number): string | null {
   for (const f of sys.state.furniture) {
-    // A-3e (2026-09-12): 책장만이 아니라 서재 보관함 전부 (디스크 전시대 · 레코드랙) — `shelfBlock` 은 책장이면 `booksBlock` 이다
+    // A-3e (2026-09-12): not just the 책장 but every library holder (disc stand · record rack) — `shelfBlock` is `booksBlock` for a 책장
     if (f.room !== index || !sys.getShelfMedium(f.uid)) continue;
     const reason = sys.shelfBlock(f.uid);
     if (reason) return reason;
@@ -109,7 +110,7 @@ export function setRoomPurpose(sys: HousingSystem, index: number, purpose: RoomP
     for (const f of inRoom) sys.recover(f.uid);
   }
   // a greenhouse that goes away takes the rooms that need it with it (`Rules.NEEDS_GREENHOUSE`)
-  // 2026-09-14 (사용자 결정): 그 목록이 비었으므로 이 루프는 아무 방도 비우지 않는다 — 선행 시설 조건 폐지.
+  // 2026-09-14 (user's decision): that list is empty, so this loop empties no room — purpose prerequisites dropped.
   if (room.purpose === 'greenhouse' && !sys.state.rooms.some((r, i) => i !== index && r.purpose === 'greenhouse')) {
     for (let i = 0; i < sys.state.rooms.length; i++) if (NEEDS_GREENHOUSE.includes(sys.state.rooms[i].purpose)) sys.setRoomPurpose(i, 'empty');
   }
@@ -137,7 +138,7 @@ export function getFacility(sys: HousingSystem, id: FacilityId): FacilityInfo {
 
 export function upgrade(sys: HousingSystem, id: FacilityId): boolean {
   if (!FACILITY_IDS.includes(id)) return false;
-  if (id === 'workshop' || id === 'range') return false;   // 2026-09-12: 방 시설(작업실 · 시뮬레이션실)에는 레벨이 없다
+  if (id === 'workshop' || id === 'range') return false;   // 2026-09-12: room facilities (the workshop · the simulation room) have no level
   const info = sys.getFacility(id);
   if (info.blocked || !info.nextCost) return false;
   if (!sys.consume(info.nextCost)) return false;
@@ -169,7 +170,7 @@ export function facilityRefund(sys: HousingSystem, index: number): CraftIngredie
 /**
  * 시설 제거 (Phase 9 UI pass): give the room back. Every placed piece goes to furniture storage (that is
  * `setRoomPurpose(index, 'empty')`) and every material spent on the facility's upgrades is refunded into the
- * **함선 창고**. All-or-nothing: when the stash cannot take the refund nothing is touched and the 한국어 reason is
+ * **함선 창고**. All-or-nothing: when the stash cannot take the refund nothing is touched and the Korean reason is
  * returned (null = removed).
  */
 export function removeRoomFacility(sys: HousingSystem, index: number): string | null {
@@ -188,7 +189,7 @@ export function removeRoomFacility(sys: HousingSystem, index: number): string | 
   return null;
   }
 
-/** 한국어 reason the stash cannot take `cost` (free-cell estimate, deliberately conservative); null when it can. */
+/** Korean reason the stash cannot take `cost` (free-cell estimate, deliberately conservative); null when it can. */
 export function stashSpaceBlock(sys: HousingSystem, cost: readonly CraftIngredient[]): string | null {
   if (!cost.length) return null;
   const inv = sys.ctx.inventory;
@@ -216,11 +217,12 @@ export function refundToStash(sys: HousingSystem, cost: readonly CraftIngredient
   let lost = 0;
   for (const c of cost) {
     const def = sys.defOf(c.defId);
-    /* 2026-09-16: 세이브에서 온 id 는 **지금 아이템 표에 없을 수 있다** (표본 전면 개편처럼 def 를 줄째로 지운
-       개발 단계 변경 — 사용자 결정으로 마이그레이션을 두지 않았다). 없는 def 로 `createItem` 을 부르면 던지는데,
-       이 함수는 `HousingSystem.update` 의 첫 프레임 환불에서도 불리므로 예외 하나가 housing 전체를 멈춘다.
-       서재의 `books()` · 분석기의 `analyses()` 와 같은 규약으로 **경고를 남기고 건너뛴다**. 창고가 꽉 차서 못 넣은
-       것이 아니므로 `lost` 에도 세지 않는다 (「창고가 가득 참」 토스트가 거짓말이 된다). */
+    /* 2026-09-16: an id out of a save **may no longer be in the item table** (a development-stage change that deleted
+       defs row and all, like the sample rework — by the user's decision no migration was kept). `createItem` throws on
+       a missing def, and this function is also called by the first-frame refund in `HousingSystem.update`, so one
+       exception stops the whole of housing. By the same contract as the library's `books()` · the analyzer's
+       `analyses()`, it **warns and skips**. It is not counted in `lost` either, because a full stash is not the cause
+       (the 「창고가 가득 참」 toast would be a lie). */
     if (!def) { console.warn(`[housing] refund: unknown item def '${c.defId}' ×${c.qty} dropped (아이템 표에서 사라진 def)`); continue; }
     const stack = Math.max(1, def?.stackMax ?? 1);
     let left = c.qty;
@@ -259,12 +261,12 @@ export function placedLevelOf(sys: HousingSystem, interaction: string): number {
 }
 
 /**
- * 서재 (`getBookBonus`, every shelved book of that skill). 2026-09-12 (사용자 결정 — 시뮬레이션실 · 시뮬레이션 허브 제거):
- * the 허브 term (`gun_*` × `1 + 0.1 × level`) is gone with the furniture — `Rules.skillGainMulFor` has no caller any more.
+ * 서재 (`getBookBonus`, every shelved book of that skill). 2026-09-12 (user's decision — the simulation room · 시뮬레이션 허브 removed):
+ * the 시뮬레이션 허브 term (`gun_*` × `1 + 0.1 × level`) is gone with the furniture — `Rules.skillGainMulFor` has no caller any more.
  */
 export function getSkillGainMul(sys: HousingSystem, skill: SkillId): number { return sys.getBookBonus(skill); }
 
-/** 2026-09-12: 빈 방에 `purpose` 를 증축하는 데 채워지지 않은 시설 레벨 요구 (`Rules.purposeRequirementsFor`). */
+/** 2026-09-12: the unmet facility level requirements for building `purpose` into an empty room (`Rules.purposeRequirementsFor`). */
 export function purposeRequirements(sys: HousingSystem, purpose: RoomPurpose): FacilityRequirement[] {
   return purposeRequirementsFor(sys.state, purpose);
 }

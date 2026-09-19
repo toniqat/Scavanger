@@ -1,16 +1,16 @@
 /**
- * src/housing/ui/tv/TvMenu.ts — **TV 화면** (비디오게임, 2026-09-13 · H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」).
+ * src/housing/ui/tv/TvMenu.ts — **the TV screen** (video games, 2026-09-13 · H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」).
  *
- * hub 의 TV E 가 `ctx.housing.openTvMenu(uid)` 로 연다 (같은 날부터 TV 의 E 는 켜기/끄기 토글이 아니다). 한 화면에:
- *   • 머리 — TV 이름 · 켜짐 상태 · `켜기` / `끄기` 버튼 (`toggleFurniture`)
- *   • 게임기 — 장착된 게임기 + `빼기`, 가진 게임기(가방 + 창고) 목록 + `장착` / `교체` (되돌릴 수 있는 일이라 1초 홀드 없음)
- *   • 좌석 — 한 줄 (좌석이 있으면 그 이름, 없으면 서서 — 2026-09-17 좌석은 조건이 아니다)
- *   • 게임 — `getPlayableGames` 한 줄씩: 디스크 칩 · 이름 · 단련 능력치 · 방식 · 게임기, 막힌 사유, 디버프 남은 시간(경험치 0 안내), `플레이`
- * 규칙은 하나도 여기 없다 — 전부 `parts/VideoGame` 이 돌려주는 한국어 사유를 옮긴다.
+ * hub's E on the TV opens it through `ctx.housing.openTvMenu(uid)` (from that day on the TV's E is not an on/off toggle). One screen holds:
+ *   • the head — the TV's name · its on-state · a `켜기` / `끄기` button (`toggleFurniture`)
+ *   • the console — the attached console + `빼기`, the list of consoles owned (bag + stash) + `장착` / `교체` (a reversible act, so no 1 s hold)
+ *   • the seat — one line (the seat's name with one, standing without — 2026-09-17 a seat is not a condition)
+ *   • the games — one row per `getPlayableGames`: the disc chip · name · trained stat · kind · console, the block reason, the debuff time left (XP 0 notice), `플레이`
+ * Not one rule lives here — every Korean reason `parts/VideoGame` returns is only relayed.
  *
- * 틀은 `HousingPanel` 그대로라 E · Tab · Esc 로 닫히고 블로커 `'housing'` + 커서 모드를 쓴다. 이 화면은 `parts/Presets.panels()` 밖이라
- * (`HousingPage` 에 `'tv'` 가 없어 형 변환으로 넘긴다) 페이즈 전환 · `hub:left` 등의 닫기는 `parts/VideoGame.bindVideoGame` 이 한다.
- * `ui:tvMenuToggled {open, uid}` 를 낸다. CSS 접두사 `.tvm-`.
+ * The frame is `HousingPanel` as it is, so it closes on E · Tab · Esc and uses the blocker `'housing'` + cursor mode. This screen is outside
+ * `parts/Presets.panels()` (`HousingPage` has no `'tv'`, so it is passed through a cast), so closing on a phase change · `hub:left` is `parts/VideoGame.bindVideoGame`'s job.
+ * It emits `ui:tvMenuToggled {open, uid}`. CSS prefix `.tvm-`.
  */
 import type { GameContext, GameStat, ItemDef } from '@/shared';
 import { GYM_FATIGUE_LABEL_KO, buildItemChip } from '@/shared';
@@ -23,15 +23,15 @@ import type { HousingPage } from '../Panel';
 import { clear, clockText, el, setText, toggleClass } from '../dom';
 import './tv.css';
 
-/** 키 가이드 owner `housing.tv` · `data-page` (2026-09-13 리드: `HousingPage` 에 `'tv'` 를 더했다). */
+/** The key guide owner `housing.tv` · `data-page` (2026-09-13 lead: `'tv'` was added to `HousingPage`). */
 const TV_PAGE: HousingPage = 'tv';
-/** 디버프 남은 시간을 고쳐 쓰는 간격 (ms, 구현 값). */
+/** How often the debuff's remaining time is rewritten (ms, an implementation value). */
 const CLOCK_MS = 1000;
 
 interface FatigueClock { el: HTMLElement; until: number; label: string; text: string }
 
 export class TvMenu extends HousingPanel {
-  /** 열린 TV 의 uid (닫혀 있으면 null). */
+  /** The uid of the open TV (null while closed). */
   uid: string | null = null;
   private readonly body: HTMLElement;
   private clocks: FatigueClock[] = [];
@@ -155,8 +155,8 @@ export class TvMenu extends HousingPanel {
   }
 
   /**
-   * 2026-09-17 (사용자 결정): 좌석은 조건이 아니다 — 좌석이 있으면 그 이름, 없으면 「서서 플레이합니다」. 좌석을 못 쓰는 이유
-   * (`tvSeatBlock`)는 경고로 띄우지 않는다.
+   * 2026-09-17 (user's decision): a seat is not a condition — the seat's name with one, 「서서 플레이합니다」 without. The reason a seat
+   * cannot be used (`tvSeatBlock`) is never raised as a warning.
    */
   private buildSeat(uid: string): void {
     const h = this.housing;

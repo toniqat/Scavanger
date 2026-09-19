@@ -6,21 +6,21 @@ import type { TipRow } from './StationTip';
 import { el } from './dom';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * **흙 · 배지 소켓 화면 공용** (2026-09-13, 요리 재료 티어 — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」).
+ * **Shared screen parts for soil · medium sockets** (2026-09-13, cooking material tiers — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」).
  *
- * 재배 화면(`GrowStation`)과 배양 화면(`CultureTank`)이 같은 규칙을 같은 모양으로 보여 주려고 뽑은 것:
- *  - `socketEffectText` / `socketTipRows` — 호버 카드의 소켓 줄. `speed` · `yield` 는 **흙 · 배지 내구도 비율**만큼만
- *    듣는다 (계약 `GrowSocketEffect`) — 그래서 카드는 비율을 곱한 **지금 듣는 값**을 적고, `wear` 는 그대로다.
- *  - `paintSocketDots` — 흙구멍 · 배양관 안의 작은 점 (칸 수만큼, 끼운 것은 채움). 바뀔 때만 다시 짓는다.
- *  - `SocketAsk` — 가득 찬 칸에 덮어 끼우기(교체할 소켓 고르기 → **1초 홀드** 경고)와 「비우기」의 소켓 소실 경고.
- *    규칙은 하나도 없다 — 확정되면 부른 쪽이 `HousingRef.insertGrowSocket` / `insertCultureSocket` 의 `replaceIndex` 로 넘기고,
- *    거절 사유(한국어)는 그 메서드가 돌려준다.
+ * Pulled out so the grow station screen (`GrowStation`) and the culture screen (`CultureTank`) show the same rules the same way:
+ *  - `socketEffectText` / `socketTipRows` — the socket rows of the hover card. `speed` · `yield` apply only as far as **the soil ·
+ *    medium durability ratio** (contract `GrowSocketEffect`) — so the card writes the **value in effect now**, with the ratio multiplied in, while `wear` is unchanged.
+ *  - `paintSocketDots` — the small dots inside the pot · the culture tube (one per socket slot, the filled ones marked). Rebuilt only when they change.
+ *  - `SocketAsk` — inserting over a full slot (pick the socket to replace → a **1 s hold** warning) and the 「비우기」 socket-loss warning.
+ *    It holds no rules at all — on a confirm the caller passes it on as the `replaceIndex` of `HousingRef.insertGrowSocket` /
+ *    `insertCultureSocket`, and that method returns the refusal reason (in Korean).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const pct = (v: number): number => Math.round(v * 100);
 const ratioOf = (r: number | undefined): number => (typeof r === 'number' && Number.isFinite(r) ? Math.max(0, Math.min(1, r)) : 1);
 
-/** 한 소켓의 효과 한 조각 — `성장 속도 −8 %` · `추가 수확 30 % 확률 +1` · `토양 마모 감소 −20 %`. `ratio` = 내구도 비율. */
+/** One socket's effect, one piece — `성장 속도 −8 %` · `추가 수확 30 % 확률 +1` · `토양 마모 감소 −20 %`. `ratio` = the durability ratio. */
 export function socketEffectText(def: ItemDef | undefined, target: GrowSocketTarget, ratio?: number): string {
   const s = def?.growSocket;
   if (!s) return '효과 알 수 없음';
@@ -30,7 +30,7 @@ export function socketEffectText(def: ItemDef | undefined, target: GrowSocketTar
   return s.effect === 'yield' ? `${label} ${n} % 확률 +1` : `${label} −${n} %`;
 }
 
-/** 호버 카드의 소켓 줄: 머리 한 줄(`n / 칸`) + 끼운 소켓마다 한 줄. 칸이 0 이면 아무것도 없다. */
+/** The hover card's socket rows: one header row (`n / 칸`) + one row per inserted socket. Nothing at all when there are 0 slots. */
 export function socketTipRows(
   defOf: (id: string) => ItemDef | undefined,
   nameOf: (id: string) => string,
@@ -50,8 +50,8 @@ export function socketTipRows(
 }
 
 /**
- * 흙구멍 · 배양관 안의 소켓 점. `host` 의 자식 `<i>` 를 칸 수만큼 두고 끼운 것에 `.on` — 칸 수 · 개수가 바뀔 때만 쓴다
- * (1초 틱이 DOM 을 흔들지 않는다). 점은 `pointer-events: none` 이라 드롭 대상(흙구멍 · 유리)을 가리지 않는다.
+ * The socket dots inside the pot · the culture tube. It keeps one `<i>` child of `host` per socket slot and puts `.on` on the
+ * filled ones — written only when the slot count · the filled count changes (the 1 s tick never disturbs the DOM). The dots are `pointer-events: none`, so they never cover the drop target (the pot · the glass).
  */
 export function paintSocketDots(host: HTMLElement, slots: number | undefined, filled: number | undefined): void {
   const n = Math.max(0, Math.floor(slots ?? 0));
@@ -66,39 +66,39 @@ export function paintSocketDots(host: HTMLElement, slots: number | undefined, fi
 }
 
 export interface SocketReplaceSpec {
-  /** 교체할 소켓을 고르는 메뉴가 뜰 자리 (흙구멍 · 배양관). */
+  /** Where the menu that picks the socket to replace opens (the pot · the culture tube). */
   anchor: HTMLElement;
   target: GrowSocketTarget;
-  /** 새로 끼울 소켓. */
+  /** The socket about to be inserted. */
   newDef: ItemDef;
-  /** 지금 끼워진 소켓 def id (칸이 가득 차 있다). */
+  /** The def ids of the sockets in right now (the slots are full). */
   sockets: readonly string[];
-  /** 흙 · 배지 내구도 비율 (메뉴의 효과 글). */
+  /** The soil · medium durability ratio (for the menu's effect text). */
   ratio?: number;
   defOf(id: string): ItemDef | undefined;
   nameOf(id: string): string;
-  /** 홀드 확정 뒤 — 부른 쪽이 `replaceIndex` 로 끼운다. */
+  /** After the hold confirm — the caller inserts with `replaceIndex`. */
   run(replaceIndex: number): void;
 }
 
 export interface HoldConfirmSpec {
   title: string;
   body: string;
-  /** 홀드 버튼 글. */
+  /** The hold button's text. */
   label: string;
   run(): void;
-  /** `data-ask` (스모크). */
+  /** `data-ask` (the smoke test). */
   id?: string;
 }
 
 /**
- * 소켓 교체 · 소켓 소실 경고 (`PanelOverlay`). 패널의 `overlays` 맨 뒤에 넣는다 — E · Tab 은 이 팝업을 먼저 취소하고,
- * Escape 는 `openHoldAsk` 가 `ctx.escape` 맨 위에서 스스로 받는다. 패널이 닫히면(`close()`) 아무것도 실행하지 않고 닫힌다.
+ * The socket replace · socket loss warning (`PanelOverlay`). It goes last in the panel's `overlays` — E · Tab cancel this popup
+ * first, and Escape is taken by `openHoldAsk` itself at the top of `ctx.escape`. When the panel closes (`close()`) it closes without running anything.
  *
- * 교체 흐름 (사용자 결정 「가득 찬 칸에 덮어 끼우면 경고 팝업 — 옛 소켓 파괴」):
- *  1. 칸이 하나뿐이면 바로 2 로. 둘 이상이면 **교체할 소켓을 고르는 작은 메뉴**(`StationMenu`, 흙구멍 옆) — 줄마다 이름 · 지금 효과.
- *  2. `openHoldAsk` — 「끼운 소켓은 빼낼 수 없습니다 — 교체하면 <이름>은(는) 파괴됩니다」, 빨간 「교체」 버튼 **1초 홀드**만 확정.
- *     클릭 · Enter 로는 확정되지 않고 Escape · 취소는 아무것도 하지 않는다 (드롭한 소켓은 가방 · 창고에 그대로 있다).
+ * The replace flow (user's decision 「inserting over a full slot pops a warning — the old socket is destroyed」):
+ *  1. With only one slot, straight to 2. With more, a **small menu that picks the socket to replace** (`StationMenu`, beside the pot) — name · current effect per row.
+ *  2. `openHoldAsk` — 「끼운 소켓은 빼낼 수 없습니다 — 교체하면 <이름>은(는) 파괴됩니다」, and only a **1 s hold** of the red 「교체」 button confirms.
+ *     A click · Enter do not confirm, and Escape · cancel do nothing (the dropped socket stays in the bag · stash).
  */
 export class SocketAsk implements PanelOverlay {
   private handle: HoldAskHandle | null = null;
@@ -109,7 +109,7 @@ export class SocketAsk implements PanelOverlay {
 
   get isOpen(): boolean { return !!this.handle?.isOpen; }
 
-  /** E · Tab · 패널 닫기 — 취소와 같다 (아무것도 실행하지 않는다). */
+  /** E · Tab · the panel closing — the same as a cancel (nothing is run). */
   close(): void {
     const h = this.handle;
     this.handle = null;
@@ -143,7 +143,7 @@ export class SocketAsk implements PanelOverlay {
     });
   }
 
-  /** 되돌릴 수 없는 확정 하나 — 빨간 버튼 1초 홀드 (`openHoldAsk`). */
+  /** One irreversible confirm — a 1 s hold of the red button (`openHoldAsk`). */
   confirm(spec: HoldConfirmSpec): void {
     this.close();
     this.debug.asks++;

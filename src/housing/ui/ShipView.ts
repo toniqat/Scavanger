@@ -18,7 +18,7 @@ import { CHIP_SIZE_SMALL, clear, el, facilityChipTip, facilityThumb, renderCost,
  *     button any more** — room facilities have no levels; their furniture is upgraded from 시설 관리 instead.
  *     An **empty** room gets a **시설 증축** button, which opens a centred popup listing every purpose **the ship does
  *     not have yet** (2026-09-12: every purpose is one per ship) with the materials it costs (`purposeCost`); a
- *     purpose the rules or the materials refuse is disabled with its 한국어 reason, and 닫기 dismisses the popup.
+ *     purpose the rules or the materials refuse is disabled with its Korean reason, and 닫기 dismisses the popup.
  *     The 방 목록 is the only thing that scrolls — the panel itself never does (Phase 9 UI pass).
  *   - **도감**: removed. Books are read on a 책장 in the 서재 (`openBookshelfMenu`), not from this screen.
  *   - **bottom bar** — its own `.hs-ship-bar` strip below the columns with the **시설 관리 (M)** button on the right.
@@ -132,9 +132,9 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
     if (buildRoom < 0) return;
     setText(buildTitle, `방 ${buildRoom + 1} — 시설 증축`);
     clear(buildList);
-    // 2026-09-12 (사용자 결정): 시뮬레이션실 · 휴식 공간은 더 이상 지을 수 없다 — 증축할 수 있는 용도만 (`ROOM_PURPOSES_ASSIGNABLE`)
+    // 2026-09-12 (user's decision): the simulation room · the lounge can no longer be built — only the assignable purposes (`ROOM_PURPOSES_ASSIGNABLE`)
     for (const p of ROOM_PURPOSES_ASSIGNABLE) {
-      // 2026-09-12: every purpose is one per ship — one the ship already has is not offered at all (시설 관리와 같다)
+      // 2026-09-12: every purpose is one per ship — one the ship already has is not offered at all (the same as ship management)
       if (housing.state.rooms.some((r, i) => i !== buildRoom && r.purpose === p)) continue;
       const blocked = housing.purposeBlock(buildRoom, p);
       const row = el('div', { cls: `hs-build-row${blocked ? ' is-blocked' : ''}`, parent: buildList });
@@ -146,9 +146,9 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
       if (!ROOM_PURPOSES_ACTIVE.includes(p)) el('span', { cls: 'tag dim', text: '다음 업데이트', parent: nl });
       const cost = el('div', { cls: 'cost', parent: mid });
       const affordable = renderCost(cost, housing.purposeCost(p), housing, CHIP_SIZE_SMALL);
-      // 2026-09-12: 시설 레벨 요구(발전기 Lv.1 게이트)는 재료 칩 뒤에 가로로 긴 이중 테두리 칩으로 (`buildFacilityChip`)
+      // 2026-09-12: a facility level requirement (the 발전기 Lv.1 gate) goes after the material chips as a wide double-bordered chip (`buildFacilityChip`)
       for (const q of housing.purposeRequirements(p)) {
-        // 2026-09-15 (사용자 결정): 칩은 아이콘만 — 시설 이름 · 레벨은 호버 툴팁이 말한다
+        // 2026-09-15 (user's decision): the chip is icon-only — the hover tooltip says the facility name · level
         cost.appendChild(facilityChipTip(
           buildFacilityChip(FACILITY_LABEL_KO[q.facility], FACILITY_GLYPH[q.facility], FACILITY_COLOR[q.facility], q.have, q.need, { size: CHIP_SIZE_SMALL }),
           FACILITY_LABEL_KO[q.facility], q.have, q.need));
@@ -222,7 +222,7 @@ export function createShipView(ctx: GameContext, housing: HousingSystem, host: H
   el('div', { cls: 'bar-left', text: '', parent: foot });
   const manageBtn = el('button', { cls: 'ui-btn primary hs-manage-btn', parent: foot }) as HTMLButtonElement;
   const manageLabel = el('span', { text: '시설 관리', parent: manageBtn });
-  // 2026-09-15: 공용 키캡 (`shared/keycap`) — `.keycap.hs-keycap` 이 버튼 글자색을 따르게 housing.css 가 덮는다
+  // 2026-09-15: the shared keycap (`shared/keycap`) — housing.css overrides `.keycap.hs-keycap` so it follows the button's text colour
   const manageKey = createKeycap(Keys.MAP, { tag: 'kbd', cls: 'hs-keycap', parent: manageBtn });
   manageBtn.addEventListener('click', (e) => {
     e.stopPropagation();

@@ -9,25 +9,25 @@ import type { StationShell } from './StationShell';
 import { clear, el, setText, toggleClass } from './dom';
 
 /**
- * **식사 화면** (주방 A-3c 2026-09-11 → **2026-09-16 접시 모델**, 사용자 결정 — `openDiningTable(uid)` ← E on a 식탁; `uid` null = 공유
- * 함선의 고정 식탁).
+ * **The dining screen** (the kitchen A-3c 2026-09-11 → **2026-09-16 the plate model**, user's decision — `openDiningTable(uid)` ← E on a dining table; `uid` null = the
+ * shared ship's fixed table).
  *
- * 요리는 아이템이 아니다. 조리대에서 끝난 요리는 **식탁의 접시**가 되고(`HousingRef.getTablePlates`), 이 화면은 그 접시들과
- * 「다음 레이드에 실린 식사」를 보여 준다. 격자 카드(창고 · 가방)는 없다 — 끌어다 놓을 요리 아이템이 없다.
+ * A meal is not an item. A meal finished at the cook bench becomes **a plate on the dining table** (`HousingRef.getTablePlates`), and this screen shows those plates and
+ * 「the meal loaded for the next raid」. There is no grid card (stash · bag) — there is no meal item to drag onto it.
  *
- *   • 접시 한 장 = 칩(★n 배지) · 이름 · 별 · 티어 · 요리한 사람 · 능력치 줄(품질 보너스 반영) · 「먹기」.
- *     개인 함선 식탁 = 내 접시 하나, 공유 함선 식탁 = 내 접시 + 분대원 접시(요리한 사람 이름).
- *   • **먹어도 접시는 줄지 않는다** — 「먹기」는 `parts/Dining.eatPlate`(→ `ProgressionRef.useMeal`)이고, 이미 대기 식사가 그 요리 · 그 품질이면
- *     버튼이 딤드되고 「먹음」 표시가 붙는다(`plateEatBlock`). 다른 접시를 먹으면 대기 식사가 **바뀐다**.
- *   • 접시는 다음 레이드가 시작되면 치워진다 (2026-09-17: 그 규칙을 말하던 바닥 안내문은 사용자 결정으로 걷어냈다).
+ *   • One plate = the chip (a ★n badge) · the name · the stars · the tier · who cooked it · the stat lines (with the quality bonus folded in) · 「먹기」.
+ *     The personal ship's table = the player's one plate, the shared ship's table = the player's plate + squadmates' plates (with the cook's name).
+ *   • **Eating does not use the plate up** — 「먹기」 is `parts/Dining.eatPlate` (→ `ProgressionRef.useMeal`), and when the pending meal is already that meal · that quality
+ *     the button is dimmed and a 「먹음」 mark goes on it (`plateEatBlock`). Eating another plate **replaces** the pending meal.
+ *   • The plates are taken away when the next raid starts (2026-09-17: the footer note that said that rule was removed on the user's decision).
  *
- * 규칙은 하나도 여기 없다 — 화면은 `eatPlate` · `plateEatBlock` 이 돌려주는 한국어 사유를 그대로 옮긴다.
+ * Not one rule lives here — the screen copies the Korean reasons `eatPlate` · `plateEatBlock` return, verbatim.
  *
- * 버프 표기의 원본은 계약의 `MEAL_BUFF_LABEL_KO` · `MEAL_BUFF_UNIT` 한 쌍이다 — 「%」인 줄만 `amount × 100` 이고, `durabilityLossMul` 처럼
- * 음수인 줄은 그대로 「−n %」로 읽힌다 (장비 손상이 줄어든다는 뜻이다). 아래 텍스트 헬퍼는 조리대 화면 · 조리 오버레이도 쓴다.
+ * The source of the buff wording is the contract's `MEAL_BUFF_LABEL_KO` · `MEAL_BUFF_UNIT` pair — only a line whose unit is 「%」 is `amount × 100`, and a negative line
+ * such as `durabilityLossMul` reads as 「−n %」 as it stands (it means equipment damage goes down). The text helpers below are used by the cook bench screen · the cook overlay too.
  */
 export class DiningTable extends HousingPanel {
-  /** null = 공유 함선의 고정 식탁 (가구가 아니라 uid 가 없다). */
+  /** null = the shared ship's fixed table (not furniture, so it has no uid). */
   private uid: string | null = null;
   private readonly shell: StationShell;
   private readonly platesLabel: HTMLElement;
@@ -44,7 +44,7 @@ export class DiningTable extends HousingPanel {
     this.shell = buildStationShell(this.frame, {
       title: '식탁',
       upgrade: false,
-      inventory: false,                 // 2026-09-16: 요리는 아이템이 아니다 — 창고 · 가방 카드가 없다
+      inventory: false,                 // 2026-09-16: a meal is not an item — there is no stash · bag card
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });
     const left = this.shell.left;
@@ -59,10 +59,10 @@ export class DiningTable extends HousingPanel {
     this.activeNote = el('div', { cls: 'hint dt-active', text: '', parent: left });
 
     this.mountMsg();
-    // 2026-09-17 (사용자 결정): 바닥 안내문은 걷어냈고, 「닫기」는 화면 전체의 우하단이 아니라 **식탁 카드 안의 우하단**이다
+    // 2026-09-17 (user's decision): the footer note was removed, and 「닫기」 sits **at the bottom right inside the dining card**, not at the bottom right of the whole screen
     const foot = el('div', { cls: 'dt-foot', parent: this.shell.stationCard });
     this.button(foot, '닫기', () => this.close(), 'dt-close');
-    // 접시는 housing 상태 · 분대원 와이어에서, 식사는 progression 에서 바뀐다 — 둘 다 `housing:changed` 가 아니다
+    // the plates change from housing state · the squadmate wire, the meal from progression — neither is `housing:changed`
     this.unsubs.push(
       ctx.bus.on('housing:tablePlatesChanged', () => this.refreshIfOpen()),
       ctx.bus.on('progress:mealChanged', () => this.refreshIfOpen()),
@@ -70,17 +70,17 @@ export class DiningTable extends HousingPanel {
   }
 
   /* ── open ──────────────────────────────────────────────────────────────── */
-  /** Open the panel for one 식탁 (`null` = 공유 함선의 고정 식탁). */
+  /** Opens the panel for one dining table (`null` = the shared ship's fixed table). */
   openTable(uid: string | null): void {
     this.uid = uid;
     this.openPanel();
   }
 
-  /** 지금 열린 식탁 (스모크). null = 공유 함선의 고정 식탁 — 닫혀 있어도 마지막 값. */
+  /** The dining table open right now (smoke tests). null = the shared ship's fixed table — the last value even once closed. */
   get tableUid(): string | null { return this.uid; }
 
   /* ── actions ───────────────────────────────────────────────────────────── */
-  /** 접시 하나를 먹는다 (스모크도 쓴다). `ownerId` null = 내 접시. 한국어 사유 / null. */
+  /** Eats one plate (smoke tests use it too). `ownerId` null = the player's own plate. A Korean reason / null. */
   eat(ownerId: string | null): string | null {
     const plate = this.housing.getTablePlates(this.uid).find((p) => p.ownerId === ownerId) ?? null;
     const reason = this.housing.eatPlate(this.uid, ownerId);
@@ -89,7 +89,7 @@ export class DiningTable extends HousingPanel {
       const whose = plate.mine ? '' : ` (${plate.ownerName} 님의 요리)`;
       this.showMsg(`${qualityName(getMealDef(plate.mealDefId)?.name ?? plate.mealDefId, plate.quality)}을(를) 먹었습니다${whose} — 다음 레이드에 실립니다`, 'success');
     }
-    this.requestRefresh();          // 식사는 progression 에 실린다 — `progress:mealChanged` 도 오지만 거절이면 오지 않는다
+    this.requestRefresh();          // the meal is loaded into progression — `progress:mealChanged` comes too, but not on a refusal
     return reason;
   }
 
@@ -102,7 +102,7 @@ export class DiningTable extends HousingPanel {
     this.paintMeal();
   }
 
-  /** 접시 한 장씩: 칩(★n) · 이름 + 별 · 티어 · 요리한 사람 · 능력치 줄 · 먹기. 비었으면 안내 한 칸. */
+  /** One plate at a time: the chip (★n) · the name + stars · the tier · who cooked it · the stat lines · eat. One note cell when empty. */
   private paintPlates(shared: boolean): void {
     clear(this.platesEl);
     const plates = this.housing.getTablePlates(this.uid);
@@ -146,7 +146,7 @@ export class DiningTable extends HousingPanel {
     note.hidden = !block || eaten;
   }
 
-  /** 다음 레이드에 실린 식사 한 칸 + 지금 레이드분 안내 (`MEAL_BUFF_LABEL_KO` · `MEAL_BUFF_UNIT` 가 원본) — 품질 보너스 반영. */
+  /** One cell for the meal loaded for the next raid + a note for this raid's (`MEAL_BUFF_LABEL_KO` · `MEAL_BUFF_UNIT` are the source) — the quality bonus folded in. */
   private paintMeal(): void {
     const prog = this.ctx.progression;
     const pending = typeof prog?.getMeal === 'function' ? prog.getMeal() : null;
@@ -166,14 +166,14 @@ export class DiningTable extends HousingPanel {
   }
 }
 
-/** `치즈 오믈렛 ★★★☆☆` — 품질 0 이면 이름만. */
+/** `치즈 오믈렛 ★★★☆☆` — the name alone at quality 0. */
 export function qualityName(name: string, quality: number): string {
   return quality > 0 ? `${name} ${mealQualityStars(quality)}` : name;
 }
 
 /**
- * 능력치 한 줄. 단위가 `'%'` 인 버프는 배수 가산이라 `amount × 100` 을 찍고, 나머지는 단위 그대로다.
- * 부호는 값이 정한다 — `durabilityLossMul` 은 음수 `amount` 라 「장비 손상 −20 %」로 읽힌다 (좋은 일이다).
+ * One stat line. A buff whose unit is `'%'` is a multiplier addition, so `amount × 100` is printed; the rest print in their own unit.
+ * The value decides the sign — `durabilityLossMul` has a negative `amount`, so it reads 「장비 손상 −20 %」 (which is a good thing).
  */
 export function mealEffectText(buff: MealBuff, amount: number): string {
   const unit = MEAL_BUFF_UNIT[buff] ?? '';
@@ -184,8 +184,8 @@ export function mealEffectText(buff: MealBuff, amount: number): string {
 }
 
 /**
- * 요리의 능력치 전부 (2026-09-13, 사용자 결정 「버프는 하나, 능력치 줄이 늘어난다」). 소비자는 `MealDef.effects` 를 읽는다 —
- * 그것이 없는 옛 def 는 `buff` · `amount` 한 줄로 읽는다.
+ * All of a meal's stats (2026-09-13, user's decision 「버프는 하나, 능력치 줄이 늘어난다」). Consumers read `MealDef.effects` —
+ * an old def without it is read as the one `buff` · `amount` line.
  */
 export function mealEffects(meal: MealDef): readonly MealEffect[] {
   if (Array.isArray(meal.effects) && meal.effects.length) return meal.effects;
@@ -193,8 +193,8 @@ export function mealEffects(meal: MealDef): readonly MealEffect[] {
 }
 
 /**
- * 능력치 줄마다 한 문자열 (접시는 줄바꿈으로 잇는다). 2026-09-13: `quality` 를 주면 줄마다 `amount × (1 + mealQualityBonus(품질))` —
- * progression 의 `derive.applyMealBuff` 와 같은 식이다 (생략 = 품질 0 = 원래 수치).
+ * One string per stat line (a plate joins them with line breaks). 2026-09-13: given `quality`, each line is `amount × (1 + mealQualityBonus(quality))` —
+ * the same formula as progression's `derive.applyMealBuff` (omitted = quality 0 = the original numbers).
  */
 export function mealEffectLines(meal: MealDef, quality = 0): string[] {
   const mul = 1 + mealQualityBonus(quality);
@@ -202,14 +202,14 @@ export function mealEffectLines(meal: MealDef, quality = 0): string[] {
 }
 
 /**
- * 「무엇이 얼마나」 한 줄 — **모든** 능력치를 ` · ` 로 잇는다 (2026-09-13: 예전에는 첫 버프 하나만 적었다; 이름 · 시그니처는 그대로,
- * `quality` 는 뒤에 붙은 선택 인자).
+ * 「what by how much」 in one line — joins **every** stat with ` · ` (2026-09-13: it used to write only the first buff; the name · signature are unchanged,
+ * `quality` is an optional argument appended at the end).
  */
 export function mealBuffText(meal: MealDef, quality = 0): string {
   return mealEffectLines(meal, quality).join(' · ');
 }
 
-/** 「고기 요리」 같은 티어 이름 (`MEAL_TIER_LABEL_KO`) — 은퇴한 옛 특선 요리(티어 2)도 표 그대로 읽는다. */
+/** A tier name such as 「고기 요리」 (`MEAL_TIER_LABEL_KO`) — the retired old speciality meals (tier 2) are read from the table as they stand too. */
 export function mealTierText(meal: MealDef): string {
   return MEAL_TIER_LABEL_KO[meal.tier] ?? `티어 ${meal.tier}`;
 }

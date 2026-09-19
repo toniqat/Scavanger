@@ -4,14 +4,14 @@ import { el, setText } from '../dom';
 import { fmtChange, fmtPrice } from './common';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * **거래소 차트** (2026-09-13, 메인 컴퓨터 · 거래소 탭) — canvas 2D 로 직접 그린다 (외부 라이브러리 · 에셋 없음).
+ * **The exchange chart** (2026-09-13, the main computer · the `거래소` tab) — drawn directly with canvas 2D (no external library · no asset).
  *
- *  - 봉(캔들) / 선 두 모양 (`setMode`). 오른쪽 = 가격 축(눈금 5개 안팎 · 마지막 가격 점선 + 꼬리표), 아래 = 시간 축.
- *  - 호버 = 십자선 + OHLC 카드(`.mn-chart-tip`, DOM). 포인터 이벤트에서 바로 그린다 — 봉이 많아야 180개라 싸고,
- *    rAF 가 멈춘 헤드리스에서도 결과가 같다.
- *  - 크기는 감싸는 상자(`.mn-chart`)를 따른다 (`ResizeObserver`, devicePixelRatio 반영).
- *  - 봉 데이터는 부른 쪽이 넘긴다 — 서버 이력 + 지금 시세를 마지막 봉에 얹는 것은 `withLivePrice` (넘겨받은 배열을 고치지 않는다).
- *  - 메시지(`setMessage`)가 있으면 차트 대신 가운데 글 (「서버에 연결되어야 합니다」 · 「시세 이력을 불러오는 중…」).
+ *  - Two shapes, candle / line (`setMode`). Right = the price axis (about 5 ticks · the last price as a dashed line + a tag), bottom = the time axis.
+ *  - Hover = the crosshair + an OHLC card (`.mn-chart-tip`, DOM). Drawn straight from the pointer event — 180 candles at most,
+ *    so it is cheap, and the result is the same headless, where rAF has stopped.
+ *  - The size follows the wrapping box (`.mn-chart`) (`ResizeObserver`, devicePixelRatio applied).
+ *  - The candle data is passed in by the caller — laying the server history + the current quote onto the last candle is `withLivePrice` (it never edits the array it was given).
+ *  - With a message (`setMessage`) the text is centred instead of the chart (「서버에 연결되어야 합니다」 · 「시세 이력을 불러오는 중…」).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export type ChartMode = 'candle' | 'line';
@@ -27,8 +27,8 @@ const AXIS = 'rgba(232, 230, 225, 0.55)';
 const CROSS = 'rgba(232, 230, 225, 0.45)';
 
 /**
- * 서버 봉 이력의 마지막 봉에 지금 시세를 얹는다: 시세 시각이 마지막 봉 구간 안이면 c · h · l 을 고치고, 넘었으면 새 봉을 잇는다.
- * 새 배열을 돌려준다 (net 의 배열은 그대로).
+ * Lays the current quote onto the last candle of the server history: inside the last candle's span it edits c · h · l, past it a new candle is appended.
+ * Returns a new array (net's array is left alone).
  */
 export function withLivePrice(hist: readonly CryptoCandle[], range: CryptoChartRange, price: number | null, at: number): CryptoCandle[] {
   const out = hist.map((c) => ({ t: c.t, o: c.o, h: c.h, l: c.l, c: c.c }));
@@ -47,7 +47,7 @@ export function withLivePrice(hist: readonly CryptoCandle[], range: CryptoChartR
   return out;
 }
 
-/** 1 · 2 · 2.5 · 5 × 10ⁿ 눈금 간격. */
+/** A 1 · 2 · 2.5 · 5 × 10ⁿ tick step. */
 function niceStep(raw: number): number {
   if (!(raw > 0)) return 1;
   const p = Math.pow(10, Math.floor(Math.log10(raw)));
@@ -138,7 +138,7 @@ export class CryptoChart {
 
   get currentMode(): ChartMode { return this.mode; }
 
-  /** 차트 대신 보여 줄 글 (null = 차트를 그린다). */
+  /** The text to show instead of the chart (null = the chart is drawn). */
   setMessage(text: string | null): void {
     if (this.message === text) return;
     this.message = text;
@@ -148,7 +148,7 @@ export class CryptoChart {
     this.draw();
   }
 
-  /** 감싸는 상자 크기에 캔버스를 맞춘다 (보이지 않으면 아무것도 하지 않는다). */
+  /** Fits the canvas to the wrapping box's size (nothing happens while it is not visible). */
   resize(): void {
     const r = this.root.getBoundingClientRect();
     const w = Math.round(r.width), h = Math.round(r.height);
@@ -195,7 +195,7 @@ export class CryptoChart {
 
     g.font = this.font;
     g.textBaseline = 'middle';
-    // 가격 눈금 + 가로 격자
+    // price ticks + the horizontal grid
     const tick = niceStep((hi - lo) / 4);
     g.strokeStyle = GRID;
     g.lineWidth = 1;
@@ -206,7 +206,7 @@ export class CryptoChart {
       g.beginPath(); g.moveTo(PAD_L, y); g.lineTo(PAD_L + plotW, y); g.stroke();
       g.fillText(fmtPrice(p), PAD_L + plotW + 8, y);
     }
-    // 시간 눈금 + 세로 격자
+    // time ticks + the vertical grid
     const labels = Math.max(2, Math.min(6, Math.floor(plotW / 110)));
     g.textAlign = 'center';
     g.textBaseline = 'top';
@@ -245,7 +245,7 @@ export class CryptoChart {
       }
     }
 
-    // 마지막 가격 — 점선 + 오른쪽 꼬리표
+    // the last price — a dashed line + a tag on the right
     const last = list[list.length - 1];
     const lastUp = last.c >= (list.length > 1 ? list[list.length - 2].c : last.o);
     const ly = Math.round(yOf(last.c)) + 0.5;
@@ -255,7 +255,7 @@ export class CryptoChart {
     g.setLineDash([]);
     this.axisTag(g, PAD_L + plotW + 2, ly, fmtPrice(last.c), lastUp ? UP : DOWN, '#05070a');
 
-    // 호버 — 십자선 + 축 꼬리표 + OHLC 카드
+    // hover — the crosshair + axis tags + the OHLC card
     const hx = this.hoverX, hy = this.hoverY;
     const inside = hx >= PAD_L && hx <= PAD_L + plotW && hy >= PAD_T && hy <= PAD_T + plotH;
     if (!inside) {
@@ -328,7 +328,7 @@ function toggle(e: HTMLElement, cls: string, on: boolean): void {
   if (e.classList.contains(cls) !== on) e.classList.toggle(cls, on);
 }
 
-/** `#rrggbb` → `rgba(r, g, b, a)` (그 밖의 색 문자열은 그대로). */
+/** `#rrggbb` → `rgba(r, g, b, a)` (any other colour string is left alone). */
 function withAlpha(css: string, a: number): string {
   const m = /^#([0-9a-f]{6})$/i.exec(css.trim());
   if (!m) return css;

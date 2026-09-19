@@ -17,77 +17,77 @@ import { clear, el, renderCost, setText, toggleClass } from '../dom';
 import './cook.css';
 
 const CIRCLED = ['①', '②', '③', '④', '⑤'];
-/** 선택한 요리의 칩 크기 (px, 레이아웃 값). */
+/** The chip size of the selected meal (px, a layout value). */
 const SEL_CHIP = 52;
-/** 목록 줄의 썸네일 한 변 (px, 레이아웃 값). 2026-09-17 (사용자 결정): 4칸 격자 → 세로로 쌓인 넓은 줄 (썸네일 · 이름). */
+/** One side of a list row's thumbnail (px, a layout value). 2026-09-17 (user's decision): a 4-cell grid → wide rows stacked vertically (thumbnail · name). */
 const CELL_THUMB = 40;
 
 interface RecipeRow {
   r: CraftRecipe;
-  /** 조리대 레벨이 모자란다. */
+  /** The cook bench level is short. */
   locked: boolean;
-  /** 지금 시작할 수 없는 사유 (`HousingRef.cookBlock`), null = 시작할 수 있다. */
+  /** The reason it cannot be started right now (`HousingRef.cookBlock`), null = it can be started. */
   block: string | null;
-  /** 2026-09-13 (H3): 레시피 책이 꽂혀 있지 않아 잠겼으면 그 사유 (`cookRecipeBookBlock`). */
+  /** 2026-09-13 (H3): the reason when it is locked because the recipe book is not shelved (`cookRecipeBookBlock`). */
   book: string | null;
-  /** 2026-09-15 (B-15 → 2026-09-16 복원): 숙련이 모자라 잠겼으면 배지 재료 (`cookRecipeSkillBlock`). */
+  /** 2026-09-15 (B-15 → restored 2026-09-16): the badge material when it is locked for want of skill (`cookRecipeSkillBlock`). */
   skill: { label: string; need: number; have: number } | null;
   tier: number;
 }
 
-/* 2026-09-16 (사용자 결정 2차): 숙련 잠김 갈래(`is-skill` 배지)는 같은 날 오전에 지웠다가 되살렸다 — `skillRequired`
-   열을 남겨 둔 이상 csv 숫자만 올리면 켜져야 한다. 값이 전부 0 인 지금은 `x.skill` 이 언제나 null 이다. */
-/** 목록 안 순서 — 지금 시작할 수 있음 0 · 잠기지 않았지만 막힘(재료 · 자리) 1 · 숙련 잠김 2 (조리대 레벨 · 책 잠김은 목록에 없다). */
+/* 2026-09-16 (user's decision, 2nd pass): the skill-lock branch (the `is-skill` badge) was deleted that same morning and then restored — as long as the
+   `skillRequired` column stays, raising a csv number alone has to switch it on. With every value 0 today `x.skill` is always null. */
+/** The order inside the list — startable now 0 · not locked but blocked (materials · space) 1 · skill-locked 2 (cook bench level · book locks are not in the list). */
 const rowRank = (x: RecipeRow): number => (!x.block ? 0 : x.locked || x.skill || x.book ? 2 : 1);
 
 const pct = (v: number): number => Math.round(Math.max(0, Math.min(1, v)) * 100);
 
 /**
- * **조리대 화면** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」 — `openCookStation(uid)` ← E on a 조리대 · 자동 조리 가구).
+ * **The cook bench screen** (2026-09-13, `docs/DECISIONS.md` 「2026-09-13 — 요리 미니게임」 — `openCookStation(uid)` ← E on a cook bench · an auto appliance).
  *
- * 틀은 `StationShell` 공통이다: [조리대 카드(우상단 업그레이드 = 조리대 강화)] [창고 · 가방].
+ * The frame is the common `StationShell`: [the cook bench card (upgrade at the top right = upgrading the bench)] [stash · bag].
  *
- * **2026-09-15 3차 (사용자 결정 — 「모든 제작 관련 UI」를 한 모양으로)**: 작업대 제작 창(`inventory/ui/CraftPanel`)과
- * **같은 배치**가 됐다 — 조리대 카드 안이 **왼쪽 = 요리 목록**(`.cook-list`) · **오른쪽 = 고른 요리의 상세**(`.cook-detail`)다.
- *   • **2026-09-17 (사용자 결정)**: 목록은 4칸 썸네일 격자가 아니라 **세로로 쌓인 넓은 줄**이다 — 줄(`.cook-cell[data-recipe]`)
- *     = 왼쪽 썸네일(공용 칩 — 등급 테두리는 다른 곳과 같다) + 오른쪽 이름. 티어 배지 · 초록 점은 없앴다. 넘치면 세로 스크롤.
- *     **지금 만들 수 있는 것이 앞으로** 온다(안정 정렬 — csv 순서는 그 안에서 그대로; 순위는 `data-rank`).
- *   • **2026-09-17 (사용자 결정)**: 레시피 책이 없거나(`cookRecipeBookBlock`) 조리대 레벨이 모자란 요리는 **목록에 없다**.
- *     숙련 잠김(B-15, `skillRequired` 가 전부 0 이라 지금은 뜨지 않는다)만 딤드 + 배지(`.cook-cell-locks`)로 남는다.
- *   • 상세 = 썸네일 + 이름 · 종류(티어 · 조리대 Lv · 숙련 · 단계 수) → **설명** → **보유 수** → 능력치 줄
- *     (2026-09-17: 기준값만 — 최고 품질 보너스는 보이지 않는다) → **재료 썸네일**(글자 줄 없음 — 모자란 것은 칩이 빨갛게 말한다) →
- *     단계 칩 줄(`① ⫽ 썰기 → ② ◎ 젓기`, 자동 가구가 있으면 칩 아래 `푸드 프로세서 Lv.2 · 자동 60 %`) → `조리 시작`
- *     (막히면 딤드 + 사유 줄 · 누르면 거절음 + 토스트).
- *   ⚠ **수량 스테퍼는 없다** — 요리는 미니게임 한 판에 하나다. 홀드 버튼도 없다: 재료는 조리가 **끝날 때** 빠지므로
- *     「되돌릴 수 없는 확정」이 아니고, 중간에 그만두면 아무것도 쓰지 않는다.
- *   ⚠ `inventory/ui/CraftPanel.CraftDetail` 을 **그대로 쓰지 않았다** — 그 클래스는 `InventorySystem`(구체 클래스)을
- *     생성자로 받고 `craftCost` · `maxCraftCount` · `craftProgress` 같은 인벤토리 내부 API 를 부른다. housing 이
- *     가진 것은 `ctx.inventory: InventoryRef` 뿐이고, 폴더 내부를 import 하는 것은 CLAUDE.md 가 금지한다
- *     (「다른 기능 폴더의 내부를 import 하지 않는다 — `@/shared` 만」). 그래서 **배치와 결만 맞추고** 조리대는
- *     자기 구현으로 간다 — 조리대의 버튼은 제작이 아니라 `startCook`(미니게임 시작)이라 동작도 다르다.
+ * **2026-09-15 3rd pass (user's decision — 「모든 제작 관련 UI」 in one shape)**: it took **the same layout** as the workbench craft window
+ * (`inventory/ui/CraftPanel`) — inside the cook bench card, **left = the recipe list** (`.cook-list`) · **right = the chosen recipe's detail** (`.cook-detail`).
+ *   • **2026-09-17 (user's decision)**: the list is not a 4-cell thumbnail grid but **wide rows stacked vertically** — a row (`.cook-cell[data-recipe]`)
+ *     = the thumbnail on the left (the shared chip — the rarity border is the same as everywhere else) + the name on the right. The tier badge · green dot are gone. It scrolls vertically when it overflows.
+ *     **What can be made right now comes first** (a stable sort — the csv order stays as it is inside that; the rank is `data-rank`).
+ *   • **2026-09-17 (user's decision)**: a meal with no recipe book (`cookRecipeBookBlock`) or short on cook bench level is **not in the list**.
+ *     Only the skill lock (B-15, it does not appear today because `skillRequired` is all 0) stays, dimmed + a badge (`.cook-cell-locks`).
+ *   • The detail = the thumbnail + the name · the kind (tier · bench Lv · skill · step count) → **the description** → **how many are held** → the stat lines
+ *     (2026-09-17: the base values only — the top-quality bonus is not shown) → **the material thumbnails** (no text line — a short material is said by the chip turning red) →
+ *     the step chip row (`① ⫽ 썰기 → ② ◎ 젓기`, with an auto appliance `푸드 프로세서 Lv.2 · 자동 60 %` under the chip) → `조리 시작`
+ *     (dimmed + a reason line when blocked · a deny sound + a toast when pressed).
+ *   ⚠ **There is no quantity stepper** — one meal comes out of one minigame run. There is no hold button either: the materials are taken **when the cook ends**,
+ *     so it is not 「an irreversible confirm」, and stopping mid-way spends nothing.
+ *   ⚠ `inventory/ui/CraftPanel.CraftDetail` was **not reused as it stands** — that class takes `InventorySystem` (the concrete class) in its
+ *     constructor and calls inventory-internal API such as `craftCost` · `maxCraftCount` · `craftProgress`. What housing
+ *     holds is only `ctx.inventory: InventoryRef`, and importing another folder's internals is forbidden by CLAUDE.md
+ *     (「다른 기능 폴더의 내부를 import 하지 않는다 — `@/shared` 만」). So **only the layout and the grain are matched** and the cook bench goes
+ *     with its own implementation — the bench's button is not a craft but `startCook` (starting the minigame), so it behaves differently too.
  *
- * 창고 / 가방 격자는 보기 · 정리용이다 — 재료는 조리가 **끝날 때** 가방 → 창고 순서로 inventory 가 뺀다.
- * 규칙은 하나도 여기 없다 — 사유는 `HousingRef.cookBlock` · `startCook` 이 준다.
+ * The stash / bag grids are for looking and tidying — the materials are taken by inventory bag → stash when the cook **ends**.
+ * Not one rule lives here — the reasons come from `HousingRef.cookBlock` · `startCook`.
  */
 export class CookStation extends HousingPanel {
-  /** 열린 조리대 uid. */
+  /** The uid of the open cook bench. */
   benchUid = '';
   selectedRecipeId: string | null = null;
-  /** 고른 요리의 「조리 시작」 막힘 사유 (스모크). */
+  /** The chosen meal's 「조리 시작」 block reason (smoke tests). */
   startBlock: string | null = null;
   private readonly shell: StationShell;
   private readonly modal: UpgradeModal;
   private grids: EmbeddedView | null = null;
-  /** 마지막으로 DOM 에 반영한 목록 구성 — 같으면 칸을 다시 만들지 않는다. */
+  /** The list composition last written to the DOM — the cells are not rebuilt when it is the same. */
   private railKey = '';
-  /** 왼쪽 요리 목록 (2026-09-17: 세로 줄 목록). */
+  /** The recipe list on the left (2026-09-17: a list of vertical rows). */
   private readonly listEl: HTMLElement;
   private readonly selChip: HTMLElement;
   private readonly selName: HTMLElement;
   private readonly selSub: HTMLElement;
-  /** 산출물 설명 한 문단 (2026-09-15 3차). */
+  /** One paragraph describing the product (2026-09-15 3rd pass). */
   private readonly selDesc: HTMLElement;
-  /** 지금 가진 개수 (2026-09-15 3차). */
+  /** How many are held right now (2026-09-15 3rd pass). */
   private readonly selOwned: HTMLElement;
   private readonly selEffects: HTMLElement;
   private readonly selCost: HTMLElement;
@@ -104,7 +104,7 @@ export class CookStation extends HousingPanel {
       onUpgrade: () => this.openUpgrade(),
       button: (p, l, fn, c) => this.button(p, l, fn, c),
     });
-    // 2026-09-15 3차 (사용자 결정): 옛 레일 대신 **왼쪽 요리 목록 + 오른쪽 상세** (작업대 제작 창과 같은 배치)
+    // 2026-09-15 3rd pass (user's decision): instead of the old rail, **the recipe list on the left + the detail on the right** (the same layout as the workbench craft window)
     this.shell.rail.hidden = true;
 
     const split = el('div', { cls: 'cook-split', parent: this.shell.left });
@@ -123,7 +123,7 @@ export class CookStation extends HousingPanel {
     this.selEffects = el('div', { cls: 'cook-sel-effects', parent: left });
     el('div', { cls: 'ui-label', text: '재료', parent: left });
     this.selCost = el('div', { cls: 'cook-sel-cost', parent: left });
-    // 2026-09-14 (사용자 결정): 필요 아이템 칩의 호버 카드는 커서 **좌상단**이다 (`ui/hud/ItemTip` 이 `closest` 로 읽는다)
+    // 2026-09-14 (user's decision): the hover card of a required-item chip sits at the cursor's **top left** (`ui/hud/ItemTip` reads it with `closest`)
     this.selCost.dataset.tipAnchor = 'left';
     el('div', { cls: 'ui-label', text: '조리 순서', parent: left });
     this.selSteps = el('div', { cls: 'cook-sel-steps', parent: left });
@@ -131,7 +131,7 @@ export class CookStation extends HousingPanel {
     this.startBtn = this.button(start, '조리 시작', () => this.start(), 'primary cook-start');
     this.reasonEl = el('div', { cls: 'cook-sel-reason', parent: start });
     this.reasonEl.hidden = true;
-    // 2026-09-17 (사용자 결정): 상세 아래의 「재료는 요리가 끝날 때 빠집니다 …」 안내문은 걷어냈다
+    // 2026-09-17 (user's decision): the 「재료는 요리가 끝날 때 빠집니다 …」 note under the detail was taken out
 
     this.mountMsg();
     const foot = el('div', { cls: 'hs-foot', parent: this.frame });
@@ -140,15 +140,15 @@ export class CookStation extends HousingPanel {
 
     this.modal = new UpgradeModal(ctx, this.root, housing);
     this.overlays.push(this.modal);
-    // 2026-09-16: 「식탁의 요리를 바꿉니다」 경고도 이 화면 안의 팝업이다 — E · Tab 은 화면이 아니라 경고를 닫는다(= 취소)
+    // 2026-09-16: the 「식탁의 요리를 바꿉니다」 warning is a popup inside this screen too — E · Tab close the warning, not the screen (= cancel)
     const ask: PanelOverlay = {
       get isOpen() { return !!housing.plateAsk?.handle.isOpen; },
       close: () => housing.plateAsk?.handle.cancel(),
     };
     this.overlays.push(ask);
-    // 식탁의 접시가 바뀌면 상세의 「식탁」 줄이 바뀐다
+    // when the plate on the dining table changes, the detail's 「식탁」 line changes
     this.unsubs.push(ctx.bus.on('housing:tablePlatesChanged', () => this.refreshIfOpen()));
-    // 2026-09-13 (H3): 레시피 책을 꽂거나 빼면 잠김이 바뀐다 · 서재 요리 보너스도
+    // 2026-09-13 (H3): shelving or pulling a recipe book changes the locks · and the library cooking bonus
     this.unsubs.push(ctx.bus.on('housing:libraryChanged', () => { this.railKey = ''; this.refreshIfOpen(); }));
   }
 
@@ -163,7 +163,7 @@ export class CookStation extends HousingPanel {
 
   override close(relock = true): void {
     const wasOpen = this.isOpen;
-    closePlateAsk(this.housing);            // 2026-09-16: 경고가 떠 있던 채 화면이 닫히면 확정 없이 걷는다
+    closePlateAsk(this.housing);            // 2026-09-16: when the screen closes with the warning up, it is taken down without confirming
     this.grids?.dispose();
     this.grids = null;
     super.close(relock);
@@ -175,7 +175,7 @@ export class CookStation extends HousingPanel {
     this.showMsg('재료는 넣지 않아도 됩니다 — 조리가 끝날 때 가방 · 함선 창고에서 빠집니다', 'info');
   }
 
-  /** 레일에서 요리를 고른다 (스모크도 쓴다). */
+  /** Picks a meal from the rail (smoke tests use it too). */
   select(recipeId: string): void {
     this.selectedRecipeId = recipeId;
     this.railKey = '';
@@ -191,9 +191,9 @@ export class CookStation extends HousingPanel {
   }
 
   /**
-   * 「조리 시작」 — 막혀 있으면 거절음 + 토스트. 시작하면 이 화면은 닫히고 조리 오버레이가 열린다.
-   * 2026-09-16 (접시 모델, 사용자 결정): 식탁에 접시가 이미 있으면 **시작하기 전에** 「식탁의 요리를 바꿉니다」 1 초 홀드 경고를 띄운다
-   * (`ui/cook/PlateAsk`) — 그때는 null 을 돌려주고, 확정되면 시작한다. `skipAsk` = 스모크 · 경고를 이미 지난 확정.
+   * 「조리 시작」 — when it is blocked, a deny sound + a toast. On a start this screen closes and the cook overlay opens.
+   * 2026-09-16 (the plate model, user's decision): when a plate is already on the dining table, the 1 s hold warning 「식탁의 요리를 바꿉니다」 goes up **before** starting
+   * (`ui/cook/PlateAsk`) — null is returned then, and it starts once confirmed. `skipAsk` = smoke tests · a confirm that has already passed the warning.
    */
   start(skipAsk = false): string | null {
     const id = this.selectedRecipeId;
@@ -211,7 +211,7 @@ export class CookStation extends HousingPanel {
     return reason;
   }
 
-  /* ── 업그레이드 (모달) ─────────────────────────────────────────────────── */
+  /* ── Upgrade (the modal) ───────────────────────────────────────────────── */
   private openUpgrade(): void {
     if (!cookBenchAt(this.housing, this.benchUid)) return;
     this.modal.open(() => this.upgradeSpec(), () => this.upgrade());
@@ -253,7 +253,7 @@ export class CookStation extends HousingPanel {
     setText(this.shell.title, bench?.def.name ?? '조리대');
     const level = bench?.item.level ?? 0;
     paintStationLevel(this.shell, bench ? level : null, bench ? furnitureMaxLevel(bench.def) : 0);
-    // 2026-09-17 (사용자 결정): 레시피 책이 없거나 조리대 레벨이 모자란 요리는 목록에서 뺀다 — 숙련 잠김(B-15)만 딤드로 남는다
+    // 2026-09-17 (user's decision): a meal with no recipe book or short on cook bench level is dropped from the list — only the skill lock (B-15) stays dimmed
     const rows: RecipeRow[] = cookRecipes(h).map((r) => ({
       r,
       locked: (r.benchLevel ?? 1) > level,
@@ -262,7 +262,7 @@ export class CookStation extends HousingPanel {
       skill: cookRecipeSkillBlock(h, r),
       tier: h.mealDef(r.outputDefId)?.meal?.tier ?? 0,
     })).filter((x) => !x.locked && !x.book).map((x, i) => ({ x, i }))
-      // 2026-09-15 3차 (사용자 결정): **지금 만들 수 있는 것이 앞으로** — 그 안에서 티어 순, 그 안에서 csv 순 (안정 정렬)
+      // 2026-09-15 3rd pass (user's decision): **what can be made right now comes first** — tier order inside that, csv order inside that (a stable sort)
       .sort((a, b) => rowRank(a.x) - rowRank(b.x) || a.x.tier - b.x.tier || a.i - b.i)
       .map(({ x }) => x);
     if (!this.selectedRecipeId || !rows.some((x) => x.r.id === this.selectedRecipeId)) {
@@ -277,10 +277,10 @@ export class CookStation extends HousingPanel {
   }
 
   /**
-   * 왼쪽 목록 = **세로로 쌓인 넓은 줄** (2026-09-17, 사용자 결정 — 옛 4칸 썸네일 격자를 대신한다): 줄 = 썸네일(공용 칩, 등급
-   * 테두리) + 이름. 줄은 `.cook-cell[data-recipe][data-rank]` 이고 옛 이름 `.cook-rail-item` 도 함께 단다 (스모크 · 옛 선택자).
-   * 조리대 레벨 · 책 잠김 요리는 `refresh` 가 이미 뺐다. 재료 · 자리가 모자라면 `.is-locked`, 숙련이 모자라면
-   * `.is-bench-locked .is-skill` + 이름 아래 배지 (B-15 — csv `skillRequired` 가 전부 0 인 지금은 뜨지 않는다).
+   * The list on the left = **wide rows stacked vertically** (2026-09-17, user's decision — replacing the old 4-cell thumbnail grid): a row = the thumbnail (the shared
+   * chip, the rarity border) + the name. A row is `.cook-cell[data-recipe][data-rank]` and carries the old name `.cook-rail-item` as well (smoke tests · old selectors).
+   * Meals locked by cook bench level · book were already dropped by `refresh`. Short on materials · space gives `.is-locked`, short on skill gives
+   * `.is-bench-locked .is-skill` + a badge under the name (B-15 — it does not appear today because csv `skillRequired` is all 0).
    */
   private buildList(rows: readonly RecipeRow[]): void {
     const list = this.listEl;
@@ -295,7 +295,7 @@ export class CookStation extends HousingPanel {
         parent: list,
       });
       cell.type = 'button';
-      // 2026-09-16 (접시 모델): 산출물은 아이템이 아니라 요리 표의 요리다 — 인벤토리 타일(`buildItemTile`)은 요리를 모르므로 공용 칩으로 그린다
+      // 2026-09-16 (the plate model): the product is not an item but a meal from the meal table — the inventory tile (`buildItemTile`) knows no meals, so the shared chip draws it
       const def = getMealDef(x.r.outputDefId);
       const name = def?.name ?? this.housing.nameOf(x.r.outputDefId);
       const thumb = el('div', { cls: 'cook-cell-thumb', parent: cell });
@@ -335,20 +335,20 @@ export class CookStation extends HousingPanel {
     const steps = cookStepsOf(r.outputDefId);
     this.selChip.appendChild(buildItemChip(def ?? h.defOf(r.outputDefId), { size: SEL_CHIP }));
     setText(this.selName, def?.name ?? h.nameOf(r.outputDefId));
-    // 2026-09-15 (B-15): 숙련이 모자라면 무엇을 올려야 하는지 부제에도
+    // 2026-09-15 (B-15): when skill is short, the subtitle says what to raise too
     const skillNeed = row.skill ? `${row.skill.label} 숙련 ${row.skill.need}` : '';
     setText(this.selSub, [def?.meal ? mealTierText(def.meal) : '', `조리대 Lv.${r.benchLevel ?? 1}`, skillNeed, `미니게임 ${steps.length}단계`].filter(Boolean).join(' · '));
-    // 2026-09-15 3차 (사용자 결정): 설명 · 보유 수 — 작업대 상세 패널과 같은 순서 (썸네일 · 이름 · 종류 → 설명 → 보유 → 재료)
+    // 2026-09-15 3rd pass (user's decision): the description · how many are held — the same order as the workbench detail panel (thumbnail · name · kind → description → held → materials)
     const desc = (def ?? h.defOf(r.outputDefId))?.description ?? '';
     setText(this.selDesc, desc);
     this.selDesc.hidden = !desc;
-    // 2026-09-16 (접시 모델): 「보유 n」 대신 **식탁에 무엇이 있나** — 요리하면 이 접시가 바뀐다
+    // 2026-09-16 (the plate model): instead of 「보유 n」, **what is on the dining table** — cooking replaces this plate
     const plate = h.getPlate();
     const plateName = plate ? qualityName(getMealDef(plate.mealDefId)?.name ?? plate.mealDefId, plate.quality) : '';
     setText(this.selOwned, plate ? `식탁: 「${plateName}」 — 요리하면 바뀝니다` : '식탁: 비어 있음');
     toggleClass(this.selOwned, 'is-none', !plate);
 
-    // 능력치: 기준값만 (한 줄에 한 능력치). 2026-09-17 (사용자 결정): 최고 품질(★★★★★) 보너스 반영값은 보이지 않는다
+    // Stats: the base values only (one stat per line). 2026-09-17 (user's decision): the value with the top-quality (★★★★★) bonus folded in is not shown
     if (def?.meal) {
       for (const e of mealEffects(def.meal)) {
         const line = el('div', { cls: 'cook-eff-line', parent: this.selEffects });
@@ -367,7 +367,7 @@ export class CookStation extends HousingPanel {
         const name = h.getFurnitureDef(auto.defId)?.name ?? '자동 조리 가구';
         el('div', { cls: 'cook-stepchip-auto', text: `${name} Lv.${auto.level} · 자동 ${pct(auto.score)} %`, parent: c });
       }
-      // 2026-09-13 (H3): 이 단계 점수에 더해지는 요리 숙련 · 서재 보너스 (직접 하기 · 자동 모두)
+      // 2026-09-13 (H3): the cooking skill · library bonus added to this step's score (manual and auto alike)
       const bonus = cookStepBonus(h, s.game);
       if (bonus.total > 0) {
         const parts = [bonus.skill > 0 ? `숙련 +${Math.round(bonus.skill * 100)}` : '', bonus.library > 0 ? `서재 +${Math.round(bonus.library * 100)}` : ''].filter(Boolean);

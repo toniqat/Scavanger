@@ -1,37 +1,37 @@
 /**
- * src/housing/parts/Gym.ts — **헬스장 운동 세션** (A-3a, 2026-09-12).
+ * src/housing/parts/Gym.ts — **the gym training session** (A-3a, 2026-09-12).
  *
- * 운동 기구(벤치 랙 · 스미스 머신 · 트레드밀 · 사이클)에서 E → hub 가 `startGymSession(uid)` 을 부른다. 여기서 하는 일:
- *   ① `gymBlock` — 운동 기구가 아니다 · 함선이 아니다(레이드 포함) · 남의 함선 · 이미 세션 중 · 다른 화면이 열려 있다.
- *   ② 세션 상태(`sys.gymState`)를 세우고 미니게임 화면(`ui/gym/GymScreen`)을 연 뒤 `housing:gymSession {active:true}` —
- *      hub 가 그것을 보고 원반 · 자세 · 고정 카메라를 건다 (자세가 거절되면 hub 가 `cancelGymSession` 을 부른다).
- *   ③ 게임이 끝나면 `completeGymSession` — 점수를 `ctx.progression.applyGymSession` 에 넘기고 `housing:gymResult`.
- *      progression 이 그 메서드를 아직 갖고 있지 않으면 결과 화면이 「반영하지 못했다」고 말한다 (조용히 성공한 척하지 않는다).
- *   ④ 화면이 닫히면 `endGymSession` — `housing:gymSession {active:false, completed}`. `completed` 는 **게임을 끝까지 했다**
- *      (그래서 점수가 넘어갔다) 는 뜻이고 취소(Esc · Tab · 페이즈 변경)면 false 다. 취소는 보상도 디버프도 없다.
+ * E at a piece of gym equipment (bench rack · Smith machine · treadmill · cycle) → hub calls `startGymSession(uid)`. What happens here:
+ *   ① `gymBlock` — not gym equipment · not in the ship (a raid included) · someone else's ship · already in a session · another screen is open.
+ *   ② It raises the session state (`sys.gymState`), opens the minigame screen (`ui/gym/GymScreen`), then `housing:gymSession {active:true}` —
+ *      hub sees that and puts up the weight plates · the pose · the fixed camera (if the pose is refused, hub calls `cancelGymSession`).
+ *   ③ Once the game ends, `completeGymSession` — the score is handed to `ctx.progression.applyGymSession`, then `housing:gymResult`.
+ *      If progression does not have that method yet, the result screen says 「반영하지 못했다」 (it never quietly pretends to have succeeded).
+ *   ④ Once the screen closes, `endGymSession` — `housing:gymSession {active:false, completed}`. `completed` means **the game was played to the
+ *      end** (so the score was handed over) and is false on a cancel (Esc · Tab · a phase change). A cancel has no reward and no debuff.
  *
- * 규칙(단련 경험치 · 디버프)은 하나도 여기 없다 — progression 의 몫이다. housing 은 판정(`parts/GymGames`)과 흐름만 갖는다.
+ * Not one rule (training XP · debuffs) lives here — that is progression's job. housing holds only the judgement (`parts/GymGames`) and the flow.
  */
 import type {
   FurnitureDef, FurniturePoseKind, GymEquipmentDef, GymMinigame, GymSessionInfo, GymSessionResult, HousingRef, LibraryGymTarget, PlacedFurniture,
 } from '@/shared';
-import { LIBRARY_GYM_TARGETS, gymEquipmentOf } from '@/shared';   // LIBRARY_GYM_TARGETS: 서재 헬스 보너스 (H3, 2026-09-13)
+import { LIBRARY_GYM_TARGETS, gymEquipmentOf } from '@/shared';   // LIBRARY_GYM_TARGETS: the library gym bonus (H3, 2026-09-13)
 import type { HousingSystem } from '../HousingSystem';
 import { createGymGame } from './GymGames';
 import type { GymGame } from './GymGames';
 
-/** 운동 화면의 `ctx.uiBlockers` 토큰 — 패널들의 `'housing'` 과 따로라, 다른 패널이 닫히며 지워 가지 않는다. */
+/** The gym screen's `ctx.uiBlockers` token — separate from the panels' `'housing'`, so a closing panel never clears it. */
 export const GYM_BLOCKER = 'housing.gym';
 
 export interface GymState {
   info: GymSessionInfo;
-  /** 이 기구가 쓰는 자세 — `player:furniturePoseEnded` 가 이 세션의 자세인지 가리는 데 쓴다. */
+  /** The pose this equipment uses — used to tell whether a `player:furniturePoseEnded` is this session's pose. */
   pose: FurniturePoseKind;
-  /** 게임을 끝까지 했다 (점수를 progression 에 넘겼다). */
+  /** The game was played to the end (the score was handed to progression). */
   finished: boolean;
-  /** `applyGymSession` 의 결과 — progression 이 없거나 거절했으면 null. */
+  /** The result of `applyGymSession` — null with no progression, or when it refused. */
   result: GymSessionResult | null;
-  /** 끝낸 점수 (0 … 1). */
+  /** The finishing score (0 … 1). */
   score: number;
 }
 
@@ -48,7 +48,7 @@ export function gymSession(sys: HousingSystem): GymSessionInfo | null {
   return sys.gymState ? sys.gymState.info : null;
 }
 
-/** 지금 `startGymSession(uid)` 가 거절할 한국어 사유, null = 시작할 수 있다. */
+/** The Korean reason `startGymSession(uid)` would refuse with right now, null = it can start. */
 export function gymBlock(sys: HousingSystem, uid: string): string | null {
   const ctx = sys.ctx;
   if (!gymEquipmentAt(sys, uid)) return '운동 기구가 아닙니다';
@@ -68,20 +68,20 @@ export function startGymSession(sys: HousingSystem, uid: string): string | null 
   sys.gymState = { info, pose: hit.eq.pose, finished: false, result: null, score: 0 };
   sys.gymScreen.open(info, hit.def.name);
   sys.ctx.bus.emit('housing:gymSession', { uid, active: true, stat: info.stat, minigame: info.minigame, completed: false });
-  // hub 가 자세를 걸지 못하면 같은 호출 스택 안에서 `cancelGymSession` 이 온다 — 그때는 시작하지 못한 것이다
+  // if hub cannot raise the pose, `cancelGymSession` arrives inside the same call stack — and then it did not start
   return sys.gymState ? null : '운동을 시작할 수 없습니다';
 }
 
-/** 진행 중인 세션을 끝낸다 — 결과 화면이 아니었다면 보상 · 디버프 없음. 없으면 no-op. */
+/** Ends the running session — no reward and no debuff unless it reached the result screen. A no-op when there is none. */
 export function cancelGymSession(sys: HousingSystem): void {
   if (!sys.gymState) return;
-  if (sys.gymScreen?.isOpen) sys.gymScreen.close();     // 화면이 `endGymSession` 을 부른다
+  if (sys.gymScreen?.isOpen) sys.gymScreen.close();     // the screen calls `endGymSession`
   else endGymSession(sys);
 }
 
 /**
- * 게임을 끝까지 했다 — 점수를 progression 에 넘기고 `housing:gymResult` 를 낸다. 한 세션에 한 번만 반영된다.
- * progression 에 `applyGymSession` 이 없거나 null(레이드 등)이면 결과는 null 이다.
+ * The game was played to the end — the score is handed to progression and `housing:gymResult` is emitted. It applies once per session only.
+ * With no `applyGymSession` on progression, or a null one (in a raid and so on), the result is null.
  */
 export function completeGymSession(sys: HousingSystem, score: number): GymSessionResult | null {
   const st = sys.gymState;
@@ -89,9 +89,10 @@ export function completeGymSession(sys: HousingSystem, score: number): GymSessio
   if (st.finished) return st.result;
   st.finished = true;
   st.score = Math.max(0, Math.min(1, Number.isFinite(score) ? score : 0));
-  /* ══ 서재 헬스 보너스 (H3, 2026-09-13 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ══
-   * 운동 기구 4종(`LIBRARY_GYM_TARGETS`)의 세션 점수에 `getLibraryEffects().gymScore[기구 interaction]` 을 더해 1 로 자른다.
-   * 게임(TV) 세션은 `parts/VideoGame.ts` 의 몫이고 기구 interaction 이 아니라서 여기를 지나도 붙지 않는다. */
+  /* ══ the library gym bonus (H3, 2026-09-13 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ══
+   * For the four kinds of gym equipment (`LIBRARY_GYM_TARGETS`), `getLibraryEffects().gymScore[the equipment's interaction]` is added to the
+   * session score and clamped to 1. A game (TV) session is `parts/VideoGame.ts`'s job and is not an equipment interaction, so it gains nothing
+   * from passing through here. */
   {
     const interaction = sys.getFurnitureDef(st.info.defId)?.interaction;
     if (interaction && (LIBRARY_GYM_TARGETS as readonly string[]).includes(interaction)) {
@@ -101,7 +102,7 @@ export function completeGymSession(sys: HousingSystem, score: number): GymSessio
       if (typeof add === 'number' && Number.isFinite(add) && add > 0) st.score = Math.min(1, st.score + add);
     }
   }
-  /* ══ end 서재 헬스 보너스 (H3) ══ */
+  /* ══ end the library gym bonus (H3) ══ */
   const prog = sys.ctx.progression;
   if (prog && typeof prog.applyGymSession === 'function') {
     try { st.result = prog.applyGymSession(st.info.stat, st.score); } catch (e) { console.error('[housing] applyGymSession threw', e); st.result = null; }
@@ -113,7 +114,7 @@ export function completeGymSession(sys: HousingSystem, score: number): GymSessio
   return st.result;
 }
 
-/** 화면이 닫혔다 — 세션을 비우고 `housing:gymSession {active:false}`. */
+/** The screen closed — the session is cleared and `housing:gymSession {active:false}`. */
 export function endGymSession(sys: HousingSystem): void {
   const st = sys.gymState;
   if (!st) return;
@@ -122,7 +123,7 @@ export function endGymSession(sys: HousingSystem): void {
   sys.ctx.bus.emit('housing:gymSession', { uid, active: false, stat, minigame, completed: st.finished });
 }
 
-/** 세션을 끊는 바깥 사건들 — 다른 패널이 닫히는 경로(`closeMenus`)와 같은 자리. `init` 에서 한 번. */
+/** The outside events that cut the session — the same place as the path that closes other panels (`closeMenus`). Once, in `init`. */
 export function bindGym(sys: HousingSystem): Array<() => void> {
   const b = sys.ctx.bus;
   const stop = (): void => cancelGymSession(sys);
@@ -131,25 +132,25 @@ export function bindGym(sys: HousingSystem): Array<() => void> {
     b.on('game:abort', stop),
     b.on('hub:left', stop),
     b.on('game:phaseChanged', ({ phase }) => { if (phase !== 'hub') stop(); }),
-    // 자세가 스스로 풀렸다(스폰 · 리셋) — 운동 자세가 아닌데 운동 화면만 남기지 않는다. `caller` 는 hub 가 우리 끝을 받아 푼 것이다.
+    // the pose released itself (spawn · reset) — the gym screen is never left up without the gym pose. `caller` means hub released it on receiving our end.
     b.on('player:furniturePoseEnded', ({ kind, reason }) => {
       if (sys.gymState && reason !== 'caller' && kind === sys.gymState.pose) stop();
     }),
   ];
 }
 
-/* ── 스모크 훅 ────────────────────────────────────────────────────────────── */
+/* ── Smoke hooks ──────────────────────────────────────────────────────────── */
 export interface GymDebug {
   readonly screen: 'intro' | 'game' | 'result' | null;
-  /** 지금 화면이 몰고 있는 판정 객체 (게임 화면이 아니면 null). */
+  /** The judge object the screen is driving right now (null unless it is the game screen). */
   readonly game: GymGame | null;
-  /** 마지막으로 끝낸 세션의 결과 (화면을 닫은 뒤에도 남는다). */
+  /** The last finished session's result (it survives closing the screen). */
   readonly result: GymSessionResult | null;
-  /** 시작 안내 → 게임 (Space 와 같다). */
+  /** Intro → game (the same as Space). */
   start(): boolean;
-  /** 게임을 건너뛰고 `score` 로 끝낸다 → 결과 화면. */
+  /** Skips the game and ends on `score` → the result screen. */
   finish(score: number): GymSessionResult | null;
-  /** 화면과 무관한 새 판정 객체 — 판정 규칙만 따로 검사한다. */
+  /** A new judge object with no screen attached — for checking the judgement rules on their own. */
   makeGame(kind: GymMinigame): GymGame;
 }
 

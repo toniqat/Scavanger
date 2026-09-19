@@ -1,35 +1,35 @@
 /**
- * src/housing/parts/GymGames.ts — **운동 미니게임 판정** (A-3a, 2026-09-12). DOM · ctx 없는 순수 클래스.
+ * src/housing/parts/GymGames.ts — **the gym minigame judgement** (A-3a, 2026-09-12). Pure classes, no DOM, no ctx.
  *
- * 화면(`ui/gym/*`)은 이 객체를 그리기만 하고, 스모크는 화면 없이 이것만 몰아 판정을 검사한다
- * (`HousingSystem.gymDebug.makeGame`). 시간은 **스스로 들고 있다** — `update(dt)` 가 `time` 을 밀고, `press` ·
- * `release` 는 **지금 `time`** 에서 판정한다. 그래서 화면은 키를 넘기기 직전에 `performance.now()` 까지 `update` 를
- * 먼저 부른다 (틱 간격만큼 판정이 늦어지지 않게).
+ * The screen (`ui/gym/*`) only draws this object; the smoke test drives it alone, with no screen, and checks the
+ * judgement (`HousingSystem.gymDebug.makeGame`). It **holds its own time** — `update(dt)` pushes `time`, and `press` ·
+ * `release` judge at the **current `time`**. So the screen calls `update` up to `performance.now()` right before it
+ * hands a key over (so the judgement is never late by a tick interval).
  *
- * 판정 규칙은 설계안 §4 그대로이고 수치는 전부 `GYM_*` (`data/constants.csv`):
- *   • 점수 = 판정마다 완벽 `GYM_SCORE_PERFECT` · 성공 `GYM_SCORE_GOOD` · 실패 0 의 **평균** (0 … 1).
- *   • `press` 벤치프레스 — 커서가 바(0 … 1) 위를 왕복하고, 누른 순간 가운데(0.5)와의 거리로 판정. 회차마다 빨라진다.
- *   • `breath` 호흡 달리기 — 후 · 후 (탭) · 하 (꾹). 하 는 시작 오차와 떼는 오차가 **둘 다** 창 안이어야 한다.
- *   • `cycle` 사이클링 — 박자마다 왼발(A) · 오른발(D) 번갈아. 틀린 발 · 놓침은 실패.
+ * The judgement rules are the design §4 as written, and every number is a `GYM_*` (`data/constants.csv`):
+ *   • Score = the **average** of perfect `GYM_SCORE_PERFECT` · good `GYM_SCORE_GOOD` · miss 0, one per judgement (0 … 1).
+ *   • `press` bench press — the cursor sweeps the bar (0 … 1), judged by its distance from the centre (0.5). Faster each rep.
+ *   • `breath` breathing run — 「후」 · 「후」 (tap) · 「하」 (hold). 「하」 needs **both** errors, start and release, inside the window.
+ *   • `cycle` cycling — left foot (A) · right foot (D) alternating on the beat. The wrong foot · a missed marker is a miss.
  *
- * 박자 게임(호흡 · 사이클)의 두 가지 공통 규칙 (설계안에 없던 빈칸을 여기서 정했다):
- *   • **보이는 것 = 판정** (2026-09-14, 사용자 결정): `judgeBands` 가 csv 창을 두 띠로 나눈다 — `perfect` 는 그 창 그대로이고
- *     **화면에 그려지는 표식 · 판정 띠의 크기가 곧 그 값**이며(`ui/gym/GymViews`), `good` 은 그 바깥으로 `GOOD_OF_PERFECT` 배까지다.
- *     옛 규칙(완벽 = 창의 1/3)을 뒤집은 것이라 전체가 훨씬 관대하다. 벤치프레스는 처음부터 `GYM_PRESS_ZONE` · `GYM_PRESS_PERFECT`
- *     두 값을 그대로 그렸으므로 한 줄도 바뀌지 않았다.
- *   • **예비 박자** `GYM_LEAD_BEATS` 박 — 첫 표식이 판정선까지 걸어올 시간. 그 사이의 입력은 무시한다.
- *   • **헛누름은 다음 표식의 실패**다 — 다음 표식 창보다 이르지만 직전 창이 닫힌 뒤(`t − (박자 − 창)` 이후)에 누르면
- *     그 표식을 실패로 친다. 그렇지 않으면 Space 를 연타해 모든 창을 줍는 것이 최선의 전략이 된다.
+ * Two rules the beat games (breathing · cycling) share, filling a blank the design left:
+ *   • **What you see is the judgement** (2026-09-14, user's decision): `judgeBands` splits the csv window into two bands — `perfect` is
+ *     that window as it is and **the size of the marker · judgement band drawn on screen is that very value** (`ui/gym/GymViews`), while
+ *     `good` reaches `GOOD_OF_PERFECT` × beyond it. It inverts the old rule (perfect = a third of the window), so the whole thing is far
+ *     more forgiving. The bench press drew `GYM_PRESS_ZONE` · `GYM_PRESS_PERFECT` as they are from the start, so not one line changed.
+ *   • **The lead-in beat** `GYM_LEAD_BEATS` beats — how long the first marker takes to reach the judgement line. Input in between is ignored.
+ *   • **A stray press is the next marker's miss** — a press earlier than that marker's window but after the previous one closed
+ *     (past `t − (beat − window)`) counts the marker as a miss. Otherwise mashing Space to collect every window would be the best strategy.
  *
- * 2026-09-13 (비디오게임, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): **디스크별 튜닝** `GymGameTuning` 을 받는다
- * (`createGymGame(kind, tuning?)`). 계약의 뜻 그대로 —
- *   • `speedMul`  벤치프레스 커서 속도 × · 박자형 박자 간격 ÷ (「하」 를 쥐는 길이도 같이 ÷)
- *   • `windowMul` 벤치프레스 성공 · 완벽 구역 × · 박자형 판정 창 × (「하」 떼기 창도 같이 ×)
- *   • `countMul`  판정 횟수 × (반올림, 최소 1)
- *   • `pattern`   박자형 표식 패턴 — 호흡형 `t` · `h` · `r`, 사이클형 `L` · `R` · `r` 를 `-` 로 잇고 판정 횟수만큼 반복.
- *                 `r` = 한 박 쉼. 이 게임에 맞지 않는 토큰은 버리고, 표식 토큰이 하나도 없으면 헬스 기본 패턴.
- * **튜닝이 없으면(또는 전부 1 · 빈 패턴이면) 헬스와 비트 하나 다르지 않다** — 곱하는 1 · 나누는 1 은 부동소수에서도 같은 값이고,
- * 기본 패턴은 옛 생성 루프와 같은 순서로 같은 덧셈을 한다 (`smoke-gym` 의 기대값이 그대로 산다).
+ * 2026-09-13 (video games, H2 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」): it takes **per-disc tuning** `GymGameTuning`
+ * (`createGymGame(kind, tuning?)`). Exactly as the contract means it —
+ *   • `speedMul`  bench-press cursor speed × · beat-game beat interval ÷ (the length 「하」 is held is divided too)
+ *   • `windowMul` bench-press good · perfect zone × · beat-game judgement window × (the 「하」 release window too)
+ *   • `countMul`  judgement count × (rounded, minimum 1)
+ *   • `pattern`   the beat-game marker pattern — breathing `t` · `h` · `r`, cycling `L` · `R` · `r`, joined by `-`, repeated to the count.
+ *                 `r` = one beat's rest. Tokens that do not fit this game are dropped; with no marker token at all, the gym default pattern.
+ * **With no tuning (or all 1 · an empty pattern) it is not one beat different from the gym** — × 1 and ÷ 1 are the same value in floating point,
+ * and the default pattern does the same additions in the same order as the old build loop (`smoke-gym`'s expected values survive).
  */
 import type { GymGameTuning, GymMinigame } from '@/shared';
 import {
@@ -40,15 +40,15 @@ import {
 } from '@/shared';
 
 export type GymQuality = 'perfect' | 'good' | 'miss';
-/** 논리 입력 — 화면이 `Keys.JUMP` · `Keys.LEFT` · `Keys.RIGHT` 를 사용 시점에 읽어 이것으로 옮긴다. */
+/** Logical input — the screen reads `Keys.JUMP` · `Keys.LEFT` · `Keys.RIGHT` at use time and maps them onto this. */
 export type GymAction = 'jump' | 'left' | 'right';
 export type GymGameEvent =
   | { type: 'judge'; quality: GymQuality; index: number; total: number }
   | { type: 'sound'; id: 'gym_breath' | 'gym_pedal' };
 
 /**
- * 박자 게임의 예비 박자 수 — 첫 표식이 오른쪽 끝에서 판정선까지 오는 동안 (길이 자체는 박자 `GYM_*_BEAT_S` 가 정한다).
- * 값의 원본은 `data/constants.csv` 다 (2026-09-12 리드: 「수치는 코드에 적지 않는다」). 화면이 이 경로로 가져가므로 다시 내보낸다.
+ * The beat games' lead-in beat count — the first marker's trip from the right edge to the judgement line (the length itself is set by the beat
+ * `GYM_*_BEAT_S`). The value's source is `data/constants.csv` (2026-09-12 lead: 「no numbers in code」). Re-exported because the screen takes this path.
  */
 export { GYM_LEAD_BEATS };
 
@@ -58,7 +58,7 @@ export function qualityScore(q: GymQuality): number {
   return q === 'perfect' ? GYM_SCORE_PERFECT : q === 'good' ? GYM_SCORE_GOOD : 0;
 }
 
-/** 판정들의 평균 (분모 = 세션의 판정 수). 0 … 1 로 자른다. */
+/** The average of the judgements (denominator = the session's judgement count). Clamped to 0 … 1. */
 export function scoreOf(judgements: readonly GymQuality[], total: number): number {
   if (total <= 0) return 0;
   let sum = 0;
@@ -67,7 +67,8 @@ export function scoreOf(judgements: readonly GymQuality[], total: number): numbe
 }
 
 /**
- * 판정 띠 한 벌 (초) — `perfect` 는 **화면에 그려지는 표식의 반지름**, `good` 은 그 바깥까지 (2026-09-14, 사용자 결정 「보이는 것 = 판정」).
+ * One set of judgement bands (seconds) — `perfect` is **the radius of the marker drawn on screen**, `good` reaches
+ * beyond it (2026-09-14, user's decision 「what you see is the judgement」).
  */
 export interface JudgeBands {
   perfect: number;
@@ -75,9 +76,9 @@ export interface JudgeBands {
 }
 
 /**
- * csv 창(`GYM_*_WINDOW_S`) → 판정 띠. `perfect` 는 그 창 그대로이고 (이웃 표식과 겹치지 않게 `WINDOW_MAX_OF_BEAT` 안으로 잘린다)
- * `good` 은 그 바깥으로 `GOOD_OF_PERFECT` 배. 화면(`ui/gym/GymViews`)이 `perfect` 로 표식 · 띠 크기를 만든다.
- * 옛 규칙(완벽 = 창의 1/3)을 뒤집은 것이라 전체가 훨씬 관대하다.
+ * csv window (`GYM_*_WINDOW_S`) → judgement bands. `perfect` is the window itself (clamped into `WINDOW_MAX_OF_BEAT`, so it never overlaps
+ * the neighbouring marker) and `good` reaches `GOOD_OF_PERFECT` × beyond it. The screen (`ui/gym/GymViews`) builds the marker · band size
+ * from `perfect`. It inverts the old rule (perfect = a third of the window), so everything is far more forgiving.
  */
 export function judgeBands(window: number, beat: number): JudgeBands {
   const cap = Math.max(0, beat) * WINDOW_MAX_OF_BEAT;
@@ -85,7 +86,7 @@ export function judgeBands(window: number, beat: number): JudgeBands {
   return { perfect: good / GOOD_OF_PERFECT, good };
 }
 
-/** 박자 오차 → 판정 (완벽 띠 안 = 완벽, 좋음 띠 안 = 성공), 밖이면 null. */
+/** Beat error → judgement (inside the perfect band = perfect, inside the good band = good), null outside. */
 function grade(err: number, bands: JudgeBands): GymQuality | null {
   const e = Math.abs(err);
   if (e <= bands.perfect + 1e-9) return 'perfect';
@@ -93,33 +94,34 @@ function grade(err: number, bands: JudgeBands): GymQuality | null {
   return null;
 }
 
-/* ── 튜닝 (2026-09-13) ───────────────────────────────────────────────────── */
+/* ── Tuning (2026-09-13) ─────────────────────────────────────────────────── */
 
-/** 박자 게임 판정 창의 상한 = 박자 × 이 값 (구현 값) — 창이 박자의 절반을 넘으면 이웃 표식의 창과 겹쳐 헛누름 규칙이 깨진다. */
+/** Beat-game judgement window cap = beat × this (an implementation value) — a window past half a beat overlaps the next marker's and breaks the stray-press rule. */
 const WINDOW_MAX_OF_BEAT = 0.5;
 /**
- * 좋음 띠 = 완벽 띠의 이 배수 (구현 값, 2026-09-14). **완벽 띠가 곧 화면에 그려지는 표식**이고 좋음은 그 바깥의 나머지다 —
- * 1 이면 좋음이 사라지고, `WINDOW_MAX_OF_BEAT` 에 닿으면 헛누름이 실패로 잡히지 않는다.
+ * The good band = this multiple of the perfect band (an implementation value, 2026-09-14). **The perfect band is the marker drawn on screen**
+ * and good is the rest outside it — at 1 good disappears; at `WINDOW_MAX_OF_BEAT` a stray press is no longer caught as a miss.
  */
 const GOOD_OF_PERFECT = GYM_GOOD_OF_PERFECT;
 
-/** 튜닝 배수 하나 — 유한한 양수만, 아니면 1 (= 헬스 기본). */
+/** One tuning multiplier — a finite positive number only, otherwise 1 (= the gym default). */
 export function tuningMul(v: number | undefined): number {
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 1;
 }
 
-/** 판정 횟수 = `max(1, round(기본 × countMul))`. */
+/** Judgement count = `max(1, round(base × countMul))`. */
 export function tunedCount(base: number, countMul: number | undefined): number {
   return Math.max(1, Math.round(base * tuningMul(countMul)));
 }
 
-/** 패턴 토큰 — 호흡형 `t` (탭) · `h` (꾹) · 사이클형 `L` · `R` · 공통 `r` (한 박 쉼). */
+/** Pattern tokens — breathing `t` (tap) · `h` (hold) · cycling `L` · `R` · shared `r` (one beat's rest). */
 export type GymPatternToken = 't' | 'h' | 'L' | 'R' | 'r';
 const BREATH_TOKENS: readonly GymPatternToken[] = ['t', 'h', 'r'];
 const CYCLE_TOKENS: readonly GymPatternToken[] = ['L', 'R', 'r'];
 
 /**
- * `t-t-h-r` 같은 패턴을 토큰 목록으로 — `allowed` 밖의 토큰은 버린다. 표식 토큰(`r` 아닌 것)이 하나도 없으면 빈 배열 (= 기본 패턴).
+ * A pattern like `t-t-h-r` into a token list — tokens outside `allowed` are dropped. With no marker token (anything
+ * but `r`) at all, an empty array (= the default pattern).
  */
 export function parseGymPattern(pattern: string | undefined, allowed: readonly GymPatternToken[]): GymPatternToken[] {
   if (typeof pattern !== 'string' || !pattern.trim()) return [];
@@ -133,17 +135,17 @@ export function parseGymPattern(pattern: string | undefined, allowed: readonly G
 
 export abstract class GymGame {
   abstract readonly minigame: GymMinigame;
-  /** 이 세션의 판정 수. */
+  /** This session's judgement count. */
   abstract readonly total: number;
-  /** 판정 순서대로. */
+  /** In judgement order. */
   readonly judgements: GymQuality[] = [];
-  /** 게임 시작부터 흐른 시간 (초). */
+  /** Time elapsed since the game started (seconds). */
   time = 0;
   private events: GymGameEvent[] = [];
 
   get done(): boolean { return this.judgements.length >= this.total; }
   get score(): number { return scoreOf(this.judgements, this.total); }
-  /** 진행도 0 … 1 — 화면 머리줄의 프로그레스바가 이것만 읽는다 (2026-09-14, 사용자 결정 「라벨 없이 바만」). */
+  /** Progress 0 … 1 — the progress bar in the screen's header row reads only this (2026-09-14, user's decision 「a bar only, no label」). */
   get completion(): number { return this.total > 0 ? Math.max(0, Math.min(1, this.judgements.length / this.total)) : 0; }
   counts(): Record<GymQuality, number> {
     const c = { perfect: 0, good: 0, miss: 0 };
@@ -151,7 +153,7 @@ export abstract class GymGame {
     return c;
   }
 
-  /** 쌓인 이벤트를 꺼내고 비운다 (화면이 틱마다 · 키마다 부른다). */
+  /** Takes the queued events and empties them (the screen calls it every tick · every key). */
   drain(): GymGameEvent[] {
     const out = this.events;
     this.events = [];
@@ -177,20 +179,20 @@ export abstract class GymGame {
 
   protected abstract step(dt: number): void;
   protected abstract onPress(action: GymAction): void;
-  protected onRelease(_action: GymAction): void { /* 탭만 쓰는 게임 */ }
+  protected onRelease(_action: GymAction): void { /* games that only tap */ }
 }
 
-/* ── 벤치프레스 ──────────────────────────────────────────────────────────── */
+/* ── Bench press ─────────────────────────────────────────────────────────── */
 export class PressGame extends GymGame {
   readonly minigame = 'press' as const;
   readonly total: number;
-  /** 성공 구역 반폭 (바 폭 비율) — `GYM_PRESS_ZONE × windowMul`, 0.5 이하. 화면이 이 값으로 구역을 그린다. */
+  /** The good zone's half-width (as a fraction of the bar) — `GYM_PRESS_ZONE × windowMul`, at most 0.5. The screen draws the zone from it. */
   readonly zone: number;
-  /** 완벽 구역 반폭 — `GYM_PRESS_PERFECT × windowMul`, 성공 구역 이하. */
+  /** The perfect zone's half-width — `GYM_PRESS_PERFECT × windowMul`, at most the good zone. */
   readonly perfect: number;
-  /** 커서 속도 배수 (`speedMul`). */
+  /** The cursor speed multiplier (`speedMul`). */
   readonly speedMul: number;
-  /** 커서 위치 0 … 1 (바 폭 비율, 가운데 0.5). 왼쪽 끝에서 오른쪽으로 출발한다. */
+  /** Cursor position 0 … 1 (as a fraction of the bar, centre 0.5). It starts at the left end and moves right. */
   pos = 0;
   dir: 1 | -1 = 1;
 
@@ -203,13 +205,13 @@ export class PressGame extends GymGame {
     this.total = tunedCount(Math.round(GYM_PRESS_REPS), tuning?.countMul);
   }
 
-  /** 지금 회차의 커서 속도 (바 폭/초). */
+  /** The current rep's cursor speed (bar widths per second). */
   get speed(): number { return (GYM_PRESS_SPEED + this.judgements.length * GYM_PRESS_SPEED_STEP) * this.speedMul; }
 
   protected step(dt: number): void {
     const v = this.speed;
     if (!(v > 0)) return;
-    let d = (v * dt) % 2;                         // 왕복 한 번 = 바 폭 2
+    let d = (v * dt) % 2;                         // one round trip = 2 bar widths
     while (d > 0) {
       const room = this.dir > 0 ? 1 - this.pos : this.pos;
       if (d <= room) { this.pos += this.dir * d; d = 0; }
@@ -224,32 +226,32 @@ export class PressGame extends GymGame {
   }
 }
 
-/* ── 박자 게임 공통 ──────────────────────────────────────────────────────── */
+/* ── Beat games — shared ─────────────────────────────────────────────────── */
 export interface BeatNote {
-  /** 표식이 판정선에 닿는 시각 (초). */
+  /** The time the marker reaches the judgement line (seconds). */
   t: number;
-  /** 사이클링: 밟을 발. 호흡: 늘 null. */
+  /** Cycling: the foot to press. Breathing: always null. */
   lane: 'left' | 'right' | null;
-  /** 호흡의 「하」 (꾹 누른 채 `GYM_BREATH_HOLD_S` 뒤에 뗀다). */
+  /** Breathing's 「하」 (held down, released `GYM_BREATH_HOLD_S` later). */
   hold: boolean;
-  /** 이 표식의 판정, 아직이면 null. */
+  /** This marker's judgement, null until then. */
   q: GymQuality | null;
-  /** 「하」: 누르기 시작한 순간의 판정 (누르고 있는 중이면 null 이 아니다). */
+  /** 「하」: the judgement at the moment the press started (not null while it is held). */
   start: GymQuality | null;
 }
 
 abstract class BeatGame extends GymGame {
   abstract readonly notes: readonly BeatNote[];
   abstract readonly beat: number;
-  /** 판정 띠 — `perfect` 가 곧 화면 표식의 반지름 (2026-09-14). */
+  /** The judgement bands — `perfect` is exactly the on-screen marker's radius (2026-09-14). */
   abstract readonly bands: JudgeBands;
-  /** 바깥 띠 (= 성공까지). 놓침 · 헛누름 규칙이 쓰는 창이다. */
+  /** The outer band (= out to good). The window the miss · stray-press rules use. */
   abstract readonly window: number;
-  /** 첫 미판정 표식. */
+  /** The first unjudged marker. */
   protected next = 0;
 
   get total(): number { return this.notes.length; }
-  /** 판정을 기다리는 표식 (화면 · 스모크), 끝났으면 null. */
+  /** The marker waiting for its judgement (screen · smoke test), null once it is over. */
   get upcoming(): BeatNote | null { return this.notes[this.next] ?? null; }
 
   protected resolve(n: BeatNote, q: GymQuality): void {
@@ -259,21 +261,21 @@ abstract class BeatGame extends GymGame {
     this.judge(q);
   }
 
-  /** 다음 표식보다 이른 헛누름이 그 표식의 실패인가 (직전 창이 닫힌 뒤) — 아니면 무시. */
+  /** Is a stray press earlier than the next marker that marker's miss (after the previous window closed) — otherwise ignored. */
   protected strayMiss(n: BeatNote): boolean {
     const err = this.time - n.t;
     return err < -this.window && err >= -(this.beat - this.window);
   }
 }
 
-/* ── 호흡 달리기 (후 · 후 · 하) ──────────────────────────────────────────── */
+/* ── Breathing run (후 · 후 · 하) ────────────────────────────────────────── */
 export class BreathGame extends BeatGame {
   readonly minigame = 'breath' as const;
   readonly beat: number;
   readonly bands: JudgeBands;
   readonly window: number;
   readonly holdS: number;
-  /** 「하」 를 떼는 판정 띠 (`perfect` · `good`) — 표식 끝의 그림이 `perfect` 다. */
+  /** The judgement bands for releasing 「하」 (`perfect` · `good`) — the drawing at the marker's end is `perfect`. */
   readonly holdBands: JudgeBands;
   readonly holdTol: number;
   readonly notes: BeatNote[] = [];
@@ -291,27 +293,27 @@ export class BreathGame extends BeatGame {
     const cycles = Math.max(1, Math.round(GYM_BREATH_CYCLES));
     const total = tunedCount(cycles * 3, tuning?.countMul);
     const custom = parseGymPattern(tuning?.pattern, BREATH_TOKENS);
-    const seq: readonly GymPatternToken[] = custom.length ? custom : ['t', 't', 'h'];   // 헬스 기본: 후 · 후 · 하
+    const seq: readonly GymPatternToken[] = custom.length ? custom : ['t', 't', 'h'];   // the gym default: 후 · 후 · 하
     let t = GYM_LEAD_BEATS * B;
     for (let i = 0, made = 0; made < total; i++) {
       const tok = seq[i % seq.length];
-      if (tok === 'r') { t += B; continue; }            // 한 박 쉼
+      if (tok === 'r') { t += B; continue; }            // one beat's rest
       const hold = tok === 'h';
       this.notes.push({ t, lane: null, hold, q: null, start: null });
       made++;
-      if (hold) t += this.holdS + B;                    // 「하」 를 다 뗀 뒤 한 박 쉬고 다음 표식
+      if (hold) t += this.holdS + B;                    // after 「하」 is fully released, one beat's rest, then the next marker
       else t += B;
     }
   }
 
-  /** 「하」 를 누르고 있는 중인가. */
+  /** Is 「하」 being held right now. */
   get holding(): boolean { const n = this.upcoming; return !!n && n.hold && n.start !== null; }
 
   protected step(): void {
     for (let n = this.upcoming; n; n = this.upcoming) {
       if (n.hold && n.start !== null) {
-        if (this.time > n.t + this.holdS + this.holdTol) { this.resolve(n, 'miss'); continue; }   // 너무 오래 쥐었다
-      } else if (this.time > n.t + this.window) { this.resolve(n, 'miss'); continue; }            // 놓쳤다
+        if (this.time > n.t + this.holdS + this.holdTol) { this.resolve(n, 'miss'); continue; }   // held too long
+      } else if (this.time > n.t + this.window) { this.resolve(n, 'miss'); continue; }            // missed it
       break;
     }
   }
@@ -335,12 +337,12 @@ export class BreathGame extends BeatGame {
     const n = this.upcoming;
     if (!n || !n.hold || n.start === null) return;
     const err = Math.abs(this.time - (n.t + this.holdS));
-    if (err > this.holdTol) { this.resolve(n, 'miss'); return; }                                // 너무 일찍 뗐다
+    if (err > this.holdTol) { this.resolve(n, 'miss'); return; }                                // released too early
     this.resolve(n, n.start === 'perfect' && err <= this.holdBands.perfect ? 'perfect' : 'good');
   }
 }
 
-/* ── 사이클링 (A · D 번갈아) ─────────────────────────────────────────────── */
+/* ── Cycling (A · D alternating) ─────────────────────────────────────────── */
 export class CycleGame extends BeatGame {
   readonly minigame = 'cycle' as const;
   readonly beat: number;
@@ -356,13 +358,13 @@ export class CycleGame extends BeatGame {
     const strokes = tunedCount(Math.max(1, Math.round(GYM_CYCLE_STROKES)), tuning?.countMul);
     const custom = parseGymPattern(tuning?.pattern, CYCLE_TOKENS);
     if (!custom.length) {
-      // 헬스 기본: 왼발 · 오른발 번갈아, 쉼 없음
+      // the gym default: left foot · right foot alternating, no rests
       for (let k = 0; k < strokes; k++) {
         this.notes.push({ t: (GYM_LEAD_BEATS + k) * this.beat, lane: k % 2 === 0 ? 'left' : 'right', hold: false, q: null, start: null });
       }
       return;
     }
-    // 패턴: 토큰 하나 = 한 박 (쉼 `r` 도 한 박을 차지한다)
+    // pattern: one token = one beat (a rest `r` takes a beat too)
     for (let s = 0, made = 0; made < strokes; s++) {
       const tok = custom[s % custom.length];
       if (tok === 'r') continue;
@@ -383,12 +385,12 @@ export class CycleGame extends BeatGame {
     const q = grade(this.time - n.t, this.bands);
     if (q) {
       if (action === n.lane) { this.sound('gym_pedal'); this.resolve(n, q); }
-      else this.resolve(n, 'miss');                                                                  // 틀린 발
+      else this.resolve(n, 'miss');                                                                  // the wrong foot
     } else if (this.strayMiss(n)) this.resolve(n, 'miss');
   }
 }
 
-/** 판정 객체 하나. `tuning` 생략 = 헬스 기본 (2026-09-13: 비디오게임 디스크가 튜닝을 넘긴다). */
+/** One judge object. `tuning` omitted = the gym default (2026-09-13: a video-game disc passes tuning in). */
 export function createGymGame(kind: GymMinigame, tuning?: GymGameTuning): GymGame {
   return kind === 'press' ? new PressGame(tuning) : kind === 'breath' ? new BreathGame(tuning) : new CycleGame(tuning);
 }
