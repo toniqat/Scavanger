@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { GameContext, PeerId, PingKind } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { PING_COLOR, PING_LABEL } from './Pings';
+import { hudViewport } from './viewport';
 
 const MAX_ARROWS = 12;
 /** Viewport margin (fraction) inside which a target counts as on-screen (no arrow). */
@@ -129,7 +130,7 @@ export class OffscreenIndicators {
   lateUpdate(ctx: GameContext): void {
     this.collect(ctx);
     const cam = ctx.camera;
-    const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
+    const { w, h } = hudViewport;
     if (w <= 0 || h <= 0) return;
     const cx = w / 2, cy = h / 2;
     const hx = cx - EDGE_PAD, hy = cy - EDGE_PAD;

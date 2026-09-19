@@ -1039,8 +1039,15 @@ export class Enemy implements EnemyRef {
     this.host?.onEnemyKilled(this, countKill);
   }
 
-  /** Update purely visual state (called every frame, also while gameplay is frozen). */
-  animate(dt: number): void {
+  /**
+   * Update purely visual state (called every frame, also while gameplay is frozen).
+   *
+   * @param poseSkip 2026-09-20 animation LOD (`EnemySystem.poseSkip`, `data/constants.csv` `ENEMY_ANIM_LOD_*`):
+   *   leave the **joints** where they are this frame. Everything else still runs — the timers, the root position and
+   *   facing, the death · flee · dig-in bookkeeping — so a far body still walks and turns, its legs just do not
+   *   re-solve. The caller never passes true for a body that is dead, flashing, burning, shocked or flipped.
+   */
+  animate(dt: number, poseSkip = false): void {
     const a = this.anim;
     a.time += dt;
     a.hitFlash = Math.max(0, a.hitFlash - dt * 6);
@@ -1097,7 +1104,7 @@ export class Enemy implements EnemyRef {
       if (this.rig.kind !== 'worm') this.rig.root.position.y -= this.burrowSink;
       if (this.emergeT <= 0 && rising) this.emergeDur = 0;
     }
-    this.animateRig(dt);
+    if (!poseSkip) this.animateRig(dt);
   }
 
   private animateRig(dt = 0): void {

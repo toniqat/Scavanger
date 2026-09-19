@@ -8,6 +8,7 @@ import {
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import { PingWheel, type PingSide } from './PingWheel';
+import { hudViewport } from './viewport';
 
 /** Re-exported from the shared contract (`ground|enemy|crate|extraction|item|attack|caution`). */
 export type PingKind = SharedPingKind;
@@ -261,7 +262,7 @@ export class Pings {
   lateUpdate(ctx: GameContext): void {
     const cam = ctx.camera;
     const player = ctx.player;
-    const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
+    const { w, h } = hudViewport;
     for (const p of this.pings) {
       this.v.copy(p.position); this.v.y += p.kind === 'enemy' ? 1.6 : p.kind === 'item' ? 0.9 : 1.4;
       this.v.project(cam);
@@ -437,7 +438,7 @@ export class Pings {
     const cam = ctx.camera;
     this.v2.copy(target).project(cam);
     if (this.v2.z < -1 || this.v2.z > 1 || Math.abs(this.v2.x) > 1 || Math.abs(this.v2.y) > 1) return -1;
-    const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
+    const { w, h } = hudViewport;
     const px = Math.hypot(this.v2.x * 0.5 * w, this.v2.y * 0.5 * h);
     if (px > maxPx) return -1;
     cam.getWorldPosition(this.rayO);

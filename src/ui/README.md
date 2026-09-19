@@ -89,6 +89,7 @@ Import: `@/ui` → `HudSystem`, `OBJECTIVE_TEXT` (`index.ts`). `main.ts` imports
 | `hud/WeaponChargeGauge.ts` | Unique weapon wind-up arc (`weapon:chargeChanged` kinds `charge` / `spinup` / `slash`; ignores `draw`) |
 | `hud/WeaponPanel.ts` | Bottom-right weapon box: rarity thumbnail, `mag / reserve`, type tag (`weaponTypeLabel`), durability, modes; consumable mode |
 | `hud/WorldMarkers.ts` | Screen diamonds for discovered / active extraction pads (no landed-ship marker; the active pad's hides once the ship lands) |
+| `hud/viewport.ts` | The screen size every projecting widget reads (`hudViewport`), measured on `resize` only — no per-frame layout read |
 | **map/** | |
 | `map/MapScreen.ts` | Tactical map (`M`): cached terrain, fog layer + edges, hazard hatch over fog, discovered landmarks, squad, pings (middle-click places), legend swatches, rover route + destination pick with 1 s hold payment |
 | `map/mapIcons.ts` | Stateless canvas marker painters shared by map and legend (`MAP_COL`, `MARKER_SCALE`, `draw*`), `MapLabels` overlap culling |
@@ -266,6 +267,9 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 
 ## Rules
 
+- **No layout read inside a frame.** A widget that needs the screen size reads `hudViewport` (`hud/viewport.ts`),
+  measured once on `resize`. `clientWidth` / `clientHeight` / `getBoundingClientRect` after a style write forces the
+  browser to lay the whole UI out again, and twelve widgets used to do exactly that every frame. — `hud/viewport.ts`
 - Screens pair `ctx.uiBlockers.add(token)` + `ctx.input.setCursorMode(true, token)` + `ctx.escape.push(token, close)`
   and undo all three on close and in `dispose`. Nothing in this folder calls `requestPointerLock`. — `menus/MenuBase.ts`, `map/MapScreen.ts`
 - Threat readouts skip `EnemyRef.isEgg`: the detection HUD's arrows / chevrons / radar, the compass ticks and every 「적」 ping
@@ -368,8 +372,8 @@ injectors `debugRemotes`, `debugSocial`, `debugSocialRef`, `debugNpc`, `debugRoo
 ## Recent changes
 
 Last 5 only — older: `git log -- src/ui`.
+- 2026-09-20 — The HUD's screen size has one owner (`hud/viewport.ts` `hudViewport`, measured on `resize`): twelve per-frame `ctx.uiRoot.clientWidth` / `clientHeight` reads across eleven projecting widgets are gone. Measured effect on this machine: none (`x:layoutFlush` is **one** layout of a HUD already dirtied by `HudSystem.update`, not read/write thrash — `docs/PERF_PLAN.md` Phase 2), but the trap is closed.
 - 2026-09-19 — Audit B-27 ~ B-30 + B-46: stale comments corrected (the skip prose's track count, the `.tm-ask` count, the danger-target list, `시설 제거`, the hazard banner text, the gone `hud/MealBadge`, the gone `.oarrow.drop` / `.call.airstrike`, the all-dead rule, where `Vitals` sits, `quit`'s copied body, `ChatTab.onShow`'s focus, the `net:peerJoined` direction, the ping callout examples, the comms wheel's hard-coded `H`); dead code dropped (`ShipManage.missingText`, `void main`, `void yaw`); the group-room 「초대 중 n」 rows are appended now, so the heading no longer stands over an empty drawer (`ChatTab.renderRoom`); the two raw NUL bytes in `map/QuestPanels.ts` became `' '` (git · `rg` read that file as binary and every tree-wide grep skipped it); four csv / constant values left their comments.
 - 2026-09-19 — A crate ping carries its **loot-container id** (`snap` · aim assist → `ping:placedV3.containerId` · `PingMessage.containerId`). `label` stays the display string `보급 상자 (n등급)`, which `allies/` had been using as an id, so a pinged crate was never actually looted (TODO B-61) — `hud/Pings.ts`.
 - 2026-09-18 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-18 — Nest eggs are not threats: the detection HUD (arrows · chevrons · radar) and every enemy ping skip `EnemyRef.isEgg`, so a nest's dozens of `bug_egg` bodies never become a marker and an 「적」 ping never lands on one (`hud/Detection.ts`, `hud/Pings.ts`; `hud/Compass.ts` is covered by the `queryNear` default).
-- 2026-09-18 — `drawRover` / `drawTram` rotate by `+yaw`, not `-yaw`: the map never flips world Z, so the rover icon now points where it drives (`map/mapIcons.ts`; legend samples pass 0 and are unaffected).

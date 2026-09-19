@@ -20,6 +20,9 @@
  *     --settle <n>        sim seconds between landing and the window (default 4)
  *     --headless          run headless anyway (the cadence is then not trustworthy)
  *     --keep-open         leave the browser up at the end
+ *     --display k=v,…     apply `설정 › 화면 설정` before recording: `bloom` · `shadows` (0/1), `scale` (0.5…1).
+ *                         The composer passes and the shadow map are part of the render block, so this is how a run
+ *                         answers 「how much of `x:rendererRender` is the scene and how much is the post chain」.
  *     --out <path>        json path (default scripts/logs/perf/<label>.json)
  *
  * Scenarios follow the PERF_PLAN table: S1 idle · S2 60 bugs · S3a a burrow group in one frame · S3b the natural patrol
@@ -47,6 +50,18 @@ const PLANET = opt('--planet', 'tundra');   // threat 2, as PERF_PLAN's S1 asks 
 const SEED = Number(opt('--seed', '7001'));
 // A frame whose JS runs past one 60 Hz interval is a frame the player can lose — that is what gets an autopsy.
 const SPIKE_MS = Number(opt('--spike', '16.7'));
+/** `--display bloom=0,shadows=0,scale=0.75` → `{ bloom: false, shadows: false, scale: 0.75 }`, or null for 「leave it alone」. */
+const DISPLAY = (() => {
+  const raw = opt('--display', '');
+  if (!raw) return null;
+  const out = {};
+  for (const part of raw.split(',')) {
+    const [k, v] = part.split('=');
+    if (!k) continue;
+    out[k.trim()] = k.trim() === 'scale' ? Number(v) : !(v === '0' || v === 'false' || v === 'off');
+  }
+  return out;
+})();
 
 const CHROME = [
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
@@ -351,6 +366,17 @@ try {
     return window.__game.ctx.time - t0;
   });
   if (advanced < 0.3) throw new Error(`the page is not running frames (ctx.time advanced ${advanced.toFixed(2)}s in 1s) — is the window visible?`);
+
+  if (DISPLAY) {
+    // `main.ts` is the only place that owns the Engine, and it applies these off the bus — same path the menu uses.
+    await P((d) => {
+      const g = window.__game;
+      const cur = { bloom: g.isPostProcessing, shadows: g.hasShadows, scale: g.ctx.renderer.getPixelRatio() / (window.devicePixelRatio || 1) };
+      g.ctx.bus.emit('ui:displayChanged', { ...cur, ...d });
+    }, DISPLAY);
+    await new Promise((r) => setTimeout(r, 500));
+    console.log(`display override: ${JSON.stringify(DISPLAY)}`);
+  }
 
   console.log(`probe: ${await P(installProbe)}`);
   env = await P(() => {

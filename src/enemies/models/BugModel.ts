@@ -253,10 +253,14 @@ export function disposeBugAssets(): void {
 /* ────────────────────────────────────────────────────────────────────────────
  * Rig
  * ──────────────────────────────────────────────────────────────────────────── */
+/**
+ * One leg — **pose numbers only, no scene node**. 2026-09-20 (`docs/PERF_PLAN.md` Phase 1): the 6 legs used to be
+ * 6 × (hipYaw · hipPitch · knee groups + femur · tibia meshes) = 12 of a bug's 17 draw calls and 30 of its scene
+ * nodes, and bugs were 60 % of everything drawn in a raid. They are now two `InstancedMesh` of 6 instances each
+ * (`BugRig.femurs` · `tibias`), whose matrices `animateBug` composes from these numbers directly — the same
+ * `T(hip) · Ry(hipYaw) · Rz(hipPitch)` the group chain used to build, one multiply cheaper.
+ */
 export interface LegRig {
-  hipYaw: THREE.Group;
-  hipPitch: THREE.Group;
-  knee: THREE.Group;
   side: number;      // +1 left (+X), -1 right
   index: number;     // 0 front, 1 mid, 2 rear
   baseYaw: number;
@@ -281,6 +285,9 @@ export interface BugRig {
   /** artillery mortar pivot (tilted group holding the tube mesh) */
   mortar: THREE.Group | null;
   legs: LegRig[];
+  /** The 6 femurs / tibias, one `InstancedMesh` each — 2 draw calls for what used to be 12 (see `LegRig`). */
+  femurs: THREE.InstancedMesh;
+  tibias: THREE.InstancedMesh;
   chitin: THREE.MeshStandardMaterial;
   eyeMat: THREE.MeshStandardMaterial;
   acidMat: THREE.MeshStandardMaterial | null;
@@ -372,6 +379,42 @@ export function statusEmissive(mat: THREE.MeshStandardMaterial, a: BugAnim, flas
 
 const LEG_SPREAD = [0.55, 0.0, -0.55];
 
+/* ── leg instance matrices (see `LegRig`) — scratch objects, never allocated per frame ── */
+const _legPos = new THREE.Vector3();
+const _legEuler = new THREE.Euler(0, 0, 0, 'YZX');
+const _legQuat = new THREE.Quaternion();
+const _legScale = new THREE.Vector3(1, 1, 1);
+const _femurM = new THREE.Matrix4();
+const _kneeM = new THREE.Matrix4();
+const _tibiaM = new THREE.Matrix4();
+
+/**
+ * One leg's two instance matrices — exactly the chain the group hierarchy used to hold:
+ * `femur = T(hip) · Ry(hipYaw) · Rz(hipPitch)`, `tibia = femur · T(l1,0,0) · Rz(knee)`.
+ * Euler order `YZX` composes as `Ry · Rz · Rx` and the x term is always 0 here, so the quaternion is the same
+ * rotation the two nested groups produced. Matrices are in `rig.body` space, the instanced meshes' parent.
+ */
+function setLegMatrices(rig: BugRig, i: number, hipYaw: number, hipPitch: number, knee: number): void {
+  const L = rig.params.legs;
+  const leg = rig.legs[i];
+  _legPos.set(leg.side * L.spreadX, L.hipY, L.zs[leg.index]);
+  _legEuler.set(0, hipYaw, hipPitch);
+  _legQuat.setFromEuler(_legEuler);
+  _femurM.compose(_legPos, _legQuat, _legScale);
+  _kneeM.makeRotationZ(knee);
+  _kneeM.setPosition(L.l1, 0, 0);
+  _tibiaM.multiplyMatrices(_femurM, _kneeM);
+  rig.femurs.setMatrixAt(i, _femurM);
+  rig.tibias.setMatrixAt(i, _tibiaM);
+}
+
+/** All six legs in one pose — the rest stance a freshly built rig stands in until `animateBug` runs. */
+function writeLegMatrices(rig: BugRig, hipPitch: number, knee: number): void {
+  for (let i = 0; i < 6; i++) setLegMatrices(rig, i, rig.legs[i].baseYaw, hipPitch, knee);
+  rig.femurs.instanceMatrix.needsUpdate = true;
+  rig.tibias.instanceMatrix.needsUpdate = true;
+}
+
 export function createBugRig(type: BugType): BugRig {
   const p = BUG_PARAMS[type];
   const a = getAssets(type);
@@ -443,37 +486,46 @@ export function createBugRig(type: BugType): BugRig {
   const L = p.legs;
   const kneeHeight = L.hipY + L.l1 * Math.sin(L.femurUp);
   const tibiaDown = Math.asin(Math.min(0.98, kneeHeight / L.l2));
+  const restKnee = -(L.femurUp + tibiaDown);
   for (let i = 0; i < 3; i++) {
     for (const side of [1, -1]) {
-      const hipYaw = new THREE.Group();
-      hipYaw.position.set(side * L.spreadX, L.hipY, L.zs[i]);
-      const baseYaw = side > 0 ? -LEG_SPREAD[i] : Math.PI + LEG_SPREAD[i];
-      hipYaw.rotation.y = baseYaw;
-      const hipPitch = new THREE.Group();
-      hipPitch.rotation.z = L.femurUp;
-      const femur = new THREE.Mesh(a.femur, chitin);
-      femur.layers.enable(Layers.ENEMY);
-      hipPitch.add(femur);
-      const knee = new THREE.Group();
-      knee.position.set(L.l1, 0, 0);
-      const restKnee = -(L.femurUp + tibiaDown);
-      knee.rotation.z = restKnee;
-      const tibia = new THREE.Mesh(a.tibia, chitin);
-      tibia.layers.enable(Layers.ENEMY);
-      knee.add(tibia);
-      hipPitch.add(knee);
-      hipYaw.add(hipPitch);
-      body.add(hipYaw);
       // tripod gait: (L0, R1, L2) in phase, (R0, L1, R2) opposite
       const tripod = (i + (side > 0 ? 0 : 1)) % 2;
-      legs.push({ hipYaw, hipPitch, knee, side, index: i, baseYaw, restKnee, phase: tripod * Math.PI + i * 0.25 });
+      legs.push({
+        side, index: i,
+        baseYaw: side > 0 ? -LEG_SPREAD[i] : Math.PI + LEG_SPREAD[i],
+        restKnee, phase: tripod * Math.PI + i * 0.25,
+      });
     }
   }
+  const femurs = legInstances(a.femur, chitin, p);
+  const tibias = legInstances(a.tibia, chitin, p);
+  body.add(femurs, tibias);
 
-  return { kind: 'bug', type, params: p, baseScale: 1, root, body, bodyMesh, head, mandibleL, mandibleR, abdomen, mortar, legs, chitin, eyeMat, acidMat };
+  const rig: BugRig = { kind: 'bug', type, params: p, baseScale: 1, root, body, bodyMesh, head, mandibleL, mandibleR, abdomen, mortar, legs, femurs, tibias, chitin, eyeMat, acidMat };
+  writeLegMatrices(rig, L.femurUp, restKnee);   // a rig drawn before its first `animateBug` still stands on its legs
+  return rig;
+}
+
+/**
+ * One leg segment for all 6 legs. The instance matrices are rewritten every frame, so the bounding sphere three
+ * would compute once and cache is stale by construction — it gets a fixed one instead, centred on the hip band and
+ * wide enough for any pose, so the legs are culled together with the body they belong to instead of never.
+ */
+function legInstances(geo: THREE.BufferGeometry, mat: THREE.Material, p: BugParams): THREE.InstancedMesh {
+  const L = p.legs;
+  const m = new THREE.InstancedMesh(geo, mat, 6);
+  m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  m.castShadow = false;            // legs never cast — only `bodyMesh` does (one shadow per bug)
+  m.receiveShadow = false;
+  m.layers.enable(Layers.ENEMY);
+  const reach = L.spreadX + L.l1 + L.l2 + Math.max(Math.abs(L.zs[0]), Math.abs(L.zs[1]), Math.abs(L.zs[2]));
+  m.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, L.hipY, 0), reach);
+  return m;
 }
 
 export function disposeBugRig(rig: BugRig): void {
+  rig.femurs.dispose(); rig.tibias.dispose();   // the per-instance matrix buffers (geometry · material are shared)
   rig.chitin.dispose();
   rig.eyeMat.dispose();
   rig.acidMat?.dispose();
@@ -608,10 +660,10 @@ export function animateBug(rig: BugRig, a: BugAnim): void {
       hipPitch += curl * 1.0;
       knee -= curl * 1.5;
     }
-    leg.hipYaw.rotation.y = hipYaw;
-    leg.hipPitch.rotation.z = hipPitch;
-    leg.knee.rotation.z = knee;
+    setLegMatrices(rig, i, hipYaw, hipPitch, knee);
   }
+  rig.femurs.instanceMatrix.needsUpdate = true;
+  rig.tibias.instanceMatrix.needsUpdate = true;
 
   // ── hit flash / incinerate glow / shock spark ───────────────────────────
   statusEmissive(rig.chitin, a, 1, 0.55, 0.3, 1.2);

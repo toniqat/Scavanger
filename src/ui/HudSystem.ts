@@ -1,5 +1,6 @@
 import type { CharBuff, GameContext, GameSystem, KeybindLoadReport, KeyGuideEntry, LobbyState, PeerId, RemotePlayerRef, SocialSnapshot, SquadInvite } from '@/shared';
 import { el, toggleClass } from './dom';
+import { bindHudViewport } from './hud/viewport';
 /* 2026-09-13 (extraction rework): how long the combat HUD takes to fade during the liftoff cinematic */
 import { EXTRACTION_HUD_FADE_S } from '@/shared';
 import { Reticle } from './hud/Reticle';
@@ -282,6 +283,8 @@ export class HudSystem implements GameSystem {
 
   init(ctx: GameContext): void {
     this.ctx = ctx;
+    // The screen size every projecting widget reads — measured here and on `resize`, never inside a frame (`hud/viewport.ts`).
+    this.unsubs.push(bindHudViewport(ctx.uiRoot));
     // Layer order: full-screen overlays (vignette, scope) → gameplay HUD → social HUD → deploy overlay → map → menus.
     this.overlayRoot = el('div', { cls: 'hud', parent: ctx.uiRoot });
     this.damage = new DamageOverlay(this.overlayRoot);

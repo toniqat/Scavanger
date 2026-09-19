@@ -2280,3 +2280,14 @@ export const TUTORIAL_RAID_EXTRACT_VALUE_C = K.num('TUTORIAL_RAID_EXTRACT_VALUE_
 export const MESSENGER_DOT_POP_S = K.num('MESSENGER_DOT_POP_S');
 /** Height (px) of that first peak. */
 export const MESSENGER_DOT_POP_PX = K.num('MESSENGER_DOT_POP_PX');
+
+/* ── 2026-09-20 enemy animation LOD (owner: enemies — `EnemySystem.update` → `Enemy.animate`) ── */
+/**
+ * Beyond this distance (m) from the camera a living enemy's **pose** is recomputed every other frame, and beyond
+ * `ENEMY_ANIM_LOD_FREEZE_M` not at all. Only the joints stop: position, facing and movement keep running every
+ * frame, and a body that is flashing from a hit, burning, shocked or dead is animated at any distance — those are
+ * the frames a sniper reads at 100 m. `docs/PERF_PLAN.md` Phase 1, user's decision 「40 m 절반 · 80 m 정지」.
+ */
+export const ENEMY_ANIM_LOD_HALF_M = K.num('ENEMY_ANIM_LOD_HALF_M');
+/** Beyond this distance (m) a living enemy's pose is not recomputed at all — see `ENEMY_ANIM_LOD_HALF_M`. */
+export const ENEMY_ANIM_LOD_FREEZE_M = K.num('ENEMY_ANIM_LOD_FREEZE_M');

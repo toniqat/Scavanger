@@ -198,6 +198,10 @@ frame plus a `BUFF_TICK_S` tick, and a new array + revision go out only when `sa
 
 ## Rules
 
+- A soldier body casts shadows from its **torso · head · limb segments** only, and its occlusion silhouette is
+  **torso + head** (3 meshes, not 43). Armour plates and held items (`GearLook`) cast nothing — their shadow fell
+  inside the body's. A new body part opts in with `core()` / `shadowed()` in the constructor; anything else is a
+  visible mesh and nothing more. (2026-09-20, user's decision — `docs/PERF_PLAN.md` Phase 1.) — `SoldierModel.ts`
 - Never change the scene light count: hellpod lights live on `group` (always visible), meshes on `body`; remote pods are pre-built. — `Hellpod.ts`, `RemotePods.ts`
 - Resolve the walkable surface (`getSurfaceY`) before `resolveCollision`, and apply slope limits only when the feet are on terrain. — `PlayerController.ts`
 - World ceiling clamp uses `BOX_HEADROOM`, not `PLAYER_HEIGHT`, and runs before `resolveCollision` while rising. — `PlayerController.ts` (`clampWorldCeiling`)
@@ -229,8 +233,8 @@ frame plus a `BUFF_TICK_S` tick, and a new array + revision go out only when `sa
 ## Recent changes
 
 Last 5 only — older: `git log -- src/player`.
+- 2026-09-20 — A soldier body draws far less: shadows from the torso · head · limb segments only (13–17 meshes, was 43–65), the occlusion silhouette from the torso + head (3, was 43), and `GearLook` armour plates / held items cast nothing. An android goes 182 draws → ~70 (`SoldierModel.core` / `shadowed`, `GearLook.finish`; user's decision, `docs/PERF_PLAN.md` Phase 1).
 - 2026-09-19 — Audit B-47…B-50: stale comments corrected (`rescueRevive` now gates on `usesHellpod`), dead code / imports dropped (`wasGrounded`, `RigInput.stridePhase`, 578 unused import entries in 8 files), stale-avatar sweeps count the avatars actually drawn, terms unified (armor, stride count).
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-17 — `gaming` char buff also for a standing video-game session (`housing.gameSession.seatUid` null, no furniture pose) — `parts/Buffs.ts`.
 - 2026-09-17 — No occlusion silhouette for bodies leaving in the extraction ship: local `ExtractionRef.riding`, remote / android bodies `inLeavingShip` (`RemoteAvatar.ts`).
-- 2026-09-16 — Tutorial revive starts already downed (`SoldierModel.snapDowned`), then stands up.

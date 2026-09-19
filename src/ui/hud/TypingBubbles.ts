@@ -3,6 +3,7 @@ import type { GameContext, PeerId, RemotePlayerRef } from '@/shared';
 import { PlayerFlags } from '@/shared';
 import { el } from '../dom';
 import { isPeerBlocked } from '../menus/social/socialSource';
+import { hudViewport } from './viewport';
 
 /** Metres above the avatar head — Nameplates sits at 0.35, the bubble rides 0.35 m higher so the two never overlap. */
 const HEAD_OFFSET = 0.35 + 0.35;
@@ -65,7 +66,7 @@ export class TypingBubbles {
     if (!debug && (!net || !(ctx.isMultiplayer || hub))) { if (this.bubbles.size) this.clear(); return; }
     const cam = ctx.camera;
     cam.getWorldPosition(this.camPos);
-    const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
+    const { w, h } = hudViewport;
     for (let pass = 0; pass < 2; pass++) {
       const refs = pass === 0 ? (net?.getRemotePlayers() ?? EMPTY) : (debug ?? EMPTY);
       for (const ref of refs) this.place(ctx, ref, cam, w, h);

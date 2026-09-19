@@ -4,6 +4,7 @@ import { NET_SLOT_COLORS_CSS, PLAYER_DOWN_HP, PLAYER_HEIGHT, PlayerFlags, SUSPEN
 import { el, rarityColor, setText, toggleClass } from '../dom';
 /* 2026-09-15 (android squadmates): the same plate goes over android bodies visible in a raid */
 import { allyBodies } from './allySource';
+import { hudViewport } from './viewport';
 
 const HEAD_OFFSET = 0.35;   // metres above the avatar head
 const MAX_DIST = 150;       // hidden beyond this
@@ -87,7 +88,7 @@ export class Nameplates {
     if (!debug && allies.length === 0 && (!net || !(ctx.isMultiplayer || hub))) { if (this.plates.size) this.clear(); return; }
     const cam = ctx.camera;
     cam.getWorldPosition(this.camPos);
-    const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
+    const { w, h } = hudViewport;
 
     this.seenAllies.clear();
     for (const body of allies) { this.seenAllies.add(body.id); this.placeAlly(ctx, body, cam, w, h); }

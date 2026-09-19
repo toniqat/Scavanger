@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { GameContext } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
+import { hudViewport } from './viewport';
 
 interface Marker {
   el: HTMLElement;
@@ -87,7 +88,7 @@ export class WorldMarkers {
   lateUpdate(ctx: GameContext): void {
     const cam = ctx.camera;
     const player = ctx.player;
-    const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
+    const { w, h } = hudViewport;
     const fog = ctx.world?.fog ?? null;
     for (const [id, m] of this.markers) {
       // The ship stands on the active pad: its diamond would float right over the ramp — hide it once landed.

@@ -117,7 +117,21 @@ export class EnemyXray {
     for (let i = 0; i < bodies.length; i++) {
       const m = bodies[i];
       m.renderOrder = BODY_ORDER;
-      const sil = new THREE.Mesh(m.geometry, this.mat);
+      /*
+       * 2026-09-20: a bug's 6 legs are two `InstancedMesh` (`models/BugModel`), so the overlay of one has to be
+       * instanced too — and it **shares the source's `instanceMatrix`**, the very buffer `animateBug` writes each
+       * frame. A plain `Mesh` clone would draw one leg at the body origin.
+       */
+      const src = m as THREE.InstancedMesh;
+      let sil: THREE.Mesh;
+      if (src.isInstancedMesh) {
+        const inst = new THREE.InstancedMesh(src.geometry, this.mat, src.count);
+        inst.instanceMatrix = src.instanceMatrix;
+        inst.boundingSphere = src.boundingSphere;
+        sil = inst;
+      } else {
+        sil = new THREE.Mesh(m.geometry, this.mat);
+      }
       sil.name = 'xray';
       sil.castShadow = false; sil.receiveShadow = false;
       sil.renderOrder = XRAY_ORDER;

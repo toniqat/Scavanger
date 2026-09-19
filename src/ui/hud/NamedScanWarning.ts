@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { GameContext } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
 import '../styles/named.css';
+import { hudViewport } from './viewport';
 
 /** How many scope glints are tracked at once — at most one named per raid, so this is slack. */
 const MAX_GLINTS = 3;
@@ -200,7 +201,7 @@ export class NamedScanWarning {
     if (active === this.off) { this.off = !active; toggleClass(this.root, 'off', this.off); }
     if (!active) { this.hideGlints(); return; }
 
-    const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
+    const { w, h } = hudViewport;
     if (w <= 0 || h <= 0) return;
     const cam = ctx.camera;
     cam.getWorldDirection(this.camF);

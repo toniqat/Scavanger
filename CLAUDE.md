@@ -28,7 +28,7 @@ The relay server keeps a per-token **profile store** (credits · meta · stash �
 | **When / what / why something changed** | `git log` — **commit messages are the source** (`git log -- src/<folder>`, `git log --grep '<keyword>'`) |
 | **Work to do** | [docs/TODO.md](docs/TODO.md) (Korean) — to-do only; an intended limit lives in the owning folder's `README.md` |
 | Completed phases | [docs/HISTORY.md](docs/HISTORY.md) |
-| **Frame hitches with many bodies** | [docs/PERF_PLAN.md](docs/PERF_PLAN.md) — **Phase 0 measured 2026-09-19** (results table · measured verdict per finding · re-ranked phases · questions for the user). Harness: `node scripts/perf-measure.mjs` |
+| **Frame hitches with many bodies** | [docs/PERF_PLAN.md](docs/PERF_PLAN.md) — **Phase 0 measured 2026-09-19, Phases 1 · 2 built and re-measured 2026-09-20** (the A/B refuted 「draw calls are the frame」: −31 % draws, no change in the render block — it is GPU time). Harness: `node scripts/perf-measure.mjs` (`--display` splits the render block) |
 | **Which folder's comments are still Korean** (§4.1 migration, in progress) | [docs/COMMENT_I18N_PLAN.md](docs/COMMENT_I18N_PLAN.md) — folder queue with counts · per-folder method and verification cost · the measuring script. Delete the file when the queue empties |
 | What the user chose and what was rejected | [docs/DECISIONS.md](docs/DECISIONS.md) |
 | **Investor / publisher wiki** (HTML, no build, public at **https://toniqat.github.io/Scavanger/**) | [docs/pitch/README.md](docs/pitch/README.md) → `docs/pitch/index.html`; page order · file numbers · section numbers come from `TREE` in `docs/pitch/app.js`; `node scripts/smoke-pitch.mjs` catches breakage |
@@ -178,6 +178,7 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - **Tab is the universal close key** (consume `Keys.INVENTORY`); open screens publish `ui:keyGuide {owner, keys}` and the guide appends `닫기` itself in its own panel right of the screen's keys (`.kg-panel-close`) — `src/ui/hud/KeyGuide.ts`.
 - Irreversible confirms need a 1 s hold (`UI_HOLD_CONFIRM_S`); Enter never confirms; Escape cancels; initial focus `취소`. With nothing to lose (in the ship) title/quit use a tap (`tap` in `src/ui/menus/PauseMenu.ts`).
 - Pause menu position is fixed (left half, `.menu.pause`); settings are centred. Hidden `.menu` has `pointer-events: none` so fading screens never eat clicks (`src/ui/styles/base.css`).
+- **No layout read inside a frame.** A HUD widget that needs the screen size reads `hudViewport` (`ui/hud/viewport.ts`, measured on `resize`); `clientWidth` / `clientHeight` / `getBoundingClientRect` on a per-frame path forces a full UI layout.
 - Held keys show a chevron via `.keycap.kc-hold`; every keycap goes through `src/shared/keycap.ts` (`paintKeycap`, text tokens `{ACTION}` / `{ACTION:hold}`; rebind-independent inventory gestures use the fixed tokens `{MOUSE_LEFT}` / `{DOUBLE_CLICK}` — `KEYCAP_FIXED_TOKENS`).
 - Rewards are **currencies** (`data/currencies.csv`, `shared/currency.ts`, `buildCurrencyChip`), never fake item defs.
 - Toasts are owned by `src/ui` only; other folders emit events. Right-side toasts start below the tutorial control panel while it shows (`ui/hud/Notifications.update`, DOM `.tut-controls`). NPC messenger arrivals never toast — the messenger button's red dot pops (`ui/hud/Community`).
@@ -240,6 +241,7 @@ Each rule is the short form; the reason lives in the comment at the pointed code
 - Every scene keeps `SCENE_POINT_LIGHT_BUDGET` via `core/LightBudget.ts`; hub/structures light only the nearest slots (`HUB_POINT_LIGHTS`, `STRUCTURE_POINT_LIGHTS`, `shared/lightPool.ts`). Raid budget has zero spare lights.
 - New scenes compile before drawing, and compilation goes only through `ctx.shaders` (`core/ShaderWarmup.ts`) — the program key depends on the bound render target.
 - Face portraits come from `PlayerRef.snapshotFace` (one lazily created offscreen renderer, cached PNGs, null without a second GL context) with framing in `shared/faceFraming.ts`, shared with character creation — never a canvas per tile (`player/FaceSnapshot.ts`).
+- **Bodies keep their draw count down by policy**: a bug's 6 legs are two `InstancedMesh` whose matrices `animateBug` composes (`enemies/models/BugModel`), a soldier casts shadows from torso · head · limb segments and silhouettes torso + head only (`player/SoldierModel.core` / `shadowed`), and `GearLook` plates / held items cast none. Anything that clones a rig's meshes into an overlay must handle `isInstancedMesh` (`enemies/fx/Xray`).
 - Light pillars only on corpses (`ui/hud/pillar.pillarAllowed`); opened containers show an opened model synced by `crate opened` / `crate sync`.
 
 ### 4.6 Combat · enemies

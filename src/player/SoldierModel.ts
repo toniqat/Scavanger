@@ -306,7 +306,19 @@ export class SoldierModel {
    */
   private readonly materials: THREE.Material[] = [];
   private readonly bodyGroup = new THREE.Group();
-  /** Occlusion silhouette: one child mesh per body mesh sharing its geometry (see SIL_ORDER). */
+  /**
+   * 2026-09-20 (`docs/PERF_PLAN.md` Phase 1, user's decision): the body meshes that **cast a shadow**, and the ones
+   * that get an **occlusion silhouette** — no longer all 43 of them.
+   *
+   * A soldier used to cost 43 shadow draws and 43 silhouette draws on top of its 43 visible meshes (an android, with
+   * its gun and armour, measured 182 draw calls), and at ~4 us of CPU per draw call the render block **is** the frame.
+   * Shadows now come from the torso · head · limb segments — a small plate's own shadow fell inside the body's anyway
+   * — and the silhouette is the torso + head only: it exists to say 「a body is behind that wall」, and three boxes say
+   * it. Both sets are filled while the parts are built, because afterwards the tree is 43 anonymous meshes.
+   */
+  private shadowParts: Set<THREE.Mesh> | null = new Set();
+  private silParts: Set<THREE.Mesh> | null = new Set();
+  /** Occlusion silhouette: one child mesh per silhouetted body mesh, sharing its geometry (see SIL_ORDER). */
   private readonly silMeshes: THREE.Mesh[] = [];
   private readonly silMat: THREE.MeshBasicMaterial;
   private silhouetteOn = false;
@@ -358,12 +370,12 @@ export class SoldierModel {
     this.hips.position.y = this.hipsBaseY;
 
     // pelvis
-    this.hips.add(this.box(0.34, 0.2, 0.24, mArmor, 0, -0.06, 0));
+    this.hips.add(this.core(this.box(0.34, 0.2, 0.24, mArmor, 0, -0.06, 0)));
     this.hips.add(this.box(0.36, 0.06, 0.26, mAccent, 0, 0.02, 0)); // belt
 
     // torso
     this.hips.add(this.torso);
-    this.chestMesh = this.box(0.44, 0.5, 0.28, mArmor, 0, 0.33, 0);
+    this.chestMesh = this.core(this.box(0.44, 0.5, 0.28, mArmor, 0, 0.33, 0));
     this.torso.add(this.chestMesh);
     this.torso.add(this.box(0.3, 0.32, 0.06, mSteel, 0, 0.36, -0.15));        // chest plate
     this.torso.add(this.box(0.08, 0.26, 0.02, mAccent, -0.1, 0.36, -0.185));  // yellow stripe
@@ -383,7 +395,7 @@ export class SoldierModel {
     this.headPivot.position.set(0, 0.58, 0);
     this.torso.add(this.headPivot);
     this.headPivot.add(this.cyl(0.07, 0.08, 0.08, mDark, 0, 0.04, 0));          // neck
-    const helmet = this.sphere(0.145, mArmor, 0, 0.17, 0);
+    const helmet = this.core(this.sphere(0.145, mArmor, 0, 0.17, 0));
     helmet.scale.set(1, 1.08, 1.05);
     this.headPivot.add(helmet);
     const crest = this.box(0.2, 0.06, 0.1, mAccent, 0, 0.29, -0.04);              // crest
@@ -459,7 +471,7 @@ export class SoldierModel {
       const len = 0.3;
       const plane = new THREE.Mesh(sharedGeo(`plane:${w}|${len}`, () => new THREE.PlaneGeometry(w, len)), mCape);
       plane.position.y = -len / 2;
-      plane.castShadow = true;
+      plane.castShadow = false;   // the cape hangs against the back; its shadow fell inside the torso's (2026-09-20)
       plane.receiveShadow = false;
       seg.add(plane);
       if (i === 3) seg.add(this.box(w, 0.04, 0.01, mAccent, 0, -len + 0.02, 0)); // yellow hem
@@ -469,9 +481,9 @@ export class SoldierModel {
       y = -len;
     }
 
-    const bodyMeshes: THREE.Mesh[] = [];
+    const shadowSet = this.shadowParts;
     this.root.traverse((o) => {
-      if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; o.renderOrder = BODY_ORDER; bodyMeshes.push(o as THREE.Mesh); }
+      if ((o as THREE.Mesh).isMesh) { o.castShadow = shadowSet!.has(o as THREE.Mesh); o.receiveShadow = true; o.renderOrder = BODY_ORDER; }
     });
 
     // ── occlusion silhouette: flat, opaque, drawn only where something already in the depth buffer is in
@@ -480,7 +492,7 @@ export class SoldierModel {
     _silColor.setHex(accentColor !== ACCENT ? accentColor : 0x000000);
     if (accentColor !== ACCENT) _silColor.multiplyScalar(0.16);
     this.silMat = sharedSilMat(_silColor.getHex());   // shared per colour — not in `materials`, never disposed here
-    for (const m of bodyMeshes) {
+    for (const m of this.silParts!) {
       const sil = new THREE.Mesh(m.geometry, this.silMat);   // child → inherits the part transform (incl. scale)
       sil.name = 'sil';
       sil.castShadow = false; sil.receiveShadow = false;
@@ -491,7 +503,13 @@ export class SoldierModel {
       this.silMeshes.push(sil);
     }
     for (const m of this.materials) this.baseColors.push(m === this.silMat ? -1 : (m as THREE.MeshStandardMaterial).color?.getHex() ?? -1);
+    this.shadowParts = null; this.silParts = null;   // construction-only bookkeeping
   }
+
+  /** Torso · head core part: casts a shadow **and** carries an occlusion silhouette. */
+  private core<T extends THREE.Mesh>(mesh: T): T { this.shadowParts!.add(mesh); this.silParts!.add(mesh); return mesh; }
+  /** Limb segment: casts a shadow, no silhouette of its own. */
+  private shadowed<T extends THREE.Mesh>(mesh: T): T { this.shadowParts!.add(mesh); return mesh; }
 
   /* ─────────────── Phase 7: gear look / glow / grey ─────────────── */
   /**
@@ -659,10 +677,10 @@ export class SoldierModel {
   private makeArm(side: number, mArmor: THREE.Material, mSteel: THREE.Material, mDark: THREE.Material): Limb {
     const upper = new THREE.Object3D();
     upper.position.set(side * 0.29, 0.5, 0);
-    upper.add(this.capsule(0.065, 0.2, mArmor, 0, -0.15, 0));
+    upper.add(this.shadowed(this.capsule(0.065, 0.2, mArmor, 0, -0.15, 0)));
     const lower = new THREE.Object3D();
     lower.position.set(0, -0.3, 0);
-    lower.add(this.capsule(0.055, 0.18, mDark, 0, -0.13, 0));
+    lower.add(this.shadowed(this.capsule(0.055, 0.18, mDark, 0, -0.13, 0)));
     lower.add(this.box(0.11, 0.12, 0.12, mSteel, 0, -0.1, 0)); // bracer
     lower.add(this.box(0.08, 0.08, 0.09, mDark, 0, -0.29, 0));  // glove
     upper.add(lower);
@@ -673,13 +691,13 @@ export class SoldierModel {
   private makeLeg(side: number, mArmor: THREE.Material, mSteel: THREE.Material, mDark: THREE.Material, mAccent: THREE.Material): Limb {
     const upper = new THREE.Object3D();
     upper.position.set(side * 0.11, -0.05, 0);
-    upper.add(this.capsule(0.085, 0.3, mArmor, 0, -0.22, 0));
+    upper.add(this.shadowed(this.capsule(0.085, 0.3, mArmor, 0, -0.22, 0)));
     upper.add(this.box(0.12, 0.2, 0.08, mSteel, 0, -0.25, -0.08)); // thigh plate
     const lower = new THREE.Object3D();
     lower.position.set(0, -0.47, 0);
-    lower.add(this.capsule(0.07, 0.28, mDark, 0, -0.2, 0));
+    lower.add(this.shadowed(this.capsule(0.07, 0.28, mDark, 0, -0.2, 0)));
     lower.add(this.box(0.12, 0.26, 0.08, mSteel, 0, -0.2, -0.07)); // shin guard
-    lower.add(this.box(0.14, 0.12, 0.3, mDark, 0, -0.4, -0.05));   // boot
+    lower.add(this.shadowed(this.box(0.14, 0.12, 0.3, mDark, 0, -0.4, -0.05)));   // boot — it meets the ground, so it keeps its shadow
     lower.add(this.box(0.15, 0.03, 0.31, mAccent, 0, -0.35, -0.05)); // boot trim
     upper.add(lower);
     this.hips.add(upper);

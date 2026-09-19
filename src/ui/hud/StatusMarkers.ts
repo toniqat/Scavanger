@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { GameContext } from '@/shared';
 import { el, toggleClass } from '../dom';
+import { hudViewport } from './viewport';
 
 type StatusKind = 'burn' | 'shock';
 
@@ -81,7 +82,7 @@ export class StatusMarkers {
 
   lateUpdate(ctx: GameContext): void {
     const cam = ctx.camera;
-    const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
+    const { w, h } = hudViewport;
     const now = ctx.time;
     for (const s of this.slots) {
       if (!s.kind) continue;

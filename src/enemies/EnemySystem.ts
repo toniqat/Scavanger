@@ -3,7 +3,7 @@ import type { RogueShotOpts } from './Enemy';
 import {
   BEHEMOTH_KNOCKBACK, BURNOUT_DURATION, CORPSE_LAND_TIMEOUT, CORPSE_LIFETIME, ENEMY_DEATH_DIRS, ENEMY_SHOT_ALERT_DIST, ENEMY_SHOT_IMPACT_DIST, ENEMY_STATUS_BITS, FLAME_AFTERBURN_DPS, FLAME_AFTERBURN_DURATION, GADGET_LURE_RADIUS, MAP_SIZE,
   NET_ENEMY_SNAPSHOT_HZ, PLAYER_HEIGHT, PLAYER_RADIUS, ROGUE_DAMAGE, ROGUE_GRENADE_DAMAGE, ROGUE_GRENADE_FUSE, ROGUE_GRENADE_RADIUS, ROGUE_MAG_ROUNDS, ROGUE_RANGE,
-  SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet, planetThreat,
+  ENEMY_ANIM_LOD_FREEZE_M, ENEMY_ANIM_LOD_HALF_M, SHELL_BLAST_RADIUS, SHELL_DAMAGE, SHELL_FLIGHT_TIME, SHOCK_SLOW_DURATION, SHOCK_SLOW_FACTOR, TOXIC_DAMAGE, TOXIC_RADIUS, getPlanet, planetThreat,
   type DamageMessage, type EnemyDeathDir, type EnemyEvent, type EnemyFaction, type EnemyHit, type EnemyManagerRef, type EnemyRef, type EnemySnapshot, type EnemyStatusKind, type EnemyType, type GameContext, type GameSystem,
   type HitRequest, type InterceptableRef, type PeerId, type PlanetEcosystem, type ShotReport, type Vec3Tuple, type WorldRef,
   /* appended (2026-09-09): the rogue drop contract */
@@ -166,6 +166,13 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
   readonly lures = new LureField();
   /** ctx.time when the spatial grid was last rebuilt (so `queryNear` knows it can trust it). */
   private gridTime = -1;
+  /**
+   * 2026-09-20 (`docs/PERF_PLAN.md` Phase 1): the camera position, read **once per frame** for the animation LOD —
+   * and the frame counter that staggers the half-rate band, so half the far bodies animate on one frame and the
+   * other half on the next instead of every one of them stuttering together.
+   */
+  private readonly camPos = new THREE.Vector3();
+  private animFrame = 0;
   nextId = 1;
   nextShellId = 1;
   private paused = false;
@@ -517,6 +524,11 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     // 2026-09-16 (2nd pass): emptied corpses — the lifetime is cut once nobody is looking, and held while my own window is open (`parts/CorpseEmpty`)
     CorpseEmpty.updateEmptyCorpses(this);
     const slack = this.authority ? 0 : 1;   // replicas: the host's despawn normally arrives first
+    // Animation LOD (2026-09-20): one camera read for the whole list — legs are ~10 cm on screen at 60 m.
+    this.camPos.setFromMatrixPosition(ctx.camera.matrixWorld);
+    const halfD2 = ENEMY_ANIM_LOD_HALF_M * ENEMY_ANIM_LOD_HALF_M;
+    const freezeD2 = ENEMY_ANIM_LOD_FREEZE_M * ENEMY_ANIM_LOD_FREEZE_M;
+    const odd = (this.animFrame = (this.animFrame + 1) & 1);
     for (let i = this.active.length - 1; i >= 0; i--) {
       const e = this.active[i];
       // 2026-09-11 (C-18): a corpse on the tram travels with it (on the authority and a replica alike) — the search spot (`corpse:<id>`) follows the body too
@@ -525,7 +537,7 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
         if (c) c.position.copy(e.position);
         if (e.deathLanded) e.corpseDropped = false;
       }
-      e.animate(dt);
+      e.animate(dt, this.poseSkip(e, halfD2, freezeD2, (i & 1) === odd));
       // 2026-09-17: a corpse that has begun to sink cannot be searched any more (an emptied one and one at the end of its lifetime alike — `anim.fade` > 0 means sinking)
       if (e.state === 'dead') { const c = this.corpses.get(e.id); if (c) c.sinking = e.anim.fade > 0; }
       // Phase 10: a mid-air kill registers its corpse once the body has come to rest (or after CORPSE_LAND_TIMEOUT)
@@ -536,6 +548,22 @@ export class EnemySystem implements GameSystem, EnemyManagerRef, EnemyHost, Spaw
     this.corpses.update(dt);
     this.fx?.update(dt, world);
     this.burrowFx?.update(ctx.time, dt);   // 2026-09-13
+  }
+
+  /**
+   * Whether this body's **pose** may be left alone this frame (`data/constants.csv` `ENEMY_ANIM_LOD_*`). Its
+   * position and facing are updated either way — only the joints stop.
+   *
+   * A body that is flashing from a hit, burning, shocked or dead is never skipped: those frames are the feedback a
+   * player reads through a scope at 100 m, and there are only ever a handful of them at once.
+   */
+  private poseSkip(e: Enemy, halfD2: number, freezeD2: number, offFrame: boolean): boolean {
+    const a = e.anim;
+    if (e.state === 'dead' || a.hitFlash > 0.001 || a.writhe > 0.001 || a.spark > 0.001 || a.flip > 0.001) return false;
+    const dx = e.position.x - this.camPos.x, dy = e.position.y - this.camPos.y, dz = e.position.z - this.camPos.z;
+    const d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > freezeD2) return true;
+    return d2 > halfD2 && offFrame;
   }
 
   dispose(): void {

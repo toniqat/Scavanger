@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { GameContext, DeployableKind } from '@/shared';
 import { GADGET_MINE_RADIUS } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
+import { hudViewport } from './viewport';
 
 const MAX_MARKERS = 12;
 const MAX_RINGS = 6;            // pooled danger rings (mines)
@@ -149,7 +150,7 @@ export class Deployables {
       return;
     }
     const cam = ctx.camera;
-    const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
+    const { w, h } = hudViewport;
     const from = ctx.player?.position;
     let used = 0;
     let ringUsed = 0;

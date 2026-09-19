@@ -4,6 +4,7 @@ import { DANGER_NEAR_RADIUS, DETECT_ENEMY_BASE_RADIUS, FIRE_ZONE_DANGER_RANGE, R
 import { el, setText, toggleClass } from '../dom';
 import { STRATAGEM_COLOR, STRATAGEM_GLYPH, stratagemDef } from './stratagemGlyphs';
 import '../styles/danger.css';
+import { hudViewport } from './viewport';
 
 /** Pooled indicators (heads and arcs alike) — two mortars, a squad's grenades and a couple of calls fit. */
 const MAX = 10;
@@ -362,7 +363,7 @@ export class DangerIndicators {
     const active = ctx.isGameplayPhase() && !!player && !player.isDead
       && !ctx.uiBlockers.has('menu') && !ctx.uiBlockers.has('map');
     if (!active) { if (this.shown) this.hideAll(); return; }
-    const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
+    const { w, h } = hudViewport;
     if (w <= 0 || h <= 0) return;
 
     this.collect(ctx, player!.position);

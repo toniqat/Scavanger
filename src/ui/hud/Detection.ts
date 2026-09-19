@@ -7,6 +7,7 @@ import {
 import { el } from '../dom';
 import { makePillarGeometry, makePillarMaterial, pillarAllowed } from './pillar';
 import type { ScanTracker } from './ScanTracker';
+import { hudViewport } from './viewport';
 
 const MAX_SHELLS = 24;          // pooled light pillars (interactables in range)
 const MAX_ARROWS = 6;           // pooled off-screen enemy arrows
@@ -244,7 +245,7 @@ export class Detection {
   private placeArrows(ctx: GameContext, from: THREE.Vector3): void {
     this.gatherCandidates(ctx);
     const cam = ctx.camera;
-    const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
+    const { w, h } = hudViewport;
     const cx = w / 2, cy = h / 2;
     const rx = w * ARROW_RX, ry = h * ARROW_RY;
     const radius = this.enemyRadius(ctx);

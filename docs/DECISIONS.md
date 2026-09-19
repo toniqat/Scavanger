@@ -975,3 +975,25 @@ everything else was prose brought back in line with code that already existed.
 - **The harness is committed** (`scripts/perf-measure.mjs`), because every later phase is judged by re-running it with
   the same options. It asserts nothing, so `verify` never picks it.
 - **Scope: S1–S4 this session.** S5 (relay, two humans) was left out, which is why C1 · C3 · A6 stay unmeasured.
+
+## 2026-09-20 — 그리는 양 줄이기 · Cutting what gets drawn (PERF_PLAN Phase 1 · 2)
+
+- **Soldier / android shadows come from the torso, head and limbs only.** Every one of the 43 body meshes used to
+  cast (65 on an android). Small plates, trim, the cape, armour plates and held items lose their own shadow, which
+  fell inside the body's anyway; the boot keeps one because it is what meets the ground. *Rejected*: torso only (the
+  cheapest, but the limbs' shadow is what makes a body read as walking); a distance LOD that keeps all 43 up close
+  (correct, but it is a second system to maintain for a shadow nobody looks at).
+- **The occlusion silhouette is the torso + head (3 meshes), not a clone of all 43.** It exists to say 「a body is
+  behind that wall」. *Rejected*: turning it off past a distance (the silhouette matters **most** at a distance);
+  merging the 43 into one geometry (~the same result, far more code, and it has to be rebuilt when a part moves).
+- **Enemy animation LOD: half rate past 40 m, frozen past 80 m** (`ENEMY_ANIM_LOD_HALF_M` · `_FREEZE_M` in
+  `data/constants.csv`). Only the joints stop — position, facing and every timer keep running — and a body that is
+  dead, flashing from a hit, burning, shocked or flipped is animated at any distance, because those frames are the
+  feedback a player reads through a scope. *Rejected*: 25 m / 50 m (more saving, but a mid-range firefight is exactly
+  where legs stop moving); no LOD at all.
+- **Bloom stays optional, and it already was** — `설정 › 화면 설정 › 화면 효과`, plus the perf guard's automatic
+  off (`BLOOM_AUTO_OFF_TOAST`). The plan's fourth question turned out to be already answered in the code; nothing was
+  built for it.
+- **One owner for the HUD's screen size** (`ui/hud/viewport.ts`, measured on `resize`). *Rejected*: reading it once
+  per frame at the top of `HudSystem.lateUpdate` and passing it down — still one forced layout inside the frame, and
+  it leaves the trap open for the next widget.

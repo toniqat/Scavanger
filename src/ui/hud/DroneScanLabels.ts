@@ -4,6 +4,7 @@ import {
   type DroneScanResult, type GameContext,
 } from '@/shared';
 import { el, setText, toggleClass } from '../dom';
+import { hudViewport } from './viewport';
 
 interface Label {
   res: DroneScanResult;
@@ -64,7 +65,7 @@ export class DroneScanLabels {
     if (this.labels.size === 0) return;
     const cam = ctx.camera;
     _cam.setFromMatrixPosition(cam.matrixWorld);
-    const w = ctx.uiRoot.clientWidth, h = ctx.uiRoot.clientHeight;
+    const { w, h } = hudViewport;
     const maxD = Math.max(1, DRONE_SCAN_LABEL_MAX_DIST);
     for (const l of this.labels.values()) {
       const p = l.res.position;
