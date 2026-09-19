@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Random, crateLootRandom, markRaidFound } from '@/shared';
+import { crateLootRandom, markRaidFound } from '@/shared';
 /* appended (2026-09-16): the epic-plus drop-rate gate — the locked room exception */
 import type { CrateLootOpts } from '@/shared';
 import type { ContainerTakenWire, ItemInstance, LootRef, PlanetId } from '@/shared';

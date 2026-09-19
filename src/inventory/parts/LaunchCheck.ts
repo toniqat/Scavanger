@@ -1,20 +1,20 @@
 /**
  * src/inventory/parts/LaunchCheck.ts — **the launch readiness check** (2026-09-08).
  *
- * A read-only check `hub/` calls right before boarding a launch pod. It sweeps nine items and gives each one's reason
- * as two Korean lines (`text` headline + `detail`). It changes nothing and blocks nothing — the popup is a warning.
+ * A read-only check `hub/` calls right before boarding a launch pod. It sweeps every `LaunchWarningId` and gives each
+ * one's reason as two Korean lines (`text` headline + `detail`). It changes nothing and blocks nothing — the popup is a warning.
  * The order is exactly the `LaunchWarningId` enum order (a contract rule — the popup always reads in the same order).
  *
  *   1. **No primary** — 주무기 I · II are both empty (a secondary alone does not pass).
  *   2. **Low ammo** — for each calibre of the equipped weapons, held when the total rounds held are under **one set**
- *      (one grid cell of that calibre's stack, `AMMO_STACK_ROUNDS` — 25 rounds for heavy ammo). Total rounds = the ammo
- *      items in the bag + the stash + that weapon's magazine. With no weapon this item is skipped (1 already says it).
+ *      (one grid cell of that calibre's stack, `AMMO_STACK_ROUNDS`). Total rounds =
+ *      the ammo items in the bag + the stash + that weapon's magazine. With no weapon this item is skipped (1 already says it).
  *   3. **No bag** · 4. **No armor** — that equipment slot is empty.
  *   5. **No tactical implant** — `ctx.implants.equipped` is null.
  *   6. **No healing item** — not one `category: 'stim'` in the bag (what sits in the stash cannot be taken out).
  *   7. **No preparation** (2026-09-11, A-13) — the target planet has a permanent environment and nothing that blocks
  *      it is loaded. The target planet is known only to `ctx.hub.planet`, the loaded preparation only to
- *      `ctx.progression.hasEnvPrep(env)`. Like the other six it **does not block** — going in bare only drains hp (user's decision: a soft gate).
+ *      `ctx.progression.hasEnvPrep(env)`. Like every other item it **does not block** — going in bare only drains hp (user's decision: a soft gate).
  *   8. **No meal** (2026-09-11, A-3c) — `ctx.progression.getMeal()` is empty. It **does not block** either.
  *      2026-09-12 (user's decision): it comes up **only on a ship that has a kitchen (a cook bench)** — `ctx.housing.getBenchLevel('cook')`.
  *   9. **No corporation contract** (2026-09-12, user's decision) — `ctx.meta.activeContract` is null. It **does not block** either.
@@ -143,7 +143,7 @@ export function getLaunchWarnings(sys: InventorySystem): LaunchWarning[] {
   } catch { /* progression · housing not there yet */ plateUneaten = null; }
 
   /* 9. Corporation contract — launching with no accepted contract (2026-09-12, user's decision).
-   *    Exactly like the other eight it **does not block**. A raid run with no contract is normal, but one run is long, and
+   *    Exactly like every other item it **does not block**. A raid run with no contract is normal, but one run is long, and
    *    realising 「I never took a contract」 only after coming back is the biggest waste — so it asks once before the launch.
    *    `ctx.meta.activeContract` is the only query (there is exactly one accepted contract, null with none). */
   try {

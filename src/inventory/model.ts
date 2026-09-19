@@ -181,9 +181,6 @@ export const pouchAcceptsDef = (pouch: PouchDef | null | undefined, def: ItemDef
  */
 export const isDisassembleRecipe = (r: CraftRecipe): boolean => r.id.startsWith('break_');
 
-/** Minimum craft speed multiplier so a pathological derived value cannot make a craft instant. */
-export const CRAFT_MIN_SPEED = 0.2;
-
 /**
  * **2026-09-08 — the hold time of every craft and salvage (s).**
  *

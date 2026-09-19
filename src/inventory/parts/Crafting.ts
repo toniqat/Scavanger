@@ -13,35 +13,22 @@
  * yield (`updateCraft`) all read the same recipe. The id is unchanged, so not one line of `craft(recipeId, uid)`'s
  * gates (`availableRecipes` identity · `canCraft`) moves.
  */
-import * as THREE from 'three';
 import type {
-  ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, GameContext, ItemCategory, ItemDef,
-  ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
+  CraftIngredient, CraftRecipe, CraftStation, ItemDef, ItemInstance, LoadoutSlot, WorkbenchKind,
 } from '@/shared';
-import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
 /* 2026-09-16 (user's decision): the craft skill only decides the material refund — roll in shared, eligibility in items (beside salvage · the economy check) */
 import { rollCraftRefund } from '@/shared';
 import {
-  AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isCraftRefundable, isWeaponItemDef, itemWeight, needsRepairCost,
+  ITEM_DEF_MAP, getRecipe, isCraftRefundable, isWeaponItemDef, needsRepairCost,
 } from '@/items';
-import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
 /* 2026-09-10: repair materials are decided in exactly one place (`getRepairCost` → with none, the `회복 스프레이`). */
 import { repairMaterials } from './Durability';
-import { Grid, OOB, stackKeyOf, type Placement, type PriorityPlacement, type StackItem } from '../Grid';
-import { getMealDef, normalizeMealQuality } from '@/shared';
+import { Grid } from '../Grid';
+import { getMealDef } from '@/shared';
 /* 2026-09-13 (library series · the research skill): research XP · the material refund of a lab-bench craft */
 import { RESEARCH_XP_CRAFT } from '@/shared';
-import { Container, ContainerStore } from '../Container';
-import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
-import { setStarterGrantState, starterGrantState } from '../Stash';
-import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
-import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
 import {
-  AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_HOLD_TIME, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
-  LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
-  isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
-  type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type DropPreview, type DropTarget,
-  type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type SlotId,
+  CRAFT_HOLD_TIME, LOADOUT_SLOTS, isDisassembleRecipe, type ActiveBench, type BenchRecipeRow, type BenchRepairRow,
 } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
@@ -58,21 +45,41 @@ const COOK_REASON = {
   notCook: '조리대 레시피가 아닙니다',
   shipOnly: '조리대는 함선에서만 사용할 수 있습니다',
   level: (n: number): string => `조리대 Lv.${n} 이 필요합니다`,
+  /** ⚠ **Unreachable today** — every `data/recipes.csv` `skillRequired` is 0, so `cookBlock` never words this one.
+      It is not dead code: the gate is wired on purpose (CLAUDE.md §4.7) and one raised csv number puts this on screen. */
   skill: (label: string, n: number): string => `${label} 숙련 ${n} 이 필요합니다`,
   missing: '재료가 부족합니다',
   noRoom: '넣을 자리가 없습니다',
 } as const;
-/** Skill name (every cook bench recipe is `crafting` — a skill not in the table keeps its id). */
+/**
+ * Skill name for `COOK_REASON.skill` (every cook bench recipe is `crafting` — a skill not in the table keeps its id).
+ * ⚠ Read only from that one unreachable branch, so nothing on screen comes from here today — kept with the gate.
+ */
 const SKILL_WORD: Partial<Record<CraftRecipe['skill'], string>> = { crafting: '제작' };
 
 /** The notice when the product has nowhere to go — in the ship the stash was looked at too, so both are named (2026-09-09). */
 const NO_ROOM_SHIP = '가방과 함선 창고에 공간이 없습니다';
 const NO_ROOM_FIELD = '가방에 공간이 없습니다';
 
-/** 'ship' while walking the hub / menus, 'field' on a mission. */
+/**
+ * `'ship'` while walking the hub / menus, `'field'` on a mission. The test is `!isRaidActive()` — **not on a mission**,
+ * which is wider than `isHubPhase()` (**phase === `'hub'`**).
+ *
+ * ⚠ 2026-09-19 (audit B-38): one craft therefore asks 「am I in the ship right now」 **three different ways**, and they
+ * are not the same question:
+ *  - materials — `currentStation() === 'ship'` (`craftCountDef` · `consumeFor`): true in the hub **and** in title /
+ *    results / loading phases;
+ *  - the product's room and its delivery — `ctx.isHubPhase()` (`roomForOutputs` · `addCraftOutputs`): the hub alone;
+ *  - 「is the 함선 창고 pane on screen」 — the UI flag `sys.hubMode` (`parts/StashOps`, the double-click order).
+ *
+ * They only part in a phase that is neither hub nor raid, and the window closes itself there
+ * (`InventorySystem` on `game:phaseChanged`), so nothing reaches them today. They are **left apart on purpose**:
+ * narrowing the material test to `isHubPhase()` would change what a craft may spend, which is a play-economy decision,
+ * not a tidy-up. `cookBlock` asking both (`isHubPhase() && !isRaidActive()`) is the standing proof they can differ.
+ */
 export function currentStation(sys: InventorySystem): CraftStation {
   return sys.ctx.isRaidActive() ? 'field' : 'ship';
-  }
+}
 
 /**
  * **2026-09-14 (user's decision) — in the ship, craft materials come out of the ship stash too.**
@@ -82,14 +89,15 @@ export function currentStation(sys: InventorySystem): CraftStation {
  * (= bag + pouch + quick slots), so a bench said 「not enough materials」 while harvests and salvage products sat in the
  * stash. Furniture crafting (`housing`) and cooking (`completeCook`) were already `countDefAll` / `consumeDefAll`.
  *
- * The gate is **the one 「is this the ship」 test that repair uses** (`currentStation` — the `isRaidActive` that
- * `benchRepairRows` reads). Quick craft in the field (`station: 'field'`) cannot touch the stash, so it counts the bag only.
+ * The gate is **the 「is this the ship」 test that repair uses** (`currentStation` — the `isRaidActive` that
+ * `benchRepairRows` reads; it is not the only one in this file — see the note on `currentStation`). Quick craft in the
+ * field (`station: 'field'`) cannot touch the stash, so it counts the bag only.
  *
  * Counting and consuming that disagree fail only at the end of the hold — so **counting is only here**, and consuming only in `consumeFor`.
  */
 export function craftCountDef(sys: InventorySystem, defId: string): number {
   return sys.currentStation() === 'ship' ? sys.countDefAll(defId) : sys.countDef(defId);
-  }
+}
 
 /**
  * **The Tab window a bench opened itself** (2026-09-16, user's report 「pressing 닫기 on the bench window opens the bag」).
@@ -132,7 +140,7 @@ export function openBenchCraft(sys: InventorySystem, bench: WorkbenchKind, level
   }
   sys.ui?.setCraftOpen(true);
   ctx.bus.emit('ui:craftToggled', { open: true });
-  }
+}
 
 /** Bench the craft panel is showing (null = plain 제작 panel). */
 export function getBench(sys: InventorySystem): ActiveBench | null { return sys.bench; }
@@ -150,7 +158,7 @@ export function switchBench(sys: InventorySystem, bench: WorkbenchKind | null, l
   if (bench === COOK_BENCH) return;              // 2026-09-13: the cook bench is not one of the craft window's benches (same rule as openBenchCraft)
   sys.cancelCraft();
   sys.bench = bench ? { kind: bench, level: Math.max(0, Math.floor(level)) } : null;
-  }
+}
 
 /** Leave bench mode (panel 닫기 / window closed). The window itself stays open. */
 export function closeBench(sys: InventorySystem): void {
@@ -160,7 +168,7 @@ export function closeBench(sys: InventorySystem): void {
   sys.cancelCraft();
   sys.ui?.setCraftOpen(false);
   sys.ctx.bus.emit('ui:craftToggled', { open: false });
-  }
+}
 
 /**
  * The craft window's `닫기` (2026-09-16). **A window a bench opened closes whole** (`BENCH_WINDOW`); a bench picked
@@ -171,7 +179,7 @@ export function closeCraftWindow(sys: InventorySystem): boolean {
   if (BENCH_WINDOW.has(sys)) { sys.closeAll(); return true; }
   if (sys.bench) { sys.closeBench(); return true; }
   return false;
-  }
+}
 
 /**
  * Rows for the craft panel: the recipes this bench can craft now, then the rest of the bench's recipes as locked.
@@ -193,7 +201,7 @@ export function getBenchRecipes(sys: InventorySystem): BenchRecipeRow[] {
   const openIds = new Set(open.map((r) => r.id));
   const locked = sys.loot.getAllRecipes().filter((r) => r.bench === b.kind && !isDisassembleRecipe(r) && !openIds.has(r.id));
   return [...open.map((recipe) => ({ recipe, locked: false })), ...locked.map((recipe) => ({ recipe, locked: true }))];
-  }
+}
 
 /**
  * The gear that can be repaired (equipment slots + bag grid). Anything without durability is skipped, and `wornOnly`
@@ -238,7 +246,7 @@ export function benchRepairRows(sys: InventorySystem, wornOnly = false): BenchRe
   for (const it of sys.pouchItems()) push(it, null);
   for (const it of sys.quickItems()) push(it, null);
   return rows;
-  }
+}
 
 /** `모두 수리`: every worn row in order while the materials last. `skip` = uids the popup crossed out with ×. */
 export function benchRepairAll(sys: InventorySystem, skip?: ReadonlySet<string>): { done: number; skipped: number } {
@@ -250,17 +258,18 @@ export function benchRepairAll(sys: InventorySystem, skip?: ReadonlySet<string>)
     if (sys.repair(row.uid)) done++; else skipped++;
   }
   return { done, skipped };
-  }
+}
 
 /**
  * Recipes a station may craft. Field: `station: 'field'` recipes only. Ship: field recipes too; a recipe with
  * `bench` needs that bench — at `bench` (given) with `benchLevel ≤ level`, otherwise a placed bench of that kind
  * at that level (`ctx.housing.getBenchLevel`, 0 without housing).
  *
- * **2026-09-16 (user's decision) — the skill does not block crafting.** The first line used to filter on
- * `skillOf(r.skill) < r.skillRequired`. What can be made is now decided by **the bench and its level** alone, and the
- * skill's one job is the material refund (`shared/craftRefund.ts`). The `CraftRecipe.skillRequired` column is still in
- * `data/recipes.csv` but every value is 0 and nobody reads it — the contract and loader are left alone so it can be raised later.
+ * **2026-09-16 (user's decision, 2nd pass) — the skill gate is wired but idle.** The morning's decision deleted the
+ * `skillOf(r.skill) < r.skillRequired` filter under 「the skill is not involved in crafting at all」; the same day's 2nd
+ * decision brought it back, so the first line below still filters on it (CLAUDE.md §4.7). Every `data/recipes.csv`
+ * `skillRequired` is 0 today, so in practice **the bench and its level** are the only live lock and the skill's standing
+ * job is the material refund (`shared/craftRefund.ts`) — raise a csv number and the recipe becomes a locked row again.
  */
 export function getRecipes(sys: InventorySystem, station: CraftStation, bench?: WorkbenchKind, level = 0): readonly CraftRecipe[] {
   const housing = sys.ctx.housing;
@@ -283,8 +292,8 @@ export function getRecipes(sys: InventorySystem, station: CraftStation, bench?: 
     if (station === 'field') return r.station === 'field';
     const need = r.benchLevel ?? 1;
     /* 2026-09-10 (user's decision) — **opening a bench shows that bench's recipes only.** It used to carry every
-       recipe with no `bench`, so bandages · ammo turned up at the refining bench Lv.3 too. Once the recipes grew to
-       94 rows that list became unreadable. Field recipes now name their own bench in `data/recipes.csv` (ammo → guns …),
+       recipe with no `bench`, so bandages · ammo turned up at the refining bench Lv.3 too. Once `data/recipes.csv` grew
+       that list became unreadable. Field recipes now name their own bench in `data/recipes.csv` (ammo → guns …),
        so a flow like "ammo right after the rifle in one bench window" still lives — the tutorial leans on it. */
     if (bench !== undefined) return r.bench === bench && need <= level;
     /* The craft list on the bag screen: field recipes always, bench or not (so the `bench` tag is not read), while a
@@ -293,7 +302,7 @@ export function getRecipes(sys: InventorySystem, station: CraftStation, bench?: 
     if (r.bench === undefined) return true;
     return placedLevel(r.bench) >= need;
   });
-  }
+}
 
 /**
  * Phase 8 — the salvage recipe of an item the player owns, or null. The UI turns it into the `분해` context-menu entry
@@ -308,7 +317,7 @@ export function getRecipes(sys: InventorySystem, station: CraftStation, bench?: 
 export function disassembleRecipeFor(sys: InventorySystem, uid: string): CraftRecipe | null {
   const item = sys.findItem(uid);
   return item ? sys.loot.getSalvageFor(item) : null;
-  }
+}
 
 /**
  * Resolves a `break_*` whose salvage target is named again against **that instance's remaining durability** (2026-09-10).
@@ -329,13 +338,13 @@ function resolveRecipe(sys: InventorySystem, r: CraftRecipe | undefined, targetU
 export function openDisassemble(sys: InventorySystem, uid: string): boolean {
   if (!sys._open) return false;
   return sys.ui?.openDisassemble(uid) ?? false;
-  }
+}
 
 /** Recipes the running station / bench may craft right now. */
 export function availableRecipes(sys: InventorySystem): readonly CraftRecipe[] {
   const b = sys.bench;
   return b ? sys.getRecipes('ship', b.kind, b.level) : sys.getRecipes(sys.currentStation());
-  }
+}
 
 /** Workshop material discount (`ctx.housing.getCraftCostMul`, ship only); 1 when nothing applies. */
 export function craftCostMul(sys: InventorySystem): number {
@@ -343,13 +352,13 @@ export function craftCostMul(sys: InventorySystem): number {
   const h = sys.ctx.housing;
   const m = h && typeof h.getCraftCostMul === 'function' ? h.getCraftCostMul() : 1;
   return Number.isFinite(m) && m > 0 && m < 1 ? m : 1;
-  }
+}
 
 /** Inputs of a recipe after the workshop discount (ceil, never below 1). */
 export function craftCost(sys: InventorySystem, recipe: CraftRecipe): CraftIngredient[] {
   const mul = sys.craftCostMul();
   return recipe.inputs.map((i) => ({ defId: i.defId, qty: Math.max(1, Math.ceil(i.qty * mul - 1e-9)) }));
-  }
+}
 
 /** `count` (2026-09-09, craft quantity): every ingredient × `count` must be owned. */
 export function canCraft(sys: InventorySystem, recipeId: string, count = 1): boolean {
@@ -361,7 +370,7 @@ export function canCraft(sys: InventorySystem, recipeId: string, count = 1): boo
   if (sys.ctx.tutorial?.blockReason('craft', recipeId)) return false;
   // 2026-09-14: in the ship bag + ship stash (`craftCountDef`) — quick craft in the field is still the bag alone
   return sys.craftCost(r).every((i) => sys.craftCountDef(i.defId) >= i.qty * n);
-  }
+}
 
 /** `count` as the job stores it: an integer ≥ 1 (NaN / 0 / negatives read as 1). */
 function normCount(count: number | undefined): number {
@@ -380,7 +389,7 @@ export function maxCraftCount(sys: InventorySystem, recipeId: string): number {
   // 2026-09-14: counts **the same range** as `canCraft` (ship = bag + ship stash) — out of step, ▶ climbs and the hold fails
   for (const i of sys.craftCost(r)) max = Math.min(max, Math.floor(sys.craftCountDef(i.defId) / Math.max(1, i.qty)));
   return Number.isFinite(max) ? Math.max(1, max) : 1;
-  }
+}
 
 /**
  * 2026-09-08 — whether `recipeId`'s output (**and** its `extraOutputs`) has somewhere to land right now: the bag, and
@@ -398,7 +407,7 @@ export function maxCraftCount(sys: InventorySystem, recipeId: string): number {
 export function craftHasRoom(sys: InventorySystem, recipeId: string, count = 1, targetUid?: string): boolean {
   const r = resolveRecipe(sys, getRecipe(recipeId), targetUid);
   return !!r && roomForOutputs(sys, r, normCount(count));
-  }
+}
 
 /**
  * A scratch occupancy map of one grid — the dry-run twin of `Grid.autoPlace`, so a `true` here means the real
@@ -538,7 +547,7 @@ function addCraftOutputs(sys: InventorySystem, defId: string, qty: number): Item
  */
 export function craftDuration(sys: InventorySystem, recipeId: string): number {
   return getRecipe(recipeId) ? CRAFT_HOLD_TIME : 0;
-  }
+}
 
 /**
  * `targetUid` (2026-09-08): the exact stack the salvage dialog was opened on — consumed first so clicking a specific
@@ -559,7 +568,7 @@ export function craft(sys: InventorySystem, recipeId: string, targetUid?: string
   return new Promise<ItemInstance | null>((resolve) => {
     sys.craftJob = { recipe: r, remaining: duration, duration, resolve, targetUid, count: n };
   });
-  }
+}
 
 /** Abort the running craft (releasing the hold button, closing the panel, dying). */
 export function cancelCraft(sys: InventorySystem): boolean {
@@ -570,14 +579,14 @@ export function cancelCraft(sys: InventorySystem): boolean {
   job.resolve(null);
   sys.ui?.refreshCraft();
   return true;
-  }
+}
 
 /** 0..1 progress of the running craft (null when idle). */
 export function craftProgress(sys: InventorySystem): { recipeId: string; progress: number } | null {
   const job = sys.craftJob;
   if (!job) return null;
   return { recipeId: job.recipe.id, progress: 1 - Math.max(0, job.remaining) / Math.max(0.001, job.duration) };
-  }
+}
 
 /**
  * Consume `qty` of `defId`, taking the salvage target stack first when it matches (2026-09-08). Returns false when the
@@ -650,7 +659,7 @@ export function updateCraft(sys: InventorySystem, dt: number): void {
   sys.afterChange();
   sys.ui?.refreshCraft();
   job.resolve(first);
-  }
+}
 
 /* ══ The material refund — what comes back once a craft is done (one place) ══════════════════════════════════════════════
  *
@@ -787,7 +796,7 @@ export function cookBlock(sys: InventorySystem, recipeId: string, benchLevel: nu
   if (!sys.craftCost(r).every((i) => sys.countDefAll(i.defId) >= i.qty)) return COOK_REASON.missing;
   // 2026-09-16 (the plate model): a meal never enters the grid — no product room check (the old `roomForCook` is gone)
   return null;
-  }
+}
 
 /**
  * Takes one cook's materials — the gate (`cookBlock`) is read again, the bag first → the stash. There is no product (2026-09-16,
@@ -811,4 +820,4 @@ export function consumeCookInputs(sys: InventorySystem, recipeId: string, benchL
   refundAfterCraft(sys, r, costs, 1);
   sys.afterChange();
   return null;
-  }
+}

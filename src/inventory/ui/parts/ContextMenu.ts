@@ -5,22 +5,15 @@
  * move to the stash · drop · post to chat). Every action calls `ctx.inventory`; this file decides
  * **which entries are shown** and nothing else.
  */
-import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
-import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
-import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
-import type { Container } from '../../Container';
-import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isPouchDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../../InventorySystem';
-import { CraftPanel } from '../CraftPanel';
-import { CatalogView } from '../CatalogView';
-import { DisassemblePanel } from '../DisassemblePanel';
+import type { ItemDef, ItemInstance } from '@/shared';
+import { Keys, keyLabel, renderItemCost } from '@/shared';
+import { ITEM_DEF_MAP } from '@/items';
+import { isWeaponDef, type ItemLocation } from '../../InventorySystem';
 import { filledSocketCount } from '../../Sockets';
 import { isQuickUsable } from '../../QuickSlots';
-import { GridView, buildTileContent, type HighlightState } from '../GridView';
-import { Tooltip } from '../Tooltip';
-import { ContextMenu, type MenuEntry } from '../ContextMenu';
-import { SplitDialog } from '../SplitDialog';
-import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from '../labels';
-import { BAG_LOC, CATALOG_DBL_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from '../model';
+import { type MenuEntry } from '../ContextMenu';
+import { QUICK_DIR_GLYPH, TEXT } from '../labels';
+import { BAG_LOC } from '../model';
 import type { InventoryUI } from '../InventoryUI';
 
 /**
@@ -47,7 +40,7 @@ export function onQuickContextMenu(sys: InventoryUI, index: number, e: MouseEven
   if (stack) entries.push(favoriteEntry(sys, stack.defId, true));
   entries.push({ label: TEXT.menu.request, hint: keyLabel('Mouse1'), separator: true, run: () => { sys.sys.requestItem(uid, BAG_LOC); } });
   sys.menu.open(e.clientX, e.clientY, entries);
-  }
+}
 
 /**
  * **2026-09-12 (E1, user's decision) — right-click opens the menu on every item.** It used to appear only on weapons ·
@@ -64,13 +57,13 @@ export function onContextMenu(sys: InventoryUI, uid: string, from: ItemLocation,
   if (!item || !def) return;
   sys.tooltip.hide();
   sys.menu.open(e.clientX, e.clientY, sys.menuEntries(uid, from, item, def));
-  }
+}
 
 /** 2026-09-12 (E1): the favourite entry — one shape for grid tiles, equipment slot cards and wheel cells. */
 export function favoriteEntry(sys: InventoryUI, defId: string, separator: boolean): MenuEntry {
   const on = sys.sys.isFavorite(defId);
   return { label: on ? TEXT.menu.favoriteOff : TEXT.menu.favoriteOn, separator, run: () => sys.toggleFavoriteFromMenu(defId) };
-  }
+}
 
 /**
  * Weapons: quick action (장착 / 주무기 II로 장착 / 가방으로 이동 / 상자로 이동 / 창고로 이동) · 수리 (ship, worn gear) ·
@@ -231,7 +224,7 @@ export function menuEntries(sys: InventoryUI, uid: string, from: ItemLocation, i
     if (isStack) entries.push({ label: TEXT.menu.dropOne, hint: `Shift+${dropKey}`, danger: true, run: () => sys.dropToWorld(uid, from, 1) });
   }
   return entries;
-  }
+}
 
 /**
  * Phase 8 — 분해 is offered on player-owned items (bag / equipment slots) that have a `break_*` recipe; a
@@ -241,7 +234,7 @@ export function canDisassemble(sys: InventoryUI, uid: string, from: ItemLocation
   // the recipe consumes from the bag, so a crate / stash stack has to be taken into the bag first
   if (from.kind === 'grid' && from.grid !== 'bag') return false;
   return !!sys.sys.disassembleRecipeFor(uid);
-  }
+}
 
 /** Open the modeless 분해 dialog for `uid` (expected result + a 분해 button). False when the item has no recipe. */
 export function openDisassemble(sys: InventoryUI, uid: string): boolean {
@@ -251,12 +244,12 @@ export function openDisassemble(sys: InventoryUI, uid: string): boolean {
   const ok = sys.disassemble.open(uid, null);
   sys.sys.sfx(ok ? 'ui_pickup' : 'ui_error');
   return ok;
-  }
+}
 
 export function split(sys: InventoryUI, uid: string, from: ItemLocation, qty: number): void {
   const ok = sys.sys.splitItem(uid, qty);
   sys.result(ok ? 'ok' : 'fail', 'ui_pickup', from, uid);
-  }
+}
 
 export function openSplitDialog(sys: InventoryUI, uid: string, from: ItemLocation): void {
   const item = sys.sys.findItem(uid, from);
@@ -264,11 +257,11 @@ export function openSplitDialog(sys: InventoryUI, uid: string, from: ItemLocatio
   if (!item || !def) return;
   sys.tooltip.hide();
   sys.dialog.open(item, def, (qty) => sys.split(uid, from, qty));
-  }
+}
 
 export function dropToWorld(sys: InventoryUI, uid: string, from: ItemLocation, qty: number | undefined): void {
   const ok = sys.sys.dropItem(uid, qty);
   if (ok) sys.sys.sfx('ui_drop');
   else { sys.sys.sfx('ui_error'); sys.shake(from, uid); }
   if (sys.hovered?.uid === uid) { sys.hovered = null; sys.tooltip.hide(); }
-  }
+}

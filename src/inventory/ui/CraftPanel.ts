@@ -75,8 +75,9 @@ function skillLabel(sys: InventorySystem, skill: CraftRecipe['skill']): string {
 }
 
 /**
- * **The reason a locked recipe gives** (2026-09-16). Built in this one place so that the cell's bottom ribbon and
- * the detail card's hold button say the same thing.
+ * **The reason a locked recipe gives** (2026-09-16). Built in this one place so that everything that names the reason
+ * says the same thing. Today that is the detail card's hold button alone — the cell's bottom ribbon was dropped the
+ * same day (the cell only dims), so this is the one wording on screen.
  *
  * There are two branches and **the bench level comes first**: below the level, skill need not even be asked. If the
  * level is met and the recipe is still outside `getRecipes`, the only reason left is skill (`skillRequired`).
@@ -128,10 +129,11 @@ export interface CraftDetailHandle {
  *
  * ## 2026-09-15 2nd pass — **list + detail** (user's decision, the craft UI rework)
  *
- * A 94-row vertical list (thumbnail · name · material chips · stepper · button per row) fitted three rows on a screen,
+ * One vertical row per recipe (thumbnail · name · material chips · stepper · button) fitted three rows on a screen,
  * and the stepper squeezed everything else sideways. The panel is now **left = the recipe list · right = the detail**:
  *
- *  - **Left, `.inv-craft-list`**: a grid of **product thumbnails only** (`CRAFT_LIST_COLS` = 4 across). A cell is
+ *  - **Left, `.inv-craft-list`**: a grid of **product thumbnails only** (`CRAFT_LIST_COLS` across — the 4th pass below
+ *    widened it). A cell is
  *    `.inv-craft-cell[data-recipe]`; one locked by bench level is `.is-bench-locked`, one whose materials are short
  *    right now is `.is-locked`. **What can be made now comes first** (stable sort), and it re-sorts whenever the
  *    materials change (a craft · an item picked up → `afterChange` → `InventoryUI.refresh` → `paint()`).
@@ -213,7 +215,7 @@ export class CraftPanel {
   private benchSig = '';
   /**
    * The mark that freezes the list while a hold runs (2026-09-10) — when set, `refresh()` repaints the gauge only.
-   * Cells are not moved during a hold anyway (`applySort`), and there is no reason to run 94 cells × (canCraft ·
+   * Cells are not moved during a hold anyway (`applySort`), and there is no reason to run every cell × (canCraft ·
    * maxCraftCount · craftHasRoom (which copies two grids)) **every frame**.
    */
   private frozen: string | null = null;
@@ -225,11 +227,6 @@ export class CraftPanel {
     private readonly getDef: (id: string) => ItemDef | undefined,
     /** Phase 8: the 닫기 button outside bench mode (the window closes the modeless popup). */
     private readonly onClose: () => void = () => {},
-    /**
-     * @deprecated 2026-09-14 — since the header's `모두 수리` moved to the bag filter row this panel no longer calls it.
-     * The parameter is kept so call sites are not disturbed (the same grain as the add-only, never-delete contract).
-     */
-    private readonly onRepair: (anchor: HTMLElement) => void = () => {},
     /** 2026-09-15 4th pass: the recipe cell's hover card (absent = no card — smokes · older call sites). */
     private readonly hover: CraftHoverHandlers | null = null,
   ) {
@@ -864,7 +861,7 @@ export class CraftDetail implements CraftDetailHandle {
     /* ⑥ the button */
     this.el.classList.toggle('is-crafting', active);
     this.fill.style.width = active ? `${Math.round((job?.progress ?? 0) * 100)}%` : '0%';
-    // 2026-09-16: the locked reason says the same as the cell's ribbon (bench level — `lockedReason`)
+    // 2026-09-16: the one place a locked recipe's reason is worded (`lockedReason`) — the cell itself only dims
     this.labelEl.textContent = this.locked ? lockedReason(this.sys, r, this.sys.getBench()?.level ?? 0)
       : active ? TEXT.craftMaking
       : ok && !room ? (ship ? TEXT.craftNoRoomShip : TEXT.craftNoRoomField)

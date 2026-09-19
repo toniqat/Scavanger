@@ -1,5 +1,5 @@
 import type { AmmoType, ArmorDef, EffectiveWeaponStats, ItemDef, ItemInstance, MealBuff, MealDef, MealEffect, SkillId, StatId, WeaponDef } from '@/shared';
-import { PERK_DEFS, SOCKET_LABEL_KO, SOCKET_SLOTS, itemCreditValue, renderItemCost } from '@/shared';
+import { PERK_DEFS, SOCKET_LABEL_KO, itemCreditValue, renderItemCost } from '@/shared';
 /*
  * 2026-09-16 (user's bug report 「기업 화면의 총 카드가 가방 카드와 다르다」): the **numbers and sentences** a weapon
  * card reads are made by `shared/weaponTip` alone — this card paints them as gauge bars, the chip card
@@ -91,9 +91,7 @@ type GaugeValues = WeaponGaugeValues;
  * weight on the left and value on the right for every item. 종류 / 등급 / 탄창 / 정조준 시간 / 재장전 / 크기 rows are gone.
  *
  * **2026-09-12 (user's decision)** — three things:
- *  - **Durability is one gauge row** (`buildDurabilityBar`, `.inv-tt-durbar`). Weapon · bag · armor · 회복 스프레이 all
- *    call the same function, so the same value has the same shape everywhere, and the `구간` row under it (C-37) is
- *    **gone** — the repair · salvage buckets are said by those popups in their own place.
+ *  - **Durability is one gauge row** — the rule and the reason live above `buildDurabilityBar` (the one place).
  *  - **A bag** carries one more row, 「소지 한계 +N kg」 (`Gear.bagCapacityBonus` — the **same formula** as the weight sum).
  *  - **Armor**'s `특성` row is not raised when its text equals the description paragraph (a unique's description *is* the perk sentence).
  */
@@ -111,7 +109,7 @@ export class Tooltip {
   /**
    * **2026-09-12 (user's decision) — durability is a gauge, not a number row.** It uses the same `.track` / `.fill`
    * markup as the weapon's 2×2 gauges (`buildGauge`), but **one row at full width**, and only the fill colour is decided
-   * by the fraction left (`is-low` under 30 % · `is-broken` 0). The weapon · bag · armor · 회복 스프레이 gauges all call
+   * by the fraction left (`is-low` under `DURABILITY_LOW` · `is-broken` at 0). The weapon · bag · armor · 회복 스프레이 gauges all call
    * this one, so the same value has the same shape anywhere on screen. In that same pass the `구간` row under it
    * (2026-09-11 C-37) went — the repair · salvage buckets are already said by `ui/RepairPanel` and `ui/DisassemblePanel`.
    */
@@ -237,7 +235,7 @@ export class Tooltip {
      * gadgets · grenades are made by **`items/ItemSpec.itemSpecRows` alone** (the same function and sentences as the chip
      * card `ui/hud/ItemTip`). `사용 시간` is always first, the old `지속 소모` row is gone, and those numbers were stripped
      * out of the description text. The shield-charger and combat-consumable blocks that used to sit here folded into these
-     * three lines (`TEXT.shieldChargeStats` · `TEXT.boostStats` stay — they are labels' contract).
+     * three lines (2026-09-19: their `TEXT` label tables went with them — nothing read them any more).
      */
     for (const r of itemSpecRows(def)) {
       rows.push([r.k, r.v, r.tone === 'good' ? 'is-bonus' : r.tone === 'bad' ? 'is-broken' : undefined]);

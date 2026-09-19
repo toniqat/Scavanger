@@ -9,22 +9,12 @@
  * the tooltip · the right-click menu · a drag find that stack. The direction badges on bag tiles (`setQuickBadges`) now
  * have nothing to wear: a stack put on the wheel leaves the bag, so there is no tile to badge at all.
  */
-import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
-import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
-import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
-import type { Container } from '../../Container';
-import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../../InventorySystem';
-import { CraftPanel } from '../CraftPanel';
-import { CatalogView } from '../CatalogView';
-import { DisassemblePanel } from '../DisassemblePanel';
-import { filledSocketCount } from '../../Sockets';
-import { isQuickUsable } from '../../QuickSlots';
-import { GridView, buildTileContent, type HighlightState } from '../GridView';
-import { Tooltip } from '../Tooltip';
-import { ContextMenu, type MenuEntry } from '../ContextMenu';
-import { SplitDialog } from '../SplitDialog';
-import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from '../labels';
-import { CATALOG_DBL_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from '../model';
+import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel } from '@/shared';
+import { ITEM_DEF_MAP } from '@/items';
+import { type ItemLocation } from '../../InventorySystem';
+import { buildTileContent } from '../GridView';
+import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, TEXT } from '../labels';
+import { LOCK_SVG, type QuickCell } from '../model';
 import type { InventoryUI } from '../InventoryUI';
 
 /** 3×3 compass rose (N top, clockwise) + a legend column; cells the bag has not unlocked (`isQuickSlotActive`) are locked. */
@@ -73,7 +63,7 @@ export function buildQuickPanel(sys: InventoryUI): HTMLElement {
   //   directly under the bag grid it is filled from.
   section.append(rose);
   return section;
-  }
+}
 
 export function refreshQuick(sys: InventoryUI): void {
   const slots = sys.sys.getQuickSlots();
@@ -111,7 +101,7 @@ export function refreshQuick(sys: InventoryUI): void {
     }
   }
   sys.bagView.setQuickBadges(badges);
-  }
+}
 
 export function bindQuickTile(sys: InventoryUI, el: HTMLElement, cell: QuickCell): void {
   // 2026-09-09: the stack lives in the wheel slot, so every hand-off names that slot (never the bag grid)
@@ -126,7 +116,7 @@ export function bindQuickTile(sys: InventoryUI, el: HTMLElement, cell: QuickCell
     // back into the bag — refused when the bag is full, and the stack stays in its cell
     sys.result(sys.sys.setQuickSlot(cell.index, null) ? 'ok' : 'fail', 'ui_drop', loc(), cell.uid ?? '');
   });
-  }
+}
 
 /** Wheel cell under the pointer (null when not over the rose). */
 export function quickCellAt(sys: InventoryUI, x: number, y: number): QuickCell | null {
@@ -135,4 +125,4 @@ export function quickCellAt(sys: InventoryUI, x: number, y: number): QuickCell |
   if (!cellEl) return null;
   const index = Number(cellEl.dataset.index);
   return sys.quickCells[index] ?? null;
-  }
+}

@@ -4,26 +4,13 @@
  * The cheat window the `/items` console command opens. Unlike any other grid its source never shrinks and every drag
  * mints a **fresh instance** (`dropFromCatalog` / `takeFromCatalog`). The training range's weapon rack opens it too, with a category.
  */
-import * as THREE from 'three';
 import type {
-  ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, GameContext, ItemCategory, ItemDef,
-  ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
+  ItemCategory, ItemDef, ItemInstance,
 } from '@/shared';
-import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
-import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
-import { Grid, OOB, canStackTogether, type Placement, type PriorityPlacement } from '../Grid';
-import { Container, ContainerStore } from '../Container';
-import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
-import { setStarterGrantState, starterGrantState } from '../Stash';
-import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
-import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
+import { ITEM_DEF_MAP } from '@/items';
+import { OOB, canStackTogether } from '../Grid';
 import {
-  AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
-  LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
-  isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
-  type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type DropPreview, type DropTarget,
-  type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type SlotId,
+  slotAccepts, type DropPreview, type DropTarget, type GridId, type OpResult,
 } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
@@ -51,7 +38,7 @@ export function openCatalog(sys: InventorySystem, opts?: { category?: ItemCatego
   // Phase 9: `category` preselects the tab holding it (the training range's weapon rack → 'primary'); unknown / unbuilt → 전체 stays
   if (category) sys.ui?.catalog.setTabForCategory(category);
   ctx.bus.emit('ui:catalogToggled', { open: true });
-  }
+}
 
 /** Close the catalog panel; the rest of the window stays open. */
 export function closeCatalog(sys: InventorySystem): void {
@@ -59,7 +46,7 @@ export function closeCatalog(sys: InventorySystem): void {
   sys.catalogOpen = false;
   sys.ui?.setCatalog(false);
   sys.ctx.bus.emit('ui:catalogToggled', { open: false });
-  }
+}
 
 /** Units a catalog drag / double-click creates: a full stack for stackables, one otherwise. */
 export function catalogQty(sys: InventorySystem, def: ItemDef): number { return def.stackMax > 1 ? def.stackMax : 1; }
@@ -85,7 +72,7 @@ export function previewCatalog(sys: InventorySystem, item: ItemInstance, target:
   if (blockers.length !== 1 || blockers[0] === OOB) return 'bad';
   const other = grid.get(blockers[0]);
   return other && canStackTogether(other.item, item) && def.stackMax > 1 && other.item.qty < def.stackMax ? 'merge' : 'bad';
-  }
+}
 
 /**
  * Release a catalog drag: the fresh instance lands in the grid cell (or merges into the stack there) / the slot
@@ -133,7 +120,7 @@ export function dropFromCatalog(sys: InventorySystem, item: ItemInstance, target
   if (target.grid === 'bag') sys.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
   sys.afterChange();
   return 'ok';
-  }
+}
 
 /**
  * Catalog double-click: a fresh instance (merge into stacks first).
@@ -155,16 +142,16 @@ export function takeFromCatalog(sys: InventorySystem, defId: string): OpResult {
   sys.ctx.bus.emit('inventory:itemAdded', { item, name: def.name, rarity: def.rarity });
   sys.afterChange();
   return 'ok';
-  }
+}
 
 /** Where displaced gear can go: the bag, else the ship stash (hub only). */
 export function canStow(sys: InventorySystem, item: ItemInstance): boolean {
   return sys.bag.canAbsorb(item) || (sys.ctx.isHubPhase() && sys.stash.grid.canAbsorb(item));
-  }
+}
 
 /** Put a detached item into the bag, else the stash (ship). Returns where it went, null when nothing fits. */
 export function stow(sys: InventorySystem, item: ItemInstance): GridId | null {
   if (sys.bag.autoPlace(item)) return 'bag';
   if (sys.ctx.isHubPhase() && sys.stash.grid.autoPlace(item)) return 'stash';
   return null;
-  }
+}

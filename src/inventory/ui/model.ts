@@ -6,21 +6,9 @@
  * `InventoryUI.ts` re-exports it as is, so every existing import path still works.
  */
 import './../inventory.css';
-import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
-import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
-import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
-import type { Container } from '../Container';
-import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../InventorySystem';
-import { CraftPanel } from './CraftPanel';
-import { CatalogView } from './CatalogView';
-import { DisassemblePanel } from './DisassemblePanel';
-import { filledSocketCount } from '../Sockets';
-import { isQuickUsable } from '../QuickSlots';
-import { GridView, buildTileContent, type HighlightState } from './GridView';
-import { Tooltip } from './Tooltip';
-import { ContextMenu, type MenuEntry } from './ContextMenu';
-import { SplitDialog } from './SplitDialog';
-import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
+import type { EmbeddedView, ItemDef, ItemInstance } from '@/shared';
+import { type DropTarget, type ItemLocation, type SlotId } from '../InventorySystem';
+import { TEXT } from './labels';
 
 export const DRAG_THRESHOLD = 4; // px before a press becomes a drag
 /** The dragged ghost's size lift. Lives here, not in CSS — see `positionGhost`. */

@@ -5,35 +5,25 @@
  * colour) and *actually place it* (`drop` / `quickMove` / `activate` / `rotateItem` / `attachFrom`). Swap · merge ·
  * equipment slot · quick slot · socket · partial quantity (Shift/Ctrl drag) are all this file's rules, and no DOM.
  */
-import * as THREE from 'three';
 import type {
-  ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, GameContext, ItemCategory, ItemDef,
-  ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
+  ItemDef, ItemInstance, LoadoutSlot, SocketSlot,
 } from '@/shared';
-import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
+import { QUICK_SLOTS, isQuickSlotActive } from '@/shared';
 /* appended (2026-09-12): item recovery contracts — the stack key · merging / splitting the mark */
 import { copyRaidFoundMark, mergeRaidFoundMark } from '@/shared';
 import { copyMealQuality } from './MealQuality';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
-import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
+import { ITEM_DEF_MAP, isWeaponItemDef } from '@/items';
 import { Grid, OOB, canStackTogether, type Placement, type PriorityPlacement } from '../Grid';
-import { Container, ContainerStore } from '../Container';
-import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
+import { Container } from '../Container';
+import { setSocket } from '../Sockets';
 import { isQuickIndex, isQuickUsable, lockedQuickItems } from '../QuickSlots';
 /* appended (2026-09-10): the wheel swap rule — `previewDrop` and `setQuickSlot` read the same plan */
 import { canQuickSwap } from '../QuickSwap';
 /* appended (2026-09-14): consumables auto-seated on a quick slot (game-wide) — one set of 「picked it up」 rules */
 import { autoQuickIndexFor, takeIntoQuick } from './AutoQuick';
 import { QUICK_DIR_GLYPH, SLOT_LABEL } from '../ui/labels';
-import { setStarterGrantState, starterGrantState } from '../Stash';
-import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
-import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
 import {
-  AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
-  LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
-  isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
-  type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type DropPreview, type DropTarget,
-  type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type SlotId,
+  LOADOUT_SLOTS, slotAccepts, type DropPreview, type DropTarget, type GridId, type ItemLocation, type OpResult, type SlotId,
 } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
@@ -42,19 +32,23 @@ export function equipTargetFor(sys: InventorySystem, def: ItemDef): LoadoutSlot 
   if (def.category === 'bag') return 'bag';
   if (def.category === 'armor') return 'armor';
   if (def.category === 'pouch') return 'pouch';   // A-15: a fixed single slot (`POUCH_SLOTS`)
-  if (def.category === 'secondary') return 'secondary';
+  /* 2026-09-19: **`secondary` is not a slot** — `LOADOUT_SLOTS` never builds one and `slotAccepts` refuses it, so
+     naming it here only produced a `장착` entry that always failed and a bag double-click that answered `fail`
+     instead of falling back to `quickMoveImpl`. `null` = 「no equipment slot」, which is what it is. The category
+     itself is kept (saves · crew cards read it) — README `Equipment slots`. No item def carries it today. */
+  if (def.category === 'secondary') return null;
   if (def.category !== 'primary') return null;
   if (!sys.loadout.primary) return 'primary';
   if (!sys.loadout.primary2) return 'primary2';
   return 'primary';
-  }
+}
 
 /** Split size a Shift (half) / Ctrl (one) drag would carry, or null when the item cannot be split. */
 export function partialQtyFor(sys: InventorySystem, item: ItemInstance, mode: 'half' | 'one'): number | null {
   const def = ITEM_DEF_MAP.get(item.defId);
   if (!def || def.stackMax <= 1 || item.qty < 2) return null;
   return mode === 'one' ? 1 : Math.max(1, Math.floor(item.qty / 2));
-  }
+}
 
 /** Non-mutating classification of a partial-stack drag (`qty` units of `uid`) onto `target`. */
 export function previewPartial(sys: InventorySystem, uid: string, from: ItemLocation, qty: number, target: DropTarget): DropPreview {
@@ -68,7 +62,7 @@ export function previewPartial(sys: InventorySystem, uid: string, from: ItemLoca
   if (blockers[0] === uid) return 'noop';
   const other = grid.get(blockers[0]);
   return other && canStackTogether(other.item, item) && other.item.qty < def.stackMax ? 'merge' : 'bad';
-  }
+}
 
 /**
  * Execute a partial-stack drag: onto a free cell → new stack of `qty` there; onto a same-def stack → merge
@@ -78,7 +72,7 @@ export function dropPartial(sys: InventorySystem, uid: string, from: ItemLocatio
   const takes = sys.isContainerLoc(from) && !(target.kind === 'grid' && target.grid === 'container');
   if (takes) return sys.guardedTake(uid, from, Math.floor(qty), () => sys.dropPartialImpl(uid, from, qty, target));
   return sys.dropPartialImpl(uid, from, qty, target);
-  }
+}
 
 export function dropPartialImpl(sys: InventorySystem, uid: string, from: ItemLocation, qty: number, target: DropTarget): OpResult {
   if (target.kind === 'quick') return sys.dropQuickPartial(target.index, uid, from, qty);
@@ -90,10 +84,16 @@ export function dropPartialImpl(sys: InventorySystem, uid: string, from: ItemLoc
   if (!srcGrid) return 'fail';
 
   if (blockers.length === 0) {
+    /* 2026-09-19: **the cells are asked for before the instance is minted.** `validatePartial` already measured this
+       exact footprint with a probe that ignores nothing, so the answer here is always yes — but the same probe is run
+       again so that a refusal can never happen *after* `loot.createItem`, which would throw away a fresh instance and
+       burn its uid. Every other path in this file keeps the same discipline (`snapshot` / `restore`, or check first). */
+    const probe: ItemInstance = { uid: '__split__', defId: item.defId, qty, rotated: target.rotated };
+    if (!grid.canPlace(probe, target.x, target.y, target.rotated, probe.uid)) return 'fail';
     const created = sys.loot.createItem(item.defId, qty);
     copyRaidFoundMark(created, item);   // 2026-09-12: a split keeps the raid-found mark
     copyMealQuality(created, item);     // 2026-09-13: …and the meal quality
-    if (!grid.place(created, target.x, target.y, target.rotated)) return 'fail';
+    if (!grid.place(created, target.x, target.y, target.rotated)) return 'fail';   // unreachable — the probe above said yes
     item.qty -= qty;
     srcGrid.version++;
     if (sys.locKind(from) !== sys.locKind(to)) sys.emitTransfer(created, def, from, to);
@@ -115,7 +115,7 @@ export function dropPartialImpl(sys: InventorySystem, uid: string, from: ItemLoc
   if (sys.locKind(from) !== sys.locKind(to)) sys.emitTransfer({ ...item, qty: moved }, def, from, to);
   sys.afterChange();
   return 'ok';
-  }
+}
 
 export function validatePartial(sys: InventorySystem, uid: string, from: ItemLocation, qty: number, target: DropTarget): { item: ItemInstance; def: ItemDef; grid: Grid; blockers: string[] } | null {
   if (from.kind !== 'grid' || target.kind !== 'grid') return null;
@@ -131,7 +131,7 @@ export function validatePartial(sys: InventorySystem, uid: string, from: ItemLoc
   if (!grid) return null;
   const probe: ItemInstance = { uid: '__split__', defId: item.defId, qty: n, rotated: target.rotated };
   return { item, def, grid, blockers: grid.blockersAt(probe, target.x, target.y, target.rotated, probe.uid) };
-  }
+}
 
 /** Non-mutating classification used for the drag highlight. */
 export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocation, target: DropTarget): DropPreview {
@@ -214,7 +214,7 @@ export function previewDrop(sys: InventorySystem, uid: string, from: ItemLocatio
   // multiplayer: a swap would put my item into the container (not shared) — refused
   if (sys.ctx.isMultiplayer && (from.grid === 'container') !== (target.grid === 'container')) return 'bad';
   return sys.canSwap(item, from.grid, other.item, grid) ? 'swap' : 'bad';
-  }
+}
 
 /**
  * Free footprint **closest to (x, y)** for `uid` (living at `from`) inside `gridId`, preferring `rotated`.
@@ -245,7 +245,7 @@ export function nearestFreeSpot(sys: InventorySystem, uid: string, from: ItemLoc
     }
   }
   return best;
-  }
+}
 
 /** Execute a drag-and-drop. Container → player moves go through `guardedTake` (Phase 7). */
 export function drop(sys: InventorySystem, uid: string, from: ItemLocation, target: DropTarget): OpResult {
@@ -256,7 +256,7 @@ export function drop(sys: InventorySystem, uid: string, from: ItemLocation, targ
   if (takes) return sys.guardedTake(uid, from, null, () => sys.dropImpl(uid, from, target));
   if (sys.isItemLocked(uid, from)) return 'fail';
   return sys.dropImpl(uid, from, target);
-  }
+}
 
 export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, target: DropTarget): OpResult {
   const item = sys.findItem(uid, from);
@@ -374,7 +374,7 @@ export function dropImpl(sys: InventorySystem, uid: string, from: ItemLocation, 
   }
   sys.afterChange();
   return 'ok';
-  }
+}
 
 /**
  * Where a quick move from `from` goes right now (null = nowhere — the move would fail). `quickMoveImpl` uses exactly this,
@@ -393,13 +393,13 @@ export function quickMoveDest(sys: InventorySystem, from: ItemLocation): GridId 
   else return null;
   if (dest === 'container' && sys.ctx.isMultiplayer) return null; // Phase 7: nothing goes into a shared container
   return dest;
-  }
+}
 
 /** Right-click quick action: container ↔ bag auto-place; slot → bag (the bag slot shrinks the grid first). */
 export function quickMove(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
   if (sys.isContainerLoc(from)) return sys.guardedTake(uid, from, null, () => sys.quickMoveImpl(uid, from));
   return sys.quickMoveImpl(uid, from);
-  }
+}
 
 export function quickMoveImpl(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
   const item = sys.findItem(uid, from);
@@ -420,7 +420,7 @@ export function quickMoveImpl(sys: InventorySystem, uid: string, from: ItemLocat
   grid.autoPlace(item);
   sys.afterMove(item, from, { kind: 'grid', grid: dest });
   return 'ok';
-  }
+}
 
 /**
  * Double-click. **2026-09-14 2nd pass (user's decision) — 「a free spot means straight there」 is now every grid's rule.**
@@ -430,7 +430,7 @@ export function quickMoveImpl(sys: InventorySystem, uid: string, from: ItemLocat
 export function activate(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
   if (sys.isContainerLoc(from)) return sys.guardedTake(uid, from, null, () => sys.activateImpl(uid, from));
   return sys.activateImpl(uid, from);
-  }
+}
 
 export function activateImpl(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
   const item = sys.findItem(uid, from);
@@ -482,16 +482,18 @@ export function activateImpl(sys: InventorySystem, uid: string, from: ItemLocati
    */
   sys.ctx.bus.emit('inventory:full', { item, name: def.name });
   return 'fail';
-  }
+}
 
 /**
  * 2026-09-14 (user's decision) — **two ways of saying where it went.**
  *
  *  • `notifySentTo` — a stash double-click that **deliberately** sent it to an equipment slot · implant slot · quick
  *    slot. It is an intended move, so the one `ui:notify` line (`{name} → {where}`) appears as before.
- *  • `flashPlaced` — sent from a crate · corpse · bag · pouch. The old `가방이 가득 찼습니다 — …` toast is dropped
- *    and the slot it really landed in flashes in place (`InventoryUI.flashSlot` / `flashQuick` / `flashImplant`).
- *    A toast sits in a screen corner and was easy to miss while the eye was on the crate.
+ *  • `flashPlaced` — sent from a crate · corpse · bag · pouch. The slot it really landed in flashes in place
+ *    (`InventoryUI.flashSlot` / `flashQuick` / `flashImplant`) instead of raising the `가방이 가득 찼습니다 — …` toast
+ *    this case used to raise. A toast sits in a screen corner and was easy to miss while the eye was on the crate.
+ *    ⚠ Only **this** case lost the toast: `inventory:full` (and with it that line — `ui/hud/Notifications`) is still
+ *    emitted where nothing at all could take the item — `quickMoveImpl`'s bag branch and `activateImpl`'s last line.
  *
  * **2026-09-14 2nd pass — a crate · corpse going straight into a free slot is `flashPlaced` too** (the same reasoning
  * extended): the eye is on the crate grid then, and the equipment slots · wheel are right beside it in the same
@@ -562,7 +564,7 @@ function tryAutoPlace(
   }
 
   return null;
-  }
+}
 
 /**
  * **Would a double-click send this item to a free spot right now** — asks `tryAutoPlace`'s order **changing nothing**.
@@ -580,7 +582,7 @@ export function wouldAutoPlace(sys: InventorySystem, item: ItemInstance, def: It
     if (prog && sys.hubMode && prog.implantSlots - prog.implantSlotsUsed >= (imp.slots ?? 1)) return true;
   }
   return quick && autoQuickIndexFor(sys, item, def) >= 0;
-  }
+}
 
 /** The currently **empty** equipment slot that accepts this item. Unlike `equipTargetFor` it displaces nothing. */
 function emptyEquipTargetFor(sys: InventorySystem, def: ItemDef): LoadoutSlot | null {
@@ -589,7 +591,7 @@ function emptyEquipTargetFor(sys: InventorySystem, def: ItemDef): LoadoutSlot | 
     if (!sys.loadout[slot]) return slot;
   }
   return null;
-  }
+}
 
 export function rotateItem(sys: InventorySystem, uid: string, gridId: GridId): OpResult {
   const grid = sys.getGrid(gridId);
@@ -602,7 +604,7 @@ export function rotateItem(sys: InventorySystem, uid: string, gridId: GridId): O
   sys.ctx.bus.emit('inventory:itemRotated', { item: p.item });
   sys.afterChange();
   return 'ok';
-  }
+}
 
 /**
  * "모두 가져가기": move every **searched** container item into the bag that fits (largest first). Returns the moved
@@ -627,7 +629,7 @@ export function takeAll(sys: InventorySystem): number {
     if (r === 'ok' || r === 'pending') moved++;
   }
   return moved;
-  }
+}
 
 /** One container item into the bag (auto-place, `inventory:itemAdded`). */
 export function takeOne(sys: InventorySystem, uid: string): OpResult {
@@ -647,7 +649,7 @@ export function takeOne(sys: InventorySystem, uid: string): OpResult {
   sys.ctx.bus.emit('inventory:itemAdded', { item: p.item, name: def.name, rarity: def.rarity });
   sys.afterChange();
   return 'ok';
-  }
+}
 
 /**
  * **2026-09-12 (user's decision) — attachments go into a gun sitting in the stash too.**
@@ -660,7 +662,7 @@ export function takeOne(sys: InventorySystem, uid: string): OpResult {
 export function canSocketAt(sys: InventorySystem, loc: ItemLocation): boolean {
   if (sys.locKind(loc) === 'player') return true;
   return loc.kind === 'grid' && loc.grid === 'stash';
-  }
+}
 
 /**
  * Bumps the `version` of the grid holding the weapon whose socket changed — that is what redraws its tile (`GridView`
@@ -670,7 +672,7 @@ function bumpWeaponGrid(sys: InventorySystem, weapon: ItemInstance): void {
   if (sys.bag.has(weapon.uid)) { sys.bag.version++; return; }
   const stash = sys.getGrid('stash');
   if (stash?.has(weapon.uid)) stash.version++;
-  }
+}
 
 /**
  * Where an attachment pulled out of a socket goes: bag → (in the ship) stash → the ground. The stash was inserted on
@@ -680,7 +682,7 @@ function stowDetached(sys: InventorySystem, att: ItemInstance): void {
   if (sys.bag.autoPlace(att)) return;
   if (sys.hubMode && sys.tryAddToStash(att)) return;
   sys.throwToWorld(att, true);
-  }
+}
 
 /** Can attachment `uid` (at `from`) be socketed into weapon `weaponUid` (at `loc`)? */
 export function previewAttach(sys: InventorySystem, uid: string, from: ItemLocation, weaponUid: string, loc: ItemLocation): DropPreview {
@@ -692,7 +694,7 @@ export function previewAttach(sys: InventorySystem, uid: string, from: ItemLocat
   if (!canSocketAt(sys, loc) || !isWeaponItemDef(ITEM_DEF_MAP.get(weapon.defId))) return 'bad';
   if (!sys.loot.canAttach(weapon, att)) return 'bad';
   return weapon.sockets?.[attDef.attachment.socket] ? 'swap' : 'ok';
-  }
+}
 
 /**
  * Socket attachment `uid` into weapon `weaponUid`. The previous attachment in that socket returns to the bag
@@ -701,7 +703,7 @@ export function previewAttach(sys: InventorySystem, uid: string, from: ItemLocat
 export function attachFrom(sys: InventorySystem, uid: string, from: ItemLocation, weaponUid: string, loc: ItemLocation): OpResult {
   if (sys.isContainerLoc(from)) return sys.guardedTake(uid, from, 1, () => sys.attachFromImpl(uid, from, weaponUid, loc));
   return sys.attachFromImpl(uid, from, weaponUid, loc);
-  }
+}
 
 export function attachFromImpl(sys: InventorySystem, uid: string, from: ItemLocation, weaponUid: string, loc: ItemLocation): OpResult {
   if (sys.previewAttach(uid, from, weaponUid, loc) === 'bad' || from.kind !== 'grid') return 'fail';
@@ -721,7 +723,7 @@ export function attachFromImpl(sys: InventorySystem, uid: string, from: ItemLoca
   sys.afterSocketChange(weapon);
   sys.afterChange();
   return 'ok';
-  }
+}
 
 /** After a socket change: a smaller magazine spills its excess rounds into the bag; weapons re-read the instance. */
 export function afterSocketChange(sys: InventorySystem, weapon: ItemInstance): void {
@@ -732,7 +734,7 @@ export function afterSocketChange(sys: InventorySystem, weapon: ItemInstance): v
     sys.returnRounds(stats.ammoType, excess);
   }
   sys.ctx.bus.emit('inventory:itemUpdated', { item: weapon });
-  }
+}
 
 /**
  * Equip `next` (null = unequip) as the bag. The grid is resized to the new bag; the displaced bag is placed
@@ -787,7 +789,7 @@ export function changeBag(sys: InventorySystem, next: ItemInstance | null, from:
   sys.emitLoadout();
   sys.afterChange();
   return 'ok';
-  }
+}
 
 /** Can `current` (being displaced from a weapon slot) be placed where the dragged item came from, or anywhere sensible? */
 export function canPlaceDisplaced(sys: InventorySystem, current: ItemInstance, from: ItemLocation, draggedUid: string): boolean {
@@ -802,7 +804,7 @@ export function canPlaceDisplaced(sys: InventorySystem, current: ItemInstance, f
   if (srcGrid.canPlace(current, src.x, src.y, !current.rotated, ignore)) return true;
   if (srcGrid.findFreeSlot(current, current.rotated, ignore)) return true;
   return from.grid === 'container' && sys.bag.findFreeSlot(current) !== null;
-  }
+}
 
 export function dropOnSlot(sys: InventorySystem, item: ItemInstance, def: ItemDef, from: ItemLocation, slot: SlotId): OpResult {
   if (!slotAccepts(def, slot)) return 'fail';
@@ -853,7 +855,7 @@ export function dropOnSlot(sys: InventorySystem, item: ItemInstance, def: ItemDe
   sys.emitLoadout();
   sys.afterChange();
   return 'ok';
-  }
+}
 
 export function canSwap(sys: InventorySystem, item: ItemInstance, fromGrid: GridId, other: ItemInstance, targetGrid: Grid): boolean {
   const srcGrid = sys.getGrid(fromGrid);
@@ -865,7 +867,7 @@ export function canSwap(sys: InventorySystem, item: ItemInstance, fromGrid: Grid
   // same-grid: anything free after both are lifted; cross-grid: any free slot in source grid
   const probe = srcGrid === targetGrid ? ignore : [item.uid];
   return srcGrid.findFreeSlot(other, other.rotated, probe) !== null;
-  }
+}
 
 export function performSwap(sys: InventorySystem, item: ItemInstance, srcGrid: Grid, other: ItemInstance, dstGrid: Grid, x: number, y: number, rotated: boolean): boolean {
   const src = srcGrid.get(item.uid);
@@ -889,4 +891,4 @@ export function performSwap(sys: InventorySystem, item: ItemInstance, srcGrid: G
     return false;
   }
   return true;
-  }
+}

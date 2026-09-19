@@ -107,10 +107,13 @@ a station's product — `housing/ui/ProductDrag`) into the cell under the cursor
 tile drag: free cell → placed, matching stack with room for all of it → merged, anything else → `'blocked'` (nothing is
 displaced; the caller refuses), not over a cell → `null` (the caller falls back to its own rule). 2026-09-17:
 `previewExternalAt(defId, qty, x, y)` paints the same judgement as the tile-drag footprint highlight (`ok` / `merge` / `bad`,
-nothing changes) and `clearExternalPreview()` hides it — furniture drags light the **cell** under the cursor, not the block. Options
-(`TradeGridsViewOptions`): `grids` (default `['stash', 'bag']`), `layout` (`'wrap'`
-and `'split'` render the same side-by-side panel), `chips` (`'block'` own dropdown per block, `'shared'`, `'none'` +
-`mountFilterChips(host)`), `cell`, `isStaged`, `takeLabel`, `className`. `setCell(px)` rebuilds keeping filter and
+nothing changes) and `clearExternalPreview()` hides it — furniture drags light the **cell** under the cursor, not the block.
+2026-09-19: both measure the **def's own orientation** (the preview carries no rotation, and an external drag has no rotate
+gesture), so `placeExternalAt` normalises `item.rotated` instead of measuring it; the preview still cannot see a stack key,
+so a `merge` highlight over a differently marked stack ends as `'blocked'`. Options
+(`TradeGridsViewOptions`): `grids` (default `['stash', 'bag']`), `layout` (**accepted and never read** — both values
+render the same side-by-side panel; see `Known limits`), `chips` (default `'block'` = own dropdown per block, else
+`'shared'`, or `'none'` + `mountFilterChips(host)`), `cell`, `isStaged`, `takeLabel`, `className`. `setCell(px)` rebuilds keeping filter and
 scroll (narrow with `typeof view.setCell === 'function'`). Call it **once** for stash + bag to get one card; blocks
 scroll in `.tg-gridwrap`, so the host needs a height-constrained flex parent.
 
@@ -154,6 +157,8 @@ scroll in `.tg-gridwrap`, so the host needs a height-constrained flex parent.
   (`primary armor / primary2 bag / implant pouch`) is `grid-template-areas` in `inventory.css`. The implant block is
   inserted before `pouch` and hidden while `ctx.tutorial.hides('hud', 'implant')`.
 - `secondary` has no slot (`slotAccepts` false); its type names remain because saves and crew cards use them.
+  `equipTargetFor` therefore answers `null` for it (2026-09-19 — it used to name the slot, so 「장착」 and a bag
+  double-click both ended in `fail` instead of falling back). No item def carries the category today.
 
 **Double-click auto-place** (`DropResolver.activateImpl` → `tryAutoPlace`), same order from every grid:
 
@@ -225,15 +230,15 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 | Event | Effect |
 |---|---|
 | `init` | restore save (wrong-category entries dropped, forbidden attachments returned); `announcePending` |
-| first `hub:entered` | starter kit only if the kit is empty **and** (starter stash just granted **or** stash empty); else announce restored loadout; flush deferred favourites; strip raid marks |
+| `hub:entered` | starter kit only if the kit is empty **and** (starter stash just granted **or** stash empty); else announce restored loadout; flush deferred favourites. **Every** `hub:entered` also strips raid marks (not just the first) |
 | `afterChange()` in ship | `markDirty('hub')` |
 | `world:ready` | `isDestitute()` (no loadout, empty bag **and** stash) → starter kit; else raid with the ship kit; re-emit loadout / count / quick events; solo raid → `markRaid(seed)` |
 | mission changes | not saved until the mission ends |
 | `game:complete` | keep; bag wear if extracted; strip raid marks; `saveNow('complete')`; clear solo marker |
 | `player:died` | close window; `game/parts/CorpseNet` calls `stripForCorpse` |
 | `player:respawn` | after a corpse strip → empty-handed; otherwise starter kit |
-| `game:over` / `reset()` | `loseKit()` |
-| `game:abort` | after complete / over → keep; else `loseKit()` |
+| `game:over` / `reset()` | `loseKit()`; `game:over` strips raid marks |
+| `game:abort` | after complete / over → keep; else `loseKit()`; strips raid marks |
 | `game:newMission` | close windows, forget containers |
 
 - `loseKit()` empties slots, bag, wheel, pouch; an empty stash falls back to the starter kit. Every `applyStarter` /
@@ -274,7 +279,9 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
 
 - Station: `'field'` in a raid, `'ship'` otherwise (`currentStation`). Counting is `craftCountDef` (ship = bag +
   stash, field = bag) for chips, `canCraft`, `maxCraftCount`; consumption is `consumeFor` (ship: `consumeDefAll`).
-- `getRecipes(station, bench?, level?)`: **no skill gate** (2026-09-16); field = `station: 'field'`; with bench = that bench up to its
+- `getRecipes(station, bench?, level?)`: the **skill gate is wired but idle** (2026-09-16, 2nd decision — CLAUDE.md §4.7:
+  the `skillRequired` filter is in the first line, and every `data/recipes.csv` value is 0, so only the bench and its level
+  lock anything today); field = `station: 'field'`; with bench = that bench up to its
   level; without = field recipes + ship recipes whose bench is placed at level. Cook-bench recipes are returned only
   when `'cook'` is asked explicitly and `canCraft` rejects them — cooking goes only through `cookBlock` /
   `consumeCookInputs` (2026-09-16: meals are not items — the output is a housing plate, so no output room check).
@@ -410,13 +417,29 @@ The loadout is persisted in `scav.loadout` and read **once in `init`**; afterwar
   corpse `quality` copy and `ProgressionRef.serveMeal` are **dead paths** (clean-up candidates); a cooked item in an old
   save disappears without migration (2026-09-16 user decision).
 
+## Known limits
+
+- **Intended** (2026-09-16, 2nd decision — CLAUDE.md §4.7): the craft **skill gate is wired but idle**. `getRecipes`
+  still filters on `skillRequired`, `ui/CraftPanel.lockedReason` and `parts/Crafting.COOK_REASON.skill` / `SKILL_WORD`
+  still word the refusal, and every `data/recipes.csv` value is 0 — so none of it is reachable today and none of it is
+  dead code. Raise one csv number and the recipe locks. — `parts/Crafting.ts`, `ui/CraftPanel.ts`
+- **Intended**: `TradeGridsOptions.layout` is accepted and never read (both values are the one `is-split` panel since
+  the 2026-09-15 2nd pass). It stays because `TradeGridsViewOptions` is a `src/shared` contract (add-only) and
+  `meta/ui/CorpView` · `housing/ui/StationShell` still pass `'split'`. — `ui/TradeGrids.ts`
+- 「**Am I in the ship right now**」 is asked **three ways** inside one craft and they are not the same test:
+  `currentStation() === 'ship'` (= `!isRaidActive()`) for materials, `ctx.isHubPhase()` for the product's room and
+  delivery, and the UI flag `sys.hubMode` for 「the 함선 창고 pane is on screen」. They can only disagree in a phase that
+  is neither hub nor raid, where the window has closed itself, so nothing reaches the difference today — and they are
+  **left apart on purpose**: narrowing the material test would change what a craft may spend (a play-economy decision).
+  `cookBlock` testing both is the standing proof. — `parts/Crafting.currentStation`
+
 ## Recent changes
 
 Older: `git log -- src/inventory`.
 
+- 2026-09-19 — Audit B-36 · B-37 · B-38 · B-39: comments corrected against the code, dead code removed (`CRAFT_MIN_SPEED`, `TEXT.shieldChargeStats` / `boostStats`, `SLOT_KEY` / `socketAbbr` / `fmtDeg`, `CatalogView.defOf`, `CraftPanel`'s `onRepair` argument and the copied-in unused imports of every `parts/*` · `ui/parts/*` file), and three behaviours fixed — `placeExternalAt` now measures the same def orientation as `previewExternalAt`, `dropPartialImpl` asks for the cell before minting the instance, and `detachAllSockets` asks `isHubPhase()` instead of the UI flag `hubMode`.
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, item names and verbatim user decisions kept in backticks / 「」, no string literal touched.
 - 2026-09-18 — Tab 가방: the fixed 12-row frame is gone (grid = equipped bag), the card stretches to the equipment column, and 무게 · 가치 · 크레딧 moved into the grid's right-hand column bottom (`.inv-bag-side` / `.inv-bag-readouts`). Where the 창고 stands beside it (ship Tab ≥ 1600 px) the row keeps its old height to the pixel — the frame's height moved onto the stash grid as a `min-height` (`--inv-bag-frame-rows`).
 - 2026-09-17 — `TradeGridsView.previewExternalAt` / `clearExternalPreview` (shared contract, add-only): the cell-footprint highlight for an item dragged in from a furniture screen, same hit test and rule as `placeExternalAt`.
 - 2026-09-17 — 무한 상자 double-click puts the item into the stash first while the stash shows (ship), then the bag (`takeFromCatalog`; failure toast `창고와 가방에 공간이 없습니다`).
 - 2026-09-17 — The Tab window's `기업` screen tab is hidden (and `setTab('corp')` / `openScreen('corp')` fall back to 인벤토리) until any corp reaches 신뢰도 Lv.1 (`CORP_ACCESS_REP_LEVEL`); re-evaluated live on `meta:repChanged` / `meta:loaded` (`Screens.corpTabLocked`, `onCorpAccessChanged`).
-- 2026-09-16 — `CREDITS` pill removed; bag footer = small `가방 내 가치 n C` (left) + current credits `n C` (right); Tab / Escape popups / R / X ignored while the messenger is open over the window.

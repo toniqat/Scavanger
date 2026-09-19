@@ -5,33 +5,19 @@
  * a client sends `contq take` and waits for `cont taken` / `cont denied` (`'pending'` in `OpResult`).
  * This file holds all of it — that queue (`pendingTakes`) · the timeout · the host-side validation · applying another member's take.
  */
-import * as THREE from 'three';
 import type {
-  ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, GameContext, ItemCategory, ItemDef,
-  ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
+  ContainerMessage, ContainerRequest, PeerId as NetPeerId,
 } from '@/shared';
-import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
-import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
-import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
-import { Container, ContainerStore } from '../Container';
-import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
-import { setStarterGrantState, starterGrantState } from '../Stash';
-import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
-import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
+import { Container } from '../Container';
 import {
-  AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
-  LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
-  isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
-  type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type DropPreview, type DropTarget,
-  type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type SlotId,
+  TAKE_REQUEST_TIMEOUT, type DropTarget, type ItemLocation, type OpResult,
 } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
 /** Multiplayer client: every container → player move is a request to the host. */
 export function needsTakeRequest(sys: InventorySystem, from: ItemLocation): boolean {
   return from.kind === 'grid' && from.grid === 'container' && sys.ctx.isMultiplayer && !sys.ctx.isAuthority;
-  }
+}
 
 /** Multiplayer host: applies takes itself and broadcasts them. */
 export function isNetAuthority(sys: InventorySystem): boolean { return sys.ctx.isMultiplayer && sys.ctx.isAuthority; }
@@ -43,7 +29,7 @@ export function refusesIntoContainer(sys: InventorySystem, from: ItemLocation, t
   if (!sys.ctx.isMultiplayer) return false;
   if (target.kind === 'grid' && target.grid === 'container' && !sys.isContainerLoc(from)) return true;
   return false;
-  }
+}
 
 /**
  * Gate for a container → player move of `qty` units (null = the whole stack) of `uid`: an unsearched item is refused;
@@ -54,7 +40,7 @@ export function guardedTake(sys: InventorySystem, uid: string, from: ItemLocatio
   if (sys.isItemLocked(uid, from)) return 'fail';
   if (sys.needsTakeRequest(from)) return sys.requestTake(uid, from, qty, run);
   return sys.trackTake(uid, from, run);
-  }
+}
 
 export function requestTake(sys: InventorySystem, uid: string, from: ItemLocation, qty: number | null, run: () => OpResult): OpResult {
   const c = sys.activeContainer;
@@ -69,7 +55,7 @@ export function requestTake(sys: InventorySystem, uid: string, from: ItemLocatio
   net.send({ t: 'contq', ev: 'take', id: c.id, idx, qty: n }, 'host');
   sys.ui?.refresh();
   return 'pending';
-  }
+}
 
 /**
  * Run a container take now (host / single-player). The multiplayer host records + broadcasts the units that left its
@@ -89,7 +75,7 @@ export function trackTake(sys: InventorySystem, uid: string, from: ItemLocation,
   const me = sys.ctx.isMultiplayer ? sys.ctx.net?.localId ?? null : null;
   sys.emitItemTaken(c.id, idx, uid, removed, after, me, true);
   return r;
-  }
+}
 
 /**
  * `by` (2026-09-15, android squadmates): the id of the body that took it — omitted it is **me**, as it always was. An android
@@ -103,7 +89,7 @@ export function announceTake(sys: InventorySystem, c: Container, idx: number, qt
     t: 'cont', ev: 'taken', id: c.id, idx, qty, by: by ?? net.localId,
     rem: c.remainingAt(idx), seq: sys.containers.nextTakeSeq(c.id),
   }, 'others');
-  }
+}
 
 /**
  * Phase 10 — the one place `container:itemTaken` is emitted. `live` separates a real-time take (someone is looting
@@ -116,14 +102,14 @@ export function emitItemTaken(sys: InventorySystem, containerId: string, idx: nu
   const byName = by && !byLocal ? net?.getLobbyPlayer?.(by)?.name ?? null : null;
   if (live && !byLocal && uid && sys.activeContainer?.id === containerId) sys.ui?.vanishContainerItem(uid);
   sys.ctx.bus.emit('container:itemTaken', { containerId, idx, uid, qty, remaining, by, byName, byLocal, live });
-  }
+}
 
 /** Uids of container items whose take is waiting for the host (UI pulse). */
 export function pendingTakeUids(sys: InventorySystem): ReadonlySet<string> {
   const out = new Set<string>();
   for (const t of sys.pendingTakes) out.add(t.uid);
   return out;
-  }
+}
 
 export function expirePendingTakes(sys: InventorySystem): void {
   if (sys.pendingTakes.length === 0) return;
@@ -132,7 +118,7 @@ export function expirePendingTakes(sys: InventorySystem): void {
   if (keep.length === sys.pendingTakes.length) return;
   sys.pendingTakes = keep;
   sys.ui?.refresh();
-  }
+}
 
 /** Host → all `cont` (taken / denied / sync). Only the lobby host is trusted. */
 export function onContainerMessage(sys: InventorySystem, msg: ContainerMessage, from: NetPeerId): void {
@@ -159,7 +145,7 @@ export function onContainerMessage(sys: InventorySystem, msg: ContainerMessage, 
     for (const id of changed) { const c = sys.containers.get(id); if (c) sys.checkLootedFor(c); }
     if (changed.length > 0) sys.ui?.refresh();
   }
-  }
+}
 
 /** My `contq take` was confirmed: replay the move (the item may sit in a container whose window closed meanwhile). */
 export function resolvePendingTake(sys: InventorySystem, id: string, idx: number, qty: number): void {
@@ -185,7 +171,7 @@ export function resolvePendingTake(sys: InventorySystem, id: string, idx: number
   sys.emitItemTaken(id, idx, t.uid, qty, c.remainingAt(idx), sys.ctx.net?.localId ?? null, true);
   sys.checkLootedFor(c);
   sys.ui?.refresh();
-  }
+}
 
 /**
  * Someone else's take was confirmed: remove it from my copy (or remember it for a container I have not opened).
@@ -206,7 +192,7 @@ export function applyRemoteTaken(sys: InventorySystem, id: string, idx: number, 
   sys.emitItemTaken(id, idx, uid, removed, c.remainingAt(idx), by, true);
   sys.checkLootedFor(c);
   if (sys._open) sys.ui?.refresh();
-  }
+}
 
 /** Host: validate a peer's `contq take` against its own copy (rolled on demand for world crates) and broadcast. */
 export function onContainerRequest(sys: InventorySystem, msg: ContainerRequest, from: NetPeerId): void {
@@ -232,7 +218,7 @@ export function onContainerRequest(sys: InventorySystem, msg: ContainerRequest, 
     t: 'cont', ev: 'taken', id: msg.id, idx: msg.idx, qty, by: from,
     ...(c ? { rem: c.remainingAt(msg.idx) } : {}), seq: sys.containers.nextTakeSeq(msg.id),
   }, 'others');
-  }
+}
 
 /** Host: a world crate it never opened can still be rolled (deterministic seed ^ id) to validate a request. */
 export function materializeCrate(sys: InventorySystem, id: string): Container | null {
@@ -241,7 +227,7 @@ export function materializeCrate(sys: InventorySystem, id: string): Container | 
   // 2026-09-16: the same roll rules as the opening path (a map crate is always undefined, but it is kept as one rule)
   return sys.containers.getOrCreate(id, crate.tier, crate.position, sys.loot, sys.missionSeed, sys.ctx.missionPlanet,
     sys.ctx.world?.crateLootOpts?.(id));
-  }
+}
 
 /** Ask the (new) host for every taken map (host migration, rejoin fallback). */
 export function requestContainerSync(sys: InventorySystem): void {
@@ -250,4 +236,4 @@ export function requestContainerSync(sys: InventorySystem): void {
   sys.pendingTakes = [];
   sys.containers.resetTakeSeq(); // the new host counts its takes from 1 again
   net.send({ t: 'contq', ev: 'sync' }, 'host');
-  }
+}

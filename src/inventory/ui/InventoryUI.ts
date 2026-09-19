@@ -1,9 +1,9 @@
 import './../inventory.css';
 import type { EmbeddedView, GameContext, ItemDef, ItemInstance, KeyGuideEntry } from '@/shared';
-import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
+import { Keys, isQuickSlotActive, keyLabel } from '@/shared';
 import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
 import type { Container } from '../Container';
-import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../InventorySystem';
+import { LOADOUT_SLOTS, isArmorDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../InventorySystem';
 import { BAG_FRAME_ROWS, filterPredicate, type FilterGroupId } from '../model';
 import { buildFilterSelect, buildSortButton, type FilterControl } from './GridTools';
 import { CraftPanel } from './CraftPanel';
@@ -11,16 +11,15 @@ import { CatalogView } from './CatalogView';
 import { DisassemblePanel } from './DisassemblePanel';
 import { RepairPanel } from './RepairPanel';
 import { ImplantPanel } from './ImplantPanel';
-import { filledSocketCount } from '../Sockets';
 import { isQuickUsable } from '../QuickSlots';
-import { GridView, buildSlotCardContent, buildTileContent, setNeededAmmoFrom, setRecoveryScope, type HighlightState } from './GridView';
+import { GridView, setNeededAmmoFrom, setRecoveryScope } from './GridView';
 import { Tooltip } from './Tooltip';
 import { TipPin, inventoryTooltipLookups } from './TipPin';
 import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { SplitDialog } from './SplitDialog';
-import { CELL, QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, applyGridCellVar, capacityLabel, fmtCreditNumber, pouchAcceptsLabel, slotKeyLabel, syncGridCell, tierTitle, tileSize, fmtKg, weightLabel } from './labels';
+import { CELL, SLOT_LABEL, STEP, TEXT, applyGridCellVar, capacityLabel, fmtCreditNumber, pouchAcceptsLabel, slotKeyLabel, syncGridCell, tierTitle, fmtKg, weightLabel } from './labels';
 
-import { BAG_LOC, CATALOG_DBL_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from './model';
+import { CATALOG_DBL_MS, type DragState, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from './model';
 /** The folder's shared vocabulary (constants · types · scratch) lives in `model.ts` — re-exported for the existing import paths. */
 export * from './model';
 
@@ -421,7 +420,7 @@ export class InventoryUI {
     // 2026-09-15 2nd pass: the tools (`모두 수리` · sort · filter) sit in the bag's **one header row** — no chip row above
     bPanel.append(bHead, bBody);
     // 2026-09-15 4th pass: the recipe list's hover card is the grid tiles' **floating card** (`this.tooltip`) — as the catalog's
-    this.craftPanel = new CraftPanel(this.sys, getDef, () => this.closeCraft(), (anchor) => this.repair.open(anchor), {
+    this.craftPanel = new CraftPanel(this.sys, getDef, () => this.closeCraft(), {
       onEnter: (def, sample, e) => { if (!this.drag?.started && !this.pin.isSocketDragging) this.tooltip.show(sample, def, e.clientX, e.clientY); },
       onMove: (e) => this.tooltip.move(e.clientX, e.clientY),
       onLeave: () => this.tooltip.hide(),
@@ -1115,7 +1114,6 @@ export class InventoryUI {
 
   /* ── 2026-09-12: auto sort · filter ────────────────────────────────────── */
 
-  /** `정렬` in the bag / stash header. A drag in progress is dropped first (its source may move). */
   /**
    * 2026-09-16: the `모두 창고로 이동` button. Everything fitting is only a sound; anything left over for want of room
    * raises one toast (`창고에 공간이 없습니다 (n개 남음)`). The ready-state lock announces itself through the system's
@@ -1134,6 +1132,7 @@ export class InventoryUI {
     }
   }
 
+  /** `정렬` in the bag / stash header. A drag in progress is dropped first (its source may move). */
   sortGrid(id: 'bag' | 'stash'): void {
     this.cancelDrag();
     this.menu?.close();
@@ -1145,10 +1144,10 @@ export class InventoryUI {
     }
   }
 
-  /** Pick a filter chip: every grid of the window dims what the group does not contain. */
+  /** Pick a filter entry: every grid of the window dims what the group does not contain. */
   setFilterGroup(id: FilterGroupId): void {
     this.filterGroup = id;
-    const pred = filterPredicate(id, (defId) => this.sys.isFavorite(defId));   // 2026-09-12 (E1): the 「즐겨찾기」 chip
+    const pred = filterPredicate(id, (defId) => this.sys.isFavorite(defId));   // 2026-09-12 (E1): the 「즐겨찾기」 entry
     this.bagView.setFilter(pred);
     this.stashView.setFilter(pred);
     this.pouchView.setFilter(pred);

@@ -6,28 +6,17 @@
  * The one question answered here — *what happens to the player's gear when a raid starts · ends · fails.*
  * The rules in full are in the folder README's `Reset policy` section.
  */
-import * as THREE from 'three';
 import type {
-  ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, GameContext, ItemCategory, ItemDef,
-  ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
+  ItemDef, ItemInstance, Loadout,
 } from '@/shared';
-import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
-import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
-import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
-import { Container, ContainerStore } from '../Container';
-import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
+import { ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, isWeaponItemDef } from '@/items';
 import { createQuickSlots, isQuickUsable, pickStarterQuick } from '../QuickSlots';
 import { setStarterGrantState, starterGrantState } from '../Stash';
 import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
 import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
 import { resolveItemAlias } from '@/shared';   // 2026-09-13 (the library series): re-merges bag stacks saved under an old media id
 import {
-  AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
-  LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
-  isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
-  type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type DropPreview, type DropTarget,
-  type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type SlotId,
+  LOADOUT_SLOTS, WEAPON_SLOT_IDS, slotAccepts,
 } from '../model';
 import { pouchAcceptsDef } from '../model';
 import * as Pouch from './Pouch';
@@ -62,7 +51,7 @@ export function onWorldReady(sys: InventorySystem, seed: number): void {
   if (sys.announcePending) { sys.announcePending = false; sys.lastEquipUids = {}; sys.lastWeight = null; }
   sys.emitLoadout();
   sys.afterChange();
-  }
+}
 
 /**
  * Snapshot for the save file: slots + bag placements + the wheel's own stacks + the pouch grid.
@@ -84,7 +73,7 @@ export function captureLoadoutSave(sys: InventorySystem): LoadoutSave {
   const fav = sys.captureFavorites();
   if (fav) save.fav = fav;
   return save;
-  }
+}
 
 /**
  * Fill the slots / bag / quick slots from the save (init only, no events). A missing / empty save leaves
@@ -101,7 +90,7 @@ export function restoreLoadoutSave(sys: InventorySystem): boolean {
   if (returnForbiddenAttachments(sys, 'stash') > 0) sys.loadoutStore.markDirty('sockets');
   sys.announcePending = true;
   return true;
-  }
+}
 
 /**
  * Replace the slots / bag / quick slots with `save` (no events — callers announce). Returns the revived bag
@@ -192,7 +181,7 @@ export function applyLoadoutSave(sys: InventorySystem, save: LoadoutSave): (Item
     if (!sys.bag.autoPlace(item)) console.warn(`[Loadout] no room for '${item.defId}' off the pouch — discarded`);
   }
   return revived;
-  }
+}
 
 /** First `hub:entered` after a restored save: tell every consumer (they subscribed after our init). */
 export function announceLoaded(sys: InventorySystem): void {
@@ -202,7 +191,7 @@ export function announceLoaded(sys: InventorySystem): void {
   sys.ctx.bus.emit('inventory:bagChanged', { ...sys.getBagSize(), dropped: [] });
   sys.emitLoadout();
   sys.afterChange();
-  }
+}
 
 /** Legacy mission failure (Phase 2 death flow no longer emits it): everything carried is lost (2026-09-07). */
 export function onGameOver(sys: InventorySystem): void {
@@ -211,7 +200,7 @@ export function onGameOver(sys: InventorySystem): void {
   sys.closeAll();
   sys.clearContainers();
   sys.loseKit();
-  }
+}
 
 /**
  * The inventory on revival.
@@ -227,7 +216,7 @@ export function onRespawn(sys: InventorySystem): void {
   sys.closeAll();
   if (sys.strippedForCorpse) { sys.strippedForCorpse = false; return; }
   sys.applyStarter();
-  }
+}
 
 /**
  * `game:abort` after a completed mission is just the hub's mechanical transition (result screen → ship): keep
@@ -243,21 +232,21 @@ export function onAbort(sys: InventorySystem): void {
   sys.outcome = 'none';
   if (outcome === 'complete' || outcome === 'over') return;
   sys.loseKit();
-  }
+}
 
 export function hasAnyWeapon(sys: InventorySystem): boolean {
   for (const s of WEAPON_SLOT_IDS) if (sys.loadout[s]) return true;
   return sys.bag.items().some((p) => isWeaponItemDef(ITEM_DEF_MAP.get(p.item.defId)));
-  }
+}
 
 export function isCompletelyEmpty(sys: InventorySystem): boolean {
   return LOADOUT_SLOTS.every((s) => !sys.loadout[s]) && sys.bag.isEmpty && sys.pouch.isEmpty;
-  }
+}
 
 /** Nothing to raid with anywhere: no loadout, empty bag **and** an empty 함선 창고 (2026-09-07 safety net). */
 export function isDestitute(sys: InventorySystem): boolean {
   return sys.isCompletelyEmpty() && sys.stash.count === 0;
-  }
+}
 
 /**
  * A failed / abandoned raid: everything the player carried is gone and they re-equip from the 함선 창고
@@ -277,7 +266,7 @@ export function loseKit(sys: InventorySystem): void {
   sys.afterChange();
   sys.announcePending = false;
   sys.loadoutStore.saveNow('starter');
-  }
+}
 
 /**
  * The starter grant, once per profile (2026-09-07 fix). The old condition was `Stash.firstRun` — no `scav.stash` file —
@@ -299,7 +288,7 @@ export function tryStarterGrant(sys: InventorySystem): void {
   // the minimum kit is equipped from `hub:entered`; a grant that lands after the player is already aboard equips now
   if (sys.ctx.isHubPhase() && sys.isCompletelyEmpty()) sys.applyStarter();
   else sys.firstRunGrant = true;
-  }
+}
 
 /**
  * `STARTER_STASH` into the stash (2026-09-07); the "once per profile" decision is `tryStarterGrant`. `stacks`
@@ -320,7 +309,7 @@ export function grantStarterStash(sys: InventorySystem): void {
   sys.stash.markDirty();
   sys.stash.flush();
   sys.ctx.bus.emit('inventory:stashChanged', { count: sys.stash.count });
-  }
+}
 
 /** Wipe the bag + slots and apply `STARTER_LOADOUT` (`items[].qty` are units / rounds). */
 export function applyStarter(sys: InventorySystem): void {
@@ -353,4 +342,4 @@ export function applyStarter(sys: InventorySystem): void {
   // Phase 5: persist the starter right away so a reload cannot bring back a bag lost to death / abort
   sys.announcePending = false;
   sys.loadoutStore.saveNow('starter');
-  }
+}

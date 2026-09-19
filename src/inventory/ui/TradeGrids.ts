@@ -1,4 +1,4 @@
-import type { EmbeddedView, GameContext, ItemDef, ItemInstance, TradeGridsView } from '@/shared';
+import type { GameContext, ItemDef, ItemInstance, TradeGridsView } from '@/shared';
 import { Keys } from '@/shared';
 import type { InventorySystem, GridId } from '../InventorySystem';
 import { BAG_FRAME_ROWS, filterPredicate, type FilterGroupId } from '../model';
@@ -51,7 +51,7 @@ export interface TradeGridsOptions {
   /** Extra class on the root, so the caller can size the blocks from its own stylesheet. */
   className?: string;
   /**
-   * Grid cell edge in px (default `CELL` = the Tab window's 54). The 기업 거래 desk passes a smaller edge so its
+   * Grid cell edge in px (default `CELL` = the Tab window's edge). The 기업 거래 desk passes a smaller edge so its
    * 가방 / 함선 창고 grids match the 5-column 구매 / 판매 tray beside them. Change it later with `setCell`.
    */
   cell?: number;
@@ -60,9 +60,13 @@ export interface TradeGridsOptions {
    * Default `빠른 이동`. With no `onTake` the entry itself is absent (the menu holds only the favourite toggle).
    */
   takeLabel?: string;
-  /** 2026-09-13: see `TradeGridsLayout`. Default `'wrap'`. */
+  /**
+   * 2026-09-13: see `TradeGridsLayout`. **Never read** since the 2026-09-15 2nd pass — both values draw the same
+   * panel (the root is always `trade-grids is-split`). The option stays because `TradeGridsViewOptions` is a
+   * `src/shared` contract (add-only) and `meta/ui/CorpView` · `housing/ui/StationShell` still pass `'split'`.
+   */
   layout?: TradeGridsLayout;
-  /** 2026-09-13: see `TradeGridsChips`. Default `'shared'` for `'wrap'`, `'block'` for `'split'`. */
+  /** 2026-09-13: see `TradeGridsChips`. Default `'block'` (one dropdown per pane), whatever `layout` says. */
   chips?: TradeGridsChips;
 }
 
@@ -283,7 +287,7 @@ export class TradeGrids implements TradeGridsView {
     }
     // 2026-09-12: a grid is a box that **pins its own width in px** (`GridView.syncDims`), so putting the vertical scroll on
     // the grid itself lets the scrollbar take space inside that width and clip the last column — this box, whose width comes
-    // from its content, takes it instead (as the `Tab` inventory's `.inv-bag-scroll` does). Under the `'wrap'` default it does nothing.
+    // from its content, takes it instead (as the `Tab` inventory's `.inv-bag-scroll` does).
     block.wrap.className = 'tg-gridwrap';
     el.appendChild(block.wrap);
     this.mountView(block);
@@ -737,19 +741,25 @@ export class TradeGrids implements TradeGridsView {
     if (this.disposed) return null;
     const def = this.inv.getDef(item.defId);
     if (!def) return null;
-    const w = item.rotated ? def.height : def.width;
-    const h = item.rotated ? def.width : def.height;
-    const size = tileSizeAt(w, h, this.cellPx);
-    const hit = this.cellAt(x - size.width / 2, y - size.height / 2, w, h, x, y);
+    /* 2026-09-19 (audit B-38): **the footprint is the def's own orientation**, never `item.rotated`. The promise above is
+       that the preview and this run the same hit test, and the contract's preview (`TradeGridsView.previewExternalAt`,
+       `src/shared`) carries no rotation to run it with — an external drag has no rotate gesture, so there is nothing to
+       carry. Measuring a rotated instance here instead would highlight one cell and fill another. The instance is
+       normalised to match, so what lands is exactly what was lit. */
+    item.rotated = false;
+    const size = tileSizeAt(def.width, def.height, this.cellPx);
+    const hit = this.cellAt(x - size.width / 2, y - size.height / 2, def.width, def.height, x, y);
     if (!hit) return null;
     const grid = this.inv.getGrid(hit.bl.id);
     if (!grid) return null;
     const occupant = grid.at(hit.x, hit.y)?.item;
     if (occupant) {
       /* A matching stack merges (the same as dragging from the bag). It is touched **only when all of it fits** — the room is
-         measured before `mergeInto` is called, so 「half moved and then refused」 cannot happen (an unmergeable pair returns 0). */
+         measured before `mergeInto` is called, so 「half moved and then refused」 cannot happen (an unmergeable pair returns 0).
+         `mergeInto` also compares the stack keys (raid-found mark · meal quality), which the preview cannot see — it has a def
+         id, not an instance — so a `merge` highlight over a differently marked stack still ends as `'blocked'` here. */
       if (def.stackMax - occupant.qty < item.qty || grid.mergeInto(item, occupant.uid) <= 0) return 'blocked';
-    } else if (!grid.place(item, hit.x, hit.y, item.rotated)) {
+    } else if (!grid.place(item, hit.x, hit.y, false)) {
       return 'blocked';
     }
     this.inv.afterChange();
@@ -760,8 +770,10 @@ export class TradeGrids implements TradeGridsView {
 
   /**
    * 2026-09-17 (user's report 「가구에서 끌어낸 것은 창고 · 가방 **전체**가 아니라 커서 밑 **칸**이 강조돼야 한다」):
-   * a **preview** of the judgement `placeExternalAt` would make — the same cell search (`cellAt`) and the same 「nothing is displaced」
-   * rule paint the footprint (`showHighlight`, the same `.inv-hl` as a tile drag). Nothing changes; a merge is `merge` only when all of it fits.
+   * a **preview** of the judgement `placeExternalAt` would make — the same cell search (`cellAt`), the same def-orientation
+   * footprint and the same 「nothing is displaced」 rule paint it (`showHighlight`, the same `.inv-hl` as a tile drag).
+   * Nothing changes; a merge is `merge` only when all of it fits. The one thing it cannot see is the **stack key** of a
+   * marked stack (it is handed a def id, not an instance), so a `merge` here can still end as `'blocked'` there.
    */
   previewExternalAt(defId: string, qty: number, x: number, y: number): 'ok' | 'merge' | 'bad' | null {
     this.hideHighlights();

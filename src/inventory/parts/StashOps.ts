@@ -7,26 +7,14 @@
  * ⚠ These functions (`countDefAll` · `consumeDefAll` · `tryAddItemAnywhere` …) **do not check the phase** — a path
  * that must not run during a raid is blocked by its caller.
  */
-import * as THREE from 'three';
 import type {
-  ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, GameContext, ItemCategory, ItemDef,
-  ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
+  ItemDef, ItemInstance, LoadoutSlot, LoadoutPreset,
 } from '@/shared';
-import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive, normalizeMealQuality } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
-import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
-import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
-import { Container, ContainerStore } from '../Container';
-import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
-import { setStarterGrantState, starterGrantState } from '../Stash';
-import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
-import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
+import { ITEM_DEF_MAP, isWeaponItemDef } from '@/items';
+import { Grid } from '../Grid';
+import { findSocketed } from '../Sockets';
 import {
-  AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
-  LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
-  isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
-  type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type DropPreview, type DropTarget,
-  type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type SlotId,
+  LOADOUT_SLOTS, slotAccepts, type GridId, type ItemLocation, type OpResult,
 } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
@@ -37,7 +25,7 @@ export function setStashSize(sys: InventorySystem, cols: number, rows: number): 
   if (!sys.stash.resize(cols, rows)) return false;
   sys.afterChange(); // stash version changed → markDirty + inventory:stashChanged + UI re-render
   return true;
-  }
+}
 
 export function countDefAll(sys: InventorySystem, defId: string): number { return sys.countDef(defId) + sys.stashCountDef(defId); }
 
@@ -45,7 +33,7 @@ export function stashCountDef(sys: InventorySystem, defId: string): number {
   let n = 0;
   for (const p of sys.stash.grid.items()) if (p.item.defId === defId) n += p.item.qty;
   return n;
-  }
+}
 
 /** Bag first, then the stash; all-or-nothing. */
 export function consumeDefAll(sys: InventorySystem, defId: string, qty: number): boolean {
@@ -68,7 +56,7 @@ export function consumeDefAll(sys: InventorySystem, defId: string, qty: number):
     sys.afterChange();
   }
   return left === 0;
-  }
+}
 
 /* ══ A-13 (2026-09-11): preparations are used in the ship ═══════════════════════════════════════════════════
  * progression owns the rule (`ProgressionRef.usePrep` — the ship gate · one per environment · a Korean reason).
@@ -94,7 +82,7 @@ export function usePrepItem(sys: InventorySystem, uid: string, from?: ItemLocati
     console.error('[inventory] 준비물을 실었지만 아이템을 빼지 못했다', uid, def.id);
   }
   return null;
-  }
+}
 
 /* 2026-09-16 (the plate model, user's decision): the old `useMealItem` (right-click `먹기` on a meal item) is gone — a
  * meal is not an item but the dining table's plate, eaten only there (housing `parts/Dining.eatPlate`). */
@@ -110,7 +98,7 @@ export function captureLoadout(sys: InventorySystem): LoadoutPreset {
     // 2026-09-08: implant items are part of the loadout too (once moved into the inventory's equipment slots)
     implantItems: (sys.ctx.progression?.getEquippedImplants() ?? []).map((e) => e.defId),
   };
-  }
+}
 
 /**
  * Equip a preset from the bag (first) and the stash: a slot whose def is found gets the first matching instance
@@ -150,7 +138,7 @@ export function applyLoadout(sys: InventorySystem, preset: LoadoutPreset): { equ
   sys.emitLoadout();
   sys.afterChange();
   return { equipped, missing };
-  }
+}
 
 /**
  * The implant-item part of a preset (2026-09-08). Everything currently slotted comes **off** first (an implant the
@@ -170,7 +158,7 @@ function applyImplantItems(sys: InventorySystem, want: readonly string[]): { equ
     else missing.push(defId);
   }
   return { equipped, missing };
-  }
+}
 
 /** First instance of `defId` in the bag, then the stash. */
 export function findStoredByDef(sys: InventorySystem, defId: string): { item: ItemInstance; grid: GridId } | null {
@@ -179,7 +167,7 @@ export function findStoredByDef(sys: InventorySystem, defId: string): { item: It
     if (p) return { item: p.item, grid: gridId };
   }
   return null;
-  }
+}
 
 /** Unequip `slot` into the bag, else the stash (ship). The bag slot shrinks the grid first. */
 export function unequipToStorage(sys: InventorySystem, slot: LoadoutSlot): boolean {
@@ -201,7 +189,7 @@ export function unequipToStorage(sys: InventorySystem, slot: LoadoutSlot): boole
   const def = ITEM_DEF_MAP.get(cur.defId);
   if (def) sys.emitTransfer(cur, def, { kind: 'slot', slot }, { kind: 'grid', grid: dest });
   return true;
-  }
+}
 
 /** Move a bag / stash item into `slot`; the displaced item goes to the bag, else the stash, else the vacated cells. */
 export function equipFromStorage(sys: InventorySystem, item: ItemInstance, gridId: GridId, slot: LoadoutSlot): boolean {
@@ -241,7 +229,7 @@ export function equipFromStorage(sys: InventorySystem, item: ItemInstance, gridI
   sys.loadout[slot] = item;
   sys.emitTransfer(item, def, from, { kind: 'slot', slot });
   return true;
-  }
+}
 
 /** Context menu `창고로 이동` on an equipped item (hub only): unequip straight into the stash. The bag slot shrinks the grid first. */
 export function moveToStash(sys: InventorySystem, uid: string, from: ItemLocation): OpResult {
@@ -266,7 +254,7 @@ export function moveToStash(sys: InventorySystem, uid: string, from: ItemLocatio
   stash.autoPlace(item);
   sys.afterMove(item, from, { kind: 'grid', grid: 'stash' });
   return 'ok';
-  }
+}
 
 /**
  * 2026-09-16 (user's decision) — the bag header's **`모두 창고로 이동`** (ship only). **Only bag-grid items** move to the
@@ -305,7 +293,7 @@ export function moveBagToStash(sys: InventorySystem): { moved: number; left: num
   }
   if (moved > 0) sys.afterChange();
   return { moved, left };
-  }
+}
 
 /** Bag → slots → sockets of owned weapons → stash (incl. sockets of stashed weapons). */
 export function findItemAnywhere(sys: InventorySystem, uid: string): ItemInstance | null {
@@ -315,7 +303,7 @@ export function findItemAnywhere(sys: InventorySystem, uid: string): ItemInstanc
   if (stashed) return stashed;
   const stashWeapons = sys.stash.items().filter((it) => isWeaponItemDef(ITEM_DEF_MAP.get(it.defId)));
   return findSocketed(stashWeapons, uid)?.item ?? null;
-  }
+}
 
 /** Auto-place a fresh instance in the stash (merging into stacks first). Persists + `inventory:stashChanged`. */
 export function tryAddToStash(sys: InventorySystem, item: ItemInstance): boolean {
@@ -323,7 +311,7 @@ export function tryAddToStash(sys: InventorySystem, item: ItemInstance): boolean
   if (!sys.stash.grid.autoPlace(item)) return false;
   sys.afterChange();
   return true;
-  }
+}
 
 /** Bag first (`inventory:itemAdded`), then the stash. No `inventory:full` — the caller (corp shop) reports. */
 export function tryAddItemAnywhere(sys: InventorySystem, item: ItemInstance): 'bag' | 'stash' | null {
@@ -336,7 +324,7 @@ export function tryAddItemAnywhere(sys: InventorySystem, item: ItemInstance): 'b
   }
   if (sys.stash.grid.autoPlace(item)) { sys.afterChange(); return 'stash'; }
   return null;
-  }
+}
 
 /** Would `qty` units of `defId` fit now? Bag first, then (hub phase) the stash. Non-mutating. */
 export function canFit(sys: InventorySystem, defId: string, qty = 1): 'bag' | 'stash' | null {
@@ -346,7 +334,7 @@ export function canFit(sys: InventorySystem, defId: string, qty = 1): 'bag' | 's
   if (sys.gridFits(sys.bag, def, n)) return 'bag';
   if (sys.ctx.isHubPhase() && sys.gridFits(sys.stash.grid, def, n)) return 'stash';
   return null;
-  }
+}
 
 /** Trial placement of `qty` units (merge into stacks, then new stacks chunked by `stackMax`), rolled back afterwards. */
 export function gridFits(sys: InventorySystem, grid: Grid, def: ItemDef, qty: number): boolean {
@@ -364,4 +352,4 @@ export function gridFits(sys: InventorySystem, grid: Grid, def: ItemDef, qty: nu
   grid.restore(snap);
   grid.version = version;
   return ok;
-  }
+}

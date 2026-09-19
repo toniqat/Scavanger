@@ -26,8 +26,9 @@ import { TEXT } from './labels';
  * **2026-09-08 (salvage UX)**: three cuts, all of them the same complaint — the dialog told you things after the fact.
  *  - The `1회 분해 · 2.0 s` line under the preview is gone; the duration is what the button fill shows.
  *  - The second horizontal bar under the button is gone too — the button *is* the progress bar.
- *  - **Room comes first** (`InventorySystem.craftHasRoom` — on the ship bag → stash, 2026-09-09). The bag used to be checked when the hold ended, so a
- *    full bag cost you the 2 s and then said no; the button now refuses up front with the reason on it.
+ *  - **Room comes first** (`InventorySystem.craftHasRoom`, 2026-09-09 — on the ship stash → bag since the
+ *    2026-09-15 2nd pass). The bag used to be checked when the hold ended, so a full bag cost you the hold and then
+ *    said no; the button now refuses up front with the reason on it.
  *
  * **2026-09-10 (craft rework, stage 2)** — the output rides the **remaining durability**. The popup resolves the
  * recipe again on every `refresh()` instead of once on open (`disassembleRecipeFor(uid)` = `ctx.loot.getSalvageFor(inst)`),
@@ -108,7 +109,8 @@ export class DisassemblePanel {
       column(TEXT.disassemble.input, this.inputHost), arrow, column(TEXT.disassemble.output, this.outputHost),
     );
 
-    // 2026-09-10: the output rides the remaining durability, so it says **which bucket makes this number** (spec §4).
+    // 2026-09-10: the output rides the remaining durability, so it says **which bucket makes this number**
+    // (the craft rework's durability buckets — CLAUDE.md §4.7, `items/Salvage`).
     this.durEl = document.createElement('div');
     this.durEl.className = 'inv-dur-note';
     this.durEl.hidden = true;
@@ -310,7 +312,7 @@ export class DisassemblePanel {
   }
 
   /**
-   * **The remaining-durability bucket line** (2026-09-10, spec §4). `81~100 % · 제작 재료의 40 %` and one hint
+   * **The remaining-durability bucket line** (2026-09-10, the craft rework — CLAUDE.md §4.7). `81~100 % · 제작 재료의 40 %` and one hint
    * line under it — it has to read that the output chips above change with the bucket. Every multiplier comes
    * from `ctx.loot.durabilityBucketInfo` (source `data/tables.csv`); there is no number here.
    * An item that uses no durability (ammo · materials · bags) is always bucket 4, so the line itself is hidden —

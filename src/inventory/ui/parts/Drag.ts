@@ -7,22 +7,13 @@
  * The ghost rides the **centre** of the cursor, and the lift lives inside `positionGhost`'s transform, not in a CSS
  * `scale:` (individual transforms run translate → scale, so the translate JS wrote got multiplied and drifted off).
  */
-import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
-import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
-import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
-import type { Container } from '../../Container';
-import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../../InventorySystem';
-import { CraftPanel } from '../CraftPanel';
-import { CatalogView } from '../CatalogView';
-import { DisassemblePanel } from '../DisassemblePanel';
-import { filledSocketCount } from '../../Sockets';
+import type { ItemDef, ItemInstance } from '@/shared';
+import { ITEM_DEF_MAP } from '@/items';
+import { isAttachmentDef, type DropTarget, type ItemLocation, type SlotId } from '../../InventorySystem';
 import { isQuickUsable } from '../../QuickSlots';
 import { GridView, buildTileContent, type HighlightState } from '../GridView';
-import { Tooltip } from '../Tooltip';
-import { ContextMenu, type MenuEntry } from '../ContextMenu';
-import { SplitDialog } from '../SplitDialog';
-import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from '../labels';
-import { BAG_LOC, CATALOG_DBL_MS, CLICK_SUPPRESS_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from '../model';
+import { tileSize } from '../labels';
+import { CLICK_SUPPRESS_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, MIDDLE_BUTTON } from '../model';
 import { AUTO_SCROLL_EDGE_IN, AUTO_SCROLL_EDGE_OUT, AUTO_SCROLL_MAX_SPEED } from '../model';
 import type { InventoryUI } from '../InventoryUI';
 import type { DetachTarget } from '../../model';
@@ -46,7 +37,7 @@ export function resolveGridTarget(sys: InventoryUI, views: GridView[], left: num
     if (cell) return { view, x: cell.x, y: cell.y };
   }
   return null;
-  }
+}
 
 /** X drops the dragged or hovered item; Shift+X one unit, Ctrl+X half the stack. In the ship the item lands in the stash. */
 export function onDropKey(sys: InventoryUI, shift: boolean, ctrl: boolean): void {
@@ -69,7 +60,7 @@ export function onDropKey(sys: InventoryUI, shift: boolean, ctrl: boolean): void
   }
   if (d) sys.cancelDrag();
   sys.dropToWorld(uid, from, qty);
-  }
+}
 
 export function onRotateKey(sys: InventoryUI): void {
   if (sys.dialog.isOpen) return;
@@ -87,7 +78,7 @@ export function onRotateKey(sys: InventoryUI): void {
   if (!h || h.loc.kind !== 'grid') return;
   const r = sys.sys.rotateItem(h.uid, h.loc.grid);
   sys.result(r, 'ui_rotate', h.loc, h.uid);
-  }
+}
 
 export function beginPress(sys: InventoryUI, uid: string, from: ItemLocation, e: PointerEvent, tileEl: HTMLElement, quickFrom: number | null = null): void {
   if (sys.drag || sys.dialog.isOpen) return;
@@ -127,7 +118,7 @@ export function beginPress(sys: InventoryUI, uid: string, from: ItemLocation, e:
   addDragListeners(sys, false);
   // 2026-09-14: holding still for `UI_HOLD_CONFIRM_S` pins the tooltip instead — the press (not a drag yet) is dropped first
   sys.pin.beginHold(uid, e.clientX, e.clientY, () => sys.cancelDrag());
-  }
+}
 
 function addDragListeners(sys: InventoryUI, held: boolean): void {
   window.addEventListener('pointermove', sys.onWindowMove);
@@ -281,11 +272,11 @@ export function startDrag(sys: InventoryUI, d: DragState): void {
   }
   sys.rebuildGhost(d);
   sys.sys.sfx('ui_pickup');
-  }
+}
 
 export function footprint(sys: InventoryUI, d: DragState): { w: number; h: number } {
   return d.rotated ? { w: d.def.height, h: d.def.width } : { w: d.def.width, h: d.def.height };
-  }
+}
 
 export function rebuildGhost(sys: InventoryUI, d: DragState): void {
   const { w, h } = sys.footprint(d);
@@ -303,14 +294,14 @@ export function rebuildGhost(sys: InventoryUI, d: DragState): void {
   d.grabX = width * 0.5;
   d.grabY = height * 0.5;
   sys.positionGhost(d, d.lastX, d.lastY);
-  }
+}
 
 export function positionGhost(sys: InventoryUI, d: DragState, x: number, y: number): void {
   if (!d.ghost) return;
   // The lift must be part of *this* transform (see `.inv-ghost` in inventory.css): as a standalone `scale:` it is
   // applied before the `transform` property and scales the translate, which pushed the ghost away from the cursor.
   d.ghost.style.transform = `translate(${Math.round(x - d.grabX)}px, ${Math.round(y - d.grabY)}px) scale(${GHOST_SCALE})`;
-  }
+}
 
 export function handlePointerMove(sys: InventoryUI, e: PointerEvent): void {
   const d = sys.drag;
@@ -322,7 +313,7 @@ export function handlePointerMove(sys: InventoryUI, e: PointerEvent): void {
   }
   sys.positionGhost(d, e.clientX, e.clientY);
   sys.updateDragTarget(e.clientX, e.clientY);
-  }
+}
 
 export function updateDragTarget(sys: InventoryUI, px: number, py: number): void {
   const d = sys.drag;
@@ -351,7 +342,7 @@ export function updateDragTarget(sys: InventoryUI, px: number, py: number): void
     return;
   }
   // 2026-09-10: a wheel-cell drag may also aim at a grid (the bag · a crate · the stash) or an equipment slot — from a
-  // quick slot straight into the crate. Only a landing on **no** target at all makes the release clear the slot (see `finishDrag`).
+  // quick slot straight into the crate. Only a landing on **no** target at all makes the release clear the slot (see `handlePointerUp`).
 
   // attachments: a weapon tile under the pointer (bag or equipment slot) is a socket target
   if (isAttachmentDef(d.def)) {
@@ -410,12 +401,12 @@ export function updateDragTarget(sys: InventoryUI, px: number, py: number): void
     const r = sys.dropZone.getBoundingClientRect();
     if (px >= r.left && px <= r.right && py >= r.top && py <= r.bottom) sys.dropZone.classList.add('is-hot');
   }
-  }
+}
 
 export function preview(sys: InventoryUI, d: DragState, target: DropTarget) {
   if (d.catalog) return sys.sys.previewCatalog(d.item, target);
   return d.qty !== null ? sys.sys.previewPartial(d.uid, d.from, d.qty, target) : sys.sys.previewDrop(d.uid, d.from, target);
-  }
+}
 
 /** Weapon tile under the pointer (the ghost layer ignores pointer events), excluding the dragged item itself. */
 export function weaponTileAt(sys: InventoryUI, x: number, y: number, exceptUid: string): { uid: string; loc: ItemLocation } | null {
@@ -430,7 +421,7 @@ export function weaponTileAt(sys: InventoryUI, x: number, y: number, exceptUid: 
   if (tile.closest('.inv-grid-stash')) return { uid, loc: { kind: 'grid', grid: 'stash' } };
   if (tile.closest('.inv-grid-pouch')) return { uid, loc: { kind: 'grid', grid: 'pouch' } };
   return null;
-  }
+}
 
 export function setSocketTarget(sys: InventoryUI, w: { uid: string; loc: ItemLocation }, state: 'ok' | 'bad'): void {
   sys.socketTarget = w;
@@ -443,7 +434,7 @@ export function setSocketTarget(sys: InventoryUI, w: { uid: string; loc: ItemLoc
     tile?.classList.toggle('is-socket-ok', state === 'ok');
     tile?.classList.toggle('is-socket-bad', state === 'bad');
   }
-  }
+}
 
 export function clearSocketTarget(sys: InventoryUI): void {
   if (!sys.socketTarget) return;
@@ -453,13 +444,13 @@ export function clearSocketTarget(sys: InventoryUI): void {
   sys.stashView.setSocketTarget(null, null);
   sys.pouchView.setSocketTarget(null, null);   // A-15 (no weapon goes into the pouch, but it is cleared along with the rest)
   for (const sv of sys.slots.values()) sv.tile?.classList.remove('is-socket-ok', 'is-socket-bad');
-  }
+}
 
 /** True when the point lies on a panel / equipment column (a miss there snaps back instead of dropping). */
 export function isOverPanel(sys: InventoryUI, x: number, y: number): boolean {
   const el = document.elementFromPoint(x, y);
   return !!el && !!(el as Element).closest('.inv-panel, .inv-equip, .inv-menu, .inv-dialog, .scr-tabs, .inv-modeless, .inv-screen');
-  }
+}
 
 export function handlePointerUp(sys: InventoryUI, e: PointerEvent): void {
   const d = sys.drag;
@@ -523,7 +514,7 @@ export function handlePointerUp(sys: InventoryUI, e: PointerEvent): void {
   const moved = before - src.qty;
   const left = d.qty !== null ? d.qty - moved : src.qty;
   if (left > 0) holdRemainder(sys, d, left >= src.qty ? null : left, e.clientX, e.clientY);
-  }
+}
 
 export function endDragVisuals(sys: InventoryUI, d: DragState): void {
   stopAutoScroll(sys);
@@ -549,7 +540,7 @@ export function endDragVisuals(sys: InventoryUI, d: DragState): void {
     sv.el.classList.remove('is-target-ok', 'is-target-bad');
     sv.tile?.classList.remove('is-dragging');
   }
-  }
+}
 
 export function cancelDrag(sys: InventoryUI): void {
   stopAutoScroll(sys);
@@ -558,7 +549,7 @@ export function cancelDrag(sys: InventoryUI): void {
   removeDragListeners(sys);
   sys.drag = null;
   if (d.started) sys.endDragVisuals(d);
-  }
+}
 
 /* ── 2026-09-14 (user's decision): attachment drag-out from a pinned weapon tooltip — the Tab window's answer to `ui/TipPin` ─────────── */
 

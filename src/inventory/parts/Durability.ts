@@ -5,28 +5,17 @@
  * `repairWeapon`) and take attachments on and off (`attachToWeapon` / `detachAllSockets`). Refilling the gauge of a
  * `회복 스프레이` lives here too (`sprayRepairCost` — it charges materials only for the missing part of the gauge).
  */
-import * as THREE from 'three';
 import type {
-  ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, GameContext, ItemCategory, ItemDef,
-  ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
+  CraftIngredient, DurabilityInfo, ItemDef, ItemInstance,
 } from '@/shared';
-import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, BAG_DURABILITY_PER_RAID, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight, needsRepairCost } from '@/items';
-import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
-import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
-import { Container, ContainerStore } from '../Container';
-import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
+import { BAG_DURABILITY_PER_RAID, SOCKET_SLOTS } from '@/shared';
+import { ITEM_DEF_MAP, isWeaponItemDef, needsRepairCost } from '@/items';
+import { durabilityInfo } from '../Gear';
+import { clearSocket } from '../Sockets';
 /* 2026-09-12: the rule for where a socket may be touched is owned by `DropResolver` alone (bag · equipment slot · ship stash) */
 import { canSocketAt } from './DropResolver';
-import { setStarterGrantState, starterGrantState } from '../Stash';
-import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
-import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
 import {
-  AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
-  LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
-  isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
-  type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type DropPreview, type DropTarget,
-  type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type RepairInfo, type SlotId,
+  SPRAY_REFILL_COST, type RepairInfo,
 } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 
@@ -41,7 +30,7 @@ export function getDurability(sys: InventorySystem, uid: string): DurabilityInfo
     return { uid, durability: cur, max: stats.maxDurability, broken: cur <= 0 };
   }
   return durabilityInfo(item, def);
-  }
+}
 
 /** Wear on non-weapon gear (armor per absorbed hit). Weapons keep `updateItem` (weapons/ owns that path). */
 export function damageDurability(sys: InventorySystem, uid: string, amount: number): void {
@@ -64,7 +53,7 @@ export function damageDurability(sys: InventorySystem, uid: string, amount: numb
     sys.ctx.bus.emit('audio:play', { id: 'gear_broken' });
   }
   if (sys._open) sys.ui?.refresh();
-  }
+}
 
 /**
  * 2026-09-11 (C-36) — **the bag wears once per raid.** The equipped bag loses `BAG_DURABILITY_PER_RAID`.
@@ -111,7 +100,7 @@ export function sprayRepairCost(sys: InventorySystem, item: ItemInstance, def: I
   if (cur >= max) return null;
   const missing = (max - cur) / max;
   return SPRAY_REFILL_COST.map((c) => ({ defId: c.defId, qty: Math.max(1, Math.ceil(c.qty * missing - 1e-9)) }));
-  }
+}
 
 /**
  * **The materials a full repair costs** — decided in one place only (2026-09-10, craft rework 2nd stage).
@@ -161,7 +150,7 @@ export function repair(sys: InventorySystem, uid: string): boolean {
   sys.ctx.bus.emit('audio:play', { id: 'gear_repair' });
   sys.afterChange();
   return true;
-  }
+}
 
 /**
  * Context-menu repair readout (hub only): materials still needed (`[]` = free), `short` = which of them the bag
@@ -184,7 +173,7 @@ export function repairInfo(sys: InventorySystem, uid: string): RepairInfo | null
   // The bucket means something **only when the value came out of the craft-material rule**. A `회복 스프레이`'s `캔` ·
   // `소독약` are set by the gauge fraction (`sprayRepairCost`), so saying `n % of the craft materials` here would lie.
   return { cost, short: cost.some((c) => c.have < c.qty), bucket: byCraft.length ? sys.loot.durabilityBucketInfo(item) : null };
-  }
+}
 
 /** Socket a bag (or open-container) attachment into a player-owned weapon; see `attachFrom`. */
 export function attachToWeapon(sys: InventorySystem, weaponUid: string, attachmentUid: string): boolean {
@@ -192,7 +181,7 @@ export function attachToWeapon(sys: InventorySystem, weaponUid: string, attachme
   const a = sys.locate(attachmentUid);
   if (!w || !a || a.from.kind !== 'grid') return false;
   return sys.attachFrom(attachmentUid, a.from, weaponUid, w.from) === 'ok';
-  }
+}
 
 /**
  * Every attachment of weapon `uid` back into the bag (overflow: the stash in the ship, the ground when even that is
@@ -210,14 +199,18 @@ export function detachAllSockets(sys: InventorySystem, uid: string): boolean {
     const att = clearSocket(weapon, socket);
     if (!att) continue;
     n++;
-    if (!sys.bag.autoPlace(att) && !(sys.hubMode && sys.tryAddToStash(att))) sys.throwToWorld(att, true);
+    /* 2026-09-19: the ship is asked as `isHubPhase()`, the same test `SocketDetach.previewDetach` uses to let the
+       stash be a detach target and `throwToWorld` uses to land an overflow there. It used to read the UI flag
+       `sys.hubMode` (「the 함선 창고 pane is on screen」), which is cleared by a container window — the same ship, a
+       different answer. */
+    if (!sys.bag.autoPlace(att) && !(sys.ctx.isHubPhase() && sys.tryAddToStash(att))) sys.throwToWorld(att, true);
     sys.ctx.bus.emit('inventory:socketChanged', { weapon, socket, attachment: null });
   }
   if (n === 0) return false;
   sys.afterSocketChange(weapon);
   sys.afterChange();
   return true;
-  }
+}
 
 /** Magazine → bag as ammo of the weapon's calibre (merge into stacks, new stacks, overflow drops). */
 export function unloadWeapon(sys: InventorySystem, uid: string): boolean {
@@ -233,7 +226,7 @@ export function unloadWeapon(sys: InventorySystem, uid: string): boolean {
   sys.ctx.bus.emit('inventory:itemUpdated', { item: weapon });
   sys.afterChange();
   return true;
-  }
+}
 
 /** Workbench repair: all materials from `LootRef.getRepairCost` or nothing. */
 export function repairWeapon(sys: InventorySystem, uid: string): boolean {
@@ -250,4 +243,4 @@ export function repairWeapon(sys: InventorySystem, uid: string): boolean {
   sys.ctx.bus.emit('inventory:itemUpdated', { item: weapon });
   sys.afterChange();
   return true;
-  }
+}

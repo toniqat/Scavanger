@@ -1,15 +1,15 @@
 import * as THREE from 'three';
 import type {
-  ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, EffectiveWeaponStats, GameContext, GameSystem, InventoryRef,
-  ItemCategory, ItemDef, ItemInstance, LaunchWarning, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind,
-  EmbeddedView, TradeGridsViewOptions,
+  ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, EffectiveWeaponStats, GameContext, GameSystem,
+  InventoryRef, ItemCategory, ItemDef, ItemInstance, LaunchWarning, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot,
+  WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView, TradeGridsViewOptions,
 } from '@/shared';
-import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
-import { bagCapacityBonus, durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from './Gear';
-import { Grid, OOB, type Placement, type PriorityPlacement } from './Grid';
+import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, isQuickSlotActive } from '@/shared';
+import { AMMO_LABEL_KO, ITEM_DEF_MAP, LootService, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, isWeaponItemDef, itemWeight } from '@/items';
+import { bagCapacityBonus, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from './Gear';
+import { Grid } from './Grid';
 import { Container, ContainerStore } from './Container';
-import { attachedItems, clearSocket, findSocketed, setSocket } from './Sockets';
+import { attachedItems, findSocketed } from './Sockets';
 import {
   createQuickSlots, firstFreeQuickSlot, isQuickIndex, isQuickUsable, mergeIntoQuick, quickSlotOf, quickSlotsSignature,
   type QuickSlotItems,
@@ -21,20 +21,19 @@ export type { ScreenTab } from './ui/InventoryUI';
 import { TradeGrids, type TradeGridsOptions } from './ui/TradeGrids';
 import { buildTileContent } from './ui/GridView';
 import { CELL } from './ui/labels';
-import { Stash, setStarterGrantState, starterGrantState } from './Stash';
-import { LOADOUT_SAVE_VERSION, LoadoutStore, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from './Loadout';
-import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from './Serialize';
+import { Stash, starterGrantState } from './Stash';
+import { LoadoutStore, type LoadoutSave } from './Loadout';
+import { type SavedPlacement } from './Serialize';
 /* appended (Phase 10): viewing a squadmate's loadout */
 import type { CrewLoadoutViewOptions } from '@/shared';
 import { COMMUNITY_BLOCKER, HUB_READY_BLOCKER, MENU_BLOCKER } from '@/shared';
 import { CrewLoadoutView } from './ui/CrewLoadoutView';
 
 import {
-  AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
-  LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SEARCH_START_DELAY, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
-  isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
-  type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type CraftJob, type DropPreview, type DropTarget,
-  type GridId, type ItemLocation, type MissionOutcome, type OpResult, type PendingTake, type RaidInventoryState, type RepairInfo, type SlotId, type UiSfx,
+  AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED, LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT,
+  SEARCH_EMIT_INTERVAL, SEARCH_START_DELAY, WEAPON_SLOT_IDS, type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow,
+  type CraftJob, type DropPreview, type DropTarget, type GridId, type ItemLocation, type MissionOutcome, type OpResult, type PendingTake,
+  type RaidInventoryState, type RepairInfo, type SlotId, type UiSfx,
 } from './model';
 /** The folder's shared vocabulary lives in `model.ts` — re-exported verbatim so existing import paths keep working. */
 export * from './model';

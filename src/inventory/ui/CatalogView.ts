@@ -37,7 +37,8 @@ export const CATALOG_TABS: readonly CatalogTab[] = [
   { id: 'herb', label: TEXT.catalog.tabs.herb, categories: ['herb'] },
   { id: 'seed', label: TEXT.catalog.tabs.seed, categories: ['seed'] },
   // 2026-09-16 (user's report): samples were in neither the growing tab nor the material tab, so they could only be pulled
-  //   out by name — the same axis as the bag filter's `표본` chip (`model.FILTER_GROUPS`). No def at all → the tab drops itself (`ensureBuilt`).
+  //   out by name — the same axis as the bag filter's `표본` entry (`model.FILTER_GROUPS`, a dropdown since the
+  //   2026-09-15 2nd pass). No def at all → the tab drops itself (`ensureBuilt`).
   { id: 'sample', label: TEXT.catalog.tabs.sample, categories: ['sample'] },
   { id: 'book', label: TEXT.catalog.tabs.book, categories: ['book', 'disc', 'record'] },   // Phase 9: 서적 · 2026-09-12 (A-3e): discs · records share the 서재 tab
   { id: 'furniture', label: TEXT.catalog.tabs.furniture, categories: ['furniture'] },
@@ -269,6 +270,4 @@ export class CatalogView {
     this.byDef.clear();
   }
 
-  /** Def lookup passthrough (kept for symmetry with the other views). */
-  defOf(id: string): ItemDef | undefined { return this.getDef(id); }
 }

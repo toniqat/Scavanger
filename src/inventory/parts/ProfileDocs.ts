@@ -5,26 +5,14 @@
  * again, plus the `captureRaidState` / `applyRaidState` a player who dropped mid-raid returns through.
  * The rule that keeps an offline edit from being wiped by the server's empty document (the `fresh` save) is this file's too.
  */
-import * as THREE from 'three';
 import type {
-  ContainerMessage, ContainerRequest, CraftIngredient, CraftRecipe, CraftStation, DurabilityInfo, GameContext, ItemCategory, ItemDef,
-  ItemInstance, Loadout, LoadoutSlot, PeerId as NetPeerId, ProfileRecord, SocketSlot, WeaponSlot, WeightInfo, LoadoutPreset, WorkbenchKind, EmbeddedView,
+  ProfileRecord,
 } from '@/shared';
-import { BAG_DEFAULT_COLS, BAG_DEFAULT_QUICK_SLOTS, BAG_DEFAULT_ROWS, Keys, QUICK_SLOTS, SEARCH_MAX_DISTANCE, SOCKET_SLOTS, isQuickSlotActive } from '@/shared';
-import { AMMO_LABEL_KO, ITEM_DEF_MAP, STARTER_LOADOUT, STARTER_STASH, ammoItemIdFor, getRecipe, isWeaponItemDef, itemWeight } from '@/items';
-import { durabilityInfo, gearMultipliers, makeWeightInfo, searchTimeFor, sumWeight } from '../Gear';
-import { Grid, OOB, type Placement, type PriorityPlacement } from '../Grid';
-import { Container, ContainerStore } from '../Container';
-import { attachedItems, clearSocket, findSocketed, setSocket } from '../Sockets';
-import { setStarterGrantState, starterGrantState } from '../Stash';
-import { LOADOUT_SAVE_VERSION, isEmptyLoadoutSave, loadLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
-import { reviveItem, savedCell, serializeExtras, serializePlacement, type SavedPlacement } from '../Serialize';
+import { starterGrantState } from '../Stash';
+import { isEmptyLoadoutSave, sanitizeLoadoutSave, type LoadoutSave } from '../Loadout';
+import { reviveItem } from '../Serialize';
 import {
-  AUTO_CLOSE_DISTANCE, BLOCKER_TOKEN, CRAFT_MIN_SPEED, DROP_EYE_LOWER, DROP_FORWARD_OFFSET, DROP_FORWARD_SPEED, DROP_UP_SPEED,
-  LOADOUT_SLOTS, MOD_CTRL, MOD_SHIFT, SEARCH_EMIT_INTERVAL, SPRAY_REFILL_COST, TAKE_REQUEST_TIMEOUT, WEAPON_SLOT_IDS,
-  isArmorDef, isAttachmentDef, isBagDef, isDisassembleRecipe, isWeaponDef, sameProfileDoc, slotAccepts,
-  type ActiveBench, type BagSize, type BenchRecipeRow, type BenchRepairRow, type DropPreview, type DropTarget,
-  type GridId, type ItemLocation, type OpResult, type PendingTake, type RaidInventoryState, type SlotId,
+  sameProfileDoc, type RaidInventoryState,
 } from '../model';
 import type { InventorySystem } from '../InventorySystem';
 import * as RaidMarks from './RaidFound';
@@ -45,7 +33,7 @@ export function captureRaidState(sys: InventorySystem): unknown {
   // 2026-09-11 (C-61): the once-per-raid bag wear travels with the session (stamped with this raid's seed)
   if (sys.bagWornThisRaid) state.bagWorn = sys.missionSeed;
   return state;
-  }
+}
 
 /**
  * Replace the bag / slots / quick slots with a `captureRaidState()` result and re-announce everything.
@@ -73,7 +61,7 @@ export function applyRaidState(sys: InventorySystem, state: unknown): boolean {
   sys.announcePending = false;
   sys.announceLoaded();
   return true;
-  }
+}
 
 /**
  * Mirror a local save to the server profile. Phase 9: always handed to `profile.set` — offline included (`ProfileSync`
@@ -86,7 +74,7 @@ export function uploadProfileDoc(sys: InventorySystem, key: 'stash' | 'loadout',
   const profile = sys.ctx.net?.profile;
   if (!profile || typeof profile.set !== 'function') return;
   try { profile.set(key, doc, sys.freshSave ? { fresh: true } : undefined); } catch { /* net not ready */ }
-  }
+}
 
 /**
  * 2026-09-11 (E-6): the **one** debounce of the stash and the loadout (`Stash.schedule` / `LoadoutStore.schedule` point
@@ -96,7 +84,7 @@ export function uploadProfileDoc(sys: InventorySystem, key: 'stash' | 'loadout',
 export function scheduleSaves(sys: InventorySystem): void {
   if (sys.saveTimer !== null) clearTimeout(sys.saveTimer);
   sys.saveTimer = window.setTimeout(() => { sys.saveTimer = null; flushSaves(sys); }, SAVE_BATCH_DELAY_MS);
-  }
+}
 
 /** Debounce of the merged save — the same 350 ms both stores used on their own. */
 export const SAVE_BATCH_DELAY_MS = 350;
@@ -128,7 +116,7 @@ export function flushSaves(sys: InventorySystem): void {
     }
     for (const [key, e] of entries) profile.set(key, e.doc, e.fresh ? { fresh: true } : undefined);
   } catch { /* net not ready */ }
-  }
+}
 
 /**
  * 2026-09-11 (E-6): join the documents `keys` that are queued right now into **one** profile transaction. The owners have
@@ -144,14 +132,14 @@ export function joinProfileTx(sys: InventorySystem, keys: readonly ('meta' | 'st
     for (const k of keys) { const d = profile.get(k); if (d !== undefined) docs[k] = d; }
     if (Object.keys(docs).length > 1) profile.setMany(docs);
   } catch { /* net not ready */ }
-  }
+}
 
 /** Run `fn` with every save it triggers uploaded as a `fresh` (default) document. */
 export function withFreshSave(sys: InventorySystem, fn: () => void): void {
   const prev = sys.freshSave;
   sys.freshSave = true;
   try { fn(); } finally { sys.freshSave = prev; }
-  }
+}
 
 /**
  * `net:profileLoaded`: the record is already merged newest-wins (Phase 9: `ProfileSync` weighed its pending offline
@@ -167,7 +155,7 @@ export function onProfileLoaded(sys: InventorySystem, profile: ProfileRecord): v
   // 2026-09-07: a first-run grant goes up as a `fresh` document, so an (empty) server stash has just replaced it —
   // re-check exactly once, now that the server's stash is known. A profile that really owns something skips it.
   if (starterGrantState() === 'pending') sys.tryStarterGrant();
-  }
+}
 
 export function applyProfileDocs(sys: InventorySystem, profile: ProfileRecord): void {
   const docs = profile?.docs ?? {};
@@ -208,4 +196,4 @@ export function applyProfileDocs(sys: InventorySystem, profile: ProfileRecord): 
   // 2026-09-14: …but a kit whose attachments just moved into the stash must go up **with** the stash (one `setMany`) — marked after
   // `saveNow`, which would cancel the pending loadout save
   if (returned > 0) sys.loadoutStore.markDirty('sockets');
-  }
+}

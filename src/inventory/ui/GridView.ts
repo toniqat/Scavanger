@@ -5,7 +5,7 @@ import { mealQualityStars, normalizeMealQuality } from '@/shared';
 import type { Grid } from '../Grid';
 import type { GridId } from '../InventorySystem';
 import { WEAPON_SLOT_IDS } from '../model';
-import { CELL, DURABILITY_LOW, GAP, STEP, TEXT, applyGridCellVar, tileSize, tileSizeAt } from './labels';
+import { CELL, DURABILITY_LOW, GAP, TEXT, applyGridCellVar, tileSizeAt } from './labels';
 
 export type DefLookup = (defId: string) => ItemDef | undefined;
 /** Effective stats for weapon instances (null for anything else); drives socket pips + durability bar. */
@@ -369,8 +369,14 @@ function appendDurabilityBar(el: HTMLElement, item: ItemInstance, maxDurability:
 /**
  * 2026-09-12: everything a grid tile draws, as one string — `GridView.refresh` rebuilds a tile's DOM only when this
  * changed. Weapon stats (sockets / grade / durability bar) derive from the fields listed here, so they are covered.
- * `needAmmo` (2026-09-12) is in here because the ribbon depends on the **equipped weapon**, not on the item itself —
- * swapping guns has to redraw the ammo tiles.
+ * Several parts do **not** come from the instance, so they are folded in explicitly — each can change while the item
+ * stands still, and each draws a ribbon or a badge:
+ *  - `needAmmo` (2026-09-12) — the **equipped weapon**'s calibre, so swapping guns redraws the ammo tiles.
+ *  - `favorite` (2026-09-12, E1) — the def-id table in this module (`parts/Favorites` owns it).
+ *  - `recovery` (2026-09-12) — the active recovery contract's scope (`parts/RaidFound`), so taking or abandoning a
+ *    contract redraws the marked tiles.
+ *  - `shelfWanted` (2026-09-13) — `HousingRef.isShelfItemWanted`, so shelving a volume drops the ribbon.
+ * `item.quality` is on the instance but is listed too, because the ★ badge is drawn from it.
  */
 function tileSignature(item: ItemInstance, w: number, h: number, badge: string | undefined, needAmmo: boolean, favorite: boolean, recovery = false, shelfWanted = false): string {
   let sockets = '';

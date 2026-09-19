@@ -105,16 +105,11 @@ export const gradeLabel = (s: EffectiveWeaponStats): string => WEAPON_GRADE_ROMA
 /** Effective range: where damage starts to fall off, or the max range when the weapon has no falloff. */
 export const effectiveRange = (w: WeaponDef): number => w.falloffStart ?? w.range;
 export const tierTitle = (tier: number): string => getTierLabel(tier);
-/** Radians → degrees with two decimals (recoil display). */
-export const fmtDeg = (rad: number): string => `${(rad * 180 / Math.PI).toFixed(2)}°`;
 /** Percentage change of a multiplier (`0.75` → `−25 %`). */
 export const fmtMul = (m: number): string => `${m < 1 ? '−' : '+'}${Math.round(Math.abs(1 - m) * 100)} %`;
 /** Durability thresholds shared by tiles / tooltip. */
 export const DURABILITY_LOW = 0.3;
-/* 2026-09-09: tooltip socket squares — two-letter caption of an empty socket and the square's `title`. */
-/** `총구` → `총구`, `개머리판` → `개머`, `조준경` → `조준` — the muted caption of an empty socket square. */
-export const socketAbbr = (s: SocketSlot): string => SOCKET_LABEL_KO[s].slice(0, 2);
-/** `조준경: 없음` / `총구: 소음기` — hover title of one socket square. */
+/** 2026-09-09, tooltip socket squares: `조준경: 없음` / `총구: 소음기` — hover title of one socket square. */
 export const socketTip = (s: SocketSlot, attachmentName?: string): string => `${SOCKET_LABEL_KO[s]}: ${attachmentName ?? TEXT.socketNone}`;
 
 /**
@@ -129,8 +124,6 @@ export const SLOT_LABEL: Readonly<Record<LoadoutSlot, string>> = {
   /** 2026-09-11 (A-15): a fixed single slot — only one of 채집 · 열쇠 · 구급 · 귀중품 goes in. */
   pouch: '주머니',
 };
-/** @deprecated static defaults — use `slotKeyLabel(slot)` (follows the live bindings). */
-export const SLOT_KEY: Readonly<Record<LoadoutSlot, string>> = { primary: '1', primary2: '2', secondary: '3', bag: '', armor: '', pouch: '' };
 /** Live key label of a weapon slot ('' for bag / armor). */
 export function slotKeyLabel(slot: LoadoutSlot): string {
   if (slot === 'primary') return keyLabel(Keys.PRIMARY);
@@ -283,21 +276,6 @@ export const TEXT = {
   weight: '무게',
   /* 2026-09-10: armor gives a shield (extra hp), not damage reduction — `dr` is unused but left alone */
   armorStats: { dr: '피해 감소', shield: '실드', durability: '내구도', perk: '특성' },
-  /**
-   * 2026-09-10: 실드 충전기 (`shieldChargeOf`).
-   * @deprecated 2026-09-15 — these rows are built by `items/ItemSpec.itemSpecRows` (the same function as the chip card).
-   *   Nothing reads them; they stay as the old source of the wording.
-   */
-  shieldChargeStats: { amount: '실드 회복', useTime: '사용 시간', full: '최대치까지' },
-  /**
-   * 2026-09-12: the three combat consumables (`boostItemOf`) — 아드레날린 주사 · 각성제 · 안정제.
-   * @deprecated 2026-09-15 — for the same reason as above, `itemSpecRows` takes over.
-   */
-  boostStats: {
-    stamina: '스태미나', staminaFull: '전부 회복', drain: '지속 소모', drainNone: '없음 (질주 · 사다리 · 부양)',
-    reload: '장전 속도', ads: '정조준 전환', sway: '조준 흔들림', staminaCost: '스태미나 소모',
-    implant: '전술 임플란트', implantFull: '전부 충전 · 쿨타임 초기화', duration: '지속 시간', useTime: '사용 시간',
-  },
   craft: '제작',
   craftPanel: '필드 제작',
   /** 2026-09-15 2nd pass (user's decision): the **one centred line** of a workbench with nothing to pick. */
@@ -315,7 +293,8 @@ export const TEXT = {
   craftMaking: '제작 중…',
   /**
    * 2026-09-09: with nowhere for the product to go the hold button turns into this wording and is disabled (`CraftPanel.paint`).
-   * A ship workbench looks bag → stash (`Crafting.roomForOutputs`), so there it names both places.
+   * A ship workbench looks stash → bag (`Crafting.roomForOutputs`, reversed 2026-09-15 2nd pass), so there it names
+   * both places.
    */
   craftNoRoomShip: '가방·창고 공간 부족',
   craftNoRoomField: '가방 공간 부족',
@@ -383,8 +362,9 @@ export const TEXT = {
     close: '닫기',
     /**
      * 2026-09-08: the bag is checked **before** the hold now, so this is a refusal, not a post-mortem.
-     * 2026-09-09: in the ship the outputs go bag → stash (`Crafting.roomForOutputs`), so there the wording names both
-     * places. `noRoom` stays the raid wording (no stash there).
+     * 2026-09-09: in the ship the outputs go to both places, so there the wording names both (the order itself is
+     * stash → bag since the 2026-09-15 2nd pass — `Crafting.roomForOutputs`). `noRoom` stays the raid wording (no
+     * stash there).
      */
     noRoom: '가방에 공간이 없습니다',
     noRoomShip: '가방과 함선 창고에 공간이 없습니다',

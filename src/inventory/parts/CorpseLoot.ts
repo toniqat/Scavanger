@@ -6,11 +6,12 @@
  *
  * - `stripForCorpse()` — pulls the equipment slots · bag grid · quick slots out whole and leaves the player **empty-handed**
  *   (once, in the death handling). A weapon's durability · loaded ammo · sockets ride along on the `ItemInstance`, so they are
- *   preserved. 2026-09-11 (C-12): the equipped implants' **broken twins** (`ctx.progression.stripImplantsForCorpse`) go to the
+ *   preserved. 2026-09-11 (C-12): the equipped implants' **broken pairs** (`ctx.progression.stripImplantsForCorpse`) go to the
  *   corpse too. (C-36): before the strip the equipped bag wears one raid's worth.
- * - `openContainerItemsSized()` — a corpse uses a grid bigger than a crate's (6×4) (`PLAYER_CORPSE_COLS × ROWS`). When even that
- *   is not enough (a legendary bag full + two weapons + quick slots + implants) it takes everything in **by growing rows** — `fitCorpseGrid`.
- * - `primeCorpseContainers()` — in multiplayer the container is built the moment the `pcorpse` wire arrives, so the host can
+ * - `openContainerItemsSized()` — a corpse uses a grid bigger than a crate's (`PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS`
+ *   against `CONTAINER_COLS × CONTAINER_ROWS`). When even that is not enough (a legendary bag full + two weapons +
+ *   quick slots + implants) it takes everything in **by growing rows** — `fitCorpseGrid`.
+ * - `primeCorpseContainer()` — in multiplayer the container is built the moment the `pcorpse` wire arrives, so the host can
  *   judge a `contq take` for **a corpse it never opened**. The take itself is the existing `cont` / `contq` path unchanged.
  */
 import * as THREE from 'three';
@@ -39,8 +40,8 @@ const CORPSE_GRID_GROW_LIMIT = 64;
  *
  * The same list gives the same size, so the dead player · the host (`primeCorpseContainer`) · someone who opens it late all
  * build the same grid (a take travels by `idx`, not by grid position, so a differing size would not be wrong — but the same is better).
- * Once the implants' broken twins started coming to the corpse, a legendary bag full + two weapons + quick slots + implants
- * can go past 10×8 — the overflow used to **disappear** with one warning line (`Container.fill`).
+ * Once the implants' broken pairs started coming to the corpse, a legendary bag full + two weapons + quick slots + implants
+ * can go past `PLAYER_CORPSE_COLS × PLAYER_CORPSE_ROWS` — the overflow used to **disappear** with one warning line (`Container.fill`).
  */
 export function fitCorpseGrid(items: readonly ItemInstance[], cols: number, rows: number): { cols: number; rows: number } {
   const getDef = (id: string) => ITEM_DEF_MAP.get(id);
@@ -63,7 +64,7 @@ export function fitCorpseGrid(items: readonly ItemInstance[], cols: number, rows
  * twins** — into one list and empties the local inventory. **Revival fully empty-handed** (user's decision): nothing is handed back on the rescue drop either.
  *
  * 2026-09-11 (C-12, user's decision): implants no longer stay on the body. `ctx.progression.stripImplantsForCorpse()` skips
- * the ship gate, unequips them, returns the **broken twin** instances and saves itself — here they are only taken and
+ * the ship gate, unequips them, returns the **broken pair** instances and saves itself — here they are only taken and
  * appended to the end of the list. On a build without that method (an optional contract) it is an empty array and nothing changes.
  * (C-36): **before** the strip the equipped bag wears one raid's worth (`wearBagForRaid`, once per raid together with extraction).
  */
@@ -79,7 +80,7 @@ export function stripForCorpse(sys: InventorySystem): ItemInstance[] {
   for (const it of sys.quickSlots) if (it) out.push(it);
   // 2026-09-11 (A-15): what is inside the pouch goes the same way (the pouch item itself was already taken by `LOADOUT_SLOTS` above)
   for (const it of Pouch.drainPouch(sys)) out.push(it);
-  // 2026-09-11 (C-12): the equipped implants' broken twins (progression unequips + saves itself; optional contract)
+  // 2026-09-11 (C-12): the equipped implants' broken pairs (progression unequips + saves itself; optional contract)
   const implants = sys.ctx.progression?.stripImplantsForCorpse?.() ?? [];
   for (const it of implants) if (it) out.push(it);
 

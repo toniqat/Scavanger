@@ -1,25 +1,15 @@
 /**
- * src/inventory/ui/parts/SlotPanel.ts — **the equipment slots** (주무기 I / II · 보조무기 · 가방 · 방탄복).
+ * src/inventory/ui/parts/SlotPanel.ts — **the equipment slots** (`LOADOUT_SLOTS`: 주무기 I · 방탄복 · 주무기 II ·
+ * 가방 · 주머니 — there is no 보조무기 card, `secondary` survives in the type only).
  *
- * Builds the DOM of the five slots and draws the item tiles. What may go into which slot is decided by
+ * Builds the DOM of those slots and draws the item tiles. What may go into which slot is decided by
  * `slotAccepts` in `model.ts`; this file takes only the drawing and the pointer bindings.
  */
-import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
-import { Keys, QUICK_SLOTS, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
-import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
-import type { Container } from '../../Container';
-import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../../InventorySystem';
-import { CraftPanel } from '../CraftPanel';
-import { CatalogView } from '../CatalogView';
-import { DisassemblePanel } from '../DisassemblePanel';
-import { filledSocketCount } from '../../Sockets';
-import { isQuickUsable } from '../../QuickSlots';
-import { GridView, buildSlotCardContent, buildTileContent, type HighlightState } from '../GridView';
-import { Tooltip } from '../Tooltip';
-import { ContextMenu, type MenuEntry } from '../ContextMenu';
-import { SplitDialog } from '../SplitDialog';
-import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from '../labels';
-import { BAG_LOC, CATALOG_DBL_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from '../model';
+import { ITEM_DEF_MAP } from '@/items';
+import { type ItemLocation, type SlotId } from '../../InventorySystem';
+import { buildSlotCardContent } from '../GridView';
+import { TEXT, slotKeyLabel } from '../labels';
+import { type SlotView } from '../model';
 import type { InventoryUI } from '../InventoryUI';
 
 export function refreshSlots(sys: InventoryUI): void {
@@ -51,7 +41,7 @@ export function refreshSlots(sys: InventoryUI): void {
       sv.el.style.removeProperty('--rc');
     }
   }
-  }
+}
 
 export function buildSlot(sys: InventoryUI, slot: SlotId, label: string): SlotView {
   const el = document.createElement('div');
@@ -83,7 +73,7 @@ export function buildSlot(sys: InventoryUI, slot: SlotId, label: string): SlotVi
   const sv: SlotView = { slot, el, body, key, tile: null, uid: null };
   sys.slots.set(slot, sv);
   return sv;
-  }
+}
 
 export function bindSlotTile(sys: InventoryUI, el: HTMLElement, sv: SlotView): void {
   const loc = (): ItemLocation => ({ kind: 'slot', slot: sv.slot });
@@ -91,4 +81,4 @@ export function bindSlotTile(sys: InventoryUI, el: HTMLElement, sv: SlotView): v
   el.addEventListener('pointerenter', (e) => { if (sv.uid) sys.hoverEnter(sv.uid, loc(), e); });
   el.addEventListener('pointermove', (e) => sys.tooltip.move(e.clientX, e.clientY));
   el.addEventListener('pointerleave', () => sys.hoverLeave());
-  }
+}

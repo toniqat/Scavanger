@@ -5,22 +5,11 @@
  * (each screen is the `EmbeddedView` its own folder handed over, so this file only attaches and detaches it).
  * Opening and closing the craft column and the infinite box catalog live here too.
  */
-import type { EmbeddedView, GameContext, ItemDef, ItemInstance } from '@/shared';
-import { Keys, QUICK_SLOTS, anyCorpAccessible, QUICK_SLOT_LABEL_KO, isQuickSlotActive, keyLabel, renderItemCost } from '@/shared';
-import { ITEM_DEF_MAP, getWeaponDef } from '@/items';
-import type { Container } from '../../Container';
-import { LOADOUT_SLOTS, isArmorDef, isAttachmentDef, isBagDef, isWeaponDef, type DropTarget, type GridId, type InventorySystem, type ItemLocation, type SlotId } from '../../InventorySystem';
-import { CraftPanel } from '../CraftPanel';
-import { CatalogView } from '../CatalogView';
-import { DisassemblePanel } from '../DisassemblePanel';
-import { filledSocketCount } from '../../Sockets';
-import { isQuickUsable } from '../../QuickSlots';
-import { GridView, buildTileContent, type HighlightState } from '../GridView';
-import { Tooltip } from '../Tooltip';
-import { ContextMenu, type MenuEntry } from '../ContextMenu';
-import { SplitDialog } from '../SplitDialog';
-import { QUICK_DIR_GLYPH, QUICK_ROSE_ORDER, SLOT_LABEL, STEP, TEXT, fmtValue, slotKeyLabel, tierTitle, tileSize, fmtKg, weightLabel } from '../labels';
-import { BAG_LOC, CATALOG_DBL_MS, DRAG_THRESHOLD, type DragState, GHOST_SCALE, LOCK_SVG, MIDDLE_BUTTON, type QuickCell, SCREEN_TABS, type ScreenTab, type SlotView } from '../model';
+import type { EmbeddedView, ItemDef, ItemInstance } from '@/shared';
+import { anyCorpAccessible } from '@/shared';
+import { type InventorySystem } from '../../InventorySystem';
+import { TEXT, tileSize } from '../labels';
+import { BAG_LOC, CATALOG_DBL_MS, type DragState, SCREEN_TABS, type ScreenTab } from '../model';
 import type { InventoryUI } from '../InventoryUI';
 
 export function onTab(sys: InventoryUI, tab: ScreenTab): void {
@@ -29,7 +18,7 @@ export function onTab(sys: InventoryUI, tab: ScreenTab): void {
   if (sys.screenView?.requestLeave?.(() => onTab(sys, tab))) return;
   sys.setTab(tab);
   sys.sys.sfx(sys.activeTab === tab ? 'ui_pickup' : 'ui_error');
-  }
+}
 
 /**
  * Select a screen tab from outside (`InventorySystem.openScreen`, e.g. the ship's 기업 네트워크 console). Returns
@@ -40,7 +29,7 @@ export function showScreenTab(sys: InventoryUI, tab: ScreenTab): boolean {
   sys.setTab(tab);
   sys.markTab();
   return sys.activeTab === tab;
-  }
+}
 
 /**
  * Swap the window content. `inventory` shows `.inv-layout`; every other tab hides it, shows the `.inv-screen`
@@ -90,7 +79,7 @@ export function setTab(sys: InventoryUI, tab: ScreenTab): void {
   view.refresh();
   sys.markTab();
   sys.emitGuide();
-  }
+}
 
 /**
  * 2026-09-17 (user's decision): true while no corp has reached `CORP_ACCESS_REP_LEVEL` — the 기업 screen tab is hidden then
@@ -101,7 +90,7 @@ export function corpTabLocked(sys: InventoryUI): boolean {
   const meta = sys.ctx.meta;
   if (!meta || typeof meta.getRep !== 'function') return false;
   try { return !anyCorpAccessible((c) => meta.getRep(c).level); } catch { return false; }
-  }
+}
 
 /**
  * Re-evaluate the rep gate live (`meta:repChanged` / `meta:loaded`): re-mark the tabs, and leave the 기업 screen when it
@@ -111,7 +100,7 @@ export function onCorpAccessChanged(sys: InventoryUI): void {
   if (!sys.root) return;
   if (sys.activeTab === 'corp' && corpTabLocked(sys)) sys.setTab('inventory');
   sys.markTab();
-  }
+}
 
 /** `createSheetView` / `createCorpView` / `createShipView`; null when that system is not present. */
 export function buildScreenView(sys: InventoryUI, tab: ScreenTab): EmbeddedView | null {
@@ -131,7 +120,7 @@ export function buildScreenView(sys: InventoryUI, tab: ScreenTab): EmbeddedView 
     sys.screenHost.replaceChildren();
     return null;
   }
-  }
+}
 
 export function markTab(sys: InventoryUI): void {
   // 2026-09-08: the 캐릭터 tab wears a red dot while there are unspent stat points (level-ups are easy to miss)
@@ -152,7 +141,7 @@ export function markTab(sys: InventoryUI): void {
     // 2026-09-17: 기업 stays hidden until some corp reaches 신뢰도 Lv.1 (`corpTabLocked`)
     b.hidden = tutHidden || (id === 'ship' && !sys.ctx.housing) || (id === 'corp' && corpTabLocked(sys));
   }
-  }
+}
 
 /**
  * The held-credits text (`ctx.meta.credits`; refreshed on `meta:creditsChanged` and every `refresh`). 2026-09-16: not the
@@ -165,14 +154,14 @@ export function refreshCredits(sys: InventoryUI): void {
   const text = credits === null ? TEXT.credits.none : TEXT.credits.value(credits);
   if (sys.creditsValue.textContent !== text) sys.creditsValue.textContent = text;
   sys.creditsValue.classList.toggle('is-unavailable', credits === null);
-  }
+}
 
 export function toggleCraft(sys: InventoryUI): void {
   const open = !sys.craftPanel.isOpen;
   if (!open && sys.sys.getBench()) sys.sys.closeBench(); // bench mode: closing the panel leaves the bench
   else sys.setCraftOpen(open);
   sys.sys.sfx('ui_pickup');
-  }
+}
 
 /**
  * System-driven craft panel visibility (`openBenchCraft` / `closeBench`).
@@ -204,14 +193,14 @@ export function setCraftOpen(sys: InventoryUI, open: boolean): void {
   // 2026-09-09 key guide: the 제작 column is its own owner over the window's line. Mouse only — the hold button says
   //   what it is, so the line carries no keys of its own (the guide appends `Tab 닫기` itself).
   if (was !== open) sys.ctx.bus.emit('ui:keyGuide', { owner: 'inventory.craft', keys: open ? [] : null });
-  }
+}
 
 /** The panel's 닫기 button / Escape / an outside click: leave the bench too when one is active. */
 export function closeCraft(sys: InventoryUI): void {
   if (!sys.craftPanel.isOpen) return;
   if (sys.sys.getBench()) sys.sys.closeBench(); // → setCraftOpen(false) through the system
   else sys.setCraftOpen(false);
-  }
+}
 
 /** Repaint the craft rows (progress / counts) without rebuilding the rest of the window. */
 export function refreshCraft(sys: InventoryUI): void {
@@ -219,7 +208,7 @@ export function refreshCraft(sys: InventoryUI): void {
   sys.craftPanel.refresh();
   // Phase 12: the 분해 gauge advances with the job every frame (cheap tick, not the chip rebuild of `refresh()`)
   if (sys.disassemble.isOpen) sys.disassemble.tick();
-  }
+}
 
 /**
  * Show / hide the catalog panel (system state lives in `InventorySystem.isCatalogOpen`).
@@ -236,7 +225,7 @@ export function setCatalog(sys: InventoryUI, open: boolean): void {
   sys.layout?.classList.toggle('is-catalog', open);
   if (!open && sys.drag?.catalog) sys.cancelDrag();
   if (!open) sys.tooltip.hide();
-  }
+}
 
 /** Double-press on a catalog tile: a fresh instance into the stash when it shows (ship), else / then the bag (2026-09-17). */
 export function catalogTake(sys: InventoryUI, def: ItemDef): void {
@@ -246,7 +235,7 @@ export function catalogTake(sys: InventoryUI, def: ItemDef): void {
     sys.sys.sfx('ui_error'); sys.catalogView.shake(def.id);
     sys.ctx.bus.emit('ui:notify', { text: sys.sys.hubMode ? TEXT.catalog.stashBagFull : TEXT.catalog.bagFull, kind: 'warning', duration: 1.6 });
   }
-  }
+}
 
 /**
  * Press on a catalog tile: mint a fresh instance and drag it like any other item (the tile stays). A second press
@@ -281,7 +270,7 @@ export function beginCatalogPress(sys: InventoryUI, def: ItemDef, sample: ItemIn
   window.addEventListener('pointermove', sys.onWindowMove);
   window.addEventListener('pointerup', sys.onWindowUp);
   window.addEventListener('pointercancel', sys.onWindowUp);
-  }
+}
 
 /** Drag targets of a catalog instance: equipment slots, then the active grids (never the wheel / sockets / world). */
 export function updateCatalogTarget(sys: InventoryUI, d: DragState, px: number, py: number): void {
@@ -304,4 +293,4 @@ export function updateCatalogTarget(sys: InventoryUI, d: DragState, px: number, 
     const pv = sys.sys.previewCatalog(d.item, d.target);
     view.showHighlight(hit.x, hit.y, w, h, pv === 'bad' ? 'bad' : pv === 'swap' ? 'swap' : pv === 'merge' ? 'merge' : 'ok');
   }
-  }
+}
