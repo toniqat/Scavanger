@@ -36,12 +36,6 @@ import { clear, el, setText, toggleClass } from './dom';
  */
 
 /**
- * How many cells one row draws. Since 2026-09-14 it differs per medium — the source of the value is the contract's `SHELF_TIER_COLS`.
- * @deprecated kept for whatever read the old fixed 2 (no caller).
- */
-export const SHELF_COLS = 2;
-
-/**
  * **One cell's box** (px) — the room one cell takes in the furniture drawing (since 2026-09-16 JS is the source and CSS receives it
  * through `--lib-item-w` / `--lib-item-h`: the item tile's cell size has to be derived from the same value, so it cannot live in two places).
  * The values are the ones CSS used up to 2026-09-15, and a medium's item footprint (book 1×2 · disc 2×2 · record 3×3 ·

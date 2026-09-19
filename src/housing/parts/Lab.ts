@@ -2,9 +2,9 @@
  * src/housing/parts/Lab.ts — **the lab analyzer** (A-12, 2026-09-11 · result table rework 2026-09-13).
  *
  * 「A sample put in is analysed for that much real time; collecting it gives one product and that family's analysis XP.」
- * Analysis slots are opened by the furniture level (`analyzerSlotsForLevel` = `ANALYZER_SLOTS_BASE + level × PER_LEVEL` —
- * 2026-09-15 2nd pass, user's decision: **Lv.1 = 2 · Lv.2 = 3 · Lv.3 = 4 slots**) and **slot numbers do not shift on an
- * upgrade** — a running analysis must never move to another slot.
+ * Analysis slots are opened by the furniture level (the count per level is `analyzerSlotsForLevel` in the contract —
+ * 2026-09-15 2nd pass, user's decision) and **slot numbers do not shift on an upgrade** — a running analysis must never
+ * move to another slot.
  *
  * **2026-09-13 (cooking material tiers — docs/DECISIONS.md 「2026-09-13 — 요리 재료 티어」)**: a sample is analysed by its **family**
  * (`SampleDef.family` — cell · mineral · DNA). On insertion ① that family's **analysis level** (`ShipState.analysisXp` →
@@ -19,8 +19,9 @@
  *  ① **The rarity floor** — the roll keeps only rows with `rarityRank(product) ≥ rarityRank(sample)`. A row whose `sampleRarity`
  *     column is set in `data/analysis_results.csv` is that rarity's own and skips the floor (미확인 광물 → 석영, also an empty-pool guard).
  *  ② **A shorter analysis time** — `min(CAP, catalogue entries of the same rarity × PER_ENTRY + the sample level bonus)`. A sample's
- *     level (`ShipState.sampleLevels`) is **how often it was collected**, and level 1's `FIRST` (+3 %) far outweighs the per-level
- *     `STEP` (+0.5 %) after it — 「a big bonus the first time it is registered」 is that difference. The family's analysis level time multiplier is multiplied in **separately** from this.
+ *     level (`ShipState.sampleLevels`) is **how often it was collected**, and `ANALYSIS_SAMPLE_LEVEL_FIRST` far outweighs the
+ *     per-level `ANALYSIS_SAMPLE_LEVEL_STEP` after it (`data/constants.csv`) — 「a big bonus the first time it is registered」 **is**
+ *     that gap. The family's analysis level time multiplier is multiplied in **separately** from this.
  *
  * The pure judgements (analysis time · speedup · the result roll · chance · progress · seconds left) are all in `../Rules.ts`; this file changes state.
  */
@@ -220,13 +221,6 @@ export function researchTimeMul(sys: HousingSystem): number {
  */
 export function analysisMsFor(sys: HousingSystem, analyzeHours: number, level: number, speedup = 0): number {
   return Math.max(1000, Math.round(analysisDurationMs(analyzeHours, level, speedup) * researchTimeMul(sys)));
-}
-
-/** The analysis time (ms) one sample would take if put in now, null when it is not a sample (the analysis screen's estimate). */
-export function analysisEstimateMs(sys: HousingSystem, sampleDefId: string): number | null {
-  const def = sys.sampleDef(sampleDefId);
-  if (!def?.sample) return null;
-  return analysisMsFor(sys, def.sample.analyzeHours, levelOf(sys, familyOfDef(def)), speedupOf(sys, def));
 }
 
 /** Roll the result once — with an empty result table the sample's fallback product (`rewardDefId`), and null when even that cannot be given. */

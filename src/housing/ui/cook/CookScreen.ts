@@ -8,7 +8,8 @@
  * The header row = the meal name + the step progress (`① 썰기 ✓ → ② 젓기 …`).
  *
  * **It is a mouse game, so cursor mode goes on** (`setCursorMode(true, 'housing.cook')` — the choice card · the grilling pieces have to be clicked). Input is
- * `pointerdown` on the game stage (`.cook-stage`) (button 0 = left · 2 = right, `preventDefault` blocks the compatibility mouse events) and
+ * `pointerdown` on the **whole panel while a game runs** (`.cook-ovl.is-playing`, 2026-09-14 — see `onPointerDown`; button 0 = left · 2 = right,
+ * `preventDefault` blocks the compatibility mouse events) and
  * `window` capture `pointerup` (a release outside the window is taken too), and `contextmenu` over the panel is blocked. When input arrives, the judgement
  * object is pushed **up to that instant** first, then handed the input, and redrawn on the spot.
  *
@@ -495,10 +496,10 @@ export class CookScreen {
     const text = el('div', { cls: 'cook-result-text', parent: meal });
     el('div', { cls: 'cook-result-name', text: def?.meal ? `${def.name} · ${mealTierText(def.meal)}` : def?.name ?? info.mealDefId, parent: text });
     if (def?.meal) el('div', { cls: 'cook-result-effects', text: mealEffectLines(def.meal, q).join('\n'), parent: text });
-    // 2026-09-16 (the plate model): the meal is set on the dining table — an old plate that was replaced gets a line too
+    // 2026-09-16 (the plate model): the meal is set on the dining table — an old plate that was replaced gets a line too.
+    // `CookResult.landed` still admits the old item-meal values (`bag` · `stash`) because it is a contract, but `completeCookRun` only ever writes `'table'` or null.
     if (r && !r.reason) {
-      const landed = r.landed === 'bag' ? '가방' : r.landed === 'stash' ? '함선 창고' : '식탁에 차렸습니다';
-      el('div', { cls: 'cook-landed', text: `→ ${landed}`, parent: text });
+      el('div', { cls: 'cook-landed', text: '→ 식탁에 차렸습니다', parent: text });
       if (r.replaced) {
         const old = qualityName(this.sys.mealDef(r.replaced.mealDefId)?.name ?? r.replaced.mealDefId, r.replaced.quality);
         el('div', { cls: 'cook-landed cook-replaced', text: `「${old}」 을(를) 치웠습니다`, parent: text });

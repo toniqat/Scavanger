@@ -18,7 +18,7 @@ const OFFLINE = '서버에 연결되어야 합니다';
 /**
  * A quote older than this blocks the trade confirm (ms). The relay only checks the amount against a quote inside the last
  * `CRYPTO_QUOTE_WINDOW_S` window, so nothing is sent on a quote that will leave the window before the request arrives — the
- * window minus half a tick (30 s · 10 s → 25 s). The numbers come from `data/tuning.csv`.
+ * window minus half a tick. Both numbers come from `data/tuning.csv`.
  */
 const STALE_MS = Math.max(1000, CRYPTO_QUOTE_WINDOW_S * 1000 - (CRYPTO_TICK_S * 1000) / 2);
 const STALE = '시세가 오래되었습니다 — 새 시세를 기다리는 중';

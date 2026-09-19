@@ -14,7 +14,7 @@
  *   ④ When the overlay closes, `endCook` — `housing:cookSession {active:false, completed}` (`completed` = at least one meal came out of this session).
  *
  * Not one quality · bonus rule lives here — they belong to `shared/cooking`'s functions (`cookScoreOf` · `mealQualityForScore`) and to inventory · progression.
- * inventory's new methods (`cookBlock` · `completeCook`) are optional in the contract, so they are called by **duck typing** — with none the result says
+ * inventory's new methods (`cookBlock` · `consumeCookInputs`) are optional in the contract, so they are called by **duck typing** — with none the result says
  * 「it could not be finished」 (it never silently pretends to have succeeded, the same contract as `parts/Gym`'s `applyGymSession`).
  */
 import type {
@@ -39,7 +39,7 @@ const SKILL_LABEL_KO: Readonly<Record<CraftRecipe['skill'], string>> = { craftin
 
 export interface CookState {
   info: CookSessionInfo;
-  /** The cook bench level at the start — passed to `completeCook`. */
+  /** The cook bench level at the start — passed to `consumeCookInputs`. */
   benchLevel: number;
   /** This run's step scores (in order, empty until then). 2026-09-13: the cooking skill · library bonus **added and clamped to 1** — quality is decided from this. */
   stepScores: number[];
@@ -84,10 +84,6 @@ export function cookRecipes(sys: HousingSystem): CraftRecipe[] {
   return all.filter((r) => r.bench === 'cook' && cookStepsOf(r.outputDefId).length > 0);
 }
 
-/**
- * One recipe — reads the source table (the same source as the `cookRecipes` list): a caller asking for a locked meal also has to get
- * inventory `cookBlock`'s real reason (`조리대 Lv.2 이 필요합니다`) rather than 「요리 레시피가 아닙니다」.
- */
 /** A recipe's skill name — the progression table (`skills.csv`'s `name`) is the source, the fallback table → the id only when it is missing. */
 export function cookSkillLabel(sys: HousingSystem, skill: CraftRecipe['skill']): string {
   const prog = sys.ctx.progression;
@@ -107,6 +103,10 @@ export function cookRecipeSkillBlock(sys: HousingSystem, recipe: CraftRecipe): {
   return have >= need ? null : { label: cookSkillLabel(sys, recipe.skill), need, have };
 }
 
+/**
+ * One recipe — reads the source table (the same source as the `cookRecipes` list): a caller asking for a locked meal also has to get
+ * inventory `cookBlock`'s real reason (`조리대 Lv.2 이 필요합니다`) rather than 「요리 레시피가 아닙니다」.
+ */
 export function cookRecipeOf(sys: HousingSystem, recipeId: string): CraftRecipe | null {
   const loot = sys.ctx.loot;
   const all = loot && typeof loot.getAllRecipes === 'function' ? loot.getAllRecipes() : cookRecipes(sys);
@@ -198,7 +198,7 @@ function blockCore(sys: HousingSystem, uid: string, recipeId: string, ignoreActi
   return fallbackBlock(sys, recipe, bench.item.level);
 }
 
-/** When inventory does not supply `cookBlock` yet — looks only at level · skill · materials (space fails at the end anyway with no `completeCook`). */
+/** When inventory does not supply `cookBlock` yet — looks only at level · skill · materials (the cook fails at the end anyway with no `consumeCookInputs`). */
 function fallbackBlock(sys: HousingSystem, recipe: CraftRecipe, benchLevel: number): string | null {
   const need = recipe.benchLevel ?? 1;
   if (benchLevel < need) return `조리대 Lv.${need} 이 필요합니다`;

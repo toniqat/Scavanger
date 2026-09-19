@@ -34,7 +34,7 @@ import type { HousingSystem } from '../HousingSystem';
 
 export function canAfford(sys: HousingSystem, cost: readonly CraftIngredient[]): boolean {
   return missingIngredients(cost, sys.countDef).length === 0;
-  }
+}
 
 /** All-or-nothing: verified with `countDef` first, then consumed def by def. */
 export function consume(sys: HousingSystem, cost: readonly CraftIngredient[]): boolean {
@@ -43,14 +43,14 @@ export function consume(sys: HousingSystem, cost: readonly CraftIngredient[]): b
   if (!sys.canAfford(cost)) return false;
   for (const c of cost) if (!inv.consumeDefAll(c.defId, c.qty)) return false;
   return true;
-  }
+}
 
 export function emitStashSizeIfChanged(sys: HousingSystem): void {
   const size = sys.getStashSize();
   if (size.cols === sys.lastStash.cols && size.rows === sys.lastStash.rows) return;
   sys.lastStash = size;
   sys.ctx.bus.emit('housing:stashSizeChanged', { ...size });
-  }
+}
 
 /* ── rooms ─────────────────────────────────────────────────────────────── */
 /** 2026-09-12: the cockpit (`COCKPIT_ROOM_INDEX`) is a fixed space outside `rooms[]` — always `{purpose: 'cockpit', level: 1}`. */
@@ -74,7 +74,7 @@ export function purposeBlock(sys: HousingSystem, index: number, purpose: RoomPur
   // Phase 9 UI pass: 시설 증축 costs materials and sits behind the 발전기 gate, so the block reason covers those too.
   return purposeBuildBlockReason(sys.state, index, purpose, sys.countDef, sys.nameOf)
     ?? (purpose === 'empty' ? sys.emptyRoomBlock(index) : null);
-  }
+}
 
 /** Materials a 시설 증축 to `purpose` would consume (empty for 빈 방). The pickers render these as cost chips. */
 export function purposeCost(sys: HousingSystem, purpose: RoomPurpose): readonly CraftIngredient[] { return purposeBuildCost(purpose); }
@@ -88,7 +88,7 @@ export function emptyRoomBlock(sys: HousingSystem, index: number): string | null
     if (reason) return reason;
   }
   return null;
-  }
+}
 
 /**
  * Give room `index` a purpose. Since the Phase 9 UI pass a 시설 증축 **consumes** `purposeBuildCost(purpose)` from
@@ -120,7 +120,7 @@ export function setRoomPurpose(sys: HousingSystem, index: number, purpose: RoomP
   sys.changed('purpose');
   if (sys.housingMode && sys.housingRoom === index) sys.selectFurniture(null);
   return true;
-  }
+}
 
 export function findRoom(sys: HousingSystem, purpose: RoomPurpose): number { return sys.state.rooms.findIndex((r) => r.purpose === purpose); }
 
@@ -134,7 +134,7 @@ export function getFacility(sys: HousingSystem, id: FacilityId): FacilityInfo {
     nextCost: nextFacilityCost(id, level),
     blocked: facilityBlockReason(sys.state, id, sys.countDef, sys.nameOf),
   };
-  }
+}
 
 export function upgrade(sys: HousingSystem, id: FacilityId): boolean {
   if (!FACILITY_IDS.includes(id)) return false;
@@ -154,7 +154,7 @@ export function upgrade(sys: HousingSystem, id: FacilityId): boolean {
   sys.changed(`facility:${id}`);
   if (id === 'storage') sys.emitStashSizeIfChanged();
   return true;
-  }
+}
 
 /**
  * Materials the player would get back by removing the facility in room `index` — the sum of every upgrade it was
@@ -165,7 +165,7 @@ export function facilityRefund(sys: HousingSystem, index: number): CraftIngredie
   if (!room || room.purpose === 'empty') return [];
   // the 시설 증축 price of level 1 plus every upgrade above it
   return roomRefundCost(room.purpose, Math.max(1, room.level));
-  }
+}
 
 /**
  * 시설 제거 (Phase 9 UI pass): give the room back. Every placed piece goes to furniture storage (that is
@@ -187,7 +187,7 @@ export function removeRoomFacility(sys: HousingSystem, index: number): string | 
   const left = sys.refundToStash(refund);
   if (left > 0) sys.notify('함선 창고가 가득 차 일부 재료를 돌려주지 못했습니다', 'warning');
   return null;
-  }
+}
 
 /** Korean reason the stash cannot take `cost` (free-cell estimate, deliberately conservative); null when it can. */
 export function stashSpaceBlock(sys: HousingSystem, cost: readonly CraftIngredient[]): string | null {
@@ -205,7 +205,7 @@ export function stashSpaceBlock(sys: HousingSystem, cost: readonly CraftIngredie
     need += Math.ceil(c.qty / stack) * (def ? def.width * def.height : 1);
   }
   return free >= need ? null : '함선 창고에 공간이 없습니다';
-  }
+}
 
 /** Drop `cost` into the stash, splitting at `stackMax`. Returns how many units could **not** be placed. */
 export function refundToStash(sys: HousingSystem, cost: readonly CraftIngredient[]): number {
@@ -234,7 +234,7 @@ export function refundToStash(sys: HousingSystem, cost: readonly CraftIngredient
     }
   }
   return lost;
-  }
+}
 
 export function getBenchLevel(sys: HousingSystem, kind: WorkbenchKind): number {
   let best = 0;
@@ -243,7 +243,7 @@ export function getBenchLevel(sys: HousingSystem, kind: WorkbenchKind): number {
     if (def && benchKindOf(def.interaction) === kind) best = Math.max(best, f.level);
   }
   return best;
-  }
+}
 
 /** Always 1 since 2026-09-12 — the 작업실 discount left with the room levels (`Rules.craftCostMulFor`). */
 export function getCraftCostMul(sys: HousingSystem): number { return craftCostMulFor(0); }

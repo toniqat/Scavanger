@@ -18,7 +18,7 @@ const MAX_CORES = Math.max(1, Math.floor(COMPUTE_CLUSTER_MAX_CORES));
 const NO_API = '채굴 기능을 사용할 수 없습니다';
 
 /**
- * **The item that mounts into a cluster cell** — read in one place only. Since 2026-09-16 (user's decision 「연산 코어를 없애고 프로세서를 직접 껣는다」)
+ * **The item that mounts into a cluster cell** — read in one place only. Since 2026-09-16 (user's decision 「연산 코어를 없애고 프로세서를 직접 꽂는다」)
  * it is a **processor** (`mat_processor`, a 2×1 item with durability). The cell size comes from that item's footprint, and a
  * mounted cell's tile carries `ComputeClusterInfo.processors[i]`'s remaining durability as-is (the inventory tile's durability bar).
  */
@@ -370,7 +370,7 @@ export class ClusterPage {
     const def = coinDef(info?.coinId);
     const index = this.clusters().findIndex((p) => p.uid === this.uid);
 
-    /* 2026-09-17 (user's decision): **with no processor at all, nothing is announced** — no red banner (`프로세서를 껣으세요` ·
+    /* 2026-09-17 (user's decision): **with no processor at all, nothing is announced** — no red banner (`프로세서를 꽂으세요` ·
        `채굴할 코인을 정하세요`) and no red reason in the header row. The empty cell grid says it by itself. The reason itself
        (`info.block`) is still there on the rules side and is read elsewhere (the rail red dot · the status tab). */
     const empty = !!info && info.cores <= 0;

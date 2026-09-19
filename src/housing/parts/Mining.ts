@@ -181,7 +181,7 @@ function addWallet(sys: HousingSystem, coinId: string, delta: number, reason: 'm
 /* ── Taking cycles off · folding ───────────────────────────────────────── */
 /**
  * Puts the completed cycles into the wallet. Blocked with no main computer it puts nothing in and only opens a new segment (it does not run while blocked).
- * The units put in (with the cell edited, −1 counts as true too).
+ * Returns the units put in and whether the cell was edited — `touched` is what `tickMining` saves on, so a fold-only pass stays out of the save.
  */
 function settle(sys: HousingSystem, slot: ComputeClusterSlot): { units: number; touched: boolean } {
   const coin = activeCoin(sys, slot);
@@ -276,7 +276,7 @@ function infoOf(sys: HousingSystem, f: PlacedFurniture): ComputeClusterInfo {
   return {
     uid: f.uid, room: f.room, coinId: coin?.id ?? null, cores, maxCores: COMPUTE_CLUSTER_MAX_CORES,
     processors, processorMax: processorDurMax(sys), perf,
-    // `power` stays because it is a contract field — always 0 since power allocation was dropped on 2026-09-13
+    // `power` stays because it is a required contract field with no reader left — always 0 since power allocation was dropped on 2026-09-13
     cycleMs: Number.isFinite(cycle) ? cycle : 0, progress, remainingS, mining: block === null, block, power: 0,
   };
 }

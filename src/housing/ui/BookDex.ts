@@ -1,10 +1,11 @@
 import type { GameContext, GameStat, ItemDef, LibraryEffect, LibrarySeriesDef, ShelfMedium, SkillId } from '@/shared';
 import {
-  CORP_DEFS, COOK_GAME_LABEL_KO, GYM_MINIGAME_LABEL_KO, LIBRARY_SERIES_DEFS, MEAL_BUFF_LABEL_KO, MEAL_BUFF_UNIT,
+  CORP_DEFS, COOK_GAME_LABEL_KO, LIBRARY_SERIES_DEFS, MEAL_BUFF_LABEL_KO, MEAL_BUFF_UNIT,
   WEAPON_GRADE_ROMAN,
 } from '@/shared';
 import type { CorpId } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
+import { gameMinigameLabel } from '../parts/VideoGame';
 import { ACTIVE_FURNITURE_DEFS, SHELF_GLYPH, SHELF_UNIT_KO } from '../model';
 import { librarySeriesOfItem, shelfHolderMediumOfItem } from '../Rules';
 import { clear, el, setText, toggleClass } from './dom';
@@ -72,13 +73,17 @@ export function libraryEffectText(ctx: GameContext, e: LibraryEffect, value: num
   }
 }
 
-/** One game disc line (`console · stat · kind`). */
+/**
+ * One game disc line (`console · stat · kind`). The kind goes through `gameMinigameLabel`, the one name a **game disc's**
+ * minigame has (`벤치프레스형` · `호흡형` · `사이클형`); the gym equipment names (`GYM_MINIGAME_LABEL_KO`) are a separate list,
+ * and pasting `형` onto them here used to print a third variant on this screen alone.
+ */
 export function gameDiscText(ctx: GameContext, def: ItemDef): string {
   const g = def.gameDisc;
   if (!g) return '';
   const loot = ctx.loot;
   const consoleDef = loot && typeof loot.getAllItemDefs === 'function' ? loot.getAllItemDefs().find((d) => d.gameConsole?.console === g.console) : undefined;
-  return `${consoleDef?.name ?? g.console} · ${statName(ctx, g.stat)} · ${GYM_MINIGAME_LABEL_KO[g.minigame] ?? g.minigame}형`;
+  return `${consoleDef?.name ?? g.console} · ${statName(ctx, g.stat)} · ${gameMinigameLabel(g.minigame)}`;
 }
 
 /* ── The catalogue ───────────────────────────────────────────────────────────────────────────────────────────── */

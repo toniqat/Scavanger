@@ -22,7 +22,7 @@ import type {
   BookSlotInfo, GameSessionInfo, GymMinigame, GymSessionResult, ItemDef, PlacedFurniture, PlayableGameInfo, TvConsoleSlot,
 } from '@/shared';
 import type { GymGameTuning } from '@/shared';
-import { FURNITURE_DEF_MAP, GAME_STATS, GYM_MINIGAME_LABEL_KO } from '@/shared';
+import { FURNITURE_DEF_MAP, GAME_MINIGAME_LABEL_KO as SHARED_GAME_MINIGAME_LABEL_KO, GAME_STATS, gameMinigameLabel as sharedGameMinigameLabel } from '@/shared';
 import type { HousingSystem } from '../HousingSystem';
 import { tvSeatFor } from '../Rules';
 import type { TvSeatResult } from '../Rules';
@@ -37,8 +37,19 @@ export const GAME_BLOCKER = 'housing.game';
  */
 export const TV_MENU_BLOCKER = 'housing';
 
-/** The game-kind names (user's decision 「벤치프레스형 · 호흡형 · 사이클형」). */
-export const GAME_MINIGAME_LABEL_KO: Readonly<Record<GymMinigame, string>> = { press: '벤치프레스형', breath: '호흡형', cycle: '사이클형' };
+/**
+ * The game-kind names (user's decision 「벤치프레스형 · 호흡형 · 사이클형」). 2026-09-19 (B-32): the table moved to
+ * `@/shared` because ui's item tooltip prints the same name and may not read this folder — kept re-exported so
+ * this folder's public API and its call sites do not move. The gym equipment list (`GYM_MINIGAME_LABEL_KO`) is
+ * still a separate name.
+ */
+export const GAME_MINIGAME_LABEL_KO = SHARED_GAME_MINIGAME_LABEL_KO;
+
+/**
+ * The refusal when a TV cannot be recovered · its console cannot be pulled because the ship stash has no room for the
+ * console (`SHELF_BLOCK_REASON`'s shape — the pre-check and the real move must say the same sentence).
+ */
+export const TV_CONSOLE_BLOCK_REASON = '게임기를 돌려줄 함선 창고 자리가 없습니다 — 게임기를 먼저 빼세요';
 
 export interface GameState {
   info: GameSessionInfo;
@@ -168,7 +179,7 @@ export function tvConsoleRecoverBlock(sys: HousingSystem, uid: string): string |
   if (!tvOf(sys, uid)) return null;
   const defId = getTvConsole(sys, uid);
   if (!defId) return null;
-  return sys.stashSpaceBlock([{ defId, qty: 1 }]) ? '게임기를 돌려줄 함선 창고 자리가 없습니다 — 게임기를 먼저 빼세요' : null;
+  return sys.stashSpaceBlock([{ defId, qty: 1 }]) ? TV_CONSOLE_BLOCK_REASON : null;
 }
 
 /**
@@ -181,7 +192,7 @@ export function returnTvConsoleForRecover(sys: HousingSystem, uid: string): stri
   if (!defId) return null;
   const inv = sys.ctx.inventory, loot = sys.ctx.loot;
   if (!inv || typeof inv.tryAddToStash !== 'function' || !loot || typeof loot.createItem !== 'function') return '게임기를 돌려줄 수 없습니다';
-  if (!inv.tryAddToStash(loot.createItem(defId, 1))) return '게임기를 돌려줄 함선 창고 자리가 없습니다 — 게임기를 먼저 빼세요';
+  if (!inv.tryAddToStash(loot.createItem(defId, 1))) return TV_CONSOLE_BLOCK_REASON;
   const slots = tvConsoleSlots(sys);
   slots.splice(slots.findIndex((s) => s.uid === uid), 1);
   sys.ctx.bus.emit('housing:tvConsoleChanged', { uid, defId: null });
@@ -378,7 +389,7 @@ export function videoGameDebug(sys: HousingSystem): VideoGameDebug {
   };
 }
 
-/** For showing the game-kind · gym-kind names together (the TV screen). */
+/** A game disc's minigame name — the one spelling every screen prints (TV screen · library catalogue · the item tooltip). Lives in `@/shared` since 2026-09-19 (B-32). */
 export function gameMinigameLabel(kind: GymMinigame): string {
-  return GAME_MINIGAME_LABEL_KO[kind] ?? GYM_MINIGAME_LABEL_KO[kind] ?? kind;
+  return sharedGameMinigameLabel(kind);
 }

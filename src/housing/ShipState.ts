@@ -46,7 +46,8 @@ import { getMealDef, normalizeMealQuality } from '@/shared';
  * left the cockpit was granted once to every profile (v1 → v2). **That grant was swept out on 2026-09-12** — the 정비 벤치 is
  * retired (user's decision), so a granted one was a refund case at once, and the grant sat below the retired sweep, unfiltered.
  * Phase 9: state **version 3** — `books` (서재 책장 slots) + `bookDex` (every book ever shelved); absent → empty, no
- * data migration. `SHIP_STATE_VERSION` in the contract is 3 now, so `SHIP_STATE_VERSION_CURRENT` follows it.
+ * data migration. That was the version the contract's `SHIP_STATE_VERSION` named at the time — `SHIP_STATE_VERSION_CURRENT`
+ * has always been the max of it and the number this file reached (14 today).
  * The greenhouse rework (2026-09-11): state **version 4** — `grows` (재배 스테이션 slots) replaces `plots`, and **every `retired`
  * furniture def is swept out of the save** (placed or stored) and handed back as materials. `sanitize` cannot reach
  * the inventory, so it only *computes* that refund into its optional `out` and `HousingSystem` pays it into the
@@ -59,6 +60,9 @@ import { getMealDef, normalizeMealQuality } from '@/shared';
  * A v6-or-older 사격장 Lv.n moves into the 관물대 · 시뮬레이션 허브 level, or refunds what it cost when it has neither;
  * a 작업실 Lv.n always refunds into the 함선 창고 (`sanitize`'s v7 block). The version was raised to migrate **once only**.
  * ──────────────────────────────────────────────────────────────────────────── */
+
+/** `ShipStore` write debounce (ms) — one burst of edits is one localStorage write and one profile upload. */
+const SAVE_DELAY_MS = 350;
 
 /*
  * 조종석 · 8 rooms (2026-09-12, user's decision): state **version 8** — same shape. A ship has `SHIP_ROOM_COUNT` (8) rooms;
@@ -100,7 +104,6 @@ import { getMealDef, normalizeMealQuality } from '@/shared';
  *  A refund sets `out.migratedLibrary` — written back at once like v7/v8, so the same extra is never handed back twice.
  * Several smokes (`smoke-housing` · `smoke-library`) read the version number as a literal — the reason a shape-preserving rule does not spend one.
  */
-const SAVE_DELAY_MS = 350;
 /*
  * Generator power (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」): state **version 12** carried `powerAlloc` · `disabledFurniture` · `pausedAt`.
  */
@@ -142,8 +145,9 @@ export function storage(): Storage | null {
 export function freshRoom(): RoomState { return { purpose: 'empty', level: 0 }; }
 
 /**
- * The ten rooms of a new ship: **all empty** (2026-09-07). The built-in 작업실 of the Phase 8 UI pass is gone — the
- * player assigns every purpose, 작업실 included, from 시설 관리 and pays `ROOM_PURPOSE_BUILD_COST` for it.
+ * The rooms of a new ship (`SHIP_ROOM_COUNT` of them — 10 until v8, 2026-09-12): **all empty** (2026-09-07). The built-in
+ * 작업실 of the Phase 8 UI pass is gone — the player assigns every purpose, 작업실 included, from 시설 관리 and pays
+ * `ROOM_PURPOSE_BUILD_COST` for it.
  */
 function freshRooms(): RoomState[] {
   return Array.from({ length: SHIP_ROOM_COUNT }, freshRoom);
@@ -190,7 +194,6 @@ export function placeCockpitDecor(state: ShipState): boolean {
   for (const spot of COCKPIT_DECOR_FURNITURE) {
     const def = FURNITURE_DEF_MAP.get(spot.defId);
     if (!def || def.retired) continue;
-    changed = true;
     if (canPlaceAt(state, COCKPIT_ROOM_INDEX, def, spot.x, spot.y, spot.yaw)) {
       state.furniture.push({ uid: `f-${maxUidIndex(state.furniture) + 1}`, defId: def.id, room: COCKPIT_ROOM_INDEX, x: spot.x, y: spot.y, yaw: spot.yaw, level: 1 });
     } else {
@@ -198,6 +201,8 @@ export function placeCockpitDecor(state: ShipState): boolean {
       const e = state.furnitureStorage.find((s) => s.defId === def.id && s.level === 1);
       if (e) e.qty += 1; else state.furnitureStorage.push({ defId: def.id, level: 1, qty: 1 });
     }
+    // set **after** both branches ran: the contract is 「something landed」, and only a branch that placed or stored a piece may claim it
+    changed = true;
   }
   return changed;
 }
@@ -315,7 +320,6 @@ export function isCultureTankDefId(defId: string): boolean {
   return FURNITURE_DEF_MAP.get(defId)?.interaction === 'culture_tank';
 }
 
-/** A dining table (A-3c, 2026-09-11): the furniture whose E opens the dining screen. The shared ship's fixed table has no uid. */
 /**
  * 2026-09-16 (the plate model): the saved dining-table plate — an id the meal table knows · a quality integer 0 … `MEAL_QUALITY_MAX` ·
  * the time it was served (finite ≥ 0, else 0). A wrong shape reads as no plate (the meal items of an old save are not migrated — user's decision).
@@ -328,6 +332,7 @@ export function sanitizePlate(raw: unknown): DiningPlate | null {
   return { mealDefId: p.mealDefId, quality: normalizeMealQuality(p.quality), cookedAt: at };
 }
 
+/** A dining table (A-3c, 2026-09-11): the furniture whose E opens the dining screen. The shared ship's fixed table has no uid. */
 export function isDiningTableDefId(defId: string): boolean {
   return FURNITURE_DEF_MAP.get(defId)?.interaction === 'dining_table';
 }
@@ -1021,9 +1026,16 @@ export function sanitize(raw: unknown, out?: SanitizeOutcome): ShipState {
 }
 
 /**
- * Load from localStorage; `fresh` = nothing valid was stored (first run). `refund` (v4) is what the sweep of
- * 은퇴 가구 owes the player — `HousingSystem` pays it into the 함선 창고 once the inventory exists.
- * `migrated` (v7 · v8) = room levels / removed rooms were migrated; `granted` = a 공용 시설 가구 was put back.
+ * Load from localStorage; `fresh` = nothing valid was stored (first run). The rest of the fields fold `SanitizeOutcome`
+ * down to what `HousingSystem` acts on:
+ *  · `refund` (v4) — what the sweep of 은퇴 가구 and every other load-time refund owes the player; `HousingSystem` pays it
+ *    into the 함선 창고 once the inventory exists.
+ *  · `migrated` (v7 · v8 · v13 · the library dedupe) = the save must be **written back at once**, so the same refund is
+ *    never handed out twice.
+ *  · `granted` = a 공용 시설 가구 was put back, or old library ids were swapped (both idempotent — they only schedule a save).
+ *  · `evicted` (2026-09-13, access faces) = how many placed pieces broke the placement rule and went to the 가구 창고.
+ *  · `removedByGenerator` (v13) = how many facilities the generator level was too low for were removed and refunded.
+ * The last two are **counts for the toast**, not flags — `migrated` already carries whether a write-back is owed.
  */
 export function loadState(): {
   state: ShipState; fresh: boolean; refund: CraftIngredient[]; migrated: boolean; granted: boolean; evicted: number; removedByGenerator: number;

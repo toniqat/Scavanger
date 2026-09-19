@@ -512,9 +512,9 @@ export function libraryEffectsSignature(e: Omit<LibraryEffectsSummary, 'revision
  * ────────────────────────────────────────────────────────────────────────── */
 
 /**
- * The lowest grow station level that opens `tier` (2 for the middle, 3 for the top). The numbers are not written
- * again — they are **derived** from the contract (`growTiersForLevel`), so this function follows on its own when
- * the unlock levels change.
+ * The lowest grow station level that opens `tier`. No level is written here — it is **derived** from the contract
+ * (`growTiersForLevel`), so this function follows on its own when the unlock levels change. Since 2026-09-13 every
+ * tier is open from Lv.1, so today it always answers 1.
  */
 export function growTierUnlockLevel(tier: GrowTier): number {
   const max = GROW_TIER_DRAW_ORDER.length;

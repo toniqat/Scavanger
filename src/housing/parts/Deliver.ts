@@ -29,18 +29,26 @@ interface DropCell {
 }
 let dropCell: DropCell | null = null;
 
-/** Run `fn` with "the player dropped it here" set (null = the plain rule). Always cleared, even when `fn` throws. */
-export function withDropCell<T>(cell: DropCell | null, fn: () => T): T {
-  const prev = dropCell;
-  dropCell = cell;
-  try { return fn(); } finally { dropCell = prev; }
-}
-
 /**
  * Whether the handover just now was blocked by **the dropped-on cell** (2026-09-16). `noRoomReason`, which picks the
  * reason text, asks right afterwards and clears it — a one-cell memory so an empty bag is never told 「가방에 자리가 없습니다」.
+ * Its only writer is the `dropCell` branch of `deliverItem`, so it can only be set inside a `withDropCell` window, and
+ * that window saves and restores it: the 「ask right afterwards」 convention is **enforced** rather than trusted, exactly
+ * like `dropCell`, so two panels delivering in the same task can never read each other's reason.
  */
 let blockedCell = false;
+
+/**
+ * Run `fn` with "the player dropped it here" set (null = the plain rule). Always cleared, even when `fn` throws —
+ * and `blockedCell` with it, so nothing this call sets survives past it.
+ */
+export function withDropCell<T>(cell: DropCell | null, fn: () => T): T {
+  const prevCell = dropCell;
+  const prevBlocked = blockedCell;
+  dropCell = cell;
+  blockedCell = false;
+  try { return fn(); } finally { dropCell = prevCell; blockedCell = prevBlocked; }
+}
 
 /** Put `item` where `dest` says. Returns the grid it landed in, or null when there was no room. */
 export function deliverItem(sys: HousingSystem, item: ItemInstance, dest: HarvestDestination = 'bag-first'): 'bag' | 'stash' | null {

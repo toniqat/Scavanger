@@ -20,6 +20,14 @@ export const BOOKS_BLOCK_REASON = '책을 먼저 빼세요';
 export const SHELF_BLOCK_REASON: Readonly<Record<ShelfMedium, string>> = {
   book: BOOKS_BLOCK_REASON, disc: '디스크를 먼저 빼세요', record: '레코드를 먼저 빼세요', game: '게임 디스크를 먼저 빼세요',
 };
+/**
+ * Cells one shelved item is billed at while its `ItemDef` cannot be resolved — the pre-check for recovering a holder
+ * (`parts/Library.booksBlock` / `shelfBlock`) sizes the stash move from `width × height`, and an id the item table does
+ * not know has neither. One constant for **every** medium so the same unknown item never gets two different answers
+ * from the two entry points. It is a floor, not a guarantee: the real all-or-nothing move (`stashShelfItemsOf`) refuses
+ * again with the same reason if the stash turns out to be short, so guessing low only defers the refusal, never loses items.
+ */
+export const UNKNOWN_SHELF_ITEM_CELLS = 2;
 /** Medium name + object particle (`책을` · `디스크를` · `레코드를`) — for the sentences on the holder screen. */
 export const SHELF_OBJ_KO: Readonly<Record<ShelfMedium, string>> = { book: '책을', disc: '디스크를', record: '레코드를', game: '게임 디스크를' };
 /** The counter word a medium is counted with (`6 / 6권` · `4 / 4장`). */
@@ -68,7 +76,8 @@ export const ACTIVE_FURNITURE_DEFS: readonly FurnitureDef[] = FURNITURE_DEFS.fil
  * hub/ builds the geometry and the housing-mode camera / cursor on top of this API and its `housing:*` events.
  *
  * Materials come from `ctx.inventory.countDefAll / consumeDefAll` (bag + stash); both are guarded with `typeof`
- * because inventory/ is built in parallel — without them nothing can be bought.
+ * because housing is registered **before** inventory in `main.ts`, so `ctx.inventory` is not there yet while the state
+ * loads — without them nothing can be bought.
  * Phase 7: the state is mirrored into the server profile document `ship` on every save; `net:profileLoaded` replaces
  * it with the server copy and re-emits `housing:loaded` so hub/ rebuilds the personal ship.
  * Phase 9: library bookshelves — `ShipState.books` (one `PlacedBook` per filled shelf slot) + `bookDex`; the library

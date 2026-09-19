@@ -14,7 +14,7 @@ and **before** `InventorySystem` / `WorldSystem` / `HubSystem`.
 | File | Responsibility |
 |---|---|
 | `HousingSystem.ts` | System + `HousingRef` implementation. Loads state in the constructor, owns housing-mode / ship-manage state and panel instances, server-profile replace (`onProfileLoaded`), retired-furniture refund (`flushRetiredRefund`), one-line delegations into `parts/*`. Re-exports `model.ts`. |
-| `model.ts` | Folder vocabulary (no state): `FACILITY_IDS`, `BOOKS_BLOCK_REASON` / `SHELF_BLOCK_REASON`, shelf labels / glyphs (`SHELF_GLYPH`, `LIBRARY_GLYPH`), `ACTIVE_FURNITURE_DEFS` (= defs minus `retired`), retired-rack answers. |
+| `model.ts` | Folder vocabulary (no state): `FACILITY_IDS`, `BOOKS_BLOCK_REASON` / `SHELF_BLOCK_REASON` / `UNKNOWN_SHELF_ITEM_CELLS` (the cells an unresolvable shelved def is billed at — one value for both recover pre-checks), shelf labels / glyphs (`SHELF_GLYPH`, `LIBRARY_GLYPH`), `ACTIVE_FURNITURE_DEFS` (= defs minus `retired`), retired-rack answers. |
 | `Rules.ts` | Pure rules, no ctx / DOM — see **Rules** below. |
 | `MiningRules.ts` | Pure mining rules: per-cell processors (`processorCells`, `processorCount`, `clusterPerf`, `clusterCycleMs`, `wearProcessors`), `takeCompletedCycles`, `foldProgress`, `sanitizeClusters`, `sanitizeUnitsMap`, `CLUSTER_CORES_BLOCK_REASON`, `MINING_TICK_MS`. The base cycle formula lives in `shared/cryptoMarket`; `clusterCycleMs` is its fractional form (a perf sum is not an integer). |
 | `ShipState.ts` | `freshState`, `sanitize(raw, out?)` (all migrations + validation), `loadState`, `writeState`, `ShipStore` (debounced write + `pagehide` flush + profile upload), `ensureCockpitFurniture`, `placeCockpitDecor`, `is*DefId` helpers, `SHIP_STATE_VERSION_CURRENT`. |
@@ -32,7 +32,7 @@ and **before** `InventorySystem` / `WorldSystem` / `HubSystem`.
 | `parts/CookGames.ts` | DOM-free judges of the six cooking minigames (`ChopGame`, `MinceGame`, `GrillGame`, `StirfryGame`, `StirGame`, `PourGame`), `createCookGame`, `cookJudgeBands`. |
 | `parts/Gym.ts` | Gym session: `gymBlock`, `startGymSession`, `completeGymSession` (→ `progression.applyGymSession`, + library `gymScore`), `bindGym`, `gymDebug`. |
 | `parts/GymGames.ts` | DOM-free judges `PressGame` / `BreathGame` / `CycleGame`, `createGymGame(kind, tuning?)`, `judgeBands`, `completion`. |
-| `parts/VideoGame.ts` | TV consoles (`attachTvConsole` / `detachTvConsole`), optional seat pick (`Rules.tvSeatFor` — no seat = standing session), `getPlayableGames`, game sessions (gym rules via `applyGymSession`), `bindVideoGame`, `videoGameDebug`. |
+| `parts/VideoGame.ts` | TV consoles (`attachTvConsole` / `detachTvConsole`, refusal `TV_CONSOLE_BLOCK_REASON`), optional seat pick (`Rules.tvSeatFor` — no seat = standing session), `getPlayableGames`, game sessions (gym rules via `applyGymSession`), `GAME_MINIGAME_LABEL_KO` / `gameMinigameLabel` (the one spelling of a **game disc's** minigame, separate from the gym equipment's `GYM_MINIGAME_LABEL_KO`), `bindVideoGame`, `videoGameDebug`. |
 | `parts/Library.ts` | Library shelves for every medium (`book` · `disc` · `record` · `game`): place / take / dex / recover-to-stash, on/off toggles, library-effects cache (`ensureLibrary`, `bindLibrary`, `tickLibrary`) and its queries. |
 | `parts/Music.ts` | Music player state (no audio): playlist from record racks, `tickMusic`, `musicNext/Prev`, `setMusicMode`, `musicStop`, `housing:musicChanged`. |
 | `parts/Mining.ts` | Compute clusters, wallet, trading: `setClusterCoin`, `insertClusterProcessor` / `removeClusterProcessor` (one named cell) and their count-based wrappers `insertClusterCores` / `removeClusterCores`, `tickMining` (1 Hz, not in raid — settles cycles **and wears the mounted processors**), `tradeCrypto`, `coinLockReason`, dev cheats. |
@@ -322,6 +322,13 @@ reasoning. The list below is what a maintainer would otherwise break.
   A-4).
 - **Removing a facility refunds 100 % of the current price list**, so a rebalance changes what an already-built facility
   gives back and moving a facility is effectively free (intended — there is no other way to move one).
+- **The grow station's tier lock is dead but kept.** Every tier is open from Lv.1 (2026-09-13), so `GrowSlotInfo.locked` is
+  false for every tier and the screen's locked branch (`ui/GrowStation.build`, `.gs-tier.is-locked`) never draws in play. The
+  contract still reports `locked` / `unlockLevel` and `Rules.growTierUnlockLevel` still derives the level, so refilling
+  `growTiersForLevel` revives the gate with no screen change — intended, do not delete either side.
+- **`ComputeClusterInfo.power` is always 0 and nothing reads it.** Power allocation was dropped on 2026-09-13, but the field
+  is **required** in the contract (`shared/housing.ts`), so `parts/Mining.infoOf` keeps writing 0. Retiring it is a contract
+  change, not a housing one.
 - **Processor wear is per processor** (down to half), but cluster speed is exponential in the count, so letting all nine
   slots wear out is ≈22.6× slower than new (user-confirmed figure). The 3D furniture's LED cells
   (`hub/interiors/FurnitureMining.ts`) show the **count** only, so a worn slot looks like a new one. A neighbouring save's
@@ -330,8 +337,8 @@ reasoning. The list below is what a maintainer would otherwise break.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/housing`.
+- 2026-09-19 — Audit B-32…B-35: 18 stale comments corrected, 8 dead-code spots cleared (`SHELF_COLS` · `analysisEstimateMs` removed, preset stubs, `rowRank`, cook-result `landed`, gym `ruleText`) and 6 behaviour fixes — stirfry score divides by **beats offered** (one perfect click no longer scores 1.0), a late grill flip emits `beat('flip','miss')`, `Deliver.blockedCell` is saved/restored by `withDropCell`, both shelf recover pre-checks bill an unknown def at `UNKNOWN_SHELF_ITEM_CELLS`, the TV console refusal is `TV_CONSOLE_BLOCK_REASON`, `placeCockpitDecor` sets `changed` after the branch ran. A game disc's minigame is named by `gameMinigameLabel` everywhere (the library catalogue printed a third variant).
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels and decision headings kept verbatim in backticks / 「」, no string literal touched. One quoted-label-only line stays Korean (`ui/SocketFlow.ts:100`).
 - 2026-09-17 — Gym / game result card: `+N` without `단련` (`근력 +1!`, trained block `+N`), XP line `<능력치> 경험치 +n`, progress tail `다음 +1까지 x / y` against the stat-XP bar (`statXpToNext`) — 단련 now fills the stat-XP bar (progression).
 - 2026-09-17 — 배양 시작 확인: `insertStrain` no longer starts the timer — a 시작 대기 slot (`strainDefId`, no `startedAt`) starts only through `startCulture` (UI: `배양 시작` button under each tube → `openHoldAsk` 「배양을 시작하겠습니까?」, 1 s hold); before that `takeStrain` / `takeScaffold` / `takeMedium` (unused medium only) give items back. `CultureSlotInfo.started` / `mediumReturnable`; saves need no migration (old strains always carry `startedAt`). 배양조 · 재배 스테이션 are `multi` (build several); the culture screen got the left tank rail; both rails widened to 200 px so `재배 스테이션 n` fits; cell bob 14 s / ±1.5 px.
 - 2026-09-17 — Mount slots take the accepted item's shape: the 연산 클러스터 (processor 2×1, footprint read at paint — the constructor ran before `ctx.loot`) and every 보관함 (`shelfFootprint`) draw empty slots as that footprint's grid cells; dragging a mounted item out highlights the target **cell** footprint (`previewExternalAt`) instead of the whole grid. Mining tabs moved to the Tab screen's `.scr-tabs` position; the 채굴 tab opened from the main computer picks the first cluster (was `연산 클러스터가 없습니다`); an empty cluster shows no guidance banner.
-- 2026-09-17 — Video games need no seat: `gameBlock` drops the seat reason, `startGameSession` sends `seatUid` null when no valid seat (standing play); TV screen seat line = seat name or `서서 플레이합니다`. 의자 · 쇼파 are decor furniture in any room (sofa no longer library-only).

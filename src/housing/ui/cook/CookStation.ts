@@ -37,8 +37,11 @@ interface RecipeRow {
 
 /* 2026-09-16 (user's decision, 2nd pass): the skill-lock branch (the `is-skill` badge) was deleted that same morning and then restored — as long as the
    `skillRequired` column stays, raising a csv number alone has to switch it on. With every value 0 today `x.skill` is always null. */
-/** The order inside the list — startable now 0 · not locked but blocked (materials · space) 1 · skill-locked 2 (cook bench level · book locks are not in the list). */
-const rowRank = (x: RecipeRow): number => (!x.block ? 0 : x.locked || x.skill || x.book ? 2 : 1);
+/**
+ * The order inside the list — startable now 0 · not locked but blocked (materials · space) 1 · skill-locked 2.
+ * Cook bench level (`locked`) and book locks are dropped by `refresh` before the sort, so only `skill` can still rank a row 2 here.
+ */
+const rowRank = (x: RecipeRow): number => (!x.block ? 0 : x.skill ? 2 : 1);
 
 const pct = (v: number): number => Math.round(Math.max(0, Math.min(1, v)) * 100);
 
@@ -175,7 +178,7 @@ export class CookStation extends HousingPanel {
     this.showMsg('재료는 넣지 않아도 됩니다 — 조리가 끝날 때 가방 · 함선 창고에서 빠집니다', 'info');
   }
 
-  /** Picks a meal from the rail (smoke tests use it too). */
+  /** Picks a meal from the recipe list (smoke tests use it too — the rail itself is hidden since the 2026-09-15 3rd pass). */
   select(recipeId: string): void {
     this.selectedRecipeId = recipeId;
     this.railKey = '';

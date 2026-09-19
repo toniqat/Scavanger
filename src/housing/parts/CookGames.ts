@@ -20,7 +20,8 @@
  *   • `grill`   grilling    — piece i cooks from `i × STAGGER` on, over `cookGrillSeconds` (and keeps rising). Clicking a piece = a flip /
  *                             (a failed flip + removal, if it is already late) / a flipped piece comes off. At `BURN_AT` it burns and comes off (the rest miss).
  *                             Score = the average of the pieces × 2 judgements.
- *   • `stirfry` stir-frying — a click is judged against the nearest beat, **once per beat only**. Each judgement fills the bar, bar ≥ 1 ends it. Judgement average.
+ *   • `stirfry` stir-frying — a click is judged against the nearest beat, **once per beat only**. Each judgement fills the bar, bar ≥ 1 ends it.
+ *                             Score = the judgement average over **every beat offered** (a beat left unclicked counts against it — see `StirfryGame.total`).
  *   • `stir`    stirring    — held, temperature ↓ · doneness ↑; released, temperature ↑ (the boiling surge). Score linear in the time spent in the green band.
  *   • `pour`    pouring     — the flow runs linearly 0 ↔ 1 over `RAMP_S`. Once something has been poured, standing at flow 0 for `SETTLE_S` ends it,
  *                             and an overflowing beaker (target × `BEAKER_MUL`) ends it at once. Score linear in the error against the target amount.
@@ -53,8 +54,9 @@ export type CookGameEvent =
 
 /**
  * Stirring: the interval (seconds) at which the `stir` presentation event is re-emitted while the button is held. **A presentation beat with
- * nothing to do with the judgement** — the hub's ladle stops 0.45 s after the last `stir` (there is no 「released」 event), so this has to be
- * comfortably shorter. The sound (`cook_stir`) is thinned out separately by the screen (an implementation value, not a balance number).
+ * nothing to do with the judgement** — the hub's ladle stops a short while after the last `stir` (there is no 「released」 event; the hold-over
+ * time is `hub/`'s, not derived here), so this has to be comfortably shorter than it. The sound (`cook_stir`) is thinned out separately by the
+ * screen (an implementation value, not a balance number).
  */
 export const COOK_STIR_BEAT_INTERVAL_S = 0.25;
 /** The cap on one integration step (seconds) — sub-stepped so the stir temperature never depends on the tick interval (tens of ms at worst) (an implementation value). */
@@ -373,9 +375,11 @@ export class GrillGame extends CookGameBase {
         this.beat('flip', q);
         return;
       }
-      // late — counted as a failed flip and taken off at once
+      // late — counted as a failed flip and taken off at once. The presentation beat goes out too (`burn` in `step_` does the same):
+      // without it the hub hand · the stage never play the flip the player actually made, and the piece silently jumps to 「off the grill」.
       p.flipQ = 'miss';
       this.judge('miss');
+      this.beat('flip', 'miss');
     }
     const off = Math.abs(prog - 1);
     const q: CookJudge = off <= COOK_GRILL_DONE_PERFECT + 1e-9 ? 'perfect' : off <= COOK_GRILL_DONE_GOOD + 1e-9 ? 'good' : 'miss';
@@ -404,7 +408,15 @@ export class StirfryGame extends CookGameBase {
   /** The beat numbers already judged (0 = the first beat after the lead-in). */
   readonly usedBeats = new Set<number>();
 
-  get score(): number { return cookJudgeAverage(this.judgements, this.judgements.length); }
+  /**
+   * The denominator of the score: **every beat that has reached the judgement line**, judged or not. A beat that went by
+   * with no click is never judged (`step_`), so dividing by the judgements alone made one perfect click followed by idling
+   * to `maxTime` score 1.0. Counting the beats offered is the fixed total `ChopGame` · `GrillGame` already divide by, and it
+   * puts a clean run at exactly 1 (a perfect click fills `COOK_STIRFRY_FILL_PERFECT`, so the bar is full on the beat the last
+   * one lands) and an all-good run at `COOK_SCORE_GOOD`.
+   */
+  get total(): number { return Math.max(this.judgements.length, this.nearestBeat() + 1); }
+  get score(): number { return cookJudgeAverage(this.judgements, this.total); }
   get completion(): number { return clamp01(this.bar); }
 
   /**

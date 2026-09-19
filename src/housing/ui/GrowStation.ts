@@ -25,7 +25,7 @@ const TICK_MS = 1000;
 const pct = (v: number): number => Math.round(v * 100);
 const keyOf = (tier: GrowTier, slot: number): string => `${tier}:${slot}`;
 const tagLabel = (t: SoilTag | null): string => (t ? SOIL_TAG_LABEL_KO[t] : '알 수 없는');
-/** 「성장 속도 +15%」 — the speed the station level gives (`Rules.growStationSpeedPct`, 2026-09-13). */
+/** The `성장 속도 +n%` meta line — the speed the station level gives (`Rules.growStationSpeedPct`, 2026-09-13). */
 const speedText = (level: number): string => `성장 속도 +${growStationSpeedPct(level)}%`;
 /** The soil's bonus ratio (0 … 1). Read as 1 on an old build whose contract field is not there yet. */
 const soilRatio = (info: GrowSlotInfo): number =>
@@ -64,8 +64,8 @@ interface RailItem {
  * The frame is the shared `StationShell`: the station card = 「재배 스테이션」 + `Lv. n` + the growth speed (`meta`) · 「업그레이드」
  * at the card's top right (→ `UpgradeModal`, a 1 s hold) · the tiers, and beside it the ship stash card · the bag card (2026-09-13 card layout).
  *
- * **2026-09-13 (user's decision)**: all three tiers are open from Lv.1, and an upgrade raises the **growth speed** (+15 % per level,
- * `GROW_STATION_SPEED_PER_LEVEL` in `data/tuning.csv`). An upgrade shortens the time left on crops already growing too, on the spot.
+ * **2026-09-13 (user's decision)**: all three tiers are open from Lv.1, and an upgrade raises the **growth speed** by
+ * `GROW_STATION_SPEED_PER_LEVEL` (`data/tuning.csv`) per level. An upgrade shortens the time left on crops already growing too, on the spot.
  *
  * A tier is one **white bar** with `GROW_SLOTS_PER_TIER` **pots** (small circles cut off at the top) set into it — the bar's top edge
  * sits at the pots' top edge. A planted crop grows up out of the pot (`--g` = progress, stem `scaleY` + leaf `translateY` · `scale`,
@@ -522,6 +522,10 @@ export class GrowStation extends HousingPanel {
     for (const tier of GROW_TIER_DRAW_ORDER) {
       const rows = infos.filter((i) => i.tier === tier);
       if (!rows.length) continue;
+      // `GrowSlotInfo.locked` is false for every tier today (2026-09-13 — `growTiersForLevel` opens all three from Lv.1), so this
+      // branch and `.gs-tier.is-locked` are unreachable in play. Both are **kept on purpose**: the contract still reports `locked` ·
+      // `unlockLevel`, so refilling `growTiersForLevel` revives the tier gate with no screen change (the analyzer · culture tank
+      // draw their locked slots from the same field, and theirs do appear).
       const locked = rows[0].locked;
       const row = el('div', { cls: `gs-tier${locked ? ' is-locked' : ''}`, attrs: { 'data-tier-row': String(tier) }, parent: this.tiersEl });
       if (locked) continue;                                 // an un-upgraded tier is an outline only

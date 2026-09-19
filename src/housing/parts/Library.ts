@@ -11,7 +11,7 @@ import type { BookSlotInfo, ItemDef, PlacedBook, PlacedFurniture, SkillId } from
 import { BOOKS_PER_SHELF, FURNITURE_DEF_MAP, SKILL_IDS } from '@/shared';
 import { bookWeightOf } from '../Rules';
 import { isBookshelfDefId } from '../ShipState';
-import { BOOKS_BLOCK_REASON } from '../model';
+import { BOOKS_BLOCK_REASON, UNKNOWN_SHELF_ITEM_CELLS } from '../model';
 import type { HousingSystem } from '../HousingSystem';
 import { deliverItem, noRoomReason } from './Deliver';
 /* A-3e (2026-09-12): library media */
@@ -68,30 +68,30 @@ export function books(sys: HousingSystem): PlacedBook[] {
     pruneShelfList(sys, sys.state.books, (def) => !!def?.book, new Set());
   }
   return sys.state.books;
-  }
+}
 
 export function bookDex(sys: HousingSystem): string[] {
   if (!Array.isArray(sys.state.bookDex)) sys.state.bookDex = [];
   return sys.state.bookDex;
-  }
+}
 
 /** The bookshelf behind `uid`, or null when it is not a bookshelf (or gone). */
 export function shelfOf(sys: HousingSystem, uid: string): PlacedFurniture | null {
   const item = sys.getPlacedByUid(uid);
   return item && isBookshelfDefId(item.defId) ? item : null;
-  }
+}
 
 export function booksOf(sys: HousingSystem, uid: string): PlacedBook[] { return sys.books().filter((b) => b.uid === uid); }
 
 export function bookAt(sys: HousingSystem, uid: string, slot: number): PlacedBook | null {
   return sys.books().find((b) => b.uid === uid && b.slot === slot) ?? null;
-  }
+}
 
 /** Drop every book of a shelf (used after they were moved to the stash, or by a recovered shelf). */
 export function dropBooksOf(sys: HousingSystem, uid: string): void {
   const books = sys.books();
   for (let i = books.length - 1; i >= 0; i--) if (books[i].uid === uid) books.splice(i, 1);
-  }
+}
 
 export function booksChanged(sys: HousingSystem, uid: string, reason: string): void {
   sys.changed(reason);
@@ -99,13 +99,13 @@ export function booksChanged(sys: HousingSystem, uid: string, reason: string): v
   sys.ctx.bus.emit('housing:booksChanged', { uid, count });
   // A-3e: the shared media event fires for a bookshelf too (bookshelf consumers keep watching the old `housing:booksChanged`)
   sys.ctx.bus.emit('housing:shelfChanged', { uid, medium: 'book', count });
-  }
+}
 
 /** Book def with its `book` data, or null when `defId` is not a book. */
 export function bookDef(sys: HousingSystem, defId: string): ItemDef | null {
   const def = sys.defOf(defId);
   return def && def.book ? def : null;
-  }
+}
 
 /** Free stash cells (cols × rows − occupied), −1 when inventory cannot tell. A cheap estimate for `recoverBlock`. */
 export function freeStashCells(sys: HousingSystem): number {
@@ -120,7 +120,7 @@ export function freeStashCells(sys: HousingSystem): number {
     }
     return size.cols * size.rows - used;
   } catch { return -1; }
-  }
+}
 
 /** `책을 먼저 빼세요` while the shelf holds books the stash cannot take (by free-cell estimate), else null. */
 export function booksBlock(sys: HousingSystem, uid: string): string | null {
@@ -131,9 +131,9 @@ export function booksBlock(sys: HousingSystem, uid: string): string | null {
   const free = sys.freeStashCells();
   if (free < 0) return null;                                   // unknown → let `recover` try for real
   let need = 0;
-  for (const b of books) { const def = sys.defOf(b.defId); need += def ? def.width * def.height : 2; }
+  for (const b of books) { const def = sys.defOf(b.defId); need += def ? def.width * def.height : UNKNOWN_SHELF_ITEM_CELLS; }
   return free >= need ? null : BOOKS_BLOCK_REASON;
-  }
+}
 
 /**
  * Move every book of `uid` into the stash (all or nothing: on the first refusal the ones already added are taken
@@ -156,7 +156,7 @@ export function stashBooksOf(sys: HousingSystem, uid: string): boolean {
   }
   sys.dropBooksOf(uid);
   return true;
-  }
+}
 
 export function getBooks(sys: HousingSystem, uid: string): BookSlotInfo[] {
   if (!sys.shelfOf(uid)) return [];
@@ -173,12 +173,12 @@ export function getBooks(sys: HousingSystem, uid: string): BookSlotInfo[] {
     });
   }
   return out;
-  }
+}
 
 /** 2026-09-13 (user's decision — the same book counts once): is this def already shelved in any holder (regardless of power). */
 export function isShelvedAnywhere(sys: HousingSystem, defId: string): boolean {
   return sys.books().some((b) => b.defId === defId) || media(sys).some((e) => e.defId === defId);
-  }
+}
 
 export function placeBook(sys: HousingSystem, uid: string, slot: number, defId: string): string | null {
   if (!sys.shelfOf(uid)) return '책장이 아닙니다';
@@ -197,7 +197,7 @@ export function placeBook(sys: HousingSystem, uid: string, slot: number, defId: 
   if (!dex.includes(defId)) dex.push(defId);
   sys.booksChanged(uid, 'bookPlace');
   return null;
-  }
+}
 
 export function takeBook(sys: HousingSystem, uid: string, slot: number): string | null {
   if (!sys.shelfOf(uid)) return '책장이 아닙니다';
@@ -211,7 +211,7 @@ export function takeBook(sys: HousingSystem, uid: string, slot: number): string 
   sys.books().splice(sys.books().indexOf(book), 1);
   sys.booksChanged(uid, 'bookTake');
   return null;
-  }
+}
 
 export function getOwnedBooks(sys: HousingSystem): { defId: string; qty: number }[] { return ownedShelfItems(sys, 'book'); }
 
@@ -221,7 +221,7 @@ export function getOwnedBooks(sys: HousingSystem): { defId: string; qty: number 
  */
 export function getBookBonus(sys: HousingSystem, skill: SkillId): number {
   return 1 + (ensureLibrary(sys).summary.skillGain[skill] ?? 0);
-  }
+}
 
 export function getBookDex(sys: HousingSystem): readonly string[] { return sys.bookDex(); }
 
@@ -231,13 +231,14 @@ export function openBookshelfMenu(sys: HousingSystem, uid: string): void {
   sys.exitHousingMode();
   sys.closeMenus(false);
   sys.bookshelfMenu.openShelf(uid);
-  }
+}
 
 /* ══ Library media — the disc stand · record rack · game disc stand · aux furniture (A-3e, 2026-09-12 · 2026-09-13) ═════
  * The bookshelf keeps its **old path** (`books` / `bookDex` · `placeBook` / `takeBook` · `housing:booksChanged`) — the shared media API hands a
  * bookshelf to those functions, while discs · records · game discs use `ShipState.media` / `mediaDex`. Both arrays have the `PlacedBook` shape.
- * Aux furniture switches on **by being placed alone** (`Rules.shelfAuxPlaced`; since 2026-09-13 placed = working); the TV's and record
- * player's on-state (`ShipState.toggled`) is only a look, no part of the multiplier. **Several** holders per medium may be built (`FurnitureDef.multi`).
+ * Aux furniture counts **as soon as it is placed** (`Rules.shelfAuxPlaced`) — power allocation was dropped on 2026-09-13, so there is no 「running」 state left to
+ * check and placed *is* working (`refreshLibrary` says the same). The TV's and record player's on-state (`ShipState.toggled`) is only a look, no part of the
+ * multiplier. **Several** holders per medium may be built (`FurnitureDef.multi`).
  * ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /** `media` arrays already checked against `ctx.loot` — keyed by the array, so a state replaced by the server copy is checked again. */
@@ -258,48 +259,48 @@ export function media(sys: HousingSystem): PlacedBook[] {
     }, new Set());
   }
   return list;
-  }
+}
 
 /** The disc · record · game disc catalogue (append-only). */
 export function mediaDex(sys: HousingSystem): string[] {
   if (!Array.isArray(sys.state.mediaDex)) sys.state.mediaDex = [];
   return sys.state.mediaDex;
-  }
+}
 
 /** The uids of the TVs · record players left on (`ShipState.toggled`). */
 export function toggledUids(sys: HousingSystem): string[] {
   if (!Array.isArray(sys.state.toggled)) sys.state.toggled = [];
   return sys.state.toggled;
-  }
+}
 
 /** The medium when the placed piece is a holder (`HousingRef.getShelfMedium`) — 2026-09-13 the game disc stand = `'game'`. */
 export function shelfMediumOf(sys: HousingSystem, uid: string): ShelfMedium | null {
   const item = sys.getPlacedByUid(uid);
   const def = item ? FURNITURE_DEF_MAP.get(item.defId) : undefined;
   return def ? shelfMediumOfInteraction(def.interaction) : null;
-  }
+}
 
 /** Everything shelved in holder `uid` (`booksOf` for a bookshelf). Empty array when it is not a holder. */
 export function shelfItemsOf(sys: HousingSystem, uid: string): PlacedBook[] {
   const m = shelfMediumOf(sys, uid);
   if (!m) return [];
   return m === 'book' ? sys.booksOf(uid) : media(sys).filter((e) => e.uid === uid);
-  }
+}
 
 function mediaAt(sys: HousingSystem, uid: string, slot: number): PlacedBook | null {
   return media(sys).find((e) => e.uid === uid && e.slot === slot) ?? null;
-  }
+}
 
 /** That medium's item def (`ItemDef.book` / `disc` / `record` / 2026-09-13 `gameDisc`), else null. */
 export function shelfItemDef(sys: HousingSystem, defId: string, medium: ShelfMedium): ItemDef | null {
   const def = sys.defOf(defId);
   return def && shelfHolderMediumOfItem(def) === medium ? def : null;
-  }
+}
 
 export function shelfChanged(sys: HousingSystem, uid: string, medium: ShelfMedium, reason: string): void {
   sys.changed(reason);
   sys.ctx.bus.emit('housing:shelfChanged', { uid, medium, count: shelfItemsOf(sys, uid).length });
-  }
+}
 
 /** The shared-media 「can it be moved to the stash before recovery」 (the general form of `booksBlock`). null when it is not a holder, or is empty. */
 export function shelfBlock(sys: HousingSystem, uid: string): string | null {
@@ -313,9 +314,9 @@ export function shelfBlock(sys: HousingSystem, uid: string): string | null {
   const free = sys.freeStashCells();
   if (free < 0) return null;                                   // unknown → let `recover` try for real
   let need = 0;
-  for (const e of items) { const def = sys.defOf(e.defId); need += def ? def.width * def.height : 4; }
+  for (const e of items) { const def = sys.defOf(e.defId); need += def ? def.width * def.height : UNKNOWN_SHELF_ITEM_CELLS; }
   return free >= need ? null : SHELF_BLOCK_REASON[m];
-  }
+}
 
 /**
  * Move every medium of holder `uid` into the ship stash (all or nothing — on the first refusal the ones already added are taken back out
@@ -342,14 +343,14 @@ export function stashShelfItemsOf(sys: HousingSystem, uid: string): boolean {
   const list = media(sys);
   for (let i = list.length - 1; i >= 0; i--) if (list[i].uid === uid) list.splice(i, 1);
   return true;
-  }
+}
 
 /** Clears the on-state of a recovered piece (`recover`). */
 export function dropToggled(sys: HousingSystem, uid: string): void {
   const list = toggledUids(sys);
   const i = list.indexOf(uid);
   if (i >= 0) list.splice(i, 1);
-  }
+}
 
 export function getShelfSlots(sys: HousingSystem, uid: string): BookSlotInfo[] {
   const m = shelfMediumOf(sys, uid);
@@ -368,7 +369,7 @@ export function getShelfSlots(sys: HousingSystem, uid: string): BookSlotInfo[] {
     });
   }
   return out;
-  }
+}
 
 export function placeShelfItem(sys: HousingSystem, uid: string, slot: number, defId: string): string | null {
   const m = shelfMediumOf(sys, uid);
@@ -391,7 +392,7 @@ export function placeShelfItem(sys: HousingSystem, uid: string, slot: number, de
   if (!dex.includes(defId)) dex.push(defId);
   shelfChanged(sys, uid, m, 'shelfPlace');
   return null;
-  }
+}
 
 export function takeShelfItem(sys: HousingSystem, uid: string, slot: number): string | null {
   const m = shelfMediumOf(sys, uid);
@@ -408,7 +409,7 @@ export function takeShelfItem(sys: HousingSystem, uid: string, slot: number): st
   list.splice(list.indexOf(e), 1);
   shelfChanged(sys, uid, m, 'shelfTake');
   return null;
-  }
+}
 
 /** Sort order: library media = the series table's order → volume number (an old def with no series goes last, by skill), game discs = console → id. */
 function ownedOrder(def: ItemDef): [number, number, string] {
@@ -437,18 +438,18 @@ function ownedShelfItems(sys: HousingSystem, medium: ShelfMedium): { defId: stri
 
 export function getOwnedShelfItems(sys: HousingSystem, medium: ShelfMedium): { defId: string; qty: number }[] {
   return medium === 'book' ? sys.getOwnedBooks() : ownedShelfItems(sys, medium);
-  }
+}
 
 export function getShelfDex(sys: HousingSystem, medium: ShelfMedium): readonly string[] {
   if (medium === 'book') return sys.bookDex();
   const prefix = SHELF_ID_PREFIX[medium];
   return mediaDex(sys).filter((id) => id.startsWith(prefix));
-  }
+}
 
 /** Is that medium's aux furniture placed on the ship (regardless of power). A game disc has no aux furniture. */
 export function hasShelfAux(sys: HousingSystem, medium: ShelfMedium): boolean {
   return medium !== 'game' && shelfAuxPlaced(sys.state.furniture, medium);
-  }
+}
 
 /**
  * One skill's library multiplier per medium — since 2026-09-13 the series formula's `skillGain` split per medium (`total === getBookBonus(skill)`).
@@ -457,7 +458,7 @@ export function hasShelfAux(sys: HousingSystem, medium: ShelfMedium): boolean {
 export function getShelfBonus(sys: HousingSystem, skill: SkillId): ShelfBonusInfo {
   const c = ensureLibrary(sys);
   return shelfBonusFromLibrary(c.comp, skill, c.aux);
-  }
+}
 
 /** The holder screen — shared by the bookshelf · disc stand · record rack · game disc stand (one `BookshelfMenu` redraws for the medium). */
 export function openShelf(sys: HousingSystem, uid: string): void {
@@ -466,18 +467,18 @@ export function openShelf(sys: HousingSystem, uid: string): void {
   sys.exitHousingMode();
   sys.closeMenus(false);
   sys.bookshelfMenu.openShelf(uid);
-  }
+}
 
 /* ── On / off (TV · record player) ──────────────────────────────────────── */
 function toggleDefOf(sys: HousingSystem, uid: string): FurnitureDef | null {
   const item = sys.getPlacedByUid(uid);
   const def = item ? FURNITURE_DEF_MAP.get(item.defId) : undefined;
   return def && isToggleInteraction(def.interaction) ? def : null;
-  }
+}
 
 export function isFurnitureOn(sys: HousingSystem, uid: string): boolean {
   return !!toggleDefOf(sys, uid) && toggledUids(sys).includes(uid);
-  }
+}
 
 /** Flips the on-state and returns the new one — null for a piece that cannot be toggled and for an unknown uid. It is saved (`changed('toggle')`) and sounds. */
 export function toggleFurniture(sys: HousingSystem, uid: string): boolean | null {
@@ -492,7 +493,7 @@ export function toggleFurniture(sys: HousingSystem, uid: string): boolean | null
   const sound = def.interaction === 'tv' ? (on ? 'tv_on' : 'tv_off') : (on ? 'record_on' : 'record_off');
   sys.ctx.bus.emit('audio:play', { id: sound });
   return on;
-  }
+}
 
 /* ══ Library series — the effect-sum cache · sources · the band · recipe unlocks (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」) ═
  * The summing is `Rules.computeLibraryEffects` (pure); this file decides **what goes in** (working holders · aux furniture) and **when to count again**.

@@ -22,17 +22,13 @@ export function getPresets(sys: HousingSystem): readonly (LoadoutPreset | null)[
 }
 
 /** Always false — there are no slots. */
-export function savePreset(sys: HousingSystem, index: number, preset: LoadoutPreset): boolean {
-  return !!preset && Number.isInteger(index) && index >= 0 && index < sys.getPresetCount() && false;
-}
+export function savePreset(_sys: HousingSystem, _index: number, _preset: LoadoutPreset): boolean { return false; }
 
 /** Always false — with no slots there is nothing to delete (old presets in the save are left alone). */
 export function deletePreset(_sys: HousingSystem, _index: number): boolean { return false; }
 
 /** Always null — there are no slots. */
-export function applyPreset(sys: HousingSystem, index: number): { equipped: number; missing: string[] } | null {
-  return index >= 0 && index < sys.getPresetCount() ? null : null;
-}
+export function applyPreset(_sys: HousingSystem, _index: number): { equipped: number; missing: string[] } | null { return null; }
 
 /** Current equipment as a preset (`ctx.inventory.captureLoadout`), null while inventory has no capture yet. */
 export function captureLoadout(sys: HousingSystem): LoadoutPreset | null {

@@ -3,10 +3,11 @@
  *
  * 「Pour a medium in, put a strain on it, and it grows for that much real time into a culture product.」
  * It is the analyzer (`parts/Lab.ts`) and the grow station (`parts/Garden.ts`) merged — **the level opens slots, like the**
- * **analyzer** (`cultureSlotsForLevel`, Lv.1 = 1 slot … Lv.3 = 3 slots; slot numbers do not shift on an upgrade), and there are
+ * **analyzer** (the count per level is `cultureSlotsForLevel` in the contract; slot numbers do not shift on an upgrade), and there are
  * **two steps, like the greenhouse** (① `fillMedium` the medium → ② `insertStrain` the strain). A medium wears **once per**
- * **harvest** (`mediumUsesLeft`) and at 0 the slot empties completely. The culture time is fixed into `readyAt` **the moment it**
- * **goes in**: swapping the medium or raising the gardening skill afterwards never moves a running timer.
+ * **harvest** (`mediumUsesLeft`; what happens at 0 is the 2026-09-13 rule below, not the original one). The culture time is fixed
+ * into `readyAt` when the culture is **started** (2026-09-17, see below): swapping the medium or raising the gardening skill
+ * afterwards never moves a running timer.
  *
  * The pure judgements (culture time · progress · seconds left) are all in `../Rules.ts`; this file changes state.
  *
@@ -310,9 +311,11 @@ export function clearMedium(sys: HousingSystem, uid: string, slot: number, disca
 }
 
 /**
- * Put one strain (bag → stash, consumes 1) into a slot that already holds a medium. `readyAt` is fixed **here** from
- * `cultureHours × the medium's rarity × gardening`, so a later medium swap or skill change never moves a running timer.
- * 2026-09-13: in a slot with a scaffold it uses `scaffoldHours` (a strain with no scaffold output is refused), and the medium bonus · the socket speed apply as far as the durability ratio.
+ * Put one strain (bag → stash, consumes 1) into a slot that already holds a medium. **It does not start the culture**
+ * (2026-09-17): `startedAt` · `readyAt` are cleared here and fixed by `startCulture` after the screen's 1 s hold confirm,
+ * so the slot stands 「시작 대기」 and the strain can still be taken back out.
+ * 2026-09-13: in a slot with a scaffold the strain must have a scaffold output (one without is refused) — the hours it will
+ * be cultured for are read at the start, not here.
  * A retired strain is refused.
  */
 export function insertStrain(sys: HousingSystem, uid: string, slot: number, strainDefId: string): string | null {

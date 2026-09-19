@@ -1,8 +1,8 @@
 /* ────────────────────────────────────────────────────────────────────────────
  * src/housing/MiningRules.ts — **the pure rules of crypto mining** (2026-09-13, docs/DECISIONS.md 「2026-09-13 — 가구 접근 면 · 발전기 · 암호화폐 채굴」, user's decision).
  *
- * No ctx · no DOM. Used by `parts/Mining.ts` (runtime) and `ShipState.sanitize` (save sanitizing) alike — `Rules.ts` is
- * the placement-rules agent's file, so the mining rules were split out here. The cycle · progress formulas themselves
+ * No ctx · no DOM. Used by `parts/Mining.ts` (runtime) and `ShipState.sanitize` (save sanitizing) alike — `Rules.ts` holds
+ * the placement · facility · station rules, so the mining rules live in their own file rather than growing it. The cycle · progress formulas themselves
  * live in `shared/cryptoMarket` alongside the relay (`miningCycleMs` · `miningProgressAt`); only their **one cluster cell** form is here.
  *
  * **2026-09-16 (user's decision — the `연산 코어` compute core dropped)**: **processors** mount into a cluster directly and

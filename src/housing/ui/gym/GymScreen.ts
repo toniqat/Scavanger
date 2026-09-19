@@ -414,12 +414,12 @@ export class GymScreen {
   private ruleText(s: ScreenSpec): string {
     const kind = s.minigame;
     const reps = tunedCount(Math.round(GYM_PRESS_REPS), s.tuning?.countMul);
+    // 벤치프레스 reads the same in both modes — only 호흡 · 사이클 are worded for the screen they are played on (a game disc says 표식, the gym says 발)
+    if (kind === 'press') return `커서가 가운데 구역에 들어올 때 {JUMP} — 가운데일수록 좋습니다 (${reps}회)`;
     if (s.mode === 'game') {
-      if (kind === 'press') return `커서가 가운데 구역에 들어올 때 {JUMP} — 가운데일수록 좋습니다 (${reps}회)`;
       if (kind === 'breath') return '표식이 선에 닿을 때 {JUMP} — 「톡」 은 짧게, 「꾹」 은 꾹 눌렀다가 끝에서 뗍니다';
       return '표식에 맞춰 왼쪽 {LEFT} · 오른쪽 {RIGHT} 을 누릅니다';
     }
-    if (kind === 'press') return `커서가 가운데 구역에 들어올 때 {JUMP} — 가운데일수록 좋습니다 (${reps}회)`;
     if (kind === 'breath') return '표식이 선에 닿을 때 {JUMP} — 「후」 는 짧게, 「하」 는 꾹 눌렀다가 끝에서 뗍니다';
     return '박자에 맞춰 왼발 {LEFT} · 오른발 {RIGHT} 을 번갈아 밟습니다';
   }

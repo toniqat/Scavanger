@@ -40,17 +40,17 @@ export function storageEntry(sys: HousingSystem, defId: string): StoredFurniture
   let best: StoredFurniture | null = null;
   for (const s of sys.state.furnitureStorage) if (s.defId === defId && s.qty > 0 && (!best || s.level > best.level)) best = s;
   return best;
-  }
+}
 
 export function addToStorage(sys: HousingSystem, defId: string, level: number, qty = 1): void {
   const e = sys.state.furnitureStorage.find((s) => s.defId === defId && s.level === level);
   if (e) e.qty += qty; else sys.state.furnitureStorage.push({ defId, level, qty });
-  }
+}
 
 export function takeFromStorage(sys: HousingSystem, entry: StoredFurniture): void {
   entry.qty -= 1;
   if (entry.qty <= 0) sys.state.furnitureStorage.splice(sys.state.furnitureStorage.indexOf(entry), 1);
-  }
+}
 
 /* ── housing mode ──────────────────────────────────────────────────────── */
 /** Why housing mode cannot start for `room`; null = fine. */
@@ -62,7 +62,7 @@ export function housingModeBlock(sys: HousingSystem, room: number): string | nul
   // hub's `currentRoom` is null in the corridor / cockpit: the player has to stand inside the room being decorated
   if (ctx.hub.currentRoom !== room) return `방 ${room + 1} 안에서만 꾸밀 수 있습니다`;
   return null;
-  }
+}
 
 /** Why 함선 관리 cannot start at all (no room gate — that is what separates it from `enterHousingMode`). */
 export function shipManageBlock(sys: HousingSystem): string | null {
@@ -73,12 +73,12 @@ export function shipManageBlock(sys: HousingSystem): string | null {
   const tut = ctx.tutorial?.blockReason('shipManage') ?? null;
   if (tut) return tut;
   return null;
-  }
+}
 
 export function enterHousingMode(sys: HousingSystem, room: number): boolean {
   if (sys.housingModeBlock(room)) return false;
   return sys.enterMode(room);
-  }
+}
 
 /** Shared body of `enterHousingMode` / `openShipManage` — the gates differ, the state change does not. */
 export function enterMode(sys: HousingSystem, room: number): boolean {
@@ -91,7 +91,7 @@ export function enterMode(sys: HousingSystem, room: number): boolean {
   sys.ctx.bus.emit('housing:modeChanged', { active: true, room });
   sys.ctx.bus.emit('housing:selectionChanged', { defId: null, yaw: 0 });
   return true;
-  }
+}
 
 export function exitHousingMode(sys: HousingSystem): void {
   const wasManage = sys.shipManageMode;
@@ -104,7 +104,7 @@ export function exitHousingMode(sys: HousingSystem): void {
     sys.ctx.bus.emit('housing:modeChanged', { active: false, room: null });
   }
   if (wasManage) sys.ctx.bus.emit('housing:shipManageChanged', { active: false, room: null });
-  }
+}
 
 /* ── ship management (Phase 8, M in the ship) ─────────────────────────── */
 
@@ -155,7 +155,7 @@ export function openShipManage(sys: HousingSystem, room?: number): boolean {
   writeManageRoom(index);
   sys.ctx.bus.emit('housing:shipManageChanged', { active: true, room: index });
   return true;
-  }
+}
 
 export function setManageRoom(sys: HousingSystem, room: number): boolean {
   if (!sys.shipManageMode || !isPlaceRoom(sys.state, room)) return false;
@@ -168,12 +168,12 @@ export function setManageRoom(sys: HousingSystem, room: number): boolean {
   sys.ctx.bus.emit('housing:selectionChanged', { defId: null, yaw: 0 });
   sys.ctx.bus.emit('housing:shipManageChanged', { active: true, room });
   return true;
-  }
+}
 
 export function closeShipManage(sys: HousingSystem): void {
   if (!sys.shipManageMode) return;
   sys.exitHousingMode();
-  }
+}
 
 /** `null` clears the selection; a def that is not in furniture storage is ignored (selection unchanged). */
 export function selectFurniture(sys: HousingSystem, defId: string | null): void {
@@ -181,12 +181,12 @@ export function selectFurniture(sys: HousingSystem, defId: string | null): void 
   if (defId === sys.selectedFurniture) return;
   sys.selectedFurniture = defId;
   sys.ctx.bus.emit('housing:selectionChanged', { defId, yaw: sys.selectedYaw });
-  }
+}
 
 export function rotateSelection(sys: HousingSystem): void {
   sys.selectedYaw = ((sys.selectedYaw + 1) % 4) as 0 | 1 | 2 | 3;
   sys.ctx.bus.emit('housing:selectionChanged', { defId: sys.selectedFurniture, yaw: sys.selectedYaw });
-  }
+}
 
 /* ── furniture ─────────────────────────────────────────────────────────── */
 /**
@@ -209,7 +209,7 @@ export function getStored(sys: HousingSystem): readonly StoredFurniture[] { retu
 export function canPlace(sys: HousingSystem, room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3, ignoreUid?: string): boolean {
   const def = FURNITURE_DEF_MAP.get(defId);
   return !!def && canPlaceAt(sys.state, room, def, x, y, yaw, ignoreUid);
-  }
+}
 
 /**
  * The spot auto placement picks (2026-09-10). Rules · reasoning are all in `Rules.autoPlaceSpot`'s comment — rows fill
@@ -220,7 +220,7 @@ export function findFreeSpot(sys: HousingSystem, room: number, defId: string): F
   const def = FURNITURE_DEF_MAP.get(defId);
   if (!def) return null;
   return autoPlaceSpot(sys.state, room, def);
-  }
+}
 
 export function place(sys: HousingSystem, room: number, defId: string, x: number, y: number, yaw: 0 | 1 | 2 | 3): PlacedFurniture | null {
   if (sys.ctx.tutorial?.blockReason('furniture', defId)) return null;   // 2026-09-08: the tutorial order gate
@@ -236,7 +236,7 @@ export function place(sys: HousingSystem, room: number, defId: string, x: number
   sys.changed('place');
   if (sys.selectedFurniture === defId && !sys.storageEntry(defId)) sys.selectFurniture(null);
   return item;
-  }
+}
 
 export function move(sys: HousingSystem, uid: string, x: number, y: number, yaw: 0 | 1 | 2 | 3): boolean {
   const item = sys.getPlacedByUid(uid);
@@ -255,7 +255,7 @@ export function move(sys: HousingSystem, uid: string, x: number, y: number, yaw:
   sys.ctx.bus.emit('housing:furnitureMoved', { item });
   sys.changed('move');
   return true;
-  }
+}
 
 /**
  * Korean reason `recover(uid)` would refuse (null = go ahead). A stack blocks (the top layer leaves first), and a
@@ -271,7 +271,7 @@ export function recoverBlock(sys: HousingSystem, uid: string): string | null {
   // 2026-09-13 (crypto mining): a compute cluster with a processor in it gives `프로세서를 먼저 빼세요`
   // 2026-09-13 (video games): a TV with a console mounted is recovered only once that console fits the ship stash
   return recoverBlockReason(sys.state, item) ?? sys.booksBlock(uid) ?? sys.shelfBlock(uid) ?? clusterRecoverBlock(sys, uid) ?? tvConsoleRecoverBlock(sys, uid);
-  }
+}
 
 export function recover(sys: HousingSystem, uid: string): boolean {
   const i = sys.state.furniture.findIndex((f) => f.uid === uid);
@@ -307,7 +307,7 @@ export function recover(sys: HousingSystem, uid: string): boolean {
   }
   if (hadMedia > 0 && shelfMedium) sys.ctx.bus.emit('housing:shelfChanged', { uid, medium: shelfMedium, count: 0 });
   return true;
-  }
+}
 
 export function canCraftFurniture(sys: HousingSystem, defId: string): { ok: boolean; missing: CraftIngredient[] } {
   const def = FURNITURE_DEF_MAP.get(defId);
@@ -316,7 +316,7 @@ export function canCraftFurniture(sys: HousingSystem, defId: string): { ok: bool
   if (sys.ctx.tutorial?.blockReason('furniture', defId)) return { ok: false, missing: [] };
   const missing = missingIngredients(def.craft, sys.countDef);
   return { ok: missing.length === 0, missing };
-  }
+}
 
 export function craftFurniture(sys: HousingSystem, defId: string): boolean {
   const def = FURNITURE_DEF_MAP.get(defId);
@@ -325,13 +325,13 @@ export function craftFurniture(sys: HousingSystem, defId: string): boolean {
   sys.addToStorage(defId, 1);
   sys.changed('craft');
   return true;
-  }
+}
 
 /** Korean reason a placed piece cannot be upgraded (null = can). */
 export function furnitureUpgradeBlock(sys: HousingSystem, uid: string): string | null {
   const item = sys.getPlacedByUid(uid);
   return item ? furnitureUpgradeReason(sys.state, item, sys.countDef, sys.nameOf) : '설치되지 않은 가구입니다';
-  }
+}
 
 export function upgradeFurniture(sys: HousingSystem, uid: string): boolean {
   const item = sys.getPlacedByUid(uid);
@@ -348,7 +348,7 @@ export function upgradeFurniture(sys: HousingSystem, uid: string): boolean {
   // (`sys.changed` already fired above, so only the bus is raised here)
   if (isAnalyzerDefId(item.defId)) sys.ctx.bus.emit('housing:analysisChanged', { uid, ready: sys.readyAnalyses(uid) });
   return true;
-  }
+}
 
 /* ── B-13: placed-furniture upgrade · craft lock (2026-09-11) ────────────────
  * `upgradeFurniture` has existed since Phase 8 but nothing called it, so workbench Lv.2–3 never came within reach in
@@ -360,13 +360,13 @@ export function furnitureUpgradeCost(sys: HousingSystem, uid: string): CraftIngr
   if (!item) return null;
   const def = FURNITURE_DEF_MAP.get(item.defId);
   return def ? nextFurnitureCost(def, item.level) : null;
-  }
+}
 
 /** Whether at least one of that furniture is owned, placed or in furniture storage (B-13's 「이미 보유 중」 judgement). */
 function ownsFurniture(sys: HousingSystem, defId: string): boolean {
   return sys.state.furniture.some((f) => f.defId === defId)
     || sys.state.furnitureStorage.some((s) => s.defId === defId && s.qty > 0);
-  }
+}
 
 /**
  * The Korean reason this furniture cannot be **crafted** now, null = it can be (B-13, user's decision 2026-09-11).
@@ -391,7 +391,7 @@ export function furnitureCraftBlock(sys: HousingSystem, defId: string): string |
   const missing = missingIngredients(def.craft, sys.countDef);
   if (missing.length) return MISSING_MATERIALS_REASON;
   return null;
-  }
+}
 
 /**
  * 2026-09-12: facility level requirements blocking the **next upgrade** of placed furniture `uid` (unmet ones only —
@@ -401,4 +401,4 @@ export function furnitureCraftBlock(sys: HousingSystem, defId: string): string |
 export function furnitureUpgradeRequirements(sys: HousingSystem, uid: string): FacilityRequirement[] {
   const item = sys.getPlacedByUid(uid);
   return item ? furnitureUpgradeRequirementsFor(sys.state, item) : [];
-  }
+}

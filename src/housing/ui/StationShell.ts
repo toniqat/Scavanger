@@ -150,9 +150,10 @@ export function paintStationMeta(shell: StationShell, text: string): void {
 }
 
 /**
- * Grid cell edge for the station cards (px). Three cards must stand in one row at 1440 px: at 54 px the 함선 창고 card
- * alone is ~630 px wide, so below `STATION_WIDE_VIEWPORT` the grids use a 46 px cell (the 기업 거래 desk shrinks its
- * grids the same way, `TradeGridsViewOptions.cell`). Layout constant, not a balance number.
+ * Grid cell edge for the station cards (px). Since the 2026-09-15 3rd pass **two** cards stand in one row — the station
+ * card and the one inventory card (stash + bag) — and at the wide cell that inventory card alone is too wide for a
+ * 1440 px viewport, so below `STATION_WIDE_VIEWPORT` the grids drop to the narrow cell (the 기업 거래 desk shrinks its
+ * grids the same way, `TradeGridsViewOptions.cell`). Layout constants, not balance numbers.
  */
 const STATION_WIDE_VIEWPORT = 1760;
 export function stationGridCell(viewportWidth = window.innerWidth): number {
