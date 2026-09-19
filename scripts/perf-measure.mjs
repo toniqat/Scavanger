@@ -214,6 +214,21 @@ function installProbe() {
       }));
       const scene = { nodes: 0, pointLights: 0 };
       g.ctx.scene.traverse((o) => { scene.nodes++; if (o.isPointLight) scene.pointLights++; });
+      /*
+       * Draw-call census: who owns the calls. A mesh is drawn once per pass it appears in, so the scene pass counts
+       * every visible mesh and the shadow pass counts the `castShadow` ones — `renderer.info` gives the total but
+       * never says which group produced it. Attribution is by the top-level `scene.children` entry, which is how the
+       * systems park their content (one group per system / per body pool).
+       */
+      const census = [];
+      for (const child of g.ctx.scene.children) {
+        let meshes = 0, shadow = 0, hidden = 0;
+        child.traverseVisible((o) => { if (o.isMesh || o.isLine || o.isPoints || o.isSprite) { meshes++; if (o.castShadow) shadow++; } });
+        child.traverse((o) => { if ((o.isMesh || o.isLine || o.isPoints || o.isSprite) && !o.visible) hidden++; });
+        if (meshes + hidden === 0) continue;
+        census.push({ name: child.name || child.type, meshes, shadow, hidden });
+      }
+      census.sort((a, b) => b.meshes - a.meshes);
       return {
         frames: state.frames.length, seconds: secs, fps: state.frames.length / Math.max(0.001, secs),
         phase: g.ctx.phase,
@@ -224,7 +239,7 @@ function installProbe() {
         work: { p50: pct(w, 0.5), p95: pct(w, 0.95), max: w[w.length - 1] || 0, share: workTotal / Math.max(1, secs * 1000) },
         draw: { calls: Math.round(avg(state.calls)), callsMax: Math.max(0, ...state.calls), triangles: Math.round(avg(state.tris)) },
         heap: { gcDrops: state.heapDrops, allocMBPerS: state.heapAlloc / 1048576 / Math.max(0.001, secs), peakMB: state.heapPeak / 1048576 },
-        marks, jobs,
+        marks, jobs, census,
         spikes: state.spikes.map((sp) => ({
           frame: sp.frame, ms: sp.ms, delta: state.frames[sp.frame],
           top: Object.entries(sp.marks).filter(([k]) => k[0] !== 'x' && k[0] !== 'h').sort((a, b) => b[1] - a[1]).slice(0, 4)
@@ -254,6 +269,10 @@ function printScenario(r) {
   console.log(`  frames ${r.frames} in ${fmt(r.seconds)}s — ${fmt(r.fps)} fps`);
   console.log(`  frame ms  p50 ${fmt(r.frame.p50)} · p95 ${fmt(r.frame.p95)} · p99 ${fmt(r.frame.p99)} · max ${fmt(r.frame.max)} — >50ms ${r.frame.over50}, >33ms ${r.frame.over33}`);
   console.log(`  js/frame  p50 ${fmt(r.work.p50)} · p95 ${fmt(r.work.p95)} · max ${fmt(r.work.max)}  (systems ${fmt(r.systemsTotalPerFrame, 2)} + rest ${fmt(r.restPerFrame, 2)})`);
+  if (r.census) {
+    console.log(`  draw-call census (visible drawables per top-level group · +shadow pass):`);
+    for (const c of r.census.slice(0, 12)) console.log(`    ${String(c.name).padEnd(24)} ${String(c.meshes).padStart(5)} visible · ${String(c.shadow).padStart(4)} cast shadow · ${c.hidden} parked`);
+  }
   console.log(`  draw ${r.draw.calls} calls (max ${r.draw.callsMax}) · ${(r.draw.triangles / 1000).toFixed(0)}k tris · scene ${r.scene.nodes} nodes · ${r.scene.pointLights} point lights`);
   console.log(`  bodies ${r.bodies.enemies} enemies (${r.bodies.eggs} eggs) · ${r.bodies.allies} androids · heap ${fmt(r.heap.allocMBPerS)} MB/s, ${r.heap.gcDrops} gc drops, peak ${fmt(r.heap.peakMB)} MB`);
   for (const m of r.marks.filter((x) => x.perFrame >= 0.02).slice(0, 14)) {
