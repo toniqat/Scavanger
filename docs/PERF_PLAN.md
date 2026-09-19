@@ -1,10 +1,18 @@
 # Performance plan — frame hitches with many bodies
 
-**Status:** **Phase 0 measured (2026-09-19) · Phases 1 · 2 · A built and re-measured (2026-09-20).** Phase A is the
-first change in this plan that moved `x:rendererRender` (7.29–7.75 → 6.75–6.77 ms, twice per side) — by triangles,
-exactly as the A/B below predicted. Its own target of 「below 6.0 ms」 turned out to be unreachable with shadows on at
-all (the whole shadow pass is 1.07 ms and its floor is 5.758), and what is left of the render block belongs to the
-**world**, not to bodies. **Phase B is next.** The 2026-09-20
+**Status:** **Phase 0 measured (2026-09-19) · Phases 1 · 2 · A · A2 built (2026-09-20).**
+
+> ### ⚠ Read this before any number below: `ms` in this plan is not evidence
+> On 2026-09-20 the **same committed build** measured `x:rendererRender` **6.842 ms and 5.112 ms** back to back
+> (js/frame p50 9.6 vs 7.6). A 1.7 ms spread on identical code is **larger than every difference this plan has
+> credited to a change**, including 「bloom ≈ 0.6 ms」, 「the shadow pass ≈ 0.75 ms」 and Phase A's 「0.6 ms gained」.
+> Two runs agreeing closely is not evidence either — Phase A's after-pair agreed to 0.012 ms by luck.
+> **Judge a change by the counters that repeat: draw calls, scene nodes, triangles, caster counts.** A `ms` figure
+> here is a hint about where to look, never a verdict, and a single `--display` split is one sample of a noisy
+> quantity. If the render block has to be judged, it needs many runs (or a different method) first.
+
+Phases A and A2 cut what is drawn; neither has a demonstrated `ms` effect on this machine, and Phase A's own
+「below 6.0 ms」 target was dropped as unreachable with shadows on. **Phase B is next.** The 2026-09-20
 A/B (same machine state, back to back, `--only s2` twice per side) **refutes the central finding of Phase 0**: the
 work removed 31 % of the draw calls and 36 % of the scene nodes and `x:rendererRender` did not move. The render
 block is not paid per draw call on this machine — it is the GPU. The ranking below is rewritten around that.
@@ -13,31 +21,31 @@ block is not paid per draw call on this machine — it is the GPU. The ranking b
 human players, or the 3 android squadmates — and (b) when many bugs are alive, worst of all at the moment a new
 group spawns.
 
-**One-line diagnosis, after two rounds of measuring:** **a raid is GPU-bound on this machine, and
-`x:rendererRender` is mostly the CPU waiting for it.** Of its ~7.2 ms, bloom is ~0.6 ms and the shadow pass ~0.75 ms;
-the rest tracks **triangles and pixels**, not draw calls or scene nodes. Nothing in S1–S4 sustains a drop on an
-RTX 4080 SUPER — every scenario sits on the 60 Hz vsync — so what the user feels is individual frames, and the
-spike counts move more between two identical runs than between two builds.
+**One-line diagnosis, after three rounds of measuring:** **a raid is GPU-bound on this machine, `x:rendererRender`
+is mostly the CPU waiting for it, and that wait is too noisy to attribute** (±1.7 ms on one build). What repeats is
+that the render block does **not** track draw calls or scene nodes, so the work is triangles and pixels. Nothing in
+S1–S4 sustains a drop on an RTX 4080 SUPER — every scenario sits on the 60 Hz vsync — so what the user feels is
+individual frames, and those are what Phase B goes after.
 
 ---
 
 ## Next session starts here
 
-1. **Read [What the 2026-09-20 A/B says](#what-the-2026-09-20-ab-says)** and then
-   [Phase A's result](#result--measured-twice-per-side-plus-the---display-split) before planning anything — between
-   them they struck 「draw calls」 and 「bloom」 as costs and named the world as the owner of what is left.
+1. **Read the banner above, then [What the 2026-09-20 A/B says](#what-the-2026-09-20-ab-says)** before planning
+   anything — between them they strike 「draw calls」 as a cost and strike every `ms` figure in this file as a
+   verdict.
 2. **Phase B** ([the one-off ≥ 10 ms calls](#phase-b--the-one-off--10-ms-calls--enemies-audio-allies-ui)) is the next
-   phase, and it needs no decision from the user — it starts with a DevTools trace of one spike frame. The spikes are
-   still there after Phase A: a **19.4 ms `u:enemies`** and a **4.4 ms `l:hud`** show up in the after-runs.
+   phase, and it needs no decision from the user — it starts with a DevTools trace of one spike frame. It also suits
+   this machine: a one-off **19.4 ms `u:enemies`** in a 16.7 ms frame is **above** the noise floor the banner
+   describes, where a 0.6 ms average is not.
 3. **Take a fresh `before`** — the logs are git-ignored and the tree moves:
    `npm run dev`, then `node scripts/perf-measure.mjs --only s2 --label before-phaseB`. **Run it twice.** One run
    is not a measurement: on 2026-09-20 two runs of one build gave 5 and 22 frames over 33 ms.
 4. Use `--display bloom=0`, `--display bloom=0,shadows=0` to split the render block whenever a change is supposed to
    touch it. That split is what turned the ranking over — and in Phase A it is what showed the 6.0 ms target to be
    arithmetically impossible.
-5. **If the render block is picked up again**, it is a **world** question now (178 shadow casters · shadow map size ·
-   resolution scale) and needs the decision in
-   [Still open after Phase A](#still-open-after-phase-a) put to the user first.
+5. **If the render block is picked up again**, fix the measurement first (see the banner), then look at the terrain's
+   346k triangles and at resolution scale — [Still open after Phase A2](#still-open-after-phase-a2).
 
 ---
 
@@ -160,7 +168,7 @@ Same machine state, back to back, `--only s2`, two runs per side (`git stash pus
   −213k triangles). With both off, the spike count fell from 22–24 to **4** — the clearest signal in the table.
   *(Re-split after Phase A: the shadow pass measured **1.07 ms** and **bloom measured free** — 6.83 ms with it off vs
   6.75–6.77 with it on. Of these two numbers only the shadow pass reproduced. The spike-count signal did **not**
-  reproduce either — see [Phase A's result](#result--measured-twice-per-side-plus-the---display-split).)*
+  reproduce either — see [Phase A's result](#result--what-repeats-and-the-ms-claim-that-was-retracted).)*
 - **Total honest gain of Phase 1 + 2: ~0.3 ms of js/frame** (10.45 → 10.15, consistent across both pairs) and a
   third of the scene gone. Worth keeping, and worth much more on a weaker CPU — but it is not what the user feels.
 - **Two identical builds differ by more than two different builds do.** before: 13 · 14 frames > 33 ms;
@@ -221,7 +229,7 @@ Built, from the user's answers (recorded in `docs/DECISIONS.md`):
 3. **Bloom's default stays on** (user's decision). No code — `설정 › 화면 설정 › 화면 효과` and the perf guard
    already cover it.
 
-#### Result — measured twice per side, plus the `--display` split
+#### Result — what repeats, and the `ms` claim that was retracted
 
 | Run | Draw calls | Triangles | Scene nodes | `x:rendererRender` | js/frame p50 | frames > 33 ms |
 |---|---|---|---|---|---|---|
@@ -232,29 +240,70 @@ Built, from the user's answers (recorded in `docs/DECISIONS.md`):
 | after, `--display bloom=0` | 1 301 | 940k | 3 806 | 6.828 | 9.6 | 15 |
 | after, `--display bloom=0,shadows=0` | 1 164 | **747k** | 3 817 | **5.758** | 8.7 | 5 |
 
-- **`x:rendererRender` 7.29–7.75 → 6.75–6.77 ms**, and the two after-runs agree to 0.012 ms where the two
-  before-runs differed by 0.46. **js/frame p50 10.2–10.9 → 9.7–9.9.** For 6.7 % of the triangles and 2 % of the draw
-  calls, that is a real ~0.6 ms — and it is **the first thing in this plan to move the render block at all**,
-  which confirms NEW-1: triangles, not draw calls.
-- **The `> 33 ms` count still proves nothing.** after 1 = 5, after 2 = 22 on the same build. Read the table's
-  deterministic columns only, as `How to work this plan` §3 says.
-- **Bloom is not 0.6 ms — it is free here.** 6.83 with it off vs 6.75–6.77 with it on. The 2026-09-20 figure does not
-  reproduce; with the frame on vsync, `renderer.render` is entered ~15× instead of once and costs the same in total.
-- **The whole shadow pass is ≈ 1.07 ms** (6.83 → 5.76), −137 draws and −193k triangles. Our humanoid cut took
-  2 draws off each of 9 bodies; the pass is owned by the **world's 178 casters** and the hellpod's 25, not by bodies.
-- **The 「below 6.0 ms」 target is out of reach as stated, and the target was wrong — not the work.** Deleting the
-  *entire* shadow pass lands at 5.758. So with shadows on, no body-side change can go under 6.0: the remainder is the
-  world's own triangles and the pixels they cover. That is the next lever and it needs a decision that was not asked
-  for (world shadow casters · shadow map size · resolution scale) — see [Still open after Phase A](#still-open-after-phase-a).
+**⚠ The `ms` column of this table was read as a result and it was not one.** What was written here first —
+「`x:rendererRender` 7.29–7.75 → 6.75–6.77, a real ~0.6 ms, and the after-pair agrees to 0.012 ms」 — is
+**retracted**: the same build later measured 6.842 and 5.112 (see the banner at the top). Phase A's honest result is
+the deterministic half of the table.
 
-#### Still open after Phase A
+- **Triangles 997–998k → 930–932k (−6.7 %)**, draw calls −27, humanoid shadow draws 9 → 7 each. Those repeat.
+- **No demonstrated `ms` effect**, in either direction. The bug bodies of S2 are ~180k of its ~1.0 M triangles, so a
+  6.7 % cut was never going to clear this machine's noise floor.
+- **The `> 33 ms` count proves nothing either.** after 1 = 5, after 2 = 22 on the same build.
+- **「Bloom ≈ 0.6 ms」 and 「the shadow pass ≈ 0.75 ms」 are one sample each.** The re-split put bloom at ~0 and the
+  shadow pass at 1.07 — the two disagree by more than either figure, which is the noise floor talking. What the
+  shadow split *does* establish, because it is a count, is that turning the pass off removes 137 draws and 193k
+  triangles.
+- **The 「below 6.0 ms」 target is dropped, not missed.** It was set from a `ms` reading and is meaningless against a
+  ±1.7 ms spread. The question it stood for — what is left of the render block — is a **world** question
+  (375 visible drawables, 178 casters, 678k of the scene's triangles), which is what Phase A2 went after.
 
-- **The world owns the shadow pass**: 375 visible drawables, **178 casters**, plus `Hellpod` 25 visible · 25 casting.
-  A terrain/prop caster rule (the same shape as the body rule) and the shadow map size / cascade range in `core/` are
-  untouched. The user chose **not** to shrink the map (it softens every shadow in the raid); the caster rule was never
-  put to them.
-- **Pixels.** Nothing in this phase touched resolution scale, and `--display scale=0.75` has never been measured
-  against the other two.
+### Phase A2 — the world's share · done 2026-09-20 · `world`, `core`, `data`
+
+Measured first, per top-level world group in S2 (the census is in the commit; re-take it with a scene walk):
+the world is **678k of the scene's 930k visible triangles**, and its shadow casters are 158 meshes / **158k
+triangles** — of which the **four boulder `InstancedMesh` are 92k (58 %)**, because one variant spans the map with
+`frustumCulled = false`, so three.js never dropped a single instance from the shadow pass. Terrain (346k) and
+pebbles (137k) already cast nothing.
+
+Built, from the user's answers (`docs/DECISIONS.md`):
+
+1. **A scattered prop casts only within `PROP_SHADOW_DIST_M` (120 m).** Each casting variant becomes a **near** mesh
+   (`castShadow`) and a **far** one, re-split when the eye moves `PROP_SHADOW_REPACK_M` (8 m) —
+   `Props.repackShadowLod`. Both halves are sized to the real instance count and `DynamicDrawUsage`.
+   `SUN_SHADOW_HALF_M` moved to csv so `core/Atmosphere` and `world/Props` read one number.
+2. **Waist-high things stop casting**: crates, structure containers, rail containers, debris props (they still
+   receive — that is what sits them on the ground).
+3. **Pebbles drop to `PROP_PEBBLE_DETAIL` = 0** (`IcosahedronGeometry` 80 → 20 triangles each).
+
+#### Result — the counters, because the `ms` cannot judge it (see the banner)
+
+| | before (Phase A) | after (Phase A2) |
+|---|---|---|
+| Scene triangles (S2) | 930–932k | **727–739k (−22 %)** |
+| Prop instances casting a shadow | **754** (509 boulder · 111 tree · 69 crystal · 37 spire · 28 debris) | **51** (35 · 7 · 4 · 5 · 0) |
+| Prop instances **drawn** (colour pass) | 509 · 111 · 69 · 37 · 28 · 2 871 grass · 1 712 pebble | **identical, every kind** |
+| Draw calls | 1 285–1 286 | 1 328–1 336 |
+| `x:rendererRender` | 6.75–6.77 | 6.92–7.59 |
+
+- **The colour pass is provably unchanged**: the per-kind instance totals are identical before and after, which is
+  what the near/far split is designed to guarantee, and a side-by-side screenshot of the same seed and spawn is
+  indistinguishable.
+- **The `ms` column is not a regression.** It was read as one, chased to the instance buffers, and only then tested
+  properly: the same committed build measured 6.842 and 5.112. See the banner at the top of this file — this is the
+  episode that produced it.
+- **What is knowingly lost:** on a low-sun planet (`sunElevation` 0.25) a big boulder past 120 m loses a long shadow
+  that could have reached into view, and a crate no longer casts its own smudge. Both were the user's call.
+
+#### Still open after Phase A2
+
+- **Terrain is the single biggest owner: 346k visible triangles**, 37 % of the scene. Untouched because collision,
+  `getSurfaceY` and the silhouette all hang off that mesh — not a small change.
+- **Boulders are still 92k visible triangles** (the user kept their silhouette: they are cover, and their colliders
+  are convex hulls of the drawn mesh).
+- **Pixels.** Resolution scale is untouched and `--display scale=0.75` has never been run.
+- **The `ms` methodology itself.** Until `x:rendererRender` can be measured with a spread below what a phase
+  changes, no phase after this one can claim a frame-time result. That is the first thing to fix if the render
+  block is picked up again.
 
 ### Phase B — the one-off ≥ 10 ms calls · `enemies`, `audio`, `allies`, `ui`
 
@@ -312,8 +361,9 @@ driver**. The draw-call cut is built and kept for weaker machines; **do not spen
    (shrinking them softens every shadow in the raid).
 3. **Bloom's default** → **stays on**; the perf guard already turns it off under load. It then measured free anyway.
 
-**Not asked, and now the next question:** the world's 178 shadow casters, and resolution scale. See
-[Still open after Phase A](#still-open-after-phase-a).
+Asked and answered the same day, for Phase A2: **the world's shadow casters** → distance LOD **and** small objects;
+**pebble geometry** → lowered; **boulder geometry and the terrain** → left alone. See
+[Still open after Phase A2](#still-open-after-phase-a2) for what that leaves.
 
 ---
 

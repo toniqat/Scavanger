@@ -180,15 +180,18 @@ export class ContainerSet {
       root.rotation.y = -spec.yaw;
       root.name = spec.id;
 
+      // 2026-09-20 (`docs/PERF_PLAN.md` Phase A2, user's decision 「작은 물체도 그림자 끄기」): a loot box
+      // is waist-high and stands on open ground or a lit floor, so its own shadow reads as a smudge under it —
+      // 138 casters in S2 for 12k triangles. It still **receives** shadow, which is what makes it sit on the ground.
       const body = new THREE.Mesh(bodies[spec.style], bodyMat);
-      body.castShadow = true; body.receiveShadow = true;
+      body.castShadow = false; body.receiveShadow = true;
       body.layers.enable(Layers.INTERACTABLE);
       root.add(body);
 
       const door = new THREE.Group();
       door.position.set(-STYLE_R[spec.style] * 0.9, 0, STYLE_R[spec.style] * 0.62);
       const doorMesh = new THREE.Mesh(doors[spec.style], bodyMat);
-      doorMesh.castShadow = true;
+      doorMesh.castShadow = false;
       door.add(doorMesh);
       root.add(door);
 

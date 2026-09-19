@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Layers } from '@/shared';
+import { Layers, PROP_PEBBLE_DETAIL, PROP_SHADOW_DIST_M, PROP_SHADOW_REPACK_M } from '@/shared';
 import type { Random } from '@/shared';
 import { type BuildCtx, composeMatrix, displace, isSpotFree, merge, paint, paintGradient, scratch, xform } from './build';
 import { HALF } from './Terrain';
@@ -7,11 +7,32 @@ import { smoothstep } from './noise';
 import { propHullOf } from './propHull';
 
 interface Part { geo: THREE.BufferGeometry; mat: THREE.Material; castShadow: boolean; receiveShadow: boolean }
+/**
+ * 2026-09-20 (`docs/PERF_PLAN.md` Phase A2, user's decision 「먼 바위만 그림자 끄기」): the near / far split of a
+ * casting variant's instances. One variant is **one `InstancedMesh` spanning the map** (`frustumCulled = false`,
+ * because its bounds are the map), so three.js never dropped a single instance from the shadow pass — the four
+ * boulder meshes alone were 92k of S2's 158k world shadow triangles. `near` holds the instances within
+ * `PROP_SHADOW_DIST_M` and is the only one with `castShadow`; `far` holds the rest. Every instance is in exactly
+ * one of them, so **the colour pass draws exactly what it drew before** — only distant shadows change.
+ */
+interface ShadowLod {
+  /** `castShadow` meshes, one per part, sharing the part's geometry and material. */
+  near: THREE.InstancedMesh[];
+  /** Every instance's matrix · colour · (x, z), in build order — the source both sets are packed from. */
+  mat: Float32Array;
+  col: Float32Array;
+  pos: Float32Array;
+  lastX: number;
+  lastZ: number;
+  packed: boolean;
+}
 interface Variant {
   parts: Part[];
+  /** The **far** meshes once a `lod` exists (they hold every instance until the first pack). */
   meshes: THREE.InstancedMesh[];
   count: number;
   max: number;
+  lod: ShadowLod | null;
 }
 
 interface ScatterOpts {
@@ -283,9 +304,9 @@ export class Props {
     })();
     const panelGeo = paint(new THREE.BoxGeometry(1.7, 0.08, 1.1), new THREE.Color(0x585c60), 0.1, rng);
     const debrisVars = [
-      this.variant([{ geo: crateGeo, mat: debrisMat, castShadow: true, receiveShadow: true }], 70, 'debris'),
-      this.variant([{ geo: podGeo, mat: debrisMat, castShadow: true, receiveShadow: true }], 50, 'debris'),
-      this.variant([{ geo: panelGeo, mat: debrisMat, castShadow: true, receiveShadow: true }], 80, 'debris'),
+      this.variant([{ geo: crateGeo, mat: debrisMat, castShadow: false, receiveShadow: true }], 70, 'debris'),
+      this.variant([{ geo: podGeo, mat: debrisMat, castShadow: false, receiveShadow: true }], 50, 'debris'),
+      this.variant([{ geo: panelGeo, mat: debrisMat, castShadow: false, receiveShadow: true }], 80, 'debris'),
     ];
     // 2026-09-09: measured hulls. The crate / pod are low enough that `PROP_STEP_UP_MAX` lets you stand on them,
     // so the cylinder top has to be the **lid**, not a guessed `s`. The crate is randomly yawed, so its XZ radius
@@ -313,7 +334,7 @@ export class Props {
 
     /* Pebbles — small ground rocks, decoration only */
     const pebbles = [0, 1].map((k) => {
-      const g = new THREE.IcosahedronGeometry(1, 1);
+      const g = new THREE.IcosahedronGeometry(1, PROP_PEBBLE_DETAIL);
       displace(g, ctx.noise, 0.3, 1.6, 40 + k * 9);
       xform(g, undefined, undefined, { x: 1, y: 0.6, z: 0.85 });
       paintGradient(g, b.boulder.clone().multiplyScalar(0.75), k ? b.boulder : b.boulder2);
@@ -340,7 +361,7 @@ export class Props {
   private mat<T extends THREE.Material>(m: T): T { this.materials.push(m); return m; }
 
   private variant(parts: Part[], max: number, name = 'prop'): Variant {
-    const v: Variant = { parts, meshes: [], count: 0, max };
+    const v: Variant = { parts, meshes: [], count: 0, max, lod: null };
     for (const p of parts) {
       const im = new THREE.InstancedMesh(p.geo, p.mat, max);
       im.name = `prop_${name}`;
@@ -373,6 +394,88 @@ export class Props {
         if (im.instanceColor) im.instanceColor.needsUpdate = true;
         if (v.count > 0) this.group.add(im);
       }
+      this.buildShadowLod(v);
+    }
+  }
+
+  /**
+   * Give a casting variant its near / far pair (see `ShadowLod`). The source arrays are copied off the meshes the
+   * scatter callbacks just filled, so nothing above this line has to know the split exists. The far meshes keep
+   * every instance until `repackShadowLod` first runs, which is one frame at most and never a frame the player sees
+   * (the raid entry hold is still up).
+   */
+  private buildShadowLod(v: Variant): void {
+    if (v.count === 0 || !v.parts.some((p) => p.castShadow)) return;
+    const src = v.meshes[0];
+    const mat = new Float32Array(v.count * 16);
+    const col = new Float32Array(v.count * 3);
+    const pos = new Float32Array(v.count * 2);
+    mat.set(src.instanceMatrix.array.subarray(0, v.count * 16));
+    if (src.instanceColor) col.set(src.instanceColor.array.subarray(0, v.count * 3));
+    else col.fill(1);
+    for (let i = 0; i < v.count; i++) { pos[i * 2] = mat[i * 16 + 12]; pos[i * 2 + 1] = mat[i * 16 + 14]; }
+    const near: THREE.InstancedMesh[] = [];
+    const far: THREE.InstancedMesh[] = [];
+    v.meshes.forEach((built, k) => {
+      const p = v.parts[k];
+      /**
+       * Both halves are rebuilt at **exactly `v.count`** instances and marked `DynamicDrawUsage`. The scatter
+       * allocates for the worst case (`max` = 700 boulders where a map has ~76), and a repack sets `needsUpdate`,
+       * which uploads the **whole** attribute: keeping the oversized `StaticDrawUsage` buffer measured
+       * `x:rendererRender` 6.92–7.42 ms against 6.75–6.77 before the split, i.e. the driver stalling on a static
+       * buffer being rewritten — the triangles were already down 22 %. (2026-09-20, measured twice per side.)
+       */
+      const make = (cast: boolean): THREE.InstancedMesh => {
+        const im = new THREE.InstancedMesh(p.geo, p.mat, v.count);
+        im.name = built.name;          // `smoke-props-collision` collects every `prop_*` mesh, so both halves count
+        im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        im.castShadow = cast;          // the near half is the only one that casts from here on
+        im.receiveShadow = p.receiveShadow;
+        im.layers.enable(Layers.PROP);
+        im.frustumCulled = false;
+        scratch.c.setScalar(1);
+        im.setColorAt(0, scratch.c);   // allocates `instanceColor` — without it a half loses its brightness
+        im.instanceColor?.setUsage(THREE.DynamicDrawUsage);
+        im.count = 0;
+        this.group.add(im);
+        return im;
+      };
+      near.push(make(p.castShadow));
+      far.push(make(false));
+      this.group.remove(built);
+      built.dispose();
+    });
+    v.meshes = far;
+    v.lod = { near, mat, col, pos, lastX: Infinity, lastZ: Infinity, packed: false };
+    this.repackShadowLod(0, 0);        // a first split so no frame ever draws an empty variant
+  }
+
+  /**
+   * Re-split every casting variant around `x, z` — the camera. One pass over the scattered casters (~500 instances
+   * on a raid map), and only once the camera has moved `PROP_SHADOW_REPACK_M`.
+   */
+  private repackShadowLod(x: number, z: number): void {
+    const r2 = PROP_SHADOW_DIST_M * PROP_SHADOW_DIST_M;
+    const moved2 = PROP_SHADOW_REPACK_M * PROP_SHADOW_REPACK_M;
+    for (const v of this.variants) {
+      const lod = v.lod;
+      if (!lod) continue;
+      const mx = x - lod.lastX, mz = z - lod.lastZ;
+      if (lod.packed && mx * mx + mz * mz < moved2) continue;
+      lod.lastX = x; lod.lastZ = z; lod.packed = true;
+      let n = 0, f = 0;
+      for (let i = 0; i < v.count; i++) {
+        const dx = lod.pos[i * 2] - x, dz = lod.pos[i * 2 + 1] - z;
+        const isNear = dx * dx + dz * dz <= r2;
+        const dst = isNear ? lod.near : v.meshes;
+        const slot = isNear ? n++ : f++;
+        for (const im of dst) {
+          (im.instanceMatrix.array as Float32Array).set(lod.mat.subarray(i * 16, i * 16 + 16), slot * 16);
+          if (im.instanceColor) (im.instanceColor.array as Float32Array).set(lod.col.subarray(i * 3, i * 3 + 3), slot * 3);
+        }
+      }
+      for (const im of lod.near) { im.count = n; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
+      for (const im of v.meshes) { im.count = f; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; }
     }
   }
 
@@ -453,14 +556,17 @@ export class Props {
 
   /* ── runtime ────────────────────────────────────────────────────────── */
 
-  update(time: number): void {
+  update(time: number, camX: number, camZ: number): void {
     this.timeUniform.value = time;
     if (this.crystalMat) this.crystalMat.emissiveIntensity = 0.75 + 0.35 * Math.sin(time * 1.6) + 0.15 * Math.sin(time * 4.3);
+    this.repackShadowLod(camX, camZ);
   }
 
   dispose(): void {
     for (const v of this.variants) {
       for (const im of v.meshes) { this.group.remove(im); im.dispose(); }
+      for (const im of v.lod?.near ?? []) { this.group.remove(im); im.dispose(); }
+      v.lod = null;
       for (const p of v.parts) p.geo.dispose();
     }
     this.variants.length = 0;

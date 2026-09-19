@@ -149,15 +149,18 @@ export class Crates {
       root.rotation.x = -n.z * 0.6; root.rotation.z = n.x * 0.6;
       root.name = def.id;
 
+      // 2026-09-20 (`docs/PERF_PLAN.md` Phase A2, user's decision 「작은 물체도 그림자 끄기」): a loot box
+      // is waist-high and stands on open ground or a lit floor, so its own shadow reads as a smudge under it —
+      // 138 casters in S2 for 12k triangles. It still **receives** shadow, which is what makes it sit on the ground.
       const body = new THREE.Mesh(bodyGeos.get(p.tier)!, bodyMat);
-      body.castShadow = true; body.receiveShadow = true;
+      body.castShadow = false; body.receiveShadow = true;
       body.layers.enable(Layers.INTERACTABLE);
       root.add(body);
 
       const lid = new THREE.Group();
       lid.position.set(0, CRATE_H, -CRATE_D / 2);
       const lidMesh = new THREE.Mesh(lidGeos.get(p.tier)!, bodyMat);
-      lidMesh.castShadow = true;
+      lidMesh.castShadow = false;
       lid.add(lidMesh);
       root.add(lid);
 

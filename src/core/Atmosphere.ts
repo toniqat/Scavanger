@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PlanetDef } from '@/shared';
 import { Sky, SKY_PALETTES, type SkyPalette } from './Sky';
-import { Random } from '@/shared';
+import { Random, SUN_SHADOW_HALF_M } from '@/shared';
 
 /**
  * Sun (with player-following shadow frustum), hemisphere fill, exponential fog and the sky dome.
@@ -39,7 +39,11 @@ export class Atmosphere {
     sc.mapSize.set(2048, 2048);
     sc.camera.near = 1;
     sc.camera.far = 320;
-    sc.camera.left = -60; sc.camera.right = 60; sc.camera.top = 60; sc.camera.bottom = -60;
+    // The box follows the player (`update`). Its size is the range shadows are **sharp** over, not the map:
+    // widening it spreads the same 2048 map thinner and softens every shadow in the raid. `world/Props` reads
+    // the same constant so a prop inside this box is never put in its far, non-casting set.
+    const half = SUN_SHADOW_HALF_M;
+    sc.camera.left = -half; sc.camera.right = half; sc.camera.top = half; sc.camera.bottom = -half;
     sc.bias = -0.0006;
     sc.normalBias = 0.03;
     sc.radius = 2;

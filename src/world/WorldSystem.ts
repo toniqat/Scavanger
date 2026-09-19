@@ -226,12 +226,15 @@ export class WorldSystem implements GameSystem, WorldRef {
     const t = ctx.time;
     if (this.mode === 'training') { this.arena.update(dt, t); return; }
     if (this.mode === 'tutorial') { this.tutorialWorld.update(dt); return; }
-    this.props.update(t);
+    // One eye position for both: `props` splits its shadow casters around it (`PROP_SHADOW_DIST_M`) and the light
+    // pool picks the nearest rooms by it. `eyeTmp` is written only by `eyeFor`, so the two calls can share it.
+    const eye = this.eyeFor(ctx);
+    this.props.update(t, eye.x, eye.z);
     this.nests.update(t);
     this.pads.update(t);
     this.outposts.update(t);
     this.crates.update(dt, t);
-    this.structures.update(dt, t, this.eyeFor(ctx));
+    this.structures.update(dt, t, eye);
     this.rails.update(dt, t);
     this.roverSys.update(dt, t);
     this.gather.update(dt, t);

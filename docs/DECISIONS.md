@@ -1016,3 +1016,40 @@ everything else was prose brought back in line with code that already existed.
   *entire* shadow pass lands at 5.758 ms, so no body-side change can go under 6.0 with shadows on. What is left of the
   render block is the world's own triangles and pixels — a separate decision, written up in `docs/PERF_PLAN.md`
   under 「Still open after Phase A」 rather than guessed at here.
+
+## 2026-09-20 — 월드 렌더 비용 · Cutting the world's render cost (PERF_PLAN Phase A2)
+
+Measured first: in S2 the world is 678k of the scene's 930k visible triangles, and its shadow casters are 158 meshes
+/ 158k triangles — of which the **four boulder `InstancedMesh` are 92k (58 %)**, because a variant spans the map and
+`frustumCulled = false`, so three.js never dropped one instance from the shadow pass.
+
+- **먼 프롭은 그림자를 드리우지 않는다 (거리 LOD).** A casting variant is split into a near mesh (`castShadow`) and
+  a far one around the eye, `PROP_SHADOW_DIST_M` = 120 m, re-split every `PROP_SHADOW_REPACK_M` = 8 m of movement.
+  Both halves together draw every prop exactly once, so the colour pass is untouched; what is lost is a big
+  boulder's long shadow past that distance on a low-sun planet. *Rejected*: lowering boulder geometry (cheaper and
+  simpler, but boulders are cover — the user kept their silhouette); shrinking the shadow map or its cascade
+  (softens every shadow in the raid); spatial buckets with real bounds so three.js culls them itself (correct, but
+  it turns ~20 prop meshes into hundreds).
+- **작은 물체는 그림자를 드리우지 않는다.** Crates, structure containers, rail containers and debris props —
+  138 casters for 12k triangles. They still **receive** shadow, which is what sits them on the ground. The user
+  accepted the loss knowingly: a crate's own shadow is a cue for reading cover, and it read as a smudge underneath.
+- **자갈만 낮춘다** (`PROP_PEBBLE_DETAIL` 0: 80 → 20 triangles each). Pebbles are 0.15–0.55 m ground decoration that
+  never cast, and they were **137k triangles — 15 % of the whole scene**, second only to the terrain.
+  *Rejected*: boulders as well (the user kept them — cover silhouette, and their colliders are convex hulls of the
+  drawn mesh); the terrain's 346k (the single biggest owner, but collision, `getSurfaceY` and the silhouette all
+  hang off it — not a small change).
+- **`SUN_SHADOW_HALF_M` moved into csv** so `core/Atmosphere` and `world/Props` read one number instead of the
+  shadow box being a literal in core and an assumption in world.
+- **Both halves are sized to the real instance count and `DynamicDrawUsage`.** The scatter allocates for the worst
+  case (700 slots for ~76 boulders) and `needsUpdate` uploads the **whole** attribute, so a repack was re-uploading
+  ~180 KB of mostly-unused static buffer. This was chased as the cause of an apparent regression and is **not**
+  one — see the next bullet — but it is kept because a buffer that gets rewritten should not be `StaticDrawUsage`
+  and should not be nine times larger than its contents.
+- **`x:rendererRender` is no longer trusted as a verdict, and two agreeing runs are not evidence.** The same
+  committed Phase A build measured **6.842 ms and 5.112 ms** back to back (js/frame p50 9.6 vs 7.6) — a 1.7 ms
+  spread on identical code, larger than any difference this plan has attributed to a change. So Phase A's
+  「0.6 ms gained」 and Phase A2's 「0.6 ms lost」 are both **inside the noise**, and neither was real. Phase A2 is
+  judged on what repeats instead: triangles 930k → 730k (−22 %), prop shadow casters 754 → 51 instances, and the
+  instance totals per prop kind identical before and after (509 boulders · 1 712 pebbles · …), which is the proof
+  that the colour pass is untouched. *Rejected*: tuning the harness until the ms looks stable (the machine, not the
+  harness, is what moves); calling A2 a regression and reverting it (the deterministic counters all improved).

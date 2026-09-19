@@ -2304,3 +2304,24 @@ export const ENEMY_ANIM_LOD_FREEZE_M = K.num('ENEMY_ANIM_LOD_FREEZE_M');
  * sandworm and the humanoid rig are built elsewhere.
  */
 export const BUG_MESH_SEGMENTS = K.num('BUG_MESH_SEGMENTS');
+
+/* ── 2026-09-20 world shadow casters · pebble detail (owner: world — `world/Props.ts`) ── */
+/**
+ * A scattered prop (boulder · spire · tree · crystal) casts a shadow only within this distance (m) of the camera.
+ * One variant is **one `InstancedMesh` spanning the whole map**, so three.js frustum culling never dropped a single
+ * instance from the shadow pass — the four boulder meshes alone were 92k of S2's 158k world shadow triangles.
+ * `Props.repackShadowLod` therefore splits the instances into a near mesh (`castShadow`) and a far one, and the two
+ * together still draw every prop exactly once, so **nothing changes in the colour pass**. The trade: on a
+ * low-sun planet (`sunElevation` 0.25) a big boulder past this distance loses a long shadow that could have reached
+ * into view. Keep it comfortably above `SUN_SHADOW_HALF_M` or the boundary shows.
+ */
+export const PROP_SHADOW_DIST_M = K.num('PROP_SHADOW_DIST_M');
+/** How far the camera must move (m) before that split is recomputed — the sun's shadow target snaps to 2 m anyway. */
+export const PROP_SHADOW_REPACK_M = K.num('PROP_SHADOW_REPACK_M');
+/** `IcosahedronGeometry` detail for pebbles (ground decoration, 0.15–0.55 m): 1 = 80 triangles, 0 = 20. */
+export const PROP_PEBBLE_DETAIL = K.num('PROP_PEBBLE_DETAIL');
+/**
+ * Half-extent (m) of the sun's orthographic shadow box, which follows the player (`core/Atmosphere`). `world/Props`
+ * reads it only to keep `PROP_SHADOW_DIST_M` above it — a prop inside the box must never be in the far set.
+ */
+export const SUN_SHADOW_HALF_M = K.num('SUN_SHADOW_HALF_M');
