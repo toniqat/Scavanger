@@ -959,3 +959,19 @@ everything else was prose brought back in line with code that already existed.
   templates and historical names. Rejected: gating `verify` on it (unrunnable until every template is reworded);
   leaving it as the scratchpad one-off `docs/COMMENT_I18N_PLAN.md` §3 step 4b describes — that one only ever sees
   the current diff, so a label an earlier pass retyped stays invisible forever.
+
+## 2026-09-19 — 성능 측정 방식 · How performance is measured (PERF_PLAN Phase 0)
+
+- **Headful Chrome on the real GPU**, not the smokes' headless one: a headless window does not present on a swap chain
+  (the smokes drive `__game.frame` from a `setInterval` when its rAF stalls), so its frame cadence means nothing.
+  *Rejected*: reusing the headless smoke setup (cheap, but the number being measured is the one it cannot produce);
+  driving the user's own Chrome by hand (matches what they feel, but a before/after delta per phase needs the same
+  conditions twice).
+- **Sound off by `--mute-audio` only.** Chrome mutes the output stream while the page still builds every WebAudio node,
+  so the audio findings stay measurable. *Rejected*: turning the in-game volume down — it takes those graphs out of the
+  measurement.
+- **Wrap `update` on the live page**, no DevTools trace: the per-system split is what the plan needs, and wrapping costs
+  no source change and no trace parsing. A trace stays the tool for splitting one known spike frame (Phase 3).
+- **The harness is committed** (`scripts/perf-measure.mjs`), because every later phase is judged by re-running it with
+  the same options. It asserts nothing, so `verify` never picks it.
+- **Scope: S1–S4 this session.** S5 (relay, two humans) was left out, which is why C1 · C3 · A6 stay unmeasured.
