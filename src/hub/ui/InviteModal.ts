@@ -3,19 +3,20 @@ import { PLAY_BLOCK_LABELS, PRESENCE_LABELS, SOCIAL_ERROR_MESSAGE_KO, SQUAD_INVI
 import { el, setText, toggleClass } from './dom';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 분대 초대 창 (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」 — 사용자 결정).
+ * The squad invite window (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」 — user's decision).
  *
- * 터미널 매칭 탭의 빈 초상 칸 `초대` 가 연다. 친구 → 최근 만난 플레이어 순이고 한 줄 = 이름 · 아이디
- * (`formatPlayerCode`) · 레벨 · 접속 상태(`PRESENCE_LABELS`) · 오른쪽 `초대`. 초대는 `ctx.net.social.playWith` 하나이고
- * 규칙은 전부 서버 / `playBlock` 의 것이다 — 이 창은 막힌 사유(`PLAY_BLOCK_LABELS`)를 버튼에 그대로 적을 뿐이다.
- * 이미 보낸 초대는 `SocialPlayer.inviteAt` 이 열려 있는 동안 `초대 중 · n초` 로 잠근다 (`SQUAD_INVITE_TTL_S`).
- * 이미 내 분대에 있는 사람은 `playBlock` 이 모르는 경우라(서버가 `in_squad` 로 답한다) 여기서 먼저 `분대원` 으로 잠근다.
+ * Opened by the `초대` on an empty portrait tile of the terminal's matchmaking tab. Friends first, then recently met
+ * players, and one row = name · id (`formatPlayerCode`) · level · presence (`PRESENCE_LABELS`) · `초대` on the right.
+ * The invite is the single `ctx.net.social.playWith`, and every rule is the server's / `playBlock`'s — this window only
+ * writes the blocked reason (`PLAY_BLOCK_LABELS`) onto the button verbatim. An invite already sent is locked as
+ * `초대 중 · n초` while `SocialPlayer.inviteAt` is open (`SQUAD_INVITE_TTL_S`). Someone already in my squad is a case
+ * `playBlock` does not know (the server answers `in_squad`), so it is locked here first as `분대원`.
  *
- * 줄 목록은 `social:updated` · 로비 변경 때만 다시 짓고, 남은 초는 `tick()` 이 버튼 글자만 고친다 — 매 프레임 줄을
- * 다시 지으면 누르던 버튼이 사라진다.
+ * The row list is rebuilt only on `social:updated` and lobby changes; `tick()` fixes the button text alone as the
+ * seconds run down — rebuilding the rows every frame would make the button under the cursor vanish.
  *
- * 화면 규약: blocker / escape 토큰 `hub:invite`, 키 가이드 owner `hub.invite`, Tab · E · Escape 로 닫힌다
- * (`HubMenu.closeTop`). CSS 접두사 `.hinv-` (`hub/intel.css`). Owner: hub/ui.
+ * Screen contract: blocker / escape token `hub:invite`, key guide owner `hub.invite`, closed by Tab · E · Escape
+ * (`HubMenu.closeTop`). CSS prefix `.hinv-` (`hub/intel.css`). Owner: hub/ui.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const TOKEN = 'hub:invite';
@@ -66,7 +67,7 @@ export class InviteModal {
     this.ctx.escape.push(TOKEN, () => this.close());
     this.ctx.input.setCursorMode(true, TOKEN);
     this.ctx.bus.emit('ui:keyGuide', { owner: GUIDE_OWNER, keys: [] });
-    try { this.ctx.net?.social.refresh(); } catch { /* 옛 구현 — 이미 받은 목록으로 그린다 */ }
+    try { this.ctx.net?.social.refresh(); } catch { /* an older implementation — draw from the list already received */ }
     this.refresh();
   }
 
@@ -83,7 +84,7 @@ export class InviteModal {
     this.onClosed();
   }
 
-  /** 목록을 다시 짓는다 (`social:updated` · 로비 · 접속 상태가 바뀔 때 터미널이 부른다). */
+  /** Rebuild the list (called by the terminal when `social:updated` · the lobby · the connection state changes). */
   refresh(): void {
     if (!this._open) return;
     const net = this.ctx.net;
@@ -118,7 +119,7 @@ export class InviteModal {
     this.tick();
   }
 
-  /** 버튼 글자 · 잠금만 고친다 (남은 초가 흐른다). 터미널의 `update` 가 열려 있는 동안 매 프레임 부른다. */
+  /** Fix the button text and its lock only (the seconds run down). The terminal's `update` calls this every frame. */
   tick(): void {
     if (!this._open) return;
     for (const r of this.rows) {

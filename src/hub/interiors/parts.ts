@@ -12,7 +12,7 @@ export interface Box2 { minX: number; maxX: number; minZ: number; maxZ: number }
 /**
  * 2026-09-13: where a ceiling goes when it must not join the ship-wide merged batch — its own `GeoBatch` and its own
  * material instances (`plate` = the ceiling plane / beams, `strip` = the recessed light channels). The personal ship's
- * cockpit ceiling fades out while 시설 관리 is open (`PersonalShip.setCockpitCeilingHidden`).
+ * cockpit ceiling fades out while ship management is open (`PersonalShip.setCockpitCeilingHidden`).
  */
 export interface CeilingTarget { b: GeoBatch; plate: THREE.Material; beam: THREE.Material; strip: THREE.Material }
 
@@ -179,8 +179,9 @@ export class Parts {
    * one collider box. Returns the interaction anchor (0.95 m in front, deck level), the yaw a player looking at the
    * bench should have, and the transform for a wall sign above the tool board (`TextPlane` added by the caller).
    *
-   * 2026-09-12: 돌려주는 `position` / `yaw` 를 쓰는 곳이 없어졌다 (정비 벤치 제거 — `hub_workbench` 상호작용이
-   * 사라지고 벤치는 소품이 됐다). 계산이 한 줄이라 그대로 두고, 표지 변환만 `SharedShip` 이 계속 쓴다.
+   * 2026-09-12: nothing uses the returned `position` / `yaw` any more (the repair bench was dropped — the
+   * `hub_workbench` interaction went and the bench became a prop). The maths is one line, so it stays; only the sign
+   * transform is still used, by `SharedShip`.
    */
   workbench(x: number, z: number, ry: number): { position: THREE.Vector3; yaw: number; signPos: THREE.Vector3; signRot: THREE.Euler } {
     const fx = -Math.sin(ry), fz = -Math.cos(ry);   // front (toward the room)

@@ -5,7 +5,7 @@ import { buildPersonalExterior, buildSharedExterior, type ExteriorModel } from '
 
 /**
  * The two exterior cutscenes. (`'travel'` lived here from Phase 11 until 2026-09-09 — 행성 이동 is now the
- * **창문 워프** watched from inside the ship, see `parts/Planet.ts`; the docking cutscene itself stays exterior.)
+ * the **window warp** watched from inside the ship, see `parts/Planet.ts`; the docking cutscene itself stays exterior.)
  */
 export type DockDirection = 'dock' | 'undock';
 

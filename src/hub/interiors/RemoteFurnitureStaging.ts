@@ -3,49 +3,49 @@ import type { FurnitureRig } from './FurnitureLeisure';
 import { RUN_STRIDE_LENGTH, UNRACK_S, poseBelt, poseBenchBar, poseCrank, poseRock, restRig, type StagedPiece } from './GymStaging';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 원격 가구 연출 (2026-09-12, 캐릭터 버프 · 가구 자세 동기화 — docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」).
+ * Remote furniture staging (2026-09-12, character buffs · furniture pose sync — docs/DECISIONS.md 「2026-09-12 — 캐릭터 버프」).
  *
- * 분대원이 가구 자세를 취하면 net 이 스냅샷 `fp` · `fu` 를 보간해 `RemotePlayerRef.furniturePose` 로 준다. 여기서는 그 사람이
- * **같은 함선**(`hubSite`)에 있고 `furnitureUid` 가 지금 그려진 함선의 조각을 가리키면, 그 조각의 움직이는 부분을 그 사람의
- * 보간된 누적 위상으로 돌린다 — 로컬 `GymStaging` 과 **같은 함수**(`poseBenchBar` · `poseBelt` · `poseCrank` · `poseRock`)라
- * 방문자 화면의 바벨 높이 · 벨트 · 크랭크가 주인 화면과 같다.
+ * When a squadmate takes a furniture pose, net interpolates the snapshot `fp` · `fu` into `RemotePlayerRef.furniturePose`. Here,
+ * while that person is on the **same ship** (`hubSite`) and `furnitureUid` points at a piece of the ship drawn right now, the
+ * piece's moving parts run off their interpolated cumulative phase — the **same functions** as the local `GymStaging`
+ * (`poseBenchBar` · `poseBelt` · `poseCrank` · `poseRock`), so a visitor's barbell height · belt · crank match the owner's.
  *
- *   bench / smith  원반 표시 · 바는 거치대 → 누르기 경로(`UNRACK_S` 동안) · 위상 0 … 1 을 그대로
- *   run            벨트 = 누적 걸음 수의 **차이** × `RUN_STRIDE_LENGTH` (뒤로 가거나 한 프레임에 `RUN_PHASE_JUMP` 넘게 뛰면
- *                  그 프레임은 벨트를 안 민다 — 자세가 다시 시작돼 위상이 0 으로 돌아가도 벨트가 거꾸로 감기지 않는다)
- *   cycle          크랭크 · 페달 · 플라이휠 = 누적 바퀴 수 (절대 위치라 되감겨도 순간 이동일 뿐 헛돌지 않는다)
- *   sit            흔들의자 흔들림 (위상은 늘 0 — 시각으로 흔든다)
- *   cook           (2026-09-13) 돌릴 것이 없다 — 조리대 모델은 `rig` 가 아니라 `cook` 을 들고, 어느 도구가 나와 있는지(단계 게임)는
- *                  와이어에 없다. 아래 `rig` 확인에서 항목을 만들지 않고 조용히 넘어간다 (몸의 칼질은 player 의 `RemoteAvatar` 가 그린다).
+ *   bench / smith  plates shown · bar from the rack → the press path (over `UNRACK_S`) · phase 0 … 1 used as it comes
+ *   run            belt = the **difference** in cumulative strides × `RUN_STRIDE_LENGTH` (going backwards, or over
+ *                  `RUN_PHASE_JUMP` in one frame, moves no belt that frame — a restarted pose resets the phase to 0, and the belt must not wind back)
+ *   cycle          crank · pedals · flywheel = the cumulative revolutions (absolute, so a rewind only teleports — it never spins empty)
+ *   sit            the rocking chair rocks (the phase is always 0 — the rock is driven by time)
+ *   cook           (2026-09-13) nothing to drive — the cook bench model carries `cook`, not `rig`, and which tool is out (the
+ *                  step game) is not on the wire. The `rig` check below makes no entry and passes silently (player's `RemoteAvatar` draws the body's knife work).
  *
- * 자세가 끝나면(ref 의 `furniturePose` null · 목록에서 사라짐 · 끊김 · stale · 다른 함선) 그 조각을 쉬는 모습으로 되돌린다
- * (`restRig` — 원반 숨김 · 바는 거치대 · 의자 멈춤). **로컬 연출 중인 조각**(`GymStaging.uid` · 앉아 있는 흔들의자)은 절대 건드리지
- * 않는다. 조각은 매 프레임 uid 로 다시 찾는다 — 방이 다시 지어지면 rig 가 새 것으로 바뀌기 때문이다(`GymStaging.find` 와 같다).
+ * When the pose ends (the ref's `furniturePose` null · gone from the list · disconnected · stale · another ship) the piece goes
+ * back to rest (`restRig` — plates hidden · bar on the rack · chair stopped). A piece **the local staging drives** (`GymStaging.uid` ·
+ * a rocking chair being sat in) is never touched. The piece is re-found by uid every frame — a room rebuild swaps the rig (like `GymStaging.find`).
  *
- * 핫 패스: 프레임당 할당이 없다 — 항목 배열은 인덱스로 돌고 제거는 swap-remove, 끝난 항목은 `spare` 로 돌려 재사용한다.
+ * Hot path: no per-frame allocation — the entry array is walked by index, removal is a swap-remove, and a finished entry returns to `spare` for reuse.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 한 프레임에 이만큼(걸음)을 넘게 뛴 run 위상은 이음이 아니라 점프로 본다 — 벨트를 밀지 않는다. */
+/** A run phase that moved more than this (in strides) in one frame is read as a jump, not a step — it moves no belt. */
 const RUN_PHASE_JUMP = 1.5;
 
 interface Entry {
   peer: PeerId;
   uid: string;
   kind: FurniturePoseKind;
-  /** 벤치: 거치대 → 누르기 경로 진행 (0 … 1). */
+  /** Bench: progress along the rack → press path (0 … 1). */
   unrack: number;
-  /** 지난 프레임의 누적 위상 (run 의 차이 계산). */
+  /** Last frame's cumulative phase (the run difference is taken from it). */
   phase: number;
-  /** 트레드밀 벨트 오프셋 (m, 감긴 값). */
+  /** Treadmill belt offset (m, wrapped). */
   belt: number;
-  /** 마지막으로 이 항목을 돌린 프레임 번호. */
+  /** The frame number this entry was last driven on. */
   seen: number;
 }
 
 export interface RemoteStagingHost {
-  /** uid 로 지금의 조각 (방이 다시 지어지면 바뀐다). */
+  /** The piece for this uid right now (it changes when the room is rebuilt). */
   find(uid: string): StagedPiece | null;
-  /** 로컬 플레이어가 이 조각을 쓰고 있다 (운동 세션 · 앉은 흔들의자) — 원격 연출은 손대지 않는다. */
+  /** The local player is using this piece (a gym session · a rocking chair being sat in) — remote staging leaves it alone. */
   isLocal(uid: string): boolean;
 }
 
@@ -56,20 +56,20 @@ export class RemoteFurnitureStaging {
 
   constructor(private readonly host: RemoteStagingHost) {}
 
-  /** 원격 분대원이 이 조각을 쓰고 있다 (방 재빌드가 원반을 낀 채로 짓는 데 쓴다). */
+  /** A remote squadmate is using this piece (a room rebuild uses it to build the piece with its plates on). */
   drives(uid: string): boolean {
     for (let i = 0; i < this.entries.length; i++) if (this.entries[i].uid === uid) return true;
     return false;
   }
 
-  /** 디버그 · 스모크: 지금 연출 중인 원격 자세들. */
+  /** Debug · smoke: the remote poses being staged right now. */
   get staged(): Array<{ peer: PeerId; uid: string; kind: FurniturePoseKind; phase: number }> {
     return this.entries.map((e) => ({ peer: e.peer, uid: e.uid, kind: e.kind, phase: e.phase }));
   }
 
   /**
-   * 매 프레임 (`FurnitureLayer.update`, 로컬 `GymStaging` 다음). `refs` = 원격 분대원, `site` = 우리가 서 있는 함선
-   * (`HubRef.hubSite` — 공유 함선 · 우리 함선이면 null 일 수 있고, ref 의 `hubSite` 와 **같을 때만** 받는다).
+   * Every frame (`FurnitureLayer.update`, after the local `GymStaging`). `refs` = the remote squadmates, `site` = the ship the
+   * local player stands in (`HubRef.hubSite` — may be null in the shared ship / the own ship, and a ref counts **only when** its `hubSite` matches).
    */
   update(dt: number, time: number, refs: readonly RemotePlayerRef[], site: PeerId | null): void {
     const f = ++this.frame;
@@ -86,7 +86,7 @@ export class RemoteFurnitureStaging {
       const phase = Number.isFinite(pose.phase) ? pose.phase : 0;
       let e = this.entryOf(ref.id);
       if (e && (e.uid !== uid || e.kind !== pose.kind)) {
-        // 같은 사람이 다른 기구로 옮겼다 — 옛 조각부터 쉬게 한다
+        // the same person moved to another machine — the old piece is put to rest first
         this.release(e, f);
         reset(e, ref.id, uid, pose.kind, phase);
       }
@@ -98,7 +98,7 @@ export class RemoteFurnitureStaging {
       e.seen = f;
       drive(rig, e, phase, dt, time);
     }
-    // 이번 프레임에 아무도 가리키지 않은 항목 = 자세가 끝났다 (뒤에서부터 swap-remove — 뒤쪽은 이미 본 항목이다)
+    // an entry nobody pointed at this frame = the pose ended (swap-remove from the back — the tail holds entries already seen)
     for (let i = this.entries.length - 1; i >= 0; i--) {
       const e = this.entries[i];
       if (e.seen === f) continue;
@@ -110,7 +110,7 @@ export class RemoteFurnitureStaging {
     }
   }
 
-  /** 전부 쉬는 모습으로 되돌리고 비운다 (layer dispose). */
+  /** Put every piece back to rest and empty the list (layer dispose). */
   dispose(): void {
     const f = ++this.frame;
     for (let i = 0; i < this.entries.length; i++) this.release(this.entries[i], f);
@@ -124,8 +124,8 @@ export class RemoteFurnitureStaging {
   }
 
   /**
-   * 다른 분대원이 이미(지난 프레임부터) 이 조각을 쓰고 있다 — 먼저 쓴 사람이 이긴다. 한 조각에 두 몸이 올라갈 수는 없지만, 스냅샷이
-   * 엇갈린 한순간에 둘이 같은 uid 를 가리켜도 연출이 번갈아 깜빡이지 않게 한다.
+   * Another squadmate already holds this piece (since last frame) — whoever took it first wins. Two bodies can never be on one
+   * piece, but this keeps the staging from flickering between them for the one moment two out-of-step snapshots name the same uid.
    */
   private heldByOther(uid: string, peer: PeerId, f: number): boolean {
     for (let i = 0; i < this.entries.length; i++) {
@@ -135,7 +135,7 @@ export class RemoteFurnitureStaging {
     return false;
   }
 
-  /** 항목의 조각을 쉬게 한다 — 로컬이 쓰고 있거나 이번 프레임에 다른 항목이 돌렸으면 그대로 둔다. */
+  /** Put the entry's piece to rest — left alone when the local player holds it or another entry drove it this frame. */
   private release(e: Entry, f: number): void {
     if (this.host.isLocal(e.uid)) return;
     for (let i = 0; i < this.entries.length; i++) {
@@ -160,7 +160,7 @@ function drive(rig: FurnitureRig, e: Entry, phase: number, dt: number, time: num
       break;
     case 'run': {
       const d = phase - e.phase;
-      // 새로 지은 벨트(방 재빌드)도 같은 오프셋으로 — 움직임이 없는 프레임에도 자리를 다시 넣는다
+      // a freshly built belt (a room rebuild) lands on the same offset — the position is re-applied even on a frame with no movement
       e.belt = poseBelt(rig, e.belt + (d > 0 && d <= RUN_PHASE_JUMP ? d * RUN_STRIDE_LENGTH : 0));
       break;
     }

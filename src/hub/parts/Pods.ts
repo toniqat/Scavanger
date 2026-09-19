@@ -1,26 +1,26 @@
 /**
- * src/hub/parts/Pods.ts — **발사 포드 · 준비 · 카운트다운 · 출격**.
+ * src/hub/parts/Pods.ts — **launch pod · ready · countdown · launch**.
  *
- * **2026-09-14 (발사 슬롯 UI 대개편): 탑승과 준비를 가른다.** 포드에 타는 것(E)은 `setReady(false)` 로 들어가는
- * 것이고, 앉은 채 **스페이스를 `UI_HOLD_CONFIRM_S` 동안 꾹** 눌러야 준비가 된다 (`toggleReady` — 다시 꾹 누르면
- * 해제). 출격 준비 경고 팝업도 탑승 시점이 아니라 **그 홀드가 끝난 순간**에 뜬다. 접속한 전원이 준비되면
- * `HUB_LAUNCH_COUNTDOWN` 뒤 호스트가 `startGame` 한다.
+ * **2026-09-14 (the launch-slot UI rework): boarding and readiness are split.** Boarding a pod (E) enters at
+ * `setReady(false)`; readiness needs **Space held for `UI_HOLD_CONFIRM_S`** while seated (`toggleReady` — holding
+ * again un-readies). So the launch warning popup appears at **the end of that hold**, not on boarding. Once every
+ * connected member is ready the host calls `startGame` after `HUB_LAUNCH_COUNTDOWN`.
  *
- * 로컬 준비 상태의 원본은 `HubSystem.readyLocal` 하나다 — 서버의 `LobbyPlayer.ready` 는 그것의 메아리이고,
- * 메아리가 `READY_ECHO_GRACE` 안에 안 오면 `syncPods` 가 준비만 풀고 포드에서 내리지는 않는다.
+ * The single source of the local ready flag is `HubSystem.readyLocal` — the server's `LobbyPlayer.ready` is its echo,
+ * and with no echo within `READY_ECHO_GRACE` `syncPods` only clears readiness, it does not un-board the player.
  *
- * 임무가 진행 중이면 포드는 재합류 입구가 된다. 탑승을 막는 이유(`podBlockReason`)는 프롬프트로
- * 보여 준다 — `canInteract:false` 로 막으면 프롬프트 자체가 사라져 이유를 알 수 없다.
+ * While a mission runs the pod becomes a rejoin entrance. The reason boarding is refused (`podBlockReason`) is shown
+ * as the prompt — refusing with `canInteract:false` would take the prompt away, and with it the reason.
  */
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
 import { getPlanet, isPlanetId, planetLabel, HUB_TRAVEL_DURATION, PLANET_NONE_LABEL, PLANET_STORAGE_KEY } from '@/shared';
-/* 2026-09-14: 정보상 — 산 지역 · 산 기믹을 출격에 싣는다 (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
+/* 2026-09-14: the intel broker — the bought region · bought gimmicks ride along on launch (docs/DECISIONS.md 「2026-09-14 — 정보상」) */
 import type { IntelPick } from '@/shared';
 import { resolveIntelEffects } from '@/shared';
 import type { CrewCardWire, GameContext, GameSystem, HubLaunchSlot, HubRef, HubShipKind, Interactable, InteriorCollider, LaunchWarning, LoadoutSlot, LobbyState, PeerId, RoomPurpose } from '@/shared';
 import { CREW_CARD_MIN_INTERVAL_S, CREW_LOADOUT_COOLDOWN_S, HUB_DOCKING_DURATION, HUB_LAUNCH_COUNTDOWN, HUB_READY_BLOCKER, HUB_READY_CELLS, Keys, NET_SLOT_COLORS, ROOM_PURPOSE_LABEL_KO } from '@/shared';
-/* 2026-09-15: 안드로이드 봇 멤버 (발사 슬롯) · 레이드 진입 로딩 암전 */
+/* 2026-09-15: android bot members (launch slots) · the raid-entry loading fade to black */
 import { RAID_LOAD_FADE_OUT_S, RAID_LOAD_START_GRACE_S, androidNameOf, isBotPlayer } from '@/shared';
 import { PersonalShip } from '../interiors/PersonalShip';
 import { SharedShip } from '../interiors/SharedShip';
@@ -39,16 +39,16 @@ import { HubStatus } from '../ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
 import { randomSeed } from '../ui/dom';
 import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, REBOARD_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
-/* 격납고 (2026-09-08): the visit status line lives with the rest of the hangar logic. */
+/* Hangar (2026-09-08): the visit status line lives with the rest of the hangar logic. */
 import * as Hangar from './Hangar';
-/* 2026-09-15: 분대 · 도킹 매칭 — 미도킹 분대에서는 개인 발사 슬롯이 잠긴다 */
+/* 2026-09-15: squads · dock matchmaking — the personal launch slot is locked in an undocked squad */
 import { squadLockReason } from './SquadDock';
 import type { HubSystem } from '../HubSystem';
 
 export function getLaunchSlots(sys: HubSystem): readonly HubLaunchSlot[] { return sys.slots; }
 
 /* ── pods ──────────────────────────────────────────────────────────────── */
-/* 2026-09-15 (분대 · 도킹 매칭): "in a lobby" is not "in the shared ship" any more — pods read `sys.squadLobby()`, the
+/* 2026-09-15 (squads · dock matchmaking): "in a lobby" is not "in the shared ship" any more — pods read `sys.squadLobby()`, the
    lobby whose shared ship we actually stand in. A member of an undocked squad sees the personal ship's slot 0, locked. */
 export function localSlot(sys: HubSystem): number { return sys.squadLobby() && sys.ctx.net ? sys.ctx.net.localSlot : 0; }
 
@@ -76,24 +76,24 @@ export function podCanInteract(sys: HubSystem, slot: number): boolean {
 
 /**
  * Why boarding is refused right now (also the pod's prompt text), or null when the slot takes us:
- * a training runs in the lobby (join from the terminal instead), or the ship has no 목표 행성 (Phase 11).
+ * a training runs in the lobby (join from the terminal instead), or the ship has no target planet (Phase 11).
  */
 export function podBlockReason(sys: HubSystem, slot: number): string | null {
   void slot;
-  // 2026-09-08: 튜토리얼이 아직 출격 단계에 오지 않았으면 지금 해야 할 일을 프롬프트에 그대로 띄운다
+  // 2026-09-08: while the tutorial has not reached its launch step, the prompt shows what it wants done instead
   const tut = sys.ctx.tutorial?.blockReason('board') ?? null;
   if (tut) return tut;
-  // 2026-09-15 (분대 · 도킹 매칭): an undocked squad launches nobody from a personal ship — the leader docks first
+  // 2026-09-15 (squads · dock matchmaking): an undocked squad launches nobody from a personal ship — the leader docks first
   const squad = squadLockReason(sys, 'launch');
   if (squad) return squad;
   if (sys.trainingRunning()) return '훈련 진행 중 — 터미널에서 합류';
-  // 2026-09-15 (타이틀 레이드 포기): 포기한 레이드에는 재투입이 없다 (릴레이도 `drifted` 로 거절한다)
+  // 2026-09-15 (abandoning a raid from the title): an abandoned raid has no rejoin (the relay refuses it as `drifted` too)
   if (driftedFromRaid(sys)) return '표류 — 포기한 임무에는 다시 들어갈 수 없습니다';
   if (sys.planet === null) return '목표 행성 미지정 — 터미널에서 지정';
   return null;
   }
 
-/** 2026-09-15: 지금 달리는 분대 레이드를 내가 타이틀에서 포기했는가 (`LobbyPlayer.drifted`). */
+/** 2026-09-15: did I abandon the squad raid that runs now, from the title (`LobbyPlayer.drifted`)? */
 export function driftedFromRaid(sys: HubSystem): boolean {
   const net = sys.ctx.net;
   const lobby = net?.lobby;
@@ -119,7 +119,7 @@ export function boardPod(sys: HubSystem, slot: number): void {
   const net = ctx.net;
   const squadLock = squadLockReason(sys, 'launch');
   if (squadLock) {
-    // 2026-09-15 (분대 · 도킹 매칭): the prompt already says it — the press says it once more instead of doing nothing
+    // 2026-09-15 (squads · dock matchmaking): the prompt already says it — the press says it once more instead of doing nothing
     ctx.bus.emit('ui:notify', { text: squadLock, kind: 'warning' });
     ctx.bus.emit('audio:play', { id: 'ui_deny' });
     return;
@@ -131,7 +131,7 @@ export function boardPod(sys: HubSystem, slot: number): void {
     return;
   }
   if (sys.planet === null) {
-    // 목표 행성 미지정: nothing to launch at (the server refuses a raid start with `no_planet` as well)
+    // No target planet: nothing to launch at (the server refuses a raid start with `no_planet` as well)
     ctx.bus.emit('ui:notify', { text: '목표 행성이 없습니다 — 터미널에서 행성을 지정하세요', kind: 'warning' });
     ctx.bus.emit('audio:play', { id: 'ui_deny' });
     return;
@@ -148,13 +148,13 @@ export function boardPod(sys: HubSystem, slot: number): void {
     return;
   }
   /*
-   * 2026-09-14: 출격 준비 경고는 여기서 **사라졌다** — 이제는 준비 홀드가 끝난 순간에 뜬다 (`toggleReady`).
-   * 포드에 앉는 것 자체는 아무것도 확정하지 않으므로 묻지 않는다.
+   * 2026-09-14: the launch warning **left this place** — it now stands at the end of the ready hold (`toggleReady`).
+   * Sitting down in a pod commits nothing by itself, so nothing is asked here.
    */
   const pod = sys.pods[slot];
   sys.boardedSlot = slot;
   sys.boardedAt = ctx.time;
-  sys.readyLocal = false;          // 탑승 ≠ 준비 (스페이스 1초 홀드가 준비다)
+  sys.readyLocal = false;          // boarding ≠ ready (the one-second Space hold is what readies)
   const p = ctx.player;
   if (p) {
     p.spawnStanding(pod.def.position, pod.def.yaw);
@@ -163,24 +163,24 @@ export function boardPod(sys: HubSystem, slot: number): void {
     pod.getCameraShot(_camPos, _camLook);
     p.setCameraOverride(_camPos, _camLook);
   }
-  // 앉기만 한 것은 준비가 아니므로 서버에도 그렇게 말한다 (앞선 준비가 남아 있으면 지운다)
+  // merely sitting down is not readiness, and the server is told as much (any earlier ready flag is cleared)
   if (net && squad) { net.setReady(false); sys.readySentAt = ctx.time; }
   ctx.bus.emit('audio:play', { id: 'ui_equip' });
   sys.syncPods();
   }
 
 /**
- * 준비 / 준비 해제 (스페이스 `UI_HOLD_CONFIRM_S` 홀드, `ui/ReadyPanel` 이 키를 잰다).
+ * Ready / un-ready (Space held for `UI_HOLD_CONFIRM_S`, the key measured by `ui/ReadyPanel`).
  *
- * 준비로 가는 길에만 **출격 준비 경고**(`ctx.inventory.getLaunchWarnings()`)가 선다: 걸리는 것이 있고 그 서명이
- * 지난번에 승인한 것과 다르면 팝업이 먼저 뜨고, `그래도 준비` 를 눌러야 `setReady(true)` 가 나간다. 경고가 없거나
- * 이미 승인한 조합이면 곧바로 준비된다. 해제에는 아무것도 묻지 않는다.
+ * Only the way **into** readiness raises the **launch warnings** (`ctx.inventory.getLaunchWarnings()`): something
+ * flagged whose signature differs from the one acknowledged last time opens the popup first, and `그래도 준비` is what
+ * sends `setReady(true)`. Nothing flagged, or an acknowledged combination, readies at once. Un-readying asks nothing.
  */
 export function toggleReady(sys: HubSystem): void {
   const ctx = sys.ctx;
   if (sys.boardedSlot < 0 || ctx.phase !== 'hub' || sys.cutscene) return;
   if (sys.launchWarn.isOpen) return;
-  if (sys.raidLaunch) return;   // 2026-09-15: 암전이 시작된 뒤로는 준비를 바꿀 수 없다 (발사 확정)
+  if (sys.raidLaunch) return;   // 2026-09-15: readiness cannot change once the fade began (the launch is committed)
   if (sys.readyLocal) {
     sys.readyLocal = false;
     if (ctx.net && sys.squadLobby()) { ctx.net.setReady(false); sys.readySentAt = ctx.time; }
@@ -193,7 +193,7 @@ export function toggleReady(sys: HubSystem): void {
   // into a console line, so an inventory hiccup here would look exactly like "스페이스를 눌러도 아무 일도 없다".
   let warnings: readonly LaunchWarning[] = [];
   try { warnings = ctx.inventory?.getLaunchWarnings?.() ?? []; } catch (e) { console.error('[hub] getLaunchWarnings threw', e); warnings = []; }
-  // 2026-09-17 (사용자 결정): 튜토리얼 증축 안내 동안에는 준비 경고(기업 계약 · 방탄복 없음 …)를 띄우지 않는다 — 곧바로 준비된다
+  // 2026-09-17 (user's decision): the tutorial `증축 안내` track raises no launch warning (contract · armor …) — it readies at once
   if (ctx.tutorial?.hides('launchWarn')) warnings = [];
   const sig = LaunchWarnPanel.signatureOf(warnings);
   if (warnings.length === 0) sys.launchWarnAck = '';   // fully kitted out again → the next lapse asks afresh
@@ -229,7 +229,7 @@ export function leavePod(sys: HubSystem, sendReady: boolean, placeOutside = true
   const ctx = sys.ctx;
   const pod = sys.pods[sys.boardedSlot];
   sys.boardedSlot = -1;
-  sys.readyLocal = false;        // 2026-09-14: 포드에서 내리면 준비도 풀린다
+  sys.readyLocal = false;        // 2026-09-14: leaving the pod clears readiness too
   sys.leftPodAt = ctx.time;      // REBOARD_GRACE: the un-boarding press must not walk straight back in
   const p = ctx.player;
   if (p) {
@@ -261,7 +261,7 @@ export function syncPods(sys: HubSystem): void {
    * 2026-09-09: only while the socket is actually up. `lobby` is the **last snapshot**, so a dropped connection
    * freezes it at `ready:false` (our `setReady(true)` was never sent) and this used to eject the player from the
    * pod every 1.5 s with no way to stay in it — the reconnect re-sends the flag instead.
-   * 2026-09-14: 탑승과 준비가 갈라졌으므로 **포드에서 내리지 않는다** — 준비만 풀고 앉아 있게 둔다.
+   * 2026-09-14: boarding and readiness are separate now, so it **does not un-board** — readiness is cleared, the seat kept.
    */
   if (sys.boardedSlot >= 0 && sys.readyLocal && lobby && me && !me.ready && !lobby.started && (net?.connected ?? true)
     && ctx.time - sys.readySentAt > READY_ECHO_GRACE) {
@@ -269,7 +269,7 @@ export function syncPods(sys: HubSystem): void {
     ctx.bus.emit('ui:notify', { text: '준비 상태가 초기화되었습니다', kind: 'warning' });
   }
 
-  // 발사 준비 패널 cells, filled while we walk the pods below (`null` = no member in that slot at all)
+  // Ready-panel cells, filled while the pods below are walked (`null` = no member in that slot at all)
   const cells: (ReadyCellInfo | null)[] = new Array(HUB_READY_CELLS).fill(null);
 
   for (let i = 0; i < sys.pods.length; i++) {
@@ -279,11 +279,11 @@ export function syncPods(sys: HubSystem): void {
     let name = '빈 슬롯', state = '—', local = false;
     let present = false, connected = true, peerId: PeerId | null = null;
     /*
-     * 2026-09-14: `inSlot` = 발사 슬롯에 있다(카드가 몸을 그린다), `confirmed` = 준비까지 마쳤다.
-     * 로컬은 둘이 갈라지고(탑승 → 홀드), 원격은 와이어에 탑승이 없어 `LobbyPlayer.ready` 하나가 둘을 겸한다.
+     * 2026-09-14: `inSlot` = sits in the launch slot (the cell draws a body), `confirmed` = has finished readying.
+     * Locally the two split (board → hold); remotely the wire carries no boarding, so `LobbyPlayer.ready` is both.
      */
     let inSlot = false, confirmed = false;
-    /* 2026-09-15: 이 칸이 안드로이드 봇 멤버인가 · 그 조종실 슬롯 번호 (발사 준비 패널이 초상 · 장비를 달리 그린다) */
+    /* 2026-09-15: is this cell an android bot member · its cockpit bay index (the ready panel draws portrait · gear differently) */
     let bot = false, bay = 0;
     if (slot === localSlot && (!lobby || me)) {
       local = true; present = true; peerId = localId;
@@ -298,9 +298,9 @@ export function syncPods(sys: HubSystem): void {
       if (q) {
         name = q.name; present = true; peerId = q.id; connected = q.connected;
         /*
-         * 2026-09-15 (안드로이드 분대원): 봇 멤버는 소켓이 없고 릴레이가 `ready: true` 로 붙들어 둔다 — 원격 아바타가
-         * 오기를 기다리지 않고 **앉아서 준비를 마친 것**으로 그린다 (몸은 allies/ 가 포드 **앞** 대기 자리에 세운다).
-         * 훈련장에는 따라가지 않으므로 훈련 중에는 사람과 같이 문이 열린 `대기 중` 이다.
+         * 2026-09-15 (android squadmates): a bot member has no socket and the relay holds it at `ready: true` — it is
+         * drawn as **seated and ready** without waiting for a remote avatar (allies/ stands the body **in front of** the
+         * pod). They do not follow into the training arena, so during one they read `대기 중` with an open door, as people do.
          */
         if (isBotPlayer(q)) {
           bot = true; bay = q.bay ?? slot; connected = true;
@@ -324,9 +324,9 @@ export function syncPods(sys: HubSystem): void {
     if (changed) ctx.bus.emit('hub:slotChanged', { slot, peerId: occupant, local });
   }
   /*
-   * 2026-09-16 (사용자 결정): 이 한 값이 발사 준비 패널의 **보이는 조건이자 조작 조건**이다 — 내가 실제로 발사
-   * 슬롯에 앉아 있을 때만. 예전에는 「어느 칸이든 `ready`」면 떴는데, 안드로이드를 영입하면 봇 칸이 곧바로
-   * `ready`(위에서 `inSlot = true`)가 되어 공용 함선을 걸어다니는 내내 패널이 화면 가운데를 덮었다.
+   * 2026-09-16 (user's decision): this one value is the ready panel's **visibility and its interactivity at once** —
+   * only while I actually sit in a launch slot. It used to be 「any cell is `ready`」, and then recruiting an android made
+   * a bot cell `ready` at once (`inSlot = true` above), so the panel covered mid-screen for the whole walk of the shared ship.
    */
   sys.ready.sync(cells, sys.boardedSlot >= 0 && ctx.phase === 'hub' && !sys.cutscene);
   }
@@ -334,10 +334,10 @@ export function syncPods(sys: HubSystem): void {
 /* ── launch countdown ──────────────────────────────────────────────────── */
 
 /**
- * 2026-09-14 (정보상) — 지금 목표 행성에 **쓸 수 있는** 보유 정보. 행성이 다르면 null 이다: 정보는 버려지지 않고
- * 그대로 남아 (`IntelRef.get()` 은 여전히 그것을 돌려준다 — 화면이 「다른 행성의 정보」라고 적는다) 그 행성으로
- * 다시 가면 유효하다. 분대원은 자기 것이 없으므로 분대장이 올려 둔 `lobby.intel` 을 쓴다 (호스트만 출격시키므로
- * 실제로 실어 보내는 것은 분대장의 것뿐이다).
+ * 2026-09-14 (the intel broker) — the held intel that is **usable** on the current target planet. A different planet
+ * gives null: the intel is not discarded, it stays (`IntelRef.get()` still returns it — the screen writes
+ * 「다른 행성의 정보」) and is valid again on returning to that planet. A squadmate has none of their own and uses the
+ * `lobby.intel` the leader put up (only the host launches, so the leader's is the only one that ever rides along).
  */
 function usableIntel(sys: HubSystem, planet: PlanetId): { seed: number; picks: IntelPick[] } | null {
   const spec = sys.ctx.meta?.intel?.get?.() ?? null;
@@ -346,8 +346,8 @@ function usableIntel(sys: HubSystem, planet: PlanetId): { seed: number; picks: I
 }
 
 export function resolveSeed(sys: HubSystem): number {
-  /* 2026-09-14: 산 정보가 있으면 **그 지역으로 간다** — 정보의 시드가 로비 시드보다 먼저다 (그러지 않으면
-   * 돈을 내고 고정한 기믹이 다른 맵에 얹힌다). 행성이 다르면 쓰지 않는다. */
+  /* 2026-09-14: bought intel **decides the region** — its seed comes before the lobby seed (otherwise the gimmicks
+   * that were paid for land on a different map). A different planet does not use it. */
   const planet = sys.planet;
   if (planet !== null) {
     const intel = usableIntel(sys, planet);
@@ -380,14 +380,15 @@ export function launch(sys: HubSystem): void {
   }
   }
 
-/* ── 레이드 진입 로딩 (2026-09-15) ─────────────────────────────────────────
- * 사용자 결정: 「발사 슬롯에 준비를 완료하여 3초 카운트 이후, 화면 암전(페이드아웃), 이후 암전된 상태에서 …
+/* ── raid-entry loading (2026-09-15) ──────────────────────────────────────
+ * User's decision: 「발사 슬롯에 준비를 완료하여 3초 카운트 이후, 화면 암전(페이드아웃), 이후 암전된 상태에서 …
  * 모든 플레이어가 로딩 완료되면 이후 암전 풀리면서(페이드인) 강하 시퀀스 재생.」
  *
- * hub 의 몫은 **시작뿐**이다: 카운트다운이 0 이 되면 (호스트 · 분대원 · 솔로) 모두가 같은 프레임에 암전을 시작하고
- * `raid:loadBegin` 을 낸다. 권위는 `RAID_LOAD_FADE_OUT_S` **뒤에** 발사한다 — 그러지 않으면 강하 씬의 첫 프레임이
- * 아직 밝은 함선 위로 겹친다. 그 뒤의 원형 게이지 · 대기 · 페이드인은 game/`parts/LoadGate` 와 ui/ 의 것이다.
- * 암전이 시작된 뒤로 발사는 **확정**이다 (준비 해제 · E 로 취소되지 않는다 — `HubSystem.raidLaunch`).
+ * The hub's share is **the start only**: at countdown 0 everyone (host · squadmate · solo) begins the fade on the same
+ * frame and emits `raid:loadBegin`. The authority launches **after** `RAID_LOAD_FADE_OUT_S` — otherwise the first frame
+ * of the drop scene lands over a ship that is still lit. The ring gauge · the wait · the fade in after it belong to
+ * game/`parts/LoadGate` and ui/. Once the fade started the launch is **committed** (un-readying and E do not cancel it
+ * — `HubSystem.raidLaunch`).
  */
 export function beginRaidLoad(sys: HubSystem): void {
   const ctx = sys.ctx;
@@ -436,7 +437,7 @@ export function tickRaidLaunch(sys: HubSystem): void {
     if (st.authority) sys.launch();
     return;
   }
-  // 아무도 발사하지 않았다 (호스트 이탈 · 서버 거절) — 암전을 풀고 함선으로 돌아온다
+  // Nobody launched (the host left · the server refused) — lift the fade and come back to the ship
   clearRaidLaunch(sys);
   ctx.bus.emit('ui:screenFade', { opacity: 0, durationS: RAID_LOAD_FADE_OUT_S });
   ctx.bus.emit('ui:notify', { text: '발사하지 못했습니다 — 함선으로 돌아갑니다', kind: 'warning' });
@@ -448,10 +449,10 @@ export function tickCountdown(sys: HubSystem, dt: number): void {
   const ctx = sys.ctx;
   const net = ctx.net;
   const lobby = sys.squadLobby();   // 2026-09-15: only the squad whose shared ship we stand in counts down together
-  // 2026-09-15: 암전이 시작된 뒤로는 준비 상태를 다시 읽지 않는다 — 발사는 확정이다
+  // 2026-09-15: once the fade began the ready flags are not read again — the launch is committed
   if (sys.raidLaunch) { tickRaidLaunch(sys); return; }
   const boarded = sys.boardedSlot >= 0;
-  // 2026-09-14: 카운트다운을 여는 것은 탑승이 아니라 **준비**다 (솔로도 스페이스 홀드를 해야 뜬다).
+  // 2026-09-14: what opens the countdown is **readiness**, not boarding (solo needs the Space hold too).
   const meReady = boarded && sys.readyLocal;
   let ready = meReady ? 1 : 0, total = 1, allReady = meReady;
   if (lobby) {
@@ -460,7 +461,7 @@ export function tickCountdown(sys: HubSystem, dt: number): void {
     ready = connected.filter((p) => p.ready).length;
     allReady = meReady && !lobby.started && connected.length > 0 && ready === connected.length;
   }
-  /* 2026-09-15: 「누가 발사하는가」는 `beginRaidLoad` 가 암전이 끝난 뒤에 다시 본다 (여기서 미리 정해 두지 않는다). */
+  /* 2026-09-15: 「who launches」 is looked at again by `beginRaidLoad` once the fade ended, never settled ahead here. */
 
   if (allReady && sys.countdown < 0 && !sys.launched) {
     sys.countdown = HUB_LAUNCH_COUNTDOWN;
@@ -472,8 +473,8 @@ export function tickCountdown(sys: HubSystem, dt: number): void {
   }
 
   /*
-   * 2026-09-14 2차: 카운트다운이 도는 동안에는 우측 하단 키 가이드(`'pod'`)를 내린다 — 그때는 내릴 수도
-   * 준비를 바꿀 수도 없다. 올리고 내리는 규칙 자체는 `ui/ReadyPanel.syncGuide` 하나가 갖는다.
+   * 2026-09-14 2nd pass: the bottom-right key guide (`'pod'`) goes down while the countdown runs — nothing can be
+   * un-boarded and readiness cannot change then. The rule for raising and dropping it lives only in `ui/ReadyPanel.syncGuide`.
    */
   sys.ready.setLaunching(sys.countdown >= 0);
 
@@ -488,7 +489,7 @@ export function tickCountdown(sys: HubSystem, dt: number): void {
     }
     if (sys.countdown <= 0) {
       sys.countdown = -1;
-      // 2026-09-15 (레이드 진입 로딩): 발사 대신 **암전**부터 — 권위는 `RAID_LOAD_FADE_OUT_S` 뒤에 발사한다
+      // 2026-09-15 (raid-entry loading): the **fade** comes before the launch — the authority launches `RAID_LOAD_FADE_OUT_S` later
       beginRaidLoad(sys);
       return;
     }
@@ -499,9 +500,9 @@ export function tickCountdown(sys: HubSystem, dt: number): void {
   if (boarded) {
     if (sys.countdown >= 0) sys.status.set(String(Math.max(0, Math.ceil(sys.countdown))), '발사 준비 완료', { count: true, progress: 1 - sys.countdown / HUB_LAUNCH_COUNTDOWN });
     /*
-     * 2026-09-14 2차 (사용자 결정): 홀드 게이지는 내 카드 하단에, **조작 키는 우측 하단 키 가이드**(owner `'pod'`,
-     * `ui/ReadyPanel.syncGuide`)에 있다. 여기 중앙 하단 줄에는 상태 텍스트와 카운트다운만 남는다 —
-     * 옛 `E 슬롯에서 내리기` 서브 줄은 게임의 다른 화면과 같은 자리로 갔다.
+     * 2026-09-14 2nd pass (user's decision): the hold gauge sits at the bottom of my own cell, **the keys sit in the
+     * bottom-right key guide** (owner `'pod'`, `ui/ReadyPanel.syncGuide`). Only the status text and the countdown are
+     * left on this bottom-centre line — the old `E 슬롯에서 내리기` sub-line moved where every other screen has it.
      */
     else if (sys.readyLocal) sys.status.set(lobby ? `준비 완료 (${ready}/${total})` : '준비 완료');
     else if (lobby) sys.status.set(`준비 대기 (${ready}/${total})`);
@@ -511,7 +512,7 @@ export function tickCountdown(sys: HubSystem, dt: number): void {
     else if (driftedFromRaid(sys)) sys.status.set('임무 진행 중 — 표류', '포기한 임무에는 다시 들어갈 수 없습니다');
     else sys.status.set('임무 진행 중', '발사 슬롯에 탑승하면 재투입됩니다');
   } else if (visit) {
-    // 격납고 (2026-09-08): inside a bay's ship — the only reminder of how to get back out (and that it is read-only)
+    // Hangar (2026-09-08): inside a bay's ship — the only reminder of how to get back out (and that it is read-only)
     sys.status.set(visit.main, visit.sub);
   } else {
     sys.status.hide();

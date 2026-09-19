@@ -15,25 +15,25 @@ import {
  *             z  SEGMENT·(i mod ROOMS_PER_SIDE) + ROOM_GAP/2 … + ROOM_DEPTH, door (1.6 m) centred on the corridor wall
  *   airlock   x −1.5 … 1.5, z CORRIDOR.maxZ … + AIRLOCK_DEPTH   (decorative shared-ship entrance)
  *
- * **2026-09-12 — 방이 8 × 8 m 가 됐다.** `ROOM_GRID_COLS/ROWS` 가 8 → 16 으로 커졌으므로 `ROOM_SIZE` ·
- * `ROOM_DEPTH` 는 4 → 8 m 다. 예전에는 `SEGMENT` 가 **5 로 코드에 박혀** 있어 `(SEGMENT − ROOM_DEPTH)/2 = −1.5`
- * 가 되고 방들이 z 축으로 3 m 씩 겹쳤다 — 이제 `SEGMENT` 도 `AIRLOCK` 도 `CORRIDOR.maxZ` 도 전부 방 깊이에서
- * 유도한다. 함선이 통째로 길어지는 것(복도 25 → 45 m)은 의도한 결과다. 자유 상수는 방 사이 틈(`ROOM_GAP`)과
- * 에어락 깊이(`AIRLOCK_DEPTH`) 둘뿐이고, 격자 크기를 또 바꿔도 이 파일은 따라온다.
+ * **2026-09-12 — a room became 8 × 8 m.** `ROOM_GRID_COLS/ROWS` grew 8 → 16, so `ROOM_SIZE` · `ROOM_DEPTH` are
+ * 4 → 8 m. `SEGMENT` used to be **hard-coded as 5**, which made `(SEGMENT − ROOM_DEPTH)/2 = −1.5` and overlapped the
+ * rooms by 3 m along z — now `SEGMENT`, `AIRLOCK` and `CORRIDOR.maxZ` are all derived from the room depth. The ship
+ * getting longer as a whole (corridor 25 → 45 m) is the intended result. The only free constants are the gap between
+ * rooms (`ROOM_GAP`) and the airlock depth (`AIRLOCK_DEPTH`); change the grid size again and this file follows.
  *
- * **2026-09-12 (같은 날, 사용자 결정) — 방 8개 · 조종석도 꾸미는 공간이다.** `SHIP_ROOM_COUNT` 가 10 → 8 이라 한 쪽에
- * 4개씩이고 복도는 45 → 36 m 다(이 파일은 저절로 따라왔다). 조종석은 `COCKPIT_ROOM_BOX`(방 번호
- * `COCKPIT_ROOM_INDEX`)로 같은 격자 규약을 탄다 — `roomBox` · `roomCellToWorld` · `worldToRoomCell` 이 그 번호를 받는다.
- * 조종석의 좌표는 이제 **격자에서 유도한다**(`COCKPIT_GRID_COLS/ROWS × HOUSING_CELL_SIZE` = 10 × 6 m): 계약의 격자와
- * 이 파일의 벽이 어긋날 수 없게 한 것이다. `ROOM_BOXES` 에는 조종석이 **없다** (방 표지 · 방 조명 · 방 추적이 그
- * 목록을 돌기 때문이다).
+ * **2026-09-12 (same day, user's decision) — 8 rooms · the cockpit is a furniture area too.** `SHIP_ROOM_COUNT` went
+ * 10 → 8, so there are 4 per side and the corridor is 45 → 36 m (this file followed on its own). The cockpit rides the
+ * same grid contract through `COCKPIT_ROOM_BOX` (room index `COCKPIT_ROOM_INDEX`) — `roomBox` · `roomCellToWorld` ·
+ * `worldToRoomCell` all take that index. The cockpit's coordinates are now **derived from the grid**
+ * (`COCKPIT_GRID_COLS/ROWS × HOUSING_CELL_SIZE` = 10 × 6 m), so the contract's grid and this file's walls cannot go
+ * out of step. `ROOM_BOXES` holds **no** cockpit (room signs, room lights and room tracking loop over that list).
  *
  * Grid cells: `x` runs along world +X, `y` along world +Z; cell (0, 0) is the room's min-x / min-z corner.
  * `yaw` = quarter turns clockwise seen from above (world rotation.y = −yaw·π/2).
  * ──────────────────────────────────────────────────────────────────────────── */
 export const WALL = 0.3;
 export const CEIL = 3.2;
-/** 조종석: 격자(20 × 12 칸 × 0.5 m)에서 유도 — 뒷벽(z 0)이 복도 입구, 가로 중앙이 x 0. */
+/** Cockpit: derived from the grid (20 × 12 cells × 0.5 m) — the rear wall (z 0) is the corridor opening, x 0 the centre. */
 export const COCKPIT = {
   minX: -(COCKPIT_GRID_COLS * HOUSING_CELL_SIZE) / 2,
   maxX: (COCKPIT_GRID_COLS * HOUSING_CELL_SIZE) / 2,
@@ -69,7 +69,7 @@ for (let i = 0; i < SHIP_ROOM_COUNT; i++) {
 export const ROOM_BOXES: readonly RoomBox[] = _boxes;
 
 /**
- * 2026-09-12: 조종석을 방처럼 다루는 상자 (`COCKPIT_ROOM_INDEX`). `side` 는 뜻이 없고(−1 로 둔다) `doorZ` 는 복도 아치(z 0)다.
+ * 2026-09-12: the cockpit as a room box (`COCKPIT_ROOM_INDEX`). `side` is meaningless (left at −1), `doorZ` is the arch (z 0).
  */
 export const COCKPIT_ROOM_BOX: RoomBox = {
   index: COCKPIT_ROOM_INDEX, side: -1, minX: COCKPIT.minX, maxX: COCKPIT.maxX, minZ: COCKPIT.minZ, maxZ: COCKPIT.maxZ, doorZ: COCKPIT.maxZ,
@@ -90,8 +90,8 @@ export function roomAtWorld(x: number, z: number): number | null {
 }
 
 /**
- * 2026-09-12: 꾸밀 수 있는 공간(방 **또는 조종석**) 중 (x, z) 를 담은 것의 번호. `roomAtWorld` 는 계약(`hub:roomEntered`
- * 의 `null` = 복도 · 조종석) 때문에 조종석을 모르는 채로 둔다.
+ * 2026-09-12: index of the furniture area (a room **or the cockpit**) that contains (x, z). `roomAtWorld` is left
+ * unaware of the cockpit because of the contract (`hub:roomEntered`'s `null` = corridor · cockpit).
  */
 export function editAreaAtWorld(x: number, z: number): number | null {
   const room = roomAtWorld(x, z);

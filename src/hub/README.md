@@ -336,8 +336,8 @@ doorway is an open shared edge.
 ## Recent changes
 
 Last 5 only — older: `git log -- src/hub`.
+- 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, `data/furniture.csv` names, decision headings and verbatim user quotes kept in backticks / 「」, no string literal touched. One room, two words on purpose: the shared ship's forward room is the **bridge**, the personal ship's the **cockpit**, and the android bays keep CLAUDE.md §3.2's feature name *cockpit bays*.
 - 2026-09-18 — Intel is bought for the **target** planet only: the terminal disables `정보 구매` while the paged planet is not the target and names both (`HubMenu.refreshIntel`; 정보 확인 / 지역 재배치 unchanged), and a locked row in the intel screen names the planet it was judged against (`IntelMenu.lockText`).
 - 2026-09-17 — The intel screen moved off the `.it-` prefix to `.his-` (`intel.css`, `ui/IntelMenu.ts`, `ui/IntelMap.ts`): `.it-` was the item card's (`ui`), and this folder's global `.it-head` was right-aligning that card everywhere it was shown (B-18).
 - 2026-09-17 — Culture tank model shows each slot: medium-coloured translucent fluid (`BuildExtra.cultureSlots`, `cultureFluid` cache) and opaque cell masses when a strain is inside; tubes are translucent glass (no lights). Visited ships get it from `ShipVisitWire.cultures` (`Hangar.shipStateWire` / `furnitureSource.getCultures`).
 - 2026-09-17 — `GameStaging` accepts a seatless video-game session (`seatUid` null): TV game screen on, no furniture pose or camera, not cancelled; a vanished seat still cancels only when one was used.
-- 2026-09-17 — Tutorial gates: the terminal's training row hides while `ctx.tutorial.hides('training')` (`HubMenu.setTab`); `Pods.toggleReady` skips launch warnings while `hides('launchWarn')` (build tutorial track).

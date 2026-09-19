@@ -1,15 +1,15 @@
 /**
- * src/hub/parts/Planet.ts — **목표 행성 선택과 워프 이동** (Phase 11 · 창문 워프 2026-09-09).
+ * src/hub/parts/Planet.ts — **picking the target planet and the warp trip** (Phase 11 · the window warp 2026-09-09).
  *
- * 임무는 여전히 무작위 시드로 생성되지만 **어느 행성인지**는 플레이어가 고른다. 로비에서는
- * **호스트만** 정하고 나머지는 `lobby:state` 로 같은 워프를 본다. 이동은 함선 내부를 재생성하지
- * 않는다 — 창밖만 바뀐다. 목표 행성이 없으면 발사 슬롯에 탑승할 수 없다.
+ * A mission is still generated from a random seed, but **which planet** it happens on is the player's pick. In a
+ * lobby **only the host** decides and everyone else sees the same warp through `lobby:state`. The trip does not
+ * rebuild the ship interior — only the view outside changes. With no target planet the launch slots refuse boarding.
  *
- * **창문 워프 (2026-09-09)**: 행성 이동은 더 이상 컷씬이 아니다. 카메라도 조작도 그대로 — 플레이어는
- * 함선 안을 걸어 다니고, 창밖의 별이 줄기로 늘어나며(`ShipInterior.setWarp`) 선체가 흔들린다
- * (`camera:shake`). `HubSystem.warp`(`WarpState`)가 `HUB_TRAVEL_DURATION` 동안 살아 있고 `tickTravel`
- * 이 매 프레임 `hub:warpProgress {planet, t, speed}` 를 낸다. `speed` 는 처음 `HUB_WARP_RAMP_S` 동안
- * smoothstep 으로 0→1, 중간에 1, 마지막 `HUB_WARP_RAMP_S` 동안 1→0 — 흔들림도 소리도 이 값을 따른다.
+ * **The window warp (2026-09-09)**: planet travel is no longer a cutscene. Camera and controls stay as they are —
+ * the player walks the ship while the stars outside stretch into streaks (`ShipInterior.setWarp`) and the hull
+ * shakes (`camera:shake`). `HubSystem.warp` (`WarpState`) lives for `HUB_TRAVEL_DURATION` and `tickTravel` emits
+ * `hub:warpProgress {planet, t, speed}` every frame. `speed` smoothsteps 0→1 over the first `HUB_WARP_RAMP_S`,
+ * holds at 1, then 1→0 over the last `HUB_WARP_RAMP_S` — the shake and the sound both follow that value.
  */
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
@@ -38,9 +38,9 @@ import { type DockTransition, type WarpState, LOCK_REQUEST_GRACE_MS, READY_ECHO_
 import type { HubSystem } from '../HubSystem';
 
 /**
- * Pick the 목표 행성 and fly there. Refused (false) for a non-host in a lobby, for an unknown id, while a
+ * Pick the target planet and fly there. Refused (false) for a non-host in a lobby, for an unknown id, while a
  * cutscene / travel runs, while a launch countdown is ticking, outside the hub and when it is already the target.
- * On success: `hub:travel {stage:'start'}` → the 창문 워프 (`hub:warpProgress` every frame) → `hub:travel
+ * On success: `hub:travel {stage:'start'}` → the window warp (`hub:warpProgress` every frame) → `hub:travel
  * {stage:'end'}` + `hub:planetChanged`. The ship interior is **not** rebuilt — only the view outside it changes.
  */
 export function setPlanet(sys: HubSystem, planet: PlanetId): boolean {
@@ -62,11 +62,11 @@ export function setPlanet(sys: HubSystem, planet: PlanetId): boolean {
   return true;
   }
 
-/** Korean reason 행성 이동 is refused right now, or null when it is allowed (the terminal renders it). */
+/** Korean reason `행성 이동` is refused right now, or null when it is allowed (the terminal renders it). */
 export function travelBlockReason(sys: HubSystem, planet?: PlanetId): string | null {
   const ctx = sys.ctx;
   const net = ctx?.net;
-  // 2026-09-08: 튜토리얼은 첫 번째 행성만 허용한다. `planet` 없이 부르면 "지금 행성을 정할 수 있나"만 묻는 것.
+  // 2026-09-08: the tutorial allows the first planet only. Called without `planet` it only asks "can a planet be set at all".
   const tut = ctx?.tutorial?.blockReason('planet', planet) ?? null;
   if (tut) return tut;
   if (net && sys.squadLobby() && !net.isHost) return '호스트만 지정할 수 있습니다';
@@ -76,7 +76,7 @@ export function travelBlockReason(sys: HubSystem, planet?: PlanetId): string | n
   return null;
   }
 
-/** Restore the solo pick (`PLANET_STORAGE_KEY`); an unknown / absent value stays null (목표 미지정). */
+/** Restore the solo pick (`PLANET_STORAGE_KEY`); an unknown / absent value stays null (no target). */
 export function loadPlanet(sys: HubSystem): void {
   try {
     const raw = localStorage.getItem(slotKey(PLANET_STORAGE_KEY));
@@ -92,7 +92,7 @@ export function savePlanet(sys: HubSystem): void {
   }
 
 /**
- * Fly to `planet` — the **창문 워프** (2026-09-09). Everyone steps out of their pod, the terminal / workbench close,
+ * Fly to `planet` — the **window warp** (2026-09-09). Everyone steps out of their pod, the terminal / workbench close,
  * the READY panel hides and the countdown resets; then `HubSystem.warp` is armed and `tickTravel` carries the trip
  * for `HUB_TRAVEL_DURATION`. **No cutscene**: the camera is not overridden and the controls stay on — the player
  * watches the stars streak past the viewports while walking around. The interior is **kept** (no
@@ -135,10 +135,10 @@ export function warpSpeedAt(elapsed: number): number {
   }
 
 /**
- * One frame of the 창문 워프 (called from `HubSystem.update` after the pod / status tick so its status line wins).
+ * One frame of the window warp (called from `HubSystem.update` after the pod / status tick so its status line wins).
  * Drives the interior (`setWarp`), emits `hub:warpProgress`, pulses `camera:shake` every `HUB_WARP_SHAKE_INTERVAL_S`
  * at `HUB_WARP_SHAKE_PEAK × speed` (weak at first, strongest mid-trip, easing off toward arrival) and lands the ship
- * once `HUB_TRAVEL_DURATION` is up. The interior is optional: a rebuild mid-warp (격납고 in / out) simply picks the
+ * once `HUB_TRAVEL_DURATION` is up. The interior is optional: a rebuild mid-warp (hangar in / out) simply picks the
  * effect up again on its next frame.
  */
 export function tickTravel(sys: HubSystem, dt: number): void {
@@ -183,7 +183,7 @@ export function finishTravel(sys: HubSystem, planet: PlanetId, by: 'local' | 'sq
 
 /**
  * Drop a warp in flight **without** landing it (the interior is being torn down or swapped by a docking cutscene,
- * `hub:enter`, `game:abort`, 타이틀로 …). Mirrors what disposing the old travel cutscene did: `travelling` off, no
+ * `hub:enter`, `game:abort`, `타이틀로` …). Mirrors what disposing the old travel cutscene did: `travelling` off, no
  * `hub:travel {end}` — the path that called us emits its own `hub:docking` / `hub:entered` / `hub:left`, which is what
  * the listeners reset on. The interior (if it survives) is put back to rest.
  */
@@ -198,7 +198,7 @@ export function cancelTravel(sys: HubSystem): void {
   }
 
 /**
- * The decorative planet outside the viewports takes the 목표 행성's colours (nothing else is rebuilt).
+ * The decorative planet outside the viewports takes the target planet's colours (nothing else is rebuilt).
  *
  * **2026-09-09:** no destination → no planet. `HubRef.planet` (the lobby's pick, else the slot's saved solo pick) is
  * the single source of truth; when it is null — a fresh character, a lobby whose host has not chosen, a cleared

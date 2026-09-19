@@ -5,25 +5,25 @@ import { GeoBatch, HUB_MATS as M } from './GeoBatch';
 import type { BuildExtra, FurnitureModel } from './Furniture';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 서재 매체 (A-3e) · 헬스장 (A-3a) 가구 11종 — 2026-09-12.
+ * Library media (A-3e) · gym (A-3a) furniture, 11 kinds — 2026-09-12.
  *
- * `Furniture.ts` 의 다른 빌더와 같은 규약이다 (발자국 가운데 · 바닥 y 0 · **앞 = −Z** · `GeoBatch` 로 재질당 메시 하나).
- * 다른 점은 둘:
- *  1. **움직이는 부분**(바벨 · 원반 · 러닝 벨트 줄무늬 · 크랭크 · 플라이휠 · 흔들의자 · 레코드)은 따로 병합된 **하위 그룹**이고
- *     `FurnitureModel.rig` / `spin` 으로 넘어가 `FurnitureLayer.update` 가 돌린다. 하위 그룹의 메시도 `model.meshes` 에 들어가므로
- *     조각을 버릴 때 · 시설 관리 고스트가 재질을 바꿀 때 똑같이 처리된다.
- *  2. **자세 기하**(`FurnitureRig.anchor` · `forward` · `focus`)를 **가구 로컬 좌표**로 함께 낸다 — hub 가 그것을 월드로 바꿔
- *     `PlayerRef.setFurniturePose` 에 넘긴다. 치수를 모델과 한 파일에 둬야 좌판을 옮겼는데 앉는 자리가 안 따라오는 일이 없다.
+ * Same contract as the other builders in `Furniture.ts`: footprint centre · floor y 0 · **front = −Z** · one `GeoBatch`
+ * mesh per material. Two differences:
+ *  1. The **moving parts** (barbell · plates · belt stripes · crank · flywheel · rocking chair · record) are separately
+ *     merged **sub-groups** handed on as `FurnitureModel.rig` / `spin` for `FurnitureLayer.update` to turn. Their meshes
+ *     land in `model.meshes` too, so disposing a piece and the ghost's material swap treat them exactly like the rest.
+ *  2. The **pose geometry** (`FurnitureRig.anchor` · `forward` · `focus`) comes out too, in **furniture-local coordinates**,
+ *     which hub turns into world space for `PlayerRef.setFurniturePose`; beside the model, a moved seat moves its sitting spot.
  *
- * 빛나는 것(TV 화면 · 축음기 나팔 · 주크박스 네온 · 턴테이블 LED)은 전부 emissive 재질이고 **점광원은 하나도 없다**
- * (CLAUDE.md 「씬의 광원 개수를 플레이 중에 바꾸지 않는다」 · `smoke-lights`). 켜짐 / 꺼짐은 재질을 골라 다시 짓는 것으로 바뀐다.
- * 새 재질은 전부 `MeshStandardMaterial`(불투명 · FrontSide)이라 이미 컴파일된 프로그램을 그대로 쓴다 — 조각을 처음 놓아도
- * 셰이더 컴파일이 일어나지 않는다 (나팔 안쪽을 `DoubleSide` 로 그리지 않고 입구 원판으로 막은 이유다).
+ * Everything that glows (TV screen · gramophone horn · jukebox neon · turntable LED) is an emissive material and **not one
+ * point light exists** (CLAUDE.md 「the scene's point-light count never changes during play」 · `smoke-lights`); on / off is a
+ * material choice and a rebuild. Every material here is an opaque FrontSide `MeshStandardMaterial`, so it reuses an already
+ * compiled program — a first-time placement compiles no shader (why the horn's inside is a mouth disc, not `DoubleSide`).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
- * 가구 모델 중 이 파일이 짓는 것. 2026-09-13 (서재 시리즈 · 비디오게임): 게임 디스크 전시대 · 쇼파 · 좌식 테이블 · 러그가 더해졌고,
- * 의자(`chair`)도 앉는 자세 기하(`rig`)를 가져야 해서 `Furniture.ts` 의 `BUILDERS` 에서 이리로 옮겨 왔다.
+ * The furniture models this file builds. 2026-09-13 (library series · video games): game disc stand · sofa · low table ·
+ * rug were added, and `chair` moved here from `Furniture.ts`'s `BUILDERS` because it too needs sitting pose geometry (`rig`).
  */
 export type LeisureKind =
   | 'disc_stand' | 'record_rack' | 'rocking_chair' | 'tv' | 'gramophone' | 'jukebox' | 'turntable'
@@ -38,75 +38,76 @@ const LEISURE_KIND_SET: ReadonlySet<FurnitureModelKind> = new Set<FurnitureModel
 export function isLeisureKind(kind: FurnitureModelKind): kind is LeisureKind { return LEISURE_KIND_SET.has(kind); }
 
 /**
- * 자세 · 애니메이션 정보 (전부 가구 로컬 좌표, 앞 = −Z). 운동 기구 넷과 흔들의자가 갖는다.
+ * Pose and animation data (all of it furniture-local, front = −Z). The four gym machines and the rocking chair have one.
  */
 export interface FurnitureRig {
   pose: FurniturePoseKind;
-  /** 몸을 받치는 면 — `FurniturePose.anchor` 의 로컬 값 (좌판 윗면 · 벤치 패드 윗면의 견갑골 자리 · 벨트 윗면 · 안장 윗면). */
+  /** The surface that carries the body — `FurniturePose.anchor` in local coordinates (seat top · the shoulder-blade spot on the bench pad top · belt top · saddle top). */
   anchor: THREE.Vector3;
-  /** 향하는 방향 (x, z) — `sit` · `run` · `cycle` = 몸이 보는 쪽, `bench` = **엉덩이 → 머리**. */
+  /** Facing direction (x, z) — `sit` · `run` · `cycle` = the way the body looks, `bench` = **hips → head**. */
   forward: { x: number; z: number };
-  /** 고정 카메라가 비추는 점 (운동 기구만). */
+  /** The point the fixed camera looks at (gym machines only). */
   focus?: THREE.Vector3;
-  /** 옆 카메라의 거리 · 높이 (focus 기준). */
+  /** Distance · height of the side camera (relative to focus). */
   camDist?: number;
   camUp?: number;
-  /* ── 벤치프레스 (벤치 랙 · 스미스 머신) ── */
-  /** 바벨 그룹 (원반 · 칼라 포함). `position` 이 바의 중심이다. */
+  /* ── Bench press (bench rack · smith machine) ── */
+  /** The barbell group (plates and collars included). `position` is the centre of the bar. */
   bar?: THREE.Group;
-  /** 세션 중에만 보이는 원반 (`bar` 의 자식). */
+  /** The plates, visible only during a session (a child of `bar`). */
   plates?: THREE.Group;
-  /** 거치된 바의 자리 (y, z). */
+  /** Where the racked bar rests (y, z). */
   barRest?: { y: number; z: number };
   /**
-   * 운동 중 바의 자리 — 위상 0(가슴) · 1(팔 다 편 자리), 그 사이는 **선형** (player 의 `FURN_BENCH` 주먹 경로와 같은 규약).
-   * 스미스 머신은 레일이 수직이라 두 z 가 같다.
+   * Where the bar sits while exercising — phase 0 (chest) · 1 (arms fully extended), **linear** in between (the same
+   * contract as player's `FURN_BENCH` fist path). The smith machine's rails are vertical, so its two z are the same.
    */
   barPress?: { low: { y: number; z: number }; high: { y: number; z: number } };
-  /* ── 트레드밀 ── */
-  /** 벨트 줄무늬 그룹 — `position.z` 를 `[0, beltSpacing)` 로 밀면 끊김 없이 흐른다. */
+  /* ── Treadmill ── */
+  /** The belt stripe group — pushing `position.z` through `[0, beltSpacing)` makes it flow without a seam. */
   belt?: THREE.Group;
   beltSpacing?: number;
-  /* ── 사이클 ── */
-  /** 크랭크 그룹 (X 축 회전). 0 = 왼발(−X) 페달이 위. */
+  /* ── Exercise bike ── */
+  /** The crank group (turns about X). 0 = the left-foot (−X) pedal is up. */
   crank?: THREE.Group;
-  /** 페달 그룹 둘 — 크랭크와 반대로 돌려 수평을 지킨다. */
+  /** The two pedal groups — turned against the crank so they stay level. */
   pedals?: THREE.Group[];
-  /** 플라이휠 그룹 (X 축 회전). */
+  /** The flywheel group (turns about X). */
   flywheel?: THREE.Group;
-  /* ── 흔들의자 ── */
-  /** 의자 전체 (앉아 있는 동안 X 축으로 흔들린다, 피벗 = 흔들 다리가 바닥에 닿는 점). */
+  /* ── Rocking chair ── */
+  /** The whole chair (rocks about X while someone sits in it; the pivot is where the rockers meet the floor). */
   rock?: THREE.Group;
-  /* ── 쇼파 (2026-09-13) ── */
+  /* ── Sofa (2026-09-13) ── */
   /**
-   * 앉을 수 있는 자리 전부 (쿠션마다 좌판 윗면 한 점, 가구 로컬). 있으면 `sitPoseOf(piece, near)` 가 `near` 에 가장 가까운 자리를 고른다 —
-   * 평소에는 플레이어 발, 게임 세션에는 TV 화면. 없으면 `anchor` 하나뿐이다.
+   * Every spot that can be sat on (one point per cushion on the seat top, furniture-local). If present, `sitPoseOf` picks
+   * the one closest to its `near` — the player's feet normally, the TV screen in a game session. Without it, only `anchor`.
    */
   seats?: THREE.Vector3[];
 }
 
 /**
- * TV 의 게임 화면 rig (2026-09-13, 비디오게임). 화면 앞에 늘 지어 두고 숨겨 두는 하위 그룹 — 게임 세션 동안 `GameStaging` 이 보이게 하고
- * 공용 재질 `TV_GAME_SCREEN` · `TV_GAME_HUD` 의 발광 색 · 세기(uniform)만 바꾼다. 재질을 갈아 끼우지 않으므로 셰이더 컴파일이 없고, 점광원도 없다.
+ * The TV's game screen rig (2026-09-13, video games). A sub-group always built in front of the screen and kept hidden —
+ * during a game session `GameStaging` shows it and changes only the emissive colour · intensity (uniforms) of the shared
+ * materials `TV_GAME_SCREEN` · `TV_GAME_HUD`. No material is swapped, so there is no shader compile and no point light.
  */
 export interface TvRig {
-  /** 화면 앞면 한가운데 (가구 로컬) — 게임 카메라가 비추고, 좌석 고르기가 가까운 자리를 찾는 점. */
+  /** The centre of the screen's front face (furniture-local) — what the game camera looks at, and the point seat picking measures against. */
   screen: THREE.Vector3;
-  /** 화면 폭 · 높이 (m). */
+  /** Screen width · height (m). */
   screenW: number;
   screenH: number;
-  /** 게임 화면 그룹 (`tv-game`) — `BuildExtra.gameActive` 면 보이는 채로 지어진다. */
+  /** The game screen group (`tv-game`) — built visible when `BuildExtra.gameActive`. */
   overlay: THREE.Group;
-  /** 화면 속에서 움직이는 표식 (`tv-game-marker`) — x 이동 · y 비율로 미니게임을 흉내 낸다. */
+  /** The marker moving inside the screen (`tv-game-marker`) — x travel · y ratio mimic the minigame. */
   marker: THREE.Group;
-  /** 진행 막대 (`tv-game-progress`) — 왼쪽 끝이 원점이라 `scale.x` 가 곧 진행도다. */
+  /** The progress bar (`tv-game-progress`) — its left end is the origin, so `scale.x` is the progress itself. */
   progress: THREE.Group;
 }
 
-/** 앉는 자리 좌판 윗면 높이 — player `FURN_SIT` 의 발바닥이 이만큼 아래(0.36 m)라 의자 · 쇼파 · 흔들의자가 같은 값을 쓴다. */
+/** Seat top height — player `FURN_SIT` puts the soles this far below it (0.36 m), so chair · sofa · rocking chair share the value. */
 export const SIT_SEAT_TOP = 0.36;
 
-/* ── 재질 (전부 공용 · 버리지 않는다) ─────────────────────────────────────── */
+/* ── Materials (all shared · never disposed) ────────────────────────────────── */
 function std(color: number, roughness: number, metalness: number, emissive = 0, emissiveIntensity = 0): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ color, roughness, metalness, emissive, emissiveIntensity });
 }
@@ -122,18 +123,18 @@ const BELT = std(0x141619, 0.92, 0.05);
 const BELT_STRIPE = std(0x3a4149, 0.85, 0.1);
 const SLATE = std(0x353a41, 0.42, 0.4);
 const JUKE_BODY = std(0x5b2630, 0.5, 0.25);
-/** TV 화면 — 켜짐 (밝은 청백색 발광). 꺼짐은 `M.glassDark`. */
+/** The TV screen — on (a bright blue-white glow). Off is `M.glassDark`. */
 const TV_ON = std(0x9fd8ff, 0.3, 0.1, 0x4aa8f0, 1.5);
 const TV_SKY = std(0x6fe0ff, 0.3, 0.1, 0x2fc4ff, 1.9);
 const TV_GROUND = std(0x3a8a6a, 0.4, 0.1, 0x1f7a58, 1.4);
 const TV_SUN = std(0xffd28a, 0.3, 0.1, 0xffa640, 2.2);
-/** 축음기 · 주크박스의 따뜻한 불빛 (켜짐). */
+/** The warm light of the gramophone · jukebox (on). */
 const WARM_GLOW = std(0xffe3a0, 0.3, 0, 0xffb050, 2.3);
-/** 주크박스 창 (켜짐) — 안쪽이 호박색으로 비친다. */
+/** The jukebox window (on) — the inside shines amber through it. */
 const JUKE_WINDOW_ON = std(0xffd8a8, 0.25, 0.1, 0xff9a50, 1.3);
 
 const caseCache = new Map<string, THREE.MeshStandardMaterial>();
-/** 매체 케이스 · 슬리브 재질 (등급색, 어두운 방에서도 읽히게 약한 발광). */
+/** Media case · sleeve material (rarity colour, a faint glow so it reads in a dark room too). */
 function caseMat(rarity: Rarity): THREE.MeshStandardMaterial {
   const css = RARITY_COLORS[rarity];
   let m = caseCache.get(css);
@@ -145,7 +146,7 @@ function caseMat(rarity: Rarity): THREE.MeshStandardMaterial {
   return m;
 }
 const neonCache = new Map<string, THREE.MeshStandardMaterial>();
-/** 네온관 (켜짐 = 강한 발광, 꺼짐 = 같은 색을 어둡게 · 발광 없음). */
+/** A neon tube (on = a strong glow, off = the same colour darkened · no glow). */
 function neon(css: string, on: boolean): THREE.MeshStandardMaterial {
   const key = `${css}|${on ? 1 : 0}`;
   let m = neonCache.get(key);
@@ -157,14 +158,15 @@ function neon(css: string, on: boolean): THREE.MeshStandardMaterial {
   return m;
 }
 
-/* ── 2026-09-13 비디오게임 재질 (공용 · 버리지 않는다) ── */
+/* ── 2026-09-13 video-game materials (shared · never disposed) ── */
 /**
- * TV 게임 화면 · 화면 속 HUD. **이 둘만** 게임 세션 동안 발광 색 · 세기가 바뀐다(`GameStaging`) — 로컬 세션은 한 번에 하나라 조각마다 따로 둘 필요가
- * 없다. 둘 다 불투명 `MeshStandardMaterial` 이라 처음 보여도 이미 있는 프로그램을 쓴다.
+ * The TV game screen · the HUD inside it. **Only these two** change emissive colour · intensity during a game session
+ * (`GameStaging`) — a local session runs one at a time, so no per-piece copy is needed. Both are opaque
+ * `MeshStandardMaterial`, so showing them for the first time uses a program that already exists.
  */
 export const TV_GAME_SCREEN = std(0x10202c, 0.35, 0.1, 0x3aa8ff, 1.2);
 export const TV_GAME_HUD = std(0xe8f4ff, 0.3, 0.05, 0xdfefff, 1.6);
-/** 게임 화면의 판정 구역 (어둡게 비치는 띠). */
+/** The game screen's judgement zone (a band that shows through darkly). */
 const TV_GAME_ZONE = std(0x2a3440, 0.4, 0.1, 0x8fb0c8, 0.55);
 const CONSOLE_BLACK = std(0x121418, 0.28, 0.45);
 const CONSOLE_WHITE = std(0xd9dde2, 0.35, 0.2);
@@ -172,7 +174,7 @@ const CONSOLE_GREEN = std(0x6dff9a, 0.3, 0.05, 0x2cff6a, 2.0);
 const CUP = std(0xd8d2c4, 0.6, 0.05);
 
 const gameCaseCache = new Map<string, THREE.MeshStandardMaterial>();
-/** 게임 디스크 케이스 재질 (`GameDiscDef.color`, 어두운 방에서도 읽히게 약한 발광). 잘못된 색 문자열은 흰색으로. Cached forever. */
+/** Game disc case material (`GameDiscDef.color`, a faint glow so it reads in a dark room too). A malformed colour becomes white. Cached forever. */
 function gameCaseMat(css: string): THREE.MeshStandardMaterial {
   let m = gameCaseCache.get(css);
   if (!m) {
@@ -184,7 +186,7 @@ function gameCaseMat(css: string): THREE.MeshStandardMaterial {
   return m;
 }
 const fabricCache = new Map<string, THREE.MeshStandardMaterial>();
-/** 천 재질 — 카탈로그 색을 `mul` 만큼 어둡게 한 무광 (쇼파 · 러그). 발광 없음. Cached forever. */
+/** Fabric material — the catalogue colour darkened by `mul`, matte (sofa · rug). No glow. Cached forever. */
 function fabricMat(css: string, mul: number): THREE.MeshStandardMaterial {
   const key = `${css}|${mul}`;
   let m = fabricCache.get(key);
@@ -196,14 +198,14 @@ function fabricMat(css: string, mul: number): THREE.MeshStandardMaterial {
   return m;
 }
 
-/** 악센트 재질(`Furniture.tint`)의 원래 CSS 색 — 네온관이 카탈로그 색을 따라가게. */
+/** The original CSS colour of the accent material (`Furniture.tint`) — so the neon tubes follow the catalogue colour. */
 function accentCss(a: THREE.Material): string {
   const c = (a as THREE.MeshStandardMaterial).color;
   return c instanceof THREE.Color ? `#${c.getHexString()}` : '#ffffff';
 }
 
-/* ── 헬퍼 ───────────────────────────────────────────────────────────────── */
-/** 하위 그룹 하나를 `fill` 로 채워 병합한다. 메시는 `model.meshes` 에 들어간다. */
+/* ── Helpers ──────────────────────────────────────────────────────────────── */
+/** Fills one sub-group through `fill` and merges it. Its meshes go into `model.meshes`. */
 function rigGroup(model: FurnitureModel, parent: THREE.Object3D, name: string, x: number, y: number, z: number, fill: (b: GeoBatch) => void): THREE.Group {
   const g = new THREE.Group();
   g.name = name;
@@ -215,78 +217,78 @@ function rigGroup(model: FurnitureModel, parent: THREE.Object3D, name: string, x
   return g;
 }
 
-/** 원기둥(Y 축)을 방향 (dx, dy, dz)(단위 벡터)로 세우는 YXZ 오일러 — `GeoBatch.cyl` 의 rx, ry. */
+/** The YXZ Euler that stands a (Y-axis) cylinder along the direction (dx, dy, dz) (a unit vector) — `GeoBatch.cyl`'s rx, ry. */
 function aim(dx: number, dy: number, dz: number): { rx: number; ry: number } {
   return { rx: Math.acos(THREE.MathUtils.clamp(dy, -1, 1)), ry: Math.atan2(dx, dz) };
 }
 
-/** Y 축 원기둥을 X 축으로 눕힌다 (바벨 · 원반 · 크랭크 축). */
+/** Lays a Y-axis cylinder down along X (barbell · plates · crank shaft). */
 const ALONG_X = Math.PI / 2;
 
 /*
- * 자세 치수는 player 의 `SoldierModel` (`FURN_SIT` · `FURN_BENCH` · `FURN_CYCLE`, anchor 기준 m)에 맞췄다 — 손발이 IK 로 그 점에
- * 정확히 내려앉으므로 가구가 그 점에 맞춰 선다:
- *   sit   발바닥 (±0.17, −0.36, 앞 0.40)            → 좌판 윗면 0.36
- *   bench 발바닥 (±0.36, −0.40, 발 쪽 0.78) · 골반 발 쪽 0.42 → 패드 윗면 0.40
- *         주먹(= 바) 위상 0: 위 0.50 · 발 쪽 0.03 / 위상 1: 위 0.81 · 머리 쪽 0.06, 그립 x ±0.42
- *   cycle 크랭크 축 (0, −0.60, 앞 0.25) · 반지름 0.16 · 페달 x ±0.13 · 손잡이 (±0.22, +0.14, 앞 0.50)
+ * The pose measurements match player's `SoldierModel` (`FURN_SIT` · `FURN_BENCH` · `FURN_CYCLE`, metres from the anchor) —
+ * IK drops hands and feet exactly onto those points, so the furniture is built to meet them:
+ *   sit   soles (±0.17, −0.36, front 0.40)                           → seat top 0.36
+ *   bench soles (±0.36, −0.40, foot side 0.78) · hips foot side 0.42 → pad top 0.40
+ *         fists (= the bar) phase 0: up 0.50 · foot side 0.03 / phase 1: up 0.81 · head side 0.06, grip x ±0.42
+ *   cycle crank axis (0, −0.60, front 0.25) · radius 0.16 · pedals x ±0.13 · grips (±0.22, +0.14, front 0.50)
  */
-/** 벤치 패드 윗면 높이 — 벤치 랙과 스미스 머신이 같은 벤치를 쓴다. */
+/** Bench pad top height — the bench rack and the smith machine use the same bench. */
 const PAD_TOP = 0.4;
-/** 벤치의 발 쪽 끝 · 머리 끝 z. 머리 쪽이 +Z (거치대 쪽)이다. 발 쪽 끝은 골반(z 0.18) 조금 너머 — 발바닥(z −0.18)이 패드 옆 바닥에 닿는다. */
+/** The bench's foot-end · head-end z. The head side is +Z (the rack side). The foot end is just past the hips (z 0.18) — the soles (z −0.18) reach the floor beside the pad. */
 const PAD_Z0 = -0.2, PAD_Z1 = 0.78;
-/** 벤치에 누운 견갑골 자리 z (패드 머리 끝에서 0.18 m). */
+/** The z of the shoulder blades of a body lying on the bench (0.18 m in from the pad's head end). */
 const BENCH_SHOULDER_Z = 0.6;
-/** 벤치프레스 바(주먹 중심)의 위상 0 · 1 자리 — 패드 윗면 · 견갑골 기준 (위, 머리 쪽 +). */
+/** Phase 0 · 1 positions of the bench-press bar (the fist centre) — measured from the pad top · the shoulder blades (up, head side +). */
 const PRESS_LOW_UP = 0.5, PRESS_LOW_Z = -0.03, PRESS_HIGH_UP = 0.81, PRESS_HIGH_Z = 0.06;
-/** 벤치 랙 · 스미스의 운동 중 바 자리 (가구 로컬). */
+/** Where the bar sits while exercising on the bench rack · smith machine (furniture-local). */
 const BENCH_BAR_LOW = { y: PAD_TOP + PRESS_LOW_UP, z: BENCH_SHOULDER_Z + PRESS_LOW_Z };
 const BENCH_BAR_HIGH = { y: PAD_TOP + PRESS_HIGH_UP, z: BENCH_SHOULDER_Z + PRESS_HIGH_Z };
 
-/** 플랫 벤치 (패드 · 받침판 · 다리 둘 · 발 막대 · 척추 보). */
+/** The flat bench (pad · base plate · two legs · foot bars · spine beam). */
 function flatBench(b: GeoBatch, a: THREE.Material): void {
   const len = PAD_Z1 - PAD_Z0, cz = (PAD_Z0 + PAD_Z1) / 2;
-  b.box(0.3, 0.07, len, 0, PAD_TOP - 0.035, cz, BENCH_PAD);                                    // 패드
-  b.box(0.306, 0.014, len + 0.006, 0, PAD_TOP - 0.064, cz, a);                                 // 파이핑
-  b.box(0.26, 0.03, len - 0.06, 0, PAD_TOP - 0.086, cz, M.gunmetal);                           // 받침판
+  b.box(0.3, 0.07, len, 0, PAD_TOP - 0.035, cz, BENCH_PAD);                                    // pad
+  b.box(0.306, 0.014, len + 0.006, 0, PAD_TOP - 0.064, cz, a);                                 // piping
+  b.box(0.26, 0.03, len - 0.06, 0, PAD_TOP - 0.086, cz, M.gunmetal);                           // base plate
   for (const lz of [PAD_Z0 + 0.14, PAD_Z1 - 0.16]) {
-    b.boxB(0.06, PAD_TOP - 0.1, 0.06, 0, 0, lz, M.hullLight);                                  // 다리
-    b.box(0.46, 0.04, 0.07, 0, 0.02, lz, M.hullLight);                                         // 발 막대
-    for (const sx of [-1, 1]) b.box(0.07, 0.022, 0.08, sx * 0.23, 0.011, lz, RUBBER);          // 고무 발
+    b.boxB(0.06, PAD_TOP - 0.1, 0.06, 0, 0, lz, M.hullLight);                                  // leg
+    b.box(0.46, 0.04, 0.07, 0, 0.02, lz, M.hullLight);                                         // foot bar
+    for (const sx of [-1, 1]) b.box(0.07, 0.022, 0.08, sx * 0.23, 0.011, lz, RUBBER);          // rubber foot
   }
-  b.box(0.06, 0.05, len - 0.36, 0, 0.065, cz, M.hullLight);                                    // 척추 보
+  b.box(0.06, 0.05, len - 0.36, 0, 0.065, cz, M.hullLight);                                    // spine beam
 }
 
-/** 바벨 (샤프트 · 널링 · 슬리브 · 칼라) + 원반 그룹. `half` = 샤프트 반길이, `sleeveIn` = 슬리브가 시작하는 |x|. */
+/** The barbell (shaft · knurling · sleeves · collars) + the plate group. `half` = half the shaft length, `sleeveIn` = the |x| where a sleeve starts. */
 function barbell(model: FurnitureModel, parent: THREE.Object3D, y: number, z: number, half: number, sleeveIn: number, a: THREE.Material, extra: (b: GeoBatch) => void, gymActive: boolean): { bar: THREE.Group; plates: THREE.Group } {
   const bar = rigGroup(model, parent, 'barbell', 0, y, z, (b) => {
-    b.cyl(0.016, 0.016, half * 2, 12, 0, 0, 0, CHROME, 0, 0, ALONG_X);                         // 샤프트
+    b.cyl(0.016, 0.016, half * 2, 12, 0, 0, 0, CHROME, 0, 0, ALONG_X);                         // shaft
     for (const sx of [-1, 1]) {
-      b.cyl(0.019, 0.019, 0.22, 12, sx * 0.27, 0, 0, M.gunmetal, 0, 0, ALONG_X);               // 널링
+      b.cyl(0.019, 0.019, 0.22, 12, sx * 0.27, 0, 0, M.gunmetal, 0, 0, ALONG_X);               // knurling
       const sl = half - sleeveIn;
-      b.cyl(0.026, 0.026, sl, 12, sx * (sleeveIn + sl / 2), 0, 0, CHROME, 0, 0, ALONG_X);      // 슬리브
-      b.cyl(0.042, 0.042, 0.026, 14, sx * (sleeveIn + 0.013), 0, 0, M.trim, 0, 0, ALONG_X);    // 칼라
+      b.cyl(0.026, 0.026, sl, 12, sx * (sleeveIn + sl / 2), 0, 0, CHROME, 0, 0, ALONG_X);      // sleeve
+      b.cyl(0.042, 0.042, 0.026, 14, sx * (sleeveIn + 0.013), 0, 0, M.trim, 0, 0, ALONG_X);    // collar
     }
     extra(b);
   });
   const plates = rigGroup(model, bar, 'plates', 0, 0, 0, (b) => {
     for (const sx of [-1, 1]) {
       const x0 = sleeveIn + 0.03;
-      b.cyl(0.22, 0.22, 0.04, 28, sx * (x0 + 0.02), 0, 0, PLATE, 0, 0, ALONG_X);               // 큰 원반
-      b.cyl(0.224, 0.224, 0.012, 28, sx * (x0 + 0.02), 0, 0, a, 0, 0, ALONG_X);                // 원반 테 (악센트)
-      b.cyl(0.16, 0.16, 0.034, 24, sx * (x0 + 0.058), 0, 0, PLATE, 0, 0, ALONG_X);             // 작은 원반
-      b.cyl(0.05, 0.05, 0.08, 14, sx * (x0 + 0.04), 0, 0, CHROME, 0, 0, ALONG_X);              // 허브
-      b.cyl(0.036, 0.036, 0.02, 12, sx * (x0 + 0.09), 0, 0, M.stripRed, 0, 0, ALONG_X);        // 클립
+      b.cyl(0.22, 0.22, 0.04, 28, sx * (x0 + 0.02), 0, 0, PLATE, 0, 0, ALONG_X);               // large plate
+      b.cyl(0.224, 0.224, 0.012, 28, sx * (x0 + 0.02), 0, 0, a, 0, 0, ALONG_X);                // plate rim (accent)
+      b.cyl(0.16, 0.16, 0.034, 24, sx * (x0 + 0.058), 0, 0, PLATE, 0, 0, ALONG_X);             // small plate
+      b.cyl(0.05, 0.05, 0.08, 14, sx * (x0 + 0.04), 0, 0, CHROME, 0, 0, ALONG_X);              // hub
+      b.cyl(0.036, 0.036, 0.02, 12, sx * (x0 + 0.09), 0, 0, M.stripRed, 0, 0, ALONG_X);        // clip
     }
   });
   plates.visible = gymActive;
   return { bar, plates };
 }
 
-/* ── 빌더 ────────────────────────────────────────────────────────────────── */
+/* ── Builders ─────────────────────────────────────────────────────────────── */
 type LeisureBuilder = (b: GeoBatch, model: FurnitureModel, w: number, d: number, h: number, a: THREE.Material, extra?: BuildExtra) => void;
 
-/** 매체 칸 배열을 `n` 칸으로 맞춘다 (빈 칸 = null). */
+/** Pads the media slot array to `n` slots (an empty slot = null). */
 function slotsOf(extra: BuildExtra | undefined, n: number): (Rarity | null)[] {
   const out: (Rarity | null)[] = new Array(n).fill(null);
   const src = extra?.media ?? [];
@@ -294,12 +296,12 @@ function slotsOf(extra: BuildExtra | undefined, n: number): (Rarity | null)[] {
   return out;
 }
 
-/* ── 2026-09-13 비디오게임 헬퍼 ─────────────────────────────────────────── */
+/* ── 2026-09-13 video-game helpers ──────────────────────────────────────── */
 
-/** 게임기 모양 수 (`BuildExtra.consoleLook` 0 … 2), 3 = 모르는 게임기의 일반 상자. */
+/** How many console looks there are (`BuildExtra.consoleLook` 0 … 2); 3 = the generic box of an unknown console. */
 export const TV_CONSOLE_LOOKS = 3;
 
-/** 패드 하나 (몸체 · 손잡이 둘 · 버튼) — 윗면 `topY` 위에 놓인다. */
+/** One controller pad (body · two grips · buttons) — it sits on the top face `topY`. */
 function controllerPad(b: GeoBatch, x: number, topY: number, z: number, body: THREE.Material, accent: THREE.Material, ry: number): void {
   const c = Math.cos(ry), s = Math.sin(ry);
   const at = (lx: number, lz: number): [number, number] => [x + lx * c + lz * s, z - lx * s + lz * c];
@@ -310,17 +312,19 @@ function controllerPad(b: GeoBatch, x: number, topY: number, z: number, body: TH
 }
 
 /**
- * 게임기 종류(`GameConsoleDef.console`, `data/game_consoles.csv`) → 모양. 표에 없는 종류는 `FurnitureLayer.consoleLookOf` 가 카탈로그 종류 목록의
- * 순번으로 셋 중 하나를 고른다 (모든 클라이언트가 같은 카탈로그라 같은 모양).
+ * Console kind (`GameConsoleDef.console`, `data/game_consoles.csv`) → look. For a kind that is not in the table,
+ * `FurnitureLayer.consoleLookOf` picks one of the three by its index in the catalogue's kind list (every client holds
+ * the same catalogue, so every client draws the same look).
  */
 export const TV_CONSOLE_LOOK_BY_KIND: Readonly<Record<string, number>> = { pulse: 0, retro: 1, holo: 2 };
 
 /**
- * TV 상판 위 게임기 (`look` = `BuildExtra.consoleLook`). 자리는 상판 왼쪽 x −0.56 (사운드바 ±0.4 · 받침대 ±0.21 과 겹치지 않는다), 패드는 오른쪽.
- *  0 펄스 스테이션 — 낮고 넓은 검은 슬랩 · 윗면 청록 띠 · 앞 디스크 슬롯
- *  1 레트로 큐브   — 흰 정육면체 · 윗면 카트리지 홈 · 앞 초록 전원등 · 보라 줄무늬
- *  2 홀로 데크     — 넓고 낮은 검은 데크 · 윗면 방출 원판 위로 가는 청록 홀로 기둥 (불투명 발광 — 새 셰이더 없음)
- *  3 일반          — 모르는 게임기: 건메탈 상자 + 초록 LED
+ * The console on the TV's top plate (`look` = `BuildExtra.consoleLook`). It stands on the left of the top plate at
+ * x −0.56 (clear of the sound bar ±0.4 · the stand ±0.21), the pad on the right.
+ *  0 pulse station — a low wide black slab · a cyan strip on top · a disc slot at the front
+ *  1 retro cube    — a white cube · a cartridge slot on top · a green power light at the front · a purple stripe
+ *  2 holo deck     — a wide low black deck · a cyan holo column rising off an emitter disc on top (opaque glow — no new shader)
+ *  3 generic       — an unknown console: a gunmetal box + a green LED
  */
 function tvConsole(b: GeoBatch, look: number, topY: number, a: THREE.Material): void {
   const x = -0.56, z = -0.04;
@@ -333,17 +337,17 @@ function tvConsole(b: GeoBatch, look: number, topY: number, a: THREE.Material): 
       break;
     case 1:
       b.boxB(0.2, 0.2, 0.2, x, topY, z, CONSOLE_WHITE);
-      b.box(0.12, 0.012, 0.03, x, topY + 0.2, z + 0.02, M.floorGrate);                              // 카트리지 홈
-      b.box(0.204, 0.018, 0.204, x, topY + 0.14, z, neon('#b89aff', true));                         // 보라 줄무늬
-      b.box(0.02, 0.02, 0.004, x + 0.06, topY + 0.05, z - 0.102, CONSOLE_GREEN);                    // 전원등
+      b.box(0.12, 0.012, 0.03, x, topY + 0.2, z + 0.02, M.floorGrate);                              // cartridge slot
+      b.box(0.204, 0.018, 0.204, x, topY + 0.14, z, neon('#b89aff', true));                         // purple stripe
+      b.box(0.02, 0.02, 0.004, x + 0.06, topY + 0.05, z - 0.102, CONSOLE_GREEN);                    // power light
       controllerPad(b, 0.56, topY, -0.08, CONSOLE_WHITE, CONSOLE_GREEN, -0.25);
       break;
     case 2:
       b.boxB(0.3, 0.045, 0.22, x, topY, z, CONSOLE_BLACK);
-      b.cyl(0.075, 0.085, 0.012, 20, x, topY + 0.051, z, M.gunmetal);                               // 방출기 받침
-      b.cyl(0.06, 0.06, 0.004, 20, x, topY + 0.059, z, M.stripCyan);                                // 방출 원판
-      b.cyl(0.008, 0.02, 0.16, 10, x, topY + 0.14, z, M.stripCyan);                                 // 홀로 기둥
-      b.box(0.24, 0.006, 0.004, x, topY + 0.022, z - 0.112, a);                                     // 앞 띠
+      b.cyl(0.075, 0.085, 0.012, 20, x, topY + 0.051, z, M.gunmetal);                               // emitter base
+      b.cyl(0.06, 0.06, 0.004, 20, x, topY + 0.059, z, M.stripCyan);                                // emitter disc
+      b.cyl(0.008, 0.02, 0.16, 10, x, topY + 0.14, z, M.stripCyan);                                 // holo column
+      b.box(0.24, 0.006, 0.004, x, topY + 0.022, z - 0.112, a);                                     // front strip
       controllerPad(b, 0.56, topY, -0.08, CONSOLE_BLACK, M.stripCyan, 0.15);
       break;
     default:
@@ -356,14 +360,16 @@ function tvConsole(b: GeoBatch, look: number, topY: number, a: THREE.Material): 
 }
 
 /**
- * TV 게임 화면 (`model.tv`): 화면 앞(−Z) 몇 mm 에 겹친 판 · 판정 구역 띠 · 움직이는 표식 · 진행 막대. 판은 `TV_GAME_SCREEN`, 표식과 막대는
- * `TV_GAME_HUD` — 둘 다 공용이라 `GameStaging` 이 색 · 세기만 바꾼다. 그룹은 `active` 가 아니면 숨긴다 (보이지 않는 가지는 그리지도 세지도 않는다).
+ * The TV game screen (`model.tv`): a plate laid a few mm in front of the screen (−Z) · the judgement zone band · the
+ * moving marker · the progress bar. The plate is `TV_GAME_SCREEN`, the marker and the bar are `TV_GAME_HUD` — both are
+ * shared, so `GameStaging` changes only colour · intensity. The group is hidden unless `active` (an invisible branch is
+ * neither drawn nor counted).
  */
 function tvGameOverlay(model: FurnitureModel, cy: number, sw: number, sh: number, active: boolean): void {
   const overlay = rigGroup(model, model.group, 'tv-game', 0, cy, 0, (ob) => {
-    ob.box(sw, sh, 0.003, 0, 0, 0.008, TV_GAME_SCREEN);                                            // 판 (화면 앞면 0.0115 보다 앞)
-    ob.box(sw * 0.16, sh * 0.62, 0.0015, 0, 0.03, 0.00525, TV_GAME_ZONE);                           // 판정 구역
-    ob.box(sw * 0.8, 0.026, 0.0015, 0, -sh / 2 + 0.06, 0.00525, M.hullDark);                        // 진행 막대 바탕
+    ob.box(sw, sh, 0.003, 0, 0, 0.008, TV_GAME_SCREEN);                                            // plate (in front of the screen's front face at 0.0115)
+    ob.box(sw * 0.16, sh * 0.62, 0.0015, 0, 0.03, 0.00525, TV_GAME_ZONE);                           // judgement zone
+    ob.box(sw * 0.8, 0.026, 0.0015, 0, -sh / 2 + 0.06, 0.00525, M.hullDark);                        // progress bar backing
   });
   const marker = rigGroup(model, overlay, 'tv-game-marker', 0, 0.03, 0.0035, (mb) => {
     mb.box(0.035, sh * 0.5, 0.0015, 0, 0, 0, TV_GAME_HUD);
@@ -378,46 +384,48 @@ function tvGameOverlay(model: FurnitureModel, cy: number, sw: number, sh: number
 
 export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   /**
-   * 디스크 전시대 (`3 × 1 · 1.8`): 금속 프레임 진열장 — 선반 셋에 칸이 둘씩(`SHELF_SLOTS.disc`), 칸마다 앞으로 살짝 기운
-   * 디스크 케이스가 선다. 케이스 뒷판이 **등급색**이고 앞에 은빛 디스크 면이 보인다. 빈 칸은 받침만 남는다.
-   * 선반마다 앞 가장자리 아래에 흰 LED 띠(emissive)가 있어 진열장으로 읽힌다.
+   * Disc stand (`3 × 1 · 1.8`): a metal-framed display cabinet — three shelves with two slots each (`SHELF_SLOTS.disc`),
+   * and in every slot a disc case standing tilted slightly forward. The case's back panel is the **rarity colour** and the
+   * silvery disc face shows in front of it. An empty slot keeps only its base. Under the front edge of every shelf runs a
+   * white LED strip (emissive), which is what makes it read as a display cabinet.
    */
   disc_stand: (b, _model, w, d, h, a, extra) => {
     const n = SHELF_SLOTS.disc;
     const slots = slotsOf(extra, n);
-    b.boxB(w - 0.04, 0.1, d - 0.04, 0, 0, 0, M.gunmetal);                                        // 받침
-    for (const sx of [-1, 1]) b.boxB(0.05, h, d, sx * (w / 2 - 0.025), 0, 0, M.hullLight);       // 옆판
-    b.box(w - 0.1, h - 0.1, 0.03, 0, h / 2, d / 2 - 0.02, M.hullDark);                           // 뒷판
-    b.box(w, 0.06, d, 0, h - 0.03, 0, M.hullLight);                                              // 천장
-    b.box(w - 0.2, 0.035, 0.03, 0, h - 0.08, -(d / 2 - 0.015), a);                               // 천장 악센트
+    b.boxB(w - 0.04, 0.1, d - 0.04, 0, 0, 0, M.gunmetal);                                        // base
+    for (const sx of [-1, 1]) b.boxB(0.05, h, d, sx * (w / 2 - 0.025), 0, 0, M.hullLight);       // side plate
+    b.box(w - 0.1, h - 0.1, 0.03, 0, h / 2, d / 2 - 0.02, M.hullDark);                           // back panel
+    b.box(w, 0.06, d, 0, h - 0.03, 0, M.hullLight);                                              // ceiling
+    b.box(w - 0.2, 0.035, 0.03, 0, h - 0.08, -(d / 2 - 0.015), a);                               // ceiling accent
     const rows = 3, perRow = Math.ceil(n / rows);
     const y0 = 0.14, rowH = (h - 0.26) / rows;
     const tilt = 0.14;
     for (let r = 0; r < rows; r++) {
       const y = y0 + r * rowH;
-      b.box(w - 0.1, 0.035, d - 0.06, 0, y, 0.01, M.gunmetal);                                   // 선반
-      b.box(w - 0.12, 0.045, 0.025, 0, y + 0.035, -(d / 2 - 0.06), M.trim);                      // 진열 턱
-      b.box(w - 0.18, 0.012, 0.03, 0, y + rowH - 0.04, -(d / 2 - 0.07), M.stripWhite);           // 선반 조명 (위 선반 밑)
+      b.box(w - 0.1, 0.035, d - 0.06, 0, y, 0.01, M.gunmetal);                                   // shelf
+      b.box(w - 0.12, 0.045, 0.025, 0, y + 0.035, -(d / 2 - 0.06), M.trim);                      // display lip
+      b.box(w - 0.18, 0.012, 0.03, 0, y + rowH - 0.04, -(d / 2 - 0.07), M.stripWhite);           // shelf light (under the shelf above)
       for (let k = 0; k < perRow; k++) {
-        const slot = (rows - 1 - r) * perRow + k;                                               // 0 = 왼쪽 위
+        const slot = (rows - 1 - r) * perRow + k;                                               // 0 = top left
         if (slot >= n) continue;
         const cx = (k - (perRow - 1) / 2) * ((w - 0.2) / perRow);
         const rarity = slots[slot];
-        b.box(0.22, 0.02, 0.1, cx, y + 0.028, -0.02, M.hullDark);                                // 받침
+        b.box(0.22, 0.02, 0.1, cx, y + 0.028, -0.02, M.hullDark);                                // base
         if (!rarity) continue;
         const cm = caseMat(rarity);
         const cy = y + 0.2;
-        b.box(0.3, 0.3, 0.035, cx, cy, 0, cm, 0, tilt);                                          // 케이스 (등급색)
-        b.cyl(0.12, 0.12, 0.006, 28, cx, cy + 0.003, -0.024, DISC_FACE, ALONG_X + tilt);         // 디스크 면
-        b.cyl(0.03, 0.03, 0.008, 12, cx, cy + 0.003, -0.027, M.gunmetal, ALONG_X + tilt);        // 허브
-        b.box(0.12, 0.03, 0.008, cx, y + 0.04, -(d / 2 - 0.044), cm);                            // 등급 표찰
+        b.box(0.3, 0.3, 0.035, cx, cy, 0, cm, 0, tilt);                                          // case (rarity colour)
+        b.cyl(0.12, 0.12, 0.006, 28, cx, cy + 0.003, -0.024, DISC_FACE, ALONG_X + tilt);         // disc face
+        b.cyl(0.03, 0.03, 0.008, 12, cx, cy + 0.003, -0.027, M.gunmetal, ALONG_X + tilt);        // hub
+        b.box(0.12, 0.03, 0.008, cx, y + 0.04, -(d / 2 - 0.044), cm);                            // rarity tag
       }
     }
   },
 
   /**
-   * 레코드랙 (`3 × 2 · 1.2`): 짧은 다리의 원목 캐비닛(앞면에 레코드 등이 꽂힌 칸 둘) 위에 칸막이 달린 **레코드 통**. 통의 칸마다
-   * (`SHELF_SLOTS.record`) 꽂힌 레코드가 등급색 슬리브로 서고, 슬리브 위로 검은 음반이 반쯤 솟는다. 뒤에 악센트 띠가 달린 머리판.
+   * Record rack (`3 × 2 · 1.2`): a short-legged wooden cabinet (two compartments of record spines across its front) with a
+   * divided **record bin** on top. In every bin slot (`SHELF_SLOTS.record`) a filed record stands as a rarity-coloured
+   * sleeve, the black disc rising halfway out of it. A headboard behind it, with an accent strip.
    */
   record_rack: (b, _model, w, d, h, a, extra) => {
     const n = SHELF_SLOTS.record;
@@ -425,27 +433,27 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
     const legH = 0.14;
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.cyl(0.026, 0.017, legH, 8, sx * (w / 2 - 0.12), legH / 2, sz * (d / 2 - 0.12), M.gunmetal);
     const cabH = 0.46, cabTop = legH + cabH;
-    b.boxB(w - 0.02, cabH, d - 0.04, 0, legH, 0, WOOD);                                          // 캐비닛
-    b.box(w, 0.035, d, 0, cabTop + 0.0175, 0, WOOD_DARK);                                        // 상판
+    b.boxB(w - 0.02, cabH, d - 0.04, 0, legH, 0, WOOD);                                          // cabinet
+    b.box(w, 0.035, d, 0, cabTop + 0.0175, 0, WOOD_DARK);                                        // top plate
     const fz = -(d / 2 - 0.02);
     for (const sx of [-1, 1]) {
       const cx = sx * (w / 4);
-      b.box(w / 2 - 0.12, cabH - 0.12, 0.012, cx, legH + cabH / 2, fz - 0.006, M.floorGrate);    // 칸 (어두운 안쪽)
+      b.box(w / 2 - 0.12, cabH - 0.12, 0.012, cx, legH + cabH / 2, fz - 0.006, M.floorGrate);    // compartment (dark inside)
       for (let k = 0; k < 9; k++) {
         const sh = cabH - 0.2 - ((k * 5) % 3) * 0.025;
-        b.boxB(0.028, sh, 0.012, cx - 0.2 + k * 0.05, legH + 0.07, fz - 0.014, k % 3 === 0 ? a : k % 2 ? M.padding : M.fabric);   // 레코드 등
+        b.boxB(0.028, sh, 0.012, cx - 0.2 + k * 0.05, legH + 0.07, fz - 0.014, k % 3 === 0 ? a : k % 2 ? M.padding : M.fabric);   // record spine
       }
     }
-    b.box(w - 0.1, 0.03, 0.014, 0, legH + 0.03, fz - 0.008, a);                                  // 앞 악센트
-    // ── 레코드 통
+    b.box(w - 0.1, 0.03, 0.014, 0, legH + 0.03, fz - 0.008, a);                                  // front accent
+    // ── record bin
     const binY = cabTop + 0.035, binH = 0.26, binD = d - 0.32, binZ = -0.03;
-    b.box(w - 0.06, 0.02, binD, 0, binY + 0.01, binZ, WOOD_DARK);                                // 통 바닥
-    b.box(w - 0.06, 0.1, 0.03, 0, binY + 0.05, binZ - binD / 2, WOOD);                           // 앞 턱
-    b.box(w - 0.06, binH, 0.03, 0, binY + binH / 2, binZ + binD / 2, WOOD);                      // 뒷벽
+    b.box(w - 0.06, 0.02, binD, 0, binY + 0.01, binZ, WOOD_DARK);                                // bin floor
+    b.box(w - 0.06, 0.1, 0.03, 0, binY + 0.05, binZ - binD / 2, WOOD);                           // front lip
+    b.box(w - 0.06, binH, 0.03, 0, binY + binH / 2, binZ + binD / 2, WOOD);                      // back wall
     for (const sx of [-1, 1]) b.box(0.03, binH, binD, sx * (w / 2 - 0.045), binY + binH / 2, binZ, WOOD);
     const inner = w - 0.12, cell = inner / n;
-    for (let i = 1; i < n; i++) b.box(0.014, binH * 0.72, binD - 0.06, -inner / 2 + i * cell, binY + binH * 0.36, binZ, M.gunmetal);   // 칸막이
-    // 머리판 + 악센트 조명
+    for (let i = 1; i < n; i++) b.box(0.014, binH * 0.72, binD - 0.06, -inner / 2 + i * cell, binY + binH * 0.36, binZ, M.gunmetal);   // dividers
+    // headboard + accent light
     const headZ = d / 2 - 0.05;
     b.box(w - 0.06, h - binY, 0.03, 0, (binY + h) / 2, headZ, WOOD_DARK);
     b.box(w - 0.24, 0.03, 0.02, 0, h - 0.06, headZ - 0.025, a);
@@ -453,22 +461,23 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
     for (let k = 0; k < n; k++) {
       const cx = -inner / 2 + (k + 0.5) * cell;
       const rarity = slots[k];
-      b.box(0.1, 0.022, 0.008, cx, binY + 0.07, binZ - binD / 2 - 0.018, rarity ? caseMat(rarity) : M.hullDark);   // 칸 표찰
+      b.box(0.1, 0.022, 0.008, cx, binY + 0.07, binZ - binD / 2 - 0.018, rarity ? caseMat(rarity) : M.hullDark);   // slot tag
       if (!rarity) continue;
       const cm = caseMat(rarity);
-      b.box(0.3, 0.3, 0.02, cx, sy, binZ, cm, 0, tilt);                                          // 슬리브 (등급색)
-      b.cyl(0.05, 0.05, 0.004, 16, cx, sy - 0.02, binZ - 0.013, a, ALONG_X + tilt);               // 슬리브 라벨
-      b.cyl(0.14, 0.14, 0.008, 28, cx, sy + 0.066, binZ + 0.028, VINYL, ALONG_X + tilt);         // 솟은 음반
+      b.box(0.3, 0.3, 0.02, cx, sy, binZ, cm, 0, tilt);                                          // sleeve (rarity colour)
+      b.cyl(0.05, 0.05, 0.004, 16, cx, sy - 0.02, binZ - 0.013, a, ALONG_X + tilt);               // sleeve label
+      b.cyl(0.14, 0.14, 0.008, 28, cx, sy + 0.066, binZ + 0.028, VINYL, ALONG_X + tilt);         // the disc rising out
     }
   },
 
   /**
-   * 흔들의자 (`2 × 2 · 1.1`): 곡선 흔들 다리 둘(원호를 짧은 상자로 이은 것) · 다리 넷 · 쿠션 좌판 · 뒤로 기운 등받이(기둥 둘 ·
-   * 윗가로대 · 살 다섯) · 팔걸이. **전부 `rig.rock` 그룹 안**이라 앉아 있는 동안 통째로 흔들린다 (피벗 = 원호 바닥점 = 그룹 원점).
+   * Rocking chair (`2 × 2 · 1.1`): two curved rockers (an arc built out of short boxes) · four legs · a cushioned seat ·
+   * a backrest leaning back (two posts · a top rail · five slats) · armrests. **All of it inside the `rig.rock` group**, so
+   * the whole chair rocks while someone sits in it (the pivot is the bottom of the arc = the group's origin).
    */
   rocking_chair: (_b, model, _w, _d, _h, a) => {
-    const seatTop = SIT_SEAT_TOP;                                                                 // player FURN_SIT: 발바닥이 좌판 윗면 0.36 m 아래
-    const seatBoard = seatTop - 0.05;                                                             // 좌판 윗면 (쿠션 밑)
+    const seatTop = SIT_SEAT_TOP;                                                                 // player FURN_SIT: the soles sit 0.36 m below the seat top
+    const seatBoard = seatTop - 0.05;                                                             // seat board top (under the cushion)
     const armY = seatTop + 0.19;
     const rock = rigGroup(model, model.group, 'rock', 0, 0, 0, (b) => {
       const R = 1.35, span = 0.35, segs = 8;
@@ -476,24 +485,24 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
         for (let i = 0; i < segs; i++) {
           const am = -span + (2 * span) * (i + 0.5) / segs;
           const len = 2 * R * Math.sin(span / segs) + 0.012;
-          b.box(0.045, 0.045, len, sx * 0.28, R * (1 - Math.cos(am)) + 0.0225, R * Math.sin(am), WOOD_DARK, 0, -am);   // 흔들 다리
+          b.box(0.045, 0.045, len, sx * 0.28, R * (1 - Math.cos(am)) + 0.0225, R * Math.sin(am), WOOD_DARK, 0, -am);   // rocker
         }
-        b.boxB(0.042, seatBoard - 0.085, 0.042, sx * 0.28, 0.05, -0.2, WOOD);                    // 앞다리
-        b.boxB(0.042, seatBoard - 0.09, 0.042, sx * 0.28, 0.055, 0.22, WOOD);                    // 뒷다리
-        b.box(0.036, 0.03, 0.42, sx * 0.28, 0.16, 0.01, WOOD_DARK);                              // 옆 보
+        b.boxB(0.042, seatBoard - 0.085, 0.042, sx * 0.28, 0.05, -0.2, WOOD);                    // front leg
+        b.boxB(0.042, seatBoard - 0.09, 0.042, sx * 0.28, 0.055, 0.22, WOOD);                    // rear leg
+        b.box(0.036, 0.03, 0.42, sx * 0.28, 0.16, 0.01, WOOD_DARK);                              // side beam
       }
-      b.box(0.56, 0.03, 0.03, 0, 0.14, -0.2, WOOD_DARK);                                          // 앞 보
-      b.box(0.62, 0.035, 0.52, 0, seatBoard - 0.0175, 0.01, WOOD);                               // 좌판
-      b.box(0.52, 0.05, 0.46, 0, seatTop - 0.025, 0.02, M.padding);                              // 쿠션
-      b.box(0.53, 0.012, 0.012, 0, seatTop - 0.03, -0.215, a);                                   // 쿠션 파이핑
-      // 등받이 (뒤로 t 만큼 기운 축을 따라)
+      b.box(0.56, 0.03, 0.03, 0, 0.14, -0.2, WOOD_DARK);                                          // front beam
+      b.box(0.62, 0.035, 0.52, 0, seatBoard - 0.0175, 0.01, WOOD);                               // seat board
+      b.box(0.52, 0.05, 0.46, 0, seatTop - 0.025, 0.02, M.padding);                              // cushion
+      b.box(0.53, 0.012, 0.012, 0, seatTop - 0.03, -0.215, a);                                   // cushion piping
+      // backrest (along an axis leaning back by t)
       const t = 0.22, by = seatBoard, bz = 0.25;
       const along = (s: number): [number, number] => [by + s * Math.cos(t), bz + s * Math.sin(t)];
       for (const sx of [-1, 1]) { const [y, z] = along(0.4); b.box(0.046, 0.8, 0.046, sx * 0.27, y, z, WOOD, 0, t); }
       { const [y, z] = along(0.74); b.box(0.6, 0.09, 0.036, 0, y, z, WOOD, 0, t); b.box(0.42, 0.016, 0.01, 0, y + 0.022 * Math.sin(t), z - 0.022 * Math.cos(t), a, 0, t); }
       { const [y, z] = along(0.14); b.box(0.54, 0.04, 0.03, 0, y, z, WOOD, 0, t); }
       for (let k = 0; k < 5; k++) { const [y, z] = along(0.43); b.box(0.045, 0.54, 0.018, -0.2 + k * 0.1, y, z, WOOD_DARK, 0, t); }
-      // 팔걸이
+      // armrests
       for (const sx of [-1, 1]) {
         b.box(0.07, 0.03, 0.56, sx * 0.31, armY, 0.0, WOOD);
         b.boxB(0.034, armY - seatBoard, 0.034, sx * 0.31, seatBoard, -0.2, WOOD);
@@ -504,56 +513,60 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * TV (`3 × 1 · 1.3`): 미디어 콘솔(문 둘 · 가운데 칸의 플레이어 · 앞 악센트) 위 받침대에 얇은 패널. `extra.on` 이면 화면이
-   * 발광하고 화면 안에 하늘 · 지평선 · 해 · UI 막대가 뜬다. 꺼짐은 검은 유리 + 빨간 대기등.
+   * TV (`3 × 1 · 1.3`): a thin panel on a stand above a media console (two doors · a player in the middle compartment · a
+   * front accent). With `extra.on` the screen glows and shows a sky · horizon · sun · UI bar inside it; off is dark glass
+   * + a red standby light.
    *
-   * 2026-09-13 (비디오게임): 화면 **앞**(−Z)이 TV 의 앞이다 — 좌석은 그 방향에 놓여 TV 를 본다. `extra.consoleLook` 이 있으면 상판 왼쪽에
-   * 게임기(모양 셋 + 일반 상자)가, 오른쪽에 패드가 놓인다. 화면 앞에는 늘 숨긴 게임 화면(`model.tv`)이 지어져 있고 게임 세션 동안만 보인다.
+   * 2026-09-13 (video games): the screen's **front** (−Z) is the TV's front — seats stand on that side and look at it. With
+   * `extra.consoleLook` a console (three looks + the generic box) sits on the left of the top plate and a pad on the right.
+   * A hidden game screen (`model.tv`) is always built in front of the screen and shows only during a game session.
    */
   tv: (b, model, w, d, _h, a, extra) => {
     const on = extra?.on === true;
-    b.boxB(w - 0.04, 0.06, d - 0.06, 0, 0, 0, M.gunmetal);                                        // 받침
-    b.boxB(w - 0.02, 0.4, d - 0.04, 0, 0.06, 0, M.hullDark);                                     // 콘솔
-    b.box(w, 0.03, d, 0, 0.475, 0, M.hullLight);                                                 // 상판 (윗면 0.49)
+    b.boxB(w - 0.04, 0.06, d - 0.06, 0, 0, 0, M.gunmetal);                                        // base
+    b.boxB(w - 0.02, 0.4, d - 0.04, 0, 0.06, 0, M.hullDark);                                     // console
+    b.box(w, 0.03, d, 0, 0.475, 0, M.hullLight);                                                 // top plate (top face 0.49)
     const fz = -(d - 0.04) / 2;
     for (const sx of [-1, 1]) {
-      b.box(0.5, 0.32, 0.015, sx * 0.49, 0.27, fz - 0.0075, M.hullLight);                        // 문
-      b.box(0.012, 0.12, 0.02, sx * 0.27, 0.29, fz - 0.02, M.trim);                              // 손잡이
+      b.box(0.5, 0.32, 0.015, sx * 0.49, 0.27, fz - 0.0075, M.hullLight);                        // door
+      b.box(0.012, 0.12, 0.02, sx * 0.27, 0.29, fz - 0.02, M.trim);                              // handle
     }
-    b.box(0.38, 0.32, 0.01, 0, 0.27, fz - 0.005, M.floorGrate);                                  // 가운데 칸
-    b.box(0.3, 0.07, 0.012, 0, 0.17, fz - 0.016, M.gunmetal);                                    // 플레이어 앞면
-    b.box(0.2, 0.008, 0.004, -0.02, 0.19, fz - 0.024, M.hullDark);                               // 디스크 투입구
-    b.box(0.04, 0.012, 0.004, 0.1, 0.155, fz - 0.024, on ? M.stripCyan : M.hullDark);            // 재생등
-    b.box(w - 0.12, 0.025, 0.014, 0, 0.09, fz - 0.012, a);                                       // 앞 악센트
-    // 받침대 + 패널
+    b.box(0.38, 0.32, 0.01, 0, 0.27, fz - 0.005, M.floorGrate);                                  // middle compartment
+    b.box(0.3, 0.07, 0.012, 0, 0.17, fz - 0.016, M.gunmetal);                                    // player front face
+    b.box(0.2, 0.008, 0.004, -0.02, 0.19, fz - 0.024, M.hullDark);                               // disc slot
+    b.box(0.04, 0.012, 0.004, 0.1, 0.155, fz - 0.024, on ? M.stripCyan : M.hullDark);            // playback light
+    b.box(w - 0.12, 0.025, 0.014, 0, 0.09, fz - 0.012, a);                                       // front accent
+    // stand + panel
     b.box(0.42, 0.02, 0.2, 0, 0.5, 0.04, M.gunmetal);
     b.boxB(0.07, 0.12, 0.04, 0, 0.51, 0.06, M.gunmetal);
     const cy = 0.94, sw = 1.28, sh = 0.6;
-    b.box(1.34, 0.68, 0.045, 0, cy, 0.04, M.gunmetal);                                           // 베젤 (z 0.0175 … 0.0625)
-    b.box(1.1, 0.4, 0.05, 0, cy, 0.085, M.hullDark);                                             // 뒤 볼록
-    b.box(sw, sh, 0.006, 0, cy, 0.0145, on ? TV_ON : M.glassDark);                               // 화면
+    b.box(1.34, 0.68, 0.045, 0, cy, 0.04, M.gunmetal);                                           // bezel (z 0.0175 … 0.0625)
+    b.box(1.1, 0.4, 0.05, 0, cy, 0.085, M.hullDark);                                             // rear bulge
+    b.box(sw, sh, 0.006, 0, cy, 0.0145, on ? TV_ON : M.glassDark);                               // screen
     if (on) {
-      b.box(sw, 0.2, 0.004, 0, cy - sh / 2 + 0.1, 0.009, TV_GROUND);                             // 지평선 아래
-      b.box(sw, 0.05, 0.004, 0, cy - sh / 2 + 0.225, 0.009, TV_SKY);                             // 지평선 띠
-      b.cyl(0.09, 0.09, 0.004, 24, 0.34, cy + 0.08, 0.009, TV_SUN, ALONG_X);                     // 해
-      b.box(0.36, 0.028, 0.004, -0.4, cy + 0.22, 0.009, M.stripWhite);                           // UI 막대
+      b.box(sw, 0.2, 0.004, 0, cy - sh / 2 + 0.1, 0.009, TV_GROUND);                             // below the horizon
+      b.box(sw, 0.05, 0.004, 0, cy - sh / 2 + 0.225, 0.009, TV_SKY);                             // horizon band
+      b.cyl(0.09, 0.09, 0.004, 24, 0.34, cy + 0.08, 0.009, TV_SUN, ALONG_X);                     // sun
+      b.box(0.36, 0.028, 0.004, -0.4, cy + 0.22, 0.009, M.stripWhite);                           // UI bar
       b.box(0.22, 0.02, 0.004, -0.47, cy + 0.17, 0.009, a);
     }
-    b.box(0.02, 0.012, 0.006, 0.6, cy - 0.325, 0.013, on ? M.stripWhite : M.stripRed);           // 전원등
-    b.box(0.12, 0.01, 0.004, 0, cy - 0.325, 0.014, M.trim);                                      // 로고
-    // 사운드바
+    b.box(0.02, 0.012, 0.006, 0.6, cy - 0.325, 0.013, on ? M.stripWhite : M.stripRed);           // power light
+    b.box(0.12, 0.01, 0.004, 0, cy - 0.325, 0.014, M.trim);                                      // logo
+    // sound bar
     b.boxB(0.8, 0.06, 0.08, 0, 0.49, -0.16, M.hullDark);
     b.box(0.76, 0.03, 0.004, 0, 0.52, -0.2025, M.floorGrate);
-    // 2026-09-13: 게임기 (상판 왼쪽, 사운드바 · 받침대와 겹치지 않는 자리) + 패드 (상판 오른쪽)
+    // 2026-09-13: the console (left of the top plate, clear of the sound bar · the stand) + the pad (right of the top plate)
     if (extra?.consoleLook !== undefined && extra.consoleLook !== null) tvConsole(b, extra.consoleLook, 0.49, a);
-    // 2026-09-13: 게임 화면 (숨긴 채로 짓는다 — 세션 중인 TV 만 `gameActive`)
+    // 2026-09-13: the game screen (built hidden — only a TV in session is `gameActive`)
     tvGameOverlay(model, cy, sw, sh, extra?.gameActive === true);
   },
 
   /**
-   * 게임 디스크 전시대 (2026-09-13, `game_stand` — 치수는 csv): 디스크 전시대가 「진열장」 이라면 이것은 **게임 매장 매대**다. 어두운 몸체에
-   * 카탈로그 색 네온 테두리, 머리에 픽셀 무늬 간판, 앞으로 기운 선반마다 케이스가 **앞면을 보이며** 선다. 케이스 색 = 그 게임 디스크의
-   * 테마 색(`extra.gameColors`, 없으면 등급색 `extra.media`). 칸 순서는 디스크 전시대와 같다 (0 = 왼쪽 위, 줄 우선). 광원 없음.
+   * Game disc stand (2026-09-13, `game_stand` — dimensions from csv): if the disc stand is 「a display cabinet」, this is
+   * **a game shop's display unit**. A dark body with a neon rim in the catalogue colour, a pixel-patterned sign on its head,
+   * and on every forward-tilted shelf a case standing **face out**. The case colour = that game disc's theme colour
+   * (`extra.gameColors`, falling back to the rarity colour `extra.media`). Slot order is the disc stand's (0 = top left,
+   * row first). No lights.
    */
   game_stand: (b, _model, w, d, h, a, extra) => {
     const n = SHELF_SLOTS.game;
@@ -563,14 +576,14 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
     const rows = Math.ceil(n / perRow);
     const neonA = neon(accentCss(a), true);
     const signH = Math.min(0.24, h * 0.16), bodyTop = h - signH;
-    b.boxB(w - 0.02, 0.12, d - 0.02, 0, 0, 0, M.gunmetal);                                        // 받침
-    b.box(w - 0.1, 0.02, 0.012, 0, 0.06, -(d / 2) + 0.004, neonA);                                // 받침 네온
+    b.boxB(w - 0.02, 0.12, d - 0.02, 0, 0, 0, M.gunmetal);                                        // base
+    b.box(w - 0.1, 0.02, 0.012, 0, 0.06, -(d / 2) + 0.004, neonA);                                // base neon
     for (const sx of [-1, 1]) {
-      b.boxB(0.06, bodyTop - 0.12, d - 0.04, sx * (w / 2 - 0.03), 0.12, 0, CONSOLE_BLACK);        // 옆판
-      b.box(0.012, bodyTop - 0.16, 0.012, sx * (w / 2 - 0.004), 0.14 + (bodyTop - 0.16) / 2, -(d / 2 - 0.03), neonA);   // 옆 네온
+      b.boxB(0.06, bodyTop - 0.12, d - 0.04, sx * (w / 2 - 0.03), 0.12, 0, CONSOLE_BLACK);        // side plate
+      b.box(0.012, bodyTop - 0.16, 0.012, sx * (w / 2 - 0.004), 0.14 + (bodyTop - 0.16) / 2, -(d / 2 - 0.03), neonA);   // side neon
     }
-    b.box(w - 0.12, bodyTop - 0.12, 0.03, 0, 0.12 + (bodyTop - 0.12) / 2, d / 2 - 0.035, M.hullDark);   // 뒷판
-    // 간판: 몸체 위 판 + 픽셀 무늬 (악센트 · 청록 · 호박색이 번갈아)
+    b.box(w - 0.12, bodyTop - 0.12, 0.03, 0, 0.12 + (bodyTop - 0.12) / 2, d / 2 - 0.035, M.hullDark);   // back panel
+    // sign: a plate above the body + a pixel pattern (accent · cyan · amber alternating)
     b.boxB(w, signH, d * 0.5, 0, bodyTop, d * 0.18, CONSOLE_BLACK);
     const px = Math.max(3, Math.floor((w - 0.2) / 0.07));
     for (let k = 0; k < px; k++) {
@@ -579,35 +592,37 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
       const y = bodyTop + signH * (k % 2 ? 0.62 : 0.38);
       b.box(0.045, 0.045, 0.01, x, y, d * 0.18 - d * 0.25 - 0.004, pm);
     }
-    // 선반 + 케이스
+    // shelves + cases
     const y0 = 0.16, rowH = (bodyTop - 0.2) / rows, tilt = 0.22;
     const cw = Math.min(0.24, (w - 0.2) / perRow - 0.05), ch = Math.min(rowH - 0.1, cw * 1.3);
     for (let r = 0; r < rows; r++) {
       const y = y0 + r * rowH;
-      b.box(w - 0.12, 0.03, d - 0.08, 0, y, 0.0, M.gunmetal);                                     // 선반
-      b.box(w - 0.14, 0.05, 0.02, 0, y + 0.035, -(d / 2 - 0.06), M.trim);                         // 진열 턱
-      b.box(w - 0.2, 0.01, 0.02, 0, y + rowH - 0.03, -(d / 2 - 0.07), M.stripWhite);              // 선반 조명 (위 선반 밑)
+      b.box(w - 0.12, 0.03, d - 0.08, 0, y, 0.0, M.gunmetal);                                     // shelf
+      b.box(w - 0.14, 0.05, 0.02, 0, y + 0.035, -(d / 2 - 0.06), M.trim);                         // display lip
+      b.box(w - 0.2, 0.01, 0.02, 0, y + rowH - 0.03, -(d / 2 - 0.07), M.stripWhite);              // shelf light (under the shelf above)
       for (let k = 0; k < perRow; k++) {
-        const slot = (rows - 1 - r) * perRow + k;                                                 // 0 = 왼쪽 위
+        const slot = (rows - 1 - r) * perRow + k;                                                 // 0 = top left
         if (slot >= n) continue;
         const cx = (k - (perRow - 1) / 2) * ((w - 0.2) / perRow);
         const color = colors[slot] ?? null;
         const rarity = rarities[slot];
-        b.box(cw * 0.7, 0.02, 0.08, cx, y + 0.025, -0.04, M.hullDark);                            // 받침 클립
+        b.box(cw * 0.7, 0.02, 0.08, cx, y + 0.025, -0.04, M.hullDark);                            // base clip
         if (!color && !rarity) continue;
         const cm = color ? gameCaseMat(color) : caseMat(rarity ?? 'common');
         const cy = y + 0.02 + ch / 2;
-        b.box(cw, ch, 0.03, cx, cy, 0.0, cm, 0, tilt);                                            // 케이스 (테마 색)
-        b.box(cw * 0.78, ch * 0.5, 0.004, cx, cy + ch * 0.08, -0.018, M.screen, 0, tilt);         // 표지 그림 창
-        b.box(cw * 0.78, ch * 0.1, 0.004, cx, cy + ch * 0.38, -0.018, M.stripWhite, 0, tilt);     // 제목 띠
+        b.box(cw, ch, 0.03, cx, cy, 0.0, cm, 0, tilt);                                            // case (theme colour)
+        b.box(cw * 0.78, ch * 0.5, 0.004, cx, cy + ch * 0.08, -0.018, M.screen, 0, tilt);         // cover art window
+        b.box(cw * 0.78, ch * 0.1, 0.004, cx, cy + ch * 0.38, -0.018, M.stripWhite, 0, tilt);     // title band
       }
     }
   },
 
   /**
-   * 쇼파 (2026-09-13, `sofa` — 치수는 csv): 짧은 원목 다리 위 받침 · 양쪽 팔걸이 · 뒤로 살짝 기운 등받이 + 쿠션 2–3개(폭 1.7 m 이상이면 3).
-   * **앉는 방향 = 가구 앞(로컬 −Z)** — 등받이가 +Z 다 (`access front` 와 같은 규약). 쿠션마다 좌판 윗면이 `rig.seats` 의 한 자리이고 높이는
-   * `SIT_SEAT_TOP` (player `FURN_SIT` 의 발이 바닥에 닿는다). 천은 카탈로그 색을 어둡게 한 무광, 파이핑만 악센트. 광원 없음.
+   * Sofa (2026-09-13, `sofa` — dimensions from csv): a base on short wooden legs · armrests on both sides · a backrest
+   * leaning slightly back + 2–3 cushions (3 from 1.7 m wide on). **The sitting direction = the furniture's front (local
+   * −Z)** — the backrest is +Z (the same contract as `access front`). Every cushion's seat top is one spot of `rig.seats`,
+   * at height `SIT_SEAT_TOP` (player `FURN_SIT`'s feet reach the floor). The fabric is the catalogue colour darkened,
+   * matte; only the piping is accent. No lights.
    */
   sofa: (b, model, w, d, h, a) => {
     const fabric = fabricMat(accentCss(a), 0.42), fabricDark = fabricMat(accentCss(a), 0.28);
@@ -617,16 +632,16 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
     const frontZ = -depth / 2, backZ = depth / 2;
     const backT = Math.min(0.22, depth * 0.3);
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.cyl(0.03, 0.022, legH, 8, sx * (w / 2 - 0.1), legH / 2, sz * (depth / 2 - 0.08), WOOD_DARK);
-    b.boxB(w - 0.04, baseTop - legH, depth, 0, legH, 0, fabricDark);                              // 받침
-    b.box(w - 0.08, 0.016, 0.012, 0, legH + 0.03, frontZ - 0.004, a);                              // 앞 파이핑
+    b.boxB(w - 0.04, baseTop - legH, depth, 0, legH, 0, fabricDark);                              // base
+    b.box(w - 0.08, 0.016, 0.012, 0, legH + 0.03, frontZ - 0.004, a);                              // front piping
     for (const sx of [-1, 1]) {
       const armH = SIT_SEAT_TOP + 0.2;
-      b.boxB(armW, armH - legH, depth, sx * (w / 2 - 0.02 - armW / 2), legH, 0, fabric);           // 팔걸이
-      b.box(armW + 0.01, 0.05, depth + 0.01, sx * (w / 2 - 0.02 - armW / 2), armH - 0.02, 0, fabricDark);   // 팔걸이 윗단
+      b.boxB(armW, armH - legH, depth, sx * (w / 2 - 0.02 - armW / 2), legH, 0, fabric);           // armrest
+      b.box(armW + 0.01, 0.05, depth + 0.01, sx * (w / 2 - 0.02 - armW / 2), armH - 0.02, 0, fabricDark);   // armrest top
     }
     const backH = Math.max(SIT_SEAT_TOP + 0.3, h) - legH;
-    b.box(w - 0.04, backH, backT, 0, legH + backH / 2, backZ - backT / 2, fabricDark, 0, 0.08);    // 등받이 틀 (+rx = 윗끝이 뒤(+Z)로 — 흔들의자와 같은 부호)
-    // 쿠션 — 좌판 (윗면 = SIT_SEAT_TOP) · 등 쿠션 (뒤로 기움)
+    b.box(w - 0.04, backH, backT, 0, legH + backH / 2, backZ - backT / 2, fabricDark, 0, 0.08);    // backrest frame (+rx = the top end leans back (+Z) — the same sign as the rocking chair)
+    // cushions — the seat (top face = SIT_SEAT_TOP) · the back cushion (leaning back)
     const count = w >= 1.7 ? 3 : 2;
     const cw = inner / count;
     const seatFront = frontZ + 0.03, seatBack = backZ - backT - 0.02;
@@ -634,58 +649,60 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
     const seats: THREE.Vector3[] = [];
     for (let i = 0; i < count; i++) {
       const x = -inner / 2 + (i + 0.5) * cw;
-      b.box(cw - 0.02, SIT_SEAT_TOP - baseTop + 0.01, seatD, x, (baseTop + SIT_SEAT_TOP) / 2 + 0.005, seatZ, fabric);   // 좌판 쿠션
-      b.box(cw - 0.03, 0.012, 0.012, x, SIT_SEAT_TOP - 0.02, seatFront - 0.002, a);               // 쿠션 파이핑
+      b.box(cw - 0.02, SIT_SEAT_TOP - baseTop + 0.01, seatD, x, (baseTop + SIT_SEAT_TOP) / 2 + 0.005, seatZ, fabric);   // seat cushion
+      b.box(cw - 0.03, 0.012, 0.012, x, SIT_SEAT_TOP - 0.02, seatFront - 0.002, a);               // cushion piping
       const bh = Math.min(0.42, backH - (SIT_SEAT_TOP - legH) - 0.02);
-      b.box(cw - 0.03, bh, 0.12, x, SIT_SEAT_TOP + bh / 2 + 0.01, seatBack - 0.02, fabric, 0, 0.16);    // 등 쿠션 (뒤로 기움)
+      b.box(cw - 0.03, bh, 0.12, x, SIT_SEAT_TOP + bh / 2 + 0.01, seatBack - 0.02, fabric, 0, 0.16);    // back cushion (leaning back)
       seats.push(new THREE.Vector3(x, SIT_SEAT_TOP, seatZ + 0.04));
     }
-    // 가운데에 가장 가까운 자리가 기본 anchor
+    // the spot nearest the centre is the default anchor
     let mid = seats[0];
     for (const s of seats) if (Math.abs(s.x) < Math.abs(mid.x)) mid = s;
     model.rig = { pose: 'sit', anchor: mid.clone(), forward: { x: 0, z: -1 }, seats };
   },
 
   /**
-   * 좌식 테이블 (2026-09-13, `low_table` — `FurnitureDef.low`, TV ↔ 좌석 통로를 막지 않는 낮은 가구): 두꺼운 원목 상판 · 짧은 다리 넷 ·
-   * 아래 선반 · 상판 가장자리 악센트 상감, 위에 잡지 두 권 · 컵 · 패드 하나. 높이는 csv 의 `height` 에 맞춘다. 광원 없음.
+   * Low table (2026-09-13, `low_table` — `FurnitureDef.low`, a low piece that never blocks the TV ↔ seat corridor): a thick
+   * wooden top plate · four short legs · a lower shelf · an accent inlay along the top's edge, with two magazines · a cup ·
+   * one pad on it. The height follows csv's `height`. No lights.
    */
   low_table: (b, _model, w, d, h, a) => {
     const top = Math.max(0.2, Math.min(h, 0.5));
     const tw = w - 0.08, td = d - 0.08;
-    b.box(tw, 0.05, td, 0, top - 0.025, 0, WOOD);                                                 // 상판
-    b.box(tw - 0.06, 0.004, 0.02, 0, top + 0.001, -(td / 2 - 0.05), a);                           // 상감 (앞)
-    b.box(tw - 0.06, 0.004, 0.02, 0, top + 0.001, td / 2 - 0.05, a);                              // 상감 (뒤)
-    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.boxB(0.06, top - 0.05, 0.06, sx * (tw / 2 - 0.07), 0, sz * (td / 2 - 0.07), WOOD_DARK);   // 다리
-    b.box(tw - 0.2, 0.025, td - 0.2, 0, Math.max(0.05, top * 0.3), 0, WOOD_DARK);                  // 아래 선반
-    b.box(0.22, 0.012, 0.16, -tw * 0.22, top + 0.006, 0.02, M.padding, 0.2);                       // 잡지
+    b.box(tw, 0.05, td, 0, top - 0.025, 0, WOOD);                                                 // top plate
+    b.box(tw - 0.06, 0.004, 0.02, 0, top + 0.001, -(td / 2 - 0.05), a);                           // inlay (front)
+    b.box(tw - 0.06, 0.004, 0.02, 0, top + 0.001, td / 2 - 0.05, a);                              // inlay (back)
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.boxB(0.06, top - 0.05, 0.06, sx * (tw / 2 - 0.07), 0, sz * (td / 2 - 0.07), WOOD_DARK);   // legs
+    b.box(tw - 0.2, 0.025, td - 0.2, 0, Math.max(0.05, top * 0.3), 0, WOOD_DARK);                  // lower shelf
+    b.box(0.22, 0.012, 0.16, -tw * 0.22, top + 0.006, 0.02, M.padding, 0.2);                       // magazine
     b.box(0.22, 0.012, 0.16, -tw * 0.2, top + 0.018, 0.0, M.fabric, -0.1);
-    b.cyl(0.035, 0.03, 0.09, 12, tw * 0.28, top + 0.045, -0.05, CUP);                              // 컵
-    controllerPad(b, tw * 0.05, top, 0.06, CONSOLE_BLACK, a, 0.5);                                 // 패드
+    b.cyl(0.035, 0.03, 0.09, 12, tw * 0.28, top + 0.045, -0.05, CUP);                              // cup
+    controllerPad(b, tw * 0.05, top, 0.06, CONSOLE_BLACK, a, 0.5);                                 // pad
   },
 
   /**
-   * 러그 (2026-09-13, `rug` — `FurnitureDef.low`): 바닥에서 1 cm 띄운 얇은 판(격자선 윗면 0.007 m 보다 위라 z-fighting 이 없다) + 테두리 띠 ·
-   * 안쪽 마름모 무늬 줄 · 긴 쪽 양 끝의 술. 높이는 3 cm 를 넘지 않는다 — 콜라이더(`BODY_MIN` 0.12 m 밑)가 걸음을 막지 않는다.
+   * Rug (2026-09-13, `rug` — `FurnitureDef.low`): a thin plate raised 1 cm off the floor (above the grid lines' top face at
+   * 0.007 m, so there is no z-fighting) + a border band · inner rows of diamonds · fringes at both ends of the long side.
+   * It never rises above 3 cm — a collider below `BODY_MIN` 0.12 m does not stop a step.
    */
   rug: (b, _model, w, d, _h, a) => {
     const base = fabricMat(accentCss(a), 0.5), border = fabricMat(accentCss(a), 0.26), light = fabricMat(accentCss(a), 0.85);
     const rw = w - 0.06, rd = d - 0.06;
-    b.box(rw, 0.008, rd, 0, 0.014, 0, base);                                                      // 판 (0.010 … 0.018)
+    b.box(rw, 0.008, rd, 0, 0.014, 0, base);                                                      // plate (0.010 … 0.018)
     const bt = Math.min(0.12, Math.min(rw, rd) * 0.1);
-    for (const sz of [-1, 1]) b.box(rw, 0.003, bt, 0, 0.0195, sz * (rd / 2 - bt / 2), border);    // 테두리
+    for (const sz of [-1, 1]) b.box(rw, 0.003, bt, 0, 0.0195, sz * (rd / 2 - bt / 2), border);    // border
     for (const sx of [-1, 1]) b.box(bt, 0.003, rd - bt * 2, sx * (rw / 2 - bt / 2), 0.0195, 0, border);
     const iw = rw - bt * 3, id = rd - bt * 3;
-    b.box(iw, 0.002, 0.02, 0, 0.0195, -id / 2, light);                                             // 안쪽 테 줄
+    b.box(iw, 0.002, 0.02, 0, 0.0195, -id / 2, light);                                             // inner border line
     b.box(iw, 0.002, 0.02, 0, 0.0195, id / 2, light);
     const long = rw >= rd;
     const diamonds = Math.max(2, Math.floor((long ? iw : id) / 0.4));
     for (let k = 0; k < diamonds; k++) {
       const t = -0.5 + (k + 0.5) / diamonds;
       const s = Math.min(0.22, Math.min(iw, id) * 0.3);
-      b.box(s, 0.002, s, long ? t * iw : 0, 0.0198, long ? 0 : t * id, k % 2 ? light : a, Math.PI / 4);   // 마름모
+      b.box(s, 0.002, s, long ? t * iw : 0, 0.0198, long ? 0 : t * id, k % 2 ? light : a, Math.PI / 4);   // diamond
     }
-    // 술: 긴 쪽의 양 끝
+    // fringes: both ends of the long side
     const fringeN = Math.max(4, Math.floor((long ? rd : rw) / 0.08));
     for (const s of [-1, 1]) {
       for (let k = 0; k < fringeN; k++) {
@@ -697,8 +714,10 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * 의자 (`furn_chair` · `seat`, 2026-09-13 에 `Furniture.ts` 에서 옮겨 왔다): 강철 다리 넷 · 쿠션 좌판 · 뒤(+Z)로 살짝 기운 등받이 — **앞 = −Z**
-   * 가 앉는 방향이다(옛 모델도 등받이가 +Z 였다 — 규약 그대로). 좌판 윗면을 옛 `h × 0.5` 에서 `SIT_SEAT_TOP` 으로 내렸다 — 앉은 발이 바닥에 닿는다.
+   * Chair (`furn_chair` · `seat`, moved here from `Furniture.ts` on 2026-09-13): four steel legs · a cushioned seat · a
+   * backrest leaning slightly back (+Z) — **front = −Z** is the sitting direction (the old model's backrest was +Z too —
+   * the contract is unchanged). The seat top came down from the old `h × 0.5` to `SIT_SEAT_TOP` — a seated player's feet
+   * reach the floor.
    */
   chair: (b, model, w, d, h) => {
     const seatY = SIT_SEAT_TOP - 0.025;
@@ -711,37 +730,38 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * 축음기 (`2 × 2 · 1.3`): 둥근 원목 탁자 위의 나무 상자 · 턴테이블 · 태엽 손잡이 · 톤암, 그리고 뒤에서 솟아 앞으로 벌어지는
-   * 황동 나팔(점점 커지는 원기둥 다섯). `extra.on` 이면 **앞 명판 · 레코드 라벨**이 따뜻하게 빛나고 레코드가 돈다 —
-   * 소리가 나오는 나팔 입구 · 목구멍은 켜져도 빛나지 않는다 (2026-09-14, 사용자 결정).
+   * Gramophone (`2 × 2 · 1.3`): a wooden box on a round wooden table · turntable · winding crank · tonearm, and a brass horn
+   * rising behind it and flaring forward (five cylinders growing wider). With `extra.on` the **front nameplate · the record
+   * label** glow warm and the record turns — the horn's mouth and throat, where the sound comes out, do not glow even when
+   * it is on (2026-09-14, user's decision).
    */
   gramophone: (b, model, _w, _d, _h, a, extra) => {
     const on = extra?.on === true;
     const top = 0.62;
-    b.cyl(0.42, 0.42, 0.04, 28, 0, top - 0.02, 0, WOOD);                                         // 탁자 상판
+    b.cyl(0.42, 0.42, 0.04, 28, 0, top - 0.02, 0, WOOD);                                         // table top
     b.cyl(0.4, 0.4, 0.014, 28, 0, top - 0.047, 0, WOOD_DARK);
     for (let k = 0; k < 4; k++) {
       const ang = Math.PI / 4 + k * Math.PI / 2;
-      b.cyl(0.022, 0.016, top - 0.05, 8, Math.cos(ang) * 0.28, (top - 0.05) / 2, Math.sin(ang) * 0.28, WOOD_DARK);   // 다리
+      b.cyl(0.022, 0.016, top - 0.05, 8, Math.cos(ang) * 0.28, (top - 0.05) / 2, Math.sin(ang) * 0.28, WOOD_DARK);   // leg
     }
-    b.cyl(0.3, 0.3, 0.025, 20, 0, 0.18, 0, WOOD_DARK);                                           // 아래 선반
-    for (let k = 0; k < 3; k++) b.cyl(0.15, 0.15, 0.008, 24, 0.02 * k, 0.197 + k * 0.009, -0.03, k === 1 ? a : VINYL);   // 음반 더미
-    // 상자
+    b.cyl(0.3, 0.3, 0.025, 20, 0, 0.18, 0, WOOD_DARK);                                           // lower shelf
+    for (let k = 0; k < 3; k++) b.cyl(0.15, 0.15, 0.008, 24, 0.02 * k, 0.197 + k * 0.009, -0.03, k === 1 ? a : VINYL);   // stack of discs
+    // the box
     const bz = 0.06;
     b.boxB(0.42, 0.16, 0.42, 0, top, bz, WOOD);
     b.box(0.44, 0.022, 0.44, 0, top + 0.011, bz, M.trimDark);
     b.box(0.43, 0.012, 0.43, 0, top + 0.16, bz, M.trim);
-    b.box(0.12, 0.05, 0.01, 0, top + 0.08, bz - 0.215, on ? WARM_GLOW : M.trimDark);             // 앞 명판
-    b.cyl(0.17, 0.17, 0.02, 28, -0.03, top + 0.176, 0.02, M.gunmetal);                           // 턴테이블
-    b.cyl(0.012, 0.012, 0.12, 8, 0.27, top + 0.09, 0.1, M.trim, 0, 0, ALONG_X);                  // 태엽 손잡이
+    b.box(0.12, 0.05, 0.01, 0, top + 0.08, bz - 0.215, on ? WARM_GLOW : M.trimDark);             // front nameplate
+    b.cyl(0.17, 0.17, 0.02, 28, -0.03, top + 0.176, 0.02, M.gunmetal);                           // turntable
+    b.cyl(0.012, 0.012, 0.12, 8, 0.27, top + 0.09, 0.1, M.trim, 0, 0, ALONG_X);                  // winding crank
     b.cyl(0.02, 0.02, 0.05, 8, 0.33, top + 0.12, 0.1, WOOD_DARK);
-    // 톤암 · 사운드박스
+    // tonearm · sound box
     b.box(0.022, 0.022, 0.2, 0.08, top + 0.21, 0.13, M.trim, -0.6);
     b.cyl(0.036, 0.036, 0.02, 12, 0.02, top + 0.205, 0.05, M.trim, ALONG_X);
-    // 나팔: 상자 뒤 모서리에서 솟는 목 → 앞 위로 벌어지는 종
+    // horn: a neck rising from the box's rear corner → a bell flaring up and forward
     const ex = 0.14, ey = top + 0.34, ez = 0.22;
-    b.cyl(0.03, 0.03, 0.18, 10, ex, top + 0.25, ez, M.trim);                                     // 목
-    b.cyl(0.036, 0.036, 0.05, 10, ex, ey, ez, M.trimDark);                                       // 팔꿈치
+    b.cyl(0.03, 0.03, 0.18, 10, ex, top + 0.25, ez, M.trim);                                     // neck
+    b.cyl(0.036, 0.036, 0.05, 10, ex, ey, ez, M.trimDark);                                       // elbow
     const dx = -0.2, dy = 0.45, dz = -0.87, dl = Math.hypot(dx, dy, dz);
     const ux = dx / dl, uy = dy / dl, uz = dz / dl;
     const { rx, ry } = aim(ux, uy, uz);
@@ -749,127 +769,130 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
     const rad = (t: number): number => 0.03 + 0.22 * Math.pow(t / L, 2.2);
     for (let i = 0; i < ts.length - 1; i++) {
       const t0 = ts[i], t1 = ts[i + 1], tm = (t0 + t1) / 2;
-      b.cyl(rad(t1), rad(t0), t1 - t0 + 0.004, 24, ex + ux * tm, ey + uy * tm, ez + uz * tm, M.trim, rx, ry);   // 종 (위 끝이 넓다)
+      b.cyl(rad(t1), rad(t0), t1 - t0 + 0.004, 24, ex + ux * tm, ey + uy * tm, ez + uz * tm, M.trim, rx, ry);   // bell (wider at the far end)
     }
-    // 2026-09-14 (사용자 결정): **소리가 나오는 곳에서는 빛이 나지 않는다** — 나팔 입구 · 목구멍은 켜짐과 무관하게 어두운 재질이다.
-    // 켜진 것은 앞 명판 · 레코드 라벨의 발광과 도는 음반이 말한다.
+    // 2026-09-14 (user's decision): **no light comes out of where the sound comes out** — the horn's mouth and throat stay a
+    // dark material whether it is on or off. What says it is on is the front nameplate · record label glow and the turning disc.
     const mt = L + 0.003;
-    b.cyl(0.232, 0.232, 0.004, 28, ex + ux * mt, ey + uy * mt, ez + uz * mt, M.trimDark, rx, ry);   // 나팔 입구
+    b.cyl(0.232, 0.232, 0.004, 28, ex + ux * mt, ey + uy * mt, ez + uz * mt, M.trimDark, rx, ry);   // horn mouth
     const tt = L + 0.006;
-    b.cyl(0.06, 0.06, 0.004, 16, ex + ux * tt, ey + uy * tt, ez + uz * tt, M.hullDark, rx, ry);     // 목구멍
-    // 레코드 (켜져 있으면 돈다)
+    b.cyl(0.06, 0.06, 0.004, 16, ex + ux * tt, ey + uy * tt, ez + uz * tt, M.hullDark, rx, ry);     // throat
+    // the record (turns while on)
     const rec = rigGroup(model, model.group, 'record', -0.03, top + 0.19, 0.02, (rb) => {
       rb.cyl(0.16, 0.16, 0.006, 28, 0, 0, 0, VINYL);
       rb.cyl(0.05, 0.05, 0.008, 16, 0, 0.001, 0, on ? WARM_GLOW : a);
-      rb.box(0.09, 0.002, 0.01, 0.1, 0.004, 0, M.hullLight);                                     // 결 (도는 것이 보이게)
+      rb.box(0.09, 0.002, 0.01, 0.1, 0.004, 0, M.hullLight);                                     // grain (so the turning is visible)
     });
     if (on) { model.spin = rec; model.spinRate = 3.5; }
   },
 
   /**
-   * 주크박스 (`2 × 2 · 1.8`): 버건디 몸체 위에 반원 아치 지붕. 앞면에 아치를 따라 네온관 두 줄 · 옆 네온 기둥 · 크롬 테 ·
-   * 음반 창 · 곡명 카드 · 버튼 줄 · 크롬 스피커 그릴. `extra.on` 이면 네온 · 창 · 곡명 카드가 빛난다 (꺼짐 = 같은 색을 어둡게).
+   * Jukebox (`2 × 2 · 1.8`): a burgundy body under a half-round arched roof. Across its front two neon tubes following the
+   * arch · side neon posts · chrome trim · a disc window · a title card · a row of buttons · a chrome speaker grille. With
+   * `extra.on` the neon · the windows · the title card glow (off = the same colour darkened).
    */
   jukebox: (b, _model, _w, _d, _h, a, extra) => {
     const on = extra?.on === true;
     const cabW = 0.9, cabD = 0.62, cz = 0.1, bodyTop = 1.27, R = cabW / 2;
     const fz = cz - cabD / 2;
-    b.boxB(cabW + 0.06, 0.08, cabD + 0.06, 0, 0, cz, M.gunmetal);                                // 받침
-    b.boxB(cabW, bodyTop - 0.08, cabD, 0, 0.08, cz, JUKE_BODY);                                  // 몸체
-    b.add(new THREE.CylinderGeometry(R, R, cabD, 28, 1, false, Math.PI / 2, Math.PI), JUKE_BODY, 0, bodyTop, cz, Math.PI / 2);   // 아치 지붕
-    b.add(new THREE.CylinderGeometry(0.34, 0.34, 0.02, 24, 1, false, Math.PI / 2, Math.PI), on ? JUKE_WINDOW_ON : M.glassDark, 0, bodyTop - 0.05, fz - 0.005, Math.PI / 2);   // 돔 창
+    b.boxB(cabW + 0.06, 0.08, cabD + 0.06, 0, 0, cz, M.gunmetal);                                // base
+    b.boxB(cabW, bodyTop - 0.08, cabD, 0, 0.08, cz, JUKE_BODY);                                  // body
+    b.add(new THREE.CylinderGeometry(R, R, cabD, 28, 1, false, Math.PI / 2, Math.PI), JUKE_BODY, 0, bodyTop, cz, Math.PI / 2);   // arched roof
+    b.add(new THREE.CylinderGeometry(0.34, 0.34, 0.02, 24, 1, false, Math.PI / 2, Math.PI), on ? JUKE_WINDOW_ON : M.glassDark, 0, bodyTop - 0.05, fz - 0.005, Math.PI / 2);   // dome window
     const neonA = neon(accentCss(a), on);
     const neonB = neon('#8fe8ff', on);
-    b.add(new THREE.TorusGeometry(0.425, 0.022, 8, 32, Math.PI), neonA, 0, bodyTop, fz - 0.022);  // 바깥 네온 아치
-    b.add(new THREE.TorusGeometry(0.37, 0.015, 8, 28, Math.PI), neonB, 0, bodyTop, fz - 0.02);    // 안쪽 네온 아치
+    b.add(new THREE.TorusGeometry(0.425, 0.022, 8, 32, Math.PI), neonA, 0, bodyTop, fz - 0.022);  // outer neon arch
+    b.add(new THREE.TorusGeometry(0.37, 0.015, 8, 28, Math.PI), neonB, 0, bodyTop, fz - 0.02);    // inner neon arch
     for (const sx of [-1, 1]) {
-      b.box(0.045, bodyTop - 0.18, 0.045, sx * 0.425, 0.18 + (bodyTop - 0.18) / 2, fz - 0.022, neonA);   // 옆 네온 기둥
-      b.box(0.02, bodyTop - 0.18, 0.03, sx * 0.37, 0.18 + (bodyTop - 0.18) / 2, fz - 0.012, CHROME);    // 크롬 테
+      b.box(0.045, bodyTop - 0.18, 0.045, sx * 0.425, 0.18 + (bodyTop - 0.18) / 2, fz - 0.022, neonA);   // side neon post
+      b.box(0.02, bodyTop - 0.18, 0.03, sx * 0.37, 0.18 + (bodyTop - 0.18) / 2, fz - 0.012, CHROME);    // chrome trim
     }
-    b.box(0.6, 0.3, 0.02, 0, 1.0, fz - 0.006, on ? JUKE_WINDOW_ON : M.glassDark);                // 음반 창
-    b.cyl(0.12, 0.12, 0.006, 24, 0, 1.0, fz - 0.02, VINYL, ALONG_X);                             // 창 속 음반
+    b.box(0.6, 0.3, 0.02, 0, 1.0, fz - 0.006, on ? JUKE_WINDOW_ON : M.glassDark);                // disc window
+    b.cyl(0.12, 0.12, 0.006, 24, 0, 1.0, fz - 0.02, VINYL, ALONG_X);                             // the disc inside the window
     b.cyl(0.035, 0.035, 0.008, 12, 0, 1.0, fz - 0.024, a, ALONG_X);
-    b.box(0.56, 0.1, 0.014, 0, 0.8, fz - 0.008, on ? M.stripWhite : M.hullLight);                // 곡명 카드
-    for (let k = 0; k < 8; k++) b.box(0.042, 0.026, 0.02, -0.2 + k * 0.057, 0.715, fz - 0.012, CHROME);   // 버튼
-    b.box(0.04, 0.06, 0.02, 0.3, 0.64, fz - 0.012, CHROME);                                      // 동전 투입구
-    b.box(0.62, 0.36, 0.01, 0, 0.4, fz - 0.006, M.floorGrate);                                   // 스피커 그릴
+    b.box(0.56, 0.1, 0.014, 0, 0.8, fz - 0.008, on ? M.stripWhite : M.hullLight);                // title card
+    for (let k = 0; k < 8; k++) b.box(0.042, 0.026, 0.02, -0.2 + k * 0.057, 0.715, fz - 0.012, CHROME);   // buttons
+    b.box(0.04, 0.06, 0.02, 0.3, 0.64, fz - 0.012, CHROME);                                      // coin slot
+    b.box(0.62, 0.36, 0.01, 0, 0.4, fz - 0.006, M.floorGrate);                                   // speaker grille
     for (let k = 0; k < 5; k++) b.box(0.62, 0.012, 0.016, 0, 0.25 + k * 0.075, fz - 0.014, CHROME);
-    b.box(cabW, 0.03, 0.02, 0, 0.1, fz - 0.01, CHROME);                                          // 발 크롬
-    b.box(0.14, 0.04, 0.1, 0, bodyTop + R + 0.01, cz - 0.16, CHROME);                            // 꼭대기 장식
+    b.box(cabW, 0.03, 0.02, 0, 0.1, fz - 0.01, CHROME);                                          // chrome foot
+    b.box(0.14, 0.04, 0.1, 0, bodyTop + R + 0.01, cz - 0.16, CHROME);                            // top ornament
   },
 
   /**
-   * 턴테이블 (`3 × 2 · 1.0`): 띄워 놓은 슬레이트 캐비닛(원목 상판 · 앞면 홈 · 레코드 칸) 위에 턴테이블 데크 · 앰프 · 스피커.
-   * `extra.on` 이면 받침의 LED 띠 · 스트로브 점 · 피치 슬라이더 · 앰프 VU 가 켜지고 플래터가 돈다.
+   * Turntable (`3 × 2 · 1.0`): a turntable deck · amp · speaker on a floating slate cabinet (wooden top plate · grooves
+   * across its front · a record compartment). With `extra.on` the base's LED strips · the strobe dots · the pitch slider ·
+   * the amp's VU light up and the platter turns.
    */
   turntable: (b, model, w, d, _h, a, extra) => {
     const on = extra?.on === true;
     const led = on ? M.stripCyan : M.hullDark;
-    b.boxB(w - 0.2, 0.08, d - 0.2, 0, 0, 0, M.floorGrate);                                       // 들어간 받침
-    for (const sz of [-1, 1]) b.box(w - 0.18, 0.02, 0.02, 0, 0.07, sz * (d / 2 - 0.1), led);       // LED 띠
+    b.boxB(w - 0.2, 0.08, d - 0.2, 0, 0, 0, M.floorGrate);                                       // recessed base
+    for (const sz of [-1, 1]) b.box(w - 0.18, 0.02, 0.02, 0, 0.07, sz * (d / 2 - 0.1), led);       // LED strip
     for (const sx of [-1, 1]) b.box(0.02, 0.02, d - 0.18, sx * (w / 2 - 0.1), 0.07, 0, led);
-    b.boxB(w, 0.46, d - 0.02, 0, 0.08, 0, SLATE);                                                // 캐비닛
+    b.boxB(w, 0.46, d - 0.02, 0, 0.08, 0, SLATE);                                                // cabinet
     const top = 0.57;
-    b.box(w, 0.03, d - 0.02, 0, top - 0.015, 0, WOOD);                                           // 원목 상판
+    b.box(w, 0.03, d - 0.02, 0, top - 0.015, 0, WOOD);                                           // wooden top plate
     const fz = -(d - 0.02) / 2;
-    for (const x of [-0.02, 0.36]) b.box(0.014, 0.4, 0.006, x, 0.31, fz - 0.003, M.floorGrate);   // 홈
-    b.box(0.46, 0.36, 0.008, -0.45, 0.31, fz - 0.004, M.floorGrate);                             // 레코드 칸
+    for (const x of [-0.02, 0.36]) b.box(0.014, 0.4, 0.006, x, 0.31, fz - 0.003, M.floorGrate);   // groove
+    b.box(0.46, 0.36, 0.008, -0.45, 0.31, fz - 0.004, M.floorGrate);                             // record compartment
     for (let k = 0; k < 11; k++) b.boxB(0.026, 0.3 - (k % 3) * 0.02, 0.008, -0.65 + k * 0.04, 0.15, fz - 0.01, k % 4 === 0 ? a : VINYL);
-    b.box(w - 0.1, 0.014, 0.008, 0, top - 0.04, fz - 0.004, a);                                  // 앞 악센트
-    // 데크
+    b.box(w - 0.1, 0.014, 0.008, 0, top - 0.04, fz - 0.004, a);                                  // front accent
+    // deck
     const dx = -0.28, dz = 0.02;
     b.boxB(0.52, 0.07, 0.42, dx, top, dz, M.gunmetal);
     b.box(0.5, 0.008, 0.4, dx, top + 0.074, dz, M.hullDark);
     const px = dx - 0.04, py = top + 0.085;
-    b.cyl(0.168, 0.168, 0.015, 32, px, py, dz, CHROME);                                          // 플래터 받침
-    b.cyl(0.03, 0.03, 0.03, 12, dx + 0.18, top + 0.09, dz + 0.12, CHROME);                       // 톤암 피벗
-    b.box(0.012, 0.012, 0.25, -0.15, top + 0.11, 0.025, CHROME, Math.atan2(-0.4, -0.92));        // 톤암
-    b.box(0.03, 0.01, 0.05, -0.2, top + 0.105, -0.09, M.hullDark, Math.atan2(-0.4, -0.92));      // 헤드셸
-    b.box(0.012, 0.01, 0.1, dx + 0.22, top + 0.078, dz - 0.1, on ? M.stripCyan : M.hullDark);    // 피치 슬라이더
-    b.cyl(0.02, 0.02, 0.01, 12, dx + 0.2, top + 0.079, dz - 0.16, on ? M.stripWhite : M.hullLight);   // 시작 버튼
-    // 앰프
+    b.cyl(0.168, 0.168, 0.015, 32, px, py, dz, CHROME);                                          // platter base
+    b.cyl(0.03, 0.03, 0.03, 12, dx + 0.18, top + 0.09, dz + 0.12, CHROME);                       // tonearm pivot
+    b.box(0.012, 0.012, 0.25, -0.15, top + 0.11, 0.025, CHROME, Math.atan2(-0.4, -0.92));        // tonearm
+    b.box(0.03, 0.01, 0.05, -0.2, top + 0.105, -0.09, M.hullDark, Math.atan2(-0.4, -0.92));      // headshell
+    b.box(0.012, 0.01, 0.1, dx + 0.22, top + 0.078, dz - 0.1, on ? M.stripCyan : M.hullDark);    // pitch slider
+    b.cyl(0.02, 0.02, 0.01, 12, dx + 0.2, top + 0.079, dz - 0.16, on ? M.stripWhite : M.hullLight);   // start button
+    // amp
     b.boxB(0.3, 0.1, 0.3, 0.15, top, 0.02, M.gunmetal);
     b.box(0.16, 0.03, 0.006, 0.15, top + 0.06, -0.133, on ? M.stripAmber : M.hullDark);           // VU
     for (const kx of [0.06, 0.24]) b.cyl(0.018, 0.018, 0.02, 10, kx, top + 0.04, -0.14, M.trim, ALONG_X);
-    // 스피커
+    // speaker
     b.boxB(0.28, 0.4, 0.28, 0.55, top, 0.05, M.hullDark);
-    b.cyl(0.09, 0.09, 0.012, 20, 0.55, top + 0.13, -0.096, M.floorGrate, ALONG_X);               // 우퍼
+    b.cyl(0.09, 0.09, 0.012, 20, 0.55, top + 0.13, -0.096, M.floorGrate, ALONG_X);               // woofer
     b.cyl(0.05, 0.05, 0.016, 16, 0.55, top + 0.13, -0.098, M.gunmetal, ALONG_X);
-    b.cyl(0.03, 0.03, 0.012, 12, 0.55, top + 0.3, -0.096, CHROME, ALONG_X);                      // 트위터
+    b.cyl(0.03, 0.03, 0.012, 12, 0.55, top + 0.3, -0.096, CHROME, ALONG_X);                      // tweeter
     b.box(0.2, 0.012, 0.004, 0.55, top + 0.37, -0.092, a);
-    // 플래터 위 레코드 (켜져 있으면 돈다)
+    // the record on the platter (turns while on)
     const rec = rigGroup(model, model.group, 'platter', px, py + 0.011, dz, (rb) => {
       rb.cyl(0.155, 0.155, 0.006, 32, 0, 0, 0, VINYL);
       rb.cyl(0.05, 0.05, 0.008, 16, 0, 0.001, 0, a);
-      rb.cyl(0.006, 0.006, 0.03, 6, 0, 0.012, 0, CHROME);                                        // 스핀들
+      rb.cyl(0.006, 0.006, 0.03, 6, 0, 0.012, 0, CHROME);                                        // spindle
       for (let k = 0; k < 12; k++) {
         const ang = (k / 12) * Math.PI * 2;
-        rb.box(0.012, 0.004, 0.006, Math.cos(ang) * 0.162, -0.006, Math.sin(ang) * 0.162, on ? M.stripWhite : M.hullDark, -ang);   // 스트로브 점
+        rb.box(0.012, 0.004, 0.006, Math.cos(ang) * 0.162, -0.006, Math.sin(ang) * 0.162, on ? M.stripWhite : M.hullDark, -ang);   // strobe dot
       }
     });
     if (on) { model.spin = rec; model.spinRate = 3.5; }
   },
 
   /**
-   * 벤치 랙 (`3 × 5 · 1.6`): 머리 쪽(+Z)에 J 훅이 달린 기둥 둘 · 위 가로대 · 바닥 발, 가운데 플랫 벤치, 훅 위에 바벨.
-   * 원반은 **세션 중에만** 보인다 (`extra.gymActive` → `rig.plates.visible`). 바벨은 `rig.bar` 그룹이라 운동 중 훅에서 가슴 위
-   * (`barPress`)로 옮겨 가 위아래로 움직인다.
+   * Bench rack (`3 × 5 · 1.6`): two uprights carrying J hooks at the head side (+Z) · a top crossbar · floor feet, a flat
+   * bench between them, the barbell on the hooks. The plates show **only during a session** (`extra.gymActive` →
+   * `rig.plates.visible`). The barbell is the `rig.bar` group, so while exercising it leaves the hooks for above the chest
+   * (`barPress`) and travels up and down.
    */
   bench_rack: (b, model, _w, _d, _h, a, extra) => {
-    // J 훅의 바는 팔을 다 편 높이(BENCH_BAR_HIGH 1.21)보다 조금 낮게 — 들어 올려 앞으로 빼는 동작으로 읽힌다
+    // The bar on the J hooks sits a little below the arms-extended height (BENCH_BAR_HIGH 1.21) — it reads as being lifted up and out
     const upZ = 0.95, upX = 0.5, hookY = BENCH_BAR_HIGH.y - 0.07, restZ = 0.85;
-    b.box(1.14, 0.05, 0.08, 0, 0.025, upZ + 0.05, M.gunmetal);                                   // 바닥 가로대
+    b.box(1.14, 0.05, 0.08, 0, 0.025, upZ + 0.05, M.gunmetal);                                   // floor crossbar
     for (const sx of [-1, 1]) {
-      b.box(0.08, 0.05, 0.56, sx * upX, 0.025, upZ, M.gunmetal);                                 // 발
+      b.box(0.08, 0.05, 0.56, sx * upX, 0.025, upZ, M.gunmetal);                                 // foot
       for (const sz of [-1, 1]) b.box(0.1, 0.022, 0.08, sx * upX, 0.011, upZ + sz * 0.24, RUBBER);
-      b.boxB(0.075, 1.52, 0.075, sx * upX, 0.05, upZ, M.hullLight);                              // 기둥
-      for (let k = 0; k < 10; k++) b.box(0.026, 0.012, 0.004, sx * upX, 0.46 + k * 0.09, upZ - 0.0395, M.floorGrate);   // 구멍 줄
-      b.box(0.004, 0.9, 0.03, sx * (upX + 0.0395), 0.95, upZ, a);                                // 바깥 악센트
-      b.box(0.09, 0.03, 0.09, sx * upX, 1.585, upZ, M.trim);                                     // 기둥 캡
-      b.box(0.05, 0.03, 0.15, sx * upX, hookY - 0.033, restZ + 0.03, M.trim);                    // J 훅 바닥
-      b.box(0.05, 0.07, 0.02, sx * upX, hookY - 0.012, restZ - 0.05, M.trim);                    // J 훅 턱
+      b.boxB(0.075, 1.52, 0.075, sx * upX, 0.05, upZ, M.hullLight);                              // upright
+      for (let k = 0; k < 10; k++) b.box(0.026, 0.012, 0.004, sx * upX, 0.46 + k * 0.09, upZ - 0.0395, M.floorGrate);   // row of holes
+      b.box(0.004, 0.9, 0.03, sx * (upX + 0.0395), 0.95, upZ, a);                                // outer accent
+      b.box(0.09, 0.03, 0.09, sx * upX, 1.585, upZ, M.trim);                                     // upright cap
+      b.box(0.05, 0.03, 0.15, sx * upX, hookY - 0.033, restZ + 0.03, M.trim);                    // J hook floor
+      b.box(0.05, 0.07, 0.02, sx * upX, hookY - 0.012, restZ - 0.05, M.trim);                    // J hook lip
     }
-    b.box(1.0, 0.05, 0.05, 0, 1.49, upZ, M.gunmetal);                                            // 위 가로대
+    b.box(1.0, 0.05, 0.05, 0, 1.49, upZ, M.gunmetal);                                            // top crossbar
     flatBench(b, a);
     const { bar, plates } = barbell(model, model.group, hookY, restZ, 0.72, 0.545, a, () => { /* no extra */ }, extra?.gymActive === true);
     model.rig = {
@@ -885,37 +908,38 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * 스미스 머신 (`4 × 5 · 2.2`): 기둥 넷 · 위 틀 · 바닥 틀의 케이지 가운데로 크롬 레일 둘이 서고, 바벨이 레일의 슬라이더에
-   * 물려 **수직으로만** 움직인다. 레일에 안전 멈춤쇠 · 거치 핀, 아래에 벤치 랙과 같은 플랫 벤치. 원반은 세션 중에만.
+   * Smith machine (`4 × 5 · 2.2`): two chrome rails stand through the middle of a cage of four uprights · a top frame · a
+   * floor frame, and the barbell is caught on the rails' sliders so it moves **vertically only**. Safety stops · rest pins
+   * on the rails, and below them the same flat bench as the bench rack. Plates only during a session.
    */
   smith_machine: (b, model, _w, _d, _h, a, extra) => {
-    // 레일은 수직이라 바의 z 가 고정이다 — player 의 주먹 경로(z 0.57 → 0.66)의 가운데에 세운다 (양 끝에서 ±4.5 cm 어긋난다)
+    // The rails are vertical, so the bar's z is fixed — it stands at the middle of player's fist path (z 0.57 → 0.66), off by ±4.5 cm at either end
     const railZ = (BENCH_BAR_LOW.z + BENCH_BAR_HIGH.z) / 2, railX = 0.72, restY = BENCH_BAR_HIGH.y - 0.06, topY = 2.16;
-    for (const sz of [-1, 1]) b.box(1.9, 0.06, 0.08, 0, 0.03, sz * 1.15, M.gunmetal);          // 바닥 틀
+    for (const sz of [-1, 1]) b.box(1.9, 0.06, 0.08, 0, 0.03, sz * 1.15, M.gunmetal);          // floor frame
     for (const sx of [-1, 1]) b.box(0.08, 0.06, 2.3, sx * 0.92, 0.03, 0, M.gunmetal);
     for (const pz of [-0.05, 1.05]) {
       for (const sx of [-1, 1]) {
-        b.boxB(0.08, topY - 0.06, 0.08, sx * 0.92, 0.06, pz, M.hullLight);                       // 기둥
-        if (pz < 0) b.box(0.004, 1.4, 0.03, sx * 0.9605, 1.1, pz, a);                            // 앞 기둥 악센트
+        b.boxB(0.08, topY - 0.06, 0.08, sx * 0.92, 0.06, pz, M.hullLight);                       // upright
+        if (pz < 0) b.box(0.004, 1.4, 0.03, sx * 0.9605, 1.1, pz, a);                            // front upright accent
       }
-      b.box(1.92, 0.08, 0.08, 0, topY, pz, M.hullLight);                                         // 위 틀 (가로)
+      b.box(1.92, 0.08, 0.08, 0, topY, pz, M.hullLight);                                         // top frame (across)
     }
     for (const sx of [-1, 1]) {
-      b.box(0.08, 0.08, 1.18, sx * 0.92, topY, 0.5, M.hullLight);                                // 위 틀 (세로)
-      b.cyl(0.02, 0.02, 2.0, 10, sx * railX, 1.1, railZ, CHROME);                                // 레일
-      b.box(0.12, 0.05, 0.12, sx * railX, 0.085, railZ, M.gunmetal);                             // 레일 발
+      b.box(0.08, 0.08, 1.18, sx * 0.92, topY, 0.5, M.hullLight);                                // top frame (lengthwise)
+      b.cyl(0.02, 0.02, 2.0, 10, sx * railX, 1.1, railZ, CHROME);                                // rail
+      b.box(0.12, 0.05, 0.12, sx * railX, 0.085, railZ, M.gunmetal);                             // rail foot
       b.box(0.2, 0.05, 0.06, sx * 0.82, 0.085, railZ, M.gunmetal);
-      b.box(0.2, 0.05, 0.05, sx * 0.82, 2.1, railZ, M.gunmetal);                                 // 레일 위 팔
-      b.box(0.08, 0.04, 0.12, sx * railX, BENCH_BAR_LOW.y - 0.1, railZ, M.trim);                 // 안전 멈춤쇠 (가슴 높이 바로 아래)
-      b.box(0.05, 0.03, 0.1, sx * railX, restY - 0.075, railZ + 0.07, M.trim);                   // 거치 핀
+      b.box(0.2, 0.05, 0.05, sx * 0.82, 2.1, railZ, M.gunmetal);                                 // rail top arm
+      b.box(0.08, 0.04, 0.12, sx * railX, BENCH_BAR_LOW.y - 0.1, railZ, M.trim);                 // safety stop (just below chest height)
+      b.box(0.05, 0.03, 0.1, sx * railX, restY - 0.075, railZ + 0.07, M.trim);                   // rest pin
     }
-    b.box(1.6, 0.06, 0.06, 0, 2.1, railZ, M.gunmetal);                                           // 레일 위 가로대
-    b.box(0.5, 0.06, 0.012, 0, topY, -0.096, a);                                                 // 앞 명판
+    b.box(1.6, 0.06, 0.06, 0, 2.1, railZ, M.gunmetal);                                           // rail top crossbar
+    b.box(0.5, 0.06, 0.012, 0, topY, -0.096, a);                                                 // front nameplate
     flatBench(b, a);
     const { bar, plates } = barbell(model, model.group, restY, railZ, 0.9, 0.78, a, (bb) => {
       for (const sx of [-1, 1]) {
-        bb.box(0.08, 0.12, 0.08, sx * railX, 0, 0, M.hullLight);                                 // 슬라이더
-        bb.box(0.03, 0.03, 0.08, sx * railX, -0.03, 0.07, M.trim);                               // 거치 갈고리
+        bb.box(0.08, 0.12, 0.08, sx * railX, 0, 0, M.hullLight);                                 // slider
+        bb.box(0.03, 0.03, 0.08, sx * railX, -0.03, 0.07, M.trim);                               // rest hook
       }
     }, extra?.gymActive === true);
     model.rig = {
@@ -931,32 +955,33 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * 트레드밀 (`2 × 4 · 1.4`): 앞(−Z)에 모터 덮개 · 앞으로 기운 기둥 둘 · 러너 쪽으로 기운 콘솔(화면) · 손잡이, 뒤로 긴 데크 위에
-   * 러닝 벨트 · 발판 레일 · 롤러. 벨트 줄무늬는 `rig.belt` 그룹이라 달리는 동안 뒤(+Z)로 흐른다.
+   * Treadmill (`2 × 4 · 1.4`): a motor cowl at the front (−Z) · two forward-leaning posts · a console (screen) tilted toward
+   * the runner · handles, and on the long deck behind them the running belt · foot rails · rollers. The belt stripes are the
+   * `rig.belt` group, so they flow backwards (+Z) while running.
    */
   treadmill: (b, model, _w, _d, _h, a) => {
-    b.boxB(0.84, 0.14, 1.7, 0, 0.02, 0.1, M.hullDark);                                           // 데크
+    b.boxB(0.84, 0.14, 1.7, 0, 0.02, 0.1, M.hullDark);                                           // deck
     for (const sx of [-1, 1]) for (const sz of [-0.7, 0.9]) b.box(0.08, 0.022, 0.1, sx * 0.36, 0.011, sz, RUBBER);
-    b.boxB(0.9, 0.2, 0.36, 0, 0, -0.78, M.hullLight);                                            // 모터 덮개
+    b.boxB(0.9, 0.2, 0.36, 0, 0, -0.78, M.hullLight);                                            // motor cowl
     b.box(0.8, 0.02, 0.01, 0, 0.13, -0.965, a);
     b.box(0.6, 0.006, 0.2, 0, 0.203, -0.78, M.floorGrate);
     for (const sx of [-1, 1]) {
-      b.box(0.12, 0.05, 1.45, sx * 0.39, 0.185, 0.2, M.hullLight);                               // 발판 레일
+      b.box(0.12, 0.05, 1.45, sx * 0.39, 0.185, 0.2, M.hullLight);                               // foot rail
       b.box(0.008, 0.016, 1.4, sx * 0.4535, 0.18, 0.2, a);
     }
     const beltTop = 0.19, zMin = -0.52, spacing = 0.18, n = 8;
-    b.box(0.62, 0.02, n * spacing + 0.02, 0, beltTop - 0.01, zMin + n * spacing / 2, BELT);      // 벨트
-    b.cyl(0.042, 0.042, 0.64, 12, 0, 0.15, zMin - 0.02, CHROME, 0, 0, ALONG_X);                  // 앞 롤러
-    b.box(0.9, 0.09, 0.07, 0, 0.12, 0.965, M.hullLight);                                         // 뒤 캡
-    // 기둥 · 콘솔 · 손잡이
+    b.box(0.62, 0.02, n * spacing + 0.02, 0, beltTop - 0.01, zMin + n * spacing / 2, BELT);      // belt
+    b.cyl(0.042, 0.042, 0.64, 12, 0, 0.15, zMin - 0.02, CHROME, 0, 0, ALONG_X);                  // front roller
+    b.box(0.9, 0.09, 0.07, 0, 0.12, 0.965, M.hullLight);                                         // rear cap
+    // posts · console · handles
     for (const sx of [-1, 1]) b.box(0.07, 1.12, 0.07, sx * 0.4, 0.76, -0.8, M.hullLight, 0, -0.12);
     const ct = 0.6;
-    b.box(0.8, 0.08, 0.34, 0, 1.28, -0.83, M.hullDark, 0, ct);                                   // 콘솔
-    b.box(0.46, 0.004, 0.2, 0, 1.28 + 0.042 * Math.cos(ct), -0.83 + 0.042 * Math.sin(ct), M.screen, 0, ct);   // 화면
-    b.box(0.76, 0.02, 0.012, 0, 1.28 + 0.17 * Math.sin(ct), -0.83 - 0.17 * Math.cos(ct), a, 0, ct);          // 콘솔 앞 악센트
-    b.box(0.03, 0.03, 0.012, 0.26, 1.22, -0.7, M.stripRed);                                      // 안전 키
+    b.box(0.8, 0.08, 0.34, 0, 1.28, -0.83, M.hullDark, 0, ct);                                   // console
+    b.box(0.46, 0.004, 0.2, 0, 1.28 + 0.042 * Math.cos(ct), -0.83 + 0.042 * Math.sin(ct), M.screen, 0, ct);   // screen
+    b.box(0.76, 0.02, 0.012, 0, 1.28 + 0.17 * Math.sin(ct), -0.83 - 0.17 * Math.cos(ct), a, 0, ct);          // console front accent
+    b.box(0.03, 0.03, 0.012, 0.26, 1.22, -0.7, M.stripRed);                                      // safety key
     for (const sx of [-1, 1]) {
-      b.box(0.04, 0.04, 0.56, sx * 0.42, 1.08, -0.5, CHROME);                                    // 손잡이
+      b.box(0.04, 0.04, 0.56, sx * 0.42, 1.08, -0.5, CHROME);                                    // handle
       b.box(0.05, 0.05, 0.2, sx * 0.42, 1.08, -0.34, RUBBER);
       b.box(0.04, 0.12, 0.04, sx * 0.42, 1.02, -0.22, CHROME);
     }
@@ -965,7 +990,7 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
     });
     model.rig = {
       pose: 'run',
-      anchor: new THREE.Vector3(0, beltTop, zMin + n * spacing / 2),                              // 벨트 윗면 가운데 (발이 anchor 에 선다)
+      anchor: new THREE.Vector3(0, beltTop, zMin + n * spacing / 2),                              // the centre of the belt top (the feet stand on the anchor)
       forward: { x: 0, z: -1 },
       focus: new THREE.Vector3(0, 0.85, 0.0),
       camDist: 2.7, camUp: 0.4,
@@ -974,31 +999,33 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
   },
 
   /**
-   * 사이클 (`2 × 3 · 1.2`): 앞뒤 발 · 낮은 보 · 안장 기둥 · 뒤 사선 · 앞 포크(플라이휠을 사이에 둔 판 둘) · 반원 덮개 · 저항 손잡이 ·
-   * 핸들 · 콘솔 · 체인 덮개 · 안장. 크랭크(`rig.crank`, 페달은 수평을 지키는 자식 그룹)와 플라이휠(`rig.flywheel`)이 X 축으로 돈다.
+   * Exercise bike (`2 × 3 · 1.2`): front and rear feet · a low beam · the saddle post · a rear diagonal · the front fork
+   * (two plates with the flywheel between them) · a half-round cover · the resistance knob · handlebars · console · chain
+   * cover · saddle. The crank (`rig.crank`, with the pedals a child group that stays level) and the flywheel
+   * (`rig.flywheel`) turn about X.
    */
   exercise_bike: (b, model, _w, _d, _h, a) => {
     for (const sz of [-0.62, 0.6]) {
-      b.box(0.62, 0.05, 0.08, 0, 0.025, sz, M.hullLight);                                        // 앞 · 뒤 발
+      b.box(0.62, 0.05, 0.08, 0, 0.025, sz, M.hullLight);                                        // front · rear foot
       for (const sx of [-1, 1]) b.box(0.08, 0.03, 0.09, sx * 0.3, 0.015, sz, RUBBER);
     }
-    b.box(0.08, 0.06, 1.1, 0, 0.08, -0.02, M.hullDark);                                          // 낮은 보
-    // player FURN_CYCLE (안장 윗면 기준, 앞 = −Z): 크랭크 축 (0, −0.60, 앞 0.25) · 반지름 0.16 · 페달 x ±0.13 · 손잡이 (±0.22, +0.14, 앞 0.50)
+    b.box(0.08, 0.06, 1.1, 0, 0.08, -0.02, M.hullDark);                                          // low beam
+    // player FURN_CYCLE (from the saddle top, front = −Z): crank axis (0, −0.60, front 0.25) · radius 0.16 · pedals x ±0.13 · grips (±0.22, +0.14, front 0.50)
     const seatTop = 0.93, seatZ = 0.3;
     const crankY = seatTop - 0.6, crankZ = seatZ - 0.25;
     const gripY = seatTop + 0.14, gripZ = seatZ - 0.5;
-    b.box(0.075, 0.62, 0.07, 0, (crankY + seatTop - 0.07) / 2, (crankZ + seatZ) / 2, M.hullLight, 0, Math.atan2(seatZ - crankZ, seatTop - 0.07 - crankY));   // 안장 기둥
-    b.box(0.07, 0.62, 0.07, 0, (0.05 + crankY) / 2, (0.6 + crankZ) / 2, M.hullLight, 0, Math.atan2(crankZ - 0.6, crankY - 0.05));   // 뒤 사선
-    // 앞 포크: 앞 발(z −0.6)에서 핸들 기둥 꼭대기(y 1.02, z −0.38)까지, 플라이휠을 사이에 둔 판 둘
+    b.box(0.075, 0.62, 0.07, 0, (crankY + seatTop - 0.07) / 2, (crankZ + seatZ) / 2, M.hullLight, 0, Math.atan2(seatZ - crankZ, seatTop - 0.07 - crankY));   // saddle post
+    b.box(0.07, 0.62, 0.07, 0, (0.05 + crankY) / 2, (0.6 + crankZ) / 2, M.hullLight, 0, Math.atan2(crankZ - 0.6, crankY - 0.05));   // rear diagonal
+    // front fork: from the front foot (z −0.6) to the top of the handlebar post (y 1.02, z −0.38), two plates with the flywheel between them
     const forkLen = Math.hypot(1.02 - 0.05, -0.38 + 0.6), forkT = Math.atan2(-0.38 + 0.6, 1.02 - 0.05);
     for (const sx of [-1, 1]) b.box(0.03, forkLen, 0.07, sx * 0.065, (0.05 + 1.02) / 2, (-0.6 - 0.38) / 2, M.hullDark, 0, forkT);
-    b.cyl(0.07, 0.07, 0.12, 16, 0, crankY, crankZ, M.hullDark, 0, 0, ALONG_X);                   // 크랭크 하우징
+    b.cyl(0.07, 0.07, 0.12, 16, 0, crankY, crankZ, M.hullDark, 0, 0, ALONG_X);                   // crank housing
     const fwY = 0.36, fwZ = -0.6 + (0.36 - 0.05) * Math.tan(forkT);
-    b.box(0.02, 0.12, crankZ - fwZ, 0.05, (crankY + fwY) / 2, (crankZ + fwZ) / 2, M.hullLight);  // 체인 덮개 (크랭크 팔 안쪽)
+    b.box(0.02, 0.12, crankZ - fwZ, 0.05, (crankY + fwY) / 2, (crankZ + fwZ) / 2, M.hullLight);  // chain cover (inside the crank arm)
     b.box(0.004, 0.02, crankZ - fwZ - 0.06, 0.0615, (crankY + fwY) / 2, (crankZ + fwZ) / 2, a);
-    b.add(new THREE.CylinderGeometry(0.235, 0.235, 0.09, 20, 1, true, 0, Math.PI), M.hullLight, 0, fwY, fwZ, 0, 0, Math.PI / 2);   // 플라이휠 덮개 (위 반원)
-    b.cyl(0.03, 0.03, 0.06, 10, 0, 0.63, fwZ + 0.06, M.stripRed);                                // 저항 손잡이
-    // 핸들 (기둥 꼭대기에서 라이더 쪽으로 뻗은 뿔 둘 — 고무 손잡이가 player 의 손 자리) · 콘솔
+    b.add(new THREE.CylinderGeometry(0.235, 0.235, 0.09, 20, 1, true, 0, Math.PI), M.hullLight, 0, fwY, fwZ, 0, 0, Math.PI / 2);   // flywheel cover (upper half-round)
+    b.cyl(0.03, 0.03, 0.06, 10, 0, 0.63, fwZ + 0.06, M.stripRed);                                // resistance knob
+    // handlebars (two horns reaching from the post's top toward the rider — the rubber grips are where player's hands go) · console
     b.box(0.5, 0.036, 0.036, 0, 1.02, -0.38, M.gunmetal);
     for (const sx of [-1, 1]) {
       b.box(0.036, 0.036, 0.26, sx * 0.22, gripY - 0.02, -0.38 + 0.13, M.gunmetal, 0, Math.atan2(-(gripY - 1.02), 0.26));
@@ -1006,30 +1033,30 @@ export const LEISURE_BUILDERS: Record<LeisureKind, LeisureBuilder> = {
     }
     b.box(0.18, 0.11, 0.03, 0, 1.12, -0.42, M.hullDark, 0, 0.5);
     b.box(0.14, 0.07, 0.004, 0, 1.12 + 0.016 * Math.sin(0.5), -0.42 - 0.016 * Math.cos(0.5), M.screen, 0, 0.5);
-    // 안장
+    // saddle
     b.box(0.05, 0.05, 0.1, 0, seatTop - 0.07, seatZ, M.gunmetal);
     b.box(0.16, 0.06, 0.26, 0, seatTop - 0.03, seatZ, BENCH_PAD);
     b.box(0.08, 0.05, 0.14, 0, seatTop - 0.035, seatZ - 0.18, BENCH_PAD);
     b.box(0.164, 0.012, 0.24, 0, seatTop - 0.045, seatZ, a);
-    // 움직이는 부분
+    // moving parts
     const flywheel = rigGroup(model, model.group, 'flywheel', 0, fwY, fwZ, (rb) => {
       rb.cyl(0.2, 0.2, 0.05, 28, 0, 0, 0, CHROME, 0, 0, ALONG_X);
       rb.cyl(0.14, 0.14, 0.054, 24, 0, 0, 0, M.gunmetal, 0, 0, ALONG_X);
-      rb.box(0.058, 0.26, 0.02, 0, 0, 0, a);                                                     // 도는 것이 보이는 표식
+      rb.box(0.058, 0.26, 0.02, 0, 0, 0, a);                                                     // a mark that makes the turning visible
       rb.cyl(0.03, 0.03, 0.07, 10, 0, 0, 0, M.trim, 0, 0, ALONG_X);
     });
     const crankR = 0.16, pedalX = 0.13;
     const pedals: THREE.Group[] = [];
     const crank = rigGroup(model, model.group, 'crank', 0, crankY, crankZ, (rb) => {
-      rb.cyl(0.015, 0.015, 0.2, 8, 0, 0, 0, CHROME, 0, 0, ALONG_X);                              // 축
-      rb.box(0.022, crankR + 0.03, 0.035, -0.085, crankR / 2, 0, M.gunmetal);                    // 왼 크랭크 (위)
-      rb.box(0.022, crankR + 0.03, 0.035, 0.085, -crankR / 2, 0, M.gunmetal);                    // 오른 크랭크 (아래)
-      rb.cyl(0.06, 0.06, 0.01, 16, 0.07, 0, 0, M.trim, 0, 0, ALONG_X);                           // 체인링
+      rb.cyl(0.015, 0.015, 0.2, 8, 0, 0, 0, CHROME, 0, 0, ALONG_X);                              // shaft
+      rb.box(0.022, crankR + 0.03, 0.035, -0.085, crankR / 2, 0, M.gunmetal);                    // left crank (up)
+      rb.box(0.022, crankR + 0.03, 0.035, 0.085, -crankR / 2, 0, M.gunmetal);                    // right crank (down)
+      rb.cyl(0.06, 0.06, 0.01, 16, 0.07, 0, 0, M.trim, 0, 0, ALONG_X);                           // chainring
     });
     for (const sx of [-1, 1]) {
       pedals.push(rigGroup(model, crank, sx < 0 ? 'pedal-l' : 'pedal-r', sx * pedalX, -sx * crankR, 0, (rb) => {
         rb.box(0.1, 0.025, 0.12, 0, 0, 0, RUBBER);
-        rb.box(0.1, 0.03, 0.02, 0, 0.018, -0.05, a);                                             // 발 끈
+        rb.box(0.1, 0.03, 0.02, 0, 0.018, -0.05, a);                                             // toe strap
       }));
     }
     model.rig = {

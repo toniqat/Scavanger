@@ -1,9 +1,9 @@
 /**
- * src/hub/parts/Crew.ts — **크루 카드** (Phase 10) 와 훈련장 입장.
+ * src/hub/parts/Crew.ts — **crew cards** (Phase 10) and entering the training arena.
  *
- * 허브에서는 `PlayerSnapshot` 의 무기 · 임플란트가 null 이고 `LobbyPlayer` 에는 레벨이 없다.
- * 그래서 발사 준비 패널이 쓸 정보(이름 · 레벨 · 장착 임플란트 · 방어구)를 별도 `crew` 메시지로
- * 주고받는다. 요청이 오면 그 대원의 장비 문서도 보낸다.
+ * In the hub a `PlayerSnapshot`'s weapons and implant are null and `LobbyPlayer` carries no level.
+ * So what the ready panel needs (name · level · equipped implant · armor) travels as its own `crew`
+ * message. On request that member's loadout document goes with it.
  */
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
@@ -26,13 +26,13 @@ import { HubStatus } from '../ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
 import { randomSeed } from '../ui/dom';
 import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
-/* 2026-09-15: 분대 · 도킹 매칭 — 미도킹 분대에서는 훈련장이 잠긴다 */
+/* 2026-09-15: squads · dock matchmaking — an undocked squad locks the training arena */
 import { squadLockReason } from './SquadDock';
-/* 2026-09-15: 안드로이드 봇 멤버는 사람이 아니다 — 훈련 인원 · 분대장 넘기기에서 빠진다 */
+/* 2026-09-15: an android bot member is not a person — it is left out of the training head count and the leader handoff */
 import { isBotPlayer } from '@/shared';
 import type { HubSystem } from '../HubSystem';
 
-/* ── 시뮬레이션 훈련장 (Phase 7) ─────────────────────────────────────────── */
+/* ── the training arena (Phase 7) ─────────────────────────────────────── */
 /** A training is running in our lobby (`lobby.started` with mode `'training'`). */
 export function trainingRunning(sys: HubSystem): boolean {
   const net = sys.ctx.net, lobby = net?.lobby;
@@ -45,14 +45,14 @@ export function raidRunning(sys: HubSystem): boolean {
   return !!lobby?.started && (net?.missionMode ?? lobby?.mode ?? 'raid') !== 'training';
   }
 
-/** Connected members currently inside the training. 2026-09-15: 안드로이드는 훈련장에 가지 않는다 — 봇은 세지 않는다. */
+/** Connected members currently inside the training. 2026-09-15: androids never go there — a bot is not counted. */
 export function trainingCount(sys: HubSystem): number {
   const lobby = sys.ctx.net?.lobby;
   return lobby ? lobby.players.filter((p) => !isBotPlayer(p) && p.connected && p.inMission === true).length : 0;
   }
 
 /**
- * Enter the 시뮬레이션 훈련장 — from the 사격장 `furn_sim_hub` (personal ship) or the shared-ship terminal.
+ * Enter the training arena — from the firing range's `furn_sim_hub` (personal ship) or the shared-ship terminal.
  * No countdown, no ready gating, individual entry: in a lobby any member calls `ctx.net.startGame(seed, 'training')`
  * (the server marks only the caller `inMission`), a training already running is joined with `rejoinMission()`, and a
  * running raid refuses. Solo: `ctx.missionMode = 'training'` is set **before** `game:newMission {seed, mode}` so
@@ -68,7 +68,7 @@ export function startTraining(sys: HubSystem): boolean {
     ctx.bus.emit('audio:play', { id: 'ui_deny' });
     return false;
   };
-  // 2026-09-15 (분대 · 도킹 매칭): an undocked squad has no training range (the relay refuses `not_docked` as well)
+  // 2026-09-15 (squads · dock matchmaking): an undocked squad has no training range (the relay refuses `not_docked` as well)
   const squadLock = squadLockReason(sys, 'training');
   if (squadLock) return deny(squadLock);
   if (net && sys.squadLobby()) {
@@ -86,7 +86,7 @@ export function startTraining(sys: HubSystem): boolean {
   }
   ctx.missionMode = 'training';
   ctx.missionPlanet = null;            // the arena has no planet (Phase 11 contract: a training clears it)
-  ctx.missionIntel = null;             // 2026-09-14 (정보상): 훈련장은 언제나 기믹 고정이 없다 (같은 규약)
+  ctx.missionIntel = null;             // 2026-09-14 (the intel broker): a training never has fixed gimmicks (the same contract)
   ctx.bus.emit('ui:notify', { text: '시뮬레이션 훈련장 입장', kind: 'info' });
   ctx.bus.emit('game:newMission', { seed, mode: 'training' });
   return true;
@@ -159,15 +159,17 @@ export function sendCrewLoadout(sys: HubSystem, to: PeerId): void {
   try { net.send({ t: 'crew', ev: 'loadout', card: sys.crewCard(), loadout }, to); } catch { /* offline */ }
   }
 
-/* ── 분대장 넘기기 (2026-09-09) ─────────────────────────────────────────── */
+/* ── the squad-leader handoff (2026-09-09) ────────────────────────────── */
 /**
- * 공용 함선 안에서 **다른 분대원에게 다가가 분대장을 넘긴다**. 내가 호스트일 때만 `Interactable` 이 뜨고,
- * **같은 함선 안**(`RemotePlayerRef.hubSite === HubSystem.hubSite`)에 있는 접속 중인 대원만 대상이다 —
- * 격납고에서 남의 개인 함선을 구경하는 사람에게 말을 걸 수는 없다.
+ * **Walk up to a squadmate in the shared ship and hand them the squad leader.** The `Interactable` exists only while
+ * I am the host, and only for connected members **inside the same ship**
+ * (`RemotePlayerRef.hubSite === HubSystem.hubSite`) — someone touring another member's personal ship from the hangar
+ * cannot be spoken to.
  *
- * 원격 아바타는 `player/RemotePlayerSystem` 소유이므로 여기서는 **읽기만** 한다: `getRemotePlayers()` 의 위치를
- * 우리 쪽 `Vector3` 로 복사해 상호작용 지점으로 쓴다. 상호작용은 `leader:transferRequested` 하나만 낸다 —
- * 실제 이관은 net → 서버 → `lobby:state` 가 확정한다 (커뮤니티 창의 우클릭과 완전히 같은 입구).
+ * A remote avatar belongs to `player/RemotePlayerSystem`, so it is only **read** here: the position from
+ * `getRemotePlayers()` is copied into our own `Vector3` and used as the interaction spot. The interaction emits one
+ * `leader:transferRequested` — the transfer itself is settled by net → server → `lobby:state` (exactly the entrance
+ * the community window's right-click uses).
  */
 export function updateLeaderHandoff(sys: HubSystem): void {
   const ctx = sys.ctx;
@@ -178,9 +180,9 @@ export function updateLeaderHandoff(sys: HubSystem): void {
   const seen = new Set<string>();
   for (const ref of net.getRemotePlayers()) {
     if (!ref.connected || ref.stale) continue;
-    if ((ref.hubSite ?? null) !== site) continue;         // 다른 함선 안에 있는 사람은 보이지도 않는다
+    if ((ref.hubSite ?? null) !== site) continue;         // someone inside another ship is not even visible
     const member = net.lobby?.players.find((p) => p.id === ref.id);
-    // 2026-09-15: 봇 멤버는 절대 분대장이 되지 않는다 (릴레이 규칙) — `lead:<id>` 를 세우지 않는다
+    // 2026-09-15: a bot member never becomes the leader (the relay's rule) — no `lead:<id>` is registered for one
     if (!member || !member.connected || isBotPlayer(member)) continue;
     seen.add(ref.id);
     let entry = sys.leaderHandoffs.get(ref.id);
@@ -202,7 +204,7 @@ export function updateLeaderHandoff(sys: HubSystem): void {
       ctx.interactables.register(it);
     }
     entry.pos.copy(ref.position);
-    entry.pos.y += 1;   // 가슴 높이 — 발밑보다 조준하기 쉽다
+    entry.pos.y += 1;   // chest height — easier to aim at than their feet
   }
   for (const [id, entry] of sys.leaderHandoffs) {
     if (seen.has(id)) continue;

@@ -1,14 +1,15 @@
 /**
- * src/hub/parts/Hangar.ts — **공용 함선 격납고** (2026-09-08).
+ * src/hub/parts/Hangar.ts — **the shared ship's hangar** (2026-09-08).
  *
- * 공유 함선 뒤쪽 자동문 너머의 격납고에는 바닥에 네모로 표시된 정박 구역이 4개 있고, 로비 슬롯마다
- * 그 대원의 **개인 함선**이 한 대씩 서 있다. 함선 뒷문(램프) 앞에서 E 를 누르면 그 함선 안으로 들어간다.
+ * Beyond the sliding door at the shared ship's stern the hangar holds four bays marked as squares on the deck, one
+ * **personal ship** per lobby slot. E in front of a ship's rear ramp walks into it.
  *
- * 남의 함선을 그리려면 그 사람의 배치 상태가 필요한데 어떤 메시지도 그걸 나르지 않는다 —
- * `ship state` (`ShipVisitWire`) 가 그 짐을 진다. 동작 방식은 크루 카드와 **똑같다**:
- * 공유 함선에 도착하면 한 번 뿌리고, 내 함선이 바뀌면 디바운스해서 다시 뿌리고, `shipq state` 에는 바로 답한다.
+ * Drawing someone else's ship needs their placement state, and no message carried it — `ship state`
+ * (`ShipVisitWire`) takes that load. It works **exactly** like the crew card: broadcast once on arrival in the
+ * shared ship, re-broadcast debounced when our own ship changes, and answered straight away for `shipq state`.
  *
- * 방문 중에는(남의 함선) 터미널 · 작업대 · 재배 · 서재 · 가구 · 시설 관리가 전부 막힌다 — 둘러보기 전용.
+ * During a visit (someone else's ship) the terminal · benches · growing · library · furniture · ship management are
+ * all refused — looking around only.
  */
 import type {
   GameContext, HubShipBay, PeerId, PlacedBook, PlacedFurniture, Rarity, RoomPurpose, ShipVisitWire,
@@ -69,16 +70,16 @@ export function shipStateWire(sys: HubSystem): ShipVisitWire | null {
         for (const slot of h.getBooks(piece.uid)) {
           if (slot.defId) books.push({ uid: piece.uid, slot: slot.slot, defId: slot.defId });
         }
-      } catch { /* not a 책장 */ }
+      } catch { /* not a bookshelf */ }
     }
   }
   if (books.length > 0) wire.books = books;
-  // A-3e (2026-09-12): 디스크 전시대 · 레코드랙의 매체와 켜 둔 TV · 레코드 플레이어 — `books` 와 같은 모양, 비어 있으면 생략
-  // (받는 쪽 `net` 의 `sanitizeShipVisit` 이 두 필드를 검증해 남긴다)
+  // A-3e (2026-09-12): the media on disc stands · record racks and a TV · record player left on — same shape as
+  // `books`, omitted when empty (the receiving `net`'s `sanitizeShipVisit` validates and keeps both fields)
   const state = h.state;
   if (state?.media && state.media.length > 0) wire.media = state.media.map((m) => ({ uid: m.uid, slot: m.slot, defId: m.defId }));
   if (state?.toggled && state.toggled.length > 0) wire.toggled = [...state.toggled];
-  // 2026-09-17: 배양조 칸의 겉모습 (배지 id · 세포주 유무) — 방문자의 배양조 모델이 주인의 것과 같은 색 · 같은 덩어리를 그린다
+  // 2026-09-17: the look of each culture-tank slot (medium id · whether a strain sits in it) — a visitor's tank model draws the owner's colours and masses
   if (state?.cultures && state.cultures.length > 0) {
     const placed = new Set(furniture.map((f) => f.uid));
     const cultures = state.cultures.filter((c) => placed.has(c.uid))
@@ -135,7 +136,7 @@ export function announceShip(sys: HubSystem): void {
   const known = typeof net.getShipVisit === 'function' ? net.getShipVisit(me ?? '') : null;
   if (!known) sendShipState(sys, true);          // first arrival in this squad — nobody has our layout
   for (const p of lobby.players) {
-    // 2026-09-15: 봇 멤버에게는 물어볼 함선이 없다 (소켓도 없다)
+    // 2026-09-15: a bot member has no ship to ask for (and no socket either)
     if (p.id === me || isBotPlayer(p) || typeof net.requestShipVisit !== 'function') continue;
     if (!net.getShipVisit(p.id)) net.requestShipVisit(p.id);
   }
@@ -144,7 +145,7 @@ export function announceShip(sys: HubSystem): void {
 /**
  * Read-only `FurnitureSource` over a member's `ShipVisitWire` (nothing in it ever changes under the layer). Book
  * **rarities** are looked up locally from `ctx.loot` — the wire only carries def ids, and the item catalogue is the
- * same on every client, so a visited 책장's spines read exactly as they do in the owner's own ship.
+ * same on every client, so a visited bookshelf's spines read exactly as they do in the owner's own ship.
  */
 export function furnitureSource(ctx: GameContext, wire: ShipVisitWire): FurnitureSource {
   const byRoom = new Map<number, PlacedFurniture[]>();
@@ -163,8 +164,9 @@ export function furnitureSource(ctx: GameContext, wire: ShipVisitWire): Furnitur
     slots[bk.slot] = rarity;
   }
   /*
-   * A-3e (2026-09-12): 디스크 전시대 · 레코드랙의 칸 — 칸 수는 그 조각의 매체(`SHELF_SLOTS`)에서 오고, 와이어에 없는 uid ·
-   * 칸 범위 밖 · 보관함이 아닌 조각은 버린다 (책과 같은 방어). 등급은 책처럼 로컬 카탈로그에서 찾는다.
+   * A-3e (2026-09-12): the slots of disc stands · record racks — the slot count comes from that piece's media
+   * (`SHELF_SLOTS`), and a uid missing from the wire · a slot out of range · a piece that is not a holder are dropped
+   * (the same defence as books). Rarities are looked up in the local catalogue, as books are.
    */
   const defOfUid = new Map<string, string>();
   for (const piece of wire.furniture) defOfUid.set(piece.uid, piece.defId);
@@ -183,7 +185,7 @@ export function furnitureSource(ctx: GameContext, wire: ShipVisitWire): Furnitur
     slots[m.slot] = rarity;
   }
   const toggled = new Set(wire.toggled ?? []);
-  // 2026-09-17: 배양조 칸 (배지 id · 세포주 유무) — 배양조가 아닌 조각의 것은 버린다
+  // 2026-09-17: culture-tank slots (medium id · whether a strain sits in it) — anything from a piece that is not a tank is dropped
   const culturesByUid = new Map<string, { slot: number; medium: string; filled: boolean }[]>();
   for (const c of wire.cultures ?? []) {
     const defId = defOfUid.get(c.uid);
@@ -208,8 +210,8 @@ export function furnitureSource(ctx: GameContext, wire: ShipVisitWire): Furnitur
 /**
  * Crew name parked in bay `slot`, or null when the slot is empty (no lobby → only our own bay 0 is filled).
  *
- * 2026-09-15 (안드로이드 분대원): 봇 멤버는 개인 함선이 없다 — 그 슬롯의 정박 구역은 **비어 있다**
- * (`비어 있는 정박 구역`), 함선도 세우지 않고 `ship state` 를 물어보지도 않는다.
+ * 2026-09-15 (android squadmates): a bot member has no personal ship — that slot's bay stays **empty**
+ * (`비어 있는 정박 구역`), no ship is parked in it and no `ship state` is ever asked for.
  */
 function occupantOf(sys: HubSystem, slot: number): { id: PeerId; name: string } | null {
   const net = sys.ctx.net;
@@ -291,7 +293,7 @@ export function refreshBays(sys: HubSystem): void {
 
 /* ── entering / leaving a parked ship ──────────────────────────────────── */
 /**
- * Board the 개인 함선 in bay `slot`. Ours enters at once; someone else's needs their `ship state` — when it has not
+ * Board the personal ship in bay `slot`. Ours enters at once; someone else's needs their `ship state` — when it has not
  * arrived we ask for it and wait up to `SHIP_VISIT_WAIT_S` (`tickPendingVisit` finishes or gives up).
  */
 export function enterShipBay(sys: HubSystem, slot: number): boolean {

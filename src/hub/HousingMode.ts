@@ -4,35 +4,35 @@ import {
   FURNITURE_DEF_MAP, HOUSING_CELL_SIZE, HOUSING_MOVE_HOLD_S, Keys, MouseButtons, ROOM_PURPOSE_LABEL_KO, furnitureFootprint, keyLabel, roomGridSize,
 } from '@/shared';
 import { COCKPIT_ONLY_RECOVER_REASON, isCockpitOnlyFurniture } from '@/shared';
-/* 2026-09-13 (배치 규칙 — 접근 면): 고스트의 비워야 하는 칸 표시 */
+/* 2026-09-13 (placement rules — access faces): drawing the cells a ghost must keep clear */
 import { accessAllowsWall, furnitureAccessOf, furnitureClearanceCells, roomCellBlocked } from '@/shared';
 import { GHOST_BAD, GHOST_OK, buildFurniture, type FurnitureLayer, type FurnitureModel } from './interiors/Furniture';
 import { ROOM_DEPTH, roomBox, roomCellToWorld, yawToRotation, type RoomBox } from './interiors/RoomLayout';
 import type { PersonalShip } from './interiors/PersonalShip';
 
 /**
- * 2026-09-12 (사용자 결정 — 꾹 눌러 옮기기): the hold gauge is not announced for a plain click. `housing:moveHold` starts
+ * 2026-09-12 (user's decision — hold to move): the hold gauge is not announced for a plain click. `housing:moveHold` starts
  * only once the press has lasted this fraction of `HOUSING_MOVE_HOLD_S`, so ui/'s cursor ring does not blink on every
  * selection click. UI timing, not balance.
  */
 const HOLD_GAUGE_MIN_PROGRESS = 0.15;
 
 /**
- * Cursor speed: metres of room floor per pixel of pointer-locked mouse movement (the 방 콘솔 path only — 시설 관리
- * ray-casts the free cursor and needs no rate). 2026-09-12: a fraction of `ROOM_DEPTH` rather than the literal
- * 0.012, so crossing the room still takes the same mouse travel now that it is twice as wide.
+ * Cursor speed: metres of room floor per pixel of pointer-locked mouse movement (the room-console path only — ship
+ * management ray-casts the free cursor and needs no rate). 2026-09-12: a fraction of `ROOM_DEPTH` rather than the
+ * literal 0.012, so crossing the room still takes the same mouse travel now that it is twice as wide.
  */
 const CURSOR_M_PER_PX = ROOM_DEPTH * 0.003;   // was 0.012 at ROOM_DEPTH 4
 /**
- * 배치 취소 key (Phase 8). Fixed to `KeyC` by the design brief — the movement keys are off in housing mode, so it
- * never collides with `Keys.CROUCH`; it is deliberately not a rebindable action.
+ * The placement-cancel key (Phase 8). Fixed to `KeyC` by the design brief — movement keys are off in housing mode, so
+ * it never collides with `Keys.CROUCH`; it is deliberately not a rebindable action.
  */
 const CANCEL_KEY = 'KeyC';
 /**
- * UI blocker token held for the whole 함선 관리 session (Phase 8). The mode is driven with a **cursor** (the
- * `ui/hud/ShipManage` 방 목록 / 가구 카드 바 are clickable DOM), and without a token `ctx.isControlActive()` would
- * stay true and `player/`'s click-to-relock fallback would fight for the pointer. Its own token is ignored by this
- * controller (see `blockedByPanel`).
+ * UI blocker token held for the whole ship-management session (Phase 8). The mode is driven with a **cursor** (the
+ * `ui/hud/ShipManage` room list / furniture card bar are clickable DOM), and without a token `ctx.isControlActive()`
+ * would stay true and `player/`'s click-to-relock fallback would fight for the pointer. Its own token is ignored by
+ * this controller (see `blockedByPanel`).
  *
  * **Phase 10**: the pointer lock is **kept** — `ctx.input.setCursorMode(true, MANAGE_BLOCKER)` drives the software
  * cursor (`shared/cursor.ts`) from the raw locked deltas instead of handing the OS cursor back.
@@ -57,12 +57,12 @@ const MANAGE_BLOCKER = 'shipmanage';
 const CAM_TOWARD_FRAC = 0.55;   // × span — was 2.2 at ROOM_DEPTH 4
 const CAM_HEIGHT_FRAC = 1.65;   // × span — was 6.6 at ROOM_DEPTH 4
 /**
- * 2026-09-12 (조종석도 꾸민다): the framing scales with the **longer side** of the edit area — `ROOM_DEPTH` (8 m) for a
+ * 2026-09-12 (the cockpit is decorated too): the framing scales with the **longer side** of the edit area — `ROOM_DEPTH` (8 m) for a
  * room, so rooms look exactly as before, and 10 m for the 10 × 6 m cockpit (its long side runs along X, i.e. up the
  * screen in this camera convention).
  */
 function camSpan(rb: RoomBox): number { return Math.max(ROOM_DEPTH, rb.maxX - rb.minX, rb.maxZ - rb.minZ); }
-/** Exponential rate the camera glides to another room's goal while 시설 관리 is already open. Higher = snappier. */
+/** Exponential rate the camera glides to another room's goal while ship management is already open. Higher = snappier. */
 const CAM_GLIDE = 5.0;
 
 type Yaw = 0 | 1 | 2 | 3;
@@ -71,7 +71,7 @@ interface Carry { uid: string; defId: string; yaw: Yaw; level: number }
 const _cam = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const _pos = new THREE.Vector3();
-/** 함선 관리 cursor picking (free mouse → deck plane). */
+/** Ship-management cursor picking (free mouse → deck plane). */
 const _ndc = new THREE.Vector2();
 const _ray = new THREE.Raycaster();
 
@@ -87,48 +87,48 @@ const _ray = new THREE.Raycaster();
  *   wheel / [ ]               cycle the selection through the furniture storage (null = cursor only)
  *   C   (`CANCEL_KEY`)        cancel the current selection / put a carried piece back — and, with an empty
  *                             cursor, leave the mode just like Esc (Phase 8 UI pass)
- *   Esc (`Keys.MENU`)         same as C, but through the shared 닫기 스택 (2026-09-09): the mode registers its own
+ *   Esc (`Keys.MENU`)         same as C, but through the shared escape stack (2026-09-09): the mode registers its own
  *                             cancel with `ctx.escape`, so a panel opened **on top** of it closes first
- *   M (`Keys.MAP`)            leave 함선 관리 (`closeShipManage`) or plain housing mode (2026-09-08: was Esc)
+ *   M (`Keys.MAP`)            leave ship management (`closeShipManage`) or plain housing mode (2026-09-08: was Esc)
  *   Tab (`Keys.INVENTORY`)    same as M (2026-09-09: Tab closes every screen / mode). Consumed, so the inventory —
  *                             which polls the key after `HubSystem` — never opens on the press that left the mode.
  * Emits `housing:cursorChanged {room, x, y, valid}` whenever the footprint cell or its validity changes.
- * **키 가이드 (2026-09-09)**: while active the mode owns the bottom-right guide line (`ui:keyGuide`, owner
+ * **The key guide (2026-09-09)**: while active the mode owns the bottom-right guide line (`ui:keyGuide`, owner
  * `'housing'`): `LMB 설치 · R 회전 · X 회수 · 휠 선택 · C 취소` with the labels read live (re-emitted on
  * `input:bindingsChanged`); the guide appends `Tab 닫기` itself. This replaced the old `ui/hud/HousingHint` bar.
  *
- * **함선 관리 (Phase 8)**: `housing:shipManageChanged {active, room}` enters the same camera / cursor from
+ * **Ship management (Phase 8)**: `housing:shipManageChanged {active, room}` enters the same camera / cursor from
  * anywhere in the ship (no "stand in the room" gate — housing owns that rule) and retargets the camera when
  * `ctx.housing.setManageRoom` moves the edit room. Phase 9 UI pass: that retarget **glides** — the override pose
  * handed to the rig eases toward the new room every frame (`glideCamera`), instead of jumping there in one frame
  * (the rig only blends the override *weight*, which is long since 1 by then).
  *
- * **2026-09-12 (사용자 결정 — 선택과 위치 이동을 가른다, 시설 관리에서만):** 놓인 가구를 **LMB 로 한 번 누르면
- * 선택만** 된다 (`housing:furnitureSelected` → `ui/hud/ShipManage` 인스펙터). 곧바로 집어 드는 경로는 없어졌다.
- * 옮기려면 **위치 이동 상태**에 들어간다 — 인스펙터의 `위치 이동` 버튼(`housing:moveRequested`) 또는 선택한 채 **E**.
- * 가구 창고에서 카드를 골라 새로 놓는 것(`housing.selectedFurniture`)도 같은 상태다. 그 안에서만 LMB 설치 · R 회전 ·
- * X 회수가 듣고(키 가이드도 그 셋만 보인다), 밖에서는 선택이 있을 때 `E 위치 이동` 하나가 보인다. 놓을 수 없는 곳을
- * 누르면 거부음 + `housing:placeRefused {reason}` (인스펙터 위 토스트), 놓을 수 있는 곳을 누르면 놓이고 상태가 끝난다.
- * C / Esc 는 들고 있던 것을 제자리로 되돌린다 (놓인 조각은 옮기는 동안에도 상태에서 빠지지 않는다). 커서를 가구
- * 중앙으로 옮기는 기능은 없다 — 브라우저가 OS 커서를 옮기지 못해 요청에서 뺐다. 방 콘솔 모드(`manage` false)는
- * 예전 그대로 클릭 = 집기 · 놓기, X = 커서 밑 회수, 휠 = 창고 순환이다.
+ * **2026-09-12 (user's decision — selection and moving are split, in ship management only):** one **LMB press on a placed
+ * piece only selects** it (`housing:furnitureSelected` → the `ui/hud/ShipManage` inspector); the path that picked it up at
+ * once is gone. Moving means entering the **move state** — the inspector's `위치 이동` button (`housing:moveRequested`) or
+ * **E** with a selection. Placing a new piece from a furniture-storage card (`housing.selectedFurniture`) is the same
+ * state. Only inside it do LMB place · R rotate · X recover answer (the key guide shows those three only); outside it a
+ * selection shows the single `E 위치 이동`. A press on a spot that cannot take the piece gives the deny sound +
+ * `housing:placeRefused {reason}` (a toast over the inspector); one on a spot that can puts it down and ends the state.
+ * C / Esc put what is held back where it was (a placed piece never leaves the housing state while it is moved). There is
+ * no snapping the cursor to a piece's centre — the browser cannot move the OS cursor, so it was dropped from the request. The room console (`manage` false) is unchanged: click = pick up · put down, X = recover under the cursor, wheel = cycle storage.
  *
- * **2026-09-12 (같은 날 두 번째 묶음, 사용자 결정):** ① **조종석**(`COCKPIT_ROOM_INDEX`)도 편집 공간이다 — 방 상자 · 격자는
- * `roomBox` · `roomGridSize`, 카메라 틀은 `camSpan`. ② 모드 동안에만 바닥 격자선을 켠다(`PersonalShip.setGridVisible`).
- * ③ **꾹 눌러 옮기기** — 조각 위에서 LMB 를 `HOUSING_MOVE_HOLD_S` 누르고 있으면 위치 이동 상태(`housing:moveHold` 로 커서
- * 게이지). ④ **외곽선** — 커서 밑 조각은 `ctx.outline` 의 `hover`, 선택한 조각은 `selected`. ⑤ 키 가이드의 위치 이동 줄은
- * `E 또는 LMB(꾹)` (`KeyGuideEntry.alt`).
+ * **2026-09-12 (the same day's second batch, user's decision):** ① the **cockpit** (`COCKPIT_ROOM_INDEX`) is an edit area
+ * too — its room box · grid come from `roomBox` · `roomGridSize`, its camera framing from `camSpan`. ② The floor grid
+ * lines are on only while the mode runs (`PersonalShip.setGridVisible`). ③ **Hold to move** — holding LMB over a piece
+ * for `HOUSING_MOVE_HOLD_S` enters the move state (`housing:moveHold` drives the cursor gauge). ④ **Outlines** — the
+ * piece under the cursor is `ctx.outline`'s `hover`, the selected one `selected`. ⑤ The key guide's move row reads `E 또는 LMB(꾹)` (`KeyGuideEntry.alt`).
  */
 export class HousingMode {
   active = false;
   room = -1;
-  /** True while the session was entered through 함선 관리 (M) rather than a room console. */
+  /** True while the session was entered through ship management (M) rather than a room console. */
   manage = false;
   /** Top-left cell of the current footprint (debug / smoke). */
   readonly cell = { x: -1, y: -1, valid: false };
   /**
-   * 2026-09-07: false while the 함선 관리 cursor points **outside** the edit room. The deck ray is still clamped into
-   * the room (so the ghost has a defined pose), but the cyan cell frame, the furniture ghost and every placement
+   * 2026-09-07: false while the ship-management cursor points **outside** the edit room. The deck ray is still clamped
+   * into the room (so the ghost has a defined pose), but the cyan cell frame, the furniture ghost and every placement
    * action are suppressed — the highlight used to stick to the nearest edge cell while the player was clearly
    * pointing at the corridor or another room.
    */
@@ -145,7 +145,7 @@ export class HousingMode {
   private readonly lookGoal = new THREE.Vector3();
   private carry: Carry | null = null;
   /**
-   * B-13 (2026-09-11): the piece the 클릭 인스펙터 is showing, so `housing:furnitureSelected` is emitted only on a
+   * B-13 (2026-09-11): the piece the click inspector is showing, so `housing:furnitureSelected` is emitted only on a
    * real change. **Read-only** — nothing in this controller acts on it; `ui/hud/ShipManage` owns the panel.
    */
   private selectedUid: string | null = null;
@@ -158,9 +158,9 @@ export class HousingMode {
   private readonly frame: THREE.Mesh;
   private readonly frameMat: THREE.MeshBasicMaterial;
   /**
-   * 2026-09-13 (배치 규칙 — 접근 면): 바닥 칸 타일. 고스트가 비워야 하는 칸 = 초록(비었다) / 빨강(막혔다 · 앞이 벽), 이미 놓인 가구가 비워야 하는
-   * 칸 = 흐린 청록(고스트 몸체가 들어가면 빨강). 재질 셋은 `frameMat` 과 같은 설정이라 **같은 셰이더 프로그램**을 쓰고(새 컴파일 없음), 광원은 없다.
-   * 메시는 풀로 재사용하고 칸 · 회전 · 선택 · 배치가 바뀔 때만 다시 깐다 (`syncClearanceTiles`).
+   * 2026-09-13 (placement rules — access faces): the floor cell tiles. A cell the ghost must keep clear = green (clear) / red (blocked ·
+   * a wall in front); a cell an already-placed piece must keep clear = dim cyan (red once the ghost's body sits in it). The three materials
+   * carry `frameMat`'s settings, so they use the **same shader program** (no new compile) and make no light. The meshes are pooled and re-laid only when the cell · rotation · selection · layout changed (`syncClearanceTiles`).
    */
   private readonly tileGeo = new THREE.PlaneGeometry(1, 1);
   private readonly tileOkMat = new THREE.MeshBasicMaterial({ color: 0x5cff8a, transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
@@ -174,12 +174,12 @@ export class HousingMode {
   private tileYaw = -1;
   private tileIgnore: string | null = null;
   private tileRoom = -1;
-  /** 디버그 · 스모크: 지금 깔린 타일 수 (ok = 고스트의 빈 칸 · bad = 막힌 칸 · other = 놓인 가구의 칸). */
+  /** Debug · smoke: how many tiles are laid right now (ok = the ghost's clear cells · bad = blocked cells · other = a placed piece's cells). */
   readonly clearanceTiles = { ok: 0, bad: 0, other: 0 };
 
   /**
-   * Mouse buttons / wheel notches seen this frame. 함선 관리 runs in 커서 모드, where `Input` deliberately keeps the
-   * gameplay button sets empty (the press belongs to whatever the cursor is over), so the placement click and the
+   * Mouse buttons / wheel notches seen this frame. Ship management runs in cursor mode, where `Input` deliberately keeps
+   * the gameplay button sets empty (the press belongs to whatever the cursor is over), so the placement click and the
    * selection wheel are collected straight off the DOM instead. `update()` ORs this with the native `Input` path, so
    * the mode also works with the pointer still locked (the pre-cursor-mode entry paths and the headless smokes).
    *
@@ -189,7 +189,7 @@ export class HousingMode {
   private readonly softPressed = new Set<number>();
   private softWheel = 0;
   /**
-   * 2026-09-12 (꾹 눌러 옮기기): LMB is **physically down** right now. Armed only by a real `pointerdown` (a browser click
+   * 2026-09-12 (hold to move): LMB is **physically down** right now. Armed only by a real `pointerdown` (a browser click
    * sends pointerdown → mousedown → pointerup → mouseup; the headless smokes that synthesise a bare `mousedown` never arm
    * a hold, so their clicks stay plain selections) and cleared by `pointerup` / `mouseup` / window `blur`.
    */
@@ -225,21 +225,21 @@ export class HousingMode {
     this.unsubs.push(
       ctx.bus.on('housing:modeChanged', ({ active, room }) => {
         if (active && room !== null) this.activate(room);
-        // never clear `manage` here: `deactivate()` reads it to release the 함선 관리 blocker and re-lock the
-        // pointer. Clearing it first was the Phase 8 bug where Esc gave the camera back but left the blocker up
-        // (no player control, no 시설 관리 hint) — housing emits `modeChanged` before `shipManageChanged`.
+        // never clear `manage` here: `deactivate()` reads it to release the ship-management blocker and re-lock
+        // the pointer. Clearing it first was the Phase 8 bug where Esc gave the camera back but left the blocker up
+        // (no player control, no ship-management hint) — housing emits `modeChanged` before `shipManageChanged`.
         else this.deactivate();
       }),
-      // 함선 관리 (M): same camera, software cursor, entered from anywhere; `setManageRoom` re-emits the room.
+      // Ship management (M): same camera, software cursor, entered from anywhere; `setManageRoom` re-emits the room.
       ctx.bus.on('housing:shipManageChanged', ({ active, room }) => {
         if (active && room !== null) { this.enterManage(); this.activate(room); }
         else this.deactivate();
       }),
-      // 키 가이드 labels follow the live bindings
+      // key guide labels follow the live bindings
       ctx.bus.on('input:bindingsChanged', () => { if (this.active) this.emitGuide(true); }),
-      // 2026-09-12: ui/ 인스펙터의 `위치 이동` 버튼 — E 와 같은 길
+      // 2026-09-12: the ui/ inspector's `위치 이동` button — the same path as E
       ctx.bus.on('housing:moveRequested', ({ uid }) => this.beginMove(uid)),
-      // 2026-09-13 (배치 규칙): 배치가 바뀌면 비워야 하는 칸 타일을 다시 깐다
+      // 2026-09-13 (placement rules): a changed layout re-lays the clearance tiles
       ctx.bus.on('housing:furniturePlaced', () => { this.tilesDirty = true; }),
       ctx.bus.on('housing:furnitureMoved', () => { this.tilesDirty = true; }),
       ctx.bus.on('housing:furnitureRecovered', () => { this.tilesDirty = true; }),
@@ -265,25 +265,25 @@ export class HousingMode {
     this.ship = ship;
     this.layer = layer;
     if (ship) ship.root.add(this.frame);
-    // 2026-09-13: 칸 타일도 새 함선 루트로 옮긴다 (없으면 숨긴 채 떼어 둔다)
+    // 2026-09-13: the cell tiles move to the new ship root too (with no ship they are detached and hidden)
     for (const t of this.tiles) { t.visible = false; if (ship) ship.root.add(t); else t.removeFromParent(); }
     this.tilesDirty = true;
   }
 
   /* ── enter / leave ───────────────────────────────────────────────────── */
   /**
-   * 함선 관리: take the blocker token and switch to 커서 모드 for the whole session so the 방 목록 / 가구 카드 바 can
-   * be clicked. `setCursorMode` releases the pointer lock and hands the real mouse back (2026-09-07 rework).
+   * Ship management: take the blocker token and switch to cursor mode for the whole session so the room list / furniture
+   * card bar can be clicked. `setCursorMode` releases the pointer lock and hands the real mouse back (2026-09-07 rework).
    * Idempotent — `setManageRoom` re-emits the event on every room change.
    */
   private enterManage(): void {
     this.manage = true;
     if (this.ctx.uiBlockers.has(MANAGE_BLOCKER)) return;
     this.ctx.uiBlockers.add(MANAGE_BLOCKER);
-    // 2026-09-09: ESC 는 `ctx.escape` 스택이 부른다 (열린 순서의 역순 — 위에 패널이 떠 있으면 그것이 먼저).
-    // 한 번에 한 걸음: 들고 있는 가구 · 골라 둔 선택을 먼저 되돌리고, 빈 커서일 때만 모드를 나간다.
-    // 되돌리기만 한 경우는 **`false`** 를 돌려줘 항목을 스택에 남긴다 — 그러지 않으면 다음 ESC 가 아직 살아
-    // 있는 모드 위로 일시정지 메뉴를 띄운다 (2026-09-08 에 피하려던 바로 그 상태다).
+    // 2026-09-09: ESC is called by the `ctx.escape` stack (reverse order of opening — a panel above closes first).
+    // One step at a time: a carried piece · a chosen selection is put back first, and only an empty cursor leaves.
+    // A call that only put something back returns **`false`** so the entry stays on the stack — otherwise the next
+    // ESC raises the pause menu over a mode that is still live (exactly the state 2026-09-08 set out to avoid).
     this.ctx.escape.push(MANAGE_BLOCKER, () => {
       if (this.cancelSelection()) return false;
       this.exit();
@@ -316,8 +316,8 @@ export class HousingMode {
       this.cursor.set(inside ? p.position.x : cx, 0, inside ? p.position.z : cz);
       // Camera goal over the new room. Entering the mode places it at once (the rig blends the override *weight*
       // in); switching rooms while the mode is already up **glides** there instead — `update()` walks
-      // `camPos` / `camLook` toward the goal, so picking another room in the 시설 관리 list flies the camera over
-      // the ship rather than cutting to it (Phase 9 UI pass).
+      // `camPos` / `camLook` toward the goal, so picking another room in the ship-management list flies the camera
+      // over the ship rather than cutting to it (Phase 9 UI pass).
       // Phase 10: the port convention for **every** room (eye on the +X side looking −X), so rooms 5–9 look from the
       // outer hull toward the corridor and their door is at the top of the screen like rooms 0–4's.
       const span = camSpan(rb);
@@ -332,11 +332,11 @@ export class HousingMode {
     this.syncState(!retarget);
   }
 
-  /* ── 키 가이드 (2026-09-09) ───────────────────────────────────────────── */
+  /* ── the key guide (2026-09-09) ───────────────────────────────────────── */
   /**
    * The mode's real actions, most important first; `C` is the fixed cancel key (see `CANCEL_KEY`), never rebound.
-   * 2026-09-12 — 시설 관리는 상태에 따라 다르다: 위치 이동 상태면 `설치 · 회전 · 회수` 셋만, 아니면 선택한 가구가 있을
-   * 때 `E 위치 이동` 하나 (없으면 빈 목록 — 가이드가 `닫기` 만 붙인다). 방 콘솔 모드는 예전 목록 그대로다.
+   * 2026-09-12 — ship management differs by state: in the move state only the three `설치 · 회전 · 회수`, otherwise the
+   * single `E 위치 이동` when a piece is selected (with none, an empty list — the guide appends only `닫기`). The room console keeps the old list.
    */
   private guideKeys(): KeyGuideEntry[] {
     if (this.manage) {
@@ -345,11 +345,11 @@ export class HousingMode {
           { key: keyLabel(Keys.FIRE), label: '설치' },
           { key: keyLabel(Keys.ROTATE_ITEM), label: '회전' },
         ];
-        // 2026-09-13: 조종석 전용 시설(시술대 · 컴퓨터)은 회수할 수 없다 — 키 가이드에도 `회수` 가 없다
+        // 2026-09-13: cockpit-only facilities (the implant bay · the computer) cannot be recovered — the key guide drops `회수` too
         if (!this.carry || !isCockpitOnlyFurniture(FURNITURE_DEF_MAP.get(this.carry.defId))) keys.push({ key: keyLabel(Keys.DROP_ITEM), label: '회수' });
         return keys;
       }
-      // 2026-09-12: 위치 이동 = E **또는** LMB 꾹 (키 가이드가 두 키캡 사이에 `또는` 을 그린다)
+      // 2026-09-12: moving = E **or** LMB held (the key guide draws `또는` between the two keycaps)
       return this.selectedUid ? [{ key: keyLabel(Keys.INTERACT), label: '위치 이동', alt: [{ key: keyLabel(Keys.FIRE), hold: true }] }] : [];
     }
     return [
@@ -371,7 +371,7 @@ export class HousingMode {
     this.ctx.bus.emit('ui:keyGuide', { owner: 'housing', keys });
   }
 
-  /** 2026-09-12: 시설 관리의 **위치 이동 상태** — 배치된 조각을 들고 있거나, 가구 창고의 가구를 새로 놓는 중. */
+  /** 2026-09-12: ship management's **move state** — a placed piece is carried, or a piece from furniture storage is being placed. */
   get moving(): boolean {
     return !!this.carry || (this.manage && !!this.ctx.housing?.selectedFurniture);
   }
@@ -381,7 +381,7 @@ export class HousingMode {
 
   /**
    * Re-derive the move state and the key guide after anything that may have changed them. `housing:moveStateChanged`
-   * goes out only on a real change; picking a **new** piece from storage closes the 인스펙터 (it describes a placed one).
+   * goes out only on a real change; picking a **new** piece from storage closes the inspector (it describes a placed one).
    */
   private syncState(forceGuide = false): void {
     const selDef = this.ctx.housing?.selectedFurniture ?? null;
@@ -408,14 +408,14 @@ export class HousingMode {
   }
 
   /**
-   * Leave the mode: camera back, controls back, 함선 관리 blocker released. The blocker release is **not** gated on
-   * `this.active` — `enterManage()` can have taken the token before `activate()` bailed out — so the token can never
+   * Leave the mode: camera back, controls back, the ship-management blocker released. The blocker release is **not** gated
+   * on `this.active` — `enterManage()` can have taken the token before `activate()` bailed out — so the token can never
    * outlive the mode and strand the player without controls.
    */
   private deactivate(): void {
     const wasManage = this.manage;
     this.manage = false;
-    // B-13: leaving 시설 관리 closes the 클릭 인스펙터 (emitted directly — `select` is gated on `manage`, off by now)
+    // B-13: leaving ship management closes the click inspector (emitted directly — `select` is gated on `manage`, off by now)
     if (this.selectedUid !== null) { this.selectedUid = null; this.ctx.bus.emit('housing:furnitureSelected', { uid: null }); }
     this.endHold();                            // 2026-09-12: a hold in progress never outlives the mode
     this.clearOutline();
@@ -427,7 +427,7 @@ export class HousingMode {
       this.disposeGhost();
       this.frame.visible = false;
       this.hideClearanceTiles();                 // 2026-09-13
-      this.ship?.setGridVisible(false);        // 2026-09-12: the floor grid is a 시설 관리 overlay
+      this.ship?.setGridVisible(false);        // 2026-09-12: the floor grid is a ship-management overlay
       this.ship?.setCockpitCeilingHidden(false);   // 2026-09-13: the cockpit ceiling fades back in
       this.guideKey = '';
       this.ctx.bus.emit('ui:keyGuide', { owner: 'housing', keys: null });
@@ -458,7 +458,7 @@ export class HousingMode {
   }
 
   /**
-   * Esc / lost pointer lock: ask housing to leave (함선 관리 → `closeShipManage`, room console → `exitHousingMode`);
+   * Esc / lost pointer lock: ask housing to leave (ship management → `closeShipManage`, room console → `exitHousingMode`);
    * if it stays silent (stub) leave locally and tell the HUD.
    */
   exit(): void {
@@ -480,7 +480,7 @@ export class HousingMode {
     const ctx = this.ctx, input = ctx.input;
     const housing = ctx.housing;
     if (ctx.phase !== 'hub' || !this.ship) { this.clearSoftInput(); this.exit(); return; }
-    // 2026-09-13 (사용자 결정): 시설 관리가 열려 있는 내내(어느 방을 골랐든) 조종석 천장이 흐려진다 — `deactivate` 가 되돌린다
+    // 2026-09-13 (user's decision): the cockpit ceiling stays faded for as long as ship management is open, whichever room is picked — `deactivate` restores it
     this.ship.setCockpitCeilingHidden(this.manage);
     this.glideCamera(dt);
     if (this.blockedByPanel()) { this.clearSoftInput(); return; }   // a DOM panel (console / housing menu) has the input
@@ -488,7 +488,7 @@ export class HousingMode {
     const rb = roomBox(this.room);
     if (!rb) { this.clearSoftInput(); this.exit(); return; }
     if (this.manage) {
-      // 함선 관리: there is a cursor (the room list / furniture bar are clicked), so the floor cursor follows it —
+      // Ship management: there is a cursor (the room list / furniture bar are clicked), so the floor cursor follows it —
       // a camera ray onto the deck plane, clamped into the room.
       this.raycastCursor(rb);
     } else if (input.mouseDX !== 0 || input.mouseDY !== 0) {
@@ -504,35 +504,35 @@ export class HousingMode {
     }
 
     // keys
-    // 2026-09-08: **M leaves the mode**, the same key that entered it (`HubSystem` reads `Keys.MAP` for 함선 관리).
+    // 2026-09-08: **M leaves the mode**, the same key that entered it (`HubSystem` reads `Keys.MAP` for ship management).
     if (input.wasPressed(Keys.MAP)) { input.consume(Keys.MAP); this.exit(); return; }
     // 2026-09-09: **Tab leaves it exactly like M** (Tab closes every screen / mode). The mode hides the gameplay HUD
     // and `InventorySystem` polls the same key later in the frame, so it is consumed here — the inventory must not
-    // open on the press that left 시설 관리.
+    // open on the press that left ship management.
     if (input.wasPressed(Keys.INVENTORY)) { input.consume(Keys.INVENTORY); this.exit(); return; }
     /*
-     * Escape **는 여기서 읽지 않는다** (2026-09-09). 2026-09-08 에는 이 모드가 Escape 를 직접 먹고 소비했다 —
-     * 카메라와 조작을 통째로 가져가는 모드 위에 일시정지 메뉴가 쌓이면 플레이어가 두 모드에 동시에 갇혔기
-     * 때문이다. 그 예외는 이제 `ctx.escape` 스택이 일반 규칙으로 대신한다: 모드는 열릴 때 자기 닫기를
-     * 스택에 올리고(`enter`), `game/escapeKey` 가 **가장 나중에 열린 것 하나**만 닫는다. 여기서 계속 키를
-     * 폴링하면 시스템 등록 순서가 이기므로 — `HubSystem` 이 `GameFlowSystem` 보다 먼저 돌아 — 위에 떠 있는
-     * 패널보다 모드가 먼저 닫혔다. C 는 그대로 남는다 (모드 전용 취소 키).
+     * Escape **is not read here** (2026-09-09). On 2026-09-08 this mode took Escape directly and consumed it —
+     * because stacking the pause menu on top of a mode that owns the camera and the controls outright trapped
+     * the player in two modes at once. That exception is now covered by the `ctx.escape` stack as the general
+     * rule: a mode pushes its own close onto the stack when it opens (`enter`), and `game/escapeKey` closes
+     * **only the one opened last**. Polling the key here would let the system registration order win —
+     * `HubSystem` runs before `GameFlowSystem` — so the mode closed before the panel above it. C stays (the mode's own cancel key).
      */
     // C: cancel what the cursor holds; with an empty cursor it leaves the mode, exactly like Esc
     if (input.wasPressed(CANCEL_KEY) && !this.cancelSelection()) { this.exit(); return; }
-    // 2026-09-12 (시설 관리): E 가 선택한 가구를 위치 이동 상태로 든다. 모드가 E 를 먹는다 — 다른 무엇도 같은 누름을 보지 않는다
+    // 2026-09-12 (ship management): E takes the selected piece into the move state. The mode consumes E — nothing else sees that press
     if (this.manage && input.wasPressed(Keys.INTERACT)) {
       input.consume(Keys.INTERACT);
       if (!this.moving && this.selectedUid) this.beginMove(this.selectedUid);
     }
-    // R: 시설 관리에서는 위치 이동 상태에서만 돈다 (방 콘솔 모드는 언제나)
+    // R: in ship management it only turns in the move state (the room console always)
     if (input.wasPressed(Keys.ROTATE_ITEM) && (!this.manage || this.moving)) {
       if (this.carry) { this.carry.yaw = ((this.carry.yaw + 1) % 4) as Yaw; this.announceSelection(); }
       else housing?.rotateSelection();
     }
     // a wheel over the furniture bar scrolls that list — it must not cycle the selection as well
     const overUI = this.pointerOverUI();
-    // `input.wheelDelta` / `wasMousePressed` are empty while 커서 모드 owns the mouse, so both
+    // `input.wheelDelta` / `wasMousePressed` are empty while cursor mode owns the mouse, so both
     // the native and the synthesised path are read here.
     const wheel = input.wheelDelta !== 0 ? input.wheelDelta : this.softWheel;
     let dir = 0;
@@ -540,14 +540,14 @@ export class HousingMode {
       if (wheel > 0 || input.wasPressed('BracketRight')) dir = 1;
       else if (wheel < 0 || input.wasPressed('BracketLeft')) dir = -1;
     }
-    // 2026-09-12: 시설 관리는 휠로 가구 창고를 돌지 않는다 — 새 가구는 카드 → 위치 이동 상태로만 든다
+    // 2026-09-12: ship management does not cycle furniture storage with the wheel — a new piece comes only through a card → the move state
     if (dir !== 0 && !this.carry && !this.manage) this.cycleSelection(dir);
 
     this.refresh(false);
 
-    // X: 시설 관리에서는 위치 이동 상태에서만 (들고 있는 것을 회수), 방 콘솔 모드는 커서 밑의 조각
+    // X: in ship management only in the move state (recovers what is carried); the room console takes the piece under the cursor
     if (input.wasPressed(Keys.DROP_ITEM) && (this.manage ? this.moving : this.cursorInRoom)) this.recoverUnderCursor();
-    // a click on the 방 목록 / 가구 카드 바 must not also drop a piece on the floor behind the panel,
+    // a click on the room list / furniture card bar must not also drop a piece on the floor behind the panel,
     // and a click aimed outside the edit room (no cell highlight) must not place at the clamped edge cell
     const fire = input.wasMousePressed(MouseButtons.FIRE) || this.softPressed.has(MouseButtons.FIRE);
     if (fire && !overUI) {
@@ -556,12 +556,12 @@ export class HousingMode {
       } else if (this.moving) {
         this.placeMoving();
       } else {
-        // B-13 → 2026-09-12: 위치 이동 상태가 아니면 클릭은 **선택만** 한다 (빈 곳 · 방 밖 = 선택 해제)
+        // B-13 → 2026-09-12: outside the move state a click **only selects** (empty floor · outside the room = deselect)
         if (this.cursorInRoom) { this.selectUnderCursor(); this.startHold(this.selectedUid); }
         else this.select(null);
       }
     }
-    // 2026-09-12: 꾹 눌러 옮기기 (시설 관리) — the press above may have started a hold; this frame advances or ends it
+    // 2026-09-12: hold to move (ship management) — the press above may have started a hold; this frame advances or ends it
     if (this.manage) this.tickHold(dt, overUI);
     this.syncState();
     if (this.manage) this.syncOutline(overUI);
@@ -573,7 +573,7 @@ export class HousingMode {
     this.softWheel = 0;
   }
 
-  /** Any UI blocker except our own 함선 관리 token (the panels the hub / housing open own the input). */
+  /** Any UI blocker except this mode's own ship-management token (the panels the hub / housing open own the input). */
   private blockedByPanel(): boolean {
     const b = this.ctx.uiBlockers;
     if (b.size === 0) return false;
@@ -581,8 +581,8 @@ export class HousingMode {
   }
 
   /**
-   * True while the UI cursor is over the HTML UI (`#ui-root`) — only possible in 함선 관리, the one mode with a
-   * cursor. `input.elementUnderCursor()` is `document.elementFromPoint` at the real cursor.
+   * True while the UI cursor is over the HTML UI (`#ui-root`) — only possible in ship management, the one mode with
+   * a cursor. `input.elementUnderCursor()` is `document.elementFromPoint` at the real cursor.
    */
   private pointerOverUI(): boolean {
     if (!this.manage) return false;
@@ -592,7 +592,7 @@ export class HousingMode {
     } catch { return false; }
   }
 
-  /** 함선 관리 cursor: UI cursor → NDC on the canvas → camera ray → deck plane (y = 0), clamped into the room. */
+  /** Ship-management cursor: UI cursor → NDC on the canvas → camera ray → deck plane (y = 0), clamped into the room. */
   private raycastCursor(rb: RoomBox): void {
     const ctx = this.ctx;
     const rect = ctx.canvas.getBoundingClientRect();
@@ -677,7 +677,7 @@ export class HousingMode {
     this.frame.position.set(_pos.x, 0.02, _pos.z);
     this.frame.scale.set(sel.cols * HOUSING_CELL_SIZE, sel.rows * HOUSING_CELL_SIZE, 1);
     this.frameMat.color.setHex(sel.defId ? (valid ? 0x5cff8a : 0xff5a4a) : valid ? 0xffd27a : 0x5fd7ff);
-    this.syncClearanceTiles(inRoom ? sel.defId : null, sel.yaw, sel.ignoreUid ?? null, x, y);   // 2026-09-13 배치 규칙
+    this.syncClearanceTiles(inRoom ? sel.defId : null, sel.yaw, sel.ignoreUid ?? null, x, y);   // 2026-09-13 placement rules
 
     if (changed) this.ctx.bus.emit('housing:cursorChanged', { room: this.room, x, y, valid });
   }
@@ -702,7 +702,7 @@ export class HousingMode {
         return uid;
       }
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
-      if (!this.manage) this.ctx.bus.emit('ui:notify', { text: this.refuseReason(), kind: 'warning' });   // 2026-09-13: 방 콘솔 모드도 사유를 본다
+      if (!this.manage) this.ctx.bus.emit('ui:notify', { text: this.refuseReason(), kind: 'warning' });   // 2026-09-13: the room console sees the reason too
       this.refresh(true);
       return null;
     }
@@ -714,7 +714,7 @@ export class HousingMode {
       this.refresh(true);
       return placed?.uid ?? null;
     }
-    if (this.manage) return null;              // 2026-09-12: 시설 관리에서 클릭은 선택이다 — 집기는 위치 이동 상태로만
+    if (this.manage) return null;              // 2026-09-12: in ship management a click is a selection — picking up happens only in the move state
     const under = this.layer?.pieceAt(this.room, x, y) ?? null;
     if (under) {
       this.carry = { uid: under.uid, defId: under.defId, yaw: under.yaw, level: under.level };
@@ -729,9 +729,9 @@ export class HousingMode {
     return null;
   }
 
-  /* ── 위치 이동 상태 (2026-09-12, 시설 관리) ─────────────────────────────── */
+  /* ── the move state (2026-09-12, ship management) ─────────────────────── */
   /**
-   * Enter the move state for placed piece `uid` (the 인스펙터's `위치 이동` button or E). Only a piece in the edit room;
+   * Enter the move state for placed piece `uid` (the inspector's `위치 이동` button or E). Only a piece in the edit room;
    * a storage selection in progress is dropped first. The piece stays in the housing state while it is carried, so
    * C / Esc simply forget the carry and it is back where it was.
    */
@@ -751,8 +751,8 @@ export class HousingMode {
 
   /**
    * LMB in the move state. A valid cell puts the piece down and **ends** the state (a storage selection is cleared
-   * even when more copies are stored — 「배치하면 위치 이동 상태 종료」); the 인스펙터 then shows what was put down.
-   * Anything else is refused with a 한국어 reason for the toast above the 인스펙터.
+   * even when more copies are stored — 「배치하면 위치 이동 상태 종료」); the inspector then shows what was put down.
+   * Anything else is refused with a Korean reason for the toast above the inspector.
    */
   private placeMoving(): void {
     const housing = this.ctx.housing;
@@ -769,7 +769,7 @@ export class HousingMode {
     if (!this.cursorInRoom) return '방 밖에는 설치할 수 없습니다';
     const sel = this.selection();
     const defId = sel.defId;
-    // 2026-09-13 (배치 규칙): housing 이 아는 구체적인 사유 (앞쪽이 벽에 막힙니다 · 앞쪽 1칸을 비워야 합니다 · 다른 가구의 접근 공간을 막습니다 …)
+    // 2026-09-13 (placement rules): the specific reason housing knows (`앞쪽이 벽에 막힙니다` · `앞쪽 1칸을 비워야 합니다` · `다른 가구의 접근 공간을 막습니다` …)
     const housingRef = this.ctx.housing;
     if (defId && housingRef && typeof housingRef.placementBlock === 'function') {
       try {
@@ -790,11 +790,11 @@ export class HousingMode {
     this.ctx.bus.emit('housing:placeRefused', { reason });
   }
 
-  /* ── B-13 클릭 인스펙터 (입력 절반, 2026-09-11) ─────────────────────────── */
+  /* ── B-13 the click inspector (the input half, 2026-09-11) ────────────── */
   /**
-   * Tell `ui/hud/ShipManage` which placed piece the 인스펙터 should show (`null` = 빈 곳을 클릭해 선택이 풀렸다).
-   * 시설 관리에서만 — the room-console mode has no cursor to click with. Emitted only on a real change, and the
-   * controller itself never reads it back: this is a **읽기 전용 선택** bolted onto the existing click path.
+   * Tell `ui/hud/ShipManage` which placed piece the inspector should show (`null` = a click on empty floor cleared it).
+   * Ship management only — the room-console mode has no cursor to click with. Emitted only on a real change, and the
+   * controller itself never reads it back: this is a **read-only selection** bolted onto the existing click path.
    */
   private select(uid: string | null): void {
     if (!this.manage || uid === this.selectedUid) return;
@@ -844,11 +844,11 @@ export class HousingMode {
   private recoverUnderCursor(): void {
     const housing = this.ctx.housing;
     if (!housing || typeof housing.recover !== 'function') return;
-    // 2026-09-12: 시설 관리에서 아직 놓이지 않은 새 가구(창고 선택)는 X 가 그냥 창고로 되돌린다
+    // 2026-09-12: in ship management X simply returns a new, not yet placed piece (a storage selection) to storage
     if (this.manage && !this.carry) { this.cancelSelection(); return; }
     const uid = this.carry?.uid ?? this.layer?.pieceAt(this.room, this.cell.x, this.cell.y)?.uid ?? null;
     if (!uid) return;
-    // 2026-09-13 (사용자 결정): 조종석 전용 시설은 가구 창고로 돌아가지 않는다 — 들고 있던 것은 그대로 들고, 이유는 인스펙터 위 토스트
+    // 2026-09-13 (user's decision): a cockpit-only facility never goes back to furniture storage — what is carried stays carried, and the reason is a toast over the inspector
     const piece = typeof housing.getPlacedByUid === 'function' ? housing.getPlacedByUid(uid) : null;
     if (piece && isCockpitOnlyFurniture(FURNITURE_DEF_MAP.get(piece.defId))) {
       this.ctx.bus.emit('audio:play', { id: 'ui_deny' });
@@ -861,7 +861,7 @@ export class HousingMode {
     this.ctx.bus.emit('audio:play', { id: ok ? 'ui_equip' : 'ui_deny' });
     this.refresh(true);
     if (!this.manage) return;
-    // B-13: the recovered piece is gone — close the 인스펙터 on it; a refusal (e.g. books that do not fit) says why
+    // B-13: the recovered piece is gone — close the inspector on it; a refusal (e.g. books that do not fit) says why
     if (ok) this.select(null);
     else this.ctx.bus.emit('housing:placeRefused', { reason: '지금은 회수할 수 없습니다' });
   }
@@ -877,7 +877,7 @@ export class HousingMode {
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
-  /* ── 꾹 눌러 옮기기 · 외곽선 (2026-09-12, 시설 관리) ──────────────────────── */
+  /* ── hold to move · outlines (2026-09-12, ship management) ────────────── */
   /** Arm a hold on the piece just clicked (only a real, still-held `pointerdown`; null = nothing under the cursor). */
   private startHold(uid: string | null): void {
     this.endHold();
@@ -948,7 +948,7 @@ export class HousingMode {
     this.ctx.outline?.clear();
   }
 
-  /* ── 비워야 하는 칸 (2026-09-13, 배치 규칙 — 접근 면) ─────────────────────── */
+  /* ── clearance cells (2026-09-13, placement rules — access faces) ─────── */
   /**
    * Lay the clearance tiles for a ghost of `defId` at (x, y, yaw) — `null` hides them (no selection / cursor outside the room).
    * Recomputed only when the pose, the selection or the placed layout changed (`tilesDirty`). Tile states follow the rule in
@@ -1054,7 +1054,7 @@ export class HousingMode {
     this.frame.geometry.dispose();
     this.frameMat.dispose();
     this.frame.removeFromParent();
-    // 2026-09-13: 칸 타일 (메시는 지오메트리 · 재질을 함께 쓴다)
+    // 2026-09-13: the cell tiles (the meshes share the geometry · materials)
     for (const t of this.tiles) t.removeFromParent();
     this.tiles.length = 0;
     this.tileGeo.dispose(); this.tileOkMat.dispose(); this.tileBadMat.dispose(); this.tileOtherMat.dispose();

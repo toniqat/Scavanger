@@ -25,9 +25,10 @@ interface Slot {
 }
 
 /**
- * 락온 연출 (2026-09-14, 정보상 — `docs/DECISIONS.md` 「2026-09-14 — 정보상」): 홀로그램이 돌다가 **한 좌표에 물린다.**
- * 전부 절차 지오메트리이고 **광원을 하나도 더하지 않는다** (CLAUDE.md 「씬의 광원 개수를 플레이 중에 바꾸지
- * 않는다」 — 여기는 자체 씬이지만 규칙을 같이 지킨다: 켜고 끄는 것은 opacity 뿐이다).
+ * The lock-on cutscene (2026-09-14, the intel broker — `docs/DECISIONS.md` 「2026-09-14 — 정보상」): the hologram
+ * spins and then **locks on to one coordinate**. All of it is procedural geometry and **it adds not one light**
+ * (CLAUDE.md 「Never change the point-light count at runtime」 — this is its own scene, but it keeps the rule all the
+ * same: the only thing turned on and off is opacity).
  */
 interface LockOn {
   group: THREE.Group;
@@ -38,7 +39,7 @@ interface LockOn {
   cross: THREE.LineSegments;
   crossMat: THREE.LineBasicMaterial;
   junk: Array<THREE.BufferGeometry | THREE.Material>;
-  /** 표면 위 목표 방향 (단위 벡터, 기울기 프레임 로컬). */
+  /** Target direction on the surface (a unit vector, local to the tilt frame). */
   dir: THREE.Vector3;
   u: number;
   v: number;
@@ -48,12 +49,12 @@ interface LockOn {
   onDone: (() => void) | null;
 }
 
-/** 락온 링이 바깥에서 출발하는 거리 (구 반지름 R 배수). */
+/** Distance the lock-on rings start out at (multiples of the sphere radius R). */
 const LOCK_RING_START = 3.2;
 const LOCK_RING_END = 1.06;
 
 /**
- * 행성 홀로그램 (Phase 11): the spinning planet at the centre of the full-screen ship terminal.
+ * The planet hologram (Phase 11): the spinning planet at the centre of the full-screen ship terminal.
  *
  * Like `player/Portraits` it owns its **own** `THREE.WebGLRenderer` + `Scene` + camera + lights, because
  * `core/Engine` renders the world through an `EffectComposer` at the end of the frame and offers no post-render
@@ -85,7 +86,7 @@ class Hologram {
   private lastW = 0;
   private lastH = 0;
   private spin = 0;
-  /** 락온 (2026-09-14, 정보상). null = 평소대로 돈다. */
+  /** Lock-on (2026-09-14, the intel broker). null = it spins as usual. */
   private lock: LockOn | null = null;
 
   constructor(host: HTMLElement, renderer: THREE.WebGLRenderer, canvas: HTMLCanvasElement) {
@@ -168,12 +169,12 @@ class Hologram {
   /** Currently displayed planet id (the one the label reads), or null before the first `setPlanet`. */
   get planetId(): string | null { return this.cur?.def.id ?? null; }
 
-  /* ── 락온 (2026-09-14, 정보상) ────────────────────────────────────────────── */
+  /* ── lock-on (2026-09-14, the intel broker) ───────────────────────────────── */
 
   /**
-   * 캔버스를 다른 패널로 옮긴다. 정보상 화면이 터미널의 홀로그램을 **빌려** 쓰기 위한 것 — 두 번째
-   * `WebGLRenderer` 를 만들면 컨텍스트가 하나 더 늘고 `createPlanetHologram` 이 null 을 돌려줄 위험이 커진다.
-   * 다음 `render` 가 새 부모 크기로 다시 잰다.
+   * Moves the canvas into another panel, so the intel broker's screen can **borrow** the terminal's hologram —
+   * making a second `WebGLRenderer` costs one more context and makes it likelier that `createPlanetHologram`
+   * returns null. The next `render` measures again against the new parent's size.
    */
   attachTo(host: HTMLElement): void {
     if (this.disposed || !host || this.canvas.parentElement === host) return;
@@ -181,24 +182,25 @@ class Hologram {
     this.lastW = 0; this.lastH = 0;
   }
 
-  /** 락온 진행도 0..1 (1 = 물렸다). 락온 중이 아니면 0. */
+  /** Lock-on progress 0..1 (1 = locked). 0 when no lock-on is running. */
   get lockProgress(): number { return this.lock ? this.lock.t : 0; }
-  /** 지금 물고 있는 좌표 (0..1 경도 · 위도), 없으면 null. */
+  /** The coordinate locked on right now (0..1 longitude · latitude), null when there is none. */
   get lockTarget(): { u: number; v: number } | null { return this.lock ? { u: this.lock.u, v: this.lock.v } : null; }
 
   /**
-   * `(u, v)`(경도 · 위도, 둘 다 0..1)에 `seconds` 동안 락온한다. 링 둘이 바깥에서 수렴하고 표면에 표식과
-   * 조준 십자가 남는다. 끝나면 `onDone` 을 **한 번** 부르고 표식은 그대로 남는다 (`clearLockOn` 이 지운다).
+   * Locks on to `(u, v)` (longitude · latitude, both 0..1) over `seconds`. Two rings converge from outside and
+   * leave a marker and an aiming cross on the surface. At the end `onDone` is called **once** and the marker stays
+   * as it is (`clearLockOn` removes it).
    */
   startLockOn(u: number, v: number, seconds: number, onDone?: () => void): void {
     if (this.disposed) return;
     this.clearLockOn();
-    const phi = (0.5 - Math.min(1, Math.max(0, v))) * Math.PI;   // +위도 = 위쪽
+    const phi = (0.5 - Math.min(1, Math.max(0, v))) * Math.PI;   // +latitude = up
     const theta = Math.min(1, Math.max(0, u)) * Math.PI * 2;
     const dir = new THREE.Vector3(Math.cos(phi) * Math.sin(theta), Math.sin(phi), Math.cos(phi) * Math.cos(theta));
 
     const group = new THREE.Group();
-    group.rotation.x = -PLANET_HOLOGRAM_TILT;      // 슬롯과 같은 기울기 프레임
+    group.rotation.x = -PLANET_HOLOGRAM_TILT;      // the same tilt frame as a slot
     const junk: Array<THREE.BufferGeometry | THREE.Material> = [];
     const rings: THREE.Mesh[] = [];
     const ringMats: THREE.MeshBasicMaterial[] = [];
@@ -218,7 +220,7 @@ class Hologram {
     group.add(marker);
     junk.push(mg, mm);
 
-    // 표면 십자선: dir 에 수직인 두 축으로 네 토막
+    // surface cross: four pieces along the two axes perpendicular to dir
     const up = Math.abs(dir.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
     const ax = new THREE.Vector3().crossVectors(up, dir).normalize();
     const az = new THREE.Vector3().crossVectors(dir, ax).normalize();
@@ -245,7 +247,7 @@ class Hologram {
     this.tickLock(0);
   }
 
-  /** 락온 표식을 지우고 평소 회전으로 돌아간다. */
+  /** Removes the lock-on marker and goes back to the usual spin. */
   clearLockOn(): void {
     const l = this.lock;
     if (!l) return;
@@ -254,7 +256,7 @@ class Hologram {
     for (const j of l.junk) j.dispose();
   }
 
-  /** 한 프레임의 락온 진행. `render` 안에서만 불린다. */
+  /** One frame of lock-on progress. Called only from inside `render`. */
   private tickLock(dt: number): void {
     const l = this.lock;
     if (!l) return;
@@ -285,7 +287,7 @@ class Hologram {
    */
   setPlanet(def: PlanetDef, dir = 1): void {
     if (this.disposed || this.cur?.def.id === def.id) return;
-    this.clearLockOn();            // 다른 행성으로 넘어가면 물고 있던 좌표는 뜻이 없다
+    this.clearLockOn();            // stepping to another planet makes the coordinate held meaningless
     this.freeSlot(this.out);
     this.out = this.cur;
     this.cur = this.makeSlot(def);
@@ -311,7 +313,7 @@ class Hologram {
       if (this.swapT >= 1) { this.freeSlot(this.out); this.out = null; }
     }
     const e = this.swapT * this.swapT * (3 - 2 * this.swapT);
-    // 락온 중에는 케이지 회전이 서서히 멎는다 (「돌다가 물린다」)
+    // during a lock-on the cage's spin gradually stops (「it spins, then locks」)
     const cageSpin = this.lock ? 0.4 * (1 - 0.88 * (this.lock.t * this.lock.t * (3 - 2 * this.lock.t))) : 0.4;
     if (this.cur) {
       this.cur.planet.update(dt);

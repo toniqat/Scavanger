@@ -22,7 +22,7 @@ export interface PodDisplay {
   occupant: string | null;
   /** Name shown on the tag ('빈 슬롯' when empty). */
   name: string;
-  /** Second tag line (준비 / 대기 중 / 연결 끊김 / 임무 진행 중 …). */
+  /** Second tag line (`준비` / `대기 중` / `연결 끊김` / `임무 진행 중` …). */
   state: string;
   local: boolean;
   /** Door closed (occupied by anyone). */

@@ -7,9 +7,9 @@ import { Parts } from './parts';
 import { LightPool, type LightFixture } from './LightPool';
 import { Starfield, Planet } from './Starfield';
 import { ViewportWarp } from './WarpStreaks';
-/* 2026-09-15: 조종실 안드로이드 슬롯 세 칸 (사용자 결정 「조종실 내부 한켠」) */
+/* 2026-09-15: three android bays in the bridge corner (user's decision 「조종실 내부 한켠」) */
 import { AndroidBayRack, type AndroidBayState } from './AndroidBays';
-// 2026-09-14: `repairBench` 는 더 이상 부르지 않는다 (정비 벤치 제거 — 소품까지) — 함수는 stations.ts 에 그대로 있다
+// 2026-09-14: `repairBench` is no longer called (the 정비 벤치 was removed, props and all) — the function stays in stations.ts
 import { diningTable, diningTablePlateSlots, implantBay, shipComputer, type ShipStations, type StationDef } from './stations';
 import { TextPlane } from '../Labels';
 import type { PodSlotDef, ShipInterior, TerminalDef, WarpDestination } from './types';
@@ -20,7 +20,7 @@ const WALL = 0.35;
 /** Pod centres along the −Z wall. */
 const POD_X = [-6, -2, 2, 6];
 const POD_Z = ROOM.minZ + 1.15;
-/** 격납고 출입구 (2026-09-08): half-width of the aft opening in the +Z wall, and its height (the 자동문 leaves are gone, 2026-09-16). */
+/** Hangar doorway (2026-09-08): half-width of the aft opening in the +Z wall, and its height (the sliding leaves are gone, 2026-09-16). */
 const HANGAR_DOOR_HALF = 2.0;
 const HANGAR_DOOR_HEIGHT = 3.2;
 
@@ -30,10 +30,10 @@ const HANGAR_DOOR_HEIGHT = 3.2;
  * where docking arrivals spawn. Six light fixtures on the deck + nine in the hangar, served by `HUB_POINT_LIGHTS`
  * pool lights nearest the player (2026-09-10, `LightPool` — the deck and the hangar used to hang 15 lights of their own).
  *
- * **격납고 (2026-09-08)**: the middle of the +Z (aft) wall is a 4 m open doorway (a 자동문 until 2026-09-16) onto the
- * `Hangar` deck — 44 × 30 m, four marked bays with the squad's 개인 함선 parked in them. The hangar is part of *this*
- * interior (same `GeoBatch`, same collider, one walkable union), so the doorway is an open shared edge and remote
- * avatars simply walk through it. The armoury moved aside for the doorway: racks and the 정비 bench keep the port
+ * **Hangar (2026-09-08)**: the middle of the +Z (aft) wall is a 4 m open doorway (a sliding door until 2026-09-16)
+ * onto the `Hangar` deck — 44 × 30 m, four marked bays with the squad's personal ships parked in them. The hangar is
+ * part of *this* interior (same `GeoBatch`, same collider, one walkable union), so the doorway is an open shared edge
+ * and remote avatars simply walk through it. The armoury moved aside for the doorway: racks and the 정비 벤치 keep the port
  * half, lockers and crates the starboard half.
  */
 export class SharedShip implements ShipInterior {
@@ -48,9 +48,9 @@ export class SharedShip implements ShipInterior {
   readonly terminal: TerminalDef;
   readonly computer: StationDef;
   readonly stations: ShipStations;
-  /** 격납고 (2026-09-08): the aft deck and its four 개인 함선 bays. */
+  /** Hangar (2026-09-08): the aft deck and its four personal-ship bays. */
   readonly hangar: Hangar;
-  /** 조종실 안드로이드 슬롯 세 칸 (2026-09-15) — 좌현 조종실 한켠, `interiors/AndroidBays.ts`. */
+  /** Three android bays (2026-09-15) — the port corner of the bridge, `interiors/AndroidBays.ts`. */
   private androidRack!: AndroidBayRack;
 
   private meshes: THREE.Mesh[] = [];
@@ -58,7 +58,7 @@ export class SharedShip implements ShipInterior {
   private lightPool!: LightPool;
   private stars: Starfield;
   private planet: Planet;
-  /** 창문 워프 (2026-09-09): streaks past the bridge viewport, driven by the hub through `setWarp`. */
+  /** The window warp (2026-09-09): streaks past the bridge viewport, driven by the hub through `setWarp`. */
   private warp: ViewportWarp;
   private screens: TextPlane[] = [];
   private holoMat: THREE.MeshBasicMaterial;
@@ -77,13 +77,13 @@ export class SharedShip implements ShipInterior {
     P.walls(ROOM, WALL, {
       w: { lo: -5.2, hi: 5.2, y0: 1.0, y1: 3.4 },            // bridge viewport (−X)
       e: { lo: -1.3, hi: 1.3, y0: 0, y1: 3.0 },              // airlock opening (+X) — closed by the door below
-      // 격납고 출입구 (+Z): a real opening — the hangar deck is part of the same walkable union, so this doorway is an
-      // open shared edge exactly like a personal-ship room door (2026-09-16: no 자동문 leaves in it any more).
+      // Hangar doorway (+Z): a real opening — the hangar deck is part of the same walkable union, so this doorway is an
+      // open shared edge exactly like a personal-ship room door (2026-09-16: no sliding leaves in it any more).
       s: { lo: -HANGAR_DOOR_HALF, hi: HANGAR_DOOR_HALF, y0: 0, y1: HANGAR_DOOR_HEIGHT },
     });
     P.glass(r, 10.4, 2.4, ROOM.minX - WALL / 2, 2.2, 0, Math.PI / 2, this.meshes);
 
-    // structure (the aft rib at x 0 is skipped — it would stand inside the 격납고 doorway)
+    // structure (the aft rib at x 0 is skipped — it would stand inside the hangar doorway)
     for (const x of [-9, -4.5, 0, 4.5, 9]) {
       P.rib(x, ROOM.minZ + 0.18);
       if (Math.abs(x) > HANGAR_DOOR_HALF) P.rib(x, ROOM.maxZ - 0.18);
@@ -119,7 +119,7 @@ export class SharedShip implements ShipInterior {
     screen.mesh.rotation.copy(c.screenRot);
     r.add(screen.mesh);
     this.terminal = { position: new THREE.Vector3(tx + 0.9, 0, tz), yaw: termYaw, screen };
-    // 함선 컴퓨터 (기업 네트워크): forward-port corner of the bridge, against the −Z wall, monitors facing +Z
+    // Ship computer (`기업 네트워크`): forward-port corner of the bridge, against the −Z wall, monitors facing +Z
     const cp = shipComputer(b, col, -11.0, ROOM.minZ + 0.35, Math.PI);
     const cScreen = new TextPlane(0.56, 0.34, 256, false);
     cScreen.mesh.position.copy(cp.screenPos);
@@ -130,9 +130,10 @@ export class SharedShip implements ShipInterior {
     this.computer = { position: cp.position, yaw: cp.yaw };
 
     /*
-     * ── 안드로이드 슬롯 (2026-09-15, 사용자 결정 「조종실 내부 한켠」) ──
-     * 조타 콘솔(x −12.8…−12.0)과 조종석 의자(z ±2.2) 뒤, 병기고 총기 랙(z 6.3…6.9) 앞의 빈 구석. 껍데기는 이
-     * `GeoBatch` 에 합쳐지고 상태 띠 · 이름표만 자기 메시다 (`interiors/AndroidBays.ts` 의 주석에 자리 선정 이유).
+     * ── Android bays (2026-09-15, user's decision 「조종실 내부 한켠」) ──
+     * The empty corner behind the helm console (x −12.8 … −12.0) and the pilot seats (z ±2.2), in front of the
+     * armoury's weapon racks (z 6.3 … 6.9). The shell is merged into this `GeoBatch` and only the status strip and
+     * the name tag are own meshes (why this spot was chosen is in `interiors/AndroidBays.ts`'s comments).
      */
     this.androidRack = new AndroidBayRack(b, col, r);
 
@@ -167,8 +168,8 @@ export class SharedShip implements ShipInterior {
 
     /*
      * ── armoury (+Z wall) ──
-     * 2026-09-08: the middle of this wall is the 격납고 doorway now (x −2 … 2), so the row moved outward — racks and
-     * the 정비 bench to port, lockers and crates to starboard. Nothing stands within a metre of the opening.
+     * 2026-09-08: the middle of this wall is the hangar doorway now (x −2 … 2), so the row moved outward — racks and
+     * the 정비 벤치 to port, lockers and crates to starboard. Nothing stands within a metre of the opening.
      */
     // weapon racks
     for (const x of [-9.5, -6.5]) {
@@ -179,30 +180,32 @@ export class SharedShip implements ShipInterior {
     }
     P.lockers(4.2, ROOM.maxZ - 0.27, 5, 0);
     /*
-     * 정비 벤치 — **2026-09-14 에 통째로 없앴다** (사용자 결정). 2026-09-12 에 상호작용(`hub_workbench`)만 걷어내고
-     * 테이블 · 바이스 · 공구판 · `정비` 표지는 「병기고 실루엣」으로 남겨 뒀는데, 누를 것이 없는 정비대가 함선에
-     * 서 있는 것 자체가 거짓말이라 소품 · 콜라이더 · 표지를 전부 뺐다. 병기고 후벽은 총기 랙(−Z 쪽)과
-     * 사물함 · 보급 상자(+Z 쪽)만 남는다. `Parts.workbench` · `stations.repairBench` 는 좌표를 잃지 않도록
-     * 파일에 그대로 두었다 (부르는 곳 없음).
+     * The 정비 벤치 — **removed outright on 2026-09-14** (user's decision). On 2026-09-12 only the interaction
+     * (`hub_workbench`) was taken away and the table · vice · tool board · `정비` sign were left standing as an
+     * 「armoury silhouette」; but a repair bench with nothing to press on it is a lie in itself, so the props, the
+     * colliders and the sign all went. The armoury's aft wall keeps only the weapon racks (−Z side) and the lockers ·
+     * supply crates (+Z side). `Parts.workbench` · `stations.repairBench` stay in their files so their coordinates
+     * are not lost (nothing calls them).
      */
     P.crates(7.8, ROOM.maxZ - 0.55, 4, 0);
     P.crates(10.8, ROOM.maxZ - 0.55, 2, 0);
     P.crates(ROOM.maxX - 0.6, -4.5, 3, Math.PI / 2);
 
-    // ── 함선 시설 (tactical kit) — merged into the same GeoBatch, no extra draw calls ──
-    // 임플란트 시술대: +X wall, +Z half. (Phase 8: the hydroponics rack is gone — 재배 lives in the personal ship's 온실.
-    //  2026-09-14: `bench` 도 없다 — 정비 벤치를 소품까지 걷어냈다, 위 병기고 절.)
+    // ── ship facilities (tactical kit) — merged into the same GeoBatch, no extra draw calls ──
+    // implant bay: +X wall, +Z half. (Phase 8: the hydroponics rack is gone — growing lives in the personal ship's greenhouse.
+    //  2026-09-14: there is no `bench` either — the 정비 벤치 was pulled out down to its props, see the armoury section above.)
     this.stations = {
       implantBay: implantBay(b, col, ROOM.maxX - 1.0, 3.6, yawFromForward(-1, 0)),
       /*
-       * 고정 식탁 (주방 A-3c, 2026-09-11): 공유 함선에는 가구가 없으므로 분대가 함께 먹는 자리를 인테리어가
-       * 심어 둔다 (`ctx.housing.openDiningTable(null)`). 자리는 우현(+X) 중갑판 — 사물함 · 보급 상자(+Z),
-       * 임플란트 시술대 · 에어락(+X), 발사 포드(−Z), 홀로 테이블(가운데) 어느 콜라이더와도 겹치지 않고
-       * 에어락에서 갑판으로 들어오는 z ≈ 0 통로도 비켜 간다. (좌현 x ≈ −8 은 `smoke-hangar` 가
-       * 「출입구 옆에서는 후벽에 막힌다」를 확인하려고 걸어 보는 줄이라 비워 둔다.)
+       * The fixed dining table (kitchen A-3c, 2026-09-11): the shared ship has no furniture, so the interior itself
+       * plants the seat where the squad eats together (`ctx.housing.openDiningTable(null)`). It stands on the
+       * starboard (+X) mid-deck — clear of every collider of the lockers · supply crates (+Z), the implant bay ·
+       * airlock (+X), the launch pods (−Z) and the holo table (centre), and out of the z ≈ 0 walk-in line from the
+       * airlock onto the deck. (Port x ≈ −8 is left empty because that is the line `smoke-hangar` walks to check
+       * 「the aft wall still stops a walk beside the doorway」.)
        */
       diningTable: diningTable(b, col, 8.6, 2.2, 0),
-      diningPlates: diningTablePlateSlots(8.6, 2.2, 0),   // 2026-09-16 접시 모델: 분대원 접시가 올라가는 식기 네 자리
+      diningPlates: diningTablePlateSlots(8.6, 2.2, 0),   // 2026-09-16 plate model: the four place settings a squadmate's plate sits on
     };
     const dtSign = new TextPlane(0.9, 0.3, 256);
     dtSign.mesh.position.set(8.6, 1.62, 2.2);
@@ -225,7 +228,7 @@ export class SharedShip implements ShipInterior {
     P.signStrip(ROOM.maxX - WALL / 2 - 0.03, 3.6, 0, 3.0, M.stripAmber, Math.PI / 2);
 
     /*
-     * ── 격납고 (2026-09-08) ──
+     * ── Hangar (2026-09-08) ──
      * Built into the **same** `GeoBatch` and collider, so the whole aft deck costs no extra draw calls and its floor
      * joins the ship's walkable union at the +Z wall's outer face. `Hangar` owns its own lights, bay signs and the
      * parked ship models; only the doorway trim belongs here.
@@ -234,7 +237,7 @@ export class SharedShip implements ShipInterior {
     r.add(this.hangar.root);
     /*
      * Doorway trim + a threshold strip, so the opening reads as a door and not a hole.
-     * 2026-09-16 (자동문 제거 — 사용자 결정 「문틀 주변에 흉한 것이 남지 않게」): with the leaves gone the reveal is in plain
+     * 2026-09-16 (sliding doors removed — user's decision 「문틀 주변에 흉한 것이 남지 않게」): with the leaves gone the reveal is in plain
      * view, and the trim shared its planes — post inner faces on the reveals (x = ±`HANGAR_DOOR_HALF`), the header's
      * underside on the soffit (y `HANGAR_DOOR_HEIGHT`) → z-fighting. Posts / header now stand 2 cm proud of them. Their
      * deck side reaches in front of the wainscot band and its trim line (`jambFront`, the band's trim is 5.5 cm off the
@@ -261,7 +264,7 @@ export class SharedShip implements ShipInterior {
     this.holo.position.set(0, 1.62, 1.5);
     r.add(this.holo);
 
-    // 광원 자리 (2026-09-10): the deck's six fixtures + the hangar's nine; `HUB_POINT_LIGHTS` pool lights serve the nearest
+    // Light places (2026-09-10): the deck's six fixtures + the hangar's nine; `HUB_POINT_LIGHTS` pool lights serve the nearest
     const fx = (x: number, y: number, z: number, color: number, intensity: number, distance: number): LightFixture => ({ x, y, z, color, intensity, distance });
     const deck: LightFixture[] = [
       fx(-8, CEIL - 0.3, 0.5, 0xeef2ff, 30, 13),
@@ -271,7 +274,7 @@ export class SharedShip implements ShipInterior {
       fx(0, 3.4, ROOM.minZ + 2.4, 0xffb347, 18, 10),
       fx(4, 3.0, ROOM.maxZ - 1.6, 0xffd7a8, 12, 8),
     ];
-    // zones: the deck (0) and the 격납고 behind the aft wall (1) — see `updateNear`
+    // zones: the deck (0) and the hangar behind the aft wall (1) — see `updateNear`
     for (const f of deck) f.zone = 0;
     for (const f of this.hangar.lightFixtures) f.zone = 1;
     this.lightPool = new LightPool(r, HUB_POINT_LIGHTS, [...deck, ...this.hangar.lightFixtures]);
@@ -282,7 +285,7 @@ export class SharedShip implements ShipInterior {
     this.planet = new Planet(150, 0x8a6a4a, 0xffb98a);
     this.planet.group.position.set(-430, -70, 60);
     r.add(this.planet.group);
-    // 창문 워프: the bridge (and its viewport) is −X, so that is the nose. The hangar reaches z ≈ +37 behind the
+    // The window warp: the bridge (and its viewport) is −X, so that is the nose. The hangar reaches z ≈ +37 behind the
     // deck, so the streak shell starts at 48 m off the X axis — no streak ever crosses a walkable room.
     this.warp = new ViewportWarp(r, this.stars, this.planet, HUB_TRAVEL_WARP_STRETCH, { forward: new THREE.Vector3(-1, 0, 0), rMin: 48, rMax: 300, span: 1000, seed: 37 });
   }
@@ -292,31 +295,31 @@ export class SharedShip implements ShipInterior {
     this.planet.setColors(color, atmo);
   }
 
-  /** 목표 행성 없음 → 창밖 행성 숨김 (2026-09-09): see `ShipInterior.setPlanetVisible`. */
+  /** No 목표 행성 → the planet outside the window is hidden (2026-09-09): see `ShipInterior.setPlanetVisible`. */
   setPlanetVisible(on: boolean): void {
     this.planet.setShown(on);
   }
 
-  /** 창문 워프 (2026-09-09): see `ShipInterior.setWarp` — stars → streaks, planet out and back in as `dest`. */
+  /** The window warp (2026-09-09): see `ShipInterior.setWarp` — stars → streaks, planet out and back in as `dest`. */
   setWarp(speed: number, dest?: WarpDestination): void {
     this.warp.set(speed, dest);
   }
 
-  /** 격납고 bays, in slot order (the hub hangs the boarding interactables off these). */
+  /** Hangar bays, in slot order (the hub hangs the boarding interactables off these). */
   get bays(): readonly HangarBayDef[] { return this.hangar.bays; }
 
   /** Park the squad's ships: `names[i]` = crew name in bay `i`, null = empty bay. */
   setBayOccupants(names: readonly (string | null)[]): void { this.hangar.setOccupants(names); }
 
-  /** 조종실 안드로이드 슬롯 (2026-09-15), bay 순. 재사용 배열 — 좌표는 지어진 뒤 바뀌지 않는다. */
+  /** The android bays (2026-09-15), in bay order. A reused array — the coordinates never change once built. */
   get androidBays(): readonly HubAndroidBay[] { return this.androidRack.bays; }
 
-  /** 슬롯 표시등 · 이름표: 안드로이드가 잠들어 있다 / 분대원으로 나가 있다 / 요청을 기다린다. */
+  /** Bay status strip · name tag: an android is dormant inside / is out with the squad / is waiting on a request. */
   setAndroidBayState(bay: number, state: AndroidBayState): void { this.androidRack.setState(bay, state); }
 
   /** The light pool follows the player (called by the hub, same contract as `PersonalShip.updateNear`). */
   updateNear(dt: number, px: number, pz: number): void {
-    // past the aft wall = the 격납고: its nine gantry lamps outrank the deck lamps behind the bulkhead, and vice versa
+    // past the aft wall = the hangar: its nine gantry lamps outrank the deck lamps behind the bulkhead, and vice versa
     this.lightPool.update(dt, px, pz, pz > ROOM.maxZ ? 1 : 0);
   }
 

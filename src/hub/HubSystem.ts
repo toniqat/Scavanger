@@ -21,26 +21,26 @@ import { HubStatus } from './ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from './ui/ReadyPanel';
 import { randomSeed } from './ui/dom';
 import './hub.css';
-/* 2026-09-14 정보상: 매칭 팝업(`.hm-`) · 정보상 패널(`.hi-`) · 정보상 화면(`.his-`). `hub.css` 와 나란히 배선한다. */
+/* 2026-09-14 the intel broker: match popup (`.hm-`) · intel panel (`.hi-`) · intel screen (`.his-`), wired beside `hub.css`. */
 import './intel.css';
 
 import { type AndroidPending, type DockTransition, type RaidLaunchState, type SquadDockState, type WarpState, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from './model';
-/* 2026-09-15: 분대 · 도킹 매칭 — 미도킹 분대 · 분대장 도킹 카운트다운 · 페이드 */
+/* 2026-09-15: squads · dock matchmaking — undocked squads · the leader's dock countdown · the fade */
 import { isDockedLobby } from '@/shared';
-/* 2026-09-15: 안드로이드 봇 멤버는 승무원 수에 들어가지 않는다 */
+/* 2026-09-15: android bot members do not count towards the crew */
 import { humanPlayersOf } from '@/shared';
 import * as SquadDock from './parts/SquadDock';
 import { SquadDockCountdown } from './ui/SquadDockCountdown';
-/** 폴더 공용 어휘(상수 · 타입 · 스크래치)는 `model.ts` 가 갖는다 — 기존 import 경로를 위해 재수출한다. */
+/** The folder vocabulary (constants · types · scratch objects) lives in `model.ts` — re-exported for the old import paths. */
 export * from './model';
 import * as Planet from './parts/Planet';
 import * as Pods from './parts/Pods';
 import * as Interior from './parts/Interior';
 import * as Trans from './parts/Transitions';
 import * as Crew from './parts/Crew';
-/* 공용 함선 격납고 (2026-09-08) */
+/* The shared ship's hangar (2026-09-08) */
 import * as Hangar from './parts/Hangar';
-/* 2026-09-15: 조종실 안드로이드 슬롯 · 발사 포드 앞 대기 자리 */
+/* 2026-09-15: the cockpit android bays · the standing spots in front of the launch pods */
 import * as Androids from './parts/Androids';
 
 const NO_REMOTES: readonly RemotePlayerRef[] = [];
@@ -67,9 +67,9 @@ export class HubSystem implements GameSystem, HubRef {
     this.updateTerminalScreen();
     return true;
   }
-  /* ── 목표 행성 (Phase 11) ──────────────────────────────────────────────── */
+  /* ── target planet (Phase 11) ─────────────────────────────────────────── */
   /**
-   * 목표 행성 of the next raid. In a lobby this **mirrors `LobbyState.planet`** (the host owns it and every member
+   * Target planet of the next raid. In a lobby this **mirrors `LobbyState.planet`** (the host owns it and every member
    * reads the same value off its own `lobby:state`); solo it is the local pick, remembered in localStorage
    * `PLANET_STORAGE_KEY`. Null = nothing picked yet — the launch slots refuse boarding until it is set.
    */
@@ -80,7 +80,7 @@ export class HubSystem implements GameSystem, HubRef {
     return this.localPlanet;
   }
 
-  /* ── 분대 도킹 (2026-09-15, `parts/SquadDock`) ───────────────────────────── */
+  /* ── squad docking (2026-09-15, `parts/SquadDock`) ───────────────────────── */
   /**
    * Code of the lobby whose shared ship we stand in (set when the shared ship is built; a bay's personal ship keeps it),
    * null in the ordinary personal ship. `squadLobby()` compares it with `ctx.net.lobby` — the one test for "in the squad's ship".
@@ -113,11 +113,11 @@ export class HubSystem implements GameSystem, HubRef {
   /** Debug / smoke: the fade-out before the docking cutscene is running. */
   get dockFading(): boolean { return this.dockFade !== null; }
   /**
-   * true while the ship is warping to a new planet (2026-09-09: the 창문 워프 — terminal closed, pods / bays / consoles
+   * true while the ship is warping to a new planet (2026-09-09: the window warp — terminal closed, pods / bays / consoles
    * unavailable, but the **controls stay on** and the camera is the player's; nothing is locked).
    */
   travelling = false;
-  /** 창문 워프 in flight (`parts/Planet.tickTravel`), null at rest. `travelling` is its public shadow. */
+  /** The window warp in flight (`parts/Planet.tickTravel`), null at rest. `travelling` is its public shadow. */
   warp: WarpState | null = null;
   /** The solo pick (persisted); in a lobby `LobbyState.planet` wins and this is only the fallback. */
   localPlanet: PlanetId | null = null;
@@ -130,23 +130,23 @@ export class HubSystem implements GameSystem, HubRef {
   pendingMove: { to: string | null; timer: ReturnType<typeof setTimeout> } | null = null;
 
   /**
-   * Pick the 목표 행성 and fly there. Refused (false) for a non-host in a lobby, for an unknown id, while a
+   * Pick the target planet and fly there. Refused (false) for a non-host in a lobby, for an unknown id, while a
    * cutscene / travel runs, while a launch countdown is ticking, outside the hub and when it is already the target.
-   * On success: `hub:travel {stage:'start'}` → the 창문 워프 (`hub:warpProgress` every frame, controls on) →
+   * On success: `hub:travel {stage:'start'}` → the window warp (`hub:warpProgress` every frame, controls on) →
    * `hub:travel {stage:'end'}` + `hub:planetChanged`. The ship interior is **not** rebuilt — only the view outside it changes.
    */
   setPlanet(planet: PlanetId): boolean { return Planet.setPlanet(this, planet); }
 
-  /** Korean reason 행성 이동 is refused right now, or null when it is allowed (the terminal renders it). */
+  /** Korean reason `행성 이동` is refused right now, or null when it is allowed (the terminal renders it). */
   travelBlockReason(planet?: PlanetId): string | null { return Planet.travelBlockReason(this, planet); }
 
-  /** Restore the solo pick (`PLANET_STORAGE_KEY`); an unknown / absent value stays null (목표 미지정). */
+  /** Restore the solo pick (`PLANET_STORAGE_KEY`); an unknown / absent value stays null (no target). */
   private loadPlanet(): void { return Planet.loadPlanet(this); }
 
   savePlanet(): void { return Planet.savePlanet(this); }
 
   /**
-   * Fly to `planet` — the 창문 워프 (2026-09-09). Everyone steps out of their pod, the terminal / workbench close and
+   * Fly to `planet` — the window warp (2026-09-09). Everyone steps out of their pod, the terminal / workbench close and
    * `warp` is armed for `HUB_TRAVEL_DURATION`; `tickTravel` drives the interior's `setWarp`, `hub:warpProgress` and the
    * hull shake every frame. No cutscene, no camera override, no control lock. The interior is **kept** (no
    * `disposeInterior`, no rebuild, the phase stays `'hub'`) — a planet change is a change of scenery, not a new ship.
@@ -155,13 +155,13 @@ export class HubSystem implements GameSystem, HubRef {
 
   finishTravel(planet: PlanetId, by: 'local' | 'squad'): void { return Planet.finishTravel(this, planet, by); }
 
-  /** One frame of the 창문 워프 (no-op at rest). Runs **after** the pod / status tick so its status line wins. */
+  /** One frame of the window warp (no-op at rest). Runs **after** the pod / status tick so its status line wins. */
   tickTravel(dt: number): void { return Planet.tickTravel(this, dt); }
 
   /** Drop a warp in flight without landing it (interior teardown / swap). No `hub:travel {end}` — see `parts/Planet`. */
   cancelTravel(): void { return Planet.cancelTravel(this); }
 
-  /** The decorative planet outside the viewports takes the 목표 행성's colours (nothing else is rebuilt). */
+  /** The decorative planet outside the viewports takes the target planet's colours (nothing else is rebuilt). */
   applyPlanetLook(): void { return Planet.applyPlanetLook(this); }
   /** Personal-ship room the player stands in (XZ inside the room's `ROOM_SIZE × ROOM_DEPTH` floor), else null. */
   get currentRoom(): number | null { return this._currentRoom; }
@@ -172,7 +172,7 @@ export class HubSystem implements GameSystem, HubRef {
   /** Debug: furniture renderer of the current personal ship. */
   get furnitureLayer(): FurnitureLayer | null { return this.furniture; }
 
-  /* ── 시뮬레이션 훈련장 (Phase 7) ─────────────────────────────────────────── */
+  /* ── the training arena (Phase 7) ─────────────────────────────────────── */
   /** A training is running in our lobby (`lobby.started` with mode `'training'`). */
   trainingRunning(): boolean { return Crew.trainingRunning(this); }
   /** A raid is running in our lobby (pods rejoin it; the training hub is locked). */
@@ -181,7 +181,7 @@ export class HubSystem implements GameSystem, HubRef {
   trainingCount(): number { return Crew.trainingCount(this); }
 
   /**
-   * Enter the 시뮬레이션 훈련장 — from the 사격장 `furn_sim_hub` (personal ship) or the shared-ship terminal.
+   * Enter the training arena — from the firing range's `furn_sim_hub` (personal ship) or the shared-ship terminal.
    * No countdown, no ready gating, individual entry: in a lobby any member calls `ctx.net.startGame(seed, 'training')`
    * (the server marks only the caller `inMission`), a training already running is joined with `rejoinMission()`, and a
    * running raid refuses. Solo: `ctx.missionMode = 'training'` is set **before** `game:newMission {seed, mode}` so
@@ -198,33 +198,34 @@ export class HubSystem implements GameSystem, HubRef {
   pods: LaunchPod[] = [];
   terminal: Terminal | null = null;
   /*
-   * 2026-09-12 (사용자 결정 — 정비 벤치 제거): `workbench: Workbench | null` 과 `wbMenu: WorkbenchMenu` 가 여기
-   * 있었다. 함선의 무기 수리는 이제 **인벤토리에서** 한다(재료만 있으면 어디서든), 그래서 `hub/Workbench.ts`
-   * (`hub_workbench` 상호작용)와 `hub/ui/WorkbenchMenu.ts`(정비 창)는 파일째 없어졌고 공유 함선 후벽의 벤치는
-   * 순수한 소품으로 남았다. 되돌리려면 그 두 파일을 되살리고 여기에 필드 둘을, `parts/Interior` 에
-   * `new Workbench(...)` 와 `FurnitureCallbacks.onRepairBench` 를 다시 잇는다.
-   * 버스 이벤트 `hub:workbenchToggled` 는 계약이라 `shared/events` 에 그대로 남아 있다 — 아무도 안 낼 뿐이다.
+   * 2026-09-12 (user's decision — the repair bench was dropped): `workbench: Workbench | null` and
+   * `wbMenu: WorkbenchMenu` stood here. Weapon repair in the ship now happens **in the inventory** (anywhere, given
+   * the materials), so `hub/Workbench.ts` (the `hub_workbench` interactable) and `hub/ui/WorkbenchMenu.ts` (the repair
+   * window) are gone as whole files and the bench on the shared ship's aft wall is pure prop. Undoing it means
+   * reviving those two files, the two fields here, and `new Workbench(...)` plus
+   * `FurnitureCallbacks.onRepairBench` in `parts/Interior`. The bus event `hub:workbenchToggled` is a contract and
+   * stays in `shared/events` — nobody emits it, that is all.
    */
   /**
-   * 함선 컴퓨터 (Phase 5): `hub_computer` → `ctx.meta.openCorpMenu()`. 2026-09-12: only the **shared** ship's built-in desk
+   * The ship computer (Phase 5): `hub_computer` → `ctx.meta.openCorpMenu()`. 2026-09-12: only the **shared** ship's built-in desk
    * lives here; the personal ship's computer is `furn_corp_computer` furniture registered by the layer under the same id.
    */
   computer: Computer | null = null;
   stationIds: string[] = [];
-  /** 함선 꾸미기: furniture meshes / colliders / interactables of the personal ship + the housing-mode controller. */
+  /** Decorating the ship: furniture meshes / colliders / interactables of the personal ship + the housing-mode controller. */
   furniture: FurnitureLayer | null = null;
-  /** 2026-09-16 (접시 모델): 공유 함선 고정 식탁 위의 분대원 접시들 (`interiors/TablePlates`), 공유 함선이 아니면 null. */
+  /** 2026-09-16 (plate models): the squadmates' plates on the shared ship's fixed table (`interiors/TablePlates`), null elsewhere. */
   tablePlates: TablePlates | null = null;
   housingMode!: HousingMode;
   slots: HubLaunchSlot[] = [];
   cutscene: DockingCutscene | null = null;
   menu!: HubMenu;
-  /** 출격 준비 경고 (2026-09-08): raised by `boardPod` when the launch check has something to say. */
+  /** The launch warning (2026-09-08): raised by `boardPod` when the launch check has something to say. */
   launchWarn!: LaunchWarnPanel;
   /** Warning signature the player already waved through — the same set never asks twice. Cleared on a real change. */
   launchWarnAck = '';
   status!: HubStatus;
-  /** 발사 준비 패널 (Phase 10): 4 portrait cells + the 분대원 장비 popup. */
+  /** The ready panel (Phase 10): 4 portrait cells + the crew loadout popup. */
   ready!: ReadyPanel;
 
   /* ── crew cards (Phase 10; hub sends, net/ receives) ───────────────────── */
@@ -236,9 +237,9 @@ export class HubSystem implements GameSystem, HubRef {
   readonly loadoutAnsweredAt = new Map<PeerId, number>();
   crewUnsub: (() => void) | null = null;
 
-  /* ── 공용 함선 격납고 (2026-09-08; hub sends `ship state`, net/ receives) ── */
+  /* ── the shared ship's hangar (2026-09-08; hub sends `ship state`, net/ receives) ── */
   /**
-   * The 개인 함선 we walked into from a hangar bay, or null on the shared deck / in the ordinary solo personal ship.
+   * The personal ship we walked into from a hangar bay, or null on the shared deck / in the ordinary solo personal ship.
    * `peerId` null = **our own** ship (full functionality); a peer's id = a visit (`readOnly`).
    */
   visit: { peerId: PeerId | null; slot: number; readOnly: boolean } | null = null;
@@ -257,7 +258,7 @@ export class HubSystem implements GameSystem, HubRef {
   shipUnsub: (() => void) | null = null;
 
   /**
-   * Which ship interior we stand in, as a PeerId — null on the shared deck (공유 함선 + 격납고), our own id in our
+   * Which ship interior we stand in, as a PeerId — null on the shared deck (shared ship + hangar), our own id in our
    * own ship, the owner's in a visited one. `net/Snapshotter` puts it on the wire as `PlayerSnapshot.hs` and remote
    * avatars whose value differs are hidden, so a tour of somebody's ship is private to the people inside it.
    */
@@ -266,8 +267,8 @@ export class HubSystem implements GameSystem, HubRef {
     if (!v) return null;
     return v.peerId ?? (this.ctx.net?.localId ?? 'local');
   }
-  /* ── 원격 가구 연출 (2026-09-12, 캐릭터 버프 · 가구 자세 동기화) ────────────── */
-  /** 스모크가 심은 가짜 원격 ref — null 이 아니면 `ctx.net` 의 목록 **대신** 쓴다 (`HudSystem.debugRemotes` 와 같은 모양). */
+  /* ── remote furniture staging (2026-09-12, character buffs · furniture pose sync) ── */
+  /** Fake remote refs planted by a smoke — non-null replaces `ctx.net`'s list **entirely** (the shape `HudSystem.debugRemotes` uses). */
   debugFurnitureRemotes: readonly RemotePlayerRef[] | null = null;
   /**
    * Smoke-test hook: feed synthetic remote refs (`{ id, connected, stale, suspended, hubSite, furniturePose }` is enough) to the
@@ -282,11 +283,11 @@ export class HubSystem implements GameSystem, HubRef {
   }
   /** PeerId of the ship being **visited** (someone else's), or null in our own ship / on the shared deck. */
   get visitingPeer(): PeerId | null { return this.visit?.peerId ?? null; }
-  /** Inside someone else's ship: every console, bench, furniture piece and 시설 관리 is refused (둘러보기 전용). */
+  /** Inside someone else's ship: every console, bench, furniture piece and `시설 관리` is refused (looking around only). */
   get visitReadOnly(): boolean { return this.visit?.readOnly === true; }
-  /** The hangar's four 개인 함선 bays with their occupants (empty outside the shared ship). */
+  /** The hangar's four personal-ship bays with their occupants (empty outside the shared ship). */
   getShipBays(): readonly HubShipBay[] { return Hangar.getShipBays(this); }
-  /** Board the 개인 함선 parked in `slot` (ours or a squadmate's). See `parts/Hangar.enterShipBay`. */
+  /** Board the personal ship parked in `slot` (ours or a squadmate's). See `parts/Hangar.enterShipBay`. */
   enterShipBay(slot: number): boolean { return Hangar.enterShipBay(this, slot); }
   /** Walk back out of a bay's ship into the hangar. */
   returnToHangar(): boolean { return Hangar.returnToHangar(this); }
@@ -297,28 +298,28 @@ export class HubSystem implements GameSystem, HubRef {
   /** Answer `shipq state`; also called on `hub:entered` when `ctx.net` was missing at init. */
   bindShipRequests(): void { return Hangar.bindShipRequests(this); }
 
-  /* ── 조종실 안드로이드 슬롯 (2026-09-15, `parts/Androids`) ────────────────── */
+  /* ── the cockpit android bays (2026-09-15, `parts/Androids`) ─────────────── */
   /** Interactable ids of the cockpit's android bays (shared ship only). */
   androidBayIds: string[] = [];
   /** A `lobby:android` request waiting for the relay's answer, null at rest. */
   androidPending: AndroidPending | null = null;
-  /** 발사 포드 앞 대기 자리, 슬롯 순 (`getPodStandPose` 의 원본; 함선을 지을 때 한 번 계산한다). */
+  /** The standing spots in front of the launch pods, by slot (`getPodStandPose`'s source; computed once per ship build). */
   podStands: Array<{ position: THREE.Vector3; yaw: number } | undefined> = [];
-  /** 공용 함선 조종실의 안드로이드 슬롯 (bay 순). 공용 함선이 아니면 빈 배열. 재사용 배열 — 읽고 바로 쓴다. */
+  /** The android bays in the shared ship's cockpit (by bay), empty elsewhere. A reused array — read it and use it at once. */
   getAndroidBays(): readonly HubAndroidBay[] { return Androids.getAndroidBays(this); }
-  /** 로비 슬롯 `slot` 의 발사 포드 앞 대기 자리 (분대원이 된 안드로이드가 준비된 채 서 있는 곳), 없으면 null. */
+  /** The standing spot in front of lobby slot `slot`'s pod (where a recruited android stands ready), null with none. */
   getPodStandPose(slot: number): { position: THREE.Vector3; yaw: number } | null { return Androids.getPodStandPose(this, slot); }
-  /** 캡슐 표시등 · 이름표를 로비 상태에 맞춘다. */
+  /** Bring the capsule status strips · name tags in line with the lobby state. */
   refreshAndroidBays(): void { return Androids.refreshAndroidBays(this); }
-  /** 슬롯 프롬프트 (거절 사유를 그대로 보여 준다 — 발사 포드 규칙). Debug / smoke. */
+  /** The bay prompt (it shows the refusal reason as it stands — the launch-pod rule). Debug / smoke. */
   androidPrompt(bay: number): string | null { return Androids.androidPrompt(this, bay); }
-  /** 지금 이 슬롯에 다가갈 수 있는가 (거절 사유와 무관). Debug / smoke. */
+  /** Can this bay be reached at all right now (regardless of a refusal reason)? Debug / smoke. */
   androidCanInteract(bay: number): boolean { return Androids.androidCanInteract(this, bay); }
 
-  /* ── 분대장 넘기기 (2026-09-09) ─────────────────────────────────────────── */
+  /* ── the squad-leader handoff (2026-09-09) ────────────────────────────── */
   /**
-   * 공용 함선 안의 원격 분대원마다 `lead:<peerId>` `Interactable` 을 세운다 (내가 호스트일 때만).
-   * 아바타 자체는 `player/RemotePlayerSystem` 소유라 위치만 읽는다 — 자세히는 `parts/Crew`.
+   * One `lead:<peerId>` `Interactable` per remote squadmate in the shared ship (only while I am the host).
+   * The avatar itself belongs to `player/RemotePlayerSystem`, so only its position is read — details in `parts/Crew`.
    */
   readonly leaderHandoffs = new Map<PeerId, { it: Interactable; pos: THREE.Vector3 }>();
   updateLeaderHandoff(): void { return Crew.updateLeaderHandoff(this); }
@@ -327,9 +328,9 @@ export class HubSystem implements GameSystem, HubRef {
   boardedSlot = -1;
   boardedAt = 0;
   /**
-   * 2026-09-14 (발사 슬롯 UI 대개편): **로컬 준비 상태의 단일 원본**. 탑승(`boardedSlot`)과 갈라져 있고, 앉은 채
-   * 스페이스를 `UI_HOLD_CONFIRM_S` 동안 꾹 눌러야 켜진다 (`Pods.toggleReady`). 서버의 `LobbyPlayer.ready` 는
-   * 이것의 메아리일 뿐이다 — `syncPods` 가 메아리를 확인하고, 안 오면 이 값을 되돌린다.
+   * 2026-09-14 (the launch-slot UI rework): **the single source of the local ready flag**. Split from boarding
+   * (`boardedSlot`): it turns on only when Space is held for `UI_HOLD_CONFIRM_S` while seated (`Pods.toggleReady`).
+   * The server's `LobbyPlayer.ready` is no more than its echo — `syncPods` checks for it and rolls this back with none.
    */
   readyLocal = false;
   /** `ctx.time` of the last un-board — the pod refuses a new boarding for `REBOARD_GRACE` after it. */
@@ -339,7 +340,7 @@ export class HubSystem implements GameSystem, HubRef {
   lastCountdownSecond = -1;
   launched = false;
   /**
-   * 레이드 진입 로딩 (2026-09-15): the countdown reached 0, the screen is fading to black and the authority launches
+   * Raid-entry loading (2026-09-15): the countdown reached 0, the screen is fading to black and the authority launches
    * `RAID_LOAD_FADE_OUT_S` later. Non-null = the launch is **committed** (E, the ready hold and un-readying no longer
    * cancel it) — `parts/Pods.beginRaidLoad` / `tickRaidLaunch`.
    */
@@ -350,12 +351,12 @@ export class HubSystem implements GameSystem, HubRef {
   /**
    * A lost pointer lock only leaves the *room-console* housing mode (browser Esc while decorating). Since Phase 8
    * the hub **pauses** like a mission — `game/` owns that — so the terminal menu is never forced open here any more,
-   * and 함선 관리 runs **deliberately unlocked** (clickable 방 목록 / 가구 카드 바), so it ignores lock changes.
+   * and ship management runs **deliberately unlocked** (a clickable room list / furniture card bar), so it ignores lock changes.
    */
   private onPointerLockChange = (): void => {
     const ctx = this.ctx;
-    if (this.housingMode.manage) return;                    // 함선 관리 owns the cursor
-    // any blocker (inventory / housing panels; the 기업 screen is the inventory window's own blocker since
+    if (this.housingMode.manage) return;                    // ship management owns the cursor
+    // any blocker (inventory / housing panels; the `기업` screen is the inventory window's own blocker since
     // 2026-09-07) owns the lock loss — except the READY panel's token, which never released the lock (Phase 10)
     if (ctx.input.isPointerLocked || ctx.phase !== 'hub' || this.uiBlocked() || this.corpMenuOpen()) return;
     if (performance.now() - ctx.input.lastLockRequest < LOCK_REQUEST_GRACE_MS) return;
@@ -376,21 +377,21 @@ export class HubSystem implements GameSystem, HubRef {
     });
     this.launchWarn = new LaunchWarnPanel(ctx, { onClosed: () => this.relock() });
     // ReadyPanel **before** HubStatus: `hub.css` lifts the status line off the panel with a sibling selector.
-    // 2026-09-14: the panel measures the ready hold (스페이스 1초) and calls back; the rules live in `parts/Pods`.
+    // 2026-09-14: the panel measures the ready hold (Space, one second) and calls back; the rules live in `parts/Pods`.
     this.ready = new ReadyPanel(ctx, { toggleReady: () => this.toggleReady() });
     this.status = new HubStatus(ctx);
-    this.dockCountdown = new SquadDockCountdown(ctx);   // 2026-09-15: 분대장 도킹 카운트다운 (우측)
+    this.dockCountdown = new SquadDockCountdown(ctx);   // 2026-09-15: the leader's dock countdown (right side)
     this.housingMode = new HousingMode(ctx);
     const b = ctx.bus;
     this.unsubs.push(
       b.on('hub:enter', ({ ship }) => this.enter(ship)),
       // crew cards: the shared ship announces us once and asks everyone else for theirs (Phase 10)
       b.on('hub:entered', ({ ship }) => { if (ship === 'shared') { this.announceCrew(); Hangar.announceShip(this); } }),
-      // 격납고 (2026-09-08): our own ship layout is what a squadmate's bay renders — re-publish it when it changes
+      // Hangar (2026-09-08): our own ship layout is what a squadmate's bay renders — re-publish it when it changes
       b.on('housing:changed', () => Hangar.shipStateChanged(this)),
       b.on('housing:loaded', () => Hangar.shipStateChanged(this)),
       b.on('housing:booksChanged', () => Hangar.shipStateChanged(this)),
-      // A-3e (2026-09-12): 디스크 · 레코드 · TV/레코드 플레이어 켜짐도 방문자가 보는 함선의 일부다
+      // A-3e (2026-09-12): discs · records · a TV or record player left on are part of the ship a visitor sees too
       b.on('housing:shelfChanged', () => Hangar.shipStateChanged(this)),
       b.on('housing:furnitureToggled', () => Hangar.shipStateChanged(this)),
       b.on('progress:levelUp', () => this.crewCardChanged()),
@@ -409,16 +410,17 @@ export class HubSystem implements GameSystem, HubRef {
       b.on('net:lobbyLeft', ({ reason, to }) => { Androids.androidAnswered(this); this.onLobbyLeft(reason, to); }),
       b.on('net:resumed', ({ inProgress }) => this.onResumed(inProgress)),
       /*
-       * 조종실 안드로이드 슬롯 (2026-09-15): 릴레이의 답이 오면 요청 대기를 푼다 — `lobby:state` 든 거절이든.
-       * 토스트(`full` · `human_joined`)는 ui/ 의 몫이다.
+       * The cockpit android bays (2026-09-15): the relay's answer releases the pending request — a `lobby:state`
+       * and a refusal alike. The toasts (`full` · `human_joined`) are ui/'s share.
        */
       b.on('net:androidReturned', () => Androids.androidAnswered(this)),
       b.on('net:error', () => Androids.androidAnswered(this)),
       /*
-       * 2026-09-11 (B-12): `net:peerJoined` / `net:peerLeft` 의 `<이름> 함선 합류 · 이탈` 토스트를 걷어냈다 — 같은
-       * 이벤트에 `ui/hud/Notifications` 가 `<이름> 합류` · `<이름> 이탈`(`'분대'` 라벨)을 이미 띄우고, 그것이
-       * `ui:notify` 와 **같은 토스트 스택**이라 함선에서는 두 줄이 나란히 떴다. 잃는 것은 `함선` 이라는 낱말 하나이고
-       * (지금 함선에 있다는 상황과 `'분대'` 라벨이 그 문맥을 준다) 토스트의 주인은 `Notifications` 하나가 됐다.
+       * 2026-09-11 (B-12): the `<name> 함선 합류 · 이탈` toasts on `net:peerJoined` / `net:peerLeft` were taken out —
+       * `ui/hud/Notifications` already raises `<name> 합류` · `<name> 이탈` (label `'분대'`) on the same events, and
+       * because that is the **same toast stack** as `ui:notify` the ship showed two lines side by side. All that is
+       * lost is the word `함선` (standing in the ship and the `'분대'` label give that context), and `Notifications`
+       * became the single owner of the toast.
        */
       b.on('net:statusChanged', () => { this.resendReady(); this.updateTerminalScreen(); Androids.androidAnswered(this); }),
       b.on('meta:creditsChanged', () => this.updateTerminalScreen()),
@@ -492,26 +494,26 @@ export class HubSystem implements GameSystem, HubRef {
   build(ship: HubShipKind, viaAirlock: boolean, fromBay?: number, prebuilt?: ShipInterior): THREE.Vector3 { return Interior.build(this, ship, viaAirlock, fromBay, prebuilt); }
 
   /**
-   * 함선 시설: the implant bay, which opens the Tab ship screen (inventory window: 창고 / 장비 + 임플란트 슬롯 /
-   * 가방). Its geometry is already merged into the interior. (Phase 8 removed the hydroponics station — 재배 is
-   * the 온실 room's `furn_grow_rack` furniture now.)
+   * Ship stations: the implant bay, which opens the Tab ship screen (inventory window: `창고` / `장비` + implant
+   * slots / `가방`). Its geometry is already merged into the interior. (Phase 8 removed the hydroponics station —
+   * growing is the `온실` room's `furn_grow_rack` furniture now.)
    */
   buildStations(interior: ShipInterior): void { return Interior.buildStations(this, interior); }
 
   addStation(id: string, def: StationDef, prompt: string | (() => string), onUse: () => void, radius = 2.3): void { return Interior.addStation(this, id, def, prompt, onUse, radius); }
 
   /**
-   * 함선 꾸미기 (personal ship): the furniture layer and the housing-mode controller.
+   * Decorating the ship (personal ship): the furniture layer and the housing-mode controller.
    *
    * Phase 8 UI pass: the room door consoles (`hub_room_<i>`) and the cockpit facility console (`hub_facility`) are
-   * **gone**, along with their geometry — rooms, purposes and facilities are managed from the Tab 함선 tab and from
-   * 시설 관리 (M). Only the furniture pieces themselves still answer to E.
+   * **gone**, along with their geometry — rooms, purposes and facilities are managed from the Tab `함선` tab and from
+   * `시설 관리` (M). Only the furniture pieces themselves still answer to E.
    */
   buildHousing(interior: ShipInterior): void { return Interior.buildHousing(this, interior); }
 
   roomPurpose(i: number): RoomPurpose | null { return Interior.roomPurpose(this, i); }
   roomPurposeLabel(i: number): string { return Interior.roomPurposeLabel(this, i); }
-  /** Door sign + 방 조명 of one room (an empty room reads dark, an assigned one is lit and gets a pool light). */
+  /** Door sign + room light of one room (an empty room reads dark, an assigned one is lit and gets a pool light). */
   refreshRoomSign(i: number): void { return Interior.refreshRoomSign(this, i); }
   refreshRoomSigns(): void { return Interior.refreshRoomSigns(this); }
 
@@ -519,8 +521,8 @@ export class HubSystem implements GameSystem, HubRef {
   private trackRoom(): void { return Interior.trackRoom(this); }
 
   /**
-   * 함선 컴퓨터: open the corporation screen. **2026-09-07**: it has no overlay of its own any more — `openCorpMenu`
-   * opens the Tab window on its 기업 tab (`InventoryRef.openScreen('corp')`), so the blocker and the in-game cursor
+   * The ship computer: opens the corporation screen. **2026-09-07**: it has no overlay of its own any more —
+   * `openCorpMenu` opens the Tab window on its `기업` tab (`InventoryRef.openScreen('corp')`), so the blocker and the cursor
    * are the inventory window's. While `ctx.meta` is missing, a stub, or refuses, the player gets a warning toast.
    */
   openCorpMenu(): void {
@@ -544,7 +546,7 @@ export class HubSystem implements GameSystem, HubRef {
 
   /**
    * Leave the hub. 'mission': `game:newMission` arrived (World already generated, Player already respawned — only
-   * release our hooks). 'menu': back to the title (`game:abort` or 타이틀로) — also restores the planet atmosphere.
+   * release our hooks). 'menu': back to the title (`game:abort` or `타이틀로`) — also restores the planet atmosphere.
    */
   teardown(reason: 'mission' | 'menu'): void { return Interior.teardown(this, reason); }
 
@@ -566,7 +568,7 @@ export class HubSystem implements GameSystem, HubRef {
   private onLobbyLeft(reason?: string, to?: string): void { return Trans.onLobbyLeft(this, reason, to); }
 
   /**
-   * `net:resumed`. A **훈련장** is not the squad's mission (individual entry, the lobby stays open), so a reconnect
+   * `net:resumed`. A **training** is not the squad's mission (individual entry, the lobby stays open), so a reconnect
    * while one runs must never read as `분대가 임무 중` — it points at the terminal instead.
    */
   private onResumed(inProgress: boolean): void { return Trans.onResumed(this, inProgress); }
@@ -585,7 +587,7 @@ export class HubSystem implements GameSystem, HubRef {
 
   /**
    * Why boarding is refused right now (also the pod's prompt text), or null when the slot takes us:
-   * a training runs in the lobby (join from the terminal instead), or the ship has no 목표 행성 (Phase 11).
+   * a training runs in the lobby (join from the terminal instead), or the ship has no target planet (Phase 11).
    */
   podBlockReason(slot: number): string | null { return Pods.podBlockReason(this, slot); }
 
@@ -595,17 +597,17 @@ export class HubSystem implements GameSystem, HubRef {
   leavePod(sendReady: boolean, placeOutside = true): void { return Pods.leavePod(this, sendReady, placeOutside); }
 
   /**
-   * 2026-09-14: 준비 / 준비 해제 (발사 슬롯에 앉은 채 스페이스 `UI_HOLD_CONFIRM_S` 홀드 — `ui/ReadyPanel` 이 잰다).
-   * 준비로 갈 때만 출격 준비 경고 팝업이 먼저 선다.
+   * 2026-09-14: ready / un-ready (Space held for `UI_HOLD_CONFIRM_S` while seated in the launch slot — measured by
+   * `ui/ReadyPanel`). Only the way into readiness puts the launch warning popup first.
    */
   toggleReady(): void { return Pods.toggleReady(this); }
 
-  /** Commit the local ready flag (the launch-warning popup's 그래도 준비 lands here). */
+  /** Commit the local ready flag (the launch-warning popup's `그래도 준비` lands here). */
   setReadyLocal(ready: boolean): void { return Pods.setReadyLocal(this, ready); }
 
   /**
-   * 2026-09-14: **준비 상태인가** — 다른 폴더가 「지금 장비를 바꿔도 되는가」를 묻는 한 줄
-   * (`inventory/InventorySystem.readOnlyReason`). `HubRef` 의 선택 필드로 읽히도록 이름을 고정한다.
+   * 2026-09-14: **am I ready** — the one line another folder asks "may gear be changed right now"
+   * (`inventory/InventorySystem.readOnlyReason`) through. The name is fixed so `HubRef` reads it as an optional field.
    */
   get launchReady(): boolean { return this.boardedSlot >= 0 && this.readyLocal; }
 
@@ -619,7 +621,7 @@ export class HubSystem implements GameSystem, HubRef {
    * the ready hold is lost across a reconnect and the squad would wait for a member the server never marked ready.
    * `readySentAt` is pushed forward with it so `syncPods` gives the fresh echo its full `READY_ECHO_GRACE`.
    *
-   * 2026-09-14: 탑승과 준비가 갈라졌으므로 **`readyLocal` 을 그대로** 다시 보낸다 (앉아만 있으면 false 를 보낸다).
+   * 2026-09-14: boarding and readiness are separate, so **`readyLocal` goes back out as it is** (merely seated sends false).
    */
   resendReady(): void {
     const net = this.ctx.net;
@@ -641,7 +643,7 @@ export class HubSystem implements GameSystem, HubRef {
     const seedText = seed === null ? '시드 무작위' : `시드 ${seed}`;
     const status = net?.status === 'connected' ? '네트워크 연결됨' : net?.status === 'connecting' ? '연결 중…' : '오프라인';
     const planetLine = `목표 ${this.travelling ? `${planetLabel(this.planet)} 이동 중` : (getPlanet(this.planet)?.name ?? PLANET_NONE_LABEL)}`;
-    /* 2026-09-15 (안드로이드 분대원): 승무원 수는 **사람**이다 — 안드로이드는 별도 줄로 센다 (봇은 슬롯을 차지하지만 승무원이 아니다) */
+    /* 2026-09-15 (android squadmates): the crew count is **people** — androids get their own line (a bot takes a slot but is not crew) */
     const crew = humanPlayersOf(lobby ?? squad).length;
     const bots = (lobby ?? squad) ? ((lobby ?? squad)!.players.length - crew) : 0;
     const lines = lobby
@@ -671,11 +673,11 @@ export class HubSystem implements GameSystem, HubRef {
   update(dt: number, ctx: GameContext): void {
     this.menu.update(dt);
     this.ready.update(dt, ctx.time);
-    // 2026-09-15 (분대 · 도킹 매칭): where the squad should be vs where we stand → countdown / fade / (un)dock
+    // 2026-09-15 (squads · dock matchmaking): where the squad should be vs where we stand → countdown / fade / (un)dock
     if (this.active) SquadDock.tick(this, dt);
     // a card change inside the debounce window goes out as soon as it expires
     if (this.cardDirty) this.sendCrewCard(false);
-    // 격납고 (2026-09-08): the same trailing flush for our ship layout
+    // Hangar (2026-09-08): the same trailing flush for our ship layout
     if (this.shipStateDirty) Hangar.sendShipState(this, false);
     if (this.cutscene) {
       this.cutscene.update(dt);
@@ -685,11 +687,11 @@ export class HubSystem implements GameSystem, HubRef {
       return;
     }
     if (ctx.phase !== 'hub' || !this.interior) return;
-    // (2026-09-09) a 창문 워프 does **not** return early here: the interior keeps animating (방 조명 · star
+    // (2026-09-09) a window warp does **not** return early here: the interior keeps animating (room lights · star
     // drift — and now the streaks), the player keeps walking, and `tickTravel` runs at the tail of this frame.
 
     this.interior.update(dt, ctx.time);
-    // 방 조명 follow the player (the sliding 자동문 that also rode this call were removed 2026-09-16)
+    // The room lights follow the player (the sliding doors that also rode this call were removed 2026-09-16)
     if (this.interior.updateNear) {
       const pp = ctx.player?.position;
       this.interior.updateNear(dt, pp?.x ?? 0, pp?.z ?? 0);
@@ -697,41 +699,42 @@ export class HubSystem implements GameSystem, HubRef {
     this.furniture?.update(ctx.time);
     for (const pod of this.pods) pod.update(dt, ctx.time);
     this.trackRoom();
-    // 격납고: a bay boarded before its layout arrived finishes (or gives up) here
+    // Hangar: a bay boarded before its layout arrived finishes (or gives up) here
     Hangar.tickPendingVisit(this);
-    // 분대장 넘기기 (2026-09-09): 같은 함선 안의 원격 분대원마다 상호작용 지점을 따라 붙인다 (호스트만)
+    // The leader handoff (2026-09-09): one interaction spot trails every remote squadmate in the same ship (host only)
     this.updateLeaderHandoff();
 
     // housing mode owns the input (cursor / place / rotate / recover / C / M) while active
     if (this.housingMode.active) { this.housingMode.update(dt); this.tickCountdown(dt); this.tickTravel(dt); return; }
 
     /*
-     * 2026-09-08 (ESC = 항상 일시정지): the hub does not read Escape any more. Every screen here closes on the key
-     * that opened it — the 터미널 and the 정비 벤치 on **E** (both hang off an `Interactable`), the 분대원 장비
-     * popup on another right-click or its 닫기 button — and Escape falls straight through to game/.
+     * 2026-09-08 (Escape always pauses): the hub does not read Escape any more. Every screen here closes on the key
+     * that opened it — the terminal and the repair bench on **E** (both hang off an `Interactable`), the crew loadout
+     * popup on another right-click or its `닫기` button — and Escape falls straight through to game/.
      *
-     * 2026-09-09 (ESC 닫기): 그 Escape 가 이제 **화면을 닫는다**. 여기서 키를 읽는 대신 각 화면이 열릴 때
-     * `ctx.escape` 에 자기 닫기를 올리고(`ui/HubMenu` · `ui/LaunchWarnPanel` ·
-     * `ui/CrewLoadoutPanel` — `'hub'` 토큰을 나눠 쓰므로 key 는 각자), `game/escapeKey` 가 맨 위 하나만 닫는다.
+     * 2026-09-09 (Escape closes): that Escape now **closes a screen**. Instead of reading the key here, each screen
+     * pushes its own close onto `ctx.escape` as it opens (`ui/HubMenu` · `ui/LaunchWarnPanel` ·
+     * `ui/CrewLoadoutPanel` — they share the `'hub'` token, so each keeps its own key), and `game/escapeKey` closes
+     * the topmost one only.
      *
      * `HubSystem` updates **before** `PlayerSystem`, so the E that opens one of these panels is polled here while the
      * panel is still closed: one tap can never open and close it in the same frame. Typing in the terminal's fields
      * never reaches `Input` at all (`hub/ui/dom.isolateInput` stops the event at the field).
      */
     if (ctx.input.wasPressed(Keys.INTERACT) && !ctx.uiBlockers.has(MENU_BLOCKER)) {
-      // 출격 준비 경고 (2026-09-08): opened by the pod itself, not by a key — E is its keyboard 취소.
+      // The launch warning (2026-09-08): opened by the pod itself, not by a key — E is its keyboard `취소`.
       if (this.launchWarn.isOpen) { this.launchWarn.close(); ctx.input.consume(Keys.INTERACT); }
-      // 2026-09-14: 터미널 위에 매칭 팝업 · 정보상 화면이 뜰 수 있다 — E 도 **맨 위 하나**만 닫는다 (`closeTop`)
+      // 2026-09-14: the match popup · the intel screen can stand over the terminal — E closes **the topmost one** only (`closeTop`)
       else if (this.menu.isOpen) { this.menu.closeTop(); ctx.input.consume(Keys.INTERACT); }
-      // 분대원 장비 popup before the pod: it is modeless over the pod view and holds no blocker of its own, so
+      // The crew loadout popup before the pod: it is modeless over the pod view and holds no blocker of its own, so
       // without this step the same E would un-board out from under it (Phase 10 ordering, on the new key).
       else if (this.ready.closePopup()) { ctx.input.consume(Keys.INTERACT); }
-      // 2026-09-15 (레이드 진입 로딩): 암전이 시작된 뒤로 발사는 **확정**이다 — 내리는 것도 취소가 되지 않는다
+      // 2026-09-15 (raid-entry loading): once the fade began the launch is **committed** — un-boarding cancels nothing either
       else if (this.boardedSlot >= 0 && !this.raidLaunch && !this.uiBlocked() && ctx.time - this.boardedAt > UNBOARD_GRACE) {
         this.leavePod(true);
       }
     }
-    // M: 함선 관리 (housing's manage mode; the HUD draws the room list / furniture bar). Read `Keys.MAP` live.
+    // M: ship management (housing's manage mode; the HUD draws the room list / furniture bar). Read `Keys.MAP` live.
     if (ctx.uiBlockers.size === 0 && this.boardedSlot < 0 && ctx.input.wasPressed(Keys.MAP)) this.openShipManage();
 
     this.tickCountdown(dt);
@@ -739,13 +742,13 @@ export class HubSystem implements GameSystem, HubRef {
   }
 
   /**
-   * 함선 관리 (M in the ship): housing enters its manage mode from anywhere in the personal ship (no "stand in the
+   * Ship management (M in the ship): housing enters its manage mode from anywhere in the personal ship (no "stand in the
    * room" gate) and `HousingMode` takes the camera on `housing:shipManageChanged`. Refused in the shared ship.
    */
   openShipManage(): boolean {
     const ctx = this.ctx;
     if (ctx.phase !== 'hub' || this.cutscene || this.housingMode.active) return false;
-    // 격납고 (2026-09-08): a visited ship is 둘러보기 전용 — 시설 관리 belongs to its owner alone
+    // Hangar (2026-09-08): a visited ship is for looking around only — `시설 관리` belongs to its owner alone
     if (this.visitReadOnly) {
       ctx.bus.emit('ui:notify', { text: '방문 중에는 함선을 관리할 수 없습니다', kind: 'warning' });
       return false;
@@ -759,9 +762,9 @@ export class HubSystem implements GameSystem, HubRef {
       ctx.bus.emit('ui:notify', { text: '함선 관리를 사용할 수 없습니다', kind: 'warning' });
       return false;
     }
-    /* 2026-09-15 4차: 서 있는 방을 **인자로 넘기지 않는다** — 인자는 「이 방을 열어라」 는 명령이라 기억한 방을 이기고,
-       그러면 「마지막으로 보던 방으로 돌아온다」(사용자 결정)가 영영 안 산다. 서 있는 방은 `openShipManage` 안의
-       폴백 사슬(`ctx.hub.currentRoom`)에 이미 있으므로 기억이 없을 때만 쓰인다. */
+    /* 2026-09-15 4th pass: the room we stand in is **not passed as an argument** — an argument means 「open this room」
+       and beats the remembered room, and then 「it comes back to the room last looked at」 (user's decision) never lives.
+       The room we stand in is already in `openShipManage`'s fallback chain (`ctx.hub.currentRoom`), used only with no memory. */
     try { return h.openShipManage(); } catch { return false; }
   }
 }

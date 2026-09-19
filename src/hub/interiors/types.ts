@@ -17,10 +17,11 @@ export interface PodSlotDef {
 }
 
 /*
- * 2026-09-12 (사용자 결정 — 정비 벤치 제거): `WorkbenchDef` 가 여기 있었다. 함선의 **붙박이 정비 벤치**
- * (`hub_workbench`, 공유 함선 병기고)는 상호작용을 잃었다 — 수리는 이제 인벤토리에서 재료로 한다.
- * 벤치 소품과 `정비` 표지는 병기고 장식으로 남아 있고 `SharedShip` 은 그 좌표를 더 이상 내보내지 않는다.
- * 되돌리려면 이 인터페이스와 `ShipInterior.workbench?` 를 되살리고 `hub/Workbench.ts` 를 다시 만든다.
+ * 2026-09-12 (user's decision — the repair bench was dropped): `WorkbenchDef` stood here. The ship's **built-in
+ * repair bench** (`hub_workbench`, the shared ship's armoury) lost its interaction — repair now happens in the
+ * inventory, from materials. The bench prop and its `정비` sign stay as armoury dressing, and `SharedShip` no longer
+ * publishes those coordinates. Undoing it means reviving this interface and `ShipInterior.workbench?`, and writing
+ * `hub/Workbench.ts` again.
  */
 
 export interface TerminalDef {
@@ -32,8 +33,8 @@ export interface TerminalDef {
 }
 
 /**
- * 2026-09-12: 가구를 놓을 수 있는 공간 하나 — 방 **또는 조종석**(`index === COCKPIT_ROOM_INDEX`). 가구 층
- * (`interiors/Furniture.FurnitureLayer`)은 이것만 알면 된다.
+ * 2026-09-12: one space furniture can be placed in — a room **or the cockpit** (`index === COCKPIT_ROOM_INDEX`).
+ * This is everything the furniture layer (`interiors/Furniture.FurnitureLayer`) needs to know.
  */
 export interface EditAreaDef {
   index: number;
@@ -67,43 +68,45 @@ export interface ShipInterior {
   readonly pods: PodSlotDef[];
   readonly terminal: TerminalDef;
   /**
-   * 함선 컴퓨터 (Phase 5): interaction anchor in front of the desk (`hub_computer` → 기업 네트워크).
+   * The ship computer (Phase 5): interaction anchor in front of the desk (`hub_computer` → the corporate network).
    * 2026-09-12: **optional** — the personal ship's computer is the `furn_corp_computer` furniture now; only the
    * shared ship still has a built-in desk.
    */
   readonly computer?: StationDef;
-  /** 함선 시설 (tactical kit): 정비대 (shared ship) / 임플란트 시술대 anchors. */
+  /** Ship stations (tactical kit): repair bench (shared ship) / implant bay anchors. */
   readonly stations: ShipStations;
-  /** 함선 꾸미기 (personal ship only): the rooms. The door / facility consoles were removed in the Phase 8 UI pass. */
+  /** Decorating the ship (personal ship only): the rooms. The door / facility consoles were removed in the Phase 8 UI pass. */
   readonly rooms?: readonly RoomDef[];
   /** 2026-09-12 (personal ship only): the cockpit as a furniture area (`COCKPIT_ROOM_INDEX`). */
   readonly cockpit?: EditAreaDef;
   /**
-   * 2026-09-12 (사용자 결정): 방 · 조종석 바닥 격자선은 **시설 관리(하우징 모드) 중에만** 보인다. hub/HousingMode 가
-   * 모드에 들어가며 켜고 나오며 끈다. Optional — 격자가 없는 인테리어(공유 함선)는 생략한다.
+   * 2026-09-12 (user's decision): the floor grid of a room · the cockpit shows **only during ship management
+   * (housing mode)**. hub/HousingMode turns it on entering the mode and off leaving it. Optional — an interior with
+   * no grid (the shared ship) omits it.
    */
   setGridVisible?(on: boolean): void;
   /**
-   * 2026-09-13 (사용자 결정, personal ship only): 시설 관리가 열려 있는 동안 조종석 천장(천장판 · 천장 보 셋 · 천장 조명 띠)을 부드럽게
-   * 지우고 닫으면 되살린다. hub/HousingMode 가 매 프레임 원하는 상태를 넘기고 인테리어의 `update` 가 불투명도를 몬다 — 재질을 새로
-   * 만들거나 transparent 를 켜고 끄지 않으므로 셰이더를 다시 컴파일하지 않고, 광원도 건드리지 않는다.
+   * 2026-09-13 (user's decision, personal ship only): fade the cockpit ceiling (the plate · its three beams · the
+   * recessed light strips) away while ship management is open and bring it back when it closes. hub/HousingMode
+   * passes the wanted state every frame and the interior's `update` drives the opacity — no material is created and
+   * `transparent` is never toggled, so no shader recompiles and no light is touched.
    */
   setCockpitCeilingHidden?(hidden: boolean): void;
   /**
-   * 목표 행성 (Phase 11): re-tint the decorative planet outside the viewports to the selected planet's
+   * Target planet (Phase 11): re-tint the decorative planet outside the viewports to the selected planet's
    * `PlanetDef.hologram` / `hologramAtmo`. Called on build and when a warp ends — the interior itself is
    * never rebuilt for a planet change, only the view outside it.
    */
   setPlanetLook?(color: number, atmo: number): void;
   /**
-   * 목표 행성이 없으면 창밖에 행성도 없다 (2026-09-09): show / hide the decorative window planet. The hub calls it
+   * No target planet, no planet outside the window (2026-09-09): show / hide the decorative window planet. The hub calls it
    * from `applyPlanetLook` with `HubRef.planet !== null` — a fresh character, a lobby whose host has not picked yet,
    * or a cleared destination leaves the viewport as stars only. Independent of the warp fade (`setWarp`), which
    * only drives opacity; the interior's `Planet` ANDs the two. Optional like `setPlanetLook`.
    */
   setPlanetVisible?(on: boolean): void;
   /**
-   * 창문 워프 (2026-09-09): drive the view outside the windows with the warp `speed` (0 = at rest, 1 = full warp;
+   * The window warp (2026-09-09): drive the view outside the windows with the warp `speed` (0 = at rest, 1 = full warp;
    * `hub:warpProgress.speed`). The hub calls it **every frame of a trip** and once more with 0 on arrival /
    * cancellation. Expected look: the point stars fade out as the streaks fade in and stretch toward
    * `HUB_TRAVEL_WARP_STRETCH`, the window planet fades out on the way up and — re-tinted to `dest` — fades back in
@@ -111,19 +114,19 @@ export interface ShipInterior {
    */
   setWarp?(speed: number, dest?: WarpDestination): void;
   /**
-   * 방 조명 (2026-09-08): per-frame animation that follows the player — both ships move their light pool here
-   * (the sliding 자동문 it also drove were removed 2026-09-16). Optional.
+   * Room lights (2026-09-08): per-frame animation that follows the player — both ships move their light pool here
+   * (the sliding doors it also drove were removed 2026-09-16). Optional.
    */
   updateNear?(dt: number, px: number, pz: number): void;
   /**
-   * 공용 함선 격납고 (2026-09-08, shared ship only): the four 개인 함선 bays behind the aft 자동문, in slot order.
+   * The shared ship's hangar (2026-09-08, shared ship only): the four personal-ship bays behind the aft door, in slot order.
    * Empty / absent everywhere else.
    */
   readonly bays?: readonly HangarBayDef[];
   /** Park the squad's ships in the bays: `names[i]` = crew name in bay `i`, null = empty. Shared ship only. */
   setBayOccupants?(names: readonly (string | null)[]): void;
   /**
-   * 안드로이드 슬롯 (2026-09-15, shared ship only): the cockpit's `ANDROID_BAY_COUNT` capsules in bay order. Absent /
+   * The android bays (2026-09-15, shared ship only): the cockpit's `ANDROID_BAY_COUNT` capsules in bay order. Absent /
    * empty everywhere else. A reused array — read it and use it, never keep it.
    */
   readonly androidBays?: readonly HubAndroidBay[];

@@ -1,35 +1,37 @@
 /**
- * src/hub/parts/SquadDock.ts — **분대 도킹 흐름** (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」).
+ * src/hub/parts/SquadDock.ts — **the squad docking flow** (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」).
  *
- * 분대(로비)가 곧 공용 함선이 아니다. 초대를 보내면 미도킹 분대가 생기고 모두 제 개인 함선에 남는다. 분대장이 터미널 >
- * 매칭에서 도킹하면(`lobby:dock`, `LobbyState.docked`):
- *   - **내가 누른 도킹**(`NetRef.dockPending` 이 그 로비를 가져온 이벤트 안에서 true — 옛 입구 create · join · quickmatch 도
- *     같다)은 곧장 → 모든 것 취소 → 페이드 아웃 `HUB_DOCK_FADE_S` → 도킹 컷씬 + 페이드 인.
- *   - 그 밖(분대원, 도킹된 로비로 초대를 수락한 사람)은 우측 카운트다운 `HUB_SQUAD_DOCK_COUNTDOWN_S` 뒤 같은 길.
- *   - 미도킹 분대로 옮겨졌는데 공용 함선에 서 있으면 도킹 해제 컷씬으로 개인 함선에 돌아간다.
+ * A squad (a lobby) is not the same thing as the shared ship. An invite creates an undocked squad and everyone stays in
+ * their own personal ship. When the leader docks from the terminal's `매칭` tab (`lobby:dock`, `LobbyState.docked`):
+ *   - **a dock I pressed myself** (`NetRef.dockPending` true inside the event that brought that lobby — the old
+ *     entrances create · join · quickmatch alike) goes straight → cancel everything → fade out `HUB_DOCK_FADE_S` →
+ *     docking cutscene + fade in.
+ *   - anyone else (a squadmate, someone who accepted an invite into a docked lobby) takes the same road after the
+ *     right-side countdown `HUB_SQUAD_DOCK_COUNTDOWN_S`.
+ *   - being moved into an undocked squad while standing in a shared ship returns to the personal ship by undock cutscene.
  *
- * **이벤트가 아니라 상태로 판정한다** (`reconcile`, 매 프레임 + `net:lobbyUpdated`). 「함선이 아닐 때 도킹이 오면 함선에
- * 돌아온 뒤 카운트다운」 · 「카운트다운 중 로비가 사라지면 취소」 · 「도킹 해제 컷씬이 끝난 뒤의 도킹」이 전부 같은 한 줄
- * 「지금 서 있는 곳이 분대가 있어야 할 곳인가」 에서 나온다. 이벤트는 「내 도킹인가」(`dockMine`)를 붙잡는 데만 쓴다 —
- * `dockPending` 은 그 `net:lobbyUpdated` 가 끝나는 순간 꺼진다.
+ * **It is judged from state, not from events** (`reconcile`, every frame + `net:lobbyUpdated`). 「a dock arriving while
+ * not in the ship counts down once back」 · 「a lobby that disappears mid-countdown cancels it」 · 「a dock right after an
+ * undock cutscene」 all fall out of the one line 「is where we stand where the squad should be」. An event is used only to
+ * catch 「is this dock mine」 (`dockMine`) — `dockPending` goes out the moment that `net:lobbyUpdated` ends.
  *
- * 「지금 서 있는 곳」의 원본은 `HubSystem.shipLobbyCode` 하나다: 공용 함선을 지을 때(`parts/Interior.build`) 그 로비의
- * 코드를 적고, 격납고에서 들어간 개인 함선은 물려받고, 그냥 개인 함선이면 null 이다.
+ * The single source of 「where we stand」 is `HubSystem.shipLobbyCode`: the shared ship writes its lobby's code as it is
+ * built (`parts/Interior.build`), a personal ship entered from the hangar inherits it, a plain personal ship is null.
  */
 import type { LobbyState } from '@/shared';
 import { HUB_DOCK_FADE_S, HUB_SQUAD_DOCK_COUNTDOWN_S, MENU_BLOCKER, isDockedLobby } from '@/shared';
 import type { HubSystem } from '../HubSystem';
 
-/** 발사 슬롯 프롬프트 · 거절 토스트 — 미도킹 분대에서는 개인 발사가 잠긴다 (서버도 `not_docked`). */
+/** Launch-slot prompt · refusal toast — an undocked squad locks the personal launch (the server says `not_docked` too). */
 export const SQUAD_UNDOCKED_LAUNCH_KO = '분대 대기 중 — 분대장이 매칭해야 출격할 수 있습니다';
-/** 훈련장 거절 토스트 — 미도킹 분대에서는 훈련장도 잠긴다. */
+/** Training refusal toast — an undocked squad locks the training arena as well. */
 export const SQUAD_UNDOCKED_TRAINING_KO = '분대 대기 중 — 분대장이 매칭해야 훈련장에 들어갈 수 있습니다';
-/** 분대는 도킹했는데 나는 아직 개인 함선이다 (카운트다운 · 페이드 중). */
+/** The squad has docked but we are still in the personal ship (mid countdown · fade). */
 export const SQUAD_DOCKING_KO = '공용 함선으로 이동 중';
 
-/** `closeTop()` 이 제자리걸음(`false` = 한 걸음만 되돌림)을 이만큼 연달아 하면 멈춘다 — 무한 루프 방지. */
+/** Stop after this many `closeTop()` calls in a row that made no progress — the infinite-loop guard. */
 const ESCAPE_STALL_LIMIT = 3;
-/** 한 번의 취소에서 `closeTop()` 을 부르는 최대 횟수 (화면이 닫히며 다른 화면을 여는 경우의 방어). */
+/** The most `closeTop()` calls one cancellation makes (the guard for a screen that opens another as it closes). */
 const ESCAPE_GUARD = 32;
 
 /**
@@ -38,8 +40,8 @@ const ESCAPE_GUARD = 32;
  * "has a lobby" as "in the shared ship" (pods, crew cards, ship visits, planet, leader handoff) reads this instead.
  */
 export function squadLobby(sys: HubSystem): LobbyState | null {
-  /* 2026-09-15 (스모크 · 디버그): 릴레이 없이 공용 함선에 서 보는 길 — `HubSystem.debugLobby` (스모크 전용, 실제
-     `ctx.net.lobby` 가 있으면 설치되지 않는다). 나머지 규칙은 아래 진짜 로비와 똑같다. */
+  /* 2026-09-15 (smoke · debug): the way to stand in a shared ship with no relay — `HubSystem.debugLobby` (smoke only;
+     it is never installed while a real `ctx.net.lobby` exists). Every other rule matches the real lobby below. */
   const fake = sys.debugLobby;
   if (fake) return sys.shipLobbyCode === fake.code ? fake : null;
   const lobby = sys.ctx?.net?.lobby ?? null;
@@ -48,8 +50,8 @@ export function squadLobby(sys: HubSystem): LobbyState | null {
 
 /**
  * Why the squad locks the **personal** launch pod / the training range right now, or null. Undocked squad → the
- * "분대 대기 중" line; a docked squad we have not reached yet → `SQUAD_DOCKING_KO`. Ship management, inventory and
- * crafting are never locked here (user decision).
+ * `분대 대기 중` line; a docked squad we have not reached yet → `SQUAD_DOCKING_KO`. Ship management, inventory and
+ * crafting are never locked here (user's decision).
  */
 export function squadLockReason(sys: HubSystem, what: 'launch' | 'training'): string | null {
   const lobby = sys.ctx?.net?.lobby ?? null;
@@ -157,7 +159,7 @@ export function clearDockState(sys: HubSystem): void {
 }
 
 /**
- * 「모든 것 취소」: whatever the player was doing right before a ship transition ends and every screen closes — the pod,
+ * "Cancel everything": whatever the player was doing right before a ship transition ends and every screen closes — the pod,
  * the window warp, ship management / housing mode, a furniture pose, every screen on `ctx.escape` (LIFO, `closeTop` until
  * empty with a guard), the inventory (drag / held item included — `closeAll`), the hub's own panels and the pause menu.
  * Chat input, the community panel and the rest close on the phase change to `docking` right after (their own
@@ -179,7 +181,7 @@ export function cancelEverything(sys: HubSystem): void {
     stalled = ctx.escape.size < before ? 0 : stalled + 1;
   }
   try { ctx.inventory?.closeAll(); } catch (e) { console.warn('[hub] inventory closeAll failed', e); }
-  // the pause menu is not on the escape stack (it owns its own Escape) — the same event GameFlow reacts to; its 설정 sub-screen
+  // the pause menu is not on the escape stack (it owns its own Escape) — the same event GameFlow reacts to; its `설정` sub-screen
   // closes on that event too (`ui/menus/SettingsMenu`)
   if (ctx.uiBlockers.has(MENU_BLOCKER)) ctx.bus.emit('game:paused', { paused: false, freeze: false });
   // the dev console owns its own Escape as well (dev hosts only; `enabled` false elsewhere)

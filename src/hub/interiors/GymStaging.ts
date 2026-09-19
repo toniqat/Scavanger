@@ -7,19 +7,19 @@ import type { FurnitureModel } from './Furniture';
 import type { FurnitureRig } from './FurnitureLeisure';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 가구 자세 연출 (A-3e 흔들의자 · A-3a 헬스장, 2026-09-12).
+ * Furniture pose staging (A-3e the rocking chair · A-3a the gym, 2026-09-12).
  *
- * `FurnitureRig`(가구 로컬 좌표)를 월드로 풀어 `PlayerRef.setFurniturePose` 에 넘기고, 운동 세션 동안 기구의 움직이는 부분과
- * 몸의 동작 위상(`setFurniturePoseDrive`)을 **같은 값**으로 돌린다 — 바벨 높이 · 벨트 · 크랭크가 팔 · 걸음 · 무릎과 어긋나지 않게.
+ * Resolves `FurnitureRig` (furniture-local coordinates) into world space for `PlayerRef.setFurniturePose`, and during a gym
+ * session runs the machine's moving parts and the body's motion phase (`setFurniturePoseDrive`) off the **same value** — so barbell height · belt · crank never drift from arms · stride · knees.
  *
- *   housing:gymSession {active:true}  → 원반 표시 · 자세 anchor/yaw · 옆 고정 카메라 → setFurniturePose (false 면 cancelGymSession)
- *   housing:gymBeat                   → 벤치: 완벽/좋음 = 반복 한 번(내렸다 올림), 실패 = 반쯤 밀다 버티다 올림
- *                                        트레드밀: 실패면 잠깐 속도가 떨어진다 · 사이클: 박자마다 크랭크 반 바퀴
- *   housing:gymSession {active:false} → 원반 숨김 · 바를 거치대로 · setFurniturePose(null)
- *   player:furniturePoseEnded (reset) → 세션도 취소 (자세 없이 미니게임만 남지 않게)
+ *   housing:gymSession {active:true}  → plates shown · pose anchor/yaw · side fixed camera → setFurniturePose (false → cancelGymSession)
+ *   housing:gymBeat                   → bench: perfect/good = one rep (down and back up), miss = pushed halfway, held, then up
+ *                                        treadmill: a miss drops the pace for a moment · cycle: half a crank turn per beat
+ *   housing:gymSession {active:false} → plates hidden · bar back on the rack · setFurniturePose(null)
+ *   player:furniturePoseEnded (reset) → the session is cancelled too (so no minigame is left without a pose)
  *
- * 조각을 찾을 때는 늘 `find(uid)` 로 다시 찾는다 — 방이 다시 지어지면(`housing:changed` 등) 모델 그룹이 바뀌기 때문이다.
- * 원반의 보임은 `BuildExtra.gymActive` 가 새 모델에도 그대로 옮긴다.
+ * A piece is always re-found with `find(uid)` — a room rebuild (`housing:changed` and friends) swaps the model group.
+ * Whether the plates show is carried onto the new model by `BuildExtra.gymActive`.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export interface StagedPiece { item: PlacedFurniture; model: FurnitureModel }
@@ -28,25 +28,25 @@ const _v = new THREE.Vector3();
 const _f = new THREE.Vector3();
 
 /**
- * 트레드밀 걸음 수 (걸음 / 초 — player 의 `run` 위상 0 → 1 이 **한 걸음**, 한 바퀴마다 다음 발) · 벨트가 흐르는 속도 (m/s).
- * 2.8 걸음/초 × 걸음 0.86 m ≈ 2.4 m/s 라 발이 벨트 위에서 미끄러져 보이지 않는다. 연출 값.
+ * Treadmill stride rate (strides / s — player's `run` phase 0 → 1 is **one stride**, the next foot every cycle) · the belt's
+ * flow speed (m/s). 2.8 strides/s × a 0.86 m stride ≈ 2.4 m/s, so the feet never look like they slide. Presentation numbers, not csv numbers.
  */
 const RUN_STRIDE_HZ = 2.8;
 const RUN_BELT_SPEED = 2.4;
 /**
- * 한 걸음에 벨트가 흐르는 거리 (m) — `RUN_BELT_SPEED / RUN_STRIDE_HZ`. 원격 연출(`RemoteFurnitureStaging`)은 시간이 아니라
- * 누적 걸음 수의 차이로 벨트를 밀므로, 로컬과 같은 비율을 쓰려면 이 값이 필요하다.
+ * How far the belt flows in one stride (m) — `RUN_BELT_SPEED / RUN_STRIDE_HZ`. The remote staging (`RemoteFurnitureStaging`)
+ * moves the belt by the difference in cumulative strides rather than by time, so it needs this value to keep the local ratio.
  */
 export const RUN_STRIDE_LENGTH = RUN_BELT_SPEED / RUN_STRIDE_HZ;
-/** 벤치 · 스미스: 거치대 → 가슴 위로 바를 옮기는 시간 (초). */
+/** Bench · smith: how long the bar takes to travel from the rack to over the chest (s). */
 export const UNRACK_S = 0.6;
-/** 흔들의자: 앉아 있는 동안의 흔들림 (rad · rad/s). */
+/** The rocking chair: the rock while someone sits in it (rad · rad/s). */
 const ROCK_AMPLITUDE = 0.04;
 const ROCK_RATE = 1.6;
-/** 옆 카메라가 방 벽에서 떨어져야 하는 거리 (m). 2026-09-13: 조리대 카메라(`CookStaging`)도 같은 값을 쓴다. */
+/** How far the side camera must stay off a room wall (m). 2026-09-13: the cook-bench camera (`CookStaging`) uses the same value. */
 export const CAMERA_WALL_MARGIN = 0.45;
 
-/** 조각의 자세 기준점을 월드로: anchor 와 플레이어 yaw 규약(앞 = (−sin, −cos))의 yaw. */
+/** A piece's pose reference point in world space: the anchor, and the yaw in the player's convention (forward = (−sin, −cos)). */
 export function worldPoseOf(piece: StagedPiece, rig: FurnitureRig): { anchor: THREE.Vector3; yaw: number } {
   const g = piece.model.group;
   g.updateWorldMatrix(true, false);
@@ -56,15 +56,15 @@ export function worldPoseOf(piece: StagedPiece, rig: FurnitureRig): { anchor: TH
 }
 
 /**
- * 앉기 자세 (카메라 없음 · E 로 일어난다) — 흔들의자 · 의자 · 쇼파. 앉는 가구가 아니면 null.
- * 2026-09-13: `rig.seats` 가 여럿이면(쇼파 쿠션) `near`(월드 — 플레이어 발 · 게임 세션의 TV 화면)에 가장 가까운 자리에 앉는다.
+ * The sitting pose (no camera · E stands up again) — the rocking chair · chair · sofa. null when the piece is not a sitting one.
+ * 2026-09-13: with several `rig.seats` (the sofa's cushions) the seat closest to `near` (world — the player's feet, or the TV screen in a game session) is taken.
  */
 export function sitPoseOf(piece: StagedPiece, near?: THREE.Vector3 | null): FurniturePose | null {
   const rig = piece.model.rig;
   if (!rig || rig.pose !== 'sit') return null;
   const { anchor, yaw } = worldPoseOf(piece, rig);
   if (near && rig.seats && rig.seats.length > 1) {
-    const g = piece.model.group;   // worldPoseOf 가 이미 행렬을 갱신했다
+    const g = piece.model.group;   // worldPoseOf already updated the matrix
     let best = Infinity;
     for (const s of rig.seats) {
       g.localToWorld(_v.copy(s));
@@ -72,14 +72,14 @@ export function sitPoseOf(piece: StagedPiece, near?: THREE.Vector3 | null): Furn
       if (dd < best) { best = dd; anchor.copy(_v); }
     }
   }
-  // furnitureUid (2026-09-12, 캐릭터 버프 · 가구 자세 동기화): 방문자 쪽 hub 가 이 uid 로 같은 의자를 흔든다
+  // furnitureUid (2026-09-12, character buffs · furniture pose sync): the visitor's hub rocks the same chair by this uid
   return { kind: 'sit', anchor, yaw, camera: null, releaseOnInteract: true, furnitureUid: piece.item.uid };
 }
 
-/** 같은 방의 다른 가구 한 점이 차지하는 월드 상자 (콜라이더 blocker 와 같은 치수). 카메라 가림 판정에 쓴다. */
+/** The world box one other piece of furniture in the room occupies (the dimensions of its collider blocker). Used for the camera occlusion test. */
 export interface FootBox { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number }
 
-/** 선분 p → q 가 상자를 지나는가 (슬랩 판정). 세션 시작에 한 번 도는 코드라 할당은 신경 쓰지 않는다. 2026-09-13: 조리대 카메라도 쓴다. */
+/** Does the segment p → q pass through the box (a slab test). Run once at session start, so allocation does not matter. 2026-09-13: the cook-bench camera uses it too. */
 export function segmentHits(p: THREE.Vector3, q: THREE.Vector3, b: FootBox): boolean {
   let t0 = 0, t1 = 1;
   const axes: ReadonlyArray<readonly [number, number, number, number]> = [
@@ -96,10 +96,10 @@ export function segmentHits(p: THREE.Vector3, q: THREE.Vector3, b: FootBox): boo
 }
 
 /**
- * 운동 기구의 고정 카메라. 기구 둘레 12 방위 × 거리 둘(D · 0.8 D) × 높이 둘(기본 · +0.8 m)의 후보를 점수로 고른다 —
- * **옆에서 볼수록**, 낮을수록, 멀수록 좋고, 방 상자(벽에서 `CAMERA_WALL_MARGIN` 안)를 벗어나거나 몸 · 초점까지의 시선이 같은 방
- * 다른 가구의 상자(`blockers`)를 지나면 크게 깎인다. 자동 배치는 헬스장 기구를 벽을 따라 1.5 – 2 m 간격으로 붙여 놓으므로
- * "옆" 이 곧 이웃 기구 안인 경우가 흔하다 (처음 판은 옆 · 대각선 중 방 안에 드는 첫 후보를 썼고, 카메라가 이웃 스미스 머신 틀 안에서 찍혔다).
+ * The gym machine's fixed camera. Candidates — 12 bearings around the machine × two distances (D · 0.8 D) × two heights (base ·
+ * +0.8 m) — are picked by score: **the more side-on**, the lower and the further, the better; leaving the room box (inside
+ * `CAMERA_WALL_MARGIN` of a wall), or a line to the body · focus crossing another piece's box in the room (`blockers`), costs a
+ * lot. Auto placement lines gym machines along a wall 1.5 – 2 m apart, so "side-on" is often inside the neighbour (the first version took the first of side · diagonal that fell inside the room, and the camera shot from inside the next smith machine's frame).
  */
 export function gymCameraOf(piece: StagedPiece, rig: FurnitureRig, blockers: readonly FootBox[] = []): { position: THREE.Vector3; lookAt: THREE.Vector3 } {
   const g = piece.model.group;
@@ -115,7 +115,7 @@ export function gymCameraOf(piece: StagedPiece, rig: FurnitureRig, blockers: rea
   for (const lift of [0, 0.8]) {
     for (const dist of [D, D * 0.8]) {
       for (let k = 0; k < 12; k++) {
-        const a = (k / 12) * Math.PI * 2;                                   // 0 = 로컬 −X 옆, π = +X 옆, ±π/2 = 앞 · 뒤
+        const a = (k / 12) * Math.PI * 2;                                   // 0 = the local −X side, π = the +X side, ±π/2 = front · back
         p.set(focusLocal.x - Math.cos(a) * dist, focusLocal.y + up + lift, focusLocal.z + Math.sin(a) * dist);
         g.localToWorld(p);
         let cost = (1 - Math.abs(Math.cos(a))) * 0.8 + lift * 0.4 + (dist < D ? 0.15 : 0);
@@ -140,7 +140,7 @@ export function gymCameraOf(piece: StagedPiece, rig: FurnitureRig, blockers: rea
   return { position: best ?? lookAt.clone().add(_v.set(0, up, D)), lookAt };
 }
 
-/** 운동 자세 한 벌 (anchor · yaw · 고정 카메라). `blockers` = 같은 방 다른 가구의 상자 (카메라 가림 판정). */
+/** One gym pose (anchor · yaw · fixed camera). `blockers` = the boxes of the other furniture in the room (camera occlusion test). */
 export function gymPoseOf(piece: StagedPiece, blockers: readonly FootBox[] = []): FurniturePose | null {
   const rig = piece.model.rig;
   if (!rig || rig.pose === 'sit') return null;
@@ -148,11 +148,11 @@ export function gymPoseOf(piece: StagedPiece, blockers: readonly FootBox[] = [])
   return { kind: rig.pose, anchor, yaw, camera: gymCameraOf(piece, rig, blockers), releaseOnInteract: false, furnitureUid: piece.item.uid };
 }
 
-/* ── 기구 자세 한 벌 — 로컬 `GymStaging` 과 원격 `RemoteFurnitureStaging` 이 같은 식을 쓴다 (2026-09-12) ────────── */
+/* ── One machine pose — local `GymStaging` and remote `RemoteFurnitureStaging` use the same formulas (2026-09-12) ──── */
 
 /**
- * 벤치 · 스미스의 바. `unrack` = 거치대 → 누르기 경로 진행(0 … 1, 여기서 smoothstep), `phase` = 누르기 위상(0 = 가슴 · 1 = 팔 다 편
- * 자리, player 의 주먹 경로와 같은 **선형** 보간). 바 · 경로가 없는 rig 는 건드리지 않는다.
+ * The bench · smith bar. `unrack` = progress along the rack → press path (0 … 1, smoothstepped here), `phase` = the press phase
+ * (0 = chest · 1 = arms fully extended, the same **linear** interpolation as player's fist path). A rig with no bar · path is left alone.
  */
 export function poseBenchBar(rig: FurnitureRig, unrack: number, phase: number): void {
   if (!rig.bar || !rig.barRest || !rig.barPress) return;
@@ -162,7 +162,7 @@ export function poseBenchBar(rig: FurnitureRig, unrack: number, phase: number): 
   rig.bar.position.set(0, rig.barRest.y + (pressY - rig.barRest.y) * u, rig.barRest.z + (pressZ - rig.barRest.z) * u);
 }
 
-/** 트레드밀 벨트 줄무늬를 `offset` (m, 줄무늬 간격으로 감는다)만큼 민다. 음수도 감는다. */
+/** Moves the treadmill belt stripes by `offset` (m, wrapped at the stripe spacing). Negative values wrap too. */
 export function poseBelt(rig: FurnitureRig, offset: number): number {
   const s = rig.beltSpacing;
   if (!rig.belt || !s) return offset;
@@ -172,8 +172,8 @@ export function poseBelt(rig: FurnitureRig, offset: number): number {
 }
 
 /**
- * 사이클 크랭크 · 페달 · 플라이휠을 `revolutions` 바퀴 자리에. 크랭크는 한 바퀴, 플라이휠(×2.4)은 다섯 바퀴마다 같은 자리라 그 주기로
- * 감아서 넣는다 — 누적 바퀴 수가 커져도 회전값의 정밀도가 무너지지 않는다 (보이는 자리는 감지 않은 값과 같다).
+ * Puts the cycle's crank · pedals · flywheel at `revolutions` turns. The crank repeats every turn and the flywheel (×2.4) every
+ * five, so both are wrapped at that period — the rotation keeps its precision however large the cumulative count grows (the visible position is the unwrapped one).
  */
 export function poseCrank(rig: FurnitureRig, revolutions: number): void {
   const ang = -Math.PI * 2 * frac(revolutions);
@@ -182,19 +182,19 @@ export function poseCrank(rig: FurnitureRig, revolutions: number): void {
   if (rig.flywheel) rig.flywheel.rotation.x = -Math.PI * 2 * (((revolutions % 5) + 5) % 5) * 2.4;
 }
 
-/** 흔들의자의 흔들림 (`time` = `ctx.time`). */
+/** The rocking chair's rock (`time` = `ctx.time`). */
 export function poseRock(rig: FurnitureRig, time: number): void {
   if (rig.rock) rig.rock.rotation.x = Math.sin(time * ROCK_RATE) * ROCK_AMPLITUDE;
 }
 
-/** 쉬는 모습으로: 원반 숨김 · 바는 거치대 · 흔들의자 멈춤 (벨트 · 크랭크는 그 자리에 둔다 — 로컬 세션 끝과 같다). */
+/** Back to rest: plates hidden · bar on the rack · rocking chair stopped (the belt · crank stay where they are — as at the end of a local session). */
 export function restRig(rig: FurnitureRig): void {
   if (rig.plates) rig.plates.visible = false;
   if (rig.bar && rig.barRest) rig.bar.position.set(0, rig.barRest.y, rig.barRest.z);
   if (rig.rock) rig.rock.rotation.x = 0;
 }
 
-/** 키프레임 (시각, 값) 사이를 smoothstep 으로 잇는다. */
+/** Joins keyframes (time, value) with a smoothstep. */
 function sampleKeys(keys: ReadonlyArray<readonly [number, number]>, t: number): number {
   if (t <= keys[0][0]) return keys[0][1];
   for (let i = 0; i < keys.length - 1; i++) {
@@ -209,31 +209,31 @@ function sampleKeys(keys: ReadonlyArray<readonly [number, number]>, t: number): 
 const smooth = (u: number): number => { const c = THREE.MathUtils.clamp(u, 0, 1); return c * c * (3 - 2 * c); };
 const frac = (x: number): number => x - Math.floor(x);
 
-/** 운동 세션 연출. `FurnitureLayer` 가 자기 함선(방문 중이 아닌)일 때만 만든다. */
+/** Gym-session staging. `FurnitureLayer` creates it only for the own ship (never while visiting). */
 export class GymStaging {
-  /** 연출 중인 운동 기구 uid, 없으면 null. */
+  /** The uid of the gym machine being staged, null with none. */
   uid: string | null = null;
   private kind: FurniturePoseKind | null = null;
   private releasing = false;
   private unsubs: Array<() => void> = [];
-  // 벤치
+  // bench
   private unrack = 0;
   private barPhase = 1;
   private rep: { t: number; keys: Array<[number, number]>; miss: boolean } | null = null;
-  // 트레드밀
+  // treadmill
   private running = false;
   private pace = 0;
   private dipLeft = 0;
   private stride = 0;
   private beltOffset = 0;
-  // 사이클
+  // cycle
   private crank = 0;
   private beatIndex = -1;
   private sinceBeat = 0;
   private lastHit = true;
 
   /**
-   * `find` = uid 로 지금의 조각(방이 다시 지어지면 바뀐다), `blockers` = 그 조각과 같은 방의 다른 가구 상자 (카메라 가림).
+   * `find` = the piece for a uid right now (it changes when the room is rebuilt), `blockers` = the boxes of the other furniture in its room (camera occlusion).
    */
   constructor(private readonly ctx: GameContext, private readonly find: (uid: string) => StagedPiece | null, private readonly blockers: (uid: string) => readonly FootBox[] = () => []) {
     const b = ctx.bus;
@@ -241,7 +241,7 @@ export class GymStaging {
       b.on('housing:gymSession', (e) => this.onSession(e.uid, e.active)),
       b.on('housing:gymBeat', (e) => this.onBeat(e.uid, e.quality, e.index)),
       b.on('player:furniturePoseEnded', (e) => {
-        // 우리 세션 도중에 자세가 우리 손을 거치지 않고 풀렸다 (페이즈 변경 · 스폰 · hub:left) → 미니게임도 거둔다
+        // the pose was released mid-session without going through this class (phase change · spawn · hub:left) → drop the minigame too
         if (!this.uid || this.releasing || e.kind === 'sit') return;
         this.stop(false);
         this.cancelHousing();
@@ -249,7 +249,7 @@ export class GymStaging {
     );
   }
 
-  /** 동작 위상 (0 … 1) — 세션 중이 아니면 null. 디버그 · 스모크용. */
+  /** The motion phase (0 … 1) — null outside a session. For debug · smokes. */
   get drivePhase(): number | null {
     if (!this.uid) return null;
     return this.kind === 'bench' ? this.barPhase : this.kind === 'run' ? this.stride : frac(this.crank);
@@ -268,7 +268,7 @@ export class GymStaging {
     this.beatIndex = -1; this.sinceBeat = 0; this.lastHit = true;
     if (rig.plates) rig.plates.visible = true;
     const p = this.ctx.player;
-    if (!p || typeof p.setFurniturePose !== 'function') return;   // player 가 아직 자세를 모른다 — 미니게임은 그대로 둔다
+    if (!p || typeof p.setFurniturePose !== 'function') return;   // player does not know poses yet — the minigame is left alone
     const pose = gymPoseOf(piece, this.blockers(uid));
     let ok = false;
     try { ok = pose !== null && p.setFurniturePose(pose); } catch (err) { console.warn('[hub] setFurniturePose failed', err); }
@@ -293,12 +293,12 @@ export class GymStaging {
     }
   }
 
-  /** 매 프레임 (`FurnitureLayer.update`). */
+  /** Every frame (`FurnitureLayer.update`). */
   update(dt: number): void {
     if (!this.uid) return;
     const piece = this.find(this.uid);
     const rig = piece?.model.rig;
-    if (!piece || !rig) { this.stop(true); this.cancelHousing(); return; }   // 세션 도중 기구가 사라졌다
+    if (!piece || !rig) { this.stop(true); this.cancelHousing(); return; }   // the machine disappeared mid-session
     let drive = 0;
     if (this.kind === 'bench' && rig.bar && rig.barRest && rig.barPress) {
       this.unrack = Math.min(1, this.unrack + dt / UNRACK_S);
@@ -306,11 +306,11 @@ export class GymStaging {
         this.rep.t += dt;
         const keys = this.rep.keys;
         let v = sampleKeys(keys, this.rep.t);
-        if (this.rep.miss && this.rep.t > 0.9 && this.rep.t < 1.25) v += Math.sin(this.rep.t * 60) * 0.02;   // 버티는 떨림
+        if (this.rep.miss && this.rep.t > 0.9 && this.rep.t < 1.25) v += Math.sin(this.rep.t * 60) * 0.02;   // the strain shake
         this.barPhase = THREE.MathUtils.clamp(v, 0, 1);
         if (this.rep.t >= keys[keys.length - 1][0]) { this.rep = null; this.barPhase = 1; }
       }
-      // player 의 주먹 경로와 같은 선형 보간 (위상 0 = 가슴 · 1 = 팔 다 편 자리) — 원격 연출과 같은 함수
+      // the same linear interpolation as player's fist path (phase 0 = chest · 1 = arms fully extended) — the same function as the remote staging
       poseBenchBar(rig, this.unrack, this.barPhase);
       drive = this.barPhase;
     } else if (this.kind === 'run') {
@@ -323,7 +323,7 @@ export class GymStaging {
     } else if (this.kind === 'cycle') {
       this.sinceBeat += dt;
       if (this.beatIndex >= 0) {
-        // 박자 i 에서 크랭크는 i/2 바퀴에서 출발해 다음 박자까지 반 바퀴를 돈다 — 제때 밟으면 끊김 없이 이어진다
+        // at beat i the crank starts at i/2 turns and covers half a turn by the next beat — pedalling on time keeps it seamless
         const push = Math.min(this.sinceBeat / GYM_CYCLE_BEAT_S, 1) * 0.5 * (this.lastHit ? 1 : 0.35);
         const desired = Math.max(this.crank, this.beatIndex * 0.5 + push);
         this.crank += (desired - this.crank) * Math.min(1, dt * 12);
@@ -337,7 +337,7 @@ export class GymStaging {
     }
   }
 
-  /** 연출을 거둔다: 원반을 숨기고 바를 거치대로. `release` = 플레이어 자세도 푼다. */
+  /** Take the staging down: hide the plates and put the bar back on the rack. `release` = release the player pose too. */
   private stop(release: boolean): void {
     const uid = this.uid;
     this.uid = null;

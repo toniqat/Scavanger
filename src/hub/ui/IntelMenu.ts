@@ -9,44 +9,48 @@ import { createIntelMapView, type IntelMapLayout, type IntelMapView } from './In
 import type { PlanetHologram } from './PlanetHologram';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 정보상 화면 (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 정보상」 — 사용자 결정).
+ * The intel broker's screen (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 정보상」 — user's decision).
  *
- * 「행성의 정보를 산다」지만 실제로 하는 일은 **그 레이드의 기믹을 고정하는 것**이다. 화면은 두 국면이다:
+ * The concept is 「buying a planet's intel」, but what it actually does is **pin down that raid's gimmicks**. The
+ * screen has two phases:
  *
- *   ① 고르는 국면 — 좌: 후보 지역 지도(격자로 흐릿하게, `IntelMap`), 우: 기믹 7줄 `◀ 0 / N ▶` · 줄마다 비용 ·
- *      우하단 총액(큰 폰트) · `취소` / `확정`(**`UI_HOLD_CONFIRM_S` 홀드** — 클릭 · Enter 로는 안 된다).
- *   ② 확정 국면 — 좌: 홀로그램이 한 좌표에 **락온**(`PlanetHologram.startLockOn`), 우: 같은 그리기 함수로 그린
- *      지도 + 산 기믹 요약. 우상단 `지역 재배치` 는 경고 팝업 + 홀드(전부 폐기 · 환불 없음).
+ *   ① The pick phase — left: the candidate-area map (blurred onto a grid, `IntelMap`), right: 7 gimmick rows
+ *      `◀ 0 / N ▶` · a cost per row · the total bottom right (large font) · `취소` / `확정`
+ *      (**a `UI_HOLD_CONFIRM_S` hold** — a click or Enter will not do it).
+ *   ② The confirmed phase — left: the hologram **locks on** to one coordinate (`PlanetHologram.startLockOn`), right:
+ *      the map drawn by the same function + a summary of the gimmicks bought. `지역 재배치` top right is a warning
+ *      popup + a hold (everything discarded · no refund).
  *
- * 두 가지가 규약이다 —
- *  - **홀로그램을 새로 만들지 않는다.** 터미널에서 **빌려** 온다(`IntelMenuHost.borrowHologram`): 두 번째
- *    `WebGLRenderer` 를 띄우면 컨텍스트가 하나 더 늘고 `createPlanetHologram` 이 null 을 돌려줄 위험이 커진다.
- *    씬의 광원 개수는 락온 연출에서도 **바뀌지 않는다** (`PlanetHologram` 은 opacity 만 만진다).
- *  - **지도는 고르는 국면과 확정 국면이 같은 캔버스 · 같은 함수**다 (CLAUDE.md 「열지 않고 미리 보는 것은 여는
- *    것과 같은 함수여야 한다」) — 패널만 갈아탄다.
+ * Two things are the contract —
+ *  - **No new hologram is built.** It is **borrowed** from the terminal (`IntelMenuHost.borrowHologram`): raising a
+ *    second `WebGLRenderer` costs one more context and makes it likelier that `createPlanetHologram` returns null.
+ *    The scene's light count **does not change** during the lock-on either (`PlanetHologram` only touches opacity).
+ *  - **The map is the same canvas and the same function in the pick phase and the confirmed phase** (CLAUDE.md
+ *    「previewing contents must equal opening」) — only the panel it hangs in changes.
  *
- * 수치는 하나도 코드에 없다: 비용 `ctx.meta.intel.costOf`(없으면 `shared/intel.intelCost` + `INTEL_COST_TABLE`),
- * 줄 이름 · 효과 문장 · 잠김 기준은 `shared/intelDefs`(→ `data/intel_options.csv`).
+ * Not one number is in the code: the cost is `ctx.meta.intel.costOf` (with none, `shared/intel.intelCost` +
+ * `INTEL_COST_TABLE`); row names · effect sentences · lock thresholds are `shared/intelDefs`
+ * (→ `data/intel_options.csv`).
  *
- * CSS 접두사 `.his-` (`hub/intel.css`) — 2026-09-17 에 `.it-` 에서 옮겼다: 그것은 `ui` 의 아이템 카드가
- * 먼저 쓰던 접두사여서 여기 전역 규칙이 남의 카드를 망가뜨리고 있었다 (`hub/intel.css` 머리 주석).
- * Owner: hub/ui. 여는 곳 — `hub/ui/HubMenu.ts` 우측 정보상 패널.
+ * CSS prefix `.his-` (`hub/intel.css`) — moved off `.it-` on 2026-09-17: `ui`'s item cards used that prefix first,
+ * so the global rules here were breaking somebody else's card (`hub/intel.css` head comment).
+ * Owner: hub/ui. Opened from — the intel panel on the right of `hub/ui/HubMenu.ts`.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export interface IntelMenuHost {
-  /** 함선의 목표 행성 (터미널의 미리보기가 아니다). null 이면 살 수 없다. */
+  /** The ship's 목표 행성 (not the terminal's preview). With null nothing can be bought. */
   planet(): PlanetId | null;
-  /** 터미널의 홀로그램을 빌려 `host` 안으로 옮긴다. null = 홀로그램이 없는 환경. */
+  /** Borrows the terminal's hologram into `host`. null = an environment with no hologram. */
   borrowHologram(host: HTMLElement): PlanetHologram | null;
-  /** 빌린 홀로그램을 터미널로 되돌린다. */
+  /** Gives the borrowed hologram back to the terminal. */
   returnHologram(): void;
-  /** 화면이 닫혔다 — 터미널이 정보상 패널을 다시 그린다. */
+  /** The screen closed — the terminal redraws its intel panel. */
   onClosed(): void;
 }
 
 const BLOCKER = 'hub:intel';
 const GUIDE_OWNER = 'hub.intel';
-/** 락온 연출 길이(초). 연출 시간이라 밸런스 수치가 아니다 (`MSG_TTL` 과 같은 자리). */
+/** Length of the lock-on cutscene (seconds). Presentation timing, not a balance number (`MSG_TTL`'s kind). */
 const LOCK_ON_S = 2.6;
 
 interface Row {
@@ -76,7 +80,7 @@ export class IntelMenu {
   private leftPane: HTMLElement;
   private rightPane: HTMLElement;
 
-  /** 고르는 국면의 우측 (기믹 줄 · 총액 · 확정). */
+  /** Right-hand side of the pick phase (gimmick rows · total · confirm). */
   private rowsWrap: HTMLElement;
   private rows: Row[] = [];
   private totalEl: HTMLElement;
@@ -85,7 +89,7 @@ export class IntelMenu {
   private btnConfirm: HTMLButtonElement;
   private holdFill: HTMLElement;
 
-  /** 확정 국면: 좌측 홀로그램 · 우측 지도 + 요약. */
+  /** Confirmed phase: the hologram on the left · the map + summary on the right. */
   private holoWrap: HTMLElement;
   private holoHost: HTMLElement;
   private coordEl: HTMLElement;
@@ -97,7 +101,7 @@ export class IntelMenu {
   private mapView: IntelMapView;
   private holo: PlanetHologram | null = null;
 
-  /** 이 화면이 들고 있는 **후보 지역 시드**. 열 때 한 번 굴리고 「지역 재배치」로만 바뀐다. */
+  /** The **candidate-area seed** this screen holds. Rolled once on open, changed only by 「지역 재배치」. */
   private seed = randomSeed();
   private tiers = new Map<IntelGimmick, number>();
   private namedId: string = NAMED_ROGUE_TYPES[0];
@@ -115,7 +119,7 @@ export class IntelMenu {
     el('div', { cls: 'scan', parent: root });
     const f = el('div', { cls: 'frame', parent: root });
 
-    // ── 머리 ──
+    // ── head ──
     const head = el('div', { cls: 'his-head', parent: f });
     const hl = el('div', { cls: 'hl', parent: head });
     this.titleEl = el('div', { cls: 'title', text: '정보상 — 레이븐', parent: hl });
@@ -126,14 +130,14 @@ export class IntelMenu {
     this.btnRelocate.hidden = true;
     this.button(hr, '닫기', () => this.close(), 'his-close');
 
-    // ── 본문 2열 ──
+    // ── body, two columns ──
     const body = el('div', { cls: 'his-body', parent: f });
     this.leftPane = el('div', { cls: 'his-pane left', parent: body });
     this.rightPane = el('div', { cls: 'his-pane right', parent: body });
 
     this.mapView = createIntelMapView();
 
-    // 고르는 국면: 기믹 줄
+    // pick phase: the gimmick rows
     this.rowsWrap = el('div', { cls: 'his-rows-wrap' });
     el('div', { cls: 'his-rows-head', text: '고정할 기믹', parent: this.rowsWrap });
     const rows = el('div', { cls: 'his-rows', parent: this.rowsWrap });
@@ -149,16 +153,16 @@ export class IntelMenu {
     this.btnCancel = this.button(actions, '취소', () => this.close());
     this.btnConfirm = el('button', { cls: 'ui-btn primary his-confirm', parent: actions });
     this.holdFill = el('div', { cls: 'his-hold-fill', parent: this.btnConfirm });
-    // 2026-09-15 2차 (사용자 결정): `(1초 꾹)` 도 「누르고 있으면 결제합니다」 줄도 없앴다 — 그 말은 라벨 왼쪽의
-    // 좌클릭 홀드 키캡이 한다.
+    // 2026-09-15 2nd pass (user's decision): both `(1초 꾹)` and the 「누르고 있으면 결제합니다」 line are gone —
+    // the left-click hold keycap to the left of the label says it instead.
     createHoldButtonCap(this.btnConfirm);
     el('span', { cls: 'his-confirm-label', text: '확정', parent: this.btnConfirm });
-    // **홀드만** 확정한다 — click 핸들러를 달지 않으므로 Enter · Space 로는 아무 일도 일어나지 않는다
+    // **Only a hold** confirms — no click handler is attached, so Enter · Space do nothing at all
     this.btnConfirm.addEventListener('pointerdown', (e) => { e.preventDefault(); this.startHold(); });
     window.addEventListener('pointerup', this.onPointerUp, true);
     this.btnConfirm.addEventListener('pointerleave', () => this.stopHold());
 
-    // 확정 국면: 좌 홀로그램 / 우 지도 + 요약
+    // confirmed phase: hologram left / map + summary right
     this.holoWrap = el('div', { cls: 'his-holo-wrap' });
     el('div', { cls: 'his-eyebrow', text: '지역 락온', parent: this.holoWrap });
     this.holoHost = el('div', { cls: 'his-holo', parent: this.holoWrap });
@@ -174,11 +178,11 @@ export class IntelMenu {
 
   get isOpen(): boolean { return this._open; }
 
-  /* ── 열기 · 닫기 ──────────────────────────────────────────────────────────── */
+  /* ── open · close ─────────────────────────────────────────────────────────── */
 
   /**
-   * 연다. 보유 정보가 **이 행성의 것**이면 확정 국면(요약 · 지도 · 지역 재배치)으로, 아니면 새 후보 시드를
-   * 굴려 고르는 국면으로 연다.
+   * Opens. If the held intel is **this planet's** it opens in the confirmed phase (summary · map · 지역 재배치);
+   * otherwise it rolls a new candidate seed and opens in the pick phase.
    */
   open(): void {
     if (this._open) return;
@@ -190,9 +194,9 @@ export class IntelMenu {
     this.ctx.bus.emit('ui:keyGuide', { owner: GUIDE_OWNER, keys: [] });
     this.unsubs.push(
       this.ctx.bus.on('intel:changed', () => this.refresh()),
-      // 크레딧이 늘면(계약 정산 · 판매) 잠겼던 `확정` 이 그 자리에서 풀려야 한다
+      // when credits go up (a contract payout · a sale) a locked `확정` has to unlock on the spot
       this.ctx.bus.on('meta:creditsChanged', () => this.refresh()),
-      // 분대원은 분대장의 구매를 `lobby.intel` 로 받는다 (`ctx.net.lobbyIntel`)
+      // a squadmate receives the squad leader's purchase through `lobby.intel` (`ctx.net.lobbyIntel`)
       this.ctx.bus.on('net:lobbyUpdated', () => this.refresh()),
     );
 
@@ -213,11 +217,11 @@ export class IntelMenu {
     this.applyLayout();
     this.refresh();
     if (this.phase === 'locked') this.settleLock();
-    this.btnCancel.focus();                 // 최초 포커스는 안전한 쪽 (CLAUDE.md 확인 규약)
+    this.btnCancel.focus();                 // initial focus on the safe side (CLAUDE.md's confirm rule)
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });
   }
 
-  /** 터미널의 `지역 재배치` — 화면을 열고 곧바로 경고 팝업을 띄운다 (E-5: 확인은 1초 홀드 · 환불 없음). */
+  /** The terminal's `지역 재배치` — opens the screen and raises the warning popup at once (E-5: a 1 s hold confirms · no refund). */
   openRelocate(): void {
     this.open();
     this.askRelocate();
@@ -241,15 +245,16 @@ export class IntelMenu {
     this.host.onClosed();
   }
 
-  /* ── 상태 → DOM ──────────────────────────────────────────────────────────── */
+  /* ── state → DOM ─────────────────────────────────────────────────────────── */
 
   private intel(): IntelRef | null { return this.ctx.meta?.intel ?? null; }
 
   /**
-   * 화면에 보여 줄 「보유 정보」. 분대장 · 솔로는 자기 프로필(`intel.get()`)이고, **분대원은 분대장의 것**
-   * (`ctx.net.lobbyIntel`)이다 — `Intel.get()` 은 로컬 프로필만 읽으므로 비호스트에게는 늘 null 이고,
-   * 로비 동기화(`meta/parts/Intel.syncLobby`)가 호스트 쪽에서만 밀어 준다. `IntelWire` 에는 행성이 없으니
-   * 로비의 목표 행성을 붙인다 (그 정보는 정의상 그 행성의 것이다).
+   * The 「held intel」 to show on screen. For the squad leader · a solo player it is their own profile
+   * (`intel.get()`); **for a squadmate it is the squad leader's** (`ctx.net.lobbyIntel`) — `Intel.get()` reads the
+   * local profile only, so it is always null for a non-host, and the lobby sync (`meta/parts/Intel.syncLobby`) pushes
+   * it from the host side only. `IntelWire` carries no planet, so the lobby's 목표 행성 is attached to it (that intel
+   * is by definition that planet's).
    */
   private heldSpec(): IntelSpec | null {
     const own = this.intel()?.get() ?? null;
@@ -271,23 +276,24 @@ export class IntelMenu {
   }
 
   /**
-   * 잠긴 줄의 사유 한 줄 — **어느 행성으로 판정했는지를 함께 적는다** (2026-09-18, 사용자 보고
-   * 「보레아스 IX · 베르단트 III 에서 현상 수배가 잠긴다」).
+   * The one-line reason on a locked row — **it also names the planet the row was judged against** (2026-09-18, a
+   * user's report 「보레아스 IX · 베르단트 III 에서 현상 수배가 잠긴다」).
    *
-   * 잠김은 터미널에서 **넘겨 보던 행성**이 아니라 **함선의 목표 행성**(`IntelMenuHost.planet()` →
-   * `HubSystem.planet`)으로 갈린다. 터미널의 ◀ ▶ 는 미리보기일 뿐이라(`HubMenu.refreshTravel` 의
-   * 「stepping is a preview」), 목표가 아직 아켈론 II(위험도 1)인 채로 보레아스 IX 를 띄워 놓고 정보상을
-   * 열면 현상 수배(`minThreat` 2)가 잠긴 채로 뜬다 — 예전 글자는 위험도 숫자만 적어서 **화면에 보이던
-   * 행성이 잠긴 것처럼** 읽혔다. 데이터는 맞다 (`data/intel_options.csv` `named.minThreat = 2`,
-   * `planets.csv` 의 tundra · mossy `threat = 2` → `intelMaxTier` 는 1 을 돌려준다).
+   * A lock is decided by the **ship's 목표 행성** (`IntelMenuHost.planet()` → `HubSystem.planet`), not by the planet
+   * being **paged through** on the terminal. The terminal's ◀ ▶ is only a preview (`HubMenu.refreshTravel`'s
+   * 「stepping is a preview」), so with the target still 아켈론 II (threat 1) and 보레아스 IX on screen, opening the
+   * intel broker shows `현상 수배` (`minThreat` 2) locked — and the old text printed the threat number only, so it
+   * read as if **the planet on screen were the locked one**. The data is right (`data/intel_options.csv`
+   * `named.minThreat = 2`, `planets.csv` tundra · mossy `threat = 2` → `intelMaxTier` returns 1).
    *
-   * 목표가 아예 없으면 위험도 이야기를 꺼내지 않는다 — 그건 잠김이 아니라 미지정이고, 그 상태에서는
-   * `maxTier` 가 모든 줄에 0 을 돌려주므로 위험도 1 짜리 줄까지 「위험도 1 이상 행성에서만」이 떴다.
+   * With no target at all the threat is not brought up — that is not a lock but an unset target, and in that state
+   * `maxTier` returns 0 for every row, so even a threat-1 row used to read 「위험도 1 이상 행성에서만」.
    *
-   * 같은 날 사용자 결정으로 **터미널이 「보던 행성 ≠ 목표 행성」이면 `정보 구매` 자체를 막는다**
-   * (`HubMenu.refreshIntel`). 그래서 이 화면이 열렸을 때 판정 행성은 방금 지정한 목표와 같고, 이 줄은
-   * 평상시에 뜨지 않는 **이중 안전장치**다 — 보유 정보 확인(`정보 확인`)처럼 목표가 그 사이에 바뀔 수 있는
-   * 길로 들어왔을 때만 보인다. 두 글자는 같은 말을 한다: 판정 기준은 **목표 행성**이다.
+   * The same day's user decision **blocks `정보 구매` itself while 「the planet on screen ≠ the 목표 행성」**
+   * (`HubMenu.refreshIntel`). So by the time this screen is open the judged planet is the target just set, and this
+   * line is a **belt-and-braces** one that does not normally show — it appears only on a path where the target can
+   * have changed in between, such as checking held intel (`정보 확인`). Both texts say the same thing: the **목표 행성**
+   * is what decides.
    */
   private lockText(minThreat: number): string {
     const p = this.planet();
@@ -295,7 +301,7 @@ export class IntelMenu {
     return `위험도 ${minThreat} 이상 행성에서만 — 지금 목표는 ${planetLabel(p)} (위험도 ${this.threat()})`;
   }
 
-  /** 지금 고른 줄들. 순서는 `INTEL_OPTIONS_IN_ORDER` (= 계약 순서). */
+  /** The rows picked right now. The order is `INTEL_OPTIONS_IN_ORDER` (= the contract order). */
   private picks(): IntelPick[] {
     const out: IntelPick[] = [];
     for (const def of INTEL_OPTIONS_IN_ORDER) {
@@ -314,7 +320,7 @@ export class IntelMenu {
     return intelCost(this.threat(), picks, INTEL_COST_TABLE);
   }
 
-  /** 살 수 없는 이유 (한국어), 살 수 있으면 null. */
+  /** Why it cannot be bought (Korean), null when it can. */
   private blockReason(total: number): string | null {
     if (this.busy) return '처리 중…';
     if (!this.planet()) return '목표 행성을 먼저 지정하세요';
@@ -370,7 +376,7 @@ export class IntelMenu {
     const total = this.costOf(this.picks());
     setText(this.totalEl, fmtCredits(total));
     const reason = this.blockReason(total);
-    // 2026-09-15 2차 (사용자 결정): 이 줄은 **막힌 사유**만 말한다 — 사유가 없으면 줄 자체가 사라진다.
+    // 2026-09-15 2nd pass (user's decision): this line says **only the blocking reason** — with none it disappears.
     setText(this.reasonEl, reason ?? '');
     this.reasonEl.hidden = !reason;
     toggleClass(this.reasonEl, 'bad', !!reason);
@@ -404,7 +410,7 @@ export class IntelMenu {
     setText(this.coordEl, this.coordText());
   }
 
-  /* ── 국면 배치 ────────────────────────────────────────────────────────────── */
+  /* ── phase layout ─────────────────────────────────────────────────────────── */
 
   private applyLayout(): void {
     if (this.phase === 'pick') {
@@ -425,18 +431,20 @@ export class IntelMenu {
     this.refreshMap();
   }
 
-  /** 후보 지역 레이아웃을 다시 받아 지도를 그린다. */
+  /** Fetches the candidate-area layout again and draws the map. */
   private refreshMap(): void {
     this.layoutCache = this.resolveLayout();
     this.mapView.setLayout(this.layoutCache);
   }
 
   /**
-   * 지도 미리보기 = **`ctx.world.previewLayout(seed, planet, intel)` 한 줄**(계약은 `shared/types`). 그 함수는 실제
-   * 생성과 같은 코드를 지나므로 미리보기가 진짜 맵과 어긋날 수 없다. 산 기믹은 `resolveIntelEffects` 로 넘긴다 —
-   * 고르는 중에도 지금 고른 것을 반영하므로 「고정한 줄이 지도에 어떻게 보이나」를 사기 전에 본다.
+   * The map preview is **one line, `ctx.world.previewLayout(seed, planet, intel)`** (the contract is in
+   * `shared/types`). That function goes through the same code as real generation, so the preview cannot differ from
+   * the real map. The gimmicks bought are handed over through `resolveIntelEffects` — it reflects the current picks
+   * while picking too, so 「how a pinned row looks on the map」 is seen before buying.
    *
-   * 함선에서 부르므로 `previewLayout` 이 아직 없는 클라이언트(옛 번들)도 있을 수 있다 — 그러면 격자만 그린다.
+   * It is called from the ship, so a client may not have `previewLayout` yet (an older bundle) — then only the grid
+   * is drawn.
    */
   private resolveLayout(): IntelMapLayout | null {
     const planet = this.planet();
@@ -447,11 +455,11 @@ export class IntelMenu {
       return world.previewLayout(this.seed, planet, resolveIntelEffects(picks));
     } catch (e) {
       console.warn('[IntelMenu] previewLayout failed', e);
-      return null;                              // 미리보기 실패는 화면을 막지 않는다
+      return null;                              // a failed preview never blocks the screen
     }
   }
 
-  /* ── 구매 · 락온 ─────────────────────────────────────────────────────────── */
+  /* ── buy · lock-on ───────────────────────────────────────────────────────── */
 
   private confirm(): void {
     if (this.busy) return;
@@ -462,7 +470,7 @@ export class IntelMenu {
     if (this.blockReason(total) || !planet || !ref) return;
     this.busy = true;
     this.refreshRows();
-    // `buy` 는 서버 답을 기다릴 수 있다 (크레딧 사유 검증) — 동기 반환도 그대로 받는다
+    // `buy` may wait for the server's answer (the credit reason check) — a synchronous return is taken as it is
     const res = ref.buy(planet, this.seed, picks) as IntelSpec | null | PromiseLike<IntelSpec | null>;
     Promise.resolve(res).then((spec) => {
       this.busy = false;
@@ -481,7 +489,7 @@ export class IntelMenu {
     this.ctx.bus.emit('ui:notify', { text, kind: 'danger', duration: 4 });
   }
 
-  /** 결제가 끝났다 — 국면을 바꾸고 홀로그램을 물린다. */
+  /** Payment went through — switch phase and set the hologram locking on. */
   private startLock(): void {
     this.phase = 'locked';
     this.lockDone = false;
@@ -494,7 +502,7 @@ export class IntelMenu {
     this.holo.startLockOn(u, v, LOCK_ON_S, () => { if (this._open) this.settleLock(); });
   }
 
-  /** 락온이 끝났다 (또는 홀로그램이 없어 건너뛴다) — 우측 패널에 지도가 뜬다. */
+  /** The lock-on finished (or was skipped for want of a hologram) — the map appears in the right-hand panel. */
   private settleLock(): void {
     this.lockDone = true;
     if (this.holo && this.holo.lockProgress <= 0) {
@@ -505,15 +513,16 @@ export class IntelMenu {
     this.refresh();
   }
 
-  /** 후보 시드에서 나오는 락온 좌표 — 같은 시드면 늘 같은 자리다 (화면에 적는 값). */
+  /** The lock-on coordinate the candidate seed yields — one seed is always one spot (the value printed on screen). */
   private lockUV(): { u: number; v: number } {
     const s = this.seed >>> 0;
     return { u: ((s >>> 7) % 9973) / 9973, v: 0.14 + (((s >>> 19) % 7919) / 7919) * 0.72 };
   }
 
   /**
-   * 홀로그램에 물릴 **방향**. 표시 좌표를 그대로 쓰면 절반은 구의 뒤쪽 · 가장자리라 표식이 안 보인다 —
-   * 카메라를 보는 앞면(`u ≈ 0`, 경도 ±43°)으로 접어 넣는다. 적히는 좌표는 `lockUV` 그대로다.
+   * The **direction** to lock the hologram onto. Used as they are, half the displayed coordinates sit on the back
+   * or the rim of the sphere and the marker is invisible — they are folded onto the face turned toward the camera
+   * (`u ≈ 0`, longitude ±43°). The coordinate that gets printed stays `lockUV`.
    */
   private lockDir(): { u: number; v: number } {
     const { u, v } = this.lockUV();
@@ -526,7 +535,7 @@ export class IntelMenu {
     return `${lat >= 0 ? 'N' : 'S'} ${Math.abs(lat).toFixed(1)}°   ·   ${lon >= 0 ? 'E' : 'W'} ${Math.abs(lon).toFixed(1)}°`;
   }
 
-  /* ── 지역 재배치 (전부 폐기 · 환불 없음) ──────────────────────────────────── */
+  /* ── 지역 재배치 (everything discarded · no refund) ───────────────────────── */
 
   private askRelocate(): void {
     if (this.busy) return;
@@ -559,7 +568,7 @@ export class IntelMenu {
     this.btnCancel.focus();
   }
 
-  /* ── 홀드 확인 ────────────────────────────────────────────────────────────── */
+  /* ── hold confirm ─────────────────────────────────────────────────────────── */
 
   private startHold(): void {
     if (this.btnConfirm.disabled || this.holdTimer) return;
@@ -578,13 +587,13 @@ export class IntelMenu {
 
   private onPointerUp = (): void => { this.stopHold(); };
 
-  /* ── DOM 헬퍼 ────────────────────────────────────────────────────────────── */
+  /* ── DOM helpers ─────────────────────────────────────────────────────────── */
 
   private buildRow(parent: HTMLElement, g: IntelGimmick): Row {
     const def = INTEL_OPTIONS_IN_ORDER.find((d) => d.id === g);
     const root = el('div', { cls: 'his-row', parent });
     root.dataset.g = g;
-    if (def?.note) root.title = def.note;                     // `note` 는 호버 툴팁 (설계안 §4.2)
+    if (def?.note) root.title = def.note;                     // `note` is the hover tooltip (design doc §4.2)
     const main = el('div', { cls: 'his-row-main', parent: root });
     el('div', { cls: 'his-row-label', text: def?.label ?? g, parent: main });
     const effect = el('div', { cls: 'his-row-effect', text: '', parent: main });
@@ -617,7 +626,7 @@ export class IntelMenu {
     if (next === (this.tiers.get(g) ?? 0)) return;
     this.tiers.set(g, next);
     this.refreshRows();
-    this.refreshMap();      // 고정한 줄이 지도에 어떻게 보이는지 **사기 전에** 본다 (같은 시드 · 같은 함수)
+    this.refreshMap();      // see how a pinned row looks on the map **before buying** (same seed · same function)
   }
 
   private button(parent: HTMLElement, label: string, onClick: () => void, extraCls = ''): HTMLButtonElement {

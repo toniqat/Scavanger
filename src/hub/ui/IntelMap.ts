@@ -2,23 +2,25 @@ import type { MapPreviewLayout, MapPreviewSpot } from '@/shared';
 import { MAP_SIZE } from '@/shared';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 정보상 — 행성 지도 미리보기 (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」).
+ * The intel broker — the planet map preview (2026-09-14, docs/DECISIONS.md 「2026-09-14 — 정보상」).
  *
- * 사용자 결정: **실제 레이아웃을 격자로 흐릿하게.** 같은 시드로 돈 레이아웃(메시 없음)을 받아
- * 「어느 격자 칸에 무엇이 있나」만 뭉개서 그린다 — 정확한 좌표는 절대 읽히지 않는다. 그래서
+ * User's decision: **the real layout, blurred onto a grid.** It takes the layout run from the same seed (no mesh)
+ * and draws only 「which grid cell holds what」, smeared — an exact coordinate is never readable. So it
  *
- *   ① 모든 것을 `cells × cells` 칸으로 **스냅**하고 (칸 = MAP_SIZE / cells ≈ 60 m 단위),
- *   ② 칸을 단색 블록으로 칠한 뒤 `ctx.filter = blur(…)` 로 뭉개고,
- *   ③ 그 위에 아주 옅은 또렷한 사각형만 하나 얹어 「여기에 뭔가 있다」 정도만 남긴다.
+ *   ① **snaps** everything to `cells × cells` cells (a cell = MAP_SIZE / cells ≈ 60 m),
+ *   ② fills the cells as flat blocks and smears them with `ctx.filter = blur(…)`,
+ *   ③ lays one very faint sharp rectangle on top, leaving no more than 「there is something here」.
  *
- * **이 파일은 순수 그리기다.** `ctx` 도 `@/world` 도 import 하지 않는다 — 폴더끼리 import 하지 않는다는 규약
- * 때문에 레이아웃은 계약 타입 **`shared/types.MapPreviewLayout`**(= `ctx.world.previewLayout(...)` 의 결과)만
- * 받는다. 그 함수는 실제 생성과 **같은 코드**를 지나므로 미리보기가 진짜 맵과 어긋날 수 없다.
+ * **This file is pure drawing.** It imports neither `ctx` nor `@/world` — folders never import one another, so the
+ * layout arrives only as the contract type **`shared/types.MapPreviewLayout`** (= the result of
+ * `ctx.world.previewLayout(...)`). That function goes through the **same code** as real generation, so the preview
+ * cannot differ from the real map.
  *
- * Owner: hub/ui. 쓰는 곳 — `hub/ui/IntelMenu.ts` (고르는 화면의 좌측 · 확정 화면의 우측, **같은 함수**).
+ * Owner: hub/ui. Used by — `hub/ui/IntelMenu.ts` (left of the pick screen · right of the confirmed screen, **the
+ * same function**).
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 지도에 뭉개서 표시하는 종류. 범례도 이 순서다. */
+/** The kinds shown smeared on the map. The legend follows this order too. */
 export type IntelMapKind = 'spawn' | 'extraction' | 'structure' | 'nest' | 'rail' | 'rover';
 
 export const INTEL_MAP_KINDS: readonly IntelMapKind[] = ['spawn', 'extraction', 'structure', 'nest', 'rail', 'rover'];
@@ -43,31 +45,31 @@ const KIND_LABEL: Record<IntelMapKind, string> = {
 
 export interface IntelMapLegendEntry { kind: IntelMapKind; label: string; color: string }
 
-/** 범례 한 줄의 원본 — 색은 지도와 **같은 표**를 읽는다 (두 벌이 되면 색이 어긋난다). */
+/** The source of one legend row — the colour reads the **same table** as the map (two copies and they drift). */
 export const INTEL_MAP_LEGEND: readonly IntelMapLegendEntry[] =
   INTEL_MAP_KINDS.map((kind) => ({ kind, label: KIND_LABEL[kind], color: KIND_COLOR[kind] }));
 
-/* ── 레이아웃 ──────────────────────────────────────────────────────────────── */
+/* ── layout ────────────────────────────────────────────────────────────────── */
 
-/** 이 화면이 그리는 레이아웃 = 계약 타입 그대로 (`ctx.world.previewLayout`). */
+/** The layout this screen draws = the contract type as it is (`ctx.world.previewLayout`). */
 export type IntelMapLayout = MapPreviewLayout;
 
-/* ── 그리기 ────────────────────────────────────────────────────────────────── */
+/* ── drawing ───────────────────────────────────────────────────────────────── */
 
 export interface DrawIntelMapOptions {
-  /** 월드 한 변(m). 기본 `MAP_SIZE`. */
+  /** One side of the world (m). Default `MAP_SIZE`. */
   mapSize?: number;
-  /** 격자 칸 수 (한 변). 클수록 좌표가 또렷해진다 — 기본 18 (≈ 60 m 칸). */
+  /** Number of grid cells (per side). The more there are the sharper a coordinate reads — default 18 (≈ 60 m cells). */
   cells?: number;
-  /** 레이아웃이 없을 때 한가운데 적는 글 (기본 `지도 미리보기 없음`). */
+  /** The text printed in the centre when there is no layout (default `지도 미리보기 없음`). */
   emptyText?: string;
-  /** 장치 픽셀 비율 상한 (기본 2). */
+  /** Device pixel ratio cap (default 2). */
   maxDpr?: number;
 }
 
 const DEFAULT_CELLS = 18;
 
-/** 칸 번호 → `cy * cells + cx`. 칸 밖은 -1. */
+/** Cell index → `cy * cells + cx`. Outside the grid it is -1. */
 function cellOf(x: number, z: number, half: number, cell: number, cells: number): number {
   const cx = Math.floor((x + half) / cell);
   const cz = Math.floor((z + half) / cell);
@@ -75,7 +77,7 @@ function cellOf(x: number, z: number, half: number, cell: number, cells: number)
   return cz * cells + cx;
 }
 
-/** `RailPlan` 중심선 위의 한 점 — `world/layout` 의 식과 **같다** (미리보기가 거짓말하지 않게). */
+/** A point on the `RailPlan` centre line — **the same** formula as `world/layout`'s (so the preview does not lie). */
 function railPointAt(loop: boolean, extent: number, angle: number, t: number): { x: number; z: number } {
   return loop
     ? { x: Math.cos(angle + t * Math.PI * 2) * extent, z: Math.sin(angle + t * Math.PI * 2) * extent }
@@ -83,8 +85,9 @@ function railPointAt(loop: boolean, extent: number, angle: number, t: number): {
 }
 
 /**
- * 레이아웃 → 종류별 「칠할 칸」 집합. 그리기와 분리해 둬서 스모크가 숫자로 검사할 수 있다.
- * **모양이 깨진 값을 받아도 던지지 않는다** — 지도가 안 그려지는 것과 화면이 열리지 않는 것은 다른 일이다.
+ * Layout → the set of 「cells to fill」 per kind. Kept apart from the drawing so a smoke test can check it as
+ * numbers. **It never throws on a malformed value** — a map that does not draw and a screen that will not open are
+ * two different things.
  */
 export function intelMapCells(layout: IntelMapLayout | null, mapSize = MAP_SIZE, cells = DEFAULT_CELLS): Map<IntelMapKind, Set<number>> {
   const out = new Map<IntelMapKind, Set<number>>();
@@ -98,11 +101,11 @@ export function intelMapCells(layout: IntelMapLayout | null, mapSize = MAP_SIZE,
     const i = cellOf(x, z, half, cell, cells);
     if (i >= 0) out.get(k)!.add(i);
   };
-  /** 반지름이 있는 자리는 걸치는 칸을 전부 — 「큰 것은 크게 보인다」 정도만 남긴다. */
+  /** A spot with a radius marks every cell it touches — no more than 「a big thing looks big」. */
   const markSpot = (k: IntelMapKind, p: MapPreviewSpot | null | undefined): void => {
     if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.z)) return;
     const r = Math.max(0, Number(p.r) || 0);
-    // 한 칸보다 작은 것은 **한 칸**이다 — 작은 자리마다 이웃 칸까지 번지면 지도가 그냥 얼룩이 된다
+    // anything smaller than a cell is **one cell** — bleeding into a neighbour for every small spot turns the map into mottling
     if (r < cell * 0.6) { mark(k, p.x, p.z); return; }
     const steps = Math.min(3, Math.ceil(r / cell) + 1);
     for (let a = 0; a < 8; a++) {
@@ -119,7 +122,7 @@ export function intelMapCells(layout: IntelMapLayout | null, mapSize = MAP_SIZE,
   each('extraction', layout.extraction);
   each('nest', layout.nests);
   each('structure', layout.structures);
-  each('structure', layout.pois);            // 폐허 전초도 「구조물」 한 색으로 (흐릿한 지도에 색이 많으면 읽히지 않는다)
+  each('structure', layout.pois);            // abandoned outposts share the one 「structure」 colour (too many colours on a blurred map read as nothing)
   const rail = layout.rail;
   if (rail) {
     const loop = rail.kind === 'loop';
@@ -142,12 +145,12 @@ export function intelMapCells(layout: IntelMapLayout | null, mapSize = MAP_SIZE,
 }
 
 /**
- * 캔버스 한 장에 지도를 그린다. **순수 함수** — `layout` 말고는 아무것도 읽지 않으므로 고르는 화면과 확정
- * 화면이 같은 그림을 얻는다 (CLAUDE.md 「열지 않고 미리 보는 것은 여는 것과 같은 함수여야 한다」).
+ * Draws the map onto one canvas. **A pure function** — it reads nothing but `layout`, so the pick screen and the
+ * confirmed screen get the same picture (CLAUDE.md 「previewing contents must equal opening」).
  */
 export function drawIntelMap(canvas: HTMLCanvasElement, layout: IntelMapLayout | null, opts: DrawIntelMapOptions = {}): void {
   const cells = Math.max(6, Math.round(opts.cells ?? DEFAULT_CELLS));
-  // 맵 한 변은 미리보기가 실어 보낸 값이 우선이다 (`MAP_SIZE` 는 그것이 없을 때의 기본값)
+  // the map's side length comes first from what the preview carried (`MAP_SIZE` is the default when it has none)
   const fromLayout = layout && Number.isFinite(layout.mapSize) && layout.mapSize > 0 ? layout.mapSize : null;
   const mapSize = opts.mapSize ?? fromLayout ?? MAP_SIZE;
   const dpr = Math.min(opts.maxDpr ?? 2, (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1);
@@ -163,19 +166,19 @@ export function drawIntelMap(canvas: HTMLCanvasElement, layout: IntelMapLayout |
   g.clearRect(0, 0, w, h);
   g.scale(dpr, dpr);
 
-  // 지도는 정사각형 — 짧은 변에 맞추고 가운데 정렬한다 (맵이 정사각형이라 종횡비를 왜곡하면 거짓말이 된다)
+  // the map is square — fit it to the shorter side and centre it (the map is square, so distorting the aspect lies)
   const side = Math.min(cssW, cssH);
   const ox = (cssW - side) / 2;
   const oy = (cssH - side) / 2;
   const px = side / cells;
 
-  // 바닥
+  // floor
   g.fillStyle = 'rgba(6, 10, 15, 0.82)';
   g.fillRect(ox, oy, side, side);
 
   const marks = intelMapCells(layout, mapSize, cells);
 
-  // ① 뭉갠 블록 — 칸 하나가 blur 반경만큼 번져 경계가 사라진다
+  // ① the smeared blocks — one cell bleeds by the blur radius and its edges disappear
   g.save();
   g.filter = `blur(${Math.max(3, px * 0.7).toFixed(1)}px)`;
   for (const kind of INTEL_MAP_KINDS) {
@@ -190,7 +193,7 @@ export function drawIntelMap(canvas: HTMLCanvasElement, layout: IntelMapLayout |
   }
   g.restore();
 
-  // ② 또렷한 칸 표식 — 아주 옅게 (「이 칸에 있다」 이상은 알려 주지 않는다)
+  // ② the sharp cell marks — very faint (they tell no more than 「it is in this cell」)
   for (const kind of INTEL_MAP_KINDS) {
     const set = marks.get(kind)!;
     if (!set.size) continue;
@@ -204,7 +207,7 @@ export function drawIntelMap(canvas: HTMLCanvasElement, layout: IntelMapLayout |
   }
   g.globalAlpha = 1;
 
-  // ③ 격자선
+  // ③ grid lines
   g.strokeStyle = 'rgba(140, 200, 235, 0.12)';
   g.lineWidth = 1;
   g.beginPath();
@@ -216,7 +219,7 @@ export function drawIntelMap(canvas: HTMLCanvasElement, layout: IntelMapLayout |
   }
   g.stroke();
 
-  // ④ 테두리 + 모서리 표식
+  // ④ border + corner marks
   g.strokeStyle = 'rgba(95, 215, 255, 0.35)';
   g.lineWidth = 1;
   g.strokeRect(Math.round(ox) + 0.5, Math.round(oy) + 0.5, Math.round(side) - 1, Math.round(side) - 1);
@@ -241,24 +244,24 @@ export function drawIntelMap(canvas: HTMLCanvasElement, layout: IntelMapLayout |
   }
 }
 
-/* ── 캔버스 + 범례 한 줄 (화면이 쓰는 작은 뷰) ─────────────────────────────── */
+/* ── canvas + one legend row (the small view the screen uses) ──────────────── */
 
 export interface IntelMapView {
-  /** `.his-map` — 부모에 붙였다 떼면서 고르는 화면 ↔ 확정 화면을 오간다. */
+  /** `.his-map` — attached to and detached from a parent to move between the pick screen ↔ the confirmed screen. */
   readonly root: HTMLElement;
   readonly canvas: HTMLCanvasElement;
-  /** 붙일 곳을 바꾼다 (같은 캔버스를 두 패널이 나눠 쓴다). */
+  /** Changes where it is attached (two panels share the one canvas). */
   mount(host: HTMLElement): void;
-  /** 레이아웃을 갈아 끼우고 다시 그린다. */
+  /** Swaps the layout in and redraws. */
   setLayout(layout: IntelMapLayout | null): void;
-  /** 크기가 바뀌었을 때 (창 리사이즈 · 패널 이동) 다시 그린다. */
+  /** Redraws when the size changed (a window resize · a panel move). */
   redraw(): void;
   dispose(): void;
 }
 
 /**
- * 지도 캔버스 + 범례 한 줄. 범례는 DOM 이지만 색은 `INTEL_MAP_LEGEND`(= 지도와 같은 표)에서 온다.
- * `ResizeObserver` 가 있으면 패널 크기가 바뀔 때 알아서 다시 그린다.
+ * The map canvas + one legend row. The legend is DOM, but its colours come from `INTEL_MAP_LEGEND` (= the same
+ * table as the map). With a `ResizeObserver` it redraws itself whenever the panel's size changes.
  */
 export function createIntelMapView(): IntelMapView {
   const root = document.createElement('div');
@@ -285,7 +288,7 @@ export function createIntelMapView(): IntelMapView {
   }
 
   let layout: IntelMapLayout | null = null;
-  // 지도가 못 그려지는 것과 **화면이 안 열리는 것**은 다른 일이다 — 그리기 실패는 여기서 끝난다
+  // a map that cannot be drawn and **a screen that will not open** are two things — a failed draw stops here
   const redraw = (): void => {
     try { drawIntelMap(canvas, layout); }
     catch (e) { console.warn('[IntelMap] draw failed', e); try { drawIntelMap(canvas, null, { emptyText: '지도를 그릴 수 없습니다' }); } catch { /* give up */ } }

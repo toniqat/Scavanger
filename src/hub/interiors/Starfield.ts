@@ -47,7 +47,7 @@ export class Starfield {
   }
 
   /**
-   * 0..1 fade (창문 워프, 2026-09-09): the point stars give way to `WarpStreaks` as the warp speed rises. Scales the
+   * 0..1 fade (the window warp, 2026-09-09): the point stars give way to `WarpStreaks` as the warp speed rises. Scales the
    * material's own opacity and hides the object at 0 so an invisible field costs no draw call.
    */
   setOpacity(o: number): void {
@@ -70,9 +70,9 @@ export class Starfield {
 /**
  * A lit planet sphere with a thin emissive atmosphere shell (seen through viewports, and — since Phase 11 — inside
  * the terminal's planet hologram). `setColors` re-tints it in place so the ship's window planet can follow the
- * 목표 행성 without rebuilding the geometry, and `setOpacity` drives the hologram's `PLANET_SWAP_TIME` cross-fade.
+ * target planet without rebuilding the geometry, and `setOpacity` drives the hologram's `PLANET_SWAP_TIME` cross-fade.
  *
- * **2026-09-09 (목표 행성이 없으면 창밖에 행성도 없다):** `group.visible` is owned here and is the AND of two gates —
+ * **2026-09-09 (no target planet, no planet outside the window):** `group.visible` is owned here and is the AND of two gates —
  * `setShown(on)` (is there a destination at all? the hub decides from `HubRef.planet`) and the opacity being above
  * `HIDE_BELOW` (the warp fade). Neither caller touches `group.visible` directly, so the two never fight: a hidden
  * planet stays hidden through a warp's fade-in until the destination is known, and a shown planet still vanishes at

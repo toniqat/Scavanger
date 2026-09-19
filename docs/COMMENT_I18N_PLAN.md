@@ -6,13 +6,14 @@ not repeated here. This file only tracks **what is left, in what order, and how 
 
 Delete this file once the queue below is empty.
 
-> **Next session starts here:** queue item **7, `src/hub`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
+> **Next session starts here:** queue item **8, `src/tutorial`** ([§2](#2-queue)). Read [§7 Glossary](#7-glossary)
 > before picking any wording, then follow [§3](#3-working-method) — in particular **step 4, which is not the check this
-> file originally described**; the old one let a deleted `*/` through. `src/hub` is a normal feature folder, so its
-> `verify` is a folder-sized run, not the full net. Its subject is the squad dock / cutscene ordering rules, so the
-> folders it shares the most vocabulary with are `src/inventory` (just finished — screen · window · popup · pane ·
-> header row) and `src/game` (phases), plus CLAUDE.md §4.3's squad-vs-shared-ship wording, which is already English
-> and is what the hub's comments point at. Read those before coining a dock- or screen-shaped word.
+> file originally described**; the old one let a deleted `*/` through. `src/tutorial` is a normal feature folder, so its
+> `verify` is a folder-sized run, not the full net. It is only **11 files** with very long per-file headers, so the
+> `src/hub` split (six bundles by subject) does not fit — cut it by **track** (`조작 안내` · `함선 안내` · `증축 안내` ·
+> `출격 안내`) instead, and keep the four track names Korean (`shared/tutorial.ts:381` already does). Its vocabulary is
+> already fixed by §7 (track · step · stretch · checkpoint · the control guide · spotlight · sequential reveal) and by
+> CLAUDE.md §4.8's two-track `build` / `raid2` paragraph, which is English and is what these comments point at.
 
 ---
 
@@ -20,15 +21,15 @@ Delete this file once the queue below is empty.
 
 | | Lines | Files |
 |---|---:|---:|
-| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`) | 15,981 | 402 |
-| **Remaining** ([§2](#2-queue)) | **10,635** | **345** |
+| Done (`src/extraction`, `src/progression`, `src/shared`, `src/main.ts`, `src/world`, `src/enemies`, `src/ui`, `src/housing`, `src/inventory`, `src/hub`) | 17,550 | 442 |
+| **Remaining** ([§2](#2-queue)) | **9,066** | **305** |
 
 Measured with the script in [§5](#5-measuring). The first estimate in the session that started this work (31,700) was
 too high: a naive Hangul grep also counts already-English comments that quote a Korean UI label.
 
-**Intended permanent exceptions.** A finished folder still prints 46 lines, because a comment whose entire substance is
+**Intended permanent exceptions.** A finished folder still prints 54 lines, because a comment whose entire substance is
 a quoted label, a quoted document heading or a verbatim user decision keeps its Korean (§3 rule 2 — the reader has to be
-able to grep it against the real string). So a raw run over everything prints 10,681 / 350, forty-six more than the
+able to grep it against the real string). So a raw run over everything prints 9,120 / 344, fifty-four more than the
 queue. `src/ui` alone contributes 24 — which is what "the heaviest mix of Korean on-screen strings" meant in practice —
 so its rows are grouped into one line instead of listed file by file:
 
@@ -49,6 +50,12 @@ so its rows are grouped into one line instead of listed file by file:
 | `inventory/parts/Allies.ts:3` · `:163` | a `docs/DECISIONS.md` section heading, and a verbatim user's decision |
 | `inventory/ui/TradeGrids.ts:82` · `:762` | a verbatim user's decision and a verbatim user's bug report |
 | `ui/` — **24 lines in 18 files** | on-screen strings the prose exists to name: chat / ping / toast / badge texts (`hud/Pings.ts`, `hud/Notifications.ts`, `hud/NetBadge.ts` ×2, `hud/MetaToasts.ts`, `hud/ChatLog.ts`, `hud/RoverHud.ts`, `hud/GadgetHandHint.ts`, `hud/StratagemWheel.ts`, `hud/PingWheel.ts`), tab / row / button labels (`hud/ShipManage.ts`, `hud/ItemTip.ts`, `menus/PauseMenu.ts`, `menus/keybindNotice.ts`, `menus/RewardsBlock.ts`, `menus/messenger/QuestCard.ts` ×3, `menus/social/SocialMenu.ts`, `menus/social/socialSource.ts`) and the four `menus/social/SocialColumn.ts` section dividers, each verbatim the `ui-label` drawn two lines below |
+| `hub/parts/Pods.ts:384-385` | the verbatim user decision the raid-entry loading sequence was built from |
+| `hub/HousingMode.ts:772` | the three placement refusal strings, verbatim from `housing/Rules.ts` (`앞쪽이 벽에 막힙니다` …) |
+| `hub/interiors/AndroidBays.ts:11` | a verbatim user decision plus the `docs/DECISIONS.md` section heading |
+| `hub/ui/HubMenu.ts:554` | a verbatim user decision (`보는 행성을 목표로 정해야 정보를 살 수 있게`) |
+| `hub/ui/IntelMenu.ts:280` | a verbatim user bug report (`보레아스 IX · 베르단트 III 에서 현상 수배가 잠긴다`) |
+| `hub/LaunchPod.ts:25` · `hub/ui/ReadyPanel.ts:29` | the pod tag / ready-cell state strings (`준비 완료` · `대기 중` · `연결 끊김` …) |
 
 ---
 
@@ -64,7 +71,7 @@ Largest first, because the big folders set the vocabulary the smaller ones reuse
 | ~~4~~ | ~~`src/ui`~~ | 2,279 | 87 | **Done 2026-09-18** (lead + 6 parallel agents, one commit). Its screen · card · panel · toast vocabulary is now the reference for every UI-shaped folder after it. 24 quoted-label lines stay Korean (§1). |
 | ~~5~~ | ~~`src/housing`~~ | 2,215 | 55 | **Done 2026-09-19** (lead + 7 agents, one commit). One quoted-label-only line stays (§1). Its station · minigame · holder · product vocabulary is now the reference for every furniture- and screen-shaped folder after it. |
 | ~~6~~ | ~~`src/inventory`~~ | 1,703 | 53 | **Done 2026-09-19** (lead + 7 agents, one commit). 12 quoted-only lines stay (§1). Its grid · cell · pane · stack · crate · search · bucket · salvage vocabulary is now the reference for every item- and screen-shaped folder after it. |
-| 7 | `src/hub` | 1,569 | 40 | Squad dock / cutscene ordering rules. |
+| ~~7~~ | ~~`src/hub`~~ | 1,569 | 40 | **Done 2026-09-19** (lead + 6 agents, one commit). 8 quoted-only lines stay (§1). Its ship · dock · staging · station vocabulary is now the reference for every hub- and furniture-shaped folder after it. |
 | 8 | `src/tutorial` | 1,278 | 11 | Only 11 files — very long per-file headers. |
 | 9 | `src/player` | 949 | 30 | |
 | 10 | `src/items` | 612 | 12 | |
@@ -606,3 +613,49 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 넷 중 하나만 (주머니) | one of the **four** pouches in `data/items.csv` (`pouch_gather` · `pouch_key` · `pouch_medical` · `pouch_valuable`) — `POUCH_SLOTS` is 1, so the "four" is the item count, not a slot count | `inventory/parts/Pouch.ts` |
 | 망가진 짝 | **broken twin** — the folder's pre-existing English. CLAUDE.md §4.6 says *broken pairs* for the same thing; one of the two should win the next time either is touched | `inventory/parts/CorpseLoot.ts` |
 | 가구 창고 · 조종석 vs furniture storage · cockpit | **both, on purpose** — Korean when the prose names the on-screen tab or room label, English when it names the concept. Exactly the split the folder already runs for `함선 창고` vs *the stash*; do not sed one into the other | `housing` (folder-wide) |
+| 받침 · 상판 · 뒷판 · 옆판 | **base** (stand for the TV's panel) · **top plate** · **back panel** · **side plate** (§7, `world/structures`) | `hub/interiors/FurnitureLeisure.ts` |
+| 진열장 · 매대 · 진열 턱 · 표찰 | **display cabinet** · **display unit** · **display lip** · **tag** (the 꼬리표 word) | `hub/interiors/FurnitureLeisure.ts` |
+| 통 · 칸막이 · 머리판 · 레코드 등 | **bin** (the record bin) · **divider** · **headboard** · **record spine** | `hub/interiors/FurnitureLeisure.ts` |
+| 기둥 (가구) | **upright** on a gym machine (J-hook / cage posts), **post** on a chair · treadmill · bike — decide from the piece | `hub/interiors/FurnitureLeisure.ts` |
+| 가로대 · 윗가로대 · 레일 | **crossbar** (gym machine) · **top rail** (chair) · **rail** — three words, kept apart | `hub/interiors/FurnitureLeisure.ts` |
+| 칸 (가구) | **slot** for a holder slot (matching `SHELF_SLOTS`), **compartment** for a shelf / cabinet opening | `hub/interiors/FurnitureLeisure.ts` |
+| 위상 (가구 연출) | **phase** — the 0..1 parameter a pose runs on (the accumulated phase CLAUDE.md §4.8 puts on the wire) | `hub/interiors` (folder-wide) |
+| **`data/furniture.csv` 가구 이름** | **kept Korean, verbatim** (`책장` · `조리대` · `식탁` · `추출기` · `3D 프린터` · `흔들의자` …) — the `src/housing` precedent: prose must grep against the csv. So is the csv section heading `공용 시설 가구` (`housing/HousingSystem.ts` · `ShipState.ts` · `ui/hud/ShipManage.ts` all keep it; changing it is a three-folder edit, not a hub one) | `hub/interiors/Furniture.ts` |
+| 「씬의 광원 개수를 플레이 중에 바꾸지 않는다」 | "Never change the point-light count at runtime" — **CLAUDE.md §4.5's own wording**, the one string every repetition of this quote uses | `hub/interiors` (folder-wide) |
+| 재배층 | **two things**: the csv furniture name `재배층` (`furn_grow_rack`) stays Korean; a *level* of the grow station is the concept and becomes **tier** (`GROW_TIER_Y`, matching `housing/README.md`). A stack 층 (`PlacedFurniture.layer`) is a **layer** | `hub/interiors/Furniture.ts` |
+| 칸 (스테이션) | **slot** — `ANALYZER_MAX_SLOTS` · `CULTURE_MAX_SLOTS` · `SHELF_SLOTS` · `GROW_SLOTS_PER_TIER` are literally slots; inventory's grid-`칸` = cell / panel-`칸` = pane split does not reach this folder | `hub/interiors` (folder-wide) |
+| 붙박이 · 고정 설비 · 꾸밈 가구 · 운동 기구 | built-in · the built-in fixtures · decorative furniture · gym machine | `hub/interiors/Furniture.ts` |
+| 둘러보기 전용 · 회수 대기 | look-around only (drawn and colliding, answering to no E) · waiting to be collected | `hub` (folder-wide) |
+| 게임기 · 매체 (서재) · 레코드 플레이어 | **console** (`GameConsoleDef.console`) · **media item** (kept apart from 배지 = medium) · **record player** (a category; the defs are `축음기` · `주크박스` · `턴테이블`) | `hub/interiors/Furniture.ts` |
+| 화구 · 후드 · 덕트 · 도마 · 웍 · 계량 비커 | hob (`onHob`) · hood · duct · board · wok · measuring beaker — the rest match the code's own `CookTool` ids | `hub/interiors` (kitchen) |
+| 용해로 · 도가니 · 주형 트레이 · 잉곳 · 증류탑 · 응축 코일 · 혼합 드럼 · 교반 축 | smelter · crucible · mould tray · ingot · a still (`증류탑` = still column) · condenser coils · mixing drum · stirrer shaft | `hub/interiors/Furniture.ts` (benches) |
+| 챔버 · 조형판 · 갠트리 · 히팅 베드 · 출력 헤드 · 필라멘트 스풀 | chamber · build plate · gantry · heated bed · print head · filament spool | `3D 프린터` |
+| 시료 챔버 · 배양관 · 배양액 · 세포 덩어리 · 폭기관 · 급액 라인 · 배지 저장조 | sample chamber · culture tube · culture fluid · cell mass · aeration pipe · feed line · medium reservoir | `분석기` · `배양조` |
+| 재배등 · 제어반 · 악센트 · 식탁보 · 수저 · 윗판 | grow light · control panel · accent · tablecloth · cutlery · top slab | `hub/interiors` (stations) |
+| 알약 탭 | **pill tabs** (`nav.scr-tabs > button.scr-tab`) — the shape `src/ui` and `src/inventory` already draw for a tab strip | `hub/ui/HubMenu.ts` |
+| 장비 줄 vs 장비 판 | **the gear row** (`.hr-gear`, the DOM row of five thumbnails) vs **the gear board** (what a member is carrying — `hub/README.md`'s word). Two things, never merged | `hub/ui/ReadyPanel.ts` |
+| 가치 합계 | **the value total** (`.hr-value`, drawn as `장비 가치 <n>`) — never *worth*, never *sum* | `hub/ui/ReadyPanel.ts` |
+| 칸 (준비 패널 vs 매칭 탭) | **bot cell** in `ReadyPanel` (`.hr-cell`) · **bot tile** in `MatchTab` (`.hmt-tile`) — decided from the DOM, the way `src/ui` splits row vs line | `hub/ui` |
+| 사유 줄 · 상태 줄 · 머리글자 | the **reason line** (`.hmt-hint`) · the **state line** (`.hr-state`) · **initial** (`.hmt-initial`, the letter drawn with no face snapshot) | `hub/ui` |
+| 넘김 · 행성 넘김 | **stepping** / **planet stepping** — the code's own `step(dir)`, and the pager is a *preview* (CLAUDE.md §4.2) | `hub/ui/HubMenu.ts` |
+| 확인 카드 | **a confirm card** — the card, kept apart from §7's *hold confirm* / *tap confirm*, which are the gestures | `hub/ui/TrainingConfirm.ts` |
+| 옛 구현 | **an older implementation** (a `NetRef` without `social.refresh`) — kept apart from 옛 피어 *an older peer* | `hub/ui/MatchTab.ts` |
+| 초상 (준비 패널 vs 매칭 탭) | **portrait** in `ReadyPanel` (full body, `createPortraits`) · the **face** tile in `MatchTab` (`snapshotFace`). The Korean uses 초상 for both; the code does not | `hub/ui` |
+| 조종실 | **cockpit** in the personal ship. In the **shared** ship the same room is the **bridge** — the word that file's own English and `hub/README.md`:169 use — while the android bays keep the feature name CLAUDE.md §3.2 gives them, *the cockpit bays*. Feature name and place are simply two different things here | `hub/interiors/SharedShip.ts` vs `PersonalShip.ts` |
+| 국면 · 후보 지역 · 락온 · 광원 자리 | **phase** (the pick phase / the confirmed phase, README's words) · **candidate area** · **lock-on** · **light place** (kept apart from *fixture*, the `LightFixture` object) | `hub/ui/IntelMenu.ts`, `interiors` |
+| 통로 (갑판을 가로지르는 길) | **walk-in line** — the file's own pre-existing English, kept apart from 복도 = *corridor* | `hub/interiors/PersonalShip.ts` |
+| 조타 콘솔 · 상태 띠 · 상태등 · 이름표 | the **helm console** · **status strip** · **status light** · **name tag** | `hub/interiors/AndroidBays.ts` |
+| 상판 | **three contexts, one Korean word**: **worktop** (kitchen cabinet) · **table top** (dining table) · **bench top** (cook bench) | `hub/interiors` (kitchen) |
+| 자루 vs 손잡이 | **handle** vs **grip** — the wok / grill pan have both (the long 자루 is the handle, the 손잡이 at its end the grip); a cabinet-door or pot 손잡이 is a plain handle | `hub/interiors/FurnitureKitchen.ts` |
+| 화실 · 철판 · 그릴 쇠살 · 열선 · 구운 자국 · 기름 홈 | firebox · griddle · grill bars · heating element · sear marks · grease channel | `hub/interiors/FurnitureKitchen.ts` |
+| 맞물림 링 · 투입구 · 누름대 · S자 칼날 · 인덕션 판 · 날개 · 눈금 비커 | locking ring · feed chute · pusher · S-blade · induction plate · paddle · the **graduated beaker** (the dispenser's — the cook-bench tool is plain **beaker**, §7) | `hub/interiors/FurnitureKitchen.ts` |
+| 식기 · 식기 한 벌 · 식기 자리 | **a place setting** · one set of place settings · the **place-setting spots** | `hub/interiors/TablePlates.ts` |
+| 위치 이동 상태 · 꾹 눌러 옮기기 · 비워야 하는 칸 · 클릭 인스펙터 | the **move state** · **hold to move** · **clearance cells** · the **click inspector** (`ui/hud/ShipManage`) — all README's own words | `hub/HousingMode.ts` |
+| 방 목록 · 가구 카드 바 · 닫기 스택 | the **room list** · the **furniture card bar** · the **escape stack** (CLAUDE.md §4.2's name for `ctx.escape`) | `hub/HousingMode.ts` |
+| 함선 관리 vs 시설 관리 | **ship management** for both — nothing in code or csv is called `함선 관리`, and the on-screen name is `시설 관리` | `hub/HousingMode.ts` |
+| 원반 · 거치대 · 누르기 경로 · 걸음 · 흔들림 | the **plates** (`rig.plates`) · the **rack** (the barbell rack, kept apart from a server rack and `AndroidBayRack`) · the **press path** · **stride** (`RUN_STRIDE_HZ`) · the **rock** | `hub/interiors/GymStaging.ts` |
+| 옆 고정 카메라 · 어깨 너머 카메라 · 슬랩 판정 | the **side fixed camera** · the **over-the-shoulder camera** · a **slab test** | `hub/interiors/GymStaging.ts`, `GameStaging.ts` |
+| 표식 · 튀기 · 진행 막대 | the **marker** (`rig.marker`) · **kick** · the **progress bar** | `hub/interiors/GameStaging.ts` |
+| 머리 띠 · 본체 · 꼬리 (봉 차트) · 통풍 격자 | the **top band** (deliberately **not** housing's 머리줄 *header row*) · the **tower** (under the desk) · the **wick** (kept apart from 꼬리표 *tag*) · the **vent grille** | `hub/interiors/FurnitureMining.ts` |
+| 메인 컴퓨터 | **the main computer** in prose (CLAUDE.md §4.7's word and the csv name `메인 컴퓨터`); `hub/README.md`'s *mining computer desk* names the builder, not the thing | `hub/interiors/FurnitureMining.ts` |
+| 받침 | **plinth** for a rack / cluster base (the `world/Outposts` row) but **stand** for a monitor's foot — one Korean word, two objects | `hub/interiors` |

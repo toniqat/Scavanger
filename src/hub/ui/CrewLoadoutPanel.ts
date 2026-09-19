@@ -4,7 +4,7 @@ import { el, setText } from './dom';
 
 /** How long we wait for a peer's `crew loadout` answer before giving up (seconds of wall clock). */
 const REQUEST_TIMEOUT_MS = 5000;
-/** `ctx.escape` key — the popup has no blocker token of its own (the 포드 패널 under it holds one). */
+/** `ctx.escape` key — the popup has no blocker token of its own (the pod panel under it holds one). */
 const ESCAPE_KEY = 'hub:crewLoadout';
 
 export interface CrewLoadoutTarget {
@@ -84,14 +84,14 @@ export class CrewLoadoutPanel {
     this.target = target;
     this.anchor = anchor;
     this._open = true;
-    // 2026-09-09: ESC 도 이 팝업을 닫는다 — 발사 포드(`ReadyPanel`)보다 나중에 열렸으므로 스택의 맨 위다.
+    // 2026-09-09: Escape closes this popup too — it opened after the pod panel (`ReadyPanel`) and is the stack's top.
     this.ctx.escape.push(ESCAPE_KEY, () => this.close());
     this.openedAt = performance.now();
     this.root.hidden = false;
     this.bar.style.background = NET_SLOT_COLORS_CSS[target.slot % NET_SLOT_COLORS_CSS.length];
     setText(this.nameEl, target.name);
     this.setStatus('');
-    // 2026-09-09 키 가이드: read-only popup, so its line is the guide's own `Tab 닫기` (`ReadyPanel.update` closes it on Tab)
+    // 2026-09-09 key guide: read-only popup, so its line is the guide's own `Tab 닫기` (`ReadyPanel.update` closes it on Tab)
     this.ctx.bus.emit('ui:keyGuide', { owner: 'pod.loadout', keys: [] });
     this.ctx.bus.emit('hub:crewLoadoutToggled', { open: true, peerId: target.peerId });
     this.ctx.bus.emit('audio:play', { id: 'ui_click' });

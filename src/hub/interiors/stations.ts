@@ -7,14 +7,14 @@ import type { BoxInteriorCollider } from './InteriorCollider';
  * All static geometry goes through the interior's `GeoBatch`, so a station costs
  * **zero extra draw calls** (it merges into the existing per-material meshes).
  *
- * Phase 8 (2026-09-06): the hydroponics rack and `hub/GardenStation` are gone — 재배 lives in the 온실 room
+ * Phase 8 (2026-09-06): the hydroponics rack and `hub/GardenStation` are gone — growing lives in the greenhouse room
  * (`furn_grow_rack` furniture → `ctx.housing.openGrowMenu`). The personal ship also lost its built-in repair
- * bench (`furn_repair_bench` furniture in the 작업실); only the shared ship still models one.
+ * bench (`furn_repair_bench` furniture in the workshop); only the shared ship still models one.
  *
- * 2026-09-12 (사용자 결정 — 정비 벤치 제거): `repairBench()` 가 만드는 것은 이제 **소품뿐**이었다. `furn_repair_bench`
- * 가구는 은퇴했고 공유 함선의 `hub_workbench` 상호작용도 걷어냈다 — 무기 수리는 인벤토리에서 재료로 한다.
- * **2026-09-14 (사용자 결정)**: 그 소품마저 걷어냈다 — `SharedShip` 이 `repairBench()` 를 더 이상 부르지 않는다
- * (부르는 곳이 하나도 없다). 함수와 `ShipStations.bench` 는 좌표를 잃지 않도록 그대로 두었다.
+ * 2026-09-12 (user's decision — the repair bench removed): what `repairBench()` builds was by then **a prop only**. The
+ * `furn_repair_bench` furniture was retired and the shared ship's `hub_workbench` interaction was pulled too — weapons are
+ * repaired from materials in the inventory. **2026-09-14 (user's decision)**: even that prop was pulled — `SharedShip` no
+ * longer calls `repairBench()` (nothing calls it at all). The function and `ShipStations.bench` are left as they are so the coordinates survive.
  *
  * Local frame (matching `parts.ts`): local +X → (cos ry, −sin ry), local +Z → (sin ry, cos ry),
  * so the *front* (toward the player) is local −Z = (−sin ry, −cos ry).
@@ -26,28 +26,28 @@ export interface StationDef {
   yaw: number;
 }
 
-/** Every station an interior offers. `bench` is never set since 2026-09-14 (정비 벤치가 소품까지 없어졌다). */
+/** Every station an interior offers. `bench` is never set since 2026-09-14 (the repair bench lost even its prop). */
 export interface ShipStations {
   bench?: StationDef;
   /**
-   * 2026-09-12 (사용자 결정): **optional** — 개인 함선의 시술대는 조종석 붙박이가 아니라 공용 시설 가구
-   * (`furn_implant_bay`)가 됐다. 공유 함선만 붙박이를 갖는다.
+   * 2026-09-12 (user's decision): **optional** — the personal ship's implant bay is no longer built into the cockpit but a
+   * shared facility furniture piece (`furn_implant_bay`). Only the shared ship has a built-in one.
    */
   implantBay?: StationDef;
   /**
-   * 공유 함선의 고정 식탁 (주방 A-3c, 2026-09-11). **공유 함선에만 있다** — 개인 함선의 식탁은 주방에 놓는
-   * `furn_dining_table` 가구이고, 공유 함선에는 가구가 없어서 인테리어가 하나를 심어 둔다. 가구가 아니므로
-   * uid 가 없고, 그래서 `HousingRef.openDiningTable(null)` 의 `null` 이 곧 이 식탁을 가리킨다.
+   * The shared ship's fixed dining table (kitchen A-3c, 2026-09-11). **Only the shared ship has one** — the personal ship's dining table is the
+   * `furn_dining_table` furniture placed in the kitchen, and the shared ship has no furniture, so the interior plants one. It is not furniture and
+   * so has no uid — which is why the `null` of `HousingRef.openDiningTable(null)` means exactly this table.
    */
   diningTable?: StationDef;
   /**
-   * 2026-09-16 (접시 모델): 그 고정 식탁의 식기 자리 — 분대원 접시가 올라가는 곳 (`diningTablePlateSlots`, `TablePlates`).
-   * 앞(플레이어 쪽) 두 자리가 먼저다.
+   * 2026-09-16 (the plate model): the place settings on that fixed table — where squadmates' plates go (`diningTablePlateSlots`, `TablePlates`).
+   * The two spots at the front (the player's side) come first.
    */
   diningPlates?: readonly TablePlateSlot[];
 }
 
-/** 식탁 위 접시 자리 하나 — 상판 위 식기 가운데(월드) · 식탁의 어느 긴 변인가(`-1` = 앞 local −Z, `1` = 뒤). */
+/** One plate spot on the dining table — the centre of the place setting on the table top (world) · which long side it is on (`-1` = the front, local −Z, `1` = the back). */
 export interface TablePlateSlot {
   position: THREE.Vector3;
   side: -1 | 1;
@@ -62,7 +62,7 @@ function footprint(ry: number, w: number, d: number): [number, number] {
   return [c * w + s * d, s * w + c * d];
 }
 
-/* ── 정비대 (repair bench) ────────────────────────────────────────────────── */
+/* ── The repair bench ─────────────────────────────────────────────────────── */
 /**
  * Workbench with a vise and a wall tool board. `withTable` false reuses an existing bench
  * (the shared ship already models one) and only adds the board + anchor.
@@ -95,7 +95,7 @@ export function repairBench(b: GeoBatch, col: BoxInteriorCollider, x: number, z:
   return { position: new THREE.Vector3(x + fx * (D / 2 + 0.95), 0, z + fz * (D / 2 + 0.95)), yaw: ry };
 }
 
-/* ── 임플란트 시술대 (implant bay) ────────────────────────────────────────── */
+/* ── The implant bay ──────────────────────────────────────────────────────── */
 /** Reclined surgical chair with a scanner canopy on an arm. */
 export function implantBay(b: GeoBatch, col: BoxInteriorCollider, x: number, z: number, ry: number): StationDef {
   const fx = -Math.sin(ry), fz = -Math.cos(ry);
@@ -107,9 +107,9 @@ export function implantBay(b: GeoBatch, col: BoxInteriorCollider, x: number, z: 
 }
 
 /**
- * 시술대의 **몸체만** (collider · 앵커 없음). 2026-09-12: 개인 함선의 시술대는 공용 시설 가구(`implant_bay` 모델)라
- * `interiors/Furniture` 의 빌더가 가구 로컬 좌표(`ry` 0)로 이것을 부르고, 공유 함선의 붙박이는 위의 `implantBay` 가 부른다 —
- * 두 곳이 같은 실루엣이다. 몸체 범위(로컬): x −0.79 … 0.36, z −0.62 … 0.75.
+ * The implant bay's **body only** (no collider · no anchor). 2026-09-12: the personal ship's implant bay is a shared facility furniture piece
+ * (the `implant_bay` model), so the builder in `interiors/Furniture` calls this in furniture-local coordinates (`ry` 0) and the shared ship's
+ * built-in one is called by `implantBay` above — the two are the same silhouette. Body extent (local): x −0.79 … 0.36, z −0.62 … 0.75.
  */
 export function implantBayBody(b: GeoBatch, x: number, z: number, ry: number): void {
   const D = 1.55;
@@ -128,31 +128,31 @@ export function implantBayBody(b: GeoBatch, x: number, z: number, ry: number): v
   b.box(0.4, 0.05, 0.4, lx(x, ry, -0.62, 0.2), 0.74, lz(z, ry, -0.62, 0.2), M.trimDark, ry);
 }
 
-/* ── 식탁 (dining table, 주방 A-3c 2026-09-11) ───────────────────────────── */
+/* ── The dining table (kitchen A-3c 2026-09-11) ──────────────────────────── */
 /**
- * 공유 함선의 고정 식탁: 상판 + 다리 + 긴 변 양쪽의 벤치 의자 + 식기 한 벌, 가운데에 emissive 등 하나.
- * 개인 함선의 `furn_dining_table` 가구와 **같은 결**이지만 갑판에 맞춰 조금 크고(두 벤치), 가구가 아니므로
- * 레벨 표지판이 없다. **광원은 만들지 않는다** — 가운데 불빛은 emissive 재질뿐이다
- * (CLAUDE.md 「씬의 광원 개수를 플레이 중에 바꾸지 않는다」 · `smoke-lights`).
+ * The shared ship's fixed dining table: top + legs + a bench seat along each long side + one set of place settings, an emissive lamp in the centre.
+ * **The same look** as the personal ship's `furn_dining_table` furniture, but a little larger to suit the deck (two benches), and with no
+ * `Lv.n` sign since it is not furniture. **It creates no light** — the light in the centre is an emissive material only
+ * (CLAUDE.md's 「Never change the point-light count at runtime」 · `smoke-lights`).
  *
- * 앞(플레이어 쪽) = local −Z. 상호작용 앵커는 그 앞 0.95 m.
+ * The front (the player's side) = local −Z. The interaction anchor is 0.95 m in front of that.
  */
 export function diningTable(b: GeoBatch, col: BoxInteriorCollider, x: number, z: number, ry: number): StationDef {
   const fx = -Math.sin(ry), fz = -Math.cos(ry);
   const W = 2.2, D = 0.9, H = 0.78;
   const L = (ox: number, oz: number): [number, number] => [lx(x, ry, ox, oz), lz(z, ry, ox, oz)];
 
-  // 상판 · 식탁보 · 앞 가장자리 띠
+  // top · tablecloth · the front-edge strip
   b.box(W, 0.07, D, x, H - 0.035, z, M.hullLight, ry);
   b.box(W - 0.08, 0.02, D - 0.08, x, H + 0.005, z, M.padding, ry);
   { const [px, pz] = L(0, -(D / 2 - 0.02)); b.box(W - 0.16, 0.03, 0.04, px, H - 0.09, pz, M.stripAmber, ry); }
-  // 다리 넷 + 가로 보
+  // four legs + the cross beam
   for (const ox of [-(W / 2 - 0.16), W / 2 - 0.16]) for (const oz of [-(D / 2 - 0.14), D / 2 - 0.14]) {
     const [px, pz] = L(ox, oz);
     b.boxB(0.08, H - 0.07, 0.08, px, 0, pz, M.gunmetal, ry);
   }
   b.box(W - 0.4, 0.06, 0.06, x, 0.22, z, M.gunmetal, ry);
-  // 식기 한 벌: 접시 넷 + 수저, 가운데 등
+  // one set of place settings: four plates + cutlery, the lamp in the centre
   for (const oz of [-(D / 2 - 0.2), D / 2 - 0.2]) for (const ox of [-0.55, 0.55]) {
     const [px, pz] = L(ox, oz);
     b.cyl(0.12, 0.11, 0.02, 14, px, H + 0.025, pz, M.stripWhite);
@@ -160,8 +160,8 @@ export function diningTable(b: GeoBatch, col: BoxInteriorCollider, x: number, z:
     b.box(0.02, 0.012, 0.13, qx, H + 0.02, qz, M.trim, ry);
   }
   b.cyl(0.07, 0.09, 0.05, 12, x, H + 0.035, z, M.gunmetal);
-  b.cyl(0.055, 0.055, 0.13, 12, x, H + 0.12, z, M.stripAmber);                 // 불빛 (emissive only)
-  // 벤치 의자 둘 (긴 변 양쪽)
+  b.cyl(0.055, 0.055, 0.13, 12, x, H + 0.12, z, M.stripAmber);                 // the light (emissive only)
+  // two bench seats (one along each long side)
   for (const s of [-1, 1]) {
     const bz = s * (D / 2 + 0.34);
     const [px, pz] = L(0, bz);
@@ -178,8 +178,8 @@ export function diningTable(b: GeoBatch, col: BoxInteriorCollider, x: number, z:
 }
 
 /**
- * 2026-09-16 (접시 모델): `diningTable(…, x, z, ry)` 의 식기 네 자리 (위 「식기 한 벌」과 같은 좌표 — 접시 윗면 `H + 0.035`) — 앞 변 먼저.
- * 공유 함선 식탁의 분대원 접시가 여기에 올라간다 (`TablePlates`).
+ * 2026-09-16 (the plate model): the four place settings of `diningTable(…, x, z, ry)` (the same coordinates as 「one set of place settings」 above —
+ * plate top `H + 0.035`) — the front side first. The squadmates' plates on the shared ship's table go here (`TablePlates`).
  */
 export function diningTablePlateSlots(x: number, z: number, ry: number): TablePlateSlot[] {
   const D = 0.9, H = 0.78;
@@ -193,7 +193,7 @@ export function diningTablePlateSlots(x: number, z: number, ry: number): TablePl
   return out;
 }
 
-/* ── 함선 컴퓨터 (ship computer, Phase 5) ─────────────────────────────────── */
+/* ── The ship computer (Phase 5) ──────────────────────────────────────────── */
 /** Desk + two monitors. The left monitor is an emissive `TextPlane` (`기업 네트워크`) the caller adds at `screenPos / screenRot`. */
 export interface ComputerStationDef extends StationDef {
   screenPos: THREE.Vector3;
@@ -239,9 +239,9 @@ export function shipComputer(b: GeoBatch, col: BoxInteriorCollider, x: number, z
 }
 
 /**
- * 함선 컴퓨터의 **몸체만** (collider · 앵커 없음) + 왼쪽 모니터 `TextPlane` 자리. 2026-09-12: 개인 함선의 컴퓨터는 공용 시설
- * 가구(`corp_computer` 모델)라 `interiors/Furniture` 의 빌더가 가구 로컬 좌표로 부르고, 공유 함선의 붙박이는 위의
- * `shipComputer` 가 부른다. 몸체 범위(로컬, 책상 중심 기준): x ±0.75, z −0.77 … 0.35 (의자 등받이 … 벽 조명).
+ * The ship computer's **body only** (no collider · no anchor) + where the left monitor's `TextPlane` goes. 2026-09-12: the personal ship's computer is a
+ * shared facility furniture piece (the `corp_computer` model), so the builder in `interiors/Furniture` calls it in furniture-local coordinates, and the
+ * shared ship's built-in one is called by `shipComputer` above. Body extent (local, from the desk centre): x ±0.75, z −0.77 … 0.35 (chair backrest … wall lamp).
  */
 export function shipComputerBody(b: GeoBatch, x: number, z: number, ry: number): { screenPos: THREE.Vector3; screenRot: THREE.Euler } {
   const fx = -Math.sin(ry), fz = -Math.cos(ry);

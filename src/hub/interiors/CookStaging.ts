@@ -6,66 +6,66 @@ import { CAMERA_WALL_MARGIN, segmentHits, type FootBox, type StagedPiece } from 
 import { BEAKER_IDLE_LEVEL, COOK_TOOLS, cookToolTarget, liquidMat, poseCookKnife, restCookRig, type CookRig, type CookTool } from './FurnitureKitchen';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 조리 연출 (2026-09-13, 요리 미니게임 — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」). `GymStaging` 을 본뜬다.
+ * The cooking staging (2026-09-13, the cooking minigame — docs/DECISIONS.md 「2026-09-13 — 요리 미니게임」). Modelled on `GymStaging`.
  *
- *   housing:cookSession {active:true}  → 그 조리대 앞 바닥 anchor · 조리대를 보는 yaw · 어깨 너머 고정 카메라
+ *   housing:cookSession {active:true}  → the floor anchor in front of that cook bench · a yaw facing the bench · a fixed over-the-shoulder camera
  *                                         → setFurniturePose({kind:'cook'})
  *
- * **2026-09-14 (사용자 결정): 연출을 못 걸어도 미니게임은 진행한다.** 예전에는 조리대 조각에 `model.cook` 이 없거나 `setFurniturePose`
- * 가 false 면 `cancelCook()` 을 같은 호출 스택에서 불러 **세션이 그 자리에서 죽었다** — `startCook` 이 `beginSteps()` 까지 못 가서
- * 「화면만 뜨고 단계가 시작되지 않는」 것이 그것이다. 이제 연출만 포기하고(`held` false) housing 은 건드리지 않는다. 세션을 거두는 것은
- * **우리가 실제로 건 자세가 남의 손에 풀렸을 때**뿐이다.
- *   housing:cookStep                   → 지금 단계 게임의 도구(도마 · 그릴 팬 · 웍 · 냄비 · 비커)가 작업 자리로 나온다 (`CookRig`)
- *   housing:cookBeat                   → 손 동작 누적 위상: 썰기 · 다지기 · 볶기 = 입력마다 **한 주기**를 빠르게 (칼이 위 → 도마 → 위,
- *                                         웍은 튕긴다), 젓기 = `stir` 가 오는 동안 연속으로 돈다, 굽기 · 붓기 · 단계 사이 = 느린 흔들림.
- *                                         굽기의 뒤집기 · 꺼내기 · 탐은 그릴 팬이 살짝 들썩이고, 붓기는 부는 동안 비커 액체가 오른다.
- *   housing:cookSession {active:false} → 자세를 풀고 도구는 제자리로 미끄러져 돌아간다
- *   player:furniturePoseEnded (cook, 우리가 푼 것이 아니면) → cancelCook (자세 없이 미니게임만 남지 않게)
+ * **2026-09-14 (user's decision): the minigame runs even when the staging cannot be raised.** A cook-bench piece with no `model.cook`, or a
+ * `setFurniturePose` that came back false, used to call `cancelCook()` in the same call stack and **the session died right there** — `startCook`
+ * never reached `beginSteps()`, which is what 「the screen comes up but the steps never start」 was. Now only the staging is given up (`held` false)
+ * and housing is left alone. The session is taken down **only when a pose we really raised is released by someone else**.
+ *   housing:cookStep                   → the current step's game tool (board · grill pan · wok · pot · beaker) comes out to the work spot (`CookRig`)
+ *   housing:cookBeat                   → the accumulated hand phase: chopping · mincing · stir-frying = **one cycle** per input, fast (knife up →
+ *                                         board → up, the wok tosses), stirring = keeps turning while `stir` arrives, grilling · pouring · between
+ *                                         steps = a slow sway; grilling's flip · remove · burn hop the pan, and pouring raises the beaker's liquid.
+ *   housing:cookSession {active:false} → the pose is released and the tools slide back to their rest spots
+ *   player:furniturePoseEnded (cook, when we did not release it) → cancelCook (so no minigame is left with no pose)
  *
- * 위상은 player 의 `FURN_COOK` 규약(한 주기 = 1, φ 0 = 칼이 위 · 0.5 = 도마에 닿음)이고 `setFurniturePoseDrive` 에는 소수부를 넘긴다 —
- * player 가 감김으로 주기 수를 센다. 칼 · 국자 · 웍이 **같은 위상**을 읽는다. 조각은 늘 uid 로 다시 찾는다(방이 다시 지어지면 그룹이
- * 바뀐다) — 도구 자리는 이 객체가 들고 있다가 매 프레임 새 그룹에 쓰고, `BuildExtra.cookGame` 이 재빌드된 모델을 같은 자리에 짓는다.
+ * The phase follows player's `FURN_COOK` contract (one cycle = 1, φ 0 = knife up · 0.5 = touching the board) and `setFurniturePoseDrive` gets the
+ * fractional part — player counts the cycles from the wrap. Knife · ladle · wok read **the same phase**. The piece is always looked up by uid again
+ * (the group changes when a room is rebuilt) — this object holds the tool spots, writes them into the new group every frame, and `BuildExtra.cookGame` rebuilds the model at the same spots.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const TAU = Math.PI * 2;
 const frac = (x: number): number => x - Math.floor(x);
 
-/** 도구가 쉬는 자리 ↔ 작업 자리로 옮겨 가는 감쇠 계수 · 옮겨 가는 동안 드는 높이 상한 (m) · 도착으로 보는 거리 (m). */
+/** The damping factor of a tool moving between its rest spot ↔ the work spot · the cap on how high it lifts on the way (m) · the distance counted as arrived (m). */
 const TOOL_RATE = 9;
 const TOOL_ARC = 0.08;
 const TOOL_SETTLED = 0.004;
-/** 입력 하나가 한 주기를 도는 시간 (초) — 칼질 · 다지기(더 짧게) · 웍 튕김. */
+/** How long one input takes to turn one cycle (s) — a knife stroke · mincing (shorter) · a wok toss. */
 const STROKE_S: Readonly<Partial<Record<CookBeatAction, number>>> = { cut: 0.24, mince_h: 0.15, mince_v: 0.15, toss: 0.34 };
-/** 박자 게임으로 넘어갈 때 반쯤 돈 손을 한 주기 끝(칼이 위)까지 마저 돌리는 시간 (초). */
+/** How long it takes to carry a half-turned hand to the end of its cycle (knife up) when a beat game starts (s). */
 const FINISH_STROKE_S = 0.4;
-/** 젓기: 마지막 `stir` 뒤 이만큼(초)은 계속 돈다 (housing 은 누르는 동안 주기적으로 보낸다) · 도는 속도 (주기 / 초). */
+/** Stirring: it keeps turning for this long (s) after the last `stir` (housing sends one periodically while the button is held) · the turn rate (cycles / s). */
 const STIR_HOLD_S = 0.45;
 const STIR_REV_PER_S = 1.25;
-/** 굽기 · 붓기 · 단계 사이의 느린 흔들림 (주기 / 초). */
+/** The slow sway of grilling · pouring · between steps (cycles / s). */
 const SWAY_PER_S = 0.3;
-/** 한 프레임에 위상이 넘어갈 수 있는 최대 (player 의 감김 판정이 반 주기 안쪽이어야 한다) · 밀린 입력이 쌓여도 남기는 최대 주기. */
+/** The most the phase may advance in one frame (player's wrap check has to stay inside half a cycle) · the most backlog kept when inputs pile up. */
 const MAX_CYCLE_STEP = 0.45;
 const MAX_CYCLE_LAG = 2;
 const WOK_TOSS_LIFT = 0.06;
 const WOK_TOSS_TILT = 0.28;
 const GRILL_HOP_S = 0.3;
 const GRILL_HOP_LIFT = 0.025;
-/** 붓기: 단계 시작 액체 높이 · 부는 동안 오르는 속도 (/초) · 상한 · 자동으로 넘긴 단계의 높이. */
+/** Pouring: the liquid height a step starts at · the rate it rises while pouring (/s) · the cap · the height of a step an auto appliance handled. */
 const POUR_START_LEVEL = 0.08;
 const POUR_FILL_PER_S = 0.22;
 const POUR_MAX_LEVEL = 0.95;
 const POUR_AUTO_LEVEL = 0.7;
 
 /**
- * 어깨 너머 카메라 후보 (조리대 로컬, anchor 기준 m): 옆 (−1 = **오른 어깨** — 조리대를 보는 몸의 오른쪽이 로컬 −X) × 옆 거리 ×
- * 뒤 거리 × 높이. 오른 어깨 · 낮게 · 가깝게를 좋아하고, 방 벽 · 같은 방 다른 가구 · 조리대의 후드 · 몸(머리와 어깨)에 시선이 가리면
- * 크게 깎는다. 높이 2.25 m 이상인 이유: 칼 쥔 손(몸 오른쪽 0.1 m 앞 0.52 m)을 보는 선이 오른 어깨를 넘어가야 한다.
+ * The over-the-shoulder camera candidates (cook-bench local, m from the anchor): side (−1 = the **right shoulder**, since the right of a body facing the
+ * bench is local −X) × lateral distance × back distance × height. It likes the right shoulder · low · close, and scores down hard when the room wall · another
+ * piece in the room · the bench's hood · the body (head and shoulders) blocks the line. Height ≥ 2.25 m so the line to the knife hand (right 0.1 m, forward 0.52 m) clears the shoulder.
  */
 const CAM_SIDES = [-1, 1] as const;
 const CAM_LATERAL = [0.95, 0.7] as const;
 const CAM_BACK = [0.55, 0.85] as const;
 const CAM_HEIGHT = [2.25, 2.5] as const;
-/** 가림 판정에 쓰는 몸 (anchor 기준 로컬 상자 — 숙인 머리 · 어깨) · 머리 높이 (`FURN_EYE.cook` 1.42 + 조금). */
+/** The body used for the occlusion check (a local box from the anchor — the bowed head · shoulders) · the head height (`FURN_EYE.cook` 1.42 and a little). */
 const BODY = { halfX: 0.28, minY: 1.25, maxY: 1.85, back: 0.15, front: 0.18 } as const;
 const HEAD_Y = 1.5;
 
@@ -75,7 +75,7 @@ const _min = new THREE.Vector3();
 const _max = new THREE.Vector3();
 const _target = new THREE.Vector3();
 
-/** 로컬 상자 (min, max) 를 조각 그룹의 월드 AABB 로 (가구 yaw 는 사분회전뿐이라 꼭짓점 8개로 충분하다). */
+/** A local box (min, max) into the piece group's world AABB (furniture yaw is quarter turns only, so the 8 corners are enough). */
 function worldBox(g: THREE.Object3D, min: THREE.Vector3, max: THREE.Vector3): FootBox {
   const out: FootBox = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity };
   for (let i = 0; i < 8; i++) {
@@ -89,7 +89,7 @@ function worldBox(g: THREE.Object3D, min: THREE.Vector3, max: THREE.Vector3): Fo
 }
 const inside = (p: THREE.Vector3, b: FootBox): boolean => p.x >= b.minX && p.x <= b.maxX && p.y >= b.minY && p.y <= b.maxY && p.z >= b.minZ && p.z <= b.maxZ;
 
-/** 조리대의 어깨 너머 고정 카메라 (후보 점수 — 위 `CAM_*` 주석). 세션 시작에 한 번 도는 코드라 할당은 신경 쓰지 않는다. */
+/** The cook bench's fixed over-the-shoulder camera (candidate scoring — the `CAM_*` comment above). It runs once at session start, so allocation does not matter. */
 export function cookCameraOf(piece: StagedPiece, rig: CookRig, blockers: readonly FootBox[] = []): { position: THREE.Vector3; lookAt: THREE.Vector3 } {
   const g = piece.model.group;
   g.updateWorldMatrix(true, false);
@@ -127,7 +127,7 @@ export function cookCameraOf(piece: StagedPiece, rig: CookRig, blockers: readonl
   return { position: best ?? lookAt.clone().add(_f.set(0, 1.2, 0)), lookAt };
 }
 
-/** 조리대 앞 자세 한 벌 (anchor = 조리대 앞 바닥 · 조리대를 보는 yaw · 어깨 너머 카메라). 조리대가 아니면 null. */
+/** One pose in front of the cook bench (anchor = the floor in front of it · a yaw facing it · the over-the-shoulder camera). null when it is not a cook bench. */
 export function cookPoseOf(piece: StagedPiece, blockers: readonly FootBox[] = []): FurniturePose | null {
   const rig = piece.model.cook;
   if (!rig) return null;
@@ -143,20 +143,20 @@ export function cookPoseOf(piece: StagedPiece, blockers: readonly FootBox[] = []
 
 const isStrikeGame = (g: CookGame | null): boolean => g === 'chop' || g === 'mince' || g === 'stirfry';
 
-/** 조리 세션 연출. `FurnitureLayer` 가 자기 함선(방문 중이 아닌)일 때만 만든다. */
+/** The staging of a cook session. `FurnitureLayer` builds it only for our own ship (not while visiting one). */
 export class CookStaging {
-  /** 연출 중인 조리대 uid, 없으면 null. */
+  /** The uid of the cook bench being staged, null when there is none. */
   uid: string | null = null;
-  /** 지금 단계의 게임 (조리 중이 아니면 null). */
+  /** The current step's game (null when not cooking). */
   game: CookGame | null = null;
-  /** 조리가 끝나 도구가 제자리로 돌아가는 중인 조리대. */
+  /** The cook bench whose tools are sliding back to their rest spots now that cooking has ended. */
   private settleUid: string | null = null;
-  /** 우리가 건 조리 자세가 지금 걸려 있다 (2026-09-14 — 못 걸었어도 미니게임은 돈다). */
+  /** The cook pose we raised is held right now (2026-09-14 — the minigame runs even when it could not be raised). */
   private held = false;
   private releasing = false;
   private readonly unsubs: Array<() => void> = [];
   private clock = 0;
-  /** 손 동작 누적 위상 · 입력이 쌓아 둔 목표 · 목표를 쫓는 속도 (주기 / 초). */
+  /** The accumulated hand phase · the target the inputs have piled up · the rate it chases that target (cycles / s). */
   private cycle = 0;
   private target = 0;
   private rate = 1 / FINISH_STROKE_S;
@@ -170,7 +170,7 @@ export class CookStaging {
     board: new THREE.Vector3(), pot: new THREE.Vector3(), wok: new THREE.Vector3(), grill: new THREE.Vector3(), beaker: new THREE.Vector3(),
   };
 
-  /** `find` = uid 로 지금의 조각, `blockers` = 그 조각과 같은 방의 다른 가구 상자 (카메라 가림). */
+  /** `find` = the current piece by uid, `blockers` = the boxes of the other furniture in the same room as that piece (camera occlusion). */
   constructor(private readonly ctx: GameContext, private readonly find: (uid: string) => StagedPiece | null, private readonly blockers: (uid: string) => readonly FootBox[] = () => []) {
     const b = ctx.bus;
     this.unsubs.push(
@@ -178,7 +178,7 @@ export class CookStaging {
       b.on('housing:cookStep', (e) => this.onStep(e.uid, e.index, e.game, e.phase, e.auto)),
       b.on('housing:cookBeat', (e) => this.onBeat(e.uid, e.action)),
       b.on('player:furniturePoseEnded', (e) => {
-        // **우리가 건** 조리 자세가 우리 손을 거치지 않고 풀렸다 (페이즈 변경 · 스폰 · hub:left 의 reset) → 미니게임도 거둔다
+        // the cook pose **we raised** was released without passing through us (a phase change · a spawn · the reset on hub:left) → take the minigame down too
         if (!this.uid || !this.held || this.releasing || e.kind !== 'cook') return;
         this.stop(false);
         this.cancelHousing();
@@ -186,12 +186,12 @@ export class CookStaging {
     );
   }
 
-  /** 이 조리대로 조리 중이면 지금 단계의 게임 (`BuildExtra.cookGame`), 아니면 null. */
+  /** The current step's game (`BuildExtra.cookGame`) when this cook bench is the one cooking, else null. */
   gameFor(uid: string): CookGame | null {
     return uid === this.uid ? this.game : null;
   }
 
-  /** 디버그 · 스모크: 연출 중인 조리대 · 게임 · 누적 위상 · 작업 자리에 나와 있는 도구. 조리 중이 아니면 null. */
+  /** Debug · smoke test: the cook bench being staged · the game · the accumulated phase · the tool out at the work spot. null when not cooking. */
   get stage(): { uid: string; game: CookGame | null; phase: number; atWork: CookTool | null } | null {
     if (!this.uid) return null;
     const rig = this.find(this.uid)?.model.cook;
@@ -205,11 +205,11 @@ export class CookStaging {
     if (this.uid && this.uid !== uid) this.stop(true);
     const piece = this.find(uid);
     const rig = piece?.model.cook;
-    // 조리대 조각이 없거나 조리 rig 가 없다 — **연출만 없이** 미니게임은 그대로 돈다 (2026-09-14, 사용자 결정)
+    // no cook-bench piece or no cook rig — the minigame runs on **without the staging only** (2026-09-14, user's decision)
     if (!piece || !rig) { this.held = false; return; }
     const fresh = this.uid !== uid;
     if (fresh) {
-      // 다른 조리대가 제자리로 돌아가던 중이면 그 자리에 박고, 같은 조리대면 지금 미끄러지던 자리에서 이어 간다
+      // another cook bench still sliding back is snapped into place; the same cook bench carries on from where it was sliding
       if (this.settleUid && this.settleUid !== uid) { const other = this.find(this.settleUid)?.model.cook; if (other) restCookRig(other); }
       if (this.settleUid !== uid) for (const t of COOK_TOOLS) this.pos[t].copy(rig.tools[t].position);
       this.settleUid = null;
@@ -220,14 +220,14 @@ export class CookStaging {
       this.game = s && s.uid === uid ? (s.steps[0]?.game ?? null) : null;
     }
     const p = this.ctx.player;
-    if (!p || typeof p.setFurniturePose !== 'function') return;   // player 가 아직 자세를 모른다 — 미니게임은 그대로 둔다
-    if (!fresh && this.held && p.furniturePose === 'cook') return; // 같은 세션을 다시 알렸다 — 다시 걸면 풀 때 돌아갈 자리가 조리대 앞이 된다
+    if (!p || typeof p.setFurniturePose !== 'function') return;   // player does not know poses yet — the minigame is left alone
+    if (!fresh && this.held && p.furniturePose === 'cook') return; // the same session was announced again — raising it again would make the release return in front of the bench
     const pose = cookPoseOf(piece, this.blockers(uid));
     let ok = false;
-    // 우리 호출 안에서 나오는 자세 끝 알림(앉아 있던 흔들의자 · 이전 자세)은 우리 것이다
+    // a pose-ended notice that comes out of our own call (a rocking chair we were sitting in · the previous pose) is ours
     this.releasing = true;
     try { ok = pose !== null && p.setFurniturePose(pose); } catch (err) { console.warn('[hub] setFurniturePose(cook) failed', err); } finally { this.releasing = false; }
-    // 자세를 거절당해도 **미니게임은 진행한다** (2026-09-14, 사용자 결정) — 도구 연출만 그대로 돌고 몸은 서 있는다
+    // even when the pose is refused **the minigame runs** (2026-09-14, user's decision) — only the tool staging keeps running and the body stays standing
     this.held = ok;
     if (!ok) console.warn('[hub] 조리 자세를 걸지 못했다 — 연출 없이 미니게임만 진행한다');
   }
@@ -235,7 +235,7 @@ export class CookStaging {
   private onStep(uid: string, index: number, game: CookGame, phase: 'choose' | 'play' | 'done', auto: boolean): void {
     if (uid !== this.uid) return;
     if (game !== this.game) {
-      // 박자 게임으로 넘어가면 반쯤 돈 손을 한 주기 끝까지 마저 돌려 칼이 위에서 시작한다
+      // moving into a beat game carries a half-turned hand to the end of its cycle, so the knife starts from up
       if (isStrikeGame(game)) { this.target = Math.max(this.target, Math.ceil(this.cycle - 1e-6)); this.rate = 1 / FINISH_STROKE_S; }
       this.game = game;
     }
@@ -263,10 +263,10 @@ export class CookStaging {
     if (action === 'stir') this.stirUntil = this.clock + STIR_HOLD_S;
     else if (action === 'pour_start') this.pouring = true;
     else if (action === 'pour_stop') this.pouring = false;
-    else this.hop = 0;   // flip · remove · burn — 그릴 팬이 들썩인다
+    else this.hop = 0;   // flip · remove · burn — the grill pan hops
   }
 
-  /** 손 동작 위상을 민다 — 쌓인 입력 → 젓기 → 느린 흔들림 순. 박자 게임은 입력 사이에 멈춰 칼이 위에 있다. */
+  /** Pushes the hand phase along — piled-up inputs → stirring → the slow sway, in that order. A beat game stops between inputs with the knife up. */
   private advance(dt: number): void {
     const game = this.game;
     let step = 0;
@@ -282,14 +282,14 @@ export class CookStaging {
     if (this.target < this.cycle) this.target = this.cycle;
   }
 
-  /** 매 프레임 (`FurnitureLayer.update`). */
+  /** Every frame (`FurnitureLayer.update`). */
   update(dt: number): void {
     this.clock += dt;
     const uid = this.uid ?? this.settleUid;
     if (!uid) return;
     const rig = this.find(uid)?.model.cook;
     if (!rig) {
-      if (this.uid) { this.stop(true); this.cancelHousing(); }   // 세션 도중 조리대가 사라졌다
+      if (this.uid) { this.stop(true); this.cancelHousing(); }   // the cook bench vanished mid-session
       else this.settleUid = null;
       return;
     }
@@ -335,7 +335,7 @@ export class CookStaging {
     }
   }
 
-  /** 연출을 거둔다 (도구는 `update` 가 제자리로 미끄러뜨린다). `release` = 플레이어 자세도 푼다. */
+  /** Takes the staging down (`update` slides the tools back to their rest spots). `release` = release the player pose too. */
   private stop(release: boolean): void {
     const uid = this.uid;
     this.uid = null;

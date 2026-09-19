@@ -2,10 +2,11 @@ import type { GameContext } from '@/shared';
 import { el, setText } from './dom';
 
 /**
- * 분대 도킹 카운트다운 (2026-09-15, 분대 · 도킹 매칭) — 분대장이 공용 함선에 도킹한 뒤 분대원 화면 **오른쪽**에 뜨는 작은
- * 판: 한 줄 안내 + 큰 숫자. 규칙(언제 뜨고 · 세고 · 취소되나)은 `parts/SquadDock` 이 갖고 이 파일은 그리기만 한다.
- * 연출이지 화면이 아니다 — blocker 도 `ctx.escape` 항목도 아니고 포인터를 먹지 않는다 (`pointer-events: none`).
- * CSS 접두사 `hsd-` (`hub.css` 의 끝 블록).
+ * The squad docking countdown (2026-09-15, squad docking) — the small plate that appears on the **right** of a
+ * squadmate's screen once the leader has docked into the shared ship: one line of text + a big number. The rules (when
+ * it appears · counts · is cancelled) belong to `parts/SquadDock`; this file only draws. It is a presentation, not a
+ * screen — no blocker, no `ctx.escape` entry, and it eats no pointer (`pointer-events: none`).
+ * CSS prefix `hsd-` (the last block of `hub.css`).
  */
 export class SquadDockCountdown {
   private readonly root: HTMLElement;

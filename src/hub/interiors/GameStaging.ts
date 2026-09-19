@@ -6,47 +6,47 @@ import { CAMERA_WALL_MARGIN, restRig, segmentHits, sitPoseOf, type FootBox, type
 import { SIT_SEAT_TOP, TV_GAME_HUD, TV_GAME_SCREEN } from './FurnitureLeisure';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 비디오게임 연출 (2026-09-13, 서재 시리즈 · 비디오게임 — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」). `GymStaging` · `CookStaging` 을 본뜬다.
+ * Video-game staging (2026-09-13, library series · video games — docs/DECISIONS.md 「2026-09-13 — 서재 시리즈 · 비디오게임」). Modelled on `GymStaging` · `CookStaging`.
  *
- *   housing:gameSession {active:true}  → 좌석(`seatUid`)의 TV 에 가장 가까운 자리에 `sit` 자세 · TV 화면 쪽 yaw · 어깨 너머 고정 카메라
- *                                         → setFurniturePose (false 면 **그 자리에서** cancelGameSession) · TV 의 게임 화면(`model.tv.overlay`)을 켠다
- *                                         2026-09-17: `seatUid` null(좌석 없음) = 자세 · 카메라 없이 선 자리 그대로, 게임 화면만 켠다
- *   housing:gameBeat                   → 화면 **속** 표식이 튀고 진행 막대가 오른다 (2026-09-14, 사용자 결정: 키를 누를 때마다 화면이 번쩍이지 않는다)
- *   housing:gameSession {active:false} → 자세를 푼다 (reason `caller`) · 게임 화면을 숨기고 재질을 원래 색으로
- *   player:furniturePoseEnded (sit, 우리가 푼 것이 아니면) → cancelGameSession (자세 없이 미니게임만 남지 않게)
+ *   housing:gameSession {active:true}  → a `sit` pose on the seat (`seatUid`) spot closest to the TV · yaw toward the TV screen · an over-the-shoulder fixed camera
+ *                                         → setFurniturePose (false → cancelGameSession **on the spot**) · the TV's game screen (`model.tv.overlay`) is turned on
+ *                                         2026-09-17: `seatUid` null (no seat) = no pose and no camera, standing where the player is, the screen only
+ *   housing:gameBeat                   → the marker **inside** the screen kicks and the progress bar climbs (2026-09-14, user's decision: the screen does not flash on every key press)
+ *   housing:gameSession {active:false} → the pose is released (reason `caller`) · the game screen is hidden and the materials go back to their own colours
+ *   player:furniturePoseEnded (sit, not released by this class) → cancelGameSession (so no minigame is left without a pose)
  *
- * 화면 연출은 공용 재질 `TV_GAME_SCREEN` · `TV_GAME_HUD` 의 **발광 색(uniform)** 만 바꾼다 — 재질을 갈아 끼우지도, `needsUpdate` 를
- * 세우지도 않으므로 셰이더 컴파일이 없고 점광원도 없다. 로컬 세션은 한 번에 하나라 공용 재질로 충분하다. 조각은 늘 uid 로 다시 찾는다
- * (방이 다시 지어지면 그룹이 바뀐다) — 재빌드된 TV 는 `BuildExtra.gameActive` 로 게임 화면을 켠 채 지어진다.
+ * The screen staging changes only the **emissive colour (uniform)** of the shared materials `TV_GAME_SCREEN` · `TV_GAME_HUD` — it
+ * swaps no material and raises no `needsUpdate`, so there is no shader compile and no point light; one local session at a time is
+ * why shared materials suffice. The piece is re-found by uid (a room rebuild swaps the group) — a rebuilt TV is built with its game screen already on (`BuildExtra.gameActive`).
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** 표식이 튀는 반응 시간 (초). */
+/** How long the marker's kick lasts (s). */
 const KICK_S = 0.25;
 /**
- * 화면 발광 — 기본 세기 · 느린 맥동 폭. HUD 기본 세기.
- * **2026-09-14 (사용자 결정): 키를 누를 때마다 화면이 번쩍이지 않는다.** 판정마다 `emissive` · `emissiveIntensity` 를 판정 색으로
- * 튀기던 것(`flash` · `SCREEN_FLASH` · `HUD_FLASH`)을 걷어냈다 — 화면은 디스크 테마 색 + 잔잔한 `SCREEN_PULSE` 맥동뿐이고,
- * 판정 반응은 화면 **속 표식**(`kick`)과 진행 막대가 말한다. 여긴 uniform 만 바꾸는 코드라는 성질은 그대로다 (점광원 0개).
+ * Screen glow — the base intensity · the slow pulse amplitude. The HUD's base intensity.
+ * **2026-09-14 (user's decision): the screen does not flash on every key press.** Kicking `emissive` · `emissiveIntensity` to the
+ * judgement colour on every judgement (`flash` · `SCREEN_FLASH` · `HUD_FLASH`) was dropped — the screen is the disc's theme colour
+ * + a quiet `SCREEN_PULSE`, and the marker **inside** the screen (`kick`) and the progress bar answer the judgement. Uniforms only, as before (zero point lights).
  */
 const SCREEN_BASE = 1.15;
 const SCREEN_PULSE = 0.18;
 const HUD_BASE = 1.5;
 const HUD_WHITE = new THREE.Color(0xdfefff);
-/** 디스크 색을 모를 때의 화면 색. */
+/** The screen colour used when the disc's colour is unknown. */
 const DEFAULT_THEME = '#3aa8ff';
-/** 앉는 방향을 TV 화면 쪽으로 틀 수 있는 최대 (rad) — 좌석이 TV 와 옆으로 어긋나 있어도 몸이 좌석 밖을 보지 않게. */
+/** The most the sitting direction may turn toward the TV screen (rad) — a seat offset sideways from the TV must not leave the body facing off it. */
 const YAW_CLAMP = 0.6;
 
 /**
- * 어깨 너머 카메라 후보 (좌석 anchor 기준, 앞 = anchor → TV 화면): 옆 (+1 = **오른 어깨**) × 옆 거리 × 뒤 거리 × 바닥에서의 높이.
- * 오른 어깨 · 가깝게 · 뒤로 · 낮게를 좋아하고, 방 벽 · 같은 방 가구(TV 제외)에 들어가거나 시선이 가리면 크게 깎는다. 쇼파가 벽에 붙어
- * 뒤로 물러날 수 없으면 옆(뒤 0.3 m)으로 빠진다.
+ * Over-the-shoulder camera candidates (around the seat anchor, forward = anchor → TV screen): side (+1 = **right shoulder**) × lateral
+ * distance × back distance × height off the floor. Right shoulder · close · back · low are preferred; entering a room wall or another
+ * piece of the room's furniture (not the TV), or a blocked line of sight, costs a lot. A sofa against a wall that cannot step back goes sideways instead (back 0.3 m).
  */
 const CAM_SIDES = [1, -1] as const;
 const CAM_LATERAL = [0.45, 0.8, 1.25] as const;
 const CAM_BACK = [1.1, 0.7, 0.3] as const;
 const CAM_HEIGHT = [1.55, 1.85] as const;
-/** 좌판 위 머리 높이 (`FURN_EYE.sit` 0.85) · 화면을 가리는지 보는 머리 · 어깨 상자 (좌판 기준). */
+/** Head height over the seat top (`FURN_EYE.sit` 0.85) · the head · shoulder box (seat-top relative) tested for blocking the screen. */
 const HEAD_UP = 0.85;
 const BODY = { half: 0.24, minUp: 0.5, maxUp: 1.0 } as const;
 
@@ -56,7 +56,7 @@ const wrapAngle = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 const contains = (b: FootBox, p: THREE.Vector3): boolean =>
   p.x >= b.minX - 0.02 && p.x <= b.maxX + 0.02 && p.y >= b.minY - 0.02 && p.y <= b.maxY + 0.02 && p.z >= b.minZ - 0.02 && p.z <= b.maxZ + 0.02;
 
-/** TV 화면 앞면 한가운데 (월드). TV 가 아니면 null. */
+/** The centre of the TV screen's front face (world). null when the piece is not a TV. */
 export function tvScreenWorld(tv: StagedPiece): THREE.Vector3 | null {
   const rig = tv.model.tv;
   if (!rig) return null;
@@ -65,14 +65,14 @@ export function tvScreenWorld(tv: StagedPiece): THREE.Vector3 | null {
 }
 
 /**
- * 게임 화면 카메라. `blockers` = 좌석과 같은 방의 다른 가구 상자 — **TV 화면을 품은 상자(= TV 자신)는 여기서 뺀다** (화면을 보는 선이 TV 몸체 안에서
- * 끝나므로 늘 걸린다). 세션 시작에 한 번 도는 코드라 할당은 신경 쓰지 않는다.
+ * The game-screen camera. `blockers` = the boxes of the other furniture in the seat's room — **the box holding the TV screen (= the TV
+ * itself) is dropped here** (the line to the screen ends inside the TV body, so it would always hit). Run once at session start, so allocation does not matter.
  */
 export function gameCameraOf(seat: StagedPiece, anchor: THREE.Vector3, screen: THREE.Vector3, blockers: readonly FootBox[]): { position: THREE.Vector3; lookAt: THREE.Vector3 } {
   let fx = screen.x - anchor.x, fz = screen.z - anchor.z;
   const len = Math.hypot(fx, fz);
   if (len < 1e-3) { fx = 0; fz = -1; } else { fx /= len; fz /= len; }
-  const rx = -fz, rz = fx;                                                   // 오른쪽 (앞 (0, −1) → 오른쪽 (+1, 0))
+  const rx = -fz, rz = fx;                                                   // right (forward (0, −1) → right (+1, 0))
   const floorY = anchor.y - SIT_SEAT_TOP;
   const head = new THREE.Vector3(anchor.x, anchor.y + HEAD_UP, anchor.z);
   const lookAt = head.clone().lerp(screen, 0.7);
@@ -108,8 +108,8 @@ export function gameCameraOf(seat: StagedPiece, anchor: THREE.Vector3, screen: T
 }
 
 /**
- * 게임 세션 자세 한 벌 — 좌석 중 TV 화면에 가장 가까운 자리 · 화면 쪽 yaw(좌석 방향에서 ±`YAW_CLAMP`) · 어깨 너머 고정 카메라 · E 로 안 풀림.
- * 좌석이 앉는 가구가 아니거나 TV 에 게임 화면 rig 가 없으면 null.
+ * One game-session pose — the seat spot closest to the TV screen · yaw toward the screen (±`YAW_CLAMP` off the seat's own) · an
+ * over-the-shoulder fixed camera · not released by E. null when the seat is not a sitting piece or the TV has no game-screen rig.
  */
 export function gamePoseOf(seat: StagedPiece, tv: StagedPiece, blockers: readonly FootBox[] = []): FurniturePose | null {
   const screen = tvScreenWorld(tv);
@@ -125,13 +125,13 @@ export function gamePoseOf(seat: StagedPiece, tv: StagedPiece, blockers: readonl
   };
 }
 
-/** 게임 세션 연출. `FurnitureLayer` 가 자기 함선(방문 중이 아닌)일 때만 만든다. */
+/** Game-session staging. `FurnitureLayer` creates it only for the own ship (never while visiting). */
 export class GameStaging {
-  /** 연출 중인 TV · 좌석 uid (세션이 없으면 null). */
+  /** The TV · seat uid being staged (null with no session). */
   tvUid: string | null = null;
   seatUid: string | null = null;
   private minigame: GymMinigame = 'press';
-  /** 우리가 건 자세가 지금 걸려 있다. */
+  /** The pose this class set is the one currently held. */
   private held = false;
   private releasing = false;
   private readonly unsubs: Array<() => void> = [];
@@ -144,14 +144,14 @@ export class GameStaging {
   private readonly screenBase = { color: TV_GAME_SCREEN.emissive.clone(), intensity: TV_GAME_SCREEN.emissiveIntensity };
   private readonly hudBase = { color: TV_GAME_HUD.emissive.clone(), intensity: TV_GAME_HUD.emissiveIntensity };
 
-  /** `find` = uid 로 지금의 조각, `blockers` = 그 조각과 같은 방의 다른 가구 상자 (카메라 가림). */
+  /** `find` = the piece for a uid right now, `blockers` = the boxes of the other furniture in its room (camera occlusion). */
   constructor(private readonly ctx: GameContext, private readonly find: (uid: string) => StagedPiece | null, private readonly blockers: (uid: string) => readonly FootBox[] = () => []) {
     const b = ctx.bus;
     this.unsubs.push(
       b.on('housing:gameSession', (e) => this.onSession(e.tvUid, e.seatUid, e.discDefId, e.minigame, e.active)),
       b.on('housing:gameBeat', (e) => this.onBeat(e.tvUid, e.quality, e.index, e.total)),
       b.on('player:furniturePoseEnded', (e) => {
-        // 게임 자세가 우리 손을 거치지 않고 풀렸다 (페이즈 변경 · 스폰 · hub:left 의 reset) → 미니게임도 거둔다
+        // the game pose was released without going through this class (phase change · spawn · the reset on hub:left) → drop the minigame too
         if (!this.tvUid || !this.held || this.releasing || e.kind !== 'sit') return;
         this.held = false;
         this.stop(false);
@@ -160,14 +160,14 @@ export class GameStaging {
     );
   }
 
-  /** 이 TV 로 게임 중인가 (`BuildExtra.gameActive`). */
+  /** Is a game running on this TV (`BuildExtra.gameActive`). */
   activeOn(tvUid: string): boolean {
     return this.tvUid === tvUid;
   }
 
   /**
-   * 디버그 · 스모크: 연출 중인 세션 · 판정 반응(`kick`) · 진행 막대 · 게임 화면이 보이는가 · 화면 발광 세기. 세션이 없으면 null.
-   * 2026-09-14: 옛 `flash`(화면 번쩍임)는 없어졌다 — 판정 반응은 `kick` 이 말한다.
+   * Debug · smoke: the staged session · the judgement response (`kick`) · the progress bar · whether the game screen shows · the
+   * screen's emissive intensity. null with no session. 2026-09-14: the old `flash` (the screen flash) is gone — `kick` says it now.
    */
   get stage(): { tvUid: string; seatUid: string | null; minigame: GymMinigame; held: boolean; kick: number; progress: number; overlay: boolean; screenIntensity: number } | null {
     if (!this.tvUid) return null;
@@ -190,22 +190,22 @@ export class GameStaging {
       this.theme.set(this.discColor(discDefId));
     }
     tv.model.tv.overlay.visible = true;
-    // 2026-09-17 (사용자 결정): 좌석은 조건이 아니다 — 좌석이 없으면 자세 · 고정 카메라 없이 **선 자리 그대로** 한다 (게임 화면이 떠 있는
-    // 동안 `housing.game` 블로커가 이동을 막는다). 서는 가구 자세는 조리대용(`cook`)뿐이라 새 자세를 만들지 않았다.
+    // 2026-09-17 (user's decision): a seat is not a condition — with no seat the session runs **standing where the player is**, with no
+    // pose and no fixed camera (the `housing.game` blocker stops movement while the game screen is up). The only standing furniture pose is the cook bench's (`cook`), so none was added.
     if (!seat) return;
     const p = this.ctx.player;
-    if (!p || typeof p.setFurniturePose !== 'function') return;   // player 가 아직 자세를 모른다 — 미니게임은 그대로 둔다
-    if (same && this.held && p.furniturePose === 'sit') return;    // 같은 세션을 다시 알렸다 — 다시 걸면 풀 때 돌아갈 자리가 좌석이 된다
+    if (!p || typeof p.setFurniturePose !== 'function') return;   // player does not know poses yet — the minigame is left alone
+    if (same && this.held && p.furniturePose === 'sit') return;    // the same session was announced again — re-setting the pose would make the seat the spot it returns to on release
     const pose = gamePoseOf(seat, tv, this.blockers(seat.item.uid));
     let ok = false;
-    // 우리 호출 안에서 나오는 자세 끝 알림(앉아 있던 흔들의자 · 이전 자세)은 우리 것이다
+    // a pose-ended notice raised inside this call (a rocking chair being sat in · the previous pose) belongs to this class
     this.releasing = true;
     try { ok = pose !== null && p.setFurniturePose(pose); } catch (err) { console.warn('[hub] setFurniturePose(game) failed', err); } finally { this.releasing = false; }
     if (!ok) { this.stop(false); this.cancelHousing(); return; }
     this.held = true;
   }
 
-  /** 판정 하나 — **화면을 번쩍이지 않는다** (2026-09-14). 화면 속 표식이 튀고 진행 막대가 오른다. */
+  /** One judgement — **the screen does not flash** (2026-09-14). The marker inside the screen kicks and the progress bar climbs. */
   private onBeat(tvUid: string, _quality: 'perfect' | 'good' | 'miss', index: number, total: number): void {
     if (tvUid !== this.tvUid) return;
     this.kick = 1;
@@ -213,22 +213,22 @@ export class GameStaging {
     this.side = -this.side;
   }
 
-  /** 매 프레임 (`FurnitureLayer.update`). 프레임당 할당 없음. */
+  /** Every frame (`FurnitureLayer.update`). No per-frame allocation. */
   update(dt: number): void {
     this.clock += dt;
     if (!this.tvUid) return;
     const tv = this.find(this.tvUid);
     const seat = this.seatUid ? this.find(this.seatUid) : null;
     const rig = tv?.model.tv;
-    if (!rig || (this.seatUid && !seat)) { this.stop(true); this.cancelHousing(); return; }   // 세션 도중 TV · (앉아 있던) 좌석이 사라졌다
+    if (!rig || (this.seatUid && !seat)) { this.stop(true); this.cancelHousing(); return; }   // the TV, or the seat being sat in, disappeared mid-session
     rig.overlay.visible = true;
     this.kick = Math.max(0, this.kick - dt / KICK_S);
-    // 화면은 늘 같은 밝기다 — 디스크 테마 색 + 잔잔한 맥동만 (2026-09-14, 사용자 결정)
+    // the screen keeps one brightness — the disc's theme colour + a quiet pulse only (2026-09-14, user's decision)
     TV_GAME_SCREEN.emissive.copy(this.theme);
     TV_GAME_SCREEN.emissiveIntensity = SCREEN_BASE + SCREEN_PULSE * Math.sin(this.clock * 2.4);
     TV_GAME_HUD.emissive.copy(HUD_WHITE);
     TV_GAME_HUD.emissiveIntensity = HUD_BASE;
-    // 화면 속 표식 — 미니게임마다 다르게 (벤치프레스 = 좌우로 오가는 커서 · 호흡 = 부풀었다 줄어드는 막대 · 사이클 = 박자마다 좌우로 건너뛴다)
+    // the marker inside the screen — one per minigame (bench press = a cursor sweeping side to side · breath = a bar swelling and shrinking · cycle = it hops sides on every beat)
     const half = rig.screenW * 0.4, m = rig.marker;
     if (this.minigame === 'press') {
       m.position.x = Math.sin(this.clock * 3.2) * half * 0.9;
@@ -245,7 +245,7 @@ export class GameStaging {
     rig.progress.scale.x = Math.max(0.001, this.shownProgress);
   }
 
-  /** 연출을 거둔다: 게임 화면을 숨기고 재질을 원래대로. `release` = 우리가 건 자세도 푼다. */
+  /** Take the staging down: hide the game screen and put the materials back. `release` = also release the pose this class set. */
   private stop(release: boolean): void {
     const tvUid = this.tvUid, seatUid = this.seatUid;
     this.tvUid = null;
@@ -272,7 +272,7 @@ export class GameStaging {
     try { p.setFurniturePose(null); } catch { /* player mid-build */ } finally { this.releasing = false; }
   }
 
-  /** 게임 디스크의 테마 색 (`GameDiscDef.color`), 모르면 기본 색. */
+  /** The game disc's theme colour (`GameDiscDef.color`), the default colour when unknown. */
   private discColor(defId: string): string {
     try {
       const c = this.ctx.loot?.getItemDef(defId)?.gameDisc?.color;

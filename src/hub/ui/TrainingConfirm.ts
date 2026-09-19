@@ -2,15 +2,16 @@ import type { GameContext } from '@/shared';
 import { el } from './dom';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * 시뮬레이션 훈련장 입장 확인 (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」 — 사용자 결정).
+ * The training arena entry confirm (2026-09-15, docs/DECISIONS.md 「2026-09-15 — 분대 · 도킹 매칭」 — user's decision).
  *
- * 터미널 행성 탭 우하단의 `시뮬레이션 훈련장` 버튼이 곧장 입장하지 않고 이 카드를 띄운다. **되돌릴 수 있는 일**이라
- * 1초 홀드가 아니라 클릭 확정이다 (「되돌릴 수 없는 확정은 1초 홀드다」의 반대편). Escape · Tab · E 는 취소이고,
- * 초기 포커스는 `취소` 라 Enter 도 취소를 누른다.
+ * The `시뮬레이션 훈련장` button at the bottom right of the terminal's planet tab raises this card instead of entering
+ * straight away. Entering is **reversible**, so it is a tap confirm, not a 1 s hold (the other side of 「irreversible
+ * confirms need a 1 s hold」). Escape · Tab · E cancel, and the initial focus is `취소`, so Enter cancels too.
  *
- * 화면 규약: 자기 blocker / escape 토큰 `hub:trainConfirm` (터미널의 `hub` 와 **다른 토큰** — 닫혀도 뒤의 터미널이
- * 커서를 잃지 않는다), 키 가이드 owner `hub.trainConfirm`(닫기 항목은 가이드가 스스로 붙인다).
- * CSS 접두사 `.htc-` (`hub/intel.css`). Owner: hub/ui. 여는 곳 — `HubMenu` 푸터의 `.hub-train`.
+ * Screen contract: its own blocker / escape token `hub:trainConfirm` (**a different token** from the terminal's `hub` —
+ * closing it never costs the terminal behind it its cursor), key guide owner `hub.trainConfirm` (the guide appends the
+ * close entry itself). CSS prefix `.htc-` (`hub/intel.css`). Owner: hub/ui. Opened from — `.hub-train` in `HubMenu`'s
+ * footer.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const TOKEN = 'hub:trainConfirm';
@@ -64,7 +65,7 @@ export class TrainingConfirm {
     this.onClosed();
   }
 
-  /** `입장` — 카드를 먼저 닫고(토큰을 놓고) 입장을 부른다. 거절 사유는 `startTraining` 이 토스트로 말한다. */
+  /** `입장` — close the card first (releasing the token), then call the entry. `startTraining` toasts any refusal. */
   private confirm(): void {
     const run = this.onConfirm;
     this.close();

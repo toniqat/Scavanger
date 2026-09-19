@@ -8,20 +8,22 @@ export interface LaunchWarnHost {
 }
 
 /**
- * 출격 준비 경고 (`.menu.hub-menu.launch-warn`, 2026-09-08).
+ * The launch readiness warning (`.menu.hub-menu.launch-warn`, 2026-09-08).
  *
- * **2026-09-14: 탑승이 아니라 준비 직전에 뜬다.** 발사 슬롯에 앉은 채 스페이스를 1초 꾹 누른 순간
- * `ctx.inventory.getLaunchWarnings()` 가 무언가를 돌려주면 그 목록을 한 장의 카드로 띄운다. 주무기 없음 ·
- * 탄약 한 세트 미만 · 가방 없음 · 방탄복 없음 · 전술 임플란트 없음 · 회복 아이템 없음 — 여섯 가지 각각이
- * 표제 한 줄 + 상세 한 줄로 서고, 아래에 **[그래도 준비]** 와 **[취소]** 가 있다. 포드 탑승 자체는 이제
- * 아무것도 묻지 않는다 (앉는 것은 확정이 아니다).
+ * **2026-09-14: it comes up just before readying, not on boarding.** The moment `Space` has been held for a second in
+ * a launch slot, whatever `ctx.inventory.getLaunchWarnings()` returns is raised as one card. No primary · less than
+ * one set of ammo · no bag · no armor · no tactical implant · no healing item — each of the six stands as one headline
+ * row plus one detail row, with **[그래도 준비]** and **[취소]** below. Boarding the pod itself now asks nothing
+ * (sitting down is not a commitment).
  *
- * **막지 않는다.** 확인하면 그대로 준비되고, 같은 경고 조합(`signature`)에 대해서는 다시 뜨지 않는다 — 장비를
- * 하나라도 고치거나 다른 항목이 걸리면 서명이 달라지므로 그때는 새로 뜬다. 취소는 아무것도 기억하지 않는다.
+ * **It never blocks.** Confirming readies as asked, and the same combination of warnings (`signature`) never comes up
+ * again — fixing any one piece of gear, or tripping a different item, changes the signature and it returns. Cancelling
+ * remembers nothing.
  *
- * 커서 예절은 다른 함선 패널과 같다: `'hub'` blocker 를 먼저 넣고 소프트 커서를 켠다 — 포인터 락은 유지한다
- * (`exitPointerLock()` 은 부르지 않는다). 2026-09-08 ESC 규칙 변경 이후 Escape 는 일시정지 메뉴로 빠지므로,
- * 키보드 취소는 `HubSystem.update` 의 **E** 사슬이 첫 분기로 잡는다 (`launchWarn.isOpen → close()`).
+ * Cursor etiquette is the other ship panels': add the `'hub'` blocker first, then turn the software cursor on — the
+ * pointer lock is kept (`exitPointerLock()` is never called). Since the 2026-09-08 Escape rule change Escape falls
+ * through to the pause menu, so the keyboard cancel is caught by the first branch of `HubSystem.update`'s **E** chain
+ * (`launchWarn.isOpen → close()`).
  */
 export class LaunchWarnPanel {
   readonly root: HTMLElement;

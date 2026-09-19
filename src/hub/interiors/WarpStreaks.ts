@@ -10,7 +10,7 @@ import type { Planet, Starfield } from './Starfield';
  * vertices every frame would be a per-frame buffer upload for nothing, the write is **quantised** (`STRETCH_STEP`):
  * a 6 s warp ends up uploading a couple of dozen times, not 360.
  *
- * **2026-09-09 (창문 워프)**: built for the old exterior cutscene, now owned by each ship interior and watched
+ * **2026-09-09 (the window warp)**: built for the old exterior cutscene, now owned by each ship interior and watched
  * **through the viewports** from inside the hull. The geometry is generated along −Z and the group is rotated so
  * that local −Z lands on `forward` (the ship's nose: −Z for the personal ship, −X for the shared ship's bridge);
  * `rMin` must clear the hull so no streak ever crosses a walkable room, and the field drifts **backwards** along

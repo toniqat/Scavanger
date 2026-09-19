@@ -1,9 +1,9 @@
 /**
- * src/hub/parts/Interior.ts — **함선 내부 짓기 · 허물기**.
+ * src/hub/parts/Interior.ts — **building and tearing down a ship interior**.
  *
- * 개인 함선(조종석 → 복도 → 방 10개 → 에어락)과 공유 함선의 지오메트리, 스테이션 배치,
- * 가구 배치(`buildHousing`), 방 추적과 표지판. 모든 클라이언트가 같은 지오메트리를 만들어야
- * 공유 함선의 위치 스냅샷이 맞는다.
+ * Geometry of the personal ship (cockpit → corridor → 10 rooms → airlock) and of the shared ship, the stations,
+ * the furniture layer (`buildHousing`), room tracking and the door signs. Every client must build identical
+ * geometry or the shared ship's position snapshots do not line up.
  */
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
@@ -15,7 +15,7 @@ import { SharedShip } from '../interiors/SharedShip';
 import type { StationDef } from '../interiors/stations';
 import type { ShipInterior } from '../interiors/types';
 import { FurnitureLayer } from '../interiors/Furniture';
-import { TablePlates } from '../interiors/TablePlates';   // 2026-09-16 접시 모델 — 공유 함선 식탁의 분대원 접시
+import { TablePlates } from '../interiors/TablePlates';   // 2026-09-16 plate models — squadmates' plates on the shared table
 import { roomAtWorld } from '../interiors/RoomLayout';
 import { HousingMode } from '../HousingMode';
 import { LaunchPod } from '../LaunchPod';
@@ -27,16 +27,16 @@ import { HubStatus } from '../ui/HubStatus';
 import { ReadyPanel, type ReadyCellInfo } from '../ui/ReadyPanel';
 import { randomSeed } from '../ui/dom';
 import { type DockTransition, LOCK_REQUEST_GRACE_MS, READY_ECHO_GRACE, UNBOARD_GRACE, _camLook, _camPos, _front } from '../model';
-/* 공용 함선 격납고 (2026-09-08) */
+/* The shared ship's hangar (2026-09-08) */
 import * as Hangar from './Hangar';
 import * as SquadDock from './SquadDock';
-/* 2026-09-15: 조종실 안드로이드 슬롯 · 발사 포드 앞 대기 자리 · 레이드 진입 암전 정리 */
+/* 2026-09-15: the cockpit android bays · the standing spots in front of the launch pods · clearing the raid-entry fade */
 import * as Androids from './Androids';
 import * as Pods from './Pods';
 import type { HubSystem } from '../HubSystem';
 
 /**
- * `fromBay` (2026-09-08, 격납고): the bay slot we just walked out of — the shared ship then spawns the player in
+ * `fromBay` (2026-09-08, the hangar): the bay slot we just walked out of — the shared ship then spawns the player in
  * front of that bay instead of at the deck's default position. Ignored for the personal ship.
  */
 export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fromBay?: number, prebuilt?: ShipInterior): THREE.Vector3 {
@@ -47,11 +47,11 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fr
   sys.interior = interior;
   sys.ship = ship;
   sys.collider = interior.collider;
-  // 2026-09-15 (분대 · 도킹 매칭): which squad's shared ship this is — first, `sys.planet` below already reads it.
+  // 2026-09-15 (squads · dock matchmaking): which squad's shared ship this is — first, `sys.planet` below already reads it.
   // A bay's personal ship keeps the squad it hangs off; the ordinary personal ship belongs to nobody's squad.
   sys.shipLobbyCode = ship === 'shared' ? (sys.debugLobby?.code ?? ctx.net?.lobby?.code ?? null) : (sys.visit ? sys.shipLobbyCode : null);
   /*
-   * 격납고 (2026-09-08): a personal ship entered from a bay carries **no launch pod**. Its slot-0 pod is the solo
+   * Hangar (2026-09-08): a personal ship entered from a bay carries **no launch pod**. Its slot-0 pod is the solo
    * launch route, and the squad launches from the shared deck — offering it here would drop a member out of the
    * lobby's own countdown. Boarding a visited stranger's pod would be nonsense besides.
    */
@@ -63,19 +63,19 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fr
   }));
   sys.slots = podDefs.map((d) => ({ slot: d.slot, position: d.position.clone(), yaw: d.yaw, occupant: null }));
   const canUseConsole = (): boolean => sys.stationUsable();
-  // 2026-09-08: 튜토리얼이 아직 터미널 단계에 오지 않았으면 터미널만 잠근다 (작업대 · 컴퓨터는 그대로)
+  // 2026-09-08: while the tutorial has not reached its terminal step only the terminal is locked (benches · computer stay)
   const canUseTerminal = (): boolean => sys.stationUsable() && !ctx.tutorial?.blockReason('terminal');
   /*
-   * 개인 함선 방문 (2026-09-08): someone else's ship registers **no consoles at all**. `stationUsable()` already
+   * Visiting a personal ship (2026-09-08): someone else's ship registers **no consoles at all**. `stationUsable()` already
    * refuses them, but an unusable interactable still sits in the registry and competes with `findBest` for the
    * player's prompt — a visit should leave nothing to press but the way out.
    */
   const ro = sys.visitReadOnly;
   sys.terminal = ro ? null : new Terminal(ctx, interior.terminal, () => sys.menu.open(), canUseTerminal);
   /*
-   * 2026-09-12 (사용자 결정 — 정비 벤치 제거): 여기서 `hub_workbench` 를 등록했다. 공유 함선 후벽의 벤치도,
-   * 개인 함선의 `furn_repair_bench` 가구도 모두 무기 수리 창을 열었는데, 이제 수리는 **인벤토리에서** 한다
-   * (재료만 있으면 함선 어디서든). 벤치 소품 자체는 병기고 실루엣으로 남아 있고 누를 것만 없다.
+   * 2026-09-12 (user's decision — the repair bench was dropped): `hub_workbench` was registered here. The shared ship's
+   * aft-wall bench and the personal ship's `furn_repair_bench` furniture both opened the weapon repair window; repair
+   * now happens **in the inventory** (anywhere aboard, given the materials). The bench prop stays as an armoury silhouette.
    */
   // 2026-09-12: only the shared ship still has a built-in computer desk — the personal ship's is `furn_corp_computer`
   // furniture (the layer registers it under the same `hub_computer` id, see `interiors/Furniture`)
@@ -83,15 +83,15 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fr
   sys.buildStations(interior);
   sys.buildHousing(interior);
   /*
-   * 2026-09-15 (안드로이드 분대원): 공용 함선에만 조종실 슬롯 세 칸과 발사 포드 앞 대기 자리가 있다. 방문 중인
-   * 함선(`visit`)에는 아무것도 서지 않는다 — `getAndroidBays` 가 이미 빈 배열을 돌려주므로 등록도 비어 있다.
+   * 2026-09-15 (android squadmates): only the shared ship has the three cockpit bays and the standing spots in front of
+   * the launch pods. A visited ship (`visit`) gets none — `getAndroidBays` already answers empty, so nothing registers.
    */
   Androids.buildPodStands(sys);
   if (ship === 'shared') { Hangar.buildBays(sys); Androids.buildAndroidBays(sys); }
   if (ship === 'personal' && sys.visit) buildHangarExit(sys, interior);
 
   /*
-   * 격납고 (2026-09-08): two extra entry points. Walking into a bay's ship puts us at its **airlock** (we came in
+   * Hangar (2026-09-08): two extra entry points. Walking into a bay's ship puts us at its **airlock** (we came in
    * through the rear ramp); walking back out puts us in front of the bay we left, facing the parked ship.
    */
   const bay = ship === 'shared' && fromBay !== undefined ? interior.bays?.[fromBay] ?? null : null;
@@ -112,7 +112,7 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fr
   }
   sys.setSpaceMode(true);
   sys.countdown = -1; sys.launched = false; sys.lastCountdownSecond = -1;
-  Pods.clearRaidLaunch(sys);   // 2026-09-15: 레이드 진입 암전의 벽시계 타이머는 인테리어보다 오래 살지 않는다
+  Pods.clearRaidLaunch(sys);   // 2026-09-15: the raid-entry fade's wall-clock timer never outlives the interior
   sys.knownLobbyPlanet = ctx.net && sys.squadLobby() ? (ctx.net.lobbyPlanet ?? null) : null;
   sys.applyPlanetLook();
   sys.syncPods();
@@ -121,23 +121,23 @@ export function build(sys: HubSystem, ship: HubShipKind, viaAirlock: boolean, fr
   }
 
 /**
- * 함선 시설: the implant bay, which opens the Tab ship screen (inventory window: 창고 / 장비 + 임플란트 슬롯 /
- * 가방). Its geometry is already merged into the interior. (Phase 8 removed the hydroponics station — 재배 is
- * the 온실 room's `furn_grow_rack` furniture now.)
+ * Ship stations: the implant bay, which opens the Tab ship screen (inventory window: `창고` / `장비` + implant slots /
+ * `가방`). Its geometry is already merged into the interior. (Phase 8 removed the hydroponics station — growing is
+ * the `온실` room's `furn_grow_rack` furniture now.)
  */
 export function buildStations(sys: HubSystem, interior: ShipInterior): void {
   const s = interior.stations;
-  // 방문 중(남의 함선)에는 시설이 통째로 없다 — 둘러보기 전용 (2026-09-08)
+  // During a visit (someone else's ship) there are no stations at all — looking around only (2026-09-08)
   if (!s || sys.visitReadOnly) return;
   // 2026-09-12: only the shared ship has a built-in bay; the personal ship's is `furn_implant_bay` furniture
   if (s.implantBay) sys.addStation('hub_implant_bay', s.implantBay, '전술 임플란트 장착', () => openImplantBay(sys.ctx));
   /*
-   * 공유 함선의 고정 식탁 (주방 A-3c, 2026-09-11). 개인 함선의 식탁은 주방에 놓는 **가구**지만 공유 함선에는
-   * 가구가 없으므로, 인테리어가 심어 둔 지점 하나가 그 자리를 대신한다 — 계약대로 `openDiningTable(null)` 의
-   * `null` 이 곧 「공유 함선의 고정 식탁」이다 (uid 가 없다). 개인 함선에는 `diningTable` 자체가 없다.
+   * The shared ship's fixed dining table (the kitchen, A-3c, 2026-09-11). The personal ship's table is **furniture** in
+   * the kitchen, but the shared ship has no furniture, so one spot planted by the interior stands in for it — per the
+   * contract the `null` of `openDiningTable(null)` **is** that fixed table (no uid). A personal ship has no `diningTable`.
    */
   if (s.diningTable) sys.addStation('hub_dining_table', s.diningTable, '식탁 · 식사', () => openDiningTable(sys.ctx, null), 2.4);
-  // 2026-09-16 (접시 모델, 사용자 결정): 그 식탁에는 분대원 전원의 접시가 놓인다 — 식기 자리마다 요리 모양 + 요리한 사람 이름표
+  // 2026-09-16 (plate models, user's decision): every squadmate's plate sits on that table — a dish shape plus the cook's name tag per setting
   if (s.diningTable && s.diningPlates?.length) {
     sys.tablePlates?.dispose();
     sys.tablePlates = new TablePlates(sys.ctx, interior.root, s.diningPlates, s.diningTable.yaw);
@@ -145,8 +145,8 @@ export function buildStations(sys: HubSystem, interior: ShipInterior): void {
   }
 
 /**
- * 전술 임플란트 시술대: Tab 창(임플란트 칸)을 연다. 공유 함선의 붙박이(`hub_implant_bay`)와 개인 함선의 공용 시설 가구
- * (`furn_implant_bay`, 2026-09-12)가 같은 길을 탄다.
+ * The implant bay: opens the Tab window (its implant slots). The shared ship's built-in one (`hub_implant_bay`) and the
+ * personal ship's shared-facility furniture (`furn_implant_bay`, 2026-09-12) take the same road.
  */
 function openImplantBay(ctx: GameContext): void {
   const inv = ctx.inventory;
@@ -154,8 +154,8 @@ function openImplantBay(ctx: GameContext): void {
 }
 
 /**
- * 식사 화면 (주방 A-3c, 2026-09-11): 가구 식탁은 그 조각의 `uid`, **공유 함선의 고정 식탁은 `null`** 로 연다
- * (`HousingRef.openDiningTable` 의 계약). 다른 폴더가 아직 없을 때를 대비해 duck-typed 로 부른다.
+ * The dining screen (the kitchen, A-3c, 2026-09-11): a furniture table opens with that piece's `uid`, **the shared ship's
+ * fixed table with `null`** (`HousingRef.openDiningTable`'s contract). Duck-typed in case that folder is not there yet.
  */
 function openDiningTable(ctx: GameContext, uid: string | null): void {
   const h = ctx.housing;
@@ -177,19 +177,19 @@ export function addStation(sys: HubSystem, id: string, def: StationDef, prompt: 
   }
 
 /**
- * 함선 꾸미기 (personal ship): the furniture layer and the housing-mode controller.
+ * Decorating the ship (personal ship): the furniture layer and the housing-mode controller.
  *
  * Phase 8 UI pass: the room door consoles (`hub_room_<i>`) and the cockpit facility console (`hub_facility`) are
- * **gone**, along with their geometry — rooms, purposes and facilities are managed from the Tab 함선 tab and from
- * 시설 관리 (M). Only the furniture pieces themselves still answer to E.
+ * **gone**, along with their geometry — rooms, purposes and facilities are managed from the Tab `함선` tab and from
+ * `시설 관리` (M). Only the furniture pieces themselves still answer to E.
  */
 export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
   const ctx = sys.ctx;
   if (!(interior instanceof PersonalShip)) { sys.housingMode.setShip(null, null); return; }
   /*
-   * 개인 함선 방문 (2026-09-08): a visited ship's furniture comes off that member's `ship state`, never from
+   * Visiting a personal ship (2026-09-08): a visited ship's furniture comes off that member's `ship state`, never from
    * `ctx.housing` (which is *our* ship). A sourced layer subscribes to nothing and registers no interactables, and
-   * 함선 관리 is denied the interior, so nothing in here can be touched.
+   * ship management is denied the interior, so nothing in here can be touched.
    */
   const source = sys.visitShip ? Hangar.furnitureSource(ctx, sys.visitShip) : null;
   // 2026-09-12: the cockpit is a furniture area too (`COCKPIT_ROOM_INDEX`) — rooms first, cockpit last
@@ -202,10 +202,11 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
       else ctx.bus.emit('ui:notify', { text: '작업대를 사용할 수 없습니다', kind: 'warning' });
     },
     /*
-     * 2026-09-12 (사용자 결정 — 시뮬레이션실 제거): `onRangeConsole`(관물대 → 프리셋 메뉴)과 `onSimHub`(시뮬레이션 허브 →
-     * 훈련장)가 여기 있었다. 두 가구는 은퇴했고(`retired=1`) 프리셋 기능은 없어졌으며, 훈련장은 **터미널**에서 연다.
+     * 2026-09-12 (user's decision — the simulation room was dropped): `onRangeConsole` (the locker → the preset menu)
+     * and `onSimHub` (the simulation hub → the training arena) lived here. Both pieces are retired (`retired=1`), the
+     * presets are gone, and the training arena opens from the **terminal**.
      */
-    // 공용 시설 가구 (2026-09-12): 조종석 붙박이였던 두 설비 — 붙박이 때와 같은 창을 연다
+    // Shared-facility furniture (2026-09-12): the two fixtures that were built into the cockpit — they open the same windows as then
     onImplantBay: () => openImplantBay(ctx),
     onCorpComputer: () => sys.openCorpMenu(),
     onGrowRack: (uid) => {
@@ -213,38 +214,38 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
       if (h && typeof h.openGrowMenu === 'function') h.openGrowMenu(uid);
       else ctx.bus.emit('ui:notify', { text: '재배층을 사용할 수 없습니다', kind: 'warning' });
     },
-    // 온실 개편 (2026-09-11): 재배 스테이션 — 옛 재배층 경로는 위에 그대로 두고 새 문을 하나 더 연다
+    // The greenhouse rework (2026-09-11): the grow station — the old grow-rack road is left above, this opens one more door
     onGrowStation: (uid) => {
       const h = ctx.housing;
       if (h && typeof h.openGrowStation === 'function') h.openGrowStation(uid);
       else ctx.bus.emit('ui:notify', { text: '재배 스테이션을 사용할 수 없습니다', kind: 'warning' });
     },
     /*
-     * 정비 벤치 (Phase 8 → 2026-09-12 은퇴): `furn_repair_bench` 는 `data/furniture.csv` 에서 `retired=1` 이라
-     * `ShipState.sanitize` 가 놓인 것을 걷어내고 재료로 환불한다 — 이 칸에 도달할 길이 없다. `FurnitureInteraction`
-     * 은 계약이라 값은 남아 있으므로 분기도 남긴다(`interiors/Furniture` 에서 **아무것도 하지 않는** 분기).
+     * The repair bench (Phase 8 → retired 2026-09-12): `furn_repair_bench` is `retired=1` in `data/furniture.csv`, so
+     * `ShipState.sanitize` removes a placed one and refunds its materials — nothing can reach this branch. The value
+     * stays because `FurnitureInteraction` is a contract, so the branch stays too (**doing nothing**, in `interiors/Furniture`).
      */
     onBookshelf: (uid) => {
       const h = ctx.housing;
       if (h && typeof h.openBookshelfMenu === 'function') h.openBookshelfMenu(uid);
       else ctx.bus.emit('ui:notify', { text: '책장을 사용할 수 없습니다', kind: 'warning' });
     },
-    // 연구실 (A-12, 2026-09-11): 분석기 — 표본 넣기 · 해석 회수 · 해석 도감
+    // The lab (A-12, 2026-09-11): the analyzer — load a sample · collect the resolved form · the analysis catalogue
     onAnalyzer: (uid) => {
       const h = ctx.housing;
       if (h && typeof h.openAnalyzer === 'function') h.openAnalyzer(uid);
       else ctx.bus.emit('ui:notify', { text: '분석기를 사용할 수 없습니다', kind: 'warning' });
     },
-    // 온실 배양조 (A-14, 2026-09-11): 배지 붓기 · 세포주 넣기 · 수확
+    // The greenhouse culture tank (A-14, 2026-09-11): pour the medium · insert a strain · harvest
     onCultureTank: (uid) => {
       const h = ctx.housing;
       if (h && typeof h.openCultureTank === 'function') h.openCultureTank(uid);
       else ctx.bus.emit('ui:notify', { text: '배양조를 사용할 수 없습니다', kind: 'warning' });
     },
     /*
-     * 조리대 화면 (2026-09-13, 요리 미니게임): 조리대(`workbench_cook`)는 그 조각의 uid, 자동 조리 가구(`cook_*`)는 layer 가 찾은
-     * 함선의 조리대 uid 를 넘긴다 (없으면 null). **인벤토리 제작 창(`openBenchCraft`)으로 떨어지지 않는다** — 조리대 레시피는
-     * 품질 없이 만드는 뒷문을 막으려고 그 경로에서 빠졌다.
+     * The cook screen (2026-09-13, the cooking minigames): the cook bench (`workbench_cook`) passes that piece's uid, an
+     * auto appliance (`cook_*`) the ship's cook-bench uid the layer found (null with none). It **never falls through to
+     * the inventory craft window (`openBenchCraft`)** — cook recipes left that road to close the no-quality back door.
      */
     onCookStation: (uid) => {
       if (uid === null) { ctx.bus.emit('ui:notify', { text: '조리대가 없습니다', kind: 'warning' }); return; }
@@ -254,10 +255,10 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
       } else ctx.bus.emit('ui:notify', { text: '조리대를 사용할 수 없습니다', kind: 'warning' });
     },
     /*
-     * 암호화폐 채굴 (2026-09-13 → 2026-09-14 통합): 두 가구가 **같은 창**을 연다 — 상단 가로 탭 넷(채굴 · 클러스터
-     * 현황 · 지갑 · 거래소)짜리 채굴 화면이고, **기본 탭이 누른 가구의 탭**이다 (사용자 결정): 연산 클러스터 →
-     * 채굴, 메인 컴퓨터 → 클러스터 현황. 그 규약은 `housing` 쪽 `openComputeCluster` / `openMiningComputer` 가
-     * 갖는다 — 여기서는 계약 이름 둘을 그대로 부른다 (duck-typed: 병렬로 짓는 폴더가 아직 없을 수 있다).
+     * Crypto mining (2026-09-13 → merged 2026-09-14): the two pieces open **the same window** — the mining screen of four
+     * top tabs (`채굴` · `클러스터 현황` · `지갑` · `거래소`), and **the default tab is the pressed piece's tab** (user's
+     * decision): compute cluster → `채굴`, main computer → `클러스터 현황`. That contract lives in `housing`'s
+     * `openComputeCluster` / `openMiningComputer`; here the two names are simply called (duck-typed — that folder may be absent).
      */
     onComputeCluster: (uid) => {
       const h = ctx.housing;
@@ -271,10 +272,10 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
         try { h.openMiningComputer(uid); } catch (err) { console.warn('[hub] openMiningComputer failed', err); }
       } else ctx.bus.emit('ui:notify', { text: '메인 컴퓨터를 사용할 수 없습니다', kind: 'warning' });
     },
-    // 주방 식탁 (A-3c, 2026-09-11): 개인 함선의 **가구** 식탁이므로 그 조각의 uid 로 연다
-    // (공유 함선의 고정 식탁은 가구가 아니라 `buildStations` 의 `hub_dining_table` 이고 `null` 로 연다)
+    // The kitchen table (A-3c, 2026-09-11): the personal ship's table is **furniture**, so it opens with that piece's uid
+    // (the shared ship's fixed table is not furniture but `buildStations`' `hub_dining_table`, and opens with `null`)
     onDiningTable: (uid) => openDiningTable(ctx, uid),
-    /* ── 서재 매체 (A-3e) · 헬스장 (A-3a), 2026-09-12 — 전부 duck-typed (병렬로 짓는 폴더가 아직 없을 수 있다) ── */
+    /* ── library media (A-3e) · the gym (A-3a), 2026-09-12 — all duck-typed (the folder built in parallel may be absent) ── */
     onShelf: (uid) => {
       const h = ctx.housing;
       if (h && typeof h.openShelf === 'function') h.openShelf(uid);
@@ -295,7 +296,7 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
       const next = h && typeof h.toggleFurniture === 'function' ? h.toggleFurniture(uid) : null;
       if (next === null) ctx.bus.emit('ui:notify', { text: '켜고 끌 수 없습니다', kind: 'warning' });
     },
-    // 2026-09-13 비디오게임: TV 화면 (켜기/끄기 · 게임기 장착 · 좌석 상태 · 게임 목록) — duck-typed
+    // 2026-09-13 video games: the TV screen (on/off · mounting a console · seat state · the game list) — duck-typed
     onTvMenu: (uid) => {
       const h = ctx.housing;
       if (h && typeof h.openTvMenu === 'function') {
@@ -310,8 +311,9 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
       if (reason) ctx.bus.emit('ui:notify', { text: reason, kind: 'warning' });
     },
     /*
-     * 원격 가구 연출 (2026-09-12, 캐릭터 버프 · 가구 자세 동기화): 같은 함선에 있는 분대원의 `furniturePose` 로 그 조각을 돌린다.
-     * 방문 중인 함선(`source`)의 layer 도 같은 두 콜백을 받는다 — 방문자가 주인의 운동을 보는 것이 이 기능의 본래 쓰임이다.
+     * Remote furniture staging (2026-09-12, character buffs · furniture pose sync): a squadmate in the same ship turns
+     * that piece through their `furniturePose`. A visited ship's layer (`source`) takes the same two callbacks — a visitor
+     * watching the owner work out is what this was built for.
      */
     remotePlayers: () => sys.remoteFurnitureRefs(),
     hubSite: () => sys.hubSite,
@@ -321,7 +323,7 @@ export function buildHousing(sys: HubSystem, interior: ShipInterior): void {
   }
 
 /**
- * 격납고 (2026-09-08): the way back out of a bay's ship. The airlock at the end of the corridor is the rear ramp we
+ * Hangar (2026-09-08): the way back out of a bay's ship. The airlock at the end of the corridor is the rear ramp we
  * came in through, so E on it drops us in front of the bay again. Registered for **our own** ship too — the personal
  * ship reached from the hangar has no other exit.
  */
@@ -341,7 +343,7 @@ export function buildHangarExit(sys: HubSystem, interior: ShipInterior): void {
   }
 
 export function roomPurpose(sys: HubSystem, i: number): RoomPurpose | null {
-  // 방문 중에는 그 대원의 `ship state` 가 방 용도를 말한다 (우리 `ctx.housing` 은 우리 함선이다)
+  // During a visit that member's `ship state` says what each room's purpose is (our `ctx.housing` is our own ship)
   const visit = sys.visitShip;
   if (visit) return visit.rooms[i]?.purpose ?? null;
   const h = sys.ctx.housing;
@@ -355,12 +357,12 @@ export function roomPurposeLabel(sys: HubSystem, i: number): string {
   }
 
 /**
- * Door sign + 방 조명 of one room (an empty room reads dark, an assigned one is lit and gets a pool light).
+ * Door sign + room light of one room (an empty room reads dark, an assigned one is lit and gets a pool light).
  *
- * 2026-09-11 (연구실): the sign accent is the purpose's **own** colour (`ROOM_PURPOSE_COLOR`, the same table the
- * 함선 tab 방 목록 and the 시설 관리 카드 draw their thumbnails from) instead of one amber for every assigned room —
- * so 온실 reads green, 연구실 purple and 작업실 amber from the corridor, the way they already do in the UI.
- * CLAUDE.md 「같은 것을 두 폴더가 쓰면 `shared` 로 뽑는다」: the table is in `shared`, nothing is copied here.
+ * 2026-09-11 (the lab): the sign accent is the purpose's **own** colour (`ROOM_PURPOSE_COLOR`, the same table the Tab
+ * `함선` tab's room list and the `시설 관리` cards take their thumbnails from) instead of one amber for every assigned
+ * room — so `온실` reads green, `연구실` purple and `작업실` amber from the corridor, as they already do in the UI.
+ * CLAUDE.md "the same formula in two folders moves to `shared`": the table is in `shared`, nothing is copied here.
  */
 export function refreshRoomSign(sys: HubSystem, i: number): void {
   const ship = sys.interior;
@@ -388,10 +390,10 @@ export function trackRoom(sys: HubSystem): void {
 
 /**
  * Terminal / station consoles are usable while walking the ship (not boarded, no menu, not docking, not decorating,
- * **not warping** — 2026-09-09: the 창문 워프 no longer runs a cutscene, so `travelling` has to be checked here itself).
+ * **not warping** — 2026-09-09: the window warp no longer runs a cutscene, so `travelling` has to be checked here itself).
  */
 export function stationUsable(sys: HubSystem): boolean {
-  // 방문 중(남의 함선)에는 아무것도 쓸 수 없다 — 터미널 · 정비대 · 기업 네트워크 · 임플란트 시술대 전부 (2026-09-08)
+  // Nothing is usable during a visit (someone else's ship) — terminal · repair bench · corporate network · implant bay alike (2026-09-08)
   if (sys.visitReadOnly) return false;
   return sys.ctx.phase === 'hub' && !sys.menu.isOpen && !(sys.ctx.inventory?.isOpen ?? false)
     && !(sys.ctx.housing?.isMenuOpen ?? false) && !sys.corpMenuOpen() && sys.boardedSlot < 0 && !sys.cutscene && !sys.travelling
@@ -402,8 +404,8 @@ export function disposeInterior(sys: HubSystem): void {
   // a ship prebuilt for a transition that never finished (a new transition, a re-entry, the mission) goes with it
   if (sys.pendingInterior) { sys.pendingInterior.interior.dispose(); sys.pendingInterior = null; }
   Hangar.clearBays(sys);
-  Androids.clearAndroidBays(sys);   // 2026-09-15: 조종실 슬롯 상호작용 · 포드 앞 대기 자리도 인테리어와 함께 걷는다
-  sys.clearLeaderHandoff();   // 2026-09-09: 분대장 넘기기 상호작용도 인테리어와 함께 걷는다
+  Androids.clearAndroidBays(sys);   // 2026-09-15: the cockpit bay interactables and the standing spots go with the interior too
+  sys.clearLeaderHandoff();   // 2026-09-09: the leader-handoff interactables go with the interior too
   sys.housingMode.setShip(null, null);
   sys.furniture?.dispose(); sys.furniture = null;
   for (const pod of sys.pods) pod.dispose();
@@ -412,7 +414,7 @@ export function disposeInterior(sys: HubSystem): void {
   sys.stationIds.length = 0;
   sys.terminal?.dispose(); sys.terminal = null;
   sys.computer?.dispose(); sys.computer = null;
-  sys.tablePlates?.dispose(); sys.tablePlates = null;   // 2026-09-16: 공유 함선 식탁의 접시 (인테리어보다 먼저 — 그 root 에 붙어 있다)
+  sys.tablePlates?.dispose(); sys.tablePlates = null;   // 2026-09-16: the shared table's plates (before the interior — they hang off its root)
   sys.interior?.dispose(); sys.interior = null;
   sys.collider = null;
   sys.ship = null;
@@ -421,16 +423,16 @@ export function disposeInterior(sys: HubSystem): void {
 
 /**
  * Leave the hub. 'mission': `game:newMission` arrived (World already generated, Player already respawned — only
- * release our hooks). 'menu': back to the title (`game:abort` or 타이틀로) — also restores the planet atmosphere.
+ * release our hooks). 'menu': back to the title (`game:abort` or `타이틀로`) — also restores the planet atmosphere.
  */
 export function teardown(sys: HubSystem, reason: 'mission' | 'menu'): void {
   if (!sys.interior && !sys.cutscene) return;
   const ctx = sys.ctx;
-  // 2026-09-15 (분대 · 도킹 매칭): a countdown / fade never outlives the hub; the next ship build says where we stand again
+  // 2026-09-15 (squads · dock matchmaking): a countdown / fade never outlives the hub; the next ship build says where we stand again
   SquadDock.clearDockState(sys);
   sys.dockMine = null;
   sys.shipLobbyCode = null;
-  // 2026-09-15: 레이드 진입 암전 · 안드로이드 요청 대기도 함선과 함께 끝난다 (암전 자체는 game/LoadGate 가 이어받는다)
+  // 2026-09-15: the raid-entry fade and a pending android request end with the ship too (the fade itself passes to game/LoadGate)
   Pods.clearRaidLaunch(sys);
   sys.androidPending = null;
   if (sys.boardedSlot >= 0) sys.leavePod(false, false);
@@ -440,7 +442,7 @@ export function teardown(sys: HubSystem, reason: 'mission' | 'menu'): void {
   sys.cutscene?.dispose(); sys.cutscene = null;
   sys.cancelTravel();
   sys.disposeInterior();
-  sys.visit = null; sys.visitShip = null; sys.pendingBay = null;   // 격납고: a visit never survives leaving the hub
+  sys.visit = null; sys.visitShip = null; sys.pendingBay = null;   // Hangar: a visit never survives leaving the hub
   sys.countdown = -1; sys.launched = false;
   const p = ctx.player;
   if (p) {

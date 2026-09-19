@@ -1,9 +1,9 @@
 /**
- * src/hub/model.ts — 함선 허브 폴더의 공용 어휘.
+ * src/hub/model.ts — the ship hub folder's shared vocabulary.
  *
- * `HubSystem` 에서 떼어낸 상수 · 타입(그리고 상태 없는 보조 클래스)만 있다. 클래스를 참조하지 않으므로
- * `parts/*` 모듈이 `HubSystem.ts` 를 되돌아 import 하지 않고 쓸 수 있다(순환 import 방지).
- * `HubSystem.ts` 가 `export *` 로 재수출하므로 기존 import 경로는 전부 유지된다.
+ * Only the constants · types (and stateless helper classes) taken out of `HubSystem`. It references no class, so a
+ * `parts/*` module can use it without importing `HubSystem.ts` back (which is what keeps the imports acyclic).
+ * `HubSystem.ts` re-exports it with `export *`, so every existing import path still works.
  */
 import * as THREE from 'three';
 import type { PlanetId } from '@/shared';
@@ -44,12 +44,12 @@ export const READY_ECHO_GRACE = 1.5;
 export const REBOARD_GRACE = 0.5;
 /**
  * The two cutscene directions that swap the ship interior. (Until 2026-09-09 this excluded a `'travel'` direction;
- * 행성 이동 is no longer a cutscene — see `WarpState` and `parts/Planet.ts`.)
+ * planet travel is no longer a cutscene — see `WarpState` and `parts/Planet.ts`.)
  */
 export type DockTransition = DockDirection;
 
 /**
- * 창문 워프 (2026-09-09): one 행성 이동 in flight. Lives on `HubSystem.warp` for exactly the span of
+ * The window warp (2026-09-09): one planet trip in flight. Lives on `HubSystem.warp` for exactly the span of
  * `hub:travel {start}` → `{end}` and is ticked by `parts/Planet.tickTravel` every hub frame — no cutscene, no camera
  * override, no control lock. The interior is a spectator: it gets `setWarp(speed, dest)` each frame.
  */
@@ -65,7 +65,7 @@ export interface WarpState {
 }
 
 /**
- * 분대 도킹 (2026-09-15, `parts/SquadDock`): a countdown (`HubSystem.squadDock`) or a fade-out (`HubSystem.dockFade`)
+ * Squad docking (2026-09-15, `parts/SquadDock`): a countdown (`HubSystem.squadDock`) or a fade-out (`HubSystem.dockFade`)
  * pending for the docked lobby `code`; `left` = seconds still to run on the hub's own dt.
  */
 export interface SquadDockState {
@@ -74,7 +74,7 @@ export interface SquadDockState {
 }
 
 /**
- * 레이드 진입 로딩 (2026-09-15, `parts/Pods.beginRaidLoad`): the launch countdown reached 0, every client faded to
+ * Raid-entry loading (2026-09-15, `parts/Pods.beginRaidLoad`): the launch countdown reached 0, every client faded to
  * black (`ui:screenFade {1, hold}` + `raid:loadBegin`) and the **authority** launches `RAID_LOAD_FADE_OUT_S` later.
  *
  * Once this exists the launch is **committed** — un-readying, E and the ready hold no longer cancel it (the squad is
@@ -99,7 +99,7 @@ export interface RaidLaunchState {
 }
 
 /**
- * 안드로이드 슬롯 (2026-09-15, `parts/Androids`): a `lobby:android` request sent to the relay, waiting for the answer.
+ * The android bays (2026-09-15, `parts/Androids`): a `lobby:android` request sent to the relay, waiting for the answer.
  * Cleared by the next `net:lobbyUpdated` / `net:androidReturned` / `net:error` / `net:lobbyLeft` / `net:statusChanged`
  * — the relay always answers with one of them, so no timer is needed (and no number in code).
  */
