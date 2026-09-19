@@ -25,7 +25,7 @@ import {
  * 「it is over there」, not a line-of-sight test.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** One bar on the local XY plane (length `len`, thickness `w`) — extends from the origin in the `dir` direction. */
+/** One bar on the local XY plane (length `len`, thickness `w`) — extends from the origin in the `angle` direction. */
 function bar(len: number, w: number, angle: number, x: number, y: number): THREE.BufferGeometry {
   const g = new THREE.BoxGeometry(len, w, w);
   g.translate(len / 2, 0, 0);

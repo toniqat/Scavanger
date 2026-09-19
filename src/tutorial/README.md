@@ -15,7 +15,7 @@ folders, and other folders do not know its steps. When inactive, both always ret
 
 | File | Responsibility |
 |---|---|
-| `TutorialSystem.ts` | `GameSystem` + `TutorialRef`: three-track step machine, event subscriptions, localStorage save (v2), material grants, raid skip fade, dev console command `tutorial`. |
+| `TutorialSystem.ts` | `GameSystem` + `TutorialRef`: four-track step machine (`TUTORIAL_TRACKS`), event subscriptions, localStorage save (v2), material grants, raid skip fade, dev console command `tutorial`. |
 | `model.ts` | Folder vocabulary, no state: storage key / blocker token / track labels (`TRACK_LABEL_KO`, `BUILD_TRACKS` = the two in-ship tracks `build` · `raid2`), `creditGaugeLabel`, tutorial ids (`furn_bench_gun`, `make_wpn_ar`, `make_ammo_medium`), `TUTORIAL_CRAFT_GRANT`, `TUTORIAL_STASH_WHITELIST`, guide and marker numbers, `StepDef` / `TutorialObjective` types, `visibleObjectives` / `objectiveChain`, control-hint table (`TUTORIAL_CONTROL_HINTS`, `controlHintsFor`, `crouchHints`, `STANCE_HINT_IDS`, `CONTROL_SECTIONS`), `CHECKPOINT_STEP`, `RAID_KILLS_PER_STEP`, `HUD_GEAR_STEP` / `HUD_STAMINA_STEP`, `CORPSE_MARKER_STEPS`, wake-reveal / TIP / skip-fade timings, spotlight constants `SPOT_CRAFT_CLOSE` / `SPOT_NONE`. |
 | `Steps.ts` | Step table: title, hint, `objectives`, `allow` (gates), spotlight (`spot`, `spotUnion`, `spotNoDim`, `spotText`), floor guide (`guide`, `arriveObjective`). No progress conditions. `nextStep` / `stepIndexOf` / `stepCountOf` count within the step's track; `normalizeStep` / `isOrderedStep` map retired ids. |
 | `parts/Gates.ts` | Pure gate functions `blockReason` / `hides`, HUD reveal (`hudHidden`), stash whitelist. |
@@ -95,12 +95,14 @@ unhealed player — below full HP it stops at `supplyLoot` (or stays at `supplyL
   fade in; last resort unlock + `game:returnToShip`. The black plate stays over the result screen; it is cleared by
   `clearSkipFade(0)` on `hub:entered` (with `game:abort` and `ui/HudSystem` as backups).
 
-## Track ② `ship` (2 steps)
+## Track ② `ship` (1 step)
 
-| # | id | Objective | Advances on |
+2026-09-16 2nd pass (user decision): `levelUp` left the order too, so the track is the one step `stats` — its four
+objectives open one at a time.
+
+| # | id | Objectives (in reveal order) | Advances on |
 |---|---|---|---|
-| 1 | `levelUp` | open the inventory screen | `inventory:opened` (or a non-inventory screen tab already showing — polled) |
-| 2 | `stats` | invest a point → hold `포인트 투자 확정` — last step | `progress:statChanged` ticks the objective; the track ends on `inventory:closed` (or at once if closed; polled in the ship after a reload) |
+| 1 | `stats` | `{INVENTORY} 메뉴 열기` → `캐릭터 탭으로 이동` (both read from the screen state by `poll`) → `능력치 하나 상승` (`progress:statPending`) → `능력치 투자 확정` (hold `포인트 투자 확정`) — last step | `progress:statChanged` ticks the objective; the track ends on `inventory:closed` (or at once if closed; polled in the ship after a reload) |
 
 No new UI: every step spotlights an existing screen. `stats` waits for the inventory to close (`onStatsConfirmed`) so the
 build track's intro card, `screenTab` and `stashItem` gates never start over the open character screen; the track stays
@@ -208,7 +210,7 @@ until first use (latest after `HUD_STAMINA_STEP`); `implant`, `stratagem`, `ship
 - The guide folds while the inventory screen is open. Current row ids persist in `learned`.
 - Raid track: `shoot` = move/sprint | fire/aim; from `advance2` (bugs dead) a `재장전` row sits under fire / aim (also in the
   crawl's fire/aim block).
-- Build track: `equipGun` = `Tab 가방 · 장비`; `terminal` clears it; `raid` (the build track's raid only) = `M 지도 / Q 전술 임플란트 /
+- In-ship tracks: `equipGun` (`build`) = `Tab 가방 · 장비`; `terminal` (`raid2`) clears it; `raid` (「출격 안내」's raid only) = `M 지도 / Q 전술 임플란트 /
   G(hold) 함선 지원 / V 구르기 / X 시점 변경` ─ `] 조작 가이드 숨김` (section `meta`). `Keys.GUIDE_TOGGLE` (default `]`) folds it into
   one line `] 조작 가이드 표시` in the same box (`ui/Controls.setFolded`, `.tut-controls.is-folded`); read only in
   `FOLDABLE_CONTROL_STEPS` while `isGameplayActive()`. Toasts keep starting below `.tut-controls` (folded or not).
@@ -283,8 +285,8 @@ Smokes: `scripts/smoke-tutorial.mjs` (build track — grouped objectives, gates,
 ## Recent changes
 
 Last 5 only — older: `git log -- src/tutorial`.
+- 2026-09-19 — (B-44 · B-45) Comments realigned with the code: four tracks, not three; 「증축 안내」's last raid renamed 「출격 안내」's raid everywhere; retired steps (`openBag` · `benchPlace` · `levelUp`) described as the rows that absorbed them; the dangling 「wakes up on low HP」 line removed; pointers fixed (`TUTORIAL_CONTROL_HINTS`, `setFolded`, `bar(angle)`, `openCraft` → `craftGun`); the `TUTORIAL_STEP_DELAY_S` and panel-width numbers taken out of prose. README: ship track is 1 step.
 - 2026-09-19 — Code comments translated to English (project-wide rule change, CLAUDE.md §4.1); Korean on-screen labels, the four track names and decision headings kept verbatim in backticks / 「」, no string literal touched.
 - 2026-09-18 — 「증축 안내」 split in two: `build` now ends at `equipGun` (5 steps) and the new 4th track `raid2` 「출격 안내」 (`terminal` · `raid`) starts by itself the moment it is completed (`pendingRaid2`); old saves standing on `terminal` / `raid` are moved into it by `load()`; `training` · `launchWarn` · `stashItem` now key off `BUILD_TRACKS`.
 - 2026-09-18 — `equipGun` is skipped at the moment the **inventory opens** too, not only on entry (`equipGunSkipIfMoot`; asked at those transitions only — a per-frame check ended the step as soon as 주무기 II was filled, which killed 2026-09-17's 「wait for the window to close」); a step with every required objective done clears its floor guide and spotlight (the launch-slot wait no longer points back at the cockpit); the 「출격 안내」 raid step's progress bar measures carried `raidFound` value with the real number above it (`1,400 C / 1,000 C`, `.tut-bar-n`); `panelInfo()` lets the tactical map draw the same objectives (`ui/map/QuestPanels`, counts through the shared `tutorialCountLabel`) and the floating panel hides while the map is open.
 - 2026-09-17 — `equipGun`: `인벤토리 열기` no longer pre-ticks after closing the bench (step-entry `isOpen` read the closing window); the step is skipped straight to `terminal` when an AR is already equipped or both primary slots are full (`equipGunMoot`).
-- 2026-09-17 — (B-17) The intro / skip cards hide for a docking · warp · liftoff cutscene and come back unchanged (`setHidden`, `shared/cutsceneHide`) — they are outside the escape stack and closing them advances the step.

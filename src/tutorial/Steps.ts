@@ -236,7 +236,8 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
      * connected rectangle, 「the two equipment slots + the grid card beside them」.
      */
     // 2026-09-16: the workbench window's close closes the whole window, so this step **starts with the window
-    //   closed** — Tab comes first (the control guide on the right shows that one row too: `model.EQUIP_HINTS`).
+    //   closed** — Tab comes first (the control guide on the right shows that one row too:
+    //   `model.TUTORIAL_CONTROL_HINTS.equipGun`).
     hint: 'Tab 으로 가방을 열고, 함선 창고의 소총을 왼쪽 장착 장비의 주무기 I 또는 II 칸으로 끌어다 놓습니다.',
     /*
      * 2026-09-14 3rd pass — **with the craft window open there are no equipment slots** (`.inv-root.is-craft` hides
@@ -498,8 +499,10 @@ const STEP_DEFS: Readonly<Record<TutorialStepId, StepDef>> = {
    *
    * All three end at a **checkpoint that already exists** (`advance1`→`bugs` · `advance2`→`crawl` ·
    * `advance3`→`drop`, `model.CHECKPOINT_STEP`) — there is no new trigger in the world. No spotlight and no floor
-   * guide either; only the control guide comes back to the same three rows as `move` (`TUTORIAL_CONTROL_HINTS`'s
-   * `MOVE_HINTS`). The three definitions being identical is deliberate — the progress bar says 「how far along am I」,
+   * guide either; only the control guide is swapped back to movement rows (`model.TUTORIAL_CONTROL_HINTS` —
+   * `advance1` · `advance3` come back to `move`'s rows, while `advance2`, walked after the bugs are dead, keeps
+   * fire · aim and adds the corpse row on 2026-09-16).
+   * The three definitions being identical is deliberate — the progress bar says 「how far along am I」,
    * and the objective sentence is always the one thing.
    */
   advance1: {
@@ -712,8 +715,8 @@ export const trackStepsOf = (id: TutorialStepId): readonly TutorialStepId[] =>
 /** That step's track (an unknown id is build — `openCraft` · `ravenQuest`). */
 export const trackOf = (id: TutorialStepId): TutorialTrack => tutorialTrackOf(id) ?? 'build';
 
-/** Is this a step in the order — it looks at **all three tracks** (it filters out an id left only in the contract,
- *  like `openCraft`). */
+/** Is this a step in the order — it looks at **every track** (`shared/tutorial.TUTORIAL_TRACK_STEPS`, four of them
+ *  since `raid2` split off on 2026-09-18). It filters out an id left only in the contract, like `openCraft`. */
 export const isOrderedStep = (id: string): id is TutorialStepId =>
   tutorialTrackOf(id as TutorialStepId) !== null;
 
@@ -722,7 +725,9 @@ export const isOrderedStep = (id: string): id is TutorialStepId =>
  * the order is moved onto the step that **took over its place** — a save in progress carries on under the new order
  * instead of being stuck. An unknown value is null.
  *
- * `openCraft` (2026-09-09) → `craftAmmo`. `ravenQuest` (2026-09-15) · `messenger` (2026-09-16) → **null** — both were
+ * `openCraft` (2026-09-09) → `craftGun` (it went to `craftAmmo` first, and `craftAmmo` itself was folded into
+ *   `craftGun` on 2026-09-17 — `RETIRED_BUILD` is the table that answers).
+ * `ravenQuest` (2026-09-15) · `messenger` (2026-09-16) → **null** — both were
  *   the ship track's last place and no step follows them. Such a save is read by `retiredTrackEnd` as 「that track is
  *   done」 (`TutorialSystem.load`).
  * ⚠ All three **stay** in `TutorialStepId` and in the `STEP_DEFS` table above (a contract does not erase a name) —

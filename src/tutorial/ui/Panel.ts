@@ -11,8 +11,8 @@ import { OPTIONAL_PREFIX_KO, type TutorialObjective } from '../model';
  * **2026-09-14 2nd pass (user's decision) — it looks like a quest panel.**
  *
  *   [◇] 조작 안내              ← the track name (accent colour) + the quest glyph
- *    ☐  갈라진 땅까지 걸어간다   ← an objective row (checkbox + wording)
- *    ☐  (선택) 수류탄으로 …
+ *    ☐  앞으로 이동             ← an objective row (checkbox + wording)
+ *    ☐  (선택) 시체에서 수류탄 획득   ← an optional row (`model.OPTIONAL_PREFIX_KO` + wording)
  *   ▓▓▓▓▓░░░░░░                ← the whole track's progress
  *
  * Three things changed:
@@ -31,7 +31,7 @@ import { OPTIONAL_PREFIX_KO, type TutorialObjective } from '../model';
  *
  * **Half a beat is held so the completion animation shows.** When a step advances the system first draws the check ·
  * the strike-through on that step's required objectives with `markDone()`; the next step's `show()`, arriving right
- * after, is deferred **inside the panel** for `TUTORIAL_STEP_DELAY_S` (csv, 0.5 s) — the window the spotlight · the
+ * after, is deferred **inside the panel** for `TUTORIAL_STEP_DELAY_S` (`data/constants.csv`) — the window the spotlight · the
  * floor guide already use. The step machine's timing does not change a character (only **the drawing** is deferred).
  *
  * **2026-09-09 — the panel is always above the screens.** Its z-index is fixed at 79 regardless of `is-lifted`
@@ -50,7 +50,7 @@ import { OPTIONAL_PREFIX_KO, type TutorialObjective } from '../model';
  * `clip-path` transition from the beginning every time. Struck on completion the number stays `(2/2)` (the row
  * itself stands unchanged for half a beat after the step advances).
  *
- * **2026-09-18 (user's decision) — the step whose bar measures the objective.** On 출격 안내's last raid 「which step
+ * **2026-09-18 (user's decision) — the step whose bar measures the objective.** On 출격 안내's raid 「which step
  * is this」 says nothing (there are only two). There alone the bar measures the **loot value** (`PanelView.gauge`)
  * and a number line (`.tut-bar-n`) sits above it — the fill clamps at 1, the text is **the real value**
  * (`1,400 C / 1,000 C`). Every other step · track is unchanged.
@@ -58,7 +58,7 @@ import { OPTIONAL_PREFIX_KO, type TutorialObjective } from '../model';
 
 /** Everything one `show()` draws. */
 export interface PanelView {
-  /** The track name (`조작 안내` · `함선 안내` · `증축 안내`). */
+  /** The track name (`model.TRACK_LABEL_KO` — `조작 안내` · `함선 안내` · `증축 안내` · `출격 안내`). */
   track: string;
   objectives: readonly TutorialObjective[];
   /** The ids of completed objectives. */
@@ -276,7 +276,8 @@ export class TutorialPanel {
        * The strike-through **lays the very same text down one more layer** (`.tut-obj-strike`,
        * `text-decoration: line-through`) and peels it left→right with `clip-path`. A single horizontal bar on
        * `::after` would draw a line through mid-air on an
-       * **objective wrapped onto two rows** — this wording wraps often even in a 346 px panel.
+       * **objective wrapped onto two rows** — this wording wraps often even at the panel's full width
+       * (`.tut-panel` in `tutorial.css`).
        * 2026-09-15: both layers are drawn with `renderKeyText` — the layers overlap only if the keycaps also line up.
        */
       const txt = document.createElement('span');

@@ -17,7 +17,8 @@ import { CONTROL_SECTIONS, CONTROLS_TITLE_KO, hintPairs, type ControlHint, type 
  * stance (`앉기` ↔ `일어서기`) goes the same way.
  *
  * **2026-09-14 2nd pass (user's decision) — a section per control · two pairs on one row · the place readjusted.**
- *   ① Rows pile up **in section order, not learning order** (`CONTROL_SECTIONS`: move / screen / combat / gear).
+ *   ① Rows pile up **in section order, not learning order** — the order is `model.CONTROL_SECTIONS` alone
+ *      (`stance` joined on 2026-09-16, `meta` on 2026-09-17; nothing here counts them).
  *      A section box **is made when its first row arrives** and is inserted in its own place, so an empty section is
  *      not in the DOM at all — that lets the divider be one line `.tut-ctl-sec + .tut-ctl-sec` (`:empty` plus an
  *      adjacent selector counts a hidden box and leaves a line at the very top). **Unlocking is still per row.**
@@ -71,7 +72,7 @@ export class TutorialControls {
   /** What `show()` asked for (it is actually shown only while at least one row exists). */
   private want = false;
   /**
-   * The folded shape's one row (2026-09-17, user's decision — the `]` of 증축 안내's last raid). Folded, the head · the
+   * The folded shape's one row (2026-09-17, user's decision — the `]` of 출격 안내's raid). Folded, the head · the
    * row list hide and only this row stands in the same place (`.tut-controls.is-folded`). The panel element stays, so
    * the rule that has the toast stack measure its bottom (`ui/hud/Notifications`) lives on unchanged.
    */

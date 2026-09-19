@@ -176,7 +176,7 @@ export class Spotlight {
     if (this.selectors.length === 0) return;
     // While counting it **never goes below 0**. `-1` is a separate mark for "not counting yet", so a countdown that
     // crossed into negatives would be misread by the `wait < 0` below as "the target just appeared" and would count
-    // the 0.5 s again forever (2026-09-09 bug — the spotlight came up tens of seconds late, or never at all:
+    // `TUTORIAL_STEP_DELAY_S` again forever (2026-09-09 bug — the spotlight came up tens of seconds late, or never at all:
     // `timer = min(RETARGET_INTERVAL, wait)` tied the two to one value, so they always crossed on the same frame).
     if (this.wait > 0) this.wait = Math.max(0, this.wait - dt);
     this.timer -= dt;

@@ -573,8 +573,8 @@ const ADVANCE_AFTER_BUGS_HINTS: readonly ControlHint[] = [
 
 /*
  * The two quick-use rows (2026-09-15, user's decision) — `T 빠른 사용 꺼내기 · T 휠 열기` used to be **two pairs on one
- * row**, and in the 202 px panel the row wrapped between the pairs, scattering keycaps and labels onto different
- * lines. So it is split into two rows.
+ * row**, and at the guide panel's width (`.tut-controls` in `tutorial.css`) the row wrapped between the pairs,
+ * scattering keycaps and labels onto different lines. So it is split into two rows.
  */
 const QUICK_HINT: ControlHint = { id: 'quick', keys: ['QUICK'], label: '빠른 사용 꺼내기', section: 'gear' };
 const QUICK_WHEEL_HINT: ControlHint = { id: 'quickWheel', keys: ['QUICK'], label: '휠 열기', hold: true, section: 'gear' };
@@ -585,10 +585,10 @@ const QUICK_WHEEL_HINT: ControlHint = { id: 'quickWheel', keys: ['QUICK'], label
 const QUICK_USE_HINT: ControlHint = { id: 'quickUse', keys: ['FIRE'], label: '길게 눌러 사용', hold: true, section: 'gear' };
 
 /**
- * The control guide of 증축 안내's last raid (2026-09-17, user's decision) — `M 지도 / Q 전술 임플란트 / G (꾹) 함선 지원 /
- * V 구르기 / X 시점 변경` ─ divider ─ `] 조작 가이드 숨김`. It shows in this raid only. Folded with `]`, one row is left
- * in its place, `] 조작 가이드 표시` (`ui/Controls.setCollapsed`, text `CONTROLS_FOLDED_TEXT`). Key letters are read
- * from `Keys` when drawn.
+ * The control guide of 출격 안내's raid (2026-09-17, user's decision; the step moved into `raid2` on 2026-09-18) —
+ * `M 지도 / Q 전술 임플란트 / G (꾹) 함선 지원 / V 구르기 / X 시점 변경` ─ divider ─ `] 조작 가이드 숨김`. It shows in this raid
+ * only. Folded with `]`, one row is left in its place, `] 조작 가이드 표시` (`ui/Controls.setFolded`, text
+ * `CONTROLS_FOLDED_TEXT`). Key letters are read from `Keys` when drawn.
  */
 const RAID_GUIDE_HINTS: readonly ControlHint[] = [
   { id: 'rgMap', keys: ['MAP'], label: '지도', section: 'gear' },
@@ -602,7 +602,7 @@ const RAID_GUIDE_HINTS: readonly ControlHint[] = [
 export const CONTROLS_FOLDED_TEXT = '{GUIDE_TOGGLE} 조작 가이드 표시';
 /** The steps whose control guide can be folded (`Keys.GUIDE_TOGGLE` is read on those steps only). */
 export const FOLDABLE_CONTROL_STEPS: readonly TutorialStepId[] = ['raid'];
-/** How often the carried loot value is recounted in 출격 안내's last raid (frames) — the bag is not swept every frame. */
+/** How often the carried loot value is recounted in 출격 안내's raid (frames) — the bag is not swept every frame. */
 export const RAID_VALUE_POLL_FRAMES = 20;
 
 /**
@@ -642,7 +642,7 @@ export const TUTORIAL_CONTROL_HINTS: Readonly<Partial<Record<TutorialStepId, rea
   // 2026-09-17: once equipping is done the `Tab 가방 · 장비` row is taken down (missing from the table before, it
   //   stayed until launch)
   terminal: [],
-  // 2026-09-17 (user's decision): 증축 안내's last **raid** — the five keys first used in a raid + folding the guide
+  // 2026-09-17 (user's decision): 출격 안내's **raid** — the five keys first used in a raid + folding the guide
   //   (`RAID_GUIDE_HINTS` above)
   raid: RAID_GUIDE_HINTS,
   supplyLoot: LOOT_HINTS,

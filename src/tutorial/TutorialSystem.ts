@@ -59,7 +59,8 @@ import { TutorialTip } from './ui/Tip';
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
- * The save shape **v2** (2026-09-14, 3 tracks). `tracks` is optional in the contract (`TutorialSave`) but is always
+ * The save shape **v2** (2026-09-14, 3 tracks then; `raid2` joined on 2026-09-18 — `TUTORIAL_TRACKS` is the count,
+ * never a number written here). `tracks` is optional in the contract (`TutorialSave`) but is always
  * filled inside this folder, so it is narrowed to required here. v1 (top-level `step` · `done`) is grafted on by
  * `load()`.
  */
@@ -176,10 +177,14 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   /** true while the skip-confirm card is up (the intro card uses the same popup). */
   private confirmingSkip = false;
   /**
-   * The gun workbench is held on the cursor waiting to be placed (what folds the spotlight in the `benchPlace` step).
+   * The gun workbench is held on the cursor waiting to be placed (what folds the spotlight in the `bench` step —
+   * 2026-09-17: the old `benchPlace` step became that step's 「가구 배치」 row).
    */
   private benchArmed = false;
-  /** The craft column is open (`ui:craftToggled`) — the only state the `openBag` step judges "closed" by. */
+  /**
+   * The craft column is open (`ui:craftToggled`) — `craftGun`'s last row 「제작창 닫기」 judges "closed" by it
+   * (`pollBuild`), and `equipGun`'s spotlight splits on it (`stepView`).
+   */
   private craftOpen = false;
   /**
    * The character sheet's pre-confirm ＋ point total (`progress:statPending`, 2026-09-16 2nd pass) — it picks the
@@ -218,7 +223,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   /** The quick-use item in hand is a healing item (`quick:equipped`) — `heal`'s `길게 눌러 사용` row (2026-09-16). */
   private handStim = false;
   /**
-   * In 「증축 안내」's last raid (`raid`) the **summed sell value of this raid's loot** carried right now (2026-09-17).
+   * In 「출격 안내」's raid (`raid`) the **summed sell value of this raid's loot** carried right now (2026-09-17; the
+   * step moved into `raid2` on 2026-09-18).
    * `poll` counts it every few frames and liftoff (`extraction:liftoff {aboard}`) counts it once more — by the time
    * the result screen is up inventory may already have wiped the marks (`inventory/parts/RaidFound.stripRaidMarks`
    * runs on `game:complete`).
@@ -229,7 +235,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    * The value counted at the moment of liftoff (-1 = has not lifted off yet) — the extraction check reads this first.
    */
   private liftoffValue = -1;
-  /** The right-side control guide of 「증축 안내」's last raid is folded (`Keys.GUIDE_TOGGLE`, 2026-09-17). Not saved. */
+  /** The right-side control guide of 「출격 안내」's raid is folded (`Keys.GUIDE_TOGGLE`, 2026-09-17). Not saved. */
   private controlsFolded = false;
 
   /* ── lifecycle ─────────────────────────────────────────────────────────── */
@@ -300,9 +306,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       b.on('housing:furniturePlaced', ({ item }) => this.onFurniture(item.defId, item.uid)),
 
       b.on('craft:completed', ({ recipeId }) => this.onCrafted(recipeId)),
-      // 2026-09-08: the equipment slots come back only once the craft window is closed — that one close is the
-      //   `openBag` step. For someone who closed the whole window, `inventory:opened` (= the bag reopened with Tab)
-      //   counts as the same signal.
+      // 2026-09-08: the equipment slots come back only once the craft window is closed — that one close is
+      //   `craftGun`'s last row 「제작창 닫기」 (2026-09-17: the old `openBag` step was folded into it). For someone who
+      //   closed the whole window, `inventory:opened` (= the bag reopened with Tab) counts as the same signal.
       // 2026-09-09: `ui:craftToggled` is emitted by the **bench path** (openBenchCraft / closeBench) only, never by
       //   the bag's `제작` button (the plain craft column) — that path is read through `ui:keyGuide
       //   {owner:'inventory.craft'}`, the row the craft column puts in the key guide (keys ≠ null = open, null =
@@ -349,14 +355,12 @@ export class TutorialSystem implements GameSystem, TutorialRef {
         if (mode !== 'training') this.advanceIf('terminal');
       }),
       b.on('world:ready', () => this.onRaid()),
-      /* 2026-09-17 (user's decision): 「증축 안내」's last raid is **one attempt** — when it ends the track ends whatever
+      /* 2026-09-17 (user's decision): 「출격 안내」's raid is **one attempt** — when it ends the track ends whatever
          the result (`onBuildRaidEnd`). The carried value is counted once more at liftoff (by result-screen time the
          marks are wiped). */
       b.on('extraction:liftoff', ({ aboard }) => { if (this.step === 'raid' && aboard !== false) this.liftoffValue = this.carriedRaidValue(); }),
       b.on('game:complete', ({ stats }) => this.onBuildRaidEnd(stats.extracted)),
       b.on('game:over', () => this.onBuildRaidEnd(false)),
-      // 2026-09-14: wakes up on low HP, and coming back to a checkpoint is low HP again (`player:respawn` fills it
-      //   up)
       /* ── ① raid track (2026-09-14) — all of it is **watching events that already exist** ──────────────
        * The backbone is `tutorial:checkpoint` (owner: world/tutorial): passing a stretch ends that stretch's step. A
        * step that ends by action (equipping · a kill · crouching · falling · healing · a grenade · liftoff) watches
@@ -407,8 +411,9 @@ export class TutorialSystem implements GameSystem, TutorialRef {
        * `progress:statChanged`. The track ends **right where** it is confirmed (`onStatsConfirmed`). */
       b.on('progress:statPending', ({ total }) => this.onStatPending(total)),
       b.on('progress:statChanged', () => this.onStatsConfirmed()),
-      /* 2026-09-16 (user's decision): `messenger` (open the messenger) left the order — the ship track is the two
-       * steps `levelUp` → `stats`, and the `ui:messengerToggled` subscription that advanced it went too. The
+      /* 2026-09-16 (user's decision): `messenger` (open the messenger) left the order — it left the ship track at
+       * `levelUp` → `stats` (the 2nd pass above cut that to the one step), and the `ui:messengerToggled`
+       * subscription that advanced it went too. The
        * messenger stays hidden throughout the ship · build tracks (`parts/Gates` — no step opens `community`).
        * Raven's first contact is still after every track (`meta/parts/NpcQuests.tutorialBlocks`). */
 
@@ -457,7 +462,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
    * not done yet** and is never asked again once done — they are gathered here so as not to invent new events.
    *   ① the 「…으로 이동」 objectives — has the interaction range of the thing the floor guide points at been entered
    *     (`StepDef.arriveObjective`).
-   *   ② `levelUp` — pressing the character tab **with the inventory already open** sends no `inventory:opened` (a
+   *   ② `stats` — pressing the character tab **with the inventory already open** sends no `inventory:opened` (a
    *      bug). So the screen tab itself is read: a tab other than the inventory being up means the screen is open.
    */
   private poll(): void {
@@ -545,7 +550,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   }
 
   /**
-   * The **progress bar** of 「출격 안내」's last raid (2026-09-18, user's decision) — every other step · track measures the
+   * The **progress bar** of 「출격 안내」's raid (2026-09-18, user's decision) — every other step · track measures the
    * step count as before, so it is null then. The fill clamps at 1 and the text writes the real value
    * (`model.creditGaugeLabel`).
    */
@@ -584,7 +589,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   }
 
   /**
-   * 「증축 안내」's last raid ended (2026-09-17, user's decision — **one attempt**). Extracted with the value at or above
+   * 「출격 안내」's raid ended (2026-09-17, user's decision — **one attempt**). Extracted with the value at or above
    * the bar draws the check on the objective, and either way the track ends (it is not a skip). The result · death
    * screen is coming up, so the panel folds. A path that missed this event (the raid abandoned from the title · a
    * reload) gets the same done by `onHubEntered` on entering the ship.
@@ -604,7 +609,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
 
   /**
    * Folding / unfolding the control guide (2026-09-17, user's decision) — `Keys.GUIDE_TOGGLE` (default `]`) is read
-   * only in 「증축 안내」's last raid, and never while a cursor screen (inventory · map …) is open (`isGameplayActive` — so
+   * only in 「출격 안내」's raid, and never while a cursor screen (inventory · map …) is open (`isGameplayActive` — so
    * it never collides with those screens' keys).
    */
   private pollControlsFold(): void {
@@ -761,7 +766,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     return true;
   }
 
-  /* ── 3 tracks (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」) ────────────
+  /* ── tracks (2026-09-14, `docs/DECISIONS.md` 「2026-09-14 — 튜토리얼 개편」; a 4th, `raid2`, split off on
+   *    2026-09-18 — `TUTORIAL_TRACKS` is the list) ────────────
    * Each track has its own objective panel · its own skip, and **only the skipped track is released** — because there
    * is someone who knows the controls but has never built out a ship (user's decision). The state is the one
    * `save.tracks`, and one track runs at a time. */
@@ -924,8 +930,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
     if (track && BUILD_TRACKS.includes(track) && this.step) this.syncBuildObjectives(this.step);
     if (this.active) { this.refreshVisuals(); return; }
     // No save on its own does not make a "new character" — a profile played since before the tutorial existed
-    //   looks the same. With the ship already decorated or the level raised, **all three tracks** are silently
-    //   marked done and never turn on again.
+    //   looks the same. With the ship already decorated or the level raised, **every track** is silently marked
+    //   done and never turns on again (`markAllDone` walks `TUTORIAL_TRACKS`, so a new track needs no edit here).
     if (!this.startedAny() && !this.looksFresh()) { this.markAllDone(); this.refreshVisuals(); return; }
     this.autoStart();
     this.refreshVisuals();
@@ -946,15 +952,16 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   }
 
   /**
-   * **Following the tracks on** in the personal ship — raid → ship → build, in that order. Nothing happens while
-   * one is already running.
+   * **Following the tracks on** in the personal ship — raid → ship → build → raid2, in that order. Nothing happens
+   * while one is already running.
    *
-   * Three lines is all it is, and each line rests on a different reason.
+   * One line per track, and each line rests on a different reason (④ is spelled out at the branch itself, below).
    *   ① raid — **being inside the ship** by itself means that track is behind (run to the end, skipped, or an old
    *      path where the entry flow does not send anyone to the raid yet). So it is silently written down as over.
    *   ② ship — only **the one time the raid was just run to the end** (`pendingShip`). Otherwise someone who
    *      skipped the raid · someone at level 1 gets 「레벨이 올랐습니다」.
    *   ③ build — the rule from 2026-09-08 unchanged: only with **an untouched ship** (`shipUntouched`).
+   *   ④ raid2 (2026-09-18) — only **the one time 「증축 안내」 was just run to the end** (`pendingRaid2`).
    */
   private autoStart(): void {
     this.autoStartOnClose = false;
@@ -1088,7 +1095,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   private objectiveCounts(): Readonly<Record<string, number>> {
     const step = this.step;
     if (step !== 'shoot' && step !== 'crouchAim' && step !== 'raid') return EMPTY_COUNTS;
-    // 2026-09-17: 「증축 안내」's last raid counts the loot value carried, not the kills
+    // 2026-09-17: 「출격 안내」's raid counts the loot value carried, not the kills
     const at = step === 'raid' ? this.raidValue : this.kills;
     const out: Record<string, number> = {};
     for (const o of this.objectivesFor(stepDef(step))) {
@@ -1283,17 +1290,15 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   }
 
   /**
-   * The bag window opened. In the `openBag` step, opening **with no craft column** is the end of that step (save
-   * recovery · the whole window closed and reopened with Tab). Why it is deferred by one frame: `openBenchCraft`
-   * emits `inventory:opened` first and sends `ui:craftToggled {open:true}` **after** it, so reading it right here
-   * would wrongly advance this step every time a workbench is opened.
+   * The bag window opened. It writes `equipGun`'s 「{INVENTORY} 인벤토리 열기」 row and asks once more whether the whole
+   * step is moot (an assault rifle already equipped · both primary slots full). 2026-09-17: the old `openBag` step —
+   * 「open the bag with no craft column up」 — became `craftGun`'s last row 「제작창 닫기」, watched by `onCraftPanel` ·
+   * `pollBuild`, so nothing here reads `craftOpen` any more.
    */
   private onInventoryOpened(): void {
     // 2026-09-18 (user report — 「it still says to equip although it is equipped」): whether anything is left is
     //   asked again **at the moment the window opens** too
     if (this.equipGunSkipIfMoot()) return;
-    // 2026-09-17: `openBag` became `craftGun`'s last row (close the craft window) — the close is watched by
-    //   `onCraftPanel` · `pollBuild`
     this.markIf('equipGun', 'equipOpen');
   }
 
@@ -1416,12 +1421,11 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   }
 
   /**
-   * The craft column opened or closed (both the bench path and the bag button path). The close is `openBag`'s
-   * signal.
+   * The craft column opened or closed (both the bench path and the bag button path).
    *
-   * 2026-09-14 3rd pass — two objective rows hang here: `craftGun`'s 「총기 작업대 작동」 (the open) and `equipGun`'s
-   * 「제작 창을 닫는다」 (the close — only then do the equipment slots come back). The spotlight splits on this
-   * state too.
+   * Two of `craftGun`'s objective rows hang here (2026-09-14 3rd pass; regrouped 2026-09-17): 「총기 작업대 작동」 (the
+   * open) and the step's last row 「제작창 닫기」 (the close — only then do the equipment slots come back, which is why
+   * the old `openBag` step was folded into it). The `equipGun` spotlight splits on this state too.
    */
   private onCraftPanel(open: boolean): void {
     const changed = open !== this.craftOpen;
@@ -1566,8 +1570,8 @@ export class TutorialSystem implements GameSystem, TutorialRef {
   }
 
   /**
-   * The current step's objective rows (a place that swaps the wording, like `benchPlace`, is handed over by
-   * `refreshVisuals`).
+   * The current step's objective rows. The only row list that differs from the table is `manage`'s (`manageNoGen`);
+   * swapping the **wording · focus** of a row is `stepView`'s job, called from `refreshVisuals`.
    */
   private objectivesFor(def: StepDef): readonly TutorialObjective[] {
     /* 2026-09-17: the 「발전기 가동」 row only stands in a ship whose generator is still Lv.0 — a new ship is Lv.1
@@ -1642,8 +1646,7 @@ export class TutorialSystem implements GameSystem, TutorialRef {
       this.grantMaterials();
       this.ensureMaterials(this.done.has('craftGunMade') ? TUTORIAL_AMMO_RECIPE : TUTORIAL_GUN_RECIPE, step);
     }
-    // 「증축 안내」's last raid (2026-09-17) — the value is counted from zero again and the control guide starts
-    //   unfolded
+    // 「출격 안내」's raid (2026-09-17) — the value is counted from zero again and the control guide starts unfolded
     if (step === 'raid' && changed) {
       this.raidValue = 0; this.raidValueTick = 0; this.liftoffValue = -1;
       this.controlsFolded = false; this.controls.setFolded(false, CONTROLS_FOLDED_TEXT);
