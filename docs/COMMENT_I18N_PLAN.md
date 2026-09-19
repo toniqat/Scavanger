@@ -78,7 +78,7 @@ so its rows are grouped into one line instead of listed file by file:
 | `hub/ui/IntelMenu.ts:280` | a verbatim user bug report (`보레아스 IX · 베르단트 III 에서 현상 수배가 잠긴다`) |
 | `hub/LaunchPod.ts:25` · `hub/ui/ReadyPanel.ts:29` | the pod tag / ready-cell state strings (`준비 완료` · `대기 중` · `연결 끊김` …) |
 | `tutorial/model.ts:626` | the three stance label sets, drawn as the control guide swaps them (`C 앉기` · `Z 포복` · `C 일어서기`) |
-| `tutorial/ui/Panel.ts:14-15` | the objective panel's ASCII diagram, drawn with real objective rows (`갈라진 땅까지 걸어간다`, `(선택) 수류탄으로 …`) |
+| `tutorial/ui/Panel.ts:14-15` | the objective panel's ASCII diagram, drawn with real objective rows (`앞으로 이동`, `(선택) 시체에서 수류탄 획득`). Until 2026-09-19 it drew two rows that had **never existed** (`갈라진 땅까지 걸어간다`, `(선택) 수류탄으로 …`) — the diagram is prose, so nothing checked it; B-46 did |
 | `tutorial/TutorialSystem.ts:1430` · `:1772` · `:1814` | an objective row (`제작창 닫기`), a toast (`레벨이 올랐습니다`) and the stance labels (`앉기` ↔ `일어서기`) |
 | `player/PlayerSystem.ts:413` | the verbatim user decision the scene lock's `allowDamage` option was built from (`처치하지 않은 안드로이드의 사격을 맞은 채 출발한다 · 죽지 않는다`) |
 | `player/RemoteAvatar.ts:611` | a verbatim user decision (`마지막 함선을 탔을 때 PC 가 함선 내부에 실루엣으로 보이지 않도록`) |
@@ -211,8 +211,8 @@ Per folder:
    Rule 2 keeps a Korean label in a comment for exactly one reason: the reader must be able to grep it against the
    real string. Re-typing one syllable wrong destroys that, and **nothing else sees it** — not `tsc`, not a smoke, not
    step 4 (which strips comments before comparing). The `src/tutorial` pass mistyped `틈` as `턈` inside a quoted step
-   title, and the earlier `src/shared` pass shipped the same class of error, still live: `shared/tutorial.ts:72` says
-   「앉아서 낮은 **픹**을 지나세요」 where the real title is 「… **틈**을 지나세요」 (filed as `docs/TODO.md` B-46).
+   title, and the earlier `src/shared` pass shipped the same class of error: `shared/tutorial.ts:72` said
+   「앉아서 낮은 **픹**을 지나세요」 where the real title is 「… **틈**을 지나세요」 (fixed 2026-09-19 with `docs/TODO.md` B-46).
 
    The check is one line of reasoning: **every Korean run left in a changed file must appear verbatim in that file at
    HEAD.** Translating only ever *removes* Korean, so a run that is not in the old text is one you typed. Save as
@@ -240,6 +240,14 @@ Per folder:
    **Anything but `runs not found in HEAD: 0` is a label you re-typed.** Its false positives are benign and rare: a
    Korean run you legitimately *split* across a re-wrap, or one you newly quoted from a neighbouring file — read those
    two kinds and move on.
+
+   **4b is diff-scoped by design; the tree-wide sweep is a script.** 4b only sees what this pass changed, so a label
+   a *previous* pass re-typed stays invisible to it forever. `node scripts/check-comment-labels.mjs --head` is the
+   other half (added 2026-09-19 with B-46): it reads every Korean phrase quoted in a comment across the whole tree and
+   reports the ones that are **within two edits of a live string but do not match it** — exactly the shape of a
+   re-typed label, while prose that merely happens to be quoted has no near neighbour and stays quiet. It is advisory
+   (exit 0) because its list still holds templates (`크레딧 n C`) and deliberate historical names, so it is read,
+   not gated. Run it once when a folder leaves the queue.
 
 5. **Verify** (§4), then **commit** (§6).
 
@@ -734,7 +742,7 @@ gloss beside it (`` `운반` hauling (strength) ``, `` `인내` (grit) ``). A st
 | 획득 티커 | the **item-gained ticker** — already the wording `ui/hud/Notifications.ts` uses for the same `inventory:itemAdded` line, not a new noun | `inventory/parts/Crafting.ts` |
 | 무한 상자 | **the infinite box** as a concept; the on-screen title `무한 상자` and the literal `'CHEAT · INFINITE CRATE'` stay untouched. The `/items` panel itself is **the catalog** (`CatalogView`) — kept apart from the library's **catalogue** (`도감`) | `inventory/parts/Catalog.ts`, `ui/CatalogView.ts` |
 | 넷 중 하나만 (주머니) | one of the **four** pouches in `data/items.csv` (`pouch_gather` · `pouch_key` · `pouch_medical` · `pouch_valuable`) — `POUCH_SLOTS` is 1, so the "four" is the item count, not a slot count | `inventory/parts/Pouch.ts` |
-| 망가진 짝 | **broken twin** — the folder's pre-existing English. CLAUDE.md §4.6 says *broken pairs* for the same thing; one of the two should win the next time either is touched | `inventory/parts/CorpseLoot.ts` |
+| 망가진 짝 | **broken pair** — settled 2026-09-19 (B-50, user's decision): CLAUDE.md §4.6 · `shared/types.ts` won, and the nine *broken twin* spots in `inventory` · `items` · `progression` · `shared` were renamed | `inventory/parts/CorpseLoot.ts` |
 | 가구 창고 · 조종석 vs furniture storage · cockpit | **both, on purpose** — Korean when the prose names the on-screen tab or room label, English when it names the concept. Exactly the split the folder already runs for `함선 창고` vs *the stash*; do not sed one into the other | `housing` (folder-wide) |
 | 받침 · 상판 · 뒷판 · 옆판 | **base** (stand for the TV's panel) · **top plate** · **back panel** · **side plate** (§7, `world/structures`) | `hub/interiors/FurnitureLeisure.ts` |
 | 진열장 · 매대 · 진열 턱 · 표찰 | **display cabinet** · **display unit** · **display lip** · **tag** (the 꼬리표 word) | `hub/interiors/FurnitureLeisure.ts` |

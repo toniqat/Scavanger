@@ -11,6 +11,7 @@ each script's header comment — read it before editing a smoke.
 | `verify.mjs` | **Verification runner** — `npm run verify` (smokes mapped to changed folders) / `npm run verify:all`. Runs typecheck (client + server) · `net:selftest` · `data:check` in parallel, starts vite 5273 + relay 8787 when needed, runs smokes on GPU lanes, `e2e-mp` alone last, writes `scripts/logs/last-run.json` and a `docs line:` for the commit's `검증:` line. `src/core` · `main.ts` · `package.json` select everything, `src/shared` only when the change is wide (see the options below); `EXTRA_PATHS` maps `docs/pitch/` and `electron/` |
 | `data-check.mjs` | `npm run data:check` — loads `data/*.csv` through the game's own loaders in headless vite and prints `dataIssues()` as `data/file:line [col] — reason`; runs the salvage-economy check; `-- --write` regenerates `server/economy.gen.json` |
 | `check-css-prefixes.mjs` | **One prefix, one folder** (CLAUDE.md §4.1) — declares = the first class of a selector's first compound, so scoping into another folder's class (`.item-tip .itip-head`) passes and a global `.it-head` does not. `SHARED` in the file lists the shared frames (`.ui-` · `.is-` · `.inv-` …) and the three documented cross-folder overrides. No browser, no vite; `verify` runs it beside typecheck |
+| `check-comment-labels.mjs` | **A Korean label quoted in an English comment must be the real string** (CLAUDE.md §4.1; `docs/TODO.md` B-46) — every phrase a comment quotes in 「」 or backticks is looked up outside comments, and one that is *within two edits* of a live string but does not match it is printed as a probable re-typed label. Nothing else sees this class: `tsc` passes, every smoke passes, and a comment-only diff proves nothing. `--head` reads HEAD (what an audit reads), `--all` also lists phrases with no live match at all. **Advisory (always exit 0)** — its list still holds templates (`크레딧 n C`) and deliberate historical names, so it is read, not gated; `verify` does not run it |
 | `data-owners.mjs` | Which modules load / consume each csv (`DATA_OWNERS`, `CSV_FOLDERS`, `CSV_WIDE`) — shared by `data-check` and `verify` |
 | `economy-table.mjs` | Builds, checks and staleness-tests `server/economy.gen.json` (item values, contract/quest rewards, price multipliers, repair, crypto, intel) |
 | `check-planet-loot.mjs` | Manual: per-planet weapon-grade and rarity drop tables from `data/planet_loot.csv`, rolled through the real loot code |
@@ -155,6 +156,13 @@ Things today's smokes deliberately do not measure. Each is here so the next read
   cover — the run prints `29/30` with 16–20 shots fired and `hp 213 → 213`. The two halves of the assertion have to be
   measured against the **same** enemy (assert on `rover:fired`'s target, or pin `ts.targetId`), or the check has to
   clear the area first. See `docs/TODO.md` B-22.
+
+- **A wait must accept the end of the run as a terminating condition (fixed 2026-09-19, TODO B-31).** `smoke-phase3`'s
+  laser step waited only for `stratagem:ended`. If the raid ended first — at `timeScale 4` a surviving bug can kill the
+  player — the call list is emptied and that event can never arrive, so the step sat for its full 60 s and then reported
+  `timeout waiting for laser ended`: a failure about the laser that had nothing to do with the laser. A wait that can be
+  outlived by its own subject needs the second exit (`!ctx.isGameplayActive()`) and an assertion that names which of the
+  two happened. Same shape as B-22: an assertion has to pin down what it measures.
 
 - **A smoke that builds its own event payload can hide a contract bug (found 2026-09-19, TODO B-61).** `smoke-allies-orders`
   emitted its crate ping as `ping:placedV3 {label: <container id>}`, so the android latched on and the step was green for

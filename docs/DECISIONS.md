@@ -922,3 +922,40 @@ except `docs/TODO.md`), **what a person reads is Korean**.
   the repo would not get it); leaving it implicit because replies happen to be Korean already.
 - `docs/*.md` stays English — **not** rolled back to Korean. `DECISIONS.md` and `HISTORY.md` are read by an AI far more
   often than by a person; the summary in chat is where the person gets the Korean.
+
+## 2026-09-19 — 주석 감사 묶음 · Comment audit batch (B-27…B-58)
+
+Thirty-two TODO rows the English comment migration had surfaced across eight folders, run as eight parallel agents
+with the lead owning `src/shared` · `data/` · `scripts/`. Only the questions that were a real choice are here;
+everything else was prose brought back in line with code that already existed.
+
+- **The audit is taken all the way, not just the comments.** Stale prose, dead code and the behaviour bugs the same
+  pass had found are one batch. Rejected: comments only (the bugs would have stayed filed for another cycle);
+  comments plus dead code (the same, one step later). Where a finding turned out to be an **intended limit** it is
+  not deleted — it goes in the owning folder's `README.md` under `## Known limits` (grow-station tier locks, the
+  hub's coordinate-keeping `repairBench()` · `Parts.workbench`, `TradeGridsOptions.layout`, the crafting skill gate).
+- **`broken pair`, not `broken twin`.** The same thing had two names; `broken twin` was the majority (nine spots in
+  `inventory` · `items` · `progression` · `shared`) but `CLAUDE.md` §4.6 · `shared/types.ts` · `game/README.md` said
+  `broken pair`, and the rule document wins. The nine were renamed. Rejected: renaming the three instead (cheaper,
+  but it makes the rule document follow the code rather than the other way round); leaving both and filing it again.
+- **The intel note names whichever action is on screen.** With intel already held `정보 구매` is hidden, so the old
+  single line explained a button nobody could see. There are now two: `분대장만 정보를 살 수 있습니다` and
+  `분대장만 지역을 재배치할 수 있습니다`. Rejected: hiding the note with the button (then nothing says why
+  `지역 재배치` is greyed out); keeping one line that is false half the time.
+- **A game disc's minigame name moved into the contract.** `GAME_MINIGAME_LABEL_KO` · `gameMinigameLabel` are in
+  `src/shared/housing.ts` now, because housing's screens and ui's item tooltip both print them and a folder may not
+  read another folder's internals (§4.1). The tooltip had been printing the **gym equipment** name
+  (`호흡 달리기`) and the library catalogue a third spelling of its own; all three now say `호흡형`.
+- **The stirfry score divides by beats offered, not by clicks judged.** One perfect click followed by doing nothing
+  until `maxTime` used to score 1.0. It is the same rule `chop` and `grill` already follow, and it makes stirfry
+  harder: an empty beat now costs. Rejected: dividing by the number of perfect clicks needed (`ceil(1/FILL_PERFECT)`)
+  — an all-good run then clamps to 0.96 and good stops being distinguishable from perfect. Per §4.2 the judging
+  windows were not touched; if it plays too tight, `COOK_STIRFRY_BEAT_S` is the dial.
+- **A smoke's wait takes the end of the run as a second exit.** `smoke-phase3`'s laser step could be outlived by its
+  own raid, and reported a 60 s timeout that said nothing about the laser. Recorded in `scripts/README.md` as the
+  general shape, with B-22.
+- **The retyped-label check became a script.** `scripts/check-comment-labels.mjs` reads the whole tree, not just this
+  pass's diff, and is **advisory** (exit 0, not run by `verify`) because its near-miss list legitimately holds
+  templates and historical names. Rejected: gating `verify` on it (unrunnable until every template is reworded);
+  leaving it as the scratchpad one-off `docs/COMMENT_I18N_PLAN.md` §3 step 4b describes — that one only ever sees
+  the current diff, so a label an earlier pass retyped stays invisible forever.

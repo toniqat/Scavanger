@@ -261,15 +261,33 @@ try {
   });
   await waitSim(2);
   await P(() => { const s = window.__game.getSystem('stratagems'); s.debugCooldownReset?.(); });
+  // B-31 (2026-09-19): the raid ending is a **second terminating condition**, not a timeout. While `timeScale 4`
+  // runs tens of seconds, anything that ends the raid (a bug that survived the clearing above bites the player to
+  // death) empties the call list, so `stratagem:ended` can never arrive — the old wait then sat here for its full
+  // 60 s and reported 「laser ended」, a failure that says nothing about the laser. The wait now returns which of
+  // the two happened and the assertion names the real cause. Same family as B-22: an assertion has to pin down
+  // what it measures.
+  const raidState = () => { const ctx = window.__game.ctx, p = ctx.player; return { phase: ctx.phase, dead: p.isDead, downed: p.isDowned, active: ctx.isGameplayActive() }; };
+  const beforeLaser = await P(raidState);
+  ok(beforeLaser.active, 'the raid is still running when the laser section starts', JSON.stringify(beforeLaser));
   await P((t) => { const s = window.__game.getSystem('stratagems'); const V = window.__game.ctx.player.position.constructor; s.debugCall('orbital_laser', new V(t[0], t[1], t[2])); }, target);
   await P(() => { window.__game.ctx.timeScale = 4; });
   await waitFor(page, () => window.__ev['stratagem:landed'].some((e) => e.kind === 'orbital_laser'), 'laser ignited', 240000);
   const laserActive = await P(() => window.__game.getSystem('stratagems').getCalls().some((c) => c.kind === 'orbital_laser' && c.stage === 'active'));
   ok(laserActive, 'laser call is active after landing');
-  await waitFor(page, () => window.__ev['stratagem:ended'].some((e) => e.kind === 'orbital_laser'), 'laser ended', 60000)
-    .catch(async (e) => { console.log('  state:', JSON.stringify(await P(() => { const ctx = window.__game.ctx, p = ctx.player; return { phase: ctx.phase, dead: p.isDead, downed: p.isDowned, active: ctx.isGameplayActive(), calls: window.__game.getSystem('stratagems').getCalls().map((c) => `${c.kind}:${c.stage}`) }; }))); throw e; });
+  const laserEnd = await waitFor(page, () => {
+    if (window.__ev['stratagem:ended'].some((e) => e.kind === 'orbital_laser')) return { ended: true };
+    const ctx = window.__game.ctx, p = ctx.player;
+    // The raid left gameplay (death / extraction / abort) — the call list is gone, so the event can never arrive.
+    if (!ctx.isGameplayActive()) return { ended: false, phase: ctx.phase, dead: p.isDead, downed: p.isDowned, calls: window.__game.getSystem('stratagems').getCalls().map((c) => `${c.kind}:${c.stage}`) };
+    // Clearing once is not enough: threat 0 still lets mid-raid patrols walk in, and 60 s of wall clock is
+    // minutes of sim at `timeScale 4`. Sweeping and topping up on **every** poll keeps what this step measures
+    // down to the laser's own duration — the exit above stays for the case the raid still ends first.
+    try { ctx.enemies.applyExplosion(p.position, 120, 99999); if (p.hp < p.maxHp) p.applyStim(p.maxHp); } catch { /* best effort */ }
+    return null;
+  }, 'the laser to end or the raid to end', 60000);
   await P(() => { window.__game.ctx.timeScale = 1; });
-  ok(true, 'laser ends after its duration');
+  ok(laserEnd.ended, 'laser ends after its duration', laserEnd.ended ? '' : `the raid ended first, so the call list was emptied — ${JSON.stringify(laserEnd)}`);
 
   console.log('hud');
   const hud = await P(() => ({
